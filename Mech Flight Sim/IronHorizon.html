@@ -11114,6 +11114,7 @@ const Seats = {
     if (i >= 0) W.platforms.splice(i, 1);
     for (const pr of Net.peers) if (pr.known) pr.known.delete(human.id);   // guests drop it; it is sent again when it steps out
     this.bind(v, human, peer);
+    this.tellDriver(v);
     notify(v, 'ENTERED ' + v.def.name.toUpperCase(), 'ok');
     return true;
   },
@@ -11153,7 +11154,8 @@ const Seats = {
   },
   makeHuman(v, peer) {
     const def = this.footDef(peer);
-    const lo = peer ? (peer.pid === def.id && peer.loadout ? peer.loadout : def.loadout) : Loadout.forPlatform(def.id);
+    // a guest's: the platform it picked when that is a human, else its On foot loadout from the lobby (footLo)
+    const lo = peer ? (peer.pid === def.id && peer.loadout ? peer.loadout : peer.footLo || def.loadout) : Loadout.forPlatform(def.id);
     return new Platform(def, { team: v.team, x: v.x, z: v.z, yaw: v.yaw, loadout: Object.assign({}, lo), name: v.name, ammoMult: W.mods && W.mods.scarce ? SCARCE_AMMO : 1 });
   },
   /* hand a player's control from body old to q (peer: a co-op guest, told with 'ctl'; else the local player) */
@@ -11181,6 +11183,11 @@ const Seats = {
     v.shieldOn = false; v.crouch = false; v.boosting = false; v.vx = v.vz = 0; v.speed = 0;
     v.meleeWind = 0; v.meleeStep = 0; v.meleeT = 0;
     if (v.kind === 'air') { v.throttle = 0; c.throttleSet = 0; v.afterburner = false; }
+    this.tellDriver(v);
+  },
+  /* co-op guests learn who drives v now (its name and whether a player is in it): its 'sp' went out only once */
+  tellDriver(v) {
+    if (Net.host && Net.inSession) Net.bcast({ t: 'drv', id: v.id, pl: v.parked ? 0 : 1, name: v.name });
   },
   /* an aircraft standing on the ground, gear down and engines idle */
   groundAir(p) {
@@ -22990,8 +22997,10 @@ const SelfTest = {
         const mech = new Platform(PLATFORMS.bulwark, { team: 0, x: sp.x, z: sp.z, yaw: 0, loadout: Loadout.forPlatform('bulwark'), name: 'Ally' });
         mech.isPlayer = true; mech.netPeer = peer; peer.p = mech; W.platforms.push(mech);
         Net.sendSnapshots();
+        sent.length = 0;
         peer.edges = NET_USE_HOLD; Net.applyCmd(peer);
         const human = peer.p;
+        this.check('guests are told a parked vehicle has no driver and its own name', sent.some((m) => m.t === 'drv' && m.id === mech.id && m.pl === 0 && m.name === mech.def.name));
         this.check('a guest\'s held Use steps out on the host, as the guest\'s On foot choice', human !== mech && human.def === PLATFORMS.civilian && human.netPeer === peer && mech.parked && !mech.netPeer && W.platforms.indexOf(human) >= 0);
         this.check('the host tells the guest its new body with ctl', sent.some((m) => m.t === 'ctl' && m.pid === human.id));
         sent.length = 0; Net.sendSnapshots();
@@ -23004,6 +23013,25 @@ const SelfTest = {
         sent.length = 0;
         peer.edges = NET_USE_TAP; Net.applyCmd(peer);
         this.check('a guest\'s tap gets back in, and the host says so', peer.p === mech && mech.netPeer === peer && !mech.parked && W.platforms.indexOf(human) < 0 && sent.some((m) => m.t === 'ctl' && m.pid === mech.id) && !peer.known.has(human.id));
+        this.check('and tells the guests who drives it now', sent.some((m) => m.t === 'drv' && m.id === mech.id && m.pl === 1 && m.name === 'Ally'));
+        // the On foot loadout: a guest sends it in the lobby, the host keeps it only when valid, and a guest steps out with it
+        const blade = Object.assign({}, Loadout.forPlatform('ranger'), { melee: 'katana' }), wrong = Object.assign({}, blade, { primaryA: Loadout.forPlatform('bulwark').primaryA });
+        const lobby = (footLo) => {
+          Net.inSession = false;
+          Net.hostMsg(peer, { t: 'lobby', pid: 'bulwark', lo: Loadout.forPlatform('bulwark'), ready: true, foot: 'infantry', footLo });
+          Net.inSession = true;
+          return peer.footLo;
+        };
+        const kept = lobby(blade), dropped = lobby(wrong), none = lobby(undefined);
+        lobby(blade);
+        const soldier = Seats.makeHuman(mech, peer);
+        this.check('the host keeps a guest\'s valid On foot loadout, drops one that is not, and the guest steps out with it', !!kept && kept.melee === 'katana' && !dropped && !none && soldier.def === PLATFORMS.ranger && soldier.meleeW === MELEE.katana && Loadout.validate(PLATFORMS.ranger, wrong).ok === false);
+        const keepHost = Net.hostPeer, keepFoot = S.onFoot, lobbySent = [];
+        Net.hostPeer = { tx: (s) => lobbySent.push(JSON.parse(s)) }; S.onFoot = 'infantry';
+        try { Net.sendLobbyState(false); } finally { Net.hostPeer = keepHost; S.onFoot = keepFoot; }
+        const ls = lobbySent[0];
+        this.check('a guest sends its On foot loadout in the lobby', !!ls && ls.t === 'lobby' && JSON.stringify(ls.footLo) === JSON.stringify(Loadout.forPlatform(ON_FOOT.infantry)));
+        peer.foot = 'civilian'; peer.footLo = null;
         // the guest side: it builds what the host sends and follows ctl
         const msgSp = (p, self) => ({ t: 'sp', id: p.id, d: p.def.id, team: 0, name: p.name, arch: '', lo: p.loadout, x: r1(p.x), y: r1(p.y), z: r1(p.z), yaw: 0, self, pl: 1, sc: 1, driver: p.parked ? 0 : 1 });
         const hostMech = mech, hostHuman = human;
@@ -23017,6 +23045,10 @@ const SelfTest = {
         Net.applySpawn(spMech); Net.applySpawn(spHuman);
         const gMech = Net.map[hostMech.id], gHuman = Net.map[hostHuman.id];
         this.check('a guest builds a parked platform from driver 0 and takes its own body from self', !!gMech && gMech.parked && W.player === gHuman && gHuman.controller === PC);
+        Net.applyDriver({ t: 'drv', id: hostMech.id, pl: 1, name: 'Ally' });
+        const driven = !gMech.parked && gMech.isPlayer && gMech.name === 'Ally';
+        Net.applyDriver({ t: 'drv', id: hostMech.id, pl: 0, name: 'Bulwark' });
+        this.check('drv tells a guest who drives a vehicle and its name, and that it stands parked again', driven && gMech.parked && !gMech.isPlayer && gMech.name === 'Bulwark');
         Seats.tap(gHuman); const tapBits = Net.pendEdge; Net.pendEdge = 0;
         Seats.hold(gHuman); const holdBits = Net.pendEdge; Net.pendEdge = 0;
         this.check('a guest only asks: Use goes to the host as tap and hold bits', tapBits === NET_USE_TAP && holdBits === NET_USE_HOLD && W.player === gHuman && gMech.parked);
@@ -23381,7 +23413,7 @@ UI.scr_selftest = function (r) {
    Message transport is a per-peer tx() function, so tests can loop back.
    ===================================================================== */
 const SNAP_PLATS = 44;    // platforms per snapshot (message size)
-const NET_VERSION = 7;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee)
+const NET_VERSION = 7;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv')
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -23404,7 +23436,7 @@ const Net = {
     const p = {
       id: this.nextPeerId++, name: 'Pilot', pid: 'bulwark', loadout: null, ready: false, open: false, hello: false, rel: null, unr: null, pc: null,
       lastRecv: this.t, known: new Set(), p: null, lives: 3, respawnT: 0, deathHandled: false, protectT: 0, inp: null, edges: 0, lastInT: -1,
-      code: '', replyText: '', slot: 0, stats: null, resupplies: 0, foot: 'infantry',
+      code: '', replyText: '', slot: 0, stats: null, resupplies: 0, foot: 'infantry', footLo: null,
     };
     p.tx = (str, reliable) => { const ch = reliable ? p.rel : p.unr; if (ch && ch.readyState === 'open') ch.send(str); };
     return p;
@@ -23516,21 +23548,26 @@ const Net = {
       case 'lobby':
         if (!peer.hello || this.inSession) return;
         if (typeof m.pid === 'string' && PLATFORMS[m.pid] && PLATFORMS[m.pid].playable) peer.pid = m.pid;
-        if (m.lo && typeof m.lo === 'object') {
-          const lo = {};
-          WEAPON_SLOTS.forEach((s) => { lo[s] = typeof m.lo[s] === 'string' && WEAPONS[m.lo[s]] ? m.lo[s] : null; });
-          lo.strategic = typeof m.lo.strategic === 'string' && SUPERS[m.lo.strategic] ? m.lo.strategic : null;   // unlocks are the guest's own
-          if (typeof m.lo.melee === 'string' && MELEE[m.lo.melee]) lo.melee = m.lo.melee;   // the platform keeps it only where it may carry it
-          peer.loadout = lo;
-        }
+        if (m.lo && typeof m.lo === 'object') peer.loadout = this.cleanLoadout(m.lo);
         peer.ready = !!m.ready;
         peer.foot = m.foot === 'civilian' ? 'civilian' : 'infantry';   // who the guest becomes on foot
+        // and with what: its On foot loadout, kept only when valid for that platform (else the platform's own)
+        const footLo = m.footLo && typeof m.footLo === 'object' ? this.cleanLoadout(m.footLo) : null;
+        peer.footLo = footLo && Loadout.validate(PLATFORMS[ON_FOOT[peer.foot]], footLo).ok ? footLo : null;
         this.sendLobby();
         break;
       case 'in': this.hostInput(peer, m); break;
       case 'bye': this.dropPeer(peer, 'left'); break;
       default: break;
     }
+  },
+  /* a loadout from a guest's message, with only known weapons, superweapon and melee weapon */
+  cleanLoadout(raw) {
+    const lo = {};
+    WEAPON_SLOTS.forEach((s) => { lo[s] = typeof raw[s] === 'string' && WEAPONS[raw[s]] ? raw[s] : null; });
+    lo.strategic = typeof raw.strategic === 'string' && SUPERS[raw.strategic] ? raw.strategic : null;   // unlocks are the guest's own
+    if (typeof raw.melee === 'string' && MELEE[raw.melee]) lo.melee = raw.melee;   // the platform keeps it only where it may carry it
+    return lo;
   },
   guestMsg(peer, m) {
     const live = ['welcome', 'kick', 'lobby', 'start', 'p'];
@@ -23544,6 +23581,7 @@ const Net = {
       case 'hz': if (W) Hazards.apply(m); break;
       case 'sp': this.applySpawn(m); break;
       case 'ctl': if (W) this.applyCtl(m); break;
+      case 'drv': if (W) this.applyDriver(m); break;
       case 'ob': this.applyObjectives(m); break;
       case 'st': this.applyStructs(m); break;
       case 'x': if (W) explode(numIn(m.x, -3000, 3000), numIn(m.y, -500, 3000), numIn(m.z, -3000, 3000), numIn(m.r, 1, 40, 4), 0, 'explosive', null); break;
@@ -23577,7 +23615,7 @@ const Net = {
   sendLobbyState(ready) {
     if (!this.hostPeer) return;
     const pid = Save.data.platformId;
-    this.send(this.hostPeer, { t: 'lobby', pid, lo: Loadout.forPlatform(pid), ready: !!this.myReady, foot: S.onFoot });
+    this.send(this.hostPeer, { t: 'lobby', pid, lo: Loadout.forPlatform(pid), ready: !!this.myReady, foot: S.onFoot, footLo: Loadout.forPlatform(ON_FOOT[S.onFoot]) });
   },
   toggleReady() { this.myReady = !this.myReady; this.sendLobbyState(); this.changed(); },
   dropPeer(peer, why) {
@@ -23846,6 +23884,13 @@ const Net = {
     this.map[m.id] = p;
     W.platforms.push(p);
     if (m.self || (this.pendCtl && m.id === this.pendCtl)) this.bindLocal(p);
+  },
+  /* a vehicle was parked or entered: whether a player drives it and its name (our own body keeps YOU) */
+  applyDriver(m) {
+    const p = this.map[m.id | 0];
+    if (!p) return;
+    p.parked = !m.pl; p.isPlayer = !!m.pl;
+    if (p !== W.player) p.name = String(m.name || p.def.name).substring(0, 16);
   },
   /* the host moved our control to another body (we entered, stepped out or ejected) */
   applyCtl(m) {
