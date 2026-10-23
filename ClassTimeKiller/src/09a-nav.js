@@ -15,10 +15,10 @@
 const NAV_FINE = 0.5;                  // raster spacing (m): fine enough that a 1.6 m doorway always holds a standable column
 const NAV_RASTER_BLOCK = 8;            // raster columns that share one brush gather
 const NAV_CELL_SAMPLES = 4;            // raster columns per node cell side (one node per 2 m cell and surface)
-const NAV_RADIUS = 0.4;                // DATA-003 capsule radius, heights, step and slope
-const NAV_STAND_HEIGHT = 1.8;
+const NAV_RADIUS = ACTOR_RADIUS;       // DATA-003 capsule radius, heights, step and slope (the body sizes of 01-core)
+const NAV_STAND_HEIGHT = STAND_HEIGHT;
 const NAV_CROUCH_HEIGHT = 1.1;
-const NAV_STEP = 0.45;
+const NAV_STEP = STEP_HEIGHT;
 const NAV_MAX_SLOPE = 45 * DEG;
 const NAV_MIN_FLOOR_NORMAL = Math.cos(NAV_MAX_SLOPE) - 1e-4;
 const NAV_OPEN_RADIUS = 0.6;           // a walk passing only samples with this much free space around them needs no line test:
