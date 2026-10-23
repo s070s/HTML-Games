@@ -43,7 +43,6 @@ function pveStart(options) {
   PVE_HUD.active = true;
   PVE_HUD.mode = Modes.mode.id;
   if (settings.lives) applyDifficultyLives();
-  pveHunted.length = 0;
   PveLevel.begin(World.map);
   if (settings.coop) takeEnemySpawns();
 }
@@ -979,6 +978,7 @@ function resetPveModes() {
   resetPveHud();
   Pve.sideTeam = null;
   Pve.sideHunt = null;
+  pveHunted.length = 0;   // no marker outlives its match (17d draws whatever is listed)
   PveLevel.reset();
 }
 Modes.hud.pve = PVE_HUD;

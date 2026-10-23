@@ -1172,6 +1172,18 @@ Test.add('pve', (check) => withShortShop(() => {
   check('no marker once it is dead', pveHunted.length === 0, pveHunted.length);
   endModeTest();
 }));
+Test.add('pve', (check) => withShortShop(() => {
+  const ids = startPveMode('horde', [0]);
+  godMode(ids);
+  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 20);
+  Pve.queue.count = 0;
+  killAllEnemies(ids[0]);
+  Pve.spawnEnemy('husk', 30, 0, 30, 0, { team: NO_TEAM });
+  runSeconds(0.1);
+  const huntedBefore = pveHunted.length;
+  endModeTest();
+  check('a stopped match leaves no hunted markers behind', huntedBefore === 1 && pveHunted.length === 0, huntedBefore + ' -> ' + pveHunted.length);
+}));
 Test.add('pve', (check) => {
   const dummy = startPveTest(), boss = spawnFacing('overlord', 3);
   hitEnemy(dummy, boss, Actors.maxHealth[boss] * 0.5, 'hit', 'body');
