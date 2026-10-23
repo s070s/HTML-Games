@@ -509,6 +509,17 @@ Test.add('modes2', (check) => {
 
   startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS, items: ROYALE_ITEMS }), [-1, -1]);
   check('royale: loot spots from the weapon, armor, health and ammo items', RoyaleLoot.count === 4 && RoyaleLoot.weapon[0] === CAT.weapons.byId('warden').index);
+  const drawnLoot = () => { propBatch.clear(); drawRoyale(propBatch); return propBatch.counts.reduce((sum, count) => sum + count, 0); };
+  const withGun = drawnLoot();
+  RoyaleLoot.taken[0] = 1;
+  const withoutGun = drawnLoot();
+  RoyaleLoot.taken[0] = 0;
+  const probe = makeShapeInstance();
+  probe.x = RoyaleLoot.x[0]; probe.y = RoyaleLoot.y[0] + LOOT_LIFT; probe.z = RoyaleLoot.z[0];
+  propBatch.clear(); drawWeaponPickup(propBatch, RoyaleLoot.weapon[0], probe, false);
+  const gunParts = propBatch.counts.reduce((sum, count) => sum + count, 0);
+  propBatch.clear();
+  check('royale: a weapon spot draws the weapon model (03q) over a rarity ring, not a box', gunParts > 1 && withGun - withoutGun === gunParts + 1, (withGun - withoutGun) + ' / ' + (gunParts + 1));
   runSeconds(2);
   const rarity = RoyaleLoot.rarity[0];
   Actors.flags[0] |= ACTOR_FLAG.DOWNED; Damage.downedTime[0] = DOWNED_BLEED_SECONDS;
