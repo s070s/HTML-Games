@@ -110,6 +110,7 @@ Bus.on('kill', (event) => HudFeed.add(event));
 const HudBanners = {
   text: new Array(HUD_BANNER_SLOTS).fill(''), kind: new Array(HUD_BANNER_SLOTS).fill(''), priority: new Uint8Array(HUD_BANNER_SLOTS),
   medal: new Uint8Array(HUD_BANNER_SLOTS), at: new Float64Array(HUD_BANNER_SLOTS).fill(-1000), next: 0,
+  free: true, top: 0,   // the last drawn stack: clear of the touch buttons (false: no free place, at the usual top) and its first line's y
 
   reset() { this.at.fill(-1000); this.next = 0; },
   add(text, kind, priority, medal) {
@@ -132,36 +133,64 @@ function hudMedalTitle(medal) {
 Bus.on('announce', (event) => HudBanners.add(event.text, event.kind, event.priority, false));
 Bus.on('medal', (event) => { if (event.id === Game.playerId && event.id >= 0) HudBanners.add(hudMedalTitle(event.medal), 'medal', HUD_BANNER_PRIORITY_LONG, true); });
 
-// The centre line of a text row (half its width either side of the centre) at y or lower, below every shown touch button it
-// would meet (touch-01: on small phones the top row sits where the banners start). Nothing is allocated.
-function hudBelowTouchButtons(layout, y, half, size) {
-  if (!TouchInput.shown) return y;
-  const shade = HUD_SHADOW_OFFSET * Math.max(1, size / 16), reach = hudTextHalf(size) + shade;   // a label's shadow (17a labelAt)
+// ---- Banners and touch buttons (touch-01): the stack of shown banners moves down as one block to the first place where no
+// shown touch button meets a line, while its last line stays above the aim zone (05b TouchInput.aim: never onto the
+// crosshair). With no such place it stays where it always was, translucent buttons over the text: never hidden.
+const HUD_BANNER_STEP = 2;            // px between the places tried
+const HUD_BANNER_OVERHANG = 0.25;     // of the text size: an end glyph's atlas cell reaches past the measured width
+const hudBannerSlot = new Int8Array(HUD_BANNER_SHOWN), hudBannerSize = new Float64Array(HUD_BANNER_SHOWN), hudBannerHalf = new Float64Array(HUD_BANNER_SHOWN);
+// Half the height a label line of a size covers: its atlas cell and its shadow (17a labelAt).
+function hudLabelReach(size) { return hudTextHalf(size) + HUD_SHADOW_OFFSET * Math.max(1, size / 16); }
+function hudBannerLineFree(layout, y, half, size) {
+  const reach = hudLabelReach(size), wide = half + reach - hudTextHalf(size) + size * HUD_BANNER_OVERHANG;
   for (let i = 0; i < TOUCH_CONTROLS.length; i++) {
-    const place = TouchInput.places[TOUCH_CONTROLS[i].id], below = place.y + place.radius + reach;
-    if (!place.shown || below <= y || Math.abs(place.x - layout.centerX) >= half + shade + place.radius || place.y - place.radius >= y + reach) continue;
-    y = below;
-    i = -1;   // look again from the first button: the lower line may meet one already passed (y only grows, so this ends)
+    const place = TouchInput.places[TOUCH_CONTROLS[i].id];
+    if (place.shown && Math.abs(place.x - layout.centerX) < wide + place.radius && Math.abs(place.y - y) < reach + place.radius) return false;
   }
-  return y;
+  return true;
+}
+function hudBannersFreeAt(layout, top, count) {
+  let y = top;
+  for (let i = 0; i < count; i++) {
+    if (!hudBannerLineFree(layout, y, hudBannerHalf[i], hudBannerSize[i])) return false;
+    y += hudBannerSize[i] * 1.35;
+  }
+  return true;
+}
+// The first line's y for count collected banners: the usual top, or lower where the lines are clear of the touch buttons.
+function hudBannersTop(layout, count) {
+  const top = layout.height * 0.22, b = HudBanners;
+  b.free = true;
+  if (!TouchInput.shown || hudBannersFreeAt(layout, top, count)) return top;
+  let height = 0;
+  for (let i = 0; i < count; i++) height += hudBannerSize[i] * 1.35;
+  const lastSize = hudBannerSize[count - 1], lowest = TouchInput.aim.y - TouchInput.aim.radius - hudLabelReach(lastSize) - height + lastSize * 1.35;
+  for (let y = top + HUD_BANNER_STEP; y <= lowest; y += HUD_BANNER_STEP) if (hudBannersFreeAt(layout, y, count)) return y;
+  b.free = false;
+  return top;
 }
 function hudDrawBanners(pen, layout) {
   const b = HudBanners, now = Hud.time, unit = layout.unit;
-  let shown = 0, y = layout.height * 0.22;
-  for (let k = 1; k <= HUD_BANNER_SLOTS && shown < HUD_BANNER_SHOWN; k++) {
-    const slot = (b.next - k + HUD_BANNER_SLOTS) % HUD_BANNER_SLOTS, age = now - b.at[slot], life = b.seconds(slot);
-    if (age >= life) continue;
-    const alpha = Math.min(1, age / 0.15, (life - age) / HUD_BANNER_FADE);
-    const size = (b.medal[slot] ? 30 : b.priority[slot] >= HUD_BANNER_PRIORITY_LONG ? 26 : 20) * unit, width = HudPen.measure(b.text[slot], size);
-    y = hudBelowTouchButtons(layout, y, width / 2 + (b.medal[slot] ? size * 1.4 : 0), size);   // the stars reach 1.4 sizes past the text
-    if (y > layout.height * 0.6) break;   // no free line above there between the touch buttons (a crowded small phone): it waits unseen
+  let count = 0;
+  for (let k = 1; k <= HUD_BANNER_SLOTS && count < HUD_BANNER_SHOWN; k++) {
+    const slot = (b.next - k + HUD_BANNER_SLOTS) % HUD_BANNER_SLOTS;
+    if (now - b.at[slot] >= b.seconds(slot)) continue;
+    const size = (b.medal[slot] ? 30 : b.priority[slot] >= HUD_BANNER_PRIORITY_LONG ? 26 : 20) * unit;
+    hudBannerSlot[count] = slot; hudBannerSize[count] = size;
+    hudBannerHalf[count] = HudPen.measure(b.text[slot], size) / 2 + (b.medal[slot] ? size * 1.4 : 0);   // the stars reach 1.4 sizes past the text
+    count++;
+  }
+  if (count === 0) return;
+  let y = b.top = hudBannersTop(layout, count);
+  for (let i = 0; i < count; i++) {
+    const slot = hudBannerSlot[i], size = hudBannerSize[i], age = now - b.at[slot], life = b.seconds(slot);
+    const alpha = Math.min(1, age / 0.15, (life - age) / HUD_BANNER_FADE), textHalf = hudBannerHalf[i] - (b.medal[slot] ? size * 1.4 : 0);
     if (b.medal[slot]) {
-      pen.label('★', layout.centerX - width / 2 - size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
-      pen.label('★', layout.centerX + width / 2 + size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
+      pen.label('★', layout.centerX - textHalf - size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
+      pen.label('★', layout.centerX + textHalf + size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
     }
     pen.label(b.text[slot], layout.centerX, y, size, b.medal[slot] ? HUD_COLOR.gold : HUD_COLOR.text, 'center', alpha);
     y += size * 1.35;
-    shown++;
   }
 }
 

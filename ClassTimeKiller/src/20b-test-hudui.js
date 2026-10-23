@@ -385,29 +385,40 @@ Test.add('hudui', (check) => {
   TouchInput.currentPreset = savedPreset; Input.device = savedDevice;
 });
 
-// ---- Phones and tablets both ways (touch-01): no shown touch button over a quad the HUD draws for the header (score panel,
-// round pips, control meters, objective chips), the centre banners or the killcam panel, in modes with each header row,
-// with the default places and with every button the layout editor moved to the top or the bottom edge ----
+// ---- Phones and tablets both ways (touch-01), in modes with each header row, at the default places and with every button the
+// layout editor moved to the top or the bottom edge, in play and in the killcam replay:
+// 1. no shown touch button on another; 2. none in the aim zone around the crosshair (TOUCH_AIM_ZONE of the short side);
+// 3. the banners are drawn, clear of the buttons when a free place exists, and a moved stack stays out of the aim zone;
+// 4. no button over a quad the header (score panel, round pips, control meters, objective chips) or the killcam panel draws ----
 const HUD_UI_SCREENS = [[568, 320], [750, 342], [320, 568], [390, 664], [1080, 810], [810, 1080]];   // iPhone SE and 13 both ways, iPad
 const HUD_UI_MODES = ['ffa', 'elim', 'bomb', 'dom', 'control'];   // panel only, pips, pips + chips, chips, pips + meters + chips
-// The [left, top, right, bottom] box of every quad in the HUD batch (hudFloats: x y u v, then the colour, per vertex).
-function hudUiDrawnBoxes() {
-  const stride = HUD_VERTEX_BYTES / 4, corners = [0, 1, 2, 3];
-  return Array.from({ length: HudBatch.quads }, (unused, quad) => {
+const HUD_UI_BANNERS = ['Rook Varga takes the lead', 'Double Kill'];
+const HUD_UI_BANNER_GLYPHS = HUD_UI_BANNERS.join('').replace(/ /g, '').length + 2;   // the letters and the medal's two stars
+// The [left, top, right, bottom] box of every quad in the HUD batch from quad first on (hudFloats: x y u v, then the colour, per vertex).
+function hudUiDrawnBoxes(first) {
+  const stride = HUD_VERTEX_BYTES / 4, corners = [0, 1, 2, 3], boxes = [];
+  for (let quad = first; quad < HudBatch.quads; quad++) {
     const xs = corners.map((i) => hudFloats[(quad * 4 + i) * stride]), ys = corners.map((i) => hudFloats[(quad * 4 + i) * stride + 1]);
-    return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
-  });
-}
-// The first shown control over one of the [left, top, right, bottom] boxes or, at the default places, over another shown
-// control (a button that gave way must not land on the next one), or ''. Touching (half a pixel) is allowed.
-function hudUiTouchOver(boxes, defaults) {
-  for (const control of TOUCH_CONTROLS) {
-    const place = TouchInput.places[control.id], radius = place.radius - 0.5, x = place.x, y = place.y;
-    const hit = boxes.find((box) => x + radius > box[0] && x - radius < box[2] && y + radius > box[1] && y - radius < box[3])
-      || (defaults && TouchInput.spotTaken(control, x, y, radius) && 'a button');
-    if (place.shown && hit) return control.id + ' at ' + hit;
+    boxes.push([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
   }
-  return '';
+  return boxes;
+}
+// A box meets a circle (the nearest point of the box is inside it).
+function hudUiBoxMeetsCircle(box, x, y, radius) { return length2(clamp(x, box[0], box[2]) - x, clamp(y, box[1], box[3]) - y) < radius; }
+// What breaks rules 1, 2 and 4 for the shown buttons and rule 3's clear stack, or ''. Touching (half a pixel) is allowed.
+function hudUiTouchBreak(fixed, banners, width, height) {
+  const places = TouchInput.places, shown = TOUCH_CONTROLS.filter((control) => places[control.id].shown), aimRadius = TOUCH_AIM_ZONE * Math.min(width, height);
+  for (const control of shown) {
+    const place = places[control.id], radius = place.radius - 0.5, x = place.x, y = place.y;
+    const other = shown.find((next) => next !== control && length2(places[next.id].x - x, places[next.id].y - y) < radius + places[next.id].radius - 0.5);
+    if (other) return control.id + ' on ' + other.id;
+    if (length2(x - width / 2, y - height / 2) < aimRadius + radius) return control.id + ' in the aim zone';
+    const over = fixed.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)) || (HudBanners.free && banners.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)));
+    if (over) return control.id + ' over ' + over.map(Math.round);
+  }
+  if (banners.length < HUD_UI_BANNER_GLYPHS) return 'banners hidden';
+  const moved = HudBanners.top > height * 0.22 + 0.5;
+  return moved && banners.some((box) => hudUiBoxMeetsCircle(box, width / 2, height / 2, aimRadius)) ? 'banners moved onto the crosshair' : '';
 }
 // The problems of the running match on one screen size: each preset, default and moved places (-1: none moved), in play and replay.
 function hudUiTouchProblems(width, height) {
@@ -423,12 +434,12 @@ function hudUiTouchProblems(width, height) {
         Killcam.playing = replay;
         TouchInput.placeAll(width, height);
         HudBatch.quads = 0;
-        hudDrawHeader(HudPen, layout); hudDrawBanners(HudPen, layout);
+        hudDrawHeader(HudPen, layout);
         if (replay) hudDrawKillcamPanel(HudPen, layout);
-        // Buttons on buttons: landscape default places (upright phones pause, and their default places already touch). Open:
-        // the mirrored preset on the smallest phone has no free spot near SWAP and CHAT in round modes with long pip rows.
-        const over = hudUiTouchOver(hudUiDrawnBoxes(), moved < 0 && width > height && preset.id !== 'mirrored');
-        if (over) problems.push([width, height, preset.id, moved, replay, over].join(' '));
+        const fixed = hudUiDrawnBoxes(0), first = HudBatch.quads;
+        hudDrawBanners(HudPen, layout);
+        const broken = hudUiTouchBreak(fixed, hudUiDrawnBoxes(first), width, height);
+        if (broken) problems.push([width, height, preset.id, moved, replay, broken].join(' '));
       }
     }
   }
@@ -440,10 +451,10 @@ Test.add('hudui', (check) => hudTestWith(() => {
   try {
     for (const mode of HUD_UI_MODES) {
       Game.start({ mode, map: PlayFlow.smallestMap(mode).id, seed: 1, bots: [{ dummy: true }, { dummy: true }] });
-      HudBanners.add('Rook Varga takes the lead', 'lead', 1, false); HudBanners.add('Double Kill', 'medal', HUD_BANNER_PRIORITY_LONG, true);
+      HudBanners.add(HUD_UI_BANNERS[0], 'lead', 1, false); HudBanners.add(HUD_UI_BANNERS[1], 'medal', HUD_BANNER_PRIORITY_LONG, true);
       Hud.time += 1;   // the banners are fully faded in
       const problems = HUD_UI_SCREENS.flatMap(([width, height]) => hudUiTouchProblems(width, height));
-      check('touch-01: no button over the header, banners or killcam bars in ' + mode, problems.length === 0, problems.slice(0, 4).join('; '));
+      check('touch-01: buttons apart, off the aim zone, the header and the killcam panel, banners shown in ' + mode, problems.length === 0, problems.slice(0, 4).join('; '));
       endModeTest();
     }
   } finally {
