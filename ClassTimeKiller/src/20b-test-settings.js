@@ -375,11 +375,14 @@ Test.add('settings', (check) => {
   check('iPhone and iPad found by one rule (audio and device agree)', apple.join() === 'true/true,true/true,false/false,false/false', apple.join());
 });
 
-// R-008: persistence is asked once, at the first gesture; the Home Screen tip shows once, in an iOS Safari tab.
+// R-008: persistence is asked once, at the first gesture. The Home Screen tip shows once, in an iOS Safari tab, after the
+// first finished match (there is progress to keep) and only on the bare main menu, never over the Welcome dialog or a
+// match; a granted persist() needs no tip. The Home Screen app's first start (its own empty save) offers the import.
 Test.add('settings', (check) => uiWith(() => {
   let asked = 0;
   Object.defineProperty(navigator, 'storage', { value: { persist: () => { asked++; return Promise.resolve(true); } }, configurable: true });
-  const isIos = Device.isIos, standalone = Device.standalone, asked0 = Device.persistAsked;
+  const isIos = Device.isIos, standalone = Device.standalone, asked0 = Device.persistAsked, result0 = Device.persistResult, state = Game.state;
+  const dialogs = () => Ui.stack.filter((entry) => entry.name === 'confirm').length;
   try {
     Device.persistAsked = false;
     Device.armPersist();
@@ -387,12 +390,33 @@ Test.add('settings', (check) => uiWith(() => {
     window.dispatchEvent(new PointerEvent('pointerdown'));
     window.dispatchEvent(new KeyboardEvent('keydown'));
     check('storage: persist asked once, at a gesture', before === 0 && asked === 1, asked);
-    const tip = (ios, homeScreen) => { Device.isIos = () => ios; Device.standalone = () => homeScreen; return Device.homeScreenTip(); };
-    const notThere = !tip(false, false) && !tip(true, true);
-    check('home screen tip: once, iOS Safari tab only', notThere && tip(true, false)
-      && uiClickButton(Ui.top().element, HOME_SCREEN_TIP.yes) && Ui.current() === 'saveTransfer' && !tip(true, false));
+    const device = (ios, homeScreen) => { Device.isIos = () => ios; Device.standalone = () => homeScreen; Device.persistResult = null; };
+    Ui.closeAll(); Ui.open('main');
+    device(true, false);
+    Device.atReady();
+    check('home screen tip: not at the first start (nothing to keep yet)', dialogs() === 0 && !Device.showPendingDialog());
+    Game.state = 'results';
+    device(false, false); Device.homeScreenTip(); device(true, true); Device.homeScreenTip();
+    check('home screen tip: iOS Safari tab only', !Device.pendingDialog && !Save.data.tips.homeScreen);
+    device(true, false); Device.persistResult = true; Device.homeScreenTip();
+    check('home screen tip: not when the browser keeps the save (persist granted)', !Device.pendingDialog);
+    device(true, false);
+    Ui.confirm({ title: 'Welcome', text: '', onYes: () => {} });
+    Device.homeScreenTip();
+    check('home screen tip: waits while a match or another dialog is up', !Device.showPendingDialog() && dialogs() === 1);
+    Game.state = 'menu';
+    check('home screen tip: still waits for the dialog to close', !Device.showPendingDialog() && dialogs() === 1);
+    Ui.back();
+    check('home screen tip: then shows once, on the main menu', Device.showPendingDialog() && dialogs() === 1 && uiClickButton(Ui.top().element, HOME_SCREEN_TIP.yes)
+      && Ui.current() === 'saveTransfer' && (Device.homeScreenTip(), !Device.pendingDialog));
+    Ui.closeAll(); Ui.open('main');
+    Save.data = Save.emptySave();
+    device(true, true);
+    Device.atReady();
+    check('home screen app: a fresh save offers the import', Device.showPendingDialog() && uiClickButton(Ui.top().element, HOME_SCREEN_IMPORT.yes) && Ui.current() === 'saveTransfer');
   } finally {
     delete navigator.storage;
-    Device.isIos = isIos; Device.standalone = standalone; Device.persistAsked = asked0;
+    Device.isIos = isIos; Device.standalone = standalone; Device.persistAsked = asked0; Device.persistResult = result0; Device.pendingDialog = null;
+    Game.state = state;
   }
 }));
