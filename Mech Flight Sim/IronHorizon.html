@@ -17472,14 +17472,29 @@ const SKIRMISH_OWN_FORT = { guns: 4, aa: 2 };   // our base's allied turrets
 const SKIRMISH_GARRISON = { recruit: ['infantry', 'infantry', 'rpgTrooper', 'tank'], veteran: ['infantry', 'infantry', 'rpgTrooper', 'sniper', 'tank'], elite: ['infantry', 'rpgTrooper', 'rpgTrooper', 'sniper', 'tank', 'medMech'] };
 const SKIRMISH_WAVE_CLEAR = 300;         // a wave forms at the enemy gate unless a human is this close to it (then it arrives near the player)
 const SKIRMISH_WAVE_HUNT = 400;          // wave units hunt a human this close, else push on to our command center (m)
+const SKIRMISH_FIELD_TOWNS = 1;   // a home airfield may cost the layout this many towns, only where nothing else has room
 /* Seeded battle layout: our base and the enemy base on roughly opposite sides of the map, a district beside each and a
-   mega-district off the line between them. Bases face each other; the player starts in the yard of ours. */
+   mega-district off the line between them. Bases face each other; the player starts in the yard of ours. The bases and
+   towns are laid round the battlefield's home airfield where that costs none of the towns the battle has without it.
+   Else the layout without it is kept and the airfield takes the ground its towns leave (as a mission's does); only
+   where that leaves no airfield, or a smaller one, does the home airfield win at the cost of at most
+   SKIRMISH_FIELD_TOWNS towns. Both layouts come from the seed alone, so co-op guests build the same. */
 function skirmishLayout(cfg) {
+  const homes = Airports.homes(cfg.map), round = skirmishLayoutWith(cfg, homes);
+  if (!homes.length) return round;
+  const free = skirmishLayoutWith(cfg, []);
+  if (round.lay.cities.length >= free.lay.cities.length) return round;
+  if (!free.fixedPair) free.lay.airport = Airports.find(cfg.map, free.lay, free.sites, null);
+  const size = (a) => (a ? AIRFIELD_KINDS.length - AIRFIELD_KINDS.indexOf(a.kind) : 0);   // airport 2, strip 1, none 0
+  const cheap = round.lay.cities.length + SKIRMISH_FIELD_TOWNS >= free.lay.cities.length;
+  return cheap && size(round.lay.airport) > size(free.lay.airport) ? round : free;
+}
+/* the layout laid round the first of homes (home airfields, best first) that leaves a seeded base pair; none: no airfield */
+function skirmishLayoutWith(cfg, homes) {
   const inField = (p) => Math.abs(p.x) <= SKIRMISH_FIELD && Math.abs(p.z) <= SKIRMISH_FIELD;
   // on a mountain map bases and districts also need gentle ground (maps without mountains keep their old layouts), and
   // they keep clear of the battlefield's airfield (Airports: its levelling never reaches theirs)
   const m = mapDef(cfg.map), relief = Terrain.hasRelief(m);
-  const homes = Airports.homes(cfg.map);
   let field = homes[0] || null;
   const flat = (c, deg) => Scenery.flatFor(cfg.map, c, deg) && (!field || Airports.gap(field, c.x, c.z) >= c.r + SITE_PAD + SITE_FADE);
   const tries = m.water.length ? SKIRMISH_LAYOUT_TRIES_WATER : relief ? SKIRMISH_LAYOUT_TRIES_RELIEF : SKIRMISH_LAYOUT_TRIES;
@@ -17540,7 +17555,7 @@ function skirmishLayout(cfg) {
     if (Scenery.clearSpot(c, sites, null, lay) && flat(c, SITE_MAX_SLOPE)) lay.cities.push(c);
   }
   Scenery.addTowns(cfg.map, lay, sites, null);   // and the battlefield's own towns where they still fit
-  return { lay, start, sites, own: ownBase, foe: foeBase, fallback };
+  return { lay, start, sites, own: ownBase, foe: foeBase, fallback, fixedPair };
 }
 /* A random battle gets a fresh seed on every deployment; otherwise the last battle is replayed. */
 function rollSkirmishSeed(sk) {
@@ -22982,7 +22997,9 @@ const SelfTest = {
         for (const id of ids) {
           let got = 0;
           for (const seed of [1, 2, 3]) {
-            const L = skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: id, seed, random: false })), a = L.lay.airport;
+            const cfg = Object.assign({}, SKIRMISH_DEFAULT, { map: id, seed, random: false }), L = skirmishLayout(cfg), a = L.lay.airport;
+            const free = skirmishLayoutWith(cfg, []).lay.cities.length;
+            if (L.lay.cities.length + SKIRMISH_FIELD_TOWNS < free) bad.push(id + ' ' + seed + ' costs ' + (free - L.lay.cities.length) + ' towns');
             if (!a) continue;
             got++;
             if (id === 'metro' && a.kind === 'airport') airfieldSweep.metroAirports++;
@@ -23013,14 +23030,27 @@ const SelfTest = {
         const bad = airfieldSweep.bad, always = airfieldSweep.always;
         bad.length = always.length = airfieldSweep.metroAirports = 0;
         sweepAirfields(half);
-        this.check('an airfield lies inside the battlefield, clear of the bases, districts and sites, its runway level within 0.5 m and dry (3 seeds per map)', bad.length === 0, bad.slice(0, 4).join('; '));
-        this.check('most battlefields get an airfield in every battle (the island one and the mountain one rarely do)', always.length >= half.length - 2, always.join(','));
-        if (half.indexOf('metro') >= 0) this.check('Megacity Metro gets the big airport in every battle', airfieldSweep.metroAirports === 3);
+        this.check('an airfield lies inside the battlefield, clear of the bases, districts and sites, its runway level within 0.5 m and dry, and costs at most one town (3 seeds per map)', bad.length === 0, bad.slice(0, 4).join('; '));
+        const rare = ['archipelago', 'alpine', 'canyon'];   // their towns leave little flat dry ground
+        this.check('every battlefield but the island, the mountain and the canyon one gets an airfield in every battle', half.every((id) => rare.indexOf(id) >= 0 || always.indexOf(id) >= 0), always.join(','));
+        if (half.indexOf('metro') >= 0) this.check('Megacity Metro gets the big airport in most battles', airfieldSweep.metroAirports >= 2, airfieldSweep.metroAirports);
       });
     }
     t('airfields: in the world', () => {
       const airId = PLAYABLE.find((id) => PLATFORMS[id].kind === 'air');
-      Game.startSession({ mode: 'skirmish', platformId: airId, loadout: Loadout.forPlatform(airId), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'metro', seed: 2, random: false, support: 'none' }) });
+      const cfg = { mode: 'skirmish', platformId: airId, loadout: Loadout.forPlatform(airId), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'metro', seed: 1, random: false, support: 'none' }) };
+      // the host and each guest build the battle from its settings: two builds lay the same airfield
+      const field = () => {
+        const a = W.airports[0];
+        if (!a) return '';
+        const blds = W.structs.filter((s) => Airports.covers(s.x, s.z)).map((s) => [s.type, r1(s.x), r1(s.y), r1(s.z)].join());
+        return JSON.stringify({ kind: a.kind, runway: a.runway, apron: a.apron, box: a.box, blds, hash: worldHash() });
+      };
+      Game.startSession(cfg);
+      const built = field();
+      Game.quitToMenu();
+      Game.startSession(cfg);
+      this.check('two builds of a battle from its settings lay the same airfield, buildings and world hash (host and guests)', built !== '' && field() === built && JSON.parse(built).blds.length >= AIRFIELD.airport.blds.length);
       const ap = W.airports[0];
       this.check('a metro battle has its airport in the world', W.airports.length === 1 && ap.kind === 'airport' && ap.runway.x1 - ap.runway.x0 + ap.runway.z1 - ap.runway.z0 === 945);
       if (!ap) return;
