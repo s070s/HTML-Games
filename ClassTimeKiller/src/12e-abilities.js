@@ -38,6 +38,7 @@ const Abilities = {
   rechargeScale: new Float32Array(MAX_ACTORS).fill(1),             // cooldown speed (Tune Up perk writes it)
   hero: new Array(MAX_ACTORS).fill(null),                          // hero row of this life (hero rulesets)
   choices: new Array(MAX_ACTORS).fill(null),                       // loadout choice { hero, ability1, ability2, ultimate } or null
+  drawn: new Array(MAX_ACTORS).fill(null),                         // hero drawn for an actor without a choice, kept for the match
   heroMove: new Uint8Array(MAX_ACTORS),                            // this section set Move.setPreset for the actor
   effects: {},      // effect kind -> { cast(id, row, slot) -> bool, step(id, row, slot, dt) -> false ends, end(id, row, slot, reason), drain(id, row) }
   passives: {},     // hero passive kind -> { step(id, passive, dt) }
@@ -65,13 +66,33 @@ const Abilities = {
   // ---- Kits: which abilities an actor gets this life ----
   economyKey() { const rules = currentRules(); return (rules.params && rules.params.economy) || rules.economy || ''; },
   usesHeroes() { return this.economyKey() === 'heroKits'; },
-  // The hero chosen for the actor (loadout choice, bot profile, or a role spread by actor id), cached per life.
+  // The hero chosen for the actor (loadout choice or bot profile), else the one drawn for it once per match; cached per life.
   pickHero(id) {
     const mirrored = this.mirroredHero(id);
     if (mirrored) return mirrored;
+    return this.wantedHero(id) || this.drawn[id] || (this.drawn[id] = this.drawHero(id));
+  },
+  wantedHero(id) {
     const choice = this.choices[id], profile = Actors.profile[id];
-    const wanted = (choice && choice.hero) || (profile && profile.hero) || '';
-    return CAT.heroes.byId(wanted) || CAT.heroes[id % CAT.heroes.length];
+    return CAT.heroes.byId((choice && choice.hero) || (profile && profile.hero) || '');
+  },
+  // balance-01: a seeded draw per team (so every match fields new line-ups): a role the team lacks first, then a hero no
+  // teammate plays (the player's own pick included), then any once all are taken.
+  drawHero(id) {
+    const taken = this.teamHeroes(id);
+    const missingRole = CAT.heroes.filter((hero) => !taken.some((other) => other.role === hero.role));
+    const unused = CAT.heroes.filter((hero) => !taken.includes(hero));
+    const pool = missingRole.length ? missingRole : unused.length ? unused : CAT.heroes;
+    return makeRandom(hashString('hero:' + Rng.seed + ':' + id)).pick(pool);
+  },
+  teamHeroes(id) {
+    const heroes = [];
+    for (let other = 0; other < Actors.count; other++) {
+      if (other === id || Actors.kind[other] === ACTOR_KIND.NONE || Actors.team[other] !== Actors.team[id]) continue;
+      const hero = this.wantedHero(other) || this.drawn[other];
+      if (hero) heroes.push(hero);
+    }
+    return heroes;
   },
   // X40 Mirror Match: bots play the local player's hero (13h copies the loadout the same way).
   mirroredHero(id) {
@@ -417,7 +438,7 @@ Damage.poolOverride = (id, out) => {
 };
 
 Sim.addSystem('abilities', 20, (dt) => Abilities.step(dt));
-Bus.on('actor.create', (id) => { Abilities.choices[id] = null; Abilities.hero[id] = null; Abilities.heroMove[id] = 0; Abilities.rechargeScale[id] = 1; Abilities.onSpawn(id); });
+Bus.on('actor.create', (id) => { Abilities.choices[id] = null; Abilities.drawn[id] = null; Abilities.hero[id] = null; Abilities.heroMove[id] = 0; Abilities.rechargeScale[id] = 1; Abilities.onSpawn(id); });
 Bus.on('actor.spawn', (event) => Abilities.onSpawn(event.id));
 Bus.on('power.pick', (event) => Abilities.onPowerPick(event));
 Bus.on('kill', (event) => Abilities.clearActor(event.victim, 'death'));

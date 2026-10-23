@@ -379,6 +379,31 @@ Test.add('abilities', (check) => {
   TestArena.finish();
 });
 
+// balance-01: bots without a hero choice draw one per team from the match seed (headless Hero Squad Team Clash, 10 bots):
+// a team of five fields every role and no hero twice, keeps its heroes across picks, leaves a teammate's own pick out,
+// and the line-ups change with the seed.
+const HERO_DRAW_SEEDS = [1, 2, 3, 4], HERO_DRAW_BOTS = 10;
+Test.add('abilities', (check) => {
+  const roles = new Set(CAT.heroes.map((hero) => hero.role)).size, lineups = new Set();
+  const teamOf = (team) => { const ids = []; for (let id = 0; id < Actors.count; id++) if (Modes.participant[id] && Actors.team[id] === team) ids.push(id); return ids; };
+  for (const seed of HERO_DRAW_SEEDS) {
+    const probe = () => {
+      for (const team of [0, 1]) {
+        const ids = teamOf(team), heroes = ids.map((id) => Abilities.pickHero(id)), names = heroes.map((hero) => hero.id).join(' ');
+        check('seed ' + seed + ' team ' + team + ': no hero twice, every role', new Set(heroes).size === heroes.length && new Set(heroes.map((hero) => hero.role)).size === roles, names);
+        check('seed ' + seed + ' team ' + team + ': the same heroes on the next pick', ids.every((id, k) => Abilities.pickHero(id) === heroes[k]), names);
+        lineups.add(team + ': ' + names);
+      }
+      const team = teamOf(0), picked = Abilities.pickHero(team[1]);
+      for (const id of team) Abilities.drawn[id] = null;
+      Abilities.setChoice(team[0], { hero: picked.id });
+      check('seed ' + seed + ': a teammate\'s own pick is left out of the draw', team.slice(1).every((id) => Abilities.pickHero(id) !== picked), picked.id);
+    };
+    playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'heroes', minutes: 0, botCount: HERO_DRAW_BOTS, seed, modeOptions: SOAK_OPEN_MATCH, probe });
+  }
+  check('the line-ups change with the seed', lineups.size > HERO_DRAW_SEEDS.length, [...lineups].join(' / '));
+});
+
 Test.add('abilities', (check) => {
   const t = AbilityTest.give(AbilityTest.start({}), 'echopulse');
   const hud = { slots: [], meter: { kind: '', value: 0, ready: false, energy: 0, souls: 0 } };
