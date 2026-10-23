@@ -345,6 +345,9 @@ Test.add('modes2', (check) => {
   const infectedHealth = Modes.rules.params.infectedHealth;
   check('infection: the infected is tough and melee only', Actors.maxHealth[first] === infectedHealth && Weapons.currentWeapon(first).class === 'melee');
   const human = ids.find((id) => Actors.team[id] === HUMAN_TEAM);
+  for (const id of [first, human]) { Gadgets.give(id, 'frag', 1); Actors.pressed[id] = BTN.GRENADE; Gadgets.stepActor(id); }
+  check('infection: GRENADE does not ready a throw for the infected, it does for a human', Gadgets.holdStart[first] < 0 && Gadgets.holdStart[human] >= 0);
+  Gadgets.holdStart[human] = Gadgets.holdRow[human] = -1;
   hitActor(human, first, 30, 'melee');
   const stillHuman = Actors.team[human] === HUMAN_TEAM;
   damageKill(human, first, 'melee');

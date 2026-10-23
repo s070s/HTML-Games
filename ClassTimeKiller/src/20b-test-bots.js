@@ -897,6 +897,19 @@ Test.add('bots', (check) => {
   check('2+ enemies in sight: a strike ultimate is wanted, an escape ultimate is not', !!ultimates && ultimates[0] && !ultimates[1], String(ultimates));
   endBotTest();
 });
+// The same two enemies before a Blight infected bot: melee only, so no frag (the attack lock S12 and the bot kit share).
+Test.add('bots', (check) => {
+  const [bot, first, second] = startBotTest(botTestMap(false), 'infection', { bots: [{ tier: 6 }, { dummy: true }, { dummy: true }] });
+  Modes.behaviour.infect(bot);
+  placeFacing(bot, 0, -THROW_DISTANCE / 2, 0);
+  Gadgets.give(bot, THROW_ROW, 2);
+  const uses = startEventLog('gadget.use');
+  runHeld(THROW_SECONDS, () => { holdActor(bot, 0, -THROW_DISTANCE / 2); holdActor(first, -1, THROW_DISTANCE / 2); holdActor(second, 1, THROW_DISTANCE / 2); });
+  uses.stop();
+  check('a Blight infected bot throws no grenade at two enemies together', BotCombat.uses.grenades === 0 && uses.length === 0 && Gadgets.countOf(bot, THROW_ROW) === 2,
+    BotCombat.uses.grenades + ' aimed, ' + uses.length + ' thrown');
+  endBotTest();
+});
 
 // BOT-034: a lone enemy in the open, seen the whole time, draws no frag (no cover, no cluster, no held spot); a flash
 // is thrown only from tier 3. uses counts this match only.

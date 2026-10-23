@@ -145,6 +145,9 @@ Modes.register('infection', {
   },
   score() { return 0; },   // head counts are not a lead: no leader announcements
 });
+// Melee only means no grenades, gadgets or offensive abilities either (the 12c attack lock, which players and bots both
+// pass through): infected bots had thrown frags for about one kill a match.
+Gadgets.attackLocks.push((id) => Modes.active && Modes.actorRole[id] === ACTOR_ROLE.INFECTED);
 
 // ---- M18 Colossus: the first kill makes the killer the Colossus (maxHealth x healthMult, damage x damageMult, marked);
 // whoever kills the Colossus becomes it. Only kills as the Colossus score (1 each) ----
