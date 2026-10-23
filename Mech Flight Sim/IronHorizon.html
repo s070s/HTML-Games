@@ -77,8 +77,9 @@ kbd{background:#0d1620;border:1px solid var(--line);border-bottom-width:2px;padd
 #touch.on{display:block}
 /* the buttons sit inside the safe area; fingers anywhere on #touch still steer and aim */
 #tsafe{position:absolute;top:var(--sat);right:var(--sar);bottom:var(--sab);left:var(--sal);pointer-events:none}
-.tb{position:absolute;pointer-events:auto;width:var(--tbs);height:var(--tbs);border-radius:50%;border:1.5px solid rgba(255,255,255,.3);background:rgba(16,26,36,.26);color:rgba(255,255,255,.72);font:600 10px/calc(var(--tbs) - 3px) "Segoe UI",Roboto,sans-serif;text-align:center;letter-spacing:.05em;text-transform:uppercase}
-.tb.big{width:var(--tbl);height:var(--tbl);line-height:calc(var(--tbl) - 3px);font-size:12px}
+.tb{position:absolute;pointer-events:auto;width:var(--tbs);height:var(--tbs);border-radius:50%;border:1.5px solid rgba(255,255,255,.3);background:rgba(16,26,36,.26);color:rgba(255,255,255,.72);font:600 calc(var(--tbs) * .2)/calc(var(--tbs) - 3px) "Segoe UI",Roboto,sans-serif;text-align:center;letter-spacing:.05em;text-transform:uppercase}
+.tb.big{width:var(--tbl);height:var(--tbl);line-height:calc(var(--tbl) - 3px);font-size:calc(var(--tbl) * .18)}
+.tb.pause{font-size:calc(var(--tbs) * .26)}
 .tb.held{background:rgba(255,176,0,.34);border-color:var(--accent);color:#fff}
 .tb.hide{display:none}
 #tstick{position:absolute;width:112px;height:112px;margin:-56px 0 0 -56px;border-radius:50%;border:1.5px solid rgba(255,255,255,.22);display:none;pointer-events:none}
@@ -968,6 +969,7 @@ const SETTING_SCHEMA = {
   lives: ['enum', ['1', '3', '5', '10', '20', 'unlimited'], '5'],   // platforms per mission (skirmish sets its own)
   homeHintSeen: ['bool', false],   // the iPhone "Add to Home Screen for full screen" tip was shown once
   onFoot: ['enum', ['infantry', 'civilian'], 'infantry'],   // who steps out of a vehicle (ON_FOOT)
+  touchScale: ['num', 0.8, 1.4, 1],   // size of the on-screen touch buttons (TouchControls.place)
 };
 const S = {};   // live settings
 const COARSE_POINTER = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);   // a finger is the main pointer
@@ -1283,33 +1285,52 @@ const TOUCH_EDGE_GUARD = 24;       // px at the left edge where Safari's swipe-b
 const TOUCH_STICK_DEAD = 0.12;     // stick share ignored around the centre
 const TOUCH_LOOK_GAIN = 2.4;       // a finger drag turns this many times faster than the same mouse move
 const TOUCH_STICK_SIDE = 0.42;     // left share of the screen where a touch becomes the move stick
-const TOUCH_HUD_RESERVE = 236;     // CSS px on the right that the button cluster covers; HUD panels move left of it
+// button sizes: one unit is a small button's side, a share of the short screen side, kept to a thumb's range, times the
+// touchScale setting; the layout shrinks the unit until every button fits inside the safe area without touching another
+const TOUCH_UNIT_VMIN = 0.135;     // a small button is this share of the short side of the screen
+const TOUCH_UNIT_MIN = 44;         // CSS px: no smaller than a fingertip (Apple's minimum target)...
+const TOUCH_UNIT_MAX = 72;         // ...and no bigger than a thumb needs on a tablet or a monitor
+const TOUCH_BIG = 1.36;            // FIRE's side in units
+const TOUCH_MARGIN = 0.3;          // units between the buttons and the edge of the safe area
+const TOUCH_PAUSE = 0.88;          // the pause button's side in units...
+const TOUCH_PAUSE_TOP = 0.12;      // ...and its gap below the top of the safe area
+const TOUCH_LEFT_TOP = 0.4;        // the left column (stance, melee) starts this far down the safe area
+const TOUCH_FIT_STEP = 0.94;       // the unit shrinks by this factor until the layout fits...
+const TOUCH_FIT_TRIES = 30;        // ...at most this many times
 const ROTATE_TEXT = 'The battle is paused. Turn your phone sideways to keep playing.';
 const ROTATE_TEXT_COOP = 'Your controls are paused; the battle continues. Turn your phone sideways to keep playing.';
-/* name: snapshot field; label: text (a function of the platform kind and the Use context when it changes); pos: CSS
-   placement; look: dragging from it also aims; latch: tap toggles; show: platform kinds, 'super' (a superweapon is
-   carried) or 'use' (Use can do something here: enter, exit, eject or resupply; see Seats.context) */
+/* name: snapshot field; label: text (a function of the platform kind and the Use context); at: 'r' sits in the right
+   cluster, x and y units from the bottom-right corner of the safe area to the button's right and bottom sides; 'l' in the
+   left column, x units from the left side and y units below the column top; big: FIRE's size; look: dragging from it also
+   aims; latch: tap toggles; show(p, ctx): the button can do something now for player p in Use context ctx (Seats.context),
+   so no button is ever dead. A hidden button keeps its place, so the others never move under the thumb. */
+const touchArmed = (p) => !!(p && (p.wslots.primaryA || p.wslots.primaryB || p.wslots.secondary));
+const touchReloads = (w) => !!(w && w.def.kind !== 'beam' && w.def.clip);
 const TOUCH_BUTTONS = [
-  { name: 'fire1', label: 'FIRE', pos: 'right:24px;bottom:34px', big: true, look: true },
-  { name: 'fire2', label: 'ALT', pos: 'right:104px;bottom:22px', look: true },
-  { name: 'jump', label: TOUCH_LABELS.jump, pos: 'right:30px;bottom:118px' },
-  { name: 'defense', label: 'DEF', pos: 'right:92px;bottom:88px' },
-  { name: 'boost', label: 'BOOST', pos: 'right:162px;bottom:56px', latch: true },
-  { name: 'reload', label: 'RLD', pos: 'right:178px;bottom:4px' },
-  { name: 'next', label: 'WPN', pos: 'right:30px;bottom:184px' },
-  { name: 'cycle', label: 'TGT', pos: 'right:92px;bottom:154px' },
-  { name: 'superweapon', label: 'SUPER', pos: 'right:162px;bottom:124px', show: ['super'] },
-  { name: 'stance', label: TOUCH_LABELS.stance, pos: 'left:18px;top:42%', show: ['mech', 'air'] },
-  { name: 'melee', label: 'MELEE', pos: 'left:18px;top:calc(42% + 60px)', show: ['mech'] },
-  { name: 'interact', label: (kind, ctx) => Seats.useLabel(ctx), pos: 'right:30px;bottom:250px', show: ['use'] },
+  { name: 'fire1', label: 'FIRE', at: 'r', x: 0, y: 0, big: true, look: true, show: (p) => !!(p && p.primary) },
+  { name: 'fire2', label: 'ALT', at: 'r', x: 1.54, y: 0, look: true, show: (p) => !!(p && p.wslots.secondary) },
+  { name: 'reload', label: 'RLD', at: 'r', x: 2.72, y: 0, show: (p) => !!p && (touchReloads(p.wslots.primaryA) || touchReloads(p.wslots.primaryB) || touchReloads(p.wslots.secondary)) },
+  { name: 'jump', label: TOUCH_LABELS.jump, at: 'r', x: 0.18, y: 1.54, show: (p) => !!p && (p.kind !== 'mech' || p.def.mech.jetThrust > 0) },
+  { name: 'defense', label: 'DEF', at: 'r', x: 1.54, y: 1.18, show: (p) => !!(p && p.util && p.util.def.def !== 'reactive') },
+  { name: 'boost', label: 'BOOST', at: 'r', x: 2.72, y: 1.18, latch: true, show: (p) => !!p },
+  { name: 'next', label: 'WPN', at: 'r', x: 0.18, y: 2.72, show: (p) => !!(p && p.wslots.primaryA && p.wslots.primaryB) },
+  { name: 'cycle', label: 'TGT', at: 'r', x: 1.54, y: 2.36, show: touchArmed },
+  { name: 'superweapon', label: 'SUPER', at: 'r', x: 2.72, y: 2.36, show: (p) => !!(p && p.sw) },
+  { name: 'interact', label: (kind, ctx) => Seats.useLabel(ctx), at: 'r', x: 0.18, y: 3.9, show: (p, ctx) => Seats.anyUse(ctx) },
+  { name: 'stance', label: TOUCH_LABELS.stance, at: 'l', x: 0, y: 0, show: (p, ctx) => ctx.gear || !!(p && p.kind === 'mech' && !p.chute) },
+  { name: 'melee', label: 'MELEE', at: 'l', x: 0, y: 1.18, show: (p, ctx) => ctx.melee },
 ];
 const TOUCH_CTX = {};   // the Use context the touch layout was built from (filled by Seats.context)
 const TouchControls = {
   enabled: false,    // the last pointer was a finger
   shown: false,      // the overlay is on screen (playing on a touch screen)
-  root: null, stickEl: null, knobEl: null, buttons: [],
+  root: null, stickEl: null, knobEl: null,
+  buttons: [],    // { def, el, x, y, s, on, text }: x, y the top-left corner in CSS px of the window, s the side; on: visible
+  pauseBox: null, boxes: [],   // the pause button (same shape, always on) and every box, for the fit check
   held: {}, latched: {}, fingers: new Map(),   // finger id -> { kind: 'stick' | 'look' | 'button', button, x, y, ox, oy, bx, by }
-  lx: 0, ly: 0, layout: '',
+  lx: 0, ly: 0,
+  // the cached layout: built for this window size, safe area and scale; shown for this visible set, kind and Use word
+  unit: 0, reserve: 0, placed: { w: -1, h: -1, scale: -1, l: -1, t: -1, r: -1, b: -1 }, mask: -1, kind: '', word: '',
   init() {
     this.root = el('touch');
     if (!this.root) return;
@@ -1320,13 +1341,15 @@ const TouchControls = {
     this.root.appendChild(safe);
     for (const def of TOUCH_BUTTONS) {
       const b = document.createElement('div');
-      b.className = 'tb' + (def.big ? ' big' : ''); b.style.cssText = def.pos; b.dataset.tb = def.name;
+      b.className = 'tb' + (def.big ? ' big' : ''); b.dataset.tb = def.name;
       safe.appendChild(b);
-      this.buttons.push({ def, el: b });
+      this.buttons.push({ def, el: b, x: 0, y: 0, s: 0, on: true, text: '' });
     }
     const pause = document.createElement('div');
-    pause.className = 'tb'; pause.style.cssText = 'left:calc(50% - 22px);top:6px;width:44px;height:44px;line-height:41px'; pause.textContent = 'II'; pause.dataset.tb = 'pause';
+    pause.className = 'tb pause'; pause.textContent = 'II'; pause.dataset.tb = 'pause';
     safe.appendChild(pause);
+    this.pauseBox = { def: null, el: pause, x: 0, y: 0, s: 0, on: true, text: 'II' };
+    this.boxes = this.buttons.concat([this.pauseBox]);
     // the device kind is decided by the last pointer used: a finger (or an Apple Pencil) shows the controls; a mouse or
     // a pen on a Windows tablet or laptop hides them
     window.addEventListener('pointerdown', (e) => { this.enabled = e.pointerType === 'touch' || (e.pointerType === 'pen' && Device.ios); }, true);
@@ -1453,16 +1476,87 @@ const TouchControls = {
       if (!show) this.reset();
     }
     if (!show) return;
-    const p = W && W.player, kind = p ? p.kind : 'mech', hasSuper = !!(p && p.sw);
-    const ctx = Seats.context(p, TOUCH_CTX), canUse = Seats.anyUse(ctx);
-    const layout = kind + (canUse ? '+' + Seats.useLabel(ctx) : '') + (hasSuper ? '+super' : '');
-    if (layout === this.layout) return;
-    this.layout = layout;
-    for (const b of this.buttons) {
-      const def = b.def, visible = !def.show || def.show.includes(kind) || (canUse && def.show.includes('use')) || (hasSuper && def.show.includes('super'));
-      b.el.classList.toggle('hide', !visible);
-      b.el.textContent = typeof def.label === 'function' ? def.label(kind, ctx) : def.label;
+    const p = W && W.player;
+    // the window, safe area or scale changed: place the buttons again (never per frame otherwise)
+    const at = this.placed, sa = SafeArea;
+    const moved = at.w !== HUD.w || at.h !== HUD.h || at.scale !== S.touchScale || at.l !== sa.l || at.t !== sa.t || at.r !== sa.r || at.b !== sa.b;
+    if (moved) this.place(HUD.w, HUD.h, sa, S.touchScale);
+    this.update(p, Seats.context(p, TOUCH_CTX), moved);
+  },
+  /* the visible set for player p in Use context ctx; the DOM and the HUD reserve change only when the set, the platform
+     kind or the Use word does (or force: the buttons were placed again) */
+  update(p, ctx, force) {
+    let mask = 0;
+    for (let i = 0; i < this.buttons.length; i++) if (this.buttons[i].def.show(p, ctx)) mask |= 1 << i;
+    const kind = p ? p.kind : 'mech', word = Seats.useLabel(ctx);
+    if (!force && mask === this.mask && kind === this.kind && word === this.word) return;
+    this.mask = mask; this.kind = kind; this.word = word;
+    for (let i = 0; i < this.buttons.length; i++) {
+      const b = this.buttons[i], def = b.def, text = typeof def.label === 'function' ? def.label(kind, ctx) : def.label;
+      b.on = (mask & (1 << i)) !== 0;
+      b.el.classList.toggle('hide', !b.on);
+      if (text !== b.text) { b.text = text; b.el.textContent = text; }
     }
+    this.reserve = this.clusterReserve();
+  },
+  /* CSS px from the right side of the safe area to the left side of the visible right cluster, plus the margin:
+     the HUD's right-hand panels move left of it */
+  clusterReserve() {
+    let left = Infinity;
+    for (const b of this.buttons) if (b.on && b.def.at === 'r') left = Math.min(left, b.x);
+    return left === Infinity ? 0 : Math.ceil(this.placed.w - this.placed.r - left + TOUCH_MARGIN * this.unit);
+  },
+  /* place every button for a w x h window with safe-area insets sa (l, t, r, b) at touchScale scale: the unit is a share
+     of the short side, scaled, then shrunk until all buttons (hidden ones too, so a change of platform never moves
+     them) fit inside the safe area with no two touching */
+  place(w, h, sa, scale) {
+    const at = this.placed;
+    at.w = w; at.h = h; at.scale = scale; at.l = sa.l; at.t = sa.t; at.r = sa.r; at.b = sa.b;
+    let u = clamp(Math.min(w, h) * TOUCH_UNIT_VMIN, TOUCH_UNIT_MIN, TOUCH_UNIT_MAX) * scale;
+    for (let i = 0; i < TOUCH_FIT_TRIES; i++) {
+      this.arrange(w, h, sa, u);
+      if (this.fits(w, h, sa)) break;
+      u *= TOUCH_FIT_STEP;
+    }
+    this.unit = u;
+    if (!this.root) return;
+    this.root.style.setProperty('--tbs', u.toFixed(1) + 'px');
+    this.root.style.setProperty('--tbl', (u * TOUCH_BIG).toFixed(1) + 'px');
+    for (const b of this.boxes) {   // positions inside #tsafe, which starts at the safe-area corner
+      b.el.style.left = (b.x - sa.l).toFixed(1) + 'px'; b.el.style.top = (b.y - sa.t).toFixed(1) + 'px';
+    }
+    const ps = this.pauseBox.el.style, side = this.pauseBox.s.toFixed(1) + 'px';
+    ps.width = ps.height = side; ps.lineHeight = (this.pauseBox.s - 3).toFixed(1) + 'px';
+  },
+  /* box corners and sides for unit u (see TOUCH_BUTTONS for the anchors) */
+  arrange(w, h, sa, u) {
+    const m = TOUCH_MARGIN * u, availH = h - sa.t - sa.b;
+    let leftH = 0;
+    for (const b of this.buttons) if (b.def.at === 'l') leftH = Math.max(leftH, (b.def.y + 1) * u);
+    const leftTop = sa.t + Math.max(m, Math.min(availH * TOUCH_LEFT_TOP, availH - m - leftH));
+    for (const b of this.buttons) {
+      const d = b.def;
+      b.s = u * (d.big ? TOUCH_BIG : 1);
+      if (d.at === 'r') { b.x = w - sa.r - m - d.x * u - b.s; b.y = h - sa.b - m - d.y * u - b.s; }
+      else { b.x = sa.l + m + d.x * u; b.y = leftTop + d.y * u; }
+    }
+    const pb = this.pauseBox;
+    pb.s = u * TOUCH_PAUSE; pb.x = sa.l + (w - sa.l - sa.r - pb.s) / 2; pb.y = sa.t + TOUCH_PAUSE_TOP * u;
+  },
+  /* every box inside the safe area and no two overlapping (all boxes, or only the visible ones with onlyOn) */
+  fits(w, h, sa, onlyOn) {
+    const list = this.boxes;
+    for (let i = 0; i < list.length; i++) {
+      const a = list[i];
+      if (onlyOn && !a.on) continue;
+      if (a.x < sa.l - 0.01 || a.y < sa.t - 0.01 || a.x + a.s > w - sa.r + 0.01 || a.y + a.s > h - sa.b + 0.01) return false;
+      for (let j = i + 1; j < list.length; j++) {
+        const b = list[j];
+        if (onlyOn && !b.on) continue;
+        if (a.x < b.x + b.s && b.x < a.x + a.s && a.y < b.y + b.s && b.y < a.y + a.s) return false;
+      }
+    }
+    return true;
   },
   /* fill the screen and keep it landscape where the browser allows (needs a user gesture) */
   fullscreen() {
@@ -11118,7 +11212,7 @@ const Seats = {
     const air = p.kind === 'air';
     out.use = !!padInRange(p);
     out.gear = air && p.def.air.landMax > 0;
-    out.melee = p.kind === 'mech';
+    out.melee = p.kind === 'mech' && !p.chute;   // mechs and people on foot, not hanging under a parachute
     if (air && !p.grounded) out.eject = p.y - Water.top(p.x, p.z) > EJECT_MIN_AGL;
     else if (p.def.style !== 'infantry') out.exit = true;
     else out.enter = this.nearestFree(p);
@@ -18544,7 +18638,7 @@ const HUD = {
   },
   /* CSS pixels kept free on the right for the touch buttons while they show (from the safe-area edge) */
   touchReserve() {
-    return TouchControls.shown ? TOUCH_HUD_RESERVE : 0;
+    return TouchControls.shown ? TouchControls.reserve : 0;   // from the placed buttons (TouchControls.clusterReserve)
   },
   drawWeapons(p, u) {
     const C = this.C, w = 250 * u, x = this.w - 20 * u - w - SafeArea.r - this.touchReserve();
@@ -19252,7 +19346,7 @@ const UI = {
     return '<h2>Settings</h2><div class="grid2"><div class="panel"><h3 style="margin-top:0">Audio</h3>' + sl('master', 'Master volume', 0, 1, 0.05) + sl('music', 'Music', 0, 1, 0.05) + sl('sfx', 'Effects', 0, 1, 0.05) + sl('ui', 'Interface &amp; alerts', 0, 1, 0.05) +
       '<h3>Aiming</h3>' + sl('sens', 'Mouse sensitivity', 0.2, 3, 0.05) + sl('smoothing', 'Aim smoothing', 0, 0.9, 0.05) + ck('invertY', 'Invert vertical aim') + (TouchControls.enabled ? '' : ck('pointerLock', 'Capture cursor (pointer lock)')) + ck('aimAssist', 'Aim assist (shots bend toward enemies near the reticle)') +
       '<h3>Flight</h3>' + se('flightMode', 'Aircraft control', [['assisted', 'Assisted (mouse aim)'], ['direct', 'Direct (roll / pitch axes)']]) + ck('flightAssist', 'Auto-level in direct mode') + '</div>' +
-      '<div class="panel"><h3 style="margin-top:0">Display &amp; accessibility</h3>' + se('quality', 'Graphics quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']]) + sl('fov', 'Field of view', 55, 95, 1) + sl('uiScale', 'Interface scale', 0.8, 1.5, 0.05) +
+      '<div class="panel"><h3 style="margin-top:0">Display &amp; accessibility</h3>' + se('quality', 'Graphics quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']]) + sl('fov', 'Field of view', 55, 95, 1) + sl('uiScale', 'Interface scale', 0.8, 1.5, 0.05) + (TouchControls.enabled ? sl('touchScale', 'Touch button size', 0.8, 1.4, 0.05) : '') +
       ck('reducedMotion', 'Reduced motion (less shake and FOV kick)') + ck('highContrast', 'High-contrast HUD outlines') + ck('showFps', 'Show FPS') +
       (Device.ios && !Device.standalone() && !Device.canFullscreen() ? '<div class="hint">' + HOME_HINT + '.</div>' : '') +
       '<h3>Gameplay</h3>' + se('difficulty', 'Default difficulty', Object.keys(DIFFICULTY).map((k) => [k, DIFFICULTY[k].name])) + ck('autoTarget', 'Auto-target (reticle, then next after a kill)') + se('onFoot', 'On foot after leaving a vehicle', [['infantry', 'Infantry (armed)'], ['civilian', 'Civilian (unarmed, ignored until you fight)']]) + se('lives', 'Platforms per mission (lives)', [['1', '1'], ['3', '3'], ['5', '5 (default)'], ['10', '10'], ['20', '20'], ['unlimited', 'Unlimited']]) +
@@ -21796,7 +21890,7 @@ const SelfTest = {
         window.dispatchEvent(new Event('blur'));
         this.check('blur releases every touch button and finger', !tc.held.fire1 && !tc.latched.boost && tc.fingers.size === 0);
         tc.shown = true;
-        this.check('the HUD keeps the touch cluster free while it shows', HUD.touchReserve() === TOUCH_HUD_RESERVE);
+        this.check('the HUD keeps the touch cluster free while it shows', HUD.touchReserve() === tc.reserve);
         tc.shown = false;
         this.check('no reserve without touch controls', HUD.touchReserve() === 0);
       } finally { tc.enabled = keepHeld.enabled; tc.shown = keepHeld.shown; tc.reset(); }
@@ -22563,7 +22657,7 @@ const SelfTest = {
       const s2 = Save.sanitize(taken);
       this.check('switch weapon is left unbound when KeyZ was taken', s2.bindings.switchWeapon === '' && s2.bindings.melee === 'KeyZ');
       this.check('the pad and touch labels name the new actions only', PAD_LABELS.switchWeapon === 'D-PAD LEFT' && TOUCH_LABELS.switchWeapon === 'WPN' && ['gear', 'eject', 'weapon1', 'weapon2'].every((id) => !PAD_LABELS[id] && !TOUCH_LABELS[id]) && TOUCH_LABELS.stance('air') === 'GEAR');
-      this.check('the touch overlay has no GEAR or EJECT button (the stance button and a held USE do it)', !TOUCH_BUTTONS.some((b) => b.name === 'up' || b.name === 'down') && TOUCH_BUTTONS.some((b) => b.name === 'interact' && b.show.indexOf('use') >= 0));
+      this.check('the touch overlay has no GEAR or EJECT button (the stance button and a held USE do it)', !TOUCH_BUTTONS.some((b) => b.name === 'up' || b.name === 'down') && TOUCH_BUTTONS.some((b) => b.name === 'interact' && b.show(null, { exit: true }) && !b.show(null, {})));
       newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
       W.mission = null; W.pads = [];
       const keep = { pad: Input.pad, bindings: Input.bindings, touch: TouchControls.enabled, auto: S.autoTarget };
@@ -23015,6 +23109,78 @@ const SelfTest = {
       const back = at(kat.wind);
       this.check('a strike runs rest, wind-up, swing and recovery, and the next of a chain swings back-hand', keys && !!back && Math.abs(back[1] + P.wind[1]) < 0.02);
       sw.meleeT = 0;
+    });
+    t('touch layout', () => {
+      const tc = TouchControls, keep = { scale: S.touchScale, enabled: tc.enabled, shown: tc.shown, place: tc.place, reserveFn: tc.clusterReserve };
+      this.check('the touch button size is an additive setting (0.8-1.4, default 1)', SETTING_SCHEMA.touchScale && Save.defaults().settings.touchScale === 1 && Save.sanitize(SAVE_FIXTURE_V1).settings.touchScale === 1 && Save.sanitize({ v: 1, settings: { touchScale: 9 } }).settings.touchScale === 1.4);
+      Game.startSession({ mode: 'training', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+      try {
+        const sp = W.player, ids = Object.keys(PLATFORMS).filter((id) => PLATFORMS[id].playable);
+        const bodies = ids.map((id) => new Platform(PLATFORMS[id], { team: 0, x: sp.x, z: sp.z, yaw: 0, loadout: Loadout.forPlatform(id) }));
+        const kinds = new Set(bodies.map((q) => (q.def.style === 'infantry' ? 'foot' : q.kind)));
+        this.check('every platform kind is laid out (on foot, mech, ground with the hovercraft, air)', ['foot', 'mech', 'ground', 'air'].every((k) => kinds.has(k)) && ids.includes('specter'));
+        // every Use context a body can be in: its real melee and gear, with each mix of enter, exit, eject and supply
+        const ctxs = (q) => {
+          const base = Seats.context(q, {}), out = [];
+          for (let bits = 0; bits < 16; bits++) out.push(Object.assign({}, base, { enter: bits & 1 ? sp : null, exit: !!(bits & 2), eject: !!(bits & 4), use: !!(bits & 8) }));
+          return out;
+        };
+        const sizes = [[375, 812], [812, 375], [1024, 768], [1920, 1080]], scales = [0.8, 1, 1.4];
+        const insets = [{ l: 0, t: 0, r: 0, b: 0 }, { l: 47, t: 11, r: 44, b: 21 }, { l: 0, t: 47, r: 0, b: 34 }];
+        let bad = '', layouts = 0;
+        for (const [w, h] of sizes) for (const scale of scales) for (const sa of insets) {
+          tc.place(w, h, sa, scale);
+          if (!tc.fits(w, h, sa)) bad = bad || w + 'x' + h + ' x' + scale + ' all';
+          for (const q of bodies) for (const ctx of ctxs(q)) {
+            tc.update(q, ctx, true); layouts++;
+            const right = (w - sa.r) - tc.reserve;
+            if (!tc.fits(w, h, sa, true) || tc.buttons.some((b) => b.on && b.def.at === 'r' && b.x < right)) bad = bad || w + 'x' + h + ' x' + scale + ' ' + q.def.id;
+          }
+        }
+        this.check('at 375x812, 812x375, 1024x768 and 1920x1080, scales 0.8-1.4 and with notches, no visible buttons overlap, all stay inside the safe area and the HUD reserve covers the right cluster', bad === '' && layouts === sizes.length * scales.length * insets.length * bodies.length * 16, bad);
+        const unit = (w, h, scale) => { tc.place(w, h, insets[0], scale); return tc.unit; };
+        const big = [unit(1920, 1080, 0.8), unit(1920, 1080, 1), unit(1920, 1080, 1.4)], phone = [unit(812, 375, 1), unit(812, 375, 1.4)];
+        this.check('sizes follow the short side and the touch scale, shrinking only to fit', big[0] < big[1] && big[1] < big[2] && Math.abs(big[1] - TOUCH_UNIT_MAX) < 0.01 && Math.abs(phone[0] - 375 * TOUCH_UNIT_VMIN) < 0.01 && phone[1] >= phone[0], big.concat(phone).map((v) => v.toFixed(1)).join());
+        // only buttons that can act now are shown
+        tc.place(812, 375, insets[0], 1);
+        const on = (id, ctx) => {
+          const q = bodies[ids.indexOf(id)];
+          tc.update(q, Object.assign(Seats.context(q, {}), { enter: null, use: false }, ctx || {}), true);   // no pad or vehicle in reach unless asked
+          return tc.buttons.filter((b) => b.on).map((b) => b.text).join(' ');
+        };
+        const foot = on('ranger'), enter = on('ranger', { enter: sp }), civ = on('civilian'), chute = on('ranger', { melee: false });
+        this.check('on foot: no USE button with nothing in reach, ENTER beside a free vehicle; crouch and melee', !/USE|ENTER|EXIT/.test(foot) && / ENTER/.test(enter) && /CROUCH/.test(foot) && /MELEE/.test(foot) && /FIRE/.test(foot) && !/MELEE/.test(chute), foot + ' | ' + enter);
+        this.check('a civilian has no gun, target, defence or jump buttons, only melee, boost and crouch', civ === 'BOOST CROUCH MELEE', civ);
+        const mech = on('bulwark'), car = on('jackal'), hover = on('specter');
+        this.check('a mech shows EXIT, CROUCH and MELEE', /EXIT/.test(mech) && /CROUCH/.test(mech) && /MELEE/.test(mech) && /JET/.test(mech), mech);
+        this.check('ground vehicles and the hovercraft show EXIT and BRAKE but no stance or melee', [car, hover].every((s) => /EXIT/.test(s) && /BRAKE/.test(s) && !/CROUCH|MELEE|GEAR/.test(s)), car + ' | ' + hover);
+        const airId = ids.find((id) => PLATFORMS[id].kind === 'air');
+        const high = on(airId, { exit: false, eject: true }), low = on(airId, { exit: false, eject: false }), parked = on(airId, { exit: true, use: true });
+        this.check('aircraft show GEAR, EJECT when high enough, no Use button when too low to eject, USE on a pad', /GEAR/.test(high) && /EJECT/.test(high) && !/EJECT|EXIT|USE/.test(low) && / USE/.test(parked) && !/MELEE/.test(high), high + ' | ' + low + ' | ' + parked);
+        this.check('the superweapon button shows only when one is carried', bodies.every((q) => { on(q.def.id); return tc.buttons.find((b) => b.def.name === 'superweapon').on === !!q.sw; }));
+        // the cache: nothing is placed or relabelled again while nothing changes
+        let places = 0, reserves = 0;
+        tc.place = function (...a) { places++; return keep.place.apply(this, a); };
+        tc.clusterReserve = function () { reserves++; return keep.reserveFn.call(this); };
+        tc.enabled = true; tc.placed.w = -1;
+        tc.frame(); const first = places + reserves;
+        tc.frame(); tc.frame(); const idle = places + reserves - first;
+        S.touchScale = 1.2; tc.frame();
+        this.check('the layout is placed once, kept while nothing changes, and placed again for a new scale', first === 2 && idle === 0 && places === 2 && tc.shown && HUD.touchReserve() === tc.reserve && tc.reserve > 0, first + ' ' + idle + ' ' + places);
+        // the DOM matches the model at the real window size
+        tc.place = keep.place; tc.clusterReserve = keep.reserveFn;
+        S.touchScale = keep.scale; tc.frame();
+        let off = 0;
+        for (const b of tc.boxes) {
+          if (!b.on) continue;
+          const r = b.el.getBoundingClientRect();
+          off = Math.max(off, Math.abs(r.left - b.x), Math.abs(r.top - b.y), Math.abs(r.width - b.s));
+        }
+        this.check('the buttons on screen sit where the layout put them', off < 1, off);
+      } finally {
+        tc.place = keep.place; tc.clusterReserve = keep.reserveFn; S.touchScale = keep.scale; tc.enabled = keep.enabled;
+        tc.placed.w = -1; tc.mask = -1; Game.quitToMenu(); tc.frame(); tc.shown = keep.shown;
+      }
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
