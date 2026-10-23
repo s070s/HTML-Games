@@ -3704,12 +3704,20 @@ function addStruct(type, x, z, opts) {
     // building piece fields (set by Bld); declared for every structure so all share one hidden shape
     bld: null, kind: '', fl: 0, ci: 0, cj: 0, vr: 0.5, flight: -1, stepNo: -1, supportSlab: null, fallAt: undefined, faceMask: 0, near: null,
     fell: false,   // the fall queue brought it down (sent as 2 in 'st'); a piece queued to fall but shot first did not fall
+    inPlain: !opts.piece, hot: false,   // in W.plain; in W.hotPlain (watchStruct)
   };
   s.maxHp = s.hp;
   s.top = s.y + s.h;
   W.structs.push(s);
   if (!opts.piece) { W.plain.push(s); Hash.add(s, x - s.hx, z - s.hz, x + s.hx, z + s.hz); Chunks.add(s); }   // building pieces live in their building's grid
   return s;
+}
+/* plain structure s was hit, damaged or destroyed: updateWorldEffects ticks its flash, smoulder and smoke from W.hotPlain
+   until none is left, so it does not walk all of W.plain (thousands of trees and rocks) every tick */
+function watchStruct(s) {
+  if (s.hot || !s.inPlain) return;
+  s.hot = true;
+  W.hotPlain.push(s);
 }
 /* unspotted: a human's indirect fire no friendly spotter sees, which wears an objective down by ARTY_UNSPOTTED_CAP of
    its hull at most in a battle (D52) */
@@ -3729,6 +3737,7 @@ function damageStruct(s, amount, dtype, owner, structMult, unspotted) {
   if (Net.host) Net.dirty.add(s.idx);
   if (!s.bld && s.flash <= 0) W.flashing.push(s);
   s.hp -= eff; s.flash = 0.12; s.scorch = Math.min(1, s.scorch + eff / s.maxHp * 0.8);
+  watchStruct(s);
   if (W.onStructHit) W.onStructHit(s, eff, owner);
   if (s.objective) markHit(owner);
   const frac = s.hp / s.maxHp;
@@ -3746,6 +3755,7 @@ function damageStruct(s, amount, dtype, owner, structMult, unspotted) {
 function destroyStruct(s, owner) {
   if (s.destroyed) return;            // one break event only
   s.destroyed = true; s.state = 3; s.hp = 0; s.destroyedAt = W.time;
+  watchStruct(s);
   if (Net.host) Net.dirty.add(s.idx);
   creditStruct(s, owner);
   if (s.bld) { Bld.pieceDestroyed(s, owner); return; }
@@ -4467,7 +4477,7 @@ function newWorld(cfg) {
   Terrain.build(m, cfg.sites || []);
   Hash.reset();
   W = {
-    cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [], fauna: null, traffic: null, society: null, farms: [],
+    cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], hotPlain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [], fauna: null, traffic: null, society: null, farms: [],
     beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], wrecks: [], artyMarks: [], events: [], feed: [], bridges: [], deckCells: null, roadData: null, roadMesh: null, flora: null,
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [], airports: [], harbours: [],
@@ -4808,6 +4818,7 @@ function drawCommandTop(s, h, c) {
   st.push().t(-s.w * 0.3, h * 2.02, 0).s(1.6, 1.6, 1.6); R.draw('sphere', bc[0], bc[1], bc[2], 1, 1.3, 0); st.pop();
 }
 /* ---------- static structure chunks (one merged mesh per 160 m square) ---------- */
+const STRUCT_FLASH_COL = [1, 0.9, 0.7];   // the additive flash on a structure just hit (Chunks.drawFlashes)
 const Chunks = {
   SIZE: 160, N: Math.ceil(2 * WORLD_HALF / 160),
   reset() { W.chunks = []; W.chunkGrid = new Array(this.N * this.N).fill(null); W.flashing = []; },
@@ -4879,7 +4890,7 @@ const Chunks = {
       for (let k = f.length - 1; k >= 0; k--) {
         const s = f[k];
         if (s.flash <= 0 || s.destroyed) { f.splice(k, 1); continue; }
-        if (R.visible(s.x, s.y + s.h * 0.5, s.z, Math.max(s.hx, s.hz, s.h * 0.5) + 2)) R.box(s.x, s.y + s.h * 0.5, s.z, s.w * 1.04, s.h * 1.04, s.d * 1.04, [1, 0.9, 0.7], 0.6, 0, 0.35);
+        if (R.visible(s.x, s.y + s.h * 0.5, s.z, Math.max(s.hx, s.hz, s.h * 0.5) + 2)) R.box(s.x, s.y + s.h * 0.5, s.z, s.w * 1.04, s.h * 1.04, s.d * 1.04, STRUCT_FLASH_COL, 0.6, 0, 0.35);
       }
       R.blend(false); R.depthWrite(true);
     }
@@ -5858,16 +5869,21 @@ function updateWorldEffects(dt) {
     if (d.life <= 0 || d.y < Terrain.h(d.x, d.z)) W.decoys.splice(i, 1);
   }
   for (let i = W.pickups.length - 1; i >= 0; i--) { const p = W.pickups[i]; p.life -= dt; p.t += dt; if (p.life <= 0) W.pickups.splice(i, 1); }
-  for (let i = 0; i < W.plain.length; i++) {
-    const s = W.plain[i];
-    if (s.flash > 0) s.flash -= dt;
+  const hot = W.hotPlain;
+  for (let i = 0; i < hot.length; i++) {
+    const s = hot[i];
+    let busy = false;
+    if (s.flash > 0) { s.flash -= dt; busy = true; }
     if (!s.destroyed && s.state === 2) { // critical structures smoulder
-      s.smokeT -= dt;
+      s.smokeT -= dt; busy = true;
       if (s.smokeT <= 0) { s.smokeT = 0.35; FX.emit(s.x + rand(-1, 1) * s.hx * 0.5, s.y + s.h * 0.8, s.z + rand(-1, 1) * s.hz * 0.5, 0, rand(2, 4), 0, 1.6, 0.6, 0.3, 0.3, 0.3, 0.5, 0.5, -0.8, false); }
     } else if (s.destroyed && W.time - s.destroyedAt < 12 && s.hx * s.hz > 4) {
-      s.smokeT -= dt;
+      s.smokeT -= dt; busy = true;
       if (s.smokeT <= 0) { s.smokeT = 0.5; FX.emit(s.x, s.y + 1, s.z, rand(-0.5, 0.5), rand(2, 4), rand(-0.5, 0.5), 2, 1.5, 3.4, 0.22, 0.22, 0.22, 0.4, 0.4, -0.6, false); }
     }
+    if (busy) continue;
+    s.hot = false;   // nothing left to tick: out of the list (the last one moves into its place)
+    hot[i] = hot[hot.length - 1]; hot.pop(); i--;
   }
   for (let i = W.queue.length - 1; i >= 0; i--) {
     const q = W.queue[i]; q.delay -= dt;
@@ -6343,6 +6359,7 @@ const BOX_VERTS = (function () {
   return out;
 }());
 
+const BLD_HEAP_COL = [0.3, 0.29, 0.28];   // the rubble heap where a building has fallen (Bld.draw)
 const Bld = {
   relightLeft: TIME_RELIGHT_BUDGET,   // buildings that may still be re-written this frame for lit windows (drawWorld resets it)
   dropping: false,                    // true while a falling piece is destroyed (it leaves its chunk, not shattered bits)
@@ -6647,7 +6664,7 @@ const Bld = {
     const frac = b.alive / b.total;
     if (frac < 0.65) {
       const k = 1 - frac / 0.65, h = 0.6 + 3.2 * k * k;
-      R.box(b.cx, b.y0 + h / 2, b.cz, b.nx * CELL * (0.55 + 0.35 * k), h, b.nz * CELL * (0.55 + 0.35 * k), [0.3, 0.29, 0.28], 0, 0);
+      R.box(b.cx, b.y0 + h / 2, b.cz, b.nx * CELL * (0.55 + 0.35 * k), h, b.nz * CELL * (0.55 + 0.35 * k), BLD_HEAP_COL, 0, 0);
     }
   },
 
@@ -7677,15 +7694,15 @@ const Civ = {
     c.lookT -= dt;
     if (c.lookT > 0) return yaw;
     c.lookT = CIV_LOOK;
-    const blds = c.zone.blds;
-    const clear = (a) => !this.blocked(c.x + Math.sin(a) * look, c.z + Math.cos(a) * look, CIV_RADIUS, blds);
-    if (clear(yaw)) return yaw;
-    for (const turn of CIV_DODGE) {
-      const a = yaw + (c.lane < 0 ? -turn : turn);
-      if (clear(a)) { c.avoidYaw = a; c.avoidT = 0.5; return a; }
+    if (this.clearAhead(c, yaw, look)) return yaw;
+    for (let i = 0; i < CIV_DODGE.length; i++) {
+      const turn = CIV_DODGE[i], a = yaw + (c.lane < 0 ? -turn : turn);
+      if (this.clearAhead(c, a, look)) { c.avoidYaw = a; c.avoidT = 0.5; return a; }
     }
     return yaw;   // boxed in: the stuck timer sends it to the nearest corner
   },
+  /* nothing stands `look` metres from civilian c along heading a */
+  clearAhead(c, a, look) { return !this.blocked(c.x + Math.sin(a) * look, c.z + Math.cos(a) * look, CIV_RADIUS, c.zone.blds); },
   /* ground machines: soldiers shove civilians aside, others run them over when moving and scare them when near */
   touchMachines(c) {
     const near = c.zone.near;
@@ -14997,7 +15014,9 @@ function barrel(x, y, z, w, len, col, recoil) {
   R.draw('cyl', col[0], col[1], col[2], 1, 0, 0.6);
   st.pop();
 }
-function tint(c, f, add) { return [c[0] * f + add, c[1] * f + add, c[2] * f + add]; }
+/* colour c times f plus add, into out (no new array per drawn platform) */
+function tint(c, f, add, out) { out[0] = c[0] * f + add; out[1] = c[1] * f + add; out[2] = c[2] * f + add; return out; }
+const TINT_MAIN = [0, 0, 0], TINT_DARK = [0, 0, 0];   // drawPlatformBody's scratch colours (read only while it draws)
 
 function drawPlatform(p) { drawPlatformBody(p); drawPlatformOverlay(p); }
 /* the opaque model (can be baked into a batch) */
@@ -15009,7 +15028,7 @@ function drawPlatformBody(p) {
   const acc = TEAM_ACCENT[p.team] || TEAM_ACCENT[2];
   const flash = p.hitFlash > 0 ? 0.3 : 0;
   const dmgK = p.hp / p.maxHp < 0.3 ? 0.65 : 1;
-  const main = tint(p.def.col.main, dmgK, flash), dark = tint(p.def.col.dark, dmgK, flash);
+  const main = tint(p.def.col.main, dmgK, flash, TINT_MAIN), dark = tint(p.def.col.dark, dmgK, flash, TINT_DARK);
   const lod = dist > 380;
   const st = R.stack;
   st.top = 0; st.ident();
@@ -15425,6 +15444,7 @@ function drawAcv(p, main, dark, acc, lod) {
 
 /* artillery (P5.3): the deployed share k (p.arty.deploy) lowers the spades, jacks and ramps */
 const ARTY_GUN = [0.15, 0.16, 0.17], ARTY_TRACK = [0.1, 0.1, 0.11], ARTY_LINK = [0.18, 0.18, 0.2];
+const ARTY_GLASS = [0.1, 0.18, 0.24], ARTY_TUBE = [0.05, 0.05, 0.05];   // a launcher truck's windscreen and its tube mouths
 function artyTracks(p, w, len, lod) {
   for (let s = -1; s <= 1; s += 2) {
     part('box', s * w, -0.1, 0, 1.2, 1.5, len, ARTY_TRACK, 0, 0.1);
@@ -15464,7 +15484,7 @@ function drawMrl(p, main, dark, acc, lod) {
   st.push().t(p.x, p.y + 1.2, p.z).ry(p.yaw).rx(-p.pitch).rz(p.roll);
   part('box', 0, 0.2, 0, 2.9, 0.5, 8.4, dark, 0, 0.2);                       // chassis
   part('box', 0, 1.1, 3.1, 2.9, 1.9, 2.2, main, 0, 0.3);                     // cab
-  part('box', 0, 1.5, 4.22, 2.5, 0.8, 0.1, [0.1, 0.18, 0.24], 0.3, 0.9);
+  part('box', 0, 1.5, 4.22, 2.5, 0.8, 0.1, ARTY_GLASS, 0.3, 0.9);
   part('box', 0, 2.1, 3.1, 2.95, 0.2, 2.25, acc, 0.6, 0);
   for (let sx = -1; sx <= 1; sx += 2) {
     for (let z = -3; z <= 3; z += 3) { st.push().t(sx * 1.55, -0.55, z).rz(PI / 2).rx(wr).s(1.3, 0.8, 1.3); R.draw('cyl', 0.08, 0.08, 0.09); st.pop(); }
@@ -15477,7 +15497,7 @@ function drawMrl(p, main, dark, acc, lod) {
   part('cyl', 0, 0, 0, 2.2, 0.4, 2.2, dark, 0, 0.3);                         // turntable
   st.push().t(0, 0.5, -1.4).rx(-p.torsoPitch);
   part('box', 0, 0.75, 1.4, 2.4, 1.5, 4.4, main, 0, 0.3);                    // the pod
-  if (!lod) for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) part('cyl', (c - 1) * 0.72, 0.4 + r * 0.7, 3.62, 0.5, 0.06, 0.5, [0.05, 0.05, 0.05], 0, 0);   // tube mouths
+  if (!lod) for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) part('cyl', (c - 1) * 0.72, 0.4 + r * 0.7, 3.62, 0.5, 0.06, 0.5, ARTY_TUBE, 0, 0);   // tube mouths
   st.pop();
   st.pop();
   st.pop();
@@ -25797,6 +25817,13 @@ const BENCH_SCENES = [
   { id: 'hz-coast', map: 'coast', platformId: 'bulwark', hazard: 'flood' },   // a flash flood near its top over the coast's low ground
   { id: 'sea-coast', map: 'coast', platformId: 'trident' },   // a destroyer at the harbour, the enemy fleet on the water
   { id: 'traffic-metro', map: 'metro', platformId: 'bulwark', city: true },   // at a street corner of the megacity, its traffic in view
+  { id: 'sk-archipelago', map: 'archipelago', platformId: 'bulwark' },
+  { id: 'sk-valley', map: 'valley', platformId: 'bulwark' },
+  { id: 'sk-alpine', map: 'alpine', platformId: 'bulwark' },
+  { id: 'sk-canyon', map: 'canyon', platformId: 'bulwark' },
+  { id: 'sk-volcano', map: 'volcano', platformId: 'bulwark' },
+  { id: 'sk-tundra', map: 'tundra', platformId: 'bulwark' },
+  { id: 'sk-farmland', map: 'farmland', platformId: 'bulwark' },
 ];
 const BENCH_HAZARD_AT = 60;   // m from the player a bench scene's hazard starts (it looks for fuel around there)
 const BENCH_VIEW_DIST = 450, BENCH_VIEW_CONE = 0.6;   // the city scene's view: the lanes this far (m) and this near its heading (rad) count (SelfTest.benchCorner)
@@ -27450,6 +27477,7 @@ const SelfTest = {
       this.check('old save keeps its records', s.best.m1 && s.best.m1.score === 1234 && s.skirmishBest['ashfall-small'] && s.skirmishBest['ashfall-small'].won === true && s.career.kills === 12);
       this.check('old save keeps its last battle', s.skirmish && s.skirmish.map === 'frost' && s.skirmish.seed === 777);
       this.check('the bench lists real battlefields and platforms', BENCH_SCENES.every((sc) => (MAPS[sc.map] || sc.testMap) && PLATFORMS[sc.platformId] && PLATFORMS[sc.platformId].playable && (!sc.hazard || HAZARDS[sc.hazard])));
+      this.check('the bench times every battlefield', Object.keys(MAPS).every((id) => BENCH_SCENES.some((sc) => sc.map === id)), Object.keys(MAPS).filter((id) => !BENCH_SCENES.some((sc) => sc.map === id)).join());
       this.check('an old saved skirmish setup gets hazards at low', skirmishSetup(s.skirmish).hazards === 'low' && skirmishSetup(s.skirmish).map === 'frost');
     });
     t('map framework', () => {
@@ -31507,6 +31535,33 @@ const SelfTest = {
         Game.quitToMenu();
       }
     });
+    t('p8 perf', () => {
+      const keepRep = Game.reportError;
+      Game.reportError = () => {};
+      try {
+        Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'jungle', size: 'small', seed: 3, random: false, support: 'none', hazards: 'off' }) });
+        const free = (s) => !s.destroyed && !s.indestructible && !s.objective && !s.explosive && !s.hot && s.type !== 'tree' && s.hx * s.hz > 4;
+        const big = W.plain.find(free), small = W.plain.find((s) => free(s) && s !== big), tree = W.plain.find((s) => s.type === 'tree' && !s.hot);
+        const listed = (s) => W.hotPlain.indexOf(s) >= 0;
+        // a hit flashes for a moment, then the structure leaves the list it is ticked from
+        damageStruct(small, small.maxHp * 0.05, 'explosive', null);
+        this.check('a hit structure joins the hot list with its flash', listed(small) && small.hot && small.flash > 0);
+        for (let i = 0; i < 4; i++) updateWorldEffects(0.05);
+        this.check('its flash fades and it leaves the hot list', small.flash <= 0 && !listed(small) && !small.hot, small.flash.toFixed(2));
+        // a critical one smoulders for as long as it stands; destroyed, it smokes for 12 s, then leaves
+        for (let i = 0; i < 40 && big.state < 2; i++) damageStruct(big, big.maxHp * 0.05, 'explosive', null);
+        const t0 = big.smokeT;
+        for (let i = 0; i < 4; i++) updateWorldEffects(0.05);
+        this.check('a critical structure stays on the hot list and smoulders', big.state === 2 && listed(big) && big.smokeT !== t0);
+        destroyStruct(big, null);
+        for (let i = 0; i < 10; i++) updateWorldEffects(1);
+        this.check('a destroyed structure still smokes for a while', listed(big));
+        for (let i = 0; i < 4; i++) updateWorldEffects(1);
+        this.check('it leaves the hot list once its smoke is done', !listed(big) && !big.hot);
+        this.check('an untouched tree is never ticked', !listed(tree) && W.hotPlain.length < W.plain.length);
+        this.check('platform colours are tinted into scratch arrays', tint([1, 1, 1], 0.5, 0.1, TINT_MAIN) === TINT_MAIN && Math.abs(TINT_MAIN[0] - 0.6) < 1e-9);
+      } finally { Game.reportError = keepRep; Game.quitToMenu(); }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -32228,6 +32283,7 @@ const Net = {
       if (!s) continue;
       if (e[6] !== undefined && !NET_UNSPOT_OFF) s.unspot = e[6];
       s.hp = e[1]; s.scorch = Math.min(1, (1 - e[1] / s.maxHp) * 0.8); s.flash = 0.1;
+      watchStruct(s);
       if (e[3] && !s.destroyed) {
         const ex = s.explosive; s.explosive = false;           // the host sends the blast as its own event
         const fell = e[3] === 2 && !!s.bld;                    // it lost its support on the host: here it falls too
