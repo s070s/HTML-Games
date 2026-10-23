@@ -4,11 +4,12 @@ Files: `src/03m-data-mutators.js` (catalogue `mutators`, X01..X50), `src/13h-mut
 
 ## Catalogue `mutators`
 
-`id code name effect params set conflicts`.
+`id code name effect params set conflicts needs`.
 
 - `params`: typed parameters `{ key, kind: 'range' | 'choice', min, max, step, default, unit }` or `{ key, kind: 'choice', options, labels, default }`. `source: 'weaponSets'` means the options are the ids of that catalogue, `extra` adds fixed options (X10 adds `random`). A flag mutator has no params and its value is `true`. One param: the value is the number or string itself. Several params (X33, X35): the value is an object keyed by param key. `false` means "not chosen".
 - `set`: data operations applied in order in the `mutators` rule stage. `{ field, op, value }` writes a literal, `{ field, op, param, scale, add }` writes `param value x scale + add`. A field is a ruleset field or a dotted path (`respawn.delay`, `fx.radar.mode`). Ops: `set`, `mul` (a missing field counts as 1), `min`, `max`, `mulMove` (multiplies `fields` of the movement preset and writes them to `moveOverrides`), `setMove`, `atLeastMove`, `weaponList` (weapon codes or keys: the match is armed with exactly these weapons), `weaponSet` (a set id, `random` or a list of weapon keys).
 - `conflicts`: ids that cannot be combined with the row (symmetric: the check looks at both rows).
+- `needs`: the mode trait the mutator works with (`lives`: no rounds, normal respawn, not co-op, not `params.fixedSides`; `teams`: two teams; `killScoring`: the mode scores kills; `ownWeapons`: the mode does not arm everyone itself, like the ladder or roulette). `''` = fits every mode.
 
 ## `Mutators` (13h)
 
@@ -17,6 +18,7 @@ Files: `src/03m-data-mutators.js` (catalogue `mutators`, X01..X50), `src/13h-mut
 | `row(id)`, `isActive(id)`, `value(id)` | row, and the state in the running match (`value` is `undefined` when off) |
 | `defaultValue(row)`, `coerce(row, value)`, `optionsOf(param)` | canonical typed values: numbers clamp to the range and snap to the step, `true` means the default, `undefined` is returned for an invalid value |
 | `conflicts(a, b)` | the two ids cannot be combined |
+| `fitsMode(row, mode)` | the row's `needs` trait holds for the mode row (true without `needs`) |
 | `add(list, id, value)` | `{ list, added, removed, message }`: adds or replaces one entry of a list of `{ id, value }`; conflicting earlier entries are removed (MUT-002, the last chosen wins) and `message` names both |
 | `remove(list, id)`, `resolve(list)` | `resolve` turns ids and `{ id, value }` into the canonical list: unknown ids go to `unknown`, invalid values fall back to the default, conflicts are resolved last-wins, notes are in `messages` |
 | `describe(entry)` | `Gravity 50%`, for the pause menu rules panel and the editor |
@@ -24,7 +26,7 @@ Files: `src/03m-data-mutators.js` (catalogue `mutators`, X01..X50), `src/13h-mut
 | `suppression(id)` | 0..1 blur strength for the HUD while the actor is suppressed (X44) |
 | `sizeScale(id)` | body size factor (growth x diminish) |
 
-Rules build (MOV-001): the `mutators` stage resolves `rules.mutators` (bundle mutators + `setup.mutators`) into a canonical list of `{ id, value }`, creates `rules.fx = {}` and applies every row in list order. A refused combination shows a toast (`toast` event) and keeps the later choice; an unknown id is reported with `Rules.report`. The `handicap` stage sets `rules.handicap.player` from X22 unless the setup names a handicap.
+Rules build (MOV-001): the `mutators` stage resolves `rules.mutators` (bundle mutators + `setup.mutators`) into a canonical list of `{ id, value }`, creates `rules.fx = {}` and applies every row in list order. A refused combination shows a toast (`toast` event) and keeps the later choice; a mutator the mode does not fit (`fitsMode`) is dropped with a toast naming it; an unknown id is reported with `Rules.report`. The `handicap` stage sets `rules.handicap.player` from X22 unless the setup names a handicap.
 
 ## `rules.fx` (the contract for other sections)
 
@@ -64,7 +66,7 @@ Emitted: `toast { text }` (refused combination), `item.grant { id, item }` (X17:
 
 ## Custom match editor (18g)
 
-Screen `custom` (main menu entry Custom): tabs Mode, Rules, Weapons, Bots, Mutators, Map. Every simple field is a cycle with its own Reset button; the first option of a number or preset is the default of the mode or bundle. The draft is saved on every change in the setting `custom.draft` (JSON). The Rules tab starts the 12 rule bundles RS01..RS12 with one click (the draft's mode, map, bots and limits with the bundle's own presets). The Map tab also opens the generated map screen `mapgen` (docs/api/mapgen.md). The Mutators tab shows all 50 with a switch and typed controls; switching one on that conflicts with another turns the other off and shows a toast. Footer: Start match, Presets (`customPresets`), Share code (`customShare`), Reset all. Everything uses `Ui` builders: keyboard, gamepad and touch navigable; text fields keep their arrow keys.
+Screen `custom` (main menu entry Custom): tabs Mode, Rules, Weapons, Bots, Mutators, Map. Every simple field is a cycle with its own Reset button; the first option of a number or preset is the default of the mode or bundle. The draft is saved on every change in the setting `custom.draft` (JSON). The Rules tab starts the 12 rule bundles RS01..RS12 with one click (the draft's mode, map, bots and limits with the bundle's own presets). The Map tab also opens the generated map screen `mapgen` (docs/api/mapgen.md). The Mutators tab shows the mutators that fit the mode (`fitsMode`) with a switch and typed controls; the Mode tab shows the score limit and time limit rows only when the mode honours them (`Modes.honoursLimit`), the Rounds to win row only for round modes (it sets limit `wins * 2 - 1` and, for modes with a side switch, `switchAt` `wins - 1`) and the Lives row only where the `lives` mutator fits; switching one on that conflicts with another turns the other off and shows a toast. Footer: Start match, Presets (`customPresets`), Share code (`customShare`), Reset all. Everything uses `Ui` builders: keyboard, gamepad and touch navigable; text fields keep their arrow keys.
 
 ### `CustomMatch` (pure model, no DOM)
 
@@ -76,7 +78,7 @@ Screen `custom` (main menu entry Custom): tabs Mode, Rules, Weapons, Bots, Mutat
 
 ### Share code (MUT-004)
 
-`CTK1-<8 hex checksum>-<payload>`: payload = base64url of an LZ77-compressed UTF-8 JSON of only the fields that differ from the defaults. The checksum is the FNV-1a hash of the payload text. `CustomMatch.encode(draft)` -> text; `CustomMatch.decode(text)` -> `{ draft }` or `{ error }` with a message for the player (not a code, newer or older version, damaged, too long, unreadable, invalid settings). The framing is shared: `CustomCodec.packCode(format, object)` / `unpackCode(format, text)` with a format from `shareCodeFormat(prefix, version, oldest, maxChars, maxBytes, noun)` (match codes `MATCH_CODE_FORMAT`, map editor codes `MAPEDIT_CODE_FORMAT` in 18i). Whitespace in a pasted code is ignored; every field is validated (unknown ids, ranges, maps that do not serve the mode, weapon keys, mutator values). No network.
+`CTK1-<8 hex checksum>-<payload>`: payload = base64url of an LZ77-compressed UTF-8 JSON of only the fields that differ from the defaults. The checksum is the FNV-1a hash of the payload text. `CustomMatch.encode(draft)` -> text; `CustomMatch.decode(text)` -> `{ draft, note }` or `{ error }` with a message for the player (not a code, newer or older version, damaged, too long, unreadable, invalid settings). The framing is shared: `CustomCodec.packCode(format, object)` / `unpackCode(format, text)` with a format from `shareCodeFormat(prefix, version, oldest, maxChars, maxBytes, noun)` (match codes `MATCH_CODE_FORMAT`, map editor codes `MAPEDIT_CODE_FORMAT` in 18i). A map that is not shared (a map editor or generated map lives only on its own device) is dropped from the decoded draft and `note` says so (`SHARE_LOCAL_MAP_NOTE`); the share screen shows the same note to the sender when the draft's map is not shared. Whitespace in a pasted code is ignored; every field is validated (unknown ids, ranges, maps that do not serve the mode, weapon keys, mutator values). No network.
 
 ## Known limits
 
