@@ -78,6 +78,7 @@ Data.define('classes', {
 ]);
 // Class weapons are Military set keys (presets and the custom class screen). A ruleset with another set swaps each one for the
 // weapon of the same role in its own set (13d Economy.applyClass): RS12 Frame Runner arms its classes from the Exotic set.
+const CLASS_WEAPON_SET = 'militarySet';   // ECP04 is the Modern Ops economy: class weapons come from its weapon set
 const CLASS_SET_SWAPS = {
   exoticSet: { warden: 'sparklock', verdict: 'sparklock', wasp: 'needlethorn', hornet: 'needlethorn', riptide: 'needlethorn', tempest: 'stormlash',
     vanguard: 'accelerator', ratchet: 'stormlash', longshot: 'talonbow', kestrel: 'talonbow', heron: 'talonbow', scattergun: 'gloop', hailstorm: 'starthrower',

@@ -273,8 +273,17 @@ Test.add('economy', (check) => {
   const card = makeElement('div');
   describeClass(card, CAT.classes.byId('marksman'));
   check('frame: the class card names the weapons the class spawns with', card.textContent.includes(weaponName('talonbow')) && !card.textContent.includes(weaponName('longshot')), card.textContent);
+  // The class editor offers Military keys only, each labelled with the weapon this match arms (modes-02).
+  const offered = CLASS_FIELD_OPTIONS.primary().concat(CLASS_FIELD_OPTIONS.secondary()), military = CAT.weaponSets.byId(CLASS_WEAPON_SET).weapons;
+  const outside = offered.filter((key) => !military.includes(key) || (CLASS_SET_SWAPS.exoticSet[key] || key) === key);
+  check('frame: the class editor offers only Military weapons, each one swapped here', outside.length === 0 && CLASS_FIELD_OPTIONS.secondary().every((key) => CAT.weapons.byId(key).class === 'sidearm'), outside.join());
+  const label = CLASS_FIELD_NAMES.primary('hornet');
+  check('frame: the class editor names the weapon a pick spawns with', label.includes(weaponName('hornet')) && label.includes(weaponName('needlethorn')), label);
   endModeTest();
-});
+  check('classes: outside a swapping set the editor shows the plain name', CLASS_FIELD_NAMES.primary('hornet') === weaponName('hornet'), CLASS_FIELD_NAMES.primary('hornet'));
+  const perks = ['bandolier', 'ghost', 'steady'];
+  check('classes: a weapon outside the Military set or a power primary is refused', Loadouts.saveClass({ primary: 'tempest', secondary: 'hush', perks }) === null
+    && Loadouts.saveClass({ primary: 'shardcaster', secondary: 'warden', perks }) === null && Loadouts.saveClass({ primary: 'warden', secondary: 'verdict', perks }) === null, Loadouts.lastError);});
 
 Test.add('economy', (check) => {
   check('loadouts: created on first use', Loadouts.selectedClass().id === CAT.classes[0].id && !!Save.data.loadouts);
