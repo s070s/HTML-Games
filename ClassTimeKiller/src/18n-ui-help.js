@@ -30,7 +30,7 @@ const OBJECTIVE_TEXT = {
   none: 'Defeat the other side.', flag: 'Capture the enemy flag and bring it to your base.', point: 'Capture and hold the points.', hill: 'Hold the marked hill.',
   bombsite: 'Plant the bomb at a site, or defuse it.', relic: 'Carry the relic as long as you can.', payloadPath: 'Escort the payload along its route.', bank: 'Collect and bank the cash.',
 };
-// Modes whose goal the objective and scoring lines cannot tell (both are replaced by this line).
+// Modes whose goal the objective and scoring lines cannot tell (both are replaced by this line); {key} = that mode param.
 const MODE_GOAL_TEXT = {
   lms: 'A few lives each: the last one standing wins.',
   gungame: 'Each kill moves you up the weapon ladder: finish it first to win. A melee kill sets the victim back.',
@@ -39,7 +39,7 @@ const MODE_GOAL_TEXT = {
   cursetag: 'Killing the cursed player (weak, melee only) scores. The cursed passes the curse on at the beacon.',
   royale: 'No respawns: loot, stay inside the shrinking ring, be the last squad standing.',
   bearer: 'The flame bearer scores every second and hits harder: kill the bearer to take it.',
-  roulette: 'Everyone has the same weapon, changed every 30 s. Every kill scores.',
+  roulette: 'Everyone has the same weapon, changed every {rotateEvery} s. Every kill scores.',
   fiends: 'Ravager against fiends: wipe the other side out to win a round. Fiends stand up while a partner lives.',
   horde: 'Defend the core against the waves; shop between waves.',
   endless: 'Defend the core against growing waves; reach the extract zone when it opens.',
@@ -112,8 +112,10 @@ function percentText(label, value) { return label + ' ' + Math.round(value * 100
 
 // What wins this match, in one or two lines.
 function modeGoalLines(rules) {
-  if (MODE_GOAL_TEXT[rules.mode]) return [MODE_GOAL_TEXT[rules.mode]];
-  return [OBJECTIVE_TEXT[rules.objective] || '', SCORE_BY_TEXT[rules.scoreBy] || ''];
+  const goal = MODE_GOAL_TEXT[rules.mode];
+  if (!goal) return [OBJECTIVE_TEXT[rules.objective] || '', SCORE_BY_TEXT[rules.scoreBy] || ''];
+  const params = rules.params || CAT.modes.byId(rules.mode).params;
+  return [goal.replace(/\{(\w+)\}/g, (all, key) => params[key])];
 }
 // The running match as plain lines for the rules panel (also used by the self-test).
 function rulesPanelLines(rules) {

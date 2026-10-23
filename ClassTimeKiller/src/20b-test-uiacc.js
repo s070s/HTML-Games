@@ -554,7 +554,8 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   const vague = CAT.modes.filter((row) => (row.objective || 'none') === 'none' && !['kills', 'rounds'].includes(row.scoreBy || 'kills') && !MODE_GOAL_TEXT[row.id]).map((row) => row.id);
   check('rules panel: special modes have a goal line', vague.length === 0, vague.join());
   const lms = modeGoalLines({ mode: 'lms' }).join(), ladder = modeGoalLines({ mode: 'gungame' }).join();
-  check('rules panel: Last Standing and Arms Ladder say how they are won', !lms.includes('wave') && ladder.includes('ladder'), lms + ladder);
+  const roulette = modeGoalLines({ mode: 'roulette', params: { rotateEvery: 45 } }).join() + modeGoalLines({ mode: 'roulette' }).join();
+  check('rules panel: Last Standing, Arms Ladder and Roulette say how they are won, numbers from the mode params', !lms.includes('wave') && ladder.includes('ladder') && roulette.includes('every 45 s') && roulette.includes('every ' + CAT.modes.byId('roulette').params.rotateEvery + ' s'), lms + ladder + roulette);
   Input.device = 'kbm';
 })));
 
