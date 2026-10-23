@@ -18,7 +18,8 @@ const PLAY_TIME_STEP = 30;
 const PLAY_AUTO_TEAM = -1;
 const PLAY_SEED_RANGE = 0x7fffffff;
 const PLAY_RESULT_TITLES = { win: 'Victory', loss: 'Defeat', draw: 'Draw', over: 'Match over' };
-const PLAY_REASON_TEXT = { score: 'Score limit reached', time: 'Time is up', overtime: 'Decided in overtime', draw: 'Nobody could break the tie', eliminated: 'Last one standing', rounds: 'Rounds decided', tickets: 'Tickets ran out' };
+const PLAY_REASON_TEXT = { score: 'Score limit reached', time: 'Time is up', overtime: 'Decided in overtime', draw: 'Nobody could break the tie', eliminated: 'Last one standing', rounds: 'Rounds decided', tickets: 'Tickets ran out',
+  victory: 'Mission complete', defeat: 'The run is over', extracted: 'Extracted in time', objective: 'Objective complete' };
 const PlayResultsExtras = [];   // fn(body) panels later files add to the results screen (18j: XP and progress)
 const PLAY_CSS = '.pl-title { font-size: 2.2em; font-weight: 800; margin: 0; } .pl-win { color: var(--ui-good, #58d66b); } .pl-loss { color: var(--ui-bad); }'
   + '.pl-stats { color: var(--ui-dim); margin: 4px 0 12px; } .pl-form { max-width: 640px; }';
@@ -144,6 +145,7 @@ const PlayFlow = {
   },
   // 'win' | 'loss' | 'draw' | 'over' from the results record and the local player.
   outcome(results) {
+    if (results.lost) return 'loss';
     if (results.draw) return 'draw';
     const player = Game.playerId;
     if (player < 0) return 'over';

@@ -822,7 +822,9 @@ const Modes = {
     const teams = this.rules.teams === TEAM_COUNT, players = [];
     for (let id = 0; id < Actors.count; id++) if (this.participant[id]) players.push(this.playerResult(id));
     players.sort((a, b) => b.score - a.score || b.kills - a.kills || a.deaths - b.deaths);
-    return { mode: this.mode.id, ruleset: this.rules.id, winner, draw: winner === DRAW, reason: this.endReason,
+    // A co-op side (one team, or a solo run) has no rival to draw with: ending with no winner means it lost.
+    const lost = winner === DRAW && !teams && this.rules.family !== 'versus';
+    return { mode: this.mode.id, ruleset: this.rules.id, winner, draw: winner === DRAW && !lost, lost, reason: this.endReason,
       winnerTeam: teams && winner >= 0 ? winner : NO_TEAM, winnerId: !teams && winner >= 0 ? winner : -1,
       duration: Sim.time - this.startTime, rounds: this.round, players,
       teams: teams ? [this.teamResult(0, players), this.teamResult(1, players)] : [], queue: this.queueAfter(winner) };

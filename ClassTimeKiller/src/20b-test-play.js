@@ -343,3 +343,21 @@ Test.add('play', (check) => uiWith(() => {
     Game.stop(); Ui.closeAll();
   }
 }));
+
+// ---- A co-op run that ends with no winner is a loss: Defeat with its reason, never Draw (ai-01) ----
+Test.add('play', (check) => uiWith(() => {
+  try {
+    Game.start({ mode: 'horde', map: 'cistern', seed: PLAY_TEST_SEED, player: { team: 0, name: PLAY_PLAYER_NAME }, bots: [] });
+    Modes.finish(Modes.over(DRAW, PVE_LOSE));
+    const results = Game.match.results, text = Ui.top().element.textContent;
+    check('results: a lost co-op run is a loss, not a draw', results.lost && !results.draw && PlayFlow.outcome(results) === 'loss', JSON.stringify({ lost: results.lost, draw: results.draw }));
+    check('results: the screen says Defeat and why', text.includes(PLAY_RESULT_TITLES.loss) && !!PLAY_REASON_TEXT[PVE_LOSE] && text.includes(PLAY_REASON_TEXT[PVE_LOSE]), text.slice(0, 80));
+    check('results: every co-op end reason has its line', [PVE_WIN, PVE_LOSE, 'extracted', 'objective'].every((reason) => !!PLAY_REASON_TEXT[reason]));
+    Game.stop(); Ui.closeAll();
+    Game.start({ mode: 'ffa', map: 'spire', seed: PLAY_TEST_SEED, player: { name: PLAY_PLAYER_NAME }, bots: [{}] });
+    Modes.finish(Modes.over(DRAW, 'draw'));
+    check('results: a versus draw stays a draw', Game.match.results.draw && !Game.match.results.lost && PlayFlow.outcome(Game.match.results) === 'draw');
+  } finally {
+    Game.stop(); Ui.closeAll();
+  }
+}));
