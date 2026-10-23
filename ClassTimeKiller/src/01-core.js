@@ -444,6 +444,13 @@ function showFatal(title, text, detail) {
   document.getElementById('fatal-detail').textContent = detail || '';
   document.getElementById('fatal').classList.add('show');
 }
+// The one way back (a late graphics restore): also drops the buttons a section added to the box (S07's Reload).
+function hideFatal() {
+  fatalShown = false;
+  const fatal = document.getElementById('fatal');
+  fatal.classList.remove('show');
+  for (const button of fatal.querySelectorAll('button')) button.remove();
+}
 
 // ---- Match lifecycle (sections react through the match.* events listed in docs/ARCHITECTURE.md) ----
 const MATCH_START_FAILED = 'This match could not start.';

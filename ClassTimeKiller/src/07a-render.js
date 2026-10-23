@@ -592,10 +592,7 @@ function handleContextRestored() {
 // A late restore takes the Reload screen away again; the match stays paused behind the pause menu.
 function hideGraphicsLost() {
   Render.gaveUp = false;
-  fatalShown = false;
-  document.getElementById('fatal').classList.remove('show');
-  const reload = document.getElementById('fatal-reload');
-  if (reload) reload.remove();
+  hideFatal();
 }
 Input.resumeBlocked = () => Render.lost;   // the pause menu's Resume waits for the restore (PLT-005)
 // A quit during the loss: a later match's pause is the player's.

@@ -174,7 +174,9 @@ Test.add('core', (check) => {
   Bus.off('test.bootcheck', thrower);
   Boot.run = run;
   check('boot: Boot.start shows the fatal screen for it', fatalShown && fatal.classList.contains('show') && document.getElementById('fatal-title').textContent === BOOT_FATAL_TITLE);
-  fatalShown = false; fatal.classList.remove('show');
+  fatal.querySelector('.box').appendChild(makeElement('button', 'ui-button', 'Extra'));
+  hideFatal();
+  check('boot: hideFatal clears the fatal screen, its flag and the buttons sections added', !fatalShown && !fatal.classList.contains('show') && !fatal.querySelector('button'));
   const debugApi = window.__CTK;
   delete window.__CTK;
   window.onerror('Uncaught SyntaxError: early', '', 1, 1, null);
