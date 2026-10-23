@@ -311,11 +311,11 @@ function takeLoot(id, spot, now) {
   RoyaleLoot.taken[spot] = 1;
 }
 
-// A full inventory takes a new weapon only while USE is held; the dropped weapon stays on the spot with its rarity.
+// A full inventory swaps by the one carry-limit rule (Weapons.mayTake: a player holds USE); the dropped weapon stays on the spot.
 function takeWeapon(id, spot, now) {
   const key = CAT.weapons[RoyaleLoot.weapon[spot]].id;
   if (Weapons.has(id, key)) { takeDuplicate(id, key, spot); return; }
-  if (Weapons.atCarryLimit(id) && ((Actors.buttons[id] & BTN.USE) === 0 || now < lootSwapAt[id])) return;
+  if (!Weapons.mayTake(id, CAT.weapons[RoyaleLoot.weapon[spot]]) || (Weapons.atCarryLimit(id) && now < lootSwapAt[id])) return;
   Weapons.give(id, key, RoyaleLoot.rarity[spot]);
   const dropped = Weapons.dropped ? CAT.weapons.byId(Weapons.dropped) : null;
   if (!dropped) { RoyaleLoot.taken[spot] = 1; return; }
