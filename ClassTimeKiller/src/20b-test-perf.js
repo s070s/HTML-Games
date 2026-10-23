@@ -620,10 +620,14 @@ function perfAllocatedBytes(run) {
 }
 
 // True when the heap counter sees a known allocation (a browser without the precise flag rounds and caches the counter).
+// A GC during one try shrinks the reading, so it gets PERF_ALLOC_ROUNDS tries before the probes are skipped.
 function perfHeapCounterWorks() {
-  const kept = new Array(PERF_ALLOC_PROBE_OBJECTS), before = perfHeapBytes();
-  for (let i = 0; i < PERF_ALLOC_PROBE_OBJECTS; i++) kept[i] = { index: i };
-  return perfHeapBytes() - before >= PERF_ALLOC_PROBE_OBJECTS * 12 && kept.length === PERF_ALLOC_PROBE_OBJECTS;
+  for (let attempt = 0; attempt < PERF_ALLOC_ROUNDS; attempt++) {
+    const kept = new Array(PERF_ALLOC_PROBE_OBJECTS), before = perfHeapBytes();
+    for (let i = 0; i < PERF_ALLOC_PROBE_OBJECTS; i++) kept[i] = { index: i };
+    if (perfHeapBytes() - before >= PERF_ALLOC_PROBE_OBJECTS * 12 && kept.length === PERF_ALLOC_PROBE_OBJECTS) return true;
+  }
+  return false;
 }
 
 // The near parts of the body model with the most of them (a real ActorModels row: partColor reads its row colour too).
