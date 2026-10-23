@@ -809,6 +809,23 @@ Test.add('weapons', (check) => {
   TestArena.finish();
 });
 
+// Burst triggers (W15, W04 alt) follow the same rate rule as every other trigger: a rate boost shortens pull and gap.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const id = TestArena.actor(1, 0, 0);
+  TestArena.sponge(2, 0, 20);
+  Weapons.setLoadout(id, ['ratchet']);
+  const ratchet = CAT.weapons.byId('ratchet'), mode = ratchet.primary;
+  Weapons.rateScale[id] = 2;
+  Weapons.nextShot[id] = 0;
+  Weapons.fire(id, ratchet, mode, 0, 0);
+  Weapons.startBurst(id, ratchet, mode, 0);
+  check('a rate boost halves the burst pull interval', Test.near(Weapons.nextShot[id], 1 / (mode.rate * 2), 1e-6), Weapons.nextShot[id]);
+  check('and the gap between burst rounds', Test.near(Weapons.burstTimer[id], mode.burstGap / 2, 1e-6), Weapons.burstTimer[id]);
+  Weapons.rateScale[id] = 1;
+  TestArena.finish();
+});
+
 // WPN-001 alt fires: W19 slug aims at 1.2x, W35 napalm airblasts enemy projectiles back, W30 beam repairs friendly devices.
 Test.add('weapons', (check) => {
   TestArena.start({});
