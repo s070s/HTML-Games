@@ -18,9 +18,9 @@ Test.add('custom', (check) => {
   const savedRandom = Math.random, saved = MapGenMenu.state.seed;
   Math.random = () => 0.25;
   try {
-    const expected = newSeed(() => 0.25);
+    const expected = Math.floor(0.25 * SEED_RANGE);
     MapGenMenu.newSeed();
-    check('seeds: custom matches and generated maps use newSeed', expected === Math.floor(0.25 * SEED_RANGE) && CustomMatch.setup(CustomMatch.defaults()).seed === expected
+    check('seeds: custom matches and generated maps use newSeed', CustomMatch.setup(CustomMatch.defaults()).seed === expected
       && MapGenMenu.state.seed === expected, MapGenMenu.state.seed);
   } finally { Math.random = savedRandom; MapGenMenu.state.seed = saved; }
 });

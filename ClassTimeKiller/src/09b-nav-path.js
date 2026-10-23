@@ -264,7 +264,7 @@ function navPrepareTeleportHops() {
 function navPrepareHeuristic(goal) {
   const s = navSearch;
   s.goalX = Nav.nodeX[goal]; s.goalY = Nav.nodeY[goal]; s.goalZ = Nav.nodeZ[goal];
-  for (let t = 0; t < Nav.teleportCount; t++) s.teleportExitCost[t] = navDistanceToGoal(Nav.teleportExit[t]) / Nav.heuristicSpeed;
+  for (let t = 0; t < Nav.teleportCount; t++) s.teleportExitCost[t] = navNodeDistance(Nav.teleportExit[t], goal) / Nav.heuristicSpeed;
   let changed = true;
   for (let round = 1; round < Nav.teleportCount && changed; round++) {
     changed = false;
@@ -280,11 +280,6 @@ function navRelaxTeleport(t) {
     if (throughU < s.teleportExitCost[t]) { s.teleportExitCost[t] = throughU; changed = true; }
   }
   return changed;
-}
-
-function navDistanceToGoal(node) {
-  const s = navSearch;
-  return Math.sqrt(distanceSquared3(Nav.nodeX[node], Nav.nodeY[node], Nav.nodeZ[node], s.goalX, s.goalY, s.goalZ));
 }
 
 // Adds the node's heuristic to navSearch.pushScore. The distances are worked out inline: a float returned by (or passed
