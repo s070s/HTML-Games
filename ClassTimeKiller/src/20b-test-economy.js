@@ -163,7 +163,7 @@ Test.add('economy', (check) => {
   TestArena.finish();
   TestArena.start({ economy: 'pickups', params: CAT.modes.byId('gungame').params });
   const played = ladderTiers(CAT.modes.byId('gungame').params).length;
-  check('economy panel: Arms Ladder names the played ladder length (14)', played === 14 && economyPanelLines().lines.some((line) => line.includes('ladder of ' + played + ' weapons')));
+  check('economy panel: Arms Ladder names the played ladder length (12)', played === 12 && economyPanelLines().lines.some((line) => line.includes('ladder of ' + played + ' weapons')));
   TestArena.finish();
   TestArena.start({ economy: 'loot', weaponSet: 'lootSet' });
   check('economy panel: loot reads the carry limit of the weapon set', economyPanelLines().lines.some((line) => line.includes('You carry ' + CAT.weaponSets.byId('lootSet').carry + ' weapons')));

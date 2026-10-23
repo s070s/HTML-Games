@@ -17,10 +17,10 @@ const BOMB_ROUNDS = { winsNeeded: 7, limit: 13, live: 100, freeze: 15, switchAt:
 const BOMB_PARAMS = { plantTime: 4, fuse: 40, defuseTime: 7, defuseCheckpoint: 3.5, defuseRange: 1.5, blastRadius: 15 };
 const CAPTURE_PARAMS = { captureTime: 8, captureStack: 0.5, captureMax: 2 };
 const NO_KILL_SCORING = { kill: 0, suicide: 0, teamKill: 0 };   // modes that score only by their own rule (relic time, ladder tier, ...)
-// M16 weapon ladder (ECP06): one weapon per tier, kill to climb; the last tier is the melee weapon. 14 tiers: eight players
-// finish in about 5-6 minutes (18 ran past the time limit). A custom params.tiers plays the first tiers - 1 plus the melee tier.
-const GUNGAME_LADDER = ['tempest', 'vanguard', 'ratchet', 'pulsecarbine', 'wasp', 'hornet', 'riptide', 'scattergun', 'hookjaw', 'shardcaster',
-  'kestrel', 'lancet', 'heron', 'maul'];
+// M16 weapon ladder (ECP06): one weapon per tier, kill to climb; the last tier is the melee weapon. 12 tiers: eight bots
+// finish inside the 10-minute limit on every tested seed (14 tiers took 7.5-11 minutes, 18 always ran out). A custom
+// params.tiers plays the first tiers - 1 plus the melee tier.
+const GUNGAME_LADDER = ['tempest', 'vanguard', 'ratchet', 'wasp', 'hornet', 'riptide', 'scattergun', 'hookjaw', 'kestrel', 'lancet', 'heron', 'maul'];
 
 Data.define('modes', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, goal: '', goalDetail: '', teams: 0, sizeDefault: 8, scoreLimit: 0, timeLimit: 600, scoreBy: 'kills',

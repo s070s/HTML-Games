@@ -41,8 +41,8 @@ Test.add('modes2', (check) => {
   const convoy = rows('payload').params;
   check('payload: 1.2 to 1.8 m/s, rollback after 10 s, 3 checkpoints, 4:00 + 2:00 (M11)', convoy.speed === 1.2 && convoy.maxSpeed === 1.8 && convoy.rollbackAfter === 10
     && convoy.checkpoints === 3 && rows('payload').timeLimit === 240 && convoy.checkpointTime === 120 && Test.near(convoy.speed * (1 + 2 * convoy.pushStack), convoy.maxSpeed, 1e-9));
-  check('gungame: a 14-weapon ladder by default, the last one melee (M16, fun-04)', rows('gungame').params.ladder.length === 14 && !rows('gungame').params.tiers
-    && CAT.weapons.byId(GUNGAME_LADDER[13]).class === 'melee' && GUNGAME_LADDER.every((key) => CAT.weapons.byId(key)));
+  check('gungame: a 12-weapon ladder by default, the last one melee (M16, fun-04)', rows('gungame').params.ladder.length === 12 && !rows('gungame').params.tiers
+    && CAT.weapons.byId(GUNGAME_LADDER[11]).class === 'melee' && GUNGAME_LADDER.every((key) => CAT.weapons.byId(key)));
   check('infection: 1 per 6, after 20 s, 450 HP, 5 min (M17)', rows('infection').params.infectedPerPlayers === 6
     && rows('infection').params.infectAfter === 20 && rows('infection').params.infectedHealth === 450 && rows('infection').timeLimit === 300);
   check('juggernaut: x3 HP, x1.5 damage, 15 to win (M18)', rows('juggernaut').params.healthMult === 3 && rows('juggernaut').params.damageMult === 1.5 && rows('juggernaut').scoreLimit === 15);
@@ -50,7 +50,7 @@ Test.add('modes2', (check) => {
     && rows('cursetag').params.passOnTag === false);
   const shortLadder = ladderTiers({ ladder: GUNGAME_LADDER, tiers: 3 });
   check('gungame: params.tiers shortens the ladder, keeping the melee tier last', shortLadder.join() === 'tempest,vanguard,maul'
-    && ladderTiers({ ladder: GUNGAME_LADDER, tiers: 99 }).length === 14 && ladderTiers({ ladder: GUNGAME_LADDER }).length === 14
+    && ladderTiers({ ladder: GUNGAME_LADDER, tiers: 99 }).length === 12 && ladderTiers({ ladder: GUNGAME_LADDER }).length === 12
     && ladderTiers({ ladder: GUNGAME_LADDER, tiers: 1 }).join() === 'maul');
   const area = worldSafeArea({});
   check('worldSafeArea: the fallback without world bounds', Number.isFinite(World.boundsMin.x) || (area.x === 0 && area.z === 0 && area.radius === SAFE_AREA_FALLBACK_RADIUS));
