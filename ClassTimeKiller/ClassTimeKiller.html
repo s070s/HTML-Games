@@ -4109,6 +4109,8 @@ const TOUCH_MIN_EVENT_MS = 4;
 const TOUCH_TAP_MS = 220;
 const TOUCH_TAP_SLOP = 12;
 const TOUCH_HOLD_MS = 350;
+const TOUCH_COOK_MS = 150;
+const TOUCH_SWIPE = 24;
 const TOUCH_GYRO_WAIT_MS = 1000;
 const TOUCH_GYRO_KEY = 'controls.touch.gyro', TOUCH_GYRO_MESSAGE = 'Gyro needs HTTPS and motion permission', TOUCH_GYRO_NOTE = ' (needs HTTPS and motion permission)';
 const TOUCH_FOUR_FINGER_MS = 300;
@@ -4121,7 +4123,11 @@ const TOUCH_SHRINK_STEP = 0.85;
 const TOUCH_SMALLEST = 0.45;
 const TOUCH_EDGE_BAND = 0.3;
 const TOUCH_NEAR = 6;
-const ROLE_NONE = 0, ROLE_STICK = 1, ROLE_LOOK = 2, ROLE_BUTTON = 3, ROLE_DRAG = 4;
+const TOUCH_CROWD_SMALLEST = TOUCH_SMALLEST / TOUCH_SCALE_MAX;
+const TOUCH_MIN_DIAMETER = 30;
+const TOUCH_GAP = 2;
+const TOUCH_CENTRE_BAND = 0.05;
+const ROLE_NONE = 0, ROLE_STICK = 1, ROLE_LOOK = 2, ROLE_BUTTON = 3, ROLE_DRAG = 4, ROLE_PANEL = 5;
 const GYRO_AXES = {
 	0: { upX: 0, upY: 1, rightX: 1, rightY: 0 }, 90: { upX: 1, upY: 0, rightX: 0, rightY: -1 },
 	180: { upX: 0, upY: -1, rightX: -1, rightY: 0 }, 270: { upX: -1, upY: 0, rightX: 0, rightY: 1 },
@@ -4137,26 +4143,22 @@ const TOUCH_CONTROLS = [
 	{ id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
 	{ id: 'aim', label: 'Aim', face: 'AIM', action: 'alt', x: 0.80, y: 0.40, size: 60 },
 	{ id: 'jump', label: 'Jump', face: 'JUMP', action: 'jump', x: 0.82, y: 0.82, size: 64, mirrorAt: [0.20, 0.72] },
-	{ id: 'crouch', label: 'Crouch', face: 'DUCK', action: 'crouch', x: 0.70, y: 0.88, size: 50 },
-	{ id: 'prone', label: 'Prone', face: 'LIE', action: 'prone', x: 0.53, y: 0.88, size: 36, need: 'prone' },
+	{ id: 'crouch', label: 'Crouch (swipe: lie prone or get up)', face: 'DUCK', action: 'crouch', swipeAction: 'prone', swipeNow: true, x: 0.70, y: 0.88, size: 50 },
 	{ id: 'reload', label: 'Reload', face: 'LOAD', action: 'reload', x: 0.94, y: 0.34, size: 50 },
 	{ id: 'breath', label: 'Hold breath', face: 'HOLD', action: 'walk', x: 0.70, y: 0.42, size: 46, need: 'breath' },
 	{ id: 'swap', label: 'Swap weapon (hold: previous)', face: 'SWAP', action: 'nextWeapon', holdAction: 'prevWeapon', x: 0.76, y: 0.21, size: 46, mirrorAt: [0.28, 0.30] },
-	{ id: 'grenade', label: 'Grenade', face: 'NADE', action: 'grenade', x: 0.60, y: 0.88, size: 46, need: 'grenade' },
+	{ id: 'grenade', label: 'Grenade (swipe: next type)', face: 'NADE', action: 'grenade', swipeAction: 'grenadeNext', x: 0.60, y: 0.88, size: 46, need: 'grenade' },
 	{ id: 'heal', label: 'Use heal', face: 'HEAL', action: 'heal', x: 0.94, y: 0.16, size: 42, need: 'heal', mirrorAt: [0.17, 0.10] },
-	{ id: 'grenadeNext', label: 'Next grenade type', face: 'TYPE', action: 'grenadeNext', x: 0.60, y: 0.74, size: 36, need: 'grenadeCycle' },
 	{ id: 'ability1', label: 'Ability 1', face: 'A1', action: 'ability1', x: 0.08, y: 0.32, size: 44, need: 'ability1' },
 	{ id: 'ability2', label: 'Ability 2', face: 'A2', action: 'ability2', x: 0.17, y: 0.32, size: 44, need: 'ability2' },
 	{ id: 'ultimate', label: 'Ultimate', face: 'ULT', action: 'ultimate', x: 0.26, y: 0.32, size: 44, need: 'ultimate' },
-	{ id: 'ping', label: 'Ping', face: 'PING', action: 'ping', x: 0.58, y: 0.20, size: 40, edge: true },
-	{ id: 'scoreboard', label: 'Scoreboard', face: 'TAB', action: 'scoreboard', x: 0.42, y: 0.20, size: 40, edge: true },
+	{ id: 'ping', label: 'Ping (hold: comm wheel)', face: 'PING', action: 'ping', x: 0.58, y: 0.20, size: 40, edge: true },
 	{ id: 'pause', label: 'Pause', face: 'II', action: 'pause', x: 0.50, y: 0.20, size: 40, edge: true },
 	{ id: 'cards', label: 'Use a card', face: 'CARD', action: 'cards', x: 0.34, y: 0.20, size: 40, need: 'cards' },
 	{ id: 'fireLeft', label: 'Fire (left side)', face: 'FIRE', action: 'fire', x: 0.30, y: 0.62, size: 70, setting: 'touchLeftFire' },
 	{ id: 'use', label: 'Use / interact', face: 'USE', action: 'use', x: 0.70, y: 0.64, size: 54, need: 'use' },
 	{ id: 'melee', label: 'Melee', face: 'MELEE', action: 'melee', x: 0.86, y: 0.22, size: 46, mirrorAt: [0.20, 0.22] },
 	{ id: 'gadget', label: 'Gadget', face: 'TOOL', action: 'gadget', x: 0.35, y: 0.32, size: 44, need: 'gadget', edge: true },
-	{ id: 'comm', label: 'Comm wheel', face: 'CHAT', action: 'comm', x: 0.66, y: 0.20, size: 40, need: 'comm', edge: true },
 ];
 const TOUCH_SETTINGS = [
 	{ key: 'controls.touch.sensitivity', field: 'touchSensitivity', fallback: 1, label: 'Touch look sensitivity', min: 0.2, max: 3, step: 0.05 },
@@ -4208,15 +4210,18 @@ const TouchInput = {
 	needed: [], needBits: 0,
 	weaponSlotAt: null,
 	buttonLook: null,
+	panelAt: null,
+	notes: {},
 	layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
 	places: {},
 	placeOrder: TOUCH_CONTROLS.slice(),
+	crowd: [1, 1],
 	aim: { x: 0, y: 0, radius: 0 },
 	insets: { top: 0, right: 0, bottom: 0, left: 0 },
 	keepClear: [],
 	clearRects: [], clearCount: 0,
 	needs: {
-		use: () => useButtonNeeded(), comm: null,
+		use: () => useButtonNeeded(),
 		ability1: () => touchHasAbility(SLOT.ABILITY1), ability2: () => touchHasAbility(SLOT.ABILITY2), ultimate: () => touchHasAbility(SLOT.ULTIMATE),
 		gadget: () => Game.playerId >= 0 && Gadgets.gadget[Game.playerId] >= 0,
 		grenade: () => Game.playerId >= 0 && Gadgets.thrownTotal(Game.playerId) > 0,
@@ -4229,7 +4234,7 @@ const TouchInput = {
 	init() {
 		this.onMotion = (event) => { this.gyro.events++; if (event.rotationRate) gyroToLook(event.rotationRate, this.screenAngle(), this.gyro); };
 		this.buildLayer();
-		for (let i = 0; i < TOUCH_SLOT_COUNT; i++) this.slots.push({ pointerId: -1, role: ROLE_NONE, control: null, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, lastTime: 0, moved: false, weaponSlot: 0 });
+		for (let i = 0; i < TOUCH_SLOT_COUNT; i++) this.slots.push({ pointerId: -1, role: ROLE_NONE, control: null, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, lastTime: 0, moved: false, weaponSlot: 0, waiting: false, done: false });
 		if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) Input.setDevice('touch');
 		document.addEventListener('gesturestart', (event) => event.preventDefault());
 		this.applyAll();
@@ -4249,6 +4254,7 @@ const TouchInput = {
 			this.elements[control.id] = element;
 			this.controlById[control.id] = control;
 			this.places[control.id] = {};
+			if (control.swipeAction && !control.swipeNow) element.appendChild(this.notes[control.id] = makeElement('span', 'tc-note'));
 			if (control.need && !this.needed.includes(control.need)) this.needed.push(control.need);
 			this.layer.appendChild(element);
 		}
@@ -4302,6 +4308,7 @@ const TouchInput = {
 		slot.weaponSlot = control || !this.weaponSlotAt ? 0 : this.weaponSlotAt(event.clientX, event.clientY);
 		if (control && control.action) this.beginButton(slot, control);
 		else if (control) this.beginStick(slot, event, control);
+		else if (this.panelAt && this.panelAt(event.clientX, event.clientY)) { slot.role = ROLE_PANEL; Input.pressAction(Input.actionIndex.scoreboard); }
 		else if (this.inMoveZone(event.clientX) && !this.stick.slot) this.beginStick(slot, event, null);
 		else slot.role = ROLE_LOOK;
 	},
@@ -4315,6 +4322,7 @@ const TouchInput = {
 		if (slot.role === ROLE_STICK) this.moveStick(event);
 		else if (slot.role === ROLE_LOOK) this.moveLook(slot, event);
 		else if (slot.role === ROLE_DRAG) this.dragControl(slot.control, event);
+		else if (slot.role === ROLE_BUTTON && (slot.waiting || (slot.control.swipeNow && !slot.done)) && length2(event.clientX - slot.startX, event.clientY - slot.startY) > TOUCH_SWIPE) this.swipeButton(slot);
 		else if (slot.role === ROLE_BUTTON && this.buttonLook && this.buttonLook(slot.control)) this.moveLook(slot, event);
 		slot.lastX = event.clientX; slot.lastY = event.clientY; slot.lastTime = event.timeStamp;
 		if (length2(event.clientX - slot.startX, event.clientY - slot.startY) > TOUCH_TAP_SLOP) slot.moved = true;
@@ -4325,6 +4333,8 @@ const TouchInput = {
 		const tap = !slot.moved && event.timeStamp - slot.startTime < TOUCH_TAP_MS;
 		if (slot.role === ROLE_STICK) this.endStick();
 		else if (slot.role === ROLE_BUTTON) this.endButton(slot, event);
+		else if (slot.role === ROLE_DRAG) this.flushDrag();
+		else if (slot.role === ROLE_PANEL) Input.releaseAction(Input.actionIndex.scoreboard);
 		if (tap && slot.weaponSlot) Input.pulseAction(Input.actionIndex['slot' + slot.weaponSlot]);
 		else if (tap && slot.role === ROLE_LOOK && Input.config.touchTapFire) Input.pulseAction(Input.actionIndex.fire);
 		this.freeSlot(slot);
@@ -4332,12 +4342,14 @@ const TouchInput = {
 	},
 
 	beginButton(slot, control) {
-		slot.role = ROLE_BUTTON; slot.control = control;
-		if (control.holdAction) this.elements[control.id].classList.add('down');
+		slot.role = ROLE_BUTTON; slot.control = control; slot.waiting = !!control.swipeAction && !control.swipeNow; slot.done = false;
+		if (control.holdAction || slot.waiting) this.elements[control.id].classList.add('down');
 		else this.setButton(control, true);
 	},
 	endButton(slot, event) {
 		const control = slot.control;
+		if (slot.waiting) Input.pulseAction(Input.actionIndex[control.action]);
+		if (slot.waiting || slot.done) { this.elements[control.id].classList.remove('down'); return; }
 		if (!control.holdAction) { this.setButton(control, false); return; }
 		const held = event.timeStamp - slot.startTime >= TOUCH_HOLD_MS;
 		this.elements[control.id].classList.remove('down');
@@ -4348,6 +4360,20 @@ const TouchInput = {
 		this.elements[control.id].classList.toggle('down', down);
 		if (down) Input.pressAction(index); else Input.releaseAction(index);
 	},
+	stepHeldButtons(now) {
+		for (let i = 0; i < TOUCH_SLOT_COUNT; i++) {
+			const slot = this.slots[i];
+			if (slot.role === ROLE_BUTTON && slot.waiting && now - slot.startTime >= TOUCH_COOK_MS) { slot.waiting = false; this.setButton(slot.control, true); }
+		}
+	},
+	swipeButton(slot) {
+		const control = slot.control, need = this.needs[control.swipeAction];
+		if (!slot.waiting) { this.setButton(control, false); Input.resetToggle(control.action); }
+		slot.waiting = false; slot.done = true;
+		this.elements[control.id].classList.remove('down');
+		if (!need || need()) Input.pulseAction(Input.actionIndex[control.swipeAction]);
+	},
+	setNote(controlId, text) { if (this.notes[controlId]) this.notes[controlId].textContent = text; },
 
 	beginStick(slot, event, control) {
 		const stick = this.stick, size = this.layoutOf('stick', this.layoutScratch).scale * TOUCH_CONTROLS[0].size;
@@ -4438,6 +4464,7 @@ const TouchInput = {
 		this.syncVisible();
 		if (!this.shown) return;
 		this.syncNeeds();
+		if (this.activeCount) this.stepHeldButtons(performance.now());
 		Input.analog.moveX += this.stick.x;
 		Input.analog.moveZ -= this.stick.y;
 		if (!this.gyro.attached || !this.gyroEnabled()) return;
@@ -4526,36 +4553,59 @@ const TouchInput = {
 		rect.left = left; rect.top = top; rect.right = right; rect.bottom = bottom;
 	},
 	placeAll(width, height) {
-		const aim = this.aim, places = this.places;
+		const aim = this.aim, crowd = this.crowd;
 		aim.x = width / 2; aim.y = height / 2; aim.radius = TOUCH_AIM_ZONE * Math.min(width, height);
 		this.clearCount = 0;
 		for (let i = 0; i < this.keepClear.length; i++) this.keepClear[i](width, height);
+		crowd[0] = crowd[1] = 1;
+		for (;;) {
+			this.placeEvery(width, height);
+			const side = this.crowdedSide(width);
+			if (side < 0 || crowd[side] <= TOUCH_CROWD_SMALLEST) return;
+			crowd[side] = Math.max(TOUCH_CROWD_SMALLEST, crowd[side] * TOUCH_SHRINK_STEP);
+		}
+	},
+	placeEvery(width, height) {
+		const places = this.places;
 		for (let i = 0; i < TOUCH_CONTROLS.length; i++) this.prepareControl(TOUCH_CONTROLS[i], i, width, height);
 		this.placeOrder.sort((a, b) => (places[b.id].fullRadius - places[a.id].fullRadius) || (places[a.id].order - places[b.id].order));
 		for (const control of this.placeOrder) this.placeControl(control, width, height);
 	},
+	crowdedSide(width) {
+		for (const control of TOUCH_CONTROLS) {
+			const place = this.places[control.id];
+			if (place.shown && !this.keepsHalf(place, place.x, width)) return place.startX < width / 2 ? 0 : 1;
+		}
+		return -1;
+	},
 	prepareControl(control, order, width, height) {
 		const insets = this.insets, layout = this.layoutOf(control.id, this.layoutScratch), place = this.places[control.id];
-		const radius = control.size * layout.scale / 2;
-		place.startX = clamp(insets.left + layout.x * (width - insets.left - insets.right), insets.left + radius, width - insets.right - radius);
+		const layoutX = insets.left + layout.x * (width - insets.left - insets.right);
+		const layoutRadius = control.size * layout.scale / 2, crowd = this.crowd[layoutX < width / 2 ? 0 : 1];
+		const radius = Math.max(layoutRadius * crowd, this.smallestRadius(control, layoutRadius));
+		place.startX = clamp(layoutX, insets.left + radius, width - insets.right - radius);
 		place.startY = clamp(insets.top + layout.y * (height - insets.top - insets.bottom), insets.top + radius, height - insets.bottom - radius);
 		place.x = place.startX; place.y = place.startY; place.radius = place.fullRadius = radius; place.order = order; place.placed = false;
 		place.shown = !layout.hidden && !(control.setting && !Input.config[control.setting]) && !(control.need && !this.needMet(control.need));
 	},
+	smallestRadius(control, radius) {
+		return Math.min(radius, Math.max(control.size * this.preset().scale / 2 * TOUCH_SMALLEST, TOUCH_MIN_DIAMETER / 2));
+	},
 	placeControl(control, width, height) {
-		const place = this.places[control.id], smallest = control.size * this.preset().scale / 2 * TOUCH_SMALLEST;
+		const place = this.places[control.id], smallest = this.smallestRadius(control, place.fullRadius);
 		place.placed = true;
 		if (!place.shown) return;
 		let radius = place.fullRadius;
 		for (;;) {
-			const last = radius <= smallest, reach = control.edge && !last ? place.fullRadius * TOUCH_NEAR : Infinity;
-			if (this.searchSpot(control, place, radius, width, height, last, reach, !!control.edge)) return;
+			const last = radius <= smallest, reach = last ? Infinity : place.fullRadius * TOUCH_NEAR;
+			if (this.searchSpot(control, place, radius, width, height, reach, !!control.edge, true, false)) return;
 			if (last) break;
 			radius = Math.max(smallest, radius * TOUCH_SHRINK_STEP);
 		}
-		if (control.edge) this.searchSpot(control, place, radius, width, height, true, Infinity, false);
+		if (control.edge && this.searchSpot(control, place, radius, width, height, Infinity, false, true, false)) return;
+		this.searchSpot(control, place, radius, width, height, Infinity, false, false, true);
 	},
-	searchSpot(control, place, radius, width, height, leastOverlap, reach, banded) {
+	searchSpot(control, place, radius, width, height, reach, banded, sameHalf, leastOverlap) {
 		const startX = place.startX, startY = place.startY, step = radius / 2, farthest = Math.min(reach, Math.max(width, height));
 		let best = Infinity;
 		for (let distance = 0; distance < farthest; distance += step) {
@@ -4563,6 +4613,7 @@ const TouchInput = {
 			for (let i = 0; i < directions; i++) {
 				const angle = i * 2 * Math.PI / directions, x = startX + Math.cos(angle) * distance, y = startY + Math.sin(angle) * distance;
 				if (!this.spotAllowed(x, y, radius, width, height) || (banded && !this.inEdgeBand(x, y, width, height))) continue;
+				if (sameHalf && !this.keepsHalf(place, x, width)) continue;
 				const overlap = this.overlapAt(control, x, y, radius);
 				if (overlap === 0 || (leastOverlap && overlap < best)) { place.x = x; place.y = y; place.radius = radius; best = overlap; }
 				if (overlap === 0) return true;
@@ -4570,9 +4621,12 @@ const TouchInput = {
 		}
 		return best < Infinity;
 	},
+	keepsHalf(place, x, width) {
+		return TOUCH_CONTROLS[place.order].edge || Math.abs(place.startX - width / 2) < TOUCH_CENTRE_BAND * width || (x < width / 2) === (place.startX < width / 2);
+	},
 	inEdgeBand(x, y, width, height) {
 		const insets = this.insets, band = TOUCH_EDGE_BAND * Math.min(width, height);
-		return y <= insets.top + band || x <= insets.left + band || x >= width - insets.right - band;
+		return y <= insets.top + band || (y <= height / 2 && (x <= insets.left + band || x >= width - insets.right - band));
 	},
 	spotAllowed(x, y, radius, width, height) {
 		const insets = this.insets, aim = this.aim;
@@ -4588,7 +4642,7 @@ const TouchInput = {
 		let overlap = 0;
 		for (const other of TOUCH_CONTROLS) {
 			const place = this.places[other.id];
-			if (other !== control && place.placed && place.shown) overlap += Math.max(0, place.radius + radius - length2(place.x - x, place.y - y));
+			if (other !== control && place.placed && place.shown) overlap += Math.max(0, place.radius + radius + TOUCH_GAP - length2(place.x - x, place.y - y));
 		}
 		return overlap;
 	},
@@ -4631,16 +4685,26 @@ const TouchInput = {
 		slot.role = ROLE_DRAG; slot.control = control;
 		this.select(control.id);
 	},
+	drag: { id: null, x: 0, y: 0, queued: false }, flushDragFrame: null,
 	dragControl(control, event) {
-		const rect = this.layer.getBoundingClientRect();
-		this.setProperty(control.id, 'position', { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height });
+		const rect = this.layer.getBoundingClientRect(), drag = this.drag;
+		drag.id = control.id; drag.x = (event.clientX - rect.left) / rect.width; drag.y = (event.clientY - rect.top) / rect.height;
+		if (drag.queued) return;
+		drag.queued = true;
+		requestAnimationFrame(this.flushDragFrame || (this.flushDragFrame = () => this.flushDrag()));
+	},
+	flushDrag() {
+		const drag = this.drag;
+		if (!drag.queued) return;
+		drag.queued = false;
+		this.setProperty(drag.id, 'position', drag);
 	},
 };
 
 const TOUCH_CSS = '.tc-layer { position: fixed; left: var(--safe-left); right: var(--safe-right); top: var(--safe-top); bottom: var(--safe-bottom); display: none; z-index: 5; touch-action: none; }'
 	+ '.tc-layer.show { display: block; } .tc-zone { position: absolute; inset: 0; touch-action: none; }'
 	+ '.tc { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; display: flex; align-items: center; justify-content: center; touch-action: none;'
-	+ ' background: rgba(255, 255, 255, 0.14); border: 2px solid rgba(255, 255, 255, 0.5); color: #fff; font: 700 0.875em/1 var(--ui-font); }'
+	+ ' background: rgba(255, 255, 255, 0.14); border: 2px solid rgba(255, 255, 255, 0.5); color: #fff; font: 700 0.875em/1 var(--ui-font); flex-direction: column; } .tc-note { font-weight: 400; }'
 	+ '.tc.down { background: rgba(255, 181, 71, 0.55); border-color: var(--ui-accent); } .tc.off { display: none; }'
 	+ '.tc-stick { background: rgba(255, 255, 255, 0.06); border-style: dashed; }'
 	+ '.tc-live { position: fixed; left: 0; top: 0; display: none; border-radius: 50%; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.5); pointer-events: none; }'
@@ -16987,7 +17051,7 @@ const Gadgets = {
 	attackLocks: [],
 	deployers: [],
 	empHooks: [],
-	cycleShown: false,
+	cycleShown: -1,
 
 	kit() { return CAT.gadgetKits.byId(itemRule('economy', 'pickups')) || CAT.gadgetKits.byId('pickups'); },
 	countOf(id, key) { const row = CAT.gadgets.byId(key); return row ? this.count[id * GADGET_COUNT + row.index] : 0; },
@@ -17083,11 +17147,10 @@ const Gadgets = {
 		this.syncCycleButton();
 	},
 	syncCycleButton() {
-		if (!TouchInput.layer) return;
-		const canCycle = TouchInput.needs.grenadeCycle();
-		if (canCycle === this.cycleShown) return;
-		this.cycleShown = canCycle;
-		TouchInput.applyAll();
+		const id = Game.playerId, row = id >= 0 && this.grenadeTypes(id) >= 2 ? this.grenade[id] : -1;
+		if (row === this.cycleShown) return;
+		this.cycleShown = row;
+		TouchInput.setNote('grenade', row >= 0 ? CAT.gadgets[row].name.split(' ')[0] : '');
 	},
 	attackLocked(id) {
 		for (let i = 0; i < this.attackLocks.length; i++) if (this.attackLocks[i](id)) return true;
@@ -17228,7 +17291,7 @@ const Gadgets = {
 		instance.sx = instance.sz = Math.max(0.5, row.radius * 2);
 		batch.meshFrom('ring', instance);
 	},
-	clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); this.cycleShown = false; },
+	clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); this.cycleShown = -1; },
 };
 
 Input.aimAssistFilters.push((id, point) => !Smoke.lineBlocked(Actors.x[id], Actors.eyeY(id), Actors.z[id], point.x, point.y, point.z, id));
@@ -17237,7 +17300,6 @@ WeaponSpecialState.grenadeHook = Thrown;
 Weapons.altClaim = (id) => Gadgets.holdStart[id] >= 0 || ((Actors.buttons[id] & BTN.GRENADE) !== 0 && Gadgets.grenadeReady(id));
 Settings.define('gameplay.grenadePreview', true, { label: 'Grenade arc preview', category: 'gameplay', options: [false, true], optionLabels: ['Off', 'On'] });
 Sim.addSystem('gadgets', 58, (dt) => Gadgets.step(dt));
-TouchInput.needs.grenadeCycle = () => Game.playerId >= 0 && Gadgets.grenadeTypes(Game.playerId) >= 2;
 Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawHeld(batch); Gadgets.drawPreview(batch); });
 Render.addSource('smoke', (batch) => Smoke.draw(batch));
 Bus.on('weapon.fire', (event) => Smoke.onShot(event));
@@ -34678,6 +34740,7 @@ const HUD_SCALE_MIN = 50, HUD_SCALE_MAX = 150;
 const HUD_OPACITY_MIN = 30;
 const HUD_DESIGN_WIDTH = 1100, HUD_DESIGN_HEIGHT = 620;
 const HUD_UNIT_MIN = 0.9, HUD_UNIT_MAX = 1.5;
+const HUD_PHONE_SIDE = 500;
 const HUD_COMPACT_HEIGHT = 520;
 const HUD_MARGIN = 14;
 const HUD_TEXT_SMALL = 14;
@@ -34798,7 +34861,7 @@ const Hud = {
 	frameSeconds: 0,
 	insets: { top: 0, right: 0, bottom: 0, left: 0 },
 	colors: { good: HUD_COLOR.good, bad: HUD_COLOR.bad, health: HUD_COLOR.health, healthLow: HUD_COLOR.healthLow, teams: CAT.teamColors.map((row) => colorNumber(row.color)) },
-	layout: { width: 1, height: 1, unit: 1, margin: HUD_MARGIN, left: 0, right: 0, top: 0, bottom: 0, centerX: 0, centerY: 0, compact: false, touch: false,
+	layout: { width: 1, height: 1, unit: 1, margin: HUD_MARGIN, left: 0, right: 0, top: 0, bottom: 0, centerX: 0, centerY: 0, compact: false, touch: false, phone: false,
 		barWidth: 0, barHeight: 0, barGap: 0, vitalsHeight: 0, ammoRight: 0, ammoHeight: 0, abilityY: 0, powerupY: 0, gadgetY: 0, moneyY: 0, weaponBarY: 0 },
 	drawers: { back: [], world: [], main: [], front: [] },
 	stats: { quads: 0 },
@@ -34903,6 +34966,7 @@ function hudReadSafeInsets() {
 function updateHudLayout(layout, width, height) {
 	const insets = Hud.insets, touch = Input.device === 'touch';
 	layout.width = width; layout.height = height; layout.touch = touch;
+	layout.phone = touch && Math.min(width, height) < HUD_PHONE_SIDE;
 	layout.compact = Hud.compactSetting === 'on' || (Hud.compactSetting === 'auto' && (touch || height < HUD_COMPACT_HEIGHT));
 	const unit = clamp(Math.min(width / HUD_DESIGN_WIDTH, height / HUD_DESIGN_HEIGHT), HUD_UNIT_MIN, HUD_UNIT_MAX) * Hud.scale;
 	const margin = HUD_MARGIN * unit, compact = layout.compact;
@@ -35204,11 +35268,15 @@ function hudPlaceWeaponBox(layout, count, index) {
 	box[1] = layout.weaponBarY - box[3];
 }
 
+function hudBarWeaponCount() {
+	const count = Game.playerId >= 0 ? Math.min(hudCollectOwnedWeapons(Game.playerId), HUD_MAX_WEAPON_SLOTS) : 0;
+	return count < 2 ? 0 : count;
+}
+
 function hudDrawWeaponBar(pen, layout) {
-	const id = Game.playerId;
-	if (!hudLocalAlive() || (layout.compact && !layout.touch)) return;
-	const count = Math.min(hudCollectOwnedWeapons(id), HUD_MAX_WEAPON_SLOTS);
-	if (count < 2) return;
+	const id = Game.playerId, count = hudBarWeaponCount();
+	if (layout.touch && count !== hudPanelsClearLayout.weapons) TouchInput.applyAll();
+	if (!hudLocalAlive() || (layout.compact && !layout.touch) || count === 0) return;
 	const unit = layout.unit;
 	const selected = Weapons.state[id] === WEAPON_STATE.SWAP ? Weapons.pending[id] : Weapons.current[id];
 	const box = hudBoxAt, shape = hudShapeAt, text = hudTextAt;
@@ -35239,15 +35307,17 @@ function hudWeaponSlotAt(x, y) {
 }
 TouchInput.weaponSlotAt = hudWeaponSlotAt;
 TouchInput.insets = Hud.insets;
-const hudPanelsClearLayout = {};
+const hudPanelsClearLayout = { weapons: 0 };
 TouchInput.keepClear.push((width, height) => {
 	const layout = hudPanelsClearLayout, box = hudBoxAt;
 	updateHudLayout(layout, width, height);
 	TouchInput.addClear(layout.left, layout.bottom - layout.vitalsHeight, layout.left + layout.barWidth, layout.bottom);
 	TouchInput.addClear(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoRight, layout.bottom);
-	hudPlaceWeaponBox(layout, HUD_MAX_WEAPON_SLOTS, 0);
-	const left = box[0], top = box[1], bottom = box[1] + box[3];
-	hudPlaceWeaponBox(layout, HUD_MAX_WEAPON_SLOTS, HUD_MAX_WEAPON_SLOTS - 1);
+	const count = layout.weapons = hudBarWeaponCount();
+	if (count === 0) return;
+	hudPlaceWeaponBox(layout, count, 0);
+	const left = box[0], top = box[1], bottom = Math.max(box[1] + box[3], layout.bottom - layout.ammoHeight);
+	hudPlaceWeaponBox(layout, count, count - 1);
 	TouchInput.addClear(left, top, box[0] + box[2], bottom);
 });
 
@@ -35313,13 +35383,13 @@ function hudDrawAbilities(pen, layout) {
 		ring[0] = x; ring[1] = y; ring[2] = radius; ring[3] = 4 * unit;
 		hudDrawCooldownRingAt(pen, slot.ready ? 0 : slot.cooldown, slot.active ? HUD_COLOR.gold : Hud.colors.good);
 		text[0] = x; text[1] = y; text[2] = HUD_TEXT_SMALL * unit;
-		pen.textAt(slot.name, slot.ready ? HUD_COLOR.text : HUD_COLOR.dim, 'center');
+		if (!layout.phone) pen.textAt(slot.name, slot.ready ? HUD_COLOR.text : HUD_COLOR.dim, 'center');
 		text[1] = y + radius + 10 * unit;
 		pen.textAt(Hud.keyLabel(slot.key), HUD_COLOR.dim, 'center');
 		text[0] = x + radius; text[1] = y - radius;
 		if (slot.charges > 1) pen.textAt(hudNumber(slot.charges), HUD_COLOR.gold, 'center');
 	}
-	if (state.meter.kind !== 'none') hudDrawMeter(pen, layout, state.meter, slotCount);
+	if (state.meter.kind !== 'none' && !layout.phone) hudDrawMeter(pen, layout, state.meter, slotCount);
 }
 
 function hudDrawMeter(pen, layout, meter, slotCount) {
@@ -35692,7 +35762,7 @@ Hud.register('main', 'hitMarkers', 'hitMarkers', hudDrawHitMarkers);
 
 const HUD_FEED_SLOTS = 8, HUD_FEED_SECONDS = 6, HUD_FEED_FADE = 0.5, HUD_FEED_ROWS = 5, HUD_FEED_ROWS_COMPACT = 3;
 const HUD_BANNER_SLOTS = 4, HUD_BANNER_SECONDS = 2.6, HUD_BANNER_SECONDS_LONG = 3.4, HUD_BANNER_FADE = 0.5, HUD_BANNER_SHOWN = 3;
-const HUD_BANNER_DUPLICATE_SECONDS = 1;
+const HUD_BANNER_QUEUE = 1.2;
 const HUD_BANNER_PRIORITY_LONG = 2;
 const HUD_MAX_OBJECTIVE_CHIPS = 6;
 const HUD_FALLBACK_NAME = 'Player';
@@ -35794,13 +35864,30 @@ const HudBanners = {
 
 	reset() { this.at.fill(-1000); this.next = 0; },
 	add(text, kind, priority, medal) {
-		for (let i = 0; i < HUD_BANNER_SLOTS; i++) if (this.text[i] === text && Hud.time - this.at[i] < HUD_BANNER_DUPLICATE_SECONDS) return;
+		let start = Hud.time;
+		for (let i = 0; i < HUD_BANNER_SLOTS; i++) {
+			if (this.ends(i) <= Hud.time) continue;
+			if (this.text[i] === text) { this.at[i] = Math.max(this.at[i], Hud.time); return; }
+			if (Hud.layout.phone) start = Math.max(start, this.at[i] + HUD_BANNER_QUEUE);
+		}
 		const slot = this.next;
 		this.next = (slot + 1) % HUD_BANNER_SLOTS;
-		this.text[slot] = text; this.kind[slot] = kind; this.priority[slot] = priority; this.medal[slot] = medal ? 1 : 0; this.at[slot] = Hud.time;
+		this.text[slot] = text; this.kind[slot] = kind; this.priority[slot] = priority; this.medal[slot] = medal ? 1 : 0; this.at[slot] = start;
 	},
+	ends(slot) { return this.at[slot] + this.seconds(slot); },
+	busy() { for (let i = 0; i < HUD_BANNER_SLOTS; i++) if (this.at[i] + HUD_BANNER_QUEUE > Hud.time) return true; return false; },
 	seconds(slot) { return this.priority[slot] >= HUD_BANNER_PRIORITY_LONG || this.medal[slot] ? HUD_BANNER_SECONDS_LONG : HUD_BANNER_SECONDS; },
+	live(slot) { return Hud.time >= this.at[slot] && Hud.time < this.ends(slot); },
+	alpha(slot) { const age = Hud.time - this.at[slot]; return Math.min(1, age / 0.15, (this.seconds(slot) - age) / HUD_BANNER_FADE); },
+	newest() {
+		for (let k = 1; k <= HUD_BANNER_SLOTS; k++) {
+			const slot = (this.next - k + HUD_BANNER_SLOTS) % HUD_BANNER_SLOTS;
+			if (this.live(slot)) return slot;
+		}
+		return -1;
+	},
 };
+function hudPhoneBanner(layout) { return layout.phone ? HudBanners.newest() : -1; }
 
 function hudMedalTitle(medal) {
 	const row = CAT.medals ? CAT.medals.byId(medal) : null;
@@ -35843,11 +35930,12 @@ function hudBannersTop(layout, count) {
 	return top;
 }
 function hudDrawBanners(pen, layout) {
-	const b = HudBanners, now = Hud.time, unit = layout.unit;
+	const b = HudBanners, unit = layout.unit, phone = hudPhoneBanner(layout);
+	if (phone >= 0) { pen.text(b.text[phone], layout.centerX, layout.top + HUD_LIMIT_Y * unit, HUD_TEXT_SMALL * unit, b.medal[phone] ? HUD_COLOR.gold : HUD_COLOR.text, 'center', b.alpha(phone)); return; }
 	let count = 0;
 	for (let k = 1; k <= HUD_BANNER_SLOTS && count < HUD_BANNER_SHOWN; k++) {
 		const slot = (b.next - k + HUD_BANNER_SLOTS) % HUD_BANNER_SLOTS;
-		if (now - b.at[slot] >= b.seconds(slot)) continue;
+		if (!b.live(slot)) continue;
 		const size = (b.medal[slot] ? 30 : b.priority[slot] >= HUD_BANNER_PRIORITY_LONG ? 26 : 20) * unit;
 		hudBannerSlot[count] = slot; hudBannerSize[count] = size;
 		hudBannerHalf[count] = HudPen.measure(b.text[slot], size) / 2 + (b.medal[slot] ? size * 1.4 : 0);
@@ -35856,8 +35944,8 @@ function hudDrawBanners(pen, layout) {
 	if (count === 0) return;
 	let y = b.top = hudBannersTop(layout, count);
 	for (let i = 0; i < count; i++) {
-		const slot = hudBannerSlot[i], size = hudBannerSize[i], age = now - b.at[slot], life = b.seconds(slot);
-		const alpha = Math.min(1, age / 0.15, (life - age) / HUD_BANNER_FADE), textHalf = hudBannerHalf[i] - (b.medal[slot] ? size * 1.4 : 0);
+		const slot = hudBannerSlot[i], size = hudBannerSize[i];
+		const alpha = b.alpha(slot), textHalf = hudBannerHalf[i] - (b.medal[slot] ? size * 1.4 : 0);
 		if (b.medal[slot]) {
 			pen.label('★', layout.centerX - textHalf - size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
 			pen.label('★', layout.centerX + textHalf + size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
@@ -35888,6 +35976,7 @@ function hudDrawTime(pen, layout, state) {
 	text[1] = y; text[2] = 24 * unit;
 	if (state.timeLeft > 0) pen.textAt(hudTime(state.timeLeft), state.timeLeft <= 30 ? Hud.colors.bad : HUD_COLOR.text, 'center');
 	text[1] = layout.top + HUD_LIMIT_Y * unit; text[2] = 14 * unit;
+	if (hudPhoneBanner(layout) >= 0) return;
 	if (state.phase === 'freeze') pen.textAt('GET READY', HUD_COLOR.warn, 'center');
 	else if (state.phase === 'roundEnd') pen.textAt('ROUND OVER', HUD_COLOR.warn, 'center');
 	else if (state.scoreLimit > 0 && state.roundsToWin === 0 && !state.overtime) hudDrawScoreLimit(pen, layout, state.scoreLimit);
@@ -36022,6 +36111,13 @@ TouchInput.keepClear.push((width, height) => {
 	TouchInput.addClear(box[0], box[1], box[0] + box[2], box[1] + box[3]);
 	if (Modes.active && Modes.rules) hudClearHeaderRows(layout, Modes.hudState());
 });
+TouchInput.panelAt = (x, y) => {
+	const layout = hudHeaderClearLayout, box = hudBoxAt;
+	if (!Hud.visible() || Hud.noHud) return false;
+	updateHudLayout(layout, window.innerWidth, window.innerHeight);
+	hudHeaderBox(layout, box);
+	return x >= box[0] && x <= box[0] + box[2] && y >= box[1] && y <= box[1] + box[3];
+};
 
 Hud.register('main', 'header', 'header', hudDrawHeader);
 Hud.register('main', 'killFeed', 'killFeed', hudDrawKillFeed);
@@ -36332,7 +36428,8 @@ function hudDrawDownedState(pen, layout) {
 	hudDrawUsePrompt(pen, layout, player);
 }
 function hudDrawDowned(pen, layout, player) {
-	const unit = layout.unit, x = layout.centerX, y = layout.height * 0.68;
+	const unit = layout.unit, x = layout.centerX;
+	const y = layout.phone ? Math.min(layout.height * 0.68, layout.weaponBarY - (HUD_BAR_TOUCH_HEIGHT + 70) * unit) : layout.height * 0.68;
 	if (Actors.flags[player] & ACTOR_FLAG.DOWNED) {
 		pen.label('DOWNED', x, y, 30 * unit, Hud.colors.bad, 'center');
 		pen.label('BLEEDING OUT', x, y + 30 * unit, 16 * unit, HUD_COLOR.dim, 'center');
@@ -36621,7 +36718,8 @@ Bus.on('bark', (event) => {
 	if (player < 0) return;
 	const mine = Actors.team[player] >= 0 && event.team === Actors.team[player];
 	if (!mine && event.category !== HUD_BARK_TAUNT) return;
-	HudExtra.addBark(event);
+	if (!Hud.layout.phone) HudExtra.addBark(event);
+	else if (!HudBanners.busy()) HudBanners.add((Actors.name[event.id] || '') + ': ' + event.text, 'bark', 0, false);
 });
 Bus.on('announce', (event) => { if (Hud.elements.captions && event.text) HudCaptions.addCaption(event.text); });
 
@@ -37013,8 +37111,7 @@ const CommWheel = {
 };
 Input.sources.push(CommWheel);
 Sim.addSystem('commPing', 5, () => CommWheel.stepPing());
-TouchInput.needs.comm = () => true;
-TouchInput.buttonLook = (control) => CommWheel.open && (control.action === 'ping' || control.action === 'comm');
+TouchInput.buttonLook = (control) => CommWheel.open && control.action === 'ping';
 Bus.on('input.action', (event) => { if (event.action === 'comm') CommWheel.onComm(event.down); });
 Bus.on('match.stop', () => CommWheel.reset());
 
@@ -37375,6 +37472,7 @@ function hudDrawPve(pen, layout) {
 	const rows = HUD_PVE_PANELS[pve.mode] || [];
 	hudPvePlaceRows(layout);
 	for (let i = 0; i < rows.length; i++) HUD_PVE_ROWS[rows[i]](pen, layout, pve);
+	if (layout.touch && hudPveBossShown(pve) !== hudPveClearLayout.boss) TouchInput.applyAll();
 	hudPveBossBar(pen, layout, pve.boss);
 	if (pve.mode === 'range') hudPveRangeTable(pen, layout, pve);
 	if (pve.mode === 'puzzle') hudPveChamberTable(pen, layout, pve);
@@ -37401,7 +37499,9 @@ Hud.register('main', 'tickets', 'header', hudDrawTickets);
 
 const hudPveNothing = () => 0;
 const hudPveMeasurePen = new Proxy({}, { get: () => hudPveNothing });
-const hudPveClearLayout = {};
+const hudPveClearLayout = { boss: false };
+const HUD_PVE_BOSS_HEIGHT = 56;
+function hudPveBossShown(pve) { return !!(pve && pve.active && pve.boss && pve.boss.active); }
 const HUD_TICKETS_WIDEST = '9999';
 TouchInput.keepClear.push((width, height) => {
 	const layout = hudPveClearLayout, pve = Modes.hud && Modes.hud.pve;
@@ -37411,12 +37511,16 @@ TouchInput.keepClear.push((width, height) => {
 		const half = 44 * unit + HudPen.measure(HUD_TICKETS_WIDEST, 17 * unit);
 		TouchInput.addClear(layout.centerX - half, layout.top, layout.centerX + half, layout.top + 54 * unit + hudTextHalf(17 * unit));
 	}
+	layout.boss = hudPveBossShown(pve);
 	if (!pve || !pve.active) return;
 	const rows = HUD_PVE_PANELS[pve.mode] || [];
 	hudPvePlaceRows(layout);
 	const top = hudPveAt[0], left = hudPveAt[1], right = hudPveAt[2];
 	for (let i = 0; i < rows.length; i++) HUD_PVE_ROWS[rows[i]](hudPveMeasurePen, layout, pve);
 	if (rows.length) TouchInput.addClear(left, top, right, hudPveAt[0]);
+	if (!layout.boss) return;
+	const half = HUD_PVE_BOSS_WIDTH * unit / 2, bossTop = hudPveAt[0];
+	TouchInput.addClear(layout.centerX - half, bossTop, layout.centerX + half, bossTop + HUD_PVE_BOSS_HEIGHT * unit);
 });
 
 // ==== 18a-ui.js ====
@@ -37976,6 +38080,7 @@ async function runSelfTest(output, button) {
 function touchControlsSummary() {
 	const lines = [];
 	for (const control of TOUCH_CONTROLS) if (control.face) lines.push(control.face + ': ' + control.label);
+	lines.push('Hold the score panel at the top: Scoreboard');
 	lines.push('Tap a weapon box above the ammo panel to take that slot.');
 	lines.push('Buttons you cannot use stay hidden. Settings > Controls > Edit touch layout moves them.');
 	return lines.join('\n');
@@ -38519,14 +38624,12 @@ const Scoreboard = {
 		return (mode ? mode.name : 'Match') + (map ? ' - ' + map : '');
 	},
 
-	tapToggles() { return Input.device === 'touch' && !Input.isToggleMode('scoreboard'); },
 	onAction(down) {
 		if (Game.headless || Game.state !== 'playing') return;
-		const open = Ui.isOpen('scoreboard'), toggle = this.tapToggles();
+		const open = Ui.isOpen('scoreboard');
 		this.auto = false;
 		if (down && !open && !Ui.current() && !Game.paused) Ui.open('scoreboard');
-		else if (down && open && toggle) Ui.back();
-		else if (!down && open && !toggle) Ui.back();
+		else if (!down && open) Ui.back();
 	},
 	onRound(event) {
 		if (Game.headless || Game.state !== 'playing') return;
@@ -47779,6 +47882,9 @@ Test.add('hud', (check) => hudTestWith(() => {
 	hudTestEvent('announce', { text: 'Overtime', kind: 'overtime', priority: 2 });
 	hudTestEvent('announce', { text: 'Overtime', kind: 'overtime', priority: 2 });
 	check('banners: the same announcement twice in a second shows once', HudBanners.at.filter((at) => at > 0).length === 1);
+	Hud.time += HUD_BANNER_SECONDS_LONG / 2;
+	hudTestEvent('announce', { text: 'Overtime', kind: 'overtime', priority: 2 });
+	check('banners: a text still shown is not shown twice at once', HudBanners.at.filter((at) => at > 0).length === 1);
 	hudTestEvent('medal', { id: scene.id, medal: 'doubleKill' });
 	hudTestEvent('medal', { id: scene.enemy, medal: 'spree' });
 	check('banners: your medal shows as a banner, other players medals do not', HudBanners.at.filter((at) => at > 0).length === 2 && HudBanners.medal.includes(1));
@@ -47788,6 +47894,19 @@ Test.add('hud', (check) => hudTestWith(() => {
 	Hud.time += HUD_BANNER_SECONDS_LONG + 0.1;
 	hudTestFrame();
 	check('banners: they disappear after their time', Hud.quadsOf('banners') === 0);
+	Hud.layout.phone = true;
+	HudBanners.add('Double Kill', 'medal', HUD_BANNER_PRIORITY_LONG, true); HudBanners.add('Me takes the lead', 'lead', 1, false);
+	const medal = HudBanners.newest();
+	Hud.time += HUD_BANNER_QUEUE;
+	check('banners on a phone: a medal and a lead change both show, in turn', HudBanners.text[medal] === 'Double Kill' && HudBanners.text[HudBanners.newest()] === 'Me takes the lead');
+	Hud.time += HUD_BANNER_SECONDS_LONG + 0.1;
+	hudTestEvent('bark', { id: scene.enemy, team: 1, category: HUD_BARK_TAUNT, text: 'Too slow.' });
+	hudTestEvent('bark', { id: scene.enemy, team: 1, category: HUD_BARK_TAUNT, text: 'Again?' });
+	HudBanners.add('Headshot', 'medal', HUD_BANNER_PRIORITY_LONG, true);
+	const chat = HudBanners.text.filter((text) => text.endsWith(': Too slow.') || text.endsWith(': Again?')), headshot = HudBanners.text.indexOf('Headshot');
+	check('banners on a phone: a chat line while the queue is busy is dropped, a medal waits one turn at most', chat.length === 1 && chat[0].endsWith('Too slow.')
+		&& HudBanners.at[headshot] <= Hud.time + HUD_BANNER_QUEUE, chat.join(' | '));
+	Hud.layout.phone = false;
 }));
 
 Test.add('hud', (check) => hudTestWith(() => {
@@ -48571,7 +48690,7 @@ Test.add('hudui', (check) => uiWith(() => {
 	check('grenade cycle: the action writes BTN.CYCLE_GRENADE into Actors.buttons', (inputHoldAction('grenadeNext', true), Input.frame(INPUT_TEST_FRAME), (Actors.buttons[id] & BTN.CYCLE_GRENADE) !== 0));
 	inputHoldAction('grenadeNext', false); inputStepAndFrame(); inputStepAndFrame();
 	check('grenade cycle: the bit is free (no other button shares it)', Object.keys(BTN).filter((key) => BTN[key] === BTN.CYCLE_GRENADE).length === 1 && (Actors.buttons[id] & BTN.CYCLE_GRENADE) === 0);
-	check('grenade cycle: a keyboard default and a touch button exist', Input.bound[Input.actionIndex.grenadeNext].length > 0 && TOUCH_CONTROLS.some((row) => row.action === 'grenadeNext'));
+	check('grenade cycle: a keyboard default and a touch gesture (a swipe on NADE) exist', Input.bound[Input.actionIndex.grenadeNext].length > 0 && TOUCH_CONTROLS.some((row) => row.swipeAction === 'grenadeNext'));
 	Game.stop();
 	World.load(pveTestMap({ spawns: PVE_HOME.concat(PVE_ENEMY_GATES) }));
 	Game.start({ mode: 'horde', seed: 1, bots: [], player: { name: 'Me', team: 0 }, cards: ['stoneskin'] });
@@ -48622,13 +48741,13 @@ Test.add('hudui', (check) => {
 	const player = Game.playerId;
 	Gadgets.count.fill(0, player * GADGET_COUNT, (player + 1) * GADGET_COUNT);
 	Gadgets.give(player, 'frag', 2);
-	check('touch: no TYPE button with one grenade type (nothing to cycle)', !TouchInput.needMet('grenadeCycle') && !('grenadeCycle' in TouchInput.flags));
-	Gadgets.give(player, 'smoke', 1);
-	check('touch: the TYPE button shows with two grenade types', TouchInput.needMet('grenadeCycle') && Gadgets.grenadeTypes(player) === 2);
-	Gadgets.cycleShown = true;
+	Gadgets.syncCycleButton();
+	check('touch: the NADE face names no type with one grenade type (nothing to cycle)', Gadgets.cycleShown === -1);
+	Gadgets.give(player, 'smoke', 1); Gadgets.syncCycleButton();
+	check('touch: the NADE face names the type with two grenade types', Gadgets.cycleShown === Gadgets.grenade[player] && Gadgets.grenadeTypes(player) === 2);
 	Game.stop();
 	Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }], player: { name: 'Me' } });
-	check('touch: a new match forgets the last TYPE button answer (the next step re-shows it)', !Gadgets.cycleShown);
+	check('touch: a new match forgets the last named type (the next step names it again)', Gadgets.cycleShown === -1);
 	Game.stop();
 	World.clear();
 });
@@ -48779,15 +48898,25 @@ function hudUiDrawnBoxes(first) {
 	return boxes;
 }
 function hudUiBoxMeetsCircle(box, x, y, radius) { return length2(clamp(x, box[0], box[2]) - x, clamp(y, box[1], box[3]) - y) < radius; }
-function hudUiTouchBreak(fixed, banners, width, height) {
+const HUD_UI_CORE_BUTTONS = ['stick', 'fire', 'jump', 'aim', 'use', 'crouch', 'reload', 'grenade', 'melee', 'swap'];
+function hudUiTouchBreak(fixed, banners, width, height, layout) {
 	const places = TouchInput.places, shown = TOUCH_CONTROLS.filter((control) => places[control.id].shown), aimRadius = TOUCH_AIM_ZONE * Math.min(width, height);
 	for (const control of shown) {
 		const place = places[control.id], radius = place.radius - 0.5, x = place.x, y = place.y;
 		const other = shown.find((next) => next !== control && length2(places[next.id].x - x, places[next.id].y - y) < radius + places[next.id].radius - 0.5);
 		if (other) return control.id + ' on ' + other.id;
 		if (length2(x - width / 2, y - height / 2) < aimRadius + radius) return control.id + ' in the aim zone';
+		if (place.radius * 2 < Math.min(TOUCH_MIN_DIAMETER, place.fullRadius * 2) - 0.01) return control.id + ' ' + Math.round(place.radius * 2) + ' px across';
+		if (!TouchInput.keepsHalf(place, x, width)) return control.id + ' left its half';
+		if (HUD_UI_CORE_BUTTONS.includes(control.id) && (x < width / 2) !== (place.startX < width / 2)) return control.id + ' crossed the centre';
 		const over = fixed.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)) || (HudBanners.free && banners.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)));
 		if (over) return control.id + ' over ' + over.map(Math.round);
+	}
+	if (layout.phone) {
+		const panel = hudHeaderBox(layout, []);
+		const letters = HUD_UI_BANNERS[1].replace(/ /g, '').length;
+		if (banners.length < letters || banners.length > 2 * letters) return banners.length + ' banner quads on a phone';
+		return banners.some((box) => (box[1] + box[3]) / 2 > panel[1] + panel[3]) ? 'phone banner outside the score panel' : '';
 	}
 	if (banners.length < HUD_UI_BANNER_GLYPHS) return 'banners hidden';
 	const moved = HudBanners.top > height * 0.22 + 0.5;
@@ -48796,7 +48925,7 @@ function hudUiTouchBreak(fixed, banners, width, height) {
 function hudUiDrawPanels(layout) {
 	for (const draw of [hudDrawHeader, hudDrawTickets, hudDrawMinimap, hudDrawVitals, hudDrawAmmo, hudDrawWeaponBar]) draw(HudPen, layout);
 }
-const HUD_UI_HUD_SCALES = [1, 1.5], HUD_UI_EDITS = [[-1, 0], [0.01, 0], [0.99, 0], [-1, 1.5], [-1, 2], [0.01, 2]];
+const HUD_UI_HUD_SCALES = [1, 1.25, 1.5], HUD_UI_EDITS = [[-1, 0], [0.01, 0], [0.99, 0], [-1, 1.5], [-1, 1.75], [-1, 2], [0.01, 2]];
 function hudUiTouchProblems(width, height, draw) {
 	const layout = {}, problems = [];
 	for (const hudScale of HUD_UI_HUD_SCALES) {
@@ -48816,7 +48945,7 @@ function hudUiTouchProblems(width, height, draw) {
 					if (replay) hudDrawKillcamPanel(HudPen, layout);
 					const fixed = hudUiDrawnBoxes(0), first = HudBatch.quads;
 					hudDrawBanners(HudPen, layout);
-					const broken = hudUiTouchBreak(fixed, hudUiDrawnBoxes(first), width, height);
+					const broken = hudUiTouchBreak(fixed, hudUiDrawnBoxes(first), width, height, layout);
 					if (broken) problems.push([width, height, hudScale, preset.id, moved, scale, replay, broken].join(' '));
 				}
 			}
@@ -48860,7 +48989,7 @@ Test.add('ui', (check) => {
 	emitToast('Saved');
 	check('toast: menus keep the top', Ui.toastBox.lastChild.textContent === 'Saved');
 	Ui.playBox.replaceChildren(); Ui.toastBox.replaceChildren();
-	check('help: a phone is told the pause menu, not B, and sees its buttons', !buyText().includes('with B') && buyText().includes('pause menu') && controlsSummary().includes('TAB: Scoreboard'));
+	check('help: a phone is told the pause menu, not B, and sees its buttons', !buyText().includes('with B') && buyText().includes('pause menu') && controlsSummary().includes('score panel'));
 	Input.device = 'gamepad';
 	const padText = buyText();
 	Input.device = 'kbm';
@@ -48889,14 +49018,10 @@ Test.add('input', (check) => {
 	Input.setDevice('touch'); TouchInput.syncVisible();
 	empty(id);
 	frame();
-	check('needs: nothing to use hides A1, A2, ULT, GADGET, NADE, HEAL and PRONE', ['ability1', 'ability2', 'ultimate', 'gadget', 'grenade', 'heal', 'prone'].every(off));
+	check('needs: nothing to use hides A1, A2, ULT, GADGET, NADE and HEAL', ['ability1', 'ability2', 'ultimate', 'gadget', 'grenade', 'heal'].every(off));
 	fill(id);
 	frame();
-	check('needs: a filled slot, a grenade, a consumable and prone movement show only their buttons', !off('ability1') && off('ability2') && !off('grenade') && !off('heal') && !off('prone'));
-	inputTouchPointer('pointerdown', TouchInput.elements.prone, 5, 300, 300);
-	frame(); Sim.step();
-	check('prone: pressing the touch button sets the prone action', (Actors.buttons[id] & BTN.PRONE) !== 0);
-	inputTouchPointer('pointerup', TouchInput.elements.prone, 5, 300, 300);
+	check('needs: a filled slot, a grenade and a consumable show only their buttons', !off('ability1') && off('ability2') && !off('grenade') && !off('heal'));
 	Move.setPreset(id, '');
 	id = startInputMatch();
 	Input.setDevice('touch'); TouchInput.syncVisible();
@@ -49663,7 +49788,7 @@ Test.add('input', (check) => {
 
 Test.add('input', (check) => {
 	startInputMatch();
-	check('touch: USE, MELEE, GADGET and COMM buttons exist (INP-004)', ['use', 'melee', 'gadget', 'comm'].every((name) => TouchInput.controlById[name] && TouchInput.controlById[name].action === name));
+	check('touch: USE, MELEE, GADGET and PING buttons exist (INP-004)', ['use', 'melee', 'gadget', 'ping'].every((name) => TouchInput.controlById[name] && TouchInput.controlById[name].action === name));
 	Game.match.rules = { mode: 'ffa' }; TouchInput.applyAll();
 	check('touch: USE is hidden in a mode that never needs Use held', TouchInput.elements.use.classList.contains('off') && !TouchInput.elements.melee.classList.contains('off'));
 	check('touch: modes with plant, arm, loot swap or chamber buttons need USE', ['rush', 'bomb', 'ghostops', 'royale', 'puzzle'].every((mode) => CAT.modes.byId(mode).useButton));
@@ -49675,7 +49800,6 @@ Test.add('input', (check) => {
 	World.map = loadedMap;
 	Game.match.rules = { mode: 'bomb' }; TouchInput.applyAll();
 	check('touch: USE shows in Detonate', !TouchInput.elements.use.classList.contains('off'));
-	check('touch: COMM shows once the comm wheel (17g) fills its hook', !TouchInput.elements.comm.classList.contains('off'));
 	const id = Game.playerId;
 	Input.setDevice('touch'); TouchInput.syncVisible();
 	inputTouchPointer('pointerdown', TouchInput.elements.use, 7, 300, 200); Input.frame(INPUT_TEST_FRAME);
@@ -49832,7 +49956,7 @@ Test.add('input', (check) => {
 		const x = preset.mirror ? 1 - control.x : control.x;
 		return x > 0 && x < 1 && control.y > 0 && control.y < 1;
 	})));
-	check('layout: all spec buttons exist (INP-004)', ['fire', 'aim', 'jump', 'crouch', 'reload', 'swap', 'grenade', 'ability1', 'ability2', 'ultimate', 'ping', 'scoreboard', 'pause', 'fireLeft'].every((name) => !!TouchInput.controlById[name]));
+	check('layout: all spec buttons exist (INP-004)', ['fire', 'aim', 'jump', 'crouch', 'reload', 'swap', 'grenade', 'ability1', 'ability2', 'ultimate', 'ping', 'pause', 'fireLeft'].every((name) => !!TouchInput.controlById[name]));
 	const start = { x: TouchInput.getProperty('fire', 'x'), scale: TouchInput.getProperty('fire', 'scale'), opacity: TouchInput.getProperty('fire', 'opacity') };
 	TouchInput.setProperty('fire', 'scale', 5);
 	check('layout: size clamps at 200%', TouchInput.getProperty('fire', 'scale') === TOUCH_SCALE_MAX);
@@ -49947,8 +50071,8 @@ Test.add('input', (check) => {
 Test.add('input', (check) => {
 	startInputMatch();
 	const free = ['forward', 'back', 'left', 'right', 'prevWeapon', 'buyMenu', 'perfHud', 'botDebug'].concat(ACTION_ROWS.filter((row) => row.slot).map((row) => row.id));
-	const touchActions = TOUCH_CONTROLS.map((control) => control.action);
-	const touchFree = free.concat('sprint', 'prone');
+	const touchActions = TOUCH_CONTROLS.flatMap((control) => [control.action, control.longAction, control.swipeAction]);
+	const touchFree = free.concat('sprint', 'scoreboard', 'comm');
 	const reserved = ['Key:ControlLeft', 'Key:ControlRight', 'Key:F10', 'Key:F11', 'Key:F12', 'Pad:16'];
 	const gaps = (has) => ACTION_ROWS.filter((row) => !has(row)).map((row) => row.id).join();
 	for (const [name, has] of [['a key', (row) => Input.defaultsOf(row)[0]], ['a pad button or is listed', (row) => Input.defaultsOf(row)[2] || free.includes(row.id)],
@@ -50067,6 +50191,53 @@ Test.add('input', (check) => {
 	const sources = Input.sources;
 	check('structure: touch, gamepad and the comm wheel (17g) register as sources', sources.length === 3 && sources.includes(TouchInput) && sources.includes(PadInput) && sources.includes(CommWheel));
 	Game.resume();
+});
+
+Test.add('input', (check) => {
+	const id = startInputMatch(), elements = TouchInput.elements, frame = () => { Input.frame(INPUT_TEST_FRAME); Sim.step(); };
+	const touch = (type, element, pointer, x, y) => { inputTouchPointer('pointer' + type, element, pointer, x || 1000, y || 600); if (type === 'up') { frame(); frame(); } };
+	const age = (pointer, ms) => { TouchInput.findSlot(pointer).startTime -= ms; frame(); };
+	const held = (bit) => (Actors.buttons[id] & bit) !== 0, count = (key) => Gadgets.count[id * GADGET_COUNT + CAT.gadgets.byId(key).index];
+	const realPing = BotTeam.playerPing, savedLayouts = Save.data.touchLayouts;
+	let pings = 0;
+	BotTeam.playerPing = () => { pings++; };
+	Input.setDevice('touch'); TouchInput.syncVisible();
+	try {
+		check('touch: no LIE, TYPE, TAB or CHAT button', ['prone', 'grenadeNext', 'scoreboard', 'comm'].every((action) => !TOUCH_CONTROLS.some((row) => row.action === action)));
+		Move.setPreset(id, 'modern');
+		touch('down', elements.crouch, 21); age(21, 2000);
+		const crouched = held(BTN.CROUCH);
+		touch('move', elements.crouch, 21, 1000, 570); frame();
+		check('prone: a held DUCK stays crouched; a swipe on it lets go of crouch and lies prone', crouched && Motion.proneWanted[id] === 1 && !held(BTN.CROUCH));
+		touch('up', elements.crouch, 21); touch('down', elements.crouch, 31); touch('move', elements.crouch, 31, 1000, 570); touch('up', elements.crouch, 31);
+		check('prone: a second swipe gets up', Motion.proneWanted[id] === 0);
+		Move.setPreset(id, '');
+		Gadgets.give(id, 'frag', 1); Gadgets.give(id, 'smoke', 1); Gadgets.grenade[id] = CAT.gadgets.byId('frag').index; frame();
+		const named = elements.grenade.textContent;
+		touch('down', elements.grenade, 22); touch('move', elements.grenade, 22, 1000, 570); touch('up', elements.grenade, 22, 1000, 570);
+		check('grenade type: a swipe on NADE picks the next type, throws nothing and the face names it', named === 'NADEFrag' && elements.grenade.textContent === 'NADEVeil' && count('frag') + count('smoke') === 2, named);
+		touch('down', elements.grenade, 23); frame();
+		const waited = !held(BTN.GRENADE);
+		age(23, TOUCH_COOK_MS);
+		check('grenade: a still finger on NADE cooks after TOUCH_COOK_MS', waited && held(BTN.GRENADE));
+		touch('up', elements.grenade, 23); touch('down', elements.grenade, 24); touch('up', elements.grenade, 24);
+		check('grenade: lifting it throws; a quick tap throws at once', count('frag') + count('smoke') === 0);
+		const layout = {};
+		updateHudLayout(layout, innerWidth, innerHeight);
+		const box = hudHeaderBox(layout, []), x = box[0] + box[2] / 2, y = box[1] + box[3] / 2;
+		touch('down', TouchInput.zone, 25, x, y);
+		const board = Input.isHeld('scoreboard') && !TouchInput.stick.slot;
+		touch('up', TouchInput.zone, 25, x, y);
+		check('scoreboard: a finger on the score panel holds it', board && !Input.isHeld('scoreboard'));
+		touch('down', elements.ping, 26); touch('up', elements.ping, 26);
+		check('ping: a tap on PING pings', pings === 1, pings);
+		Save.data.touchLayouts = { standard: { prone: { x: 0.5 }, grenadeNext: { hidden: true }, scoreboard: { scale: 2 }, comm: {}, crouch: { scale: 1.2 } } };
+		TouchInput.applyAll();
+		check('save: an old layout with the removed buttons loads', TouchInput.getProperty('crouch', 'scale') === 1.2);
+	} finally {
+		BotTeam.playerPing = realPing; Save.data.touchLayouts = savedLayouts;
+		TouchInput.reset(); TouchInput.applyAll(); Input.device = 'kbm';
+	}
 });
 
 // ==== 20b-test-items.js ====
@@ -57783,11 +57954,9 @@ Test.add('play', (check) => uiWith(() => {
 	check('scoreboard: releasing Tab closes it', Ui.current() === '');
 	Input.device = 'touch';
 	Bus.emit('input.action', { action: 'scoreboard', down: true });
+	const held = Ui.current() === 'scoreboard';
 	Bus.emit('input.action', { action: 'scoreboard', down: false });
-	check('scoreboard: on touch a tap opens it and the release keeps it open', Ui.current() === 'scoreboard');
-	Bus.emit('input.action', { action: 'scoreboard', down: true });
-	Bus.emit('input.action', { action: 'scoreboard', down: false });
-	check('scoreboard: the next tap closes it', Ui.current() === '');
+	check('scoreboard: on touch the score panel holds it as Tab does', held && Ui.current() === '');
 	Bus.emit('input.action', { action: 'scoreboard', down: true });
 	uiClickButton(Ui.top().element, 'Close');
 	check('scoreboard: the Close button works', Ui.current() === '');
@@ -63133,10 +63302,10 @@ Test.add('uiacc', (check) => uiWith(() => {
 	PlayFlow.quickMatch();
 	Input.device = 'touch';
 	Settings.set('controls.toggle.scoreboard', 'hold'); Input.refreshConfig(); Input.clearAll();
-	tap();
-	const openedByTap = Ui.current() === 'scoreboard';
-	tap();
-	check('touch scoreboard, hold setting: a tap opens, the next tap closes', openedByTap && Ui.current() === '');
+	Input.pressAction(index);
+	const openedByHold = Ui.current() === 'scoreboard';
+	Input.releaseAction(index);
+	check('touch scoreboard, hold setting: a finger on the score panel opens it, lifting it closes', openedByHold && Ui.current() === '');
 
 	Settings.set('controls.toggle.scoreboard', 'toggle'); Input.refreshConfig(); Input.clearAll();
 	const states = [];
