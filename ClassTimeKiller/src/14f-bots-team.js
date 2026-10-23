@@ -148,8 +148,7 @@ const BotTeam = {
     for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === team) rankList.push(id);
     if (!rankList.length) return;
     rankList.sort((a, b) => Bots.trait(b, TRAIT.teamwork) - Bots.trait(a, TRAIT.teamwork) || a - b);
-    // Defenders round down (an odd team leans to attack: a 5-bot flag team raids with 3, not 2); escorts round.
-    const defenders = Math.floor(rankList.length * (splits.defend || 0)), escorts = Math.round(rankList.length * (splits.escort || 0));
+    const defenders = Math.round(rankList.length * (splits.defend || 0)), escorts = Math.round(rankList.length * (splits.escort || 0));
     for (let rank = 0; rank < rankList.length; rank++) {
       const id = rankList[rank];
       this.role[id] = rank < defenders ? ROLE.DEFEND : rank < defenders + escorts ? ROLE.ESCORT : ROLE.ATTACK;

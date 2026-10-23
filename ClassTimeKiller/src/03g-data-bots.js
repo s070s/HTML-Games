@@ -117,10 +117,10 @@ const BOT_CHAT_CHANCE = { quiet: 0.5, normal: 0.8, loud: 1 };   // chance that a
 // Team roles (BOT-050): share of a team's bots the commander gives each role, by the mode's objective kind; the rest
 // attack. Free-for-all bots are freelancers. Flags:
 // 'flag' while the enemy flag is home (more raiders than BOT-050's 40% attack: two raiders gather before a push, and the
-// soak's capture rate needs three of four), 'flagTaken' while a team-mate carries it (BOT-050: 60% defend, 30% escort),
+// soak's capture rate needs three of four; 20% defend so a 5-bot team raids with 3, as 2 raiders stall a 5 v 5 at 0-0), 'flagTaken' while a team-mate carries it (BOT-050: 60% defend, 30% escort),
 // judged at each commander round (a switch at the very moment of the grab breaks the raid; the soak's balance shows it).
 const BOT_ROLE_SPLITS = {
-  flag: { defend: 0.3, escort: 0.2 },
+  flag: { defend: 0.2, escort: 0.2 },
   flagTaken: { defend: 0.6, escort: 0.3 },
   point: { defend: 0.4 },
   hill: { defend: 0.25 },

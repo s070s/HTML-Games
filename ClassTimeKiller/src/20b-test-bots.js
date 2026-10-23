@@ -915,14 +915,14 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
-// ---- BOT-050 CTF splits: enemy flag home 30% defend, 20% escort, the rest attack; enemy flag taken 60% defend, 30%
+// ---- BOT-050 CTF splits: enemy flag home 20% defend, 20% escort, the rest attack; enemy flag taken 60% defend, 30%
 // escort (from the next commander round). BOT-002: a chase on stale memory is the Search state ----
 Test.add('bots', (check) => {
   playMatch({ mode: 'ctf', map: 'twinkeeps', minutes: 1 / 60, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH, probe: () => {
     const team = [], roles = () => team.map((id) => ROLE_NAMES[BotTeam.role[id]]).sort().join();
     for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) team.push(id);
     BotTeam.assignRoles();
-    check('ctf, flags home: 2 defend, 1 escort, 2 attack of 5', team.length === 5 && roles() === 'attack,attack,defend,defend,escort', roles());
+    check('ctf, flags home: 1 defend, 1 escort, 3 attack of 5', team.length === 5 && roles() === 'attack,attack,attack,defend,escort', roles());
     const enemyFlag = Modes.objectives.find((o) => o.kind === 'flag' && o.team === 1);
     enemyFlag.carrier = team[0];
     BotTeam.assignRoles();
