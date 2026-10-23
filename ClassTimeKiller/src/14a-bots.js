@@ -70,10 +70,13 @@ const Difficulty = {
   tierShift() { return Settings.get('difficulty.adaptive') ? adaptiveShift(Settings.get('difficulty.tierShift')) : 0; },
 };
 
+const OPEN_ENDED_MODES = ['endless', 'range'];   // runs that can only end lost (no win to reach): neither a win nor a loss
+
 // +1 won, -1 lost, 0 neither (a draw, the middle of a free-for-all ranking, or the player not in the results).
 function matchOutcome(results, player) {
   const players = results.players, playerRow = players.findIndex((row) => row.id === player);
   if (playerRow < 0) return 0;
+  if (OPEN_ENDED_MODES.includes(results.mode)) return 0;
   if (coopResults(results)) return results.draw ? 0 : results.winnerId >= 0 ? 1 : -1;   // the party wins or loses together
   if (players.length < 2) return 0;
   if (results.teams.length > 0) {

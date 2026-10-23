@@ -663,6 +663,8 @@ Test.add('bots', (check) => {
   check('team mode: a draw -> 0', matchOutcome(teamOutcome(NO_TEAM), 0) === 0);
   const ffa = { players: [outcomeRow(3, NO_TEAM), outcomeRow(0, NO_TEAM), outcomeRow(4, NO_TEAM)], teams: [], winnerTeam: NO_TEAM };
   check('free-for-all: first +1, middle 0, last -1', matchOutcome(ffa, 3) === 1 && matchOutcome(ffa, 0) === 0 && matchOutcome(ffa, 4) === -1);
+  const openEnded = (mode) => ({ mode, players: [outcomeRow(0, 0)], teams: [], winnerTeam: NO_TEAM, winnerId: PVE_LOST, draw: false });
+  check('an Endless Hold run or a Firing Range session (they only end lost) is neither a win nor a loss', matchOutcome(openEnded('endless'), 0) === 0 && matchOutcome(openEnded('range'), 0) === 0);
   const adaptive = Settings.get('difficulty.adaptive'), shift = Settings.get('difficulty.tierShift'), playerId = Game.playerId;
   Settings.set('difficulty.adaptive', true); Settings.set('difficulty.tierShift', 0);
   Game.playerId = 0;
