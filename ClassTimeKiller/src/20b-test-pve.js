@@ -200,7 +200,7 @@ Test.add('pve', (check) => withShortShop(() => {
   Pve.damageCore(1e6, -1);
   runSeconds(0.5);
   const results = Game.match.results;
-  check('a destroyed core loses the run', !Modes.active && results && results.reason === PVE_LOSE && results.winner === DRAW, results && results.reason);
+  check('a destroyed core loses the run', !Modes.active && results && results.reason === PVE_LOSE && results.winner === PVE_LOST, results && results.reason);
   endModeTest();
   const retry = startPveMode('horde', [0]);
   runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 10);
@@ -209,6 +209,19 @@ Test.add('pve', (check) => withShortShop(() => {
   const run = Modes.behaviour.run;
   check('with checkpoints the wave restarts (retries 2)', Modes.active && run.retriesLeft === 1 && Pve.core.health > 0 && run.wave === 0, run.retriesLeft + ' ' + run.wave);
   check('the participants stand at the checkpoint', Actors.alive[retry[0]] === 1);
+  endModeTest();
+}));
+
+// A lost co-op run reads as a loss, not a draw: on the results screen (PlayFlow.outcome) and for the adaptive shift (14a).
+Test.add('pve', (check) => withShortShop(() => {
+  startPveMode('horde', [], {}, { difficulty: 'ascendant', player: { name: 'Tester', team: 0 } });
+  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 10);
+  Pve.damageCore(1e6, -1);
+  runSeconds(0.5);
+  const results = Game.match.results;
+  check('a lost run is not a draw', !!results && !results.draw && results.reason === PVE_LOSE, results && results.winner);
+  check('the results screen calls it a loss', !!results && PlayFlow.outcome(results) === 'loss', results && PlayFlow.outcome(results));
+  check('the adaptive shift reads it as a loss', !!results && matchOutcome(results, Game.playerId) === -1, results && matchOutcome(results, Game.playerId));
   endModeTest();
 }));
 

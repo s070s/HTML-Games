@@ -71,12 +71,19 @@ const Difficulty = {
 // +1 won, -1 lost, 0 neither (a draw, the middle of a free-for-all ranking, or the player not in the results).
 function matchOutcome(results, player) {
   const players = results.players, playerRow = players.findIndex((row) => row.id === player);
-  if (playerRow < 0 || players.length < 2) return 0;
+  if (playerRow < 0) return 0;
+  if (coopResults(results)) return results.draw ? 0 : results.winnerId >= 0 ? 1 : -1;   // the party wins or loses together
+  if (players.length < 2) return 0;
   if (results.teams.length > 0) {
     if (results.winnerTeam === NO_TEAM) return 0;
     return players[playerRow].team === results.winnerTeam ? 1 : -1;
   }
   return playerRow === 0 ? 1 : playerRow === players.length - 1 ? -1 : 0;
+}
+// Co-op and solo PvE (teams below 2 outside the versus family): one result for every participant.
+function coopResults(results) {
+  const mode = CAT.modes.byId(results.mode);
+  return !!mode && mode.teams < TEAM_COUNT && mode.family !== 'versus';
 }
 
 // The difficulty stage: rules.botSkill, and the DIF-002 game speed slider (an ACC-007 assist, every mode) multiplies the mutators' time scale.

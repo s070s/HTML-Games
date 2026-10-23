@@ -4,9 +4,10 @@
 // the director (14h) and the rows (03o). Difficulty (rules.botSkill): lives (0 = unlimited), checkpoints and checkpointHeal
 // (wave retries, DIF-004 Guardian Plate), gameSpeed (rules.fx.timeScale, written by the 14a difficulty stage before the
 // ruleset freezes). Co-op results: winner = the player (or the first participant) on a win,
-// DRAW with reason 'defeat' on a loss. The HUD reads Modes.hud.pve (PVE_HUD fields, docs/api/pve.md).
+// PVE_LOST with reason 'defeat' on a loss. The HUD reads Modes.hud.pve (PVE_HUD fields, docs/api/pve.md).
 
 const PVE_WIN = 'victory', PVE_LOSE = 'defeat';
+const PVE_LOST = -3;                   // co-op loss winner: neither a winner nor DRAW, so the results read as a loss for every participant
 const PVE_WAVE_STATE = { SHOP: 'shop', FIGHT: 'fight', EXTRACT: 'extract', DONE: 'done' };
 const PVE_MAX_PICKS = 200;             // a wave budget is spent in at most this many picks
 const PVE_FIENDS_TEAM = 1, PVE_RAVAGER_TEAM = 0;
@@ -222,7 +223,7 @@ function makeWaveBehaviour(plan) {
     // of its own when checkpoints are on.
     failWave(run, now) {
       const plate = guardianOpen(run) && pveSkill().checkpoints;
-      if (run.retriesLeft <= 0 && !plate) { run.result = Modes.over(DRAW, PVE_LOSE); return; }
+      if (run.retriesLeft <= 0 && !plate) { run.result = Modes.over(PVE_LOST, PVE_LOSE); return; }
       if (plate) wearGuardianPlate(run); else run.retriesLeft--;
       Pve.clearEnemies();
       Pve.core.health = Math.max(run.coreAtWave, 1);
@@ -562,7 +563,7 @@ Modes.register('contract', {
     if (run.result !== NOT_OVER) return;
     if (run.holder < 0) this.tryTakeRelic();
     else if (Actors.alive[run.holder] && withinTouch(run.holder, run.extract.x, run.extract.y, run.extract.z, run.extract.radius)) this.complete(now);
-    if (teamWiped(NO_TEAM)) run.result = Modes.over(DRAW, PVE_LOSE);
+    if (teamWiped(NO_TEAM)) run.result = Modes.over(PVE_LOST, PVE_LOSE);
     this.updateHud(now);
   },
   tryTakeRelic() {
@@ -622,7 +623,7 @@ Modes.register('range', {
   },
   step(dt, now) {
     for (const station of RangeRun.stations) this.keepStation(station, now);
-    if (teamWiped(NO_TEAM)) RangeRun.result = Modes.over(DRAW, PVE_LOSE);
+    if (teamWiped(NO_TEAM)) RangeRun.result = Modes.over(PVE_LOST, PVE_LOSE);
     PVE_HUD.shots = RangeRun.shots; PVE_HUD.hits = RangeRun.hits; PVE_HUD.headshots = RangeRun.headshots; PVE_HUD.damage = Math.round(RangeRun.damage);
     PVE_HUD.kills = RangeRun.kills; PVE_HUD.drillKills = RangeRun.drillKills; PVE_HUD.accuracy = RangeRun.shots > 0 ? RangeRun.hits / RangeRun.shots : 0;
     PVE_HUD.stateTimeLeft = RangeRun.drillStart >= 0 ? now - RangeRun.drillStart : 0;
