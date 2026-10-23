@@ -662,6 +662,25 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   Game.stop();
 })));
 
+// ---- Career screens that redraw after a change (a card placed or removed, an operation restarted) keep the keyboard / pad focus on that row ----
+Test.add('uiacc', (check) => uiWith(() => {
+  const rowButton = (code) => Array.from(Ui.top().element.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith(code + ' ')).querySelector('button');
+  const press = (code) => { rowButton(code).focus(); rowButton(code).click(); return document.activeElement === rowButton(code) && Ui.current() !== '' ? document.activeElement.textContent : 'focus on ' + document.activeElement.textContent; };
+  Settings.set('progress.unlockAll', true);
+  Cards.addMarks(5000);
+  Ui.open('cards');
+  const placed = press('C24'), removed = press('C24');
+  check('cards: Place and Remove keep the focus on the same card', placed === 'Remove' && removed.startsWith('Place'), placed + ', ' + removed);
+  Settings.set('progress.unlockAll', false);
+  Ui.closeAll();
+  const operation = CAT.operations[0];
+  Operations.state(operation.id).stage = 1;
+  Ui.open('operations');
+  rowButton(operation.code).nextSibling.focus();
+  rowButton(operation.code).nextSibling.click();
+  check('operations: Restart keeps the focus on the same operation', Operations.state(operation.id).stage === 0 && document.activeElement === rowButton(operation.code), document.activeElement.textContent);
+}));
+
 // ---- Scoreboard on a touch device, with and without the ACC-004 toggle setting: one toggle source, no drift ----
 Test.add('uiacc', (check) => uiWith(() => {
   const device = Input.device, index = Input.actionIndex.scoreboard;
