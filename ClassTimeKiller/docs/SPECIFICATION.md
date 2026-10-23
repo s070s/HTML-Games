@@ -473,7 +473,7 @@ Perks (ECP04): Tier 1 Scavenger (ammo from bodies), Bandolier (+50% ammo), Hardl
 | M13 | `bomb` | Detonate | 5v5, rounds: buy 15 s, live 100 s, plant 4 s, fuse 40 s, defuse 7 s (half-progress kept at 3.5 s); first to 7 rounds, swap at 6; one life | CS, Valorant |
 | M14 | `elim` | Last Squad | team rounds, one life, first to 5 rounds, 90 s + shrinking safe area last 30 s | CrossFire Elimination, Gunfight |
 | M15 | `lms` | Last Standing | FFA, 3 lives, all weapons max ammo, 100 armor, no pickups except boots | UT LMS, Painkiller |
-| M16 | `gungame` | Arms Ladder | 14 tiers (13 guns + the maul; `params.tiers` only shortens it), kill to advance, melee kill demotes victim, final melee kill wins | CS Arms Race, Apex Gun Run |
+| M16 | `gungame` | Arms Ladder | 12 tiers (11 guns + the maul; `params.tiers` only shortens it), kill to advance, melee kill demotes victim, final melee kill wins | CS Arms Race, Apex Gun Run |
 | M17 | `infection` | Blight | 1 infected per 6 players after 20 s; infected 450 HP melee + leap, a human who dies after the outbreak turns infected; humans win at 5 min | CrossFire Mutation, Halo Infection |
 | M18 | `juggernaut` | Colossus | first kill becomes Colossus (x3 HP, x1.5 dmg, marked); kill the Colossus to become it; 1 pt per kill as Colossus, 15 to win | Halo Juggernaut, CrossFire Hero, UT Mutant |
 | M19 | `cursetag` | Curse Tag | cursed actor: 50 HP, melee only, must reach a beacon to pass curse; others score by killing them | Turok Frag Tag |
