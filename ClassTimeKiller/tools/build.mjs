@@ -33,7 +33,7 @@ const SIZE_WARN_BYTES = 3.0 * 1024 * 1024;   // D07: past 3.0 MB the build warns
 const SIZE_LIMIT_BYTES = 3.5 * 1024 * 1024;  // D07: past 3.5 MB the build fails (readable code, comment-only lines stripped)
 const BANNED_APIS = [/\bfetch\s*\(/, /XMLHttpRequest/, /\bimport\s*\(/, /new\s+WebSocket/, /navigator\.sendBeacon/, /\beval\s*\(/, /new\s+Function\s*\(/];
 // PERF-006: Math.hypot is a built-in call that boxes its result on every call; per-frame and per-step files use length2 / length3.
-const HOT_FILES = /^(06-audio|06c-audio-music|07[a-f]-render|08a-world|08b-world-collide|08c-world-triggers|08d-world-bodies|10a-move|11a-weapons|11b-projectiles|14a-bots|14b-bots-perception|14c-bots-move|14d-bots-combat|14e-bots-decide|14h-pve|14i-pve-enemies|17[a-g]-hud)/;
+const HOT_FILES = /^(06-audio|06c-audio-music|07[a-f]-render|08a-world|08b-world-collide|08c-world-triggers|08d-world-bodies|09b-nav-path|10a-move|11a-weapons|11b-projectiles|12e-abilities|12g-abilities-meters|12h-surfaces|13a-rules|13h-mutators|14a-bots|14b-bots-perception|14c-bots-move|14d-bots-combat|14e-bots-decide|14h-pve|14i-pve-enemies|14k-pve-boss|17[a-g]-hud)/;
 const HOT_BANNED_APIS = [/Math\.hypot\s*\(/];
 
 const checkOnly = process.argv.includes('--check');
