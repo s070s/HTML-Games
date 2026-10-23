@@ -195,9 +195,11 @@ const Ui = {
 
   // ---- Toasts and sound hook ----
   // In a running match every toast sits below the crosshair, clear of the header and the top touch buttons; menus use the top.
+  // The match counts from match.start on (Game.start sets the state to playing only after it: the first-match tip, ios-01).
   toast(text) {
     this.lastToast = text;
-    const box = Game.state === 'playing' && !Game.paused ? this.playBox : this.toastBox;
+    const inMatch = !!Game.match && !Game.match.ended && !Game.paused;
+    const box = inMatch ? this.playBox : this.toastBox;
     if (!box) return;
     const item = makeElement('div', 'ui-toast', text);
     box.appendChild(item);

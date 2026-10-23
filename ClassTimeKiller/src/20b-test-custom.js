@@ -86,6 +86,10 @@ Test.add('custom', (check) => {
   check('an unknown mutator is refused', bogus({ mutators: [{ id: 'nonsense', value: true }] }).includes('invalid mutators'));
   check('an out-of-range mutator value is refused', bogus({ mutators: [{ id: 'gravity', value: 'fast' }] }).includes('invalid mutators'));
   check('a wrong type is refused', bogus({ items: 'yes' }).includes('invalid items') && bogus({ botCount: 99 }).includes('invalid botCount') && bogus({ weaponList: ['nonsense'] }).includes('invalid weaponList'));
+  // One bot cap: the highest quality preset's (modes-04); a code from that preset is valid on any device.
+  const presetTop = Math.max(...CAT.quality.map((row) => row.bots));
+  check('the code bot cap is the highest quality preset bot count', typeof QUALITY_BOTS_MAX === 'number' && QUALITY_BOTS_MAX === presetTop && !bogus({ botCount: presetTop, allies: presetTop })
+    && bogus({ botCount: presetTop + 1 }).includes('invalid botCount') && bogus({ allies: presetTop + 1 }).includes('invalid allies'));
   check('a map that does not serve the mode is refused', bogus({ mode: 'duel', map: Maps.forMode('tdm').find((map) => !map.modes.includes('duel')).id }).includes('does not serve'));
   check('a code that is not an object is refused', CustomMatch.decode(codeWith([1, 2])).error === 'The code holds no settings.');
   check('a limit that makes no sense for the mode is dropped, not trusted', CustomMatch.decode(codeWith({ mode: 'ffa', roundWins: 3 })).draft.roundWins === -1);

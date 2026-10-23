@@ -6,7 +6,6 @@
 const PLAY_DEFAULT_MODE = 'ffa';
 const PLAY_DEFAULT_BOTS = 7;
 const PLAY_DEFAULT_DIFFICULTY = 'regular';
-const PLAY_MAX_BOTS = 31;
 const PLAY_SHUFFLE_MIN_BOTS = 3;
 const PLAY_PLAYER_NAME = 'You';
 const PLAY_LENGTHS = { short: 0.5, standard: 1, long: 1.5 };   // match length: the factor on the mode's score and time limits
@@ -27,7 +26,7 @@ const PLAY_CSS = '.pl-title { font-size: 2.2em; font-weight: 800; margin: 0; } .
 const PlayFlow = {
   // Modes with a registered behaviour and at least one map that lists them.
   playableModes() { return CAT.modes.filter((mode) => Modes.isPlayable(mode.id) && Maps.savedForMode(mode.id).length > 0); },
-  maxBots() { return Math.min(Quality.current().bots, PLAY_MAX_BOTS); },
+  maxBots() { return Quality.current().bots; },   // the quality preset's cap (PERF-009)
   mapsFor(modeId) { return Maps.savedForMode(modeId); },
   smallestMap(modeId) {
     let best = null;

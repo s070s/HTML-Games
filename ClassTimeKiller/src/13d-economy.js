@@ -466,11 +466,18 @@ function classModelId(row) {
   const preset = CAT.classes.find((entry) => CAT.weapons.byId(entry.primary).class === primary.class);
   return preset ? preset.id : '';
 }
-// The ECP04 rules for a custom class: primary and secondary are weapons, the secondary a sidearm, one perk of each tier,
-// a field upgrade of the preset list.
+// The class weapons a slot may hold: CLASS_WEAPON_SET keys, a sidearm as the secondary and any other gun as the primary
+// (the custom class editor's choices; the swap table CLASS_SET_SWAPS covers each of them).
+function classWeaponOptions(slot) {
+  return CAT.weaponSets.byId(CLASS_WEAPON_SET).weapons.filter((key) => {
+    const weaponClass = CAT.weapons.byId(key).class;
+    return slot === 'secondary' ? weaponClass === 'sidearm' : weaponClass !== 'sidearm' && weaponClass !== 'melee';
+  });
+}
+// The ECP04 rules for a custom class: class weapons (classWeaponOptions), one perk of each tier, a field upgrade of the preset list.
 function classProblem(row) {
-  if (!row || !CAT.weapons.byId(row.primary) || !CAT.weapons.byId(row.secondary)) return 'Pick a primary and a secondary weapon.';
-  if (CAT.weapons.byId(row.secondary).class !== 'sidearm') return 'The secondary must be a sidearm.';
+  if (!row || !classWeaponOptions('primary').includes(row.primary)) return 'Pick a primary weapon of the ' + CAT.weaponSets.byId(CLASS_WEAPON_SET).name + ' set.';
+  if (!classWeaponOptions('secondary').includes(row.secondary)) return 'The secondary must be a ' + CAT.weaponSets.byId(CLASS_WEAPON_SET).name + ' sidearm.';
   if (row.fieldUpgrade && !CAT.economy.byId('classes').fieldUpgrades.includes(row.fieldUpgrade)) return 'Pick a field upgrade from the list.';
   if (!Array.isArray(row.perks) || row.perks.length !== 3) return 'Pick three perks.';
   for (let tier = 1; tier <= 3; tier++) {

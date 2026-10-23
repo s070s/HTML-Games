@@ -67,7 +67,8 @@ function ladderLoadouts(ladder, melee) {
 }
 
 // ---- M17 Blight: everyone starts human (team 0); after infectAfter s one in infectedPerPlayers becomes infected (team 1:
-// infectedHealth HP, melee only, a jump is a leap). Only a kill turns a human: a human who dies comes back infected.
+// infectedHealth HP, melee only, a jump is a leap). A hit does not turn a human: any death after the outbreak does (a kill by
+// the infected, a fall, a hazard), so a human who dies comes back infected (the mode row's goal says the same).
 // The infected win when no human is left; humans win at the time limit ----
 Modes.register('infection', {
   limits: ['time'],
@@ -256,6 +257,7 @@ Modes.register('roulette', {
   },
 });
 
+// The guns of the match weapon set (no melee, tool or power weapon): the Roulette draw and the Last Ring loot (13g).
 function rouletteWeapons(out) {
   out.length = 0;
   for (const key of currentWeaponSet().weapons) {
