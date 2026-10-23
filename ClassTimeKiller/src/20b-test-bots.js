@@ -109,12 +109,12 @@ function sampleSoak(stats) {
   for (const objective of Modes.objectives) if (objective.state === 'carried' || objective.owner >= 0 || objective.progress > 0) stats.objectivesTouched++;
 }
 
-// Stuck time counts only for bot brains (botSeconds counts only theirs); PvE enemies also move with BotMove, so their stuck
-// time is reported apart (enemyStuck, enemyMaxStuck) instead of being blamed on the bots (bots-03).
+// Stuck time counts for bot brains (botSeconds counts their ticks, a bot removed mid-match included); PvE enemies also move
+// with BotMove, so their stuck time is reported apart (enemyStuck, enemyMaxStuck) instead of being blamed on the bots (bots-03).
 function finishSoak(stats, timings, ticks) {
   let stuck = 0, longest = 0, noGoal = 0;
   for (let id = 0; id < Actors.count; id++) {
-    if (!Bots.active[id]) {
+    if (Actors.kind[id] === ACTOR_KIND.ENEMY) {
       stats.enemyStuck += BotMove.stuckSeconds[id];
       stats.enemyMaxStuck = Math.max(stats.enemyMaxStuck, BotMove.longestStuck[id]);
       continue;
@@ -1551,6 +1551,8 @@ function checkSoaks(check, maps, minutes) {
 
 Test.add('bots', (check) => { DebugApi.bots.lastQuickSoak = checkSoaks(check, SOAK_QUICK_MAPS.map((id) => CAT.maps.byId(id)), SOAK_QUICK_MINUTES); });
 
+Test.add('botsoak', (check) => { DebugApi.bots.lastSoak = checkSoaks(check, CAT.maps.filter((map) => !map.placeholder), SOAK_TEST_MINUTES); }, { slow: true });
+
 // bots-03: a PvE enemy stuck on its BotMove path (PveMove) is reported as enemy stuck time, not as the bots' stuck share.
 const ENEMY_STUCK_SECONDS = 10;
 Test.add('bots', (check) => {
@@ -1569,7 +1571,17 @@ Test.add('bots', (check) => {
   check('enemy stuck time stays out of the bots\' stuck share', stats.stuckFraction * stats.botSeconds < ENEMY_STUCK_SECONDS && stats.maxStuck < ENEMY_STUCK_SECONDS, text);
   check('enemy stuck time is reported apart', stats.enemyStuck >= ENEMY_STUCK_SECONDS && stats.enemyMaxStuck >= ENEMY_STUCK_SECONDS, text);
 });
-Test.add('botsoak', (check) => { DebugApi.bots.lastSoak = checkSoaks(check, CAT.maps.filter((map) => !map.placeholder), SOAK_TEST_MINUTES); }, { slow: true });
+// A bot removed mid-match keeps its stuck time in the bots' share (its ticks stay in botSeconds), not in the enemy time.
+const REMOVED_BOT = 1, REMOVE_TICK = 30;
+Test.add('bots', (check) => {
+  const onTick = (played) => {
+    if (played !== REMOVE_TICK) return;
+    BotMove.stuckSeconds[REMOVED_BOT] += ENEMY_STUCK_SECONDS;
+    Actors.remove(REMOVED_BOT);
+  };
+  const stats = playMatch({ mode: 'ffa', map: 'harbor', minutes: 0.25, botCount: 4, seed: 1, modeOptions: SOAK_OPEN_MATCH, onTick });
+  check('a removed bot\'s stuck time stays in the bots\' share', stats.enemyStuck === 0 && stats.stuckFraction * stats.botSeconds >= ENEMY_STUCK_SECONDS, JSON.stringify(stats));
+});
 
 // balance-04 hero kill pace: 10 hero bots on Harbor, 3 minutes per seed (one seed alone swings from 1 to 23 kills): in each
 // kill mode the leader's score over all seeds, projected to the time limit, reaches HERO_PACE_SHARE of the hero score limit.
