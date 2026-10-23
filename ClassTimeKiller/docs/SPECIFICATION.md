@@ -60,7 +60,7 @@ Schemas (field: type, default). Full catalogue tables use these fields.
 
 | Schema | Fields |
 |---|---|
-| Ruleset | id, name, move (MV key), health (HPP key), economy (ECP key), precision (`arena`/`standard`/`tactical`/`hero`), weaponSet, meter (`none`/`streak`/`boost`/`adrenaline`/`ultimate`/`energy`), friendlyFire 0, selfDamage 0.5, knockback 1, gravityScale 1, respawn {delay 2, forced 10, protect 2, wave 0}, lives 0, itemRespawnScale 1, weaponStay false, dropOnDeath `held`, mutators [] |
+| Ruleset | id, name, move (MV key), health (HPP key), economy (ECP key), precision (`arena`/`standard`/`tactical`/`hero`), weaponSet, meter (`none`/`streak`/`boost`/`adrenaline`/`ultimate`/`energy`), friendlyFire 0, selfDamage 0.5, knockback 1, hitKnockback 1, gravityScale 1, respawn {delay 2, forced 10, protect 2, wave 0}, lives 0, itemRespawnScale 1, weaponStay false, dropOnDeath `held`, mutators [] |
 | Weapon | id, name, class, slot 1-9, ref, moveMult 1, adsMoveMult 0.7, equipTime 0.4, readyTime 0.15, primary FireMode, alt FireMode, ammoType, mag, reserve, maxAmmo, pickupAmmo, price 0, killReward 300, rarityScale true, noise 60, botPref {range [min,max], value 0..1} |
 | FireMode | type (`hitscan`/`projectile`/`beam`/`melee`/`spread`/`charge`/`zoom`/`lock`/`tool`), damage, rate (rps), pellets 1, spreadDeg, moveSpread, adsSpreadMult 0.4, recoil pattern key, falloff [startM, endM, minFactor], headMult 2, legMult 0.75, armorPen 0.75, pierce 0, range, projectile key, splash {r, dmg, minFactor 0.2}, charge {time, min, max}, ammoPerShot 1, heat, element `kinetic` |
 | Projectile | id, speed, gravity 0, life, radius, bounce 0, fuse 0, stick false, homing 0 (deg/s), drag 0, arm distance 0, onHit (`explode`/`damage`/`pin`/`freeze`), poolSize |
@@ -123,7 +123,7 @@ Schemas (field: type, default). Full catalogue tables use these fields.
 | MOV-014 | Landing faster than 15 m/s locks jump 0.25 s; presets with `landingPenalty` scale speed 0.2 s. |
 | MOV-015 | Fall damage: `fallMax*((v-fallSafe)/(fallLethal-fallSafe))^2` above fallSafe, to health only; fallLethal 0 = none. |
 | MOV-016 | Crouch halves noise radius; uncrouch blocked without headroom. Walk in `silentWalk` presets is silent. |
-| MOV-017 | Knockback `dv = 0.15*damage*knockbackScale/massFactor` m/s, cap 30 m/s; massFactor 1 actor, 2.5 heavy, 4 boss. Own explosions: full knockback, damage x selfDamage (0.5). Enables rocket/weapon jumps. The ruleset `knockback` scale is applied once, by S10, to every impulse (Damage.knockback no longer multiplies it); Tactical, Modern, Pilot, Last Ring and Weave Suit use 0.25. |
+| MOV-017 | Knockback `dv = 0.15*damage*knockbackScale/massFactor` m/s, cap 30 m/s; massFactor 1 actor, 2.5 heavy, 4 boss. Own explosions: full knockback, damage x selfDamage (0.5). Enables rocket/weapon jumps. The ruleset `knockback` scale is applied once, by S10, to every impulse (Damage.knockback no longer multiplies it); Tactical, Modern, Pilot, Last Ring and Weave Suit use 0.25. The ruleset `hitKnockback` scales only the push a hit gives another actor (Hero Squad 0.5: hero pools soak many hits, so full push threw most duels off ledges). |
 | MOV-018 | Air-control assist (X24; default on for touch/gamepad in arena): airAccel +2 and auto-strafe toward look direction (avoids strafe-jump skill wall). |
 | MOV-019 | Water: swim 50% speed, 12 s air then 2 HP/s rising 2/s to 15 HP/s ignoring armor. Ladders 3.0 m/s. Jump pads fly to designer apex; teleporters keep speed magnitude. |
 | MOV-020 | Telefrag: arriving into another capsule kills the occupant (credit to arriver). Spawn logic prevents spawn telefrags (MAP-010, MAP-011). |
@@ -474,7 +474,7 @@ Perks (ECP04): Tier 1 Scavenger (ammo from bodies), Bandolier (+50% ammo), Hardl
 | M14 | `elim` | Last Squad | team rounds, one life, first to 5 rounds, 90 s + shrinking safe area last 30 s | CrossFire Elimination, Gunfight |
 | M15 | `lms` | Last Standing | FFA, 3 lives, all weapons max ammo, 100 armor, no pickups except boots | UT LMS, Painkiller |
 | M16 | `gungame` | Arms Ladder | 12 tiers (11 guns + the maul; `params.tiers` only shortens it), kill to advance, melee kill demotes victim, final melee kill wins | CS Arms Race, Apex Gun Run |
-| M17 | `infection` | Blight | 1 infected per 6 players after 20 s; infected 450 HP melee + leap, a human who dies after the outbreak turns infected; humans win at 5 min | CrossFire Mutation, Halo Infection |
+| M17 | `infection` | Blight | 1 infected per 6 players (scaled by the square root of the walkable floor / 3500 m²) after 20 s; infected 375 HP melee only (no grenades, gadgets or attack abilities) + leap; not on Skyward Yard (open void edges), a human who dies after the outbreak turns infected; humans win at 5 min | CrossFire Mutation, Halo Infection |
 | M18 | `juggernaut` | Colossus | first kill becomes Colossus (x3 HP, x1.5 dmg, marked); kill the Colossus to become it; 1 pt per kill as Colossus, 15 to win | Halo Juggernaut, CrossFire Hero, UT Mutant |
 | M19 | `cursetag` | Curse Tag | cursed actor: 50 HP, melee only, must reach a beacon to pass curse; others score by killing them | Turok Frag Tag |
 | M20 | `royale` | Last Ring | 18 actors (6 squads of 3 or solo); drop-in; 6 ring phases: wait 30/25/25/20/15/10 s, shrink 30/25/20/20/15/15 s, damage 2/4/8/12/16/20 HP/s; squads downed + one respawn beacon per squad | Fortnite, Apex |
