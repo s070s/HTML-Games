@@ -74,17 +74,17 @@ function ladderLoadouts(ladder, melee) {
 // How many start infected: one in infectedPerPlayers on infectedArea square metres of walkable floor, scaled by the square
 // root of the floor (blight-01: starting 2 of 12 everywhere, the Blight won all 6 test matches on Spire and Skyward Yard and
 // lost 5 of 6 on Gantry; the box size miscounted gappy Skyward Yard, and the count grows slower than the floor, where humans
-// spread out). Now 2 on Spire, 1 on Skyward Yard and 3 on Gantry. At least one.
+// spread out). Now 2 on Spire and 3 on Gantry. At least one.
 function outbreakSize(players, params) {
   const area = walkableArea();
   const areaScale = area > 0 ? Math.sqrt(area / params.infectedArea) : 1;
   return Math.max(1, Math.floor(players / params.infectedPerPlayers * areaScale));
 }
 
-// The walkable floor in square metres: the nav graph has one node per NAV_NODE_CELL cell and surface, so gaps and drops do
-// not count (Skyward Yard's 70 x 70 m box holds about 3100); the map's box while no graph is built; 0 when neither is known.
+// The walkable floor in square metres: the nav graph's (Skyward Yard's 70 x 70 m box holds about 3100), the map's box while
+// no graph is built, 0 when neither is known.
 function walkableArea() {
-  if (Nav.nodeCount > 0) return Nav.nodeCount * NAV_NODE_CELL * NAV_NODE_CELL;
+  if (Nav.nodeCount > 0) return Nav.walkableArea();
   const size = World.map ? World.map.size : null;
   return Array.isArray(size) ? size[0] * size[2] : 0;
 }
@@ -123,6 +123,7 @@ Modes.register('infection', {
   applyInfection(id) {
     setVitality(id, Modes.rules.params.infectedHealth);
     Weapons.setLoadout(id, this.meleeLoadout);
+    Abilities.endAttacks(id, 'infected');   // a human turned mid-cast keeps no offensive ability running
   },
   onSpawn(id) { if (Modes.actorRole[id] === ACTOR_ROLE.INFECTED) this.applyInfection(id); },
   onKill(victim) {

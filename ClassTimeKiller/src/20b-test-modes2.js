@@ -339,8 +339,12 @@ Test.add('modes2', (check) => {
   check('infection: everyone starts human', ids.every((id) => Actors.team[id] === HUMAN_TEAM) && Modes.hud.survivors === 6 && Modes.hud.infected === 0);
   runSeconds(19.9);
   check('infection: nobody is infected before 20 s', Modes.hud.infected === 0);
+  const casting = ids.filter((id) => Abilities.forceCast(id, 'timebend')).length;   // a control ability running at the outbreak
   runSeconds(0.2);
   const first = ids.find((id) => Actors.team[id] === INFECTED_TEAM);
+  const stillCasting = ids.filter((id) => Abilities.isActive(id, 'timebend'));
+  check('infection: a human turned infected stops a running control ability, the humans keep theirs', casting === ids.length
+    && stillCasting.length === Modes.hud.survivors && stillCasting.every((id) => Actors.team[id] === HUMAN_TEAM), casting + ' cast, ' + stillCasting.length + ' running');
   check('infection: 2 of 6 infected at 20 s on the 120 m test floor (4 x infectedArea)', Modes.hud.infected === 2 && Modes.hud.survivors === 4 && Modes.actorRole[first] === ACTOR_ROLE.INFECTED,
     Modes.hud.infected);
   const infectedHealth = Modes.rules.params.infectedHealth;
@@ -372,10 +376,10 @@ Test.add('modes2', (check) => {
   check('infection: humans standing at the time limit win', Game.match.ended && Game.match.winner === HUMAN_TEAM && Game.match.results.reason === 'time');
   endModeTest();
   // blight-01: the outbreak grows with the square root of the walkable floor (the nav graph's node count).
-  const params = CAT.modes.byId('infection').params, nodes = Nav.nodeCount, nodesFor = (area) => area / (NAV_NODE_CELL * NAV_NODE_CELL);
+  const params = CAT.modes.byId('infection').params, nodes = Nav.nodeCount, nodesFor = (area) => area / (NAV_CELL_SIZE * NAV_CELL_SIZE);
   const startsOn = (area) => { Nav.nodeCount = nodesFor(area); return outbreakSize(12, params); };
-  const counts = [params.infectedArea, 4 * params.infectedArea, params.infectedArea / 4].map(startsOn);
-  Nav.nodeCount = nodes;
+  let counts = [];
+  try { counts = [params.infectedArea, 4 * params.infectedArea, params.infectedArea / 4].map(startsOn); } finally { Nav.nodeCount = nodes; }
   check('infection: 2 of 12 start infected on infectedArea of floor, 4 on four times it, 1 on a quarter', counts.join() === '2,4,1', counts.join());
   // Balance probe (modes-02): with one hit converting, the infected wiped 12 bots in 51-133 s on every seed. Now the humans hold well into the match.
   const soak = DebugApi.soak('infection', 'spire', 5.5, 11, 2, {});

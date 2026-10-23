@@ -15,6 +15,7 @@
 const NAV_FINE = 0.5;                  // raster spacing (m): fine enough that a 1.6 m doorway always holds a standable column
 const NAV_RASTER_BLOCK = 8;            // raster columns that share one brush gather
 const NAV_CELL_SAMPLES = 4;            // raster columns per node cell side (one node per 2 m cell and surface)
+const NAV_CELL_SIZE = NAV_FINE * NAV_CELL_SAMPLES;   // node cell side (m)
 const NAV_OPEN_RADIUS = 0.6;           // a walk passing only samples with this much free space around them needs no line test:
                                        // every point of its chest line is within 0.48 m of such a sample
 const NAV_EDGE_MARGIN = 0.25;          // a sample keeps this much footing around its centre (capsule over a ledge)
@@ -161,6 +162,8 @@ const Nav = {
     return done;
   },
   clearCache() { navGraphCache.length = 0; },
+  // Square metres of walkable surface (one node per cell and surface: gaps and drops do not count, stacked floors do); 0 unbuilt.
+  walkableArea() { return this.nodeCount * NAV_CELL_SIZE * NAV_CELL_SIZE; },
   clearGraph() {
     this.nodeCount = 0; this.linkCount = 0; this.teleportCount = 0; this.componentCount = 0; this.coverCount = 0; this.mainComponent = -1;
     const empty = new Int32Array(1);
