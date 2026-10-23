@@ -41,16 +41,17 @@ A wedge is a ramp. Slopes up to 45 deg are floor (`WALKABLE_NORMAL_Y`); steeper 
 | `World.touchTriggers(id)` | called by S10 once per actor step, after it sets `World.triggerStep.gravity` (the actor's m/s^2, jump pad arcs; a scratch field, since a float argument is boxed per step); returns `TRIGGER_MEDIUM` bits `WATER` (swim depth) `WADING` (touching water) `LADDER HEAD_UNDER MOVED` |
 | `World.triggers` | normalized trigger rows (`kind index minX..maxZ` + kind fields) for nav links |
 | `World.airLeft(id)` | seconds of breath left (HUD) |
+| `World.ladderOf(id)` | the ladder volume the actor last touched (`minX maxX minZ maxZ ...`), or null; S10 uses it to keep a climber on the ladder |
 | `World.tree`, `World.brushes`, `World.dynamic` | read-only data (dynamic = standing props) |
 
-Constants: `ACTOR_RADIUS` 0.40, `STEP_HEIGHT` 0.45, `ACTOR_STAND_HEIGHT` 1.80, `WALKABLE_NORMAL_Y` (cos 45 deg), `COLLISION_SKIN` 0.005 m.
+Constants: `ACTOR_RADIUS` 0.40, `STEP_HEIGHT` 0.45, `STAND_HEIGHT` 1.80 (body sizes of 01-core, with `CROUCH_*` and `PRONE_*`), `WALKABLE_NORMAL_Y` (cos 45 deg), `COLLISION_SKIN` 0.005 m.
 
 Hit volumes (DATA-003): head sphere r 0.14 centred 0.04 m above the eye; body cylinder r 0.30 from 0.85 to 1.45 m;
 legs cylinder r 0.22 from 0.05 to 0.85 m. Body and legs heights scale by `height / 1.8` (crouch, prone). They use flat
 caps instead of rounded ends so the zones never overlap; ties go head, then body, then legs.
 
 Low-level movers (`Collide`, used by S10 and bodies; other sections should prefer the World calls):
-`makeMover()`, `Collide.gatherAround(mover, reach)` (a box inside the one gathered last for the same mover in the same sim step, on the same world and dynamic-brush count, reuses that candidate list: a superset, so traces give the same results; one actor step walks the brush tree once: `sweepActor` gathers at least `SETTLE_REACH` past its travel for the settle and floor probe after it; `GatherCache.walks` counts the walks), `Collide.gather(box...)` (never reused), `Collide.sweep(...)`, `Collide.slide(mover, dt)` (plane-by-plane clip,
+`makeMover()`, `Collide.gatherAround(mover, reach)` (a box inside the one gathered last for the same mover in the same sim step, on the same world and dynamic-brush count, reuses that candidate list: a superset, so traces give the same results; one actor step walks the brush tree once: `sweepActor` gathers at least `SETTLE_REACH` past its travel for the settle and floor probe after it; `GatherCache.walks` counts the walks), `Collide.sweep(...)`, `Collide.slide(mover, dt)` (plane-by-plane clip,
 up to 3 planes), `Collide.stepSlide(mover, dt, stepHeight)` (per-step forms without the float argument: `slideClock.seconds = dt` then `Collide.slideMover(mover)` / `Collide.stepSlideMover(mover, stepHeight)`; `addClipPlane(mover, plane)` takes a `{ nx ny nz brush }` object such as a trace), `Collide.probeGround(mover, distance, trace)`,
 `Collide.depenetrate(mover)`, `Collide.overlaps(x, y, z, hull)`. Hulls: `setCapsuleHull`, `setSphereHull`, `setBoxHull`. Zero-allocation forms (PERF-006: float arguments to a call that is not inlined are boxed on the heap): `setSweepSegment(ax, ay, az, bx, by, bz)` (fills the shared sweep query) + `Collide.sweepSegment(hull, out)`; `clipBrush(brush, segment, hull, skin)` takes a segment object `{ sx sy sz ex ey ez }` and returns true on a hit with the entry fraction in `clipResult.fraction` (a returned float would be boxed); `rayBrushOf(ray, brush, hit)` takes `{ sx sy sz dx dy dz ix iy iz limit }` (`setRayInverse(ray)` fills `ix iy iz`; `rayBrush(...)` is the argument wrapper). Hot code uses `length2` / `length3` (S01) instead of `Math.hypot`.
 A gather keeps every brush it touches: the list starts at 256 (`CANDIDATE_START_SIZE`) and grows on a crowded map. `mover.planeBrushes[i]` is the brush of
@@ -60,11 +61,11 @@ A gather keeps every brush it touches: the list starts at 256 (`CANDIDATE_START_
 
 | kind | fields | effect |
 |---|---|---|
-| `jumppad` | `target: [x,y,z]`, `peak: 2` | sets the actor's velocity to a ballistic arc that tops out `peak` m above the higher of feet and target and lands on target (for the actor's own gravity) |
-| `teleporter` | `exit: [x,y,z]`, `yaw: 0` (deg) | moves to the exit, sets `yaw`, `aimYaw`, `prev*` (no interpolation smear) and, for the local player, the view (`Input.setAim`); horizontal speed kept and turned to the exit yaw; every other live capsule at the exit gets a lethal `telefrag` request credited to the arriver (MOV-020) |
-| `ladder` | - | S10 climbs at 3.0 m/s (look down > 30 deg to descend, crouch slides down, jump pushes off) |
+| `jumppad` | `target: [x,y,z]`, `peak: 2` | sets the actor's velocity to a ballistic arc that tops out `peak` m above the higher of feet and target and lands on target (for the actor's own gravity; the arc is `World.padArc`) |
+| `teleporter` | `exit: [x,y,z]`, `yaw: 0` (deg) | moves to the exit, sets `yaw`, `aimYaw`, `prev*` (no interpolation smear) and, for the local player, the view (`Input.setAim`); horizontal speed kept and turned to the exit yaw; every other live capsule at the exit gets a lethal `telefrag` request credited to the arriver (MOV-020); a `teleport` sound (radius 20, `TELEPORT_NOISE_RADIUS`) at the entry and at the exit |
+| `ladder` | - | S10 climbs at 3.0 m/s x `Move.statusSpeedScale` (move forward to climb, or down when looking down more than 30 deg; crouch descends at full speed; jump pushes off at 4 m/s and the ladder cannot be grabbed again for 0.3 s). Climbing down or hanging, a horizontal move that would take the centre out of the ladder's footprint stops, so the climber cannot drift off at the top (on the floor at either end it walks off freely) |
 | `water` | - | swim (50% ground speed, 3D) once the water reaches the capsule middle; the top is the surface; head under: 12 s of air, then `drown` requests 2, 4, 6 ... 15 HP every second; breathing refills at once |
-| `hazard` | `damage: 10` (HP/s), `element: 'thermal'` (an HP-006 element id) | `hazard` request of damage x 0.5 every 0.5 s, the first on contact |
+| `hazard` | `damage: 10` (HP/s), `element: 'thermal'` (an HP-006 element id) | `hazard` request of damage x 0.5 every 0.5 s, the first on contact; the interval runs down out of contact too, so stepping out and back in waits for the rest of it |
 | `killzone` | - | lethal `hazard` request; falling 30 m below the lowest brush does the same |
 
 Every volume is `{ kind, min, max }` (axis-aligned). A row is logged and skipped when its kind is unknown, `min`/`max` are not
@@ -77,7 +78,7 @@ time is at least 0.1 s. The fall-out check is off while the world has no brushes
 - `Bodies.spawn(spec)` -> index or -1 (20 slots; debris is recycled oldest first; thrown bodies are never evicted).
 - `Bodies.applyImpulse(index, ix, iy, iz)`: velocity change = impulse / mass (kg*m/s), wakes the body.
 - `Bodies.raycast(ox, oy, oz, dx, dy, dz, maxDistance, hit)` -> index or -1 (hit.brush = null).
-- `Bodies.remove(index)`, `Bodies.count()`, `Bodies.debrisCount()`, arrays `active sleeping x y z vx vy vz halfX halfY halfZ mass owner`.
+- `Bodies.remove(index)`, `Bodies.count()`, arrays `active sleeping x y z vx vy vz halfX halfY halfZ mass owner`.
 - Bodies step at Sim order 55: gravity `GRAVITY x rules.gravityScale`, restitution 0.3, floor friction, max 40 m/s, sleep after 1 s at rest; debris sleeps 1 s after spawning and disappears 3 s later; bodies never collide with each other or block actors.
 - A thrown body faster than 6 m/s that overlaps an actor sends one `damage.request` kind `crush`, amount `mass x speed x Bodies.impactFactor[i]` clamped to `Bodies.impactCap[i]` (spawn: 0.05 and 40; a W41 launch sets its own), point = the body's centre.
 - `Props.lift(index, owner, maxMass)` -> body index or -1: a standing breakable prop up to `maxMass` leaves the world as one thrown box body of its size, mass and colour. `PropLift` is the W41 Graviton Lifter hook (`WeaponSpecialState.propHook`): `grab(id, ox, oy, oz, dx, dy, dz, range, maxMass)` takes the first body (made thrown, owner = id) or breakable prop along the ray before a wall, `hold(handle, x, y, z)` places it with no speed (letting go lets it fall), `launch(handle, vx, vy, vz, damagePerMassSpeed, damageCap)`.
@@ -117,7 +118,9 @@ Yaw/pitch are copied from aimYaw/aimPitch every step (turn-rate limits belong to
 | `Move.footstepScale[id]` | footstep loudness (default 1; S13 Quietstep perk 0): scales the step noise radius and `move.step` `loudness` |
 | `Move.stamina[id]` / `Move.staminaFraction(id)` | seconds of sprint left / 0..1 (1 when unlimited) |
 | `Move.dashCharges(id)` | whole dash charges ready |
-| `Move.stateName(id)` | `walk mantle dash charge wall_run latch ladder swim` |
+| `Move.meters(id, out)` | the movement resources for the HUD meter (17f) into `out`: `air stamina glide` as shares left (1 = full or unused), `dash dashMax tac tacMax` charges (max 0 = the preset has none); returns `out` |
+| `Move.airShare(id)` | breath left, 0..1 (`World.airLeft` / the 12 s of air; the meter and the breath vignette) |
+| `Move.jumpApex(preset, gravity?)` | single-jump height `jumpVel^2 / 2g` (gravity defaults to the preset's); replaces the old `jumpHeight` column |
 | `Move.isGrounded(id)`, `Move.horizontalSpeed(id)` | state queries |
 | `Move.setBoard(id, on)` -> bool, `Move.onBoard(id)` | Skimmer (MOV-027): only on maps with size >= 150 m; 13 m/s; no weapons; any `damage` to the rider knocks it off for 2 s. Players and bots board by pressing Use while running on the ground (at least 0.8 x the ground speed: Use standing or walking stays free for objectives and loot) and step off with Use |
 
@@ -140,9 +143,9 @@ Settings: `gameplay.airAssist` = `auto` (default: on for touch/gamepad in preset
 |---|---|---|
 | `move.jump` | `{ id, speed, surface }` | any jump (ground, extra, wall, ladder, bullet) |
 | `move.land` | `{ id, speed (impact m/s), surface }` | first grounded step |
-| `move.step` | `{ id, speed, surface, loudness }` | every 1.6 m on the floor (not while sliding; never for silent walks); `loudness` = `Move.footstepScale[id]` (0 = silent, S06 plays nothing) |
+| `move.step` | `{ id, speed, surface, loudness }` | every `STRIDE_METRES` (1.6 m, `03b-data-movement.js`) on the floor (not while sliding; never for silent walks); `loudness` = `Move.footstepScale[id]` (0 = silent, S06 plays nothing) |
 | `move.slide` `move.dash` `move.mantle` `move.wallrun` | `{ id, speed, surface }` | slide start; dodge, dash or shield charge; mantle start (speed = height); wall-run start |
-| `sound` | `{ x, y, z, radius, kind: 'step' or 'land', source }` | footsteps 15 m (crouch or walk halves, silentWalk walks are silent), landings 20 m |
+| `sound` | `{ x, y, z, radius, kind: 'step' or 'land', source }` | footsteps 15 m (crouch or walk halves, silentWalk walks are silent), landings 20 m; `kind: 'teleport'` 20 m at both ends of a teleporter |
 | `damage.request` | `{ target, source: -1, amount, kind: 'fall', element: 'none', x, y, z }` | fall damage (MOV-015) |
 | `world.trigger` | `{ id, kind, index, x, y, z }` | jump pad launch, teleport |
 | `world.break` | `{ prop, material, x, y, z, source }` (`prop` = the index in `hit.brush.prop`; `source` = the actor that broke it, -1 none) | a prop broke (S14 PvE crates) |
