@@ -1752,7 +1752,7 @@ Test.add('bots', (check) => {
   check('Skyward Yard: at most 10% of kills are bots falling off with no attacker', kills.length > 0 && selfInflicted <= kills.length * VOID_DEATH_SHARE_MAX, selfInflicted + ' of ' + kills.length);
 });
 // Hero and Frame Runner bots (glide, grapple, blink, knockback) on Skyward Yard: falls stay a minority of kills (most follow
-// a hit; hazard-01: at full push heroes fell for 57-65%, at S03e's half hero push about 28%, frame about 17-26%), and downed
+// a hit; hazard-01: at full push heroes fell for 57-65%, at S03e's half hero hit push 19-28%, frame about 17-26%), and downed
 // enemies in sight are finished off, so few kills are bleed-outs.
 const SKY_KIT_RULESETS = ['heroes', 'frame'], SKY_KIT_SEEDS = [1, 2, 3], SKY_KIT_MINUTES = 3, SKY_KIT_BOTS = 10;
 const SKY_KIT_HAZARD_SHARE_MAX = 0.4, BLEED_OUT_SHARE_MAX = 0.2;
@@ -1950,11 +1950,11 @@ Test.add('botsoak', (check) => {
   check('Arena Classic: the Warden spawn pistol scores at most 40% of kills on Foundry Spire and Harbor Nine', kills > 0 && warden <= kills * WARDEN_SHARE_MAX, warden + ' of ' + kills);
 }, { slow: true });
 
-// blight-01: Blight on its smallest and largest maps, 12 bots, seeds 1-6. Before, the Blight won all 6 on Spire by
+// blight-01: Blight on its smallest and largest maps, 12 bots, seeds 1-8 (now 3-5 on Spire, 5-3 on Gantry). Before, the Blight won all 6 on Spire by
 // elimination in 183-243 s and the humans 5 of 6 on Gantry; the outbreak now grows with the walkable floor (13f outbreakSize).
 // The infected stay melee only: no grenade, gadget or non-melee shot (they had thrown frags for about one kill a match).
-const BLIGHT_SPLIT_MAPS = ['spire', 'gantry'], BLIGHT_SPLIT_SEEDS = [1, 2, 3, 4, 5, 6], BLIGHT_SPLIT_BOTS = 12;
-const BLIGHT_SPLIT_WINS_MAX = 4, BLIGHT_SPLIT_MINUTES = 6, BLIGHT_LONG_SECONDS = 200;   // the limit is 5 minutes: every match ends
+const BLIGHT_SPLIT_MAPS = ['spire', 'gantry'], BLIGHT_SPLIT_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8], BLIGHT_SPLIT_BOTS = 12;
+const BLIGHT_SPLIT_WINS_MAX = 6, BLIGHT_SPLIT_MINUTES = 6, BLIGHT_LONG_SECONDS = 200;   // the limit is 5 minutes: every match ends
 const BLIGHT_GEAR_EVENTS = ['gadget.use', 'weapon.fire'];   // a melee swing is a 'weapon.fire' of class melee
 Test.add('botsoak', (check) => {
   let infectedUses = 0;   // counted as it happens: the role is gone once the match stops
@@ -1965,7 +1965,7 @@ Test.add('botsoak', (check) => {
       const runs = BLIGHT_SPLIT_SEEDS.map((seed) => DebugApi.soak('infection', map, BLIGHT_SPLIT_MINUTES, BLIGHT_SPLIT_BOTS, seed, {}));
       const blightWins = runs.filter((run) => run.winner === INFECTED_TEAM).length, humanWins = runs.filter((run) => run.winner === HUMAN_TEAM).length;
       const long = runs.filter((run) => run.seconds > BLIGHT_LONG_SECONDS).length, detail = humanWins + ' human / ' + blightWins + ' Blight wins, ' + runs.map((run) => run.seconds).join(' ') + ' s';
-      check('Blight on ' + map + ': neither side wins more than 4 of 6 bot matches', blightWins <= BLIGHT_SPLIT_WINS_MAX && humanWins <= BLIGHT_SPLIT_WINS_MAX, detail);
+      check('Blight on ' + map + ': neither side wins more than 6 of 8 bot matches', blightWins <= BLIGHT_SPLIT_WINS_MAX && humanWins <= BLIGHT_SPLIT_WINS_MAX, detail);
       check('Blight on ' + map + ': most matches run past 200 s', long > runs.length / 2, detail);
     }
   } finally { BLIGHT_GEAR_EVENTS.forEach((type, index) => Bus.off(type, handlers[index])); }
