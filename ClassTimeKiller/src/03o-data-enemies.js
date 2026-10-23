@@ -174,10 +174,11 @@ const PVE_ENDLESS = { baseBudget: 10, budgetPerWave: 4, weights: { husk: 3, gunn
 const PVE_WAVE_RULES = { shopSeconds: 20, firstWaveDelay: 5, coreShield: 1000, coreRadius: 3, coreAttackRange: 2.5, huntLeft: 3, huntPingSeconds: 2 };
 
 // M23 Mote Rush: motes per kill (fodder 1, heavy / leader 3), carried at most 15. The deposit sizes, the invasion step and the
-// boss threshold are the mode row's params (blockerAt [5, 10, 15], invasionAt 50, bossAt 100); blockers[k] is the enemy a
-// deposit of blockerAt[k] or more sends to the other side. Each side keeps fodderAlive fodder (topped up every fillSeconds).
+// boss threshold are the mode row's params (blockerAt, invasionAt, bossAt); blockers[k] is the enemy a deposit of blockerAt[k]
+// or more sends to the other side. Each side keeps fodderAlive fodder (topped up every fillSeconds); the slow refill and the
+// high boss threshold pace a match to several minutes (play-03: it once ran its whole escalation in 1-2 minutes).
 const PVE_BANK = { motesFodder: 1, motesHeavy: 3, carryMax: 15, blockers: ['gunner', 'phalanx', 'brute'], invader: 'charger', invaderChampion: 'barrier',
-  boss: 'overlord', bossHealthShare: 0.25, fodderAlive: 6, fillSeconds: 0.5, fodder: ['husk', 'husk', 'gunner', 'mite'], bankRadius: 2,
+  boss: 'overlord', bossHealthShare: 0.25, fodderAlive: 4, fillSeconds: 4, fodder: ['husk', 'husk', 'gunner', 'mite'], bankRadius: 2,
   botBankAt: 5 };   // a bot carrying this many motes heads for its bank (more urgently the more it carries)
 // M26 Ravager vs Fiends: each fiend summons fodder every summonEvery s (at most summonAlive alive per fiend).
 const PVE_FIENDS = { summonEvery: 8, summonAlive: 4, summon: ['husk', 'husk', 'gunner'] };
