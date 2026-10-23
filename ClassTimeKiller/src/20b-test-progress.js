@@ -947,6 +947,15 @@ Test.add('progress', (check) => {
   Daily.onResult({ setup: { progress: { kind: 'daily', key: '2099' } } }, {}, third = award());
   delete Progress.profile().daily['2099'];
   check('daily: an idle first play pays no XP', third.xp === 0);
+  // The ladder keeps the same rule: a side's win the player sat out clears nothing; a cleared match too short for XP pays no first-clear XP.
+  progressWithPlayer(() => {
+    const idle = progressTestResults({ teams: true, kills: 0, score: 0 }), short = progressTestResults({ teams: true, duration: 20 }), cleared = Ladder.state().cleared;
+    idle.players[1].team = short.players[1].team = 0;
+    const ladderRun = (results) => { const paid = award(); Ladder.onResult({ setup: { progress: { kind: 'ladder', tier: 0, match: 0 } }, results }, {}, paid); return paid; };
+    const sat = ladderRun(idle), satCleared = !!cleared['0.0'], quick = ladderRun(short);
+    check('ladder: a sat-out win of the side clears nothing, a quick clear pays no XP', !Ladder.passed(idle) && sat.xp === 0 && !satCleared && cleared['0.0'] && quick.xp === 0,
+      [sat.xp, satCleared, quick.xp].join());
+  });
 });
 
 // ---- XP: difficulty and match length scale the pay; assists count as taking part, a 0 XP match says why ----

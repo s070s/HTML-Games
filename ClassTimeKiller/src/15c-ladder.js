@@ -49,8 +49,9 @@ const Ladder = {
     if (!this.isOpen(tier, match)) return null;
     return Game.start(this.setup(tier, match, difficultyId || this.difficultyFor(tier, match), newSeed(random)));
   },
-  // Free-for-all: a podium place (the XP podium rule); duels and team modes: a win.
-  passed(results) { return Progress.onPodium(results) || Progress.outcome(results) === 'win'; },
+  // Free-for-all: a podium place (the XP podium rule); duels and team modes: a win the player earned (Progress.creditedWin:
+  // a side's win the player sat out clears nothing).
+  passed(results) { return Progress.onPodium(results) || Progress.creditedWin(results); },
   // Play again: the same ladder match at the difficulty it was played on, a fresh seed.
   retry(tag, setup) { return this.setup(tag.tier, tag.match, setup.difficulty, newSeed()); },
   // After a pass: the match that follows on the ladder, if the ladder has one open.
@@ -67,7 +68,7 @@ const Ladder = {
     if (!this.passed(match.results)) { award.lines.push('Ladder: not cleared. Retry any time.'); return; }
     const first = !state.cleared[this.key(tag.tier, tag.match)];
     state.cleared[this.key(tag.tier, tag.match)] = true;
-    if (first) award.xp += PROGRESS_XP.ladderMatch;
+    if (first && award.breakdown.total > 0) award.xp += PROGRESS_XP.ladderMatch;   // the first clear pays only a player who took part (no idle farming)
     if (tag.tier === state.tier && tag.match === state.match) this.advance(state);
     award.lines.push(entry.final ? 'Ladder champion! The Warden of Nine has fallen.' : 'Ladder match cleared.');
     Save.scheduleSave();
