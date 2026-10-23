@@ -1809,6 +1809,40 @@ Test.add('bots', (check) => {
   check('infected, it leaps up', climb());
   endBotTest();
 });
+// A leap pushes along the facing, and in a fight the view is on the foe: an infected bot with a foe beside a take-off
+// turns along the link before it leaps. Its first landing counts (a sideways leap falls off the strip or the ledge). The
+// gap also needs the ledge guard to let the bot walk up to a take-off next to a void (it braked short of it before).
+const LEAP_PIT = { shape: 'box', min: [-60, -21, -60], max: [60, -20, 60] };   // under the void: a miss lands far below
+const LEAP_STRIPS = [LEAP_PIT, { shape: 'box', min: [-2.5, -1, -10], max: [2.5, 0, -1] }, { shape: 'box', min: [-2.5, -1, 1], max: [2.5, 0, 24] },
+  { shape: 'box', min: [4, -1, -3], max: [6, 0, -1] }];   // 5 m wide strips over the void (a leap flies 12 m), the foe's stand beside the take-off
+const LEAP_LEDGE = [TEST_FLOOR, { shape: 'box', min: [-3, 0, 2], max: [3, 1.8, 8] }], LEAP_FELL = -2;
+const LEAP_START_X = -0.75, LEAP_START_Z = -6;   // in line with the take-off nodes (no sideways run into the leap)
+function firstLeapLanding(brushes, goalY, foeX, foeZ) {
+  const [bot, dummy] = startBotTest(botTestMap(false, { brushes }), 'infection');
+  Bots.nextDecide[bot] = Infinity;   // the test gives the destination
+  Modes.behaviour.infect(bot);
+  Actors.flags[dummy] = (Actors.flags[dummy] | ACTOR_FLAG.GOD) & ~ACTOR_FLAG.PROTECTED;   // a target for the whole test
+  placeFacing(bot, LEAP_START_X, LEAP_START_Z, Math.atan2(foeX - LEAP_START_X, foeZ - LEAP_START_Z));
+  runHeld(1, () => { holdActor(dummy, foeX, foeZ); holdActor(bot, LEAP_START_X, LEAP_START_Z); });   // it sees the foe and aims at it
+  BotMove.stop(bot);
+  BotMove.goTo(bot, LEAP_START_X, goalY, 5, 1);
+  let launched = false;
+  runHeld(5, () => holdActor(dummy, foeX, foeZ), () => {
+    if (!Move.isGrounded(bot)) launched = true;
+    return (launched && Move.isGrounded(bot)) || Actors.y[bot] < LEAP_FELL;
+  });
+  const landing = { x: Actors.x[bot], y: Actors.y[bot], z: Actors.z[bot], target: BotCombat.target[bot] === dummy };
+  endBotTest();
+  return landing;
+}
+Test.add('bots', (check) => {
+  const across = firstLeapLanding(LEAP_STRIPS, 0, 5, -2);
+  check('infected, with a foe beside the take-off it leaps a gap along its path (first landing on the far strip)',
+    across.target && across.z > 1 && across.y > -0.5, across.x.toFixed(1) + ', ' + across.y.toFixed(1) + ', ' + across.z.toFixed(1));
+  const onTop = firstLeapLanding(LEAP_LEDGE, 1.8, 1.5, 1.5);
+  check('infected, with a foe beside the take-off it leaps onto the ledge (first landing on top)',
+    onTop.target && onTop.y > 1.5, onTop.x.toFixed(1) + ', ' + onTop.y.toFixed(1) + ', ' + onTop.z.toFixed(1));
+});
 
 // ---- BOT-036: an empty magazine in a fight switches to a loaded gun; a much better gun is drawn in a fight too ----
 Test.add('bots', (check) => {

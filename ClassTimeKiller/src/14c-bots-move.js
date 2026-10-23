@@ -49,6 +49,8 @@ const LEDGE_SLIDE_SECONDS = 0.4;        // ...as far as this many seconds of it 
 const LEDGE_HOP_SECONDS = 0.7;          // s: how long a combat hop flies (the hop guard looks that far ahead)
 const LEDGE_ALIGN = 0.7;               // cos: a jump link leaves the ground on purpose only while the move heads along it
 const ledgeProbe = { x: 0, z: 0 };      // the guard's probe offset (float arguments are boxed, PERF-006)
+const LEAP_LOOK_AHEAD = 3;              // m: a leaping bot this close to a jump take-off turns its view along the path...
+const LEAP_ALIGN = 0.95;                // ...and takes off only with its facing this close (cos) to the landing direction
 const PAD_RIDE_SECONDS = 4;             // s: a jump pad flight lasts at most this long (S08 arcs are far shorter)
 
 const BotMove = {
@@ -65,6 +67,7 @@ const BotMove = {
   leaping: new Uint8Array(MAX_ACTORS),         // configure() planned the bot's jumps as leaps (modeLeap)
   runSpeed: new Float32Array(MAX_ACTORS),      // m/s on foot (options moveSpeed also counts a leap's push)
   segmentType: new Uint8Array(MAX_ACTORS), segmentHeight: new Float32Array(MAX_ACTORS), extraJumped: new Uint8Array(MAX_ACTORS),
+  nextType: new Uint8Array(MAX_ACTORS),        // the link type of the move that starts at the point (a jump: it is a take-off)
   startX: new Float32Array(MAX_ACTORS), startY: new Float32Array(MAX_ACTORS), startZ: new Float32Array(MAX_ACTORS),   // segment start
   launched: new Uint8Array(MAX_ACTORS),        // the bot left the ground on this segment (jump, drop, pad)
   padRideUntil: new Float64Array(MAX_ACTORS),  // a jump pad threw the bot: no steering until it lands (or this time)
@@ -223,12 +226,12 @@ const BotMove = {
     this.startX[id] = index > 0 ? movePoint.x : Actors.x[id];
     this.startY[id] = index > 0 ? movePoint.y : Actors.y[id];
     this.startZ[id] = index > 0 ? movePoint.z : Actors.z[id];
-    Nav.resultPoint(id, index, movePoint);
+    this.nextType[id] = Nav.resultPoint(id, index, movePoint);
     this.pointX[id] = movePoint.x; this.pointY[id] = movePoint.y; this.pointZ[id] = movePoint.z;
     this.segmentType[id] = type;
     this.segmentHeight[id] = movePoint.y - this.startY[id];
     if (type === NAV_LINK.LADDER) this.findLadder(id, index);
-    if (type === NAV_LINK.JUMP) Bots.press(id, BTN.JUMP);   // the bot stands at the take-off point now
+    if (type === NAV_LINK.JUMP && this.facesLanding(id)) Bots.press(id, BTN.JUMP);   // the bot stands at the take-off point now
   },
   // The ladder volume (S08 trigger) next to the link's bottom point: the bot climbs by walking into its middle.
   findLadder(id, index) {
@@ -262,11 +265,25 @@ const BotMove = {
     const dx = target.x - Actors.x[id], dz = target.z - Actors.z[id];
     return !World.raycast(Actors.x[id], Actors.y[id] + STEP_HEIGHT + COLLISION_SKIN, Actors.z[id], dx / distance, 0, dz / distance, WATER_RIM_RAY, rimHit);
   },
+  // A leap pushes along the facing (13f leap), so a leaping bot also owns the view near and at a take-off on the ground.
   ownsView(id) {
     if (this.pointIndex[id] >= this.pointCount[id]) return false;
     const type = this.segmentType[id];
-    if (type === NAV_LINK.LADDER) return true;
+    if (type === NAV_LINK.LADDER || this.aimsLeap(id)) return true;
     return (type === NAV_LINK.JUMP || swimming(id, type)) && this.pointY[id] > Actors.y[id] + STEP_HEIGHT;
+  },
+  aimsLeap(id) {
+    if (!this.leaping[id] || !Move.isGrounded(id)) return false;
+    return this.segmentType[id] === NAV_LINK.JUMP || this.toTakeOff(id) < LEAP_LOOK_AHEAD;
+  },
+  // False while a leaping bot on the ground still turns toward the landing: a leap taken facing a foe to the side
+  // flies sideways off the link. Any other jump keeps the run's direction, so it may start at once.
+  facesLanding(id) {
+    if (!this.leaping[id] || !Move.isGrounded(id)) return true;
+    const dx = this.pointX[id] - Actors.x[id], dz = this.pointZ[id] - Actors.z[id], length = length2(dx, dz);
+    if (length < STEP_HEIGHT) return true;
+    const yaw = Actors.yaw[id];   // what the leap pushes along
+    return (Math.sin(yaw) * dx + Math.cos(yaw) * dz) >= LEAP_ALIGN * length;
   },
   follow(id, now) {
     if (!Move.isGrounded(id)) this.launched[id] = 1;
@@ -376,6 +393,7 @@ const BotMove = {
   // in the air below the landing a preset with a crouch-jump lift tucks its legs (S10), which configure() counts on.
   jumpLink(id) {
     const grounded = Move.isGrounded(id);
+    if (!this.facesLanding(id)) { this.brake(id); return; }   // turn on the spot: running on would leave too late or off the edge
     if (grounded && (Sim.tick & 1) === 0) Bots.press(id, BTN.JUMP);
     if (!grounded && Move.preset(id).crouchJumpLift > 0 && this.pointY[id] > Actors.y[id]) Bots.press(id, BTN.CROUCH);
     this.extraJump(id);
@@ -387,15 +405,19 @@ const BotMove = {
     if (this.ridesPad(id)) return;
     if (!Move.isGrounded(id) || inWater(id) || this.leavesGround(id)) return;
     if ((Bots.buttonsWanted[id] & BTN.JUMP) && !BotCombat.weaponJumpPending(id, Sim.time)) this.guardHop(id);   // a weapon jump aims at its ledge
-    const speed = length2(Actors.vx[id], Actors.vz[id]), probe = ledgeProbe, ahead = LEDGE_PROBE + speed * LEDGE_SLIDE_SECONDS;
+    const speed = length2(Actors.vx[id], Actors.vz[id]), probe = ledgeProbe, ahead = Math.min(LEDGE_PROBE + speed * LEDGE_SLIDE_SECONDS, this.toTakeOff(id));
     probe.x = Bots.wishX[id] * ahead; probe.z = Bots.wishZ[id] * ahead;
     const wishing = Bots.wishAmount[id] > 0 && this.unsafeAhead(id);
     if (!wishing && speed > LEDGE_SLIDE_SPEED) {
       probe.x = Actors.vx[id] * ahead / speed; probe.z = Actors.vz[id] * ahead / speed;
     }
     if (!wishing && (speed <= LEDGE_SLIDE_SPEED || !this.unsafeAhead(id))) return;
+    this.brake(id);
+  },
+  // Stand still: push back against a slide faster than LEDGE_SLIDE_SPEED, else no move.
+  brake(id) {
     const wanted = botWish;
-    wanted.x = -Actors.vx[id]; wanted.z = -Actors.vz[id]; wanted.amount = speed > LEDGE_SLIDE_SPEED ? 1 : 0;   // push back against the slide
+    wanted.x = -Actors.vx[id]; wanted.z = -Actors.vz[id]; wanted.amount = length2(wanted.x, wanted.z) > LEDGE_SLIDE_SPEED ? 1 : 0;
     Bots.wishFrom(id);
   },
   // A jump pad throws the actor onto its target (S08 arc): in that flight the bot does not steer, since its path or
@@ -416,6 +438,13 @@ const BotMove = {
     const dx = wishing ? Bots.wishX[id] : Actors.vx[id] / speed, dz = wishing ? Bots.wishZ[id] : Actors.vz[id] / speed;
     ledgeProbe.x = dx * ahead; ledgeProbe.z = dz * ahead;
     if (this.unsafeAhead(id)) Bots.buttonsWanted[id] &= ~BTN.JUMP;
+  },
+  // Flat metres to the point the bot walks to when a jump link takes off there, else Infinity. A take-off node stands
+  // next to the edge it jumps from: the guard looks no farther ahead than it, or it brakes the bot short of the point
+  // (a gap over a void: the walk to the take-off never arrives, so the jump never starts).
+  toTakeOff(id) {
+    if (!this.hasDest[id] || this.pointIndex[id] >= this.pointCount[id] - 1 || this.nextType[id] !== NAV_LINK.JUMP) return Infinity;
+    return length2(this.pointX[id] - Actors.x[id], this.pointZ[id] - Actors.z[id]);
   },
   leavesGround(id) {
     if (!this.hasDest[id] || this.pointIndex[id] >= this.pointCount[id]) return false;
