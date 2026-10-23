@@ -285,6 +285,11 @@ Test.add('economy', (check) => uiWith(() => {
   check('buy menu: shows credits and the loss ladder', uiScreenText('buy').includes('800 cr') && uiScreenText('buy').includes('Loss bonus'));
   uiKey('Digit1');
   check('buy menu: hotkey 1 buys the first item', Economy.money(player) === 150 && Actors.armor[player] === 100, Economy.money(player));
+  const helmet = BuyMenu.entries.find((entry) => entry.item.id === 'vesthelmet');
+  Economy.setMoney(player, 400);
+  BuyMenu.refresh();
+  const helmetText = helmet.button.textContent;
+  check('buy menu: over a full vest the helmet shows and is bought at its upgrade price', helmetText.includes(formatCredits(350)) && !helmet.button.classList.contains('off'), helmetText);
   uiKey('KeyB');
   check('buy menu: B closes it', Ui.stack.length === 0);
   Ui.open('buy');

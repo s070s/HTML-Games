@@ -71,8 +71,9 @@ const BuyMenu = {
     if (index < BUY_HOTKEY_COUNT) label.appendChild(makeElement('span', 'buy-key', String(index + 1)));
     label.appendChild(document.createTextNode(item.name));
     button.appendChild(label);
-    button.appendChild(makeElement('span', 'buy-price', formatCredits(item.price)));
-    this.entries.push({ button, item });
+    const priceLabel = makeElement('span', 'buy-price', '');
+    button.appendChild(priceLabel);
+    this.entries.push({ button, item, priceLabel, price: -1 });   // refresh() fills the price this player pays
     return button;
   },
   buy(item) {
@@ -89,10 +90,16 @@ const BuyMenu = {
     Economy.hudState(id, BUY_HUD);
     const timeText = block ? BUY_REASON_TEXT[block] : Economy.preset().buy === 'shop' ? 'Shop open' : 'Buy time ' + Math.ceil(BUY_HUD.buyTimeLeft) + ' s';
     this.status.textContent = formatCredits(BUY_HUD.money) + '  |  ' + timeText + '  |  Next round ' + formatCredits(BUY_HUD.nextRoundMoney);
-    for (const entry of this.entries) entry.button.classList.toggle('off', !!block || !this.affordable(id, entry.item));
+    for (const entry of this.entries) this.refreshEntry(id, entry, block);
     this.drawLadder(id);
   },
-  affordable(id, item) { return Economy.money(id) >= item.price && !Economy.limitReason(id, item); },
+  // The price this player pays (a helmet over a full vest costs less, R-197); the label is rewritten only when it changes.
+  refreshEntry(id, entry, block) {
+    const price = Economy.priceFor(id, entry.item);
+    if (price !== entry.price) { entry.price = price; entry.priceLabel.textContent = formatCredits(price); }
+    entry.button.classList.toggle('off', !!block || !this.affordable(id, entry.item, price));
+  },
+  affordable(id, item, price) { return Economy.money(id) >= price && !Economy.limitReason(id, item); },
   // ECO-001: the loss ladder with the step a loss would pay next highlighted (redrawn only when that step changes).
   drawLadder(id) {
     const ladder = Economy.preset().lossLadder, team = id >= 0 ? Actors.team[id] : -1;
