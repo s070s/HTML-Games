@@ -168,6 +168,25 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('layout: the smallest HUD text is 14 px at 100% scale (ACC-008)', HUD_TEXT_SMALL >= 14);
 }));
 
+// The hold-Use prompt names the bound key and what Use does now, for any section that reports it (revive, plant, defuse...).
+Test.add('hud', (check) => hudTestWith(() => {
+  hudTestMatch();
+  Input.device = 'kbm';
+  const texts = [], pen = Object.assign({}, Hud.pen, { label: (string) => texts.push(String(string)) });
+  const draw = () => { texts.length = 0; Hud.time += 2; hudTestDrawer('front', 'downed').draw(pen, Hud.layout); return texts.join('|'); };
+  const quiet = draw();
+  const plant = () => 'PLANT';
+  Input.usePrompts.push(plant);
+  const planting = draw();
+  Input.setBinding('use', 0, '');
+  const unbound = draw();
+  Input.resetBindings('use');
+  Input.usePrompts.splice(Input.usePrompts.indexOf(plant), 1);
+  check('use prompt: nothing to use draws nothing', quiet === '', quiet);
+  check('use prompt: a reported plant shows the bound key and the verb', planting === 'E|HOLD TO PLANT', planting);
+  check('use prompt: with Use unbound the fallback text shows (no Unbound key)', unbound === 'HOLD USE|HOLD TO PLANT', unbound);
+}));
+
 // ACC-008 as drawn: a full HUD on a landscape phone (844 x 390, touch) has no text under 14 px at 100% scale.
 Test.add('hud', (check) => hudTestWith(() => {
   hudTestFillScene(hudTestMatch());

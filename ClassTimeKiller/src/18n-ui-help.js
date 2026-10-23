@@ -187,7 +187,7 @@ function touchSidesText() { return TouchInput.preset().mirror ? 'right thumb mov
 // A tip row's text with its {0} {1} ... slots filled by the keys bound for `device`; its soloText in a match without teams.
 function tipText(tip, device) {
   const solo = tip.soloText && Game.match && Game.match.rules && !Game.match.rules.teams;
-  const labels = tip.actions.map((action) => hudBoundLabel(action, device));
+  const labels = tip.actions.map((action) => hudBoundLabel(action, device) || Input.bindingLabel(NO_BINDING));
   return (solo ? tip.soloText : tip.text).replace(/\{(\d)\}/g, (unused, slot) => labels[+slot]);
 }
 const Tips = {

@@ -168,6 +168,6 @@ function hudDrawKillcamPanel(pen, layout) {
   pen.text('▲', x + 130 * unit, y, 16 * unit, HUD_COLOR.armor, 'left');
   pen.text(hudNumber(Killcam.killerArmor + Killcam.killerShield), x + 150 * unit, y, 18 * unit, HUD_COLOR.text, 'left');
   pen.text('TO SKIP', layout.right, bar / 2, 14 * unit, HUD_COLOR.dim, 'right');
-  pen.text(Hud.keyLabel('fire') || 'TAP', layout.right - HudBatch.measure('TO SKIP', 14 * unit) - 8 * unit, bar / 2, 14 * unit, HUD_COLOR.text, 'right');
+  pen.text(Hud.keyLabel('fire') || 'TAP FIRE', layout.right - HudBatch.measure('TO SKIP', 14 * unit) - 8 * unit, bar / 2, 14 * unit, HUD_COLOR.text, 'right');
 }
 Hud.register('front', 'killcam', '', hudDrawKillcamPanel);

@@ -236,11 +236,11 @@ const Hud = {
   },
 };
 
-// The label of an action's first bound key for a device ('Unbound' when none).
+// The label of an action's first bound key for a device ('' when none: callers show their own fallback, such as HOLD USE).
 function hudBoundLabel(actionId, device) {
   const first = device === 'gamepad' ? 2 : 0, last = device === 'gamepad' ? 2 : 1;
   for (let slot = first; slot <= last; slot++) if (Input.getBinding(actionId, slot)) return Input.bindingLabel(Input.getBinding(actionId, slot));
-  return Input.bindingLabel(Input.getBinding(actionId, first));
+  return '';
 }
 
 // ---- Layout: unit = design scale x the player's HUD scale; anchors for the stacks around the screen ----
