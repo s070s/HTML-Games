@@ -137,7 +137,7 @@ const Input = {
   mouseNoteShown: false,
   padPress: false,         // a controller binding is being pressed or released
   padToggleRule: null,     // fn(actionId) -> 0: a controller press holds, 1: toggles, 2: toggles and a press while on is a new press. Filled by S10 (sprint)
-  usePrompts: [],          // fn(id) -> what holding Use does right now ('REVIVE', 'PLANT'...), '' = nothing: the HUD names the key (17d). Later sections push
+  usePrompts: [],          // fn(id) -> what holding Use does right now ('HOLD TO PLANT'), '' = nothing: the HUD adds the key (17d). Later sections push
   pulsing: false,          // inside pulseAction
   padStyle: 'letters',     // glyph family of the active pad: 'letters' (A B X Y), 'shapes' (cross, circle...) or 'generic'
   uiOpen: false,           // set by the UI: a menu is open, game actions are ignored

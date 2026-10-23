@@ -74,12 +74,11 @@ Test.add('hudui', (check) => hudTestWith(() => {
   startPveMode('horde', [0, 0], {}, { player: { name: 'Me', team: 0 } });
   Input.device = 'kbm';
   const slots = Abilities.hudState(Game.playerId, { slots: [], meter: { kind: 'none', value: 0, ready: false } }).slots;
-  const texts = [], pen = Object.assign({}, Hud.pen, { textAt: (string) => texts.push(String(string)) });
   updateHudLayout(Hud.layout, HUD_TEST_WIDTH, HUD_TEST_HEIGHT);
-  hudDrawAbilities(pen, Hud.layout);
+  const texts = hudTestTexts(hudDrawAbilities);
   const wrong = slots.filter((slot) => texts[texts.indexOf(slot.name) + 1] !== hudBoundLabel(slot.key, 'kbm')).map((slot) => slot.name);
-  check('abilities: the kit leaves a slot empty, so the drawn buttons are not in slot order', slots.some((slot, index) => slot.key !== ABILITY_SLOT_NAMES[index]), slots.map((slot) => slot.key).join());
-  check('abilities: every button shows the key of its own slot', slots.length > 0 && wrong.length === 0, wrong.join() + ' :: ' + texts.join('|'));
+  check('abilities: the kit leaves a slot empty', slots.some((slot, index) => slot.key !== ABILITY_SLOT_NAMES[index]));
+  check('abilities: every button shows its own slot key', slots.length > 0 && wrong.length === 0, texts.join());
   Game.stop();
 }));
 
@@ -393,10 +392,10 @@ Test.add('ui', (check) => {
   Tips.show();
   check('toast: the first-match tip lands in the match spot, not at the top', Ui.playBox.lastChild.textContent === Tips.touchText() && !Ui.toastBox.lastChild);
   emitToast('Mutator turned off');
-  check('toast: any other toast in a running match lands there too', Ui.playBox.lastChild.textContent === 'Mutator turned off' && !Ui.toastBox.lastChild);
+  check('toast: every toast in a match lands there', Ui.playBox.lastChild.textContent === 'Mutator turned off' && !Ui.toastBox.lastChild);
   Game.stop();
   emitToast('Saved');
-  check('toast: in the menus toasts stay at the top', Ui.toastBox.lastChild.textContent === 'Saved');
+  check('toast: menus keep the top', Ui.toastBox.lastChild.textContent === 'Saved');
   Ui.playBox.replaceChildren(); Ui.toastBox.replaceChildren();
   check('help: a phone is told the pause menu, not B, and sees its buttons', !buyText().includes('with B') && buyText().includes('pause menu') && controlsSummary().includes('TAB: Scoreboard'));
   Input.device = 'gamepad';

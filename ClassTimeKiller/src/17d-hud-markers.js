@@ -345,21 +345,14 @@ function hudDrawDowned(pen, layout, player) {
 }
 // The bound Use key and what holding it does now: the first Input.usePrompts entry with something to say (revive, plant, defuse...).
 function hudDrawUsePrompt(pen, layout, player) {
-  let verb = '';
-  for (let i = 0; i < Input.usePrompts.length && !verb; i++) verb = Input.usePrompts[i](player);
-  if (!verb) return;
+  let text = '';
+  for (let i = 0; i < Input.usePrompts.length && !text; i++) text = Input.usePrompts[i](player);
+  if (!text) return;
   const unit = layout.unit, x = layout.centerX, y = layout.height * 0.68;
   pen.label(Hud.keyLabel('use') || 'HOLD USE', x, y, 24 * unit, HUD_COLOR.text, 'center');
-  pen.label(hudUseText(verb), x, y + 28 * unit, 16 * unit, HUD_COLOR.dim, 'center');
+  pen.label(text, x, y + 28 * unit, 16 * unit, HUD_COLOR.dim, 'center');
 }
-// 'HOLD TO ' + verb, built once per verb (no string per frame).
-const hudUseTexts = new Map();
-function hudUseText(verb) {
-  let text = hudUseTexts.get(verb);
-  if (!text) { text = 'HOLD TO ' + verb; hudUseTexts.set(verb, text); }
-  return text;
-}
-Input.usePrompts.push((id) => Damage.downedCount && Damage.nearestDownedAlly(id, HUD_REVIVE_HINT_RANGE) >= 0 ? 'REVIVE' : '');
+Input.usePrompts.push((id) => Damage.downedCount && Damage.nearestDownedAlly(id, HUD_REVIVE_HINT_RANGE) >= 0 ? 'HOLD TO REVIVE' : '');
 
 Bus.on('match.start', () => { HudPings.reset(); HudCaptions.reset(); });
 Bus.on('match.stop', () => { HudPings.reset(); HudCaptions.reset(); });

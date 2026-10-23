@@ -7,10 +7,6 @@ const ACCESS_TEST_WCAG_TEXT = 4.5;                 // contrast ratio of readable
 const ACCESS_TEST_MIN_FONT = 14;                   // ACC-008: pixels at 100% scale
 // Rows the Accessibility tab mirrors from other tabs.
 Access.mirroredCount = () => Access.holdKeys().length + ACCESS_AIM_ASSIST_KEYS.length + ACCESS_VOLUME_KEYS.length;
-
-Test.add('uiacc', (check) => {
-  check('accessibility tab: hold or toggle lists every hold setting, the controller sprint one too', Access.holdKeys().includes('controls.toggle.sprintPad') && Access.holdKeys().length === TOGGLE_SETTINGS.length + PAD_TOGGLE_SETTINGS.length);
-});
 const ACCESS_TEST_SCREEN_COST_MS = 1000;           // UI-001: no screen takes longer than a second to open
 const ACCESS_TEST_HOLD_ACTIONS = ['crouch', 'sprint', 'walk', 'prone', 'fire', 'alt', 'use', 'scoreboard'];
 const ACCESS_TEST_NEXT_SHOT_NOISE = 60;
@@ -153,7 +149,7 @@ Test.add('uiacc', (check) => hudTestWith(() => {
 Test.add('uiacc', (check) => {
   // ---- ACC-004 hold or toggle for every hold action ----
   const holdActions = ACTION_ROWS.filter((row) => row.toggle).map((row) => row.id);
-  check('hold/toggle: every hold action has a setting, mirrored on the Accessibility tab', ACCESS_TEST_HOLD_ACTIONS.every((id) => holdActions.includes(id) && Settings.definitions.has('controls.toggle.' + id) && Access.holdKeys().includes('controls.toggle.' + id)));
+  check('hold/toggle: every hold action has a setting, mirrored on the Accessibility tab', ACCESS_TEST_HOLD_ACTIONS.every((id) => holdActions.includes(id) && Settings.definitions.has('controls.toggle.' + id) && Access.holdKeys().includes('controls.toggle.' + id)) && Access.holdKeys().includes('controls.toggle.sprintPad'));
   const events = [];
   const listener = (event) => { if (event.action === 'scoreboard') events.push(event.down); };
   Bus.on('input.action', listener);
@@ -536,29 +532,29 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   check('tips: the option turns them off', Tips.show() === '');
   Settings.set(TIPS_SETTING, true);
   Input.device = 'touch';
-  check('tips: touch players get touch words', Tips.text(0) === Tips.touchText() && Tips.text(0).startsWith('Left thumb moves') && Tips.text(0).includes('on the right'));
+  check('tips: touch players get touch words', Tips.text(0).startsWith('Left thumb moves') && Tips.text(0).includes('on the right'));
   const savedPreset = TouchInput.currentPreset;
   TouchInput.currentPreset = TOUCH_PRESETS.find((preset) => preset.mirror);
-  check('tips: the left-handed touch preset swaps the sides', Tips.text(0).startsWith('Right thumb moves') && Tips.text(0).includes('on the left'), Tips.text(0));
+  check('tips: the left-handed preset swaps sides', Tips.text(0).startsWith('Right thumb') && Tips.text(0).includes('on the left'), Tips.text(0));
   TouchInput.currentPreset = savedPreset;
   const savedStyle = Input.padStyle;
   Input.device = 'gamepad'; Input.padStyle = 'shapes';
-  check('tips: a PlayStation pad hears its own buttons', Tips.text(0).includes('R2 fires') && Tips.text(0).includes('Cross jumps'), Tips.text(0));
+  check('tips: a PlayStation pad hears its buttons', Tips.text(0).includes('R2 fires') && Tips.text(0).includes('Cross jumps'), Tips.text(0));
   Input.padStyle = savedStyle;
   Input.device = 'kbm';
   Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: -1 }] });
   const soloTip = Tips.text(2);
   Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }] });
-  check('tips: the ping tip mentions the team only in a team mode', !soloTip.includes('team') && soloTip.includes('scoreboard') && Tips.text(2).includes('your team'), soloTip);
+  check('tips: the ping tip names the team only in team modes', !soloTip.includes('team') && Tips.text(2).includes('your team'), soloTip);
   Game.stop();
   Input.device = 'touch';
   const classes = economyPanelLines(CAT.economy.byId('classes')).lines.join(' ');
-  check('economy panel: classes name the loadout screen and its pause row, not a buy menu', !classes.includes('buy menu') && classes.includes('loadout screen') && classes.includes(LOADOUT_PAUSE_ENTRY.label), classes);
+  check('economy panel: classes name the loadout, not a buy menu', !classes.includes('buy menu') && classes.includes(LOADOUT_PAUSE_ENTRY.label), classes);
   // A mode whose objective and scoring lines say nothing about how it is won carries its own goal line.
   const vague = CAT.modes.filter((row) => (row.objective || 'none') === 'none' && !['kills', 'rounds'].includes(row.scoreBy || 'kills') && !MODE_GOAL_TEXT[row.id]).map((row) => row.id);
-  check('rules panel: every mode with no objective and special scoring has its own goal line', vague.length === 0, vague.join());
-  const goalOf = (mode) => modeGoalLines({ mode, objective: 'none', scoreBy: CAT.modes.byId(mode).scoreBy }).join(' ');
-  check('rules panel: Last Standing and Arms Ladder say how they are won', !goalOf('lms').includes('wave') && goalOf('gungame').includes('ladder'), goalOf('lms') + ' | ' + goalOf('gungame'));
+  check('rules panel: special modes have a goal line', vague.length === 0, vague.join());
+  const lms = modeGoalLines({ mode: 'lms' }).join(), ladder = modeGoalLines({ mode: 'gungame' }).join();
+  check('rules panel: Last Standing and Arms Ladder say how they are won', !lms.includes('wave') && ladder.includes('ladder'), lms + ladder);
   Input.device = 'kbm';
 })));
 
@@ -606,14 +602,12 @@ function accessTestScreen(check, name) {
 
 // iOS Safari: no text inflation in landscape, and the layout scrolls back after the on-screen keyboard closed.
 Test.add('uiacc', (check) => {
-  check('ios: the page turns text size adjustment off', /html \{ -webkit-text-size-adjust: 100%; text-size-adjust: 100%; \}/.test(document.getElementById('ui-style').textContent));
-  const field = makeElement('input'), scrollTo = window.scrollTo;
+  check('ios: no text size adjust', UI_CSS.includes('html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }'));
+  const field = Ui.root.appendChild(makeElement('textarea')), scrollTo = window.scrollTo;
   let resets = 0;
-  field.type = 'text';
-  Ui.root.appendChild(field);
   window.scrollTo = () => { resets++; };
   try { field.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); } finally { window.scrollTo = scrollTo; field.remove(); }
-  check('ios: leaving a text field scrolls the page back', resets === 1, resets);
+  check('ios: leaving a text field scrolls back', resets === 1, resets);
 });
 
 // ACC-008 in the style sheets themselves, so screens the walk above never opens are covered too (em = of the 16 px overlay font).

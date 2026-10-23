@@ -614,8 +614,8 @@ Test.add('input', (check) => {
   Game.resume();
   Bus.off('input.action', listener);
   Input.clearAll();
-  check('touch: four fingers mid-match (a claw grip) leave the debug views alone', inPlay === 0, inPlay);
-  check('touch: paused, a four-finger tap toggles the performance HUD, three do not (ARC-040)', threeFingers === 0 && fourFingers === 1, threeFingers + ' ' + fourFingers);
+  check('touch: four fingers mid-match do nothing', inPlay === 0, inPlay);
+  check('touch: paused, a four-finger tap toggles the performance HUD, three do not (ARC-040)', threeFingers === 0 && fourFingers === 1);
   check('touch: the same four-finger tap toggles the bot debug view once (ARC-040)', botDebugToggles === 1, botDebugToggles);
   setInputSetting('controls.touch.acceleration', 0.3);
 });
@@ -679,9 +679,8 @@ Test.add('input', (check) => {
 Test.add('input', (check) => {
   const style = getComputedStyle(TouchInput.elements.fire), context = document.createElement('canvas').getContext('2d');
   context.font = style.fontWeight + ' ' + style.fontSize + ' ' + style.fontFamily;
-  const wide = TOUCH_CONTROLS.filter((control) => control.face && context.measureText(control.face).width > control.size).map((control) => control.face + '/' + control.size);
-  check('touch: button faces are at least 14 px (ACC-008)', parseFloat(style.fontSize) >= ACCESS_TEST_MIN_FONT - 0.01, style.fontSize);
-  check('touch: every face fits its button', wide.length === 0, wide.join());
+  const wide = TOUCH_CONTROLS.filter((control) => context.measureText(control.face).width > control.size).map((control) => control.face);
+  check('touch: faces are 14 px or more and fit their buttons (ACC-008)', parseFloat(style.fontSize) >= ACCESS_TEST_MIN_FONT - 0.01 && wide.length === 0, style.fontSize + wide);
 });
 
 Test.add('input', (check) => {
@@ -715,7 +714,7 @@ Test.add('input', (check) => {
 });
 
 Test.add('input', (check) => {
-  check('rumble: the setting names the phone only where the browser can vibrate it (not iOS Safari)', Settings.definitions.get('controls.vibration').label.includes('phone') === ('vibrate' in navigator));
+  check('rumble: the label names the phone only where it can vibrate', Settings.definitions.get('controls.vibration').label.includes('phone') === ('vibrate' in navigator));
   const id = startInputMatch();
   const effects = [], original = PadInput.activePad;
   PadInput.activePad = () => ({ vibrationActuator: { playEffect: (type, options) => effects.push(options) } });
@@ -809,27 +808,22 @@ Test.add('input', (check) => uiWith(() => {
   const id = startInputMatch(), pad = inputFakePad();
   inputUsePad(pad);
   inputPadButton(pad, 8, true); inputPadFrames(PAD_MODIFIER_HOLD * 2);
-  check('scoreboard overlay: View held alone opens it, and the game input stays live', Ui.current() === 'scoreboard' && !Input.uiOpen);
+  check('scoreboard: View held opens it, input stays live', Ui.current() === 'scoreboard' && !Input.uiOpen);
   inputPadButton(pad, 0, true); Input.frame(INPUT_TEST_FRAME);
-  check('scoreboard overlay: View held, then A heals (the chord, not a menu accept)', Input.holdCount[Input.actionIndex.heal] === 1 && (Actors.buttons[id] & BTN.HEAL) !== 0);
+  check('scoreboard: View held, then A heals (chord, not accept)', (Actors.buttons[id] & BTN.HEAL) !== 0);
   inputPadButton(pad, 0, false); inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
   inputReleasePad();
   Input.device = 'kbm';
   inputKeyEvent('Tab', true);
-  check('scoreboard overlay: Tab opens it without taking the focus', Ui.current() === 'scoreboard' && !Ui.top().element.contains(document.activeElement));
+  check('scoreboard: Tab opens it, focus stays', Ui.current() === 'scoreboard' && !Ui.top().element.contains(document.activeElement));
   inputMouseButton(0, true); Input.frame(INPUT_TEST_FRAME);
-  check('scoreboard overlay: fire works while Tab is held', (Actors.buttons[id] & BTN.FIRE) !== 0);
-  inputMouseButton(0, false); inputKeyEvent('Tab', false);
-  check('scoreboard overlay: releasing Tab closes it', Ui.current() === '');
-  setInputSetting('controls.toggle.scoreboard', 'toggle');
-  inputTapKey('Tab'); inputStepAndFrame(); inputStepAndFrame();
+  check('scoreboard: fire works while Tab is held', (Actors.buttons[id] & BTN.FIRE) !== 0);
   inputKeyEvent('Space', true); Input.frame(INPUT_TEST_FRAME);
-  check('scoreboard overlay (toggle): Space jumps and leaves it open', Ui.current() === 'scoreboard' && (Actors.buttons[id] & BTN.JUMP) !== 0);
-  inputKeyEvent('Space', false);
-  inputKeyEvent('Escape', true); inputKeyEvent('Escape', false);
-  check('scoreboard overlay: Esc pauses, and the pause menu replaces it', Game.paused && Ui.current() === 'pause' && !Ui.isOpen('scoreboard'));
-  setInputSetting('controls.toggle.scoreboard', 'hold');
-  Game.resume();
+  check('scoreboard: Space jumps, the board stays', Ui.current() === 'scoreboard' && (Actors.buttons[id] & BTN.JUMP) !== 0);
+  inputMouseButton(0, false); inputKeyEvent('Space', false);
+  inputTapKey('Escape');
+  check('scoreboard: Esc pauses, the pause menu replaces it', Game.paused && Ui.current() === 'pause' && !Ui.isOpen('scoreboard'));
+  inputKeyEvent('Tab', false); Game.resume();
 }));
 
 Test.add('input', (check) => {

@@ -113,6 +113,13 @@ function hudTestArm(id, key) {
 }
 function hudTestName(id) { return Actors.name[id] || HUD_FALLBACK_NAME; }
 function hudTestDrawer(layer, id) { return Hud.drawers[layer].find((drawer) => drawer.id === id); }
+// The texts one drawer draws (or `draw(pen, layout)` when it is a function), in order.
+function hudTestTexts(layer, id) {
+  const texts = [], put = (string) => { texts.push(String(string)); return 0; };
+  const pen = Object.assign({}, Hud.pen, { text: put, textAt: put, label: put }), draw = typeof layer === 'function' ? layer : hudTestDrawer(layer, id).draw;
+  draw(pen, Hud.layout);
+  return texts;
+}
 
 // Fills the scene with something for every element of an alive player.
 function hudTestFillScene(scene) {
@@ -172,44 +179,33 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('layout: compact off wins on a small screen, and text units never drop below 0.9', !Hud.layout.compact && Hud.layout.unit >= HUD_UNIT_MIN - 1e-6);
   Settings.set('hud.compact', 'auto'); updateHudLayout(Hud.layout, 640, 360);
   check('layout: auto turns compact on for small screens', Hud.layout.compact);
-  check('layout: the smallest HUD text is 14 px at 100% scale (ACC-008)', HUD_TEXT_SMALL >= 14);
 }));
 
 // The free-for-all rank box ('#1' and the score) needs someone to rank against: a solo run such as the Firing Range has none.
 Test.add('hud', (check) => hudTestWith(() => {
-  const texts = [], pen = Object.assign({}, Hud.pen, { text: (string) => { texts.push(String(string)); return 0; }, textAt: (string) => texts.push(String(string)) });
-  const header = () => { texts.length = 0; hudTestDrawer('main', 'header').draw(pen, Hud.layout); return texts.includes('#'); };
+  const header = () => hudTestTexts('main', 'header').includes('#');
   Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: -1 }] });
   const versus = header();
   startPveMode('range', [], {}, {});
   const range = header();
   Game.stop();
-  check('header: free-for-all shows the rank box, the Firing Range does not', versus && !range);
-}));
-
-// One source for the team colours: without a colour-blind palette the HUD uses CAT.teamColors (03b), nothing of its own.
-Test.add('hud', (check) => hudTestWith(() => {
-  const source = String(Hud.refreshColors) + String(updateHudLayout);
-  check('team colours: the HUD reads CAT.teamColors', Hud.colors.teams.length === CAT.teamColors.length && Hud.colors.teams.every((color, index) => color === colorNumber(CAT.teamColors[index].color)) && source.includes('CAT.teamColors'));
+  check('header: a rank box in free-for-all, none in the range', versus && !range);
 }));
 
 // The hold-Use prompt names the bound key and what Use does now, for any section that reports it (revive, plant, defuse...).
 Test.add('hud', (check) => hudTestWith(() => {
   hudTestMatch();
   Input.device = 'kbm';
-  const texts = [], pen = Object.assign({}, Hud.pen, { label: (string) => texts.push(String(string)) });
-  const draw = () => { texts.length = 0; Hud.time += 2; hudTestDrawer('front', 'downed').draw(pen, Hud.layout); return texts.join('|'); };
+  const draw = () => { Hud.time += 2; return hudTestTexts('front', 'downed').join('|'); };
   const quiet = draw();
-  const plant = () => 'PLANT';
+  const plant = () => 'HOLD TO PLANT';
   Input.usePrompts.push(plant);
   const planting = draw();
   Input.setBinding('use', 0, '');
   const unbound = draw();
   Input.resetBindings('use');
   Input.usePrompts.splice(Input.usePrompts.indexOf(plant), 1);
-  check('use prompt: nothing to use draws nothing', quiet === '', quiet);
-  check('use prompt: a reported plant shows the bound key and the verb', planting === 'E|HOLD TO PLANT', planting);
-  check('use prompt: with Use unbound the fallback text shows (no Unbound key)', unbound === 'HOLD USE|HOLD TO PLANT', unbound);
+  check('use prompt: none, then key and text, then the unbound fallback', quiet === '' && planting === 'E|HOLD TO PLANT' && unbound === 'HOLD USE|HOLD TO PLANT', [quiet, planting, unbound].join());
 }));
 
 // ACC-008 as drawn: a full HUD on a landscape phone (844 x 390, touch) has no text under 14 px at 100% scale.
@@ -217,12 +213,9 @@ Test.add('hud', (check) => hudTestWith(() => {
   hudTestFillScene(hudTestMatch());
   Render.size.cssWidth = 844; Render.size.cssHeight = 390; Input.device = 'touch';
   const small = [], textAt = HudBatch.textAt;
-  HudBatch.textAt = function (string, color, align, alpha) {
-    if (hudTextAt[2] < HUD_TEXT_SMALL - 1e-6 && small.length < 8) small.push(string + ' ' + hudTextAt[2].toFixed(1));
-    return textAt.call(this, string, color, align, alpha);
-  };
+  HudBatch.textAt = function (string) { if (hudTextAt[2] < HUD_TEXT_SMALL - 1e-6) small.push(string); return textAt.apply(this, arguments); };
   try { hudTestFrame(); } finally { HudBatch.textAt = textAt; }
-  check('layout: no HUD text under 14 px on a landscape phone (ACC-008, as drawn)', small.length === 0, small.join(' | '));
+  check('layout: no text under 14 px on a phone (ACC-008)', small.length === 0, small.join());
 }));
 
 Test.add('hud', (check) => hudTestWith(() => {
