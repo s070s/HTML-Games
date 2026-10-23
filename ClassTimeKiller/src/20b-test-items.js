@@ -70,6 +70,19 @@ Test.add('items', (check) => {
   check('clear resets usedEnd', Items.usedEnd === 0);
 });
 
+// Map weapon pads follow the ruleset's weapon set (a gun of the same class first), and hero matches have none.
+Test.add('items', (check) => {
+  const spots = [ItemArena.spot('healthpack', 3, 0), ItemArena.spot('vanguard', 6, 0), ItemArena.spot('lancet', 9, 0)];
+  ItemArena.start({ weaponSet: 'militarySet' }, spots);
+  const military = CAT.weaponSets.byId('militarySet').weapons;
+  check('a pad outside the set hands out a set gun of its class', Items.keyOf(1) === 'vanguard' && Items.keyOf(2) === 'kestrel', Items.keyOf(2));
+  ItemArena.start({ weaponSet: 'arenaSet' }, spots);
+  check('the Arena set has no rifle: the Vanguard pad becomes an Arena gun', Items.keyOf(1) !== 'vanguard' && CAT.weaponSets.byId('arenaSet').weapons.includes(Items.keyOf(1)) && military.includes('vanguard'), Items.keyOf(1));
+  ItemArena.start({ economy: 'heroKits' }, spots);
+  check('hero kits: no weapon pads, other pickups stay', Items.spotCount === 1 && Items.keyOf(0) === 'healthpack', Items.spotCount);
+  TestArena.finish();
+});
+
 // A carry-limit swap by touch: standing on a pile of three dropped guns swaps once, not every few steps.
 Test.add('items', (check) => {
   ItemArena.start({ carry: 1 }, []);

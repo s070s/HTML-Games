@@ -161,12 +161,15 @@ const Items = {
     }
   },
   // One spot rule for Items.load and the bots' item list (14e): the ruleset keeps map pickups, the M15 one-pickup filter
-  // lets this key through, and a powerup is allowed (X16) in this health preset (PU20). Unknown keys pass: addSpot logs them.
+  // lets this key through, a weapon spot is not in a hero match (heroes fight with their own kit, RS09), and a powerup is
+  // allowed (X16) in this health preset (PU20). Unknown keys pass: addSpot logs them.
   spotAllowed(entry) {
     if (!mapItemsAllowed()) return false;
     const only = onlyPickup();
     if (only && entry.item !== only) return false;
-    if (this.resolve(entry.item) !== PICKUP_KIND.POWERUP) return true;
+    const kind = this.resolve(entry.item);
+    if (kind === PICKUP_KIND.WEAPON) return !Abilities.usesHeroes();
+    if (kind !== PICKUP_KIND.POWERUP) return true;
     return powerupsAllowed() && powerupSpotAllowed(CAT.powerups.byId(entry.item));
   },
   addSpot(entry) {
@@ -180,11 +183,15 @@ const Items = {
     if (this.isPower(slot)) this.wait(slot, this.firstPowerTicks());
     return slot;
   },
-  // Weapon spots follow a match weapon list: a weapon outside it becomes the list's next gun ('' = no gun in the list).
+  // Weapon spots follow the match's weapon set (the ruleset's set or a match list): a weapon outside it becomes a set gun of
+  // its own class, else the set's next gun ('' = no gun in the set). Runs once per spot at match load.
   spotWeapon(key) {
-    if (itemRule('weaponSet', '') !== MATCH_SET_ID) return key;
+    if (!itemRule('weaponSet', '')) return key;
     const listed = currentWeaponSet().weapons;
     if (listed.includes(key)) return key;
+    const weaponClass = CAT.weapons.byId(key).class;
+    const sameClass = listed.find((other) => CAT.weapons.byId(other).class === weaponClass);
+    if (sameClass) return sameClass;
     const guns = listed.filter((other) => CAT.weapons.byId(other).class !== 'melee');
     return guns.length ? guns[this.matchSetCursor++ % guns.length] : '';
   },
