@@ -564,6 +564,9 @@ Test.add('ui', (check) => uiWith(() => {
     Game.pause('menu');
     turn(true);
     check('rotate: a pause by the player stays', turn(false) === 'menu' && !RotateGuard.shown);
+    // A tablet held upright is a playable view: only a phone-narrow portrait screen is guarded.
+    const query = saved.portrait.media.replace(/\s/g, '');
+    check('rotate: only phone-sized portrait screens (not tablets)', query.includes('orientation:portrait') && query.includes('max-width:' + (ROTATE_PHONE_MAX_WIDTH - 1) + 'px'), query);
   } finally {
     Object.assign(RotateGuard, saved);
     Input.requestResume = requestResume;
