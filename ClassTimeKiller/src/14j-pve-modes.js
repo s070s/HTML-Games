@@ -390,7 +390,7 @@ Modes.register('bank', {
       if (refill) topUpSide(team, PVE_BANK.fodderAlive, PVE_BANK.fodder, null, 0);
       this.deposits(team);
     }
-    for (let team = 0; team < TEAM_COUNT; team++) if (BankRun.banked[team] >= Modes.rules.params.bossAt) this.summonBoss(team);   // retried until a slot frees
+    for (let team = 0; team < TEAM_COUNT; team++) if (BankRun.banked[team] >= Modes.rules.params.bossAt) this.summonBoss(team);   // retried until it spawns (no spawn point or actor slot)
     const id = Game.playerId;
     PVE_HUD.carried = id >= 0 ? BankRun.carried[id] : 0;
     PVE_HUD.banked[0] = BankRun.banked[0]; PVE_HUD.banked[1] = BankRun.banked[1];
@@ -450,7 +450,7 @@ Modes.register('bank', {
   },
   isOver() { return BankRun.result; },
   score(index) { return BankRun.banked[index]; },
-  finalBoss(id) { return id === BankRun.boss[0] || id === BankRun.boss[1]; },   // the first boss killed wins
+  finalBoss(id) { return id === BankRun.boss[0] || id === BankRun.boss[1]; },   // either side's boss; only a kill by the boss's own side wins (onKill)
 });
 
 // ---- M26 Ravager vs Fiends: one ravager (team 0) against fiends (team 1) who summon fodder and revive each other ----
