@@ -12,6 +12,8 @@ const PVE_WAVE_STATE = { SHOP: 'shop', FIGHT: 'fight', EXTRACT: 'extract', DONE:
 const PVE_MAX_PICKS = 200;             // a wave budget is spent in at most this many picks
 const PVE_FIENDS_TEAM = 1, PVE_RAVAGER_TEAM = 0;
 const PVE_STATION_FALLBACK = [[0, 10], [4, 15], [-4, 20]];   // range stations in front of the spawn when the map has no 'dummy' hints
+const PVE_CORE_ALARM_SECONDS = 5;      // modes-03: the bots defend the core this long after its last blow
+const PVE_CORE_DEFEND = Object.freeze(['defend', 'defend']);   // the core objective's bot goal hints while it is under attack
 
 // The HUD block's values at a match start (banked and boss are kept objects, reset in place).
 const PVE_HUD_DEFAULTS = Object.freeze({
@@ -159,11 +161,12 @@ function makeWaveBehaviour(plan) {
     start() {
       pveStart({ coop: true, lives: true });
       const run = this.run = { wave: 0, state: PVE_WAVE_STATE.SHOP, endsAt: Sim.time + PVE_WAVE_RULES.firstWaveDelay, retriesLeft: 0, coreAtWave: 0,
-        flawless: true, result: NOT_OVER, extract: null, deaths: 0, plateOffered: false, plateUsed: false, plateRefused: false, huntAt: 0 };
+        flawless: true, result: NOT_OVER, core: null, extract: null, deaths: 0, plateOffered: false, plateUsed: false, plateRefused: false, huntAt: 0 };
       const params = Modes.rules.params;
       run.retriesLeft = pveSkill().checkpoints ? params.retries || 0 : 0;
       const cores = addMapObjectives('core', pveObjectiveList);
-      const spot = cores.length ? cores[0] : centralSpot(pveSpot);
+      run.core = cores.length ? cores[0] : null;
+      const spot = run.core || centralSpot(pveSpot);
       Pve.setCore(spot.x, spot.y, spot.z, params.coreHealth);
       const extracts = addMapObjectives('extract', pveObjectiveList);
       run.extract = extracts.length ? extracts[0] : null;
@@ -178,6 +181,7 @@ function makeWaveBehaviour(plan) {
       if (run.state === PVE_WAVE_STATE.FIGHT) this.fight(run, now);
       else if (run.state === PVE_WAVE_STATE.EXTRACT) this.extracting(run, now);
       else if (now + TIME_EPSILON >= run.endsAt) this.beginWave(run, now);
+      callCoreDefence(run, now);
       this.updateHud(run, now);
     },
     beginWave(run, now) {
@@ -252,6 +256,13 @@ function makeWaveBehaviour(plan) {
       updatePlayerHud();
     },
   };
+}
+// modes-03: while enemies hit the core in a fight, its objective asks every bot to defend it (BOT_OBJECTIVE_VERBS 'defend'
+// outranks camping, so no bot holds a far spot while the core falls); otherwise the bots play as they like.
+function callCoreDefence(run, now) {
+  if (!run.core) return;
+  const attacked = run.state === PVE_WAVE_STATE.FIGHT && now - Pve.core.hitAt < PVE_CORE_ALARM_SECONDS;
+  run.core.goals = attacked ? PVE_CORE_DEFEND : null;
 }
 // Who takes the team out through the zone: a standing player inside it; a bot inside it only while no player stands (a
 // bots-only run, or every player down). -1 = nobody.

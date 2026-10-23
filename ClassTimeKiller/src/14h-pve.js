@@ -105,7 +105,7 @@ const Pve = {
   encounterSpawned: 0,      // enemies spawned since the mode's last beginEncounter (NPC-007 fallback share)
   spawnPoints: [],          // { x, y, z, yaw, side } director spawn points (filled by the mode)
   queue: { row: new Int16Array(256), champion: new Int8Array(256), side: new Int8Array(256), scale: new Float32Array(256), wave: new Int16Array(256), head: 0, count: 0 },
-  core: { active: false, x: 0, y: 0, z: 0, health: 0, max: 0, shield: 0 },
+  core: { active: false, x: 0, y: 0, z: 0, health: 0, max: 0, shield: 0, hitAt: -1e9 },   // hitAt: sim time of the last blow
   wildlife: 0, nextBeastAt: 0,
   objectiveFor: null,       // fn(id, out) -> true when the mode gives an idle enemy somewhere to go (14j)
   stats: { spawned: 0, killed: 0, maxAlive: 0, thinks: 0, rays: 0, attacks: 0, parries: 0 },
@@ -722,11 +722,12 @@ const Pve = {
   // ---- The core (M21 / M22): enemies with nothing else to do march to it and attack it ----
   setCore(x, y, z, health) {
     const core = this.core;
-    core.active = true; core.x = x; core.y = y; core.z = z; core.health = core.max = health; core.shield = 0;
+    core.active = true; core.x = x; core.y = y; core.z = z; core.health = core.max = health; core.shield = 0; core.hitAt = -1e9;
   },
   damageCore(amount, source) {
     const core = this.core;
     if (!core.active || core.health <= 0) return;
+    core.hitAt = Sim.time;
     const absorbed = Math.min(core.shield, amount);
     core.shield -= absorbed;
     core.health = Math.max(0, core.health - (amount - absorbed));

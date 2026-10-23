@@ -1106,6 +1106,27 @@ Test.add('pve', (check) => {
   endModeTest();
 });
 
+// modes-03: while enemies hit the core, a camper bot defends it instead of holding its far camp spot (Iron Bulwark camped every
+// bot far away while the core fell with 0 kills); with the core left alone it plays freely again.
+Test.add('pve', (check) => {
+  const bot = startPveMode('horde', [], { spawns: PVE_HOME.concat([PVE_ENEMY_GATES[0]]), objectives: [{ id: 'core', kind: 'core', x: 0, y: 0, z: 0, radius: 3, modes: ['horde'] }],
+    navHints: [{ kind: 'sniper', x: -30, y: 0, z: -30 }] }, { bots: [{ team: 0 }] })[0];
+  const rifle = CAT.weapons.find((row) => row.botPref.value >= CAMP_WEAPON), plan = {}, run = Modes.behaviour.run;
+  Bots.traits[bot * TRAIT_COUNT + TRAIT.camper] = 1;
+  Weapons.give(bot, rifle.id);
+  Weapons.current[bot] = rifle.index;
+  Pve.spawnEnemy('husk', 0, 0, 40, Math.PI);   // the wave goes on
+  run.state = PVE_WAVE_STATE.FIGHT;
+  const camp = GOAL_SCORERS[GOAL.CAMP](bot, plan, Sim.time);
+  Pve.damageCore(1, -1);
+  Modes.behaviour.step(TICK_SECONDS, Sim.time);
+  const defend = GOAL_SCORERS[GOAL.OBJECTIVE](bot, plan, Sim.time);
+  check('a bot defends the core under attack before it camps a far spot', camp > 0 && defend > camp && length2(plan.x, plan.z) < 3, camp + ' / ' + defend + ' at ' + plan.x + ',' + plan.z);
+  Modes.behaviour.step(TICK_SECONDS, Sim.time + PVE_CORE_ALARM_SECONDS);
+  check('with the core left alone the bot plays freely again', GOAL_SCORERS[GOAL.OBJECTIVE](bot, plan, Sim.time) === 0);
+  endModeTest();
+});
+
 // bots-02: extraction is the player's choice. A bot in the open extract zone ends nothing while the player stands elsewhere
 // (it once ended an idle player's run in the core room); the player stepping in ends it.
 Test.add('pve', (check) => {
@@ -1137,6 +1158,25 @@ Test.add('pvesoak', (check) => {
   check('no wave fights longer than ' + PVE_SOAK_WAVE_MINUTES + ' minutes', seconds.length === cleared && Math.max(...seconds) < PVE_SOAK_WAVE_MINUTES * 60, seconds.join(' ') + ' s');
   endModeTest();
 }, { slow: true });
+
+// bots-01 / modes-03: bots-only wave runs on Cistern at Ultra (the most enemies). Horde seed 2 once stalled in wave 2 on a mite
+// inside the gate-hall wall; Iron Bulwark Endless seed 5 once camped all three bots far away while the core fell with 0 kills.
+const PVE_BOTS_SOAKS = [{ mode: 'horde', seed: 2, bots: 4 }, { mode: 'endless', seed: 5, ruleset: 'knight', bots: 3 }];
+Test.add('pvesoak', (check) => withQuality('ultra', () => {
+  for (const soak of PVE_BOTS_SOAKS) {
+    Game.start({ mode: soak.mode, map: 'cistern', ruleset: soak.ruleset, seed: soak.seed, bots: Array.from({ length: soak.bots }, () => ({})) });
+    let walled = '', camped = 0, attackedSince = Infinity;
+    runUntil(() => !Modes.active || Modes.behaviour.run.wave > 3, 6 * 60, () => {
+      walled = walled || enemiesInWalls().join(' ');
+      attackedSince = Sim.time - Pve.core.hitAt < PVE_CORE_ALARM_SECONDS ? Math.min(attackedSince, Sim.time) : Infinity;
+      if (Sim.time - attackedSince > BOT_DECIDE_INTERVAL) for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && BotDecide.goal[id] === GOAL.CAMP) camped++;
+    });
+    const text = soak.mode + ' seed ' + soak.seed + ' (wave ' + Modes.behaviour.run.wave + ')';
+    check(text + ': no enemy in a wall, 3 waves cleared in 6 minutes', !walled && Modes.behaviour.run.wave > 3, walled);
+    check(text + ': no bot camps while enemies hit the core', camped === 0, camped);
+    endModeTest();
+  }
+}), { slow: true });
 
 // ai-04: the PvE team modes with bots on their maps (the map soaks play them in free-for-all): bots are stuck under
 // SOAK_STUCK_LIMIT of the time (Cistern's gate walls once left a notch at the hall corners that bots snagged on) and play
