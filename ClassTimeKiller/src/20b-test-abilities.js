@@ -404,6 +404,16 @@ Test.add('abilities', (check) => {
   check('the line-ups change with the seed', lineups.size > HERO_DRAW_SEEDS.length, [...lineups].join(' / '));
 });
 
+// balance-04: a kill-scored mode in a hero ruleset counts to HERO_KILL_LIMIT_SCALE of its limit; other rulesets, objective
+// modes and a match's own limit keep theirs.
+Test.add('abilities', (check) => {
+  const tdm = CAT.modes.byId('tdm').scoreLimit, limit = (setup) => Rules.build(setup).scoreLimit;
+  check('hero Team Clash counts to the hero share of the kill limit', limit({ mode: 'tdm', ruleset: 'heroes' }) === Math.ceil(tdm * HERO_KILL_LIMIT_SCALE), String(limit({ mode: 'tdm', ruleset: 'heroes' })));
+  check('Arena Classic Team Clash keeps its limit', limit({ mode: 'tdm' }) === tdm);
+  check('a match\'s own score limit is kept', limit({ mode: 'tdm', ruleset: 'heroes', modeOptions: { scoreLimit: 40 } }) === 40);
+  check('objective modes keep theirs', limit({ mode: 'ctf', ruleset: 'heroes' }) === CAT.modes.byId('ctf').scoreLimit);
+});
+
 Test.add('abilities', (check) => {
   const t = AbilityTest.give(AbilityTest.start({}), 'echopulse');
   const hud = { slots: [], meter: { kind: '', value: 0, ready: false, energy: 0, souls: 0 } };

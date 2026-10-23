@@ -156,6 +156,11 @@ Data.define('heroes', {
     passive: { kind: 'ability', ability: 'tracker' }, gadget: 'dart', ability1: 'scoutdrone', ultimate: 'seerpulse', color: 0xc0c040 },
 ]);
 
+// balance-04: hero bots see and hit enemies as much as Arena Classic bots, but hero pools, heals, barriers and downs make
+// kills a fifth to a quarter as frequent (Harbor, 10 bots, 3 min: 10-14 against 55), so a kill-scored mode in a hero
+// ruleset counts to this share of its score limit (Team Clash 15), unless the match sets its own.
+const HERO_KILL_LIMIT_SCALE = 0.3;
+
 // Ability kits outside hero rulesets (ABL-001): which ruleset, economy or mutator hands them out, the default slots and
 // the abilities a loadout may pick per slot (choices; [] = fixed). A kit applies when its `match` test passes, first row first.
 // cooldowns: { slotName: seconds } replaces the row cooldown in this kit (ECP04 field upgrades recharge in 60-120 s).

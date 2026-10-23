@@ -1571,6 +1571,21 @@ Test.add('bots', (check) => {
 });
 Test.add('botsoak', (check) => { DebugApi.bots.lastSoak = checkSoaks(check, CAT.maps.filter((map) => !map.placeholder), SOAK_TEST_MINUTES); }, { slow: true });
 
+// balance-04 hero kill pace: 10 hero bots on Harbor, 3 minutes per seed (one seed alone swings from 1 to 23 kills), projected
+// to the mode's time limit: a team (half the kills) reaches HERO_PACE_SHARE of the hero Team Clash score limit.
+const HERO_PACE_SEEDS = [1, 2, 3, 4], HERO_PACE_BOTS = 10, HERO_PACE_SHARE = 0.8;
+Test.add('botsoak', (check) => {
+  const mode = CAT.modes.byId('tdm'), limit = Rules.build({ mode: 'tdm', ruleset: 'heroes' }).scoreLimit;
+  let kills = 0, seconds = 0;
+  for (const seed of HERO_PACE_SEEDS) {
+    const stats = playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'heroes', minutes: SOAK_TEST_MINUTES, botCount: HERO_PACE_BOTS, seed, modeOptions: SOAK_OPEN_MATCH });
+    kills += stats.kills; seconds += stats.seconds;
+  }
+  const teamKills = kills / 2 * mode.timeLimit / seconds;
+  check('hero Team Clash on harbor: a team reaches the hero score limit in time', teamKills >= limit * HERO_PACE_SHARE,
+    teamKills.toFixed(1) + ' of ' + limit + ' (' + kills + ' kills in ' + seconds + ' s)');
+}, { slow: true });
+
 // ---- Same seed, same match: nothing an earlier match left in the bot modules steers the next one ----
 const REPLAY_SECONDS = 12, REPLAY_SEED = 1, REPLAY_OTHER_SEED = 2;
 

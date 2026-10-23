@@ -64,7 +64,7 @@ const Abilities = {
   interruptRule(row) { return row.interrupt || DEFAULT_INTERRUPT; },
 
   // ---- Kits: which abilities an actor gets this life ----
-  economyKey() { const rules = currentRules(); return (rules.params && rules.params.economy) || rules.economy || ''; },
+  economyKey(rules) { const built = rules || currentRules(); return (built.params && built.params.economy) || built.economy || ''; },
   usesHeroes() { return this.economyKey() === 'heroKits'; },
   // The hero chosen for the actor (loadout choice or bot profile), else the one drawn for it once per match; cached per life.
   pickHero(id) {
@@ -437,6 +437,15 @@ Damage.poolOverride = (id, out) => {
   out.health = hero.health; out.armor = hero.armor; out.shield = hero.shield;
 };
 
+// balance-04: a kill-scored mode in a hero ruleset counts to HERO_KILL_LIMIT_SCALE of its score limit, unless the match
+// sets its own (custom editor, Play length, soaks). Runs after the mutators, which may change the economy.
+function heroKillLimit(rules, setup) {
+  const ownLimit = setup.modeOptions && setup.modeOptions.scoreLimit !== undefined;
+  if (ownLimit || Abilities.economyKey(rules) !== 'heroKits' || rules.scoreBy !== 'kills' || rules.scoreLimit <= 0) return;
+  rules.scoreLimit = Math.ceil(rules.scoreLimit * HERO_KILL_LIMIT_SCALE);
+}
+
+Bus.on('boot', () => Rules.addModifier('mutators', heroKillLimit));   // Rules (13a) loads after this file
 Sim.addSystem('abilities', 20, (dt) => Abilities.step(dt));
 Bus.on('actor.create', (id) => { Abilities.choices[id] = null; Abilities.drawn[id] = null; Abilities.hero[id] = null; Abilities.heroMove[id] = 0; Abilities.rechargeScale[id] = 1; Abilities.onSpawn(id); });
 Bus.on('actor.spawn', (event) => Abilities.onSpawn(event.id));
