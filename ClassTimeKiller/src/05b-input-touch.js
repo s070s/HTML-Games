@@ -26,6 +26,8 @@ const TOUCH_AIM_ZONE = 0.18;            // of the short screen side: no button t
 const TOUCH_SEARCH_DIRECTIONS = 16;     // spots tried on each ring around a button's layout spot when that spot is not free
 const TOUCH_SHRINK_STEP = 0.85;          // a button with no free spot at its size tries again this much smaller ...
 const TOUCH_SMALLEST = 0.45;            // ... down to this share of its preset size (all fit there, HUD scale 150 on a 568x320 phone too)
+const TOUCH_EDGE_BAND = 0.3;            // of the short side: the top and side bands an edge button stays in (placeControl)
+const TOUCH_NEAR = 6;                   // radii an edge button may move before it shrinks
 const ROLE_NONE = 0, ROLE_STICK = 1, ROLE_LOOK = 2, ROLE_BUTTON = 3, ROLE_DRAG = 4;
 // Rotation axes of a phone held in each screen orientation: which device axes point screen-up and screen-right.
 const GYRO_AXES = {
@@ -47,7 +49,8 @@ const TOUCH_PRESETS = [
 // 'breath' (11a flag) shows the hold-breath button (the Walk action) while the player's scope sways (W24).
 // holdAction = what a press held TOUCH_HOLD_MS does on release instead of action; mirrorAt = its place in the left-handed preset where
 // a plain mirror would cover the minimap or the vitals. Default places keep clear of the phone HUD (hudui test).
-// face = the button text: 14 px (ACC-008) and no wider than the button, so long words are short ones (DUCK, LOAD, TOOL).
+// edge = a small utility button that placeAll keeps in the top and side bands when it moves (never mid-screen, where the look
+// thumb sweeps); face = the button text: 14 px (ACC-008) and no wider than the button, so long words are short ones (DUCK, LOAD, TOOL).
 const TOUCH_CONTROLS = [
   { id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.56, size: 120 },
   { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
@@ -64,15 +67,15 @@ const TOUCH_CONTROLS = [
   { id: 'ability1', label: 'Ability 1', face: 'A1', action: 'ability1', x: 0.08, y: 0.32, size: 44, need: 'ability1' },
   { id: 'ability2', label: 'Ability 2', face: 'A2', action: 'ability2', x: 0.17, y: 0.32, size: 44, need: 'ability2' },
   { id: 'ultimate', label: 'Ultimate', face: 'ULT', action: 'ultimate', x: 0.26, y: 0.32, size: 44, need: 'ultimate' },
-  { id: 'ping', label: 'Ping', face: 'PING', action: 'ping', x: 0.58, y: 0.20, size: 40 },
-  { id: 'scoreboard', label: 'Scoreboard', face: 'TAB', action: 'scoreboard', x: 0.42, y: 0.20, size: 40 },
-  { id: 'pause', label: 'Pause', face: 'II', action: 'pause', x: 0.50, y: 0.20, size: 40 },
+  { id: 'ping', label: 'Ping', face: 'PING', action: 'ping', x: 0.58, y: 0.20, size: 40, edge: true },
+  { id: 'scoreboard', label: 'Scoreboard', face: 'TAB', action: 'scoreboard', x: 0.42, y: 0.20, size: 40, edge: true },
+  { id: 'pause', label: 'Pause', face: 'II', action: 'pause', x: 0.50, y: 0.20, size: 40, edge: true },
   { id: 'cards', label: 'Use a card', face: 'CARD', action: 'cards', x: 0.34, y: 0.20, size: 40, need: 'cards' },
   { id: 'fireLeft', label: 'Fire (left side)', face: 'FIRE', action: 'fire', x: 0.30, y: 0.62, size: 70, setting: 'touchLeftFire' },
   { id: 'use', label: 'Use / interact', face: 'USE', action: 'use', x: 0.70, y: 0.64, size: 54, need: 'use' },
   { id: 'melee', label: 'Melee', face: 'MELEE', action: 'melee', x: 0.86, y: 0.22, size: 46, mirrorAt: [0.20, 0.22] },
-  { id: 'gadget', label: 'Gadget', face: 'TOOL', action: 'gadget', x: 0.35, y: 0.32, size: 44, need: 'gadget' },
-  { id: 'comm', label: 'Comm wheel', face: 'CHAT', action: 'comm', x: 0.66, y: 0.20, size: 40, need: 'comm' },
+  { id: 'gadget', label: 'Gadget', face: 'TOOL', action: 'gadget', x: 0.35, y: 0.32, size: 44, need: 'gadget', edge: true },
+  { id: 'comm', label: 'Comm wheel', face: 'CHAT', action: 'comm', x: 0.66, y: 0.20, size: 40, need: 'comm', edge: true },
 ];
 const TOUCH_SETTINGS = [
   { key: 'controls.touch.sensitivity', field: 'touchSensitivity', fallback: 1, label: 'Touch look sensitivity', min: 0.2, max: 3, step: 0.05 },
@@ -484,38 +487,47 @@ const TouchInput = {
     place.x = place.startX; place.y = place.startY; place.radius = place.fullRadius = radius; place.order = order; place.placed = false;
     place.shown = !layout.hidden && !(control.setting && !Input.config[control.setting]) && !(control.need && !this.needMet(control.need));
   },
-  // The layout spot when it is free, else the nearest free spot on rings around it (TOUCH_SEARCH_DIRECTIONS per ring, half a
-  // radius apart). A button with no free spot anywhere tries again smaller (by TOUCH_SHRINK_STEP), down to TOUCH_SMALLEST of
-  // its preset size (where the default scale always fits). With none even then it takes the spot inside the layer, outside
-  // the aim zone and the keepClear areas, that overlaps the other buttons least.
+  // The layout spot when it is free, else the nearest free spot on rings around it (spots half a radius apart). A button
+  // with no free spot tries again smaller (by TOUCH_SHRINK_STEP), down to TOUCH_SMALLEST of its preset size. With none even
+  // then it takes the spot inside the layer, outside the aim zone and the keepClear areas, that overlaps the others least.
+  // An edge button (the small utility row: TAB, II, PING, CHAT, TOOL) only goes where a thumb sweeping to look does not
+  // reach: the top or side bands (TOUCH_EDGE_BAND); it shrinks before it moves far (TOUCH_NEAR) and leaves the bands only
+  // when nothing at all is allowed in them.
   placeControl(control, width, height) {
     const place = this.places[control.id], smallest = control.size * this.preset().scale / 2 * TOUCH_SMALLEST;
     place.placed = true;
     if (!place.shown) return;
     let radius = place.fullRadius;
     for (;;) {
-      const last = radius <= smallest;
-      if (this.searchSpot(control, place, radius, width, height, last)) return;
-      if (last) return;
+      const last = radius <= smallest, reach = control.edge && !last ? place.fullRadius * TOUCH_NEAR : Infinity;
+      if (this.searchSpot(control, place, radius, width, height, last, reach, !!control.edge)) return;
+      if (last) break;
       radius = Math.max(smallest, radius * TOUCH_SHRINK_STEP);
     }
+    if (control.edge) this.searchSpot(control, place, radius, width, height, true, Infinity, false);
   },
-  // Rings out from the layout spot: true when it set place to a free spot of this radius. With leastOverlap it falls back to
-  // the allowed spot that overlaps the other buttons least (also true); false when no spot is even allowed.
-  searchSpot(control, place, radius, width, height, leastOverlap) {
-    const startX = place.startX, startY = place.startY, step = radius / 2, farthest = Math.max(width, height);
+  // Rings out from the layout spot up to reach: true when it set place to a free spot of this radius (in the edge bands when
+  // banded). With leastOverlap it falls back to the allowed spot that overlaps the other buttons least (also true); false
+  // when no spot is even allowed.
+  searchSpot(control, place, radius, width, height, leastOverlap, reach, banded) {
+    const startX = place.startX, startY = place.startY, step = radius / 2, farthest = Math.min(reach, Math.max(width, height));
     let best = Infinity;
     for (let distance = 0; distance < farthest; distance += step) {
       const directions = distance === 0 ? 1 : Math.max(TOUCH_SEARCH_DIRECTIONS, Math.ceil(2 * Math.PI * distance / step));   // spots a step apart on the ring
       for (let i = 0; i < directions; i++) {
         const angle = i * 2 * Math.PI / directions, x = startX + Math.cos(angle) * distance, y = startY + Math.sin(angle) * distance;
-        if (!this.spotAllowed(x, y, radius, width, height)) continue;
+        if (!this.spotAllowed(x, y, radius, width, height) || (banded && !this.inEdgeBand(x, y, width, height))) continue;
         const overlap = this.overlapAt(control, x, y, radius);
         if (overlap === 0 || (leastOverlap && overlap < best)) { place.x = x; place.y = y; place.radius = radius; best = overlap; }
         if (overlap === 0) return true;
       }
     }
     return best < Infinity;
+  },
+  // The top band or a side band of the layer: TOUCH_EDGE_BAND of the short side from that edge (the button's centre).
+  inEdgeBand(x, y, width, height) {
+    const insets = this.insets, band = TOUCH_EDGE_BAND * Math.min(width, height);
+    return y <= insets.top + band || x <= insets.left + band || x >= width - insets.right - band;
   },
   // A circle of radius at x, y may go there: inside the layer, outside the aim zone and the keepClear areas.
   spotAllowed(x, y, radius, width, height) {
