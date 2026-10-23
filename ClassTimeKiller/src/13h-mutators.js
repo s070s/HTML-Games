@@ -67,11 +67,6 @@ const Mutators = {
 
   addHook(kind, hook) { this.hooks[kind].push(hook); },
   row(id) { return CAT.mutators.byId(id); },
-  isActive(id) { return !!this.rules && this.rules.mutators.some((entry) => entry.id === id); },
-  value(id) {
-    const entry = this.rules ? this.rules.mutators.find((item) => item.id === id) : null;
-    return entry ? entry.value : undefined;
-  },
 
   // ---- Typed values ----
   optionsOf(param) {
@@ -168,7 +163,6 @@ const Mutators = {
 
   // ---- Runtime access for other sections ----
   suppression(id) { return this.fx && this.fx.suppression ? clamp(this.suppressed[id] / SUPPRESS_SECONDS, 0, 1) : 0; },
-  sizeScale(id) { return Hitbox.sizeScale[id]; },
 };
 
 function snapToStep(param, value) {
