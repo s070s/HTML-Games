@@ -77,22 +77,22 @@ Data.define('weaponModels', MODEL_SCHEMA, [
     { shape: 'cone', offset: [0, 0.05, 0.07], size: [0.025, 0.05, 0.025], tint: 'glow' }] },
   // ---- Rifles ----
   { id: 'vanguard', from: 'rifle', drop: [1, 2, 4], parts: [
-    { offset: [0, -0.02, -0.17], size: [0.045, 0.075, 0.15], rotation: [0, -6], tint: 'wood' },
+    { offset: [0, -0.02, -0.17], size: [0.045, 0.075, 0.15], rotation: [0, -6], tint: 'wood', lod: 2 },
     { offset: [0, -0.1, 0.09], size: [0.035, 0.13, 0.05], rotation: [0, 18], tint: 'dark' },
     { offset: [0, -0.005, 0.2], size: [0.05, 0.05, 0.1], tint: 'wood' },
     { shape: 'cylinder', offset: [0, 0.035, 0.22], size: [0.018, 0.14, 0.018], rotation: [0, -90], tint: 'steel' },
     { offset: [0, 0.04, 0.36], size: [0.01, 0.03, 0.01], tint: 'dark', lod: 0 }] },
   { id: 'tempest', from: 'rifle', drop: [4], glow: '#ff4040', parts: [
     { offset: [0, 0.065, 0.03], size: [0.03, 0.035, 0.05], tint: 'dark' },
-    { offset: [0, 0, 0.2], size: [0.06, 0.065, 0.12], tint: 'dark' },
+    { offset: [0, 0, 0.2], size: [0.06, 0.065, 0.12], tint: 'dark', lod: 2 },
     { offset: [0, -0.07, 0.2], size: [0.025, 0.07, 0.03], tint: 'dark' },
     { shape: 'ring', offset: [0, 0.075, 0.056], size: [0.035, 0.01, 0.035], rotation: [0, -90], tint: 'glow', lod: 0 }] },
   { id: 'ratchet', from: 'rifle', drop: [2, 4], parts: [
-    { offset: [0, 0.09, 0.05], size: [0.02, 0.025, 0.26] },
+    { offset: [0, 0.09, 0.05], size: [0.02, 0.025, 0.26], lod: 2 },
     { offset: [0, -0.08, -0.1], size: [0.035, 0.11, 0.05], tint: 'dark' },
     { offset: [0, -0.07, 0.06], size: [0.03, 0.08, 0.04], rotation: [0, -10], tint: 'dark' }] },
   { id: 'longshot', from: 'rifle', scale: [1, 1, 1.15], drop: [4], parts: [
-    { shape: 'cylinder', offset: [0, 0.08, 0.05], size: [0.04, 0.2, 0.04], rotation: [0, -90], tint: 'dark' },
+    { shape: 'cylinder', offset: [0, 0.08, 0.05], size: [0.04, 0.2, 0.04], rotation: [0, -90], tint: 'dark', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.08, 0.17], size: [0.052, 0.05, 0.052], rotation: [0, -90], tint: 'dark' },
     { offset: [0.04, 0.02, -0.02], size: [0.04, 0.012, 0.012], tint: 'steel' }] },
   { id: 'pulsecarbine', from: 'rifle', drop: [4], accent: '#3a2a5a', glow: '#a06bff', parts: [

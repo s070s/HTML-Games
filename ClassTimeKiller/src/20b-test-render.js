@@ -569,6 +569,9 @@ Test.add('render', (check) => {
   check('LOD part counts shrink: distant < far <= near, distant keeps at least one', models.every((model) => model.lodCounts[LOD.distant] >= 1
     && model.lodCounts[LOD.distant] < model.lodCounts[LOD.far] && model.lodCounts[LOD.far] <= model.lodCounts[LOD.near]));
   check('weapon models take the view pose of their class row', WeaponModels.byId.heron.pose === CAT.viewModels.byId('sniper') && WeaponModels.byId.ramjet.pose === CAT.viewModels.byId('launcher'));
+  const silhouette = (id) => { const model = WeaponModels.byId[id]; return Array.from(model.data.slice(0, model.lodCounts[LOD.distant] * MODEL_PART_FLOATS)).join(','); };
+  const rifles = ['vanguard', 'tempest', 'ratchet', 'longshot'].map(silhouette);
+  check('the four assault rifles keep distinct distant silhouettes (render-04)', new Set(rifles).size === rifles.length);
   const twin = WeaponModels.byId.twinsting.parts, mirrored = twin.filter((part) => part.shape === 'cylinder' && part.size[0] < 0.02);
   check('a mirrored part draws twice, on both sides', mirrored.length === 2 && Test.near(mirrored[0].offset[0], -mirrored[1].offset[0], 1e-9), mirrored.length);
   const projectileModel = (id) => WeaponModels.projectile[CAT.projectiles.byId(id).index], scaled = projectileModel('missile').parts[0];
