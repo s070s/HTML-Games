@@ -422,6 +422,16 @@ const PLATFORMS = {
     loadout: { primaryA: 'rifle', primaryB: 'smg', secondary: 'grenade', utility: 'nano' },
     col: { main: [0.34, 0.4, 0.3], dark: [0.17, 0.2, 0.14] },
   },
+  civilian: {
+    id: 'civilian', name: 'Civilian', kind: 'mech', cls: 'Civilian', playable: true, model: 'infantry', style: 'infantry', unarmed: true,
+    role: 'A person on foot with no weapon. The enemy leaves you alone until you fight.',
+    pros: 'Ignored until you attack, take a combat vehicle or come within 60 m of an objective', cons: 'Fists only, no armor, no jump pack',
+    hp: 120, armor: 0, armorRatio: 0, energy: 60, energyRegen: 12, heatCap: 60, cooling: 12, mass: 0.3, weightCap: 1,
+    radius: 0.6, height: 1.75, speed: 8, sensor: 300, stability: 0.3,
+    mech: { accel: 36, decel: 60, turn: 9, torsoRate: 9, boostMult: 1.6, boostCost: 14, jetThrust: 0, jetMax: 0, jetCost: 0, meleeDmg: 20 },
+    mounts: {}, allow: { primary: [], secondary: [], utility: [] }, loadout: {},
+    col: { main: [0.3, 0.42, 0.62], dark: [0.22, 0.22, 0.26] },
+  },
   jackal: {
     id: 'jackal', name: 'Jackal RV-1', kind: 'ground', cls: 'Wheeled Scout', playable: true, model: 'wheeled',
     role: 'Fast wheeled raider.',
@@ -505,6 +515,10 @@ const PLATFORMS = {
   aaTurret: { id: 'aaTurret', name: 'AA Battery', kind: 'ground', cls: 'AA Turret', model: 'turret', style: 'aa', hp: 420, armor: 120, armorRatio: 0.6, energy: 0, energyRegen: 0, heatCap: 160, cooling: 18, mass: 8, weightCap: 99, radius: 3, height: 4.4, speed: 0, sensor: 0, stability: 9, ground: { type: 'static', accel: 0, brake: 0, drag: 0, reverse: 0, steerRate: 0, steerMin: 0, grip: 20, turretRate: 3.2, boostMult: 1, climb: 0, ride: 0, pitchLim: [0.05, 1.45] }, mounts: { primaryA: [0.9, 3.4, 2.4], primaryB: [-0.9, 3.4, 2.4], secondary: [0, 4.6, 0] }, allow: { primary: [], secondary: [], utility: [] }, loadout: {}, col: { main: [0.36, 0.4, 0.34], dark: [0.15, 0.17, 0.14] } },
 };
 const PLAYABLE = Object.values(PLATFORMS).filter((p) => p.playable).map((p) => p.id);
+/* what a player becomes on foot (Settings > Gameplay, or the hangar's On foot choice) */
+const ON_FOOT = { infantry: 'ranger', civilian: 'civilian' };
+const CIVILIAN_OBJ_RANGE = 60;   // a passive civilian who comes this close to an objective becomes a target (m)
+const CIVILIAN_WATCH = 0.5;      // seconds between those checks
 
 /* ---------- AI archetypes (enemy and friendly units) ----------
    secondaryGap: extra seconds between AI secondary shots at Veteran (shorter when more aggressive) */
@@ -920,6 +934,7 @@ const SETTING_SCHEMA = {
   highContrast: ['bool', false], autoTarget: ['bool', true], aimAssist: ['bool', true],
   lives: ['enum', ['1', '3', '5', '10', '20', 'unlimited'], '5'],   // platforms per mission (skirmish sets its own)
   homeHintSeen: ['bool', false],   // the iPhone "Add to Home Screen for full screen" tip was shown once
+  onFoot: ['enum', ['infantry', 'civilian'], 'infantry'],   // who steps out of a vehicle (ON_FOOT)
 };
 const S = {};   // live settings
 const COARSE_POINTER = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);   // a finger is the main pointer
@@ -1055,12 +1070,14 @@ const Loadout = {
     if (!def || !lo) return { ok: false, errors: ['No platform or loadout'], weight: 0 };
     WEAPON_SLOTS.forEach((slot) => {
       const id = lo[slot];
+      if (def.unarmed) { if (id) errors.push((WEAPONS[id] ? WEAPONS[id].name : SLOT_LABEL[slot]) + ': a civilian carries no weapons'); return; }
       if (!id) { if (slot === 'primaryA') errors.push('Primary A must be filled'); return; }
       const w = WEAPONS[id];
       if (!w) { errors.push(slot + ': unknown weapon'); return; }
       if (def.allow[SLOT_GROUP[slot]].indexOf(id) < 0) errors.push(w.name + ' cannot mount on ' + def.name + ' (' + SLOT_LABEL[slot] + ')');
     });
     if (lo.strategic && !SUPERS[lo.strategic]) errors.push('Unknown superweapon');
+    else if (lo.strategic && def.unarmed) errors.push('A civilian carries no superweapon');
     const weight = this.weight(lo);
     if (weight > def.weightCap) errors.push('Overweight by ' + (weight - def.weightCap) + ' (capacity ' + def.weightCap + ')');
     return { ok: errors.length === 0, errors, weight };
@@ -1075,7 +1092,7 @@ const Loadout = {
     const def = PLATFORMS[id];
     const saved = Save.data && Save.data.loadouts[id];
     const lo = Object.assign({}, saved && Loadout.validate(def, saved).ok ? saved : def.loadout);
-    if (!lo.strategic || !Arsenal.isUnlocked(lo.strategic)) lo.strategic = SUPER_START_ID;   // every platform carries an unlocked superweapon
+    if (!def.unarmed && (!lo.strategic || !Arsenal.isUnlocked(lo.strategic))) lo.strategic = SUPER_START_ID;   // every armed platform carries an unlocked superweapon
     return lo;
   },
   store(id, lo) { Save.data.loadouts[id] = Object.assign({}, lo); Save.persist(); },
@@ -3389,6 +3406,7 @@ function damageStruct(s, amount, dtype, owner, structMult) {
   const mm = MATERIAL[s.mat];
   const eff = amount * (mm[dtype] === undefined ? 1 : mm[dtype]) * (structMult === undefined ? 1 : structMult) * (W.structDamage || 1);
   if (eff <= 0) return 0;
+  if (s.objective && owner && owner.hideFromAI && owner.team !== s.team) owner.provoke();
   const before = s.state;
   if (Net.host) Net.dirty.add(s.idx);
   if (!s.bld && s.flash <= 0) W.flashing.push(s);
@@ -8215,6 +8233,7 @@ class Platform {
     // Fields that other systems set later are declared here, so every platform keeps one hidden shape (fast property access).
     this.outOfBounds = false; this.arcSpeed = 0; this.noTarget = false; this.warnIncoming = null; this.isDecoy = false;
     this.training = false; this.spawnInfo = null; this.ejected = false; this.withdrew = false; this.shieldMsgT = 0;
+    this.hideFromAI = !!def.unarmed; this.provoked = false;   // a civilian is ignored by the AI until provoked (D5)
     this.isPlayer = false; this.aimAssist = false; this.wear = 0; this.netPeer = null; this.netInc = null; this.netInit = false; this.seen = 0;
     this.nx = 0; this.ny = 0; this.nz = 0; this.nyaw = 0; this.npitch = 0; this.nroll = 0; this.nty = 0; this.ntp = 0;
     this.sw = null; this.status = newStatus(); this.scale = 1; this.swHistory = null;   // superweapon slot, superweapon status effects, size (Shrink Ray)
@@ -8317,6 +8336,12 @@ class Platform {
     if (this.autoShield && !this.shieldOn && this.shieldBroken <= 0 && this.shield >= this.maxShield * AUTO_SHIELD_RAISE) this.shieldOn = true;
   }
   useEnergy(amount) { this.energy -= amount; this.energyDelay = 0.8; }
+  /* a civilian who fights (or takes a combat vehicle, or nears an objective) becomes a target for good */
+  provoke() {
+    if (!this.hideFromAI) return;
+    this.hideFromAI = false; this.provoked = true;
+    notify(this, 'THE ENEMY HAS SPOTTED YOU', 'warn');
+  }
 
   /* ---------------- mech locomotion ---------------- */
   stepMech(dt) {
@@ -8339,7 +8364,7 @@ class Platform {
     const ex = dvx - this.vx, ez = dvz - this.vz, el = Math.hypot(ex, ez), step = accel * dt;
     if (el <= step) { this.vx = dvx; this.vz = dvz; } else { this.vx += ex / el * step; this.vz += ez / el * step; }
     // jump jets
-    const wantJet = c.jump && this.energy > 1 && !this.energyLock && !this.crouch && this.sub.mobility <= 0 && !this.swimming;
+    const wantJet = c.jump && m.jetThrust > 0 && this.energy > 1 && !this.energyLock && !this.crouch && this.sub.mobility <= 0 && !this.swimming;
     this.jetting = false;
     if (wantJet) {
       if (this.grounded) { this.vy = Math.max(this.vy, 9); this.grounded = false; Snd.play('jump', this.x, this.y, this.z, 0.8); }
@@ -9250,6 +9275,7 @@ class Platform {
     }
     if (owner && owner.team === this.team && !W.friendlyFire) return 0;
     if (owner === this && !W.friendlyFire) return 0;
+    if (owner && owner.hideFromAI && owner.team !== this.team) owner.provoke();   // a civilian who attacks is fair game
     if (owner && owner.team === 1 && this.team === 0) amount *= W.diff.dmg;
     if (this.util && this.util.def.def === 'reactive' && this.reactiveBlock(amount, dtype)) return 0;
     // rear armour is weaker
@@ -9534,6 +9560,7 @@ function drawMech(p, main, dark, acc, lod) {
   st.pop();
 }
 
+const CIV_PLAYER_HAIR = [0.2, 0.14, 0.1];
 function drawInfantry(p, main, dark, acc, lod) {
   const st = R.stack;
   const swing = Math.sin(p.walkPhase * INFANTRY_STRIDE) * 0.7 * clamp(p.speed / 4, 0, 1) * (p.grounded ? 1 : 0.2);
@@ -9547,9 +9574,19 @@ function drawInfantry(p, main, dark, acc, lod) {
     st.pop();
   }
   part('box', 0, 1.2 - crouch * 0.3, 0, 0.56, 0.66, 0.32, main, 0, 0.1);
-  part('box', 0, 1.15 - crouch * 0.3, -0.24, 0.4, 0.5, 0.2, dark, 0, 0.1);
   part('box', 0, 1.38 - crouch * 0.3, 0.17, 0.42, 0.1, 0.03, acc, 0.9, 0);
   part('sphere', 0, 1.72 - crouch * 0.3, 0.02, 0.26, 0.28, 0.26, skin, 0, 0);
+  if (p.def.unarmed) {   // a civilian: hair instead of a helmet, no pack, empty hands swinging with the stride
+    part('sphere', 0, 1.8 - crouch * 0.3, -0.03, 0.28, 0.16, 0.28, CIV_PLAYER_HAIR, 0, 0.1);
+    if (!lod) for (let side = -1; side <= 1; side += 2) {
+      st.push().t(side * 0.36, 1.46 - crouch * 0.3, 0).rx(-swing * side * 0.8);
+      part('box', 0, -0.3, 0, 0.12, 0.62, 0.14, main, 0, 0);
+      st.pop();
+    }
+    st.pop();
+    return;
+  }
+  part('box', 0, 1.15 - crouch * 0.3, -0.24, 0.4, 0.5, 0.2, dark, 0, 0.1);
   part('sphere', 0, 1.78 - crouch * 0.3, 0, 0.34, 0.24, 0.34, dark, 0, 0.2);
   if (!lod) {
     part('box', 0.3, 1.3 - crouch * 0.3, 0.3, 0.12, 0.12, 0.55, main, 0, 0);
@@ -10480,6 +10517,24 @@ const Seats = {
     return out;
   },
   anyUse(ctx) { return !!(ctx.enter || ctx.exit || ctx.eject || ctx.use); },
+  /* every CIVILIAN_WATCH s on the host: a passive civilian within CIVILIAN_OBJ_RANGE of an objective is provoked
+     (objectives that hunt live enemy units do not count: their markers are the enemies themselves) */
+  watchT: 0,
+  watchCivilians(dt) {
+    this.watchT += dt;
+    if (this.watchT < CIVILIAN_WATCH) return;
+    this.watchT = 0;
+    const m = W.mission;
+    if (!m) return;
+    for (let i = 0; i < W.platforms.length; i++) {
+      const p = W.platforms[i];
+      if (p.dead || !p.hideFromAI || !p.isPlayer) continue;
+      for (const o of m.objectives) {
+        if (o.status !== 'active' || (o.units && o.units.some((u) => u.team !== p.team))) continue;
+        if (o.markers().some((k) => Math.hypot(k.x - p.x, k.z - p.z) < CIVILIAN_OBJ_RANGE)) { p.provoke(); break; }
+      }
+    }
+  },
   /* the word on the touch USE button for this context */
   useLabel(ctx) { return ctx.enter ? 'ENTER' : ctx.use ? 'USE' : ctx.eject ? 'EJECT' : ctx.exit ? 'EXIT' : 'USE'; },
 };
@@ -17310,6 +17365,7 @@ const Game = {
     for (let i = W.platforms.length - 1; i >= 0; i--) if (W.platforms[i].dead) { W.platforms.splice(i, 1); removed = true; }
     void removed;
     if (m) m.update(dt);
+    Seats.watchCivilians(dt);
     if (Net.host) Net.hostTick(dt);
     this.arsenalTick(dt);
     if (cfg && cfg.mode === 'training' && this.frames % 20 === 0) respawnTrainingTargets();
@@ -18246,6 +18302,7 @@ const UI = {
   act_hgSave() {
     const def = PLATFORMS[this.hg.platformId], v = Loadout.validate(def, this.hg.loadout);
     if (!v.ok) { this.toast(v.errors[0]); Snd.ui('warn'); return; }
+    if (def.style === 'infantry') S.onFoot = def.unarmed ? 'civilian' : 'infantry';   // the On foot pick is also who steps out of vehicles
     Save.data.platformId = def.id; Loadout.store(def.id, this.hg.loadout); Save.persist();
     if (Net.host && !Net.inSession) Net.sendLobby();                    // the lobby shows the new platform at once
     else if (Net.guest && Net.joined && !Net.inSession) Net.sendLobbyState();
@@ -18432,15 +18489,16 @@ const UI = {
   },
   scr_hangar(d) {
     const hg = this.hg, def = PLATFORMS[hg.platformId], lo = hg.loadout, v = Loadout.validate(def, lo);
-    const groups = [['infantry', 'Infantry'], ['mech', 'Combat Mechs'], ['ground', 'Ground Vehicles'], ['air', 'Combat Aircraft']];
-    const grp = (p) => (p.style === 'infantry' ? 'infantry' : p.kind);
-    const list = groups.map((g) => '<h3>' + g[1] + '</h3>' + PLAYABLE.filter((id) => grp(PLATFORMS[id]) === g[0]).map((id) => {
+    const groups = [['foot', 'On foot'], ['mech', 'Combat Mechs'], ['ground', 'Ground Vehicles'], ['air', 'Combat Aircraft']];
+    const grp = (p) => (p.style === 'infantry' ? 'foot' : p.kind);
+    const footNote = '<div class="dim" style="font-size:.85em;margin:-.2em 0 .4em">You start inside the platform you pick. Stepping out of a vehicle makes you ' + (S.onFoot === 'civilian' ? 'a civilian' : 'infantry') + ' (the last On foot pick, or Settings &gt; Gameplay).</div>';
+    const list = groups.map((g) => '<h3>' + g[1] + '</h3>' + (g[0] === 'foot' ? footNote : '') + PLAYABLE.filter((id) => grp(PLATFORMS[id]) === g[0]).map((id) => {
       const p = PLATFORMS[id];
       return '<button class="card' + (id === hg.platformId ? ' sel' : '') + '" data-act="hgPick" data-id="' + id + '"><b>' + esc(p.name) + '</b> <span class="tag">' + esc(p.cls) + '</span><br><small>' + esc(p.role) + '</small></button>';
     }).join('')).join('');
     const nb = (label, val, max, txt) => '<div class="lbl"><span>' + label + '</span><span>' + txt + '</span></div><div class="bar"><i style="width:' + clamp(val / max * 100, 3, 100) + '%"></i></div>';
     const spdMax = def.kind === 'mech' ? 30 : def.kind === 'ground' ? 50 : 220;
-    const slots = WEAPON_SLOTS.map((s) => {
+    const slots = def.unarmed ? '<div class="dim">Fists only: a civilian carries no weapons, gadgets or superweapon. The enemy ignores you until you attack, take a combat vehicle or come within ' + CIVILIAN_OBJ_RANGE + ' m of an objective.</div>' : WEAPON_SLOTS.map((s) => {
       const opts = def.allow[SLOT_GROUP[s]];
       const options = (s === 'primaryA' ? '' : '<option value="">(empty)</option>') + opts.map((id) => '<option value="' + id + '"' + (lo[s] === id ? ' selected' : '') + '>' + esc(WEAPONS[id].name) + ' (wt ' + WEAPONS[id].weight + ')</option>').join('');
       const w = lo[s] && WEAPONS[lo[s]];
@@ -18451,7 +18509,7 @@ const UI = {
       const l = open.filter((x) => x.tier === t);
       return l.length ? '<optgroup label="' + SUPER_TIER[t].name + '">' + l.map((x) => '<option value="' + x.id + '"' + (lo.strategic === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</optgroup>' : '';
     }).join('');
-    const strategic = '<label class="f"><span>Superweapon</span><select data-slot="strategic">' + tierOpts + '</select></label>' +
+    const strategic = def.unarmed ? '' : '<label class="f"><span>Superweapon</span><select data-slot="strategic">' + tierOpts + '</select></label>' +
       (sd ? '<div class="dim" style="font-size:.85em;margin:-.2em 0 .3em">' + esc(SUPER_TIER[sd.tier].name) + ', charges in ' + superCharge(sd) + ' s (faster with kills): ' + esc(sd.desc) + '</div>' : '') +
       '<div class="lbl"><span class="dim">' + open.length + ' of ' + SUPER_LIST.length + ' superweapons unlocked</span><button class="btn small" data-act="nav" data-to="arsenal">Arsenal</button></div>';
     const heat = Loadout.heatLoad(lo), spd = Loadout.speedMult(def, lo);
@@ -18503,7 +18561,7 @@ const UI = {
       '<div class="panel"><h3 style="margin-top:0">Display &amp; accessibility</h3>' + se('quality', 'Graphics quality', [['low', 'Low'], ['medium', 'Medium'], ['high', 'High']]) + sl('fov', 'Field of view', 55, 95, 1) + sl('uiScale', 'Interface scale', 0.8, 1.5, 0.05) +
       ck('reducedMotion', 'Reduced motion (less shake and FOV kick)') + ck('highContrast', 'High-contrast HUD outlines') + ck('showFps', 'Show FPS') +
       (Device.ios && !Device.standalone() && !Device.canFullscreen() ? '<div class="hint">' + HOME_HINT + '.</div>' : '') +
-      '<h3>Gameplay</h3>' + se('difficulty', 'Default difficulty', Object.keys(DIFFICULTY).map((k) => [k, DIFFICULTY[k].name])) + ck('autoTarget', 'Auto-target (reticle, then next after a kill)') + se('lives', 'Platforms per mission (lives)', [['1', '1'], ['3', '3'], ['5', '5 (default)'], ['10', '10'], ['20', '20'], ['unlimited', 'Unlimited']]) +
+      '<h3>Gameplay</h3>' + se('difficulty', 'Default difficulty', Object.keys(DIFFICULTY).map((k) => [k, DIFFICULTY[k].name])) + ck('autoTarget', 'Auto-target (reticle, then next after a kill)') + se('onFoot', 'On foot after leaving a vehicle', [['infantry', 'Infantry (armed)'], ['civilian', 'Civilian (unarmed, ignored until you fight)']]) + se('lives', 'Platforms per mission (lives)', [['1', '1'], ['3', '3'], ['5', '5 (default)'], ['10', '10'], ['20', '20'], ['unlimited', 'Unlimited']]) +
       '<div class="row"><button class="btn small" data-act="tutorialReset">Replay tutorial hints</button></div>' +
       '<h3>Saved data</h3><div class="dim">Stored in this browser only: ' + (Save.storageOk ? 'available' : '<span class="bad">unavailable (settings will not persist)</span>') + '</div>' +
       '<div class="row"><button class="btn small" data-act="resetSettings">Reset settings</button><button class="btn small" data-act="resetAll">Erase all saved data</button></div></div></div>' +
@@ -21868,6 +21926,39 @@ const SelfTest = {
         gs.target = null; gs.cycleTarget();
         this.check('the radar reaches farther ahead than behind', gs.target === foe, gs.target ? gs.target.id : 'none');
       } finally { Input.pad = keep.pad; Input.setBindings(keep.bindings); TouchControls.enabled = keep.touch; S.autoTarget = keep.auto; PC.resetUse(); Input.endFrame(); }
+    });
+    t('on foot', () => {
+      const civ = PLATFORMS.civilian;
+      this.check('the hangar offers Infantry and Civilian on foot', civ.playable && PLAYABLE.indexOf('civilian') >= 0 && PLAYABLE.indexOf('ranger') >= 0 && civ.kind === 'mech' && civ.style === 'infantry' && civ.model === 'infantry' && PLATFORMS.ranger.style === 'infantry');
+      this.check('loadout validation fails when a civilian is given a gun', !Loadout.validate(civ, { primaryA: 'rifle' }).ok && !Loadout.validate(civ, { secondary: 'grenade' }).ok && !Loadout.validate(civ, { strategic: SUPER_START_ID }).ok && Loadout.validate(civ, {}).ok);
+      const lo = Loadout.forPlatform('civilian');
+      this.check('a civilian has fists only', Object.keys(lo).every((k) => !lo[k]) && civ.mech.meleeDmg > 0);
+      this.check('the On foot setting defaults to infantry', Save.defaults().settings.onFoot === 'infantry' && PLATFORMS[ON_FOOT.infantry] === PLATFORMS.ranger && PLATFORMS[ON_FOOT.civilian] === civ);
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      try {
+        const me = new Platform(civ, { team: 0, x: 0, z: 0, yaw: 0, loadout: lo });
+        W.platforms.push(me); W.player = me; me.isPlayer = true;
+        const foe = spawnUnit('infantry', 0, 40, { force: true }), tank = spawnUnit('tank', 30, 50, { force: true });
+        const sees = (who) => { foe.ai.target = null; tank.ai.target = null; foe.ai.perceive(); tank.ai.perceive(); return foe.ai.target === who || tank.ai.target === who; };
+        this.check('the AI never selects a passive civilian player', !sees(me) && !me.primary && !me.sw);
+        me.cmd.jump = true; me.update(STEP); me.cmd.jump = false;
+        this.check('a civilian has no jump pack', !me.jetting && me.grounded);
+        const soldier = new Platform(PLATFORMS.ranger, { team: 0, x: -20, z: 30, yaw: 0, loadout: PLATFORMS.ranger.loadout });
+        W.platforms.push(soldier); soldier.isPlayer = true;
+        this.check('the civilian steps and swims like infantry', me.fordDepth === Infinity && me.climbTan === soldier.climbTan);
+        this.check('an infantry player is a target', sees(soldier));
+        soldier.dead = true;
+        foe.x = 0; foe.z = 1.8; foe.y = Terrain.h(0, 1.8); me.torsoYaw = 0; me.meleeCd = 0;
+        me.doMelee();
+        this.check('the AI selects a civilian after they hit something', me.provoked && !me.hideFromAI && sees(me));
+        // an objective nearby provokes too; one far away does not
+        const walker = new Platform(civ, { team: 0, x: 200, z: 200, yaw: 0, loadout: {} }), away = new Platform(civ, { team: 0, x: 600, z: 200, yaw: 0, loadout: {} });
+        walker.isPlayer = away.isPlayer = true; W.platforms.push(walker, away);
+        W.mission = { objectives: [{ status: 'active', primary: true, markers: () => [{ x: 200 + CIVILIAN_OBJ_RANGE - 10, z: 200 }] }] };
+        Seats.watchT = 0; Seats.watchCivilians(CIVILIAN_WATCH);
+        this.check('a civilian within 60 m of an objective becomes a target, one farther away stays ignored', walker.provoked && !away.provoked && away.hideFromAI);
+      } finally { W.mission = null; }
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
