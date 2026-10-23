@@ -863,17 +863,15 @@ const ACTIONS = [
   ['defense', 'Defense (shield, APS, repair, flares)', 'KeyQ'],
   ['melee', 'Mech melee strike', 'KeyF'],
   ['superweapon', 'Fire superweapon (when charged)', 'KeyV'],
-  ['interact', 'Interact (resupply at a supply pad)', 'KeyE'],
+  ['interact', 'Use: tap to enter, resupply or pick up; hold to exit (eject in the air)', 'KeyE'],
   ['cycleTarget', 'Cycle target', 'KeyT'],
-  ['stance', 'Crouch / radar mode (air)', 'KeyC'],
+  ['stance', 'Crouch / landing gear (air)', 'KeyC'],
   ['reload', 'Reload', 'KeyR'],
-  ['weapon1', 'Select Primary A', 'Digit1'],
-  ['weapon2', 'Select Primary B', 'Digit2'],
-  ['gear', 'Landing gear (air)', 'KeyG'],
-  ['eject', 'Eject (air, press twice)', 'KeyX'],
-  ['switchPlatform', 'Switch platform (Training Range)', 'Tab'],
+  ['switchWeapon', 'Switch primary weapon', 'KeyZ'],
   ['pause', 'Pause', 'KeyP'],
 ];
+/* fixed shortcuts that pick a primary directly, unless the player bound the key to an action (the mouse wheel switches) */
+const WEAPON_KEY_A = 'Digit1', WEAPON_KEY_B = 'Digit2';
 const RESERVED_KEYS = new Set(['Escape', 'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F10', 'F11', 'F12', 'MetaLeft', 'MetaRight', 'ContextMenu', 'AltLeft', 'AltRight', 'ControlLeft', 'ControlRight']);
 
 function keyLabel(code) {
@@ -891,14 +889,14 @@ function keyLabel(code) {
 /* Gamepad buttons for actions shown in on-screen prompts (standard mapping, see Input.pad). */
 const PAD_LABELS = {
   fire1: 'RT', fire2: 'LT', boost: 'L3', jump: 'A', defense: 'B', melee: 'X', cycleTarget: 'Y', stance: 'LB', superweapon: 'RB',
-  interact: 'BACK', reload: 'R3', gear: 'D-PAD UP', eject: 'D-PAD DOWN', weapon1: 'D-PAD LEFT', weapon2: 'D-PAD RIGHT', pause: 'START',
+  interact: 'BACK', reload: 'R3', switchWeapon: 'D-PAD LEFT', pause: 'START',
 };
 /* The control to show for an action: its gamepad button when the pad was used last, else its key. */
 /* On-screen touch buttons for actions shown in prompts (see TouchControls); a function names it by platform kind. */
 const TOUCH_LABELS = {
   fire1: 'FIRE', fire2: 'ALT', boost: 'BOOST', defense: 'DEF', melee: 'MELEE', cycleTarget: 'TGT', superweapon: 'SUPER',
-  jump: (kind) => (kind === 'mech' ? 'JET' : 'BRAKE'), stance: (kind) => (kind === 'air' ? 'RADAR' : 'CROUCH'),
-  interact: 'USE', reload: 'RLD', gear: 'GEAR', eject: 'EJECT', weapon1: 'WPN', weapon2: 'WPN', pause: 'II',
+  jump: (kind) => (kind === 'mech' ? 'JET' : 'BRAKE'), stance: (kind) => (kind === 'air' ? 'GEAR' : 'CROUCH'),
+  interact: 'USE', reload: 'RLD', switchWeapon: 'WPN', pause: 'II',
 };
 function actionLabel(action) {
   const touch = TouchControls.enabled && TOUCH_LABELS[action];
@@ -1137,6 +1135,11 @@ const Input = {
     if (e.target === this.canvas) e.preventDefault();
   },
   code(action) { return this.bindings[action]; },
+  /* true when no action is bound to this key (fixed shortcuts give way to the player's own bindings) */
+  free(code) {
+    for (const k in this.bindings) if (this.bindings[k] === code) return false;
+    return true;
+  },
   held(action) { const c = this.bindings[action]; return !!c && this.down.has(c); },
   hit(action) { const c = this.bindings[action]; return !!c && this.pressed.has(c); },
   up(action) { const c = this.bindings[action]; return !!c && this.released.has(c); },
@@ -1218,8 +1221,9 @@ const TOUCH_STICK_SIDE = 0.42;     // left share of the screen where a touch bec
 const TOUCH_HUD_RESERVE = 236;     // CSS px on the right that the button cluster covers; HUD panels move left of it
 const ROTATE_TEXT = 'The battle is paused. Turn your phone sideways to keep playing.';
 const ROTATE_TEXT_COOP = 'Your controls are paused; the battle continues. Turn your phone sideways to keep playing.';
-/* name: snapshot field; label: text (a function of the platform kind when it changes); pos: CSS placement;
-   look: dragging from it also aims; latch: tap toggles; show: platform kinds or 'pad' (near a supply pad) */
+/* name: snapshot field; label: text (a function of the platform kind and the Use context when it changes); pos: CSS
+   placement; look: dragging from it also aims; latch: tap toggles; show: platform kinds, 'super' (a superweapon is
+   carried) or 'use' (Use can do something here: enter, exit, eject or resupply; see Seats.context) */
 const TOUCH_BUTTONS = [
   { name: 'fire1', label: 'FIRE', pos: 'right:24px;bottom:34px', big: true, look: true },
   { name: 'fire2', label: 'ALT', pos: 'right:104px;bottom:22px', look: true },
@@ -1232,10 +1236,9 @@ const TOUCH_BUTTONS = [
   { name: 'superweapon', label: 'SUPER', pos: 'right:162px;bottom:124px', show: ['super'] },
   { name: 'stance', label: TOUCH_LABELS.stance, pos: 'left:18px;top:42%', show: ['mech', 'air'] },
   { name: 'melee', label: 'MELEE', pos: 'left:18px;top:calc(42% + 60px)', show: ['mech'] },
-  { name: 'up', label: 'GEAR', pos: 'left:18px;top:calc(42% + 60px)', show: ['air'] },
-  { name: 'down', label: 'EJECT', pos: 'left:18px;top:calc(42% + 120px)', show: ['air'] },
-  { name: 'interact', label: 'USE', pos: 'right:30px;bottom:250px', show: ['pad'] },
+  { name: 'interact', label: (kind, ctx) => Seats.useLabel(ctx), pos: 'right:30px;bottom:250px', show: ['use'] },
 ];
+const TOUCH_CTX = {};   // the Use context the touch layout was built from (filled by Seats.context)
 const TouchControls = {
   enabled: false,    // the last pointer was a finger
   shown: false,      // the overlay is on screen (playing on a touch screen)
@@ -1385,14 +1388,15 @@ const TouchControls = {
       if (!show) this.reset();
     }
     if (!show) return;
-    const p = W && W.player, kind = p ? p.kind : 'mech', nearPad = !!(p && !p.dead && padInRange(p)), hasSuper = !!(p && p.sw);
-    const layout = kind + (nearPad ? '+pad' : '') + (hasSuper ? '+super' : '');
+    const p = W && W.player, kind = p ? p.kind : 'mech', hasSuper = !!(p && p.sw);
+    const ctx = Seats.context(p, TOUCH_CTX), canUse = Seats.anyUse(ctx);
+    const layout = kind + (canUse ? '+' + Seats.useLabel(ctx) : '') + (hasSuper ? '+super' : '');
     if (layout === this.layout) return;
     this.layout = layout;
     for (const b of this.buttons) {
-      const def = b.def, visible = !def.show || def.show.includes(kind) || (nearPad && def.show.includes('pad')) || (hasSuper && def.show.includes('super'));
+      const def = b.def, visible = !def.show || def.show.includes(kind) || (canUse && def.show.includes('use')) || (hasSuper && def.show.includes('super'));
       b.el.classList.toggle('hide', !visible);
-      b.el.textContent = typeof def.label === 'function' ? def.label(kind) : def.label;
+      b.el.textContent = typeof def.label === 'function' ? def.label(kind, ctx) : def.label;
     }
   },
   /* fill the screen and keep it landscape where the browser allows (needs a user gesture) */
@@ -8129,7 +8133,7 @@ function newCmd() {
     moveF: 0, moveS: 0, turn: 0, throttleSet: -1, throttleIn: 0,
     aimYaw: 0, aimPitch: 0, aimPoint: null, hasAim: false,
     fire1: false, fire1Edge: false, fire2: false, fire2Edge: false, boost: false, jump: false, brake: false,
-    defenseEdge: false, meleeEdge: false, stanceEdge: false, gearEdge: false, reloadEdge: false, radarEdge: false, ejectEdge: false,
+    defenseEdge: false, meleeEdge: false, stanceEdge: false, reloadEdge: false,
     sel1: false, sel2: false, selNext: false, axisPitch: 0, axisRoll: 0, axisYaw: 0, superEdge: false,
   };
 }
@@ -8163,6 +8167,13 @@ const SWIM_SPEED = 0.35;         // speed share of a swimmer
 const DROWN_TICK = 0.5;          // seconds between drowning damage ticks
 const DROWN_RATE = { ground: 0.06, mech: 0.025 };   // hull share lost per second flooded (ground) or under water past the hips (mech)
 const SPRAY_SPEED = 3;           // m/s through water that throws up spray
+// aircraft avionics (P4.1): automatic landing gear and radar mode for human pilots
+const GEAR_AUTO_AGL = 60;        // the gear lowers by itself below this height over ground or water (m)
+const GEAR_AUTO_SPEED = 90;      // and below this speed (m/s); otherwise it rises
+const RADAR_FOCUS_CONE = 0.7;    // rad off the nose where the focused radar reaches farther
+const RADAR_FOCUS_COS = Math.cos(RADAR_FOCUS_CONE);
+const RADAR_FOCUS_MULT = 1.6;    // focused radar range share
+const RADAR_TP = { x: 0, y: 0, z: 0 };
 class Platform {
   constructor(def, opts) {
     this.id = W.nextId++;
@@ -8185,7 +8196,7 @@ class Platform {
     this.sub = { weapons: 0, mobility: 0, sensors: 0 }; this.subIndex = 0; this.hitFlash = 0; this.recoil = 0; this.meleeT = 0; this.meleeCd = 0;
     this.telegraph = 0; this.telegraphColor = 0;
     this.throttle = 0.6; this.speed = 0; this.gear = false; this.stalled = false; this.radarFocus = false; this.afterburner = false; this.airbrake = false;
-    this.ejectArm = 0; this.crashCd = 0; this.stuckT = 0; this.lastX = this.x; this.lastZ = this.z; this.warn = '';
+    this.gearWish = false; this.crashCd = 0; this.stuckT = 0; this.lastX = this.x; this.lastZ = this.z; this.warn = '';
     // water: deepest water it takes without flooding (hovercraft ride over it, infantry swim), and its state there
     this.fordDepth = def.ground && def.ground.type === 'hover' || def.style === 'infantry' ? Infinity : this.kind === 'mech' ? def.height * MECH_HIP : def.ford || FORD_DEPTH;
     this.wet = false; this.swimming = false; this.waterSlow = 1; this.drownT = 0;
@@ -8247,7 +8258,6 @@ class Platform {
     this.stagger = Math.max(0, this.stagger - dt); this.hitFlash = Math.max(0, this.hitFlash - dt); this.recoil = Math.max(0, this.recoil - dt * 4);
     this.telegraph = Math.max(0, this.telegraph - dt); this.beingLocked = Math.max(0, this.beingLocked - dt);
     this.meleeCd = Math.max(0, this.meleeCd - dt); this.meleeT = Math.max(0, this.meleeT - dt); this.crashCd = Math.max(0, this.crashCd - dt);
-    this.ejectArm = Math.max(0, this.ejectArm - dt);
     for (const k in this.sub) if (this.sub[k] > 0) { this.sub[k] -= dt; if (this.sub[k] <= 0) this.sub[k] = 0; }
     this.warn = '';
     const fxs = this.status;   // superweapon effects: blinded and EMP-struck platforms cannot fire; EMP also drops shields and slows
@@ -8258,7 +8268,7 @@ class Platform {
     // stance
     if (c.stanceEdge) {
       if (this.kind === 'mech') this.crouch = !this.crouch;
-      else if (this.kind === 'air') this.radarFocus = !this.radarFocus;
+      else if (this.kind === 'air') this.toggleGear();
     }
     this.updateResources(dt);
     // locomotion
@@ -8275,7 +8285,7 @@ class Platform {
     this.updateSuper(dt);
     if (c.meleeEdge && this.kind === 'mech') this.doMelee();
     // consume edges
-    c.fire1Edge = c.fire2Edge = c.defenseEdge = c.meleeEdge = c.stanceEdge = c.gearEdge = c.reloadEdge = c.radarEdge = c.ejectEdge = c.superEdge = false;
+    c.fire1Edge = c.fire2Edge = c.defenseEdge = c.meleeEdge = c.stanceEdge = c.reloadEdge = c.superEdge = false;
     c.sel1 = c.sel2 = c.selNext = false;
     if (this.hp < this.maxHp * 0.3 && Math.random() < dt * 8) {
       FX.emit(this.x + rand(-1, 1) * this.radius * 0.5, this.y + this.height * 0.7, this.z + rand(-1, 1) * this.radius * 0.5, rand(-1, 1), rand(2, 5), rand(-1, 1), 1.2, 1.2, 2.6, 0.12, 0.12, 0.12, 0.6, 0.4, -1, false);
@@ -8463,13 +8473,35 @@ class Platform {
   }
 
   /* ---------------- aircraft flight model ---------------- */
+  /* the landing gear by hand (the air stance key): it stays down while rolling slowly on the ground */
+  toggleGear() {
+    const a = this.def.air;
+    if (a.landMax <= 0 || (this.grounded && this.speed < a.takeoff * 0.8)) return;
+    this.gear = !this.gear;
+  }
+  /* A pilot's gear goes down by itself low and slow and up otherwise; a change by hand holds until that wish changes.
+     The radar focuses (longer range in a cone) while the held target is ahead of the nose. AI pilots keep their gear up. */
+  autoAvionics() {
+    const a = this.def.air;
+    if (a.landMax > 0 && !this.grounded) {
+      const want = this.y - Water.top(this.x, this.z) < GEAR_AUTO_AGL && this.speed < GEAR_AUTO_SPEED;
+      if (want !== this.gearWish) { this.gearWish = want; this.gear = want; }
+    }
+    this.radarFocus = this.targetAhead();
+  }
+  targetAhead() {
+    const t = this.target;
+    if (!t || !talive(t)) return false;
+    tpos(t, RADAR_TP);
+    const dx = RADAR_TP.x - this.x, dy = RADAR_TP.y - this.y, dz = RADAR_TP.z - this.z, d = Math.hypot(dx, dy, dz);
+    if (d < 1) return false;
+    const b = basisFrom(this.yaw, this.pitch, this.roll, TMP_BASIS);
+    return (dx * b.fx + dy * b.fy + dz * b.fz) / d > RADAR_FOCUS_COS;
+  }
   stepAir(dt) {
     const d = this.def, a = d.air, c = this.cmd;
     this.warn = '';
-    // gear toggle
-    if (c.gearEdge && a.landMax > 0) {
-      if (this.grounded && this.speed < a.takeoff * 0.8) { /* gear stays down while rolling slowly */ } else this.gear = !this.gear;
-    }
+    if (this.isPlayer) this.autoAvionics();
     if (c.throttleSet >= 0) this.throttle = c.throttleSet; else this.throttle = clamp(this.throttle + c.throttleIn * dt * 0.55, 0, 1);
     this.afterburner = !!(c.boost && this.throttle > 0.25 && this.energy > 3 && !this.energyLock && !this.grounded);
     if (this.afterburner) this.useEnergy(15 * dt);
@@ -8694,13 +8726,12 @@ class Platform {
   }
 
   /* ---------------- targeting and lock ---------------- */
-  sensorRange() {
-    // emplacements have no sensor rating of their own; their AI sight range doubles as one
+  /* sensor range in every direction; emplacements have no sensor rating of their own, so their AI sight doubles as one */
+  wideRange() {
     const base = this.def.sensor || (this.ai ? this.ai.sight : 0);
-    let r = base * (this.sub.sensors > 0 ? 0.5 : 1);
-    if (this.kind === 'air' && this.radarFocus) r *= 1.6;
-    return r;
+    return base * (this.sub.sensors > 0 ? 0.5 : 1);
   }
+  sensorRange() { return this.wideRange() * (this.kind === 'air' && this.radarFocus ? RADAR_FOCUS_MULT : 1); }
   aimDir(out) { // current weapon aim direction (unit)
     if (this.kind === 'air') { basisFrom(this.yaw, this.pitch, this.roll, TMP_BASIS); out.x = TMP_BASIS.fx; out.y = TMP_BASIS.fy; out.z = TMP_BASIS.fz; }
     else {
@@ -8728,14 +8759,14 @@ class Platform {
   cycleTarget() {
     const cands = [], dir = { x: 0, y: 0, z: 0 }, tp = { x: 0, y: 0, z: 0 };
     this.aimDir(dir);
-    const range = this.sensorRange();
+    const range = this.wideRange(), air = this.kind === 'air';
     const consider = (t) => {
       if (!this.validTarget(t)) return;
       tpos(t, tp);
       const dx = tp.x - this.x, dy = tp.y - this.y, dz = tp.z - this.z, d = Math.hypot(dx, dy, dz);
-      if (d > range || d < 1) return;
+      if (d < 1) return;
       const ang = Math.acos(clamp((dx * dir.x + dy * dir.y + dz * dir.z) / d, -1, 1));
-      if (this.kind === 'air' && this.radarFocus && ang > 0.7) return;
+      if (d > (air && ang <= RADAR_FOCUS_CONE ? range * RADAR_FOCUS_MULT : range)) return;   // an aircraft's radar reaches farther ahead
       cands.push({ t, ang: this.targetScore(t, ang, d, tp) });
     };
     W.platforms.forEach(consider); W.structs.forEach((s) => { if (s.objective) consider(s); });
@@ -9023,10 +9054,6 @@ class Platform {
   /* ---------------- defenses ---------------- */
   updateDefense(dt) {
     const u = this.util, c = this.cmd;
-    if (this.kind === 'air' && c.ejectEdge) {
-      if (this.ejectArm > 0) { this.eject(); return; }
-      this.ejectArm = 1.6; notify(this, 'PRESS EJECT AGAIN TO CONFIRM' + (this.canWithdraw() ? ' (WITHDRAWAL: FAST REDEPLOY, HALF RANK PENALTY)' : ' (HULL LOW: COUNTS AS A FULL LOSS)'));
-    }
     this.tickWeaponFx(dt);
     if (!u) return;
     const ud = u.def;
@@ -10399,7 +10426,7 @@ function padInRange(pl) {
    Each player has their own charges: the local player's on W, a co-op guest's on their peer. */
 function tryResupply(pl) {
   if (!pl || pl.dead) return;
-  if (Net.guest) { Net.pendEdge |= 2048; return; }
+  if (Net.guest) { Net.pendEdge |= NET_USE_TAP; return; }
   if (!padInRange(pl)) { notify(pl, 'NO SUPPLY PAD IN RANGE'); return; }
   const pool = pl.netPeer || W, limited = W.mode !== 'training';
   const ammoMult = W.mods.scarce ? SCARCE_AMMO : 1;
@@ -10414,6 +10441,48 @@ function tryResupply(pl) {
   if (pl.util) pl.util.charges = Math.max(pl.util.charges, pl.util.def.charges || 0);
   notify(pl, 'RESUPPLIED' + (limited ? ' (' + pool.resupplies + ' LEFT)' : ''), 'repair');
 }
+
+/* =====================================================================
+   SEATS: the Use action (P4.1, P4.4)
+   ===================================================================== */
+const USE_HOLD = 0.4;         // seconds Use is held to exit (or eject)
+const EJECT_MIN_AGL = 25;     // an aircraft higher than this over ground or water ejects on a held Use; lower it lands first
+const NET_USE_TAP = 2048, NET_USE_HOLD = 8192;   // a guest's Use in the 'in' edge bits (the host decides what it does)
+const Seats = {
+  /* a tap of Use by player body p (peer: the co-op guest it belongs to, on the host) */
+  tap(p, peer) {
+    if (!p || p.dead) return;
+    if (Net.guest) { Net.pendEdge |= NET_USE_TAP; return; }
+    void peer;
+    tryResupply(p);
+  },
+  /* a held Use: exit, or eject from an aircraft in the air */
+  hold(p, peer) {
+    if (!p || p.dead) return;
+    if (Net.guest) { Net.pendEdge |= NET_USE_HOLD; return; }
+    void peer;
+    if (p.kind === 'air' && !p.grounded) {
+      if (p.y - Water.top(p.x, p.z) > EJECT_MIN_AGL) p.eject();
+      else notify(p, 'TOO LOW TO EJECT: LAND TO STEP OUT');
+    }
+  },
+  /* What Use can do for p right now, written into out (no allocation): the touch layout and prompts read it.
+     enter: the free vehicle a tap would enter; exit / eject: what a hold would do; gear: the air stance key moves the gear;
+     melee: a melee strike is possible; use: a supply pad is in reach. */
+  context(p, out) {
+    out.enter = null; out.exit = false; out.eject = false; out.gear = false; out.melee = false; out.use = false;
+    if (!p || p.dead) return out;
+    const air = p.kind === 'air';
+    out.use = !!padInRange(p);
+    out.gear = air && p.def.air.landMax > 0;
+    out.melee = p.kind === 'mech';
+    if (air && !p.grounded) out.eject = p.y - Water.top(p.x, p.z) > EJECT_MIN_AGL;
+    return out;
+  },
+  anyUse(ctx) { return !!(ctx.enter || ctx.exit || ctx.eject || ctx.use); },
+  /* the word on the touch USE button for this context */
+  useLabel(ctx) { return ctx.enter ? 'ENTER' : ctx.use ? 'USE' : ctx.eject ? 'EJECT' : ctx.exit ? 'EXIT' : 'USE'; },
+};
 
 /* True when a pad visit would restore something (energy and heat recover on their own). */
 function resupplyNeeded(pl, ammoMult) {
@@ -16844,6 +16913,7 @@ const PC = {
   hadTarget: false,     // auto-target: a target was held last frame, so its loss means a kill or a lost contact; reset per platform
   padPrev: {},          // gamepad buttons held last frame, for padEdge
   manualHold: 0,        // seconds left in which auto-target keeps a manually cycled target
+  useT: -1, useDone: false,   // seconds Use has been held (-1: up), and whether the hold already acted
   /* Convert raw input into platform commands once per rendered frame. */
   sample(p, dt) {
     const c = p.cmd, pad = Input.pad();
@@ -16889,19 +16959,28 @@ const PC = {
     // pad edges are read first so their last-frame state updates every frame
     if (this.padEdge(pad, 'stance') || Input.hit('stance')) c.stanceEdge = true;
     if (this.padEdge(pad, 'reload') || Input.hit('reload')) c.reloadEdge = true;
-    if (this.padEdge(pad, 'up') || Input.hit('gear')) c.gearEdge = true;
-    if (this.padEdge(pad, 'down') || Input.hit('eject')) c.ejectEdge = true;   // a second press still confirms the eject
-    if (this.padEdge(pad, 'left') || Input.hit('weapon1')) c.sel1 = true;
-    if (this.padEdge(pad, 'right') || Input.hit('weapon2')) c.sel2 = true;
-    if (this.padEdge(pad, 'next') || Input.wheel !== 0) c.selNext = true;
+    const padSwitch = this.padEdge(pad, 'left'), touchSwitch = this.padEdge(pad, 'next');
+    if (padSwitch || touchSwitch || Input.hit('switchWeapon') || Input.wheel !== 0) c.selNext = true;
+    if (Input.pressed.has(WEAPON_KEY_A) && Input.free(WEAPON_KEY_A)) c.sel1 = true;
+    if (Input.pressed.has(WEAPON_KEY_B) && Input.free(WEAPON_KEY_B)) c.sel2 = true;
     if (this.padEdge(pad, 'superweapon') || Input.hit('superweapon')) c.superEdge = true;
     this.manualHold = Math.max(0, this.manualHold - dt);
     if (Input.hit('cycleTarget') || (pad && pad.cycle && !this.padC)) { p.cycleTarget(); this.manualHold = AUTO_RETARGET_HOLD; }
     if (pad) this.padC = pad.cycle;
     if (S.autoTarget) this.autoTarget(p);
-    if (this.padEdge(pad, 'interact') || Input.hit('interact')) tryResupply(p);
-    if (Input.hit('switchPlatform') && W.mode === 'training') Game.trainingSwitch();
+    this.useInput(p, Input.held('interact') || !!(pad && pad.interact), dt);
   },
+  /* Use: let go within USE_HOLD for a tap (enter, resupply, pick up); keep it down USE_HOLD to exit, or eject in the air */
+  useInput(p, held, dt) {
+    if (held) {
+      this.useT = this.useT < 0 ? 0 : this.useT + dt;
+      if (!this.useDone && this.useT >= USE_HOLD) { this.useDone = true; Seats.hold(p); }
+      return;
+    }
+    if (this.useT >= 0 && !this.useDone) Seats.tap(p);
+    this.resetUse();
+  },
+  resetUse() { this.useT = -1; this.useDone = false; },
   /* Auto-target: take the hostile under the reticle, or after a kill the next one in view, so missiles never wait on the target key. */
   autoTarget(p) {
     const ai = W.aimInfo;
@@ -17130,19 +17209,6 @@ const Game = {
     }
     Cam.reset(p);
   },
-  trainingSwitch() {
-    const cfg = this.cfg, idx = PLAYABLE.indexOf(cfg.platformId);
-    const next = PLAYABLE[(idx + 1) % PLAYABLE.length];
-    cfg.platformId = next; cfg.loadout = Loadout.forPlatform(next);
-    const p = W.player;
-    const pos = p && !p.dead ? { x: p.x, z: p.z } : null;
-    W.player.dead = true;
-    this.spawnPlayer(pos);
-    this.protectT = 0.5;
-    W.msg('PLATFORM: ' + PLATFORMS[next].name.toUpperCase());
-    Snd.ui('ok');
-    this.setTutorial();
-  },
   restart() {
     Snd.ui('click');
     if (Net.host && this.cfg && this.cfg.coop) { this.netPaused = false; Net.startCoop(); Input.requestLock(); return; }
@@ -17175,14 +17241,14 @@ const Game = {
     // hint texts are functions read when drawn, so they name pad buttons or keys for the device used last
     const k = actionLabel, pad = () => Input.usingPad, touch = () => TouchControls.enabled;
     const aimWith = () => (touch() ? 'a RIGHT-SIDE DRAG' : pad() ? 'the RIGHT STICK' : 'the MOUSE');
-    const switchWith = () => (touch() ? k('weapon1') : k('weapon1') + '/' + k('weapon2'));
+    const switchWith = () => (touch() ? k('switchWeapon') : k('switchWeapon') + ' (or 1, 2 and the wheel)');
     PC.usedDefense = false;
     const steps = [];
     if (kind === 'air') {
       steps.push({ text: () => 'Move ' + aimWith() + ' to steer; the plane follows your aim. ' + (touch() ? 'LEFT-SIDE STICK up/down' : pad() ? 'LEFT STICK up/down' : k('moveForward') + '/' + k('moveBack')) + ' = throttle', test: () => Math.abs(p.cmd.aimYaw - p.yaw) > 0.4 || p.cmd.throttleIn !== 0 });
       steps.push({ text: () => 'Hold ' + k('fire1') + ' to fire guns, ' + k('fire2') + ' for missiles/bombs. ' + k('boost') + ' = afterburner', test: () => p.cmd.fire1 || p.cmd.fire2 });
       steps.push({ text: () => k('cycleTarget') + ' selects a target; keep it in the lock cone to lock missiles', test: () => !!p.target });
-      steps.push({ text: () => k('defense') + ' drops flares against missiles. ' + k('gear') + ' = landing gear, ' + k('eject') + ' twice = eject', test: () => PC.usedDefense });
+      steps.push({ text: () => k('defense') + ' drops flares against missiles. The gear lowers by itself low and slow (' + k('stance') + ' by hand); hold ' + k('interact') + ' to eject', test: () => PC.usedDefense });
     } else {
       const moveWith = () => (touch() ? 'the LEFT-SIDE STICK' : pad() ? 'the LEFT STICK' : k('moveForward') + k('moveLeft') + k('moveBack') + k('moveRight'));
       steps.push({ text: () => 'Move with ' + moveWith() + (kind === 'ground' ? ' (left/right steers the vehicle)' : '') + ', aim with ' + aimWith(), test: () => Math.abs(p.cmd.moveF) + Math.abs(p.cmd.moveS) + Math.abs(p.cmd.turn) > 0 });
@@ -17196,6 +17262,7 @@ const Game = {
   /* ----- pause / resume ----- */
   pause() {
     if (this.state !== 'playing' || this.netPaused) return;
+    PC.resetUse();   // a Use held into the pause is not a tap afterwards
     if (Net.active && Net.inSession) { // the shared world keeps running; only this player's controls pause
       this.netPaused = true; Input.playing = false; Input.releaseLock(); Input.clearAll();
       UI.show('pause');
@@ -17490,6 +17557,8 @@ function pullUpWarning(p) {
   return ahead > gh + PULL_UP_CLEAR && p.y + p.vy * PULL_UP_LOOK < ahead + PULL_UP_CLEAR;
 }
 const HUD_UNDER_TINT = 'rgba(20,70,90,0.28)';
+const HUD_CTX = {};          // the Use context of the prompt (Seats.context)
+const USE_SHOW_HOLD = 0.08;  // seconds Use is held before the hold progress bar shows
 const HUD = {
   cv: null, g: null, w: 800, h: 600, dpr: 1, u: 1, tmp: { sx: 0, sy: 0, w: 0, vis: false }, targetPos: { x: 0, y: 0, z: 0 },
   C: { main: '#7dffd0', dim: 'rgba(125,255,208,0.45)', warn: '#ffb000', bad: '#ff5a4d', friend: '#5ac8ff', obj: '#ffd84d', bg: 'rgba(5,12,16,0.55)', text: '#e9fff6' },
@@ -17718,7 +17787,7 @@ const HUD = {
     flags.push(p.gear ? 'GEAR DOWN / FLAPS' : 'GEAR UP');
     if (p.grounded) flags.push('ON GROUND');
     if (p.airbrake) flags.push('AIRBRAKE');
-    flags.push('RADAR ' + (p.radarFocus ? 'FOCUS' : 'WIDE'));
+    flags.push('RADAR ' + (p.radarFocus ? 'FOCUS' : 'WIDE') + ' (AUTO)');
     flags.push(S.flightMode === 'direct' ? 'DIRECT' : 'ASSISTED');
     this.txt(flags.join('  |  '), this.w / 2, this.h / 2 + 235 * u, 11, C.dim, 'center');
     if (p.def.air.landMax > 0 && p.speed > a.landMax && p.gear) this.txt('GEAR OVERSPEED', this.w / 2, this.h / 2 + 252 * u, 11, C.warn, 'center', true);
@@ -17911,15 +17980,27 @@ const HUD = {
     if (p.energyLock) warns.push('ENERGY DEPLETED');
     if (Hazards.hud) warns.push(Hazards.hud);
     if (Input.lockFailed && !Input.locked && !TouchControls.enabled) warns.push('CURSOR MODE: MOVE MOUSE TOWARD EDGES TO TURN');
-    this.drawPadPrompt(p, u);
+    this.drawUsePrompt(p, u);
     const blink = Math.floor(W.time * 3) % 2 === 0;
     let wy = this.h * 0.64;
     for (const w of warns) { this.txt(w, cx, wy, 14, blink ? C.bad : C.warn, 'center', true); wy += 19 * u; }
   },
-  /* what the interact key would do at a supply pad in reach */
-  drawPadPrompt(p, u) {
-    if (W.mode === 'menu' || !padInRange(p)) return;
-    const C = this.C, y = this.h * 0.58, unlimited = W.mode === 'training';
+  /* what Use would do here (Seats.context), and how far a hold has come */
+  drawUsePrompt(p, u) {
+    if (W.mode === 'menu') return;
+    const C = this.C, ctx = Seats.context(p, HUD_CTX), y = this.h * 0.58;
+    if (PC.useT > USE_SHOW_HOLD && !PC.useDone && (ctx.exit || ctx.eject)) {
+      const w = 160 * u, x = this.w / 2 - w / 2, g = this.g;
+      this.txt(ctx.eject ? 'EJECTING...' : 'STEPPING OUT...', this.w / 2, y - 12 * u, 12, C.warn, 'center', true);
+      g.fillStyle = C.dim; g.fillRect(x, y - 4 * u, w, 4 * u);
+      g.fillStyle = C.warn; g.fillRect(x, y - 4 * u, w * sat(PC.useT / USE_HOLD), 4 * u);
+    }
+    if (ctx.enter) { this.txt('[' + actionLabel('interact') + '] ENTER ' + ctx.enter.def.name.toUpperCase(), this.w / 2, y + 16 * u, 13, C.friend, 'center', true); return; }
+    if (ctx.use) this.drawPadPrompt(p, y, u);
+  },
+  /* what Use would do at a supply pad in reach */
+  drawPadPrompt(p, y, u) {
+    const C = this.C, unlimited = W.mode === 'training';
     if (!resupplyNeeded(p, W.mods.scarce ? SCARCE_AMMO : 1)) this.txt('SUPPLY PAD: FULLY SUPPLIED', this.w / 2, y, 12, C.dim, 'center');
     else if (!unlimited && W.resupplies <= 0) this.txt('SUPPLY PAD: NO RESUPPLY CHARGES LEFT', this.w / 2, y, 12, C.warn, 'center', true);
     else this.txt('[' + actionLabel('interact') + '] RESUPPLY (' + (unlimited ? 'UNLIMITED' : W.resupplies + ' LEFT') + ')', this.w / 2, y, 13, C.friend, 'center', true);
@@ -17975,7 +18056,7 @@ const HUD = {
     this.txt('Total damage dealt: ' + Math.round(W.stats.damageDealt), lx, ly, 12, C.text); ly += 17 * u;
     this.txt('[F2] Infinite ammo: ' + (W.infiniteAmmo ? 'ON' : 'OFF') + '   [F3] Friendly fire: ' + (W.friendlyFire ? 'ON' : 'OFF'), lx, ly, 10, C.dim); ly += 13 * u;
     this.txt('[F4] Reset destructibles  [F6] Reset targets', lx, ly, 10, C.dim); ly += 13 * u;
-    this.txt('[' + keyLabel(Input.code('switchPlatform')) + '] Switch platform   [F1] Controls help', lx, ly, 10, C.dim);
+    this.txt('Hold [' + actionLabel('interact') + '] step out, tap beside a parked platform to enter   [F1] Help', lx, ly, 10, C.dim);
     if (Game.trainingHelp) {
       const w = 330 * u, hx = this.w / 2 - w / 2, hy = this.h * 0.2;
       const rows = ACTIONS.map((a) => keyLabel(Input.code(a[0])).padEnd(9) + a[1]);
@@ -18308,7 +18389,7 @@ const UI = {
   },
   scr_deploy(d) {
     if (d.mode === 'training') {
-      return '<h2>Training Range</h2><div class="panel">Free-fire range with stationary, moving and aerial targets and a destructible test area. No mission failure, platforms respawn instantly. Switch platforms in the field with <kbd>' + esc(keyLabel(Save.data.bindings.switchPlatform)) + '</kbd>. Toggles for infinite ammo, friendly fire and resets are in the pause menu and on F-keys.</div>' +
+      return '<h2>Training Range</h2><div class="panel">Free-fire range with stationary, moving and aerial targets and a destructible test area. No mission failure, platforms respawn instantly. Every platform stands parked at the start: hold <kbd>' + esc(keyLabel(Save.data.bindings.interact)) + '</kbd> to step out, walk over and tap it to get in. Toggles for infinite ammo, friendly fire and resets are in the pause menu and on F-keys.</div>' +
         this.platSummary() + '<div class="row"><button class="btn primary" data-act="deployTraining" data-focus>Deploy</button><button class="btn" data-act="back">Back</button></div>';
     }
     const m = MISSION_BY_ID[d.id];
@@ -18402,14 +18483,14 @@ const UI = {
       ['Boost key', 'Sprint (uses energy)', 'Nitro boost', 'Afterburner'],
       ['Jump key', 'Jump jets', 'Handbrake', 'Airbrake / wheel brake'],
       ['Defense key', 'Shield / APS / repair', 'APS / repair', 'Flares / repair'],
-      ['Stance key', 'Crouch (steadier, cooler)', '-', 'Radar mode: wide / focus'],
+      ['Stance key', 'Crouch (steadier, cooler)', '-', 'Landing gear by hand (it also moves by itself)'],
       ['Melee key', 'Melee strike', '-', '-'],
-      ['Gear key', '-', '-', 'Landing gear and flaps'],
+      ['Use key', 'Hold: step out; on foot, tap beside a vehicle to enter', 'Tap: resupply; hold: step out', 'Hold: step out when landed, eject above ' + EJECT_MIN_AGL + ' m'],
     ];
     return '<h2>Controls</h2>' + (this.rebind ? '<div class="panel warn" role="status">' + esc(this.rebind.msg) + '</div>' : '<div class="hint" style="margin:0 0 .6em">Click a binding, then press the new key or mouse button. Esc and F-keys are reserved.</div>') +
       '<div class="grid2"><div class="panel"><table><tr><th>Action</th><th>Binding</th></tr>' + rows + '</table></div>' +
       '<div class="panel"><h3 style="margin-top:0">Per-platform behaviour</h3><table><tr><th></th><th>Mech</th><th>Ground</th><th>Aircraft</th></tr>' + per.map((r) => '<tr><td>' + r.map(esc).join('</td><td>') + '</td></tr>').join('') + '</table>' +
-      '<h3>Fixed keys</h3><div class="dim">Esc pause &middot; F10 diagnostics &middot; Training: F1 help, F2 infinite ammo, F3 friendly fire, F4 reset destructibles, F6 reset targets &middot; Mouse wheel switches primary weapon. Gamepad: sticks move/aim, RT primary, LT secondary, RB superweapon, LB crouch / radar mode, A jump, B defense, X melee, Y target, L3 boost, R3 reload, d-pad left/right weapons, up gear, down eject (twice), Back resupply, Start pause. Menus: d-pad or stick to move, A select, B back.</div></div></div>' +
+      '<h3>Fixed keys</h3><div class="dim">Esc pause &middot; F10 diagnostics &middot; Training: F1 help, F2 infinite ammo, F3 friendly fire, F4 reset destructibles, F6 reset targets &middot; 1 and 2 pick Primary A and B, the mouse wheel switches primary weapon &middot; Aircraft: the landing gear and the radar range work by themselves. Gamepad: sticks move/aim, RT primary, LT secondary, RB superweapon, LB crouch / landing gear, A jump, B defense, X melee, Y target, L3 boost, R3 reload, d-pad left switch weapon, Back Use (tap: enter or resupply, hold: exit or eject), Start pause. Menus: d-pad or stick to move, A select, B back.</div></div></div>' +
       '<div class="row"><button class="btn" data-act="rebindAll">Reset to defaults</button><button class="btn" data-act="back" data-focus>Back</button></div>';
   },
   scr_settings() {
@@ -18433,8 +18514,8 @@ const UI = {
       '<p>Pick a platform in <b>Platform &amp; Loadout</b>, then deploy to a mission, a skirmish, or the Training Range. Aim with the mouse (on a touch screen: drag on the right side, move with the stick that appears under your left thumb), fire with the buttons, watch heat and ammunition. Destroy everything: buildings, trees and fuel tanks break and change the battlefield.</p>' +
       '<p><b>Damage order:</b> shield, then armor (absorbs a share of each hit), then hull. At 66% and 33% hull a random subsystem fails for a while. Rear hits do extra damage.</p>' +
       '<p><b>Aim assist</b> (on by default, Settings &gt; Aiming): shots bend toward an enemy near the reticle (a small red ring marks it) and enemies are slightly easier to hit. You have ' + PLAYER_LIVES + ' platforms per mission by default (Settings &gt; Gameplay; skirmish has its own setting); a charged superweapon fires with ' + actionLabel('superweapon') + '; Recruit difficulty is the gentlest start.</p>' +
-      '<p><b>Aircraft:</b> in assisted mode the plane chases your cursor. Land by lowering gear (G), slowing under the landing speed and flying level. Eject by pressing the eject key twice.</p>' +
-      '<p><b>Cities and bases:</b> every battlefield has a city and a military base. Buildings are made of separate wall, window, floor, pillar and stair pieces that break one at a time. Infantry can enter through doors and climb stairs to the roof and shoot from windows; walls and floors can be blasted open. If a floor loses its supports, or the ground floor is destroyed, the upper floors collapse.</p><p><b>Platforms:</b> you choose one platform per mission. Switching between platforms in the field is available only in the Training Range.</p><p><b>Supply:</b> stand near the supply pad and press Interact to refill ammunition and repair (2 uses per mission).</p></div>' +
+      '<p><b>Aircraft:</b> in assisted mode the plane chases your cursor. To land, fly low, slow and level: the gear lowers by itself under ' + GEAR_AUTO_AGL + ' m and ' + Math.round(GEAR_AUTO_SPEED * 3.6) + ' km/h (the Stance key moves it by hand). Hold Use above ' + EJECT_MIN_AGL + ' m to eject with a parachute.</p>' +
+      '<p><b>Cities and bases:</b> every battlefield has a city and a military base. Buildings are made of separate wall, window, floor, pillar and stair pieces that break one at a time. Infantry can enter through doors and climb stairs to the roof and shoot from windows; walls and floors can be blasted open. If a floor loses its supports, or the ground floor is destroyed, the upper floors collapse.</p><p><b>Platforms:</b> you start inside the platform you chose. Hold Use to step out; on foot, tap Use beside a free friendly vehicle to get in. A vehicle you leave stays parked with its hull and ammunition.</p><p><b>Supply:</b> stand near the supply pad and tap Use to refill ammunition and repair (2 uses per mission).</p></div>' +
       '<div class="panel"><h3 style="margin-top:0">Release notes</h3><ul><li>9 playable platforms: 3 mechs, 3 ground vehicles, 3 aircraft, with a shared weapon and damage system.</li><li>8 objective missions covering every objective type, skirmish mode and a training range.</li><li>Fully offline, single file, no external assets.</li></ul>' +
       '<h3>Known limitations</h3><ul><li><b>Co-op</b> (up to 4 players, mission mode) connects browsers directly using copy-and-paste codes; there is no server. Over the internet it may need the public STUN option and can fail behind strict routers. Competitive PvP is not included.</li><li>Mission progress is not saved mid-mission. Best scores and settings are saved locally.</li><li>Performance: designed for desktop GPUs; lower Graphics quality if frames drop. The game also lowers render resolution automatically.</li></ul>' +
       '<h3>Troubleshooting</h3><ul><li>Black screen or error: enable hardware acceleration and use a current Chrome, Edge or Firefox.</li><li>No mouse look: click to capture the cursor, or disable Capture cursor in Settings to use edge-of-screen aiming.</li><li>No sound: click once in the page; browsers block audio until you interact.</li><li>iPhone and iPad: play in landscape; for full screen use Share, then Add to Home Screen; the silent switch also mutes the game.</li><li>Press F10 for diagnostics.</li><li><button class="btn small" data-act="selftest">Run built-in self-test</button></li></ul></div></div>' +
@@ -19312,23 +19393,25 @@ const SelfTest = {
       W.platforms.push(jet); W.player = jet;
       const keep = { pad: Input.pad, using: Input.usingPad, prev: PC.padPrev, padC: PC.padC, touch: TouchControls.enabled };
       try {
-        const buttons = { right: true, up: true, down: true, reload: true, interact: true, cycle: true, stance: true };
+        const buttons = { left: true, reload: true, interact: true, cycle: true, stance: true };
         Input.pad = () => Object.assign({ lx: 0, ly: 0, rx: 0, ry: 0 }, buttons);
-        PC.padPrev = {}; PC.padC = false; PC.manualHold = 0;
+        PC.padPrev = {}; PC.padC = false; PC.manualHold = 0; PC.resetUse();
         PC.sample(jet, STEP);
         const c = jet.cmd;
-        this.check('the pad selects weapon 2, lowers the gear, arms the eject, reloads and changes stance', c.sel2 && c.gearEdge && c.ejectEdge && c.reloadEdge && c.stanceEdge);
+        this.check('the pad switches weapon, reloads and changes stance (the air stance moves the gear)', c.selNext && c.reloadEdge && c.stanceEdge);
         this.check('a manual Cycle Target holds off auto-target', PC.manualHold === AUTO_RETARGET_HOLD);
-        this.check('Back uses the supply pad', W.msgs.some((m) => m.text === 'NO SUPPLY PAD IN RANGE'));
-        c.sel2 = c.gearEdge = c.ejectEdge = c.reloadEdge = c.stanceEdge = false;
+        c.selNext = c.reloadEdge = c.stanceEdge = false;
         PC.sample(jet, STEP);
-        this.check('a held pad button acts once', !c.sel2 && !c.gearEdge && !c.ejectEdge && !c.reloadEdge && !c.stanceEdge);
+        this.check('a held pad button acts once', !c.selNext && !c.reloadEdge && !c.stanceEdge);
+        buttons.interact = false;
+        PC.sample(jet, STEP);
+        this.check('a tap of Back (Use) tries the supply pad', W.msgs.some((m) => m.text === 'NO SUPPLY PAD IN RANGE'));
         TouchControls.enabled = false;   // prompts name the touch buttons on a touch screen
         Input.usingPad = true;
         this.check('prompts show the pad button after pad input', actionLabel('interact') === 'BACK' && actionLabel('defense') === 'B' && actionLabel('stance') === 'LB');
         Input.usingPad = false;
         this.check('prompts show the key after keyboard input', actionLabel('interact') === keyLabel(Input.code('interact')));
-      } finally { Input.pad = keep.pad; Input.usingPad = keep.using; PC.padPrev = keep.prev; PC.padC = keep.padC; PC.manualHold = 0; TouchControls.enabled = keep.touch; }
+      } finally { Input.pad = keep.pad; Input.usingPad = keep.using; PC.padPrev = keep.prev; PC.padC = keep.padC; PC.manualHold = 0; PC.resetUse(); TouchControls.enabled = keep.touch; }
     });
     t('gamepad menus', () => {
       const keep = { pad: Input.pad, cur: UI.cur, stack: UI.stack.slice(), state: Game.state, prev: UI.padPrev };
@@ -21713,6 +21796,79 @@ const SelfTest = {
         this.check('a guest drops a malformed hazard message', Hazards.n === n2);
       } finally { Platform.prototype.takeDamage = keepTD; damageStruct = keepDS; Object.assign(Net, saved); Hazards.reset(); Game.quitToMenu(); }
     });
+    t('controls rework', () => {
+      // saved bindings: removed ids drop out of a version 1 save; Switch weapon takes KeyZ unless another action has it
+      const s1 = Save.sanitize(JSON.parse(JSON.stringify(SAVE_FIXTURE_V1)));
+      this.check('a version 1 save with weapon1, weapon2, gear, eject and switchPlatform loads and drops them', s1.v === SAVE_VERSION && ['weapon1', 'weapon2', 'gear', 'eject', 'switchPlatform'].every((id) => !(id in s1.bindings)) && s1.bindings.interact === 'KeyE' && s1.bindings.stance === 'KeyC' && s1.bindings.pause === 'KeyP');
+      this.check('switch weapon gets KeyZ in an old save', s1.bindings.switchWeapon === 'KeyZ');
+      const taken = JSON.parse(JSON.stringify(SAVE_FIXTURE_V1));
+      taken.bindings.melee = 'KeyZ';
+      const s2 = Save.sanitize(taken);
+      this.check('switch weapon is left unbound when KeyZ was taken', s2.bindings.switchWeapon === '' && s2.bindings.melee === 'KeyZ');
+      this.check('the pad and touch labels name the new actions only', PAD_LABELS.switchWeapon === 'D-PAD LEFT' && TOUCH_LABELS.switchWeapon === 'WPN' && ['gear', 'eject', 'weapon1', 'weapon2'].every((id) => !PAD_LABELS[id] && !TOUCH_LABELS[id]) && TOUCH_LABELS.stance('air') === 'GEAR');
+      this.check('the touch overlay has no GEAR or EJECT button (the stance button and a held USE do it)', !TOUCH_BUTTONS.some((b) => b.name === 'up' || b.name === 'down') && TOUCH_BUTTONS.some((b) => b.name === 'interact' && b.show.indexOf('use') >= 0));
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null; W.pads = [];
+      const keep = { pad: Input.pad, bindings: Input.bindings, touch: TouchControls.enabled, auto: S.autoTarget };
+      try {
+        Input.pad = () => null; TouchControls.enabled = false; S.autoTarget = false; PC.resetUse();
+        Input.setBindings(Save.defaults().bindings);
+        const mech = new Platform(PLATFORMS.bulwark, { team: 0, x: 0, z: 0, yaw: 0, loadout: PLATFORMS.bulwark.loadout });
+        W.platforms.push(mech); W.player = mech; mech.isPlayer = true;
+        const press = (code) => { Input.endFrame(); Input.pressed.add(code); PC.sample(mech, STEP); const c = mech.cmd, r = { a: c.sel1, b: c.sel2, n: c.selNext }; c.sel1 = c.sel2 = c.selNext = false; Input.endFrame(); return r; };
+        const k2 = press('Digit2'), k1 = press('Digit1'), kz = press('KeyZ');
+        this.check('keys 1 and 2 pick a primary and Switch weapon swaps', k2.b && !k2.a && k1.a && !k1.b && kz.n && !kz.a && !kz.b);
+        Input.wheel = 1; PC.sample(mech, STEP);
+        this.check('the mouse wheel swaps primaries', mech.cmd.selNext);
+        mech.cmd.selNext = false; Input.endFrame();
+        Input.bindings.defense = 'Digit1';
+        const mine = press('Digit1');
+        this.check('a key bound to an action is not a weapon shortcut', !mine.a);
+        Input.setBindings(Save.defaults().bindings);
+        // Use: a tap tries the pad; a hold ejects from an aircraft high enough, and only then
+        PC.resetUse(); PC.useInput(mech, true, STEP); PC.useInput(mech, false, STEP);
+        this.check('a tap of Use tries the supply pad', W.msgs.some((m) => m.text === 'NO SUPPLY PAD IN RANGE'));
+        const jet = new Platform(PLATFORMS.kestrel, { team: 0, x: 200, z: 0, yaw: 0, y: Terrain.h(200, 0) + 300, loadout: PLATFORMS.kestrel.loadout });
+        W.platforms.push(jet); jet.isPlayer = true;
+        PC.resetUse();
+        for (let i = 0; i < 20; i++) PC.useInput(jet, true, STEP);
+        const early = jet.dead;
+        for (let i = 0; i < Math.ceil(USE_HOLD / STEP); i++) PC.useInput(jet, true, STEP);
+        this.check('holding Use for 0.4 s ejects from an aircraft in the air (not sooner)', !early && jet.dead && jet.ejected);
+        PC.useInput(jet, false, STEP);
+        const low = new Platform(PLATFORMS.kestrel, { team: 0, x: 400, z: 0, yaw: 0, y: Terrain.h(400, 0) + 15, loadout: PLATFORMS.kestrel.loadout });
+        W.platforms.push(low); low.isPlayer = true; W.player = low;   // notices go to the local player
+        PC.resetUse();
+        for (let i = 0; i < 40; i++) PC.useInput(low, true, STEP);
+        this.check('an aircraft under 25 m does not eject', !low.dead && W.msgs.some((m) => /TOO LOW TO EJECT/.test(m.text)));
+        PC.resetUse();
+        // automatic gear and radar
+        const gs = new Platform(PLATFORMS.behemoth, { team: 0, x: -300, z: 0, yaw: 0, y: Terrain.h(-300, 0) + 200, loadout: PLATFORMS.behemoth.loadout });
+        W.platforms.push(gs); gs.isPlayer = true;
+        const fly = (agl, speed) => { gs.y = Water.top(gs.x, gs.z) + agl; gs.speed = speed; gs.pitch = 0; gs.update(STEP); return gs.gear; };
+        const high = fly(200, 60), lowSlow = fly(40, 60);
+        this.check('automatic gear goes down under 60 m below 90 m/s', !high && lowSlow);
+        gs.cmd.stanceEdge = true;
+        const byHand = fly(40, 60), held = fly(40, 60);
+        this.check('the air stance key moves the gear by hand and it holds', !byHand && !held);
+        const lowFast = (fly(150, 60), fly(40, 60), fly(40, 120));
+        this.check('automatic gear rises when fast', !lowFast);
+        const ai = new Platform(PLATFORMS.behemoth, { team: 0, x: -500, z: 0, yaw: 0, y: Terrain.h(-500, 0) + 40, loadout: PLATFORMS.behemoth.loadout });
+        W.platforms.push(ai); ai.speed = 60; ai.update(STEP);
+        this.check('AI pilots keep their gear up', !ai.gear);
+        const foe = spawnUnit('tank', -300, 400, { force: true }), back = spawnUnit('tank', -300, -400, { force: true });
+        foe.ai = null; back.ai = null;
+        gs.target = foe; fly(200, 80);
+        const ahead = gs.radarFocus;
+        gs.target = back; fly(200, 80);
+        this.check('the radar focuses by itself while the target is ahead', ahead && !gs.radarFocus);
+        const wide = gs.wideRange();
+        foe.z = gs.z + wide * 1.4; back.z = gs.z - wide * 1.4; foe.x = back.x = gs.x;
+        foe.y = Terrain.h(foe.x, foe.z); back.y = Terrain.h(back.x, back.z);
+        gs.target = null; gs.cycleTarget();
+        this.check('the radar reaches farther ahead than behind', gs.target === foe, gs.target ? gs.target.id : 'none');
+      } finally { Input.pad = keep.pad; Input.setBindings(keep.bindings); TouchControls.enabled = keep.touch; S.autoTarget = keep.auto; PC.resetUse(); Input.endFrame(); }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -22016,9 +22172,9 @@ const Net = {
   },
   hostInput(peer, m) {
     if (!this.inSession || !peer.hello) return;
-    if (this.t - peer.lastInT < 0.01) { peer.edges |= (m.e | 0); return; }
+    if (this.t - peer.lastInT < 0.01) { peer.edges |= (m.e | 0) & 0x3fff; return; }
     peer.lastInT = this.t;
-    peer.inp = m; peer.inpT = this.t; peer.edges |= (m.e | 0) & 0x1fff;
+    peer.inp = m; peer.inpT = this.t; peer.edges |= (m.e | 0) & 0x3fff;
   },
   applyCmd(peer) {
     const p = peer.p, m = peer.inp;
@@ -22043,9 +22199,10 @@ const Net = {
     }
     const e = peer.edges; peer.edges = 0;
     if (e & 1) c.fire1Edge = true; if (e & 2) c.fire2Edge = true; if (e & 4) c.defenseEdge = true; if (e & 8) c.meleeEdge = true;
-    if (e & 16) c.stanceEdge = true; if (e & 32) c.gearEdge = true; if (e & 64) c.reloadEdge = true; if (e & 128) c.ejectEdge = true;
+    if (e & 16) c.stanceEdge = true; if (e & 64) c.reloadEdge = true;
     if (e & 256) c.sel1 = true; if (e & 512) c.sel2 = true; if (e & 1024) c.selNext = true; if (e & 4096) c.superEdge = true;
-    if (e & 2048) tryResupply(p);
+    if (e & NET_USE_TAP) Seats.tap(p, peer);
+    if (e & NET_USE_HOLD) Seats.hold(p, peer);
   },
   hostTick(dt) {
     this.t += dt;
@@ -22390,8 +22547,8 @@ const Net = {
     if (!p || p.dead) { this.send(this.hostPeer, { t: 'in', q: ++this.inSeq, mf: 0, ms: 0, tn: 0, ti: 0, ay: 0, ap: 0, b: 0, e: 0 }, false); return; }
     const c = p.cmd;
     const b = (c.fire1 ? 1 : 0) | (c.fire2 ? 2 : 0) | (c.boost ? 4 : 0) | (c.jump ? 8 : 0) | (c.brake ? 16 : 0);
-    const e = (c.fire1Edge ? 1 : 0) | (c.fire2Edge ? 2 : 0) | (c.defenseEdge ? 4 : 0) | (c.meleeEdge ? 8 : 0) | (c.stanceEdge ? 16 : 0) | (c.gearEdge ? 32 : 0) | (c.reloadEdge ? 64 : 0) | (c.ejectEdge ? 128 : 0) | (c.sel1 ? 256 : 0) | (c.sel2 ? 512 : 0) | (c.selNext ? 1024 : 0) | (c.superEdge ? 4096 : 0) | this.pendEdge;
-    c.fire1Edge = c.fire2Edge = c.defenseEdge = c.meleeEdge = c.stanceEdge = c.gearEdge = c.reloadEdge = c.ejectEdge = false; c.sel1 = c.sel2 = c.selNext = c.superEdge = false; this.pendEdge = 0;
+    const e = (c.fire1Edge ? 1 : 0) | (c.fire2Edge ? 2 : 0) | (c.defenseEdge ? 4 : 0) | (c.meleeEdge ? 8 : 0) | (c.stanceEdge ? 16 : 0) | (c.reloadEdge ? 64 : 0) | (c.sel1 ? 256 : 0) | (c.sel2 ? 512 : 0) | (c.selNext ? 1024 : 0) | (c.superEdge ? 4096 : 0) | this.pendEdge;
+    c.fire1Edge = c.fire2Edge = c.defenseEdge = c.meleeEdge = c.stanceEdge = c.reloadEdge = false; c.sel1 = c.sel2 = c.selNext = c.superEdge = false; this.pendEdge = 0;
     const ap = c.aimPoint;
     const t = p.target;
     this.send(this.hostPeer, {
