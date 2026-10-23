@@ -81,6 +81,9 @@ const PerfOverlay = {
     const errors = ErrorLog.entries.slice(-PERF_ERROR_LINES);
     lines.push(errors.length ? 'errors:' : 'errors: none');
     for (const entry of errors) lines.push('  ' + entry.slice(0, PERF_ERROR_CHARS));
+    // the session's first error is the likely root cause: shown once newer ones have pushed it out of the tail (R-164)
+    const first = ErrorLog.first;
+    if (errors.length && first && !errors.some((entry) => entry.startsWith(first))) lines.push('  first: ' + first.slice(0, PERF_ERROR_CHARS));
     return lines;
   },
   // F10 / four-finger tap flip the saved setting, so Options > Developer shows the same state.

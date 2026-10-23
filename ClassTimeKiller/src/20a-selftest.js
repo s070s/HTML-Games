@@ -103,7 +103,7 @@ const DebugApi = {
     if (level === 'max') setup.mutators = DEBUG_STRESS_MUTATORS.slice();
     return Game.start(setup);
   },
-  log: { errors: () => ErrorLog.entries.slice() },
+  log: { errors: () => ErrorLog.entries.slice(), first: () => ErrorLog.first },   // first: the session's first error (it outlives the ring)
   save: {
     dump: () => Save.exportText(),
     corrupt(kind) { // test hook: write a broken save, then reload it

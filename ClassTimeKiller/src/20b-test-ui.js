@@ -477,6 +477,15 @@ Test.add('ui', (check) => uiWith(() => {
     ['fps', 'p50', 'p95', 'p99', 'sim p95', 'render', 'hud', 'draw calls', 'triangles', 'render scale', 'actors', 'bots', 'ai ', 'projectiles', 'particles', 'heap', 'device'].every((word) => text.includes(word)), text);
   Test.expectErrors(() => { ErrorLog.add('perf test', new Error('visible in the HUD')); check('perf HUD: the error tail is listed (ARC-041)', PerfOverlay.format(Perf.stats()).join('\n').includes('visible in the HUD')); });
   check('perf HUD: no errors reads "errors: none"', (() => { const saved = ErrorLog.entries.splice(0); const none = PerfOverlay.format(Perf.stats()).join('\n').includes('errors: none'); ErrorLog.entries.push(...saved); return none; })());
+  // R-164: the session's first error (the root cause) stays visible after newer ones push it out of the tail
+  const savedFirst = ErrorLog.first;
+  Test.expectErrors(() => {
+    ErrorLog.first = 'perf test: the root cause';
+    for (let i = 0; i < PERF_ERROR_LINES; i++) ErrorLog.add('perf test', 'later ' + i);
+    check('perf HUD and __CTK.log.first() show the first error once it left the tail', PerfOverlay.format(Perf.stats()).join('\n').includes('first: perf test: the root cause')
+      && DebugApi.log.first() === 'perf test: the root cause');
+  });
+  ErrorLog.first = savedFirst;
   const savedDropped = [Render.stats.droppedInstances, HudBatch.dropped];
   Render.stats.droppedInstances = 0; HudBatch.dropped = 0;
   const quiet = PerfOverlay.format(Perf.stats()).join('\n');
