@@ -392,10 +392,13 @@ function rotateInPlace(point) {
   return point;
 }
 
-// Team colour, else the profile colour, else a palette colour by id (free-for-all).
+// Team colour (in the HUD's colour slot), else the profile colour, else a palette colour by id (free-for-all).
 function actorBaseColor(id) {
   const team = Actors.team[id], profile = Actors.profile[id];
-  if (team >= 0) return Render.teamPalette ? Render.teamPalette[team % Render.teamPalette.length] : CAT.teamColors[team % CAT.teamColors.length].color;
+  if (team >= 0) {
+    const slot = Render.teamSlot ? Render.teamSlot(team) : team;
+    return Render.teamPalette ? Render.teamPalette[slot % Render.teamPalette.length] : CAT.teamColors[slot % CAT.teamColors.length].color;
+  }
   if (profile && profile.color) return profile.color;
   return CAT.teamColors[id % CAT.teamColors.length].color;
 }

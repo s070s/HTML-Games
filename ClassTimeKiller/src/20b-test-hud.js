@@ -717,6 +717,23 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('colour-blind palette: off restores the default colours', Hud.colors.health === HUD_COLOR.health && Hud.colors.teams[0] === colorNumber(CAT.teamColors[0].color));
 }));
 
+// One team colour rule for bodies and the HUD: in M20 squads your squad is the first team colour and every other squad the second, also colour-blind.
+Test.add('hud', (check) => hudTestWith(() => {
+  const { enemy } = hudTestMatch(), count = Modes.squads.count, team = Actors.team[enemy];
+  const sameColors = () => {
+    let same = true;
+    for (let squad = 0; squad < 9; squad++) { Actors.team[enemy] = squad; same = same && colorNumber(actorBaseColor(enemy)) === Hud.actorColor(enemy); }
+    return same;
+  };
+  Modes.squads.count = 9;
+  const plain = sameColors();
+  Settings.set('accessibility.colorBlind', 'tritanopia');
+  const colorBlind = sameColors();
+  Settings.set('accessibility.colorBlind', 'off');
+  Modes.squads.count = count; Actors.team[enemy] = team;
+  check('squads: the bodies of every squad have the colour the HUD shows for it', plain && colorBlind);
+}));
+
 // HUD frame cost (PERF-002: <= 0.4 ms): a busy scene; the mean frame time of the fastest of several batches, so another process
 // taking the CPU for a moment (parallel test runs) does not look like a slow HUD.
 function hudTestMeasure(frames) {
