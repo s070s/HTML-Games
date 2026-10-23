@@ -128,8 +128,13 @@ Test.add('economy', (check) => {
   const kept = firstWeaponForSale(0);
   Economy.buy(0, kept.id); Economy.buy(0, 'vest');
   Economy.buy(1, firstWeaponForSale(1).id);
+  const keptSlot = Weapons.slotIndex(0, CAT.weapons.byId(kept.key).index);
+  runUntilPhase(PHASE.LIVE);
+  Weapons.magazine[keptSlot] = 1; Weapons.reserve[keptSlot] = 2;
   winRound(1, 0);
   check('ECP02 survivors keep bought weapons and armor', Weapons.has(0, kept.key) && Actors.armor[0] === 100, Actors.armor[0]);
+  check('ECP02 a kept weapon keeps its ammo, no free refill (modes-09)', Weapons.magazine[keptSlot] === 1 && Weapons.reserve[keptSlot] === 2,
+    Weapons.magazine[keptSlot] + '/' + Weapons.reserve[keptSlot]);
   check('ECP02 the dead lose bought weapons', !Weapons.has(1, kept.key));
   endModeTest();
 });

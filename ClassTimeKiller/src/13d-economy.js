@@ -26,6 +26,7 @@ const Economy = {
   spawnX: new Float32Array(MAX_ACTORS), spawnZ: new Float32Array(MAX_ACTORS),
   died: new Uint8Array(MAX_ACTORS),                              // died since the last spawn (survivors keep their gear)
   kept: new Uint8Array(MAX_ACTORS * WEAPON_COUNT),               // weapons a survivor carried at the round end
+  keptMagazine: new Int16Array(MAX_ACTORS * WEAPON_COUNT), keptReserve: new Int16Array(MAX_ACTORS * WEAPON_COUNT),   // ... with their ammo
   keptHeld: new Int16Array(MAX_ACTORS).fill(-1),                 // ... the one in its hand
   keptGadgets: new Uint8Array(MAX_ACTORS * GADGET_COUNT),        // ... and its grenade and gadget uses
   keptArmor: new Float32Array(MAX_ACTORS), keptHelmet: new Uint8Array(MAX_ACTORS),
@@ -99,7 +100,11 @@ const Economy = {
     this.keptArmor[id] = alive ? Actors.armor[id] : 0;
     this.keptHelmet[id] = alive ? Damage.helmet[id] : 0;
     this.keptHeld[id] = alive ? Weapons.current[id] : -1;
-    for (let w = 0; w < WEAPON_COUNT; w++) this.kept[id * WEAPON_COUNT + w] = alive ? Weapons.owned[Weapons.slotIndex(id, w)] : 0;
+    for (let w = 0; w < WEAPON_COUNT; w++) {
+      const slot = Weapons.slotIndex(id, w), index = id * WEAPON_COUNT + w;
+      this.kept[index] = alive ? Weapons.owned[slot] : 0;
+      this.keptMagazine[index] = Weapons.magazine[slot]; this.keptReserve[index] = Weapons.reserve[slot];
+    }
     for (let row = 0; row < GADGET_COUNT; row++) this.keptGadgets[id * GADGET_COUNT + row] = alive ? Gadgets.count[id * GADGET_COUNT + row] : 0;
   },
 
@@ -131,7 +136,12 @@ const Economy = {
   },
   // Runs after the start loadout and kit (S11, S12 spawn listeners): only what is missing comes back, so nothing is doubled.
   restoreKept(id) {
-    for (let w = 0; w < WEAPON_COUNT; w++) if (this.kept[id * WEAPON_COUNT + w] && !Weapons.owned[Weapons.slotIndex(id, w)]) Weapons.give(id, CAT.weapons[w].id, 0);
+    for (let w = 0; w < WEAPON_COUNT; w++) {
+      const slot = Weapons.slotIndex(id, w), index = id * WEAPON_COUNT + w;
+      if (!this.kept[index] || Weapons.owned[slot]) continue;
+      Weapons.give(id, CAT.weapons[w].id, 0);
+      Weapons.magazine[slot] = this.keptMagazine[index]; Weapons.reserve[slot] = this.keptReserve[index];   // its ammo as it was, no free refill
+    }
     const held = this.keptHeld[id];
     if (held >= 0 && Weapons.owned[Weapons.slotIndex(id, held)]) Weapons.current[id] = held;
     for (let row = 0; row < GADGET_COUNT; row++) {
