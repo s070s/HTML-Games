@@ -592,11 +592,16 @@ function hudPlaceWeaponBox(layout, count, index) {
   box[1] = layout.weaponBarY - box[3];
 }
 
+// The weapon bar boxes the touch buttons give way to: the owned count, 0 while there is no bar (fewer than 2 weapons).
+function hudBarWeaponCount() {
+  const count = Game.playerId >= 0 ? Math.min(hudCollectOwnedWeapons(Game.playerId), HUD_MAX_WEAPON_SLOTS) : 0;
+  return count < 2 ? 0 : count;
+}
+
 function hudDrawWeaponBar(pen, layout) {
-  const id = Game.playerId;
-  if (!hudLocalAlive() || (layout.compact && !layout.touch)) return;
-  const count = Math.min(hudCollectOwnedWeapons(id), HUD_MAX_WEAPON_SLOTS);
-  if (count < 2) return;
+  const id = Game.playerId, count = hudBarWeaponCount();
+  if (layout.touch && count !== hudPanelsClearLayout.weapons) TouchInput.applyAll();   // a weapon picked up or lost: the buttons make room
+  if (!hudLocalAlive() || (layout.compact && !layout.touch) || count === 0) return;
   const unit = layout.unit;
   const selected = Weapons.state[id] === WEAPON_STATE.SWAP ? Weapons.pending[id] : Weapons.current[id];
   const box = hudBoxAt, shape = hudShapeAt, text = hudTextAt;   // the pen's scratch forms: no float arguments (PERF-006)
@@ -628,17 +633,20 @@ function hudWeaponSlotAt(x, y) {
 }
 TouchInput.weaponSlotAt = hudWeaponSlotAt;
 TouchInput.insets = Hud.insets;   // the touch layer sits inside the same safe-area insets (one reader: hudReadSafeInsets)
-// Touch buttons give way to the vitals, the ammo panel and the weapon bar (05b keepClear, touch-01), the bar at its widest
-// (HUD_MAX_WEAPON_SLOTS boxes) so a picked-up weapon never puts a box under a button; a button there would take slot taps.
-const hudPanelsClearLayout = {};
+// Touch buttons give way to the vitals, the ammo panel and the weapon bar (05b keepClear, touch-01): the bar's boxes for the
+// weapons owned, down to the ammo panel (the slot number row included); the bar re-places the buttons when that count
+// changes (hudDrawWeaponBar), so a picked-up weapon never puts a box under a button, which would take its slot taps.
+const hudPanelsClearLayout = { weapons: 0 };
 TouchInput.keepClear.push((width, height) => {
   const layout = hudPanelsClearLayout, box = hudBoxAt;
   updateHudLayout(layout, width, height);
   TouchInput.addClear(layout.left, layout.bottom - layout.vitalsHeight, layout.left + layout.barWidth, layout.bottom);
   TouchInput.addClear(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoRight, layout.bottom);
-  hudPlaceWeaponBox(layout, HUD_MAX_WEAPON_SLOTS, 0);
-  const left = box[0], top = box[1], bottom = box[1] + box[3];
-  hudPlaceWeaponBox(layout, HUD_MAX_WEAPON_SLOTS, HUD_MAX_WEAPON_SLOTS - 1);
+  const count = layout.weapons = hudBarWeaponCount();
+  if (count === 0) return;
+  hudPlaceWeaponBox(layout, count, 0);
+  const left = box[0], top = box[1], bottom = Math.max(box[1] + box[3], layout.bottom - layout.ammoHeight);
+  hudPlaceWeaponBox(layout, count, count - 1);
   TouchInput.addClear(left, top, box[0] + box[2], bottom);
 });
 
