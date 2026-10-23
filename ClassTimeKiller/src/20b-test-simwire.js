@@ -129,9 +129,15 @@ Test.add('simwire', (check) => {
   check('entering a chamber records nothing', Progress.chamberRecord(SIMWIRE_CHAMBER + 1) === null);
   Progress.profile().chambers[SIMWIRE_CHAMBER + 1] = 5;
   check('a malformed chamber entry of an imported save counts no stars', Progress.chamberStars() === 2);
+  const malformed = [{ medal: '', stars: -1, seconds: 9 }, { medal: 'gold', stars: 1e9, seconds: 9 }, { medal: 'gold', stars: 1, seconds: 'x' }, { medal: 7, stars: 1, seconds: 9 }];
+  check('a record object with a bad field is no record', malformed.every((record) => {
+    Progress.profile().chambers[SIMWIRE_CHAMBER + 1] = record;
+    return Progress.chamberRecord(SIMWIRE_CHAMBER + 1) === null && Progress.chamberStars() === 2;
+  }));
   uiWith(() => {
-    Ui.open('solo');
-    const shown = Array.from(Ui.top().element.querySelectorAll('.pg-list .ui-row')).map((row) => row.textContent);
+    check('the Solo screen opens with a malformed record', Ui.open('solo') === true);
+    const rows = Array.from(Ui.top().element.querySelectorAll('.pg-list .ui-row')), shown = rows.map((row) => row.textContent);
+    check('a keyboard or gamepad can reach (and scroll to) every chamber record', rows.length > 0 && rows.every((row) => Ui.focusables(Ui.top().element).includes(row)));
     check('the Solo screen shows each chamber\'s best run (a malformed one as none)',shown.length === PVE_CHAMBERS.length && shown[SIMWIRE_CHAMBER - 1].includes('silver')
       && shown[SIMWIRE_CHAMBER - 1].includes('30 s') && shown[SIMWIRE_CHAMBER].includes('not completed'), shown.join(' | '));
   });

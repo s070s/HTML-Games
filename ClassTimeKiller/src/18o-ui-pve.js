@@ -23,7 +23,9 @@ function soloChamberRecords(root) {
   PVE_CHAMBERS.forEach((row, index) => {
     const record = Progress.chamberRecord(index + 1);
     const detail = record ? careerStars(record.stars, PVE_CHAMBER_RULES.medals.length) + ' ' + (record.medal || 'no medal') + ', ' + record.seconds + ' s' : 'not completed yet';
-    list.appendChild(careerRow(row.zone, detail, []));
+    const line = careerRow(row.zone, detail, []);
+    line.tabIndex = 0;   // a row without buttons: the focus can still reach it, so a keyboard or gamepad scrolls the list
+    list.appendChild(line);
   });
 }
 

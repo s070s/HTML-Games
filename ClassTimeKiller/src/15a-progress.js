@@ -389,21 +389,25 @@ const Progress = {
   // ---- MP11 Test Chambers records (Save.data.progression.chambers['1'..'12'] = { medal, stars, seconds }) ----
   // A completed chamber ('pve.chamber' kind complete) keeps the best run: more stars, or as many stars in less time.
   recordChamber(event) {
-    const records = this.profile().chambers, key = String(event.chamber), old = records[key];
+    const old = this.chamberRecord(event.chamber);
     const seconds = Math.round(event.seconds * CHAMBER_SECONDS_STEP) / CHAMBER_SECONDS_STEP;
-    const better = !isPlainObject(old) || event.stars > old.stars || (event.stars === old.stars && seconds < old.seconds);
+    const better = !old || event.stars > old.stars || (event.stars === old.stars && seconds < old.seconds);
     if (!better) return false;
-    records[key] = { medal: event.medal, stars: event.stars, seconds };
+    this.profile().chambers[String(event.chamber)] = { medal: event.medal, stars: event.stars, seconds };
     if (event.stars > 0) RunLog.chamberRecords++;
     Save.scheduleSave();
     return true;
   },
-  // A malformed entry of an imported save (not a plain record) is no record and counts no stars.
-  chamberRecord(chamber) { const record = this.profile().chambers[String(chamber)]; return isPlainObject(record) ? record : null; },
+  // A malformed entry of an imported save (not a record with a medal name, a whole star count the medals allow and a time) is no
+  // record and counts no stars, so the Solo screen and the stars total never read a bad field.
+  chamberRecord(chamber) {
+    const record = this.profile().chambers[String(chamber)];
+    if (!isPlainObject(record) || typeof record.medal !== 'string' || !Number.isFinite(record.seconds) || record.seconds < 0) return null;
+    return Number.isInteger(record.stars) && record.stars >= 0 && record.stars <= PVE_CHAMBER_RULES.medals.length ? record : null;
+  },
   chamberStars() {
-    const records = this.profile().chambers;
     let stars = 0;
-    for (const key in records) stars += isPlainObject(records[key]) ? Number(records[key].stars) || 0 : 0;
+    for (const key in this.profile().chambers) { const record = this.chamberRecord(key); if (record) stars += record.stars; }
     return stars;
   },
   unlockedIds() {
