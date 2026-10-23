@@ -29,6 +29,9 @@ const STATUS_COUNT = CAT.statusEffects.length;
 const INFO_RING = 16;                    // damage infos in flight at once (listeners may apply damage while one is processed)
 CAT.statusEffects.forEach((row, index) => { row.index = index; });
 
+// The ruleset's scale for the push a hit gives another actor (03e hitKnockback; own blasts keep their full push).
+function hitKnockback() { const scale = currentRules().hitKnockback; return scale === undefined ? 1 : scale; }
+
 function makeDamageInfo() {
   return { amount: 0, zone: 'none', stomach: false, mode: null, weapon: '', kind: 'hit', element: 'kinetic', distance: 0, knockback: 1,
     bypassArmor: false, bypassShield: false, x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0 };
@@ -206,7 +209,7 @@ const Damage = {
     this.recordAttacker(source, target);
     this.wake(target);
     this.applyHitStatus(source, target, info);
-    if (source !== target) this.knockback(target, info.amount * attackerScale, info);
+    if (source !== target) this.knockback(target, info.amount * attackerScale * hitKnockback(), info);
     this.emitDamage(source, target, info, kind, dealt);
     if (!Game.headless) Fx.burst('blood', info.x, info.y, info.z, -info.dx, -info.dy, -info.dz, Math.min(12, 2 + dealt / 10), 0xa01818);
     if (Actors.health[target] > 0) return;
