@@ -164,7 +164,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
 
 - `Loadouts.classes()`, `selectedClass()`, `selectClass(id)`, `classFor(actorId)`.
 - Body model (`Economy.applyBodyModel(id)`, on every spawn and an in-room hero switch): the hero's row of 03s `actorModels`, else the class's (`classModelId`: a custom class wears the first preset class with the same primary weapon class), else the ruleset's own row (RS03, RS08, RS11), else the default body; it calls 07c `ActorModels.set` (docs/api/render.md).
-- `saveClass(row)` stores up to 10 custom classes as `class-N`. It returns `null` with `lastError` when the secondary is not a sidearm, the perks are not one per tier, or the field upgrade is not in the ECP04 list.
+- `saveClass(row)` stores up to 10 custom classes as `class-N`. It returns `null` with `lastError` when the primary or the secondary is not one of `classWeaponOptions(slot)` (keys of `CLASS_WEAPON_SET`, Military, in 03l: a sidearm as the secondary, any other non-melee gun as the primary), the perks are not one per tier, or the field upgrade is not in the ECP04 list.
 - `removeClass(id)`, `hero()`, `setHero(id)`, `kitChoice(kitId)`, `setKitChoice(kitId, slot, abilityId)` (only allowed choices).
 - `applyTo(actorId)` runs on `actor.create` for the player. Changes apply at the next spawn; heroes can switch instantly in the spawn room.
 
@@ -174,7 +174,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
   - Shows credits, buy time, next-round money and the loss ladder panel (ECO-001).
   - Items have hotkeys 1-9. Unaffordable items are dimmed and a press shows the reason.
   - B or Esc closes it. It closes itself when buy time ends.
-- `loadout` has three tabs: Classes, Hero and Ability kits. `classEditor` uses one cycle per field.
+- `loadout` has three tabs: Classes, Hero and Ability kits. `classEditor` uses one cycle per field. Weapon options are `classWeaponOptions(slot)`; while the match set swaps a class weapon (`CLASS_SET_SWAPS`) the option reads "Name (here: Swapped name)".
 - Opening:
   - The `buyMenu` action (KeyB, Interface group) opens `buy` in buying matches, else `loadout` when the match has loadouts.
   - Gamepad and touch players use the pause menu rows `Buy menu` and `Loadout`. These rows exist only during matches that use them.
