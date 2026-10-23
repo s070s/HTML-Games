@@ -417,6 +417,9 @@ Test.add('abilities', (check) => {
   for (const mode of ['ctf', 'ffa', 'attrition', 'cursetag', 'roulette']) {
     check(mode + ' keeps its score limit in a hero ruleset', limit({ mode, ruleset: 'heroes' }) === CAT.modes.byId(mode).scoreLimit, String(limit({ mode, ruleset: 'heroes' })));
   }
+  // hazard-01: hero pools soak more hits, so at full push most Skyward Yard kills were falls (botsoak measures the share).
+  const heroPush = Rules.build({ mode: 'tdm', ruleset: 'heroes' }).knockback;
+  check('Hero Squad pushes half as far, Arena Classic at full push', heroPush === 0.5 && Rules.build({ mode: 'tdm' }).knockback === 1, String(heroPush));
 });
 
 Test.add('abilities', (check) => {

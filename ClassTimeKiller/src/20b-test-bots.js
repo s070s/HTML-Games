@@ -1738,18 +1738,18 @@ Test.add('bots', (check) => {
   const selfInflicted = kills.filter((event) => event.killer < 0 || event.killer === event.victim).length;
   check('Skyward Yard: at most 10% of kills are bots falling off with no attacker', kills.length > 0 && selfInflicted <= kills.length * VOID_DEATH_SHARE_MAX, selfInflicted + ' of ' + kills.length);
 });
-// Hero and Frame Runner bots (glide, grapple, blink, knockback) on Skyward Yard: hazard deaths stay at what the bot
-// landing checks reach (heroes 44-54%, frame about 26%: most falls follow a hit, the knockback is S03e's), and downed
+// Hero and Frame Runner bots (glide, grapple, blink, knockback) on Skyward Yard: falls stay a minority of kills (most follow
+// a hit; hazard-01: at full push heroes fell for 57-65%, at S03e's half hero push about 28%, frame about 17-26%), and downed
 // enemies in sight are finished off, so few kills are bleed-outs.
-const SKY_KIT_RULESETS = ['heroes', 'frame'], SKY_KIT_SEEDS = [1, 2], SKY_KIT_MINUTES = 3, SKY_KIT_BOTS = 10;
-const SKY_KIT_HAZARD_SHARE_MAX = 0.6, BLEED_OUT_SHARE_MAX = 0.2;
+const SKY_KIT_RULESETS = ['heroes', 'frame'], SKY_KIT_SEEDS = [1, 2, 3], SKY_KIT_MINUTES = 3, SKY_KIT_BOTS = 10;
+const SKY_KIT_HAZARD_SHARE_MAX = 0.4, BLEED_OUT_SHARE_MAX = 0.2;
 Test.add('botsoak', (check) => {
   for (const ruleset of SKY_KIT_RULESETS) {
     const kills = startEventLog('kill');
     for (const seed of SKY_KIT_SEEDS) playMatch({ mode: 'tdm', map: 'skyyard', ruleset, minutes: SKY_KIT_MINUTES, botCount: SKY_KIT_BOTS, seed, difficulty: 'regular' });
     kills.stop();
     const hazard = kills.filter((event) => event.weapon === 'hazard').length, bleedOut = kills.filter((event) => event.weapon === 'bleedout').length;
-    check(ruleset + ' on Skyward Yard: at most 60% of kills are hazards', kills.length > 0 && hazard <= kills.length * SKY_KIT_HAZARD_SHARE_MAX, hazard + ' of ' + kills.length);
+    check(ruleset + ' on Skyward Yard: at most 40% of kills are hazards', kills.length > 0 && hazard <= kills.length * SKY_KIT_HAZARD_SHARE_MAX, hazard + ' of ' + kills.length);
     check(ruleset + ' on Skyward Yard: under 20% of kills are bleed-outs', kills.length > 0 && bleedOut < kills.length * BLEED_OUT_SHARE_MAX, bleedOut + ' of ' + kills.length);
   }
 }, { slow: true });

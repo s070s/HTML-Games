@@ -7,6 +7,9 @@
 // knockback: the hitscan rulesets push a quarter as far, so a few SMG hits never shove a target out of the spray (R-097);
 // arena, tournament, Ravager and Iron Bulwark keep the full arena push.
 const HITSCAN_KNOCKBACK = 0.25;
+// Hero Squad pushes half as far: a hero pool (200-650) soaks two to six times the damage of a 100 HP body, so at full push a duel
+// near an open edge shoved the target off before it went down (hazard-01: 57-65% of Skyward Yard kills were falls; about 28% now).
+const HERO_KNOCKBACK = 0.5;
 
 const RULESET_ROWS = [
   { id: 'classic', code: 'RS01', name: 'Arena Classic', move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'arenaSet', meter: 'none' },
@@ -18,7 +21,7 @@ const RULESET_ROWS = [
   { id: 'ravager', code: 'RS07', name: 'Ravager', move: 'ravager', health: 'ravager', economy: 'pickups', precision: 'standard', weaponSet: 'ravagerSet', meter: 'none' },
   { id: 'knight', code: 'RS08', name: 'Iron Bulwark', move: 'knight', health: 'ravager', economy: 'pickups', precision: 'standard', weaponSet: 'knightSet', meter: 'none' },
   // Heroes move and arm per hero (hero rows override move and loadout); the bundle keeps a neutral fallback.
-  { id: 'heroes', code: 'RS09', name: 'Hero Squad', move: 'modern', health: 'hero', economy: 'heroKits', precision: 'hero', weaponSet: '', meter: 'ultimate', downed: true },
+  { id: 'heroes', code: 'RS09', name: 'Hero Squad', move: 'modern', health: 'hero', economy: 'heroKits', precision: 'hero', weaponSet: '', meter: 'ultimate', downed: true, knockback: HERO_KNOCKBACK },
   { id: 'royale', code: 'RS10', name: 'Last Ring', move: 'agile', health: 'loot', economy: 'loot', precision: 'standard', weaponSet: 'lootSet', meter: 'none', knockback: HITSCAN_KNOCKBACK },
   { id: 'suit', code: 'RS11', name: 'Weave Suit', move: 'modern', health: 'suit', economy: 'pickups', precision: 'standard', weaponSet: 'militarySet', meter: 'energy', knockback: HITSCAN_KNOCKBACK },
   { id: 'frame', code: 'RS12', name: 'Frame Runner', move: 'parkour', health: 'shield', economy: 'classes', precision: 'standard', weaponSet: 'exoticSet', meter: 'energy', downed: true },
