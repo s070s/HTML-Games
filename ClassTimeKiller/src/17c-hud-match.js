@@ -388,6 +388,9 @@ TouchInput.panelAt = (x, y) => {
   hudHeaderBox(layout, box);
   return x >= box[0] && x <= box[0] + box[2] && y >= box[1] && y <= box[1] + box[3];
 };
+// The phone auto-fit (17a): the score panel's half width and lowest row (a chip note), and a kill feed row of two short names.
+const HUD_FEED_FIT_WIDTH = 170;   // design pixels
+Object.assign(Hud.fit, { topCentre: HUD_HEADER_WIDTH / 2, topDepth: HUD_CHIPS_Y_ROUNDS + HUD_CHIP_NOTE + HUD_TEXT_SMALL, topRight: HUD_FEED_FIT_WIDTH });
 
 Hud.register('main', 'header', 'header', hudDrawHeader);
 Hud.register('main', 'killFeed', 'killFeed', hudDrawKillFeed);
