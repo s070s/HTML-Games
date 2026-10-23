@@ -9,10 +9,14 @@ const HUD_BANNER_PRIORITY_LONG = 2;
 const HUD_MAX_OBJECTIVE_CHIPS = 6;
 const HUD_FALLBACK_NAME = 'Player';
 const HUD_CAMEL_BREAK = /([a-z])([A-Z])/g;
+const HUD_FEED_FIT_WIDTH = 170;   // design pixels: the kill feed room the auto-fit (17a) keeps right of the score panel (touch names are cut to the room left)
+const HUD_FEED_ICON = 34, HUD_FEED_HEAD = 16, HUD_FEED_PAD = 6;   // design pixels: weapon icon, headshot icon and padding widths in a row
 
 // ---- Kill feed: a ring of the last HUD_FEED_SLOTS kills, oldest first when drawn ----
 const HudFeed = {
   killer: new Array(HUD_FEED_SLOTS).fill(''), victim: new Array(HUD_FEED_SLOTS).fill(''), weaponClass: new Array(HUD_FEED_SLOTS).fill(''),
+  killerCut: new Array(HUD_FEED_SLOTS).fill(''), victimCut: new Array(HUD_FEED_SLOTS).fill(''),   // touch: the names cut to fit (hudFeedCutNames)
+  cutKey: new Float64Array(HUD_FEED_SLOTS),   // the room, text size and floor the cut names were made for (0: not yet)
   killerColor: new Uint32Array(HUD_FEED_SLOTS), victimColor: new Uint32Array(HUD_FEED_SLOTS), flags: new Uint8Array(HUD_FEED_SLOTS),
   at: new Float64Array(HUD_FEED_SLOTS).fill(-1000), next: 0, count: 0,
   FLAG_HEAD: 1, FLAG_MINE: 2, FLAG_SELF: 4, FLAG_WORLD: 8,
@@ -26,7 +30,7 @@ const HudFeed = {
     const weapon = CAT.weapons.byId(event.weapon);
     this.killer[slot] = world ? '' : Actors.name[killer] || HUD_FALLBACK_NAME;
     this.victim[slot] = Actors.name[victim] || HUD_FALLBACK_NAME;
-    this.weaponClass[slot] = weapon ? weapon.class : '';
+    this.weaponClass[slot] = weapon ? weapon.class : ''; this.cutKey[slot] = 0;
     this.killerColor[slot] = world ? 0 : Hud.actorColor(killer);
     this.victimColor[slot] = Hud.actorColor(victim);
     this.flags[slot] = (event.zone === 'head' ? this.FLAG_HEAD : 0) | (killer === Game.playerId || victim === Game.playerId ? this.FLAG_MINE : 0)
@@ -71,15 +75,18 @@ function hudDrawHeadIcon(pen, x, y, size, alpha) {
 
 // One kill feed row, `row` rows down from the top right. The numbers go through the pen's scratch forms (PERF-006).
 function hudDrawFeedRow(pen, layout, slot, row) {
-  const feed = HudFeed, unit = layout.unit, size = 15 * unit, iconWidth = 34 * unit, flags = feed.flags[slot];
+  const feed = HudFeed, unit = layout.unit, size = 15 * unit, iconWidth = HUD_FEED_ICON * unit, flags = feed.flags[slot];
   const remaining = HUD_FEED_SECONDS - (Hud.time - feed.at[slot]), alpha = remaining < HUD_FEED_FADE ? remaining / HUD_FEED_FADE : 1;
   const world = (flags & feed.FLAG_WORLD) !== 0, self = (flags & feed.FLAG_SELF) !== 0, text = hudTextAt, box = hudBoxAt, shape = hudShapeAt;
+  const cut = layout.touch && layout.width > layout.height;   // landscape touch: beside the score panel (portrait has no room there)
+  if (cut) hudFeedCutNames(layout, slot, size);
+  const killer = cut ? feed.killerCut[slot] : feed.killer[slot], victim = cut ? feed.victimCut[slot] : feed.victim[slot];
   text[2] = size;
-  HudPen.measureAt(String(feed.victim[slot]));
+  HudPen.measureAt(String(victim));
   const victimWidth = text[3];
   let killerWidth = 0;
-  if (!world && !self) { HudPen.measureAt(String(feed.killer[slot])); killerWidth = text[3]; }
-  const headWidth = flags & feed.FLAG_HEAD ? 16 * unit : 0, pad = 6 * unit;
+  if (!world && !self) { HudPen.measureAt(String(killer)); killerWidth = text[3]; }
+  const headWidth = flags & feed.FLAG_HEAD ? HUD_FEED_HEAD * unit : 0, pad = HUD_FEED_PAD * unit;
   const width = pad * 2 + victimWidth + killerWidth + iconWidth + headWidth + (killerWidth ? pad : 0);
   const left = layout.right - width, mid = layout.top + 11 * unit + row * 25 * unit;
   box[0] = left; box[1] = mid - 11 * unit; box[2] = width; box[3] = 22 * unit;
@@ -88,14 +95,33 @@ function hudDrawFeedRow(pen, layout, slot, row) {
   if (flags & feed.FLAG_MINE) pen.rectAt(HUD_COLOR.gold, alpha);
   let x = left + pad;
   text[1] = mid;
-  if (killerWidth) { text[0] = x; pen.textAt(feed.killer[slot], feed.killerColor[slot], 'left', alpha); x += killerWidth + pad; }
+  if (killerWidth) { text[0] = x; pen.textAt(killer, feed.killerColor[slot], 'left', alpha); x += killerWidth + pad; }
   shape[0] = text[0] = x + iconWidth / 2; shape[1] = mid; shape[2] = iconWidth / 2;
   if (feed.weaponClass[slot]) pen.weaponIconAt(feed.weaponClass[slot], HUD_COLOR.text, alpha);
   else pen.textAt('×', HUD_COLOR.dim, 'center', alpha);
   x += iconWidth;
   if (headWidth) { hudDrawHeadIcon(pen, x + headWidth / 2, mid, headWidth, alpha); x += headWidth; }
   text[0] = x;
-  pen.textAt(feed.victim[slot], feed.victimColor[slot], 'left', alpha);
+  pen.textAt(victim, feed.victimColor[slot], 'left', alpha);
+}
+// Touch: the names of a feed entry cut with an ellipsis so the row fits right of the score panel (a short name gives its spare
+// room to the other); made again only when that room, the text size or its floor changes, not per frame.
+function hudFeedCutNames(layout, slot, size) {
+  const feed = HudFeed, unit = layout.unit, free = layout.right - layout.centerX - (HUD_HEADER_WIDTH / 2 + HUD_FIT_GAP) * unit;
+  const room = free - (HUD_FEED_ICON + HUD_FEED_HEAD + 3 * HUD_FEED_PAD) * unit, half = room / 2, key = room * 1000 + size + Hud.textFloor / 1000;
+  if (feed.cutKey[slot] === key) return;
+  feed.cutKey[slot] = key;
+  const killer = feed.killer[slot], victim = feed.victim[slot], killerWidth = HudPen.measure(killer, size), victimWidth = HudPen.measure(victim, size);
+  const killerRoom = victimWidth <= half ? room - victimWidth : Math.max(half, room - killerWidth);
+  feed.killerCut[slot] = hudCutText(killer, size, killerRoom);
+  feed.victimCut[slot] = hudCutText(victim, size, room - Math.min(killerWidth, killerRoom));
+}
+// The text, or its longest start with an ellipsis that is at most `room` pixels wide at a size.
+function hudCutText(text, size, room) {
+  if (HudPen.measure(text, size) <= room) return text;
+  let length = text.length - 1;
+  while (length > 0 && HudPen.measure(text.slice(0, length) + '…', size) > room) length--;
+  return text.slice(0, length) + '…';
 }
 
 function hudDrawKillFeed(pen, layout) {
@@ -388,8 +414,7 @@ TouchInput.panelAt = (x, y) => {
   hudHeaderBox(layout, box);
   return x >= box[0] && x <= box[0] + box[2] && y >= box[1] && y <= box[1] + box[3];
 };
-// The phone auto-fit (17a): the score panel's half width and lowest row (a chip note), and a kill feed row of two short names.
-const HUD_FEED_FIT_WIDTH = 170;   // design pixels
+// The phone auto-fit (17a): the score panel's half width and lowest row (a chip note), and a kill feed row (names cut to fit).
 Object.assign(Hud.fit, { topCentre: HUD_HEADER_WIDTH / 2, topDepth: HUD_CHIPS_Y_ROUNDS + HUD_CHIP_NOTE + HUD_TEXT_SMALL, topRight: HUD_FEED_FIT_WIDTH });
 
 Hud.register('main', 'header', 'header', hudDrawHeader);
