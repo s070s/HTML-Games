@@ -31274,7 +31274,7 @@ const SelfTest = {
     t('load damage', () => {
       newWorld({ map: 'ashfall', mode: 'test', sites: [{ x: 0, z: 0, r: 300, tag: 'open' }], difficulty: 'veteran', seed: 5, start: { x: 0, z: -400, yaw: 0 } });
       W.mission = null;
-      const keepGuest = Net.guest, keepRules = Object.assign({}, LOAD_RULES);
+      const keepGuest = Net.guest, keepRules = Object.assign({}, LOAD_RULES), keepDiff = S.difficulty, keepPid = Save.data.platformId;
       let nextX = -240;
       // a fresh shop and one of its roof slabs (each case gets its own building); a unit of def id on top of piece s,
       // h m up (0: standing on it); `secs` of simulation, ending early once `until` holds
@@ -31372,7 +31372,19 @@ const SelfTest = {
         damageStruct = function () { calls++; return keepDS.apply(this, arguments); };
         try { run([guestDrop, guestStand], 2); } finally { damageStruct = keepDS; Net.guest = keepGuest; }
         this.check('a guest breaks nothing by landing or standing', calls === 0 && whole(r8) && whole(r9), calls + ' damage calls');
-      } finally { Object.assign(LOAD_RULES, keepRules); Net.guest = keepGuest; Game.quitToMenu(); }
+        // m4: with its ambushes gone, every convoy truck drives the route to the forward base and never rests on a structure
+        Game.startSession({ mode: 'mission', missionId: 'm4', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        for (let i = 0; i < 3; i++) Game.tick(STEP);   // the mission's later() spawns
+        const trucks = W.platforms.filter((p) => p.def.id === 'truck');
+        for (const p of W.platforms) if (p.team === 1) p.dead = true;
+        for (const p of trucks) p.ai.enabled = true;
+        let perched = 0, secs = 0;
+        for (; secs < 300 && trucks.some((p) => !p.dead); secs += STEP) {
+          W.time += STEP;
+          for (const p of trucks) if (!p.dead) { p.ai.update(STEP); p.update(STEP); if (p.support) perched++; }
+        }
+        this.check('the m4 convoy still drives its route to the end and never rests on a structure', trucks.length === 4 && trucks.every((p) => p.arrivedFlag) && perched === 0, trucks.filter((p) => p.arrivedFlag).length + ' of ' + trucks.length + ' arrived in ' + Math.round(secs) + ' s, ' + perched + ' perched ticks');
+      } finally { Object.assign(LOAD_RULES, keepRules); Net.guest = keepGuest; S.difficulty = keepDiff; Save.data.platformId = keepPid; Game.quitToMenu(); }
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
