@@ -511,30 +511,21 @@ const BotEconomy = {
 // A gun (not a melee weapon) worth BOT_BUY.upgrade more than the best one the bot owns, by botPref and the favourite.
 function gunWorth(id, item) {
   if (item.kind !== 'weapon' || item.weaponClass === 'melee') return 0;
-  const value = gunValue(id, CAT.weapons.byId(item.key));
+  const value = BotCombat.weaponValue(id, CAT.weapons.byId(item.key), 1);
   return value >= bestOwnedGun(id) + BOT_BUY.upgrade ? value : 0;
 }
-function gunValue(id, weapon) { return weapon.botPref.value + (BotDecide.favoriteWeapon(id) === weapon.id ? FAVORITE_BONUS : 0); }
 function bestOwnedGun(id) {
   let best = 0;
   for (let index = 0; index < WEAPON_COUNT; index++) {
     const weapon = CAT.weapons[index];
-    if (weapon.class !== 'melee' && Weapons.owned[Weapons.slotIndex(id, index)]) best = Math.max(best, gunValue(id, weapon));
+    if (weapon.class !== 'melee' && Weapons.owned[Weapons.slotIndex(id, index)]) best = Math.max(best, BotCombat.weaponValue(id, weapon, 1));
   }
   return best;
 }
 // The best armour on sale (the dearer row protects more: vest and helmet over the vest).
 function armourWorth(id, item) { return item.kind === 'armor' || item.kind === 'helmet' ? item.price : 0; }
-// One grenade a round: the cheapest one, none when the bot already bought one this life.
-function grenadeWorth(id, item) {
-  if (item.kind !== 'gadget' || item.group !== 'grenade' || boughtInGroup(id, item.group) > 0) return 0;
-  return 1 / item.price;
-}
-function boughtInGroup(id, group) {
-  let total = 0;
-  for (const row of CAT.buyItems) if (row.group === group) total += Economy.bought[id * CAT.buyItems.length + row.index];
-  return total;
-}
+// The cheapest grenade (a pass buys one item per worth; Economy.limitReason holds the grenade group limit).
+function grenadeWorth(id, item) { return item.kind === 'gadget' && item.group === 'grenade' ? 1 / item.price : 0; }
 function ammoWorth(id, item) { return item.kind === 'ammo' ? 1 : 0; }
 // Wave shop: a placed gadget (barrier, turret) while BOT_BUY.shopKeep credits stay for the next refill.
 function placedGadgetWorth(id, item, money) { return item.kind === 'gadget' && money - item.price >= BOT_BUY.shopKeep ? item.price : 0; }

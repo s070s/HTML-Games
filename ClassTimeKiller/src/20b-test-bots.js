@@ -1699,6 +1699,9 @@ Test.add('bots', (check) => {
   check('a hurt bot under fire keeps its consumable', !pressedHurt && Items.consumableCount(bot) === 1);
   check('a hurt calm bot presses heal and uses its consumable', pressedCalm && Items.useProgress(bot) >= 0);
   check('the heal decision lives in the bot brain, not in the items section', typeof Items.botWantsHeal !== 'function');
+  // One worth rule for drawing, picking up and buying a gun; the group buy limit is Economy.limitReason's alone.
+  check('one weapon worth rule (BotCombat.weaponValue), no bot copy of the buy limits', typeof BotCombat.weaponValue === 'function'
+    && typeof gunValue === 'undefined' && typeof boughtInGroup === 'undefined');
   endBotTest();
 });
 

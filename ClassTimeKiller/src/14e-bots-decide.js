@@ -565,7 +565,7 @@ function itemValue(id, item) {
 
 function weaponItemValue(id, weapon, base) {
   if (Weapons.has(id, weapon.id)) return 0;
-  return base * weapon.botPref.value + (BotDecide.favoriteWeapon(id) === weapon.id ? FAVORITE_BONUS : 0);
+  return BotCombat.weaponValue(id, weapon, base);
 }
 
 // Up now, or (BOT-013, item-timing bots) up by the time the bot gets there, arriving 1-3 s early. Spots the bot took

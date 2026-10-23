@@ -406,14 +406,12 @@ const BotCombat = {
   // magazine (or a melee weapon in reach), so a dry gun is never swapped for a knife at range. -1 = none.
   bestWeapon(id, loaded) {
     const distance = this.target[id] >= 0 ? this.targetDistance(id) : DEFAULT_ENGAGE_DISTANCE;
-    const favorite = BotDecide.favoriteWeapon(id);
     let best = -1, bestValue = -1, drawnValue = 0;
     for (let index = 0; index < WEAPON_COUNT; index++) {
       const slot = Weapons.slotIndex(id, index), weapon = CAT.weapons[index];
       if (!Weapons.owned[slot] || !this.hasRounds(id, weapon, slot)) continue;
       const range = weapon.botPref.range, inRange = distance >= range[0] && distance <= range[1];
-      let value = weapon.botPref.value * (inRange ? 1 : weapon.class === 'melee' ? MELEE_OUT_OF_RANGE : OUT_OF_RANGE_VALUE);
-      if (weapon.id === favorite) value += FAVORITE_BONUS;
+      const value = this.weaponValue(id, weapon, inRange ? 1 : weapon.class === 'melee' ? MELEE_OUT_OF_RANGE : OUT_OF_RANGE_VALUE);
       if (index === Weapons.current[id]) drawnValue = value;
       if (loaded && (weapon.mag === 0 ? distance > range[1] : Weapons.magazine[slot] === 0)) continue;
       if (value > bestValue) { bestValue = value; best = index; }
@@ -421,6 +419,8 @@ const BotCombat = {
     this.wantedGain[id] = bestValue - drawnValue;
     return best;
   },
+  // A weapon's worth to the bot (drawing, picking up, buying): its botPref value x share, plus the favourite bonus.
+  weaponValue(id, weapon, share) { return weapon.botPref.value * share + (BotDecide.favoriteWeapon(id) === weapon.id ? FAVORITE_BONUS : 0); },
   hasRounds(id, weapon, slot) {
     return weapon.mag === 0 || Weapons.magazine[slot] > 0 || Weapons.reserve[slot] > 0 || Weapons.infiniteReserve(weapon);
   },
