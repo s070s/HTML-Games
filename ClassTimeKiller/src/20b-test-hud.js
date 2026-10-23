@@ -487,9 +487,11 @@ Test.add('hud', (check) => hudTestWith(() => {
   const scene = hudTestMatch(), player = scene.id, foe = scene.enemy, bystander = scene.mate;
   const buffers = [Killcam.transforms, Killcam.living, Killcam.frameTime];
   Sim.run(KILLCAM_STEP_TICKS - (Sim.tick % KILLCAM_STEP_TICKS));   // batches start on a recorded tick, so x is exactly 5 m per second at every frame
-  hudTestArm(bystander, 'warden');   // the bystander walks 7 m ahead of the killer's eyes with a pistol
+  hudTestArm(bystander, 'warden');   // the bystander walks 7 m ahead of the killer's eyes with a pistol, a PvE enemy 13 m
+  const monster = Pve.spawnEnemy('gunner', 0, 0, 16, 0, { overCap: true });
+  Pve.active = false;   // its brain stays out of the fight; only the replay draws it
   for (let batch = 0; batch < 80; batch++) {
-    Actors.x[foe] = Actors.x[bystander] = Sim.tick * TICK_SECONDS * 5; Actors.z[foe] = 3; Actors.z[bystander] = 10; Actors.aimYaw[foe] = 0.5;
+    Actors.x[foe] = Actors.x[bystander] = Actors.x[monster] = Sim.tick * TICK_SECONDS * 5; Actors.z[foe] = 3; Actors.z[bystander] = 10; Actors.z[monster] = 16; Actors.aimYaw[foe] = 0.5;
     Sim.run(KILLCAM_STEP_TICKS);
   }
   check('killcam: the ring has a fixed size and never grows', Killcam.filled === KILLCAM_FRAMES && Killcam.transforms.length === KILLCAM_FRAMES * MAX_ACTORS * KILLCAM_FIELDS && Killcam.head < KILLCAM_FRAMES);
@@ -509,14 +511,11 @@ Test.add('hud', (check) => hudTestWith(() => {
   const expected = Killcam.sample(foe, Killcam.startTime + 1), expectedX = expected.x, expectedEye = expected.y + expected.eye;
   check('killcam: the camera override puts the camera at the killer\'s eyes', Render.cameraOverride(camera) === true && Test.near(camera.x, expectedX, 1e-3) && Test.near(camera.y, expectedEye, 1e-3)
     && camera.roll === 0 && Test.near(camera.yaw, 0.5, 1e-6), JSON.stringify(camera) + ' expected ' + expectedX + ' ' + expectedEye);
-  const style = { visible: true };
-  Render.applyActorStyle(foe, style);
-  check('killcam: live bodies are hidden while it plays', style.visible === false);
-  // The replay draws the recorded bodies through their own models (07c) where they were, with the weapon they held then.
+  // The replay draws the recorded bodies through their own models (07c) where they were, with the weapon they held then; the live ones are not drawn.
   const recorded = Killcam.sample(bystander, Killcam.startTime + 1), recordedX = recorded.x, pistol = CAT.weapons.byId('warden').index;
-  Actors.x[bystander] = Actors.prevX[bystander] = recordedX + 40;   // the live body is far away by now, holding something else
+  Actors.x[bystander] = Actors.prevX[bystander] = Actors.x[monster] = recordedX + 40;   // the live bodies are far away by now, holding something else
   Weapons.current[bystander] = CAT.weapons.find((row) => row.class === 'smg').index;
-  updateCamera(0, 1); fillActors(0, 1); killcamDrawBodies(0);
+  updateCamera(0, 1); fillActors(0, 1);
   let parts = 0, nearRecorded = 0;
   for (let shape = 0; shape < SHAPES.length; shape++) {
     for (let i = 0; i < actorBatch.counts[shape]; i++, parts++) {
@@ -526,6 +525,12 @@ Test.add('hud', (check) => hudTestWith(() => {
   }
   check('killcam: the recorded bodies are drawn with their own models where they were', nearRecorded > 5 && nearRecorded === parts, nearRecorded + ' of ' + parts);
   check('killcam: a replayed body holds the weapon it held then', Render.heldWeapon(bystander) === pistol);
+  const monsterParts = [];   // x and z of every part the PvE source draws
+  Pve.active = true;
+  Pve.draw({ meshFrom(shape, instance) { monsterParts.push(instance.x, instance.z); }, mesh(shape, x, y, z) { monsterParts.push(x, z); } });
+  const monsterAway = monsterParts.filter((value, index) => index % 2 === 0 && (Math.abs(value - recordedX) > 2 || Math.abs(monsterParts[index + 1] - 16) > 2)).length;
+  check('killcam: a PvE enemy is replayed where it was, not where it is now', monsterParts.length > 4 && monsterAway === 0, monsterAway + ' of ' + monsterParts.length / 2);
+  Pve.active = false;
   actorBatch.clear(); shadowBatch.clear();
   hudTestFrame();
   check('killcam: the panel draws and the rest of the HUD (not from your view) stays away', Hud.quadsOf('') > 0 && Hud.replaying && Hud.quadsOf('header') === 0 && Hud.quadsOf('markers') === 0);
@@ -534,9 +539,7 @@ Test.add('hud', (check) => hudTestWith(() => {
   Killcam.advance(2);
   check('killcam: it ends by itself after the replay and a short hold', !Killcam.playing && Render.cameraOverride(camera) === false);
   hudTestFrame();
-  style.visible = true;
-  Render.applyActorStyle(foe, style);
-  check('killcam: afterwards bodies, panel and the normal HUD are back', style.visible === true && Hud.quadsOf('') === 0 && !Hud.replaying && Hud.quadsOf('header') > 0);
+  check('killcam: afterwards the live bodies, no panel and the normal HUD are back', Render.replayPose === null && Hud.quadsOf('') === 0 && !Hud.replaying && Hud.quadsOf('header') > 0);
 
   Actors.alive[player] = 0;
   Actors.buttons[player] = BTN.FIRE;

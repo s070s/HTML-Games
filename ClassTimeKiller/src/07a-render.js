@@ -39,6 +39,7 @@ const Render = {
   sources: [],
   camera: { x: 0, y: 2, z: 0, yaw: 0, pitch: 0, roll: 0, fov: FOV_DEFAULT },
   cameraOverride: null,    // fn(camera) -> true when it placed the camera (spectate, killcam)
+  replayPose: null,        // fn(id, pose) -> true when the body is drawn, at the recorded pose it wrote (S17 killcam); null = live bodies
   viewModel: null,         // fn(out) fills { visible, shape, kick, reload, swap, ads, color, zoom }
   teamPalette: null,       // colour-blind team colours (array of 0xRRGGBB by team) instead of CAT.teamColors; null = the normal ones (18m)
   teamSlot: null,          // fn(team) -> the team colour a team's bodies wear (S17 Hud.colorSlot: M20 squads); null = its own

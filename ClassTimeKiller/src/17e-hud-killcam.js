@@ -14,7 +14,6 @@ const KILLCAM_SKIP_BUTTONS = BTN.FIRE | BTN.JUMP | BTN.USE;
 const KILLCAM_FIELDS = 6;                                   // x y z yaw pitch eye
 const KILLCAM_BAR = 0.08;                                   // letterbox bar height as a share of the screen
 const KILLCAM_ORDER = 95;                                   // sim system order: after every other bookkeeping
-const KILLCAM_DRAW_ORDER = 31;                              // render update order: after fillActors (30) cleared the actor batch
 
 Settings.define('hud.killcam', true, { label: 'Killcam replay after you are killed', category: 'hud' });
 
@@ -26,7 +25,7 @@ const Killcam = {
   frameTime: new Float64Array(KILLCAM_FRAMES),
   head: 0, filled: 0,
   // playback
-  playing: false, clock: 0, startTime: 0, length: 0, killer: -1, skipHeld: false, drawing: false,
+  playing: false, clock: 0, startTime: 0, length: 0, killer: -1, skipHeld: false,
   killerName: '', weaponName: '', weaponClass: '', headshot: false, killerHealth: 0, killerArmor: 0, killerShield: 0,
   sampleScratch: { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, eye: 0, alive: false },
   lower: 0, upper: 0, mix: 0,
@@ -81,7 +80,7 @@ const Killcam = {
     this.record(event.victim);
     const end = this.newestTime(), start = Math.max(this.oldestTime(), end - KILLCAM_SECONDS);
     if (end - start < KILLCAM_MIN_SECONDS) return false;
-    this.startTime = start; this.length = end - start; this.clock = 0; this.killer = event.killer; this.playing = true; Hud.replaying = true;
+    this.startTime = start; this.length = end - start; this.clock = 0; this.killer = event.killer; this.playing = true; Hud.replaying = true; Render.replayPose = killcamPose;
     this.skipHeld = (Actors.buttons[event.victim] & KILLCAM_SKIP_BUTTONS) !== 0;   // a button still held from the fight does not skip
     this.describeKill(event);
     return true;
@@ -93,7 +92,7 @@ const Killcam = {
     this.headshot = event.zone === 'head';
     this.killerHealth = Actors.health[killer]; this.killerArmor = Actors.armor[killer]; this.killerShield = Actors.shield[killer];
   },
-  stop() { this.playing = false; Hud.replaying = false; this.clock = 0; this.killer = -1; },
+  stop() { this.playing = false; Hud.replaying = false; Render.replayPose = null; this.clock = 0; this.killer = -1; },
   // Moves the replay clock (render frames, not sim time) and ends it when it is over or skipped.
   advance(seconds) {
     if (!this.playing || Game.paused) return;
@@ -132,28 +131,19 @@ Sim.addSystem('killcamRecord', KILLCAM_ORDER, () => {
   Killcam.record(-1);
 });
 
-// ---- Hooks (chained: an earlier owner keeps working): the replay camera, the recorded weapons, hidden live bodies ----
+// ---- Hooks (chained: an earlier owner keeps working): the replay camera, the recorded weapons and bodies ----
 const killcamPreviousOverride = Render.cameraOverride;
 Render.cameraOverride = (camera) => (Killcam.playing ? Killcam.place(camera) : killcamPreviousOverride ? killcamPreviousOverride(camera) : false);
 const killcamLiveHeld = Render.heldWeapon;   // S11's; while replaying, a body holds its weapon of the frame last sampled
 Render.heldWeapon = (id) => (Killcam.playing ? Killcam.weapons[Killcam.lower * MAX_ACTORS + id] : killcamLiveHeld ? killcamLiveHeld(id) : -1);
-Render.addActorStyle((id, out) => { if (Killcam.playing && !Killcam.drawing) out.visible = false; });   // loads after every other style
-
-// Recorded bodies: every living one but the killer's (the camera is inside it) through the actor's own model (07c) at its recorded transform.
-function killcamDrawBodies(seconds) {
-  if (!Killcam.playing) return;
-  const time = Killcam.startTime + Math.min(Killcam.clock, Killcam.length), pose = actorPose;
-  Killcam.drawing = true;
-  for (let id = 0; id < Actors.count; id++) {
-    if (id === Killcam.killer) continue;
-    const body = Killcam.sample(id, time);
-    if (!body.alive) continue;
-    pose.x = body.x; pose.y = body.y; pose.z = body.z; pose.yaw = body.yaw; pose.pitch = body.pitch;
-    drawActorPose(id, pose, seconds);
-  }
-  Killcam.drawing = false;
+// Render.replayPose while it plays: every body (actors 07c, PvE enemies 14h) stands where the recording has it. The killer's is
+// not drawn (the camera is inside it), nor one that was not alive then.
+function killcamPose(id, pose) {
+  const body = Killcam.sample(id, Killcam.startTime + Math.min(Killcam.clock, Killcam.length));
+  if (id === Killcam.killer || !body.alive) return false;
+  pose.x = body.x; pose.y = body.y; pose.z = body.z; pose.yaw = body.yaw; pose.pitch = body.pitch;
+  return true;
 }
-Render.addUpdate(KILLCAM_DRAW_ORDER, killcamDrawBodies);
 
 // ---- Killcam panel: letterbox, killer name, weapon, the killer's health and armor, skip hint ----
 function hudDrawKillcamPanel(pen, layout) {

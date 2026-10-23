@@ -523,8 +523,10 @@ function fillActors(seconds, alpha) {
   actorBatch.clear();
   shadowBatch.clear();
   ActorFrame.count++;
+  const replay = Render.replayPose;
   for (let id = 0; id < Actors.count; id++) {
-    if (Actors.kind[id] !== ACTOR_KIND.NONE && Actors.alive[id]) drawActor(id, seconds, alpha);
+    if (Actors.kind[id] === ACTOR_KIND.NONE) continue;
+    if (replay) { if (replay(id, actorPose)) drawActorPose(id, actorPose, seconds); } else if (Actors.alive[id]) drawActor(id, seconds, alpha);
   }
 }
 Render.addUpdate(30, fillActors);
@@ -570,7 +572,7 @@ Bus.on('actor.create', (id) => { ActorModels.index[id] = 0; });
 // The local player always keeps a blob shadow (MIS-037: no feet in first person); other actors get one
 // unless the sun shadow map already covers them.
 function drawActor(id, seconds, alpha) { drawActorPose(id, readActorPosition(id, alpha), seconds); }
-// drawActor at given feet position and body angles in `pose` (the killcam replays recorded ones, 17e).
+// drawActor at given feet position and body angles in `pose` (a replay's recorded ones, Render.replayPose).
 function drawActorPose(id, pose, seconds) {
   const style = readActorStyle(id);
   if (!style.visible) return;
