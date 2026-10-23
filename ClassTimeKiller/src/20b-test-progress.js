@@ -967,6 +967,31 @@ Test.add('progress', (check) => progressWithPlayer(() => {
   check('xp: assists pay, a 0 XP match says why', Progress.matchXp(helper, 0).total > 0 && Progress.xpReason(progressTestResults({ duration: 20 })).startsWith('No XP') && !Progress.xpReason(helper));
 }));
 
+// ---- XP: every mode's score pays at about the kill modes' pace (play-01: hold seconds and banked motes are many points) ----
+const PROGRESS_TEST_RATE_RUNS = [['ffa', 'spire'], ['tdm', 'harbor'], ['oddball', 'gantry'], ['bearer', 'spire'], ['bank', 'cistern'], ['attrition', 'harbor']];
+const PROGRESS_TEST_RATE_SECONDS = 180, PROGRESS_TEST_RATE_MINUTES = 7, PROGRESS_TEST_RATE_SPREAD = 3;   // play time, run cap (sudden death), max / min
+// The best score + objective XP per minute of one 8-bot match: each player is read as the local one through Progress.matchXp. 0 when it never ended.
+function progressScoreRate(mode, map) {
+  let best = 0;
+  playMatch({ mode, map, minutes: PROGRESS_TEST_RATE_MINUTES, botCount: 8, seed: 1, modeOptions: { timeLimit: PROGRESS_TEST_RATE_SECONDS }, probe: () => {
+    const results = Game.match.results, saved = Game.playerId;
+    if (!results) return;
+    try {
+      for (const player of results.players) {
+        Game.playerId = player.id;
+        const xp = Progress.matchXp(results, 0, '');
+        best = Math.max(best, (xp.score + xp.objective) * PROGRESS_SECONDS_PER_MINUTE / results.duration);
+      }
+    } finally { Game.playerId = saved; }
+  } });
+  return Math.round(best);
+}
+Test.add('progress', (check) => {
+  const rates = PROGRESS_TEST_RATE_RUNS.map(([mode, map]) => progressScoreRate(mode, map)), lowest = Math.min(...rates);
+  check('xp: score XP per minute stays within x' + PROGRESS_TEST_RATE_SPREAD + ' across Frenzy, Team Clash, Relic Run, Flame Bearer, Mote Rush and Attrition',
+    lowest > 0 && Math.max(...rates) <= lowest * PROGRESS_TEST_RATE_SPREAD, PROGRESS_TEST_RATE_RUNS.map(([mode], index) => mode + ' ' + rates[index]).join(', '));
+});
+
 // ---- Shown numbers come from the tuning; career screens explain rooms and the range; splash is no hit ----
 Test.add('progress', (check) => {
   check('texts: from the tuning values', CAT.cards.byId('thief').text.startsWith('5%') && CAT.cards.byId('rapid').unlock.text.includes('4:00') && !CAT.cards.some((row) => /\{/.test(row.text + row.unlock.text))

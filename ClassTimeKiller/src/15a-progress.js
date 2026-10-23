@@ -179,9 +179,9 @@ const Progress = {
     out.score = out.objective = out.medals = out.finish = out.podium = out.win = out.time = out.total = 0;
     if (this.xpReason(results)) return out;
     const minutes = results.duration / PROGRESS_SECONDS_PER_MINUTE, bonusShare = Math.min(1, minutes / PROGRESS_XP.bonusMinutes);
-    const factor = PROGRESS_XP_DIFFICULTY[difficultyIdOf(difficulty)] || 1;
-    out.score = Math.max(0, mine.score) * PROGRESS_XP.perScore * factor;
-    out.objective = Math.max(0, mine.objective) * PROGRESS_XP.perObjective * factor;
+    const factor = PROGRESS_XP_DIFFICULTY[difficultyIdOf(difficulty)] || 1, weight = PROGRESS_XP_MODES[results.mode] || PROGRESS_XP_MODE_FULL;
+    out.score = Math.max(0, mine.score) * PROGRESS_XP.perScore * weight.score * factor;
+    out.objective = Math.max(0, mine.objective) * PROGRESS_XP.perObjective * weight.objective * factor;
     out.medals = medalXp * factor;
     out.finish = PROGRESS_XP.finish * bonusShare * factor;
     out.win = Progress.outcome(results) === 'win' ? PROGRESS_XP.win * bonusShare * factor : 0;

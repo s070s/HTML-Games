@@ -4,13 +4,18 @@
 // Ladder tiers BT0..BT7 with the named roster, the 20 Challenge Rooms, Operations and the Daily Seed rules.
 // Code in 15a..15d reads every number from here; screens are in 18j. Contracts: docs/api/progression.md.
 
-// ---- XP (PRG-010): a match pays perScore x score + perObjective x objective points + the medals' xp + finish / podium /
+// ---- XP (PRG-010): a match pays perScore x score + perObjective x objective points (x the mode's weights) + the medals' xp + finish / podium /
 // win bonuses + perMinute x minutes played (capped). A match where the player did nothing pays nothing (no idle farming).
 // The finish / podium / win bonuses pay in full from bonusMinutes played (a share before), so short matches farm no bonus.
 const PROGRESS_XP = {
   perScore: 12, perObjective: 30, finish: 120, podium: 80, win: 160, perMinute: 35, minutesCap: 15, minimumSeconds: 30, bonusMinutes: 5,
   challengeStar: 150, ladderMatch: 200, operationStage: 200, daily: 150,
 };
+// The score and objective XP x the mode's weights (a mode not listed pays x1), so every mode's points pay at about the kill
+// modes' pace a minute: Relic Run and Flame Bearer pay a point and an objective credit per second held (their kills are weighed too),
+// Mote Rush a point per mote, Attrition 5 points a player kill plus points for fodder.
+const PROGRESS_XP_MODES = { oddball: { score: 0.4, objective: 0 }, bearer: { score: 0.4, objective: 0 }, bank: { score: 0.1, objective: 1 }, attrition: { score: 0.4, objective: 1 } };
+const PROGRESS_XP_MODE_FULL = { score: 1, objective: 1 };
 // The whole match XP x the difficulty's factor (a difficulty not listed pays x1): easy matches pay less, hard ones more.
 const PROGRESS_XP_DIFFICULTY = { stroll: 0.5, recruit: 0.7, novice: 0.85, skilled: 1.1, veteran: 1.2, elite: 1.3, masterful: 1.4, nightmare: 1.5, ascendant: 1.5 };
 // Shown texts built from the numbers they state ({value} / {rate}: the number, {percent}: x100, {time}: m:ss of seconds).
