@@ -473,3 +473,7 @@ Bus.on('match.end', () => Abilities.clearMatch());
 Bus.on('match.stop', () => Abilities.clearMatch());
 Bus.on('match.start', () => AbilityZones.clear());
 Bus.on('round', (event) => { if (event.phase === 'start') AbilityZones.clear(); });
+// The touch ability buttons show while the player's kit has that slot.
+for (const [need, slot] of [['ability1', SLOT.ABILITY1], ['ability2', SLOT.ABILITY2], ['ultimate', SLOT.ULTIMATE]]) {
+  TouchInput.needs[need] = () => Game.playerId >= 0 && Abilities.row(Game.playerId, slot) !== null;
+}

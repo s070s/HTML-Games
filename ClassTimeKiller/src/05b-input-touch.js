@@ -114,11 +114,6 @@ function useButtonNeeded() {
 }
 
 // Needs of the buttons that show only while the player has what they use; read once a frame by syncNeeds, at play time only.
-function touchHasAbility(slot) { return Game.playerId >= 0 && Abilities.row(Game.playerId, slot) !== null; }
-function touchHasHeal() {
-  const economy = CAT.economy.byId(currentRules().economy);
-  return Game.playerId >= 0 && (Items.consumableCount(Game.playerId) > 0 || (!!economy && economy.slots > 0));   // loot rulesets carry consumables
-}
 
 const TouchInput = {
   layer: null, zone: null, live: null, knob: null,
@@ -145,14 +140,10 @@ const TouchInput = {
   insets: { top: 0, right: 0, bottom: 0, left: 0 },   // the safe-area insets the layer sits inside (17a shares Hud.insets)
   keepClear: [],                   // fn(width, height) per HUD area the buttons give way to, each calls addClear (17c score panel, 17e killcam bars)
   clearRects: [], clearCount: 0,   // the areas of the last placeAll: { left, top, right, bottom } in window css px (addClear)
-  // control.need -> fn() true shows that button.
+  // control.need -> fn() true shows that button; the later sections that own the answer fill the rest (S10 prone, read by the
+  // DUCK swipe; S12 heal, gadget, grenade, ability1, ability2, ultimate).
   needs: {
     use: () => useButtonNeeded(),
-    ability1: () => touchHasAbility(SLOT.ABILITY1), ability2: () => touchHasAbility(SLOT.ABILITY2), ultimate: () => touchHasAbility(SLOT.ULTIMATE),
-    gadget: () => Game.playerId >= 0 && Gadgets.gadget[Game.playerId] >= 0,
-    grenade: () => Game.playerId >= 0 && Gadgets.thrownTotal(Game.playerId) > 0,
-    heal: touchHasHeal,
-    prone: () => Game.playerId >= 0 && Move.preset(Game.playerId).proneMult > 0,   // read by the DUCK swipe (swipeButton), not a button need
   },
   useNeeds: [],                    // fn() true -> Use can act outside the mode row (filled by S10, S11)
   stickSprints: null,              // fn() -> false: a full stick push must not press sprint (S10: presets where sprint walks)

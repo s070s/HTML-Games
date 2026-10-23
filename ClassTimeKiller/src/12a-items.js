@@ -662,3 +662,8 @@ Bus.on('actor.spawn', (event) => Items.resetActor(event.id));
 Bus.on('actor.create', (id) => Items.resetActor(id));
 Input.usePrompts.push((id) => Items.swapPrompt(id));                         // a carry-limit swap needs Use held (Weapons.mayTake)
 TouchInput.useNeeds.push(() => Items.swapOffer(Game.playerId) >= 0);
+// The touch heal button: a carried consumable, or a loot ruleset (it carries consumables).
+TouchInput.needs.heal = () => {
+  const economy = CAT.economy.byId(currentRules().economy);
+  return Game.playerId >= 0 && (Items.consumableCount(Game.playerId) > 0 || (!!economy && economy.slots > 0));
+};

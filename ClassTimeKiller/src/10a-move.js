@@ -637,6 +637,8 @@ Sim.addSystem('move', 30, stepMovement);
 function playerPreset() { return Game.playerId >= 0 ? Move.preset(Game.playerId) : matchPreset(); }
 // A full touch-stick push in Tactical runs instead of walking.
 TouchInput.stickSprints = () => !sprintWalks(playerPreset());
+// The DUCK swipe lies prone only in a preset with prone (05b swipeButton).
+TouchInput.needs.prone = () => Game.playerId >= 0 && Move.preset(Game.playerId).proneMult > 0;
 // L3 toggles sprint only where sprint runs (each click is a dash or charge in MV05/MV06); with a tactical sprint a click while on is the double tap's second press (MV03).
 Input.padToggleRule = () => { const preset = playerPreset(); return preset.sprintSpeed <= 0 ? 0 : preset.tacSprintCharges > 0 ? 2 : 1; };
 Bus.on('impulse', onImpulse);

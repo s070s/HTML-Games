@@ -912,3 +912,5 @@ Bus.on('match.start', () => Gadgets.clear());
 Bus.on('round', (event) => { if (event.phase === 'start') Gadgets.clear(); });
 Bus.on('match.end', () => Gadgets.clear());
 Bus.on('match.stop', () => Gadgets.clear());
+TouchInput.needs.gadget = () => Game.playerId >= 0 && Gadgets.gadget[Game.playerId] >= 0;
+TouchInput.needs.grenade = () => Game.playerId >= 0 && Gadgets.thrownTotal(Game.playerId) > 0;
