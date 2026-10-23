@@ -48,6 +48,7 @@ h3{font-size:1em;letter-spacing:.12em;margin:.8em 0 .3em;color:var(--cy);text-tr
 .panel{background:var(--panel);border:1px solid var(--line);padding:1em 1.2em;margin:.5em 0}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:1em}
 .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:.8em}
+.maps{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(14em,100%),1fr));gap:.6em;margin:.4em 0 .8em}
 @media (max-width:820px){.grid2,.grid3{grid-template-columns:1fr}h1{font-size:2.1em}}
 .card{border:1px solid var(--line);background:rgba(14,22,32,.95);padding:.7em .9em;cursor:pointer;text-align:left;font:inherit;color:var(--txt);width:100%}
 .card:hover,.card:focus{outline:none;border-color:var(--accent)}
@@ -16455,6 +16456,13 @@ const UI = {
   act_brief(d) { this.show('deploy', { mode: 'mission', id: d.id }); },
   act_training() { this.show('deploy', { mode: 'training' }); },
   act_skirmish() { this.show('skirmish'); },
+  act_skMap(d) {
+    if (menuMapIds().indexOf(d.id) < 0) return;
+    this.skirmish.map = d.id; this.saveSkirmish();
+    this.cur.keepScroll = true; this.render();
+  },
+  /* the skirmish setup is remembered as soon as it changes, not only on deployment */
+  saveSkirmish() { Save.data.skirmish = Object.assign({}, this.skirmish); Save.persist(); },
   act_hangar(d) { this.hg = { platformId: Save.data.platformId, loadout: Loadout.forPlatform(Save.data.platformId) }; this.show('hangar', { ret: d.ret || '' }); },
   act_hgPick(d) {
     this.hg.platformId = d.id; this.hg.loadout = Loadout.forPlatform(d.id);
@@ -16550,7 +16558,7 @@ const UI = {
     if (t.dataset && t.dataset.coop) { this.onCoopInput(t, commit); return; }
     const key = t.dataset && t.dataset.set;
     if (!key) {
-      if (t.dataset && t.dataset.skirm) { this.skirmish[t.dataset.skirm] = t.type === 'checkbox' ? t.checked : (t.dataset.num ? Number(t.value) : t.value); if (commit) { this.cur.keepScroll = true; this.render(); } }
+      if (t.dataset && t.dataset.skirm) { this.skirmish[t.dataset.skirm] = t.type === 'checkbox' ? t.checked : (t.dataset.num ? Number(t.value) : t.value); if (commit) { this.saveSkirmish(); this.cur.keepScroll = true; this.render(); } }
       if (t.dataset && t.dataset.slot) { this.hg.loadout[t.dataset.slot] = t.value || null; this.cur.keepScroll = true; this.render(); }
       if (t.dataset && t.dataset.diff) { S.difficulty = t.value; Save.persist(); }
       return;
@@ -16616,6 +16624,13 @@ const UI = {
       this.platSummary() + '<div class="panel">' + this.diffSelect() + '</div>' +
       '<div class="row"><button class="btn primary" data-act="deployMission" data-id="' + m.id + '" data-focus>Deploy</button><button class="btn" data-act="back">Back</button></div>';
   },
+  /* a card per battlefield (name, biome and description); picking one runs act_<act> with its id */
+  mapCards(picked, act) {
+    return '<div class="maps">' + menuMapIds().map((k) => {
+      const m = mapDef(k);
+      return '<button class="card' + (k === picked ? ' sel' : '') + '" data-act="' + act + '" data-id="' + k + '"' + (k === picked ? ' aria-pressed="true"' : '') + '><b>' + esc(m.name) + '</b> <span class="tag">' + esc(BIOME_NAMES[m.biome] || m.biome) + '</span><br><small>' + esc(m.desc) + '</small></button>';
+    }).join('') + '</div>';
+  },
   scr_skirmish() {
     const s = this.skirmish;
     const sel = (key, label, opts) => '<label class="f"><span>' + label + '</span><select data-skirm="' + key + '">' + opts.map((o) => '<option value="' + o[0] + '"' + (String(s[key]) === String(o[0]) ? ' selected' : '') + '>' + o[1] + '</option>').join('') + '</select></label>';
@@ -16623,8 +16638,8 @@ const UI = {
     const best = Save.data.skirmishBest[s.map + '-' + s.size];
     return '<h2>Skirmish</h2><div class="panel">Your base and the enemy base stand on opposite sides of a battlefield of your choice, each with a command center and turrets. Enemy waves march out of their base toward yours. Win by destroying the enemy command center, beating every wave or holding out until the time limit; lose your own command center and the battle is lost. A random battle draws new bases and waves each time; untick it to replay the last one.' +
       '<div class="dim">Best here: ' + (best ? best.waves + ' waves cleared, score ' + best.score + (best.diff ? ' (' + DIFFICULTY[best.diff].name + ')' : '') + (best.won ? '' : ', battle lost') : 'none yet') + '</div></div>' +
+      '<h3>Battlefield</h3>' + this.mapCards(s.map, 'skMap') +
       '<div class="grid2"><div class="panel">' +
-      sel('map', 'Battlefield', menuMapIds().map((k) => [k, esc(mapDef(k).name)])) +
       sel('size', 'Encounter size', [['small', 'Small (4 waves)'], ['medium', 'Medium (6 waves)'], ['large', 'Large (9 waves)']]) +
       sel('difficulty', 'Difficulty', Object.keys(DIFFICULTY).map((k) => [k, DIFFICULTY[k].name])) +
       sel('duration', 'Mission duration', [[0, 'Unlimited'], [5, '5 minutes'], [10, '10 minutes'], [15, '15 minutes']]) +
@@ -19351,6 +19366,27 @@ const SelfTest = {
         } finally { Game.quitToMenu(); }
       });
     }
+    t('battlefield picker', () => {
+      const ids = menuMapIds();
+      this.check('the picker offers all 13 battlefields and no test map', ids.length === 13 && ids.every((id) => !/^test/.test(id)) && ['ashfall', 'verdant', 'frost'].every((id) => ids.indexOf(id) >= 0), ids.join(','));
+      const html = UI.mapCards('volcano', 'skMap');
+      this.check('each card shows the name, biome and description', ids.every((id) => html.indexOf('data-id="' + id + '"') >= 0 && html.indexOf(esc(mapDef(id).name)) >= 0 && html.indexOf(esc(mapDef(id).desc)) >= 0 && html.indexOf(BIOME_NAMES[mapDef(id).biome]) >= 0) && (html.match(/ sel"/g) || []).length === 1);
+      this.check('the skirmish setup shows the battlefield cards', UI.scr_skirmish.call(Object.assign(Object.create(UI), { skirmish: skirmishSetup({ map: 'jungle' }) })).indexOf('data-act="skMap" data-id="jungle" aria-pressed="true"') >= 0);
+      const saved = { skirmish: Save.data.skirmish, persist: Save.persist };
+      let writes = 0;
+      Save.persist = () => { writes++; };
+      try {
+        const ui = Object.assign(Object.create(UI), { skirmish: skirmishSetup({ map: 'ashfall' }), cur: {}, render() {} });
+        ui.act_skMap({ id: 'volcano' });
+        // a reload reads the save back through sanitize and skirmishSetup
+        const back = skirmishSetup(Save.sanitize(JSON.parse(JSON.stringify(Save.data))).skirmish);
+        this.check('a picked battlefield is saved and survives a reload', ui.skirmish.map === 'volcano' && writes === 1 && back.map === 'volcano', back.map);
+        ui.act_skMap({ id: 'testwater' });
+        this.check('a hidden or unknown battlefield cannot be picked', ui.skirmish.map === 'volcano' && writes === 1);
+        const lost = skirmishSetup(Save.sanitize(Object.assign(Save.defaults(), { skirmish: { map: 'atlantis', size: 'large' } })).skirmish);
+        this.check('a saved skirmish battlefield that no longer exists falls back to ashfall', lost.map === 'ashfall' && lost.size === 'large' && SAVE_VERSION === 1, lost.map);
+      } finally { Save.data.skirmish = saved.skirmish; Save.persist = saved.persist; }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -20091,7 +20127,7 @@ UI.scr_coopHost = function () {
   }).join('');
   const err = Net.canStart();
   return '<h2>Host a co-op game</h2><div class="grid2"><div class="panel">' + this.coopCommon() +
-    '<label class="f"><span>Mission</span><select data-coop="mission">' + MISSIONS.map((m) => '<option value="' + m.id + '"' + (Net.missionId === m.id ? ' selected' : '') + '>' + esc(m.name) + '</option>').join('') + '</select></label>' +
+    '<label class="f"><span>Mission</span><select data-coop="mission">' + MISSIONS.map((m) => '<option value="' + m.id + '"' + (Net.missionId === m.id ? ' selected' : '') + '>' + esc(m.name + ' - ' + mapDef(m.map).name + ' (' + (BIOME_NAMES[mapDef(m.map).biome] || mapDef(m.map).biome) + ')') + '</option>').join('') + '</select></label>' +
     '<div class="dim">Your platform: ' + esc(this.platLabel(Save.data.platformId)) + '</div><div class="row"><button class="btn small" data-act="hangar" data-ret="1">Change platform / loadout</button></div>' +
     '<div class="dim">Enemies scale up with player count. Each player has the host\'s platforms setting (Settings or skirmish setup) and ' + RESUPPLY_CHARGES + ' pad resupplies.</div></div>' +
     '<div class="panel"><h3 style="margin-top:0">Players</h3><table><tr><th>You</th><th colspan="3">' + esc(cleanName(Net.name)) + ' (host)</th></tr>' + rows + '</table>' +
