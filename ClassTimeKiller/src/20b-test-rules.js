@@ -2,6 +2,14 @@
 
 DebugApi.rules = Rules;   // ARC-040: __CTK.rules
 
+// Only tests take a modifier out again (the game adds its modifiers once at load), so the helper lives here, not on Rules.
+function removeRuleModifier(stage, modify) {
+  const list = Rules.modifiers[stage] || [];
+  const index = list.indexOf(modify);
+  if (index >= 0) list.splice(index, 1);
+}
+Test.add('rules', (check) => { check('Rules carries no test-only method (normalize-08)', Rules.removeModifier === undefined); });
+
 // Spec table 6.1: code key move health economy precision meter (one line per bundle).
 const EXPECTED_BUNDLES = [
   'RS01 classic arena stack pickups arena none', 'RS02 tourney arena stack pickups arena adrenaline',
@@ -62,10 +70,10 @@ Test.add('rules', (check) => {
   Rules.addModifier('handicap', onHandicap);
   Rules.addModifier('mode', onMode);
   const rules = Rules.build({ mode: 'ffa', ruleset: 'tactical', selfDamageForTest: 0.25, difficulty: 'elite' });
-  Rules.removeModifier('mutators', onMutators);
-  Rules.removeModifier('difficulty', onDifficulty);
-  Rules.removeModifier('handicap', onHandicap);
-  Rules.removeModifier('mode', onMode);
+  removeRuleModifier('mutators', onMutators);
+  removeRuleModifier('difficulty', onDifficulty);
+  removeRuleModifier('handicap', onHandicap);
+  removeRuleModifier('mode', onMode);
   check('stages run in MOV-001 order', Rules.stagesRun.join(',') === 'mode,bundle,mutators,difficulty,handicap', Rules.stagesRun.join(','));
   check('a mode-stage modifier runs before the bundle', seen.modeSawRuleset === 'arena' && rules.itemRespawnScale === 2);
   check('mutators see the bundle values', seen.mutatorSawMove === 'tactical');

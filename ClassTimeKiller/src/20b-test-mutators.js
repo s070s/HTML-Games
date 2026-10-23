@@ -331,7 +331,7 @@ Test.add('mutators', (check) => {
   startMutatorMatch([]);
   check('a later stage can set rules.fx.timeScale without any mutator (difficulty game speed)', Sim.timeScale === 0.8, Sim.timeScale);
   stopMutatorMatch();
-  Rules.removeModifier('difficulty', slowDifficulty);
+  removeRuleModifier('difficulty', slowDifficulty);
   startMutatorMatch(['gamespeed']);
   check('game speed sets the sim time scale', Sim.timeScale === 1.25);
   stopMutatorMatch();
