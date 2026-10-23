@@ -418,6 +418,11 @@ Test.add('render', (check) => withRenderer(() => {
   check('particles expire on the GPU clock', countLive(particlePool) === 0);
   updateLights();
   check('lights fade out', Render.frame.lightCount === 0);
+  Settings.set('video.quality', 'ultra');
+  Fx.burst('spark', 0, 1, 0, 0, 1, 0, CAT.quality.byId('ultra').particles);
+  Settings.set('video.quality', 'potato');
+  updateLights();
+  check('a quality step-down shrinks the drawn particle range to the new cap (render-07)', particlePool.used <= 256 && particlePool.next <= 256, particlePool.used);
 }));
 
 // ---- Dynamic resolution (PERF-007) ----
