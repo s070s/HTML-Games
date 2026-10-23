@@ -56,6 +56,9 @@ Test.add('settings', (check) => {
     if (definition.options) return definition.options.includes(definition.fallback);
     return definition.min === undefined || (definition.fallback >= definition.min && definition.fallback <= definition.max && definition.min < definition.max);
   }));
+  // A whole-number setting (an integer step) never keeps a fraction from an import (a fractional tier shift or FOV).
+  const fov = Settings.validValue(Settings.definitions.get('video.fov'), 90.4), volume = Settings.validValue(Settings.definitions.get('audio.master'), 0.33);
+  check('settings: whole-number settings are rounded, fine steps are not', fov === 90 && volume === 0.33, fov + ' ' + volume);
   const internal = keys.filter((key) => !isEditableSetting(Settings.definitions.get(key)));
   check('settings: the only keys without a control are the named internal ones', internal.length === Object.keys(SETTINGS_INTERNAL_WRITERS).length && internal.every((key) => SETTINGS_INTERNAL_WRITERS[key]), internal.join());
 

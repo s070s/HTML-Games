@@ -194,6 +194,8 @@ const Settings = {
     // An old on/off for what is now a slider (head bob): on = max, off = min.
     if (typeof value === 'boolean' && typeof fallback === 'number' && definition.min !== undefined) value = value ? definition.max : definition.min;
     if (value === null || typeof value !== typeof fallback || (typeof value === 'number' && !Number.isFinite(value))) return undefined;
+    // A whole-number setting (integer step: FOV, a tier shift) keeps no fraction from an import.
+    if (Number.isInteger(definition.step)) value = Math.round(value);
     return definition.min === undefined ? value : clamp(value, definition.min, definition.max);
   },
   // Drops loaded values no reader could use (the default applies), clamps numbers; unknown keys stay.
