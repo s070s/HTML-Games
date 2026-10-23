@@ -892,16 +892,17 @@ const Pve = {
   placeBody(id) {
     const pose = pvePose;
     if (Render.replayPose) return Render.replayPose(id, pose);
-    pose.x = Actors.x[id]; pose.y = Actors.y[id]; pose.z = Actors.z[id]; pose.yaw = Actors.yaw[id]; pose.pitch = Actors.pitch[id];
+    pose.x = Actors.x[id]; pose.y = Actors.y[id]; pose.z = Actors.z[id]; pose.yaw = Actors.yaw[id]; pose.pitch = Actors.pitch[id]; pose.recorded = false;
     return Actors.alive[id] === 1 && (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0;
   },
   // Sim.time is read here and in tellGlow, not passed in: a float argument to a call that is not inlined is boxed (PERF-006).
   drawEnemy(batch, id) {
     if (!this.placeBody(id)) return;
     const now = Sim.time, row = this.rowOf(id), size = row.size, pose = pvePose, yaw = pose.yaw, pitch = pose.pitch;
-    const tell = this.tellGlow(id, row), health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
+    const recorded = pvePose.recorded, champion = recorded ? pvePose.champion : this.champion[id];   // a replay shows the recorded state, not the live one
+    const tell = this.tellGlow(id, row), health = recorded ? pose.health : Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
     const shade = health < 1 / 3 ? 0.55 : health < 2 / 3 ? 0.8 : 1;   // NPC-006 damage states at 66 / 33 %
-    const staggered = now < this.staggerUntil[id] && Math.floor(now * 8) % 2 === 0;
+    const staggered = !recorded && now < this.staggerUntil[id] && Math.floor(now * 8) % 2 === 0;
     // Parts rotate in place and go through one instance record (batch.meshFrom): float arguments would be boxed (PERF-006).
     const point = pvePartPoint, instance = pvePartInstance;
     for (let index = 0; index < row.parts.length; index++) {   // an index loop: for-of makes an iterator result per part here
@@ -916,9 +917,9 @@ const Pve = {
       instance.emissive = staggered ? 1 : Math.max(glow ? 0.8 : 0, tell.amount);
       batch.meshFrom(part[0], instance);
     }
-    if (this.stealth) drawAwareness(batch, id, row, this.awarenessState(id));
-    if (this.champion[id] >= 0) drawChampionRing(batch, id, row, this.champion[id]);
-    if (Actors.shield[id] > 0) drawShieldShell(batch, id, row);
+    if (this.stealth && !recorded) drawAwareness(batch, id, row, this.awarenessState(id));
+    if (champion >= 0) drawChampionRing(batch, id, row, champion);
+    if (recorded ? pose.shield > 0 : Actors.shield[id] > 0) drawShieldShell(batch, id, row);
     if (Render.replayPose) return;   // the brain and tell marks show live state
     const brain = PveBrains[row.brain];
     if (brain.draw) brain.draw(batch, id, row);
@@ -929,7 +930,7 @@ const Pve = {
   tellGlow(id, row) {
     const glow = pveTellGlow, now = Sim.time;
     glow.amount = 0;
-    if (this.phase[id] !== ATTACK_PHASE.WINDUP) return glow;
+    if (pvePose.recorded || this.phase[id] !== ATTACK_PHASE.WINDUP) return glow;   // the recording has no tell
     const attack = row.attackRows[this.attack[id]], length = Math.max(1e-6, this.phaseEndsAt[id] - this.tellStart[id]);
     const progress = clamp((now - this.tellStart[id]) / length, 0, 1);
     glow.progress = progress;
@@ -940,7 +941,7 @@ const Pve = {
   },
 };
 const pveTellGlow = { amount: 0, progress: 0, r: 0, g: 0, b: 0 };
-const pvePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };   // the drawn enemy's feet and angles (Pve.placeBody)
+const pvePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, recorded: false, speed: 0, height: STAND_HEIGHT, grounded: true, health: 1, shield: 0, champion: -1 };   // the drawn enemy's feet and angles (Pve.placeBody); recorded: the replay's state
 const pveTellColor = new Float32Array(3);
 
 // NPC-004: a barrier champion's shield may carry an element (x1.5 for the matching element, x0.75 for others).
@@ -1004,7 +1005,7 @@ function drawShieldShell(batch, id, row) {
   const colors = PVE_SHIELD_COLORS, slot = Damage.shieldElement[id] * 3, size = row.size, instance = placePveMark();
   instance.sx = instance.sz = TORSO_RADIUS * 2.6 * size; instance.sy = 0.06;
   instance.r = colors[slot]; instance.g = colors[slot + 1]; instance.b = colors[slot + 2];
-  instance.emissive = 0.4 + 0.6 * Actors.shield[id] / Math.max(1, Actors.maxShield[id]);
+  instance.emissive = 0.4 + (pvePose.recorded ? 0.6 * pvePose.shield : 0.6 * Actors.shield[id] / Math.max(1, Actors.maxShield[id]));
   for (let ring = 0; ring < PVE_SHELL_HEIGHTS.length; ring++) {   // an index loop: for-of boxes each float it yields
     instance.y = pvePose.y + PVE_SHELL_HEIGHTS[ring] * size;
     batch.meshFrom('ring', instance);

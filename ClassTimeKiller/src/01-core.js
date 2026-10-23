@@ -109,6 +109,8 @@ function errorText(error) {
 const ErrorLog = {
   size: 50,
   entries: [],
+  // ErrorLog.total when each entry was last added or repeated (parallel to entries).
+  stamps: [],
   // Errors ever added, repeats included (the list keeps only the last `size`)
   total: 0,
   // The session's first error: the root cause outlives the ring.
@@ -120,19 +122,21 @@ const ErrorLog = {
   add(where, error) {
     const text = where + ': ' + errorText(error);
     this.total++;
+    this.stamps.length = this.entries.length;   // the self-test drops entries from the end directly
     if (!this.first) this.first = text;
     // An error repeated every step is counted on the newest entry, not flooding the ring (R-164).
     if (text === this.lastText && this.entries.length === this.lastLength) {
       this.repeats++;
       this.entries[this.entries.length - 1] = text + ' (x' + this.repeats + ')';
+      this.stamps[this.stamps.length - 1] = this.total;
       return;
     }
-    this.entries.push(text);
-    if (this.entries.length > this.size) this.entries.shift();
+    this.entries.push(text); this.stamps.push(this.total);
+    if (this.entries.length > this.size) { this.entries.shift(); this.stamps.shift(); }
     this.lastText = text; this.lastLength = this.entries.length; this.repeats = 1;
   },
   // The entries added or repeated after ErrorLog.total was `count` (the kept ones).
-  since(count) { return this.entries.slice(Math.max(0, this.entries.length - (this.total - count))); },
+  since(count) { return this.entries.filter((entry, index) => this.stamps[index] > count); },
 };
 
 // ---- Event bus (ARC-015). Payload objects are reused by the emitter: listeners must copy what they keep. ----
