@@ -1,5 +1,5 @@
 // ==== S03 DATA: GEAR MODELS ====
-// Built-in 3D models of the gear (07b-render-models.js Models; part format, tints and LODs there; MODEL_SCHEMA in 03b):
+// Built-in 3D models of the gear (07c-render-models.js Models; part format, tints and LODs there; MODEL_SCHEMA in 03b):
 // items I01..I17 and powerups PU01..PU20 as world pickups (origin = the floating centre; 12a spins and bobs them), grenades
 // G01..G09, G19, G20 (origin = the body's centre, also in the hand), placed and deployed devices G10..G18, G21..G24 (origin = the floor point under the device; the
 // barrier panel matches its row size) and one ammo box per weapon ammo type (`ammo-<type>`, own colour: the I08 box shows

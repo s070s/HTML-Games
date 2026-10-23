@@ -22,7 +22,6 @@ const EYE_SPEED = 6;                             // m/s the eye follows stance c
 const KNOCKBACK_CAP = 30;                        // MOV-017 m/s
 const SUB_STEP_DISTANCE = 0.4;                   // longest sweep per sub-step (one capsule radius)
 const MAX_SUB_STEPS = 4;
-const STRIDE_METRES = 1.6;                       // ground distance between footstep events
 const FOOTSTEP_NOISE_RADIUS = 15;                // AUD-004: footsteps locatable at 15 m
 const LANDING_NOISE_RADIUS = 20;
 const NO_RECENT_LANDING = 1e6;                   // seconds: a fresh spawn has not just landed (no MOV-025 landing spread)

@@ -8,8 +8,6 @@ const VIEWMODEL_NEAR = 0.01;
 const VIEWMODEL_FAR = 8;
 const EYE_SMOOTHING = 14;                // 1/s: crouch eye height eases instead of snapping
 const HEAD_BOB_METERS = 0.035;
-const BOB_STRIDE_METERS = 1.9;
-const RUN_REFERENCE_SPEED = 7;
 const ADS_ZOOM_DEFAULT = 1.15;           // FOV divisor at full aim unless Render.viewModel sets `zoom`
 const VIEWMODEL_SCALE = 0.62;            // shrinks the parts table around the weapon pivot (sets the on-screen size)
 const HAND_RIGHT = 1, HAND_LEFT = -1;     // view-model side: the left hand mirrors the right one
@@ -62,7 +60,7 @@ function followPlayer(seconds, alpha) {
 function headBob(id, seconds) {
   const speed = length2(Actors.vx[id], Actors.vz[id]);
   const grounded = (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
-  ViewState.bobPhase = (ViewState.bobPhase + (grounded ? speed : 0) * seconds * (Math.PI * 2 / BOB_STRIDE_METERS)) % (Math.PI * 2);
+  ViewState.bobPhase = (ViewState.bobPhase + (grounded ? speed : 0) * seconds * (Math.PI * 2 / WALK_CYCLE_METRES)) % (Math.PI * 2);
   if (!Render.config.headBob || !grounded) return 0;
   return Math.sin(ViewState.bobPhase * 2) * HEAD_BOB_METERS * (Render.config.headBob / 100) * Render.motion.bob * Math.min(1, speed / RUN_REFERENCE_SPEED);
 }

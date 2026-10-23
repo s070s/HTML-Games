@@ -46,6 +46,12 @@ function writeParticle(pool, slot, x, y, z, vx, vy, vz, life, sizeStart, sizeEnd
   pool.lastDeath = Math.max(pool.lastDeath, now + life);   // past it every slot is dead: the draw is skipped
 }
 
+// After a quality step-down the slots past the new cap are dropped: the draw and the live count stop at the cap.
+function fitPool(pool, cap) {
+  if (pool.used > cap) pool.used = cap;
+  if (pool.next > cap) pool.next = 0;
+}
+
 // Live slots of a pool on the effects clock (counted once per frame for the stats and the triangle counter).
 function countLive(pool) {
   const now = Render.frame.time;
@@ -112,7 +118,6 @@ const Fx = {
     }
     fxLights.endTime.fill(0);
   },
-  liveParticles() { return countLive(particlePool); },
 };
 const fxLights = { position: new Float32Array(MAX_DYNAMIC_LIGHTS * 4), color: new Float32Array(MAX_DYNAMIC_LIGHTS * 3),
   startTime: new Float32Array(MAX_DYNAMIC_LIGHTS), endTime: new Float32Array(MAX_DYNAMIC_LIGHTS) };
@@ -130,6 +135,8 @@ function updateLights() {
     count++;
   }
   frame.lightCount = count;
+  fitPool(particlePool, Render.quality.particles);
+  fitPool(decalPool, Render.quality.decals);
   particlePool.live = countLive(particlePool);
   decalPool.live = countLive(decalPool);
   Render.stats.particles = particlePool.live;

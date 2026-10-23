@@ -163,7 +163,7 @@ async function withRenderer(run) {
     Game.headless = wasHeadless; Benchmark.active = benchmarkActive; Benchmark.done = benchmarkDone; Render.worldQuery = worldQuery;
     Render.size.scale = renderScale; Render.size.dirty = true; ScaleControl.smoothedMs = smoothedMs; resetScaleCeiling(ScaleControl);
     GpuTimer.extension = timerExtension; GpuTimer.lastMs = timerMs; StepDown.slowSeconds = 0;
-    Render.cameraOverride = null; Render.viewModel = null; Render.actorStyle = null;
+    Render.cameraOverride = null; Render.viewModel = MATCH_VIEW_MODEL; Render.actorStyle = null;
     Game.state = 'menu'; Game.paused = false; Game.playerId = -1;
     Actors.clear(); World.clear(); clearWorldMesh(); Fx.clear(); Settings.resetKeys(settingKeysStarting('video.'));
   }
@@ -182,8 +182,23 @@ function makeTestActor(kind, team, x, z) {
   return id;
 }
 
+const MATCH_VIEW_MODEL = Render.viewModel;   // the real hook (S11, wrapped by S15): renderDemo and tests swap in stubs
 const batchInstances = (batch) => batch.counts.reduce((sum, count) => sum + count, 0);
 const instanceOffset = (batch, shape, index) => (SHAPE_INDEX[shape] * batch.capacity + index) * INSTANCE_FLOATS;
+// The default body's part lists as drawn (07c ActorModels row 0).
+const DEFAULT_FAR_PARTS = ActorModels.lists[0][LOD.far], DEFAULT_DISTANT_PARTS = ActorModels.lists[0][LOD.distant];
+
+// 0..1 sun visibility near a point (1 outside the grid), through the renderer's own sunVisibilityAt (also the perf tests).
+const sunProbePoint = new Float64Array(3);
+function sampleSunVisibility(x, y, z) {
+  sunProbePoint[0] = x; sunProbePoint[1] = y; sunProbePoint[2] = z;
+  return sunVisibilityAt(sunProbePoint, 0) / SUN_LIT;
+}
+
+// Removes the HUD layers a test added (names starting with 'test-').
+function removeTestHudLayers() {
+  for (let i = HudBatch.layers.length - 1; i >= 0; i--) if (HudBatch.layers[i].name.startsWith('test-')) HudBatch.layers.splice(i, 1);
+}
 const sleepMs = (ms) => new Promise((done) => setTimeout(done, ms));
 async function waitUntil(condition, timeoutMs) {
   for (let waited = 0; waited < timeoutMs && !condition(); waited += 20) await sleepMs(20);
@@ -227,7 +242,13 @@ Test.add('render', (check) => {
   check('view-model parts use known shapes', CAT.viewModels.every((row) => row.parts.every((part) => SHAPE_INDEX[part.shape] !== undefined)));
   const kinds = ['spark', 'smoke', 'dust', 'blood', 'muzzle', 'explosion', 'energy', 'water', 'fire', 'frost', 'shock', 'heal'];
   check('a particle row for every Fx kind', kinds.every((id) => CAT.fxKinds.byId(id)));
-  check('far actor LOD = 6 parts, near LOD more (REN-002)', FAR_PARTS.length === 6 && NEAR_PARTS.length > 6);
+  check('far actor LOD = 6 parts, near LOD more (REN-002)', DEFAULT_FAR_PARTS.length === 6 && NEAR_PARTS.length > 6);
+  check('test-only accessors live in the tests, not in Fx or HudBatch', !('liveParticles' in Fx) && !('removeLayer' in HudBatch));
+  const detailLevel = Models.detailLevel, lists = ActorModels.lists[ActorModels.index[0]];
+  Models.detailLevel = () => LOD.far;   // a preset rule that drops the near details: bodies follow the one rule
+  const dropped = ActorModels.partsFor(0, LOD.near, { modelDetail: true });
+  Models.detailLevel = detailLevel;
+  check('body LOD follows Models.detailLevel (near without details = the plain list)', dropped === lists[MODEL_LIST_PLAIN] && ActorModels.partsFor(0, LOD.near, { modelDetail: true }) === lists[LOD.near]);
   check('actor parts use known shapes', CAT.actorParts.every((part) => SHAPE_INDEX[part.shape] !== undefined));
   check('all 7 contract shapes have geometry', ['box', 'sphere', 'cylinder', 'capsule', 'cone', 'wedge', 'ring'].every((name) => ShapeMesh.ranges[SHAPE_INDEX[name]].count > 0));
   check('at most 8 shader programs (REN-003)', Render.programSpecs.length <= MAX_PROGRAMS, Render.programSpecs.length);
@@ -327,19 +348,31 @@ Test.add('render', (check) => withRenderer(() => {
   check('portrait keeps the 4:3 horizontal view', Test.near(wide, 80, 0.01) && portrait >= standard - 0.01 && portrait > 60, [wide, standard, portrait]);
 }));
 
+// normalize-05: one gait. Over one footstep (STRIDE_METRES, S10) the legs and the head bob each go half a walk cycle.
+Test.add('render', (check) => withRenderer(() => {
+  const id = Actors.create(ACTOR_KIND.BOT, 0, 'demo'), speed = 4, footstepSeconds = STRIDE_METRES / speed;
+  Actors.alive[id] = 1; Actors.vx[id] = speed; Actors.vz[id] = 0; Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
+  actorPhase[id] = 0; ViewState.bobPhase = 0;
+  animateActor(id, actorPose, footstepSeconds, LOD.near);
+  headBob(id, footstepSeconds);
+  check('one footstep = half a leg cycle and half a head-bob cycle', Test.near(actorPhase[id], Math.PI, 1e-4) && Test.near(ViewState.bobPhase, Math.PI, 1e-4),
+    [actorPhase[id], ViewState.bobPhase]);
+}));
+
 // ---- Actors (REN-002): LODs, interpolation, style hook, shadows ----
 Test.add('render', (check) => withRenderer(() => {
   placeCamera(0, 1.6, 0, 0, 0);
+  SunShadow.active = false;   // blob shadows: a live frame on a sun-shadow preset (a slow boot's benchmark) may have left it on
   const near = makeTestActor(ACTOR_KIND.BOT, 1, 0, 5);
   const far = makeTestActor(ACTOR_KIND.BOT, 0, 0, Render.quality.lodNear + 10);
   makeTestActor(ACTOR_KIND.BOT, 0, 3, 5);
   Actors.alive[2] = 0;
   fillActors(1 / 60, 1);
-  check('near LOD all parts + far LOD 6 parts, dead actors skipped', batchInstances(actorBatch) === NEAR_PARTS.length + FAR_PARTS.length, batchInstances(actorBatch));
-  check('a blob shadow per live actor (MIS-037)', shadowBatch.counts[SHAPE_INDEX.disc] === 2);
+  check('near LOD all parts + far LOD 6 parts, dead actors skipped', batchInstances(actorBatch) === NEAR_PARTS.length + DEFAULT_FAR_PARTS.length, batchInstances(actorBatch));
+  check('a blob shadow per live actor (MIS-037)', shadowBatch.counts[SHAPE_INDEX.disc] === 2, shadowBatch.counts[SHAPE_INDEX.disc]);
   const behind = makeTestActor(ACTOR_KIND.BOT, 0, 0, -6);
   fillActors(1 / 60, 1);
-  check('actors behind the camera are culled', batchInstances(actorBatch) === NEAR_PARTS.length + FAR_PARTS.length && shadowBatch.counts[SHAPE_INDEX.disc] === 2);
+  check('actors behind the camera are culled', batchInstances(actorBatch) === NEAR_PARTS.length + DEFAULT_FAR_PARTS.length && shadowBatch.counts[SHAPE_INDEX.disc] === 2);
   Actors.alive[behind] = 0;
   writeColor(tintColor, 0, CAT.teamColors[1].color);
   check('team colour on the torso', Test.near(actorBatch.data[instanceOffset(actorBatch, 'box', 0) + 8], tintColor[0], 1e-6));
@@ -358,7 +391,7 @@ Test.add('render', (check) => withRenderer(() => {
   Game.playerId = near;
   updateCamera(1 / 60, 1);
   fillActors(1 / 60, 1);
-  check('first person: no own body but own shadow', batchInstances(actorBatch) === FAR_PARTS.length && shadowBatch.counts[SHAPE_INDEX.disc] === 2);
+  check('first person: no own body but own shadow', batchInstances(actorBatch) === DEFAULT_FAR_PARTS.length && shadowBatch.counts[SHAPE_INDEX.disc] === 2);
 }));
 
 // ---- Render.addSource (props batch) ----
@@ -378,7 +411,7 @@ Test.add('render', (check) => withRenderer(() => {
 Test.add('render', (check) => withRenderer(() => {
   Settings.set('video.quality', 'potato');
   Fx.burst('spark', 0, 1, 0, 0, 1, 0, 1000);
-  check('particles capped by quality (Potato 256)', particlePool.used === 256 && Fx.liveParticles() === 256, particlePool.used);
+  check('particles capped by quality (Potato 256)', particlePool.used === 256 && countLive(particlePool) === 256, particlePool.used);
   Fx.decal(0, 0, 0, 0, 1, 0, 'bullet');
   check('Potato keeps no decals', decalPool.used === 0);
   Fx.light(0, 1, 0, '#ffffff', 5, 1);
@@ -394,9 +427,14 @@ Test.add('render', (check) => withRenderer(() => {
   const tracer = (particlePool.next - 1) * PARTICLE_FLOATS;
   check('tracer: segment + additive tracer mode', particlePool.data[tracer + 5] === 10 && particlePool.data[tracer + 16] === PARTICLE_MODE.tracer + ADDITIVE_FLAG);
   Render.frame.time += 10;
-  check('particles expire on the GPU clock', Fx.liveParticles() === 0);
+  check('particles expire on the GPU clock', countLive(particlePool) === 0);
   updateLights();
   check('lights fade out', Render.frame.lightCount === 0);
+  Settings.set('video.quality', 'ultra');
+  Fx.burst('spark', 0, 1, 0, 0, 1, 0, CAT.quality.byId('ultra').particles);
+  Settings.set('video.quality', 'potato');
+  updateLights();
+  check('a quality step-down shrinks the drawn particle range to the new cap (render-07)', particlePool.used <= 256 && particlePool.next <= 256, particlePool.used);
 }));
 
 // ---- Dynamic resolution (PERF-007) ----
@@ -531,6 +569,9 @@ Test.add('render', (check) => {
   check('LOD part counts shrink: distant < far <= near, distant keeps at least one', models.every((model) => model.lodCounts[LOD.distant] >= 1
     && model.lodCounts[LOD.distant] < model.lodCounts[LOD.far] && model.lodCounts[LOD.far] <= model.lodCounts[LOD.near]));
   check('weapon models take the view pose of their class row', WeaponModels.byId.heron.pose === CAT.viewModels.byId('sniper') && WeaponModels.byId.ramjet.pose === CAT.viewModels.byId('launcher'));
+  const silhouette = (id) => { const model = WeaponModels.byId[id]; return Array.from(model.data.slice(0, model.lodCounts[LOD.distant] * MODEL_PART_FLOATS)).join(','); };
+  const rifles = ['vanguard', 'tempest', 'ratchet', 'longshot'].map(silhouette);
+  check('the four assault rifles keep distinct distant silhouettes (render-04)', new Set(rifles).size === rifles.length);
   const twin = WeaponModels.byId.twinsting.parts, mirrored = twin.filter((part) => part.shape === 'cylinder' && part.size[0] < 0.02);
   check('a mirrored part draws twice, on both sides', mirrored.length === 2 && Test.near(mirrored[0].offset[0], -mirrored[1].offset[0], 1e-9), mirrored.length);
   const projectileModel = (id) => WeaponModels.projectile[CAT.projectiles.byId(id).index], scaled = projectileModel('missile').parts[0];
@@ -555,11 +596,11 @@ Test.add('render', (check) => withRenderer(() => {
   const near = makeTestActor(ACTOR_KIND.BOT, 1, 0, 2), far = makeTestActor(ACTOR_KIND.BOT, 1, 0, Render.quality.lodNear + 5), heldIndex = CAT.weapons.byId('heron').index;
   Render.heldWeapon = (actor) => (actor === near || actor === far ? heldIndex : -1);
   fillActors(1 / 60, 1);
-  const expected = NEAR_PARTS.length - 1 + heron.lodCounts[LOD.far] + FAR_PARTS.length + heron.lodCounts[LOD.distant];
+  const expected = NEAR_PARTS.length - 1 + heron.lodCounts[LOD.far] + DEFAULT_FAR_PARTS.length + heron.lodCounts[LOD.distant];
   check('a held weapon replaces the gun part, one LOD coarser than its actor', batchInstances(actorBatch) === expected, batchInstances(actorBatch) + ' / ' + expected);
   Render.heldWeapon = () => -1;
   fillActors(1 / 60, 1);
-  check('no held weapon keeps the plain gun part', batchInstances(actorBatch) === NEAR_PARTS.length + FAR_PARTS.length, batchInstances(actorBatch));
+  check('no held weapon keeps the plain gun part', batchInstances(actorBatch) === NEAR_PARTS.length + DEFAULT_FAR_PARTS.length, batchInstances(actorBatch));
   propBatch.clear();
   const instance = makeShapeInstance();
   instance.z = 2;
@@ -596,6 +637,72 @@ Test.add('render', (check) => withRenderer(() => {
   Projectiles.clear(); propBatch.clear(); actorBatch.clear(); viewModelBatch.clear();
 }));
 
+// render-03: hip-fired, every weapon shows on a 16:9 screen beside the HUD ammo panel (keyboard and mouse layout).
+const VIEWMODEL_TEST_SIZE = [1280, 720];
+const VIEWMODEL_MIN_SHOWN = 0.5;         // share of a weapon's part centres on screen and clear of the ammo panel
+// Whether one view-model part's centre lands on screen outside the panel (camera at the origin, yaw 0: view right = world -x).
+function viewModelPartShown(offset, panel) {
+  const d = viewModelBatch.data, size = Render.size, tanHalf = Math.tan(verticalFov(Render.config.viewmodelFov) / 2);
+  const x = (-d[offset] / d[offset + 2] / (tanHalf * size.width / size.height) + 1) / 2 * size.width;
+  const y = (1 - d[offset + 1] / d[offset + 2] / tanHalf) / 2 * size.height;
+  const onScreen = x >= 0 && x <= size.width && y >= 0 && y <= size.height;
+  return onScreen && !(x >= panel.left && y >= panel.top);
+}
+function viewModelShownShare(panel) {
+  let parts = 0, shown = 0;
+  SHAPES.forEach((shape) => {
+    for (let i = 0; i < viewModelBatch.counts[SHAPE_INDEX[shape]]; i++) {
+      parts++;
+      if (viewModelPartShown(instanceOffset(viewModelBatch, shape, i), panel)) shown++;
+    }
+  });
+  return shown / Math.max(1, parts);
+}
+// fillViewModel from viewModelState on a 16:9 keyboard-and-mouse screen; returns the share of parts shown.
+function viewModelShownAt16x9() {
+  const size = Render.size, saved = { width: size.width, height: size.height, device: Input.device, camera: Object.assign({}, Render.camera) };
+  size.width = VIEWMODEL_TEST_SIZE[0]; size.height = VIEWMODEL_TEST_SIZE[1]; Input.device = 'kbm';
+  Object.assign(Render.camera, { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
+  const layout = Object.assign({}, Hud.layout);
+  updateHudLayout(layout, size.width, size.height);
+  fillViewModel();
+  const share = viewModelShownShare({ left: layout.ammoRight - layout.ammoWidth, top: layout.bottom - layout.ammoHeight });
+  size.width = saved.width; size.height = saved.height; Input.device = saved.device; Object.assign(Render.camera, saved.camera);
+  viewModelBatch.clear();
+  return share;
+}
+Test.add('render', (check) => withRenderer(() => {
+  const hidden = [];
+  CAT.weapons.map((weapon) => weapon.id).concat(CAT.viewModels.map((row) => row.id)).forEach((id) => {
+    Object.assign(viewModelState, { visible: true, model: id, shape: id, ads: 0, kick: 0, reload: 0, swap: 0, dual: false });
+    const share = viewModelShownAt16x9();
+    if (share < VIEWMODEL_MIN_SHOWN) hidden.push(id + ' ' + share.toFixed(2));
+  });
+  check('hip pose: every weapon shows on screen, clear of the ammo panel (render-03)', hidden.length === 0, hidden.join(', '));
+}));
+
+// render-01/02: the match hook (S11 Weapons.viewModel, wrapped by S15) through updateCamera and poseWeapon. An idle held
+// weapon is fully raised (swap 0) and on screen; mid-swap the incoming weapon rises (swap falls from 1 towards 0).
+Test.add('render', (check) => withRenderer(() => {
+  Game.headless = true;   // the match starts as in the weapons tests (no pointer lock request), then renders
+  TestArena.start({});
+  Game.headless = false;
+  const id = TestArena.actor(1, 0, 0);
+  Weapons.setLoadout(id, ['tempest', 'warden']);
+  Game.playerId = id;
+  Render.viewModel = MATCH_VIEW_MODEL;
+  updateCamera(1 / 60, 1);
+  const idleSwap = viewModelState.swap, share = viewModelShownAt16x9();
+  check('a held weapon in a match is raised and on screen (render-01)', viewModelState.visible && idleSwap === 0 && share >= VIEWMODEL_MIN_SHOWN, [idleSwap, share]);
+  Game.playerId = -1;
+  Actors.buttons[id] = BTN.NEXT_WEAPON; Sim.step(); Actors.buttons[id] = 0;
+  Game.playerId = id;
+  updateCamera(1 / 60, 1);
+  check('a swap starts lowered and rises', Weapons.state[id] === WEAPON_STATE.SWAP && viewModelState.swap > 0.5, viewModelState.swap);
+  Game.playerId = -1;
+  TestArena.finish();
+}));
+
 // ---- HUD batch (REN-005) ----
 Test.add('render', (check) => {
   HudBatch.quads = 0;
@@ -623,7 +730,7 @@ Test.add('render', (check) => {
   collectHudLayers(1 / 60);
   const layerA = HudBatch.layers.find((layer) => layer.name === 'test-a'), layerB = HudBatch.layers.find((layer) => layer.name === 'test-b');
   check('layers draw in order with their own ranges', order.join('') === 'ab' && layerA.count === 2 && layerB.count === 1 && layerB.start === layerA.start + 2);
-  HudBatch.removeLayer('test-a'); HudBatch.removeLayer('test-b');
+  removeTestHudLayers();
   check('layers can be removed', !HudBatch.layers.some((layer) => layer.name.startsWith('test-')));
   HudBatch.quads = 0;
 });
@@ -750,7 +857,7 @@ Test.add('render', (check) => withRenderer(() => {
   const quality = Render.quality;
   const distant = makeTestActor(ACTOR_KIND.BOT, 0, 0, quality.lodFar + 5);
   fillActors(1 / 60, 1);
-  check('past lodFar: a still 4-part silhouette', batchInstances(actorBatch) === DISTANT_PARTS.length && DISTANT_PARTS.length === 4, batchInstances(actorBatch));
+  check('past lodFar: a still 4-part silhouette', batchInstances(actorBatch) === DEFAULT_DISTANT_PARTS.length && DEFAULT_DISTANT_PARTS.length === 4, batchInstances(actorBatch));
   Actors.alive[distant] = 0;
   const far = makeTestActor(ACTOR_KIND.BOT, 0, 0, quality.lodNear + 5);
   Actors.vz[far] = 5;
