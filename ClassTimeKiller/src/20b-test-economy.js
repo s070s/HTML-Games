@@ -162,7 +162,8 @@ Test.add('economy', (check) => {
     horde.lines.join(' | '));
   TestArena.finish();
   TestArena.start({ economy: 'pickups', params: CAT.modes.byId('gungame').params });
-  check('economy panel: Arms Ladder shows the weapon ladder', economyPanelLines().lines.some((line) => line.includes('ladder of 18 weapons')));
+  const played = ladderTiers(CAT.modes.byId('gungame').params).length;
+  check('economy panel: Arms Ladder names the played ladder length (14)', played === 14 && economyPanelLines().lines.some((line) => line.includes('ladder of ' + played + ' weapons')));
   TestArena.finish();
   TestArena.start({ economy: 'loot', weaponSet: 'lootSet' });
   check('economy panel: loot reads the carry limit of the weapon set', economyPanelLines().lines.some((line) => line.includes('You carry ' + CAT.weaponSets.byId('lootSet').carry + ' weapons')));

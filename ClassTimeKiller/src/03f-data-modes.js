@@ -16,10 +16,10 @@ const BOMB_ROUNDS = { winsNeeded: 7, limit: 13, live: 100, freeze: 15, switchAt:
 const BOMB_PARAMS = { plantTime: 4, fuse: 40, defuseTime: 7, defuseCheckpoint: 3.5, defuseRange: 1.5, blastRadius: 15 };
 const CAPTURE_PARAMS = { captureTime: 8, captureStack: 0.5, captureMax: 2 };
 const NO_KILL_SCORING = { kill: 0, suicide: 0, teamKill: 0 };   // modes that score only by their own rule (relic time, ladder tier, ...)
-// M16 weapon ladder (ECP06): one weapon per tier, kill to climb; the last tier is the melee weapon. params.tiers plays
-// the first tiers - 1 weapons plus the melee tier (14: eight players finish in about 5-6 minutes; all 18 ran past the time limit).
+// M16 weapon ladder (ECP06): one weapon per tier, kill to climb; the last tier is the melee weapon. 14 tiers: eight players
+// finish in about 5-6 minutes (18 ran past the time limit). A custom params.tiers plays the first tiers - 1 plus the melee tier.
 const GUNGAME_LADDER = ['tempest', 'vanguard', 'ratchet', 'pulsecarbine', 'wasp', 'hornet', 'riptide', 'scattergun', 'hookjaw', 'shardcaster',
-  'kestrel', 'lancet', 'heron', 'ramjet', 'ember', 'verdict', 'warden', 'maul'];
+  'kestrel', 'lancet', 'heron', 'maul'];
 
 Data.define('modes', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, goal: '', teams: 0, sizeDefault: 8, scoreLimit: 0, timeLimit: 600, scoreBy: 'kills',
@@ -41,7 +41,7 @@ Data.define('modes', {
   { id: 'bomb', code: 'M13', name: 'Detonate', goal: 'Attackers plant with Use; defenders defuse.', useButton: true, teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: BOMB_PARAMS, tiebreak: 'draw', ruleset: 'tactical' },
   { id: 'elim', code: 'M14', name: 'Last Squad', goal: 'One life per round. Wipe out the other team.', teams: 2, sizeDefault: 8, timeLimit: 0, scoreBy: 'rounds', rounds: { winsNeeded: 5, limit: 9, live: 90, freeze: 5, switchAt: 0, endDelay: 4 }, respawn: 'round', params: { shrinkTime: 30, shrinkMinRadius: 5, zoneDamage: 5 }, tiebreak: 'draw', ruleset: 'modern' },
   { id: 'lms', code: 'M15', name: 'Last Standing', goal: 'Limited lives. Be the last one standing.', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'survival', rules: { lives: 3 }, params: { startArmor: 100, allWeapons: true, maxAmmo: true, pickups: 'springboots' } },
-  { id: 'gungame', code: 'M16', name: 'Arms Ladder', goal: 'Each kill gives the next gun; win with melee.', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'objective', params: { economy: 'ladder', tiers: 14, meleeDemotes: true, ladder: GUNGAME_LADDER }, scoring: NO_KILL_SCORING },
+  { id: 'gungame', code: 'M16', name: 'Arms Ladder', goal: 'Each kill gives the next gun; win with melee.', teams: 0, sizeDefault: 8, timeLimit: 600, scoreBy: 'objective', params: { economy: 'ladder', meleeDemotes: true, ladder: GUNGAME_LADDER }, scoring: NO_KILL_SCORING },
   { id: 'infection', code: 'M17', name: 'Blight', goal: 'Humans outlast the clock; the Blight kills to spread.', teams: 2, sizeDefault: 12, timeLimit: 300, scoreBy: 'survival', params: { fixedSides: true, infectedPerPlayers: 6, infectAfter: 20, infectedHealth: 450, leapSpeed: 8, leapLift: 3 } },
   { id: 'juggernaut', code: 'M18', name: 'Colossus', goal: 'Kill the Colossus to become it; only it scores.', teams: 0, sizeDefault: 8, scoreLimit: 15, timeLimit: 600, scoreBy: 'objective', params: { healthMult: 3, damageMult: 1.5 }, scoring: NO_KILL_SCORING },
   { id: 'cursetag', code: 'M19', name: 'Curse Tag', goal: 'Kill the cursed; the cursed escapes at the beacon.', teams: 0, sizeDefault: 8, scoreLimit: 20, timeLimit: 600, params: { cursedHealth: 50, meleeOnly: true, passOnTag: false, beaconRadius: 2 }, scoring: NO_KILL_SCORING },
