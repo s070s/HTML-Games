@@ -16,6 +16,16 @@ _Hand-off: print a self-contained block in chat (standing rules, state with SHAs
 
 ## Entries
 
+- 2026-10-24 ~00:45 GTBDT. fix-ambulance (1a98b65) merged at `f1f95f1` (clean). Root cause of the ambulance-coverage miss: walkers cut across the car lanes (corners, doors, crate-pulled corners), so ambulances stopped behind them and turned back after 5 s. 57% of mid-street walker samples were on the road; misses 9.8% → 2.9% (rest are junction queues). New check in 'civilians': walkers stay off the road (red with the old walking). Flake closed; server 8769 stopped.
+  - RESUME: full self-test at f1f95f1 → dfix-combat (8771) → merge → full self-test twice → Opus verify of the delta fixes → close-out → owner's go.
+
+- 2026-10-24 ~00:30 GTBDT. dfix-world (9314049) merged at `4e2f505` (clean). dfix-traffic (fb8774e) merged at `aea0f0d` (test-list conflict, union). Self-test at aea0f0d: 2632/0. Servers 8770 and 8772 stopped.
+  - RESUME: dfix-combat (8771) + fix-ambulance (8769) → merge → full self-test twice → Opus verify of the delta fixes → close-out → owner's go.
+
+- 2026-10-23 ~23:55 GTBDT. Delta verify wf_9f6f19cc-7ef done: 14 found, 11 confirmed (4 medium, 7 low), 2 refuted; list in scratchpad/delta-findings.json. Help now covers load damage (0850a90); docs committed (d3fcd9e).
+  - Fixers from d3fcd9e (brief scratchpad/delta-fix-brief.md): dfix-traffic (Opus, 8770: junction held, endless blocked trips, fire engine 50 m, goTo cost), dfix-combat (Opus, 8771: runway AA/sight, harbour sight line, m13 observers, honest enterCiv refused, melee downhill), dfix-world (Sonnet, 8772: lightning on a tall mech, walking mech wears a slab). fix-ambulance (8769) still running.
+  - RESUME: the 4 helpers → merge each --no-ff → full self-test (twice, for the ambulance check) → Opus verify of these fixes → close-out → owner's go.
+
 - 2026-10-23 23:36 GTBDT (machine clock; the three entries below carry guessed times that run ahead of it). fix-combat (4a64251, 3b480a7, befcf85) merged at `11f1c1d`, self-test 2615/0. fix-living (e6e02af, 5d5a34e) merged at `849151f`; both conflicts at the end of the self-test list, resolved by union.
   - Self-test at 849151f: first run 2625/1, then 2625/0. The fail: 'society: first responders', "9 of 16" casualties reached by an ambulance (limit 60%), 6 of the last 8 missed. Alone 17/17 green. Not waved off as a flake: helper fix-ambulance (Opus+high, port 8769) is measuring it.
   - Clean bench (Playwright, 1920x1080) at 849151f: all 18 scenes p95 ≤ 3.7 ms, max ≤ 6.4 ms.
