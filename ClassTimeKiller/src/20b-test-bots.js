@@ -1477,6 +1477,16 @@ const OBJECTIVE_RUNS = [
 Test.add('bots', (check) => { DebugApi.bots.lastQuickModes = checkObjectiveRuns(check, QUICK_OBJECTIVE_RUNS, KIT_QUICK_SECONDS); });
 Test.add('botsoak', (check) => { DebugApi.bots.lastModes = checkObjectiveRuns(check, OBJECTIVE_RUNS, MATCH_RUN_SECONDS); }, { slow: true });
 
+// ---- Flag Raid at its default size (5 v 5, the Play screen's 9 bots and the player): a 5-bot team raids with 3, so
+// every 15-minute match sees flags captured (an odd team used to keep 2 home and stall at 0-0) ----
+const CTF_DEFAULT_SIZE_SEEDS = [1, 2, 3, 4], CTF_DEFAULT_SIZE_BOTS = 10, CTF_DEFAULT_SIZE_MINUTES = 15, CTF_DEFAULT_SIZE_CAPTURES = 2;
+
+Test.add('botsoak', (check) => {
+  const captures = CTF_DEFAULT_SIZE_SEEDS.map((seed) => DebugApi.soak('ctf', 'twinkeeps', CTF_DEFAULT_SIZE_MINUTES, CTF_DEFAULT_SIZE_BOTS, seed,
+    { timeLimit: CTF_DEFAULT_SIZE_MINUTES * 60 }).teamCaptures);
+  check('ctf 5 v 5: every match captures flags', captures.every((count) => count >= CTF_DEFAULT_SIZE_CAPTURES), captures.join(', '));
+}, { slow: true });
+
 // ---- CTF attack play: 8 bots on twinkeeps capture in normal time, and neither side always wins (5 seeds) ----
 const CTF_SEEDS = [1, 2, 3, 4, 5], CTF_CAPTURE_MATCHES = 3;
 
