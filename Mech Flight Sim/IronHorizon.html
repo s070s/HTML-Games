@@ -1316,7 +1316,7 @@ const TOUCH_BUTTONS = [
   { name: 'next', label: 'WPN', at: 'r', x: 0.18, y: 2.72, show: (p) => !!(p && p.wslots.primaryA && p.wslots.primaryB) },
   { name: 'cycle', label: 'TGT', at: 'r', x: 1.54, y: 2.36, show: touchArmed },
   { name: 'superweapon', label: 'SUPER', at: 'r', x: 2.72, y: 2.36, show: (p) => !!(p && p.sw) },
-  { name: 'interact', label: (kind, ctx) => Seats.useLabel(ctx), at: 'r', x: 0.18, y: 3.9, show: (p, ctx) => Seats.anyUse(ctx) },
+  { name: 'interact', label: (kind, ctx) => Seats.useLabel(ctx), at: 'r', x: 1.54, y: 3.54, show: (p, ctx) => Seats.anyUse(ctx) },   // off FIRE's column, which runs up under the radar
   { name: 'stance', label: TOUCH_LABELS.stance, at: 'l', x: 0, y: 0, show: (p, ctx) => ctx.gear || !!(p && p.kind === 'mech' && !p.chute) },
   { name: 'melee', label: 'MELEE', at: 'l', x: 0, y: 1.18, show: (p, ctx) => ctx.melee },
 ];
@@ -1327,10 +1327,11 @@ const TouchControls = {
   root: null, stickEl: null, knobEl: null,
   buttons: [],    // { def, el, x, y, s, on, text }: x, y the top-left corner in CSS px of the window, s the side; on: visible
   pauseBox: null, boxes: [],   // the pause button (same shape, always on) and every box, for the fit check
+  radar: { x: 0, y: 0, s: 0 },  // the HUD radar's box: no button may cover it (HUD.radarBox)
   held: {}, latched: {}, fingers: new Map(),   // finger id -> { kind: 'stick' | 'look' | 'button', button, x, y, ox, oy, bx, by }
   lx: 0, ly: 0,
   // the cached layout: built for this window size, safe area and scale; shown for this visible set, kind and Use word
-  unit: 0, reserve: 0, placed: { w: -1, h: -1, scale: -1, l: -1, t: -1, r: -1, b: -1 }, mask: -1, kind: '', word: '',
+  unit: 0, reserve: 0, placed: { w: -1, h: -1, scale: -1, ui: -1, l: -1, t: -1, r: -1, b: -1 }, mask: -1, kind: '', word: '',
   init() {
     this.root = el('touch');
     if (!this.root) return;
@@ -1477,9 +1478,9 @@ const TouchControls = {
     }
     if (!show) return;
     const p = W && W.player;
-    // the window, safe area or scale changed: place the buttons again (never per frame otherwise)
+    // the window, safe area, button scale or HUD scale (the radar's size) changed: place the buttons again (never per frame otherwise)
     const at = this.placed, sa = SafeArea;
-    const moved = at.w !== HUD.w || at.h !== HUD.h || at.scale !== S.touchScale || at.l !== sa.l || at.t !== sa.t || at.r !== sa.r || at.b !== sa.b;
+    const moved = at.w !== HUD.w || at.h !== HUD.h || at.scale !== S.touchScale || at.ui !== S.uiScale || at.l !== sa.l || at.t !== sa.t || at.r !== sa.r || at.b !== sa.b;
     if (moved) this.place(HUD.w, HUD.h, sa, S.touchScale);
     this.update(p, Seats.context(p, TOUCH_CTX), moved);
   },
@@ -1511,7 +1512,8 @@ const TouchControls = {
      them) fit inside the safe area with no two touching */
   place(w, h, sa, scale) {
     const at = this.placed;
-    at.w = w; at.h = h; at.scale = scale; at.l = sa.l; at.t = sa.t; at.r = sa.r; at.b = sa.b;
+    at.w = w; at.h = h; at.scale = scale; at.ui = S.uiScale; at.l = sa.l; at.t = sa.t; at.r = sa.r; at.b = sa.b;
+    HUD.radarBox(w, h, sa, this.radar);
     let u = clamp(Math.min(w, h) * TOUCH_UNIT_VMIN, TOUCH_UNIT_MIN, TOUCH_UNIT_MAX) * scale;
     for (let i = 0; i < TOUCH_FIT_TRIES; i++) {
       this.arrange(w, h, sa, u);
@@ -1543,21 +1545,20 @@ const TouchControls = {
     const pb = this.pauseBox;
     pb.s = u * TOUCH_PAUSE; pb.x = sa.l + (w - sa.l - sa.r - pb.s) / 2; pb.y = sa.t + TOUCH_PAUSE_TOP * u;
   },
-  /* every box inside the safe area and no two overlapping (all boxes, or only the visible ones with onlyOn) */
+  /* every box inside the safe area, off the radar placed with the buttons, and no two overlapping (all boxes, or only
+     the visible ones with onlyOn) */
   fits(w, h, sa, onlyOn) {
     const list = this.boxes;
     for (let i = 0; i < list.length; i++) {
       const a = list[i];
       if (onlyOn && !a.on) continue;
       if (a.x < sa.l - 0.01 || a.y < sa.t - 0.01 || a.x + a.s > w - sa.r + 0.01 || a.y + a.s > h - sa.b + 0.01) return false;
-      for (let j = i + 1; j < list.length; j++) {
-        const b = list[j];
-        if (onlyOn && !b.on) continue;
-        if (a.x < b.x + b.s && b.x < a.x + a.s && a.y < b.y + b.s && b.y < a.y + a.s) return false;
-      }
+      if (this.overlap(a, this.radar)) return false;
+      for (let j = i + 1; j < list.length; j++) if ((!onlyOn || list[j].on) && this.overlap(a, list[j])) return false;
     }
     return true;
   },
+  overlap(a, b) { return a.x < b.x + b.s && b.x < a.x + a.s && a.y < b.y + b.s && b.y < a.y + a.s; },
   /* fill the screen and keep it landscape where the browser allows (needs a user gesture) */
   fullscreen() {
     if (Device.fullscreenElement()) return;
@@ -18377,6 +18378,7 @@ Cam.menuUpdate = function (dt) {
    HUD (2D canvas drawn over the WebGL view)
    ===================================================================== */
 const ALLY_ROWS = 5;   // rows in the HUD ally list
+const HUD_RADAR_R = 76, HUD_RADAR_EDGE = 20, HUD_RADAR_TOP = 38;   // HUD units: radar radius, gap to the right edge, top of the disc
 const PULL_UP_AGL = 70, PULL_UP_SINK = 6;   // warn below this height (m) while sinking faster than this (m/s)
 const PULL_UP_LOOK = 3, PULL_UP_CLEAR = 25;   // or when rising ground this many seconds ahead would come closer than this (m)
 /* aircraft p is about to fly into the ground: sinking low, or heading into a slope or mountain face (not on a gear-down approach) */
@@ -18739,8 +18741,15 @@ const HUD = {
       g.restore();
     }
   },
+  /* the radar disc's square box for a w x h screen with safe-area insets sa, written into out (the touch layout keeps
+     its buttons off it) */
+  radarBox(w, h, sa, out) {
+    const u = Math.min(w, h) / 800 * S.uiScale;   // the HUD unit (draw)
+    out.s = 2 * HUD_RADAR_R * u; out.x = w - HUD_RADAR_EDGE * u - out.s - sa.r; out.y = HUD_RADAR_TOP * u + sa.t;
+    return out;
+  },
   drawRadar(p, u) {
-    const g = this.g, r = 76 * u, cx = this.w - 20 * u - r - SafeArea.r, cy = 20 * u + r + 18 * u + SafeArea.t, C = this.C;
+    const g = this.g, r = HUD_RADAR_R * u, cx = this.w - HUD_RADAR_EDGE * u - r - SafeArea.r, cy = HUD_RADAR_TOP * u + r + SafeArea.t, C = this.C;
     const range = p.kind === 'air' ? 1400 : 500, sc = r / range;
     const h = Math.atan2(Cam.dx, Cam.dz), sh = Math.sin(h), ch = Math.cos(h);
     g.fillStyle = 'rgba(4,14,12,0.6)'; g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.fill();
@@ -23137,10 +23146,10 @@ const SelfTest = {
             if (!tc.fits(w, h, sa, true) || tc.buttons.some((b) => b.on && b.def.at === 'r' && b.x < right)) bad = bad || w + 'x' + h + ' x' + scale + ' ' + q.def.id;
           }
         }
-        this.check('at 375x812, 812x375, 1024x768 and 1920x1080, scales 0.8-1.4 and with notches, no visible buttons overlap, all stay inside the safe area and the HUD reserve covers the right cluster', bad === '' && layouts === sizes.length * scales.length * insets.length * bodies.length * 16, bad);
+        this.check('at 375x812, 812x375, 1024x768 and 1920x1080, scales 0.8-1.4 and with notches, no visible buttons overlap, all stay inside the safe area and off the radar, and the HUD reserve covers the right cluster', bad === '' && layouts === sizes.length * scales.length * insets.length * bodies.length * 16, bad);
         const unit = (w, h, scale) => { tc.place(w, h, insets[0], scale); return tc.unit; };
         const big = [unit(1920, 1080, 0.8), unit(1920, 1080, 1), unit(1920, 1080, 1.4)], phone = [unit(812, 375, 1), unit(812, 375, 1.4)];
-        this.check('sizes follow the short side and the touch scale, shrinking only to fit', big[0] < big[1] && big[1] < big[2] && Math.abs(big[1] - TOUCH_UNIT_MAX) < 0.01 && Math.abs(phone[0] - 375 * TOUCH_UNIT_VMIN) < 0.01 && phone[1] >= phone[0], big.concat(phone).map((v) => v.toFixed(1)).join());
+        this.check('sizes follow the short side and the touch scale, shrinking only to fit', big[0] < big[1] && big[1] < big[2] && Math.abs(big[1] - TOUCH_UNIT_MAX) < 0.01 && Math.abs(phone[0] - 375 * TOUCH_UNIT_VMIN) < 0.01 && phone[1] > phone[0] * 1.3, big.concat(phone).map((v) => v.toFixed(1)).join());
         // only buttons that can act now are shown
         tc.place(812, 375, insets[0], 1);
         const on = (id, ctx) => {
