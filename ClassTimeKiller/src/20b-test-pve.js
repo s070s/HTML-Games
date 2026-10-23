@@ -838,15 +838,15 @@ Test.add('pve', (check) => {
   Pve.nextThink[survivor] = Sim.time;
   Sim.run(1);
   check('survivors of a 75% loss fall back while reinforcements wait', Pve.goal[survivor] === PVE_GOAL.FALLBACK && Pve.goalZ[survivor] === Pve.homeZ[survivor], Pve.goal[survivor]);
-  Pve.queue.count = 0;
-  Pve.nextThink[survivor] = Sim.time;
-  Sim.run(1);
-  check('with nothing queued they make a last stand instead', Pve.goal[survivor] !== PVE_GOAL.FALLBACK, Pve.goal[survivor]);
   Actors.flags[0] |= ACTOR_FLAG.GOD;
   Actors.x[0] = Actors.x[survivor]; Actors.z[0] = Actors.z[survivor] - PVE_DIRECTOR.fallbackFightRange + 4;   // a foe in close reach, in view
   const attacksBefore = Pve.stats.attacks;
   runUntil(() => Pve.stats.attacks > attacksBefore, 5, () => { Pve.peakAt = Sim.time; });
   check('a falling-back enemy still fires at a foe in close reach', Pve.stats.attacks > attacksBefore, Pve.stats.attacks - attacksBefore);
+  Pve.queue.count = 0;
+  Pve.nextThink[survivor] = Sim.time;
+  Sim.run(1);
+  check('with nothing queued they make a last stand instead', Pve.goal[survivor] !== PVE_GOAL.FALLBACK, Pve.goal[survivor]);
   Game.stop();
 });
 
