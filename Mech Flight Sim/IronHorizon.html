@@ -3749,6 +3749,7 @@ function destroyStruct(s, owner) {
   if (Net.host) Net.dirty.add(s.idx);
   creditStruct(s, owner);
   if (s.bld) { Bld.pieceDestroyed(s, owner); return; }
+  if (s.type === 'bridge') Traffic.roadChanged(s.x - s.hx, s.z - s.hz, s.x + s.hx, s.z + s.hz);   // its lanes are no way now
   Chunks.mark(s);
   spawnDebris(s.x, s.y + s.h * 0.5, s.z, s.debris, s, 18);
   const r = Math.max(s.hx, s.hz);
@@ -4203,6 +4204,7 @@ const Rubble = {
     if (i < RUBBLE_N - 1) this.raise(c + RUBBLE_N, dh * 0.125);
     if (j > 0) this.raise(c - 1, dh * 0.125);
     if (j < RUBBLE_N - 1) this.raise(c + 1, dh * 0.125);
+    Traffic.roadChanged(x - TRAFFIC_RUBBLE_REACH, z - TRAFFIC_RUBBLE_REACH, x + TRAFFIC_RUBBLE_REACH, z + TRAFFIC_RUBBLE_REACH);   // cars stop short of it
   },
   raise(c, dh) {
     if (!this.h) this.h = new Float32Array(RUBBLE_N * RUBBLE_N);   // once per page
@@ -7860,6 +7862,7 @@ const SOC_TEND_STEP = 0.6, SOC_TEND_REACH = 3, SOC_TEND_ANGLES = 12;   // a medi
 const SOC_TEND_CORNERS = 8;              // street corners nearest a responder's post tried for one that sees it (Society.streetsTo)
 const SOC_NERVE = 30;                    // danger this close to a responder on duty is an attack on the scene (m)
 const SOC_ARRIVE = 15;                   // a car held this close to where it goes stops there (m)
+const SOC_WALK_LAST = 50;                // a responder the road stops this close to its stop (rubble, a flood) stays there, and its crew walk on (m; within SOC_POST_MAX)
 const SOC_SPRAY = 22, SOC_SPRAY_RATE = 40, SOC_COOL = 2;   // a hose reaches (m), drops a second, and a wreck it reaches burns and smoulders this much faster
 const SOC_SMOULDER = 150;                // a wreck is a fire to put out until it has stood this long (s): burning, then smouldering
 const SOC_FLASH = 4;                     // flashes a second of a responder's beacon
@@ -10166,6 +10169,22 @@ const TRAFFIC_START_GAP = 40;        // nothing is placed this close to the star
 const TRAFFIC_DOOR_CLEAR = 2;        // a kerb car keeps this clear of the walk from a street to a door (m)
 const TRAFFIC_SHADOW_DIST = 120;     // contact shadows up to (m)
 const TRAFFIC_BLOCK_CAR = 1, TRAFFIC_BLOCK_THING = 2, TRAFFIC_BLOCK_LINE = 3;   // what holds a car: a car driving, something that does not move, a junction
+const TRAFFIC_BLOCK_ROAD = 4;        // ...or the road itself: rubble, a flood, lava or a bridge deck gone (it does not move either)
+// the road's state (P8): a flag per lane point, looked at again only where rubble fell, a deck went, or a flood or lava ran
+const TRAFFIC_PT_CLEAR = 0, TRAFFIC_PT_SLOW = 1, TRAFFIC_PT_STOP = 2;   // a lane point is clear, slow going, or no way
+const TRAFFIC_RUBBLE_STOP = 0.5;     // rubble this high stops a car (m); lower, down to RUBBLE_SHOW, slows it
+const TRAFFIC_WADE = 0.35;           // flood water this deep over the road (a car's wheels) stops a car (m); shallower slows it
+const TRAFFIC_WET = 0.05;            // a flood shallower than this over the road, or over the water there before it, is no matter (m)
+const TRAFFIC_LAVA_PAD = 2;          // a lane point this much past a lava cell's radius is still no way (m)
+const TRAFFIC_CRAWL = 0.35;          // speed limit share on slow going
+const TRAFFIC_BLOCK_EVERY = 0.5;     // s between looks at the changed lane points (the changes since are gathered in one box)
+const TRAFFIC_HAZARD_EVERY = 1;      // s between looks at a running flood or lava flow (they change as they run)
+const TRAFFIC_BLOCK_COST = 2000;     // a way through a lane with no way on counts this much longer (m): taken only when there is no other
+const TRAFFIC_RUBBLE_REACH = RUBBLE_CELL * 1.5;   // m round where rubble fell that its cells reach (Rubble.add heaps on the 4 cells round too)
+const TRAFFIC_LAVA = [];             // scratch: the running lava cells (x, z, reach²) (Traffic.lavaCells)
+var TRAFFIC_BLOCKS_OFF = false;      // self-test switch: the road's state is never looked at (no lane is ever blocked)
+var TRAFFIC_BACK_OFF = false;        // self-test switch: a car comes back on any lane, blocked or not
+var SOC_WALK_OFF = false;            // self-test switch: a responder held by a blocked road waits there instead of walking on
 // aircraft parked on an airfield's apron: [row, u, v] (Airports.at), noses to the runway, clear of its beacon and jets
 const TRAFFIC_APRON = { airport: [['airliner', -60, 128], ['cessna', 40, 128], ['twinprop', 72, 128]], strip: [['cessna', -16, 48]] };
 const TRAFFIC_AT = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, seg: 0, v: null };   // scratch lane point (v: the size of the car tried there)
@@ -10175,7 +10194,8 @@ const Traffic = {
   /* the lane graph, the parked vehicles and the cars for the battlefield (after the civilians: the streets are their
      zones); start: the player's start, kept clear */
   populate(seed, start) {
-    const T = W.traffic = { nodes: [], lanes: [], drive: [], driveLen: 0, driveW: 0, cars: [], parked: [], near: [], movers: [], tick: 0, time: 0, cycle: 0, drawn: 0, wrecked: 0, flights: [], ships: [], docks: [], flightHit: Infinity };
+    const T = W.traffic = { nodes: [], lanes: [], drive: [], driveLen: 0, driveW: 0, cars: [], parked: [], near: [], movers: [], tick: 0, time: 0, cycle: 0, drawn: 0, wrecked: 0, flights: [], ships: [], docks: [], flightHit: Infinity,
+      dirt: this.box(), hzBox: this.box(), blockT: 0, hzT: 0 };   // the road changed in dirt since the last look (refreshBlocks); a running flood or lava flow's reach
     const rng = makeRng((seed ^ 0x7ca2f1) >>> 0), keep = (W.pads || []).slice();
     if (start) keep.push(start);
     this.buildGraph(T);
@@ -10395,7 +10415,8 @@ const Traffic = {
       x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z);
     }
     // (x0..x1, z0..z1: the box round its points, for nearestLane)
-    return { kind, node0: n0, node1: n1, pts, cum, len: cum[n - 1], twin: null, out: [], cars: [], zone, speed: TRAFFIC_SPEED[kind] || TRAFFIC_SPEED.turn, bridge, alive: true, uTried: false, from: null, to: null, id: -1, mx: xs[n >> 1], mz: zs[n >> 1], x0, x1, z0, z1 };
+    // (blk: each point's TRAFFIC_PT flag, null while all are clear, its buffer kept in blkBuf; stop: some point is no way)
+    return { kind, node0: n0, node1: n1, pts, cum, len: cum[n - 1], twin: null, out: [], cars: [], zone, speed: TRAFFIC_SPEED[kind] || TRAFFIC_SPEED.turn, bridge, alive: true, uTried: false, from: null, to: null, id: -1, mx: xs[n >> 1], mz: zs[n >> 1], x0, x1, z0, z1, blk: null, blkBuf: null, stop: false };
   },
   laneBlocked(x, z, y, blds) {
     if (Math.abs(x) > GROUND_BOUND - 5 || Math.abs(z) > GROUND_BOUND - 5) return true;
@@ -10597,12 +10618,132 @@ const Traffic = {
     o.yaw = Math.atan2(dx, dz); o.pitch = Math.atan2(dy, seg);
   },
 
+  /* ---------- the road's state (P8) ---------- */
+  /* a box x0..x1, z0..z1 (on: something is in it) */
+  box() { return { on: false, x0: Infinity, z0: Infinity, x1: -Infinity, z1: -Infinity }; },
+  boxAdd(B, x0, z0, x1, z1) { B.x0 = Math.min(B.x0, x0); B.z0 = Math.min(B.z0, z0); B.x1 = Math.max(B.x1, x1); B.z1 = Math.max(B.z1, z1); B.on = true; },
+  boxClear(B) { B.on = false; B.x0 = B.z0 = Infinity; B.x1 = B.z1 = -Infinity; },
+  /* the road may have changed in the box x0..x1, z0..z1 (rubble fell, a deck went, water or lava came or went): its lane
+     points are looked at again at the next refresh */
+  roadChanged(x0, z0, x1, z1) {
+    const T = W.traffic;
+    if (T) this.boxAdd(T.dirt, x0, z0, x1, z1);
+  },
+  /* a running flood or lava flow changes the road as it runs: its reach is looked at every HAZARD_EVERY s, and once more
+     when the last is over (clearing the lanes it blocked) */
+  watchHazards(T, dt) {
+    if ((T.hzT -= dt) > 0) return;
+    T.hzT = TRAFFIC_HAZARD_EVERY;
+    const H = T.hzBox;
+    let any = false;
+    for (let i = 0; i < HAZARD_SLOTS; i++) {
+      const h = Hazards.list[i];
+      if (!h || !h.on || (h.type !== 'flood' && h.type !== 'lava')) continue;
+      any = true;
+      if (h.type === 'flood') { this.boxAdd(H, h.x - h.r, h.z - h.r, h.x + h.r, h.z + h.r); continue; }
+      const P = h.path, r = h.def.r + TRAFFIC_LAVA_PAD;
+      for (let k = 0; k < h.nPath; k++) this.boxAdd(H, P[k * 2] - r, P[k * 2 + 1] - r, P[k * 2] + r, P[k * 2 + 1] + r);
+    }
+    if (!H.on) return;
+    this.roadChanged(H.x0, H.z0, H.x1, H.z1);
+    if (!any) this.boxClear(H);
+  },
+  /* each lane point in the changed box gets its flag (refreshed at most every BLOCK_EVERY s: a collapse's rubble falls
+     over a while) */
+  refreshBlocks(T) {
+    const D = T.dirt, pad = TRAFFIC_LANE + 1, lava = this.lavaCells(TRAFFIC_LAVA), lanes = T.lanes;
+    T.blockT = T.time + TRAFFIC_BLOCK_EVERY;
+    for (let i = 0; i < lanes.length; i++) {
+      const L = lanes[i];
+      if (L.x1 < D.x0 - pad || L.x0 > D.x1 + pad || L.z1 < D.z0 - pad || L.z0 > D.z1 + pad) continue;
+      this.laneFlags(L, lava);
+    }
+    this.boxClear(D);
+  },
+  /* lane L's points' flags (L.blk null when all are clear; L.stop when some point is no way) */
+  laneFlags(L, lava) {
+    const p = L.pts, n = L.cum.length;
+    let any = false, stop = false;
+    for (let k = 0; k < n; k++) {
+      const f = TRAFFIC_BLOCKS_OFF ? TRAFFIC_PT_CLEAR : this.pointFlag(p[k * 3], p[k * 3 + 1], p[k * 3 + 2], L.bridge, lava);
+      if (f && !L.blkBuf) L.blkBuf = new Uint8Array(n);   // made the first time any of its points is blocked
+      if (L.blkBuf) L.blkBuf[k] = f;
+      if (f) any = true;
+      if (f === TRAFFIC_PT_STOP) stop = true;
+    }
+    L.blk = any ? L.blkBuf : null;
+    L.stop = stop;
+  },
+  /* the flag of the lane point (x, y, z) at drive height y (on a bridge lane: maybe its deck): rubble on the road, a flood
+     over it, lava near it, its deck gone over deep water */
+  pointFlag(x, y, z, bridge, lava) {
+    let f = TRAFFIC_PT_CLEAR;
+    const g = Terrain.h(x, z), ground = y < Math.max(g, Terrain.meshH(x, z)) + ROAD_LIFT + 1;   // (a deck stands over the rubble)
+    if (Rubble.n && ground) {
+      const r = Rubble.height(x, z);
+      if (r >= TRAFFIC_RUBBLE_STOP) return TRAFFIC_PT_STOP;
+      if (r >= RUBBLE_SHOW) f = TRAFFIC_PT_SLOW;
+    }
+    if (Water.any || Water.fr2 > 0) {
+      const l = Water.level(x, z);
+      if (bridge && this.deckGone(x, y, z)) return TRAFFIC_PT_STOP;
+      const wet = l - (ground ? y - ROAD_LIFT : y);
+      if (Water.fr2 > 0 && wet > TRAFFIC_WET && l > Water.baseLevel(x, z) + TRAFFIC_WET) {   // a flood over the road (a ford it was built through is no matter)
+        if (wet > TRAFFIC_WADE) return TRAFFIC_PT_STOP;
+        f = TRAFFIC_PT_SLOW;
+      }
+    }
+    for (let k = 0; k < lava.length; k += 3) {
+      const dx = x - lava[k], dz = z - lava[k + 1];
+      if (dx * dx + dz * dz < lava[k + 2]) return TRAFFIC_PT_STOP;
+    }
+    return f;
+  },
+  /* true when the bridge deck that bore lane point (x, y, z) over deep water is shot away */
+  deckGone(x, y, z) { return Water.depth(x, z) > TRAFFIC_DEEP && Water.deckTop(x, z, y + 1) < Water.level(x, z); },
+  /* true when some point of bridge lane L has lost its deck (looked at now: its flags may wait for the next refresh) */
+  laneDeckGone(L) {
+    const p = L.pts;
+    for (let k = 0; k < p.length; k += 3) if (this.deckGone(p[k], p[k + 1], p[k + 2])) return true;
+    return false;
+  },
+  /* the cells of each lava flow running, as x, z, reach² into out */
+  lavaCells(out) {
+    out.length = 0;
+    for (let i = 0; i < HAZARD_SLOTS; i++) {
+      const h = Hazards.list[i];
+      if (!h || !h.on || h.type !== 'lava' || (h.state !== HZ_ACTIVE && h.state !== HZ_END)) continue;
+      const n = Math.min(h.nPath, Math.floor(h.level)), r = h.def.r + TRAFFIC_LAVA_PAD;
+      for (let k = 0; k < n; k++) out.push(h.path[k * 2], h.path[k * 2 + 1], r * r);
+    }
+    return out;
+  },
+  /* true when lane O (a turn: or the lane it turns onto) has a point that is no way */
+  noWay(O) { return O.stop || (O.kind === 'turn' && O.to.stop); },
+  /* m from car c's front to the first lane point within look ahead of it that is no way: along its lane, then the lanes
+     it goes on to (Infinity: none) */
+  roadAhead(c, look) {
+    const front = c.s + c.v.hl;
+    let L = c.lane, base = -front;   // a point's distance from the front: its place along its lane plus base
+    for (let hop = 0; hop < 3 && L && base < look; hop++) {
+      if (L.stop) {
+        const b = L.blk, cum = L.cum;
+        for (let k = hop ? 0 : c.seg; k < cum.length && cum[k] + base < look; k++) if (b[k] === TRAFFIC_PT_STOP && cum[k] + base >= 0) return cum[k] + base;
+      }
+      base += L.len;
+      L = hop === 0 ? c.next : L.kind === 'turn' ? L.to : null;
+    }
+    return Infinity;
+  },
+
   /* ---------- per tick ---------- */
   update(dt) {
     const T = W.traffic;
     if (!T) return;
     T.tick++; T.time += dt;
     this.collectMachines(T);
+    this.watchHazards(T, dt);
+    if (T.dirt.on && T.time >= T.blockT) this.refreshBlocks(T);
     const cars = T.cars, cam = R.cam, far2 = TRAFFIC_FAR * TRAFFIC_FAR;
     for (let i = 0; i < cars.length; i++) {
       const c = cars[i], dx = c.x - cam.x, dz = c.z - cam.z;
@@ -10637,7 +10778,7 @@ const Traffic = {
     if (c.state === 'turn') { this.stepTurn(c, dt); return; }
     if ((c.lookT -= dt) <= 0) { c.lookT = TRAFFIC_LOOK; c.block = this.lookAhead(c); }
     const ahead = this.gapAhead(c), gap = Math.min(ahead, c.block), kind = c.block < ahead ? c.lookKind : c.gapKind, L = c.lane;
-    const lim = Math.min(L.speed, c.cap) * (c.panic > 0 ? TRAFFIC_FLEE : c.duty ? SOC_RUSH : 1), room = gap - TRAFFIC_GAP;
+    const lim = Math.min(L.speed, c.cap) * (c.panic > 0 ? TRAFFIC_FLEE : c.duty ? SOC_RUSH : 1) * (L.blk && L.blk[c.seg] ? TRAFFIC_CRAWL : 1), room = gap - TRAFFIC_GAP;   // slow over low rubble or a shallow flood
     let want = room <= 0 ? 0 : Math.min(lim, Math.sqrt(2 * TRAFFIC_BRAKE * room), room / TRAFFIC_HEADWAY);
     const N = c.next, toEnd = L.len - c.s - c.v.hl;
     if (N && N.speed < lim) want = Math.min(want, toEnd > 0 ? Math.sqrt(N.speed * N.speed + 2 * TRAFFIC_BRAKE * toEnd) : N.speed);   // slowing for a turn
@@ -10652,9 +10793,11 @@ const Traffic = {
     if (c.speed < 0.2 && c.halt <= 0) {
       c.wait += dt; c.heldT += dt;
       if (c.heldT > TRAFFIC_STUCK && (c.rider || c.duty)) { c.heldT = 0; Society.giveUp(c); }   // going somewhere, and boxed in for long
-      if (c.dest && c.wait > 1 && this.onLaneWhole(c) && Math.hypot(c.x - c.dest.x, c.z - c.dest.z) < c.dest.gap + SOC_ARRIVE) { this.arrive(c); return; }
+      // (a responder the road stops short of its scene leaves the vehicle there, and its crew walk the rest)
+      const near = kind === TRAFFIC_BLOCK_ROAD && c.duty && !SOC_WALK_OFF ? SOC_WALK_LAST : SOC_ARRIVE;
+      if (c.dest && c.wait > 1 && this.onLaneWhole(c) && Math.hypot(c.x - c.dest.x, c.z - c.dest.z) < c.dest.gap + near) { this.arrive(c); return; }
       if (c.way && c.way[c.wayI] === L.twin && c.wait > 0.5) { this.turnBack(c); return; }   // its way goes back the other way
-      if ((kind === TRAFFIC_BLOCK_THING && c.wait > TRAFFIC_WAIT) || c.wait > TRAFFIC_STUCK) this.turnBack(c);
+      if (((kind === TRAFFIC_BLOCK_THING || kind === TRAFFIC_BLOCK_ROAD) && c.wait > TRAFFIC_WAIT) || c.wait > TRAFFIC_STUCK) this.turnBack(c);
     } else { c.wait = 0; c.heldT = 0; }
     if (c.state === 'drive') this.advance(c, mv);
     if (c.dest && c.state === 'drive' && ((c.lane === c.dest.L && c.s >= c.dest.s && this.lastLeg(c)) || (c.dest.kind === 'scene' && this.atScene(c)))) this.arrive(c);
@@ -10688,15 +10831,23 @@ const Traffic = {
       if (w && outs.indexOf(w) >= 0) { c.wayI++; return w; }
     }
     if (outs.length < 2) return outs[0] || null;
+    // the ways on with no way through them (rubble, a flood, lava, a deck gone) are left out while there is another
+    let open = 0;
+    for (let i = 0; i < outs.length; i++) if (!this.noWay(outs[i])) open++;
+    const skip = open > 0 && open < outs.length;
     if (c.panic > 0) {
       let best = null, bd = -1;
       for (let i = 0; i < outs.length; i++) {
+        if (skip && this.noWay(outs[i])) continue;
         const to = outs[i].to || outs[i], p = to.pts, k = p.length - 3, d = Math.hypot(p[k] - c.threatX, p[k + 2] - c.threatZ);
         if (d > bd) { bd = d; best = outs[i]; }
       }
       return best;
     }
-    return outs[Math.floor(Math.random() * outs.length)];
+    if (!skip) return outs[Math.floor(Math.random() * outs.length)];
+    let k = Math.floor(Math.random() * open);
+    for (let i = 0; i < outs.length; i++) if (!this.noWay(outs[i]) && k-- === 0) return outs[i];
+    return outs[0];
   },
   /* the free way ahead of c's front (m) along its lanes: to the car ahead, the junction's stop line it may not cross yet, or
      the next lane's last car; sets what holds it (c.gapKind) */
@@ -10837,14 +10988,15 @@ const Traffic = {
     if (c.lane.bridge) {   // a deck shot away: stop short of the gap (a car on it when it went is wrecked)
       const L = c.lane, p = L.pts, cum = L.cum;
       for (let k = c.seg; k < cum.length && cum[k] < c.s + v.hl + look; k++) {
-        const x = p[k * 3], y = p[k * 3 + 1], z = p[k * 3 + 2];
-        if (Water.depth(x, z) <= TRAFFIC_DEEP || Water.deckTop(x, z, y + 1) >= Water.level(x, z)) continue;
+        if (!this.deckGone(p[k * 3], p[k * 3 + 1], p[k * 3 + 2])) continue;
         const d = cum[k] - c.s - v.hl;
         if (d < 0.5) { this.wreck(c, false); return Infinity; }
-        if (d < best) { best = d; kind = TRAFFIC_BLOCK_THING; }
+        if (d < best) { best = d; kind = TRAFFIC_BLOCK_ROAD; }
         break;
       }
     }
+    const road = this.roadAhead(c, look);   // rubble, a flood, lava or a deck gone across its lanes ahead
+    if (road < best) { best = road; kind = TRAFFIC_BLOCK_ROAD; }
     c.lookKind = kind;
     return best;
   },
@@ -11315,7 +11467,7 @@ const Traffic = {
       if (id === D.id && A !== D) { found = true; break; }
       const L = T.lanes[id], outs = L.out, n2 = outs.length || (L.twin ? 1 : 0);
       for (let i = 0; i < n2; i++) {   // the lanes after it; at a dead end its twin (turning round there)
-        const O = i < outs.length ? outs[i] : L.twin, o = O.id, nk = k + O.len + (i < outs.length ? 0 : SOC_UTURN);
+        const O = i < outs.length ? outs[i] : L.twin, o = O.id, nk = k + O.len + (i < outs.length ? 0 : SOC_UTURN) + (O.stop && O !== D ? TRAFFIC_BLOCK_COST : 0);   // round a road that is no way, if there is a way round
         if (O === A) { if (A === D && nk < loop) { loop = nk; loopPrev = id; } continue; }
         if (mark[o] === stamp && cost[o] <= nk) continue;
         if (size >= cap) return null;
