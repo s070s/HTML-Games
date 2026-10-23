@@ -748,6 +748,13 @@ Test.add('modes', (check) => {
   Game.stop();
 });
 
+// PERF-006: the per-step mode code measures with length2 / length3, never the boxing Math.hypot (normalize-07).
+Test.add('modes', (check) => {
+  const perStep = [Modes.rateSpawn, Modes.inZone, Economy.buyBlock, chooseNextCircle, centralSpot];
+  const boxed = perStep.filter((fn) => /Math\.hypot/.test(String(fn))).map((fn) => fn.name);
+  check('spawn rating, zone tests, the buy zone and the ring use no Math.hypot', perStep.every((fn) => typeof fn === 'function') && boxed.length === 0, boxed.join());
+});
+
 // Objective markers use the team colours of the bodies and the HUD, colour-blind palette included (normalize-02).
 Test.add('modes', (check) => {
   const drawn = [];

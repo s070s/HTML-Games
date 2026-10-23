@@ -215,7 +215,7 @@ Modes.register('cursetag', {
   moveBeacon(cursed) {
     let best = -1;
     for (const point of Modes.spawnPoints) {
-      const distance = Math.hypot(point.x - Actors.x[cursed], point.z - Actors.z[cursed]);
+      const distance = length2(point.x - Actors.x[cursed], point.z - Actors.z[cursed]);
       if (distance <= best) continue;
       best = distance;
       this.beacon.x = point.x; this.beacon.y = point.y; this.beacon.z = point.z;

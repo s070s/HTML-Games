@@ -243,7 +243,7 @@ const Economy = {
     if (id < 0 || !Actors.alive[id]) return 'dead';
     if (preset.buy === 'round' && Sim.time >= this.buyUntil[id] - TIME_EPSILON) return 'closed';
     if (preset.buy === 'shop' && !this.shopOpen) return 'closed';
-    if (preset.buyZone > 0 && Math.hypot(Actors.x[id] - this.spawnX[id], Actors.z[id] - this.spawnZ[id]) > preset.buyZone) return 'zone';
+    if (preset.buyZone > 0 && length2(Actors.x[id] - this.spawnX[id], Actors.z[id] - this.spawnZ[id]) > preset.buyZone) return 'zone';
     return '';
   },
   canBuy(id) { return this.buyBlock(id) === ''; },
@@ -476,7 +476,7 @@ Economy.switchHero = function switchHero(id, heroId) {
   if (!CAT.heroes.byId(heroId)) return 'unknown';
   Abilities.setChoice(id, Object.assign({}, Abilities.choices[id], { hero: heroId }));
   if (!Abilities.usesHeroes() || !Actors.alive[id]) return 'next';
-  if (Math.hypot(Actors.x[id] - Economy.spawnX[id], Actors.z[id] - Economy.spawnZ[id]) > SPAWN_ROOM_RADIUS) return 'next';
+  if (length2(Actors.x[id] - Economy.spawnX[id], Actors.z[id] - Economy.spawnZ[id]) > SPAWN_ROOM_RADIUS) return 'next';
   Abilities.refreshKit(id);
   Economy.applyBodyModel(id);
   return 'now';

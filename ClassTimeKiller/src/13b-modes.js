@@ -329,15 +329,15 @@ const Modes = {
     }
     let score = spawnRating.nearestEnemy + Rng.rules.next() * SPAWN_JITTER;
     if (this.rules.teams > 0 && spawnRating.nearestMate < Infinity) score -= spawnRating.nearestMate * SPAWN_TEAMMATE_WEIGHT;
-    if (this.hasDied[id]) score += Math.min(SPAWN_DEATH_CAP, Math.hypot(point.x - this.deathX[id], point.z - this.deathZ[id])) * SPAWN_DEATH_WEIGHT;
+    if (this.hasDied[id]) score += Math.min(SPAWN_DEATH_CAP, length2(point.x - this.deathX[id], point.z - this.deathZ[id])) * SPAWN_DEATH_WEIGHT;
     spawnRating.score = score;
   },
   rateAgainst(id, other, point) {
     const dx = Actors.x[other] - point.x, dy = Actors.y[other] - point.y, dz = Actors.z[other] - point.z;
-    const flat = Math.hypot(dx, dz);
+    const flat = length2(dx, dz);
     if (flat < SPAWN_CAPSULE_RADIUS && Math.abs(dy) < SPAWN_CAPSULE_HEIGHT) spawnRating.occupied = true;
     if (!Actors.isEnemy(id, other)) { spawnRating.nearestMate = Math.min(spawnRating.nearestMate, flat); return; }
-    const distance = Math.hypot(flat, dy);
+    const distance = length2(flat, dy);
     spawnRating.nearestEnemy = Math.min(spawnRating.nearestEnemy, distance);
     if (distance < SPAWN_ENEMY_RADIUS) { spawnRating.safe = false; return; }
     if (distance >= SPAWN_SIGHT_RADIUS) return;
@@ -646,7 +646,7 @@ const Modes = {
   },
   inZone(objective, id) {
     const dy = Actors.y[id] - objective.y;
-    return dy > -ZONE_BELOW && dy < ZONE_ABOVE && Math.hypot(Actors.x[id] - objective.x, Actors.z[id] - objective.z) <= objective.radius;
+    return dy > -ZONE_BELOW && dy < ZONE_ABOVE && length2(Actors.x[id] - objective.x, Actors.z[id] - objective.z) <= objective.radius;
   },
   // The team alone in the zone, or NO_TEAM when it is empty or contested.
   zoneHolder(objective) {
