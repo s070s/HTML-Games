@@ -122,6 +122,11 @@ Test.add('modes2', (check) => {
     && !announcements.some((event) => event.text === 'Stage 3'));
   blasts.stop(); announcements.stop();
   endModeTest();
+  // The ticket cost of a death is the mode param, as in Frontline (modes-07).
+  startModeTest('rush', modesTestMap(RUSH_MAP), [0, 1], { modeOptions: { params: { deathCost: 3 } } });
+  damageKill(0, 1);
+  check('rush: params.deathCost sets the tickets an attacker death costs', Modes.teamScore[0] === 72, Modes.teamScore[0]);
+  endModeTest();
 
   startModeTest('rush', modesTestMap(RUSH_MAP), [0, 1], { modeOptions: { params: { tickets: 1 } } });
   armRelay(0, Modes.objectives[0]);
