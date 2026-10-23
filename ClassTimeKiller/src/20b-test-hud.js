@@ -900,3 +900,40 @@ Test.add('hud', (check) => {
   }
   check('colour-blind palettes: health stays well apart from armor, shield and low health', close.length === 0, close.join(', '));
 });
+
+// The replayed pose and look come from the recording (killcam-01), not from the live state at the time of the replay.
+function hudTestEnemyColorSum() {
+  let sum = 0;
+  Pve.active = true;
+  Pve.draw({ meshFrom(shape, instance) { sum += instance.r; }, mesh() {} });
+  Pve.active = false;
+  return sum;
+}
+Test.add('hud', (check) => hudTestWith(() => {
+  Settings.set('hud.killcam', true);
+  const scene = hudTestMatch(), player = scene.id, foe = scene.enemy, runner = scene.mate;
+  Sim.run(KILLCAM_STEP_TICKS - (Sim.tick % KILLCAM_STEP_TICKS));
+  const monster = Pve.spawnEnemy('gunner', 0, 0, 16, 0, { overCap: true });
+  Pve.active = false;
+  Actors.health[monster] = Actors.maxHealth[monster] * 0.3;
+  for (let batch = 0; batch < 80; batch++) {
+    Actors.x[foe] = Actors.x[runner] = Actors.x[monster] = Sim.tick * TICK_SECONDS * 5; Actors.z[foe] = 3; Actors.z[runner] = 10; Actors.z[monster] = 16;
+    Actors.vx[runner] = 5; Actors.flags[runner] |= ACTOR_FLAG.ON_GROUND;
+    Sim.run(KILLCAM_STEP_TICKS);
+  }
+  const hurtSum = hudTestEnemyColorSum();
+  Actors.vx[runner] = Actors.vz[runner] = 0; Actors.flags[runner] |= ACTOR_FLAG.INVISIBLE;   // by the replay it stands still and is cloaked
+  Actors.health[monster] = Actors.maxHealth[monster];
+  const healthySum = hudTestEnemyColorSum();
+  Actors.alive[player] = 0;
+  hudTestKill(player, foe, { weapon: 'warden' });
+  Killcam.clock = 1;
+  updateCamera(0, 1);
+  actorBatch.clear(); shadowBatch.clear();
+  fillActors(0.1, 1);
+  check('killcam: a cloaked body is replayed visible when it was visible then', actorBatch.counts.reduce((sum, count) => sum + count, 0) > 5);
+  Render.replayPose(runner, actorPose); animateActor(runner, actorPose, 0.1, LOD.near);
+  check('killcam: a replayed body walks with the recorded speed, not the live standstill', actorPose.recorded && Test.near(actorPose.speed, 5, 0.5) && Math.abs(actorPose.swing) > 0.01, JSON.stringify(actorPose));
+  check('killcam: a replayed enemy shows the recorded health shade', hurtSum < healthySum - 0.01 && Test.near(hudTestEnemyColorSum(), hurtSum, 1e-3), hurtSum + ' ' + healthySum + ' ' + hudTestEnemyColorSum());
+  Killcam.stop();
+  actorBatch.clear(); shadowBatch.clear();}));
