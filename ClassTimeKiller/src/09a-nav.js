@@ -565,8 +565,11 @@ function navFlatFullCell(samples) {
 }
 
 function navBestSample(samples, centreX, centreZ) {
-  let best = samples[0];
-  for (let i = 1; i < samples.length; i++) if (navCentreScore(samples[i], centreX, centreZ) < navCentreScore(best, centreX, centreZ)) best = samples[i];
+  let best = samples[0], bestScore = navCentreScore(best, centreX, centreZ);
+  for (let i = 1; i < samples.length; i++) {
+    const score = navCentreScore(samples[i], centreX, centreZ);
+    if (score < bestScore) { best = samples[i]; bestScore = score; }
+  }
   return best;
 }
 
@@ -591,8 +594,8 @@ function navCentreScore(sample, centreX, centreZ) {
 // Ties between two samples go to the one nearer the middle of the map, so a mirrored map gets mirrored nodes (scan
 // order would push every node the same way, and one team's routes would hug walls and ledges the other's do not).
 function navFromMiddle(sample) {
-  const column = navRaster.sampleColumn[sample];
-  return Math.abs(navColumnX(column) - (World.boundsMin.x + World.boundsMax.x) / 2) + Math.abs(navColumnZ(column) - (World.boundsMin.z + World.boundsMax.z) / 2);
+  const raster = navRaster, column = raster.sampleColumn[sample], columns = raster.columnsX;
+  return (Math.abs(column % columns - (columns - 1) / 2) + Math.abs(Math.floor(column / columns) - (raster.columnsZ - 1) / 2)) * NAV_FINE;
 }
 
 // Jump pads and teleporters get a node at their centre so bots step right onto them.
