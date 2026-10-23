@@ -7856,6 +7856,8 @@ const SOC_HOSE_MIN = 15;                 // a fire engine at the scene hoses at 
 const SOC_TEND = [8, 14];                // seconds a medic tends the fallen
 const SOC_CORDON = 14;                   // m the cordon stands past a scene's edge
 const SOC_POST_MAX = 60;                 // a post farther than this from its vehicle is taken beside it (m)
+const SOC_TEND_STEP = 0.6, SOC_TEND_REACH = 3, SOC_TEND_ANGLES = 12;   // a medic kneels by someone fallen on a blocked spot at the nearest free spot this far round it (m), tried in rings this far apart at this many headings
+const SOC_TEND_CORNERS = 8;              // street corners nearest a responder's post tried for one that sees it (Society.streetsTo)
 const SOC_NERVE = 30;                    // danger this close to a responder on duty is an attack on the scene (m)
 const SOC_ARRIVE = 15;                   // a car held this close to where it goes stops there (m)
 const SOC_SPRAY = 22, SOC_SPRAY_RATE = 40, SOC_COOL = 2;   // a hose reaches (m), drops a second, and a wreck it reaches burns and smoulders this much faster
@@ -7918,7 +7920,7 @@ const Society = {
   populate(seed) {
     const rng = makeRng((seed ^ SOC_SEED) >>> 0), q = Fauna.quality();
     const S = W.society = { incidents: [], scanT: SOC_SCAN, deaths: [], cars: 0, out: 0 };
-    for (let i = 0; i < SOC_INCIDENTS; i++) S.incidents.push({ on: false, kinds: 0, x: 0, z: 0, r: 0, t: 0, seen: 0, sent: 0, crewed: 0, retryAt: 0, fails: 0, hoseT: 0, age: 0, done: false, attacked: false, fire: null, ems: null, police: null, crew: [] });
+    for (let i = 0; i < SOC_INCIDENTS; i++) S.incidents.push({ on: false, kinds: 0, x: 0, z: 0, r: 0, t: 0, seen: 0, sent: 0, crewed: 0, retryAt: 0, fails: 0, hoseT: 0, age: 0, done: false, attacked: false, tended: false, fire: null, ems: null, police: null, crew: [] });
     for (const zn of W.civZones) this.setupZone(zn, rng);
     for (const zn of W.civZones) {
       const counts = {};
@@ -8226,7 +8228,7 @@ const Society = {
     if (a === SOC_ACT_SITE || a === SOC_ACT_POST || a === SOC_ACT_TEND) {
       c.state = 'idle'; c.speed = 0;
       c.t = a === SOC_ACT_POST ? Infinity : a === SOC_ACT_TEND ? rand(SOC_TEND[0], SOC_TEND[1]) : rand(SOC_SITE_IDLE[0], SOC_SITE_IDLE[1]);
-      if (a === SOC_ACT_TEND) { c.crouch = true; c.tended = true; }
+      if (a === SOC_ACT_TEND) { c.crouch = true; c.tended = true; if (c.duty) c.duty.tended = true; }
       return;
     }
     if (a === SOC_ACT_BOARD) { const car = c.car; if (car && car.state === 'park' && Math.hypot(car.x - c.x, car.z - c.z) < car.v.hl + 2) this.board(c); return; }
@@ -8380,7 +8382,7 @@ const Society = {
     }
     if (!free) return null;
     free.on = true; free.kinds = kind; free.x = x; free.z = z; free.r = r; free.t = 0; free.age = 0; free.seen = W.time; free.sent = 0; free.crewed = 0; free.retryAt = 0; free.fails = 0; free.hoseT = 0;
-    free.done = false; free.attacked = false; free.fire = free.ems = free.police = null; free.crew.length = 0;
+    free.done = false; free.attacked = false; free.tended = false; free.fire = free.ems = free.police = null; free.crew.length = 0;
     return free;
   },
   /* each scene gets the services it needs, while the quality's responders allow: one service sent a tick at most (the
@@ -8458,7 +8460,9 @@ const Society = {
     }
     if (!inc.done) {
       const fireOut = !(inc.kinds & SOC_FIRE) || (W.time - inc.seen > SOC_FIRE_OUT && (!inc.fire || inc.fire.state !== 'scene' || inc.hoseT > SOC_HOSE_MIN));
-      const over = !(inc.kinds & (SOC_COLLAPSE | SOC_CASUALTY)) || inc.t > (inc.kinds & SOC_COLLAPSE ? SOC_COLLAPSE_T : SOC_CASUALTY_T);
+      // an ambulance crew there: not before its medic has tended the fallen (after a long walk round, maybe) and is done
+      const waitMedic = (inc.kinds & SOC_CASUALTY) && (inc.crewed & SOC_UNITS.ems.bit) && (!inc.tended || inc.crew.some((h) => h.unit === 'ems' && h.crouch && !h.dead));
+      const over = !(inc.kinds & (SOC_COLLAPSE | SOC_CASUALTY)) || (!waitMedic && inc.t > (inc.kinds & SOC_COLLAPSE ? SOC_COLLAPSE_T : SOC_CASUALTY_T));
       if ((fireOut && over) || inc.age > SOC_SCENE_MAX) this.wrapUp(inc);
       return;
     }
@@ -8489,8 +8493,13 @@ const Society = {
     let x = car.x, z = car.z, act = SOC_ACT_POST;
     if (h.unit === 'fire') { x = car.x + dx / d * 4 - dz / d * (i - 0.5) * 3; z = car.z + dz / d * 4 + dx / d * (i - 0.5) * 3; }
     else if (h.unit === 'ems') {
-      act = SOC_ACT_TEND; x = inc.x; z = inc.z;
-      for (let m = 0; m < 10 && Civ.blocked(x, z, CIV_RADIUS, blds); m++) { x -= dx / d; z -= dz / d; }   // as near as it gets, from the ambulance's side
+      act = SOC_ACT_TEND;
+      const at = this.tendSpot(inc.x, inc.z, blds);
+      if (at) { x = at.x; z = at.z; }
+      else {
+        x = inc.x; z = inc.z;
+        for (let m = 0; m < 10 && Civ.blocked(x, z, CIV_RADIUS, blds); m++) { x -= dx / d; z -= dz / d; }   // as near as it gets, from the ambulance's side
+      }
     } else {
       const a = Math.atan2(car.x - inc.x, car.z - inc.z) + (i ? 0.6 : -0.6), R0 = inc.r + SOC_CORDON;
       for (let m = 0; m < 4; m++) {
@@ -8500,8 +8509,46 @@ const Society = {
       }
     }
     if (Civ.blocked(x, z, CIV_RADIUS, blds) || Math.hypot(x - car.x, z - car.z) > SOC_POST_MAX) { x = h.x; z = h.z; }
+    this.walkTo(h, x, z, act);
+  },
+  /* where a medic kneels by someone fallen at (x, z): there, or the nearest free spot round it (one fallen in a doorway
+     or against a wall); null when there is none */
+  tendSpot(x, z, blds) {
+    if (!Civ.blocked(x, z, CIV_RADIUS, blds)) return { x, z };
+    for (let r = SOC_TEND_STEP; r <= SOC_TEND_REACH; r += SOC_TEND_STEP) {
+      for (let k = 0; k < SOC_TEND_ANGLES; k++) {
+        const a = k / SOC_TEND_ANGLES * TAU, px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
+        if (!Civ.blocked(px, pz, CIV_RADIUS, blds)) return { x: px, z: pz };
+      }
+    }
+    return null;
+  },
+  /* responder h walks to (x, z), doing act there: straight when nothing stands between, else along the streets, corner
+     by corner, to the corner nearest it that sees it */
+  walkTo(h, x, z, act) {
+    const zn = h.zone, blds = zn.blds;
     h.path.length = 0;
+    if (!Civ.clearLine(h.x, h.z, x, z, blds)) this.streetsTo(h, x, z);
     h.path.push(Civ.point(x, z, -1, false, null, act));
+  },
+  /* the corners from responder h's nearest one to the one nearest (x, z) that sees it, onto h's path (none when there is
+     no such corner or no way there), skipping those behind it */
+  streetsTo(h, x, z) {
+    const zn = h.zone, soc = zn.soc, blds = zn.blds;
+    if (!soc) return;
+    const n = soc.n, H = soc.hop, near = zn.edgeNodes.slice().sort((a, b) => Math.hypot(zn.nodes[a].x - x, zn.nodes[a].z - z) - Math.hypot(zn.nodes[b].x - x, zn.nodes[b].z - z));
+    const goal = near.slice(0, SOC_TEND_CORNERS).find((k) => Civ.clearLine(zn.nodes[k].x, zn.nodes[k].z, x, z, blds));
+    let here = this.nearestNode(zn, h.x, h.z);
+    if (goal === undefined || H[goal * n + here] === SOC_NO_WAY) return;
+    h.path.push(Civ.point(zn.nodes[here].x, zn.nodes[here].z, here, false, null));   // to the corner it stands nearest
+    for (let k = 0; here !== goal && k < n; k++) {
+      const want = H[goal * n + here] - 1, next = zn.nodes[here].nb.find((j) => H[goal * n + j] === want);
+      if (next === undefined) break;
+      h.path.push(Civ.edgePoint(h, here, next));
+      here = next;
+    }
+    // straight on to the last of those corners h already sees (it may stand on the street between two of them)
+    for (let j = h.path.length - 1; j > 0; j--) if (Civ.clearLine(h.x, h.z, h.path[j].x, h.path[j].z, blds)) { h.path.splice(0, j); break; }
   },
   /* a responder's path ran out off its post: the medic done, or the scene over, back to the vehicle; else to its post */
   dutyNext(c) {
@@ -8516,8 +8563,8 @@ const Society = {
     const rx = -Math.cos(car.yaw), rz = Math.sin(car.yaw), out = car.v.hw + 0.6;
     let x = car.x + rx * out, z = car.z + rz * out;
     if (Civ.blocked(x, z, CIV_RADIUS, c.zone.blds)) { x = car.x - rx * out; z = car.z - rz * out; }
-    c.state = 'walk'; c.crouch = false; c.path.length = 0;
-    c.path.push(Civ.point(x, z, -1, false, null, SOC_ACT_ABOARD));
+    c.state = 'walk'; c.crouch = false;
+    this.walkTo(c, x, z, SOC_ACT_ABOARD);
     return true;
   },
   /* a responder back in its vehicle; the vehicle goes once its crew is in and the scene is over */
@@ -10599,6 +10646,7 @@ const Traffic = {
     c.speed = want > c.speed ? Math.min(want, c.speed + TRAFFIC_ACCEL * dt) : Math.max(want, c.speed - brake * 2 * dt);
     let mv = c.speed * dt;
     if (mv > gap - 0.3) { mv = Math.max(0, gap - 0.3); c.speed = mv / dt; }   // never into what is ahead
+    if (c.dest && L === c.dest.L && c.s < c.dest.s && this.lastLeg(c)) mv = Math.min(mv, c.dest.s - c.s);   // never past where it stops (a fast one would end with its nose in the junction)
     // held: behind something that does not move it turns back after a while, behind anything after longer (one held
     // close to where it is going stops there)
     if (c.speed < 0.2 && c.halt <= 0) {
@@ -10609,14 +10657,16 @@ const Traffic = {
       if ((kind === TRAFFIC_BLOCK_THING && c.wait > TRAFFIC_WAIT) || c.wait > TRAFFIC_STUCK) this.turnBack(c);
     } else { c.wait = 0; c.heldT = 0; }
     if (c.state === 'drive') this.advance(c, mv);
-    if (c.dest && c.state === 'drive' && ((c.lane === c.dest.L && c.s >= c.dest.s) || (c.dest.kind === 'scene' && this.atScene(c)))) this.arrive(c);
+    if (c.dest && c.state === 'drive' && ((c.lane === c.dest.L && c.s >= c.dest.s && this.lastLeg(c)) || (c.dest.kind === 'scene' && this.atScene(c)))) this.arrive(c);
   },
+  /* true when c's way has no lanes left: on its stop lane it stops there (else, past its stop already, it goes round to it) */
+  lastLeg(c) { return !c.way || c.wayI >= c.way.length; },
   /* move c mv m on along its lanes */
   advance(c, mv) {
     let L = c.lane;
     c.s += mv;
     while (c.s > L.len) {
-      const next = c.dest && L === c.dest.L ? null : c.next || this.pickNext(c, L);   // never past the lane it stops on
+      const next = c.dest && L === c.dest.L && this.lastLeg(c) ? null : c.next || this.pickNext(c, L);   // never past the lane it stops on
       if (!next) { c.s = L.len; break; }
       c.s -= L.len;
       this.drop(L.cars, c);
@@ -30607,7 +30657,7 @@ const SelfTest = {
     });
     t('society: first responders', () => {
       const keepQ = S.quality, keepCam = { x: R.cam.x, y: R.cam.y, z: R.cam.z }, keepVisible = R.visible, keepRandom = Math.random;
-      const FAR_STATION = 150, CASUALTIES = 16, REACHED = 0.6;   // m from a hospital; scenes about the town, and the share reached (midday traffic: 69-100% seen)
+      const FAR_STATION = 150, CASUALTIES = 16, REACHED = 0.6, WALKER_WAIT = 60;   // m from a hospital; scenes about the town, and the share reached (midday traffic: 69-100% seen); s to wait for someone out
       // the scene near (x, z) and when each service reached it (s; -1: not yet), until done says so
       const watch = (x, z, secs, done) => {
         const got = { fire: -1, ems: -1, police: -1, inc: null };
@@ -30644,13 +30694,22 @@ const SelfTest = {
         this.check('a fire sends a fire engine, which drives to it, and its crew hose it', fire.fire >= 0 && engine && Math.hypot(engine.x - fx, engine.z - fz) < SOC_SPRAY + fire.inc.r && fire.inc.crew.filter((h) => h.unit === 'fire' && !h.dead).length === SOC_UNITS.fire.crew, fire.fire + ' s');
         this.check('it sends the police too', fire.inc && (fire.inc.sent & SOC_UNITS.police.bit));
         clear();
-        // a casualty: an ambulance, and its medic tends the fallen
-        const fallen = near(zn.civs.filter((c) => !c.dead && !c.duty && c.state === 'walk'), from(zn, 'hospital'), (c) => [c.x, c.z])[0];
-        const cx = fallen.x, cz = fallen.z;
-        Civ.kill(fallen, 0, 1, 0);
-        const cas = watch(cx, cz, 120, (g) => g.inc && g.inc.crew.some((h) => h.unit === 'ems' && h.crouch));
+        // a casualty: an ambulance, and its medic tends the fallen (someone walking 50 to 200 m from the hospital, once people
+        // are out: after a short fire scene the town may still be indoors)
+        const walkerNear = (p) => {
+          for (let s = 0; s < WALKER_WAIT; s++) {
+            const w = near(zn.civs.filter((c) => !c.dead && !c.duty && c.state === 'walk'), p, (c) => [c.x, c.z])[0];
+            if (w) return w;
+            socRun(1, 0.1);
+          }
+          return null;
+        };
+        const fallen = walkerNear(from(zn, 'hospital'));
+        const cx = fallen ? fallen.x : 0, cz = fallen ? fallen.z : 0;
+        if (fallen) Civ.kill(fallen, 0, 1, 0);
+        const cas = fallen ? watch(cx, cz, 120, (g) => g.inc && g.inc.crew.some((h) => h.unit === 'ems' && h.crouch)) : { ems: -1, inc: null };
         const medic = cas.inc && cas.inc.crew.find((h) => h.unit === 'ems');
-        this.check('a casualty brings an ambulance, and its medic tends the fallen', cas.ems >= 0 && medic && medic.crouch && Math.hypot(medic.x - cx, medic.z - cz) < 4, cas.ems + ' s');
+        this.check('a casualty brings an ambulance, and its medic tends the fallen', cas.ems >= 0 && medic && medic.crouch && Math.hypot(medic.x - cx, medic.z - cz) < 4, fallen ? cas.ems + ' s' : 'no one out near the hospital in ' + WALKER_WAIT + ' s');
         clear();
         // a casualty in front of a door whose nearest lane point is a lane's end (a street corner), well away from every
         // hospital (the ambulance drives the streets to it): it stops short of the end and gets there
