@@ -139,8 +139,6 @@ Bus.on('medal', (event) => { if (event.id === Game.playerId && event.id >= 0) Hu
 const HUD_BANNER_STEP = 2;            // px between the places tried
 const HUD_BANNER_OVERHANG = 0.25;     // of the text size: an end glyph's atlas cell reaches past the measured width
 const hudBannerSlot = new Int8Array(HUD_BANNER_SHOWN), hudBannerSize = new Float64Array(HUD_BANNER_SHOWN), hudBannerHalf = new Float64Array(HUD_BANNER_SHOWN);
-// Half the height a label line of a size covers: its atlas cell and its shadow (17a labelAt).
-function hudLabelReach(size) { return hudTextHalf(size) + HUD_SHADOW_OFFSET * Math.max(1, size / 16); }
 function hudBannerLineFree(layout, y, half, size) {
   const reach = hudLabelReach(size), wide = half + reach - hudTextHalf(size) + size * HUD_BANNER_OVERHANG;
   for (let i = 0; i < TOUCH_CONTROLS.length; i++) {
@@ -337,8 +335,6 @@ function hudDrawRespawnText(pen, layout) {
 Bus.on('match.start', () => { HudFeed.reset(); HudBanners.reset(); });
 Bus.on('match.stop', () => { HudFeed.reset(); HudBanners.reset(); });
 
-// Half a drawn text row of a size (px): the atlas cell, floored like the pen (ACC-008).
-function hudTextHalf(size) { return Math.max(size, Hud.textFloor) * HUD_CELL_PX / HUD_FONT_PX / 2; }
 // Touch buttons give way to the score panel and the rows under it (05b keepClear, touch-01), on the screen size they are
 // placed for. The rows: one area from the HUD top down to the lowest row the drawers place for the mode (the chip row's note
 // line in modes with objectives: chips and notes come and go) and out to the widest. Widths in units, as the drawers place

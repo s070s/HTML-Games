@@ -15,6 +15,7 @@ const KILLCAM_FIELDS = 6;                                   // x y z yaw pitch e
 const KILLCAM_LOOK_FIELDS = 7;                              // speed height grounded hidden health shield champion: what a drawn pose reads
 const KILLCAM_CLOAK_SHIMMER = 2;                            // hidden: 0 no, 1 cloaked, 2 Ghostveil (shows its shimmer)
 const KILLCAM_BAR = 0.08;                                   // letterbox bar height as a share of the screen
+const KILLCAM_NAME_SIZE = 24;                               // design px: the killer's name, the largest text in the bars
 const KILLCAM_ORDER = 95;                                   // sim system order: after every other bookkeeping
 
 Settings.define('hud.killcam', true, { label: 'Killcam replay after you are killed', category: 'hud' });
@@ -170,7 +171,7 @@ function hudDrawKillcamPanel(pen, layout) {
   pen.rect(0, layout.height - bar, layout.width, bar, HUD_COLOR.black, 0.92);
   pen.rect(0, layout.height - 3 * unit, layout.width * Killcam.progress(), 3 * unit, HUD_COLOR.gold, 1);
   pen.text('KILLED BY', x - 8 * unit, bar / 2, 16 * unit, HUD_COLOR.dim, 'right');
-  pen.text(Killcam.killerName, x + 8 * unit, bar / 2, 24 * unit, HUD_COLOR.text, 'left');
+  pen.text(Killcam.killerName, x + 8 * unit, bar / 2, KILLCAM_NAME_SIZE * unit, HUD_COLOR.text, 'left');
   const y = layout.height - bar / 2;
   if (Killcam.weaponClass) pen.weaponIcon(Killcam.weaponClass, x - 150 * unit, y, 44 * unit, HUD_COLOR.text);
   pen.text(Killcam.weaponName, x - 120 * unit, y, 18 * unit, HUD_COLOR.text, 'left');
@@ -184,7 +185,13 @@ function hudDrawKillcamPanel(pen, layout) {
 }
 Hud.register('front', 'killcam', '', hudDrawKillcamPanel);
 // While the replay plays, touch buttons give way to its letterbox bars (05b keepClear, touch-01).
+// The bars' text may be taller than a bar at a large HUD scale: each area reaches the largest text's half height from the
+// bar's centre line, where the drawing puts it.
+const killcamClearLayout = {};
 TouchInput.keepClear.push((width, height) => {
-  const bar = height * KILLCAM_BAR;
-  if (Killcam.playing) { TouchInput.addClear(0, 0, width, bar); TouchInput.addClear(0, height - bar, width, height); }
+  if (!Killcam.playing) return;
+  updateHudLayout(killcamClearLayout, width, height);
+  const bar = height * KILLCAM_BAR, reach = Math.max(bar, bar / 2 + hudTextHalf(KILLCAM_NAME_SIZE * killcamClearLayout.unit));
+  TouchInput.addClear(0, 0, width, reach);
+  TouchInput.addClear(0, height - reach, width, height);
 });

@@ -24,7 +24,8 @@ const TOUCH_OPACITY_MIN = 0.2, TOUCH_OPACITY_MAX = 1;
 const TOUCH_DEFAULT_OPACITY = 0.7;
 const TOUCH_AIM_ZONE = 0.18;            // of the short screen side: no button this close to the crosshair (the screen centre, touch-01)
 const TOUCH_SEARCH_DIRECTIONS = 16;     // spots tried on each ring around a button's layout spot when that spot is not free
-const TOUCH_SHRINK_STEPS = [1, 0.85, 0.7, 0.55];   // a button with no free spot at its size tries again this much smaller
+const TOUCH_SHRINK_STEP = 0.85;          // a button with no free spot at its size tries again this much smaller ...
+const TOUCH_SMALLEST = 0.55;            // ... down to this share of its preset size (the default scale always fits there)
 const ROLE_NONE = 0, ROLE_STICK = 1, ROLE_LOOK = 2, ROLE_BUTTON = 3, ROLE_DRAG = 4;
 // Rotation axes of a phone held in each screen orientation: which device axes point screen-up and screen-right.
 const GYRO_AXES = {
@@ -73,9 +74,6 @@ const TOUCH_CONTROLS = [
   { id: 'gadget', label: 'Gadget', face: 'TOOL', action: 'gadget', x: 0.35, y: 0.32, size: 44, need: 'gadget' },
   { id: 'comm', label: 'Comm wheel', face: 'CHAT', action: 'comm', x: 0.66, y: 0.20, size: 40, need: 'comm' },
 ];
-// The order placeAll gives out the free spots: the largest buttons first (the stick, FIRE, JUMP keep their places; the
-// small utility row moves when the screen is crowded). sort is stable, so equal sizes keep the TOUCH_CONTROLS order.
-const TOUCH_PLACE_ORDER = TOUCH_CONTROLS.slice().sort((a, b) => b.size - a.size);
 const TOUCH_SETTINGS = [
   { key: 'controls.touch.sensitivity', field: 'touchSensitivity', fallback: 1, label: 'Touch look sensitivity', min: 0.2, max: 3, step: 0.05 },
   { key: 'controls.touch.acceleration', field: 'touchAccel', fallback: 0.3, label: 'Touch look acceleration', min: 0, max: 1, step: 0.05 },
@@ -132,6 +130,7 @@ const TouchInput = {
   buttonLook: null,                // fn(control) -> true: that held button's finger also turns the look (17g comm wheel)
   layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
   places: {},                      // control id -> { x, y, radius, shown, placed }: where it is drawn, in window css px (placeAll)
+  placeOrder: TOUCH_CONTROLS.slice(),   // placeAll sorts it: the largest drawn first (the stick, FIRE, JUMP keep their places)
   aim: { x: 0, y: 0, radius: 0 },  // the aim zone of the last placeAll, kept free of buttons (17c keeps the banners out of it too)
   insets: { top: 0, right: 0, bottom: 0, left: 0 },   // the safe-area insets the layer sits inside (17a shares Hud.insets)
   keepClear: [],                   // fn(width, height) per HUD area the buttons give way to, each calls addClear (17c score panel, 17e killcam bars)
@@ -465,41 +464,61 @@ const TouchInput = {
   },
   // Fills places for a width x height screen (css px): one source for the layer and the layout tests (hudui). The aim zone
   // (a circle around the screen centre, where the crosshair is) and the keepClear areas are set first; then each shown
-  // button, the largest first so the big ones keep their spots, takes the free spot nearest its layout spot (placeControl).
+  // button, the largest as drawn first (its layout scale counts) so the big ones keep their spots, takes the free spot nearest
+  // its layout spot (placeControl).
   placeAll(width, height) {
-    const aim = this.aim;
+    const aim = this.aim, places = this.places;
     aim.x = width / 2; aim.y = height / 2; aim.radius = TOUCH_AIM_ZONE * Math.min(width, height);
     this.clearCount = 0;
     for (let i = 0; i < this.keepClear.length; i++) this.keepClear[i](width, height);
-    for (const control of TOUCH_CONTROLS) this.places[control.id].placed = false;
-    for (const control of TOUCH_PLACE_ORDER) this.placeControl(control, width, height);
+    for (let i = 0; i < TOUCH_CONTROLS.length; i++) this.prepareControl(TOUCH_CONTROLS[i], i, width, height);
+    this.placeOrder.sort((a, b) => (places[b.id].fullRadius - places[a.id].fullRadius) || (places[a.id].order - places[b.id].order));
+    for (const control of this.placeOrder) this.placeControl(control, width, height);
+  },
+  // A control's layout spot (on screen), its drawn radius and whether it shows; not placed yet.
+  prepareControl(control, order, width, height) {
+    const insets = this.insets, layout = this.layoutOf(control.id, this.layoutScratch), place = this.places[control.id];
+    const radius = control.size * layout.scale / 2;
+    place.startX = clamp(insets.left + layout.x * (width - insets.left - insets.right), insets.left + radius, width - insets.right - radius);
+    place.startY = clamp(insets.top + layout.y * (height - insets.top - insets.bottom), insets.top + radius, height - insets.bottom - radius);
+    place.x = place.startX; place.y = place.startY; place.radius = place.fullRadius = radius; place.order = order; place.placed = false;
+    place.shown = !layout.hidden && !(control.setting && !Input.config[control.setting]) && !(control.need && !this.needMet(control.need));
   },
   // The layout spot when it is free, else the nearest free spot on rings around it (TOUCH_SEARCH_DIRECTIONS per ring, half a
-  // radius apart); a button with no free spot anywhere tries again smaller (TOUCH_SHRINK_STEPS). With none at all it keeps
-  // its layout spot. Free = inside the layer, outside the aim zone and every keepClear area, and off every button placed before.
+  // radius apart). A button with no free spot anywhere tries again smaller (by TOUCH_SHRINK_STEP), down to TOUCH_SMALLEST of
+  // its preset size (where the default scale always fits). With none even then it takes the spot inside the layer, outside
+  // the aim zone and the keepClear areas, that overlaps the other buttons least.
   placeControl(control, width, height) {
-    const insets = this.insets, layout = this.layoutOf(control.id, this.layoutScratch), place = this.places[control.id];
-    const fullRadius = control.size * layout.scale / 2;
-    const startX = clamp(insets.left + layout.x * (width - insets.left - insets.right), insets.left + fullRadius, width - insets.right - fullRadius);
-    const startY = clamp(insets.top + layout.y * (height - insets.top - insets.bottom), insets.top + fullRadius, height - insets.bottom - fullRadius);
-    place.x = startX; place.y = startY; place.radius = fullRadius; place.placed = true;
-    place.shown = !layout.hidden && !(control.setting && !Input.config[control.setting]) && !(control.need && !this.needMet(control.need));
+    const place = this.places[control.id], smallest = control.size * this.preset().scale / 2 * TOUCH_SMALLEST;
+    place.placed = true;
     if (!place.shown) return;
-    for (const shrink of TOUCH_SHRINK_STEPS) {
-      const radius = fullRadius * shrink, step = radius / 2, farthest = Math.max(width, height);
-      if (this.spotFree(control, startX, startY, radius, width, height)) { place.radius = radius; return; }
-      for (let distance = step; distance < farthest; distance += step) {
-        for (let i = 0; i < TOUCH_SEARCH_DIRECTIONS; i++) {
-          const angle = i * 2 * Math.PI / TOUCH_SEARCH_DIRECTIONS, x = startX + Math.cos(angle) * distance, y = startY + Math.sin(angle) * distance;
-          if (!this.spotFree(control, x, y, radius, width, height)) continue;
-          place.x = x; place.y = y; place.radius = radius;
-          return;
-        }
-      }
+    let radius = place.fullRadius;
+    for (;;) {
+      const last = radius <= smallest;
+      if (this.searchSpot(control, place, radius, width, height, last)) return;
+      if (last) return;
+      radius = Math.max(smallest, radius * TOUCH_SHRINK_STEP);
     }
   },
-  // A circle of radius at x, y fits: inside the layer, outside the aim zone and the keepClear areas, off the buttons placed so far.
-  spotFree(control, x, y, radius, width, height) {
+  // Rings out from the layout spot: true when it set place to a free spot of this radius. With leastOverlap it falls back to
+  // the allowed spot that overlaps the other buttons least (also true); false when no spot is even allowed.
+  searchSpot(control, place, radius, width, height, leastOverlap) {
+    const startX = place.startX, startY = place.startY, step = radius / 2, farthest = Math.max(width, height);
+    let best = Infinity;
+    for (let distance = 0; distance < farthest; distance += step) {
+      const directions = distance === 0 ? 1 : TOUCH_SEARCH_DIRECTIONS;
+      for (let i = 0; i < directions; i++) {
+        const angle = i * 2 * Math.PI / TOUCH_SEARCH_DIRECTIONS, x = startX + Math.cos(angle) * distance, y = startY + Math.sin(angle) * distance;
+        if (!this.spotAllowed(x, y, radius, width, height)) continue;
+        const overlap = this.overlapAt(control, x, y, radius);
+        if (overlap === 0 || (leastOverlap && overlap < best)) { place.x = x; place.y = y; place.radius = radius; best = overlap; }
+        if (overlap === 0) return true;
+      }
+    }
+    return best < Infinity;
+  },
+  // A circle of radius at x, y may go there: inside the layer, outside the aim zone and the keepClear areas.
+  spotAllowed(x, y, radius, width, height) {
     const insets = this.insets, aim = this.aim;
     if (x < insets.left + radius || x > width - insets.right - radius || y < insets.top + radius || y > height - insets.bottom - radius) return false;
     if (length2(x - aim.x, y - aim.y) < aim.radius + radius) return false;
@@ -507,15 +526,16 @@ const TouchInput = {
       const rect = this.clearRects[i];
       if (x + radius > rect.left && x - radius < rect.right && y + radius > rect.top && y - radius < rect.bottom) return false;
     }
-    return !this.spotTaken(control, x, y, radius);
+    return true;
   },
-  // Another shown button placed in this pass covers the circle (buttons may touch, not overlap).
-  spotTaken(control, x, y, radius) {
+  // How deep the circle overlaps the shown buttons placed so far in this pass, summed (0: free; buttons may touch).
+  overlapAt(control, x, y, radius) {
+    let overlap = 0;
     for (const other of TOUCH_CONTROLS) {
       const place = this.places[other.id];
-      if (other !== control && place.placed && place.shown && length2(place.x - x, place.y - y) < place.radius + radius) return true;
+      if (other !== control && place.placed && place.shown) overlap += Math.max(0, place.radius + radius - length2(place.x - x, place.y - y));
     }
-    return false;
+    return overlap;
   },
   // A need with a function asks it; one without reads its match flag (setFlag).
   needMet(need) { const check = this.needs[need]; return check ? !!check() : !!this.flags[need]; },

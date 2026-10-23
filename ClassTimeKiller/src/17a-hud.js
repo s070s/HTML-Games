@@ -329,6 +329,10 @@ function pushHudDiamond() {
 }
 // ACC-008 in one place: a size under 14 px at 100% HUD scale (a phone's 0.9 unit) is drawn and measured at the floor.
 function hudFloorTextSize() { if (hudTextAt[2] < Hud.textFloor) hudTextAt[2] = Hud.textFloor; }
+// Half a drawn text row of a size (px): the atlas cell, floored like the pen (ACC-008).
+function hudTextHalf(size) { return Math.max(size, Hud.textFloor) * HUD_CELL_PX / HUD_FONT_PX / 2; }
+// Half the height a label line of a size covers: its atlas cell and its shadow (labelAt).
+function hudLabelReach(size) { return hudTextHalf(size) + HUD_SHADOW_OFFSET * Math.max(1, size / 16); }
 
 const HudPen = {
   // The arguments pass through unchanged: a float computed here would be boxed on its way to HudBatch (PERF-006).

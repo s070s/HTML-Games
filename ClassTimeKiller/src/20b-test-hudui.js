@@ -421,28 +421,34 @@ function hudUiTouchBreak(fixed, banners, width, height) {
   return moved && banners.some((box) => hudUiBoxMeetsCircle(box, width / 2, height / 2, aimRadius)) ? 'banners moved onto the crosshair' : '';
 }
 // The problems of the running match on one screen size: each preset, default and moved places (-1: none moved), in play and replay.
-function hudUiTouchProblems(width, height) {
+// HUD scale 100% and 150%; layouts at the defaults (-1) or every button moved to the top or bottom edge, at editor scales 1 to 2.
+const HUD_UI_HUD_SCALES = [1, 1.5], HUD_UI_EDITS = [[-1, 0], [0.01, 0], [0.99, 0], [-1, 1.5], [-1, 2], [0.01, 2]];
+function hudUiTouchProblems(width, height, draw) {
   const layout = {}, problems = [];
-  updateHudLayout(layout, width, height);
-  for (const preset of TOUCH_PRESETS) {
-    TouchInput.currentPreset = preset;
-    for (const moved of [-1, 0.01, 0.99]) {
-      const saved = {};
-      for (const control of TOUCH_CONTROLS) saved[control.id] = { x: control.x, y: moved };
-      Save.data.touchLayouts = moved < 0 ? {} : { [preset.id]: saved };
-      for (const replay of [false, true]) {
-        Killcam.playing = replay;
-        TouchInput.placeAll(width, height);
-        HudBatch.quads = 0;
-        hudDrawHeader(HudPen, layout);
-        if (replay) hudDrawKillcamPanel(HudPen, layout);
-        const fixed = hudUiDrawnBoxes(0), first = HudBatch.quads;
-        hudDrawBanners(HudPen, layout);
-        const broken = hudUiTouchBreak(fixed, hudUiDrawnBoxes(first), width, height);
-        if (broken) problems.push([width, height, preset.id, moved, replay, broken].join(' '));
+  for (const hudScale of HUD_UI_HUD_SCALES) {
+    Hud.scale = hudScale; Hud.textFloor = HUD_TEXT_SMALL * hudScale;   // as Hud.applySettings sets them
+    updateHudLayout(layout, width, height);
+    for (const preset of TOUCH_PRESETS) {
+      TouchInput.currentPreset = preset;
+      for (const [moved, scale] of HUD_UI_EDITS) {
+        const saved = {};
+        for (const control of TOUCH_CONTROLS) saved[control.id] = Object.assign(moved < 0 ? {} : { x: control.x, y: moved }, scale ? { scale } : {});
+        Save.data.touchLayouts = moved < 0 && !scale ? {} : { [preset.id]: saved };
+        for (const replay of [false, true]) {
+          Killcam.playing = replay;
+          TouchInput.placeAll(width, height);
+          HudBatch.quads = 0;
+          draw(layout);
+          if (replay) hudDrawKillcamPanel(HudPen, layout);
+          const fixed = hudUiDrawnBoxes(0), first = HudBatch.quads;
+          hudDrawBanners(HudPen, layout);
+          const broken = hudUiTouchBreak(fixed, hudUiDrawnBoxes(first), width, height);
+          if (broken) problems.push([width, height, hudScale, preset.id, moved, scale, replay, broken].join(' '));
+        }
       }
     }
   }
+  Hud.applySettings();
   return problems;
 }
 Test.add('hudui', (check) => hudTestWith(() => {
@@ -453,7 +459,7 @@ Test.add('hudui', (check) => hudTestWith(() => {
       Game.start({ mode, map: PlayFlow.smallestMap(mode).id, seed: 1, bots: [{ dummy: true }, { dummy: true }] });
       HudBanners.add(HUD_UI_BANNERS[0], 'lead', 1, false); HudBanners.add(HUD_UI_BANNERS[1], 'medal', HUD_BANNER_PRIORITY_LONG, true);
       Hud.time += 1;   // the banners are fully faded in
-      const problems = HUD_UI_SCREENS.flatMap(([width, height]) => hudUiTouchProblems(width, height));
+      const problems = HUD_UI_SCREENS.flatMap(([width, height]) => hudUiTouchProblems(width, height, (layout) => hudDrawHeader(HudPen, layout)));
       check('touch-01: buttons apart, off the aim zone, the header and the killcam panel, banners shown in ' + mode, problems.length === 0, problems.slice(0, 4).join('; '));
       endModeTest();
     }
