@@ -62,7 +62,8 @@ const SPREAD_FRACTION = 0.5;            // bots spread inside a zone up to this 
 const SQUAD_ZONE_PULL = 1.5;            // a squad follower values the zone its leader plays this much more
 const GOLDEN_ANGLE = 2.399963;          // rad: bots sent to one spot stand around it at id x this angle (no two ids line up)
 const HOLD_LOOK_SPEED = 0.6;            // rad/s a holding bot sweeps its view...
-const HOLD_LOOK_ARC = 60 * DEG;         // ...back and forth this far either side of where it faced on arrival (BOT-040: no 360 vision)
+const HOLD_LOOK_ARC = 60 * DEG;         // ...back and forth this far either side of its centre (BOT-040: no 360 vision)
+const HOLD_OUTWARD_MIN = 1;            // m from an objective's centre: closer, the bot keeps the way it faced
 const SAFE_AREA_MARGIN = 0.7;
 const GOAL_DISTANCE_SCALE = 60;         // m: an objective's urgency halves at this distance (goal hints)
 const GOAL_TOUCH_RADIUS = 0.8;          // m: touch a carriable or stand on a spot
@@ -256,22 +257,27 @@ const BotDecide = {
     if (goal === GOAL.CHASE) this.searched(id);
     if (goal === GOAL.ROAM) this.roamNode[id] = -1;
     if (goal === GOAL.COLLECT || goal === GOAL.CHASE || goal === GOAL.ROAM || goal === GOAL.INVESTIGATE) { this.hurry(id, now); return; }
-    if (BotCombat.target[id] >= 0) return;
-    // A hit from out of sight turns the view to the attacker (14d lookAtThreat); the sweep then swings around that way.
-    if (now - BotSense.attackedAt[id] < TARGET_REVENGE_SECONDS) { this.holdYaw[id] = NaN; return; }
-    // Hold: the view swings at HOLD_LOOK_SPEED over HOLD_LOOK_ARC either side of the way the bot faced (a retreat: of the
-    // threat) when it first got there. Bots.turn wraps the look error, so the sum needs no wrap here.
+    // A fight, or a hit from out of sight (14d lookAtThreat turns the view to the attacker): the sweep then swings around
+    // the way the bot last aimed, where the enemy was.
+    if (BotCombat.target[id] >= 0 || now - BotSense.attackedAt[id] < TARGET_REVENGE_SECONDS) { this.holdYaw[id] = Actors.aimYaw[id]; this.holdOffset[id] = 0; return; }
+    // Hold: the view swings at HOLD_LOOK_SPEED over HOLD_LOOK_ARC either side of holdCentre, set on arrival. Bots.turn
+    // wraps the look error, so the sum needs no wrap here.
     if (Number.isNaN(this.holdYaw[id])) { this.holdYaw[id] = this.holdCentre(id); this.holdOffset[id] = 0; }
     const offset = this.holdOffset[id] + this.holdTurn[id] * HOLD_LOOK_SPEED * dt;
     if (Math.abs(offset) >= HOLD_LOOK_ARC) this.holdTurn[id] = -this.holdTurn[id];
     this.holdOffset[id] = Math.max(-HOLD_LOOK_ARC, Math.min(HOLD_LOOK_ARC, offset));
     Bots.lookYaw[id] = this.holdYaw[id] + this.holdOffset[id];
   },
+  // Toward the threat on a retreat, out of the objective held (a point, a hill, a flag base), else the way the bot faced.
   holdCentre(id) {
     const threat = this.goal[id] === GOAL.RETREAT ? this.goalTarget[id] : -1;
-    if (threat < 0) return Actors.aimYaw[id];
-    BotSense.perceivedPosition(id, threat, threatPoint);
-    return Math.atan2(threatPoint.x - Actors.x[id], threatPoint.z - Actors.z[id]);
+    if (threat >= 0) {
+      BotSense.perceivedPosition(id, threat, threatPoint);
+      return Math.atan2(threatPoint.x - Actors.x[id], threatPoint.z - Actors.z[id]);
+    }
+    const zone = this.goal[id] === GOAL.OBJECTIVE ? Modes.objectives[this.goalTarget[id]] : null;
+    if (!zone || length2(Actors.x[id] - zone.x, Actors.z[id] - zone.z) < HOLD_OUTWARD_MIN) return Actors.aimYaw[id];
+    return Math.atan2(Actors.x[id] - zone.x, Actors.z[id] - zone.z);
   },
   markVisited(id, item, now) {
     if (item >= 0 && item < this.items.length) this.itemVisited[id * MAX_BOT_ITEMS + item] = now;

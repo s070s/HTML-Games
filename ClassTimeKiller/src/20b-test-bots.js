@@ -1501,7 +1501,7 @@ Test.add('bots', (check) => {
 DebugApi.bots.kits = { play: playKitMatch, abilityBatches, gadgetBatches };   // __CTK.bots.kits: kit matches from the console
 
 // ---- Holding bots sweep their view slowly over an arc (BOT-040: no spinning, no 360 degree vision) ----
-const HOLD_SWEEP_SETTLE = 40, HOLD_SWEEP_SECONDS = 6, HOLD_SWEEP_RATE_LIMIT = 60, HOLD_SWEEP_RANGE_LIMIT = 130;   // s, s, deg/s, deg
+const HOLD_SWEEP_SETTLE = 40, HOLD_SWEEP_SECONDS = 6, HOLD_SWEEP_RATE_LIMIT = 60, HOLD_SWEEP_RANGE_LIMIT = 130, HOLD_OUTWARD_LIMIT = 45;   // s, s, deg/s, deg, deg
 Test.add('bots', (check) => {
   const settleTicks = HOLD_SWEEP_SETTLE * TICK_RATE, turned = new Float64Array(MAX_ACTORS), held = new Uint32Array(MAX_ACTORS);
   const yaw = new Float64Array(MAX_ACTORS), low = new Float64Array(MAX_ACTORS), high = new Float64Array(MAX_ACTORS), last = new Float64Array(MAX_ACTORS);
@@ -1512,8 +1512,12 @@ Test.add('bots', (check) => {
       if (tick < settleTicks || !Bots.isBot(id) || !BotDecide.holding(id) || BotCombat.target[id] >= 0) continue;
       turned[id] += Math.abs(step); held[id]++;
       yaw[id] += step; low[id] = Math.min(low[id], yaw[id]); high[id] = Math.max(high[id], yaw[id]);
+      const zone = BotDecide.goal[id] === GOAL.OBJECTIVE ? Modes.objectives[BotDecide.goalTarget[id]] : null;
+      if (!zone || length2(Actors.x[id] - zone.x, Actors.z[id] - zone.z) < 1.5 || Number.isNaN(BotDecide.holdYaw[id])) continue;
+      outwardOff += Math.abs(wrapAngle(BotDecide.holdYaw[id] - Math.atan2(Actors.x[id] - zone.x, Actors.z[id] - zone.z))); outwardSamples++;
     }
   };
+  let outwardOff = 0, outwardSamples = 0;
   playMatch({ mode: 'dom', map: 'twinkeeps', minutes: (HOLD_SWEEP_SETTLE + HOLD_SWEEP_SECONDS) / 60, seed: 1, balance: false, onTick,
     bots: [{ team: 0, tier: 0 }, { team: 0, tier: 3 }, { team: 0, tier: 7 }, { team: 0, tier: 5 }] });
   let fastest = 0, widest = 0, holders = 0;
@@ -1525,6 +1529,8 @@ Test.add('bots', (check) => {
   }
   check('holding bots sweep their view slowly (no spin)', holders > 0 && fastest < HOLD_SWEEP_RATE_LIMIT, holders + ' holders, fastest ' + fastest.toFixed(0) + ' deg/s');
   check('and only over an arc (no 360 degree vision)', holders > 0 && widest <= HOLD_SWEEP_RANGE_LIMIT, 'widest ' + widest.toFixed(0) + ' deg');
+  const outward = outwardSamples > 0 ? outwardOff / outwardSamples / DEG : 180;
+  check('a bot holding a point sweeps around the way out of it', outward < HOLD_OUTWARD_LIMIT, outward.toFixed(0) + ' deg off on average');
 });
 
 // ---- BOT-021: easy bots still fight (worse), they do not run from most fights ----
