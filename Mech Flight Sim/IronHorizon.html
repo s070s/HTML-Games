@@ -9854,14 +9854,16 @@ function resolvePairs(dt) {
       if (b.dead) continue;
       const dx = b.x - a.x, dz = b.z - a.z, dist2 = dx * dx + dz * dz, rr = a.radius + b.radius;
       if (dist2 > rr * rr * 1.2) continue;
-      if (a.kind === 'air' && b.kind === 'air') {
+      // an aircraft on the ground is pushed about like a ground unit: no crash damage between planes standing still
+      const flyA = a.kind === 'air' && !a.grounded, flyB = b.kind === 'air' && !b.grounded;
+      if (flyA && flyB) {
         if (Math.hypot(dx, b.y - a.y, dz) < rr * 0.8) {
           a.takeDamage(260, 'collision', null, dx, dz, { noStagger: true }); b.takeDamage(260, 'collision', null, -dx, -dz, { noStagger: true });
         }
         continue;
       }
-      if (a.kind === 'air' || b.kind === 'air') {
-        const air = a.kind === 'air' ? a : b, gr = a.kind === 'air' ? b : a;
+      if (flyA || flyB) {
+        const air = flyA ? a : b, gr = flyA ? b : a;
         if (air.y < gr.y + gr.height + air.radius * 0.5 && Math.hypot(air.x - gr.x, air.z - gr.z) < gr.radius + air.radius * 0.5 && air.crashCd <= 0) {
           air.crashCd = 0.8;
           air.takeDamage(200, 'collision', null, 0, 0, { noStagger: true }); gr.takeDamage(120, 'collision', null, 0, 0);
@@ -11242,14 +11244,35 @@ const Seats = {
   useLabel(ctx) { return ctx.enter ? 'ENTER' : ctx.use ? 'USE' : ctx.eject ? 'EJECT' : ctx.exit ? 'EXIT' : 'USE'; },
 };
 
-/* where a player's aircraft comes back: parked at an airport when the battlefield has one (P4.5 fills W.airports) */
-function airportSpawn() {
+const AIRPORT_SPAWN_STEP = 40;   // a lost aircraft's spot moves this far along the runway while the last one is taken (m)
+const AIRPORT_SPAWN_GAP = 6;     // and keeps this clear of anything standing there (m)
+/* Where a player's aircraft comes back: parked on the first free spot along the runway from its head (an aircraft or
+   unit standing on the head moves it on by AIRPORT_SPAWN_STEP), or at the head when the whole runway is taken; null
+   without an airfield. */
+function airportSpawn(radius) {
   const a = W.airports && W.airports[0];
-  return a ? { x: a.x, z: a.z, yaw: a.yaw || 0, parked: true } : null;
+  if (!a) return null;
+  const r = (radius || 0) + AIRPORT_SPAWN_GAP;
+  const sp = a.spot, rw = sp ? AIRFIELD[sp.kind].runway : null;
+  const last = rw ? rw[1] - AIRFIELD_SPAWN : 0, first = rw ? rw[0] + AIRFIELD_SPAWN : 0;
+  for (let u = first; u <= last; u += AIRPORT_SPAWN_STEP) {
+    const p = sp ? Airports.at(sp, u, 0) : a;
+    if (!standingNear(p.x, p.z, r)) return { x: p.x, z: p.z, yaw: a.yaw || 0, parked: true };
+  }
+  return { x: a.x, z: a.z, yaw: a.yaw || 0, parked: true };
+}
+/* true when a platform on the ground (not one flying over) stands within r of its edge from (x, z) */
+function standingNear(x, z, r) {
+  for (let i = 0; i < W.platforms.length; i++) {
+    const q = W.platforms[i];
+    if (q.dead || (q.kind === 'air' && !q.grounded)) continue;
+    if (Math.hypot(q.x - x, q.z - z) < q.radius + r) return true;
+  }
+  return false;
 }
 /* a lost player's next platform: an aircraft at an airport if there is one, else short of the fight (forwardSpawn) */
 function respawnSite(def) {
-  return (def.kind === 'air' && airportSpawn()) || forwardSpawn(W.mission.def.start, def.radius, def.kind === 'air');
+  return (def.kind === 'air' && airportSpawn(def.radius)) || forwardSpawn(W.mission.def.start, def.radius, def.kind === 'air');
 }
 
 /* True when a pad visit would restore something (energy and heat recover on their own). */
@@ -23029,6 +23052,19 @@ const SelfTest = {
       let liftAt = null;
       for (let k = 0; k < 900 && !p.dead && p.y - Terrain.h(p.x, p.z) < 30; k++) { const was = p.grounded; p.update(STEP); if (was && !p.grounded && !liftAt) liftAt = { x: p.x, z: p.z }; }
       this.check('it takes off from the runway', !p.dead && !!liftAt && onRunway(liftAt.x, liftAt.z, 0, 0) && p.y - Terrain.h(p.x, p.z) >= 30, JSON.stringify(liftAt));
+      // aircraft lost one after another come back on free spots along the runway, past one parked on its head; standing
+      // together on the ground they push apart instead of wrecking each other
+      const def = p.def, head = respawnSite(def), blocker = spawnParked(def.id, head.x, head.z, head.yaw);
+      const s1 = respawnSite(def);
+      Game.spawnPlayer(s1);
+      const p1 = W.player, s2 = respawnSite(def);
+      const jet = (s, dx) => { const q = new Platform(def, { team: 0, x: s.x + dx, z: s.z, yaw: s.yaw, loadout: Loadout.forPlatform(def.id) }); Seats.groundAir(q); q.isPlayer = true; W.platforms.push(q); return q; };
+      const p2 = jet(s2, 0), twin = jet(s2, 1), jets = [blocker, p1, p2, twin];
+      const apart = (q, r) => Math.hypot(q.x - r.x, q.z - r.z);
+      const spots = s1.parked && s2.parked && apart(blocker, p1) >= blocker.radius + p1.radius && apart(p1, p2) >= p1.radius + p2.radius && onRunway(s2.x, s2.z, 0, 0);
+      for (let i = 0; i < 300; i++) Game.tick(STEP);
+      this.check('a lost aircraft comes back on the next free spot along the runway, past a parked one and the last one back', spots, [head, s1, s2].map((s) => r1(s.x) + ',' + r1(s.z)).join(' '));
+      this.check('aircraft standing on the runway together survive 5 s unhurt and are pushed apart', jets.every((q) => !q.dead && q.hp === q.maxHp && W.platforms.indexOf(q) >= 0) && apart(p2, twin) >= (p2.radius + twin.radius) * 0.95, jets.map((q) => q.dead + ':' + q.hp.toFixed(0)).join(' ') + ' gap ' + apart(p2, twin).toFixed(1));
     });
     t('melee weapons', () => {
       // the loadout slot: who may carry what; older loadouts (no melee key) fight with fists
