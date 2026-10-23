@@ -24,6 +24,9 @@ const GIFT_FUSE_SECONDS = 3;
 const GIFT_RADIUS = 5;
 const GIFT_DAMAGE = 100;
 const GIFT_DRAW_SIZE = 0.3;
+// Reused instance records for the tag plates and gift balls (batch.meshFrom): float arguments would be boxed (PERF-006).
+const tagInstance = Object.assign(makeShapeInstance(), { sx: 0.18, sy: 0.28, sz: 0.04, g: 0.85, b: 0.2, emissive: 0.6 });
+const giftInstance = Object.assign(makeShapeInstance(), { sx: GIFT_DRAW_SIZE, sy: GIFT_DRAW_SIZE, sz: GIFT_DRAW_SIZE, g: 0.2, b: 0.1 });
 const GIFT_BLINK_SLOW = 6, GIFT_BLINK_FAST = 24;   // blink speed (radians per second) at the start of the fuse and what is added by its end
 const SUPPRESS_RANGE = 60;                   // X44: a shot passing within this distance of a target, closer than SUPPRESS_REACH
 const SUPPRESS_REACH = 2.5;
@@ -35,6 +38,15 @@ const TRIANGLE_AMMO = 12;
 const TRIANGLE_RESERVE_SCALE = 0.5;
 const POWER_FIRST = 5, POWER_LAST = 33;      // X46: abilities A05..A33
 const MUTATOR_ZONE_HEAD = 'head';
+
+// Mode traits a mutator row may need (row.needs): without it the mutator would do nothing or work against the mode.
+const MUTATOR_MODE_NEEDS = {
+  // Rounds refill lives; co-op has its own; a mode that sets the sides itself (Blight converts the dead) has no fixed side to run out.
+  lives: (mode) => !mode.rounds && mode.respawn === 'normal' && mode.teams !== 1 && !mode.params.fixedSides,
+  teams: (mode) => mode.teams === TEAM_COUNT,
+  killScoring: (mode) => mode.scoring.kill !== 0,                                    // NO_KILL_SCORING modes score by their own rule
+  ownWeapons: (mode) => !MODE_ARMING_PARAMS.some((key) => mode.params[key]),           // the ladder and roulette arm everyone
+};
 
 const GRANT_EVENT = { id: 0, item: '' };
 const POWER_EVENT = { id: 0, ability: '' };
@@ -56,11 +68,6 @@ const Mutators = {
 
   addHook(kind, hook) { this.hooks[kind].push(hook); },
   row(id) { return CAT.mutators.byId(id); },
-  isActive(id) { return !!this.rules && this.rules.mutators.some((entry) => entry.id === id); },
-  value(id) {
-    const entry = this.rules ? this.rules.mutators.find((item) => item.id === id) : null;
-    return entry ? entry.value : undefined;
-  },
 
   // ---- Typed values ----
   optionsOf(param) {
@@ -122,6 +129,8 @@ const Mutators = {
     return { list: kept, added: true, removed, message };
   },
   remove(list, id) { return list.filter((entry) => entry.id !== id); },
+  // Whether the mutator row works in the mode (a CAT.modes row): the trait its row.needs names (MUTATOR_MODE_NEEDS).
+  fitsMode(row, mode) { return !row.needs || !mode || MUTATOR_MODE_NEEDS[row.needs](mode); },
   // Canonical list: strings and { id, value } accepted, invalid entries dropped (notes in messages), conflicts resolved last-wins.
   resolve(list) {
     const messages = [], unknown = [];
@@ -155,7 +164,6 @@ const Mutators = {
 
   // ---- Runtime access for other sections ----
   suppression(id) { return this.fx && this.fx.suppression ? clamp(this.suppressed[id] / SUPPRESS_SECONDS, 0, 1) : 0; },
-  sizeScale(id) { return Hitbox.sizeScale[id]; },
 };
 
 function snapToStep(param, value) {
@@ -248,12 +256,21 @@ function applyMutator(rules, entry) {
 function applyMutatorStage(rules) {
   const resolved = Mutators.resolve(rules.mutators);
   for (const id of resolved.unknown) Rules.report('unknown mutator ' + id);
-  rules.mutators = resolved.list;
+  rules.mutators = dropUnfitMutators(resolved.list, CAT.modes.byId(rules.mode), resolved.messages);
   rules.fx = {};
   for (const entry of rules.mutators) applyMutator(rules, entry);
   const health = CAT.health.byId(rules.health);
   if (health && health.triangle) rules.fx.triangle = true;   // HPP07 Ravager Triangle
   for (const text of resolved.messages) emitToast(text);
+}
+// A mutator the mode cannot use (row.needs) is turned off with a notice.
+function dropUnfitMutators(list, mode, messages) {
+  return list.filter((entry) => {
+    const row = Mutators.row(entry.id);
+    if (Mutators.fitsMode(row, mode)) return true;
+    messages.push(row.name + ' does not work in ' + mode.name + ' and was turned off.');
+    return false;
+  });
 }
 // X22: the player's handicap, unless the setup names one (the handicap stage runs after the mutators).
 function applyMutatorHandicap(rules, setup) {
@@ -541,7 +558,8 @@ Bus.on('actor.create', (id) => {
   Weapons.mutatorScale.fill(1, id * WEAPON_STAT_COUNT, (id + 1) * WEAPON_STAT_COUNT);
   if (Mutators.fx && Mutators.fx.triangle) setMutatorStat(id, STAT.RESERVE, TRIANGLE_RESERVE_SCALE);   // before the first loadout is given
 });
-Bus.on('actor.spawn', (event) => runHooks('spawn', event.id));
+// The mutator spawn values first (X06 health, X07 shields), then the mode's role on top (13e onSpawn: infected, colossus, cursed).
+Bus.on('actor.spawn', (event) => { runHooks('spawn', event.id); callBehaviour('onSpawn', event.id); });
 Bus.on('kill', (event) => runHooks('kill', event));
 Bus.on('damage', (event) => runHooks('damage', event));
 Bus.on('weapon.fire', (shot) => runHooks('fire', shot));
@@ -552,9 +570,12 @@ Render.addActorStyle((id, style) => { style.scale *= Hitbox.sizeScale[id]; style
 // Confirm tags (X42) are drawn as small yellow plates above the floor, live last gifts (X29) as red balls that blink faster before the blast.
 Render.addSource('tags', (batch) => {
   if (!Mutators.fx || !Mutators.fx.tags) return;
+  const instance = tagInstance, bob = 0.1 * Math.sin(Sim.time * 4);
+  instance.yaw = Sim.time * 2;
   for (let slot = 0; slot < MAX_TAGS; slot++) {
     if (TagPool.timer[slot] <= 0) continue;
-    batch.mesh('box', TagPool.x[slot], TagPool.y[slot] + 0.1 * Math.sin(Sim.time * 4), TagPool.z[slot], Sim.time * 2, 0, 0.18, 0.28, 0.04, 1, 0.85, 0.2, 0.6);
+    instance.x = TagPool.x[slot]; instance.y = TagPool.y[slot] + bob; instance.z = TagPool.z[slot];
+    batch.meshFrom('box', instance);
   }
 });
 Render.addSource('gifts', (batch) => {
@@ -563,7 +584,9 @@ Render.addSource('gifts', (batch) => {
     const left = GiftPool.timer[slot];
     if (left <= 0) continue;
     const blinkRate = GIFT_BLINK_SLOW + GIFT_BLINK_FAST * (1 - left / GIFT_FUSE_SECONDS);
-    const lit = Math.sin(Sim.time * blinkRate) > 0 ? 1 : 0.25;
-    batch.mesh('sphere', GiftPool.x[slot], GiftPool.y[slot], GiftPool.z[slot], 0, 0, GIFT_DRAW_SIZE, GIFT_DRAW_SIZE, GIFT_DRAW_SIZE, 1, 0.2, 0.1, lit);
+    const instance = giftInstance;
+    instance.x = GiftPool.x[slot]; instance.y = GiftPool.y[slot]; instance.z = GiftPool.z[slot];
+    instance.emissive = Math.sin(Sim.time * blinkRate) > 0 ? 1 : 0.25;
+    batch.meshFrom('sphere', instance);
   }
 });

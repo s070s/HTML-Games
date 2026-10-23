@@ -70,6 +70,114 @@ Test.add('items', (check) => {
   check('clear resets usedEnd', Items.usedEnd === 0);
 });
 
+// Map weapon pads follow the ruleset's weapon set (a gun of the same class first), and hero matches have none.
+Test.add('items', (check) => {
+  const spots = [ItemArena.spot('healthpack', 3, 0), ItemArena.spot('vanguard', 6, 0), ItemArena.spot('lancet', 9, 0)];
+  ItemArena.start({ weaponSet: 'militarySet' }, spots);
+  const military = CAT.weaponSets.byId('militarySet').weapons;
+  check('a pad outside the set hands out a set gun of its class', Items.keyOf(1) === 'vanguard' && Items.keyOf(2) === 'kestrel', Items.keyOf(2));
+  ItemArena.start({ weaponSet: 'arenaSet' }, spots);
+  const arena = CAT.weaponSets.byId('arenaSet');
+  check('the Arena set has no rifle: the Vanguard pad becomes an Arena pickup gun, not the spawn pistol', arena.weapons.includes(Items.keyOf(1)) && !arena.start.includes(Items.keyOf(1)) && military.includes('vanguard'), Items.keyOf(1));
+  ItemArena.start({ weaponSet: 'sandboxSet' }, [ItemArena.spot('vanguard', 6, 0), ItemArena.spot('warden', 9, 0)]);
+  const sandbox = CAT.weaponSets.byId('sandboxSet'), sandboxKeys = [Items.keyOf(0), Items.keyOf(1)];
+  const pickupGun = (key) => sandbox.weapons.includes(key) && !sandbox.start.includes(key);
+  check('Shield Wars: a converted pad never hands out a spawn gun (the Vanguard pad stays a rifle)', sandboxKeys.every(pickupGun) && CAT.weapons.byId(Items.keyOf(0)).class === 'rifle', sandboxKeys.join());
+  ItemArena.start({ economy: 'heroKits' }, spots);
+  check('hero kits: no weapon pads, other pickups stay', Items.spotCount === 1 && Items.keyOf(0) === 'healthpack', Items.spotCount);
+  TestArena.finish();
+});
+
+// The one carry-limit rule: walking over a gun never swaps out the held one; holding Use swaps once (the
+// HUD prompt names both guns and the touch USE button shows), not every few steps on a pile of three dropped guns.
+Test.add('items', (check) => {
+  ItemArena.start({ carry: 1 }, []);
+  const id = ItemArena.actor(1, 20, 0), player = Game.playerId;
+  Weapons.setLoadout(id, ['vanguard']);
+  ['tempest', 'wasp', 'anvil'].forEach((key) => Items.drop(key, 20, 0, 0));
+  let swaps = 0;
+  const onPickup = (event) => { if (event.id === id && event.group === 'weapon') swaps++; };
+  Bus.on('pickup', onPickup);
+  Sim.run(3 * TICK_RATE);
+  check('standing on the pile without Use keeps the held gun', swaps === 0 && Weapons.has(id, 'vanguard'), swaps);
+  let prompt = '';
+  for (let i = 0; i < Input.usePrompts.length && !prompt; i++) prompt = Input.usePrompts[i](id);
+  Game.playerId = id;
+  const touchUse = TouchInput.needs.use();
+  Game.playerId = player;
+  check('the Use prompt names the held gun and the floor gun, and touch shows USE', prompt === 'HOLD TO SWAP VANGUARD RIFLE FOR TEMPEST RIFLE' && touchUse, prompt + ' / ' + touchUse);
+  TestArena.hold(id, BTN.USE, 3);
+  check('one swap while holding Use on the pile', swaps === 1 && !Weapons.has(id, 'vanguard'), swaps);
+  Actors.x[id] = 30;
+  Sim.run(1);
+  Actors.x[id] = 20;
+  TestArena.hold(id, BTN.USE, 2 / TICK_RATE);   // the press step itself never swaps (a plant or defuse answering it comes later in the step)
+  Bus.off('pickup', onPickup);
+  check('stepping off and back on after the pause allows the next swap', swaps === 2, swaps);
+  TestArena.finish();
+});
+
+// swap-02: a Use hold spent on a revive never swaps the held gun for the one underfoot, on the way in (from
+// REVIVE_HINT_RANGE, where the revive prompt wins over the swap prompt) nor after the revive (fresh Use: the pile test).
+// royaleUsePrompt (20b-test-modes2) reads Input.usePrompts like the HUD.
+Test.add('items', (check) => {
+  ItemArena.start({ carry: 1, downed: true, health: 'regen', teams: 2 }, []);
+  const shooter = ItemArena.actor(1, 0, 0), medic = ItemArena.actor(2, 20, 0), mate = ItemArena.actor(2, 23, 0);
+  Weapons.setLoadout(medic, ['vanguard']);
+  Items.drop('tempest', 20, 0, 0);
+  TestArena.hit(shooter, mate, 150);
+  Sim.step();   // Damage.downedCount is counted in the step
+  TestArena.hold(medic, BTN.USE, 1);
+  check('3 m from a downed mate: revive prompt, Use held swaps nothing', royaleUsePrompt(medic) === 'HOLD TO REVIVE' && Weapons.has(medic, 'vanguard'));
+  Actors.x[mate] = 21.3;   // in revive reach, off the gun
+  Sim.step();
+  TestArena.hold(medic, BTN.USE, REVIVE_SECONDS + 1);
+  check('Use held to revive and on swaps nothing', Weapons.has(medic, 'vanguard') && !(Actors.flags[mate] & ACTOR_FLAG.DOWNED));
+  Sim.step();
+  check('then the swap is offered again', royaleUsePrompt(medic) === 'HOLD TO SWAP VANGUARD RIFLE FOR TEMPEST RIFLE');
+  TestArena.finish();
+});
+
+// swap-02: the skimmer takes the Use hold that boards it, so guns ridden over at the carry limit stay, and so does
+// the press that steps off onto a gun (Use held on).
+Test.add('items', (check) => {
+  ItemArena.start({ carry: 1, move: 'arena' }, []);
+  World.map.size = SKIMMER_MIN_MAP_SIZE;
+  const id = ItemArena.actor(1, 0, -50);
+  Weapons.setLoadout(id, ['vanguard']);
+  holdInput(id, 0, 1, 0);
+  Sim.run(TICK_RATE / 2);
+  holdInput(id, 0, 1, BTN.USE);
+  Sim.step();
+  for (let metre = 1; metre <= 10; metre++) Items.drop('tempest', 0, 0, Actors.z[id] + metre);
+  Sim.run(TICK_RATE);
+  check('skimmer: riding over guns swaps nothing', Move.onBoard(id) && Weapons.has(id, 'vanguard'));
+  holdInput(id, 0, 1, 0);
+  Sim.step();
+  for (let metre = 0; metre <= 4; metre++) Items.drop('wasp', 0, 0, Actors.z[id] + metre);
+  holdInput(id, 0, 0, BTN.USE);
+  Sim.run(TICK_RATE / 2);
+  check('skimmer: stepping off onto a gun swaps nothing', !Move.onBoard(id) && Weapons.has(id, 'vanguard'));
+  TestArena.finish();
+});
+
+// Bots at the carry limit still upgrade at the pads with no Use, and only upgrade: a pad gun they cross is swapped in
+// only when the bot values it more (14e weaponItemValue; swap-01). Weave Suit carries two guns and spawns with two,
+// so every pad gun is a swap; the gun pushed out is still in Weapons.dropped when 'pickup' fires.
+Test.add('items', (check) => {
+  let upgrades = 0, downgrades = 0;
+  const worth = (id, key) => BotCombat.weaponValue(id, CAT.weapons.byId(key), 1);
+  const onPickup = (event) => {
+    if (event.group !== 'weapon' || !Bots.active[event.id] || !Weapons.dropped) return;
+    const gain = worth(event.id, event.item) - worth(event.id, Weapons.dropped);
+    if (gain > 0) upgrades++;
+    if (gain < 0) downgrades++;
+  };
+  Bus.on('pickup', onPickup);
+  try { playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'suit', minutes: 3, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH }); } finally { Bus.off('pickup', onPickup); }
+  check('Weave Suit: full bots swap guns at the pads, upgrades only', upgrades >= 8 && downgrades === 0, upgrades + ' / ' + downgrades);
+});
+
 Test.add('items', (check) => {
   ItemArena.start({}, [ItemArena.spot('healthpack', 3, 0)]);
   const id = ItemArena.actor(1, 3, 0);
@@ -184,16 +292,7 @@ Test.add('items', (check) => {
   check('the heal button starts a carried consumable', Items.useProgress(id) >= 0 && Items.consumableCount(id) === 1);
   Sim.run(itemTicks(patch.useTime));
   check('the heal button item applies after its use time', Actors.health[id] === 65 && Items.consumableCount(id) === 0, Actors.health[id]);
-  const bot = ItemArena.actor(2, 5, 0);
-  Items.grant(bot, 'patch');
-  Actors.kind[bot] = ACTOR_KIND.BOT;
-  Damage.lastDamageTime[bot] = Sim.time;
-  const hurtNow = Items.botWantsHeal(bot);
-  Damage.lastDamageTime[bot] = Sim.time - BOT_HEAL_CALM - 0.1;
-  const calm = Items.botWantsHeal(bot);
-  Actors.kind[bot] = ACTOR_KIND.DUMMY;
-  check('bots use a carried consumable only once out of the fight', !hurtNow && calm && Actors.health[bot] < Actors.maxHealth[bot]);
-  TestArena.finish();
+  TestArena.finish();   // bots press the same heal button (20b-test-bots: the decision is the brain's)
 });
 
 Test.add('items', (check) => {
@@ -462,5 +561,22 @@ Test.add('items', (check) => {
   Game.match.rules.params = { enemyPickups: true };
   Sim.run(1);
   check('a mode can let enemies take pickups', Actors.health[monster] === 75, Actors.health[monster]);
+  TestArena.finish();
+});
+
+// F44 (R-103): going down cancels a heal in progress; a revive does not finish it.
+Test.add('items', (check) => {
+  ItemArena.start({ downed: true });
+  const id = ItemArena.actor(1, 0, 0), mate = ItemArena.actor(1, 3, 0), patch = CAT.items.byId('patch');
+  Items.grant(id, 'patch');
+  TestArena.hold(id, BTN.HEAL, 0.05);
+  check('F44 the heal is running', Items.useProgress(id) >= 0);
+  Damage.goDown(-1, id);
+  check('F44 going down cancels the heal', Items.useProgress(id) < 0 && Items.consumableCount(id) === 1);
+  Sim.run(itemTicks(patch.useTime) + 1);
+  Damage.revive(id);
+  Sim.run(2);
+  check('F44 a revive after the use time heals nothing extra', Actors.health[id] === REVIVE_HEALTH, Actors.health[id]);
+  check('F44 the patch is still carried', Items.consumableCount(id) === 1);
   TestArena.finish();
 });

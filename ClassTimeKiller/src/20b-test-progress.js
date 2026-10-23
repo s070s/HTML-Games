@@ -73,9 +73,13 @@ function progressTeamMatch(mode, map) {
 // each one an airborne headshot in one streak, no misses, no damage, no deaths, a win, at PROGRESS_TEST_PAR_SHARE of par
 // (rooms without par: of the time limit).
 const PROGRESS_TEST_PAR_SHARE = 0.5;
+const PROGRESS_TEST_WAVE_KILLS = 6;     // a flawless wave room: the player's kills per wave
+const PROGRESS_TEST_COURSE_KILLS = 20;  // a flawless range course: targets down
+// PRG-004: the modes each room kind plays (a wave survival is Siege Waves, a ghost run a stealth contract, accuracy a course or a fight).
+const PROGRESS_TEST_ROOM_MODES = { timeTrial: ['ffa', 'duel'], killChain: ['ffa'], waveSurvival: ['horde'], dropKill: ['ffa'], ghostRun: ['contract'], accuracy: ['ffa', 'range'] };
 function progressBestRun(row) {
   const lives = row.mutators.find((mutator) => mutator && mutator.id === 'lives');
-  const kills = row.options.scoreLimit || row.bots * (lives ? lives.value : 1);
+  const kills = row.options.scoreLimit || row.waves * PROGRESS_TEST_WAVE_KILLS || (row.bots ? row.bots * (lives ? lives.value : 1) : PROGRESS_TEST_COURSE_KILLS);
   const seconds = (row.par || row.options.timeLimit) * PROGRESS_TEST_PAR_SHARE;
   return { kills, headshots: kills, airKills: kills, bestStreak: kills, accuracy: 1, damageTaken: 0, deaths: 0, won: 1, seconds };
 }
@@ -402,14 +406,15 @@ Test.add('progress', (check) => {
   for (const row of CAT.challenges) {
     const setup = Challenges.setup(row.id, true, 1);
     Rules.build(setup);
-    valid = valid && Rules.problems.length === 0 && CAT.maps.byId(row.map).modes.includes(row.mode) && setup.bots.length === row.bots && setup.bots[0].tier === Math.min(7, row.tier + row.expertTier);
+    valid = valid && Rules.problems.length === 0 && CAT.maps.byId(row.map).modes.includes(row.mode) && setup.bots.length === row.bots
+      && (row.bots === 0 || setup.bots[0].tier === Math.min(7, row.tier + row.expertTier));
   }
   check('rooms: every room and its Expert version build valid rules on a map serving the mode', valid);
   const plain = CAT.challenges.filter((room) => Challenges.setup(room.id, true, 1).mutators.length <= room.mutators.length).map((room) => room.code);
   check('rooms: every Expert version adds Expert mutators', plain.length === 0 && CHALLENGE_KINDS.every((kind) => CHALLENGE_EXPERT_MUTATORS[kind].length > 0), plain.join());
   const row = CAT.challenges.byId('sprint');
   check('rooms: stars come from the data thresholds', Challenges.starsFor(row, 9999) === 0 && Challenges.starsFor(row, 10000) === 1 && Challenges.starsFor(row, 29999) === 2 && Challenges.starsFor(row, 30000) === 3);
-  const metrics = { kills: 5, seconds: 100 };
+  const metrics = { kills: 5, seconds: 100, won: 1 };
   check('rooms: points are weight x metric, underPar = seconds left of par', Progress.points(row.points, metrics, row.par) === 5 * row.points.kills + 50 * row.points.underPar
     && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 10, kills: 1 }, 0) === 0 && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 2, kills: 1 }, 0) === 40);
   const short = CAT.challenges.filter((room) => Challenges.starsFor(room, Progress.points(room.points, progressBestRun(room), room.par)) < CHALLENGE_STARS.length);
@@ -417,7 +422,7 @@ Test.add('progress', (check) => {
     short.map((room) => room.code + ' ' + Progress.points(room.points, progressBestRun(room), room.par)).join(', '));
   const award = () => ({ xp: 0, lines: [] });
   const fake = (expert) => ({ setup: { progress: { kind: 'challenge', id: 'sprint', expert } } });
-  const onePoints = 5 * row.points.kills, twoStars = { kills: 5, seconds: 100 };
+  const onePoints = 5 * row.points.kills, twoStars = { kills: 5, seconds: 100, won: 1 };
   check('rooms: Expert is locked at first', !Challenges.expertOpen('sprint') && !Challenges.start('sprint', true));
   const first = award();
   Challenges.onResult(fake(false), { kills: 5, seconds: row.par }, first);
@@ -438,10 +443,10 @@ Test.add('progress', (check) => {
   Game.stop();
 });
 
-// ---- PRG-004 wave survival: time pays only while the player still has lives ----
+// ---- PRG-004 lives: time pays only while the player still has lives ----
 Test.add('progress', (check) => {
   const survive = (outAfter, endAfter) => {
-    Challenges.start('holdout', false);
+    Game.start(progressSetup({ mode: 'ffa', map: 'gantry', bots: [{}, {}, {}], mutators: [{ id: 'lives', value: 3 }], modeOptions: { scoreLimit: 0, timeLimit: 300 } }, null, 1));
     const player = Game.playerId, rival = player === 0 ? 1 : 0, lives = Modes.lives[player];
     progressAdvance(outAfter);
     for (let life = 0; outAfter < endAfter && life < lives; life++) progressKill(player, rival);
@@ -524,7 +529,7 @@ Test.add('progress', (check) => {
   check('daily: the setup builds valid rules with the date seed', Rules.problems.length === 0 && setup.seed === hashString('daily:2026-10-22') && setup.mutators.length === 2);
   const lowestBots = Math.min(...CAT.quality.map((row) => row.bots));
   check('daily: a fixed bot count inside the lowest quality preset, so every device plays the same match', DAILY_RULES.bots <= lowestBots && setup.bots.length === DAILY_RULES.bots);
-  const award = () => ({ xp: 0, lines: [] });
+  const award = () => ({ xp: 0, lines: [], breakdown: { total: 1 } });   // a played match (it paid match XP)
   const fake = { setup: { progress: { kind: 'daily', key: '2026-10-22' } } };
   const first = award();
   Daily.onResult(fake, { kills: 4, score: 4 }, first);
@@ -595,22 +600,24 @@ Test.add('progress', (check) => {
   };
   const adaptive = Settings.get('difficulty.adaptive'), shift = Settings.get('difficulty.tierShift');
   try {
-    // The Play screen's own setup: unnamed bots, named and tiered by seat.
+    // The Play screen's own setup: roster bots, seated by the queue after each duel.
     Settings.set('difficulty.adaptive', true); Settings.set('difficulty.tierShift', 0);
     Game.start(PlayFlow.buildSetup(PlayFlow.normalize({ mode: 'duel', bots: 3, difficulty: 'veteran' }), () => 0.5));
+    const seated = Game.match.setup.bots.map((bot) => CAT.bots.byId(bot.profile).name);
+    const rotated = [seated[1], seated[2], seated[0]].join();
     const before = tiers();
     Modes.finish(Game.playerId);
     const queue = Game.match.results.queue.slice(), change = Game.match.results.botTierChange;
     PlayFlow.playAgain();
     const after = tiers();
     check('duel queue: after a win the next queued bot comes in and the loser waits last', Actors.name[opponent()] === queue[1]
-      && Game.match.setup.bots.map((bot) => bot.name).join() === 'Bot 2,Bot 3,Bot 1');
+      && Game.match.setup.bots.map((bot) => bot.name).join() === rotated);
     check('duel queue: every bot keeps its tier through the reseat, plus the adaptive change', change === 1
       && Object.keys(before).every((name) => after[name] === clamp(before[name] + change, 0, BOT_TIER_COUNT - 1)));
     const winner = Actors.name[opponent()];
     Modes.finish(opponent());
     PlayFlow.playAgain();
-    check('duel queue: a bot that wins stays for the rematch', Actors.name[opponent()] === winner && Game.match.setup.bots.map((bot) => bot.name).join() === 'Bot 2,Bot 3,Bot 1');
+    check('duel queue: a bot that wins stays for the rematch', Actors.name[opponent()] === winner && Game.match.setup.bots.map((bot) => bot.name).join() === rotated);
   } finally {
     Settings.set('difficulty.tierShift', shift); Settings.set('difficulty.adaptive', adaptive);
     Game.stop();
@@ -630,7 +637,7 @@ Test.add('progress', (check) => {
   check('cards: removing refunds half', Cards.unequip('fury2') && Cards.marks() === 900 - 100 - 200 + 100);
   Cards.equip('freecards');
   const before = Cards.marks();
-  check('cards: with Patron placed, cards are placed for free and refund nothing', Cards.equip('rapid') && Cards.marks() === before && Cards.unequip('rapid') && Cards.marks() === before);
+  check('cards: with Patron placed, cards cost half and refund half of that', Cards.equip('rapid') && Cards.marks() === before - 150 && Cards.unequip('rapid') && Cards.marks() === before - 75);
   Cards.equip('hardy');
   check('cards: 2 passive slots', Cards.equipped('passive').length === 2 && Cards.equipProblem('thief') === 'No free passive slot.');
   Settings.set('progress.unlockAll', false);
@@ -639,7 +646,7 @@ Test.add('progress', (check) => {
     propsLeft: 2, secretsLeft: 1, optionalLeft: 3 };
   const meets = { stoneskin: {}, slowtide: { propsLeft: 0 }, soulkeep: { enemiesLeft: 0 }, longwick: { marks: 500 }, blessing: { bossSeconds: 119 }, refill: { explosiveShots: 0 },
     fleet: { souls: 100 }, fury2: { rangedKills: 0 }, darkpact: { secretsLeft: 0 }, rapid: { bossSeconds: 239 }, magnet: { souls: 0 }, encore: { wrathKills: 30 },
-    greed: { optionalLeft: 0 }, ironwill: { bossSeconds: 79 }, rage: { secretsLeft: 0 }, hardy: { armorPickups: 0 }, freecards: { cardsEquipped: 0 }, lastbreath: { secretsLeft: 0, hard: true },
+    greed: { optionalLeft: 0 }, ironwill: { bossSeconds: 79 }, rage: { secretsLeft: 0 }, hardy: { armorPickups: 0 }, freecards: { cardsEquipped: 0, hard: true }, lastbreath: { secretsLeft: 0, hard: true },
     discord: { wrathForms: 3 }, redeemer: { lowestHealth: 51 }, endless: { kills: 88 }, onehp: { weaponsUsed: 1 }, regenhp: { bossSeconds: 239, hard: true }, thief: { finalBossSeconds: 239 } };
   let exact = true;
   const wrong = [];
@@ -670,6 +677,12 @@ Test.add('progress', (check) => {
     Game.stop();
   }
   check('cards: the shipped PvE levels measure every metric a card condition reads', unmeasured.length === 0 && enemiesMeasured, unmeasured.map((row) => row.code).join());
+  // A won Test Chambers run (a level with no enemies, no kills) unlocks no kill-based card: "Kill all enemies" needs a kill.
+  Cards.record().unlocked = {};
+  Game.start({ mode: 'puzzle', map: 'chambers', seed: 4, player: { name: 'You' } });
+  Modes.finish(Modes.over(Game.playerId, PVE_WIN));
+  check('cards: a won chamber run with no kills does not unlock C03 Soulkeep', Cards.record().unlocked.stoneskin && !Cards.record().unlocked.soulkeep, Object.keys(Cards.record().unlocked).join());
+  Game.stop();
 });
 
 // ---- Cards: every effect applies in a match ----
@@ -833,5 +846,160 @@ Test.add('progress', (check) => {
   check('cards: versus without Cards Allowed runs no cards', Game.match.rules.cards.ids.length === 0 && CardRun.holder === CARD_NO_HOLDER);
   progressCardMatch(['stoneskin', 'slowtide'], { modeOptions: {}, mutators: ['cards'] });
   check('cards: versus with X48 runs only the versus cards', Game.match.rules.cards.ids.join() === 'stoneskin');
+  Game.stop();
+});
+
+// ---- Fairness and data: Patron's free cards, operation XP, absence cards, explosions, map stats, mastery rows ----
+Test.add('progress', (check) => {
+  const record = Cards.record(), kept = { marks: record.marks, active: record.active, passive: record.passive }, unlockAll = Settings.get('progress.unlockAll');
+  const cost = (id) => CAT.cards.byId(id).cost, place = (marks) => { record.active = []; record.passive = []; record.marks = marks; ['freecards', 'stoneskin', 'fleet'].forEach((id) => Cards.equip(id)); Cards.unequip('freecards'); };
+  Settings.set('progress.unlockAll', true);
+  try {
+    place(1000);
+    check('patron: removing it charges the rest of the price of the cards it placed cheaper', Cards.marks() === 1000 - cost('stoneskin') - cost('fleet') && Cards.isEquipped('stoneskin') && Cards.isEquipped('fleet'));
+    place(170);
+    check('patron: a card the Marks cannot pay is taken off', Cards.isEquipped('stoneskin') && !Cards.isEquipped('fleet') && Cards.marks() === 170 - cost('stoneskin') - cost('fleet') / 2, Cards.marks());
+  } finally {
+    Settings.set('progress.unlockAll', unlockAll);
+    Object.assign(record, kept);
+  }
+  Operations.reset('ironcoast'); Operations.start('ironcoast'); Modes.finish(1);
+  check('operation: an idle lost map pays no stage XP', Progress.lastAward.xp === 0, Progress.lastAward.xp);
+  Operations.reset('ironcoast'); Operations.start('ironcoast');
+  const enemy = Array.from({ length: Actors.count }, (unused, id) => id).find((id) => Actors.team[id] === 1);
+  for (let kill = 0; kill < 3; kill++) progressKill(enemy, Game.playerId);
+  progressAdvance(PROGRESS_XP.minimumSeconds + 5);
+  Modes.finish(0);
+  check('operation: a map the player fought pays the stage XP', Progress.lastAward.xp >= PROGRESS_XP.operationStage, Progress.lastAward.xp);
+  Operations.reset('ironcoast');
+  Game.stop();
+  const pacifist = { pveFinished: 1, kills: 0, deaths: 0, hard: true, explosiveShots: 0, souls: 0, armorPickups: 0, cardsEquipped: 0, lowestHealth: 100 };
+  const absence = ['refill', 'magnet', 'hardy', 'freecards', 'redeemer'], met = (metrics) => absence.filter((id) => cardConditionMet(CAT.cards.byId(id).unlock, metrics));
+  check('cards: a level without a kill unlocks no absence card, one with a fight does', met(pacifist).length === 0 && met(Object.assign({}, pacifist, { kills: 3 })).length === 5, met(pacifist).join());
+  progressCardMatch([], { modeOptions: {} });
+  Bus.emit('explosion', { x: 0, y: 0, z: 0, radius: 3, owner: Game.playerId, source: 'frag', element: 'kinetic' });
+  Bus.emit('explosion', { x: 0, y: 0, z: 0, radius: 3, owner: Game.playerId + 1, source: 'frag', element: 'kinetic' });
+  emitGadgetPop(CAT.gadgets.byId('smoke'), Game.playerId, 0, 0, 0);
+  check('cards: an explosion the player caused counts as explosive use, a smoke pop does not', RunLog.explosiveShots === 1, RunLog.explosiveShots);
+  Game.stop();
+  const maps = Progress.stats().maps, keptMaps = JSON.stringify(maps);
+  try {
+    for (const key of Object.keys(maps)) delete maps[key];
+    progressWithPlayer(() => {
+      for (const map of [{ id: 'gen101', gen: true }, { id: 'gen102', gen: true }, { id: 'user2' }, { id: 'draft' }, CAT.maps[0]]) Progress.recordStats({ map, results: progressTestResults({}) });
+    });
+    check('stats: generated and custom maps share one row each', Object.keys(maps).sort().join() === ['custom', 'generated', CAT.maps[0].id].sort().join() && maps.generated.played === 2 && maps.custom.played === 2);
+    check('stats: groups and maps are listed by name', careerMapName('generated') === 'Generated maps' && careerMapName('custom') === 'Custom maps' && careerMapName(CAT.maps[0].id) === CAT.maps[0].name);
+  } finally {
+    for (const key of Object.keys(maps)) delete maps[key];
+    Object.assign(maps, JSON.parse(keptMaps));
+  }
+  check('mastery: each tier reward is its one unlock row', MASTERY_TIERS.every((tier) => { const row = CAT.unlocks.byId(tier.reward.id); return row && row.mastery === tier.id && row.value === tier.reward.value; }) && CAT.unlocks.filter((row) => row.mastery).length === MASTERY_TIERS.length);
+  check('rooms: a room named after a map plays on that map', CAT.challenges.every((room) => !/Keep/.test(room.name) || room.map === 'twinkeeps'));
+  const wrong = CAT.challenges.filter((room) => !PROGRESS_TEST_ROOM_MODES[room.kind].includes(room.mode)).map((room) => room.code);
+  check('rooms: room kinds map to modes per the spec table (waves on Siege Waves, ghost runs on Silent Contract, a course on the range)', wrong.length === 0
+    && CAT.challenges.some((room) => room.mode === 'range' && room.map === 'provinggrounds'), wrong.join());
+});
+
+// ---- PvE rooms end: a wave room after its waves, the range course at its clock, both as a win ----
+Test.add('progress', (check) => {
+  Challenges.start('holdout', false);
+  const run = Modes.behaviour.run, room = CAT.challenges.byId('holdout');
+  runUntil(() => !Modes.active, 400, () => { if (run.state === PVE_WAVE_STATE.FIGHT && Pve.queue.count === 0) killAllEnemies(Game.playerId); });
+  check('rooms: a wave room ends as a win once its waves are cleared', !Modes.active && run.wave === room.waves && Progress.outcome(Game.match.results) === 'win' && PVE_HUD.waves === room.waves, run.wave);
+  Challenges.start('markYard', false);
+  progressAdvance(CAT.challenges.byId('markYard').options.timeLimit);
+  Sim.run(1);
+  check('rooms: the range course ends as a win at its clock', !Modes.active && Progress.outcome(Game.match.results) === 'win');
+  Game.stop();
+});
+
+// ---- Trials pay only for play: rooms run and unlock no cards, one lucky hit is no perfect aim, a loss earns no par time ----
+Test.add('progress', (check) => {
+  const record = Cards.record(), kept = { unlocked: record.unlocked, active: record.active };
+  try {
+    record.unlocked = { stoneskin: true }; record.active = [{ id: 'stoneskin', paid: 0 }];
+    Challenges.start('markYard', false);
+    const warden = CAT.weapons.byId('warden').index;
+    LocalPlayerStats.shots[warden] = LocalPlayerStats.hits[warden] = 1;
+    progressAdvance(90);
+    Sim.run(1);
+    const metrics = RunLog.measure(Game.match);
+    check('rooms: no cards in or out, one hit is no full accuracy', !Game.match.rules.cards.ids.length && !metrics.pveFinished && metrics.accuracy <= 1 / CHALLENGE_ACCURACY_HITS);
+  } finally {
+    Object.assign(record, kept);
+    Game.stop();
+  }
+  const points = CAT.challenges.byId('sprint').points;
+  progressWithPlayer(() => {
+    const idle = progressTestResults({ teams: true, kills: 0, score: 0 });
+    idle.players[1].team = 0;
+    check('rooms: a loss or a sat-out win earns no par time', Progress.points(points, { kills: 2, seconds: 60 }, 150) === 6000 && Progress.points(points, { kills: 2, seconds: 60, won: 1 }, 150) === 25800
+      && !Progress.creditedWin(idle));
+  });
+  const award = () => ({ xp: 0, lines: [], breakdown: { total: 0 } }), fake = { setup: { progress: { kind: 'challenge', id: 'chainYard' } } }, rooms = Progress.profile().challenges, keptRoom = rooms.chainYard;
+  delete rooms.chainYard;
+  Challenges.onResult(fake, { bestStreak: 8 }, award());
+  let third = award();
+  Challenges.onResult(fake, { bestStreak: 12 }, third);
+  check('rooms: Expert is announced once', rooms.chainYard.stars === 3 && !third.lines.includes('Expert version unlocked.'));
+  if (keptRoom) rooms.chainYard = keptRoom; else delete rooms.chainYard;
+  Daily.onResult({ setup: { progress: { kind: 'daily', key: '2099' } } }, {}, third = award());
+  delete Progress.profile().daily['2099'];
+  check('daily: an idle first play pays no XP', third.xp === 0);
+  // The ladder keeps the same rule: a side's win the player sat out clears nothing; a cleared match too short for XP pays no first-clear XP.
+  progressWithPlayer(() => {
+    const idle = progressTestResults({ teams: true, kills: 0, score: 0 }), short = progressTestResults({ teams: true, duration: 20 }), cleared = Ladder.state().cleared;
+    idle.players[1].team = short.players[1].team = 0;
+    const ladderRun = (results) => { const paid = award(); Ladder.onResult({ setup: { progress: { kind: 'ladder', tier: 0, match: 0 } }, results }, {}, paid); return paid; };
+    const sat = ladderRun(idle), satCleared = !!cleared['0.0'], quick = ladderRun(short);
+    check('ladder: a sat-out win of the side clears nothing, a quick clear pays no XP', !Ladder.passed(idle) && sat.xp === 0 && !satCleared && cleared['0.0'] && quick.xp === 0,
+      [sat.xp, satCleared, quick.xp].join());
+  });
+});
+
+// ---- XP: difficulty and match length scale the pay; assists count as taking part, a 0 XP match says why ----
+Test.add('progress', (check) => progressWithPlayer(() => {
+  const xp = (fields, difficulty) => Progress.matchXp(progressTestResults(fields), 0, difficulty).total, regular = xp({}, 'regular');
+  check('xp: difficulty and length scale it', xp({}, 'stroll') < regular && xp({}, { preset: 'nightmare' }) > regular && xp({ duration: 90 }, 'regular') < regular);
+  const helper = progressTestResults({ score: 0, kills: 0 });
+  helper.players.find((player) => player.id === Game.playerId).assists = 2;
+  check('xp: assists pay, a 0 XP match says why', Progress.matchXp(helper, 0).total > 0 && Progress.xpReason(progressTestResults({ duration: 20 })).startsWith('No XP') && !Progress.xpReason(helper));
+}));
+
+// ---- XP: every mode's score pays at about the kill modes' pace (play-01: hold seconds and banked motes are many points) ----
+const PROGRESS_TEST_RATE_RUNS = [['ffa', 'spire'], ['tdm', 'harbor'], ['oddball', 'gantry'], ['bearer', 'spire'], ['bank', 'cistern', 12], ['attrition', 'harbor']];
+// play time, run cap (sudden death; Mote Rush has no clock and ends by its boss after 4-10 minutes: its own cap), max / min
+const PROGRESS_TEST_RATE_SECONDS = 180, PROGRESS_TEST_RATE_MINUTES = 7, PROGRESS_TEST_RATE_SPREAD = 3;
+// The best score + objective XP per minute of one 8-bot match: each player is read as the local one through Progress.matchXp. 0 when it never ended.
+function progressScoreRate(mode, map, minutes = PROGRESS_TEST_RATE_MINUTES) {
+  let best = 0;
+  playMatch({ mode, map, minutes, botCount: 8, seed: 1, modeOptions: { timeLimit: PROGRESS_TEST_RATE_SECONDS }, probe: () => {
+    const results = Game.match.results, saved = Game.playerId;
+    if (!results) return;
+    try {
+      for (const player of results.players) {
+        Game.playerId = player.id;
+        const xp = Progress.matchXp(results, 0, '');
+        best = Math.max(best, (xp.score + xp.objective) * PROGRESS_SECONDS_PER_MINUTE / results.duration);
+      }
+    } finally { Game.playerId = saved; }
+  } });
+  return Math.round(best);
+}
+Test.add('progress', (check) => {
+  const rates = PROGRESS_TEST_RATE_RUNS.map(([mode, map, minutes]) => progressScoreRate(mode, map, minutes)), lowest = Math.min(...rates);
+  check('xp: score XP per minute stays within x' + PROGRESS_TEST_RATE_SPREAD + ' across Frenzy, Team Clash, Relic Run, Flame Bearer, Mote Rush and Attrition',
+    lowest > 0 && Math.max(...rates) <= lowest * PROGRESS_TEST_RATE_SPREAD, PROGRESS_TEST_RATE_RUNS.map(([mode], index) => mode + ' ' + rates[index]).join(', '));
+});
+
+// ---- Shown numbers come from the tuning; career screens explain rooms and the range; splash is no hit ----
+Test.add('progress', (check) => {
+  check('texts: from the tuning values', CAT.cards.byId('thief').text.startsWith('5%') && CAT.cards.byId('rapid').unlock.text.includes('4:00') && !CAT.cards.some((row) => /\{/.test(row.text + row.unlock.text))
+    && careerPointsText(CAT.challenges.byId('sprint')).includes('3000 per kill') && CAREER_RANGE_OFFER_TEXT.includes(PVE_RANGE.drillTargets + ' kills'));
+  Game.start({ mode: 'ffa', map: 'spire', seed: 4, player: {}, bots: [{ dummy: true }] });
+  const rocket = CAT.weapons.byId('ramjet');
+  Bus.emit('damage', progressDamage(Game.playerId, 1 - Game.playerId, 'splash', rocket.id));
+  check('accuracy: splash adds damage, no hit', !LocalPlayerStats.hits[rocket.index] && LocalPlayerStats.damage[rocket.index] > 0);
   Game.stop();
 });

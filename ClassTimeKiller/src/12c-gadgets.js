@@ -17,7 +17,6 @@ const THROW_FORWARD = 0.5;               // thrown from this far in front of the
 const GRENADE_NOISE = 15;                // bots hear a bounce within this radius
 const POP_NOISE = 35;                    // pops without damage (smoke, flash, freeze, pulse)
 const AREA_CAP = 32;
-const AREA_TICK = 0.25;                  // fire areas hurt on this tick
 const FIRE_AREA_HEIGHT = 1.5;            // fire reaches feet this close above or below
 const FIRE_FX_COUNT = 6;                 // fire particles per damage tick (G04, 12h burning oil)
 const FIRE_FLOOR_PROBE = 3;              // fire that went off on a wall or a body drops this far at most to the floor
@@ -48,6 +47,17 @@ const GADGET_MODES = CAT.gadgets.map((row) => ({ weapon: row.id, element: row.el
   statusRange: 0, splash: { r: row.radius, dmg: row.damage, minFactor: 0.2 }, armorPen: 0.75, headMult: 1, legMult: 1, alwaysHead: false,
   family: null, fodderKill: false, falloff: null }));
 const GADGET_RGB = pickupRgbTable(CAT.gadgets, (row) => row.color);
+// Grenades in flight and in the hand and the 12d devices draw their 03r gear model (one per row by code) in the row colour.
+const GADGET_MODELS = CAT.gadgets.map((row) => GEAR_MODELS.byId[row.code]);
+const THROWN_SPIN = 6, THROWN_GLOW = 0.3;            // rad/s turn of a grenade in flight; its glow
+const HELD_FORWARD = 0.6, HELD_LEFT = 0.26, HELD_DOWN = 0.24;   // m from the eye: the grenade in the first-person hand
+const gadgetPose = makeModelPose();
+// pose: position, yaw and glow set by the caller; the colour comes from the row.
+function drawGadgetModel(batch, row, pose) {
+  const offset = row.index * 3;
+  pose.r = GADGET_RGB[offset]; pose.g = GADGET_RGB[offset + 1]; pose.b = GADGET_RGB[offset + 2];
+  Models.draw(batch, GADGET_MODELS[row.index], pose);
+}
 const BLIND_INDEX = CAT.statusEffects.byId('blind').index;
 const gadgetHit = makeHit();
 const gadgetActorHit = makeActorHit();
@@ -55,6 +65,10 @@ const reachPoint = Vec.make();
 const throwScratch = Vec.make();
 const throwStart = Vec.make();
 const previewScratch = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
+// Reused instance records (batch.meshFrom): smoke blobs, the arc dots and its landing ring; float arguments would be boxed (PERF-006).
+const smokeInstance = Object.assign(makeShapeInstance(), { sx: SMOKE_BLOB, sy: SMOKE_BLOB, sz: SMOKE_BLOB, emissive: 0.25 });
+const previewDotInstance = Object.assign(makeShapeInstance(), { sx: 0.06, sy: 0.06, sz: 0.06, emissive: 1 });
+const landingInstance = Object.assign(makeShapeInstance(), { sy: 0.05, b: 0.4, g: 0.9, emissive: 1 });
 
 function gadgetRow(index) { return index >= 0 ? CAT.gadgets[index] : null; }
 // A pop that hurts nobody: an 'explosion' of radius 0 (audio sting by element, bots hear it) plus a heard sound.
@@ -95,7 +109,7 @@ function throwVelocity(id, underhand, out) {
 
 // ---- Smoke volumes (REN-007): one local occupancy grid per volume, filled by a flood from the centre that never enters solids ----
 const Smoke = {
-  active: new Uint8Array(SMOKE_CAP), owner: new Int8Array(SMOKE_CAP), row: new Int16Array(SMOKE_CAP),
+  active: new Uint8Array(SMOKE_CAP),
   x: new Float32Array(SMOKE_CAP), y: new Float32Array(SMOKE_CAP), z: new Float32Array(SMOKE_CAP), radius: new Float32Array(SMOKE_CAP),
   startTick: new Int32Array(SMOKE_CAP), endTick: new Int32Array(SMOKE_CAP),
   depth: new Uint8Array(SMOKE_CAP * SMOKE_CELLS),      // flood steps + 1 per cell (0 = no smoke can reach it)
@@ -105,35 +119,28 @@ const Smoke = {
   drawn: 0,                                            // blobs drawn this frame (SMOKE_DRAW_BUDGET)
 
   clear() { this.active.fill(0); this.count = 0; },
-  spawn(row, owner, x, y, z) { return this.addVolume(x, y, z, row.radius, row.duration, owner, row.index); },
+  spawn(row, owner, x, y, z) { return this.addVolume(x, y, z, row.radius, row.duration); },
   // A smoke curtain (A17 Veil Curtain and other walls of smoke): puffs of height/2 radius along the line of `width`
   // metres centred on (x, y, z), across the yaw direction; y is the floor under the curtain. Returns the puff count.
-  add(x, y, z, width, height, seconds, yaw, owner) {
+  add(x, y, z, width, height, seconds, yaw) {
     const radius = Math.min(SMOKE_LARGEST_RADIUS, height / 2), spacing = radius * 2 * CURTAIN_PUFF_SPACING;
     const puffs = Math.max(1, Math.ceil(width / spacing)), rightX = -Math.cos(yaw || 0), rightZ = Math.sin(yaw || 0);
     for (let puff = 0; puff < puffs; puff++) {
       const offset = (puff - (puffs - 1) / 2) * spacing;
-      this.addVolume(x + rightX * offset, y + radius, z + rightZ * offset, radius, seconds, owner === undefined ? -1 : owner, -1);
+      this.addVolume(x + rightX * offset, y + radius, z + rightZ * offset, radius, seconds);
     }
     return puffs;
   },
-  addVolume(x, y, z, radius, seconds, owner, rowIndex) {
+  addVolume(x, y, z, radius, seconds) {
     const volume = this.freeSlot();
-    this.active[volume] = 1; this.owner[volume] = owner; this.row[volume] = rowIndex; this.x[volume] = x; this.y[volume] = y; this.z[volume] = z;
+    this.active[volume] = 1; this.x[volume] = x; this.y[volume] = y; this.z[volume] = z;
     this.radius[volume] = Math.min(SMOKE_LARGEST_RADIUS, radius); this.startTick[volume] = Sim.tick; this.endTick[volume] = Sim.tick + itemTicks(seconds);
     this.punched.fill(0, volume * SMOKE_CELLS, (volume + 1) * SMOKE_CELLS);
     this.flood(volume);
     this.recount();
     return volume;
   },
-  freeSlot() {
-    let oldest = 0;
-    for (let volume = 0; volume < SMOKE_CAP; volume++) {
-      if (!this.active[volume]) return volume;
-      if (this.endTick[volume] < this.endTick[oldest]) oldest = volume;
-    }
-    return oldest;
-  },
+  freeSlot() { return oldestFreeSlot(this.active, this.endTick, SMOKE_CAP); },
   recount() { this.count = 0; for (let volume = 0; volume < SMOKE_CAP; volume++) this.count += this.active[volume]; },
   cellIndex(ix, iy, iz) { return (ix * SMOKE_DIM + iy) * SMOKE_DIM + iz; },
   // Breadth-first fill from the centre cell inside the radius, skipping cells whose centre is inside a brush (walls stop smoke).
@@ -206,7 +213,7 @@ const Smoke = {
   lineBlocked(ax, ay, az, bx, by, bz, viewer) {
     if (!this.count) return false;
     if (viewer >= 0 && Abilities.passiveFlag(viewer, 'smokeVision')) return false;
-    const dx = bx - ax, dy = by - ay, dz = bz - az, length = Math.hypot(dx, dy, dz);
+    const dx = bx - ax, dy = by - ay, dz = bz - az, length = length3(dx, dy, dz);
     if (length < 1e-6) return false;
     const directionX = dx / length, directionY = dy / length, directionZ = dz / length;
     for (let volume = 0; volume < SMOKE_CAP; volume++) {
@@ -259,7 +266,7 @@ const Smoke = {
   },
   cellDistance(volume, cell, x, y, z) {
     const grid = this.cellCoordinates(cell), centre = this.cellCentre(volume, grid.x, grid.y, grid.z);
-    return Math.hypot(centre.x - x, centre.y - y, centre.z - z);
+    return length3(centre.x - x, centre.y - y, centre.z - z);
   },
   onShot(event) {
     if (!this.count) return;
@@ -293,8 +300,10 @@ const Smoke = {
     for (let iz = SMOKE_DRAW_START; iz < SMOKE_DIM; iz += SMOKE_DRAW_STEP) {
       if (this.drawn >= SMOKE_DRAW_BUDGET || !this.occupied(volume, this.cellIndex(ix, iy, iz), grown)) continue;
       this.drawn++;
-      const shade = 0.5 + iy / SMOKE_DIM * 0.25, centre = this.cellCentre(volume, ix, iy, iz);
-      batch.mesh('sphere', centre.x, centre.y, centre.z, 0, 0, SMOKE_BLOB, SMOKE_BLOB, SMOKE_BLOB, shade, shade, shade, 0.25);
+      const instance = smokeInstance, centre = this.cellCentre(volume, ix, iy, iz);
+      instance.x = centre.x; instance.y = centre.y; instance.z = centre.z;
+      instance.r = instance.g = instance.b = 0.5 + iy / SMOKE_DIM * 0.25;
+      batch.meshFrom('sphere', instance);
     }
   },
 };
@@ -312,8 +321,7 @@ const GadgetAreas = {
 
   clear() { this.active.fill(0); },
   spawn(row, owner, x, y, z, seconds) {
-    let slot = this.active.indexOf(0);
-    if (slot < 0) slot = 0;   // full: the first area gives way
+    const slot = oldestFreeSlot(this.active, this.endTick, AREA_CAP);   // full: the area that ends first gives way
     this.active[slot] = 1; this.row[slot] = row.index; this.owner[slot] = owner; this.x[slot] = x; this.y[slot] = y; this.z[slot] = z;
     this.startTick[slot] = Sim.tick; this.endTick[slot] = Sim.tick + itemTicks(seconds); this.clock[slot] = 0; this.pulses[slot] = row.pulses;
     return slot;
@@ -334,10 +342,10 @@ const GadgetAreas = {
   },
   // G04: HP/s ramps from fireRampFrom x peak to the peak; smoke puts it out.
   stepFire(area, row, dt) {
-    if (!this.due(area, dt, AREA_TICK)) return;
+    if (!this.due(area, dt, AREA_TICK_SECONDS)) return;
     if (Smoke.covers(this.x[area], this.y[area] + 0.5, this.z[area])) { this.active[area] = 0; return; }
     const age = (Sim.tick - this.startTick[area]) / Math.max(1, this.endTick[area] - this.startTick[area]);
-    const amount = row.damage * lerp(GADGET_TUNING.fireRampFrom, 1, age) * AREA_TICK;
+    const amount = row.damage * lerp(GADGET_TUNING.fireRampFrom, 1, age) * AREA_TICK_SECONDS;
     for (let id = 0; id < Actors.count; id++) if (this.inFire(area, row, id)) fireAreaHit(this.owner[area], id, amount, row, GADGET_MODES[row.index]);
     if (!Game.headless) Fx.burst('fire', this.x[area], this.y[area] + 0.1, this.z[area], 0, 1, 0, FIRE_FX_COUNT, null);
   },
@@ -356,10 +364,10 @@ const GadgetAreas = {
   stepPull(area, row, dt) {
     for (let id = 0; id < Actors.count; id++) {
       if (!gadgetReaches(this.owner[area], id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
-      const dx = this.x[area] - Actors.x[id], dy = this.y[area] - Actors.y[id], dz = this.z[area] - Actors.z[id], length = Math.hypot(dx, dy, dz) || 1;
+      const dx = this.x[area] - Actors.x[id], dy = this.y[area] - Actors.y[id], dz = this.z[area] - Actors.z[id], length = length3(dx, dy, dz) || 1;
       emitImpulse(id, dx / length * row.pull * dt, dy / length * row.pull * dt, dz / length * row.pull * dt);
     }
-    if (!Game.headless && this.due(area, dt, AREA_TICK)) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 6, row.color);
+    if (!Game.headless && this.due(area, dt, AREA_TICK_SECONDS)) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 6, row.color);
   },
   // G19: pulses reveal enemies within reach (line of sight) every interval.
   stepPulse(area, row, dt) {
@@ -430,7 +438,7 @@ const GadgetEffects = {
     for (let id = 0; id < Actors.count; id++) {
       if (id !== owner && !gadgetReaches(owner, id, x, y, z, row.radius)) continue;
       if (id === owner && distanceSquared3(x, y, z, Actors.x[id], Actors.y[id] + 0.9, Actors.z[id]) > row.radius * row.radius) continue;
-      const dx = Actors.x[id] - x, dy = Actors.y[id] + 0.9 - y, dz = Actors.z[id] - z, length = Math.hypot(dx, dy, dz) || 1;
+      const dx = Actors.x[id] - x, dy = Actors.y[id] + 0.9 - y, dz = Actors.z[id] - z, length = length3(dx, dy, dz) || 1;
       const speed = row.knockback * (1 - 0.5 * Math.min(1, length / row.radius));
       emitImpulse(id, dx / length * speed, Math.max(0.3, dy / length) * speed, dz / length * speed);
     }
@@ -438,7 +446,7 @@ const GadgetEffects = {
 };
 // G03: blind seconds = duration x view-angle share (facing it 1, facing away flashMinimumAngle) x distance share.
 function flashSeconds(row, id, x, y, z) {
-  const eyeY = Actors.eyeY(id), dx = x - Actors.x[id], dy = y - eyeY, dz = z - Actors.z[id], distance = Math.hypot(dx, dy, dz);
+  const eyeY = Actors.eyeY(id), dx = x - Actors.x[id], dy = y - eyeY, dz = z - Actors.z[id], distance = length3(dx, dy, dz);
   if (distance > row.radius || !World.lineClear(x, y, z, Actors.x[id], eyeY, Actors.z[id])) return 0;
   Vec.fromAngles(throwScratch, Actors.yaw[id], Actors.pitch[id]);
   const facing = distance > 1e-3 ? (throwScratch.x * dx + throwScratch.y * dy + throwScratch.z * dz) / distance : 1;
@@ -469,18 +477,13 @@ const Thrown = {
   clear() { this.state.fill(0); this.attached.fill(-1); this.active = 0; },
   // Launches a gadget row from (x, y, z); fuseTicks = ticks until it goes off (cooked grenades have less). Returns the slot.
   spawn(row, owner, x, y, z, vx, vy, vz, fuseTicks) {
-    let slot = this.state.indexOf(THROWN_STATE.FREE);
-    if (slot < 0) { slot = this.oldest(); this.remove(slot); }
+    const slot = oldestFreeSlot(this.state, this.fuseTick, THROWN_CAP);   // THROWN_STATE.FREE is 0
+    this.remove(slot);
     this.state[slot] = THROWN_STATE.FLYING; this.row[slot] = row.index; this.owner[slot] = owner;
     this.x[slot] = x; this.y[slot] = y; this.z[slot] = z; this.vx[slot] = vx; this.vy[slot] = vy; this.vz[slot] = vz;
     this.fuseTick[slot] = Sim.tick + fuseTicks; this.attached[slot] = -1;
     this.active++;
     return slot;
-  },
-  oldest() {
-    let found = 0;
-    for (let slot = 1; slot < THROWN_CAP; slot++) if (this.fuseTick[slot] < this.fuseTick[found]) found = slot;
-    return found;
   },
   remove(slot) {
     if (this.state[slot] === THROWN_STATE.FREE) return;
@@ -505,7 +508,7 @@ const Thrown = {
   },
   fly(slot, gravity, dt) {
     this.vy[slot] -= gravity * dt;
-    const speed = Math.hypot(this.vx[slot], this.vy[slot], this.vz[slot]);
+    const speed = length3(this.vx[slot], this.vy[slot], this.vz[slot]);
     if (speed < 1e-6) return;
     const dx = this.vx[slot] / speed, dy = this.vy[slot] / speed, dz = this.vz[slot] / speed, length = speed * dt;
     const wallHit = World.raycast(this.x[slot], this.y[slot], this.z[slot], dx, dy, dz, length + THROWN_RADIUS, gadgetHit);
@@ -545,7 +548,7 @@ const Thrown = {
     this.vy[slot] = (this.vy[slot] - 2 * along * gadgetHit.ny) * row.bounce;
     this.vz[slot] = (this.vz[slot] - 2 * along * gadgetHit.nz) * row.bounce;
     if (speed > BOUNCE_TICK_SPEED) this.emitBounce(slot);
-    if (gadgetHit.ny > THROWN_FLOOR_NORMAL && Math.hypot(this.vx[slot], this.vy[slot], this.vz[slot]) < THROWN_REST_SPEED) this.rest(slot);
+    if (gadgetHit.ny > THROWN_FLOOR_NORMAL && length3(this.vx[slot], this.vy[slot], this.vz[slot]) < THROWN_REST_SPEED) this.rest(slot);
   },
   // Sticks where it hit (or goes off on impact).
   settle(slot, row) {
@@ -579,7 +582,7 @@ const Thrown = {
     let best = -1, bestDistance = range;
     for (let slot = 0; slot < THROWN_CAP; slot++) {
       if (this.state[slot] !== THROWN_STATE.FLYING && this.state[slot] !== THROWN_STATE.RESTING) continue;
-      const tx = this.x[slot] - ox, ty = this.y[slot] - oy, tz = this.z[slot] - oz, distance = Math.hypot(tx, ty, tz);
+      const tx = this.x[slot] - ox, ty = this.y[slot] - oy, tz = this.z[slot] - oz, distance = length3(tx, ty, tz);
       if (distance >= bestDistance || (tx * dx + ty * dy + tz * dz) / (distance || 1) < minCos) continue;
       best = slot; bestDistance = distance;
     }
@@ -598,11 +601,12 @@ const Thrown = {
     this.vx[slot] = vx; this.vy[slot] = vy; this.vz[slot] = vz;
   },
   draw(batch) {
+    const pose = gadgetPose;
+    pose.yaw = Sim.time * THROWN_SPIN; pose.emissive = THROWN_GLOW;
     for (let slot = 0; slot < THROWN_CAP; slot++) {
       if (!this.state[slot]) continue;
-      const row = CAT.gadgets[this.row[slot]], offset = row.index * 3, size = row.size;
-      const red = GADGET_RGB[offset], green = GADGET_RGB[offset + 1], blue = GADGET_RGB[offset + 2];
-      batch.mesh(row.shape, this.x[slot], this.y[slot], this.z[slot], Sim.time * 6, 0, size[0], size[1], size[2], red, green, blue, 0.3);
+      pose.x = this.x[slot]; pose.y = this.y[slot]; pose.z = this.z[slot];
+      drawGadgetModel(batch, CAT.gadgets[this.row[slot]], pose);
     }
   },
 };
@@ -616,9 +620,10 @@ const Gadgets = {
   holdStart: new Int32Array(MAX_ACTORS).fill(-1),    // tick BTN.GRENADE went down with a grenade ready (-1 not holding)
   holdRow: new Int8Array(MAX_ACTORS).fill(-1),
   suppressedUntil: new Int32Array(MAX_ACTORS),       // G20: no grenades, gadgets, abilities or shield regen until this tick
+  attackLocks: [],                                   // fn(id) -> true while the actor may not attack (12f: the NO_FIRE buff of A06 Phase Slip; 13f: a Blight infected)
   deployers: [],                                     // fn(id, row) -> true when 12d placed the gadget
   empHooks: [],                                      // fn(owner, x, y, z, radius, seconds): 12d disables devices
-  cycleShown: false,                                 // last answer of TouchInput.needs.grenadeCycle (syncCycleButton)
+  cycleShown: -1,                                    // the grenade row the touch NADE face names, -1 none (syncCycleButton)
 
   kit() { return CAT.gadgetKits.byId(itemRule('economy', 'pickups')) || CAT.gadgetKits.byId('pickups'); },
   countOf(id, key) { const row = CAT.gadgets.byId(key); return row ? this.count[id * GADGET_COUNT + row.index] : 0; },
@@ -641,7 +646,7 @@ const Gadgets = {
     if (kit.limits[row.id] !== undefined) return kit.limits[row.id];
     return kit.perType || row.carry;
   },
-  // Thrown rows this actor carries at least one of (the touch TYPE button shows from two: a cycle needs a choice).
+  // Thrown rows this actor carries at least one of (the touch NADE face names the type from two: a cycle needs a choice).
   grenadeTypes(id) {
     let types = 0;
     for (let rowIndex = 0; rowIndex < GADGET_COUNT; rowIndex++) if (CAT.gadgets[rowIndex].kind === 'thrown' && this.count[id * GADGET_COUNT + rowIndex]) types++;
@@ -727,18 +732,24 @@ const Gadgets = {
     Smoke.step();
     this.syncCycleButton();
   },
-  // The touch TYPE button follows the player's carried grenade types: the layout is re-applied on a change only.
+  // The touch NADE face names the grenade type it throws while there is a choice (a swipe on NADE picks the next), on a change only.
   syncCycleButton() {
-    if (!TouchInput.layer) return;
-    const canCycle = TouchInput.needs.grenadeCycle();
-    if (canCycle === this.cycleShown) return;
-    this.cycleShown = canCycle;
-    TouchInput.applyAll();
+    const id = Game.playerId, row = id >= 0 && this.grenadeTypes(id) >= 2 ? this.grenade[id] : -1;
+    if (row === this.cycleShown) return;
+    this.cycleShown = row;
+    TouchInput.setNote('grenade', row >= 0 ? CAT.gadgets[row].name.split(' ')[0] : '');
   },
-  blocked(id) { return (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) !== 0 || this.suppressed(id); },
+  // One test for "cannot attack": grenades, gadgets and the offensive abilities (12e usable) all ask it.
+  attackLocked(id) {
+    for (let i = 0; i < this.attackLocks.length; i++) if (this.attackLocks[i](id)) return true;
+    return false;
+  },
+  // Frozen, downed or jammed stops all gear; attackLocked (A06 Phase Slip) stops attacks only.
+  stopped(id) { return (Actors.flags[id] & (ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED)) !== 0 || this.suppressed(id); },
+  blocked(id) { return this.stopped(id) || this.attackLocked(id); },
   stepActor(id) {
     this.rechargeGadget(id);
-    if (this.holdStart[id] >= 0) { this.stepHold(id); return; }
+    if (this.holdStart[id] >= 0) { this.stepHeld(id); return; }
     if (this.blocked(id)) return;
     if (Actors.pressed[id] & BTN.CYCLE_GRENADE) this.cycleGrenade(id);
     if (Actors.pressed[id] & BTN.GRENADE) this.startHold(id);
@@ -751,6 +762,12 @@ const Gadgets = {
     this.holdRow[id] = this.grenade[id];
   },
   heldTicks(id) { return Sim.tick - this.holdStart[id]; },
+  // A stopped thrower drops the held grenade; Phase Slip only puts it away (no risk-free drop while invulnerable).
+  stepHeld(id) {
+    if (this.stopped(id)) this.dropHeld(id);
+    else if (this.attackLocked(id)) this.holdStart[id] = this.holdRow[id] = -1;
+    else this.stepHold(id);
+  },
   // Cookable rows burn their fuse while held (a full cook goes off in the hand); release throws.
   stepHold(id) {
     const row = CAT.gadgets[this.holdRow[id]], fuse = itemTicks(row.fuse);
@@ -800,8 +817,8 @@ const Gadgets = {
     if (!row || row.cooldown <= 0 || this.count[id * GADGET_COUNT + row.index] || Sim.tick < this.cooldownEnd[id]) return;
     this.count[id * GADGET_COUNT + row.index] = 1;
   },
-  // A grenade cooking in the hand of someone who dies falls at their feet with the fuse it has left.
-  onDeath(id) {
+  // A grenade cooking in the hand of someone who dies, freezes, goes down or is jammed falls at their feet with the fuse it has left.
+  dropHeld(id) {
     if (this.holdStart[id] < 0) return;
     const row = CAT.gadgets[this.holdRow[id]], fuseLeft = Math.max(1, itemTicks(row.fuse) - this.heldTicks(id));
     this.holdStart[id] = this.holdRow[id] = -1;
@@ -832,8 +849,23 @@ const Gadgets = {
     const row = CAT.gadgets[this.holdRow[id]], steps = this.previewSteps(id, row);
     for (let step = 0; step < steps; step++) {
       if (this.previewStep(point, gravity)) { this.drawLanding(batch, point, row); return; }
-      if (step % 2 === 0) batch.mesh('sphere', point.x, point.y, point.z, 0, 0, 0.06, 0.06, 0.06, 1, 1, 1, 1);
+      if (step % 2 !== 0) continue;
+      previewDotInstance.x = point.x; previewDotInstance.y = point.y; previewDotInstance.z = point.z;
+      batch.meshFrom('sphere', previewDotInstance);
     }
+  },
+  // The grenade the local player holds (cooking or about to throw), low in the left of the first-person view.
+  drawHeld(batch) {
+    const id = Game.playerId;
+    if (id < 0 || !Actors.alive[id] || this.holdStart[id] < 0 || Render.view.overridden) return;
+    const camera = Render.camera, pose = gadgetPose, yaw = camera.yaw, pitch = camera.pitch;
+    const sinYaw = Math.sin(yaw), cosYaw = Math.cos(yaw), sinPitch = Math.sin(pitch), cosPitch = Math.cos(pitch);
+    const forward = HELD_FORWARD, down = HELD_DOWN, left = HELD_LEFT;   // camera axes: forward, right = (-cos, 0, sin), up
+    pose.x = camera.x + sinYaw * cosPitch * forward + cosYaw * left + sinPitch * sinYaw * down;
+    pose.y = camera.y + sinPitch * forward - cosPitch * down;
+    pose.z = camera.z + cosYaw * cosPitch * forward - sinYaw * left + sinPitch * cosYaw * down;
+    pose.yaw = yaw; pose.emissive = THROWN_GLOW;
+    drawGadgetModel(batch, CAT.gadgets[this.holdRow[id]], pose);
   },
   // Arc segments until the fuse would end (what is left of it for a cooking grenade).
   previewSteps(id, row) {
@@ -843,7 +875,7 @@ const Gadgets = {
   // One preview segment; true (and the point on the surface) when it meets the world.
   previewStep(point, gravity) {
     const seconds = PREVIEW_SECONDS, drop = gravity * seconds * seconds / 2;
-    const nx = point.vx * seconds, ny = point.vy * seconds - drop, nz = point.vz * seconds, length = Math.hypot(nx, ny, nz);
+    const nx = point.vx * seconds, ny = point.vy * seconds - drop, nz = point.vz * seconds, length = length3(nx, ny, nz);
     point.vy -= gravity * seconds;
     if (World.raycast(point.x, point.y, point.z, nx / length, ny / length, nz / length, length, gadgetHit)) {
       point.x = gadgetHit.x; point.y = gadgetHit.y; point.z = gadgetHit.z;
@@ -853,10 +885,12 @@ const Gadgets = {
     return false;
   },
   drawLanding(batch, point, row) {
-    const size = Math.max(0.5, row.radius * 2);
-    batch.mesh('ring', point.x, point.y + 0.05, point.z, 0, 0, size, 0.05, size, 1, 0.9, 0.4, 1);
+    const instance = landingInstance;
+    instance.x = point.x; instance.y = point.y + 0.05; instance.z = point.z;
+    instance.sx = instance.sz = Math.max(0.5, row.radius * 2);
+    batch.meshFrom('ring', instance);
   },
-  clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); this.cycleShown = false; },   // the touch layer hides TYPE at match start, so the next step re-checks it
+  clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); this.cycleShown = -1; },   // a new match names the grenade type again on its first step
 };
 
 // Aim assist (INP-008) never locks through smoke (a filter, so whoever fills Input.aimAssistTarget keeps it).
@@ -867,14 +901,16 @@ WeaponSpecialState.grenadeHook = Thrown;
 Weapons.altClaim = (id) => Gadgets.holdStart[id] >= 0 || ((Actors.buttons[id] & BTN.GRENADE) !== 0 && Gadgets.grenadeReady(id));
 Settings.define('gameplay.grenadePreview', true, { label: 'Grenade arc preview', category: 'gameplay', options: [false, true], optionLabels: ['Off', 'On'] });
 Sim.addSystem('gadgets', 58, (dt) => Gadgets.step(dt));
-TouchInput.needs.grenadeCycle = () => Game.playerId >= 0 && Gadgets.grenadeTypes(Game.playerId) >= 2;
-Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawPreview(batch); });
+Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawHeld(batch); Gadgets.drawPreview(batch); });
 Render.addSource('smoke', (batch) => Smoke.draw(batch));
 Bus.on('weapon.fire', (event) => Smoke.onShot(event));
 Bus.on('explosion', (event) => { if (Smoke.count && event.radius > 0) Smoke.punchSphere(event.x, event.y, event.z, event.radius); });
-Bus.on('kill', (event) => Gadgets.onDeath(event.victim));
+Bus.on('kill', (event) => Gadgets.dropHeld(event.victim));
 Bus.on('actor.spawn', (event) => Gadgets.equip(event.id));
 Bus.on('actor.create', (id) => Gadgets.resetActor(id));
 Bus.on('match.start', () => Gadgets.clear());
+Bus.on('round', (event) => { if (event.phase === 'start') Gadgets.clear(); });
 Bus.on('match.end', () => Gadgets.clear());
 Bus.on('match.stop', () => Gadgets.clear());
+TouchInput.needs.gadget = () => Game.playerId >= 0 && Gadgets.gadget[Game.playerId] >= 0;
+TouchInput.needs.grenade = () => Game.playerId >= 0 && Gadgets.thrownTotal(Game.playerId) > 0;

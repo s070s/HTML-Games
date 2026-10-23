@@ -3,11 +3,13 @@
 // the results screen (18d) shows the same tables. Per player kills / deaths / assists / score, team totals, an objective column for
 // the mode, and the local player's accuracy per weapon (LocalPlayerStats, fed by weapon and damage events) with the medals earned.
 
-const SCOREBOARD_REFRESH_MS = 250;
 const SCOREBOARD_TEAM_SYMBOLS = ['●', '▲', '■', '◆'];
 const SCOREBOARD_OBJECTIVE_LABELS = { flag: 'Captures', point: 'Captures', hill: 'Hold time', bombsite: 'Plants', relic: 'Hold time', core: 'Defence', bank: 'Banked', extract: 'Extracts' };
 const SCOREBOARD_DEFAULT_OBJECTIVE_LABEL = 'Objective';
-const SCOREBOARD_HIT_KINDS = ['hit', 'melee', 'beam', 'splash'];   // damage kinds that count as a hit for accuracy
+// Accuracy counts a hit by the range's one rule (S14 ACCURACY_HIT_KINDS): a splash is a hit, damage over time adds damage, no hit.
+function scoreboardCountsHit(kind) { return ACCURACY_HIT_KINDS.includes(kind); }
+// A 0xRRGGBB colour as CSS text (the S18 screens' one colour rule).
+function cssHex(color) { return '#' + color.toString(16).padStart(6, '0'); }
 const SCOREBOARD_CSS = '.sb-panel { width: min(1000px, 100%); max-height: 100%; overflow-y: auto; margin: auto; padding: 12px 14px; background: rgba(8, 12, 18, 0.9);'
   + ' border: 1px solid var(--ui-line); border-radius: 12px; pointer-events: auto; touch-action: pan-y; }'
   + '.sb-title { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; } .sb-title h2 { flex: 1; margin: 0; font-size: 1.25em; }'
@@ -38,9 +40,10 @@ const LocalPlayerStats = {
   },
   onDamage(event) {
     const weapon = CAT.weapons.byId(event.weapon);
-    if (event.source !== Game.playerId || event.target === event.source || !weapon || !SCOREBOARD_HIT_KINDS.includes(event.kind)) return;
+    if (event.source !== Game.playerId || event.target === event.source || !weapon) return;
     const index = weapon.index;
     this.damage[index] += event.amount;
+    if (!scoreboardCountsHit(event.kind)) return;
     if (this.hitSerial[index] !== this.shotSerial[index]) { this.hitSerial[index] = this.shotSerial[index]; this.hits[index]++; }
     if (event.zone === 'head' && this.headSerial[index] !== this.shotSerial[index]) { this.headSerial[index] = this.shotSerial[index]; this.headshots[index]++; }
   },
@@ -114,7 +117,7 @@ const Scoreboard = {
     const symbol = row.team >= 0 ? SCOREBOARD_TEAM_SYMBOLS[row.team % SCOREBOARD_TEAM_SYMBOLS.length] + ' ' : '';
     const name = makeElement('td', '', symbol + this.playerName(row) + (row.queued ? ' (waiting)' : ''));
     const nameColor = Progress.bodyColor(row.id, row.team >= 0 ? Hud.teamColor(row.team) : -1);   // the player's row wears the body colour
-    if (nameColor >= 0) name.style.color = '#' + nameColor.toString(16).padStart(6, '0');
+    if (nameColor >= 0) name.style.color = cssHex(nameColor);
     tr.appendChild(name);
     for (const value of [row.score, row.kills, row.deaths, row.assists]) tr.appendChild(makeElement('td', '', String(Math.round(value))));
     if (withObjective) tr.appendChild(makeElement('td', '', String(Math.round(row.objective))));
@@ -122,7 +125,7 @@ const Scoreboard = {
   },
   buildTeamBlock(team, rows, objectiveLabel) {
     const block = makeElement('div'), head = makeElement('div', 'sb-team-head');
-    head.style.color = '#' + Hud.teamColor(team.team).toString(16).padStart(6, '0');
+    head.style.color = cssHex(Hud.teamColor(team.team));
     head.appendChild(makeElement('span', '', SCOREBOARD_TEAM_SYMBOLS[team.team % SCOREBOARD_TEAM_SYMBOLS.length] + ' ' + team.name));
     head.appendChild(makeElement('span', '', (team.rounds ? 'Rounds ' + team.rounds + '   ' : '') + 'Score ' + Math.round(team.score)));
     block.appendChild(head);
@@ -173,16 +176,14 @@ const Scoreboard = {
     return (mode ? mode.name : 'Match') + (map ? ' - ' + map : '');
   },
 
-  // Tab / View button / touch button. Mouse and pad hold to look; touch taps toggle. With the "toggle" setting on (ACC-004) Input
+  // Tab / View button / a finger on the touch score panel: held to look. With the "toggle" setting on (ACC-004) Input
   // keeps the toggle itself and reports the second press as a release, so the board closes on that release on every device.
-  tapToggles() { return Input.device === 'touch' && !Input.isToggleMode('scoreboard'); },
   onAction(down) {
     if (Game.headless || Game.state !== 'playing') return;
-    const open = Ui.isOpen('scoreboard'), toggle = this.tapToggles();
+    const open = Ui.isOpen('scoreboard');
     this.auto = false;
     if (down && !open && !Ui.current() && !Game.paused) Ui.open('scoreboard');
-    else if (down && open && toggle) Ui.back();
-    else if (!down && open && !toggle) Ui.back();
+    else if (!down && open) Ui.back();
   },
   // Between rounds the board opens by itself and closes when the next round starts.
   onRound(event) {
@@ -191,7 +192,7 @@ const Scoreboard = {
     if (event.phase !== 'end' && this.auto && Ui.isOpen('scoreboard')) { this.auto = false; Ui.back(); }
   },
   refresh(now) {
-    if (!Ui.isOpen('scoreboard') || now - this.timer < SCOREBOARD_REFRESH_MS) return;
+    if (!Ui.isOpen('scoreboard') || now - this.timer < UI_REFRESH_MS) return;
     this.timer = now;
     const body = Ui.root.querySelector('.sb-body');
     if (body) this.renderInto(body);
@@ -201,6 +202,7 @@ const Scoreboard = {
 Ui.register('scoreboard', {
   overlay: true,
   passthrough: true,
+  inGame: true,
   build(root) {
     const panel = makeElement('div', 'sb-panel'), title = makeElement('div', 'sb-title');
     title.appendChild(makeElement('h2', '', Scoreboard.title()));

@@ -38,7 +38,6 @@ const HUD_OUTLINE_ALPHA = 0.6;
 
 const HUD_HIT_SECONDS = 0.22, HUD_KILL_SECONDS = 0.5;
 const HUD_HIT_GAP = 7, HUD_HIT_LENGTH = 8, HUD_KILL_GAP = 9, HUD_KILL_LENGTH = 13;
-const HUD_HIT_KINDS = ['hit', 'melee', 'beam', 'splash'];   // damage kinds that count as a hit on a target (not burning, falling)
 
 const HUD_NUMBER_SLOTS = 8, HUD_NUMBER_SECONDS = 0.9, HUD_NUMBER_STACK_SECONDS = 0.7, HUD_NUMBER_RISE = 46;
 const HUD_ARC_SLOTS = 6, HUD_ARC_SECONDS = 1.4, HUD_ARC_RADIUS = 112, HUD_ARC_HALF_WIDTH = 0.3, HUD_ARC_THICKNESS = 9;
@@ -202,7 +201,7 @@ function hudDrawScope(pen, layout) {
   pen.ring(cx, cy, (inner + outer) / 2, outer - inner, HUD_COLOR.black, 0.94 * amount);
   pen.rect(cx - inner, cy - 0.5, inner * 2, 1, HUD_COLOR.black, 0.85 * amount);
   pen.rect(cx - 0.5, cy - inner, 1, inner * 2, HUD_COLOR.black, 0.85 * amount);
-  pen.rect(cx - 1.5, cy - 1.5, 3, 3, HUD_COLOR.bad, amount);
+  pen.rect(cx - 1.5, cy - 1.5, 3, 3, Hud.colors.bad, amount);
 }
 
 // ---- Hit and kill markers ----
@@ -278,10 +277,10 @@ function hudDrawVignette(pen, layout) {
   const edge = Math.min(width, height) * HUD_VIGNETTE_EDGE;
   for (let i = 0; i < HUD_VIGNETTE_LAYERS; i++) {
     const band = edge * (HUD_VIGNETTE_LAYERS - i) / HUD_VIGNETTE_LAYERS;
-    pen.rect(0, 0, width, band, HUD_COLOR.healthLow, strength);
-    pen.rect(0, height - band, width, band, HUD_COLOR.healthLow, strength);
-    pen.rect(0, band, band, height - band * 2, HUD_COLOR.healthLow, strength);
-    pen.rect(width - band, band, band, height - band * 2, HUD_COLOR.healthLow, strength);
+    pen.rect(0, 0, width, band, Hud.colors.healthLow, strength);
+    pen.rect(0, height - band, width, band, Hud.colors.healthLow, strength);
+    pen.rect(0, band, band, height - band * 2, Hud.colors.healthLow, strength);
+    pen.rect(width - band, band, band, height - band * 2, Hud.colors.healthLow, strength);
   }
 }
 
@@ -290,7 +289,7 @@ Bus.on('damage', (event) => {
   const player = Game.playerId;
   if (player < 0) return;
   if (event.target === player && event.source !== player && event.amount > 0) hudOnPlayerDamaged(event);
-  if (event.source !== player || event.target === player || !HUD_HIT_KINDS.includes(event.kind)) return;
+  if (event.source !== player || event.target === player || !ACCURACY_HIT_KINDS.includes(event.kind)) return;
   HudCombat.hitAt = Hud.time;
   HudCombat.hitHead = event.zone === 'head';
   const target = event.target;

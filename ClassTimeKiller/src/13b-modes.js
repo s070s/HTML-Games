@@ -2,7 +2,7 @@
 // spawn protection, kill scoring, the match clock with score/time limits and sudden death, the round system,
 // generic objectives (capture zones, carriable objects) and the results record Game.match.results.
 // A mode = its CAT.modes row + a behaviour registered with Modes.register(id, { start, step, onKill, onScore,
-// onRound, isOver, score }); hooks a behaviour leaves out use DEFAULT_BEHAVIOUR (deathmatch rules from the row).
+// onRound, livesOver, isOver, score }); hooks a behaviour leaves out use DEFAULT_BEHAVIOUR (deathmatch rules from the row).
 // Winner values: a team index in team modes, an actor id otherwise, DRAW (-1) for a draw.
 
 const NO_TEAM = -1;
@@ -14,11 +14,11 @@ const LIVES_UNLIMITED = -1;
 const TIME_EPSILON = 1e-6;             // sim times are sums of 1/120 s steps: compare with a little slack
 const OVERTIME_SECONDS = 180;          // MODE-001: sudden death lasts at most 3 minutes, then the match is a draw
 const TIME_WARNINGS = [300, 60, 30, 10];
+const MODE_GOAL_PRIORITY = 3;          // the match start banner (mode name and goal) stays up long enough to read
 const SPAWN_ENEMY_RADIUS = 12;         // MAP-010: reject a spawn with an enemy this close
 const SPAWN_SIGHT_RADIUS = 25;         // MAP-010: ... or with an enemy in line of sight within this range
-const SPAWN_CAPSULE_RADIUS = 0.8;      // two capsule radii (DATA-003): closer means spawning inside an actor
-const SPAWN_CAPSULE_HEIGHT = 1.8;
-const SPAWN_EYE_HEIGHT = 1.62;
+const SPAWN_CAPSULE_RADIUS = 2 * ACTOR_RADIUS;   // two capsule radii (DATA-003): closer means spawning inside an actor
+const SPAWN_EYE_HEIGHT = STAND_EYE;
 const SPAWN_ENEMY_CAP = 60;            // enemies farther than this add no more preference
 const SPAWN_TEAMMATE_WEIGHT = 0.5;     // team modes prefer spawns near teammates (MAP-010)
 const SPAWN_DEATH_WEIGHT = 0.25;       // and away from the place of the last death
@@ -37,17 +37,20 @@ const OBJECTIVE_COMPANIONS = { flag: 'flagBase' };        // kinds created toget
 const CARRIABLE_KINDS = ['flag', 'relic', 'bomb'];
 const NEAR_ANY = 0, NEAR_TEAM = 1, NEAR_ENEMY = 2;       // findActorNear relation filters
 const PHASE = { IDLE: 'idle', FREEZE: 'freeze', LIVE: 'live', ROUND_END: 'roundEnd', ENDED: 'ended' };
-const TEAM_COLORS = [[0.25, 0.55, 1], [1, 0.35, 0.25], [0.85, 0.85, 0.85]];  // blue, red, neutral
-const NEUTRAL_COLOR = 2;
+const NEUTRAL_MARKER_COLOR = 0xd9d9d9;  // an unowned zone, a contested cart
+const LETTER_A_CODE = 65;              // objective letters A, B, C... (the HUD shows the same ones)
 const MARKER_GLOW = 0.6;
+const markerInstance = Object.assign(makeShapeInstance(), { emissive: MARKER_GLOW });   // objective and role markers (each sets place, size, colour)
 
 const DEFAULT_BEHAVIOUR = {
+  limits: ['score', 'time'],
   start() {},
   step() { if (Modes.rules.rounds) Modes.checkTeamWipe(); },
   onKill() {},
   onScore() {},
   // phase: 'start' | 'live' | 'end' | 'timeout'; for 'timeout' the return value is the round winner.
   onRound(phase) { return phase === 'timeout' ? Modes.aliveLeaderTeam() : DRAW; },
+  livesOver() { return Modes.livesWinner(); },
   isOver(now) { return Modes.standardIsOver(now); },
   score(index) { return Modes.competitorScore(index); },
 };
@@ -87,8 +90,17 @@ const Modes = {
     leader: -1, leaderScore: 0, playerId: -1, playerScore: 0, playerRank: 0, playerLives: LIVES_UNLIMITED, respawnIn: 0,
     attackers: 0, teamScores: null, teamRounds: null, teamMeter: null, objectives: null, zoneX: 0, zoneZ: 0, zoneRadius: 0 },
 
-  register(id, behaviour) { this.behaviours.set(id, Object.assign({}, DEFAULT_BEHAVIOUR, behaviour)); },
+  // behaviour.limits: the limits its isOver honours ('score', 'time'); a behaviour with its own isOver honours none unless it lists them.
+  register(id, behaviour) {
+    const limits = behaviour.isOver ? [] : DEFAULT_BEHAVIOUR.limits;
+    this.behaviours.set(id, Object.assign({}, DEFAULT_BEHAVIOUR, { limits }, behaviour));
+  },
   isPlayable(id) { return this.behaviours.has(id); },
+  // Whether a score or time limit (custom match editor) ends this mode: round modes end by rounds only.
+  honoursLimit(modeId, limit) {
+    const mode = CAT.modes.byId(modeId), behaviour = this.behaviours.get(modeId);
+    return !!mode && !!behaviour && !mode.rounds && behaviour.limits.includes(limit);
+  },
   // MODE-002: the bot list that fills every slot of a mode (the UI passes it as setup.bots).
   defaultBots(modeId, withPlayer) {
     const mode = CAT.modes.byId(modeId);
@@ -114,6 +126,7 @@ const Modes = {
     this.competitorsAtStart = this.countStanding();
     this.skipWarnings();
     this.behaviour.start();
+    if (this.mode.goal) this.announce(this.mode.name + ': ' + this.mode.goal, 'mode', MODE_GOAL_PRIORITY);
     if (this.rules.rounds) this.startRound(Sim.time);
     else this.beginOpenPlay();
   },
@@ -140,8 +153,13 @@ const Modes = {
     if (!this.active) return;
     this.updateLeader();
     this.stepWarnings(now);
-    const winner = this.behaviour.isOver(now);
+    const winner = this.endResult(now);
     if (winner !== NOT_OVER) this.finish(winner);
+  },
+  // Lives (rules.lives: M15, X32, the editor) end every mode without rounds; a behaviour may hold that end (livesOver).
+  endResult(now) {
+    const survivor = this.rules.lives > 0 && !this.rules.rounds ? this.behaviour.livesOver() : NOT_OVER;
+    return survivor !== NOT_OVER ? survivor : this.behaviour.isOver(now);
   },
   finish(winner) {
     if (!this.active) return;
@@ -197,9 +215,10 @@ const Modes = {
       if (seen > limit) this.queued[id] = 1;
     }
   },
-  // Auto-balance: moves bots (never the player) until the team sizes differ by at most one (setup.balance === false: a custom team split stays).
+  // Auto-balance: moves bots (never the player) until the team sizes differ by at most one (setup.balance === false: a custom team split
+  // stays; params.fixedSides: the mode sets the sides itself, M17 M26).
   balanceTeams() {
-    if (this.rules.teams !== TEAM_COUNT || (Game.match && Game.match.setup && Game.match.setup.balance === false)) return;
+    if (this.rules.teams !== TEAM_COUNT || this.rules.params.fixedSides || (Game.match && Game.match.setup && Game.match.setup.balance === false)) return;
     for (let moves = 0; moves < MAX_ACTORS; moves++) {
       const difference = this.teamSize(0) - this.teamSize(1);
       if (Math.abs(difference) <= 1) return;
@@ -262,7 +281,7 @@ const Modes = {
   },
   spawnActor(id) {
     const point = this.pickSpawn(id, spawnChoice);
-    Actors.x[id] = Actors.prevX[id] = point.x; Actors.y[id] = Actors.prevY[id] = point.y; Actors.z[id] = Actors.prevZ[id] = point.z;
+    Actors.place(id, point.x, point.y, point.z);
     Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = point.yaw;
     Actors.pitch[id] = Actors.prevPitch[id] = Actors.aimPitch[id] = 0;
     Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
@@ -310,15 +329,15 @@ const Modes = {
     }
     let score = spawnRating.nearestEnemy + Rng.rules.next() * SPAWN_JITTER;
     if (this.rules.teams > 0 && spawnRating.nearestMate < Infinity) score -= spawnRating.nearestMate * SPAWN_TEAMMATE_WEIGHT;
-    if (this.hasDied[id]) score += Math.min(SPAWN_DEATH_CAP, Math.hypot(point.x - this.deathX[id], point.z - this.deathZ[id])) * SPAWN_DEATH_WEIGHT;
+    if (this.hasDied[id]) score += Math.min(SPAWN_DEATH_CAP, length2(point.x - this.deathX[id], point.z - this.deathZ[id])) * SPAWN_DEATH_WEIGHT;
     spawnRating.score = score;
   },
   rateAgainst(id, other, point) {
     const dx = Actors.x[other] - point.x, dy = Actors.y[other] - point.y, dz = Actors.z[other] - point.z;
-    const flat = Math.hypot(dx, dz);
-    if (flat < SPAWN_CAPSULE_RADIUS && Math.abs(dy) < SPAWN_CAPSULE_HEIGHT) spawnRating.occupied = true;
+    const flat = length2(dx, dz);
+    if (flat < SPAWN_CAPSULE_RADIUS && Math.abs(dy) < STAND_HEIGHT) spawnRating.occupied = true;
     if (!Actors.isEnemy(id, other)) { spawnRating.nearestMate = Math.min(spawnRating.nearestMate, flat); return; }
-    const distance = Math.hypot(flat, dy);
+    const distance = length2(flat, dy);
     spawnRating.nearestEnemy = Math.min(spawnRating.nearestEnemy, distance);
     if (distance < SPAWN_ENEMY_RADIUS) { spawnRating.safe = false; return; }
     if (distance >= SPAWN_SIGHT_RADIUS) return;
@@ -443,8 +462,6 @@ const Modes = {
   },
   standardIsOver(now) {
     if (this.rules.rounds) return NOT_OVER;
-    const survivor = this.livesWinner();
-    if (survivor !== NOT_OVER) return survivor;
     const limit = this.rules.scoreLimit;
     if (limit > 0 && this.leader >= 0 && this.leaderScore >= limit) return this.over(this.leader, 'score');
     return this.timeResult(now);
@@ -466,9 +483,9 @@ const Modes = {
     this.announce('Sudden death', 'overtime', 3);
   },
   over(winner, reason) { this.endReason = reason; return winner; },
-  // Lives (rules.lives, M15, X32): the match ends when one competitor (or none) is still standing.
+  // Lives (rules.lives, M15, X32): the match ends when one competitor (or none) is still standing. Co-op (teams 1) has no rival.
   livesWinner() {
-    if (this.rules.lives <= 0 || this.competitorsAtStart < 2) return NOT_OVER;
+    if (this.rules.lives <= 0 || this.rules.teams === 1 || this.competitorsAtStart < 2) return NOT_OVER;
     let standing = 0, last = DRAW;
     const count = this.competitorCount();
     for (let index = 0; index < count; index++) {
@@ -492,10 +509,14 @@ const Modes = {
     this.warningIndex = 0;
     while (this.warningIndex < TIME_WARNINGS.length && TIME_WARNINGS[this.warningIndex] >= this.rules.timeLimit) this.warningIndex++;
   },
+  // The warnings count the time the behaviour added (timeBonus); a bonus re-arms the warnings it pushed back.
   stepWarnings(now) {
-    if (this.rules.timeLimit <= 0 || this.rules.rounds || this.warningIndex >= TIME_WARNINGS.length) return;
+    if (this.rules.timeLimit <= 0 || this.rules.rounds) return;
+    const left = this.rules.timeLimit + this.timeBonus - (now - this.startTime);
+    while (this.warningIndex > 0 && TIME_WARNINGS[this.warningIndex - 1] < left - TIME_EPSILON) this.warningIndex--;
+    if (this.warningIndex >= TIME_WARNINGS.length) return;
     const threshold = TIME_WARNINGS[this.warningIndex];
-    if (this.rules.timeLimit - (now - this.startTime) > threshold + TIME_EPSILON) return;
+    if (left > threshold + TIME_EPSILON) return;
     this.warningIndex++;
     this.announce(formatTimeWarning(threshold), 'time', 2);
   },
@@ -625,7 +646,7 @@ const Modes = {
   },
   inZone(objective, id) {
     const dy = Actors.y[id] - objective.y;
-    return dy > -ZONE_BELOW && dy < ZONE_ABOVE && Math.hypot(Actors.x[id] - objective.x, Actors.z[id] - objective.z) <= objective.radius;
+    return dy > -ZONE_BELOW && dy < ZONE_ABOVE && length2(Actors.x[id] - objective.x, Actors.z[id] - objective.z) <= objective.radius;
   },
   // The team alone in the zone, or NO_TEAM when it is empty or contested.
   zoneHolder(objective) {
@@ -656,7 +677,33 @@ const Modes = {
     for (let id = 0; id < Actors.count; id++) {
       if (this.actsOnObjectives(id) && this.participant[id] && Actors.team[id] === team && this.inZone(objective, id)) this.creditObjective(id, 'capture');
     }
-    this.announce(TEAM_NAMES[team] + ' captured ' + objective.id, 'capture', 2);
+    this.announce(TEAM_NAMES[team] + ' captured ' + this.objectiveLabel(objective), 'capture', 2);
+  },
+  // The HUD letter of list[index] (0 = A): its place among the active objectives of its kind before it.
+  objectiveLetter(list, index) {
+    let letter = 0;
+    for (let i = 0; i < index; i++) if (list[i].kind === list[index].kind && list[i].active) letter++;
+    return letter;
+  },
+  // What players read and hear for an objective: the map's name for it, else 'point' and the letter the HUD shows.
+  objectiveLabel(objective) {
+    return objective.name || 'point ' + String.fromCharCode(LETTER_A_CODE + this.objectiveLetter(this.objectives, objective.index));
+  },
+  // Holding Use here serves an objective, so no gun swap (Weapons.useTakers, swap-02): the charge carrier in a
+  // site, a defender within defuseRange of a planted charge, or, where sites are armed in place (no carried charge: rush),
+  // an attacker inside an unarmed site.
+  usesObjective(id) {
+    if (!this.active || !this.isActive(id)) return false;
+    const objectives = this.objectives, attacker = Actors.team[id] === this.attackingTeam();
+    let charge = null;
+    for (let i = 0; i < objectives.length; i++) if (objectives[i].kind === 'bomb') charge = objectives[i];
+    for (let i = 0; i < objectives.length; i++) {
+      const objective = objectives[i], x = objective.x, y = objective.y, z = objective.z;
+      if (objective.state === 'planted' && !attacker && withinTouch(id, x, y, z, this.rules.params.defuseRange)) return true;
+      if (objective.kind !== 'bombsite' || objective.state !== 'home' || !objective.active || !attacker) continue;
+      if (charge ? charge.carrier === id && this.inZone(objective, id) : withinTouch(id, x, y, z, objective.radius)) return true;
+    }
+    return false;
   },
   // First standing participant near a point whose team relates to `team` as asked (NEAR_ANY / NEAR_TEAM / NEAR_ENEMY).
   // With `buttons` (a BTN mask) only an actor holding one of those buttons counts; actors with any of `skipFlags`
@@ -792,7 +839,9 @@ const Modes = {
     const teams = this.rules.teams === TEAM_COUNT, players = [];
     for (let id = 0; id < Actors.count; id++) if (this.participant[id]) players.push(this.playerResult(id));
     players.sort((a, b) => b.score - a.score || b.kills - a.kills || a.deaths - b.deaths);
-    return { mode: this.mode.id, ruleset: this.rules.id, winner, draw: winner === DRAW, reason: this.endReason,
+    // A co-op side (one team, or a solo run) or a lone competitor has no rival to draw with: ending with no winner means it lost.
+    const lost = winner === DRAW && (this.competitorsAtStart < 2 || (!teams && this.rules.family !== 'versus'));
+    return { mode: this.mode.id, ruleset: this.rules.id, winner, draw: winner === DRAW && !lost, lost, reason: this.endReason,
       winnerTeam: teams && winner >= 0 ? winner : NO_TEAM, winnerId: !teams && winner >= 0 ? winner : -1,
       duration: Sim.time - this.startTime, rounds: this.round, players,
       teams: teams ? [this.teamResult(0, players), this.teamResult(1, players)] : [], queue: this.queueAfter(winner) };
@@ -821,7 +870,7 @@ const Modes = {
 
 function makeObjective(source, index) {
   const kind = source.kind, x = source.x || 0, y = source.y || 0, z = source.z || 0;
-  return { index, id: source.id || kind + index, kind, team: typeof source.team === 'number' ? source.team : NO_TEAM,
+  return { index, id: source.id || kind + index, name: source.name || '', kind, team: typeof source.team === 'number' ? source.team : NO_TEAM,
     x, y, z, homeX: x, homeY: y, homeZ: z, radius: source.radius || OBJECTIVE_RADIUS[kind] || DEFAULT_OBJECTIVE_RADIUS,
     owner: NO_TEAM, capturingTeam: NO_TEAM, progress: 0, contested: false, inside: new Int16Array(TEAM_COUNT), active: true,
     state: 'home', carrier: -1, droppedAt: 0, timer: 0, holdTime: 0, planter: -1, detonateAt: Infinity, path: source.path || null,
@@ -862,21 +911,35 @@ function formatTimeWarning(seconds) {
   return minutes + (minutes === 1 ? ' minute remaining' : ' minutes remaining');
 }
 
+// A marker colour in the team colours of the bodies and the HUD (CAT.teamColors, or the colour-blind palette 18m puts in
+// Render.teamPalette); no team is neutral. Written into one reused triple, so a marker allocates nothing.
+const markerColor = new Float32Array(3);
+function teamMarkerColor(team) {
+  let color = NEUTRAL_MARKER_COLOR;
+  if (team === 0 || team === 1) color = Render.teamPalette ? Render.teamPalette[team % Render.teamPalette.length] : CAT.teamColors[team].color;
+  writeColor(markerColor, 0, color);
+  return markerColor;
+}
+
 // Markers: zones as rings in the owner's colour, carriables as small shapes (above the carrier's head when carried).
 function drawObjective(batch, objective) {
   if (!objective.active || objective.kind === 'payloadPath') return;
   const carriable = CARRIABLE_KINDS.includes(objective.kind);
   if (carriable && carriedByInvisible(objective)) return;   // a carried prize hides with its cloaked carrier (M27)
   const team = carriable || objective.kind === 'flagBase' ? objective.team : objective.owner;
-  const color = TEAM_COLORS[team === 0 || team === 1 ? team : NEUTRAL_COLOR];
+  const instance = markerInstance;   // one reused instance record (batch.meshFrom, PERF-006)
+  instance.setRgb(teamMarkerColor(team));
+  instance.x = objective.x; instance.z = objective.z;
   if (!carriable) {
-    batch.mesh('ring', objective.x, objective.y + 0.05, objective.z, 0, 0, objective.radius, 1, objective.radius, color[0], color[1], color[2], MARKER_GLOW);
+    instance.y = objective.y + 0.05; instance.sx = instance.sz = objective.radius; instance.sy = 1;
+    batch.meshFrom('ring', instance);
     return;
   }
-  const lift = objective.state === 'carried' ? 2.1 : 0;
-  batch.mesh(objective.kind === 'flag' ? 'cylinder' : 'box', objective.x, objective.y + lift + 0.6, objective.z, 0, 0, 0.12, 1.2, 0.12, color[0], color[1], color[2], MARKER_GLOW);
+  instance.y = objective.y + (objective.state === 'carried' ? 2.1 : 0) + 0.6; instance.sx = instance.sz = 0.12; instance.sy = 1.2;
+  batch.meshFrom(objective.kind === 'flag' ? 'cylinder' : 'box', instance);
 }
 
+Weapons.useTakers.push((id) => Modes.usesObjective(id));
 Bus.on('match.start', (match) => Modes.start(match));
 Bus.on('match.stop', () => Modes.stop());
 Bus.on('actor.create', (id) => Modes.resetActor(id));

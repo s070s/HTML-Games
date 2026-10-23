@@ -149,15 +149,14 @@ The scan and the validator got faster for this (16s, 16v): horizontal rays walk 
 brush, path searches use a typed-array heap, a column's surfaces are sorted in place, trigger boxes visit only their columns, the main-loop
 search skips spawns already in the loop, and the lane search stops at its target. Results are unchanged (the `maps` group passes as before).
 
-The self-test checks both budgets on the largest size of every generator (strict, best of two runs) and on the 200-seed sweep (each seed over a
+The self-test scales both budgets by how much slower the engine runs a fixed plain workload than desktop Chrome (Firefox gets an extra factor of 1.6 on top), so a 2x regression of the generator still fails everywhere; it checks both budgets on the largest size of every generator (strict, best of two runs) and on the 200-seed sweep (each seed over a
 budget is run once more; at most 2% may stay over, for a busy machine).
 
 ## Screen (18h)
 
 Screen `mapgen`, opened from the custom match Map tab ("Generate a map from a seed"): cycles for generator, mode, size, theme (Random or one of
-six) and density; a seed field with New seed; the share code with Copy and a paste field with Use code; Generate shows the result (seed tried
-and accepted, size, counts, repairs, time, or the fallback); Play starts `{ mode, map, seed, bots: Modes.defaultBots(mode, true), player }`
-with the player on team 0 in team modes. `MapGenMenu` holds the state and has no DOM.
+six) and density; a seed field with New seed; the share code with Copy and a paste field with Use code; Bots (the mode's default number, else 0..max) and Difficulty cycles follow; changing them keeps the shown map. Generate shows the result (seed tried
+and accepted, size, counts, repairs, time, or the fallback); Generate and Play first show "Generating...", hold both buttons and let the screen repaint, then run on a timer tick (a phone can take a second). Play starts `{ mode, map, seed, bots, difficulty, player }`: `bots` are named roster bots from `PlayFlow.rosterBots(count, difficulty, seed)` (as Quick Match), with the player on team 0 in team modes. `MapGenMenu` holds the state and has no DOM.
 
 ## Debug
 

@@ -16,7 +16,13 @@ const CONTEXT_OPTIONS = { alpha: false, antialias: false, depth: true, stencil: 
 const WEBGL_FATAL_TITLE = 'WebGL2 is required';
 const WEBGL_FATAL_TEXT = 'ClassTimeKiller needs WebGL2. Turn on hardware acceleration in your browser settings '
   + '(Chrome / Edge: Settings > System > "Use graphics acceleration when available"; Firefox: Settings > Performance), '
-  + 'restart the browser and reload this page. If it still fails, update your browser and graphics driver.';
+  + 'restart the browser and reload this page. If it still fails, update your browser and graphics driver. '
+  + 'iPhone / iPad: update iOS (16 or newer); with Lockdown Mode on, exclude this site in Settings > Privacy & Security > '
+  + 'Lockdown Mode > Configure Web Browsing.';
+// PLT-005: a lost context not back by then stays lost (GPU blocked, iOS memory pressure)
+const CONTEXT_RESTORE_WAIT_MS = 5000;
+const GRAPHICS_LOST_TITLE = 'The graphics stopped';
+const GRAPHICS_LOST_TEXT = 'The graphics did not come back. Your progress is saved: reload the page.';
 
 Settings.define('video.renderScale', 'auto', { label: 'Render scale', category: 'video', options: RENDER_SCALE_OPTIONS,
   optionLabels: ['Auto', '40%', '50%', '60%', '70%', '80%', '90%', '100%'] });
@@ -33,8 +39,10 @@ const Render = {
   sources: [],
   camera: { x: 0, y: 2, z: 0, yaw: 0, pitch: 0, roll: 0, fov: FOV_DEFAULT },
   cameraOverride: null,    // fn(camera) -> true when it placed the camera (spectate, killcam)
+  replayPose: null,        // fn(id, pose) -> true when the body is drawn, at the recorded pose it wrote (S17 killcam); null = live bodies
   viewModel: null,         // fn(out) fills { visible, shape, kick, reload, swap, ads, color, zoom }
   teamPalette: null,       // colour-blind team colours (array of 0xRRGGBB by team) instead of CAT.teamColors; null = the normal ones (18m)
+  teamSlot: null,          // fn(team) -> the team colour a team's bodies wear (S17 Hud.colorSlot: M20 squads); null = its own
   viewEffect: null,        // fn(camera, seconds) adds camera shake and FOV kick after the camera followed the player (18k)
   motion: { bob: 1, shake: 1, fovKick: 1 },   // 0..1 scales of view bob, shake and FOV kick: reduce motion and the sliders (ACC-005, 18k)
   actorStyle: null,        // fn(id, out) may change { r, g, b, emissive, scale, headScale, visible }; runs after the addActorStyle list
@@ -53,6 +61,11 @@ const Render = {
   ready: false,
   lost: false,
   pausedForLoss: false,
+  restoreTimer: 0,
+  // The Reload screen for a lost context is up (a late restore hides it)
+  gaveUp: false,
+  // The wait for a restore before the Reload screen (a test shortens it)
+  restoreWaitMs: CONTEXT_RESTORE_WAIT_MS,
   quality: null,           // the active CAT.quality row
   config: { renderScale: 'auto', fov: FOV_DEFAULT, viewmodelFov: 70, fxaa: true, outlines: true, headBob: 0, maxDpr: 1.5, autoLower: true, autoQuality: '',
     highContrast: false, particleScale: 1, viewmodelOffset: [0, 0, 0],   // these three are filled by the accessibility and view settings (18k, 18m)
@@ -64,6 +77,7 @@ const Render = {
   programs: {},
   gpuParts: [],
   updates: [],
+  prePasses: [],
   passes: [],
   finishers: [],
   frameStart: 0,
@@ -89,6 +103,9 @@ const Render = {
   // update(seconds, alpha) runs before drawing (camera, scale, lights); draw(gl) runs in order inside the scene target.
   addUpdate(order, update) { this.updates.push({ order, run: update }); this.updates.sort((a, b) => a.order - b.order); },
   addPass(order, draw) { this.passes.push({ order, run: draw }); this.passes.sort((a, b) => a.order - b.order); },
+  // draw(gl) runs before the scene target is bound (instance uploads, the shadow map): a tile GPU binds and clears that
+  // target once a frame, instead of loading it back after another target (R-154).
+  addPrePass(draw) { this.prePasses.push(draw); },
   addFinish(finish) { this.finishers.push(finish); },   // finish(gl) runs after the canvas holds the frame
   countDraw(triangles) { this.stats.drawCalls++; this.stats.triangles += triangles; },
 
@@ -100,11 +117,11 @@ const Render = {
     this.canvas.addEventListener('webglcontextlost', handleContextLost, false);
     this.canvas.addEventListener('webglcontextrestored', handleContextRestored, false);
     window.addEventListener('resize', () => { Render.size.dirty = true; });
+    document.addEventListener('visibilitychange', armRestoreWait);
     try {
       createGpuResources(gl);
     } catch (error) {
-      ErrorLog.add('render.init', error);
-      showFatal(WEBGL_FATAL_TITLE, WEBGL_FATAL_TEXT, String(error && error.message || error));
+      failGpuBuild('render.init', error);
       this.gl = null;
       return false;
     }
@@ -118,9 +135,12 @@ const Render = {
     this.frameStart = performance.now();
     resetFrameStats();
     this.frame.time += seconds;
+    // A resize first, so the camera's matrices already use the new aspect; the updates may change the scale or samples again.
+    if (this.size.dirty) resizeTargets(gl);
     for (let i = 0; i < this.updates.length; i++) this.updates[i].run(seconds, alpha);
     if (this.size.dirty || this.target.samples !== this.wantedSamples()) resizeTargets(gl);
     GpuTimer.begin(gl);
+    for (let i = 0; i < this.prePasses.length; i++) this.prePasses[i](gl);
     bindSceneTarget(gl);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     for (let i = 0; i < this.passes.length; i++) this.passes[i].run(gl);
@@ -141,8 +161,7 @@ function readVideoSettings() {
   config.viewmodelFov = Settings.get('video.viewmodelFov');
   config.fxaa = Settings.get('video.fxaa');
   config.outlines = Settings.get('video.outlines');
-  const bob = Settings.get('video.headBob');
-  config.headBob = typeof bob === 'number' ? bob : bob ? 100 : 0;   // older saves stored a plain on/off
+  config.headBob = Settings.get('video.headBob');   // an old on/off save is turned into 0 or 100 on load (Settings.validValue)
   config.maxDpr = Settings.get('video.maxDpr');
   config.autoLower = Settings.get('video.autoLower');
   config.autoQuality = Settings.get('video.autoQuality');
@@ -151,6 +170,7 @@ function readVideoSettings() {
 }
 readVideoSettings();
 Bus.on('setting', (key) => { if (key.startsWith('video.')) readVideoSettings(); });
+Bus.on('quality.change', readVideoSettings);
 
 // ---- Colour helpers: '#rrggbb' strings or 0xrrggbb numbers; strings are parsed once and cached ----
 const colorCache = new Map();
@@ -503,6 +523,8 @@ function publishStats() {
 }
 
 function renderFrameHook(seconds, alpha) {
+  // A match started during the loss waits for the restore (no blind play)
+  if (Render.lost && Game.isRunning()) pauseForLoss();
   if (!Render.ready || Render.lost || Game.headless) return;
   const started = performance.now();
   Render.drawFrame(seconds, alpha);
@@ -510,32 +532,73 @@ function renderFrameHook(seconds, alpha) {
   publishStats();
 }
 
-// ---- Context loss (PLT-005): pause, tell the player, rebuild everything on restore ----
+// ---- Context loss (PLT-005): pause, tell the player, rebuild everything on restore; no restore in time -> Reload ----
 
 function handleContextLost(event) {
   event.preventDefault();
   Render.lost = true;
+  pauseForLoss();
+  emitToast('Graphics restoring...');
+  armRestoreWait();
+}
+
+// The wait for the restore counts visible time only: phones drop a background tab's context and give it back on return.
+function armRestoreWait() {
+  clearTimeout(Render.restoreTimer);
+  if (Render.lost && !document.hidden) Render.restoreTimer = setTimeout(giveUpRestore, Render.restoreWaitMs);
+}
+
+// Only a running match is paused for the loss, so only that pause is lifted on restore.
+function pauseForLoss() {
   Render.pausedForLoss = Game.state === 'playing' && !Game.paused;
   Game.pause('graphics');
-  emitToast('Graphics restoring...');
+}
+
+// A frozen, paused screen has no way out: write the save and show the PLT-002 screen with a Reload button.
+function giveUpRestore() {
+  if (!Render.lost) return;
+  // A restore after this screen must not resume a match nobody can see.
+  Render.pausedForLoss = false;
+  if (Save.data) Save.saveNow();
+  Render.gaveUp = true;
+  showFatal(GRAPHICS_LOST_TITLE, GRAPHICS_LOST_TEXT, '');
+  if (document.getElementById('fatal-reload')) return;
+  const button = makeElement('button', 'ui-button primary', 'Reload');
+  button.id = 'fatal-reload';
+  button.addEventListener('click', () => location.reload());
+  document.querySelector('#fatal .box').appendChild(button);
+}
+
+// A GPU build that threw (at start or on a restore) would leave a blank or frozen screen: the PLT-002 WebGL2 message instead.
+function failGpuBuild(where, error) {
+  ErrorLog.add(where, error);
+  showFatal(WEBGL_FATAL_TITLE, WEBGL_FATAL_TEXT, String(error && error.message || error));
 }
 
 function handleContextRestored() {
+  clearTimeout(Render.restoreTimer);
   try {
     createGpuResources(Render.gl);
   } catch (error) {
-    // A rebuild that fails would leave a frozen, paused screen: show the PLT-002 message instead.
-    ErrorLog.add('render.restore', error);
     Render.ready = false;
-    showFatal(WEBGL_FATAL_TITLE, WEBGL_FATAL_TEXT, String(error && error.message || error));
+    failGpuBuild('render.restore', error);
     return;
   }
   Render.lost = false;
-  if (Render.pausedForLoss) Game.resume();
+  if (Render.pausedForLoss && Game.pauseReason === 'graphics') Game.resume();
   Render.pausedForLoss = false;
+  if (Render.gaveUp) hideGraphicsLost();
   emitToast('Graphics restored');
 }
+
+// A late restore takes the Reload screen away again; the match stays paused behind the pause menu.
+function hideGraphicsLost() {
+  Render.gaveUp = false;
+  hideFatal();
+}
 Input.resumeBlocked = () => Render.lost;   // the pause menu's Resume waits for the restore (PLT-005)
+// A quit during the loss: a later match's pause is the player's.
+Bus.on('match.stop', () => { Render.pausedForLoss = false; });
 
 Bus.on('boot', () => {
   if (Game.headless || !Render.init()) return;

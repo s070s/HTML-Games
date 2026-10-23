@@ -7,10 +7,20 @@ Status: living document. Test areas point at `docs/SPECIFICATION.md` by section 
 A live test is played by a person in a real browser on a real device, with the game opened straight from the single HTML file. It is not the headless self-test. The self-test (`__CTK.selfTest()`) checks logic in isolation; a live test checks what a player actually sees, hears and feels: frame pacing, input feel, touch layout, audio, menus, fairness of bots and recovery from real-world events (tab switch, phone lock, gamepad unplug, full storage).
 
 Rules:
-- Laptops launch from `file://` (double-click the HTML). Phones (D1-D4) load the same file over the LAN from a local static server (PLT-001), because iOS Safari cannot run local HTML files; D1/D2 also run LT-C-001 once from the file manager (`content://`) to check that saves work or the storage warning shows.
+- Laptops launch from `file://` (double-click the HTML). Phones (D1-D4) load the same file from a static web server (PLT-001), because iOS Safari cannot run local HTML files. Serve it over HTTPS: on iPhone and iPad the gyro/motion sensors, the screen wake lock, persistent storage and the Home Screen app need a secure page, and a plain LAN `http://` address would hide those features (the gyro then shows "Gyro needs HTTPS"). A local test server with a trusted certificate is fine; D1/D2 also run LT-C-001 once from the file manager (`content://`) to check that saves work or the storage warning shows.
 - Network off (airplane mode or browser offline) for at least one run per device: the game must make zero network requests.
 - Use a fresh browser profile (or cleared site data) unless the test needs an existing save.
 - Record the build: the version string shown in the main menu and in `__CTK.version`.
+
+## 1a. Hosting the file for iPhone and iPad
+
+The owner puts the single HTML file on their own web server and plays it in Safari. What that needs:
+- Serve it over HTTPS (a normal certificate; no other file is needed, the game makes no network requests). Over plain `http://` the game plays, but the gyro/motion sensors, the screen wake lock, persistent storage and the Home Screen app are not available.
+- Add to Home Screen: open the game in Safari, tap Share, then Add to Home Screen. The icon opens the game full screen as its own app (the game sets the Apple web-app tags itself).
+- The Home Screen app keeps its own storage, apart from the Safari tab: it starts with an empty save. To move progress, use Back up or restore save (a footer button under every settings tab): Copy a backup in Safari, then Import it in the Home Screen app. The game offers this once on the app's first start.
+- Safari may clear a site's data after about 7 days away; the Home Screen app and a granted persistent storage keep it. The game shows a one-time backup tip on the main menu after the first finished match.
+- On iOS before 17 the silent switch mutes the game's sound; the game shows a one-time tip. From iOS 17 the sound plays with the switch on. The Mix with other audio setting lets a music app keep playing.
+- Test on a real iPhone or iPad, not only a desktop browser: LT-C-032, LT-C-033, LT-C-041 to LT-C-044.
 
 ## 2. Device matrix
 
@@ -29,7 +39,7 @@ Rules:
 
 ## 3. How to measure
 
-Performance HUD (F10, PERF-012 and ARC-040; on touch use the debug toggle in Settings). It also shows the caught-error ring (ARC-041). Bot debug view is F9 (BOT-092).
+Performance HUD (F8, PERF-012 and ARC-040; on touch use the debug toggle in Settings or a four-finger tap on the look area). It also shows the caught-error ring (ARC-041). Bot debug view is F9 (BOT-092).
 - Frame time p50 and p99 in milliseconds over the last 600 frames, current fps, dropped-frame count, draw calls, triangles, active entities, JS heap (where the browser exposes it).
 - Target: p50 at or below 8.3 ms and p99 at or below 11 ms on 120 Hz devices; p99 at or below 16.7 ms (60 fps minimum) on every target device.
 - Read the numbers after 30 seconds of play in the scene under test, not during loading.
@@ -40,7 +50,7 @@ Performance HUD (F10, PERF-012 and ARC-040; on touch use the debug toggle in Set
 |---|---|
 | `__CTK.version` | Build string (test hook; fallback: version text on the main menu) |
 | `__CTK.selfTest()` | ARC-030: runs the built-in checks, returns {total, failed, results[]}; also Help > "Run self-test" |
-| `__CTK.perf` | ARC-040: performance data behind the F10 HUD (frame ms, sim/AI/render/HUD ms, GPU ms, draw calls, heap); p50/p99 over 600 frames is a test hook; `scenes()`, `scene(name, qualityId, { autoLower })`, `record(seconds)`, `info()`, `stop()` drive the worst-case scenes of `tools/perf.mjs` (docs/PERFORMANCE.md) |
+| `__CTK.perf` | ARC-040: performance data behind the F8 HUD (frame ms, sim/AI/render/HUD ms, GPU ms, draw calls, heap); p50/p99 over 600 frames is a test hook; `scenes()`, `scene(name, qualityId, { autoLower })`, `record(seconds)`, `info()`, `stop()` drive the worst-case scenes of `tools/perf.mjs` (docs/PERFORMANCE.md) |
 | `__CTK.soak` | ARC-033: headless bot soak; use before LT-C-031 to catch stuck bots and fairness breaches early |
 | `__CTK.seed(n)` | Test hook: sets the generator seed; fallback: seed field in Custom > Map (MAP-020) |
 | `__CTK.map.check()` | Test hook: reachability and spawn-safety report (the MAP-001 load validation result) |
@@ -50,7 +60,7 @@ Performance HUD (F10, PERF-012 and ARC-040; on touch use the debug toggle in Set
 | `__CTK.give(weaponId)` / `__CTK.god(bool)` | Test hooks; fallback: Firing Range (PRG-008) weapon rack |
 | `__CTK.save.dump()` / `__CTK.save.corrupt(kind)` | Test hooks; fallback: read or edit the `ctk.save.v1` key in DevTools Application > Local Storage (ARC-020) |
 | `__CTK.step(n)` | ARC-040: advance n sim steps while paused, for frame-by-frame checks |
-| `__CTK.log.errors()` | Test hook; fallback: error ring on the F10 HUD (ARC-041) |
+| `__CTK.log.errors()` | Test hook; fallback: error ring on the F8 HUD (ARC-041) |
 
 Other tools: the browser console (must show zero uncaught errors), the browser task manager or `performance.memory` for memory, a stopwatch for menu timings, a phone screen recording when a bug is about feel or timing.
 
@@ -110,16 +120,16 @@ Columns: ID, Area (spec section and ID prefix), Device(s), Setup, Steps, Expecte
 | LT-C-011 | §5 INP-007, INP-010 | D8 | Pad connected before launch | Navigate menus and play a match with the pad only | Full control without mouse or keyboard | Every menu reachable; move, look, fire, alt fire, jump, weapon switch work |
 | LT-C-012 | §5 INP-007, §2 PLT-006 | D8 | Match running with pad | Unplug pad mid-fight | Game pauses and shows "controller disconnected" | Pause within 0.5 s; no stuck input (player not running or firing on its own) |
 | LT-C-013 | §2 PLT-003, §24 ARC-020, ARC-021 | All | Earn progress (XP, unlocks), change options | Reload the page | Progress and options kept | All changed values identical after reload (compare `__CTK.save.dump()`) |
-| LT-C-014 | §24 ARC-020 | All | Valid save present | `__CTK.save.corrupt('garbage')`, reload | Game starts; broken save copied to `ctk.save.bak`, save reset with a notice; never a silent wipe | Title reached; notice shown; `ctk.save.bak` holds the broken data |
-| LT-C-015 | §24 ARC-020, ARC-041 | All | Valid save | `__CTK.save.corrupt('truncate')`, reload | Same as LT-C-014 | Title reached; zero uncaught errors |
+| LT-C-014 | §24 ARC-020 | All | Valid save present | `__CTK.save.corrupt('garbage')`, reload; then open the "Back up or restore save" button (footer under every settings tab) | Game starts; broken save copied to `ctk.save.bak`, save reset with a notice; never a silent wipe; the backup is offered as Export backup / Restore backup | Title reached; notice shown; `ctk.save.bak` holds the broken data; Restore backup brings back a valid backup, and a bad one is refused without a reload |
+| LT-C-015 | §24 ARC-020, ARC-041 | All | Valid save | `__CTK.save.corrupt('truncate')`, reload; then Copy a backup in the same screen and Import it back | Same as LT-C-014; Copy and Import round-trip the save | Title reached; zero uncaught errors; after Import the progress is back and nothing is lost |
 | LT-C-016 | §24 ARC-020 | All | Save from an older version (`corrupt('oldVersion')`) | Reload | Save migrates | All old progress present; version field updated |
 | LT-C-017 | §2 PLT-003, §24 ARC-020 | D5, D3 | Fill localStorage to quota (console snippet) | Earn progress, trigger save | Clear "could not save" notice; game keeps running | No crash; notice shown; existing save not destroyed |
 | LT-C-018 | §2 PLT-003 | D3 | Safari private browsing | Launch and play | Game runs even if storage is blocked or tiny | Title and match playable; storage warning shown once |
 | LT-C-019 | §24 ARC-020 | All | End-of-match screen (save moment) | Close tab right as results appear; relaunch | Either the old or the new save loads, never a broken one | Clean load on relaunch, 5 of 5 tries |
 | LT-C-020 | §2 PLT-006, §20 UI-002 | All | In a match | Pause and resume 10 times quickly | Simulation stops while paused, resumes cleanly | No time jump, no stuck keys, no extra shots fired |
 | LT-C-021 | §2 PLT-006, §24 ARC-010 | All | In a match | Switch tab (or lock phone) for 60 s, come back | Game is paused on return; no huge catch-up step | Player state unchanged; at most 4 sim steps in the first frame after return (ARC-010); audio back after one tap/click |
-| LT-C-022 | §2 PLT-005, §20 UI-015 | Phones | In a match | Rotate phone portrait/landscape 5 times | Layout adapts or shows a "rotate" prompt; no crash | Canvas resolution correct after each rotate; no context-loss crash |
-| LT-C-023 | §2 PLT-005 | D5 | In a match | Force context loss (`WEBGL_lose_context` from console), then restore | Game pauses, shows "graphics restoring", rebuilds and continues | Rendering back within 3 s, or clear message with "Reload" button; save intact |
+| LT-C-022 | §2 PLT-005, §20 UI-015 | Phones | In a match | Rotate phone portrait/landscape 5 times | Held upright on a phone (portrait under 600 px wide) a match pauses behind a "Turn your phone sideways" overlay and resumes on landscape; tablets (iPad) play on; menus stay usable upright | Canvas resolution correct after each rotate; no context-loss crash; a pause the player chose stays paused after rotating |
+| LT-C-023 | §2 PLT-005 | D5 | In a match | Force context loss (`WEBGL_lose_context` from console), then restore | Game pauses (reason graphics), rebuilds and continues; after 5 s without a restore the save is written and "The graphics stopped" appears with a Reload button | Rendering back within 3 s, or the Reload screen; a late restore removes the Reload screen; save intact |
 | LT-C-024 | §13 MODE-002, §1 VIS-004 | All | Every mode in the §13 catalogue (26, VIS-004), default rules, 3 bots | Start each mode | Every mode loads into play | Every mode reaches play within 5 s on laptops, 8 s on phones |
 | LT-C-025 | §13 MODE-001 | Laptops | Each mode with its shortest time/score limit | Play to the end | Match ends, result screen shows, return to menu works | Every mode ends and returns to menu without reload |
 | LT-C-026 | §18 MAP-001 | All | Each hand-made map, Deathmatch | Walk the full layout with `__CTK.god(true)` | No falling through floor, no holes into the void | Zero fall-throughs; `__CTK.map.check()` reports zero errors |
@@ -128,7 +138,7 @@ Columns: ID, Area (spec section and ID prefix), Device(s), Setup, Steps, Expecte
 | LT-C-029 | §3 PERF-002, PERF-009, PERF-011, §16 BOT-090, BOT-091 | Laptops, D1 | Max bots, Team Deathmatch, 10 min | Play and watch AI time on perf HUD | AI never freezes the game | No frame over 50 ms caused by AI; all-bot AI time at or below 1.0 ms average (BOT-091) |
 | LT-C-030 | §3 PERF-009, PERF-010, PERF-013 | All | `__CTK.stress('max')` | Run 60 s | Game stays playable | Laptops, D2, D4: p99 at or below 16.7 ms; D1, D3: auto quality brings p99 to 16.7 ms or less within 10 s |
 | LT-C-031 | §3 PERF-005, PERF-006, §24 ARC-033 | D1, D5 | Endless horde or Deathmatch, bots on | Soak 60 min continuous play | Stable memory and fps | Heap at or below 150 MB and growth under 20% from minute 5 to minute 60; no GC pause over 2 ms (PERF-006); p99 at minute 60 within 10% of minute 5 |
-| LT-C-032 | §22 AUD-001 | Phones, D7 | Fresh launch | Tap/click once on title | Audio starts after the first gesture | Sound plays within 0.2 s of first gesture; message shown if audio is blocked; iPhone with the silent switch on: sound plays (iOS 17+) or the silent-switch hint shows |
+| LT-C-032 | §22 AUD-001 | Phones, D7 | Fresh launch | Tap/click once on title | Audio starts after the first gesture | Sound plays within 0.2 s of first gesture; message shown if audio is blocked; iPhone with the silent switch on: sound plays (iOS 17+) or the one-time silent-switch tip shows (older iOS mutes the game until the switch is off) |
 | LT-C-033 | §22 AUD-001, §2 PLT-006 | D3, D4 | Match running | Lock phone, unlock, return to Safari | Audio context resumes after one tap | Sound back after 1 tap; no crackle loop |
 | LT-C-034 | §1 VIS-006, §19 PRG-001, §20 UI-001 | All | Fresh launch | Go from title to playing a quick match | Fast path exists | Quick Match is one tap from the main menu (PRG-001), any match in at most 2 actions (UI-001); playing within 10 s on laptops, 15 s on phones |
 | LT-C-035 | §6 MOV-010, MOV-016, MOV-022, §4 DATA-003 | All | Each movement preset | Walk, run, jump, crouch through a doorway and onto a 1-step ledge | Player never gets stuck | Player passes every standard doorway and step on every preset |
@@ -137,6 +147,10 @@ Columns: ID, Area (spec section and ID prefix), Device(s), Setup, Steps, Expecte
 | LT-C-038 | §21 ACC-001, ACC-006, ACC-008, §20 UI-015 | All | Options open | Set HUD scale to 50% and 150%; each colour-blind mode; reduced motion | Game stays usable | Every menu button reachable; text at least 14 px at 100% scale |
 | LT-C-039 | §5 INP-001, §2 PLT-006 | D5, D7 | Chrome and Firefox | Press Esc during pointer lock; click Resume | Pause menu opens; Resume re-locks pointer | Resume regains pointer lock in 1 click (if the browser refuses a re-lock within about 1 s of Esc, the game shows "Click to resume" and the next click locks); menu reached with 1 Esc |
 | LT-C-040 | §1 VIS-003, §2 PLT-001 | All | Fresh profile | Search the file for external URLs; run with network off | Self-contained file | Zero external resource loads (scripts, fonts, images, audio) |
+| LT-C-041 | §2 PLT-004, PLT-003 | D3, D4 | Game served over HTTPS; Safari tab with a save | Share > Add to Home Screen; open the new icon; accept the "Bring your progress?" offer or use Restore backup with a copied backup | Home Screen app opens full screen (no Safari bars) with its own empty save (it does not share Safari's storage) and offers the import once | Progress carried over through Copy/Import; the app shows no browser chrome; the one-time "Keep your progress" tip showed once in Safari after the first finished match |
+| LT-C-042 | §2 PLT-004 | D3, D4 | Home Screen app and Safari tab | Play a match; swipe back from the screen edge during it; lock the phone mid-match | Back swipe pauses instead of leaving; a running visible match keeps the screen awake | Pause menu opens on the back swipe; the screen does not dim during a match over HTTPS |
+| LT-C-043 | §2 PLT-004 | Android phone or iPad | Main menu | Use Full screen in the menu | Full screen where the browser allows it, otherwise the message "The browser did not allow full screen." | Full screen on and off cleanly; no crash on iPhone where it is not offered |
+| LT-C-044 | §5 INP-006 | D3, D4 | Settings > Controls, gyro aim On | Over HTTPS, then once over plain HTTP | Over HTTPS the motion permission is asked once and gyro aim works; over HTTP one toast says the gyro needs HTTPS | No crash; the setting row shows when it cannot work |
 
 ### 6.2 High (LT-H)
 
@@ -445,7 +459,7 @@ Every section of SPECIFICATION.md has at least one live test. Sections 25 (Out o
 | Spec section | Live tests |
 |---|---|
 | §1 Vision and pillars (VIS) | LT-C-002, LT-C-034, LT-C-040, LT-H-037, LT-H-059, LT-M-001, LT-M-002, LT-L-001 |
-| §2 Platform and constraints (PLT) | LT-C-001 to LT-C-004, LT-C-012, LT-C-013, LT-C-017, LT-C-018, LT-C-020, LT-C-021, LT-C-023, LT-C-039, LT-C-040, LT-M-060, LT-L-029 |
+| §2 Platform and constraints (PLT) | LT-C-001 to LT-C-004, LT-C-012, LT-C-013, LT-C-017, LT-C-018, LT-C-020, LT-C-021, LT-C-023, LT-C-039, LT-C-040, LT-C-041 to LT-C-044, LT-M-060, LT-L-029 |
 | §3 Performance budgets (PERF) | LT-C-005 to LT-C-007, LT-C-029 to LT-C-031, LT-M-057, LT-M-058 |
 | §4 Units and data schemas (DATA) | LT-C-035, LT-H-005, LT-H-009, LT-M-003, LT-M-004 |
 | §5 Input and controls (INP) | LT-C-008 to LT-C-012, LT-C-039, LT-H-063 to LT-H-067, LT-M-006, LT-M-007, LT-M-048, LT-M-053, LT-L-026, LT-L-027 |
@@ -526,7 +540,7 @@ Status 2026-10-22: the first four rows are now in the spec (ARC-040 hooks and to
 | Item | Why the live tests need it |
 |---|---|
 | Add test hooks to `__CTK` (ARC-040): `version`, `seed(n)`, `map.check()`, `stress(level)`, `give`, `god`, `save.dump`, `save.corrupt(kind)`, `log.errors()`, perf p50/p99 | Makes LT-C-014 to LT-C-016, LT-C-027, LT-C-030 and many High tests quick and repeatable on phones without DevTools |
-| A touch-friendly way to open the F10 perf HUD and F9 bot view | Phones have no F-keys; perf numbers are pass criteria on D1 to D4 |
+| A touch-friendly way to open the F8 perf HUD and F9 bot view (done: Options > Developer and a four-finger tap) | Phones have no F-keys; perf numbers are pass criteria on D1 to D4 |
 | A numeric "leader share of top items" target for LT-H-021 | Spec has spread rules (MAP-005) but no number; this plan uses under 50% |
 | Bot hit-rate caps per tier (BT table) quoted in one place | LT-H-040 needs a number per tier |
 

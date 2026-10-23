@@ -1,7 +1,7 @@
 // ==== S17 HUD: KILLCAM-LITE (UI-011) ====
 // A fixed ring buffer records every actor's transform at 20 Hz while a match runs (typed arrays, nothing allocated per step).
 // When the local player is killed by someone, the last 2 s are replayed from the killer's eyes through Render.cameraOverride, with
-// the recorded bodies drawn as simple figures and the live ones hidden. The player can skip it; the option can be turned off.
+// the recorded bodies drawn through their own models and held weapons and the live ones hidden. The player can skip it; the option can be turned off.
 
 const KILLCAM_RATE = 20;                                    // recorded frames per second
 const KILLCAM_STEP_TICKS = TICK_RATE / KILLCAM_RATE;        // sim steps between two recorded frames
@@ -12,8 +12,10 @@ const KILLCAM_MIN_SECONDS = 0.3;                            // less history than
 const KILLCAM_SKIP_GRACE = 0.35;                            // a skip press counts only after this many seconds
 const KILLCAM_SKIP_BUTTONS = BTN.FIRE | BTN.JUMP | BTN.USE;
 const KILLCAM_FIELDS = 6;                                   // x y z yaw pitch eye
+const KILLCAM_LOOK_FIELDS = 7;                              // speed height grounded hidden health shield champion: what a drawn pose reads
+const KILLCAM_CLOAK_SHIMMER = 2;                            // hidden: 0 no, 1 cloaked, 2 Ghostveil (shows its shimmer)
 const KILLCAM_BAR = 0.08;                                   // letterbox bar height as a share of the screen
-const KILLCAM_FIGURE = { width: 0.8, height: 1.8, faceSize: 0.28, faceHeight: 1.55 };
+const KILLCAM_NAME_SIZE = 24;                               // design px: the killer's name, the largest text in the bars
 const KILLCAM_ORDER = 95;                                   // sim system order: after every other bookkeeping
 
 Settings.define('hud.killcam', true, { label: 'Killcam replay after you are killed', category: 'hud' });
@@ -22,6 +24,8 @@ const Killcam = {
   enabled: true,
   transforms: new Float32Array(KILLCAM_FRAMES * MAX_ACTORS * KILLCAM_FIELDS),
   living: new Uint8Array(KILLCAM_FRAMES * MAX_ACTORS),
+  looks: new Float32Array(KILLCAM_FRAMES * MAX_ACTORS * KILLCAM_LOOK_FIELDS),   // health and shield are shares of their maximum
+  weapons: new Int16Array(KILLCAM_FRAMES * MAX_ACTORS),     // the held weapon index (Render.heldWeapon), -1 = none
   frameTime: new Float64Array(KILLCAM_FRAMES),
   head: 0, filled: 0,
   // playback
@@ -44,8 +48,17 @@ const Killcam = {
       this.transforms[o] = Actors.x[id]; this.transforms[o + 1] = Actors.y[id]; this.transforms[o + 2] = Actors.z[id];
       this.transforms[o + 3] = Actors.yaw[id]; this.transforms[o + 4] = Actors.pitch[id]; this.transforms[o + 5] = Actors.eye[id];
       this.living[base + id] = Actors.kind[id] !== ACTOR_KIND.NONE && (Actors.alive[id] === 1 || id === forceAlive) ? 1 : 0;
+      this.weapons[base + id] = killcamLiveHeld ? killcamLiveHeld(id) : -1;
+      this.recordLook((base + id) * KILLCAM_LOOK_FIELDS, id);
     }
     for (let id = Actors.count; id < MAX_ACTORS; id++) this.living[base + id] = 0;
+  },
+  recordLook(o, id) {
+    const looks = this.looks, flags = Actors.flags[id];
+    looks[o] = length2(Actors.vx[id], Actors.vz[id]); looks[o + 1] = Actors.height[id];
+    looks[o + 2] = (flags & ACTOR_FLAG.ON_GROUND) !== 0 ? 1 : 0; looks[o + 3] = (flags & ACTOR_FLAG.INVISIBLE) === 0 ? 0 : Powerups.setInvisible[id] ? KILLCAM_CLOAK_SHIMMER : 1;
+    looks[o + 4] = Actors.health[id] / Math.max(1, Actors.maxHealth[id]); looks[o + 5] = Actors.shield[id] / Math.max(1, Actors.maxShield[id]);
+    looks[o + 6] = Pve.champion[id];
   },
   // Ring slot of the i-th stored frame counting from the oldest.
   slotOf(i) { return (this.head - this.filled + i + KILLCAM_FRAMES) % KILLCAM_FRAMES; },
@@ -79,9 +92,10 @@ const Killcam = {
     this.record(event.victim);
     const end = this.newestTime(), start = Math.max(this.oldestTime(), end - KILLCAM_SECONDS);
     if (end - start < KILLCAM_MIN_SECONDS) return false;
-    this.startTime = start; this.length = end - start; this.clock = 0; this.killer = event.killer; this.playing = true; Hud.replaying = true;
+    this.startTime = start; this.length = end - start; this.clock = 0; this.killer = event.killer; this.playing = true; Hud.replaying = true; Render.replayPose = killcamPose;
     this.skipHeld = (Actors.buttons[event.victim] & KILLCAM_SKIP_BUTTONS) !== 0;   // a button still held from the fight does not skip
     this.describeKill(event);
+    TouchInput.applyAll();   // the touch buttons give way to the letterbox bars
     return true;
   },
   describeKill(event) {
@@ -91,7 +105,7 @@ const Killcam = {
     this.headshot = event.zone === 'head';
     this.killerHealth = Actors.health[killer]; this.killerArmor = Actors.armor[killer]; this.killerShield = Actors.shield[killer];
   },
-  stop() { this.playing = false; Hud.replaying = false; this.clock = 0; this.killer = -1; },
+  stop() { this.playing = false; Hud.replaying = false; Render.replayPose = null; this.clock = 0; this.killer = -1; TouchInput.applyAll(); },   // touch buttons back in place
   // Moves the replay clock (render frames, not sim time) and ends it when it is over or skipped.
   advance(seconds) {
     if (!this.playing || Game.paused) return;
@@ -130,25 +144,24 @@ Sim.addSystem('killcamRecord', KILLCAM_ORDER, () => {
   Killcam.record(-1);
 });
 
-// ---- Hooks: the replay camera (chained: an earlier owner keeps working), hidden live bodies and the recorded figures ----
+// ---- Hooks (chained: an earlier owner keeps working): the replay camera, the recorded weapons and bodies ----
 const killcamPreviousOverride = Render.cameraOverride;
 Render.cameraOverride = (camera) => (Killcam.playing ? Killcam.place(camera) : killcamPreviousOverride ? killcamPreviousOverride(camera) : false);
-Render.addActorStyle((id, out) => { if (Killcam.playing) out.visible = false; });   // loads after every other style
-
-// Recorded bodies: a capsule per living actor in its team colour, plus a small box on the face that shows where it looks.
-function hudDrawKillcamFigures(batch) {
-  if (!Killcam.playing) return;
-  const time = Killcam.startTime + Math.min(Killcam.clock, Killcam.length), figure = KILLCAM_FIGURE;
-  for (let id = 0; id < Actors.count; id++) {
-    if (id === Killcam.killer) continue;                       // the camera is inside this one
-    const body = Killcam.sample(id, time);
-    if (!body.alive) continue;
-    const color = Progress.bodyColor(id, Hud.actorColor(id)), r = ((color >> 16) & 255) / 255, g = ((color >> 8) & 255) / 255, b = (color & 255) / 255;
-    batch.mesh('capsule', body.x, body.y + figure.height / 2, body.z, body.yaw, 0, figure.width, figure.height, figure.width, r, g, b, 0);
-    batch.mesh('box', body.x + Math.sin(body.yaw) * 0.3, body.y + figure.faceHeight, body.z + Math.cos(body.yaw) * 0.3, body.yaw, 0, figure.faceSize, figure.faceSize * 0.5, figure.faceSize, 1, 1, 1, 0.4);
-  }
+const killcamLiveHeld = Render.heldWeapon;   // S11's; while replaying, a body holds its weapon of the frame last sampled
+Render.heldWeapon = (id) => (Killcam.playing ? Killcam.weapons[Killcam.lower * MAX_ACTORS + id] : killcamLiveHeld ? killcamLiveHeld(id) : -1);
+// Render.replayPose while it plays: every body (actors 07c, PvE enemies 14h) stands where the recording has it. The killer's is
+// not drawn (the camera is inside it), nor one that was not alive then.
+function killcamPose(id, pose) {
+  const time = Killcam.startTime + Math.min(Killcam.clock, Killcam.length), body = Killcam.sample(id, time);
+  if (id === Killcam.killer || !body.alive) return false;
+  const looks = Killcam.looks, o = (Killcam.lower * MAX_ACTORS + id) * KILLCAM_LOOK_FIELDS;   // the frame last sampled: no blend for the discrete state
+  const cloak = looks[o + 3];
+  if (cloak === 1 || (cloak === KILLCAM_CLOAK_SHIMMER && !ghostShimmerVisible(time, id))) return false;   // it was cloaked then
+  pose.x = body.x; pose.y = body.y; pose.z = body.z; pose.yaw = body.yaw; pose.pitch = body.pitch;
+  pose.speed = looks[o]; pose.height = looks[o + 1]; pose.grounded = looks[o + 2] === 1;
+  pose.health = looks[o + 4]; pose.shield = looks[o + 5]; pose.champion = looks[o + 6]; pose.recorded = true;
+  return true;
 }
-Render.addSource('killcam', hudDrawKillcamFigures);
 
 // ---- Killcam panel: letterbox, killer name, weapon, the killer's health and armor, skip hint ----
 function hudDrawKillcamPanel(pen, layout) {
@@ -158,7 +171,7 @@ function hudDrawKillcamPanel(pen, layout) {
   pen.rect(0, layout.height - bar, layout.width, bar, HUD_COLOR.black, 0.92);
   pen.rect(0, layout.height - 3 * unit, layout.width * Killcam.progress(), 3 * unit, HUD_COLOR.gold, 1);
   pen.text('KILLED BY', x - 8 * unit, bar / 2, 16 * unit, HUD_COLOR.dim, 'right');
-  pen.text(Killcam.killerName, x + 8 * unit, bar / 2, 24 * unit, HUD_COLOR.text, 'left');
+  pen.text(Killcam.killerName, x + 8 * unit, bar / 2, KILLCAM_NAME_SIZE * unit, HUD_COLOR.text, 'left');
   const y = layout.height - bar / 2;
   if (Killcam.weaponClass) pen.weaponIcon(Killcam.weaponClass, x - 150 * unit, y, 44 * unit, HUD_COLOR.text);
   pen.text(Killcam.weaponName, x - 120 * unit, y, 18 * unit, HUD_COLOR.text, 'left');
@@ -168,6 +181,17 @@ function hudDrawKillcamPanel(pen, layout) {
   pen.text('▲', x + 130 * unit, y, 16 * unit, HUD_COLOR.armor, 'left');
   pen.text(hudNumber(Killcam.killerArmor + Killcam.killerShield), x + 150 * unit, y, 18 * unit, HUD_COLOR.text, 'left');
   pen.text('TO SKIP', layout.right, bar / 2, 14 * unit, HUD_COLOR.dim, 'right');
-  pen.text(Hud.keyLabel('fire') || 'TAP', layout.right - HudBatch.measure('TO SKIP', 14 * unit) - 8 * unit, bar / 2, 14 * unit, HUD_COLOR.text, 'right');
+  pen.text(Hud.keyLabel('fire') || 'TAP FIRE', layout.right - HudPen.measure('TO SKIP', 14 * unit) - 8 * unit, bar / 2, 14 * unit, HUD_COLOR.text, 'right');
 }
 Hud.register('front', 'killcam', '', hudDrawKillcamPanel);
+// While the replay plays, touch buttons give way to its letterbox bars (05b keepClear, touch-01).
+// The bars' text may be taller than a bar at a large HUD scale: each area reaches the largest text's half height from the
+// bar's centre line, where the drawing puts it.
+const killcamClearLayout = {};
+TouchInput.keepClear.push((width, height) => {
+  if (!Killcam.playing) return;
+  updateHudLayout(killcamClearLayout, width, height);
+  const bar = height * KILLCAM_BAR, reach = Math.max(bar, bar / 2 + hudTextHalf(KILLCAM_NAME_SIZE * killcamClearLayout.unit));
+  TouchInput.addClear(0, 0, width, reach);
+  TouchInput.addClear(0, height - reach, width, height);
+});

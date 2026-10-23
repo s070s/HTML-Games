@@ -17,6 +17,7 @@ const PICKUP_BOB = 0.08;                   // m up and down
 const PICKUP_NOISE = 12;                   // bots hear a pickup within this radius (BOT-005); power items further
 const POWER_PICKUP_NOISE = 40;
 const DROP_RING = 0.8;                     // several drops of one death spread on a ring this wide
+const SWAP_PICKUP_SECONDS = 2;             // after a carry-limit swap (Use held), no other swap this long (no cycling on a pile of drops)
 const SOUL_ULTIMATE = 'wrath';             // A34 Wrath Form: what the PU18 souls pay for (S12 12e gives it in soul modes)
 const SOUL_HOMING_RANGE = CAT.abilities.byId(SOUL_ULTIMATE).params.homing;   // ABL-005: souls fly to a nearby player
 const SOUL_HOMING_SPEED = 8;
@@ -32,7 +33,6 @@ const RESPAWN_EVENT = { item: '', group: '', x: 0, y: 0, z: 0 };
 const ITEM_ANNOUNCE = { text: '', kind: 'power', priority: ANNOUNCE_POWER_PRIORITY };
 const ITEM_COUNT = CAT.items.length;
 const CONSUMABLE_ROWS = CAT.items.filter((row) => row.effect === 'consume');   // I13..I17, catalogue order = the heal button's preference
-const BOT_HEAL_CALM = 3;                 // s without damage before a bot uses a carried consumable
 CAT.items.forEach((row, index) => { row.index = index; });
 CAT.powerups.forEach((row, index) => { row.index = index; });
 
@@ -121,6 +121,8 @@ const Items = {
   usedEnd: 0,                                       // every slot from here on is FREE: the per-step loops stop here (PERF-002)
   carried: new Uint8Array(MAX_ACTORS * ITEM_COUNT), // loot consumables carried (I13..I17)
   usingItem: new Int16Array(MAX_ACTORS).fill(-1), useStart: new Int32Array(MAX_ACTORS), useEnd: new Int32Array(MAX_ACTORS),
+  swapReadyTick: new Int32Array(MAX_ACTORS),        // Sim.tick from which this actor may swap weapons again
+  swapPrompts: [],                                  // 'HOLD TO SWAP <held> FOR <floor gun>' per weapon pair, built on first use (swapPrompt)
   noArmor: new Uint8Array(MAX_ACTORS),              // written by 12b (scout rune): armor pickups refused
   takers: [],                                       // PICKUP_KIND -> fn(id, slot) -> true when taken (12b fills POWERUP)
   givers: [],                                       // PICKUP_KIND -> fn(id, key) -> true when given without a pickup (item.grant; 12b fills POWERUP)
@@ -160,12 +162,15 @@ const Items = {
     }
   },
   // One spot rule for Items.load and the bots' item list (14e): the ruleset keeps map pickups, the M15 one-pickup filter
-  // lets this key through, and a powerup is allowed (X16) in this health preset (PU20). Unknown keys pass: addSpot logs them.
+  // lets this key through, a weapon spot is not in a hero match (heroes fight with their own kit, RS09), and a powerup is
+  // allowed (X16) in this health preset (PU20). Unknown keys pass: addSpot logs them.
   spotAllowed(entry) {
     if (!mapItemsAllowed()) return false;
     const only = onlyPickup();
     if (only && entry.item !== only) return false;
-    if (this.resolve(entry.item) !== PICKUP_KIND.POWERUP) return true;
+    const kind = this.resolve(entry.item);
+    if (kind === PICKUP_KIND.WEAPON) return !Abilities.usesHeroes();
+    if (kind !== PICKUP_KIND.POWERUP) return true;
     return powerupsAllowed() && powerupSpotAllowed(CAT.powerups.byId(entry.item));
   },
   addSpot(entry) {
@@ -179,13 +184,20 @@ const Items = {
     if (this.isPower(slot)) this.wait(slot, this.firstPowerTicks());
     return slot;
   },
-  // Weapon spots follow a match weapon list: a weapon outside it becomes the list's next gun ('' = no gun in the list).
+  // Weapon spots follow the match's weapon set (the ruleset's set or a match list): a set gun stays, a weapon outside it
+  // becomes a set pickup gun (one nobody spawns with) of its own class, else the set's next pickup gun (any set gun when
+  // the set has no pickup guns; '' = no gun in the set). Runs once per spot at match load.
   spotWeapon(key) {
-    if (itemRule('weaponSet', '') !== MATCH_SET_ID) return key;
-    const listed = currentWeaponSet().weapons;
-    if (listed.includes(key)) return key;
-    const guns = listed.filter((other) => CAT.weapons.byId(other).class !== 'melee');
-    return guns.length ? guns[this.matchSetCursor++ % guns.length] : '';
+    if (!itemRule('weaponSet', '')) return key;
+    const set = currentWeaponSet();
+    if (set.weapons.includes(key)) return key;
+    const guns = set.weapons.filter((other) => CAT.weapons.byId(other).class !== 'melee');
+    const upgrades = guns.filter((other) => !set.start.includes(other));
+    const weaponClass = CAT.weapons.byId(key).class;
+    const sameClass = upgrades.find((other) => CAT.weapons.byId(other).class === weaponClass);
+    if (sameClass) return sameClass;
+    const pool = upgrades.length ? upgrades : guns;
+    return pool.length ? pool[this.matchSetCursor++ % pool.length] : '';
   },
   place(slot, kind, rowIndex, x, y, z) {
     this.state[slot] = PICKUP_STATE.READY; this.kind[slot] = kind; this.row[slot] = rowIndex;
@@ -278,7 +290,7 @@ const Items = {
     for (let id = 0; id < Actors.count; id++) {
       if (!this.canTouch(id, enemiesTake)) continue;
       this.touch(id);
-      if ((Actors.pressed[id] & BTN.HEAL) || this.botWantsHeal(id)) this.useBest(id);
+      if (Actors.pressed[id] & BTN.HEAL) this.useBest(id);
       if (this.usingItem[id] >= 0 && Sim.tick >= this.useEnd[id]) this.finishUse(id);
     }
   },
@@ -331,7 +343,7 @@ const Items = {
     let best = -1, bestDistance = Infinity;
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || Actors.kind[id] === ACTOR_KIND.ENEMY) continue;
-      const distance = Math.hypot(Actors.x[id] - this.x[slot], Actors.z[id] - this.z[slot]);
+      const distance = length2(Actors.x[id] - this.x[slot], Actors.z[id] - this.z[slot]);
       if (distance < bestDistance && distance < soulHomingRange(id)) { best = id; bestDistance = distance; }
     }
     if (best < 0 || bestDistance < 1e-3) return;
@@ -376,7 +388,41 @@ const Items = {
   takeWeapon(id, slot) {
     const weapon = CAT.weapons[this.row[slot]];
     if (this.stays(slot) && Weapons.has(id, weapon.id)) return false;
-    return this.giveWeapon(id, weapon.id, this.rarity[slot], this.y[slot]);
+    const swaps = Weapons.swapsOut(id, weapon);
+    if (swaps && (Sim.tick < this.swapReadyTick[id] || !Weapons.mayTake(id, weapon))) return false;
+    if (!this.giveWeapon(id, weapon.id, this.rarity[slot], this.y[slot])) return false;
+    if (swaps) this.blockSwapsAt(id);
+    return true;
+  },
+  // The weapon pickup under the actor that holding Use would swap in now, -1 = none (the Use prompt and the touch USE button).
+  swapOffer(id) {
+    if (id < 0 || Sim.tick < this.swapReadyTick[id] || !this.canTouch(id, true) || Weapons.useTaken(id)) return -1;
+    for (let slot = 0; slot < this.usedEnd; slot++) {
+      if (this.state[slot] !== PICKUP_STATE.READY || this.kind[slot] !== PICKUP_KIND.WEAPON || this.blocker[slot] === id) continue;
+      if (this.touching(id, slot) && Weapons.swapsOut(id, CAT.weapons[this.row[slot]])) return slot;
+    }
+    return -1;
+  },
+  swapPrompt(id) {
+    const slot = this.swapOffer(id);
+    return slot < 0 ? '' : this.swapText(id, this.row[slot]);
+  },
+  // The Use prompt for taking CAT.weapons[weaponIndex] at the carry limit ('' = nothing to push out); 13g royale loot too.
+  swapText(id, weaponIndex) {
+    const held = Weapons.swapVictim(id);
+    if (held < 0) return '';
+    const pair = held * WEAPON_COUNT + weaponIndex;
+    if (!this.swapPrompts[pair]) this.swapPrompts[pair] = ('HOLD TO SWAP ' + CAT.weapons[held].name + ' FOR ' + CAT.weapons[weaponIndex].name).toUpperCase();
+    return this.swapPrompts[pair];
+  },
+  // After a swap every weapon pickup under the actor waits until they step off it, and no new swap comes for a moment.
+  // A pickup holds one blocker: one already blocked by another actor stays open, so the per-actor wait is the main guard.
+  blockSwapsAt(id) {
+    this.swapReadyTick[id] = Sim.tick + itemTicks(SWAP_PICKUP_SECONDS);
+    for (let slot = 0; slot < this.usedEnd; slot++) {
+      const weaponReady = this.state[slot] === PICKUP_STATE.READY && this.kind[slot] === PICKUP_KIND.WEAPON;
+      if (weaponReady && this.blocker[slot] < 0 && this.touching(id, slot)) this.blocker[slot] = id;
+    }
   },
   // At the carry limit the held weapon is swapped out: it lands at the feet (with its rarity), and this actor cannot grab it back at once.
   giveWeapon(id, key, rarity, floorY) {
@@ -485,12 +531,6 @@ const Items = {
     for (let i = 0; i < CONSUMABLE_ROWS.length; i++) total += this.carried[id * ITEM_COUNT + CONSUMABLE_ROWS[i].index];
     return total;
   },
-  // Bots heal once they are out of the fight for BOT_HEAL_CALM seconds and miss health or shield.
-  botWantsHeal(id) {
-    if (Actors.kind[id] !== ACTOR_KIND.BOT || this.usingItem[id] >= 0 || Sim.time - Damage.lastDamageTime[id] < BOT_HEAL_CALM) return false;
-    if (Actors.health[id] >= Actors.maxHealth[id] && Actors.shield[id] >= Actors.maxShield[id]) return false;
-    return this.consumableCount(id) > 0;
-  },
   // 0..1 progress of the consumable in use, -1 when none (HUD).
   useProgress(id) {
     if (this.usingItem[id] < 0) return -1;
@@ -517,7 +557,7 @@ const Items = {
   },
   resetActor(id) {
     this.carried.fill(0, id * ITEM_COUNT, (id + 1) * ITEM_COUNT);
-    this.usingItem[id] = -1; this.noArmor[id] = 0;
+    this.usingItem[id] = -1; this.noArmor[id] = 0; this.swapReadyTick[id] = 0;
   },
 
   // ---- HUD hooks ----
@@ -539,6 +579,7 @@ const Items = {
   // ---- Render source: spinning procedural shapes in group colours; empty spots show a faint base ----
   // Shapes go through one reused instance record (batch.meshFrom): 13 float arguments per batch.mesh call are boxed (PERF-006).
   draw(batch) {
+    pickupAmmoModel = ammoModelFor(Game.playerId);
     pickupInstance.yaw = Sim.time * PICKUP_SPIN;
     pickupInstance.pitch = 0;
     const bob = Math.sin(Sim.time * 2) * PICKUP_BOB;
@@ -554,14 +595,11 @@ const Items = {
     if (this.spot[slot]) this.drawBase(batch, slot, power ? PICKUP_GLOW_POWER_BASE : PICKUP_GLOW_BASE);
     instance.x = this.x[slot]; instance.y = this.y[slot] + PICKUP_FLOAT + bob; instance.z = this.z[slot];
     instance.r = rgb[offset]; instance.g = rgb[offset + 1]; instance.b = rgb[offset + 2];
-    if (kind === PICKUP_KIND.WEAPON) {
-      instance.sx = 0.18; instance.sy = 0.2; instance.sz = 0.8; instance.emissive = power ? 0.8 : 0.35;
-      batch.meshFrom('box', instance);
-      return;
-    }
-    const size = row.size, shape = row.shape;
-    instance.sx = size; instance.sy = shape === 'ring' ? size * 0.3 : size; instance.sz = size; instance.emissive = power ? 0.9 : 0.45;
-    batch.meshFrom(shape, instance);
+    if (kind === PICKUP_KIND.WEAPON) { drawWeaponPickup(batch, index, instance, power); return; }   // its own model (03q)
+    const pose = pickupPose, model = row === AMMO_BOX_ROW ? pickupAmmoModel : PICKUP_MODELS[kind][index];
+    pose.x = instance.x; pose.y = instance.y; pose.z = instance.z; pose.yaw = instance.yaw;
+    pose.r = instance.r; pose.g = instance.g; pose.b = instance.b; pose.emissive = power ? 0.9 : 0.45;
+    Models.draw(batch, model, pose);
   },
   // The flat base disc under a pickup spot (no spin).
   drawBase(batch, slot, glow) {
@@ -575,6 +613,19 @@ const Items = {
 const pickupBaseColor = new Float32Array(3);
 const pickupInstance = makeShapeInstance();
 const pickupBaseInstance = Object.assign(makeShapeInstance(), { sx: 1, sy: 0.04, sz: 1 });
+// Gear models (03r, 07c-render-models): one per item and powerup row by code; the I08 box shows the ammo type of the local player's held
+// weapon (what it would give first), its own box without one. 12c and 12d draw grenades and devices from GEAR_MODELS too.
+const GEAR_MODELS = Models.compile(CAT.gearModels);
+const PICKUP_MODELS = [CAT.items, CAT.powerups].map((rows) => rows.map((row) => GEAR_MODELS.byId[row.code]));
+const AMMO_BOX_ROW = CAT.items.byId('ammobox');
+const AMMO_MODELS = {};
+CAT.weapons.forEach((weapon) => { if (weapon.ammoType) AMMO_MODELS[weapon.ammoType] = GEAR_MODELS.byId['ammo-' + weapon.ammoType]; });
+function ammoModelFor(id) {
+  const weapon = id >= 0 ? Weapons.currentWeapon(id) : null;
+  return (weapon && AMMO_MODELS[weapon.ammoType]) || PICKUP_MODELS[PICKUP_KIND.ITEM][AMMO_BOX_ROW.index];
+}
+let pickupAmmoModel = null;
+const pickupPose = makeModelPose();
 const PICKUP_GLOW_WAITING = 0.25, PICKUP_GLOW_BASE = 0.5, PICKUP_GLOW_POWER_BASE = 0.9;   // base disc glow: respawning, item, powerup
 const volatileHit = makeHit();
 
@@ -606,5 +657,13 @@ Bus.on('item.grant', (event) => Items.giveKey(event.id, event.item));
 Bus.on('weapon.fire', (event) => Items.onShot(event));
 Projectiles.bulletHits.push((owner, mode, ox, oy, oz, dx, dy, dz, length) => Items.bulletHit(owner, mode, ox, oy, oz, dx, dy, dz, length));
 Bus.on('kill', (event) => { Items.dropWeapons(event.victim); Items.dropSoul(event.victim); Items.cancelUse(event.victim); });
+Damage.downHooks.push((id) => Items.cancelUse(id));   // HP-007: a downed actor stops healing (the use must not finish at the revive)
 Bus.on('actor.spawn', (event) => Items.resetActor(event.id));
 Bus.on('actor.create', (id) => Items.resetActor(id));
+Input.usePrompts.push((id) => Items.swapPrompt(id));                         // a carry-limit swap needs Use held (Weapons.mayTake)
+TouchInput.useNeeds.push(() => Items.swapOffer(Game.playerId) >= 0);
+// The touch heal button: a carried consumable, or a loot ruleset (it carries consumables).
+TouchInput.needs.heal = () => {
+  const economy = CAT.economy.byId(currentRules().economy);
+  return Game.playerId >= 0 && (Items.consumableCount(Game.playerId) > 0 || (!!economy && economy.slots > 0));
+};

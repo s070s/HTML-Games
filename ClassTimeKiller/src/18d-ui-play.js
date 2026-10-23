@@ -6,13 +6,18 @@
 const PLAY_DEFAULT_MODE = 'ffa';
 const PLAY_DEFAULT_BOTS = 7;
 const PLAY_DEFAULT_DIFFICULTY = 'regular';
-const PLAY_MAX_BOTS = 31;
 const PLAY_SHUFFLE_MIN_BOTS = 3;
 const PLAY_PLAYER_NAME = 'You';
+const PLAY_LENGTHS = { short: 0.5, standard: 1, long: 1.5 };   // match length: the factor on the mode's score and time limits
+const PLAY_LENGTH_IDS = Object.keys(PLAY_LENGTHS);
+const PLAY_LENGTH_LABELS = ['Short', 'Standard', 'Long'];
+const PLAY_DEFAULT_LENGTH = 'standard';
+const PLAY_SCORE_STEP = 5;
+const PLAY_TIME_STEP = 30;
 const PLAY_AUTO_TEAM = -1;
-const PLAY_SEED_RANGE = 0x7fffffff;
 const PLAY_RESULT_TITLES = { win: 'Victory', loss: 'Defeat', draw: 'Draw', over: 'Match over' };
-const PLAY_REASON_TEXT = { score: 'Score limit reached', time: 'Time is up', overtime: 'Decided in overtime', draw: 'Nobody could break the tie', eliminated: 'Last one standing', rounds: 'Rounds decided', tickets: 'Tickets ran out' };
+const PLAY_REASON_TEXT = { score: 'Score limit reached', time: 'Time is up', overtime: 'Decided in overtime', draw: 'Nobody could break the tie', eliminated: 'Last one standing', rounds: 'Rounds decided', tickets: 'Tickets ran out',
+  victory: 'Mission complete', defeat: 'The run is over', extracted: 'Extracted in time', objective: 'Objective complete' };
 const PlayResultsExtras = [];   // fn(body) panels later files add to the results screen (18j: XP and progress)
 const PLAY_CSS = '.pl-title { font-size: 2.2em; font-weight: 800; margin: 0; } .pl-win { color: var(--ui-good, #58d66b); } .pl-loss { color: var(--ui-bad); }'
   + '.pl-stats { color: var(--ui-dim); margin: 4px 0 12px; } .pl-form { max-width: 640px; }';
@@ -21,7 +26,7 @@ const PLAY_CSS = '.pl-title { font-size: 2.2em; font-weight: 800; margin: 0; } .
 const PlayFlow = {
   // Modes with a registered behaviour and at least one map that lists them.
   playableModes() { return CAT.modes.filter((mode) => Modes.isPlayable(mode.id) && Maps.savedForMode(mode.id).length > 0); },
-  maxBots() { return Math.min(Quality.current().bots, PLAY_MAX_BOTS); },
+  maxBots() { return Quality.current().bots; },   // the quality preset's cap (PERF-009)
   mapsFor(modeId) { return Maps.savedForMode(modeId); },
   smallestMap(modeId) {
     let best = null;
@@ -37,7 +42,7 @@ const PlayFlow = {
   },
   defaults() {
     const map = this.smallestMap(PLAY_DEFAULT_MODE);
-    return { mode: PLAY_DEFAULT_MODE, map: map ? map.id : '', ruleset: '', bots: Math.min(PLAY_DEFAULT_BOTS, this.maxBots()), difficulty: PLAY_DEFAULT_DIFFICULTY, team: PLAY_AUTO_TEAM };
+    return { mode: PLAY_DEFAULT_MODE, map: map ? map.id : '', ruleset: '', bots: Math.min(PLAY_DEFAULT_BOTS, this.maxBots()), difficulty: PLAY_DEFAULT_DIFFICULTY, team: PLAY_AUTO_TEAM, length: PLAY_DEFAULT_LENGTH };
   },
   // A complete valid setup choice from any partial or outdated one (a removed mode, a map that no longer lists the mode ...).
   normalize(choice) {
@@ -53,19 +58,54 @@ const PlayFlow = {
       bots: Number.isFinite(source.bots) ? clamp(Math.round(source.bots), 0, this.maxBots()) : (mode.id === base.mode ? base.bots : this.defaultBots(mode.id)),
       difficulty: difficulty.id,
       team: source.team === 0 || source.team === 1 ? source.team : PLAY_AUTO_TEAM,
+      length: PLAY_LENGTHS[source.length] ? source.length : PLAY_DEFAULT_LENGTH,
     };
   },
   remembered() { return this.normalize(Save.data && Save.data.play); },
   remember(choice) {
-    Save.data.play = { mode: choice.mode, map: choice.map, ruleset: choice.ruleset, bots: choice.bots, difficulty: choice.difficulty, team: choice.team };
+    Save.data.play = { mode: choice.mode, map: choice.map, ruleset: choice.ruleset, bots: choice.bots, difficulty: choice.difficulty, team: choice.team, length: choice.length };
     Save.scheduleSave();
   },
   // The Game.start setup for a choice. `random` is injectable so tests get a fixed seed.
   buildSetup(choice, random) {
-    const setup = { mode: choice.mode, map: choice.map, mutators: [], bots: Array.from({ length: choice.bots }, () => ({})),
-      seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE), difficulty: choice.difficulty, player: { team: choice.team, name: PLAY_PLAYER_NAME } };
+    const seed = newSeed(random);
+    const setup = { mode: choice.mode, map: choice.map, mutators: [], bots: this.rosterBots(choice.bots, choice.difficulty, seed),
+      seed, difficulty: choice.difficulty, player: { team: choice.team, name: PLAY_PLAYER_NAME } };
     if (choice.ruleset) setup.ruleset = choice.ruleset;
+    const limits = this.lengthLimits(choice.mode, choice.length, choice.ruleset);
+    if (limits) setup.modeOptions = limits;
     return setup;
+  },
+  // Named roster bots (their own names and traits) picked by the seed: first those whose tier the difficulty allows, then the others held
+  // inside its range (plus the adaptive shift, which Bots.chooseTier adds only to a bot without a set tier); a field larger than the
+  // roster is filled with unnamed bots.
+  rosterBots(count, difficultyId, seed) {
+    const difficulty = CAT.difficulty.byId(difficultyId) || CAT.difficulty.byId(PLAY_DEFAULT_DIFFICULTY);
+    const inRange = (row) => row.tier >= difficulty.tierMin && row.tier <= difficulty.tierMax;
+    const held = (row) => clamp(clamp(row.tier, difficulty.tierMin, difficulty.tierMax) + Difficulty.tierShift(), 0, BOT_TIER_COUNT - 1);
+    const shuffled = makeRandom(seed).shuffle(CAT.bots.slice());
+    const bots = shuffled.filter(inRange).concat(shuffled.filter((row) => !inRange(row)))
+      .map((row) => (inRange(row) ? { profile: row.id } : { profile: row.id, tier: held(row) }));
+    while (bots.length < count) bots.push({});
+    return bots.slice(0, count);
+  },
+  // The mode's score (as the ruleset builds it: hero kits lower it), time and ticket limits scaled by the match length (Short 0.5x);
+  // null for the standard length. Rounded up to 5 points or tickets / 30 s. Round modes and modes without limits get no field:
+  // the Play screen then hides the choice.
+  lengthLimits(modeId, length, ruleset) {
+    const factor = PLAY_LENGTHS[length] || 1, mode = CAT.modes.byId(modeId);
+    if (factor === 1 || !mode) return null;
+    const limits = {}, scoreLimit = playScoreLimit(modeId, ruleset);
+    if (scoreLimit > 0) limits.scoreLimit = Math.ceil(scoreLimit * factor / PLAY_SCORE_STEP) * PLAY_SCORE_STEP;
+    if (mode.timeLimit > 0) limits.timeLimit = Math.ceil(mode.timeLimit * factor / PLAY_TIME_STEP) * PLAY_TIME_STEP;
+    if (mode.params.tickets > 0) limits.params = { tickets: Math.ceil(mode.params.tickets * factor / PLAY_SCORE_STEP) * PLAY_SCORE_STEP };
+    return limits;
+  },
+  hasLength(modeId) { return Object.keys(this.lengthLimits(modeId, PLAY_LENGTH_IDS[0]) || {}).length > 0; },
+  // Team modes let the player pick a side, unless the mode sets the sides itself (params.fixedSides: Blight, Ravager vs Fiends).
+  hasTeamChoice(modeId) {
+    const mode = CAT.modes.byId(modeId);
+    return !!mode && mode.teams === TEAM_COUNT && !mode.params.fixedSides;
   },
   // Starts a match for a choice (normalized and remembered). Runs synchronously so a click can still lock the pointer.
   start(choice, random) {
@@ -81,13 +121,13 @@ const PlayFlow = {
     const mode = pick(this.playableModes()), map = pick(this.mapsFor(mode.id));
     const top = Math.max(PLAY_SHUFFLE_MIN_BOTS, this.defaultBots(mode.id));
     const bots = clamp(PLAY_SHUFFLE_MIN_BOTS + Math.floor(random() * (top - PLAY_SHUFFLE_MIN_BOTS + 1)), 0, this.defaultBots(mode.id));
-    return this.normalize({ mode: mode.id, map: map.id, bots, difficulty: pick(this.difficulties()).id });
+    return this.normalize({ mode: mode.id, map: map.id, bots, difficulty: pick(this.difficulties()).id, length: this.remembered().length });
   },
   // Same setup, fresh seed (results screen: play again); a career match (setup.progress) is rebuilt by its structure (S15).
   // A winner-stays queue (M03 duel, results.queue) seats the bots in queue order: the winner stays, the loser waits last.
   playAgain(random) {
     if (!Game.match) return null;
-    const setup = Progress.retrySetup(Game.match.setup) || Object.assign({}, Game.match.setup, { seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE) });
+    const setup = Progress.retrySetup(Game.match.setup) || Object.assign({}, Game.match.setup, { seed: newSeed(random) });
     const results = Game.match.results;
     if (!setup.progress && results && results.queue.length && setup.bots) setup.bots = this.queuedBots(setup.bots, results);
     return Game.start(setup);
@@ -108,10 +148,11 @@ const PlayFlow = {
     if (!Game.match || Game.match.setup.progress) return null;
     const setup = Game.match.setup, maps = this.mapsFor(setup.mode), current = maps.findIndex((map) => map.id === (Game.match.map ? Game.match.map.id : setup.map));
     const next = maps.length ? maps[(current + 1) % maps.length] : null;
-    return Game.start(Object.assign({}, setup, { map: next ? next.id : setup.map, seed: Math.floor((random || Math.random)() * PLAY_SEED_RANGE) }));
+    return Game.start(Object.assign({}, setup, { map: next ? next.id : setup.map, seed: newSeed(random) }));
   },
   // 'win' | 'loss' | 'draw' | 'over' from the results record and the local player.
   outcome(results) {
+    if (results.lost) return 'loss';
     if (results.draw) return 'draw';
     const player = Game.playerId;
     if (player < 0) return 'over';
@@ -122,6 +163,13 @@ const PlayFlow = {
     if (results.draw) return '';
     if (results.winnerTeam >= 0) return TEAM_NAMES[results.winnerTeam];
     return results.winnerId >= 0 ? Actors.name[results.winnerId] : '';
+  },
+  // The results sentence: 'You win.', 'Your team (Red) wins.', 'Blue wins.', 'Mossa wins.' ('' for a draw).
+  winnerText(results) {
+    const name = this.winnerName(results);
+    if (!name) return '';
+    if (this.outcome(results) !== 'win') return name + ' wins.';
+    return results.winnerTeam >= 0 ? 'Your team (' + name + ') wins.' : 'You win.';
   },
 };
 Bus.on('ui.quickMatch', () => PlayFlow.quickMatch());
@@ -139,12 +187,15 @@ function playTeamOptions() {
   return { values: [PLAY_AUTO_TEAM, 0, 1], labels: ['Automatic', TEAM_NAMES[0], TEAM_NAMES[1]] };
 }
 
-function playModeSummary(modeId) {
-  const mode = CAT.modes.byId(modeId);
+// The standard-length score limit the match will use (Rules.build applies the ruleset's own rules, such as the hero kill limit).
+function playScoreLimit(modeId, ruleset) { return Rules.build(ruleset ? { mode: modeId, ruleset } : { mode: modeId }).scoreLimit; }
+
+function playModeSummary(modeId, ruleset) {
+  const mode = CAT.modes.byId(modeId), scoreLimit = playScoreLimit(modeId, ruleset);
   const parts = [mode.sizeDefault + ' players'];
-  if (mode.scoreLimit > 0) parts.push('first to ' + mode.scoreLimit);
+  if (scoreLimit > 0) parts.push('first to ' + scoreLimit);
   if (mode.timeLimit > 0) parts.push(Math.round(mode.timeLimit / 60) + ' min');
-  return parts.join(', ');
+  return (mode.goal + ' ' + parts.join(', ') + '.').trim();
 }
 
 Ui.register('play', {
@@ -154,13 +205,14 @@ Ui.register('play', {
     const render = () => Ui.rebuild(form, () => {
       form.replaceChildren();
       const modes = playModeOptions(), maps = PlayFlow.mapsFor(choice.mode), rulesets = playRulesetOptions(), difficulties = PlayFlow.difficulties(), teams = playTeamOptions();
-      form.appendChild(Ui.row('Mode', Ui.cycle(modes.values, modes.labels, choice.mode, (value) => { choice.mode = value; Object.assign(choice, PlayFlow.normalize({ mode: value, ruleset: choice.ruleset, difficulty: choice.difficulty, team: choice.team })); render(); })));
+      form.appendChild(Ui.row('Mode', Ui.cycle(modes.values, modes.labels, choice.mode, (value) => { choice.mode = value; Object.assign(choice, PlayFlow.normalize({ mode: value, ruleset: choice.ruleset, difficulty: choice.difficulty, team: choice.team, length: choice.length })); render(); })));
       form.appendChild(Ui.row('Map', Ui.cycle(maps.map((map) => map.id), maps.map((map) => map.name), choice.map, (value) => { choice.map = value; })));
-      form.appendChild(Ui.row('Rules', Ui.cycle(rulesets.values, rulesets.labels, choice.ruleset, (value) => { choice.ruleset = value; })));
+      form.appendChild(Ui.row('Rules', Ui.cycle(rulesets.values, rulesets.labels, choice.ruleset, (value) => { choice.ruleset = value; render(); })));
       form.appendChild(Ui.row('Bots', Ui.slider({ min: 0, max: PlayFlow.maxBots(), step: 1, value: choice.bots, format: (value) => String(value) }, (value) => { choice.bots = value; })));
       form.appendChild(Ui.row('Difficulty', Ui.cycle(difficulties.map((row) => row.id), difficulties.map((row) => row.name), choice.difficulty, (value) => { choice.difficulty = value; })));
-      if (CAT.modes.byId(choice.mode).teams === 2) form.appendChild(Ui.row('Your team', Ui.cycle(teams.values, teams.labels, choice.team, (value) => { choice.team = value; })));
-      summary.textContent = playModeSummary(choice.mode);
+      if (PlayFlow.hasLength(choice.mode)) form.appendChild(Ui.row('Match length', Ui.cycle(PLAY_LENGTH_IDS, PLAY_LENGTH_LABELS, choice.length, (value) => { choice.length = value; })));
+      if (PlayFlow.hasTeamChoice(choice.mode)) form.appendChild(Ui.row('Your team', Ui.cycle(teams.values, teams.labels, choice.team, (value) => { choice.team = value; })));
+      summary.textContent = playModeSummary(choice.mode, choice.ruleset);
     });
     root.appendChild(form);
     root.appendChild(summary);
@@ -168,7 +220,7 @@ Ui.register('play', {
     const start = Ui.button('Start', () => PlayFlow.start(choice), 'primary');
     start.dataset.autofocus = '1';
     foot.appendChild(start);
-    foot.appendChild(Ui.button('Shuffle', () => { Object.assign(choice, PlayFlow.shuffle(Math.random)); render(); }));
+    foot.appendChild(Ui.button('Shuffle', () => { Object.assign(choice, PlayFlow.shuffle(Math.random), { length: choice.length }); render(); }));
     foot.appendChild(Ui.button('Loadout', () => Ui.open('loadout')));   // the abilities section registers the screen
     root.appendChild(foot);
     render();
@@ -189,8 +241,7 @@ Ui.register('results', {
     const title = makeElement('h1', 'pl-title pl-' + outcome, PLAY_RESULT_TITLES[outcome]);
     root.appendChild(title);
     if (results) {
-      const winner = PlayFlow.winnerName(results);
-      root.appendChild(makeElement('p', 'ui-sub', (winner ? winner + ' wins. ' : '') + (PLAY_REASON_TEXT[results.reason] || '')));
+      root.appendChild(makeElement('p', 'ui-sub', (PlayFlow.winnerText(results) + ' ' + (PLAY_REASON_TEXT[results.reason] || '')).trim()));
       root.appendChild(makeElement('p', 'pl-stats', playResultsStats(results)));
       if (results.queue.length) root.appendChild(makeElement('p', 'ui-note', 'Next up: ' + results.queue.join(', ')));
     }
@@ -199,9 +250,15 @@ Ui.register('results', {
     Scoreboard.renderInto(body);
     for (const addExtra of PlayResultsExtras) addExtra(body);
     const foot = makeElement('div', 'ui-foot');
-    const again = Ui.button('Play again', () => PlayFlow.playAgain(), 'primary');
-    again.dataset.autofocus = '1';
-    foot.appendChild(again);
+    // A career match offers its next step after a pass (Next match, Next map) and Retry after a loss; the primary button is the likely one.
+    // An operation moves on after every map, so its Next map is the only way on until the run ends (then New run).
+    const step = Game.match ? Progress.nextStep(Game.match.setup) : null;
+    const replay = Game.match ? Progress.replayLabel(Game.match.setup, outcome) : 'Play again';
+    const again = replay ? Ui.button(replay, () => PlayFlow.playAgain(), step ? '' : 'primary') : null;
+    const main = step ? Ui.button(step.label, () => Game.start(step.build()), 'primary') : again;
+    main.dataset.autofocus = '1';
+    if (step) foot.appendChild(main);
+    if (again) foot.appendChild(again);
     if (Game.match && !Game.match.setup.progress) foot.appendChild(Ui.button('Next map', () => PlayFlow.nextMap()));
     foot.appendChild(Ui.button('Main menu', () => Game.stop()));
     root.appendChild(foot);

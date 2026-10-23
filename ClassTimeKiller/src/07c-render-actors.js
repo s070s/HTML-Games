@@ -120,6 +120,7 @@ const ShapeMesh = { vertices: null, indices: null, ranges: [], buffer: null, ind
 
 // ---- Instance batches ----
 const shapeBatches = [];
+let shapeOverflows = 0;   // this session's refused instances (only the first is logged)
 // One shape instance for batch.meshFrom (fill the fields, then call it; keep one record per caller and reuse it).
 // Built by a constructor, not an object literal: V8 shares the field types of literals with the same property count and
 // first keys (09a's nav builder { x: [], y: [], z: [], ... } also has 12), and a field that once held an array boxes every
@@ -128,6 +129,12 @@ function ShapeInstance() {
   this.x = 0; this.y = 0; this.z = 0; this.yaw = 0; this.pitch = 0; this.sx = 1; this.sy = 1; this.sz = 1;
   this.r = 1; this.g = 1; this.b = 1; this.emissive = 0;
 }
+// r, g, b from a 0xRRGGBB integer (an integer argument is never boxed)
+ShapeInstance.prototype.setColor = function (color) {
+  this.r = (color >> 16 & 255) / 255; this.g = (color >> 8 & 255) / 255; this.b = (color & 255) / 255;
+};
+// r, g, b from an [r, g, b] list of 0..1 values
+ShapeInstance.prototype.setRgb = function (rgb) { this.r = rgb[0]; this.g = rgb[1]; this.b = rgb[2]; };
 const makeShapeInstance = () => new ShapeInstance();
 function makeShapeBatch(name, capacity) {
   const batch = {
@@ -152,7 +159,12 @@ function makeShapeBatch(name, capacity) {
       const shapeIndex = SHAPE_INDEX[shape];
       if (shapeIndex === undefined) return -1;
       const count = this.counts[shapeIndex];
-      if (count >= this.capacity) { Render.stats.droppedInstances++; return -1; }
+      if (count >= this.capacity) {
+        // the perf HUD shows the count per frame; the first overflow of a session is logged
+        if (!shapeOverflows++) console.info('shape batch ' + this.name + ' full (' + this.capacity + ' ' + shape + '): instances dropped');
+        Render.stats.droppedInstances++;
+        return -1;
+      }
       const o = (shapeIndex * this.capacity + count) * INSTANCE_FLOATS, d = this.data;
       d[o + STRENGTH_SLOT] = 1; d[o + HIGHLIGHT_SLOT] = 0;
       this.counts[shapeIndex] = count + 1;
@@ -308,7 +320,7 @@ Render.defineProgram('shapes', SHAPES_VERTEX, SHAPES_FRAGMENT, SHAPE_ATTRIBUTES)
 
 // ---- Batches used in the world pass ----
 const propBatch = makeShapeBatch('props', 1024);
-const actorBatch = makeShapeBatch('actors', 512);
+const actorBatch = makeShapeBatch('actors', 768);   // 64 near actors with up to 6 boxes of a held weapon model each
 const shadowBatch = makeShapeBatch('shadows', 96);
 
 // Render.addSource callbacks fill the props batch; a source that throws is logged once and switched off.
@@ -352,29 +364,22 @@ Render.addPass(40, drawShadows);
 
 // ---- Actors (REN-002): rigid parts, code animation, LODs, style hook ----
 const NEAR_PARTS = CAT.actorParts.slice();
-const FAR_PARTS = CAT.actorParts.filter((part) => part.far);
-const DISTANT_PARTS = CAT.actorParts.filter((part) => part.distant);
 const LOD = { near: 0, far: 1, distant: 2 };   // distant = past the preset's lodFar: a still silhouette
-const LOD_PARTS = [NEAR_PARTS, FAR_PARTS, DISTANT_PARTS];
 const FAR_ANIMATION_STRIDE = 4;          // the far LOD re-poses its walk cycle every 4th frame (plan step 1.8)
 const HIP_HEIGHT = 1.0;                  // parts with a pivot below this belong to the lower body
 const LEG_LENGTH = 0.9;                  // lower-body height the crouch squash is measured against
 const CROUCH_UPPER_SHARE = 0.75;         // share of the lost height the upper body sinks (the rest is a slight lean)
-const RUN_SPEED = 7;
-const STRIDE_METERS = 1.7;
 const MAX_SWING = 0.75;                  // radians at full run
 const AIR_SWING = 0.35;
-const ACTOR_TINTS = { skin: '#d6b79a', visor: '#9fe8ff', accent: '#2a2e33' };
+const TEAM_DARK_SHARE = 0.3, TEAM_DARK_LIFT = 0.08;   // teamDark = team colour x share + lift (a black team stays visible)
 const ACTOR_CULL_HALF_WIDTH = 1.2, ACTOR_CULL_HEIGHT = 2.4;
 const actorPhase = new Float32Array(MAX_ACTORS);
 const actorPendingSeconds = new Float32Array(MAX_ACTORS);   // walk time not yet applied (low-rate far LOD)
 const actorStyle = { r: 1, g: 1, b: 1, emissive: 0, scale: 1, headScale: 1, visible: true };
-// Parts drawn around the head pivot: style.headScale (X14 Big Head, the hit sphere factor) grows them about that pivot.
-const HEAD_PART_IDS = ['head', 'visor'];
-const HEAD_PARTS = new Set(CAT.actorParts.filter((part) => HEAD_PART_IDS.includes(part.id)));
-const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0 };
-const tintColor = new Float32Array(3);
-const rotated = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };   // emitActorPart's point: filled in place, then rotateInPlace
+const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0, recorded: false, speed: 0, height: STAND_HEIGHT, grounded: true, health: 1, shield: 0, champion: -1 };   // recorded: a killcam pose carries its own state (see pvePose)
+const tintColor = new Float32Array(4);   // r g b and the self-lit share of the part being emitted (partColor)
+// placeActorPart's result: the part centre (from the feet) and pitch, and the size factors it used (squash: crouched legs, grow: head scale).
+const rotated = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, squash: 1, grow: 1 };
 const ActorFrame = { count: 0 };
 
 // CPU twin of the GLSL rotateYawPitch (local +Z ends up along Vec.fromAngles(yaw, pitch)). In place on
@@ -387,10 +392,13 @@ function rotateInPlace(point) {
   return point;
 }
 
-// Team colour, else the profile colour, else a palette colour by id (free-for-all).
+// Team colour (in the HUD's colour slot), else the profile colour, else a palette colour by id (free-for-all).
 function actorBaseColor(id) {
   const team = Actors.team[id], profile = Actors.profile[id];
-  if (team >= 0) return Render.teamPalette ? Render.teamPalette[team % Render.teamPalette.length] : CAT.teamColors[team % CAT.teamColors.length].color;
+  if (team >= 0) {
+    const slot = Render.teamSlot ? Render.teamSlot(team) : team;
+    return Render.teamPalette ? Render.teamPalette[slot % Render.teamPalette.length] : CAT.teamColors[slot % CAT.teamColors.length].color;
+  }
   if (profile && profile.color) return profile.color;
   return CAT.teamColors[id % CAT.teamColors.length].color;
 }
@@ -398,7 +406,7 @@ function actorBaseColor(id) {
 function readActorStyle(id) {
   writeColor(tintColor, 0, actorBaseColor(id));
   actorStyle.r = tintColor[0]; actorStyle.g = tintColor[1]; actorStyle.b = tintColor[2];
-  actorStyle.emissive = 0; actorStyle.scale = 1; actorStyle.headScale = 1; actorStyle.visible = (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0;
+  actorStyle.emissive = 0; actorStyle.scale = 1; actorStyle.headScale = 1; actorStyle.visible = Render.replayPose !== null || (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0;   // a replay hides by its recording
   Render.applyActorStyle(id, actorStyle);
   return actorStyle;
 }
@@ -411,6 +419,7 @@ function readActorPosition(id, alpha) {
   pose.z = lerp(Actors.prevZ[id], Actors.z[id], alpha);
   pose.yaw = lerpAngle(Actors.prevYaw[id], Actors.yaw[id], alpha);
   pose.pitch = lerp(Actors.prevPitch[id], Actors.pitch[id], alpha);
+  pose.recorded = false;
   return pose;
 }
 
@@ -421,43 +430,66 @@ function lodFor(distanceSquared, quality) {
 
 // Walk cycle from speed, crouch from height. The far LOD applies its walk time in steps; distant actors stand still.
 function animateActor(id, pose, seconds, lod) {
-  const speed = length2(Actors.vx[id], Actors.vz[id]);
+  const recorded = pose.recorded, speed = recorded ? pose.speed : length2(Actors.vx[id], Actors.vz[id]);
   actorPendingSeconds[id] = lod === LOD.distant ? 0 : actorPendingSeconds[id] + seconds;
   if (lod === LOD.near || (ActorFrame.count + id) % FAR_ANIMATION_STRIDE === 0) {
-    actorPhase[id] = (actorPhase[id] + speed * actorPendingSeconds[id] * (Math.PI * 2 / STRIDE_METERS)) % (Math.PI * 2);
+    actorPhase[id] = (actorPhase[id] + speed * actorPendingSeconds[id] * (Math.PI * 2 / WALK_CYCLE_METRES)) % (Math.PI * 2);
     actorPendingSeconds[id] = 0;
   }
-  const grounded = (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
-  const amount = lod === LOD.distant ? 0 : Math.min(1, speed / RUN_SPEED);
+  const grounded = recorded ? pose.grounded : (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
+  const amount = lod === LOD.distant ? 0 : Math.min(1, speed / RUN_REFERENCE_SPEED);
   pose.swing = grounded ? Math.sin(actorPhase[id]) * amount * MAX_SWING : AIR_SWING;
   pose.lift = grounded ? Math.abs(Math.cos(actorPhase[id])) * amount * 0.05 : 0;
-  pose.drop = (1 - clamp(Actors.height[id] / STAND_HEIGHT, 0.3, 1)) * STAND_HEIGHT * CROUCH_UPPER_SHARE;
+  pose.drop = (1 - clamp((recorded ? pose.height : Actors.height[id]) / STAND_HEIGHT, 0.3, 1)) * STAND_HEIGHT * CROUCH_UPPER_SHARE;
   pose.legSquash = clamp((LEG_LENGTH - pose.drop) / LEG_LENGTH, 0.2, 1);
 }
 
+// The part colour and self-lit share into tintColor (stored, not returned: a returned float would be boxed, PERF-006).
+// Palette tints read the one model palette (07c-render-models).
 function partColor(part, style) {
-  if (part.tint === 'team') { tintColor[0] = style.r; tintColor[1] = style.g; tintColor[2] = style.b; return 0; }
-  if (part.tint === 'dark') { tintColor[0] = style.r * 0.3 + 0.08; tintColor[1] = style.g * 0.3 + 0.08; tintColor[2] = style.b * 0.3 + 0.09; return 0; }
-  writeColor(tintColor, 0, ACTOR_TINTS[part.tint] || ACTOR_TINTS.accent);
-  return part.tint === 'visor' ? 0.8 : 0;
+  const tint = part.tint;
+  tintColor[3] = 0;
+  if (tint === 'team') { tintColor[0] = style.r; tintColor[1] = style.g; tintColor[2] = style.b; return; }
+  if (tint === 'teamDark') {
+    tintColor[0] = style.r * TEAM_DARK_SHARE + TEAM_DARK_LIFT; tintColor[1] = style.g * TEAM_DARK_SHARE + TEAM_DARK_LIFT;
+    tintColor[2] = style.b * TEAM_DARK_SHARE + TEAM_DARK_LIFT;
+    return;
+  }
+  if (tint === 'model' || tint === 'modelDark' || tint === 'modelGlow') { modelPartColor(tint); return; }
+  const p = (MODEL_PALETTE_INDEX[tint] || 0) * 4;
+  tintColor[0] = MODEL_PALETTE_RGB[p]; tintColor[1] = MODEL_PALETTE_RGB[p + 1]; tintColor[2] = MODEL_PALETTE_RGB[p + 2]; tintColor[3] = MODEL_PALETTE_RGB[p + 3];
+}
+function modelPartColor(tint) {
+  const colors = ActorModels.colors, o = actorModelRow * 3, shade = tint === 'modelDark' ? MODEL_SHADE : 1;
+  tintColor[0] = colors[o] * shade; tintColor[1] = colors[o + 1] * shade; tintColor[2] = colors[o + 2] * shade;
+  if (tint === 'modelGlow') tintColor[3] = MODEL_GLOW;
 }
 
-function emitActorPart(part, pose, style) {
-  // Crouch: the lower body squashes, the upper body sinks by the same amount the hips drop.
+// A part's centre relative to the feet and its pitch, left in `rotated` (a returned float would be boxed, PERF-006). Crouch: the lower body squashes, the upper
+// body sinks by the same amount the hips drop. 07c-render-models places the held weapon at the 'gun' part this way.
+function placeActorPart(part, pose, style) {
   const scale = style.scale, lower = part.pivot[1] < HIP_HEIGHT, squash = lower ? pose.legSquash : 1;
-  const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing, head = HEAD_PARTS.has(part) ? style.headScale : 1;
+  const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing, head = part.head ? style.headScale : 1;
   const point = rotated;
+  point.squash = squash; point.grow = head;
   point.x = part.offset[0] * head; point.y = part.offset[1] * squash * head; point.z = part.offset[2] * head; point.yaw = 0; point.pitch = pitch;
   rotateInPlace(point);
   const localY = (lower ? part.pivot[1] * squash : part.pivot[1] - pose.drop) + point.y + pose.lift;
   const localX = part.pivot[0] + point.x, localZ = part.pivot[2] + point.z;
   point.x = localX * scale; point.y = localY * scale; point.z = localZ * scale; point.yaw = pose.yaw; point.pitch = 0;
   rotateInPlace(point);
-  const glow = partColor(part, style), o = actorBatch.reserve(part.shape), d = actorBatch.data;
+  point.pitch = pitch;
+}
+
+// placeActorPart, then the part's size (times the squash and head factors it left in `rotated`), colour and highlight.
+function emitActorPart(part, pose, style) {
+  placeActorPart(part, pose, style);
+  const point = rotated, scale = style.scale * point.grow, o = actorBatch.reserve(part.shape), d = actorBatch.data;
   if (o < 0) return;
-  d[o] = pose.x + rotated.x; d[o + 1] = pose.y + rotated.y; d[o + 2] = pose.z + rotated.z; d[o + 3] = pose.yaw;
-  d[o + 4] = part.size[0] * scale * head; d[o + 5] = part.size[1] * squash * scale * head; d[o + 6] = part.size[2] * scale * head; d[o + 7] = pitch;
-  d[o + 8] = tintColor[0]; d[o + 9] = tintColor[1]; d[o + 10] = tintColor[2]; d[o + 11] = Math.max(glow, style.emissive);
+  partColor(part, style);
+  d[o] = pose.x + point.x; d[o + 1] = pose.y + point.y; d[o + 2] = pose.z + point.z; d[o + 3] = pose.yaw;
+  d[o + 4] = part.size[0] * scale; d[o + 5] = part.size[1] * point.squash * scale; d[o + 6] = part.size[2] * scale; d[o + 7] = point.pitch + part.tilt * DEG;
+  d[o + 8] = tintColor[0]; d[o + 9] = tintColor[1]; d[o + 10] = tintColor[2]; d[o + 11] = Math.max(tintColor[3], style.emissive);
   d[o + HIGHLIGHT_SLOT] = actorHighlight;
   actorBatch.light(o);
 }
@@ -492,18 +524,60 @@ function fillActors(seconds, alpha) {
   actorBatch.clear();
   shadowBatch.clear();
   ActorFrame.count++;
+  const replay = Render.replayPose;
   for (let id = 0; id < Actors.count; id++) {
-    if (Actors.kind[id] !== ACTOR_KIND.NONE && Actors.alive[id]) drawActor(id, seconds, alpha);
+    if (Actors.kind[id] === ACTOR_KIND.NONE) continue;
+    if (replay) { if (replay(id, actorPose)) drawActorPose(id, actorPose, seconds); } else if (Actors.alive[id]) drawActor(id, seconds, alpha);
   }
 }
 Render.addUpdate(30, fillActors);
 
+// ---- Body models (03s actorModels): one generic builder resolves every row into part lists per LOD at load ----
+// A row starts from its base row (or the actorParts body), drops and changes base parts by id and adds its own parts.
+const MODEL_LIST_PLAIN = 3;              // lists per row: near, far, distant (LOD order), plain = near without detail parts
+const ActorModels = {
+  index: new Uint8Array(MAX_ACTORS),     // per actor: the actorModels row worn this life (0 = the default body)
+  bodies: [],                            // per row: every resolved part
+  lists: [],                             // per row: [near, far, distant, plain] part lists
+  colors: new Float32Array(CAT.actorModels.length * 3),
+  // S13 sets the model on spawn: the row of this kind and id, else the default body.
+  set(id, kind, modelId) {
+    this.index[id] = 0;
+    for (let i = 0; i < CAT.actorModels.length; i++) if (CAT.actorModels[i].kind === kind && CAT.actorModels[i].id === modelId) this.index[id] = i;
+  },
+  // The level rule is Models.detailLevel's: when it drops the near details, the body keeps its near parts without them.
+  partsFor(id, lod, quality) {
+    actorModelRow = this.index[id];
+    const level = Models.detailLevel(lod, quality);
+    return this.lists[actorModelRow][level === lod ? lod : MODEL_LIST_PLAIN];
+  },
+};
+let actorModelRow = 0;                   // the model row of the actor being emitted (partColor reads its colour)
+
+function resolveModelBody(row) {
+  const baseRow = row.base ? CAT.actorModels.byId(row.base) : null;
+  if (row.base && !(baseRow && baseRow.index < row.index)) throw new Error('actorModels ' + row.id + ': base must be an earlier row');
+  const base = baseRow ? ActorModels.bodies[baseRow.index] : NEAR_PARTS;
+  const kept = base.filter((part) => !row.drop.includes(part.id));
+  const changed = kept.map((part) => (row.change[part.id] ? Object.assign({}, part, row.change[part.id]) : part));
+  return changed.concat(row.parts.map((part) => Data.normalize(ACTOR_PART_SCHEMA, part)));
+}
+CAT.actorModels.forEach((row) => {
+  const body = resolveModelBody(row);
+  ActorModels.bodies.push(body);
+  ActorModels.lists.push([body, body.filter((part) => part.far), body.filter((part) => part.distant), body.filter((part) => !part.detail)]);
+  writeColor(ActorModels.colors, row.index * 3, row.color);
+});
+Bus.on('actor.create', (id) => { ActorModels.index[id] = 0; });
+
 // The local player always keeps a blob shadow (MIS-037: no feet in first person); other actors get one
 // unless the sun shadow map already covers them.
-function drawActor(id, seconds, alpha) {
+function drawActor(id, seconds, alpha) { drawActorPose(id, readActorPosition(id, alpha), seconds); }
+// drawActor at given feet position and body angles in `pose` (a replay's recorded ones, Render.replayPose).
+function drawActorPose(id, pose, seconds) {
   const style = readActorStyle(id);
   if (!style.visible) return;
-  const pose = readActorPosition(id, alpha), camera = Render.camera, quality = Render.quality;
+  const camera = Render.camera, quality = Render.quality;
   const distanceSquared = distanceSquared3(pose.x, pose.y, pose.z, camera.x, camera.y, camera.z);
   if (distanceSquared > quality.viewDistance * quality.viewDistance || !actorInView(pose, style.scale)) return;
   const lod = lodFor(distanceSquared, quality);
@@ -511,9 +585,10 @@ function drawActor(id, seconds, alpha) {
   const firstPerson = id === Game.playerId && !Render.view.overridden;
   if (firstPerson || !SunShadow.covers(distanceSquared)) emitActorShadow(id, pose, style.scale);
   if (firstPerson) return;
-  const parts = LOD_PARTS[lod];
+  const parts = ActorModels.partsFor(id, lod, quality), held = lod === LOD.distant ? null : heldWeaponModel(id);   // the weapon model replaces the gun part
   actorHighlight = highlightFor(id);
-  for (let i = 0; i < parts.length; i++) emitActorPart(parts[i], pose, style);
+  for (let i = 0; i < parts.length; i++) if (!held || parts[i] !== HELD_GUN_PART) emitActorPart(parts[i], pose, style);
+  if (held) drawHeldWeapon(held, pose, style, lod);
 }
 
 // ---- Sun shadow map (REN-004: one sun shadow on presets with shadows 'sun', High/Ultra) ----
@@ -591,8 +666,8 @@ precision mediump float;
 void main() {}`;
 Render.defineProgram('shadow', SHADOW_VERTEX, SHADOW_FRAGMENT, SHAPE_ATTRIBUTES);
 
-// Pass 15 (before the world): uploads the prop and actor instances, renders the shadow map when active, binds it
-// to its texture unit for the lit programs, then returns to the scene target.
+// Pre-pass (before the scene target is bound): uploads the prop and actor instances, renders the shadow map when active
+// and binds it to its texture unit for the lit programs.
 function drawSunShadowPass(gl) {
   uploadBatch(gl, propBatch);
   uploadBatch(gl, actorBatch);
@@ -601,9 +676,8 @@ function drawSunShadowPass(gl) {
   gl.activeTexture(gl.TEXTURE0 + SHADOW_TEXTURE_UNIT);
   gl.bindTexture(gl.TEXTURE_2D, SunShadow.texture);
   gl.activeTexture(gl.TEXTURE0);
-  bindSceneTarget(gl);
 }
-Render.addPass(15, drawSunShadowPass);
+Render.addPrePass(drawSunShadowPass);
 
 function renderSunShadow(gl) {
   const program = Render.programs.shadow;

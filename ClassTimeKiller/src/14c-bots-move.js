@@ -2,7 +2,8 @@
 // steering along the smoothed points with the same move input as the player, link moves by type (jump with an extra jump
 // when the link is higher than one jump, crouch, ladder, swim, pads and teleporters by walking in), local avoidance of other
 // actors and stuck recovery: no progress 1.5 s -> jump and strafe, 3 s -> repath avoiding the node ahead, 6 s -> new goal.
-// Jump links are filtered by the bot's own movement preset (allowJumpHeight, reach, gravity).
+// Jump and drop links are filtered by the bot's own movement preset (allowJumpHeight with mantle and climb, maxDrop by
+// fall damage, reach, gravity); a ledge guard keeps grounded bots from walking, strafing or sliding off into a void.
 
 const PATH = { NONE: 0, WAITING: 1, FOLLOW: 2, FAILED: 3, ARRIVED: 4 };
 const MOVE_ARRIVE = 0.6;                // m: a path point counts as reached this close (horizontal)...
@@ -39,6 +40,19 @@ const followTarget = { x: 0, z: 0, distance: 0 };   // follow's target point and
 const rimHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
 const WATER_EXIT_CHECK = 2.5;           // m from a water exit: look for the rim a swimmer climbs out over (S10 mantle)
 const WATER_RIM_RAY = 3;
+const MOVE_MANTLE_MARGIN = 0.2;         // m: ledges planned up to the preset's mantle height less this (link heights add NAV_JUMP_MARGIN)
+const BOT_DROP_DAMAGE = 25;             // HP: a preset with fall damage drops at most as far as costs this (BOT-010: <= safeDrop)
+const BOT_DROP_STEP = 0.5;              // m between the drop heights tried
+const LEDGE_PROBE = 0.9;                // m ahead along the wanted move the ledge guard looks for floor...
+const LEDGE_SLIDE_SPEED = 1.5;          // ...and, faster than this m/s with no move wanted (ice, knockback), along the slide...
+const LEDGE_SLIDE_SECONDS = 0.4;        // ...as far as this many seconds of it (a wanted move looks this far ahead too)
+const LEDGE_HOP_SECONDS = 0.7;          // s: how long a combat hop flies (the hop guard looks that far ahead)
+const LEDGE_ALIGN = 0.7;               // cos: a jump link leaves the ground on purpose only while the move heads along it
+const ledgeProbe = { x: 0, z: 0 };      // the guard's probe offset (float arguments are boxed, PERF-006)
+const LEAP_LOOK_AHEAD = 5;              // m: a leaping bot this close to a jump take-off turns its view along the path...
+const LEAP_LINE_AHEAD = 1.5;          // m along the take-off-to-landing line a gap's run-up steers at (it lines up before the edge)
+const LEAP_ALIGN = 0.995;               // ...and takes off only when its flight (run + leap push) heads this close (cos, about 6 degrees) to the landing: a leap flies about 12 m
+const PAD_RIDE_SECONDS = 4;             // s: a jump pad flight lasts at most this long (S08 arcs are far shorter)
 
 const BotMove = {
   state: new Uint8Array(MAX_ACTORS),
@@ -51,9 +65,14 @@ const BotMove = {
   pointX: new Float32Array(MAX_ACTORS), pointY: new Float32Array(MAX_ACTORS), pointZ: new Float32Array(MAX_ACTORS),
   ladderX: new Float32Array(MAX_ACTORS), ladderZ: new Float32Array(MAX_ACTORS),   // climbing target of a ladder link
   exitChecked: new Uint8Array(MAX_ACTORS),
+  leaping: new Uint8Array(MAX_ACTORS),         // configure() planned the bot's jumps as leaps (modeLeap)
+  runSpeed: new Float32Array(MAX_ACTORS),      // m/s on foot (options moveSpeed also counts a leap's push)
   segmentType: new Uint8Array(MAX_ACTORS), segmentHeight: new Float32Array(MAX_ACTORS), extraJumped: new Uint8Array(MAX_ACTORS),
+  nextType: new Uint8Array(MAX_ACTORS),        // the link type of the move that starts at the point (a jump: it is a take-off)
+  landX: new Float32Array(MAX_ACTORS), landY: new Float32Array(MAX_ACTORS), landZ: new Float32Array(MAX_ACTORS),   // that jump's landing
   startX: new Float32Array(MAX_ACTORS), startY: new Float32Array(MAX_ACTORS), startZ: new Float32Array(MAX_ACTORS),   // segment start
   launched: new Uint8Array(MAX_ACTORS),        // the bot left the ground on this segment (jump, drop, pad)
+  padRideUntil: new Float64Array(MAX_ACTORS),  // a jump pad threw the bot: no steering until it lands (or this time)
   sampleX: new Float32Array(MAX_ACTORS), sampleY: new Float32Array(MAX_ACTORS), sampleZ: new Float32Array(MAX_ACTORS), sampleAt: new Float64Array(MAX_ACTORS),
   stuckTime: new Float32Array(MAX_ACTORS), recoverUntil: new Float64Array(MAX_ACTORS), recoverSide: new Int8Array(MAX_ACTORS).fill(1),
   recoverAngle: new Float32Array(MAX_ACTORS),
@@ -66,31 +85,42 @@ const BotMove = {
 
   init() {
     for (let id = 0; id < MAX_ACTORS; id++) {
-      this.options.push({ allowJumpHeight: Nav.limits.jumpUp, maxDrop: Nav.limits.safeDrop, crouchOk: true, moveSpeed: Infinity, jumpVelocity: 0, gravity: GRAVITY, avoid: null });
-      this.costs.push((node) => extraCost(id, node));                                         // closures per slot, made once at load
-      const avoid = (node) => (node === this.avoidNode[id] ? Infinity : extraCost(id, node));
+      this.options.push({ allowJumpHeight: Nav.limits.jumpUp, maxDrop: Nav.limits.safeDrop, crouchOk: true, moveSpeed: Infinity, jumpVelocity: 0, gravity: GRAVITY,
+        avoid: null, danger: null, dangerKey: -1 });
+      this.costs.push((node) => blockedExitCost(id, node));                                   // closures per slot, made once at load
+      const avoid = (node) => (node === this.avoidNode[id] ? Infinity : blockedExitCost(id, node));
       this.avoidOptions.push(Object.assign({}, this.options[id], { avoid }));
     }
   },
   reset(id) {
-    this.state[id] = PATH.NONE; this.hasDest[id] = 0; this.stuckTime[id] = 0; this.recoverUntil[id] = 0;
+    this.state[id] = PATH.NONE; this.hasDest[id] = 0; this.stuckTime[id] = 0; this.recoverUntil[id] = 0; this.padRideUntil[id] = 0;
     this.takeSample(id, Sim.time);
     this.pointCount[id] = 0; this.pointIndex[id] = 0; this.avoidNode[id] = -1; this.requestedAt[id] = -1e9; this.pending[id] = 0;
     Nav.cancel(id);
   },
   // Path options from the bot's movement preset and tier (BOT-010 "preset-aware"): tiers without jumps skip extra jumps.
   // The preset already carries the match's moveOverrides and gravity scale (MUT-003: low gravity allows higher jump links).
+  // A jump link is climbed by the jump apex (plus extra jumps and the crouch-jump lift), or by the S10 mantle or wall
+  // climb the bot does while facing the ledge, whichever reaches higher (a grip-only climb is not planned: the graph does
+  // not know the brush material). A jump that is a leap (the mode's leap, 13f Blight infected: its lift and forward push,
+  // scaled like every impulse by the match knockback) climbs higher and flies farther, so those ledges and gaps are planned.
   configure(id) {
-    const preset = Move.preset(id), gravity = Move.gravity(id), tier = Bots.tier(id);
-    const single = preset.jumpVel * preset.jumpVel / (2 * gravity);
+    const preset = Move.preset(id), gravity = Move.gravity(id), tier = Bots.tier(id), leap = modeLeap(id), push = MatchMove.knockback;
+    const jumpVelocity = preset.jumpVel + (leap ? leap.leapLift * push : 0);
+    const single = jumpVelocity * jumpVelocity / (2 * gravity);
     const extra = tier.jumps ? preset.extraJumps * preset.extraJumpVel * preset.extraJumpVel / (2 * gravity) : 0;
+    const climb = preset.climbGripOnly ? 0 : preset.climbHeight;
+    const reach = Math.max(single + extra + preset.crouchJumpLift, preset.mantleHeight - MOVE_MANTLE_MARGIN + NAV_JUMP_MARGIN, climb);
+    const maxDrop = safeDropFor(preset, gravity);
+    this.runSpeed[id] = preset.groundSpeed * tier.speed;
     for (const options of [this.options[id], this.avoidOptions[id]]) {
-      options.allowJumpHeight = single + extra;
-      options.maxDrop = Mutators.fx && Mutators.fx.noFallDamage ? Nav.limits.maxDrop : Nav.limits.safeDrop;   // MUT-003: no fall damage
-      options.moveSpeed = preset.groundSpeed * tier.speed;
-      options.jumpVelocity = preset.jumpVel;
+      options.allowJumpHeight = reach;
+      options.maxDrop = maxDrop;
+      options.moveSpeed = this.runSpeed[id] + (leap ? leap.leapSpeed * push : 0);
+      options.jumpVelocity = jumpVelocity;
       options.gravity = gravity;
     }
+    this.leaping[id] = leap ? 1 : 0;
   },
   // Destination for the execution layer; a nearby change keeps the current path (moving targets repath at most 1.3 Hz).
   // The change is measured from where the path was asked for: a destination that creeps (the convoy cart) adds up.
@@ -130,9 +160,14 @@ const BotMove = {
     return length;
   },
   distanceToDestination(id) { return length2(this.destX[id] - Actors.x[id], this.destZ[id] - Actors.z[id]); },
+  // Water and trap costs come from the shared extraCosts array, versioned by costEpoch, so those paths stay cacheable;
+  // only a swimmer while some exit is blocked needs its own cost function (not cached).
   request(id, options) {
-    if (options === this.options[id]) options.avoid = mapHasWater || trapsActive(Sim.time) ? this.costs[id] : null;   // else paths stay cacheable
+    const leaps = modeLeap(id) ? 1 : 0;
+    if (this.leaping[id] !== leaps) this.configure(id);   // turned infected while alive (the Blight outbreak)
     this.fromWater[id] = inWater(id) ? 1 : 0;
+    options.danger = sharedCosts(Sim.time); options.dangerKey = costEpoch;
+    if (options === this.options[id]) options.avoid = this.fromWater[id] && blockedExits > 0 ? this.costs[id] : null;
     this.requestedAt[id] = Sim.time;
     this.pathSerial[id]++;
     this.pending[id] = 0;
@@ -193,12 +228,16 @@ const BotMove = {
     this.startX[id] = index > 0 ? movePoint.x : Actors.x[id];
     this.startY[id] = index > 0 ? movePoint.y : Actors.y[id];
     this.startZ[id] = index > 0 ? movePoint.z : Actors.z[id];
-    Nav.resultPoint(id, index, movePoint);
+    this.nextType[id] = Nav.resultPoint(id, index, movePoint);
     this.pointX[id] = movePoint.x; this.pointY[id] = movePoint.y; this.pointZ[id] = movePoint.z;
     this.segmentType[id] = type;
     this.segmentHeight[id] = movePoint.y - this.startY[id];
+    if (this.nextType[id] === NAV_LINK.JUMP && index + 1 < this.pointCount[id]) {
+      Nav.resultPoint(id, index + 1, movePoint);
+      this.landX[id] = movePoint.x; this.landY[id] = movePoint.y; this.landZ[id] = movePoint.z;
+    }
     if (type === NAV_LINK.LADDER) this.findLadder(id, index);
-    if (type === NAV_LINK.JUMP) Bots.press(id, BTN.JUMP);   // the bot stands at the take-off point now
+    if (type === NAV_LINK.JUMP && this.facesLanding(id)) Bots.press(id, BTN.JUMP);   // the bot stands at the take-off point now
   },
   // The ladder volume (S08 trigger) next to the link's bottom point: the bot climbs by walking into its middle.
   findLadder(id, index) {
@@ -232,11 +271,30 @@ const BotMove = {
     const dx = target.x - Actors.x[id], dz = target.z - Actors.z[id];
     return !World.raycast(Actors.x[id], Actors.y[id] + STEP_HEIGHT + COLLISION_SKIN, Actors.z[id], dx / distance, 0, dz / distance, WATER_RIM_RAY, rimHit);
   },
-  ownsView(id) {
+  // A leap pushes along the facing (13f leap), so a leaping bot also owns the view near and at a take-off on the ground.
+  ownsView(id) { return this.climbsLink(id) || this.aimsLeap(id); },
+  // The link itself needs the view (and the move: hazard avoidance waits too, 14d).
+  climbsLink(id) {
     if (this.pointIndex[id] >= this.pointCount[id]) return false;
     const type = this.segmentType[id];
     if (type === NAV_LINK.LADDER) return true;
     return (type === NAV_LINK.JUMP || swimming(id, type)) && this.pointY[id] > Actors.y[id] + STEP_HEIGHT;
+  },
+  aimsLeap(id) {
+    if (!this.leaping[id] || !Move.isGrounded(id)) return false;
+    return this.segmentType[id] === NAV_LINK.JUMP || this.toTakeOff(id) < LEAP_LOOK_AHEAD;
+  },
+  // False while a leaping bot on the ground would fly off the line to the landing: the flight is the run plus the leap's
+  // push along the view (13f), so a leap taken facing a foe to the side, or from a run across the line, misses the link
+  // (braking and turning end it). Any other jump keeps the run's direction, so it may start at once.
+  facesLanding(id) {
+    if (!this.leaping[id] || !Move.isGrounded(id)) return true;
+    const dx = this.pointX[id] - Actors.x[id], dz = this.pointZ[id] - Actors.z[id], length = length2(dx, dz);
+    if (length < STEP_HEIGHT) return true;
+    const leap = modeLeap(id), push = leap ? leap.leapSpeed * MatchMove.knockback : 0, yaw = Actors.yaw[id];
+    const flyX = Actors.vx[id] + Math.sin(yaw) * push, flyZ = Actors.vz[id] + Math.cos(yaw) * push, fly = length2(flyX, flyZ);
+    if (fly <= LEDGE_SLIDE_SPEED) return true;   // no leap to speak of (knockback off) and no run: nothing to line up
+    return flyX * dx + flyZ * dz >= LEAP_ALIGN * fly * length;
   },
   follow(id, now) {
     if (!Move.isGrounded(id)) this.launched[id] = 1;
@@ -251,6 +309,7 @@ const BotMove = {
     const tx = target.x, tz = target.z, distance = length2(tx - Actors.x[id], tz - Actors.z[id]);
     target.distance = distance;
     if (!atEnd && !climbing && groundSegment(this.segmentType[id])) this.carrot(id, movePoint); else { movePoint.x = tx; movePoint.z = tz; }
+    if (this.gapRunUp(id)) this.lineUpMove(id, movePoint);
     const dx = movePoint.x - Actors.x[id], dz = movePoint.z - Actors.z[id];
     if (!atEnd && !climbing && distance > MOVE_OFF_PATH && now - this.requestedAt[id] > MOVE_REPATH_INTERVAL) { this.request(id, this.options[id]); return; }
     // Past the last point and the destination is still far: it lies off the graph, the end of the path is as close as it gets.
@@ -342,10 +401,85 @@ const BotMove = {
     else if (type === NAV_LINK.LADDER) Bots.lookPitch[id] = this.pointY[id] > Actors.y[id] ? BOT_LADDER_UP_PITCH : BOT_LADDER_DOWN_PITCH;
     else if (swimming(id, type)) this.swim(id);
   },
-  // Jump links: jump again whenever back on the ground short of the landing (a press every other tick is a new press).
+  // Jump links: jump again whenever back on the ground short of the landing (a press every other tick is a new press);
+  // in the air below the landing a preset with a crouch-jump lift tucks its legs (S10), which configure() counts on.
   jumpLink(id) {
-    if (Move.isGrounded(id) && (Sim.tick & 1) === 0) Bots.press(id, BTN.JUMP);
+    const grounded = Move.isGrounded(id);
+    if (!this.facesLanding(id)) { this.brake(id); return; }   // turn on the spot: running on would leave too late or off the edge
+    if (grounded && (Sim.tick & 1) === 0) Bots.press(id, BTN.JUMP);
+    if (!grounded && Move.preset(id).crouchJumpLift > 0 && this.pointY[id] > Actors.y[id]) Bots.press(id, BTN.CROUCH);
     this.extraJump(id);
+  },
+  // BOT-010 ledge guard, after every move layer (path, combat footwork, hazards): a grounded bot about to walk, strafe
+  // or slide (ice) over an edge with no floor within its drop limit (a void, a killzone) brakes instead. A planned drop
+  // lands within that limit; jump, pad and ladder links leave the ground on purpose while the move heads along them.
+  guardLedge(id) {
+    if (this.ridesPad(id)) return;
+    if (!Move.isGrounded(id) || inWater(id) || this.leavesGround(id)) return;
+    if ((Bots.buttonsWanted[id] & BTN.JUMP) && !BotCombat.weaponJumpPending(id, Sim.time)) this.guardHop(id);   // a weapon jump aims at its ledge
+    const speed = length2(Actors.vx[id], Actors.vz[id]), probe = ledgeProbe, ahead = LEDGE_PROBE + speed * LEDGE_SLIDE_SECONDS;
+    const wishAhead = this.aheadAlong(id, Bots.wishX[id], Bots.wishZ[id], ahead);
+    probe.x = Bots.wishX[id] * wishAhead; probe.z = Bots.wishZ[id] * wishAhead;
+    const wishing = Bots.wishAmount[id] > 0 && this.unsafeAhead(id);
+    if (!wishing && speed > LEDGE_SLIDE_SPEED) {
+      const slideX = Actors.vx[id] / speed, slideZ = Actors.vz[id] / speed, slideAhead = this.aheadAlong(id, slideX, slideZ, ahead);
+      probe.x = slideX * slideAhead; probe.z = slideZ * slideAhead;
+    }
+    if (!wishing && (speed <= LEDGE_SLIDE_SPEED || !this.unsafeAhead(id))) return;
+    this.brake(id);
+  },
+  // Stand still: push back against a slide faster than LEDGE_SLIDE_SPEED, else no move.
+  brake(id) {
+    const wanted = botWish;
+    wanted.x = -Actors.vx[id]; wanted.z = -Actors.vz[id]; wanted.amount = length2(wanted.x, wanted.z) > LEDGE_SLIDE_SPEED ? 1 : 0;
+    Bots.wishFrom(id);
+  },
+  // A jump pad throws the actor onto its target (S08 arc): in that flight the bot does not steer, since its path or
+  // footwork pulling another way brakes it over the void (BOT-010). The ride ends on landing.
+  ridesPad(id) {
+    if (this.padRideUntil[id] <= 0) return false;
+    if (Sim.time >= this.padRideUntil[id] || (Move.isGrounded(id) && Actors.vy[id] <= 0)) { this.padRideUntil[id] = 0; return false; }
+    Bots.wishAmount[id] = 0;
+    Bots.buttonsWanted[id] &= ~BTN.JUMP;
+    return true;
+  },
+  // A hop off no jump link (combat footwork) flies LEDGE_HOP_SECONDS at run speed or more: no floor that far along the
+  // move (or the slide), no hop.
+  guardHop(id) {
+    const speed = length2(Actors.vx[id], Actors.vz[id]), wishing = Bots.wishAmount[id] > 0;
+    if (!wishing && speed <= LEDGE_SLIDE_SPEED) return;   // a hop on the spot lands where it started
+    const ahead = LEDGE_PROBE + Math.max(speed, this.options[id].moveSpeed) * LEDGE_HOP_SECONDS;
+    const dx = wishing ? Bots.wishX[id] : Actors.vx[id] / speed, dz = wishing ? Bots.wishZ[id] : Actors.vz[id] / speed;
+    ledgeProbe.x = dx * ahead; ledgeProbe.z = dz * ahead;
+    if (this.unsafeAhead(id)) Bots.buttonsWanted[id] &= ~BTN.JUMP;
+  },
+  // Flat metres to the point the bot walks to when a jump link takes off there, else Infinity. A take-off node stands
+  // next to the edge it jumps from: the guard looks no farther ahead than it, or it brakes the bot short of the point
+  // (a gap over a void: the walk to the take-off never arrives, so the jump never starts).
+  toTakeOff(id) {
+    if (!this.hasDest[id] || this.pointIndex[id] >= this.pointCount[id] - 1 || this.nextType[id] !== NAV_LINK.JUMP) return Infinity;
+    return length2(this.pointX[id] - Actors.x[id], this.pointZ[id] - Actors.z[id]);
+  },
+  // The guard's look-ahead along a direction (the wanted move or the slide, a unit vector): cut at a jump take-off only
+  // while that direction heads at it (LEDGE_ALIGN), so a run-up keeps its speed and a strafe or a slide toward a side
+  // drop near a take-off still looks the full distance.
+  aheadAlong(id, dirX, dirZ, ahead) {
+    const distance = this.toTakeOff(id);
+    if (distance >= ahead) return ahead;
+    const dx = this.pointX[id] - Actors.x[id], dz = this.pointZ[id] - Actors.z[id];
+    return dirX * dx + dirZ * dz >= LEDGE_ALIGN * distance ? distance : ahead;
+  },
+  leavesGround(id) {
+    if (!this.hasDest[id] || this.pointIndex[id] >= this.pointCount[id]) return false;
+    const type = this.segmentType[id];
+    if (type !== NAV_LINK.JUMP && type !== NAV_LINK.JUMPPAD && type !== NAV_LINK.LADDER && type !== NAV_LINK.TELEPORT) return false;
+    const dx = this.pointX[id] - Actors.x[id], dz = this.pointZ[id] - Actors.z[id], length = length2(dx, dz);
+    return length < STEP_HEIGHT || (Bots.wishX[id] * dx + Bots.wishZ[id] * dz) >= LEDGE_ALIGN * length;
+  },
+  // No floor under the point ledgeProbe (x, z) m away within the bot's drop limit (one ray down).
+  unsafeAhead(id) {
+    const fall = this.options[id].maxDrop + STEP_HEIGHT * 2;
+    return !World.raycast(Actors.x[id] + ledgeProbe.x, Actors.y[id] + STEP_HEIGHT, Actors.z[id] + ledgeProbe.z, 0, -1, 0, fall, rimHit);
   },
   // A jump link higher than one jump (only built for tiers with extra jumps): jump again near the apex.
   extraJump(id) {
@@ -359,8 +493,24 @@ const BotMove = {
     if (rise > MOVE_SWIM_RISE && (Sim.tick & 1) === 0) Bots.press(id, BTN.JUMP);   // up, and out over the rim (mantle)
     else if (rise < -MOVE_SWIM_RISE) Bots.press(id, BTN.CROUCH);
   },
+  // On the run-up to a level or downward gap a leaping bot faces the landing early and runs onto the take-off-to-landing
+  // line, so it leaps at full speed and straight (the leap flies about 12 m). A climb is faced from the take-off (turning
+  // there from a stop if need be): a full-speed leap meets the ledge face below its top.
+  gapRunUp(id) {
+    return this.segmentType[id] !== NAV_LINK.JUMP && this.aimsLeap(id) && this.landY[id] <= this.pointY[id] + STEP_HEIGHT;
+  },
+  // The run-up's move target: LEAP_LINE_AHEAD past the bot's own spot projected on that line.
+  lineUpMove(id, out) {
+    const lineX = this.landX[id] - this.pointX[id], lineZ = this.landZ[id] - this.pointZ[id], length = length2(lineX, lineZ);
+    if (length < STEP_HEIGHT) return;
+    const unitX = lineX / length, unitZ = lineZ / length;
+    const along = (Actors.x[id] - this.pointX[id]) * unitX + (Actors.z[id] - this.pointZ[id]) * unitZ + LEAP_LINE_AHEAD;
+    out.x = this.pointX[id] + unitX * along; out.z = this.pointZ[id] + unitZ * along;
+  },
   lookAlong(id, target) {
-    Bots.lookYaw[id] = Math.atan2(target.x - Actors.x[id], target.z - Actors.z[id]);
+    const runUp = this.gapRunUp(id);
+    const x = runUp ? this.landX[id] : target.x, z = runUp ? this.landZ[id] : target.z;
+    Bots.lookYaw[id] = Math.atan2(x - Actors.x[id], z - Actors.z[id]);
     if (this.segmentType[id] !== NAV_LINK.LADDER) Bots.lookPitch[id] = 0;
   },
 
@@ -437,23 +587,24 @@ const BotMove = {
   },
 };
 
+// The leap the match's mode adds to id's jumps (its { leapSpeed, leapLift }), null when a jump is only a jump.
+function modeLeap(id) { return Modes.active && Modes.behaviour.leap ? Modes.behaviour.leap(id) : null; }
+
+// BOT-010 drop limit: every drop link the graph has (Nav.limits.maxDrop) without fall damage (the preset's MOV-015 curve,
+// or the MUT-003 mutator), else the deepest drop up to Nav.limits.safeDrop that costs at most BOT_DROP_DAMAGE.
+function safeDropFor(preset, gravity) {
+  const deepest = Nav.limits.maxDrop;
+  if ((Mutators.fx && Mutators.fx.noFallDamage) || fallDamage(preset, Math.sqrt(2 * gravity * deepest)) <= 0) return deepest;
+  let drop = Nav.limits.safeDrop;
+  while (drop > BOT_DROP_STEP && fallDamage(preset, Math.sqrt(2 * gravity * drop)) > BOT_DROP_DAMAGE) drop -= BOT_DROP_STEP;
+  return drop;
+}
+
 // Trap memory shared by all bots: nodes where a bot got stuck cost TRAP_COST extra seconds for TRAP_SECONDS, so the
 // team routes around links that look fine on the graph but fail in play (a rim too thin to climb out over, say).
 const TRAP_SLOTS = 32, TRAP_SECONDS = 60, TRAP_COST = 30;
 const trapNodes = new Int32Array(TRAP_SLOTS).fill(-1), trapUntil = new Float64Array(TRAP_SLOTS);
-let trapCursor = 0;
-
-function markTrap(node, now) {
-  if (node < 0) return;
-  trapNodes[trapCursor] = node;
-  trapUntil[trapCursor] = now + TRAP_SECONDS;
-  trapCursor = (trapCursor + 1) % TRAP_SLOTS;
-}
-
-function trapsActive(now) {
-  for (let i = 0; i < TRAP_SLOTS; i++) if (trapUntil[i] > now) return true;
-  return false;
-}
+let trapCursor = 0, trapCount = 0;
 
 // Swimming is slow and its exits are hard (S10 mantle): bots go through water only when it saves real time.
 const WATER_NODE_COST = 4;
@@ -461,13 +612,48 @@ const BLOCKED_EXIT_COST = 1000;         // s: a path from the water climbs out o
 const EXIT = { NONE: 0, BLOCKED: 1, OPEN: 2 };
 let mapHasWater = false;
 let exitKind = new Uint8Array(0), exitVersion = -1;
-let exitList = new Int32Array(0), exitCount = 0;
+let exitList = new Int32Array(0), exitCount = 0, blockedExits = 0;
 
-function extraCost(id, node) {
-  const water = (Nav.nodeFlags[node] & NAV_NODE.WATER) ? WATER_NODE_COST : 0;
-  const blocked = BotMove.fromWater[id] && exitBlocked(node) ? BLOCKED_EXIT_COST : 0;
-  return trapCost(node) + water + blocked;
+// Extra seconds per nav node for every bot (water nodes, live traps): one array for Nav's danger channel, its version
+// costEpoch bumped on every change so the path cache never serves a path found with other costs (BOT-091).
+let extraCosts = new Float32Array(0), costVersion = -1, costEpoch = 0;
+
+function markTrap(node, now) {
+  if (node < 0) return;
+  sharedCosts(now);
+  if (trapNodes[trapCursor] >= 0) clearTrap(trapCursor);   // the ring is full: the oldest trap goes
+  trapNodes[trapCursor] = node;
+  trapUntil[trapCursor] = now + TRAP_SECONDS;
+  extraCosts[node] += TRAP_COST;
+  trapCount++; costEpoch++;
+  trapCursor = (trapCursor + 1) % TRAP_SLOTS;
 }
+
+function clearTrap(slot) {
+  extraCosts[trapNodes[slot]] -= TRAP_COST;
+  trapNodes[slot] = -1;
+  trapCount--; costEpoch++;
+}
+
+// The shared cost array for a path asked for now (expired traps dropped), or null when it would add nothing (no water,
+// no trap): such paths need no danger channel at all.
+function sharedCosts(now) {
+  if (costVersion !== Nav.version) buildCosts();
+  for (let slot = 0; slot < TRAP_SLOTS; slot++) if (trapNodes[slot] >= 0 && trapUntil[slot] <= now) clearTrap(slot);
+  return mapHasWater || trapCount > 0 ? extraCosts : null;
+}
+
+// Water costs once per graph (the traps of an older graph are dropped with it).
+function buildCosts() {
+  costVersion = Nav.version; costEpoch++;
+  if (extraCosts.length !== Nav.nodeCount) extraCosts = new Float32Array(Nav.nodeCount); else extraCosts.fill(0);
+  trapNodes.fill(-1); trapCount = 0;
+  findWater();
+  for (let node = 0; node < Nav.nodeCount; node++) if (Nav.nodeFlags[node] & NAV_NODE.WATER) extraCosts[node] = WATER_NODE_COST;
+}
+
+// A swimmer's own extra cost: a rimless exit (the shared costs come through Nav's danger channel).
+function blockedExitCost(id, node) { return BotMove.fromWater[id] && exitBlocked(node) ? BLOCKED_EXIT_COST : 0; }
 
 function exitBlocked(node) { return exitVersion === Nav.version && node < exitKind.length && exitKind[node] === EXIT.BLOCKED; }
 
@@ -490,7 +676,7 @@ function findWater() {
 function findExits() {
   exitVersion = Nav.version;
   if (exitKind.length < Nav.nodeCount) { exitKind = new Uint8Array(Nav.nodeCount); exitList = new Int32Array(Nav.nodeCount); } else exitKind.fill(0);
-  exitCount = 0;
+  exitCount = 0; blockedExits = 0;
   if (!mapHasWater) return;
   for (let node = 0; node < Nav.nodeCount; node++) {
     if (!(Nav.nodeFlags[node] & NAV_NODE.WATER)) continue;
@@ -507,20 +693,21 @@ function classifyExit(to) {
 function nearestExit(from, x, y, z) {
   let best = -1, bestDistance = Infinity;
   for (let i = 0; i < exitCount; i++) {
-    const node = exitList[i], distance = length3(Nav.nodeX[node] - x, Nav.nodeY[node] - y, Nav.nodeZ[node] - z);
+    const node = exitList[i];
+    if (exitBlocked(node)) continue;   // a swimmer failed here: never sent back to it
+    const distance = length3(Nav.nodeX[node] - x, Nav.nodeY[node] - y, Nav.nodeZ[node] - z);
     if (distance < bestDistance && Nav.reachable(from, node)) { bestDistance = distance; best = node; }
   }
   return best;
 }
 
 function markBlockedExit(node) {
-  if (node >= 0 && node < exitKind.length && exitVersion === Nav.version) exitKind[node] = EXIT.BLOCKED;
-}
-
-function trapCost(node) {
-  for (let i = 0; i < TRAP_SLOTS; i++) if (trapNodes[i] === node && trapUntil[i] > Sim.time) return TRAP_COST;
-  return 0;
+  if (node < 0 || node >= exitKind.length || exitVersion !== Nav.version || exitKind[node] === EXIT.BLOCKED) return;
+  exitKind[node] = EXIT.BLOCKED;
+  blockedExits++;
 }
 
 BotMove.init();
-Bus.on('match.start', () => { trapUntil.fill(0); trapNodes.fill(-1); findWater(); findExits(); });
+Bus.on('match.start', () => { buildCosts(); findExits(); });
+Bus.on('nav.ready', () => { buildCosts(); findExits(); });   // a sliced build finished after match start
+Bus.on('world.trigger', (event) => { if (event.kind === 'jumppad' && Bots.active[event.id]) BotMove.padRideUntil[event.id] = Sim.time + PAD_RIDE_SECONDS; });

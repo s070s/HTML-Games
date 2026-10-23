@@ -23,7 +23,12 @@ DebugApi.spawnBot = (profile, team) => {
   Modes.spawnActor(id);
   return id;
 };
-DebugApi.setTier = (id, tier) => Bots.setTier(id, tier);
+DebugApi.setTier = (id, tier) => {
+  if (Actors.kind[id] !== ACTOR_KIND.BOT) return false;
+  Bots.tierRow[id] = CAT.botTiers[clamp(parseTier(tier), 0, BOT_TIER_COUNT - 1)];
+  BotMove.configure(id);
+  return true;
+};
 
 // Plays `minutes` of `mode` on `map` with 16 bots (or botCount), headless, with seed 1 (or seed), without a time or score
 // limit (or with modeOptions), and returns the soak numbers (BOT-091 / ARC-033 / tests).
@@ -31,7 +36,7 @@ DebugApi.soak = (mode, map, minutes, botCount, seed, modeOptions) => playMatch({
   seed: seed === undefined ? 1 : seed, modeOptions: modeOptions || SOAK_OPEN_MATCH });
 
 // One headless match at the soak quality, stopped afterwards whatever happens. run: { mode, map (an id, or a map
-// object), ruleset (optional), minutes, botCount or bots (setup entries), seed, modeOptions, onTick(tick) after every tick,
+// object), ruleset, difficulty, balance, player (optional), minutes, botCount or bots (setup entries), seed, modeOptions, onTick(tick) after every tick,
 // probe(stats) at the end while the match still runs }. Returns the soak numbers.
 function playMatch(run) {
   const headless = Game.headless, quality = Settings.get('video.quality'), ownMap = typeof run.map !== 'string';
@@ -47,8 +52,9 @@ function playMatch(run) {
 
 function runSoak(run) {
   const bots = run.bots || Array.from({ length: run.botCount }, () => ({}));
-  Game.start({ mode: run.mode, map: run.map, ruleset: run.ruleset, seed: run.seed, bots, modeOptions: run.modeOptions });
-  const stats = { mode: run.mode, map: typeof run.map === 'string' ? run.map : run.map.id, bots: 0, seconds: 0, botSeconds: 0, stuckFraction: 0, maxStuck: 0, nan: 0, maxNoGoal: 0, aiP95: 0, aiMax: 0,
+  Game.start({ mode: run.mode, map: run.map, ruleset: run.ruleset, seed: run.seed, bots, modeOptions: run.modeOptions, difficulty: run.difficulty,
+    balance: run.balance, player: run.player });
+  const stats = { mode: run.mode, map: typeof run.map === 'string' ? run.map : run.map.id, bots: 0, seconds: 0, botSeconds: 0, stuckFraction: 0, maxStuck: 0, enemyStuck: 0, enemyMaxStuck: 0, nan: 0, maxNoGoal: 0, aiP95: 0, aiMax: 0,
     kills: 0, shots: 0, unknownShots: 0, unperceivedShots: 0, objectivesTouched: 0, raysMax: 0,
     ended: false, winner: NOT_OVER, reason: '', teamCaptures: 0, actorCaptures: 0, holdPoints: 0 };
   for (let id = 0; id < Actors.count; id++) if (Bots.active[id]) stats.bots++;
@@ -103,9 +109,16 @@ function sampleSoak(stats) {
   for (const objective of Modes.objectives) if (objective.state === 'carried' || objective.owner >= 0 || objective.progress > 0) stats.objectivesTouched++;
 }
 
+// Stuck time counts for bot brains (botSeconds counts their ticks, a bot removed mid-match included); PvE enemies also move
+// with BotMove, so their stuck time is reported apart (enemyStuck, enemyMaxStuck) instead of being blamed on the bots (bots-03).
 function finishSoak(stats, timings, ticks) {
   let stuck = 0, longest = 0, noGoal = 0;
   for (let id = 0; id < Actors.count; id++) {
+    if (Actors.kind[id] === ACTOR_KIND.ENEMY) {
+      stats.enemyStuck += BotMove.stuckSeconds[id];
+      stats.enemyMaxStuck = Math.max(stats.enemyMaxStuck, BotMove.longestStuck[id]);
+      continue;
+    }
     stuck += BotMove.stuckSeconds[id];
     longest = Math.max(longest, BotMove.longestStuck[id]);
     noGoal = Math.max(noGoal, BotDecide.longestNoGoal[id]);
@@ -157,6 +170,9 @@ function placeFacing(id, x, z, yaw) {
   Actors.yaw[id] = Actors.aimYaw[id] = yaw;
   if (Bots.active[id]) Bots.lookYaw[id] = yaw;
 }
+
+// A bot's fresh memory of the other actor of a BotSense pair: standing at x 0 on the floor, z metres along.
+function knowAt(pair, z) { BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = z; }
 
 // Holds a dummy in place (bots only move bots; the test arena has no other forces).
 function holdActor(id, x, z) { moveActor(id, x, z, 0, 0); }
@@ -265,10 +281,11 @@ Test.add('bots', (check) => {
   const custom = Difficulty.resolve({ preset: 'regular', reactionScale: 99, tierMin: 5, tierMax: 2 });
   const slider = DIFFICULTY_SLIDERS.find((row) => row.field === 'reactionScale');
   check('custom sliders clamp to DIF-002 and tierMax >= tierMin', (!slider || custom.reactionScale === slider.max) && custom.tierMax >= custom.tierMin);
-  const ids = startBotTest(botTestMap(false), 'ffa', { bots: [{ profile: 'pell' }, { tier: 'BT6' }, {}] });
-  check('a named bot plays its roster tier, setup.tier wins', Bots.tier(ids[0]).tier === CAT.bots.byId('pell').tier && Bots.tier(ids[1]).tier === 6);
+  const ids = startBotTest(botTestMap(false), 'ffa', { difficulty: 'recruit', bots: [{ profile: 'pell' }, { tier: 'BT6' }, {}] });
+  check('a named bot plays its roster tier (inside the difficulty range), setup.tier wins', Bots.tier(ids[0]).tier === CAT.bots.byId('pell').tier && Bots.tier(ids[1]).tier === 6);
   check('a named bot keeps its profile row', Bots.profile[ids[0]] === CAT.bots.byId('pell') && Actors.profile[ids[0]] === CAT.bots.byId('pell'));
   check('setTier changes the tier', DebugApi.setTier(ids[2], 7) && Bots.tier(ids[2]).tier === 7);
+  check('setTier is a test command, not a Bots method', Bots.setTier === undefined);
   const extra = DebugApi.spawnBot('nyx7', -1);
   check('spawnBot adds a live brain-driven bot mid-match', extra >= 0 && Actors.alive[extra] && Bots.active[extra] && Bots.profile[extra] === CAT.bots.byId('nyx7'));
   endBotTest();
@@ -389,10 +406,18 @@ Test.add('bots', (check) => {
 });
 
 // ---- Team play: a defend ping is answered within 2 s and acknowledged by every taker; an enemy ping gets a reply ----
+const SQUAD_SPAWNS = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
+// The player and three team bots against two dummies on the walled arena; returns the team bots.
+function startSquadTest() {
+  startBotTest(botTestMap(true, { spawns: SQUAD_SPAWNS }), 'tdm', { player: { team: 0 }, balance: false, bots: [{ team: 0 }, { team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
+  const mates = [];
+  for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) mates.push(id);
+  return mates;
+}
+
 Test.add('bots', (check) => {
-  const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
   // Two bots with the player against two dummies: 3 v 2 is balanced, so nobody changes sides.
-  startBotTest(botTestMap(true, { spawns }), 'tdm', { player: { team: 0 }, bots: [{ team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
+  startBotTest(botTestMap(true, { spawns: SQUAD_SPAWNS }), 'tdm', { player: { team: 0 }, bots: [{ team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
   const player = Game.playerId, barks = startEventLog('bark');
   runSeconds(1);
   const pingedAt = Sim.time;
@@ -411,22 +436,20 @@ Test.add('bots', (check) => {
   Bus.emit('ping', { id: player, kind: 'enemy', x: Actors.x[enemy], y: Actors.y[enemy], z: Actors.z[enemy], target: enemy });
   runSeconds(2);
   check('an enemy ping from the player gets a reply within 1.5 s', barks.some((event) => event.category === 'pingReply' && withinAckTime(event.time - spottedAt)));
+  const chatter = Settings.get('gameplay.chatter');
   Settings.set('gameplay.chatter', 'off');
   const count = barks.length;
   Bus.emit('ping', { id: player, kind: 'go', x: -20, y: 0, z: -20, target: -1 });
   runSeconds(2);
   check('chatter off silences the barks', barks.length === count);
+  Settings.set('gameplay.chatter', chatter);   // later tests count barks
   barks.stop();
   endBotTest();
 });
 
 // ---- Comm wheel (BOT-061/062, INP-003): Ping tap vs hold, look picks a callout, follow / hold / regroup reach the whole team ----
 Test.add('bots', (check) => {
-  const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
-  startBotTest(botTestMap(true, { spawns }), 'tdm', { player: { team: 0 }, balance: false, bots: [{ team: 0 }, { team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
-  const player = Game.playerId, pings = startEventLog('ping'), pingAction = Input.actionIndex.ping;
-  const mates = [];
-  for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) mates.push(id);
+  const mates = startSquadTest(), player = Game.playerId, pings = startEventLog('ping'), pingAction = Input.actionIndex.ping;
   runSeconds(1);
   const fromPlayer = () => pings.filter((event) => event.id === player);
   Actors.aimPitch[player] = BOTS_WHEEL_SKY;   // aimed at no bot: the wheel talks to the squad
@@ -473,10 +496,7 @@ function botsWheelPick(kind) {
 
 // ---- Comm wheel: aimed at a team bot it addresses that bot only (Cover me); replies answer a ping and order nobody ----
 Test.add('bots', (check) => {
-  const spawns = [-6, 0, 6].flatMap((x) => [{ x, y: 0, z: -10, team: 0 }, { x, y: 0, z: 10, team: 1 }]);
-  startBotTest(botTestMap(true, { spawns }), 'tdm', { player: { team: 0 }, balance: false, bots: [{ team: 0 }, { team: 0 }, { team: 0 }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
-  const player = Game.playerId, pings = startEventLog('ping'), mates = [];
-  for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) mates.push(id);
+  const mates = startSquadTest(), player = Game.playerId, pings = startEventLog('ping');
   runSeconds(1);
   const chosen = mates[0], others = mates.slice(1);
   placeActor(player, -20, -20); placeActor(chosen, -20, -12);
@@ -535,9 +555,9 @@ Test.add('bots', (check) => {
   check('a seen enemy is where it really is', point.x === Actors.x[dummy] && point.z === Actors.z[dummy]);
   BotSense.visible[pair] = 0;
   BotSense.knownY[pair] = Actors.y[bot] + AGGRESSION_HEIGHT + 1;
-  check('aggression reads the remembered height (0: the enemy is believed far above)', BotDecide.aggression(bot, dummy) === 0);
+  check('fleeing reads the remembered height (the enemy is believed far above)', BotDecide.flees(bot, dummy));
   BotSense.knownY[pair] = Actors.y[bot];
-  check('and not the real one', BotDecide.aggression(bot, dummy) > 0, BotDecide.aggression(bot, dummy));
+  check('and not the real one', !BotDecide.flees(bot, dummy) && BotDecide.aggression(bot) > 0, BotDecide.aggression(bot));
   BotCombat.target[bot] = -1;
   BotSense.attacker[bot] = dummy; BotSense.attackedAt[bot] = Sim.time;
   check('a bot hit from out of sight retreats from its attacker', retreatThreat(bot, Sim.time) === dummy);
@@ -608,6 +628,40 @@ Test.add('bots', (check) => {
   }
   // S09 links no rimless swim exit any more (navHasRim); the blocked kind stays for exits a bot fails at run time.
   check('harbor has open water exits and no rimless ones', open > 0 && blocked === 0 && exitCount > 0, open + ' open, ' + blocked + ' blocked');
+  let water = -1;
+  for (let node = 0; node < Nav.nodeCount && water < 0; node++) if (Nav.nodeFlags[node] & NAV_NODE.WATER) water = node;
+  const first = nearestExit(water, Nav.nodeX[water], Nav.nodeY[water], Nav.nodeZ[water]);
+  markBlockedExit(first);
+  const second = nearestExit(water, Nav.nodeX[water], Nav.nodeY[water], Nav.nodeZ[water]);
+  check('a blocked exit is never the nearest exit again', first >= 0 && second !== first, first + ' then ' + second);
+});
+
+// ---- BOT-010 over the void: a jump pad flight is ridden onto its target, and a dash or grapple never ends over the void ----
+const BOT_PAD_ISLES = { id: 'bots-isles', brushes: [{ shape: 'box', min: [-10, -1, -10], max: [10, 0, 10] }, { shape: 'box', min: [-10, -1, 24], max: [10, 0, 34] }],
+  spawns: [{ x: 0, y: 0, z: -6, yaw: 0 }, { x: 0, y: 0, z: -8, yaw: 0 }], objectives: [], items: [],
+  triggers: [{ kind: 'jumppad', min: [-1.5, 0, 5], max: [1.5, 0.4, 8], target: [0, 0, 28], peak: 4 }] };
+
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(BOT_PAD_ISLES, 'ffa', { ruleset: 'vanguard' });   // strong air control: steering against the throw stops it short
+  Modes.endProtection(bot); Modes.endProtection(dummy);
+  Actors.flags[bot] |= ACTOR_FLAG.GOD;
+  for (let tick = 0; tick < TICK_RATE; tick++) { holdActor(dummy, FAR_DUMMY, FAR_DUMMY); Sim.run(1); }   // past the spawn settle: the brain steers
+  placeFacing(bot, 0, 6.5, Math.PI);
+  Bots.nextDecide[bot] = Infinity;   // the test gives the destination: back where it came from, against the pad's throw
+  BotMove.goTo(bot, 0, 0, -8, 1);
+  for (let tick = 0; tick < 3 * TICK_RATE; tick++) { holdActor(dummy, FAR_DUMMY, FAR_DUMMY); Sim.run(1); }
+  check('a bot thrown by a jump pad lands on its target island', Actors.y[bot] > -0.5 && Actors.z[bot] > 24, Actors.x[bot].toFixed(1) + ' ' + Actors.y[bot].toFixed(1) + ' ' + Actors.z[bot].toFixed(1));
+  const surge = CAT.abilities.byId('surge');
+  placeFacing(bot, 0, 8, 0);
+  Bots.wishX[bot] = 0; Bots.wishZ[bot] = 1;
+  check('a dash out over the void is not used', !abilityLands(bot, surge));
+  Bots.wishZ[bot] = -1;
+  check('a dash along the floor is used', abilityLands(bot, surge));
+  const glide = CAT.abilities.byId('glidepack');
+  check('a glide along the floor is held', abilityLands(bot, glide));
+  Bots.wishZ[bot] = 1;
+  check('a glide out over the void is not held', !abilityLands(bot, glide));
+  endBotTest();
 });
 
 // ---- DIF-003: the adaptive shift follows the player's team in team modes and the ranking in free-for-all ----
@@ -620,13 +674,33 @@ Test.add('bots', (check) => {
   check('team mode: a draw -> 0', matchOutcome(teamOutcome(NO_TEAM), 0) === 0);
   const ffa = { players: [outcomeRow(3, NO_TEAM), outcomeRow(0, NO_TEAM), outcomeRow(4, NO_TEAM)], teams: [], winnerTeam: NO_TEAM };
   check('free-for-all: first +1, middle 0, last -1', matchOutcome(ffa, 3) === 1 && matchOutcome(ffa, 0) === 0 && matchOutcome(ffa, 4) === -1);
+  const openEnded = (mode) => ({ mode, players: [outcomeRow(0, 0)], teams: [], winnerTeam: NO_TEAM, winnerId: PVE_LOST, draw: false });
+  check('an Endless Hold run or a Firing Range session (they only end lost) is neither a win nor a loss', matchOutcome(openEnded('endless'), 0) === 0 && matchOutcome(openEnded('range'), 0) === 0);
   const adaptive = Settings.get('difficulty.adaptive'), shift = Settings.get('difficulty.tierShift'), playerId = Game.playerId;
   Settings.set('difficulty.adaptive', true); Settings.set('difficulty.tierShift', 0);
   Game.playerId = 0;
   const match = { results: teamOutcome(1) };
   check('adapt: a team loss lowers the shift and shows on the results', Difficulty.adapt(match) === -1 && Settings.get('difficulty.tierShift') === -1 && match.results.botTierChange === -1);
+  Settings.set('difficulty.tierShift', 0.5);
+  check('a fractional saved shift reads as a whole tier', Difficulty.tierShift() === Math.round(0.5), Difficulty.tierShift());
+  Settings.set('difficulty.tierShift', 1e9);
+  check('an imported shift past the limit reads as the limit', Difficulty.tierShift() === ADAPTIVE_SHIFT_LIMIT, Difficulty.tierShift());
   Game.playerId = playerId;
   Settings.set('difficulty.tierShift', shift); Settings.set('difficulty.adaptive', adaptive);
+});
+
+// PERF-006: team play (14f) measures distances with length2; a bot pays the player's price (a helmet over a full vest
+// costs the rest).
+Test.add('bots', (check) => {
+  const sources = Object.values(BotTeam).concat(Object.values(BotEconomy), [spotKind]).filter((value) => typeof value === 'function').map(String).join();
+  check('team play uses no Math.hypot', !sources.includes('Math.hypot'));
+  startBotTest(botTestMap(false), 'bomb', { bots: [{ tier: 3, team: 0 }, { tier: 3, team: 1 }] });
+  const bot = 0, helmet = CAT.buyItems.find((item) => item.kind === 'helmet');
+  Actors.armor[bot] = Actors.maxArmor[bot] = helmet.amount;
+  Economy.setMoney(bot, Economy.priceFor(bot, helmet));
+  const bought = BotEconomy.buyBest(bot, (id, item) => (item.id === helmet.id ? 1 : 0));
+  check('a bot with a vest buys the helmet at the price for a vest owner', bought && Economy.money(bot) === 0, Economy.money(bot) + ' left of ' + Economy.priceFor(bot, helmet));
+  endBotTest();
 });
 
 // ---- Debug view (BOT-091/092): the HUD pass draws the nav graph, cones, labels and bars, and only while on ----
@@ -823,6 +897,19 @@ Test.add('bots', (check) => {
   check('2+ enemies in sight: a strike ultimate is wanted, an escape ultimate is not', !!ultimates && ultimates[0] && !ultimates[1], String(ultimates));
   endBotTest();
 });
+// The same two enemies before a Blight infected bot: melee only, so no frag (the attack lock S12 and the bot kit share).
+Test.add('bots', (check) => {
+  const [bot, first, second] = startBotTest(botTestMap(false), 'infection', { bots: [{ tier: 6 }, { dummy: true }, { dummy: true }] });
+  Modes.behaviour.infect(bot);
+  placeFacing(bot, 0, -THROW_DISTANCE / 2, 0);
+  Gadgets.give(bot, THROW_ROW, 2);
+  const uses = startEventLog('gadget.use');
+  runHeld(THROW_SECONDS, () => { holdActor(bot, 0, -THROW_DISTANCE / 2); holdActor(first, -1, THROW_DISTANCE / 2); holdActor(second, 1, THROW_DISTANCE / 2); });
+  uses.stop();
+  check('a Blight infected bot throws no grenade at two enemies together', BotCombat.uses.grenades === 0 && uses.length === 0 && Gadgets.countOf(bot, THROW_ROW) === 2,
+    BotCombat.uses.grenades + ' aimed, ' + uses.length + ' thrown');
+  endBotTest();
+});
 
 // BOT-034: a lone enemy in the open, seen the whole time, draws no frag (no cover, no cluster, no held spot); a flash
 // is thrown only from tier 3. uses counts this match only.
@@ -839,7 +926,7 @@ Test.add('bots', (check) => {
   check('a lone enemy in the open draws no frag', seen && BotCombat.uses.grenades === 0 && Gadgets.countOf(bot, THROW_ROW) === 2, BotCombat.uses.grenades + ' seen ' + seen);
   const flashAnywhere = Object.assign({}, BOT_GADGET_USE.flash, { when: 'always', range: [0, 0], chance: 1 });
   const tierSix = botUseWanted(bot, flashAnywhere);
-  Bots.setTier(bot, BOT_GADGET_USE.flash.tier - 1);
+  DebugApi.setTier(bot, BOT_GADGET_USE.flash.tier - 1);
   check('flash before a peek only from tier 3', tierSix && !botUseWanted(bot, flashAnywhere));
   endBotTest();
 });
@@ -864,14 +951,14 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
-// ---- BOT-050 CTF splits: enemy flag home 30% defend, 20% escort, the rest attack; enemy flag taken 60% defend, 30%
+// ---- BOT-050 CTF splits: enemy flag home 20% defend, 20% escort, the rest attack; enemy flag taken 60% defend, 30%
 // escort (from the next commander round). BOT-002: a chase on stale memory is the Search state ----
 Test.add('bots', (check) => {
   playMatch({ mode: 'ctf', map: 'twinkeeps', minutes: 1 / 60, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH, probe: () => {
     const team = [], roles = () => team.map((id) => ROLE_NAMES[BotTeam.role[id]]).sort().join();
     for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) team.push(id);
     BotTeam.assignRoles();
-    check('ctf, flags home: 2 defend, 1 escort, 2 attack of 5', team.length === 5 && roles() === 'attack,attack,defend,defend,escort', roles());
+    check('ctf, flags home: 1 defend, 1 escort, 3 attack of 5', team.length === 5 && roles() === 'attack,attack,attack,defend,escort', roles());
     const enemyFlag = Modes.objectives.find((o) => o.kind === 'flag' && o.team === 1);
     enemyFlag.carrier = team[0];
     BotTeam.assignRoles();
@@ -891,7 +978,7 @@ Test.add('bots', (check) => {
   const [bot, dummy] = startBotTest(botTestMap(false, { navHints: [{ kind: 'flank', x: 12, y: 0, z: 10 }] }), 'ffa', { bots: [{ tier: 5 }, { dummy: true }] });
   const plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 }, pair = BotSense.pair(bot, dummy);
   placeFacing(bot, 0, -10, 0); placeFacing(dummy, 0, 20, Math.PI);
-  BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 20;
+  knowAt(pair, 20);
   BotCombat.target[bot] = dummy;
   GOAL_SCORERS[GOAL.CHASE](bot, plan, Sim.time);
   check('a flanking tier chases a far target round by the flank hint', BotDecide.flankSpot[bot] === 0 && plan.x === 12 && plan.z === 10, plan.x + ',' + plan.z);
@@ -1025,7 +1112,7 @@ Test.add('bots', (check) => {
   placeFacing(bot, 0, -10, 0);
   Gadgets.give(bot, CHOKE_SMOKE_ROW, 2); Gadgets.select(bot, CHOKE_SMOKE_ROW);
   BotCombat.target[bot] = dummy;
-  BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 14;
+  knowAt(pair, 14);
   check('the match reads the choke hints', BotDecide.chokeSpots.length === 2);
   BotDecide.goal[bot] = GOAL.ROAM;
   BotCombat.tryGrenade(bot, now);
@@ -1052,7 +1139,7 @@ Test.add('bots', (check) => {
   const now = Sim.time + GRENADE_TOKEN_INTERVAL;
   const aimAtTarget = () => {
     BotDecide.goal[bot] = GOAL.CHASE; BotCombat.target[bot] = dummy;
-    BotSense.knownAt[pair] = Sim.time; BotSense.knownX[pair] = 0; BotSense.knownY[pair] = 0; BotSense.knownZ[pair] = 14;
+    knowAt(pair, 14);
   };
   placeFacing(bot, 0, -10, 0);
   Gadgets.clearGrenades(bot); Gadgets.give(bot, 'frag', 1); Gadgets.give(bot, CHOKE_SMOKE_ROW, 1);
@@ -1415,7 +1502,7 @@ const OBJECTIVE_RUNS = [
   { mode: 'oddball', map: 'gantry', bots: 6, reason: 'hold', ends: true },
   { mode: 'gungame', map: 'gantry', bots: 6, reason: 'advance', ends: true },
   { mode: 'ghostops', map: 'dustline', bots: 8, reason: 'plant' },
-  { mode: 'infection', map: BOT_ARENA, bots: 8, reason: 'infect', ends: true },
+  { mode: 'infection', map: BOT_ARENA, bots: 8, reason: 'kill', ends: true },
   { mode: 'juggernaut', map: BOT_ARENA, bots: 6, hunted: true },
   { mode: 'cursetag', map: BOT_ARENA, bots: 6, hunted: true },
   { mode: 'bearer', map: BOT_ARENA, bots: 6, reason: 'hold', ends: true },
@@ -1425,6 +1512,16 @@ const OBJECTIVE_RUNS = [
 
 Test.add('bots', (check) => { DebugApi.bots.lastQuickModes = checkObjectiveRuns(check, QUICK_OBJECTIVE_RUNS, KIT_QUICK_SECONDS); });
 Test.add('botsoak', (check) => { DebugApi.bots.lastModes = checkObjectiveRuns(check, OBJECTIVE_RUNS, MATCH_RUN_SECONDS); }, { slow: true });
+
+// ---- Flag Raid at its default size (5 v 5, the Play screen's 9 bots and the player): a 5-bot team raids with 3, so
+// every 15-minute match sees flags captured (an odd team used to keep 2 home and stall at 0-0) ----
+const CTF_DEFAULT_SIZE_SEEDS = [1, 2, 3, 4], CTF_DEFAULT_SIZE_BOTS = 10, CTF_DEFAULT_SIZE_MINUTES = 15, CTF_DEFAULT_SIZE_CAPTURES = 2;
+
+Test.add('botsoak', (check) => {
+  const captures = CTF_DEFAULT_SIZE_SEEDS.map((seed) => DebugApi.soak('ctf', 'twinkeeps', CTF_DEFAULT_SIZE_MINUTES, CTF_DEFAULT_SIZE_BOTS, seed,
+    { timeLimit: CTF_DEFAULT_SIZE_MINUTES * 60 }).teamCaptures);
+  check('ctf 5 v 5: every match captures flags', captures.every((count) => count >= CTF_DEFAULT_SIZE_CAPTURES), captures.join(', '));
+}, { slow: true });
 
 // ---- CTF attack play: 8 bots on twinkeeps capture in normal time, and neither side always wins (5 seeds) ----
 const CTF_SEEDS = [1, 2, 3, 4, 5], CTF_CAPTURE_MATCHES = 3;
@@ -1470,7 +1567,50 @@ function checkSoaks(check, maps, minutes) {
 }
 
 Test.add('bots', (check) => { DebugApi.bots.lastQuickSoak = checkSoaks(check, SOAK_QUICK_MAPS.map((id) => CAT.maps.byId(id)), SOAK_QUICK_MINUTES); });
+
 Test.add('botsoak', (check) => { DebugApi.bots.lastSoak = checkSoaks(check, CAT.maps.filter((map) => !map.placeholder), SOAK_TEST_MINUTES); }, { slow: true });
+
+// bots-03: a PvE enemy stuck on its BotMove path (PveMove) is reported as enemy stuck time, not as the bots' stuck share;
+// a bot removed mid-match keeps its stuck time in the bots' share (its ticks stay in botSeconds).
+const ENEMY_STUCK_SECONDS = 10, REMOVED_BOT = 1, REMOVE_TICK = 30;
+Test.add('bots', (check) => {
+  let enemy = -1;
+  const onTick = () => {
+    for (let id = 0; id < Actors.count && enemy < 0; id++) {
+      if (Actors.kind[id] !== ACTOR_KIND.ENEMY || !Actors.alive[id]) continue;
+      enemy = id;
+      Actors.flags[id] |= ACTOR_FLAG.GOD;   // it must live to the end: a dead enemy's slot is reused by the next spawn
+      BotMove.stuckSeconds[id] += ENEMY_STUCK_SECONDS;
+      BotMove.longestStuck[id] = ENEMY_STUCK_SECONDS;
+    }
+  };
+  const stats = playMatch({ mode: 'bank', map: 'cistern', minutes: 0.25, botCount: 4, seed: 1, modeOptions: SOAK_OPEN_MATCH, onTick });
+  const text = 'enemy ' + enemy + ': ' + JSON.stringify(stats);
+  check('bank: a PvE enemy spawned', enemy >= 0, text);
+  check('enemy stuck time stays out of the bots\' stuck share', stats.stuckFraction * stats.botSeconds < ENEMY_STUCK_SECONDS && stats.maxStuck < ENEMY_STUCK_SECONDS, text);
+  check('enemy stuck time is reported apart', stats.enemyStuck >= ENEMY_STUCK_SECONDS && stats.enemyMaxStuck >= ENEMY_STUCK_SECONDS, text);
+  const onRemove = (played) => { if (played === REMOVE_TICK) { BotMove.stuckSeconds[REMOVED_BOT] += ENEMY_STUCK_SECONDS; Actors.remove(REMOVED_BOT); } };
+  const ffa = playMatch({ mode: 'ffa', map: 'harbor', minutes: 0.25, botCount: 4, seed: 1, modeOptions: SOAK_OPEN_MATCH, onTick: onRemove });
+  check('a removed bot\'s stuck time stays in the bots\' share', ffa.enemyStuck === 0 && ffa.stuckFraction * ffa.botSeconds >= ENEMY_STUCK_SECONDS, JSON.stringify(ffa));
+});
+
+// balance-04 hero kill pace: 10 hero bots on Harbor, 3 minutes per seed (one seed alone swings from 1 to 23 kills): in each
+// kill mode the leader's score over all seeds, projected to the time limit, reaches HERO_PACE_SHARE of the hero score limit.
+const HERO_PACE_MODES = ['ffa', 'tdm'], HERO_PACE_SEEDS = [1, 2, 3, 4], HERO_PACE_BOTS = 10, HERO_PACE_SHARE = 0.8;
+Test.add('botsoak', (check) => {
+  for (const id of HERO_PACE_MODES) {
+    const mode = CAT.modes.byId(id), limit = Rules.build({ mode: id, ruleset: 'heroes' }).scoreLimit;
+    let leads = 0, seconds = 0, lead = 0;
+    const probe = () => { lead = Modes.leaderScore; };
+    for (const seed of HERO_PACE_SEEDS) {
+      const stats = playMatch({ mode: id, map: 'harbor', ruleset: 'heroes', minutes: SOAK_TEST_MINUTES, botCount: HERO_PACE_BOTS, seed, modeOptions: SOAK_OPEN_MATCH, probe });
+      leads += lead; seconds += stats.seconds;
+    }
+    const projected = leads * mode.timeLimit / seconds;
+    check('hero ' + mode.name + ': the leader reaches the limit in time', projected >= limit * HERO_PACE_SHARE,
+      projected.toFixed(1) + ' of ' + limit + ' (' + leads + ' in ' + seconds + ' s)');
+  }
+}, { slow: true });
 
 // ---- Same seed, same match: nothing an earlier match left in the bot modules steers the next one ----
 const REPLAY_SECONDS = 12, REPLAY_SEED = 1, REPLAY_OTHER_SEED = 2;
@@ -1496,3 +1636,433 @@ Test.add('bots', (check) => {
   DebugApi.bots.lastPerf = stats;
 });
 DebugApi.bots.kits = { play: playKitMatch, abilityBatches, gadgetBatches };   // __CTK.bots.kits: kit matches from the console
+
+// ---- Holding bots sweep their view slowly over an arc (BOT-040: no spinning, no 360 degree vision) ----
+const HOLD_SWEEP_SETTLE = 40, HOLD_SWEEP_SECONDS = 6, HOLD_SWEEP_RATE_LIMIT = 60, HOLD_SWEEP_RANGE_LIMIT = 130, HOLD_OUTWARD_LIMIT = 45;   // s, s, deg/s, deg, deg
+Test.add('bots', (check) => {
+  const settleTicks = HOLD_SWEEP_SETTLE * TICK_RATE, turned = new Float64Array(MAX_ACTORS), held = new Uint32Array(MAX_ACTORS);
+  const yaw = new Float64Array(MAX_ACTORS), low = new Float64Array(MAX_ACTORS), high = new Float64Array(MAX_ACTORS), last = new Float64Array(MAX_ACTORS);
+  const onTick = (tick) => {
+    for (let id = 0; id < Actors.count; id++) {
+      const step = wrapAngle(Actors.aimYaw[id] - last[id]);
+      last[id] = Actors.aimYaw[id];
+      if (tick < settleTicks || !Bots.isBot(id) || !BotDecide.holding(id) || BotCombat.target[id] >= 0) continue;
+      turned[id] += Math.abs(step); held[id]++;
+      yaw[id] += step; low[id] = Math.min(low[id], yaw[id]); high[id] = Math.max(high[id], yaw[id]);
+      const zone = BotDecide.goal[id] === GOAL.OBJECTIVE ? Modes.objectives[BotDecide.goalTarget[id]] : null;
+      if (!zone || length2(Actors.x[id] - zone.x, Actors.z[id] - zone.z) < 1.5 || Number.isNaN(BotDecide.holdYaw[id])) continue;
+      outwardOff += Math.abs(wrapAngle(BotDecide.holdYaw[id] - Math.atan2(Actors.x[id] - zone.x, Actors.z[id] - zone.z))); outwardSamples++;
+    }
+  };
+  let outwardOff = 0, outwardSamples = 0;
+  playMatch({ mode: 'dom', map: 'twinkeeps', minutes: (HOLD_SWEEP_SETTLE + HOLD_SWEEP_SECONDS) / 60, seed: 1, balance: false, onTick,
+    bots: [{ team: 0, tier: 0 }, { team: 0, tier: 3 }, { team: 0, tier: 7 }, { team: 0, tier: 5 }] });
+  let fastest = 0, widest = 0, holders = 0;
+  for (let id = 0; id < MAX_ACTORS; id++) {
+    if (held[id] < TICK_RATE) continue;
+    holders++;
+    fastest = Math.max(fastest, turned[id] / DEG / (held[id] * TICK_SECONDS));
+    widest = Math.max(widest, (high[id] - low[id]) / DEG);
+  }
+  check('holding bots sweep their view slowly (no spin)', holders > 0 && fastest < HOLD_SWEEP_RATE_LIMIT, holders + ' holders, fastest ' + fastest.toFixed(0) + ' deg/s');
+  check('and only over an arc (no 360 degree vision)', holders > 0 && widest <= HOLD_SWEEP_RANGE_LIMIT, 'widest ' + widest.toFixed(0) + ' deg');
+  const outward = outwardSamples > 0 ? outwardOff / outwardSamples / DEG : 180;
+  check('a bot holding a point sweeps around the way out of it', outward < HOLD_OUTWARD_LIMIT, outward.toFixed(0) + ' deg off on average');
+});
+
+// ---- BOT-021: easy bots still fight (worse), they do not run from most fights ----
+// One 90 s match swings the shares by several points (which guns the bots find), so three seeds are pooled.
+const FIGHT_MIX_SECONDS = 90, FIGHT_MIX_SAMPLE = 12, FIGHT_ATTACK_MIN = 0.3, FIGHT_RETREAT_MAX = 0.35, FIGHT_MIX_SEEDS = [1, 2, 3];
+Test.add('bots', (check) => {
+  for (const difficulty of ['stroll', 'recruit', 'novice']) {
+    let targeted = 0, attacking = 0, retreating = 0;
+    const onTick = (tick) => {
+      if (tick % FIGHT_MIX_SAMPLE) return;
+      for (let id = 0; id < Actors.count; id++) {
+        if (!Bots.isBot(id) || BotCombat.target[id] < 0) continue;
+        targeted++;
+        if (BotDecide.goal[id] === GOAL.ATTACK) attacking++;
+        if (BotDecide.goal[id] === GOAL.RETREAT) retreating++;
+      }
+    };
+    for (const seed of FIGHT_MIX_SEEDS) playMatch({ mode: 'ffa', map: 'spire', minutes: FIGHT_MIX_SECONDS / 60, botCount: 6, seed, difficulty, onTick });
+    const attackShare = attacking / Math.max(1, targeted), retreatShare = retreating / Math.max(1, targeted);
+    check(difficulty + ': bots with a target attack at least 30% of the time and retreat at most 35%', targeted > 0 && attackShare >= FIGHT_ATTACK_MIN && retreatShare <= FIGHT_RETREAT_MAX,
+      'attack ' + (attackShare * 100).toFixed(0) + '%, retreat ' + (retreatShare * 100).toFixed(0) + '%');
+  }
+});
+
+// ---- BOT-071: a safe, close downed teammate (the player too) outranks the objective ----
+// Over 36 seeds bots revive 31-32% of the downed (under 2% without revive goals), and one match swings from 16% to 47%:
+// three seeds gave 26-39% (5 of 12 such sets under 30%), six seeds 27-36%. So six seeds against a 25% floor.
+const REVIVE_SOAK_SECONDS = 180, REVIVE_SOAK_SEEDS = [1, 2, 3, 4, 5, 6], REVIVE_SHARE_MIN = 0.25, REVIVE_PLAYER_SECONDS = 12;
+Test.add('bots', (check) => {
+  const downed = new Uint8Array(MAX_ACTORS);
+  let downs = 0, revives = 0;
+  const onTick = () => {
+    for (let id = 0; id < Actors.count; id++) {
+      const now = Actors.alive[id] && (Actors.flags[id] & ACTOR_FLAG.DOWNED) ? 1 : 0;
+      if (now && !downed[id]) downs++;
+      if (!now && downed[id] && Actors.alive[id]) revives++;
+      downed[id] = now;
+    }
+  };
+  for (const seed of REVIVE_SOAK_SEEDS) {   // one match swings a lot (who is downed where): the share is over six
+    downed.fill(0);
+    playMatch({ mode: 'dom', map: 'twinkeeps', ruleset: 'modern', minutes: REVIVE_SOAK_SECONDS / 60, botCount: 10, seed, onTick });
+  }
+  check('Modern Holdfast: bots revive at least 25% of the downed', downs > 0 && revives / downs >= REVIVE_SHARE_MIN, revives + ' of ' + downs);
+});
+Test.add('bots', (check) => {
+  Game.headless = true;
+  Game.start({ mode: 'dom', map: 'twinkeeps', ruleset: 'modern', seed: 1, balance: false, player: { team: 0 }, bots: [{ team: 0, tier: 3 }, { team: 1, dummy: true }] });
+  const player = Game.playerId, bot = player === 0 ? 1 : 0;
+  runSeconds(1);
+  placeActor(player, Actors.x[bot] + 4, Actors.z[bot]);
+  Actors.flags[player] &= ~ACTOR_FLAG.PROTECTED;
+  TestArena.hit(-1, player, 1000);
+  const wasDowned = (Actors.flags[player] & ACTOR_FLAG.DOWNED) !== 0;
+  for (let tick = 0; tick < REVIVE_PLAYER_SECONDS * TICK_RATE && (Actors.flags[player] & ACTOR_FLAG.DOWNED); tick++) Sim.run(1);
+  check('a bot playing the objective revives the downed player next to it', wasDowned && Actors.alive[player] === 1 && !(Actors.flags[player] & ACTOR_FLAG.DOWNED), GOAL_NAMES[BotDecide.goal[bot]]);
+  endModeTest();
+});
+// A downed enemy that cannot shoot neither draws fire from a standing enemy nor keeps a revive away.
+Test.add('bots', (check) => {
+  const [bot, ally, downedEnemy, enemy] = startBotTest(botTestMap(false), 'tdm', { ruleset: 'modern', balance: false,
+    bots: [{ team: 0, tier: 3 }, { team: 0, dummy: true }, { team: 1, dummy: true }, { team: 1, dummy: true }] });
+  placeFacing(bot, 0, 0, 0); placeActor(ally, 0, 3); placeActor(downedEnemy, 3, 8); placeActor(enemy, -8, 12);
+  for (const id of [ally, downedEnemy, enemy]) Actors.flags[id] &= ~ACTOR_FLAG.PROTECTED;
+  TestArena.hit(-1, ally, 1000); TestArena.hit(-1, downedEnemy, 1000);
+  runSeconds(1);
+  check('a bot shoots a standing enemy before a downed one nearer it', BotCombat.target[bot] === enemy, BotCombat.target[bot] + ' (enemy ' + enemy + ')');
+  placeActor(enemy, -40, -40);
+  let revived = false;
+  for (let tick = 0; tick < REVIVE_PLAYER_SECONDS * TICK_RATE && !revived; tick++) { Sim.run(1); revived = !(Actors.flags[ally] & ACTOR_FLAG.DOWNED); }
+  check('a bot revives an ally beside a downed enemy that cannot shoot', revived && Actors.alive[ally] === 1, GOAL_NAMES[BotDecide.goal[bot]]);
+  endBotTest();
+});
+
+// ---- Ledges: bots stay on the map, and plan with the reach their preset has ----
+const VOID_SOAK_SECONDS = 90, VOID_SOAK_SEEDS = [1, 2, 3], VOID_DEATH_SHARE_MAX = 0.1;
+Test.add('bots', (check) => {
+  const kills = startEventLog('kill');
+  for (const seed of VOID_SOAK_SEEDS) playMatch({ mode: 'ffa', map: 'skyyard', minutes: VOID_SOAK_SECONDS / 60, botCount: 7, seed, difficulty: 'regular' });   // one match has 20-25 kills: one fall is 4-5%
+  kills.stop();
+  const selfInflicted = kills.filter((event) => event.killer < 0 || event.killer === event.victim).length;
+  check('Skyward Yard: at most 10% of kills are bots falling off with no attacker', kills.length > 0 && selfInflicted <= kills.length * VOID_DEATH_SHARE_MAX, selfInflicted + ' of ' + kills.length);
+});
+// Hero and Frame Runner bots (glide, grapple, blink, knockback) on Skyward Yard: falls stay a minority of kills (most follow
+// a hit; hazard-01: at full push heroes fell for 57-65%, at S03e's half hero hit push 19-28%, frame about 17-26%), and downed
+// enemies in sight are finished off, so few kills are bleed-outs.
+const SKY_KIT_RULESETS = ['heroes', 'frame'], SKY_KIT_SEEDS = [1, 2, 3], SKY_KIT_MINUTES = 3, SKY_KIT_BOTS = 10;
+const SKY_KIT_HAZARD_SHARE_MAX = 0.4, BLEED_OUT_SHARE_MAX = 0.2;
+Test.add('botsoak', (check) => {
+  for (const ruleset of SKY_KIT_RULESETS) {
+    const kills = startEventLog('kill');
+    for (const seed of SKY_KIT_SEEDS) playMatch({ mode: 'tdm', map: 'skyyard', ruleset, minutes: SKY_KIT_MINUTES, botCount: SKY_KIT_BOTS, seed, difficulty: 'regular' });
+    kills.stop();
+    const hazard = kills.filter((event) => event.weapon === 'hazard').length, bleedOut = kills.filter((event) => event.weapon === 'bleedout').length;
+    check(ruleset + ' on Skyward Yard: at most 40% of kills are hazards', kills.length > 0 && hazard <= kills.length * SKY_KIT_HAZARD_SHARE_MAX, hazard + ' of ' + kills.length);
+    check(ruleset + ' on Skyward Yard: under 20% of kills are bleed-outs', kills.length > 0 && bleedOut < kills.length * BLEED_OUT_SHARE_MAX, bleedOut + ' of ' + kills.length);
+  }
+}, { slow: true });
+Test.add('bots', (check) => {
+  const [bot] = startBotTest(botTestMap(false));
+  Motion.tapSignX[bot] = 1; Motion.tapClockX[bot] = 0.1; Motion.lastAxisX[bot] = 0; Actors.moveX[bot] = 1;
+  Bots.keepUnderTap(bot, Actors.moveX, Motion.tapSignX, Motion.tapClockX, Motion.lastAxisX);
+  const held = Actors.moveX[bot];
+  Motion.tapClockX[bot] = DOUBLE_TAP_SECONDS + 0.1; Actors.moveX[bot] = 1;
+  Bots.keepUnderTap(bot, Actors.moveX, Motion.tapSignX, Motion.tapClockX, Motion.lastAxisX);
+  check('a bot\'s second tap of a direction stays under the tap threshold (no double-tap dodge off a ledge), later ones pass',
+    held > 0 && held < TAP_THRESHOLD && Actors.moveX[bot] === 1, held + ' / ' + Actors.moveX[bot]);
+  endBotTest();
+});
+const MANTLE_CRATE = { shape: 'box', min: [-3, 0, 2], max: [3, 2, 8] };
+Test.add('bots', (check) => {
+  const [bot] = startBotTest(botTestMap(false, { brushes: [TEST_FLOOR, MANTLE_CRATE] }), 'ffa', { ruleset: 'modern' });
+  // The bot's own limits, without the danger costs its last path request (a match before this one) left in its options.
+  const from = Nav.nearestNode(0, 0, -6), to = Nav.nearestNode(0, 2, 5), options = Object.assign({}, BotMove.options[bot], { danger: null, avoid: null });
+  check('a Modern bot (jump 0.83 m, mantle 2.2 m) plans the 2 m mantle link onto a crate', Move.preset(bot).id === 'modern' && Nav.findPath(from, to, options) > 0
+    && Nav.nodeY[Nav.pathNodes[Nav.pathLength - 1]] > 1.5, 'jump limit ' + options.allowJumpHeight.toFixed(2) + ' m');
+  endBotTest();
+  startBotTest(botTestMap(false), 'ffa', { ruleset: 'pilot' });
+  check('an Agile bot (no fall damage) uses drops deeper than 8 m', Move.preset(0).id === 'agile' && BotMove.options[0].maxDrop >= 8, BotMove.options[0].maxDrop);
+  endBotTest();
+  startBotTest(botTestMap(false), 'ffa', { ruleset: 'modern' });
+  const drop = BotMove.options[0].maxDrop, speed = Math.sqrt(2 * Move.gravity(0) * drop);
+  check('a Modern bot drops only as far as costs it a quarter of its health at most', fallDamage(Move.preset(0), speed) <= BOT_DROP_DAMAGE + 1e-6 && drop >= 4, drop.toFixed(1) + ' m');
+  endBotTest();
+});
+// A Blight infected jump is a leap (13f leap): the bot takes a 1.8 m ledge above its 1.37 m Arena jump, which the same bot
+// as a human neither plans nor climbs. It turns infected alive (the outbreak case: 14c configures it again on its next path).
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false, { brushes: [TEST_FLOOR, { shape: 'box', min: [-3, 0, 2], max: [3, 1.8, 8] }] }), 'infection');
+  Bots.nextDecide[bot] = Infinity;   // the test gives the destination
+  const climb = () => {
+    placeActor(bot, 0, -6);
+    BotMove.stop(bot);
+    BotMove.goTo(bot, 0, 1.8, 5, 1);
+    return runHeld(4, () => holdActor(dummy, FAR_DUMMY, FAR_DUMMY), () => Actors.y[bot] > 1.5 && Move.isGrounded(bot));
+  };
+  check('a human bot cannot climb it', !climb());
+  Modes.behaviour.infect(bot);
+  check('infected, it leaps up', climb());
+  endBotTest();
+});
+// A leap pushes along the facing, and in a fight the view is on the foe: an infected bot with a foe beside a take-off
+// turns along the link before it leaps. Its first landing counts (a sideways leap falls off the strip or the ledge). The
+// gap also needs the ledge guard to let the bot walk up to a take-off next to a void (it braked short of it before).
+const LEAP_PIT = { shape: 'box', min: [-60, -21, -60], max: [60, -20, 60] };   // under the void: a miss lands far below
+const LEAP_STRIPS = [LEAP_PIT, { shape: 'box', min: [-2.5, -1, -10], max: [2.5, 0, -1] }, { shape: 'box', min: [-2.5, -1, 1], max: [2.5, 0, 24] },
+  { shape: 'box', min: [4, -1, -3], max: [6, 0, -1] }];   // 5 m wide strips over the void (a leap flies 12 m), the foe's stand beside the take-off
+// The same gap with 3 m wide strips around the take-off line (x -0.75): a leap toward the foe's stand lands off them.
+const LEAP_NARROW = [LEAP_PIT, { shape: 'box', min: [-2.25, -1, -10], max: [0.75, 0, -1] }, { shape: 'box', min: [-2.25, -1, 1], max: [0.75, 0, 24] },
+  { shape: 'box', min: [2.5, -1, -3], max: [4.5, 0, -1] }];
+const LEAP_LEDGE = [TEST_FLOOR, { shape: 'box', min: [-3, 0, 2], max: [3, 1.8, 8] }], LEAP_FELL = -2;
+const LEAP_START_X = -0.75, LEAP_START_Z = -6;   // in line with the take-off nodes (no sideways run into the leap)
+const LEAP_START_OFFSET = 0.3;                    // m beside that line: the run reaches the take-off a little askew
+function firstLeapLanding(brushes, goalY, foeX, foeZ, startX) {
+  const [bot, dummy] = startBotTest(botTestMap(false, { brushes }), 'infection');
+  Bots.nextDecide[bot] = Infinity;   // the test gives the destination
+  Modes.behaviour.infect(bot);
+  Actors.flags[dummy] = (Actors.flags[dummy] | ACTOR_FLAG.GOD) & ~ACTOR_FLAG.PROTECTED;   // a target for the whole test
+  const x = startX === undefined ? LEAP_START_X : startX;
+  placeFacing(bot, x, LEAP_START_Z, Math.atan2(foeX - x, foeZ - LEAP_START_Z));
+  runHeld(1, () => { holdActor(dummy, foeX, foeZ); holdActor(bot, x, LEAP_START_Z); });   // it sees the foe and aims at it
+  BotMove.stop(bot);
+  BotMove.goTo(bot, LEAP_START_X, goalY, 5, 1);
+  let launched = false, speed = 0;   // speed: the run's on the last grounded tick before the leap
+  runHeld(5, () => holdActor(dummy, foeX, foeZ), () => {
+    if (!Move.isGrounded(bot)) launched = true;
+    else if (!launched) speed = length2(Actors.vx[bot], Actors.vz[bot]);
+    return (launched && Move.isGrounded(bot)) || Actors.y[bot] < LEAP_FELL;
+  });
+  const landing = { x: Actors.x[bot], y: Actors.y[bot], z: Actors.z[bot], target: BotCombat.target[bot] === dummy, speed, runSpeed: BotMove.runSpeed[bot] };
+  endBotTest();
+  return landing;
+}
+// A bot without a leap runs at the same gap: the slide probe is cut at the take-off like the wanted move, or every run-up
+// braked there and the jump left at a walk.
+const LEAP_RUN_Z = -9.5, LEAP_TAKE_OFF_SHARE = 0.8;   // the run-up start; the share of run speed the take-off keeps
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false, { brushes: LEAP_STRIPS }), 'infection');
+  Bots.nextDecide[bot] = Infinity;
+  placeFacing(bot, LEAP_START_X, LEAP_RUN_Z, 0);
+  BotMove.goTo(bot, LEAP_START_X, 0, 5, 1);
+  let takeOff = -1;
+  runHeld(4, () => holdActor(dummy, LEAP_START_X, 20), () => {
+    if (takeOff < 0 && !Move.isGrounded(bot)) takeOff = length2(Actors.vx[bot], Actors.vz[bot]);
+    return takeOff >= 0;
+  });
+  const runSpeed = BotMove.runSpeed[bot];
+  endBotTest();
+  check('a bot without a leap runs at a gap over a void and takes off near run speed', takeOff >= LEAP_TAKE_OFF_SHARE * runSpeed,
+    takeOff.toFixed(1) + ' of ' + runSpeed.toFixed(1) + ' m/s');
+});
+Test.add('bots', (check) => {
+  const across = firstLeapLanding(LEAP_NARROW, 0, 3.5, -2);
+  check('infected, with a foe beside the take-off it leaps a gap along its path (first landing on the far strip)',
+    across.target && across.z > 1 && across.y > -0.5, across.x.toFixed(1) + ', ' + across.y.toFixed(1) + ', ' + across.z.toFixed(1));
+  const offset = firstLeapLanding(LEAP_STRIPS, 0, 4.5, -2, LEAP_START_X + LEAP_START_OFFSET);   // the 5 m strips: a leap flies about 12 m
+  check('infected, starting off the take-off line it still leaps the gap at a run (first landing on the far strip, fast)',
+    offset.target && offset.z > 1 && offset.y > -0.5 && offset.speed >= LEAP_TAKE_OFF_SHARE * offset.runSpeed, offset.x.toFixed(1) + ', ' + offset.y.toFixed(1) + ', ' + offset.z.toFixed(1) + ' at ' + offset.speed.toFixed(1) + ' m/s');
+  const onTop = firstLeapLanding(LEAP_LEDGE, 1.8, 1.5, 1.5);
+  check('infected, with a foe beside the take-off it leaps onto the ledge (first landing on top)',
+    onTop.target && onTop.y > 1.5, onTop.x.toFixed(1) + ', ' + onTop.y.toFixed(1) + ', ' + onTop.z.toFixed(1));
+});
+// The ledge guard looks only as far as a take-off the move heads at: a strafe at 5 m/s toward the strip's side drop,
+// 0.8 m from the take-off, still looks its full 2.9 m ahead and brakes (cut at the take-off, it found floor).
+const STRAFE_SPEED = 5, STRAFE_SIDE = 0.45, STRAFE_BACK = 0.65;   // m/s; the bot's offset from the take-off (m)
+Test.add('bots', (check) => {
+  const [bot] = startBotTest(botTestMap(false, { brushes: LEAP_STRIPS }));
+  Bots.nextDecide[bot] = Infinity;   // the test gives the destination
+  placeActor(bot, LEAP_START_X, LEAP_START_Z);
+  BotMove.goTo(bot, LEAP_START_X, 0, 5, 1);
+  runHeld(4, () => {}, () => BotMove.toTakeOff(bot) < LEAP_LOOK_AHEAD);
+  const side = BotMove.pointX[bot] < 0 ? -1 : 1;   // toward the nearer side drop
+  placeActor(bot, BotMove.pointX[bot] + side * STRAFE_SIDE, BotMove.pointZ[bot] - STRAFE_BACK);
+  Actors.vx[bot] = side * STRAFE_SPEED; Actors.vz[bot] = 0;
+  Bots.wish(bot, side, 0, 1);
+  BotMove.guardLedge(bot);
+  check('near a gap\'s take-off a bot strafing toward the side drop brakes', Move.isGrounded(bot) && Bots.wishX[bot] * side < 0,
+    'wish ' + Bots.wishX[bot].toFixed(2) + ' * ' + Bots.wishAmount[bot].toFixed(2));
+  endBotTest();
+});
+
+// ---- BOT-036: an empty magazine in a fight switches to a loaded gun; a much better gun is drawn in a fight too ----
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false));
+  placeFacing(bot, 0, -10, 0);
+  holdActor(dummy, 0, 2);
+  Actors.flags[dummy] = (Actors.flags[dummy] | ACTOR_FLAG.GOD) & ~ACTOR_FLAG.PROTECTED;   // a target for the whole test
+  Weapons.give(bot, 'stormlash', 0);
+  const pistol = CAT.weapons.byId('warden'), rifle = CAT.weapons.byId('stormlash');
+  Weapons.give(bot, 'warden', 0);
+  Weapons.current[bot] = pistol.index;
+  for (let tick = 0; tick < 2 * TICK_RATE && !BotSense.sees(bot, dummy); tick++) { holdActor(dummy, 0, 2); Sim.run(1); }
+  Weapons.current[bot] = pistol.index; Weapons.state[bot] = WEAPON_STATE.IDLE;
+  Weapons.magazine[Weapons.slotIndex(bot, pistol.index)] = 0;
+  const pressedAt = Sim.time;
+  let switchedAfter = -1;
+  for (let tick = 0; tick < TICK_RATE && switchedAfter < 0; tick++) {
+    holdActor(dummy, 0, 2);
+    Sim.run(1);
+    if (Weapons.current[bot] === rifle.index || Weapons.pending[bot] === rifle.index) switchedAfter = Sim.time - pressedAt;
+  }
+  check('a bot whose pistol magazine runs dry in a fight draws its loaded rifle within 0.5 s', BotSense.sees(bot, dummy) && switchedAfter >= 0 && switchedAfter <= 0.5,
+    switchedAfter.toFixed(2) + ' s, holding ' + Weapons.currentWeapon(bot).id);
+  // The rest between fight switches starts with the slot press: a press still waiting (SLOT_PRESS_INTERVAL) does not use it up.
+  Weapons.current[bot] = pistol.index; Weapons.state[bot] = WEAPON_STATE.IDLE; Weapons.pending[bot] = -1;
+  Weapons.magazine[Weapons.slotIndex(bot, pistol.index)] = pistol.mag;
+  BotCombat.weaponCheckAt[bot] = 0; BotCombat.combatSwitchAt[bot] = 0; BotCombat.slotPressAt[bot] = Sim.time + SLOT_PRESS_INTERVAL;
+  const inFight = !BotCombat.isSafe(bot, Sim.time);
+  for (let tick = 0; tick < TICK_RATE; tick++) { holdActor(dummy, 0, 2); Sim.run(1); }
+  check('a bot in a fight draws a much better gun once its slot press is free', inFight && (Weapons.current[bot] === rifle.index || Weapons.pending[bot] === rifle.index),
+    'in a fight ' + inFight + ', holding ' + Weapons.currentWeapon(bot).id);
+  endBotTest();
+});
+
+// ---- Bot economy (BOT-001: decided in S14): round buys, and heals pressed through BTN.HEAL ----
+const BUY_TEST_MONEY = 3000, BUY_TEST_SECONDS = 2;
+Test.add('bots', (check) => {
+  Game.headless = true;
+  Game.start({ mode: 'bomb', map: 'dustline', seed: 2, bots: Array.from({ length: 10 }, () => ({})) });
+  for (let id = 0; id < Actors.count; id++) if (Bots.active[id]) Economy.setMoney(id, BUY_TEST_MONEY);
+  runSeconds(BUY_TEST_SECONDS);
+  const empty = [];
+  for (let id = 0; id < Actors.count; id++) {
+    if (!Bots.active[id]) continue;
+    const primary = CAT.weapons.some((weapon) => weapon.price > 0 && weapon.class !== 'sidearm' && weapon.class !== 'melee' && Weapons.has(id, weapon.id));
+    if (!primary && Actors.armor[id] <= 0) empty.push(id);
+  }
+  check('Detonate: every bot with $3000 at the buy time owns a bought primary or armour', empty.length === 0, empty.join());
+  endModeTest();
+});
+Test.add('bots', (check) => {
+  const [bot] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 0 }] });
+  placeFacing(bot, 0, -10, 0);
+  Items.grant(bot, 'patch');
+  Actors.health[bot] = Actors.maxHealth[bot] * 0.4;
+  Damage.lastDamageTime[bot] = Sim.time;
+  let pressedHurt = false, pressedCalm = false;
+  for (let tick = 0; tick < TICK_RATE; tick++) { Damage.lastDamageTime[bot] = Sim.time; Sim.run(1); pressedHurt = pressedHurt || (Actors.buttons[bot] & BTN.HEAL) !== 0; }
+  for (let tick = 0; tick < 6 * TICK_RATE && Items.useProgress(bot) < 0; tick++) { Sim.run(1); pressedCalm = pressedCalm || (Actors.buttons[bot] & BTN.HEAL) !== 0; }
+  check('a hurt bot under fire keeps its consumable', !pressedHurt && Items.consumableCount(bot) === 1);
+  check('a hurt calm bot presses heal and uses its consumable', pressedCalm && Items.useProgress(bot) >= 0);
+  check('the heal decision lives in the bot brain, not in the items section', typeof Items.botWantsHeal !== 'function');
+  // One worth rule for drawing, picking up and buying a gun; the group buy limit is Economy.limitReason's alone.
+  check('one weapon worth rule (BotCombat.weaponValue), no bot copy of the buy limits', typeof BotCombat.weaponValue === 'function'
+    && typeof gunValue === 'undefined' && typeof boughtInGroup === 'undefined');
+  endBotTest();
+});
+
+// ---- BOT-110 tiers: a Custom personality never overrides the difficulty's tier range ----
+Test.add('bots', (check) => {
+  startBotTest(botTestMap(false), 'ffa', { difficulty: 'recruit', bots: [{ profile: 'halloran' }, { profile: 'calderrhee' }] });
+  const recruit = CAT.difficulty.byId('recruit'), tiers = [Bots.tier(0).tier, Bots.tier(1).tier];
+  check('Recruit with Veteran-or-better personalities: every bot stays in the Recruit tier range', tiers.every((tier) => tier >= recruit.tierMin && tier <= recruit.tierMax), tiers.join());
+  endBotTest();
+});
+
+// ---- BOT-061 / BOT-100: objective barks, item pings and Dibs, takingPoint only when the objective wins ----
+Test.add('bots', (check) => {
+  const barks = startEventLog('bark'), announces = startEventLog('announce'), pings = startEventLog('ping');
+  let wrongPoint = 0;
+  const handler = Bus.on('bark', (event) => { if (event.category === 'takingPoint' && BotDecide.goal[event.id] !== GOAL.OBJECTIVE) wrongPoint++; });
+  playMatch({ mode: 'dom', map: 'twinkeeps', minutes: 1, botCount: 8, seed: 1 });
+  Bus.off('bark', handler); barks.stop(); announces.stop(); pings.stop();
+  const captures = announces.filter((event) => event.kind === 'capture').length, objective = barks.filter((event) => event.category === 'objective').length;
+  check('bots call out objective events (the objective bark is said)', captures > 0 && objective > 0, objective + ' objective barks, ' + captures + ' captures');
+  // Twin Keeps points: x -32, 0 and 32 on z 0. No player plays, so every attack / defend ping is a bot's.
+  const objectivePings = pings.filter((event) => (event.kind === 'attack' || event.kind === 'defend') && event.z === 0 && [-32, 0, 32].includes(event.x)).length;
+  check('bots ping the objective on objective events, at most one per team every OBJECTIVE_PING_INTERVAL s', objectivePings > 0
+    && objectivePings <= 2 * Math.ceil(60 / OBJECTIVE_PING_INTERVAL), objectivePings + ' objective pings, ' + captures + ' captures');
+  check('"Taking the point" only from bots whose chosen goal is the objective', wrongPoint === 0, wrongPoint);
+});
+Test.add('bots', (check) => {
+  const items = [{ x: 0, y: 0, z: 6, item: 'health', group: 'health' }];
+  const [bot] = startBotTest(botTestMap(false, { items }), 'tdm', { player: { team: 0 }, balance: false, bots: [{ team: 0, tier: 3 }, { team: 1, dummy: true }] }).filter((id) => Bots.active[id]);
+  const player = Game.playerId;
+  placeFacing(bot, 0, -10, 0);
+  const pings = startEventLog('ping');
+  Bus.emit('ping', { id: player, kind: 'go', x: 0.6, y: 0, z: 6.4, target: -1, to: -1 });
+  runSeconds(ORDER_ACK_MAX + 0.2);
+  check('a bot answers a player\'s ping on an item with Dibs', pings.some((event) => event.id === bot && event.kind === 'dibs'), pings.map((event) => event.id + ':' + event.kind).join());
+  pings.length = 0;
+  Actors.health[bot] = Actors.maxHealth[bot] * 0.3;
+  BotTeam.orderUntil[bot] = 0;
+  runSeconds(6);
+  check('a bot taking an item pings it for the team', pings.some((event) => event.id === bot && event.kind === 'dibs'), pings.map((event) => event.id + ':' + event.kind).join());
+  pings.stop();
+  endBotTest();
+});
+Test.add('bots', (check) => {
+  const items = [{ x: 40, y: 0, z: 40, item: 'health', group: 'health' }];
+  const [leader, follower] = startBotTest(botTestMap(false, { items }), 'tdm', { balance: false, bots: [{ team: 0, tier: 3 }, { team: 0, tier: 3 }, { team: 1, dummy: true }] });
+  placeFacing(leader, -40, -40, 0);
+  placeFacing(follower, 20, 20, 0);
+  Actors.health[follower] = Actors.maxHealth[follower] * 0.3;
+  BotTeam.squadLeader[leader] = leader; BotTeam.squadLeader[follower] = leader;
+  const squadScore = GOAL_SCORERS[GOAL.COLLECT](follower, goalPlan, Sim.time);
+  BotTeam.squadLeader[follower] = -1;
+  const soloScore = GOAL_SCORERS[GOAL.COLLECT](follower, goalPlan, Sim.time);
+  check('a squad follower leaves items farther than BOT_SQUAD.regroup from its leader (a lone bot takes them)', squadScore === 0 && soloScore > 0, squadScore + ' / ' + soloScore);
+  endBotTest();
+});
+
+// ---- Nav cost cache: water and trap costs keep paths cacheable (and the same as uncached) ----
+const NAV_CACHE_SOAK_SECONDS = 30, NAV_CACHE_SHARE_MIN = 0.6;
+Test.add('bots', (check) => {
+  let cacheable = 0, bots = 0;
+  const probe = () => {
+    for (let id = 0; id < Actors.count; id++) {
+      if (!Bots.isBot(id)) continue;
+      bots++;
+      const options = BotMove.options[id];
+      if (!options.avoid && (!options.danger || options.dangerKey >= 0)) cacheable++;
+    }
+  };
+  playMatch({ mode: 'tdm', map: 'harbor', minutes: NAV_CACHE_SOAK_SECONDS / 60, botCount: 12, seed: 1, probe });
+  check('Harbor (water): most bot paths stay cacheable', bots > 0 && cacheable / bots >= NAV_CACHE_SHARE_MIN, cacheable + ' of ' + bots);
+  const [bot] = startBotTest(botTestMap(false), 'ffa');
+  const from = Nav.nearestNode(-20, 0, -20), to = Nav.nearestNode(20, 0, 20), costs = new Float32Array(Nav.nodeCount);
+  costs[Nav.nearestNode(0, 0, 0)] = 30;
+  const plain = Nav.findPath(from, to, { danger: costs }) && Array.from(Nav.pathNodes.slice(0, Nav.pathLength)).join();
+  Nav.findPath(from, to, { danger: costs, dangerKey: 7 });
+  const cached = Nav.findPath(from, to, { danger: costs, dangerKey: 7 }) && Nav.lastCacheHit && Array.from(Nav.pathNodes.slice(0, Nav.pathLength)).join();
+  check('a keyed extra-cost path is cached and equals the uncached one', bot >= 0 && cached === plain, String(cached));
+  endBotTest();
+});
+
+// balance-02: bots go for map guns that beat what they carry, so the Warden spawn pistol no longer scores most Arena Classic kills.
+const WARDEN_SHARE_RUNS = [['ffa', 'spire', 6, 1], ['ffa', 'spire', 6, 2], ['tdm', 'harbor', 10, 1]], WARDEN_SHARE_MAX = 0.4;
+Test.add('botsoak', (check) => {
+  let kills = 0, warden = 0;
+  const counter = Bus.on('kill', (event) => { kills++; if (event.weapon === 'warden') warden++; });
+  try {
+    for (const [mode, map, bots, seed] of WARDEN_SHARE_RUNS) DebugApi.soak(mode, map, 3, bots, seed, { timeLimit: 0, scoreLimit: 0 });
+  } finally { Bus.off('kill', counter); }
+  check('Arena Classic: the Warden spawn pistol scores at most 40% of kills on Foundry Spire and Harbor Nine', kills > 0 && warden <= kills * WARDEN_SHARE_MAX, warden + ' of ' + kills);
+}, { slow: true });
+
+// blight-01: Blight on its smallest and largest maps, 12 bots, seeds 1-8 (human-Blight wins now 4-4 on Spire and on Gantry). Before, the Blight won all 6 on Spire by
+// elimination in 183-243 s and the humans 5 of 6 on Gantry; the outbreak now grows with the walkable floor (13f outbreakSize).
+// The infected stay melee only: no grenade, gadget or non-melee shot (they had thrown frags for about one kill a match).
+const BLIGHT_SPLIT_MAPS = ['spire', 'gantry'], BLIGHT_SPLIT_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8], BLIGHT_SPLIT_BOTS = 12;
+const BLIGHT_SPLIT_WINS_MAX = 6, BLIGHT_SPLIT_MINUTES = 6, BLIGHT_LONG_SECONDS = 200;   // the limit is 5 minutes: every match ends
+const BLIGHT_GEAR_EVENTS = ['gadget.use', 'weapon.fire'];   // a melee swing is a 'weapon.fire' of class melee
+Test.add('botsoak', (check) => {
+  let infectedUses = 0;   // counted as it happens: the role is gone once the match stops
+  const countGear = (event) => { if (Modes.actorRole[event.id] === ACTOR_ROLE.INFECTED && event.weaponClass !== 'melee') infectedUses++; };
+  const handlers = BLIGHT_GEAR_EVENTS.map((type) => Bus.on(type, countGear));
+  try {
+    for (const map of BLIGHT_SPLIT_MAPS) {
+      const runs = BLIGHT_SPLIT_SEEDS.map((seed) => DebugApi.soak('infection', map, BLIGHT_SPLIT_MINUTES, BLIGHT_SPLIT_BOTS, seed, {}));
+      const blightWins = runs.filter((run) => run.winner === INFECTED_TEAM).length, humanWins = runs.filter((run) => run.winner === HUMAN_TEAM).length;
+      const long = runs.filter((run) => run.seconds > BLIGHT_LONG_SECONDS).length, detail = humanWins + ' human / ' + blightWins + ' Blight wins, ' + runs.map((run) => run.seconds).join(' ') + ' s';
+      check('Blight on ' + map + ': neither side wins more than 6 of 8 bot matches', blightWins <= BLIGHT_SPLIT_WINS_MAX && humanWins <= BLIGHT_SPLIT_WINS_MAX, detail);
+      check('Blight on ' + map + ': most matches run past 200 s', long > runs.length / 2, detail);
+    }
+  } finally { BLIGHT_GEAR_EVENTS.forEach((type, index) => Bus.off(type, handlers[index])); }
+  check('Blight: the infected throw, set and fire nothing but melee', infectedUses === 0, infectedUses + ' uses');
+}, { slow: true });

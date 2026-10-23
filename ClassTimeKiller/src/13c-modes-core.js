@@ -3,7 +3,7 @@
 // M13 plants and defuses a charge in rounds; M14 is elimination rounds with a shrinking safe area; M15 counts lives.
 
 const LMS_LIFE_WEIGHT = 1000;        // Last Standing ranks by lives left first, then by score
-const SAFE_AREA_HURT_INTERVAL = 1;           // the elimination safe area hurts once per second
+const ZONE_HURT_INTERVAL = 1;                // a closing zone (the M14 safe area, the M20 ring) hurts once per second
 const SAFE_AREA_FALLBACK_RADIUS = 50;
 
 const hazardRequest = { target: -1, source: -1, amount: 0, kind: 'hazard', element: 'kinetic', x: 0, y: 0, z: 0 };
@@ -14,6 +14,7 @@ Modes.register('tdm', {});
 Modes.register('duel', {});
 
 Modes.register('lms', {
+  limits: ['time'],   // the score ranks lives first (x1000): a score limit would end the match at once
   score(index) { return Math.max(0, Modes.lives[index]) * LMS_LIFE_WEIGHT + Modes.score[index]; },
   // M15: every spawn brings the whole weapon set (params.allWeapons) at full reserve (params.maxAmmo) and params.startArmor.
   onSpawn(id) {
@@ -82,6 +83,7 @@ Modes.register('dom', {
 // ---- M07 Frontline: team score = tickets; -deathCost per death; a team holding fewer points than the other team AND
 // <= bleedHeld points loses one ticket every bleedInterval seconds (so nobody bleeds at 0-0); owned points are spawn points ----
 Modes.register('conquest', {
+  limits: ['time'],
   points: [], bleedTimer: 0,
   start() {
     Modes.findObjectives('point', this.points);
@@ -133,7 +135,7 @@ Modes.register('hardpoint', {
       const hill = this.hills[i];
       hill.active = i === index; hill.owner = NO_TEAM; hill.holdTime = 0;
     }
-    Modes.announce('Hotpoint at ' + this.hills[index].id, 'objective', 2);
+    Modes.announce('The hotpoint moved', 'objective', 2);   // the one active hill is always HUD letter A: the marker shows where
   },
 });
 
@@ -219,7 +221,7 @@ Modes.register('elim', {
     if (remaining > params.shrinkTime) return;
     const radius = lerp(this.fullRadius, params.shrinkMinRadius, 1 - clamp(remaining / params.shrinkTime, 0, 1));
     Modes.hud.zoneX = this.centerX; Modes.hud.zoneZ = this.centerZ; Modes.hud.zoneRadius = radius;
-    if (intervalDue(this, 'hazardTimer', dt, SAFE_AREA_HURT_INTERVAL)) hurtOutsideZone(this.centerX, this.centerZ, radius, params.zoneDamage * SAFE_AREA_HURT_INTERVAL);
+    if (intervalDue(this, 'hazardTimer', dt, ZONE_HURT_INTERVAL)) hurtOutsideZone(this.centerX, this.centerZ, radius, params.zoneDamage * ZONE_HURT_INTERVAL);
   },
 });
 
@@ -268,7 +270,7 @@ function worldSafeArea(out) {
   const known = Number.isFinite(low.x) && Number.isFinite(high.x);
   out.x = known ? (low.x + high.x) / 2 : 0;
   out.z = known ? (low.z + high.z) / 2 : 0;
-  out.radius = known ? Math.hypot(high.x - low.x, high.z - low.z) / 2 : SAFE_AREA_FALLBACK_RADIUS;
+  out.radius = known ? length2(high.x - low.x, high.z - low.z) / 2 : SAFE_AREA_FALLBACK_RADIUS;
   return out;
 }
 

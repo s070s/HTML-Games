@@ -46,7 +46,7 @@ function spawnDemoActors() {
   for (const row of DEMO_ACTORS) {
     const id = Actors.create(ACTOR_KIND.BOT, row.team, 'demo');
     Actors.alive[id] = 1;
-    Actors.x[id] = Actors.prevX[id] = row.x; Actors.y[id] = Actors.prevY[id] = row.y || 0; Actors.z[id] = Actors.prevZ[id] = row.z;
+    Actors.place(id, row.x, row.y || 0, row.z);
     Actors.yaw[id] = Actors.prevYaw[id] = row.yaw; Actors.pitch[id] = Actors.prevPitch[id] = row.pitch || 0;
     Actors.vx[id] = Math.sin(row.yaw) * row.speed; Actors.vz[id] = Math.cos(row.yaw) * row.speed;
     Actors.height[id] = row.height || 1.8; Actors.eye[id] = row.eye || 1.62; Actors.flags[id] = row.flags;
@@ -58,7 +58,7 @@ function spawnDemoActors() {
 function spawnDemoPlayer() {
   const id = Actors.create(ACTOR_KIND.PLAYER, 0, 'player');
   Actors.alive[id] = 1;
-  Actors.x[id] = Actors.prevX[id] = 0; Actors.z[id] = Actors.prevZ[id] = -12;
+  Actors.place(id, 0, 0, -12);
   Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
   Actors.aimYaw[id] = 0.08; Actors.aimPitch[id] = -0.06;
   Game.playerId = id;
@@ -75,7 +75,6 @@ function emitDemoEffects() {
   Fx.light(-12, 1, -8, '#ff7a2a', 7, 0.5);
 }
 
-const DEMO_WEAPONS = ['rifle', 'shotgun', 'sniper', 'rail', 'launcher', 'energy', 'heavy', 'smg'];
 const demo = { emitter: false, sinceEffects: 0, weapon: 'rifle' };
 // Builds a sample scene with world, 8 actors, effects, a player view model and a HUD layer; returns frame stats.
 DebugApi.renderDemo = (themeId, weapon, qualityId) => {
@@ -88,7 +87,7 @@ DebugApi.renderDemo = (themeId, weapon, qualityId) => {
   spawnDemoActors();
   spawnDemoPlayer();
   demo.weapon = weapon || 'rifle';
-  Render.viewModel = (out) => { out.visible = true; out.shape = demo.weapon; out.color = '#56606b'; return out; };
+  Render.viewModel = (out) => { out.visible = true; out.shape = demo.weapon; out.model = demo.weapon; out.color = '#56606b'; return out; };   // a class or a weapon id
   emitDemoEffects();
   if (!demo.emitter) {
     demo.emitter = true;
@@ -111,6 +110,46 @@ DebugApi.renderDemo = (themeId, weapon, qualityId) => {
 
 DebugApi.renderState = () => ({ render: Render, worldMesh: WorldMesh, hud: HudBatch });
 
+// Weapon gallery (07c-render-models): 16 models of a kind a page, side on in a grid on the demo arena, for a screenshot (tools/
+// selftest.mjs --no-selftest --eval "__CTK.models.gallery('weapons', 'near', 0)" --screenshot <png>). kind: 'weapons' | 'classes' |
+// 'projectiles'; lod: a LOD name ('near' = every part, the view model; 'far' = a held weapon close up; 'distant' = its
+// silhouette). Returns the ids shown, left to right, top to bottom. A view model: renderDemo(theme, weapon id).
+const GALLERY_COLUMNS = 4, GALLERY_PAGE = 16, GALLERY_STEP_X = 2.1, GALLERY_STEP_Y = 1.1, GALLERY_Z = -14, GALLERY_TURN = 0.4;
+const modelGallery = { models: [], level: 0, scale: 1, pose: makeModelPose() };
+function galleryCell(index, out) {
+  out.x = ((GALLERY_COLUMNS - 1) / 2 - (index % GALLERY_COLUMNS)) * GALLERY_STEP_X;   // screen right = -x
+  out.y = 0.7 + (Math.ceil(modelGallery.models.length / GALLERY_COLUMNS) - 1 - Math.floor(index / GALLERY_COLUMNS)) * GALLERY_STEP_Y; out.z = GALLERY_Z;
+}
+function drawModelGallery(batch) {
+  const pose = modelGallery.pose;
+  modelGallery.models.forEach((model, index) => {
+    galleryCell(index, pose);
+    Object.assign(pose, { yaw: GALLERY_TURN - Math.PI / 2, scale: modelGallery.scale, originZ: model.centerZ });
+    Models.paint(pose, model);
+    Models.drawLevel(batch, model, pose, modelGallery.level);
+  });
+}
+// __CTK.models.gallery(kind, ...): the one debug view of the code-drawn models. 'weapons' | 'classes' | 'projectiles' (lod,
+// page): this gallery; 'items' | 'powerups' | 'thrown' | 'devices' or a list of gear model ids (yaw, scale): showGearGallery;
+// 'bodies' (actor model kind, '' = all; yaw; quality id): showActorModelGallery.
+DebugApi.models = {
+  gallery(kind, ...options) {
+    if (kind === 'bodies') return showActorModelGallery(...options);
+    if (Array.isArray(kind) || GEAR_GALLERY_GROUPS[kind]) return showGearGallery(kind, ...options);
+    return showWeaponGallery(kind, ...options);
+  },
+};
+function showWeaponGallery(kind, lod, page) {
+  DebugApi.renderDemo('foundry');
+  Actors.clear(); Render.viewModel = null; Game.playerId = -1;
+  document.getElementById('overlay').style.display = 'none';
+  placeCamera(0, 2.3, -19, 0, 0);
+  if (!modelGallery.models.length) Render.addSource('modelGallery', drawModelGallery);
+  const all = kind === 'projectiles' ? WeaponModels.projectile.filter(Boolean) : kind === 'classes' ? CAT.viewModels.map((row) => WeaponModels.byId[row.id]) : WeaponModels.weapon;
+  Object.assign(modelGallery, { models: all.slice((page || 0) * GALLERY_PAGE, ((page || 0) + 1) * GALLERY_PAGE), level: LOD[lod || 'near'], scale: kind === 'projectiles' ? 3 : 2.4 });
+  return modelGallery.models.map((model) => model.id);
+}
+
 // ---- Test helpers ----
 // Runs a block with the renderer switched on (headless off, benchmark parked) and restores every hook afterwards.
 async function withRenderer(run) {
@@ -124,9 +163,9 @@ async function withRenderer(run) {
     Game.headless = wasHeadless; Benchmark.active = benchmarkActive; Benchmark.done = benchmarkDone; Render.worldQuery = worldQuery;
     Render.size.scale = renderScale; Render.size.dirty = true; ScaleControl.smoothedMs = smoothedMs; resetScaleCeiling(ScaleControl);
     GpuTimer.extension = timerExtension; GpuTimer.lastMs = timerMs; StepDown.slowSeconds = 0;
-    Render.cameraOverride = null; Render.viewModel = null; Render.actorStyle = null;
+    Render.cameraOverride = null; Render.viewModel = MATCH_VIEW_MODEL; Render.actorStyle = null;
     Game.state = 'menu'; Game.paused = false; Game.playerId = -1;
-    Actors.clear(); World.clear(); clearWorldMesh(); Fx.clear(); Settings.reset('video.');
+    Actors.clear(); World.clear(); clearWorldMesh(); Fx.clear(); Settings.resetKeys(settingKeysStarting('video.'));
   }
 }
 
@@ -138,13 +177,28 @@ function placeCamera(x, y, z, yaw, pitch) {
 function makeTestActor(kind, team, x, z) {
   const id = Actors.create(kind, team, 'test');
   Actors.alive[id] = 1;
-  Actors.x[id] = Actors.prevX[id] = x; Actors.z[id] = Actors.prevZ[id] = z;
+  Actors.place(id, x, 0, z);
   Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
   return id;
 }
 
+const MATCH_VIEW_MODEL = Render.viewModel;   // the real hook (S11, wrapped by S15): renderDemo and tests swap in stubs
 const batchInstances = (batch) => batch.counts.reduce((sum, count) => sum + count, 0);
 const instanceOffset = (batch, shape, index) => (SHAPE_INDEX[shape] * batch.capacity + index) * INSTANCE_FLOATS;
+// The default body's part lists as drawn (07c ActorModels row 0).
+const DEFAULT_FAR_PARTS = ActorModels.lists[0][LOD.far], DEFAULT_DISTANT_PARTS = ActorModels.lists[0][LOD.distant];
+
+// 0..1 sun visibility near a point (1 outside the grid), through the renderer's own sunVisibilityAt (also the perf tests).
+const sunProbePoint = new Float64Array(3);
+function sampleSunVisibility(x, y, z) {
+  sunProbePoint[0] = x; sunProbePoint[1] = y; sunProbePoint[2] = z;
+  return sunVisibilityAt(sunProbePoint, 0) / SUN_LIT;
+}
+
+// Removes the HUD layers a test added (names starting with 'test-').
+function removeTestHudLayers() {
+  for (let i = HudBatch.layers.length - 1; i >= 0; i--) if (HudBatch.layers[i].name.startsWith('test-')) HudBatch.layers.splice(i, 1);
+}
 const sleepMs = (ms) => new Promise((done) => setTimeout(done, ms));
 async function waitUntil(condition, timeoutMs) {
   for (let waited = 0; waited < timeoutMs && !condition(); waited += 20) await sleepMs(20);
@@ -188,7 +242,13 @@ Test.add('render', (check) => {
   check('view-model parts use known shapes', CAT.viewModels.every((row) => row.parts.every((part) => SHAPE_INDEX[part.shape] !== undefined)));
   const kinds = ['spark', 'smoke', 'dust', 'blood', 'muzzle', 'explosion', 'energy', 'water', 'fire', 'frost', 'shock', 'heal'];
   check('a particle row for every Fx kind', kinds.every((id) => CAT.fxKinds.byId(id)));
-  check('far actor LOD = 6 parts, near LOD more (REN-002)', FAR_PARTS.length === 6 && NEAR_PARTS.length > 6);
+  check('far actor LOD = 6 parts, near LOD more (REN-002)', DEFAULT_FAR_PARTS.length === 6 && NEAR_PARTS.length > 6);
+  check('test-only accessors live in the tests, not in Fx or HudBatch', !('liveParticles' in Fx) && !('removeLayer' in HudBatch));
+  const detailLevel = Models.detailLevel, lists = ActorModels.lists[ActorModels.index[0]];
+  Models.detailLevel = () => LOD.far;   // a preset rule that drops the near details: bodies follow the one rule
+  const dropped = ActorModels.partsFor(0, LOD.near, { modelDetail: true });
+  Models.detailLevel = detailLevel;
+  check('body LOD follows Models.detailLevel (near without details = the plain list)', dropped === lists[MODEL_LIST_PLAIN] && ActorModels.partsFor(0, LOD.near, { modelDetail: true }) === lists[LOD.near]);
   check('actor parts use known shapes', CAT.actorParts.every((part) => SHAPE_INDEX[part.shape] !== undefined));
   check('all 7 contract shapes have geometry', ['box', 'sphere', 'cylinder', 'capsule', 'cone', 'wedge', 'ring'].every((name) => ShapeMesh.ranges[SHAPE_INDEX[name]].count > 0));
   check('at most 8 shader programs (REN-003)', Render.programSpecs.length <= MAX_PROGRAMS, Render.programSpecs.length);
@@ -279,21 +339,40 @@ Test.add('render', (check) => withRenderer(() => {
   updateCamera(1 / 60, 1);
   check('FOV setting applies', Render.camera.fov === 100);
   check('horizontal 90 at 16:9 = vertical ~58.7', Test.near(verticalFov(90) / DEG, 58.7, 0.1));
+  // A portrait phone keeps the 4:3 horizontal view (Vert- below 4:3), not a 25 degree slit.
+  const size = Render.size, saved = [size.width, size.height];
+  const fovAt = (width, height) => { size.width = width; size.height = height; updateCamera(1 / 60, 1); return 2 * Math.atan(1 / Render.frame.projection[0]) / DEG; };
+  Settings.set('video.fov', 80);
+  const wide = fovAt(1600, 900), standard = fovAt(1024, 768), portrait = fovAt(390, 844);
+  size.width = saved[0]; size.height = saved[1];
+  check('portrait keeps the 4:3 horizontal view', Test.near(wide, 80, 0.01) && portrait >= standard - 0.01 && portrait > 60, [wide, standard, portrait]);
+}));
+
+// normalize-05: one gait. Over one footstep (STRIDE_METRES, S10) the legs and the head bob each go half a walk cycle.
+Test.add('render', (check) => withRenderer(() => {
+  const id = Actors.create(ACTOR_KIND.BOT, 0, 'demo'), speed = 4, footstepSeconds = STRIDE_METRES / speed;
+  Actors.alive[id] = 1; Actors.vx[id] = speed; Actors.vz[id] = 0; Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
+  actorPhase[id] = 0; ViewState.bobPhase = 0;
+  animateActor(id, actorPose, footstepSeconds, LOD.near);
+  headBob(id, footstepSeconds);
+  check('one footstep = half a leg cycle and half a head-bob cycle', Test.near(actorPhase[id], Math.PI, 1e-4) && Test.near(ViewState.bobPhase, Math.PI, 1e-4),
+    [actorPhase[id], ViewState.bobPhase]);
 }));
 
 // ---- Actors (REN-002): LODs, interpolation, style hook, shadows ----
 Test.add('render', (check) => withRenderer(() => {
   placeCamera(0, 1.6, 0, 0, 0);
+  SunShadow.active = false;   // blob shadows: a live frame on a sun-shadow preset (a slow boot's benchmark) may have left it on
   const near = makeTestActor(ACTOR_KIND.BOT, 1, 0, 5);
   const far = makeTestActor(ACTOR_KIND.BOT, 0, 0, Render.quality.lodNear + 10);
   makeTestActor(ACTOR_KIND.BOT, 0, 3, 5);
   Actors.alive[2] = 0;
   fillActors(1 / 60, 1);
-  check('near LOD all parts + far LOD 6 parts, dead actors skipped', batchInstances(actorBatch) === NEAR_PARTS.length + FAR_PARTS.length, batchInstances(actorBatch));
-  check('a blob shadow per live actor (MIS-037)', shadowBatch.counts[SHAPE_INDEX.disc] === 2);
+  check('near LOD all parts + far LOD 6 parts, dead actors skipped', batchInstances(actorBatch) === NEAR_PARTS.length + DEFAULT_FAR_PARTS.length, batchInstances(actorBatch));
+  check('a blob shadow per live actor (MIS-037)', shadowBatch.counts[SHAPE_INDEX.disc] === 2, shadowBatch.counts[SHAPE_INDEX.disc]);
   const behind = makeTestActor(ACTOR_KIND.BOT, 0, 0, -6);
   fillActors(1 / 60, 1);
-  check('actors behind the camera are culled', batchInstances(actorBatch) === NEAR_PARTS.length + FAR_PARTS.length && shadowBatch.counts[SHAPE_INDEX.disc] === 2);
+  check('actors behind the camera are culled', batchInstances(actorBatch) === NEAR_PARTS.length + DEFAULT_FAR_PARTS.length && shadowBatch.counts[SHAPE_INDEX.disc] === 2);
   Actors.alive[behind] = 0;
   writeColor(tintColor, 0, CAT.teamColors[1].color);
   check('team colour on the torso', Test.near(actorBatch.data[instanceOffset(actorBatch, 'box', 0) + 8], tintColor[0], 1e-6));
@@ -312,7 +391,7 @@ Test.add('render', (check) => withRenderer(() => {
   Game.playerId = near;
   updateCamera(1 / 60, 1);
   fillActors(1 / 60, 1);
-  check('first person: no own body but own shadow', batchInstances(actorBatch) === FAR_PARTS.length && shadowBatch.counts[SHAPE_INDEX.disc] === 2);
+  check('first person: no own body but own shadow', batchInstances(actorBatch) === DEFAULT_FAR_PARTS.length && shadowBatch.counts[SHAPE_INDEX.disc] === 2);
 }));
 
 // ---- Render.addSource (props batch) ----
@@ -332,7 +411,7 @@ Test.add('render', (check) => withRenderer(() => {
 Test.add('render', (check) => withRenderer(() => {
   Settings.set('video.quality', 'potato');
   Fx.burst('spark', 0, 1, 0, 0, 1, 0, 1000);
-  check('particles capped by quality (Potato 256)', particlePool.used === 256 && Fx.liveParticles() === 256, particlePool.used);
+  check('particles capped by quality (Potato 256)', particlePool.used === 256 && countLive(particlePool) === 256, particlePool.used);
   Fx.decal(0, 0, 0, 0, 1, 0, 'bullet');
   check('Potato keeps no decals', decalPool.used === 0);
   Fx.light(0, 1, 0, '#ffffff', 5, 1);
@@ -348,9 +427,14 @@ Test.add('render', (check) => withRenderer(() => {
   const tracer = (particlePool.next - 1) * PARTICLE_FLOATS;
   check('tracer: segment + additive tracer mode', particlePool.data[tracer + 5] === 10 && particlePool.data[tracer + 16] === PARTICLE_MODE.tracer + ADDITIVE_FLAG);
   Render.frame.time += 10;
-  check('particles expire on the GPU clock', Fx.liveParticles() === 0);
+  check('particles expire on the GPU clock', countLive(particlePool) === 0);
   updateLights();
   check('lights fade out', Render.frame.lightCount === 0);
+  Settings.set('video.quality', 'ultra');
+  Fx.burst('spark', 0, 1, 0, 0, 1, 0, CAT.quality.byId('ultra').particles);
+  Settings.set('video.quality', 'potato');
+  updateLights();
+  check('a quality step-down shrinks the drawn particle range to the new cap (render-07)', particlePool.used <= 256 && particlePool.next <= 256, particlePool.used);
 }));
 
 // ---- Dynamic resolution (PERF-007) ----
@@ -397,16 +481,42 @@ Test.add('render', (check) => withRenderer(() => {
   for (let i = 0; i < 4; i++) updateStepDown(1);
   check('no step-down before 5 s under 60 fps', Render.quality.id === 'high');
   updateStepDown(1);
-  check('5 s under 60 fps lowers one preset and toasts', Settings.get('video.autoQuality') === 'medium' && toast.includes('Medium'), toast);
+  check('5 s under 60 fps lowers one preset for this session and toasts', Render.quality.id === 'medium' && Settings.get('video.autoQuality') === 'high' && toast.includes('Medium'), toast);
+  check('the session step also lowers the PERF-009 caps', Quality.current().id === 'medium' && Pve.cap() === CAT.quality.byId('medium').enemies, Quality.current().id);
   Settings.set('video.autoLower', false);
   for (let i = 0; i < 6; i++) updateStepDown(1);
-  check('the option turns the step-down off', Render.quality.id === 'medium');
+  check('the option turns the step-down off; the session step stays', Render.quality.id === 'medium' && Quality.current().id === 'medium');
   Settings.set('video.quality', 'potato');
-  check('no step below Potato', !lowerQualityStep());
+  check('a chosen preset ends the session step; no step below Potato', Quality.current().id === 'potato' && !lowerQualityStep());
   Settings.set('video.quality', 'high');
-  check('an explicit preset steps down itself', lowerQualityStep() && Settings.get('video.quality') === 'medium');
+  check('an explicit preset steps down itself, unsaved', lowerQualityStep() && Render.quality.id === 'medium' && Settings.get('video.quality') === 'high');
   Bus.off('toast', listener);
   ScaleControl.smoothedMs = FRAME_BUDGET_MS;
+}));
+
+// PERF-013 on a 30 Hz phone (iOS Low Power Mode, no GPU timer): idle 30 Hz match frames are the display's pace, not
+// slowness; a CPU-bound 30 fps still steps down (for this session only: the block above).
+function feedMatchFrames(cpuMs, seconds) {
+  Object.assign(DisplayRate, { count: 0, intervalMs: 0, candidateMs: 0, candidateScale: 0 });
+  Render.size.scale = 1; ScaleControl.smoothedMs = FRAME_BUDGET_MS; resetScaleCeiling(ScaleControl);
+  for (let frame = 0; frame < seconds * 30; frame++) {
+    Perf.cpuMs[Perf.lastIndex()] = cpuMs;
+    updateRenderScale(1 / 30);
+    updateStepDown(1 / 30);
+  }
+  return Render.quality.id + ' ' + Settings.get('video.autoQuality');
+}
+Test.add('render', (check) => withRenderer(() => {
+  const savedRate = Object.assign({}, DisplayRate), triangles = Perf.counters.triangles;
+  Settings.set('video.quality', 'auto'); Settings.set('video.autoQuality', 'high');
+  GpuTimer.extension = null; Game.state = 'playing';
+  // A match frame draws a world.
+  Perf.counters.triangles = 50000;
+  const idle = feedMatchFrames(8, 30);
+  check('idle 30 Hz match frames: no step-down', idle === 'high high' && Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, idle);
+  const busy = feedMatchFrames(30, 12);
+  check('CPU-bound 30 fps match frames step down, unsaved', busy === 'medium high', busy);
+  Object.assign(DisplayRate, savedRate); Perf.counters.triangles = triangles;
 }));
 
 // ---- View model (step 1.4) ----
@@ -442,6 +552,157 @@ Test.add('render', (check) => withRenderer(() => {
   check('no view model while the camera is overridden', batchInstances(viewModelBatch) === 0);
 }));
 
+// ---- Weapon and projectile models (03q, 07c-render-models) ----
+const MODEL_WORLD_PARTS = [3, 9], MODEL_VIEW_PARTS_MAX = 14;
+const modelValid = (model) => model.shapes.every((shape) => SHAPE_INDEX[shape] !== undefined) && Array.from(model.data).every(Number.isFinite)
+  && model.parts.every((part) => part.size.every((size) => size > 0 && size < 2)) && Array.from(model.colors).every((value) => value >= 0 && value <= 1);
+Test.add('render', (check) => {
+  const own = CAT.weapons.filter((weapon) => CAT.weaponModels.byId(weapon.id) && WeaponModels.weapon[weapon.index].id === weapon.id);
+  check('every weapon W01..W46 has its own model row (no class fallback)', own.length === CAT.weapons.length && CAT.weapons.length === 46, own.length);
+  check('every model row names a weapon or a projectile', CAT.weaponModels.every((row) => CAT.weapons.byId(row.id))
+    && CAT.projectileModels.every((row) => CAT.projectiles.byId(row.id)));
+  check('the visible launcher projectiles have models', ['rocket', 'grenade', 'mine', 'stake', 'disc', 'arrow', 'missile', 'warhead'].every((id) => WeaponModels.projectile[CAT.projectiles.byId(id).index]));
+  const models = WeaponModels.weapon.concat(WeaponModels.projectile.filter(Boolean), Object.values(WeaponModels.byId));
+  check('model parts use known shapes, finite offsets, sizes 0..2 m and 0..1 colours', models.every(modelValid));
+  const sizes = WeaponModels.weapon.map((model) => Array.from(model.lodCounts));
+  check('weapon world models have 3..9 parts and view models at most 14', sizes.every(([all, world]) => all <= MODEL_VIEW_PARTS_MAX && world >= MODEL_WORLD_PARTS[0] && world <= MODEL_WORLD_PARTS[1]), JSON.stringify(sizes));
+  check('LOD part counts shrink: distant < far <= near, distant keeps at least one', models.every((model) => model.lodCounts[LOD.distant] >= 1
+    && model.lodCounts[LOD.distant] < model.lodCounts[LOD.far] && model.lodCounts[LOD.far] <= model.lodCounts[LOD.near]));
+  check('weapon models take the view pose of their class row', WeaponModels.byId.heron.pose === CAT.viewModels.byId('sniper') && WeaponModels.byId.ramjet.pose === CAT.viewModels.byId('launcher'));
+  const silhouette = (id) => { const model = WeaponModels.byId[id]; return Array.from(model.data.slice(0, model.lodCounts[LOD.distant] * MODEL_PART_FLOATS)).join(','); };
+  const rifles = ['vanguard', 'tempest', 'ratchet', 'longshot'].map(silhouette);
+  check('the four assault rifles keep distinct distant silhouettes (render-04)', new Set(rifles).size === rifles.length);
+  const twin = WeaponModels.byId.twinsting.parts, mirrored = twin.filter((part) => part.shape === 'cylinder' && part.size[0] < 0.02);
+  check('a mirrored part draws twice, on both sides', mirrored.length === 2 && Test.near(mirrored[0].offset[0], -mirrored[1].offset[0], 1e-9), mirrored.length);
+  const projectileModel = (id) => WeaponModels.projectile[CAT.projectiles.byId(id).index], scaled = projectileModel('missile').parts[0];
+  check('a scaled from row scales offsets and sizes (missile = 0.75 rocket)', Test.near(scaled.size[1], projectileModel('rocket').parts[0].size[1] * 0.75, 1e-6));
+  check('the weapon and gear rows are valid data', ['viewModels', 'weaponModels', 'projectileModels'].every((name) => Data.validate(name).length === 0),
+    ['viewModels', 'weaponModels', 'projectileModels'].map((name) => Data.validate(name).join(' / ')).join(' '));
+});
+
+Test.add('render', (check) => withRenderer(() => {
+  const id = makeTestActor(ACTOR_KIND.PLAYER, 0, 0, 0), heron = WeaponModels.byId.heron;
+  Game.playerId = id;
+  Render.viewModel = (out) => { out.visible = true; out.shape = 'sniper'; out.model = 'heron'; return out; };
+  Settings.set('video.quality', 'high');
+  updateCamera(1 / 60, 1); fillViewModel();
+  check('the view model draws the weapon\'s own model', batchInstances(viewModelBatch) === heron.count, batchInstances(viewModelBatch));
+  Settings.set('video.quality', 'potato');
+  updateCamera(1 / 60, 1); fillViewModel();
+  check('Potato drops the lod-0 view-model details', heron.lodCounts[LOD.far] < heron.count && batchInstances(viewModelBatch) === heron.lodCounts[LOD.far], batchInstances(viewModelBatch));
+  Settings.set('video.quality', 'high');
+  Game.playerId = -1; Actors.alive[id] = 0;   // only the two bots below are drawn
+  placeCamera(0, 1.6, -4, 0, 0);
+  const near = makeTestActor(ACTOR_KIND.BOT, 1, 0, 2), far = makeTestActor(ACTOR_KIND.BOT, 1, 0, Render.quality.lodNear + 5), heldIndex = CAT.weapons.byId('heron').index;
+  Render.heldWeapon = (actor) => (actor === near || actor === far ? heldIndex : -1);
+  fillActors(1 / 60, 1);
+  const expected = NEAR_PARTS.length - 1 + heron.lodCounts[LOD.far] + DEFAULT_FAR_PARTS.length + heron.lodCounts[LOD.distant];
+  check('a held weapon replaces the gun part, one LOD coarser than its actor', batchInstances(actorBatch) === expected, batchInstances(actorBatch) + ' / ' + expected);
+  Render.heldWeapon = () => -1;
+  fillActors(1 / 60, 1);
+  check('no held weapon keeps the plain gun part', batchInstances(actorBatch) === NEAR_PARTS.length + DEFAULT_FAR_PARTS.length, batchInstances(actorBatch));
+  propBatch.clear();
+  const instance = makeShapeInstance();
+  instance.z = 2;
+  drawWeaponPickup(propBatch, heldIndex, instance, false);
+  check('a weapon pickup draws its model (every part close up)', batchInstances(propBatch) === heron.count, batchInstances(propBatch));
+  propBatch.clear();
+  Projectiles.clear();
+  const rocket = CAT.projectiles.byId('rocket'), slot = Projectiles.spawn(rocket, near, 0, 0, 0, 1, 2, 30, 0, 0, 10);
+  Projectiles.draw(propBatch);
+  check('a rocket draws its model, facing its flight from launch', batchInstances(propBatch) === WeaponModels.projectile[rocket.index].count && Test.near(Projectiles.faceYaw[slot], Math.PI / 2, 1e-6));
+  const disc = CAT.projectiles.byId('disc'), resting = Projectiles.spawn(disc, near, 0, 0, 0, 1, 2, 0, 0, 0, 10);
+  check('a still projectile spawns facing 0', Projectiles.faceYaw[resting] === 0 && Projectiles.facePitch[resting] === 0);
+  Projectiles.flightTime[resting] = 0; Projectiles.stepOne(resting, 0.1);
+  check('spin turns only in flight (a resting disc keeps its turn)', Projectiles.flightTime[resting] === 0, Projectiles.flightTime[resting]);
+  Projectiles.clear(); propBatch.clear();
+}));
+
+// PERF-006: drawing models (view model, held weapons, pickups, projectiles) allocates nothing once compiled.
+Test.add('render', (check) => withRenderer(() => {
+  if (!perfHeapCounterWorks()) { check.skip('model drawing allocation probe', 'no exact heap counter on this page'); return; }
+  const weapons = WeaponModels.weapon, ids = CAT.weapons.map((weapon) => weapon.id), instance = makeShapeInstance(), state = viewModelState;
+  Object.assign(actorPose, { x: 1.25, y: 0.5, z: -2.75, yaw: 0.3, pitch: 0.1, swing: 0.2, drop: 0.05, legSquash: 0.9, lift: 0.01 });
+  Object.assign(actorStyle, { r: 0.4, g: 0.5, b: 0.6, emissive: 0, scale: 1.05, headScale: 1, visible: true });
+  Object.assign(state, { visible: true, color: '#56606b', ads: 0, kick: 0, reload: 0, swap: 0, dual: false });
+  Projectiles.clear();
+  CAT.projectileModels.forEach((row, index) => Projectiles.spawn(CAT.projectiles.byId(row.id), 0, 0, 0, 0.5 + index, 1.5, 2, 3, 1, 4, 10));
+  const bytes = {
+    view: perfAllocatedBytes((i) => { state.model = ids[i % ids.length]; fillViewModel(); }),
+    held: perfAllocatedBytes((i) => { actorBatch.clear(); drawHeldWeapon(weapons[i % weapons.length], actorPose, actorStyle, i & 1 ? LOD.near : LOD.far); }),
+    pickup: perfAllocatedBytes((i) => { propBatch.clear(); instance.yaw = i & 7; drawWeaponPickup(propBatch, i % weapons.length, instance, (i & 1) === 1); }),
+    projectiles: perfAllocatedBytes(() => { propBatch.clear(); Projectiles.draw(propBatch); }),
+  };
+  for (const name in bytes) check('drawing models allocates nothing: ' + name, bytes[name] < PERF_ALLOC_LIMIT_BYTES, perfAllocationDetail(bytes[name]));
+  Projectiles.clear(); propBatch.clear(); actorBatch.clear(); viewModelBatch.clear();
+}));
+
+// render-03: hip-fired, every weapon shows on a 16:9 screen beside the HUD ammo panel (keyboard and mouse layout).
+const VIEWMODEL_TEST_SIZE = [1280, 720];
+const VIEWMODEL_MIN_SHOWN = 0.5;         // share of a weapon's part centres on screen and clear of the ammo panel
+// Whether one view-model part's centre lands on screen outside the panel (camera at the origin, yaw 0: view right = world -x).
+function viewModelPartShown(offset, panel) {
+  const d = viewModelBatch.data, size = Render.size, tanHalf = Math.tan(verticalFov(Render.config.viewmodelFov) / 2);
+  const x = (-d[offset] / d[offset + 2] / (tanHalf * size.width / size.height) + 1) / 2 * size.width;
+  const y = (1 - d[offset + 1] / d[offset + 2] / tanHalf) / 2 * size.height;
+  const onScreen = x >= 0 && x <= size.width && y >= 0 && y <= size.height;
+  return onScreen && !(x >= panel.left && y >= panel.top);
+}
+function viewModelShownShare(panel) {
+  let parts = 0, shown = 0;
+  SHAPES.forEach((shape) => {
+    for (let i = 0; i < viewModelBatch.counts[SHAPE_INDEX[shape]]; i++) {
+      parts++;
+      if (viewModelPartShown(instanceOffset(viewModelBatch, shape, i), panel)) shown++;
+    }
+  });
+  return shown / Math.max(1, parts);
+}
+// fillViewModel from viewModelState on a 16:9 keyboard-and-mouse screen; returns the share of parts shown.
+function viewModelShownAt16x9() {
+  const size = Render.size, saved = { width: size.width, height: size.height, device: Input.device, camera: Object.assign({}, Render.camera) };
+  size.width = VIEWMODEL_TEST_SIZE[0]; size.height = VIEWMODEL_TEST_SIZE[1]; Input.device = 'kbm';
+  Object.assign(Render.camera, { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
+  const layout = Object.assign({}, Hud.layout);
+  updateHudLayout(layout, size.width, size.height);
+  fillViewModel();
+  const share = viewModelShownShare({ left: layout.ammoRight - layout.ammoWidth, top: layout.bottom - layout.ammoHeight });
+  size.width = saved.width; size.height = saved.height; Input.device = saved.device; Object.assign(Render.camera, saved.camera);
+  viewModelBatch.clear();
+  return share;
+}
+Test.add('render', (check) => withRenderer(() => {
+  const hidden = [];
+  CAT.weapons.map((weapon) => weapon.id).concat(CAT.viewModels.map((row) => row.id)).forEach((id) => {
+    Object.assign(viewModelState, { visible: true, model: id, shape: id, ads: 0, kick: 0, reload: 0, swap: 0, dual: false });
+    const share = viewModelShownAt16x9();
+    if (share < VIEWMODEL_MIN_SHOWN) hidden.push(id + ' ' + share.toFixed(2));
+  });
+  check('hip pose: every weapon shows on screen, clear of the ammo panel (render-03)', hidden.length === 0, hidden.join(', '));
+}));
+
+// render-01/02: the match hook (S11 Weapons.viewModel, wrapped by S15) through updateCamera and poseWeapon. An idle held
+// weapon is fully raised (swap 0) and on screen; mid-swap the incoming weapon rises (swap falls from 1 towards 0).
+Test.add('render', (check) => withRenderer(() => {
+  Game.headless = true;   // the match starts as in the weapons tests (no pointer lock request), then renders
+  TestArena.start({});
+  Game.headless = false;
+  const id = TestArena.actor(1, 0, 0);
+  Weapons.setLoadout(id, ['tempest', 'warden']);
+  Game.playerId = id;
+  Render.viewModel = MATCH_VIEW_MODEL;
+  updateCamera(1 / 60, 1);
+  const idleSwap = viewModelState.swap, share = viewModelShownAt16x9();
+  check('a held weapon in a match is raised and on screen (render-01)', viewModelState.visible && idleSwap === 0 && share >= VIEWMODEL_MIN_SHOWN, [idleSwap, share]);
+  Game.playerId = -1;
+  Actors.buttons[id] = BTN.NEXT_WEAPON; Sim.step(); Actors.buttons[id] = 0;
+  Game.playerId = id;
+  updateCamera(1 / 60, 1);
+  check('a swap starts lowered and rises', Weapons.state[id] === WEAPON_STATE.SWAP && viewModelState.swap > 0.5, viewModelState.swap);
+  Game.playerId = -1;
+  TestArena.finish();
+}));
+
 // ---- HUD batch (REN-005) ----
 Test.add('render', (check) => {
   HudBatch.quads = 0;
@@ -469,14 +730,14 @@ Test.add('render', (check) => {
   collectHudLayers(1 / 60);
   const layerA = HudBatch.layers.find((layer) => layer.name === 'test-a'), layerB = HudBatch.layers.find((layer) => layer.name === 'test-b');
   check('layers draw in order with their own ranges', order.join('') === 'ab' && layerA.count === 2 && layerB.count === 1 && layerB.start === layerA.start + 2);
-  HudBatch.removeLayer('test-a'); HudBatch.removeLayer('test-b');
+  removeTestHudLayers();
   check('layers can be removed', !HudBatch.layers.some((layer) => layer.name.startsWith('test-')));
   HudBatch.quads = 0;
 });
 
 // ---- GPU frame: budgets, render scale, direct mode (needs a WebGL2 context) ----
 Test.add('render', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: GPU checks skipped', true); return; }
+  if (!Render.gl) { check.skip('GPU checks', 'no WebGL2 context on this page'); return; }
   const gl = Render.gl, result = DebugApi.renderDemo('glacier');
   const quality = Render.quality;
   check('demo frame within the draw-call cap', result.stats.drawCalls > 0 && result.stats.drawCalls <= quality.drawCalls, result.stats.drawCalls);
@@ -494,14 +755,26 @@ Test.add('render', (check) => withRenderer(() => {
   Settings.set('video.quality', 'high');
   Render.drawFrame(1 / 60, 1);
   check('High uses MSAA when the device has it (REN-008)', Render.target.samples === Math.min(2, Render.maxSamples) && !Render.target.direct);
+  // R-154: the sun shadow map renders before the scene target is bound, so a tile GPU binds (and loads) the target once a frame
+  const sceneTarget = Render.target.msaaFramebuffer || Render.target.framebuffer, bind = gl.bindFramebuffer;
+  let sceneBinds = 0;
+  gl.bindFramebuffer = function (kind, framebuffer) { if (framebuffer === sceneTarget && kind !== gl.READ_FRAMEBUFFER) sceneBinds++; return bind.call(this, kind, framebuffer); };
+  try { Render.drawFrame(1 / 60, 1); } finally { delete gl.bindFramebuffer; }
+  check('High binds the scene target once a frame', SunShadow.active && sceneBinds === 1, sceneBinds);
   check('no GL error after resizing targets', gl.getError() === gl.NO_ERROR);
   check('GPU memory estimate under 64 MB (PERF-005)', Render.gpuMemoryBytes() < 64 * 1024 * 1024, Render.gpuMemoryBytes());
+  // A resize or a rotation: the very next frame already projects with the new aspect (no stretched frame).
+  const resized = (css) => { Render.canvas.style.cssText = css; Render.size.dirty = true; Render.drawFrame(1 / 60, 1); return Render.frame.projection[5] / Render.frame.projection[0]; };
+  const aspect = resized('width:400px;height:200px');
+  resized('');
+  check('a resize reaches the same frame', Test.near(aspect, 2, 0.02), aspect);
 }));
 
 // ---- Context loss and restore (PLT-005) ----
 Test.add('render', (check) => withRenderer(async () => {
+  check('the WebGL2 screen has an iPhone line', /iOS.*Lockdown Mode/.test(WEBGL_FATAL_TEXT));
   const extension = Render.gl && Render.gl.getExtension('WEBGL_lose_context');
-  if (!extension) { check('no WEBGL_lose_context: context-loss checks skipped', true); return; }
+  if (!extension) { check.skip('context-loss checks', 'no WEBGL_lose_context'); return; }
   World.load(makeDemoArena('station'));
   let toasts = 0;
   const listener = Bus.on('toast', () => { toasts++; });
@@ -513,6 +786,39 @@ Test.add('render', (check) => withRenderer(async () => {
   check('restore rebuilds GPU resources and resumes', await waitUntil(() => !Render.lost, 5000) && !Game.paused && toasts === 2);
   check('world mesh re-uploaded after restore', WorldMesh.vertexArray !== null && Render.drawFrame(1 / 60, 1) && Render.gl.getError() === Render.gl.NO_ERROR);
   Bus.off('toast', listener);
+  // No restore in time: the save is written and the fatal screen offers Reload. A quit during the loss forgets its pause,
+  // a match started during it waits, and a restore after the Reload screen leaves the match paused behind it.
+  const fatal = document.getElementById('fatal'), waitMs = Render.restoreWaitMs, saveNow = Save.saveNow;
+  let writes = 0;
+  Save.saveNow = function () { writes++; return saveNow.call(this); };
+  // Long enough for the quit below to finish before the wait ends, even under load.
+  Render.restoreWaitMs = 1000;
+  const setHidden = (value) => { Object.defineProperty(document, 'hidden', { value, configurable: true }); document.dispatchEvent(new Event('visibilitychange')); };
+  try {
+    // Phones drop a background tab's context and give it back on return: the wait counts visible time only.
+    setHidden(true);
+    extension.loseContext();
+    await waitUntil(() => Render.lost, 3000);
+    await new Promise((resolve) => setTimeout(resolve, Render.restoreWaitMs + 300));
+    check('a hidden page waits for the restore', !fatal.classList.contains('show'));
+    setHidden(false);
+    // Quit without the menu screens.
+    Game.headless = true;
+    Bus.emit('match.stop', null);
+    Game.state = 'menu'; Game.paused = false; writes = 0;
+    check('a quit during the loss forgets its pause', !Render.pausedForLoss);
+    Game.state = 'playing';
+    renderFrameHook(1 / 60, 1);
+    check('a match started during the loss waits', Game.paused && Game.pauseReason === 'graphics' && Render.pausedForLoss);
+    check('no restore in time: save written, Reload screen', await waitUntil(() => fatal.classList.contains('show'), 3000) && writes > 0 && !!fatal.querySelector('button'), writes);
+    extension.restoreContext();
+    check('a late restore hides the Reload screen, keeps the pause', await waitUntil(() => !Render.lost, 5000) && Game.paused && Game.pauseReason === 'graphics'
+      && !fatal.classList.contains('show') && !document.getElementById('fatal-reload'));
+  } finally {
+    delete document.hidden;
+    Save.saveNow = saveNow; Render.restoreWaitMs = waitMs;
+    hideGraphicsLost();
+  }
 }));
 
 // ---- Frame-time dynamic resolution without a GPU timer (PERF-007 hysteresis on GPU-bound phones) ----
@@ -562,7 +868,7 @@ Test.add('render', (check) => withRenderer(() => {
   const quality = Render.quality;
   const distant = makeTestActor(ACTOR_KIND.BOT, 0, 0, quality.lodFar + 5);
   fillActors(1 / 60, 1);
-  check('past lodFar: a still 4-part silhouette', batchInstances(actorBatch) === DISTANT_PARTS.length && DISTANT_PARTS.length === 4, batchInstances(actorBatch));
+  check('past lodFar: a still 4-part silhouette', batchInstances(actorBatch) === DEFAULT_DISTANT_PARTS.length && DEFAULT_DISTANT_PARTS.length === 4, batchInstances(actorBatch));
   Actors.alive[distant] = 0;
   const far = makeTestActor(ACTOR_KIND.BOT, 0, 0, quality.lodNear + 5);
   Actors.vz[far] = 5;
@@ -613,7 +919,7 @@ Test.add('render', (check) => withRenderer(() => {
 
 // ---- GPU: sun shadow pass only on presets with shadows 'sun', Potato memory, failed restore ----
 Test.add('render', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: GPU checks skipped', true); return; }
+  if (!Render.gl) { check.skip('GPU checks', 'no WebGL2 context on this page'); return; }
   const gl = Render.gl;
   DebugApi.renderDemo('ruins');
   Settings.set('video.quality', 'high');
@@ -638,15 +944,14 @@ Test.add('render', (check) => withRenderer(() => {
 }));
 
 Test.add('render', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: restore-failure check skipped', true); return; }
+  if (!Render.gl) { check.skip('restore-failure check', 'no WebGL2 context on this page'); return; }
   const failing = { name: 'test-failing', create: () => { throw new Error('restore failed'); } };
   Render.gpuParts.push(failing);
   const logged = Test.expectErrors(() => handleContextRestored());
   Render.gpuParts.splice(Render.gpuParts.indexOf(failing), 1);
   const fatal = document.getElementById('fatal');
   check('a failed restore shows the WebGL2 message instead of a frozen screen (PLT-002)', logged === 1 && fatalShown && fatal.classList.contains('show') && !Render.ready);
-  fatalShown = false;
-  fatal.classList.remove('show');
+  hideFatal();
   createGpuResources(Render.gl);
   Render.ready = true;
 }));

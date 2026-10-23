@@ -191,9 +191,19 @@ function hudDrawPingMarkers(pen, layout) {
   }
 }
 
+// The last enemies of a PvE wave (pveHunted, 14j): a red triangle and the distance, so a cloaked or distant one can be found.
+function hudDrawPveMarkers(pen, layout) {
+  for (let i = 0; i < pveHunted.length; i++) {
+    const id = pveHunted[i];
+    if (!Actors.alive[id] || !Pve.isHostile(id)) continue;
+    hudDrawMarker(pen, layout, Actors.x[id], Actors.y[id] + Actors.height[id] + HUD_TAG_HEIGHT_ABOVE, Actors.z[id], 'triangle', Hud.colors.bad, -1, true);
+  }
+}
+
 function hudDrawMarkers(pen, layout) {
   hudDrawObjectiveMarkers(pen, layout);
   hudDrawPingMarkers(pen, layout);
+  hudDrawPveMarkers(pen, layout);
 }
 
 // ---- Teammate name tags with a team shape beside the name (never enemies: no wall hacks) ----
@@ -208,7 +218,7 @@ function hudDrawNameTags(pen, layout) {
     if (!Hud.project(Actors.x[id], Actors.y[id] + Actors.height[id] + HUD_TAG_HEIGHT_ABOVE, Actors.z[id])) continue;
     const x = hudProjection.x, y = hudProjection.y, at = hudShapeAt, text = hudTextAt;
     text[2] = HUD_TEXT_SMALL * unit;
-    HudBatch.measureAt(Actors.name[id]);
+    HudPen.measureAt(Actors.name[id]);
     at[0] = x - text[3] / 2 - 9 * unit; at[1] = y; at[2] = 11 * unit / 2;
     if (Hud.teamShapes) pen.shapeAt(Hud.teamShape(team), Hud.teamColor(team));
     text[0] = x + (Hud.teamShapes ? 4 * unit : 0); text[1] = y;
@@ -266,7 +276,7 @@ function hudDrawCaptions(pen, layout) {
     const alpha = Math.min(1, (HUD_CAPTION_SECONDS - age) / HUD_CAPTION_FADE);
     text[0] = layout.centerX; text[1] = y; text[2] = size;
     if (HudAccess.captionBackground) {
-      HudBatch.measureAt(c.text[slot]);
+      HudPen.measureAt(c.text[slot]);
       const width = text[3] + 16 * unit;
       box[0] = layout.centerX - width / 2; box[1] = y - size * 0.75; box[2] = width; box[3] = size * 1.5;
       pen.rectAt(HUD_COLOR.black, 0.6 * alpha);
@@ -290,15 +300,14 @@ function hudDrawSoundRing(pen, layout) {
   }
 }
 
-// ---- HP-007 downed: teammates down (marker), the local player's bleed-out, the hold-Use hint and the revive ring ----
+// ---- HP-007 downed: teammates down (marker), the local player's bleed-out and the revive ring; the hold-Use prompt ----
 const HUD_DOWNED_MARKER_HEIGHT = 1.2;     // metres above a downed teammate's feet
-const HUD_REVIVE_HINT_RANGE = 4;          // metres: the hold-Use hint shows this close to a downed teammate
 
 function hudDrawDownedAllies(pen, layout) {
   const player = Game.playerId;
   if (!Damage.downedCount || player < 0 || Actors.team[player] < 0) return;   // no scan while nobody is down
   for (let id = 0; id < Actors.count; id++) {
-    if (id === player || !Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.DOWNED) || Actors.team[id] !== Actors.team[player]) continue;
+    if (!Actors.isAlly(player, id) || !Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.DOWNED)) continue;
     hudDrawMarker(pen, layout, Actors.x[id], Actors.y[id] + HUD_DOWNED_MARKER_HEIGHT, Actors.z[id], 'diamond', HUD_COLOR.warn, -1, true);
   }
 }
@@ -313,25 +322,37 @@ function hudDrawReviveRing(pen, layout, reviver, y) {
 }
 function hudDrawDownedState(pen, layout) {
   const player = Game.playerId;
-  if (player < 0 || !Actors.alive[player] || !Damage.downedCount) return;
-  const unit = layout.unit, x = layout.centerX, y = layout.height * 0.68;
+  if (player < 0 || !Actors.alive[player]) return;
+  if (Damage.downedCount && hudDrawDowned(pen, layout, player)) return;
+  hudDrawUsePrompt(pen, layout, player);
+}
+// The player's own bleed-out or a revive in progress; false when neither shows.
+function hudDrawDowned(pen, layout, player) {
+  const unit = layout.unit, x = layout.centerX;
+  const y = layout.phone ? Math.min(layout.height * 0.68, layout.weaponBarY - (HUD_BAR_TOUCH_HEIGHT + 70) * unit) : layout.height * 0.68;   // the block reaches 70 units down
   if (Actors.flags[player] & ACTOR_FLAG.DOWNED) {
     pen.label('DOWNED', x, y, 30 * unit, Hud.colors.bad, 'center');
     pen.label('BLEEDING OUT', x, y + 30 * unit, 16 * unit, HUD_COLOR.dim, 'center');
     pen.label(hudTime(Damage.downedTime[player]), x, y + 56 * unit, 22 * unit, HUD_COLOR.text, 'center');
     const reviver = hudReviverOf(player);
     if (reviver >= 0) hudDrawReviveRing(pen, layout, reviver, y - 44 * unit);
-    return;
+    return true;
   }
-  if (Damage.reviving[player] >= 0) {
-    hudDrawReviveRing(pen, layout, player, y);
-    pen.label('REVIVING', x, y + 36 * unit, 16 * unit, HUD_COLOR.dim, 'center');
-    return;
-  }
-  if (Damage.nearestDownedAlly(player, HUD_REVIVE_HINT_RANGE) < 0) return;
-  pen.label(Hud.keyLabel('use') || 'HOLD USE', x, y, 24 * unit, HUD_COLOR.text, 'center');
-  pen.label('HOLD TO REVIVE', x, y + 28 * unit, 16 * unit, HUD_COLOR.dim, 'center');
+  if (Damage.reviving[player] < 0) return false;
+  hudDrawReviveRing(pen, layout, player, y);
+  pen.label('REVIVING', x, y + 36 * unit, 16 * unit, HUD_COLOR.dim, 'center');
+  return true;
 }
+// The bound Use key and what holding it does now: the first Input.usePrompts entry with something to say (revive, plant, defuse...).
+function hudDrawUsePrompt(pen, layout, player) {
+  let text = '';
+  for (let i = 0; i < Input.usePrompts.length && !text; i++) text = Input.usePrompts[i](player);
+  if (!text) return;
+  const unit = layout.unit, x = layout.centerX, y = layout.height * 0.68;
+  pen.label(Hud.keyLabel('use') || 'HOLD USE', x, y, 24 * unit, HUD_COLOR.text, 'center');
+  pen.label(text, x, y + 28 * unit, 16 * unit, HUD_COLOR.dim, 'center');
+}
+Input.usePrompts.push((id) => Damage.reviveInRange(id) ? 'HOLD TO REVIVE' : '');   // within REVIVE_HINT_RANGE (11c)
 
 Bus.on('match.start', () => { HudPings.reset(); HudCaptions.reset(); });
 Bus.on('match.stop', () => { HudPings.reset(); HudCaptions.reset(); });

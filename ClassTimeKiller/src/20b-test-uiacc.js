@@ -5,6 +5,8 @@
 
 const ACCESS_TEST_WCAG_TEXT = 4.5;                 // contrast ratio of readable text
 const ACCESS_TEST_MIN_FONT = 14;                   // ACC-008: pixels at 100% scale
+// Rows the Accessibility tab mirrors from other tabs.
+Access.mirroredCount = () => Access.holdKeys().length + ACCESS_AIM_ASSIST_KEYS.length + ACCESS_VOLUME_KEYS.length;
 const ACCESS_TEST_SCREEN_COST_MS = 1000;           // UI-001: no screen takes longer than a second to open
 const ACCESS_TEST_HOLD_ACTIONS = ['crouch', 'sprint', 'walk', 'prone', 'fire', 'alt', 'use', 'scoreboard'];
 const ACCESS_TEST_NEXT_SHOT_NOISE = 60;
@@ -146,11 +148,12 @@ Test.add('uiacc', (check) => hudTestWith(() => {
 
 Test.add('uiacc', (check) => {
   // ---- ACC-004 hold or toggle for every hold action ----
-  check('hold/toggle: every hold action has a setting', ACCESS_TEST_HOLD_ACTIONS.every((id) => ACCESS_HOLD_ACTIONS.includes(id) && Settings.definitions.has('controls.toggle.' + id)));
+  const holdActions = ACTION_ROWS.filter((row) => row.toggle).map((row) => row.id);
+  check('hold/toggle: every hold action has a setting, mirrored on the Accessibility tab', ACCESS_TEST_HOLD_ACTIONS.every((id) => holdActions.includes(id) && Settings.definitions.has('controls.toggle.' + id) && Access.holdKeys().includes('controls.toggle.' + id)) && Access.holdKeys().includes('controls.toggle.sprintPad'));
   const events = [];
   const listener = (event) => { if (event.action === 'scoreboard') events.push(event.down); };
   Bus.on('input.action', listener);
-  for (const id of ACCESS_HOLD_ACTIONS) {
+  for (const id of holdActions) {
     const index = Input.actionIndex[id];
     Input.clearAll();
     Settings.set('controls.toggle.' + id, 'hold');
@@ -258,14 +261,14 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   Settings.set('video.viewmodelX', 5);
   check('view: the weapon offset sliders (cm) reach the renderer in metres', Test.near(Render.config.viewmodelOffset[0], 0.05, 1e-9));
   const state = { ads: 0, kick: 0, reload: 0, swap: 0 };
-  const rest = poseWeapon(viewModelRows.rifle, state).x;
+  const rest = poseWeapon(CAT.viewModels.byId('rifle'), state).x;
   state.ads = 1;
-  const aimed = poseWeapon(viewModelRows.rifle, state).x;
+  const aimed = poseWeapon(CAT.viewModels.byId('rifle'), state).x;
   Settings.set('video.viewmodelX', 0);
   state.ads = 0;
-  const unmoved = poseWeapon(viewModelRows.rifle, state).x;
+  const unmoved = poseWeapon(CAT.viewModels.byId('rifle'), state).x;
   state.ads = 1;
-  check('view: the offset moves the held weapon but never the aimed one', Test.near(rest - unmoved, -0.05, 1e-9) && Test.near(aimed, poseWeapon(viewModelRows.rifle, state).x, 1e-9));
+  check('view: the offset moves the held weapon but never the aimed one', Test.near(rest - unmoved, -0.05, 1e-9) && Test.near(aimed, poseWeapon(CAT.viewModels.byId('rifle'), state).x, 1e-9));
   Settings.set('video.fov', 200);
   check('view: the field of view stays between 60 and 120', Settings.get('video.fov') === 120 && (Settings.set('video.fov', 10), Settings.get('video.fov') === 60));
   Settings.set('video.fov', FOV_DEFAULT);
@@ -512,9 +515,9 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   check('economy panel: the screen shows the economy of the match', Ui.current() === 'economy' && uiScreenText('economy').includes('Map Pickups'));
   Ui.closeAll();
   Game.resume();
-  const economies = CAT.economy.map((row) => ({ id: row.id, lines: economyPanelLines(Object.assign({}, rules, { economy: row.id })).lines }));
+  const economies = CAT.economy.map((row) => ({ id: row.id, lines: economyPanelLines(row).lines }));
   check('economy panel: every economy explains itself', economies.every((entry) => entry.lines.length > 0), economies.filter((entry) => !entry.lines.length).map((entry) => entry.id).join());
-  const roundBuy = economyPanelLines(Object.assign({}, rules, { economy: 'roundBuy' })).lines.join(' ');
+  const roundBuy = economyPanelLines(CAT.economy.byId('roundBuy')).lines.join(' ');
   check('economy panel: money economies give the numbers of the preset', roundBuy.includes('$800') && roundBuy.includes('$3000') && roundBuy.includes('$200'), roundBuy);
   Game.stop();
   Ui.open('rules');
@@ -529,7 +532,25 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   check('tips: the option turns them off', Tips.show() === '');
   Settings.set(TIPS_SETTING, true);
   Input.device = 'touch';
-  check('tips: touch players get touch words', Tips.text(0) === TIP_TOUCH_TEXT);
+  check('tips: touch players get touch words', Tips.text(0).startsWith('Left thumb moves') && Tips.text(0).includes('on the right'));
+  const savedPreset = TouchInput.currentPreset;
+  TouchInput.currentPreset = TOUCH_PRESETS.find((preset) => preset.mirror);
+  check('tips: the left-handed preset swaps sides', Tips.text(0).startsWith('Right thumb') && Tips.text(0).includes('on the left'), Tips.text(0));
+  TouchInput.currentPreset = savedPreset;
+  const savedStyle = Input.padStyle;
+  Input.device = 'gamepad'; Input.padStyle = 'shapes';
+  check('tips: a PlayStation pad hears its buttons', Tips.text(0).includes('R2 fires') && Tips.text(0).includes('Cross jumps'), Tips.text(0));
+  Input.padStyle = savedStyle;
+  Input.device = 'kbm';
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: -1 }] });
+  const soloTip = Tips.text(2);
+  Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }] });
+  check('tips: the ping tip names the team only in team modes', !soloTip.includes('team') && Tips.text(2).includes('your team'), soloTip);
+  Game.stop();
+  Input.device = 'touch';
+  const classes = economyPanelLines(CAT.economy.byId('classes')).lines.join(' ');
+  check('economy panel: classes name the loadout, not a buy menu', !classes.includes('buy menu') && classes.includes(LOADOUT_PAUSE_ENTRY.label), classes);
+  // The goal lines come from the mode rows (one goal source per mode): checked in the 'modes' group.
   Input.device = 'kbm';
 })));
 
@@ -575,9 +596,22 @@ function accessTestScreen(check, name) {
   check('screen ' + name + ': it can be left with the keyboard, the gamepad and a touch button', leftByKeyboard && leftByPad && leftByTouch, [leftByKeyboard, leftByPad, leftByTouch].join());
 }
 
-// ACC-008 in the style sheets themselves, so screens the walk above never opens are covered too (em = of the 16 px overlay font).
+// iOS Safari: no text inflation in landscape, and the layout scrolls back after the on-screen keyboard closed.
 Test.add('uiacc', (check) => {
-  const sheets = { UI_CSS, MENUS_CSS, EDITOR_CSS, MAPGEN_MENU_CSS, MAPEDIT_CSS, CAREER_CSS }, small = [];
+  check('ios: no text size adjust', UI_CSS.includes('html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }'));
+  const field = Ui.root.appendChild(makeElement('textarea')), scrollTo = window.scrollTo;
+  let resets = 0;
+  window.scrollTo = () => { resets++; };
+  try { field.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); } finally { window.scrollTo = scrollTo; field.remove(); }
+  check('ios: leaving a text field scrolls back', resets === 1, resets);
+});
+
+// ACC-008 in the style sheets themselves, so screens the walk above never opens are covered too (em = of the 16 px overlay font).
+// Every sheet injected at boot (injectStyle gives each an id: touch buttons, scoreboard, play...), plus the ones a screen injects when it first opens.
+Test.add('uiacc', (check) => {
+  const sheets = { EDITOR_CSS, MAPGEN_MENU_CSS, CAREER_CSS, BUY_CSS }, small = [];
+  for (const style of document.querySelectorAll('style[id]')) sheets[style.id] = style.textContent;
+  check('menus: the style sheet scan sees the touch, scoreboard and menu sheets', ['touch-style', 'scoreboard-style', 'ui-style'].every((id) => id in sheets), Object.keys(sheets).join());
   for (const name in sheets) {
     for (const match of sheets[name].matchAll(/font(?:-size)?:\s*(?:\d{3}\s+)?([\d.]+)(px|em)/g)) {
       const pixels = match[2] === 'em' ? parseFloat(match[1]) * 16 : parseFloat(match[1]);
@@ -623,17 +657,36 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   Game.stop();
 })));
 
+// ---- Career screens that redraw after a change (a card placed or removed, an operation restarted) keep the keyboard / pad focus on that row ----
+Test.add('uiacc', (check) => uiWith(() => {
+  const rowButton = (code) => Array.from(Ui.top().element.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith(code + ' ')).querySelector('button');
+  const press = (code) => { rowButton(code).focus(); rowButton(code).click(); return document.activeElement === rowButton(code) && Ui.current() !== '' ? document.activeElement.textContent : 'focus on ' + document.activeElement.textContent; };
+  Settings.set('progress.unlockAll', true);
+  Cards.addMarks(5000);
+  Ui.open('cards');
+  const placed = press('C24'), removed = press('C24');
+  check('cards: Place and Remove keep the focus on the same card', placed === 'Remove' && removed.startsWith('Place'), placed + ', ' + removed);
+  Settings.set('progress.unlockAll', false);
+  Ui.closeAll();
+  const operation = CAT.operations[0];
+  Operations.state(operation.id).stage = 1;
+  Ui.open('operations');
+  rowButton(operation.code).nextSibling.focus();
+  rowButton(operation.code).nextSibling.click();
+  check('operations: Restart keeps the focus on the same operation', Operations.state(operation.id).stage === 0 && document.activeElement === rowButton(operation.code), document.activeElement.textContent);
+}));
+
 // ---- Scoreboard on a touch device, with and without the ACC-004 toggle setting: one toggle source, no drift ----
 Test.add('uiacc', (check) => uiWith(() => {
   const device = Input.device, index = Input.actionIndex.scoreboard;
-  const tap = () => Input.pulseAction(index);              // what the touch button does
+  const tap = () => Input.pulseAction(index);              // a quick touch on the score panel (05b panelAt)
   PlayFlow.quickMatch();
   Input.device = 'touch';
   Settings.set('controls.toggle.scoreboard', 'hold'); Input.refreshConfig(); Input.clearAll();
-  tap();
-  const openedByTap = Ui.current() === 'scoreboard';
-  tap();
-  check('touch scoreboard, hold setting: a tap opens, the next tap closes', openedByTap && Ui.current() === '');
+  Input.pressAction(index);
+  const openedByHold = Ui.current() === 'scoreboard';
+  Input.releaseAction(index);
+  check('touch scoreboard, hold setting: a finger on the score panel opens it, lifting it closes', openedByHold && Ui.current() === '');
 
   Settings.set('controls.toggle.scoreboard', 'toggle'); Input.refreshConfig(); Input.clearAll();
   const states = [];

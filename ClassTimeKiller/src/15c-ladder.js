@@ -4,14 +4,12 @@
 // match in its Progress handler (15a calls it once per match). Progress lives in Save.data (ladder, progression). Data: 03p.
 
 const PROGRESS_PLAYER_NAME = 'You';
-const PROGRESS_SEED_RANGE = 0x7fffffff;
 const PROGRESS_PLAYER_TEAM = 0;
 const PROGRESS_ENEMY_TEAM = 1;
 const MINUTE_MS = 60000;
 const OPERATION_WARN_TICKETS = 10;
 const operationAnnounce = { text: '', kind: 'objective', priority: 1 };
 
-function progressSeed(random) { return Math.floor((random || Math.random)() * PROGRESS_SEED_RANGE); }
 function progressSetup(fields, progress, seed) {
   return Object.assign({ mutators: [], bots: [], seed, player: { team: PROGRESS_PLAYER_TEAM, name: PROGRESS_PLAYER_NAME }, progress }, fields);
 }
@@ -49,19 +47,28 @@ const Ladder = {
   },
   start(tier, match, difficultyId, random) {
     if (!this.isOpen(tier, match)) return null;
-    return Game.start(this.setup(tier, match, difficultyId || this.difficultyFor(tier, match), progressSeed(random)));
+    return Game.start(this.setup(tier, match, difficultyId || this.difficultyFor(tier, match), newSeed(random)));
   },
-  // Free-for-all: a podium place (the XP podium rule); duels and team modes: a win.
-  passed(results) { return Progress.onPodium(results) || Progress.outcome(results) === 'win'; },
+  // Free-for-all: a podium place (the XP podium rule); duels and team modes: a win the player earned (Progress.creditedWin:
+  // a side's win the player sat out clears nothing).
+  passed(results) { return Progress.onPodium(results) || Progress.creditedWin(results); },
   // Play again: the same ladder match at the difficulty it was played on, a fresh seed.
-  retry(tag, setup) { return this.setup(tag.tier, tag.match, setup.difficulty, progressSeed()); },
+  retry(tag, setup) { return this.setup(tag.tier, tag.match, setup.difficulty, newSeed()); },
+  // After a pass: the match that follows on the ladder, if the ladder has one open.
+  nextStep(tag) {
+    if (!Game.match || !Game.match.results || !this.passed(Game.match.results)) return null;
+    const tierEnds = tag.match + 1 >= CAT.ladder[tag.tier].matches.length;
+    const tier = tag.tier + (tierEnds ? 1 : 0), match = tierEnds ? 0 : tag.match + 1;
+    if (tier >= CAT.ladder.length || !this.isOpen(tier, match)) return null;
+    return { label: 'Next match', build: () => this.setup(tier, match, this.difficultyFor(tier, match), newSeed()) };
+  },
   onResult(match, metrics, award) {
     const tag = match.setup.progress, entry = this.entry(tag.tier, tag.match), state = this.state();
     if (!entry) return;
     if (!this.passed(match.results)) { award.lines.push('Ladder: not cleared. Retry any time.'); return; }
     const first = !state.cleared[this.key(tag.tier, tag.match)];
     state.cleared[this.key(tag.tier, tag.match)] = true;
-    if (first) award.xp += PROGRESS_XP.ladderMatch;
+    if (first && Progress.paidMatch(award)) award.xp += PROGRESS_XP.ladderMatch;   // the first clear pays only a player who took part
     if (tag.tier === state.tier && tag.match === state.match) this.advance(state);
     award.lines.push(entry.final ? 'Ladder champion! The Warden of Nine has fallen.' : 'Ladder match cleared.');
     Save.scheduleSave();
@@ -99,13 +106,13 @@ const Challenges = {
   setup(id, expert, seed) {
     const row = CAT.challenges.byId(id), tier = clamp(row.tier + (expert ? row.expertTier : 0), 0, CAT.botTiers.length - 1);
     const bots = Array.from({ length: row.bots }, () => ({ tier }));
-    return progressSetup({ mode: row.mode, map: row.map, bots, difficulty: expert ? CHALLENGE_DIFFICULTY.expert : CHALLENGE_DIFFICULTY.normal,
+    return progressSetup({ mode: row.mode, map: row.map, bots, difficulty: expert ? CHALLENGE_DIFFICULTY.expert : CHALLENGE_DIFFICULTY.normal, cards: [],   // a fixed trial: no placed cards
       mutators: row.mutators.concat(expert ? this.expertMutators(row) : []), modeOptions: Object.assign({}, row.options) }, { kind: 'challenge', id, expert: !!expert }, seed);
   },
   start(id, expert, random) {
     const row = CAT.challenges.byId(id);
     if (!row || !this.isOpen(row) || (expert && !this.expertOpen(id))) return null;
-    return Game.start(this.setup(id, expert, progressSeed(random)));
+    return Game.start(this.setup(id, expert, newSeed(random)));
   },
   // Stars newly earned pay XP once (replaying for the same stars pays only the match XP: no grind).
   onResult(match, metrics, award) {
@@ -113,14 +120,36 @@ const Challenges = {
     if (!row) return;
     const record = this.record(row.id), points = Progress.points(row.points, metrics, row.par), stars = this.starsFor(row, points);
     const bestField = tag.expert ? 'expertBest' : 'best', starField = tag.expert ? 'expertStars' : 'stars';
-    const gained = Math.max(0, stars - record[starField]);
+    const gained = Math.max(0, stars - record[starField]), expertNew = !tag.expert && record.stars < CHALLENGE_EXPERT_STARS && stars >= CHALLENGE_EXPERT_STARS;
     record.plays++;
     record[bestField] = Math.max(record[bestField], points);
     record[starField] = Math.max(record[starField], stars);
     award.xp += gained * PROGRESS_XP.challengeStar;
     award.lines.push(row.name + (tag.expert ? ' (Expert)' : '') + ': ' + points + ' points, ' + stars + ' of 3 stars' + (gained ? ' (new best)' : ''));
-    if (!tag.expert && record.stars >= CHALLENGE_EXPERT_STARS && stars >= CHALLENGE_EXPERT_STARS && gained) award.lines.push('Expert version unlocked.');
+    if (expertNew) award.lines.push('Expert version unlocked.');
     Save.scheduleSave();
+  },
+};
+
+// ---- A room on a PvE mode ends here: Siege Waves runs ten waves and the range keeps no clock, so a wave room ends as a win
+// after its `waves` cleared waves and the range course at its time limit (at the rules stage, like the operation tickets) ----
+const ChallengeRun = {
+  row: null,
+  wavesCleared: 0,
+  onStart(match) {
+    const tag = match.setup.progress;
+    this.row = tag && tag.kind === 'challenge' && Modes.active && Modes.rules.family !== 'versus' ? CAT.challenges.byId(tag.id) : null;
+    this.wavesCleared = 0;
+    if (this.row && this.row.waves > 0) PVE_HUD.waves = this.row.waves;   // the wave HUD counts the room's waves
+  },
+  onWave(event) { if (this.row && event.phase === 'end') this.wavesCleared++; },
+  step() {
+    const row = this.row;
+    if (!row || !Modes.active) return;
+    const cleared = row.waves > 0 && this.wavesCleared >= row.waves, timeUp = Modes.rules.timeLimit > 0 && Modes.timeLeft(Sim.time) <= 0;
+    if (!cleared && !timeUp) return;
+    this.row = null;
+    Modes.finish(Modes.over(coopWinner(), cleared ? PVE_WIN : 'time'));
   },
 };
 
@@ -185,9 +214,14 @@ const Operations = {
     if (this.state(id).done) this.reset(id);
     return this.setup(id, seed);
   },
+  // The operation's next map once this one is counted (none after the last map: New run starts the operation again).
+  nextStep(tag) {
+    if (this.state(tag.id).done) return null;
+    return { label: 'Next map', build: () => this.setup(tag.id, newSeed()) };
+  },
   start(id, random) {
     if (!CAT.operations.byId(id)) return null;
-    return Game.start(this.nextSetup(id, progressSeed(random)));
+    return Game.start(this.nextSetup(id, newSeed(random)));
   },
   // The map's winner; a draw goes to the side with more tickets left.
   stageWinner(results) {
@@ -203,7 +237,7 @@ const Operations = {
     state.tickets = [this.carryTickets(OperationRun.tickets[0]), this.carryTickets(OperationRun.tickets[1])];
     state.comeback = winner >= 0 ? 1 - winner : -1;
     state.stage++;
-    award.xp += PROGRESS_XP.operationStage;
+    if (Progress.paidMatch(award)) award.xp += PROGRESS_XP.operationStage;   // the map pays only a player who took part
     award.lines.push(row.name + ' map ' + state.stage + ' of ' + row.stages.length + ': ' + (winner === PROGRESS_PLAYER_TEAM ? 'won' : winner < 0 ? 'drawn' : 'lost')
       + '. Tickets next map: ' + state.tickets[0] + ' / ' + state.tickets[1]);
     if (state.stage >= row.stages.length) this.complete(row, state, award);
@@ -256,7 +290,7 @@ const Daily = {
     const tag = match.setup.progress, daily = Progress.profile().daily, points = Progress.points(DAILY_RULES.points, metrics, 0);
     const first = daily[tag.key] === undefined;
     daily[tag.key] = Math.max(daily[tag.key] || 0, points);
-    if (first) award.xp += PROGRESS_XP.daily;
+    if (first && Progress.paidMatch(award)) award.xp += PROGRESS_XP.daily;   // the first play pays only a player who took part
     award.lines.push('Daily ' + tag.key + ': ' + points + ' points (best ' + daily[tag.key] + ')');
     const keys = Object.keys(daily).sort();
     while (keys.length > DAILY_RULES.historyDays) delete daily[keys.shift()];
@@ -287,10 +321,16 @@ Progress.addHandler('challenge', (match, metrics, award) => Challenges.onResult(
 Progress.addHandler('operation', (match, metrics, award) => Operations.onResult(match, metrics, award));
 Progress.addHandler('daily', (match, metrics, award) => Daily.onResult(match, metrics, award));
 Progress.addRetry('ladder', (tag, setup) => Ladder.retry(tag, setup));
-Progress.addRetry('challenge', (tag) => Challenges.setup(tag.id, tag.expert, progressSeed()));
-Progress.addRetry('operation', (tag) => Operations.nextSetup(tag.id, progressSeed()));
+Progress.addRetry('challenge', (tag) => Challenges.setup(tag.id, tag.expert, newSeed()));
+Progress.addRetry('operation', (tag) => Operations.nextSetup(tag.id, newSeed()), 'New run');
 Progress.addRetry('daily', (tag) => Daily.setup(tag.key));
+Progress.addNext('ladder', (tag) => Ladder.nextStep(tag));
+Progress.addNext('operation', (tag) => Operations.nextStep(tag));
 Sim.addSystem('operationTickets', 75, () => OperationRun.step());
+Sim.addSystem('challengeEnd', 75, () => ChallengeRun.step());
+Bus.on('match.start', (match) => ChallengeRun.onStart(match));
+Bus.on('match.stop', () => { ChallengeRun.row = null; });
+Bus.on('pve.wave', (event) => ChallengeRun.onWave(event));
 Bus.on('match.start', (match) => OperationRun.onStart(match));
 Bus.on('match.stop', () => { OperationRun.active = false; });
 Bus.on('kill', (event) => OperationRun.onKill(event));

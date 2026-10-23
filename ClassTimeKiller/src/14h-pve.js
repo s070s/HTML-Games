@@ -27,7 +27,6 @@ const PUPPET_AIM_CONE_DEG = 30;           // A23: a driven enemy's FIRE picks th
 const PVE_MOVE_BASE = 'modern';           // movement preset the enemy presets start from (speed per row)
 const PVE_TIER_BASE = 'skilled';          // bot tier row the enemy tiers start from (fov / turn / reaction per row)
 const PVE_FLEE_DISTANCE = 10;
-const PVE_WANDER_RADIUS = 1.5;
 const PVE_STILL_FILL = 0.6, PVE_CROUCH_FILL = 0.7;   // BOT-005: still or crouched targets fill the meter slower
 const PVE_NOISE_AWARENESS = 0.35;         // a heard noise makes an unaware guard suspicious
 const PVE_DECAY_RATE = 0.5;               // awareness per second once unseen for SENSE_AWARE_DECAY_AFTER
@@ -37,7 +36,7 @@ const PVE_GOAL = { IDLE: 0, PURSUE: 1, ATTACK: 2, FLEE: 3, DODGE: 4, COVER: 5, O
 const ATTACK_PHASE = { IDLE: 0, WINDUP: 1, ACTIVE: 2, RECOVER: 3 };
 const AWARENESS = { UNAWARE: 0, SUSPICIOUS: 1, SEARCHING: 2, ALERT: 3 };
 const STAGGER_CAUSE = { DAMAGE: 'damage', PARRY: 'parry', WALL: 'wall' };   // unstoppable champions ignore DAMAGE staggers
-const PVE_TELL_SOUNDS = { parry: 'abilityCast', unblockable: 'pingDanger', normal: 'grenadeTick' };
+const PVE_TELL_SOUNDS = { parry: 'tellParry', unblockable: 'tellUnblockable', normal: 'tellAttack' };
 const PVE_SHIELD_COLOR = 0xa0d0ff;        // shell colour of a shield without an element
 const PVE_CHAMPION_RING = 1.4;            // ring diameter at size 1 under a champion
 const PVE_SHELL_HEIGHTS = [0.45, 1.05, 1.55];   // shield rings around the body at size 1
@@ -106,7 +105,7 @@ const Pve = {
   encounterSpawned: 0,      // enemies spawned since the mode's last beginEncounter (NPC-007 fallback share)
   spawnPoints: [],          // { x, y, z, yaw, side } director spawn points (filled by the mode)
   queue: { row: new Int16Array(256), champion: new Int8Array(256), side: new Int8Array(256), scale: new Float32Array(256), wave: new Int16Array(256), head: 0, count: 0 },
-  core: { active: false, x: 0, y: 0, z: 0, health: 0, max: 0, shield: 0, destroyedAt: -1 },
+  core: { active: false, x: 0, y: 0, z: 0, health: 0, max: 0, shield: 0, hitAt: -1e9 },   // hitAt: sim time of the last blow
   wildlife: 0, nextBeastAt: 0,
   objectiveFor: null,       // fn(id, out) -> true when the mode gives an idle enemy somewhere to go (14j)
   stats: { spawned: 0, killed: 0, maxAlive: 0, thinks: 0, rays: 0, attacks: 0, parries: 0 },
@@ -135,7 +134,7 @@ const Pve = {
   reset() {
     this.active = false; this.stealth = false; this.intensity = 0; this.peakAt = -1e9;
     this.spawnPoints.length = 0; this.queue.head = 0; this.queue.count = 0; this.encounterSpawned = 0;
-    this.core.active = false; this.core.destroyedAt = -1; this.wildlife = 0; this.objectiveFor = null;
+    this.core.active = false; this.wildlife = 0; this.objectiveFor = null;
     this.guardian.fill(0); this.parryAt.fill(-1e9);
     BotSense.reservedRays = 0;
     for (const key in this.stats) this.stats[key] = 0;
@@ -158,12 +157,13 @@ const Pve = {
   },
 
   // ---- Spawning (ARCHITECTURE spawning contract: position, alive, actor.spawn; then the enemy body overrides S11's pools) ----
-  // options: { team, side, huntTeam, scale (health and damage), champion (PVE_CHAMPIONS index), wave, summoner }. Returns the id or -1.
+  // options: { team, side, huntTeam, scale (health and damage), champion (PVE_CHAMPIONS index), wave, summoner, overCap (static range
+  // targets and the Mote Rush Overlord ignore the quality enemy cap) }. Returns the id or -1.
   spawnEnemy(key, x, y, z, yaw, options) {
     const row = typeof key === 'string' ? CAT.enemies.byId(key) : key;
     if (!row) { ErrorLog.add('pve', 'unknown enemy ' + key); return -1; }
-    if (this.aliveCount() >= this.cap()) return -1;
     const settings = options || {};
+    if (!settings.overCap && this.aliveCount() >= this.cap()) return -1;
     const team = settings.team === undefined ? (row.beast ? BEAST_TEAM : ENEMY_TEAM) : settings.team;
     const id = Actors.create(ACTOR_KIND.ENEMY, team, row.name, row);
     if (id < 0) return -1;
@@ -191,6 +191,15 @@ const Pve = {
     Actors.spawnCount[id]++;
     this.homeX[id] = x; this.homeY[id] = y; this.homeZ[id] = z; this.homeYaw[id] = yaw;
     this.setGoalPoint(id, x, y, z);
+  },
+  // bots-01 watchdog (14j: a wave's last enemies): an enemy standing inside a wall, where no shot reaches it, moves to its
+  // nearest nav node. True when it moved.
+  unstick(id) {
+    if (pveStandsAt(Actors.x[id], Actors.y[id], Actors.z[id])) return false;
+    const node = Nav.nearestNode(Actors.x[id], Actors.y[id], Actors.z[id]);
+    if (node < 0) return false;
+    relocateActor(id, Nav.nodeX[node], Nav.nodeY[node], Nav.nodeZ[node], Actors.yaw[id]);
+    return true;
   },
   // After every section reset its state on actor.spawn: the row's pools, size, movement preset, perception tier, no weapons.
   setupBody(id, row) {
@@ -276,12 +285,15 @@ const Pve = {
     options.scale = scale; options.champion = champion; options.wave = wave; options.summoner = -1;
     return this.spawnGroup(row, point.x, point.y, point.z, point.yaw, options) > 0;
   },
-  // A row's whole group (a swarm) in a spiral around x, z; returns how many members spawned.
+  // A row's whole group (a swarm) in a spiral around x, z; returns how many members spawned. bots-01: a member whose spot is
+  // inside a wall starts at the group's centre instead (out of reach there, it kept a wave from ever clearing).
   spawnGroup(row, x, y, z, yaw, options) {
     let spawned = 0;
     for (let member = 0; member < row.group; member++) {
       const angle = member * 2.4, radius = member === 0 ? 0 : PVE_DIRECTOR.spawnSpacing * Math.sqrt(member);
-      if (this.spawnEnemy(row, x + Math.cos(angle) * radius, y, z + Math.sin(angle) * radius, yaw, options) >= 0) spawned++;
+      let memberX = x + Math.cos(angle) * radius, memberZ = z + Math.sin(angle) * radius;
+      if (!pveStandsAt(memberX, y, memberZ)) { memberX = x; memberZ = z; }
+      if (this.spawnEnemy(row, memberX, y, memberZ, yaw, options) >= 0) spawned++;
       else if (member === 0) return 0;
     }
     return spawned;
@@ -302,6 +314,7 @@ const Pve = {
     if (!best) return this.findBeastSpot(out) ? out : null;   // no point for the side: a reachable node away from the players
     out.x = best.x + Rng.pve.range(-PVE_DIRECTOR.spawnSpacing, PVE_DIRECTOR.spawnSpacing); out.y = best.y;
     out.z = best.z + Rng.pve.range(-PVE_DIRECTOR.spawnSpacing, PVE_DIRECTOR.spawnSpacing); out.yaw = best.yaw;
+    if (!pveStandsAt(out.x, out.y, out.z)) { out.x = best.x; out.z = best.z; }   // bots-01: jittered into a wall: the point itself
     return out;
   },
   spawnScore(point, side) {
@@ -476,7 +489,10 @@ const Pve = {
   decide(id, row, now) {
     if (this.shouldFlee(id, row, now)) { this.setGoal(id, PVE_GOAL.FLEE); return; }
     if (this.dodgeThreat(id)) { this.setGoal(id, PVE_GOAL.DODGE, PVE_DIRECTOR.thinkInterval); return; }
-    if (this.shouldFallBack(row)) { this.setGoalPoint(id, this.homeX[id], this.homeY[id], this.homeZ[id]); this.setGoal(id, PVE_GOAL.FALLBACK); return; }
+    if (this.shouldFallBack(row)) {
+      if (this.foeClose(id) && this.tryAttack(id, row, now)) return;   // a foe in the face is fought, not shown the back
+      this.setGoalPoint(id, this.homeX[id], this.homeY[id], this.homeZ[id]); this.setGoal(id, PVE_GOAL.FALLBACK); return;
+    }
     if (this.goal[id] === PVE_GOAL.COVER && now < this.coverUntil[id]) return;
     if (this.wantsCover(id, row, now)) { this.setGoal(id, PVE_GOAL.COVER); return; }
     if (this.tryAttack(id, row, now)) return;
@@ -504,6 +520,7 @@ const Pve = {
     if (this.encounterSpawned < PVE_DIRECTOR.fallbackMinimum) return false;
     return this.hostileCount() <= this.encounterSpawned * (1 - PVE_DIRECTOR.fallbackLosses);
   },
+  foeClose(id) { return this.target[id] >= 0 && this.distanceTo(id, this.target[id]) <= PVE_DIRECTOR.fallbackFightRange; },
   // A mode starts an encounter (a wave): the fallback share counts from here.
   beginEncounter() { this.encounterSpawned = 0; },
   outnumbered(id) {
@@ -642,9 +659,11 @@ const Pve = {
     if (target === PVE_CORE_TARGET) return this.core.active && this.core.health > 0;
     return target >= 0 && Actors.alive[target] === 1;
   },
-  // A parryable blow is parried when the target pressed MELEE or ALT within the difficulty's parry window (DIF-002).
+  // A parryable blow is parried when the target pressed MELEE or ALT within the difficulty's parry window (DIF-002) and faces
+  // the attacker (the same front arc as a projectile parry).
   parried(id, target, attack) {
     if (!attack.parry || target < 0 || Sim.time - this.parryAt[target] > this.skill().parry) return false;
+    if (!comesFromFront(target, Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id], PARRY_ARC_COS)) return false;
     this.stagger(id, PVE_DIRECTOR.staggerSeconds, STAGGER_CAUSE.PARRY);
     this.stats.parries++;
     Bus.emit('pve.parry', pveEvent(id, attack.id, attack.kind, 0, PVE_TELL_COLORS.parry, target));
@@ -680,14 +699,16 @@ const Pve = {
     info.dx = (pveScratch.x - Actors.x[id]) / length; info.dy = (pveScratch.y - Actors.eyeY(id)) / length; info.dz = (pveScratch.z - Actors.z[id]) / length;
     return Damage.apply(id, target, info);
   },
-  // A hitscan shot from the enemy's eye toward aimX/Y/Z with spread: walls first, then actor hit volumes (ARC-014).
-  shoot(id, attack, spreadDeg) {
+  // A hitscan shot from the enemy's eye toward aimX/Y/Z (or along its turn-rate-limited look when alongLook) with spread:
+  // walls first, then actor hit volumes (ARC-014).
+  shoot(id, attack, spreadDeg, alongLook) {
     const ex = Actors.x[id], ey = Actors.eyeY(id), ez = Actors.z[id];
     Vec.set(pveAim, this.aimX[id] - ex, this.aimY[id] - ey, this.aimZ[id] - ez);
     const distance = Vec.length(pveAim);
     if (distance < 1e-6) return -1;
     const spread = spreadDeg * DEG;
-    const yaw = Math.atan2(pveAim.x, pveAim.z) + Rng.pve.gauss() * spread, pitch = Math.atan2(pveAim.y, length2(pveAim.x, pveAim.z)) + Rng.pve.gauss() * spread;
+    const aimYaw = alongLook ? Actors.aimYaw[id] : Math.atan2(pveAim.x, pveAim.z), aimPitch = alongLook ? Actors.aimPitch[id] : Math.atan2(pveAim.y, length2(pveAim.x, pveAim.z));
+    const yaw = aimYaw + Rng.pve.gauss() * spread, pitch = aimPitch + Rng.pve.gauss() * spread;
     Vec.fromAngles(pveAim, yaw, pitch);
     const range = attack.range[1] + 5;
     const wall = World.raycast(ex, ey, ez, pveAim.x, pveAim.y, pveAim.z, range, pveWallHit) ? pveWallHit.distance : range;
@@ -701,15 +722,16 @@ const Pve = {
   // ---- The core (M21 / M22): enemies with nothing else to do march to it and attack it ----
   setCore(x, y, z, health) {
     const core = this.core;
-    core.active = true; core.x = x; core.y = y; core.z = z; core.health = core.max = health; core.shield = 0; core.destroyedAt = -1;
+    core.active = true; core.x = x; core.y = y; core.z = z; core.health = core.max = health; core.shield = 0; core.hitAt = -1e9;
   },
   damageCore(amount, source) {
     const core = this.core;
     if (!core.active || core.health <= 0) return;
+    core.hitAt = Sim.time;
     const absorbed = Math.min(core.shield, amount);
     core.shield -= absorbed;
     core.health = Math.max(0, core.health - (amount - absorbed));
-    if (core.health <= 0) { core.destroyedAt = Sim.time; Bus.emit('pve.core', pveEvent(source, '', 'destroyed', 0, 0, -1)); }
+    if (core.health <= 0) { Bus.emit('pve.core', pveEvent(source, '', 'destroyed', 0, 0, -1)); }
   },
 
   // ---- Damage hooks: difficulty sliders, weak points, the front shield, staggers ----
@@ -822,7 +844,7 @@ const Pve = {
     for (let id = 0; id < Actors.count; id++) {
       if (!this.isEnemy(id) || !Actors.alive[id] || this.champion[id] < 0) continue;
       const champion = PVE_CHAMPIONS[this.champion[id]];
-      if (champion.shieldRegen && !(Actors.flags[id] & ACTOR_FLAG.FROZEN)) Actors.shield[id] = Math.min(Actors.maxShield[id], Actors.shield[id] + champion.shieldRegen * dt);
+      if (champion.shieldRegen && !this.stunned(id, Sim.time)) Actors.shield[id] = Math.min(Actors.maxShield[id], Actors.shield[id] + champion.shieldRegen * dt);
       if (champion.healthRegen && !Damage.hasStatus(id, 'shock')) Actors.health[id] = Math.min(Actors.maxHealth[id], Actors.health[id] + champion.healthRegen * dt);
     }
   },
@@ -860,34 +882,45 @@ const Pve = {
   draw(batch) {
     if (!this.active) return;
     for (let id = 0; id < Actors.count; id++) {
-      if (!this.isEnemy(id) || !Actors.alive[id] || (Actors.flags[id] & ACTOR_FLAG.INVISIBLE)) continue;
+      if (!this.isEnemy(id)) continue;
       if (Game.playerId >= 0 && PuppetState.master[id] === Game.playerId) continue;   // A23: the player's camera is inside it
       this.drawEnemy(batch, id);
     }
   },
+  // Where the body is drawn (pvePose): where it stands, alive and not cloaked; during a replay (Render.replayPose, the
+  // S17 killcam) where the recording has it. False = not drawn.
+  placeBody(id) {
+    const pose = pvePose;
+    if (Render.replayPose) return Render.replayPose(id, pose);
+    pose.x = Actors.x[id]; pose.y = Actors.y[id]; pose.z = Actors.z[id]; pose.yaw = Actors.yaw[id]; pose.pitch = Actors.pitch[id]; pose.recorded = false;
+    return Actors.alive[id] === 1 && (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0;
+  },
   // Sim.time is read here and in tellGlow, not passed in: a float argument to a call that is not inlined is boxed (PERF-006).
   drawEnemy(batch, id) {
-    const now = Sim.time, row = this.rowOf(id), size = row.size, yaw = Actors.yaw[id], pitch = Actors.pitch[id];
-    const tell = this.tellGlow(id, row), health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
+    if (!this.placeBody(id)) return;
+    const now = Sim.time, row = this.rowOf(id), size = row.size, pose = pvePose, yaw = pose.yaw, pitch = pose.pitch;
+    const recorded = pvePose.recorded, champion = recorded ? pvePose.champion : this.champion[id];   // a replay shows the recorded state, not the live one
+    const tell = this.tellGlow(id, row), health = recorded ? pose.health : Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
     const shade = health < 1 / 3 ? 0.55 : health < 2 / 3 ? 0.8 : 1;   // NPC-006 damage states at 66 / 33 %
-    const staggered = now < this.staggerUntil[id] && Math.floor(now * 8) % 2 === 0;
+    const staggered = !recorded && now < this.staggerUntil[id] && Math.floor(now * 8) % 2 === 0;
     // Parts rotate in place and go through one instance record (batch.meshFrom): float arguments would be boxed (PERF-006).
     const point = pvePartPoint, instance = pvePartInstance;
     for (let index = 0; index < row.parts.length; index++) {   // an index loop: for-of makes an iterator result per part here
       const part = row.parts[index], tint = PART_TINTS[part[7]] || 0, colors = row.colors, glow = tint >= PART_TINTS.glow;
       point.x = part[1] * size; point.y = part[2] * size; point.z = part[3] * size; point.yaw = yaw; point.pitch = part[8] ? pitch : 0;
       rotateInPlace(point);
-      const r = tell.amount > 0 ? tell.r : colors[tint * 3] * (glow ? 1 : shade), g = tell.amount > 0 ? tell.g : colors[tint * 3 + 1] * (glow ? 1 : shade);
-      const b = tell.amount > 0 ? tell.b : colors[tint * 3 + 2] * (glow ? 1 : shade);
-      instance.x = Actors.x[id] + point.x; instance.y = Actors.y[id] + point.y; instance.z = Actors.z[id] + point.z; instance.yaw = yaw; instance.pitch = part[8] ? pitch : 0;
+      // the part colour (shaded by damage) blends toward the tell colour by its strength; glowing parts take it whole
+      const light = glow ? 1 : shade, toTell = glow && tell.amount > 0 ? 1 : tell.amount;
+      instance.x = pose.x + point.x; instance.y = pose.y + point.y; instance.z = pose.z + point.z; instance.yaw = yaw; instance.pitch = part[8] ? pitch : 0;
       instance.sx = part[4] * size; instance.sy = part[5] * size; instance.sz = part[6] * size;
-      instance.r = glow || tell.amount === 0 ? r : lerp(colors[tint * 3], r, tell.amount); instance.g = g; instance.b = b;
+      instance.r = lerp(colors[tint * 3] * light, tell.r, toTell); instance.g = lerp(colors[tint * 3 + 1] * light, tell.g, toTell); instance.b = lerp(colors[tint * 3 + 2] * light, tell.b, toTell);
       instance.emissive = staggered ? 1 : Math.max(glow ? 0.8 : 0, tell.amount);
       batch.meshFrom(part[0], instance);
     }
-    if (this.stealth) drawAwareness(batch, id, row, this.awarenessState(id));
-    if (this.champion[id] >= 0) drawChampionRing(batch, id, row, this.champion[id]);
-    if (Actors.shield[id] > 0) drawShieldShell(batch, id, row);
+    if (this.stealth && !recorded) drawAwareness(batch, id, row, this.awarenessState(id));
+    if (champion >= 0) drawChampionRing(batch, id, row, champion);
+    if (recorded ? pose.shield > 0 : Actors.shield[id] > 0) drawShieldShell(batch, id, row);
+    if (Render.replayPose) return;   // the brain and tell marks show live state
     const brain = PveBrains[row.brain];
     if (brain.draw) brain.draw(batch, id, row);
     const attack = this.phase[id] === ATTACK_PHASE.WINDUP ? row.attackRows[this.attack[id]] : null;
@@ -897,7 +930,7 @@ const Pve = {
   tellGlow(id, row) {
     const glow = pveTellGlow, now = Sim.time;
     glow.amount = 0;
-    if (this.phase[id] !== ATTACK_PHASE.WINDUP) return glow;
+    if (pvePose.recorded || this.phase[id] !== ATTACK_PHASE.WINDUP) return glow;   // the recording has no tell
     const attack = row.attackRows[this.attack[id]], length = Math.max(1e-6, this.phaseEndsAt[id] - this.tellStart[id]);
     const progress = clamp((now - this.tellStart[id]) / length, 0, 1);
     glow.progress = progress;
@@ -908,6 +941,7 @@ const Pve = {
   },
 };
 const pveTellGlow = { amount: 0, progress: 0, r: 0, g: 0, b: 0 };
+const pvePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, recorded: false, speed: 0, height: STAND_HEIGHT, grounded: true, health: 1, shield: 0, champion: -1 };   // the drawn enemy's feet and angles (Pve.placeBody); recorded: the replay's state
 const pveTellColor = new Float32Array(3);
 
 // NPC-004: a barrier champion's shield may carry an element (x1.5 for the matching element, x0.75 for others).
@@ -922,9 +956,11 @@ function tellColor(attack) {
   return attack.unblockable ? PVE_TELL_COLORS.unblockable : PVE_TELL_COLORS.normal;
 }
 
+// True when a standing actor fits with its feet at the point (no wall, ramp or ceiling in the way).
+function pveStandsAt(x, y, z) { return World.capsuleFits(x, y, z, ACTOR_RADIUS, STAND_HEIGHT); }
 // Moves an actor to a point with no interpolation from the old one and no velocity (spawns, blinks, chamber moves).
 function relocateActor(id, x, y, z, yaw) {
-  Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = y; Actors.z[id] = Actors.prevZ[id] = z;
+  Actors.place(id, x, y, z);
   Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = yaw;
   Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
 }
@@ -950,8 +986,8 @@ function weakPointFactor(row, target, info) {
 // These marks go through the enemy parts' instance record (batch.meshFrom) with integer arguments only (PERF-006).
 const AWARENESS_COLORS = [[0.6, 0.6, 0.6], [1, 0.9, 0.2], [1, 0.55, 0.1], [1, 0.15, 0.1]];
 function drawAwareness(batch, id, row, state) {
-  const color = AWARENESS_COLORS[state], instance = placePveMark(id);
-  instance.y = Actors.y[id] + STAND_HEIGHT * row.size + 0.45; instance.yaw = Actors.yaw[id];
+  const color = AWARENESS_COLORS[state], instance = placePveMark();
+  instance.y = pvePose.y + STAND_HEIGHT * row.size + 0.45; instance.yaw = pvePose.yaw;
   instance.sx = 0.12; instance.sy = 0.35 * Math.max(0.15, Pve.awareness[id]); instance.sz = 0.12;
   instance.r = color[0]; instance.g = color[1]; instance.b = color[2]; instance.emissive = 0.9;
   batch.meshFrom('box', instance);
@@ -959,26 +995,26 @@ function drawAwareness(batch, id, row, state) {
 
 // NPC-004 champion tag: a ring in the tag's colour under its feet (barrier blue, unstoppable orange, overload yellow).
 function drawChampionRing(batch, id, row, champion) {
-  const colors = PVE_CHAMPION_COLORS, slot = champion * 3, diameter = PVE_CHAMPION_RING * row.size, instance = placePveMark(id);
-  instance.y = Actors.y[id] + 0.06; instance.sx = diameter; instance.sy = 0.1; instance.sz = diameter;
+  const colors = PVE_CHAMPION_COLORS, slot = champion * 3, diameter = PVE_CHAMPION_RING * row.size, instance = placePveMark();
+  instance.y = pvePose.y + 0.06; instance.sx = diameter; instance.sy = 0.1; instance.sz = diameter;
   instance.r = colors[slot]; instance.g = colors[slot + 1]; instance.b = colors[slot + 2]; instance.emissive = 1;
   batch.meshFrom('ring', instance);
 }
 // NPC-004 / HP-006 coloured shield: rings around the body in the element colour, glowing with the shield left.
 function drawShieldShell(batch, id, row) {
-  const colors = PVE_SHIELD_COLORS, slot = Damage.shieldElement[id] * 3, size = row.size, instance = placePveMark(id);
+  const colors = PVE_SHIELD_COLORS, slot = Damage.shieldElement[id] * 3, size = row.size, instance = placePveMark();
   instance.sx = instance.sz = TORSO_RADIUS * 2.6 * size; instance.sy = 0.06;
   instance.r = colors[slot]; instance.g = colors[slot + 1]; instance.b = colors[slot + 2];
-  instance.emissive = 0.4 + 0.6 * Actors.shield[id] / Math.max(1, Actors.maxShield[id]);
+  instance.emissive = 0.4 + (pvePose.recorded ? 0.6 * pvePose.shield : 0.6 * Actors.shield[id] / Math.max(1, Actors.maxShield[id]));
   for (let ring = 0; ring < PVE_SHELL_HEIGHTS.length; ring++) {   // an index loop: for-of boxes each float it yields
-    instance.y = Actors.y[id] + PVE_SHELL_HEIGHTS[ring] * size;
+    instance.y = pvePose.y + PVE_SHELL_HEIGHTS[ring] * size;
     batch.meshFrom('ring', instance);
   }
 }
-// The parts' instance record, upright over the enemy's feet (the caller sets height, size, colour and glow).
-function placePveMark(id) {
+// The parts' instance record, upright over the drawn enemy's feet (the caller sets height, size, colour and glow).
+function placePveMark() {
   const instance = pvePartInstance;
-  instance.x = Actors.x[id]; instance.z = Actors.z[id]; instance.yaw = 0; instance.pitch = 0;
+  instance.x = pvePose.x; instance.z = pvePose.z; instance.yaw = 0; instance.pitch = 0;
   return instance;
 }
 // NPC-002 tells are also heard: a positional cue per tell colour (green, red, orange).

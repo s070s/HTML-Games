@@ -31,7 +31,6 @@ const TOUCH_EDITOR_HINT = 'Layout editor: drag a control to move it, tap it to e
 const MENUS_CSS = '.ui-editor { width: min(360px, 48vw); max-height: 100%; overflow: hidden auto; padding: 8px; } .ui-editor .ui-row { min-height: 36px; padding: 2px 8px; margin-bottom: 3px; }'
   + '.ui-editor .ui-button { min-height: 36px; } .ui-editor .ui-note { margin-bottom: 6px; } .ui-editor .ui-slider { width: 58%; } .ui-editor .ui-cycle { min-width: 7em; } .ui-editor .ui-label { min-width: 0; } .ui-editor .ui-value { min-width: 3em; }'
   + '.ui-touchLayout[data-dock="left"] .ui-panel { margin: auto auto auto 0; } .ui-touchLayout[data-dock="right"] .ui-panel { margin: auto 0 auto auto; }'
-  + '.ui-main .ui-menu, .ui-solo .ui-menu { overflow-y: auto; min-height: 0; touch-action: pan-y; padding: 4px; }'
   + '@media (max-height: 520px) { .ui-main .ui-menu, .ui-solo .ui-menu { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; } .ui-main .ui-menu .ui-button { font-size: 1em; } }';
 
 function screenHeader(root, title, onBack) {
@@ -107,12 +106,6 @@ function settingKeys(category) {
   for (const [key, definition] of Settings.definitions) if (definition.category === category && isEditableSetting(definition)) keys.push(key);
   return keys;
 }
-// Exact keys only (Settings.reset takes a prefix and re-applies everything): drop the saved values, then announce each key once.
-function resetSettingKeys(keys) {
-  for (const key of keys) delete Save.data.settings[key];
-  Save.scheduleSave();
-  for (const key of keys) Bus.emit('setting', key);
-}
 // The tab's keys by group title in first-seen order ('' = no heading); Ui.settingGroup (18l) names the group of a key.
 function groupedSettingKeys(category) {
   const groups = new Map();
@@ -154,7 +147,7 @@ Ui.register('settings', {
     }
     const reset = Ui.button('Reset this tab', () => Ui.confirm({
       title: 'Reset this tab?', text: 'All settings on this tab return to their defaults.', yes: 'Reset',
-      onYes: () => { resetSettingKeys(settingKeys(active)); render(); },
+      onYes: () => { Settings.resetKeys(settingKeys(active)); render(); },
     }));
     const foot = makeElement('div', 'ui-foot');
     foot.appendChild(reset);
@@ -221,7 +214,7 @@ function bindingRow(row, list) {
 Ui.register('bindings', {
   build(root) {
     screenHeader(root, 'Key and button bindings');
-    root.appendChild(makeElement('p', 'ui-note', 'Click a slot, then press a key, mouse button, scroll the wheel or press a controller button. Esc cancels, Backspace clears. A red row shares a binding with another action.'));
+    root.appendChild(makeElement('p', 'ui-note', 'Click a slot, then press a key, mouse button, scroll the wheel or press a controller button. Esc cancels, Backspace clears. On a controller, View + a button binds a chord, holding Start cancels and View + Start clears. A red row shares a binding with another action.'));
     const list = makeElement('div', 'ui-scroll');
     root.appendChild(list);
     const foot = makeElement('div', 'ui-foot');
@@ -272,7 +265,8 @@ Ui.register('touchLayout', {
 // ---- Help pieces: the self-test run and the controls list (the Help screen itself is in 18n) ----
 function selfTestSummary(result) {
   if (!result) return '';
-  const lines = [result.failed ? 'FAILED ' + result.failed + ' of ' + result.total + ' checks' : 'All ' + result.total + ' checks passed (' + result.groups + ' groups)'];
+  const skipped = result.skipped ? ', ' + result.skipped + ' skipped' : '';
+  const lines = [result.failed ? 'FAILED ' + result.failed + ' of ' + result.total + ' checks' + skipped : 'All ' + result.passed + ' checks passed' + skipped + ' (' + result.groups + ' groups)'];
   const failures = result.results.filter((item) => !item.ok);
   for (const item of failures.slice(0, SELF_TEST_FAILURES_SHOWN)) lines.push(item.group + ' / ' + item.name + (item.detail ? ' :: ' + item.detail : ''));
   if (failures.length > SELF_TEST_FAILURES_SHOWN) lines.push('... and ' + (failures.length - SELF_TEST_FAILURES_SHOWN) + ' more');
@@ -291,7 +285,16 @@ async function runSelfTest(output, button) {
   button.disabled = false;
   output.textContent = selfTestSummary(Ui.lastSelfTest);
 }
+function touchControlsSummary() {
+  const lines = [];
+  for (const control of TOUCH_CONTROLS) if (control.face) lines.push(control.face + ': ' + control.label);
+  lines.push('Hold the score panel at the top: Scoreboard');
+  lines.push('Tap a weapon box above the ammo panel to take that slot.');
+  lines.push('Buttons you cannot use stay hidden. Settings > Controls > Edit touch layout moves them.');
+  return lines.join('\n');
+}
 function controlsSummary() {
+  if (Input.device === 'touch') return touchControlsSummary();
   const lines = [];
   for (const row of ACTION_ROWS) {
     const labels = Input.bound[Input.actionIndex[row.id]].filter(Boolean).map((binding) => Input.bindingLabel(binding));

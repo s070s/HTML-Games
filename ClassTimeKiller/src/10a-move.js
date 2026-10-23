@@ -7,8 +7,8 @@
 // 10b-move-special.js adds the special states and actions (slide, dodge, dash, charge, mantle, wall-run, water...).
 
 const STANCE = { STAND: 0, CROUCH: 1, PRONE: 2 };
-const STANCE_HEIGHT = [STAND_HEIGHT, 1.10, 0.60]; // DATA-003
-const STANCE_EYE = [1.62, 0.95, 0.40];
+const STANCE_HEIGHT = [STAND_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT]; // DATA-003
+const STANCE_EYE = [STAND_EYE, CROUCH_EYE, PRONE_EYE];
 const MOVE_STATE = { WALK: 0, MANTLE: 1, DASH: 2, CHARGE: 3, WALL_RUN: 4, LATCH: 5, LADDER: 6, SWIM: 7 };
 const JUMP_BUFFER_SECONDS = 0.10;                // MOV-013
 const HARD_LANDING_SPEED = 15;                   // MOV-014: landing faster locks jumping...
@@ -22,7 +22,6 @@ const EYE_SPEED = 6;                             // m/s the eye follows stance c
 const KNOCKBACK_CAP = 30;                        // MOV-017 m/s
 const SUB_STEP_DISTANCE = 0.4;                   // longest sweep per sub-step (one capsule radius)
 const MAX_SUB_STEPS = 4;
-const STRIDE_METRES = 1.6;                       // ground distance between footstep events
 const FOOTSTEP_NOISE_RADIUS = 15;                // AUD-004: footsteps locatable at 15 m
 const LANDING_NOISE_RADIUS = 20;
 const NO_RECENT_LANDING = 1e6;                   // seconds: a fresh spawn has not just landed (no MOV-025 landing spread)
@@ -71,6 +70,8 @@ const Move = {
   preset(id) { return this.presetOverride[id] || matchPreset(); },
   setPreset(id, presetId) { this.presetOverride[id] = presetId ? CAT.movement.byId(presetId) : null; },
   gravity(id) { matchPreset(); return actorGravity(id, this.preset(id)); },
+  // MOV-026 height of one ground jump in metres under `gravity` (default: the preset's own) - for bots and the UI.
+  jumpApex(preset, gravity) { return preset.jumpVel * preset.jumpVel / (2 * (gravity === undefined ? preset.gravity : gravity)); },
   horizontalSpeed(id) { return length2(Actors.vx[id], Actors.vz[id]); },
   // Movement inaccuracy in degrees for weapons: the MOV-025 table where the preset has one, else WPN-003 f + air
   // (tableOnly: 0 without a table, for projectile modes that stay exact outside MOV-025).
@@ -90,11 +91,20 @@ const Move = {
   stamina: Motion.stamina,  // seconds of sprint left per actor (read-only)
   staminaFraction(id) { const full = this.preset(id).sprintStamina; return full > 0 ? Motion.stamina[id] / full : 1; },
   dashCharges(id) { return Math.floor(Motion.dashCharges[id]); },
-  stateName(id) { return MOVE_STATE_NAMES[Motion.state[id]]; },
+  // The movement resources for the HUD meter (17f) into out: breath, stamina and glide as shares left (1 = full or unused),
+  // dash and tactical-sprint charges with their preset maximum (0 = the preset has none). Returns out.
+  meters(id, out) {
+    const preset = this.preset(id);
+    out.air = this.airShare(id);
+    out.stamina = this.staminaFraction(id);
+    out.glide = preset.glideTime > 0 ? 1 - Math.min(1, Motion.glideUsed[id] / preset.glideTime) : 1;
+    out.dash = Motion.dashCharges[id]; out.dashMax = preset.dashCharges;
+    out.tac = Motion.tacCharges[id]; out.tacMax = preset.tacSprintCharges;
+    return out;
+  },
+  airShare(id) { return World.airLeft(id) / AIR_SECONDS; },   // breath left, 0..1 (the HUD meter and its vignette)
   isGrounded(id) { return Motion.grounded[id] === 1; },
 };
-
-const MOVE_STATE_NAMES = Object.keys(MOVE_STATE).map((name) => name.toLowerCase());
 
 function matchPreset() {
   const rules = Game.match ? Game.match.rules : null;
@@ -315,7 +325,8 @@ function sweepActor(id, mover, dt, stepUp) {
   Motion.blocked[id] = 0;
   for (let i = 0; i < pieces; i++) {
     mover.planeCount = Math.min(mover.planeCount, firstPlanes);
-    Collide.gatherAround(mover, travel / pieces + (stepUp ? Math.max(STEP_HEIGHT, SETTLE_REACH) : SETTLE_REACH));
+    gatherReach.metres = travel / pieces + (stepUp ? Math.max(STEP_HEIGHT, SETTLE_REACH) : SETTLE_REACH);
+    Collide.gatherReached(mover);
     slideClock.seconds = dt / pieces;
     const hit = stepUp ? Collide.stepSlideMover(mover, STEP_HEIGHT) : Collide.slideMover(mover);
     if (hit) recordWall(id, mover);
@@ -441,6 +452,7 @@ function updateSprint(id, preset, dt) {
   Motion.sprinting[id] = sprinting ? 1 : 0;
   if (!sprinting) setClock(id, CLOCK.TAC_SPRINT, 0);
   if (wasSprinting && !sprinting) setClock(id, CLOCK.FIRE_DELAY, preset.sprintToFire + Move.weaponReadyTime[id]);
+  if (wasSprinting && !sprinting && held && id === Game.playerId) Input.resetToggle('sprint');   // a toggled run ends with the run (a stop, a shot, no stamina)
   updateStamina(id, preset, sprinting, dt);
   updateTacticalCharges(id, preset, dt);
 }
@@ -501,13 +513,14 @@ function stepMovement(dt) {
 
 // The step's gravity and start position, read by the states, integrate, afterMove and countSteps: a computed float passed as
 // an argument would be boxed every actor step (PERF-006), and the state call is indirect (one of several), so rarely inlined.
-const moveStep = { gravity: 0, startX: 0, startZ: 0 };
+const moveStep = { gravity: 0, startX: 0, startZ: 0, startYaw: 0 };
 
 function stepActor(id, dt) {
   const preset = Move.preset(id);
   moveStep.gravity = actorGravity(id, preset);
   moveStep.startX = Actors.x[id]; moveStep.startZ = Actors.z[id];
   Actors.yaw[id] = Actors.aimYaw[id]; Actors.pitch[id] = Actors.aimPitch[id];
+  moveStep.startYaw = Actors.yaw[id];
   Motion.rays[id] = 0; // MOV-023 wall/ledge ray budget of this step (10b spendRays)
   updateClocks(id, dt);
   readInput(id);
@@ -526,8 +539,17 @@ function afterMove(id, preset) {
   if (Actors.vy[id] > verticalBefore + GROUND_LEAVE_SPEED) unground(id); // launched by a jump pad
   updateEye(id);
   writeFlags(id);
-  if (Motion.medium[id] & TRIGGER_MEDIUM.MOVED) { Motion.stepDistance[id] = 0; return; } // teleported: no stride across the map
+  if (Motion.medium[id] & TRIGGER_MEDIUM.MOVED) { afterTeleport(id); return; }
   countSteps(id, preset);
+}
+
+// A teleporter moved and turned the actor (S08 turns its velocity): a dash or charge goes on turned by the same angle, a
+// mantle ends (it would pull the actor back to the old ledge), and no stride is counted across the map.
+function afterTeleport(id) {
+  const turn = Actors.yaw[id] - moveStep.startYaw, cos = Math.cos(turn), sin = Math.sin(turn), x = Motion.dirX[id], z = Motion.dirZ[id];
+  Motion.dirX[id] = x * cos + z * sin; Motion.dirZ[id] = z * cos - x * sin;   // DATA-002: the heading (sin yaw, cos yaw) turned by `turn`
+  if (Motion.state[id] === MOVE_STATE.MANTLE) setState(id, MOVE_STATE.WALK);
+  Motion.stepDistance[id] = 0;
 }
 
 function updateEye(id) {
@@ -611,8 +633,14 @@ function onImpulse(event) {
 Settings.define('gameplay.airAssist', 'auto', { label: 'Air control assist', category: 'gameplay', options: ['auto', 'on', 'off'],
   optionLabels: ['Touch and gamepad', 'On', 'Off'] });
 Sim.addSystem('move', 30, stepMovement);
-// A full touch-stick push in Tactical runs instead of walking: the player's own preset (a hero's movement row wins over the match's).
-TouchInput.stickSprints = () => !sprintWalks(Game.playerId >= 0 ? Move.preset(Game.playerId) : matchPreset());
+// The player's own preset (a hero's movement row wins over the match's).
+function playerPreset() { return Game.playerId >= 0 ? Move.preset(Game.playerId) : matchPreset(); }
+// A full touch-stick push in Tactical runs instead of walking.
+TouchInput.stickSprints = () => !sprintWalks(playerPreset());
+// The DUCK swipe lies prone only in a preset with prone (05b swipeButton).
+TouchInput.needs.prone = () => Game.playerId >= 0 && Move.preset(Game.playerId).proneMult > 0;
+// L3 toggles sprint only where sprint runs (each click is a dash or charge in MV05/MV06); with a tactical sprint a click while on is the double tap's second press (MV03).
+Input.padToggleRule = () => { const preset = playerPreset(); return preset.sprintSpeed <= 0 ? 0 : preset.tacSprintCharges > 0 ? 2 : 1; };
 Bus.on('impulse', onImpulse);
 Bus.on('actor.create', (id) => {
   Move.presetOverride[id] = null;

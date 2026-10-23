@@ -6,6 +6,9 @@ DebugApi.abilities = { abilities: Abilities, meters: Meters, zones: AbilityZones
 
 const ENEMY_DISTANCE = 6;
 
+// The slot of the newest footprint an actor left (A16: every actor has its own ring).
+function lastPrint(id) { return id * FOOTPRINT_RING + (Footprints.next[id] + FOOTPRINT_RING - 1) % FOOTPRINT_RING; }
+
 const AbilityTest = {
   // caster (team 0) at the origin facing +z, an enemy 6 m ahead, a second enemy beside it, an ally behind the caster.
   start(rules) {
@@ -95,7 +98,7 @@ const ABILITY_CASES = {
       Footprints.clear();
       Bus.emit('move.step', { id: t.enemy, speed: 4, surface: '' });
       Bus.emit('move.step', { id: t.ally, speed: 4, surface: '' });
-      const enemyPrint = (Footprints.next + FOOTPRINT_COUNT - 2) % FOOTPRINT_COUNT, allyPrint = (Footprints.next + FOOTPRINT_COUNT - 1) % FOOTPRINT_COUNT;
+      const enemyPrint = lastPrint(t.enemy), allyPrint = lastPrint(t.ally);
       const fresh = footprintVisible(t.caster, enemyPrint) && !footprintVisible(t.caster, allyPrint) && !footprintVisible(t.enemy, enemyPrint);
       runSeconds(8.1);
       return Abilities.active[t.i] === 1 && fresh && !footprintVisible(t.caster, enemyPrint);   // enemy prints only, for 8 s
@@ -376,9 +379,53 @@ Test.add('abilities', (check) => {
   TestArena.finish();
 });
 
+// balance-01: bots without a hero choice draw one per team from the match seed (headless Hero Squad Team Clash, 10 bots):
+// a team of five fields every role and no hero twice, keeps its heroes across picks, leaves a teammate's own pick out,
+// draws again when auto-balance moves it to the other team, and the line-ups change with the seed.
+const HERO_DRAW_SEEDS = [1, 2, 3, 4], HERO_DRAW_BOTS = 10;
+Test.add('abilities', (check) => {
+  const roles = new Set(CAT.heroes.map((hero) => hero.role)).size, lineups = new Set();
+  for (const seed of HERO_DRAW_SEEDS) {
+    const probe = () => {
+      for (const team of [0, 1]) {
+        const ids = sideMembers(team), heroes = ids.map((id) => Abilities.pickHero(id)), names = heroes.map((hero) => hero.id).join(' ');
+        check('seed ' + seed + ' team ' + team + ': no hero twice, every role', new Set(heroes).size === heroes.length && new Set(heroes.map((hero) => hero.role)).size === roles, names);
+        check('seed ' + seed + ' team ' + team + ': the same heroes on the next pick', ids.every((id, k) => Abilities.pickHero(id) === heroes[k]), names);
+        lineups.add(team + ': ' + names);
+      }
+      const team = sideMembers(0), picked = Abilities.pickHero(team[1]);
+      for (const id of team) Abilities.drawn[id] = null;
+      Abilities.setChoice(team[0], { hero: picked.id });
+      check('seed ' + seed + ': a teammate\'s own pick is left out of the draw', team.slice(1).every((id) => Abilities.pickHero(id) !== picked), picked.id);
+      const otherHeroes = sideMembers(1).map((id) => Abilities.pickHero(id));
+      const moved = team.slice(1).find((id) => otherHeroes.includes(Abilities.pickHero(id)));   // 5 + 5 heroes of 8: some are shared
+      Actors.team[moved] = 1;   // as auto-balance does
+      check('seed ' + seed + ': a bot moved to the other team draws for it', !otherHeroes.includes(Abilities.pickHero(moved)), String(moved));
+    };
+    playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'heroes', minutes: 0, botCount: HERO_DRAW_BOTS, seed, modeOptions: SOAK_OPEN_MATCH, probe });
+  }
+  check('the line-ups change with the seed', lineups.size > HERO_DRAW_SEEDS.length, [...lineups].join(' / '));
+});
+
+// balance-04: hero Team Clash counts to HERO_KILL_LIMIT_SCALE of its limit; other rulesets and modes and a match's own limit
+// keep theirs.
+Test.add('abilities', (check) => {
+  const tdm = CAT.modes.byId('tdm').scoreLimit, limit = (setup) => Rules.build(setup).scoreLimit, hero = limit({ mode: 'tdm', ruleset: 'heroes' });
+  check('hero Team Clash counts to the hero share of the kill limit', hero === Math.ceil(tdm * HERO_KILL_LIMIT_SCALE), String(hero));
+  check('Arena Classic Team Clash keeps its limit', limit({ mode: 'tdm' }) === tdm);
+  check('a match\'s own score limit is kept', limit({ mode: 'tdm', ruleset: 'heroes', modeOptions: { scoreLimit: 40 } }) === 40);
+  for (const mode of ['ctf', 'ffa', 'attrition', 'cursetag', 'roulette']) {
+    check(mode + ' keeps its score limit in a hero ruleset', limit({ mode, ruleset: 'heroes' }) === CAT.modes.byId(mode).scoreLimit, String(limit({ mode, ruleset: 'heroes' })));
+  }
+  // hazard-01: hero pools soak more hits, so at full push most Skyward Yard kills were falls (botsoak measures the share).
+  const heroRules = Rules.build({ mode: 'tdm', ruleset: 'heroes' }), classicRules = Rules.build({ mode: 'tdm' });
+  check('Hero Squad hits push half as far, Arena Classic at full push', heroRules.hitKnockback === 0.5 && classicRules.hitKnockback === 1, String(heroRules.hitKnockback));
+  check('Hero Squad keeps the full self push (own blasts, leaps)', heroRules.knockback === 1, String(heroRules.knockback));
+});
+
 Test.add('abilities', (check) => {
   const t = AbilityTest.give(AbilityTest.start({}), 'echopulse');
-  const hud = { slots: [], meter: { kind: '', value: 0, ready: false, energy: 0, souls: 0 } };
+  const hud = { slots: [], meter: Object.assign({}, METER_HUD) };
   check('HUD: hudState returns out', Abilities.hudState(t.caster, hud) === hud);
   check('HUD: one slot, ready', hud.slots.length === 1 && hud.slots[0].ready && hud.slots[0].id === 'echopulse' && hud.meter.kind === 'energy');
   AbilityTest.cast(t);
@@ -462,7 +509,10 @@ Test.add('abilities', (check) => {
 Test.add('abilities', (check) => {
   const t = AbilityTest.start({ meter: 'streak' });
   scorePoints(t.caster, 5);
-  check('streak: 500 points load the orbital lance', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'orbital');
+  check('streak: 500 points load the 300 reward first and queue the orbital lance', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'seerpulse');
+  check('streak: the first reward is used once', Abilities.tryActivate(t.caster, SLOT.ULTIMATE));
+  runSeconds(CAT.abilities.byId('seerpulse').duration + 0.2);
+  check('streak: then the orbital lance loads', Abilities.row(t.caster, SLOT.ULTIMATE).id === 'orbital');
   check('streak: the orbital is used once', Abilities.tryActivate(t.caster, SLOT.ULTIMATE));
   check('streak: an instant reward of any category empties the slot', !Abilities.row(t.caster, SLOT.ULTIMATE) && !Abilities.rewardLoaded[t.caster]);
   TestArena.finish();
@@ -490,14 +540,15 @@ Test.add('abilities', (check) => {
   Actors.profile[t.caster] = null;
   TestArena.hit(t.enemy, t.caster, 100);
   const shield = Actors.shield[t.caster];
-  runSeconds(2.5);
-  check('H02 shield regen passive: 30/s after 1.5 s (before the preset 3 s)', Test.near(Actors.shield[t.caster] - shield, 30, 1), Actors.shield[t.caster] - shield);
+  const passive = CAT.heroes.byId('moraine').passive;
+  runSeconds(passive.delay + 0.5);
+  check('H02 shield regen passive: ' + passive.rate + '/s after ' + passive.delay + ' s (before the preset 3 s)', passive.delay + 0.5 < 3 && Test.near(Actors.shield[t.caster] - shield, passive.rate * 0.5, 1), Actors.shield[t.caster] - shield);
   TestArena.finish();
 });
 
 Test.add('abilities', (check) => {
   const t = AbilityTest.give(AbilityTest.start({}), 'echopulse');
-  const hud = { slots: [], meter: { kind: '', value: 0, ready: false, energy: 0, souls: 0 } };
+  const hud = { slots: [], meter: Object.assign({}, METER_HUD) };
   Abilities.hudState(t.caster, hud);
   const slots = hud.slots, first = hud.slots[0];
   Abilities.hudState(t.caster, hud);
@@ -763,5 +814,76 @@ Test.add('abilities', (check) => {
   for (let i = 0; i < BODY_CAPACITY; i++) if (Bodies.active[i] && Bodies.kind[i] === BODY_KIND.THROWN && Bodies.owner[i] === t.caster) body = i;
   check('A03 a melee swing throws the prop in front along the view', body >= 0 && !Props.isStanding(0) && Test.near(Bodies.vz[body], t.row.params.throwSpeed, 1e-3)
     && Bodies.impactCap[body] === LIFTER_DAMAGE_CAP, body >= 0 ? Bodies.vz[body] : -1);
+  TestArena.finish();
+});
+
+// F43: a combo is four taps close together, not four direction changes at any pace.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.start({ meter: 'adrenaline' });
+  const walkForward = (gapSeconds) => {
+    Actors.moveZ[t.caster] = 1; Sim.step();
+    Actors.moveZ[t.caster] = 0; Sim.run(Math.round(gapSeconds * TICK_RATE));
+  };
+  Meters.points[t.caster] = 100;
+  for (let k = 0; k < 4; k++) walkForward(1);
+  check('F43 four forward walks one second apart do not cast the combo', !Abilities.isActive(t.caster, 'surgecombo') && Meters.points[t.caster] === 100);
+  for (let k = 0; k < 4; k++) walkForward(0.15);
+  check('F43 four quick forward taps cast the combo', Abilities.isActive(t.caster, 'surgecombo') && Meters.points[t.caster] === 0);
+  TestArena.finish();
+});
+
+// F44 (R-100): A40 Rally Cry's extra shield is a timed pool inside the surplus cap.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({ meter: 'ultimate' }), 'rally');
+  Damage.surplus[t.ally] = 80;
+  AbilityTest.cast(t);
+  runSeconds(0.1);
+  const cap = CAT.powerups.byId('surplus').instant.surplusCap;
+  check('F44 rally shield stops at the surplus cap', Damage.surplus[t.ally] === cap && Damage.surplus[t.caster] === 50, Damage.surplus[t.ally]);
+  runSeconds(CAT.abilities.byId('rally').duration + 0.2);
+  check('F44 rally shield is gone after its 8 s (earlier surplus stays)', Damage.surplus[t.ally] === 80 && Damage.surplus[t.caster] === 0, Damage.surplus[t.ally]);
+  TestArena.finish();
+});
+
+// F45 (R-102): Tracker footprints last the full 8 s with many runners about, and a crouch-walk leaves none.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({}), 'tracker');
+  AbilityTest.cast(t);
+  const runners = [t.enemy, t.second];
+  for (let k = 0; k < 6; k++) runners.push(TestArena.actor(1, -10 - k, 10, Math.PI));
+  Footprints.clear();
+  Bus.emit('move.step', { id: t.enemy, speed: 4, surface: '', loudness: 1 });
+  const first = lastPrint(t.enemy);
+  for (let step = 0; step < 29; step++) {
+    runSeconds(0.25);
+    for (const runner of runners) Bus.emit('move.step', { id: runner, speed: 4, surface: '', loudness: 1 });
+  }
+  check('F45 with eight runners about, an enemy print is still shown after 7.25 s', footprintVisible(t.caster, first), Sim.time);
+  const before = Footprints.next[t.enemy];
+  Bus.emit('move.step', { id: t.enemy, speed: 2, surface: '', loudness: 0.25 });
+  Bus.emit('move.step', { id: t.enemy, speed: 0, surface: '', loudness: 0 });
+  check('F45 a crouch-walk or a silent step leaves no print', Footprints.next[t.enemy] === before);
+  TestArena.finish();
+});
+
+// F45 (R-107): targeted abilities use the shared nearest-seen picker: a cloaked enemy or one behind smoke is no target.
+Test.add('abilities', (check) => {
+  const t = AbilityTest.give(AbilityTest.start({}), 'binding');
+  check('F45 an enemy in the cone is a target', aimTarget(t.caster, 30) === t.enemy);
+  Actors.flags[t.enemy] |= ACTOR_FLAG.INVISIBLE;
+  check('F45 a cloaked enemy in the cone is no target and the cast is refused', aimTarget(t.caster, 30) < 0 && !AbilityTest.cast(t));
+  Actors.flags[t.enemy] &= ~ACTOR_FLAG.INVISIBLE;
+  Smoke.spawn(CAT.gadgets.byId('smoke'), -1, 0, 1, 3);
+  runSeconds(2);
+  check('F45 an enemy behind smoke is no target', aimTarget(t.caster, 30) < 0);
+  TestArena.finish();
+});
+
+// F45 (R-107): the picker orders by the crosshair, not by distance: a nearer enemy further off the aim line loses (A23 cone).
+Test.add('abilities', (check) => {
+  const t = AbilityTest.start({});
+  TestArena.place(t.second, 1.5, 3);
+  check('F45 the enemy on the crosshair is picked over a nearer one 27 deg off', aimTarget(t.caster, 30, 30) === t.enemy);
+  check('F45 the range still holds: only the near one is in reach', aimTarget(t.caster, 5, 30) === t.second);
   TestArena.finish();
 });

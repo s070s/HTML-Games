@@ -5,8 +5,6 @@
 // The pure model (CustomCodec, CustomMatch) has no DOM and is what the self-test drives; the screens below it only call the model.
 // Contract: docs/api/mutators-custom.md.
 
-const EDITOR_NAME_MAX = 40;
-const EDITOR_BOTS_MAX = 23;                  // the highest bot cap of any quality preset (PERF-009)
 const EDITOR_CODE_PREFIX = 'CTK';
 const EDITOR_CODE_VERSION = 1;
 const EDITOR_CODE_MAX_CHARS = 6000;
@@ -14,7 +12,6 @@ const EDITOR_PAYLOAD_MAX_BYTES = 16384;
 const EDITOR_DEFAULT = -1;                    // numeric fields: -1 = the mode's / bundle's own default
 const EDITOR_PERSONALITY_MIXED = 'mixed';
 const EDITOR_LIST_MUTATOR = 'weaponset';      // the Weapons tab list travels as this mutator
-const EDITOR_SEED_RANGE = 0x7fffffff;
 const LZ_MAX_RUN = 128, LZ_MIN_MATCH = 3, LZ_MAX_MATCH = 130, LZ_MAX_OFFSET = 65535, LZ_MATCH_FLAG = 0x80;
 const EDITOR_SCORE_LIMITS = [-1, 0, 10, 25, 50, 100, 150, 200, 300, 500];
 const EDITOR_TIME_LIMITS = [-1, 0, 120, 300, 600, 900, 1200, 1800, 3600];
@@ -162,8 +159,12 @@ function difficultySlidersCheck(value) {
   return Object.assign({}, value);
 }
 
+// One note for both ends of a code: the sender's share screen and the receiver's import.
+const SHARE_LOCAL_MAP_NOTE = 'A map editor or generated map lives only on its own device, so this code plays a random map.';
+function isSharedMap(id) { return !id || (!!CAT.maps && !!CAT.maps.byId(id)); }
+
 const EDITOR_FIELD_CHECKS = {
-  name: (value) => (typeof value === 'string' ? cleanLabel(value, EDITOR_NAME_MAX) : undefined),
+  name: (value) => (typeof value === 'string' ? cleanLabel(value, LABEL_MAX) : undefined),
   mode: (value) => (isToken(value) && CAT.modes.byId(value) && Modes.isPlayable(value) ? value : undefined),
   map: isBlankOr((value) => !!CAT.maps && isToken(value) && !!Maps.get(value)),
   bundle: isBlankOr((value) => RULESET_ROWS.some((row) => row.id === value)),
@@ -176,8 +177,8 @@ const EDITOR_FIELD_CHECKS = {
   friendlyFire: oneOfList(EDITOR_FRIENDLY_FIRE),
   lives: oneOfList(EDITOR_LIVES),
   respawnDelay: oneOfList(EDITOR_RESPAWN),
-  botCount: integerBetween(EDITOR_DEFAULT, EDITOR_BOTS_MAX),
-  allies: integerBetween(EDITOR_DEFAULT, EDITOR_BOTS_MAX),
+  botCount: integerBetween(EDITOR_DEFAULT, QUALITY_BOTS_MAX),
+  allies: integerBetween(EDITOR_DEFAULT, QUALITY_BOTS_MAX),
   difficulty: (value) => (isToken(value) && (!CAT.difficulty || !!CAT.difficulty.byId(value)) ? value : undefined),
   difficultySliders: difficultySlidersCheck,
   personality: (value) => (value === EDITOR_PERSONALITY_MIXED || (isToken(value) && !!CAT.bots && !!CAT.bots.byId(value)) ? value : undefined),
@@ -222,19 +223,24 @@ const CustomMatch = {
   save(draft) { Settings.set('custom.draft', JSON.stringify(draft)); },
 
   // ---- Share codes ----
-  // Only the fields that differ from the defaults travel in a code.
+  // Only the fields that differ from the defaults travel in a code. Only a built-in map travels: an editor or generated map is
+  // a local slot (user1 is another map on the next device), so the code then plays a random map.
   encode(draft) {
     const defaults = customDefaults(), changed = {};
     for (const key in defaults) if (JSON.stringify(draft[key]) !== JSON.stringify(defaults[key])) changed[key] = draft[key];
+    if (!isSharedMap(changed.map)) delete changed.map;
     return CustomCodec.pack(changed);
   },
-  // text -> { draft } or { error }
+  // text -> { draft, note } or { error }
   decode(text) {
     const unpacked = CustomCodec.unpack(text);
     if (unpacked.error) return unpacked;
-    const checked = this.validate(unpacked.object);
+    const object = unpacked.object;
+    let note = '';
+    if (isPlainObject(object) && object.map && !isSharedMap(object.map)) { delete object.map; note = SHARE_LOCAL_MAP_NOTE; }
+    const checked = this.validate(object);
     if (checked.errors.length) return { error: 'The code holds settings this version cannot use: ' + checked.errors.slice(0, 3).join(', ') + '.' };
-    return { draft: checked.draft };
+    return { draft: checked.draft, note };
   },
 
   // ---- Ruleset and setup ----
@@ -285,16 +291,13 @@ const CustomMatch = {
     const wanted = draft.botCount >= 0 ? draft.botCount : Modes.defaultBots(mode.id, true).length;
     return Math.min(wanted, Quality.current().bots);
   },
-  botList(draft, mode) {
+  // Mixed: the named roster bots Quick Play fields for the seed (R-148); otherwise every bot plays the chosen personality.
+  botList(draft, mode, seed) {
     const count = this.botCount(draft, mode);
     const allies = draft.allies >= 0 ? Math.min(draft.allies, count) : Math.floor(count / 2);
-    const bots = [];
-    for (let index = 0; index < count; index++) {
-      const bot = {};
-      if (mode.teams === 2) bot.team = index < allies ? 0 : 1;
-      if (draft.personality !== EDITOR_PERSONALITY_MIXED) bot.profile = draft.personality;
-      bots.push(bot);
-    }
+    const bots = draft.personality === EDITOR_PERSONALITY_MIXED ? PlayFlow.rosterBots(count, draft.difficulty, seed)
+      : Array.from({ length: count }, () => ({ profile: draft.personality }));
+    if (mode.teams === 2) bots.forEach((bot, index) => { bot.team = index < allies ? 0 : 1; });
     return bots;
   },
   mapFor(draft, seed) {
@@ -306,14 +309,18 @@ const CustomMatch = {
     const options = {};
     if (draft.scoreLimit >= 0) options.scoreLimit = draft.scoreLimit;
     if (draft.timeLimit >= 0) options.timeLimit = draft.timeLimit;
-    if (draft.roundWins >= 0 && mode.rounds) options.rounds = { winsNeeded: draft.roundWins, limit: Math.max(mode.rounds.limit, draft.roundWins * 2 - 1) };
+    // At most 2w - 1 rounds; a mode with a side switch (bomb, ghostops) switches after w - 1 of them, so both sides attack.
+    if (draft.roundWins >= 0 && mode.rounds) {
+      const wins = draft.roundWins;
+      options.rounds = { winsNeeded: wins, limit: wins * 2 - 1, switchAt: mode.rounds.switchAt > 0 ? wins - 1 : 0 };
+    }
     return options;
   },
   // draft -> Game.start setup. seed picks a random map when none is chosen; withPlayer false starts a spectator match.
   setup(draft, seed, withPlayer) {
-    const mode = CAT.modes.byId(draft.mode), matchSeed = seed === undefined ? Date.now() % EDITOR_SEED_RANGE : seed;
+    const mode = CAT.modes.byId(draft.mode), matchSeed = seed === undefined ? newSeed() : seed;
     const setup = { mode: mode.id, map: this.mapFor(draft, matchSeed), seed: matchSeed, mutators: this.matchMutators(draft), difficulty: this.difficultyOf(draft),
-      bots: this.botList(draft, mode), modeOptions: this.modeOptions(draft, mode) };
+      bots: this.botList(draft, mode, matchSeed), modeOptions: this.modeOptions(draft, mode) };
     setup.ruleset = this.hasOverrides(draft) || draft.name ? Object.assign(this.rulesetFields(draft), { id: 'custom', name: draft.name || 'Custom match' }) : this.bundleOf(draft).id;
     if (draft.allies >= 0 && mode.teams === 2) setup.balance = false;
     if (withPlayer !== false) setup.player = mode.teams === 2 ? { team: 0 } : {};
@@ -375,16 +382,14 @@ function editorMapOptions(draft) {
   const maps = Maps.savedForMode(draft.mode);
   return { values: [''].concat(maps.map((map) => map.id)), labels: ['Random'].concat(maps.map((map) => map.code + ' ' + map.name)) };
 }
-function editorBotCountOptions() {
-  const top = Quality.current().bots, values = [EDITOR_DEFAULT];
+// Bot counts up to this device's quality cap (PlayFlow.maxBots), after the default entry named defaultLabel.
+function editorBotOptions(defaultLabel) {
+  const top = PlayFlow.maxBots(), values = [EDITOR_DEFAULT];
   for (let count = 0; count <= top; count++) values.push(count);
-  return { values, labels: values.map((value) => (value === EDITOR_DEFAULT ? 'Mode default' : String(value))) };
+  return { values, labels: values.map((value) => (value === EDITOR_DEFAULT ? defaultLabel : String(value))) };
 }
-function editorAlliesOptions(draft) {
-  const top = Math.min(Quality.current().bots, EDITOR_BOTS_MAX), values = [EDITOR_DEFAULT];
-  for (let count = 0; count <= top; count++) values.push(count);
-  return { values, labels: values.map((value) => (value === EDITOR_DEFAULT ? 'Balanced' : String(value))) };
-}
+function editorBotCountOptions() { return editorBotOptions('Mode default'); }
+function editorAlliesOptions() { return editorBotOptions('Balanced'); }
 function editorDifficultyOptions() {
   const rows = CAT.difficulty ? Array.from(CAT.difficulty) : [{ id: DEFAULT_DIFFICULTY, name: 'Regular' }];
   return { values: rows.map((row) => row.id), labels: rows.map((row) => row.name) };
@@ -397,10 +402,11 @@ function editorPersonalityOptions() {
 // One row per simple field: which tab, the draft key, how to list its values, when to show it, what else changes with it.
 const EDITOR_FIELDS = [
   { tab: 'mode', key: 'mode', label: 'Game mode', options: editorModeOptions, changed: 'modeChanged' },
-  { tab: 'mode', key: 'scoreLimit', label: 'Score limit', options: () => editorList(EDITOR_SCORE_LIMITS, editorLimitLabel('None', editorPlain)) },
-  { tab: 'mode', key: 'timeLimit', label: 'Time limit', options: () => editorList(EDITOR_TIME_LIMITS, editorLimitLabel('None', editorMinutes)) },
+  { tab: 'mode', key: 'scoreLimit', label: 'Score limit', options: () => editorList(EDITOR_SCORE_LIMITS, editorLimitLabel('None', editorPlain)), show: (draft) => Modes.honoursLimit(draft.mode, 'score') },
+  { tab: 'mode', key: 'timeLimit', label: 'Time limit', options: () => editorList(EDITOR_TIME_LIMITS, editorLimitLabel('None', editorMinutes)), show: (draft) => Modes.honoursLimit(draft.mode, 'time') },
   { tab: 'mode', key: 'roundWins', label: 'Rounds to win', options: () => editorList(EDITOR_ROUND_WINS, editorLimitLabel('None', editorPlain)), show: (draft) => !!CAT.modes.byId(draft.mode).rounds },
-  { tab: 'mode', key: 'lives', label: 'Lives', options: () => editorList(EDITOR_LIVES, editorLimitLabel('Unlimited', editorPlain)) },
+  { tab: 'mode', key: 'lives', label: 'Lives', options: () => editorList(EDITOR_LIVES, editorLimitLabel('Unlimited', editorPlain)),
+    show: (draft) => Mutators.fitsMode(Mutators.row('lives'), CAT.modes.byId(draft.mode)) },
   { tab: 'rules', key: 'bundle', label: 'Rule bundle', options: () => editorCatalogue(RULESET_ROWS, 'Mode default') },
   { tab: 'rules', key: 'move', label: 'Movement', options: () => editorOptionalCatalogue('movement', 'From bundle') },
   { tab: 'rules', key: 'health', label: 'Health', options: () => editorOptionalCatalogue('health', 'From bundle') },
@@ -517,7 +523,12 @@ function editorMutatorRows(list) {
   const draft = EDITOR_STATE.draft;
   list.appendChild(makeElement('p', 'ui-note', draft.mutators.length ? draft.mutators.map((entry) => Mutators.describe(entry)).join(' | ') : 'No mutators. Turn some on; a mutator that cannot be combined with another one turns the other one off.'));
   list.appendChild(Ui.button('Turn all off', () => { draft.mutators = []; editorChanged(); }));
-  for (const row of CAT.mutators) list.appendChild(editorMutatorRow(row));
+  for (const row of editorModeMutators(draft.mode)) list.appendChild(editorMutatorRow(row));
+}
+// The mutator rows the mode can use (row.needs); the others would do nothing there.
+function editorModeMutators(modeId) {
+  const mode = CAT.modes.byId(modeId);
+  return CAT.mutators.filter((row) => Mutators.fitsMode(row, mode));
 }
 
 // ---- Rules tab: the one-click bundle starts ----
@@ -566,14 +577,13 @@ function editorSummary(draft) {
 
 function editorRenderTab(list, summary) {
   const draft = EDITOR_STATE.draft;
-  const focused = document.activeElement && list.contains(document.activeElement) ? Array.from(list.querySelectorAll('button, input')).indexOf(document.activeElement) : -1;
-  list.replaceChildren();
   summary.textContent = editorSummary(draft);
-  const fields = EDITOR_FIELDS.filter((field) => field.tab === EDITOR_STATE.tab && (!field.show || field.show(draft)));
-  for (const field of fields) list.appendChild(editorFieldRow(field));
-  if (EDITOR_TAB_EXTRAS[EDITOR_STATE.tab]) EDITOR_TAB_EXTRAS[EDITOR_STATE.tab](list);
-  const items = Array.from(list.querySelectorAll('button, input'));
-  if (focused >= 0 && items[focused]) items[focused].focus();
+  Ui.rebuild(list, () => {
+    list.replaceChildren();
+    const fields = EDITOR_FIELDS.filter((field) => field.tab === EDITOR_STATE.tab && (!field.show || field.show(draft)));
+    for (const field of fields) list.appendChild(editorFieldRow(field));
+    if (EDITOR_TAB_EXTRAS[EDITOR_STATE.tab]) EDITOR_TAB_EXTRAS[EDITOR_STATE.tab](list);
+  });
 }
 
 Ui.register('custom', {
@@ -631,7 +641,7 @@ Ui.register('customPresets', {
     head.appendChild(Ui.button('Back', () => Ui.back()));
     head.appendChild(makeElement('h1', 'ui-title', 'Saved Presets'));
     const nameInput = makeElement('input', 'cm-name');
-    nameInput.type = 'text'; nameInput.maxLength = EDITOR_NAME_MAX; nameInput.placeholder = 'Preset name';
+    nameInput.type = 'text'; nameInput.maxLength = LABEL_MAX; nameInput.placeholder = 'Preset name';
     nameInput.value = editorDraft().name;
     const count = makeElement('p', 'ui-sub'), list = makeElement('div', 'ui-scroll');
     const renderList = () => {
@@ -653,13 +663,22 @@ Ui.register('customPresets', {
 });
 
 // ---- Share screen: show and copy the code, paste and import one ----
+const COPY_DONE_TEXT = 'Code copied.';
+const COPY_MANUAL_TEXT = 'Select the code and copy it.';
+// Copies a code field. Without the clipboard API (http) it selects the way iOS accepts and says "copied" only on success (R-046).
 function copyText(text, field) {
   const fallback = () => {
-    field.select();
-    try { document.execCommand('copy'); emitToast('Code copied.'); } catch (error) { emitToast('Select the code and copy it.'); }
+    const wasReadOnly = field.readOnly;
+    field.readOnly = false;
+    field.focus();
+    field.setSelectionRange(0, field.value.length);
+    let copied = false;
+    try { copied = document.execCommand('copy'); } catch (error) { copied = false; }
+    field.readOnly = wasReadOnly;
+    emitToast(copied ? COPY_DONE_TEXT : COPY_MANUAL_TEXT);
   };
   if (!navigator.clipboard) { fallback(); return; }
-  navigator.clipboard.writeText(text).then(() => emitToast('Code copied.'), fallback);
+  navigator.clipboard.writeText(text).then(() => emitToast(COPY_DONE_TEXT), fallback);
 }
 Ui.register('customShare', {
   build(root) {
@@ -670,20 +689,23 @@ Ui.register('customShare', {
     const scroll = makeElement('div', 'ui-scroll');
     const mine = makeElement('textarea', 'ui-code'), paste = makeElement('textarea', 'ui-code');
     mine.readOnly = true; mine.tabIndex = 0; paste.tabIndex = 0;
-    mine.value = CustomMatch.encode(editorDraft());
+    const mapNote = makeElement('p', 'ui-note');
+    const showCode = (draft) => { mine.value = CustomMatch.encode(draft); mapNote.textContent = isSharedMap(draft.map) ? '' : SHARE_LOCAL_MAP_NOTE; };
+    showCode(editorDraft());
     paste.placeholder = 'Paste a match code here';
     const message = makeElement('p', 'ui-note');
     const importButton = Ui.button('Import code', () => {
       const result = CustomMatch.decode(paste.value);
       message.className = result.error ? 'ui-note cm-error' : 'ui-note';
-      message.textContent = result.error || 'Imported. The settings are loaded in the editor.';
+      message.textContent = result.error || ('Imported. The settings are loaded in the editor. ' + result.note).trim();
       if (result.error) return;
       EDITOR_STATE.draft = result.draft;
-      mine.value = CustomMatch.encode(result.draft);
+      showCode(result.draft);
       editorChanged();
     }, 'primary');
     scroll.appendChild(makeElement('div', 'ui-group', 'Your settings as a code (' + mine.value.length + ' characters)'));
     scroll.appendChild(mine);
+    scroll.appendChild(mapNote);
     scroll.appendChild(Ui.button('Copy code', () => copyText(mine.value, mine)));
     scroll.appendChild(makeElement('div', 'ui-group', 'Import a code'));
     scroll.appendChild(paste);

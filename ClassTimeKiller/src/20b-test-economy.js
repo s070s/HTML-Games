@@ -23,7 +23,7 @@ function winRound(victim, killer) {
 }
 function grantAllGadgets() { Economy.grants.gadget = () => true; }
 function firstWeaponForSale(id) {
-  return Economy.catalogue().find((item) => item.kind === 'weapon' && !Weapons.has(id, item.key)) || null;
+  return Economy.catalogue(id).find((item) => item.kind === 'weapon' && !Weapons.has(id, item.key)) || null;
 }
 
 Test.add('economy', (check) => {
@@ -128,9 +128,80 @@ Test.add('economy', (check) => {
   const kept = firstWeaponForSale(0);
   Economy.buy(0, kept.id); Economy.buy(0, 'vest');
   Economy.buy(1, firstWeaponForSale(1).id);
+  const keptSlot = Weapons.slotIndex(0, CAT.weapons.byId(kept.key).index);
+  runUntilPhase(PHASE.LIVE);
+  Weapons.magazine[keptSlot] = 1; Weapons.reserve[keptSlot] = 2;
   winRound(1, 0);
   check('ECP02 survivors keep bought weapons and armor', Weapons.has(0, kept.key) && Actors.armor[0] === 100, Actors.armor[0]);
+  check('ECP02 a kept weapon keeps its ammo, no free refill (modes-09)', Weapons.magazine[keptSlot] === 1 && Weapons.reserve[keptSlot] === 2,
+    Weapons.magazine[keptSlot] + '/' + Weapons.reserve[keptSlot]);
   check('ECP02 the dead lose bought weapons', !Weapons.has(1, kept.key));
+  endModeTest();
+});
+
+// R-134, R-197: survivors keep unused grenades and picked-up weapons; a helmet over a full vest costs only the helmet.
+Test.add('economy', (check) => {
+  startBombTest();
+  Economy.setMoney(0, 1000);
+  check('buy: a vest, then the helmet upgrade for 350', Economy.buy(0, 'vest').ok && Economy.buy(0, 'vesthelmet').price === 350 && Economy.money(0) === 0 && Damage.helmet[0] === 1,
+    Economy.money(0));
+  Economy.setMoney(0, 9000);
+  check('buy: one frag charge', Economy.buy(0, 'buyFrag').ok && Gadgets.countOf(0, 'frag') === 1);
+  Weapons.give(0, 'heron', 0);   // a picked-up rifle
+  winRound(1, 0);
+  check('ECP02 a survivor keeps the unused grenade and the picked-up weapon', Gadgets.countOf(0, 'frag') === 1 && Weapons.has(0, 'heron') && Damage.helmet[0] === 1,
+    Gadgets.countOf(0, 'frag') + ' ' + Weapons.has(0, 'heron'));
+  endModeTest();
+});
+
+// R-133, R-135: the Economy panel describes the economy in effect (a mode's params.economy wins); one source per economy rule.
+Test.add('economy', (check) => {
+  TestArena.start({ economy: 'classes', params: CAT.modes.byId('horde').params });
+  const horde = economyPanelLines();
+  check('economy panel: Siege Waves shows the wave shop', horde.name === 'Wave Shop' && horde.lines.some((line) => line.includes('shop between waves')) && !horde.lines.some((line) => line.includes('class')),
+    horde.lines.join(' | '));
+  TestArena.finish();
+  TestArena.start({ economy: 'pickups', params: CAT.modes.byId('gungame').params });
+  const played = ladderTiers(CAT.modes.byId('gungame').params).length;
+  check('economy panel: Arms Ladder names the played ladder length (12)', played === 12 && economyPanelLines().lines.some((line) => line.includes('ladder of ' + played + ' weapons')));
+  TestArena.finish();
+  TestArena.start({ economy: 'loot', weaponSet: 'lootSet' });
+  check('economy panel: loot reads the carry limit of the weapon set', economyPanelLines().lines.some((line) => line.includes('You carry ' + CAT.weaponSets.byId('lootSet').carry + ' weapons')));
+  TestArena.finish();
+  check('economy rows keep no unread or duplicate fields', ['carryOver', 'slots', 'ammoTypes', 'weaponStay'].every((field) => !(field in Data.schemas.economy)));
+});
+
+// R-028: Ghost Ops attackers buy armor and grenades only (params.attackerBuys); the defenders buy anything. Bots read the same list.
+Test.add('economy', (check) => {
+  startModeTest('ghostops', modesTestMap(BOMB_MAP), [0, 1], { modeOptions: { rounds: { freeze: 1, endDelay: 1, live: 30 } } });
+  runSeconds(1.01);
+  Economy.setMoney(0, 9000); Economy.setMoney(1, 9000);
+  const attackerItems = Economy.catalogue(0).map((item) => item.kind);
+  check('ghostops: no weapons on sale to the attackers', attackerItems.length > 0 && !attackerItems.includes('weapon') && Economy.buy(0, 'vanguard').ok === false
+    && Economy.limitReason(0, weaponItem('vanguard')) === 'side' && Economy.money(0) === 9000, attackerItems.join());
+  check('ghostops: attackers still buy armor and grenades', Economy.buy(0, 'vest').ok && Economy.buy(0, 'buySmoke').ok);
+  check('ghostops: defenders buy rifles', Economy.catalogue(1).some((item) => item.kind === 'weapon') && Economy.buy(1, 'vanguard').ok);
+  endModeTest();
+});
+
+// R-029, R-138: wherever the buy menu has items, buy time opens (round modes at the round start, the others at each spawn).
+Test.add('economy', (check) => {
+  const versus = CAT.modes.filter((row) => row.family === 'versus' && Modes.isPlayable(row.id) && row.respawn !== 'none');
+  for (const mode of versus) {
+    const teams = mode.teams === TEAM_COUNT ? [0, 1] : [-1, -1];
+    startModeTest(mode.id, modesTestMap(COMBO_MAP), teams, { ruleset: 'tactical', modeOptions: { rounds: mode.rounds ? { freeze: 1, endDelay: 1, live: 30 } : null } });
+    runSeconds(1.01);
+    const items = Economy.catalogue(0).length;
+    check('round buy in ' + mode.id + ': buy time is open while items are on sale', items === 0 || Economy.buyBlock(0) === '', items + ' ' + Economy.buyBlock(0));
+    if (Economy.modeArmsEveryone()) check('round buy in ' + mode.id + ': the mode arms everyone, so no weapons are sold', !Economy.catalogue(0).some((item) => item.kind === 'weapon'));
+    endModeTest();
+  }
+  startModeTest('ffa', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { ruleset: 'tactical' });
+  runSeconds(Economy.preset().buyTime);
+  check('round buy in ffa: buy time ends buyTime after the spawn', Economy.buyBlock(0) === 'closed');
+  killActor(0, 1);
+  respawnAll();
+  check('round buy in ffa: a respawn opens it again', Actors.alive[0] === 1 && Economy.buyBlock(0) === '' && Economy.hudState(0, ECONOMY_HUD).buyTimeLeft > 0);
   endModeTest();
 });
 
@@ -151,7 +222,7 @@ Test.add('economy', (check) => {
   check('ECP07 round-buy items are not sold in the shop', Economy.buy(fighter, 'vest').reason === 'unknown');
   const played = ladderTiers(CAT.modes.byId('gungame').params);
   check('ECP06 one ladder: the economy row and the played tiers share GUNGAME_LADDER, no second lookup',
-    CAT.economy.byId('ladder').ladder === GUNGAME_LADDER && played[0] === GUNGAME_LADDER[0] && played[17] === 'maul' && Economy.ladderWeapon === undefined);
+    CAT.economy.byId('ladder').ladder === GUNGAME_LADDER && played[0] === GUNGAME_LADDER[0] && played[played.length - 1] === 'maul' && Economy.ladderWeapon === undefined);
   TestArena.finish();
 });
 
@@ -179,6 +250,40 @@ Test.add('economy', (check) => {
   check('ECP04 clearing perks restores the stats', Test.near(Weapons.statScale[base + STAT.RESERVE], 1, 1e-6) && Economy.taken[rifleman] === 1);
   TestArena.finish();
 });
+
+// Perk texts restate their tuning numbers: every number in a text must follow from the row (a percent of a factor, the factor,
+// its inverse or the value), so a balance change cannot leave a stale text behind (normalize-06).
+Test.add('economy', (check) => {
+  const stale = CAT.perks.filter((perk) => {
+    const shown = Object.values(perk.stats).concat([perk.dealt, perk.taken, perk.value]).flatMap((n) => [Math.round(Math.abs(n - 1) * 100), n, Math.round(100 / n) / 100]);
+    return (perk.text.match(/\d+(\.\d+)?/g) || []).some((text) => !shown.includes(Number(text)));
+  });
+  check('every number in a perk text follows from its stats or value', stale.length === 0, stale.map((perk) => perk.id).join());
+});
+
+// RS12 Frame Runner arms the classes from its Exotic set, so its weapons are used at all (balance-01).
+Test.add('economy', (check) => {
+  const exotic = CAT.weaponSets.byId('exoticSet').weapons;
+  const unswapped = CAT.weaponSets.byId('militarySet').weapons.filter((key) => CAT.weapons.byId(key).class !== 'melee' && !exotic.includes(CLASS_SET_SWAPS.exoticSet[key]));
+  World.load(modesTestMap({ spawns: TEAM_SPAWNS }));
+  Game.start({ mode: 'tdm', ruleset: 'frame', seed: 1, bots: CAT.classes.map((row, index) => ({ dummy: true, team: index % 2 })) });
+  Economy.applyClass(0, CAT.classes.byId('marksman'));
+  check('frame: classes carry Exotic weapons (Marksman: Talon Bow, Sparklock)', unswapped.length === 0 && Weapons.has(0, 'talonbow') && Weapons.has(0, 'sparklock')
+    && !Weapons.has(0, 'longshot') && Weapons.has(1, CLASS_SET_SWAPS.exoticSet[Loadouts.classFor(1).primary]), unswapped.join());
+  const card = makeElement('div');
+  describeClass(card, CAT.classes.byId('marksman'));
+  check('frame: the class card names the weapons the class spawns with', card.textContent.includes(weaponName('talonbow')) && !card.textContent.includes(weaponName('longshot')), card.textContent);
+  // The class editor offers Military keys only, each labelled with the weapon this match arms (modes-02).
+  const offered = CLASS_FIELD_OPTIONS.primary().concat(CLASS_FIELD_OPTIONS.secondary()), military = CAT.weaponSets.byId(CLASS_WEAPON_SET).weapons;
+  const outside = offered.filter((key) => !military.includes(key) || (CLASS_SET_SWAPS.exoticSet[key] || key) === key);
+  check('frame: the class editor offers only Military weapons, each one swapped here', outside.length === 0 && CLASS_FIELD_OPTIONS.secondary().every((key) => CAT.weapons.byId(key).class === 'sidearm'), outside.join());
+  const label = CLASS_FIELD_NAMES.primary('hornet');
+  check('frame: the class editor names the weapon a pick spawns with', label.includes(weaponName('hornet')) && label.includes(weaponName('needlethorn')), label);
+  endModeTest();
+  check('classes: outside a swapping set the editor shows the plain name', CLASS_FIELD_NAMES.primary('hornet') === weaponName('hornet'), CLASS_FIELD_NAMES.primary('hornet'));
+  const perks = ['bandolier', 'ghost', 'steady'];
+  check('classes: a weapon outside the Military set or a power primary is refused', Loadouts.saveClass({ primary: 'tempest', secondary: 'hush', perks }) === null
+    && Loadouts.saveClass({ primary: 'shardcaster', secondary: 'warden', perks }) === null && Loadouts.saveClass({ primary: 'warden', secondary: 'verdict', perks }) === null, Loadouts.lastError);});
 
 Test.add('economy', (check) => {
   check('loadouts: created on first use', Loadouts.selectedClass().id === CAT.classes[0].id && !!Save.data.loadouts);
@@ -220,6 +325,10 @@ Test.add('economy', (check) => uiWith(() => {
   check('buy menu: shows credits and the loss ladder', uiScreenText('buy').includes('800 cr') && uiScreenText('buy').includes('Loss bonus'));
   uiKey('Digit1');
   check('buy menu: hotkey 1 buys the first item', Economy.money(player) === 150 && Actors.armor[player] === 100, Economy.money(player));
+  const helmet = BuyMenu.entries.find((entry) => entry.item.id === 'vesthelmet').button;
+  Economy.setMoney(player, 400);
+  BuyMenu.refresh();
+  check('buy menu: the helmet over a full vest shows its upgrade price', helmet.textContent.includes(formatCredits(350)) && !helmet.classList.contains('off'), helmet.textContent);
   uiKey('KeyB');
   check('buy menu: B closes it', Ui.stack.length === 0);
   Ui.open('buy');

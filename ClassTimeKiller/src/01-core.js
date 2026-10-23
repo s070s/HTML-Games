@@ -5,7 +5,11 @@
 const VERSION = '0.1.0';
 const TICK_RATE = 120;                 // simulation steps per second (ARC-010)
 const TICK_SECONDS = 1 / TICK_RATE;
-const MAX_STEPS_PER_FRAME = 4;         // ARC-010: drop the remainder after 4 steps
+// ARC-010 spiral guard: a frame runs as many steps as SIM_FRAME_BUDGET_MS holds at the measured step cost, between the
+// floor and 12 (0.1 s of game time, so a cheap sim keeps 1x speed down to 10 fps); the remainder is dropped.
+const MAX_STEPS_PER_FRAME = 12;
+const MIN_STEPS_PER_FRAME = 4;
+const SIM_FRAME_BUDGET_MS = 25;
 const DEG = Math.PI / 180;
 const GRAVITY = 20;                    // m/s^2 before the ruleset gravityScale (arena feel; presets scale it)
 const MAX_ACTORS = 64;                 // ARC-011
@@ -34,8 +38,11 @@ const smoothstep = (edge0, edge1, x) => { const t = clamp((x - edge0) / (edge1 -
 const length2 = (x, z) => Math.sqrt(x * x + z * z);
 const length3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 const distanceSquared3 = (ax, ay, az, bx, by, bz) => { const dx = bx - ax, dy = by - ay, dz = bz - az; return dx * dx + dy * dy + dz * dz; };
+// An iPhone, iPod or iPad (iPad Safari reports a Mac with touch): the one rule for iOS-only code. nav: navigator or a test stand-in.
+const isAppleTouch = (nav) => /iPad|iPhone|iPod/.test(nav.userAgent || '') || (/Mac/.test(nav.platform || nav.userAgent || '') && nav.maxTouchPoints > 1);
 // A player-typed name or label: control characters and angle brackets removed, trimmed, cut to `limit` characters.
 const cleanLabel = (text, limit) => String(text).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, limit);
+const LABEL_MAX = 40;   // characters in a saved name (custom rulesets and presets, maps)
 
 const Vec = {
   make: (x = 0, y = 0, z = 0) => ({ x, y, z }),
@@ -88,18 +95,48 @@ const Mat4 = {
 };
 
 // ---- Error ring (ARC-041): every caught error lands here; the perf HUD and __CTK.log.errors() read it ----
+// Stack frames kept after the 'Name: message' line.
+const ERROR_STACK_FRAMES = 2;
+// 'Name: message | frame | frame': WebKit (iOS) and Firefox stacks lack the message line Chromium starts with (R-007).
+function errorText(error) {
+  if (!error || typeof error.message !== 'string') return String(error);
+  const head = (error.name || 'Error') + ': ' + error.message;
+  let stack = error.stack ? String(error.stack) : '';
+  if (stack.startsWith(head)) stack = stack.slice(head.length);
+  const frames = stack.split('\n').map((line) => line.trim()).filter((line) => line !== '').slice(0, ERROR_STACK_FRAMES);
+  return [head].concat(frames).join(' | ');
+}
 const ErrorLog = {
   size: 50,
   entries: [],
-  total: 0,               // entries ever added (the list keeps only the last `size`)
+  // ErrorLog.total when each entry was last added or repeated (parallel to entries).
+  stamps: [],
+  // Errors ever added, repeats included (the list keeps only the last `size`)
+  total: 0,
+  // The session's first error: the root cause outlives the ring.
+  first: '',
+  // The newest entry's text and the list length then.
+  lastText: '',
+  lastLength: 0,
+  repeats: 1,
   add(where, error) {
-    const text = where + ': ' + (error && error.stack ? String(error.stack).split('\n').slice(0, 3).join(' | ') : String(error));
+    const text = where + ': ' + errorText(error);
     this.total++;
-    this.entries.push(text);
-    if (this.entries.length > this.size) this.entries.shift();
+    this.stamps.length = this.entries.length;   // the self-test drops entries from the end directly
+    if (!this.first) this.first = text;
+    // An error repeated every step is counted on the newest entry, not flooding the ring (R-164).
+    if (text === this.lastText && this.entries.length === this.lastLength) {
+      this.repeats++;
+      this.entries[this.entries.length - 1] = text + ' (x' + this.repeats + ')';
+      this.stamps[this.stamps.length - 1] = this.total;
+      return;
+    }
+    this.entries.push(text); this.stamps.push(this.total);
+    if (this.entries.length > this.size) { this.entries.shift(); this.stamps.shift(); }
+    this.lastText = text; this.lastLength = this.entries.length; this.repeats = 1;
   },
-  // The entries added after ErrorLog.total was `count` (the kept ones).
-  since(count) { return this.entries.slice(Math.max(0, this.entries.length - (this.total - count))); },
+  // The entries added or repeated after ErrorLog.total was `count` (the kept ones).
+  since(count) { return this.entries.filter((entry, index) => this.stamps[index] > count); },
 };
 
 // ---- Event bus (ARC-015). Payload objects are reused by the emitter: listeners must copy what they keep. ----
@@ -162,6 +199,16 @@ function makePool(size, create) {
   let next = 0;
   // Ring reuse: the oldest object is recycled when the pool wraps (documented per pool owner).
   return { items, take() { const item = items[next]; next = (next + 1) % size; return item; } };
+}
+// Struct-of-arrays pools: the first slot whose active[slot] is 0, else the one with the smallest age[slot] (the end tick or
+// birth order its owner keeps). The owner frees a taken busy slot itself.
+function oldestFreeSlot(active, age, capacity) {
+  let oldest = 0;
+  for (let slot = 0; slot < capacity; slot++) {
+    if (!active[slot]) return slot;
+    if (age[slot] < age[oldest]) oldest = slot;
+  }
+  return oldest;
 }
 
 // ---- Lookup grids (ARC-013, one source): nav (S09), the render bake (S07) and the map scan (S16) bucket brushes by xz cell ----
@@ -273,9 +320,11 @@ const BTN = {
 };
 
 // ---- Body sizes (DATA-003): capsule, stances, step and hit volumes (head sphere, torso/legs cylinders scaled by height / STAND_HEIGHT) ----
-const STAND_HEIGHT = 1.8;
+const STAND_HEIGHT = 1.8, CROUCH_HEIGHT = 1.1, PRONE_HEIGHT = 0.6;
+const STAND_EYE = 1.62, CROUCH_EYE = 0.95, PRONE_EYE = 0.4;
 const ACTOR_RADIUS = 0.40;
 const STEP_HEIGHT = 0.45;
+const MAX_SLOPE = 45 * DEG;   // steeper surfaces are walls
 const HEAD_RADIUS = 0.14, HEAD_ABOVE_EYE = 0.04;
 const TORSO_RADIUS = 0.3, TORSO_LOW = 0.85, TORSO_HIGH = 1.45, STOMACH_HIGH = 1.1;
 const LEGS_RADIUS = 0.22, LEGS_LOW = 0.05, LEGS_HIGH = 0.85;
@@ -334,14 +383,18 @@ const Actors = {
     this.yaw[id] = this.pitch[id] = this.aimYaw[id] = this.aimPitch[id] = 0;
     this.moveX[id] = this.moveZ[id] = 0; this.buttons[id] = this.pressed[id] = this.previousButtons[id] = 0;
     this.slotRequest[id] = 0; this.health[id] = this.armor[id] = this.shield[id] = 0; this.spawnCount[id] = 0;
-    this.height[id] = 1.8; this.eye[id] = 1.62; this.name[id] = ''; this.profile[id] = null;
+    this.height[id] = STAND_HEIGHT; this.eye[id] = STAND_EYE; this.name[id] = ''; this.profile[id] = null;
   },
   clear() {
     for (let id = 0; id < MAX_ACTORS; id++) if (this.kind[id] !== ACTOR_KIND.NONE) this.remove(id);
     this.count = 0;
   },
-  isEnemy(a, b) { return a !== b && (this.team[a] < 0 || this.team[a] !== this.team[b]); },
+  // Allies share a team (team -1 = free-for-all: no allies); an actor is neither its own ally nor its own enemy.
+  isAlly(a, b) { return a !== b && this.team[a] >= 0 && this.team[a] === this.team[b]; },
+  isEnemy(a, b) { return a !== b && !this.isAlly(a, b); },
   eyeY(id) { return this.y[id] + this.eye[id]; },
+  // Moves an actor with no interpolation from its old spot (spawns, teleports): never per frame.
+  place(id, x, y, z) { this.x[id] = this.prevX[id] = x; this.y[id] = this.prevY[id] = y; this.z[id] = this.prevZ[id] = z; },
 };
 
 // ---- Simulation systems: each section registers its fixed-step function with an order number ----
@@ -395,8 +448,16 @@ function showFatal(title, text, detail) {
   document.getElementById('fatal-detail').textContent = detail || '';
   document.getElementById('fatal').classList.add('show');
 }
+// The one way back (a late graphics restore): also drops the buttons a section added to the box (S07's Reload).
+function hideFatal() {
+  fatalShown = false;
+  const fatal = document.getElementById('fatal');
+  fatal.classList.remove('show');
+  for (const button of fatal.querySelectorAll('button')) button.remove();
+}
 
 // ---- Match lifecycle (sections react through the match.* events listed in docs/ARCHITECTURE.md) ----
+const MATCH_START_FAILED = 'This match could not start.';
 const Game = {
   state: 'menu',          // 'menu' | 'playing' | 'results'
   paused: false,
@@ -415,9 +476,16 @@ const Game = {
     Actors.clear();
     this.match = { setup, rules: null, map: null, ended: false, winner: null, startTick: 0 };
     this.playerId = -1;
+    const errorsBefore = ErrorLog.total;
     Bus.emit('match.setup', this.match);
     Bus.emit('match.load', this.match);
     Bus.emit('match.start', this.match);
+    // Bus.emit only logs a failed listener: a half-built match goes back to the menu with a message (ARC-041).
+    if (ErrorLog.since(errorsBefore).some((entry) => entry.startsWith('event match.'))) {
+      this.stop();
+      emitToast(MATCH_START_FAILED);
+      return null;
+    }
     this.state = 'playing';
     this.paused = false;
     return this.match;

@@ -108,6 +108,7 @@ const BOT_BARKS = {
   death: { minimal: false, taunt: false, lines: ['I am down.', 'They got me.', 'Ouch.'] },
   orderAck: { minimal: true, taunt: false, reply: true, lines: ['On it.', 'Copy that.', 'Understood.'] },
   pingReply: { minimal: true, taunt: false, reply: true, lines: ['Ok.', 'Thanks.', 'Seen it.', 'Got it.'] },
+  dibs: { minimal: true, taunt: false, reply: true, lines: ['Dibs.', 'That one is mine.', 'Taking it.'] },
   lowHealth: { minimal: false, taunt: false, lines: ['Low on health.', 'Hurting here.', 'Need a medkit.'] },
   objective: { minimal: true, taunt: false, lines: ['Objective moving!', 'Watch the objective.', 'Push the objective!'] },
 };
@@ -116,10 +117,10 @@ const BOT_CHAT_CHANCE = { quiet: 0.5, normal: 0.8, loud: 1 };   // chance that a
 // Team roles (BOT-050): share of a team's bots the commander gives each role, by the mode's objective kind; the rest
 // attack. Free-for-all bots are freelancers. Flags:
 // 'flag' while the enemy flag is home (more raiders than BOT-050's 40% attack: two raiders gather before a push, and the
-// soak's capture rate needs three of four), 'flagTaken' while a team-mate carries it (BOT-050: 60% defend, 30% escort),
+// soak's capture rate needs three of four; 20% defend so a 5-bot team raids with 3, as 2 raiders stall a 5 v 5 at 0-0), 'flagTaken' while a team-mate carries it (BOT-050: 60% defend, 30% escort),
 // judged at each commander round (a switch at the very moment of the grab breaks the raid; the soak's balance shows it).
 const BOT_ROLE_SPLITS = {
-  flag: { defend: 0.3, escort: 0.2 },
+  flag: { defend: 0.2, escort: 0.2 },
   flagTaken: { defend: 0.6, escort: 0.3 },
   point: { defend: 0.4 },
   hill: { defend: 0.25 },
@@ -139,6 +140,11 @@ const BOT_FLAG_PUSH = { rallyShare: 0.2, radius: 9, minimum: 2, wait: 5, seconds
 // one with the most teamwork leads. Followers keep within `keep` m of the leader, detour at most `regroup` m (items,
 // sounds) and regroup with it once farther (broken off); a fallen leader hands the squad to its next follower.
 const BOT_SQUAD = { size: 3, keep: 6, regroup: 15 };
+// Bot shopping (14f BotEconomy), once per buy time or open wave shop: a round-buy bot with less than `ecoMoney` (x 0.75..1.25
+// by the self-preservation trait) saves for a later round; else it buys a gun worth `upgrade` more than its best one,
+// then armour, then a grenade (tiers with gadgets). In the wave shop it refills low guns and, keeping `shopKeep`
+// credits for the next refill, buys placed gadgets.
+const BOT_BUY = { ecoMoney: 2000, upgrade: 0.1, shopKeep: 300 };
 // Tokens (BOT-053): at most `attackers` bots close in on one target at once (the others fight from where they stand; a
 // melee weapon always closes in), and one bot per team flanks at a time. A holder keeps its token while it renews it
 // (every decision) within `hold` s and still plays the goal it took it for.

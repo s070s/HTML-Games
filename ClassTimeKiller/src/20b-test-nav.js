@@ -3,10 +3,16 @@
 
 const NAV_TEST_PHONE_FACTOR = 6;        // a low-end phone runs this JavaScript about 4-8 x slower than the headless desktop
 const NAV_TEST_BUILD_BUDGET_MS = 300 / NAV_TEST_PHONE_FACTOR; // BOT-010: 300 ms on Low, as desktop milliseconds
+const NAV_TEST_QUERY_BUDGET_MS = 2;     // one A* query on the big map: 4 fit a tick
 const navTestBox = (min, max) => ({ shape: 'box', min, max });
 const navTestFloor = (minX, minZ, maxX, maxZ, top) => navTestBox([minX, top - 1, minZ], [maxX, top, maxZ]);
 const navTestSpawn = (x, y, z) => ({ x, y, z, yaw: 0, team: -1, modes: [] });
 const navTestNode = (x, y, z) => Nav.nearestNode(x, y, z);
+// Test-only readers of a slot's raw result (the game reads paths through Nav.resultPoint).
+const navResultNodeCount = (id) => navSlots.nodeCount[id];
+const navResultNode = (id, index) => navSlots.nodes[id * NAV_SLOT_PATH + index];
+const navPendingRequests = () => navSlots.queueCount;
+const NAV_TEST_MIRROR_SHARE = 0.005;   // unmirrored nodes allowed on a mirrored map
 
 function navTestLoad(brushes, extra) {
   const map = Object.assign({ id: 'navtest', brushes, spawns: [], items: [], objectives: [], triggers: [] }, extra || {});
@@ -20,12 +26,6 @@ function navTestRooms(withDoor) {
     ? [navTestBox([-10, 0, -0.15], [1.2, 3, 0.15]), navTestBox([2.8, 0, -0.15], [10, 3, 0.15])]
     : [navTestBox([-10, 0, -0.15], [10, 3, 0.15])];
   return navTestLoad([navTestFloor(-10, -10, 10, 10, 0)].concat(wall), { spawns: [navTestSpawn(-5, 0, -6), navTestSpawn(5, 0, 6), navTestSpawn(-6, 0, 7)] });
-}
-
-// The type of the link a -> b, or -1.
-function navTestLinkType(a, b) {
-  for (let link = Nav.linkStart[a]; link < Nav.linkStart[a + 1]; link++) if (Nav.linkTarget[link] === b) return Nav.linkType[link];
-  return -1;
 }
 
 function navTestPathTypes(from, to, options) {
@@ -85,8 +85,18 @@ function navTestSegmentOver(a, b, minX, minZ, maxX, maxZ) {
 }
 
 function navTestServeAll() {
-  for (let tick = 0; tick < 64 && Nav.pendingRequests() > 0; tick++) Nav.serveRequests();
+  for (let tick = 0; tick < 64 && navPendingRequests() > 0; tick++) Nav.serveRequests();
 }
+
+// R-155: nav, movement, spawns and map checks read the S01 body sizes and the S10 ladder and swim speeds, never a copy.
+Test.add('nav', (check) => {
+  Actors.reset(0);
+  check('body: stance heights and eyes come from S01', STANCE_HEIGHT.join() === [STAND_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT].join() && STANCE_EYE.join() === [STAND_EYE, CROUCH_EYE, PRONE_EYE].join()
+    && Actors.height[0] === Math.fround(STAND_HEIGHT) && Actors.eye[0] === Math.fround(STAND_EYE));
+  check('body: no nav or map copies of the S01 sizes', typeof NAV_STEP + typeof NAV_RADIUS + typeof MAP_STEP + typeof MAP_EYE === 'undefined'.repeat(4)
+    && SPAWN_CAPSULE_RADIUS === 2 * ACTOR_RADIUS && SPAWN_EYE_HEIGHT === STAND_EYE);
+  check('body: nav ladder and swim links use the S10 speeds', Nav.limits.ladderSpeed === LADDER_SPEED && NAV_LINK_ROWS[NAV_LINK.SWIM].speedFactor === SWIM_SPEED_FRACTION);
+});
 
 Test.add('nav', (check) => {
   navTestRooms(true);
@@ -101,15 +111,28 @@ Test.add('nav', (check) => {
   Nav.request(0, a, b);
   navTestServeAll();
   check('rooms: smoothed path never crosses the wall', Nav.result(0) === NAV_STATUS.DONE && navTestSmoothedClear(0));
-  check('rooms: smoothing keeps fewer points than nodes', Nav.resultPointCount(0) >= 2 && Nav.resultPointCount(0) < Nav.resultNodeCount(0), Nav.resultPointCount(0) + ' / ' + Nav.resultNodeCount(0));
+  check('rooms: smoothing keeps fewer points than nodes', Nav.resultPointCount(0) >= 2 && Nav.resultPointCount(0) < navResultNodeCount(0), Nav.resultPointCount(0) + ' / ' + navResultNodeCount(0));
   check('rooms: validate passes on a connected map', Nav.validate(World.map).length === 0, Nav.validate(World.map).join('; '));
+});
+
+// A map mirrored east-west gets a mirrored node graph, so neither team's routes hug walls and ledges differently (Twin Keeps CTF).
+Test.add('nav', (check) => {
+  World.load(Object.assign({}, Maps.get('twinkeeps'), { props: [] }));   // its corner crates are not mirrored
+  let unmatched = 0;
+  for (let node = 0; node < Nav.nodeCount; node++) {
+    if (Math.abs(Nav.nodeX[node]) < NAV_FINE) continue;   // on the mirror line
+    const mirror = Nav.nearestNode(-Nav.nodeX[node], Nav.nodeY[node], Nav.nodeZ[node]);
+    if (mirror < 0 || Math.abs(Nav.nodeX[mirror] + Nav.nodeX[node]) > 0.01 || Math.abs(Nav.nodeZ[mirror] - Nav.nodeZ[node]) > 0.01) unmatched++;
+  }
+  // A few passage nodes beside the keep corners still merge in scan order (4 of 2600; 2200 before the tie rule).
+  check('mirrored map: nearly every node has its mirror node', unmatched <= Nav.nodeCount * NAV_TEST_MIRROR_SHARE, unmatched + ' of ' + Nav.nodeCount);
 });
 
 function navTestNodesClearOfWall() {
   for (let node = 0; node < Nav.nodeCount; node++) {
     const x = Nav.nodeX[node], z = Nav.nodeZ[node];
-    const inDoor = x - NAV_RADIUS >= 1.2 && x + NAV_RADIUS <= 2.8;
-    if (!inDoor && Math.abs(z) < 0.15 + NAV_RADIUS) return false;
+    const inDoor = x - ACTOR_RADIUS >= 1.2 && x + ACTOR_RADIUS <= 2.8;
+    if (!inDoor && Math.abs(z) < 0.15 + ACTOR_RADIUS) return false;
   }
   return true;
 }
@@ -119,7 +142,7 @@ function navTestPathCrossesDoor(length) {
     const from = Nav.pathNodes[i], to = Nav.pathNodes[i + 1];
     if (Math.sign(Nav.nodeZ[from]) === Math.sign(Nav.nodeZ[to])) continue;
     const t = Nav.nodeZ[from] / (Nav.nodeZ[from] - Nav.nodeZ[to]), x = Nav.nodeX[from] + (Nav.nodeX[to] - Nav.nodeX[from]) * t;
-    if (x < 1.2 + NAV_RADIUS - 0.05 || x > 2.8 - NAV_RADIUS + 0.05) return false;
+    if (x < 1.2 + ACTOR_RADIUS - 0.05 || x > 2.8 - ACTOR_RADIUS + 0.05) return false;
   }
   return true;
 }
@@ -350,7 +373,7 @@ Test.add('nav', (check) => {
   check('water: path into the pool ends swimming', into.length > 0 && into[into.length - 1] === NAV_LINK.SWIM, into.join(','));
   check('water: swimmer climbs out without a jump', out.length > 0 && !out.includes(NAV_LINK.JUMP), out.join(','));
   let floorNodes = 0;
-  for (let node = 0; node < Nav.nodeCount; node++) if (Nav.nodeY[node] < surface - NAV_STEP) floorNodes++;
+  for (let node = 0; node < Nav.nodeCount; node++) if (Nav.nodeY[node] < surface - STEP_HEIGHT) floorNodes++;
   check('water: the floor of deep water has no walk nodes (the actor swims above it)', floorNodes === 0, floorNodes);
 });
 
@@ -370,7 +393,7 @@ Test.add('nav', (check) => {
 
 // Footprint half size of a low slab where a standing capsule cannot be: slab + capsule radius, minus one raster
 // column of tolerance (a straight line may clip a column corner between raster steps).
-const NAV_TEST_UNDER_SLAB = 2 + NAV_RADIUS - NAV_FINE / 2;
+const NAV_TEST_UNDER_SLAB = 2 + ACTOR_RADIUS - NAV_FINE / 2;
 
 Test.add('nav', (check) => {
   // A floating slab at 1.3..1.5 m (crouch-only underneath) in the middle of an open floor; the path passes beside it.
@@ -382,7 +405,7 @@ Test.add('nav', (check) => {
   const standing = navTestMovesOver(0, -half, -half, half, half, NAV_LINK.CROUCH), crouching = navTestMovesOver(1, -half, -half, half, half, NAV_LINK.CROUCH);
   check('smoothing: crouchOk false never cuts under a low slab', Nav.result(0) === NAV_STATUS.DONE && standing[0] === 0, standing.join(' / '));
   check('smoothing: a move under the slab is always typed CROUCH', Nav.result(1) === NAV_STATUS.DONE && crouching[1] === 0, crouching.join(' / '));
-  check('smoothing: still smooths the open floor', Nav.resultPointCount(0) < Nav.resultNodeCount(0), Nav.resultPointCount(0) + ' / ' + Nav.resultNodeCount(0));
+  check('smoothing: still smooths the open floor', Nav.resultPointCount(0) < navResultNodeCount(0), Nav.resultPointCount(0) + ' / ' + navResultNodeCount(0));
 });
 
 Test.add('nav', (check) => {
@@ -490,15 +513,30 @@ Test.add('nav', (check) => {
   check('cache: rebuilding the graph invalidates it', Nav.version === version + 1 && !Nav.lastCacheHit);
 });
 
+// Mean Nav.buildMs of NAV_TEST_TIMED_LOADS loads of a copy of map (graph cache emptied before each one or not): one small
+// build can read 0 ms on a 1 ms clock (Firefox, Safari).
+const NAV_TEST_TIMED_LOADS = 8;
+function navTestMeanLoadMs(map, emptyCache) {
+  let total = 0;
+  for (let load = 0; load < NAV_TEST_TIMED_LOADS; load++) {
+    if (emptyCache) Nav.clearCache();
+    World.load(JSON.parse(JSON.stringify(map)));
+    total += Nav.buildMs;
+  }
+  return total / NAV_TEST_TIMED_LOADS;
+}
+
 Test.add('nav', (check) => {
   Nav.clearCache();
-  const map = navTestPillars(), nodes = Nav.nodeCount, links = Nav.linkCount, firstMs = Nav.buildMs;
+  const map = navTestPillars(), nodes = Nav.nodeCount, links = Nav.linkCount;
   check('graph cache: first load builds', !Nav.lastBuildCached);
   const length = Nav.findPath(0, nodes - 1), cost = Nav.pathCost;
   navTestRooms(true);
   World.load(JSON.parse(JSON.stringify(map)));
-  check('graph cache: same map again reuses the graph', Nav.lastBuildCached && Nav.nodeCount === nodes && Nav.linkCount === links && Nav.buildMs < firstMs, Nav.buildMs + ' vs ' + firstMs);
+  check('graph cache: same map again reuses the graph', Nav.lastBuildCached && Nav.nodeCount === nodes && Nav.linkCount === links);
   check('graph cache: reused graph answers the same path', Nav.findPath(0, nodes - 1) === length && Test.near(Nav.pathCost, cost, 1e-6) && navTestLinksClear() === 0);
+  const builtMs = navTestMeanLoadMs(map, true), cachedMs = navTestMeanLoadMs(map, false);
+  check('graph cache: a cached load costs less than a build (mean of ' + NAV_TEST_TIMED_LOADS + ')', cachedMs < builtMs, cachedMs.toFixed(2) + ' vs ' + builtMs.toFixed(2) + ' ms');
   map.brushes[1].max[1] = 2;
   World.load(map);
   check('graph cache: an edited map builds again', !Nav.lastBuildCached);
@@ -516,13 +554,13 @@ Test.add('nav', (check) => {
   navTestPillars();
   for (let id = 0; id < 10; id++) Nav.request(id, id, Nav.nodeCount - 1 - id * 3);
   Nav.request(3, 3, Nav.nodeCount - 10);   // re-request while queued: replaces, not queued twice
-  check('budget: ten requests queued', Nav.pendingRequests() === 10, Nav.pendingRequests());
+  check('budget: ten requests queued', navPendingRequests() === 10, navPendingRequests());
   Sim.step();
   const done = () => [...Array(10).keys()].filter((id) => Nav.result(id) === NAV_STATUS.DONE || Nav.result(id) === NAV_STATUS.FAILED).length;
   check('budget: one tick serves at most 4 searches (BOT-091)', Nav.searchesThisTick === NAV_QUERIES_PER_TICK && done() === 4, done());
   Sim.step(); Sim.step();
-  check('budget: the rest are served on the next ticks', done() === 10 && Nav.pendingRequests() === 0, done());
-  check('budget: replaced request answered with the new goal', Nav.resultNode(3, Nav.resultNodeCount(3) - 1) === Nav.nodeCount - 10);
+  check('budget: the rest are served on the next ticks', done() === 10 && navPendingRequests() === 0, done());
+  check('budget: replaced request answered with the new goal', navResultNode(3, navResultNodeCount(3) - 1) === Nav.nodeCount - 10);
   Nav.request(20, 0, 1);
   Nav.cancel(20);
   Nav.serveRequests();
@@ -536,9 +574,9 @@ Test.add('nav', (check) => {
   for (let id = 0; id < NAV_SLOTS; id++) Nav.request(id, 0, Nav.nodeCount - 1);
   Nav.serveRequests();
   check('budget: cache hits count too (' + NAV_QUERIES_PER_TICK + ' served per tick)', Nav.servedThisTick === NAV_QUERIES_PER_TICK && Nav.searchesThisTick === 0
-    && Nav.pendingRequests() === NAV_SLOTS - NAV_QUERIES_PER_TICK, Nav.servedThisTick + ' served, ' + Nav.pendingRequests() + ' pending');
+    && navPendingRequests() === NAV_SLOTS - NAV_QUERIES_PER_TICK, Nav.servedThisTick + ' served, ' + navPendingRequests() + ' pending');
   navTestServeAll();
-  check('budget: all 64 answered after 16 ticks', Nav.pendingRequests() === 0 && Nav.result(NAV_SLOTS - 1) === NAV_STATUS.DONE);
+  check('budget: all 64 answered after 16 ticks', navPendingRequests() === 0 && Nav.result(NAV_SLOTS - 1) === NAV_STATUS.DONE);
 });
 
 Test.add('nav', (check) => {
@@ -613,16 +651,18 @@ function navTestWallLine(brushes, line, half) {
 
 DebugApi.nav = Nav;
 // ARC-034 benchmark: a real build (graph cache emptied first) of the given map or the 120 x 120 m test map.
-DebugApi.perf.navBuild = (map) => { Nav.clearCache(); World.load(map || navTestBigMap(NAV_TEST_BENCH_SIZE)); return Nav.buildMs; };
+DebugApi.perf.navBuild = (map) => { Nav.clearCache(); World.load(map || navTestBigMap(NAV_TEST_BENCH_SIZE)); Nav.pump(Infinity); return Nav.buildMs; };
 
 function navTestPhases() {
   return Object.keys(Nav.buildPhases).map((phase) => phase + ' ' + Nav.buildPhases[phase].toFixed(1)).join(', ');
 }
 
+
 Test.add('nav', (check) => {
+  const factor = testSpeedFactor(), budget = NAV_TEST_BUILD_BUDGET_MS * factor;
   const first = DebugApi.perf.navBuild(), warm = Math.min(DebugApi.perf.navBuild(), DebugApi.perf.navBuild(), DebugApi.perf.navBuild());
-  check('big map: 120 x 120 m build ' + warm.toFixed(1) + ' ms warm (first ' + first.toFixed(1) + ' ms) under ' + NAV_TEST_BUILD_BUDGET_MS + ' ms = BOT-010 300 ms on a '
-    + NAV_TEST_PHONE_FACTOR + ' x slower phone (' + Nav.nodeCount + ' nodes, ' + Nav.linkCount + ' links)', warm < NAV_TEST_BUILD_BUDGET_MS, navTestPhases());
+  check('big map: 120 x 120 m build ' + warm.toFixed(1) + ' ms warm (first ' + first.toFixed(1) + ' ms) under ' + budget.toFixed(1) + ' ms = BOT-010 300 ms on a '
+    + NAV_TEST_PHONE_FACTOR + ' x slower phone x speed factor ' + factor.toFixed(2) + ' (' + Nav.nodeCount + ' nodes, ' + Nav.linkCount + ' links)', warm < budget, navTestPhases());
   const problems = Nav.validate(World.map);
   check('big map: every spawn reaches every other spawn', problems.length === 0, problems.slice(0, 3).join('; '));
   check('big map: main component holds nearly all nodes', navComponentSize(Nav.mainComponent) > Nav.nodeCount * 0.95, navComponentSize(Nav.mainComponent) + ' / ' + Nav.nodeCount);
@@ -634,5 +674,103 @@ Test.add('nav', (check) => {
   const started = performance.now();
   for (let i = 0; i < 50; i++) Nav.findPath(navTestNode(spawns[i % count].x, 0, spawns[i % count].z), navTestNode(spawns[(i * 7 + 3) % count].x, 0, spawns[(i * 7 + 3) % count].z), { allowJumpHeight: i * 0.03 });
   const perQuery = (performance.now() - started) / 50;
-  check('big map: A* query cost (' + perQuery.toFixed(2) + ' ms) fits 4 per tick', perQuery < 2, perQuery);
+  check('big map: A* query cost (' + perQuery.toFixed(2) + ' ms) fits 4 per tick', perQuery < NAV_TEST_QUERY_BUDGET_MS * factor, perQuery);
+});
+
+// F66: Ring Isle builds in frame slices (the loop's input phase pumps it): the graph reads empty and bot requests fail
+// until it is ready, no slice runs long, the result equals the build at once, and a bot path request after it is served.
+// Timings are the best of NAV_TEST_SLICED_RUNS builds each way (a busy machine or a garbage collection slows one run).
+const NAV_TEST_SLICE_LIMIT_MS = 16;     // one 60 Hz frame
+const NAV_TEST_ISLE_BUDGET_MS = 400;    // whole Ring Isle build, desktop Chromium milliseconds of work
+const NAV_TEST_SLICED_OVERHEAD = 1.5;   // sliced work may cost this much more than the same build at once
+const NAV_TEST_SLICED_RUNS = 2;
+const NAV_TEST_MAX_FRAMES = 2000;
+
+// One sliced build of the loaded map, one frame at a time, asking for a path from a to b after every unfinished frame.
+function navTestSlicedBuild(a, b, run) {
+  Nav.clearCache();
+  Nav.startBuild(World.map);
+  let frames = 0;
+  while (!Nav.ready && frames < NAV_TEST_MAX_FRAMES) {
+    Loop.runPhase('input', TICK_SECONDS);
+    frames++;
+    if (Nav.ready) break;
+    if (Nav.nodeCount || Nav.linkCount || Nav.coverCount || Nav.nearestNode(a.x, a.y, a.z) >= 0) run.empty = false;
+    Nav.request(6, Nav.nearestNode(a.x, a.y, a.z), Nav.nearestNode(b.x, b.y, b.z));
+    navTestServeAll();
+    if (Nav.result(6) !== NAV_STATUS.FAILED) run.failed = false;
+  }
+  run.sliced = run.sliced && Nav.ready && Nav.buildSlices > 1 && frames === Nav.buildSlices;
+  run.workMs = Math.min(run.workMs, Nav.buildMs);
+  run.longestMs = Math.min(run.longestMs, Nav.longestSliceMs);
+}
+
+Test.add('nav', (check) => {
+  const factor = testSpeedFactor();
+  World.load(Maps.get('isle'));   // warms the build code up: a first big build runs 2-4 x slower on Firefox and Safari
+  let atOnceMs = Infinity;
+  for (let i = 0; i < NAV_TEST_SLICED_RUNS; i++) atOnceMs = Math.min(atOnceMs, DebugApi.perf.navBuild(World.map));
+  const nodes = Nav.nodeCount, links = Nav.linkCount, covers = Nav.coverCount, version = Nav.version, spawns = World.map.spawns;
+  const from = spawns[0], to = spawns[spawns.length - 1], run = { empty: true, failed: true, sliced: true, workMs: Infinity, longestMs: Infinity };
+  const wasHeadless = Game.headless;
+  Nav.clearCache();
+  navJob.inMatchLoad = true; Game.headless = false;   // as between 'match.setup' and 'match.start' in a game
+  try { World.load(World.map); } finally { navJob.inMatchLoad = false; Game.headless = wasHeadless; }
+  check('match load: a game leaves Ring Isle to frame slices after the first one', !Nav.ready && Nav.buildSlices === 1 && Nav.nodeCount === 0, Nav.buildSlices);
+  Nav.pump(Infinity);
+  for (let i = 0; i < NAV_TEST_SLICED_RUNS; i++) navTestSlicedBuild(from, to, run);
+  check('sliced build: Ring Isle finishes over ' + Nav.buildSlices + ' frames', run.sliced);
+  check('sliced build: the graph reads empty and path requests fail until it is ready', run.empty && run.failed);
+  check('sliced build: longest slice ' + run.longestMs.toFixed(1) + ' ms under ' + NAV_TEST_SLICE_LIMIT_MS + ' ms x speed factor ' + factor.toFixed(2),
+    run.longestMs < NAV_TEST_SLICE_LIMIT_MS * factor);
+  check('sliced build: ' + run.workMs.toFixed(0) + ' ms of work, at most ' + NAV_TEST_SLICED_OVERHEAD + ' x the build at once (' + atOnceMs.toFixed(0) + ' ms)',
+    run.workMs <= atOnceMs * NAV_TEST_SLICED_OVERHEAD, navTestPhases());
+  check('sliced build: the build at once takes under ' + NAV_TEST_ISLE_BUDGET_MS + ' ms x speed factor', atOnceMs < NAV_TEST_ISLE_BUDGET_MS * factor, atOnceMs);
+  check('sliced build: same graph as the build at once', Nav.nodeCount === nodes && Nav.linkCount === links && Nav.coverCount === covers,
+    Nav.nodeCount + '/' + nodes + ' nodes, ' + Nav.linkCount + '/' + links + ' links');
+  check('sliced build: bots repath (version moved on)', Nav.version > version);
+  Nav.request(6, Nav.nearestNode(from.x, from.y, from.z), Nav.nearestNode(to.x, to.y, to.z));
+  navTestServeAll();
+  check('sliced build: a path request after it is ready is served', Nav.result(6) === NAV_STATUS.DONE, Nav.result(6));
+});
+
+// F66: in a game the graph of a big map finishes in the frames after 'match.start' ('nav.ready'): the lookups bots make at
+// match start run again, so they find every loot spot and map item (14e), the water exits (14c) and the flag rally points (14f).
+function navTestLateMatch(mode, map) {
+  const pump = Nav.pump;
+  Nav.clearCache();
+  Nav.pump = (budgetMs) => pump.call(Nav, Math.min(budgetMs, NAV_SLICE_MS));   // world.load slices as in a game (not headless)
+  try { Game.start({ mode, map, seed: 1, bots: [{}, {}, {}, {}] }); } finally { Nav.pump = pump; }
+  const late = !Nav.ready;
+  for (let frame = 0; frame < NAV_TEST_MAX_FRAMES && !Nav.ready; frame++) Loop.runPhase('input', TICK_SECONDS);
+  return late && Nav.ready;
+}
+
+Test.add('nav', (check) => {
+  try {
+    const isle = navTestLateMatch('royale', 'isle'), loot = Modes.loot;
+    const lootFound = BotDecide.lootNode.subarray(0, loot.count).filter((node) => node >= 0).length;
+    check('late graph: Ring Isle royale bots know the node of every loot spot', isle && loot.count > 0 && lootFound === loot.count, lootFound + ' / ' + loot.count);
+    const harbor = navTestLateMatch('tdm', 'harbor');   // royale uses loot spots, not map items
+    const itemsFound = BotDecide.items.filter((item) => BotDecide.itemNode[item.index] >= 0).length;
+    check('late graph: Harbor Nine bots know the node of every map item', harbor && BotDecide.items.length > 0 && itemsFound === BotDecide.items.length, itemsFound + ' / ' + BotDecide.items.length);
+    check('late graph: Harbor Nine bots know the water and its exits', harbor && mapHasWater && exitCount > 0, exitCount);
+    const keeps = navTestLateMatch('ctf', 'twinkeeps');
+    check('late graph: Twin Keeps flag teams have rally points', keeps && BotTeam.hasRally(0) && BotTeam.hasRally(1));
+  } finally { Game.stop(); World.clear(); }
+});
+// normalize-01: the per-link passes of a build (bucket sort, link copies) are build steps of NAV_ITEM_SLICE items, so one
+// slice never runs a whole pass over a big map's links (21-44 ms on Firefox and Safari).
+function navTestSteps(steps) {
+  let count = 0, step = steps.next();
+  for (; !step.done; step = steps.next()) count++;
+  return { count, value: step.value };
+}
+Test.add('nav', (check) => {
+  const itemCount = NAV_ITEM_SLICE * 3, keys = Int32Array.from({ length: itemCount }, (unused, item) => item % 7);
+  const bucket = navTestSteps(navBucketByKey(keys, itemCount, 7)), start = bucket.value.start, items = bucket.value.items;
+  check('a bucket sort of 3 slices of items takes 6 build steps or more', bucket.count >= 6, bucket.count);
+  check('the sliced bucket sort keeps every item in its key bucket', start[7] === itemCount && keys[items[start[3]]] === 3 && keys[items[start[4] - 1]] === 3);
+  const copy = navTestSteps(navPickInOrder(keys, items, new Int32Array(itemCount)));
+  check('a link copy of 3 slices takes 3 build steps, in bucket order', copy.count >= 3 && copy.value[0] === 0 && copy.value[itemCount - 1] === 6, copy.count);
 });

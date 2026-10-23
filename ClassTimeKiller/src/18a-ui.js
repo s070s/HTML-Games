@@ -1,37 +1,42 @@
 // ==== S18 UI ====
 // DOM menu framework: screen stack, focus navigation for keyboard, gamepad and touch (INP-010), toasts, confirm dialog, control builders.
-// Screens register by name: Ui.register(name, { build(root, params), onOpen, onClose, onBack, noBack, passthrough }).
+// Screens register by name: Ui.register(name, { build(root, params), onOpen, onClose, onBack, noBack, passthrough, overlay, inGame }).
+// inGame: an overlay on a running match (the scoreboard): game input keeps working, it takes no focus, and any other screen replaces it.
 // 18b holds the screens, 18c the performance overlay. Contracts: docs/api/input-ui.md.
 
 const UI_TOAST_MS = 2600;
 const UI_MAX_TOASTS = 4;
+const UI_REFRESH_MS = 250;            // live panels (perf overlay, scoreboard, buy menu) redraw at most this often
 const UI_FOCUSABLE = 'button:not([disabled]), input:not([disabled]), textarea:not([disabled]), [tabindex="0"]';
 const UI_DIRECTIONS = { up: { x: 0, y: -1 }, down: { x: 0, y: 1 }, left: { x: -1, y: 0 }, right: { x: 1, y: 0 } };
 const UI_KEY_COMMANDS = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right' };
 const UI_SIDE_WEIGHT = 2;               // sideways offset counts double when picking the next focus target
 const UI_SETTINGS = [
   { key: 'ui.scale', fallback: 1, label: 'UI scale', category: 'accessibility', min: 0.75, max: 1.5, step: 0.05 },
-  { key: 'developer.perfHud', fallback: false, label: 'Performance overlay (F10)', category: 'developer' },
+  { key: 'developer.perfHud', fallback: false, label: 'Performance overlay (F8)', category: 'developer' },
   { key: 'developer.botDebug', fallback: false, label: 'Bot debug view (F9)', category: 'developer' },
 ];
 
-const UI_CSS = '.ui-screen { color-scheme: dark; position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; color: var(--ui-text);'
+// iOS Safari enlarges text in landscape unless told not to: the menus are sized for 667 x 320 as they are.
+const UI_CSS = 'html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }'
+  + '.ui-screen { color-scheme: dark; position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; color: var(--ui-text);'
   + ' padding: calc(16px + var(--safe-top)) calc(20px + var(--safe-right)) calc(16px + var(--safe-bottom)) calc(20px + var(--safe-left));'
   + ' background: radial-gradient(ellipse at 20% 0%, #1b2736 0%, #0b0f14 70%); overflow: hidden; }'
   + '.ui-screen.behind { display: none; } #overlay > .ui-screen.passthrough { background: none; pointer-events: none; } .passthrough > * { pointer-events: auto; }'
+  + '.ui-screen.in-game * { pointer-events: none; } .ui-screen.in-game button { pointer-events: auto; }'   // touches fall through to the look area
   + '.ui-title { font-size: 2em; font-weight: 800; letter-spacing: 0.04em; margin: 0; } .ui-sub { color: var(--ui-dim); margin: 2px 0 14px; }'
   + '.ui-head { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; } .ui-head .ui-title { font-size: 1.5em; flex: 1; }'
   + '.ui-button { font: inherit; color: var(--ui-text); background: var(--ui-panel); border: 1px solid var(--ui-line); border-radius: 8px; padding: 0.6em 1.1em;'
   + ' min-height: 44px; text-align: left; cursor: pointer; touch-action: manipulation; }'
   + '.ui-button:hover { border-color: var(--ui-accent); } .ui-button.primary { background: var(--ui-accent); color: #1a1205; font-weight: 700; border-color: var(--ui-accent); }'
   + '.ui-button[disabled] { opacity: 0.45; cursor: default; } .ui-button.danger { border-color: var(--ui-bad); }'
-  + '.ui-button:focus, .ui-slider input:focus, .ui-tab:focus { outline: 3px solid var(--ui-accent); outline-offset: 2px; }'
-  + '.ui-menu { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; max-width: 760px; }'
+  + '.ui-button:focus-visible, .ui-slider input:focus-visible, .ui-tab:focus-visible { outline: 3px solid var(--ui-accent); outline-offset: 2px; }'
+  + '.ui-menu { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; max-width: 760px; overflow-y: auto; min-height: 0; touch-action: pan-y; padding: 4px; }'
   + '.ui-menu .ui-button { font-size: 1.1em; } .ui-tag { color: var(--ui-dim); font-size: 0.875em; margin-left: 8px; }'
   + '.ui-scroll { flex: 1; overflow-y: auto; touch-action: pan-y; padding-right: 4px; min-height: 0; }'
   + '.ui-row { display: flex; align-items: center; gap: 12px; padding: 6px 12px; background: var(--ui-panel); border: 1px solid transparent; border-radius: 8px; margin-bottom: 6px; min-height: 48px; }'
   + '.ui-row.conflict { border-color: var(--ui-bad); } .ui-label { flex: 1; } .ui-group { color: var(--ui-accent); font-weight: 700; margin: 12px 0 6px; }'
-  + '.ui-slider { display: flex; align-items: center; gap: 10px; width: min(52%, 340px); } .ui-slider input { flex: 1; accent-color: var(--ui-accent); min-height: 32px; }'
+  + '.ui-slider { display: flex; align-items: center; gap: 10px; width: min(52%, 340px); } .ui-slider input { flex: 1; accent-color: var(--ui-accent); min-height: 44px; }'
   + '.ui-value { min-width: 4.8em; text-align: right; color: var(--ui-dim); font-variant-numeric: tabular-nums; }'
   + '.ui-cycle { min-width: 9em; text-align: center; } .ui-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }'
   + '.ui-tab.active { background: var(--ui-accent); color: #1a1205; font-weight: 700; } .ui-note { color: var(--ui-dim); margin: 0 0 10px; line-height: 1.45; }'
@@ -39,8 +44,9 @@ const UI_CSS = '.ui-screen { color-scheme: dark; position: fixed; inset: 0; z-in
   + '.ui-panel { background: var(--ui-bg); border: 1px solid var(--ui-line); border-radius: 12px; padding: 14px; margin: auto; width: min(560px, 100%); }'
   + '.ui-dialog { justify-content: center; align-items: center; background: rgba(5, 8, 12, 0.7); } .ui-result { white-space: pre-wrap; font: 14px/1.45 ui-monospace, Consolas, monospace; color: var(--ui-dim); }'
   + '.ui-code { display: block; width: 100%; min-height: 8em; background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px;'
-  + ' font: 0.875em/1.4 ui-monospace, Consolas, monospace; user-select: text; }'
+  + ' font: 0.875em/1.4 ui-monospace, Consolas, monospace; }'
   + '#overlay > .ui-toasts { position: fixed; top: calc(10px + var(--safe-top)); left: 50%; transform: translateX(-50%); z-index: 50; display: flex; flex-direction: column; gap: 6px; align-items: center; pointer-events: none; }'
+  + '#overlay > .ui-toasts.ui-toasts-play { top: 58%; }'   // in a match: below the crosshair, clear of the header and the top touch buttons
   + '.ui-toast { background: var(--ui-bg); border: 1px solid var(--ui-line); padding: 8px 14px; border-radius: 8px; animation: ui-toast-in 0.18s ease-out; }'
   + '@keyframes ui-toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }'
   + '@media (max-height: 520px) { .ui-screen { padding-top: calc(8px + var(--safe-top)); padding-bottom: calc(8px + var(--safe-bottom)); } .ui-title { font-size: 1.5em; } .ui-sub { margin-bottom: 8px; } .ui-row { min-height: 40px; margin-bottom: 4px; } }'
@@ -50,10 +56,10 @@ const Ui = {
   screens: new Map(),
   stack: [],                  // open screens, last = on top: { name, screen, element, params, returnFocus }
   root: null,
-  toastBox: null,
+  toastBox: null, playBox: null,
   botDebug: false,            // F9 / Options > Developer: later sections draw their bot overlay while true
   perfVisible: false,
-  selfTestRunner: null,       // set by S20: async (options) => { total, failed, results[] }
+  selfTestRunner: null,       // set by S20: async (options) => { total, passed, failed, skipped, results[] }
   lastSelfTest: null,
   pauseEntries: [],           // { label, screen, when? } rows later sections add to the pause menu (rules panel); when() false hides the row
   settingsExtras: {},         // category -> [fn(container)] extra nodes at the top of a settings tab
@@ -71,13 +77,14 @@ const Ui = {
   open(name, params) {
     const screen = this.screens.get(name);
     if (!screen) { this.toast('Coming soon'); return false; }
+    while (!screen.inGame && this.top() && this.top().screen.inGame) this.pop();
     const previous = this.top();
     if (previous) { previous.returnFocus = document.activeElement; if (!screen.overlay) previous.element.classList.add('behind'); }
-    const element = makeElement('div', 'ui-screen ui-' + name + (screen.passthrough ? ' passthrough' : ''));
+    const element = makeElement('div', 'ui-screen ui-' + name + (screen.passthrough ? ' passthrough' : '') + (screen.inGame ? ' in-game' : ''));
     const entry = { name, screen, element, params, returnFocus: null };
     this.root.appendChild(element);
     this.stack.push(entry);
-    Input.uiOpen = true;
+    this.syncInputBlock();
     try {
       screen.build(element, params);
       if (screen.onOpen) screen.onOpen(element, params);
@@ -87,8 +94,14 @@ const Ui = {
       this.toast('That screen could not open');
       return false;
     }
-    this.focusFirst(entry);
+    if (!screen.inGame) this.focusFirst(entry);
     return true;
+  },
+  // Game actions are ignored while a screen other than an in-match overlay is open.
+  syncInputBlock() {
+    let blocking = false;
+    for (let i = 0; i < this.stack.length; i++) if (!this.stack[i].screen.inGame) blocking = true;
+    Input.uiOpen = blocking;
   },
   // Back / Esc / B: the screen may handle it (pause menu resumes), top-level screens ignore it, others close.
   back() {
@@ -105,7 +118,7 @@ const Ui = {
     if (!entry) return;
     if (entry.screen.onClose) entry.screen.onClose(entry.element);
     entry.element.remove();
-    Input.uiOpen = this.stack.length > 0;
+    this.syncInputBlock();
     const below = this.top();
     if (!below) return;
     below.element.classList.remove('behind');
@@ -165,13 +178,13 @@ const Ui = {
     if (entry && entry.element.contains(document.activeElement)) document.activeElement.click();
   },
   onMenuCommand(command) {
-    if (!this.stack.length) return;
+    if (!this.stack.length || this.top().screen.inGame) return;
     const screen = this.top().screen;
     if (screen.onCommand && screen.onCommand(command)) return;     // a screen that reads the pad itself (the map editor) takes the command
     if (command === 'accept') this.activate(); else if (command === 'back') this.back(); else this.navigate(command);
   },
   onKeyDown(event) {
-    if (!this.stack.length || event.defaultPrevented) return;
+    if (!this.stack.length || event.defaultPrevented || this.top().screen.inGame) return;
     if (isTextField(event.target) && event.code !== 'Escape' && event.code !== 'Tab') return;   // arrows move the caret while typing
     if (event.code === 'Escape') this.back();
     else if (event.code === 'Tab') this.navigate(event.shiftKey ? 'prev' : 'next');
@@ -181,12 +194,16 @@ const Ui = {
   },
 
   // ---- Toasts and sound hook ----
+  // In a running match every toast sits below the crosshair, clear of the header and the top touch buttons; menus use the top.
+  // The match counts from match.start on (Game.start sets the state to playing only after it: the first-match tip, ios-01).
   toast(text) {
     this.lastToast = text;
-    if (!this.toastBox) return;
+    const inMatch = !!Game.match && !Game.match.ended && !Game.paused;
+    const box = inMatch ? this.playBox : this.toastBox;
+    if (!box) return;
     const item = makeElement('div', 'ui-toast', text);
-    this.toastBox.appendChild(item);
-    while (this.toastBox.children.length > UI_MAX_TOASTS) this.toastBox.firstChild.remove();
+    box.appendChild(item);
+    while (box.children.length > UI_MAX_TOASTS) box.firstChild.remove();
     setTimeout(() => item.remove(), UI_TOAST_MS);
   },
   emitClick(kind) { this.clickEvent.kind = kind; Bus.emit('ui.click', this.clickEvent); },
@@ -244,9 +261,14 @@ const Ui = {
     injectStyle('ui-style', UI_CSS);
     this.toastBox = makeElement('div', 'ui-toasts');
     this.root.appendChild(this.toastBox);
+    this.playBox = makeElement('div', 'ui-toasts ui-toasts-play');
+    this.root.appendChild(this.playBox);
     window.addEventListener('keydown', (event) => this.onKeyDown(event));
+    window.addEventListener('focusout', (event) => { if (isTextField(event.target)) this.resetScroll(); });
     this.applySettings();
   },
+  // iOS pans the page to show a focused field and can leave it shifted after the keyboard closes: the fixed layout goes back.
+  resetScroll() { window.scrollTo(0, 0); },
   applySettings() {
     document.documentElement.style.setProperty('--ui-scale', String(Settings.get('ui.scale')));
     this.perfVisible = Settings.get('developer.perfHud');

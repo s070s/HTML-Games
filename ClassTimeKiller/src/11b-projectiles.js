@@ -5,7 +5,7 @@
 const PROJECTILE_CAP = 256;
 const PROJECTILE_STATE = { FREE: 0, FLYING: 1, STUCK: 2, RETURNING: 3, AREA: 4, ATTACHED: 5 };
 const SPLIT_GRACE_SECONDS = 0.25;        // shards from a split start slightly aged so they do not re-trigger on the same spot
-const AREA_TICK_SECONDS = 0.25;          // puddles, auras and laser lines damage on this tick
+const AREA_TICK_SECONDS = 0.25;          // the one area tick: puddles, auras, laser lines, fire areas (12c), devices (12d), floors (12h)
 const AREA_HEIGHT = 1.5;                 // puddles hurt actors whose feet are this close above or below
 const ATTACH_SECONDS = 2;                // stuck needles and drills stay this long (drill fuse)
 const HOMING_CONE_COS = Math.cos(45 * DEG);
@@ -34,7 +34,10 @@ const HOMING_RULE = {
   accept(owner, id, dx, dy, dz, distance) { return (dx * homingAim.x + dy * homingAim.y + dz * homingAim.z) / distance >= HOMING_CONE_COS; },
 };
 const steerScratch = Vec.make();
+const projectilePose = makeModelPose();   // model projectiles: scale 1, no glow floor
+const PROJECTILE_FACING_SPEED = 0.5;      // m/s: slower (stuck, resting) projectiles keep their last facing
 const projectileColors = new Float32Array(CAT.projectiles.length * 3);
+const projectileInstance = makeShapeInstance();   // the glowing spheres and puddles (Projectiles.draw)
 CAT.projectiles.forEach((row, index) => {
   row.index = index;
   projectileColors[index * 3] = (row.color >> 16 & 255) / 255;
@@ -54,6 +57,8 @@ const Projectiles = {
   hitLow: new Uint32Array(PROJECTILE_CAP), hitHigh: new Uint32Array(PROJECTILE_CAP), serial: new Uint32Array(PROJECTILE_CAP),
   gravity: new Float32Array(PROJECTILE_CAP), drag: new Float32Array(PROJECTILE_CAP),   // the row's, or X41's for ballistic bullets
   warned: new Uint8Array(PROJECTILE_CAP),  // 1 once 'projectile.incoming' went out for this projectile
+  faceYaw: new Float32Array(PROJECTILE_CAP), facePitch: new Float32Array(PROJECTILE_CAP),   // drawn facing: the last flight direction (a stuck one keeps it)
+  flightTime: new Float32Array(PROJECTILE_CAP),   // seconds moving: model spin and tumble turn only in flight
   guiding: new Uint8Array(MAX_ACTORS),     // actors steering a guided projectile right now (they stand still)
   bulletHits: [],                          // fn(owner, mode, ox, oy, oz, dx, dy, dz, length): an X41 bullet flew this far unstopped by bodies (S12 devices, X30 ammo)
   active: 0,
@@ -99,6 +104,8 @@ const Projectiles = {
     this.bounces[i] = row.bounces; this.target[i] = -1; this.attached[i] = -1; this.timer[i] = 0; this.child[i] = 0; this.lodge[i] = 0;
     this.hitLow[i] = this.hitHigh[i] = 0; this.warned[i] = 0;
     this.gravity[i] = row.gravity; this.drag[i] = row.drag;
+    this.faceYaw[i] = 0; this.facePitch[i] = 0; this.flightTime[i] = 0;
+    this.faceFlight(i);
     this.serial[i] = this.nextSerial++;
     return i;
   },
@@ -179,7 +186,15 @@ const Projectiles = {
     this.accelerate(i, dt);
     this.stepAura(i, dt);
     this.sweep(i, dt);
+    if (this.faceFlight(i)) this.flightTime[i] += dt;
     if (this.state[i] === PROJECTILE_STATE.FLYING) this.warnIncoming(i);
+  },
+  // The drawn facing follows the velocity while the projectile moves; true then (a resting or stuck one keeps its facing).
+  faceFlight(i) {
+    const vx = this.vx[i], vy = this.vy[i], vz = this.vz[i], flat = length2(vx, vz);
+    if (flat + Math.abs(vy) <= PROJECTILE_FACING_SPEED) return false;
+    this.faceYaw[i] = Math.atan2(vx, vz); this.facePitch[i] = Math.atan2(vy, flat);
+    return true;
   },
   // AUD-005 / ACC-002: a rocket or missile of anyone but the local player and allies, within 25 m and closing in:
   // 'projectile.incoming' once (S06 plays the whistle and the "[Rocket incoming]" caption).
@@ -385,13 +400,14 @@ const Projectiles = {
     const mode = this.modeOf(i);
     if (this.lodge[i] && mode.laser) this.stepLaser(i, mode, dt);
   },
-  // W44 lodged blade: a cutting line from the blade to its owner.
+  // W44 lodged blade: a cutting line from the blade to its owner. Walls stop it (R-006): no line while anything solid
+  // stands between the blade and the owner.
   stepLaser(i, mode, dt) {
     const owner = this.owner[i];
     if (!Actors.alive[owner] || !this.tickDue(i, dt, mode.laser.interval)) return;
     const eyeY = Actors.eyeY(owner) - 0.3, dx = Actors.x[owner] - this.x[i], dy = eyeY - this.y[i], dz = Actors.z[owner] - this.z[i];
     const length = length3(dx, dy, dz);
-    if (length < 0.5) return;
+    if (length < 0.5 || !World.lineClear(this.x[i], this.y[i], this.z[i], Actors.x[owner], eyeY, Actors.z[owner])) return;
     const count = RayHits.collect(owner, this.x[i], this.y[i], this.z[i], dx / length, dy / length, dz / length, length, 8, 0, false);
     for (let k = 0; k < count; k++) this.areaDamage(i, RayHits.ids[k], mode.laser.damage, mode, 'hit');
     if (!Game.headless) Fx.tracer(this.x[i], this.y[i], this.z[i], Actors.x[owner], eyeY, Actors.z[owner], 0xff4040);
@@ -502,35 +518,48 @@ const Projectiles = {
     this.age[i] = 0;
   },
 
-  // W17 combo: a hitscan ray that meets an energy orb before maxDistance detonates it as a big blast.
-  comboRay(shooter, mode, ox, oy, oz, dx, dy, dz, maxDistance) {
+  // W17 combo: the nearest energy orb a hitscan ray meets before maxDistance (its distance in comboDistance), or -1.
+  comboTarget(ox, oy, oz, dx, dy, dz, maxDistance) {
     let best = -1, bestDistance = maxDistance;
     for (let i = 0; i < PROJECTILE_CAP; i++) {
       if (this.state[i] !== PROJECTILE_STATE.FLYING || !this.row(i).comboTarget) continue;
       const distance = raySphere(ox, oy, oz, dx, dy, dz, this.x[i], this.y[i], this.z[i], this.row(i).radius + COMBO_TARGET_PADDING);
       if (distance >= 0 && distance < bestDistance) { best = i; bestDistance = distance; }
     }
-    if (best < 0) return false;
     this.comboDistance = bestDistance;
+    return best;
+  },
+  // The shot reached the orb: it goes off as the big combo blast.
+  detonateCombo(i, shooter, mode) {
     const blast = Damage.blast();
-    blast.x = this.x[best]; blast.y = this.y[best]; blast.z = this.z[best]; blast.owner = shooter; blast.mode = mode;
+    blast.x = this.x[i]; blast.y = this.y[i]; blast.z = this.z[i]; blast.owner = shooter; blast.mode = mode;
     blast.radius = mode.combo.radius; blast.damage = mode.combo.damage;
-    this.remove(best);
+    this.remove(i);
     Weapons.spendExtra(shooter, mode, mode.combo.ammo - mode.ammoPerShot);
     Damage.explode(blast);
-    return true;
   },
 
-  // Render source: one instanced sphere per projectile, puddles as flat discs.
+  // Render source: a projectile with a model (03q projectileModels) faces its flight, the rest are glowing spheres; puddles are flat discs.
   draw(batch) {
     for (let i = 0; i < PROJECTILE_CAP; i++) {
       if (!this.state[i]) continue;
-      const row = this.row(i), type = this.type[i];
-      const r = projectileColors[type * 3], g = projectileColors[type * 3 + 1], b = projectileColors[type * 3 + 2];
-      if (this.state[i] === PROJECTILE_STATE.AREA) { const size = this.modeOf(i).puddle.radius * 2; batch.mesh('cylinder', this.x[i], this.y[i], this.z[i], 0, 0, size, 0.04, size, r, g, b, 0.6); continue; }
-      const size = Math.max(0.08, row.radius * 2 * row.scale);
-      batch.mesh('sphere', this.x[i], this.y[i], this.z[i], 0, 0, size, size, size, r, g, b, 1);
+      const row = this.row(i), type = this.type[i], model = WeaponModels.projectile[type];
+      if (model && this.state[i] !== PROJECTILE_STATE.AREA) { this.drawModel(batch, i, model); continue; }
+      // one reused instance record (batch.meshFrom): float arguments would be boxed (PERF-006)
+      const instance = projectileInstance, area = this.state[i] === PROJECTILE_STATE.AREA;
+      const size = area ? this.modeOf(i).puddle.radius * 2 : Math.max(0.08, row.radius * 2 * row.scale);
+      instance.x = this.x[i]; instance.y = this.y[i]; instance.z = this.z[i];
+      instance.sx = instance.sz = size; instance.sy = area ? 0.04 : size; instance.emissive = area ? 0.6 : 1;
+      instance.r = projectileColors[type * 3]; instance.g = projectileColors[type * 3 + 1]; instance.b = projectileColors[type * 3 + 2];
+      batch.meshFrom(area ? 'cylinder' : 'sphere', instance);
     }
+  },
+  drawModel(batch, i, model) {
+    const pose = projectilePose, flight = this.flightTime[i];
+    pose.x = this.x[i]; pose.y = this.y[i]; pose.z = this.z[i];
+    pose.yaw = this.faceYaw[i] + flight * model.spin; pose.pitch = this.facePitch[i] + flight * model.tumble;
+    Models.paint(pose, model);
+    Models.draw(batch, model, pose);
   },
 };
 

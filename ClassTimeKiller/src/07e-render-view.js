@@ -8,31 +8,34 @@ const VIEWMODEL_NEAR = 0.01;
 const VIEWMODEL_FAR = 8;
 const EYE_SMOOTHING = 14;                // 1/s: crouch eye height eases instead of snapping
 const HEAD_BOB_METERS = 0.035;
-const BOB_STRIDE_METERS = 1.9;
-const RUN_REFERENCE_SPEED = 7;
 const ADS_ZOOM_DEFAULT = 1.15;           // FOV divisor at full aim unless Render.viewModel sets `zoom`
-const VIEWMODEL_DARK = '#2b2f35';
 const VIEWMODEL_SCALE = 0.62;            // shrinks the parts table around the weapon pivot (sets the on-screen size)
 const HAND_RIGHT = 1, HAND_LEFT = -1;     // view-model side: the left hand mirrors the right one
+const FOV_MIN_ASPECT = 4 / 3;            // narrower screens keep its horizontal view (verticalFov)
 
 const ViewState = {
   forward: new Float32Array(3), right: new Float32Array(3), up: new Float32Array(3),
   skyRight: new Float32Array(3), skyUp: new Float32Array(3),
-  frustum: new Float32Array(24), overridden: false, eye: 1.62, bobPhase: 0, alpha: 1,   // alpha: this frame's sim interpolation, for camera overrides
+  frustum: new Float32Array(24), overridden: false, eye: STAND_EYE, bobPhase: 0, alpha: 1,   // alpha: this frame's sim interpolation, for camera overrides
   roll: Mat4.create(), rolledView: Mat4.create(), viewmodelProjection: Mat4.create(), viewmodelViewProjection: Mat4.create(),
 };
 Render.view = ViewState;
-const viewModelState = { visible: false, shape: 'rifle', kick: 0, reload: 0, swap: 0, ads: 0, color: '#4a5058', zoom: ADS_ZOOM_DEFAULT,
+const viewModelState = { visible: false, shape: 'rifle', model: '', kick: 0, reload: 0, swap: 0, ads: 0, color: '#4a5058', zoom: ADS_ZOOM_DEFAULT,
   recoilPitch: 0, recoilYaw: 0, dual: false };
 
-// video.fov is the horizontal FOV at 16:9 (Hor+): the vertical angle stays fixed, wider screens see more.
+// video.fov is the horizontal FOV at 16:9 (Hor+): the vertical angle stays fixed, wider screens see more. Below 4:3 (a
+// portrait phone) the horizontal view of 4:3 is kept instead (Vert-), so the view never narrows to a slit. One source
+// for the world, the view model and every HUD projection: it reads the canvas aspect itself.
 function verticalFov(horizontalDegrees) {
-  return 2 * Math.atan(Math.tan(horizontalDegrees * DEG / 2) / (16 / 9));
+  const fixed = 2 * Math.atan(Math.tan(horizontalDegrees * DEG / 2) / (16 / 9));
+  const aspect = Render.size.width / Render.size.height;
+  if (aspect >= FOV_MIN_ASPECT) return fixed;
+  return 2 * Math.atan(Math.tan(fixed / 2) * FOV_MIN_ASPECT / aspect);
 }
 
 function readViewModel() {
   const state = viewModelState;
-  state.visible = false; state.shape = 'rifle'; state.kick = 0; state.reload = 0; state.swap = 0; state.ads = 0;
+  state.visible = false; state.shape = 'rifle'; state.model = ''; state.kick = 0; state.reload = 0; state.swap = 0; state.ads = 0;
   state.color = '#4a5058'; state.zoom = ADS_ZOOM_DEFAULT; state.recoilPitch = 0; state.recoilYaw = 0; state.dual = false;
   if (!Render.viewModel || Game.playerId < 0 || ViewState.overridden || !Actors.alive[Game.playerId]) return;
   Render.viewModel(state);
@@ -57,7 +60,7 @@ function followPlayer(seconds, alpha) {
 function headBob(id, seconds) {
   const speed = length2(Actors.vx[id], Actors.vz[id]);
   const grounded = (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
-  ViewState.bobPhase = (ViewState.bobPhase + (grounded ? speed : 0) * seconds * (Math.PI * 2 / BOB_STRIDE_METERS)) % (Math.PI * 2);
+  ViewState.bobPhase = (ViewState.bobPhase + (grounded ? speed : 0) * seconds * (Math.PI * 2 / WALK_CYCLE_METRES)) % (Math.PI * 2);
   if (!Render.config.headBob || !grounded) return 0;
   return Math.sin(ViewState.bobPhase * 2) * HEAD_BOB_METERS * (Render.config.headBob / 100) * Render.motion.bob * Math.min(1, speed / RUN_REFERENCE_SPEED);
 }
@@ -132,15 +135,11 @@ function boundsVisible(box) {
   return true;
 }
 
-// ---- View model: one generic builder reads the parts row of the weapon class (CAT.viewModels) ----
+// ---- View model: the weapon's model (07c-render-models, by weapon id, else by class) at the pose of its viewModels row ----
 const viewModelBatch = makeShapeBatch('viewmodel', 24);
-const viewModelRows = {};
-CAT.viewModels.forEach((row) => { viewModelRows[row.id] = row; });
-const weaponPose = { x: 0, y: 0, z: 0, pitch: 0 };
-// Weapon part offsets rotated in place, then written into one instance record (no float arguments, PERF-006).
-const viewLocal = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
-const viewWorld = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };
-const viewPart = makeShapeInstance();
+const weaponPose = makeModelPose();   // the pivot: x, y, z, pitch (a constructor record: its fields stay unboxed, PERF-006)
+const viewPivot = makeModelPose();   // the weapon pivot rotated in place (no float arguments, PERF-006)
+const viewPose = makeModelPose();
 const viewTint = new Float32Array(3);
 
 // Weapon pivot in view space (x right, y up, z forward) after ADS, kick, reload, swap and walk sway.
@@ -155,38 +154,30 @@ function poseWeapon(row, state) {
   return weaponPose;
 }
 
-function viewPartColor(part, row, state) {
-  const tint = part.tint === 'body' ? state.color : part.tint === 'accent' ? row.accent : part.tint === 'glow' ? row.glow : VIEWMODEL_DARK;
-  writeColor(viewTint, 0, tint);
-  return part.tint === 'glow' ? 1 : 0;
+function viewWeaponModel(state) {
+  return WeaponModels.byId[state.model] || WeaponModels.byId[state.shape] || WeaponModels.byId[MODEL_FALLBACK_POSE];
 }
 
 function fillViewModel() {
   viewModelBatch.clear();
   const state = viewModelState;
   if (!state.visible) return;
-  const row = viewModelRows[state.shape] || viewModelRows.rifle, pose = poseWeapon(row, state);
-  addWeaponParts(row, pose, state, HAND_RIGHT);
-  if (state.dual) addWeaponParts(row, pose, state, HAND_LEFT);   // W04 second pistol
+  const model = viewWeaponModel(state), pose = poseWeapon(model.pose, state);
+  writeColor(viewTint, 0, state.color);
+  addWeaponModel(model, pose, HAND_RIGHT);
+  if (state.dual) addWeaponModel(model, pose, HAND_LEFT);   // W04 second pistol
 }
 
-function addWeaponParts(row, pose, state, hand) {
-  const camera = Render.camera;
-  for (let i = 0; i < row.parts.length; i++) {
-    const part = row.parts[i];
-    // View x is "right"; actor/shape local +X is left (DATA-002), hence the sign flips.
-    const local = viewLocal, world = viewWorld, instance = viewPart;
-    local.x = -part.at[0] * VIEWMODEL_SCALE * hand; local.y = part.at[1] * VIEWMODEL_SCALE; local.z = part.at[2] * VIEWMODEL_SCALE; local.yaw = 0; local.pitch = pose.pitch;
-    rotateInPlace(local);
-    world.x = local.x - pose.x * hand; world.y = local.y + pose.y; world.z = local.z + pose.z; world.yaw = camera.yaw; world.pitch = camera.pitch;
-    rotateInPlace(world);
-    instance.emissive = viewPartColor(part, row, state);
-    instance.x = camera.x + world.x; instance.y = camera.y + world.y; instance.z = camera.z + world.z;
-    instance.yaw = camera.yaw; instance.pitch = camera.pitch + pose.pitch + (part.axis === 'z' ? -Math.PI / 2 : 0);
-    instance.sx = part.size[0] * VIEWMODEL_SCALE; instance.sy = part.size[1] * VIEWMODEL_SCALE; instance.sz = part.size[2] * VIEWMODEL_SCALE;
-    instance.r = viewTint[0]; instance.g = viewTint[1]; instance.b = viewTint[2];
-    viewModelBatch.meshFrom(part.shape, instance);
-  }
+// View x is "right"; actor/shape local +X is left (DATA-002), hence the mirror. The pivot turns with the camera, the parts
+// with the camera pitch plus the weapon's own pitch (Models.drawLevel). Every part close up, without lod-0 details on Potato.
+function addWeaponModel(model, pose, hand) {
+  const camera = Render.camera, pivot = viewPivot, frame = viewPose;
+  pivot.x = -pose.x * hand; pivot.y = pose.y; pivot.z = pose.z; pivot.yaw = camera.yaw; pivot.pitch = camera.pitch;
+  rotateInPlace(pivot);
+  frame.x = camera.x + pivot.x; frame.y = camera.y + pivot.y; frame.z = camera.z + pivot.z;
+  frame.yaw = camera.yaw; frame.pitch = camera.pitch + pose.pitch; frame.scale = VIEWMODEL_SCALE; frame.mirror = -hand;
+  frame.r = viewTint[0]; frame.g = viewTint[1]; frame.b = viewTint[2];
+  Models.drawLevel(viewModelBatch, model, frame, Models.detailLevel(LOD.near, Render.quality));
 }
 Render.addUpdate(60, fillViewModel);
 
@@ -219,21 +210,24 @@ const REFRESH_PERCENTILE = 0.25;         // the fast cluster of the samples: a f
 const REFRESH_LIGHT_TRIANGLES = 256;     // more than the menu draws (sky, benchmark off): a world is drawn, as in the map editor
 const REFRESH_IDLE_SHARE = 0.5;          // the frame's own CPU work is under half its interval: the display set the pace
 const REFRESH_RATE_TOLERANCE = 0.04;     // a measured interval within 4% of a standard refresh rate is that rate
+const REFRESH_PIXEL_DROP = 2;            // pixel-count drop that proves a slow interval (acceptRefreshMs)
 const STANDARD_REFRESH_HZ = [24, 25, 30, 48, 50, 60, 72, 75, 90, 100, 120, 144, 165, 240];
 
-// ---- Display interval (non-60 Hz screens): light menu frames run at the display's own rate. A display slower than
-// 60 Hz (50 Hz TVs, 30 Hz power-saving modes) can never show 60 fps: its own interval becomes the frame budget, so the
-// scale and the preset are not lowered for frames no setting could make faster. Frames that are slow for their own
-// reasons (the map editor draws a whole world in the 'menu' state, a busy CPU, a GPU-bound phone) are never taken as the
-// display's interval: they would raise the budget and switch off PERF-007 / PERF-013 for the next match. A GPU-bound
-// frame held to every second vsync looks exactly like a 30 Hz display: the GPU timer tells them apart, and without one a
-// slower-than-60 Hz interval counts only once it held across a render-scale change (a GPU frame time follows the scale). ----
+// ---- Display interval (non-60 Hz screens): light menu frames and idle match frames run at the display's own rate. A
+// display slower than 60 Hz (50 Hz TVs, 30 Hz power-saving modes such as iOS Low Power Mode, which can start mid-match)
+// can never show 60 fps: its own interval becomes the frame budget, so the scale and the preset are not lowered for
+// frames no setting could make faster. Frames that are slow for their own reasons (the map editor draws a whole world in
+// the 'menu' state, a busy CPU, a GPU-bound phone) are never taken as the display's interval: they would raise the budget
+// and switch off PERF-007 / PERF-013. A GPU-bound frame held to every second vsync looks exactly like a 30 Hz display:
+// the GPU timer tells them apart, and without one a slower-than-60 Hz interval counts only once it held while the
+// render scale halved the pixel count (a GPU frame time follows the scale; a slow match lowers the scale on its own). ----
 const DisplayRate = { samples: new Float32Array(REFRESH_SAMPLE_FRAMES), count: 0, intervalMs: 0, candidateMs: 0, candidateScale: 0 };
 
-// True when this frame's interval was set by the display: a light, uncapped menu frame whose CPU (and timed GPU) work left it idle.
+// True when this frame's interval was set by the display: an uncapped light menu frame or running match frame whose CPU
+// (and timed GPU) work left it idle.
 function displayPacedFrame(seconds) {
-  if (Game.state !== 'menu' || Benchmark.active || Render.config.frameCapMs > 0 || !(seconds > 0)) return false;   // capped frames show the cap
-  if (Perf.counters.triangles > REFRESH_LIGHT_TRIANGLES) return false;
+  if (Benchmark.active || Render.config.frameCapMs > 0 || !(seconds > 0)) return false;   // capped frames show the cap
+  if (Game.state === 'menu' ? Perf.counters.triangles > REFRESH_LIGHT_TRIANGLES : !Game.isRunning()) return false;
   const idleMs = seconds * 1000 * REFRESH_IDLE_SHARE;
   if (GpuTimer.extension && GpuTimer.lastMs > idleMs) return false;
   return Perf.cpuMs[Perf.lastIndex()] < idleMs;
@@ -258,13 +252,15 @@ function measureDisplayRate(seconds) {
   acceptRefreshMs(rate, standardRefreshMs(measuredMs));
 }
 
-// 60 Hz or faster never raises the budget; slower needs the GPU timer, or the same interval in the window before at another scale.
+// 60 Hz or faster never raises the budget; slower needs the GPU timer, or the same interval since a scale with at least
+// twice the pixels (or since any other scale, once at the preset minimum): a frame bound by fill would be faster by then.
 function acceptRefreshMs(rate, refreshMs) {
   if (!refreshMs) return;
   const scale = Render.size.scale;
-  const heldAcrossScale = refreshMs === rate.candidateMs && scale !== rate.candidateScale;
-  rate.candidateMs = refreshMs; rate.candidateScale = scale;
-  if (GpuTimer.extension || refreshMs <= FRAME_BUDGET_MS * (1 + REFRESH_RATE_TOLERANCE) || heldAcrossScale) rate.intervalMs = refreshMs;
+  if (refreshMs !== rate.candidateMs) { rate.candidateMs = refreshMs; rate.candidateScale = scale; }
+  const pixelsHalved = rate.candidateScale * rate.candidateScale >= REFRESH_PIXEL_DROP * scale * scale;
+  const atMinimum = scale <= Render.quality.renderScaleMin + 1e-4 && scale !== rate.candidateScale;
+  if (GpuTimer.extension || refreshMs <= FRAME_BUDGET_MS * (1 + REFRESH_RATE_TOLERANCE) || pixelsHalved || atMinimum) rate.intervalMs = refreshMs;
 }
 
 // The frame interval that still counts as on time: the 60 fps floor (PERF-001), or the display's own slower interval,
@@ -344,7 +340,9 @@ function updateRenderScale(seconds) {
 }
 Render.addUpdate(2, updateRenderScale);
 
-// ---- Automatic step-down (PERF-013): under 60 fps for 5 s while playing lowers one preset and toasts it ----
+// ---- Automatic step-down (PERF-013): under 60 fps for 5 s while playing lowers one preset and toasts it. The lower
+// preset holds for this session only (never saved): a slow spell (a hot phone, a power-saving mode) cannot pin a low
+// preset for good, and the next launch retries the chosen or benchmarked one. ----
 const STEP_DOWN_SECONDS = 5;
 const StepDown = { slowSeconds: 0 };
 
@@ -352,7 +350,8 @@ function lowerQualityStep() {
   const index = CAT.quality.indexOf(Render.quality);
   if (index < 0 || index >= CAT.quality.length - 1) return false;
   const next = CAT.quality[index + 1];
-  Settings.set(Settings.get('video.quality') === 'auto' ? 'video.autoQuality' : 'video.quality', next.id);
+  // Quality.current() now returns it, so the renderer, the audio and the PERF-009 caps agree.
+  Quality.setSession(next.id);
   emitToast('Quality lowered to ' + next.name + ' to keep the game smooth');
   return true;
 }

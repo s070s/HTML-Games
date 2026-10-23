@@ -23,7 +23,7 @@ function killActor(victim, killer, assister) {
 }
 
 function placeActor(id, x, z) {
-  Actors.x[id] = x; Actors.y[id] = 0; Actors.z[id] = z;
+  Actors.place(id, x, 0, z);
 }
 
 function runSeconds(seconds) { Sim.run(Math.round(seconds * TICK_RATE)); }
@@ -59,6 +59,20 @@ Test.add('modes', (check) => {
     check('mode ' + mode.code + ' ' + mode.id + ' row is valid and builds', [0, 1, 2].includes(mode.teams) && mode.sizeDefault > 0 && roundsOk
       && CAT.rulesets.byId(mode.ruleset) && ['normal', 'round', 'none'].includes(mode.respawn) && Rules.problems.length === 0, Rules.problems.join('; '));
   }
+  const noGoal = CAT.modes.filter((mode) => !mode.goal || /\d/.test(mode.goal)).map((mode) => mode.id);
+  check('every mode has a one-line goal text, with no number that lives in another field (fun-02)', noGoal.length === 0, noGoal.join());
+  // One goal source per mode (regression-01): pause > Rules shows the row's goal, then its goalDetail with the {param} slots filled.
+  const panelGoals = CAT.modes.filter((mode) => {
+    const lines = modeGoalLines({ mode: mode.id, params: mode.params });
+    return lines[0] !== mode.goal || lines.length !== (mode.goalDetail ? 2 : 1) || /\d/.test(mode.goalDetail) || lines.join().includes('{');
+  }).map((mode) => mode.id);
+  const roulette = modeGoalLines({ mode: 'roulette', params: { rotateEvery: 45 } }).join() + modeGoalLines({ mode: 'roulette' }).join();
+  check('rules panel: the goal lines are the mode row goal and detail, numbers from the match params', typeof MODE_GOAL_TEXT === 'undefined' && panelGoals.length === 0
+    && roulette.includes('every 45 s') && roulette.includes('every ' + CAT.modes.byId('roulette').params.rotateEvery + ' s'), panelGoals.join() + roulette);
+  // Blight converts a human on any death after the outbreak (13f onKill), not on a hit; the range drill starts on the first shot (14j onFire).
+  const blight = CAT.modes.byId('infection'), range = CAT.modes.byId('range');
+  check('goal texts: Blight says a human who dies joins, the range says the first shot starts the drill', (blight.goal + blight.goalDetail).includes('dies') && !(blight.goal + blight.goalDetail).includes('hit')
+    && range.goalDetail.includes('first shot') && (range.goal + range.goalDetail).includes('Quit to menu'), blight.goal + blight.goalDetail + range.goal + range.goalDetail);
   for (const line of EXPECTED_MODES) {
     const [id, teams, size, scoreLimit, timeLimit] = line.split(' ');
     const row = CAT.modes.byId(id);
@@ -170,6 +184,8 @@ Test.add('modes', (check) => {
 
   const announcements = startEventLog('announce');
   startModeTest('ffa', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { modeOptions: { timeLimit: 120 } });
+  check('the match start announces the mode and its goal (fun-03)', announcements.length > 0 && announcements[0].kind === 'mode'
+    && announcements[0].text === CAT.modes.byId('ffa').name + ': ' + CAT.modes.byId('ffa').goal, announcements.length && announcements[0].text);
   runSeconds(60.01);
   check('time warning at 1 minute', announcements.some((event) => event.text === '1 minute remaining'));
   runSeconds(60);
@@ -475,6 +491,41 @@ Test.add('modes', (check) => {
   endModeTest();
 });
 
+// Editor limits (R-130, R-136): a limit row shows only where the mode honours it; fewer rounds to win still reach the side switch.
+Test.add('modes', (check) => {
+  const shown = (key, mode) => EDITOR_FIELDS.find((field) => field.key === key).show(Object.assign(customDefaults(), { mode }));
+  check('editor: Last Squad hides the time and score limits (rounds decide)', !shown('timeLimit', 'elim') && !shown('scoreLimit', 'elim'));
+  check('editor: Arms Ladder and Convoy keep only the time limit', shown('timeLimit', 'gungame') && !shown('scoreLimit', 'gungame') && shown('timeLimit', 'payload') && !shown('scoreLimit', 'payload'));
+  check('editor: Frenzy shows both limits, Siege Waves (its own end) none', shown('timeLimit', 'ffa') && shown('scoreLimit', 'ffa') && !shown('timeLimit', 'horde') && !shown('scoreLimit', 'horde'));
+  const options = CustomMatch.modeOptions(Object.assign(customDefaults(), { mode: 'bomb', roundWins: 3 }), CAT.modes.byId('bomb'));
+  check('editor: 3 rounds to win: at most 5 rounds, the sides switch after 2', options.rounds.winsNeeded === 3 && options.rounds.limit === 5 && options.rounds.switchAt === 2, JSON.stringify(options.rounds));
+  startModeTest('bomb', modesTestMap(BOMB_MAP), [0, 1], { modeOptions: { rounds: Object.assign({}, options.rounds, { freeze: 1, endDelay: 1, live: 5 }) } });
+  runSeconds(14.5);
+  check('bomb to 3 wins: switched sides by round 3', Modes.round === 3 && Modes.swapped, Modes.round + ' ' + Modes.swapped);
+  endModeTest();
+});
+
+// Announcements name objectives the way the HUD letters them, never by their map id (R-129).
+Test.add('modes', (check) => {
+  const announcements = startEventLog('announce');
+  const labelMap = { spawns: TEAM_SPAWNS, objectives: [{ id: 'pointWest', kind: 'point', x: 0, y: 0, z: 0, radius: 5 }, { id: 'pointEast', kind: 'point', x: 0, y: 0, z: 30, radius: 5, name: 'the bridge' }] };
+  startModeTest('dom', modesTestMap(labelMap), [0, 1], { modeOptions: { params: { captureTime: 1 } } });
+  placeActor(0, 0, 30);
+  runSeconds(1.1);
+  placeActor(0, 1, 0);
+  runSeconds(1.1);
+  const captures = announcements.filter((event) => event.kind === 'capture').map((event) => event.text);
+  check('dom: a capture names the HUD letter, or the map name for the point', captures.join() === 'Blue captured the bridge,Blue captured point A' && Modes.objectiveLetter(Modes.objectives, 1) === 1, captures.join());
+  endModeTest();
+  const hillMap = { spawns: TEAM_SPAWNS, objectives: [{ id: 'hill1', kind: 'hill', x: 0, y: 0, z: 0 }, { id: 'hill2', kind: 'hill', x: 0, y: 0, z: 30 }] };
+  startModeTest('hardpoint', modesTestMap(hillMap), [0, 1], { modeOptions: { params: { moveInterval: 2 } } });
+  runSeconds(2.1);
+  check('hardpoint: the move announcement shows no map id', announcements.some((event) => event.kind === 'objective') && !announcements.some((event) => /hill\d/.test(event.text)),
+    announcements.map((event) => event.text).join());
+  announcements.stop();
+  endModeTest();
+});
+
 Test.add('modes', (check) => {
   const conquestMap = { spawns: TEAM_SPAWNS, objectives: [{ id: 'A', kind: 'point', x: 0, y: 0, z: -20 }, { id: 'B', kind: 'point', x: 0, y: 0, z: 0 }, { id: 'C', kind: 'point', x: 0, y: 0, z: 20 }] };
   startModeTest('conquest', modesTestMap(conquestMap), [0, 1], { modeOptions: { params: { tickets: 10, captureTime: 1 } } });
@@ -541,6 +592,23 @@ function holdUseFor(id, seconds) {
   runSeconds(seconds);
   Actors.buttons[id] = 0;
 }
+
+// swap-02: Use held to plant or defuse on a dropped gun at the carry limit (and on after it) swaps nothing; a fresh Use
+// still swaps.
+Test.add('modes', (check) => {
+  startBombTest();
+  const guns = ['vanguard', 'verdict', 'hush', 'hornet'];   // more than the carry limit: setLoadout ends at it
+  Weapons.setLoadout(0, guns); Weapons.setLoadout(1, guns);
+  placeActor(0, 20, 0); placeActor(1, 20, 1.2);
+  Items.drop('tempest', 20, 0, 0); Items.drop('wasp', 20, 0, 1.2);
+  holdUseFor(0, 5);
+  check('bomb: no swap for the planter', Modes.objectives[1].state === 'planted' && Weapons.atCarryLimit(0) && !Weapons.has(0, 'tempest'));
+  Sim.step();   // Use let go
+  holdUseFor(0, 0.1);
+  holdUseFor(1, 7.5);
+  check('bomb: a fresh Use swaps; none for the defuser', Weapons.has(0, 'tempest') && Modes.objectives[1].state === 'defused' && Weapons.atCarryLimit(1) && !Weapons.has(1, 'wasp'));
+  endModeTest();
+});
 
 Test.add('modes', (check) => {
   startBombTest();
@@ -666,7 +734,7 @@ Test.add('modes', (check) => {
   check('hud state is one reused object', first === second && first.teamScores === Modes.teamScore && first.objectives === Modes.objectives);
   check('hud state fields', first.mode === 'ctf' && first.teams === 2 && first.scoreLimit === 3 && Test.near(first.timeLeft, 900, 0.01) && first.phase === PHASE.LIVE);
   let meshes = 0;
-  Modes.draw({ mesh: () => { meshes++; } });
+  Modes.draw({ meshFrom: () => { meshes++; } });
   check('one marker per objective (Render source)', meshes === Modes.objectives.length);
   endModeTest();
 });
@@ -707,4 +775,24 @@ Test.add('modes', (check) => {
   Sim.run(4);
   check('respawned after rules.respawn.delay with health and a weapon', Actors.alive[victim] && Actors.health[victim] === health && Weapons.currentWeapon(victim) !== null);
   Game.stop();
+});
+
+// PERF-006: the per-step mode code measures with length2 / length3, never the boxing Math.hypot (normalize-07).
+Test.add('modes', (check) => {
+  const perStep = [Modes.rateSpawn, Modes.inZone, Economy.buyBlock, chooseNextCircle, centralSpot];
+  const boxed = perStep.filter((fn) => /Math\.hypot/.test(String(fn))).map((fn) => fn.name);
+  check('spawn rating, zone tests, the buy zone and the ring use no Math.hypot', perStep.every((fn) => typeof fn === 'function') && boxed.length === 0, boxed.join());
+});
+
+// Objective markers use the team colours of the bodies and the HUD, colour-blind palette included (normalize-02).
+Test.add('modes', (check) => {
+  const drawn = [], palette = Render.teamPalette, flag = makeObjective({ kind: 'flag', team: 1 }, 0);
+  const recorder = { meshFrom(shape, shown) { drawn.push(Math.round(shown.r * 255) * 65536 + Math.round(shown.g * 255) * 256 + Math.round(shown.b * 255)); } };
+  Render.teamPalette = [0x0072b2, 0xffb000];
+  drawObjective(recorder, flag);
+  Render.teamPalette = null;
+  drawObjective(recorder, flag);
+  drawObjective(recorder, makeObjective({ kind: 'point' }, 1));
+  Render.teamPalette = palette;
+  check('markers: team colours with and without the colour-blind palette, neutral when unowned', drawn.join() === [0xffb000, colorNumber(CAT.teamColors[1].color), 0xd9d9d9].join(), drawn.join());
 });

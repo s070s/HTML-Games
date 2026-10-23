@@ -65,6 +65,13 @@ const MUTATOR_EXPECTATIONS = {
   wildlife: [undefined, (r) => r.fx.wildlife === 4],
 };
 
+// R-196: movement reads its two mutators through hasMutator (10a, which also takes plain ids); no unused second lookup.
+Test.add('mutators', (check) => {
+  buildMatchMove({ move: 'arena', mutators: [{ id: 'autohop' }, 'aircontrol'] });
+  check('hasMutator reads rows and plain ids, with no unused accessors beside it', MatchMove.autoHop && MatchMove.airControl && !['isActive', 'value', 'sizeScale'].some((key) => key in Mutators));
+  buildMatchMove(null);
+});
+
 Test.add('mutators', (check) => {
   check('50 mutators X01..X50 in order', CAT.mutators.length === 50 && CAT.mutators.every((row, index) => row.code === MUTATOR_CODES[index]));
   check('mutator catalogue validates against its schema', Data.validate('mutators').length === 0, Data.validate('mutators').join('; '));
@@ -81,10 +88,10 @@ Test.add('mutators', (check) => {
 });
 
 Test.add('mutators', (check) => {
-  const base = Rules.build({ mode: 'ffa' });
+  const base = Rules.build({ mode: 'tdm' });   // a team mode with kill scoring and its own weapons: every mutator fits it
   for (const row of CAT.mutators) {
     const [value, applied] = MUTATOR_EXPECTATIONS[row.id];
-    const rules = buildWith(row.id, value);
+    const rules = buildWith(row.id, value, { mode: 'tdm' });
     check(row.code + ' ' + row.id + ' applies as specified', applied(rules, base) && Rules.problems.length === 0, JSON.stringify(rules.fx) + ' / ' + Rules.problems.join('; '));
     check(row.code + ' ' + row.id + ' is listed in the built ruleset', rules.mutators.length === 1 && rules.mutators[0].id === row.id);
   }
@@ -127,7 +134,7 @@ Test.add('mutators', (check) => {
     for (let second = first + 1; second < ids.length; second++) {
       pairs++;
       const result = Mutators.add([{ id: ids[first], value: Mutators.defaultValue(CAT.mutators.byId(ids[first])) }], ids[second], true);
-      const built = Rules.build({ mode: 'ffa', mutators: [ids[first], ids[second]] });
+      const built = Rules.build({ mode: 'tdm', mutators: [ids[first], ids[second]] });
       const conflict = Mutators.conflicts(ids[first], ids[second]);
       if (Mutators.conflicts(ids[second], ids[first]) !== conflict) bad.push('asymmetric ' + ids[first] + '/' + ids[second]);
       if (!conflict && !(result.list.length === 2 && result.message === '' && built.mutators.length === 2)) bad.push('stack ' + ids[first] + '/' + ids[second]);
@@ -331,27 +338,25 @@ Test.add('mutators', (check) => {
   startMutatorMatch([]);
   check('a later stage can set rules.fx.timeScale without any mutator (difficulty game speed)', Sim.timeScale === 0.8, Sim.timeScale);
   stopMutatorMatch();
-  Rules.removeModifier('difficulty', slowDifficulty);
+  removeRuleModifier('difficulty', slowDifficulty);
   startMutatorMatch(['gamespeed']);
   check('game speed sets the sim time scale', Sim.timeScale === 1.25);
   stopMutatorMatch();
   check('the time scale returns to 1 when the match stops', Sim.timeScale === 1);
 
-  // A speed-up is honoured on a slow frame: 200% on a 30 fps frame needs 8 steps, more than the normal cap of 4.
+  // A speed-up is honoured on a slow frame: 200% on a long frame runs twice the normal step cap (a cheap sim: the full cap, ARC-010).
   startMutatorMatch([{ id: 'gamespeed', value: 200 }]);
   const tickBefore = Sim.tick;
-  Loop.accumulator = 0;
-  Loop.advance(1 / 30);
+  Loop.accumulator = 0; Loop.stepCostMs = 0;
+  Loop.advance(1);
   const doubled = Sim.tick - tickBefore;
   stopMutatorMatch();
   startMutatorMatch([]);
   const normalBefore = Sim.tick;
-  Loop.accumulator = 0;
-  Loop.advance(1 / 30);
-  check('game speed 200% keeps up on a 30 fps frame; normal speed is still capped per frame', doubled === 2 * (Sim.tick - normalBefore) && doubled === 2 * MAX_STEPS_PER_FRAME, doubled + ' ' + (Sim.tick - normalBefore));
-  Loop.accumulator = 0;
+  Loop.accumulator = 0; Loop.stepCostMs = 0;
   Loop.advance(1);
-  check('a long stall is still capped at four steps at normal speed', Sim.tick - normalBefore === 2 * MAX_STEPS_PER_FRAME);
+  check('game speed 200% runs twice the step cap on a long frame; normal speed is capped per frame', doubled === 2 * MAX_STEPS_PER_FRAME && Sim.tick - normalBefore === MAX_STEPS_PER_FRAME, doubled + ' ' + (Sim.tick - normalBefore));
+  Loop.accumulator = 0; Loop.stepCostMs = 0;
   stopMutatorMatch();
 
   startMutatorMatch(['slowmokills']);
@@ -543,7 +548,7 @@ Test.add('mutators', (check) => {
   stopMutatorMatch();
 
   const drawn = [];
-  const batch = { mesh(shape) { drawn.push(shape); } };
+  const batch = { meshFrom(shape) { drawn.push(shape); } };
   const source = Render.sources.find((entry) => entry.name === 'gifts');
   startMutatorMatch(['lastgift']);
   source.draw(batch);
@@ -558,4 +563,45 @@ Test.add('mutators', (check) => {
   check('the gift is gone after the blast', drawn.length === 0);
   stopMutatorMatch();
   check('tags and gifts use pools of their own sizes', TagPool.timer.length === MAX_TAGS && GiftPool.timer.length === MAX_GIFTS);
+});
+
+// Mode x mutator combinations (R-132, R-137, R-138): role health builds on the health mutators; a mode never runs (or offers)
+// a mutator it cannot use.
+function aliveWithRole(role) {
+  for (let id = 0; id < Actors.count; id++) if (Actors.alive[id] && Modes.actorRole[id] === role) return id;
+  return -1;
+}
+Test.add('mutators', (check) => {
+  startMutatorMatch([{ id: 'health', value: 100 }], { mode: 'infection', bots: Array.from({ length: 6 }, () => ({ dummy: true })), modeOptions: { params: { infectAfter: 1 } } });
+  Sim.run(Math.round(1.1 * TICK_RATE));
+  const infected = aliveWithRole(ACTOR_ROLE.INFECTED);
+  check('infection + Health 100: the first infected has the mode infected HP', infected >= 0 && Actors.maxHealth[infected] === Game.match.rules.params.infectedHealth, infected >= 0 && Actors.maxHealth[infected]);
+  killActor(infected, infected === 0 ? 1 : 0);
+  Sim.run(Math.round((Game.match.rules.respawn.delay + 0.1) * TICK_RATE));
+  check('infection + Health 100: a respawned infected has it too', Actors.alive[infected] === 1 && Actors.maxHealth[infected] === Game.match.rules.params.infectedHealth && Actors.health[infected] === Actors.maxHealth[infected], Actors.maxHealth[infected]);
+  stopMutatorMatch();
+  startMutatorMatch([{ id: 'health', value: 200 }], { mode: 'cursetag' });
+  Sim.step();
+  const cursed = aliveWithRole(ACTOR_ROLE.CURSED);
+  killActor(cursed, cursed === 0 ? 1 : 0);
+  Sim.run(Math.round((Game.match.rules.respawn.delay + 0.1) * TICK_RATE));
+  check('cursetag + Health 200: the respawned cursed keeps 50 HP', Modes.actorRole[cursed] === ACTOR_ROLE.CURSED && Actors.alive[cursed] === 1 && Actors.maxHealth[cursed] === 50, Actors.maxHealth[cursed]);
+  stopMutatorMatch();
+});
+
+Test.add('mutators', (check) => {
+  const offered = (modeId) => CAT.mutators.filter((row) => Mutators.fitsMode(row, CAT.modes.byId(modeId))).map((row) => row.id);
+  check('gungame offers no weapon mutators (it arms everyone)', !['oneshot', 'rocketpit', 'weaponset', 'mirror'].some((id) => offered('gungame').includes(id)) && offered('tdm').includes('rocketpit'));
+  check('Confirm Kills only where kills score; Friendly Fire only with teams; Lives only without rounds', !offered('oddball').includes('tags') && !offered('ffa').includes('ff')
+    && !offered('elim').includes('lives') && !offered('royale').includes('lives') && offered('lms').includes('lives') && offered('tdm').includes('ff'));
+  const toasts = startEventLog('toast');
+  const built = Rules.build({ mode: 'gungame', mutators: ['rocketpit', 'gravity'] });
+  check('a build drops a mutator the mode cannot use, with a notice', built.mutators.map((entry) => entry.id).join() === 'gravity' && built.weaponSet !== MATCH_SET_ID
+    && toasts.some((event) => event.text.includes('Rocket Pit')), toasts.map((event) => event.text).join());
+  toasts.stop();
+  check('the editor lists only the mutators of the chosen mode', editorModeMutators('gungame').map((row) => row.id).join() === offered('gungame').join());
+  const livesRow = EDITOR_FIELDS.find((field) => field.key === 'lives');
+  check('the editor Lives row shows only where lives work', !livesRow.show(Object.assign(customDefaults(), { mode: 'elim' })) && livesRow.show(Object.assign(customDefaults(), { mode: 'ffa' })));
+  const unfit = CAT.challenges.filter((row) => row.mutators.some((entry) => !Mutators.fitsMode(Mutators.row(typeof entry === 'string' ? entry : entry.id), CAT.modes.byId(row.mode))));
+  check('no challenge room uses a mutator its mode cannot use', unfit.length === 0, unfit.map((row) => row.id).join());
 });

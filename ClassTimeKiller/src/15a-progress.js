@@ -14,7 +14,6 @@ function pveReported(results, key) {
 }
 const PROGRESS_NEVER = Infinity;            // boss times nobody reported
 const PROGRESS_NO_LOOK = -1;                // no colour / finish worn (the default body look)
-const RUN_EXPLOSIVE_CLASSES = ['explosive'];
 const CHAMBER_SECONDS_STEP = 10;            // chamber record times are kept to a tenth of a second
 
 Settings.define('progress.unlockAll', false, { label: 'Unlock everything', category: 'gameplay' });
@@ -73,8 +72,9 @@ const RunLog = {
     if (!this.isPlayer(event.id)) return;
     const weapon = CAT.weapons.byId(event.weapon);
     if (weapon) this.weaponUsed[weapon.index] = 1;
-    if (RUN_EXPLOSIVE_CLASSES.includes(event.weaponClass)) this.explosiveShots++;
   },
+  // Any explosion the player caused (a grenade, a gadget, a barrel they shot) is explosive use, like a rocket shot.
+  onExplosion(event) { if (event.radius > 0 && this.isPlayer(event.owner)) this.explosiveShots++; },   // a gadget pop (smoke, fire: radius 0) is no blast
   onPickup(event) { if (this.isPlayer(event.id) && event.group === 'armor') this.armorPickups++; },
   weaponsUsed() {
     let count = 0;
@@ -89,14 +89,15 @@ const RunLog = {
     out.damageTaken = Math.round(this.damageTaken); out.souls = this.souls; out.armorPickups = this.armorPickups;
     out.marks = this.marks; out.wrathForms = this.wrathForms; out.wrathKills = this.wrathKills; out.weaponsUsed = this.weaponsUsed();
     out.lowestHealth = this.lowestHealth === Infinity ? (Game.playerId >= 0 ? Actors.health[Game.playerId] : 0) : this.lowestHealth;
-    out.headshots = Progress.playerHeadshots(); out.accuracy = Progress.playerAccuracy();
+    out.headshots = Progress.playerHeadshots(); out.accuracy = Progress.playerAccuracy() * Math.min(1, Progress.playerHits() / CHALLENGE_ACCURACY_HITS);
     out.seconds = results ? Math.min(results.duration, this.outSeconds) : 0;   // a player out of lives stops earning time (PRG-004)
     out.score = mine ? mine.score : 0; out.objective = mine ? mine.objective : 0; out.bestStreak = mine ? mine.bestStreak : 0;
-    out.won = results && Progress.outcome(results) === 'win' ? 1 : 0;
+    out.won = Progress.creditedWin(results) ? 1 : 0;
     out.placement = Progress.placement(results);
     out.cardsEquipped = match && match.rules && match.rules.cards ? match.rules.cards.ids.length : 0;
     out.hard = match ? Progress.isHard(match.rules ? match.rules.difficulty : '') : false;
-    out.pveFinished = match && match.rules && match.rules.family !== 'versus' && out.won ? 1 : 0;
+    const trial = !!(match && match.setup && match.setup.progress && match.setup.progress.kind === 'challenge');   // a room is no PvE level
+    out.pveFinished = match && match.rules && match.rules.family !== 'versus' && out.won && !trial ? 1 : 0;
     out.enemiesLeft = Pve.active ? enemiesLeft() : PROGRESS_NOT_REACHED;   // living plus queued enemies (14j), read once at the end
     out.propsLeft = pveReported(results, 'propsLeft'); out.secretsLeft = pveReported(results, 'secretsLeft'); out.optionalLeft = pveReported(results, 'optionalLeft');
     out.bossSeconds = this.bossSeconds; out.finalBossSeconds = this.finalBossSeconds;
@@ -109,7 +110,8 @@ const Progress = {
   handlers: new Map(),        // setup.progress.kind -> fn(match, metrics, award) (ladder, challenge, operation, daily, cards)
   finishers: [],              // fn(match, metrics, award) for every finished match (card unlocks, marks)
   preFinishers: [],           // fn(match) before anything is counted (end-of-match medals such as MD19)
-  retries: new Map(),         // setup.progress.kind -> fn(tag, setup) -> the setup a results-screen retry starts
+  retries: new Map(),         // setup.progress.kind -> { builder: fn(tag, setup) -> the setup a results-screen retry starts, label }
+  nexts: new Map(),           // setup.progress.kind -> fn(tag) -> { label, build } of the next step, or null
   lastAward: null,            // what the last finished match paid (results screen)
   awardedMatch: null,
   look: { color: PROGRESS_NO_LOOK, finish: PROGRESS_NO_LOOK },   // the worn cosmetics as plain numbers (read every frame)
@@ -169,22 +171,41 @@ const Progress = {
     Save.scheduleSave();
   },
 
-  // ---- XP of one match: score, objectives, medals, finish / podium / win, minutes played ----
-  // results: Game.match.results; medalXp: the XP of the medals the player earned. Returns a reused breakdown.
-  matchXp(results, medalXp) {
+  // ---- XP of one match: score, objectives, medals, finish / podium / win, minutes played, x the difficulty factor ----
+  // results: Game.match.results; medalXp: the XP of the medals the player earned; difficulty: the match's (id or { preset }).
+  // Returns a reused breakdown.
+  matchXp(results, medalXp, difficulty) {
     const out = matchXpScratch, mine = this.playerResult(results);
     out.score = out.objective = out.medals = out.finish = out.podium = out.win = out.time = out.total = 0;
-    if (!mine || results.duration < PROGRESS_XP.minimumSeconds) return out;
-    if (mine.score <= 0 && mine.objective <= 0 && mine.kills <= 0) return out;   // idle matches pay nothing
-    out.score = Math.max(0, mine.score) * PROGRESS_XP.perScore;
-    out.objective = Math.max(0, mine.objective) * PROGRESS_XP.perObjective;
-    out.medals = medalXp;
-    out.finish = PROGRESS_XP.finish;
-    out.win = Progress.outcome(results) === 'win' ? PROGRESS_XP.win : 0;
-    out.podium = !out.win && this.onPodium(results) ? PROGRESS_XP.podium : 0;
-    out.time = Math.min(results.duration / PROGRESS_SECONDS_PER_MINUTE, PROGRESS_XP.minutesCap) * PROGRESS_XP.perMinute;
+    if (this.xpReason(results)) return out;
+    const minutes = results.duration / PROGRESS_SECONDS_PER_MINUTE, bonusShare = Math.min(1, minutes / PROGRESS_XP.bonusMinutes);
+    const factor = PROGRESS_XP_DIFFICULTY[difficultyIdOf(difficulty)] || 1, weight = PROGRESS_XP_MODES[results.mode] || PROGRESS_XP_MODE_FULL;
+    out.score = Math.max(0, mine.score) * PROGRESS_XP.perScore * weight.score * factor;
+    out.objective = Math.max(0, mine.objective) * PROGRESS_XP.perObjective * weight.objective * factor;
+    out.medals = medalXp * factor;
+    out.finish = PROGRESS_XP.finish * bonusShare * factor;
+    out.win = Progress.outcome(results) === 'win' ? PROGRESS_XP.win * bonusShare * factor : 0;
+    out.podium = !out.win && this.onPodium(results) ? PROGRESS_XP.podium * bonusShare * factor : 0;
+    out.time = Math.min(minutes, PROGRESS_XP.minutesCap) * PROGRESS_XP.perMinute * factor;
     out.total = Math.round(out.score + out.objective + out.medals + out.finish + out.win + out.podium + out.time);
     return out;
+  },
+  // Why a match pays no XP ('' when it pays): too short, spectated, or the player did not take part (no idle farming).
+  xpReason(results) {
+    const mine = this.playerResult(results);
+    if (!mine) return 'No XP: you did not play this match.';
+    if (results.duration < PROGRESS_XP.minimumSeconds) return 'No XP: matches under ' + PROGRESS_XP.minimumSeconds + ' s pay none.';
+    return this.tookPart(mine) ? '' : 'No XP: you did not take part.';
+  },
+  // A match pays its fixed XP bonuses (ladder clear, operation stage, daily) only when it paid XP itself (no idle farming).
+  paidMatch(award) { return award.breakdown.total > 0; },
+  // The one "took part" rule (XP, a side's win): score, objective points, a kill, an assist or damage dealt.
+  tookPart(mine) { return mine.score > 0 || mine.objective > 0 || mine.kills > 0 || mine.assists > 0 || this.playerDamage() > 0; },
+  // A win the player earns: their side won, and they took part or had no ally to win it for them (a solo level).
+  creditedWin(results) {
+    const mine = this.playerResult(results);
+    if (!mine || Progress.outcome(results) !== 'win') return false;
+    return this.tookPart(mine) || !results.players.some((player) => player.id !== mine.id && mine.team >= 0 && player.team === mine.team);
   },
   playerResult(results) {
     if (!results || Game.playerId < 0) return null;
@@ -205,28 +226,28 @@ const Progress = {
     const place = this.placement(results);
     return place > 0 && place <= LADDER_PODIUM;
   },
-  playerHeadshots() {
-    const tally = this.tally();
-    let total = 0;
-    for (let index = 0; index < WEAPON_COUNT; index++) total += tally.headshots[index];
-    return total;
-  },
+  playerHeadshots() { return this.tallySum('headshots'); },
   playerAccuracy() {
-    const tally = this.tally();
-    let shots = 0, hits = 0;
-    for (let index = 0; index < WEAPON_COUNT; index++) { shots += tally.shots[index]; hits += tally.hits[index]; }
+    const hits = this.playerHits(), shots = this.tallySum('shots');
     return shots > 0 ? hits / shots : 0;
   },
+  playerHits() { return this.tallySum('hits'); },
+  playerDamage() { return this.tallySum('damage'); },
+  tallySum(field) {
+    const values = this.tally()[field];
+    let total = 0;
+    for (let index = 0; index < WEAPON_COUNT; index++) total += values[index];
+    return total;
+  },
   isHard(difficulty) {
-    const id = typeof difficulty === 'object' && difficulty ? difficulty.preset : difficulty;
-    const row = CAT.difficulty.byId(id), hard = CAT.difficulty.byId(CARD_HARD_DIFFICULTY);
+    const row = CAT.difficulty.byId(difficultyIdOf(difficulty)), hard = CAT.difficulty.byId(CARD_HARD_DIFFICULTY);
     return !!row && CAT.difficulty.indexOf(row) >= CAT.difficulty.indexOf(hard);
   },
-  // Points of a challenge / daily row: sum of weight x metric; `underPar` = seconds left of par (0 when slower).
+  // Points of a challenge / daily row: sum of weight x metric; `underPar` = seconds left of par (0 when slower or lost).
   points(weights, metrics, par) {
     let total = 0;
     for (const key in weights) {
-      const value = key === 'underPar' ? Math.max(0, (par || 0) - metrics.seconds) : Number(metrics[key]) || 0;
+      const value = key === 'underPar' ? (metrics.won ? Math.max(0, (par || 0) - metrics.seconds) : 0) : Number(metrics[key]) || 0;
       total += weights[key] * value;
     }
     return Math.max(0, Math.round(total));
@@ -292,7 +313,7 @@ const Progress = {
   },
   recordStats(match) {
     const stats = this.stats(), results = match.results, mine = this.playerResult(results), won = Progress.outcome(results) === 'win' ? 1 : 0;
-    const mode = statRecord(stats.modes, results.mode, MODE_STAT_FIELDS), map = statRecord(stats.maps, match.map ? match.map.id || 'custom' : 'none', MAP_STAT_FIELDS);
+    const mode = statRecord(stats.modes, results.mode, MODE_STAT_FIELDS), map = statRecord(stats.maps, statMapKey(match.map), MAP_STAT_FIELDS);
     mode.played++; mode.wins += won; mode.kills += mine.kills; mode.deaths += mine.deaths; mode.bestScore = Math.max(mode.bestScore, mine.score);
     map.played++; map.wins += won;
     stats.totals.matches++; stats.totals.wins += won; stats.totals.kills += mine.kills; stats.totals.deaths += mine.deaths;
@@ -310,12 +331,26 @@ const Progress = {
   addHandler(kind, handler) { this.handlers.set(kind, handler); },
   addFinisher(finisher) { this.finishers.push(finisher); },
   addPreFinisher(finisher) { this.preFinishers.push(finisher); },
-  addRetry(kind, builder) { this.retries.set(kind, builder); },
+  // `label` names a retry that does not replay the finished match (an operation moves on): the results screen shows it only when no next step does the same.
+  addRetry(kind, builder, label) { this.retries.set(kind, { builder, label: label || '' }); },
+  addNext(kind, finder) { this.nexts.set(kind, finder); },
   // The setup "Play again" starts for a tagged match (null when untagged): each structure rebuilds its own, so a ladder
   // match keeps its tier and difficulty, a daily keeps its date seed and an operation plays its current map.
   retrySetup(setup) {
-    const tag = setup && setup.progress, builder = tag ? this.retries.get(tag.kind) : null;
-    return builder ? builder(tag, setup) : null;
+    const tag = setup && setup.progress, retry = tag ? this.retries.get(tag.kind) : null;
+    return retry ? retry.builder(tag, setup) : null;
+  },
+  // The results screen's replay button: Retry after a lost career match that replays itself, Play again otherwise; a retry that moves on
+  // shows its own label only when there is no next step (else '' : the next step button already does it).
+  replayLabel(setup, outcome) {
+    const tag = setup && setup.progress, retry = tag ? this.retries.get(tag.kind) : null;
+    if (retry && retry.label) return this.nextStep(setup) ? '' : retry.label;
+    return retry && outcome === 'loss' ? 'Retry' : 'Play again';
+  },
+  // The next step of a career after the finished match, or null (lost, nothing left): { label, build() -> setup } (the results screen's primary button).
+  nextStep(setup) {
+    const tag = setup && setup.progress, finder = tag ? this.nexts.get(tag.kind) : null;
+    return finder ? finder(tag) : null;
   },
   finishMatch(match) {
     if (!match || !match.results || this.awardedMatch === match) return this.awardedMatch === match ? this.lastAward : null;
@@ -326,8 +361,10 @@ const Progress = {
     const metrics = RunLog.measure(match);
     const award = { xp: 0, levelBefore, levelAfter: levelBefore, lines: [], unlocks: [], breakdown: null, medals: [] };
     const medalXp = this.recordMedals(profile, award);
-    award.breakdown = Object.assign({}, this.matchXp(match.results, medalXp));
+    award.breakdown = Object.assign({}, this.matchXp(match.results, medalXp, match.rules ? match.rules.difficulty : ''));
     award.xp = award.breakdown.total;
+    const noXp = this.xpReason(match.results);
+    if (noXp) award.lines.push(noXp);
     this.recordStats(match);
     const tag = match.setup.progress, handler = tag ? this.handlers.get(tag.kind) : null;
     if (handler) handler(match, metrics, award);
@@ -354,21 +391,25 @@ const Progress = {
   // ---- MP11 Test Chambers records (Save.data.progression.chambers['1'..'12'] = { medal, stars, seconds }) ----
   // A completed chamber ('pve.chamber' kind complete) keeps the best run: more stars, or as many stars in less time.
   recordChamber(event) {
-    const records = this.profile().chambers, key = String(event.chamber), old = records[key];
+    const old = this.chamberRecord(event.chamber);
     const seconds = Math.round(event.seconds * CHAMBER_SECONDS_STEP) / CHAMBER_SECONDS_STEP;
-    const better = !isPlainObject(old) || event.stars > old.stars || (event.stars === old.stars && seconds < old.seconds);
+    const better = !old || event.stars > old.stars || (event.stars === old.stars && seconds < old.seconds);
     if (!better) return false;
-    records[key] = { medal: event.medal, stars: event.stars, seconds };
+    this.profile().chambers[String(event.chamber)] = { medal: event.medal, stars: event.stars, seconds };
     if (event.stars > 0) RunLog.chamberRecords++;
     Save.scheduleSave();
     return true;
   },
-  chamberRecord(chamber) { return this.profile().chambers[String(chamber)] || null; },
-  // A malformed entry of an imported save (not a plain record) counts no stars.
+  // A malformed entry of an imported save (not a record with a medal name, a whole star count the medals allow and a time) is no
+  // record and counts no stars, so the Solo screen and the stars total never read a bad field.
+  chamberRecord(chamber) {
+    const record = this.profile().chambers[String(chamber)];
+    if (!isPlainObject(record) || typeof record.medal !== 'string' || !Number.isFinite(record.seconds) || record.seconds < 0) return null;
+    return Number.isInteger(record.stars) && record.stars >= 0 && record.stars <= PVE_CHAMBER_RULES.medals.length ? record : null;
+  },
   chamberStars() {
-    const records = this.profile().chambers;
     let stars = 0;
-    for (const key in records) stars += isPlainObject(records[key]) ? Number(records[key].stars) || 0 : 0;
+    for (const key in this.profile().chambers) { const record = this.chamberRecord(key); if (record) stars += record.stars; }
     return stars;
   },
   unlockedIds() {
@@ -381,7 +422,15 @@ const matchXpScratch = { score: 0, objective: 0, medals: 0, finish: 0, podium: 0
 const MODE_STAT_FIELDS = { played: 0, wins: 0, kills: 0, deaths: 0, bestScore: 0 };
 const MAP_STAT_FIELDS = { played: 0, wins: 0 };
 const WEAPON_STAT_FIELDS = { shots: 0, hits: 0, kills: 0, headshots: 0 };
+// Map statistics: a catalogue map by its id; generated and custom maps (a new id per seed or save) share one row each, so the list stays short.
+const STAT_MAP_GROUP_NAMES = { generated: 'Generated maps', custom: 'Custom maps', none: 'No map' };
+function statMapKey(map) {
+  if (!map) return 'none';
+  return CAT.maps.byId(map.id) ? map.id : map.gen ? 'generated' : 'custom';
+}
 
+// A match's difficulty as its preset id (rules.difficulty is an id or { preset, ... }).
+function difficultyIdOf(difficulty) { return typeof difficulty === 'object' && difficulty ? difficulty.preset : difficulty; }
 function masteryTierIndex(tierId) {
   for (let index = 0; index < MASTERY_TIERS.length; index++) if (MASTERY_TIERS[index].id === tierId) return index;
   return PROGRESS_NOT_REACHED;
@@ -423,6 +472,7 @@ Bus.on('kill', (event) => RunLog.onKill(event));
 Bus.on('damage', (event) => RunLog.onDamage(event));
 Bus.on('weapon.fire', (event) => RunLog.onFire(event));
 Bus.on('pickup', (event) => RunLog.onPickup(event));
+Bus.on('explosion', (event) => RunLog.onExplosion(event));
 Bus.on('souls', (event) => { if (RunLog.isPlayer(event.id)) RunLog.souls++; });
 // A34 Wrath Form (S12 ability events) counts the Wrath Form metrics (C12 Encore, C19 Discord unlocks).
 Bus.on('ability.cast', (event) => { if (event.ability === SOUL_ULTIMATE) RunLog.setWrath(event.id, true); });

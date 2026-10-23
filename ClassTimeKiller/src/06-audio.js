@@ -8,11 +8,10 @@
 // Voices are persistent node chains reused from a pool; only the short-lived source nodes are created per sound.
 
 const AUDIO_PRIORITY = { ui: 6, own: 5, near: 4, explosion: 3, far: 2, ambient: 1 }; // AUD-002: own weapon > close fire > explosions > far > ambience
-const AUDIO_MAX_SLOTS = 32;                   // array size of the voice pool; Quality.current().voices says how many are used
+const AUDIO_MAX_SLOTS = CAT.quality.reduce((most, row) => Math.max(most, row.voices), 0);   // array size of the voice pool; Quality.current().voices says how many are used
 const AUDIO_QUEUE_SIZE = 64;                  // sound requests collected per frame
-const AUDIO_NEW_VOICE_DIVISOR = 6;            // at most voices / 6 new voices per frame (4, Potato 2): one start is 10 to 40 automation calls
+const AUDIO_NEW_VOICE_DIVISOR = 6;            // at most voices / 6 new voices per frame (4, Potato 2): one start is 10 to 40 automation calls (PERF-002 / AUD-007)
 const AUDIO_MIN_NEW_VOICES = 2;
-const AUDIO_START_BUDGET_MS = 0.2;            // PERF-002 / AUD-007: no further voice starts in a frame once this much time is spent (the first always starts)
 const AUDIO_FLOOR_GAIN = 0.0001;              // exponential ramps cannot reach 0
 const AUDIO_AUDIBLE_GAIN = 0.02;              // quieter sounds are dropped instead of using a voice
 const AUDIO_START_DELAY = 0.004;              // seconds between "now" and the scheduled start (avoids clicks)
@@ -52,6 +51,8 @@ const AUDIO_TOGGLE_OPTIONS = { options: [false, true], optionLabels: ['Off', 'On
 for (const [name, fallback, label] of AUDIO_VOLUME_SETTINGS) Settings.define('audio.' + name, fallback, { label, category: 'audio', min: 0, max: 1, step: 0.05 });
 Settings.define('audio.mono', false, Object.assign({ label: 'Mono audio', category: 'accessibility' }, AUDIO_TOGGLE_OPTIONS));
 Settings.define('audio.hrtf', true, Object.assign({ label: '3D headphone sound (High quality and up)', category: 'audio' }, AUDIO_TOGGLE_OPTIONS));
+Settings.define('audio.musicMode', 'auto', { label: 'Music', category: 'audio', options: ['auto', 'on', 'off'], optionLabels: ['Auto (off on Potato)', 'On', 'Off'] });
+Settings.define('audio.mix', false, Object.assign({ label: 'Mix with other audio (iPhone music app keeps playing)', category: 'audio' }, AUDIO_TOGGLE_OPTIONS));
 Settings.define('audio.speech', false, Object.assign({ label: 'Spoken announcer (browser voice)', category: 'audio' }, AUDIO_TOGGLE_OPTIONS));
 
 // ---- Voice allocator: pure bookkeeping, no Web Audio, so the stealing rules are testable without a context ----
@@ -152,7 +153,7 @@ function audioDirection(pan, front) {
 function computeAudioSpatial(out, recipe, x, y, z) {
   const listener = audioListener;
   const dx = x - listener.x, dy = y - listener.y, dz = z - listener.z;
-  const horizontal = Math.hypot(dx, dz);
+  const horizontal = length2(dx, dz);
   out.distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
   out.gain = audioAttenuation(recipe, out.distance);
   out.occluded = false;
@@ -180,8 +181,6 @@ function audioPriorityFor(recipe, distance, own) {
 
 // ---- Payloads reused for emitted events (listeners copy what they keep) ----
 const audioCaptionPayload = { text: '', x: 0, y: 0, z: 0, kind: '' };
-
-const isAppleTouchDevice = (nav) => /iPad|iPhone|iPod/.test(nav.userAgent || '') || (nav.platform === 'MacIntel' && nav.maxTouchPoints > 1);
 
 // ---- Sound request queue: typed-array rows filled by event handlers, drained once per frame ----
 const SoundQueue = {
@@ -358,21 +357,21 @@ const audioClockMs = () => performance.now();
 const audioQuietCall = () => {};  // swallows the rejection of resume() when the browser still wants a gesture
 
 const Sound = {
-  enabled: false,           // true while a running AudioContext exists
+  unsupported: false,       // no Web Audio (or it would not start): told once, never retried
   forceActive: false,       // tests: lets handlers and update run although Game.headless is set
   assumeRunning: false,     // tests: an OfflineAudioContext never reports 'running'
   listenerSource: null,     // fn(out {x,y,z,yaw,pitch}) -> bool, set by spectate / killcam code when the listener is not the player
   lineOfSight: null,        // fn(ax,ay,az,bx,by,bz) -> true when nothing solid lies between; filled by the world section. null = no occlusion
-  nowMs: audioClockMs,      // tests replace it to drive the per-frame time budget
+  nowMs: audioClockMs,      // the clock updateMs is measured with (tests replace it)
   speechSynth: null,        // tests: replacement for window.speechSynthesis
   contextFactory: null,     // tests: returns the AudioContext to use
   context: null, buses: null, noiseBuffer: null, slots: [],
   allocator: makeVoiceAllocator(AUDIO_MAX_SLOTS),
   recipes: [], recipeById: new Map(), triggerCounts: new Int32Array(0), retriggerClock: new Float64Array(0),   // filled by 06b
   frameHooks: [],           // fn(seconds) called each audio frame (music)
-  levels: { master: 0.8, sfx: 1, music: 0.5, ui: 0.8, announcer: 0.9 },    // slider positions 0..1
-  mono: false, hrtf: false, voiceLimit: 24, musicAllowed: true, hrtfAllowed: false,
-  paused: false, pauseSuspended: false, suspendTimer: 0, blockedTimer: 0, blockedShown: false, sessionHint: '',
+  levels: Object.fromEntries(AUDIO_VOLUME_SETTINGS.map(([name, fallback]) => [name, fallback])),    // slider positions 0..1
+  mono: false, hrtf: false, mix: false, voiceLimit: 0, musicAllowed: true, hrtfAllowed: false,   // voiceLimit, musicAllowed, hrtfAllowed follow the quality preset (refreshQuality)
+  paused: false, hidden: false, pauseSuspended: false, suspendTimer: 0, blockedTimer: 0, blockedShown: false, gestureHandler: null, speechPrimed: false,
   clock: 0, frameStart: 0, occlusionRays: 0, startedThisFrame: 0, maxStartedPerFrame: 0, updateMs: 0, peakUpdateMs: 0, started: 0,
   heartbeatClock: 0, gamepadClock: 0,
   lastShield: new Float32Array(MAX_ACTORS),
@@ -385,6 +384,7 @@ const Sound = {
 
   // ---- Settings, quality ----
   onSetting(key) {
+    if (key === 'audio.speech') this.primeSpeech();   // inside the toggle tap (iOS)
     if (key.startsWith('audio.')) this.applyVolumes();
     else if (key.startsWith('video.')) this.refreshQuality();
   },
@@ -392,13 +392,21 @@ const Sound = {
     const quality = Quality.current();
     this.voiceLimit = Math.min(quality.voices, AUDIO_MAX_SLOTS);
     this.allocator.limit = this.voiceLimit;
-    this.musicAllowed = quality.music;
     this.hrtfAllowed = AUDIO_HRTF_QUALITY.includes(quality.id);
+    this.refreshMusicAllowed();
+  },
+  // The Music setting: Auto follows the quality preset (off on Potato), On and Off override it.
+  refreshMusicAllowed() {
+    const mode = Settings.get('audio.musicMode');
+    this.musicAllowed = mode === 'on' || (mode === 'auto' && Quality.current().music);
   },
   applyVolumes() {
     for (const name in this.levels) this.levels[name] = Settings.get('audio.' + name);
     this.mono = Settings.get('audio.mono');
     this.hrtf = Settings.get('audio.hrtf');
+    this.mix = Settings.get('audio.mix');
+    if (navigator.audioSession) this.configureSession(navigator);
+    this.refreshMusicAllowed();
     if (!this.buses) return;
     const now = this.context.currentTime;
     const buses = this.buses;
@@ -412,30 +420,47 @@ const Sound = {
 
   // ---- Context: created on the first user gesture (AUD-001) ----
   installGestureListeners() {
-    const unlock = () => this.unlock();
-    for (const name of AUDIO_GESTURES) window.addEventListener(name, unlock, { passive: true });
+    if (this.gestureHandler) return;
+    this.gestureHandler = (event) => this.unlock(event);
+    for (const name of AUDIO_GESTURES) window.addEventListener(name, this.gestureHandler, { passive: true });
   },
-  unlock() {
-    if (!this.live()) return false;
-    if (!this.context && !this.createContext()) return false;
+  removeGestureListeners() {
+    if (!this.gestureHandler) return;
+    for (const name of AUDIO_GESTURES) window.removeEventListener(name, this.gestureHandler);
+    this.gestureHandler = null;
+  },
+  // Any gesture or gamepad press starts or wakes the audio; a touch pointerdown is skipped (iOS counts touchend / pointerup).
+  unlock(event) {
+    if (!this.live() || this.unsupported) return false;
+    if (event && event.type === 'pointerdown' && event.pointerType && event.pointerType !== 'mouse') return false;
+    if (!this.hidden) this.pauseSuspended = false;
+    const created = !this.context;
+    if (created && !this.createContext()) return false;
     this.resumeContext();
+    if (!created && !this.canPlay()) this.playSilence();
     if (!this.blockedTimer && !this.canPlay()) this.blockedTimer = setTimeout(() => this.checkBlocked(), AUDIO_BLOCKED_CHECK_MS);
+    this.primeSpeech();
     return true;
   },
   createContext() {
     const Constructor = window.AudioContext || window.webkitAudioContext;
-    if (!this.contextFactory && !Constructor) { emitToast('Sound is not supported by this browser.'); return false; }
-    this.sessionHint = this.configureSession(navigator);
+    if (!this.contextFactory && !Constructor) return this.failUnsupported('Sound is not supported by this browser.');
+    this.configureSession(navigator);
     try {
       this.attach(this.contextFactory ? this.contextFactory() : new Constructor({ latencyHint: 'interactive' }));
       this.playSilence();
     } catch (error) {
       ErrorLog.add('audio.createContext', error);
-      emitToast('Sound could not start on this device.');
       this.context = null; this.buses = null;
-      return false;
+      return this.failUnsupported('Sound could not start on this device.');
     }
     return true;
+  },
+  failUnsupported(message) {
+    this.unsupported = true;
+    this.removeGestureListeners();
+    emitToast(message);
+    return false;
   },
   // Older iOS only starts the audio hardware after a buffer was played inside the gesture handler.
   playSilence() {
@@ -444,10 +469,17 @@ const Sound = {
     source.connect(this.context.destination);
     source.start(0);
   },
-  // iOS 17+: "playback" makes sound play with the silent switch on. Older iOS: tell the player once (AUD-001).
+  // iOS 17+: "playback" plays with the silent switch on, "ambient" (Mix setting) keeps the music app. Older iOS: tell the
+  // player once, ever (Save tips.silentSwitch), not at every launch (AUD-001).
   configureSession(nav) {
-    if (nav.audioSession) { nav.audioSession.type = 'playback'; return 'playback'; }
-    if (!isAppleTouchDevice(nav)) return 'none';
+    if (nav.audioSession) {
+      nav.audioSession.type = this.mix ? 'ambient' : 'playback';
+      return nav.audioSession.type;
+    }
+    if (!isAppleTouch(nav)) return 'none';
+    if (Save.data.tips.silentSwitch) return 'hint';
+    Save.data.tips.silentSwitch = true;
+    Save.scheduleSave();
     emitToast('Tip: turn off the silent switch, or your iPhone keeps the game sound muted.');
     return 'hint';
   },
@@ -471,32 +503,42 @@ const Sound = {
     this.refreshQuality();
     this.applyVolumes();
     for (let index = 0; index < this.voiceLimit; index++) this.ensureSlot(index);   // build the voice chains now, not in the middle of a fight
-    this.enabled = context.state === 'running';
-    context.onstatechange = () => { this.enabled = this.canPlay(); };
+    context.onstatechange = () => { if (this.canPlay()) this.removeGestureListeners(); else if (!this.unsupported) this.installGestureListeners(); };
   },
   // Drops the context (tests, and the end of the page's life); event handling keeps working without it.
   detach() {
     clearTimeout(this.suspendTimer); clearTimeout(this.blockedTimer);
     this.suspendTimer = 0; this.blockedTimer = 0;
     this.context = null; this.buses = null; this.noiseBuffer = null; this.slots.length = 0;
-    this.enabled = false; this.paused = false; this.pauseSuspended = false;
+    this.paused = false; this.hidden = false; this.pauseSuspended = false;
     this.allocator.reset();
   },
-  // Game.pause: game sounds fade out (menu pause keeps menu clicks audible); any other pause also suspends the context.
+  // Game.pause: game sounds fade out and menu clicks stay audible; only a hidden page also suspends the context (battery).
   setPaused(paused, reason) {
     this.paused = paused;
+    if (paused) this.cancelSpeech();
     if (!this.buses) return;
     this.buses.game.gain.setTargetAtTime(paused ? 0 : 1, this.context.currentTime, AUDIO_PAUSE_TAU);
     clearTimeout(this.suspendTimer);
-    if (paused && reason !== 'menu') {
+    if (paused && reason === 'hidden') {
       this.suspendTimer = setTimeout(() => this.suspendContext(), AUDIO_SUSPEND_DELAY_MS);
       return;
     }
+    this.wake();
+  },
+  // A hidden page suspends the context at once, whatever the game state; showing it wakes it.
+  onVisibility() {
+    this.hidden = document.hidden;
+    clearTimeout(this.suspendTimer);
+    if (this.hidden) this.suspendContext(); else this.wake();
+  },
+  wake() {
+    if (this.hidden) return;
     this.pauseSuspended = false;
     this.resumeContext();
   },
   suspendContext() {
-    if (!this.context || !this.paused) return;
+    if (!this.context || !(this.paused || this.hidden)) return;
     this.pauseSuspended = true;
     const attempt = this.context.suspend();
     if (attempt && attempt.catch) attempt.catch(audioQuietCall);
@@ -522,19 +564,39 @@ const Sound = {
     const positional = x !== undefined;
     return this.enqueue(this.recipeIndex(recipeId), positional, positional ? x : 0, positional ? y : 0, positional ? z : 0, source === undefined ? -1 : source, 1, 1);
   },
+  // The browser voice, or null when this browser has none.
+  speechSynthesizer() {
+    const synth = this.speechSynth || window.speechSynthesis;
+    return synth && typeof window.SpeechSynthesisUtterance === 'function' ? synth : null;
+  },
+  // iOS Safari speaks only after a speak() made inside a tap: a silent utterance primes it (the toggle tap, the first unlock).
+  primeSpeech() {
+    if (this.speechPrimed || !this.live() || !Settings.get('audio.speech')) return;
+    const synth = this.speechSynthesizer();
+    if (!synth) return;
+    const utterance = new window.SpeechSynthesisUtterance(' ');
+    utterance.volume = 0;
+    synth.speak(utterance);
+    this.speechPrimed = true;
+  },
+  cancelSpeech() {
+    const synth = this.speechSynthesizer();
+    if (synth && (synth.speaking || synth.pending)) synth.cancel();
+  },
   speak(text) {
     if (!this.live() || typeof text !== 'string' || !text || !Settings.get('audio.speech')) return false;
-    const synth = this.speechSynth || window.speechSynthesis;
-    if (!synth || typeof window.SpeechSynthesisUtterance !== 'function') return false;
+    const synth = this.speechSynthesizer();
+    if (!synth) return false;
     const utterance = new window.SpeechSynthesisUtterance(text);
-    utterance.volume = clamp(this.levels.master * this.levels.announcer, 0, 1);
+    const level = this.levels.master * this.levels.announcer;
+    utterance.volume = clamp(level * level, 0, 1);   // squared like the bus gains
     utterance.rate = 1.05;
-    synth.cancel();
+    this.cancelSpeech();
     synth.speak(utterance);
     return true;
   },
 
-  // ---- Frame update (Loop phase 'audio'): listener, player cues, queue -> voices. Budget 0.3 ms (AUD-007). ----
+  // ---- Frame update (Loop phase 'audio'): listener, player cues, queue -> voices; the start cap keeps it cheap (AUD-007). ----
   update(seconds) {
     if (!this.live()) return;
     this.frameStart = this.nowMs();
@@ -590,7 +652,6 @@ const Sound = {
     for (let row = queue.pickBest(); row >= 0 && started < cap; row = queue.pickBest()) {
       queue.taken[row] = 1;
       if (this.playRow(row)) started++;
-      if (started > 0 && this.nowMs() - this.frameStart > AUDIO_START_BUDGET_MS) break;
     }
     this.captionLeftovers();
     queue.count = 0;
@@ -630,7 +691,7 @@ const Sound = {
     if (!this.canPlay()) return false;
     return this.startVoice(recipe, spatial, spatial.gain * recipe.gain * queue.gain[row], queue.pitch[row], queue.priority[row]);
   },
-  // Sounds that got no voice (voice cap, time budget) still get their caption: a deaf player must not lose the warning (ACC-003).
+  // Sounds that got no voice (voice cap, start cap) still get their caption: a deaf player must not lose the warning (ACC-003).
   captionLeftovers() {
     const queue = SoundQueue;
     for (let row = 0; row < queue.count; row++) {
@@ -710,7 +771,7 @@ const Sound = {
   stats() {
     return { voices: this.context ? this.allocator.activeCount(this.context.currentTime) : 0, voiceLimit: this.voiceLimit, started: this.started,
       stolen: this.allocator.stolen, rejected: this.allocator.rejected, queueDropped: SoundQueue.dropped, updateMs: this.updateMs,
-      peakUpdateMs: this.peakUpdateMs, maxStartedPerFrame: this.maxStartedPerFrame, enabled: this.enabled };
+      peakUpdateMs: this.peakUpdateMs, maxStartedPerFrame: this.maxStartedPerFrame, enabled: this.canPlay() };
   },
   // Clean slate between matches and between tests. Voices that still ring out keep their pool slots.
   resetState() {
@@ -728,11 +789,15 @@ function padHasPressedButton(pad) {
 
 Sound.captionClock.fill(-1000);
 Bus.on('setting', (key) => Sound.onSetting(key));
+Bus.on('quality.change', () => Sound.refreshQuality());   // the renderer's step-down mid-match (PERF-013)
 Bus.on('game.pause', (reason) => Sound.setPaused(true, reason));
 Bus.on('game.resume', () => Sound.setPaused(false, ''));
-Bus.on('match.start', () => { Sound.resetState(); Sound.refreshQuality(); });
-Bus.on('match.stop', () => Sound.resetState());
+// A match boundary also ends any pause: Game.stop and a restart emit no game.resume, and the next match must not start silent.
+Bus.on('match.start', () => { Sound.setPaused(false, ''); Sound.resetState(); Sound.refreshQuality(); });
+Bus.on('match.stop', () => { Sound.setPaused(false, ''); Sound.resetState(); });
 Bus.on('boot', () => {
   Loop.onFrame('audio', (seconds) => Sound.update(seconds));
+  Sound.refreshQuality();
   Sound.installGestureListeners();
+  document.addEventListener('visibilitychange', () => Sound.onVisibility());
 });

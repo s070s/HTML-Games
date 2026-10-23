@@ -15,7 +15,8 @@ const HUD_PVE_TOUCH_NOTE_RISE = 20;      // touch: the notes rise above the ammo
 const HUD_PVE_TOUCH_NOTE_RIGHT = 0.55;   // touch: notes end left of this share of the width (the default right-hand buttons start past it)
 const HUD_PVE_NOTE_SIZE = 16, HUD_PVE_NOTE_PAD = 24, HUD_PVE_NOTE_HALF = 14;   // design units: note text size, side padding, half the panel height
 const HUD_PVE_TIME_COLUMN = 0.45, HUD_PVE_STEPS_COLUMN = 0.72;                   // right edges of the medal table columns (share of its width)
-const HUD_PVE_HINT_RISE = 46, HUD_PVE_PROMPT_RISE = 78;                         // above the weapon bar line
+const HUD_PVE_HINT_RISE = 46, HUD_PVE_PROMPT_RISE = 78, HUD_PVE_PARRY_RISE = 110;   // above the weapon bar line
+const HUD_PVE_PARRY_SECONDS = 0.6;       // the PARRIED note stays this long
 const HUD_PVE_LOW_CORE = 0.25;
 const HUD_PVE_STATE_TEXT = { shop: 'NEXT WAVE', fight: 'ENEMIES', extract: 'EXTRACT' };
 const HUD_PVE_MEDAL_STARS = ['★★★', '★★', '★'];
@@ -224,7 +225,8 @@ function hudPveBossBar(pen, layout, boss) {
     pen.rectAt(HUD_COLOR.black, 0.8);
   }
   text[0] = layout.centerX; text[1] = barY + 24 * unit; text[2] = HUD_TEXT_SMALL * unit;
-  if (boss.weakDisabled) pen.labelAt('WEAK POINT BROKEN', HUD_COLOR.gold, 'center');
+  if (boss.shielded) pen.labelAt('SHIELDED: PHASE CHANGE', HUD_COLOR.warn, 'center');
+  else if (boss.weakDisabled) pen.labelAt('WEAK POINT BROKEN', HUD_COLOR.gold, 'center');
   at[0] = barY + 34 * unit;
 }
 
@@ -320,7 +322,7 @@ function hudPveNoteX(layout, width) {
 const hudPveNoteBox = { x: 0, y: 0, width: 0 };
 function hudPveNoteRect(layout, text, rise) {
   hudTextAt[2] = HUD_PVE_NOTE_SIZE * layout.unit;
-  HudBatch.measureAt(text);
+  HudPen.measureAt(text);
   const width = hudTextAt[3] + HUD_PVE_NOTE_PAD * layout.unit;
   hudPveNoteBox.width = width; hudPveNoteBox.x = hudPveNoteX(layout, width); hudPveNoteBox.y = hudPveNoteY(layout, rise);
   return hudPveNoteBox;
@@ -344,10 +346,12 @@ function hudDrawPve(pen, layout) {
   const rows = HUD_PVE_PANELS[pve.mode] || [];
   hudPvePlaceRows(layout);
   for (let i = 0; i < rows.length; i++) HUD_PVE_ROWS[rows[i]](pen, layout, pve);
+  if (layout.touch && hudPveBossShown(pve) !== hudPveClearLayout.boss) TouchInput.applyAll();   // a fight began or ended: the buttons make room
   hudPveBossBar(pen, layout, pve.boss);
   if (pve.mode === 'range') hudPveRangeTable(pen, layout, pve);
   if (pve.mode === 'puzzle') hudPveChamberTable(pen, layout, pve);
   if (pve.hint) hudPveCentreNote(pen, layout, pve.hint, HUD_PVE_HINT_RISE, HUD_COLOR.text);
+  if (Sim.time - pve.parryAt < HUD_PVE_PARRY_SECONDS) hudPveCentreNote(pen, layout, 'PARRIED', HUD_PVE_PARRY_RISE, Hud.colors.good);
   if (pve.guardianOffer) hudPveCentreNote(pen, layout, hudPveGuardianText(pve, layout.touch), HUD_PVE_PROMPT_RISE, HUD_COLOR.gold);
 }
 
@@ -367,3 +371,32 @@ function hudDrawTickets(pen, layout) {
 
 Hud.register('main', 'pve', 'pve', hudDrawPve);
 Hud.register('main', 'tickets', 'header', hudDrawTickets);
+
+// ---- Touch buttons give way to the tickets row, the PvE status rows and the boss bar (05b keepClear, touch-01) ----
+// The rows are measured by drawing them with a pen that draws nothing: each row moves hudPveAt[0] below itself, as on screen.
+// The boss bar is kept clear while a fight is on; hudDrawPve re-places the buttons when one begins or ends.
+const hudPveNothing = () => 0;
+const hudPveMeasurePen = new Proxy({}, { get: () => hudPveNothing });
+const hudPveClearLayout = { boss: false };
+const HUD_PVE_BOSS_HEIGHT = 56;   // units from the bar's top to the row under it (hudPveBossBar)
+function hudPveBossShown(pve) { return !!(pve && pve.active && pve.boss && pve.boss.active); }
+const HUD_TICKETS_WIDEST = '9999';   // the widest ticket count the row is kept clear for
+TouchInput.keepClear.push((width, height) => {
+  const layout = hudPveClearLayout, pve = Modes.hud && Modes.hud.pve;
+  updateHudLayout(layout, width, height);
+  const unit = layout.unit;
+  if (OperationRun.active) {
+    const half = 44 * unit + HudPen.measure(HUD_TICKETS_WIDEST, 17 * unit);   // the counts sit 44 units either side (hudDrawTickets)
+    TouchInput.addClear(layout.centerX - half, layout.top, layout.centerX + half, layout.top + 54 * unit + hudTextHalf(17 * unit));
+  }
+  layout.boss = hudPveBossShown(pve);
+  if (!pve || !pve.active) return;
+  const rows = HUD_PVE_PANELS[pve.mode] || [];
+  hudPvePlaceRows(layout);
+  const top = hudPveAt[0], left = hudPveAt[1], right = hudPveAt[2];
+  for (let i = 0; i < rows.length; i++) HUD_PVE_ROWS[rows[i]](hudPveMeasurePen, layout, pve);
+  if (rows.length) TouchInput.addClear(left, top, right, hudPveAt[0]);
+  if (!layout.boss) return;
+  const half = HUD_PVE_BOSS_WIDTH * unit / 2, bossTop = hudPveAt[0];
+  TouchInput.addClear(layout.centerX - half, bossTop, layout.centerX + half, bossTop + HUD_PVE_BOSS_HEIGHT * unit);
+});

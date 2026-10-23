@@ -5,29 +5,34 @@
 
 const MAPGEN_MENU_RANDOM_THEME = '';
 const MAPGEN_MENU_ANY_MODE = '';
+const MAPGEN_MENU_BUSY_TEXT = 'Generating...';
+const MAPGEN_MENU_MODE_BOTS = -1;                          // bots: the mode's default number (as Quick Match)
+const MAPGEN_MENU_MATCH_KEYS = ['bots', 'difficulty'];     // match settings: changing them keeps the shown map
 const MAPGEN_MENU_CSS = '.mg-field { width: 9em; background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: inherit; }'
   + '.mg-code { flex: 1; min-width: 12em; font: 0.875em/1.4 ui-monospace, Consolas, monospace; } .mg-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }'
   + '.mg-status { white-space: pre-wrap; } .mg-error { color: var(--ui-bad); }';
 
 const MapGenMenu = {
-  state: { generator: 'GN3', mode: MAPGEN_MENU_ANY_MODE, size: MAPGEN_DEFAULT_SIZE, theme: MAPGEN_MENU_RANDOM_THEME, density: 'normal', seed: 1, map: null, report: null, notice: '' },
+  state: { generator: 'GN3', mode: MAPGEN_MENU_ANY_MODE, size: MAPGEN_DEFAULT_SIZE, theme: MAPGEN_MENU_RANDOM_THEME, density: 'normal', seed: 1, map: null, report: null, notice: '',
+    bots: MAPGEN_MENU_MODE_BOTS, difficulty: PLAY_DEFAULT_DIFFICULTY },
 
   options() {
     const s = this.state;
     return { generator: s.generator, mode: s.mode, size: s.size, theme: s.theme, density: s.density, seed: s.seed };
   },
-  // A setting changed: the shown map is out of date. A generator change drops a mode it does not offer.
+  // A map setting changed: the shown map is out of date. A generator change drops a mode it does not offer.
   set(key, value) {
     this.state[key] = value;
+    if (MAPGEN_MENU_MATCH_KEYS.includes(key)) return;
     this.state.map = null;
     this.state.notice = '';
     const generator = MapGen.generator(this.state.generator);
     if (key === 'generator' && !generator.modes.includes(this.state.mode)) this.state.mode = MAPGEN_MENU_ANY_MODE;
   },
-  newSeed() { this.set('seed', hashString('seed:' + Date.now()) % MAPGEN_SEED_RANGE); },
+  newSeed() { this.set('seed', newSeed()); },
   setSeedText(text) {
     if (!/^\d{1,10}$/.test(String(text).trim())) return false;
-    this.set('seed', Number(text) % MAPGEN_SEED_RANGE);
+    this.set('seed', Number(text) % SEED_RANGE);
     return true;
   },
   // The sizes the quality tier allows (13.4 size cap).
@@ -59,10 +64,13 @@ const MapGenMenu = {
     const map = this.state.map || this.generate();
     return map.modes.includes(this.state.mode) ? this.state.mode : map.modes[0];
   },
-  // Game.start setup for the generated map: the default bots of the mode, the player on team 0 in team modes.
+  // Game.start setup for the generated map: the chosen number of named roster bots (else the mode's default, as Quick Match) at the
+  // chosen difficulty, the player on team 0 in team modes.
   setup() {
-    const mode = this.matchMode(), row = CAT.modes.byId(mode);
-    return { mode, map: this.state.map, seed: this.state.seed, bots: Modes.defaultBots(mode, true), player: row.teams === 2 ? { team: 0 } : {} };
+    const mode = this.matchMode(), row = CAT.modes.byId(mode), state = this.state;
+    const count = state.bots === MAPGEN_MENU_MODE_BOTS ? Modes.defaultBots(mode, true).length : Math.min(state.bots, PlayFlow.maxBots());
+    const bots = PlayFlow.rosterBots(count, state.difficulty, state.seed);
+    return { mode, map: state.map, seed: state.seed, bots, difficulty: state.difficulty, player: row.teams === 2 ? { team: 0 } : {} };
   },
   describe() {
     const map = this.state.map, report = this.state.report, notice = this.state.notice ? this.state.notice + '\n' : '';
@@ -89,6 +97,8 @@ function mapgenMenuChoices() {
     size: MapGenMenu.sizes().map((row) => ({ value: row.id, name: row.name })),
     theme: [{ value: MAPGEN_MENU_RANDOM_THEME, name: 'Random' }].concat(CAT.mapTilesets.map((row) => ({ value: row.id, name: row.name }))),
     density: CAT.mapDensities.map((row) => ({ value: row.id, name: row.name })),
+    bots: [{ value: MAPGEN_MENU_MODE_BOTS, name: 'Mode default' }].concat(Array.from({ length: PlayFlow.maxBots() + 1 }, (unused, count) => ({ value: count, name: String(count) }))),
+    difficulty: PlayFlow.difficulties().map((row) => ({ value: row.id, name: row.name })),
   };
 }
 function mapgenMenuSeedRow(render) {
@@ -116,19 +126,18 @@ function mapgenMenuShareRows(render) {
   return [Ui.row('Share code', copyWrap), Ui.row('Paste', pasteWrap)];
 }
 function mapgenMenuRender(list, status) {
-  const focused = document.activeElement && list.contains(document.activeElement) ? Array.from(list.querySelectorAll('button, input')).indexOf(document.activeElement) : -1;
   const render = () => mapgenMenuRender(list, status);
   const choices = mapgenMenuChoices(), named = (row) => row.name;
-  list.replaceChildren();
-  for (const [key, label] of [['generator', 'Generator'], ['mode', 'Mode'], ['size', 'Size'], ['theme', 'Theme'], ['density', 'Density']]) {
-    list.appendChild(mapgenMenuCycle(label, choices[key], key, named, render));
-  }
-  list.appendChild(mapgenMenuSeedRow(render));
-  mapgenMenuShareRows(render).forEach((row) => list.appendChild(row));
+  Ui.rebuild(list, () => {
+    list.replaceChildren();
+    for (const [key, label] of [['generator', 'Generator'], ['mode', 'Mode'], ['size', 'Size'], ['theme', 'Theme'], ['density', 'Density'], ['bots', 'Bots'], ['difficulty', 'Difficulty']]) {
+      list.appendChild(mapgenMenuCycle(label, choices[key], key, named, render));
+    }
+    list.appendChild(mapgenMenuSeedRow(render));
+    mapgenMenuShareRows(render).forEach((row) => list.appendChild(row));
+  });
   status.textContent = MapGenMenu.describe();
   status.className = 'ui-note mg-status' + (MapGenMenu.state.report && MapGenMenu.state.report.fallback && MapGenMenu.state.map ? ' mg-error' : '');
-  const items = Array.from(list.querySelectorAll('button, input'));
-  if (focused >= 0 && items[focused]) items[focused].focus();
 }
 
 Ui.register('mapgen', {
@@ -139,12 +148,25 @@ Ui.register('mapgen', {
     head.appendChild(Ui.button('Back', () => Ui.back()));
     head.appendChild(makeElement('h1', 'ui-title', 'Generated Map'));
     const list = makeElement('div', 'ui-scroll'), status = makeElement('p', 'ui-note mg-status'), foot = makeElement('div', 'ui-foot');
-    const generate = Ui.button('Generate', () => { MapGenMenu.generate(); mapgenMenuRender(list, status); });
-    const play = Ui.button('Play', () => {
+    const buttons = [];
+    // Generating can take a second on a phone: say so, hold both buttons and let the screen repaint before the work starts (the map check does the same).
+    const whenGenerated = (work) => () => {
+      status.textContent = MAPGEN_MENU_BUSY_TEXT;
+      const focused = buttons.includes(document.activeElement) ? document.activeElement : null;
+      buttons.forEach((button) => { button.disabled = true; });
+      setTimeout(() => {
+        buttons.forEach((button) => { button.disabled = false; });
+        if (focused) focused.focus();
+        if (status.isConnected) work();   // the player may have left the screen meanwhile
+      }, 0);
+    };
+    const generate = Ui.button('Generate', whenGenerated(() => { MapGenMenu.generate(); mapgenMenuRender(list, status); }));
+    const play = Ui.button('Play', whenGenerated(() => {
       const setup = MapGenMenu.setup();
       Ui.closeAll();
       Game.start(setup);
-    }, 'primary');
+    }), 'primary');
+    buttons.push(generate, play);
     play.dataset.autofocus = '1';
     foot.appendChild(play);
     foot.appendChild(generate);

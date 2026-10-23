@@ -4,7 +4,7 @@
 // Which modes each hand-made map must offer (spec s18 table, MP01..MP12; MP06 "all agile" = the agile-friendly modes).
 const MAP_SPEC_MODES = {
   spire: ['duel', 'ffa'], skyyard: ['ffa', 'tdm'], twinkeeps: ['ctf', 'oneflag', 'dom'], dustline: ['bomb', 'elim', 'ghostops'],
-  harbor: ['tdm', 'hardpoint', 'attrition'], gantry: ['ffa', 'tdm', 'duel', 'dom', 'hardpoint', 'oddball'], cistern: ['horde', 'endless', 'fiends'],
+  harbor: ['tdm', 'hardpoint', 'attrition'], gantry: ['ffa', 'duel', 'dom', 'hardpoint', 'oddball'], cistern: ['horde', 'endless', 'fiends'],
   convoyline: ['payload', 'rush', 'conquest'], isle: ['royale'], provinggrounds: ['range'], chambers: ['puzzle'], manor: ['contract'],
 };
 const MAP_SPEC_CODES = {
@@ -137,6 +137,12 @@ Test.add('maps', (check) => {
     check('modes: ' + id + ' offers ' + MAP_SPEC_MODES[id].join('/'), MAP_SPEC_MODES[id].every((mode) => map.modes.includes(mode)), map.modes.join());
   }
   for (const mode of new Set(Object.values(MAP_SPEC_MODES).flat())) check('modes: forMode(' + mode + ') finds a map', Maps.forMode(mode).length >= 1);
+  // play-02: Gantry's long sight lines with health regeneration gave Team Clash matches with almost no kills.
+  check('modes: Team Clash is not offered on Gantry Run', !Maps.forMode('tdm').some((map) => map.id === 'gantry') && Maps.forMode('tdm').length >= 2);
+  // blight-01: over Skyward Yard's open void edges every human fall adds an infected.
+  const skySpawnsBlight = Maps.get('skyyard').spawns.some((spawn) => (spawn.modes || []).includes('infection'));
+  check('modes: Blight is not offered on Skyward Yard, nor in its spawn sets', !Maps.get('skyyard').modes.includes('infection') && !skySpawnsBlight
+    && Maps.forMode('infection').length >= 2);
   check('modes: every listed mode is a known mode', CAT.maps.every((map) => map.modes.every((mode) => MapRules.rule(mode))));
   // MODE-002: Play, Quick Match, Shuffle and Custom list only modes with a saved map, so every versus mode needs a hand-made one.
   const unserved = CAT.modes.filter((mode) => mode.family === 'versus' && !CAT.maps.some((map) => map.modes.includes(mode.id))).map((mode) => mode.id);
@@ -224,7 +230,11 @@ Test.add('maps', (check) => {
   const missing = catalogues.length < 3 ? [] : CAT.maps.flatMap((map) => map.items.map((item) => item.item)).filter((key) => !catalogues.some((name) => CAT[name].byId(key)));
   check('items: every item key exists in the weapons, powerups or items catalogue (checked once those exist)', missing.length === 0, missing.join());
   const spire = Maps.get('spire'), range = Maps.get('provinggrounds');
-  check('items: itemsFor filters by mode', Maps.itemsFor(range, 'range').length > 0 && Maps.itemsFor(range, 'ffa').length === 0 && Maps.itemsFor(spire, 'ffa').length === spire.items.length);
+  const arenaGuns = CAT.weaponSets.byId('arenaSet').weapons;
+  const offSet = CAT.maps.filter((map) => map.category === 'arena' && map.items.some((item) => item.group === 'weapon' && !arenaGuns.includes(item.item)));
+  check('items: arena maps place only Arena set weapons', !offSet.length, offSet.map((map) => map.id).join());
+  const serves = (map, mode) => map.items.filter((item) => mapServesMode(item, mode)).length;
+  check('items: mapServesMode filters by mode', serves(range, 'range') && !serves(range, 'ffa') && serves(spire, 'ffa') === spire.items.length);
 });
 
 Test.add('maps', (check) => {
@@ -269,10 +279,10 @@ Test.add('maps', (check) => {
   const noObjectiveModes = mapTestClone('twinkeeps');
   noObjectiveModes.objectives.forEach((objective) => { delete objective.modes; delete objective.path; });
   let thrown = '';
-  try { Maps.validate(bare); Maps.validate(noObjectiveModes); Maps.itemsFor(bare, 'ffa'); Maps.objectivesFor(noObjectiveModes, 'ctf', 'flag'); Maps.spawnList(bare,
+  try { Maps.validate(bare); Maps.validate(noObjectiveModes); Maps.objectivesFor(noObjectiveModes, 'ctf', 'flag'); Maps.spawnList(bare,
       'ffa', -1); } catch (error) { thrown = String(error); }
   check('format: entries without a modes list serve every mode and nothing throws', thrown === '', thrown);
-  check('format: a missing modes list reads as every mode', Maps.itemsFor(bare, 'duel').length === bare.items.length && Maps.spawnList(bare, 'ffa', -1).length === 16);
+  check('format: a missing modes list reads as every mode', bare.items.every((item) => mapServesMode(item, 'duel')) && Maps.spawnList(bare, 'ffa', -1).length === 16);
   check('format: a map without a modes list is still sound', Maps.validate(bare).length === 0);
   for (const list of MAP_REQUIRED_LISTS) {
     const broken = mapTestClone('spire');
@@ -432,11 +442,16 @@ Test.add('maps', (check) => {
   check('pads: skyyard has 8 pads, gantry 4, the proving grounds and chambers at least 1 each', MapScan.of(Maps.get('skyyard')).pads.length === 8
       && MapScan.of(Maps.get('gantry')).pads.length === 4 &&
     MapScan.of(Maps.get('provinggrounds')).pads.length >= 1 && MapScan.of(Maps.get('chambers')).pads.length >= 3);
-  const flight = { rise: 0, time: 0 }, pad = { target: [10, 4, 0], peak: 3 };
-  const apexes = MAP_TEST_GRAVITIES.map((gravity) => { MapScan.padFlight(flight, 6, pad, gravity); return 6 + (flight.rise * flight.rise) / (2 * gravity); });
+  const pad = { target: [10, 4, 0], peak: 3 };
+  const apexes = MAP_TEST_GRAVITIES.map((gravity) => { const arc = World.padArc(pad, 6, gravity); return 6 + (arc.upSpeed * arc.upSpeed) / (2 * gravity); });
   check('pads: the arc peaks 3 m above the higher of start and target under every gravity', apexes.every((apex) => mapTestWithin(apex, 9, 1e-9)), apexes.join());
-  const times = MAP_TEST_GRAVITIES.map((gravity) => { MapScan.padFlight(flight, 6, pad, gravity); return flight.time * Math.sqrt(gravity); });
+  const times = MAP_TEST_GRAVITIES.map((gravity) => World.padArc(pad, 6, gravity).time * Math.sqrt(gravity));
   check('pads: flight time scales with 1/sqrt(gravity), so the path in space is the same', times.every((scaled) => mapTestWithin(scaled, times[0], 1e-9)));
+  // The scan flies S08's own arc: a pad with no `peak` rises the default height, so a low ceiling on the way blocks it.
+  const roofed = { size: [20, 10, 20], brushes: [['concrete', -10, -1, -10, 10, 0, 10], ['concrete', -2, 2.8, 2, 2, 3, 6]].map((row) => MapKit.brush(row)), triggers: [] };
+  const roofScan = MapScan.of(roofed);
+  check('pads: a peakless pad flies the game arc into a low roof', !MapScan.arcClear(roofScan, 0, 0, 0, { target: [0, 0, 8] }, GRAVITY)
+    && MapScan.arcClear(roofScan, 0, 0, 0, { target: [0, 0, 8], peak: 0.5 }, GRAVITY));
   MapScan.release();
 });
 

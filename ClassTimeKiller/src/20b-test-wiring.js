@@ -219,7 +219,7 @@ Test.add('wiring', (check) => {
   const mirelle = TestArena.actor(0, 0, 3, 0), plain = TestArena.actor(1, 4, 3, 0);
   Abilities.hero[mirelle] = CAT.heroes.byId('mirelle');
   Abilities.hero[plain] = CAT.heroes.byId('brask');
-  check('Smoke.add lays a curtain of puffs', Smoke.add(0, 0, 10, 12, 3, 15, 0, -1) >= 4 && Smoke.count >= 4, Smoke.count);
+  check('Smoke.add lays a curtain of puffs', Smoke.add(0, 0, 10, 12, 3, 15, 0) >= 4 && Smoke.count >= 4, Smoke.count);
   Sim.run(itemTicks(2));
   check('the curtain blocks sight through it', Smoke.lineBlocked(0, 1.5, 4, 0, 1.5, 16, plain));
   check('H07 sees through smoke', !Smoke.lineBlocked(0, 1.5, 4, 0, 1.5, 16, mirelle));
@@ -391,7 +391,7 @@ const wiringOnBridge = (node) => Math.abs(Nav.nodeZ[node]) > 10 && Math.abs(Nav.
   && WIRING_HARBOR_BRIDGES.some((span) => Nav.nodeX[node] > span[0] && Nav.nodeX[node] < span[1]);
 // Water deeper than a swimmer's depth plus a step over this node's feet (the floor of a deep canal).
 const wiringDeepUnder = (volumes, x, y, z) => volumes.some((v) => x >= v.min[0] && x <= v.max[0] && z >= v.min[2] && z <= v.max[2]
-  && y >= v.min[1] && v.max[1] - y > NAV_SWIM_DEPTH + NAV_STEP);
+  && y >= v.min[1] && v.max[1] - y > NAV_SWIM_DEPTH + STEP_HEIGHT);
 
 Test.add('wiring', (check) => {
   World.load(CAT.maps.byId('harbor'));
@@ -401,7 +401,7 @@ Test.add('wiring', (check) => {
   for (let link = 0; link < Nav.linkCount; link++) {
     const from = Nav.linkFrom[link], to = Nav.linkTarget[link], type = Nav.linkType[link];
     if (type === NAV_LINK.LADDER && (Nav.nodeFlags[from] & NAV_NODE.WATER)) waterLadders++;
-    if (type !== NAV_LINK.SWIM || Nav.nodeY[to] - Nav.nodeY[from] <= NAV_STEP) continue;
+    if (type !== NAV_LINK.SWIM || Nav.nodeY[to] - Nav.nodeY[from] <= STEP_HEIGHT) continue;
     swimExits++;
     if (wiringOnBridge(to)) bridgeExits++;
   }
@@ -414,7 +414,7 @@ Test.add('wiring', (check) => {
   const exit = exitCount > 0 ? exitList[0] : -1, fromWater = BotMove.fromWater[0];
   markBlockedExit(exit);
   BotMove.fromWater[0] = 1;
-  check('bots: an exit failed at run time is blocked and costly from the water', exit >= 0 && exitBlocked(exit) && extraCost(0, exit) >= BLOCKED_EXIT_COST, exit);
+  check('bots: an exit failed at run time is blocked and costly from the water', exit >= 0 && exitBlocked(exit) && blockedExitCost(0, exit) >= BLOCKED_EXIT_COST, exit);
   BotMove.fromWater[0] = fromWater;
   findExits();
 
@@ -430,7 +430,7 @@ Test.add('wiring', (check) => {
   for (let link = 0; link < Nav.linkCount; link++) {
     const type = Nav.linkType[link];
     if (type !== NAV_LINK.WALK && type !== NAV_LINK.CROUCH) continue;
-    if (wiringWorstRise(link) <= NAV_STEP + 0.02) continue;
+    if (wiringWorstRise(link) <= STEP_HEIGHT + 0.02) continue;
     steep++;
     example = Nav.linkFrom[link] + '->' + Nav.linkTarget[link];
   }

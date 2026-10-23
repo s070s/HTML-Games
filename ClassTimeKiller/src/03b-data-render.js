@@ -95,100 +95,111 @@ Data.define('decalKinds', { id: REQUIRED, size: 0.1, life: 30, color: '#1b1b1b',
 ]);
 
 // Rigid-part humanoid (REN-002) in actor space for a 1.80 m stand: x = left, y = up, z = forward (DATA-002).
-// pivot = joint position, offset = part centre relative to the joint, size = full size, hold = base pitch (deg),
+// pivot = joint position, offset = part centre relative to the joint, size = full size, hold = base pitch (deg) of the part
+// about its joint, tilt = extra pitch (deg) of the shape alone (its centre stays put: a cylinder with tilt 90 points forward),
 // aim = how much the part follows the actor's pitch, swing = walk-cycle amplitude and side (+/-), far = kept in the far LOD,
-// distant = kept past the preset's lodFar (a still silhouette). tint: team | dark | skin | visor | accent.
-// The far LOD keeps exactly the 6 parts marked far (REN-002).
-Data.define('actorParts', { id: REQUIRED, shape: 'box', pivot: [0, 0, 0], offset: [0, 0, 0], size: [0.2, 0.2, 0.2], hold: 0, aim: 0, swing: 0, tint: 'team', far: false, distant: false }, [
+// distant = kept past the preset's lodFar (a still silhouette), head = grows with the X14 head scale about its pivot,
+// detail = a small part presets without `modelDetail` (Potato) skip. tint: team | teamDark (the team colour darkened) |
+// model | modelDark | modelGlow (the body model row colour, 03s) | a MODEL_PALETTE name (07c-render-models.js).
+// The far LOD keeps exactly the 6 parts marked far (REN-002). Body models (03s actorModels) use the same part format.
+const ACTOR_PART_SCHEMA = { id: '', shape: 'box', pivot: [0, 0, 0], offset: [0, 0, 0], size: [0.2, 0.2, 0.2], hold: 0, tilt: 0, aim: 0, swing: 0, tint: 'team', far: false, distant: false, head: false, detail: false };
+Data.define('actorParts', Object.assign({}, ACTOR_PART_SCHEMA, { id: REQUIRED }), [
   { id: 'torso', shape: 'box', pivot: [0, 1.16, 0], size: [0.52, 0.62, 0.3], aim: 0.25, tint: 'team', far: true, distant: true },
-  { id: 'head', shape: 'sphere', pivot: [0, 1.62, 0], size: [0.28, 0.3, 0.28], aim: 1, tint: 'skin', far: true, distant: true },
-  { id: 'legL', shape: 'capsule', pivot: [0.13, 0.86, 0], offset: [0, -0.42, 0], size: [0.19, 0.88, 0.19], swing: 1, tint: 'dark', far: true, distant: true },
-  { id: 'legR', shape: 'capsule', pivot: [-0.13, 0.86, 0], offset: [0, -0.42, 0], size: [0.19, 0.88, 0.19], swing: -1, tint: 'dark', far: true, distant: true },
+  { id: 'head', shape: 'sphere', pivot: [0, 1.62, 0], size: [0.28, 0.3, 0.28], aim: 1, tint: 'skin', far: true, distant: true, head: true },
+  { id: 'legL', shape: 'capsule', pivot: [0.13, 0.86, 0], offset: [0, -0.42, 0], size: [0.19, 0.88, 0.19], swing: 1, tint: 'teamDark', far: true, distant: true },
+  { id: 'legR', shape: 'capsule', pivot: [-0.13, 0.86, 0], offset: [0, -0.42, 0], size: [0.19, 0.88, 0.19], swing: -1, tint: 'teamDark', far: true, distant: true },
   { id: 'armL', shape: 'capsule', pivot: [0.32, 1.4, 0], offset: [0, -0.28, 0], size: [0.14, 0.6, 0.14], hold: 62, aim: 1, swing: 0.15, tint: 'team', far: true },
   { id: 'armR', shape: 'capsule', pivot: [-0.32, 1.4, 0], offset: [0, -0.28, 0], size: [0.14, 0.6, 0.14], hold: 80, aim: 1, swing: -0.1, tint: 'team', far: true },
-  { id: 'hips', shape: 'box', pivot: [0, 0.88, 0], size: [0.46, 0.2, 0.28], tint: 'dark' },
-  { id: 'visor', shape: 'box', pivot: [0, 1.62, 0], offset: [0, 0.02, 0.12], size: [0.22, 0.08, 0.07], aim: 1, tint: 'visor' },
-  { id: 'pack', shape: 'box', pivot: [0, 1.2, 0], offset: [0, 0, -0.2], size: [0.36, 0.42, 0.14], aim: 0.25, tint: 'dark' },
-  { id: 'gun', shape: 'box', pivot: [-0.16, 1.32, 0], offset: [0, 0, 0.42], size: [0.08, 0.12, 0.62], aim: 1, tint: 'accent' },
+  { id: 'hips', shape: 'box', pivot: [0, 0.88, 0], size: [0.46, 0.2, 0.28], tint: 'teamDark' },
+  { id: 'visor', shape: 'box', pivot: [0, 1.62, 0], offset: [0, 0.02, 0.12], size: [0.22, 0.08, 0.07], aim: 1, tint: 'visor', head: true },
+  { id: 'pack', shape: 'box', pivot: [0, 1.2, 0], offset: [0, 0, -0.2], size: [0.36, 0.42, 0.14], aim: 0.25, tint: 'teamDark' },
+  { id: 'gun', shape: 'box', pivot: [-0.16, 1.32, 0], offset: [0, 0, 0.42], size: [0.08, 0.12, 0.62], aim: 1, tint: 'dark' },
 ]);
 
-// View-model parts per weapon class (Render.viewModel shape). View space in metres: x = right, y = up, z = forward.
-// hold / ads = weapon pivot when hip-firing / aiming down sights. Part `axis: 'z'` turns the shape's Y axis forward (size[1] = length).
+// One row format for every code-drawn static model (03b viewModels, 03q weaponModels and projectileModels, 03r gearModels;
+// built by 07c-render-models.js, whose header documents parts, tints and LODs): from = a row whose parts come first (minus
+// its part indexes in drop, times scale: a number or [x, y, z], tints swapped by recolor { from: to }), parts = the row's own;
+// color = the row's own body colour (-1 = the caller's); accent / glow = its accent and glow colours ('' = inherited, else the
+// default); pose = the viewModels row for hold / ADS / kick (weapons); spin / tumble = rad/s in flight (projectiles).
+const MODEL_SCHEMA = { id: REQUIRED, from: '', drop: [], scale: null, recolor: {}, parts: [], color: -1, accent: '', glow: '', pose: '', spin: 0, tumble: 0 };
+
+// View pose and base parts per weapon class (Render.viewModel shape): the bases and poses of the per-weapon models (03q).
+// View space in metres: x = right, y = up, z = forward. hold / ads = weapon pivot when hip-firing / aiming down sights.
 // tint: body (the weapon colour from Render.viewModel) | dark | accent | glow (self-lit).
-Data.define('viewModels', { id: REQUIRED, hold: [0.16, -0.17, 0.32], ads: [0, -0.11, 0.26], accent: '#c9a03a', glow: '#6fd8ff', kick: 1, parts: REQUIRED }, [
-  { id: 'sidearm', hold: [0.15, -0.15, 0.3], ads: [0, -0.09, 0.26], kick: 1.3, parts: [
-    { shape: 'box', at: [0, 0.02, 0.05], size: [0.04, 0.05, 0.18], tint: 'body' },
-    { shape: 'box', at: [0, -0.04, -0.01], size: [0.035, 0.09, 0.05], tint: 'dark' },
-    { shape: 'cylinder', at: [0, 0.025, 0.15], size: [0.02, 0.04, 0.02], axis: 'z', tint: 'dark' }] },
-  { id: 'smg', hold: [0.15, -0.16, 0.3], kick: 0.6, parts: [
-    { shape: 'box', at: [0, 0, 0.06], size: [0.05, 0.07, 0.26], tint: 'body' },
-    { shape: 'box', at: [0, -0.07, 0.08], size: [0.03, 0.1, 0.04], tint: 'dark' },
-    { shape: 'box', at: [0, -0.05, -0.03], size: [0.03, 0.08, 0.05], tint: 'dark' },
-    { shape: 'cylinder', at: [0, 0.01, 0.24], size: [0.025, 0.1, 0.025], axis: 'z', tint: 'dark' }] },
+Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.11, -0.1, 0.3], ads: [0, -0.11, 0.26], accent: '#c9a03a', glow: '#6fd8ff', kick: 1, parts: REQUIRED }), [
+  { id: 'sidearm', ads: [0, -0.09, 0.26], kick: 1.3, parts: [
+    { shape: 'box', offset: [0, 0.02, 0.05], size: [0.04, 0.05, 0.18], tint: 'body', lod: 2 },
+    { shape: 'box', offset: [0, -0.04, -0.01], size: [0.035, 0.09, 0.05], tint: 'dark', lod: 2 },
+    { shape: 'cylinder', offset: [0, 0.025, 0.15], size: [0.02, 0.04, 0.02], rotation: [0, -90], tint: 'dark' }] },
+  { id: 'smg', kick: 0.6, parts: [
+    { shape: 'box', offset: [0, 0, 0.06], size: [0.05, 0.07, 0.26], tint: 'body', lod: 2 },
+    { shape: 'box', offset: [0, -0.07, 0.08], size: [0.03, 0.1, 0.04], tint: 'dark', lod: 2 },
+    { shape: 'box', offset: [0, -0.05, -0.03], size: [0.03, 0.08, 0.05], tint: 'dark' },
+    { shape: 'cylinder', offset: [0, 0.01, 0.24], size: [0.025, 0.1, 0.025], rotation: [0, -90], tint: 'dark' }] },
   { id: 'rifle', parts: [
-    { shape: 'box', at: [0, 0, 0.04], size: [0.055, 0.08, 0.34], tint: 'body' },
-    { shape: 'box', at: [0, -0.01, -0.17], size: [0.045, 0.07, 0.14], tint: 'dark' },
-    { shape: 'box', at: [0, -0.08, 0.07], size: [0.035, 0.11, 0.05], tint: 'dark' },
-    { shape: 'cylinder', at: [0, 0.01, 0.3], size: [0.022, 0.2, 0.022], axis: 'z', tint: 'dark' },
-    { shape: 'box', at: [0, 0.055, 0.04], size: [0.03, 0.03, 0.1], tint: 'accent' }] },
+    { shape: 'box', offset: [0, 0, 0.04], size: [0.055, 0.08, 0.34], tint: 'body', lod: 2 },
+    { shape: 'box', offset: [0, -0.01, -0.17], size: [0.045, 0.07, 0.14], tint: 'dark', lod: 2 },
+    { shape: 'box', offset: [0, -0.08, 0.07], size: [0.035, 0.11, 0.05], tint: 'dark' },
+    { shape: 'cylinder', offset: [0, 0.01, 0.3], size: [0.022, 0.2, 0.022], rotation: [0, -90], tint: 'dark' },
+    { shape: 'box', offset: [0, 0.055, 0.04], size: [0.03, 0.03, 0.1], tint: 'accent' }] },
   { id: 'shotgun', kick: 1.6, parts: [
-    { shape: 'box', at: [0, 0, 0], size: [0.06, 0.08, 0.3], tint: 'body' },
-    { shape: 'cylinder', at: [0, 0.02, 0.27], size: [0.04, 0.3, 0.04], axis: 'z', tint: 'dark' },
-    { shape: 'cylinder', at: [0, -0.025, 0.22], size: [0.045, 0.16, 0.045], axis: 'z', tint: 'accent' },
-    { shape: 'box', at: [0, -0.02, -0.2], size: [0.05, 0.08, 0.16], tint: 'dark' }] },
-  { id: 'lmg', hold: [0.17, -0.19, 0.33], kick: 0.8, parts: [
-    { shape: 'box', at: [0, 0, 0.04], size: [0.07, 0.1, 0.38], tint: 'body' },
-    { shape: 'box', at: [0, -0.08, 0.06], size: [0.09, 0.08, 0.1], tint: 'accent' },
-    { shape: 'cylinder', at: [0, 0.01, 0.34], size: [0.03, 0.26, 0.03], axis: 'z', tint: 'dark' },
-    { shape: 'box', at: [0, -0.01, -0.2], size: [0.05, 0.08, 0.14], tint: 'dark' }] },
+    { shape: 'box', offset: [0, 0, 0], size: [0.06, 0.08, 0.3], tint: 'body', lod: 2 },
+    { shape: 'cylinder', offset: [0, 0.02, 0.27], size: [0.04, 0.3, 0.04], rotation: [0, -90], tint: 'dark', lod: 2 },
+    { shape: 'cylinder', offset: [0, -0.025, 0.22], size: [0.045, 0.16, 0.045], rotation: [0, -90], tint: 'accent' },
+    { shape: 'box', offset: [0, -0.02, -0.2], size: [0.05, 0.08, 0.16], tint: 'dark' }] },
+  { id: 'lmg', hold: [0.12, -0.12, 0.32], kick: 0.8, parts: [
+    { shape: 'box', offset: [0, 0, 0.04], size: [0.07, 0.1, 0.38], tint: 'body', lod: 2 },
+    { shape: 'box', offset: [0, -0.08, 0.06], size: [0.09, 0.08, 0.1], tint: 'accent', lod: 2 },
+    { shape: 'cylinder', offset: [0, 0.01, 0.34], size: [0.03, 0.26, 0.03], rotation: [0, -90], tint: 'dark' },
+    { shape: 'box', offset: [0, -0.01, -0.2], size: [0.05, 0.08, 0.14], tint: 'dark' }] },
   { id: 'dmr', kick: 1.2, parts: [
-    { shape: 'box', at: [0, 0, 0.05], size: [0.05, 0.075, 0.36], tint: 'body' },
-    { shape: 'cylinder', at: [0, 0.075, 0.06], size: [0.035, 0.16, 0.035], axis: 'z', tint: 'dark' },
-    { shape: 'cylinder', at: [0, 0.01, 0.33], size: [0.02, 0.24, 0.02], axis: 'z', tint: 'dark' },
-    { shape: 'box', at: [0, -0.01, -0.18], size: [0.045, 0.07, 0.14], tint: 'dark' }] },
-  { id: 'sniper', hold: [0.16, -0.18, 0.34], ads: [0, -0.13, 0.22], kick: 1.8, parts: [
-    { shape: 'box', at: [0, 0, 0.05], size: [0.05, 0.075, 0.4], tint: 'body' },
-    { shape: 'cylinder', at: [0, 0.08, 0.06], size: [0.045, 0.24, 0.045], axis: 'z', tint: 'dark' },
-    { shape: 'cylinder', at: [0, 0.01, 0.4], size: [0.022, 0.36, 0.022], axis: 'z', tint: 'dark' },
-    { shape: 'box', at: [0, -0.02, -0.2], size: [0.045, 0.09, 0.16], tint: 'accent' }] },
-  { id: 'rail', hold: [0.16, -0.17, 0.33], kick: 1.5, glow: '#7dff8a', parts: [
-    { shape: 'box', at: [0, 0, 0.06], size: [0.06, 0.08, 0.4], tint: 'body' },
-    { shape: 'ring', at: [0, 0.005, 0.16], size: [0.09, 0.03, 0.09], axis: 'z', tint: 'glow' },
-    { shape: 'ring', at: [0, 0.005, 0.26], size: [0.08, 0.03, 0.08], axis: 'z', tint: 'glow' },
-    { shape: 'box', at: [0, 0.03, 0.3], size: [0.02, 0.02, 0.24], tint: 'glow' }] },
-  { id: 'launcher', hold: [0.18, -0.16, 0.3], ads: [0.05, -0.12, 0.24], kick: 1.4, parts: [
-    { shape: 'cylinder', at: [0, 0.01, 0.12], size: [0.11, 0.5, 0.11], axis: 'z', tint: 'body' },
-    { shape: 'cone', at: [0, 0.01, 0.4], size: [0.13, 0.08, 0.13], axis: 'z', tint: 'dark' },
-    { shape: 'box', at: [0, -0.09, 0.05], size: [0.04, 0.1, 0.05], tint: 'dark' },
-    { shape: 'box', at: [0.06, 0.04, 0.05], size: [0.03, 0.05, 0.08], tint: 'accent' }] },
+    { shape: 'box', offset: [0, 0, 0.05], size: [0.05, 0.075, 0.36], tint: 'body', lod: 2 },
+    { shape: 'cylinder', offset: [0, 0.075, 0.06], size: [0.035, 0.16, 0.035], rotation: [0, -90], tint: 'dark', lod: 2 },
+    { shape: 'cylinder', offset: [0, 0.01, 0.33], size: [0.02, 0.24, 0.02], rotation: [0, -90], tint: 'dark' },
+    { shape: 'box', offset: [0, -0.01, -0.18], size: [0.045, 0.07, 0.14], tint: 'dark' }] },
+  { id: 'sniper', hold: [0.11, -0.11, 0.32], ads: [0, -0.13, 0.22], kick: 1.8, parts: [
+    { shape: 'box', offset: [0, 0, 0.05], size: [0.05, 0.075, 0.4], tint: 'body', lod: 2 },
+    { shape: 'cylinder', offset: [0, 0.08, 0.06], size: [0.045, 0.24, 0.045], rotation: [0, -90], tint: 'dark', lod: 2 },
+    { shape: 'cylinder', offset: [0, 0.01, 0.4], size: [0.022, 0.36, 0.022], rotation: [0, -90], tint: 'dark' },
+    { shape: 'box', offset: [0, -0.02, -0.2], size: [0.045, 0.09, 0.16], tint: 'accent' }] },
+  { id: 'rail', kick: 1.5, glow: '#7dff8a', parts: [
+    { shape: 'box', offset: [0, 0, 0.06], size: [0.06, 0.08, 0.4], tint: 'body', lod: 2 },
+    { shape: 'ring', offset: [0, 0.005, 0.16], size: [0.09, 0.03, 0.09], rotation: [0, -90], tint: 'glow', lod: 2 },
+    { shape: 'ring', offset: [0, 0.005, 0.26], size: [0.08, 0.03, 0.08], rotation: [0, -90], tint: 'glow' },
+    { shape: 'box', offset: [0, 0.03, 0.3], size: [0.02, 0.02, 0.24], tint: 'glow' }] },
+  { id: 'launcher', hold: [0.13, -0.11, 0.3], ads: [0.05, -0.12, 0.24], kick: 1.4, parts: [
+    { shape: 'cylinder', offset: [0, 0.01, 0.12], size: [0.11, 0.5, 0.11], rotation: [0, -90], tint: 'body', lod: 2 },
+    { shape: 'cone', offset: [0, 0.01, 0.4], size: [0.13, 0.08, 0.13], rotation: [0, -90], tint: 'dark', lod: 2 },
+    { shape: 'box', offset: [0, -0.09, 0.05], size: [0.04, 0.1, 0.05], tint: 'dark' },
+    { shape: 'box', offset: [0.06, 0.04, 0.05], size: [0.03, 0.05, 0.08], tint: 'accent' }] },
   { id: 'energy', glow: '#6fd8ff', kick: 0.7, parts: [
-    { shape: 'box', at: [0, 0, 0.04], size: [0.065, 0.09, 0.3], tint: 'body' },
-    { shape: 'sphere', at: [0, 0.01, 0.22], size: [0.07, 0.07, 0.07], tint: 'glow' },
-    { shape: 'ring', at: [0, 0.01, 0.22], size: [0.1, 0.025, 0.1], axis: 'z', tint: 'accent' },
-    { shape: 'box', at: [0, -0.08, 0.02], size: [0.035, 0.1, 0.05], tint: 'dark' }] },
-  { id: 'heavy', hold: [0.19, -0.21, 0.32], ads: [0.08, -0.15, 0.28], kick: 0.9, parts: [
-    { shape: 'box', at: [0, 0, 0], size: [0.12, 0.14, 0.3], tint: 'body' },
-    { shape: 'cylinder', at: [0, 0.02, 0.28], size: [0.09, 0.3, 0.09], axis: 'z', tint: 'dark' },
-    { shape: 'ring', at: [0, 0.02, 0.4], size: [0.1, 0.03, 0.1], axis: 'z', tint: 'accent' },
-    { shape: 'box', at: [0, 0.1, 0], size: [0.04, 0.05, 0.16], tint: 'dark' }] },
-  { id: 'melee', hold: [0.2, -0.2, 0.32], ads: [0.12, -0.16, 0.3], kick: 2, parts: [
-    { shape: 'cylinder', at: [0, -0.04, 0], size: [0.035, 0.12, 0.035], tint: 'dark' },
-    { shape: 'box', at: [0, 0.02, 0], size: [0.08, 0.02, 0.03], tint: 'accent' },
-    { shape: 'wedge', at: [0, 0.16, 0.01], size: [0.02, 0.3, 0.06], tint: 'body' }] },
-  { id: 'tool', hold: [0.17, -0.17, 0.3], kick: 0.5, glow: '#ffd36a', parts: [
-    { shape: 'box', at: [0, 0, 0.02], size: [0.08, 0.1, 0.18], tint: 'body' },
-    { shape: 'box', at: [0, 0.035, 0.03], size: [0.06, 0.03, 0.12], tint: 'glow' },
-    { shape: 'cylinder', at: [0, -0.01, 0.15], size: [0.03, 0.1, 0.03], axis: 'z', tint: 'dark' },
-    { shape: 'box', at: [0, -0.08, 0], size: [0.035, 0.08, 0.05], tint: 'dark' }] },
+    { shape: 'box', offset: [0, 0, 0.04], size: [0.065, 0.09, 0.3], tint: 'body', lod: 2 },
+    { shape: 'sphere', offset: [0, 0.01, 0.22], size: [0.07, 0.07, 0.07], tint: 'glow', lod: 2 },
+    { shape: 'ring', offset: [0, 0.01, 0.22], size: [0.1, 0.025, 0.1], rotation: [0, -90], tint: 'accent' },
+    { shape: 'box', offset: [0, -0.08, 0.02], size: [0.035, 0.1, 0.05], tint: 'dark' }] },
+  { id: 'heavy', hold: [0.13, -0.13, 0.32], ads: [0.08, -0.15, 0.28], kick: 0.9, parts: [
+    { shape: 'box', offset: [0, 0, 0], size: [0.12, 0.14, 0.3], tint: 'body', lod: 2 },
+    { shape: 'cylinder', offset: [0, 0.02, 0.28], size: [0.09, 0.3, 0.09], rotation: [0, -90], tint: 'dark', lod: 2 },
+    { shape: 'ring', offset: [0, 0.02, 0.4], size: [0.1, 0.03, 0.1], rotation: [0, -90], tint: 'accent' },
+    { shape: 'box', offset: [0, 0.1, 0], size: [0.04, 0.05, 0.16], tint: 'dark' }] },
+  { id: 'melee', hold: [0.13, -0.12, 0.3], ads: [0.12, -0.16, 0.3], kick: 2, parts: [
+    { shape: 'cylinder', offset: [0, -0.04, 0], size: [0.035, 0.12, 0.035], tint: 'dark', lod: 2 },
+    { shape: 'box', offset: [0, 0.02, 0], size: [0.08, 0.02, 0.03], tint: 'accent', lod: 2 },
+    { shape: 'wedge', offset: [0, 0.16, 0.01], size: [0.02, 0.3, 0.06], tint: 'body' }] },
+  { id: 'tool', kick: 0.5, glow: '#ffd36a', parts: [
+    { shape: 'box', offset: [0, 0, 0.02], size: [0.08, 0.1, 0.18], tint: 'body', lod: 2 },
+    { shape: 'box', offset: [0, 0.035, 0.03], size: [0.06, 0.03, 0.12], tint: 'glow', lod: 2 },
+    { shape: 'cylinder', offset: [0, -0.01, 0.15], size: [0.03, 0.1, 0.03], rotation: [0, -90], tint: 'dark' },
+    { shape: 'box', offset: [0, -0.08, 0], size: [0.035, 0.08, 0.05], tint: 'dark' }] },
   { id: 'exotic', glow: '#ff7ad9', kick: 1, parts: [
-    { shape: 'capsule', at: [0, 0, 0.08], size: [0.08, 0.36, 0.08], axis: 'z', tint: 'body' },
-    { shape: 'ring', at: [0, 0, 0.12], size: [0.12, 0.03, 0.12], axis: 'z', tint: 'glow' },
-    { shape: 'sphere', at: [0, 0, 0.3], size: [0.05, 0.05, 0.05], tint: 'glow' },
-    { shape: 'box', at: [0, -0.08, -0.02], size: [0.035, 0.1, 0.05], tint: 'dark' }] },
-  { id: 'power', hold: [0.18, -0.19, 0.32], kick: 1.4, glow: '#ff5d3a', parts: [
-    { shape: 'box', at: [0, 0, 0.04], size: [0.09, 0.11, 0.36], tint: 'body' },
-    { shape: 'cylinder', at: [0, 0.02, 0.3], size: [0.06, 0.18, 0.06], axis: 'z', tint: 'glow' },
-    { shape: 'cone', at: [0, 0.02, 0.42], size: [0.08, 0.06, 0.08], axis: 'z', tint: 'dark' },
-    { shape: 'box', at: [0, -0.09, 0.02], size: [0.04, 0.1, 0.05], tint: 'dark' },
-    { shape: 'box', at: [0, 0.08, -0.04], size: [0.05, 0.04, 0.12], tint: 'accent' }] },
+    { shape: 'capsule', offset: [0, 0, 0.08], size: [0.08, 0.36, 0.08], rotation: [0, -90], tint: 'body', lod: 2 },
+    { shape: 'ring', offset: [0, 0, 0.12], size: [0.12, 0.03, 0.12], rotation: [0, -90], tint: 'glow', lod: 2 },
+    { shape: 'sphere', offset: [0, 0, 0.3], size: [0.05, 0.05, 0.05], tint: 'glow' },
+    { shape: 'box', offset: [0, -0.08, -0.02], size: [0.035, 0.1, 0.05], tint: 'dark' }] },
+  { id: 'power', hold: [0.12, -0.12, 0.32], kick: 1.4, glow: '#ff5d3a', parts: [
+    { shape: 'box', offset: [0, 0, 0.04], size: [0.09, 0.11, 0.36], tint: 'body', lod: 2 },
+    { shape: 'cylinder', offset: [0, 0.02, 0.3], size: [0.06, 0.18, 0.06], rotation: [0, -90], tint: 'glow', lod: 2 },
+    { shape: 'cone', offset: [0, 0.02, 0.42], size: [0.08, 0.06, 0.08], rotation: [0, -90], tint: 'dark' },
+    { shape: 'box', offset: [0, -0.09, 0.02], size: [0.04, 0.1, 0.05], tint: 'dark' },
+    { shape: 'box', offset: [0, 0.08, -0.04], size: [0.05, 0.04, 0.12], tint: 'accent' }] },
 ]);

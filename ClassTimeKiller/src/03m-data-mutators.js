@@ -14,6 +14,8 @@
 //       | 'weaponList' (value: weapon codes or keys; the match is armed with exactly these weapons)
 //       | 'weaponSet' (param: a weapon set id, 'random', or a list of weapon keys)
 // conflicts: ids that cannot be combined with this one (symmetric; the later choice wins, MUT-002).
+// needs: the mode trait the mutator works with (13h MUTATOR_MODE_NEEDS: lives, teams, killScoring, ownWeapons); a mode without it
+//   neither offers nor runs the mutator.
 // Times are seconds, speeds metres per second, percentages are whole numbers.
 
 const MUTATOR_SPEED_FIELDS = ['groundSpeed', 'sprintSpeed', 'tacSprintSpeed', 'airWishCap', 'wallRunSpeed'];
@@ -26,7 +28,7 @@ function mutatorPercentOp(field, op) { return { field, op, param: 'value', scale
 function mutatorFlagOp(field) { return { field, op: 'set', value: true }; }
 
 Data.define('mutators', {
-  id: REQUIRED, code: REQUIRED, name: REQUIRED, effect: '', params: [], set: [], conflicts: [],
+  id: REQUIRED, code: REQUIRED, name: REQUIRED, effect: '', params: [], set: [], conflicts: [], needs: '',
 }, [
   { id: 'gravity', code: 'X01', name: 'Gravity', effect: 'Scales gravity for everyone.', params: [mutatorPercentParam(25, 300, 5, 50)], set: [mutatorPercentOp('gravityScale', 'mul')] },
   { id: 'gamespeed', code: 'X02', name: 'Game Speed', effect: 'Runs the whole simulation faster or slower.', params: [mutatorPercentParam(50, 200, 5, 125)], set: [mutatorPercentOp('fx.timeScale', 'mul')] },
@@ -40,13 +42,13 @@ Data.define('mutators', {
     params: [mutatorPercentParam(0, 300, 50, 150)], set: [{ field: 'fx.shields', op: 'set', param: 'value' }] },
   { id: 'oneshot', code: 'X08', name: 'One-Shot', effect: 'Everyone has the Lancet Rail with infinite ammo. One hit kills. No items.',
     set: [{ field: '', op: 'weaponList', value: ['W23'] }, mutatorFlagOp('fx.infiniteAmmo'), mutatorFlagOp('fx.oneHit'), mutatorFlagOp('fx.noItems'), mutatorFlagOp('fx.noPowerups'), { field: 'items', op: 'set', value: false }],
-    conflicts: ['rocketpit', 'weaponset', 'superpowerups', 'volatile'] },
+    conflicts: ['rocketpit', 'weaponset', 'superpowerups', 'volatile'], needs: 'ownWeapons' },
   { id: 'rocketpit', code: 'X09', name: 'Rocket Pit', effect: 'Everyone has only the Ramjet Launcher with infinite ammo.',
     set: [{ field: '', op: 'weaponList', value: ['W31'] }, mutatorFlagOp('fx.infiniteAmmo'), { field: 'items', op: 'set', value: false }],
-    conflicts: ['oneshot', 'weaponset', 'volatile'] },
+    conflicts: ['oneshot', 'weaponset', 'volatile'], needs: 'ownWeapons' },
   { id: 'weaponset', code: 'X10', name: 'Weapon Set', effect: 'Chooses the weapon set, a custom weapon list, or a random set.',
     params: [{ key: 'value', kind: 'choice', source: 'weaponSets', extra: ['random'], default: 'fullSet' }], set: [{ field: '', op: 'weaponSet', param: 'value' }],
-    conflicts: ['oneshot', 'rocketpit'] },
+    conflicts: ['oneshot', 'rocketpit'], needs: 'ownWeapons' },
   { id: 'weaponstay', code: 'X11', name: 'Weapon Stay', effect: 'Picked-up weapons stay on their pads.', set: [{ field: 'weaponStay', op: 'set', value: true }] },
   { id: 'dropall', code: 'X12', name: 'Drop on Death', effect: 'What a dead actor leaves behind.',
     params: [{ key: 'value', kind: 'choice', options: ['none', 'held', 'all'], labels: ['Nothing', 'Held weapon', 'Everything'], default: 'all' }], set: [{ field: 'dropOnDeath', op: 'set', param: 'value' }] },
@@ -63,7 +65,7 @@ Data.define('mutators', {
   { id: 'freejump', code: 'X20', name: 'Free Weapon Jumps', effect: 'Weapon jumps cost nothing: no self damage and no fall damage.',
     set: [{ field: 'selfDamage', op: 'set', value: 0 }, mutatorFlagOp('fx.noFallDamage')] },
   { id: 'ff', code: 'X21', name: 'Friendly Fire', effect: 'How much damage teammates deal to each other.',
-    params: [{ key: 'value', kind: 'choice', options: [0, 50, 100], labels: ['0%', '50%', '100%'], default: 50 }], set: [mutatorPercentOp('friendlyFire', 'set')], conflicts: ['hardcore'] },
+    params: [{ key: 'value', kind: 'choice', options: [0, 50, 100], labels: ['0%', '50%', '100%'], default: 50 }], set: [mutatorPercentOp('friendlyFire', 'set')], conflicts: ['hardcore'], needs: 'teams' },
   { id: 'handicap', code: 'X22', name: 'Handicap', effect: 'The player deals only this share of normal damage (bots use their own handicap).', params: [mutatorPercentParam(25, 100, 5, 50)],
     set: [mutatorFlagOp('fx.handicap'), { field: 'fx.handicapPlayer', op: 'set', param: 'value', scale: MUTATOR_PERCENT }] },
   { id: 'knockback', code: 'X23', name: 'Knockback', effect: 'Scales the push of every hit and blast.', params: [mutatorPercentParam(0, 300, 10, 200)], set: [mutatorPercentOp('knockback', 'mul')] },
@@ -78,7 +80,7 @@ Data.define('mutators', {
   { id: 'volatile', code: 'X30', name: 'Volatile Ammo', effect: 'Ammo pickups explode when shot.', set: [mutatorFlagOp('fx.volatileAmmo')], conflicts: ['oneshot', 'rocketpit'] },
   { id: 'colossal', code: 'X31', name: 'Growth', effect: 'Each kill adds 5% size and health, up to 50%, until you die.', set: [mutatorFlagOp('fx.growth')], conflicts: ['shrinkhit', 'limbs'] },
   { id: 'lives', code: 'X32', name: 'Lives', effect: 'Lives per player; out of lives means out of the match.',
-    params: [{ key: 'value', kind: 'range', min: 1, max: 10, step: 1, default: 3, unit: '' }], set: [{ field: 'lives', op: 'set', param: 'value' }] },
+    params: [{ key: 'value', kind: 'range', min: 1, max: 10, step: 1, default: 3, unit: '' }], set: [{ field: 'lives', op: 'set', param: 'value' }], needs: 'lives' },
   { id: 'respawn', code: 'X33', name: 'Respawn Time', effect: 'Delay before a respawn; a wave interval above 0 groups respawns into waves.',
     params: [{ key: 'delay', kind: 'range', min: 0, max: 15, step: 1, default: 5, unit: 's' }, { key: 'wave', kind: 'range', min: 0, max: 30, step: 5, default: 0, unit: 's' }],
     set: [{ field: 'respawn.delay', op: 'set', param: 'delay' }, { field: 'respawn.wave', op: 'set', param: 'wave' }, { field: 'respawn.forced', op: 'max', param: 'delay', add: 5 }] },
@@ -93,10 +95,10 @@ Data.define('mutators', {
   { id: 'darkness', code: 'X37', name: 'Lights Out', effect: 'Dense fog; only flashlights show the way.', set: [mutatorFlagOp('fx.darkness')] },
   { id: 'airborne', code: 'X38', name: 'Sky Duel', effect: 'Only airborne targets take damage.', set: [mutatorFlagOp('fx.airborneOnly')] },
   { id: 'shrinkhit', code: 'X39', name: 'Diminish', effect: 'Every hit shrinks the target by 5%, down to 50%, until it dies.', set: [mutatorFlagOp('fx.shrinkHit')], conflicts: ['colossal'] },
-  { id: 'mirror', code: 'X40', name: 'Mirror Match', effect: 'Bots copy your loadout and hero.', set: [mutatorFlagOp('fx.mirror')] },
+  { id: 'mirror', code: 'X40', name: 'Mirror Match', effect: 'Bots copy your loadout and hero.', set: [mutatorFlagOp('fx.mirror')], needs: 'ownWeapons' },
   { id: 'ballistics', code: 'X41', name: 'Ballistics', effect: 'Hitscan shots become projectiles with drop and drag.', set: [{ field: 'fx.ballistics', op: 'set', value: { gravity: 9.8, drag: 0.05 } }] },
   { id: 'tags', code: 'X42', name: 'Confirm Kills', effect: 'Kills drop tags; the score comes when your side collects them.',
-    set: [mutatorFlagOp('fx.tags'), { field: 'scoring.kill', op: 'set', value: 0 }, { field: 'scoring.tag', op: 'set', value: 1 }] },
+    set: [mutatorFlagOp('fx.tags'), { field: 'scoring.kill', op: 'set', value: 0 }, { field: 'scoring.tag', op: 'set', value: 1 }], needs: 'killScoring' },
   { id: 'adrenaline', code: 'X43', name: 'Combos', effect: 'Turns the adrenaline meter on.', set: [{ field: 'meter', op: 'set', value: 'adrenaline' }] },
   { id: 'suppression', code: 'X44', name: 'Suppression', effect: 'Shots passing close blur the view, widen your spread and delay health regeneration.', set: [mutatorFlagOp('fx.suppression')] },
   { id: 'itemfrenzy', code: 'X45', name: 'Item Frenzy', effect: 'Items respawn four times faster.', set: [{ field: 'itemRespawnScale', op: 'mul', value: 0.25 }] },

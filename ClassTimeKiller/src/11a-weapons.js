@@ -30,6 +30,7 @@ const AIM_ASSIST_CONE_DEG = 6;           // INP-008: Input applies its 3 deg slo
 const AIM_ASSIST_RANGE = 60;
 const IMPACT_SPARK_COLOR = 0xffe0a0;
 const DUAL_FACTOR = 2;                   // W04 dual pistols: magazine and fire rate multiplier
+const EQUIP_SCALE_FLOOR = 0.8;           // WPN-010: stacked equip modifiers never make a swap shorter than 0.8 x equipTime
 const ATTACHMENT_SLOT_COUNT = ATTACHMENT_SLOTS.length;
 const WEAPON_STAT_COUNT = WEAPON_STATS.length;
 const STAT = { DAMAGE: 0, SPREAD: 1, RECOIL: 2, RELOAD: 3, MAG: 4, RESERVE: 5, EQUIP: 6, MOVE: 7 }; // indexes into WEAPON_STATS
@@ -70,7 +71,7 @@ const RayHits = {
 const FIRE_EVENT = { id: 0, weapon: '', weaponClass: '', mode: 'primary', x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0 };
 const SWITCH_EVENT = { id: 0, weapon: '' };
 const RELOAD_EVENT = { id: 0, weapon: '' };
-const EMPTY_EVENT = { id: 0, weapon: '' };
+const EMPTY_EVENT = { id: 0, weapon: '', pool: 'mag' };   // pool: 'mag' or 'alt' (the separate alt rounds ran out)
 const IMPACT_EVENT = { x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, material: '', weapon: '', owner: -1 };
 
 function emitWeaponEvent(type, payload, id, weapon) {
@@ -137,6 +138,7 @@ const Weapons = {
   speedScale: new Float32Array(MAX_ACTORS).fill(1), // movement multiplies its wish speed by this (moveMult, ADS, stance, status)
   rateScale: new Float32Array(MAX_ACTORS).fill(1),  // fire rate multiplier written by S12 (powerups); 1 = unchanged
   freeAmmo: new Uint8Array(MAX_ACTORS),             // 1 = shots spend no ammo (S12 powerups)
+  paidShare: 1,                                     // share of its cost the shot being fired paid (below 1: a short last magazine)
   dropped: '',                                      // weapon key pushed out by the last give() at the carry limit ('' none)
   droppedRarity: 0,                                 // that weapon's rarity (WPN-008), so a pickup can drop it as it was
   deliveries: {},                                   // fire mode type -> fn(id, weapon, mode, modeIndex, fraction)
@@ -145,6 +147,10 @@ const Weapons = {
   rayBlockers: [],                                  // fn(ox, oy, oz, dx, dy, dz, maxDistance) -> hit distance or -1: things that stop hitscan (S12 devices, domes)
   altClaim: null,                                   // fn(id) -> true while ALT belongs to something else (S12: the GAD-002 underhand throw)
   altClaimed: new Uint8Array(MAX_ACTORS),           // 1 = ALT was claimed during this hold: the weapon's alt waits for a release
+  botTakes: (id, weapon) => true,                   // fn(id, weapon) -> true: a bot at the carry limit swaps this gun in (14e: only an upgrade)
+  useClaimed: new Uint8Array(MAX_ACTORS),           // 1 = Use served another action during this hold (claimUse): no carry-limit swap until a release
+  rodeBoard: new Uint8Array(MAX_ACTORS),            // 1 = on the skimmer at the last weapons step (the Use press that steps off is the board's)
+  useTakers: [],                                    // fn(id) -> true where holding Use serves another action (11c revive, 13b objectives, 13g beacon)
 
   // Nearest distance at which a registered blocker stops a shot ray within maxDistance, or -1.
   blockDistance(ox, oy, oz, dx, dy, dz, maxDistance) {
@@ -239,7 +245,7 @@ const Weapons = {
     const slot = this.slotIndex(id, weapon.index);
     if (this.owned[slot] && weapon.dualWield && !this.dual[slot]) return this.becomeDual(id, weapon);
     if (this.owned[slot]) return this.addWeaponAmmo(id, weapon, weapon.pickupAmmo) > 0;
-    if (!outsideCarry && this.countsTowardCarry(weapon) && this.atCarryLimit(id)) this.dropForPickup(id);
+    if (!outsideCarry && this.swapsOut(id, weapon)) this.dropForPickup(id);
     this.owned[slot] = 1;
     this.dual[slot] = 0;
     this.rarity[slot] = rarity || 0;
@@ -259,6 +265,10 @@ const Weapons = {
     return true;
   },
   dualFactor(id, weapon) { return this.dual[this.slotIndex(id, weapon.index)] ? DUAL_FACTOR : 1; },
+  // Giving this weapon would replace a carried one (not owned yet, counts toward the carry limit, limit reached).
+  swapsOut(id, weapon) {
+    return !this.owned[this.slotIndex(id, weapon.index)] && this.countsTowardCarry(weapon) && this.atCarryLimit(id);
+  },
   atCarryLimit(id) {
     const limit = this.carryLimit();
     if (limit <= 0) return false;
@@ -266,9 +276,41 @@ const Weapons = {
     for (let w = 0; w < WEAPON_COUNT; w++) if (this.owned[this.slotIndex(id, w)] && this.countsTowardCarry(CAT.weapons[w])) carried++;
     return carried >= limit;
   },
+  // The one carry-limit rule for every weapon pickup (S12 pads and drops, S13 royale loot): a gun that would push a
+  // carried one out is taken only by choice, so walking over a gun never costs the one in hand: a person holds Use, a
+  // bot takes only a gun it values more than its best (botTakes, 14e), so crossing a worse pad never downgrades it.
+  // A Use hold that served another action never swaps (swap-02), nor does the step Use goes down: a press answered later
+  // in the step (a 14j chamber button) claims it first.
+  mayTake(id, weapon) {
+    if (!this.swapsOut(id, weapon)) return true;
+    if (this.useClaimed[id] || (Actors.pressed[id] & BTN.USE) !== 0) return false;
+    if (Actors.kind[id] === ACTOR_KIND.BOT) return this.botTakes(id, weapon);
+    return (Actors.buttons[id] & BTN.USE) !== 0;
+  },
+  // A Use press answered outside the useTakers (14j chamber buttons and cube) marks the hold it served.
+  claimUse(id) { this.useClaimed[id] = 1; },
+  // Use serves another action here (a useTaker says so) or served one during this hold: no swap, and no swap prompt
+  // (12a, 13g), so that action's prompt shows.
+  useTaken(id) {
+    if (this.useClaimed[id]) return true;
+    for (let i = 0; i < this.useTakers.length; i++) if (this.useTakers[i](id)) return true;
+    return false;
+  },
+  // A hold is claimed while a useTaker, the skimmer or the press that steps off it (10b moves before this step, so the
+  // board is already gone then) takes Use, and stays claimed until Use is let go: a revive or plant that ends never swaps.
+  updateUseClaim(id) {
+    const riding = Move.onBoard(id) ? 1 : 0;
+    if (!(Actors.buttons[id] & BTN.USE)) this.useClaimed[id] = 0;
+    else if (riding || this.rodeBoard[id] || this.useTaken(id)) this.useClaimed[id] = 1;
+    this.rodeBoard[id] = riding;
+  },
+  // The weapon a carry-limit pickup pushes out: the held one, else the first carried (-1 = none).
+  swapVictim(id) {
+    const held = this.current[id];
+    return held >= 0 && this.countsTowardCarry(CAT.weapons[held]) ? held : this.firstCarried(id);
+  },
   dropForPickup(id) {
-    let victim = this.current[id];
-    if (victim < 0 || !this.countsTowardCarry(CAT.weapons[victim])) victim = this.firstCarried(id);
+    const victim = this.swapVictim(id);
     if (victim < 0) return;
     const slot = this.slotIndex(id, victim);
     this.owned[slot] = 0;
@@ -317,7 +359,8 @@ const Weapons = {
     return AMMO_VIEW;
   },
 
-  // ---- Swap (WPN-010: switching is never faster than the new weapon's equipTime) ----
+  // ---- Swap (WPN-010: switching is never faster than the new weapon's equipTime; equip attachments and perks may
+  // shorten it down to EQUIP_SCALE_FLOOR x equipTime, never further) ----
   requestSwitch(id, index) {
     if (index < 0 || !this.owned[this.slotIndex(id, index)]) return false;
     const target = this.state[id] === WEAPON_STATE.SWAP ? this.pending[id] : this.current[id];
@@ -326,7 +369,7 @@ const Weapons = {
     this.state[id] = WEAPON_STATE.SWAP;
     this.pending[id] = index;
     this.stateTime[id] = 0;
-    this.stateDuration[id] = CAT.weapons[index].equipTime * this.modifier(id, CAT.weapons[index], STAT.EQUIP);
+    this.stateDuration[id] = CAT.weapons[index].equipTime * Math.max(EQUIP_SCALE_FLOOR, this.modifier(id, CAT.weapons[index], STAT.EQUIP));
     emitWeaponEvent('weapon.switch', SWITCH_EVENT, id, CAT.weapons[index]);
     return true;
   },
@@ -412,19 +455,37 @@ const Weapons = {
   hasAmmo(id, weapon, mode, fraction) {
     if (mode.ammo === 'none' || !weapon.mag) return true;
     const slot = this.slotIndex(id, weapon.index), pool = mode.ammo === 'alt' ? this.altAmmo[slot] : this.magazine[slot];
-    return pool >= Math.min(this.ammoCost(mode, fraction), mode.ammo === 'alt' ? weapon.altAmmo : this.magSize(id, weapon));
+    const cost = this.ammoCost(mode, fraction);
+    return cost <= 0 || (pool > 0 && pool >= Math.min(cost, this.poolLimit(id, weapon, mode, pool)));
+  },
+  // The most one shot may ask of its pool: the pool's size, or (R-184) just what is left when nothing can refill the
+  // magazine, so the W20's last shell still fires one barrel (paidShare). Charge levels never get cheaper this way.
+  poolLimit(id, weapon, mode, pool) {
+    if (mode.ammo === 'alt') return weapon.altAmmo;
+    const refill = mode.charge || this.reserve[this.slotIndex(id, weapon.index)] > 0 || this.infiniteReserve(weapon);
+    return refill ? this.magSize(id, weapon) : pool;
   },
   spendAmmo(id, weapon, mode, fraction) {
+    this.paidShare = 1;
     if (mode.ammo === 'none' || !weapon.mag || this.freeAmmo[id]) return;
     const slot = this.slotIndex(id, weapon.index), cost = this.ammoCost(mode, fraction);
-    if (mode.ammo === 'alt') this.altAmmo[slot] = Math.max(0, this.altAmmo[slot] - cost);
-    else this.magazine[slot] = Math.max(0, this.magazine[slot] - cost);
+    const pool = mode.ammo === 'alt' ? this.altAmmo[slot] : this.magazine[slot];
+    if (cost > pool) this.paidShare = pool / cost;
+    if (mode.ammo === 'alt') this.altAmmo[slot] = Math.max(0, pool - cost);
+    else this.magazine[slot] = Math.max(0, pool - cost);
   },
-  // Fire on empty: one 'weapon.empty' per trigger press, then an automatic reload when there is reserve.
-  reportEmpty(id, weapon, button) {
-    if (!(Actors.pressed[id] & button)) return;
+  // Pellets of a shot that was only partly paid for (paidShare), at least one.
+  paidPellets(pellets) { return Math.max(1, Math.round(pellets * this.paidShare)); },
+  // Fire on empty: one 'weapon.empty' (with the pool that ran out); an empty magazine also reloads when there is reserve.
+  // An empty alt pool only clicks (R-081): a magazine reload would not refill it.
+  reportEmpty(id, weapon, mode) {
+    EMPTY_EVENT.pool = mode.ammo === 'alt' ? 'alt' : 'mag';
     emitWeaponEvent('weapon.empty', EMPTY_EVENT, id, weapon);
-    this.beginReload(id, weapon);
+    if (mode.ammo !== 'alt') this.beginReload(id, weapon);
+  },
+  // R-084: the shot that empties the magazine starts the reload, so a held trigger (touch fire) never sits on empty.
+  reloadIfEmpty(id, weapon, mode) {
+    if (mode.ammo === 'mag' && this.magazine[this.slotIndex(id, weapon.index)] === 0) this.beginReload(id, weapon);
   },
 
   // Stunned, or downed without the Last Stand pistol (Damage.lastStand): no firing, reloading or switching.
@@ -436,6 +497,7 @@ const Weapons = {
   step(dt) {
     for (let id = 0; id < Actors.count; id++) {
       if (Actors.kind[id] === ACTOR_KIND.NONE || !Actors.alive[id]) continue;
+      this.updateUseClaim(id);
       this.stepActor(id, dt);
     }
     this.syncBreathButton();
@@ -493,6 +555,7 @@ const Weapons = {
     this.nextShot[id] = Math.max(this.nextShot[id] - dt, -dt);
     this.nextAlt[id] = Math.max(this.nextAlt[id] - dt, 0);
     this.kick[id] = Math.max(0, this.kick[id] - dt / KICK_SECONDS);
+    if (Sim.time - this.lastShot[id] > HEAT_VENT_DELAY) this.heat[id] = Math.max(0, this.heat[id] - HEAT_VENT_RATE * dt);
   },
   updateSpeed(id) {
     const weapon = this.currentWeapon(id);
@@ -508,13 +571,18 @@ const Weapons = {
     if (mode.type === 'block') { WeaponSpecialState.stepBlock(id, mode, held, dt); return; }
     if (mode.type === 'toggle') { this.stepStance(id, mode); return; }
     if (mode.type === 'detonate') { if (Actors.pressed[id] & BTN.ALT) Projectiles.detonateOwned(id, weapon.index, mode.projectile); return; }
-    this.trackDetonateHold(id, weapon, mode, held, dt);
+    if (mode.detonateOnRelease) { this.stepDetonateTap(id, weapon, mode, held, dt); return; }
     this.stepMode(id, weapon, mode, MODE_ALT, BTN.ALT, dt);
   },
-  trackDetonateHold(id, weapon, mode, held, dt) {
+  // W32 (detonateOnRelease, R-080): a short tap throws on release; a hold of DETONATE_HOLD_SECONDS detonates every owned
+  // mine and throws nothing, with or without ammo.
+  stepDetonateTap(id, weapon, mode, held, dt) {
     if (held) { this.altHeld[id] += dt; return; }
-    if (mode.detonateOnRelease && this.altHeld[id] >= DETONATE_HOLD_SECONDS) Projectiles.detonateOwned(id, weapon.index, mode.projectile);
+    const heldFor = this.altHeld[id];
     this.altHeld[id] = 0;
+    if (heldFor <= 0) return;
+    if (heldFor >= DETONATE_HOLD_SECONDS) Projectiles.detonateOwned(id, weapon.index, mode.projectile);
+    else this.releaseShot(id, weapon, mode, MODE_ALT, 0);
   },
   // ALT flips the stance; a mount (W29) needs a ledge and drops as soon as the actor moves or the ledge is gone.
   stepStance(id, mode) {
@@ -538,32 +606,49 @@ const Weapons = {
     const shots = mode.trigger === 'auto' ? MAX_SHOTS_PER_STEP : 1;
     for (let shot = 0; shot < shots && this.ready(id, weapon, mode, modeIndex, button, 0); shot++) {
       this.latch[id] |= bit;
-      if (mode.trigger === 'burst') this.startBurst(id, mode, modeIndex);
+      if (mode.trigger === 'burst') this.startBurst(id, weapon, mode, modeIndex);
       this.fire(id, weapon, mode, modeIndex, 0);
     }
   },
+  // R-018: the charge stops at the highest level the loaded ammo pays for, so the release always fires (or clicks empty).
   stepCharge(id, weapon, mode, modeIndex, held, dt) {
     if (held) {
       if (this.chargeMode[id] < 0 && !this.ready(id, weapon, mode, modeIndex, modeIndex ? BTN.ALT : BTN.FIRE, 0)) return;
       this.chargeMode[id] = modeIndex;
-      this.charge[id] = Math.min(mode.charge.time, this.charge[id] + dt);
+      const paid = Math.max(0, this.payableCharge(id, weapon, mode));
+      this.charge[id] = Math.min(mode.charge.time * paid, this.charge[id] + dt);
       return;
     }
     if (this.chargeMode[id] !== modeIndex) return;
     const fraction = this.charge[id] / mode.charge.time;
     this.charge[id] = 0; this.chargeMode[id] = -1;
-    if (this.hasAmmo(id, weapon, mode, fraction)) this.fire(id, weapon, mode, modeIndex, fraction);
+    this.releaseShot(id, weapon, mode, modeIndex, Math.min(fraction, Math.max(0, this.payableCharge(id, weapon, mode))));
+  },
+  // Highest charge fraction (a level step, or 1 for a smooth charge) the loaded ammo pays for; -1 when not even the lowest.
+  payableCharge(id, weapon, mode) {
+    const steps = mode.charge.levels ? mode.charge.levels.length - 1 : 0;
+    for (let level = steps; level >= 0; level--) {
+      const fraction = steps ? level / steps : 1;
+      if (this.hasAmmo(id, weapon, mode, fraction)) return fraction;
+    }
+    return -1;
   },
   stepRelease(id, weapon, mode, modeIndex, held) {
     if (held) { this.latch[id] |= RELEASE_LATCH; return; }
     if (!(this.latch[id] & RELEASE_LATCH)) return;
     this.latch[id] &= ~RELEASE_LATCH;
-    if (LockOn.lockedCount(id, mode) && this.ready(id, weapon, mode, modeIndex, 0, 0)) this.fire(id, weapon, mode, modeIndex, 0);
+    if (LockOn.lockedCount(id, mode)) this.releaseShot(id, weapon, mode, modeIndex, 0);
     LockOn.clear(id);
   },
-  startBurst(id, mode, modeIndex) {
+  // A shot fired by letting go of the trigger (charge, lock-on, W32 mine tap): short of ammo it clicks empty instead.
+  // A charge passed ready() when the hold began, so its release fires even if the actor started sprinting meanwhile.
+  releaseShot(id, weapon, mode, modeIndex, fraction) {
+    if (!this.hasAmmo(id, weapon, mode, fraction)) { this.reportEmpty(id, weapon, mode); return; }
+    if (mode.trigger === 'charge' || this.ready(id, weapon, mode, modeIndex, 0, fraction)) this.fire(id, weapon, mode, modeIndex, fraction);
+  },
+  startBurst(id, weapon, mode, modeIndex) {
     this.burstLeft[id] = mode.burst - 1;
-    this.burstTimer[id] = mode.burstGap;
+    this.burstTimer[id] = mode.burstGap / this.rateFactor(id, weapon);
     this.burstMode[id] = modeIndex;
   },
   stepBurst(id, weapon, dt) {
@@ -571,29 +656,31 @@ const Weapons = {
     this.burstTimer[id] -= dt;
     if (this.burstTimer[id] > 0) return;
     const mode = this.burstMode[id] ? weapon.alt : weapon.primary;
-    this.burstTimer[id] += mode.burstGap;
+    this.burstTimer[id] += mode.burstGap / this.rateFactor(id, weapon);
     this.burstLeft[id]--;
     if (this.hasAmmo(id, weapon, mode, 0)) this.fireShot(id, weapon, mode, this.burstMode[id], 0);
     else this.burstLeft[id] = 0;
   },
-  // True when the mode may fire now; reports an empty magazine (button = the trigger, 0 = no report).
+  // True when the mode may fire now; a fresh press of `button` on empty reports it (0 = no report).
   ready(id, weapon, mode, modeIndex, button, fraction) {
     if (this.state[id] !== WEAPON_STATE.IDLE || this.burstLeft[id] || !Move.canFire(id)) return false;   // S10: sprint, mantle, board...
     if (mode.cooldown > 0 ? this.nextAlt[id] > 0 || this.nextShot[id] > 0 : this.nextShot[id] > 0) return false;
     if (mode.maxActive && mode.activeRule === 'block' && !mode.special && Projectiles.countOwned(id, weapon.index, CAT.projectiles.byId(mode.projectile).index) >= mode.maxActive) return false;
     if (mode.type === 'lock' && mode.trigger !== 'release' && !LockOn.lockedCount(id, mode)) return false;
     if (this.hasAmmo(id, weapon, mode, fraction)) return true;
-    if (button) this.reportEmpty(id, weapon, button);
+    if (Actors.pressed[id] & button) this.reportEmpty(id, weapon, mode);
     return false;
   },
-  shotInterval(id, weapon, mode) {
+  // One rate rule for every trigger, burst pulls and burst gaps included: the toggle stance, dual wield and rateScale.
+  rateFactor(id, weapon) {
     const stance = this.toggled[id] && weapon.alt.toggle && weapon.alt.toggle.rateMult ? weapon.alt.toggle.rateMult : 1;
-    return 1 / (mode.rate * stance * this.dualFactor(id, weapon) * this.rateScale[id]);
+    return stance * this.dualFactor(id, weapon) * this.rateScale[id];
   },
+  shotInterval(id, weapon, mode) { return 1 / (mode.rate * this.rateFactor(id, weapon)); },
   // One trigger pull: timing, then the shot (a burst's later rounds call fireShot directly).
   fire(id, weapon, mode, modeIndex, fraction) {
     if (mode.cooldown > 0) this.nextAlt[id] = mode.cooldown;
-    this.nextShot[id] += mode.trigger === 'burst' ? 1 / mode.rate : this.shotInterval(id, weapon, mode);
+    this.nextShot[id] += this.shotInterval(id, weapon, mode);
     if (mode.special && this.specials[mode.special](id, weapon, mode)) return;
     this.fireShot(id, weapon, mode, modeIndex, fraction);
   },
@@ -604,6 +691,7 @@ const Weapons = {
     this.heat[id] = Math.min(WEAPON_HEAT_CAP, this.heat[id] + mode.heat);
     this.applyRecoil(id, weapon, mode);
     this.announceShot(id, weapon, mode, modeIndex);
+    this.reloadIfEmpty(id, weapon, mode);
   },
   announceShot(id, weapon, mode, modeIndex) {
     const eyeY = Actors.eyeY(id);
@@ -699,9 +787,9 @@ const Weapons = {
     out.visible = !!weapon;
     if (!weapon) return out;
     const shown = this.state[id] === WEAPON_STATE.SWAP ? CAT.weapons[this.pending[id]] : weapon;
-    out.shape = shown.class; out.color = shown.family.color; out.kick = this.kick[id]; out.ads = this.ads[id];
+    out.shape = shown.class; out.model = shown.id; out.color = shown.family.color; out.kick = this.kick[id]; out.ads = this.ads[id];
     out.reload = this.state[id] === WEAPON_STATE.RELOAD ? this.stateTime[id] / this.stateDuration[id] : 0;
-    out.swap = this.state[id] === WEAPON_STATE.SWAP ? this.stateTime[id] / this.stateDuration[id] : 1;
+    out.swap = this.state[id] === WEAPON_STATE.SWAP ? 1 - this.stateTime[id] / this.stateDuration[id] : 0;   // 1 = fully lowered (07e poseWeapon)
     out.zoom = lerp(1, this.zoomed[id] && shown.alt.zoomMax > shown.alt.zoom ? shown.alt.zoomMax : shown.alt.zoom, this.ads[id]);
     out.charge = this.chargeMode[id] >= 0 ? this.charge[id] : 0;
     out.recoilPitch = this.recoilPitch[id] + this.swayPitch[id]; out.recoilYaw = this.recoilYaw[id] + this.swayYaw[id];   // degrees the spray and sway move the view
@@ -713,6 +801,8 @@ const Weapons = {
 const AMMO_VIEW = { magazine: 0, reserve: 0, alt: 0, infinite: false };
 const QUICK_MELEE = CAT.fireModes.byId('quick.melee');
 const WEAPON_HEAT_CAP = 120;             // W36 heat blast: stored heat is capped here
+const HEAT_VENT_DELAY = 1;               // R-186: after a second without a shot the stored heat vents...
+const HEAT_VENT_RATE = 10;               // ...at this much per second (a full 120 is gone in 12 s)
 
 function chargeLevelIndex(charge, fraction) { return Math.min(charge.levels.length - 1, Math.floor(fraction * (charge.levels.length - 1) + 1e-6)); }
 function chargeLevelValue(charge, fraction) { return charge.levels ? charge.levels[chargeLevelIndex(charge, fraction)] : 1; }
@@ -751,9 +841,12 @@ const Shot = {
       const worldWall = World.raycast(startX, startY, startZ, dx, dy, dz, range, shotHit) ? shotHit.distance : range;
       const blocker = Weapons.blockDistance(startX, startY, startZ, dx, dy, dz, worldWall);   // devices and domes stop the shot
       const wall = blocker >= 0 ? blocker : worldWall;
-      if (mode.combo && Projectiles.comboRay(id, mode, startX, startY, startZ, dx, dy, dz, wall)) return travelled + Projectiles.comboDistance;
-      const stopped = this.hitActors(id, weapon, mode, damage * factor, startX, startY, startZ, dx, dy, dz, wall, travelled);
+      // W17: an orb on the ray ends it there, but actors in front of the orb are hit first and may stop it (R-078).
+      const orb = mode.combo ? Projectiles.comboTarget(startX, startY, startZ, dx, dy, dz, wall) : -1;
+      const reach = orb >= 0 ? Projectiles.comboDistance : wall;
+      const stopped = this.hitActors(id, weapon, mode, damage * factor, startX, startY, startZ, dx, dy, dz, reach, travelled);
       if (stopped >= 0) return travelled + stopped;
+      if (orb >= 0) { Projectiles.detonateCombo(orb, id, mode); return travelled + reach; }
       travelled += wall;
       if (blocker >= 0) { emitBlockedImpact(startX + dx * wall, startY + dy * wall, startZ + dz * wall, dx, dy, dz, weapon.id, id); return travelled; }
       if (wall >= range) return travelled;
@@ -793,7 +886,6 @@ const Shot = {
   },
 };
 
-const shotInfoDirection = Vec.make();
 // Builds the damage info for one weapon hit and sends it through the single damage path.
 function applyShotDamage(id, target, weapon, mode, damage, zone, stomach, x, y, z, dx, dy, dz, distance) {
   const info = Damage.info();
@@ -818,7 +910,8 @@ function deliverHitscan(id, weapon, mode, modeIndex, fraction) {
   const damage = Weapons.shotDamage(id, weapon, mode, fraction), spread = Weapons.spreadDegrees(id, weapon, mode);
   const ballistics = Weapons.ballistics();   // X41: the pellets fly as bullets (11b)
   eyeOrigin(id, originScratch);
-  for (let pellet = 0; pellet < mode.pellets; pellet++) {
+  const pellets = Weapons.paidPellets(mode.pellets);
+  for (let pellet = 0; pellet < pellets; pellet++) {
     Weapons.aimDirection(id, spread, aimScratch);
     if (ballistics) { Projectiles.spawnBallistic(id, weapon, mode, modeIndex, aimScratch, damage, ballistics); continue; }
     const distance = Shot.trace(id, weapon, mode, damage, originScratch.x, originScratch.y, originScratch.z, aimScratch.x, aimScratch.y, aimScratch.z);
@@ -879,7 +972,7 @@ function deliverCone(id, weapon, mode, modeIndex, fraction) {
 // Projectile modes: pellets (or charge levels) spawn pooled projectiles with spread.
 function deliverProjectile(id, weapon, mode, modeIndex, fraction) {
   const charge = mode.charge;
-  const pellets = charge && charge.target === 'pellets' ? chargeLevelValue(charge, fraction) : mode.pellets;
+  const pellets = Weapons.paidPellets(charge && charge.target === 'pellets' ? chargeLevelValue(charge, fraction) : mode.pellets);
   const multiplier = charge && charge.target === 'multiplier' ? chargeLevelValue(charge, fraction) : 1;
   const speed = charge && charge.speed ? lerp(charge.speed[0], charge.speed[1], fraction) : 0;
   const damage = Weapons.shotDamage(id, weapon, mode, fraction), spread = Weapons.spreadDegrees(id, weapon, mode);
@@ -893,6 +986,7 @@ function deliverProjectile(id, weapon, mode, modeIndex, fraction) {
 const LockOn = {
   update(id, mode, held, dt) {
     if (!held) { if (mode.trigger !== 'release') this.clear(id); return; }
+    this.dropStale(id);
     const eyeY = Actors.eyeY(id);
     Vec.fromAngles(lockScratch, Actors.yaw[id], Actors.pitch[id]);
     for (let target = 0; target < Actors.count; target++) {
@@ -908,6 +1002,14 @@ const LockOn = {
     if (index < 0) return;
     if (slot < 0) { Weapons.lockIds[index] = target; Weapons.lockTime[index] = 0; }
     Weapons.lockTime[index] = Math.min(mode.lock.time, Weapons.lockTime[index] + dt);
+  },
+  // R-019: a lock on a dead (or no longer hostile) target frees its slot, so a held trigger moves on to the next enemy
+  // (and a respawned target starts its lock again).
+  dropStale(id) {
+    for (let slot = id * MAX_LOCKS; slot < (id + 1) * MAX_LOCKS; slot++) {
+      const target = Weapons.lockIds[slot];
+      if (target >= 0 && (!Actors.alive[target] || !Actors.isEnemy(id, target))) Weapons.lockIds[slot] = -1;
+    }
   },
   slotOf(id, target) {
     for (let k = 0; k < MAX_LOCKS; k++) if (Weapons.lockIds[id * MAX_LOCKS + k] === target) return id * MAX_LOCKS + k;
@@ -974,9 +1076,12 @@ Bus.on('actor.create', (id) => {
 Bus.on('actor.spawn', (event) => Weapons.giveStartLoadout(event.id));
 Bus.on('match.stop', () => TouchInput.setFlag('breath', false));
 Input.aimAssistTarget = (id, out) => Weapons.aimAssist(id, out);
+Input.autoFireTrigger = (id) => { const weapon = Weapons.currentWeapon(id); return weapon ? weapon.primary.trigger : 'auto'; };   // INP-006: touch auto-fire pulses semi and burst
 // The difficulty preset's aimAssist (rules.botSkill, D01 Stroll 100) replaces the player's setting; -1 keeps it.
 Input.aimAssistOverride = () => {
   const skill = currentRules().botSkill;
   return skill && skill.aimAssist >= 0 ? skill.aimAssist : -1;
 };
 Render.viewModel = (out) => Weapons.viewModel(out);
+// Third person: the weapon an actor holds, the one being raised while it swaps (07c draws its model).
+Render.heldWeapon = (id) => (Weapons.state[id] === WEAPON_STATE.SWAP && Weapons.pending[id] >= 0 ? Weapons.pending[id] : Weapons.current[id]);

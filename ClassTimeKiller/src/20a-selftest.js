@@ -1,5 +1,6 @@
 // ==== S20 SELF-TEST ====
-// Test.add(group, fn, options) registers a block; fn(check) calls check(name, ok, detail). A throwing block becomes one failed check (ARC-030).
+// Test.add(group, fn, options) registers a block; fn(check) calls check(name, ok, detail), or check.skip(name, reason) for a
+// probe the page cannot run (counted apart from passes). A throwing block becomes one failed check (ARC-030).
 // Blocks run in registration order (file order). options.slow: a long soak that runs only with Test.run({ slow: true }) or
 // when its group is named (--slow / --group in tools/selftest.mjs), so the default suite stays quick. Each block gets a clean slate: no match, default seed, memory storage.
 // DebugApi becomes window.__CTK at boot (ARC-040); test files add their debug commands to it.
@@ -7,7 +8,7 @@
 // Hooks that later sections fill at load (ARCHITECTURE: renderer and other hooks). A block may replace one with a stub;
 // the loaded one is put back before the next block, so no block depends on what an earlier block left behind.
 const TEST_HOOKS = [[Input, 'aimAssistTarget'], [Render, 'viewModel'], [Render, 'cameraOverride'], [Render, 'actorStyle'],
-  [Render, 'worldQuery'], [Sound, 'lineOfSight']];
+  [Render, 'worldQuery'], [Render, 'heldWeapon'], [Sound, 'lineOfSight']];
 
 const TEST_FLOOR = { shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] };   // 120 m test floor shared by test files
 
@@ -27,10 +28,10 @@ const Test = {
       if (settings.group && block.group !== settings.group) continue;
       if (block.slow && !settings.slow && !settings.group) continue;
       groups.add(block.group);
-      const check = (name, ok, detail) => { results.push({ group: block.group, name, ok: !!ok, detail: ok ? '' : String(detail === undefined ? '' : detail) }); };
+      const check = Test.checker(block.group, results);
       Test.isolate();
       const errorsBefore = ErrorLog.entries.length;
-      try { await block.run(check); } catch (error) { check('block threw', false, error && error.stack ? String(error.stack).split('\n').slice(0, 3).join(' | ') : error); }
+      try { await block.run(check); } catch (error) { check('block threw', false, errorText(error)); }
       const unexpected = ErrorLog.entries.slice(errorsBefore);
       if (unexpected.length) check('no errors logged during the block', false, unexpected.slice(0, 3).join(' || '));
     }
@@ -39,8 +40,19 @@ const Test = {
     Save.data = savedData; Save.storage = savedStorage; Maps.runtime = savedRuntimeMaps;
     Settings.applyAll();   // settings changed by the tests reach their listeners again
     Game.headless = wasHeadless;
-    const failed = results.filter((r) => !r.ok).length;
-    return { total: results.length, failed, groups: groups.size, results };
+    return this.tally(results, groups.size);
+  },
+  // check(name, ok, detail) for one block; check.skip(name, reason) records a probe this page cannot run (R-160):
+  // it counts as skipped, never as a pass.
+  checker(group, results) {
+    const check = (name, ok, detail) => { results.push({ group, name, ok: !!ok, detail: ok ? '' : String(detail === undefined ? '' : detail) }); };
+    check.skip = (name, reason) => { results.push({ group, name, ok: true, skipped: true, detail: reason }); };
+    return check;
+  },
+  // total = passed + failed + skipped
+  tally(results, groups) {
+    const failed = results.filter((r) => !r.ok).length, skipped = results.filter((r) => r.skipped).length;
+    return { total: results.length, passed: results.length - failed - skipped, failed, skipped, groups, known: [...new Set(this.blocks.map((block) => block.group))], results };
   },
   // Clean state between blocks: stops any match, memory-only storage, fresh save, no runtime maps, default seed.
   isolate() {
@@ -48,6 +60,7 @@ const Test = {
     Maps.runtime = [];
     Save.storage = makeMemoryStorage(false);
     Save.data = Save.emptySave();
+    Save.lastFailure = ''; Save.storageWorks = true;
     Rng.reseed(1);
     this.restoreHooks();
   },
@@ -91,7 +104,7 @@ const DebugApi = {
     if (level === 'max') setup.mutators = DEBUG_STRESS_MUTATORS.slice();
     return Game.start(setup);
   },
-  log: { errors: () => ErrorLog.entries.slice() },
+  log: { errors: () => ErrorLog.entries.slice(), first: () => ErrorLog.first },   // first: the session's first error (it outlives the ring)
   save: {
     dump: () => Save.exportText(),
     corrupt(kind) { // test hook: write a broken save, then reload it

@@ -1,5 +1,15 @@
 // Self-tests for S01-S04 and the loop: math, RNG, events, actors, data, save, settings, world rays.
 
+// The defined setting keys with this prefix (for Settings.resetKeys).
+function settingKeysStarting(prefix) { return Array.from(Settings.definitions.keys()).filter((key) => key.startsWith(prefix)); }
+// A memory store that counts its writes (the save tests).
+function makeCountingStorage() {
+  const store = makeMemoryStorage(false), write = store.setItem;
+  store.writes = 0;
+  store.setItem = (key, value) => { store.writes++; write(key, value); };
+  return store;
+}
+
 Test.add('core', (check) => {
   const v = Vec.fromAngles(Vec.make(), 0, 0);
   check('yaw 0 looks +Z', Test.near(v.z, 1, 1e-6) && Test.near(v.x, 0, 1e-6));
@@ -43,6 +53,11 @@ Test.add('core', (check) => {
   Actors.remove(second);
   check('actors: remove shrinks count', Actors.count === 1);
   check('actors: enemy test by team', Actors.isEnemy(first, Actors.create(ACTOR_KIND.BOT, 2, 'x')) && !Actors.isEnemy(first, first));
+  // R-159: one ally rule (same team, not free-for-all, not itself); an enemy is anyone else
+  const mate = Actors.create(ACTOR_KIND.BOT, 1, 'mate'), loner = Actors.create(ACTOR_KIND.BOT, -1, 'a'), other = Actors.create(ACTOR_KIND.BOT, -1, 'b');
+  check('actors: ally test', Actors.isAlly(first, mate) && !Actors.isAlly(first, first) && !Actors.isAlly(loner, other) && !Actors.isAlly(first, loner)
+    && Actors.isEnemy(loner, other) && !Actors.isEnemy(first, mate));
+  Actors.remove(other); Actors.remove(loner); Actors.remove(mate);
   Actors.buttons[first] = BTN.FIRE;
   Sim.step();
   check('sim: pressed edge on first step', (Actors.pressed[first] & BTN.FIRE) !== 0);
@@ -72,8 +87,75 @@ Test.add('core', (check) => {
   let crashed = false;
   try { Save.load(); Save.saveNow(); } catch (error) { crashed = true; }
   check('save: blocked storage does not crash', !crashed && !Save.storageWorks);
-  Save.storageWorks = true;
+  Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';
 });
+
+// Teams (one rule, FFA -1 has no allies); body sizes and the step live in S01 (DATA-003); a failed match start goes back to
+// the menu (ARC-041); a repeated save failure stays quiet only until a write works again (PLT-003).
+Test.add('core', (check) => {
+  const toasts = [], listener = Bus.on('toast', (payload) => toasts.push(payload.text));
+  const red = Actors.create(ACTOR_KIND.BOT, 0, 'a'), mate = Actors.create(ACTOR_KIND.BOT, 0, 'b'), loner = Actors.create(ACTOR_KIND.BOT, -1, 'c');
+  check('teams: allies share a team', Actors.isAlly(red, mate) && !Actors.isAlly(loner, Actors.create(ACTOR_KIND.BOT, -1, 'd')) && Actors.isEnemy(red, loner) && !Actors.isEnemy(red, red));
+  Actors.vx[red] = RUN_REFERENCE_SPEED; Actors.flags[red] = ACTOR_FLAG.ON_GROUND; ViewState.bobPhase = 0;
+  headBob(red, STRIDE_METRES / RUN_REFERENCE_SPEED);
+  check('body: S01 sizes, one head bob per footstep', Actors.eye[red] === Math.fround(STAND_EYE) && STANCE_EYE[1] === CROUCH_EYE && Test.near(ViewState.bobPhase, Math.PI, 1e-6));
+  let match = 'none';
+  const logged = Test.expectErrors(() => { match = Game.start({ mode: 'elim', map: 'dustline', bots: 3 }); });
+  check('match: a failed start returns to the menu', logged && match === null && Game.state === 'menu' && toasts.pop() === MATCH_START_FAILED, toasts.join());
+  toasts.length = 0;
+  Save.saveNow();
+  for (const mark of [1, 2, 0, 3]) { if (mark) saveOtherTabWrites(mark); Save.saveNow(); }
+  Save.storage = makeMemoryStorage(true); Save.saveNow();
+  Save.storage = makeMemoryStorage(false); Save.saveNow();
+  Bus.off('toast', listener);
+  check('save: a failure is told again after a good write', toasts.join() === [SAVE_NEWER_ELSEWHERE, SAVE_NEWER_ELSEWHERE, SAVE_BLOCKED].join() && Save.storageWorks, toasts.join());
+});
+
+// R-001 / R-163: a stale tab never writes over a newer save; an unchanged flush writes nothing.
+function saveOtherTabWrites(mark) {
+  const other = JSON.parse(Save.read(SAVE_KEY));
+  other.stats.tab = mark;
+  other.revision++;
+  Save.storage.setItem(SAVE_KEY, JSON.stringify(other));
+  return JSON.stringify(other);
+}
+Test.add('core', (check) => {
+  const store = Save.storage = makeCountingStorage(), stored = () => JSON.parse(store.getItem(SAVE_KEY)).stats.tab;
+  Save.saveNow();
+  store.writes = 0;
+  flushSave(); window.dispatchEvent(new Event('pagehide'));
+  check('save: an unchanged flush writes nothing', store.writes === 0, store.writes);
+  saveOtherTabWrites(1);
+  Settings.set('video.fov', 100);
+  flushSave();
+  check('save: a stale tab takes the newer save', stored() === 1 && Save.data.stats.tab === 1 && Save.notice === SAVE_NEWER_ELSEWHERE);
+  window.dispatchEvent(new StorageEvent('storage', { key: SAVE_KEY, newValue: saveOtherTabWrites(2) }));
+  check('save: a storage event takes the newer save', Save.data.stats.tab === 2);
+  Save.notice = '';
+});
+
+// R-037 / R-038 / R-039: junk or a failed write keeps the save; the backup can be shown and restored.
+Test.add('core', (check) => uiWith(() => {
+  const reload = SaveTransfer.reload, good = Save.storage, save = (mark) => JSON.stringify({ version: 1, stats: { mark } });
+  let reloads = 0;
+  SaveTransfer.reload = () => { reloads++; };
+  try {
+    Save.importText(save('A'));
+    Save.storage = makeMemoryStorage(true);
+    const blocked = SaveTransfer.importText(save('B'));
+    Save.storage = good; Save.storageWorks = true;
+    check('import: junk or a failed write keeps the save', SaveTransfer.importText('{}') !== '' && blocked === SAVE_BLOCKED && reloads === 0 && Save.data.stats.mark === 'A', blocked);
+    SaveTransfer.importText(save('B'));
+    Ui.open('saveTransfer');
+    uiClickButton(Ui.top().element, 'Restore backup');
+    uiClickButton(Ui.top().element, 'Restore');
+    check('backup: restored', Save.data.stats.mark === 'A' && reloads === 2);
+    Test.expectErrors(() => DebugApi.save.corrupt('trunc'));
+    Ui.open('saveTransfer');
+    const screen = Ui.top().element;
+    check('backup: shown', uiClickButton(screen, 'Export backup') && screen.querySelector('textarea').value === '{"version":1,"settings":');
+  } finally { SaveTransfer.reload = reload; Save.notice = ''; }
+}));
 
 // ARC-041 / PLT-002: an error in a 'boot' or 'ready' listener ends the start on the fatal screen; so does a script error before boot.
 Test.add('core', (check) => {
@@ -92,7 +174,9 @@ Test.add('core', (check) => {
   Bus.off('test.bootcheck', thrower);
   Boot.run = run;
   check('boot: Boot.start shows the fatal screen for it', fatalShown && fatal.classList.contains('show') && document.getElementById('fatal-title').textContent === BOOT_FATAL_TITLE);
-  fatalShown = false; fatal.classList.remove('show');
+  fatal.querySelector('.box').appendChild(makeElement('button', 'ui-button', 'Extra'));
+  hideFatal();
+  check('boot: hideFatal clears the fatal screen, its flag and the buttons sections added', !fatalShown && !fatal.classList.contains('show') && !fatal.querySelector('button'));
   const debugApi = window.__CTK;
   delete window.__CTK;
   window.onerror('Uncaught SyntaxError: early', '', 1, 1, null);
@@ -102,6 +186,22 @@ Test.add('core', (check) => {
   let newer = [];
   Test.expectErrors(() => { ErrorLog.add('test', 'one'); ErrorLog.add('test', 'two'); newer = ErrorLog.since(ErrorLog.total - 1); });
   check('errors: ErrorLog.since lists only the newer entries', newer.length === 1 && newer[0] === 'test: two', newer.join());
+  let repeated = [];
+  Test.expectErrors(() => { ErrorLog.add('t', 'old'); ErrorLog.add('t', 'same'); const mark = ErrorLog.total; ErrorLog.add('t', 'same'); ErrorLog.add('t', 'same'); repeated = ErrorLog.since(mark); });
+  check('errors: ErrorLog.since skips older entries when the newest repeats', repeated.length === 1 && repeated[0].startsWith('t: same'), repeated.join());
+  // R-007: 'listener broke' above needs the message, which WebKit and Firefox stacks lack. R-164: repeats count on one entry.
+  let flood = [];
+  const added = Test.expectErrors(() => { ErrorLog.add('t', 'root'); for (let i = 0; i < 200; i++) ErrorLog.add('t', 'step'); flood = ErrorLog.entries.slice(-2); });
+  check('errors: repeats are counted', added === 2 && flood.join() === 't: root,t: step (x200)', flood.join());
+});
+
+// R-007: a block that throws reports the error the way ErrorLog does (errorText: the message first on every engine).
+Test.add('core', async (check) => {
+  const thrown = new TypeError('boom');
+  Test.add('core-throwing-block', () => { throw thrown; });
+  let result = null;
+  try { result = (await Test.run({ group: 'core-throwing-block' })).results[0]; } finally { Test.blocks.pop(); }
+  check('a throwing block reads "block threw" with errorText', result.name === 'block threw' && !result.ok && result.detail === errorText(thrown), result.detail);
 });
 
 // PLT-003: a loaded field of the wrong kind is replaced, and a failed write tells the player at once (once per failure).
@@ -122,6 +222,14 @@ Test.add('core', (check) => {
   check('save: an oversized save is not written and shows a toast', Save.saveNow() === false && toasts[1] === SAVE_TOO_BIG, toasts.join());
   Bus.off('toast', listener);
   Save.storageWorks = true; Save.notice = '';
+  // R-040: a field of the wrong kind is repaired before a screen reads it.
+  Save.importText(JSON.stringify({ version: 1, settings: { 'video.fov': 90 }, loadouts: 'x', tips: 7 }));
+  const errors = uiWith(() => Test.expectErrors(() => { Ui.open('loadout'); Tips.show(); }));
+  check('save: wrong-kind loadouts and tips are repaired', errors === 0 && Loadouts.selectedClass() === CAT.classes[0] && Save.data.tips.matches === 1, errors);
+  // ...and partial nested records too (a null custom class, no heroes or kits).
+  Save.importText('{"version":1,"loadouts":{"heroes":{},"classes":{"custom":[null,{"id":"class-1"}]}},"tips":{}}');
+  const repaired = Test.expectErrors(() => uiWith(() => { Ui.open('loadout'); Loadouts.hero(); Loadouts.kitChoice('kit'); Tips.show(); }));
+  check('save: partial records are repaired', repaired === 0 && Loadouts.classes().length === CAT.classes.length + 1 && Save.data.tips.matches === 1, repaired);
 });
 
 Test.add('core', (check) => {
@@ -150,6 +258,36 @@ Test.add('core', (check) => {
   check('grid: a pass counts a box once', BrushGrid.firstVisit(grid, 0) && !BrushGrid.firstVisit(grid, 0));
   check('grid: nav, map scan and render bake keep no lookup grid of their own', typeof navForCells === 'undefined' && typeof gridKey === 'undefined'
     && typeof MapScan.fillBuckets === 'undefined' && String(rayBlocked).includes('BrushGrid'));
+});
+
+// ARC-010 spiral guard: a cheap sim keeps 1x game time down to 10 fps, a costly one keeps the 4-step floor. The first frame
+// after a resume takes the clock from its own rAF timestamp (it can be older than the resume event).
+Test.add('core', (check) => {
+  const systems = Sim.systems, dropped = Perf.droppedSteps, raf = window.requestAnimationFrame, hooks = Loop.hooks;
+  const run = (stepCostMs, seconds, frames) => {
+    Sim.reset(); Loop.accumulator = 0; Loop.stepCostMs = stepCostMs;
+    for (let frame = 0; frame < frames; frame++) Loop.advance(seconds);
+    return Sim.tick;
+  };
+  // A cheap sim.
+  Sim.systems = [];
+  window.requestAnimationFrame = () => 0;
+  Loop.hooks = { input: [], render: [], hud: [], audio: [], ui: [] };
+  try {
+    check('loop: 24 fps runs at 1x', run(0, 1 / 24, 48) >= 239 && Perf.droppedSteps === dropped, Sim.tick);
+    check('loop: a stall runs 0.1 s, a costly sim 4 steps', run(0, 1, 1) === 12 && run(10, 1, 1) === MIN_STEPS_PER_FRAME, Sim.tick);
+    Game.state = 'playing'; Game.paused = true;
+    Game.resume();
+    Game.state = 'menu';
+    const start = performance.now() - 5, recorded = Perf.index;
+    Loop.frame(start);
+    const skipped = Perf.index === recorded;
+    Loop.frame(start + 16);
+    check('loop: a resume skips one frame, no negative interval', skipped && Math.abs(Perf.frameMs[Perf.lastIndex()] - 16) < 0.01);
+  } finally {
+    Sim.systems = systems; Sim.reset(); Loop.accumulator = 0; Loop.stepCostMs = 0; Perf.droppedSteps = dropped;
+    window.requestAnimationFrame = raf; Loop.hooks = hooks; Game.paused = false;
+  }
 });
 
 // One emitter per shared event: emitSound, emitImpulse and emitToast in S01 send one reused payload, and no other

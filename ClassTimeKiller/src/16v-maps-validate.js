@@ -10,7 +10,6 @@ const MAP_ROOF_HEIGHT = 10;          // a surface with a ceiling closer than thi
 const MAP_ROUTE_FREE = 6;            // metres around both route ends that the lane test never blocks
 const MAP_ROUTE_BLOCK = 2.5;         // radius blocked around each found route before looking for the next
 const MAP_ROUTE_BLOCK_HEIGHT = 3;    // only surfaces within this height of the route are blocked (a bridge does not block the floor under it)
-const MAP_EYE = 1.6;                 // eye height used for sightlines
 const MAP_CHEST = 1.2;               // chest height used for spawn facing checks
 const MAP_SPAWN_FACING = 2;          // free distance ahead of a spawn, metres
 const MAP_SIGHT_DIRECTIONS = 16;
@@ -458,7 +457,7 @@ const MapCheck = {
     if (!pad.entries) ctx.add('triggers', 'jump pad at ' + where + ' has no floor to stand on');
     if (pad.landing < 0) return ctx.add('triggers', 'jump pad at ' + where + ' lands on nothing walkable');
     if (!ctx.loop[pad.landing]) ctx.add('triggers', 'jump pad at ' + where + ' lands in a cut-off place');
-    else if (!pad.firm) ctx.add('triggers', 'jump pad at ' + where + ' lands less than ' + MAP_BODY_RADIUS + ' m from the edge of its floor');
+    else if (!pad.firm) ctx.add('triggers', 'jump pad at ' + where + ' lands less than ' + ACTOR_RADIUS + ' m from the edge of its floor');
     if (pad.open < pad.entries) ctx.add('triggers', 'jump pad at ' + where + ': the arc from ' + (pad.entries - pad.open) + ' of ' + pad.entries + ' start cells hits geometry');
   },
   teleporterProblem(ctx, tele) {
@@ -488,7 +487,7 @@ const MapCheck = {
   dropProblem(ctx, x, y, z) {
     const scan = ctx.scan;
     if (MapScan.solidAtFoot(scan, x, z, y)) return;
-    const below = MapScan.topBelow(scan, x, z, y + MAP_STEP);
+    const below = MapScan.topBelow(scan, x, z, y + STEP_HEIGHT);
     if (y - below <= MAP_FALL_MAX) return;
     const covered = ctx.map.triggers.some((t) => t.kind === 'killzone' && mapInBox(t, x, y, z, 0, Infinity) && t.max[1] < y);
     if (!covered) ctx.add('open-edge', 'walking off the edge at ' + this.fmt(x, y, z) + ' falls ' + (below === -Infinity ? 'into the void' : (y - below).toFixed(0)
@@ -559,7 +558,7 @@ const MapCheck = {
     ctx.stats.longestSight = Math.round(longest);
   },
   nodeSight(ctx, n, limit) {
-    const scan = ctx.scan, x = MapScan.nodeX(scan, n), z = MapScan.nodeZ(scan, n), eye = scan.nodeY[n] + MAP_EYE;
+    const scan = ctx.scan, x = MapScan.nodeX(scan, n), z = MapScan.nodeZ(scan, n), eye = scan.nodeY[n] + STAND_EYE;
     let longest = 0;
     for (let d = 0; d < MAP_SIGHT_DIRECTIONS; d++) {
       const angle = (d / MAP_SIGHT_DIRECTIONS) * Math.PI * 2, dx = Math.cos(angle), dz = Math.sin(angle);

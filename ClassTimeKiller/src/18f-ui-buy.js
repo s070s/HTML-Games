@@ -4,7 +4,6 @@
 // 'loadout': classes and custom classes (ECP04), the hero (ECP05) and ability kit choices, stored by S13 Loadouts.
 // Every control is a Ui button or cycle, so mouse, keyboard, gamepad (focus navigation) and touch all work.
 
-const BUY_REFRESH_MS = 250;
 const BUY_HOTKEY_COUNT = 9;
 const BUY_CSS = '.ui-buy .ui-panel { width: min(680px, 100%); max-height: 100%; display: flex; flex-direction: column; }'
   + '.buy-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; overflow-y: auto; min-height: 0; touch-action: pan-y; }'
@@ -18,7 +17,6 @@ const BUY_PAUSE_ENTRY = { label: 'Buy menu', screen: 'buy', when: () => buyMenuA
 const LOADOUT_PAUSE_ENTRY = { label: 'Loadout', screen: 'loadout', when: () => loadoutAvailable() };
 const LOADOUT_TABS = [['classes', 'Classes'], ['heroes', 'Hero'], ['kits', 'Ability kits']];
 const KIT_SLOT_LABELS = { ability1: 'Ability 1', ability2: 'Ability 2', ultimate: 'Ultimate' };
-const CLASS_WEAPON_SET = 'militarySet';   // ECP04 is the Modern Ops economy: primaries come from its weapon set
 const HERO_PASSIVE_TEXT = {
   knockbackResist: 'Takes less knockback', killHaste: 'Speed burst after each kill', regen: 'Heals itself out of combat',
   shieldRegen: 'Faster shield recharge', scopeInfo: 'Scope shows enemy health', extraGrenade: 'Carries an extra grenade', smokeVision: 'Sees through smoke',
@@ -72,8 +70,9 @@ const BuyMenu = {
     if (index < BUY_HOTKEY_COUNT) label.appendChild(makeElement('span', 'buy-key', String(index + 1)));
     label.appendChild(document.createTextNode(item.name));
     button.appendChild(label);
-    button.appendChild(makeElement('span', 'buy-price', formatCredits(item.price)));
-    this.entries.push({ button, item });
+    const priceLabel = makeElement('span', 'buy-price', '');
+    button.appendChild(priceLabel);
+    this.entries.push({ button, item, priceLabel, price: -1 });   // refresh() fills the price this player pays
     return button;
   },
   buy(item) {
@@ -90,14 +89,20 @@ const BuyMenu = {
     Economy.hudState(id, BUY_HUD);
     const timeText = block ? BUY_REASON_TEXT[block] : Economy.preset().buy === 'shop' ? 'Shop open' : 'Buy time ' + Math.ceil(BUY_HUD.buyTimeLeft) + ' s';
     this.status.textContent = formatCredits(BUY_HUD.money) + '  |  ' + timeText + '  |  Next round ' + formatCredits(BUY_HUD.nextRoundMoney);
-    for (const entry of this.entries) entry.button.classList.toggle('off', !!block || !this.affordable(id, entry.item));
+    for (const entry of this.entries) this.refreshEntry(id, entry, block);
     this.drawLadder(id);
   },
-  affordable(id, item) { return Economy.money(id) >= item.price && !Economy.limitReason(id, item); },
+  // The price this player pays (a helmet over a full vest costs less, R-197); the label is rewritten only when it changes.
+  refreshEntry(id, entry, block) {
+    const price = Economy.priceFor(id, entry.item);
+    if (price !== entry.price) { entry.price = price; entry.priceLabel.textContent = formatCredits(price); }
+    entry.button.classList.toggle('off', !!block || !this.affordable(id, entry.item, price));
+  },
+  affordable(id, item, price) { return Economy.money(id) >= price && !Economy.limitReason(id, item); },
   // ECO-001: the loss ladder with the step a loss would pay next highlighted (redrawn only when that step changes).
   drawLadder(id) {
     const ladder = Economy.preset().lossLadder, team = id >= 0 ? Actors.team[id] : -1;
-    const next = team >= 0 && team < TEAM_SIDES ? Math.min(Economy.lossCount[team] + 1, ladder.length) - 1 : -1;
+    const next = team >= 0 && team < TEAM_COUNT ? Math.min(Economy.lossCount[team] + 1, ladder.length) - 1 : -1;
     const key = ladder.join() + ':' + next;
     if (key === this.ladderKey) return;
     this.ladderKey = key;
@@ -113,7 +118,7 @@ const BuyMenu = {
   },
   open() {
     this.openedWhileBuying = Economy.canBuy(Game.playerId);
-    this.timer = setInterval(() => this.tick(), BUY_REFRESH_MS);
+    this.timer = setInterval(() => this.tick(), UI_REFRESH_MS);
   },
   close() { clearInterval(this.timer); this.entries.length = 0; },
 };
@@ -171,7 +176,7 @@ function renderClassesTab(body) {
 }
 function describeClass(element, row) {
   appendLines(element, [
-    'Primary: ' + weaponName(row.primary) + '  ·  Secondary: ' + weaponName(row.secondary),
+    'Primary: ' + weaponName(Economy.classWeapon(row.primary)) + '  ·  Secondary: ' + weaponName(Economy.classWeapon(row.secondary)),
     'Lethal: ' + readableKey(row.lethal) + '  ·  Tactical: ' + readableKey(row.tactical),
     'Perks: ' + row.perks.map(perkName).join(', '),
     'Field upgrade: ' + fieldUpgradeName(row.fieldUpgrade),
@@ -191,14 +196,19 @@ function deleteSelectedClass() {
 
 // The custom class editor: one cycle per field; the name is generated (gamepad and touch friendly).
 const CLASS_FIELD_OPTIONS = {
-  primary: () => CAT.weaponSets.byId(CLASS_WEAPON_SET).weapons.filter((key) => !['sidearm', 'melee'].includes(CAT.weapons.byId(key).class)),
-  secondary: () => CAT.weapons.filter((weapon) => weapon.class === 'sidearm').map((weapon) => weapon.id),
+  primary: () => classWeaponOptions('primary'),
+  secondary: () => classWeaponOptions('secondary'),
   lethal: () => uniqueClassValues('lethal'),
   tactical: () => uniqueClassValues('tactical'),
   fieldUpgrade: () => CAT.economy.byId('classes').fieldUpgrades,
 };
 const CLASS_FIELD_LABELS = { primary: 'Primary', secondary: 'Secondary', lethal: 'Lethal', tactical: 'Tactical', fieldUpgrade: 'Field upgrade' };
-const CLASS_FIELD_NAMES = { primary: weaponName, secondary: weaponName, lethal: readableKey, tactical: readableKey, fieldUpgrade: fieldUpgradeName };
+const CLASS_FIELD_NAMES = { primary: classWeaponLabel, secondary: classWeaponLabel, lethal: readableKey, tactical: readableKey, fieldUpgrade: fieldUpgradeName };
+// A class weapon's name, plus the weapon it spawns as when this match's set swaps it (RS12 Frame Runner: Hornet as Needlethorn).
+function classWeaponLabel(key) {
+  const armed = Economy.classWeapon(key);
+  return armed === key ? weaponName(key) : weaponName(key) + ' (here: ' + weaponName(armed) + ')';
+}
 function uniqueClassValues(field) { return Array.from(new Set(CAT.classes.map((row) => row[field]).filter(Boolean))); }
 
 // params: { row, isNew }; without params it starts a new class from the selected one.

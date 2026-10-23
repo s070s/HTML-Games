@@ -1,7 +1,8 @@
 // Objective versus modes on the S13 framework (13b): M08 Breach Assault (staged relays, attacker tickets), M10 Relic Run (carry
 // time scores), M11 Convoy (a cart on the map path), M27 Ghost Ops (bomb rounds with cloaked attackers).
 // The first part holds what the party (13f) and royale (13g) files share: actor roles, goal hints for bots, extra HUD fields,
-// held loadouts and the behaviour hooks onSpawn(id) / onDamage(event) / onFire(shot) / onJump(event) the framework does not call.
+// held loadouts and the behaviour hooks onSpawn(id) / onDamage(event) / onFire(shot) / onJump(event) the framework does not call
+// (onSpawn runs from 13h, after the mutator spawn values, so a role's health builds on them).
 
 const ACTOR_ROLE = { NONE: 0, CARRIER: 1, COLOSSUS: 2, CURSED: 3, INFECTED: 4, BEARER: 5, GHOST: 6 };
 const ACTOR_ROLE_NAMES = ['', 'carrier', 'colossus', 'cursed', 'infected', 'bearer', 'ghost'];
@@ -22,7 +23,6 @@ const MODE_HUD_EXTRAS = {
   payloadProgress: 0, payloadCheckpoint: 0, payloadCheckpoints: 0, payloadState: '', survivors: 0, infected: 0,
   ringPhase: 0, ringPhases: 0, ringState: '', ringTimeLeft: 0, ringDamage: 0, ringNextX: 0, ringNextZ: 0, ringNextRadius: 0, aliveCount: 0,
 };
-const TICKETS_PER_DEATH = 1;
 const CART_SIZE = [1.6, 1.2, 2.4];
 const CART_LIFT = 0.6;
 const prizeScratch = [];
@@ -86,7 +86,7 @@ function centralSpot(out) {
   out.x = centreX; out.y = 0; out.z = centreZ;
   let best = Infinity;
   for (const point of Modes.spawnPoints) {
-    const distance = Math.hypot(point.x - centreX, point.z - centreZ);
+    const distance = length2(point.x - centreX, point.z - centreZ);
     if (distance >= best) continue;
     best = distance; out.x = point.x; out.y = point.y; out.z = point.z;
   }
@@ -112,6 +112,7 @@ function setCloak(id, cloaked) {
 // destroyed opens the next stage; the last stage destroyed wins. Each attacker death costs a ticket; at 0 tickets with no
 // relay armed the defenders win. Defenders have unlimited tickets ----
 Modes.register('rush', {
+  limits: ['time'],
   relays: [], stage: 0, lastStage: 0, destroyed: 0,
   start() {
     const params = Modes.rules.params;
@@ -168,12 +169,14 @@ Modes.register('rush', {
     relay.goals = OBJECTIVE_GOALS.arm;
   },
   onKill(victim) {
-    if (victim >= 0 && Modes.participant[victim] && Actors.team[victim] === Modes.attackingTeam()) spendTickets(Actors.team[victim], TICKETS_PER_DEATH, 'death');
+    if (victim >= 0 && Modes.participant[victim] && Actors.team[victim] === Modes.attackingTeam()) spendTickets(Actors.team[victim], Modes.rules.params.deathCost, 'death');
   },
   anyArmed() {
     for (let i = 0; i < this.relays.length; i++) if (this.relays[i].active && this.relays[i].state === 'planted') return true;
     return false;
   },
+  // Attackers out of lives count like 0 tickets: an armed relay still goes off first.
+  livesOver() { return this.anyArmed() ? NOT_OVER : Modes.livesWinner(); },
   isOver(now) {
     const attackers = Modes.attackingTeam();
     if (this.lastStage > 0 && this.stage > this.lastStage) return Modes.over(attackers, 'objective');
@@ -252,6 +255,7 @@ Modes.register('oddball', makePrizeBehaviour('relic', ACTOR_ROLE.CARRIER, 'carri
 // indices (else params.checkpoints evenly spaced; the last is the end). Each checkpoint before the end adds
 // checkpointTime s to the clock (Modes.timeBonus). At the time limit an attacker at the cart means overtime (max 180 s) ----
 Modes.register('payload', {
+  limits: ['time'],
   cart: null, lengths: null, marks: null, total: 0, distance: 0, reached: 0, lastPushed: 0,
   start() {
     this.distance = 0; this.reached = 0; this.total = 0; this.marks = null; this.lengths = null; this.lastPushed = Sim.time;
@@ -327,7 +331,7 @@ function pathLengths(path) {
   const lengths = new Float64Array(path.length);
   for (let i = 1; i < path.length; i++) {
     const a = path[i - 1], b = path[i];
-    lengths[i] = lengths[i - 1] + Math.hypot(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
+    lengths[i] = lengths[i - 1] + length3(b[0] - a[0], b[1] - a[1], b[2] - a[2]);
   }
   return lengths;
 }
@@ -410,23 +414,28 @@ Modes.register('ghostops', Object.assign({}, BOMB_BEHAVIOUR, {
 // Role markers above marked actors and the convoy cart (the framework skips payloadPath objectives).
 function drawModeExtras(batch) {
   if (!Modes.active) return;
+  const instance = markerInstance;   // one reused instance record (batch.meshFrom, PERF-006)
   for (let id = 0; id < Actors.count; id++) {
     const color = ACTOR_ROLE_MARKERS[Modes.actorRole[id]];
     if (!color || !Actors.alive[id]) continue;
-    batch.mesh('sphere', Actors.x[id], Actors.y[id] + ROLE_MARKER_HEIGHT, Actors.z[id], 0, 0, ROLE_MARKER_SIZE, ROLE_MARKER_SIZE, ROLE_MARKER_SIZE, color[0], color[1], color[2], MARKER_GLOW);
+    instance.x = Actors.x[id]; instance.y = Actors.y[id] + ROLE_MARKER_HEIGHT; instance.z = Actors.z[id];
+    instance.sx = instance.sy = instance.sz = ROLE_MARKER_SIZE;
+    instance.setRgb(color);
+    batch.meshFrom('sphere', instance);
   }
   for (let i = 0; i < Modes.objectives.length; i++) {
     const cart = Modes.objectives[i];
     if (cart.kind !== 'payloadPath' || !cart.path) continue;
-    const color = TEAM_COLORS[cart.contested ? NEUTRAL_COLOR : 0];
-    batch.mesh('box', cart.x, cart.y + CART_LIFT, cart.z, 0, 0, CART_SIZE[0], CART_SIZE[1], CART_SIZE[2], color[0], color[1], color[2], MARKER_GLOW);
+    instance.x = cart.x; instance.y = cart.y + CART_LIFT; instance.z = cart.z;
+    instance.sx = CART_SIZE[0]; instance.sy = CART_SIZE[1]; instance.sz = CART_SIZE[2];
+    instance.setRgb(teamMarkerColor(cart.contested ? NO_TEAM : 0));
+    batch.meshFrom('box', instance);
   }
 }
 
 Bus.on('match.setup', resetModeExtras);
 Bus.on('match.stop', resetModeExtras);
 Bus.on('actor.create', (id) => { Modes.actorRole[id] = ACTOR_ROLE.NONE; Modes.meleeHit[id] = 0; modeCloakSet[id] = 0; });
-Bus.on('actor.spawn', (event) => callBehaviour('onSpawn', event.id));
 Bus.on('damage', (event) => {
   Modes.meleeHit[event.target] = event.kind === 'melee' ? 1 : 0;
   callBehaviour('onDamage', event);

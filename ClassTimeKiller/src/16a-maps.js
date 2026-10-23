@@ -1,6 +1,6 @@
 // ==== S16 MAPS ====
 // Hand-made maps are data rows (docs/ARCHITECTURE.md map format, docs/api/maps.md for the extras). This file holds the rule tables,
-// the lookups every other section uses (Maps.get / forMode / spawnList / itemsFor / objectivesFor / zoneAt) and MapKit, the
+// the lookups every other section uses (Maps.get / forMode / spawnList / objectivesFor / zoneAt) and MapKit, the
 // authoring helpers the map files use to write brushes, spawns, items and zones compactly. The scan and the validator are in
 // 16s-maps-scan.js and 16v-maps-validate.js; the maps in 16b..16e; Data.define('maps') is in 16f.
 
@@ -93,7 +93,6 @@ const Maps = {
     if (!cache.has(key)) cache.set(key, map.spawns.filter((spawn) => this.spawnMatches(spawn, modeId, team)));
     return cache.get(key);
   },
-  itemsFor(map, modeId) { return map.items.filter((item) => mapServesMode(item, modeId)); },
   objectivesFor(map, modeId, kind) {
     return map.objectives.filter((objective) => mapServesMode(objective, modeId) && (!kind || objective.kind === kind));
   },
@@ -138,7 +137,6 @@ function mapBoxVolume(box) { return (box.max[0] - box.min[0]) * (box.max[1] - bo
 // ---- MapKit: authoring helpers. Compact rows in, plain map-format objects out (no state, run once at load). ----
 // Compact rows: brush [material, x0,y0,z0, x1,y1,z1 (, rampDir)]; spawn group [team, modes, [[x,y,z,yawDegrees], ...]];
 // item [key, x,y,z (, modes)]; zone [name, x0,z0, x1,z1 (, y0, y1)]; light [x,y,z,color,radius]; hint [kind, x,y,z].
-const MAP_STEP = 0.45;                                   // DATA-003 step height: stairs risers and walkable steps never exceed it
 const MAP_ZONE_FLOOR = -10, MAP_ZONE_CEILING = 60;      // default vertical extent of a callout zone, metres
 const MAP_CRATE_SIZE = 1.2;                             // a breakable crate's edge, metres (S08 props, W41 lifts it)
 const MapKit = {
@@ -201,7 +199,7 @@ const MapKit = {
   },
   // Stairs filling the rectangle x0..x1 / z0..z1, rising toward dir from yBase by `rise` in `steps` equal steps (each riser <= 0.45 m).
   stairs(material, dir, x0, z0, x1, z1, yBase, rise, steps) {
-    if (rise / steps > MAP_STEP) throw new Error('stairs: riser ' + (rise / steps).toFixed(2) + ' m is higher than the ' + MAP_STEP + ' m step');
+    if (rise / steps > STEP_HEIGHT) throw new Error('stairs: riser ' + (rise / steps).toFixed(2) + ' m is higher than the ' + STEP_HEIGHT + ' m step');
     const rows = [], alongX = dir === '+x' || dir === '-x', positive = dir[0] === '+';
     const length = alongX ? x1 - x0 : z1 - z0;
     for (let i = 0; i < steps; i++) {

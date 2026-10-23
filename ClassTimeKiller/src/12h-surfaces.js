@@ -8,7 +8,7 @@
 // cone reach the patch at the aimed floor point (FloorSurfaces.boltFloor).
 
 const SURFACE_CAP = 16;                  // a full pool replaces the patch that ends first
-const SURFACE_TICK_STEPS = Math.round(AREA_TICK * TICK_RATE);   // burning patches hurt on the G04 fire area tick (12c)
+const SURFACE_TICK_STEPS = Math.round(AREA_TICK_SECONDS * TICK_RATE);   // burning patches hurt on the G04 fire area tick (12c)
 const SURFACE_FEET_REACH = 0.6;          // feet this close above or below a patch stand in it
 const SURFACE_BLAST_REACH = 1.5;         // an igniting explosion this far above a patch (plus its own radius) still lights it
 const SURFACE_SPILL_DROP = 4;            // a spill lands on the floor up to this far below where it started
@@ -38,14 +38,7 @@ const FloorSurfaces = {
     this.row[slot] = row.index; this.owner[slot] = owner;
     this.endTick[slot] = Sim.tick + Math.round(row.seconds * TICK_RATE);
   },
-  freeSlot() {
-    let oldest = 0;
-    for (let slot = 0; slot < SURFACE_CAP; slot++) {
-      if (!this.active[slot]) return slot;
-      if (this.endTick[slot] < this.endTick[oldest]) oldest = slot;
-    }
-    return oldest;
-  },
+  freeSlot() { return oldestFreeSlot(this.active, this.endTick, SURFACE_CAP); },
   covers(slot, x, y, z) {
     if (!this.active[slot] || Math.abs(y - this.y[slot]) > SURFACE_FEET_REACH) return false;
     return (x - this.x[slot]) ** 2 + (z - this.z[slot]) ** 2 <= this.radius[slot] * this.radius[slot];
@@ -154,6 +147,7 @@ Damage.statusHooks.push(surfaceCombo);
 World.addPart({ load: () => FloorSurfaces.clear(), clear: () => FloorSurfaces.clear() });
 Sim.addSystem('surfaces', 57, () => FloorSurfaces.step());
 Render.addSource('surfaces', (batch) => FloorSurfaces.draw(batch));
+Bus.on('round', (event) => { if (event.phase === 'start') FloorSurfaces.clear(); });
 Bus.on('world.break', (event) => FloorSurfaces.onBreak(event));
 Bus.on('explosion', (event) => FloorSurfaces.onExplosion(event));
 // A G04 fire area lights the oil it overlaps, not only oil its pop lands on (the pop is announced with radius 0, 12c).

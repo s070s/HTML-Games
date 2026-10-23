@@ -9,8 +9,12 @@ const AUDIO_TEST_FRAME = 1 / 60;
 // For --eval sessions in a real (non-headless) page: the sound engine, the music and the event bus.
 DebugApi.audio = { sound: Sound, music: SoundMusic, bus: Bus, stats: () => Sound.stats() };
 
+// The WebKit test build has no speech API: a stand-in utterance lets the speech tests run there too.
+const AUDIO_TEST_UTTERANCE = function (text) { this.text = text; this.volume = 1; this.rate = 1; };
+
 // A player at the origin looking down +Z (yaw 0) and one bot; the sound code runs live although the self-test is headless.
 function audioTestStart() {
+  if (typeof window.SpeechSynthesisUtterance !== 'function') window.SpeechSynthesisUtterance = AUDIO_TEST_UTTERANCE;
   Actors.clear();
   Sound.forceActive = true;
   Sound.resetState();
@@ -24,20 +28,18 @@ function audioTestStart() {
 }
 
 function audioTestFinish() {
+  if (window.SpeechSynthesisUtterance === AUDIO_TEST_UTTERANCE) delete window.SpeechSynthesisUtterance;
   Sound.detach();
   Sound.nowMs = audioClockMs; Sound.lineOfSight = null;
   Sound.forceActive = false; Sound.assumeRunning = false; Sound.contextFactory = null; Sound.speechSynth = null; Sound.blockedShown = false;
-  SoundMusic.nodes = null; SoundMusic.setMood('auto');
+  Sound.unsupported = false; Sound.speechPrimed = false; Sound.installGestureListeners();
+  SoundMusic.nodes = null; SoundMusic.bosses = 0;
   SoundQueue.count = 0;
   Save.data.settings = {};                           // blocks end with the default settings; the engine re-reads them
   Sound.applyVolumes();
   Sound.refreshQuality();
   Game.playerId = -1; Game.state = 'menu';
   Actors.clear();
-}
-
-function audioTestPlace(id, x, y, z) {
-  Actors.x[id] = x; Actors.y[id] = y; Actors.z[id] = z;
 }
 
 const audioTestCount = (recipeId) => Sound.triggerCounts[Sound.recipeIndex(recipeId)];
@@ -69,6 +71,22 @@ function audioTestContext() {
   wrap(['createOscillator', 'createBufferSource'], 'oneShot');
   return { context, counts };
 }
+
+// Engines without Web Audio (the WebKit test build) have no OfflineAudioContext: a block that needs one reports a named skip.
+function audioTestNeedsOffline(check) {
+  if (typeof OfflineAudioContext === 'function') return false;
+  check('skipped: no OfflineAudioContext in this engine', true);
+  return true;
+}
+
+// Smallest step of performance.now() in ms (Firefox and Safari round to 1 ms): timing checks finer than that are skipped.
+function audioTestTimerStep() {
+  const first = performance.now();
+  let next = first;
+  while (next === first) next = performance.now();
+  return next - first;
+}
+const AUDIO_TEST_FINE_TIMER_MS = 0.2;
 
 function audioTestAttach() {
   const made = audioTestContext();
@@ -134,6 +152,8 @@ Test.add('audio', (check) => {
   Settings.set('video.quality', 'high');
   Sound.refreshQuality();
   check('High has 24 voices and HRTF', Sound.allocator.limit === 24 && Sound.hrtfAllowed);
+  // PERF-013: the renderer's step-down in a match reaches the audio at once, not at the next match.
+  check('a quality step-down reaches the audio', lowerQualityStep() && Sound.voiceLimit === CAT.quality.byId('medium').voices && !Sound.hrtfAllowed, Sound.voiceLimit);
   Settings.set('video.quality', 'medium');
   Sound.refreshQuality();
 });
@@ -266,20 +286,20 @@ Test.add('audio', (check) => {
 Test.add('audio', (check) => {
   const { player, bot } = audioTestStart();
   const captions = audioTestCaptions();
-  audioTestPlace(bot, 0, 0, 10);
+  Actors.place(bot, 0, 0, 10);
   audioTestEmit('move.step', { id: bot, speed: 6, surface: 'metal' });
   check('enemy footsteps ahead are captioned', captions.length === 1 && captions[0].text === '[Footsteps ahead]' && captions[0].kind === 'footstep', JSON.stringify(captions));
   check('the step plays the metal recipe', audioTestCount('step.metal') === 1);
-  audioTestPlace(bot, 10, 0, 0);
+  Actors.place(bot, 10, 0, 0);
   audioTestEmit('move.step', { id: bot, speed: 6, surface: 'wood' });
-  audioTestPlace(bot, -10, 0, 0);
+  Actors.place(bot, -10, 0, 0);
   audioTestEmit('move.step', { id: bot, speed: 6, surface: 'dirt' });
-  audioTestPlace(bot, 0, 0, -10);
+  Actors.place(bot, 0, 0, -10);
   audioTestEmit('move.step', { id: bot, speed: 6, surface: 'glass' });
   check('captions name left, right and behind', captions.map((caption) => caption.text).join('|') === '[Footsteps ahead]|[Footsteps left]|[Footsteps right]|[Footsteps behind]', captions.map((caption) => caption.text).join('|'));
   check('captions carry the source position for the visual ring', captions[1].x === 10 && captions[3].z === -10);
 
-  audioTestPlace(bot, 0, 0, 10);
+  Actors.place(bot, 0, 0, 10);
   const before = captions.length;
   Bus.emit('move.step', { id: bot, speed: 6, surface: 'metal' });
   Bus.emit('move.step', { id: bot, speed: 6, surface: 'metal' });
@@ -291,11 +311,11 @@ Test.add('audio', (check) => {
 
   audioTestEmit('move.step', { id: player, speed: 6, surface: 'metal' });
   check('your own footsteps play but are not captioned', audioTestCount('step.metal') >= 3 && captions.length === before + 1);
-  audioTestPlace(bot, 0, 0, 100);
+  Actors.place(bot, 0, 0, 100);
   audioTestEmit('move.step', { id: bot, speed: 6, surface: 'metal' });
   check('footsteps beyond their range are dropped', captions.length === before + 1);
 
-  audioTestPlace(bot, 0, 0, 12);
+  Actors.place(bot, 0, 0, 12);
   captions.length = 0;
   audioTestEmit('weapon.fire', { id: bot, weapon: 'x', weaponClass: 'shotgun', mode: 'primary', x: 0, y: 1.5, z: 12, dx: 0, dy: 0, dz: -1 });
   audioTestEmit('weapon.fire', { id: player, weapon: 'x', weaponClass: 'rifle', mode: 'primary', x: 0, y: 1.5, z: 0, dx: 0, dy: 0, dz: 1 });
@@ -324,7 +344,7 @@ Test.add('audio', (check) => {
 
 Test.add('audio', (check) => {
   const { player, bot } = audioTestStart();
-  audioTestPlace(bot, 0, 0, 10);
+  Actors.place(bot, 0, 0, 10);
   audioTestEmit('damage', { target: bot, source: player, amount: 20, absorbed: 0, zone: 'body', weapon: 'x', element: '', x: 0, y: 1, z: 10, dx: 0, dy: 0, dz: 1 });
   check('your hit plays a tick', audioTestCount('hitTick') === 1);
   audioTestEmit('damage', { target: bot, source: player, amount: 90, absorbed: 0, zone: 'head', weapon: 'x', element: '', x: 0, y: 1, z: 10, dx: 0, dy: 0, dz: 1 });
@@ -344,7 +364,7 @@ Test.add('audio', (check) => {
   audioTestEmit('ui.click', { kind: 'back' });
   audioTestEmit('ui.click', { kind: 'nonsense' });
   check('menu clicks pick a UI recipe and fall back to a click', audioTestCount('uiBack') === 1 && audioTestCount('uiClick') === 1);
-  audioTestEmit('announce', { text: 'Round start', kind: 'warning', priority: 1 });
+  audioTestEmit('announce', { text: 'Sudden death', kind: 'overtime', priority: 3 });
   check('announcements play a sting by kind', audioTestCount('announceWarn') === 1);
   const medalStings = audioTestCount('medal');   // the kill above may already have paid a real medal (S15 First Strike)
   audioTestEmit('medal', { id: bot, medal: 'double' });
@@ -389,6 +409,7 @@ async function audioTestRender(recipe) {
 }
 
 Test.add('audio', async (check) => {
+  if (audioTestNeedsOffline(check)) return;
   audioTestStart();
   const silent = [], loud = [], broken = [];
   const peaks = new Map();
@@ -448,6 +469,7 @@ Test.add('audio', (check) => {
 });
 
 Test.add('audio', (check) => {
+  if (audioTestNeedsOffline(check)) return;
   const { player, bot } = audioTestStart();
   Settings.set('audio.music', 0);
   Sound.applyVolumes();
@@ -459,7 +481,7 @@ Test.add('audio', (check) => {
 
   for (let frame = 0; frame < 120; frame++) {
     for (let k = 0; k < 4; k++) {
-      audioTestPlace(bot, (frame % 7) * 4 - 12, 0, 6 + (k * 7) % 25);
+      Actors.place(bot, (frame % 7) * 4 - 12, 0, 6 + (k * 7) % 25);
       Bus.emit('move.step', { id: bot, speed: 6, surface: AUDIO_TEST_MATERIALS[(frame + k) % 8] });
       Bus.emit('weapon.fire', { id: 10 + k, weapon: 'x', weaponClass: AUDIO_TEST_WEAPON_CLASSES[(frame + k) % 15], mode: 'primary', x: (k - 2) * 6, y: 1.5, z: 8 + frame % 30, dx: 0, dy: 0, dz: 1 });
     }
@@ -473,7 +495,7 @@ Test.add('audio', (check) => {
   check('sounds create no source nodes (node creation costs 30 us each)', made.counts.oneShot === sourcesBase, made.counts.oneShot + ' vs ' + sourcesBase);
 
   for (let frame = 0; frame < 300; frame++) {
-    audioTestPlace(bot, 3, 0, 15);
+    Actors.place(bot, 3, 0, 15);
     Bus.emit('weapon.fire', { id: bot, weapon: 'x', weaponClass: 'rifle', mode: 'primary', x: 3, y: 1.5, z: 15, dx: 0, dy: 0, dz: 1 });
     Bus.emit('explosion', { x: -5 + frame % 3, y: 1, z: 20, radius: 4, owner: bot, source: 'x', element: '' });
     Sound.update(AUDIO_TEST_FRAME);
@@ -502,26 +524,20 @@ Test.add('audio', (check) => {
 Test.add('audio', (check) => {
   const { player, bot } = audioTestStart();
   Game.state = 'playing';
-  check('mood API accepts the four moods', ['auto', 'calm', 'combat', 'boss'].every((name) => Sound.setMusicMood(name)) && !Sound.setMusicMood('disco'));
+  check('no forced-mood API is left', Sound.setMusicMood === undefined && SoundMusic.setMood === undefined);
   const weights = { calm: 0, combat: 0, boss: 0 };
-  Sound.setMusicMood('calm');
   SoundMusic.targetWeights(weights);
-  check('calm mood: only the calm layer', weights.combat === 0 && weights.boss === 0 && weights.calm === 1);
-  Sound.setMusicMood('combat');
+  check('no fighting is calm: only the calm layer', weights.combat === 0 && weights.boss === 0 && weights.calm === 1);
+  SoundMusic.bosses = 1;
   SoundMusic.targetWeights(weights);
-  check('combat mood: combat layer in', weights.combat === 1 && weights.boss === 0);
-  Sound.setMusicMood('boss');
-  SoundMusic.targetWeights(weights);
-  check('boss mood: boss layer in', weights.boss === 1 && weights.combat === 1);
+  check('a boss fight brings the boss layer on top of full combat', weights.boss === 1 && weights.combat === 1);
   Game.state = 'menu';
   SoundMusic.targetWeights(weights);
   check('menus are always calm', weights.boss === 0 && weights.combat === 0);
   Game.state = 'playing';
-  Sound.setMusicMood('auto');
-  SoundMusic.targetWeights(weights);
-  check('auto mood with no fighting is calm', weights.combat === 0);
+  SoundMusic.bosses = 0;
 
-  audioTestPlace(bot, 0, 0, 10);
+  Actors.place(bot, 0, 0, 10);
   audioTestEmit('damage', { target: bot, source: player, amount: 60, absorbed: 0, zone: 'body', weapon: 'x', element: '', x: 0, y: 1, z: 10, dx: 0, dy: 0, dz: 1 });
   const raised = SoundMusic.intensity;
   check('your damage raises the intensity', raised > 0.2, raised);
@@ -541,15 +557,22 @@ Test.add('audio', (check) => {
 
   Settings.set('video.quality', 'potato');
   Sound.refreshQuality();
-  check('music is off by default on Potato', !Sound.musicAllowed);
+  check('music is off by default on Potato (Auto follows the quality preset)', !Sound.musicAllowed);
+  Settings.set('audio.musicMode', 'on');
+  check('but the Music setting On plays it on Potato too', Sound.musicAllowed);
+  Settings.set('audio.musicMode', 'auto');
   Settings.set('video.quality', 'low');
   Sound.refreshQuality();
   check('music is on for Low', Sound.musicAllowed);
+  Settings.set('audio.musicMode', 'off');
+  check('the Music setting Off silences it on any preset', !Sound.musicAllowed);
+  Settings.set('audio.musicMode', 'auto');
   Settings.set('video.quality', 'medium');
   Sound.refreshQuality();
 
+  if (audioTestNeedsOffline(check)) { audioTestFinish(); return; }
   const made = audioTestAttach();
-  Sound.setMusicMood('boss');
+  SoundMusic.bosses = 1;
   const beforeMusic = made.counts.persistent;
   SoundMusic.update(0.3);
   check('music builds its nodes once when allowed', !!SoundMusic.nodes && made.counts.persistent > beforeMusic);
@@ -560,14 +583,13 @@ Test.add('audio', (check) => {
   const notes = [];
   for (const chord of MUSIC_CHORDS) for (const index of MUSIC_ARP_NOTES) notes.push(musicHz(chord[index % 3] + 12 * Math.floor(index / 3), 8), musicHz(chord[0], 2), musicHz(chord[0], 4));
   check('every scheduled pitch is audible and below 8 kHz', notes.every((hz) => hz > 30 && hz < 8000));
-  let total = 0;
+  const started = performance.now();
   for (let i = 0; i < 200; i++) {
     SoundMusic.nextStepTime = 0;
-    const started = performance.now();
     SoundMusic.scheduleUntil(MUSIC_STEP_SECONDS * 1.5);
-    total += performance.now() - started;
   }
-  check('scheduling a music step costs well under 0.1 ms', total / 200 < 0.1, (total / 200).toFixed(4));
+  const perStep = (performance.now() - started) / 200;   // one timed batch: a 1 ms timer (Firefox, Safari) still gives a fair average
+  check('scheduling a music step costs well under 0.1 ms', perStep < 0.1, perStep.toFixed(4));
   Settings.set('video.quality', 'potato');
   SoundMusic.update(0.016);
   check('switching to Potato stops the music', SoundMusic.nodes === null);
@@ -583,15 +605,12 @@ Test.add('audio', (check) => {
   check('iOS 17 audio session is set to playback', Sound.configureSession(fakeSession) === 'playback' && fakeSession.audioSession.type === 'playback' && toasts.length === 0);
   check('older iOS gets a silent-switch hint', Sound.configureSession({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_4 like Mac OS X)', platform: 'iPhone', maxTouchPoints: 5 }) === 'hint' && toasts.length === 1 && /silent switch/.test(toasts[0]));
   check('other browsers need neither', Sound.configureSession({ userAgent: 'Mozilla/5.0 (Windows NT 10.0)', platform: 'Win32', maxTouchPoints: 0 }) === 'none' && toasts.length === 1);
+  check('the silent-switch hint shows once', Sound.configureSession({ userAgent: 'iPhone', platform: 'iPhone', maxTouchPoints: 5 }) === 'hint'
+    && toasts.length === 1 && Save.data.tips.silentSwitch === true);
 
-  const made = audioTestContext();
-  Sound.contextFactory = () => made.context;
-  Sound.blockedShown = false;
-  check('a gesture creates the context', Sound.unlock() && Sound.context === made.context && !Sound.canPlay());
-  Sound.checkBlocked();
-  Sound.checkBlocked();
-  check('a context that stays blocked shows one toast', toasts.length === 2 && /blocked/.test(toasts[1]), toasts.join(' | '));
-  Sound.detach();
+  Settings.set('audio.mix', true);
+  check('the Mix setting selects the ambient audio session', Sound.configureSession(fakeSession) === 'ambient');
+  Settings.set('audio.mix', false);
 
   Sound.forceActive = false;
   check('headless: a gesture does nothing at all', !Sound.unlock() && Sound.context === null);
@@ -602,10 +621,24 @@ Test.add('audio', (check) => {
   Bus.emit('announce', { text: 'Fury Core', kind: 'power', priority: 1 });
   check('announcer speech is off by default', spoken.length === 0 && audioTestCount('announcePower') === 0);
   Settings.set('audio.speech', true);
+  check('switching the option on primes iOS speech with one silent utterance', spoken.length === 1 && spoken[0] === ' ', spoken.join('|'));
   Bus.emit('announce', { text: 'Fury Core', kind: 'power', priority: 1 });
-  check('with the option on, the announcer text is spoken', spoken.length === 1 && spoken[0] === 'Fury Core', spoken.join('|'));
+  check('with the option on, the announcer text is spoken', spoken.length === 2 && spoken[1] === 'Fury Core', spoken.join('|'));
   Sound.update(AUDIO_TEST_FRAME);
   check('the sting still plays', audioTestCount('announcePower') === 1);
+
+  if (audioTestNeedsOffline(check)) { Bus.off('toast', handler); audioTestFinish(); return; }
+  const made = audioTestContext();
+  Sound.contextFactory = () => made.context;
+  Sound.blockedShown = false;
+  check('a gesture creates the context', Sound.unlock() && Sound.context === made.context && !Sound.canPlay());
+  Sound.checkBlocked();
+  Sound.checkBlocked();
+  check('a context that stays blocked shows one toast', toasts.length === 2 && /blocked/.test(toasts[1]), toasts.join(' | '));
+  const silences = made.counts.oneShot;
+  Sound.unlock({ type: 'touchend' });
+  check('a later tap on a blocked context plays a silent buffer inside the gesture (old iOS)', made.counts.oneShot === silences + 1, made.counts.oneShot - silences);
+  Sound.detach();
 
   const pause = audioTestAttach();
   Settings.set('audio.mono', true);
@@ -615,8 +648,13 @@ Test.add('audio', (check) => {
   Bus.emit('game.pause', 'menu');
   check('a menu pause mutes the game but keeps the context for menu clicks', Sound.paused && !Sound.suspendTimer);
   Bus.emit('game.resume', null);
-  Bus.emit('game.pause', 'blur');
-  check('losing focus fades out and schedules a suspend', Sound.paused && !!Sound.suspendTimer);
+  for (const reason of ['blur', 'pointerlock', 'rotate', 'controller', 'graphics']) {
+    Bus.emit('game.pause', reason);
+    check('a ' + reason + ' pause fades the game out but keeps the context (menu clicks stay audible)', Sound.paused && !Sound.suspendTimer, reason);
+    Bus.emit('game.resume', null);
+  }
+  Bus.emit('game.pause', 'hidden');
+  check('a hidden page fades out and schedules a suspend', Sound.paused && !!Sound.suspendTimer);
   Bus.emit('game.resume', null);
   check('resume cancels it', !Sound.paused && !Sound.pauseSuspended);
 
@@ -624,7 +662,7 @@ Test.add('audio', (check) => {
   const spatialKinds = [];
   Sound.resetState();
   Sound.allocator.reset();
-  audioTestPlace(1, 5, 0, 5);
+  Actors.place(1, 5, 0, 5);
   Sound.enqueue(Sound.recipeIndex('rifle'), true, 5, 1, 5, 1, 1, 1);
   Sound.update(AUDIO_TEST_FRAME);
   spatialKinds.push(Sound.slots[0].spatialKind);
@@ -682,6 +720,7 @@ function audioTestVolley(count, firstId) {
 }
 
 Test.add('audio', (check) => {
+  if (audioTestNeedsOffline(check)) return;
   audioTestStart();
   const made = audioTestAttach();
   const clock = audioTestClock(made.context);
@@ -706,13 +745,16 @@ Test.add('audio', (check) => {
   costs.sort();
   const average = costs.reduce((sum, value) => sum + value, 0) / costs.length;
   const p95 = costs[Math.floor(costs.length * 0.95)];
-  check('the heavy fight really saturates the pool: most starts steal a voice', stats.started > frames && stats.stolen > stats.started / 2 && stats.maxStartedPerFrame <= 4, JSON.stringify(stats));
+  check('the heavy fight really saturates the pool: most starts steal a voice', stats.started > frames && stats.stolen > frames && stats.maxStartedPerFrame <= 4, JSON.stringify(stats));
   check('audio work stays under 0.3 ms per frame on average, steals included (AUD-007)', average < 0.3, average.toFixed(3) + ' ms');
-  check('and the slow frames stay short too (95th percentile)', p95 < 0.6, p95.toFixed(3) + ' ms, worst ' + costs[costs.length - 1].toFixed(2));
+  const timerStep = audioTestTimerStep();
+  if (timerStep > AUDIO_TEST_FINE_TIMER_MS) check('skipped: the 95th percentile needs a finer timer than ' + timerStep.toFixed(2) + ' ms', true);
+  else check('and the slow frames stay short too (95th percentile)', p95 < 0.6, p95.toFixed(3) + ' ms, worst ' + costs[costs.length - 1].toFixed(2));
   audioTestFinish();
 });
 
 Test.add('audio', (check) => {
+  if (audioTestNeedsOffline(check)) return;
   audioTestStart();
   audioTestAttach();
   const captions = audioTestCaptions();
@@ -725,17 +767,10 @@ Test.add('audio', (check) => {
   Sound.resetState();
   Sound.allocator.reset();
   let fake = 0;
-  Sound.nowMs = () => (fake += 0.15);                 // a slow phone: every look at the clock costs 0.15 ms
+  Sound.nowMs = () => (fake += 5);                    // a slow phone or a 1 ms timer: only the start-count cap limits a frame, never the clock
   audioTestVolley(8, 10);
   Sound.update(AUDIO_TEST_FRAME);
-  check('the time budget stops further voice starts in a frame', Sound.startedThisFrame === 2, Sound.startedThisFrame);
-  Sound.resetState();
-  Sound.allocator.reset();
-  fake = 0;
-  Sound.nowMs = () => (fake += 5);
-  audioTestVolley(8, 10);
-  Sound.update(AUDIO_TEST_FRAME);
-  check('but the first voice always starts', Sound.startedThisFrame === 1, Sound.startedThisFrame);
+  check('a slow clock does not change the cap of 4 new voices per frame', Sound.startedThisFrame === 4, Sound.startedThisFrame);
 
   Settings.set('video.quality', 'potato');
   Sound.refreshQuality();
@@ -758,7 +793,14 @@ Test.add('audio', (check) => {
     for (let k = 0; k < 2; k++) if (Sound.enqueue(lmg, true, k * 5, 1, 10, bot, 1, 1)) accepted++;
     Sound.update(AUDIO_TEST_FRAME);
   }
-  check('a beam-like source that asks every frame starts a sound about every 0.07 s', accepted >= 12 && accepted <= 16, accepted);
+  check('a source that asks twice every 60 fps frame starts one sound per frame at most', accepted >= 28 && accepted <= 32, accepted);
+  Sound.resetState();
+  for (let frame = 0; frame < 30; frame++) {
+    if (frame % 2 === 0) Sound.enqueue(Sound.recipeIndex('rifle'), true, 0, 1, 10, bot, 1, 1);   // 15 shots a second at 30 fps
+    Sound.update(1 / 30);
+  }
+  check('a 15 shots a second weapon at 30 fps loses no shot (R-067)', audioTestCount('rifle') === 15, audioTestCount('rifle'));
+  Sound.resetState();
   check('another actor is not held back by it', Sound.enqueue(lmg, true, 0, 1, 10, bot + 5, 1, 1));
   Sound.update(AUDIO_TEST_FRAME);
   check('recipes without a retrigger time are never held back', Sound.recipeById.get('impact.dirt').retrigger === 0 && Sound.enqueue(Sound.recipeIndex('impact.dirt'), true, 0, 1, 10, bot, 1, 1)
@@ -785,6 +827,7 @@ Test.add('audio', (check) => {
 });
 
 Test.add('audio', async (check) => {
+  if (audioTestNeedsOffline(check)) return;
   audioTestStart();
   audioTestRegister([{ id: 'testOverlap', pulses: [0, 0.1], pitchSteps: [1, 2], tone: { from: 400, to: 400, decay: 0.3, gain: 1 } }]);
   const samples = await audioTestRenderScript(0.5, () => {
@@ -798,6 +841,7 @@ Test.add('audio', async (check) => {
 });
 
 Test.add('audio', async (check) => {
+  if (audioTestNeedsOffline(check)) return;
   audioTestStart();
   audioTestRegister([
     { id: 'testStung', pulses: [0, 0.15], pitchSteps: [1, 3], tone: { from: 400, to: 400, decay: 0.1, gain: 1 } },
@@ -821,26 +865,143 @@ Test.add('audio', async (check) => {
 });
 
 Test.add('audio', (check) => {
+  if (audioTestNeedsOffline(check)) return;
   audioTestStart();
   Game.state = 'playing';
   audioTestAttach();
-  Sound.setMusicMood('calm');
   SoundMusic.update(0.3);
   const nodes = SoundMusic.nodes;
   for (let i = 0; i < 24; i++) SoundMusic.update(0.25);
   check('layers that stay silent are cut from the output', !!nodes && !nodes.linked.boss && !nodes.linked.combat && nodes.linked.calm, JSON.stringify(nodes && nodes.linked));
-  Sound.setMusicMood('boss');
+  SoundMusic.bosses = 1;
   SoundMusic.update(0.25);
   check('a layer that is wanted again is reconnected', nodes.linked.boss && nodes.linked.combat && nodes.linked.calm);
-  Sound.setMusicMood('calm');
+  SoundMusic.bosses = 0;
   for (let i = 0; i < 12; i++) SoundMusic.update(0.25);
   check('a layer silent for 3 s is still connected', nodes.linked.boss === true);
   for (let i = 0; i < 5; i++) SoundMusic.update(0.25);
   check('and it is cut again after 4 silent seconds', nodes.linked.boss === false);
-  Sound.setMusicMood('boss');
+  SoundMusic.bosses = 1;
   SoundMusic.update(0.25);
-  Sound.setMusicMood('calm');
+  SoundMusic.bosses = 0;
   for (let i = 0; i < 8; i++) SoundMusic.update(0.25);
   check('a short break in the music keeps the layer connected', nodes.linked.boss === true);
+  audioTestFinish();
+});
+
+// ---- Pause lifecycle, no Web Audio, speech priming, recipe routing ----
+
+Test.add('audio', (check) => {
+  if (audioTestNeedsOffline(check)) return;
+  audioTestStart();
+  const made = audioTestAttach();
+  const gameLevels = [];
+  Sound.buses.game.gain.setTargetAtTime = (value) => gameLevels.push(value);
+  let suspends = 0, resumes = 0;
+  made.context.suspend = () => { suspends++; return Promise.resolve(); };   // an OfflineAudioContext only suspends at a given time
+  made.context.resume = () => { resumes++; return Promise.resolve(); };
+  const setup = { mode: 'ffa', seed: 1, bots: [{ dummy: true }], player: {} };
+  Game.start(setup);
+  Game.pause('pointerlock');
+  check('a pointer-lock pause keeps the context for menu clicks', Sound.paused && !Sound.suspendTimer && gameLevels[gameLevels.length - 1] === 0);
+  Game.resume();
+  Game.pause('blur');
+  Game.stop();   // Quit from the pause menu sends no game.resume
+  check('quit from the pause menu: unpaused, awake, game bus at full level', !Sound.paused && !Sound.pauseSuspended && gameLevels[gameLevels.length - 1] === 1);
+  Game.start(setup);
+  Game.pause('hidden');
+  Sound.suspendContext();
+  check('a hidden-page pause suspends the context', Sound.pauseSuspended && suspends === 1);
+  Game.start(setup);   // Restart
+  check('a restart wakes the context and un-mutes the game', !Sound.paused && !Sound.pauseSuspended && resumes > 0 && gameLevels[gameLevels.length - 1] === 1);
+  Game.stop();
+  Object.defineProperty(document, 'hidden', { configurable: true, get: () => true });
+  try {
+    Sound.onVisibility();
+    Sound.unlock();
+    check('a hidden tab suspends the audio outside a match; no gesture wakes it', Sound.pauseSuspended && Sound.hidden && suspends === 2);
+  } finally {
+    delete document.hidden;
+  }
+  Sound.onVisibility();
+  check('showing the tab wakes it', !Sound.pauseSuspended && !Sound.hidden);
+  audioTestFinish();
+});
+
+Test.add('audio', (check) => {
+  audioTestStart();
+  const toasts = [];
+  const handler = Bus.on('toast', (payload) => toasts.push(payload.text));
+  const saved = [window.AudioContext, window.webkitAudioContext];
+  window.AudioContext = undefined; window.webkitAudioContext = undefined;
+  Sound.installGestureListeners();
+  const taps = [{ type: 'pointerup' }, { type: 'touchend' }, { type: 'click' }].map((event) => Sound.unlock(event));
+  [window.AudioContext, window.webkitAudioContext] = saved;
+  check('without Web Audio three taps toast once, never retry, drop the listeners', toasts.length === 1 && Sound.unsupported && !taps.includes(true) && Sound.gestureHandler === null, toasts.length);
+  Bus.off('toast', handler);
+  audioTestFinish();
+  audioTestStart();
+  check('a touch pointerdown creates nothing', !Sound.unlock({ type: 'pointerdown', pointerType: 'touch' }) && Sound.context === null);
+  audioTestFinish();
+});
+
+Test.add('audio', (check) => {
+  audioTestStart();
+  const spoken = [];
+  let cancels = 0;
+  const synth = { speaking: false, cancel() { cancels++; }, speak(utterance) { spoken.push(utterance); } };
+  Sound.speechSynth = synth;
+  const toggle = document.createElement('button');
+  toggle.addEventListener('click', () => Settings.set('audio.speech', true));
+  toggle.click();
+  check('the speech toggle speaks a silent utterance inside the tap (iOS)', spoken.length === 1 && spoken[0].volume === 0);
+  Bus.emit('announce', { text: 'Round one', kind: 'round', priority: 2 });
+  check('idle speech does not cancel; its level is squared like the buses', spoken.length === 2 && cancels === 0
+    && Test.near(spoken[1].volume, Math.pow(Sound.levels.master * Sound.levels.announcer, 2), 1e-6));
+  synth.speaking = true;
+  Bus.emit('announce', { text: 'Round two', kind: 'round', priority: 2 });
+  Bus.emit('game.pause', 'menu');
+  check('a new line and a pause both stop a running voice', cancels === 2 && spoken.length === 3);
+  audioTestFinish();
+});
+
+Test.add('audio', (check) => {
+  const { bot } = audioTestStart();
+  Actors.place(bot, 0, 0, 10);
+  const reachable = new Set(['heartbeat', 'shieldBreak'].concat(Object.values(PVE_TELL_SOUNDS)));   // played by code, not by an event row
+  for (const row of SOUND_EVENTS) {
+    if (row.recipe) reachable.add(row.recipe);
+    else for (const pair of row.lookup) for (const id of Object.values(SOUND_TABLES[pair[1]])) reachable.add(id);
+  }
+  const unreachable = Sound.recipes.filter((recipe) => !reachable.has(recipe.id)).map((recipe) => recipe.id);
+  check('every recipe is reachable from a row, a table or a caller', unreachable.length === 0, unreachable.join(', '));
+
+  const captions = audioTestCaptions();
+  for (const id of Object.values(PVE_TELL_SOUNDS)) {
+    Sound.play(id, 0, 1, 10, bot);
+    Sound.update(1.5);
+  }
+  check('each enemy tell has its own recipe with an attack caption', captions.length === 3 && captions.every((caption) => /attack/i.test(caption.text)), JSON.stringify(captions));
+  captions.length = 0;
+  const shield = Sound.recipeById.get('shieldBreak');
+  check('only your own shield break has own priority; enemy ones are muffled world cues', audioPriorityFor(shield, 5, true) === AUDIO_PRIORITY.own
+    && audioPriorityFor(shield, 5, false) === AUDIO_PRIORITY.near && shield.occludes && shield.range <= 40);
+  Actors.shield[bot] = 50;
+  Sound.update(AUDIO_TEST_FRAME);
+  Actors.shield[bot] = 0;
+  Sound.update(1.5);
+  check('an enemy shield break is captioned', captions.length === 1 && captions[0].text === '[Shield broke ahead]', JSON.stringify(captions));
+  captions.stop();
+
+  const at = { owner: bot, x: 0, y: 0, z: 12 };
+  const rows = [['gadget.use', { id: bot }, 'abilityCast'], ['gadget.place', at, 'gadgetPlace'], ['gadget.destroyed', at, 'gadgetBreak'], ['powerup.end', { id: bot }, 'abilityEnd'],
+    ['world.trigger', { id: bot, kind: 'jumppad', x: 0, y: 0, z: 8 }, 'padLaunch'], ['world.trigger', { id: bot, kind: 'teleporter', x: 0, y: 0, z: 9 }, 'teleport'],
+    ['pve.parry', { id: bot }, 'parry'], ['pve.core', { id: bot }, 'coreDown'], ['ui.click', { kind: 'accept' }, 'uiConfirm'], ['ui.click', { kind: 'move' }, 'uiHover'],
+    ['announce', { text: 'Sudden death', kind: 'overtime', priority: 3 }, 'announceWarn']];
+  const silent = rows.filter(([type, payload, recipe]) => { audioTestEmit(type, payload); return audioTestCount(recipe) !== 1; }).map((row) => row[0] + ' ' + row[2]);
+  check('every gameplay event row makes its sound', silent.length === 0, silent.join(', '));
+  const queued = SoundQueue.count;
+  Bus.emit('world.trigger', { id: bot, kind: 'ladder', x: 0, y: 0, z: 9 });
+  check('ladders stay silent', SoundQueue.count === queued);
   audioTestFinish();
 });

@@ -80,6 +80,8 @@ function mapEditRgb(hex) {
   return triple;
 }
 const MAPEDIT_MATERIAL_RGB = new Map();
+// A breakable prop in its own colour (the S08 PROP_FIELDS default when the row names none).
+function mapEditPropRgb(prop) { return mapEditRgb(prop.color === undefined ? PROP_FIELDS.color : prop.color); }
 function mapEditMaterialRgb(material) {
   let triple = MAPEDIT_MATERIAL_RGB.get(material);
   if (!triple) {
@@ -320,10 +322,10 @@ const MapEditorTools = {
   pickHover() {
     const ray = this.ray, hover = this.hover, box = this.box;
     hover.list = ''; hover.index = -1; hover.distance = MAPEDIT_RAY_LENGTH;
-    for (let k = 0; k < MAP_REQUIRED_LISTS.length; k++) {
-      const list = MAP_REQUIRED_LISTS[k];
+    for (let k = 0; k < MAPEDIT_OBJECT_LISTS.length; k++) {
+      const list = MAPEDIT_OBJECT_LISTS[k];
       if (!this.pickable(list)) continue;
-      const items = MapEditor.map[list];
+      const items = MapEditor.map[list] || MAPEDIT_NO_OBJECTS;
       for (let i = 0; i < items.length; i++) {
         if (this.grab.active && this.grab.list === list && this.grab.index === i) continue;
         MapEditor.bounds(list, items[i], box);
@@ -640,13 +642,15 @@ const MapEditorTools = {
   drawMap(batch) {
     const map = MapEditor.map, box = this.box;
     for (let i = 0; i < map.brushes.length; i++) this.drawBrush(batch, map.brushes[i], 0, 0, 0, mapEditMaterialRgb(map.brushes[i].material), 0);
+    const props = map.props || MAPEDIT_NO_OBJECTS;
+    for (let i = 0; i < props.length; i++) this.drawBrush(batch, props[i], 0, 0, 0, mapEditPropRgb(props[i]), 0);
     for (let i = 0; i < map.spawns.length; i++) this.drawSpawn(batch, map.spawns[i], 0, 0, 0, mapEditRgb(MAPEDIT_PALETTE.team[map.spawns[i].team]), 0);
     for (let i = 0; i < map.items.length; i++) this.drawItem(batch, map.items[i], 0, 0, 0, 0);
     for (let i = 0; i < map.objectives.length; i++) this.drawObjective(batch, map.objectives[i], 0, 0, 0, 0);
     for (let i = 0; i < map.lights.length; i++) this.drawLight(batch, map.lights[i], 0, 0, 0);
     for (let i = 0; i < map.navHints.length; i++) this.drawHint(batch, map.navHints[i], 0, 0, 0);
     const shownTriggers = this.view.triggers ? map.triggers.length : 0, shownZones = this.view.zones ? map.zones.length : 0;
-    const level = this.outlineLevel(shownTriggers + shownZones, map.brushes.length);
+    const level = this.outlineLevel(shownTriggers + shownZones, map.brushes.length + props.length);
     for (let i = 0; i < shownTriggers; i++) this.drawTrigger(batch, map.triggers[i], box, level);
     for (let i = 0; i < shownZones; i++) this.drawVolume(batch, MapEditor.bounds('zones', map.zones[i], box), mapEditRgb(MAPEDIT_PALETTE.zone), 0.4, Math.max(level, MAPEDIT_OUTLINE_FOOT));
   },
@@ -713,7 +717,7 @@ const MapEditorTools = {
   },
   drawGrabbed(batch, list, object) {
     const grab = this.grab, ghost = mapEditRgb(MAPEDIT_PALETTE.ghost);
-    if (list === 'brushes') this.drawBrush(batch, object, grab.dx, grab.dy, grab.dz, ghost, 0.6);
+    if (list === 'brushes' || list === 'props') this.drawBrush(batch, object, grab.dx, grab.dy, grab.dz, ghost, 0.6);
     else if (list === 'spawns') this.drawSpawn(batch, object, grab.dx, grab.dy, grab.dz, ghost, 0.6);
     else if (list === 'items') this.drawItem(batch, object, grab.dx, grab.dy, grab.dz, 0.6);
     else if (list === 'objectives') this.drawObjective(batch, object, grab.dx, grab.dy, grab.dz, 0.6);

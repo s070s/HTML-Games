@@ -1,4 +1,4 @@
-// Runs ClassTimeKiller's built-in self-test in headless Chrome (software WebGL), no dependencies (Chrome startup: tools/cdp.mjs).
+// Runs ClassTimeKiller's self-test (the test build, ClassTimeKiller.test.html) in headless Chrome (software WebGL), no dependencies (Chrome startup: tools/cdp.mjs).
 // Usage: node tools/selftest.mjs [--file <html>] [--group <name>] [--slow] [--eval "<js, may be async>"] [--screenshot <png>] [--timeout 240] [--no-selftest]
 // Prints failed checks, page errors and the eval result. Exit code: 0 pass, 1 fail, 2 timeout, 3 runner error.
 import { writeFileSync } from 'node:fs';
@@ -9,7 +9,7 @@ import { openChrome, sleep } from './cdp.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const option = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback; };
-const file = resolve(option('--file', join(ROOT, 'ClassTimeKiller.html')));
+const file = resolve(option('--file', join(ROOT, 'ClassTimeKiller.test.html')));
 const group = option('--group', '');
 const slow = args.includes('--slow');   // also run the slow blocks (Test.add(..., { slow: true })) of every group
 const extra = option('--eval', '');
@@ -32,10 +32,17 @@ async function main() {
   if (!skipSelfTest) {
     const started = Date.now();
     const report = await evaluate('(async () => { const r = await __CTK.selfTest({ headless: true, group: ' + JSON.stringify(group) + ', slow: ' + slow + ' });'
-      + ' return { total: r.total, failed: r.failed, groups: r.groups, bad: r.results.filter((x) => !x.ok).map((x) => x.group + ' + "' / '" + ' + x.name + (x.detail ? ' + "' :: '" + ' + x.detail : ' + "''" + ')) }; })()');
-    console.log('SELFTEST ' + (report.total - report.failed) + '/' + report.total + ' passed in ' + ((Date.now() - started) / 1000).toFixed(1) + ' s (' + report.groups + ' groups)');
+      + ' const line = (x) => x.group + ' + "' / '" + ' + x.name + (x.detail ? ' + "' :: '" + ' + x.detail : ' + "''" + ');'
+      + ' return { total: r.total, passed: r.passed, failed: r.failed, groups: r.groups, known: r.known, bad: r.results.filter((x) => !x.ok).map(line), skips: r.results.filter((x) => x.skipped).map(line) }; })()');
+    console.log('SELFTEST ' + report.passed + '/' + report.total + ' passed, ' + report.skips.length + ' skipped in ' + ((Date.now() - started) / 1000).toFixed(1) + ' s (' + report.groups + ' groups)');
+    report.skips.forEach((line) => console.log('  SKIP ' + line));
     report.bad.forEach((line) => console.log('  FAIL ' + line));
     if (report.failed) failed = true;
+    // A mistyped --group runs nothing: that is a failure, not a green run.
+    if (!report.total) {
+      console.log('  FAIL no checks ran' + (group ? ': no group "' + group + '"; groups are ' + report.known.join(', ') : ''));
+      failed = true;
+    }
   }
   if (extra) {
     const value = await evaluate(extra);

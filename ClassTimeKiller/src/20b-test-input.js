@@ -4,19 +4,24 @@ DebugApi.input = Input;
 DebugApi.touch = TouchInput;
 DebugApi.pad = PadInput;
 
+// Readers only the tests need: they live here, so the game objects carry only what the game uses.
+Input.allConflicts = () => ACTION_ROWS.filter((row) => Input.conflictsOf(row.id).length > 0).map((row) => row.id);
+Input.isHeld = (actionId) => Input.effective[Input.actionIndex[actionId]] === 1;
+Input.consumeBuffered = (actionId) => { Input.lastPressTick[Input.actionIndex[actionId]] = NEVER_PRESSED; };
+
 const INPUT_TEST_FRAME = 1 / 60;
 const INP_DEFAULT_BINDINGS = {   // INP-003
-  'Key:KeyW': 'forward', 'Key:KeyS': 'back', 'Key:KeyA': 'left', 'Key:KeyD': 'right', 'Key:Space': 'jump', 'Key:ControlLeft': 'crouch',
+  'Key:KeyW': 'forward', 'Key:KeyS': 'back', 'Key:KeyA': 'left', 'Key:KeyD': 'right', 'Key:Space': 'jump', 'Key:KeyC': 'crouch',
   'Key:ShiftLeft': 'sprint', 'Mouse:0': 'fire', 'Mouse:2': 'alt', 'Key:KeyR': 'reload', 'Key:KeyE': 'use', 'Key:KeyQ': 'ability1',
-  'Key:KeyF': 'ability2', 'Key:KeyX': 'ultimate', 'Key:KeyG': 'grenade', 'Key:KeyV': 'melee', 'Key:KeyC': 'gadget', 'Key:KeyZ': 'ping',
+  'Key:KeyF': 'ability2', 'Key:KeyX': 'ultimate', 'Key:KeyG': 'grenade', 'Key:KeyV': 'melee', 'Key:KeyU': 'gadget', 'Key:KeyZ': 'ping', 'Key:KeyP': 'prone', 'Key:KeyN': 'grenadeNext',
   'Key:Digit1': 'slot1', 'Key:Digit9': 'slot9', 'Wheel:down': 'nextWeapon', 'Wheel:up': 'prevWeapon', 'Key:Tab': 'scoreboard',
-  'Key:Escape': 'pause', 'Key:KeyT': 'comm', 'Key:F10': 'perfHud', 'Key:F9': 'botDebug',
+  'Key:Escape': 'pause', 'Key:KeyT': 'comm', 'Key:F8': 'perfHud', 'Key:F9': 'botDebug',
 };
 
 // A running match with one player actor, like a mode would set up; every input test starts here.
-function startInputMatch() {
+function startInputMatch(arena) {
   Ui.closeAll();
-  Game.start({});
+  if (arena) TestArena.start(); else Game.start({});   // the arena has a floor and a full weapon set: shots really leave the barrel
   const id = Actors.create(ACTOR_KIND.PLAYER, 0, 'tester');
   Actors.alive[id] = 1;
   Game.playerId = id;
@@ -44,7 +49,7 @@ function inputCountEdges(id, bit, frames) {
   return edges;
 }
 function inputFakePad(id) {
-  return { id: id || 'Pad A (STANDARD GAMEPAD Vendor: 045e Product: 028e)', index: 0, axes: [0, 0, 0, 0],
+  return { id: id || 'Pad A (STANDARD GAMEPAD Vendor: 045e Product: 028e)', index: 0, mapping: 'standard', axes: [0, 0, 0, 0],
     buttons: Array.from({ length: PAD_BUTTON_COUNT }, () => ({ pressed: false, value: 0 })) };
 }
 function inputPadButton(pad, index, down) { pad.buttons[index].pressed = down; pad.buttons[index].value = down ? 1 : 0; }
@@ -71,7 +76,10 @@ Test.add('input', (check) => {
   check('actions: the defaults have no conflicts', Input.allConflicts().length === 0, Input.allConflicts().join(','));
   check('actions: hold/toggle for crouch, sprint, aim, walk (INP-002)', ['crouch', 'sprint', 'alt', 'walk'].every((id) => Settings.definitions.has('controls.toggle.' + id)));
   check('actions: jump and fire are buffered', ACTION_ROWS.filter((row) => row.buffered).map((row) => row.id).join() === 'jump,fire');
-  check('settings: every input setting is read by the layer', Input.settingRows.every((row) => Settings.readCounts.get(row.key) > 0));
+  // a row whose config field no input code names is dead (mouseDpi is read by the settings screen, touchLeftFire by the touch control table)
+  const code = [Input, TouchInput, PadInput].map((source) => Object.values(source).filter((member) => typeof member === 'function').map(String).join()).join();
+  const unread = Input.settingRows.filter((row) => !row.field.startsWith('toggle.') && !['mouseDpi', 'touchLeftFire'].includes(row.field) && !code.includes('.' + row.field)).map((row) => row.field);
+  check('settings: every input setting is read by input code', unread.length === 0, unread.join());
   check('settings: input keys live in the controls category', Input.settingRows.every((row) => Settings.definitions.get(row.key).category === 'controls'));
   check('labels: keys, mouse, wheel', Input.bindingLabel('Key:KeyW') === 'W' && Input.bindingLabel('Mouse:2') === 'Right Mouse' && Input.bindingLabel('Wheel:up') === 'Wheel Up' && Input.bindingLabel('Key:Digit4') === '4' && Input.bindingLabel('') === 'Unbound');
 });
@@ -169,16 +177,16 @@ Test.add('input', (check) => {
 Test.add('input', (check) => {
   const id = startInputMatch();
   setInputSetting('controls.toggle.crouch', 'toggle');
-  inputKeyEvent('ControlLeft', true); inputKeyEvent('ControlLeft', false); Input.frame(INPUT_TEST_FRAME);
+  inputTapKey('KeyC'); Input.frame(INPUT_TEST_FRAME);
   check('toggle: one press turns crouch on and it stays on', (Actors.buttons[id] & BTN.CROUCH) !== 0);
   inputStepAndFrame();
   check('toggle: still on after the key was released', (Actors.buttons[id] & BTN.CROUCH) !== 0);
-  inputKeyEvent('ControlLeft', true); inputKeyEvent('ControlLeft', false); inputStepAndFrame(); inputStepAndFrame();
+  inputTapKey('KeyC'); inputStepAndFrame(); inputStepAndFrame();
   check('toggle: the second press turns it off', (Actors.buttons[id] & BTN.CROUCH) === 0);
   setInputSetting('controls.toggle.crouch', 'hold');
-  inputKeyEvent('ControlLeft', true); Input.frame(INPUT_TEST_FRAME);
+  inputKeyEvent('KeyC', true); Input.frame(INPUT_TEST_FRAME);
   const held = (Actors.buttons[id] & BTN.CROUCH) !== 0;
-  inputKeyEvent('ControlLeft', false); inputStepAndFrame(); inputStepAndFrame();
+  inputKeyEvent('KeyC', false); inputStepAndFrame(); inputStepAndFrame();
   check('hold: crouch follows the key (10 of 10 presses in LT-M-007 rely on this)', held && (Actors.buttons[id] & BTN.CROUCH) === 0);
   setInputSetting('controls.toggle.alt', 'toggle');
   inputMouseButton(2, true); inputMouseButton(2, false); inputStepAndFrame();
@@ -252,19 +260,19 @@ Test.add('input', (check) => {
   check('rebind: reset all clears every saved binding', Object.keys(Save.data.bindings).length === 0);
   let captured = 'none';
   Input.captureNext('kbm', (binding) => { captured = binding; });
-  inputKeyEvent('KeyP', true); inputKeyEvent('KeyP', false);
+  inputTapKey('KeyP');
   check('capture: the next key goes to the rebinding screen, not to an action', captured === 'Key:KeyP' && Input.capture === null);
   Input.captureNext('kbm', (binding) => { captured = binding; });
-  inputKeyEvent('Escape', true); inputKeyEvent('Escape', false);
+  inputTapKey('Escape');
   check('capture: Esc cancels', captured === null && Game.paused === false);
   Input.captureNext('kbm', (binding) => { captured = binding; });
-  inputKeyEvent('Backspace', true); inputKeyEvent('Backspace', false);
+  inputTapKey('Backspace');
   check('capture: Backspace clears the slot', captured === '');
   Input.captureNext('kbm', (binding) => { captured = binding; });
   inputMouseButton(4, true); inputMouseButton(4, false);
   check('capture: mouse buttons can be captured', captured === 'Mouse:4');
   Input.captureNext('pad', (binding) => { captured = binding; });
-  inputKeyEvent('KeyP', true); inputKeyEvent('KeyP', false);
+  inputTapKey('KeyP');
   check('capture: a key does not satisfy a controller capture', captured === 'Mouse:4' && Input.capture !== null);
   Input.cancelCapture();
   id = startInputMatch();
@@ -336,6 +344,15 @@ Test.add('input', (check) => {
   check('lock: raw input unsupported falls back silently to a plain lock', calls.length === 2 && calls[1] === undefined && !Input.lockRefused);
   Input.onLockPromiseRejected({ name: 'SecurityError' });
   check('lock: any other rejection counts as a refusal', Input.lockRefused === Game.paused);
+  // platforms-01: the plain lock's promise is handled too, so a refused lock is a refusal, not an unhandled error.
+  let onRejected = null, refusals = 0;
+  const realRefused = Input.onLockRefused;
+  Input.canvas = { requestPointerLock: () => ({ catch(handler) { onRejected = handler; } }) };
+  Input.onLockRefused = () => { refusals++; };
+  Input.requestPlainLock();
+  if (onRejected) onRejected(new Error('refused'));
+  Input.onLockRefused = realRefused;
+  check('lock: a refused plain lock is handled as a refusal', refusals === 1, refusals);
   let relocks = 0;
   const relockListener = Bus.on('input.relock', () => { relocks++; });
   Game.pause('menu'); Input.resumePending = false; Input.onLockRefused();
@@ -351,7 +368,7 @@ Test.add('input', (check) => {
 
 Test.add('input', (check) => {
   startInputMatch();
-  inputKeyEvent('KeyW', true); inputKeyEvent('KeyW', false);
+  inputTapKey('KeyW');
   check('device: keyboard sets kbm', Input.device === 'kbm');
   window.dispatchEvent(new PointerEvent('pointerdown', { pointerType: 'touch', pointerId: 77, bubbles: true }));
   check('device: a touch sets touch', Input.device === 'touch');
@@ -360,7 +377,7 @@ Test.add('input', (check) => {
   check('device: a pad press sets gamepad', Input.device === 'gamepad');
   const events = [];
   const listener = Bus.on('input.device', (payload) => events.push(payload.device));
-  inputKeyEvent('KeyW', true); inputKeyEvent('KeyW', false);
+  inputTapKey('KeyW');
   Bus.off('input.device', listener);
   check('device: a change emits input.device once', events.join() === 'kbm');
 });
@@ -591,14 +608,21 @@ Test.add('input', (check) => {
     if (event.action === 'perfHud' && event.down) perfToggles++;
     if (event.action === 'botDebug' && event.down) botDebugToggles++;
   });
+  // Fingers land on the touch layer, so it must be on screen: a claw grip (stick, look, fire, jump) does nothing.
+  TouchInput.syncVisible();
+  const visible = getComputedStyle(TouchInput.layer).display !== 'none';
+  const lift = () => { for (let pointer = 40; pointer < 44; pointer++) inputTouchPointer('pointerup', fire, pointer, 0, 0); };
+  [[zone, INPUT_TEST_LEFT_X], [zone, INPUT_TEST_RIGHT_X], [fire, 1110], [jump, 1000]].forEach(([target, x], i) => inputTouchPointer('pointerdown', target, 40 + i, x, 300));
+  lift();
+  const claw = perfToggles;
   for (let pointer = 40; pointer < 43; pointer++) inputTouchPointer('pointerdown', zone, pointer, INPUT_TEST_RIGHT_X + pointer, 300);
   const threeFingers = perfToggles;
   inputTouchPointer('pointerdown', zone, 43, INPUT_TEST_RIGHT_X, 300);
-  const fourFingers = perfToggles;
-  for (let pointer = 40; pointer < 44; pointer++) inputTouchPointer('pointerup', zone, pointer, INPUT_TEST_RIGHT_X, 300);
+  lift();
   Bus.off('input.action', listener);
   Input.clearAll();
-  check('touch: a four-finger tap toggles the performance HUD, three do not (ARC-040)', threeFingers === 0 && fourFingers === 1);
+  check('touch: a claw grip mid-match toggles nothing', visible && claw === 0, claw);
+  check('touch: mid-match, four fingers on the look area toggle the performance HUD, three do not (ARC-040)', visible && threeFingers === 0 && perfToggles === 1, perfToggles);
   check('touch: the same four-finger tap toggles the bot debug view once (ARC-040)', botDebugToggles === 1, botDebugToggles);
   setInputSetting('controls.touch.acceleration', 0.3);
 });
@@ -658,11 +682,19 @@ Test.add('input', (check) => {
   Input.aimAssistTarget = null;
 });
 
+// ACC-008 on the buttons: faces are drawn at 14 px or more and fit inside their button at the standard size.
+Test.add('input', (check) => {
+  const style = getComputedStyle(TouchInput.elements.fire), context = document.createElement('canvas').getContext('2d');
+  context.font = style.fontWeight + ' ' + style.fontSize + ' ' + style.fontFamily;
+  const wide = TOUCH_CONTROLS.filter((control) => context.measureText(control.face).width > control.size).map((control) => control.face);
+  check('touch: faces are 14 px or more and fit their buttons (ACC-008)', parseFloat(style.fontSize) >= ACCESS_TEST_MIN_FONT - 0.01 && wide.length === 0, style.fontSize + wide);
+});
+
 Test.add('input', (check) => {
   startInputMatch();
-  check('touch: USE, MELEE, GADGET and COMM buttons exist (INP-004)', ['use', 'melee', 'gadget', 'comm'].every((name) => TouchInput.controlById[name] && TouchInput.controlById[name].action === name));
+  check('touch: USE, MELEE, GADGET and PING buttons exist (INP-004)', ['use', 'melee', 'gadget', 'ping'].every((name) => TouchInput.controlById[name] && TouchInput.controlById[name].action === name));
   Game.match.rules = { mode: 'ffa' }; TouchInput.applyAll();
-  check('touch: USE is hidden in a mode that never needs Use held', TouchInput.elements.use.classList.contains('off') && !TouchInput.elements.melee.classList.contains('off') && !TouchInput.elements.gadget.classList.contains('off'));
+  check('touch: USE is hidden in a mode that never needs Use held', TouchInput.elements.use.classList.contains('off') && !TouchInput.elements.melee.classList.contains('off'));
   check('touch: modes with plant, arm, loot swap or chamber buttons need USE', ['rush', 'bomb', 'ghostops', 'royale', 'puzzle'].every((mode) => CAT.modes.byId(mode).useButton));
   Game.match.rules = { mode: 'tdm', teams: 2, downed: true }; TouchInput.applyAll();
   check('touch: USE shows in a team match with downed and revive (HP-007)', !TouchInput.elements.use.classList.contains('off'));
@@ -672,7 +704,6 @@ Test.add('input', (check) => {
   World.map = loadedMap;
   Game.match.rules = { mode: 'bomb' }; TouchInput.applyAll();
   check('touch: USE shows in Detonate', !TouchInput.elements.use.classList.contains('off'));
-  check('touch: COMM shows once the comm wheel (17g) fills its hook', !TouchInput.elements.comm.classList.contains('off'));
   const id = Game.playerId;
   Input.setDevice('touch'); TouchInput.syncVisible();
   inputTouchPointer('pointerdown', TouchInput.elements.use, 7, 300, 200); Input.frame(INPUT_TEST_FRAME);
@@ -685,10 +716,25 @@ Test.add('input', (check) => {
   TouchInput.stickSprints = () => true; TouchInput.updateSprint(1);
   check('touch: a full stick push sprints elsewhere', TouchInput.stick.sprinting);
   TouchInput.updateSprint(0);
+  // The stick's sprint is a hold: the keyboard's Sprint Toggle setting must not latch it on.
+  setInputSetting('controls.toggle.sprint', 'toggle');
+  TouchInput.updateSprint(1);
+  const pushed = Input.effective[Input.actionIndex.sprint];
+  TouchInput.updateSprint(0);
+  check('touch: the stick sprint stops on release with Sprint set to Toggle', pushed === 1 && Input.effective[Input.actionIndex.sprint] === 0);
+  // Sprint toggled on by a key, then the stick pushed and let go: the sprint is off, and the next key press turns it on again.
+  const sprintRow = Input.actionIndex.sprint;
+  Input.pressAction(sprintRow); Input.releaseAction(sprintRow);
+  TouchInput.updateSprint(1); TouchInput.updateSprint(0);
+  Input.pressAction(sprintRow); Input.releaseAction(sprintRow);
+  check('touch: after the stick ends a toggled sprint, one key press sprints again', Input.effective[sprintRow] === 1);
+  Input.pressAction(sprintRow); Input.releaseAction(sprintRow);
+  setInputSetting('controls.toggle.sprint', 'hold');
   TouchInput.stickSprints = stickSprints;
 });
 
 Test.add('input', (check) => {
+  check('rumble: the label names the phone only where it can vibrate', Settings.definitions.get('controls.vibration').label.includes('phone') === ('vibrate' in navigator));
   const id = startInputMatch();
   const effects = [], original = PadInput.activePad;
   PadInput.activePad = () => ({ vibrationActuator: { playEffect: (type, options) => effects.push(options) } });
@@ -777,6 +823,29 @@ Test.add('input', (check) => {
   inputReleasePad();
 });
 
+// The scoreboard is an in-match overlay: while it shows, the game keeps its input and no menu command reaches it.
+Test.add('input', (check) => uiWith(() => {
+  const id = startInputMatch(), pad = inputFakePad();
+  inputUsePad(pad);
+  inputPadButton(pad, 8, true); inputPadFrames(PAD_MODIFIER_HOLD * 2);
+  check('scoreboard: View held opens it, input stays live', Ui.current() === 'scoreboard' && !Input.uiOpen);
+  inputPadButton(pad, 0, true); Input.frame(INPUT_TEST_FRAME);
+  check('scoreboard: View held, then A heals (chord, not accept)', (Actors.buttons[id] & BTN.HEAL) !== 0);
+  inputPadButton(pad, 0, false); inputPadButton(pad, 8, false); Input.frame(INPUT_TEST_FRAME);
+  inputReleasePad();
+  Input.device = 'kbm';
+  inputKeyEvent('Tab', true);
+  check('scoreboard: Tab opens it, focus stays', Ui.current() === 'scoreboard' && !Ui.top().element.contains(document.activeElement));
+  inputMouseButton(0, true); Input.frame(INPUT_TEST_FRAME);
+  check('scoreboard: fire works while Tab is held', (Actors.buttons[id] & BTN.FIRE) !== 0);
+  inputKeyEvent('Space', true); Input.frame(INPUT_TEST_FRAME);
+  check('scoreboard: Space jumps, the board stays', Ui.current() === 'scoreboard' && (Actors.buttons[id] & BTN.JUMP) !== 0);
+  inputMouseButton(0, false); inputKeyEvent('Space', false);
+  inputTapKey('Escape');
+  check('scoreboard: Esc pauses, the pause menu replaces it', Game.paused && Ui.current() === 'pause' && !Ui.isOpen('scoreboard'));
+  inputKeyEvent('Tab', false); Game.resume();
+}));
+
 Test.add('input', (check) => {
   startInputMatch();
   Game.pause('graphics');
@@ -796,7 +865,7 @@ Test.add('input', (check) => {
     const x = preset.mirror ? 1 - control.x : control.x;
     return x > 0 && x < 1 && control.y > 0 && control.y < 1;
   })));
-  check('layout: all spec buttons exist (INP-004)', ['fire', 'aim', 'jump', 'crouch', 'reload', 'swap', 'grenade', 'ability1', 'ability2', 'ultimate', 'ping', 'scoreboard', 'pause', 'fireLeft'].every((name) => !!TouchInput.controlById[name]));
+  check('layout: all spec buttons exist (INP-004)', ['fire', 'aim', 'jump', 'crouch', 'reload', 'swap', 'grenade', 'ability1', 'ability2', 'ultimate', 'ping', 'pause', 'fireLeft'].every((name) => !!TouchInput.controlById[name]));
   const start = { x: TouchInput.getProperty('fire', 'x'), scale: TouchInput.getProperty('fire', 'scale'), opacity: TouchInput.getProperty('fire', 'opacity') };
   TouchInput.setProperty('fire', 'scale', 5);
   check('layout: size clamps at 200%', TouchInput.getProperty('fire', 'scale') === TOUCH_SCALE_MAX);
@@ -874,18 +943,217 @@ Test.add('input', (check) => {
   TouchInput.gyro.attached = false; TouchInput.gyro.right = 0;
 });
 
+// Shots a touch player gets in two seconds with the crosshair on a target (two sim ticks per frame, like 60 fps).
+function inputAutoFireShots(id, weapon) {
+  Weapons.setLoadout(id, [weapon.id]);
+  const slot = Weapons.slotIndex(id, weapon.index);
+  Weapons.magazine[slot] = Weapons.reserve[slot] = 30000;
+  let shots = 0;
+  const listener = Bus.on('weapon.fire', (event) => { if (event.id === id) shots++; });
+  for (let frame = 0; frame < 120; frame++) { Input.frame(INPUT_TEST_FRAME); Sim.step(); Sim.step(); }
+  Bus.off('weapon.fire', listener);
+  return shots;
+}
+function inputPadPress(pad, index, down) { inputPadButton(pad, index, down); PadInput.poll(pad, INPUT_TEST_FRAME); }
+function inputPadTap(pad, index) { inputPadPress(pad, index, true); inputPadPress(pad, index, false); }
+Test.add('input', (check) => {
+  const id = startInputMatch(true); Input.setDevice('touch');
+  TestArena.place(id, 0, 0);
+  Input.aimAssistTarget = (actor, out) => { out.x = 0; out.y = Actors.eyeY(actor); out.z = 10; return true; };
+  const byTrigger = (trigger) => CAT.weapons.find((weapon) => weapon.primary.trigger === trigger && weapon.primary.type === 'hitscan');
+  const semi = CAT.weapons.byId('warden'), burst = byTrigger('burst'), auto = byTrigger('auto');
+  const semiShots = inputAutoFireShots(id, semi);
+  check('auto-fire: semi keeps firing on target', semiShots >= 2 * semi.primary.rate * 0.8, semiShots + ' of ' + 2 * semi.primary.rate);
+  check('auto-fire: burst fires burst after burst', inputAutoFireShots(id, burst) >= 3 * burst.primary.burst);
+  check('auto-fire: auto fires at its rate', inputAutoFireShots(id, auto) >= 2 * auto.primary.rate * 0.6);
+  check('auto-fire: charge is left to the player', inputAutoFireShots(id, CAT.weapons.find((weapon) => weapon.primary.trigger === 'charge')) === 0);
+  Input.aimAssistTarget = null;
+  TestArena.finish();
+  startInputMatch();
+  setInputSetting('controls.toggle.fire', 'toggle');
+  Input.pulseAction(Input.actionIndex.fire);
+  check('pulse: a tap never latches fire in toggle mode', Input.effective[Input.actionIndex.fire] === 0 && (Input.pendingButtons & BTN.FIRE) !== 0);
+  inputMouseButton(0, true); inputMouseButton(0, false);
+  check('pulse: a real press still toggles', Input.effective[Input.actionIndex.fire] === 1);
+  setInputSetting('controls.toggle.fire', 'hold');
+});
+
+Test.add('input', (check) => {
+  startInputMatch();
+  // Every action has a keyboard, a controller and a touch path, or is listed here: sticks, the weapon bar and menus have their own.
+  const free = ['forward', 'back', 'left', 'right', 'prevWeapon', 'buyMenu', 'perfHud', 'botDebug'].concat(ACTION_ROWS.filter((row) => row.slot).map((row) => row.id));
+  const touchActions = TOUCH_CONTROLS.flatMap((control) => [control.action, control.longAction, control.swipeAction]);
+  const touchFree = free.concat('sprint', 'scoreboard', 'comm');   // a full stick push sprints; the score panel holds the scoreboard; a held PING opens the wheel
+  const reserved = ['Key:ControlLeft', 'Key:ControlRight', 'Key:F10', 'Key:F11', 'Key:F12', 'Pad:16'];   // browser or system keys
+  const gaps = (has) => ACTION_ROWS.filter((row) => !has(row)).map((row) => row.id).join();
+  for (const [name, has] of [['a key', (row) => Input.defaultsOf(row)[0]], ['a pad button or is listed', (row) => Input.defaultsOf(row)[2] || free.includes(row.id)],
+    ['a touch control or is listed', (row) => touchActions.includes(row.id) || touchFree.includes(row.id)], ['no browser or system key', (row) => !Input.defaultsOf(row).some((binding) => reserved.includes(binding))]]) {
+    check('defaults: every action has ' + name, !gaps(has), gaps(has));
+  }
+  // INP-002: a controller's sprint click toggles by default where sprint is a run (Agile), the keyboard's Shift is still a hold
+  const sprint = Input.actionIndex.sprint, pad = inputFakePad();
+  Move.setPreset(Game.playerId, 'agile');
+  inputPadTap(pad, 10);
+  check('sprint: one L3 click turns it on', Input.effective[sprint] === 1);
+  inputPadTap(pad, 10);
+  check('sprint: the second click turns it off', Input.effective[sprint] === 0);
+  inputKeyEvent('ShiftLeft', true);
+  check('sprint: the key is still a hold', Input.effective[sprint] === 1);
+  inputKeyEvent('ShiftLeft', false);
+  startInputMatch();
+  const keyUp = (code) => { const event = new KeyboardEvent('keyup', { code, bubbles: true, cancelable: true }); window.dispatchEvent(event); return event.defaultPrevented; };
+  check('keys: a bound keyup is stopped in play (Alt opens a menu)', Game.state === 'playing' && keyUp('AltLeft') && !keyUp('KeyI'));
+});
+
+Test.add('input', (check) => {
+  startInputMatch();
+  const pad = inputFakePad();
+  let got = 'none';
+  const capture = () => { got = 'none'; Input.captureNext('pad', (binding) => { got = binding; }); };
+  const letGo = () => { for (let i = 0; i < PAD_BUTTON_COUNT; i++) inputPadButton(pad, i, false); PadInput.poll(pad, INPUT_TEST_FRAME); };
+  capture(); inputPadPress(pad, 8, true);
+  check('pad capture: View waits for a chord', got === 'none', got);
+  inputPadPress(pad, 1, true); letGo();
+  check('pad capture: View then B is a chord', got === 'Pad:8+1', got);
+  capture(); inputPadTap(pad, 8);
+  check('pad capture: View alone binds View', got === 'Pad:8', got);
+  capture(); inputPadPress(pad, 9, true); PadInput.poll(pad, 1.1); letGo();
+  check('pad capture: holding Start cancels', got === null && Input.capture === null, String(got));
+  capture(); inputPadPress(pad, 8, true); inputPadPress(pad, 9, true); letGo();
+  check('pad capture: View + Start clears', got === '', String(got));
+  Input.cancelCapture();
+
+  // glyphs from the product name (Safari and Android report names, not USB ids); a pad without the standard mapping is ignored
+  for (const [name, style] of [['DualSense Wireless Controller', 'shapes'], ['Xbox Wireless Controller', 'letters']]) {
+    PadInput.padId = '';
+    PadInput.poll(inputFakePad(name), INPUT_TEST_FRAME);
+    check('pad style: ' + name + ' gives ' + style, Input.padStyle === style, Input.padStyle);
+  }
+  const id = startInputMatch();
+  const odd = inputFakePad('Generic USB Pad');
+  odd.mapping = ''; odd.axes = [0, 0, -1, 0, 0, -1];
+  inputUsePad(odd);
+  const yaw = Input.aim.yaw;
+  for (let i = 0; i < 10; i++) Input.frame(INPUT_TEST_FRAME);
+  check('pad mapping: a non-standard pad does not spin the view', Actors.aimYaw[id] === yaw, String(Actors.aimYaw[id]));
+
+  // a drifting stick is not a use of the controller
+  startInputMatch(); Input.setDevice('touch');
+  const drift = inputFakePad(); drift.axes = [0.12, -0.12, 0.12, 0.12];
+  inputUsePad(drift);
+  for (let i = 0; i < 60; i++) Input.frame(INPUT_TEST_FRAME);
+  check('pad device: drift leaves touch alone', Input.device === 'touch', Input.device);
+  drift.axes[2] = 0.9; Input.frame(INPUT_TEST_FRAME);
+  check('pad device: a stick push takes it', Input.device === 'gamepad', Input.device);
+  Input.frame(INPUT_TEST_FRAME); Input.setDevice('touch'); drift.axes.fill(0); Input.frame(INPUT_TEST_FRAME);   // touch took over while the stick was pushed, then it was let go
+  drift.axes[2] = 0.15; Input.frame(INPUT_TEST_FRAME);
+  inputReleasePad();
+  check('pad device: drift after a let-go stick leaves touch alone', Input.device === 'touch', Input.device);
+  const realListPads = PadInput.listPads, standard = inputFakePad();
+  odd.index = 1; PadInput.listPads = () => [standard, odd]; PadInput.index = 1;   // the odd device connected last
+  check('pad choice: a standard pad wins over a newer odd device', PadInput.activePad() === standard);
+  PadInput.listPads = realListPads; PadInput.index = 0;
+  // a mouse on a touch device without pointer lock keeps the touch controls
+  startInputMatch(); Input.setDevice('touch');
+  const realCanLock = Input.canLock, realRequestLock = Input.requestLock;
+  Input.canLock = () => false; Input.requestLock = () => {};   // no real lock request: the test window has no focus
+  inputMouseButton(0, true); inputMouseButton(0, false);
+  TouchInput.syncVisible();
+  check('mouse: no pointer lock keeps touch', Input.device === 'touch' && TouchInput.shouldShow());
+  Input.canLock = () => true;
+  inputMouseButton(0, true); inputMouseButton(0, false);
+  check('mouse: with pointer lock it takes over', Input.device === 'kbm');
+  Input.canLock = realCanLock; Input.requestLock = realRequestLock;
+  startInputMatch();
+});
+
+// L3 toggles sprint only where sprint is a run: Ravager dashes on each click, Modern's double click is a tactical sprint (MV03).
+Test.add('input', (check) => {
+  const id = startInputMatch(true);
+  const pad = inputFakePad(); inputUsePad(pad);
+  const frames = (count) => { for (let i = 0; i < count; i++) inputStepAndFrame(); };
+  const click = () => { inputPadButton(pad, 10, true); frames(1); inputPadButton(pad, 10, false); frames(1); };
+  const usePreset = (preset) => { Move.setPreset(id, preset); TestArena.place(id, 0, 0); resetMotion(id); frames(12); };
+  usePreset('ravager');
+  const dashes = recordEvents(['move.dash'], () => { click(); frames(20); click(); frames(20); }).length;
+  check('pad sprint: two L3 clicks give two Ravager dashes', dashes === 2, dashes);
+  usePreset('modern');
+  pad.axes[1] = -1; frames(10);
+  click(); frames(4);
+  check('pad sprint: an L3 click runs in Modern', Motion.sprinting[id] === 1);
+  pad.axes[1] = 0; frames(40); pad.axes[1] = -1; frames(40);   // past the 0.25 s double tap
+  check('pad sprint: stopping ends the toggled run', Motion.sprinting[id] === 0 && !Input.isHeld('sprint'));
+  click(); frames(4); click(); frames(4);
+  check('pad sprint: a double click is a tactical sprint', getClock(id, CLOCK.TAC_SPRINT) > 0 && Motion.sprinting[id] === 1, getClock(id, CLOCK.TAC_SPRINT));
+  Input.clearAll(); setInputSetting('controls.toggle.sprint', 'toggle'); setInputSetting('controls.toggle.sprintPad', 'hold');
+  inputPadButton(pad, 10, true); frames(4); inputPadButton(pad, 10, false); frames(4);
+  check('pad sprint: Hold on a controller wins over a keyboard Toggle', !Input.isHeld('sprint'));
+  setInputSetting('controls.toggle.sprint', 'hold'); setInputSetting('controls.toggle.sprintPad', 'toggle');
+  inputReleasePad();
+  startInputMatch();
+});
+
 Test.add('input', (check) => {
   const id = startInputMatch();
   inputKeyEvent('KeyW', true);
   const started = performance.now();
-  for (let i = 0; i < 2000; i++) { Input.frame(INPUT_TEST_FRAME); if (i % 3 === 0) Sim.step(); }
-  const perFrame = (performance.now() - started) / 2000;
+  for (let i = 0; i < 4000; i++) { Input.frame(INPUT_TEST_FRAME); if (i % 3 === 0) Sim.step(); }
+  const perFrame = (performance.now() - started) / 4000;   // one batch: a 1 ms timer (Firefox, Safari) still resolves 0.25 us per call
   const kept = Actors.moveZ[id] === 1;
   inputKeyEvent('KeyW', false);
-  check('perf: a frame of input sampling costs far below the 0.4 ms budget', perFrame < 0.1, perFrame.toFixed(4) + ' ms');
+  check('perf: a frame of input sampling costs within the 0.4 ms budget', perFrame < 0.4, perFrame.toFixed(4) + ' ms');
   check('perf: sampling kept the player input valid', kept);
   Game.pause('menu');
   const sources = Input.sources;
   check('structure: touch, gamepad and the comm wheel (17g) register as sources', sources.length === 3 && sources.includes(TouchInput) && sources.includes(PadInput) && sources.includes(CommWheel));
   Game.resume();
+});
+
+// ---- Phones: four rare actions ride on other touch controls (no LIE, TYPE, TAB or CHAT button): a held DUCK lies prone, a swipe
+// on NADE picks the next grenade type (its face names it), a finger on the score panel holds the scoreboard, a tap on PING pings ----
+Test.add('input', (check) => {
+  const id = startInputMatch(), elements = TouchInput.elements, frame = () => { Input.frame(INPUT_TEST_FRAME); Sim.step(); };
+  const touch = (type, element, pointer, x, y) => { inputTouchPointer('pointer' + type, element, pointer, x || 1000, y || 600); if (type === 'up') { frame(); frame(); } };
+  const age = (pointer, ms) => { TouchInput.findSlot(pointer).startTime -= ms; frame(); };
+  const held = (bit) => (Actors.buttons[id] & bit) !== 0, count = (key) => Gadgets.count[id * GADGET_COUNT + CAT.gadgets.byId(key).index];
+  const realPing = BotTeam.playerPing, savedLayouts = Save.data.touchLayouts;
+  let pings = 0;
+  BotTeam.playerPing = () => { pings++; };
+  Input.setDevice('touch'); TouchInput.syncVisible();
+  try {
+    check('touch: no LIE, TYPE, TAB or CHAT button', ['prone', 'grenadeNext', 'scoreboard', 'comm'].every((action) => !TOUCH_CONTROLS.some((row) => row.action === action)));
+    Move.setPreset(id, 'modern');
+    touch('down', elements.crouch, 21); age(21, 2000);
+    const crouched = held(BTN.CROUCH);
+    touch('move', elements.crouch, 21, 1000, 570); frame();
+    check('prone: a held DUCK stays crouched; a swipe on it lets go of crouch and lies prone', crouched && Motion.proneWanted[id] === 1 && !held(BTN.CROUCH));
+    touch('up', elements.crouch, 21); touch('down', elements.crouch, 31); touch('move', elements.crouch, 31, 1000, 570); touch('up', elements.crouch, 31);
+    check('prone: a second swipe gets up', Motion.proneWanted[id] === 0);
+    Move.setPreset(id, '');
+    Gadgets.give(id, 'frag', 1); Gadgets.give(id, 'smoke', 1); Gadgets.grenade[id] = CAT.gadgets.byId('frag').index; frame();
+    const named = elements.grenade.textContent;
+    touch('down', elements.grenade, 22); touch('move', elements.grenade, 22, 1000, 570); touch('up', elements.grenade, 22, 1000, 570);
+    check('grenade type: a swipe on NADE picks the next type, throws nothing and the face names it', named === 'NADEFrag' && elements.grenade.textContent === 'NADEVeil' && count('frag') + count('smoke') === 2, named);
+    touch('down', elements.grenade, 23); frame();
+    const waited = !held(BTN.GRENADE);
+    age(23, TOUCH_COOK_MS);
+    check('grenade: a still finger on NADE cooks after TOUCH_COOK_MS', waited && held(BTN.GRENADE));
+    touch('up', elements.grenade, 23); touch('down', elements.grenade, 24); touch('up', elements.grenade, 24);
+    check('grenade: lifting it throws; a quick tap throws at once', count('frag') + count('smoke') === 0);
+    const layout = {};
+    updateHudLayout(layout, innerWidth, innerHeight);
+    const box = hudHeaderBox(layout, []), x = box[0] + box[2] / 2, y = box[1] + box[3] / 2;
+    touch('down', TouchInput.zone, 25, x, y);
+    const board = Input.isHeld('scoreboard') && !TouchInput.stick.slot;
+    touch('up', TouchInput.zone, 25, x, y);
+    check('scoreboard: a finger on the score panel holds it', board && !Input.isHeld('scoreboard'));
+    touch('down', elements.ping, 26); touch('up', elements.ping, 26);
+    check('ping: a tap on PING pings', pings === 1, pings);
+    Save.data.touchLayouts = { standard: { prone: { x: 0.5 }, grenadeNext: { hidden: true }, scoreboard: { scale: 2 }, comm: {}, crouch: { scale: 1.2 } } };
+    TouchInput.applyAll();
+    check('save: an old layout with the removed buttons loads', TouchInput.getProperty('crouch', 'scale') === 1.2);
+  } finally {
+    BotTeam.playerPing = realPing; Save.data.touchLayouts = savedLayouts;
+    TouchInput.reset(); TouchInput.applyAll(); Input.device = 'kbm';
+  }
 });

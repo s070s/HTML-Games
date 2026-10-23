@@ -354,11 +354,12 @@ Test.add('perf', (check) => {
   GpuTimer.extension = null;
   perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
   check('without a GPU timer one 30 Hz window does not raise the budget', slowFrameMs() === budget, DisplayRate.intervalMs);
-  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
-  check('without a GPU timer 30 Hz at an unchanged render scale (a GPU-bound phone) does not raise it', slowFrameMs() === budget, DisplayRate.intervalMs);
   Render.size.scale = saved.scale - SCALE_STEP;
   perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
-  check('without a GPU timer 30 Hz held across a render-scale change is the display rate', Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, DisplayRate.intervalMs);
+  check('without a GPU timer 30 Hz across one render-scale step (a GPU-bound phone) does not raise it', slowFrameMs() === budget, DisplayRate.intervalMs);
+  Render.size.scale = saved.scale * 0.7;
+  perfFeedDisplayRate(1000 / 30, REFRESH_SAMPLE_FRAMES, 0, 1);
+  check('without a GPU timer 30 Hz held while the pixel count halved is the display rate', Math.abs(DisplayRate.intervalMs - 1000 / 30) < 0.01, DisplayRate.intervalMs);
   Object.assign(DisplayRate, { intervalMs: saved.intervalMs, count: saved.count, candidateMs: 0, candidateScale: 0 });
   Object.assign(GpuTimer, { extension: saved.extension, lastMs: saved.gpuMs });
   Render.size.scale = saved.scale; Render.size.dirty = true;
@@ -519,6 +520,12 @@ Test.add('perf', (check) => {
   propBatch.clear();
   check('the menu benchmark draws its grid through the instance record (no batch.mesh with float arguments)',
     !/\.mesh\(/.test(benchmark.draw.toString()) && drawn === BENCHMARK_GRID * BENCHMARK_GRID, drawn);
+  // R-153: every match draw source and the drawers they call fill a reused instance record (batch.mesh stays for the editor and bot debug view)
+  const matchDrawers = [drawBodies, Projectiles.draw, WeaponSpecialState.drawGates, Smoke.drawColumn, Gadgets.drawPreview, Gadgets.drawLanding, Devices.drawDevice,
+    drawZone, drawFootprints, drawObjective, drawModeExtras, drawChambers, drawChamberMark,
+    ...Render.sources.filter((source) => !/^(botDebug|mapEditor)$/.test(source.name)).map((source) => source.draw)];
+  const boxedDrawers = matchDrawers.filter((drawer) => /\.mesh\(/.test(drawer.toString())).map((drawer) => drawer.name || drawer.toString().slice(0, 60));
+  check('match draw sources use batch.meshFrom, never batch.mesh', boxedDrawers.length === 0, boxedDrawers.join(' | '));
   const savedQuads = HudBatch.quads, ring = hudRingAt;
   HudBatch.quads = 0;
   ring[0] = 100; ring[1] = 80; ring[2] = 20; ring[3] = 4;
@@ -553,7 +560,7 @@ Test.add('perf', (check) => {
 
 // World draw runs (PERF-004 on large maps): visible chunks next to each other in the index buffer share one draw call.
 Test.add('perf', (check) => withRenderer(() => {
-  if (!Render.gl) { check('no WebGL2 context on this page: world draw runs skipped', true); return; }
+  if (!Render.gl) { check.skip('world draw runs', 'no WebGL2 context on this page'); return; }
   const gl = Render.gl;
   Settings.set('video.quality', 'potato');
   World.load(Maps.get('isle'));
@@ -585,6 +592,7 @@ const PERF_ALLOC_CALLS = 20000;
 const PERF_ALLOC_WARMUP_CALLS = 20000;    // first: the optimizing compiler must have compiled the path (the interpreter boxes every float)
 const PERF_ALLOC_LIMIT_BYTES = 48 * 1024;
 const PERF_ALLOC_ROUNDS = 3;
+const PERF_ALLOC_PATIENCE_MS = 8000;     // more rounds while a path reads as allocating (a slow compiler thread, see perfAllocatedBytes)
 const PERF_PROBE_ACTORS = 8;
 const PERF_MOVER_ID = PERF_PROBE_ACTORS;  // the actor the movement-step probe steps (past the hitscan probe's actors)
 const perfMoverSpot = { x: 1.25, y: 0, z: -0.25 };    // y: the floor there, found by perfPlaceMover
@@ -594,12 +602,15 @@ const PERF_ALLOC_PROBE_OBJECTS = 20000;   // the probe's self-check: this many s
 const perfShapeInstance = makeShapeInstance();   // the meshFrom probe's record (a match keeps one per caller the same way)
 const perfHeapBytes = () => (performance.memory ? performance.memory.usedJSHeapSize : 0);
 
-// The fewest bytes of PERF_ALLOC_ROUNDS measured rounds: the optimized code is compiled on another thread and may arrive
-// during a round, while a path that really allocates does so in every round. Infinity = a GC ran in every round.
+// The fewest bytes of the measured rounds: the optimized code is compiled on another thread and may arrive during a round,
+// while a path that really allocates does so in every round. Infinity = a GC ran in every round. Past PERF_ALLOC_ROUNDS,
+// rounds go on while the path still reads as allocating, for up to PERF_ALLOC_PATIENCE_MS: on a loaded CPU the compiler
+// thread can take seconds to deliver (a run with --js-flags=--concurrent-recompilation-delay=300 showed it).
 function perfAllocatedBytes(run) {
   for (let i = 0; i < PERF_ALLOC_WARMUP_CALLS; i++) run(i);
   let fewest = Infinity;
-  for (let round = 0; round < PERF_ALLOC_ROUNDS; round++) {
+  const started = performance.now();
+  for (let round = 0; round < PERF_ALLOC_ROUNDS || (fewest >= PERF_ALLOC_LIMIT_BYTES && performance.now() - started < PERF_ALLOC_PATIENCE_MS); round++) {
     const before = perfHeapBytes();
     for (let i = 0; i < PERF_ALLOC_CALLS; i++) run(i);
     const allocated = perfHeapBytes() - before;
@@ -609,16 +620,28 @@ function perfAllocatedBytes(run) {
 }
 
 // True when the heap counter sees a known allocation (a browser without the precise flag rounds and caches the counter).
+// A GC during one try shrinks the reading, so it gets PERF_ALLOC_ROUNDS tries before the probes are skipped.
 function perfHeapCounterWorks() {
-  const kept = new Array(PERF_ALLOC_PROBE_OBJECTS), before = perfHeapBytes();
-  for (let i = 0; i < PERF_ALLOC_PROBE_OBJECTS; i++) kept[i] = { index: i };
-  return perfHeapBytes() - before >= PERF_ALLOC_PROBE_OBJECTS * 12 && kept.length === PERF_ALLOC_PROBE_OBJECTS;
+  for (let attempt = 0; attempt < PERF_ALLOC_ROUNDS; attempt++) {
+    const kept = new Array(PERF_ALLOC_PROBE_OBJECTS), before = perfHeapBytes();
+    for (let i = 0; i < PERF_ALLOC_PROBE_OBJECTS; i++) kept[i] = { index: i };
+    if (perfHeapBytes() - before >= PERF_ALLOC_PROBE_OBJECTS * 12 && kept.length === PERF_ALLOC_PROBE_OBJECTS) return true;
+  }
+  return false;
+}
+
+// The near parts of the body model with the most of them (a real ActorModels row: partColor reads its row colour too).
+function perfBodyParts() {
+  let richest = 0;
+  ActorModels.lists.forEach((lists, row) => { if (lists[LOD.near].length > ActorModels.lists[richest][LOD.near].length) richest = row; });
+  actorModelRow = richest;
+  return ActorModels.lists[richest][LOD.near];
 }
 
 // The hot paths under test. Each run(i) passes only small integers (an argument the probe itself boxes would count), so the
 // floats are made inside the path, as in a match.
 function perfHotPaths() {
-  const mover = makeMover(), trace = makeTrace(), sight = makeLine(), parts = LOD_PARTS[LOD.near], pose = actorPose, style = actorStyle;
+  const mover = makeMover(), trace = makeTrace(), sight = makeLine(), parts = perfBodyParts(), pose = actorPose, style = actorStyle;
   navReadOptions(NAV_DEFAULT_OPTIONS);
   Object.assign(mover.hull, { radius: 0.4, halfX: 0.4, halfZ: 0.4, bottom: 0, top: 1.8 });
   Object.assign(pose, { x: 1.25, y: 0.5, z: -2.75, yaw: 0.3, pitch: 0.1, swing: 0.2, drop: 0.05, legSquash: 0.9, lift: 0.01 });
@@ -699,7 +722,7 @@ function perfMeasureHotPaths() {
 }
 
 Test.add('perf', (check) => withRenderer(() => {
-  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page (Chrome without --enable-precise-memory-info): allocation probes skipped', true); return; }
+  if (!perfHeapCounterWorks()) { check.skip('allocation probes', 'no exact heap counter on this page (Chrome without --enable-precise-memory-info)'); return; }
   const bytes = perfMeasureHotPaths();
   check('the mover probe traces against real brushes of the loaded map', Collide.candidateCount > 0, Collide.candidateCount);
   check('the hitscan probe hits its actor', Hitbox.rayOf(0) && Hitbox.distance > 0, Hitbox.distance);
@@ -753,7 +776,7 @@ Test.add('perf', (check) => {
     check('a 16-bot match on Potato fills only the preset\'s 7 bot slots (PERF-009)', bots === PERF_TIER_CAPS.potato.bots, bots);
   } finally {
     Game.stop();
-    Settings.reset('video.');
+    Settings.resetKeys(settingKeysStarting('video.'));
   }
 });
 
@@ -776,7 +799,7 @@ Test.add('perf', (check) => {
     check('an actor step walks the brush tree about once (gathered lists reused within the step)', actorSteps > 0 && perActorStep < PERF_GATHER_WALKS_PER_ACTOR_STEP, perActorStep.toFixed(2));
   } finally {
     Game.stop();
-    Settings.reset('video.');
+    Settings.resetKeys(settingKeysStarting('video.'));
   }
 });
 
@@ -809,7 +832,7 @@ Test.add('perf', async (check) => {
     check('__CTK.perf.report() returns the last recording', DebugApi.perf.report() === report);
   } finally {
     perfStopScene();
-    Settings.reset('video.');
+    Settings.resetKeys(settingKeysStarting('video.'));
   }
   check('stopping the scene ends the match and clears its kits', !Game.isRunning() && PerfScene.row === null && PerfScene.kits === null);
 });

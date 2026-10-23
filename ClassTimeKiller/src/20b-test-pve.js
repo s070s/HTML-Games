@@ -200,7 +200,7 @@ Test.add('pve', (check) => withShortShop(() => {
   Pve.damageCore(1e6, -1);
   runSeconds(0.5);
   const results = Game.match.results;
-  check('a destroyed core loses the run', !Modes.active && results && results.reason === PVE_LOSE && results.winner === DRAW, results && results.reason);
+  check('a destroyed core loses the run', !Modes.active && results && results.reason === PVE_LOSE && results.winner === PVE_LOST, results && results.reason);
   endModeTest();
   const retry = startPveMode('horde', [0]);
   runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 10);
@@ -209,6 +209,19 @@ Test.add('pve', (check) => withShortShop(() => {
   const run = Modes.behaviour.run;
   check('with checkpoints the wave restarts (retries 2)', Modes.active && run.retriesLeft === 1 && Pve.core.health > 0 && run.wave === 0, run.retriesLeft + ' ' + run.wave);
   check('the participants stand at the checkpoint', Actors.alive[retry[0]] === 1);
+  endModeTest();
+}));
+
+// A lost co-op run reads as a loss, not a draw: on the results screen (PlayFlow.outcome) and for the adaptive shift (14a).
+Test.add('pve', (check) => withShortShop(() => {
+  startPveMode('horde', [], {}, { difficulty: 'ascendant', player: { name: 'Tester', team: 0 } });
+  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 10);
+  Pve.damageCore(1e6, -1);
+  runSeconds(0.5);
+  const results = Game.match.results;
+  check('a lost run is not a draw', !!results && !results.draw && results.reason === PVE_LOSE, results && results.winner);
+  check('the results screen calls it a loss', !!results && PlayFlow.outcome(results) === 'loss', results && PlayFlow.outcome(results));
+  check('the adaptive shift reads it as a loss', !!results && matchOutcome(results, Game.playerId) === -1, results && matchOutcome(results, Game.playerId));
   endModeTest();
 }));
 
@@ -240,7 +253,10 @@ Test.add('pve', (check) => withShortShop(() => {
 Test.add('pve', (check) => {
   const dummy = startPveTest();
   const id = spawnFacing('husk', 1.2), parries = startEventLog('pve.parry');
-  const hit = runUntilHit(id, dummy, 3, () => { if (Pve.phase[id] === ATTACK_PHASE.WINDUP && Pve.phaseEndsAt[id] - Sim.time < 0.1) Pve.parryAt[dummy] = Sim.time; });
+  const hit = runUntilHit(id, dummy, 3, () => {
+    Actors.yaw[dummy] = Math.atan2(Actors.x[id] - Actors.x[dummy], Actors.z[id] - Actors.z[dummy]);   // the target faces the claw (a parry needs the front arc)
+    if (Pve.phase[id] === ATTACK_PHASE.WINDUP && Pve.phaseEndsAt[id] - Sim.time < 0.1) Pve.parryAt[dummy] = Sim.time;
+  });
   parries.stop();
   check('a parried claw deals no damage and staggers the husk', !hit && parries.length > 0 && Sim.time < Pve.staggerUntil[id] + 3, parries.length);
   Game.stop();
@@ -292,7 +308,7 @@ Test.add('pve', (check) => {
   killEnemy(boss);
   events.stop();
   const defeated = events.find((event) => event.kind === 'defeated');
-  check('the boss defeat takes it out again', SoundMusic.targetWeights(weights).boss === 0 && SoundMusic.mood === 'auto', SoundMusic.bosses);
+  check('the boss defeat takes it out again', SoundMusic.targetWeights(weights).boss === 0, SoundMusic.bosses);
   check('the defeat reports the fight time to the career log', !!defeated && defeated.seconds > 1 && RunLog.bossSeconds === defeated.seconds && RunLog.finalBossSeconds === (defeated.final ? defeated.seconds : PROGRESS_NEVER),
     RunLog.bossSeconds);
   spawnFacing('overlord', 30);
@@ -321,7 +337,21 @@ Test.add('pve', (check) => {
   Game.stop();
 });
 
-// M23: kills of your own side's PvE give motes, banking scores and sends blockers, 100 banked summons the boss, its kill wins.
+// M23: a bot carrying motes goes to its bank and deposits them (the 'bank' planner).
+Test.add('pve', (check) => {
+  World.load(pveTestMap({ spawns: PVE_HOME.concat([{ x: 30, y: 0, z: 30, yaw: 0, team: 1 }]) }));
+  Game.start({ mode: 'bank', seed: 1, bots: [{ tier: 3, team: 0 }, { dummy: true, team: 1 }], difficulty: 'regular' });
+  const bot = 0, bank = BankRun.banks[0];
+  Modes.endProtection(bot);
+  Actors.flags[bot] |= ACTOR_FLAG.GOD;
+  placeActor(bot, bank.x + 15, bank.z + 10);
+  BankRun.carried[bot] = PVE_BANK.carryMax;
+  runUntil(() => BankRun.banked[0] > 0, 15, () => Pve.clearEnemies());
+  check('a bot with a full load of motes banks it', BankRun.banked[0] >= PVE_BANK.carryMax && BankRun.carried[bot] === 0, BankRun.banked[0] + ' banked, goal ' + BotDecide.goal[bot]);
+  Game.stop();
+});
+
+// M23: kills of your own side's PvE give motes, banking scores and sends blockers, bossAt banked summons the boss, its kill wins.
 Test.add('pve', (check) => {
   const [blue, red] = startPveMode('bank', [0, 1], { spawns: PVE_HOME.concat([{ x: 30, y: 0, z: 30, yaw: 0, team: 1 }]) });
   godMode([blue, red]);
@@ -338,7 +368,7 @@ Test.add('pve', (check) => {
   BankRun.carried[blue] = 3;
   runSeconds(0.1);
   const boss = BankRun.boss[0];
-  check('100 banked summons the side boss at a quarter health', boss >= 0 && Pve.rowOf(boss).boss && Test.near(Actors.maxHealth[boss], 6000 * PVE_BANK.bossHealthShare, 1));
+  check('bossAt banked summons the side boss at a quarter health', boss >= 0 && Pve.rowOf(boss).boss && Test.near(Actors.maxHealth[boss], 6000 * PVE_BANK.bossHealthShare, 1));
   killEnemy(boss, blue);
   runSeconds(0.1);
   check('the first boss kill wins the match', !Modes.active && Game.match.results.winnerTeam === 0, Game.match.results && Game.match.results.winnerTeam);
@@ -422,7 +452,11 @@ Test.add('pve', (check) => {
 Test.add('pve', (check) => {
   const hints = [{ kind: 'dummy', x: 0, y: 0, z: 12 }, { kind: 'dummy', x: 4, y: 0, z: 12 }, { kind: 'dummy', x: -4, y: 0, z: 12 }];
   World.load(pveTestMap({ spawns: [{ x: 0, y: 0, z: 0, yaw: 0, modes: ['range'] }], navHints: hints }));
+  const announced = startEventLog('announce');
   Game.start({ mode: 'range', seed: 1, bots: [{ dummy: true }], difficulty: 'regular' });
+  announced.stop();
+  check('the range explains its drill and how to leave at the start', announced.some((event) => event.text === RANGE_INTRO_TEXT && event.text.includes(String(PVE_RANGE.drillTargets)) && event.text.includes('Pause > Quit to menu')),
+    announced.map((event) => event.text).join(' | '));
   const shooter = 0;
   Modes.endProtection(shooter);
   runSeconds(0.2);
@@ -440,6 +474,10 @@ Test.add('pve', (check) => {
   hitEnemy(shooter, target, 2, 'splash', 'body');
   hitEnemy(shooter, target, 2, 'dot', 'body');
   check('six pellets, a splash and a burn of one shot count one hit', RangeRun.hits === 2 && RangeRun.shots === shotsBefore + 2, RangeRun.hits + ' / ' + RangeRun.shots);
+  Bus.emit('weapon.fire', { id: shooter, weapon: 'ramjet', weaponClass: 'launcher', mode: 'primary', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
+  hitEnemy(shooter, target, 20, 'splash', 'body');
+  check('a rocket landing beside a dummy is a hit, as the scoreboard and challenge points count it', RangeRun.hits === 3 && scoreboardCountsHit('splash') && !scoreboardCountsHit('dot'),
+    RangeRun.hits + ' / ' + RangeRun.shots);
   runSeconds(0.05);
   check('accuracy never passes 100%', PVE_HUD.accuracy > 0 && PVE_HUD.accuracy <= 1, PVE_HUD.accuracy);
   runUntil(() => RangeRun.drills >= 2, 120, () => { Actors.health[shooter] = Actors.maxHealth[shooter]; killAllEnemies(shooter); });
@@ -608,6 +646,16 @@ Test.add('pve', (check) => {
   runUntil(() => Pve.phase[id] === ATTACK_PHASE.IDLE, 3);
   Sim.run(1);
   check('after the attack it cloaks again', (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) !== 0);
+  // R-204: a half-strength tell blends every channel of a plain part toward the tell colour, not only red
+  Actors.flags[id] &= ~ACTOR_FLAG.INVISIBLE;
+  Actors.health[id] = Actors.maxHealth[id];
+  const tellGlow = Pve.tellGlow, row = Pve.rowOf(id), half = { amount: 0.5, progress: 0.5, r: 0, g: 1, b: 0 };
+  const plain = row.parts.findIndex((part) => (PART_TINTS[part[7]] || 0) < PART_TINTS.glow), tint = PART_TINTS[row.parts[plain][7]] || 0;
+  const blended = meshRecorder();
+  Pve.tellGlow = () => half;
+  try { Pve.drawEnemy(blended, id); } finally { Pve.tellGlow = tellGlow; }
+  const part = blended.meshes[plain], drawn = [part.r, part.g, part.b], expected = [0, 1, 0].map((tell, channel) => lerp(row.colors[tint * 3 + channel], tell, 0.5));
+  check('a half tell blends red, green and blue of a plain part', drawn.every((value, channel) => Test.near(value, expected[channel], 1e-4)), drawn + ' vs ' + expected);
   Game.stop();
 });
 
@@ -702,6 +750,10 @@ Test.add('pve', (check) => {
   const tagged = (key) => rings.some((mesh) => colorMatches(mesh, PVE_CHAMPIONS[championIndex(key)].glow));
   check('champions stand on a ring in their tag colour', tagged('unstoppable') && tagged('barrier'));
   check('a coloured shield is drawn in its element colour', !!element && rings.filter((mesh) => colorMatches(mesh, element.color)).length === PVE_SHELL_HEIGHTS.length);
+  Actors.shield[shielded] = 0;
+  Pve.stagger(shielded, PVE_DIRECTOR.staggerSeconds, STAGGER_CAUSE.PARRY);
+  runSeconds(PVE_DIRECTOR.staggerSeconds / 2);
+  check('a staggered barrier champion regrows no shield (stunned)', Actors.shield[shielded] === 0, Actors.shield[shielded]);
   Game.stop();
 });
 
@@ -709,7 +761,7 @@ const PVE_PROBE_LASER_LENGTH = 10;   // m: a box longer than any enemy part is t
 // PERF-006: drawing enemies with their champion ring, element shield, awareness mark, heal beam and laser tell allocates
 // nothing per frame.
 Test.add('pve', (check) => {
-  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page: the PvE drawing allocation probe is skipped', true); return; }
+  if (!perfHeapCounterWorks()) { check.skip('PvE drawing allocation probe', 'no exact heap counter on this page'); return; }
   World.load(Maps.get('isle'));   // a full nav build first, as in a match (its builder literal once boxed the record's x, y, z)
   startPveTest();
   const chance = PVE_CHAMPION_RULES.shieldElementChance;
@@ -814,6 +866,11 @@ Test.add('pve', (check) => {
   Pve.nextThink[survivor] = Sim.time;
   Sim.run(1);
   check('survivors of a 75% loss fall back while reinforcements wait', Pve.goal[survivor] === PVE_GOAL.FALLBACK && Pve.goalZ[survivor] === Pve.homeZ[survivor], Pve.goal[survivor]);
+  Actors.flags[0] |= ACTOR_FLAG.GOD;
+  Actors.x[0] = Actors.x[survivor]; Actors.z[0] = Actors.z[survivor] - PVE_DIRECTOR.fallbackFightRange + 4;   // a foe in close reach, in view
+  const attacksBefore = Pve.stats.attacks;
+  runUntil(() => Pve.stats.attacks > attacksBefore, 5, () => { Pve.peakAt = Sim.time; });
+  check('a falling-back enemy still fires at a foe in close reach', Pve.stats.attacks > attacksBefore, Pve.stats.attacks - attacksBefore);
   Pve.queue.count = 0;
   Pve.nextThink[survivor] = Sim.time;
   Sim.run(1);
@@ -893,6 +950,21 @@ Test.add('pve', (check) => {
   BankRun.carried[blue] = 6;
   Modes.behaviour.bankMotes(blue, 0);
   check('crossing the custom invasion step sends an invader', BankRun.invasions[0] === 1 && queuedOnSide(1, PVE_BANK.invader) === 1, BankRun.banked[0] + ' ' + BankRun.invasions[0]);
+  endModeTest();
+});
+
+// swap-02: a Use press that hits a chamber button takes the hold: no gun swap on it.
+Test.add('pve', (check) => {
+  World.load(Maps.get('chambers'));
+  Game.start({ mode: 'puzzle', seed: 1, bots: [{ dummy: true }] });
+  const id = 0, isButton = (element) => element.kind === 'button', index = PVE_CHAMBERS.findIndex((row) => row.elements.some(isButton));
+  const button = PVE_CHAMBERS[index].elements.findIndex(isButton);
+  enterChamber(index);
+  chamberElementAt(PVE_CHAMBERS[index].elements[button], pveSpot);
+  relocateActor(id, pveSpot.x, pveSpot.y, pveSpot.z - 0.5, 0);
+  Actors.buttons[id] = BTN.USE;
+  Sim.run(2);
+  check('a chamber button press claims the Use hold', Weapons.useClaimed[id] === 1 && ChamberRun.done[button] === 1);
   endModeTest();
 });
 
@@ -1016,10 +1088,76 @@ Test.add('pve', (check) => withShortShop(() => {
   const weapon = Weapons.currentWeapon(bot), slot = Weapons.slotIndex(bot, weapon.index);
   Weapons.reserve[slot] = 0;
   runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.SHOP, 10);
-  const item = CAT.buyItems.byId(PVE_BOT_RESTOCK_ITEM), bought = Economy.bought[bot * CAT.buyItems.length + item.index];
+  runSeconds(BOT_BUY_CHECK + TICK_SECONDS);   // the bot looks into an open shop every BOT_BUY_CHECK s (14f BotEconomy)
+  const item = CAT.buyItems.find((row) => row.kind === 'ammo' && row.buy === 'shop'), bought = Economy.bought[bot * CAT.buyItems.length + item.index];
   check('a bot restocks its emptied gun at the wave shop', bought === 1 && Weapons.reserve[slot] === Weapons.maxReserve(bot, weapon), bought + ' bought, reserve ' + Weapons.reserve[slot]);
   endModeTest();
 }));
+
+// bots-01: an enemy gate in a walled corner. The spawn jitter and a swarm's spiral once put mites inside Cistern's gate-hall
+// wall, out of everyone's reach, and the wave never cleared; a wave's last enemy stuck in a wall moves out at the hunt ping.
+const PVE_CORNER_WALLS = [{ shape: 'box', min: [41, 0, 30], max: [46, 4, 46] }, { shape: 'box', min: [30, 0, 41], max: [46, 4, 46] }];
+function enemiesInWalls() {
+  const inside = [];
+  for (let id = 0; id < Actors.count; id++) if (Pve.isHostile(id) && !pveStandsAt(Actors.x[id], Actors.y[id], Actors.z[id])) inside.push(id + '@' + Actors.x[id].toFixed(1) + ',' + Actors.z[id].toFixed(1));
+  return inside;
+}
+Test.add('pve', (check) => {
+  startPveMode('horde', [0], { spawns: PVE_HOME.concat([PVE_ENEMY_GATES[0]]), brushes: [TEST_FLOOR].concat(PVE_CORNER_WALLS) });
+  const mite = CAT.enemies.byId('mite'), inside = [], run = Modes.behaviour.run;
+  let spawned = 0;
+  for (let swarm = 0; swarm < 4; swarm++) {
+    Pve.clearEnemies();
+    if (Pve.spawnQueued(mite, NO_TEAM, 1, -1, 1)) spawned += Pve.aliveCount();
+    inside.push(...enemiesInWalls());
+  }
+  check('every member of a swarm at a walled gate spawns where it can stand', spawned === 4 * mite.group && inside.length === 0, spawned + ' spawned, in walls: ' + inside.join(' '));
+  Pve.clearEnemies();
+  const last = Pve.spawnEnemy(mite, 30, 0, 30, 0);
+  relocateActor(last, 42, 0, 42, 0);   // inside the corner block (Cistern's mite stayed in its wall for minutes)
+  run.state = PVE_WAVE_STATE.FIGHT;    // this step hunts and pings it
+  Modes.behaviour.step(TICK_SECONDS, Sim.time);
+  check('a last enemy stuck in a wall moves out where the bots can reach it', enemiesInWalls().length === 0 && Actors.x[last] < 41 && Actors.z[last] < 41, Actors.x[last] + ',' + Actors.z[last]);
+  endModeTest();
+});
+
+// modes-03: while enemies hit the core, a camper bot defends it instead of holding its far camp spot (Iron Bulwark camped every
+// bot far away while the core fell with 0 kills); with the core left alone it plays freely again.
+Test.add('pve', (check) => {
+  const bot = startPveMode('horde', [], { spawns: PVE_HOME.concat([PVE_ENEMY_GATES[0]]), objectives: [{ id: 'core', kind: 'core', x: 0, y: 0, z: 0, radius: 3, modes: ['horde'] }],
+    navHints: [{ kind: 'sniper', x: -30, y: 0, z: -30 }] }, { bots: [{ team: 0 }] })[0];
+  const rifle = CAT.weapons.find((row) => row.botPref.value >= CAMP_WEAPON), plan = {}, run = Modes.behaviour.run;
+  Bots.traits[bot * TRAIT_COUNT + TRAIT.camper] = 1;
+  Weapons.give(bot, rifle.id);
+  Weapons.current[bot] = rifle.index;
+  Pve.spawnEnemy('husk', 0, 0, 40, Math.PI);   // the wave goes on
+  run.state = PVE_WAVE_STATE.FIGHT;
+  const camp = GOAL_SCORERS[GOAL.CAMP](bot, plan, Sim.time);
+  Pve.damageCore(1, -1);
+  Modes.behaviour.step(TICK_SECONDS, Sim.time);
+  const defend = GOAL_SCORERS[GOAL.OBJECTIVE](bot, plan, Sim.time);
+  check('a bot defends the core under attack before it camps a far spot', camp > 0 && defend > camp && length2(plan.x, plan.z) < 3, camp + ' / ' + defend + ' at ' + plan.x + ',' + plan.z);
+  Modes.behaviour.step(TICK_SECONDS, Sim.time + PVE_CORE_ALARM_SECONDS);
+  check('with the core left alone the bot plays freely again', GOAL_SCORERS[GOAL.OBJECTIVE](bot, plan, Sim.time) === 0);
+  endModeTest();
+});
+
+// bots-02: extraction is the player's choice. A bot in the open extract zone ends nothing while the player stands elsewhere
+// (it once ended an idle player's run in the core room); the player stepping in ends it.
+Test.add('pve', (check) => {
+  const ids = startPveMode('endless', [0], { objectives: [{ id: 'extract', kind: 'extract', x: 10, y: 0, z: 0, radius: 3, modes: ['endless'] }] }, { player: { team: 0 } });
+  const player = Game.playerId, run = Modes.behaviour.run;
+  run.state = PVE_WAVE_STATE.EXTRACT;
+  run.endsAt = Sim.time + PVE_ENDLESS.extractSeconds;
+  placeActor(ids.find((id) => id !== player), 10, 0);
+  placeActor(player, -10, 0);
+  runSeconds(0.25);
+  check('a bot in the open extract zone leaves the run going while the player stands elsewhere', Modes.active && run.state === PVE_WAVE_STATE.EXTRACT);
+  placeActor(player, 10, 2);
+  runSeconds(0.25);
+  check('the player stepping into the extract zone ends the run', !Modes.active && Game.match.results.reason === 'extracted');
+  endModeTest();
+});
 
 // Soak (backs up the two blocks above): Siege Waves on Cistern with an idle player and three bots never stalls in a wave.
 const PVE_SOAK_MINUTES = 40, PVE_SOAK_WAVE_MINUTES = 6;
@@ -1035,3 +1173,207 @@ Test.add('pvesoak', (check) => {
   check('no wave fights longer than ' + PVE_SOAK_WAVE_MINUTES + ' minutes', seconds.length === cleared && Math.max(...seconds) < PVE_SOAK_WAVE_MINUTES * 60, seconds.join(' ') + ' s');
   endModeTest();
 }, { slow: true });
+
+// bots-01 / modes-03: bots-only wave runs on Cistern at Ultra (the most enemies). Horde seed 2 once stalled in wave 2 on a mite
+// inside the gate-hall wall; Iron Bulwark Endless seed 5 once camped all three bots far away while the core fell with 0 kills.
+const PVE_BOTS_SOAKS = [{ mode: 'horde', seed: 2, bots: 4 }, { mode: 'endless', seed: 5, ruleset: 'knight', bots: 3 }];
+Test.add('pvesoak', (check) => withQuality('ultra', () => {
+  for (const soak of PVE_BOTS_SOAKS) {
+    Game.start({ mode: soak.mode, map: 'cistern', ruleset: soak.ruleset, seed: soak.seed, bots: Array.from({ length: soak.bots }, () => ({})) });
+    let walled = '', camped = 0, attackedSince = Infinity;
+    runUntil(() => !Modes.active || Modes.behaviour.run.wave > 3, 6 * 60, () => {
+      walled = walled || enemiesInWalls().join(' ');
+      attackedSince = Sim.time - Pve.core.hitAt < PVE_CORE_ALARM_SECONDS ? Math.min(attackedSince, Sim.time) : Infinity;
+      if (Sim.time - attackedSince > BOT_DECIDE_INTERVAL) for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && BotDecide.goal[id] === GOAL.CAMP) camped++;
+    });
+    const text = soak.mode + ' seed ' + soak.seed + ' (wave ' + Modes.behaviour.run.wave + ')';
+    check(text + ': no enemy in a wall, 3 waves cleared in 6 minutes', !walled && Modes.behaviour.run.wave > 3, walled);
+    check(text + ': no bot camps while enemies hit the core', camped === 0, camped);
+    endModeTest();
+  }
+}), { slow: true });
+
+// ai-04: the PvE team modes with bots on their maps (the map soaks play them in free-for-all): bots are stuck under
+// SOAK_STUCK_LIMIT of the time (Cistern's gate walls once left a notch at the hall corners that bots snagged on) and play
+// the objective (Mote Rush banks motes, Attrition scores). play-03: Mote Rush plays to its end, which takes several minutes
+// (its whole escalation once ran in 72-138 s), so each phase (blockers, invasions, the boss) lasts long enough to notice.
+const PVE_TEAM_SOAKS = [{ mode: 'bank', map: 'cistern', minutes: 12 }, { mode: 'attrition', map: 'harbor', minutes: 3 }], PVE_TEAM_SOAK_SEEDS = [1, 2];
+const PVE_TEAM_SOAK_BOTS = 8, PVE_BANK_MATCH_MINUTES = [4, 10];
+Test.add('pvesoak', (check) => {
+  for (const soak of PVE_TEAM_SOAKS) for (const seed of PVE_TEAM_SOAK_SEEDS) {
+    let banked = 0;
+    const stats = playMatch({ mode: soak.mode, map: soak.map, minutes: soak.minutes, botCount: PVE_TEAM_SOAK_BOTS, seed, difficulty: 'regular',
+      probe: () => { banked = BankRun.banked[0] + BankRun.banked[1]; } });
+    const name = soak.mode + ' on ' + soak.map + ' (seed ' + seed + ')', text = name + ': ' + JSON.stringify(stats) + ', banked ' + banked;
+    check(name + ': no NaN, stuck under ' + SOAK_STUCK_LIMIT * 100 + '% of the time', stats.nan === 0 && stats.stuckFraction < SOAK_STUCK_LIMIT, text);
+    check(name + ': nobody stuck > 6 s', stats.maxStuck <= STUCK_GIVE_UP, text);
+    check(name + ': no enemy stuck > 6 s (bots-03)', stats.enemyMaxStuck <= STUCK_GIVE_UP, text);
+    if (soak.mode !== 'bank') { check(name + ': bots score kills', stats.kills > 0, text); continue; }
+    check(name + ': bots bank motes', banked > 0, text);
+    check(name + ': the match ends by its boss after ' + PVE_BANK_MATCH_MINUTES.join('-') + ' minutes', stats.reason === 'objective'
+      && stats.seconds >= PVE_BANK_MATCH_MINUTES[0] * 60 && stats.seconds <= PVE_BANK_MATCH_MINUTES[1] * 60, text);
+  }
+}, { slow: true });
+
+// ---- P08 audit pass (pve-01..15) ----
+// Runs `body` on a quality tier (Potato: enemy cap 12) and restores the setting.
+function withQuality(tier, body) {
+  const saved = Settings.get('video.quality');
+  Settings.set('video.quality', tier);
+  try { body(); } finally { Settings.set('video.quality', saved); }
+}
+function fillEnemyCap() {
+  let guard = 0;
+  while (Pve.spawnEnemy('mite', 20 + guard * 0.1, 0, 20, 0, { team: NO_TEAM }) >= 0 && guard++ < 100) { /* until the cap says no */ }
+}
+
+// Mote Rush: the Overlord waits for a free slot instead of being lost, and only the boss's own side can win with it.
+Test.add('pve', (check) => withQuality('potato', () => {
+  const [blue, red] = startPveMode('bank', [0, 1], { spawns: PVE_HOME.concat([{ x: 30, y: 0, z: 30, yaw: 0, team: 1 }]) });
+  godMode([blue, red]);
+  fillEnemyCap();
+  check('the enemy cap is full', Pve.aliveCount() >= Pve.cap(), Pve.aliveCount() + ' / ' + Pve.cap());
+  BankRun.banked[0] = Modes.rules.params.bossAt - 1;
+  BankRun.carried[blue] = 3;
+  placeActor(blue, BankRun.banks[0].x, BankRun.banks[0].z);
+  runSeconds(2);
+  check('a full enemy cap does not lose the Overlord', BankRun.boss[0] >= 0 && Actors.alive[BankRun.boss[0]] === 1, BankRun.boss[0]);
+  killEnemy(BankRun.boss[0], red);
+  runSeconds(0.1);
+  check('the other side killing our Overlord decides nothing', Modes.active && BankRun.result === NOT_OVER);
+  runSeconds(1);
+  check('the Overlord comes back after a foreign kill', BankRun.boss[0] >= 0 && Actors.alive[BankRun.boss[0]] === 1, BankRun.boss[0]);
+  killEnemy(BankRun.boss[0], blue);
+  runSeconds(0.1);
+  check('our own side killing it wins', !Modes.active && Game.match.results.winnerTeam === 0);
+  endModeTest();
+}));
+
+// The boss bar follows the player's side.
+Test.add('pve', (check) => {
+  const [blue, red] = startPveMode('bank', [0, 1], { spawns: PVE_HOME.concat([{ x: 30, y: 0, z: 30, yaw: 0, team: 1 }]) });
+  godMode([blue, red]);
+  Modes.behaviour.summonBoss(0);
+  Modes.behaviour.summonBoss(1);
+  const saved = Game.playerId;
+  Game.playerId = red;
+  PveBoss.updateHud();
+  check('the boss bar shows the player\'s side boss', PveBoss.hud.id === BankRun.boss[1] && BankRun.boss[1] >= 0, PveBoss.hud.id + ' ' + BankRun.boss[1]);
+  Game.playerId = blue;
+  PveBoss.updateHud();
+  check('...and the other one for the other side', PveBoss.hud.id === BankRun.boss[0], PveBoss.hud.id + ' ' + BankRun.boss[0]);
+  Game.playerId = saved;
+  endModeTest();
+});
+
+// Difficulty lives belong to the co-op modes: practice and team modes never strand a player on Ascendant.
+Test.add('pve', (check) => {
+  const failures = [];
+  const probe = (mode, ids) => {
+    if (Modes.lives[ids[0]] !== LIVES_UNLIMITED) failures.push(mode + ' lives ' + Modes.lives[ids[0]]);
+    killActor(ids[0], -1);
+    runSeconds(15);
+    if (Modes.active && !Actors.alive[ids[0]]) failures.push(mode + ' stays dead');
+    endModeTest();
+  };
+  probe('range', startPveMode('range', [0], {}, { difficulty: 'ascendant' }));
+  probe('bank', startPveMode('bank', [0, 1], {}, { difficulty: 'ascendant' }));
+  probe('attrition', startPveMode('attrition', [0, 1], {}, { difficulty: 'ascendant' }));
+  World.load(Maps.get('chambers'));
+  Game.start({ mode: 'puzzle', seed: 1, bots: [{ dummy: true }], difficulty: 'ascendant' });
+  Modes.endProtection(0);
+  probe('puzzle', [0]);
+  check('puzzle, range, bank and attrition ignore Ascendant lives and respawn the player', failures.length === 0, failures.join(', '));
+  const ids = startPveMode('horde', [0], {}, { difficulty: 'ascendant' });
+  check('horde keeps the Ascendant life', Modes.lives[ids[0]] === 1);
+  endModeTest();
+});
+
+// Endless pays the wave bonus and opens the shop (its own economy row and core health); horde's shop is open before wave 1.
+Test.add('pve', (check) => withShortShop(() => {
+  const horde = startPveMode('horde', [0]);
+  check('the horde shop is open before the first wave', Economy.shopOpen === true && Economy.buyBlock(horde[0]) !== 'closed', Economy.buyBlock(horde[0]));
+  endModeTest();
+  const ids = startPveMode('endless', [0]);
+  godMode(ids);
+  const run = Modes.behaviour.run;
+  check('endless uses the wave shop economy and its own core health', Economy.preset().id === 'waveShop' && Pve.core.max === Modes.rules.params.coreHealth && Pve.core.max > 0, Economy.preset().id + ' ' + Pve.core.max);
+  runUntil(() => run.wave >= 1 && run.state === PVE_WAVE_STATE.SHOP, 200, () => { if (run.state === PVE_WAVE_STATE.FIGHT && Pve.queue.count === 0) killAllEnemies(ids[0]); });
+  check('endless wave 1 pays money and opens the shop', Economy.money(ids[0]) > 0 && Economy.shopOpen, Economy.money(ids[0]) + ' ' + run.state);
+  endModeTest();
+}));
+
+// A burst fires along the turn-rate-limited look: a target that moved behind the enemy is not hit while it still faces away.
+Test.add('pve', (check) => {
+  const dummy = startPveTest(), turret = spawnFacing('turret', 10);
+  const hits = startEventLog('damage');
+  for (let tick = 0; tick < 600 && Pve.phase[turret] !== ATTACK_PHASE.ACTIVE; tick++) Sim.run(1);
+  check('the turret reached its burst', Pve.phase[turret] === ATTACK_PHASE.ACTIVE);
+  placeActor(dummy, 0, 18);
+  let behind = 0, ticks = 0;
+  const facingAway = () => Math.cos(Actors.aimYaw[turret] - Math.atan2(Actors.x[dummy] - Actors.x[turret], Actors.z[dummy] - Actors.z[turret])) < 0;
+  while (ticks++ < 120 && Pve.phase[turret] === ATTACK_PHASE.ACTIVE && facingAway()) {
+    const before = hits.length;
+    Actors.health[dummy] = Actors.maxHealth[dummy];
+    Sim.run(1);
+    if (facingAway()) behind += hits.slice(before).filter((event) => event.source === turret && event.target === dummy && event.amount > 0).length;
+  }
+  hits.stop();
+  check('burst shots do not follow a target behind the enemy', behind === 0 && ticks > 2, behind + ' hits in ' + ticks + ' ticks');
+  endModeTest();
+});
+
+// The last few enemies of a wave are shown to the player; a boss phase change reads as shielded; a melee parry needs the front arc.
+Test.add('pve', (check) => withShortShop(() => {
+  for (const stopMatch of [false, true]) {   // the marker goes when its enemy dies, and with a stopped match
+    const ids = startPveMode('horde', [0]);
+    godMode(ids);
+    runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 20);
+    Pve.queue.count = 0;
+    killAllEnemies(ids[0]);
+    const last = Pve.spawnEnemy('husk', 30, 0, 30, 0, { team: NO_TEAM });
+    runSeconds(0.1);
+    if (stopMatch) { endModeTest(); check('a stopped match leaves no hunted markers behind', pveHunted.length === 0, pveHunted.length); continue; }
+    check('one enemy left: the player gets a marker for it', pveHunted.length === 1 && pveHunted[0] === last, pveHunted.length);
+    killAllEnemies(ids[0]);
+    runSeconds(0.1);
+    check('no marker once it is dead', pveHunted.length === 0, pveHunted.length);
+    endModeTest();
+  }
+}));
+Test.add('pve', (check) => {
+  const dummy = startPveTest(), boss = spawnFacing('overlord', 3);
+  hitEnemy(dummy, boss, Actors.maxHealth[boss] * 0.5, 'hit', 'body');
+  runSeconds(0.1);
+  check('the boss HUD says shielded during the phase change', PveBoss.hud.active && PveBoss.hud.shielded === true, PveBoss.hud.phase);
+  runSeconds(BOSS_TRANSITION_SECONDS + 0.2);
+  check('...and not afterwards', PveBoss.hud.shielded === false);
+  endModeTest();
+});
+Test.add('pve', (check) => {
+  const dummy = startPveTest(), husk = spawnFacing('husk', 1.2), claw = { parry: true, id: 'claw', kind: 'melee' };
+  const saved = Game.playerId;
+  Game.playerId = dummy;
+  Pve.parryAt[dummy] = Sim.time;
+  Actors.yaw[dummy] = Math.PI;
+  check('a melee blow from behind is not parried', !Pve.parried(husk, dummy, claw) && PVE_HUD.parryAt < Sim.time);
+  Actors.yaw[dummy] = 0;
+  check('a melee blow from the front is parried and flashes the HUD', Pve.parried(husk, dummy, claw) && PVE_HUD.parryAt === Sim.time);
+  Game.playerId = saved;
+  endModeTest();
+});
+
+// Range: every station fills on Potato (static targets skip the enemy cap); the drill clock starts at the first shot.
+Test.add('pve', (check) => withQuality('potato', () => {
+  const hints = [];
+  for (let index = 0; index < 20; index++) hints.push({ kind: 'dummy', x: (index % 10) * 2 - 9, y: 0, z: 12 + Math.floor(index / 10) * 3 });
+  World.load(pveTestMap({ spawns: [{ x: 0, y: 0, z: 0, yaw: 0, modes: ['range'] }], navHints: hints }));
+  Game.start({ mode: 'range', seed: 1, bots: [{ dummy: true }], difficulty: 'regular' });
+  Modes.endProtection(0);
+  runSeconds(0.5);
+  check('all 20 stations are filled on Potato', RangeRun.stations.length === 20 && RangeRun.stations.every((station) => station.id >= 0), RangeRun.stations.filter((station) => station.id >= 0).length);
+  check('the drill clock is idle before a shot', RangeRun.drillStart < 0);
+  Bus.emit('weapon.fire', { id: 0, weapon: 'tempest', weaponClass: 'rifle', mode: 'primary', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
+  check('the drill clock starts at the first shot', RangeRun.drillStart === Sim.time);
+  endModeTest();
+}));

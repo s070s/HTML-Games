@@ -2,6 +2,14 @@
 
 DebugApi.rules = Rules;   // ARC-040: __CTK.rules
 
+// Only tests take a modifier out again (the game adds its modifiers once at load), so the helper lives here, not on Rules.
+function removeRuleModifier(stage, modify) {
+  const list = Rules.modifiers[stage] || [];
+  const index = list.indexOf(modify);
+  if (index >= 0) list.splice(index, 1);
+}
+Test.add('rules', (check) => { check('Rules carries no test-only method (normalize-08)', Rules.removeModifier === undefined); });
+
 // Spec table 6.1: code key move health economy precision meter (one line per bundle).
 const EXPECTED_BUNDLES = [
   'RS01 classic arena stack pickups arena none', 'RS02 tourney arena stack pickups arena adrenaline',
@@ -56,18 +64,18 @@ Test.add('rules', (check) => {
   const onMutators = (rules) => { seen.mutatorSawMove = rules.move; rules.gravityScale = 0.5; };
   const onDifficulty = (rules, setup) => { seen.difficultySawGravity = rules.gravityScale; seen.difficulty = rules.difficulty; rules.selfDamage = setup.selfDamageForTest; };
   const onHandicap = (rules) => { seen.handicapSawSelfDamage = rules.selfDamage; };
-  const onMode = (rules) => { seen.modeSawRuleset = rules.move; rules.knockback = 2; };
+  const onMode = (rules) => { seen.modeSawRuleset = rules.move; rules.itemRespawnScale = 2; };   // a field the tactical bundle does not write
   Rules.addModifier('mutators', onMutators);
   Rules.addModifier('difficulty', onDifficulty);
   Rules.addModifier('handicap', onHandicap);
   Rules.addModifier('mode', onMode);
   const rules = Rules.build({ mode: 'ffa', ruleset: 'tactical', selfDamageForTest: 0.25, difficulty: 'elite' });
-  Rules.removeModifier('mutators', onMutators);
-  Rules.removeModifier('difficulty', onDifficulty);
-  Rules.removeModifier('handicap', onHandicap);
-  Rules.removeModifier('mode', onMode);
+  removeRuleModifier('mutators', onMutators);
+  removeRuleModifier('difficulty', onDifficulty);
+  removeRuleModifier('handicap', onHandicap);
+  removeRuleModifier('mode', onMode);
   check('stages run in MOV-001 order', Rules.stagesRun.join(',') === 'mode,bundle,mutators,difficulty,handicap', Rules.stagesRun.join(','));
-  check('a mode-stage modifier runs before the bundle', seen.modeSawRuleset === 'arena' && rules.knockback === 2);
+  check('a mode-stage modifier runs before the bundle', seen.modeSawRuleset === 'arena' && rules.itemRespawnScale === 2);
   check('mutators see the bundle values', seen.mutatorSawMove === 'tactical');
   check('difficulty sees the mutator change', seen.difficultySawGravity === 0.5 && seen.difficulty === 'elite');
   check('handicap sees the difficulty change', seen.handicapSawSelfDamage === 0.25 && rules.selfDamage === 0.25);
@@ -118,6 +126,9 @@ Test.add('rules', (check) => {
   check('updating still works when full', Rules.custom.save({ id: 'custom-2', name: 'Renamed' }) !== null);
   check('remove', Rules.custom.remove('custom-1') && !Rules.custom.get('custom-1') && !Rules.custom.remove('custom-1'));
   check('ids stay unique after a remove', Rules.custom.save({ name: 'Fresh' }).id === 'custom-51');
+  // R-201: ruleset names are cleaned like every other player label (cleanLabel, LABEL_MAX)
+  const odd = Rules.custom.save({ id: 'custom-51', name: '<b>Odd\u0001</b>' + 'x'.repeat(60) });
+  check('ruleset names are cleaned like other labels (cleanLabel, LABEL_MAX)', odd && !/[<\u0001]/.test(odd.name) && odd.name === cleanLabel(odd.name + 'x', LABEL_MAX) && odd.name.length === LABEL_MAX, odd && odd.name);
   Save.data.rulesets.length = 0;
 });
 

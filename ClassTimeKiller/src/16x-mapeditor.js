@@ -8,7 +8,6 @@ const MAPEDIT_BUDGET = 400;                              // MAP-014: placed obje
 const MAPEDIT_HISTORY_SIZE = 128;                        // undo steps kept; the ring never grows past this
 const MAPEDIT_MAX_MAPS = 20;                             // saved maps
 const MAPEDIT_SAFE_SAVE_BYTES = Math.floor(SAVE_MAX_BYTES * 0.9);   // a save that would pass this is refused (the whole save stays under 1 MB, ARC-020)
-const MAPEDIT_NAME_MAX = 40;
 const MAPEDIT_BLURB_MAX = 200;
 const MAPEDIT_ID_PREFIX = 'user';
 const MAPEDIT_DRAFT_ID = 'draft';
@@ -30,10 +29,11 @@ const MAPEDIT_DIR_TURN = { '+z': '+x', '+x': '-z', '-z': '-x', '-x': '+z' };   /
 const MAPEDIT_CODE_KEYS = ['id', 'code', 'name', 'size', 'theme', 'category', 'sky', 'modes', 'blurb', 'version', 'placeholder', 'seed'];
 
 // How each list of a map is placed and measured. box: a { min, max } volume; otherwise a point with a footprint and a height.
-const MAPEDIT_NEAR_ORDER = ['items', 'spawns', 'objectives', 'navHints', 'lights', 'triggers', 'brushes', 'zones'];   // a problem at a point most likely names a point object, so those win ties
+const MAPEDIT_NEAR_ORDER = ['items', 'spawns', 'objectives', 'navHints', 'lights', 'triggers', 'props', 'brushes', 'zones'];   // a problem at a point most likely names a point object, so those win ties
+const MAPEDIT_OBJECT_LISTS = MAP_REQUIRED_LISTS.concat('props');   // every list of placed objects: counted, drawn and picked alike
 const MAPEDIT_KINDS = {
   brushes: { label: 'Brush', box: true },
-  spawns: { label: 'Spawn', halfWidth: 0.4, height: 1.8 },
+  spawns: { label: 'Spawn', halfWidth: ACTOR_RADIUS, height: STAND_HEIGHT },
   items: { label: 'Item pad', halfWidth: 0.4, height: 0.9 },
   objectives: { label: 'Objective', halfWidth: 0.5, height: 3 },
   zones: { label: 'Zone', box: true },
@@ -48,10 +48,13 @@ const MAPEDIT_PROBLEM_LISTS = { brush: 'brushes', light: 'lights', spawn: 'spawn
 // Does a validator message talk about the zone with this name? ("duplicate zone name X", "indoor zone X has no light", "zones: X has an invalid box")
 const mapEditNamesZone = (text, name) => text.includes('zone ' + name + ' ') || text.endsWith('zone name ' + name) || text.includes(': ' + name + ' has an invalid box');
 
+const MAPEDIT_NO_OBJECTS = [];
+// The map code of a saved slot: 'user7' -> 'U07'.
+const mapEditCodeOf = (id) => 'U' + id.slice(MAPEDIT_ID_PREFIX.length).padStart(2, '0');
 const mapEditClone = (value) => JSON.parse(JSON.stringify(value));
 const mapEditFinite = (value) => typeof value === 'number' && isFinite(value) && Math.abs(value) <= MAPEDIT_COORD_LIMIT;
 const mapEditTriple = (value) => Array.isArray(value) && value.length === 3 && value.every(mapEditFinite);
-const mapEditNameOf = (text) => cleanLabel(text || '', MAPEDIT_NAME_MAX);
+const mapEditNameOf = (text) => cleanLabel(text || '', LABEL_MAX);
 const mapEditAdd3 = (point, dx, dy, dz) => { point[0] += dx; point[1] += dy; point[2] += dz; };
 
 // A quarter turn of a point around (cx, cz): the same direction as '+z' -> '+x' and spawn yaw + 90.
@@ -140,13 +143,12 @@ const MapEditor = {
   toMap() { return mapEditClone(this.map); },
 
   // ---- Budget (MAP-014) ----
-  count() {
-    let total = 0;
-    for (const list of MAP_REQUIRED_LISTS) total += this.map[list].length;
-    return total;
-  },
+  count() { return mapEditObjectCount(this.map); },
   budgetLeft() { return MAPEDIT_BUDGET - this.count(); },
-  countsText() { return MAP_REQUIRED_LISTS.map((list) => MAPEDIT_KINDS[list].label + ' ' + this.map[list].length).join(', '); },
+  countsText() {
+    const lists = this.map.props.length ? MAPEDIT_OBJECT_LISTS : MAP_REQUIRED_LISTS;   // props count in the budget too
+    return lists.map((list) => MAPEDIT_KINDS[list].label + ' ' + this.map[list].length).join(', ');
+  },
 
   // ---- Edits: every change is one history entry { op, list, index, before, after, group } ----
   add(list, object) {
@@ -335,7 +337,7 @@ const MapEditor = {
     let best = Infinity;
     out.list = ''; out.index = -1;
     for (const list of MAPEDIT_NEAR_ORDER) {
-      const items = this.map[list];
+      const items = this.map[list] || MAPEDIT_NO_OBJECTS;
       for (let i = 0; i < items.length; i++) {
         const box = this.bounds(list, items[i], this.scratch);
         const gap = Math.hypot(Math.max(box[0] - x, 0, x - box[3]), Math.max(box[1] - y, 0, y - box[4]), Math.max(box[2] - z, 0, z - box[5]));
@@ -521,7 +523,7 @@ const MapEditor = {
   fromBuiltin(id) {
     const row = Maps.get(id);
     if (!row) return { error: 'Unknown map.' };
-    const objects = MAP_REQUIRED_LISTS.reduce((sum, list) => sum + row[list].length, 0);
+    const objects = mapEditObjectCount(row);
     if (objects > MAPEDIT_BUDGET) return { error: row.name + ' has ' + objects + ' objects, more than the budget of ' + MAPEDIT_BUDGET + '.' };
     const map = mapEditClone(row);
     Object.assign(map, { id: MAPEDIT_DRAFT_ID, code: 'U00', name: 'Copy of ' + row.name });
@@ -553,6 +555,8 @@ const MapEditor = {
     if (index < 0 && this.saved().length >= MAPEDIT_MAX_MAPS) { this.refuse('The map list is full (' + MAPEDIT_MAX_MAPS + ' maps). Delete one first.'); return false; }
     const id = index >= 0 ? this.slotId : this.nextId();
     const entry = this.entryFor(id, clean);
+    const unreadable = this.expand(entry.data).error;   // the same check a reload runs: a saved map always reopens
+    if (unreadable) { this.refuse('That map cannot be saved: ' + unreadable); return false; }
     const needed = entry.bytes - (index >= 0 ? this.saved()[index].bytes : 0);
     if (needed > this.freeBytes()) {
       this.refuse('Not enough room to save: this map needs ' + Math.ceil(needed / 1024) + ' KB, ' + Math.max(0, Math.floor(this.freeBytes() / 1024)) + ' KB are free. Delete a map first.');
@@ -570,7 +574,7 @@ const MapEditor = {
   },
   entryFor(id, name) {
     const map = this.toMap();
-    Object.assign(map, { id, name, code: 'U' + id.slice(MAPEDIT_ID_PREFIX.length).padStart(2, '0') });
+    Object.assign(map, { id, name, code: mapEditCodeOf(id) });
     const entry = { id, name, modes: map.modes.slice(), data: this.compact(map), bytes: 0 };
     entry.bytes = JSON.stringify(entry).length + 8;
     return entry;
@@ -583,7 +587,7 @@ const MapEditor = {
       this.refuse('The map could not be written: storage is full or blocked.');
       return false;
     }
-    this.map.id = entry.id; this.map.name = entry.name; this.map.code = 'U' + entry.id.slice(MAPEDIT_ID_PREFIX.length).padStart(2, '0');
+    this.map.id = entry.id; this.map.name = entry.name; this.map.code = mapEditCodeOf(entry.id);
     this.slotId = entry.id;
     this.dirty = false;
     this.syncRuntime();
@@ -639,6 +643,11 @@ const MapEditor = {
   },
 };
 
+// Placed objects of a map, props included: the one count behind the editor budget, a copied built-in map and a saved map.
+function mapEditObjectCount(map) {
+  return MAPEDIT_OBJECT_LISTS.reduce((sum, list) => sum + (map[list] || MAPEDIT_NO_OBJECTS).length, 0);   // an older map may lack props
+}
+
 const mapEditEntryIs = (entry) => isPlainObject(entry) && /^user\d+$/.test(entry.id) && typeof entry.name === 'string' && isPlainObject(entry.data) && Array.isArray(entry.modes) && Number.isFinite(entry.bytes);
 
 // Why a parsed code is not a map this version can hold, or '' when it is fine. A code is untrusted text: every number, list and text type is
@@ -669,8 +678,8 @@ const mapEditPropIs = (prop) => isPlainObject(prop) && mapEditTriple(prop.min) &
   && [prop.health, prop.mass, prop.debris].every(mapEditOptionalNumber) && (prop.color === undefined || mapColorIs(prop.color))
   && (prop.material === undefined || MapRules.materials.includes(prop.material));
 const MAPEDIT_DEF_LISTS = ['brushes', 'spawns', 'items', 'objectives', 'zones', 'triggers', 'lights', 'hints'];
-const mapEditText = (value, fallback, limit) => (typeof value === 'string' ? value.slice(0, limit || MAPEDIT_NAME_MAX) : fallback);
-const mapEditStrings = (list) => list.every((entry) => typeof entry === 'string' && entry.length <= MAPEDIT_NAME_MAX);
+const mapEditText = (value, fallback, limit) => (typeof value === 'string' ? value.slice(0, limit || LABEL_MAX) : fallback);
+const mapEditStrings = (list) => list.every((entry) => typeof entry === 'string' && entry.length <= LABEL_MAX);
 const mapEditOptionalNumber = (value) => value === undefined || mapEditFinite(value);
 const mapEditOptionalText = (value) => value === undefined || typeof value === 'string';
 // A copy of an object with only the listed keys, in their own order (a key such as __proto__ never survives).

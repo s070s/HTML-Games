@@ -178,7 +178,8 @@ Test.add('ui', (check) => uiWith(() => {
     const elapsed = performance.now() - started;
     check('screen ' + name + ': opens in under 1 s (UI-001)', opened && elapsed < UI_OPEN_BUDGET_MS, elapsed.toFixed(1) + ' ms');
     const items = Ui.focusables(Ui.top().element);
-    check('screen ' + name + ': has focusable controls and one has focus', items.length > 0 && Ui.top().element.contains(document.activeElement));
+    // an in-match overlay (the scoreboard) leaves the focus alone: the keys stay with the game
+    check('screen ' + name + ': has focusable controls and one has focus', items.length > 0 && (Ui.top().screen.inGame || Ui.top().element.contains(document.activeElement)));
     const reached = new Set();
     for (let i = 0; i < items.length; i++) { reached.add(document.activeElement); uiMenuCommand('next'); }
     check('screen ' + name + ': every control is reachable with next/prev alone', reached.size === items.length || items.length <= 1 || !!Ui.top().screen.onCommand, reached.size + ' of ' + items.length);
@@ -195,10 +196,10 @@ Test.add('ui', (check) => uiWith(() => {
   Settings.set('controls.touch.gyro', 'always'); Settings.set('controls.touch.gyroSensitivity', 2);
   const announced = [];
   const listener = Bus.on('setting', (key) => announced.push(key));
-  resetSettingKeys(['controls.touch.gyro']);
+  Settings.resetKeys(['controls.touch.gyro']);
   Bus.off('setting', listener);
   check('settings: a key reset touches only that key and announces it once', Settings.get('controls.touch.gyro') === 'off' && Settings.get('controls.touch.gyroSensitivity') === 2 && announced.join() === 'controls.touch.gyro', announced.join());
-  Settings.reset('controls.touch.gyro');
+  Settings.resetKeys(['controls.touch.gyro']);
   Ui.open('settings', { tab: 'controls' });
   const root = Ui.top().element;
   const keys = settingKeys('controls');
@@ -229,7 +230,7 @@ Test.add('ui', (check) => uiWith(() => {
   check('settings: the tab redraws after a reset', root.querySelector('.ui-scroll input').value === '1');
   Settings.set('ui.scale', 1.25);
   check('settings: UI scale applies at once', document.documentElement.style.getPropertyValue('--ui-scale') === '1.25');
-  Settings.reset('ui.scale');
+  Settings.resetKeys(['ui.scale']);
   check('settings: UI scale reset', document.documentElement.style.getPropertyValue('--ui-scale') === '1');
   check('settings: developer tab holds the perf and bot overlays', settingKeys('developer').includes('developer.perfHud') && settingKeys('developer').includes('developer.botDebug'));
 }));
@@ -399,7 +400,7 @@ Test.add('ui', async (check) => {
   try {
     Ui.selfTestRunner = null;
     Ui.open('help');
-    check('help: the self-test button is off when no runner exists', Array.from(Ui.top().element.querySelectorAll('button')).find((button) => button.textContent === 'Run self-test').disabled);
+    check('help: no self-test section without a runner (the release build)', !uiScreenText('help').includes('Run self-test'));
     Ui.closeAll();
     Ui.selfTestRunner = async (options) => ({ total: 5, failed: 1, groups: 2, results: [{ ok: true }, { ok: false, group: 'demo', name: 'broken check', detail: 'was 1' }], headless: options.headless });
     Ui.open('help');
@@ -410,7 +411,13 @@ Test.add('ui', async (check) => {
     const output = Ui.top().element.querySelectorAll('.ui-result')[1];
     check('help: running the self-test shows the result and the failures', output.textContent.startsWith('FAILED 1 of 5 checks') && output.textContent.includes('demo / broken check :: was 1'), output.textContent);
     check('help: the self-test runs headless so the live game is untouched', Ui.lastSelfTest.headless === true);
-    check('help: a passing run says so', selfTestSummary({ total: 9, failed: 0, groups: 3, results: [] }) === 'All 9 checks passed (3 groups)');
+    check('help: a passing run says so', selfTestSummary(Test.tally(Array.from({ length: 9 }, () => ({ ok: true })), 3)) === 'All 9 checks passed (3 groups)');
+    // R-160: a skipped probe is not a pass
+    const rows = [], probe = Test.checker('demo', rows);
+    probe('ran', true); probe.skip('gpu probe', 'no WebGL2'); probe('broke', false, 'x');
+    const tally = Test.tally(rows, 1), summary = selfTestSummary(Test.tally(rows.slice(0, 2), 1));
+    check('help: skipped probes are counted apart from passes', [tally.total, tally.passed, tally.skipped, tally.failed].join() === '3,1,1,1' && rows[1].detail === 'no WebGL2', JSON.stringify(tally));
+    check('help: the summary lists skips', summary === 'All 1 checks passed, 1 skipped (1 groups)', summary);
     const many = { total: 30, failed: 12, groups: 1, results: Array.from({ length: 12 }, () => ({ ok: false, group: 'g', name: 'n', detail: '' })) };
     check('help: a long failure list is cut', selfTestSummary(many).split('\n').length === SELF_TEST_FAILURES_SHOWN + 2 && selfTestSummary(many).endsWith('... and 4 more'));
     Ui.closeAll();
@@ -446,7 +453,7 @@ Test.add('ui', (check) => uiWith(() => {
   check('layout editor: switching the preset refreshes the shown values', sliders[0].value === String(TouchInput.getProperty('jump', 'scale')) && sliders[0].value !== '1.5');
   Array.from(Ui.top().element.querySelectorAll('.ui-row')).find((row) => row.textContent.startsWith('Panel position')).querySelector('button').click();
   check('layout editor: the panel can be docked away from the controls', Ui.top().element.dataset.dock === 'left');
-  Settings.reset('controls.touch.layout'); Input.refreshConfig();
+  Settings.resetKeys(['controls.touch.layout']); Input.refreshConfig();
   uiClickButton(Ui.top().element, 'Reset layout');
   check('layout editor: reset restores the defaults', TouchInput.getProperty('jump', 'scale') === TOUCH_PRESETS[0].scale && !TouchInput.getProperty('jump', 'hidden'));
   uiClickButton(Ui.top().element, 'Done');
@@ -465,24 +472,40 @@ Test.add('ui', (check) => uiWith(() => {
   Projectiles.clear(); Perf.publishCounters();
   Actors.remove(botId); Actors.remove(playerId);
   check('perf HUD: the AI cost is the sum of the ai, bot and PvE brain systems', Test.near(PerfOverlay.aiMilliseconds({ aiThink: 1, botMove: 0.5, pveBrains: 0.25, pve: 4, render: 9 }), 1.75, 1e-9));
-  const lines = PerfOverlay.format(Perf.stats());
-  const text = lines.join('\n');
+  const perfText = () => PerfOverlay.format(Perf.stats()).join('\n');
+  const text = perfText();
   check('perf HUD: shows fps, frame percentiles, sim, render, draw calls, scale, actors, heap, device (PERF-012)',
     ['fps', 'p50', 'p95', 'p99', 'sim p95', 'render', 'hud', 'draw calls', 'triangles', 'render scale', 'actors', 'bots', 'ai ', 'projectiles', 'particles', 'heap', 'device'].every((word) => text.includes(word)), text);
-  Test.expectErrors(() => { ErrorLog.add('perf test', new Error('visible in the HUD')); check('perf HUD: the error tail is listed (ARC-041)', PerfOverlay.format(Perf.stats()).join('\n').includes('visible in the HUD')); });
-  check('perf HUD: no errors reads "errors: none"', (() => { const saved = ErrorLog.entries.splice(0); const none = PerfOverlay.format(Perf.stats()).join('\n').includes('errors: none'); ErrorLog.entries.push(...saved); return none; })());
+  Test.expectErrors(() => { ErrorLog.add('perf test', new Error('visible in the HUD')); check('perf HUD: the error tail is listed (ARC-041)', perfText().includes('visible in the HUD')); });
+  check('perf HUD: no errors reads "errors: none"', (() => { const saved = ErrorLog.entries.splice(0); const none = perfText().includes('errors: none'); ErrorLog.entries.push(...saved); return none; })());
+  // R-164: the session's first error (the root cause) stays visible after newer ones push it out of the tail
+  const savedFirst = ErrorLog.first;
+  Test.expectErrors(() => {
+    ErrorLog.first = 'perf test: the root cause';
+    for (let i = 0; i < PERF_ERROR_LINES; i++) ErrorLog.add('perf test', 'later ' + i);
+    check('perf HUD and __CTK.log.first() keep the first error', perfText().includes('first: perf test: the root cause')
+      && DebugApi.log.first() === 'perf test: the root cause');
+  });
+  ErrorLog.first = savedFirst;
+  const savedDropped = [Render.stats.droppedInstances, HudBatch.dropped];
+  Render.stats.droppedInstances = HudBatch.dropped = 0;
+  const quiet = perfText();
+  Render.stats.droppedInstances = 3; HudBatch.dropped = 5;
+  const full = perfText();
+  [Render.stats.droppedInstances, HudBatch.dropped] = savedDropped;
+  check('perf HUD: dropped batch counts show only when there are some (R-210)', !quiet.includes('dropped instances') && full.includes('dropped instances 3') && full.includes('dropped HUD quads 5'), full);
   Settings.set('developer.perfHud', false);
   PerfOverlay.shown = false; PerfOverlay.lastUpdate = 0;
   PerfOverlay.frame();
   check('perf HUD: hidden means no work and no DOM', !PerfOverlay.element.classList.contains('show') && PerfOverlay.lastUpdate === 0 && getComputedStyle(PerfOverlay.element).display === 'none');
-  inputTapKey('F10');
-  check('perf HUD: F10 turns it on and saves the setting', Ui.perfVisible && Settings.get('developer.perfHud') === true && Save.data.settings['developer.perfHud'] === true);
+  inputTapKey('F8');
+  check('perf HUD: F8 turns it on and saves the setting', Ui.perfVisible && Settings.get('developer.perfHud') === true && Save.data.settings['developer.perfHud'] === true);
   PerfOverlay.frame();
   check('perf HUD: shows and fills the panel', PerfOverlay.element.classList.contains('show') && PerfOverlay.element.textContent.includes('fps') && getComputedStyle(PerfOverlay.element).display === 'block');
   PerfOverlay.element.textContent = 'marker';
   PerfOverlay.frame();
   check('perf HUD: refreshes only 4 times a second', PerfOverlay.element.textContent === 'marker');
-  PerfOverlay.lastUpdate = performance.now() - PERF_REFRESH_MS - 1;
+  PerfOverlay.lastUpdate = performance.now() - UI_REFRESH_MS - 1;
   PerfOverlay.frame();
   check('perf HUD: refreshes after 250 ms', PerfOverlay.element.textContent !== 'marker');
   check('perf HUD: never blocks taps', getComputedStyle(PerfOverlay.element).pointerEvents === 'none');
@@ -492,8 +515,8 @@ Test.add('ui', (check) => uiWith(() => {
   slow.fps = 120; PerfOverlay.render(slow);
   check('perf HUD: normal colour at 120 fps', !PerfOverlay.element.classList.contains('slow'));
   Ui.open('settings');
-  inputTapKey('F10');
-  check('perf HUD: F10 works while a menu is open and turns it off', !Ui.perfVisible);
+  inputTapKey('F8');
+  check('perf HUD: F8 works while a menu is open and turns it off', !Ui.perfVisible);
   inputTapKey('F9');
   check('perf HUD: F9 sets Ui.botDebug for later sections', Ui.botDebug === true && Settings.get('developer.botDebug') === true);
   inputTapKey('F9');
@@ -514,4 +537,99 @@ Test.add('ui', (check) => uiWith(() => {
   check('layout: focus is always drawn (ACC-008)', styles.includes('.ui-button:focus'));
   check('layout: the overlay root passes taps to the game when empty', getComputedStyle(document.getElementById('overlay')).pointerEvents === 'none');
   check('layout: motion can be reduced', styles.includes('prefers-reduced-motion'));
+}));
+
+// R-009 / R-167: the Home Screen web app, a back swipe that pauses, Full screen only where it exists, no version label in matches.
+Test.add('ui', (check) => uiWith(() => {
+  const head = document.head.innerHTML, version = document.getElementById('version');
+  check('home screen: metas and icon', ['"apple-mobile-web-app-capable', '"mobile-web-app-capable', 'black-translucent',
+    'apple-touch-icon" href="data:'].every((part) => head.includes(part)) && /img-src[^;]*data:/.test(head));
+  // A tab icon from data: (else the browser asks for /favicon.ico, which the CSP blocks with an error on every load).
+  // iOS must not enlarge the landscape text either.
+  check('a data: tab icon, no text enlarging', /^data:image/.test((document.querySelector('link[rel="icon"]') || {}).href)
+    && document.querySelector('style').textContent.includes('-webkit-text-size-adjust: 100%'));
+  Game.start(PlayFlow.buildSetup(PlayFlow.normalize({ bots: 1 }), () => 0.5));
+  window.dispatchEvent(new PopStateEvent('popstate'));
+  check('back swipe: pauses, version hidden', Game.state === 'playing' && Game.paused && version.hidden);
+  Game.stop();
+  const offered = (enabled) => {
+    for (const name of ['fullscreenEnabled', 'webkitFullscreenEnabled']) Object.defineProperty(document, name, { value: enabled, configurable: true });
+    Ui.open('settings', { tab: 'video' });
+    const found = uiClickButton(Ui.top().element, 'Full screen on or off') || false;
+    Ui.closeAll();
+    delete document.fullscreenEnabled; delete document.webkitFullscreenEnabled;
+    return found;
+  };
+  // The click asks for full screen; nothing happens in the test.
+  document.documentElement.requestFullscreen = () => null;
+  check('full screen: only where it exists; version back', !version.hidden && !offered(false) && offered(true));
+  delete document.documentElement.requestFullscreen;
+}));
+
+// Rotate guard (LT-C-022): an upright touch match pauses behind the overlay and resumes in landscape; menus stay usable
+// upright and the player's own pause stays.
+Test.add('ui', (check) => uiWith(() => {
+  const saved = { touch: RotateGuard.touch, portrait: RotateGuard.portrait }, requestResume = Input.requestResume, upright = { matches: true };
+  const turn = (portrait) => { upright.matches = portrait; RotateGuard.update(); return Game.paused && Game.pauseReason; };
+  const overlay = () => getComputedStyle(document.getElementById('rotate')).display !== 'none';
+  Object.assign(RotateGuard, { touch: true, portrait: upright });
+  try {
+    check('rotate: menus stay usable upright', !turn(true) && !RotateGuard.shown);
+    Game.state = 'playing';
+    check('rotate: an upright match pauses behind the overlay', turn(true) === 'rotate' && overlay());
+    check('rotate: landscape resumes', !turn(false) && !overlay());
+    // A held resume (a lost context, or a pointer lock that needs a click) is asked for once, not on every frame.
+    let requests = 0;
+    Input.requestResume = () => { requests++; };
+    turn(true); turn(false); turn(false);
+    check('rotate: a held resume is asked for once', requests === 1, requests);
+    Game.paused = false;
+    Game.pause('menu');
+    turn(true);
+    check('rotate: a pause by the player stays', turn(false) === 'menu' && !RotateGuard.shown);
+    // A tablet held upright is a playable view: only a phone-narrow portrait screen is guarded.
+    check('rotate: phones only, not tablets', saved.portrait.media.includes('max-width: ' + (ROTATE_PHONE_MAX_WIDTH - 1)), saved.portrait.media);
+  } finally {
+    Object.assign(RotateGuard, saved);
+    Input.requestResume = requestResume;
+    Game.state = 'menu'; Game.paused = false;
+    RotateGuard.update();
+  }
+}));
+
+// ---- Phone sizes: every control of the career and play menus is on screen or inside a scroll container (touch can reach it) ----
+const UI_PHONE_SIZES = [[375, 548], [568, 320], [724, 340]];
+const UI_PHONE_SCREENS = ['main', 'solo', 'career', 'ladder', 'challenges', 'operations', 'daily', 'cards', 'stats', 'profile', 'play', 'mapgen'];
+// The controls of a screen that are outside `bounds` and not inside a scroll container that is within it.
+function uiUnreachable(screen, bounds) {
+  const inside = (box) => box.top >= bounds.top - 1 && box.bottom <= bounds.bottom + 1 && box.left >= bounds.left - 1 && box.right <= bounds.right + 1;
+  return Ui.focusables(screen).filter((item) => {
+    let holder = item.parentElement;
+    while (holder !== screen && !/auto|scroll/.test(getComputedStyle(holder).overflowY)) holder = holder.parentElement;
+    return !inside(item.getBoundingClientRect()) && !(holder !== screen && inside(holder.getBoundingClientRect()));
+  }).map((item) => item.textContent.slice(0, 20));
+}
+Test.add('ui', (check) => uiWith(() => {
+  const style = Ui.root.style;
+  try {
+    for (const [width, height] of UI_PHONE_SIZES) {
+      Object.assign(style, { right: 'auto', bottom: 'auto', width: width + 'px', height: height + 'px', transform: 'translateZ(0)' });   // the box the fixed screens fill
+      const failed = [];
+      for (const name of UI_PHONE_SCREENS) {
+        Ui.open(name);
+        const hidden = uiUnreachable(Ui.top().element, Ui.root.getBoundingClientRect());
+        if (hidden.length) failed.push(name + ': ' + hidden.slice(0, 3).join('/'));
+        Ui.closeAll();
+      }
+      check('phone ' + width + 'x' + height + ': every control is on screen or in a scroll container', failed.length === 0, failed.join('; '));
+    }
+    Ui.open('career');
+    const labels = Array.from(Ui.top().element.querySelectorAll('.ui-menu button')).map((button) => button.textContent);
+    check('career: Solo links to the PvE modes and the range, which are not repeated', labels.includes('Solo') && !labels.includes('Firing Range') && !labels.includes('Siege Waves'), labels.join());
+    Ui.closeAll();
+    const styles = document.getElementById('ui-style').textContent;
+    check('layout: the focus ring shows for keyboard and pad only, sliders are touch sized', styles.includes('.ui-button:focus-visible') && !/\.ui-button:focus[ ,]/.test(styles) && styles.includes('accent-color: var(--ui-accent); min-height: 44px'));
+  } finally {
+    Object.assign(style, { right: '', bottom: '', width: '', height: '', transform: '' });
+  }
 }));

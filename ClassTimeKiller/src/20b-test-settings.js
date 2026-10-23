@@ -36,7 +36,7 @@ function settingTestExerciseReads() {
   const id = Game.playerId;
   Gadgets.holdStart[id] = 0;
   Gadgets.holdRow[id] = CAT.gadgets.find((row) => row.cook).index;
-  Gadgets.drawPreview({ mesh: () => 0 });
+  Gadgets.drawPreview({ meshFrom: () => 0 });
   Gadgets.holdStart[id] = Gadgets.holdRow[id] = -1;
   Difficulty.tierShift();
   Progress.unlockAll();
@@ -56,6 +56,9 @@ Test.add('settings', (check) => {
     if (definition.options) return definition.options.includes(definition.fallback);
     return definition.min === undefined || (definition.fallback >= definition.min && definition.fallback <= definition.max && definition.min < definition.max);
   }));
+  // A whole-number setting (an integer step) never keeps a fraction from an import (a fractional tier shift or FOV).
+  const fov = Settings.validValue(Settings.definitions.get('video.fov'), 90.4), volume = Settings.validValue(Settings.definitions.get('audio.master'), 0.33);
+  check('settings: whole-number settings are rounded', fov === 90 && volume === 0.33, fov + ' ' + volume);
   const internal = keys.filter((key) => !isEditableSetting(Settings.definitions.get(key)));
   check('settings: the only keys without a control are the named internal ones', internal.length === Object.keys(SETTINGS_INTERNAL_WRITERS).length && internal.every((key) => SETTINGS_INTERNAL_WRITERS[key]), internal.join());
 
@@ -112,10 +115,10 @@ Test.add('settings', (check) => {
 Test.add('settings', (check) => {
   // ---- Reset to defaults (tab and everything) ----
   for (const key of Settings.definitions.keys()) Settings.set(key, settingTestValue(Settings.definitions.get(key)));
-  resetSettingKeys(settingKeys('hud'));
+  Settings.resetKeys(settingKeys('hud'));
   check('reset: a tab returns to its defaults and leaves the other tabs alone', settingKeys('hud').every((key) => settingTestSame(Settings.get(key), Settings.definitions.get(key).fallback))
     && !settingTestSame(Settings.get('video.fov'), Settings.definitions.get('video.fov').fallback));
-  resetSettingKeys(editableSettingKeys());
+  Settings.resetKeys(editableSettingKeys());
   check('reset: all settings return to their defaults', editableSettingKeys().every((key) => settingTestSame(Settings.get(key), Settings.definitions.get(key).fallback)));
   check('reset: the saved values are gone, not just overwritten', editableSettingKeys().every((key) => Save.data.settings[key] === undefined));
 
@@ -145,23 +148,39 @@ Test.add('settings', (check) => {
 
 Test.add('settings', async (check) => {
   // ---- Debounced save (ARC-021, MIS-008): a burst of changes is one write, and a flush writes at once ----
-  const inner = makeMemoryStorage(false), counted = { writes: 0, getItem: (key) => inner.getItem(key), setItem(key, value) { this.writes++; inner.setItem(key, value); }, removeItem: (key) => inner.removeItem(key) };
-  Save.storage = counted;
+  const counted = Save.storage = makeCountingStorage();
   for (let value = 60; value < 70; value++) Settings.set('video.fov', value);
   check('save: a burst of changes writes nothing yet', counted.writes === 0);
   await uiWait(SETTINGS_SAVE_WAIT_MS);
   check('save: the burst becomes one write after the debounce', counted.writes === 1, counted.writes);
-  check('save: the written record holds the last value', JSON.parse(inner.getItem(SAVE_KEY)).settings['video.fov'] === 69);
+  check('save: the written record holds the last value', JSON.parse(counted.getItem(SAVE_KEY)).settings['video.fov'] === 69);
   Settings.set('video.fov', 75);
   flushSave();
-  check('save: flushSave writes at once (page hide, pause)', counted.writes === 2 && JSON.parse(inner.getItem(SAVE_KEY)).settings['video.fov'] === 75);
+  check('save: flushSave writes at once (page hide, pause)', counted.writes === 2 && JSON.parse(counted.getItem(SAVE_KEY)).settings['video.fov'] === 75);
   await uiWait(SETTINGS_SAVE_WAIT_MS);
-  check('save: the flushed change does not write a second time later', counted.writes >= 2);
+  check('save: the flushed change does not write a second time later', counted.writes === 2, counted.writes);
   const broken = makeMemoryStorage(true);
   Save.storage = broken; Save.storageWorks = true; Save.notice = '';
   Settings.set('video.fov', 80);
-  check('save: blocked storage never stops the game from changing settings', Settings.get('video.fov') === 80 && flushSave() === undefined);
-  Save.storageWorks = true; Save.notice = '';
+  let escaped = null;
+  try { flushSave(); } catch (error) { escaped = error; }
+  check('save: blocked storage never stops the game from changing settings', Settings.get('video.fov') === 80 && escaped === null && !Save.storageWorks, escaped);
+  Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';
+});
+
+// R-036: a stored or imported value Settings.set would refuse never reaches a reader.
+Test.add('settings', (check) => {
+  const bad = { 'video.fov': null, 'ui.scale': 'huge', 'video.frameCap': 45, 'hud.scale': 9999, 'video.headBob': true };
+  const read = () => Object.keys(bad).map((key) => Settings.get(key)).join();
+  const wanted = (scale) => [FOV_DEFAULT, 1, 0, scale, 100].join();
+  Save.write(SAVE_KEY, JSON.stringify({ version: 1, settings: bad }));
+  Save.load();
+  Settings.applyAll();
+  check('settings: bad stored values are dropped or clamped', read() === wanted(HUD_SCALE_MAX) && Render.config.fov === FOV_DEFAULT, read());
+  check('settings: an old on/off head bob renders as 100 %', Render.config.headBob === 100, Render.config.headBob);
+  Save.importText(JSON.stringify({ version: 1, settings: Object.assign({}, bad, { 'video.fov': 'wide', 'hud.scale': -5 }) }));
+  check('settings: imports are checked too', read() === wanted(HUD_SCALE_MIN), read());
+  Settings.resetKeys(Object.keys(bad));
 });
 
 Test.add('settings', (check) => {
@@ -327,11 +346,11 @@ function assistEffect(field, value) {
   return seen;
 }
 
-// ARC-020 / PLT-007: Settings > Developer > Export or import save; the exported text imports back and restarts the game.
+// ARC-020 / PLT-007 / R-008: Settings > Back up or restore save; the export imports back and restarts the game.
 Test.add('settings', (check) => uiWith(() => {
   Save.data.settings['video.fov'] = 77;
-  Ui.open('settings', { tab: 'developer' });
-  check('save transfer: Settings > Developer opens it', uiClickButton(Ui.top().element, 'Export or import save') && Ui.current() === 'saveTransfer');
+  Ui.open('settings');
+  check('save transfer: on the first tab', uiClickButton(Ui.top().element, 'Back up or restore save') && Ui.current() === 'saveTransfer');
   const screen = Ui.top().element, area = screen.querySelector('textarea.ui-code');
   uiClickButton(screen, 'Export');
   check('save transfer: Export fills the box with the save', JSON.parse(area.value).settings['video.fov'] === 77);
@@ -342,7 +361,6 @@ Test.add('settings', (check) => uiWith(() => {
   uiClickButton(screen, 'Import');
   uiClickButton(Ui.top().element, 'Import');   // the confirm dialog's yes
   check('save transfer: Import restores the exported save, then restarts', Settings.get('video.fov') === 77 && reloads === 1);
-  check('save transfer: a bad paste is refused with a reason and changes nothing', SaveTransfer.importText('not a save') !== '' && reloads === 1 && Settings.get('video.fov') === 77);
   SaveTransfer.reload = reload;
   const anchorClick = HTMLAnchorElement.prototype.click;
   let clicked = null, connected = false;
@@ -350,4 +368,77 @@ Test.add('settings', (check) => uiWith(() => {
   SaveTransfer.download();
   HTMLAnchorElement.prototype.click = anchorClick;
   check('save transfer: the download link is in the page when clicked (Safari / iOS), then removed', connected && clicked && !clicked.isConnected);
+}));
+
+// PLT-004: one iPhone / iPad rule (an iPhone agent, or a Mac with touch) for audio and device code; a running match holds
+// the wake lock (a controller is no touch: the phone would dim); leaving a text field undoes the iOS keyboard's page shift.
+Test.add('settings', async (check) => {
+  const agents = [['iPhone', 'iPhone', 1], ['Macintosh', 'MacIntel', 5], ['Macintosh', 'MacIntel', 0], ['Windows', 'Win32', 10]];
+  const apple = agents.map(([userAgent, platform, maxTouchPoints]) => { const nav = { userAgent, platform, maxTouchPoints }; return Device.isIos(nav) + '/' + (Sound.configureSession(nav) !== 'none'); });
+  check('iPhone and iPad found by one rule', apple.join() === 'true/true,true/true,false/false,false/false', apple.join());
+  const calls = [], sentinel = Object.assign(new EventTarget(), { release() { calls.push('release'); return Promise.resolve(); } }), scrollTo = window.scrollTo;
+  Object.defineProperty(navigator, 'wakeLock', { value: { request(type) { calls.push(type); return Promise.resolve(sentinel); } }, configurable: true });
+  Game.state = 'playing';
+  Device.updateWakeLock(); Device.updateWakeLock();
+  await Promise.resolve();
+  Game.paused = true;
+  Device.updateWakeLock();
+  check('wake lock: held in a running match only', calls.join() === 'screen,release', calls.join());
+  // platforms-03: a lock the system lets go is asked for again (after the retry wait), not left off for the rest of the match.
+  Game.paused = false;
+  Device.updateWakeLock();
+  await Promise.resolve();
+  sentinel.dispatchEvent(new Event('release'));
+  Device.wakeRetryAt = 0;
+  Device.updateWakeLock();
+  check('wake lock: asked for again after the system lets it go', calls.join() === 'screen,release,screen,screen' && Device.awake, calls.join());
+  Game.paused = true;
+  Device.updateWakeLock();
+  await Promise.resolve();
+  calls.length = 0;
+  window.scrollTo = (x, y) => calls.push(x + ',' + y);
+  // A background page gets no real focus changes: the event a blur sends.
+  Ui.root.appendChild(document.createElement('textarea')).dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+  check('keyboard: a left field scrolls back', calls.pop() === '0,0', calls.join());
+  delete navigator.wakeLock; window.scrollTo = scrollTo; Ui.root.lastChild.remove();
+  Game.state = 'menu'; Game.paused = false;
+  Device.updateWakeLock();
+});
+
+// R-008: persist() is asked once, at the first gesture. The Home Screen tip shows once, in an iOS Safari tab, after a
+// finished match and only on the bare main menu (never over the Welcome); a granted persist() needs none. The Home Screen
+// app's first start (its own empty save) offers the import.
+Test.add('settings', (check) => uiWith(() => {
+  let asked = 0;
+  Object.defineProperty(navigator, 'storage', { value: { persist: () => { asked++; return Promise.resolve(true); } }, configurable: true });
+  const saved = { isIos: Device.isIos, standalone: Device.standalone, persistAsked: Device.persistAsked, persistResult: Device.persistResult };
+  const dialogs = () => Ui.stack.filter((entry) => entry.name === 'confirm').length;
+  const device = (ios, homeScreen, persisted) => Object.assign(Device, { isIos: () => ios, standalone: () => homeScreen, persistResult: persisted || null });
+  try {
+    Device.persistAsked = false;
+    Device.armPersist();
+    window.dispatchEvent(new PointerEvent('pointerdown'));
+    window.dispatchEvent(new KeyboardEvent('keydown'));
+    check('storage: persist asked once, at a gesture', asked === 1, asked);
+    Ui.open('main');
+    device(true, false).atReady();
+    const atStart = Device.showPendingDialog();
+    Game.state = 'results';
+    for (const [ios, homeScreen, persisted] of [[false, false], [true, true], [true, false, true]]) device(ios, homeScreen, persisted).homeScreenTip();
+    check('home tip: not at start, off iOS Safari, or when persisted', !atStart && !Device.pendingDialog);
+    Ui.confirm({ title: 'Welcome', text: '', onYes: () => {} });
+    device(true, false).homeScreenTip();
+    const waited = !Device.showPendingDialog() && (Game.state = 'menu', !Device.showPendingDialog());
+    Ui.back();
+    check('home tip: waits for the bare main menu, shows once', waited && Device.showPendingDialog() && dialogs() === 1
+      && uiClickButton(Ui.top().element, HOME_SCREEN_TIP.yes) && Ui.current() === 'saveTransfer' && (Device.homeScreenTip(), !Device.pendingDialog));
+    Ui.closeAll(); Ui.open('main');
+    Save.data = Save.emptySave();
+    device(true, true).atReady();
+    check('home app: a fresh save offers the import', Device.showPendingDialog() && uiClickButton(Ui.top().element, HOME_SCREEN_IMPORT.yes) && Ui.current() === 'saveTransfer');
+  } finally {
+    delete navigator.storage;
+    Object.assign(Device, saved, { pendingDialog: null });
+    Game.state = 'menu';
+  }
 }));

@@ -15,7 +15,6 @@ const DEVICE_SHOT_SLACK = 0.05;         // a shot that meets a wall still hits a
 const DEVICE_SPHERE_LIFT = 0.5;         // area spheres (heal, drain, jam, mines) are centred this high above the base
 const DEVICE_BLAST_DAMAGE = 100;        // blast damage to devices at the centre, falling to 0 at the radius
 const DEVICE_DEFAULT_SHOT = 10;         // shot damage when a fire mode lists none
-const DEVICE_TICK = 0.25;               // fields and supply act on this tick
 const LAUNCH_FOOT_HEIGHT = 0.5;         // the lift pad pushes actors whose feet are this close to its top
 const DRONE_HOVER = 0.3;
 const DRONE_BLAST_SHARE = 0.5;          // a drone goes off when its target is within this share of its blast radius
@@ -25,9 +24,9 @@ const DEVICE_INVISIBLE_SHARE = 0.25;    // turrets and drones see cloaked enemie
 const TURRET_NOISE = 50;
 const BEACON_OFFSET = 1;                // spawn this far from the beacon
 const DEVICE_DRAW_GLINT = 0.08;
+const deviceMarkInstance = makeShapeInstance();   // a device's area ring and enemy glint (Devices.drawDevice)
 const CAPSULE_CHECK_HEIGHTS = [0.3, 0.9, 1.6];
 
-const DEVICE_RGB = pickupRgbTable(CAT.gadgets, (row) => row.color);
 const DEVICE_EVENT = { index: 0, gadget: '', owner: -1, x: 0, y: 0, z: 0 };
 const deviceHit = makeHit();
 const deviceActorHit = makeActorHit();
@@ -54,12 +53,14 @@ const Devices = {
   disabledUntil: new Int32Array(DEVICE_CAP), clock: new Float32Array(DEVICE_CAP), charges: new Int16Array(DEVICE_CAP),
   target: new Int8Array(DEVICE_CAP).fill(-1), brush: new Array(DEVICE_CAP).fill(null),
   count: 0,
+  betweenRounds: false,                   // from a round's end to the next start (no beacon spawns)
   rayDistance: 0,                         // distance of the last rayDevice hit
   steps: {},                                  // row.effect -> fn(d, row, dt)
 
   clear() {
     for (let device = 0; device < DEVICE_CAP; device++) if (this.active[device]) this.remove(device, false);
     this.count = 0;
+    this.betweenRounds = false;
   },
   rowOf(device) { return CAT.gadgets[this.row[device]]; },
   ownedCount(owner, row) {
@@ -101,13 +102,9 @@ const Devices = {
     return true;
   },
   freeSlot() {
-    let oldest = 0;
-    for (let device = 0; device < DEVICE_CAP; device++) {
-      if (!this.active[device]) return device;
-      if (this.endTick[device] < this.endTick[oldest]) oldest = device;
-    }
-    this.remove(oldest, false);
-    return oldest;
+    const device = oldestFreeSlot(this.active, this.endTick, DEVICE_CAP);
+    this.remove(device, false);
+    return device;
   },
   spawn(row, owner, x, y, z) {
     const device = this.freeSlot(), yaw = owner >= 0 ? Actors.yaw[owner] : 0;
@@ -117,7 +114,7 @@ const Devices = {
     this.yaw[device] = row.effect === 'barrier' ? snapToAxis(yaw) : yaw;   // the drawn box matches its axis-aligned brush
     this.health[device] = row.health; this.armTick[device] = Sim.tick + itemTicks(row.arm);
     this.endTick[device] = Sim.tick + itemTicks(row.duration || DEVICE_FOREVER_SECONDS);
-    this.disabledUntil[device] = 0; this.clock[device] = 0; this.charges[device] = row.amount; this.target[device] = -1;
+    this.disabledUntil[device] = 0; this.clock[device] = 0; this.charges[device] = row.charges; this.target[device] = -1;
     if (row.effect === 'barrier') this.addBrush(device, row);
     this.count++;
     this.emit('gadget.place', device);
@@ -205,7 +202,7 @@ const Devices = {
     return World.lineClear(this.x[device], this.y[device] + 0.2, this.z[device], devicePoint.x, devicePoint.y, devicePoint.z);
   },
   inCone(device, row, x, z) {
-    const dx = x - this.x[device], dz = z - this.z[device], length = Math.hypot(dx, dz) || 1;
+    const dx = x - this.x[device], dz = z - this.z[device], length = length2(dx, dz) || 1;
     return (dx * Math.sin(this.yaw[device]) + dz * Math.cos(this.yaw[device])) / length >= Math.cos(row.coneDeg / 2 * DEG);
   },
   // G12: projectiles and grenades that cross the dome wall are stopped both ways, whoever fired them; friends inside regain
@@ -282,7 +279,7 @@ const Devices = {
     const x = this.x[device], y = this.y[device] + TURRET_MUZZLE, z = this.z[device], spread = GADGET_TUNING.turretSpreadDeg * DEG;
     Hitbox.point(target, ZONE.BODY, devicePoint);
     this.yaw[device] = Math.atan2(devicePoint.x - x, devicePoint.z - z);
-    const pitch = Math.atan2(devicePoint.y - y, Math.hypot(devicePoint.x - x, devicePoint.z - z));
+    const pitch = Math.atan2(devicePoint.y - y, length2(devicePoint.x - x, devicePoint.z - z));
     const direction = Vec.fromAngles(deviceDirection, this.yaw[device] + Rng.weapons.range(-spread, spread), pitch + Rng.weapons.range(-spread, spread));
     const wallHit = World.raycast(x, y, z, direction.x, direction.y, direction.z, row.range, deviceHit);
     const wall = wallHit ? deviceHit.distance : row.range;
@@ -300,23 +297,23 @@ const Devices = {
   },
   // G17: enemy shields inside drain (through Damage.apply, never more than the shield left).
   stepDrain(device, row, dt) {
-    if (!this.due(device, dt, DEVICE_TICK)) return;
+    if (!this.due(device, dt, AREA_TICK_SECONDS)) return;
     for (let id = 0; id < Actors.count; id++) {
-      const amount = Math.min(row.drain * DEVICE_TICK, Actors.shield[id]);
+      const amount = Math.min(row.drain * AREA_TICK_SECONDS, Actors.shield[id]);
       if (amount <= 0 || !this.enemyOf(device, id) || !this.inSphere(device, id, row.radius)) continue;
       deviceDamage(this.owner[device], id, row, amount, 'dot', null);
     }
   },
-  // G21: each drone picks the nearest seen enemy in range on the DEVICE_TICK clock (between picks it only checks that the
+  // G21: each drone picks the nearest seen enemy in range on the AREA_TICK_SECONDS clock (between picks it only checks that the
   // target still lives), rolls to it and goes off next to it.
   stepDrone(device, row, dt) {
     if (!this.enemyOf(device, this.target[device])) this.target[device] = -1;
-    if (this.due(device, dt, DEVICE_TICK)) this.target[device] = this.nearestSeen(device, row, DRONE_HOVER);
+    if (this.due(device, dt, AREA_TICK_SECONDS)) this.target[device] = this.nearestSeen(device, row, DRONE_HOVER);
     if (this.target[device] >= 0) this.rollTo(device, row, this.target[device], dt);
   },
   rollTo(device, row, target, dt) {
     Hitbox.point(target, ZONE.BODY, devicePoint);
-    const dx = devicePoint.x - this.x[device], dz = devicePoint.z - this.z[device], length = Math.hypot(dx, dz);
+    const dx = devicePoint.x - this.x[device], dz = devicePoint.z - this.z[device], length = length2(dx, dz);
     if (length <= row.radius * DRONE_BLAST_SHARE) { this.detonateDrone(device, row); return; }
     const move = Math.min(length, row.speed * dt), hoverY = this.y[device] + DRONE_HOVER;
     if (World.raycast(this.x[device], hoverY, this.z[device], dx / length, 0, dz / length, move + DRONE_WALL_GAP, deviceHit)) return;
@@ -341,13 +338,13 @@ const Devices = {
   },
   // G24: a teammate who spawns while the beacon stands appears next to it (when a body fits there).
   onSpawn(id) {
-    if (!this.count) return;
+    if (!this.count || this.betweenRounds) return;
     for (let device = 0; device < DEVICE_CAP; device++) {
       if (this.beaconFor(device, id) && this.moveToBeacon(device, id)) return;
     }
   },
   beaconFor(device, id) {
-    if (!this.active[device] || this.rowOf(device).effect !== 'beacon' || this.team[device] < 0) return false;
+    if (!this.active[device] || this.rowOf(device).effect !== 'beacon') return false;   // friendOf: the owner alone when the match has no teams
     return this.working(device) && this.friendOf(device, id);
   },
   moveToBeacon(device, id) {
@@ -476,15 +473,23 @@ const Devices = {
     }
   },
   drawDevice(batch, device) {
-    const row = this.rowOf(device), offset = row.index * 3, size = row.size, x = this.x[device], y = this.y[device], z = this.z[device];
-    const red = DEVICE_RGB[offset], green = DEVICE_RGB[offset + 1], blue = DEVICE_RGB[offset + 2];
-    const glow = this.working(device) ? 0.35 + 0.25 * Math.sin(Sim.time * 6) : 0.05;
-    batch.mesh(row.shape, x, y + size[1] / 2, z, this.yaw[device], 0, size[0], size[1], size[2], red, green, blue, glow);
-    const hasArea = row.radius > 1 && row.effect !== 'mine' && row.effect !== 'drones';
-    if (hasArea) batch.mesh('ring', x, y + 0.03, z, 0, 0, row.radius * 2, 0.03, row.radius * 2, red, green, blue, 0.6);
+    const row = this.rowOf(device), x = this.x[device], y = this.y[device], z = this.z[device], pose = gadgetPose;
+    pose.x = x; pose.y = y; pose.z = z; pose.yaw = this.yaw[device];
+    pose.emissive = this.working(device) ? 0.35 + 0.25 * Math.sin(Sim.time * 6) : 0.05;
+    drawGadgetModel(batch, row, pose);
+    // the area ring and the enemy glint go through one reused instance record (batch.meshFrom, PERF-006)
+    const mark = deviceMarkInstance, hasArea = row.radius > 1 && row.effect !== 'mine' && row.effect !== 'drones';
+    mark.x = x; mark.z = z;
+    if (hasArea) {
+      mark.y = y + 0.03; mark.sx = mark.sz = row.radius * 2; mark.sy = 0.03;
+      mark.r = pose.r; mark.g = pose.g; mark.b = pose.b; mark.emissive = 0.6;
+      batch.meshFrom('ring', mark);
+    }
     if (row.kind !== 'placed' || Game.playerId < 0 || this.friendOf(device, Game.playerId)) return;
-    const glint = DEVICE_DRAW_GLINT;
-    batch.mesh('sphere', x, y + size[1] + 0.05, z, 0, 0, glint, glint, glint, 1, 0.1, 0.1, 1);
+    mark.y = y + GADGET_MODELS[row.index].top + 0.05;   // on the model's top, not the collision box
+    mark.sx = mark.sy = mark.sz = DEVICE_DRAW_GLINT;
+    mark.r = 1; mark.g = mark.b = 0.1; mark.emissive = 1;
+    batch.meshFrom('sphere', mark);
   },
 };
 const DEVICE_FOREVER_SECONDS = 3600;
@@ -542,5 +547,7 @@ Bus.on('explosion', (event) => Devices.onExplosion(event));
 Bus.on('kill', (event) => Devices.onDeath(event.victim));
 Bus.on('actor.spawn', (event) => Devices.onSpawn(event.id));
 Bus.on('match.start', () => Devices.clear());
+// The next round's spawns come before its 'start' event: from the 'end' on, no beacon pulls them, and 'start' clears the gear.
+Bus.on('round', (event) => { Devices.betweenRounds = event.phase === 'end'; if (event.phase === 'start') Devices.clear(); });
 Bus.on('match.end', () => Devices.clear());
 Bus.on('match.stop', () => Devices.clear());

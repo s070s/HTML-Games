@@ -12,7 +12,7 @@ const TestArena = {
   finish() { Game.stop(); World.clear(); Projectiles.clear(); },
   actor(team, x, z, yaw) {
     const id = Actors.create(ACTOR_KIND.DUMMY, team, 'dummy');
-    Actors.alive[id] = 1; Actors.x[id] = x; Actors.y[id] = 0; Actors.z[id] = z;
+    Actors.alive[id] = 1; Actors.place(id, x, 0, z);
     Actors.yaw[id] = Actors.aimYaw[id] = yaw || 0;
     Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
     Damage.resetHealth(id);
@@ -151,11 +151,16 @@ Test.add('damage', (check) => {
   Actors.shield[target] = 50;
   TestArena.hit(shooter, target, 70);
   check('HPP06 shield first, then health', Actors.shield[target] === 0 && Actors.health[target] === 80);
-  const kills = TestArena.count('kill', () => TestArena.hit(shooter, target, 100));
+  const kills = TestArena.count('kill', () => TestArena.hit(shooter, target, 100, { weapon: 'tempest' }));
   check('HPP06 squad: 0 HP goes down, not dead', kills === 0 && Actors.alive[target] === 1 && (Actors.flags[target] & ACTOR_FLAG.DOWNED) !== 0 && Actors.health[target] === DOWNED_HEALTH);
   check('HP-007 downed crawl speed', Damage.statusSpeed(target) === DOWNED_SPEED);
+  let bledWeapon = '';
+  const onKill = (event) => { bledWeapon = event.weapon; };
+  Bus.on('kill', onKill);
   const bled = TestArena.count('kill', () => Sim.run(DOWNED_BLEED_SECONDS * TICK_RATE + 2));
+  Bus.off('kill', onKill);
   check('HP-007 bleed-out after 30 s', bled === 1 && Actors.alive[target] === 0);
+  check('HP-007 the bleed-out kill keeps the weapon that downed the target', bledWeapon === 'tempest', bledWeapon);
   TestArena.hit(shooter, mate, 100);
   check('HP-007 last standing squad member dies outright', Actors.alive[mate] === 0);
   TestArena.finish();
@@ -370,6 +375,23 @@ Test.add('damage', (check) => {
   TestArena.hit(shooter, target, 100, { dx: 0, dy: 0, dz: 1 });
   Bus.off('impulse', handler);
   check('MOV-017 knockback 0.15 x damage m/s along the hit', impulse && Test.near(impulse.z, 15, 1e-3) && impulse.y > 0, JSON.stringify(impulse));
+  TestArena.finish();
+});
+
+// R-097: hitscan rulesets keep their targets in place; the ruleset's knockback is applied once (by S10).
+Test.add('damage', (check) => {
+  const modern = Rules.build({ mode: 'ffa', ruleset: 'modern', map: 'test' }), classic = Rules.build({ mode: 'ffa', ruleset: 'classic', map: 'test' });
+  TestArena.start({ knockback: modern.knockback });
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 3);
+  Weapons.setLoadout(shooter, ['wasp']);
+  let hits = 0;
+  const onHit = Bus.on('damage', (event) => { if (event.target === target) hits++; });
+  for (let step = 0; step < TICK_RATE && hits < 8; step++) { TestArena.aimAt(shooter, target); Actors.buttons[shooter] = BTN.FIRE; Sim.step(); }
+  Actors.buttons[shooter] = 0;
+  Sim.run(TICK_RATE);
+  Bus.off('damage', onHit);
+  const moved = Math.hypot(Actors.x[target], Actors.z[target] - 3);
+  check('Modern Ops: 8 Wasp hits move the target less than 1.5 m', hits === 8 && moved < 1.5 && classic.knockback === 1, hits + ' hits, ' + moved.toFixed(2) + ' m, classic ' + classic.knockback);
   TestArena.finish();
 });
 

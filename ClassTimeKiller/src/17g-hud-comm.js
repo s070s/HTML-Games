@@ -17,6 +17,8 @@ const COMM_WHEEL_LABEL_GAP = 4, COMM_WHEEL_TOUCH_GAP = 4;   // design pixels: ic
 // On phones the ring fits below the ability row (its top bound) and beside the grenade button (the inner edge of the lower
 // buttons), so no label sits under a default touch button and the whole ring stays on screen at any phone size.
 const COMM_WHEEL_TOUCH_ROOF = 'ability1', COMM_WHEEL_TOUCH_WALL = 'grenade';
+const COMM_WHEEL_FIT_ROUNDS = 8;       // cuts of the phone box for buttons still under a callout (commWheelPlaceRing)
+const COMM_WHEEL_MIN_SHARE = 0.4;      // of COMM_WHEEL_RADIUS: the phone ring never shrinks below this (buttons at layout scale 2 leave 0.416)
 
 const CommWheel = {
   open: false,
@@ -25,23 +27,34 @@ const CommWheel = {
   selected: -1,         // index into COMM_CALLOUTS, -1 = none
   addressee: -1,        // the team bot aimed at when it opened (the callout goes to it only), -1 = the squad
   pingHeld: -1,         // s the Ping action has been held, -1 = up
+  pingEdge: false,      // a sim step saw a Ping press that no frame saw held (a tap shorter than a frame is still a tap)
+  pingSeen: false,      // a frame saw Ping held since the last sim step: that step's press is this one, not a new tap
 
   init() {},
-  reset() { this.close(); this.pingHeld = -1; },
+  reset() { this.close(); this.pingHeld = -1; this.pingEdge = this.pingSeen = false; },
+  // Sim step: the input latch (05a) keeps a press for one step even when it ended inside a frame.
+  stepPing() {
+    const player = Game.playerId;
+    if (player >= 0 && Actors.alive[player] && !this.pingSeen && (Actors.pressed[player] & BTN.PING)) this.pingEdge = true;
+    this.pingSeen = false;
+  },
   frame(seconds) {
     const player = Game.playerId;
-    if (player < 0 || !Game.isRunning() || !Actors.alive[player]) { if (this.open || this.pingHeld >= 0) this.reset(); return; }
+    if (player < 0 || !Game.isRunning() || !Actors.alive[player]) { this.pingEdge = false; if (this.open || this.pingHeld >= 0) this.reset(); return; }
     this.updatePing(player, seconds);
     if (this.open) this.takeLook();
   },
   // Ping: a tap pings at once on release; a hold opens the wheel and its release sends the picked callout.
   updatePing(player, seconds) {
+    const edge = this.pingEdge;
+    this.pingEdge = false;
     if (Input.effective[Input.actionIndex.ping]) {
+      this.pingSeen = true;
       this.pingHeld = Math.max(0, this.pingHeld) + seconds;
       if (!this.open && this.pingHeld >= COMM_WHEEL_HOLD) this.show('ping', player);
       return;
     }
-    if (this.pingHeld < 0) return;
+    if (this.pingHeld < 0) { if (edge) BotTeam.playerPing(player); return; }   // pressed and let go between two frames
     const tapped = this.pingHeld < COMM_WHEEL_HOLD;
     this.pingHeld = -1;
     if (tapped) BotTeam.playerPing(player);
@@ -89,7 +102,8 @@ const CommWheel = {
   },
 };
 Input.sources.push(CommWheel);
-TouchInput.needs.comm = () => true;   // the touch COMM button (05b) shows now that the wheel exists
+Sim.addSystem('commPing', 5, () => CommWheel.stepPing());
+TouchInput.buttonLook = (control) => CommWheel.open && control.action === 'ping';   // the finger holding PING picks the callout
 Bus.on('input.action', (event) => { if (event.action === 'comm') CommWheel.onComm(event.down); });
 Bus.on('match.stop', () => CommWheel.reset());
 
@@ -113,35 +127,66 @@ function hudDrawCommWheel(pen, layout) {
 // One source for the drawing and the phone layout test (hudui). Reused objects: nothing is allocated per frame.
 const commWheelRing = { x: 0, y: 0, radius: 0 };
 const commWheelSpot = { x: 0, y: 0, size: 0, labelY: 0 };
-const commWheelPlace = {};   // TouchInput.layoutOf scratch
-function commWheelLabelHalf(unit) { return HUD_TEXT_SMALL * unit * HUD_CELL_PX / HUD_FONT_PX / 2; }   // half the drawn text row (07f)
 function commWheelWidestLabel(unit) {
   let widest = 0;
-  for (let i = 0; i < COMM_CALLOUTS.length; i++) widest = Math.max(widest, HudBatch.measure(COMM_CALLOUTS[i].label, HUD_TEXT_SMALL * unit));
+  for (let i = 0; i < COMM_CALLOUTS.length; i++) widest = Math.max(widest, HudPen.measure(COMM_CALLOUTS[i].label, HUD_TEXT_SMALL * unit));
   return widest;
-}
-// Half a touch button's size in pixels, read with its layout into commWheelPlace.
-function commWheelButtonHalf(controlId) {
-  const place = TouchInput.layoutOf(controlId, commWheelPlace);
-  return TouchInput.controlById[controlId].size * place.scale / 2;
 }
 // Phones: the box runs from below the ability row to the HUD bottom, and from the screen margin to the grenade button (the other
 // way round in the left-handed layout); the ring is as large as fits there with its picked icon and labels, never above
-// COMM_WHEEL_RADIUS.
+// COMM_WHEEL_RADIUS. A shown button still under a callout (moved or grown in the layout editor) cuts the box on its side,
+// unless that leaves the ring under COMM_WHEEL_MIN_SHARE of its size (then the callout stays under the button), and the ring
+// never shrinks below that share.
+const commWheelBox = { left: 0, top: 0, right: 0 }, commWheelLastBox = { left: 0, top: 0, right: 0 };
 function commWheelPlaceRing(layout) {
-  const ring = commWheelRing, unit = layout.unit;
+  const ring = commWheelRing, unit = layout.unit, box = commWheelBox;
   ring.x = layout.centerX; ring.y = layout.centerY; ring.radius = COMM_WHEEL_RADIUS * unit;
   if (!layout.touch) return ring;
   const gap = COMM_WHEEL_TOUCH_GAP * unit;
-  const roofHalf = commWheelButtonHalf(COMM_WHEEL_TOUCH_ROOF), top = commWheelPlace.y * layout.height + roofHalf + gap;
-  const wallHalf = commWheelButtonHalf(COMM_WHEEL_TOUCH_WALL) + gap, wallX = commWheelPlace.x * layout.width;
-  const mirrored = wallX < layout.centerX;   // the left-handed preset has the buttons on the left
-  const left = mirrored ? wallX + wallHalf : layout.left, right = mirrored ? layout.right : wallX - wallHalf;
-  const icon = COMM_WHEEL_ICON * COMM_WHEEL_PICKED * unit, above = icon / 2;
-  const below = icon + COMM_WHEEL_LABEL_GAP * unit + commWheelLabelHalf(unit), side = Math.max(above, commWheelWidestLabel(unit) / 2);
-  ring.radius = Math.max(0, Math.min(ring.radius, (layout.bottom - top - above - below) / 2, (right - left) / 2 - side));
-  ring.x = (left + right) / 2; ring.y = (top + above + layout.bottom - below) / 2;
-  return ring;
+  const roof = TouchInput.places[COMM_WHEEL_TOUCH_ROOF], wall = TouchInput.places[COMM_WHEEL_TOUCH_WALL];   // where the layer draws them (placeAll)
+  const wallHalf = wall.radius + gap, wallX = wall.x, mirrored = wallX < layout.centerX;   // the left-handed preset has the buttons on the left
+  box.top = roof.y + roof.radius + gap;
+  box.left = mirrored ? wallX + wallHalf : layout.left; box.right = mirrored ? layout.right : wallX - wallHalf;
+  const floor = COMM_WHEEL_MIN_SHARE * COMM_WHEEL_RADIUS * unit;
+  for (let round = 0; ; round++) {
+    if (commWheelFitBox(layout, ring, box, floor) < floor) {
+      if (round > 0) commWheelFitBox(layout, ring, Object.assign(box, commWheelLastBox), floor);   // that cut was too deep: the box before it
+      return ring;
+    }
+    const place = round < COMM_WHEEL_FIT_ROUNDS && commWheelBlocker(ring, unit);
+    if (!place) return ring;
+    const reach = place.radius + gap;
+    Object.assign(commWheelLastBox, box);
+    if (place.y < ring.y) box.top = Math.max(box.top, place.y + reach);
+    else if (place.x < ring.x) box.left = Math.max(box.left, place.x + reach);
+    else box.right = Math.min(box.right, place.x - reach);
+  }
+}
+// The largest ring in the box down to the HUD bottom, with room for its picked icons and labels (returned); the ring drawn is
+// never under floor, moved as little as keeps it on screen.
+function commWheelFitBox(layout, ring, box, floor) {
+  const unit = layout.unit, icon = COMM_WHEEL_ICON * COMM_WHEEL_PICKED * unit, above = icon / 2;
+  const below = icon + COMM_WHEEL_LABEL_GAP * unit + hudTextHalf(HUD_TEXT_SMALL * unit), side = Math.max(above, commWheelWidestLabel(unit) / 2);
+  const fits = Math.min(COMM_WHEEL_RADIUS * unit, (layout.bottom - box.top - above - below) / 2, (box.right - box.left) / 2 - side);
+  const radius = ring.radius = Math.max(floor, fits);
+  ring.x = clamp((box.left + box.right) / 2, layout.left + side + radius, layout.right - side - radius);
+  ring.y = clamp((box.top + above + layout.bottom - below) / 2, layout.top + above + radius, layout.bottom - below - radius);
+  return fits;
+}
+// The first shown touch button (the floating stick aside) that meets a callout at its picked size (the box from its icon's top
+// to its label's bottom, as wide as the wider of the two), else null.
+function commWheelBlocker(ring, unit) {
+  const spot = commWheelSpot, textHalf = hudTextHalf(HUD_TEXT_SMALL * unit), places = TouchInput.places;
+  for (let i = 0; i < COMM_CALLOUTS.length; i++) {
+    commWheelSpotOf(ring, i, true, unit, spot);
+    const iconHalf = spot.size / 2, halfWidth = Math.max(HudPen.measure(COMM_CALLOUTS[i].label, HUD_TEXT_SMALL * unit) / 2, iconHalf);
+    const top = spot.y - iconHalf, bottom = spot.labelY + textHalf;
+    for (let c = 1; c < TOUCH_CONTROLS.length; c++) {   // TOUCH_CONTROLS[0] is the stick
+      const place = places[TOUCH_CONTROLS[c].id];
+      if (place.shown && length2(clamp(place.x, spot.x - halfWidth, spot.x + halfWidth) - place.x, clamp(place.y, top, bottom) - place.y) < place.radius) return place;
+    }
+  }
+  return null;
 }
 // One callout's icon centre and size and its label's centre line; the first at the top, then clockwise.
 function commWheelSpotOf(ring, index, picked, unit, out) {

@@ -13,6 +13,18 @@ function richDraft() {
 function codeWith(object) { return CustomCodec.pack(object); }
 function customRandomBytes(random, length, alphabet) { return Uint8Array.from({ length }, () => random.int(0, alphabet - 1)); }
 
+// R-157: every new match seed (custom, editor test play, generated map) comes from one recipe, newSeed (S02).
+Test.add('custom', (check) => {
+  const savedRandom = Math.random, saved = MapGenMenu.state.seed;
+  Math.random = () => 0.25;
+  try {
+    const expected = Math.floor(0.25 * SEED_RANGE);
+    MapGenMenu.newSeed();
+    check('seeds: custom matches and generated maps use newSeed', CustomMatch.setup(CustomMatch.defaults()).seed === expected
+      && MapGenMenu.state.seed === expected, MapGenMenu.state.seed);
+  } finally { Math.random = savedRandom; MapGenMenu.state.seed = saved; }
+});
+
 Test.add('custom', (check) => {
   const random = makeRandom(77);
   let roundTrips = 0, tried = 0;
@@ -74,9 +86,18 @@ Test.add('custom', (check) => {
   check('an unknown mutator is refused', bogus({ mutators: [{ id: 'nonsense', value: true }] }).includes('invalid mutators'));
   check('an out-of-range mutator value is refused', bogus({ mutators: [{ id: 'gravity', value: 'fast' }] }).includes('invalid mutators'));
   check('a wrong type is refused', bogus({ items: 'yes' }).includes('invalid items') && bogus({ botCount: 99 }).includes('invalid botCount') && bogus({ weaponList: ['nonsense'] }).includes('invalid weaponList'));
+  // One bot cap: the highest quality preset's (modes-04); a code from that preset is valid on any device.
+  const presetTop = Math.max(...CAT.quality.map((row) => row.bots));
+  check('the code bot cap is the highest quality preset bot count', typeof QUALITY_BOTS_MAX === 'number' && QUALITY_BOTS_MAX === presetTop && !bogus({ botCount: presetTop, allies: presetTop })
+    && bogus({ botCount: presetTop + 1 }).includes('invalid botCount') && bogus({ allies: presetTop + 1 }).includes('invalid allies'));
   check('a map that does not serve the mode is refused', bogus({ mode: 'duel', map: Maps.forMode('tdm').find((map) => !map.modes.includes('duel')).id }).includes('does not serve'));
   check('a code that is not an object is refused', CustomMatch.decode(codeWith([1, 2])).error === 'The code holds no settings.');
   check('a limit that makes no sense for the mode is dropped, not trusted', CustomMatch.decode(codeWith({ mode: 'ffa', roundWins: 3 })).draft.roundWins === -1);
+  // Editor maps are local save slots (user1 here is another map on the next device): a code never names one (meta-07).
+  Maps.registerRuntime(Object.assign({}, CAT.maps.byId('spire'), { id: 'user19' }));
+  const shared = CustomMatch.decode(CustomMatch.encode(Object.assign(CustomMatch.defaults(), { map: 'user19' }))), foreign = CustomMatch.decode(codeWith({ map: 'user19' }));
+  Maps.unregisterRuntime('user19');
+  check('a code leaves out an editor map; one that names it imports a random map and says why', shared.draft.map === '' && foreign.draft.map === '' && /editor/.test(foreign.note) && /generated/.test(foreign.note));
 });
 
 Test.add('custom', (check) => {
@@ -118,6 +139,8 @@ Test.add('custom', (check) => {
   check('setup: overrides make a custom ruleset object named after the draft', setup.ruleset.id === 'custom' && setup.ruleset.name === 'Night Raid' && setup.ruleset.move === 'agile' && setup.ruleset.items === false && setup.ruleset.lives === 3 && setup.ruleset.respawn.delay === 5);
   const plain = CustomMatch.setup(CustomMatch.defaults(), 1);
   check('setup: an untouched draft uses the mode default bundle id and the mode default bot count', plain.ruleset === 'classic' && plain.bots.length === Modes.defaultBots('ffa', true).length && plain.balance === undefined);
+  const roster = PlayFlow.rosterBots(plain.bots.length, plain.difficulty, 1);
+  check('setup: mixed personality fields the Quick Play roster bots (R-148)', JSON.stringify(plain.bots) === JSON.stringify(roster) && !!roster[0].profile, JSON.stringify(plain.bots[0]));
   check('setup: no map chosen picks one that serves the mode, the same one for the same seed', Maps.forMode('ffa').some((map) => map.id === plain.map) && CustomMatch.setup(CustomMatch.defaults(), 1).map === plain.map);
   const listed = CustomMatch.setup(Object.assign(CustomMatch.defaults(), { weaponList: ['maul', 'lancet'], mutators: [{ id: 'oneshot', value: true }] }), 1);
   check('setup: a weapon list becomes the last Weapon Set mutator and wins conflicts', listed.mutators.map((entry) => entry.id).join() === 'weaponset' && listed.mutators[0].value.join() === 'maul,lancet');
@@ -178,7 +201,7 @@ Test.add('custom', (check) => {
 
     uiClickButton(root, 'Mutators');
     const mutatorRows = root.querySelectorAll('.cm-list .ui-row');
-    check('the mutators tab lists all 50 mutators with a switch each', mutatorRows.length === 50 && Array.from(mutatorRows).every((row) => row.querySelector('.ui-cycle')));
+    check('the mutators tab lists every mutator the mode can use (Frenzy: 49 of 50) with a switch each', mutatorRows.length === editorModeMutators(EDITOR_STATE.draft.mode).length && mutatorRows.length === 49 && Array.from(mutatorRows).every((row) => row.querySelector('.ui-cycle')));
     const switchOf = (code) => Array.from(root.querySelectorAll('.cm-list .ui-row')).find((row) => row.textContent.startsWith(code)).querySelector('.cm-controls > .ui-cycle:last-child');
     switchOf('X08').click();
     check('turning One-Shot on adds it to the draft', EDITOR_STATE.draft.mutators.map((entry) => entry.id).join() === 'oneshot');
@@ -215,6 +238,20 @@ Test.add('custom', (check) => {
   });
 });
 
+// R-161: the custom editor, the generated-map menu and the map editor panels redraw through Ui.rebuild (one focus-keeping rule).
+Test.add('custom', (check) => uiWith(() => {
+  const rebuild = Ui.rebuild;
+  let calls = 0;
+  Ui.rebuild = function (container, build) { calls++; return rebuild.call(this, container, build); };
+  try {
+    Settings.set('custom.draft', '');
+    Ui.open('custom');
+    Ui.open('mapgen');
+    MapEditorUi.rebuild(document.createElement('div'), () => {});
+  } finally { Ui.rebuild = rebuild; }
+  check('custom, map generator and map editor panels redraw via Ui.rebuild', calls >= 3, calls);
+}));
+
 Test.add('custom', (check) => {
   uiWith(() => {
     Settings.set('custom.draft', '');
@@ -250,6 +287,13 @@ Test.add('custom', (check) => {
     const arrow = new KeyboardEvent('keydown', { code: 'ArrowLeft', bubbles: true, cancelable: true });
     boxes[1].dispatchEvent(arrow);
     check('text fields keep their arrow keys (menu navigation does not steal them)', !arrow.defaultPrevented);
+    Maps.registerRuntime(Object.assign({}, CAT.maps.byId('spire'), { id: 'user19' }));
+    EDITOR_STATE.draft.map = 'user19';
+    Ui.open('customShare');
+    const local = Ui.root.querySelectorAll('.ui-customShare');
+    check('share screen: the sender is told the local map is left out', local[local.length - 1].textContent.includes(SHARE_LOCAL_MAP_NOTE) && !share.textContent.includes(SHARE_LOCAL_MAP_NOTE));
+    Maps.unregisterRuntime('user19');
+    EDITOR_STATE.draft.map = '';
     Ui.closeAll();
   });
 });
@@ -284,3 +328,30 @@ Test.add('custom', (check) => {
     Ui.closeAll();
   });
 });
+
+// R-044 / R-045 / R-046: code fields can be selected, copied and pasted on phones; Copy never claims a failed copy.
+// Only the copy toasts (no Web Audio adds its own); no clipboard API (http).
+Test.add('custom', (check) => uiWith(() => {
+  const toasts = [], listener = Bus.on('toast', (payload) => { if ([COPY_DONE_TEXT, COPY_MANUAL_TEXT].includes(payload.text)) toasts.push(payload.text); });
+  Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+  let selected = '', copies = false;
+  document.execCommand = () => { selected = document.activeElement.value; return copies; };
+  try {
+    Ui.open('customShare');
+    uiClickButton(Ui.top().element, 'Copy code');
+    const code = Ui.top().element.querySelector('textarea');
+    copies = true;
+    Ui.open('saveTransfer');
+    const area = Ui.top().element.querySelector('textarea'), field = area.parentNode.appendChild(makeElement('input'));
+    uiClickButton(Ui.top().element, 'Copy');
+    check('copy: says copied only when it copied', toasts.join() === COPY_MANUAL_TEXT + ',' + COPY_DONE_TEXT
+      && selected === area.value && code.readOnly && JSON.parse(area.value).version === SAVE_VERSION, toasts.join());
+    const menus = [area, document.getElementById('view')].map((target) => { const menu = new MouseEvent('contextmenu', { bubbles: true, cancelable: true }); target.dispatchEvent(menu); return menu.defaultPrevented; });
+    const style = (element) => getComputedStyle(element).getPropertyValue('-webkit-user-select') || getComputedStyle(element).userSelect;
+    check('copy: text fields keep the paste menu', menus.join() === 'false,true' && style(area) === 'text' && style(field) === 'text' && style(document.body) === 'none');
+  } finally {
+    delete document.execCommand;
+    delete navigator.clipboard;
+    Bus.off('toast', listener);
+  }
+}));

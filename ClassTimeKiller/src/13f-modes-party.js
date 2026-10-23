@@ -19,6 +19,7 @@ function roleDamageScale(source) {
 // ---- M16 Arms Ladder: one weapon per tier (params.ladder, the last tier is the melee weapon); a kill climbs one tier,
 // a melee kill also drops the victim one tier (meleeDemotes), and a melee kill on the last tier wins. Score = tier ----
 Modes.register('gungame', {
+  limits: ['time'],
   ladder: null, loadouts: null, winner: -1,
   start() {
     this.ladder = ladderTiers(Modes.rules.params);
@@ -65,10 +66,31 @@ function ladderLoadouts(ladder, melee) {
   });
 }
 
-// ---- M17 Blight: everyone starts human (team 0); after infectAfter s one in infectedPerPlayers becomes infected (team 1:
-// infectedHealth HP, melee only, a jump is a leap). One infected hit turns a human; a human who dies comes back infected.
+// ---- M17 Blight: everyone starts human (team 0); after infectAfter s some become infected (team 1: infectedHealth HP,
+// melee only, a jump is a leap; how many: outbreakSize). A hit does not turn a human: any death after the outbreak does (a kill by
+// the infected, a fall, a hazard), so a human who dies comes back infected (the mode row's goal says the same).
 // The infected win when no human is left; humans win at the time limit ----
+
+// How many start infected: one in infectedPerPlayers on infectedArea square metres of walkable floor, scaled by the square
+// root of the floor (blight-01: starting 2 of 12 everywhere, the Blight won all 6 test matches on Spire and Skyward Yard and
+// lost 5 of 6 on Gantry; the box size miscounted gappy Skyward Yard, and the count grows slower than the floor, where humans
+// spread out). Now 2 on Spire and 4 on Gantry. At least one.
+function outbreakSize(players, params) {
+  const area = walkableArea();
+  const areaScale = area > 0 ? Math.sqrt(area / params.infectedArea) : 1;
+  return Math.max(1, Math.floor(players / params.infectedPerPlayers * areaScale));
+}
+
+// The walkable floor in square metres: the nav graph's (Skyward Yard's 70 x 70 m box holds about 3100), the map's box while
+// no graph is built, 0 when neither is known.
+function walkableArea() {
+  if (Nav.nodeCount > 0) return Nav.walkableArea();
+  const size = World.map ? World.map.size : null;
+  return Array.isArray(size) ? size[0] * size[2] : 0;
+}
+
 Modes.register('infection', {
+  limits: ['time'],
   outbreak: false, meleeLoadout: null,
   start() {
     this.outbreak = false;
@@ -86,7 +108,7 @@ Modes.register('infection', {
   },
   startOutbreak(params) {
     this.outbreak = true;
-    const wanted = Math.max(1, Math.floor(this.countSides() / params.infectedPerPlayers));
+    const wanted = outbreakSize(this.countSides(), params);
     for (let k = 0; k < wanted; k++) {
       const id = randomAliveMember(HUMAN_TEAM, -1);
       if (id >= 0) this.infect(id);
@@ -101,23 +123,20 @@ Modes.register('infection', {
   applyInfection(id) {
     setVitality(id, Modes.rules.params.infectedHealth);
     Weapons.setLoadout(id, this.meleeLoadout);
+    Abilities.endAttacks(id, 'infected');   // a human turned mid-cast keeps no offensive ability running
   },
   onSpawn(id) { if (Modes.actorRole[id] === ACTOR_ROLE.INFECTED) this.applyInfection(id); },
-  onDamage(event) {
-    const source = event.source, target = event.target;
-    if (!this.outbreak || !(source >= 0) || Modes.actorRole[source] !== ACTOR_ROLE.INFECTED) return;
-    if (!Actors.alive[target] || !Modes.isActive(target) || Actors.team[target] !== HUMAN_TEAM) return;
-    this.infect(target);
-    Modes.awardPlayer(source, 1, 'infect');
-  },
   onKill(victim) {
     if (this.outbreak && victim >= 0 && Modes.isActive(victim) && Actors.team[victim] === HUMAN_TEAM) this.infect(victim);
   },
+  // The push a jump of id adds ({ leapSpeed, leapLift }: the mode params), null for a human. The bot path planner reads it
+  // too (14c), so infected bots plan the ledges and gaps only a leap clears.
+  leap(id) { return Modes.actorRole[id] === ACTOR_ROLE.INFECTED ? Modes.rules.params : null; },
   onJump(event) {
-    const id = event.id;
-    if (Modes.actorRole[id] !== ACTOR_ROLE.INFECTED) return;
-    const params = Modes.rules.params, yaw = Actors.yaw[id];
-    emitImpulse(id, Math.sin(yaw) * params.leapSpeed, params.leapLift, Math.cos(yaw) * params.leapSpeed);
+    const id = event.id, leap = this.leap(id);
+    if (!leap) return;
+    const yaw = Actors.yaw[id];
+    emitImpulse(id, Math.sin(yaw) * leap.leapSpeed, leap.leapLift, Math.cos(yaw) * leap.leapSpeed);
   },
   // Team scores hold the head counts (humans, infected); returns the number of participants.
   countSides() {
@@ -130,6 +149,7 @@ Modes.register('infection', {
     Modes.hud.survivors = humans; Modes.hud.infected = infected;
     return humans + infected;
   },
+  livesOver() { return this.outbreak ? Modes.livesWinner() : NOT_OVER; },   // until the outbreak every side is human
   isOver(now) {
     if (this.outbreak && Modes.teamScore[HUMAN_TEAM] === 0) return Modes.over(INFECTED_TEAM, 'eliminated');
     const limit = Modes.rules.timeLimit;
@@ -138,6 +158,9 @@ Modes.register('infection', {
   },
   score() { return 0; },   // head counts are not a lead: no leader announcements
 });
+// Melee only means no grenades, gadgets or offensive abilities either (the 12c attack lock, which players and bots both
+// pass through): infected bots had thrown frags for about one kill a match.
+Gadgets.attackLocks.push((id) => Modes.active && Modes.actorRole[id] === ACTOR_ROLE.INFECTED);
 
 // ---- M18 Colossus: the first kill makes the killer the Colossus (maxHealth x healthMult, damage x damageMult, marked);
 // whoever kills the Colossus becomes it. Only kills as the Colossus score (1 each) ----
@@ -219,7 +242,7 @@ Modes.register('cursetag', {
   moveBeacon(cursed) {
     let best = -1;
     for (const point of Modes.spawnPoints) {
-      const distance = Math.hypot(point.x - Actors.x[cursed], point.z - Actors.z[cursed]);
+      const distance = length2(point.x - Actors.x[cursed], point.z - Actors.z[cursed]);
       if (distance <= best) continue;
       best = distance;
       this.beacon.x = point.x; this.beacon.y = point.y; this.beacon.z = point.z;
@@ -260,6 +283,7 @@ Modes.register('roulette', {
   },
 });
 
+// The guns of the match weapon set (no melee, tool or power weapon): the Roulette draw and the Last Ring loot (13g).
 function rouletteWeapons(out) {
   out.length = 0;
   for (const key of currentWeaponSet().weapons) {

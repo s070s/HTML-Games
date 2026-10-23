@@ -135,15 +135,16 @@ const PveAttacks = {
       return true;
     },
   },
-  // Hitscan shots with spread, `gap` s apart, following the target with the turn-rate-limited look (strafing dodges).
+  // Hitscan shots with spread, `gap` s apart, fired along the turn-rate-limited look that follows the target (strafing dodges,
+  // flanking an enemy that turns slowly makes the burst miss).
   burst: {
     lockSeconds: 0,
     begin() {},
     step(id, attack, now) {
       if (Pve.shotsLeft[id] === 0 || !Pve.targetValid(id)) return true;
       if (now + TIME_EPSILON < Pve.nextShotAt[id]) return false;
-      Pve.aimAt(id, Pve.attackTarget[id]);
-      Pve.shoot(id, attack, attack.spreadDeg);
+      Pve.aimAt(id, Pve.attackTarget[id]);   // the look chases this point (PveMove.run); the shot itself follows the look
+      Pve.shoot(id, attack, attack.spreadDeg, true);
       Pve.shotsLeft[id]--;
       Pve.nextShotAt[id] = now + attack.gap;
       return Pve.shotsLeft[id] === 0;

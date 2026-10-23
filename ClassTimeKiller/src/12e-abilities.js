@@ -12,7 +12,9 @@ const NO_ABILITY = -1;
 const KIT_SLOT_EMPTY = 'none';          // a loadout choice that leaves the slot empty (ECP04 gadget field upgrades)
 const OPEN_ENDED = -1;                    // activeTime of toggles and holds: they run until turned off
 const DEFAULT_INTERRUPT = Object.freeze({ damage: false, stun: true, fire: false });
+const REWARD_QUEUE_SIZE = 3;               // a streak or boost meter has three rewards at most
 const ABILITY_STUN_FLAGS = ACTOR_FLAG.FROZEN | ACTOR_FLAG.DOWNED;
+const ATTACK_CATEGORIES = ['offense', 'control'];   // refused while Gadgets.attackLocked (Phase Slip)
 const HUD_SLOT_COUNT = 3;                  // the passive slot is not drawn as a button
 const ABILITY_CAST_EVENT = { id: 0, ability: '', slot: '' };
 const ABILITY_END_EVENT = { id: 0, ability: '', slot: '', reason: '' };
@@ -30,10 +32,14 @@ const Abilities = {
   fuel: new Float32Array(MAX_ACTORS * ABILITY_SLOT_COUNT),         // 'fuel' resource seconds left
   reward: new Uint8Array(MAX_ACTORS),                              // streak / boost reward loaded into the ultimate slot, not used yet
   rewardLoaded: new Uint8Array(MAX_ACTORS),                        // the ultimate slot holds a reward until it has run
+  rewardQueue: new Int16Array(MAX_ACTORS * REWARD_QUEUE_SIZE),     // rewards earned while one is loaded, in order (row indexes)
+  rewardsWaiting: new Uint8Array(MAX_ACTORS),
   suppressedUntil: new Float64Array(MAX_ACTORS),                   // G20 null pulse: no abilities until this Sim.time
   rechargeScale: new Float32Array(MAX_ACTORS).fill(1),             // cooldown speed (Tune Up perk writes it)
   hero: new Array(MAX_ACTORS).fill(null),                          // hero row of this life (hero rulesets)
   choices: new Array(MAX_ACTORS).fill(null),                       // loadout choice { hero, ability1, ability2, ultimate } or null
+  drawn: new Array(MAX_ACTORS).fill(null),                         // hero drawn for an actor without a choice, kept for the match
+  drawnTeam: new Int8Array(MAX_ACTORS),                            // the team that hero was drawn for (auto-balance may move a bot)
   heroMove: new Uint8Array(MAX_ACTORS),                            // this section set Move.setPreset for the actor
   effects: {},      // effect kind -> { cast(id, row, slot) -> bool, step(id, row, slot, dt) -> false ends, end(id, row, slot, reason), drain(id, row) }
   passives: {},     // hero passive kind -> { step(id, passive, dt) }
@@ -59,15 +65,40 @@ const Abilities = {
   interruptRule(row) { return row.interrupt || DEFAULT_INTERRUPT; },
 
   // ---- Kits: which abilities an actor gets this life ----
-  economyKey() { const rules = currentRules(); return (rules.params && rules.params.economy) || rules.economy || ''; },
+  economyKey(rules) { const built = rules || currentRules(); return (built.params && built.params.economy) || built.economy || ''; },
   usesHeroes() { return this.economyKey() === 'heroKits'; },
-  // The hero chosen for the actor (loadout choice, bot profile, or a role spread by actor id), cached per life.
+  // The hero chosen for the actor (loadout choice or bot profile), else the one drawn for it once per match; cached per life.
   pickHero(id) {
     const mirrored = this.mirroredHero(id);
     if (mirrored) return mirrored;
+    const wanted = this.wantedHero(id) || this.keptDraw(id);
+    if (wanted) return wanted;
+    this.drawnTeam[id] = Actors.team[id];
+    return (this.drawn[id] = this.drawHero(id));
+  },
+  // The hero drawn for the actor while it is still on the team it was drawn for, else null.
+  keptDraw(id) { return this.drawnTeam[id] === Actors.team[id] ? this.drawn[id] : null; },
+  wantedHero(id) {
     const choice = this.choices[id], profile = Actors.profile[id];
-    const wanted = (choice && choice.hero) || (profile && profile.hero) || '';
-    return CAT.heroes.byId(wanted) || CAT.heroes[id % CAT.heroes.length];
+    return CAT.heroes.byId((choice && choice.hero) || (profile && profile.hero) || '');
+  },
+  // balance-01: a seeded draw per team (so every match fields new line-ups): a role the team lacks first, then a hero no
+  // teammate plays (the player's own pick included), then any once all are taken.
+  drawHero(id) {
+    const taken = this.teamHeroes(id);
+    const missingRole = CAT.heroes.filter((hero) => !taken.some((other) => other.role === hero.role));
+    const unused = CAT.heroes.filter((hero) => !taken.includes(hero));
+    const pool = missingRole.length ? missingRole : unused.length ? unused : CAT.heroes;
+    return makeRandom(hashString('hero:' + Rng.seed + ':' + id)).pick(pool);
+  },
+  teamHeroes(id) {
+    const heroes = [];
+    for (let other = 0; other < Actors.count; other++) {
+      if (other === id || Actors.kind[other] === ACTOR_KIND.NONE || Actors.team[other] !== Actors.team[id]) continue;
+      const hero = this.wantedHero(other) || this.keptDraw(other);
+      if (hero) heroes.push(hero);
+    }
+    return heroes;
   },
   // X40 Mirror Match: bots play the local player's hero (13h copies the loadout the same way).
   mirroredHero(id) {
@@ -124,7 +155,7 @@ const Abilities = {
   // ---- Life cycle ----
   onSpawn(id) {
     this.endAll(id, 'spawn');
-    this.reward[id] = 0; this.rewardLoaded[id] = 0;
+    this.reward[id] = 0; this.rewardLoaded[id] = 0; this.rewardsWaiting[id] = 0;
     this.suppressedUntil[id] = 0;
     this.hero[id] = this.usesHeroes() ? this.pickHero(id) : null;
     this.applyHero(id);
@@ -148,6 +179,13 @@ const Abilities = {
   },
   endAll(id, reason) {
     for (let slot = 0; slot < ABILITY_SLOT_COUNT; slot++) if (this.active[this.index(id, slot)]) this.end(id, slot, reason);
+  },
+  // Ends the running offense and control abilities (an actor whose attacks just became locked, e.g. a human turned infected).
+  endAttacks(id, reason) {
+    for (let slot = 0; slot < ABILITY_SLOT_COUNT; slot++) {
+      const row = this.row(id, slot);
+      if (row && ATTACK_CATEGORIES.includes(row.category) && this.active[this.index(id, slot)]) this.end(id, slot, reason);
+    }
   },
   clearActor(id, reason) {
     this.endAll(id, reason);
@@ -245,8 +283,7 @@ const Abilities = {
   forceCast(id, abilityId) {
     const row = CAT.abilities.byId(abilityId);
     if (!row || !Actors.alive[id] || !this.usable(id, row)) return false;
-    if (this.active[this.index(id, SLOT.ULTIMATE)]) this.end(id, SLOT.ULTIMATE, 'replace');
-    this.setSlot(id, SLOT.ULTIMATE, row);
+    this.replaceUltimate(id, row);
     if (!this.effects[row.effect].cast(id, row, SLOT.ULTIMATE)) return false;
     this.begin(id, SLOT.ULTIMATE, row);
     return true;
@@ -255,14 +292,30 @@ const Abilities = {
   grantReward(id, abilityId) {
     const row = CAT.abilities.byId(abilityId);
     if (!row || soulUltimate(SLOT.ULTIMATE)) return false;
+    if (!this.rewardLoaded[id]) { this.loadReward(id, row); return true; }
+    if (this.rewardsWaiting[id] >= REWARD_QUEUE_SIZE) return false;   // never replaces the loaded one
+    this.rewardQueue[id * REWARD_QUEUE_SIZE + this.rewardsWaiting[id]++] = row.index;
+    return true;
+  },
+  loadReward(id, row) {
+    this.replaceUltimate(id, row);
+    this.reward[id] = 1; this.rewardLoaded[id] = 1;
+  },
+  // Puts a row in the ultimate slot, ending the one still running there.
+  replaceUltimate(id, row) {
     if (this.active[this.index(id, SLOT.ULTIMATE)]) this.end(id, SLOT.ULTIMATE, 'replace');
     this.setSlot(id, SLOT.ULTIMATE, row);
-    this.reward[id] = 1; this.rewardLoaded[id] = 1;
-    return true;
+  },
+  takeQueuedReward(id) {
+    const first = id * REWARD_QUEUE_SIZE, taken = this.rewardQueue[first];
+    this.rewardsWaiting[id]--;
+    for (let i = 0; i < this.rewardsWaiting[id]; i++) this.rewardQueue[first + i] = this.rewardQueue[first + i + 1];
+    return taken;
   },
   usable(id, row) {
     if (Sim.time < this.suppressedUntil[id] || !Actors.alive[id]) return false;
     if (Actors.flags[id] & ABILITY_STUN_FLAGS) return false;
+    if (ATTACK_CATEGORIES.includes(row.category) && Gadgets.attackLocked(id)) return false;
     if (row.modes !== 'any' && !modeAllows(row.modes)) return false;
     return !(row.balance.noCarrier && this.carrierCheck && this.carrierCheck(id));
   },
@@ -325,7 +378,8 @@ const Abilities = {
   afterUse(id, slot) {
     if (slot !== SLOT.ULTIMATE || !this.rewardLoaded[id] || this.reward[id]) return;
     this.rewardLoaded[id] = 0;
-    this.assignKitSlot(id, slot);
+    if (this.rewardsWaiting[id] > 0) this.loadReward(id, CAT.abilities[this.takeQueuedReward(id)]);
+    else this.assignKitSlot(id, slot);
   },
   // Ends the abilities the rule names: 'damage' (channels) or 'fire' (cloak).
   interrupt(id, cause) {
@@ -399,8 +453,17 @@ Damage.poolOverride = (id, out) => {
   out.health = hero.health; out.armor = hero.armor; out.shield = hero.shield;
 };
 
+// balance-04: a HERO_KILL_LIMIT_MODES mode in a hero ruleset counts to HERO_KILL_LIMIT_SCALE of its score limit, unless
+// the match sets its own (custom editor, Play length, soaks). Runs after the mutators, which may change the economy.
+function heroKillLimit(rules, setup) {
+  const ownLimit = setup.modeOptions && setup.modeOptions.scoreLimit !== undefined;
+  if (ownLimit || Abilities.economyKey(rules) !== 'heroKits' || !HERO_KILL_LIMIT_MODES.includes(rules.mode) || rules.scoreLimit <= 0) return;
+  rules.scoreLimit = Math.ceil(rules.scoreLimit * HERO_KILL_LIMIT_SCALE);
+}
+
+Bus.on('boot', () => Rules.addModifier('mutators', heroKillLimit));   // Rules (13a) loads after this file
 Sim.addSystem('abilities', 20, (dt) => Abilities.step(dt));
-Bus.on('actor.create', (id) => { Abilities.choices[id] = null; Abilities.hero[id] = null; Abilities.heroMove[id] = 0; Abilities.rechargeScale[id] = 1; Abilities.onSpawn(id); });
+Bus.on('actor.create', (id) => { Abilities.choices[id] = null; Abilities.drawn[id] = null; Abilities.hero[id] = null; Abilities.heroMove[id] = 0; Abilities.rechargeScale[id] = 1; Abilities.onSpawn(id); });
 Bus.on('actor.spawn', (event) => Abilities.onSpawn(event.id));
 Bus.on('power.pick', (event) => Abilities.onPowerPick(event));
 Bus.on('kill', (event) => Abilities.clearActor(event.victim, 'death'));
@@ -409,3 +472,8 @@ Bus.on('weapon.fire', (event) => Abilities.interrupt(event.id, 'fire'));
 Bus.on('match.end', () => Abilities.clearMatch());
 Bus.on('match.stop', () => Abilities.clearMatch());
 Bus.on('match.start', () => AbilityZones.clear());
+Bus.on('round', (event) => { if (event.phase === 'start') AbilityZones.clear(); });
+// The touch ability buttons show while the player's kit has that slot.
+for (const [need, slot] of [['ability1', SLOT.ABILITY1], ['ability2', SLOT.ABILITY2], ['ultimate', SLOT.ULTIMATE]]) {
+  TouchInput.needs[need] = () => Game.playerId >= 0 && Abilities.row(Game.playerId, slot) !== null;
+}

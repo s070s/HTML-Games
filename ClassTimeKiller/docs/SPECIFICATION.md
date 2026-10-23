@@ -20,7 +20,7 @@ Conventions: "must" = mandatory, "should" = expected, "may" = optional. Requirem
 
 | ID | Requirement |
 |---|---|
-| PLT-001 | One self-contained `.html` file; plain JavaScript; WebGL2; no libraries, player-side build step, ES module imports, `fetch`/XHR, or external requests. Must run by double-click (`file://`). Phones: iOS Safari cannot run local HTML files and Android Chrome may open them as `content://` where storage can fail, so phones load the same file over the LAN from any local static server (or any static host); the game must behave the same over `http(s)://` and `file://`. Developers edit `src/` files that `tools/build.mjs` (no dependencies) joins into the shipped HTML (decision D01, see `ARCHITECTURE.md`). |
+| PLT-001 | One self-contained `.html` file; plain JavaScript; WebGL2; no libraries, player-side build step, ES module imports, `fetch`/XHR, or external requests. Must run by double-click (`file://`). Phones: iOS Safari cannot run local HTML files and Android Chrome may open them as `content://` where storage can fail, so phones load the same file from a static web server. Serve it over HTTPS: iPhone and iPad Safari give gyro/motion, the screen wake lock, persistent storage and the Home Screen app only on a secure page, and a plain LAN `http://` address works for play but not for those. The game must behave the same over `http(s)://` and `file://`. Developers edit `src/` files that `tools/build.mjs` (no dependencies) joins into the shipped HTML (decision D01, see `ARCHITECTURE.md`). |
 | PLT-002 | If WebGL2 is missing or context creation fails, show a full-screen message: "WebGL2 is required", with steps to enable hardware acceleration / update browser. Never a blank page. |
 | PLT-003 | Saves and settings in `localStorage`, every access wrapped in try/catch; game must run (without persistence, with a one-line notice) if storage throws. |
 | PLT-004 | Targets: low-spec phones (Android Chrome, iOS Safari 16+), low-end laptops with integrated graphics (Chrome, Edge, Firefox current). |
@@ -60,7 +60,7 @@ Schemas (field: type, default). Full catalogue tables use these fields.
 
 | Schema | Fields |
 |---|---|
-| Ruleset | id, name, move (MV key), health (HPP key), economy (ECP key), precision (`arena`/`standard`/`tactical`/`hero`), weaponSet, meter (`none`/`streak`/`boost`/`adrenaline`/`ultimate`/`energy`), friendlyFire 0, selfDamage 0.5, knockback 1, gravityScale 1, respawn {delay 2, forced 10, protect 2, wave 0}, lives 0, itemRespawnScale 1, weaponStay false, dropOnDeath `held`, mutators [] |
+| Ruleset | id, name, move (MV key), health (HPP key), economy (ECP key), precision (`arena`/`standard`/`tactical`/`hero`), weaponSet, meter (`none`/`streak`/`boost`/`adrenaline`/`ultimate`/`energy`), friendlyFire 0, selfDamage 0.5, knockback 1, hitKnockback 1, gravityScale 1, respawn {delay 2, forced 10, protect 2, wave 0}, lives 0, itemRespawnScale 1, weaponStay false, dropOnDeath `held`, mutators [] |
 | Weapon | id, name, class, slot 1-9, ref, moveMult 1, adsMoveMult 0.7, equipTime 0.4, readyTime 0.15, primary FireMode, alt FireMode, ammoType, mag, reserve, maxAmmo, pickupAmmo, price 0, killReward 300, rarityScale true, noise 60, botPref {range [min,max], value 0..1} |
 | FireMode | type (`hitscan`/`projectile`/`beam`/`melee`/`spread`/`charge`/`zoom`/`lock`/`tool`), damage, rate (rps), pellets 1, spreadDeg, moveSpread, adsSpreadMult 0.4, recoil pattern key, falloff [startM, endM, minFactor], headMult 2, legMult 0.75, armorPen 0.75, pierce 0, range, projectile key, splash {r, dmg, minFactor 0.2}, charge {time, min, max}, ammoPerShot 1, heat, element `kinetic` |
 | Projectile | id, speed, gravity 0, life, radius, bounce 0, fuse 0, stick false, homing 0 (deg/s), drag 0, arm distance 0, onHit (`explode`/`damage`/`pin`/`freeze`), poolSize |
@@ -78,12 +78,12 @@ Schemas (field: type, default). Full catalogue tables use these fields.
 | ID | Requirement |
 |---|---|
 | INP-001 | Keyboard+mouse: pointer lock on click; request `unadjustedMovement` (raw) when supported, fall back silently; no OS acceleration applied by the game; sensitivity shown also as cm/360 at a user-set DPI. |
-| INP-002 | Every action rebindable (keyboard, mouse buttons, wheel, gamepad); conflicts flagged; reset to default; per-preset hold/toggle for crouch, sprint, aim, walk. |
-| INP-003 | Default KBM: WASD move, Space jump, Ctrl crouch/slide, Shift sprint (walk in tactical), LMB fire, RMB alt/aim, R reload, E use, Q ability 1, F ability 2, X ultimate, G grenade, V melee, C gadget, Z ping (hold = wheel), 1-9/wheel weapons, Tab scoreboard, Esc pause, T comm wheel, F10 perf HUD. |
-| INP-004 | Touch: floating left stick (move; push > 90% = sprint), right-half drag to look, buttons fire, aim, jump, crouch, reload, weapon swap, grenade, abilities, ping, scoreboard, pause. Second fire button option on left. |
+| INP-002 | Every action rebindable (keyboard, mouse buttons, wheel, gamepad); conflicts flagged; reset to default; per-preset hold/toggle for crouch, sprint, aim, walk. A toggled sprint on a controller (L3, default toggle) acts only where sprint is a run: it holds where sprint is a dash, charge or walk (Ravager, Knight, Tactical), and in Modern a click while running is the tactical sprint's second tap. A toggled sprint ends by itself when the run ends (a stop, a shot, no stamina). |
+| INP-003 | Default KBM: WASD move, Space jump, C crouch/slide (not Ctrl: Ctrl+W/N/T close or open tabs), P prone, Shift sprint (walk in tactical), Alt walk, LMB fire, RMB alt/aim, R reload, E use, H heal item, Q ability 1, F ability 2, X ultimate, G grenade, N next grenade type, V melee, U gadget, Z ping (hold = wheel), 1-9/wheel weapons, Tab scoreboard, Esc pause, T comm wheel, B buy menu, Y card, F8 perf HUD, F9 bot debug view. Gamepad: cards Pad:8+5 (menu + right bumper), prone Pad:8+10, next grenade Pad:8+4. |
+| INP-004 | Touch: floating left stick (move; push > 90% = sprint), right-half drag to look, buttons fire, aim, jump, crouch, prone, reload, weapon swap, grenade, abilities, ping, scoreboard, pause. Second fire button option on left. |
 | INP-005 | Touch layout editor: drag, resize (50-200%), opacity (20-100%), hide; per-preset layouts; reset. |
-| INP-006 | Touch options: auto-fire when crosshair is on a visible enemy (default on), tap-to-fire, look sensitivity and acceleration curve, optional gyro aim (DeviceOrientation/Motion; request permission on iOS; enable while aiming or always). |
-| INP-007 | Gamepad (Standard mapping): two sticks, configurable deadzones (inner 0.1, outer 0.95), response curve (linear/classic/dynamic), separate X/Y sensitivity, invert Y, vibration (`vibrationActuator` if present). |
+| INP-006 | Touch options: auto-fire when crosshair is on a visible enemy (default on), tap-to-fire, look sensitivity and acceleration curve, optional gyro aim (DeviceOrientation/Motion; request permission on iOS; enable while aiming or always; needs HTTPS on iOS). Auto-fire follows the held weapon's trigger: automatic weapons hold the trigger, semi and burst weapons press and release on alternate ticks. |
+| INP-007 | Gamepad (Standard mapping): two sticks, configurable deadzones (inner 0.1, outer 0.95), response curve (linear/classic/dynamic), separate X/Y sensitivity, invert Y, vibration (`vibrationActuator` if present). A pad with the standard mapping is chosen over a non-standard one; a stick let go inside the deadzone sets a new rest position. |
 | INP-008 | Aim assist only for touch and gamepad, never mouse: slowdown 40% inside a 3 deg cone around a visible enemy hitbox, magnetism up to 1.5 deg/s pull, no snap; strength slider 0-100% (default 60 gamepad, 70 touch); disabled through smoke and on cloaked targets. |
 | INP-009 | Input is sampled each frame and consumed by the next sim step; jump and fire presses are buffered 0.10 s. |
 | INP-010 | All menus fully navigable by keyboard, gamepad and touch. |
@@ -123,7 +123,7 @@ Schemas (field: type, default). Full catalogue tables use these fields.
 | MOV-014 | Landing faster than 15 m/s locks jump 0.25 s; presets with `landingPenalty` scale speed 0.2 s. |
 | MOV-015 | Fall damage: `fallMax*((v-fallSafe)/(fallLethal-fallSafe))^2` above fallSafe, to health only; fallLethal 0 = none. |
 | MOV-016 | Crouch halves noise radius; uncrouch blocked without headroom. Walk in `silentWalk` presets is silent. |
-| MOV-017 | Knockback `dv = 0.15*damage*knockbackScale/massFactor` m/s, cap 30 m/s; massFactor 1 actor, 2.5 heavy, 4 boss. Own explosions: full knockback, damage x selfDamage (0.5). Enables rocket/weapon jumps. |
+| MOV-017 | Knockback `dv = 0.15*damage*knockbackScale/massFactor` m/s, cap 30 m/s; massFactor 1 actor, 2.5 heavy, 4 boss. Own explosions: full knockback, damage x selfDamage (0.5). Enables rocket/weapon jumps. The ruleset `knockback` scale is applied once, by S10, to every impulse (Damage.knockback no longer multiplies it); Tactical, Modern, Pilot, Last Ring and Weave Suit use 0.25. The ruleset `hitKnockback` scales only the push a hit gives another actor (Hero Squad 0.5: hero pools soak many hits, so full push threw most duels off ledges). |
 | MOV-018 | Air-control assist (X24; default on for touch/gamepad in arena): airAccel +2 and auto-strafe toward look direction (avoids strafe-jump skill wall). |
 | MOV-019 | Water: swim 50% speed, 12 s air then 2 HP/s rising 2/s to 15 HP/s ignoring armor. Ladders 3.0 m/s. Jump pads fly to designer apex; teleporters keep speed magnitude. |
 | MOV-020 | Telefrag: arriving into another capsule kills the occupant (credit to arriver). Spawn logic prevents spawn telefrags (MAP-010, MAP-011). |
@@ -189,67 +189,67 @@ Schemas (field: type, default). Full catalogue tables use these fields.
 | WPN-001 | Every weapon has a primary and an alternate fire mode (alt may be zoom/aim only for precision weapons, marked "zoom"). |
 | WPN-002 | Hitscan = ray vs static BVH then actor hit volumes via spatial hash; projectiles = pooled swept spheres per sim step. No hit result depends on frame rate. |
 | WPN-003 | Spread (deg) = base + moveSpread x f + air + recoil bloom, x adsSpreadMult when aiming; first shot standing is exact for rifles/pistols. |
-| WPN-004 | Recoil: fixed per-weapon spray pattern arrays (pitch/yaw kicks per shot, 30 entries, looped) plus small seeded jitter; recovers at 8 deg/s after 0.25 s idle. Learnable, identical for bots. |
+| WPN-004 | Recoil: fixed per-weapon spray pattern arrays (pitch/yaw kicks per shot, 30 entries, looped) plus small seeded jitter; recovers at the pattern's rate (8 deg/s by default, 6-9 by weapon class) after 0.25 s idle. Learnable, identical for bots. |
 | WPN-005 | Falloff linear from startM to endM down to minFactor. Penetration tiers (low/med/high): thin cover (wood/metal sheet) passes at 0.5/0.7/0.85 damage. |
 | WPN-006 | Weapon sets (ruleset field): `arenaSet` (W01,W04,W19,W21,W23,W30,W31,W32,W36,W37,W45 power), `tacticalSet` (W02,W04,W05,W06,W09,W11,W13,W14,W19,W24,W25,W29), `militarySet` (W02,W04,W05,W09,W10,W11,W13,W14,W15,W16,W19,W24,W25,W28,W29,W33), `sandboxSet` (W02,W05,W12,W15,W16,W17,W18,W23,W24,W31,W32,W35), `ravagerSet` (W01,W19,W20,W22,W26,W28,W31,W36,W39,W44,W45), `knightSet` (W03,W19,W20,W26,W34,W36,W38,W40), `lootSet` (tactical + military pistols/rifles/shotguns/snipers, rarity), `exoticSet` (W07,W12,W27,W34,W37,W38,W39,W43,W44); custom sets allowed (X10). |
 | WPN-007 | Ammo tiers when `ammoTiers` on (Destiny): primary infinite reserve, special scarce drops, heavy rarest. Arena: ammo cap per type, weapon pickup gives ammo if owned. |
 | WPN-008 | Loot rarity (ECO) multiplies damage 1.00/1.05/1.10/1.16/1.22 and mag +0/0/10/20/30%. |
 | WPN-009 | Weapon respawn 5 s FFA, 30 s team modes (x itemRespawnScale); weapon stay option. Power weapons (W45,W46) one per map, 120 s, announced 10 s before. |
-| WPN-010 | Damage values below are for 100 HP baseline; precision profile applies (HP-002). Equip 0.4 s default; switching never faster than equipTime (avoids switch-fire abuse). |
+| WPN-010 | Damage values below are for 100 HP baseline; precision profile applies (HP-002). Equip 0.4 s default; switching never faster than equipTime, except that equip attachments and perks may shorten a swap down to 0.8 x equipTime (EQUIP_SCALE_FLOOR). |
 | WPN-011 | Underbarrel/explosive alt fires have arm distance >= 6 m and low reserves (avoid grenade-launcher spam). |
 
-Columns: Primary / Alt = type, damage, rate rps, notes. Ammo = mag/reserve. All numbers **T**.
+Columns: Primary / Alt = type, damage, rate rps, notes. Ammo = mag/reserve. All numbers **T**. Reload rules: the shot that empties the magazine starts the reload automatically, even with the trigger held; an empty alt pool only clicks; charge and lock releases short of ammo click empty and reload; with no reserve a short magazine fires what is loaded (W20: one barrel). `militarySet` spawn loadout: W02, W04, W10.
 
 | Code | Key | Name | Class | Primary | Alt | Ammo | Benefit / drawback | Ref |
 |---|---|---|---|---|---|---|---|---|
 | W01 | `maul` | Breaker Maul | melee | melee 50, 2.5, reach 1.6 m | charge 0-1.2 s: 30-120 dmg; ground hit launches self up 4.5 m, 10 self dmg | - | mobility + finisher / must close in | Q3 Gauntlet, UT Impact Hammer |
 | W02 | `tanto` | Edge Tanto | melee | slash 35, 2.5 | heavy stab 65, 1.0 s; 150 from behind | - | full move speed, silent / tiny reach | CS knife, TF Data Knife |
-| W03 | `bulwark` | Bulwark Shield-Saw | melee | bash 40 + stagger, 1.5 | hold block (frontal, 150 shield pool); tap in 0.2 s window = parry, reflects green projectiles | - | defence, parry skill / slow | Doom TDA, UT2004 Shield Gun |
-| W04 | `warden` | Warden Pistol | sidearm | hitscan 25, 4, spread 0.5 | 3-round burst 25 each, 0.6 s | 12/48 | free, accurate; 2nd pickup = dual / weak | UT Enforcer, Valorant Classic, USP |
+| W03 | `bulwark` | Bulwark Shield-Saw | melee | bash 40 + stagger, 1.5 | hold block (frontal 120 deg arc, 150 shield pool); tap in 0.2 s window = parry, reflects green projectiles | - | defence, parry skill / slow | Doom TDA, UT2004 Shield Gun |
+| W04 | `warden` | Warden Pistol | sidearm | hitscan 25, 4, spread 0.5, falloff 20-40 m 0.7 | 3-round burst 25 each, 1.5 bursts/s, falloff 10-25 m 0.6 | 12/48 | free, accurate; 2nd pickup = dual / weak | UT Enforcer, Valorant Classic, USP |
 | W05 | `verdict` | Verdict Magnum | sidearm | hitscan 55, 2.2, head x2 | zoom 2x | 6/24 | one-tap head on low HP / heavy recoil (anti dominant-pistol) | Deagle, Sheriff, HL2 .357 |
-| W06 | `hush` | Hush Pistol | sidearm | hitscan 18, 5, noise 6 m | sleep dart: target bot sleeps 8 s, non-lethal | 10/40 + 6 darts | stealth / low dmg | Deus Ex stealth pistol, Dishonored sleep dart |
+| W06 | `hush` | Hush Pistol | sidearm | hitscan 22, 5, noise 6 m | sleep dart: target bot sleeps 8 s, non-lethal | 10/40 + 6 darts | stealth / low dmg | Deus Ex stealth pistol, Dishonored sleep dart |
 | W07 | `sparklock` | Sparklock Pistol | sidearm | lock-on: 0.4 s lock per target, up to 3 targets in 12 deg/20 m cone, 12 x8 rps auto-aim | manual hip fire 12 | 24/72 | easy hits on fodder / weak vs fast bots | Titanfall Smart Pistol |
 | W08 | `twinsting` | Twin Stinger | sidearm | hitscan 14, 15 auto | flare round: reveals 6 m area 5 s, lures beasts | 20/100 + 4 flares | fast TTK close / bad range | Mag 60, Turok flare |
 | W09 | `wasp` | Wasp SMG | smg | hitscan 18, 13, falloff 10-25 m 0.6 | aim 1.5x | 30/120 | mobility moveMult 1.0 / weak range | MP5, R-97, Spectre |
 | W10 | `hornet` | Hornet Carbine | smg | hitscan 15, 12 | contact grenade 80 r3.5, arm 6 m | 45/180 + 3 | versatile / few grenades | HL2 MP7 |
 | W11 | `riptide` | Riptide PDW | smg | hitscan 16, 14, mag 50 | toggle hollow rounds: -15% dmg, hits slow target 20% 1 s | 50/150 | big mag / spread | P90, CrossFire JHP |
-| W12 | `needlethorn` | Needlethorn | smg | homing needles 9, 10 rps, homing 90 deg/s; 7 stuck = burst 60 | volley 5 needles, 0.8 s | 30/90 | forgiving aim / slow projectiles | Halo needler |
-| W13 | `vanguard` | Vanguard Rifle | rifle | hitscan 34, 10, no falloff, head one-taps in tactical | aim 1.3x | 25/75 | long-range one-tap / strong recoil | AK-47, Vandal |
+| W12 | `needlethorn` | Needlethorn | smg | homing needles 9, 10 rps, homing 35 deg/s, falloff 12-28 m 0.6; 9 stuck = burst 40 r2 | volley 5 needles (5 ammo), 1.25/s | 30/90 | forgiving aim / slow projectiles | Halo needler |
+| W13 | `vanguard` | Vanguard Rifle | rifle | hitscan 34, 10, falloff 35-60 m 0.75, head one-taps in tactical | aim 1.3x | 25/75 | long-range one-tap / strong recoil | AK-47, Vandal |
 | W14 | `tempest` | Tempest Rifle | rifle | hitscan 30, 11, falloff 30-50 m 0.8, quiet tracers | aim 1.3x | 30/90 | easy spray / less range | M4, Phantom |
 | W15 | `ratchet` | Ratchet Burst | rifle | 3-round burst 32 each, 3 bursts/s | scope 1.8x | 24/96 | burst TTK / misses waste burst | M16, Destiny pulse |
-| W16 | `longshot` | Longshot Scout | rifle | semi hitscan 40, 3.5, head x2 | scope 2.5x | 15/60 | precise mid-long / slow | Halo battle rifle, M14, scout rifle |
+| W16 | `longshot` | Longshot Scout | rifle | semi hitscan 50, 3.5, head x2 | scope 2.5x | 15/60 | precise mid-long / slow | Halo battle rifle, M14, scout rifle |
 | W17 | `coilcaster` | Coilcaster | energy | hitscan beam 45, 1.4 | slow orb 55 r1.5 @12 m/s; hit orb with primary = combo 200 r4, costs 3 cells | 20/50 cells | skill combo / slow fire | UT Shock Rifle |
 | W18 | `pulsecarbine` | Pulse Carbine | rifle | hitscan 20, 10 | bouncing dark orb: 1.5 s life, kills fodder/disintegrates light PvE, 100 vs bots | 30/60 + 2 orbs | crowd clear / orb rare | HL2 pulse rifle |
-| W19 | `scattergun` | Scattergun | shotgun | 10 x 9, 1.1, spread 5 | slug 70, aim 1.2x | 6/30 | burst close / pump | Q3, Nova, Fortnite pump |
-| W20 | `hookjaw` | Hookjaw | shotgun | double barrel 20 x 7, 0.9, reload 1.1 | hook: pulls self to enemy <= 25 m, cd 6 s | 2/24 | gap closer / 2 shells | Doom Eternal super shotgun, HL2 SPAS |
+| W19 | `scattergun` | Scattergun | shotgun | 10 x 12, 1.1, spread 5 | slug 55, aim 1.2x | 6/30 | burst close / pump | Q3, Nova, Fortnite pump |
+| W20 | `hookjaw` | Hookjaw | shotgun | double barrel 8 x 20 (2 shells), 0.9, reload 1.1 | hook: pulls self to enemy <= 25 m, cd 6 s | 2/24 | gap closer / 2 shells | Doom Eternal super shotgun, HL2 SPAS |
 | W21 | `shardcaster` | Shardcaster | shotgun | 9 bouncing shards x 12 @45 m/s | lobbed shell 100 impact + 6 shards | 10/40 | room clearing / falloff by spread | UT Flak Cannon |
-| W22 | `frostbore` | Frostbore | shotgun | 8 x 10 | freeze blast: 3 Chill stacks = Freeze 3 s; frozen shatter on any hit | 8/32 + 20 freeze | combo freeze-shatter / short range | Painkiller Freezer, BioShock Winter Blast |
+| W22 | `frostbore` | Frostbore | shotgun | 8 x 13 | freeze blast: 3 Chill stacks = Freeze 3 s; frozen shatter on any hit | 8/32 + 20 freeze | combo freeze-shatter / short range | Painkiller Freezer, BioShock Winter Blast |
 | W23 | `lancet` | Lancet Rail | marksman | hitscan 100, 0.67, pierces 4, alwaysHead off | zoom 2.5x | 10/30 | one shot = 100 / slow, visible trail | Q3 Railgun, UT2004 Lightning Gun |
 | W24 | `heron` | Heron Sniper | sniper | hitscan 115, 0.67, head x2.5, legs 0.75 | zoom 4x/8x, hold breath 4 s | 5/20 | one-shot body / scoped moveMult 0.5, no hipfire accuracy | AWP, Operator, UT sniper |
 | W25 | `kestrel` | Kestrel DMR | marksman | semi 60, 3, head x2 | scope 3x | 10/40 | fast follow-up / mid dmg | Guardian, Marshal, BF DMR |
 | W26 | `stakedriver` | Stakedriver | marksman | stake 90 @60 m/s, pins to wall; > 25 m ignites +30 burn | lob grenade 80 r4, 3 bounces | 12/36 + 6 | long-range punish / slow | Painkiller Stakegun, HL2 crossbow |
-| W27 | `talonbow` | Talon Bow | marksman | hold draw 0.8 s: 40-110, silent, arrow drop | explosive arrow 80 r2.5 | 1/18 + 6 | silent, works underwater / drop | Turok Tek Bow, Crysis 3 bow |
-| W28 | `hailstorm` | Hailstorm | heavy | hitscan 10, 18 after 0.5 s spin | root as turret: rate x1.5, 30% frontal resist | 150/300 | suppression / slow move 0.75 | UT Minigun, Doom mobile turret, Turok War Horse |
+| W27 | `talonbow` | Talon Bow | marksman | hold draw 0.7 s: 50-110, silent, arrow drop | explosive arrow 80 r2.5 | 1/18 + 6 | silent, works underwater / drop | Turok Tek Bow, Crysis 3 bow |
+| W28 | `hailstorm` | Hailstorm | heavy | hitscan 15, 18 after 0.2 s spin-up | root as turret: rate x1.5, 30% frontal resist | 150/300 | suppression / slow move 0.75 | UT Minigun, Doom mobile turret, Turok War Horse |
 | W29 | `anvil` | Anvil LMG | heavy | hitscan 25, 9, mag 100, reload 6 s | mount on ledge: recoil -70% | 100/200 | sustained fire / reload | M249, CoD4 LMG, MW mount |
 | W30 | `linker` | Linker | energy | bolts 22, 6 @40 m/s | beam 100 dps 30 m; on ally beam +50%; heals turrets/objectives 60/s | 70/140 cells | team synergy / tracking | UT Link Gun |
-| W31 | `ramjet` | Ramjet Launcher | explosive | rocket 100 direct + 100 splash r3.5 @30 m/s, 1.25 | hold to load up to 3, release tight spread | 5/25 | splash, rocket jump / slow | Q3/UT Rocket Launcher |
-| W32 | `pitcher` | Pitcher Launcher | explosive | bouncing grenade 100 r4, 2.5 s fuse | sticky mine, detonate on alt release (max 4) | 6/24 | area denial / indirect | Q3 GL, Doom sticky bombs |
+| W31 | `ramjet` | Ramjet Launcher | explosive | rocket 90 direct + 80 splash r3.5 @30 m/s, 1 | hold 1 s to load up to 3, release tight spread | 4/20 | splash, rocket jump / slow | Q3/UT Rocket Launcher |
+| W32 | `pitcher` | Pitcher Launcher | explosive | bouncing grenade 100 r4.5, 1.5, 2.5 s fuse | sticky mine 100 r4 (max 4): tap throws a mine on release; hold >= 0.35 s detonates all mines and throws none | 6/24 | area denial / indirect | Q3 GL, Doom sticky bombs |
 | W33 | `kingfisher` | Kingfisher Pod | explosive | 2 dumb rockets 60 | hold 1.2 s lock then 4 homing missiles 35 (homing 120 deg/s) | 8/24 | anti-heavy / lock telegraphed | Doom lock-on, Turok Scorpion, Deus Ex GEP |
-| W34 | `gloop` | Gloop Gun | explosive | sticky blob 20 + 10/s puddle 3 s | charge 2 s: big glob up to 150, splits | 25/75 | traps chokes / short arc | UT Bio Rifle |
-| W35 | `kindler` | Kindler | heavy | cone 9 m 60 dps + Burn | napalm puddle 6 s, or airblast pushes projectiles | 100 fuel/200 | burns armor drops (ravager) / short range | Painkiller, Turok, Deus Ex flamethrower |
-| W36 | `ember` | Ember Repeater | energy | bolt 20 + splash 15 r0.6 @60 m/s, 10 | heat blast cone 6 m, dmg = stored heat (max 120) | 50/200 cells | fast DPS / projectile | Q3 Plasma, Doom plasma heat blast |
+| W34 | `gloop` | Gloop Gun | explosive | sticky blob 20 + 20/s puddle 3 s, 4 rps | charge 2 s: big glob 20-150 (5 ammo), splits in 3 | 25/75 | traps chokes / short arc | UT Bio Rifle |
+| W35 | `kindler` | Kindler | heavy | cone 9 m 100 dps + Burn | napalm puddle 6 s, or airblast pushes projectiles | 100 fuel/200 | burns armor drops (ravager) / short range | Painkiller, Turok, Deus Ex flamethrower |
+| W36 | `ember` | Ember Repeater | energy | bolt 16 + splash 10 r0.6 @60 m/s, 10 | heat blast cone 6 m, dmg = stored heat (max 120); stored heat vents 10/s after 1 s without a shot | 50/200 cells | fast DPS / projectile | Q3 Plasma, Doom plasma heat blast |
 | W37 | `stormlash` | Stormlash | energy | beam 160 dps, range 24 m | chain arc: 30 to 3 targets within 6 m | 100/200 | tracking DPS / range cap | Q3 Lightning Gun, Painkiller Electrodriver |
 | W38 | `starthrower` | Starthrower | energy | disc 18, 8, ricochet 2x | explosive disc 50 r1.8 | 50/150 | bank shots / predictable | UT Ripper, Painkiller driver |
-| W39 | `accelerator` | Accelerator | energy | charge 3 levels: 40/90/160 (cells 2/4/8) | 360 deg shockwave r6: 40 + knockback | 20/60 cells | flexible burst / charge time | Turok particle accelerator, shockwave |
+| W39 | `accelerator` | Accelerator | energy | charge 3 levels: 40/90/160 (cells 2/4/8) | 360 deg shockwave r6: 60 + knockback (4 ammo) | 20/60 cells | flexible burst / charge time | Turok particle accelerator, shockwave |
 | W40 | `fusionmortar` | Fusion Mortar | explosive | rolling orb, explodes 2 s: 300 r6, spares owner | detonate early | 1/1 (max 2) | room wipe / max 2 carried | Turok Fusion Cannon |
 | W41 | `lifter` | Graviton Lifter | tool | punt held/near prop: dmg = 0.5 x mass x speed (cap 150) | pull and hold prop (mass <= 150 kg), catch grenades | infinite | props as ammo and shield / prop-dependent | HL2 gravity gun |
 | W42 | `twingate` | Twin-Gate Projector | tool | place Dawn gate | place Dusk gate (2 max, momentum kept, puzzle modes) | infinite | puzzles / no damage | Portal |
-| W43 | `auger` | Skull Auger | exotic | homing drill to nearest head 20 m, drills 2 s then 150 | none -> manual detonate | 3/9 | guaranteed kill / useless vs drones/turrets | Turok 2 Cerebral Bore |
+| W43 | `auger` | Skull Auger | exotic | homing drill to nearest head 20 m, drills 2 s then 90 | none -> manual detonate | 3/9 | guaranteed kill / useless vs drones/turrets | Turok 2 Cerebral Bore |
 | W44 | `razorwind` | Razorwind | exotic | returning blade 45 per pass | lodge blade in wall: laser line to you, 15/tick cuts crossers; alt again recalls | infinite | no ammo, line traps / short range | Painkiller weapon, Turok Razor Wind |
 | W45 | `daybreak` | Daybreak Projector | power | slow orb 150 + splash 150 r6 @18 m/s; arcs 30/s to enemies within 8 m of orb | overcharge 2 s: x1.5 | 4 | map power item / one per map | Q3 BFG10K, Doom BFG |
 | W46 | `halcyon` | Halcyon Warhead | power | slow warhead 300 r12 falloff | guided: steer by camera, user stands still | 1 | area denial / user vulnerable | UT Redeemer |
 
-Prices/kill rewards (roundBuy, credits): sidearms 0-800 (W04 free, W05 700, W06 400, W08 500), SMG 1200-1500 (reward 600), shotguns 1100-1800 (reward 900), rifles 2000-3100 (reward 300), W24 4700 (reward 100), W25 1800, W29 4000, melee kill 1500. **T**
+Prices/kill rewards (roundBuy, credits): sidearms 0-700 (W04 free, W05 700, W06 300, W08 500), SMG 1100-1400 (W11 1100, reward 600), shotguns 1100-1800 (reward 900), rifles 2300-2900 (W16 2300, reward 300), W24 4700 (reward 100), W25 1800, W29 4000, melee kill 1500. **T**
 
 | Code | Projectile | Speed m/s | Gravity | Life s | Radius | Notes |
 |---|---|---|---|---|---|---|
@@ -260,15 +260,20 @@ Prices/kill rewards (roundBuy, credits): sidearms 0-800 (W04 free, W05 700, W06 
 | P05 | shard | 45 | 6 | 2 | 0.05 | bounce 2x |
 | P06 | energy orb | 12 | 0 | 6 | 0.40 | combo target |
 | P07 | stake | 60 | 4 | 4 | 0.06 | pin |
-| P08 | arrow | 40-70 by draw | 9 | 6 | 0.05 | silent |
-| P09 | needle | 35 | 0 | 2 | 0.05 | homing 90 deg/s |
-| P10 | goo blob | 18 | 15 | 8 | 0.20 | stick, puddle |
+| P08 | arrow | 40-70 by draw | 9 | 6 | 0.05 | draw sets speed |
+| P09 | needle | 35 | 0 | 2 | 0.05 | homing 35 deg/s |
+| P10 | goo blob | 28 | 15 | 8 | 0.20 | stick, puddle |
 | P11 | disc | 35 | 0 | 3 | 0.15 | ricochet 2 |
 | P12 | fusion orb | 6 rolling | 20 | 2 | 0.50 | owner-safe |
 | P13 | warhead | 14 | 0 | 15 | 0.50 | guided |
 | P14 | contact grenade | 30 | 15 | 5 | 0.10 | arm 6 m |
 | P15 | missile | 28 | 0 | 6 | 0.12 | homing 120 deg/s |
 | P16 | hook | 60 | 0 | 0.4 | 0.20 | pull |
+| P17 | drill | 20 | 0 | 6 | 0.08 | homing 90 deg/s, drills 2 s |
+| P18 | blade | 30 | 0 | 1.2 | 0.25 | pierces, returns |
+| P19 | dark orb | 25 | 0 | 1.5 | 0.30 | bounces, pierces |
+| P20 | Daybreak orb | 18 | 0 | 6 | 0.50 | explode on hit |
+| P21 | bullet | 320 | 0 | 1 | 0.02 | X41 ballistics pellet |
 
 ## 9. Grenades and gadgets (GAD)
 
@@ -322,7 +327,7 @@ Prices/kill rewards (roundBuy, credits): sidearms 0-800 (W04 free, W05 700, W06 
 | A03 | `colossusweave` | Colossus Weave | suit | toggle, energy per use 15 | jump x1.8, melee x2, throw props/bots, steady aim | Crysis strength |
 | A04 | `phantasm` | Phantasm Weave | suit | toggle, 8/s moving, 2/s still | near-invisible; firing empties energy | Crysis cloak |
 | A05 | `shadowstep` | Shadow Step | mobility | instant, energy 20% | teleport to aimed point <= 10 m (15 m upgraded), ledge grab | Dishonored Blink |
-| A06 | `phaseslip` | Phase Slip | mobility | instant, cd 12 s | 2 s invulnerable, intangible, cannot fire | Titanfall phase shift |
+| A06 | `phaseslip` | Phase Slip | mobility | instant, cd 12 s | 2 s invulnerable, cannot fire, throw or use gadgets and offensive abilities (a cooked grenade is put away) | Titanfall phase shift |
 | A07 | `grapnel` | Grapnel | mobility | instant, cd 10 s | hook geometry <= 30 m, pull 18 m/s; pulls enemies | TF2 grapple, Apex |
 | A08 | `surge` | Surge Dash | mobility | 3 charges, 3 s each | 7 m blink-dash in input direction | Overwatch Tracer |
 | A09 | `rewind` | Rewind Anchor | mobility | instant, cd 15 s | return to position/HP of 3 s ago | Tracer recall, TF2 phase rewind |
@@ -332,7 +337,7 @@ Prices/kill rewards (roundBuy, credits): sidearms 0-800 (W04 free, W05 700, W06 
 | A13 | `echopulse` | Echo Pulse | recon | instant, cd 20 s | 3 pulses reveal enemies 15 m through walls 1 s each | TF pulse blade, active radar |
 | A14 | `huntersight` | Hunter Sight | recon | toggle, energy 5/s | see actors and their vision cones through walls 30 m | Dishonored Dark Vision |
 | A15 | `scoutdrone` | Scout Drone | recon | channel, cd 40 s | piloted drone 20 s; ends in EMP r5 | Apex Crypto, Deus Ex spy drone |
-| A16 | `tracker` | Tracker Sense | recon | passive | enemy footprints visible 8 s | Bloodhound, MW Tracker |
+| A16 | `tracker` | Tracker Sense | recon | passive | enemy footprints visible 8 s, one ring per enemy, none for crouch-walk or quiet steps | Bloodhound, MW Tracker |
 | A17 | `veil` | Veil Curtain | control | 2 charges, 30 s | smoke wall 12 m x 3 m, 15 s | Apex Bangalore, Valorant controller |
 | A18 | `fence` | Static Fence | control | 4 charges, 15 s | node-link fence: 20 dmg + slow 60% 1.5 s | Apex Wattson |
 | A19 | `timebend` | Time Bend | control | instant, energy 60% | world x0.25 for 6 s (SP) / slow field r8 (versus) | Dishonored Bend Time, Painkiller Haste |
@@ -356,20 +361,20 @@ Prices/kill rewards (roundBuy, credits): sidearms 0-800 (W04 free, W05 700, W06 
 | A37 | `overcore` | Overcore | ultimate | ult 1500 | damage x2 + fire rate x1.2 10 s | Titanfall Damage Core |
 | A38 | `orbital` | Orbital Lance | ultimate | ult 1800 | marked 8 m circle, 2 s warning, 250 dmg | Apex artillery, Ion Painter |
 | A39 | `rift` | Rift Gate | ultimate | ult 1500 | linked portals 60 m for team, 15 s | Apex Wraith |
-| A40 | `rally` | Rally Cry | ultimate | ult 1200 | team +50 overshield, speed x1.2 8 s | Overwatch support ults |
+| A40 | `rally` | Rally Cry | ultimate | ult 1200 | team +50 overshield (capped at the PU07 surplus cap, lost after 8 s), speed x1.2 8 s | Overwatch support ults |
 
 Hero kits (RS09; each: weapon, passive, 2 abilities, ultimate):
 
 | Code | Key | Name | Role | HP (health/armor/shield) | Weapon | Kit | Ref |
 |---|---|---|---|---|---|---|---|
-| H01 | `bastide` | Bastide | tank | 400/150/0 | W19 | passive knockback resist 30%; A26, W03 alt block; ult A38 | Overwatch tank, Gibraltar |
-| H02 | `moraine` | Moraine | tank | 350/0/200 | W28 | passive shield regen; A07, A28; ult A40 | Overwatch Orisa, TF Legion |
+| H01 | `bastide` | Bastide | tank | 450/200/0 | W19 | passive knockback resist 30%; A26, W03 alt block; ult A38 | Overwatch tank, Gibraltar |
+| H02 | `moraine` | Moraine | tank | 250/0/100 | W28 | passive shield regen 30/s after 2 s; A07, A28; ult A40 | Overwatch Orisa, TF Legion |
 | H03 | `quill` | Quill | damage (duelist) | 200/0/0 | W14 | passive +25% speed 2.5 s after kill; A08, A09; ult A37 | Tracer, Valorant duelist |
 | H04 | `tessaly` | Tessaly | damage (sniper) | 200/0/0 | W24 | passive scope info; A11, A13; ult A39 | Widowmaker, Vantage |
 | H05 | `brask` | Brask | damage (demo) | 225/0/0 | W32 | passive extra grenade; A18, G09; ult A38 | Fuse, Junkrat |
 | H06 | `lark` | Lark | support | 200/0/0 | W30 | passive regen 15/s after 1.5 s; A25, A27; ult A40 | Mercy, Lifeline |
 | H07 | `mirelle` | Mirelle | support (controller) | 225/0/0 | W12 | passive smoke vision; A17, A22; ult A19 field | Valorant controller |
-| H08 | `tamsin` | Tamsin | initiator | 200/0/0 | W16 | passive tracker A16; A15, G19; ult A13 global | Valorant initiator, Bloodhound |
+| H08 | `tamsin` | Tamsin | initiator | 200/0/0 | W16 | passive tracker A16; A15, G19; ult AX1 global pulse | Valorant initiator, Bloodhound |
 
 ## 11. Powerups and pickups (PWR)
 
@@ -454,7 +459,7 @@ Perks (ECP04): Tier 1 Scavenger (ammo from bodies), Bandolier (+50% ammo), Hardl
 | Code | Key | Name | Rules and defaults (**T**) | Ref |
 |---|---|---|---|---|
 | M01 | `ffa` | Frenzy (FFA) | 8 players, frag limit 25, 10 min; +1 kill, -1 suicide; respawn 2 s / forced 10 s | Q3, UT, HL2DM |
-| M02 | `tdm` | Team Clash | 4v4, 50 kills, 10 min, FF 0 | all |
+| M02 | `tdm` | Team Clash | 4v4, 50 kills (15 in a hero ruleset), 10 min, FF 0 | all |
 | M03 | `duel` | Duel | 1v1, 10 min, no frag limit; bot queue winner-stays; items on | Q3 Tournament, UT3 Duel |
 | M04 | `ctf` | Flag Raid | 5v5, 3 caps, 15 min; own flag must be home to score; dropped flag auto-returns 20 s or on touch | Q3, UT, Halo |
 | M05 | `oneflag` | Lone Flag | neutral flag at centre, deliver to enemy base, 5 caps | Q3 TA |
@@ -468,14 +473,14 @@ Perks (ECP04): Tier 1 Scavenger (ammo from bodies), Bandolier (+50% ammo), Hardl
 | M13 | `bomb` | Detonate | 5v5, rounds: buy 15 s, live 100 s, plant 4 s, fuse 40 s, defuse 7 s (half-progress kept at 3.5 s); first to 7 rounds, swap at 6; one life | CS, Valorant |
 | M14 | `elim` | Last Squad | team rounds, one life, first to 5 rounds, 90 s + shrinking safe area last 30 s | CrossFire Elimination, Gunfight |
 | M15 | `lms` | Last Standing | FFA, 3 lives, all weapons max ammo, 100 armor, no pickups except boots | UT LMS, Painkiller |
-| M16 | `gungame` | Arms Ladder | 18 tiers (WPN ladder set), kill to advance, melee kill demotes victim, final melee kill wins | CS Arms Race, Apex Gun Run |
-| M17 | `infection` | Blight | 1 infected per 6 players after 20 s; infected 300 HP melee + leap, one hit infects; humans win at 5 min | CrossFire Mutation, Halo Infection |
+| M16 | `gungame` | Arms Ladder | 12 tiers (11 guns + the maul; `params.tiers` only shortens it), kill to advance, melee kill demotes victim, final melee kill wins | CS Arms Race, Apex Gun Run |
+| M17 | `infection` | Blight | 1 infected per 6 players (scaled by the square root of the walkable floor / 3000 m²) after 20 s; infected 320 HP melee only (no grenades, gadgets or attack abilities) + leap; not on Skyward Yard (open void edges), a human who dies after the outbreak turns infected; humans win at 5 min | CrossFire Mutation, Halo Infection |
 | M18 | `juggernaut` | Colossus | first kill becomes Colossus (x3 HP, x1.5 dmg, marked); kill the Colossus to become it; 1 pt per kill as Colossus, 15 to win | Halo Juggernaut, CrossFire Hero, UT Mutant |
 | M19 | `cursetag` | Curse Tag | cursed actor: 50 HP, melee only, must reach a beacon to pass curse; others score by killing them | Turok Frag Tag |
 | M20 | `royale` | Last Ring | 18 actors (6 squads of 3 or solo); drop-in; 6 ring phases: wait 30/25/25/20/15/10 s, shrink 30/25/20/20/15/15 s, damage 2/4/8/12/16/20 HP/s; squads downed + one respawn beacon per squad | Fortnite, Apex |
 | M21 | `horde` | Siege Waves | 4 actors (player + 3 bots) defend a core 5000 HP; 10 waves; mini-boss wave 5, boss wave 10; ECP07 shop; 2 retries | Titanfall FD, CrossFire Zombie |
 | M22 | `endless` | Endless Hold | endless waves, scaling +8% HP/dmg per wave (cap x4); extract option every 5 waves | Warframe Defense/Survival |
-| M23 | `bank` | Mote Rush | 2 teams of 4 vs separate PvE; kills drop motes; bank 5/10/15 sends blocker; 50 banked opens invasion; 100 summons boss; first boss kill wins | Destiny Gambit |
+| M23 | `bank` | Mote Rush | 2 teams of 4 vs separate PvE; kills drop motes; bank 5/10/15 sends blocker; 75 banked opens invasion; 250 summons boss; first boss kill wins | Destiny Gambit |
 | M24 | `bearer` | Flame Bearer | one PU19; holder scores 1/s + kills; first to 120 | Painkiller Light Bearer |
 | M25 | `roulette` | Roulette Arms | everyone same infinite-ammo weapon, rotates every 30 s, no pickups | Painkiller Voosh |
 | M26 | `fiends` | Ravager vs Fiends | player (or bot) Ravager 175 HP/125 armor vs 2 fiend bots that summon fodder; fiend partner 20 s to revive; best of 5 | Doom BATTLEMODE |
@@ -588,7 +593,7 @@ Cards (Painkiller-style, PvE and X48): 3 Active slots (use once per level, 30 s)
 | C14 | `ironwill` | Iron Will | active | 666 | invulnerable | boss under 1:20 |
 | C15 | `rage` | Rage | active | 500 | damage x4 | all secrets + no deaths |
 | C16 | `hardy` | Hardy | passive | 100 | base HP 150 | no armor pickups in a level |
-| C17 | `freecards` | Patron | passive | 0 | cards placed free | finish a level with no cards |
+| C17 | `freecards` | Patron | passive | 0 | cards placed at half price (hard difficulty only) | finish a level with no cards |
 | C18 | `lastbreath` | Last Breath | passive | 500 | revive once at 33 HP | find all secrets on hard |
 | C19 | `discord` | Discord | active | 200 | enemies fight each other 15 s | 3 Wrath Forms in a level |
 | C20 | `redeemer` | Soul Feast | passive | 1000 | souls heal x2 | keep HP > 50 whole level |
@@ -610,7 +615,7 @@ Architecture: per bot = Perception -> Memory -> Decision (utility goals, re-scor
 | BOT-005 | Awareness states (stealth modes and PvE): Unaware -> Suspicious (meter 30) -> Searching (60) -> Alert/Combat (100). Meter fills by sight (closer, lit, moving = faster; 0.6-2.5 s to full **T**), noise, seen corpses; decays after 6 s unseen; alerts propagate to allies within 15 m by bark. Indicator above head (UI-014). Bots look up only when alerted (vertical cone +20 deg unaware, +60 alerted). |
 | BOT-006 | Reaction time: first shot no earlier than tier reaction (BT table) + seeded jitter +/-20%, floor 150 ms; re-acquire after losing LOS uses 50% of it. |
 | BOT-007 | Memory: last known position + velocity per enemy, decays 10 s; items with respawn times; damage sources (vengefulness). |
-| BOT-010 | Navigation graph generated at map load from walkable surfaces: 1 m cell sampling -> merged regions -> nodes; links: walk, jump (gap <= preset reach, up <= apex), drop (<= 6 m or no-fall-damage presets more), jump pad, teleporter, ladder, wall-run (parallel wall pairs 3-5 m), rocket-jump (only if preset/trait allow), dash/double-jump. Cost = travel time per preset. Must finish < 300 ms on Low for a 120x120 m map, cached per map+preset. |
+| BOT-010 | Navigation graph generated at map load from walkable surfaces: 1 m cell sampling -> merged regions -> nodes; links: walk, jump (gap <= preset reach, up <= apex), drop (<= 6 m or no-fall-damage presets more), jump pad, teleporter, ladder, wall-run (parallel wall pairs 3-5 m), rocket-jump (only if preset/trait allow), dash/double-jump. Cost = travel time per preset. Must finish < 300 ms on Low for a 120x120 m map, cached per map+preset. At match load the build runs in 6 ms slices per frame and the graph is empty until `nav.ready`. |
 | BOT-011 | Pathing: A* on cluster graph then node graph, time-sliced (<= 4 queries per tick), path smoothing by string-pulling; dynamic avoidance (other actors, fire areas, mines seen). |
 | BOT-012 | Stuck recovery: no progress 1.5 s -> jump/strafe; 3 s -> repath excluding the link; 6 s -> pick new goal; logged to debug. Self-test fails if any bot is stuck > 6 s in soak test (ARC-033). |
 | BOT-013 | Item timing: bots with itemFocus trait > 0.5 schedule pickups using exact timers (PWR-001), arriving 1-3 s early. |
@@ -730,7 +735,7 @@ Named roster (tier / signature traits / favourite): B01 Pell (0, timid, W04), B0
 | MP03 | `twinkeeps` | Twin Keeps | 120x60 | ctf, oneflag, dom | mirrored, 3 routes, flag rooms |
 | MP04 | `dustline` | Dustline | 110x90 | bomb, elim, ghostops | 3 lanes, sites A/B, mid |
 | MP05 | `harbor` | Harbor Nine | 90x90 | tdm, hardpoint, attrition | docks, 3 lanes |
-| MP06 | `gantry` | Gantry Run | 100x80 | all agile | wall-run lanes, rooftops |
+| MP06 | `gantry` | Gantry Run | 100x80 | all agile except Team Clash (long sight lines) | wall-run lanes, rooftops |
 | MP07 | `cistern` | Cistern | 80x80 | horde, endless, fiends | core room + 4 spawn gates |
 | MP08 | `convoyline` | Old Rail | 160x40 | payload, rush, conquest | linear, checkpoints |
 | MP09 | `isle` | Ring Isle | 300x300 | royale | generated by GN5 default seed |
@@ -800,7 +805,7 @@ Named roster (tier / signature traits / favourite): B01 Pell (0, timid, W04), B0
 | AUD-003 | Weapon sounds = noise burst + tonal body + filter envelope per class; distance low-pass and level; occlusion low-pass when no LOS. |
 | AUD-004 | Footsteps per surface material, loud enough to locate enemies at 15 m (Apex "need headphones" mistake): stereo panning equal-power; HRTF on High+. |
 | AUD-005 | Distinct synthesized cues: incoming rocket whistle, grenade bounce tick, power item respawn chime, low health heartbeat, shield break, hit marker tick, headshot ping, ping chirps, bark radio blips. |
-| AUD-006 | Optional generative music with intensity layers (calm/combat/boss); off by default on Potato. |
+| AUD-006 | Optional generative music with intensity layers (calm/combat/boss); the Music setting is Auto (off on Potato), On or Off. |
 | AUD-007 | Audio scheduling <= 0.3 ms per frame; no node creation storm (pool and reuse buffers). |
 
 ## 23. Rendering (REN)
@@ -809,8 +814,8 @@ Named roster (tier / signature traits / favourite): B01 Pell (0, timid, W04), B0
 |---|---|
 | REN-001 | WebGL2 forward renderer; static world merged per 16 m chunk per material into few VBOs; frustum culling per chunk; distance fog. |
 | REN-002 | Characters: procedural rigid-part humanoids (boxes/capsules) animated by code; instanced draws per archetype; 2 LODs (far = 6-part); outlines via backface shell optional. |
-| REN-003 | Shader programs <= 8: world lit (vertex colour + procedural material patterns + baked AO), instanced actors/props, viewmodel, particles (instanced billboards), sky, HUD/UI quads, post (tone map, vignette, optional FXAA), portal/stencil variant. |
-| REN-004 | Lighting baked into vertex colours at map build; up to 8 dynamic point lights (muzzle/explosions) by preset; no shadow maps on Low/Potato (blob shadows), one cascaded sun shadow on High/Ultra. |
+| REN-003 | Shader programs <= 8: world lit (vertex colour + procedural material patterns + baked AO), instanced shapes (actors, props, viewmodel, outlines, blob shadows), depth-only sun shadow casters, particles (instanced billboards, tracers, decals), sky, HUD/UI quads, post (tone map, vignette, optional FXAA). Seven programs; there is no portal/stencil variant. |
+| REN-004 | Lighting baked into vertex colours at map build; up to 8 dynamic point lights (muzzle/explosions) by preset; blob shadows on Medium, Low and Potato, one (not cascaded) sun shadow map on High/Ultra. |
 | REN-005 | HUD drawn as batched WebGL quads (single draw call per layer); menus in DOM. |
 | REN-006 | Render interpolation between the last two sim states (ARC-010). |
 | REN-007 | Smoke volumes as instanced soft particles with an occupancy grid for LOS; bullet holes punch grid cells. |
@@ -821,20 +826,20 @@ Named roster (tier / signature traits / favourite): B01 Pell (0, timid, W04), B0
 | ID | Requirement |
 |---|---|
 | ARC-001 | One HTML file: `<style>`, DOM shells (canvas, overlay, fatal screen), one `'use strict'` script with sections in order: util/math, RNG, data catalogues, settings/save, input, audio, renderer, world/collision, nav, movement, weapons/projectiles, abilities/items, rules/modes, bots, PvE director, map gen, HUD, UI, game loop, self-test, bootstrap. Each section starts with a banner comment (IronHorizon convention). |
-| ARC-010 | Fixed timestep 120 Hz with accumulator, max 4 steps per frame (drop remainder and log), render interpolation. Sim never reads wall-clock. |
+| ARC-010 | Fixed timestep 120 Hz with accumulator, as many steps per frame as fit 25 ms at the measured step cost, between 4 and 12 (drop the remainder and log), render interpolation. Sim never reads wall-clock. |
 | ARC-011 | Entities in struct-of-arrays typed arrays: actors (max 64), projectiles (pool 512), pickups (256), particles (GPU pool), sound events ring (256). |
 | ARC-012 | Seeded RNG (sfc32/mulberry32) with separate streams: map gen, loot, bots, rules, cosmetic FX. |
 | ARC-013 | Spatial hash grid 4 m cells for dynamic entities; static BVH (AABB tree) for brushes; capsule vs AABB/convex sweep with Quake-style velocity clipping (3 planes), step-up, ground probe. |
 | ARC-014 | Hitscan: ray vs BVH, then candidate actors from grid along the ray, then head sphere/torso/legs; projectiles swept per step. |
 | ARC-015 | Damage, events and scoring through one event bus; HUD, audio, bots and stats subscribe. |
-| ARC-020 | Save: key `ctk.save.v1` JSON {version, settings, bindings, touchLayouts, progression, stats, rulesets, editorMaps, ladder}; size <= 1 MB; migration by version; corrupted save is backed up to `ctk.save.bak` and reset with a notice; export/import as text. |
+| ARC-020 | Save: key `ctk.save.v1` JSON {version, revision, settings, bindings, touchLayouts, progression, stats, rulesets, editorMaps, ladder, play, crosshairs, tips {matches, homeScreen, silentSwitch}, loadouts}; size <= 1 MB; migration by version (repairs nested records, drops bad list entries); corrupted save is backed up to `ctk.save.bak` and reset with a notice; the backup can be restored from the UI (Back up or restore save, which validates an import before it replaces anything); export/import as text. A write happens only when the save changed (dirty flag). |
 | ARC-021 | Settings apply instantly and persist on change (debounced 500 ms). |
-| ARC-030 | Built-in self-test: Help > "Run self-test" and `__CTK.selfTest({headless})`; headless runs without WebGL (render stub) and returns `{total, failed, results[]}` with `check(name, ok, detail)` entries, grouped test blocks that catch throws (IronHorizon pattern). |
+| ARC-030 | Built-in self-test: Help > "Run self-test" and `__CTK.selfTest({headless})` in the test build (`ClassTimeKiller.test.html`; the shipped game leaves the test blocks out); headless runs without WebGL (render stub) and returns `{total, failed, results[]}` with `check(name, ok, detail)` entries, grouped test blocks that catch throws (IronHorizon pattern). |
 | ARC-031 | Data validation: every catalogue entry follows its schema, keys unique, references resolve (weapon sets, hero weapons, unlocks), counts meet VIS-004, banned reference names absent from all display strings. |
 | ARC-032 | Rule tests: movement apex/speed per preset (MOV-026), damage pipeline cases per health preset, armor/shield math, economy ladder, mode win conditions, mutator application, card effects, save round-trip, RNG determinism, map gen hash per seed, nav connectivity. |
 | ARC-033 | Bot soak: headless N simulated minutes per mode at max speed; fail on NaN, stuck > 6 s, bot without goal > 3 s, fairness breach (bot fired at target never perceived), budget overrun. |
 | ARC-034 | Perf micro-benchmarks: nav build time, 100k raycasts, 16-bot AI tick, reported in ms. |
-| ARC-040 | Debug global `window.__CTK` = {version, selfTest, soak, perf (incl. frame-time p50/p99), game, world, rules, catalogues, spawnBot, setTier, step(n), seed(n), map.check(), stress(level), give(id), god(on), save.dump(), save.corrupt(kind), log.errors()}; F10 perf HUD (PERF-012), F9 bot debug (BOT-092). On touch devices both views toggle from Options > Developer and by a four-finger tap. |
+| ARC-040 | Debug global `window.__CTK` (the shipped game keeps version, game, actors, world, catalogues, perf, step, seed, give, god, stress, log and save; the test build adds the rest) = {version, selfTest, soak, perf (incl. frame-time p50/p99), game, world, rules, catalogues, spawnBot, setTier, step(n), seed(n), map.check(), stress(level), give(id), god(on), save.dump(), save.corrupt(kind), log.errors()}; F8 perf HUD (PERF-012), F9 bot debug (BOT-092). On touch devices both views toggle from Options > Developer and by a four-finger tap on the look area (none of the fingers on the stick or a button). |
 | ARC-041 | Global error handler collects errors into a ring shown in the perf HUD; a startup failure shows the fatal screen with the message. |
 
 ## 25. Out of scope

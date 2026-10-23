@@ -7,11 +7,17 @@ DebugApi.killcam = Killcam;
 DebugApi.play = PlayFlow;
 DebugApi.bus = Bus;
 
+// Quads drawn by the drawers of an element during the last frame (hidden elements draw nothing). Only the tests read it.
+Hud.quadsOf = (element) => {
+  let total = 0;
+  for (const layer in Hud.drawers) for (const drawer of Hud.drawers[layer]) if (drawer.element === element) total += drawer.quads;
+  return total;
+};
+
 const HUD_TEST_WIDTH = 1280, HUD_TEST_HEIGHT = 720;
 const HUD_TEST_FRAME = 1 / 60;
 const HUD_TEST_COST_FRAMES = 100, HUD_TEST_COST_BATCHES = 6;
 const HUD_TEST_COST_BUDGET_MS = 0.4;   // PERF-002
-const HUD_TEST_POOL_KILLER = 2;
 
 // Runs `run` with a fixed screen size, the glyph atlas and untouched camera / input state afterwards.
 function hudTestWith(run) {
@@ -47,7 +53,7 @@ function hudTestFrame(seconds) {
 }
 
 function hudTestPlace(id, x, z, yaw) {
-  Actors.x[id] = x; Actors.y[id] = 0; Actors.z[id] = z; Actors.yaw[id] = yaw || 0; Actors.aimYaw[id] = yaw || 0;
+  Actors.place(id, x, 0, z); Actors.yaw[id] = Actors.aimYaw[id] = yaw || 0;
 }
 function hudTestCamera(id) {
   Object.assign(Render.camera, { x: Actors.x[id], y: Actors.y[id] + Actors.eye[id], z: Actors.z[id], yaw: Actors.aimYaw[id], pitch: 0, roll: 0, fov: 90 });
@@ -83,18 +89,21 @@ function hudTestKill(victim, killer, extra) {
 }
 
 // Temporary content for the hooks other helpers fill later (gadgets, abilities, economy, items); returns the undo function.
+// The rows are made once and reused, as the real hooks do, so the HUD allocation probe measures the HUD alone.
 function hudTestStubs() {
   const saved = [Gadgets.hudState, Abilities.hudState, Economy.hudState, Items.activePowerups, Items.timers];
+  const dash = { id: 'dash', name: 'Dash', key: 'ability1', ready: false, cooldown: 0.5, charges: 2, active: false }, wall = { id: 'wall', name: 'Wall', key: 'ability2', ready: true, cooldown: 0, charges: 1, active: true };
+  const fury = { id: 'fury', name: 'Fury', remaining: 8, duration: 20, color: '#ff6a3d' }, megacell = { item: 'megacell', x: 0, y: 0, z: 10, remaining: 14, group: 'power' };
   Gadgets.hudState = (id, out) => { out.grenade = 'frag'; out.grenadeCount = 2; out.gadget = 'turret'; out.gadgetCount = 1; out.gadgetCooldown = 0.4; return out; };
   Abilities.hudState = (id, out) => {
     out.slots.length = 0;
-    out.slots.push({ id: 'dash', name: 'Dash', ready: false, cooldown: 0.5, charges: 2, active: false }, { id: 'wall', name: 'Wall', ready: true, cooldown: 0, charges: 1, active: true });
+    out.slots.push(dash, wall);
     out.meter.kind = 'ultimate'; out.meter.value = 0.6; out.meter.ready = false;
     return out;
   };
   Economy.hudState = (id, out) => { out.money = 1800; out.nextRoundMoney = 2400; out.canBuy = true; out.buyTimeLeft = 12; return out; };
-  Items.activePowerups = (id, out) => { out.length = 0; out.push({ id: 'fury', name: 'Fury', remaining: 8, duration: 20, color: '#ff6a3d' }); return 1; };
-  Items.timers = (out) => { out.length = 0; out.push({ item: 'megacell', x: 0, y: 0, z: 10, remaining: 14, group: 'power' }); return 1; };
+  Items.activePowerups = (id, out) => { out.length = 0; out.push(fury); return 1; };
+  Items.timers = (out) => { out.length = 0; out.push(megacell); return 1; };
   return () => { [Gadgets.hudState, Abilities.hudState, Economy.hudState, Items.activePowerups, Items.timers] = saved; };
 }
 
@@ -106,6 +115,13 @@ function hudTestArm(id, key) {
 }
 function hudTestName(id) { return Actors.name[id] || HUD_FALLBACK_NAME; }
 function hudTestDrawer(layer, id) { return Hud.drawers[layer].find((drawer) => drawer.id === id); }
+// The texts one drawer draws (or `draw(pen, layout)` when it is a function), in order.
+function hudTestTexts(layer, id) {
+  const texts = [], put = (string) => { texts.push(String(string)); return 0; };
+  const pen = Object.assign({}, Hud.pen, { text: put, textAt: put, label: put }), draw = typeof layer === 'function' ? layer : hudTestDrawer(layer, id).draw;
+  draw(pen, Hud.layout);
+  return texts;
+}
 
 // Fills the scene with something for every element of an alive player.
 function hudTestFillScene(scene) {
@@ -122,6 +138,7 @@ function hudTestFillScene(scene) {
   hudTestEvent('bark', { id: mate, team: 0, category: 'spotted', text: 'Contact!' });
   Actors.kind[enemy] = ACTOR_KIND.BOT;   // the awareness meter belongs to bots
   BotSense.awareness[BotSense.pair(enemy, id)] = 0.6;
+  TriggerState.air[id] = AIR_SECONDS * 0.2;   // the movement meter shows a low breath
 }
 
 Test.add('hud', (check) => hudTestWith(() => {
@@ -164,7 +181,44 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('layout: compact off wins on a small screen, and text units never drop below 0.9', !Hud.layout.compact && Hud.layout.unit >= HUD_UNIT_MIN - 1e-6);
   Settings.set('hud.compact', 'auto'); updateHudLayout(Hud.layout, 640, 360);
   check('layout: auto turns compact on for small screens', Hud.layout.compact);
-  check('layout: the smallest HUD text is 14 px at 100% scale (ACC-008)', HUD_TEXT_SMALL >= 14);
+}));
+
+// The free-for-all rank box ('#1' and the score) needs someone to rank against: a solo run such as the Firing Range has none.
+Test.add('hud', (check) => hudTestWith(() => {
+  const header = () => hudTestTexts('main', 'header').includes('#');
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: -1 }] });
+  const versus = header();
+  startPveMode('range', [], {}, {});
+  const range = header();
+  Game.stop();
+  check('header: a rank box in free-for-all, none in the range', versus && !range);
+}));
+
+// The hold-Use prompt names the bound key and what Use does now, for any section that reports it (revive, plant, defuse...).
+Test.add('hud', (check) => hudTestWith(() => {
+  hudTestMatch();
+  Input.device = 'kbm';
+  const draw = () => { Hud.time += 2; return hudTestTexts('front', 'downed').join('|'); };
+  const quiet = draw();
+  const plant = () => 'HOLD TO PLANT';
+  Input.usePrompts.push(plant);
+  const planting = draw();
+  Input.setBinding('use', 0, '');
+  const unbound = draw();
+  Input.resetBindings('use');
+  Input.usePrompts.splice(Input.usePrompts.indexOf(plant), 1);
+  check('use prompt: none, then key and text, then the unbound fallback', quiet === '' && planting === 'E|HOLD TO PLANT' && unbound === 'HOLD USE|HOLD TO PLANT', [quiet, planting, unbound].join());
+}));
+
+// ACC-008 as drawn and as measured: a full HUD on a landscape phone (844 x 390, touch) has no text under 14 px at 100% scale,
+// and every width a layout reads (feed rows, tags, captions, the comm wheel) is taken at that drawn size.
+Test.add('hud', (check) => hudTestWith(() => {
+  hudTestFillScene(hudTestMatch());
+  Render.size.cssWidth = 844; Render.size.cssHeight = 390; Input.device = 'touch';
+  const small = [], measureAt = HudBatch.measureAt;   // drawing measures each text first, so this sees drawn and measured sizes
+  HudBatch.measureAt = function (string) { if (hudTextAt[2] < HUD_TEXT_SMALL - 1e-6) small.push(string); return measureAt.apply(this, arguments); };
+  try { hudTestFrame(); commWheelWidestLabel(Hud.layout.unit); } finally { HudBatch.measureAt = measureAt; }
+  check('layout: no text drawn or measured under 14 px on a phone (ACC-008)', Hud.layout.unit < 1 && small.length === 0, small.join());
 }));
 
 Test.add('hud', (check) => hudTestWith(() => {
@@ -267,6 +321,9 @@ Test.add('hud', (check) => hudTestWith(() => {
   hudTestEvent('announce', { text: 'Overtime', kind: 'overtime', priority: 2 });
   hudTestEvent('announce', { text: 'Overtime', kind: 'overtime', priority: 2 });
   check('banners: the same announcement twice in a second shows once', HudBanners.at.filter((at) => at > 0).length === 1);
+  Hud.time += HUD_BANNER_SECONDS_LONG / 2;
+  hudTestEvent('announce', { text: 'Overtime', kind: 'overtime', priority: 2 });
+  check('banners: a text still shown is not shown twice at once', HudBanners.at.filter((at) => at > 0).length === 1);
   hudTestEvent('medal', { id: scene.id, medal: 'doubleKill' });
   hudTestEvent('medal', { id: scene.enemy, medal: 'spree' });
   check('banners: your medal shows as a banner, other players medals do not', HudBanners.at.filter((at) => at > 0).length === 2 && HudBanners.medal.includes(1));
@@ -276,6 +333,50 @@ Test.add('hud', (check) => hudTestWith(() => {
   Hud.time += HUD_BANNER_SECONDS_LONG + 0.1;
   hudTestFrame();
   check('banners: they disappear after their time', Hud.quadsOf('banners') === 0);
+  Hud.layout.phone = true;
+  HudBanners.add('Double Kill', 'medal', HUD_BANNER_PRIORITY_LONG, true); HudBanners.add('Me takes the lead', 'lead', 1, false);
+  const medal = HudBanners.newest();
+  Hud.time += HUD_BANNER_QUEUE;
+  check('banners on a phone: a medal and a lead change both show, in turn', HudBanners.text[medal] === 'Double Kill' && HudBanners.text[HudBanners.newest()] === 'Me takes the lead');
+  Hud.time += HUD_BANNER_SECONDS_LONG + 0.1;
+  hudTestEvent('bark', { id: scene.enemy, team: 1, category: HUD_BARK_TAUNT, text: 'Too slow.' });
+  hudTestEvent('bark', { id: scene.enemy, team: 1, category: HUD_BARK_TAUNT, text: 'Again?' });
+  HudBanners.add('Headshot', 'medal', HUD_BANNER_PRIORITY_LONG, true);
+  const chat = HudBanners.text.filter((text) => text.endsWith(': Too slow.') || text.endsWith(': Again?')), headshot = HudBanners.text.indexOf('Headshot');
+  check('banners on a phone: a chat line while the queue is busy is dropped, a medal waits one turn at most', chat.length === 1 && chat[0].endsWith('Too slow.')
+    && HudBanners.at[headshot] <= Hud.time + HUD_BANNER_QUEUE, chat.join(' | '));
+  // Six banners at once on a phone: the ring is full, a low one gives way and every medal shows in turn.
+  HudBanners.reset(); Hud.time += 100;
+  const shown = new Set();
+  let backwards = false, lastStart = -1;   // the banner on the line never changes to one that started earlier
+  const watch = () => { const now = HudBanners.newest(); if (now < 0) return; shown.add(HudBanners.text[now]); backwards = backwards || HudBanners.at[now] < lastStart; lastStart = HudBanners.at[now]; };
+  for (let i = 0; i < 3; i++) { HudBanners.add('M' + i, 'medal', HUD_BANNER_PRIORITY_LONG, true); HudBanners.add('N' + i, 'lead', 1, false); }
+  for (let step = 0; step < 100; step++, Hud.time += 0.1) watch();
+  check('banners on a phone: six at once, every medal shows, none overwritten while waiting', [0, 1, 2].every((i) => shown.has('M' + i)) && !backwards);
+  // A banner already replaced on the line gives its slot up: the new one does not push a waiting medal out, nor bring the old one back.
+  HudBanners.reset(); Hud.time += 100; lastStart = -1;
+  HudBanners.add('A', 'medal', HUD_BANNER_PRIORITY_LONG, true);
+  Hud.time += HUD_BANNER_QUEUE; HudBanners.add('B', 'lead', 1, false); HudBanners.add('C', 'medal', HUD_BANNER_PRIORITY_LONG, true); HudBanners.add('D', 'medal', HUD_BANNER_PRIORITY_LONG, true);
+  Hud.time += 0.3; watch(); HudBanners.add('E', 'lead', 1, false);
+  const startE = HudBanners.at[HudBanners.text.indexOf('E')], startD = HudBanners.at[HudBanners.text.indexOf('D')];
+  for (let step = 0; step < 60; step++, Hud.time += 0.1) watch();
+  check('banners on a phone: a replaced banner does not come back, the waiting medals stay, a newcomer queues after them', !backwards && HudBanners.text.includes('C') && HudBanners.text.includes('D') && startE >= startD + HUD_BANNER_QUEUE - 1e-9);
+  HudBanners.reset(); Hud.time += 100;
+  HudBanners.add('A', 'lead', 1, false); Hud.time += HUD_BANNER_QUEUE; HudBanners.add('B', 'lead', 1, false); Hud.time += 0.2; HudBanners.add('A', 'lead', 1, false);
+  check('banners on a phone: a repeat restarts after the banner on the line, never ahead of it', HudBanners.at[HudBanners.text.indexOf('A')] >= HudBanners.at[HudBanners.text.indexOf('B')] + HUD_BANNER_QUEUE - 1e-9);
+  HudBanners.reset();
+  Hud.layout.phone = false;
+}));
+
+// A real phone frame (844 x 390, touch): a very long banner is cut to fit between the score underlines.
+Test.add('hud', (check) => hudTestWith(() => {
+  hudTestFillScene(hudTestMatch());
+  HudBanners.reset(); HudBanners.add('Enemy team takes the lead with a very long text', 'lead', 1, false);
+  Render.size.cssWidth = 844; Render.size.cssHeight = 390; Input.device = 'touch';
+  hudTestFrame();
+  const width = HUD_BANNER_PHONE_WIDTH * Hud.layout.unit, size = HUD_TEXT_SMALL * Hud.layout.unit, fitted = hudFitPhoneBanner('Enemy team takes the lead with a very long text', size, width);
+  check('banners on a phone: a very long text is cut to fit between the score underlines', fitted.endsWith('…') && HudPen.measure(fitted, size) <= width);
+  HudBanners.reset();
 }));
 
 Test.add('hud', (check) => hudTestWith(() => {
@@ -433,7 +534,13 @@ Test.add('hud', (check) => hudTestWith(() => {
   const scene = hudTestMatch(), player = scene.id, foe = scene.enemy, bystander = scene.mate;
   const buffers = [Killcam.transforms, Killcam.living, Killcam.frameTime];
   Sim.run(KILLCAM_STEP_TICKS - (Sim.tick % KILLCAM_STEP_TICKS));   // batches start on a recorded tick, so x is exactly 5 m per second at every frame
-  for (let batch = 0; batch < 80; batch++) { Actors.x[foe] = Sim.tick * TICK_SECONDS * 5; Actors.z[foe] = 3; Actors.aimYaw[foe] = 0.5; Sim.run(KILLCAM_STEP_TICKS); }
+  hudTestArm(bystander, 'warden');   // the bystander walks 7 m ahead of the killer's eyes with a pistol, a PvE enemy 13 m
+  const monster = Pve.spawnEnemy('gunner', 0, 0, 16, 0, { overCap: true });
+  Pve.active = false;   // its brain stays out of the fight; only the replay draws it
+  for (let batch = 0; batch < 80; batch++) {
+    Actors.x[foe] = Actors.x[bystander] = Actors.x[monster] = Sim.tick * TICK_SECONDS * 5; Actors.z[foe] = 3; Actors.z[bystander] = 10; Actors.z[monster] = 16; Actors.aimYaw[foe] = 0.5;
+    Sim.run(KILLCAM_STEP_TICKS);
+  }
   check('killcam: the ring has a fixed size and never grows', Killcam.filled === KILLCAM_FRAMES && Killcam.transforms.length === KILLCAM_FRAMES * MAX_ACTORS * KILLCAM_FIELDS && Killcam.head < KILLCAM_FRAMES);
   check('killcam: recording never replaces its buffers (no per-frame allocation)', buffers[0] === Killcam.transforms && buffers[1] === Killcam.living && buffers[2] === Killcam.frameTime
     && Killcam.sample(foe, Sim.time - 0.5) === Killcam.sampleScratch);
@@ -451,12 +558,27 @@ Test.add('hud', (check) => hudTestWith(() => {
   const expected = Killcam.sample(foe, Killcam.startTime + 1), expectedX = expected.x, expectedEye = expected.y + expected.eye;
   check('killcam: the camera override puts the camera at the killer\'s eyes', Render.cameraOverride(camera) === true && Test.near(camera.x, expectedX, 1e-3) && Test.near(camera.y, expectedEye, 1e-3)
     && camera.roll === 0 && Test.near(camera.yaw, 0.5, 1e-6), JSON.stringify(camera) + ' expected ' + expectedX + ' ' + expectedEye);
-  const style = { visible: true };
-  Render.applyActorStyle(foe, style);
-  check('killcam: live bodies are hidden while it plays', style.visible === false);
-  let figures = 0;
-  hudDrawKillcamFigures({ mesh() { figures++; return 0; } });
-  check('killcam: every recorded body except the killer is drawn as a figure (body and face)', figures === 2 * (Actors.count - 1), figures);
+  // The replay draws the recorded bodies through their own models (07c) where they were, with the weapon they held then; the live ones are not drawn.
+  const recorded = Killcam.sample(bystander, Killcam.startTime + 1), recordedX = recorded.x, pistol = CAT.weapons.byId('warden').index;
+  Actors.x[bystander] = Actors.prevX[bystander] = Actors.x[monster] = recordedX + 40;   // the live bodies are far away by now, holding something else
+  Weapons.current[bystander] = CAT.weapons.find((row) => row.class === 'smg').index;
+  updateCamera(0, 1); fillActors(0, 1);
+  let parts = 0, nearRecorded = 0;
+  for (let shape = 0; shape < SHAPES.length; shape++) {
+    for (let i = 0; i < actorBatch.counts[shape]; i++, parts++) {
+      const o = (shape * actorBatch.capacity + i) * INSTANCE_FLOATS;
+      if (Math.abs(actorBatch.data[o] - recordedX) < 1.5 && Math.abs(actorBatch.data[o + 2] - 10) < 1.5) nearRecorded++;
+    }
+  }
+  check('killcam: the recorded bodies are drawn with their own models where they were', nearRecorded > 5 && nearRecorded === parts, nearRecorded + ' of ' + parts);
+  check('killcam: a replayed body holds the weapon it held then', Render.heldWeapon(bystander) === pistol);
+  const monsterParts = [];   // x and z of every part the PvE source draws
+  Pve.active = true;
+  Pve.draw({ meshFrom(shape, instance) { monsterParts.push(instance.x, instance.z); }, mesh(shape, x, y, z) { monsterParts.push(x, z); } });
+  const monsterAway = monsterParts.filter((value, index) => index % 2 === 0 && (Math.abs(value - recordedX) > 2 || Math.abs(monsterParts[index + 1] - 16) > 2)).length;
+  check('killcam: a PvE enemy is replayed where it was, not where it is now', monsterParts.length > 4 && monsterAway === 0, monsterAway + ' of ' + monsterParts.length / 2);
+  Pve.active = false;
+  actorBatch.clear(); shadowBatch.clear();
   hudTestFrame();
   check('killcam: the panel draws and the rest of the HUD (not from your view) stays away', Hud.quadsOf('') > 0 && Hud.replaying && Hud.quadsOf('header') === 0 && Hud.quadsOf('markers') === 0);
   Killcam.advance(0.5);
@@ -464,9 +586,7 @@ Test.add('hud', (check) => hudTestWith(() => {
   Killcam.advance(2);
   check('killcam: it ends by itself after the replay and a short hold', !Killcam.playing && Render.cameraOverride(camera) === false);
   hudTestFrame();
-  style.visible = true;
-  Render.applyActorStyle(foe, style);
-  check('killcam: afterwards bodies, panel and the normal HUD are back', style.visible === true && Hud.quadsOf('') === 0 && !Hud.replaying && Hud.quadsOf('header') > 0);
+  check('killcam: afterwards the live bodies, no panel and the normal HUD are back', Render.replayPose === null && Hud.quadsOf('') === 0 && !Hud.replaying && Hud.quadsOf('header') > 0);
 
   Actors.alive[player] = 0;
   Actors.buttons[player] = BTN.FIRE;
@@ -666,6 +786,23 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('colour-blind palette: off restores the default colours', Hud.colors.health === HUD_COLOR.health && Hud.colors.teams[0] === colorNumber(CAT.teamColors[0].color));
 }));
 
+// One team colour rule for bodies and the HUD: in M20 squads your squad is the first team colour and every other squad the second, also colour-blind.
+Test.add('hud', (check) => hudTestWith(() => {
+  const { enemy } = hudTestMatch(), count = Modes.squads.count, team = Actors.team[enemy];
+  const sameColors = () => {
+    let same = true;
+    for (let squad = 0; squad < 9; squad++) { Actors.team[enemy] = squad; same = same && colorNumber(actorBaseColor(enemy)) === Hud.actorColor(enemy); }
+    return same;
+  };
+  Modes.squads.count = 9;
+  const plain = sameColors();
+  Settings.set('accessibility.colorBlind', 'tritanopia');
+  const colorBlind = sameColors();
+  Settings.set('accessibility.colorBlind', 'off');
+  Modes.squads.count = count; Actors.team[enemy] = team;
+  check('squads: the bodies of every squad have the colour the HUD shows for it', plain && colorBlind);
+}));
+
 // HUD frame cost (PERF-002: <= 0.4 ms): a busy scene; the mean frame time of the fastest of several batches, so another process
 // taking the CPU for a moment (parallel test runs) does not look like a slow HUD.
 function hudTestMeasure(frames) {
@@ -678,7 +815,7 @@ function hudTestMeasure(frames) {
   }
   return best;
 }
-// The busy scene of the cost test; `measure(scene)` runs inside it. Used by the cost test and by DebugApi.hudHeap.
+// The busy scene of the cost and allocation tests; `measure(scene)` runs inside it.
 function hudTestBusy(measure) {
   return hudTestWith(() => {
     const scene = hudTestMatch(), undo = hudTestStubs();
@@ -690,13 +827,18 @@ function hudTestBusy(measure) {
   });
 }
 DebugApi.hudCost = () => hudTestBusy(() => ({ ms: hudTestMeasure(HUD_TEST_COST_FRAMES), quads: HudBatch.quads }));
-// JS heap growth over many frames of the busy scene (Chrome only, coarse): a quick way to see per-frame allocation. Returns bytes, -1 without performance.memory.
-DebugApi.hudHeap = (frames) => hudTestBusy(() => {
-  if (!performance.memory) return -1;
-  hudTestMeasure(200);
-  const before = performance.memory.usedJSHeapSize;
-  for (let frame = 0; frame < frames; frame++) hudTestFrame();
-  return performance.memory.usedJSHeapSize - before;
+
+// PERF-006: the heap bytes of one HUD frame of the busy scene, through the perf group's allocation probe. A frame every
+// HUD_TEST_ALLOC_STRIDE probe calls keeps a round short enough to rarely hold a GC. The budget is what is known to be left:
+// the middle compiler tier boxes float arguments of pen calls it does not inline (docs/PERFORMANCE.md 3.8); a drawer that
+// starts building strings or records every frame goes over it.
+const HUD_TEST_ALLOC_STRIDE = 16;
+const HUD_TEST_ALLOC_BUDGET_BYTES = 1024;   // per frame
+Test.add('hud', (check) => {
+  if (!perfHeapCounterWorks()) { check.skip('HUD allocation probe', 'no exact heap counter on this page (Chrome without --enable-precise-memory-info)'); return; }
+  const bytes = hudTestBusy(() => perfAllocatedBytes((i) => { if (i % HUD_TEST_ALLOC_STRIDE === 0) hudTestFrame(); }));
+  const perFrame = bytes / (PERF_ALLOC_CALLS / HUD_TEST_ALLOC_STRIDE);
+  check('allocation: a HUD frame of the busy scene stays within its budget', perFrame < HUD_TEST_ALLOC_BUDGET_BYTES, Math.round(perFrame) + ' bytes per frame');
 });
 
 // HP-007 downed cues: a marker over a downed teammate, the hold-Use hint near it, the revive ring, the own bleed-out text.
@@ -719,7 +861,141 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('downed: a downed actor lies prone (crawl pose)', Test.near(Actors.height[id], STANCE_HEIGHT[STANCE.PRONE], 1e-4), Actors.height[id]);
 }));
 
+// MOV-019 breath and the preset's movement resources reach the HUD: under water the breath bar runs down (low air darkens the
+// edges), a Modern sprint shows its stamina; the Hardcore HUD hides the meter like the rest.
+Test.add('hud', (check) => hudTestWith(() => {
+  const { id } = hudTestMatch();
+  Killcam.enabled = false;
+  World.triggers.push(makeTrigger({ kind: 'water', min: [-60, -5, -60], max: [60, 5, 60] }, World.triggers.length));
+  holdInput(id, 0, 0, BTN.CROUCH);
+  stepSeconds(5);
+  hudTestFrame();
+  check('meter: 5 s with the head under water shows the breath running down', hudMoveMeters.air < 1 && hudMoveMeters.rows > 0 && Hud.quadsOf('movement') > 0,
+    hudMoveMeters.air + ' / ' + hudMoveMeters.rows);
+  stepSeconds(4);
+  check('meter: low air darkens the screen edges', hudTestFrame() > 0 && hudTestDrawer('back', 'breath').quads > 0);
+  World.triggers.pop();
+  Move.setPreset(id, 'modern');
+  resetMotion(id);
+  holdInput(id, 0, 1, BTN.SPRINT);
+  stepSeconds(3);
+  hudTestFrame();
+  check('meter: a 3 s Modern sprint shows the stamina left', hudMoveMeters.stamina < 1 && hudMoveMeters.rows > 0 && hudTestDrawer('main', 'movement').quads > 0, hudMoveMeters.stamina);
+  Hud.noHud = true;
+  hudTestFrame();
+  check('meter: hidden by the Hardcore HUD', Hud.quadsOf('movement') === 0);
+  Hud.noHud = false;
+}));
+
 Test.add('hud', (check) => {
   const cost = DebugApi.hudCost();
   check('cost: a busy HUD frame costs under 0.4 ms (PERF-002)', cost.ms <= HUD_TEST_COST_BUDGET_MS, cost.ms.toFixed(3) + ' ms with ' + cost.quads + ' quads');
 });
+
+// ---- The Ping button: a press shorter than a frame still pings; the finger on PING also picks on the wheel ----
+Test.add('hud', (check) => {
+  startInputMatch();
+  let pings = 0, callouts = 0;
+  const realPing = BotTeam.playerPing, realCallout = BotTeam.callout, button = TouchInput.elements.ping, frame = (seconds) => { Input.frame(seconds || INPUT_TEST_FRAME); Sim.step(); };
+  BotTeam.playerPing = () => { pings++; };
+  BotTeam.callout = () => { callouts++; };
+  try {
+    frame();
+    inputKeyEvent('KeyZ', true); inputKeyEvent('KeyZ', false);   // down and up between two frames
+    frame(); frame();
+    check('ping: a key press shorter than a frame still pings once', pings === 1, pings);
+    pings = 0;
+    inputKeyEvent('KeyZ', true); Input.frame(INPUT_TEST_FRAME); inputKeyEvent('KeyZ', false); frame(); frame();   // a frame with no sim step (120 Hz screen)
+    check('ping: a tap over a frame with no sim step pings once, not twice', pings === 1, pings);
+    pings = 0;
+    Actors.alive[Game.playerId] = 0;
+    inputKeyEvent('KeyZ', true); inputKeyEvent('KeyZ', false); frame();
+    Actors.alive[Game.playerId] = 1; frame(); frame();
+    check('ping: a Ping pressed while dead does not ping later', pings === 0, pings);
+    Input.setDevice('touch');
+    inputTouchPointer('pointerdown', button, 3, 500, 300);
+    for (let i = 0; i < 4; i++) frame(0.1);
+    inputTouchPointer('pointermove', button, 3, 540, 300); frame();
+    const toRight = CommWheel.selected;
+    inputTouchPointer('pointermove', button, 3, 440, 300); frame();
+    check('comm wheel: the finger holding PING opens it and picks by dragging', CommWheel.open && toRight >= 0 && CommWheel.selected >= 0 && CommWheel.selected !== toRight, toRight + ' then ' + CommWheel.selected);
+    inputTouchPointer('pointerup', button, 3, 440, 300); frame();
+    check('comm wheel: lifting the finger sends the callout', !CommWheel.open && callouts === 1, callouts);
+  } finally {
+    BotTeam.playerPing = realPing; BotTeam.callout = realCallout;
+    CommWheel.reset(); TouchInput.reset(); Input.device = 'kbm';
+  }
+});
+
+// ---- Colour-blind palettes keep health, armor and shield apart ----
+const HUD_TEST_MIN_COLOR_DISTANCE = 100;   // RGB distance (0..441) between two vital bar colours
+function hudTestColorDistance(a, b) {
+  return Math.hypot(((a >> 16) & 255) - ((b >> 16) & 255), ((a >> 8) & 255) - ((b >> 8) & 255), (a & 255) - (b & 255));
+}
+Test.add('hud', (check) => {
+  const saved = Settings.get('accessibility.colorBlind'), close = [];
+  try {
+    for (const id of Object.keys(HUD_PALETTES)) {
+      Settings.set('accessibility.colorBlind', id);
+      const health = Hud.colors.health;
+      for (const [name, other] of [['armor', HUD_COLOR.armor], ['shield', HUD_COLOR.shield], ['low health', Hud.colors.healthLow]]) {
+        if (hudTestColorDistance(health, other) < HUD_TEST_MIN_COLOR_DISTANCE) close.push(id + ' health/' + name);
+      }
+    }
+  } finally {
+    Settings.set('accessibility.colorBlind', saved);
+  }
+  check('colour-blind palettes: health stays well apart from armor, shield and low health', close.length === 0, close.join(', '));
+});
+
+// The replayed pose and look come from the recording (killcam-01), not from the live state at the time of the replay.
+function hudTestEnemyColorSum() {
+  let sum = 0;
+  Pve.active = true;
+  Pve.draw({ meshFrom(shape, instance) { sum += instance.r; }, mesh() {} });
+  Pve.active = false;
+  return sum;
+}
+Test.add('hud', (check) => hudTestWith(() => {
+  Settings.set('hud.killcam', true);
+  const scene = hudTestMatch(), player = scene.id, foe = scene.enemy, runner = scene.mate;
+  Sim.run(KILLCAM_STEP_TICKS - (Sim.tick % KILLCAM_STEP_TICKS));
+  const monster = Pve.spawnEnemy('gunner', 0, 0, 16, 0, { overCap: true });
+  Pve.active = false;
+  Actors.health[monster] = Actors.maxHealth[monster] * 0.3;
+  for (let batch = 0; batch < 80; batch++) {
+    Actors.x[foe] = Actors.x[runner] = Actors.x[monster] = Sim.tick * TICK_SECONDS * 5; Actors.z[foe] = 3; Actors.z[runner] = 10; Actors.z[monster] = 16;
+    Actors.vx[runner] = 5; Actors.flags[runner] |= ACTOR_FLAG.ON_GROUND;
+    Sim.run(KILLCAM_STEP_TICKS);
+  }
+  const hurtSum = hudTestEnemyColorSum();
+  Actors.vx[runner] = Actors.vz[runner] = 0; Powerups.give(runner, CAT.powerups.byId('ghostveil'), 0);   // by the replay it stands still and is cloaked
+  Actors.health[monster] = Actors.maxHealth[monster];
+  const healthySum = hudTestEnemyColorSum();
+  Actors.alive[player] = 0;
+  hudTestKill(player, foe, { weapon: 'warden' });
+  Killcam.clock = 1;
+  updateCamera(0, 1);
+  actorBatch.clear(); shadowBatch.clear();
+  fillActors(0.1, 1);
+  let runnerParts = 0;
+  for (let shape = 0; shape < SHAPES.length; shape++) {
+    for (let i = 0; i < actorBatch.counts[shape]; i++) runnerParts += Math.abs(actorBatch.data[(shape * actorBatch.capacity + i) * INSTANCE_FLOATS + 2] - 10) < 1.5 ? 1 : 0;
+  }
+  check('killcam: a body that took Ghostveil after the recording is replayed, whatever its live shimmer', Powerups.setInvisible[runner] === 1 && runnerParts > 5, runnerParts);
+  Render.replayPose(runner, actorPose); animateActor(runner, actorPose, 0.1, LOD.near);
+  check('killcam: a replayed body walks with the recorded speed, not the live standstill', actorPose.recorded && Test.near(actorPose.speed, 5, 0.5) && Math.abs(actorPose.swing) > 0.01, JSON.stringify(actorPose));
+  check('killcam: a replayed enemy shows the recorded health shade', hurtSum < healthySum - 0.01 && Test.near(hudTestEnemyColorSum(), hurtSum, 1e-3), hurtSum + ' ' + healthySum + ' ' + hudTestEnemyColorSum());
+  for (let frame = 0; frame < KILLCAM_FRAMES; frame++) Killcam.looks[(frame * MAX_ACTORS + runner) * KILLCAM_LOOK_FIELDS + 3] = KILLCAM_CLOAK_SHIMMER;   // as if it carried Ghostveil then
+  let shown = 0, hidden = 0, matches = true;
+  for (let step = 0; step < 24; step++) {
+    Killcam.clock = step * 0.05;
+    const drawn = Render.replayPose(runner, actorPose);
+    matches = matches && drawn === ghostShimmerVisible(Killcam.startTime + Killcam.clock, runner);
+    if (drawn) shown++; else hidden++;
+  }
+  check('killcam: a Ghostveil carrier flickers in the replay by its own clock instead of vanishing', matches && shown > 0 && hidden > shown, shown + ' shown, ' + hidden + ' hidden');
+  Killcam.stop();
+  actorBatch.clear(); shadowBatch.clear();
+  actorPose.recorded = false; actorPose.speed = 0;
+}));

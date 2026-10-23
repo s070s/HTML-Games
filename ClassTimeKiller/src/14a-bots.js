@@ -23,6 +23,7 @@ const BOT_LOD_DISTANCE = 40;
 const BOT_LOD_VIEW_COS = Math.cos(60 * DEG);   // "visible to the player": inside a 120 degree cone around the view
 const BOT_AIM_SPRING = 14;              // rad/s natural frequency of the critically damped look spring (BOT-030)
 const BOT_PITCH_LIMIT = 89 * DEG;
+const BOT_UNDER_TAP = TAP_THRESHOLD * 0.9;   // a move axis held back from a double tap (keepUnderTap)
 const BOT_GRACE_TIER = 2;               // BOT-042: tiers up to this give the player a grace period after a respawn
 const BOT_PLAYER_GRACE = 1;             // seconds
 const BOT_MIN_ATTACKERS = 1;
@@ -34,6 +35,8 @@ Settings.define('difficulty.botAimError', 1, { label: 'Bot aim error', category:
 Settings.define('difficulty.adaptive', false, { label: 'Adaptive bot skill (+-1 tier per match)', category: 'gameplay' });
 Settings.define('difficulty.tierShift', 0, { label: 'Adaptive tier shift', category: 'developer' });   // internal: no min/max, no control
 const ADAPTIVE_SHIFT_LIMIT = 3;
+// The one shift rule: whole tiers within the limit (a saved or imported value may be anything).
+const adaptiveShift = (value) => Math.round(clamp(value, -ADAPTIVE_SHIFT_LIMIT, ADAPTIVE_SHIFT_LIMIT));
 
 const Difficulty = {
   // Preset row merged with custom slider values (clamped to DIF-002). Unknown presets fall back to 'regular' (logged).
@@ -59,23 +62,33 @@ const Difficulty = {
   adapt(match) {
     if (!Settings.get('difficulty.adaptive') || Game.playerId < 0 || !match.results) return 0;
     const change = matchOutcome(match.results, Game.playerId);
-    const shift = clamp(Settings.get('difficulty.tierShift') + change, -ADAPTIVE_SHIFT_LIMIT, ADAPTIVE_SHIFT_LIMIT);
+    const shift = adaptiveShift(Settings.get('difficulty.tierShift') + change);
     Settings.set('difficulty.tierShift', shift);
     match.results.botTierChange = change;
     return change;
   },
-  tierShift() { return Settings.get('difficulty.adaptive') ? Settings.get('difficulty.tierShift') : 0; },
+  tierShift() { return Settings.get('difficulty.adaptive') ? adaptiveShift(Settings.get('difficulty.tierShift')) : 0; },
 };
+
+const OPEN_ENDED_MODES = ['endless', 'range'];   // runs that can only end lost (no win to reach): neither a win nor a loss
 
 // +1 won, -1 lost, 0 neither (a draw, the middle of a free-for-all ranking, or the player not in the results).
 function matchOutcome(results, player) {
   const players = results.players, playerRow = players.findIndex((row) => row.id === player);
-  if (playerRow < 0 || players.length < 2) return 0;
+  if (playerRow < 0) return 0;
+  if (OPEN_ENDED_MODES.includes(results.mode)) return 0;
+  if (coopResults(results)) return results.draw ? 0 : results.winnerId >= 0 ? 1 : -1;   // the party wins or loses together
+  if (players.length < 2) return 0;
   if (results.teams.length > 0) {
     if (results.winnerTeam === NO_TEAM) return 0;
     return players[playerRow].team === results.winnerTeam ? 1 : -1;
   }
   return playerRow === 0 ? 1 : playerRow === players.length - 1 ? -1 : 0;
+}
+// Co-op and solo PvE (teams below 2 outside the versus family): one result for every participant.
+function coopResults(results) {
+  const mode = CAT.modes.byId(results.mode);
+  return !!mode && mode.teams < TEAM_COUNT && mode.family !== 'versus';
 }
 
 // The difficulty stage: rules.botSkill, and the DIF-002 game speed slider (an ACC-007 assist, every mode) multiplies the mutators' time scale.
@@ -143,11 +156,14 @@ const Bots = {
     this.setupCursor++;
     return entry || {};
   },
+  // A named bot plays its roster tier held inside the difficulty's tier range (a personality never overrides the
+  // difficulty, as on the ladder, 15c); then the adaptive shift (DIF-003).
   chooseTier(row, entry) {
     const requested = parseTier(entry.tier);
     if (requested >= 0) return requested;
-    if (row) return clamp(row.tier + Difficulty.tierShift(), 0, BOT_TIER_COUNT - 1);
-    const skill = this.currentSkill(), span = skill.tierMax - skill.tierMin + 1;
+    const skill = this.currentSkill();
+    if (row) return clamp(clamp(row.tier, skill.tierMin, skill.tierMax) + Difficulty.tierShift(), 0, BOT_TIER_COUNT - 1);
+    const span = skill.tierMax - skill.tierMin + 1;
     // Even tier mix over the bots, in pairs: unnamed bots join the two teams in turn, so each team gets the same mix.
     const spread = skill.tierMin + (Math.floor(Math.max(0, this.setupCursor - 1) / TEAM_COUNT) % span);
     return clamp(spread + Difficulty.tierShift(), 0, BOT_TIER_COUNT - 1);
@@ -168,12 +184,6 @@ const Bots = {
       if (row && row.traits[key] !== undefined) value = row.traits[key];
       this.traits[base + index] = clamp(value, 0, 1);
     }
-  },
-  setTier(id, tier) {
-    if (Actors.kind[id] !== ACTOR_KIND.BOT) return false;
-    this.tierRow[id] = CAT.botTiers[clamp(parseTier(tier), 0, BOT_TIER_COUNT - 1)];
-    BotMove.configure(id);
-    return true;
   },
   onSpawn(id) {
     this.spawnedAt[id] = Sim.time;
@@ -260,6 +270,7 @@ const Bots = {
   think(id, dt, now) {
     this.buttonsWanted[id] = 0;
     this.slotWanted[id] = 0;
+    BotEconomy.update(id, now);   // buy time and the wave shop come while frozen or settling too
     if (this.state[id] === BOT_STATE.SPAWN && now - this.stateSince[id] < BOT_SPAWN_SETTLE) { this.settle(id, dt); return; }
     if (Actors.flags[id] & ACTOR_FLAG.FROZEN) { this.settle(id, dt); return; }   // freeze / buy time (S13): wait
     if (now + TIME_EPSILON >= this.nextDecide[id]) BotDecide.decide(id, now);
@@ -270,6 +281,7 @@ const Bots = {
     BotCombat.avoidHazards(id, now);
     if (BotCombat.channeling(id)) this.wish(id, 0, 0, 0);
     BotDecide.act(id, dt, now);
+    BotMove.guardLedge(id);
     BotTeam.updateBot(id, now);
     this.motor(id, dt);
   },
@@ -287,8 +299,17 @@ const Bots = {
     // DATA-002: forward (sin yaw, 0, cos yaw), right (-cos yaw, 0, sin yaw)
     Actors.moveZ[id] = wx * Math.sin(yaw) + wz * Math.cos(yaw);
     Actors.moveX[id] = -wx * Math.cos(yaw) + wz * Math.sin(yaw);
+    this.keepUnderTap(id, Actors.moveX, Motion.tapSignX, Motion.tapClockX, Motion.lastAxisX);
+    this.keepUnderTap(id, Actors.moveZ, Motion.tapSignZ, Motion.tapClockZ, Motion.lastAxisZ);
     Actors.buttons[id] = this.buttonsWanted[id];
     Actors.slotRequest[id] = this.slotWanted[id];
+  },
+  // A bot never means a double-tap dodge (MV01, 10b doubleTap): a move axis that would make one (a strafe flip, a ledge
+  // brake) stays just under TAP_THRESHOLD until the tap window has passed. The bot still moves that way, a bit slower.
+  keepUnderTap(id, axis, tapSign, tapClock, lastAxis) {
+    const value = axis[id], sign = value >= TAP_THRESHOLD ? 1 : value <= -TAP_THRESHOLD ? -1 : 0;
+    if (sign === 0 || sign === lastAxis[id] || sign !== tapSign[id] || tapClock[id] + TICK_SECONDS > DOUBLE_TAP_SECONDS) return;
+    axis[id] = sign * BOT_UNDER_TAP;
   },
   // Each axis goes through the botLookSpring scratch; Math.min / max instead of clamp (its float result is boxed).
   turn(id, dt) {

@@ -7,19 +7,17 @@
 // squadmates spawn together, go down instead of dying (HPP06 downed, S11) and share params.squadBeacons respawn beacon
 // uses at one beacon per squad; the last squad standing wins. Drop-in: every spawn falls in from ROYALE_DROP_HEIGHT.
 
-const RING_HURT_INTERVAL = 1;          // the ring hurts once per second
 const RING_STATE = { WAIT: 'wait', SHRINK: 'shrink', CLOSED: 'closed' };
 const RING_COLOR = [0.35, 0.6, 1];
 const RING_NEXT_COLOR = [1, 1, 1];
 const RING_LIFT = 0.1;
 const LOOT_MAX = 256;                  // ARC-011 pickup pool
 const LOOT_CHECK_INTERVAL = 0.1;       // loot touch tests run at 10 Hz
-const LOOT_SWAP_DELAY = 1;             // a full inventory swaps a weapon at most once per second (no swapping back at once)
 const LOOT_GROUPS = ['weapon', 'armor', 'health', 'ammo'];
 const LOOT_GROUP = { WEAPON: 0, ARMOR: 1, HEALTH: 2, AMMO: 3 };
 const LOOT_CONSUMABLES = ['patch', 'cell', 'medkit', 'battery', 'fizzcan'];   // health spots by rarity: I13 I15 I14 I16 I17
 const LOOT_RARITY_COLORS = [[0.7, 0.7, 0.7], [0.3, 0.85, 0.3], [0.3, 0.55, 1], [0.7, 0.3, 0.95], [1, 0.8, 0.2]];   // common .. legendary
-const LOOT_SIZE = 0.5;
+const LOOT_RING_RADIUS = 0.5;          // the rarity ring under a weapon spot
 const LOOT_LIFT = 0.4;
 const ROYALE_STANDING_RANK = 1000;     // standing actors rank above everyone out, then by kills
 const ROYALE_DROP_HEIGHT = 30;         // m: drop-in height above the spawn (less under a roof: no drop indoors)
@@ -27,14 +25,15 @@ const DROP_PROBE = 1;                  // m: the roof and spread checks start th
 const DROP_SPREAD = 1.5;               // m: squadmates land this far around the squad's drop point
 const BEACON_SECONDS = 4;              // a living squadmate holds Use this long at the beacon to bring the dead back
 const BEACON_COLOR = [0.3, 1, 0.5];
-const BEACON_WIDTH = 0.3;
 const BEACON_HEIGHT = 2;
 
-// Loot spots (struct of arrays). weapon = CAT.weapons index (weapon spots), rarity 0..4, taken 1 once picked up.
+// Loot spots (struct of arrays). weapon = CAT.weapons index (weapon spots), rarity 0..4, taken 1 once picked up,
+// blocker = the actor who swapped a gun onto the spot: it is not offered to them again until they step off (-1 = none).
 const RoyaleLoot = {
   count: 0,
   x: new Float32Array(LOOT_MAX), y: new Float32Array(LOOT_MAX), z: new Float32Array(LOOT_MAX),
   group: new Uint8Array(LOOT_MAX), weapon: new Int16Array(LOOT_MAX), rarity: new Uint8Array(LOOT_MAX), taken: new Uint8Array(LOOT_MAX),
+  blocker: new Int8Array(LOOT_MAX).fill(-1),
 };
 // The ring: current circle (x, z, radius), the circle it shrinks from and to, the phase and the time of its next change.
 const Ring = {
@@ -42,7 +41,6 @@ const Ring = {
   fromX: 0, fromZ: 0, fromRadius: 0, toX: 0, toZ: 0, toRadius: 0,
 };
 const royaleOutOrder = new Uint16Array(MAX_ACTORS);       // 1 = first out; 0 = still standing
-const lootSwapAt = new Float64Array(MAX_ACTORS);
 // Squads, per squad index: the drop point of the current spawn wave (anchorAt = its Sim.time) and how many landed there,
 // the beacon spot, its uses left and hold progress; holder/dead are 10 Hz scratch tallies.
 const Squads = {
@@ -62,7 +60,6 @@ Modes.register('royale', {
   start() {
     this.hurtTimer = 0; this.lootTimer = 0; this.outCount = 0;
     royaleOutOrder.fill(0);
-    lootSwapAt.fill(0);
     assignSquads();
     placeBeacons();
     startRing(Sim.time);
@@ -72,19 +69,20 @@ Modes.register('royale', {
   step(dt, now) {
     stepRing(now);
     this.hurtOutside(dt);
-    if (intervalDue(this, 'lootTimer', dt, LOOT_CHECK_INTERVAL)) { touchLoot(now); stepBeacons(LOOT_CHECK_INTERVAL); }
+    if (intervalDue(this, 'lootTimer', dt, LOOT_CHECK_INTERVAL)) { touchLoot(); stepBeacons(LOOT_CHECK_INTERVAL); }
     updateRingHud(now);
   },
   onSpawn(id) { dropIn(id); },
   hurtOutside(dt) {
-    if (intervalDue(this, 'hurtTimer', dt, RING_HURT_INTERVAL)) hurtOutsideZone(Ring.x, Ring.z, Ring.radius, Ring.damage * RING_HURT_INTERVAL);
+    if (intervalDue(this, 'hurtTimer', dt, ZONE_HURT_INTERVAL)) hurtOutsideZone(Ring.x, Ring.z, Ring.radius, Ring.damage * ZONE_HURT_INTERVAL);
   },
   onKill(victim) {
     if (victim >= 0 && Modes.participant[victim] && !royaleOutOrder[victim]) royaleOutOrder[victim] = ++this.outCount;
   },
   // Counts sides standing: each squad once, each solo actor on its own. A won squad names the player when it is theirs.
-  isOver(now) {
-    if (Modes.competitorsAtStart < 2) return Modes.standardIsOver(now);
+  // A match that started with one competitor (Play with 0 bots) has no rival: it ends when nobody stands.
+  isOver() {
+    const fewest = Modes.competitorsAtStart < 2 ? 0 : 1;
     let standing = 0, sides = 0, last = DRAW;
     Squads.seen.fill(0, 0, Squads.count);
     for (let id = 0; id < Actors.count; id++) {
@@ -96,7 +94,7 @@ Modes.register('royale', {
       sides++; last = id;
     }
     Modes.hud.aliveCount = standing;
-    if (sides > 1) return NOT_OVER;
+    if (sides > fewest) return NOT_OVER;
     return Modes.over(sides === 1 ? squadWinner(last) : DRAW, 'eliminated');
   },
   score(id) { return Actors.alive[id] ? ROYALE_STANDING_RANK + Modes.kills[id] : royaleOutOrder[id]; },
@@ -145,7 +143,7 @@ function joinSquadDrop(id, squad) {
   let x = anchorX, z = anchorZ;
   if (slot > 0) { x += Math.sin(angle) * DROP_SPREAD; z += Math.cos(angle) * DROP_SPREAD; }
   if (!World.lineClear(anchorX, anchorY + DROP_PROBE, anchorZ, x, anchorY + DROP_PROBE, z)) { x = anchorX; z = anchorZ; }
-  Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = anchorY; Actors.z[id] = Actors.prevZ[id] = z;
+  Actors.place(id, x, anchorY, z);
 }
 
 function setSquadAnchor(squad, x, y, z) {
@@ -171,6 +169,13 @@ function stepBeacons(interval) {
   }
 }
 
+// Holding Use here charges the squad's beacon (dead squadmates, a use left): no loot swap (Weapons.useTakers, swap-02).
+function beaconServes(id) {
+  const squad = Actors.team[id];
+  if (squad < 0 || squad >= Squads.count || !Squads.dead[squad] || !Squads.beaconUses[squad]) return false;
+  return withinTouchAt(id, Squads.beaconX, Squads.beaconY, Squads.beaconZ, squad, TOUCH_RADIUS);
+}
+
 function holdsBeacon(id, squad) {
   return (Actors.buttons[id] & BTN.USE) !== 0 && (Actors.flags[id] & ACTOR_FLAG.DOWNED) === 0
     && withinTouchAt(id, Squads.beaconX, Squads.beaconY, Squads.beaconZ, squad, TOUCH_RADIUS);
@@ -192,7 +197,7 @@ function respawnSquad(squad) {
 
 function squadWinner(id) {
   const player = Game.playerId;
-  return Squads.count && player >= 0 && Actors.team[id] >= 0 && Actors.team[player] === Actors.team[id] ? player : id;
+  return Squads.count && player >= 0 && Actors.isAlly(player, id) ? player : id;
 }
 
 // ---- Ring ----
@@ -228,7 +233,7 @@ function chooseNextCircle(radius) {
   const angle = Rng.rules.range(0, Math.PI * 2), offset = Math.sqrt(Rng.rules.next()) * slack;
   let x = Ring.x + Math.sin(angle) * offset, z = Ring.z + Math.cos(angle) * offset;
   if (Number.isFinite(World.boundsMin.x)) { x = clamp(x, World.boundsMin.x, World.boundsMax.x); z = clamp(z, World.boundsMin.z, World.boundsMax.z); }
-  const drift = Math.hypot(x - Ring.x, z - Ring.z), keep = drift > slack ? slack / drift : 1;
+  const drift = length2(x - Ring.x, z - Ring.z), keep = drift > slack ? slack / drift : 1;
   Ring.toX = Ring.x + (x - Ring.x) * keep; Ring.toZ = Ring.z + (z - Ring.z) * keep; Ring.toRadius = radius;
 }
 
@@ -268,7 +273,7 @@ function buildLoot(map) {
     if (item.modes && item.modes.length && !item.modes.includes(Modes.mode.id)) continue;
     const spot = RoyaleLoot.count++;
     RoyaleLoot.x[spot] = item.x; RoyaleLoot.y[spot] = item.y || 0; RoyaleLoot.z[spot] = item.z;
-    RoyaleLoot.group[spot] = group; RoyaleLoot.taken[spot] = 0;
+    RoyaleLoot.group[spot] = group; RoyaleLoot.taken[spot] = 0; RoyaleLoot.blocker[spot] = -1;
     RoyaleLoot.rarity[spot] = rollRarity(params.rarityWeights);
     RoyaleLoot.weapon[spot] = group === LOOT_GROUP.WEAPON ? lootWeaponIndex(item.item) : -1;
   }
@@ -286,43 +291,63 @@ function rollRarity(weights) {
   return weights.length - 1;
 }
 
-// The spot's own weapon when it is a gun, else a random gun of the match's weapon set.
+// The spot's own weapon when it is a gun of the match's weapon set, else a random gun of that set (the roulette pool: no
+// melee, tool or power weapon), so the set and its rarity tuning hold for every map, generated islands too (modes-01).
+const lootGuns = [];
 function lootWeaponIndex(key) {
-  const own = CAT.weapons.byId(key);
-  if (own && own.class !== 'melee') return own.index;
-  const guns = currentWeaponSet().weapons.filter((id) => CAT.weapons.byId(id).class !== 'melee');
-  return CAT.weapons.byId(guns.length ? Rng.loot.pick(guns) : ROULETTE_FALLBACK).index;
+  const guns = rouletteWeapons(lootGuns);
+  return CAT.weapons.byId(guns.includes(key) ? key : Rng.loot.pick(guns)).index;
 }
 
-function touchLoot(now) {
+// The one loot gate: no loot while downed (HP-007) or out of the match.
+function mayLoot(id) {
+  return Items.canTouch(id, true) && Modes.isActive(id);
+}
+
+function touchLoot() {
   for (let id = 0; id < Actors.count; id++) {
-    if (!Items.canTouch(id, true) || !Modes.isActive(id)) continue;   // the one pickup gate: no loot while downed (HP-007)
+    if (!mayLoot(id)) continue;
     for (let spot = 0; spot < RoyaleLoot.count; spot++) {
-      if (!RoyaleLoot.taken[spot] && withinTouchAt(id, RoyaleLoot.x, RoyaleLoot.y, RoyaleLoot.z, spot, TOUCH_RADIUS)) takeLoot(id, spot, now);
+      if (RoyaleLoot.taken[spot]) continue;
+      const touching = withinTouchAt(id, RoyaleLoot.x, RoyaleLoot.y, RoyaleLoot.z, spot, TOUCH_RADIUS);
+      if (RoyaleLoot.blocker[spot] === id) { if (!touching) RoyaleLoot.blocker[spot] = -1; continue; }
+      if (touching) takeLoot(id, spot);
     }
   }
 }
 
-function takeLoot(id, spot, now) {
+function takeLoot(id, spot) {
   const group = RoyaleLoot.group[spot], params = Modes.rules.params;
-  if (group === LOOT_GROUP.WEAPON) { takeWeapon(id, spot, now); return; }
+  if (group === LOOT_GROUP.WEAPON) { takeWeapon(id, spot); return; }
   if (group === LOOT_GROUP.ARMOR && !takeArmor(id, params.shieldByRarity[RoyaleLoot.rarity[spot]])) return;
   if (group === LOOT_GROUP.HEALTH && !Items.grant(id, LOOT_CONSUMABLES[RoyaleLoot.rarity[spot]])) return;   // carried until used (BTN.HEAL)
   if (group === LOOT_GROUP.AMMO && !takeAmmo(id)) return;
   RoyaleLoot.taken[spot] = 1;
 }
 
-// A full inventory takes a new weapon only while USE is held; the dropped weapon stays on the spot with its rarity.
-function takeWeapon(id, spot, now) {
-  const key = CAT.weapons[RoyaleLoot.weapon[spot]].id;
-  if (Weapons.has(id, key)) { takeDuplicate(id, key, spot); return; }
-  if (Weapons.atCarryLimit(id) && ((Actors.buttons[id] & BTN.USE) === 0 || now < lootSwapAt[id])) return;
-  Weapons.give(id, key, RoyaleLoot.rarity[spot]);
+// A full inventory swaps by the one carry-limit rule (Weapons.mayTake: a player holds USE) and the S12 swap wait
+// (Items.blockSwapsAt); the dropped weapon stays on the spot, blocked for this actor until they step off.
+function takeWeapon(id, spot) {
+  const weapon = CAT.weapons[RoyaleLoot.weapon[spot]];
+  if (Weapons.has(id, weapon.id)) { takeDuplicate(id, weapon.id, spot); return; }
+  if (!Weapons.mayTake(id, weapon) || (Weapons.swapsOut(id, weapon) && Sim.tick < Items.swapReadyTick[id])) return;
+  Weapons.give(id, weapon.id, RoyaleLoot.rarity[spot]);
   const dropped = Weapons.dropped ? CAT.weapons.byId(Weapons.dropped) : null;
   if (!dropped) { RoyaleLoot.taken[spot] = 1; return; }
   RoyaleLoot.weapon[spot] = dropped.index;
   RoyaleLoot.rarity[spot] = Weapons.droppedRarity;
-  lootSwapAt[id] = now + LOOT_SWAP_DELAY;
+  RoyaleLoot.blocker[spot] = id;
+  Items.blockSwapsAt(id);
+}
+
+// The weapon spot under the actor that holding Use would swap in now, -1 = none (the Use prompt; the mode row shows touch USE).
+function lootSwapOffer(id) {
+  if (id < 0 || Sim.tick < Items.swapReadyTick[id] || !mayLoot(id) || Weapons.useTaken(id)) return -1;
+  for (let spot = 0; spot < RoyaleLoot.count; spot++) {
+    if (RoyaleLoot.taken[spot] || RoyaleLoot.group[spot] !== LOOT_GROUP.WEAPON || RoyaleLoot.blocker[spot] === id) continue;
+    if (withinTouchAt(id, RoyaleLoot.x, RoyaleLoot.y, RoyaleLoot.z, spot, TOUCH_RADIUS) && Weapons.swapsOut(id, CAT.weapons[RoyaleLoot.weapon[spot]])) return spot;
+  }
+  return -1;
 }
 
 // A copy of an owned weapon is taken only when it adds ammo (or makes a pair); the better rarity of the two is kept.
@@ -353,23 +378,53 @@ function drawRoyale(batch) {
   drawRing(batch, Ring.x, ground, Ring.z, Ring.radius, RING_COLOR);
   if (Ring.state !== RING_STATE.CLOSED) drawRing(batch, Ring.toX, ground, Ring.toZ, Ring.toRadius, RING_NEXT_COLOR);
   const instance = royaleInstance;
-  instance.sx = LOOT_SIZE; instance.sy = LOOT_SIZE; instance.sz = LOOT_SIZE;
+  royaleAmmoModel = ammoModelFor(Game.playerId);
   for (let spot = 0; spot < RoyaleLoot.count; spot++) {
     if (RoyaleLoot.taken[spot]) continue;
     const color = LOOT_RARITY_COLORS[RoyaleLoot.group[spot] <= LOOT_GROUP.ARMOR ? RoyaleLoot.rarity[spot] : 0];
     instance.x = RoyaleLoot.x[spot]; instance.y = RoyaleLoot.y[spot] + LOOT_LIFT; instance.z = RoyaleLoot.z[spot];
     instance.r = color[0]; instance.g = color[1]; instance.b = color[2];
-    batch.meshFrom('box', instance);
+    if (RoyaleLoot.group[spot] === LOOT_GROUP.WEAPON) drawWeaponLoot(batch, spot, instance);
+    else drawLootModel(batch, spot, instance);
   }
+  const pose = royalePose;
+  pose.scale = BEACON_HEIGHT; pose.yaw = 0; pose.emissive = MARKER_GLOW;
+  pose.r = BEACON_COLOR[0]; pose.g = BEACON_COLOR[1]; pose.b = BEACON_COLOR[2];
   for (let squad = 0; squad < Squads.count; squad++) {
     if (!Squads.beaconUses[squad]) continue;
-    batch.mesh('box', Squads.beaconX[squad], Squads.beaconY[squad] + BEACON_HEIGHT / 2, Squads.beaconZ[squad], 0, 0, BEACON_WIDTH, BEACON_HEIGHT, BEACON_WIDTH,
-      BEACON_COLOR[0], BEACON_COLOR[1], BEACON_COLOR[2], MARKER_GLOW);
+    pose.x = Squads.beaconX[squad]; pose.y = Squads.beaconY[squad]; pose.z = Squads.beaconZ[squad];
+    Models.draw(batch, BEACON_MODEL, pose);
   }
 }
 
-// Loot boxes and the two ring markers go through one reused instance record (batch.meshFrom, PERF-006: the loot
-// loop would box 13 float arguments per box); the rings are two calls a frame.
+// Armor, heal and ammo spots show their gear models (03r, spinning like map pickups): a vest in the rarity colour, the
+// consumable the spot gives, and the ammo box of the local player's held weapon (what takeAmmo gives). The squad beacon is
+// the G24 Rally Beacon model, BEACON_HEIGHT x its size.
+const LOOT_ARMOR_MODEL = GEAR_MODELS.byId[CAT.items.byId('vest').code];
+const LOOT_HEAL_ROWS = LOOT_CONSUMABLES.map((id) => CAT.items.byId(id));
+const BEACON_MODEL = GEAR_MODELS.byId[CAT.gadgets.byId('beacon').code];
+const royalePose = makeModelPose();
+let royaleAmmoModel = null;
+function drawLootModel(batch, spot, instance) {
+  const pose = royalePose, group = RoyaleLoot.group[spot], heal = LOOT_HEAL_ROWS[RoyaleLoot.rarity[spot]];
+  pose.x = instance.x; pose.y = instance.y; pose.z = instance.z; pose.yaw = Sim.time * PICKUP_SPIN; pose.scale = 1; pose.emissive = MARKER_GLOW;
+  pose.r = instance.r; pose.g = instance.g; pose.b = instance.b;
+  if (group === LOOT_GROUP.ARMOR) { Models.draw(batch, LOOT_ARMOR_MODEL, pose); return; }
+  if (group === LOOT_GROUP.AMMO) { Models.draw(batch, royaleAmmoModel, pose); return; }
+  const rgb = PICKUP_RGB[PICKUP_KIND.ITEM], offset = heal.index * 3;
+  pose.r = rgb[offset]; pose.g = rgb[offset + 1]; pose.b = rgb[offset + 2];
+  Models.draw(batch, PICKUP_MODELS[PICKUP_KIND.ITEM][heal.index], pose);
+}
+// A weapon spot shows the gun's own model (03q), spinning like a map weapon pickup, over a ring in its rarity colour.
+function drawWeaponLoot(batch, spot, instance) {
+  instance.yaw = Sim.time * PICKUP_SPIN;
+  drawWeaponPickup(batch, RoyaleLoot.weapon[spot], instance, false);
+  instance.y = RoyaleLoot.y[spot] + RING_LIFT; instance.sx = LOOT_RING_RADIUS; instance.sy = 1; instance.sz = LOOT_RING_RADIUS;
+  batch.meshFrom('ring', instance);
+}
+
+// The loot rings and the two ring markers go through one reused instance record (batch.meshFrom, PERF-006: the loot
+// loop would box 13 float arguments per ring); the ring markers are two calls a frame.
 const royaleInstance = Object.assign(makeShapeInstance(), { emissive: MARKER_GLOW });
 function drawRing(batch, x, ground, z, radius, color) {
   const instance = royaleInstance;
@@ -380,3 +435,5 @@ function drawRing(batch, x, ground, z, radius, color) {
 
 Bus.on('match.setup', () => { RoyaleLoot.count = 0; Squads.count = 0; });
 Render.addSource('royale', drawRoyale);
+Weapons.useTakers.push(beaconServes);
+Input.usePrompts.push((id) => { const spot = lootSwapOffer(id); return spot < 0 ? '' : Items.swapText(id, RoyaleLoot.weapon[spot]); });

@@ -16,7 +16,7 @@ const Boot = {
       this.run();
     } catch (error) {
       ErrorLog.add('boot', error);
-      showFatal(BOOT_FATAL_TITLE, BOOT_FATAL_TEXT, String(error && error.stack || error));
+      showFatal(BOOT_FATAL_TITLE, BOOT_FATAL_TEXT, errorText(error));
     }
   },
   run() {

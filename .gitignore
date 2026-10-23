@@ -17,3 +17,6 @@ dist/
 
 # Claude agent worktrees
 .claude/worktrees/
+
+# ClassTimeKiller test build (tools/build.mjs writes it next to the game; D09)
+ClassTimeKiller/ClassTimeKiller.test.html

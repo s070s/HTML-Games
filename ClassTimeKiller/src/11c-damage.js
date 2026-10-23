@@ -12,6 +12,7 @@ const DOWNED_SPEED = 0.2;                // crawl 1.2 m/s against the 6.4 m/s re
 const REVIVE_HEALTH = 30;
 const REVIVE_SECONDS = 5;                // HP-007: an ally holds Use this long ...
 const REVIVE_REACH = 1.5;                // ... within this many metres of the downed actor
+const REVIVE_HINT_RANGE = 4;             // metres: Use held this close to a downed ally is for the revive (its prompt shows, no gun swap)
 const KNOCKBACK_PER_DAMAGE = 0.15;       // MOV-017
 const KNOCKBACK_LIFT = 0.25;             // knockback pushes slightly upward so grounded targets leave the floor
 const SPLASH_MIN_FACTOR = 0.2;
@@ -28,6 +29,9 @@ const LIMB_ARM_SPREAD = [0, 0.1, 0.2, 0.5];
 const STATUS_COUNT = CAT.statusEffects.length;
 const INFO_RING = 16;                    // damage infos in flight at once (listeners may apply damage while one is processed)
 CAT.statusEffects.forEach((row, index) => { row.index = index; });
+
+// The ruleset's scale for the push a hit gives another actor (03e hitKnockback; own blasts keep their full push).
+function hitKnockback() { const scale = currentRules().hitKnockback; return scale === undefined ? 1 : scale; }
 
 function makeDamageInfo() {
   return { amount: 0, zone: 'none', stomach: false, mode: null, weapon: '', kind: 'hit', element: 'kinetic', distance: 0, knockback: 1,
@@ -53,6 +57,7 @@ const Damage = {
   noRegen: new Uint8Array(MAX_ACTORS),              // 1 = no preset regeneration (PvE enemies: S14 runs their own)
   helmet: new Uint8Array(MAX_ACTORS),               // HPP04: armor also protects the head
   downedTime: new Float32Array(MAX_ACTORS), downedBy: new Int8Array(MAX_ACTORS).fill(-1),
+  downedWith: new Array(MAX_ACTORS).fill(''),               // weapon key that downed the actor: a bleed-out kill is credited to it
   reviving: new Int8Array(MAX_ACTORS).fill(-1),     // the downed ally this actor is reviving (hold Use), -1 none
   reviveProgress: new Float32Array(MAX_ACTORS),     // seconds of the current revive (HUD: / REVIVE_SECONDS)
   lastStand: new Uint8Array(MAX_ACTORS),            // 1 = downed with the Last Stand pistol out (S11 weapons keep firing)
@@ -87,11 +92,12 @@ const Damage = {
     if (!this.canBeDamaged(target, info)) return 0;
     const rules = currentRules(), kind = CAT.damageKinds.byId(info.kind) || CAT.damageKinds[0];
     const attackerScale = this.attackerScale(source, target, info);
-    if (source === target) this.knockback(target, info.amount * attackerScale, info, rules);
+    if (source === target) this.knockback(target, info.amount * attackerScale, info);
     const relation = this.relationScale(source, target, kind, rules);
     if (relation <= 0) return 0;
     let amount = info.amount * attackerScale * relation;
-    if (amount <= 0) { this.applyHitStatus(source, target, info); return 0; }
+    // A status-only hit (sleep dart, flare) lands on others only: an own 0-damage blast never reveals or sleeps its source (R-079).
+    if (amount <= 0) { if (source !== target) this.applyHitStatus(source, target, info); return 0; }
     // HP-001: zone x precision first; HPP03 applies the head multiplier only to what reaches health (see takeLayers).
     const zoneFactor = zoneMultiplier(rules, info), lateZone = this.preset().shieldIgnoresZone ? zoneFactor : 1;
     amount *= falloffFactor(info) * zoneFactor / lateZone;
@@ -100,7 +106,7 @@ const Damage = {
     amount = this.reduce(source, target, amount, info);
     if (amount <= 0) return 0;
     const dealt = kind.lethal ? this.takeEverything(target) : this.takeLayers(target, amount, lateZone, kind, info);
-    this.afterDamage(source, target, info, kind, dealt, rules, attackerScale);
+    this.afterDamage(source, target, info, kind, dealt, attackerScale);
     return dealt;
   },
   canBeDamaged(target, info) {
@@ -199,16 +205,16 @@ const Damage = {
     return taken;
   },
 
-  afterDamage(source, target, info, kind, dealt, rules, attackerScale) {
+  afterDamage(source, target, info, kind, dealt, attackerScale) {
     this.lastDamageTime[target] = Sim.time;
     this.recordAttacker(source, target);
     this.wake(target);
     this.applyHitStatus(source, target, info);
-    if (source !== target) this.knockback(target, info.amount * attackerScale, info, rules);
+    if (source !== target) this.knockback(target, info.amount * attackerScale * hitKnockback(), info);
     this.emitDamage(source, target, info, kind, dealt);
     if (!Game.headless) Fx.burst('blood', info.x, info.y, info.z, -info.dx, -info.dy, -info.dz, Math.min(12, 2 + dealt / 10), 0xa01818);
     if (Actors.health[target] > 0) return;
-    if (this.shouldGoDown(target)) { this.goDown(source, target); return; }
+    if (this.shouldGoDown(target)) { this.goDown(source, target, info.weapon); return; }
     this.kill(source, target, info);
   },
   recordAttacker(source, target) {
@@ -217,12 +223,13 @@ const Damage = {
     this.lastAttacker[target] = source;
     this.lastAttackTime[target] = Sim.time;
   },
-  // MOV-017: dv = 0.15 x damage x rules.knockback x mode factor / mass factor, capped; own explosions push at full strength.
-  knockback(target, amount, info, rules) {
-    const length = Math.hypot(info.dx, info.dy, info.dz);
+  // MOV-017: dv = 0.15 x damage x mode factor / mass factor, capped; own explosions push at full strength. The ruleset's
+  // knockback scale is applied once, by S10 to every 'impulse' (R-097: it used to be applied here too, squaring it).
+  knockback(target, amount, info) {
+    const length = length3(info.dx, info.dy, info.dz);
     if (length < 1e-6 || amount <= 0) return;
     const profile = Actors.profile[target], mass = profile && profile.massFactor ? profile.massFactor : 1;
-    const speed = Math.min(KNOCKBACK_CAP, KNOCKBACK_PER_DAMAGE * amount * rules.knockback * info.knockback / mass);
+    const speed = Math.min(KNOCKBACK_CAP, KNOCKBACK_PER_DAMAGE * amount * info.knockback / mass);
     emitImpulse(target, info.dx / length * speed, (info.dy / length + KNOCKBACK_LIFT) * speed, info.dz / length * speed);
   },
   emitDamage(source, target, info, kind, dealt) {
@@ -243,11 +250,12 @@ const Damage = {
     return false;
   },
   standingAlly(id, other) { return Actors.alive[other] === 1 && Actors.team[other] === Actors.team[id] && !(Actors.flags[other] & ACTOR_FLAG.DOWNED); },
-  goDown(source, target) {
+  goDown(source, target, weapon) {
     Actors.flags[target] |= ACTOR_FLAG.DOWNED;
     Actors.health[target] = DOWNED_HEALTH;
     this.downedTime[target] = DOWNED_BLEED_SECONDS;
     this.downedBy[target] = source;
+    this.downedWith[target] = weapon || '';
     for (let i = 0; i < this.downHooks.length; i++) this.downHooks[i](target);
     const pistol = this.downedWeapon ? this.downedWeapon(target) : '';
     if (pistol) this.drawLastStand(target, CAT.weapons.byId(pistol));
@@ -281,10 +289,12 @@ const Damage = {
     return true;
   },
   // The nearest downed teammate of id within maxDistance (A27 Second Wind, the hold-Use revive, bot revive goals), or -1.
+  // A downed ally within REVIVE_HINT_RANGE: the HUD prompt (17d), and Use held here never swaps a gun (Weapons.useTakers).
+  reviveInRange(id) { return this.downedCount > 0 && this.nearestDownedAlly(id, REVIVE_HINT_RANGE) >= 0; },
   nearestDownedAlly(id, maxDistance) {
     let best = -1, bestSquared = maxDistance * maxDistance;
     for (let other = 0; other < Actors.count; other++) {
-      if (other === id || !Actors.alive[other] || !(Actors.flags[other] & ACTOR_FLAG.DOWNED) || Actors.team[other] !== Actors.team[id] || Actors.team[id] < 0) continue;
+      if (!Actors.isAlly(id, other) || !Actors.alive[other] || !(Actors.flags[other] & ACTOR_FLAG.DOWNED)) continue;
       const squared = distanceSquared3(Actors.x[id], Actors.y[id], Actors.z[id], Actors.x[other], Actors.y[other], Actors.z[other]);
       if (squared <= bestSquared) { best = other; bestSquared = squared; }
     }
@@ -354,7 +364,7 @@ const Damage = {
     Actors.armor[id] = POOLS.armor; Actors.maxArmor[id] = Math.max(preset.armorCap, POOLS.armor);
     Actors.shield[id] = POOLS.shield; Actors.maxShield[id] = Math.max(preset.shieldCap, POOLS.shield);
     this.helmet[id] = preset.helmet ? 1 : 0;
-    this.surplus[id] = 0; this.downedTime[id] = 0; this.downedBy[id] = -1;
+    this.surplus[id] = 0; this.downedTime[id] = 0; this.downedBy[id] = -1; this.downedWith[id] = '';
     this.reviving[id] = -1; this.reviveProgress[id] = 0; this.lastStand[id] = 0; this.lastStandLent[id] = -1;
     this.lastDamageTime[id] = -1e9; this.lastAttacker[id] = this.previousAttacker[id] = -1;
     this.shieldRegenBlockedUntil[id] = 0;
@@ -440,7 +450,7 @@ const Damage = {
   },
   bleedOut(id) {
     const info = this.info();
-    info.kind = 'dot'; info.weapon = 'bleedout';
+    info.kind = 'dot'; info.weapon = this.downedWith[id] || 'bleedout';   // the downer's weapon keeps the kill credit
     Actors.health[id] = 0;
     this.kill(this.downedBy[id], id, info);
   },
@@ -603,12 +613,13 @@ function regenCap(id, preset) {
 function splashDistance(blast, id) {
   const low = Actors.y[id] + SPLASH_TARGET_LIFT, high = Actors.eyeY(id);
   Vec.set(splashPoint, Actors.x[id], clamp(blast.y, low, high), Actors.z[id]);
-  const horizontal = Math.max(0, Math.hypot(splashPoint.x - blast.x, splashPoint.z - blast.z) - TORSO_RADIUS);
-  return Math.hypot(horizontal, splashPoint.y - blast.y);
+  const horizontal = Math.max(0, length2(splashPoint.x - blast.x, splashPoint.z - blast.z) - TORSO_RADIUS);
+  return length2(horizontal, splashPoint.y - blast.y);
 }
 
 Sim.addSystem('status', 20, (dt) => Damage.step(dt));
 Damage.addReducer((source, target, amount) => amount * Move.damageScale(target));   // HP-001 victim reductions: MV08 roll
+Weapons.useTakers.push((id) => Damage.reviveInRange(id));   // on the way in too (swap-02)
 TouchInput.useNeeds.push(() => Damage.downedAllowed() && currentRules().teams > 0);   // revive needs Use held (HP-007)
 Bus.on('actor.spawn', (event) => Damage.resetHealth(event.id));
 Bus.on('actor.create', (id) => { Damage.resetHealth(id); Damage.shieldElement[id] = 0; Damage.noRegen[id] = 0; });

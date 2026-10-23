@@ -13,6 +13,7 @@ const WALL_RUN_APPROACH_SIN = Math.sin(60 * DEG); // MOV-023: approach under 60 
 const MANTLE_SECONDS = 0.35;           // MOV-022
 const MANTLE_RISE_FRACTION = 0.6;      // share of the mantle spent rising before moving onto the ledge
 const MANTLE_REACH = 0.3;              // how far in front of the capsule a ledge is looked for
+const MANTLE_TOP_PROBE = 0.1;          // the ledge top is probed this far past the wall face (thinner cover than this has no top)
 const WATER_EXIT_HEIGHT = 1.6;         // ledge reach (feet to rim) in water in every preset: pools are never traps
 const RAY_BUDGET = 3;                  // MOV-023: wall and ledge rays per actor per step
 const WALL_FACING_COS = 0.7;           // looking this directly at a wall counts as facing it (climb, mantle)
@@ -23,6 +24,8 @@ const LADDER_DOWN_PITCH = 30 * DEG;    // looking further down than this climbs 
 const LADDER_PUSH_OFF = 4;             // m/s away from the ladder when jumping off
 const LADDER_REGRAB_SECONDS = 0.3;
 const SWIM_SPEED_FRACTION = 0.5;       // MOV-019: swim at 50% of ground speed
+Nav.limits.ladderSpeed = LADDER_SPEED;   // nav link costs climb and swim at these speeds (S09 reads them, R-155)
+NAV_LINK_ROWS[NAV_LINK.SWIM].speedFactor = SWIM_SPEED_FRACTION;
 const WATER_FRICTION = 3;
 const WATER_GRAVITY_SCALE = 0.1;       // slow sinking
 const CHARGE_CONE_COS = Math.cos(25 * DEG); // shield charge locks onto enemies this close to the aim
@@ -130,10 +133,21 @@ function ladderState(id, preset, dt) {
     integrate(id, 1, dt);
     return;
   }
-  const direction = horizontalWish(id), climbSign = Actors.pitch[id] < -LADDER_DOWN_PITCH ? -1 : 1;
-  Actors.vx[id] = direction.x * direction.amount * LADDER_SPEED; Actors.vz[id] = direction.z * direction.amount * LADDER_SPEED;
-  Actors.vy[id] = (Actors.buttons[id] & BTN.CROUCH) ? -LADDER_SPEED : Motion.inputZ[id] * climbSign * LADDER_SPEED;
+  const direction = horizontalWish(id), climbSign = Actors.pitch[id] < -LADDER_DOWN_PITCH ? -1 : 1, speed = LADDER_SPEED * Move.statusSpeedScale[id];
+  Actors.vx[id] = direction.x * direction.amount * speed; Actors.vz[id] = direction.z * direction.amount * speed;
+  Actors.vy[id] = (Actors.buttons[id] & BTN.CROUCH) ? -speed : Motion.inputZ[id] * climbSign * speed;
+  if (Actors.vy[id] <= 0 && !Motion.grounded[id]) holdOnLadder(id);
   integrate(id, 0, dt);
+}
+
+// Climbing down or hanging on, the actor stays on the ladder: a horizontal move that would carry its centre further out
+// of the ladder's footprint stops. Going up the wall blocks such moves; at the top, climbing down, nothing else would.
+// On the floor at either end the actor walks off freely, and jumping pushes off.
+function holdOnLadder(id) {
+  const ladder = World.ladderOf(id);
+  if (!ladder) return;
+  if ((Actors.x[id] <= ladder.minX && Actors.vx[id] < 0) || (Actors.x[id] >= ladder.maxX && Actors.vx[id] > 0)) Actors.vx[id] = 0;
+  if ((Actors.z[id] <= ladder.minZ && Actors.vz[id] < 0) || (Actors.z[id] >= ladder.maxZ && Actors.vz[id] > 0)) Actors.vz[id] = 0;
 }
 
 function swimState(id, preset, dt) {
@@ -143,7 +157,8 @@ function swimState(id, preset, dt) {
   const forward = Motion.inputZ[id], pitch = Actors.pitch[id];
   yawToWorld(Actors.yaw[id], forward * Math.cos(pitch), Motion.inputX[id], axes);
   const y = Math.sin(pitch) * forward + up, length = length3(axes.x, y, axes.z);
-  if (length > 1e-6) accelerate(id, axes.x / length, y / length, axes.z / length, preset.groundSpeed * SWIM_SPEED_FRACTION * Math.min(1, length), preset.accel, dt);
+  const speed = preset.groundSpeed * SWIM_SPEED_FRACTION * Move.weaponSpeedScale[id] * Move.statusSpeedScale[id];   // slows and heavy weapons, as on foot
+  if (length > 1e-6) accelerate(id, axes.x / length, y / length, axes.z / length, speed * Math.min(1, length), preset.accel, dt);
   integrate(id, WATER_GRAVITY_SCALE, dt);
 }
 
@@ -314,14 +329,16 @@ function mantleReach(id, preset) {
 }
 
 // A wall in front at knee height, walkable floor on top within reach, room to stand there and to rise to it (2 rays).
+// The top is looked for just past the face, so thin cover (a 0.4 m wall) has one; the stand point a capsule radius past the
+// face may hang over its far edge, and the settle after the mantle lets the actor down on the other side.
 function findLedge(id, maxHeight) {
   if (!spendRays(id, 2)) return false;
   const x = Actors.x[id], y = Actors.y[id], z = Actors.z[id], forwardX = Math.sin(Actors.yaw[id]), forwardZ = Math.cos(Actors.yaw[id]);
   if (!World.raycast(x, y + STEP_HEIGHT + COLLISION_SKIN, z, forwardX, 0, forwardZ, ACTOR_RADIUS + MANTLE_REACH, wallHit)) return false;
   if (Math.abs(wallHit.ny) > WALL_NORMAL_MAX_Y || wallHit.distance <= 0) return false;
-  const ledgeX = wallHit.x + forwardX * (ACTOR_RADIUS + COLLISION_SKIN * 4), ledgeZ = wallHit.z + forwardZ * (ACTOR_RADIUS + COLLISION_SKIN * 4);
-  const top = y + maxHeight + COLLISION_SKIN;
-  const ledgeY = World.floorBelow(ledgeX, top, ledgeZ, maxHeight - STEP_HEIGHT, wallHit);
+  const faceX = wallHit.x, faceZ = wallHit.z, top = y + maxHeight + COLLISION_SKIN;
+  const ledgeY = World.floorBelow(faceX + forwardX * MANTLE_TOP_PROBE, top, faceZ + forwardZ * MANTLE_TOP_PROBE, maxHeight - STEP_HEIGHT, wallHit);
+  const ledgeX = faceX + forwardX * (ACTOR_RADIUS + COLLISION_SKIN * 4), ledgeZ = faceZ + forwardZ * (ACTOR_RADIUS + COLLISION_SKIN * 4);
   if (!(ledgeY > y + STEP_HEIGHT) || wallHit.distance <= 0) return false;
   const standY = ledgeY + COLLISION_SKIN * 2;
   if (!World.capsuleFits(ledgeX, standY, ledgeZ, ACTOR_RADIUS, Actors.height[id])) return false;
@@ -442,8 +459,8 @@ TouchInput.useNeeds.push(() => mapSize(World.map) >= SKIMMER_MIN_MAP_SIZE);   //
 function toggleBoard(id, preset) {
   if (!(Actors.pressed[id] & BTN.USE)) return;
   if (Motion.board[id]) { Move.setBoard(id, false); return; }
-  const running = Math.hypot(Actors.vx[id], Actors.vz[id]) >= preset.groundSpeed * SKIMMER_BOARD_RUN;
-  const moving = Math.hypot(Actors.moveX[id], Actors.moveZ[id]) >= SKIMMER_BOARD_INPUT;
+  const running = length2(Actors.vx[id], Actors.vz[id]) >= preset.groundSpeed * SKIMMER_BOARD_RUN;
+  const moving = length2(Actors.moveX[id], Actors.moveZ[id]) >= SKIMMER_BOARD_INPUT;
   if (running && moving && Motion.grounded[id]) Move.setBoard(id, true);
 }
 

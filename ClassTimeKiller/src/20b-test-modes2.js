@@ -27,7 +27,7 @@ function followFor(seconds, ids, point) {
 // Shapes drawObjective (13b) pushes for one objective.
 function countObjectiveMeshes(objective) {
   let meshes = 0;
-  drawObjective({ mesh() { meshes++; return 0; } }, objective);
+  drawObjective({ meshFrom() { meshes++; return 0; } }, objective);
   return meshes;
 }
 
@@ -41,16 +41,17 @@ Test.add('modes2', (check) => {
   const convoy = rows('payload').params;
   check('payload: 1.2 to 1.8 m/s, rollback after 10 s, 3 checkpoints, 4:00 + 2:00 (M11)', convoy.speed === 1.2 && convoy.maxSpeed === 1.8 && convoy.rollbackAfter === 10
     && convoy.checkpoints === 3 && rows('payload').timeLimit === 240 && convoy.checkpointTime === 120 && Test.near(convoy.speed * (1 + 2 * convoy.pushStack), convoy.maxSpeed, 1e-9));
-  check('gungame: 18 tiers, the last one melee (M16)', rows('gungame').params.ladder.length === rows('gungame').params.tiers && rows('gungame').params.tiers === 18
-    && CAT.weapons.byId(GUNGAME_LADDER[17]).class === 'melee' && GUNGAME_LADDER.every((key) => CAT.weapons.byId(key)));
-  check('infection: 1 per 6, after 20 s, 300 HP, 5 min (M17)', rows('infection').params.infectedPerPlayers === 6 && rows('infection').params.infectAfter === 20
-    && rows('infection').params.infectedHealth === 300 && rows('infection').timeLimit === 300);
+  check('gungame: a 12-weapon ladder by default, the last one melee (M16, fun-04)', rows('gungame').params.ladder.length === 12 && !rows('gungame').params.tiers
+    && CAT.weapons.byId(GUNGAME_LADDER[11]).class === 'melee' && GUNGAME_LADDER.every((key) => CAT.weapons.byId(key)));
+  check('infection: 1 per 6 on 3000 square metres, after 20 s, 320 HP, 5 min (M17, blight-01)', rows('infection').params.infectedPerPlayers === 6
+    && rows('infection').params.infectedArea === 3000 && rows('infection').params.infectAfter === 20 && rows('infection').params.infectedHealth === 320
+    && rows('infection').timeLimit === 300);
   check('juggernaut: x3 HP, x1.5 damage, 15 to win (M18)', rows('juggernaut').params.healthMult === 3 && rows('juggernaut').params.damageMult === 1.5 && rows('juggernaut').scoreLimit === 15);
   check('cursetag: 50 HP, melee only, the beacon passes the curse (M19)', rows('cursetag').params.cursedHealth === 50 && rows('cursetag').params.meleeOnly
     && rows('cursetag').params.passOnTag === false);
   const shortLadder = ladderTiers({ ladder: GUNGAME_LADDER, tiers: 3 });
   check('gungame: params.tiers shortens the ladder, keeping the melee tier last', shortLadder.join() === 'tempest,vanguard,maul'
-    && ladderTiers({ ladder: GUNGAME_LADDER, tiers: 99 }).length === 18 && ladderTiers({ ladder: GUNGAME_LADDER }).length === 18
+    && ladderTiers({ ladder: GUNGAME_LADDER, tiers: 99 }).length === 12 && ladderTiers({ ladder: GUNGAME_LADDER }).length === 12
     && ladderTiers({ ladder: GUNGAME_LADDER, tiers: 1 }).join() === 'maul');
   const area = worldSafeArea({});
   check('worldSafeArea: the fallback without world bounds', Number.isFinite(World.boundsMin.x) || (area.x === 0 && area.z === 0 && area.radius === SAFE_AREA_FALLBACK_RADIUS));
@@ -120,6 +121,11 @@ Test.add('modes2', (check) => {
   check('rush: no stage past the last one is announced or shown', Modes.hud.stage === 2 && announcements.some((event) => event.text === 'Stage 2')
     && !announcements.some((event) => event.text === 'Stage 3'));
   blasts.stop(); announcements.stop();
+  endModeTest();
+  // The ticket cost of a death is the mode param, as in Frontline (modes-07).
+  startModeTest('rush', modesTestMap(RUSH_MAP), [0, 1], { modeOptions: { params: { deathCost: 3 } } });
+  damageKill(0, 1);
+  check('rush: params.deathCost sets the tickets an attacker death costs', Modes.teamScore[0] === 72, Modes.teamScore[0]);
   endModeTest();
 
   startModeTest('rush', modesTestMap(RUSH_MAP), [0, 1], { modeOptions: { params: { tickets: 1 } } });
@@ -229,6 +235,19 @@ Test.add('modes2', (check) => {
   check('payload: the clock runs out without the cart: defenders win', Game.match.ended && Game.match.winner === 1 && Game.match.results.reason === 'time');
   endModeTest();
 
+  // Time warnings count the checkpoint time too (R-131): 90 s + 60 s from checkpoint 1.
+  const warnings = startEventLog('announce');
+  startModeTest('payload', modesTestMap(CONVOY_MAP), [0, 0, 1], { modeOptions: { timeLimit: 90, params: { checkpointTime: 60 } } });
+  followFor(15, [0, 1], Modes.objectives[0]);
+  for (const id of [0, 1]) placeActor(id, -45, 20);
+  const minuteWarnings = () => warnings.filter((event) => event.text === '1 minute remaining').length;
+  runSeconds(40 - Sim.time);
+  check('payload: no "1 minute" warning while 110 s are left', Modes.hud.payloadCheckpoint === 1 && minuteWarnings() === 0 && Modes.timeLeft(Sim.time) > 100, Modes.timeLeft(Sim.time));
+  runSeconds(91 - Sim.time);
+  check('payload: the warning comes with 1 minute really left', minuteWarnings() === 1 && Test.near(Modes.timeLeft(Sim.time), 59, 0.1), Modes.timeLeft(Sim.time));
+  warnings.stop();
+  endModeTest();
+
   startModeTest('payload', modesTestMap({ spawns: TEAM_SPAWNS }), [0, 1]);
   check('payload: a map without a path keeps nothing from the last convoy', Modes.behaviour.reached === 0 && Modes.behaviour.total === 0 && Modes.behaviour.score(0) === 0);
   endModeTest();
@@ -273,7 +292,7 @@ Test.add('modes2', (check) => {
   startModeTest('gungame', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
   const ladder = Modes.behaviour.ladder, last = ladder.length - 1;
   check('gungame: everyone starts on tier 1 with its weapon and the melee weapon', [0, 1, 2].every((id) => Weapons.currentWeapon(id).id === ladder[0] && Weapons.has(id, 'maul'))
-    && Modes.hud.ladderTiers === 18);
+    && Modes.hud.ladderTiers === GUNGAME_LADDER.length);
   damageKill(1, 0);
   check('gungame: a kill advances one tier and swaps the weapon', Modes.behaviour.score(0) === 1 && Weapons.currentWeapon(0).id === ladder[1] && !Weapons.has(0, ladder[0]) && Modes.score[0] === 1);
   respawnAll();
@@ -307,6 +326,9 @@ Test.add('modes2', (check) => {
   Sim.step();
   check('gungame: a melee kill on it wins', Game.match.ended && Game.match.winner === 0);
   endModeTest();
+  // Pacing probe (fun-04): with 18 tiers, 8 bots on gantry ran out of time or into sudden death on every seed.
+  const run = DebugApi.soak('gungame', 'gantry', 11, 7, 1, {});
+  check('gungame pacing: 8 bots finish the ladder in normal time', run.reason === 'score' && run.seconds < 600, run.reason + ' ' + run.seconds);
 });
 
 // ---- M17 Blight ----
@@ -317,22 +339,33 @@ Test.add('modes2', (check) => {
   check('infection: everyone starts human', ids.every((id) => Actors.team[id] === HUMAN_TEAM) && Modes.hud.survivors === 6 && Modes.hud.infected === 0);
   runSeconds(19.9);
   check('infection: nobody is infected before 20 s', Modes.hud.infected === 0);
+  const casting = ids.filter((id) => Abilities.forceCast(id, 'timebend')).length;   // a control ability running at the outbreak
   runSeconds(0.2);
   const first = ids.find((id) => Actors.team[id] === INFECTED_TEAM);
-  check('infection: one infected per 6 players at 20 s', Modes.hud.infected === 1 && Modes.hud.survivors === 5 && Modes.actorRole[first] === ACTOR_ROLE.INFECTED);
-  check('infection: the infected has 300 HP and melee only', Actors.health[first] === 300 && Actors.maxHealth[first] === 300 && Weapons.currentWeapon(first).class === 'melee');
+  const stillCasting = ids.filter((id) => Abilities.isActive(id, 'timebend'));
+  check('infection: a human turned infected stops a running control ability, the humans keep theirs', casting === ids.length
+    && stillCasting.length === Modes.hud.survivors && stillCasting.every((id) => Actors.team[id] === HUMAN_TEAM), casting + ' cast, ' + stillCasting.length + ' running');
+  check('infection: 2 of 6 infected at 20 s on the 120 m test floor (4.8 x infectedArea)', Modes.hud.infected === 2 && Modes.hud.survivors === 4 && Modes.actorRole[first] === ACTOR_ROLE.INFECTED,
+    Modes.hud.infected);
+  const infectedHealth = Modes.rules.params.infectedHealth;
+  check('infection: the infected is tough and melee only', Actors.maxHealth[first] === infectedHealth && Weapons.currentWeapon(first).class === 'melee');
   const human = ids.find((id) => Actors.team[id] === HUMAN_TEAM);
+  for (const id of [first, human]) { Gadgets.give(id, 'frag', 1); Actors.pressed[id] = BTN.GRENADE; Gadgets.stepActor(id); }
+  check('infection: GRENADE does not ready a throw for the infected, it does for a human', Gadgets.holdStart[first] < 0 && Gadgets.holdStart[human] >= 0);
+  Gadgets.holdStart[human] = Gadgets.holdRow[human] = -1;
   hitActor(human, first, 30, 'melee');
-  check('infection: one infected hit turns a human', Actors.team[human] === INFECTED_TEAM && Actors.alive[human] && Actors.health[human] === 300 && Modes.score[first] === 1);
+  const stillHuman = Actors.team[human] === HUMAN_TEAM;
+  damageKill(human, first, 'melee');
+  check('infection: only a kill turns a human (modes-02), scoring 1', stillHuman && Actors.team[human] === INFECTED_TEAM && Modes.score[first] === 1);
   const victim = ids.find((id) => Actors.team[id] === HUMAN_TEAM);
   damageKill(victim, -1);
   check('infection: a human who dies joins the infected', Actors.team[victim] === INFECTED_TEAM);
   respawnAll();
-  check('infection: and comes back infected', Actors.alive[victim] && Actors.health[victim] === 300 && Weapons.currentWeapon(victim).class === 'melee');
+  check('infection: and comes back infected', Actors.alive[victim] && Actors.health[victim] === infectedHealth && Weapons.currentWeapon(victim).class === 'melee');
   Bus.emit('move.jump', { id: first, speed: 0, surface: '' });
   const leap = impulses.find((event) => event.id === first);
   check('infection: an infected jump is a leap', leap && Test.near(Math.hypot(leap.x, leap.z), 8, 1e-4) && leap.y === 3);
-  for (const id of ids) if (Actors.team[id] === HUMAN_TEAM) hitActor(id, first, 30, 'melee');
+  for (const id of ids) if (Actors.team[id] === HUMAN_TEAM) damageKill(id, first, 'melee');
   Sim.step();
   check('infection: the infected win when no human is left', Game.match.ended && Game.match.winner === INFECTED_TEAM && Game.match.results.reason === 'eliminated');
   impulses.stop();
@@ -342,6 +375,15 @@ Test.add('modes2', (check) => {
   runSeconds(30.05);
   check('infection: humans standing at the time limit win', Game.match.ended && Game.match.winner === HUMAN_TEAM && Game.match.results.reason === 'time');
   endModeTest();
+  // blight-01: the outbreak grows with the square root of the walkable floor (the nav graph's node count).
+  const params = CAT.modes.byId('infection').params, nodes = Nav.nodeCount, nodesFor = (area) => area / (NAV_CELL_SIZE * NAV_CELL_SIZE);
+  const startsOn = (area) => { Nav.nodeCount = nodesFor(area); return outbreakSize(12, params); };
+  let counts = [];
+  try { counts = [params.infectedArea, 4 * params.infectedArea, params.infectedArea / 4].map(startsOn); } finally { Nav.nodeCount = nodes; }
+  check('infection: 2 of 12 start infected on infectedArea of floor, 4 on four times it, 1 on a quarter', counts.join() === '2,4,1', counts.join());
+  // Balance probe (modes-02): with one hit converting, the infected wiped 12 bots in 51-133 s on every seed. Now the humans hold well into the match.
+  const soak = DebugApi.soak('infection', 'spire', 5.5, 11, 2, {});
+  check('infection balance: a bot match on spire lasts past 3 minutes', soak.seconds > 180, soak.seconds);
 });
 
 // ---- M18 Colossus ----
@@ -473,6 +515,16 @@ const ROYALE_ITEMS = [
   { x: 18, y: 0, z: 10, item: 'fury', group: 'power' },
 ];
 
+// A map's weapon spot outside the match weapon set (generated islands place any weapon, the Lifter tool too) holds a gun of the set (modes-01).
+Test.add('modes2', (check) => {
+  const items = ['warden', 'lifter', 'shardcaster', 'tanto'].map((item, index) => ({ x: 10 + index * 2, y: 0, z: 10, item, group: 'weapon' }));
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS, items }), [-1, -1]);
+  const guns = rouletteWeapons([]), keys = Array.from(RoyaleLoot.weapon.subarray(0, RoyaleLoot.count), (index) => CAT.weapons[index].id);
+  check('royale: every weapon spot holds a gun of the match set, a set gun keeps its spot', keys.length === 4 && keys.every((key) => guns.includes(key) && currentWeaponSet().weapons.includes(key))
+    && keys[0] === 'warden', keys.join());
+  endModeTest();
+});
+
 Test.add('modes2', (check) => {
   const hazards = startEventLog('damage.request');
   startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS, items: ROYALE_ITEMS }), [-1, -1, -1]);
@@ -496,6 +548,12 @@ Test.add('modes2', (check) => {
 
   startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS, items: ROYALE_ITEMS }), [-1, -1]);
   check('royale: loot spots from the weapon, armor, health and ammo items', RoyaleLoot.count === 4 && RoyaleLoot.weapon[0] === CAT.weapons.byId('warden').index);
+  const drawn = () => { propBatch.clear(); drawRoyale(propBatch); const count = batchInstances(propBatch); propBatch.clear(); return count; };
+  const withGun = drawn();
+  RoyaleLoot.taken[0] = 1;
+  const gun = withGun - drawn();
+  RoyaleLoot.taken[0] = 0;
+  check('royale: a weapon spot draws the gun model and a rarity ring, not a box', gun > 2, gun);
   runSeconds(2);
   const rarity = RoyaleLoot.rarity[0];
   Actors.flags[0] |= ACTOR_FLAG.DOWNED; Damage.downedTime[0] = DOWNED_BLEED_SECONDS;
@@ -537,6 +595,15 @@ Test.add('modes2', (check) => {
   for (let step = 0; step < 4 * TICK_RATE && !Game.match.ended; step++) { placeActor(0, Ring.x, Ring.z); Sim.step(); }
   check('royale: only the one inside survives and wins', Game.match.ended && Game.match.winner === 0 && Game.match.results.reason === 'eliminated');
   check('royale: placement ranks the standing first, then later deaths', Modes.behaviour.score(0) > Math.max(Modes.behaviour.score(1), Modes.behaviour.score(2)) && Modes.behaviour.score(1) !== Modes.behaviour.score(2));
+  endModeTest();
+
+  // A lone competitor (Play with 0 bots) plays on until it falls; then the match ends instead of running forever (modes-01).
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS }), [-1]);
+  runSeconds(1);
+  const goesOn = !Game.match.ended;
+  damageKill(0, -1, 'hazard');
+  runSeconds(0.1);
+  check('royale alone: goes on while the lone actor stands, then ends as a loss', goesOn && Game.match.ended && Game.match.results.lost);
   endModeTest();
 
   World.load(modesTestMap({ spawns: FFA_SPAWNS }));
@@ -591,6 +658,12 @@ Test.add('modes2', (check) => {
 });
 
 // Royale weapon spots: owned copies and swaps at the carry limit keep the loot's rarity.
+// royaleUsePrompt: what the HUD says holding Use does (17d hudDrawUsePrompt reads Input.usePrompts the same way).
+function royaleUsePrompt(id) {
+  let prompt = '';
+  for (let i = 0; i < Input.usePrompts.length && !prompt; i++) prompt = Input.usePrompts[i](id);
+  return prompt;
+}
 const ROYALE_WEAPON_ITEMS = [
   { x: 10, y: 0, z: 10, item: 'kestrel', group: 'weapon' }, { x: 20, y: 0, z: 10, item: 'kestrel', group: 'weapon' },
   { x: 30, y: 0, z: 10, item: 'vanguard', group: 'weapon' },
@@ -616,9 +689,51 @@ Test.add('modes2', (check) => {
   placeActor(0, 30, 10);
   runSeconds(0.2);
   check('royale: a full inventory leaves a new gun on the spot without USE', Weapons.atCarryLimit(0) && RoyaleLoot.weapon[2] === CAT.weapons.byId('vanguard').index && !Weapons.has(0, 'vanguard'));
+  const prompt = royaleUsePrompt(0), pushedName = CAT.weapons[pushedOut].name;
+  check('royale: the Use prompt names the gun pushed out and the spot gun (regression-01)', prompt === ('HOLD TO SWAP ' + pushedName + ' FOR VANGUARD RIFLE').toUpperCase(), prompt);
   holdUseFor(0, 0.2);
   check('royale: with USE held the gun pushed out lies on the spot with its own rarity', Weapons.has(0, 'vanguard') && RoyaleLoot.weapon[2] === pushedOut
     && RoyaleLoot.rarity[2] === 3 && RoyaleLoot.taken[2] === 0, RoyaleLoot.rarity[2]);
+  let kept = 0;
+  for (let step = 0; step < 6; step++) { holdUseFor(0, 0.5); if (Weapons.has(0, 'vanguard') && RoyaleLoot.weapon[2] === pushedOut) kept++; }
+  check('royale: Use held on (a revive too) swaps back only after stepping off the spot (play-05)', kept === 6 && royaleUsePrompt(0) === '', kept + ' / ' + royaleUsePrompt(0));
+  placeActor(0, 40, 10); runSeconds(0.2);
+  placeActor(0, 30, 10); runSeconds(0.2);
+  const victim = Weapons.swapVictim(0);
+  check('royale: back on the spot the swap is offered again', royaleUsePrompt(0) === ('HOLD TO SWAP ' + CAT.weapons[victim].name + ' FOR ' + pushedName).toUpperCase(), royaleUsePrompt(0));
+  holdUseFor(0, 0.2);
+  check('royale: and taken with USE held', Weapons.has(0, CAT.weapons[pushedOut].id) && RoyaleLoot.weapon[2] === victim);
+  endModeTest();
+});
+
+// swap-02: Use held at a charging squad beacon (and on after the respawn) swaps nothing at the carry limit; a fresh Use
+// still swaps. swap-01: a full bot values a worse loot gun at 0, a better one above.
+Test.add('modes2', (check) => {
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS, items: ROYALE_WEAPON_ITEMS }), [-1, -1, -1, -1, -1, -1]);
+  runSeconds(3);
+  const squads = Modes.squads, spot = 2;
+  RoyaleLoot.x[spot] = squads.beaconX[0]; RoyaleLoot.y[spot] = squads.beaconY[0]; RoyaleLoot.z[spot] = squads.beaconZ[0];
+  for (const key of ['verdict', 'hush', 'wasp', 'hornet', 'kestrel']) Weapons.give(0, key, 1);
+  killActor(2, 1);
+  placeActor(0, squads.beaconX[0], squads.beaconZ[0]);
+  runSeconds(0.2);   // the 10 Hz beacon tally counts the dead
+  holdUseFor(0, BEACON_SECONDS + 1);
+  check('royale: no swap at a charging beacon', Actors.alive[2] === 1 && Weapons.atCarryLimit(0) && !Weapons.has(0, 'vanguard'));
+  Sim.step();   // Use let go
+  holdUseFor(0, 0.3);
+  check('royale: a fresh Use on the spot swaps', Weapons.has(0, 'vanguard'));
+  const guns = CAT.weapons.filter((weapon) => Weapons.countsTowardCarry(weapon)).sort((a, b) => a.botPref.value - b.botPref.value);
+  Weapons.setLoadout(1, []);
+  for (let index = 1; !Weapons.atCarryLimit(1); index++) Weapons.give(1, guns[index].id, 0);
+  RoyaleLoot.weapon[0] = guns[0].index; RoyaleLoot.weapon[1] = guns[guns.length - 1].index;
+  check('royale: a full bot wants only a better loot gun', lootValue(1, 0) === 0 && lootValue(1, 1) > 0);
+  // A full bot holding its weakest gun trades it for a better one even below its best (never for an equal or worse one).
+  Weapons.setLoadout(1, []);
+  Weapons.give(1, guns[0].id, 0);
+  for (let index = guns.length - 1; !Weapons.atCarryLimit(1); index--) Weapons.give(1, guns[index].id, 0);
+  Weapons.current[1] = guns[0].index;
+  const better = guns.find((weapon) => weapon.botPref.value > guns[0].botPref.value);
+  check('bots: a full bot takes a gun that beats the one it would drop', Weapons.botTakes(1, better) && !Weapons.botTakes(1, guns[0]));
   endModeTest();
 });
 
@@ -670,7 +785,7 @@ Test.add('modes2', (check) => {
   Game.start({ mode: 'gungame', seed: 1, player: { name: 'Tester' }, bots: [{ dummy: true }] });
   runSeconds(2);
   damageKill(1, Game.playerId);
-  check("hud: the player's ladder tier", Modes.hudState().ladderTier === 2 && Modes.hud.ladderTiers === 18);
+  check("hud: the player's ladder tier", Modes.hudState().ladderTier === 2 && Modes.hud.ladderTiers === GUNGAME_LADDER.length);
   endModeTest();
 
   startModeTest('ghostops', modesTestMap(BOMB_MAP), [0, 1], { modeOptions: { rounds: { freeze: 1, endDelay: 1, live: 5, switchAt: 1, winsNeeded: 3 } } });
@@ -697,5 +812,66 @@ Test.add('modes2', (check) => {
   check('hurtOutsideZone: hurts only the actors beyond the radius', hazards.length === 1 && hazards[0].target === 1 && hazards[0].amount === 7 && hazards[0].kind === 'hazard');
   check('countActive: in-play participants, never above countParticipants', Modes.countActive() === Actors.count && Modes.countActive() <= Modes.countParticipants(), Modes.countActive() + ' ' + Actors.count);
   hazards.stop();
+  endModeTest();
+});
+
+// ---- Mode x rules combinations (R-138): every mode under X32 lives, fixed sides ----
+// One map with every objective kind the modes below need.
+const COMBO_MAP = { spawns: TEAM_SPAWNS, objectives: CTF_MAP.objectives.concat(RUSH_MAP.objectives, CONVOY_MAP.objectives, RELIC_MAP.objectives,
+  [{ id: 'pointWest', kind: 'point', x: 0, y: 0, z: -30, radius: 5 }, { id: 'pointEast', kind: 'point', x: 0, y: 0, z: 30, radius: 5 }, { id: 'hill1', kind: 'hill', x: 0, y: 0, z: 0 }]) };
+const ONE_LIFE = [{ id: 'lives', value: 1 }];
+// Versus modes with respawns and without rounds (Blight counts lives only from its outbreak: checked on its own below).
+const LIVES_MODES = CAT.modes.filter((row) => row.family === 'versus' && !row.rounds && row.respawn === 'normal' && row.id !== 'infection').map((row) => row.id);
+
+// Kills every participant on `team` (free-for-all: everyone but actor 0) and reports whether the match ended within 1 s.
+function wipeOut(team) {
+  for (let id = 1; id < Actors.count; id++) if (Modes.participant[id] && (team === NO_TEAM || Actors.team[id] === team)) killActor(id, 0);
+  for (let step = 0; step < TICK_RATE && !Game.match.ended; step++) Sim.step();
+  return Game.match.ended;
+}
+
+Test.add('modes2', (check) => {
+  for (const id of LIVES_MODES) {
+    const teams = CAT.modes.byId(id).teams === TEAM_COUNT ? [0, 1, 0, 1] : [-1, -1, -1];
+    startModeTest(id, modesTestMap(COMBO_MAP), teams, { mutators: ONE_LIFE });
+    runSeconds(1.01);
+    const ended = wipeOut(teams[0] === 0 ? 1 : NO_TEAM);
+    check('lives 1: ' + id + ' ends within 1 s of a wipe-out', ended && Game.match.winner === 0 && Game.match.results.reason === 'eliminated', Game.match.results && Game.match.results.reason);
+    endModeTest();
+  }
+  startModeTest('rush', modesTestMap(RUSH_MAP), [0, 1, 0, 1], { mutators: ONE_LIFE });
+  armRelay(0, Modes.objectives[0]);
+  placeActor(1, -40, 0); placeActor(3, -40, 5);
+  check('lives 1: rush attackers out with a relay armed: the match goes on', !wipeOutAttackers() && Modes.objectives[0].state === 'planted');
+  runSeconds(Modes.rules.params.fuse);
+  check('lives 1: the relay goes off, then the defenders win (out of lives counts like 0 tickets)', Game.match.ended && Game.match.winner === 1, Game.match.results && Game.match.results.reason);
+  endModeTest();
+  // Blight converts the dead, so lives would only end it when the few first infected fall: X32 is not offered there (modes-03).
+  startModeTest('infection', modesTestMap(COMBO_MAP), [0, 1, 0, 1], { mutators: ONE_LIFE });
+  const livesOff = Modes.rules.lives === 0 && !Mutators.fitsMode(Mutators.row('lives'), CAT.modes.byId('infection'));
+  runSeconds(Modes.rules.params.infectAfter + 1.01);
+  for (const id of sideMembers(INFECTED_TEAM)) killActor(id, sideMembers(HUMAN_TEAM)[0]);
+  runSeconds(1);
+  check('lives: not offered in infection, which goes on after the first infected fall', livesOff && !Game.match.ended);
+  endModeTest();
+});
+function sideMembers(team) { return Array.from({ length: Actors.count }, (unused, id) => id).filter((id) => Modes.participant[id] && Actors.team[id] === team); }
+function wipeOutAttackers() {
+  for (let id = 0; id < Actors.count; id++) if (Actors.team[id] === 0) killActor(id, 1);
+  runSeconds(1);
+  return Game.match.ended;
+}
+
+// M26: auto-balance never touches modes that set their sides themselves (params.fixedSides), round after round.
+Test.add('modes2', (check) => {
+  World.load(modesTestMap({ spawns: TEAM_SPAWNS }));
+  Game.start({ mode: 'fiends', seed: 1, player: { name: 'Tester' }, bots: [{ dummy: true }, { dummy: true }, { dummy: true }, { dummy: true }],
+    modeOptions: { rounds: { freeze: 1, endDelay: 1 } } });
+  const ravagers = () => Array.from({ length: Actors.count }, (unused, id) => id).filter((id) => Modes.participant[id] && Actors.team[id] === 0 && Actors.maxHealth[id] === 175);
+  check('fiends 1 vs 4: one 175 HP Ravager in round 1', ravagers().length === 1 && Modes.teamSize(0) === 1, ravagers().join());
+  runSeconds(1.01);
+  for (let id = 0; id < Actors.count; id++) if (Modes.participant[id] && Actors.team[id] === 1) killActor(id, ravagers()[0]);
+  runSeconds(2.1);
+  check('fiends 1 vs 4: still one Ravager in round 2', Modes.round === 2 && ravagers().length === 1 && Modes.teamSize(0) === 1, Modes.round + ' ' + ravagers().join());
   endModeTest();
 });

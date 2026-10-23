@@ -9,13 +9,13 @@
 // (gadget keys the items section grants, or ability ids of the classes ability kit).
 Data.define('economy', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, money: false, buy: 'none', startMoney: 0, maxMoney: 0, winReward: 0, lossLadder: [],
-  killReward: 0, killRewardRange: [0, 0], plantReward: 0, defuseReward: 0, buyTime: 0, buyZone: 0, carryOver: true, halfReset: true,
-  waveBonus: 0, flawlessBonus: 0, keepOnSurvive: true, fieldUpgrades: [], slots: 0, rarities: [], ammoTypes: [], ladder: [], weaponStay: false, loadout: 'none',
+  killReward: 0, killRewardRange: [0, 0], plantReward: 0, defuseReward: 0, buyTime: 0, buyZone: 0, halfReset: true,
+  waveBonus: 0, flawlessBonus: 0, keepOnSurvive: true, fieldUpgrades: [], rarities: [], ladder: [], loadout: 'none',
 }, [
-  { id: 'pickups', code: 'ECP01', name: 'Map Pickups', weaponStay: true },
+  { id: 'pickups', code: 'ECP01', name: 'Map Pickups' },
   { id: 'roundBuy', code: 'ECP02', name: 'Round Buy', money: true, buy: 'round', startMoney: 800, maxMoney: 9000, winReward: 3000, lossLadder: [1900, 2400, 2900],
     killReward: 200, plantReward: 300, defuseReward: 300, buyTime: 15, buyZone: 8 },
-  { id: 'loot', code: 'ECP03', name: 'Loot Rarity', slots: 5, rarities: ['common', 'uncommon', 'rare', 'epic', 'legendary'], ammoTypes: ['light', 'heavy', 'shells', 'cells', 'rockets'] },
+  { id: 'loot', code: 'ECP03', name: 'Loot Rarity', rarities: ['common', 'uncommon', 'rare', 'epic', 'legendary'] },
   { id: 'classes', code: 'ECP04', name: 'Classes and Perks', loadout: 'classes', fieldUpgrades: ['echopulse', 'cover', 'trophy', 'ammobox', 'beacon'] },
   { id: 'heroKits', code: 'ECP05', name: 'Hero Kits', loadout: 'heroes' },
   // Gun game (M16): the weapon order is the one GUNGAME_LADDER list (03f); the row names it for the help text.
@@ -76,6 +76,14 @@ Data.define('classes', {
   { id: 'marksman', name: 'Marksman', primary: 'longshot', secondary: 'verdict', lethal: 'claymore', tactical: 'smoke', perks: ['bandolier', 'ghost', 'steady'] },
   { id: 'support', name: 'Support', primary: 'anvil', secondary: 'warden', lethal: 'frag', tactical: 'smoke', perks: ['tuneup', 'hardened', 'laststand'] },
 ]);
+// Class weapons are Military set keys (presets and the custom class screen). A ruleset with another set swaps each one for the
+// weapon of the same role in its own set (13d Economy.applyClass): RS12 Frame Runner arms its classes from the Exotic set.
+const CLASS_WEAPON_SET = 'militarySet';   // ECP04 is the Modern Ops economy: class weapons come from its weapon set
+const CLASS_SET_SWAPS = {
+  exoticSet: { warden: 'sparklock', verdict: 'sparklock', wasp: 'needlethorn', hornet: 'needlethorn', riptide: 'needlethorn', tempest: 'stormlash',
+    vanguard: 'accelerator', ratchet: 'stormlash', longshot: 'talonbow', kestrel: 'talonbow', heron: 'talonbow', scattergun: 'gloop', hailstorm: 'starthrower',
+    anvil: 'starthrower', kingfisher: 'auger' },
+};
 
 // Buy menu (roundBuy) equipment and wave shop items. Weapons of the match weapon set with a price are listed by 13d itself.
 // kind: armor | helmet (HPP04 vest / vest + helmet) | gadget (granted by the items section) | ammo (refill every weapon) | grant
