@@ -389,9 +389,11 @@ Test.add('ui', (check) => {
   const savedTips = Save.data.tips, savedDevice = Input.device, economy = CAT.economy.find((row) => buyKeyAvailable(row)), buyText = () => economyPanelLines(economy).lines.join('\n');
   Save.data.tips = { matches: 0 }; Input.device = 'touch';
   Ui.playBox.replaceChildren(); Ui.toastBox.replaceChildren();
+  // The tip is shown from match.start, before Game.start sets the state to playing (the real listener skips headless runs: this one has its timing).
+  const tipAtStart = Bus.on('match.start', () => Tips.show());
   Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: -1 }] });
-  Tips.show();
-  check('toast: the first-match tip lands in the match spot, not at the top', Ui.playBox.lastChild.textContent === Tips.touchText() && !Ui.toastBox.lastChild);
+  Bus.off('match.start', tipAtStart);
+  check('toast: the first-match tip lands in the match spot, not at the top (ios-01)', !!Ui.playBox.lastChild && Ui.playBox.lastChild.textContent === Tips.touchText() && !Ui.toastBox.lastChild);
   emitToast('Mutator turned off');
   check('toast: every toast in a match lands there', Ui.playBox.lastChild.textContent === 'Mutator turned off' && !Ui.toastBox.lastChild);
   Game.stop();
