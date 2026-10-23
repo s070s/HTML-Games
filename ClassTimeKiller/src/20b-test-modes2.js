@@ -41,7 +41,7 @@ Test.add('modes2', (check) => {
   const convoy = rows('payload').params;
   check('payload: 1.2 to 1.8 m/s, rollback after 10 s, 3 checkpoints, 4:00 + 2:00 (M11)', convoy.speed === 1.2 && convoy.maxSpeed === 1.8 && convoy.rollbackAfter === 10
     && convoy.checkpoints === 3 && rows('payload').timeLimit === 240 && convoy.checkpointTime === 120 && Test.near(convoy.speed * (1 + 2 * convoy.pushStack), convoy.maxSpeed, 1e-9));
-  check('gungame: 18 tiers, the last one melee (M16)', rows('gungame').params.ladder.length === rows('gungame').params.tiers && rows('gungame').params.tiers === 18
+  check('gungame: an 18-weapon ladder, the last one melee (M16)', rows('gungame').params.ladder.length === 18
     && CAT.weapons.byId(GUNGAME_LADDER[17]).class === 'melee' && GUNGAME_LADDER.every((key) => CAT.weapons.byId(key)));
   check('infection: 1 per 6, after 20 s, 450 HP (tuned from the spec 300 since only kills convert), 5 min (M17)', rows('infection').params.infectedPerPlayers === 6
     && rows('infection').params.infectAfter === 20 && rows('infection').params.infectedHealth === 450 && rows('infection').timeLimit === 300);
@@ -52,6 +52,7 @@ Test.add('modes2', (check) => {
   check('gungame: params.tiers shortens the ladder, keeping the melee tier last', shortLadder.join() === 'tempest,vanguard,maul'
     && ladderTiers({ ladder: GUNGAME_LADDER, tiers: 99 }).length === 18 && ladderTiers({ ladder: GUNGAME_LADDER }).length === 18
     && ladderTiers({ ladder: GUNGAME_LADDER, tiers: 1 }).join() === 'maul');
+  check('gungame: 14 tiers by default (13 weapons and the melee finish), so a match ends in normal time (fun-04)', rows('gungame').params.tiers === 14);
   const area = worldSafeArea({});
   check('worldSafeArea: the fallback without world bounds', Number.isFinite(World.boundsMin.x) || (area.x === 0 && area.z === 0 && area.radius === SAFE_AREA_FALLBACK_RADIUS));
   const ring = rows('royale').params;
@@ -286,7 +287,7 @@ Test.add('modes2', (check) => {
   startModeTest('gungame', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1, -1]);
   const ladder = Modes.behaviour.ladder, last = ladder.length - 1;
   check('gungame: everyone starts on tier 1 with its weapon and the melee weapon', [0, 1, 2].every((id) => Weapons.currentWeapon(id).id === ladder[0] && Weapons.has(id, 'maul'))
-    && Modes.hud.ladderTiers === 18);
+    && Modes.hud.ladderTiers === Modes.rules.params.tiers);
   damageKill(1, 0);
   check('gungame: a kill advances one tier and swaps the weapon', Modes.behaviour.score(0) === 1 && Weapons.currentWeapon(0).id === ladder[1] && !Weapons.has(0, ladder[0]) && Modes.score[0] === 1);
   respawnAll();
@@ -320,6 +321,10 @@ Test.add('modes2', (check) => {
   Sim.step();
   check('gungame: a melee kill on it wins', Game.match.ended && Game.match.winner === 0);
   endModeTest();
+  // Pacing probe (fun-04): with 18 tiers, 8 bots on gantry ran out of time or into sudden death on every seed.
+  const run = DebugApi.soak('gungame', 'gantry', 11, 7, 1, {});
+  check('gungame pacing: 8 bots on gantry finish the ladder in normal time', run.ended && run.reason === 'score' && run.seconds < CAT.modes.byId('gungame').timeLimit,
+    run.reason + ' ' + Math.round(run.seconds));
 });
 
 // ---- M17 Blight ----
@@ -710,7 +715,7 @@ Test.add('modes2', (check) => {
   Game.start({ mode: 'gungame', seed: 1, player: { name: 'Tester' }, bots: [{ dummy: true }] });
   runSeconds(2);
   damageKill(1, Game.playerId);
-  check("hud: the player's ladder tier", Modes.hudState().ladderTier === 2 && Modes.hud.ladderTiers === 18);
+  check("hud: the player's ladder tier", Modes.hudState().ladderTier === 2 && Modes.hud.ladderTiers === Modes.rules.params.tiers);
   endModeTest();
 
   startModeTest('ghostops', modesTestMap(BOMB_MAP), [0, 1], { modeOptions: { rounds: { freeze: 1, endDelay: 1, live: 5, switchAt: 1, winsNeeded: 3 } } });
