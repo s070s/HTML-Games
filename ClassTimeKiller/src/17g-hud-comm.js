@@ -126,16 +126,10 @@ function hudDrawCommWheel(pen, layout) {
 // One source for the drawing and the phone layout test (hudui). Reused objects: nothing is allocated per frame.
 const commWheelRing = { x: 0, y: 0, radius: 0 };
 const commWheelSpot = { x: 0, y: 0, size: 0, labelY: 0 };
-const commWheelPlace = {};   // TouchInput.layoutOf scratch
 function commWheelWidestLabel(unit) {
   let widest = 0;
   for (let i = 0; i < COMM_CALLOUTS.length; i++) widest = Math.max(widest, HudPen.measure(COMM_CALLOUTS[i].label, HUD_TEXT_SMALL * unit));
   return widest;
-}
-// Half a touch button's size in pixels, read with its layout into commWheelPlace.
-function commWheelButtonHalf(controlId) {
-  const place = TouchInput.layoutOf(controlId, commWheelPlace);
-  return TouchInput.controlById[controlId].size * place.scale / 2;
 }
 // Phones: the box runs from below the ability row to the HUD bottom, and from the screen margin to the grenade button (the other
 // way round in the left-handed layout); the ring is as large as fits there with its picked icon and labels, never above
@@ -145,8 +139,8 @@ function commWheelPlaceRing(layout) {
   ring.x = layout.centerX; ring.y = layout.centerY; ring.radius = COMM_WHEEL_RADIUS * unit;
   if (!layout.touch) return ring;
   const gap = COMM_WHEEL_TOUCH_GAP * unit;
-  const roofHalf = commWheelButtonHalf(COMM_WHEEL_TOUCH_ROOF), top = commWheelPlace.y * layout.height + roofHalf + gap;
-  const wallHalf = commWheelButtonHalf(COMM_WHEEL_TOUCH_WALL) + gap, wallX = commWheelPlace.x * layout.width;
+  const roof = TouchInput.places[COMM_WHEEL_TOUCH_ROOF], wall = TouchInput.places[COMM_WHEEL_TOUCH_WALL];   // where the layer draws them (placeAll)
+  const top = roof.y + roof.radius + gap, wallHalf = wall.radius + gap, wallX = wall.x;
   const mirrored = wallX < layout.centerX;   // the left-handed preset has the buttons on the left
   const left = mirrored ? wallX + wallHalf : layout.left, right = mirrored ? layout.right : wallX - wallHalf;
   const icon = COMM_WHEEL_ICON * COMM_WHEEL_PICKED * unit, above = icon / 2;

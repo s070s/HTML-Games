@@ -290,6 +290,7 @@ const HUD_UI_PHONES = [[844, 390], [667, 375], [568, 320]];
 const HUD_UI_WHEEL_MIN_SHARE = 0.44;   // of the design radius: the smallest phone with its 14 px labels leaves the ring 0.447
 // The first callout under a touch button or past a screen edge (its icon at the picked size, the largest), or ''.
 function hudUiWheelProblem(layout) {
+  TouchInput.placeAll(layout.width, layout.height);   // the ring reads the buttons' places
   const unit = layout.unit, ring = commWheelPlaceRing(layout), textHalf = hudTextHalf(HUD_TEXT_SMALL * unit), spot = {};
   for (let i = 0; i < COMM_CALLOUTS.length; i++) {
     const label = COMM_CALLOUTS[i].label;
