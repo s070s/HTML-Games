@@ -599,23 +599,21 @@ Test.add('input', (check) => {
     if (event.action === 'perfHud' && event.down) perfToggles++;
     if (event.action === 'botDebug' && event.down) botDebugToggles++;
   });
-  const fourFingerTap = () => {
-    for (let pointer = 40; pointer < 44; pointer++) inputTouchPointer('pointerdown', zone, pointer, INPUT_TEST_RIGHT_X + pointer, 300);
-    for (let pointer = 40; pointer < 44; pointer++) inputTouchPointer('pointerup', zone, pointer, INPUT_TEST_RIGHT_X, 300);
-  };
-  fourFingerTap();
-  const inPlay = perfToggles;
-  Game.pause('menu');
+  // Fingers land on the touch layer, so it must be on screen: a claw grip (stick, look, fire, jump) does nothing.
+  TouchInput.syncVisible();
+  const visible = getComputedStyle(TouchInput.layer).display !== 'none';
+  const lift = () => { for (let pointer = 40; pointer < 44; pointer++) inputTouchPointer('pointerup', fire, pointer, 0, 0); };
+  [[zone, INPUT_TEST_LEFT_X], [zone, INPUT_TEST_RIGHT_X], [fire, 1110], [jump, 1000]].forEach(([target, x], i) => inputTouchPointer('pointerdown', target, 40 + i, x, 300));
+  lift();
+  const claw = perfToggles;
   for (let pointer = 40; pointer < 43; pointer++) inputTouchPointer('pointerdown', zone, pointer, INPUT_TEST_RIGHT_X + pointer, 300);
   const threeFingers = perfToggles;
   inputTouchPointer('pointerdown', zone, 43, INPUT_TEST_RIGHT_X, 300);
-  const fourFingers = perfToggles;
-  for (let pointer = 40; pointer < 44; pointer++) inputTouchPointer('pointerup', zone, pointer, INPUT_TEST_RIGHT_X, 300);
-  Game.resume();
+  lift();
   Bus.off('input.action', listener);
   Input.clearAll();
-  check('touch: four fingers mid-match do nothing', inPlay === 0, inPlay);
-  check('touch: paused, a four-finger tap toggles the performance HUD, three do not (ARC-040)', threeFingers === 0 && fourFingers === 1);
+  check('touch: a claw grip mid-match toggles nothing', visible && claw === 0, claw);
+  check('touch: mid-match, four fingers on the look area toggle the performance HUD, three do not (ARC-040)', visible && threeFingers === 0 && perfToggles === 1, perfToggles);
   check('touch: the same four-finger tap toggles the bot debug view once (ARC-040)', botDebugToggles === 1, botDebugToggles);
   setInputSetting('controls.touch.acceleration', 0.3);
 });
