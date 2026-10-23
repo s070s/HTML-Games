@@ -162,7 +162,8 @@ function difficultySlidersCheck(value) {
   return Object.assign({}, value);
 }
 
-const SHARE_LOCAL_MAP_NOTE = 'The code named a map from a map editor, which lives only on that device, so a random map is used.';
+// One note for both ends of a code: the sender's share screen and the receiver's import.
+const SHARE_LOCAL_MAP_NOTE = 'A map editor or generated map lives only on its own device, so this code plays a random map.';
 function isSharedMap(id) { return !id || (!!CAT.maps && !!CAT.maps.byId(id)); }
 
 const EDITOR_FIELD_CHECKS = {
@@ -697,7 +698,9 @@ Ui.register('customShare', {
     const scroll = makeElement('div', 'ui-scroll');
     const mine = makeElement('textarea', 'ui-code'), paste = makeElement('textarea', 'ui-code');
     mine.readOnly = true; mine.tabIndex = 0; paste.tabIndex = 0;
-    mine.value = CustomMatch.encode(editorDraft());
+    const mapNote = makeElement('p', 'ui-note');
+    const showCode = (draft) => { mine.value = CustomMatch.encode(draft); mapNote.textContent = isSharedMap(draft.map) ? '' : SHARE_LOCAL_MAP_NOTE; };
+    showCode(editorDraft());
     paste.placeholder = 'Paste a match code here';
     const message = makeElement('p', 'ui-note');
     const importButton = Ui.button('Import code', () => {
@@ -706,11 +709,12 @@ Ui.register('customShare', {
       message.textContent = result.error || ('Imported. The settings are loaded in the editor. ' + result.note).trim();
       if (result.error) return;
       EDITOR_STATE.draft = result.draft;
-      mine.value = CustomMatch.encode(result.draft);
+      showCode(result.draft);
       editorChanged();
     }, 'primary');
     scroll.appendChild(makeElement('div', 'ui-group', 'Your settings as a code (' + mine.value.length + ' characters)'));
     scroll.appendChild(mine);
+    scroll.appendChild(mapNote);
     scroll.appendChild(Ui.button('Copy code', () => copyText(mine.value, mine)));
     scroll.appendChild(makeElement('div', 'ui-group', 'Import a code'));
     scroll.appendChild(paste);
