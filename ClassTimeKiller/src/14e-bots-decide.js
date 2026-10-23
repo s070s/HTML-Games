@@ -840,8 +840,13 @@ BotDecide.registerPlanner('flag', (id, plan) => planFlags(id, plan));
 BotDecide.registerPlanner('bombsite', (id, plan) => planBomb(id, plan));
 BotDecide.registerPlanner('safeArea', (id, plan) => planSafeArea(id, plan));
 
-// swap-01: at the carry limit a bot swaps in only a gun worth more than its best one, the rule its pad goals use.
-Weapons.botTakes = (id, weapon) => weaponItemValue(id, weapon, 1) > 0;
+// swap-01: at the carry limit a bot swaps in only a gun worth more than the one it would drop (Weapons.swapVictim), so
+// it never downgrades and still trades a weak held gun for a middling one; the ladder and roulette hand out the guns.
+Weapons.botTakes = (id, weapon) => {
+  const victim = Weapons.swapVictim(id);
+  if (victim < 0 || Economy.modeArmsEveryone()) return false;
+  return BotCombat.weaponValue(id, weapon, 1) > BotCombat.weaponValue(id, CAT.weapons[victim], 1);
+};
 
 Bus.on('match.start', (match) => BotDecide.onMatchStart(match));
 Bus.on('pickup', (event) => BotDecide.onPickup(event));

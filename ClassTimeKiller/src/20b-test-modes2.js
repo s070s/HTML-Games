@@ -712,6 +712,13 @@ Test.add('modes2', (check) => {
   for (let index = 1; !Weapons.atCarryLimit(1); index++) Weapons.give(1, guns[index].id, 0);
   RoyaleLoot.weapon[0] = guns[0].index; RoyaleLoot.weapon[1] = guns[guns.length - 1].index;
   check('royale: a full bot wants only a better loot gun', lootValue(1, 0) === 0 && lootValue(1, 1) > 0);
+  // A full bot holding its weakest gun trades it for a better one even below its best (never for an equal or worse one).
+  Weapons.setLoadout(1, []);
+  Weapons.give(1, guns[0].id, 0);
+  for (let index = guns.length - 1; !Weapons.atCarryLimit(1); index--) Weapons.give(1, guns[index].id, 0);
+  Weapons.current[1] = guns[0].index;
+  const better = guns.find((weapon) => weapon.botPref.value > guns[0].botPref.value);
+  check('bots: a full bot takes a gun that beats the one it would drop', Weapons.botTakes(1, better) && !Weapons.botTakes(1, guns[0]));
   endModeTest();
 });
 
