@@ -17580,6 +17580,16 @@ function skirmishLayoutWith(cfg, homes) {
   Scenery.addTowns(cfg.map, lay, sites, null);   // and the battlefield's own towns where they still fit
   return { lay, start, sites, own: ownBase, foe: foeBase, fallback, fixedPair };
 }
+/* where skirmish wave unit u heads: the nearest human within SKIRMISH_WAVE_HUNT, never a passive civilian (D5), else hq */
+function skirmishWaveGoal(u, hq) {
+  let best = null, bestD = SKIRMISH_WAVE_HUNT;
+  for (const h of W.platforms) {
+    if (!h.isPlayer || h.team !== 0 || h.dead || h.hideFromAI) continue;
+    const d = Math.hypot(h.x - u.x, h.z - u.z);
+    if (d < bestD) { best = h; bestD = d; }
+  }
+  return best ? { x: best.x, z: best.z } : { x: hq.x, z: hq.z };
+}
 /* A random battle gets a fresh seed on every deployment; otherwise the last battle is replayed. */
 function rollSkirmishSeed(sk) {
   if (sk.random) sk.seed = 1 + Math.floor(Math.random() * SKIRMISH_SEEDS);
@@ -17657,12 +17667,7 @@ function skirmishDef(cfg) {
       ctx.later(() => { if (supportList.length) spawnGroup(supportList, start.x + 30, start.z + 30, { team: 0, radius: 40 }); });
       ctx.later(() => parkApronAircraft());
       const humans = () => W.platforms.filter((p) => p.isPlayer && p.team === 0 && !p.dead);
-      // where a wave unit heads: a human close by, else our command center
-      const waveGoal = (u) => {
-        let best = null, bestD = SKIRMISH_WAVE_HUNT;
-        for (const h of humans()) { const d = Math.hypot(h.x - u.x, h.z - u.z); if (d < bestD) { best = h; bestD = d; } }
-        return best ? { x: best.x, z: best.z } : { x: ownHq.x, z: ownHq.z };
-      };
+      const waveGoal = (u) => skirmishWaveGoal(u, ownHq);
       let idx = 0;
       const spawnWave = () => {
         if (idx >= waves.length) return;
@@ -22932,6 +22937,13 @@ const SelfTest = {
         const civ = mk('civilian', mech.x + 3, mech.z - mech.radius - 2); civ.isPlayer = true;
         holdUse(tank);
         drive(civ);
+        const keepList = W.platforms, hq = { x: civ.x + 400, z: civ.z }, wave = { x: civ.x + 10, z: civ.z };
+        W.platforms = [civ];
+        const goalPassive = skirmishWaveGoal(wave, hq);
+        civ.hideFromAI = false;
+        const goalSeen = skirmishWaveGoal(wave, hq);
+        civ.hideFromAI = true; W.platforms = keepList;
+        this.check('skirmish waves pass a passive civilian by for the command center, and hunt a player who is not passive', goalPassive.x === hq.x && goalSeen.x === civ.x);
         this.check('a passive civilian is ignored until entering a combat vehicle', civ.hideFromAI && Seats.enter(civ, mech, null) && civ.provoked && !civ.hideFromAI);
         // a neutral vehicle joins its driver's side (the hook for civilian vehicles)
         const neutral = mk(groundId, mech.x + 60, mech.z + 60, 2); Seats.park(neutral);
