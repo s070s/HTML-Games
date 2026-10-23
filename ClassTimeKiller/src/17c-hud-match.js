@@ -114,24 +114,28 @@ const HudBanners = {
 
   reset() { this.at.fill(-1000); this.next = 0; },
   add(text, kind, priority, medal) {
-    let start = Hud.time;
     for (let i = 0; i < HUD_BANNER_SLOTS; i++) {
-      if (this.ends(i) <= Hud.time) continue;
-      if (this.text[i] === text) { this.at[i] = Math.max(this.at[i], Hud.time); return; }   // a repeat restarts it: never twice at once
-      if (Hud.layout.phone) start = Math.max(start, this.at[i] + HUD_BANNER_QUEUE);
+      if (this.ends(i) > Hud.time && this.text[i] === text) { this.at[i] = Math.max(this.at[i], this.queueStart(i)); return; }   // a repeat restarts it (on a phone after the others): never twice at once
     }
     const slot = Hud.layout.phone ? this.phoneSlot(priority) : this.next;
     if (slot < 0) return;
     this.next = (slot + 1) % HUD_BANNER_SLOTS;
-    this.text[slot] = text; this.kind[slot] = kind; this.priority[slot] = priority; this.medal[slot] = medal ? 1 : 0; this.at[slot] = start;
+    this.text[slot] = text; this.kind[slot] = kind; this.priority[slot] = priority; this.medal[slot] = medal ? 1 : 0; this.at[slot] = this.queueStart(slot);
   },
-  // Phones: the ring slot for a new banner of this priority, -1 to drop it. Rule: take a slot whose banner has ended; with none, the
-  // lowest-priority banner goes (the oldest of equals: the one already shown before any that still waits), and a new banner below
-  // even that one is dropped. Medals carry HUD_BANNER_PRIORITY_LONG, so a medal or a long banner is never lost to a lower one.
+  // When a banner in this slot starts: now, and on a phone HUD_BANNER_QUEUE after the latest start of the other banners still to show.
+  queueStart(skip) {
+    let start = Hud.time;
+    if (Hud.layout.phone) for (let i = 0; i < HUD_BANNER_SLOTS; i++) if (i !== skip && this.ends(i) > Hud.time) start = Math.max(start, this.at[i] + HUD_BANNER_QUEUE);
+    return start;
+  },
+  // Phones: the ring slot for a new banner of this priority, -1 to drop it. Rule: take a slot whose banner has ended or has started
+  // and is no longer the one on the line (it cannot come back); with none, the lowest-priority banner goes (the oldest of equals:
+  // the one on the line before any that still waits), and a new banner below even that one is dropped. Medals carry HUD_BANNER_PRIORITY_LONG, so a medal or a long banner is never lost to a lower one.
   phoneSlot(newPriority) {
     let victim = -1;
+    const shown = this.newest();
     for (let i = 0; i < HUD_BANNER_SLOTS; i++) {
-      if (this.ends(i) <= Hud.time) return i;
+      if (this.ends(i) <= Hud.time || (i !== shown && this.at[i] <= Hud.time)) return i;
       if (victim < 0 || this.priority[i] < this.priority[victim] || (this.priority[i] === this.priority[victim] && this.at[i] < this.at[victim])) victim = i;
     }
     return newPriority < this.priority[victim] ? -1 : victim;
@@ -161,7 +165,7 @@ let hudFitSource = '', hudFitText = '', hudFitWidth = -1;
 function hudFitPhoneBanner(text, size, width) {
   if (text === hudFitSource && width === hudFitWidth) return hudFitText;
   hudFitSource = hudFitText = text; hudFitWidth = width;
-  for (let length = text.length; length > 0 && HudPen.measure(hudFitText, size) > width; length--) hudFitText = text.slice(0, length - 1) + '\u2026';
+  for (let length = text.length; length > 0 && HudPen.measure(hudFitText, size) > width; length--) hudFitText = text.slice(0, length - 1).trimEnd() + '\u2026';
   return hudFitText;
 }
 
