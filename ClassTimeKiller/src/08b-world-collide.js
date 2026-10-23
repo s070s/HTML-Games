@@ -10,7 +10,7 @@ const OVERCLIP = 1.001;                // push slightly off a clipped plane so t
 const SAME_PLANE_DOT = 0.99;
 const DEPENETRATE_PASSES = 4;
 const GATHER_MARGIN = 0.25;            // extra metres around a mover's sweep when collecting candidate brushes
-const WALKABLE_NORMAL_Y = Math.cos(45 * DEG) - 1e-4; // DATA-003: slopes up to 45 deg are floor
+const WALKABLE_NORMAL_Y = Math.cos(MAX_SLOPE) - 1e-4; // DATA-003: slopes up to 45 deg are floor
 
 const makeTrace = () => ({ fraction: 1, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null, startSolid: false, allSolid: false });
 // planes: normals of the surfaces touched during the current slide; planeBrushes[i]: the brush of planes[i].

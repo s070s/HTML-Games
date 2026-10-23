@@ -15,12 +15,12 @@
 const NAV_FINE = 0.5;                  // raster spacing (m): fine enough that a 1.6 m doorway always holds a standable column
 const NAV_RASTER_BLOCK = 8;            // raster columns that share one brush gather
 const NAV_CELL_SAMPLES = 4;            // raster columns per node cell side (one node per 2 m cell and surface)
-const NAV_RADIUS = 0.4;                // DATA-003 capsule radius, heights, step and slope
-const NAV_STAND_HEIGHT = 1.8;
-const NAV_CROUCH_HEIGHT = 1.1;
-const NAV_STEP = 0.45;
-const NAV_MAX_SLOPE = 45 * DEG;
-const NAV_MIN_FLOOR_NORMAL = Math.cos(NAV_MAX_SLOPE) - 1e-4;
+const NAV_RADIUS = ACTOR_RADIUS;       // DATA-003 capsule radius, heights, step and slope (S01)
+const NAV_STAND_HEIGHT = STAND_HEIGHT;
+const NAV_CROUCH_HEIGHT = CROUCH_HEIGHT;
+const NAV_STEP = STEP_HEIGHT;
+const NAV_MAX_SLOPE = MAX_SLOPE;
+const NAV_MIN_FLOOR_NORMAL = WALKABLE_NORMAL_Y;
 const NAV_OPEN_RADIUS = 0.6;           // a walk passing only samples with this much free space around them needs no line test:
                                        // every point of its chest line is within 0.48 m of such a sample
 const NAV_EDGE_MARGIN = 0.25;          // a sample keeps this much footing around its centre (capsule over a ledge)
@@ -88,7 +88,7 @@ const NAV_LINK_ROWS = [
   { key: 'ladder', speedFactor: 1, extraSeconds: 0.5, smooth: false, twoWay: true },    // + climb / limits.ladderSpeed
   { key: 'jumppad', speedFactor: 1, extraSeconds: 0.2, smooth: false, twoWay: false },  // flight time + extra
   { key: 'teleport', speedFactor: 1, extraSeconds: 0.1, smooth: false, twoWay: false }, // extra only
-  { key: 'swim', speedFactor: 0.5, extraSeconds: 0, smooth: true, twoWay: false },      // MOV-019: swim at 50 %
+  { key: 'swim', speedFactor: 0, extraSeconds: 0, smooth: true, twoWay: false },        // speedFactor: S10 SWIM_SPEED_FRACTION
 ];
 
 const navHit = makeHit(), navScratchHit = makeHit();
@@ -116,7 +116,7 @@ const Nav = {
     safeDrop: 6,         // findPath default maxDrop (BOT-010)
     gravity: GRAVITY,    // jump pad arcs
     referenceSpeed: 6,   // m/s that turns link length into travel seconds
-    ladderSpeed: 3,      // MOV-019
+    ladderSpeed: 0,      // S10 LADDER_SPEED (MOV-019)
   },
   map: null, version: 0, buildMs: 0, buildPhases: {},   // build time in ms, total and per phase (ARC-034)
   lastBuildCached: false,                               // the last build reused a cached graph of the same map

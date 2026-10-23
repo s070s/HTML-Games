@@ -89,6 +89,18 @@ function navTestServeAll() {
   for (let tick = 0; tick < 64 && Nav.pendingRequests() > 0; tick++) Nav.serveRequests();
 }
 
+// R-155: nav, movement, spawns and map checks read the S01 body sizes and the S10 ladder and swim speeds, never a copy.
+Test.add('nav', (check) => {
+  Actors.reset(0);
+  check('body: stance heights and eyes come from S01', STANCE_HEIGHT.join() === [STAND_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT].join() && STANCE_EYE.join() === [STAND_EYE, CROUCH_EYE, PRONE_EYE].join()
+    && Actors.height[0] === Math.fround(STAND_HEIGHT) && Actors.eye[0] === Math.fround(STAND_EYE));
+  check('body: nav sizes are the S01 ones', NAV_RADIUS === ACTOR_RADIUS && NAV_STAND_HEIGHT === STAND_HEIGHT && NAV_CROUCH_HEIGHT === CROUCH_HEIGHT && NAV_STEP === STEP_HEIGHT
+    && NAV_MAX_SLOPE === MAX_SLOPE && NAV_MIN_FLOOR_NORMAL === WALKABLE_NORMAL_Y);
+  check('body: spawns and map checks use the S01 sizes', SPAWN_CAPSULE_HEIGHT === STAND_HEIGHT && SPAWN_CAPSULE_RADIUS === 2 * ACTOR_RADIUS && SPAWN_EYE_HEIGHT === STAND_EYE
+    && MAP_STEP === STEP_HEIGHT && MAP_EYE === STAND_EYE);
+  check('body: nav ladder and swim links use the S10 speeds', Nav.limits.ladderSpeed === LADDER_SPEED && NAV_LINK_ROWS[NAV_LINK.SWIM].speedFactor === SWIM_SPEED_FRACTION);
+});
+
 Test.add('nav', (check) => {
   navTestRooms(true);
   const a = navTestNode(-5, 0, -6), b = navTestNode(5, 0, 6);

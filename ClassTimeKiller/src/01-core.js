@@ -303,9 +303,11 @@ const BTN = {
 };
 
 // ---- Body sizes (DATA-003): capsule, stances, step and hit volumes (head sphere, torso/legs cylinders scaled by height / STAND_HEIGHT) ----
-const STAND_HEIGHT = 1.8;
+const STAND_HEIGHT = 1.8, CROUCH_HEIGHT = 1.1, PRONE_HEIGHT = 0.6;
+const STAND_EYE = 1.62, CROUCH_EYE = 0.95, PRONE_EYE = 0.4;
 const ACTOR_RADIUS = 0.40;
 const STEP_HEIGHT = 0.45;
+const MAX_SLOPE = 45 * DEG;   // steeper surfaces are walls
 const HEAD_RADIUS = 0.14, HEAD_ABOVE_EYE = 0.04;
 const TORSO_RADIUS = 0.3, TORSO_LOW = 0.85, TORSO_HIGH = 1.45, STOMACH_HIGH = 1.1;
 const LEGS_RADIUS = 0.22, LEGS_LOW = 0.05, LEGS_HIGH = 0.85;
@@ -364,7 +366,7 @@ const Actors = {
     this.yaw[id] = this.pitch[id] = this.aimYaw[id] = this.aimPitch[id] = 0;
     this.moveX[id] = this.moveZ[id] = 0; this.buttons[id] = this.pressed[id] = this.previousButtons[id] = 0;
     this.slotRequest[id] = 0; this.health[id] = this.armor[id] = this.shield[id] = 0; this.spawnCount[id] = 0;
-    this.height[id] = 1.8; this.eye[id] = 1.62; this.name[id] = ''; this.profile[id] = null;
+    this.height[id] = STAND_HEIGHT; this.eye[id] = STAND_EYE; this.name[id] = ''; this.profile[id] = null;
   },
   clear() {
     for (let id = 0; id < MAX_ACTORS; id++) if (this.kind[id] !== ACTOR_KIND.NONE) this.remove(id);
