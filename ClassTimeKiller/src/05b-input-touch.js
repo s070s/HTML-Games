@@ -461,25 +461,36 @@ const TouchInput = {
   // Fills places for a width x height screen (css px): one source for the layer and the layout tests (hudui).
   placeAll(width, height) {
     this.clearCount = 0;
+    for (const control of TOUCH_CONTROLS) this.placeControl(control, width, height);   // first every button at its layout spot
     for (let i = 0; i < this.keepClear.length; i++) this.keepClear[i](width, height);
     for (const control of TOUCH_CONTROLS) this.placeControl(control, width, height);
   },
   // A button over a HUD area moves straight down below it (an area in the top half) or up above it, then back inside the
-  // layer if that pushed it out. One look in the order added is enough: the score panel comes before the killcam bars, and
-  // a move keeps x, so a button moved below a bar can only land on the panel if it covered the panel (and moved) before.
+  // layer if that pushed it out. When that spot is another button's, it steps aside out of the area instead (away from the
+  // area's centre), if that spot is free and inside the layer. One look in the order added is enough: the areas are the
+  // centred panel, the rows under it, then the full-width killcam bars; a move down keeps x and a step aside keeps y and
+  // leaves the centre, so a button cannot land on an area already looked at.
   placeControl(control, width, height) {
     const insets = this.insets, layout = this.layoutOf(control.id, this.layoutScratch), place = this.places[control.id];
-    const radius = control.size * layout.scale / 2, layoutX = insets.left + layout.x * (width - insets.left - insets.right);
-    const x = clamp(layoutX, insets.left + radius, width - insets.right - radius);
+    const radius = control.size * layout.scale / 2, low = insets.left + radius, high = width - insets.right - radius;
+    let x = clamp(insets.left + layout.x * (width - insets.left - insets.right), low, high);
     let y = insets.top + layout.y * (height - insets.top - insets.bottom);
     for (let i = 0; i < this.clearCount; i++) {
       const rect = this.clearRects[i];
       if (x + radius <= rect.left || x - radius >= rect.right || y + radius <= rect.top || y - radius >= rect.bottom) continue;
-      y = rect.top + rect.bottom < height ? rect.bottom + radius : rect.top - radius;
+      const upright = rect.top + rect.bottom < height ? rect.bottom + radius : rect.top - radius;
+      const aside = x * 2 < rect.left + rect.right ? rect.left - radius : rect.right + radius;
+      if (aside >= low && aside <= high && this.spotTaken(control, x, upright, radius) && !this.spotTaken(control, aside, y, radius)) x = aside;
+      else y = upright;
     }
     place.x = x; place.radius = radius;
     place.y = clamp(y, insets.top + radius, height - insets.bottom - radius);
     place.shown = !layout.hidden && !(control.setting && !Input.config[control.setting]) && !(control.need && !this.needMet(control.need));
+  },
+  // Another shown button's place covers a spot (in placeAll the ones not placed yet are at their layout spots).
+  spotTaken(control, x, y, radius) {
+    const places = this.places;
+    return TOUCH_CONTROLS.some((other) => other !== control && places[other.id].shown && length2(places[other.id].x - x, places[other.id].y - y) < places[other.id].radius + radius);
   },
   // A need with a function asks it; one without reads its match flag (setFlag).
   needMet(need) { const check = this.needs[need]; return check ? !!check() : !!this.flags[need]; },

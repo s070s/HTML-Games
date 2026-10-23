@@ -56,7 +56,6 @@ const HUD_HEADER_WIDTH = 320;   // units: the score, clock and round panel at th
 // lives, which reach past the panel's edge on small screens (the text floor), then round pips, control meters and objective
 // chips (lower under pips) with their note line (bomb timer, flag state).
 const HUD_LIMIT_Y = 37, HUD_LIVES_Y = 41, HUD_PIPS_Y = 56, HUD_METERS_Y = 68, HUD_CHIPS_Y = 74, HUD_CHIPS_Y_ROUNDS = 92, HUD_CHIP_NOTE = 22;
-const HUD_ROWS_HALF = 150;   // units either side of the centre: the widest row (free-for-all lives, seven round pips)
 
 // The score panel's box (hudBoxAt form: x, y, width, height): one source for the drawing, the touch buttons and the tests.
 function hudHeaderBox(layout, box) {
@@ -310,25 +309,27 @@ Bus.on('match.stop', () => { HudFeed.reset(); HudBanners.reset(); });
 
 // Half a drawn text row of a size (px): the atlas cell, floored like the pen (ACC-008).
 function hudTextHalf(size) { return Math.max(size, Hud.textFloor) * HUD_CELL_PX / HUD_FONT_PX / 2; }
-// The header's rows for a mode state as one box from the HUD top (hudBoxAt form), down to the lowest row the drawers place
-// for it (the chip row's note line in modes with objectives: chips and notes come and go). It is narrower than the panel,
-// so a button beside the rows keeps its place under the panel.
-function hudHeaderRowsBox(layout, state, box) {
-  const unit = layout.unit;
-  let line = state.playerLives >= 0 && state.teams !== 2 ? HUD_LIVES_Y : HUD_LIMIT_Y;
-  if (state.roundsToWin > 0) line = HUD_PIPS_Y;
-  if (state.mode === 'control') line = HUD_METERS_Y;
-  if (state.objectives && state.objectives.length) line = (state.roundsToWin > 0 ? HUD_CHIPS_Y_ROUNDS : HUD_CHIPS_Y) + HUD_CHIP_NOTE;
-  box[0] = layout.centerX - HUD_ROWS_HALF * unit; box[1] = layout.top; box[2] = HUD_ROWS_HALF * 2 * unit; box[3] = line * unit + hudTextHalf(HUD_TEXT_SMALL * unit);
-  return box;
+// Touch buttons give way to the score panel and the rows under it (05b keepClear, touch-01), on the screen size they are
+// placed for. The rows: one area from the HUD top down to the lowest row the drawers place for the mode (the chip row's note
+// line in modes with objectives: chips and notes come and go) and out to the widest. Widths in units, as the drawers place
+// them: the "FIRST TO" line (or GET READY), free-for-all lives to 150 on the left, round pips from 66 by 12, control meters
+// 8 + 110, objective chips 36 apart with an 18 ring. A button beside the rows keeps its place, as on the panel's sides.
+function hudClearHeaderRows(layout, state) {
+  const unit = layout.unit, chips = state.objectives ? Math.min(state.objectives.length, HUD_MAX_OBJECTIVE_CHIPS) : 0;
+  let line = HUD_LIMIT_Y, right = HudPen.measure('FIRST TO', HUD_TEXT_SMALL * unit) / unit + 3, left = 0;
+  if (state.playerLives >= 0 && state.teams !== 2) { line = HUD_LIVES_Y; left = 150; }
+  if (state.roundsToWin > 0) { line = HUD_PIPS_Y; right = Math.max(right, 62 + 12 * state.roundsToWin); }
+  if (state.mode === 'control') { line = HUD_METERS_Y; right = Math.max(right, 118); }
+  if (chips) { line = (state.roundsToWin > 0 ? HUD_CHIPS_Y_ROUNDS : HUD_CHIPS_Y) + HUD_CHIP_NOTE; right = Math.max(right, 18 * chips + 18); }
+  TouchInput.addClear(layout.centerX - Math.max(left, right) * unit, layout.top, layout.centerX + right * unit, layout.top + line * unit + hudTextHalf(HUD_TEXT_SMALL * unit));
 }
-// Touch buttons give way to the score panel and the rows under it (05b keepClear, touch-01) on the screen size they are placed for.
-const hudHeaderClearLayout = {}, hudHeaderClearBox = [0, 0, 0, 0];
-function hudKeepClearBox(box) { TouchInput.addClear(box[0], box[1], box[0] + box[2], box[1] + box[3]); }
+const hudHeaderClearLayout = {};
 TouchInput.keepClear.push((width, height) => {
-  updateHudLayout(hudHeaderClearLayout, width, height);
-  hudKeepClearBox(hudHeaderBox(hudHeaderClearLayout, hudHeaderClearBox));
-  if (Modes.active && Modes.rules) hudKeepClearBox(hudHeaderRowsBox(hudHeaderClearLayout, Modes.hudState(), hudHeaderClearBox));
+  const layout = hudHeaderClearLayout, box = hudBoxAt;   // the drawing's scratch box: placing never runs inside a draw
+  updateHudLayout(layout, width, height);
+  hudHeaderBox(layout, box);
+  TouchInput.addClear(box[0], box[1], box[0] + box[2], box[1] + box[3]);
+  if (Modes.active && Modes.rules) hudClearHeaderRows(layout, Modes.hudState());
 });
 
 Hud.register('main', 'header', 'header', hudDrawHeader);

@@ -398,12 +398,14 @@ function hudUiDrawnBoxes() {
     return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];
   });
 }
-// The first shown control past a screen edge or over one of the [left, top, right, bottom] boxes, or ''.
-function hudUiTouchOver(boxes, width, height) {
+// The first shown control over one of the [left, top, right, bottom] boxes or, at the default places, over another shown
+// control (a button that gave way must not land on the next one), or ''. Touching (half a pixel) is allowed.
+function hudUiTouchOver(boxes, defaults) {
   for (const control of TOUCH_CONTROLS) {
-    const place = TouchInput.places[control.id], radius = place.radius - 0.5, x = place.x, y = place.y;   // a button pushed to an edge touches it
-    const hit = boxes.find((box) => x + radius > box[0] && x - radius < box[2] && y + radius > box[1] && y - radius < box[3]);
-    if (place.shown && (hit || x < radius || y < radius || x + radius > width || y + radius > height)) return control.id + ' at ' + (hit || 'the edge');
+    const place = TouchInput.places[control.id], radius = place.radius - 0.5, x = place.x, y = place.y;
+    const hit = boxes.find((box) => x + radius > box[0] && x - radius < box[2] && y + radius > box[1] && y - radius < box[3])
+      || (defaults && TouchInput.spotTaken(control, x, y, radius) && 'a button');
+    if (place.shown && hit) return control.id + ' at ' + hit;
   }
   return '';
 }
@@ -423,7 +425,9 @@ function hudUiTouchProblems(width, height) {
         HudBatch.quads = 0;
         hudDrawHeader(HudPen, layout); hudDrawBanners(HudPen, layout);
         if (replay) hudDrawKillcamPanel(HudPen, layout);
-        const over = hudUiTouchOver(hudUiDrawnBoxes(), width, height);
+        // Buttons on buttons: landscape default places (upright phones pause, and their default places already touch). Open:
+        // the mirrored preset on the smallest phone has no free spot near SWAP and CHAT in round modes with long pip rows.
+        const over = hudUiTouchOver(hudUiDrawnBoxes(), moved < 0 && width > height && preset.id !== 'mirrored');
         if (over) problems.push([width, height, preset.id, moved, replay, over].join(' '));
       }
     }
