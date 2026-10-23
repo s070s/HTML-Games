@@ -682,7 +682,7 @@ const TouchInput = {
 const TOUCH_CSS = '.tc-layer { position: fixed; left: var(--safe-left); right: var(--safe-right); top: var(--safe-top); bottom: var(--safe-bottom); display: none; z-index: 5; touch-action: none; }'
   + '.tc-layer.show { display: block; } .tc-zone { position: absolute; inset: 0; touch-action: none; }'
   + '.tc { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; display: flex; align-items: center; justify-content: center; touch-action: none;'
-  + ' background: rgba(255, 255, 255, 0.14); border: 2px solid rgba(255, 255, 255, 0.5); color: #fff; font: 700 0.875em/1 var(--ui-font); flex-direction: column; } .tc-note { color: var(--ui-accent); font-weight: 400; }'   // 14 px faces (ACC-008)
+  + ' background: rgba(255, 255, 255, 0.14); border: 2px solid rgba(255, 255, 255, 0.5); color: #fff; font: 700 0.875em/1 var(--ui-font); flex-direction: column; } .tc-note { font-weight: 400; }'   // 14 px faces (ACC-008)
   + '.tc.down { background: rgba(255, 181, 71, 0.55); border-color: var(--ui-accent); } .tc.off { display: none; }'
   + '.tc-stick { background: rgba(255, 255, 255, 0.06); border-style: dashed; }'
   + '.tc-live { position: fixed; left: 0; top: 0; display: none; border-radius: 50%; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.5); pointer-events: none; }'
