@@ -714,6 +714,13 @@ Test.add('input', (check) => {
   const pushed = Input.effective[Input.actionIndex.sprint];
   TouchInput.updateSprint(0);
   check('touch: the stick sprint stops on release with Sprint set to Toggle', pushed === 1 && Input.effective[Input.actionIndex.sprint] === 0);
+  // Sprint toggled on by a key, then the stick pushed and let go: the sprint is off, and the next key press turns it on again.
+  const sprintRow = Input.actionIndex.sprint;
+  Input.pressAction(sprintRow); Input.releaseAction(sprintRow);
+  TouchInput.updateSprint(1); TouchInput.updateSprint(0);
+  Input.pressAction(sprintRow); Input.releaseAction(sprintRow);
+  check('touch: after the stick ends a toggled sprint, one key press sprints again', Input.effective[sprintRow] === 1);
+  Input.pressAction(sprintRow); Input.releaseAction(sprintRow);
   setInputSetting('controls.toggle.sprint', 'hold');
   TouchInput.stickSprints = stickSprints;
 });

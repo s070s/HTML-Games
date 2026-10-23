@@ -323,7 +323,7 @@ const Input = {
   },
   fallingEdge(index) {
     if (this.pressToggled[index] || (this.pulsing && this.toggled[index])) return;
-    this.effective[index] = 0;
+    this.effective[index] = this.toggled[index] = 0;   // a plain hold let go also ends a toggle latched before it (key, then stick)
     if (ACTION_ROWS[index].event) this.emitAction(ACTION_ROWS[index].id, false);
   },
   emitAction(id, down) {
