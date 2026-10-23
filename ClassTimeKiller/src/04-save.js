@@ -43,8 +43,9 @@ function saveRevisionOf(raw) {
 
 const Save = {
   data: null,             // the live save object
-  storageWorks: true,
+  storageWorks: true,     // false from a failed access until a save is written again
   notice: '',             // one-line message for the UI (storage blocked, save was reset)
+  lastFailure: '',        // the failure last told (fail), cleared by a good write
   timer: 0,
   // An unwritten change: a flush writes only then (R-163)
   dirty: false,
@@ -93,8 +94,10 @@ const Save = {
     this.data.revision++;
     const text = JSON.stringify(this.data);
     const written = text.length > SAVE_MAX_BYTES ? this.fail(SAVE_TOO_BIG) : this.write(SAVE_KEY, text);
-    if (written) this.dirty = false; else this.data.revision--;
-    return written;
+    if (!written) { this.data.revision--; return false; }
+    // Storage works again: the next failure is told again.
+    this.dirty = false; this.storageWorks = true; this.lastFailure = '';
+    return true;
   },
   // Takes a newer stored save (another tab's); true when it did.
   adoptNewer() {
@@ -110,9 +113,11 @@ const Save = {
     Settings.applyAll();
     return true;
   },
-  // A failed write tells the player at once with a toast (PLT-003), not only at the next boot; a repeat of the same failure stays quiet.
+  // A failed write tells the player at once with a toast (PLT-003), not only at the next boot; a repeat of the same failure
+  // stays quiet until a write works again.
   fail(text) {
-    if (this.notice === text) return false;
+    if (this.lastFailure === text) return false;
+    this.lastFailure = text;
     this.notice = text;
     emitToast(text);
     return false;
@@ -144,7 +149,6 @@ const Save = {
     try { (this.storage || window.localStorage).setItem(key, text); return true; } catch (error) { this.markBroken(); return false; }
   },
   markBroken() {
-    if (!this.storageWorks) return;
     this.storageWorks = false;
     this.fail(SAVE_BLOCKED);
   },

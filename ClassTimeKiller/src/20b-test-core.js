@@ -118,6 +118,22 @@ Test.add('core', (check) => {
   check('save: a storage event takes the newer save', Save.data.stats.tab === 2);
   Save.notice = '';
 });
+// PLT-003: a repeat of the same failure stays quiet only until a write works again; then the next one is told.
+Test.add('core', (check) => {
+  const toasts = [], listener = Bus.on('toast', (payload) => toasts.push(payload.text));
+  try {
+    Save.saveNow();
+    saveOtherTabWrites(1); Save.saveNow();
+    saveOtherTabWrites(2); Save.saveNow();
+    check('save: a repeated failure stays quiet', toasts.length === 1, toasts.join(' | '));
+    Save.saveNow();
+    saveOtherTabWrites(3); Save.saveNow();
+    check('save: after a good write the same failure is told again', toasts.length === 2 && toasts[1] === SAVE_NEWER_ELSEWHERE, toasts.join(' | '));
+    Save.storage = makeMemoryStorage(true); Save.saveNow();
+    Save.storage = makeMemoryStorage(false); Save.saveNow();
+    check('save: storage that works again is marked working', Save.storageWorks);
+  } finally { Bus.off('toast', listener); Save.notice = ''; }
+});
 
 // R-037 / R-038 / R-039: junk or a failed write keeps the save; the backup can be shown and restored.
 Test.add('core', (check) => uiWith(() => {

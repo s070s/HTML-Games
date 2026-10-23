@@ -52,6 +52,7 @@ const Test = {
     Maps.runtime = [];
     Save.storage = makeMemoryStorage(false);
     Save.data = Save.emptySave();
+    Save.lastFailure = ''; Save.storageWorks = true;
     Rng.reseed(1);
     this.restoreHooks();
   },
