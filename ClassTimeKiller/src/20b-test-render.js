@@ -348,6 +348,17 @@ Test.add('render', (check) => withRenderer(() => {
   check('portrait keeps the 4:3 horizontal view', Test.near(wide, 80, 0.01) && portrait >= standard - 0.01 && portrait > 60, [wide, standard, portrait]);
 }));
 
+// normalize-05: one gait. Over one footstep (STRIDE_METRES, S10) the legs and the head bob each go half a walk cycle.
+Test.add('render', (check) => withRenderer(() => {
+  const id = Actors.create(ACTOR_KIND.BOT, 0, 'demo'), speed = 4, footstepSeconds = STRIDE_METRES / speed;
+  Actors.alive[id] = 1; Actors.vx[id] = speed; Actors.vz[id] = 0; Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
+  actorPhase[id] = 0; ViewState.bobPhase = 0;
+  animateActor(id, actorPose, footstepSeconds, LOD.near);
+  headBob(id, footstepSeconds);
+  check('one footstep = half a leg cycle and half a head-bob cycle', Test.near(actorPhase[id], Math.PI, 1e-4) && Test.near(ViewState.bobPhase, Math.PI, 1e-4),
+    [actorPhase[id], ViewState.bobPhase]);
+}));
+
 // ---- Actors (REN-002): LODs, interpolation, style hook, shadows ----
 Test.add('render', (check) => withRenderer(() => {
   placeCamera(0, 1.6, 0, 0, 0);

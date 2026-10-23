@@ -56,3 +56,9 @@ Data.define('movement', {
     wallLatchTime: 6, climbHeight: 2.5, mantleHeight: 2.0, bulletJumpSpeed: 14.5, glideGravity: 0.15, glideTime: 3,
     rollTime: 0.5, rollDamageScale: 0.25, staggerSpeed: 20, staggerTime: 0.4, sprintToFire: 0.15 },
 ]);
+
+// Gait, one source for every preset: a footstep every STRIDE_METRES on the ground (S10 step events and noise); a walk cycle is
+// two steps (S07 leg swing, head bob and weapon sway). The walk swing and head bob reach full size at RUN_REFERENCE_SPEED m/s.
+const STRIDE_METRES = 1.6;
+const WALK_CYCLE_METRES = 2 * STRIDE_METRES;
+const RUN_REFERENCE_SPEED = 7;

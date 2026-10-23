@@ -357,8 +357,6 @@ const FAR_ANIMATION_STRIDE = 4;          // the far LOD re-poses its walk cycle 
 const HIP_HEIGHT = 1.0;                  // parts with a pivot below this belong to the lower body
 const LEG_LENGTH = 0.9;                  // lower-body height the crouch squash is measured against
 const CROUCH_UPPER_SHARE = 0.75;         // share of the lost height the upper body sinks (the rest is a slight lean)
-const RUN_SPEED = 7;
-const STRIDE_METERS = 1.7;
 const MAX_SWING = 0.75;                  // radians at full run
 const AIR_SWING = 0.35;
 const TEAM_DARK_SHARE = 0.3, TEAM_DARK_LIFT = 0.08;   // teamDark = team colour x share + lift (a black team stays visible)
@@ -419,11 +417,11 @@ function animateActor(id, pose, seconds, lod) {
   const speed = length2(Actors.vx[id], Actors.vz[id]);
   actorPendingSeconds[id] = lod === LOD.distant ? 0 : actorPendingSeconds[id] + seconds;
   if (lod === LOD.near || (ActorFrame.count + id) % FAR_ANIMATION_STRIDE === 0) {
-    actorPhase[id] = (actorPhase[id] + speed * actorPendingSeconds[id] * (Math.PI * 2 / STRIDE_METERS)) % (Math.PI * 2);
+    actorPhase[id] = (actorPhase[id] + speed * actorPendingSeconds[id] * (Math.PI * 2 / WALK_CYCLE_METRES)) % (Math.PI * 2);
     actorPendingSeconds[id] = 0;
   }
   const grounded = (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
-  const amount = lod === LOD.distant ? 0 : Math.min(1, speed / RUN_SPEED);
+  const amount = lod === LOD.distant ? 0 : Math.min(1, speed / RUN_REFERENCE_SPEED);
   pose.swing = grounded ? Math.sin(actorPhase[id]) * amount * MAX_SWING : AIR_SWING;
   pose.lift = grounded ? Math.abs(Math.cos(actorPhase[id])) * amount * 0.05 : 0;
   pose.drop = (1 - clamp(Actors.height[id] / STAND_HEIGHT, 0.3, 1)) * STAND_HEIGHT * CROUCH_UPPER_SHARE;
