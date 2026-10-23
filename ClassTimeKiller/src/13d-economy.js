@@ -23,6 +23,7 @@ const Economy = {
   match: null,                     // the Game.match the state belongs to
   buyUntil: new Float64Array(MAX_ACTORS),                        // end of the actor's buy time: from the round start in round modes, else its spawn
   shopOpen: false,
+  shopOpenings: 0,                 // times the shop opened, never reset (buyWindow)
   spawnX: new Float32Array(MAX_ACTORS), spawnZ: new Float32Array(MAX_ACTORS),
   died: new Uint8Array(MAX_ACTORS),                              // died since the last spawn (survivors keep their gear)
   kept: new Uint8Array(MAX_ACTORS * WEAPON_COUNT),               // weapons a survivor carried at the round end
@@ -224,7 +225,13 @@ const Economy = {
     const preset = this.preset();
     this.payTeam(team, preset.waveBonus + (flawless ? preset.flawlessBonus : 0));
   },
-  setShopOpen(open) { this.shopOpen = !!open; },
+  setShopOpen(open) {
+    if (open && !this.shopOpen) this.shopOpenings++;
+    this.shopOpen = !!open;
+  },
+  // A number that names the actor's current buy window (its buy time end, or the shop opening), so a buyer can tell a new
+  // window from the one it already shopped in even when the gap between the two is shorter than its check interval.
+  buyWindow(id) { return this.preset().buy === 'round' ? this.buyUntil[id] : this.shopOpenings; },
 
   // ---- Buying ----
   // '' when the actor may buy right now, else the reason (BUY_REASON_TEXT key).

@@ -473,14 +473,15 @@ GOAL_SCORERS[GOAL.SQUAD] = (id, plan) => BotTeam.squadPlan(id, plan);
 const BOT_BUY_CHECK = 0.5;              // s between the checks for an open buy window
 const BotEconomy = {
   checkAt: new Float64Array(MAX_ACTORS),
-  shopped: new Uint8Array(MAX_ACTORS),  // 1 = this window's pass is done (0 again once the window closes)
+  shoppedWindow: new Float64Array(MAX_ACTORS),   // the Economy.buyWindow the bot last shopped in (one pass per window)
 
   update(id, now) {
     if (now < this.checkAt[id]) return;
     this.checkAt[id] = now + BOT_BUY_CHECK;
-    if (!Economy.usesMoney() || !Economy.canBuy(id)) { this.shopped[id] = 0; return; }
-    if (this.shopped[id]) return;
-    this.shopped[id] = 1;
+    if (!Economy.usesMoney() || !Economy.canBuy(id)) return;
+    const buyWindow = Economy.buyWindow(id);
+    if (this.shoppedWindow[id] === buyWindow) return;
+    this.shoppedWindow[id] = buyWindow;
     this.shop(id);
   },
   shop(id) {
