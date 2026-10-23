@@ -1,4 +1,5 @@
-// Joins src/shell.html and src/*.js (sorted by file name) into the single playable ClassTimeKiller.html.
+// Joins src/shell.html and src/*.js (sorted by file name) into the single playable ClassTimeKiller.html, without the
+// self-test blocks (20b-*), and into ClassTimeKiller.test.html with them, the page the test tools load (D09; not committed).
 // Also checks: duplicate top-level names across files, duplicated code blocks (DRY), banned network APIs, Math.hypot outside the
 // cold files (PERF-006), the file size (D07: a warning above 3.0 MB, a failure above 3.5 MB), that the
 // comment stripper keeps its known tricky lines whole and that the joined script parses.
@@ -15,6 +16,8 @@ import { Script } from 'node:vm';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src');
 const OUT = join(ROOT, 'ClassTimeKiller.html');
+const TEST_OUT = join(ROOT, 'ClassTimeKiller.test.html');
+const TEST_FILES = /^20b-/;   // D09: the test blocks ship in the test build only; 20a (Test, window.__CTK) is in both
 const SCRIPT_MARK = '/*@@SCRIPT@@*/';
 const DUP_WINDOW = 8;            // lines in a row that count as a duplicated block
 const MIN_LINE_CHARS = 12;       // shorter lines (braces, "return;") never count toward a duplicate
@@ -52,21 +55,27 @@ duplicates.forEach((d) => problems.push('DRY: ' + d));
 
 const shell = readFileSync(join(SRC, 'shell.html'), 'utf8').replace(/\r\n/g, '\n');
 if (!shell.includes(SCRIPT_MARK)) problems.push('shell.html has no ' + SCRIPT_MARK + ' marker');
-const body = sources.map((s) => '// ==== ' + s.name + ' ====\n' + withoutCommentLines(s.text).trimEnd() + '\n').join('\n');
-const script = "(() => {\n'use strict';\n" + body + '})();\n';
-const html = shell.replace(SCRIPT_MARK, () => script);
-checkParses(script);
+const html = joinedPage(sources.filter((s) => !TEST_FILES.test(s.name)));
+const testHtml = joinedPage(sources);
 
 const bytes = Buffer.byteLength(html), kb = (bytes / 1024).toFixed(1);
-console.log('files ' + sources.length + ', lines ' + body.split('\n').length + ', size ' + kb + ' KB');
+console.log('files ' + sources.length + ', size ' + kb + ' KB (test build ' + (Buffer.byteLength(testHtml) / 1024).toFixed(1) + ' KB)');
 checkSize(bytes);
 problems.forEach((p) => console.log('  ' + p));
 if (problems.length) {
   console.log('BUILD FAILED: ' + problems.length + ' problem(s)');
   process.exit(1);
 }
-if (!checkOnly) writeFileSync(OUT, html);
-console.log(checkOnly ? 'CHECK OK' : 'BUILD OK -> ClassTimeKiller.html');
+if (!checkOnly) { writeFileSync(OUT, html); writeFileSync(TEST_OUT, testHtml); }
+console.log(checkOnly ? 'CHECK OK' : 'BUILD OK -> ClassTimeKiller.html, ClassTimeKiller.test.html');
+
+// The page with these files' script in it (the script must parse).
+function joinedPage(files) {
+  const body = files.map((s) => '// ==== ' + s.name + ' ====\n' + withoutCommentLines(s.text).trimEnd() + '\n').join('\n');
+  const script = "(() => {\n'use strict';\n" + body + '})();\n';
+  checkParses(script);
+  return shell.replace(SCRIPT_MARK, () => script);
+}
 
 // D07 size checkpoint: warn above 3.0 MB, fail above the 3.5 MB release target.
 function checkSize(size) {

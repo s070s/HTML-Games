@@ -50,16 +50,18 @@ Ui.register('help', {
     for (const line of HELP_LINES) body.appendChild(makeElement('p', 'ui-note', line.replace('{touch}', touchSidesText())));
     body.appendChild(makeElement('div', 'ui-group', 'Current controls'));
     body.appendChild(makeElement('div', 'ui-result', controlsSummary()));
-    body.appendChild(makeElement('div', 'ui-group', 'Self-test'));
-    const output = makeElement('div', 'ui-result', selfTestSummary(Ui.lastSelfTest));
-    const run = Ui.button('Run self-test', () => runSelfTest(output, run));
-    run.disabled = !Ui.selfTestRunner;
-    body.appendChild(run);
-    body.appendChild(output);
+    if (Ui.selfTestRunner) appendSelfTest(body);   // D09: only the test build carries the tests
     body.appendChild(makeElement('p', 'ui-note', 'ClassTimeKiller v' + VERSION));
     root.appendChild(body);
   },
 });
+function appendSelfTest(body) {
+  body.appendChild(makeElement('div', 'ui-group', 'Self-test'));
+  const output = makeElement('div', 'ui-result', selfTestSummary(Ui.lastSelfTest));
+  const run = Ui.button('Run self-test', () => runSelfTest(output, run));
+  body.appendChild(run);
+  body.appendChild(output);
+}
 
 // ---- Rules panel and economy panel ----
 function rulesSection(body, title, lines) {

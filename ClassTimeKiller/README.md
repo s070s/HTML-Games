@@ -10,8 +10,8 @@ A single-file browser first-person shooter (WebGL2, plain JavaScript, no librari
 ## Develop
 
 - Source: `src/shell.html` and `src/*.js`, joined by file name order into one script.
-- Build: `node tools/build.mjs` writes `ClassTimeKiller.html` (`--check` only runs the checks; the build fails above 3.5 MB). The shipped file leaves out comment-only lines and end-of-line `//` comments and indents with tabs.
-- Test: `node tools/selftest.mjs` (headless Chrome; `--group <name>`, `--slow`). Performance: `node tools/perf.mjs`.
+- Build: `node tools/build.mjs` writes `ClassTimeKiller.html`, the game without the self-test blocks (about 2.1 MB; the build fails above 3.5 MB), and `ClassTimeKiller.test.html`, the same game with them (not committed; `--check` only runs the checks). The shipped file leaves out blank and comment-only lines and end-of-line `//` comments and indents with tabs.
+- Test: `node tools/selftest.mjs` (headless Chrome on the test build; `--group <name>`, `--slow`). The game file itself: `node tools/selftest.mjs --file ClassTimeKiller.html --no-selftest --eval "__CTK.log.errors().length"` must print 0. Performance: `node tools/perf.mjs`.
 - Docs: `docs/SPECIFICATION.md` (requirements), `docs/ARCHITECTURE.md` (contracts), `docs/api/*.md` (per area), `docs/LIVE-TESTS.md` (tests played by hand), `docs/PERFORMANCE.md`, `docs/IMPLEMENTATION-STEPS.md` (the historic build plan).
 
 ## iPhone and iPad
