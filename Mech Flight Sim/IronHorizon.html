@@ -11387,6 +11387,7 @@ const Traffic = {
       let k = Math.floor(Math.random() * count), L = null;
       for (let i = 0; i < T.drive.length && !L; i++) if (this.backLane(T.drive[i], cam) && k-- === 0) L = T.drive[i];
       const s = Math.random() * L.len;
+      if (L.bridge && !TRAFFIC_BACK_OFF && this.laneDeckGone(L)) continue;   // a deck gone since the last refresh
       TRAFFIC_AT.seg = 0;
       this.at(TRAFFIC_AT, L, s);
       const ex = TRAFFIC_AT.x - cam.x, ez = TRAFFIC_AT.z - cam.z;
@@ -11407,7 +11408,10 @@ const Traffic = {
     }
     return false;
   },
+  /* true when a car may come back on lane L: its middle BACK_NEAR to BACK_FAR m from the camera, and no point of it no
+     way (a car put on a deck gone would be wrecked at once, unseen) */
   backLane(L, cam) {
+    if (L.stop && !TRAFFIC_BACK_OFF) return false;
     const dx = L.mx - cam.x, dz = L.mz - cam.z, d2 = dx * dx + dz * dz;
     return d2 > TRAFFIC_BACK_NEAR * TRAFFIC_BACK_NEAR && d2 < TRAFFIC_BACK_FAR * TRAFFIC_BACK_FAR;
   },
