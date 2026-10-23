@@ -245,6 +245,26 @@ Test.add('economy', (check) => {
   TestArena.finish();
 });
 
+// RS12 Frame Runner arms the classes from its Exotic set, so its weapons are used at all (balance-01).
+Test.add('economy', (check) => {
+  const exotic = CAT.weaponSets.byId('exoticSet').weapons, swaps = CLASS_SET_SWAPS.exoticSet;
+  const unswapped = CAT.weaponSets.byId('militarySet').weapons.filter((key) => CAT.weapons.byId(key).class !== 'melee' && !exotic.includes(swaps[key]));
+  check('frame: every military class weapon has a swap inside the Exotic set', unswapped.length === 0, unswapped.join());
+  World.load(modesTestMap({ spawns: TEAM_SPAWNS }));
+  Game.start({ mode: 'tdm', ruleset: 'frame', seed: 1, bots: CAT.classes.map((row, index) => ({ dummy: true, team: index % 2 })) });
+  const outside = [];
+  for (let id = 0; id < Actors.count; id++) {
+    for (let w = 0; w < WEAPON_COUNT; w++) {
+      const row = CAT.weapons[w];
+      if (Weapons.owned[Weapons.slotIndex(id, w)] && row.class !== 'melee' && !exotic.includes(row.id)) outside.push(id + ':' + row.id);
+    }
+  }
+  check('frame: spawned classes carry only Exotic set weapons', Actors.count === CAT.classes.length && outside.length === 0, outside.join());
+  Economy.applyClass(0, CAT.classes.byId('marksman'));
+  check('frame: the Marksman class gets the Talon Bow and the Sparklock', Weapons.has(0, 'talonbow') && Weapons.has(0, 'sparklock') && !Weapons.has(0, 'longshot'));
+  endModeTest();
+});
+
 Test.add('economy', (check) => {
   check('loadouts: created on first use', Loadouts.selectedClass().id === CAT.classes[0].id && !!Save.data.loadouts);
   check('loadouts: the secondary must be a sidearm', Loadouts.saveClass({ primary: 'tempest', secondary: 'vanguard', perks: ['bandolier', 'ghost', 'steady'] }) === null && !!Loadouts.lastError);

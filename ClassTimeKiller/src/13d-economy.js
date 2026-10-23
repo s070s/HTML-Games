@@ -145,8 +145,10 @@ const Economy = {
   // ECP04: the class weapons (melee of the set kept), perk stats before the weapons so reserves include Bandolier.
   applyClass(id, row) {
     this.applyPerks(id, row.perks);
-    const melee = currentWeaponSet().start.filter((key) => CAT.weapons.byId(key).class === 'melee');
-    Weapons.setLoadout(id, melee.concat([row.secondary, row.primary]));
+    const set = currentWeaponSet(), swaps = CLASS_SET_SWAPS[set.id] || {};
+    const inSet = (key) => swaps[key] || key;
+    const melee = set.start.filter((key) => CAT.weapons.byId(key).class === 'melee');
+    Weapons.setLoadout(id, melee.concat([inSet(row.secondary), inSet(row.primary)]));
     Gadgets.clearGrenades(id);
     this.grant(id, 'gadget', row.lethal);
     this.grant(id, 'gadget', row.tactical);
