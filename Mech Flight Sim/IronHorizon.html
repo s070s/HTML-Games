@@ -31373,6 +31373,140 @@ const SelfTest = {
         S.difficulty = keepDiff; Game.reportError = keepRep; Save.data.platformId = keepPid; Game.quitToMenu();
       }
     });
+    t('p8 traffic', () => {
+      // the road's state: rubble, floods, lava and decks gone block lanes (cars stop short, go round, never come back on
+      // them; responders walk the rest); each fix is checked again with its switch off
+      const keepQ = S.quality, keepCam = { x: R.cam.x, y: R.cam.y, z: R.cam.z }, keepVisible = R.visible, keepRandom = Math.random;
+      const P = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, seg: 0, v: null }, sedan = VEHICLES[VEHICLE_IDS.indexOf('sedan')];
+      const point = (L, s) => { P.seg = 0; Traffic.at(P, L, s); return { x: P.x, y: P.y, z: P.z, yaw: P.yaw }; };
+      // the first point of L that is no way (m along it; Infinity: none)
+      const firstStop = (L) => { if (!L.stop) return Infinity; for (let k = 0; k < L.cum.length; k++) if (L.blk[k] === TRAFFIC_PT_STOP) return L.cum[k]; return Infinity; };
+      // the lane points round L looked at again now (the switches change what they find)
+      const relook = (L) => { Traffic.roadChanged(L.x0 - 10, L.z0 - 10, L.x1 + 10, L.z1 + 10); Traffic.refreshBlocks(W.traffic); };
+      const empty = (L) => { for (const o of L.cars.slice()) Traffic.remove(o, false); };
+      // a sedan from s on lane L for secs: how far its front got along L (m) and whether it was back on L's twin at the end
+      const run = (L, s, secs) => {
+        empty(L);
+        const c = Traffic.make(sedan, 0);
+        c.slot = W.traffic.cars.length; Traffic.drive(c, L, s); W.traffic.cars.push(c);
+        let front = 0, back = false;
+        for (let i = 0; i < secs * 10; i++) { socRun(0.1, 0.1); if (c.lane === L) front = Math.max(front, c.s + c.v.hl); back = back || c.lane === L.twin; }
+        Traffic.remove(c, false);
+        return { front, back };
+      };
+      try {
+        S.quality = 'high'; Math.random = makeRng(21); R.visible = () => false;
+        socStart('day');
+        const T = W.traffic, zn = socTown();
+        socLook(zn);
+        const streets = T.drive.filter((L) => L.kind === 'street' && L.zone === zn && !L.bridge && L.len > 40).sort((a, b) => a.id - b.id);
+        // 1. rubble halfway along a street: a car stops short of it and turns back; the way round leaves the street out
+        // (one between two junctions: a car may turn onto it or not, and the lanes after it are reached some other way too)
+        const inOf = (q) => q.node0.ins.find((o) => o !== q.twin && o.out.length > 1 && o.out.some((t) => t.to === q));
+        const L = streets.find((q) => inOf(q) && q.node1.junction), heap = point(L, L.len / 2);
+        Rubble.add(heap.x, heap.z, 160);
+        socRun(TRAFFIC_BLOCK_EVERY + 0.1, 0.1);   // the refresh gathers the change
+        const stopS = firstStop(L), on = run(L, 4, 14);
+        this.check('rubble across a street blocks its lanes (refreshed where it fell)', L.stop && L.twin.stop && stopS < L.len / 2 + 1, L.stop + ' ' + L.twin.stop + ' at ' + stopS);
+        this.check('a car stops short of the rubble and turns back', on.front < stopS && on.back, on.front.toFixed(1) + ' of ' + stopS.toFixed(1) + ' m, back ' + on.back);
+        const In = inOf(L), D = L.out.map((t) => t.to).find((q) => q !== L.twin);
+        const viaL = (w) => !!w && w.some((q) => q === L || (q.kind === 'turn' && q.to === L));
+        const fake = Traffic.make(sedan, 0), picks = (n) => { let k = 0; for (let i = 0; i < n; i++) { const o = Traffic.pickNext(fake, In); if (o && o.to === L) k++; } return k; };
+        const wayOn = In && D ? Traffic.way(In, 0, D, D.len / 2) : null, pickOn = In ? picks(40) : -1;
+        TRAFFIC_BLOCKS_OFF = true; relook(L);
+        const off = run(L, 4, 14), wayOff = In && D ? Traffic.way(In, 0, D, D.len / 2) : null, pickOff = In ? picks(40) : -1;
+        TRAFFIC_BLOCKS_OFF = false; relook(L);
+        this.check('(with the road\'s state off it drives through the rubble)', off.front > stopS + 5, off.front.toFixed(1) + ' m');
+        this.check('a car\'s way and its turns go round a street blocked by rubble (not with the road\'s state off)', !!wayOn && !viaL(wayOn) && pickOn === 0 && viaL(wayOff) && pickOff > 0, (wayOn ? wayOn.length : 'no') + ' lanes (by it ' + viaL(wayOn) + ', off ' + viaL(wayOff) + '), ' + pickOn + '/40 turns into it; off: ' + pickOff + '/40');
+        // 2. a flood and a lava flow (as running hazards) block the lanes they reach, and the lanes clear once they are over
+        const hz = Hazards.list.find((h) => !h.on), keepHz = Object.assign({}, hz);
+        const L2 = streets.find((q) => q !== L && q !== L.twin && Math.hypot(q.mx - L.mx, q.mz - L.mz) > 40), wet = point(L2, L2.len / 2);
+        Object.assign(hz, { on: true, type: 'flood', state: HZ_ACTIVE, x: wet.x, z: wet.z, r: 10 });
+        Water.setFlood(wet.x, wet.z, 10, wet.y + 0.6, wet.y - 2);
+        socRun(TRAFFIC_HAZARD_EVERY + TRAFFIC_BLOCK_EVERY + 0.1, 0.1);
+        const flooded = L2.stop;
+        TRAFFIC_BLOCKS_OFF = true; relook(L2); const floodOff = L2.stop; TRAFFIC_BLOCKS_OFF = false; relook(L2);
+        hz.on = false; Water.setFlood(0, 0, 0, -Infinity);
+        socRun(TRAFFIC_HAZARD_EVERY + TRAFFIC_BLOCK_EVERY + 0.1, 0.1);
+        this.check('a flood deeper than the wheels blocks a street, which clears when it is over (not with the road\'s state off)', flooded && !L2.stop && !floodOff, flooded + ', after ' + L2.stop + ', off ' + floodOff);
+        const L3 = streets.find((q) => q !== L && q !== L.twin && q !== L2 && q !== L2.twin && Math.hypot(q.mx - L.mx, q.mz - L.mz) > 40 && Math.hypot(q.mx - L2.mx, q.mz - L2.mz) > 40), hot = point(L3, L3.len / 2);
+        Object.assign(hz, { on: true, type: 'lava', state: HZ_ACTIVE, x: hot.x, z: hot.z, nPath: 1, level: 1, path: [hot.x + 6, hot.z], def: HAZARDS.lava });
+        socRun(TRAFFIC_HAZARD_EVERY + TRAFFIC_BLOCK_EVERY + 0.1, 0.1);
+        const molten = L3.stop;
+        hz.on = false;
+        socRun(TRAFFIC_HAZARD_EVERY + TRAFFIC_BLOCK_EVERY + 0.1, 0.1);
+        Object.assign(hz, keepHz);
+        this.check('a lava flow blocks the street it reaches, which clears when it is over', molten && !L3.stop, molten + ', after ' + L3.stop);
+        // 3. a responder whose scene lies past rubble on its street stops short of it, and its medic walks the rest
+        const scene = (walk, secs) => {
+          SOC_WALK_OFF = !walk;
+          const at = point(L, L.len - 3), tx = at.x - Math.cos(at.yaw) * 2.5, tz = at.z + Math.sin(at.yaw) * 2.5, from = point(L, 3);   // the fallen at the kerb
+          empty(L);
+          const inc = Society.report(SOC_CASUALTY, tx, tz, 2), car = Traffic.dispatch(SOC_UNITS.ems.row, from.x, from.z, tx, tz, 0);
+          if (!inc || !car) { SOC_WALK_OFF = false; return { car: null, inc: null }; }
+          inc.sent |= SOC_UNITS.ems.bit | SOC_UNITS.police.bit; car.duty = inc; inc.ems = car; W.society.out++;
+          let medic = null;
+          for (let i = 0; i < secs * 10 && !medic && !(car.state === 'scene' && !walk); i++) { socRun(0.1, 0.1); medic = inc.crew.find((h) => h.unit === 'ems' && h.crouch && Math.hypot(h.x - tx, h.z - tz) < 4) || null; }
+          SOC_WALK_OFF = false;
+          return { car, inc, medic, lane: car.lane, s: car.s, state: car.state };
+        };
+        const clear = () => {
+          for (const inc of W.society.incidents) { inc.on = false; for (const h of inc.crew) h.dead = true; }
+          for (const c of T.cars.slice()) if (c.duty || c.temp) Traffic.remove(c, false);
+          W.society.out = 0;
+        };
+        const walked = scene(true, 45);
+        clear();
+        const waited = scene(false, 12);
+        clear();
+        this.check('an ambulance stops short of rubble across its street, and its medic walks the rest to the fallen', !!walked.car && walked.state === 'scene' && walked.lane === L && walked.s + walked.car.v.hl < stopS && !!walked.medic, walked.car ? walked.state + ' at ' + walked.s.toFixed(1) + ' of ' + L.len.toFixed(1) + ' (rubble ' + stopS.toFixed(1) + '), medic ' + !!walked.medic : 'not sent');
+        this.check('(with the walk off the ambulance stays held at the rubble)', !!waited.car && !(waited.state === 'scene' && waited.lane === L && waited.s < stopS), waited.car ? waited.state + ' at ' + waited.s.toFixed(1) : 'not sent');
+        // 4. a bridge deck shot away: its lanes are no way, and no car comes back on them
+        const T2 = T, B = T2.drive.find((q) => q.bridge);   // (the metro's roads cross its river on bridges)
+        let deep = -1;
+        for (let k = 0; B && k < B.pts.length && deep < 0; k += 3) if (Water.depth(B.pts[k], B.pts[k + 2]) > TRAFFIC_DEEP) deep = k;
+        if (deep < 0) { this.check('a battlefield with traffic over a bridge', false, 'none on metro'); return; }
+        const mid = { x: B.pts[deep], y: B.pts[deep + 1], z: B.pts[deep + 2] };
+        for (const s of W.bridges) if (!s.destroyed && Math.hypot(s.x - mid.x, s.z - mid.z) < 20) destroyStruct(s, null);
+        socRun(TRAFFIC_BLOCK_EVERY + 0.1, 0.1);
+        const gone = B.stop && Traffic.laneDeckGone(B);
+        R.cam.x = B.mx + 200; R.cam.y = mid.y + 30; R.cam.z = B.mz;
+        const respawn = (n) => {
+          let bad = 0, moved = 0;
+          for (let i = 0; i < n; i++) {
+            const k = i % T2.cars.length, c = T2.cars[k];
+            if (c.duty || c.rider || c.state !== 'drive' || (c.lane && c.lane.bridge)) continue;
+            const was = c.lane;
+            c.wait = TRAFFIC_STUCK * 2 + 1; T2.cycle = (k + T2.cars.length - 1) % T2.cars.length;
+            Traffic.recycle(T2);
+            if (c.lane !== was) moved++;
+            if (c.lane && Traffic.laneDeckGone(c.lane)) bad++;
+            c.wait = 0;
+          }
+          return { bad, moved };
+        };
+        const back = respawn(800);
+        TRAFFIC_BACK_OFF = true;
+        const backOff = respawn(800);
+        TRAFFIC_BACK_OFF = false;
+        this.check('a lane over a deck shot away is no way, and no car comes back on it (one did with the fix off)', gone && back.moved > 100 && back.bad === 0 && backOff.bad > 0, gone + ', ' + back.bad + ' of ' + back.moved + ' on it; off: ' + backOff.bad + ' of ' + backOff.moved);
+        // 5. the city bench scene looks down its busiest street: most of the traffic in its view
+        const sk = Object.assign({}, SKIRMISH_DEFAULT, { map: 'metro', size: 'large', seed: 11, random: false, platformId: 'bulwark', weather: 'clear', time: 'day', hazards: 'off' });
+        Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: sk });
+        R.visible = keepVisible;
+        this.benchCorner(W.player);
+        const pose = W.player.x + ',' + W.player.z + ',' + W.player.yaw;
+        this.benchCorner(W.player);
+        Cam.update(STEP); Game.render(STEP);
+        const seen = W.traffic.drawn;
+        this.check('the city bench scene faces the most traffic (the same view every run)', seen >= 20 && pose === W.player.x + ',' + W.player.z + ',' + W.player.yaw && W.player.cmd.aimYaw === W.player.yaw, seen + ' vehicles drawn');
+      } finally {
+        TRAFFIC_BLOCKS_OFF = false; TRAFFIC_BACK_OFF = false; SOC_WALK_OFF = false;
+        S.quality = keepQ; R.visible = keepVisible; Math.random = keepRandom; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
+        Water.setFlood(0, 0, 0, -Infinity);
+        Game.quitToMenu();
+      }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
