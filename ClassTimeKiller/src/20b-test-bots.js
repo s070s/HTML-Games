@@ -1658,7 +1658,8 @@ Test.add('bots', (check) => {
 });
 
 // ---- BOT-021: easy bots still fight (worse), they do not run from most fights ----
-const FIGHT_MIX_SECONDS = 90, FIGHT_MIX_SAMPLE = 12, FIGHT_ATTACK_MIN = 0.3, FIGHT_RETREAT_MAX = 0.35;
+// One 90 s match swings the shares by several points (which guns the bots find), so three seeds are pooled.
+const FIGHT_MIX_SECONDS = 90, FIGHT_MIX_SAMPLE = 12, FIGHT_ATTACK_MIN = 0.3, FIGHT_RETREAT_MAX = 0.35, FIGHT_MIX_SEEDS = [1, 2, 3];
 Test.add('bots', (check) => {
   for (const difficulty of ['stroll', 'recruit', 'novice']) {
     let targeted = 0, attacking = 0, retreating = 0;
@@ -1671,7 +1672,7 @@ Test.add('bots', (check) => {
         if (BotDecide.goal[id] === GOAL.RETREAT) retreating++;
       }
     };
-    playMatch({ mode: 'ffa', map: 'spire', minutes: FIGHT_MIX_SECONDS / 60, botCount: 6, seed: 3, difficulty, onTick });
+    for (const seed of FIGHT_MIX_SEEDS) playMatch({ mode: 'ffa', map: 'spire', minutes: FIGHT_MIX_SECONDS / 60, botCount: 6, seed, difficulty, onTick });
     const attackShare = attacking / Math.max(1, targeted), retreatShare = retreating / Math.max(1, targeted);
     check(difficulty + ': bots with a target attack at least 30% of the time and retreat at most 35%', targeted > 0 && attackShare >= FIGHT_ATTACK_MIN && retreatShare <= FIGHT_RETREAT_MAX,
       'attack ' + (attackShare * 100).toFixed(0) + '%, retreat ' + (retreatShare * 100).toFixed(0) + '%');

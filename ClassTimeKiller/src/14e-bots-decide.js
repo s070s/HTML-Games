@@ -569,7 +569,7 @@ function itemValue(id, item) {
 }
 
 function weaponItemValue(id, weapon, base) {
-  if (Weapons.has(id, weapon.id)) return 0;
+  if (Weapons.has(id, weapon.id) || Economy.modeArmsEveryone()) return 0;   // the ladder and roulette hand out the guns
   const gain = BotCombat.weaponValue(id, weapon, 1) - BotCombat.bestOwnedGun(id);
   return gain > 0 ? base * WEAPON_UPGRADE_PULL * gain : 0;
 }
