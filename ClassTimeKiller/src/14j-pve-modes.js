@@ -613,7 +613,7 @@ Bus.on('pve.alarm', () => { if (Modes.mode && Modes.mode.id === 'contract') Cont
 // Free practice: the range never ends on its own (leave it from the pause menu). Accuracy counts a shot once however many
 // pellets or blasts it lands (ACCURACY_HIT_KINDS); damage over time adds damage but no hits. Every drillTargets kills complete a
 // drill (score from its time; the best time is kept) and the next drill starts.
-const RANGE_INTRO_TEXT = 'Shoot ' + PVE_RANGE.drillTargets + ' targets for a timed drill. Pause > Quit to leave.';   // what the room is and how to get out
+const RANGE_INTRO_TEXT = 'Shoot ' + PVE_RANGE.drillTargets + ' targets for a timed drill. Pause > Quit to menu to leave.';   // what the room is and how to get out
 const ACCURACY_HIT_KINDS = ['hit', 'melee', 'beam', 'splash'];   // damage kinds that count as a hit for accuracy (range HUD, scoreboard)
 const RangeRun = { stations: [], shots: 0, hits: 0, headshots: 0, damage: 0, kills: 0, drillKills: 0, drillStart: -1, drillBest: 0, drills: 0,
   shotOpen: new Uint8Array(MAX_ACTORS), result: NOT_OVER };

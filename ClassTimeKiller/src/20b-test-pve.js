@@ -455,7 +455,7 @@ Test.add('pve', (check) => {
   const announced = startEventLog('announce');
   Game.start({ mode: 'range', seed: 1, bots: [{ dummy: true }], difficulty: 'regular' });
   announced.stop();
-  check('the range explains its drill and how to leave at the start', announced.some((event) => event.text === RANGE_INTRO_TEXT && event.text.includes(String(PVE_RANGE.drillTargets))),
+  check('the range explains its drill and how to leave at the start', announced.some((event) => event.text === RANGE_INTRO_TEXT && event.text.includes(String(PVE_RANGE.drillTargets)) && event.text.includes('Pause > Quit to menu')),
     announced.map((event) => event.text).join(' | '));
   const shooter = 0;
   Modes.endProtection(shooter);
