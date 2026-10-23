@@ -400,7 +400,7 @@ Test.add('ui', async (check) => {
   try {
     Ui.selfTestRunner = null;
     Ui.open('help');
-    check('help: the self-test button is off when no runner exists', Array.from(Ui.top().element.querySelectorAll('button')).find((button) => button.textContent === 'Run self-test').disabled);
+    check('help: no self-test section without a runner (the release build)', !uiScreenText('help').includes('Run self-test'));
     Ui.closeAll();
     Ui.selfTestRunner = async (options) => ({ total: 5, failed: 1, groups: 2, results: [{ ok: true }, { ok: false, group: 'demo', name: 'broken check', detail: 'was 1' }], headless: options.headless });
     Ui.open('help');
