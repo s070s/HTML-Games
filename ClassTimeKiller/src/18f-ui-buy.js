@@ -97,7 +97,7 @@ const BuyMenu = {
   // ECO-001: the loss ladder with the step a loss would pay next highlighted (redrawn only when that step changes).
   drawLadder(id) {
     const ladder = Economy.preset().lossLadder, team = id >= 0 ? Actors.team[id] : -1;
-    const next = team >= 0 && team < TEAM_SIDES ? Math.min(Economy.lossCount[team] + 1, ladder.length) - 1 : -1;
+    const next = team >= 0 && team < TEAM_COUNT ? Math.min(Economy.lossCount[team] + 1, ladder.length) - 1 : -1;
     const key = ladder.join() + ':' + next;
     if (key === this.ladderKey) return;
     this.ladderKey = key;

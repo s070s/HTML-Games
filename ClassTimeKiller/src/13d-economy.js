@@ -4,7 +4,6 @@
 // saved in Save.data.loadouts. The one loss-bonus rule (ECO-001, MIS-010): every team has a loss counter; a lost or drawn
 // round adds 1, a won round sets it to 0, the side switch resets it. A loss pays lossLadder[min(counter, length) - 1].
 
-const TEAM_SIDES = 2;
 const SPAWN_ROOM_RADIUS = 8;             // ECP05: heroes may be switched this close to the last spawn point
 const CUSTOM_CLASS_MAX = 10;             // ECP04: 6 preset classes + 10 custom
 const CUSTOM_CLASS_PREFIX = 'class-';
@@ -18,7 +17,7 @@ const VEST_ITEM = CAT.buyItems.find((item) => item.kind === 'armor');   // a hel
 
 const Economy = {
   credits: new Int32Array(MAX_ACTORS),
-  lossCount: new Int8Array(TEAM_SIDES),
+  lossCount: new Int8Array(TEAM_COUNT),
   swapped: false,                  // the half the money belongs to (Modes.swapped when it was set)
   match: null,                     // the Game.match the state belongs to
   buyUntil: new Float64Array(MAX_ACTORS),                        // end of the actor's buy time: from the round start in round modes, else its spawn
@@ -85,7 +84,7 @@ const Economy = {
   payRound(winner) {
     const preset = this.preset();
     if (!preset.money) return;
-    for (let team = 0; team < TEAM_SIDES; team++) {
+    for (let team = 0; team < TEAM_COUNT; team++) {
       const won = team === winner;
       this.lossCount[team] = won ? 0 : this.lossCount[team] + 1;
       const reward = won ? preset.winReward : this.lossBonus(team);
@@ -330,7 +329,7 @@ const Economy = {
     if (rounds && preset.halfReset && rounds.switchAt > 0 && Modes.round === rounds.switchAt) return preset.startMoney;
     if (!rounds || Modes.phase === PHASE.ROUND_END) return this.credits[id];
     const team = Actors.team[id];
-    const bonus = team >= 0 && team < TEAM_SIDES ? ladderValue(preset.lossLadder, this.lossCount[team] + 1) : 0;
+    const bonus = team >= 0 && team < TEAM_COUNT ? ladderValue(preset.lossLadder, this.lossCount[team] + 1) : 0;
     return preset.maxMoney > 0 ? Math.min(preset.maxMoney, this.credits[id] + bonus) : this.credits[id] + bonus;
   },
   // Fills out { money, nextRoundMoney, canBuy, buyTimeLeft } for the HUD.

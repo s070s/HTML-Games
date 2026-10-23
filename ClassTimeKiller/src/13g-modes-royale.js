@@ -7,7 +7,6 @@
 // squadmates spawn together, go down instead of dying (HPP06 downed, S11) and share params.squadBeacons respawn beacon
 // uses at one beacon per squad; the last squad standing wins. Drop-in: every spawn falls in from ROYALE_DROP_HEIGHT.
 
-const RING_HURT_INTERVAL = 1;          // the ring hurts once per second
 const RING_STATE = { WAIT: 'wait', SHRINK: 'shrink', CLOSED: 'closed' };
 const RING_COLOR = [0.35, 0.6, 1];
 const RING_NEXT_COLOR = [1, 1, 1];
@@ -76,7 +75,7 @@ Modes.register('royale', {
   },
   onSpawn(id) { dropIn(id); },
   hurtOutside(dt) {
-    if (intervalDue(this, 'hurtTimer', dt, RING_HURT_INTERVAL)) hurtOutsideZone(Ring.x, Ring.z, Ring.radius, Ring.damage * RING_HURT_INTERVAL);
+    if (intervalDue(this, 'hurtTimer', dt, ZONE_HURT_INTERVAL)) hurtOutsideZone(Ring.x, Ring.z, Ring.radius, Ring.damage * ZONE_HURT_INTERVAL);
   },
   onKill(victim) {
     if (victim >= 0 && Modes.participant[victim] && !royaleOutOrder[victim]) royaleOutOrder[victim] = ++this.outCount;
