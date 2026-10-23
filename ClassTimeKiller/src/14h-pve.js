@@ -928,7 +928,7 @@ function tellColor(attack) {
 
 // Moves an actor to a point with no interpolation from the old one and no velocity (spawns, blinks, chamber moves).
 function relocateActor(id, x, y, z, yaw) {
-  Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = y; Actors.z[id] = Actors.prevZ[id] = z;
+  Actors.place(id, x, y, z);
   Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = yaw;
   Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
 }

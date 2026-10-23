@@ -387,6 +387,8 @@ const Actors = {
   isAlly(a, b) { return a !== b && this.team[a] >= 0 && this.team[a] === this.team[b]; },
   isEnemy(a, b) { return a !== b && !this.isAlly(a, b); },
   eyeY(id) { return this.y[id] + this.eye[id]; },
+  // Moves an actor with no interpolation from its old spot (spawns, teleports): never per frame.
+  place(id, x, y, z) { this.x[id] = this.prevX[id] = x; this.y[id] = this.prevY[id] = y; this.z[id] = this.prevZ[id] = z; },
 };
 
 // ---- Simulation systems: each section registers its fixed-step function with an order number ----

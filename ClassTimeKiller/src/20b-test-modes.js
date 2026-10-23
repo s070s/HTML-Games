@@ -23,7 +23,7 @@ function killActor(victim, killer, assister) {
 }
 
 function placeActor(id, x, z) {
-  Actors.x[id] = x; Actors.y[id] = 0; Actors.z[id] = z;
+  Actors.place(id, x, 0, z);
 }
 
 function runSeconds(seconds) { Sim.run(Math.round(seconds * TICK_RATE)); }

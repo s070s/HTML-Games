@@ -280,7 +280,7 @@ const Modes = {
   },
   spawnActor(id) {
     const point = this.pickSpawn(id, spawnChoice);
-    Actors.x[id] = Actors.prevX[id] = point.x; Actors.y[id] = Actors.prevY[id] = point.y; Actors.z[id] = Actors.prevZ[id] = point.z;
+    Actors.place(id, point.x, point.y, point.z);
     Actors.yaw[id] = Actors.prevYaw[id] = Actors.aimYaw[id] = point.yaw;
     Actors.pitch[id] = Actors.prevPitch[id] = Actors.aimPitch[id] = 0;
     Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;

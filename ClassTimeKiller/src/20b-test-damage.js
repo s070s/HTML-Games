@@ -12,7 +12,7 @@ const TestArena = {
   finish() { Game.stop(); World.clear(); Projectiles.clear(); },
   actor(team, x, z, yaw) {
     const id = Actors.create(ACTOR_KIND.DUMMY, team, 'dummy');
-    Actors.alive[id] = 1; Actors.x[id] = x; Actors.y[id] = 0; Actors.z[id] = z;
+    Actors.alive[id] = 1; Actors.place(id, x, 0, z);
     Actors.yaw[id] = Actors.aimYaw[id] = yaw || 0;
     Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
     Damage.resetHealth(id);

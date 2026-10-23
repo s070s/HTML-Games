@@ -46,7 +46,7 @@ function spawnDemoActors() {
   for (const row of DEMO_ACTORS) {
     const id = Actors.create(ACTOR_KIND.BOT, row.team, 'demo');
     Actors.alive[id] = 1;
-    Actors.x[id] = Actors.prevX[id] = row.x; Actors.y[id] = Actors.prevY[id] = row.y || 0; Actors.z[id] = Actors.prevZ[id] = row.z;
+    Actors.place(id, row.x, row.y || 0, row.z);
     Actors.yaw[id] = Actors.prevYaw[id] = row.yaw; Actors.pitch[id] = Actors.prevPitch[id] = row.pitch || 0;
     Actors.vx[id] = Math.sin(row.yaw) * row.speed; Actors.vz[id] = Math.cos(row.yaw) * row.speed;
     Actors.height[id] = row.height || 1.8; Actors.eye[id] = row.eye || 1.62; Actors.flags[id] = row.flags;
@@ -58,7 +58,7 @@ function spawnDemoActors() {
 function spawnDemoPlayer() {
   const id = Actors.create(ACTOR_KIND.PLAYER, 0, 'player');
   Actors.alive[id] = 1;
-  Actors.x[id] = Actors.prevX[id] = 0; Actors.z[id] = Actors.prevZ[id] = -12;
+  Actors.place(id, 0, 0, -12);
   Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
   Actors.aimYaw[id] = 0.08; Actors.aimPitch[id] = -0.06;
   Game.playerId = id;
@@ -75,7 +75,6 @@ function emitDemoEffects() {
   Fx.light(-12, 1, -8, '#ff7a2a', 7, 0.5);
 }
 
-const DEMO_WEAPONS = ['rifle', 'shotgun', 'sniper', 'rail', 'launcher', 'energy', 'heavy', 'smg'];
 const demo = { emitter: false, sinceEffects: 0, weapon: 'rifle' };
 // Builds a sample scene with world, 8 actors, effects, a player view model and a HUD layer; returns frame stats.
 DebugApi.renderDemo = (themeId, weapon, qualityId) => {
@@ -178,7 +177,7 @@ function placeCamera(x, y, z, yaw, pitch) {
 function makeTestActor(kind, team, x, z) {
   const id = Actors.create(kind, team, 'test');
   Actors.alive[id] = 1;
-  Actors.x[id] = Actors.prevX[id] = x; Actors.z[id] = Actors.prevZ[id] = z;
+  Actors.place(id, x, 0, z);
   Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
   return id;
 }
@@ -654,7 +653,7 @@ Test.add('render', (check) => withRenderer(() => {
   let sceneBinds = 0;
   gl.bindFramebuffer = function (kind, framebuffer) { if (framebuffer === sceneTarget && kind !== gl.READ_FRAMEBUFFER) sceneBinds++; return bind.call(this, kind, framebuffer); };
   try { Render.drawFrame(1 / 60, 1); } finally { delete gl.bindFramebuffer; }
-  check('High binds the scene target once a frame, the shadow map before it', SunShadow.active && sceneBinds === 1, sceneBinds);
+  check('High binds the scene target once a frame', SunShadow.active && sceneBinds === 1, sceneBinds);
   check('no GL error after resizing targets', gl.getError() === gl.NO_ERROR);
   check('GPU memory estimate under 64 MB (PERF-005)', Render.gpuMemoryBytes() < 64 * 1024 * 1024, Render.gpuMemoryBytes());
 }));

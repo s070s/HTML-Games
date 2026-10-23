@@ -144,7 +144,7 @@ function joinSquadDrop(id, squad) {
   let x = anchorX, z = anchorZ;
   if (slot > 0) { x += Math.sin(angle) * DROP_SPREAD; z += Math.cos(angle) * DROP_SPREAD; }
   if (!World.lineClear(anchorX, anchorY + DROP_PROBE, anchorZ, x, anchorY + DROP_PROBE, z)) { x = anchorX; z = anchorZ; }
-  Actors.x[id] = Actors.prevX[id] = x; Actors.y[id] = Actors.prevY[id] = anchorY; Actors.z[id] = Actors.prevZ[id] = z;
+  Actors.place(id, x, anchorY, z);
 }
 
 function setSquadAnchor(squad, x, y, z) {
