@@ -127,8 +127,14 @@ Test.add('simwire', (check) => {
   check('as many stars in less time replace it', Progress.chamberRecord(SIMWIRE_CHAMBER).seconds === 30 && Progress.chamberStars() === 2);
   Bus.emit('pve.chamber', { chamber: SIMWIRE_CHAMBER + 1, kind: 'enter', medal: '', stars: 0, seconds: 0 });
   check('entering a chamber records nothing', Progress.chamberRecord(SIMWIRE_CHAMBER + 1) === null);
-  Progress.profile().chambers[SIMWIRE_CHAMBER + 1] = null;
+  Progress.profile().chambers[SIMWIRE_CHAMBER + 1] = 5;
   check('a malformed chamber entry of an imported save counts no stars', Progress.chamberStars() === 2);
+  uiWith(() => {
+    Ui.open('solo');
+    const shown = Array.from(Ui.top().element.querySelectorAll('.pg-list .ui-row')).map((row) => row.textContent);
+    check('the Solo screen shows each chamber\'s best run (a malformed one as none)',shown.length === PVE_CHAMBERS.length && shown[SIMWIRE_CHAMBER - 1].includes('silver')
+      && shown[SIMWIRE_CHAMBER - 1].includes('30 s') && shown[SIMWIRE_CHAMBER].includes('not completed'), shown.join(' | '));
+  });
   Save.data = Save.emptySave();
 });
 

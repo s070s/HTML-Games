@@ -16,9 +16,20 @@ const SoloMenu = {
   difficulty: '',             // the difficulty chosen on the Solo screen ('' = the remembered Quick Match one)
   chosenDifficulty() { return this.difficulty || PlayFlow.remembered().difficulty; },
 };
+// MP11: the best run kept per Test Chamber (Progress.chamberRecord, 15a), so the player sees which medals are still to win.
+function soloChamberRecords(root) {
+  const list = careerList(root);
+  list.appendChild(makeElement('div', 'ui-group', 'Test Chambers: your best runs'));
+  PVE_CHAMBERS.forEach((row, index) => {
+    const record = Progress.chamberRecord(index + 1);
+    const detail = record ? careerStars(record.stars, PVE_CHAMBER_RULES.medals.length) + ' ' + (record.medal || 'no medal') + ', ' + record.seconds + ' s' : 'not completed yet';
+    list.appendChild(careerRow(row.zone, detail, []));
+  });
+}
 
 Ui.register('solo', {
   build(root) {
+    injectStyle('career-style', CAREER_CSS);   // the record list's styles (the Solo screen opens from the main menu too)
     screenHeader(root, 'Solo');
     root.appendChild(makeElement('p', 'ui-sub', SOLO_TEXT));
     const difficulties = PlayFlow.difficulties();
@@ -28,6 +39,7 @@ Ui.register('solo', {
     const first = menu.querySelector('button:not([disabled])');
     if (first) first.dataset.autofocus = '1';
     root.appendChild(menu);
+    soloChamberRecords(root);
   },
 });
 

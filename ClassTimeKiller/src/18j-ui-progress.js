@@ -22,7 +22,8 @@ const CAREER_FINISH_GLOW_PX = 16;      // swatch glow in pixels at finish 1 (the
 Progress.links.outcome = (results) => PlayFlow.outcome(results);
 Progress.links.playerStats = LocalPlayerStats;
 
-function careerStars(count) { return CAREER_STAR.repeat(count) + CAREER_NO_STAR.repeat(Math.max(0, CHALLENGE_STARS.length - count)); }
+// total: the stars there are to win (default: a Challenge Room's).
+function careerStars(count, total) { return CAREER_STAR.repeat(count) + CAREER_NO_STAR.repeat(Math.max(0, (total || CHALLENGE_STARS.length) - count)); }
 function careerBar(fraction) {
   const bar = makeElement('div', 'pg-bar'), fill = makeElement('div');
   fill.style.width = Math.round(clamp(fraction, 0, 1) * 100) + '%';

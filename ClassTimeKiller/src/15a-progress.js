@@ -398,8 +398,8 @@ const Progress = {
     Save.scheduleSave();
     return true;
   },
-  chamberRecord(chamber) { return this.profile().chambers[String(chamber)] || null; },
-  // A malformed entry of an imported save (not a plain record) counts no stars.
+  // A malformed entry of an imported save (not a plain record) is no record and counts no stars.
+  chamberRecord(chamber) { const record = this.profile().chambers[String(chamber)]; return isPlainObject(record) ? record : null; },
   chamberStars() {
     const records = this.profile().chambers;
     let stars = 0;
