@@ -1555,7 +1555,9 @@ Test.add('bots', (check) => {
 });
 
 // ---- BOT-071: a safe, close downed teammate (the player too) outranks the objective ----
-const REVIVE_SOAK_SECONDS = 180, REVIVE_SOAK_SEEDS = [1, 2, 3], REVIVE_SHARE_MIN = 0.3, REVIVE_PLAYER_SECONDS = 12;
+// Over 36 seeds bots revive 31-32% of the downed (under 2% without revive goals), and one match swings from 16% to 47%:
+// three seeds gave 26-39% (5 of 12 such sets under 30%), six seeds 27-36%. So six seeds against a 25% floor.
+const REVIVE_SOAK_SECONDS = 180, REVIVE_SOAK_SEEDS = [1, 2, 3, 4, 5, 6], REVIVE_SHARE_MIN = 0.25, REVIVE_PLAYER_SECONDS = 12;
 Test.add('bots', (check) => {
   const downed = new Uint8Array(MAX_ACTORS);
   let downs = 0, revives = 0;
@@ -1567,11 +1569,11 @@ Test.add('bots', (check) => {
       downed[id] = now;
     }
   };
-  for (const seed of REVIVE_SOAK_SEEDS) {   // one match swings a lot (who is downed where): the share is over three
+  for (const seed of REVIVE_SOAK_SEEDS) {   // one match swings a lot (who is downed where): the share is over six
     downed.fill(0);
     playMatch({ mode: 'dom', map: 'twinkeeps', ruleset: 'modern', minutes: REVIVE_SOAK_SECONDS / 60, botCount: 10, seed, onTick });
   }
-  check('Modern Holdfast: bots revive at least 30% of the downed', downs > 0 && revives / downs >= REVIVE_SHARE_MIN, revives + ' of ' + downs);
+  check('Modern Holdfast: bots revive at least 25% of the downed', downs > 0 && revives / downs >= REVIVE_SHARE_MIN, revives + ' of ' + downs);
 });
 Test.add('bots', (check) => {
   Game.headless = true;
