@@ -30941,7 +30941,10 @@ UI.scr_selftest = function (r) {
    Message transport is a per-peer tx() function, so tests can loop back.
    ===================================================================== */
 const SNAP_PLATS = 44;    // platforms per snapshot (message size)
+const SNAP_PROJS = 70;    // projectiles per snapshot
 var NET_UNSPOT_OFF = false;   // self-test switch: the guest ignores the sent unspotted share
+var NET_SNAP_TURN_OFF = false;   // self-test switch: platforms past SNAP_PLATS take no turns in the snapshots
+var NET_SHELLS_FIRST_OFF = false;   // self-test switch: shells take no precedence in the snapshots
 const NET_VERSION = 10;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
@@ -30957,6 +30960,7 @@ const Net = {
   host: false, guest: false, inSession: false, peers: [], hostPeer: null, useStun: false, t: 0, nextPeerId: 1, maxPeers: 3,
   name: 'Pilot', missionId: 'm1', status: '', seq: 0, inSeq: 0, pendCtl: 0, snapAcc: 0, obAcc: 0, stAcc: 0, inAcc: 0, beatAcc: 0, pendEdge: 0,
   dirty: new Set(), map: {}, projMap: {}, lastSnapSeq: 0, snapT: 0, lobbyView: null, myId: 0, inviteText: '', joined: false, onChange: null,
+  snapRest: [], snapTurn: 0,   // the platforms past the players that take turns in the snapshots, and whose turn it is
   get active() { return this.host || this.guest; },
   changed() { if (this.onChange) this.onChange(); },
 
@@ -31377,13 +31381,24 @@ const Net = {
       k: [peer.stats.kills, peer.stats.score, peer.stats.deaths, peer.stats.bestStreak], rc: peer.resupplies, sw: p.sw ? r2(p.sw.charge) : -1, tp: p.target ? 1 : 0, ej: 0,
     };
   },
+  projEntry(q) { return [q.nid, WEAPON_IDS.indexOf(q.def.id || ''), r1(q.x), r1(q.y), r1(q.z), r1(q.vx), r1(q.vy), r1(q.vz), q.owner ? q.owner.id : 0]; },
   sendSnapshots() {
     const plats = [];
     const human = (p) => p.isPlayer || !!p.netPeer;   // players first: summons can push the count past the cap
     for (const p of W.platforms) if (!p.dead && human(p) && plats.length < SNAP_PLATS) plats.push(this.platEntry(p));
-    for (const p of W.platforms) if (!p.dead && !human(p) && plats.length < SNAP_PLATS) plats.push(this.platEntry(p));
+    // the rest take turns when more stand than fit, so a guest sees each well within its 0.8 s timeout (a platform left
+    // out of every snapshot vanished there for good: its 'sp' goes out only once)
+    const rest = this.snapRest;
+    rest.length = 0;
+    for (const p of W.platforms) if (!p.dead && !human(p)) rest.push(p);
+    const room = Math.max(0, SNAP_PLATS - plats.length), n = rest.length, from = n > room && !NET_SNAP_TURN_OFF ? this.snapTurn % n : 0;
+    for (let k = 0; k < n && k < room; k++) plats.push(this.platEntry(rest[(from + k) % n]));
+    this.snapTurn = n > room ? (from + room) % n : 0;
     const prs = [];
-    for (const q of W.projs) if (q.active && prs.length < 70) prs.push([q.nid, WEAPON_IDS.indexOf(q.def.id || ''), r1(q.x), r1(q.y), r1(q.z), r1(q.vx), r1(q.vy), r1(q.vz), q.owner ? q.owner.id : 0]);
+    // shells first: past the cap a shell would never reach the guests, and with it their impact marker
+    const first = !NET_SHELLS_FIRST_OFF;
+    if (first) for (const q of W.projs) if (q.active && q.def.indirect && prs.length < SNAP_PROJS) prs.push(this.projEntry(q));
+    for (const q of W.projs) if (q.active && !(first && q.def.indirect) && prs.length < SNAP_PROJS) prs.push(this.projEntry(q));
     const pk = W.pickups.map((k) => [k.type, r1(k.x), r1(k.z)]);
     const base = { t: 's', q: ++this.seq, p: plats, pr: prs, pk };
     for (const peer of this.peers) {
