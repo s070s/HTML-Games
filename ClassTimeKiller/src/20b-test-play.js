@@ -353,6 +353,7 @@ Test.add('play', (check) => uiWith(() => {
     check('results: a lost co-op run is a loss, not a draw', results.lost && !results.draw && PlayFlow.outcome(results) === 'loss', JSON.stringify({ lost: results.lost, draw: results.draw }));
     check('results: the screen says Defeat and why', text.includes(PLAY_RESULT_TITLES.loss) && !!PLAY_REASON_TEXT[PVE_LOSE] && text.includes(PLAY_REASON_TEXT[PVE_LOSE]), text.slice(0, 80));
     check('results: every co-op end reason has its line', [PVE_WIN, PVE_LOSE, 'extracted', 'objective'].every((reason) => !!PLAY_REASON_TEXT[reason]));
+    check('play screen: the mode summary starts with the mode goal (fun-03)', playModeSummary('bearer').startsWith(CAT.modes.byId('bearer').goal));
     Game.stop(); Ui.closeAll();
     Game.start({ mode: 'ffa', map: 'spire', seed: PLAY_TEST_SEED, player: { name: PLAY_PLAYER_NAME }, bots: [{}] });
     Modes.finish(Modes.over(DRAW, 'draw'));

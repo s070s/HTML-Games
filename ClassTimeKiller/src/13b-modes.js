@@ -14,6 +14,7 @@ const LIVES_UNLIMITED = -1;
 const TIME_EPSILON = 1e-6;             // sim times are sums of 1/120 s steps: compare with a little slack
 const OVERTIME_SECONDS = 180;          // MODE-001: sudden death lasts at most 3 minutes, then the match is a draw
 const TIME_WARNINGS = [300, 60, 30, 10];
+const MODE_GOAL_PRIORITY = 3;          // the match start banner (mode name and goal) stays up long enough to read
 const SPAWN_ENEMY_RADIUS = 12;         // MAP-010: reject a spawn with an enemy this close
 const SPAWN_SIGHT_RADIUS = 25;         // MAP-010: ... or with an enemy in line of sight within this range
 const SPAWN_CAPSULE_RADIUS = 0.8;      // two capsule radii (DATA-003): closer means spawning inside an actor
@@ -126,6 +127,7 @@ const Modes = {
     this.competitorsAtStart = this.countStanding();
     this.skipWarnings();
     this.behaviour.start();
+    if (this.mode.goal) this.announce(this.mode.name + ': ' + this.mode.goal, 'mode', MODE_GOAL_PRIORITY);
     if (this.rules.rounds) this.startRound(Sim.time);
     else this.beginOpenPlay();
   },

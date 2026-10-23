@@ -59,6 +59,8 @@ Test.add('modes', (check) => {
     check('mode ' + mode.code + ' ' + mode.id + ' row is valid and builds', [0, 1, 2].includes(mode.teams) && mode.sizeDefault > 0 && roundsOk
       && CAT.rulesets.byId(mode.ruleset) && ['normal', 'round', 'none'].includes(mode.respawn) && Rules.problems.length === 0, Rules.problems.join('; '));
   }
+  const noGoal = CAT.modes.filter((mode) => !mode.goal || /\d/.test(mode.goal)).map((mode) => mode.id);
+  check('every mode has a one-line goal text, with no number that lives in another field (fun-02)', noGoal.length === 0, noGoal.join());
   for (const line of EXPECTED_MODES) {
     const [id, teams, size, scoreLimit, timeLimit] = line.split(' ');
     const row = CAT.modes.byId(id);
@@ -170,6 +172,8 @@ Test.add('modes', (check) => {
 
   const announcements = startEventLog('announce');
   startModeTest('ffa', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { modeOptions: { timeLimit: 120 } });
+  check('the match start announces the mode and its goal (fun-03)', announcements.length > 0 && announcements[0].kind === 'mode'
+    && announcements[0].text === CAT.modes.byId('ffa').name + ': ' + CAT.modes.byId('ffa').goal, announcements.length && announcements[0].text);
   runSeconds(60.01);
   check('time warning at 1 minute', announcements.some((event) => event.text === '1 minute remaining'));
   runSeconds(60);

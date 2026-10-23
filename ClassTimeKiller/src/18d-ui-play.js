@@ -185,7 +185,7 @@ function playModeSummary(modeId) {
   const parts = [mode.sizeDefault + ' players'];
   if (mode.scoreLimit > 0) parts.push('first to ' + mode.scoreLimit);
   if (mode.timeLimit > 0) parts.push(Math.round(mode.timeLimit / 60) + ' min');
-  return parts.join(', ');
+  return (mode.goal + ' ' + parts.join(', ') + '.').trim();
 }
 
 Ui.register('play', {
