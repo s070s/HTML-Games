@@ -269,6 +269,9 @@ Test.add('economy', (check) => {
   Economy.applyClass(0, CAT.classes.byId('marksman'));
   check('frame: classes carry Exotic weapons (Marksman: Talon Bow, Sparklock)', unswapped.length === 0 && Weapons.has(0, 'talonbow') && Weapons.has(0, 'sparklock')
     && !Weapons.has(0, 'longshot') && Weapons.has(1, CLASS_SET_SWAPS.exoticSet[Loadouts.classFor(1).primary]), unswapped.join());
+  const card = makeElement('div');
+  describeClass(card, CAT.classes.byId('marksman'));
+  check('frame: the class card names the weapons the class spawns with', card.textContent.includes(weaponName('talonbow')) && !card.textContent.includes(weaponName('longshot')), card.textContent);
   endModeTest();
 });
 

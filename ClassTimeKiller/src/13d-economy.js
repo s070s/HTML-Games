@@ -151,13 +151,13 @@ const Economy = {
     if (this.keptArmor[id] > 0) Actors.armor[id] = Math.max(Actors.armor[id], this.keptArmor[id]);
     if (this.keptHelmet[id]) Damage.helmet[id] = 1;
   },
+  // A class weapon (a Military key) as the ruleset's set arms it (CLASS_SET_SWAPS); the class card names the same weapon.
+  classWeapon(key) { return (CLASS_SET_SWAPS[currentWeaponSet().id] || {})[key] || key; },
   // ECP04: the class weapons (melee of the set kept), perk stats before the weapons so reserves include Bandolier.
   applyClass(id, row) {
     this.applyPerks(id, row.perks);
-    const set = currentWeaponSet(), swaps = CLASS_SET_SWAPS[set.id] || {};
-    const inSet = (key) => swaps[key] || key;
-    const melee = set.start.filter((key) => CAT.weapons.byId(key).class === 'melee');
-    Weapons.setLoadout(id, melee.concat([inSet(row.secondary), inSet(row.primary)]));
+    const melee = currentWeaponSet().start.filter((key) => CAT.weapons.byId(key).class === 'melee');
+    Weapons.setLoadout(id, melee.concat([this.classWeapon(row.secondary), this.classWeapon(row.primary)]));
     Gadgets.clearGrenades(id);
     this.grant(id, 'gadget', row.lethal);
     this.grant(id, 'gadget', row.tactical);

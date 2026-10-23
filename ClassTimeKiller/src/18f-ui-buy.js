@@ -171,7 +171,7 @@ function renderClassesTab(body) {
 }
 function describeClass(element, row) {
   appendLines(element, [
-    'Primary: ' + weaponName(row.primary) + '  ·  Secondary: ' + weaponName(row.secondary),
+    'Primary: ' + weaponName(Economy.classWeapon(row.primary)) + '  ·  Secondary: ' + weaponName(Economy.classWeapon(row.secondary)),
     'Lethal: ' + readableKey(row.lethal) + '  ·  Tactical: ' + readableKey(row.tactical),
     'Perks: ' + row.perks.map(perkName).join(', '),
     'Field upgrade: ' + fieldUpgradeName(row.fieldUpgrade),
