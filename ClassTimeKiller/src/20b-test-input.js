@@ -599,14 +599,23 @@ Test.add('input', (check) => {
     if (event.action === 'perfHud' && event.down) perfToggles++;
     if (event.action === 'botDebug' && event.down) botDebugToggles++;
   });
+  const fourFingerTap = () => {
+    for (let pointer = 40; pointer < 44; pointer++) inputTouchPointer('pointerdown', zone, pointer, INPUT_TEST_RIGHT_X + pointer, 300);
+    for (let pointer = 40; pointer < 44; pointer++) inputTouchPointer('pointerup', zone, pointer, INPUT_TEST_RIGHT_X, 300);
+  };
+  fourFingerTap();
+  const inPlay = perfToggles;
+  Game.pause('menu');
   for (let pointer = 40; pointer < 43; pointer++) inputTouchPointer('pointerdown', zone, pointer, INPUT_TEST_RIGHT_X + pointer, 300);
   const threeFingers = perfToggles;
   inputTouchPointer('pointerdown', zone, 43, INPUT_TEST_RIGHT_X, 300);
   const fourFingers = perfToggles;
   for (let pointer = 40; pointer < 44; pointer++) inputTouchPointer('pointerup', zone, pointer, INPUT_TEST_RIGHT_X, 300);
+  Game.resume();
   Bus.off('input.action', listener);
   Input.clearAll();
-  check('touch: a four-finger tap toggles the performance HUD, three do not (ARC-040)', threeFingers === 0 && fourFingers === 1);
+  check('touch: four fingers mid-match (a claw grip) leave the debug views alone', inPlay === 0, inPlay);
+  check('touch: paused, a four-finger tap toggles the performance HUD, three do not (ARC-040)', threeFingers === 0 && fourFingers === 1, threeFingers + ' ' + fourFingers);
   check('touch: the same four-finger tap toggles the bot debug view once (ARC-040)', botDebugToggles === 1, botDebugToggles);
   setInputSetting('controls.touch.acceleration', 0.3);
 });
@@ -706,6 +715,7 @@ Test.add('input', (check) => {
 });
 
 Test.add('input', (check) => {
+  check('rumble: the setting names the phone only where the browser can vibrate it (not iOS Safari)', Settings.definitions.get('controls.vibration').label.includes('phone') === ('vibrate' in navigator));
   const id = startInputMatch();
   const effects = [], original = PadInput.activePad;
   PadInput.activePad = () => ({ vibrationActuator: { playEffect: (type, options) => effects.push(options) } });

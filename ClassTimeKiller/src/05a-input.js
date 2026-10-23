@@ -108,7 +108,8 @@ const KBM_SETTINGS = [
   { key: 'controls.rawMouse', field: 'rawMouse', fallback: true, label: 'Raw mouse input (no OS acceleration)' },
   { key: 'controls.invertY', field: 'invertY', fallback: false, label: 'Invert look Y (mouse and touch)' },
   { key: 'controls.adsMultiplier', field: 'adsMultiplier', fallback: 0.8, label: 'Aim sensitivity multiplier', min: 0.1, max: 2, step: 0.05 },
-  { key: 'controls.vibration', field: 'vibration', fallback: true, label: 'Vibration (controller and phone)' },
+  // iOS Safari has no phone vibration (navigator.vibrate): the row names only what it can drive there.
+  { key: 'controls.vibration', field: 'vibration', fallback: true, label: 'vibrate' in navigator ? 'Vibration (controller and phone)' : 'Vibration (controller)' },
 ];
 // INP-002 hold/toggle: one setting per action row that has toggle: true.
 const TOGGLE_SETTINGS = ACTION_ROWS.filter((row) => row.toggle).map((row) => ({

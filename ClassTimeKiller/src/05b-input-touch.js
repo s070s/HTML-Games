@@ -18,7 +18,7 @@ const TOUCH_TAP_SLOP = 12;              // px
 const TOUCH_HOLD_MS = 350;              // a button held this long on release does its holdAction (SWAP: previous weapon)
 const TOUCH_GYRO_WAIT_MS = 1000;        // no devicemotion event this long after the permission: the sensor is unavailable
 const TOUCH_GYRO_KEY = 'controls.touch.gyro', TOUCH_GYRO_MESSAGE = 'Gyro needs HTTPS and motion permission', TOUCH_GYRO_NOTE = ' (needs HTTPS and motion permission)';
-const TOUCH_FOUR_FINGER_MS = 300;       // four fingers down within this time toggle the performance HUD (ARC-040)
+const TOUCH_FOUR_FINGER_MS = 300;       // four fingers down within this time toggle the performance HUD outside play (ARC-040)
 const TOUCH_SCALE_MIN = 0.5, TOUCH_SCALE_MAX = 2;          // INP-005
 const TOUCH_OPACITY_MIN = 0.2, TOUCH_OPACITY_MAX = 1;
 const TOUCH_DEFAULT_OPACITY = 0.7;
@@ -192,6 +192,7 @@ const TouchInput = {
   noteFinger(event) {
     if (this.activeCount === 1) { this.gestureStart = event.timeStamp; this.gestureFired = false; }
     if (this.activeCount !== 4 || this.gestureFired || event.timeStamp - this.gestureStart > TOUCH_FOUR_FINGER_MS) return;
+    if (Game.state === 'playing' && !Game.paused) return;   // a claw grip in a match puts four fingers down too: menus and pause only
     this.gestureFired = true;
     Input.emitAction('perfHud', true);
     Input.emitAction('botDebug', true);   // ARC-040: on touch both debug views toggle from the same tap
