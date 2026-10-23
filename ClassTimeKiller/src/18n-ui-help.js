@@ -50,7 +50,7 @@ Ui.register('help', {
     for (const line of HELP_LINES) body.appendChild(makeElement('p', 'ui-note', line.replace('{touch}', touchSidesText())));
     body.appendChild(makeElement('div', 'ui-group', 'Current controls'));
     body.appendChild(makeElement('div', 'ui-result', controlsSummary()));
-    if (Ui.selfTestRunner) appendSelfTest(body);   // D09: only the test build carries the tests
+    if (Ui.selfTestRunner) appendSelfTest(body);   // only the test build carries the tests
     body.appendChild(makeElement('p', 'ui-note', 'ClassTimeKiller v' + VERSION));
     root.appendChild(body);
   },

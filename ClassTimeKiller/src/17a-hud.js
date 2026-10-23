@@ -33,7 +33,7 @@ const HUD_MONEY_HALF = 15, HUD_MONEY_TIMER_RISE = 12;    // design pixels: half 
 const HUD_GADGET_INSET = 14, HUD_GADGET_STEP = 74;       // design pixels: the first gadget ring's centre from the ammo panel's right edge; ring to ring
 const HUD_GADGET_COUNT_GAP = 22, HUD_GADGET_COUNT_WIDTH = 20;   // design pixels: a ring's centre to its count's right end; a count ("x2") wide
 const HUD_FIT_GAP = 4;                                   // design pixels the auto-fit keeps between two phone panels
-const HUD_FIT_WEAPON_SLOTS = 4, HUD_FIT_GADGET_SLOTS = 3;   // the auto-fit keeps room for this weapon bar and gadget row (gadget, grenade, consumables)
+const HUD_FIT_WEAPON_SLOTS = 4, HUD_FIT_GADGET_SLOTS = 3;   // the auto-fit keeps room for at least this weapon bar (or the match's carry limit + melee) and this gadget row (gadget, grenade, consumables)
 const HUD_MONEY_ECONOMIES = ['roundBuy', 'waveShop'];    // rulesets whose economy is money based (others show money only when non-zero)
 const HUD_TEAM_SHAPES = ['circle', 'triangle', 'square', 'diamond'];
 const HUD_FREE_FOR_ALL_COLOR = 0xdde3ea;
@@ -290,7 +290,8 @@ function hudFitUnit(layout) {
   const limit = Math.min((half - insets.left) / (HUD_MARGIN + fit.topLeft + gap + fit.topCentre), (half - insets.right) / (fit.topCentre + gap + fit.topRight + HUD_MARGIN),
     (layout.height - insets.top - insets.bottom) / down);
   if (TouchInput.preset().mirror) return limit;
-  const ammo = layout.ammoWidth / unit, bar = (HUD_FIT_WEAPON_SLOTS * (HUD_BAR_TOUCH_WIDTH + HUD_BAR_GAP) - HUD_BAR_GAP) / 2;
+  const ammo = layout.ammoWidth / unit, slots = Math.min(HUD_MAX_WEAPON_SLOTS, Math.max(HUD_FIT_WEAPON_SLOTS, Weapons.carryLimit() + 1));
+  const bar = (slots * (HUD_BAR_TOUCH_WIDTH + HUD_BAR_GAP) - HUD_BAR_GAP) / 2;   // the match's fullest bar: a pickup never changes the fit
   const gadgets = HUD_GADGET_INSET + (HUD_FIT_GADGET_SLOTS - 1) * HUD_GADGET_STEP + HUD_GADGET_COUNT_GAP + HUD_GADGET_COUNT_WIDTH;
   const across = (layout.left - insets.left + layout.barWidth) / unit + gap + (half - layout.ammoRight) / unit + Math.max(ammo, ammo / 2 + bar, gadgets);
   return Math.min(limit, (half - insets.left) / across);

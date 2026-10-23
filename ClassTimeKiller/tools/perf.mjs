@@ -40,7 +40,7 @@ const USAGE = [
 checkArguments();
 const option = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback; };
 const list = (name, fallback) => option(name, fallback).split(',').map((value) => value.trim()).filter(Boolean);
-const file = resolve(option('--file', join(ROOT, 'ClassTimeKiller.html')));
+const file = resolve(option('--file', join(ROOT, 'ClassTimeKiller.test.html'))   // the scenes (__CTK.perf.scene ...) live in the test build);
 const scenes = list('--scenes', 'tdm,horde,royale,generated,editor');
 const presets = list('--presets', 'potato,low,medium');
 const throttles = list('--throttle', '4,6').map(Number);

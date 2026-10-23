@@ -1,5 +1,5 @@
 // Joins src/shell.html and src/*.js (sorted by file name) into the single playable ClassTimeKiller.html, without the
-// self-test blocks (20b-*), and into ClassTimeKiller.test.html with them, the page the test tools load (D09; not committed).
+// self-test blocks (20b-*), and into ClassTimeKiller.test.html with them, the page the test tools load (not committed).
 // Also checks: duplicate top-level names across files, duplicated code blocks (DRY), banned network APIs, Math.hypot outside the
 // cold files (PERF-006), the file size (D07: a warning above 3.0 MB, a failure above 3.5 MB), that the
 // comment stripper keeps its known tricky lines whole and that the joined script parses.
@@ -17,7 +17,7 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SRC = join(ROOT, 'src');
 const OUT = join(ROOT, 'ClassTimeKiller.html');
 const TEST_OUT = join(ROOT, 'ClassTimeKiller.test.html');
-const TEST_FILES = /^20b-/;   // D09: the test blocks ship in the test build only; 20a (Test, window.__CTK) is in both
+const TEST_FILES = /^20b-/;   // the test build split: the test blocks ship in the test build only; 20a (Test, window.__CTK) is in both
 const SCRIPT_MARK = '/*@@SCRIPT@@*/';
 const DUP_WINDOW = 8;            // lines in a row that count as a duplicated block
 const MIN_LINE_CHARS = 12;       // shorter lines (braces, "return;") never count toward a duplicate

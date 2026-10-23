@@ -111,7 +111,8 @@ function hudFeedCutNames(layout, slot, size) {
   const room = free - (HUD_FEED_ICON + HUD_FEED_HEAD + 3 * HUD_FEED_PAD) * unit, half = room / 2, key = room * 1000 + size + Hud.textFloor / 1000;
   if (feed.cutKey[slot] === key) return;
   feed.cutKey[slot] = key;
-  const killer = feed.killer[slot], victim = feed.victim[slot], killerWidth = HudPen.measure(killer, size), victimWidth = HudPen.measure(victim, size);
+  const killer = feed.flags[slot] & feed.FLAG_SELF ? '' : feed.killer[slot];   // a self kill draws no killer: the victim takes the room
+  const victim = feed.victim[slot], killerWidth = HudPen.measure(killer, size), victimWidth = HudPen.measure(victim, size);
   const killerRoom = victimWidth <= half ? room - victimWidth : Math.max(half, room - killerWidth);
   feed.killerCut[slot] = hudCutText(killer, size, killerRoom);
   feed.victimCut[slot] = hudCutText(victim, size, room - Math.min(killerWidth, killerRoom));
@@ -120,8 +121,8 @@ function hudFeedCutNames(layout, slot, size) {
 function hudCutText(text, size, room) {
   if (HudPen.measure(text, size) <= room) return text;
   let length = text.length - 1;
-  while (length > 0 && HudPen.measure(text.slice(0, length) + '…', size) > room) length--;
-  return text.slice(0, length) + '…';
+  while (length > 0 && HudPen.measure(text.slice(0, length).trimEnd() + '…', size) > room) length--;
+  return text.slice(0, length).trimEnd() + '…';
 }
 
 function hudDrawKillFeed(pen, layout) {
@@ -187,11 +188,11 @@ function hudPhoneBanner(layout) { return layout.phone ? HudBanners.newest() : -1
 // of air kept), so it never crosses an underline or the panel edge: a longer text is cut short with an ellipsis (the size stays at
 // the 14 px floor). Cached per text and width: the cut is made once, not every frame.
 const HUD_BANNER_PHONE_WIDTH = 152;   // units
-let hudFitSource = '', hudFitText = '', hudFitWidth = -1;
+let hudFitSource = '', hudFitText = '', hudFitWidth = -1, hudFitFloor = -1;
 function hudFitPhoneBanner(text, size, width) {
-  if (text === hudFitSource && width === hudFitWidth) return hudFitText;
-  hudFitSource = hudFitText = text; hudFitWidth = width;
-  for (let length = text.length; length > 0 && HudPen.measure(hudFitText, size) > width; length--) hudFitText = text.slice(0, length - 1).trimEnd() + '\u2026';
+  if (text === hudFitSource && width === hudFitWidth && Hud.textFloor === hudFitFloor) return hudFitText;
+  hudFitSource = text; hudFitWidth = width; hudFitFloor = Hud.textFloor;
+  hudFitText = hudCutText(text, size, width);
   return hudFitText;
 }
 
