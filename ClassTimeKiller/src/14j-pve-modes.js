@@ -603,9 +603,9 @@ Bus.on('pve.alarm', () => { if (Modes.mode && Modes.mode.id === 'contract') Cont
 
 // ---- M30 Firing Range: stations on the 'dummy' hints (target, strafer, fire-back), shot statistics, repeating kill drills ----
 // Free practice: the range never ends on its own (leave it from the pause menu). Accuracy counts a shot once however many
-// pellets or blasts it lands; damage over time and splash add damage but no hits. Every drillTargets kills complete a
+// pellets or blasts it lands (ACCURACY_HIT_KINDS); damage over time adds damage but no hits. Every drillTargets kills complete a
 // drill (score from its time; the best time is kept) and the next drill starts.
-const RANGE_UNCOUNTED_KINDS = ['dot', 'splash'];
+const ACCURACY_HIT_KINDS = ['hit', 'melee', 'beam', 'splash'];   // damage kinds that count as a hit for accuracy (range HUD, scoreboard)
 const RangeRun = { stations: [], shots: 0, hits: 0, headshots: 0, damage: 0, kills: 0, drillKills: 0, drillStart: -1, drillBest: 0, drills: 0,
   shotOpen: new Uint8Array(MAX_ACTORS), result: NOT_OVER };
 Modes.register('range', {
@@ -648,7 +648,7 @@ Modes.register('range', {
     const source = event.source;
     if (!Pve.isEnemy(event.target) || source < 0 || !Modes.participant[source] || event.amount <= 0) return;
     RangeRun.damage += event.amount;
-    if (RANGE_UNCOUNTED_KINDS.includes(event.kind) || !RangeRun.shotOpen[source]) return;
+    if (!ACCURACY_HIT_KINDS.includes(event.kind) || !RangeRun.shotOpen[source]) return;
     RangeRun.shotOpen[source] = 0;
     RangeRun.hits++;
     if (event.zone === 'head') RangeRun.headshots++;

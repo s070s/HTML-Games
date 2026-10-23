@@ -456,6 +456,10 @@ Test.add('pve', (check) => {
   hitEnemy(shooter, target, 2, 'splash', 'body');
   hitEnemy(shooter, target, 2, 'dot', 'body');
   check('six pellets, a splash and a burn of one shot count one hit', RangeRun.hits === 2 && RangeRun.shots === shotsBefore + 2, RangeRun.hits + ' / ' + RangeRun.shots);
+  Bus.emit('weapon.fire', { id: shooter, weapon: 'ramjet', weaponClass: 'launcher', mode: 'primary', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
+  hitEnemy(shooter, target, 20, 'splash', 'body');
+  check('a rocket landing beside a dummy is a hit, as the scoreboard and challenge points count it', RangeRun.hits === 3 && SCOREBOARD_HIT_KINDS.every((kind) => ACCURACY_HIT_KINDS.includes(kind)),
+    RangeRun.hits + ' / ' + RangeRun.shots);
   runSeconds(0.05);
   check('accuracy never passes 100%', PVE_HUD.accuracy > 0 && PVE_HUD.accuracy <= 1, PVE_HUD.accuracy);
   runUntil(() => RangeRun.drills >= 2, 120, () => { Actors.health[shooter] = Actors.maxHealth[shooter]; killAllEnemies(shooter); });
