@@ -73,6 +73,7 @@ const Render = {
   programs: {},
   gpuParts: [],
   updates: [],
+  prePasses: [],
   passes: [],
   finishers: [],
   frameStart: 0,
@@ -98,6 +99,9 @@ const Render = {
   // update(seconds, alpha) runs before drawing (camera, scale, lights); draw(gl) runs in order inside the scene target.
   addUpdate(order, update) { this.updates.push({ order, run: update }); this.updates.sort((a, b) => a.order - b.order); },
   addPass(order, draw) { this.passes.push({ order, run: draw }); this.passes.sort((a, b) => a.order - b.order); },
+  // draw(gl) runs before the scene target is bound (instance uploads, the shadow map): a tile GPU binds and clears that
+  // target once a frame, instead of loading it back after another target (R-154).
+  addPrePass(draw) { this.prePasses.push(draw); },
   addFinish(finish) { this.finishers.push(finish); },   // finish(gl) runs after the canvas holds the frame
   countDraw(triangles) { this.stats.drawCalls++; this.stats.triangles += triangles; },
 
@@ -130,6 +134,7 @@ const Render = {
     for (let i = 0; i < this.updates.length; i++) this.updates[i].run(seconds, alpha);
     if (this.size.dirty || this.target.samples !== this.wantedSamples()) resizeTargets(gl);
     GpuTimer.begin(gl);
+    for (let i = 0; i < this.prePasses.length; i++) this.prePasses[i](gl);
     bindSceneTarget(gl);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     for (let i = 0; i < this.passes.length; i++) this.passes[i].run(gl);

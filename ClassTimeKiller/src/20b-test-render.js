@@ -649,6 +649,12 @@ Test.add('render', (check) => withRenderer(() => {
   Settings.set('video.quality', 'high');
   Render.drawFrame(1 / 60, 1);
   check('High uses MSAA when the device has it (REN-008)', Render.target.samples === Math.min(2, Render.maxSamples) && !Render.target.direct);
+  // R-154: the sun shadow map renders before the scene target is bound, so a tile GPU binds (and loads) the target once a frame
+  const sceneTarget = Render.target.msaaFramebuffer || Render.target.framebuffer, bind = gl.bindFramebuffer;
+  let sceneBinds = 0;
+  gl.bindFramebuffer = function (kind, framebuffer) { if (framebuffer === sceneTarget && kind !== gl.READ_FRAMEBUFFER) sceneBinds++; return bind.call(this, kind, framebuffer); };
+  try { Render.drawFrame(1 / 60, 1); } finally { delete gl.bindFramebuffer; }
+  check('High binds the scene target once a frame, the shadow map before it', SunShadow.active && sceneBinds === 1, sceneBinds);
   check('no GL error after resizing targets', gl.getError() === gl.NO_ERROR);
   check('GPU memory estimate under 64 MB (PERF-005)', Render.gpuMemoryBytes() < 64 * 1024 * 1024, Render.gpuMemoryBytes());
 }));

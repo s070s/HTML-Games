@@ -661,8 +661,8 @@ precision mediump float;
 void main() {}`;
 Render.defineProgram('shadow', SHADOW_VERTEX, SHADOW_FRAGMENT, SHAPE_ATTRIBUTES);
 
-// Pass 15 (before the world): uploads the prop and actor instances, renders the shadow map when active, binds it
-// to its texture unit for the lit programs, then returns to the scene target.
+// Pre-pass (before the scene target is bound): uploads the prop and actor instances, renders the shadow map when active
+// and binds it to its texture unit for the lit programs.
 function drawSunShadowPass(gl) {
   uploadBatch(gl, propBatch);
   uploadBatch(gl, actorBatch);
@@ -671,9 +671,8 @@ function drawSunShadowPass(gl) {
   gl.activeTexture(gl.TEXTURE0 + SHADOW_TEXTURE_UNIT);
   gl.bindTexture(gl.TEXTURE_2D, SunShadow.texture);
   gl.activeTexture(gl.TEXTURE0);
-  bindSceneTarget(gl);
 }
-Render.addPass(15, drawSunShadowPass);
+Render.addPrePass(drawSunShadowPass);
 
 function renderSunShadow(gl) {
   const program = Render.programs.shadow;
