@@ -1,6 +1,6 @@
 // ==== S03 DATA: WEAPON MODELS ====
 // One code-drawn model per weapon W01..W46 (first-person view model, the weapon an actor holds and a weapon pickup) and per
-// visible projectile, in the one part format of the model builder (07b-render-models.js, whose header documents parts,
+// visible projectile, in the one part format of the model builder (07c-render-models.js, whose header documents parts,
 // tints and LODs; MODEL_SCHEMA in 03b). Weapon space = view space in metres: x = right, y = up, z = forward (the muzzle),
 // origin = the grip. Projectile space: z = flight. A part turned rotation [0, -90] points the shape's Y axis forward
 // (size[1] = its length). lod 2 = the leading parts a far held weapon keeps; lod 0 = small details (sights, rivets).

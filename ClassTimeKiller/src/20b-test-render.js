@@ -597,6 +597,45 @@ Test.add('render', (check) => withRenderer(() => {
   Projectiles.clear(); propBatch.clear(); actorBatch.clear(); viewModelBatch.clear();
 }));
 
+// render-03: hip-fired, every weapon shows on a 16:9 screen beside the HUD ammo panel (keyboard and mouse layout).
+const VIEWMODEL_TEST_SIZE = [1280, 720];
+const VIEWMODEL_MIN_SHOWN = 0.5;         // share of a weapon's part centres on screen and clear of the ammo panel
+// Whether one view-model part's centre lands on screen outside the panel (camera at the origin, yaw 0: view right = world -x).
+function viewModelPartShown(offset, panel) {
+  const d = viewModelBatch.data, size = Render.size, tanHalf = Math.tan(verticalFov(Render.config.viewmodelFov) / 2);
+  const x = (-d[offset] / d[offset + 2] / (tanHalf * size.width / size.height) + 1) / 2 * size.width;
+  const y = (1 - d[offset + 1] / d[offset + 2] / tanHalf) / 2 * size.height;
+  const onScreen = x >= 0 && x <= size.width && y >= 0 && y <= size.height;
+  return onScreen && !(x >= panel.left && y >= panel.top);
+}
+function viewModelShownShare(panel) {
+  let parts = 0, shown = 0;
+  SHAPES.forEach((shape) => {
+    for (let i = 0; i < viewModelBatch.counts[SHAPE_INDEX[shape]]; i++) {
+      parts++;
+      if (viewModelPartShown(instanceOffset(viewModelBatch, shape, i), panel)) shown++;
+    }
+  });
+  return shown / Math.max(1, parts);
+}
+Test.add('render', (check) => withRenderer(() => {
+  const size = Render.size, saved = { width: size.width, height: size.height, device: Input.device, camera: Object.assign({}, Render.camera) };
+  size.width = VIEWMODEL_TEST_SIZE[0]; size.height = VIEWMODEL_TEST_SIZE[1]; Input.device = 'kbm';
+  Object.assign(Render.camera, { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
+  const layout = Object.assign({}, Hud.layout);
+  updateHudLayout(layout, size.width, size.height);
+  const panel = { left: layout.ammoRight - layout.ammoWidth, top: layout.bottom - layout.ammoHeight }, hidden = [];
+  CAT.weapons.map((weapon) => weapon.id).concat(CAT.viewModels.map((row) => row.id)).forEach((id) => {
+    Object.assign(viewModelState, { visible: true, model: id, shape: id, ads: 0, kick: 0, reload: 0, swap: 0, dual: false });
+    fillViewModel();
+    const share = viewModelShownShare(panel);
+    if (share < VIEWMODEL_MIN_SHOWN) hidden.push(id + ' ' + share.toFixed(2));
+  });
+  check('hip pose: every weapon shows on screen, clear of the ammo panel (render-03)', hidden.length === 0, hidden.join(', '));
+  size.width = saved.width; size.height = saved.height; Input.device = saved.device; Object.assign(Render.camera, saved.camera);
+  viewModelBatch.clear();
+}));
+
 // ---- HUD batch (REN-005) ----
 Test.add('render', (check) => {
   HudBatch.quads = 0;

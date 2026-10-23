@@ -117,7 +117,7 @@ Data.define('actorParts', Object.assign({}, ACTOR_PART_SCHEMA, { id: REQUIRED })
 ]);
 
 // One row format for every code-drawn static model (03b viewModels, 03q weaponModels and projectileModels, 03r gearModels;
-// built by 07b-render-models.js, whose header documents parts, tints and LODs): from = a row whose parts come first (minus
+// built by 07c-render-models.js, whose header documents parts, tints and LODs): from = a row whose parts come first (minus
 // its part indexes in drop, times scale: a number or [x, y, z], tints swapped by recolor { from: to }), parts = the row's own;
 // color = the row's own body colour (-1 = the caller's); accent / glow = its accent and glow colours ('' = inherited, else the
 // default); pose = the viewModels row for hold / ADS / kick (weapons); spin / tumble = rad/s in flight (projectiles).
@@ -126,12 +126,12 @@ const MODEL_SCHEMA = { id: REQUIRED, from: '', drop: [], scale: null, recolor: {
 // View pose and base parts per weapon class (Render.viewModel shape): the bases and poses of the per-weapon models (03q).
 // View space in metres: x = right, y = up, z = forward. hold / ads = weapon pivot when hip-firing / aiming down sights.
 // tint: body (the weapon colour from Render.viewModel) | dark | accent | glow (self-lit).
-Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.16, -0.17, 0.32], ads: [0, -0.11, 0.26], accent: '#c9a03a', glow: '#6fd8ff', kick: 1, parts: REQUIRED }), [
-  { id: 'sidearm', hold: [0.15, -0.15, 0.3], ads: [0, -0.09, 0.26], kick: 1.3, parts: [
+Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.11, -0.1, 0.3], ads: [0, -0.11, 0.26], accent: '#c9a03a', glow: '#6fd8ff', kick: 1, parts: REQUIRED }), [
+  { id: 'sidearm', ads: [0, -0.09, 0.26], kick: 1.3, parts: [
     { shape: 'box', offset: [0, 0.02, 0.05], size: [0.04, 0.05, 0.18], tint: 'body', lod: 2 },
     { shape: 'box', offset: [0, -0.04, -0.01], size: [0.035, 0.09, 0.05], tint: 'dark', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.025, 0.15], size: [0.02, 0.04, 0.02], rotation: [0, -90], tint: 'dark' }] },
-  { id: 'smg', hold: [0.15, -0.16, 0.3], kick: 0.6, parts: [
+  { id: 'smg', kick: 0.6, parts: [
     { shape: 'box', offset: [0, 0, 0.06], size: [0.05, 0.07, 0.26], tint: 'body', lod: 2 },
     { shape: 'box', offset: [0, -0.07, 0.08], size: [0.03, 0.1, 0.04], tint: 'dark', lod: 2 },
     { shape: 'box', offset: [0, -0.05, -0.03], size: [0.03, 0.08, 0.05], tint: 'dark' },
@@ -147,7 +147,7 @@ Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.16, -0.17, 
     { shape: 'cylinder', offset: [0, 0.02, 0.27], size: [0.04, 0.3, 0.04], rotation: [0, -90], tint: 'dark', lod: 2 },
     { shape: 'cylinder', offset: [0, -0.025, 0.22], size: [0.045, 0.16, 0.045], rotation: [0, -90], tint: 'accent' },
     { shape: 'box', offset: [0, -0.02, -0.2], size: [0.05, 0.08, 0.16], tint: 'dark' }] },
-  { id: 'lmg', hold: [0.17, -0.19, 0.33], kick: 0.8, parts: [
+  { id: 'lmg', hold: [0.12, -0.12, 0.32], kick: 0.8, parts: [
     { shape: 'box', offset: [0, 0, 0.04], size: [0.07, 0.1, 0.38], tint: 'body', lod: 2 },
     { shape: 'box', offset: [0, -0.08, 0.06], size: [0.09, 0.08, 0.1], tint: 'accent', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.01, 0.34], size: [0.03, 0.26, 0.03], rotation: [0, -90], tint: 'dark' },
@@ -157,17 +157,17 @@ Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.16, -0.17, 
     { shape: 'cylinder', offset: [0, 0.075, 0.06], size: [0.035, 0.16, 0.035], rotation: [0, -90], tint: 'dark', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.01, 0.33], size: [0.02, 0.24, 0.02], rotation: [0, -90], tint: 'dark' },
     { shape: 'box', offset: [0, -0.01, -0.18], size: [0.045, 0.07, 0.14], tint: 'dark' }] },
-  { id: 'sniper', hold: [0.16, -0.18, 0.34], ads: [0, -0.13, 0.22], kick: 1.8, parts: [
+  { id: 'sniper', hold: [0.11, -0.11, 0.32], ads: [0, -0.13, 0.22], kick: 1.8, parts: [
     { shape: 'box', offset: [0, 0, 0.05], size: [0.05, 0.075, 0.4], tint: 'body', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.08, 0.06], size: [0.045, 0.24, 0.045], rotation: [0, -90], tint: 'dark', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.01, 0.4], size: [0.022, 0.36, 0.022], rotation: [0, -90], tint: 'dark' },
     { shape: 'box', offset: [0, -0.02, -0.2], size: [0.045, 0.09, 0.16], tint: 'accent' }] },
-  { id: 'rail', hold: [0.16, -0.17, 0.33], kick: 1.5, glow: '#7dff8a', parts: [
+  { id: 'rail', kick: 1.5, glow: '#7dff8a', parts: [
     { shape: 'box', offset: [0, 0, 0.06], size: [0.06, 0.08, 0.4], tint: 'body', lod: 2 },
     { shape: 'ring', offset: [0, 0.005, 0.16], size: [0.09, 0.03, 0.09], rotation: [0, -90], tint: 'glow', lod: 2 },
     { shape: 'ring', offset: [0, 0.005, 0.26], size: [0.08, 0.03, 0.08], rotation: [0, -90], tint: 'glow' },
     { shape: 'box', offset: [0, 0.03, 0.3], size: [0.02, 0.02, 0.24], tint: 'glow' }] },
-  { id: 'launcher', hold: [0.18, -0.16, 0.3], ads: [0.05, -0.12, 0.24], kick: 1.4, parts: [
+  { id: 'launcher', hold: [0.13, -0.11, 0.3], ads: [0.05, -0.12, 0.24], kick: 1.4, parts: [
     { shape: 'cylinder', offset: [0, 0.01, 0.12], size: [0.11, 0.5, 0.11], rotation: [0, -90], tint: 'body', lod: 2 },
     { shape: 'cone', offset: [0, 0.01, 0.4], size: [0.13, 0.08, 0.13], rotation: [0, -90], tint: 'dark', lod: 2 },
     { shape: 'box', offset: [0, -0.09, 0.05], size: [0.04, 0.1, 0.05], tint: 'dark' },
@@ -177,16 +177,16 @@ Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.16, -0.17, 
     { shape: 'sphere', offset: [0, 0.01, 0.22], size: [0.07, 0.07, 0.07], tint: 'glow', lod: 2 },
     { shape: 'ring', offset: [0, 0.01, 0.22], size: [0.1, 0.025, 0.1], rotation: [0, -90], tint: 'accent' },
     { shape: 'box', offset: [0, -0.08, 0.02], size: [0.035, 0.1, 0.05], tint: 'dark' }] },
-  { id: 'heavy', hold: [0.19, -0.21, 0.32], ads: [0.08, -0.15, 0.28], kick: 0.9, parts: [
+  { id: 'heavy', hold: [0.13, -0.13, 0.32], ads: [0.08, -0.15, 0.28], kick: 0.9, parts: [
     { shape: 'box', offset: [0, 0, 0], size: [0.12, 0.14, 0.3], tint: 'body', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.02, 0.28], size: [0.09, 0.3, 0.09], rotation: [0, -90], tint: 'dark', lod: 2 },
     { shape: 'ring', offset: [0, 0.02, 0.4], size: [0.1, 0.03, 0.1], rotation: [0, -90], tint: 'accent' },
     { shape: 'box', offset: [0, 0.1, 0], size: [0.04, 0.05, 0.16], tint: 'dark' }] },
-  { id: 'melee', hold: [0.2, -0.2, 0.32], ads: [0.12, -0.16, 0.3], kick: 2, parts: [
+  { id: 'melee', hold: [0.13, -0.12, 0.3], ads: [0.12, -0.16, 0.3], kick: 2, parts: [
     { shape: 'cylinder', offset: [0, -0.04, 0], size: [0.035, 0.12, 0.035], tint: 'dark', lod: 2 },
     { shape: 'box', offset: [0, 0.02, 0], size: [0.08, 0.02, 0.03], tint: 'accent', lod: 2 },
     { shape: 'wedge', offset: [0, 0.16, 0.01], size: [0.02, 0.3, 0.06], tint: 'body' }] },
-  { id: 'tool', hold: [0.17, -0.17, 0.3], kick: 0.5, glow: '#ffd36a', parts: [
+  { id: 'tool', kick: 0.5, glow: '#ffd36a', parts: [
     { shape: 'box', offset: [0, 0, 0.02], size: [0.08, 0.1, 0.18], tint: 'body', lod: 2 },
     { shape: 'box', offset: [0, 0.035, 0.03], size: [0.06, 0.03, 0.12], tint: 'glow', lod: 2 },
     { shape: 'cylinder', offset: [0, -0.01, 0.15], size: [0.03, 0.1, 0.03], rotation: [0, -90], tint: 'dark' },
@@ -196,7 +196,7 @@ Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.16, -0.17, 
     { shape: 'ring', offset: [0, 0, 0.12], size: [0.12, 0.03, 0.12], rotation: [0, -90], tint: 'glow', lod: 2 },
     { shape: 'sphere', offset: [0, 0, 0.3], size: [0.05, 0.05, 0.05], tint: 'glow' },
     { shape: 'box', offset: [0, -0.08, -0.02], size: [0.035, 0.1, 0.05], tint: 'dark' }] },
-  { id: 'power', hold: [0.18, -0.19, 0.32], kick: 1.4, glow: '#ff5d3a', parts: [
+  { id: 'power', hold: [0.12, -0.12, 0.32], kick: 1.4, glow: '#ff5d3a', parts: [
     { shape: 'box', offset: [0, 0, 0.04], size: [0.09, 0.11, 0.36], tint: 'body', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.02, 0.3], size: [0.06, 0.18, 0.06], rotation: [0, -90], tint: 'glow', lod: 2 },
     { shape: 'cone', offset: [0, 0.02, 0.42], size: [0.08, 0.06, 0.08], rotation: [0, -90], tint: 'dark' },
