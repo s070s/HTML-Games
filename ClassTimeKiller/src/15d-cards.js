@@ -9,10 +9,11 @@
 
 const CARD_BRITTLE_EXTRA = 1;              // a brittle hit deals the target's whole pool plus this
 const CARD_NO_HOLDER = -1;
+const CARD_PATRON = 'freecards';           // C17 Patron (the id older saves keep)
 const CARD_CONTRACT_FX = ['soulLife', 'wrathAt', 'soulMagnet', 'soulHeal'];   // soul multipliers / numbers copied into rules.cards.fx
 const CARD_KIND = {};
 ['takenScale', 'worldSlow', 'activeSeconds', 'startHealth', 'ammoPickup', 'speed', 'damage', 'rate', 'activeUses', 'marks',
-  'invulnerable', 'baseHealth', 'freePlacement', 'lastBreath', 'discord', 'noAmmoUse', 'brittleFoes', 'regen', 'lifesteal']
+  'invulnerable', 'baseHealth', 'placementScale', 'lastBreath', 'discord', 'noAmmoUse', 'brittleFoes', 'regen', 'lifesteal']
   .concat(CARD_CONTRACT_FX).forEach((kind, index) => { CARD_KIND[kind] = index; });
 const CARD_KIND_COUNT = Object.keys(CARD_KIND).length;
 const CARD_COMPARE = {
@@ -27,8 +28,8 @@ const Cards = {
   equipped(type) { return this.record()[type]; },
   equippedIds() { return this.record().active.concat(this.record().passive).map((entry) => entry.id); },
   isEquipped(id) { return this.equippedIds().includes(id); },
-  placesFree() { return this.isEquipped('freecards'); },
-  priceOf(row) { return this.placesFree() ? 0 : row.cost; },
+  // C17 Patron placed: every card costs its price x the Patron's factor (Marks keep a use).
+  priceOf(row) { return this.isEquipped(CARD_PATRON) ? Math.round(row.cost * CAT.cards.byId(CARD_PATRON).effect.value) : row.cost; },
   // '' when the card can be placed, else the reason shown to the player.
   equipProblem(id) {
     const row = CAT.cards.byId(id);
@@ -47,25 +48,25 @@ const Cards = {
     Save.scheduleSave();
     return true;
   },
-  // Removing refunds half of what the card cost when it was placed (a free placement refunds nothing).
+  // Removing refunds half of what the card cost when it was placed.
   unequip(id) {
     const row = CAT.cards.byId(id), list = row ? this.equipped(row.type) : [], index = list.findIndex((entry) => entry.id === id);
     if (index < 0) return false;
     this.record().marks += Math.floor(list[index].paid * CARD_REFUND);
     list.splice(index, 1);
-    if (id === 'freecards') this.chargeFreePlacements();
+    if (id === CARD_PATRON) this.chargeCheapPlacements();
     Save.scheduleSave();
     return true;
   },
-  // Patron is gone: the cards it placed for free now cost their price; one the Marks cannot cover is taken off (no refund).
-  chargeFreePlacements() {
+  // Patron is gone: the cards it placed cheaper now pay the rest of their price; one the Marks cannot cover is taken off (no refund).
+  chargeCheapPlacements() {
     for (const type of Object.keys(CARD_SLOTS)) {
       this.record()[type] = this.equipped(type).filter((entry) => {   // in the order they were placed
-        const cost = CAT.cards.byId(entry.id).cost;
-        if (entry.paid >= cost) return true;
-        if (this.marks() < cost) return false;
-        this.record().marks -= cost;
-        entry.paid = cost;
+        const owed = CAT.cards.byId(entry.id).cost - entry.paid;
+        if (owed <= 0) return true;
+        if (this.marks() < owed) return false;
+        this.record().marks -= owed;
+        entry.paid += owed;
         return true;
       });
     }

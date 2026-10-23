@@ -1,6 +1,6 @@
 // ==== S16 MAPS ====
 // Hand-made maps are data rows (docs/ARCHITECTURE.md map format, docs/api/maps.md for the extras). This file holds the rule tables,
-// the lookups every other section uses (Maps.get / forMode / spawnList / itemsFor / objectivesFor / zoneAt) and MapKit, the
+// the lookups every other section uses (Maps.get / forMode / spawnList / objectivesFor / zoneAt) and MapKit, the
 // authoring helpers the map files use to write brushes, spawns, items and zones compactly. The scan and the validator are in
 // 16s-maps-scan.js and 16v-maps-validate.js; the maps in 16b..16e; Data.define('maps') is in 16f.
 
@@ -93,7 +93,6 @@ const Maps = {
     if (!cache.has(key)) cache.set(key, map.spawns.filter((spawn) => this.spawnMatches(spawn, modeId, team)));
     return cache.get(key);
   },
-  itemsFor(map, modeId) { return map.items.filter((item) => mapServesMode(item, modeId)); },
   objectivesFor(map, modeId, kind) {
     return map.objectives.filter((objective) => mapServesMode(objective, modeId) && (!kind || objective.kind === kind));
   },

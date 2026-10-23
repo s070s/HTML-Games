@@ -46,7 +46,7 @@ Maps.rows.push(MapKit.make({
     ['armorshard', 9, 0, 9], ['armorshard', -9, 0, 9], ['armorshard', 9, 0, -9], ['armorshard', -9, 0, -9],
     ['healthpack', 0, 0, 9], ['healthpack', 0, 0, -9], ['healthvial', 23, 4, 22.5], ['healthvial', -23, 4, 22.5],
     ['healthvial', 23, 4, -22.5], ['healthvial', -23, 4, -22.5],
-    ['ramjet', 8, 0, 2], ['stormlash', -8, 0, -2], ['lancet', 23.2, 4, 17], ['scattergun', -23.2, 4, -17], ['vanguard', 0, 0, -11],
+    ['ramjet', 8, 0, 2], ['stormlash', -8, 0, -2], ['lancet', 23.2, 4, 17], ['scattergun', -23.2, 4, -17], ['shardcaster', 0, 0, -11],
     ['ammobox', 8, 0, -2], ['ammobox', -8, 0, 2], ['ammocache', 0, 0, 11],
   ],
   zones: [

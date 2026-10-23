@@ -105,7 +105,7 @@ const Challenges = {
   setup(id, expert, seed) {
     const row = CAT.challenges.byId(id), tier = clamp(row.tier + (expert ? row.expertTier : 0), 0, CAT.botTiers.length - 1);
     const bots = Array.from({ length: row.bots }, () => ({ tier }));
-    return progressSetup({ mode: row.mode, map: row.map, bots, difficulty: expert ? CHALLENGE_DIFFICULTY.expert : CHALLENGE_DIFFICULTY.normal,
+    return progressSetup({ mode: row.mode, map: row.map, bots, difficulty: expert ? CHALLENGE_DIFFICULTY.expert : CHALLENGE_DIFFICULTY.normal, cards: [],   // a fixed trial: no placed cards
       mutators: row.mutators.concat(expert ? this.expertMutators(row) : []), modeOptions: Object.assign({}, row.options) }, { kind: 'challenge', id, expert: !!expert }, seed);
   },
   start(id, expert, random) {
@@ -119,13 +119,13 @@ const Challenges = {
     if (!row) return;
     const record = this.record(row.id), points = Progress.points(row.points, metrics, row.par), stars = this.starsFor(row, points);
     const bestField = tag.expert ? 'expertBest' : 'best', starField = tag.expert ? 'expertStars' : 'stars';
-    const gained = Math.max(0, stars - record[starField]);
+    const gained = Math.max(0, stars - record[starField]), expertNew = !tag.expert && record.stars < CHALLENGE_EXPERT_STARS && stars >= CHALLENGE_EXPERT_STARS;
     record.plays++;
     record[bestField] = Math.max(record[bestField], points);
     record[starField] = Math.max(record[starField], stars);
     award.xp += gained * PROGRESS_XP.challengeStar;
     award.lines.push(row.name + (tag.expert ? ' (Expert)' : '') + ': ' + points + ' points, ' + stars + ' of 3 stars' + (gained ? ' (new best)' : ''));
-    if (!tag.expert && record.stars >= CHALLENGE_EXPERT_STARS && stars >= CHALLENGE_EXPERT_STARS && gained) award.lines.push('Expert version unlocked.');
+    if (expertNew) award.lines.push('Expert version unlocked.');
     Save.scheduleSave();
   },
 };
@@ -289,7 +289,7 @@ const Daily = {
     const tag = match.setup.progress, daily = Progress.profile().daily, points = Progress.points(DAILY_RULES.points, metrics, 0);
     const first = daily[tag.key] === undefined;
     daily[tag.key] = Math.max(daily[tag.key] || 0, points);
-    if (first) award.xp += PROGRESS_XP.daily;
+    if (first && award.breakdown.total > 0) award.xp += PROGRESS_XP.daily;   // the first play pays only a player who took part (no idle farming)
     award.lines.push('Daily ' + tag.key + ': ' + points + ' points (best ' + daily[tag.key] + ')');
     const keys = Object.keys(daily).sort();
     while (keys.length > DAILY_RULES.historyDays) delete daily[keys.shift()];

@@ -414,7 +414,7 @@ Test.add('progress', (check) => {
   check('rooms: every Expert version adds Expert mutators', plain.length === 0 && CHALLENGE_KINDS.every((kind) => CHALLENGE_EXPERT_MUTATORS[kind].length > 0), plain.join());
   const row = CAT.challenges.byId('sprint');
   check('rooms: stars come from the data thresholds', Challenges.starsFor(row, 9999) === 0 && Challenges.starsFor(row, 10000) === 1 && Challenges.starsFor(row, 29999) === 2 && Challenges.starsFor(row, 30000) === 3);
-  const metrics = { kills: 5, seconds: 100 };
+  const metrics = { kills: 5, seconds: 100, won: 1 };
   check('rooms: points are weight x metric, underPar = seconds left of par', Progress.points(row.points, metrics, row.par) === 5 * row.points.kills + 50 * row.points.underPar
     && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 10, kills: 1 }, 0) === 0 && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 2, kills: 1 }, 0) === 40);
   const short = CAT.challenges.filter((room) => Challenges.starsFor(room, Progress.points(room.points, progressBestRun(room), room.par)) < CHALLENGE_STARS.length);
@@ -422,7 +422,7 @@ Test.add('progress', (check) => {
     short.map((room) => room.code + ' ' + Progress.points(room.points, progressBestRun(room), room.par)).join(', '));
   const award = () => ({ xp: 0, lines: [] });
   const fake = (expert) => ({ setup: { progress: { kind: 'challenge', id: 'sprint', expert } } });
-  const onePoints = 5 * row.points.kills, twoStars = { kills: 5, seconds: 100 };
+  const onePoints = 5 * row.points.kills, twoStars = { kills: 5, seconds: 100, won: 1 };
   check('rooms: Expert is locked at first', !Challenges.expertOpen('sprint') && !Challenges.start('sprint', true));
   const first = award();
   Challenges.onResult(fake(false), { kills: 5, seconds: row.par }, first);
@@ -529,7 +529,7 @@ Test.add('progress', (check) => {
   check('daily: the setup builds valid rules with the date seed', Rules.problems.length === 0 && setup.seed === hashString('daily:2026-10-22') && setup.mutators.length === 2);
   const lowestBots = Math.min(...CAT.quality.map((row) => row.bots));
   check('daily: a fixed bot count inside the lowest quality preset, so every device plays the same match', DAILY_RULES.bots <= lowestBots && setup.bots.length === DAILY_RULES.bots);
-  const award = () => ({ xp: 0, lines: [] });
+  const award = () => ({ xp: 0, lines: [], breakdown: { total: 1 } });   // a played match (it paid match XP)
   const fake = { setup: { progress: { kind: 'daily', key: '2026-10-22' } } };
   const first = award();
   Daily.onResult(fake, { kills: 4, score: 4 }, first);
@@ -637,7 +637,7 @@ Test.add('progress', (check) => {
   check('cards: removing refunds half', Cards.unequip('fury2') && Cards.marks() === 900 - 100 - 200 + 100);
   Cards.equip('freecards');
   const before = Cards.marks();
-  check('cards: with Patron placed, cards are placed for free and refund nothing', Cards.equip('rapid') && Cards.marks() === before && Cards.unequip('rapid') && Cards.marks() === before);
+  check('cards: with Patron placed, cards cost half and refund half of that', Cards.equip('rapid') && Cards.marks() === before - 150 && Cards.unequip('rapid') && Cards.marks() === before - 75);
   Cards.equip('hardy');
   check('cards: 2 passive slots', Cards.equipped('passive').length === 2 && Cards.equipProblem('thief') === 'No free passive slot.');
   Settings.set('progress.unlockAll', false);
@@ -646,7 +646,7 @@ Test.add('progress', (check) => {
     propsLeft: 2, secretsLeft: 1, optionalLeft: 3 };
   const meets = { stoneskin: {}, slowtide: { propsLeft: 0 }, soulkeep: { enemiesLeft: 0 }, longwick: { marks: 500 }, blessing: { bossSeconds: 119 }, refill: { explosiveShots: 0 },
     fleet: { souls: 100 }, fury2: { rangedKills: 0 }, darkpact: { secretsLeft: 0 }, rapid: { bossSeconds: 239 }, magnet: { souls: 0 }, encore: { wrathKills: 30 },
-    greed: { optionalLeft: 0 }, ironwill: { bossSeconds: 79 }, rage: { secretsLeft: 0 }, hardy: { armorPickups: 0 }, freecards: { cardsEquipped: 0 }, lastbreath: { secretsLeft: 0, hard: true },
+    greed: { optionalLeft: 0 }, ironwill: { bossSeconds: 79 }, rage: { secretsLeft: 0 }, hardy: { armorPickups: 0 }, freecards: { cardsEquipped: 0, hard: true }, lastbreath: { secretsLeft: 0, hard: true },
     discord: { wrathForms: 3 }, redeemer: { lowestHealth: 51 }, endless: { kills: 88 }, onehp: { weaponsUsed: 1 }, regenhp: { bossSeconds: 239, hard: true }, thief: { finalBossSeconds: 239 } };
   let exact = true;
   const wrong = [];
@@ -850,9 +850,9 @@ Test.add('progress', (check) => {
   Settings.set('progress.unlockAll', true);
   try {
     place(1000);
-    check('patron: removing it charges the cards it placed free', Cards.marks() === 1000 - cost('stoneskin') - cost('fleet') && Cards.isEquipped('stoneskin') && Cards.isEquipped('fleet'));
-    place(120);
-    check('patron: a card the Marks cannot pay is taken off', Cards.isEquipped('stoneskin') && !Cards.isEquipped('fleet') && Cards.marks() === 120 - cost('stoneskin'));
+    check('patron: removing it charges the rest of the price of the cards it placed cheaper', Cards.marks() === 1000 - cost('stoneskin') - cost('fleet') && Cards.isEquipped('stoneskin') && Cards.isEquipped('fleet'));
+    place(170);
+    check('patron: a card the Marks cannot pay is taken off', Cards.isEquipped('stoneskin') && !Cards.isEquipped('fleet') && Cards.marks() === 170 - cost('stoneskin') - cost('fleet') / 2, Cards.marks());
   } finally {
     Settings.set('progress.unlockAll', unlockAll);
     Object.assign(record, kept);
@@ -867,7 +867,7 @@ Test.add('progress', (check) => {
   check('operation: a map the player fought pays the stage XP', Progress.lastAward.xp >= PROGRESS_XP.operationStage, Progress.lastAward.xp);
   Operations.reset('ironcoast');
   Game.stop();
-  const pacifist = { pveFinished: 1, kills: 0, deaths: 0, hard: false, explosiveShots: 0, souls: 0, armorPickups: 0, cardsEquipped: 0, lowestHealth: 100 };
+  const pacifist = { pveFinished: 1, kills: 0, deaths: 0, hard: true, explosiveShots: 0, souls: 0, armorPickups: 0, cardsEquipped: 0, lowestHealth: 100 };
   const absence = ['refill', 'magnet', 'hardy', 'freecards', 'redeemer'], met = (metrics) => absence.filter((id) => cardConditionMet(CAT.cards.byId(id).unlock, metrics));
   check('cards: a level without a kill unlocks no absence card, one with a fight does', met(pacifist).length === 0 && met(Object.assign({}, pacifist, { kills: 3 })).length === 5, met(pacifist).join());
   progressCardMatch([], { modeOptions: {} });
@@ -905,5 +905,60 @@ Test.add('progress', (check) => {
   progressAdvance(CAT.challenges.byId('markYard').options.timeLimit);
   Sim.run(1);
   check('rooms: the range course ends as a win at its clock', !Modes.active && Progress.outcome(Game.match.results) === 'win');
+  Game.stop();
+});
+
+// ---- Trials pay only for play: rooms run and unlock no cards, one lucky hit is no perfect aim, a loss earns no par time ----
+Test.add('progress', (check) => {
+  const record = Cards.record(), kept = { unlocked: record.unlocked, active: record.active };
+  try {
+    record.unlocked = { stoneskin: true }; record.active = [{ id: 'stoneskin', paid: 0 }];
+    Challenges.start('markYard', false);
+    const warden = CAT.weapons.byId('warden').index;
+    LocalPlayerStats.shots[warden] = LocalPlayerStats.hits[warden] = 1;
+    progressAdvance(90);
+    Sim.run(1);
+    const metrics = RunLog.measure(Game.match);
+    check('rooms: no cards in or out, one hit is no full accuracy', !Game.match.rules.cards.ids.length && !metrics.pveFinished && metrics.accuracy <= 1 / CHALLENGE_ACCURACY_HITS);
+  } finally {
+    Object.assign(record, kept);
+    Game.stop();
+  }
+  const points = CAT.challenges.byId('sprint').points;
+  progressWithPlayer(() => {
+    const idle = progressTestResults({ teams: true, kills: 0, score: 0 });
+    idle.players[1].team = 0;
+    check('rooms: a loss or a sat-out win earns no par time', Progress.points(points, { kills: 2, seconds: 60 }, 150) === 6000 && Progress.points(points, { kills: 2, seconds: 60, won: 1 }, 150) === 25800
+      && !Progress.creditedWin(idle));
+  });
+  const award = () => ({ xp: 0, lines: [], breakdown: { total: 0 } }), fake = { setup: { progress: { kind: 'challenge', id: 'chainYard' } } }, rooms = Progress.profile().challenges, keptRoom = rooms.chainYard;
+  delete rooms.chainYard;
+  Challenges.onResult(fake, { bestStreak: 8 }, award());
+  let third = award();
+  Challenges.onResult(fake, { bestStreak: 12 }, third);
+  check('rooms: Expert is announced once', rooms.chainYard.stars === 3 && !third.lines.includes('Expert version unlocked.'));
+  if (keptRoom) rooms.chainYard = keptRoom; else delete rooms.chainYard;
+  Daily.onResult({ setup: { progress: { kind: 'daily', key: '2099' } } }, {}, third = award());
+  delete Progress.profile().daily['2099'];
+  check('daily: an idle first play pays no XP', third.xp === 0);
+});
+
+// ---- XP: difficulty and match length scale the pay; assists count as taking part, a 0 XP match says why ----
+Test.add('progress', (check) => progressWithPlayer(() => {
+  const xp = (fields, difficulty) => Progress.matchXp(progressTestResults(fields), 0, difficulty).total, regular = xp({}, 'regular');
+  check('xp: difficulty and length scale it', xp({}, 'stroll') < regular && xp({}, { preset: 'nightmare' }) > regular && xp({ duration: 90 }, 'regular') < regular);
+  const helper = progressTestResults({ score: 0, kills: 0 });
+  helper.players.find((player) => player.id === Game.playerId).assists = 2;
+  check('xp: assists pay, a 0 XP match says why', Progress.matchXp(helper, 0).total > 0 && Progress.xpReason(progressTestResults({ duration: 20 })).startsWith('No XP') && !Progress.xpReason(helper));
+}));
+
+// ---- Shown numbers come from the tuning; career screens explain rooms and the range; splash is no hit ----
+Test.add('progress', (check) => {
+  check('texts: from the tuning values', CAT.cards.byId('thief').text.startsWith('5%') && CAT.cards.byId('rapid').unlock.text.includes('4:00') && !CAT.cards.some((row) => /\{/.test(row.text + row.unlock.text))
+    && careerPointsText(CAT.challenges.byId('sprint')).includes('3000 per kill') && CAREER_RANGE_OFFER_TEXT.includes(PVE_RANGE.drillTargets + ' kills'));
+  Game.start({ mode: 'ffa', map: 'spire', seed: 4, player: {}, bots: [{ dummy: true }] });
+  const rocket = CAT.weapons.byId('ramjet');
+  Bus.emit('damage', progressDamage(Game.playerId, 1 - Game.playerId, 'splash', rocket.id));
+  check('accuracy: splash adds damage, no hit', !LocalPlayerStats.hits[rocket.index] && LocalPlayerStats.damage[rocket.index] > 0);
   Game.stop();
 });

@@ -1087,6 +1087,28 @@ Test.add('mapEditor', async (check) => {
 });
 
 Test.add('mapEditor', (check) => {
+  // ---- Breakable props: drawn, picked, moved and deleted like the other objects ----
+  mapEditEditorOff();
+  MapEditor.newFrom({ kind: 'builtin', id: 'spire' });
+  MapEditorTools.attach();
+  const props = MapEditor.map.props, count = props.length, prop = props[0], x = prop.min[0], ray = MapEditorTools.ray, drawn = mapEditFakeBatch(), bare = mapEditFakeBatch();
+  MapEditorTools.draw(drawn);
+  MapEditor.map.props = [];
+  MapEditorTools.draw(bare);
+  MapEditor.map.props = props;
+  ray.ox = (x + prop.max[0]) / 2; ray.oy = prop.max[1] + 0.5; ray.oz = (prop.min[2] + prop.max[2]) / 2; ray.dx = 0; ray.dy = -1; ray.dz = 0;
+  MapEditorTools.pickHover();
+  check('props: drawn and picked', drawn.shapes.box - bare.shapes.box === count && MapEditorTools.hover.list === 'props' && !MapEditorTools.hover.index, MapEditorTools.hover.list);
+  MapEditor.select('props', 0);
+  MapEditor.nudgeSelected(1, 0, 0);
+  const moved = MapEditor.map.props[0].min[0] === x + 1;
+  MapEditor.deleteSelected();
+  check('props: moved and deleted', moved && MapEditor.map.props.length === count - 1 && mapEditCodeOf('user7') === 'U07');
+  MapEditorTools.detach();
+  mapEditEditorOff();
+});
+
+Test.add('mapEditor', (check) => {
   mapEditRestoreEditor();
   check('the editor state of the player is back after the tests', mapEditKept === null);
 });

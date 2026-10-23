@@ -457,7 +457,7 @@ const MapCheck = {
     if (!pad.entries) ctx.add('triggers', 'jump pad at ' + where + ' has no floor to stand on');
     if (pad.landing < 0) return ctx.add('triggers', 'jump pad at ' + where + ' lands on nothing walkable');
     if (!ctx.loop[pad.landing]) ctx.add('triggers', 'jump pad at ' + where + ' lands in a cut-off place');
-    else if (!pad.firm) ctx.add('triggers', 'jump pad at ' + where + ' lands less than ' + MAP_BODY_RADIUS + ' m from the edge of its floor');
+    else if (!pad.firm) ctx.add('triggers', 'jump pad at ' + where + ' lands less than ' + ACTOR_RADIUS + ' m from the edge of its floor');
     if (pad.open < pad.entries) ctx.add('triggers', 'jump pad at ' + where + ': the arc from ' + (pad.entries - pad.open) + ' of ' + pad.entries + ' start cells hits geometry');
   },
   teleporterProblem(ctx, tele) {
