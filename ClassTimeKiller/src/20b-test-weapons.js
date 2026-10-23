@@ -1090,7 +1090,9 @@ Test.add('weapons', (check) => {
   check('the Vanguard needs a fourth shot at 60 m (falloff), three up close', shotsToKill(weapon('vanguard').primary, 0) === 3 && shotsToKill(weapon('vanguard').primary, 60) === 4);
   check('the Riptide (wider spread) costs no more than the Wasp', weapon('riptide').price <= weapon('wasp').price);
   const moraine = CAT.heroes.byId('moraine'), quillGun = weapon(CAT.heroes.byId('quill').weapons[0]).primary;
-  check('H02 Moraine falls to the Quill Tempest in under 1.5 s', (moraine.health + moraine.shield) / (quillGun.damage * quillGun.rate) < 1.5);
+  const bastide = CAT.heroes.byId('bastide'), quillDps = quillGun.damage * quillGun.rate;
+  check('H02 Moraine (the Hailstorm carries her) falls to the Quill Tempest in under 1.2 s', (moraine.health + moraine.shield) / quillDps < 1.2);
+  check('H01 Bastide (slow, short-range kit) holds out against the Quill Tempest for over 1.9 s', (bastide.health + bastide.armor) / quillDps > 1.9);
 });
 
 DebugApi.giveWeapon =(id, key) => Weapons.give(id, key, 0);
