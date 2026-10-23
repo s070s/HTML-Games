@@ -953,6 +953,21 @@ Test.add('pve', (check) => {
   endModeTest();
 });
 
+// swap-02: a Use press that hits a chamber button takes the hold: no gun swap on it.
+Test.add('pve', (check) => {
+  World.load(Maps.get('chambers'));
+  Game.start({ mode: 'puzzle', seed: 1, bots: [{ dummy: true }] });
+  const id = 0, isButton = (element) => element.kind === 'button', index = PVE_CHAMBERS.findIndex((row) => row.elements.some(isButton));
+  const button = PVE_CHAMBERS[index].elements.findIndex(isButton);
+  enterChamber(index);
+  chamberElementAt(PVE_CHAMBERS[index].elements[button], pveSpot);
+  relocateActor(id, pveSpot.x, pveSpot.y, pveSpot.z - 0.5, 0);
+  Actors.buttons[id] = BTN.USE;
+  Sim.run(2);
+  check('a chamber button press claims the Use hold', Weapons.useClaimed[id] === 1 && ChamberRun.done[button] === 1);
+  endModeTest();
+});
+
 // MAP-030 hints are shown on entering a chamber; a fizzle grid with clears 'gates' closes the crosser's twin gates.
 Test.add('pve', (check) => {
   World.load(Maps.get('chambers'));

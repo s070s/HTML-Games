@@ -149,6 +149,8 @@ const Weapons = {
   altClaimed: new Uint8Array(MAX_ACTORS),           // 1 = ALT was claimed during this hold: the weapon's alt waits for a release
   botTakes: (id, weapon) => true,                   // fn(id, weapon) -> true: a bot at the carry limit swaps this gun in (14e: only an upgrade)
   useClaimed: new Uint8Array(MAX_ACTORS),           // 1 = Use served another action during this hold (claimUse): no carry-limit swap until a release
+  rodeBoard: new Uint8Array(MAX_ACTORS),            // 1 = on the skimmer at the last weapons step (the Use press that steps off is the board's)
+  useTakers: [],                                    // fn(id) -> true where holding Use serves another action (11c revive, 13b objectives, 13g beacon)
 
   // Nearest distance at which a registered blocker stops a shot ray within maxDistance, or -1.
   blockDistance(ox, oy, oz, dx, dy, dz, maxDistance) {
@@ -277,20 +279,30 @@ const Weapons = {
   // The one carry-limit rule for every weapon pickup (S12 pads and drops, S13 royale loot): a gun that would push a
   // carried one out is taken only by choice, so walking over a gun never costs the one in hand: a person holds Use, a
   // bot takes only a gun it values more than its best (botTakes, 14e), so crossing a worse pad never downgrades it.
-  // A Use hold that served another action never swaps (swap-02), nor does the step Use goes down: the plant, defuse
-  // or beacon answering that press runs later in the step (S13) and claims it first.
+  // A Use hold that served another action never swaps (swap-02), nor does the step Use goes down: a press answered later
+  // in the step (a 14j chamber button) claims it first.
   mayTake(id, weapon) {
     if (!this.swapsOut(id, weapon)) return true;
     if (this.useClaimed[id] || (Actors.pressed[id] & BTN.USE) !== 0) return false;
     if (Actors.kind[id] === ACTOR_KIND.BOT) return this.botTakes(id, weapon);
     return (Actors.buttons[id] & BTN.USE) !== 0;
   },
-  // Every hold-Use action marks the hold it serves (11c revive, 13b plant, defuse and arm, 13g squad beacon).
+  // A Use press answered outside the useTakers (14j chamber buttons and cube) marks the hold it served.
   claimUse(id) { this.useClaimed[id] = 1; },
-  // The claim lasts until Use is let go; riding the skimmer claims it too (Use there steps off, 10b).
+  // Use serves another action here (a useTaker says so) or served one during this hold: no swap, and no swap prompt
+  // (12a, 13g), so that action's prompt shows.
+  useTaken(id) {
+    if (this.useClaimed[id]) return true;
+    for (let i = 0; i < this.useTakers.length; i++) if (this.useTakers[i](id)) return true;
+    return false;
+  },
+  // A hold is claimed while a useTaker, the skimmer or the press that steps off it (10b moves before this step, so the
+  // board is already gone then) takes Use, and stays claimed until Use is let go: a revive or plant that ends never swaps.
   updateUseClaim(id) {
+    const riding = Move.onBoard(id) ? 1 : 0;
     if (!(Actors.buttons[id] & BTN.USE)) this.useClaimed[id] = 0;
-    else if (Move.onBoard(id)) this.useClaimed[id] = 1;
+    else if (riding || this.rodeBoard[id] || this.useTaken(id)) this.useClaimed[id] = 1;
+    this.rodeBoard[id] = riding;
   },
   // The weapon a carry-limit pickup pushes out: the held one, else the first carried (-1 = none).
   swapVictim(id) {

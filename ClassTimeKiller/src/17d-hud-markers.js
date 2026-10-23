@@ -302,7 +302,6 @@ function hudDrawSoundRing(pen, layout) {
 
 // ---- HP-007 downed: teammates down (marker), the local player's bleed-out and the revive ring; the hold-Use prompt ----
 const HUD_DOWNED_MARKER_HEIGHT = 1.2;     // metres above a downed teammate's feet
-const HUD_REVIVE_HINT_RANGE = 4;          // metres: the hold-Use prompt shows this close to a downed teammate
 
 function hudDrawDownedAllies(pen, layout) {
   const player = Game.playerId;
@@ -352,7 +351,7 @@ function hudDrawUsePrompt(pen, layout, player) {
   pen.label(Hud.keyLabel('use') || 'HOLD USE', x, y, 24 * unit, HUD_COLOR.text, 'center');
   pen.label(text, x, y + 28 * unit, 16 * unit, HUD_COLOR.dim, 'center');
 }
-Input.usePrompts.push((id) => Damage.downedCount && Damage.nearestDownedAlly(id, HUD_REVIVE_HINT_RANGE) >= 0 ? 'HOLD TO REVIVE' : '');
+Input.usePrompts.push((id) => Damage.reviveInRange(id) ? 'HOLD TO REVIVE' : '');   // within REVIVE_HINT_RANGE (11c)
 
 Bus.on('match.start', () => { HudPings.reset(); HudCaptions.reset(); });
 Bus.on('match.stop', () => { HudPings.reset(); HudCaptions.reset(); });

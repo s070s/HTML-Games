@@ -12,6 +12,7 @@ const DOWNED_SPEED = 0.2;                // crawl 1.2 m/s against the 6.4 m/s re
 const REVIVE_HEALTH = 30;
 const REVIVE_SECONDS = 5;                // HP-007: an ally holds Use this long ...
 const REVIVE_REACH = 1.5;                // ... within this many metres of the downed actor
+const REVIVE_HINT_RANGE = 4;             // metres: Use held this close to a downed ally is for the revive (its prompt shows, no gun swap)
 const KNOCKBACK_PER_DAMAGE = 0.15;       // MOV-017
 const KNOCKBACK_LIFT = 0.25;             // knockback pushes slightly upward so grounded targets leave the floor
 const SPLASH_MIN_FACTOR = 0.2;
@@ -285,6 +286,8 @@ const Damage = {
     return true;
   },
   // The nearest downed teammate of id within maxDistance (A27 Second Wind, the hold-Use revive, bot revive goals), or -1.
+  // A downed ally within REVIVE_HINT_RANGE: the HUD prompt (17d), and Use held here never swaps a gun (Weapons.useTakers).
+  reviveInRange(id) { return this.downedCount > 0 && this.nearestDownedAlly(id, REVIVE_HINT_RANGE) >= 0; },
   nearestDownedAlly(id, maxDistance) {
     let best = -1, bestSquared = maxDistance * maxDistance;
     for (let other = 0; other < Actors.count; other++) {
@@ -402,7 +405,6 @@ const Damage = {
     if (target < 0 || target !== this.reviving[id]) this.reviveProgress[id] = 0;
     this.reviving[id] = target;
     if (target < 0) return;
-    Weapons.claimUse(id);   // this Use hold never swaps the held gun for one underfoot (swap-02)
     this.reviveProgress[id] += dt;
     if (this.reviveProgress[id] < REVIVE_SECONDS - TICK_EPSILON) return;
     this.revive(target);
@@ -614,6 +616,7 @@ function splashDistance(blast, id) {
 
 Sim.addSystem('status', 20, (dt) => Damage.step(dt));
 Damage.addReducer((source, target, amount) => amount * Move.damageScale(target));   // HP-001 victim reductions: MV08 roll
+Weapons.useTakers.push((id) => Damage.reviveInRange(id));   // on the way in too (swap-02)
 TouchInput.useNeeds.push(() => Damage.downedAllowed() && currentRules().teams > 0);   // revive needs Use held (HP-007)
 Bus.on('actor.spawn', (event) => Damage.resetHealth(event.id));
 Bus.on('actor.create', (id) => { Damage.resetHealth(id); Damage.shieldElement[id] = 0; Damage.noRegen[id] = 0; });

@@ -117,27 +117,47 @@ Test.add('items', (check) => {
   TestArena.finish();
 });
 
-// swap-02: a Use hold spent on a revive never swaps the held gun for the one underfoot, not even after the revive ends,
-// and the revive prompt wins over the swap prompt; a fresh Use on the gun still swaps.
+// swap-02: a Use hold spent on a revive never swaps the held gun for the one underfoot, on the way in (from
+// REVIVE_HINT_RANGE, where the revive prompt wins over the swap prompt) nor after the revive (fresh Use: the pile test).
+// royaleUsePrompt (20b-test-modes2) reads Input.usePrompts like the HUD.
 Test.add('items', (check) => {
   ItemArena.start({ carry: 1, downed: true, health: 'regen', teams: 2 }, []);
-  const shooter = ItemArena.actor(1, 0, 0), medic = ItemArena.actor(2, 20, 0), mate = ItemArena.actor(2, 21.3, 0);   // in revive reach, off the gun
+  const shooter = ItemArena.actor(1, 0, 0), medic = ItemArena.actor(2, 20, 0), mate = ItemArena.actor(2, 23, 0);
   Weapons.setLoadout(medic, ['vanguard']);
   Items.drop('tempest', 20, 0, 0);
   TestArena.hit(shooter, mate, 150);
   Sim.step();   // Damage.downedCount is counted in the step
-  let swaps = 0;
-  const onPickup = (event) => { if (event.id === medic && event.group === 'weapon') swaps++; };
-  const usePrompt = () => { let prompt = ''; for (let i = 0; i < Input.usePrompts.length && !prompt; i++) prompt = Input.usePrompts[i](medic); return prompt; };
-  Bus.on('pickup', onPickup);
-  check('next to a downed teammate on a gun the Use prompt is the revive', (Actors.flags[mate] & ACTOR_FLAG.DOWNED) !== 0 && usePrompt() === 'HOLD TO REVIVE', usePrompt());
-  TestArena.hold(medic, BTN.USE, REVIVE_SECONDS + 1);
-  check('Use held for the revive (and on after it) swaps nothing', swaps === 0 && Weapons.has(medic, 'vanguard') && !(Actors.flags[mate] & ACTOR_FLAG.DOWNED), swaps);
+  TestArena.hold(medic, BTN.USE, 1);
+  check('3 m from a downed mate: revive prompt, Use held swaps nothing', royaleUsePrompt(medic) === 'HOLD TO REVIVE' && Weapons.has(medic, 'vanguard'));
+  Actors.x[mate] = 21.3;   // in revive reach, off the gun
   Sim.step();
-  const prompt = usePrompt();
-  TestArena.hold(medic, BTN.USE, 0.1);
-  Bus.off('pickup', onPickup);
-  check('after the revive the swap is offered and a fresh Use takes it', prompt === 'HOLD TO SWAP VANGUARD RIFLE FOR TEMPEST RIFLE' && swaps === 1 && Weapons.has(medic, 'tempest'), prompt + ' / ' + swaps);
+  TestArena.hold(medic, BTN.USE, REVIVE_SECONDS + 1);
+  check('Use held to revive and on swaps nothing', Weapons.has(medic, 'vanguard') && !(Actors.flags[mate] & ACTOR_FLAG.DOWNED));
+  Sim.step();
+  check('then the swap is offered again', royaleUsePrompt(medic) === 'HOLD TO SWAP VANGUARD RIFLE FOR TEMPEST RIFLE');
+  TestArena.finish();
+});
+
+// swap-02: the skimmer takes the Use hold that boards it, so guns ridden over at the carry limit stay, and so does
+// the press that steps off onto a gun (Use held on).
+Test.add('items', (check) => {
+  ItemArena.start({ carry: 1, move: 'arena' }, []);
+  World.map.size = SKIMMER_MIN_MAP_SIZE;
+  const id = ItemArena.actor(1, 0, -50);
+  Weapons.setLoadout(id, ['vanguard']);
+  holdInput(id, 0, 1, 0);
+  Sim.run(TICK_RATE / 2);
+  holdInput(id, 0, 1, BTN.USE);
+  Sim.step();
+  for (let metre = 1; metre <= 10; metre++) Items.drop('tempest', 0, 0, Actors.z[id] + metre);
+  Sim.run(TICK_RATE);
+  check('skimmer: riding over guns swaps nothing', Move.onBoard(id) && Weapons.has(id, 'vanguard'));
+  holdInput(id, 0, 1, 0);
+  Sim.step();
+  for (let metre = 0; metre <= 4; metre++) Items.drop('wasp', 0, 0, Actors.z[id] + metre);
+  holdInput(id, 0, 0, BTN.USE);
+  Sim.run(TICK_RATE / 2);
+  check('skimmer: stepping off onto a gun swaps nothing', !Move.onBoard(id) && Weapons.has(id, 'vanguard'));
   TestArena.finish();
 });
 
@@ -146,16 +166,16 @@ Test.add('items', (check) => {
 // so every pad gun is a swap; the gun pushed out is still in Weapons.dropped when 'pickup' fires.
 Test.add('items', (check) => {
   let upgrades = 0, downgrades = 0;
+  const worth = (id, key) => BotCombat.weaponValue(id, CAT.weapons.byId(key), 1);
   const onPickup = (event) => {
     if (event.group !== 'weapon' || !Bots.active[event.id] || !Weapons.dropped) return;
-    const gain = BotCombat.weaponValue(event.id, CAT.weapons.byId(event.item), 1) - BotCombat.weaponValue(event.id, CAT.weapons.byId(Weapons.dropped), 1);
+    const gain = worth(event.id, event.item) - worth(event.id, Weapons.dropped);
     if (gain > 0) upgrades++;
     if (gain < 0) downgrades++;
   };
   Bus.on('pickup', onPickup);
   try { playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'suit', minutes: 3, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH }); } finally { Bus.off('pickup', onPickup); }
-  check('Weave Suit on Harbor Nine: bots at the carry limit swap guns at the pads', upgrades >= 8, upgrades);
-  check('Weave Suit on Harbor Nine: no bot swaps a gun for one it values less (swap-01)', downgrades === 0, downgrades + ' downgrades / ' + upgrades + ' upgrades');
+  check('Weave Suit: full bots swap guns at the pads, upgrades only', upgrades >= 8 && downgrades === 0, upgrades + ' / ' + downgrades);
 });
 
 Test.add('items', (check) => {

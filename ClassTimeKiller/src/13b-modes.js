@@ -689,18 +689,31 @@ const Modes = {
   objectiveLabel(objective) {
     return objective.name || 'point ' + String.fromCharCode(LETTER_A_CODE + this.objectiveLetter(this.objectives, objective.index));
   },
+  // Holding Use here serves an objective, so no gun swap (Weapons.useTakers, swap-02): the charge carrier in a
+  // site, a defender within defuseRange of a planted charge, or, where sites are armed in place (no carried charge: rush),
+  // an attacker inside an unarmed site.
+  usesObjective(id) {
+    if (!this.active || !this.isActive(id)) return false;
+    const objectives = this.objectives, attacker = Actors.team[id] === this.attackingTeam();
+    let charge = null;
+    for (let i = 0; i < objectives.length; i++) if (objectives[i].kind === 'bomb') charge = objectives[i];
+    for (let i = 0; i < objectives.length; i++) {
+      const objective = objectives[i], x = objective.x, y = objective.y, z = objective.z;
+      if (objective.state === 'planted' && !attacker && withinTouch(id, x, y, z, this.rules.params.defuseRange)) return true;
+      if (objective.kind !== 'bombsite' || objective.state !== 'home' || !objective.active || !attacker) continue;
+      if (charge ? charge.carrier === id && this.inZone(objective, id) : withinTouch(id, x, y, z, objective.radius)) return true;
+    }
+    return false;
+  },
   // First standing participant near a point whose team relates to `team` as asked (NEAR_ANY / NEAR_TEAM / NEAR_ENEMY).
-  // With `buttons` (a BTN mask) only an actor holding one of those buttons counts (a Use hold found here serves the
-  // objective, a defuse or an arm: Weapons.claimUse); actors with any of `skipFlags` (an ACTOR_FLAG mask, e.g.
-  // PROTECTED) are passed over, so they never hide an actor behind them.
+  // With `buttons` (a BTN mask) only an actor holding one of those buttons counts; actors with any of `skipFlags`
+  // (an ACTOR_FLAG mask, e.g. PROTECTED) are passed over, so they never hide an actor behind them.
   findActorNear(x, y, z, radius, team, relation, buttons, skipFlags) {
     for (let id = 0; id < Actors.count; id++) {
       if (!this.actsOnObjectives(id) || !this.isActive(id) || !relationMatches(Actors.team[id], team, relation)) continue;
       if (buttons && (Actors.buttons[id] & buttons) === 0) continue;
       if (skipFlags && (Actors.flags[id] & skipFlags) !== 0) continue;
-      if (!withinTouch(id, x, y, z, radius)) continue;
-      if (buttons & BTN.USE) Weapons.claimUse(id);
-      return id;
+      if (withinTouch(id, x, y, z, radius)) return id;
     }
     return -1;
   },
@@ -744,7 +757,6 @@ const Modes = {
   stepPlant(charge, sites, dt, params) {
     const carrier = charge.carrier;
     const planting = carrier >= 0 && holdsUse(carrier) && this.zoneContaining(sites, carrier) !== null;
-    if (planting) Weapons.claimUse(carrier);   // no gun swap on this Use hold (swap-02)
     if (!this.advanceUse(charge, planting, dt, params.plantTime, 0)) return false;
     this.plantCharge(charge, carrier, params.fuse);
     return true;
@@ -927,6 +939,7 @@ function drawObjective(batch, objective) {
   batch.meshFrom(objective.kind === 'flag' ? 'cylinder' : 'box', instance);
 }
 
+Weapons.useTakers.push((id) => Modes.usesObjective(id));
 Bus.on('match.start', (match) => Modes.start(match));
 Bus.on('match.stop', () => Modes.stop());
 Bus.on('actor.create', (id) => Modes.resetActor(id));

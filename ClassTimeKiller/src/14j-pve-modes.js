@@ -775,7 +775,7 @@ function stepChamber(id) {
   for (let index = 0; index < row.elements.length; index++) {
     const element = row.elements[index];
     chamberElementAt(element, pveSpot);
-    if (element.kind === 'button' && pressedUse && withinTouch(id, pveSpot.x, pveSpot.y, pveSpot.z, PVE_CHAMBER_RULES.useRadius)) ChamberRun.done[index] = 1;
+    if (element.kind === 'button' && pressedUse && withinTouch(id, pveSpot.x, pveSpot.y, pveSpot.z, PVE_CHAMBER_RULES.useRadius)) { ChamberRun.done[index] = 1; Weapons.claimUse(id); }   // no gun swap on this hold (swap-02)
     else if (element.kind === 'cube') stepCube(id, pressedUse, element);
     else if (element.kind === 'plate') ChamberRun.done[index] = cubeOn(pveSpot) ? 1 : 0;
     else if (element.kind === 'fizzle' && insideFizzle(id, element, pveSpot)) crossFizzle(id, row, element);
@@ -799,10 +799,12 @@ function stepCube(id, pressedUse, element) {
   if (run.cubeCarried) {
     const yaw = Actors.yaw[id];
     run.cubeX = Actors.x[id] + Math.sin(yaw) * PVE_CHAMBER_RULES.carryAhead; run.cubeY = Actors.y[id]; run.cubeZ = Actors.z[id] + Math.cos(yaw) * PVE_CHAMBER_RULES.carryAhead;
-    if (pressedUse) run.cubeCarried = false;   // dropped where it is
+    if (pressedUse) { run.cubeCarried = false; Weapons.claimUse(id); }   // dropped where it is
     return;
   }
-  if (pressedUse && withinTouch(id, run.cubeX, run.cubeY, run.cubeZ, PVE_CHAMBER_RULES.useRadius)) run.cubeCarried = true;
+  if (!pressedUse || !withinTouch(id, run.cubeX, run.cubeY, run.cubeZ, PVE_CHAMBER_RULES.useRadius)) return;
+  run.cubeCarried = true;
+  Weapons.claimUse(id);
 }
 function insideFizzle(id, element, centre) {
   const size = element.size || [1, 3, 1];
