@@ -50,7 +50,7 @@ const LEDGE_HOP_SECONDS = 0.7;          // s: how long a combat hop flies (the h
 const LEDGE_ALIGN = 0.7;               // cos: a jump link leaves the ground on purpose only while the move heads along it
 const ledgeProbe = { x: 0, z: 0 };      // the guard's probe offset (float arguments are boxed, PERF-006)
 const LEAP_LOOK_AHEAD = 3;              // m: a leaping bot this close to a jump take-off turns its view along the path...
-const LEAP_ALIGN = 0.95;                // ...and takes off only with its facing this close (cos) to the landing direction
+const LEAP_ALIGN = 0.996;               // ...and takes off only with its facing and run this close (cos, about 5 degrees) to the landing direction: a leap flies about 12 m
 const PAD_RIDE_SECONDS = 4;             // s: a jump pad flight lasts at most this long (S08 arcs are far shorter)
 
 const BotMove = {
@@ -283,14 +283,16 @@ const BotMove = {
     if (!this.leaping[id] || !Move.isGrounded(id)) return false;
     return this.segmentType[id] === NAV_LINK.JUMP || this.toTakeOff(id) < LEAP_LOOK_AHEAD;
   },
-  // False while a leaping bot on the ground still turns toward the landing: a leap taken facing a foe to the side
-  // flies sideways off the link. Any other jump keeps the run's direction, so it may start at once.
+  // False while a leaping bot on the ground still turns toward the landing, or still runs off its line: a leap taken
+  // facing a foe to the side flies sideways off the link, and the run's own speed carries into the leap too (braking
+  // ends it). Any other jump keeps the run's direction, so it may start at once.
   facesLanding(id) {
     if (!this.leaping[id] || !Move.isGrounded(id)) return true;
     const dx = this.pointX[id] - Actors.x[id], dz = this.pointZ[id] - Actors.z[id], length = length2(dx, dz);
     if (length < STEP_HEIGHT) return true;
-    const yaw = Actors.yaw[id];   // what the leap pushes along
-    return (Math.sin(yaw) * dx + Math.cos(yaw) * dz) >= LEAP_ALIGN * length;
+    const yaw = Actors.yaw[id], speed = length2(Actors.vx[id], Actors.vz[id]);   // the leap pushes along the view
+    const runsAlong = speed <= LEDGE_SLIDE_SPEED || Actors.vx[id] * dx + Actors.vz[id] * dz >= LEAP_ALIGN * speed * length;
+    return runsAlong && (Math.sin(yaw) * dx + Math.cos(yaw) * dz) >= LEAP_ALIGN * length;
   },
   follow(id, now) {
     if (!Move.isGrounded(id)) this.launched[id] = 1;
@@ -413,11 +415,12 @@ const BotMove = {
     if (!Move.isGrounded(id) || inWater(id) || this.leavesGround(id)) return;
     if ((Bots.buttonsWanted[id] & BTN.JUMP) && !BotCombat.weaponJumpPending(id, Sim.time)) this.guardHop(id);   // a weapon jump aims at its ledge
     const speed = length2(Actors.vx[id], Actors.vz[id]), probe = ledgeProbe, ahead = LEDGE_PROBE + speed * LEDGE_SLIDE_SECONDS;
-    const wishAhead = this.wishAhead(id, ahead);
+    const wishAhead = this.aheadAlong(id, Bots.wishX[id], Bots.wishZ[id], ahead);
     probe.x = Bots.wishX[id] * wishAhead; probe.z = Bots.wishZ[id] * wishAhead;
     const wishing = Bots.wishAmount[id] > 0 && this.unsafeAhead(id);
     if (!wishing && speed > LEDGE_SLIDE_SPEED) {
-      probe.x = Actors.vx[id] * ahead / speed; probe.z = Actors.vz[id] * ahead / speed;
+      const slideX = Actors.vx[id] / speed, slideZ = Actors.vz[id] / speed, slideAhead = this.aheadAlong(id, slideX, slideZ, ahead);
+      probe.x = slideX * slideAhead; probe.z = slideZ * slideAhead;
     }
     if (!wishing && (speed <= LEDGE_SLIDE_SPEED || !this.unsafeAhead(id))) return;
     this.brake(id);
@@ -454,13 +457,14 @@ const BotMove = {
     if (!this.hasDest[id] || this.pointIndex[id] >= this.pointCount[id] - 1 || this.nextType[id] !== NAV_LINK.JUMP) return Infinity;
     return length2(this.pointX[id] - Actors.x[id], this.pointZ[id] - Actors.z[id]);
   },
-  // The guard's look-ahead along the wanted move: cut at a jump take-off only while the move heads at it (LEDGE_ALIGN),
-  // so a strafe toward a side drop near a take-off still looks the full distance.
-  wishAhead(id, ahead) {
+  // The guard's look-ahead along a direction (the wanted move or the slide, a unit vector): cut at a jump take-off only
+  // while that direction heads at it (LEDGE_ALIGN), so a run-up keeps its speed and a strafe or a slide toward a side
+  // drop near a take-off still looks the full distance.
+  aheadAlong(id, dirX, dirZ, ahead) {
     const distance = this.toTakeOff(id);
     if (distance >= ahead) return ahead;
     const dx = this.pointX[id] - Actors.x[id], dz = this.pointZ[id] - Actors.z[id];
-    return Bots.wishX[id] * dx + Bots.wishZ[id] * dz >= LEDGE_ALIGN * distance ? distance : ahead;
+    return dirX * dx + dirZ * dz >= LEDGE_ALIGN * distance ? distance : ahead;
   },
   leavesGround(id) {
     if (!this.hasDest[id] || this.pointIndex[id] >= this.pointCount[id]) return false;

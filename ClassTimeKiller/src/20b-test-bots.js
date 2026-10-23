@@ -1838,6 +1838,24 @@ function firstLeapLanding(brushes, goalY, foeX, foeZ) {
   endBotTest();
   return landing;
 }
+// A bot without a leap runs at the same gap: the slide probe is cut at the take-off like the wanted move, or every run-up
+// braked there and the jump left at a walk.
+const LEAP_RUN_Z = -9.5, LEAP_TAKE_OFF_SHARE = 0.8;   // the run-up start; the share of run speed the take-off keeps
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false, { brushes: LEAP_STRIPS }), 'infection');
+  Bots.nextDecide[bot] = Infinity;
+  placeFacing(bot, LEAP_START_X, LEAP_RUN_Z, 0);
+  BotMove.goTo(bot, LEAP_START_X, 0, 5, 1);
+  let takeOff = -1;
+  runHeld(4, () => holdActor(dummy, LEAP_START_X, 20), () => {
+    if (takeOff < 0 && !Move.isGrounded(bot)) takeOff = length2(Actors.vx[bot], Actors.vz[bot]);
+    return takeOff >= 0;
+  });
+  const runSpeed = BotMove.runSpeed[bot];
+  endBotTest();
+  check('a bot without a leap runs at a gap over a void and takes off near run speed', takeOff >= LEAP_TAKE_OFF_SHARE * runSpeed,
+    takeOff.toFixed(1) + ' of ' + runSpeed.toFixed(1) + ' m/s');
+});
 Test.add('bots', (check) => {
   const across = firstLeapLanding(LEAP_NARROW, 0, 3.5, -2);
   check('infected, with a foe beside the take-off it leaps a gap along its path (first landing on the far strip)',
