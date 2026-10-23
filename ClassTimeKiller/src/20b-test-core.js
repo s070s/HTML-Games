@@ -85,6 +85,19 @@ Test.add('core', (check) => {
   Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';
 });
 
+// DATA-003: body sizes and the step length live once in S01: a new actor, the stances, footsteps and the head bob read them.
+Test.add('core', (check) => {
+  const id = Actors.create(ACTOR_KIND.BOT, 0, 'body');
+  check('body: a new actor stands at the S01 height and eye', Actors.height[id] === Math.fround(STAND_HEIGHT) && Actors.eye[id] === Math.fround(STAND_EYE));
+  check('body: the stances use the S01 sizes', STANCE_HEIGHT.join() === [STAND_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT].join() && STANCE_EYE.join() === [STAND_EYE, CROUCH_EYE, PRONE_EYE].join());
+  Actors.vx[id] = RUN_REFERENCE_SPEED; Actors.vz[id] = 0; Actors.flags[id] = ACTOR_FLAG.ON_GROUND;
+  ViewState.bobPhase = 0;
+  headBob(id, STRIDE_METRES / RUN_REFERENCE_SPEED);
+  // sin(2 x phase): one dip per half turn of the phase, so one footstep = PI.
+  check('body: the head bob dips once per footstep', Test.near(ViewState.bobPhase, Math.PI, 1e-6), ViewState.bobPhase);
+  ViewState.bobPhase = 0;
+});
+
 // ARC-020: an import with partial nested records (loadouts, tips) is repaired to the empty-save shape, so readers never throw.
 Test.add('core', (check) => {
   Save.importText('{"version":1,"loadouts":{"heroes":{},"classes":{"custom":[null,3,{"id":"class-1"}]}},"tips":{}}');

@@ -7,8 +7,8 @@
 // 10b-move-special.js adds the special states and actions (slide, dodge, dash, charge, mantle, wall-run, water...).
 
 const STANCE = { STAND: 0, CROUCH: 1, PRONE: 2 };
-const STANCE_HEIGHT = [STAND_HEIGHT, 1.10, 0.60]; // DATA-003
-const STANCE_EYE = [1.62, 0.95, 0.40];
+const STANCE_HEIGHT = [STAND_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT]; // DATA-003 (S01)
+const STANCE_EYE = [STAND_EYE, CROUCH_EYE, PRONE_EYE];
 const MOVE_STATE = { WALK: 0, MANTLE: 1, DASH: 2, CHARGE: 3, WALL_RUN: 4, LATCH: 5, LADDER: 6, SWIM: 7 };
 const JUMP_BUFFER_SECONDS = 0.10;                // MOV-013
 const HARD_LANDING_SPEED = 15;                   // MOV-014: landing faster locks jumping...
@@ -22,7 +22,6 @@ const EYE_SPEED = 6;                             // m/s the eye follows stance c
 const KNOCKBACK_CAP = 30;                        // MOV-017 m/s
 const SUB_STEP_DISTANCE = 0.4;                   // longest sweep per sub-step (one capsule radius)
 const MAX_SUB_STEPS = 4;
-const STRIDE_METRES = 1.6;                       // ground distance between footstep events
 const FOOTSTEP_NOISE_RADIUS = 15;                // AUD-004: footsteps locatable at 15 m
 const LANDING_NOISE_RADIUS = 20;
 const NO_RECENT_LANDING = 1e6;                   // seconds: a fresh spawn has not just landed (no MOV-025 landing spread)
