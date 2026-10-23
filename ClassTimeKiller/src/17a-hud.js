@@ -26,7 +26,6 @@ const HUD_MAX_ABILITY_SLOTS = 4;
 const HUD_MAX_POWERUP_CHIPS = 4;
 const HUD_MAX_WEAPON_SLOTS = 9;
 const HUD_BAR_GAP = 4, HUD_BAR_WIDTH = 50, HUD_BAR_TOUCH_WIDTH = 42, HUD_BAR_TOUCH_HEIGHT = 34;   // design pixels (phones: boxes sized for a thumb)
-const HUD_ABILITY_ACTIONS = ['ability1', 'ability2', 'ultimate', 'ability1'];
 const HUD_MONEY_ECONOMIES = ['roundBuy', 'waveShop'];    // rulesets whose economy is money based (others show money only when non-zero)
 const HUD_TEAM_SHAPES = ['circle', 'triangle', 'square', 'diamond'];
 const HUD_FREE_FOR_ALL_COLOR = 0xdde3ea;
@@ -674,7 +673,7 @@ function hudDrawAbilities(pen, layout) {
     text[0] = x; text[1] = y; text[2] = HUD_TEXT_SMALL * unit;
     pen.textAt(slot.name, slot.ready ? HUD_COLOR.text : HUD_COLOR.dim, 'center');
     text[1] = y + radius + 10 * unit;
-    pen.textAt(Hud.keyLabel(HUD_ABILITY_ACTIONS[i]), HUD_COLOR.dim, 'center');
+    pen.textAt(Hud.keyLabel(slot.key), HUD_COLOR.dim, 'center');   // slots are packed (empty ones skipped): the key comes with the slot
     text[0] = x + radius; text[1] = y - radius;
     if (slot.charges > 1) pen.textAt(hudNumber(slot.charges), HUD_COLOR.gold, 'center');
   }

@@ -88,7 +88,7 @@ function hudTestStubs() {
   Gadgets.hudState = (id, out) => { out.grenade = 'frag'; out.grenadeCount = 2; out.gadget = 'turret'; out.gadgetCount = 1; out.gadgetCooldown = 0.4; return out; };
   Abilities.hudState = (id, out) => {
     out.slots.length = 0;
-    out.slots.push({ id: 'dash', name: 'Dash', ready: false, cooldown: 0.5, charges: 2, active: false }, { id: 'wall', name: 'Wall', ready: true, cooldown: 0, charges: 1, active: true });
+    out.slots.push({ id: 'dash', name: 'Dash', key: 'ability1', ready: false, cooldown: 0.5, charges: 2, active: false }, { id: 'wall', name: 'Wall', key: 'ability2', ready: true, cooldown: 0, charges: 1, active: true });
     out.meter.kind = 'ultimate'; out.meter.value = 0.6; out.meter.ready = false;
     return out;
   };

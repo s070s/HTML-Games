@@ -69,6 +69,20 @@ Test.add('hudui', (check) => hudTestWith(() => {
   check('pve hud: a versus match draws no PvE panel', (hudTestMatch(), hudTestFrame(), Hud.quadsOf('pve') === 0));
 }));
 
+// The HUD skips empty ability slots (a Siege Waves soul kit has only the ultimate): each drawn button names its own slot's key.
+Test.add('hudui', (check) => hudTestWith(() => {
+  startPveMode('horde', [0, 0], {}, { player: { name: 'Me', team: 0 } });
+  Input.device = 'kbm';
+  const slots = Abilities.hudState(Game.playerId, { slots: [], meter: { kind: 'none', value: 0, ready: false } }).slots;
+  const texts = [], pen = Object.assign({}, Hud.pen, { textAt: (string) => texts.push(String(string)) });
+  updateHudLayout(Hud.layout, HUD_TEST_WIDTH, HUD_TEST_HEIGHT);
+  hudDrawAbilities(pen, Hud.layout);
+  const wrong = slots.filter((slot) => texts[texts.indexOf(slot.name) + 1] !== hudBoundLabel(slot.key, 'kbm')).map((slot) => slot.name);
+  check('abilities: the kit leaves a slot empty, so the drawn buttons are not in slot order', slots.some((slot, index) => slot.key !== ABILITY_SLOT_NAMES[index]), slots.map((slot) => slot.key).join());
+  check('abilities: every button shows the key of its own slot', slots.length > 0 && wrong.length === 0, wrong.join() + ' :: ' + texts.join('|'));
+  Game.stop();
+}));
+
 Test.add('hudui', (check) => hudTestWith(() => {
   const map = modesTestMap({ spawns: TEAM_SPAWNS, objectives: [{ id: 'a', kind: 'point', x: 0, y: 0, z: 20, radius: 4 }] });
   startModeTest('dom', map, [0, 1], { player: { name: 'Me', team: 0 }, progress: { kind: 'operation', id: 'hudTest', tickets: [80, 10] } });
