@@ -1793,6 +1793,22 @@ Test.add('bots', (check) => {
   check('a Modern bot drops only as far as costs it a quarter of its health at most', fallDamage(Move.preset(0), speed) <= BOT_DROP_DAMAGE + 1e-6 && drop >= 4, drop.toFixed(1) + ' m');
   endBotTest();
 });
+// A Blight infected jump is a leap (13f leap): the bot takes a 1.8 m ledge above its 1.37 m Arena jump, which the same bot
+// as a human neither plans nor climbs. It turns infected alive (the outbreak case: 14c configures it again on its next path).
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(botTestMap(false, { brushes: [TEST_FLOOR, { shape: 'box', min: [-3, 0, 2], max: [3, 1.8, 8] }] }), 'infection');
+  Bots.nextDecide[bot] = Infinity;   // the test gives the destination
+  const climb = () => {
+    placeActor(bot, 0, -6);
+    BotMove.stop(bot);
+    BotMove.goTo(bot, 0, 1.8, 5, 1);
+    return runHeld(4, () => holdActor(dummy, FAR_DUMMY, FAR_DUMMY), () => Actors.y[bot] > 1.5 && Move.isGrounded(bot));
+  };
+  check('a human bot cannot climb it', !climb());
+  Modes.behaviour.infect(bot);
+  check('infected, it leaps up', climb());
+  endBotTest();
+});
 
 // ---- BOT-036: an empty magazine in a fight switches to a loaded gun; a much better gun is drawn in a fight too ----
 Test.add('bots', (check) => {
@@ -1950,7 +1966,7 @@ Test.add('botsoak', (check) => {
   check('Arena Classic: the Warden spawn pistol scores at most 40% of kills on Foundry Spire and Harbor Nine', kills > 0 && warden <= kills * WARDEN_SHARE_MAX, warden + ' of ' + kills);
 }, { slow: true });
 
-// blight-01: Blight on its smallest and largest maps, 12 bots, seeds 1-8 (now 3-5 on Spire, 5-3 on Gantry). Before, the Blight won all 6 on Spire by
+// blight-01: Blight on its smallest and largest maps, 12 bots, seeds 1-8 (human-Blight wins now 3-5 on Spire and on Gantry). Before, the Blight won all 6 on Spire by
 // elimination in 183-243 s and the humans 5 of 6 on Gantry; the outbreak now grows with the walkable floor (13f outbreakSize).
 // The infected stay melee only: no grenade, gadget or non-melee shot (they had thrown frags for about one kill a match).
 const BLIGHT_SPLIT_MAPS = ['spire', 'gantry'], BLIGHT_SPLIT_SEEDS = [1, 2, 3, 4, 5, 6, 7, 8], BLIGHT_SPLIT_BOTS = 12;
