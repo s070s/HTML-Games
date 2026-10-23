@@ -658,6 +658,10 @@ Test.add('bots', (check) => {
   Game.playerId = 0;
   const match = { results: teamOutcome(1) };
   check('adapt: a team loss lowers the shift and shows on the results', Difficulty.adapt(match) === -1 && Settings.get('difficulty.tierShift') === -1 && match.results.botTierChange === -1);
+  Settings.set('difficulty.tierShift', 0.5);
+  check('a fractional saved shift reads as a whole tier', Difficulty.tierShift() === Math.round(0.5), Difficulty.tierShift());
+  Settings.set('difficulty.tierShift', 1e9);
+  check('an imported shift past the limit reads as the limit', Difficulty.tierShift() === ADAPTIVE_SHIFT_LIMIT, Difficulty.tierShift());
   Game.playerId = playerId;
   Settings.set('difficulty.tierShift', shift); Settings.set('difficulty.adaptive', adaptive);
 });

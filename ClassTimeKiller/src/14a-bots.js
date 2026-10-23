@@ -35,6 +35,8 @@ Settings.define('difficulty.botAimError', 1, { label: 'Bot aim error', category:
 Settings.define('difficulty.adaptive', false, { label: 'Adaptive bot skill (+-1 tier per match)', category: 'gameplay' });
 Settings.define('difficulty.tierShift', 0, { label: 'Adaptive tier shift', category: 'developer' });   // internal: no min/max, no control
 const ADAPTIVE_SHIFT_LIMIT = 3;
+// The one shift rule: whole tiers within the limit (a saved or imported value may be anything).
+const adaptiveShift = (value) => Math.round(clamp(value, -ADAPTIVE_SHIFT_LIMIT, ADAPTIVE_SHIFT_LIMIT));
 
 const Difficulty = {
   // Preset row merged with custom slider values (clamped to DIF-002). Unknown presets fall back to 'regular' (logged).
@@ -60,12 +62,12 @@ const Difficulty = {
   adapt(match) {
     if (!Settings.get('difficulty.adaptive') || Game.playerId < 0 || !match.results) return 0;
     const change = matchOutcome(match.results, Game.playerId);
-    const shift = clamp(Settings.get('difficulty.tierShift') + change, -ADAPTIVE_SHIFT_LIMIT, ADAPTIVE_SHIFT_LIMIT);
+    const shift = adaptiveShift(Settings.get('difficulty.tierShift') + change);
     Settings.set('difficulty.tierShift', shift);
     match.results.botTierChange = change;
     return change;
   },
-  tierShift() { return Settings.get('difficulty.adaptive') ? Settings.get('difficulty.tierShift') : 0; },
+  tierShift() { return Settings.get('difficulty.adaptive') ? adaptiveShift(Settings.get('difficulty.tierShift')) : 0; },
 };
 
 // +1 won, -1 lost, 0 neither (a draw, the middle of a free-for-all ranking, or the player not in the results).
