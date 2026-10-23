@@ -169,6 +169,15 @@ Test.add('core', (check) => {
   check('errors: repeats are counted', added === 2 && flood.join() === 't: root,t: step (x200)', flood.join());
 });
 
+// R-007: a block that throws reports the error the way ErrorLog does (errorText: the message first on every engine).
+Test.add('core', async (check) => {
+  const thrown = new TypeError('boom'), group = 'core-throwing-block';
+  Test.blocks.push({ group, run: () => { throw thrown; }, slow: false });
+  let report = null;
+  try { report = await Test.run({ group }); } finally { Test.blocks = Test.blocks.filter((block) => block.group !== group); }
+  check('a throwing block reads "block threw" with errorText', report.failed === 1 && report.results[0].name === 'block threw' && report.results[0].detail === errorText(thrown), report.results[0].detail);
+});
+
 // PLT-003: a loaded field of the wrong kind is replaced, and a failed write tells the player at once (once per failure).
 Test.add('core', (check) => {
   const migrated = Save.migrate({ version: 1, settings: null, bindings: [], touchLayouts: 'x', rulesets: {}, play: { mode: 'ffa' }, crosshairs: 5 });

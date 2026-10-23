@@ -31,7 +31,7 @@ const Test = {
       const check = Test.checker(block.group, results);
       Test.isolate();
       const errorsBefore = ErrorLog.entries.length;
-      try { await block.run(check); } catch (error) { check('block threw', false, error && error.stack ? String(error.stack).split('\n').slice(0, 3).join(' | ') : error); }
+      try { await block.run(check); } catch (error) { check('block threw', false, errorText(error)); }
       const unexpected = ErrorLog.entries.slice(errorsBefore);
       if (unexpected.length) check('no errors logged during the block', false, unexpected.slice(0, 3).join(' || '));
     }
