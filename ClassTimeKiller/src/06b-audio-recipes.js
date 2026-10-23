@@ -14,13 +14,14 @@ const SOUND_RECIPE_DEFAULTS = {
   pulses: [0], caption: null, captionKind: '', captionGap: 0.6, retrigger: 0,
 };
 const SOUND_PULSE_GAP = 0.002;                 // seconds between the end of one pulse and the start of the next
-const SOUND_MIN_PULSE_DECAY = 0.01;           // every pulse needs at least this much decay left (checked by the self-test)
+const SOUND_GUN_RETRIGGER = 0.02;              // seconds: the fastest weapon fires 20 times a second (0.05); minus one 30 fps frame (0.033) keeps every real shot
+const SOUND_MIN_PULSE_DECAY = 0.01;          // every pulse needs at least this much decay left (checked by the self-test)
 const SOUND_NOISE_DEFAULTS = { filter: 'bandpass', from: 1000, to: 1000, q: 1, attack: 0.002, decay: 0.1, gain: 1 };
 const SOUND_TONE_DEFAULTS = { wave: 'sine', from: 440, to: 440, attack: 0.002, decay: 0.1, gain: 1, partial: 0 };
 
 // Groups share defaults; each row is one sound. Weapon classes differ in crack, body and tail so guns can be told apart by ear (AUD-003).
 const SOUND_RECIPE_GROUPS = [
-  { defaults: { ref: 8, rolloff: 0.45, nearRange: 35, gain: 2.1, caption: 'Gunfire', captionKind: 'gunfire', captionGap: 0.7, retrigger: 0.07 }, rows: [
+  { defaults: { ref: 8, rolloff: 0.45, nearRange: 35, gain: 2.1, caption: 'Gunfire', captionKind: 'gunfire', captionGap: 0.7, retrigger: SOUND_GUN_RETRIGGER }, rows: [
     { id: 'sidearm', gain: 2.8, noise: { from: 3200, to: 1400, q: 0.9, decay: 0.07, gain: 0.9 }, tone: { wave: 'triangle', from: 420, to: 140, decay: 0.09, gain: 0.5 } },
     { id: 'shotgun', noise: { filter: 'lowpass', from: 5000, to: 500, q: 0.7, decay: 0.32 }, tone: { from: 110, to: 45, decay: 0.26 } },
     { id: 'rifle', noise: { from: 2400, to: 800, q: 0.8, decay: 0.11 }, tone: { wave: 'triangle', from: 190, to: 75, decay: 0.13, gain: 0.7 } },
@@ -31,9 +32,9 @@ const SOUND_RECIPE_GROUPS = [
     { id: 'rail', noise: { from: 7000, to: 1500, q: 2.5, attack: 0.004, decay: 0.35, gain: 0.7 }, tone: { from: 1400, to: 180, decay: 0.4, gain: 0.8, partial: 1.5 } },
     { id: 'launcher', ref: 10, noise: { filter: 'lowpass', from: 1800, to: 250, q: 0.7, decay: 0.45, gain: 0.9 }, tone: { from: 85, to: 30, decay: 0.4, gain: 1.1 } },
     { id: 'energy', gain: 2.6, noise: { from: 4500, to: 2500, q: 3, decay: 0.08, gain: 0.35 }, tone: { wave: 'sawtooth', from: 1100, to: 300, decay: 0.14, gain: 0.8 } },
-    { id: 'heavy', noise: { from: 1500, to: 500, q: 0.6, decay: 0.09 }, tone: { wave: 'square', from: 95, to: 55, decay: 0.1, gain: 0.8 } },
+    { id: 'heavy', noise: { from: 1500, to: 500, q: 0.6, decay: 0.09 }, tone: { wave: 'square', from: 95, to: 55, gain: 0.8 } },
     { id: 'melee', ref: 4, nearRange: 14, caption: null, noise: { from: 1100, to: 300, q: 0.5, attack: 0.03, decay: 0.18, gain: 0.8 }, tone: { from: 160, to: 90, attack: 0.02, decay: 0.12, gain: 0.3 } },
-    { id: 'tool', caption: null, noise: { from: 2000, to: 1000, q: 4, decay: 0.12, gain: 0.5 }, tone: { from: 520, to: 780, decay: 0.2, gain: 0.6, partial: 1.5 } },
+    { id: 'tool', caption: null, noise: { from: 2000, q: 4, decay: 0.12, gain: 0.5 }, tone: { from: 520, to: 780, decay: 0.2, gain: 0.6, partial: 1.5 } },
     { id: 'exotic', noise: { from: 900, to: 3000, q: 4, decay: 0.3, gain: 0.5 }, tone: { from: 300, to: 900, decay: 0.35, gain: 0.7, partial: 1.41 } },
     { id: 'power', gain: 2.0, ref: 14, rolloff: 0.3, nearRange: 60, noise: { filter: 'lowpass', from: 3500, to: 200, q: 0.7, decay: 1 }, tone: { wave: 'sawtooth', from: 70, to: 28, decay: 1, gain: 0.8, partial: 1.5 } },
     { id: 'flame', noise: { filter: 'lowpass', from: 2500, to: 900, q: 0.5, attack: 0.04, decay: 0.25 } },
@@ -65,16 +66,11 @@ const SOUND_RECIPE_GROUPS = [
     { id: 'headshot', pulses: [0, 0.06], pitchSteps: [1, 1.5], tone: { from: 2400, to: 2300, attack: 0.001, decay: 0.08, gain: 0.7, partial: 2 } },
     { id: 'damageTaken', gain: 1.5, noise: { filter: 'lowpass', from: 900, to: 200, q: 0.7, decay: 0.12, gain: 0.8 }, tone: { from: 90, to: 50, decay: 0.18, gain: 1.2 } },
     { id: 'killConfirm', pulses: [0, 0.09], pitchSteps: [1, 1.33], tone: { wave: 'triangle', from: 880, to: 860, decay: 0.12, gain: 0.7, partial: 2 } },
-    { id: 'shieldBreak', gain: 0.9, ref: 6, noise: { filter: 'highpass', from: 7000, to: 1500, q: 0.8, decay: 0.35, gain: 0.8 }, tone: { wave: 'sawtooth', from: 1200, to: 200, decay: 0.3, gain: 0.5, partial: 1.5 } },
     { id: 'heartbeat', gain: 1, pulses: [0, 0.19], noise: { filter: 'lowpass', from: 180, to: 120, q: 0.7, decay: 0.12, gain: 0.3 }, tone: { from: 62, to: 42, attack: 0.01, decay: 0.16, gain: 1.4 } },
   ] },
   { defaults: { ref: 6, nearRange: 25, gain: 0.7 }, rows: [   // world cues other actors cause
     { id: 'death', gain: 1.2, noise: { filter: 'lowpass', from: 1200, to: 150, q: 0.7, decay: 0.5, gain: 0.6 }, tone: { from: 220, to: 60, decay: 0.6, gain: 0.8 } },
-    { id: 'pickup', gain: 1.6, caption: 'Pickup', captionKind: 'item', captionGap: 0.8, tone: { wave: 'triangle', from: 500, to: 900, decay: 0.12, gain: 0.6 } },
-    { id: 'pickupHealth', gain: 1.6, caption: 'Pickup', captionKind: 'item', captionGap: 0.8, tone: { from: 700, to: 1100, decay: 0.18, gain: 0.6, partial: 1.5 } },
-    { id: 'pickupArmor', gain: 1.6, caption: 'Pickup', captionKind: 'item', captionGap: 0.8, tone: { wave: 'triangle', from: 350, to: 500, decay: 0.2, gain: 0.6, partial: 2.01 } },
-    { id: 'pickupAmmo', gain: 1.6, caption: 'Pickup', captionKind: 'item', captionGap: 0.8, pulses: [0, 0.05], tone: { wave: 'square', from: 900, to: 700, decay: 0.05, gain: 0.3 } },
-    { id: 'pickupWeapon', gain: 1.6, caption: 'Pickup', captionKind: 'item', captionGap: 0.8, pulses: [0, 0.1], pitchSteps: [1, 1.3], noise: { from: 2500, to: 1500, q: 2, decay: 0.06, gain: 0.6 }, tone: { wave: 'square', from: 300, to: 450, decay: 0.12, gain: 0.4 } },
+    { id: 'shieldBreak', gain: 0.9, range: 40, caption: 'Shield broke', captionKind: 'alert', noise: { filter: 'highpass', from: 7000, to: 1500, q: 0.8, decay: 0.35, gain: 0.8 }, tone: { wave: 'sawtooth', from: 1200, to: 200, decay: 0.3, gain: 0.5, partial: 1.5 } },
     { id: 'powerChime', gain: 0.9, ref: 10, rolloff: 0.3, nearRange: 60, caption: 'Power item', captionKind: 'item', pulses: [0, 0.12, 0.24], pitchSteps: [1, 1.26, 1.5], tone: { from: 660, to: 650, decay: 0.5, gain: 0.8, partial: 2 } },
     { id: 'itemRespawn', gain: 0.6, ref: 8, nearRange: 30, caption: 'Item respawned', captionKind: 'item', pulses: [0, 0.1], pitchSteps: [1, 1.25], tone: { from: 523, to: 520, decay: 0.3, gain: 0.5 } },
     { id: 'grenadeTick', gain: 1.8, nearRange: 30, caption: 'Grenade', captionKind: 'alert', captionGap: 0.5, noise: { from: 4000, to: 3000, q: 3, decay: 0.02, gain: 0.5 }, tone: { wave: 'square', from: 2400, to: 2000, decay: 0.025, gain: 0.5 } },
@@ -82,23 +78,41 @@ const SOUND_RECIPE_GROUPS = [
     { id: 'abilityCast', gain: 1.2, ref: 8, noise: { from: 500, to: 2500, q: 2, attack: 0.05, decay: 0.3, gain: 0.5 }, tone: { from: 220, to: 660, attack: 0.02, decay: 0.3, gain: 0.6 } },
     { id: 'abilityEnd', gain: 1.2, tone: { from: 600, to: 300, decay: 0.2, gain: 0.5 } },
     { id: 'radioBlip', bus: 'voice', gain: 1.6, ref: 10, nearRange: 40, caption: 'Radio chatter', captionKind: 'voice', captionGap: 1.2, pulses: [0, 0.07], pitchSteps: [1, 1.25], noise: { from: 3000, to: 3000, q: 2, decay: 0.05, gain: 0.2 }, tone: { wave: 'square', from: 1200, to: 1200, decay: 0.03, gain: 0.3 } },
+    // Enemy attack tells (NPC-002): one per tell colour, so the caption names what is coming.
+    { id: 'tellAttack', gain: 1.8, nearRange: 30, range: 60, caption: 'Enemy attack', captionKind: 'alert', captionGap: 0.5, noise: { from: 600, to: 2500, q: 1.5, attack: 0.05, decay: 0.18, gain: 0.5 }, tone: { wave: 'sawtooth', from: 180, to: 320, attack: 0.03, decay: 0.2, gain: 0.5 } },
+    { id: 'tellUnblockable', gain: 1.8, nearRange: 30, range: 60, caption: 'Unblockable attack', captionKind: 'alert', captionGap: 0.5, pulses: [0, 0.08, 0.16], pitchSteps: [1.2, 1, 1.2], tone: { wave: 'square', from: 300, to: 300, decay: 0.07, gain: 0.5 } },
+    { id: 'tellParry', gain: 1.4, nearRange: 30, range: 60, caption: 'Parryable attack', captionKind: 'alert', captionGap: 0.5, tone: { wave: 'triangle', from: 700, to: 1000, decay: 0.2, gain: 0.6, partial: 1.5 } },
+    { id: 'parry', gain: 1.4, ref: 8, range: 60, caption: 'Parry', captionKind: 'alert', noise: { from: 5200, to: 2600, q: 4, decay: 0.15, gain: 0.7 }, tone: { wave: 'square', from: 900, to: 880, decay: 0.25, gain: 0.5, partial: 2.76 } },
+    // Gadgets and world triggers.
+    { id: 'gadgetPlace', range: 50, caption: 'Device placed', captionKind: 'item', noise: { filter: 'lowpass', from: 1200, to: 300, decay: 0.08, gain: 0.7 }, tone: { wave: 'square', from: 200, to: 120, decay: 0.08, gain: 0.4 } },
+    { id: 'gadgetBreak', gain: 1.4, range: 50, caption: 'Device destroyed', captionKind: 'alert', noise: { from: 4000, to: 800, q: 2, decay: 0.25, gain: 0.8 }, tone: { wave: 'sawtooth', from: 400, to: 80, decay: 0.25, gain: 0.6 } },
+    { id: 'padLaunch', gain: 1.4, range: 50, caption: 'Jump pad', captionKind: 'footstep', tone: { from: 250, to: 900, decay: 0.25, gain: 0.7 } },
+    { id: 'teleport', gain: 1.4, range: 50, caption: 'Teleporter', captionKind: 'footstep', tone: { from: 1200, to: 300, decay: 0.35, gain: 0.6, partial: 2 } },
+  ] },
+  { defaults: { ref: 6, nearRange: 25, gain: 1.6, caption: 'Pickup', captionKind: 'item', captionGap: 0.8 }, rows: [   // item pickups
+    { id: 'pickup', tone: { wave: 'triangle', from: 500, to: 900, decay: 0.12, gain: 0.6 } },
+    { id: 'pickupHealth', tone: { from: 700, to: 1100, decay: 0.18, gain: 0.6, partial: 1.5 } },
+    { id: 'pickupArmor', tone: { wave: 'triangle', from: 350, to: 500, decay: 0.2, gain: 0.6, partial: 2.01 } },
+    { id: 'pickupAmmo', pulses: [0, 0.05], tone: { wave: 'square', from: 900, to: 700, decay: 0.05, gain: 0.3 } },
+    { id: 'pickupWeapon', pulses: [0, 0.1], pitchSteps: [1, 1.3], noise: { from: 2500, to: 1500, q: 2, decay: 0.06, gain: 0.6 }, tone: { wave: 'square', from: 300, to: 450, decay: 0.12, gain: 0.4 } },
   ] },
   { defaults: { bus: 'voice', ref: 12, rolloff: 0.3, nearRange: 60, gain: 0.75, captionKind: 'voice', captionGap: 0.5 }, rows: [   // pings (AUD-005)
-    { id: 'ping', caption: 'Ping', pulses: [0, 0.09], pitchSteps: [1, 1.5], tone: { from: 1000, to: 1000, decay: 0.1, gain: 0.6, partial: 2 } },
-    { id: 'pingDanger', caption: 'Danger ping', gain: 0.8, pulses: [0, 0.08, 0.16], pitchSteps: [1.5, 1, 1.5], tone: { wave: 'triangle', from: 900, to: 900, decay: 0.1, gain: 0.6 } },
+    { id: 'ping', caption: 'Ping', pulses: [0, 0.09], pitchSteps: [1, 1.5], tone: { from: 1000, to: 1000, gain: 0.6, partial: 2 } },
+    { id: 'pingDanger', caption: 'Danger ping', gain: 0.8, pulses: [0, 0.08, 0.16], pitchSteps: [1.5, 1, 1.5], tone: { wave: 'triangle', from: 900, to: 900, gain: 0.6 } },
   ] },
   { defaults: { bus: 'ui', priority: 'ui', ref: 1, occludes: false, gain: 1.0 }, rows: [
     { id: 'uiClick', noise: { from: 3000, to: 2500, decay: 0.015, gain: 0.2 }, tone: { from: 900, to: 700, decay: 0.04, gain: 0.5 } },
     { id: 'uiBack', tone: { from: 600, to: 400, decay: 0.05, gain: 0.5 } },
     { id: 'uiConfirm', pulses: [0, 0.06], pitchSteps: [1, 1.5], tone: { from: 700, to: 700, decay: 0.07, gain: 0.5 } },
     { id: 'uiHover', gain: 1.0, tone: { from: 1200, to: 1200, decay: 0.02, gain: 0.25 } },
-    { id: 'uiError', pulses: [0, 0.12], tone: { wave: 'square', from: 200, to: 150, decay: 0.1, gain: 0.3 } },
+    { id: 'uiError', pulses: [0, 0.12], tone: { wave: 'square', from: 200, to: 150, gain: 0.3 } },
   ] },
   { defaults: { bus: 'voice', priority: 'ui', ref: 1, occludes: false, gain: 0.8 }, rows: [   // announcer and medal stings (UI-012)
-    { id: 'announce', pulses: [0, 0.12, 0.24], pitchSteps: [1, 1.25, 1.5], tone: { wave: 'triangle', from: 440, to: 440, decay: 0.22, gain: 0.8, partial: 2 } },
+    { id: 'announce', pulses: [0, 0.12, 0.24], pitchSteps: [1, 1.25, 1.5], tone: { wave: 'triangle', decay: 0.22, gain: 0.8, partial: 2 } },
     { id: 'announceWarn', gain: 0.5, pulses: [0, 0.18], pitchSteps: [1, 0.8], tone: { wave: 'square', from: 330, to: 330, decay: 0.3, gain: 0.4 } },
     { id: 'announceObjective', pulses: [0, 0.14], pitchSteps: [1, 1.33], tone: { wave: 'triangle', from: 520, to: 520, decay: 0.25, gain: 0.7, partial: 2 } },
     { id: 'announcePower', pulses: [0, 0.1, 0.2, 0.3], pitchSteps: [1, 1.26, 1.5, 2], tone: { from: 660, to: 660, decay: 0.3, gain: 0.8, partial: 2 } },
+    { id: 'coreDown', gain: 1.0, pulses: [0, 0.25, 0.5], pitchSteps: [1, 0.8, 0.6], tone: { wave: 'sawtooth', from: 220, to: 200, decay: 0.24, gain: 0.8 } },
     { id: 'medal', pulses: [0, 0.08, 0.16, 0.24], pitchSteps: [1, 1.25, 1.5, 1.88], tone: { wave: 'triangle', from: 600, to: 600, decay: 0.25, gain: 0.8, partial: 2.01 } },
   ] },
 ];
@@ -161,8 +175,10 @@ const SOUND_TABLES = {
   itemRespawn: { power: 'powerChime', default: 'itemRespawn' },
   bounce: { default: 'grenadeTick' },
   ping: { danger: 'pingDanger', enemy: 'pingDanger', default: 'ping' },
-  uiClick: { click: 'uiClick', back: 'uiBack', confirm: 'uiConfirm', hover: 'uiHover', error: 'uiError', default: 'uiClick' },
-  announce: { warning: 'announceWarn', objective: 'announceObjective', power: 'announcePower', default: 'announce' },
+  uiClick: { accept: 'uiConfirm', back: 'uiBack', move: 'uiHover', toggle: 'uiClick', error: 'uiError', default: 'uiClick' },   // the kinds Ui.emitClick sends
+  announce: { overtime: 'announceWarn', time: 'announceWarn', bomb: 'announceWarn', lead: 'announceWarn', objective: 'announceObjective', flag: 'announceObjective',
+    capture: 'announceObjective', power: 'announcePower', default: 'announce' },   // the kinds the modes and items announce
+  trigger: { jumppad: 'padLaunch', teleporter: 'teleport' },   // other world triggers (ladders, water, hazards) stay silent: no default
 };
 
 // Group of an item key, read from the catalogues (power-ups, weapons, items) when they exist.
@@ -212,6 +228,13 @@ const SOUND_EVENTS = [
   { event: 'ability.end', recipe: 'abilityEnd', source: 'id', pos: 'actor' },
   { event: 'ping', lookup: [['kind', 'ping']], source: 'id', pos: 'payload' },
   { event: 'bark', recipe: 'radioBlip', source: 'id', pos: 'actor' },
+  { event: 'gadget.use', recipe: 'abilityCast', source: 'id', pos: 'actor', ownGain: 0.8 },
+  { event: 'gadget.place', recipe: 'gadgetPlace', source: 'owner', pos: 'payload' },
+  { event: 'gadget.destroyed', recipe: 'gadgetBreak', source: 'owner', pos: 'payload' },
+  { event: 'powerup.end', recipe: 'abilityEnd', source: 'id', pos: 'actor' },
+  { event: 'world.trigger', lookup: [['kind', 'trigger']], source: 'id', pos: 'payload' },
+  { event: 'pve.parry', recipe: 'parry', source: 'id', pos: 'actor' },
+  { event: 'pve.core', recipe: 'coreDown', pos: 'none' },
   { event: 'ui.click', lookup: [['kind', 'uiClick']], pos: 'none' },
   { event: 'announce', lookup: [['kind', 'announce']], pos: 'none', speak: true },
   { event: 'medal', when: 'idIsPlayer', recipe: 'medal', source: 'id', pos: 'none', pitchBy: 'medal' },

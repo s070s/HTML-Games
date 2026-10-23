@@ -4,7 +4,7 @@
 //   combat = bass + arpeggio + hi-hat pattern
 //   boss   = low drone + tritone stabs on top of the combat layer
 // Every oscillator exists once and runs while music plays; the scheduler only writes parameter events a quarter second ahead,
-// so music never creates nodes per note (AUD-007). Off on Potato (Quality.current().music) and when the music volume is 0.
+// so music never creates nodes per note (AUD-007). The Music setting decides (Auto = off on Potato, On, Off); it also stays silent at music volume 0.
 
 const MUSIC_BPM = 100;
 const MUSIC_STEP_SECONDS = 60 / MUSIC_BPM / 4;     // sixteenth notes
@@ -13,7 +13,6 @@ const MUSIC_BARS_PER_CHORD = 2;
 const MUSIC_LOOKAHEAD = 0.25;                      // seconds of steps scheduled ahead of the audio clock
 const MUSIC_STALL_SECONDS = 0.5;                   // a scheduler this far behind the clock restarts instead of replaying the past
 const MUSIC_ROOT_HZ = 55;                          // A1
-const MUSIC_MOODS = ['auto', 'calm', 'combat', 'boss'];
 const MUSIC_LAYER_UPDATE_SECONDS = 0.2;            // layer gains are retargeted 5 times a second
 const MUSIC_LAYER_FADE = 0.8;                      // seconds, time constant of a layer cross-fade
 const MUSIC_INTENSITY_DECAY = 0.08;                // intensity per second back towards calm
@@ -66,22 +65,11 @@ function playMusicNote(voice, hz, time, peak, length) {
 }
 
 const SoundMusic = {
-  mood: 'auto',          // 'auto' follows the intensity, the others force a layer mix (boss fights, menus)
   intensity: 0,          // 0..1, raised by damage near the listener, decays over seconds
   bosses: 0,             // boss fights going on ('pve.boss' start minus defeated or gone; 0 again when the match ends or stops)
   nodes: null, layerClock: 0, step: 0, bar: 0, nextStepTime: 0,
   weights: { calm: 1, combat: 0, boss: 0 },
 
-  setMood(name) {
-    if (!MUSIC_MOODS.includes(name)) return false;
-    this.mood = name;
-    return true;
-  },
-  // Menus are always calm; during a match the mood decides, and 'auto' plays the boss layer while a boss fights (AUD-006).
-  effectiveMood() {
-    if (Game.state !== 'playing') return 'calm';
-    return this.mood === 'auto' && this.bosses > 0 ? 'boss' : this.mood;
-  },
   onBoss(payload) {
     if (payload.kind === 'start') this.bosses++;
     if (payload.kind === 'defeated' || payload.kind === 'gone') this.bosses = Math.max(0, this.bosses - 1);
@@ -108,13 +96,14 @@ const SoundMusic = {
     this.updateLayers(seconds);
     this.scheduleUntil(Sound.context.currentTime + MUSIC_LOOKAHEAD);
   },
-  // Target mix for the current mood (pure: tests read it without a context).
+  // Target mix (pure: tests read it without a context). Menus are always calm; during a match the intensity decides,
+  // and the boss layer plays on top of full combat while a boss fights (AUD-006).
   targetWeights(out) {
-    const mood = this.effectiveMood();
-    const forced = mood === 'calm' ? 0 : 1;
-    const combat = mood === 'auto' ? smoothstep(MUSIC_COMBAT_FROM, MUSIC_COMBAT_TO, this.intensity) : forced;
+    const playing = Game.state === 'playing';
+    const boss = playing && this.bosses > 0;
+    const combat = boss ? 1 : (playing ? smoothstep(MUSIC_COMBAT_FROM, MUSIC_COMBAT_TO, this.intensity) : 0);
     out.combat = combat;
-    out.boss = mood === 'boss' ? 1 : 0;
+    out.boss = boss ? 1 : 0;
     out.calm = 1 - MUSIC_CALM_UNDER_COMBAT * combat;
     return out;
   },
@@ -207,7 +196,6 @@ const SoundMusic = {
   },
 };
 
-Sound.setMusicMood = (name) => SoundMusic.setMood(name);
 Sound.frameHooks.push((seconds) => SoundMusic.update(seconds));
 Bus.on('damage', (payload) => SoundMusic.onDamage(payload));
 Bus.on('pve.boss', (payload) => SoundMusic.onBoss(payload));
