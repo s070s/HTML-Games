@@ -438,7 +438,11 @@ Test.add('pve', (check) => {
 Test.add('pve', (check) => {
   const hints = [{ kind: 'dummy', x: 0, y: 0, z: 12 }, { kind: 'dummy', x: 4, y: 0, z: 12 }, { kind: 'dummy', x: -4, y: 0, z: 12 }];
   World.load(pveTestMap({ spawns: [{ x: 0, y: 0, z: 0, yaw: 0, modes: ['range'] }], navHints: hints }));
+  const announced = startEventLog('announce');
   Game.start({ mode: 'range', seed: 1, bots: [{ dummy: true }], difficulty: 'regular' });
+  announced.stop();
+  check('the range explains its drill and how to leave at the start', announced.some((event) => event.text === RANGE_INTRO_TEXT && event.text.includes(String(PVE_RANGE.drillTargets))),
+    announced.map((event) => event.text).join(' | '));
   const shooter = 0;
   Modes.endProtection(shooter);
   runSeconds(0.2);
