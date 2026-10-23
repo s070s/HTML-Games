@@ -16,6 +16,14 @@ _Hand-off: print a self-contained block in chat (standing rules, state with SHAs
 
 ## Entries
 
+- 2026-10-24 ~00:55 GTBDT. **CLOSED.** P1-P8 done on worktree-living-world at `3e03eca`.
+  - Delta-2 review wf_99cd5513-4ab: 4 found and 4 confirmed (1 medium, 3 low). All are fixed: 91d6b41 (merged bd09100) and dfe314a (merged 3e03eca).
+  - Final full self-test 2645/0 at 1920x1080.
+  - Final bench (Playwright, 1920x1080): all 18 scenes p95 ≤ 4.2 ms, max ≤ 4.8 ms.
+  - The 17 helper worktrees and branches are removed (all merged). Durable rules are in memory (iron-horizon-living-world-program, parallel-helpers-in-isolated-worktrees). D11: the plan and this ledger are deleted in the next commit.
+  - Open, owner only: the go to push IH P3-P8 (worktree-living-world → origin/main) and Breakpoint's held iPhone commits (6fdce11, 834dc6d, be88e70). D63, m12's ship exception, can be reversed on request.
+  - RESUME: none. Wait for the owner's go, then ship with gated-ship.
+
 - 2026-10-24 ~00:45 GTBDT. fix-ambulance (1a98b65) merged at `f1f95f1` (clean). Root cause of the ambulance-coverage miss: walkers cut across the car lanes (corners, doors, crate-pulled corners), so ambulances stopped behind them and turned back after 5 s. 57% of mid-street walker samples were on the road; misses 9.8% → 2.9% (rest are junction queues). New check in 'civilians': walkers stay off the road (red with the old walking). Flake closed; server 8769 stopped.
   - RESUME: full self-test at f1f95f1 → dfix-combat (8771) → merge → full self-test twice → Opus verify of the delta fixes → close-out → owner's go.
 
