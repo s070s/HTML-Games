@@ -121,7 +121,7 @@ const BotTeam = {
     for (let id = 0; id < Actors.count; id++) {
       if (!Bots.isBot(id) || Actors.team[id] !== team || (this.role[id] !== ROLE.ATTACK && this.role[id] !== ROLE.ESCORT)) continue;
       raiders++;
-      if (Math.hypot(Actors.x[id] - this.rallyX[team], Actors.z[id] - this.rallyZ[team]) <= BOT_FLAG_PUSH.radius) gathered++;
+      if (length2(Actors.x[id] - this.rallyX[team], Actors.z[id] - this.rallyZ[team]) <= BOT_FLAG_PUSH.radius) gathered++;
     }
     if (gathered > 0 && this.waitSince[team] < 0) this.waitSince[team] = now;
     const waited = this.waitSince[team] >= 0 && now - this.waitSince[team] >= BOT_FLAG_PUSH.wait;
@@ -240,7 +240,7 @@ const BotTeam = {
     let pinger = -1, nearest = Infinity;
     for (let id = 0; id < Actors.count; id++) {
       const objective = Bots.active[id] && Actors.team[id] === team && BotDecide.goal[id] === GOAL.OBJECTIVE ? Modes.objectives[BotDecide.goalTarget[id]] : null;
-      const distance = objective ? Math.hypot(objective.x - Actors.x[id], objective.z - Actors.z[id]) : Infinity;
+      const distance = objective ? length2(objective.x - Actors.x[id], objective.z - Actors.z[id]) : Infinity;
       if (distance < nearest) { nearest = distance; pinger = id; }
     }
     if (pinger < 0) return;
@@ -255,7 +255,7 @@ const BotTeam = {
     const kind = this.orderKind[id];
     if (kind === 'follow') return this.followPlan(id, plan, FOLLOW_RADIUS, ACTION.MOVE);
     if (kind === 'cover') return this.followPlan(id, plan, COVER_RADIUS, ACTION.HOLD);
-    if (kind === 'go' && Math.hypot(this.orderX[id] - Actors.x[id], this.orderZ[id] - Actors.z[id]) < ORDER_RADIUS) { this.orderUntil[id] = 0; return false; }
+    if (kind === 'go' && length2(this.orderX[id] - Actors.x[id], this.orderZ[id] - Actors.z[id]) < ORDER_RADIUS) { this.orderUntil[id] = 0; return false; }
     setPlan(plan, this.orderX[id], this.orderY[id], this.orderZ[id], ORDER_RADIUS, kind === 'defend' ? ACTION.HOLD : ACTION.MOVE, -1);
     return true;
   },
@@ -318,7 +318,7 @@ const BotTeam = {
     takerList.length = 0;
     for (let id = 0; id < Actors.count; id++) if (id !== pinger && Bots.isBot(id) && Actors.team[id] === team) takerList.push(id);
     if (wholeTeam) return;
-    takerList.sort((a, b) => Math.hypot(Actors.x[a] - x, Actors.z[a] - z) - Math.hypot(Actors.x[b] - x, Actors.z[b] - z));
+    takerList.sort((a, b) => length2(Actors.x[a] - x, Actors.z[a] - z) - length2(Actors.x[b] - x, Actors.z[b] - z));
     if (takerList.length > ORDER_TAKERS) takerList.length = ORDER_TAKERS;
   },
   // A bot that newly sees an enemy pings it for the team (BOT-061) and calls it out.
@@ -459,7 +459,7 @@ function aimedActor(player, dx, dy, dz, enemies) {
 function spotKind(player, x, z) {
   const team = Actors.team[player];
   for (const objective of Modes.objectives) {
-    if (Math.hypot(objective.x - x, objective.z - z) > Math.max(objective.radius, ORDER_RADIUS)) continue;
+    if (length2(objective.x - x, objective.z - z) > Math.max(objective.radius, ORDER_RADIUS)) continue;
     return objective.owner === team || objective.team === team ? 'defend' : 'attack';
   }
   return 'go';
