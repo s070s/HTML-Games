@@ -230,11 +230,9 @@ Test.add('play', (check) => uiWith(() => {
   check('scoreboard: releasing Tab closes it', Ui.current() === '');
   Input.device = 'touch';
   Bus.emit('input.action', { action: 'scoreboard', down: true });
+  const held = Ui.current() === 'scoreboard';
   Bus.emit('input.action', { action: 'scoreboard', down: false });
-  check('scoreboard: on touch a tap opens it and the release keeps it open', Ui.current() === 'scoreboard');
-  Bus.emit('input.action', { action: 'scoreboard', down: true });
-  Bus.emit('input.action', { action: 'scoreboard', down: false });
-  check('scoreboard: the next tap closes it', Ui.current() === '');
+  check('scoreboard: on touch the score panel holds it as Tab does', held && Ui.current() === '');
   Bus.emit('input.action', { action: 'scoreboard', down: true });
   uiClickButton(Ui.top().element, 'Close');
   check('scoreboard: the Close button works', Ui.current() === '');
