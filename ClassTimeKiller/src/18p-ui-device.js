@@ -90,12 +90,6 @@ const Device = {
 const touchIcon = document.querySelector('link[rel="apple-touch-icon"]');
 if (touchIcon) document.head.appendChild(Object.assign(document.createElement('link'), { rel: 'icon', href: touchIcon.href }));
 
-// ---- iOS keyboard: Safari pans the page to show a focused field and can leave it shifted (taps off target) after the
-// keyboard closes, so leaving a text field puts the fixed layout back ----
-function restoreViewport(event) {
-  if (/^(INPUT|TEXTAREA)$/.test(event.target.tagName)) window.scrollTo(0, 0);
-}
-
 // ---- Back swipe: one history entry per match, so Back pauses instead of leaving ----
 function guardBackSwipe() {
   if (Game.headless || (history.state && history.state.ctk === BACK_GUARD_STATE)) return;
@@ -117,7 +111,6 @@ Bus.on('match.end', () => { if (!Game.headless) Device.homeScreenTip(); });
 Bus.on('boot', () => {
   if (Game.headless) return;
   window.addEventListener('popstate', onBackSwipe);
-  document.addEventListener('focusout', restoreViewport);
   Device.armPersist();
   Loop.onFrame('ui', () => { Device.showPendingDialog(); Device.updateWakeLock(); });
 });

@@ -758,7 +758,7 @@ Test.add('modes', (check) => {
 // Objective markers use the team colours of the bodies and the HUD, colour-blind palette included (normalize-02).
 Test.add('modes', (check) => {
   const drawn = [], palette = Render.teamPalette, flag = makeObjective({ kind: 'flag', team: 1 }, 0);
-  const recorder = { mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b) { drawn.push(Math.round(r * 255) * 65536 + Math.round(g * 255) * 256 + Math.round(b * 255)); } };
+  const recorder = { meshFrom(shape, shown) { drawn.push(Math.round(shown.r * 255) * 65536 + Math.round(shown.g * 255) * 256 + Math.round(shown.b * 255)); } };
   Render.teamPalette = [0x0072b2, 0xffb000];
   drawObjective(recorder, flag);
   Render.teamPalette = null;

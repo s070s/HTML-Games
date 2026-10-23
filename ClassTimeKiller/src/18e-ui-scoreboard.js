@@ -6,8 +6,8 @@
 const SCOREBOARD_TEAM_SYMBOLS = ['●', '▲', '■', '◆'];
 const SCOREBOARD_OBJECTIVE_LABELS = { flag: 'Captures', point: 'Captures', hill: 'Hold time', bombsite: 'Plants', relic: 'Hold time', core: 'Defence', bank: 'Banked', extract: 'Extracts' };
 const SCOREBOARD_DEFAULT_OBJECTIVE_LABEL = 'Objective';
-// Accuracy counts a hit by the range's one rule (S14 RANGE_UNCOUNTED_KINDS): splash and damage over time add damage, no hit.
-function scoreboardCountsHit(kind) { return !RANGE_UNCOUNTED_KINDS.includes(kind); }
+// Accuracy counts a hit by the range's one rule (S14 ACCURACY_HIT_KINDS): a splash is a hit, damage over time adds damage, no hit.
+function scoreboardCountsHit(kind) { return ACCURACY_HIT_KINDS.includes(kind); }
 // A 0xRRGGBB colour as CSS text (the S18 screens' one colour rule).
 function cssHex(color) { return '#' + color.toString(16).padStart(6, '0'); }
 const SCOREBOARD_CSS = '.sb-panel { width: min(1000px, 100%); max-height: 100%; overflow-y: auto; margin: auto; padding: 12px 14px; background: rgba(8, 12, 18, 0.9);'

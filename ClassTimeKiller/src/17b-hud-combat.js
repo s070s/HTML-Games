@@ -38,7 +38,6 @@ const HUD_OUTLINE_ALPHA = 0.6;
 
 const HUD_HIT_SECONDS = 0.22, HUD_KILL_SECONDS = 0.5;
 const HUD_HIT_GAP = 7, HUD_HIT_LENGTH = 8, HUD_KILL_GAP = 9, HUD_KILL_LENGTH = 13;
-const HUD_HIT_KINDS = ['hit', 'melee', 'beam', 'splash'];   // damage kinds that count as a hit on a target (not burning, falling)
 
 const HUD_NUMBER_SLOTS = 8, HUD_NUMBER_SECONDS = 0.9, HUD_NUMBER_STACK_SECONDS = 0.7, HUD_NUMBER_RISE = 46;
 const HUD_ARC_SLOTS = 6, HUD_ARC_SECONDS = 1.4, HUD_ARC_RADIUS = 112, HUD_ARC_HALF_WIDTH = 0.3, HUD_ARC_THICKNESS = 9;
@@ -290,7 +289,7 @@ Bus.on('damage', (event) => {
   const player = Game.playerId;
   if (player < 0) return;
   if (event.target === player && event.source !== player && event.amount > 0) hudOnPlayerDamaged(event);
-  if (event.source !== player || event.target === player || !HUD_HIT_KINDS.includes(event.kind)) return;
+  if (event.source !== player || event.target === player || !ACCURACY_HIT_KINDS.includes(event.kind)) return;
   HudCombat.hitAt = Hud.time;
   HudCombat.hitHead = event.zone === 'head';
   const target = event.target;
