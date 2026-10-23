@@ -951,8 +951,7 @@ Test.add('render', (check) => withRenderer(() => {
   Render.gpuParts.splice(Render.gpuParts.indexOf(failing), 1);
   const fatal = document.getElementById('fatal');
   check('a failed restore shows the WebGL2 message instead of a frozen screen (PLT-002)', logged === 1 && fatalShown && fatal.classList.contains('show') && !Render.ready);
-  fatalShown = false;
-  fatal.classList.remove('show');
+  hideFatal();
   createGpuResources(Render.gl);
   Render.ready = true;
 }));

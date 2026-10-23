@@ -229,6 +229,7 @@ const Hud = {
     }
   },
 };
+Render.teamSlot = (team) => Hud.colorSlot(team);   // the bodies wear the HUD's team colours
 
 // The label of an action's first bound key for a device ('' when none: callers show their own fallback, such as HOLD USE).
 function hudBoundLabel(actionId, device) {

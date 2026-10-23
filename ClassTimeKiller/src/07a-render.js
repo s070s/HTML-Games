@@ -39,8 +39,10 @@ const Render = {
   sources: [],
   camera: { x: 0, y: 2, z: 0, yaw: 0, pitch: 0, roll: 0, fov: FOV_DEFAULT },
   cameraOverride: null,    // fn(camera) -> true when it placed the camera (spectate, killcam)
+  replayPose: null,        // fn(id, pose) -> true when the body is drawn, at the recorded pose it wrote (S17 killcam); null = live bodies
   viewModel: null,         // fn(out) fills { visible, shape, kick, reload, swap, ads, color, zoom }
   teamPalette: null,       // colour-blind team colours (array of 0xRRGGBB by team) instead of CAT.teamColors; null = the normal ones (18m)
+  teamSlot: null,          // fn(team) -> the team colour a team's bodies wear (S17 Hud.colorSlot: M20 squads); null = its own
   viewEffect: null,        // fn(camera, seconds) adds camera shake and FOV kick after the camera followed the player (18k)
   motion: { bob: 1, shake: 1, fovKick: 1 },   // 0..1 scales of view bob, shake and FOV kick: reduce motion and the sliders (ACC-005, 18k)
   actorStyle: null,        // fn(id, out) may change { r, g, b, emissive, scale, headScale, visible }; runs after the addActorStyle list
@@ -592,10 +594,7 @@ function handleContextRestored() {
 // A late restore takes the Reload screen away again; the match stays paused behind the pause menu.
 function hideGraphicsLost() {
   Render.gaveUp = false;
-  fatalShown = false;
-  document.getElementById('fatal').classList.remove('show');
-  const reload = document.getElementById('fatal-reload');
-  if (reload) reload.remove();
+  hideFatal();
 }
 Input.resumeBlocked = () => Render.lost;   // the pause menu's Resume waits for the restore (PLT-005)
 // A quit during the loss: a later match's pause is the player's.

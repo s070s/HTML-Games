@@ -882,14 +882,23 @@ const Pve = {
   draw(batch) {
     if (!this.active) return;
     for (let id = 0; id < Actors.count; id++) {
-      if (!this.isEnemy(id) || !Actors.alive[id] || (Actors.flags[id] & ACTOR_FLAG.INVISIBLE)) continue;
+      if (!this.isEnemy(id)) continue;
       if (Game.playerId >= 0 && PuppetState.master[id] === Game.playerId) continue;   // A23: the player's camera is inside it
       this.drawEnemy(batch, id);
     }
   },
+  // Where the body is drawn (pvePose): where it stands, alive and not cloaked; during a replay (Render.replayPose, the
+  // S17 killcam) where the recording has it. False = not drawn.
+  placeBody(id) {
+    const pose = pvePose;
+    if (Render.replayPose) return Render.replayPose(id, pose);
+    pose.x = Actors.x[id]; pose.y = Actors.y[id]; pose.z = Actors.z[id]; pose.yaw = Actors.yaw[id]; pose.pitch = Actors.pitch[id];
+    return Actors.alive[id] === 1 && (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0;
+  },
   // Sim.time is read here and in tellGlow, not passed in: a float argument to a call that is not inlined is boxed (PERF-006).
   drawEnemy(batch, id) {
-    const now = Sim.time, row = this.rowOf(id), size = row.size, yaw = Actors.yaw[id], pitch = Actors.pitch[id];
+    if (!this.placeBody(id)) return;
+    const now = Sim.time, row = this.rowOf(id), size = row.size, pose = pvePose, yaw = pose.yaw, pitch = pose.pitch;
     const tell = this.tellGlow(id, row), health = Actors.health[id] / Math.max(1, Actors.maxHealth[id]);
     const shade = health < 1 / 3 ? 0.55 : health < 2 / 3 ? 0.8 : 1;   // NPC-006 damage states at 66 / 33 %
     const staggered = now < this.staggerUntil[id] && Math.floor(now * 8) % 2 === 0;
@@ -901,7 +910,7 @@ const Pve = {
       rotateInPlace(point);
       // the part colour (shaded by damage) blends toward the tell colour by its strength; glowing parts take it whole
       const light = glow ? 1 : shade, toTell = glow && tell.amount > 0 ? 1 : tell.amount;
-      instance.x = Actors.x[id] + point.x; instance.y = Actors.y[id] + point.y; instance.z = Actors.z[id] + point.z; instance.yaw = yaw; instance.pitch = part[8] ? pitch : 0;
+      instance.x = pose.x + point.x; instance.y = pose.y + point.y; instance.z = pose.z + point.z; instance.yaw = yaw; instance.pitch = part[8] ? pitch : 0;
       instance.sx = part[4] * size; instance.sy = part[5] * size; instance.sz = part[6] * size;
       instance.r = lerp(colors[tint * 3] * light, tell.r, toTell); instance.g = lerp(colors[tint * 3 + 1] * light, tell.g, toTell); instance.b = lerp(colors[tint * 3 + 2] * light, tell.b, toTell);
       instance.emissive = staggered ? 1 : Math.max(glow ? 0.8 : 0, tell.amount);
@@ -910,6 +919,7 @@ const Pve = {
     if (this.stealth) drawAwareness(batch, id, row, this.awarenessState(id));
     if (this.champion[id] >= 0) drawChampionRing(batch, id, row, this.champion[id]);
     if (Actors.shield[id] > 0) drawShieldShell(batch, id, row);
+    if (Render.replayPose) return;   // the brain and tell marks show live state
     const brain = PveBrains[row.brain];
     if (brain.draw) brain.draw(batch, id, row);
     const attack = this.phase[id] === ATTACK_PHASE.WINDUP ? row.attackRows[this.attack[id]] : null;
@@ -930,6 +940,7 @@ const Pve = {
   },
 };
 const pveTellGlow = { amount: 0, progress: 0, r: 0, g: 0, b: 0 };
+const pvePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 };   // the drawn enemy's feet and angles (Pve.placeBody)
 const pveTellColor = new Float32Array(3);
 
 // NPC-004: a barrier champion's shield may carry an element (x1.5 for the matching element, x0.75 for others).
@@ -974,8 +985,8 @@ function weakPointFactor(row, target, info) {
 // These marks go through the enemy parts' instance record (batch.meshFrom) with integer arguments only (PERF-006).
 const AWARENESS_COLORS = [[0.6, 0.6, 0.6], [1, 0.9, 0.2], [1, 0.55, 0.1], [1, 0.15, 0.1]];
 function drawAwareness(batch, id, row, state) {
-  const color = AWARENESS_COLORS[state], instance = placePveMark(id);
-  instance.y = Actors.y[id] + STAND_HEIGHT * row.size + 0.45; instance.yaw = Actors.yaw[id];
+  const color = AWARENESS_COLORS[state], instance = placePveMark();
+  instance.y = pvePose.y + STAND_HEIGHT * row.size + 0.45; instance.yaw = pvePose.yaw;
   instance.sx = 0.12; instance.sy = 0.35 * Math.max(0.15, Pve.awareness[id]); instance.sz = 0.12;
   instance.r = color[0]; instance.g = color[1]; instance.b = color[2]; instance.emissive = 0.9;
   batch.meshFrom('box', instance);
@@ -983,26 +994,26 @@ function drawAwareness(batch, id, row, state) {
 
 // NPC-004 champion tag: a ring in the tag's colour under its feet (barrier blue, unstoppable orange, overload yellow).
 function drawChampionRing(batch, id, row, champion) {
-  const colors = PVE_CHAMPION_COLORS, slot = champion * 3, diameter = PVE_CHAMPION_RING * row.size, instance = placePveMark(id);
-  instance.y = Actors.y[id] + 0.06; instance.sx = diameter; instance.sy = 0.1; instance.sz = diameter;
+  const colors = PVE_CHAMPION_COLORS, slot = champion * 3, diameter = PVE_CHAMPION_RING * row.size, instance = placePveMark();
+  instance.y = pvePose.y + 0.06; instance.sx = diameter; instance.sy = 0.1; instance.sz = diameter;
   instance.r = colors[slot]; instance.g = colors[slot + 1]; instance.b = colors[slot + 2]; instance.emissive = 1;
   batch.meshFrom('ring', instance);
 }
 // NPC-004 / HP-006 coloured shield: rings around the body in the element colour, glowing with the shield left.
 function drawShieldShell(batch, id, row) {
-  const colors = PVE_SHIELD_COLORS, slot = Damage.shieldElement[id] * 3, size = row.size, instance = placePveMark(id);
+  const colors = PVE_SHIELD_COLORS, slot = Damage.shieldElement[id] * 3, size = row.size, instance = placePveMark();
   instance.sx = instance.sz = TORSO_RADIUS * 2.6 * size; instance.sy = 0.06;
   instance.r = colors[slot]; instance.g = colors[slot + 1]; instance.b = colors[slot + 2];
   instance.emissive = 0.4 + 0.6 * Actors.shield[id] / Math.max(1, Actors.maxShield[id]);
   for (let ring = 0; ring < PVE_SHELL_HEIGHTS.length; ring++) {   // an index loop: for-of boxes each float it yields
-    instance.y = Actors.y[id] + PVE_SHELL_HEIGHTS[ring] * size;
+    instance.y = pvePose.y + PVE_SHELL_HEIGHTS[ring] * size;
     batch.meshFrom('ring', instance);
   }
 }
-// The parts' instance record, upright over the enemy's feet (the caller sets height, size, colour and glow).
-function placePveMark(id) {
+// The parts' instance record, upright over the drawn enemy's feet (the caller sets height, size, colour and glow).
+function placePveMark() {
   const instance = pvePartInstance;
-  instance.x = Actors.x[id]; instance.z = Actors.z[id]; instance.yaw = 0; instance.pitch = 0;
+  instance.x = pvePose.x; instance.z = pvePose.z; instance.yaw = 0; instance.pitch = 0;
   return instance;
 }
 // NPC-002 tells are also heard: a positional cue per tell colour (green, red, orange).

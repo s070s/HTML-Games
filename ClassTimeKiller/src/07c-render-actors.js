@@ -392,10 +392,13 @@ function rotateInPlace(point) {
   return point;
 }
 
-// Team colour, else the profile colour, else a palette colour by id (free-for-all).
+// Team colour (in the HUD's colour slot), else the profile colour, else a palette colour by id (free-for-all).
 function actorBaseColor(id) {
   const team = Actors.team[id], profile = Actors.profile[id];
-  if (team >= 0) return Render.teamPalette ? Render.teamPalette[team % Render.teamPalette.length] : CAT.teamColors[team % CAT.teamColors.length].color;
+  if (team >= 0) {
+    const slot = Render.teamSlot ? Render.teamSlot(team) : team;
+    return Render.teamPalette ? Render.teamPalette[slot % Render.teamPalette.length] : CAT.teamColors[slot % CAT.teamColors.length].color;
+  }
   if (profile && profile.color) return profile.color;
   return CAT.teamColors[id % CAT.teamColors.length].color;
 }
@@ -520,8 +523,10 @@ function fillActors(seconds, alpha) {
   actorBatch.clear();
   shadowBatch.clear();
   ActorFrame.count++;
+  const replay = Render.replayPose;
   for (let id = 0; id < Actors.count; id++) {
-    if (Actors.kind[id] !== ACTOR_KIND.NONE && Actors.alive[id]) drawActor(id, seconds, alpha);
+    if (Actors.kind[id] === ACTOR_KIND.NONE) continue;
+    if (replay) { if (replay(id, actorPose)) drawActorPose(id, actorPose, seconds); } else if (Actors.alive[id]) drawActor(id, seconds, alpha);
   }
 }
 Render.addUpdate(30, fillActors);
@@ -566,10 +571,12 @@ Bus.on('actor.create', (id) => { ActorModels.index[id] = 0; });
 
 // The local player always keeps a blob shadow (MIS-037: no feet in first person); other actors get one
 // unless the sun shadow map already covers them.
-function drawActor(id, seconds, alpha) {
+function drawActor(id, seconds, alpha) { drawActorPose(id, readActorPosition(id, alpha), seconds); }
+// drawActor at given feet position and body angles in `pose` (a replay's recorded ones, Render.replayPose).
+function drawActorPose(id, pose, seconds) {
   const style = readActorStyle(id);
   if (!style.visible) return;
-  const pose = readActorPosition(id, alpha), camera = Render.camera, quality = Render.quality;
+  const camera = Render.camera, quality = Render.quality;
   const distanceSquared = distanceSquared3(pose.x, pose.y, pose.z, camera.x, camera.y, camera.z);
   if (distanceSquared > quality.viewDistance * quality.viewDistance || !actorInView(pose, style.scale)) return;
   const lod = lodFor(distanceSquared, quality);

@@ -89,18 +89,21 @@ function hudTestKill(victim, killer, extra) {
 }
 
 // Temporary content for the hooks other helpers fill later (gadgets, abilities, economy, items); returns the undo function.
+// The rows are made once and reused, as the real hooks do, so the HUD allocation probe measures the HUD alone.
 function hudTestStubs() {
   const saved = [Gadgets.hudState, Abilities.hudState, Economy.hudState, Items.activePowerups, Items.timers];
+  const dash = { id: 'dash', name: 'Dash', key: 'ability1', ready: false, cooldown: 0.5, charges: 2, active: false }, wall = { id: 'wall', name: 'Wall', key: 'ability2', ready: true, cooldown: 0, charges: 1, active: true };
+  const fury = { id: 'fury', name: 'Fury', remaining: 8, duration: 20, color: '#ff6a3d' }, megacell = { item: 'megacell', x: 0, y: 0, z: 10, remaining: 14, group: 'power' };
   Gadgets.hudState = (id, out) => { out.grenade = 'frag'; out.grenadeCount = 2; out.gadget = 'turret'; out.gadgetCount = 1; out.gadgetCooldown = 0.4; return out; };
   Abilities.hudState = (id, out) => {
     out.slots.length = 0;
-    out.slots.push({ id: 'dash', name: 'Dash', key: 'ability1', ready: false, cooldown: 0.5, charges: 2, active: false }, { id: 'wall', name: 'Wall', key: 'ability2', ready: true, cooldown: 0, charges: 1, active: true });
+    out.slots.push(dash, wall);
     out.meter.kind = 'ultimate'; out.meter.value = 0.6; out.meter.ready = false;
     return out;
   };
   Economy.hudState = (id, out) => { out.money = 1800; out.nextRoundMoney = 2400; out.canBuy = true; out.buyTimeLeft = 12; return out; };
-  Items.activePowerups = (id, out) => { out.length = 0; out.push({ id: 'fury', name: 'Fury', remaining: 8, duration: 20, color: '#ff6a3d' }); return 1; };
-  Items.timers = (out) => { out.length = 0; out.push({ item: 'megacell', x: 0, y: 0, z: 10, remaining: 14, group: 'power' }); return 1; };
+  Items.activePowerups = (id, out) => { out.length = 0; out.push(fury); return 1; };
+  Items.timers = (out) => { out.length = 0; out.push(megacell); return 1; };
   return () => { [Gadgets.hudState, Abilities.hudState, Economy.hudState, Items.activePowerups, Items.timers] = saved; };
 }
 
@@ -484,7 +487,13 @@ Test.add('hud', (check) => hudTestWith(() => {
   const scene = hudTestMatch(), player = scene.id, foe = scene.enemy, bystander = scene.mate;
   const buffers = [Killcam.transforms, Killcam.living, Killcam.frameTime];
   Sim.run(KILLCAM_STEP_TICKS - (Sim.tick % KILLCAM_STEP_TICKS));   // batches start on a recorded tick, so x is exactly 5 m per second at every frame
-  for (let batch = 0; batch < 80; batch++) { Actors.x[foe] = Sim.tick * TICK_SECONDS * 5; Actors.z[foe] = 3; Actors.aimYaw[foe] = 0.5; Sim.run(KILLCAM_STEP_TICKS); }
+  hudTestArm(bystander, 'warden');   // the bystander walks 7 m ahead of the killer's eyes with a pistol, a PvE enemy 13 m
+  const monster = Pve.spawnEnemy('gunner', 0, 0, 16, 0, { overCap: true });
+  Pve.active = false;   // its brain stays out of the fight; only the replay draws it
+  for (let batch = 0; batch < 80; batch++) {
+    Actors.x[foe] = Actors.x[bystander] = Actors.x[monster] = Sim.tick * TICK_SECONDS * 5; Actors.z[foe] = 3; Actors.z[bystander] = 10; Actors.z[monster] = 16; Actors.aimYaw[foe] = 0.5;
+    Sim.run(KILLCAM_STEP_TICKS);
+  }
   check('killcam: the ring has a fixed size and never grows', Killcam.filled === KILLCAM_FRAMES && Killcam.transforms.length === KILLCAM_FRAMES * MAX_ACTORS * KILLCAM_FIELDS && Killcam.head < KILLCAM_FRAMES);
   check('killcam: recording never replaces its buffers (no per-frame allocation)', buffers[0] === Killcam.transforms && buffers[1] === Killcam.living && buffers[2] === Killcam.frameTime
     && Killcam.sample(foe, Sim.time - 0.5) === Killcam.sampleScratch);
@@ -502,12 +511,27 @@ Test.add('hud', (check) => hudTestWith(() => {
   const expected = Killcam.sample(foe, Killcam.startTime + 1), expectedX = expected.x, expectedEye = expected.y + expected.eye;
   check('killcam: the camera override puts the camera at the killer\'s eyes', Render.cameraOverride(camera) === true && Test.near(camera.x, expectedX, 1e-3) && Test.near(camera.y, expectedEye, 1e-3)
     && camera.roll === 0 && Test.near(camera.yaw, 0.5, 1e-6), JSON.stringify(camera) + ' expected ' + expectedX + ' ' + expectedEye);
-  const style = { visible: true };
-  Render.applyActorStyle(foe, style);
-  check('killcam: live bodies are hidden while it plays', style.visible === false);
-  let figures = 0;
-  hudDrawKillcamFigures({ meshFrom() { figures++; return 0; } });
-  check('killcam: every recorded body except the killer is drawn as a figure (body and face)', figures === 2 * (Actors.count - 1), figures);
+  // The replay draws the recorded bodies through their own models (07c) where they were, with the weapon they held then; the live ones are not drawn.
+  const recorded = Killcam.sample(bystander, Killcam.startTime + 1), recordedX = recorded.x, pistol = CAT.weapons.byId('warden').index;
+  Actors.x[bystander] = Actors.prevX[bystander] = Actors.x[monster] = recordedX + 40;   // the live bodies are far away by now, holding something else
+  Weapons.current[bystander] = CAT.weapons.find((row) => row.class === 'smg').index;
+  updateCamera(0, 1); fillActors(0, 1);
+  let parts = 0, nearRecorded = 0;
+  for (let shape = 0; shape < SHAPES.length; shape++) {
+    for (let i = 0; i < actorBatch.counts[shape]; i++, parts++) {
+      const o = (shape * actorBatch.capacity + i) * INSTANCE_FLOATS;
+      if (Math.abs(actorBatch.data[o] - recordedX) < 1.5 && Math.abs(actorBatch.data[o + 2] - 10) < 1.5) nearRecorded++;
+    }
+  }
+  check('killcam: the recorded bodies are drawn with their own models where they were', nearRecorded > 5 && nearRecorded === parts, nearRecorded + ' of ' + parts);
+  check('killcam: a replayed body holds the weapon it held then', Render.heldWeapon(bystander) === pistol);
+  const monsterParts = [];   // x and z of every part the PvE source draws
+  Pve.active = true;
+  Pve.draw({ meshFrom(shape, instance) { monsterParts.push(instance.x, instance.z); }, mesh(shape, x, y, z) { monsterParts.push(x, z); } });
+  const monsterAway = monsterParts.filter((value, index) => index % 2 === 0 && (Math.abs(value - recordedX) > 2 || Math.abs(monsterParts[index + 1] - 16) > 2)).length;
+  check('killcam: a PvE enemy is replayed where it was, not where it is now', monsterParts.length > 4 && monsterAway === 0, monsterAway + ' of ' + monsterParts.length / 2);
+  Pve.active = false;
+  actorBatch.clear(); shadowBatch.clear();
   hudTestFrame();
   check('killcam: the panel draws and the rest of the HUD (not from your view) stays away', Hud.quadsOf('') > 0 && Hud.replaying && Hud.quadsOf('header') === 0 && Hud.quadsOf('markers') === 0);
   Killcam.advance(0.5);
@@ -515,9 +539,7 @@ Test.add('hud', (check) => hudTestWith(() => {
   Killcam.advance(2);
   check('killcam: it ends by itself after the replay and a short hold', !Killcam.playing && Render.cameraOverride(camera) === false);
   hudTestFrame();
-  style.visible = true;
-  Render.applyActorStyle(foe, style);
-  check('killcam: afterwards bodies, panel and the normal HUD are back', style.visible === true && Hud.quadsOf('') === 0 && !Hud.replaying && Hud.quadsOf('header') > 0);
+  check('killcam: afterwards the live bodies, no panel and the normal HUD are back', Render.replayPose === null && Hud.quadsOf('') === 0 && !Hud.replaying && Hud.quadsOf('header') > 0);
 
   Actors.alive[player] = 0;
   Actors.buttons[player] = BTN.FIRE;
@@ -717,6 +739,23 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('colour-blind palette: off restores the default colours', Hud.colors.health === HUD_COLOR.health && Hud.colors.teams[0] === colorNumber(CAT.teamColors[0].color));
 }));
 
+// One team colour rule for bodies and the HUD: in M20 squads your squad is the first team colour and every other squad the second, also colour-blind.
+Test.add('hud', (check) => hudTestWith(() => {
+  const { enemy } = hudTestMatch(), count = Modes.squads.count, team = Actors.team[enemy];
+  const sameColors = () => {
+    let same = true;
+    for (let squad = 0; squad < 9; squad++) { Actors.team[enemy] = squad; same = same && colorNumber(actorBaseColor(enemy)) === Hud.actorColor(enemy); }
+    return same;
+  };
+  Modes.squads.count = 9;
+  const plain = sameColors();
+  Settings.set('accessibility.colorBlind', 'tritanopia');
+  const colorBlind = sameColors();
+  Settings.set('accessibility.colorBlind', 'off');
+  Modes.squads.count = count; Actors.team[enemy] = team;
+  check('squads: the bodies of every squad have the colour the HUD shows for it', plain && colorBlind);
+}));
+
 // HUD frame cost (PERF-002: <= 0.4 ms): a busy scene; the mean frame time of the fastest of several batches, so another process
 // taking the CPU for a moment (parallel test runs) does not look like a slow HUD.
 function hudTestMeasure(frames) {
@@ -729,7 +768,7 @@ function hudTestMeasure(frames) {
   }
   return best;
 }
-// The busy scene of the cost test; `measure(scene)` runs inside it. Used by the cost test and by DebugApi.hudHeap.
+// The busy scene of the cost and allocation tests; `measure(scene)` runs inside it.
 function hudTestBusy(measure) {
   return hudTestWith(() => {
     const scene = hudTestMatch(), undo = hudTestStubs();
@@ -741,13 +780,18 @@ function hudTestBusy(measure) {
   });
 }
 DebugApi.hudCost = () => hudTestBusy(() => ({ ms: hudTestMeasure(HUD_TEST_COST_FRAMES), quads: HudBatch.quads }));
-// JS heap growth over many frames of the busy scene (Chrome only, coarse): a quick way to see per-frame allocation. Returns bytes, -1 without performance.memory.
-DebugApi.hudHeap = (frames) => hudTestBusy(() => {
-  if (!performance.memory) return -1;
-  hudTestMeasure(200);
-  const before = performance.memory.usedJSHeapSize;
-  for (let frame = 0; frame < frames; frame++) hudTestFrame();
-  return performance.memory.usedJSHeapSize - before;
+
+// PERF-006: the heap bytes of one HUD frame of the busy scene, through the perf group's allocation probe. A frame every
+// HUD_TEST_ALLOC_STRIDE probe calls keeps a round short enough to rarely hold a GC. The budget is what is known to be left:
+// the middle compiler tier boxes float arguments of pen calls it does not inline (docs/PERFORMANCE.md 3.8); a drawer that
+// starts building strings or records every frame goes over it.
+const HUD_TEST_ALLOC_STRIDE = 16;
+const HUD_TEST_ALLOC_BUDGET_BYTES = 1024;   // per frame
+Test.add('hud', (check) => {
+  if (!perfHeapCounterWorks()) { check.skip('HUD allocation probe', 'no exact heap counter on this page (Chrome without --enable-precise-memory-info)'); return; }
+  const bytes = hudTestBusy(() => perfAllocatedBytes((i) => { if (i % HUD_TEST_ALLOC_STRIDE === 0) hudTestFrame(); }));
+  const perFrame = bytes / (PERF_ALLOC_CALLS / HUD_TEST_ALLOC_STRIDE);
+  check('allocation: a HUD frame of the busy scene stays within its budget', perFrame < HUD_TEST_ALLOC_BUDGET_BYTES, Math.round(perFrame) + ' bytes per frame');
 });
 
 // HP-007 downed cues: a marker over a downed teammate, the hold-Use hint near it, the revive ring, the own bleed-out text.

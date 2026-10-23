@@ -1,5 +1,5 @@
 // ==== S18 UI: PERFORMANCE OVERLAY (PERF-012, ARC-040, ARC-041) ====
-// DOM text panel refreshed 4 times a second while visible (nothing is touched while hidden). F10 toggles it, F9 toggles
+// DOM text panel refreshed 4 times a second while visible (nothing is touched while hidden). F8 toggles it, F9 toggles
 // Ui.botDebug, a four-finger tap toggles both (ARC-040). Reads Perf (S19) and Sim.timing at runtime only: the loop starts after every section has loaded.
 
 const PERF_ERROR_LINES = 3;
@@ -86,7 +86,7 @@ const PerfOverlay = {
     if (errors.length && first && !errors.some((entry) => entry.startsWith(first))) lines.push('  first: ' + first.slice(0, PERF_ERROR_CHARS));
     return lines;
   },
-  // F10 / four-finger tap flip the saved setting, so Options > Developer shows the same state.
+  // F8 / four-finger tap flip the saved setting, so Options > Developer shows the same state.
   toggleSetting(key, label) {
     const next = !Settings.get(key);
     Settings.set(key, next);

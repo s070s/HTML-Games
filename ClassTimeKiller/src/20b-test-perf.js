@@ -522,7 +522,7 @@ Test.add('perf', (check) => {
     !/\.mesh\(/.test(benchmark.draw.toString()) && drawn === BENCHMARK_GRID * BENCHMARK_GRID, drawn);
   // R-153: every match draw source and the drawers they call fill a reused instance record (batch.mesh stays for the editor and bot debug view)
   const matchDrawers = [drawBodies, Projectiles.draw, WeaponSpecialState.drawGates, Smoke.drawColumn, Gadgets.drawPreview, Gadgets.drawLanding, Devices.drawDevice,
-    drawZone, drawFootprints, drawObjective, drawModeExtras, drawChambers, drawChamberMark, hudDrawKillcamFigures,
+    drawZone, drawFootprints, drawObjective, drawModeExtras, drawChambers, drawChamberMark,
     ...Render.sources.filter((source) => !/^(botDebug|mapEditor)$/.test(source.name)).map((source) => source.draw)];
   const boxedDrawers = matchDrawers.filter((drawer) => /\.mesh\(/.test(drawer.toString())).map((drawer) => drawer.name || drawer.toString().slice(0, 60));
   check('match draw sources use batch.meshFrom, never batch.mesh', boxedDrawers.length === 0, boxedDrawers.join(' | '));
