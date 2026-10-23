@@ -963,7 +963,7 @@ Test.add('audio', (check) => {
 
 Test.add('audio', (check) => {
   const { bot } = audioTestStart();
-  audioTestPlace(bot, 0, 0, 10);
+  Actors.place(bot, 0, 0, 10);
   const reachable = new Set(['heartbeat', 'shieldBreak'].concat(Object.values(PVE_TELL_SOUNDS)));   // played by code, not by an event row
   for (const row of SOUND_EVENTS) {
     if (row.recipe) reachable.add(row.recipe);
