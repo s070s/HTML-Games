@@ -3366,6 +3366,7 @@ function addStruct(type, x, z, opts) {
     ram: RAM[type === 'tree' ? 'tree' : opts.mat || d.mat] || null,   // how it takes momentum collisions (none: rock)
     // building piece fields (set by Bld); declared for every structure so all share one hidden shape
     bld: null, kind: '', fl: 0, ci: 0, cj: 0, vr: 0.5, flight: -1, stepNo: -1, supportSlab: null, fallAt: undefined, faceMask: 0, near: null,
+    fell: false,   // the fall queue brought it down (sent as 2 in 'st'); a piece queued to fall but shot first did not fall
   };
   s.maxHp = s.hp;
   s.top = s.y + s.h;
@@ -3715,6 +3716,7 @@ const FALL_JITTER = 1;               // sideways drift (m/s) of a piece falling 
 const FALL_SPIN = 3;                 // tumbling (rad/s)
 const FALL_LIFE = 8;                 // a chunk lands after this long whatever happens (s)
 const FALL_DUST_VOL = 6;             // chunks this big (m³) raise dust where they land
+const FALL_CAUSE = 'Collapse', FALL_HIT = { blast: true };   // the kill feed's name for a chunk's kill; takeDamage info of its hit
 const TOPPLE_FLOORS = 8;             // buildings this tall fall over to one side
 const TOPPLE_SPIN = 0.22;            // sideways speed (m/s) per metre above the failing floor: a 60 m top lands about 30 m out
 const TOPPLE_MAX = 9;                // fastest sideways speed (m/s): even a 100 m tower's debris stays within about 40 m
@@ -3769,12 +3771,13 @@ const Falls = {
       f.vy -= GRAVITY * dt;
       f.x += f.vx * dt; f.y += f.vy * dt; f.z += f.vz * dt;
       f.rx += f.wx * dt; f.rz += f.wz * dt;
-      if (!f.hit) this.hitPlatforms(f);
+      if (!f.hit && !Net.guest) this.hitPlatforms(f);
       const gy = Terrain.h(f.x, f.z);
       if (f.y - f.hy <= gy || f.t > FALL_LIFE) this.land(f, gy);
     }
   },
-  /* the first ground platform the chunk comes down on takes the hit (none on a guest: takeDamage is the host's) */
+  /* the first ground platform the chunk comes down on takes the hit (host: a guest's chunks only show the fall); the kill
+     feed names it a collapse */
   hitPlatforms(f) {
     const pl = W.platforms, bot = f.y - f.hy, top = f.y + f.hy;
     for (let i = 0; i < pl.length; i++) {
@@ -3782,8 +3785,9 @@ const Falls = {
       if (p.dead || p.kind === 'air') continue;
       const reach = p.radius * FALL_REACH;
       if (Math.abs(p.x - f.x) > f.hx + reach || Math.abs(p.z - f.z) > f.hz + reach || bot > p.y + p.height || top < p.y) continue;
-      const v = Math.max(FALL_MIN_SPEED, Math.hypot(f.vx, f.vy, f.vz));
-      p.takeDamage(f.hurt * v * FALL_DMG, 'kinetic', null, p.x - f.x, p.z - f.z, { blast: true });
+      const v = Math.max(FALL_MIN_SPEED, Math.hypot(f.vx, f.vy, f.vz)), was = Hazards.dealing, why = Hazards.cause;
+      Hazards.dealing = true; Hazards.cause = FALL_CAUSE;
+      try { p.takeDamage(f.hurt * v * FALL_DMG, 'kinetic', null, p.x - f.x, p.z - f.z, FALL_HIT); } finally { Hazards.dealing = was; Hazards.cause = why; }
       f.hit = true; f.vy = Math.abs(f.vy) * 0.15; f.vx *= 0.3; f.vz *= 0.3;   // it glances off
       return;
     }
@@ -6326,12 +6330,12 @@ const Bld = {
   },
   /* a piece that lost its support falls as a chunk that hurts what it comes down on (Falls) */
   crush(s) { Falls.drop(s); },
-  /* co-op guest: the host says piece s fell. A tall building falls over the way it would on the host (the guest sees
-     the same lost pieces), from the floor under the first piece to fall. */
-  fall(s) {
+  /* co-op guest: the host says piece s fell. A building the host has falling over falls the same way (ang: radians, as
+     stEntry sends it) from the same height ty; without them it comes straight down, as on the host. */
+  fall(s, ang, ty) {
     const b = s.bld;
-    if (!b.topple && b.nf >= TOPPLE_FLOORS) this.setTopple(b, Math.max(0, s.fl - 1));
-    s.fallAt = W.time;
+    if (!b.topple && typeof ang === 'number' && Number.isFinite(ang)) { b.topple = true; b.tx = Math.sin(ang); b.tz = Math.cos(ang); b.tY = numIn(ty, -1000, 3000, b.y0); }
+    s.fallAt = W.time; s.fell = true;
     this.crush(s);
   },
   update(dt) {
@@ -6349,6 +6353,7 @@ const Bld = {
           if (s.destroyed) { q.splice(i, 1); continue; }
           if (W.time >= s.fallAt && n < 14) {
             q.splice(i, 1); n++;
+            s.fell = true;
             this.crush(s);
             this.dropping = true; destroyStruct(s, null); this.dropping = false;
             if (s.kind === 'slab' || s.kind === 'roof') fxSmokePuff(s.x, s.y, s.z, 3, 2);
@@ -8168,6 +8173,7 @@ class Platform {
     this.cmd = newCmd(); this.cmd.aimYaw = this.yaw; this.controller = null; this.ai = null;
     const hpMult = opts.hpMult || 1;
     this.maxHp = def.hp * hpMult; this.hp = this.maxHp;
+    this.zapAt = -Infinity; this.zapTaken = 0;   // lightning (Hazards): when an aimed strike last picked it, hull it took
     this.maxArmor = def.armor * (opts.armorMult || 1); this.armor = this.maxArmor;
     this.maxEnergy = def.energy; this.energy = def.energy; this.energyDelay = 0; this.energyLock = false;
     this.maxHeat = def.heatCap; this.heat = 0; this.overheated = false;
@@ -8646,7 +8652,7 @@ class Platform {
      Host only: guests run no simulation, and the broken pieces reach them in 'st'. */
   ram(s, dx, dz, d2) {
     const rm = s.ram;
-    if (Net.guest || s.indestructible || s.destroyed) return false;
+    if (Net.guest || s.indestructible || s.destroyed || s.objective) return false;   // objectives only fall to weapons (D45)
     const d = Math.sqrt(d2), head = rm.snap || d < 1e-3;   // the centre inside the box: a head-on hit
     const nx = head ? 0 : dx / d, nz = head ? 0 : dz / d;
     const vn = head ? this.speed : -(this.vx * nx + this.vz * nz);   // closing speed
@@ -8656,11 +8662,16 @@ class Platform {
     const cost = s.hp * rm.perHp / (W.structDamage || 1);   // energy that breaks what is left of it
     damageStruct(s, e / rm.perHp, 'ram', this, 1);
     const broke = s.destroyed, lost = broke ? cost : e;
-    if (lost > RAM_SELF_FREE) this.takeDamage((lost - RAM_SELF_FREE) * RAM_SELF_DMG, 'collision', null, 0, 0, { noStagger: true });
+    if (lost > RAM_SELF_FREE && !this.scripted()) this.takeDamage((lost - RAM_SELF_FREE) * RAM_SELF_DMG, 'collision', null, 0, 0, { noStagger: true });
     if (!broke) return false;
     const keep = Math.sqrt(Math.max(0, e - cost) / e);   // share of the closing speed left
     if (head) { this.vx *= keep; this.vz *= keep; this.speed *= keep; } else { const cut = vn * (1 - keep); this.vx += nx * cut; this.vz += nz * cut; }
     return true;
+  }
+  /* a convoy truck or its escort on a mission's scripted route: what it breaks on the way costs its hull nothing */
+  scripted() {
+    const ai = this.ai, lead = ai && ai.follow;
+    return !!ai && !this.isPlayer && (ai.profile === 'convoy' || (!!lead && !!lead.ai && lead.ai.profile === 'convoy'));
   }
   /* If the platform is pinned despite input, nudge it to the nearest free spot. */
   checkStuck(dt) {
@@ -14301,7 +14312,9 @@ const HAZARD_SEARCH = 24;        // spots a site finder tries
 const HZ_WARN = 1, HZ_ACTIVE = 2, HZ_END = 3, HZ_STRIKE = 4;   // hazard states ('hz' state; 0: gone, 4: one lightning strike)
 const HZ_RAMP = 2;               // seconds a hazard takes to reach full strength
 const HZ_FOLLOW = 4;             // guests ease toward the host's position at this rate (1/s)
-const HZ_LOST = 8;               // a guest drops a hazard the host has not mentioned for this long (s)
+const HZ_LOST = 20;              // a guest drops a hazard the host has not mentioned for this long (s) while the host's world runs
+const HZ_QUIET = 1;              // with no snapshot from the host for this long (s) its world is not running: the guest waits
+const HZ_GONE = 8;               // hazards a guest dropped that it remembers, to take one back without a new warning
 const HZ_HUD_EVERY = 0.25, HZ_HUD_RANGE = 350;   // the HUD line is rewritten this often (s), for hazards this close (m)
 const HZ_GROUND_REACH = 8;       // m above the ground that ground hazards still reach
 const HZ_SMASH_CAP = 10;         // structures one hazard damages per tick at most
@@ -14347,7 +14360,9 @@ const HZ_FIRST_STRIKE = 1;       // s into a lightning storm before the first st
 const HZ_SKY_NEAR = [40, 220];   // a storm flash strikes this far from a player (m)
 const HZ_SKY_ROD = 30;           // and hits the tallest thing this close to that spot
 const HZ_BOLT_H = 320, HZ_BOLT_COL = [0.82, 0.88, 1], HZ_FLASH_RANGE = 600;
-const HZ_CLOUD_H = 240, HZ_CLOUD_COL = [0.2, 0.21, 0.24];
+const HZ_CLOUD_H = 240, HZ_CLOUD_COL = [0.2, 0.21, 0.24];   // aircraft higher than the clouds above the ground are never struck
+const HZ_ZAP_GAP = 20;           // s before an aimed strike may pick the same unit again
+const HZ_ZAP_ONE = 0.3, HZ_ZAP_ALL = 0.4;   // shares of a unit's hull one strike, and all the lightning of a battle, take at most
 /* tornado, sandstorm, earthquake */
 const HZ_TWIST_AIM = 0.6, HZ_TWIST_WOBBLE = 0.37, HZ_TWIST_TURN = 0.35, HZ_TWIST_HOLD = 1.2, HZ_TWIST_DEBRIS = 3;
 const HZ_TWIST_SEGS = 14, HZ_TWIST_BASE = 6, HZ_TWIST_BEND = 18, HZ_TWIST_COL = [0.3, 0.28, 0.25];   // funnel rings, foot width and sway (m), colour
@@ -14403,8 +14418,10 @@ const Hazards = {
   wet: { ok: false, x: 0, z: 0, y: 0 },             // the water a flood comes from
   found: null,                                       // the platform tallestIn found
   scratch: [],                                       // structures copied out of Hash.out (damage may query it again)
+  gone: new Int32Array(HZ_GONE), goneN: 0,           // ids of hazards a guest dropped for silence (a ring)
   reset() {
     for (let i = 0; i < HAZARD_SLOTS; i++) { const h = this.list[i]; h.on = false; h.src = null; }
+    this.gone.fill(0); this.goneN = 0;
     this.n = 0; this.level = 'off'; this.ids = []; this.blastIds = []; this.sched.n = 0; this.sched.next = 0; this.blastT = -Infinity;
     this.cause = ''; this.dealing = false; this.hud = ''; this.hudT = 0; this.found = null;
     Water.setFlood(0, 0, 0, -Infinity);
@@ -14477,8 +14494,8 @@ const Hazards = {
       else if (h.state === HZ_ACTIVE && (h.t >= d.dur || h.done)) this.setState(h, HZ_END);
       else if (h.state === HZ_END && h.t >= HAZARD_FADE) { this.free(h); return; }
     } else {
-      h.seen += dt;
-      if (h.seen > HZ_LOST) { this.free(h); return; }   // the host's end never came
+      if (Net.t - Net.snapT < HZ_QUIET) h.seen += dt;   // the host's world runs (a stalled host keeps its hazards)
+      if (h.seen > HZ_LOST) { this.gone[this.goneN++ % HZ_GONE] = h.id; this.free(h); return; }   // the host's end never came
       const px = h.x, pz = h.z;
       h.x = damp(h.x, h.tx, HZ_FOLLOW, dt); h.z = damp(h.z, h.tz, HZ_FOLLOW, dt); h.r = damp(h.r, h.tr, HZ_FOLLOW, dt); h.level = damp(h.level, h.tl, HZ_FOLLOW, dt);
       const mv = Math.hypot(h.x - px, h.z - pz);
@@ -14525,6 +14542,7 @@ const Hazards = {
     const s = this.site;
     s.x = x; s.z = z; s.y = 0; s.yaw = 0; s.src = null;
     if (!HZ_KIND[type].site(s, exact ? null : this.pos)) return null;
+    s.x = r1(s.x); s.z = r1(s.z);   // as 'hz' sends it: guests build the same lava cells and boulders from the same numbers
     const h = this.alloc();
     this.init(h, this.nextId++, type, s.x, s.z);
     h.y = s.y; h.yaw = s.yaw; h.src = s.src; h.warn = warn;
@@ -14539,6 +14557,7 @@ const Hazards = {
     return this.trigger(type, x, z, o.warn !== undefined ? o.warn : HAZARD_WARN, !o.find);
   },
   alloc() { for (let i = 0; i < HAZARD_SLOTS; i++) if (!this.list[i].on) return this.list[i]; return null; },
+  running(type) { for (let i = 0; i < HAZARD_SLOTS; i++) if (this.list[i].on && this.list[i].type === type) return true; return false; },
   byId(id) { for (let i = 0; i < HAZARD_SLOTS; i++) { const h = this.list[i]; if (h.on && h.id === id) return h; } return null; },
   init(h, id, type, x, z) {
     const d = HAZARDS[type];
@@ -14547,11 +14566,12 @@ const Hazards = {
     h.x = h.tx = x; h.z = h.tz = z; h.r = h.tr = d.r; h.level = h.tl = 0; h.y = 0; h.yaw = 0; h.vx = h.vz = h.speed = 0;
     h.tick = 0; h.sendT = HAZARD_SEND; h.fxT = 0; h.strikes = 0; h.dist = 0; h.done = false; h.seen = 0; h.src = null; h.nPath = 0;
   },
-  setState(h, state) {
+  /* quiet: no alert or siren (a guest taking back a hazard it dropped) */
+  setState(h, state, quiet) {
     h.state = state; h.t = 0;
     if (state === HZ_ACTIVE) h.tick = 0;
     if (state === HZ_END && h.kind.end) h.kind.end(h);
-    this.announce(h);
+    if (!quiet) this.announce(h);
     this.send(h);
   },
   free(h) {
@@ -14560,8 +14580,9 @@ const Hazards = {
     h.on = false; h.src = null; this.n--;
     if (Net.host) Net.bcast({ t: 'hz', id: h.id, type: h.type, state: 0, x: 0, z: 0, r: 0, level: 0 });
   },
+  /* p: what a hazard's own pack sends (a rockfall's boulders) */
   send(h) {
-    if (Net.host) Net.bcast({ t: 'hz', id: h.id, type: h.type, state: h.state, x: r1(h.x), z: r1(h.z), r: r1(h.r), level: r2(h.level) });
+    if (Net.host) Net.bcast({ t: 'hz', id: h.id, type: h.type, state: h.state, x: r1(h.x), z: r1(h.z), r: r1(h.r), level: r2(h.level), p: h.kind.pack ? h.kind.pack(h) : undefined });
   },
   /* co-op guest: a hazard as the host sent it (a new one, an update, its end or one lightning strike) */
   apply(m) {
@@ -14571,15 +14592,18 @@ const Hazards = {
     let h = this.byId(id);
     if (state === 0) { if (h) this.free(h); return; }
     if (state > HZ_END || id <= 0) return;
+    let back = false;
     if (!h) {
       h = this.alloc();
       if (!h) return;
       this.init(h, id, m.type, x, z);
       h.r = r; h.level = level;
       h.kind.begin(h);
+      back = this.gone.indexOf(id) >= 0;   // one this guest dropped for silence: its warning was given already
     }
     h.tx = x; h.tz = z; h.tr = r; h.tl = level; h.seen = 0;
-    if (h.state !== state) this.setState(h, state);
+    if (h.state !== state) this.setState(h, state, back);
+    if (h.kind.unpack && Array.isArray(m.p)) h.kind.unpack(h, m.p);
   },
   /* the HUD alert and siren when a hazard is coming, strikes and dies down (both sides) */
   announce(h) {
@@ -14628,8 +14652,7 @@ const Hazards = {
     if (latticeHash(sec, HZ_SKY_SALT, this.seed) >= HAZARD_PACE[this.level].sky) return;
     const a = this.anchor(latticeHash(sec, 2, this.seed)), ang = latticeHash(sec, 3, this.seed) * TAU, dist = lerp(HZ_SKY_NEAR[0], HZ_SKY_NEAR[1], latticeHash(sec, 4, this.seed));
     const x = clamp(a.x + Math.sin(ang) * dist, -GROUND_BOUND, GROUND_BOUND), z = clamp(a.z + Math.cos(ang) * dist, -GROUND_BOUND, GROUND_BOUND);
-    if (this.tallestIn(x, z, HZ_SKY_ROD)) { const p = this.found; this.strike(p.x, p.z, p.y + (p.kind === 'air' ? 0 : p.height), 0); }
-    else this.strike(x, z, Water.top(x, z), 0);
+    if (!this.strikeTallest(x, z, HZ_SKY_ROD, 0)) this.strike(x, z, Water.top(x, z), 0);
   },
 
   /* ---------- shared effects ---------- */
@@ -14682,18 +14705,37 @@ const Hazards = {
       if (push > 0 && p.def.speed > 0 && !p.dead) { const m = 1 / Math.max(0.4, p.def.mass); p.vx += h.vx * push * m; p.vz += h.vz * push * m; }
     }
   },
-  /* the tallest living platform within r of (x, z) into this.found (false: none) */
+  /* an aircraft above the storm clouds: lightning never reaches it */
+  aboveCloud(p) { return p.kind === 'air' && p.y > Terrain.h(p.x, p.z) + HZ_CLOUD_H; },
+  /* the tallest living platform within r of (x, z) that lightning may aim at (under the clouds, not picked in the last
+     HZ_ZAP_GAP s) into this.found (false: none) */
   tallestIn(x, z, r) {
     const pl = W.platforms;
     let top = -Infinity;
     this.found = null;
     for (let i = 0; i < pl.length; i++) {
       const p = pl[i];
-      if (p.dead) continue;
+      if (p.dead || this.aboveCloud(p) || W.time - p.zapAt < HZ_ZAP_GAP) continue;
       const dx = p.x - x, dz = p.z - z, y = p.y + (p.kind === 'air' ? 0 : p.height);
       if (dx * dx + dz * dz <= r * r && y > top) { top = y; this.found = p; }
     }
     return !!this.found;
+  },
+  /* an aimed strike (host) on the tallest unit within r of (x, z) (tallestIn); false when there is none to aim at */
+  strikeTallest(x, z, r, id) {
+    if (!this.tallestIn(x, z, r)) return false;
+    const p = this.found;
+    p.zapAt = W.time;
+    this.strike(p.x, p.z, p.y + (p.kind === 'air' ? 0 : p.height), id);
+    return true;
+  },
+  /* lightning damage to p: at most HZ_ZAP_ONE of its hull in one strike and HZ_ZAP_ALL in all, so no storm finishes a
+     sound machine */
+  zap(p, amount, dx, dz) {
+    const dmg = Math.min(amount, p.maxHp * HZ_ZAP_ONE, p.maxHp * HZ_ZAP_ALL - p.zapTaken);
+    if (dmg <= 0) return;
+    p.zapTaken += dmg;
+    p.takeDamage(dmg, HAZARDS.lightning.dtype, null, dx, dz, HZ_HIT);
   },
   /* one lightning strike at (x, y, z) (host): it hurts what stands within the blast, may start a wildfire on rich fuel,
      and goes to guests as an 'hz' strike (r: blast radius, level: the height struck) */
@@ -14703,9 +14745,9 @@ const Hazards = {
     try {
       for (let i = 0; i < pl.length; i++) {
         const p = pl[i];
-        if (p.dead) continue;
+        if (p.dead || this.aboveCloud(p)) continue;
         const py = p.y + (p.kind === 'air' ? 0 : p.height * 0.5), dist = Math.max(0, Math.hypot(p.x - x, py - y, p.z - z) - p.radius);
-        if (dist < d.blast) p.takeDamage(d.hit * (1 - 0.6 * dist / d.blast), d.dtype, null, p.x - x, p.z - z, HZ_HIT);
+        if (dist < d.blast) this.zap(p, d.hit * (1 - 0.6 * dist / d.blast), p.x - x, p.z - z);
       }
       const n = this.structsIn(x, z, d.blast);
       for (let i = 0; i < n; i++) { const s = this.scratch[i]; if (!s.destroyed && !s.objective) damageStruct(s, d.structHit, d.dtype, null, 1); }
@@ -14920,7 +14962,7 @@ const HZ_KIND = {
      drown by the water rules (D34) */
   flood: {
     site(s, a) {
-      if (!Water.any || Water.fr2 > 0) return false;   // only where there is water, and one flood at a time
+      if (!Water.any || Hazards.running('flood')) return false;   // only where there is water, and one flood at a time (Water has one flood circle)
       if (!Hazards.nearestWater(a ? a.x : s.x, a ? a.z : s.z, a ? HZ_FLOOD_REACH : HAZARDS.flood.r)) return false;
       const w = Hazards.wet;
       if (a) { s.x = lerp(w.x, a.x, HZ_FLOOD_TOWARD); s.z = lerp(w.z, a.z, HZ_FLOOD_TOWARD); }
@@ -14934,7 +14976,8 @@ const HZ_KIND = {
         const t = h.state === HZ_ACTIVE ? h.t : 0;
         h.level = h.y + d.rise * Math.min(smoothstep(0, d.riseTime, t), 1 - smoothstep(d.dur - d.fall, d.dur, t));
       }
-      Water.setFlood(h.x, h.z, h.r, h.level);
+      if (this.wet(h)) Water.setFlood(h.x, h.z, h.r, h.level);
+      else { Water.setFlood(0, 0, 0, -Infinity); return; }   // no water on the land during the warning or once it has gone down
       for (let n = Hazards.count(d.foam * Hazards.fade(h), dt); n > 0; n--) {   // foam where it runs over the land
         const a = Math.random() * TAU, rr = h.r * Math.sqrt(Math.random()), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr;
         if (Water.depth(x, z) > 0.3) FX.emit(x, h.level + 0.1, z, rand(-1, 1), rand(0.5, 1.5), rand(-1, 1), rand(1, 2), 1.5, 3.5, 0.85, 0.88, 0.86, 0.6, 1, 0, false);
@@ -14942,11 +14985,14 @@ const HZ_KIND = {
     },
     tick() {},
     free() { Water.setFlood(0, 0, 0, -Infinity); },
+    /* the water stands over the land only while the flood runs and is above its source (a guest has no source height:
+       the host's level never drops below it) */
+    wet(h) { return h.state === HZ_ACTIVE && (Net.guest || h.level > h.y); },
     draw(h, pass) {
-      if (pass !== 1 || h.state === HZ_WARN || !R.visible(h.x, h.level, h.z, h.r)) return;
-      const st = R.stack, a = HZ_FLOOD_ALPHA * (h.state === HZ_END ? Hazards.fade(h) : 1);
+      if (pass !== 1 || !this.wet(h) || !R.visible(h.x, h.level, h.z, h.r)) return;
+      const st = R.stack;
       st.push().t(h.x, h.level + 0.03, h.z).s(h.r * 2, 0.06, h.r * 2);
-      R.draw('cyl', HZ_FLOOD_COL[0], HZ_FLOOD_COL[1], HZ_FLOOD_COL[2], a, HZ_FLOOD_GLOW, 0.6); st.pop();
+      R.draw('cyl', HZ_FLOOD_COL[0], HZ_FLOOD_COL[1], HZ_FLOOD_COL[2], HZ_FLOOD_ALPHA, HZ_FLOOD_GLOW, 0.6); st.pop();
     },
   },
   /* a front of snow that breaks away high on a snowy slope and races down the steepest way, burying what it meets */
@@ -14985,7 +15031,8 @@ const HZ_KIND = {
     },
   },
   /* boulders break loose on a steep bare slope and roll down it, hitting what they meet; where they stop they heap into
-     rubble (P3.2). Every game rolls its own from the same seeded start; the host's boulders deal the damage. */
+     rubble (P3.2). Every game rolls its own from the same seeded start; the host's boulders deal the damage, and its
+     'hz' carries where they are (pack), so a guest's follow them and come to rest where the host's do. */
   rockfall: {
     site(s, a) { return !a || Hazards.slopeSite(s, a, HAZARDS.rockfall.slope, false); },
     blast(x, z) { return !Hazards.snowy(x, z) && Terrain.slope(x, z) > HAZARDS.rockfall.slope; },
@@ -15012,8 +15059,11 @@ const HZ_KIND = {
         const x = B[o] + vx * dt, z = B[o + 1] + vz * dt;
         B[o] = x; B[o + 1] = z; B[o + 3] = vx; B[o + 4] = vz; B[o + 5] += sp * dt / d.rock; B[o + 6] -= dt;
         B[o + 2] = Terrain.h(x, z) + d.rock * 0.85 + Math.abs(Math.sin(B[o + 5] * 0.5)) * sp * 0.04;
-        if ((h.t > HZ_ROLL_START && sp < HZ_ROLL_STOP) || Water.at(x, z) || Math.abs(x) > GROUND_BOUND || Math.abs(z) > GROUND_BOUND) { this.settle(h, o); continue; }
         rolling++;
+        if ((h.t > HZ_ROLL_START && sp < HZ_ROLL_STOP) || Water.at(x, z) || Math.abs(x) > GROUND_BOUND || Math.abs(z) > GROUND_BOUND) {
+          if (!Net.guest) { this.settle(h, o); rolling--; } else { B[o + 3] = 0; B[o + 4] = 0; }   // a guest's boulder waits for the host's word (unpack)
+          continue;
+        }
         if (!Net.guest && sp > HZ_ROLL_HARM && B[o + 6] <= 0) this.hit(h, o, sp);
         if (Math.random() < dt * HZ_ROLL_DUST * Hazards.fxK) FX.emit(x, B[o + 2] - d.rock * 0.6, z, rand(-1, 1), rand(1, 3), rand(-1, 1), 1.6, 1.5, 4, 0.5, 0.45, 0.38, 0.5, 0.6, -0.3, false);
       }
@@ -15049,6 +15099,24 @@ const HZ_KIND = {
       }
     },
     tick() {},   // the boulders hit as they roll
+    /* the host's boulders for 'hz' (p): x, z, vx, vz and 1 rolling / 0 at rest for each (the host's hits bounce them) */
+    pack(h) {
+      const B = h.rocks, out = [];
+      for (let k = 0; k < h.nPath; k++) { const o = k * HZ_ROCK_F; out.push(r1(B[o]), r1(B[o + 1]), r1(B[o + 3]), r1(B[o + 4]), B[o + 7] ? 1 : 0); }
+      return out;
+    },
+    /* co-op guest: its boulders where the host's are; one the host says came to rest settles there */
+    unpack(h, p) {
+      const B = h.rocks, d = h.def;
+      for (let k = 0; k < h.nPath && k * 5 + 4 < p.length; k++) {
+        const o = k * HZ_ROCK_F, q = k * 5;
+        if (!B[o + 7]) continue;
+        B[o] = numIn(p[q], -3000, 3000); B[o + 1] = numIn(p[q + 1], -3000, 3000);
+        B[o + 3] = numIn(p[q + 2], -d.speed, d.speed); B[o + 4] = numIn(p[q + 3], -d.speed, d.speed);
+        B[o + 2] = Terrain.h(B[o], B[o + 1]) + d.rock * 0.85;
+        if (p[q + 4] === 0) this.settle(h, o);
+      }
+    },
     gap(h, x, z) {
       const B = h.rocks;
       let best = Math.hypot(x - h.x, z - h.z) - h.r;
@@ -15077,7 +15145,7 @@ const HZ_KIND = {
       if (h.fxT > 0) return;
       const d = h.def, k = h.strikes++;
       h.fxT = lerp(d.every[0], d.every[1], Hazards.hr(h, k, 1));
-      if (Hazards.hr(h, k, 2) < d.aim && Hazards.tallestIn(h.x, h.z, h.r)) { const p = Hazards.found; Hazards.strike(p.x, p.z, p.y + (p.kind === 'air' ? 0 : p.height), h.id); return; }
+      if (Hazards.hr(h, k, 2) < d.aim && Hazards.strikeTallest(h.x, h.z, h.r, h.id)) return;
       const a = Hazards.hr(h, k, 3) * TAU, rr = h.r * Math.sqrt(Hazards.hr(h, k, 4)), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr;
       Hazards.strike(x, z, Water.top(x, z), h.id);
     },
@@ -15322,7 +15390,7 @@ const HZ_KIND = {
     site(s, a) {
       s.src = Hazards.gasSource(a ? a.x : s.x, a ? a.z : s.z, a ? HZ_GAS_REACH : HZ_GAS_AT);
       if (s.src) { s.x = s.src.x; s.z = s.src.z; }
-      return true;
+      return !!s.src || !a;   // a scheduled leak needs a plant to leak from; a forced one (a blast, the test hook) may stand alone
     },
     blast(x, z, r) { return !!Hazards.gasSource(x, z, r + HZ_GAS_BLAST); },
     begin() {},
@@ -16425,6 +16493,8 @@ const SKIRMISH_SIZES = { small: { waves: 4, budget: 3 }, medium: { waves: 6, bud
 const SKIRMISH_DEFAULT = { map: 'ashfall', size: 'small', difficulty: 'veteran', duration: 10, lives: 5, platformId: 'bulwark', destruction: 'normal', support: 'light', reinforce: 'normal', weather: 'clear', time: 'day', hazards: HAZARD_DEFAULT, scarce: false, seed: 12345, random: true };
 /* the skirmish setup from a saved one (Save.data.skirmish, kept as saved): defaults for missing keys, and the fog and
    night checkboxes of setups saved before weather and time of day became the Weather and Time selects */
+/* destruction level: [building density, structure hull, structure damage taken] */
+const SKIRMISH_DESTRUCTION = { low: [0.5, 1.5, 1.2], normal: [1, 1, 1], high: [1.5, 0.8, 1.3] };
 function skirmishSetup(saved) {
   const raw = saved && typeof saved === 'object' ? saved : {};
   const s = Object.assign({}, SKIRMISH_DEFAULT, raw);
@@ -16434,6 +16504,7 @@ function skirmishSetup(saved) {
   if (!isWeather(raw.weather)) s.weather = raw.fog === true ? 'fog' : SKIRMISH_DEFAULT.weather;
   if (!isTimeOfDay(raw.time)) s.time = raw.night === true ? 'night' : SKIRMISH_DEFAULT.time;
   if (HAZARD_LEVELS.indexOf(s.hazards) < 0) s.hazards = SKIRMISH_DEFAULT.hazards;   // setups saved before hazards
+  if (!Object.prototype.hasOwnProperty.call(SKIRMISH_DESTRUCTION, s.destruction)) s.destruction = SKIRMISH_DEFAULT.destruction;
   delete s.fog; delete s.night;
   return s;
 }
@@ -16653,7 +16724,7 @@ function buildTrainingTargets(clear) {
 function resetTrainingDestructibles() {
   for (const s of W.structs) {
     if (s.indestructible) continue;
-    s.destroyed = false; s.hp = s.maxHp; s.state = 0; s.scorch = 0; s.flash = 0; if (s.bld) s.fallAt = undefined;
+    s.destroyed = false; s.hp = s.maxHp; s.state = 0; s.scorch = 0; s.flash = 0; if (s.bld) { s.fallAt = undefined; s.fell = false; }
   }
   W.debris.length = 0; W.scorches.length = 0; W.queue.length = 0;
   Chunks.markAll(); Falls.reset();
@@ -16915,7 +16986,7 @@ const Game = {
     const sk = cfg.skirmish;
     const mods = sk ? { scarce: sk.scarce } : {};
     cfg.env = Weather.envFor(cfg, def, guest);   // weather and time of day; co-op guests get the host's in 'start'
-    const destr = sk ? { low: [0.5, 1.5, 1.2], normal: [1, 1, 1], high: [1.5, 0.8, 1.3] }[sk.destruction] : [1, 1, 1];
+    const destr = (sk && SKIRMISH_DESTRUCTION[sk.destruction]) || SKIRMISH_DESTRUCTION.normal;   // an unknown level (a hand-edited save) plays as normal
     let seed = 7;
     for (let i = 0; i < def.id.length; i++) seed = (seed * 31 + def.id.charCodeAt(i)) >>> 0;
     if (sk) seed = sk.seed;
@@ -20924,13 +20995,18 @@ const SelfTest = {
         this.check('no animal starts in a building, on a road or on a site', badSpawn.length === 0, badSpawn.map((a) => a.def.id).join(', '));
         // a while of life: birds keep above the ground and the water, swimmers inside the water
         let low = 0, dry = 0, lowAt = '', dryAt = '';
+        const was = new Map();   // each bird's state on the step before
         for (let i = 0; i < 60 * 20; i++) {
           W.time += STEP; Fauna.update(STEP);
-          if (i % 20) continue;
+          const sample = i % 20 === 0;
           for (const a of all()) {
+            const before = was.get(a);
+            was.set(a, a.state);
+            if (!sample) continue;
             const d = a.def, top = Water.top(a.x, a.z);
-            // a bird that took off this step still sits where it landed (speed 0); the clearance holds from its first wingbeat
-            if (d.type === 'air' && a.y < top + (a.state === 'fly' && a.grp.state === 'fly' && a.speed > 0 ? FAUNA_BIRD_CLEAR : 0) - 0.01) { low++; lowAt = d.id + ' ' + (a.y - top).toFixed(2); }
+            // a bird that took off on this very step still sits where it landed; the clearance holds from its first wingbeat
+            const tookOff = before === 'landed' && a.state === 'fly';
+            if (d.type === 'air' && a.y < top + (a.state === 'fly' && a.grp.state === 'fly' && !tookOff ? FAUNA_BIRD_CLEAR : 0) - 0.01) { low++; lowAt = d.id + ' ' + (a.y - top).toFixed(2); }
             if (d.type === 'water' && (!Water.at(a.x, a.z) || a.y >= Water.level(a.x, a.z) || a.y <= Terrain.h(a.x, a.z))) { dry++; dryAt = d.id; }
           }
         }
@@ -21113,12 +21189,15 @@ const SelfTest = {
       W.mission = null;
       const keepGuest = Net.guest;
       // a platform of def id touching s from the -x side, closing at speed m/s, for one collision step
-      const hit = (id, speed, s) => {
+      // (ai: an AI profile for it, lead: the platform its AI follows)
+      const hit = (id, speed, s, ai, lead) => {
         const def = PLATFORMS[id], p = new Platform(def, { team: 0, x: s.x - s.hx - def.radius + 0.3, z: s.z, yaw: PI / 2 });
+        if (ai) { p.ai = new AIController(p, ai, W.diff); p.ai.follow = lead || null; }
         p.vx = speed; p.vz = 0; p.speed = speed; p.y = s.y;   // on the level of the piece's base (a building's floor)
         p.resolveWorld(STEP);
         return p;
       };
+      const sound = (p) => p.hp === p.maxHp && p.armor === p.maxArmor;
       const wall = (x, z) => addStruct('bwall', x, z, { dims: { w: 0.5, h: 3.7, d: 6 } });
       const crate = (x, z) => addStruct('crate', x, z, {});
       try {
@@ -21151,12 +21230,21 @@ const SelfTest = {
         hit('jackal', 6, c2); hit('ranger', sprint, c3); hit('colossus', 5, c4);
         this.check('a wood fence, a crate and a tree still break at 8 m/s', fence.destroyed && c1.destroyed && tree.destroyed && fence.ram === RAM.wood && tree.ram === RAM.tree);
         this.check('slow pushes and soldiers break no wood', !c2.destroyed && !c3.destroyed && !c4.destroyed && c2.hp === c2.maxHp && c3.hp === c3.maxHp);
-        // a co-op guest runs no momentum damage (the host's 'st' brings the result)
-        Net.guest = true;
+        // objectives take no momentum damage (D45); a convoy truck and its escort break things on their route for free
+        const cache = addStruct('crate', 0, 540, { objective: { name: 'cache' } });
+        hit('bastion', 8, cache);
+        this.check('an objective takes no ram damage', !cache.destroyed && cache.hp === cache.maxHp);
+        const w5 = wall(0, 560), w6 = wall(0, 580), truck = hit('colossus', boost, w5, 'convoy'), escort = hit('colossus', boost, w6, 'soldier', truck);
+        this.check('a convoy machine and its escort break a wall at no cost to their hulls', w5.destroyed && w6.destroyed && sound(truck) && sound(escort));
+        // a co-op guest runs no momentum damage (the host's 'st' brings the result): no damage call at all
+        const keepTD = Platform.prototype.takeDamage, keepDS = damageStruct;
+        let calls = 0;
         const w4 = wall(0, 460);
-        hit('colossus', boost, w4);
-        Net.guest = keepGuest;
-        this.check('a guest breaks nothing by ramming', !w4.destroyed && w4.hp === w4.maxHp);
+        Net.guest = true;
+        Platform.prototype.takeDamage = function () { calls++; return keepTD.apply(this, arguments); };
+        damageStruct = function () { calls++; return keepDS.apply(this, arguments); };
+        try { hit('colossus', boost, w4); } finally { Platform.prototype.takeDamage = keepTD; damageStruct = keepDS; Net.guest = keepGuest; }
+        this.check('a guest breaks nothing by ramming', calls === 0 && !w4.destroyed && w4.hp === w4.maxHp, calls + ' damage calls');
         this.check('rock and foundations take no momentum damage', !addStruct('rock', 0, 500, {}).ram && b.pieces.every((s) => s.kind !== 'found' || !s.ram));
       } finally { Net.guest = keepGuest; Game.quitToMenu(); }
     });
@@ -21202,24 +21290,48 @@ const SelfTest = {
         for (let i = 0; i < 60 * 4; i++) Falls.update(STEP);
         const lowHit = low.maxHp + low.maxArmor - low.hp - low.armor, highHit = high.dead ? Infinity : high.maxHp + high.maxArmor - high.hp - high.armor;
         this.check('a chunk falling from higher hits harder', lowHit > 0 && highHit > lowHit, Math.round(lowHit) + ' vs ' + Math.round(highHit));
-        Net.guest = true;
-        const guestUnit = unit('ranger', 240, -100);
-        drop(240, -100, 30);
+        // the kill feed names a chunk's kill a collapse
+        const victim = unit('ranger', 260, -100);
+        victim.hp = 1;
+        drop(260, -100, 30);
         for (let i = 0; i < 60 * 4; i++) Falls.update(STEP);
-        Net.guest = keepGuest;
-        this.check('a guest\'s chunks hurt no platform', !hurt(guestUnit) && !guestUnit.dead);
-        // the host sends a fallen piece as 2 in 'st'; a guest then drops its own chunk
-        const office = Bld.make('office', -150, 150, makeRng(5), 'net'), slabs = office.slab[2].flat().filter((s) => s), shot = slabs[0], slab = slabs[1], other = slabs[2];
+        this.check('a unit a chunk kills is listed as killed by a collapse', victim.dead && !!victim.killedBy && victim.killedBy.name === FALL_CAUSE, victim.killedBy ? victim.killedBy.name : 'alive');
+        // a guest's chunks only show the fall: no damage call at all
+        const keepTD = Platform.prototype.takeDamage;
+        let calls = 0;
+        const guestUnit = unit('ranger', 240, -100);
+        Net.guest = true;
+        Platform.prototype.takeDamage = function () { calls++; return keepTD.apply(this, arguments); };
+        try {
+          drop(240, -100, 30);
+          for (let i = 0; i < 60 * 4; i++) Falls.update(STEP);
+        } finally { Platform.prototype.takeDamage = keepTD; Net.guest = keepGuest; }
+        this.check('a guest\'s chunks hurt no platform', calls === 0 && !hurt(guestUnit) && !guestUnit.dead, calls + ' damage calls');
+        // the host sends a piece the fall queue brought down as 2 in 'st' (one queued but shot first as 1); a guest then
+        // drops its own chunk
+        const office = Bld.make('office', -150, 150, makeRng(5), 'net'), slabs = office.slab[2].flat().filter((s) => s), shot = slabs[0], slab = slabs[1], other = slabs[2], queued = office.slab[1].flat().filter((s) => s)[0];
         destroyStruct(shot, null);
-        slab.fallAt = W.time; destroyStruct(slab, null);
+        slab.fallAt = W.time; queued.fallAt = W.time + 5; office.fallQueue = [slab, queued];
+        Bld.update(STEP);
+        destroyStruct(queued, null);
         const n0 = Falls.n;
         Net.guest = true;
         Net.applyStructs({ l: [[other.idx, 0, 3, 2]] });
         Net.guest = keepGuest;
-        this.check('a fallen piece is sent as 2, a shot one as 1, and a guest drops a fallen one as a chunk', Net.stEntry(slab.idx, slab)[3] === 2 && Net.stEntry(shot.idx, shot)[3] === 1 && other.destroyed && Falls.n === n0 + 1);
+        this.check('a fallen piece is sent as 2, a shot one (queued to fall or not) as 1, and a guest drops a fallen one as a chunk', slab.destroyed && Net.stEntry(slab.idx, slab)[3] === 2 && Net.stEntry(shot.idx, shot)[3] === 1 && Net.stEntry(queued.idx, queued)[3] === 1 && other.destroyed && Falls.n === n0 + 1);
+        this.check('a toppling tower sends the way it falls with each fallen piece', b.topple && b.pieces.some((s) => s.fell && Net.stEntry(s.idx, s).length === 6 && Math.abs(Net.stEntry(s.idx, s)[4] - r2(Math.atan2(b.tx, b.tz))) < 1e-9));
         // training's reset clears chunks and rubble
         resetTrainingDestructibles();
-        this.check('a destructibles reset clears chunks and rubble', Falls.n === 0 && Rubble.n === 0 && !b.topple);
+        this.check('a destructibles reset clears chunks and rubble', Falls.n === 0 && Rubble.n === 0 && !b.topple && b.pieces.every((s) => !s.fell));
+        // a guest's tower falls the way the host says, and comes straight down when the host sends no way
+        const piece = (k) => b.pieces.filter((s) => s.kind !== 'found')[k];
+        Net.guest = true;
+        try {
+          Net.applyStructs({ l: [[piece(0).idx, 0, 3, 2]] });
+          const straight = !b.topple;
+          Net.applyStructs({ l: [[piece(1).idx, 0, 3, 2, 1.2, 33]] });
+          this.check('a guest\'s tower falls over only the way the host sends', straight && b.topple && Math.abs(Math.atan2(b.tx, b.tz) - 1.2) < 1e-6 && b.tY === 33);
+        } finally { Net.guest = keepGuest; }
       } finally { Net.guest = keepGuest; Game.quitToMenu(); }
     });
     t('hazards', () => {
@@ -21233,6 +21345,7 @@ const SelfTest = {
       this.check('each battlefield card names its hazards, and the skirmish setup has the Hazards select', menuMapIds().every((id) => cards.indexOf(esc(mapDef(id).hazards.map((hz) => HAZARDS[hz].name).join(', '))) >= 0) && setup.indexOf('data-skirm="hazards"') >= 0 && setup.indexOf('<option value="off" selected>') >= 0);
       // skirmish setting: saved additively, 'low' for setups saved before it
       this.check('skirmish hazards default to low, keep a saved level and drop an unknown one', skirmishSetup({}).hazards === 'low' && skirmishSetup({ hazards: 'off' }).hazards === 'off' && skirmishSetup({ hazards: 'normal' }).hazards === 'normal' && skirmishSetup({ hazards: 'wild' }).hazards === 'low' && skirmishSetup({ map: 'verdant', fog: true }).hazards === 'low');
+      this.check('a saved skirmish with an unknown destruction level plays at normal', skirmishSetup({ destruction: 'extreme' }).destruction === 'normal' && skirmishSetup({ destruction: 'high' }).destruction === 'high');
       this.check('skirmish brings hazards at its own level; missions m1-m8 and training have none', Hazards.levelFor({ mode: 'skirmish', skirmish: { hazards: 'normal' } }, null) === 'normal' && Hazards.levelFor({ mode: 'skirmish', skirmish: {} }, null) === 'low' && MISSIONS.every((m) => !m.hazards && Hazards.levelFor({ mode: 'mission', missionId: m.id }, m) === 'off') && Hazards.levelFor({ mode: 'training' }, MISSIONS[0]) === 'off' && Hazards.levelFor({ mode: 'mission' }, { map: 'jungle', hazards: true }) === 'normal');
       // the schedule comes from the seed: the same twice on the host, another for another seed
       const ids = mapDef('volcano').hazards;
@@ -21268,7 +21381,7 @@ const SelfTest = {
       const lake = mapDef('alpine').water.find((w) => w.type === 'lake');
       const STARTS = { avalanche: snowy, rockfall: bare, lava: bare };
       const n0 = { x: 0, y: 0, z: 0 };
-      const HZ_DT = 0.1, WARN = 0.2;
+      const HZ_DT = 0.1, WARN = 0.2, OUT = 5;
       try {
         Hazards.arm('normal', HAZARD_IDS, 5, false);
         Hazards.sched.n = 0;   // only forced hazards here
@@ -21278,14 +21391,24 @@ const SelfTest = {
           const h = type === 'flood' ? Hazards.force(type, lake.x, lake.z, { warn: WARN, find: true }) : Hazards.force(type, st.x, st.z, { warn: WARN });
           if (!h) { this.check('hazard ' + type + ' starts from the test hook', false); continue; }
           const warned = W.msgs.length > 0 && W.msgs[W.msgs.length - 1].text.indexOf(d.alert) === 0 && h.state === HZ_WARN;
-          // the outside dummy stands behind where it goes (upstream of a flow, uphill of a slide)
+          // the outside dummy keeps OUT m past the edge of what the zone can reach, on the side it comes from (upstream of a
+          // flow, uphill of a slide, behind a moving or drifting one, on dry land for a flood); moving zones take it along
+          const air = type === 'sandstorm', unitId = air ? airId : type === 'flood' ? tankId : 'bulwark', unitR = PLATFORMS[unitId].radius;
           let dx = h.vx, dz = h.vz;
           if (type === 'lava') { dx = h.path[(h.nPath - 1) * 2] - h.path[0]; dz = h.path[(h.nPath - 1) * 2 + 1] - h.path[1]; }
           if (type === 'rockfall') { Terrain.normal(h.x, h.z, n0); dx = n0.x; dz = n0.z; }
+          if (type === 'wildfire' || type === 'gas') { dx = Weather.windX; dz = Weather.windZ; }
           const l = Math.hypot(dx, dz) || 1;
           if (Math.hypot(dx, dz) < 1e-6) { dx = 1; dz = 0; } else { dx /= l; dz /= l; }
-          const ox = clamp(h.x - dx * (h.r + 250), -900, 900), oz = clamp(h.z - dz * (h.r + 250), -900, 900);
-          const air = type === 'sandstorm';
+          const reach = () => h.r + unitR + (type === 'lightning' ? d.blast : 0) + OUT;
+          if (type === 'flood') for (let k = 0; k < 36; k++) {
+            const a = k / 36 * TAU, x = h.x - Math.sin(a) * reach(), z = h.z - Math.cos(a) * reach();
+            if (!Water.wetIn(x, z, unitR + 1)) { dx = Math.sin(a); dz = Math.cos(a); break; }
+          }
+          const outAt = (p) => {   // lava from its source, the rest from its centre
+            const cx = type === 'lava' ? h.path[0] : h.x, cz = type === 'lava' ? h.path[1] : h.z, e = type === 'lava' ? d.r + unitR + OUT : reach();
+            p.x = clamp(cx - dx * e, -900, 900); p.z = clamp(cz - dz * e, -900, 900); p.y = Terrain.h(p.x, p.z) + (air ? 100 : 0);
+          };
           let ix = h.x, iz = h.z;
           if (type === 'flood') {   // low dry land inside the flood
             let best = Infinity;
@@ -21295,24 +21418,39 @@ const SelfTest = {
             }
           }
           if (type === 'lava') { ix = h.path[0]; iz = h.path[1]; }
-          const unitId = air ? airId : type === 'flood' ? tankId : 'bulwark';
-          const inside = dummy(unitId, ix, iz, air), outside = dummy(unitId, ox, oz, air);
+          const inside = dummy(unitId, ix, iz, air), outside = dummy(unitId, 0, 0, air);
+          outAt(outside);
           const in0 = total(inside), out0 = total(outside);
+          // a flood: no ground in its circle is wetter during the warning or once it has gone down than before it
+          const probes = [];
+          if (type === 'flood') for (let k = 0; k < 300; k++) { const a = k * 2.399, rr = h.r * Math.sqrt(k / 300), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr; probes.push(x, z, Water.depth(x, z)); }
+          let wetter = 0, flooded = 0, gap = Infinity;
           let steps = 0;
           while (h.on && steps < 2000) {
             if (type === 'tornado' || type === 'sandstorm' || type === 'avalanche' || type === 'wildfire' || type === 'gas') { inside.x = h.x; inside.z = h.z; }
             if (type === 'rockfall') for (let k = 0; k < h.nPath; k++) if (h.rocks[k * HZ_ROCK_F + 7]) { inside.x = h.rocks[k * HZ_ROCK_F]; inside.z = h.rocks[k * HZ_ROCK_F + 1]; break; }
             inside.y = Terrain.h(inside.x, inside.z) + (air ? 100 : 0);
+            if (type !== 'lava' && type !== 'rockfall') outAt(outside);
+            gap = Math.min(gap, Hazards.gap(h, outside.x, outside.z));
             Hazards.update(HZ_DT);
-            if (type === 'flood') { inside.updateWater(HZ_DT); outside.updateWater(HZ_DT); }
+            if (type === 'flood') {
+              inside.updateWater(HZ_DT); outside.updateWater(HZ_DT);
+              for (let k = 0; k < probes.length; k += 3) {
+                const w = Water.depth(probes[k], probes[k + 1]);
+                if (h.state === HZ_ACTIVE) { if (w > probes[k + 2] + 1e-6) flooded++; } else if (w > probes[k + 2] + 1e-6) wetter++;
+              }
+              if (h.state !== HZ_ACTIVE && Water.fr2 > 0) wetter++;   // and no raised water at all (any battlefield's low ground)
+            }
             steps++;
           }
           this.check('hazard ' + type + ' is announced before it strikes', warned);
-          this.check('hazard ' + type + ' hurts a dummy inside its zone and not one outside', total(inside) < in0 && total(outside) === out0,
-            Math.round(in0 - total(inside)) + ' inside, ' + Math.round(out0 - total(outside)) + ' outside, ' + Math.round(Math.hypot(ox - ix, oz - iz)) + ' m apart');
+          this.check('hazard ' + type + ' hurts a dummy inside its zone and not one ' + OUT + ' m past its reach', total(inside) < in0 && total(outside) === out0,
+            Math.round(in0 - total(inside)) + ' inside, ' + Math.round(out0 - total(outside)) + ' outside, ' + gap.toFixed(1) + ' m from the edge at the nearest');
+          if (type === 'flood') this.check('a flood wets no ground during its warning or once it has gone down, only while it runs', wetter === 0 && flooded > 0, wetter + ' wetter outside the run, ' + flooded + ' flooded in it');
           this.check('hazard ' + type + ' ends within its time', !h.on && steps * HZ_DT <= WARN + d.dur + HAZARD_FADE + 0.5, (steps * HZ_DT).toFixed(1) + ' s');
         }
         this.check('a flood leaves the water as it was', Water.fr2 === 0 && Water.level(lake.x, lake.z) === Water.baseLevel(lake.x, lake.z));
+        this.check('a scheduled gas leak needs a plant to leak from', Hazards.gasSource(0, 0, HZ_GAS_REACH) === null && Hazards.force('gas', 0, 0, { warn: 0, find: true }) === null && Hazards.n === 0);
         // an earthquake brings down a cracked building and leaves a sound one far away standing
         W.platforms.length = 0;
         const shop = Bld.make('shop', 0, 140, makeRng(4), 'quake'), far = Bld.make('shop', 700, 700, makeRng(4), 'far');
@@ -21322,15 +21460,16 @@ const SelfTest = {
         const q = Hazards.force('earthquake', 0, 140, { warn: 0 });
         for (let i = 0; i < 60 * 20 && (q.on || Falls.n > 0); i++) updateWorldEffects(STEP);
         this.check('an earthquake brings down a cracked building through the collapse rules', shop.alive < cracked * 0.6 && far.alive === far.total, shop.alive + ' of ' + cracked + ' standing, far ' + far.alive + '/' + far.total);
-        // the off level disables every hazard and every trigger
+        // the off level disables every hazard and every trigger: the hook, big blasts at a chemical plant (explosion
+        // trigger) and storm flashes (weather trigger) start nothing and strike nothing
+        addStruct('factory', 300, 300, {});
         Hazards.arm('off', HAZARD_IDS, 5, false);
-        const lightning0 = Weather.onLightning;
-        Weather.onLightning(3); Hazards.onBlast(0, Terrain.h(0, 0), 0, 20);
-        this.check('hazards off: no schedule, the hook, blasts and lightning start none', Hazards.sched.n === 0 && HAZARD_IDS.every((id) => Hazards.force(id, 0, 0, { warn: 0 }) === null) && Hazards.n === 0 && lightning0 !== null);
+        W.beams.length = 0;
+        for (let k = 0; k < 40; k++) { Hazards.blastT = -Infinity; Hazards.onBlast(300 + k, Terrain.h(300, 300), 300 + k * 0.5, 9); Weather.onLightning(k); }
+        this.check('hazards off: no schedule, and the hook, blasts and storm flashes start or strike nothing', Hazards.sched.n === 0 && HAZARD_IDS.every((id) => Hazards.force(id, 0, 0, { warn: 0 }) === null) && Hazards.n === 0 && W.beams.length === 0, W.beams.length + ' strikes');
         // explosions and storm lightning set hazards off on a battlefield that lists them
         Hazards.arm('normal', ['gas', 'lightning'], 5, false);
         Hazards.sched.n = 0;
-        addStruct('factory', 300, 300, {});
         let blasts = 0;
         for (let k = 0; k < 40 && Hazards.n === 0; k++) { Hazards.blastT = -Infinity; Hazards.onBlast(300 + k, Terrain.h(300, 300), 300 + k * 0.5, 9); blasts++; }
         this.check('a big blast at a chemical plant may set off a gas leak there', Hazards.n === 1 && Hazards.list.some((hh) => hh.on && hh.type === 'gas' && hh.src && hh.src.type === 'factory'), blasts + ' blasts');
@@ -21339,15 +21478,37 @@ const SelfTest = {
         const beams0 = W.beams.length;
         for (let s = 0; s < 40; s++) Weather.onLightning(s);
         this.check('storm flashes strike the ground on a battlefield with lightning', W.beams.length > beams0 && Hazards.n === 0);
+        // lightning never reaches an aircraft above the clouds, never finishes a sound unit in one strike, picks the same
+        // unit again only after HZ_ZAP_GAP, and takes at most HZ_ZAP_ALL of a heavy mech's hull however long the storm
+        const t0 = W.time, mk = (id, x, z, up) => { const p = new Platform(PLATFORMS[id], { team: 1, x, z, yaw: 0 }); p.y = Terrain.h(x, z) + up; W.platforms.push(p); return p; };
+        try {
+          W.platforms.length = 0;
+          const jet = mk(airId, 500, 500, 600), jet0 = total(jet);
+          const aimedJet = Hazards.strikeTallest(500, 500, HAZARDS.lightning.r, 0);
+          Hazards.strike(jet.x, jet.z, jet.y, 0);
+          this.check('lightning never aims at or hurts an aircraft 600 m up', !aimedJet && total(jet) === jet0);
+          W.platforms.length = 0;
+          const soldier = mk('ranger', 520, 520, 0);
+          Hazards.strike(soldier.x, soldier.z, soldier.y + soldier.height, 0);
+          this.check('one strike leaves a soldier at full health alive', !soldier.dead && soldier.hp < soldier.maxHp, Math.round(soldier.hp) + '/' + soldier.maxHp);
+          const first = Hazards.strikeTallest(520, 520, HZ_SKY_ROD, 0), again = Hazards.strikeTallest(520, 520, HZ_SKY_ROD, 0);
+          W.time = t0 + HZ_ZAP_GAP + 0.1;
+          const later = Hazards.strikeTallest(520, 520, HZ_SKY_ROD, 0);
+          this.check('an aimed strike picks the same unit again only after the cooldown', first && !again && later && !soldier.dead);
+          const heavy = mk('colossus', 560, 560, 0);
+          for (let k = 0; k < 30; k++) { W.time += HZ_ZAP_GAP; Hazards.strike(heavy.x, heavy.z, heavy.y + heavy.height, 0); }
+          this.check('a long storm takes at most ' + HZ_ZAP_ALL * 100 + '% of a heavy mech\'s hull', !heavy.dead && heavy.hp < heavy.maxHp && heavy.hp >= heavy.maxHp * (1 - HZ_ZAP_ALL) - 1e-6, Math.round(heavy.hp) + '/' + heavy.maxHp);
+        } finally { W.time = t0; }
       } finally { Net.guest = keepGuest; Hazards.reset(); Game.quitToMenu(); }
     });
     t('hazards in co-op', () => {
       newWorld({ map: 'alpine', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: -300, yaw: 0 } });
       W.mission = null;
-      const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers }, sent = [];
+      const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, t: Net.t, snapT: Net.snapT }, sent = [];
       const total = (p) => p.hp + p.armor + (p.shield || 0);
+      const keepTD = Platform.prototype.takeDamage, keepDS = damageStruct;
       try {
-        Net.host = true; Net.guest = false; Net.inSession = true;
+        Net.host = true; Net.guest = false; Net.inSession = true; Net.t = 100; Net.snapT = 100;
         Net.peers = [{ open: true, hello: true, tx: (s) => sent.push(JSON.parse(s)) }];
         Hazards.arm('normal', HAZARD_IDS, 5, false);
         Hazards.sched.n = 0;
@@ -21355,6 +21516,17 @@ const SelfTest = {
         for (let i = 0; i < 20; i++) Hazards.update(0.1);
         const hz = sent.filter((m) => m.t === 'hz'), lastX = hz[hz.length - 1].x;
         this.check('the host sends a hazard as hz with id, type, state, position, radius and level', hz.length >= 3 && hz.every((m) => m.id === h.id && m.type === 'tornado' && [HZ_WARN, HZ_ACTIVE].indexOf(m.state) >= 0 && Number.isFinite(m.x) && Number.isFinite(m.z) && m.r > 0 && Number.isFinite(m.level)) && hz[0].state === HZ_WARN && hz[hz.length - 1].state === HZ_ACTIVE);
+        // a lava flow and a rockfall on a bare slope, forced off the 0.1 m grid 'hz' rounds to
+        let slope = 0, sx = 0, sz = 0;
+        for (let x = -800; x <= 800; x += 32) for (let z = -800; z <= 800; z += 32) {
+          if (Water.at(x, z) || Hazards.snowy(x, z) || Terrain.slope(x, z) <= slope) continue;
+          slope = Terrain.slope(x, z); sx = x; sz = z;
+        }
+        const lava = Hazards.force('lava', sx + 0.037, sz + 0.061, { warn: 0 }), rock = Hazards.force('rockfall', sx + 0.043, sz - 0.029, { warn: 0 });
+        const lavaId = lava ? lava.id : -1, rockId = rock ? rock.id : -1;
+        const lavaPath = lava ? Array.from(lava.path.subarray(0, lava.nPath * 2)) : [], rocks0 = rock ? Array.from(rock.rocks.subarray(0, rock.nPath * HZ_ROCK_F)) : [];
+        for (let i = 0; i < 60; i++) Hazards.update(0.1);
+        const lavaMsgs = sent.filter((m) => m.t === 'hz' && m.id === lavaId), rockMsgs = sent.filter((m) => m.t === 'hz' && m.id === rockId);
         // a guest: it draws what the host sends and decides nothing
         Net.host = false; Net.guest = true;
         Hazards.arm('normal', HAZARD_IDS, 5, true);
@@ -21362,14 +21534,46 @@ const SelfTest = {
         for (const m of hz) Hazards.apply(m);
         const g = Hazards.byId(h.id);
         this.check('the guest applies the host\'s hazard', !!g && g.type === 'tornado' && g.state === HZ_ACTIVE && g.tx === lastX);
+        // the guest builds the host's lava cells and boulders from the same numbers, and its boulders follow the host's
+        let sameLava = false, sameStart = false, sameRocks = false;
+        if (lavaMsgs.length && rockMsgs.length) {
+          Hazards.apply(lavaMsgs[0]);
+          const gl = Hazards.byId(lavaId);
+          sameLava = !!gl && gl.nPath * 2 === lavaPath.length && lavaPath.every((v, k) => gl.path[k] === v);
+          Hazards.apply(Object.assign({}, rockMsgs[0], { p: undefined }));   // its own start first, before the host's boulders
+          const gr = Hazards.byId(rockId);
+          sameStart = !!gr && gr.nPath * HZ_ROCK_F === rocks0.length && [0, 1, 2].every((f) => { for (let k = 0; k < gr.nPath; k++) if (gr.rocks[k * HZ_ROCK_F + f] !== rocks0[k * HZ_ROCK_F + f]) return false; return true; });
+          const running = rockMsgs.filter((m) => m.state !== 0);   // (the host's may be gone by now)
+          for (const m of running) Hazards.apply(m);
+          const last = running[running.length - 1].p;
+          sameRocks = !!gr && Array.isArray(last) && last.length === gr.nPath * 5;
+          for (let k = 0; sameRocks && k < gr.nPath; k++) sameRocks = gr.rocks[k * HZ_ROCK_F] === Math.fround(last[k * 5]) && gr.rocks[k * HZ_ROCK_F + 1] === Math.fround(last[k * 5 + 1]) && (gr.rocks[k * HZ_ROCK_F + 7] ? 1 : 0) === last[k * 5 + 4];
+          Hazards.apply({ t: 'hz', id: lavaId, type: 'lava', state: 0, x: 0, z: 0, r: 0, level: 0 });
+          Hazards.apply({ t: 'hz', id: rockId, type: 'rockfall', state: 0, x: 0, z: 0, r: 0, level: 0 });
+        }
+        this.check('host and guest build the same lava cells and boulders, and the guest\'s boulders go where the host\'s do', sameLava && sameStart && sameRocks, lavaMsgs.length + ' lava and ' + rockMsgs.length + ' rockfall messages; cells ' + sameLava + ', start ' + sameStart + ', boulders ' + sameRocks);
+        // its hazards deal no damage: no damage call at all
         const p = new Platform(PLATFORMS.bulwark, { team: 1, x: g.x, z: g.z, yaw: 0 });
         W.platforms.push(p);
         const p0 = total(p);
-        for (let i = 0; i < 30; i++) { p.x = g.x; p.z = g.z; Hazards.update(0.1); }
-        this.check('a guest\'s hazards deal no damage', total(p) === p0);
+        let calls = 0;
+        Platform.prototype.takeDamage = function () { calls++; return keepTD.apply(this, arguments); };
+        damageStruct = function () { calls++; return keepDS.apply(this, arguments); };
+        try { for (let i = 0; i < 30; i++) { p.x = g.x; p.z = g.z; Hazards.update(0.1); } } finally { Platform.prototype.takeDamage = keepTD; damageStruct = keepDS; }
+        this.check('a guest\'s hazards deal no damage', calls === 0 && total(p) === p0, calls + ' damage calls');
         const n1 = Hazards.n;
         Hazards.force('gas', 50, 50, { warn: 0 }); Hazards.onBlast(50, Terrain.h(50, 50), 50, 20); Weather.onLightning(5); Hazards.runSchedule();
         this.check('a guest ignores its own triggers (hook, blasts, lightning, schedule)', Hazards.n === n1);
+        // silence: a guest keeps a hazard while the host's world is stalled (no snapshots), drops it after HZ_LOST s of the
+        // host's world running without a word of it, and takes it back without a new warning when the host speaks again
+        Net.snapT = Net.t - HZ_QUIET * 3;
+        for (let i = 0; i < (HZ_LOST + 5) * 10; i++) Hazards.update(0.1);
+        const kept = !!Hazards.byId(h.id);
+        Net.snapT = Net.t;
+        for (let i = 0; i < (HZ_LOST + 1) * 10; i++) Hazards.update(0.1);
+        const dropped = !Hazards.byId(h.id), msgs0 = W.msgs.length;
+        Hazards.apply(hz[hz.length - 1]);
+        this.check('a guest keeps a hazard through a stalled host, drops it after a silence and takes it back quietly', kept && dropped && !!Hazards.byId(h.id) && Hazards.n === n1 && W.msgs.length === msgs0);
         Hazards.apply({ t: 'hz', id: h.id, type: 'tornado', state: 0, x: 0, z: 0, r: 0, level: 0 });
         this.check('state 0 removes the hazard on the guest', !Hazards.byId(h.id) && Hazards.n === n1 - 1);
         W.beams.length = 0;
@@ -21384,7 +21588,7 @@ const SelfTest = {
         Hazards.apply({ t: 'hz', id: 'x', type: 'nope', state: 2, x: 'a', z: null, r: -5, level: 1e9 });
         Hazards.apply({ t: 'hz', id: 0, type: 'gas', state: 2, x: 'a', z: null, r: -5, level: 1e9 });
         this.check('a guest drops a malformed hazard message', Hazards.n === n2);
-      } finally { Object.assign(Net, saved); Hazards.reset(); Game.quitToMenu(); }
+      } finally { Platform.prototype.takeDamage = keepTD; damageStruct = keepDS; Object.assign(Net, saved); Hazards.reset(); Game.quitToMenu(); }
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
@@ -21427,7 +21631,7 @@ const Net = {
   supported: typeof RTCPeerConnection !== 'undefined',
   host: false, guest: false, inSession: false, peers: [], hostPeer: null, useStun: false, t: 0, nextPeerId: 1, maxPeers: 3,
   name: 'Pilot', missionId: 'm1', status: '', seq: 0, inSeq: 0, snapAcc: 0, obAcc: 0, stAcc: 0, inAcc: 0, beatAcc: 0, pendEdge: 0,
-  dirty: new Set(), map: {}, projMap: {}, lastSnapSeq: 0, lobbyView: null, myId: 0, inviteText: '', joined: false, onChange: null,
+  dirty: new Set(), map: {}, projMap: {}, lastSnapSeq: 0, snapT: 0, lobbyView: null, myId: 0, inviteText: '', joined: false, onChange: null,
   get active() { return this.host || this.guest; },
   changed() { if (this.onChange) this.onChange(); },
 
@@ -21752,8 +21956,13 @@ const Net = {
       for (let k = 0; k < l.length; k += 250) this.bcast({ t: 'st', l: l.slice(k, k + 250) });
     }
   },
-  /* one structure's state for 'st': index, hull, damage stage, and 0 standing, 1 destroyed or 2 a building piece that fell */
-  stEntry(i, s) { return [i, r1(s.hp), s.state, s.destroyed ? (s.bld && s.fallAt !== undefined ? 2 : 1) : 0]; },
+  /* one structure's state for 'st': index, hull, damage stage, and 0 standing, 1 destroyed or 2 a building piece that fell;
+     a fallen piece of a building falling over adds the way it falls (radians) and the height it tips from */
+  stEntry(i, s) {
+    const fell = s.destroyed && !!s.bld && s.fell, e = [i, r1(s.hp), s.state, s.destroyed ? (fell ? 2 : 1) : 0];
+    if (fell && s.bld.topple) e.push(r2(Math.atan2(s.bld.tx, s.bld.tz)), r1(s.bld.tY));
+    return e;
+  },
   /* host keep-alive to every guest once a second */
   beat(dt) {
     this.beatAcc += dt;
@@ -21835,7 +22044,7 @@ const Net = {
   /* ---------- guest: building the mirrored world and applying updates ---------- */
   guestStart(m) {
     if (!m.cfg || !MISSION_BY_ID[m.cfg.missionId]) { this.leave('Unknown mission from host'); return; }
-    this.inSession = true; this.map = {}; this.projMap = {}; this.lastSnapSeq = 0; this.inAcc = 0; this.beatAcc = 0; this.t = 0;
+    this.inSession = true; this.map = {}; this.projMap = {}; this.lastSnapSeq = 0; this.snapT = 0; this.inAcc = 0; this.beatAcc = 0; this.t = 0;
     Game.cfg = null;
     if (!Game.startSession(m.cfg, true)) { this.leave('Could not start the mission'); return; }
     if (W.structs.length !== m.ns) this.leave('World mismatch with host (' + W.structs.length + ' vs ' + m.ns + ')');
@@ -21886,7 +22095,7 @@ const Net = {
   },
   applySnapshot(m) {
     if (!W || !Array.isArray(m.p) || m.q <= this.lastSnapSeq) return;
-    this.lastSnapSeq = m.q;
+    this.lastSnapSeq = m.q; this.snapT = this.t;   // the host's world is running (Hazards waits while it is not)
     for (const e of m.p) {
       const p = this.map[e[0]];
       if (!p) continue;
@@ -21982,7 +22191,7 @@ const Net = {
       if (e[3] && !s.destroyed) {
         const ex = s.explosive; s.explosive = false;           // the host sends the blast as its own event
         const fell = e[3] === 2 && !!s.bld;                    // it lost its support on the host: here it falls too
-        if (fell) Bld.fall(s);
+        if (fell) Bld.fall(s, e[4], e[5]);
         Bld.dropping = fell; destroyStruct(s, null); Bld.dropping = false;
         s.explosive = ex;
       } else if (!e[3]) {
