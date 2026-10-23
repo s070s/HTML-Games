@@ -479,6 +479,32 @@ Test.add('hudui', (check) => hudTestWith(() => {
     TouchInput.applyAll();
   }
 }));
+// The core buttons a thumb finds by feel: each stays on its layout half at every editor scale (a DUCK beside the stick is a miss).
+const HUD_UI_CORE_BUTTONS = ['stick', 'fire', 'jump', 'aim', 'use', 'crouch', 'reload', 'grenade', 'melee', 'swap'];
+Test.add('hudui', (check) => hudTestWith(() => {
+  const savedPreset = TouchInput.currentPreset, savedNeeds = Object.assign({}, TouchInput.needs), crossed = [];
+  Input.device = 'touch';
+  TouchInput.needs.use = TouchInput.needs.grenade = () => true;
+  Game.start({ mode: 'ffa', map: PlayFlow.smallestMap('ffa').id, seed: 1, bots: [{ dummy: true }, { dummy: true }] });
+  try {
+    for (const [width, height] of HUD_UI_SCREENS.slice(0, 2)) for (const hudScale of HUD_UI_HUD_SCALES) for (const preset of TOUCH_PRESETS) for (const scale of [1, 1.25, 1.5, 1.75, 2]) {
+      Hud.scale = hudScale; Hud.textFloor = HUD_TEXT_SMALL * hudScale;
+      TouchInput.currentPreset = preset;
+      const saved = {};
+      for (const control of TOUCH_CONTROLS) saved[control.id] = { scale };
+      Save.data.touchLayouts = { [preset.id]: saved };
+      TouchInput.placeAll(width, height);
+      for (const id of HUD_UI_CORE_BUTTONS) {
+        const place = TouchInput.places[id];
+        if (place.shown && (place.x < width / 2) !== (place.startX < width / 2)) crossed.push([width, hudScale, preset.id, scale, id, Math.round(place.x), Math.round(place.y)].join(' '));
+      }
+    }
+  } finally {
+    Object.assign(TouchInput.needs, savedNeeds); Save.data.touchLayouts = {}; TouchInput.currentPreset = savedPreset;
+    TouchInput.applyAll();
+  }
+  check('touch: the core buttons keep their half at editor scale 1 to 2 and HUD scale 100 to 150', crossed.length === 0, crossed.slice(0, 4).join('; '));
+}));
 
 Test.add('ui', (check) => {
   const savedTips = Save.data.tips, savedDevice = Input.device, economy = CAT.economy.find((row) => buyKeyAvailable(row)), buyText = () => economyPanelLines(economy).lines.join('\n');

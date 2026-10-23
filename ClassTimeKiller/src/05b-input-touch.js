@@ -31,7 +31,7 @@ const TOUCH_NEAR = 6;                   // radii a button may move before it shr
 const TOUCH_CROWD_SMALLEST = TOUCH_SMALLEST / TOUCH_SCALE_MAX;   // crowd factor floor: an editor-grown button shrinks to its smallest too
 const TOUCH_MIN_DIAMETER = 30;          // css px: no button shrinks below this (smaller cannot be tapped reliably)
 const TOUCH_GAP = 2;                    // css px kept between two buttons, so a tap at one's edge does not reach the next
-const TOUCH_CENTRE_BAND = 0.2;          // of the width: a layout spot this near the centre line belongs to neither half (keepsHalf)
+const TOUCH_CENTRE_BAND = 0.05;         // of the width: a layout spot this near the centre line (pause) belongs to neither half (keepsHalf)
 const ROLE_NONE = 0, ROLE_STICK = 1, ROLE_LOOK = 2, ROLE_BUTTON = 3, ROLE_DRAG = 4;
 // Rotation axes of a phone held in each screen orientation: which device axes point screen-up and screen-right.
 const GYRO_AXES = {
@@ -558,13 +558,16 @@ const TouchInput = {
     }
     return best < Infinity;
   },
-  // x is on the same half of the screen as the button's layout spot. One that starts near the centre line (within
-  // TOUCH_CENTRE_BAND of the width: the utility row) belongs to neither half and may take either.
-  keepsHalf(place, x, width) { return Math.abs(place.startX - width / 2) < TOUCH_CENTRE_BAND * width || (x < width / 2) === (place.startX < width / 2); },
-  // The top band or a side band of the layer: TOUCH_EDGE_BAND of the short side from that edge (the button's centre).
+  // x is on the same half of the screen as the button's layout spot. An edge button (the utility row) and one that starts on
+  // the centre line (within TOUCH_CENTRE_BAND of the width) belong to neither half and may take either.
+  keepsHalf(place, x, width) {
+    return TOUCH_CONTROLS[place.order].edge || Math.abs(place.startX - width / 2) < TOUCH_CENTRE_BAND * width || (x < width / 2) === (place.startX < width / 2);
+  },
+  // The top band, or a side band in the top half of the layer (never beside the stick or FIRE): TOUCH_EDGE_BAND of the short
+  // side from that edge (the button's centre).
   inEdgeBand(x, y, width, height) {
     const insets = this.insets, band = TOUCH_EDGE_BAND * Math.min(width, height);
-    return y <= insets.top + band || x <= insets.left + band || x >= width - insets.right - band;
+    return y <= insets.top + band || (y <= height / 2 && (x <= insets.left + band || x >= width - insets.right - band));
   },
   // A circle of radius at x, y may go there: inside the layer, outside the aim zone and the keepClear areas.
   spotAllowed(x, y, radius, width, height) {
