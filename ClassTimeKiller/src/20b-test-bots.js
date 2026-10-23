@@ -1820,21 +1820,24 @@ const LEAP_NARROW = [LEAP_PIT, { shape: 'box', min: [-2.25, -1, -10], max: [0.75
   { shape: 'box', min: [2.5, -1, -3], max: [4.5, 0, -1] }];
 const LEAP_LEDGE = [TEST_FLOOR, { shape: 'box', min: [-3, 0, 2], max: [3, 1.8, 8] }], LEAP_FELL = -2;
 const LEAP_START_X = -0.75, LEAP_START_Z = -6;   // in line with the take-off nodes (no sideways run into the leap)
-function firstLeapLanding(brushes, goalY, foeX, foeZ) {
+const LEAP_START_OFFSET = 0.3;                    // m beside that line: the run reaches the take-off a little askew
+function firstLeapLanding(brushes, goalY, foeX, foeZ, startX) {
   const [bot, dummy] = startBotTest(botTestMap(false, { brushes }), 'infection');
   Bots.nextDecide[bot] = Infinity;   // the test gives the destination
   Modes.behaviour.infect(bot);
   Actors.flags[dummy] = (Actors.flags[dummy] | ACTOR_FLAG.GOD) & ~ACTOR_FLAG.PROTECTED;   // a target for the whole test
-  placeFacing(bot, LEAP_START_X, LEAP_START_Z, Math.atan2(foeX - LEAP_START_X, foeZ - LEAP_START_Z));
-  runHeld(1, () => { holdActor(dummy, foeX, foeZ); holdActor(bot, LEAP_START_X, LEAP_START_Z); });   // it sees the foe and aims at it
+  const x = startX === undefined ? LEAP_START_X : startX;
+  placeFacing(bot, x, LEAP_START_Z, Math.atan2(foeX - x, foeZ - LEAP_START_Z));
+  runHeld(1, () => { holdActor(dummy, foeX, foeZ); holdActor(bot, x, LEAP_START_Z); });   // it sees the foe and aims at it
   BotMove.stop(bot);
   BotMove.goTo(bot, LEAP_START_X, goalY, 5, 1);
-  let launched = false;
+  let launched = false, speed = 0;   // speed: the run's on the last grounded tick before the leap
   runHeld(5, () => holdActor(dummy, foeX, foeZ), () => {
     if (!Move.isGrounded(bot)) launched = true;
+    else if (!launched) speed = length2(Actors.vx[bot], Actors.vz[bot]);
     return (launched && Move.isGrounded(bot)) || Actors.y[bot] < LEAP_FELL;
   });
-  const landing = { x: Actors.x[bot], y: Actors.y[bot], z: Actors.z[bot], target: BotCombat.target[bot] === dummy };
+  const landing = { x: Actors.x[bot], y: Actors.y[bot], z: Actors.z[bot], target: BotCombat.target[bot] === dummy, speed, runSpeed: BotMove.runSpeed[bot] };
   endBotTest();
   return landing;
 }
@@ -1860,6 +1863,9 @@ Test.add('bots', (check) => {
   const across = firstLeapLanding(LEAP_NARROW, 0, 3.5, -2);
   check('infected, with a foe beside the take-off it leaps a gap along its path (first landing on the far strip)',
     across.target && across.z > 1 && across.y > -0.5, across.x.toFixed(1) + ', ' + across.y.toFixed(1) + ', ' + across.z.toFixed(1));
+  const offset = firstLeapLanding(LEAP_STRIPS, 0, 4.5, -2, LEAP_START_X + LEAP_START_OFFSET);   // the 5 m strips: a leap flies about 12 m
+  check('infected, starting off the take-off line it still leaps the gap at a run (first landing on the far strip, fast)',
+    offset.target && offset.z > 1 && offset.y > -0.5 && offset.speed >= LEAP_TAKE_OFF_SHARE * offset.runSpeed, offset.x.toFixed(1) + ', ' + offset.y.toFixed(1) + ', ' + offset.z.toFixed(1) + ' at ' + offset.speed.toFixed(1) + ' m/s');
   const onTop = firstLeapLanding(LEAP_LEDGE, 1.8, 1.5, 1.5);
   check('infected, with a foe beside the take-off it leaps onto the ledge (first landing on top)',
     onTop.target && onTop.y > 1.5, onTop.x.toFixed(1) + ', ' + onTop.y.toFixed(1) + ', ' + onTop.z.toFixed(1));

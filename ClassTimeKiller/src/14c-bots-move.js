@@ -49,8 +49,9 @@ const LEDGE_SLIDE_SECONDS = 0.4;        // ...as far as this many seconds of it 
 const LEDGE_HOP_SECONDS = 0.7;          // s: how long a combat hop flies (the hop guard looks that far ahead)
 const LEDGE_ALIGN = 0.7;               // cos: a jump link leaves the ground on purpose only while the move heads along it
 const ledgeProbe = { x: 0, z: 0 };      // the guard's probe offset (float arguments are boxed, PERF-006)
-const LEAP_LOOK_AHEAD = 3;              // m: a leaping bot this close to a jump take-off turns its view along the path...
-const LEAP_ALIGN = 0.996;               // ...and takes off only with its facing and run this close (cos, about 5 degrees) to the landing direction: a leap flies about 12 m
+const LEAP_LOOK_AHEAD = 5;              // m: a leaping bot this close to a jump take-off turns its view along the path...
+const LEAP_LINE_AHEAD = 1.5;          // m along the take-off-to-landing line a gap's run-up steers at (it lines up before the edge)
+const LEAP_ALIGN = 0.995;               // ...and takes off only when its flight (run + leap push) heads this close (cos, about 6 degrees) to the landing: a leap flies about 12 m
 const PAD_RIDE_SECONDS = 4;             // s: a jump pad flight lasts at most this long (S08 arcs are far shorter)
 
 const BotMove = {
@@ -283,16 +284,17 @@ const BotMove = {
     if (!this.leaping[id] || !Move.isGrounded(id)) return false;
     return this.segmentType[id] === NAV_LINK.JUMP || this.toTakeOff(id) < LEAP_LOOK_AHEAD;
   },
-  // False while a leaping bot on the ground still turns toward the landing, or still runs off its line: a leap taken
-  // facing a foe to the side flies sideways off the link, and the run's own speed carries into the leap too (braking
-  // ends it). Any other jump keeps the run's direction, so it may start at once.
+  // False while a leaping bot on the ground would fly off the line to the landing: the flight is the run plus the leap's
+  // push along the view (13f), so a leap taken facing a foe to the side, or from a run across the line, misses the link
+  // (braking and turning end it). Any other jump keeps the run's direction, so it may start at once.
   facesLanding(id) {
     if (!this.leaping[id] || !Move.isGrounded(id)) return true;
     const dx = this.pointX[id] - Actors.x[id], dz = this.pointZ[id] - Actors.z[id], length = length2(dx, dz);
     if (length < STEP_HEIGHT) return true;
-    const yaw = Actors.yaw[id], speed = length2(Actors.vx[id], Actors.vz[id]);   // the leap pushes along the view
-    const runsAlong = speed <= LEDGE_SLIDE_SPEED || Actors.vx[id] * dx + Actors.vz[id] * dz >= LEAP_ALIGN * speed * length;
-    return runsAlong && (Math.sin(yaw) * dx + Math.cos(yaw) * dz) >= LEAP_ALIGN * length;
+    const leap = modeLeap(id), push = leap ? leap.leapSpeed * MatchMove.knockback : 0, yaw = Actors.yaw[id];
+    const flyX = Actors.vx[id] + Math.sin(yaw) * push, flyZ = Actors.vz[id] + Math.cos(yaw) * push, fly = length2(flyX, flyZ);
+    if (fly <= LEDGE_SLIDE_SPEED) return true;   // no leap to speak of (knockback off) and no run: nothing to line up
+    return flyX * dx + flyZ * dz >= LEAP_ALIGN * fly * length;
   },
   follow(id, now) {
     if (!Move.isGrounded(id)) this.launched[id] = 1;
@@ -307,6 +309,7 @@ const BotMove = {
     const tx = target.x, tz = target.z, distance = length2(tx - Actors.x[id], tz - Actors.z[id]);
     target.distance = distance;
     if (!atEnd && !climbing && groundSegment(this.segmentType[id])) this.carrot(id, movePoint); else { movePoint.x = tx; movePoint.z = tz; }
+    if (this.gapRunUp(id)) this.lineUpMove(id, movePoint);
     const dx = movePoint.x - Actors.x[id], dz = movePoint.z - Actors.z[id];
     if (!atEnd && !climbing && distance > MOVE_OFF_PATH && now - this.requestedAt[id] > MOVE_REPATH_INTERVAL) { this.request(id, this.options[id]); return; }
     // Past the last point and the destination is still far: it lies off the graph, the end of the path is as close as it gets.
@@ -490,10 +493,22 @@ const BotMove = {
     if (rise > MOVE_SWIM_RISE && (Sim.tick & 1) === 0) Bots.press(id, BTN.JUMP);   // up, and out over the rim (mantle)
     else if (rise < -MOVE_SWIM_RISE) Bots.press(id, BTN.CROUCH);
   },
+  // On the run-up to a level or downward gap a leaping bot faces the landing early and runs onto the take-off-to-landing
+  // line, so it leaps at full speed and straight (the leap flies about 12 m). A climb is faced from the take-off (turning
+  // there from a stop if need be): a full-speed leap meets the ledge face below its top.
+  gapRunUp(id) {
+    return this.segmentType[id] !== NAV_LINK.JUMP && this.aimsLeap(id) && this.landY[id] <= this.pointY[id] + STEP_HEIGHT;
+  },
+  // The run-up's move target: LEAP_LINE_AHEAD past the bot's own spot projected on that line.
+  lineUpMove(id, out) {
+    const lineX = this.landX[id] - this.pointX[id], lineZ = this.landZ[id] - this.pointZ[id], length = length2(lineX, lineZ);
+    if (length < STEP_HEIGHT) return;
+    const unitX = lineX / length, unitZ = lineZ / length;
+    const along = (Actors.x[id] - this.pointX[id]) * unitX + (Actors.z[id] - this.pointZ[id]) * unitZ + LEAP_LINE_AHEAD;
+    out.x = this.pointX[id] + unitX * along; out.z = this.pointZ[id] + unitZ * along;
+  },
   lookAlong(id, target) {
-    // On the run-up to a gap the bot faces the landing early and leaps at full speed. A climb is faced from the take-off
-    // (turning there from a stop if need be): a full-speed leap meets the ledge face below its top.
-    const runUp = this.segmentType[id] !== NAV_LINK.JUMP && this.aimsLeap(id) && this.landY[id] <= this.pointY[id] + STEP_HEIGHT;
+    const runUp = this.gapRunUp(id);
     const x = runUp ? this.landX[id] : target.x, z = runUp ? this.landZ[id] : target.z;
     Bots.lookYaw[id] = Math.atan2(x - Actors.x[id], z - Actors.z[id]);
     if (this.segmentType[id] !== NAV_LINK.LADDER) Bots.lookPitch[id] = 0;
