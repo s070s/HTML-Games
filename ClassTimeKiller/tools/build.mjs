@@ -2,7 +2,7 @@
 // Also checks: duplicate top-level names across files, duplicated code blocks (DRY), banned network APIs, Math.hypot outside the
 // cold files (PERF-006), the file size (D07: a warning above 3.0 MB, a failure above 3.5 MB), that the
 // comment stripper keeps its known tricky lines whole and that the joined script parses.
-// The shipped file leaves out comment-only lines and the // comments after code and indents with tabs (about 15% of the size,
+// The shipped file leaves out blank and comment-only lines and the // comments after code and indents with tabs (about 15% of the size,
 // less to parse on phones);
 // src/ keeps them and the shipped code stays readable (no minifier, D06).
 // Usage: node tools/build.mjs [--check]   (--check: run the checks and print the report, write nothing)
@@ -75,7 +75,7 @@ function checkSize(size) {
   else if (size > SIZE_WARN_BYTES) console.log('  WARNING size ' + megabytes + ' is over ' + SIZE_WARN_BYTES / 1048576 + ' MB (D07 release limit ' + SIZE_LIMIT_BYTES / 1048576 + ' MB)');
 }
 
-// Drops lines that hold only a // comment and ships each two spaces of leading indentation as one tab (about 70 KB less,
+// Drops blank lines and lines that hold only a // comment, and ships each two spaces of leading indentation as one tab (about 70 KB less,
 // still readable). A line inside a template literal that spans lines is text, so it stays exactly as written.
 function withoutCommentLines(text) {
   let insideTemplate = false;
@@ -84,7 +84,7 @@ function withoutCommentLines(text) {
     const wasInside = insideTemplate;
     if ((line.match(/(?<!\\)`/g) || []).length % 2 === 1) insideTemplate = !insideTemplate;
     if (wasInside) kept.push(line);
-    else if (!/^\s*\/\//.test(line)) kept.push(withTabIndent(withoutEndComment(line)));
+    else if (!/^\s*(\/\/.*)?$/.test(line)) kept.push(withTabIndent(withoutEndComment(line)));
   }
   if (insideTemplate) problems.push('a template literal is never closed: comment stripping is not safe');
   return kept.join('\n');
