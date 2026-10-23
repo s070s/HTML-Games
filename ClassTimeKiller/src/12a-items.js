@@ -183,18 +183,18 @@ const Items = {
     if (this.isPower(slot)) this.wait(slot, this.firstPowerTicks());
     return slot;
   },
-  // Weapon spots follow the match's weapon set (the ruleset's set or a match list): a weapon outside it becomes a set gun of
-  // its own class, else the set's next pickup gun (one nobody spawns with, when the set has one; '' = no gun in the set).
-  // Runs once per spot at match load.
+  // Weapon spots follow the match's weapon set (the ruleset's set or a match list): a set gun stays, a weapon outside it
+  // becomes a set pickup gun (one nobody spawns with) of its own class, else the set's next pickup gun (any set gun when
+  // the set has no pickup guns; '' = no gun in the set). Runs once per spot at match load.
   spotWeapon(key) {
     if (!itemRule('weaponSet', '')) return key;
-    const set = currentWeaponSet(), listed = set.weapons;
-    if (listed.includes(key)) return key;
-    const weaponClass = CAT.weapons.byId(key).class;
-    const sameClass = listed.find((other) => CAT.weapons.byId(other).class === weaponClass);
-    if (sameClass) return sameClass;
-    const guns = listed.filter((other) => CAT.weapons.byId(other).class !== 'melee');
+    const set = currentWeaponSet();
+    if (set.weapons.includes(key)) return key;
+    const guns = set.weapons.filter((other) => CAT.weapons.byId(other).class !== 'melee');
     const upgrades = guns.filter((other) => !set.start.includes(other));
+    const weaponClass = CAT.weapons.byId(key).class;
+    const sameClass = upgrades.find((other) => CAT.weapons.byId(other).class === weaponClass);
+    if (sameClass) return sameClass;
     const pool = upgrades.length ? upgrades : guns;
     return pool.length ? pool[this.matchSetCursor++ % pool.length] : '';
   },
@@ -394,6 +394,7 @@ const Items = {
     return true;
   },
   // After a swap every weapon pickup under the actor waits until they step off it, and no new swap comes for a moment.
+  // A pickup holds one blocker: one already blocked by another actor stays open, so the per-actor wait is the main guard.
   blockSwapsAt(id) {
     this.swapReadyTick[id] = Sim.tick + itemTicks(SWAP_PICKUP_SECONDS);
     for (let slot = 0; slot < this.usedEnd; slot++) {

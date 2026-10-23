@@ -79,6 +79,10 @@ Test.add('items', (check) => {
   ItemArena.start({ weaponSet: 'arenaSet' }, spots);
   const arena = CAT.weaponSets.byId('arenaSet');
   check('the Arena set has no rifle: the Vanguard pad becomes an Arena pickup gun, not the spawn pistol', arena.weapons.includes(Items.keyOf(1)) && !arena.start.includes(Items.keyOf(1)) && military.includes('vanguard'), Items.keyOf(1));
+  ItemArena.start({ weaponSet: 'sandboxSet' }, [ItemArena.spot('vanguard', 6, 0), ItemArena.spot('warden', 9, 0)]);
+  const sandbox = CAT.weaponSets.byId('sandboxSet'), sandboxKeys = [Items.keyOf(0), Items.keyOf(1)];
+  const pickupGun = (key) => sandbox.weapons.includes(key) && !sandbox.start.includes(key);
+  check('Shield Wars: a converted pad never hands out a spawn gun (the Vanguard pad stays a rifle)', sandboxKeys.every(pickupGun) && CAT.weapons.byId(Items.keyOf(0)).class === 'rifle', sandboxKeys.join());
   ItemArena.start({ economy: 'heroKits' }, spots);
   check('hero kits: no weapon pads, other pickups stay', Items.spotCount === 1 && Items.keyOf(0) === 'healthpack', Items.spotCount);
   TestArena.finish();
