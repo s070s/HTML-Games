@@ -104,11 +104,8 @@ const Move = {
     return out;
   },
   airShare(id) { return World.airLeft(id) / AIR_SECONDS; },   // breath left, 0..1 (the HUD meter and its vignette)
-  stateName(id) { return MOVE_STATE_NAMES[Motion.state[id]]; },
   isGrounded(id) { return Motion.grounded[id] === 1; },
 };
-
-const MOVE_STATE_NAMES = Object.keys(MOVE_STATE).map((name) => name.toLowerCase());
 
 function matchPreset() {
   const rules = Game.match ? Game.match.rules : null;

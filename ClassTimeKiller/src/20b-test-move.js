@@ -96,10 +96,19 @@ function highestPoint(id, seconds) {
 
 const testSpeed = (id) => Move.horizontalSpeed(id);
 
+// Test-only reads of S08/S10 state (the game itself never needs them).
+const MOVE_STATE_NAMES = Object.keys(MOVE_STATE).map((name) => name.toLowerCase());
+function moveStateName(id) { return MOVE_STATE_NAMES[Motion.state[id]]; }
+function liveDebrisCount() {
+  let total = 0;
+  for (let i = 0; i < BODY_CAPACITY; i++) if (Bodies.active[i] && Bodies.kind[i] === BODY_KIND.DEBRIS) total++;
+  return total;
+}
+
 DebugApi.movement = {
   preset: (id) => Move.preset(id).id,
   setPreset: (id, presetId) => Move.setPreset(id, presetId),
-  state: (id) => Move.stateName(id),
+  state: (id) => moveStateName(id),
   inaccuracy: (id) => Move.inaccuracy(id),
 };
 
@@ -577,7 +586,7 @@ Test.add('move', (check) => {
       holdInput(id, 0, 1, BTN.JUMP, 0);
       for (let i = 0; i < 10 * TICK_RATE && !(Motion.grounded[id] && Actors.z[id] > 5); i++) Sim.step();
       check(row.id + ': swims out over a rim ' + (rim - 2) + ' m above the surface', Motion.grounded[id] === 1 && Actors.z[id] > 5 && Test.near(Actors.y[id], rim, 0.05),
-        Move.stateName(id) + ' at ' + Actors.y[id].toFixed(2) + ',' + Actors.z[id].toFixed(2));
+        moveStateName(id) + ' at ' + Actors.y[id].toFixed(2) + ',' + Actors.z[id].toFixed(2));
       Actors.remove(id);
     }
   }

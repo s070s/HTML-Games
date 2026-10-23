@@ -25,12 +25,6 @@ const Collide = {
   candidateCount: 0,
   trace: makeTrace(),         // scratch result for callers that do not keep their own
 
-  // Collects the brushes whose box touches the given box (static tree + dynamic props) for the traces that follow.
-  gather(minX, minY, minZ, maxX, maxY, maxZ) {
-    const query = gatherQuery;
-    query.minX = minX; query.minY = minY; query.minZ = minZ; query.maxX = maxX; query.maxY = maxY; query.maxZ = maxZ;
-    gatherBox(query, null);
-  },
   // Gathers everything the mover's hull can touch while moving up to `reach` metres from where it stands. A box inside
   // the one this mover gathered last in the same sim step reuses that list (a superset: the traces give the same
   // results), so one actor step walks the brush tree once instead of once per sweep, settle and probe.

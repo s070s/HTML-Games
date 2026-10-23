@@ -261,7 +261,7 @@ Test.add('world', (check) => {
   const hurt = recordEvents(['damage.request'], () => {
     stepSeconds(0.6);
     check('ladder: looking down 46 deg and walking on from the top climbs down the ladder', Motion.state[id] === MOVE_STATE.LADDER && Actors.y[id] < 3.6 && Actors.y[id] > 1.5
-      && Actors.z[id] > 1.4 - ACTOR_RADIUS, Move.stateName(id) + ' at ' + Actors.y[id].toFixed(2) + ',' + Actors.z[id].toFixed(2));
+      && Actors.z[id] > 1.4 - ACTOR_RADIUS, moveStateName(id) + ' at ' + Actors.y[id].toFixed(2) + ',' + Actors.z[id].toFixed(2));
     stepSeconds(1.5);
   });
   check('ladder: reaches the foot with no fall damage', Actors.y[id] < 0.05 && hurt.length === 0, Actors.y[id].toFixed(2) + ' ' + hurt.length);
@@ -412,7 +412,8 @@ Test.add('world', (check) => {
   check('props past the quality budget (potato 4) do not break', Props.isStanding(9) && World.dynamic.length === 10);
   Props.damage(0, 1000); Props.damage(1, 1000);
   check('props within the budget break', !Props.isStanding(0) && !Props.isStanding(1) && World.dynamic.length === 8);
-  check('live debris capped by quality (potato 4)', Bodies.debrisCount() === 4, Bodies.debrisCount());
+  check('live debris capped by quality (potato 4)', liveDebrisCount() === 4, liveDebrisCount());
+  check('S08/S10 keep no code only the tests call (debris count, move state name, box gather)', !Bodies.debrisCount && !Move.stateName && !Collide.gather);
   Settings.set('video.quality', 'high');
   Bodies.clear();
   for (let i = 0; i < 6; i++) throwBody(BODY_SHAPE.SPHERE, i, 3, 0, 0, 0, 0, 1);
@@ -421,7 +422,7 @@ Test.add('world', (check) => {
   Bodies.spawn(Bodies.spec); Bodies.spawn(Bodies.spec);
   Bodies.remove(0); Bodies.remove(1);
   Bodies.spawn(Bodies.spec); Bodies.spawn(Bodies.spec);
-  check('debris cap holds when free slots sit below live debris', Bodies.debrisCount() === 2 && Bodies.count() === 6, Bodies.debrisCount());
+  check('debris cap holds when free slots sit below live debris', liveDebrisCount() === 2 && Bodies.count() === 6, liveDebrisCount());
   Bodies.debrisLimit = BODY_CAPACITY;
 });
 

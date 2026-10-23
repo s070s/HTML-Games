@@ -63,7 +63,6 @@ const Bodies = {
     const debrisFull = kind === BODY_KIND.DEBRIS && debrisCount >= this.debrisLimit;
     return free >= 0 && !debrisFull ? free : oldestDebris;
   },
-  debrisCount() { let total = 0; for (let i = 0; i < BODY_CAPACITY; i++) total += this.active[i] && this.kind[i] === BODY_KIND.DEBRIS ? 1 : 0; return total; },
   remove(index) { this.active[index] = 0; },
   clear() { this.active.fill(0); },
   count() { let total = 0; for (let i = 0; i < BODY_CAPACITY; i++) total += this.active[i]; return total; },
