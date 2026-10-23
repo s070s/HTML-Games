@@ -38,7 +38,8 @@ const MUTATOR_ZONE_HEAD = 'head';
 
 // Mode traits a mutator row may need (row.needs): without it the mutator would do nothing or work against the mode.
 const MUTATOR_MODE_NEEDS = {
-  lives: (mode) => !mode.rounds && mode.respawn === 'normal' && mode.teams !== 1,   // rounds refill lives; co-op has its own
+  // Rounds refill lives; co-op has its own; a mode that sets the sides itself (Blight converts the dead) has no fixed side to run out.
+  lives: (mode) => !mode.rounds && mode.respawn === 'normal' && mode.teams !== 1 && !mode.params.fixedSides,
   teams: (mode) => mode.teams === TEAM_COUNT,
   killScoring: (mode) => mode.scoring.kill !== 0,                                    // NO_KILL_SCORING modes score by their own rule
   ownWeapons: (mode) => !MODE_ARMING_PARAMS.some((key) => mode.params[key]),           // the ladder and roulette arm everyone
