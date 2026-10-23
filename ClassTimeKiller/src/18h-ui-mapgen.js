@@ -6,20 +6,24 @@
 const MAPGEN_MENU_RANDOM_THEME = '';
 const MAPGEN_MENU_ANY_MODE = '';
 const MAPGEN_MENU_BUSY_TEXT = 'Generating...';
+const MAPGEN_MENU_MODE_BOTS = -1;                          // bots: the mode's default number (as Quick Match)
+const MAPGEN_MENU_MATCH_KEYS = ['bots', 'difficulty'];     // match settings: changing them keeps the shown map
 const MAPGEN_MENU_CSS = '.mg-field { width: 9em; background: var(--ui-panel); color: var(--ui-text); border: 1px solid var(--ui-line); border-radius: 8px; padding: 8px; font: inherit; }'
   + '.mg-code { flex: 1; min-width: 12em; font: 0.875em/1.4 ui-monospace, Consolas, monospace; } .mg-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }'
   + '.mg-status { white-space: pre-wrap; } .mg-error { color: var(--ui-bad); }';
 
 const MapGenMenu = {
-  state: { generator: 'GN3', mode: MAPGEN_MENU_ANY_MODE, size: MAPGEN_DEFAULT_SIZE, theme: MAPGEN_MENU_RANDOM_THEME, density: 'normal', seed: 1, map: null, report: null, notice: '' },
+  state: { generator: 'GN3', mode: MAPGEN_MENU_ANY_MODE, size: MAPGEN_DEFAULT_SIZE, theme: MAPGEN_MENU_RANDOM_THEME, density: 'normal', seed: 1, map: null, report: null, notice: '',
+    bots: MAPGEN_MENU_MODE_BOTS, difficulty: PLAY_DEFAULT_DIFFICULTY },
 
   options() {
     const s = this.state;
     return { generator: s.generator, mode: s.mode, size: s.size, theme: s.theme, density: s.density, seed: s.seed };
   },
-  // A setting changed: the shown map is out of date. A generator change drops a mode it does not offer.
+  // A map setting changed: the shown map is out of date. A generator change drops a mode it does not offer.
   set(key, value) {
     this.state[key] = value;
+    if (MAPGEN_MENU_MATCH_KEYS.includes(key)) return;
     this.state.map = null;
     this.state.notice = '';
     const generator = MapGen.generator(this.state.generator);
@@ -60,10 +64,13 @@ const MapGenMenu = {
     const map = this.state.map || this.generate();
     return map.modes.includes(this.state.mode) ? this.state.mode : map.modes[0];
   },
-  // Game.start setup for the generated map: the mode's default number of named roster bots (as Quick Match), the player on team 0 in team modes.
+  // Game.start setup for the generated map: the chosen number of named roster bots (else the mode's default, as Quick Match) at the
+  // chosen difficulty, the player on team 0 in team modes.
   setup() {
-    const mode = this.matchMode(), row = CAT.modes.byId(mode), bots = PlayFlow.rosterBots(Modes.defaultBots(mode, true).length, PLAY_DEFAULT_DIFFICULTY, this.state.seed);
-    return { mode, map: this.state.map, seed: this.state.seed, bots, player: row.teams === 2 ? { team: 0 } : {} };
+    const mode = this.matchMode(), row = CAT.modes.byId(mode), state = this.state;
+    const count = state.bots === MAPGEN_MENU_MODE_BOTS ? Modes.defaultBots(mode, true).length : Math.min(state.bots, PlayFlow.maxBots());
+    const bots = PlayFlow.rosterBots(count, state.difficulty, state.seed);
+    return { mode, map: state.map, seed: state.seed, bots, difficulty: state.difficulty, player: row.teams === 2 ? { team: 0 } : {} };
   },
   describe() {
     const map = this.state.map, report = this.state.report, notice = this.state.notice ? this.state.notice + '\n' : '';
@@ -90,6 +97,8 @@ function mapgenMenuChoices() {
     size: MapGenMenu.sizes().map((row) => ({ value: row.id, name: row.name })),
     theme: [{ value: MAPGEN_MENU_RANDOM_THEME, name: 'Random' }].concat(CAT.mapTilesets.map((row) => ({ value: row.id, name: row.name }))),
     density: CAT.mapDensities.map((row) => ({ value: row.id, name: row.name })),
+    bots: [{ value: MAPGEN_MENU_MODE_BOTS, name: 'Mode default' }].concat(Array.from({ length: PlayFlow.maxBots() + 1 }, (unused, count) => ({ value: count, name: String(count) }))),
+    difficulty: PlayFlow.difficulties().map((row) => ({ value: row.id, name: row.name })),
   };
 }
 function mapgenMenuSeedRow(render) {
@@ -121,7 +130,7 @@ function mapgenMenuRender(list, status) {
   const render = () => mapgenMenuRender(list, status);
   const choices = mapgenMenuChoices(), named = (row) => row.name;
   list.replaceChildren();
-  for (const [key, label] of [['generator', 'Generator'], ['mode', 'Mode'], ['size', 'Size'], ['theme', 'Theme'], ['density', 'Density']]) {
+  for (const [key, label] of [['generator', 'Generator'], ['mode', 'Mode'], ['size', 'Size'], ['theme', 'Theme'], ['density', 'Density'], ['bots', 'Bots'], ['difficulty', 'Difficulty']]) {
     list.appendChild(mapgenMenuCycle(label, choices[key], key, named, render));
   }
   list.appendChild(mapgenMenuSeedRow(render));
