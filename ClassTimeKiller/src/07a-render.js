@@ -115,8 +115,7 @@ const Render = {
     try {
       createGpuResources(gl);
     } catch (error) {
-      ErrorLog.add('render.init', error);
-      showFatal(WEBGL_FATAL_TITLE, WEBGL_FATAL_TEXT, String(error && error.message || error));
+      failGpuBuild('render.init', error);
       this.gl = null;
       return false;
     }
@@ -564,15 +563,19 @@ function giveUpRestore() {
   document.querySelector('#fatal .box').appendChild(button);
 }
 
+// A GPU build that threw (at start or on a restore) would leave a blank or frozen screen: the PLT-002 WebGL2 message instead.
+function failGpuBuild(where, error) {
+  ErrorLog.add(where, error);
+  showFatal(WEBGL_FATAL_TITLE, WEBGL_FATAL_TEXT, String(error && error.message || error));
+}
+
 function handleContextRestored() {
   clearTimeout(Render.restoreTimer);
   try {
     createGpuResources(Render.gl);
   } catch (error) {
-    // A rebuild that fails would leave a frozen, paused screen: show the PLT-002 message instead.
-    ErrorLog.add('render.restore', error);
     Render.ready = false;
-    showFatal(WEBGL_FATAL_TITLE, WEBGL_FATAL_TEXT, String(error && error.message || error));
+    failGpuBuild('render.restore', error);
     return;
   }
   Render.lost = false;

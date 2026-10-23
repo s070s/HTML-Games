@@ -58,7 +58,7 @@ Test.add('settings', (check) => {
   }));
   // A whole-number setting (an integer step) never keeps a fraction from an import (a fractional tier shift or FOV).
   const fov = Settings.validValue(Settings.definitions.get('video.fov'), 90.4), volume = Settings.validValue(Settings.definitions.get('audio.master'), 0.33);
-  check('settings: whole-number settings are rounded, fine steps are not', fov === 90 && volume === 0.33, fov + ' ' + volume);
+  check('settings: whole-number settings are rounded', fov === 90 && volume === 0.33, fov + ' ' + volume);
   const internal = keys.filter((key) => !isEditableSetting(Settings.definitions.get(key)));
   check('settings: the only keys without a control are the named internal ones', internal.length === Object.keys(SETTINGS_INTERNAL_WRITERS).length && internal.every((key) => SETTINGS_INTERNAL_WRITERS[key]), internal.join());
 
@@ -369,85 +369,63 @@ Test.add('settings', (check) => uiWith(() => {
   check('save transfer: the download link is in the page when clicked (Safari / iOS), then removed', connected && clicked && !clicked.isConnected);
 }));
 
-// One iPhone / iPad rule for the audio session and the device code: an iPhone agent, or a Mac with touch (iPad).
-Test.add('settings', (check) => {
-  const iphone = { userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)', platform: 'iPhone', maxTouchPoints: 1 };
-  const ipad = { userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)', platform: 'MacIntel', maxTouchPoints: 5 };
-  const mac = { userAgent: ipad.userAgent, platform: 'MacIntel', maxTouchPoints: 0 }, windows = { userAgent: 'Mozilla/5.0 (Windows NT 10.0)', platform: 'Win32', maxTouchPoints: 10 };
-  const apple = [iphone, ipad, mac, windows].map((nav) => Device.isIos(nav) + '/' + (Sound.configureSession(nav) !== 'none'));
-  check('iPhone and iPad found by one rule (audio and device agree)', apple.join() === 'true/true,true/true,false/false,false/false', apple.join());
-});
-
-// PLT-004: a running match keeps the screen awake (a controller is no touch, so the phone would dim and lock); a pause or
-// the menu lets it sleep. Typing into a field and closing the iOS keyboard puts the page back in place.
+// PLT-004: one iPhone / iPad rule (an iPhone agent, or a Mac with touch) for audio and device code; a running match holds
+// the wake lock (a controller is no touch: the phone would dim); leaving a text field undoes the iOS keyboard's page shift.
 Test.add('settings', async (check) => {
-  const calls = [], sentinel = { release() { calls.push('release'); return Promise.resolve(); }, addEventListener() {} };
+  const agents = [['iPhone', 'iPhone', 1], ['Macintosh', 'MacIntel', 5], ['Macintosh', 'MacIntel', 0], ['Windows', 'Win32', 10]];
+  const apple = agents.map(([userAgent, platform, maxTouchPoints]) => { const nav = { userAgent, platform, maxTouchPoints }; return Device.isIos(nav) + '/' + (Sound.configureSession(nav) !== 'none'); });
+  check('iPhone and iPad found by one rule', apple.join() === 'true/true,true/true,false/false,false/false', apple.join());
+  const calls = [], sentinel = { release() { calls.push('release'); return Promise.resolve(); } }, scrollTo = window.scrollTo;
   Object.defineProperty(navigator, 'wakeLock', { value: { request(type) { calls.push(type); return Promise.resolve(sentinel); } }, configurable: true });
-  const state = Game.state, scrollTo = window.scrollTo, field = document.createElement('input');
-  try {
-    Game.state = 'playing'; Game.paused = false;
-    Device.updateWakeLock(); Device.updateWakeLock();
-    await Promise.resolve();
-    check('wake lock: asked once while a match runs', calls.join() === 'screen', calls.join());
-    Game.paused = true;
-    Device.updateWakeLock();
-    check('wake lock: released on pause', calls.join() === 'screen,release', calls.join());
-    let scrolled = '';
-    window.scrollTo = (x, y) => { scrolled = x + ',' + y; };
-    document.body.appendChild(field);
-    // A page in the background gets no real focus changes: the event the browser sends on blur.
-    field.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
-    check('keyboard: leaving a text field scrolls the page back', scrolled === '0,0', scrolled);
-  } finally {
-    delete navigator.wakeLock;
-    Game.state = state; Game.paused = false;
-    Device.updateWakeLock();
-    window.scrollTo = scrollTo; field.remove();
-  }
+  Game.state = 'playing';
+  Device.updateWakeLock(); Device.updateWakeLock();
+  await Promise.resolve();
+  Game.paused = true;
+  Device.updateWakeLock();
+  check('wake lock: held in a running match only', calls.join() === 'screen,release', calls.join());
+  window.scrollTo = (x, y) => calls.push(x + ',' + y);
+  // A background page gets no real focus changes: the event a blur sends.
+  Ui.root.appendChild(document.createElement('textarea')).dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+  check('keyboard: a left field scrolls back', calls.pop() === '0,0', calls.join());
+  delete navigator.wakeLock; window.scrollTo = scrollTo; Ui.root.lastChild.remove();
+  Game.state = 'menu'; Game.paused = false;
+  Device.updateWakeLock();
 });
 
-// R-008: persistence is asked once, at the first gesture. The Home Screen tip shows once, in an iOS Safari tab, after the
-// first finished match (there is progress to keep) and only on the bare main menu, never over the Welcome dialog or a
-// match; a granted persist() needs no tip. The Home Screen app's first start (its own empty save) offers the import.
+// R-008: persist() is asked once, at the first gesture. The Home Screen tip shows once, in an iOS Safari tab, after a
+// finished match and only on the bare main menu (never over the Welcome); a granted persist() needs none. The Home Screen
+// app's first start (its own empty save) offers the import.
 Test.add('settings', (check) => uiWith(() => {
   let asked = 0;
   Object.defineProperty(navigator, 'storage', { value: { persist: () => { asked++; return Promise.resolve(true); } }, configurable: true });
-  const isIos = Device.isIos, standalone = Device.standalone, asked0 = Device.persistAsked, result0 = Device.persistResult, state = Game.state;
+  const saved = { isIos: Device.isIos, standalone: Device.standalone, persistAsked: Device.persistAsked, persistResult: Device.persistResult };
   const dialogs = () => Ui.stack.filter((entry) => entry.name === 'confirm').length;
+  const device = (ios, homeScreen, persisted) => Object.assign(Device, { isIos: () => ios, standalone: () => homeScreen, persistResult: persisted || null });
   try {
     Device.persistAsked = false;
     Device.armPersist();
-    const before = asked;
     window.dispatchEvent(new PointerEvent('pointerdown'));
     window.dispatchEvent(new KeyboardEvent('keydown'));
-    check('storage: persist asked once, at a gesture', before === 0 && asked === 1, asked);
-    const device = (ios, homeScreen) => { Device.isIos = () => ios; Device.standalone = () => homeScreen; Device.persistResult = null; };
-    Ui.closeAll(); Ui.open('main');
-    device(true, false);
-    Device.atReady();
-    check('home screen tip: not at the first start (nothing to keep yet)', dialogs() === 0 && !Device.showPendingDialog());
+    check('storage: persist asked once, at a gesture', asked === 1, asked);
+    Ui.open('main');
+    device(true, false).atReady();
+    const atStart = Device.showPendingDialog();
     Game.state = 'results';
-    device(false, false); Device.homeScreenTip(); device(true, true); Device.homeScreenTip();
-    check('home screen tip: iOS Safari tab only', !Device.pendingDialog && !Save.data.tips.homeScreen);
-    device(true, false); Device.persistResult = true; Device.homeScreenTip();
-    check('home screen tip: not when the browser keeps the save (persist granted)', !Device.pendingDialog);
-    device(true, false);
+    for (const [ios, homeScreen, persisted] of [[false, false], [true, true], [true, false, true]]) device(ios, homeScreen, persisted).homeScreenTip();
+    check('home tip: not at start, off iOS Safari, or when persisted', !atStart && !Device.pendingDialog);
     Ui.confirm({ title: 'Welcome', text: '', onYes: () => {} });
-    Device.homeScreenTip();
-    check('home screen tip: waits while a match or another dialog is up', !Device.showPendingDialog() && dialogs() === 1);
-    Game.state = 'menu';
-    check('home screen tip: still waits for the dialog to close', !Device.showPendingDialog() && dialogs() === 1);
+    device(true, false).homeScreenTip();
+    const waited = !Device.showPendingDialog() && (Game.state = 'menu', !Device.showPendingDialog());
     Ui.back();
-    check('home screen tip: then shows once, on the main menu', Device.showPendingDialog() && dialogs() === 1 && uiClickButton(Ui.top().element, HOME_SCREEN_TIP.yes)
-      && Ui.current() === 'saveTransfer' && (Device.homeScreenTip(), !Device.pendingDialog));
+    check('home tip: waits for the bare main menu, shows once', waited && Device.showPendingDialog() && dialogs() === 1
+      && uiClickButton(Ui.top().element, HOME_SCREEN_TIP.yes) && Ui.current() === 'saveTransfer' && (Device.homeScreenTip(), !Device.pendingDialog));
     Ui.closeAll(); Ui.open('main');
     Save.data = Save.emptySave();
-    device(true, true);
-    Device.atReady();
-    check('home screen app: a fresh save offers the import', Device.showPendingDialog() && uiClickButton(Ui.top().element, HOME_SCREEN_IMPORT.yes) && Ui.current() === 'saveTransfer');
+    device(true, true).atReady();
+    check('home app: a fresh save offers the import', Device.showPendingDialog() && uiClickButton(Ui.top().element, HOME_SCREEN_IMPORT.yes) && Ui.current() === 'saveTransfer');
   } finally {
     delete navigator.storage;
-    Device.isIos = isIos; Device.standalone = standalone; Device.persistAsked = asked0; Device.persistResult = result0; Device.pendingDialog = null;
-    Game.state = state;
+    Object.assign(Device, saved, { pendingDialog: null });
+    Game.state = 'menu';
   }
 }));

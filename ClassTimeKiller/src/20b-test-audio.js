@@ -157,8 +157,7 @@ Test.add('audio', (check) => {
   Sound.refreshQuality();
   check('High has 24 voices and HRTF', Sound.allocator.limit === 24 && Sound.hrtfAllowed);
   // PERF-013: the renderer's step-down in a match reaches the audio at once, not at the next match.
-  const medium = CAT.quality.byId('medium');
-  check('a quality step-down lowers the voices and HRTF at once', lowerQualityStep() && Sound.voiceLimit === medium.voices && !Sound.hrtfAllowed, Sound.voiceLimit);
+  check('a quality step-down reaches the audio', lowerQualityStep() && Sound.voiceLimit === CAT.quality.byId('medium').voices && !Sound.hrtfAllowed, Sound.voiceLimit);
   Settings.set('video.quality', 'medium');
   Sound.refreshQuality();
 });
@@ -610,7 +609,7 @@ Test.add('audio', (check) => {
   check('iOS 17 audio session is set to playback', Sound.configureSession(fakeSession) === 'playback' && fakeSession.audioSession.type === 'playback' && toasts.length === 0);
   check('older iOS gets a silent-switch hint', Sound.configureSession({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_4 like Mac OS X)', platform: 'iPhone', maxTouchPoints: 5 }) === 'hint' && toasts.length === 1 && /silent switch/.test(toasts[0]));
   check('other browsers need neither', Sound.configureSession({ userAgent: 'Mozilla/5.0 (Windows NT 10.0)', platform: 'Win32', maxTouchPoints: 0 }) === 'none' && toasts.length === 1);
-  check('the silent-switch hint shows once, not at every launch', Sound.configureSession({ userAgent: 'iPhone', platform: 'iPhone', maxTouchPoints: 5 }) === 'hint'
+  check('the silent-switch hint shows once', Sound.configureSession({ userAgent: 'iPhone', platform: 'iPhone', maxTouchPoints: 5 }) === 'hint'
     && toasts.length === 1 && Save.data.tips.silentSwitch === true);
 
   Settings.set('audio.mix', true);
