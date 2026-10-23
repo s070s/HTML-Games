@@ -272,9 +272,16 @@ const Weapons = {
     for (let w = 0; w < WEAPON_COUNT; w++) if (this.owned[this.slotIndex(id, w)] && this.countsTowardCarry(CAT.weapons[w])) carried++;
     return carried >= limit;
   },
+  // The one carry-limit rule for every weapon pickup (S12 pads and drops, S13 royale loot): a gun that would push a
+  // carried one out is taken only while Use is held, so walking over a gun never costs the one in hand.
+  mayTake(id, weapon) { return !this.swapsOut(id, weapon) || (Actors.buttons[id] & BTN.USE) !== 0; },
+  // The weapon a carry-limit pickup pushes out: the held one, else the first carried (-1 = none).
+  swapVictim(id) {
+    const held = this.current[id];
+    return held >= 0 && this.countsTowardCarry(CAT.weapons[held]) ? held : this.firstCarried(id);
+  },
   dropForPickup(id) {
-    let victim = this.current[id];
-    if (victim < 0 || !this.countsTowardCarry(CAT.weapons[victim])) victim = this.firstCarried(id);
+    const victim = this.swapVictim(id);
     if (victim < 0) return;
     const slot = this.slotIndex(id, victim);
     this.owned[slot] = 0;
