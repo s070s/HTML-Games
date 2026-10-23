@@ -427,7 +427,9 @@ function meleeSlices(p) {
    kind: mech | ground | air | naval.  Speeds are m/s at the baseline loadout.
    naval (P5.1, D16): ships float on the water with their keel `draft` m under the surface and turn harder the faster
    they go (full authority from steerSpeed m/s, steerMin of it standing); `amphibious` craft ride `ride` m over water
-   and land alike and climb like a hovercraft (`climb`), the others stop where the water gets too shallow (Naval). */
+   and land alike and slow on slopes steeper than `climb` as a ground vehicle does, the others stop where the water
+   gets too shallow (Naval). `hull` [stern, bow, half beam] m along the keel is the box shots hit and what touches
+   other platforms and the shore. */
 const PLATFORMS = {
   wraith: {
     id: 'wraith', name: 'Wraith LM-1', kind: 'mech', cls: 'Light Mech', playable: true, model: 'mech', style: 'light',
@@ -567,7 +569,7 @@ const PLATFORMS = {
     pros: 'Fastest ship, turns tightly at speed, torpedoes', cons: 'Light hull, cannot leave the water, sluggish when slow',
     hp: 420, armor: 110, armorRatio: 0.6, energy: 140, energyRegen: 14, heatCap: 110, cooling: 15, mass: 2, weightCap: 34,
     radius: 4.5, height: 3.4, speed: 30, sensor: 900, stability: 1,
-    naval: { accel: 9, brake: 7, drag: 2.5, reverse: 0.35, steerRate: 0.8, steerSpeed: 12, steerMin: 0.2, grip: 2.4, turretRate: 3.4, boostMult: 1.3, pitchLim: [-0.15, 0.6], draft: 1.2, ride: 0, climb: 0, amphibious: false },
+    naval: { accel: 9, brake: 7, drag: 2.5, reverse: 0.35, steerRate: 0.8, steerSpeed: 12, steerMin: 0.2, grip: 2.4, turretRate: 3.4, boostMult: 1.3, pitchLim: [-0.15, 0.6], draft: 1.2, ride: 0, climb: 0, amphibious: false, hull: [-6, 9, 1.9] },
     mounts: { primaryA: [0, 2.6, 3.6], primaryB: [0, 2.4, -3], secondary: [0, 1.4, 0.5] },
     allow: { primary: ['acannon', 'navalGun', 'mg', 'flak', 'gatling'], secondary: ['torpedo', 'missile', 'rockets', 'shipSam'], utility: ['smoke', 'flares', 'ecm', 'nano', 'aps'] },
     loadout: { primaryA: 'acannon', primaryB: 'mg', secondary: 'torpedo', utility: 'smoke' },
@@ -579,7 +581,7 @@ const PLATFORMS = {
     pros: 'Huge hull, long-range guns and air defence, big payload', cons: 'Slow, turns wide, cannot leave deep water',
     hp: 1200, armor: 450, armorRatio: 0.72, energy: 200, energyRegen: 16, heatCap: 180, cooling: 18, mass: 6, weightCap: 70,
     radius: 10, height: 8, speed: 16, sensor: 1400, stability: 3,
-    naval: { accel: 3.5, brake: 3, drag: 1.2, reverse: 0.3, steerRate: 0.34, steerSpeed: 8, steerMin: 0.25, grip: 2, turretRate: 2.4, boostMult: 1.2, pitchLim: [-0.1, 0.9], draft: 3, ride: 0, climb: 0, amphibious: false },
+    naval: { accel: 3.5, brake: 3, drag: 1.2, reverse: 0.3, steerRate: 0.34, steerSpeed: 8, steerMin: 0.25, grip: 2, turretRate: 2.4, boostMult: 1.2, pitchLim: [-0.1, 0.9], draft: 3, ride: 0, climb: 0, amphibious: false, hull: [-14, 17, 3.5] },
     mounts: { primaryA: [0, 5.2, 9], primaryB: [0, 6.2, -7], secondary: [0, 6.6, 2] },
     allow: { primary: ['navalGun', 'flak', 'acannon', 'gatling', 'howitzer', 'rail'], secondary: ['shipSam', 'missile', 'torpedo', 'cruise', 'swarm', 'aam'], utility: ['aps', 'flares', 'ecm', 'smoke', 'nano', 'reactive', 'drone'] },
     loadout: { primaryA: 'navalGun', primaryB: 'flak', secondary: 'shipSam', utility: 'aps' },
@@ -591,7 +593,7 @@ const PLATFORMS = {
     pros: 'Crosses water, beaches and land alike, torpedoes pass under it', cons: 'Drifts, light armour for a ship',
     hp: 520, armor: 160, armorRatio: 0.62, energy: 160, energyRegen: 16, heatCap: 120, cooling: 16, mass: 2.5, weightCap: 40,
     radius: 5, height: 3.6, speed: 26, sensor: 800, stability: 1.2,
-    naval: { accel: 10, brake: 8, drag: 2, reverse: 0.4, steerRate: 1.0, steerSpeed: 8, steerMin: 0.4, grip: 1.2, turretRate: 4, boostMult: 1.35, pitchLim: [-0.15, 0.6], draft: 0, ride: 1.6, climb: 0.7, amphibious: true },
+    naval: { accel: 10, brake: 8, drag: 2, reverse: 0.4, steerRate: 1.0, steerSpeed: 8, steerMin: 0.4, grip: 1.2, turretRate: 4, boostMult: 1.35, pitchLim: [-0.15, 0.6], draft: 0, ride: 1.6, climb: 0.7, amphibious: true, hull: [-5.7, 7, 3.6] },
     mounts: { primaryA: [0.8, 3, 2.4], primaryB: [-0.8, 3, 2.4], secondary: [0, 3.4, -1] },
     allow: { primary: ['gatling', 'acannon', 'mg', 'flak', 'flamer'], secondary: ['rockets', 'missile', 'mortar', 'atgm', 'shipSam'], utility: ['smoke', 'nano', 'aps', 'flares', 'ecm'] },
     loadout: { primaryA: 'gatling', primaryB: 'mg', secondary: 'rockets', utility: 'smoke' },
@@ -3892,7 +3894,7 @@ function raycast(ox, oy, oz, dx, dy, dz, maxT, ignore, skipPlatforms, padOwner) 
       if (p === ignore || p.dead) continue;
       const pad = padOwner ? hitPad(padOwner, p) : 0;
       const ry = (p.kind === 'air' ? p.radius : p.height * 0.5 + 0.4) + pad;
-      const ht = segEllipsoid(ox, oy, oz, dx, dy, dz, best, p.x, p.y + (p.kind === 'air' ? 0 : p.height * 0.5), p.z, p.radius + pad, ry);
+      const ht = p.kind === 'naval' ? Naval.segHull(p, ox, oy, oz, dx, dy, dz, best, pad) : segEllipsoid(ox, oy, oz, dx, dy, dz, best, p.x, p.y + (p.kind === 'air' ? 0 : p.height * 0.5), p.z, p.radius + pad, ry);
       if (ht >= 0 && ht < best) { best = ht; kind = 'platform'; obj = p; }
     }
   }
@@ -4353,7 +4355,8 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
     if (p.dead || p === opts.exclude) continue;
     const cy = p.y + (p.kind === 'air' ? 0 : p.height * 0.5);
     const dx = p.x - x, dy = cy - y, dz = p.z - z;
-    const d = Math.hypot(dx, dy, dz) - p.radius * 0.7;
+    // a ship: from the blast to its hull box (bow to stern, beam wide); anything else: its body's sphere
+    const d = p.kind === 'naval' ? Math.hypot(Naval.hullDist(p, x, z), Math.max(0, Math.abs(dy) - p.height * 0.5)) : Math.hypot(dx, dy, dz) - p.radius * 0.7;
     if (d >= radius) continue;
     const f = 1 - clamp(d / radius, 0, 1);
     const dmg = damage * (0.15 + 0.85 * f);
@@ -4403,7 +4406,7 @@ function newWorld(cfg) {
     cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [], fauna: null,
     beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], wrecks: [], artyMarks: [], events: [], feed: [], bridges: [], deckCells: null, roadData: null, roadMesh: null, flora: null,
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
-    diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [], airports: [],
+    diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [], airports: [], harbours: [],
     stats: newStats(),
     hitMarker: 0, killMarker: 0, paused: false, timeScale: 1, flash: 0, dmgDirs: [], msgs: [],
     msg(text, snd) { this.msgL(text); if (snd) Snd.ui(snd); if (Net.host) Net.bcast(snd ? { t: 'msg', text, snd } : { t: 'msg', text }); },
@@ -5671,6 +5674,7 @@ function drawWorld(dt) {
     st.push().t(p.x, y + 5, p.z).s(0.3, 10, 0.3); R.draw('box', 0.2, 0.8, 1, 1, 1, 0); st.pop();
   }
   for (let i = 0; i < W.airports.length; i++) Airports.drawBeacon(W.airports[i], st);   // the apron's supply beacon
+  for (let i = 0; i < W.harbours.length; i++) Naval.drawHarbour(W.harbours[i], st);   // and a harbour's buoy
   // platforms
   for (let i = 0; i < W.platforms.length; i++) drawPlatformBody(W.platforms[i]);
   for (let i = 0; i < W.wrecks.length; i++) drawPlatformBody(W.wrecks[i]);   // sinking ships
@@ -8763,7 +8767,6 @@ const RADAR_TP = { x: 0, y: 0, z: 0 };
 // ships (P5.1, D16): kind 'naval' floats on Water.level (waves and floods) with its keel `draft` m under the surface
 const NAVAL_MAP_DEPTH = 4.5;     // a battlefield takes ships when it has a sea, an open sea, or a lake or river this deep (m)
 const NAVAL_KEEL_CLEAR = 0.6;    // water a ship keeps under its keel: where it is shallower ahead, the ship stops (m)
-const NAVAL_PROBE = 1.15;        // the shallows are felt this many radii ahead along the way it moves
 const NAVAL_BUOY = 3;            // how fast (1/s) a hull settles to its waterline, so it rides swell and floods smoothly
 const NAVAL_ROCK = 0.025;        // a hull's rocking on calm water (rad, at mass 1)
 const NAVAL_WIND_ROCK = 0.005;   // and the extra per m/s of wind, so storms throw ships about (rad)
@@ -8772,14 +8775,24 @@ const NAVAL_LEAN = 0.07;         // roll out of a hard turn at full speed (rad)
 const NAVAL_AGROUND_CRAWL = 0.1; // speed share a ship that has run aground keeps (enough to back off into deeper water)
 const NAVAL_WAKE_SPEED = 3;      // m/s through water that leaves a wake
 const NAVAL_SPOT_STEP = 16;      // ring step (m) of the search for open water (Naval.spot)
-const NAVAL_SPOT_ANGLES = 48;    // most spots tried on one ring
+const NAVAL_SPOT_ARC = 24;       // spots on one ring are this far apart (m), so a small lake far out is not missed
 const NAVAL_SPOT_REACH = 1300;   // farthest (m) that search goes
 const NAVAL_SPOT_GAP = 8;        // a ship's spawn spot keeps this clear of anything standing there (m)
 const NAVAL_SPOT_ROOM = 40;      // and has water deep enough this far past its hull every way, so it starts with room to sail (m)
+const NAVAL_SPOT_ROOM_MIN = 4;   // or, where no water has that room, this much: a river or small-lake harbour (m)
+const NAVAL_HARBOUR_REACH = 2 * WORLD_HALF;   // a harbour is looked for this far from the start: anywhere on the battlefield (m)
+const NAVAL_FLEET_GAP = 700;     // an enemy fleet starts at least this far from the player's base, start and harbour (m)
+const NAVAL_STRAND_T = 2;        // s a ship sits on dry ground (a flood gone down) before it is towed back to water
+const NAVAL_TOW_REACH = 200;     // m it is towed at most, else to its harbour
+const NAVAL_PROBE_PAD = 2;       // m past the bow (or stern going astern) at which the shallows are felt
+const NAVAL_HARBOUR_PAD = 45;    // a ship this close to its harbour (m), stopped, is resupplied like at a pad
+const NAVAL_STOP = 1.5;          // m/s under which a ship has stopped there
 const NAVAL_LANE_R = [150, 60];  // radius (m) of a ship's patrol loop round its home, shrunk to this where the water is narrow
 const NAVAL_LANE_PTS = 6;        // points on that loop
 const NAVAL_LANE_REACH = 60;     // a patrolling ship heads for the next point this close to one (m)
-const NAVAL_FALLBACK = 'bulwark';   // what a ship's pilot gets on a battlefield without open water
+const NAVAL_FALLBACK = 'bulwark';   // what a ship's pilot gets on a battlefield without water it can sail
+const NAVAL_FITS = new WeakMap();   // per battlefield def, per ship id: whether it has water that ship can sail (Naval.shipOk)
+const KEEL_A = { x: 0, z: 0 }, KEEL_B = { x: 0, z: 0 };   // scratch points on two hulls' keels (resolvePairs)
 const TORPEDO_RUN = 0.8;         // a torpedo runs this far under the surface (m)
 const TORPEDO_MIN_DEPTH = 1.5;   // and dies where the water gets shallower than this: at the shore (m)
 const Naval = {
@@ -8792,6 +8805,57 @@ const Naval = {
   },
   /* true when a hull with its keel `draft` m down floats at (x, z) with NAVAL_KEEL_CLEAR to spare */
   navigable(x, z, draft) { return Water.any && Water.depth(x, z) >= draft + NAVAL_KEEL_CLEAR; },
+  /* the same in the battlefield's own water, a flood aside: where an AI ship plans its way, so it never steers into
+     water that will drain away under it */
+  navigableBase(x, z, draft) { return Water.any && Water.baseLevel(x, z) - Terrain.h(x, z) >= draft + NAVAL_KEEL_CLEAR; },
+  /* m from a ship's centre to the farthest point of its hull (bow or stern), its radius at least */
+  reach(def) { const h = def.naval.hull; return Math.max(def.radius, -h[0], h[1]); },
+  /* the point of p's keel line (stern to bow, inset by its half beam) nearest (x, z) into out; any other platform's
+     centre */
+  keelPoint(p, x, z, out) {
+    if (p.kind !== 'naval') { out.x = p.x; out.z = p.z; return out; }
+    const h = p.def.naval.hull, fx = Math.sin(p.yaw), fz = Math.cos(p.yaw);
+    const t = clamp((x - p.x) * fx + (z - p.z) * fz, h[0] + h[2], h[1] - h[2]);
+    out.x = p.x + fx * t; out.z = p.z + fz * t;
+    return out;
+  },
+  /* the half width of what p touches others with: a ship's half beam round its keel line, else its radius */
+  bodyR(p) { return p.kind === 'naval' ? p.def.naval.hull[2] : p.radius; },
+  /* where along the ray (o, unit u) up to maxT it first strikes ship e's hull box (pad m larger, not under the keel),
+     or -1 */
+  segHull(e, ox, oy, oz, ux, uy, uz, maxT, pad) {
+    const n = e.def.naval, h = n.hull, c = Math.cos(e.yaw), s = Math.sin(e.yaw), dx = ox - e.x, dz = oz - e.z;
+    // the hull's own frame: +z toward the bow (sin yaw, cos yaw), +x to starboard (cos yaw, -sin yaw)
+    const lx = dx * c - dz * s, lz = dx * s + dz * c, vx = ux * c - uz * s, vz = ux * s + uz * c;
+    return segAABB(lx, oy, lz, vx, uy, vz, maxT, -h[2] - pad, e.y - (n.amphibious ? n.ride : 0), h[0] - pad, h[2] + pad, e.y + e.height + pad, h[1] + pad);
+  },
+  /* m along the ground from (x, z) to ship p's hull (0 inside it) */
+  hullDist(p, x, z) {
+    const h = p.def.naval.hull, c = Math.cos(p.yaw), s = Math.sin(p.yaw), dx = x - p.x, dz = z - p.z;
+    const lx = Math.abs(dx * c - dz * s), lz = dx * s + dz * c;
+    const ex = Math.max(0, lx - h[2]), ez = lz > h[1] ? lz - h[1] : lz < h[0] ? h[0] - lz : 0;
+    return Math.hypot(ex, ez);
+  },
+  /* true when a ship of def can sail somewhere on battlefield def m: a stretch of its own water (the base grid, so
+     before any world is built) deep enough for its keel out past its hull and NAVAL_SPOT_ROOM_MIN every way; once per
+     battlefield and ship. The hangar offers a ship only there, and its harbour is then found (Naval.harbour). */
+  shipOk(def, m) {
+    if (!this.mapOk(m)) return false;
+    let c = NAVAL_FITS.get(m);
+    if (!c) { c = {}; NAVAL_FITS.set(m, c); }
+    if (c[def.id] !== undefined) return c[def.id];
+    const grid = Terrain.baseGrid(m), L = Terrain.baseWater[Terrain.gridKey(m)].levels, N = Terrain.N, G = Terrain.G;
+    const need = Math.max(def.naval.draft, 1) + NAVAL_KEEL_CLEAR, k = Math.ceil((this.reach(def) + NAVAL_SPOT_ROOM_MIN) / G);
+    const lim = Math.floor((GROUND_BOUND - def.radius) / G), mid = N / 2;
+    const deep = (i, j) => { const o = j * (N + 1) + i; return L[o] - grid[o] >= need; };
+    let ok = false;
+    for (let j = mid - lim; j <= mid + lim && !ok; j++) for (let i = mid - lim; i <= mid + lim && !ok; i++) {
+      if (i - k < 0 || j - k < 0 || i + k > N || j + k > N) continue;
+      ok = deep(i, j) && deep(i + k, j) && deep(i - k, j) && deep(i, j + k) && deep(i, j - k);
+    }
+    c[def.id] = ok;
+    return ok;
+  },
   /* where the keel of a ship of def rests at (x, z): `draft` under the surface (an amphibious craft `ride` over water
      or land), or on the bed where the water is too shallow */
   keelY(x, z, def) {
@@ -8799,24 +8863,30 @@ const Naval = {
     if (n.amphibious) return (l > g ? l : g) + n.ride;
     return l - n.draft > g ? l - n.draft : g;
   },
-  /* true when a ship of def fits at (x, z): open water under it and round it (need m deep, room m past its hull), inside
-     the bounds, clear of structures and (avoid) of anything standing there */
+  /* true when a ship of def fits at (x, z): open water under it and round it (need m deep, room m past its bow or
+     stern every way), inside the bounds, clear of structures and (avoid) of anything standing there */
   fits(x, z, def, need, avoid, room) {
-    const r = def.radius, e = r + (room || 0);
+    const r = def.radius, e = this.reach(def) + (room || 0);
     if (Math.abs(x) > GROUND_BOUND - r || Math.abs(z) > GROUND_BOUND - r || Water.depth(x, z) < need) return false;
     if (Water.depth(x + e, z) < need || Water.depth(x - e, z) < need || Water.depth(x, z + e) < need || Water.depth(x, z - e) < need) return false;
     return !groundBlocked(x, z, r + 1) && !(avoid && standingNear(x, z, r + NAVAL_SPOT_GAP));
   },
-  /* The nearest spot within reach of (x, z) where a ship of def floats in open water with room round it, facing the deepest water round it,
-     as { x, z, yaw }; null when there is none. Rings out from (x, z) in a fixed order, so it depends on the world alone. */
-  spot(x, z, def, reach, avoid) {
+  /* The nearest spot within reach of (x, z) where a ship of def floats in open water with NAVAL_SPOT_ROOM round it
+     (else, nowhere in reach, NAVAL_SPOT_ROOM_MIN: a river), facing the deepest water round it, as { x, z, yaw }; null
+     when there is none. keepOff: points it stays NAVAL_FLEET_GAP from. Rings out from (x, z) in a fixed order, so it
+     depends on the world alone. */
+  spot(x, z, def, reach, avoid, keepOff) {
     if (!Water.any) return null;
     const need = Math.max(def.naval.draft, 1) + NAVAL_KEEL_CLEAR;   // an amphibious craft starts afloat too
-    for (let r = 0; r <= reach; r += NAVAL_SPOT_STEP) {
-      const n = r === 0 ? 1 : Math.min(NAVAL_SPOT_ANGLES, Math.ceil(TAU * r / NAVAL_SPOT_STEP));
-      for (let i = 0; i < n; i++) {
-        const a = i * TAU / n, px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
-        if (this.fits(px, pz, def, need, avoid, NAVAL_SPOT_ROOM)) return { x: px, z: pz, yaw: this.openYaw(px, pz, def.radius) };
+    for (let pass = 0; pass < 2; pass++) {
+      const room = pass ? NAVAL_SPOT_ROOM_MIN : NAVAL_SPOT_ROOM;
+      for (let r = 0; r <= reach; r += NAVAL_SPOT_STEP) {
+        const n = r === 0 ? 1 : Math.ceil(TAU * r / NAVAL_SPOT_ARC);
+        for (let i = 0; i < n; i++) {
+          const a = i * TAU / n, px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
+          if (keepOff && keepOff.some((q) => Math.hypot(q.x - px, q.z - pz) < NAVAL_FLEET_GAP)) continue;
+          if (this.fits(px, pz, def, need, avoid, room)) return { x: px, z: pz, yaw: this.openYaw(px, pz, this.reach(def)) };
+        }
       }
     }
     return null;
@@ -8830,17 +8900,61 @@ const Naval = {
     }
     return best;
   },
-  /* the harbour a ship of def starts from: open water nearest to ref (the start or a base), clear of other platforms;
-     null on a battlefield without open water */
-  harbour(def, ref) { return this.mapOk(W.map) ? this.spot(ref.x, ref.z, def, NAVAL_SPOT_REACH, true) : null; },
+  /* the harbour a ship of def starts from: the water it can sail nearest to ref (the start or a base); null on a
+     battlefield without such water (Naval.shipOk) */
+  harbour(def, ref) {
+    if (!this.shipOk(def, W.map)) return null;
+    // clear of others if it can be; on a small lake with a unit by the shore, beside it (the hulls push apart)
+    return this.spot(ref.x, ref.z, def, NAVAL_HARBOUR_REACH, true) || this.spot(ref.x, ref.z, def, NAVAL_HARBOUR_REACH, false);
+  },
   /* What a player who picked def (loadout lo) deploys as near ref: a ship at its harbour (at), else, on a battlefield
-     without open water, the fallback platform with its own loadout; any other platform as it is (at null). */
+     without water it can sail, the fallback platform with its own loadout (fell true); any other platform as it is
+     (at null). */
   deploy(def, lo, ref) {
-    if (def.kind !== 'naval') return { def, lo, at: null };
+    if (def.kind !== 'naval') return { def, lo, at: null, fell: false };
     const at = this.harbour(def, ref);
-    if (at) return { def, lo, at };
+    if (at) return { def, lo, at, fell: false };
     const fb = PLATFORMS[NAVAL_FALLBACK];
-    return { def: fb, lo: Loadout.forPlatform(fb.id), at: null };
+    return { def: fb, lo: Loadout.forPlatform(fb.id), at: null, fell: true };
+  },
+  /* a player's ship starts at harbour h: from then on it is a supply point for ships (W.harbours), one per spot */
+  addHarbour(h) {
+    if (!W.harbours.some((q) => Math.hypot(q.x - h.x, q.z - h.z) < NAVAL_HARBOUR_PAD)) W.harbours.push({ x: h.x, z: h.z });
+  },
+  /* the harbour ship p is close enough to resupply at, or null */
+  harbourAt(p) {
+    for (let i = 0; i < W.harbours.length; i++) {
+      const h = W.harbours[i];
+      if (Math.hypot(h.x - p.x, h.z - p.z) < NAVAL_HARBOUR_PAD) return h;
+    }
+    return null;
+  },
+  /* a player's ship that stops at its harbour is resupplied, once per stop (on the host or in solo play), as an
+     aircraft is on an apron (Airports.service); Use there works as at a pad (padInRange) */
+  service(p) {
+    if (p.speed >= NAVAL_STOP || !this.harbourAt(p)) { p.apronStop = false; return; }
+    if (p.apronStop || Net.guest) return;
+    p.apronStop = true;
+    if (resupplyNeeded(p, W.mods.scarce ? SCARCE_AMMO : 1)) tryResupply(p);
+  },
+  /* the harbour's supply buoy, on the water */
+  drawHarbour(h, st) {
+    const y = Water.level(h.x, h.z);
+    if (!R.visible(h.x, y + 3, h.z, 6)) return;
+    st.push().t(h.x, y + 0.2, h.z).s(2.4, 1, 2.4); R.draw('cyl', 0.2, 0.7, 0.9, 1, 0.5, 0); st.pop();
+    st.push().t(h.x, y + 3, h.z).s(0.3, 5, 0.3); R.draw('box', 0.2, 0.8, 1, 1, 1, 0); st.pop();
+  },
+  /* the notice to who picked ship want and deployed as p instead */
+  fellBack(p, want) { notify(p, 'NO HARBOUR HERE FOR THE ' + want.name.toUpperCase() + ': DEPLOYED IN THE ' + p.def.name.toUpperCase(), 'warn'); },
+  /* a ship left on dry ground (a flood gone down) is towed to the nearest water it floats in within NAVAL_TOW_REACH,
+     else to its harbour; false when there is none */
+  tow(p) {
+    const at = this.spot(p.x, p.z, p.def, NAVAL_TOW_REACH, true) || (W.mission ? this.harbour(p.def, W.mission.def.start) : null);
+    if (!at) return false;
+    p.x = at.x; p.z = at.z; p.yaw = at.yaw; p.vx = p.vz = 0; p.speed = 0; p.y = this.keelY(at.x, at.z, p.def);
+    notify(p, 'STRANDED: TOWED BACK TO THE WATER', 'warn');
+    if (p === W.player) Cam.reset(p);
+    return true;
   },
   /* a ship's patrol loop: NAVAL_LANE_PTS points round (x, z), each pulled in toward it until a ship of def floats there */
   patrolLane(x, z, def) {
@@ -8849,7 +8963,7 @@ const Naval = {
       const a = i * TAU / NAVAL_LANE_PTS;
       for (let r = NAVAL_LANE_R[0]; r >= NAVAL_LANE_R[1]; r -= 30) {
         const px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
-        if (Math.abs(px) < GROUND_BOUND - def.radius && Math.abs(pz) < GROUND_BOUND - def.radius && this.navigable(px, pz, draft)) { out.push({ x: px, z: pz }); break; }
+        if (Math.abs(px) < GROUND_BOUND - def.radius && Math.abs(pz) < GROUND_BOUND - def.radius && this.navigableBase(px, pz, draft)) { out.push({ x: px, z: pz }); break; }
       }
     }
     return out;
@@ -8899,6 +9013,23 @@ const Wrecks = {
     list.push(p);
     return true;
   },
+  /* a wreck still afloat is in the way: ships and anything wading are pushed out of its hull (it does not move); shots
+     pass it, as they pass any wreck (it is out of W.platforms) */
+  block(p) {
+    const pl = W.platforms;
+    for (let i = 0; i < pl.length; i++) {
+      const q = pl[i];
+      if (q.dead || q.kind === 'air' || q.def.speed === 0) continue;
+      const dx = q.x - p.x, dz = q.z - p.z, reach = p.hullR + q.hullR;
+      if (dx * dx + dz * dz > reach * reach) continue;
+      Naval.keelPoint(p, q.x, q.z, KEEL_A); Naval.keelPoint(q, KEEL_A.x, KEEL_A.z, KEEL_B); Naval.keelPoint(p, KEEL_B.x, KEEL_B.z, KEEL_A);
+      const ex = KEEL_B.x - KEEL_A.x, ez = KEEL_B.z - KEEL_A.z, d = Math.hypot(ex, ez) || 0.001, rr = Naval.bodyR(p) + Naval.bodyR(q);
+      if (d >= rr) continue;
+      const nx = ex / d, nz = ez / d, vn = q.vx * nx + q.vz * nz;
+      q.x += nx * (rr - d); q.z += nz * (rr - d);
+      if (vn < 0) { q.vx -= nx * vn; q.vz -= nz * vn; }
+    }
+  },
   update(dt) {
     const list = W.wrecks;
     for (let i = list.length - 1; i >= 0; i--) {
@@ -8910,6 +9041,7 @@ const Wrecks = {
       p.pitch = approach(p.pitch, WRECK_TILT * side, WRECK_TILT * 0.2 * dt);
       p.roll = approach(p.roll, -WRECK_LIST * side, WRECK_LIST * 0.25 * dt);
       const level = Water.level(p.x, p.z);
+      if (p.y + p.height * 0.5 > level) this.block(p);
       if (p.y + p.height > level && Math.random() < dt * 12) {   // smoke while it is above the water, bubbles at the surface
         FX.emit(p.x + rand(-1, 1) * p.radius * 0.6, level + 0.2, p.z + rand(-1, 1) * p.radius * 0.6, rand(-1, 1), rand(1, 3), rand(-1, 1), rand(0.6, 1.2), 1, 2.4, 0.85, 0.92, 0.95, 0.7, 1.5, 0, false);
         if (p.y + p.height * 0.6 > level) FX.emit(p.x, p.y + p.height, p.z, rand(-1, 1), rand(2, 4), rand(-1, 1), 2.5, 2, 4.5, 0.12, 0.12, 0.12, 0.6, 0.5, -1.2, false);
@@ -9298,6 +9430,8 @@ class Platform {
     this.outOfBounds = false; this.arcSpeed = 0; this.noTarget = false; this.warnIncoming = null; this.isDecoy = false;
     this.training = false; this.spawnInfo = null; this.ejected = false; this.withdrew = false; this.shieldMsgT = 0;
     this.sinking = 0; this.wake = false;   // ships: seconds a wreck has left (Wrecks), white water behind it (also on co-op guests)
+    // m from its centre to what of it reaches others first (a ship's bow or stern, Naval.reach), s a ship has sat on dry ground
+    this.hullR = def.naval ? Naval.reach(def) : def.radius; this.strandT = 0;
     // artillery (Arty): the crew wants it deployed, how far it is (0-1), the arc picked, and the solution for the gun in hand
     this.arty = def.arty ? { want: false, deploy: 0, high: false, sol: artySol(), spotT: 0, spotted: false, objNear: false } : null;
     this.hideFromAI = !!def.unarmed; this.provoked = false;   // a civilian is ignored by the AI until provoked (D5)
@@ -9565,7 +9699,11 @@ class Platform {
     const depth = Water.depth(this.x, this.z), aground = !n.amphibious && depth < n.draft;
     this.boosting = !!(c.boost && c.moveF > 0 && this.energy > 4 && !this.energyLock && !this.overheated);
     if (this.boosting) this.useEnergy(18 * dt);
-    const maxV = d.speed * this.speedMult * (this.sub.mobility > 0 ? 0.55 : 1) * (this.boosting ? n.boostMult : 1) * (this.overheated ? 0.85 : 1) * (this.stagger > 0 ? 0.5 : 1) * (aground ? NAVAL_AGROUND_CRAWL : 1);
+    let maxV = d.speed * this.speedMult * (this.sub.mobility > 0 ? 0.55 : 1) * (this.boosting ? n.boostMult : 1) * (this.overheated ? 0.85 : 1) * (this.stagger > 0 ? 0.5 : 1) * (aground ? NAVAL_AGROUND_CRAWL : 1);
+    if (n.amphibious) {   // ashore a hovercraft slows up a slope steeper than it climbs at speed (n.climb, rise over run)
+      const along = (Naval.keelY(this.x + fx * 3, this.z + fz * 3, d) - Naval.keelY(this.x - fx * 3, this.z - fz * 3, d)) / 6;
+      if (along > n.climb * 0.6 && vf > 0) maxV *= clamp(1 - (along - n.climb * 0.6) * 2.2, 0.2, 1);
+    }
     if (c.moveF > 0.05) vf = approach(vf, maxV * c.moveF, n.accel * (this.boosting ? 1.5 : 1) * dt);
     else if (c.moveF < -0.05) { if (vf > 1) vf = approach(vf, 0, n.brake * dt); else vf = approach(vf, -maxV * n.reverse, n.accel * 0.6 * dt); }
     else vf = approach(vf, 0, n.drag * dt);
@@ -9573,36 +9711,50 @@ class Platform {
     if (aground && Math.abs(vf) > maxV) vf = approach(vf, 0, n.brake * 4 * dt);
     vl *= Math.exp(-n.grip * dt);
     // the rudder: little turn when slow (steerMin), full authority from steerSpeed
-    const sp = Math.abs(vf), auth = n.steerRate * clamp(sp / n.steerSpeed, n.steerMin, 1);
+    const sp = Math.abs(vf), auth = n.steerRate * clamp(sp / n.steerSpeed, n.steerMin, 1), pyaw = this.yaw;
     this.yaw -= c.turn * auth * dt * (vf < -0.5 ? -1 : 1) * (this.stagger > 0 ? 0.5 : 1);
+    if (!n.amphibious && this.shoreBlocked(this.x, this.z, pyaw)) this.yaw = pyaw;   // the bow does not swing up a beach
     this.vx = fx * vf + rx * vl; this.vz = fz * vf + rz * vl;
     const px = this.x, pz = this.z;
     this.x += this.vx * dt; this.z += this.vz * dt;
     if (n.amphibious) {
       if (this.climbBlocked(px, pz)) { this.x = px; this.z = pz; this.vx *= 0.3; this.vz *= 0.3; }
       this.slideDown(dt);
-    } else if (this.shoreBlocked(px, pz)) {
+    } else if (this.shoreBlocked(px, pz, this.yaw)) {
       this.x = px; this.z = pz; this.vx = this.vz = 0;
       if (this.isPlayer) this.warn = 'SHALLOW WATER';
     }
     if (aground && this.isPlayer) this.warn = 'RUN AGROUND: BACK OFF INTO DEEPER WATER';
+    // left on dry ground (a flood gone down): it cannot sail off, so it is towed back to water (the host decides)
+    this.strandT = !n.amphibious && depth < n.draft * 0.3 ? this.strandT + dt : 0;
+    if (this.strandT > NAVAL_STRAND_T && !Net.guest) { this.strandT = 0; Naval.tow(this); }
     this.floatNaval(dt, sp / Math.max(1, d.speed));
     this.speed = Math.hypot(this.vx, this.vz);
     this.walkPhase += vf * dt;
     this.grounded = true;
     this.wet = Water.any && Water.level(this.x, this.z) > Terrain.h(this.x, this.z);
     this.wake = this.wet && this.speed > NAVAL_WAKE_SPEED && (!n.amphibious || this.y - Water.level(this.x, this.z) < n.ride * 2);
+    if (this.isPlayer && W.harbours.length) Naval.service(this);   // stopped at the harbour: resupply
     if (this.wake) Naval.wakeFx(this, dt);
     else if (n.amphibious && this.speed > 4 && Math.random() < dt * 20) FX.emit(this.x + rand(-1, 1) * this.radius, this.y - n.ride * 0.6, this.z + rand(-1, 1) * this.radius, rand(-2, 2), rand(0.5, 2), rand(-2, 2), 0.6, 1.2, 2.4, 0.6, 0.55, 0.45, 0.35, 2, 0, false);
   }
-  /* true when the move from (px, pz) to where the ship is now heads into water too shallow for its keel (moving out of
-     the shallows toward deeper water stays open, so a ship never sticks there) */
-  shoreBlocked(px, pz) {
-    const mx = this.x - px, mz = this.z - pz, mv = Math.hypot(mx, mz);
-    if (mv < 1e-5) return false;
-    const reach = this.radius * NAVAL_PROBE / mv, need = this.def.naval.draft + NAVAL_KEEL_CLEAR;
-    const ahead = Water.depth(this.x + mx * reach, this.z + mz * reach);
-    return ahead < need && ahead <= Water.depth(px + mx * reach, pz + mz * reach);
+  /* true when the move from (px, pz) heading pyaw to where the ship is now takes its bow or stern into water too shallow
+     for its keel: felt NAVAL_PROBE_PAD past each end the way that end moves. The end leading the way may not go on
+     where the water is no deeper; the other end and a hull swinging round only not where it gets shallower, so a ship
+     backs or turns out of the shallows and never sticks there. */
+  shoreBlocked(px, pz, pyaw) {
+    const h = this.def.naval.hull, need = this.def.naval.draft + NAVAL_KEEL_CLEAR;
+    const fx = Math.sin(this.yaw), fz = Math.cos(this.yaw), ox = Math.sin(pyaw), oz = Math.cos(pyaw);
+    for (let k = 0; k < 2; k++) {
+      const end = h[k], ex = this.x + fx * end, ez = this.z + fz * end, bx = px + ox * end, bz = pz + oz * end;
+      const ux = ex - bx, uz = ez - bz, u = Math.hypot(ux, uz);
+      if (u < 1e-5) continue;
+      const sx = ux / u * NAVAL_PROBE_PAD, sz = uz / u * NAVAL_PROBE_PAD, now = Water.depth(ex + sx, ez + sz);
+      if (now >= need) continue;
+      const before = Water.depth(bx + sx, bz + sz), lead = (ux * fx + uz * fz) * end > u * 0.7 * Math.abs(end);
+      if (lead ? now <= before : now < before - 1e-3) return true;
+    }
+    return false;
   }
   /* the hull on the water: its keel settles to the surface (with the swell and any flood) less its draft, or on the bed
      where it is too shallow; an amphibious craft rides over water and land. It rocks with the wind, squats at speed
@@ -10581,8 +10733,12 @@ function resolvePairs(dt) {
     for (let j = i + 1; j < pl.length; j++) {
       const b = pl[j];
       if (b.dead) continue;
-      const dx = b.x - a.x, dz = b.z - a.z, dist2 = dx * dx + dz * dz, rr = a.radius + b.radius;
+      let dx = b.x - a.x, dz = b.z - a.z, dist2 = dx * dx + dz * dz, rr = a.hullR + b.hullR;
       if (dist2 > rr * rr * 1.2) continue;
+      if (a.kind === 'naval' || b.kind === 'naval') {   // a ship touches with its hull: the nearest points of the two keel lines
+        Naval.keelPoint(a, b.x, b.z, KEEL_A); Naval.keelPoint(b, KEEL_A.x, KEEL_A.z, KEEL_B); Naval.keelPoint(a, KEEL_B.x, KEEL_B.z, KEEL_A);
+        dx = KEEL_B.x - KEEL_A.x; dz = KEEL_B.z - KEEL_A.z; dist2 = dx * dx + dz * dz; rr = Naval.bodyR(a) + Naval.bodyR(b);
+      } else rr = a.radius + b.radius;
       // an aircraft on the ground is pushed about like a ground unit: no crash damage between planes standing still
       const flyA = a.kind === 'air' && !a.grounded, flyB = b.kind === 'air' && !b.grounded;
       if (flyA && flyB) {
@@ -11431,11 +11587,11 @@ function updateProjectiles(dt) {
       if (e.team === p.team && !W.friendlyFire) continue;
       const pad = hitPad(p.owner, e);
       const ry = (e.kind === 'air' ? e.radius : e.height * 0.5 + 0.4) + pad, rx = e.radius + 0.3 + pad;
-      const ecy = e.y + (e.kind === 'air' ? 0 : e.height * 0.5), er = (rx > ry ? rx : ry) + half;
+      const naval = e.kind === 'naval', ecy = e.y + (e.kind === 'air' ? 0 : e.height * 0.5), er = (naval ? e.hullR + pad + 0.3 : rx > ry ? rx : ry) + half;
       const ddx = e.x - midX, ddy = ecy - midY, ddz = e.z - midZ;
       if (ddx * ddx + ddy * ddy + ddz * ddz > er * er) continue;
       if (p.hitSet && p.hitSet.indexOf(e) >= 0) continue;
-      const ht = segEllipsoid(x0, y0, z0, ux, uy, uz, bestT, e.x, ecy, e.z, rx, ry);
+      const ht = naval ? Naval.segHull(e, x0, y0, z0, ux, uy, uz, bestT, pad + 0.3) : segEllipsoid(x0, y0, z0, ux, uy, uz, bestT, e.x, ecy, e.z, rx, ry);
       if (ht >= 0 && ht < bestT) { bestT = ht; kind = 'platform'; obj = e; }
     }
     Civ.sweep(x0, y0, z0, ux, uy, uz, bestT, p.dmg);   // civilians and animals on the way are hit, and the shot flies on
@@ -11901,6 +12057,7 @@ function padInRange(pl) {
   for (const pad of W.pads) {
     if (Math.hypot(pad.x - pl.x, pad.z - pl.z) < PAD_RANGE && (pl.kind !== 'air' || pl.y - Terrain.h(pad.x, pad.z) < PAD_MAX_ALT)) return pad;
   }
+  if (pl.kind === 'naval' && W.harbours.length) { const h = Naval.harbourAt(pl); if (h) return h; }   // a ship at its harbour
   return Airports.apronAt(pl);
 }
 /* Field resupply at a supply pad using the interact action (also used for remote players).
@@ -12177,7 +12334,7 @@ function standingNear(x, z, r) {
   for (let i = 0; i < W.platforms.length; i++) {
     const q = W.platforms[i];
     if (q.dead || (q.kind === 'air' && !q.grounded)) continue;
-    if (Math.hypot(q.x - x, q.z - z) < q.radius + r) return true;
+    if (Math.hypot(q.x - x, q.z - z) < q.hullR + r) return true;
   }
   return false;
 }
@@ -17556,8 +17713,9 @@ class AIController {
     const p = this.p, look = p.radius * 2.5 + 10, x = p.x + ax * look, z = p.z + az * look;
     if (groundBlocked(x, z, p.radius * 0.9, p.y, p.height)) return false;
     if (p.kind === 'naval' && !p.def.naval.amphibious) {   // a ship keeps to water deep enough for its keel
-      const draft = p.def.naval.draft;
-      return Naval.navigable(x, z, draft) && Naval.navigable(p.x + ax * look * 0.5, p.z + az * look * 0.5, draft);
+      const draft = p.def.naval.draft, base = Naval.navigableBase(p.x, p.z, draft);   // afloat on a flood alone: any water will do
+      const ok = (qx, qz) => (base ? Naval.navigableBase(qx, qz, draft) : Naval.navigable(qx, qz, draft));
+      return ok(x, z) && ok(p.x + ax * look * 0.5, p.z + az * look * 0.5);
     }
     if (Terrain.slope(x, z) >= (p.kind === 'mech' ? 1.1 : 0.85) && !p.floatsAt(x, z)) return false;
     const ford = p.def.style === 'infantry' ? SWIM_DEPTH : p.fordDepth;   // soldiers could swim, but do not choose to
@@ -17905,7 +18063,7 @@ function spawnUnit(archKey, x, z, opts) {
   const team = opts.team === undefined ? 1 : opts.team;
   let pos = { x, z };
   if (def.kind === 'naval') {   // ships: the nearest open water (amphibious craft too)
-    pos = Naval.spot(x, z, def, Math.max(opts.radius || 25, NAVAL_SPOT_REACH), true);
+    pos = Naval.spot(x, z, def, Math.max(opts.radius || 25, NAVAL_SPOT_REACH), true, opts.keepOff);
     if (!pos) return null;
   } else if (def.kind !== 'air') {
     pos = findSpawn(x, z, opts.radius || 25, def.radius, opts.minPlayerDist || 0);
@@ -18629,7 +18787,8 @@ function skirmishDef(cfg) {
       ctx.later(() => { if (supportList.length) spawnGroup(supportList, start.x + 30, start.z + 30, { team: 0, radius: 40 }); });
       ctx.later(() => parkApronAircraft());
       // the fleet keeps to its patrol lanes and is not a wave: the battle is won without hunting every ship down
-      if (Naval.mapOk(mapDef(cfg.map))) ctx.later(() => spawnGroup(SKIRMISH_FLEET[cfg.size] || SKIRMISH_FLEET.small, foe.x, foe.z, { radius: 40 }));
+      // and starts NAVAL_FLEET_GAP from the player's base, start and harbour, or not at all
+      if (Naval.mapOk(mapDef(cfg.map))) ctx.later(() => spawnGroup(SKIRMISH_FLEET[cfg.size] || SKIRMISH_FLEET.small, foe.x, foe.z, { radius: 40, keepOff: W.player ? [own, start, W.player] : [own, start] }));
       ctx.later(() => {
         const k = SKIRMISH_ARTY_BACK / Math.max(1, Math.hypot(foe.x - own.x, foe.z - own.z));
         spawnGroup(SKIRMISH_ARTY[cfg.size] || SKIRMISH_ARTY.small, foe.x + (foe.x - own.x) * k, foe.z + (foe.z - own.z) * k, { radius: 45 }).forEach((u) => { u.garrison = true; });
@@ -19069,6 +19228,8 @@ const Game = {
     W.platforms = W.platforms.filter((q) => q !== old);
     W.platforms.push(p);
     p.noTarget = false;
+    if (ship.fell) Naval.fellBack(p, PLATFORMS[cfg.platformId]);
+    if (ship.at) Naval.addHarbour(ship.at);
     // keep a ground spawn point clear of structures (a ship's harbour spot already is)
     if (def.kind !== 'air' && def.kind !== 'naval' && groundBlocked(p.x, p.z, p.radius + 1)) {
       const sp = findSpawn(x, z, 40, p.radius, 0);
@@ -20307,9 +20468,12 @@ const UI = {
     if (n === 'coopJoin') return Net.lobbyView && MISSION_BY_ID[Net.lobbyView.mission] ? MISSION_BY_ID[Net.lobbyView.mission].map : null;
     return null;
   },
-  /* why platform def cannot deploy on battlefield mapId ('' when it can): ships need open water (P5.2) */
+  /* why platform def cannot deploy on battlefield mapId ('' when it can): ships need water they can sail (P5.2) */
   platBlock(def, mapId) {
-    return def.kind === 'naval' && mapId && !Naval.mapOk(mapDef(mapId)) ? mapDef(mapId).name + ' has no open water for ships' : '';
+    if (def.kind !== 'naval' || !mapId) return '';
+    const m = mapDef(mapId);
+    if (!Naval.mapOk(m)) return m.name + ' has no open water for ships';
+    return Naval.shipOk(def, m) ? '' : m.name + ' has no water deep and wide enough for the ' + def.name;
   },
   act_hgPick(d) {
     const why = this.platBlock(PLATFORMS[d.id], this.hg.map);
@@ -24673,7 +24837,7 @@ const SelfTest = {
         for (let i = 0; i < 150; i++) Game.tick(STEP);
         Cam.update(STEP); Game.render(STEP);
         this.check('every kind is stepped through every system without errors', ['mech', 'ground', 'air', 'naval'].every((k) => kinds.has(k)) && errs.length === 0, errs.slice(0, 2).join(' | '));
-        this.check('an enemy ship has a patrol lane and sails it', boat.ai.lane && boat.ai.lane.length > 0 && Math.hypot(boat.x - from.x, boat.z - from.z) > 2, boat.ai.lane && boat.ai.lane.length);
+        this.check('an enemy ship has a patrol lane', boat.ai.lane && boat.ai.lane.length > 0 && Math.hypot(boat.x - from.x, boat.z - from.z) > 2, boat.ai.lane && boat.ai.lane.length);
         // the test hulls: alone on the water, away from the battle
         for (let i = W.platforms.length - 1; i >= 0; i--) if (W.platforms[i] !== pl) W.platforms.splice(i, 1);
         const hull = (id, at, yaw) => { const q = new Platform(PLATFORMS[id], { team: 0, x: at.x, z: at.z, yaw, loadout: Loadout.forPlatform(id) }); W.platforms.push(q); return q; };
@@ -24734,6 +24898,143 @@ const SelfTest = {
         HUD.drawNavalData(dd, HUD.u); HUD.drawNavalData(acv, HUD.u);
         this.check('the ship HUD draws without errors', errs.length === 0, errs.join());
       } finally { Game.reportError = keepRep; Water.setFlood(0, 0, 0, -Infinity); Game.quitToMenu(); }
+    });
+    t('naval hulls', () => {
+      const keepRep = Game.reportError, errs = [];
+      Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
+      try {
+        Game.startSession({ mode: 'skirmish', platformId: 'trident', loadout: Loadout.forPlatform('trident'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'coast', size: 'large', seed: 7, random: false, support: 'none' }) });
+        const pl = W.player, start = W.mission.def.start, boat = W.platforms.find((q) => q.team === 1 && q.kind === 'naval');
+        for (let i = W.platforms.length - 1; i >= 0; i--) if (W.platforms[i] !== pl && W.platforms[i] !== boat) W.platforms.splice(i, 1);
+        for (const q of W.projs) q.active = false;
+        // with nothing to fight, an enemy ship sails its lane: it reaches lane points (or closes on the next one)
+        pl.noTarget = true;
+        boat.ai.target = null; boat.ai.update(STEP);   // its first look plans the lane
+        const g0 = boat.ai.lane[boat.ai.laneI % boat.ai.lane.length], i0 = boat.ai.laneI, d0 = Math.hypot(g0.x - boat.x, g0.z - boat.z);
+        let fought = false;
+        for (let i = 0; i < 12 / STEP; i++) { W.time += STEP; boat.ai.update(STEP); boat.update(STEP); if (boat.ai.target) fought = true; }
+        const closed = d0 - Math.hypot(g0.x - boat.x, g0.z - boat.z);
+        this.check('with nothing to fight, an enemy ship sails its patrol lane', !fought && (boat.ai.laneI > i0 || closed > 20), (boat.ai.laneI - i0) + ' points, ' + closed.toFixed(0) + ' m closer');
+        pl.noTarget = false;
+        W.platforms.splice(W.platforms.indexOf(boat), 1);
+        const hull = (id, at, yaw, team) => { const q = new Platform(PLATFORMS[id], { team: team || 0, x: at.x, z: at.z, yaw, loadout: Loadout.forPlatform(id) }); W.platforms.push(q); return q; };
+        const run = (q, secs, each) => { for (let i = 0; i < secs / STEP; i++) { q.update(STEP); if (each) each(q); } };
+        const drop = (q) => { const i = W.platforms.indexOf(q); if (i >= 0) W.platforms.splice(i, 1); };
+        // the hit area is the hull box: a shot at the bow hits, one 9 m off the beam misses (both inside the ship's radius)
+        const deep = Naval.spot(pl.x, pl.z, PLATFORMS.trident, NAVAL_SPOT_REACH, true, [pl]) || Naval.spot(pl.x, pl.z, PLATFORMS.trident, NAVAL_SPOT_REACH, true);
+        const dd = hull('trident', deep, 0), fx = Math.sin(dd.yaw), fz = Math.cos(dd.yaw), h = dd.def.naval.hull;
+        run(dd, 0.5);
+        const gunner = hull('lancer', { x: deep.x + 300, z: deep.z }, 0, 1), midY = dd.y + dd.height * 0.5;
+        const life = (q) => q.hp + q.armor;
+        const shot = (ox, oz, dx, dz) => {
+          const before = life(dd);
+          spawnProjectile(gunner, { def: WEAPONS.gatling }, { x: ox, y: midY, z: oz }, dx, 0, dz);
+          for (let i = 0; i < 40; i++) updateProjectiles(STEP);
+          return life(dd) < before;
+        };
+        const bowX = dd.x + fx * (h[1] - 1), bowZ = dd.z + fz * (h[1] - 1);
+        const bow = shot(bowX + fz * 40, bowZ - fx * 40, -fz, fx);   // from the beam, at the bow's last metre
+        const sternX = dd.x + fx * (h[0] + 1), sternZ = dd.z + fz * (h[0] + 1);
+        const stern = shot(sternX - fz * 40, sternZ + fx * 40, fz, -fx);
+        const beam = shot(dd.x + fx * 60 + fz * 9, dd.z + fz * 60 - fx * 9, -fx, -fz);   // along the hull, 9 m out to the side
+        this.check('a ship is hit as its hull: a shot at the bow or the stern hits, one along it 9 m off the beam misses', bow && stern && !beam, bow + ' ' + stern + ' ' + beam);
+        // a blast just off the bow hurts it; one 9 m off the beam (inside the old circle) does not
+        let before = life(dd);
+        explode(dd.x + fx * (h[1] + 1), midY, dd.z + fz * (h[1] + 1), 2.5, 200, 'explosive', gunner);
+        const nearBow = life(dd) < before;
+        before = life(dd);
+        explode(dd.x + fz * 9, midY, dd.z - fx * 9, 2.5, 200, 'explosive', gunner);
+        this.check('a blast is measured to the hull box: one off the bow hurts, one 9 m off the beam does not', nearBow && life(dd) === before);
+        drop(gunner);
+        // ships touch along their keels: two side by side 9 m apart stay put, bow to stern 25 m apart are pushed apart
+        const side = hull('trident', { x: dd.x + fz * 9, z: dd.z - fx * 9 }, 0);
+        const sx = side.x, sz = side.z, dx0 = dd.x, dz0 = dd.z;
+        resolvePairs(STEP);
+        const still = Math.hypot(side.x - sx, side.z - sz) + Math.hypot(dd.x - dx0, dd.z - dz0) < 1e-6;
+        side.x = dd.x + fx * 25; side.z = dd.z + fz * 25;
+        resolvePairs(STEP);
+        const apart = Math.hypot(side.x - dd.x, side.z - dd.z);
+        this.check('ships touch with their hulls: abreast 9 m apart they stay put, bow to stern 25 m apart they are pushed off', still && apart > 25.5, apart.toFixed(1));
+        drop(side);
+        // full ahead for the beach, then hard over: the bow and the stern never cross onto the shore
+        const near = Naval.spot(start.x, start.z, PLATFORMS.trident, NAVAL_SPOT_REACH, true), toShore = Math.atan2(start.x - near.x, start.z - near.z);
+        drop(dd);
+        const ship = hull('trident', near, toShore);
+        ship.cmd.moveF = 1;
+        let ends = Infinity;
+        const watch = (q) => {
+          const ex = Math.sin(q.yaw), ez = Math.cos(q.yaw);
+          ends = Math.min(ends, Water.depth(q.x + ex * h[1], q.z + ez * h[1]), Water.depth(q.x + ex * h[0], q.z + ez * h[0]));
+        };
+        run(ship, 25, watch);
+        const atShore = Math.hypot(ship.x - near.x, ship.z - near.z);
+        ship.cmd.turn = 1;
+        run(ship, 10, watch);
+        this.check('a ship\'s bow and stern never cross the shoreline (full ahead for the beach, then turning there)', ends > 0 && atShore > 20, ends.toFixed(2) + ' m under the ends, ran ' + atShore.toFixed(0) + ' m');
+        // stranded by a flood that went down: towed back to water it floats in
+        const gy = Terrain.h(start.x, start.z), lancer = PLATFORMS.lancer;
+        Water.setFlood(start.x, start.z, 120, gy + 4, gy);   // 4 m of flood over the start
+        const boat2 = hull('lancer', { x: start.x, z: start.z }, 0);
+        run(boat2, 1);
+        const floated = boat2.strandT === 0 && Water.depth(boat2.x, boat2.z) > lancer.naval.draft;
+        const planOk = Naval.navigable(start.x, start.z, lancer.naval.draft) && !Naval.navigableBase(start.x, start.z, lancer.naval.draft) &&
+          Naval.patrolLane(near.x, near.z, lancer).every((g) => Naval.navigableBase(g.x, g.z, lancer.naval.draft));
+        Water.setFlood(0, 0, 0, -Infinity);
+        const sx2 = boat2.x, sz2 = boat2.z;
+        run(boat2, NAVAL_STRAND_T + 0.5);
+        const towed = Math.hypot(boat2.x - sx2, boat2.z - sz2);
+        this.check('a ship left on dry ground when a flood goes down is towed back to water it floats in', floated && Naval.navigable(boat2.x, boat2.z, lancer.naval.draft) && towed > 1, towed.toFixed(0) + ' m');
+        this.check('AI ships plan their way in the battlefield\'s own water, not in a flood that drains away', planOk);
+        drop(boat2); drop(ship);
+        // a sinking wreck still afloat is in the way; past WRECK_CAP the oldest wreck goes
+        const wreck = hull('trident', deep, 0);
+        wreck.destroy(null, 'test');
+        const by = hull('lancer', { x: deep.x + 3, z: deep.z + 2 }, 0);
+        Wrecks.update(STEP);
+        Naval.keelPoint(wreck, by.x, by.z, KEEL_A); Naval.keelPoint(by, KEEL_A.x, KEEL_A.z, KEEL_B);
+        const gap = Math.hypot(KEEL_B.x - KEEL_A.x, KEEL_B.z - KEEL_A.z);
+        this.check('a wreck still afloat pushes a ship out of its hull', W.wrecks.indexOf(wreck) >= 0 && gap >= Naval.bodyR(wreck) + Naval.bodyR(by) - 0.01, gap.toFixed(2));
+        drop(by);
+        const sunk = [wreck];
+        for (let i = 0; i < WRECK_CAP; i++) { const q = hull('lancer', { x: deep.x + (i + 1) * 30, z: deep.z }, 0); q.destroy(null, 'test'); sunk.push(q); }
+        this.check('at most WRECK_CAP ships sink at once: the oldest goes when one more sinks', W.wrecks.length === WRECK_CAP && W.wrecks.indexOf(wreck) < 0 && wreck.sinking === 0 && sunk.slice(1).every((q) => W.wrecks.indexOf(q) >= 0), W.wrecks.length);
+        Wrecks.update(WRECK_LIFE);
+        // the harbour is a supply point for ships: stopped there, the ship is resupplied
+        const harbour = W.harbours[0], w = pl.primary;
+        pl.x = harbour.x; pl.z = harbour.z; pl.vx = pl.vz = 0; pl.speed = 0; pl.apronStop = false; pl.nextResupply = 0;
+        w.clip = 0; w.reserve = 0;
+        const charges = W.resupplies;
+        run(pl, 0.2);
+        this.check('a ship stopped at its harbour is resupplied, as at a pad (Use works there too)', W.harbours.length === 1 && padInRange(pl) === harbour && w.clip === w.def.clip && W.resupplies === charges - 1, w.clip + ' ' + W.resupplies);
+        Cam.update(STEP); Game.render(STEP);
+        this.check('the naval hull checks run without errors', errs.length === 0, errs.slice(0, 2).join(' | '));
+      } finally { Game.reportError = keepRep; Water.setFlood(0, 0, 0, -Infinity); Game.quitToMenu(); }
+    });
+    // on every battlefield with water, each ship deploys at a harbour (each on its own seed, three seeds a battlefield),
+    // or its card is disabled with why; and the enemy fleet keeps its distance from the player
+    for (const map of Object.keys(MAPS).filter((id) => Naval.mapOk(mapDef(id)))) t('naval harbours ' + map, () => {
+      const keepRep = Game.reportError, errs = [], bad = [], close = [];
+      Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
+      const card = UI.scr_hangar.call(Object.assign(Object.create(UI), { hg: { platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), map } }), {});
+      const found = [];
+      try {
+        ['lancer', 'trident', 'skua'].forEach((id, k) => {
+          const why = UI.platBlock(PLATFORMS[id], map), off = card.indexOf('data-id="' + id + '" disabled') >= 0, seed = 2 + 3 * k;
+          if ((why !== '') !== off) bad.push(id + ' card');
+          const sk = Object.assign({}, SKIRMISH_DEFAULT, { map, size: 'large', seed, random: false, support: 'none' });
+          Game.startSession({ mode: 'skirmish', platformId: id, loadout: Loadout.forPlatform(id), difficulty: 'veteran', skirmish: sk });
+          const pl = W.player, lay = skirmishLayout(sk), draft = pl.kind === 'naval' && !pl.def.naval.amphibious ? pl.def.naval.draft : 1;
+          if (why === '' && (pl.def.id !== id || !Naval.navigable(pl.x, pl.z, draft))) bad.push(id + ' ' + seed + ': no harbour');
+          if (why !== '' && (pl.def.id !== NAVAL_FALLBACK || !W.msgs.some((m) => m.text.indexOf('NO HARBOUR HERE') === 0))) bad.push(id + ' ' + seed + ': fell back without a word');
+          if (why === '') found.push(id);
+          for (const q of W.platforms) if (q.team === 1 && q.kind === 'naval') {
+            const gap = Math.min(Math.hypot(q.x - lay.own.x, q.z - lay.own.z), Math.hypot(q.x - lay.start.x, q.z - lay.start.z), Math.hypot(q.x - pl.x, q.z - pl.z));
+            if (gap < NAVAL_FLEET_GAP) close.push(q.def.id + ' ' + Math.round(gap) + ' m, seed ' + seed);
+          }
+        });
+      } finally { Game.reportError = keepRep; Game.quitToMenu(); }
+      this.check('battlefield ' + map + ': a ship deploys at a harbour, or its hangar card is disabled with the reason (' + (found.join(', ') || 'none') + ' sail here)', bad.length === 0 && errs.length === 0, bad.concat(errs).slice(0, 4).join('; '));
+      this.check('battlefield ' + map + ': the enemy fleet starts ' + NAVAL_FLEET_GAP + ' m or more from the player\'s base, start and harbour', close.length === 0, close.slice(0, 3).join('; '));
     });
     t('artillery solver', () => {
       const keepRep = Game.reportError, errs = [], hits = [];
@@ -25203,11 +25504,12 @@ const Net = {
     const live = this.peers.filter((p) => p.hello && p.open);
     if (!live.length) return 'Connect at least one player first.';
     if (!live.every((p) => p.ready)) return 'Waiting for every player to press Ready.';
-    const m = MISSION_BY_ID[this.missionId], water = !!m && Naval.mapOk(mapDef(m.map));   // ships need open water (P5.2)
-    const ship = (pid) => !!PLATFORMS[pid] && PLATFORMS[pid].kind === 'naval';
-    if (!water && ship(Save.data.platformId)) return 'Your ship needs a battlefield with open water: pick another platform.';
-    const sailor = live.find((p) => ship(p.pid));
-    if (!water && sailor) return cleanName(sailor.name) + ' picked a ship, but this battlefield has no open water.';
+    const m = MISSION_BY_ID[this.missionId], md = m ? mapDef(m.map) : null;
+    // ships need water they can sail (P5.2, Naval.shipOk)
+    const stuck = (pid) => !!PLATFORMS[pid] && PLATFORMS[pid].kind === 'naval' && !(md && Naval.shipOk(PLATFORMS[pid], md));
+    if (stuck(Save.data.platformId)) return 'Your ship needs a battlefield with water it can sail: pick another platform.';
+    const sailor = live.find((p) => stuck(p.pid));
+    if (sailor) return cleanName(sailor.name) + ' picked a ship, but this battlefield has no water it can sail.';
     return '';
   },
   startCoop() {
@@ -25254,6 +25556,8 @@ const Net = {
     if (old && old.sw && p.sw && old.sw.id === p.sw.id) p.sw.charge = old.sw.charge;   // the meter survives a lost platform
     peer.protectT = 3; peer.p = p; peer.deathHandled = false;
     W.platforms.push(p);
+    if (ship.fell) Naval.fellBack(p, PLATFORMS[peer.pid]);
+    if (ship.at) Naval.addHarbour(ship.at);
   },
   allDown() {
     const hostDown = !W.player || (W.player.dead && W.lives <= 0);
