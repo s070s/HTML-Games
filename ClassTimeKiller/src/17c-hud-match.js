@@ -244,6 +244,10 @@ function hudDrawObjectiveChips(pen, layout, state) {
   }
 }
 
+function hudSoloMode(modeId) {
+  const mode = CAT.modes.byId(modeId);
+  return !!mode && mode.family === 'solo';
+}
 function hudDrawHeader(pen, layout) {
   const state = Modes.hudState();
   if (!state.active && state.phase !== 'ended') return;
@@ -253,7 +257,7 @@ function hudDrawHeader(pen, layout) {
   if (state.teams === 2) {
     hudDrawTeamScore(pen, layout, 0, state.teamScores[0]);
     hudDrawTeamScore(pen, layout, 1, state.teamScores[1]);
-  } else hudDrawFreeForAllScore(pen, layout, state);
+  } else if (!hudSoloMode(state.mode)) hudDrawFreeForAllScore(pen, layout, state);   // a solo run (range, chambers) has nobody to rank against
   hudDrawTime(pen, layout, state);
   if (state.roundsToWin > 0) hudDrawRoundPips(pen, layout, state);
   if (state.mode === 'control') hudDrawControlMeters(pen, layout, state);

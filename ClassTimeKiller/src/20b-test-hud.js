@@ -168,6 +168,18 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('layout: the smallest HUD text is 14 px at 100% scale (ACC-008)', HUD_TEXT_SMALL >= 14);
 }));
 
+// The free-for-all rank box ('#1' and the score) needs someone to rank against: a solo run such as the Firing Range has none.
+Test.add('hud', (check) => hudTestWith(() => {
+  const texts = [], pen = Object.assign({}, Hud.pen, { text: (string) => { texts.push(String(string)); return 0; }, textAt: (string) => texts.push(String(string)) });
+  const header = () => { texts.length = 0; hudTestDrawer('main', 'header').draw(pen, Hud.layout); return texts.includes('#'); };
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: -1 }] });
+  const versus = header();
+  startPveMode('range', [], {}, {});
+  const range = header();
+  Game.stop();
+  check('header: free-for-all shows the rank box, the Firing Range does not', versus && !range);
+}));
+
 // The hold-Use prompt names the bound key and what Use does now, for any section that reports it (revive, plant, defuse...).
 Test.add('hud', (check) => hudTestWith(() => {
   hudTestMatch();
