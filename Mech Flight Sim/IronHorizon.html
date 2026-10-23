@@ -7595,11 +7595,16 @@ const Civ = {
     const n = c.zone.nodes[d.node], kerb = this.kerbSide(c, d.st, d.out, d.st, true);
     c.path.length = 0;
     if (c.panic <= 0 && c.from === d.node) {
-      const corner = this.kerbSide(c, d.st, d.out, n, true), near = this.kerbNear(c, d, n);
-      if (Math.hypot(corner.x - c.x, corner.z - c.z) > CIV_CROSS_MIN) c.path.push(this.point(corner.x, corner.z, -1, false, null));
-      if (near) c.path.push(this.point(near.x, near.z, -1, false, null));
+      this.crossAtCorner(c, d, n);
     }
     c.path.push(this.point(kerb.x, kerb.z, -1, false, null), this.point(d.out.x, d.out.z, -1, false, null), this.point(d.inn.x, d.inn.z, -1, true, d));
+  },
+  /* onto c's path, standing at corner n of the place d (a door; a site: {st, out, node}), the pavement of d's side of
+     the street: over to it at the corner, then CIV_CORNER_IN m along it where the corner's point is pulled in */
+  crossAtCorner(c, d, n) {
+    const corner = this.kerbSide(c, d.st, d.out, n, true), near = this.kerbNear(c, d, n);
+    if (Math.hypot(corner.x - c.x, corner.z - c.z) > CIV_CROSS_MIN) c.path.push(this.point(corner.x, corner.z, -1, false, null));
+    if (near) c.path.push(this.point(near.x, near.z, -1, false, null));
   },
   /* the point beside p on the middle of a street, on the pavement toward the place `out` beside it (a door's step, a
      site) whose way meets the street at st: no further out than that place; pull: nearer the middle where something
@@ -8302,8 +8307,26 @@ const Society = {
     let pick = -1, k = 0;
     for (let i = 0; i < nb.length; i++) if (h[goal * n + nb[i]] === want && Math.random() * ++k < 1) pick = nb[i];
     if (pick < 0) return false;
+    this.leaveSite(c, here);
     Civ.walkEdge(c, here, pick);
     return true;
+  },
+  /* c stands on a site near corner here (not at the corner): out to the pavement in front of the site and along it to
+     the corner first, so it never cuts across the carriageway */
+  leaveSite(c, here) {
+    const nd = c.zone.nodes[here];
+    if (c.panic > 0 || !nd || Math.hypot(c.x - nd.x, c.z - nd.z) <= SOC_SITE_SPREAD * 3) return;
+    let site = null, best = Infinity;
+    for (const s of c.zone.soc.sites.concat(c.zone.soc.farms)) {
+      const d = Math.hypot(c.x - s.x, c.z - s.z);
+      if (s.node === here && d < best) { best = d; site = s; }
+    }
+    if (!site) return;
+    const st = { x: site.sx, z: site.sz }, out = { x: site.x, z: site.z }, kerb = Civ.kerbSide(c, st, out, st, true), n = { st, out, node: here };
+    c.path.push(Civ.point(kerb.x, kerb.z, -1, false, null));
+    const near = Civ.kerbNear(c, n, nd), corner = Civ.kerbSide(c, st, out, nd, true);
+    if (near) c.path.push(Civ.point(near.x, near.z, -1, false, null));
+    c.path.push(Civ.point(corner.x, corner.z, -1, false, null));
   },
   /* to a spot on its site: from the street in front of it, then about it */
   toSite(c, g) {
@@ -8312,7 +8335,11 @@ const Society = {
       const px = g.x + rand(-SOC_SITE_SPREAD, SOC_SITE_SPREAD), pz = g.z + rand(-SOC_SITE_SPREAD, SOC_SITE_SPREAD);
       if (!Civ.blocked(px, pz, CIV_RADIUS, c.zone.blds)) { x = px; z = pz; break; }
     }
-    if (Math.hypot(c.x - g.x, c.z - g.z) > SOC_SITE_SPREAD * 3) { const st = { x: g.sx, z: g.sz }, kerb = Civ.kerbSide(c, st, g, st, true); c.path.push(Civ.point(kerb.x, kerb.z, -1, false, null)); }   // its pavement in front of it
+    if (Math.hypot(c.x - g.x, c.z - g.z) > SOC_SITE_SPREAD * 3) {   // its pavement in front of it, reached from the corner by crossing there
+      const st = { x: g.sx, z: g.sz }, kerb = Civ.kerbSide(c, st, g, st, true);
+      if (c.panic <= 0 && c.from === g.node) Civ.crossAtCorner(c, { st, out: g, node: g.node }, c.zone.nodes[g.node]);
+      c.path.push(Civ.point(kerb.x, kerb.z, -1, false, null));
+    }
     c.path.push(Civ.point(x, z, -1, false, null, SOC_ACT_SITE));
   },
   /* to its own kerb car, on its kerb side (the street side where that is blocked) */
@@ -11299,7 +11326,7 @@ const Traffic = {
     this.insert(tw, c);
     c.state = 'turn'; c.swing = PI;
     if (c.dest) this.goTo(c, c.dest.x, c.dest.z, c.dest.kind, c.dest.gap);   // its way from the other lane
-    if (road && c.dest && this.wayCost(tw, s, c.way, c.dest.s) >= TRAFFIC_BLOCK_COST) { c.way = null; c.dest = null; Society.lostWay(c); }
+    if (road && c.dest && this.wayBlocked(tw, s, c.way, c.dest.s)) { c.way = null; c.dest = null; Society.lostWay(c); }
     return true;
   },
   /* true when a car other than c reaches the circle of radius r round (x, z) that c sweeps turning round */
@@ -11634,6 +11661,12 @@ const Traffic = {
   },
   /* the length of way (the lanes after A, from s on A to sD on its last lane), TRAFFIC_BLOCK_COST more for A and each of
      its lanes with a point that is no way on what the car drives of it (the stop lane too, which way() leaves out) */
+  wayBlocked(A, s, way, sD) {
+    const n = way.length;
+    if (this.stopIn(A, s, n ? A.len : sD)) return true;
+    for (let i = 0; i < n; i++) if (this.stopIn(way[i], 0, i < n - 1 ? Infinity : sD)) return true;
+    return false;
+  },
   wayCost(A, s, way, sD) {
     const n = way.length;
     let m = this.stopIn(A, s, n ? A.len : sD) ? TRAFFIC_BLOCK_COST : 0;
@@ -32770,6 +32803,61 @@ const SelfTest = {
         Terrain.h = keep.h;
         Net.peers = keep.peers; Net.host = keep.host; Net.guest = keep.guest; Net.inSession = keep.inSession; Net.hostPeer = keep.hostPeer;
         Game.reportError = keep.rep;
+        Game.quitToMenu();
+      }
+    });
+    t('delta2 traffic', () => {
+      // work sites are reached and left over the pavement and the corner's crossing (as doors are), and a turn-back gives a
+      // trip up only when its new way crosses a lane that is no way, never for a long clear detour
+      const keepQ = S.quality, keepCam = { x: R.cam.x, y: R.cam.y, z: R.cam.z }, keepVisible = R.visible, keepRandom = Math.random, keepGoTo = Traffic.goTo, keepLost = Society.lostWay;
+      try {
+        S.quality = 'high'; Math.random = makeRng(31); R.visible = () => false;
+        socStart('cycle');
+        const zn = socTown();
+        socLook(zn);
+        // 1. a worker at the corner of a site, on the other side of the street, crosses at the corner first; leaving it goes out to the kerb and along it to the corner
+        let found = null;
+        for (const z of W.civZones) for (const g of z.soc.sites.concat(z.soc.farms)) {
+          if (found) break;
+          const nd = z.nodes[g.node], st = { x: g.sx, z: g.sz }, probe = { lane: CIV_LANE[0], zone: z }, corner = Civ.kerbSide(probe, st, g, nd, true);
+          if (Math.hypot(g.x - nd.x, g.z - nd.z) > SOC_SITE_SPREAD * 3 && Math.hypot(corner.x - nd.x, corner.z - nd.z) > CIV_CROSS_MIN * 2) found = { z, g, nd, corner };
+        }
+        this.check('a town has a work site to walk to over its street', !!found);
+        if (found) {
+          const { z, g, nd, corner } = found, worker = z.civs.find((c) => !c.dead && c.state !== 'inside');
+          worker.zone = z; worker.lane = CIV_LANE[0]; worker.panic = 0; worker.state = 'walk'; worker.from = g.node;
+          worker.x = nd.x - (corner.x - nd.x); worker.z = nd.z - (corner.z - nd.z); worker.path.length = 0;
+          Society.toSite(worker, g);
+          const first = worker.path[0], atCorner = !!first && Math.hypot(first.x - corner.x, first.z - corner.z) < 0.5;
+          this.check('a worker on the far side of the street crosses it at the corner before it walks to its site', atCorner, first ? Math.hypot(first.x - corner.x, first.z - corner.z).toFixed(1) + ' m from the corner point' : 'no path');
+          worker.x = g.x; worker.z = g.z; worker.path.length = 0;
+          Society.leaveSite(worker, g.node);
+          const out = worker.path[0], end = worker.path[worker.path.length - 1];
+          this.check('a worker leaving its site goes out to the kerb in front of it and along the pavement to the corner', worker.path.length >= 2 && Math.hypot(out.x - g.sx, out.z - g.sz) <= CIV_LANE[1] + 0.5 && Math.hypot(end.x - corner.x, end.z - corner.z) < 0.5, worker.path.length + ' points');
+          worker.path.length = 0;
+        }
+        // 2. a turn-back whose new way is a long clear detour keeps the trip; one whose way crosses a block gives it up
+        const sedan = VEHICLES[VEHICLE_IDS.indexOf('sedan')], T = W.traffic;
+        for (const o of T.cars.slice()) Traffic.remove(o, false);
+        const E = T.lanes.find((q) => q.kind === 'street' && q.zone === zn && q.twin && q.len > 40 && !q.bridge);
+        const blockedLane = { len: 10, stop: true, cum: [5], blk: [TRAFFIC_PT_STOP] }, long = [{ len: TRAFFIC_BLOCK_COST + 500, stop: false }];
+        let lost = 0;
+        Society.lostWay = () => { lost++; };
+        const turnWith = (way) => {
+          const c = Traffic.make(sedan, 0);
+          c.slot = T.cars.length; Traffic.drive(c, E, E.len - 12); T.cars.push(c);
+          c.dest = { x: 0, z: 0, kind: 'kerb', gap: 0, s: 20 };
+          Traffic.goTo = () => { c.way = way; return true; };
+          lost = 0;
+          const turned = Traffic.turnBack(c, true);
+          Traffic.remove(c, false);
+          return turned ? lost : -1;
+        };
+        this.check('a car turned back keeps its trip when the new way is a clear detour of 2 km or more', turnWith(long) === 0);
+        this.check('a car turned back gives its trip up when the new way crosses a lane that is no way', turnWith([long[0], blockedLane]) === 1);
+      } finally {
+        Traffic.goTo = keepGoTo; Society.lostWay = keepLost;
+        S.quality = keepQ; R.visible = keepVisible; Math.random = keepRandom; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
         Game.quitToMenu();
       }
     });
