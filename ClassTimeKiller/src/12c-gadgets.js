@@ -19,6 +19,7 @@ const POP_NOISE = 35;                    // pops without damage (smoke, flash, f
 const AREA_CAP = 32;
 const AREA_TICK = 0.25;                  // fire areas hurt on this tick
 const FIRE_AREA_HEIGHT = 1.5;            // fire reaches feet this close above or below
+const FIRE_FX_COUNT = 6;                 // fire particles per damage tick (G04, 12h burning oil)
 const FIRE_FLOOR_PROBE = 3;              // fire that went off on a wall or a body drops this far at most to the floor
 const SMOKE_CAP = 16;                    // grenade clouds plus the puffs of ability curtains (A17)
 const SMOKE_CELL = 1;                    // REN-007 occupancy grid cell (m)
@@ -56,13 +57,6 @@ const throwStart = Vec.make();
 const previewScratch = { x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 };
 
 function gadgetRow(index) { return index >= 0 ? CAT.gadgets[index] : null; }
-// Accumulates clock[index]; true once per interval (gadget areas and placed devices tick on it).
-function intervalDue(clock, index, dt, interval) {
-  clock[index] += dt;
-  if (clock[index] < interval - 1e-6) return false;
-  clock[index] -= interval;
-  return true;
-}
 // A pop that hurts nobody: an 'explosion' of radius 0 (audio sting by element, bots hear it) plus a heard sound.
 function emitGadgetPop(row, owner, x, y, z) {
   POP_EVENT.x = x; POP_EVENT.y = y; POP_EVENT.z = z; POP_EVENT.owner = owner; POP_EVENT.source = row.id; POP_EVENT.element = row.element;
@@ -344,18 +338,12 @@ const GadgetAreas = {
     if (Smoke.covers(this.x[area], this.y[area] + 0.5, this.z[area])) { this.active[area] = 0; return; }
     const age = (Sim.tick - this.startTick[area]) / Math.max(1, this.endTick[area] - this.startTick[area]);
     const amount = row.damage * lerp(GADGET_TUNING.fireRampFrom, 1, age) * AREA_TICK;
-    for (let id = 0; id < Actors.count; id++) if (this.inFire(area, row, id)) this.burn(area, row, id, amount);
-    if (!Game.headless) Fx.burst('fire', this.x[area], this.y[area] + 0.1, this.z[area], 0, 1, 0, 6, null);
+    for (let id = 0; id < Actors.count; id++) if (this.inFire(area, row, id)) fireAreaHit(this.owner[area], id, amount, row, GADGET_MODES[row.index]);
+    if (!Game.headless) Fx.burst('fire', this.x[area], this.y[area] + 0.1, this.z[area], 0, 1, 0, FIRE_FX_COUNT, null);
   },
   inFire(area, row, id) {
     if (!Actors.alive[id] || Math.abs(Actors.y[id] - this.y[area]) > FIRE_AREA_HEIGHT) return false;
     return (Actors.x[id] - this.x[area]) ** 2 + (Actors.z[id] - this.z[area]) ** 2 <= row.radius * row.radius;
-  },
-  burn(area, row, id, amount) {
-    const info = Damage.info();
-    info.amount = amount; info.kind = 'dot'; info.mode = GADGET_MODES[row.index]; info.weapon = row.id; info.element = row.element;
-    info.x = Actors.x[id]; info.y = Actors.y[id] + 0.5; info.z = Actors.z[id];
-    if (Damage.apply(this.owner[area], id, info) > 0 && row.status) Damage.addStatus(id, row.status, this.owner[area], row.statusSeconds, 1);
   },
   // G05: fake shots in the owner's weapon noise that bots hear as the owner (BOT-005).
   stepDecoy(area, row, dt) {
@@ -397,6 +385,14 @@ function gadgetBlast(row, owner, x, y, z) {
   blast.x = x; blast.y = y; blast.z = z; blast.owner = owner; blast.mode = GADGET_MODES[row.index]; blast.radius = row.radius;
   blast.damage = row.damage; blast.ownerSafe = row.ownerSafe; blast.weapon = row.id; blast.element = row.element;
   Damage.explode(blast);
+}
+// One damage tick of a fire area (G04, 12h burning oil) through the single damage path (team rules apply); the row's
+// status lands only on a real hit. mode: the damage mode (null for rows that are not gadgets).
+function fireAreaHit(owner, id, amount, row, mode) {
+  const info = Damage.info();
+  info.amount = amount; info.kind = 'dot'; info.mode = mode; info.weapon = row.id; info.element = row.element;
+  info.x = Actors.x[id]; info.y = Actors.y[id] + 0.5; info.z = Actors.z[id];
+  if (Damage.apply(owner, id, info) > 0 && row.status) Damage.addStatus(id, row.status, owner, row.statusSeconds, 1);
 }
 // Fire burns on the floor below where it went off (impact rows also go off on walls and bodies).
 function fireFloorY(x, y, z) {

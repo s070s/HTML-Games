@@ -22,6 +22,7 @@ const NAV_LINK_SLOW_FLAG = Uint8Array.from(NAV_LINK_ROWS, (row, type) => (type =
 const navSearch = {
   generation: 0, cost: null, parentLink: null, seen: null, closed: null, heapNode: null, heapScore: null, heapSize: 0,
   path: null, pathType: null, teleportExitCost: null, teleportHop: null,
+  pushScore: 0,             // score of the next navHeapPush (a float argument would be boxed per pushed node, PERF-006)
   goalX: 0, goalY: 0, goalZ: 0, allowJumpHeight: 0, maxDrop: 0, crouchOk: true, avoid: null, danger: null,
   moveSpeed: Infinity, jumpVelocity: 0, gravity: 0, key: 0, physicsKey: 0,
 };
@@ -198,7 +199,8 @@ function navAStar(from, to) {
   s.heapSize = 0;
   navPrepareHeuristic(to);
   s.seen[from] = s.generation; s.cost[from] = 0; s.parentLink[from] = -1;
-  navHeapPush(from, navHeuristic(from));
+  s.pushScore = 0;   // the start node is alone in the heap: its score orders nothing (a returned float would be boxed)
+  navHeapPush(from);
   while (s.heapSize > 0) {
     const node = navHeapPop();
     if (s.closed[node] === s.generation) continue;
@@ -219,7 +221,8 @@ function navExpand(node) {
     const cost = base + Nav.linkCost[link] + navEnterCost(next);
     if (!(cost < Infinity) || (s.seen[next] === s.generation && cost >= s.cost[next])) continue;
     s.seen[next] = s.generation; s.closed[next] = 0; s.cost[next] = cost; s.parentLink[next] = link;
-    navHeapPush(next, cost + navHeuristic(next));
+    s.pushScore = cost + navHeuristic(next);
+    navHeapPush(next);
   }
 }
 
@@ -296,9 +299,10 @@ function navHeuristic(node) {
   return best;
 }
 
-// Binary min-heap; a node may be pushed again with a better score (stale entries are skipped when popped).
-function navHeapPush(node, score) {
-  const s = navSearch;
+// Binary min-heap; a node may be pushed again with a better score (stale entries are skipped when popped). The score
+// is navSearch.pushScore.
+function navHeapPush(node) {
+  const s = navSearch, score = s.pushScore;
   let index = s.heapSize++;
   while (index > 0) {
     const parent = (index - 1) >> 1;

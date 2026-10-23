@@ -93,10 +93,11 @@ Test.add('wiring', (check) => {
   const onSound = Bus.on('sound', (event) => { if (event.kind === 'step') heard.push(event.radius); });
   const onStep = Bus.on('move.step', (event) => loudness.push(event.loudness));
   Motion.grounded[id] = 1; Motion.sliding[id] = 0; Motion.stepDistance[id] = STRIDE_METRES;
-  countSteps(id, preset, Actors.x[id], Actors.z[id]);
+  moveStep.startX = Actors.x[id]; moveStep.startZ = Actors.z[id];
+  countSteps(id, preset);
   Economy.applyPerks(id, []);
   Motion.stepDistance[id] = STRIDE_METRES;
-  countSteps(id, preset, Actors.x[id], Actors.z[id]);
+  countSteps(id, preset);
   Bus.off('sound', onSound); Bus.off('move.step', onStep);
   check('a quiet stride makes no bot noise and a 0 loudness step', heard.length === 1 && loudness[0] === 0 && loudness[1] === 1, heard.join() + ' / ' + loudness.join());
   const stepRow = SOUND_EVENTS.find((row) => row.event === 'move.step'), when = stepRow && SOUND_CONDITIONS[stepRow.when];

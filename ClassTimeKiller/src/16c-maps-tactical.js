@@ -46,6 +46,7 @@ const dustCenter = {
 Maps.rows.push(MapKit.make(Object.assign({
   id: 'dustline', code: 'MP04', name: 'Dustline', size: [110, 20, 90], theme: 'ruins', category: 'large', modes: ['bomb', 'elim', 'ghostops'],
   blurb: 'Tactical map: three lanes, two bomb sites in the north side rooms, tunnels between the lanes.',
+  props: MapKit.crates([[-55, -45], [53.5, 43.5], [-7, 11.5], [4, -15]]),   // breakable crates (MAP-013): two in corners, two beside mid cover walls
   sky: { top: 0x5b86b8, horizon: 0xf0d9a8, fog: 0xc9b48a, fogFar: 190, sun: [0.5, 0.7, -0.2] },
 }, MapKit.join(MapKit.sym(dustWest, 'x'), dustCenter))));
 
@@ -105,5 +106,6 @@ const harborCenter = {
 Maps.rows.push(MapKit.make(Object.assign({
   id: 'harbor', code: 'MP05', name: 'Harbor Nine', size: [90, 24, 90], theme: 'canal', category: 'large', modes: ['tdm', 'hardpoint', 'attrition', 'control'],
   blurb: 'Docks with a cargo yard, two swimmable canals and bridges: three lanes between the bases.',
+  props: MapKit.crates([[-45, -45], [43.5, 43.5], [22, 2], [-23, -3]]),   // breakable crates (MAP-013): two in corners, two beside the middle cover
   sky: { top: 0x4d7fb5, horizon: 0xe8e0d0, fog: 0xb4c4d0, fogFar: 180, sun: [0.2, 0.75, 0.4] },
 }, MapKit.join(MapKit.sym(harborQuarter, 'xz'), MapKit.sym(harborWest, 'x'), harborCenter))));

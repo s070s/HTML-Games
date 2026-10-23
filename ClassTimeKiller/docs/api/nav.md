@@ -7,7 +7,7 @@ Files: `src/09a-nav.js` (graph build, node queries, cover, debug lines), `src/09
 - `Bus.on('world.load', map => Nav.build(map))`: the graph is rebuilt every time S08 loads a map. Nothing else to call.
 - `Nav.version` increases with every build; `Nav.buildMs` and `Nav.buildPhases` (`raster`, `nodes`, `links`, `components and cover`) hold the build time.
 - A build empties the path cache and every request slot (status back to `NONE`): requesters re-request after a map load.
-- Graph cache (BOT-010 "cached per map"): the last 4 graphs are kept, keyed by a hash of the map's brushes, triggers and `Nav.limits`. Loading the same map again restores its graph (about 0.4 ms instead of a full build); `Nav.lastBuildCached` says which happened; `Nav.clearCache()` empties it.
+- Graph cache (BOT-010 "cached per map"): the last 4 graphs are kept, keyed by a hash of the map's brushes, triggers, props and `Nav.limits`. Loading the same map again restores its graph (about 0.4 ms instead of a full build); `Nav.lastBuildCached` says which happened; `Nav.clearCache()` empties it.
 - Emits no events. Reads `World.brushes`, `World.boundsMin/Max` and the map's `triggers`.
 
 ## Build limits (`Nav.limits`)
@@ -26,7 +26,7 @@ Later sections may change them before the map loads (for example from the jumpie
 
 ## How the graph is made
 
-1. Raster of 0.5 m columns over the world bounds. Every walkable brush top (slope <= 45 deg, DATA-003) is a sample when: no brush covers it, there is footing 0.25 m around the centre (edge margin), and the 0.40 m capsule fits from step height (0.45 m) up to 1.80 m (stand) or 1.10 m (crouch-only sample). Water deeper than 1.2 m adds a swim sample 1.2 m under the surface. A floor more than 1.65 m (swim depth + a step) under the surface is no sample: the actor swims above it, so deep pools and canal beds have no walk nodes (a ladder or pad standing in such water starts at the swim node).
+1. Raster of 0.5 m columns over the world bounds. Every walkable brush top (slope <= 45 deg, DATA-003) is a sample when: no brush covers it, there is footing 0.25 m around the centre (edge margin), and the 0.40 m capsule fits from step height (0.45 m) up to 1.80 m (stand) or 1.10 m (crouch-only sample). Water deeper than 1.2 m adds a swim sample 1.2 m under the surface. A floor more than 1.65 m (swim depth + a step) under the surface is no sample: the actor swims above it, so deep pools and canal beds have no walk nodes (a ladder or pad standing in such water starts at the swim node). No sample stands where the capsule would overlap a breakable prop (`map.props`, solid until it breaks; the graph keeps that gap after it breaks).
 2. Nodes: per 2 m cell, one node per walk-connected surface (the sample nearest the cell centre, never inside a jump pad or teleporter); one node in the middle of every standable run of at most 4 columns along x or z (doorways, gaps between crates); one node at the centre of every jump pad and teleporter.
 3. Links (directed; walk-like links are added both ways):
    - walk / crouch / swim: neighbours within 2.9 m whose raster walk is unbroken (height change per 0.5 m column <= a step or a 45 deg ramp) and whose chest-height line is clear. Crouch when any crossed sample is crouch-only; swim when any end or crossed sample is wet.

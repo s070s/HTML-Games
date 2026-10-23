@@ -120,14 +120,14 @@ function selectMedium(id) {
   if (state === MOVE_STATE.LADDER || state === MOVE_STATE.SWIM) setState(id, MOVE_STATE.WALK);
 }
 
-function ladderState(id, preset, gravity, dt) {
+function ladderState(id, preset, dt) {
   if (Motion.jumpPressed[id]) {
     Actors.vx[id] = -Math.sin(Actors.yaw[id]) * LADDER_PUSH_OFF; Actors.vz[id] = -Math.cos(Actors.yaw[id]) * LADDER_PUSH_OFF;
     Actors.vy[id] = preset.jumpVel * 0.5;
     setClock(id, CLOCK.LADDER_BLOCK, LADDER_REGRAB_SECONDS);
     setState(id, MOVE_STATE.WALK);
     launch(id, 'move.jump');
-    integrate(id, gravity, dt);
+    integrate(id, 1, dt);
     return;
   }
   const direction = horizontalWish(id), climbSign = Actors.pitch[id] < -LADDER_DOWN_PITCH ? -1 : 1;
@@ -136,7 +136,7 @@ function ladderState(id, preset, gravity, dt) {
   integrate(id, 0, dt);
 }
 
-function swimState(id, preset, gravity, dt) {
+function swimState(id, preset, dt) {
   applyFriction(id, WATER_FRICTION, preset.stopSpeed, dt, true);
   // Forward follows the view in 3D (pitch included); strafe stays level; jump and crouch swim straight up and down.
   const up = ((Actors.buttons[id] & BTN.JUMP) ? 1 : 0) - ((Actors.buttons[id] & BTN.CROUCH) ? 1 : 0);
@@ -144,7 +144,7 @@ function swimState(id, preset, gravity, dt) {
   yawToWorld(Actors.yaw[id], forward * Math.cos(pitch), Motion.inputX[id], axes);
   const y = Math.sin(pitch) * forward + up, length = length3(axes.x, y, axes.z);
   if (length > 1e-6) accelerate(id, axes.x / length, y / length, axes.z / length, preset.groundSpeed * SWIM_SPEED_FRACTION * Math.min(1, length), preset.accel, dt);
-  integrate(id, gravity * WATER_GRAVITY_SCALE, dt);
+  integrate(id, WATER_GRAVITY_SCALE, dt);
 }
 
 // ---- Slide (MV03, MV04, MV08) ----
@@ -180,7 +180,7 @@ function checkSlideEnd(id, preset) {
 // Downhill gain: gravity along the floor's slope speeds a slide up (MV04 "downhill gain").
 function slideDownhill(id, preset, dt) {
   if (!preset.slideDownhill) return;
-  const gravity = actorGravity(id, preset);
+  const gravity = moveStep.gravity;
   Actors.vx[id] += Motion.groundNX[id] * gravity * dt; Actors.vz[id] += Motion.groundNZ[id] * gravity * dt;
 }
 
@@ -223,7 +223,7 @@ function tryDash(id, preset) {
   emitMove('move.dash', id, preset.dashDistance / preset.dashTime, surfaceOf(id));
 }
 
-function dashState(id, preset, gravity, dt) {
+function dashState(id, preset, dt) {
   const speed = preset.dashDistance / preset.dashTime;
   Actors.vx[id] = Motion.dirX[id] * speed; Actors.vy[id] = 0; Actors.vz[id] = Motion.dirZ[id] * speed;
   integrate(id, 0, dt);
@@ -240,25 +240,45 @@ function tryCharge(id, preset) {
   emitMove('move.dash', id, preset.chargeSpeed, surfaceOf(id));
 }
 
-// Nearest visible enemy within range and close to the aim direction, or -1.
-function chargeTarget(id, range) {
-  const forwardX = Math.sin(Actors.yaw[id]), forwardZ = Math.cos(Actors.yaw[id]), eyeY = Actors.eyeY(id);
+// The nearest enemy of `who` from (x, y, z): its aim point (rule.point) within `range`, passing rule.accept (the cone, cloak
+// and similar tests) and in a clear line (World, then rule.blocked when the rule has one), or -1. Shared by the shield
+// charge, homing projectiles and turrets and drones. Rule: skip(who, id) true for actors to ignore, point(id, out) writes the
+// aim point, accept(who, id, dx, dy, dz, distance) true when the offset to the point may be a target, blocked(x, y, z, point),
+// distance(dx, dy, dz) the range and ordering measure (default length3; the shield charge measures flat).
+const seenPoint = Vec.make();
+function nearestSeenEnemy(who, x, y, z, range, rule) {
   let best = -1, bestDistance = range;
-  for (let other = 0; other < Actors.count; other++) {
-    if (!Actors.alive[other] || !Actors.isEnemy(id, other)) continue;
-    const dx = Actors.x[other] - Actors.x[id], dz = Actors.z[other] - Actors.z[id], distance = length2(dx, dz);
-    if (distance >= bestDistance || distance < 1e-3 || (dx * forwardX + dz * forwardZ) / distance < CHARGE_CONE_COS) continue;
-    if (!World.lineClear(Actors.x[id], eyeY, Actors.z[id], Actors.x[other], Actors.eyeY(other), Actors.z[other])) continue;
-    best = other; bestDistance = distance;
+  for (let id = 0; id < Actors.count; id++) {
+    if (rule.skip(who, id)) continue;
+    rule.point(id, seenPoint);
+    const dx = seenPoint.x - x, dy = seenPoint.y - y, dz = seenPoint.z - z;
+    const distance = rule.distance ? rule.distance(dx, dy, dz) : length3(dx, dy, dz);
+    if (distance >= bestDistance || !rule.accept(who, id, dx, dy, dz, distance)) continue;
+    if (!World.lineClear(x, y, z, seenPoint.x, seenPoint.y, seenPoint.z)) continue;
+    if (rule.blocked && rule.blocked(x, y, z, seenPoint)) continue;
+    best = id; bestDistance = distance;
   }
   return best;
 }
 
-function chargeState(id, preset, gravity, dt) {
+// The shield charge targets the nearest visible enemy within flat range and close to the aim direction (line eye to eye).
+const chargeAim = { x: 0, z: 0 };
+const CHARGE_RULE = {
+  skip(who, id) { return !Actors.alive[id] || !Actors.isEnemy(who, id); },
+  point(id, out) { out.x = Actors.x[id]; out.y = Actors.eyeY(id); out.z = Actors.z[id]; },
+  distance(dx, dy, dz) { return length2(dx, dz); },
+  accept(who, id, dx, dy, dz, flat) { return flat >= 1e-3 && (dx * chargeAim.x + dz * chargeAim.z) / flat >= CHARGE_CONE_COS; },
+};
+function chargeTarget(id, range) {
+  chargeAim.x = Math.sin(Actors.yaw[id]); chargeAim.z = Math.cos(Actors.yaw[id]);
+  return nearestSeenEnemy(id, Actors.x[id], Actors.eyeY(id), Actors.z[id], range, CHARGE_RULE);
+}
+
+function chargeState(id, preset, dt) {
   const target = Motion.target[id];
   if (target >= 0 && Actors.alive[target]) aimChargeAt(id, target);
   Actors.vx[id] = Motion.dirX[id] * preset.chargeSpeed; Actors.vz[id] = Motion.dirZ[id] * preset.chargeSpeed;
-  integrate(id, Motion.grounded[id] ? 0 : gravity, dt);
+  integrate(id, Motion.grounded[id] ? 0 : 1, dt);
   const travelled = (Motion.stateTime[id] + dt) * preset.chargeSpeed;
   const arrived = target >= 0 && length2(Actors.x[target] - Actors.x[id], Actors.z[target] - Actors.z[id]) <= CHARGE_STOP_DISTANCE;
   if (travelled < preset.chargeDistance && !arrived && !Motion.blocked[id]) return;
@@ -311,7 +331,7 @@ function findLedge(id, maxHeight) {
 }
 
 // Rise first, then move onto the ledge; the weapon is lowered (Move.canFire) for MANTLE_SECONDS.
-function mantleState(id, preset, gravity, dt) {
+function mantleState(id, preset, dt) {
   const progress = Math.min(1, (Motion.stateTime[id] + dt) / MANTLE_SECONDS);
   const rise = smoothstep(0, MANTLE_RISE_FRACTION, progress), across = smoothstep(MANTLE_RISE_FRACTION, 1, progress);
   Actors.x[id] = lerp(Motion.fromX[id], Motion.toX[id], across);
@@ -320,7 +340,7 @@ function mantleState(id, preset, gravity, dt) {
   Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
   if (progress < 1) return;
   setState(id, MOVE_STATE.WALK);
-  integrate(id, gravity, dt); // settles onto the ledge and finds the floor
+  integrate(id, 1, dt); // settles onto the ledge and finds the floor
 }
 
 // Climbing up a wall while pushing into it (MV04/MV08 2.5 m, MV05 6 m on grip surfaces); the mantle takes over at the top.
@@ -344,14 +364,14 @@ function tryWallRun(id, preset) {
   emitMove('move.wallrun', id, speed, Motion.wallBrush[id] ? Motion.wallBrush[id].material : 'concrete');
 }
 
-function wallRunState(id, preset, gravity, dt) {
-  if (Motion.jumpPressed[id]) { wallJumpOff(id, preset); integrate(id, gravity, dt); return; }
+function wallRunState(id, preset, dt) {
+  if (Motion.jumpPressed[id]) { wallJumpOff(id, preset); integrate(id, 1, dt); return; }
   const stillOnWall = findWall(id, -Motion.wallNX[id], -Motion.wallNZ[id]);
-  if (Motion.stateTime[id] >= preset.wallRunTime || Motion.inputZ[id] <= 0 || !stillOnWall) { leaveWall(id); integrate(id, gravity, dt); return; }
+  if (Motion.stateTime[id] >= preset.wallRunTime || Motion.inputZ[id] <= 0 || !stillOnWall) { leaveWall(id); integrate(id, 1, dt); return; }
   const into = Actors.vx[id] * Motion.wallNX[id] + Actors.vz[id] * Motion.wallNZ[id];
   Actors.vx[id] -= Motion.wallNX[id] * into; Actors.vz[id] -= Motion.wallNZ[id] * into;
   setHorizontalSpeed(id, preset.wallRunSpeed);
-  integrate(id, gravity * preset.wallRunGravity, dt);
+  integrate(id, preset.wallRunGravity, dt);
   if (Motion.grounded[id]) setState(id, MOVE_STATE.WALK);
 }
 
@@ -362,9 +382,9 @@ function tryLatch(id, preset) {
   Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
 }
 
-function latchState(id, preset, gravity, dt) {
-  if (Motion.jumpPressed[id]) { wallJumpOff(id, preset); integrate(id, gravity, dt); return; }
-  if (!(Actors.buttons[id] & BTN.ALT) || Motion.stateTime[id] >= preset.wallLatchTime) { leaveWall(id); integrate(id, gravity, dt); return; }
+function latchState(id, preset, dt) {
+  if (Motion.jumpPressed[id]) { wallJumpOff(id, preset); integrate(id, 1, dt); return; }
+  if (!(Actors.buttons[id] & BTN.ALT) || Motion.stateTime[id] >= preset.wallLatchTime) { leaveWall(id); integrate(id, 1, dt); return; }
   Actors.vx[id] = Actors.vy[id] = Actors.vz[id] = 0;
 }
 

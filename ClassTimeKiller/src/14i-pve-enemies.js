@@ -3,9 +3,9 @@
 // rows only pick kinds and numbers. Movement by goal (PveMove) goes through the bot path follower (BotMove) and motor.
 // Behaviour hooks (all optional): decide(id, row, now) -> true when it chose already; step(id, row, dt, now) every tick;
 // move(id, row, dt, now) replaces the goal movement; allows(id, attack, now) filters attacks; reduce(id, amount, info);
-// draw(batch, id, row, now). Attack hooks: begin(id, attack, now) at the end of the tell; step(id, attack, now) -> true when
+// draw(batch, id, row). Attack hooks: begin(id, attack, now) at the end of the tell; step(id, attack, now) -> true when
 // done; optional move(id, attack, dt, now) while active; lockSeconds (the aim stops following this long before the blow);
-// drawTell(batch, id, attack, progress).
+// drawTell(batch, id, attack) (the tell's progress is in pveTellGlow). Draw hooks take no float arguments (PERF-006).
 
 const PVE_CLOSE_DIRECT = 4;            // m: inside this a seen target is approached straight, without a path
 const PVE_APPROACH_SHARE = 0.8;        // approach to this share of the longest usable attack range
@@ -27,10 +27,11 @@ const BLINK_NODE_SLACK = 1.5;
 const TURRET_SWEEP_DEG = 60, TURRET_SWEEP_RATE = 0.5;
 const LASER_WIDTH = 0.03;
 const HEAL_BEAM_WIDTH = 0.04;
+const HEAL_BEAM_SLOT = 2;              // the row colour slot of the heal beam
 
 const pveMoveScratch = Vec.make();
 const pveTargetScratch = Vec.make();
-const pveBeam = { x: 0, y: 0, z: 0 };
+const pveSegmentFrom = Vec.make(), pveSegmentTo = Vec.make();   // the ends of a heal beam or a laser tell (placeSegment)
 
 // ---- Movement by goal ----
 const PveMove = {
@@ -153,13 +154,14 @@ const PveAttacks = {
     lockSeconds: 0.3,
     begin(id, attack) { Pve.shoot(id, attack, 0); },
     step() { return true; },
-    drawTell(batch, id, attack, progress) {
-      const ex = Actors.x[id], ey = Actors.eyeY(id), ez = Actors.z[id];
-      const dx = Pve.aimX[id] - ex, dy = Pve.aimY[id] - ey, dz = Pve.aimZ[id] - ez, length = length3(dx, dy, dz);
-      if (length < 1e-3) return;
-      const yaw = Math.atan2(dx, dz), pitch = Math.atan2(dy, length2(dx, dz)), color = PVE_TELL_COLORS.unblockable;
-      batch.mesh('box', ex + dx / 2, ey + dy / 2, ez + dz / 2, yaw, pitch, LASER_WIDTH, LASER_WIDTH, length,
-        ((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, 0.5 + progress * 0.5);
+    drawTell(batch, id) {
+      Vec.set(pveSegmentFrom, Actors.x[id], Actors.y[id] + Actors.eye[id], Actors.z[id]);
+      Vec.set(pveSegmentTo, Pve.aimX[id], Pve.aimY[id], Pve.aimZ[id]);
+      const instance = placeSegment(LASER_WIDTH);
+      if (!instance) return;
+      writeColor(pveTellColor, 0, PVE_TELL_COLORS.unblockable);
+      instance.r = pveTellColor[0]; instance.g = pveTellColor[1]; instance.b = pveTellColor[2]; instance.emissive = 0.5 + pveTellGlow.progress * 0.5;
+      batch.meshFrom('box', instance);
     },
   },
   // Projectiles of a weapon row (rockets splash, plasma bolts are parryable), `shots` in a fan of fanDeg.
@@ -360,7 +362,7 @@ const PveBrains = {
     draw(batch, id, row) {
       for (let other = 0; other < Actors.count; other++) {
         if (!healable(id, other, row.heal.radius) || Actors.health[other] >= Actors.maxHealth[other]) continue;
-        drawBeam(batch, Actors.x[id], Actors.y[id] + 2 * row.size, Actors.z[id], Actors.x[other], Actors.y[other] + 1, Actors.z[other], row.colors, 2, HEAL_BEAM_WIDTH);
+        drawHealBeam(batch, id, other, row);
       }
     },
   },
@@ -400,13 +402,25 @@ function healable(id, other, radius) {
   return length2(Actors.x[other] - Actors.x[id], Actors.z[other] - Actors.z[id]) <= radius;
 }
 
-// Thin box from a to b in the row colour slot (heal beams).
-function drawBeam(batch, ax, ay, az, bx, by, bz, colors, slot, width) {
-  const dx = bx - ax, dy = by - ay, dz = bz - az, length = length3(dx, dy, dz);
-  if (length < 1e-3) return;
-  pveBeam.x = ax + dx / 2; pveBeam.y = ay + dy / 2; pveBeam.z = az + dz / 2;
-  batch.mesh('box', pveBeam.x, pveBeam.y, pveBeam.z, Math.atan2(dx, dz), Math.atan2(dy, length2(dx, dz)), width, width, length,
-    colors[slot * 3], colors[slot * 3 + 1], colors[slot * 3 + 2], 0.8);
+// Heal beam from the healer's head to the healed enemy's body, in the row's third colour slot.
+function drawHealBeam(batch, id, other, row) {
+  Vec.set(pveSegmentFrom, Actors.x[id], Actors.y[id] + 2 * row.size, Actors.z[id]);
+  Vec.set(pveSegmentTo, Actors.x[other], Actors.y[other] + 1, Actors.z[other]);
+  const instance = placeSegment(HEAL_BEAM_WIDTH), colors = row.colors;
+  if (!instance) return;
+  instance.r = colors[HEAL_BEAM_SLOT * 3]; instance.g = colors[HEAL_BEAM_SLOT * 3 + 1]; instance.b = colors[HEAL_BEAM_SLOT * 3 + 2]; instance.emissive = 0.8;
+  batch.meshFrom('box', instance);
+}
+// A thin box from pveSegmentFrom to pveSegmentTo in the parts' instance record (the caller sets colour and glow);
+// null when the ends meet. The ends come through the scratch, not as float arguments (PERF-006).
+function placeSegment(width) {
+  const from = pveSegmentFrom, dx = pveSegmentTo.x - from.x, dy = pveSegmentTo.y - from.y, dz = pveSegmentTo.z - from.z;
+  const length = length3(dx, dy, dz), instance = pvePartInstance;
+  if (length < 1e-3) return null;
+  instance.x = from.x + dx / 2; instance.y = from.y + dy / 2; instance.z = from.z + dz / 2;
+  instance.yaw = Math.atan2(dx, dz); instance.pitch = Math.atan2(dy, length2(dx, dz));
+  instance.sx = width; instance.sy = width; instance.sz = length;
+  return instance;
 }
 
 // Blink to a navigable spot BLINK_FLANK m beside the target (left or right by Rng); stays put when none is near.

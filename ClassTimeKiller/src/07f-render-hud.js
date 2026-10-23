@@ -25,6 +25,7 @@ const HudBatch = {
   white: new Float32Array(2),            // uv of the white block used by untextured quads
   atlas: null, texture: null, buffer: null, indexBuffer: null, vertexArray: null,
   hudMs: 0,
+  alphaScale: 1,           // every drawing call's alpha is multiplied by this (the HUD opacity setting, S17) in setHudPaint
 
   // draw(hud, seconds) is called every frame; layers draw in order (lower first). One draw call per layer.
   addLayer(name, order, draw) {
@@ -36,34 +37,59 @@ const HudBatch = {
     if (index >= 0) this.layers.splice(index, 1);
   },
   rect(x, y, w, h, colorHex, alpha) {
-    setHudCorners(x, y, x + w, y, x + w, y + h, x, y + h);
-    pushHudSolid(colorHex, alpha);
+    const corners = hudCorners;
+    corners[0] = x; corners[1] = y; corners[2] = x + w; corners[3] = y + h;
+    setHudPaint(colorHex, alpha);
+    pushHudBox();
   },
   line(x1, y1, x2, y2, thickness, colorHex, alpha) {
     const dx = x2 - x1, dy = y2 - y1, length = Math.sqrt(dx * dx + dy * dy) || 1, half = (thickness || 1) / 2;
-    const px = -dy / length * half, py = dx / length * half;
-    setHudCorners(x1 + px, y1 + py, x2 + px, y2 + py, x2 - px, y2 - py, x1 - px, y1 - py);
-    pushHudSolid(colorHex, alpha);
+    const px = -dy / length * half, py = dx / length * half, corners = hudCorners;
+    corners[0] = x1 + px; corners[1] = y1 + py; corners[2] = x2 + px; corners[3] = y2 + py;   // straight into the scratch: eight
+    corners[4] = x2 - px; corners[5] = y2 - py; corners[6] = x1 - px; corners[7] = y1 - py;   // float arguments would be boxed
+    setHudPaint(colorHex, alpha);
+    pushHudSolid();
   },
   // Angles in radians, 0 = 12 o'clock, clockwise (cooldown sweeps). start/end default to a full circle.
   ring(x, y, radius, thickness, colorHex, alpha, start, end) {
-    const from = start === undefined ? 0 : start, to = end === undefined ? Math.PI * 2 : end;
+    const at = hudRingAt;
+    at[0] = x; at[1] = y; at[2] = radius; at[3] = thickness; at[4] = start === undefined ? 0 : start; at[5] = end === undefined ? Math.PI * 2 : end;
+    this.ringAt(colorHex, alpha);
+  },
+  // ring() at hudRingAt (x, y, radius, thickness, start, end): no float arguments (PERF-006).
+  ringAt(colorHex, alpha) {
+    const at = hudRingAt, x = at[0], y = at[1], radius = at[2], thickness = at[3], from = at[4], to = at[5];
     const segments = Math.max(1, Math.ceil(HUD_RING_SEGMENTS * Math.abs(to - from) / (Math.PI * 2)));
-    const inner = radius - thickness / 2, outer = radius + thickness / 2, corners = hudCorners;
+    const inner = radius - thickness / 2, outer = radius + thickness / 2, corners = hudCorners, step = (to - from) / segments;
+    // One sine and cosine for the start edge and one for the step: each next edge is the last one turned by the step,
+    // instead of four trig calls per segment (cooldown rings are most of the HUD's CPU on a phone).
+    const stepSin = Math.sin(step), stepCos = Math.cos(step);
+    let sb = Math.sin(from), cb = -Math.cos(from);   // (sin, -cos) of the edge: 12 o'clock, clockwise on screen
+    setHudPaint(colorHex, alpha);
     for (let i = 0; i < segments; i++) {
-      const a = from + (to - from) * (i / segments), b = from + (to - from) * ((i + 1) / segments);
-      const sa = Math.sin(a), ca = -Math.cos(a), sb = Math.sin(b), cb = -Math.cos(b);
+      const sa = sb, ca = cb;
+      sb = sa * stepCos - ca * stepSin; cb = ca * stepCos + sa * stepSin;
       corners[0] = x + sa * outer; corners[1] = y + ca * outer; corners[2] = x + sb * outer; corners[3] = y + cb * outer;
       corners[4] = x + sb * inner; corners[5] = y + cb * inner; corners[6] = x + sa * inner; corners[7] = y + ca * inner;
-      pushHudSolid(colorHex, alpha);
+      pushHudSolid();
     }
   },
   // y is the middle of the line; align 'left' | 'center' | 'right'. Returns the width in CSS pixels.
   text(string, x, y, sizePx, colorHex, align, alpha) {
-    const text = String(string), scale = sizePx / HUD_FONT_PX, width = this.measure(text, sizePx);
+    const at = hudTextAt;
+    at[0] = x; at[1] = y; at[2] = sizePx;
+    this.textAt(string, colorHex, align, alpha);
+    return at[3];
+  },
+  // text() at hudTextAt (x, y, size): no float arguments (PERF-006). Leaves the width in hudTextAt[3].
+  textAt(string, colorHex, align, alpha) {
+    const at = hudTextAt, text = String(string), x = at[0], y = at[1], sizePx = at[2], scale = sizePx / HUD_FONT_PX;
+    this.measureAt(text);
+    const width = at[3];
     let penX = align === 'center' ? x - width / 2 : align === 'right' ? x - width : x;
-    if (!this.atlas) return width;
+    if (!this.atlas) return;
     const top = y - (HUD_CELL_PX / 2) * scale, bottom = y + (HUD_CELL_PX / 2) * scale, g = this.glyphs, corners = hudCorners;
+    setHudPaint(colorHex, alpha);
     for (let i = 0; i < text.length; i++) {
       const slot = this.glyphIndex.get(text.charCodeAt(i));
       if (slot === undefined) { penX += sizePx * HUD_FALLBACK_ADVANCE; continue; }
@@ -71,53 +97,73 @@ const HudBatch = {
       if (text.charCodeAt(i) !== 32) {
         corners[0] = corners[6] = penX; corners[1] = corners[3] = top; corners[2] = corners[4] = right; corners[5] = corners[7] = bottom;
         corners[8] = g[o]; corners[9] = g[o + 1]; corners[10] = g[o + 2]; corners[11] = g[o + 3];
-        pushHudCorners(colorHex, alpha);
+        pushHudCorners();
       }
       penX += g[o + 4] * scale;
     }
-    return width;
   },
   measure(string, sizePx) {
-    const text = String(string), scale = sizePx / HUD_FONT_PX;
-    if (!this.atlas) return text.length * sizePx * HUD_FALLBACK_ADVANCE;
+    hudTextAt[2] = sizePx;
+    this.measureAt(String(string));
+    return hudTextAt[3];
+  },
+  // The width of text at size hudTextAt[2], into hudTextAt[3] (a returned float is boxed where the call is not inlined).
+  measureAt(text) {
+    const sizePx = hudTextAt[2], scale = sizePx / HUD_FONT_PX;
+    if (!this.atlas) { hudTextAt[3] = text.length * sizePx * HUD_FALLBACK_ADVANCE; return; }
     let width = 0;
     for (let i = 0; i < text.length; i++) {
       const slot = this.glyphIndex.get(text.charCodeAt(i));
       width += slot === undefined ? sizePx * HUD_FALLBACK_ADVANCE : this.glyphs[slot * 6 + 4] * scale;
     }
-    return width;
+    hudTextAt[3] = width;
   },
 };
 const hudFloats = new Float32Array(HudBatch.bytes);
 const hudColors = new Uint8Array(HudBatch.bytes);
 
 // Appends one quad (corners clockwise on screen from top-left); full buffers drop the quad and count it.
-// The drawing calls above fill hudCorners and call pushHudCorners: a float passed to a call that is not inlined is
-// boxed on the heap, a float written into a typed array is not (PERF-006: the HUD draws thousands of quads a frame).
-function pushHudQuad(x0, y0, x1, y1, x2, y2, x3, y3, u0, v0, u1, v1, colorHex, alpha) {
-  setHudCorners(x0, y0, x1, y1, x2, y2, x3, y3);
-  hudCorners[8] = u0; hudCorners[9] = v0; hudCorners[10] = u1; hudCorners[11] = v1;
-  pushHudCorners(colorHex, alpha);
-}
+// The drawing calls above fill hudCorners, set the paint once per call (setHudPaint) and call pushHudCorners per quad: a
+// float passed to a call that is not inlined is boxed on the heap, a float written into a typed array is not (PERF-006: the
+// HUD draws thousands of quads a frame, so no float goes to a call per glyph or ring segment).
 
 // x0 y0 .. x3 y3 (corners), u0 v0 u1 v1 (texture rectangle) of the next quad.
 const hudCorners = new Float32Array(12);
+// x, y (middle of the line), size in pixels of the next text (HudBatch.textAt); [3] = the width after textAt or measureAt.
+const hudTextAt = new Float64Array(4);
+// x, y, radius, thickness, start and end angle of the next ring (HudBatch.ringAt).
+const hudRingAt = new Float64Array(6);
 
-function setHudCorners(x0, y0, x1, y1, x2, y2, x3, y3) {
-  const corners = hudCorners;
-  corners[0] = x0; corners[1] = y0; corners[2] = x1; corners[3] = y1; corners[4] = x2; corners[5] = y2; corners[6] = x3; corners[7] = y3;
+// The colour (0xrrggbb) and alpha byte (0..255) of the next quads, set once per drawing call; the alpha is scaled by
+// HudBatch.alphaScale here, so the pen passes its alpha through unchanged (a computed float argument is boxed, PERF-006).
+// Math.min / max instead of clamp: clamp's float result is boxed when the call is not inlined.
+const hudPaint = new Int32Array(2);
+function setHudPaint(colorHex, alpha) {
+  const scaled = (alpha === undefined ? 1 : alpha) * HudBatch.alphaScale;
+  hudPaint[0] = colorNumber(colorHex);
+  hudPaint[1] = Math.round(Math.min(1, Math.max(0, scaled)) * 255);
 }
 
-// An untextured quad: the corners already set, the texture rectangle on the white block.
-function pushHudSolid(colorHex, alpha) {
+// An untextured quad: the corners and paint already set, the texture rectangle on the white block.
+function pushHudSolid() {
   const corners = hudCorners, white = HudBatch.white;
   corners[8] = corners[10] = white[0]; corners[9] = corners[11] = white[1];
-  pushHudCorners(colorHex, alpha);
+  pushHudCorners();
 }
 
-function pushHudCorners(colorHex, alpha) {
+// An untextured axis-aligned rectangle: left, top, right, bottom in hudCorners[0..3], spread here to the four corners.
+function pushHudBox() {
+  const corners = hudCorners;
+  corners[5] = corners[7] = corners[3];   // bottom
+  corners[3] = corners[1];                // top right
+  corners[4] = corners[2];
+  corners[6] = corners[0];
+  pushHudSolid();
+}
+
+function pushHudCorners() {
   if (HudBatch.quads >= HUD_MAX_QUADS) { HudBatch.dropped++; return; }
-  const color = colorNumber(colorHex), a = Math.round(clamp(alpha === undefined ? 1 : alpha, 0, 1) * 255);
+  const color = hudPaint[0], a = hudPaint[1];
   const base = HudBatch.quads * 4;
   writeHudVertex(base, 0, 8, 9, color, a);
   writeHudVertex(base + 1, 2, 10, 9, color, a);

@@ -173,7 +173,12 @@ function debugLineOffScreen(hud) {
 }
 
 Render.addSource('botDebug', (batch) => BotDebug.draw(batch));
-HudBatch.addLayer('botDebug', 90, (hud) => BotDebug.drawHud(hud));
+HudBatch.addLayer('botDebug', 90, (hud) => {
+  const opacity = HudBatch.alphaScale;
+  HudBatch.alphaScale = 1;   // a debug overlay: the HUD opacity setting (17a) does not dim it
+  BotDebug.drawHud(hud);
+  HudBatch.alphaScale = opacity;
+});
 Bus.on('setting', (key) => BotDebug.readSettings(key));
 Bus.on('world.load', () => { BotDebug.navStale = true; });
 Bus.on('match.start', () => { BotDebug.navStale = true; BotDebug.labelAt.fill(-1e9); });

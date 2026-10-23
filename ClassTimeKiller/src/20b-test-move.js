@@ -286,6 +286,12 @@ Test.add('move', (check) => {
   holdInput(id, -1, 0, BTN.SPRINT, 0);
   stepSeconds(2);
   check('arena: the sprint button never walks', testSpeed(id) > Move.preset(id).groundSpeed * 0.95 && TouchInput.stickSprints(), testSpeed(id));
+  Game.playerId = id;
+  Move.setPreset(id, 'tactical');
+  check('a player whose own preset walks on sprint (a hero row) gets no stick sprint in an arena match', !TouchInput.stickSprints());
+  Move.setPreset(id, null);
+  check('and the match preset again once the override is gone', TouchInput.stickSprints());
+  Game.playerId = -1;
 });
 
 Test.add('move', (check) => {
@@ -537,6 +543,33 @@ Test.add('move', (check) => {
   tapButtons(plain, BTN.JUMP);
   stepSeconds(2.5);
   check('no climbing on plain walls', Actors.y[plain] < 1, Actors.y[plain]);
+});
+
+// Audit 28: hand-made maps carry grip climb walls, and a Ravager climbs each map's first grip panel to its top.
+Test.add('move', (check) => {
+  const gripMaps = CAT.maps.filter((map) => map.brushes.some((brush) => brush.material === 'grip'));
+  check('grip climb walls on the arena and Ravager vs Fiends maps', gripMaps.length >= 5 && gripMaps.some((map) => map.modes.includes('fiends')), gripMaps.map((map) => map.code).join());
+  useTestRules({ move: 'ravager' });
+  const hit = makeHit();
+  for (const map of gripMaps) {
+    World.load(map);
+    const panel = map.brushes.find((brush) => brush.material === 'grip');
+    const thinX = panel.max[0] - panel.min[0] < panel.max[2] - panel.min[2];
+    const centreX = (panel.min[0] + panel.max[0]) / 2, centreZ = (panel.min[2] + panel.max[2]) / 2, standY = panel.min[1] + 1;
+    // The open face: from 0.8 m out on that side a level ray hits the panel itself.
+    const side = [-1, 1].find((sign) => {
+      const startX = thinX ? (sign < 0 ? panel.min[0] : panel.max[0]) + sign * 0.8 : centreX, startZ = thinX ? centreZ : (sign < 0 ? panel.min[2] : panel.max[2]) + sign * 0.8;
+      return World.raycast(startX, standY, startZ, thinX ? -sign : 0, 0, thinX ? 0 : -sign, 2, hit) && hit.brush.material === 'grip';
+    });
+    const startX = thinX ? (side < 0 ? panel.min[0] : panel.max[0]) + side * 0.6 : centreX, startZ = thinX ? centreZ : (side < 0 ? panel.min[2] : panel.max[2]) + side * 0.6;
+    const id = spawnTester(startX, panel.min[1] + 0.05, startZ);
+    Sim.run(12);
+    holdInput(id, 0, 1, 0, Math.atan2(thinX ? -side : 0, thinX ? 0 : -side) / DEG);
+    tapButtons(id, BTN.JUMP);
+    const top = highestPoint(id, 3);
+    check(map.code + ': a Ravager climbs the grip panel to its top (' + panel.max[1] + ' m)', side !== undefined && top >= panel.max[1] - 0.05, top.toFixed(2));
+    Actors.remove(id);
+  }
 });
 
 Test.add('move', (check) => {
@@ -799,4 +832,45 @@ Test.add('move', (check) => {
   check('a downed actor does not jump (HP-007)', Actors.alive[id] === 1 && rise < 0.05, rise.toFixed(3));
   Actors.flags[id] &= ~ACTOR_FLAG.DOWNED;
   Actors.remove(id); Actors.remove(ally);
+});
+
+// nearestSeenEnemy: the nearest enemy that passes the rule's cone test and has a clear line; walls hide the nearer one.
+Test.add('move', (check) => {
+  loadTestWorld([{ shape: 'box', min: [-1, 0, 4], max: [1, 4, 5] }]);
+  useTestRules({ move: 'arena' });
+  const me = spawnTester(0, 0, 0, null, 0), hidden = spawnTester(0, 0, 8, null, 1), near = spawnTester(6, 0, 3, null, 1), far = spawnTester(-9, 0, 2, null, 1);
+  const rule = { skip: (who, id) => !Actors.alive[id] || !Actors.isEnemy(who, id), point: (id, out) => { out.x = Actors.x[id]; out.y = Actors.eyeY(id); out.z = Actors.z[id]; },
+    accept: (who, id, dx, dy, dz, distance) => distance > 0 };
+  const eyeY = Actors.eyeY(me);
+  check('nearestSeenEnemy: the nearest visible enemy wins, a wall hides the one behind it', nearestSeenEnemy(me, 0, eyeY, 0, 50, rule) === near);
+  check('nearestSeenEnemy: nothing beyond the range', nearestSeenEnemy(me, 0, eyeY, 0, 2, rule) === -1);
+  rule.accept = (who, id) => id === far;
+  check('nearestSeenEnemy: the rule can reject candidates', nearestSeenEnemy(me, 0, eyeY, 0, 50, rule) === far);
+  Actors.remove(me); Actors.remove(hidden); Actors.remove(near); Actors.remove(far);
+});
+
+// The shield charge measures range and the nearest enemy flat (2D): a raised enemy inside the flat range still locks.
+Test.add('move', (check) => {
+  loadTestWorld([]);
+  useTestRules({ move: 'arena' });
+  const me = spawnTester(0, 0, 0, null, 0), raised = spawnTester(0, 5, 24.6, null, 1);
+  Actors.yaw[me] = 0;
+  check('charge: an enemy 5 m up at 24.6 m flat locks with range 25', chargeTarget(me, 25) === raised);
+  Actors.remove(raised);
+  const high = spawnTester(1, 10, 15, null, 1), ground = spawnTester(-1, 0, 16, null, 1);
+  check('charge: the flat-nearest enemy wins over the 3D-nearest one', chargeTarget(me, 25) === high);
+  Actors.remove(me); Actors.remove(high); Actors.remove(ground);
+});
+
+// Homing rows lock the nearest visible enemy inside the 45-degree cone; a wall hides one, non-homing rows lock nothing.
+Test.add('move', (check) => {
+  loadTestWorld([{ shape: 'box', min: [-1, 0, 4], max: [1, 4, 5] }]);
+  useTestRules({ move: 'arena' });
+  const me = spawnTester(0, 0, 0, null, 0), walled = spawnTester(0, 0, 7, null, 1), aside = spawnTester(6, 0, 2, null, 1);
+  const inCone = spawnTester(4, 0, 10, null, 1), forward = Vec.make();
+  Vec.set(forward, 0, 0, 1);
+  const locked = Projectiles.acquireTarget(me, CAT.projectiles.byId('missile'), forward);
+  check('homing: the nearest visible enemy inside the cone', locked === inCone, locked);
+  check('homing: a non-homing row locks nothing', Projectiles.acquireTarget(me, CAT.projectiles.byId('bullet'), forward) === -1);
+  Actors.remove(me); Actors.remove(walled); Actors.remove(aside); Actors.remove(inCone);
 });

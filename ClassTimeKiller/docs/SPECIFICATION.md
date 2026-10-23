@@ -400,7 +400,7 @@ Hero kits (RS09; each: weapon, passive, 2 abilities, ultimate):
 | PU17 | `ammorune` | Ammo Rune | persistent: ammo regen 5%/s | 60 s | Q3TA Ammo Regen |
 | PU18 | `soul` | Soul Shard | dropped by kills, +1 HP, 66 = Wrath Form (A34) | - | Painkiller souls |
 | PU19 | `lightbearer` | Bearer Flame | never-expiring Fury Core for mode M24 | - | Painkiller Light Bearer |
-| PU20 | `vitalshard` | Vital Shard | +25 max HP or +25 max armor (ravager caps) | campaign only | Doom Sentinel crystal |
+| PU20 | `vitalshard` | Vital Shard | +25 max HP or +25 max armor (ravager caps) | map spots in Ravager health matches (HPP07) | Doom Sentinel crystal |
 
 | Code | Item | Effect | Cap | Respawn |
 |---|---|---|---|---|

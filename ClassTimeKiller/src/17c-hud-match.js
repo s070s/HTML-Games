@@ -51,36 +51,46 @@ const HudFeed = {
   },
 };
 
+const HUD_HEADER_WIDTH = 320;   // units: the score, clock and round panel at the top centre
+
 function hudDrawHeadIcon(pen, x, y, size, alpha) {
   pen.ring(x, y, size * 0.4, Math.max(1.5, size * 0.14), HUD_COLOR.gold, alpha);
   pen.rect(x - size * 0.09, y - size * 0.09, size * 0.18, size * 0.18, HUD_COLOR.gold, alpha);
 }
 
-function hudDrawFeedRow(pen, layout, slot, right, y, alpha) {
+// One kill feed row, `row` rows down from the top right. The numbers go through the pen's scratch forms (PERF-006).
+function hudDrawFeedRow(pen, layout, slot, row) {
   const feed = HudFeed, unit = layout.unit, size = 15 * unit, iconWidth = 34 * unit, flags = feed.flags[slot];
-  const world = (flags & feed.FLAG_WORLD) !== 0, self = (flags & feed.FLAG_SELF) !== 0;
-  const victimWidth = HudBatch.measure(feed.victim[slot], size), killerWidth = world || self ? 0 : HudBatch.measure(feed.killer[slot], size);
+  const remaining = HUD_FEED_SECONDS - (Hud.time - feed.at[slot]), alpha = remaining < HUD_FEED_FADE ? remaining / HUD_FEED_FADE : 1;
+  const world = (flags & feed.FLAG_WORLD) !== 0, self = (flags & feed.FLAG_SELF) !== 0, text = hudTextAt, box = hudBoxAt, shape = hudShapeAt;
+  text[2] = size;
+  HudBatch.measureAt(String(feed.victim[slot]));
+  const victimWidth = text[3];
+  let killerWidth = 0;
+  if (!world && !self) { HudBatch.measureAt(String(feed.killer[slot])); killerWidth = text[3]; }
   const headWidth = flags & feed.FLAG_HEAD ? 16 * unit : 0, pad = 6 * unit;
   const width = pad * 2 + victimWidth + killerWidth + iconWidth + headWidth + (killerWidth ? pad : 0);
-  const left = right - width, mid = y;
-  pen.panel(left, mid - 11 * unit, width, 22 * unit, 0.5 * alpha);
-  if (flags & feed.FLAG_MINE) pen.rect(left, mid - 11 * unit, 3 * unit, 22 * unit, HUD_COLOR.gold, alpha);
+  const left = layout.right - width, mid = layout.top + 11 * unit + row * 25 * unit;
+  box[0] = left; box[1] = mid - 11 * unit; box[2] = width; box[3] = 22 * unit;
+  pen.panelAt(0.5 * alpha);
+  box[2] = 3 * unit;
+  if (flags & feed.FLAG_MINE) pen.rectAt(HUD_COLOR.gold, alpha);
   let x = left + pad;
-  if (killerWidth) { pen.text(feed.killer[slot], x, mid, size, feed.killerColor[slot], 'left', alpha); x += killerWidth + pad; }
-  if (feed.weaponClass[slot]) pen.weaponIcon(feed.weaponClass[slot], x + iconWidth / 2, mid, iconWidth, HUD_COLOR.text, alpha);
-  else pen.text('×', x + iconWidth / 2, mid, size, HUD_COLOR.dim, 'center', alpha);
+  text[1] = mid;
+  if (killerWidth) { text[0] = x; pen.textAt(feed.killer[slot], feed.killerColor[slot], 'left', alpha); x += killerWidth + pad; }
+  shape[0] = text[0] = x + iconWidth / 2; shape[1] = mid; shape[2] = iconWidth / 2;
+  if (feed.weaponClass[slot]) pen.weaponIconAt(feed.weaponClass[slot], HUD_COLOR.text, alpha);
+  else pen.textAt('×', HUD_COLOR.dim, 'center', alpha);
   x += iconWidth;
   if (headWidth) { hudDrawHeadIcon(pen, x + headWidth / 2, mid, headWidth, alpha); x += headWidth; }
-  pen.text(feed.victim[slot], x, mid, size, feed.victimColor[slot], 'left', alpha);
+  text[0] = x;
+  pen.textAt(feed.victim[slot], feed.victimColor[slot], 'left', alpha);
 }
 
 function hudDrawKillFeed(pen, layout) {
   const now = Hud.time, maxRows = layout.compact ? HUD_FEED_ROWS_COMPACT : HUD_FEED_ROWS, live = HudFeed.liveCount(now);
-  const first = Math.max(0, live - maxRows), rowHeight = 25 * layout.unit;
-  for (let n = first; n < live; n++) {
-    const slot = HudFeed.slotAt(n, now), age = now - HudFeed.at[slot], remaining = HUD_FEED_SECONDS - age;
-    hudDrawFeedRow(pen, layout, slot, layout.right, layout.top + 11 * layout.unit + (n - first) * rowHeight, remaining < HUD_FEED_FADE ? remaining / HUD_FEED_FADE : 1);
-  }
+  const first = Math.max(0, live - maxRows);
+  for (let n = first; n < live; n++) hudDrawFeedRow(pen, layout, HudFeed.slotAt(n, now), n - first);
 }
 
 Bus.on('kill', (event) => HudFeed.add(event));
@@ -133,31 +143,38 @@ function hudDrawBanners(pen, layout) {
 // ---- Header ----
 const hudObjectiveText = { planted: 'BOMB', dropped: 'DROPPED', carried: 'TAKEN' };
 
-function hudDrawTeamScore(pen, layout, team, x, align, score) {
-  const unit = layout.unit, color = Hud.teamColor(team), mine = Actors.team[Game.playerId] === team;
-  const y = layout.top + 17 * unit;
-  pen.shape(Hud.teamShapes ? Hud.teamShape(team) : 'square', align === 'left' ? x + 12 * unit : x - 12 * unit, y, 14 * unit, color);
-  pen.text(hudNumber(score), align === 'left' ? x + 26 * unit : x - 26 * unit, y, 26 * unit, HUD_COLOR.text, align);
-  if (mine) pen.rect(align === 'left' ? x : x - 74 * unit, layout.top + 34 * unit, 74 * unit, 3 * unit, color, 1);
+// The team's score at the left or right end of the header panel (the side by team: no x as a float argument, PERF-006).
+function hudDrawTeamScore(pen, layout, team, score) {
+  const unit = layout.unit, color = Hud.teamColor(team), mine = Actors.team[Game.playerId] === team, left = team === 0;
+  const edge = layout.centerX + (left ? -1 : 1) * (HUD_HEADER_WIDTH / 2 - 4) * unit, side = left ? 1 : -1, y = layout.top + 17 * unit;
+  const shape = hudShapeAt, text = hudTextAt, box = hudBoxAt;
+  shape[0] = edge + side * 12 * unit; shape[1] = y; shape[2] = 7 * unit;
+  pen.shapeAt(Hud.teamShapes ? Hud.teamShape(team) : 'square', color);
+  text[0] = edge + side * 26 * unit; text[1] = y; text[2] = 26 * unit;
+  pen.textAt(hudNumber(score), HUD_COLOR.text, left ? 'left' : 'right');
+  box[0] = left ? edge : edge - 74 * unit; box[1] = layout.top + 34 * unit; box[2] = 74 * unit; box[3] = 3 * unit;
+  if (mine) pen.rectAt(color, 1);
 }
 
 function hudDrawTime(pen, layout, state) {
-  const unit = layout.unit, x = layout.centerX, y = layout.top + 15 * unit;
-  if (state.overtime) pen.text('OVERTIME', x, y + 21 * unit, 14 * unit, Hud.colors.bad, 'center');
-  if (state.timeLeft > 0) {
-    const urgent = state.timeLeft <= 30;
-    pen.text(hudTime(state.timeLeft), x, y, 24 * unit, urgent ? Hud.colors.bad : HUD_COLOR.text, 'center');
-  }
-  if (state.phase === 'freeze') pen.text('GET READY', x, y + 22 * unit, 14 * unit, HUD_COLOR.warn, 'center');
-  else if (state.phase === 'roundEnd') pen.text('ROUND OVER', x, y + 22 * unit, 14 * unit, HUD_COLOR.warn, 'center');
-  else if (state.scoreLimit > 0 && state.roundsToWin === 0 && !state.overtime) hudDrawScoreLimit(pen, layout, state.scoreLimit, y + 22 * unit);
+  const unit = layout.unit, x = layout.centerX, y = layout.top + 15 * unit, text = hudTextAt;   // the text scratch (PERF-006)
+  text[0] = x; text[1] = y + 21 * unit; text[2] = 14 * unit;
+  if (state.overtime) pen.textAt('OVERTIME', Hud.colors.bad, 'center');
+  text[1] = y; text[2] = 24 * unit;
+  if (state.timeLeft > 0) pen.textAt(hudTime(state.timeLeft), state.timeLeft <= 30 ? Hud.colors.bad : HUD_COLOR.text, 'center');
+  text[1] = y + 22 * unit; text[2] = 14 * unit;
+  if (state.phase === 'freeze') pen.textAt('GET READY', HUD_COLOR.warn, 'center');
+  else if (state.phase === 'roundEnd') pen.textAt('ROUND OVER', HUD_COLOR.warn, 'center');
+  else if (state.scoreLimit > 0 && state.roundsToWin === 0 && !state.overtime) hudDrawScoreLimit(pen, layout, state.scoreLimit);
 }
 
-// "FIRST TO 25" under the clock: the label ends and the number starts at the centre line.
-function hudDrawScoreLimit(pen, layout, limit, y) {
-  const unit = layout.unit;
-  pen.text('FIRST TO', layout.centerX - 3 * unit, y, 14 * unit, HUD_COLOR.dim, 'right');
-  pen.text(hudNumber(limit), layout.centerX + 3 * unit, y, 14 * unit, HUD_COLOR.dim, 'left');
+// "FIRST TO 25" under the clock (on the line hudDrawTime set): the label ends and the number starts at the centre line.
+function hudDrawScoreLimit(pen, layout, limit) {
+  const unit = layout.unit, text = hudTextAt;
+  text[0] = layout.centerX - 3 * unit;
+  pen.textAt('FIRST TO', HUD_COLOR.dim, 'right');
+  text[0] = layout.centerX + 3 * unit;
+  pen.textAt(hudNumber(limit), HUD_COLOR.dim, 'left');
 }
 
 function hudDrawRoundPips(pen, layout, state) {
@@ -234,11 +251,12 @@ function hudDrawObjectiveChips(pen, layout, state) {
 function hudDrawHeader(pen, layout) {
   const state = Modes.hudState();
   if (!state.active && state.phase !== 'ended') return;
-  const unit = layout.unit, width = 320 * unit, left = layout.centerX - width / 2;
-  pen.panel(left, layout.top, width, 44 * unit, 0.5);
+  const unit = layout.unit, width = HUD_HEADER_WIDTH * unit, box = hudBoxAt;
+  box[0] = layout.centerX - width / 2; box[1] = layout.top; box[2] = width; box[3] = 44 * unit;
+  pen.panelAt(0.5);
   if (state.teams === 2) {
-    hudDrawTeamScore(pen, layout, 0, left + 4 * unit, 'left', state.teamScores[0]);
-    hudDrawTeamScore(pen, layout, 1, left + width - 4 * unit, 'right', state.teamScores[1]);
+    hudDrawTeamScore(pen, layout, 0, state.teamScores[0]);
+    hudDrawTeamScore(pen, layout, 1, state.teamScores[1]);
   } else hudDrawFreeForAllScore(pen, layout, state);
   hudDrawTime(pen, layout, state);
   if (state.roundsToWin > 0) hudDrawRoundPips(pen, layout, state);

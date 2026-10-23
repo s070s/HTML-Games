@@ -56,6 +56,22 @@ Data.define('statusEffects', {
   { id: 'stun', name: 'Stunned', seconds: 0.5, speed: 0, stun: true, color: 0xd0d0d0 },   // non-electric stagger, knockdown and EMP: never an HP-005 Shock combo
 ]);
 
+// HP-005 floor surfaces (S12 12h FloorSurfaces): round patches on the floor that react to statuses. spillFrom: a breakable
+// prop of this material spills the patch when it breaks (oil drum, water tank). spreads: that status landing on anyone
+// standing in the patch lands on everyone in it. igniteStatus / igniteElement: that status on someone standing in it, or an
+// explosion of that element over it, turns the patch into `becomes` for that row's seconds. dps (of element): hurts everyone
+// standing in the patch, who then also gets `status` (statusSeconds 0 = the status default). fx: the particle burst on that
+// damage tick; glow: emissive 0..1.
+Data.define('surfaces', {
+  id: REQUIRED, name: REQUIRED, seconds: REQUIRED, radius: 2, spillFrom: '', spreads: '', igniteStatus: '', igniteElement: '',
+  becomes: '', dps: 0, element: 'kinetic', status: '', statusSeconds: 0, fx: '', glow: 0.2, color: 0xffffff, index: 0,
+}, [
+  { id: 'wet', name: 'Wet floor', seconds: 20, radius: 2, spillFrom: 'water', spreads: 'shock', color: 0x3f7890 },
+  { id: 'oil', name: 'Oil slick', seconds: 45, radius: 2.5, spillFrom: 'oil', igniteStatus: 'burn', igniteElement: 'thermal', becomes: 'fire', color: 0x2a2418 },
+  { id: 'fire', name: 'Burning oil', seconds: 6, radius: 2.5, dps: 20, element: 'thermal', status: 'burn', fx: 'fire', glow: 0.8, color: 0xff7a2a },   // "Oil floor + Burn = fire area 6 s"
+]);
+CAT.surfaces.forEach((row, index) => { row.index = index; });
+
 // HP-006 elements; matching element vs a coloured PvE shield x1.5, other elements x0.75 (NPC-004).
 const ELEMENT_MATCH_FACTOR = 1.5;
 const ELEMENT_MISMATCH_FACTOR = 0.75;

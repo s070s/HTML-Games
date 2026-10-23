@@ -12,6 +12,7 @@ const PVE_MAX_PICKS = 200;             // a wave budget is spent in at most this
 const PVE_FIENDS_TEAM = 1, PVE_RAVAGER_TEAM = 0;
 const PVE_STATION_FALLBACK = [[0, 10], [4, 15], [-4, 20]];   // range stations in front of the spawn when the map has no 'dummy' hints
 const PVE_MODE_IDS = ['horde', 'endless', 'bank', 'fiends', 'contract', 'attrition', 'range', 'puzzle'];
+const PVE_BOT_RESTOCK_ITEM = 'ampAmmo';   // the wave shop row a bot buys when a gun runs low (ECP07, the player's own buy path)
 
 // The HUD block's values at a match start (banked and boss are kept objects, reset in place).
 const PVE_HUD_DEFAULTS = Object.freeze({
@@ -96,14 +97,9 @@ function reviveParticipants(heal) {
     Actors.health[id] = Math.max(Actors.health[id], Actors.maxHealth[id] * heal);
   }
 }
-function countParticipants() {
-  let count = 0;
-  for (let id = 0; id < Actors.count; id++) if (Modes.isActive(id)) count++;
-  return count;
-}
 // NPC-008 budget: wave points x difficulty aggression x players (4 is the baseline party).
 function scaledBudget(budget) {
-  const director = PVE_DIRECTOR, players = countParticipants();
+  const director = PVE_DIRECTOR, players = Modes.countActive();
   const byPlayers = Math.max(0.5, 1 + director.budgetPerExtraPlayer * (players - director.playersBaseline));
   return budget * (director.budgetScaleBase + director.budgetScaleAggression * pveSkill().aggression) * byPlayers;
 }
@@ -212,6 +208,7 @@ function makeWaveBehaviour(plan) {
       run.state = PVE_WAVE_STATE.SHOP;
       run.endsAt = now + PVE_WAVE_RULES.shopSeconds;
       Economy.setShopOpen(true);
+      restockBots();
     },
     // Endless: anyone standing in the extract zone while it is open ends the run as a win.
     extracting(run, now) {
@@ -254,6 +251,15 @@ function makeWaveBehaviour(plan) {
   };
 }
 const PVE_ENDLESS_CORE_HEALTH = 5000;
+// At each wave break a bot whose gun runs low buys a refill in the shop, as the player would (bots ran dry by wave 8).
+function restockBots() {
+  for (let id = 0; id < Actors.count; id++) if (Bots.isBot(id) && Modes.participant[id] && botAmmoLow(id)) Economy.buy(id, PVE_BOT_RESTOCK_ITEM);
+}
+// Any gun the bot carries that runs low (BotCombat.gunLow).
+function botAmmoLow(id) {
+  for (let index = 0; index < WEAPON_COUNT; index++) if (Weapons.owned[Weapons.slotIndex(id, index)] && BotCombat.gunLow(id, index)) return true;
+  return false;
+}
 // DIF-004: the plate halves enemy damage to every participant until the retried wave is cleared.
 function wearGuardianPlate(run) {
   run.plateUsed = true;

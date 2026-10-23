@@ -33,6 +33,13 @@ function hudTestWith(run) {
   }
 }
 
+// The kinds of the live HUD pings, sorted ('enemy,go').
+function hudTestLivePings(source) {
+  const kinds = [];
+  for (let i = 0; i < HUD_PING_SLOTS; i++) if (HudPings.live(i) && (source === undefined || HudPings.source[i] === source)) kinds.push(HudPings.kind[i]);
+  return kinds.sort().join();
+}
+
 // One HUD frame through the real layers; returns the quads it drew.
 function hudTestFrame(seconds) {
   collectHudLayers(seconds === undefined ? HUD_TEST_FRAME : seconds);
@@ -490,6 +497,50 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('killcam: with less than 0.3 s of history there is nothing to replay', !Killcam.playing);
 }));
 
+// ---- Pings: each kind's own life, 3 live pings per actor, an enemy ping follows its target in sight, replies keep a label ----
+Test.add('hud', (check) => hudTestWith(() => {
+  const scene = hudTestMatch(), life = (kind) => COMM_CALLOUT_BY_KIND.get(kind).seconds;
+  HudPings.reset();
+  check('pings: every callout row has its own marker life', COMM_CALLOUTS.every((row) => row.seconds > 0) && life('enemy') < life('go'));
+  hudTestEvent('ping', { id: scene.mate, kind: 'enemy', target: -1, x: 1, z: 10 });
+  hudTestEvent('ping', { id: scene.mate, kind: 'go', target: -1, x: 2, z: 10 });
+  Hud.time += life('enemy') + 0.1;
+  check('pings: the enemy ping is gone after its life while the go ping still shows', hudTestLivePings() === 'go', hudTestLivePings());
+  HudPings.reset();
+  for (let n = 0; n <= HUD_PING_PER_ACTOR; n++) { Hud.time += 0.1; hudTestEvent('ping', { id: scene.mate, kind: n === 0 ? 'danger' : 'go', target: -1, x: n, z: 10 }); }
+  check('pings: at most 3 live per actor, the oldest goes first', hudTestLivePings(scene.mate) === 'go,go,go', hudTestLivePings(scene.mate));
+  hudTestEvent('ping', { id: scene.id, kind: 'attack', target: -1, x: 0, z: 12 });
+  check('pings: the cap is per actor (the player\'s ping shows beside them)', hudTestLivePings(scene.id) === 'attack' && hudTestLivePings(scene.mate) === 'go,go,go');
+  HudPings.reset();
+  hudTestEvent('ping', { id: scene.mate, kind: 'enemy', target: scene.enemy, x: Actors.x[scene.enemy], z: Actors.z[scene.enemy] });
+  const lineClear = World.lineClearOf;   // after a reset the first ping takes slot 0
+  hudTestPlace(scene.enemy, 9, 30, 0);
+  hudTestFrame();
+  check('pings: an enemy ping follows its target while the pinger sees it', HudPings.target[0] === scene.enemy && HudPings.x[0] === 9 && HudPings.z[0] === 30, [HudPings.x[0], HudPings.z[0]]);
+  World.lineClearOf = () => false;
+  try {
+    Hud.time += HUD_PING_SIGHT_INTERVAL + 0.01;
+    hudTestPlace(scene.enemy, -9, 30, 0);
+    hudTestFrame();
+  } finally { World.lineClearOf = lineClear; }
+  check('pings: out of sight it stays where the target was last seen', HudPings.x[0] === 9, HudPings.x[0]);
+  HudPings.reset();
+  hudTestEvent('ping', { id: scene.mate, kind: 'enemy', target: scene.enemy, x: Actors.x[scene.enemy], z: Actors.z[scene.enemy] });
+  const markersShown = Hud.elements.markers;
+  Hud.elements.markers = false;
+  try { hudTestPlace(scene.enemy, 7, 28, 0); hudTestFrame(); } finally { Hud.elements.markers = markersShown; }
+  check('pings: with the world markers hidden the minimap ping still follows its target', HudPings.x[0] === 7 && HudPings.z[0] === 28, [HudPings.x[0], HudPings.z[0]]);
+  HudPings.reset();
+  hudTestEvent('ping', { id: scene.enemy, kind: 'go', target: -1, x: 0, z: 12 });
+  check('pings: pings from the other side take no slot from your own side', HudPings.source.every((source) => source < 0));
+  HudPings.reset();
+  hudTestEvent('ping', { id: scene.mate, kind: 'go', target: -1, x: 0, z: 12 });
+  hudTestEvent('ping', { id: scene.id, kind: 'dibs', target: -1, x: 0, z: 12, to: scene.mate });
+  const answered = HudPings.newestToAnswer(scene.id);
+  check('pings: a reply keeps its label, and only a teammate\'s ping (not a reply, not your own) can be answered',
+    HudPings.reply.includes('Dibs') && answered >= 0 && HudPings.source[answered] === scene.mate && HudPings.kind[answered] === 'go');
+}));
+
 Test.add('hud', (check) => hudTestWith(() => {
   const scene = hudTestMatch(), id = scene.id, layout = Hud.layout;
   Killcam.enabled = false;
@@ -514,9 +565,9 @@ Test.add('hud', (check) => hudTestWith(() => {
   hudTestEvent('ping', { id: scene.mate, kind: 'enemy', target: -1, x: -3, y: 1, z: 12 });
   hudTestFrame();
   check('markers: a teammate ping adds a marker, an enemy ping does not', Hud.quadsOf('markers') > withEnemyPing && withEnemyPing === markers);
-  Hud.time += HUD_PING_SECONDS + 0.1;
+  Hud.time += COMM_CALLOUT_BY_KIND.get('enemy').seconds + 0.1;
   hudTestFrame();
-  check('markers: pings expire after 6 seconds', Hud.quadsOf('markers') === markers);
+  check('markers: an enemy ping expires after its kind\'s life', Hud.quadsOf('markers') === markers);
 
   hudTestFrame();
   const tagged = Hud.quadsOf('nameTags');

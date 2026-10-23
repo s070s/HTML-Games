@@ -27,6 +27,12 @@ const pinHit = makeHit();
 const INCOMING_EVENT = { x: 0, y: 0, z: 0, kind: '', source: -1 };
 const BALLISTIC_ROW = CAT.projectiles.byId('bullet');
 const projectileScratch = Vec.make();
+const homingAim = Vec.make();
+const HOMING_RULE = {
+  skip(owner, id) { return !Actors.alive[id] || !Actors.isEnemy(owner, id); },
+  point(id, out) { Hitbox.point(id, ZONE.BODY, out); },
+  accept(owner, id, dx, dy, dz, distance) { return (dx * homingAim.x + dy * homingAim.y + dz * homingAim.z) / distance >= HOMING_CONE_COS; },
+};
 const steerScratch = Vec.make();
 const projectileColors = new Float32Array(CAT.projectiles.length * 3);
 CAT.projectiles.forEach((row, index) => {
@@ -149,18 +155,9 @@ const Projectiles = {
   // Homing rows pick the nearest visible enemy near the launch direction (drills: within 20 m).
   acquireTarget(owner, row, direction) {
     if (!row.homing) return -1;
-    const range = row.onHit === 'drill' ? DRILL_RANGE : HOMING_RANGE, eyeY = Actors.eyeY(owner);
-    let best = -1, bestDistance = range;
-    for (let id = 0; id < Actors.count; id++) {
-      if (!Actors.alive[id] || !Actors.isEnemy(owner, id)) continue;
-      Hitbox.point(id, ZONE.BODY, projectileScratch);
-      const dx = projectileScratch.x - Actors.x[owner], dy = projectileScratch.y - eyeY, dz = projectileScratch.z - Actors.z[owner];
-      const distance = length3(dx, dy, dz);
-      if (distance >= bestDistance || (dx * direction.x + dy * direction.y + dz * direction.z) / distance < HOMING_CONE_COS) continue;
-      if (!World.lineClear(Actors.x[owner], eyeY, Actors.z[owner], projectileScratch.x, projectileScratch.y, projectileScratch.z)) continue;
-      best = id; bestDistance = distance;
-    }
-    return best;
+    const range = row.onHit === 'drill' ? DRILL_RANGE : HOMING_RANGE;
+    Vec.set(homingAim, direction.x, direction.y, direction.z);
+    return nearestSeenEnemy(owner, Actors.x[owner], Actors.eyeY(owner), Actors.z[owner], range, HOMING_RULE);
   },
 
   // ---- The per-step update ----

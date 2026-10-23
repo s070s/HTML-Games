@@ -564,8 +564,8 @@ function errorsSince(mark) {
 // A fake batch recording the meshes drawn (shape, height and colour of each).
 function meshRecorder() {
   const meshes = [];
-  return { meshes, mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b) { meshes.push({ shape, y, r, g, b }); },
-    meshFrom(shape, instance) { meshes.push({ shape, y: instance.y, r: instance.r, g: instance.g, b: instance.b }); } };
+  return { meshes, mesh(shape, x, y, z, yaw, pitch, sx, sy, sz, r, g, b) { meshes.push({ shape, y, sz, r, g, b }); },
+    meshFrom(shape, instance) { meshes.push({ shape, y: instance.y, sz: instance.sz, r: instance.r, g: instance.g, b: instance.b }); } };
 }
 function colorMatches(mesh, hex) {
   return Math.abs(mesh.r - ((hex >> 16) & 255) / 255) < 0.01 && Math.abs(mesh.g - ((hex >> 8) & 255) / 255) < 0.01 && Math.abs(mesh.b - (hex & 255) / 255) < 0.01;
@@ -703,6 +703,55 @@ Test.add('pve', (check) => {
   check('champions stand on a ring in their tag colour', tagged('unstoppable') && tagged('barrier'));
   check('a coloured shield is drawn in its element colour', !!element && rings.filter((mesh) => colorMatches(mesh, element.color)).length === PVE_SHELL_HEIGHTS.length);
   Game.stop();
+});
+
+const PVE_PROBE_LASER_LENGTH = 10;   // m: a box longer than any enemy part is the laser tell (the sniper stands ~24 m away)
+// PERF-006: drawing enemies with their champion ring, element shield, awareness mark, heal beam and laser tell allocates
+// nothing per frame.
+Test.add('pve', (check) => {
+  if (!perfHeapCounterWorks()) { check('no exact heap counter on this page: the PvE drawing allocation probe is skipped', true); return; }
+  World.load(Maps.get('isle'));   // a full nav build first, as in a match (its builder literal once boxed the record's x, y, z)
+  startPveTest();
+  const chance = PVE_CHAMPION_RULES.shieldElementChance;
+  PVE_CHAMPION_RULES.shieldElementChance = 1;
+  const shielded = Pve.spawnEnemy('gunner', -6, 0, 10, Math.PI, { champion: championIndex('barrier') });
+  PVE_CHAMPION_RULES.shieldElementChance = chance;
+  ['husk', 'leaper', 'brute'].forEach((key, index) => Pve.spawnEnemy(key, index * 3, 0, 14, Math.PI));
+  const healer = Pve.spawnEnemy('warden', 6, 0, 20, Math.PI), healed = Pve.spawnEnemy('husk', 8, 0, 20, Math.PI);
+  Actors.health[healed] = Actors.maxHealth[healed] / 2;   // hurt inside the warden's radius: a heal beam per frame
+  const sniper = Pve.spawnEnemy('longeye', -8, 0, 24, Math.PI);   // held in its laser windup: the laser tell per frame
+  Pve.phase[sniper] = ATTACK_PHASE.WINDUP; Pve.attack[sniper] = 0; Pve.tellStart[sniper] = Sim.time; Pve.phaseEndsAt[sniper] = Sim.time + 1;
+  Pve.aimX[sniper] = Actors.x[0]; Pve.aimY[sniper] = Actors.eyeY(0); Pve.aimZ[sniper] = Actors.z[0];
+  Pve.stealth = true;
+  const recorder = meshRecorder();   // two batch kinds, as over a session (tests, killcam): the draw calls are not inlined
+  let calls = 0, recorded = 0;   // counted here: run(i) restarts i in every measured round, and the recorder allocates its records
+  const bytes = perfAllocatedBytes(() => {
+    if (calls++ < PERF_ALLOC_WARMUP_CALLS / 2) { recorder.meshes.length = 0; Pve.draw(recorder); recorded++; return; }
+    fillSources();   // the frame's own path: each render source runs its own compiled code, as in a match
+  });
+  check('the probe draws into the allocating recorder in the warmup only', recorded === PERF_ALLOC_WARMUP_CALLS / 2, recorded);
+  check('the probe draws a shielded champion', Actors.shield[shielded] > 0 && Pve.champion[shielded] >= 0);
+  recorder.meshes.length = 0;
+  Pve.draw(recorder);
+  const colors = Pve.rowOf(healer).colors, slot = HEAL_BEAM_SLOT * 3, longest = PVE_PROBE_LASER_LENGTH;
+  const beams = recorder.meshes.filter((mesh) => mesh.shape === 'box' && mesh.r === colors[slot] && mesh.g === colors[slot + 1]).length;
+  const lasers = recorder.meshes.filter((mesh) => mesh.shape === 'box' && mesh.sz > longest && colorMatches(mesh, PVE_TELL_COLORS.unblockable)).length;
+  check('the probe draws a heal beam and a laser tell', beams === 1 && lasers === 1, beams + ' beams, ' + lasers + ' lasers');
+  check('drawing PvE enemies allocates nothing once the hot loop is fully compiled', bytes < PERF_ALLOC_LIMIT_BYTES, Math.round(bytes / 1024) + ' KB over ' + PERF_ALLOC_CALLS + ' frames');
+  propBatch.clear();
+  Game.stop();
+});
+
+// PERF-006 regression guard for the probe above: its hot loop reaches the top compiler tier, which inlines the draw calls, so
+// it cannot see float arguments. A live frame runs these hooks in the middle tier, which boxes each one (horde Potato:
+// 616 B per frame with the old heal beam and laser calls, 16 B now). So the hooks are checked by their source.
+Test.add('pve', (check) => {
+  const hooks = [Pve.drawEnemy, PveBrains.support.draw, PveAttacks.laser.drawTell, drawHealBeam, drawAwareness, drawChampionRing, drawShieldShell];
+  check('the PvE draw hooks draw through the instance record (no batch.mesh with float arguments)', hooks.every((hook) => !/\.mesh\(/.test(String(hook))));
+  const enemy = String(Pve.drawEnemy);
+  check('brain.draw and drawTell get no float argument (the tell progress is read from pveTellGlow)',
+    enemy.includes('brain.draw(batch, id, row);') && enemy.includes('.drawTell(batch, id, attack);') && PveAttacks.laser.drawTell.length === 2);
+  check('the heal beam reads the two actor ids, not six coordinates', drawHealBeam.length === 4);
 });
 
 // Boss phases cannot be skipped: one huge hit stops at the threshold; a frozen boss still switches phase.
@@ -910,6 +959,11 @@ Test.add('pve', (check) => {
   const others = [40, 45, 50, 55].map((distance) => spawnFacing('husk', distance)), leaper = spawnFacing('leaper', 30), leaperRow = Pve.rowOf(leaper);
   const closeIn = leaperRow.attackRows[0].range[0] / 2;   // inside the pounce's minimum range
   check('a leaper does not pounce inside its minimum range', Pve.pickAttack(leaper, leaperRow, closeIn, Sim.time) === -1);
+  const countLastStand = Pve.lastStand, twoPounces = { brain: leaperRow.brain, attackRows: [leaperRow.attackRows[0], leaperRow.attackRows[0]] };
+  let lastStandCalls = 0;
+  Pve.lastStand = function () { lastStandCalls++; return countLastStand.call(this); };
+  try { Pve.pickAttack(leaper, twoPounces, closeIn, Sim.time); } finally { Pve.lastStand = countLastStand; }
+  check('pickAttack counts the hostiles for the last stand once, not once per attack row', lastStandCalls === 1, lastStandCalls);
   Pve.target[gunner] = dummy;
   BotSense.remember(BotSense.pair(gunner, dummy), SENSE.SEEN, Actors.x[dummy], Actors.y[dummy], Actors.z[dummy], Sim.time);
   Actors.health[gunner] = Actors.maxHealth[gunner] * 0.2;
@@ -950,6 +1004,20 @@ Test.add('pve', (check) => withShortShop(() => {
     && BotSense.source[pair] === SENSE.PINGED, BotSense.source[pair]);
   const knife = CAT.weapons.byId('tanto');
   check('an out-of-ammo bot walks inside its knife reach to attack', attackRadius(knife) < knife.primary.reach, attackRadius(knife));
+  endModeTest();
+}));
+
+// ECP07 at the wave break: a bot whose gun ran low buys a refill in the shop through Economy.buy, like the player.
+Test.add('pve', (check) => withShortShop(() => {
+  const bot = startPveMode('horde', [], {}, { bots: [{ team: 0 }] })[0];
+  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 10);
+  Pve.queue.count = 0;
+  Pve.clearEnemies();
+  const weapon = Weapons.currentWeapon(bot), slot = Weapons.slotIndex(bot, weapon.index);
+  Weapons.reserve[slot] = 0;
+  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.SHOP, 10);
+  const item = CAT.buyItems.byId(PVE_BOT_RESTOCK_ITEM), bought = Economy.bought[bot * CAT.buyItems.length + item.index];
+  check('a bot restocks its emptied gun at the wave shop', bought === 1 && Weapons.reserve[slot] === Weapons.maxReserve(bot, weapon), bought + ' bought, reserve ' + Weapons.reserve[slot]);
   endModeTest();
 }));
 
