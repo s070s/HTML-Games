@@ -22170,6 +22170,8 @@ const M16_JOIN = 200, M16_WAIT = 60;   // m16's convoy sets off once a player is
 const M16_AMBUSH_GAP = 450;            // m16's ambushes stay at least this far (m) from the harbour and the convoy's start (self-test)
 const M17_RADAR_HP = 2.5, M17_WAVE_GAP = 600;   // m17: the radar's hull (x a generator's), and how far (m) from it every wave forms
 const RAID_SHELTER_GAP = 150;   // m18's raiders give up once they or the player they fight are this close (m) to the storm shelter, where players respawn
+// m18's storm shelter, the start: out of reach of the AA batteries at the farmland's enemy base even for a jet
+const M18_SHELTER = { x: 40, z: 240 };
 const M18_RAID_FROM = 300, M18_FIELD = 680;     // m18's raids form this far (m) beyond their farm, inside +-this
 const PATROL_SIGHT = 110;   // base sight (m) of m14's patrols at dusk in the jungle: about 80 m in its rain at Veteran, so infantry can creep up
 function makeObjective(o) {
@@ -22936,8 +22938,8 @@ const MISSIONS = [
     id: 'm15', name: 'Ember Run', type: 'Extraction', map: 'volcano', stars: 3, timeLimit: 900, recommended: 'Heavy Mech, Tank or Hovercraft',
     brief: 'The volcano is waking up. A survey team sheltering at the observatory on its southern flank holds the only eruption data. Clear the hostiles off the site and stand in it while the data downloads, then hold out until the dropship arrives and fight your way to the east beach for pickup. Quakes will shake the island and lava will pour down the slopes; the rings on the ground warn where it strikes. Optionally keep the survey shelter standing.',
     env: { weather: 'overcast', time: 'day' }, hazards: ['lava', 'earthquake'], hazardScript: true, unlock: 'volcanicEruption',
-    start: { x: -520, z: -60, yaw: 1.78 },
-    sites: [{ x: -520, z: -60, r: 34, tag: 'pad' }, { x: 130, z: -200, r: 60, tag: 'obj' }, { x: 600, z: -170, r: 40, tag: 'open' }],
+    start: { x: -560, z: -60, yaw: 1.78 },   // on the west beach: out of sight of the observatory's guns, even for a jet 1 s on
+    sites: [{ x: -560, z: -60, r: 34, tag: 'pad' }, { x: 130, z: -200, r: 60, tag: 'obj' }, { x: 600, z: -170, r: 40, tag: 'open' }],
     build(ctx) {
       const m = ctx.m, obs = { x: 130, z: -200 }, beach = { x: 600, z: -170, r: 40 };
       const shelter = objStruct('depot', 130, -150, 'Survey Shelter', 0);
@@ -22964,7 +22966,7 @@ const MISSIONS = [
       ctx.later(() => {
         spawnGroup(['tank', 'lightMech', 'infantry', 'infantry', 'rpgTrooper'], obs.x, obs.z, { radius: 55 });
         spawnGroup(['turret', 'turret'], obs.x, obs.z, { radius: 40 });
-        spawnGroup(['buggy', 'lightMech'], 60, -60, { radius: 20 });   // a picket on the road below it, out of sight of the start, even for a jet 1 s on
+        spawnGroup(['buggy', 'lightMech'], 80, -60, { radius: 20 });   // a picket on the road below it, out of sight of the start, even for a jet 1 s on
       });
     },
   },
@@ -22972,8 +22974,9 @@ const MISSIONS = [
     id: 'm16', name: 'White Crossing', type: 'Escort Convoy', map: 'tundra', stars: 3, timeLimit: 840, recommended: 'Skua Hovercraft, Gunship or Medium Mech',
     brief: 'The storm has broken up the lake ice, so trucks cannot reach the northern outpost. Three supply hovercraft will cross the open lake instead and set off when you join them; at least two must arrive. Ambushes wait on the north shore and at the outpost, a gunboat comes hunting once the convoy is under way, lightning strikes in the storm, and the snow on the northern slopes is ready to slide. Clear the way ahead of the convoy. Optionally deliver all three.',
     env: { weather: 'storm', time: 'day' }, hazards: ['avalanche', 'lightning'], hazardScript: true, unlock: 'katana',
-    start: { x: -150, z: -40, yaw: -0.88 },
-    sites: [{ x: -150, z: -40, r: 34, tag: 'pad' }, { x: -520, z: 640, r: 40, tag: 'open' }],
+    // east of the lake, out of reach of the AA batteries at the southern base and the outpost even for a jet 1 s on
+    start: { x: 100, z: 60, yaw: 0 },
+    sites: [{ x: 100, z: 60, r: 34, tag: 'pad' }, { x: -520, z: 640, r: 40, tag: 'open' }],
     build(ctx) {
       const m = ctx.m, dest = { x: -520, z: 640 };
       const path = [{ x: -300, z: 300 }, { x: -190, z: 460 }, { x: -350, z: 600 }, dest];   // over the lake, then along its north shore
@@ -22987,7 +22990,7 @@ const MISSIONS = [
         m.add(Obj.escort({ id: 'convoy', title: 'Escort the hovercraft', units: craft, required: 2, dest, status: 'active' }));
         m.add(Obj.escort({ id: 'perfect', title: 'Deliver every hovercraft', units: craft, required: 3, perfect: true, primary: false, dest, status: 'active' }));
         // both ambushes out of turret sight of the harbour and the convoy's start (M16_AMBUSH_GAP), in reach of the crossing
-        spawnGroup(['tank', 'rpgTrooper', 'turret'], -240, 680, { radius: 40 });   // on the north shore
+        spawnGroup(['tank', 'rpgTrooper', 'turret'], -240, 700, { radius: 30 });   // on the north shore
         spawnGroup(['medMech', 'tank', 'turret', 'aaTurret'], -460, 680, { radius: 40 });   // at the outpost
       });
       m.every(0.5, () => {   // the convoy sets off once a player joins it, or after M16_WAIT s; the gunboat and fighters follow
@@ -23050,10 +23053,10 @@ const MISSIONS = [
     id: 'm18', name: 'Eye of the Storm', type: 'Rescue', map: 'farmland', stars: 2, timeLimit: 720, recommended: 'A fast ground platform or a Gunship',
     brief: 'A tornado outbreak is tearing across the plains and four farm families are cut off. Reach each farm and stay beside it for a few seconds while the family climbs aboard, then bring everyone back to the storm shelter at the start. A new funnel crosses the fields every forty seconds or so, heading for the farms; keep clear of it. Raiders are looting the farms. Optionally finish within six minutes.',
     env: { weather: 'storm', time: 'day' }, hazards: ['tornado', 'wildfire'], hazardScript: true, unlock: 'plasmaTornado',
-    start: { x: 280, z: -20, yaw: 0 },
-    sites: [{ x: 280, z: -20, r: 34, tag: 'pad' }, { x: -420, z: 0, r: 30, tag: 'obj' }, { x: -160, z: 160, r: 30, tag: 'obj' }, { x: 230, z: 180, r: 30, tag: 'obj' }, { x: 560, z: 120, r: 30, tag: 'obj' }],
+    start: { x: M18_SHELTER.x, z: M18_SHELTER.z, yaw: 1.88 },   // facing the Orchard farm, the nearest
+    sites: [{ x: M18_SHELTER.x, z: M18_SHELTER.z, r: 34, tag: 'pad' }, { x: -420, z: 0, r: 30, tag: 'obj' }, { x: -160, z: 160, r: 30, tag: 'obj' }, { x: 230, z: 180, r: 30, tag: 'obj' }, { x: 560, z: 120, r: 30, tag: 'obj' }],
     build(ctx) {
-      const m = ctx.m, shelter = { x: 280, z: -20, r: 30 };
+      const m = ctx.m, shelter = { x: M18_SHELTER.x, z: M18_SHELTER.z, r: 30 };
       const farms = [{ x: -420, z: 0, name: 'Hale farm' }, { x: -160, z: 160, name: 'Brook farm' }, { x: 230, z: 180, name: 'Orchard farm' }, { x: 560, z: 120, name: 'Mill farm' }];
       for (const f of farms) { addStruct('house', f.x + 16, f.z + 12, {}); addStruct('warehouse', f.x - 18, f.z - 10, { swap: true }); }
       const rescue = m.add(Obj.rescue({ id: 'rescue', title: 'Rescue the farm families', spots: farms.map((f) => ({ x: f.x, z: f.z, name: f.name, held: 0, saved: false })), status: 'active' }));
