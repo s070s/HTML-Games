@@ -684,10 +684,9 @@ function keyLabel(code) {
 
 /* ---------- progress (selective persistence) ---------- */
 const DEFAULT_UNLOCKED = ['kai', 'mara', 'brutus', 'yuki'];
-const CLINCH_TIP_CLINCHES = 3;   // a player's first clinches show the full clinch instructions, later ones a short cue
 const Progress = {
   d: null,
-  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: false, clinchTips: 0 }; },
+  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: false, seenClinch: false }; },
   init() {
     const base = this.fresh();
     const s = readJson(KEY_PROGRESS) || {};
@@ -701,7 +700,7 @@ const Progress = {
     base.survivalKills = num(s.survivalKills, 9999);
     base.survivalSeconds = num(s.survivalSeconds, 999999);
     base.seenControls = s.seenControls === true;   // the first-match controls card was shown
-    base.clinchTips = num(s.clinchTips, CLINCH_TIP_CLINCHES + 1);   // clinches a player has been in (counting stops once learned)
+    base.seenClinch = s.seenClinch === true;   // the clinch instructions were shown (they appear in the first clinch only)
     if (Array.isArray(s.unlocked)) for (const id of s.unlocked) if (typeof id === 'string' && ['dmitri', 'zero'].includes(id) && !base.unlocked.includes(id)) base.unlocked.push(id);
     this.d = base;
   },
@@ -6317,7 +6316,7 @@ const UI = {
     Events.on('block', (e) => this.onBlock(e));
     Events.on('throw', (e) => this.popAt(e.x, 1.2, e.z, e.name.toUpperCase() + ' ' + Math.round(e.dmg), '#ffd24a'));
     Events.on('escape', (e) => this.popAt(e.x, 1.4, e.z, 'ESCAPE!', '#9cf4ff'));
-    Events.on('clinch', (e) => { this.popAt(e.x, 1.6, e.z, 'CLINCH', '#ffffff'); this.countClinchTip(e); });
+    Events.on('clinch', (e) => { this.popAt(e.x, 1.6, e.z, 'CLINCH', '#ffffff'); this.firstClinchTip(e); });
     Events.on('objBreak', (e) => { this.popAt(e.x, 1.3, e.z, (KIND_NAME[e.mat] || 'OBJECT') + ' SMASHED!', '#ffe9a6'); this.say('Object destroyed'); });
     Events.on('objStage', (e) => this.popAt(e.x, e.obj.h + 0.2, e.z, (e.obj.mat === 'metal' ? STAGE_NAMES_METAL : STAGE_NAMES)[e.stage].toUpperCase(), '#d0d8e8'));
     Events.on('wallSlam', (e) => this.popAt(e.x, 1.5, e.z, 'WALL SLAM', '#ffb27a'));
@@ -6804,7 +6803,7 @@ const UI = {
     const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td>' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1') + '</td><td>' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2') + '</td><td>' + esc(GAMEPAD_LABELS[a]) + '</td><td>' + esc(TOUCH_LABELS[a]) + '</td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
       '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (Versus)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
-      '<p class="hint">Punch and Kick start with the left hand or foot (quicker); pressed again within a moment they use the right (harder), and so on. Modifiers do nothing alone: hold Strong and/or Height while pressing an attack. Block High covers high + mid attacks, Block Low covers low attacks. Press block just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses a kick or Grapple to throw that way. The clinch hint shows the aimed throw with an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Dash while knocked down = quick recovery. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
+      '<p class="hint">Punch and Kick start with the left hand or foot (quicker); pressed again within a moment they use the right (harder), and so on. Modifiers do nothing alone: hold Strong and/or Height while pressing an attack. Block High covers high + mid attacks, Block Low covers low attacks. Press block just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses a kick or Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Dash while knocked down = quick recovery. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
       '<p class="hint">Versus: a key belongs to one player only. P1\'s spare arrow keys switch off in Versus, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only.</p>' +
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
   },
@@ -6822,7 +6821,7 @@ const UI = {
     }).join('');
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub">Frame data at 60 fps. Strong moves cost more stamina and leave you open longer if they miss. Chains: light &rarr; medium &rarr; strong, never the other way round; strong moves end a combo.</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Hits</th><th>Start / Active / Recover</th><th>Dmg</th><th>Stam</th><th>Adv hit / block</th><th>Notes</th></tr>' + rows + '</table>' +
-      '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: Punch = knee (drains stamina), Strong + Punch = elbow (harder hit); kick or Grapple = throw in the direction you hold (the HUD arrow shows it). Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
+      '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: Punch = knee (drains stamina), Strong + Punch = elbow (harder hit); kick or Grapple = throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
       this.throwTable() +
       '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-default data-act="back">Back</button></div></div></section>';
   },
@@ -7054,37 +7053,38 @@ const UI = {
     el.hidden = !hint; el.textContent = hint;
     el.classList.toggle('go', hint.startsWith('ESCAPE'));
   },
-  /* A clinch with a human player in it; once a player has been in CLINCH_TIP_CLINCHES clinches the hints get short. */
-  countClinchTip(e) {
+  /* The clinch instructions appear in the first clinch with a human player in it, and never again (saved). */
+  firstClinchTip(e) {
     const m = Game.match;
-    if (!m || !m.fighters.includes(e.att) || Progress.d.clinchTips > CLINCH_TIP_CLINCHES) return;   // simulations outside the live match never count
+    this.tipClinch = null;
+    if (!m || !m.fighters.includes(e.att) || Progress.d.seenClinch) return;   // simulations outside the live match never count
     const human = [e.att, e.def].some((f) => m.controllers[f.index] === PlayerController || m.controllers[f.index] === Player2Controller);
     if (!human) return;
-    Progress.d.clinchTips++;
+    this.tipClinch = e;
+    Progress.d.seenClinch = true;
     Progress.save();
   },
-  /* Full instructions for the first clinches and always in Training; afterwards only the cues that matter mid-fight. */
-  fullClinchHints() { return Progress.d.clinchTips <= CLINCH_TIP_CLINCHES || !!(Game.match && Game.match.training); },
-  /* Clinch hint for a human player's fighter: escape timing while held, throw aim while holding. */
+  /* Clinch hint for a human player's fighter during the first clinch: escape timing while held, throw aim while holding. */
   grappleHint(f) {
+    const tip = this.tipClinch;
+    if (!tip || (tip.att !== f && tip.def !== f)) return '';
     if (f.state === S.CLINCH) return this.clinchHint(f);
     if (f.state === S.GRAPPLE) return this.throwHint(f);
     return '';
   },
   /* Held player: wait while an escape would fail, then the call to press (a press in the last moments is kept). */
   clinchHint(f) {
-    const windowOpen = f.clinchTick >= escapeStartFor(f) - ESCAPE_GRACE_TICKS, full = this.fullClinchHints();
+    const windowOpen = f.clinchTick >= escapeStartFor(f) - ESCAPE_GRACE_TICKS;
     // stamina does not regenerate while held, so a tired fighter cannot escape this clinch at all
-    if (windowOpen && f.stam < ESCAPE_STAMINA) return full ? 'TOO TIRED TO ESCAPE (' + GRIP_LABEL[f.grip] + ') · brace for the throw' : 'TOO TIRED TO ESCAPE';
-    if (f.escapeLock > 0) return full ? 'TOO EARLY! ' + GRIP_LABEL[f.grip] + ' · wait for ESCAPE NOW' : 'TOO EARLY!';
+    if (windowOpen && f.stam < ESCAPE_STAMINA) return 'TOO TIRED TO ESCAPE (' + GRIP_LABEL[f.grip] + ') · brace for the throw';
+    if (f.escapeLock > 0) return 'TOO EARLY! ' + GRIP_LABEL[f.grip] + ' · wait for ESCAPE NOW';
     if (windowOpen) return 'ESCAPE NOW! Press ' + this.keyName('grapple', f.index);
-    return full ? 'CLINCHED (' + GRIP_LABEL[f.grip] + ') · HOLD... an early escape fails' : '';
+    return 'CLINCHED (' + GRIP_LABEL[f.grip] + ') · HOLD... an early escape fails';
   },
-  /* Clinch hint: grip, the throw the held direction will do and an on-screen arrow for it (later clinches: arrow and throw only). */
+  /* Clinch hint: grip, the throw the held direction will do and an on-screen arrow for it. */
   throwHint(f) {
     if (f.throwPending) return f.throwPending.data.name.toUpperCase() + '!';
     const data = throwFor(f.grip, f.throwAim), strikesLeft = CLINCH_STRIKE_MAX - f.clinchStrikes;
-    if (!this.fullClinchHints()) return this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase();
     const touch = Inputs.players[f.index].lastDevice === 'touch';
     const strikeKeys = touch ? 'tap PUNCH knee / hold PUNCH elbow' : this.keyName('punch', f.index) + ' knee / ' + this.keyName('strong', f.index) + ' + ' + this.keyName('punch', f.index) + ' elbow';
     const strikes = strikesLeft > 0 ? ', ' + strikeKeys + ' (' + strikesLeft + ' left)' : '';
@@ -8880,8 +8880,6 @@ const SelfTest = {
       return countdown && resumed && locked && koLock ? true : JSON.stringify({ countdown, resumed, locked, koLock });
     });
     test('Hints: too tired to escape, the clinch strike keys with strikes left, a Move list entry in the pause menu', () => {
-      const tips = Progress.d.clinchTips;
-      Progress.d.clinchTips = 0;
       const m = mk({});
       const [a, b] = m.fighters;
       a.grip = b.grip = 'front'; a.throwAim = 'fwd'; a.throwPending = null;
@@ -8895,33 +8893,35 @@ const SelfTest = {
       a.clinchStrikes = CLINCH_STRIKE_MAX;
       const spent = !UI.throwHint(a).includes('knee');
       const pauseMoves = UI.screen_pause().includes('data-act="moves"');
-      Progress.d.clinchTips = tips;
       return tired && escape && strikes && spent && pauseMoves ? true : JSON.stringify({ tired, escape, fresh, spent, pauseMoves });
     });
-    test('Hints: after the first clinches only short cues show (full ones stay in Training); simulations never count', () => {
+    test('Hints: the clinch instructions appear in the first clinch only, for the whole of it; simulations never count', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
       const saved = keepProgress();
-      Progress.d.clinchTips = 0;
+      Progress.d.seenClinch = false;
       const sim = mk({});
       Events.emit('clinch', { att: sim.fighters[0], def: sim.fighters[1], grip: 'front', x: 0, y: 1.1, z: 0 });
-      const simIgnored = Progress.d.clinchTips === 0;
+      const simIgnored = !Progress.d.seenClinch;
       Game.chooseMode('free'); Game.startFromSelection();
       const [a, b] = Game.match.fighters;
-      for (let i = 0; i < CLINCH_TIP_CLINCHES + 3; i++) Events.emit('clinch', { att: b, def: a, grip: 'front', x: 0, y: 1.1, z: 0 });
-      const capped = Progress.d.clinchTips === CLINCH_TIP_CLINCHES + 1 && JSON.parse(Store.get(KEY_PROGRESS)).clinchTips === CLINCH_TIP_CLINCHES + 1;
       a.grip = b.grip = 'front'; a.throwAim = 'fwd'; a.throwPending = null; a.clinchStrikes = 0;
-      b.escapeLock = 0; b.clinchTick = 0; b.stam = ESCAPE_STAMINA;
-      const quiet = UI.clinchHint(b) === '';
-      b.clinchTick = escapeStartFor(b);
-      const escape = UI.clinchHint(b).startsWith('ESCAPE NOW');
-      const throwCue = UI.throwHint(a), short = throwCue.length < 30 && !throwCue.includes('knee') && throwCue.includes(throwFor('front', 'fwd').name.toUpperCase());
+      Events.emit('clinch', { att: a, def: b, grip: 'front', x: 0, y: 1.1, z: 0 });
+      a.state = S.GRAPPLE; b.state = S.CLINCH;
+      const first = UI.grappleHint(a).includes('knee');
+      a.clinchTick = 40;
+      const wholeClinch = UI.grappleHint(a).includes('knee');
+      const saved1 = Progress.d.seenClinch && JSON.parse(Store.get(KEY_PROGRESS)).seenClinch === true;
+      Events.emit('clinch', { att: b, def: a, grip: 'front', x: 0, y: 1.1, z: 0 });
+      b.state = S.GRAPPLE; a.state = S.CLINCH; a.escapeLock = 0; a.clinchTick = escapeStartFor(a);
+      const later = UI.grappleHint(a) === '' && UI.grappleHint(b) === '';
       Game.match.training = true;
-      const training = UI.throwHint(a).includes('knee');
+      const training = UI.grappleHint(a) === '';
       Game.match.training = false;
+      a.state = b.state = S.IDLE;
       Game.quitToMenu();
       restoreProgress(saved);
-      const r = { simIgnored, capped, quiet, escape, short, training };
-      return Object.values(r).every(Boolean) ? true : JSON.stringify(r) + ' ' + throwCue;
+      const r = { simIgnored, first, wholeClinch, saved1, later, training };
+      return Object.values(r).every(Boolean) ? true : JSON.stringify(r);
     });
     test('Pause: Esc or a pause press that leaves Controls or Settings lands on the pause screen; a later press resumes', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
