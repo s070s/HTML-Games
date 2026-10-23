@@ -568,10 +568,10 @@ Test.add('mutators', (check) => {
   startMutatorMatch([{ id: 'health', value: 100 }], { mode: 'infection', bots: Array.from({ length: 6 }, () => ({ dummy: true })), modeOptions: { params: { infectAfter: 1 } } });
   Sim.run(Math.round(1.1 * TICK_RATE));
   const infected = aliveWithRole(ACTOR_ROLE.INFECTED);
-  check('infection + Health 100: the first infected has 300 HP', infected >= 0 && Actors.maxHealth[infected] === 300, infected >= 0 && Actors.maxHealth[infected]);
+  check('infection + Health 100: the first infected has the mode infected HP', infected >= 0 && Actors.maxHealth[infected] === Game.match.rules.params.infectedHealth, infected >= 0 && Actors.maxHealth[infected]);
   killActor(infected, infected === 0 ? 1 : 0);
   Sim.run(Math.round((Game.match.rules.respawn.delay + 0.1) * TICK_RATE));
-  check('infection + Health 100: a respawned infected has 300 HP too', Actors.alive[infected] === 1 && Actors.maxHealth[infected] === 300 && Actors.health[infected] === 300, Actors.maxHealth[infected]);
+  check('infection + Health 100: a respawned infected has it too', Actors.alive[infected] === 1 && Actors.maxHealth[infected] === Game.match.rules.params.infectedHealth && Actors.health[infected] === Actors.maxHealth[infected], Actors.maxHealth[infected]);
   stopMutatorMatch();
   startMutatorMatch([{ id: 'health', value: 200 }], { mode: 'cursetag' });
   Sim.step();
