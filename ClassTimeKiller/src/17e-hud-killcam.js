@@ -1,7 +1,7 @@
 // ==== S17 HUD: KILLCAM-LITE (UI-011) ====
 // A fixed ring buffer records every actor's transform at 20 Hz while a match runs (typed arrays, nothing allocated per step).
 // When the local player is killed by someone, the last 2 s are replayed from the killer's eyes through Render.cameraOverride, with
-// the recorded bodies drawn as simple figures and the live ones hidden. The player can skip it; the option can be turned off.
+// the recorded bodies drawn through their own models and held weapons and the live ones hidden. The player can skip it; the option can be turned off.
 
 const KILLCAM_RATE = 20;                                    // recorded frames per second
 const KILLCAM_STEP_TICKS = TICK_RATE / KILLCAM_RATE;        // sim steps between two recorded frames
@@ -13,8 +13,8 @@ const KILLCAM_SKIP_GRACE = 0.35;                            // a skip press coun
 const KILLCAM_SKIP_BUTTONS = BTN.FIRE | BTN.JUMP | BTN.USE;
 const KILLCAM_FIELDS = 6;                                   // x y z yaw pitch eye
 const KILLCAM_BAR = 0.08;                                   // letterbox bar height as a share of the screen
-const KILLCAM_FIGURE = { width: 0.8, height: 1.8, faceSize: 0.28, faceHeight: 1.55 };
 const KILLCAM_ORDER = 95;                                   // sim system order: after every other bookkeeping
+const KILLCAM_DRAW_ORDER = 31;                              // render update order: after fillActors (30) cleared the actor batch
 
 Settings.define('hud.killcam', true, { label: 'Killcam replay after you are killed', category: 'hud' });
 
@@ -22,10 +22,11 @@ const Killcam = {
   enabled: true,
   transforms: new Float32Array(KILLCAM_FRAMES * MAX_ACTORS * KILLCAM_FIELDS),
   living: new Uint8Array(KILLCAM_FRAMES * MAX_ACTORS),
+  weapons: new Int16Array(KILLCAM_FRAMES * MAX_ACTORS),     // the held weapon index (Render.heldWeapon), -1 = none
   frameTime: new Float64Array(KILLCAM_FRAMES),
   head: 0, filled: 0,
   // playback
-  playing: false, clock: 0, startTime: 0, length: 0, killer: -1, skipHeld: false,
+  playing: false, clock: 0, startTime: 0, length: 0, killer: -1, skipHeld: false, drawing: false,
   killerName: '', weaponName: '', weaponClass: '', headshot: false, killerHealth: 0, killerArmor: 0, killerShield: 0,
   sampleScratch: { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, eye: 0, alive: false },
   lower: 0, upper: 0, mix: 0,
@@ -44,6 +45,7 @@ const Killcam = {
       this.transforms[o] = Actors.x[id]; this.transforms[o + 1] = Actors.y[id]; this.transforms[o + 2] = Actors.z[id];
       this.transforms[o + 3] = Actors.yaw[id]; this.transforms[o + 4] = Actors.pitch[id]; this.transforms[o + 5] = Actors.eye[id];
       this.living[base + id] = Actors.kind[id] !== ACTOR_KIND.NONE && (Actors.alive[id] === 1 || id === forceAlive) ? 1 : 0;
+      this.weapons[base + id] = killcamLiveHeld ? killcamLiveHeld(id) : -1;
     }
     for (let id = Actors.count; id < MAX_ACTORS; id++) this.living[base + id] = 0;
   },
@@ -130,30 +132,28 @@ Sim.addSystem('killcamRecord', KILLCAM_ORDER, () => {
   Killcam.record(-1);
 });
 
-// ---- Hooks: the replay camera (chained: an earlier owner keeps working), hidden live bodies and the recorded figures ----
+// ---- Hooks (chained: an earlier owner keeps working): the replay camera, the recorded weapons, hidden live bodies ----
 const killcamPreviousOverride = Render.cameraOverride;
 Render.cameraOverride = (camera) => (Killcam.playing ? Killcam.place(camera) : killcamPreviousOverride ? killcamPreviousOverride(camera) : false);
-Render.addActorStyle((id, out) => { if (Killcam.playing) out.visible = false; });   // loads after every other style
+const killcamLiveHeld = Render.heldWeapon;   // S11's; while replaying, a body holds its weapon of the frame last sampled
+Render.heldWeapon = (id) => (Killcam.playing ? Killcam.weapons[Killcam.lower * MAX_ACTORS + id] : killcamLiveHeld ? killcamLiveHeld(id) : -1);
+Render.addActorStyle((id, out) => { if (Killcam.playing && !Killcam.drawing) out.visible = false; });   // loads after every other style
 
-// Recorded bodies: a capsule per living actor in its team colour, plus a small box on the face that shows where it looks.
-function hudDrawKillcamFigures(batch) {
+// Recorded bodies: every living one but the killer's (the camera is inside it) through the actor's own model (07c) at its recorded transform.
+function killcamDrawBodies(seconds) {
   if (!Killcam.playing) return;
-  const time = Killcam.startTime + Math.min(Killcam.clock, Killcam.length), figure = KILLCAM_FIGURE;
+  const time = Killcam.startTime + Math.min(Killcam.clock, Killcam.length), pose = actorPose;
+  Killcam.drawing = true;
   for (let id = 0; id < Actors.count; id++) {
-    if (id === Killcam.killer) continue;                       // the camera is inside this one
+    if (id === Killcam.killer) continue;
     const body = Killcam.sample(id, time);
     if (!body.alive) continue;
-    const capsule = killcamBodyInstance, face = killcamFaceInstance;   // reused instance records (batch.meshFrom, PERF-006)
-    capsule.x = body.x; capsule.y = body.y + figure.height / 2; capsule.z = body.z; capsule.yaw = body.yaw;
-    capsule.setColor(Progress.bodyColor(id, Hud.actorColor(id)));
-    batch.meshFrom('capsule', capsule);
-    face.x = body.x + Math.sin(body.yaw) * 0.3; face.y = body.y + figure.faceHeight; face.z = body.z + Math.cos(body.yaw) * 0.3; face.yaw = body.yaw;
-    batch.meshFrom('box', face);
+    pose.x = body.x; pose.y = body.y; pose.z = body.z; pose.yaw = body.yaw; pose.pitch = body.pitch;
+    drawActorPose(id, pose, seconds);
   }
+  Killcam.drawing = false;
 }
-const killcamBodyInstance = Object.assign(makeShapeInstance(), { sx: KILLCAM_FIGURE.width, sy: KILLCAM_FIGURE.height, sz: KILLCAM_FIGURE.width });
-const killcamFaceInstance = Object.assign(makeShapeInstance(), { sx: KILLCAM_FIGURE.faceSize, sy: KILLCAM_FIGURE.faceSize * 0.5, sz: KILLCAM_FIGURE.faceSize, emissive: 0.4 });
-Render.addSource('killcam', hudDrawKillcamFigures);
+Render.addUpdate(KILLCAM_DRAW_ORDER, killcamDrawBodies);
 
 // ---- Killcam panel: letterbox, killer name, weapon, the killer's health and armor, skip hint ----
 function hudDrawKillcamPanel(pen, layout) {

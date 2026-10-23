@@ -569,10 +569,12 @@ Bus.on('actor.create', (id) => { ActorModels.index[id] = 0; });
 
 // The local player always keeps a blob shadow (MIS-037: no feet in first person); other actors get one
 // unless the sun shadow map already covers them.
-function drawActor(id, seconds, alpha) {
+function drawActor(id, seconds, alpha) { drawActorPose(id, readActorPosition(id, alpha), seconds); }
+// drawActor at given feet position and body angles in `pose` (the killcam replays recorded ones, 17e).
+function drawActorPose(id, pose, seconds) {
   const style = readActorStyle(id);
   if (!style.visible) return;
-  const pose = readActorPosition(id, alpha), camera = Render.camera, quality = Render.quality;
+  const camera = Render.camera, quality = Render.quality;
   const distanceSquared = distanceSquared3(pose.x, pose.y, pose.z, camera.x, camera.y, camera.z);
   if (distanceSquared > quality.viewDistance * quality.viewDistance || !actorInView(pose, style.scale)) return;
   const lod = lodFor(distanceSquared, quality);

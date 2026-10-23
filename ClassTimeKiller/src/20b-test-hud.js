@@ -487,7 +487,11 @@ Test.add('hud', (check) => hudTestWith(() => {
   const scene = hudTestMatch(), player = scene.id, foe = scene.enemy, bystander = scene.mate;
   const buffers = [Killcam.transforms, Killcam.living, Killcam.frameTime];
   Sim.run(KILLCAM_STEP_TICKS - (Sim.tick % KILLCAM_STEP_TICKS));   // batches start on a recorded tick, so x is exactly 5 m per second at every frame
-  for (let batch = 0; batch < 80; batch++) { Actors.x[foe] = Sim.tick * TICK_SECONDS * 5; Actors.z[foe] = 3; Actors.aimYaw[foe] = 0.5; Sim.run(KILLCAM_STEP_TICKS); }
+  hudTestArm(bystander, 'warden');   // the bystander walks 7 m ahead of the killer's eyes with a pistol
+  for (let batch = 0; batch < 80; batch++) {
+    Actors.x[foe] = Actors.x[bystander] = Sim.tick * TICK_SECONDS * 5; Actors.z[foe] = 3; Actors.z[bystander] = 10; Actors.aimYaw[foe] = 0.5;
+    Sim.run(KILLCAM_STEP_TICKS);
+  }
   check('killcam: the ring has a fixed size and never grows', Killcam.filled === KILLCAM_FRAMES && Killcam.transforms.length === KILLCAM_FRAMES * MAX_ACTORS * KILLCAM_FIELDS && Killcam.head < KILLCAM_FRAMES);
   check('killcam: recording never replaces its buffers (no per-frame allocation)', buffers[0] === Killcam.transforms && buffers[1] === Killcam.living && buffers[2] === Killcam.frameTime
     && Killcam.sample(foe, Sim.time - 0.5) === Killcam.sampleScratch);
@@ -508,9 +512,21 @@ Test.add('hud', (check) => hudTestWith(() => {
   const style = { visible: true };
   Render.applyActorStyle(foe, style);
   check('killcam: live bodies are hidden while it plays', style.visible === false);
-  let figures = 0;
-  hudDrawKillcamFigures({ meshFrom() { figures++; return 0; } });
-  check('killcam: every recorded body except the killer is drawn as a figure (body and face)', figures === 2 * (Actors.count - 1), figures);
+  // The replay draws the recorded bodies through their own models (07c) where they were, with the weapon they held then.
+  const recorded = Killcam.sample(bystander, Killcam.startTime + 1), recordedX = recorded.x, pistol = CAT.weapons.byId('warden').index;
+  Actors.x[bystander] = Actors.prevX[bystander] = recordedX + 40;   // the live body is far away by now, holding something else
+  Weapons.current[bystander] = CAT.weapons.find((row) => row.class === 'smg').index;
+  updateCamera(0, 1); fillActors(0, 1); killcamDrawBodies(0);
+  let parts = 0, nearRecorded = 0;
+  for (let shape = 0; shape < SHAPES.length; shape++) {
+    for (let i = 0; i < actorBatch.counts[shape]; i++, parts++) {
+      const o = (shape * actorBatch.capacity + i) * INSTANCE_FLOATS;
+      if (Math.abs(actorBatch.data[o] - recordedX) < 1.5 && Math.abs(actorBatch.data[o + 2] - 10) < 1.5) nearRecorded++;
+    }
+  }
+  check('killcam: the recorded bodies are drawn with their own models where they were', nearRecorded > 5 && nearRecorded === parts, nearRecorded + ' of ' + parts);
+  check('killcam: a replayed body holds the weapon it held then', Render.heldWeapon(bystander) === pistol);
+  actorBatch.clear(); shadowBatch.clear();
   hudTestFrame();
   check('killcam: the panel draws and the rest of the HUD (not from your view) stays away', Hud.quadsOf('') > 0 && Hud.replaying && Hud.quadsOf('header') === 0 && Hud.quadsOf('markers') === 0);
   Killcam.advance(0.5);
