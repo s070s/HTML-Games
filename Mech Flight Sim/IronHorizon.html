@@ -3308,6 +3308,28 @@ const STRUCT = {
   bridge: { w: 10, h: 1.2, d: 8, hp: 900, mat: 'concrete', debris: 10 },   // one deck section (Roads sizes each one)
 };
 const DEBRIS_CAP = 170;
+/* Momentum collisions (D20): a ground machine or soldier that runs into a structure brings 0.5·m·v² of kinetic energy
+   (kJ, with m in tonnes and v its closing speed in m/s). Below the material's floor nothing happens (a push). Above it
+   the structure loses one hit point per perHp kJ; when that breaks it, the machine drives on with the energy left over.
+   The hull takes the energy the machine loses past RAM_SELF_FREE. Fences, crates and trees (snap) are hit at the
+   machine's full speed, so a machine of weight class 1 or more above 7 m/s breaks them as it always did. */
+const RAM = {
+  wood: { floor: 190, perHp: 1, snap: true },       // fences and crates
+  tree: { floor: 190, perHp: 2, snap: true },
+  masonry: { floor: 8000, perHp: 50, snap: false },   // brick building panels: a heavy mech walking into one does nothing
+  concrete: { floor: 8000, perHp: 25, snap: false },
+  metal: { floor: 8000, perHp: 30, snap: false },     // steel towers, tanks and generators
+};
+const RAM_MIN_SPEED = 7;                     // m/s: anything slower is a push that breaks nothing
+const RAM_TONNES = 8, RAM_TONNES_POW = 2;    // weight class m weighs 8·m² t (class 1: 8 t, class 2: 32 t, class 4: 128 t)
+const INFANTRY_TONNES = 0.12;                // a soldier with kit
+const RAM_SELF_FREE = 3000, RAM_SELF_DMG = 0.012;   // kJ a hull shrugs off per hit, and its damage per kJ past that
+/* a platform def's mass in tonnes, from its weight class (or its own tonnes) */
+function platformTonnes(def) {
+  if (def.tonnes !== undefined) return def.tonnes;
+  if (def.style === 'infantry') return INFANTRY_TONNES;
+  return RAM_TONNES * Math.pow(def.mass, RAM_TONNES_POW);
+}
 const OBJECTIVE_STRUCT_SCORE = 300;   // score for destroying a mission objective structure
 const STRUCT_SCORE = 10;              // score for any other hostile-owned structure a player brings down
 const SHIELDED_MSG_GAP = 4;           // seconds between "target shielded" reminders to one player
@@ -3325,6 +3347,7 @@ function addStruct(type, x, z, opts) {
     explosive: !!d.explosive, indestructible: !!d.indestructible || !!opts.indestructible, objective: opts.objective || null, invuln: false,
     debris: d.debris, scorch: 0, flash: 0, swap, _q: 0, smokeT: 0, name: opts.name || type, isStruct: true, team: opts.team === undefined ? 2 : opts.team, chunk: null, sq: 0, bakedInvuln: false,
     top: 0, destroyedAt: 0, plant: null,   // plant: a tree's Flora plant (its species look)
+    ram: RAM[type === 'tree' ? 'tree' : opts.mat || d.mat] || null,   // how it takes momentum collisions (none: rock)
     // building piece fields (set by Bld); declared for every structure so all share one hidden shape
     bld: null, kind: '', fl: 0, ci: 0, cj: 0, vr: 0.5, flight: -1, stepNo: -1, supportSlab: null, fallAt: undefined, faceMask: 0, near: null,
   };
@@ -7894,7 +7917,7 @@ class Platform {
     this.team = opts.team; this.name = opts.name || def.name; this.arch = opts.arch || null;
     this.x = opts.x; this.z = opts.z; this.yaw = opts.yaw || 0; this.pitch = 0; this.roll = 0;
     this.vx = 0; this.vy = 0; this.vz = 0;
-    this.radius = def.radius; this.height = def.height;
+    this.radius = def.radius; this.height = def.height; this.tonnes = platformTonnes(def);
     this.y = this.kind === 'air' ? (opts.y !== undefined ? opts.y : Terrain.h(this.x, this.z) + 140) : Terrain.h(this.x, this.z);
     this.torsoYaw = this.yaw; this.torsoPitch = 0; this.walkPhase = 0; this.lastPhase = 0;
     this.cmd = newCmd(); this.cmd.aimYaw = this.yaw; this.controller = null; this.ai = null;
@@ -8357,7 +8380,7 @@ class Platform {
       const cx = clamp(this.x, s.x - s.hx, s.x + s.hx), cz = clamp(this.z, s.z - s.hz, s.z + s.hz);
       const dx = this.x - cx, dz = this.z - cz, d2 = dx * dx + dz * dz;
       if (d2 >= r * r) continue;
-      if (s.mat === 'wood' && this.speed > 7 && this.def.mass >= 1) { damageStruct(s, 70, 'kinetic', this, 1); this.vx *= 0.8; this.vz *= 0.8; }
+      if (s.ram && this.ram(s, dx, dz, d2)) continue;   // broke it: on through
       if (d2 > 1e-6) {
         const d = Math.sqrt(d2), push = r - d, nx = dx / d, nz = dz / d;
         this.x += nx * push; this.z += nz * push;
@@ -8372,6 +8395,27 @@ class Platform {
     if (this.x < -GROUND_BOUND) { this.x = -GROUND_BOUND; if (this.vx < 0) this.vx = 0; }
     if (this.z > GROUND_BOUND) { this.z = GROUND_BOUND; if (this.vz > 0) this.vz = 0; }
     if (this.z < -GROUND_BOUND) { this.z = -GROUND_BOUND; if (this.vz < 0) this.vz = 0; }
+  }
+  /* Momentum collision with structure s (D20), touched at offset (dx, dz) from its box (d2 = squared length). Returns
+     true when s broke and the platform drives on with the energy left over; false leaves the push-out to resolveWorld.
+     Host only: guests run no simulation, and the broken pieces reach them in 'st'. */
+  ram(s, dx, dz, d2) {
+    const rm = s.ram;
+    if (Net.guest || s.indestructible || s.destroyed) return false;
+    const d = Math.sqrt(d2), head = rm.snap || d < 1e-3;   // the centre inside the box: a head-on hit
+    const nx = head ? 0 : dx / d, nz = head ? 0 : dz / d;
+    const vn = head ? this.speed : -(this.vx * nx + this.vz * nz);   // closing speed
+    if (vn < RAM_MIN_SPEED) return false;
+    const k3 = this.scale * this.scale * this.scale, e = 0.5 * this.tonnes * k3 * vn * vn;
+    if (e <= rm.floor) return false;
+    const cost = s.hp * rm.perHp / (W.structDamage || 1);   // energy that breaks what is left of it
+    damageStruct(s, e / rm.perHp, 'ram', this, 1);
+    const broke = s.destroyed, lost = broke ? cost : e;
+    if (lost > RAM_SELF_FREE) this.takeDamage((lost - RAM_SELF_FREE) * RAM_SELF_DMG, 'collision', null, 0, 0, { noStagger: true });
+    if (!broke) return false;
+    const keep = Math.sqrt(Math.max(0, e - cost) / e);   // share of the closing speed left
+    if (head) { this.vx *= keep; this.vz *= keep; this.speed *= keep; } else { const cut = vn * (1 - keep); this.vx += nx * cut; this.vz += nz * cut; }
+    return true;
   }
   /* If the platform is pinned despite input, nudge it to the nearest free spot. */
   checkStuck(dt) {
@@ -19704,6 +19748,58 @@ const SelfTest = {
         const lost = skirmishSetup(Save.sanitize(Object.assign(Save.defaults(), { skirmish: { map: 'atlantis', size: 'large' } })).skirmish);
         this.check('a saved skirmish battlefield that no longer exists falls back to ashfall', lost.map === 'ashfall' && lost.size === 'large' && SAVE_VERSION === 1, lost.map);
       } finally { Save.data.skirmish = saved.skirmish; Save.persist = saved.persist; delete MAPS.testpeaks; }
+    });
+    t('momentum collisions', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const keepGuest = Net.guest;
+      // a platform of def id touching s from the -x side, closing at speed m/s, for one collision step
+      const hit = (id, speed, s) => {
+        const def = PLATFORMS[id], p = new Platform(def, { team: 0, x: s.x - s.hx - def.radius + 0.3, z: s.z, yaw: PI / 2 });
+        p.vx = speed; p.vz = 0; p.speed = speed; p.y = s.y;   // on the level of the piece's base (a building's floor)
+        p.resolveWorld(STEP);
+        return p;
+      };
+      const wall = (x, z) => addStruct('bwall', x, z, { dims: { w: 0.5, h: 3.7, d: 6 } });
+      const crate = (x, z) => addStruct('crate', x, z, {});
+      try {
+        const boost = PLATFORMS.colossus.speed * PLATFORMS.colossus.mech.boostMult, sprint = PLATFORMS.ranger.speed * PLATFORMS.ranger.mech.boostMult;
+        const w1 = wall(0, 40), heavy = hit('colossus', boost, w1);
+        this.check('a boosting heavy mech breaks a brick wall, loses speed and takes some damage', w1.destroyed && heavy.vx < boost * 0.9 && heavy.vx > 0 && (heavy.hp < heavy.maxHp || heavy.armor < heavy.maxArmor),heavy.vx.toFixed(1) + ' m/s left');
+        const w2 = wall(0, 60), walker = hit('colossus', 8, w2);
+        this.check('the same mech walking slowly into it does nothing to it and is pushed back', !w2.destroyed && w2.hp === w2.maxHp && walker.vx <= 0 && walker.hp === walker.maxHp);
+        const w3 = wall(0, 80), soldier = hit('ranger', sprint, w3);
+        this.check('infantry at full sprint does not break a brick wall', !w3.destroyed && w3.hp === w3.maxHp && soldier.hp === soldier.maxHp);
+        // a building's own wall panel: the building notices and checks its supports
+        const b = Bld.make('shop', 0, 140, makeRng(4), 'ram'), panel = b.pieces.filter((s) => s.kind === 'wall' && s.hx < s.hz).sort((p, q) => p.x - q.x)[0];   // on the -x side
+        hit('colossus', boost, panel);
+        this.check('a boosting heavy mech breaks a building\'s wall panel', !!panel && panel.destroyed && b.needCheck && b.alive < b.total, b.total - b.alive + ' pieces broken');
+        // a lighter machine at the same speed breaks fewer walls in a row
+        const row = (id, speed, z) => {
+          const walls = [];
+          for (let k = 0; k < 6; k++) walls.push(wall(40 + k * 3, z));
+          const def = PLATFORMS[id], p = new Platform(def, { team: 0, x: 40 - 0.25 - def.radius - 0.5, z, yaw: PI / 2 });
+          p.vx = speed; p.speed = speed;
+          for (let i = 0; i < 90; i++) { p.x += p.vx * STEP; p.y = Terrain.h(p.x, p.z); p.speed = Math.hypot(p.vx, p.vz); p.resolveWorld(STEP); }
+          return walls.filter((w) => w.destroyed).length;
+        };
+        const tank = row('bastion', 30, 200), mech = row('bulwark', 30, 240), scout = row('jackal', 30, 280);
+        this.check('a lighter machine at the same speed breaks fewer pieces', tank > mech && mech >= 1 && mech > scout, tank + ' > ' + mech + ' > ' + scout);
+        // wood breaks as it always did: weight class 1 or more above 7 m/s, nothing slower or lighter
+        const fence = addStruct('barrier', 0, 320, { mat: 'wood', hpMult: 0.35 }), c1 = crate(0, 340), c2 = crate(0, 360), c3 = crate(0, 380), c4 = crate(0, 400);
+        const tree = addStruct('tree', 0, 420, { scale: 1.2 });
+        hit('jackal', 8, fence); hit('jackal', 8, c1); hit('bastion', 8, tree);
+        hit('jackal', 6, c2); hit('ranger', sprint, c3); hit('colossus', 5, c4);
+        this.check('a wood fence, a crate and a tree still break at 8 m/s', fence.destroyed && c1.destroyed && tree.destroyed && fence.ram === RAM.wood && tree.ram === RAM.tree);
+        this.check('slow pushes and soldiers break no wood', !c2.destroyed && !c3.destroyed && !c4.destroyed && c2.hp === c2.maxHp && c3.hp === c3.maxHp);
+        // a co-op guest runs no momentum damage (the host's 'st' brings the result)
+        Net.guest = true;
+        const w4 = wall(0, 460);
+        hit('colossus', boost, w4);
+        Net.guest = keepGuest;
+        this.check('a guest breaks nothing by ramming', !w4.destroyed && w4.hp === w4.maxHp);
+        this.check('rock and foundations take no momentum damage', !addStruct('rock', 0, 500, {}).ram && b.pieces.every((s) => s.kind !== 'found' || !s.ram));
+      } finally { Net.guest = keepGuest; Game.quitToMenu(); }
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
