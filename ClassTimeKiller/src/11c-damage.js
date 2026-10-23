@@ -53,6 +53,7 @@ const Damage = {
   noRegen: new Uint8Array(MAX_ACTORS),              // 1 = no preset regeneration (PvE enemies: S14 runs their own)
   helmet: new Uint8Array(MAX_ACTORS),               // HPP04: armor also protects the head
   downedTime: new Float32Array(MAX_ACTORS), downedBy: new Int8Array(MAX_ACTORS).fill(-1),
+  downedWith: new Array(MAX_ACTORS).fill(''),               // weapon key that downed the actor: a bleed-out kill is credited to it
   reviving: new Int8Array(MAX_ACTORS).fill(-1),     // the downed ally this actor is reviving (hold Use), -1 none
   reviveProgress: new Float32Array(MAX_ACTORS),     // seconds of the current revive (HUD: / REVIVE_SECONDS)
   lastStand: new Uint8Array(MAX_ACTORS),            // 1 = downed with the Last Stand pistol out (S11 weapons keep firing)
@@ -209,7 +210,7 @@ const Damage = {
     this.emitDamage(source, target, info, kind, dealt);
     if (!Game.headless) Fx.burst('blood', info.x, info.y, info.z, -info.dx, -info.dy, -info.dz, Math.min(12, 2 + dealt / 10), 0xa01818);
     if (Actors.health[target] > 0) return;
-    if (this.shouldGoDown(target)) { this.goDown(source, target); return; }
+    if (this.shouldGoDown(target)) { this.goDown(source, target, info.weapon); return; }
     this.kill(source, target, info);
   },
   recordAttacker(source, target) {
@@ -245,11 +246,12 @@ const Damage = {
     return false;
   },
   standingAlly(id, other) { return Actors.alive[other] === 1 && Actors.team[other] === Actors.team[id] && !(Actors.flags[other] & ACTOR_FLAG.DOWNED); },
-  goDown(source, target) {
+  goDown(source, target, weapon) {
     Actors.flags[target] |= ACTOR_FLAG.DOWNED;
     Actors.health[target] = DOWNED_HEALTH;
     this.downedTime[target] = DOWNED_BLEED_SECONDS;
     this.downedBy[target] = source;
+    this.downedWith[target] = weapon || '';
     for (let i = 0; i < this.downHooks.length; i++) this.downHooks[i](target);
     const pistol = this.downedWeapon ? this.downedWeapon(target) : '';
     if (pistol) this.drawLastStand(target, CAT.weapons.byId(pistol));
@@ -356,7 +358,7 @@ const Damage = {
     Actors.armor[id] = POOLS.armor; Actors.maxArmor[id] = Math.max(preset.armorCap, POOLS.armor);
     Actors.shield[id] = POOLS.shield; Actors.maxShield[id] = Math.max(preset.shieldCap, POOLS.shield);
     this.helmet[id] = preset.helmet ? 1 : 0;
-    this.surplus[id] = 0; this.downedTime[id] = 0; this.downedBy[id] = -1;
+    this.surplus[id] = 0; this.downedTime[id] = 0; this.downedBy[id] = -1; this.downedWith[id] = '';
     this.reviving[id] = -1; this.reviveProgress[id] = 0; this.lastStand[id] = 0; this.lastStandLent[id] = -1;
     this.lastDamageTime[id] = -1e9; this.lastAttacker[id] = this.previousAttacker[id] = -1;
     this.shieldRegenBlockedUntil[id] = 0;
@@ -442,7 +444,7 @@ const Damage = {
   },
   bleedOut(id) {
     const info = this.info();
-    info.kind = 'dot'; info.weapon = 'bleedout';
+    info.kind = 'dot'; info.weapon = this.downedWith[id] || 'bleedout';   // the downer's weapon keeps the kill credit
     Actors.health[id] = 0;
     this.kill(this.downedBy[id], id, info);
   },
