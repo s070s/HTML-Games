@@ -25787,6 +25787,7 @@ const BENCH_SCENES = [
   { id: 'traffic-metro', map: 'metro', platformId: 'bulwark', city: true },   // at a street corner of the megacity, its traffic in view
 ];
 const BENCH_HAZARD_AT = 60;   // m from the player a bench scene's hazard starts (it looks for fuel around there)
+const BENCH_VIEW_DIST = 450, BENCH_VIEW_CONE = 0.6;   // the city scene's view: the lanes this far (m) and this near its heading (rad) count (SelfTest.benchCorner)
 const BENCH_WARM = 600;     // ticks simulated before timing, so the battle is under way
 const BENCH_FRAMES = 150;   // frames timed per scene
 const BENCH_UNTIMED = 10;   // frames drawn before timing starts
@@ -25979,21 +25980,25 @@ const SelfTest = {
     const avg = ms.reduce((a, b) => a + b, 0) / ms.length;
     return { avg: +avg.toFixed(2), p95: +ms[Math.floor(ms.length * 0.95)].toFixed(2), max: +ms[ms.length - 1].toFixed(2) };
   },
-  /* p moves to the street corner nearest the middle of the largest town, facing along a street from it */
+  /* p moves to the street corner of the largest town, facing along the street from it with the most traffic in view: the
+     most lane weight (Traffic.weight, by which the cars are placed) whose middles lie within BENCH_VIEW_DIST and
+     BENCH_VIEW_CONE of that heading. From the world's seeded lanes alone, so every run of the scene is the same. */
   benchCorner(p) {
-    const zn = W.civZones.reduce((a, b) => (b.rad > a.rad ? b : a), W.civZones[0]);
-    if (!zn) return;
-    let best = null, bd = Infinity;
-    for (const n of zn.nodes) { const d = Math.hypot(n.x - zn.cx, n.z - zn.cz); if (n.nb.length > 2 && d < bd) { bd = d; best = n; } }
-    if (!best) return;
-    // the way with the most street corners ahead (within 30 deg), so the view runs down the town
-    let yaw = 0, most = -1;
-    for (const j of best.nb) {
-      const a = Math.atan2(zn.nodes[j].x - best.x, zn.nodes[j].z - best.z);
-      const k = zn.nodes.filter((n) => n !== best && Math.abs(angleDiff(Math.atan2(n.x - best.x, n.z - best.z), a)) < 0.52).length;
-      if (k > most) { most = k; yaw = a; }
+    const zn = W.civZones.reduce((a, b) => (b.rad > a.rad ? b : a), W.civZones[0]), T = W.traffic;
+    if (!zn || !T) return;
+    let best = null, yaw = 0, most = -1;
+    for (const n of zn.nodes) for (const j of n.nb) {
+      const a = Math.atan2(zn.nodes[j].x - n.x, zn.nodes[j].z - n.z);
+      let w = 0;
+      for (const L of T.drive) {
+        const dx = L.mx - n.x, dz = L.mz - n.z;
+        if (dx * dx + dz * dz < BENCH_VIEW_DIST * BENCH_VIEW_DIST && Math.abs(angleDiff(Math.atan2(dx, dz), a)) < BENCH_VIEW_CONE) w += Traffic.weight(L);
+      }
+      if (w > most) { most = w; best = n; yaw = a; }
     }
+    if (!best) return;
     p.x = best.x; p.z = best.z; p.y = Terrain.h(p.x, p.z); p.vx = p.vz = 0; p.speed = 0; p.yaw = yaw;
+    p.cmd.aimYaw = yaw; p.cmd.aimPitch = 0;   // the camera looks where the platform aims
     Cam.reset(p);
   },
   /* superweapon data, unlock rules, charging, firing and the co-op guest replay */
