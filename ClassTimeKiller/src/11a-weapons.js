@@ -273,8 +273,11 @@ const Weapons = {
     return carried >= limit;
   },
   // The one carry-limit rule for every weapon pickup (S12 pads and drops, S13 royale loot): a gun that would push a
-  // carried one out is taken only while Use is held, so walking over a gun never costs the one in hand.
-  mayTake(id, weapon) { return !this.swapsOut(id, weapon) || (Actors.buttons[id] & BTN.USE) !== 0; },
+  // carried one out is taken only by choice, so walking over a gun never costs the one in hand: a person holds Use, a
+  // bot's choice is its collect goal (it walks to a pad only to take it).
+  mayTake(id, weapon) {
+    return !this.swapsOut(id, weapon) || (Actors.buttons[id] & BTN.USE) !== 0 || Actors.kind[id] === ACTOR_KIND.BOT;
+  },
   // The weapon a carry-limit pickup pushes out: the held one, else the first carried (-1 = none).
   swapVictim(id) {
     const held = this.current[id];

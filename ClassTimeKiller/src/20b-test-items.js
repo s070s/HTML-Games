@@ -117,6 +117,16 @@ Test.add('items', (check) => {
   TestArena.finish();
 });
 
+// Bots at the carry limit still upgrade at the pads: a bot's collect goal is its choice, so it needs no Use (Weave Suit
+// carries two guns and spawns with two, so every pad gun is a swap).
+Test.add('items', (check) => {
+  let swaps = 0;
+  const onPickup = (event) => { if (event.group === 'weapon' && Bots.active[event.id]) swaps++; };
+  Bus.on('pickup', onPickup);
+  try { playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'suit', minutes: 1, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH }); } finally { Bus.off('pickup', onPickup); }
+  check('Weave Suit on Harbor Nine: bots at the carry limit swap guns at the pads', swaps >= 8, swaps);
+});
+
 Test.add('items', (check) => {
   ItemArena.start({}, [ItemArena.spot('healthpack', 3, 0)]);
   const id = ItemArena.actor(1, 3, 0);
