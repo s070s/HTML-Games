@@ -900,3 +900,55 @@ Test.add('hud', (check) => {
   }
   check('colour-blind palettes: health stays well apart from armor, shield and low health', close.length === 0, close.join(', '));
 });
+
+// The replayed pose and look come from the recording (killcam-01), not from the live state at the time of the replay.
+function hudTestEnemyColorSum() {
+  let sum = 0;
+  Pve.active = true;
+  Pve.draw({ meshFrom(shape, instance) { sum += instance.r; }, mesh() {} });
+  Pve.active = false;
+  return sum;
+}
+Test.add('hud', (check) => hudTestWith(() => {
+  Settings.set('hud.killcam', true);
+  const scene = hudTestMatch(), player = scene.id, foe = scene.enemy, runner = scene.mate;
+  Sim.run(KILLCAM_STEP_TICKS - (Sim.tick % KILLCAM_STEP_TICKS));
+  const monster = Pve.spawnEnemy('gunner', 0, 0, 16, 0, { overCap: true });
+  Pve.active = false;
+  Actors.health[monster] = Actors.maxHealth[monster] * 0.3;
+  for (let batch = 0; batch < 80; batch++) {
+    Actors.x[foe] = Actors.x[runner] = Actors.x[monster] = Sim.tick * TICK_SECONDS * 5; Actors.z[foe] = 3; Actors.z[runner] = 10; Actors.z[monster] = 16;
+    Actors.vx[runner] = 5; Actors.flags[runner] |= ACTOR_FLAG.ON_GROUND;
+    Sim.run(KILLCAM_STEP_TICKS);
+  }
+  const hurtSum = hudTestEnemyColorSum();
+  Actors.vx[runner] = Actors.vz[runner] = 0; Powerups.give(runner, CAT.powerups.byId('ghostveil'), 0);   // by the replay it stands still and is cloaked
+  Actors.health[monster] = Actors.maxHealth[monster];
+  const healthySum = hudTestEnemyColorSum();
+  Actors.alive[player] = 0;
+  hudTestKill(player, foe, { weapon: 'warden' });
+  Killcam.clock = 1;
+  updateCamera(0, 1);
+  actorBatch.clear(); shadowBatch.clear();
+  fillActors(0.1, 1);
+  let runnerParts = 0;
+  for (let shape = 0; shape < SHAPES.length; shape++) {
+    for (let i = 0; i < actorBatch.counts[shape]; i++) runnerParts += Math.abs(actorBatch.data[(shape * actorBatch.capacity + i) * INSTANCE_FLOATS + 2] - 10) < 1.5 ? 1 : 0;
+  }
+  check('killcam: a body that took Ghostveil after the recording is replayed, whatever its live shimmer', Powerups.setInvisible[runner] === 1 && runnerParts > 5, runnerParts);
+  Render.replayPose(runner, actorPose); animateActor(runner, actorPose, 0.1, LOD.near);
+  check('killcam: a replayed body walks with the recorded speed, not the live standstill', actorPose.recorded && Test.near(actorPose.speed, 5, 0.5) && Math.abs(actorPose.swing) > 0.01, JSON.stringify(actorPose));
+  check('killcam: a replayed enemy shows the recorded health shade', hurtSum < healthySum - 0.01 && Test.near(hudTestEnemyColorSum(), hurtSum, 1e-3), hurtSum + ' ' + healthySum + ' ' + hudTestEnemyColorSum());
+  for (let frame = 0; frame < KILLCAM_FRAMES; frame++) Killcam.looks[(frame * MAX_ACTORS + runner) * KILLCAM_LOOK_FIELDS + 3] = KILLCAM_CLOAK_SHIMMER;   // as if it carried Ghostveil then
+  let shown = 0, hidden = 0, matches = true;
+  for (let step = 0; step < 24; step++) {
+    Killcam.clock = step * 0.05;
+    const drawn = Render.replayPose(runner, actorPose);
+    matches = matches && drawn === ghostShimmerVisible(Killcam.startTime + Killcam.clock, runner);
+    if (drawn) shown++; else hidden++;
+  }
+  check('killcam: a Ghostveil carrier flickers in the replay by its own clock instead of vanishing', matches && shown > 0 && hidden > shown, shown + ' shown, ' + hidden + ' hidden');
+  Killcam.stop();
+  actorBatch.clear(); shadowBatch.clear();
+  actorPose.recorded = false; actorPose.speed = 0;
+}));

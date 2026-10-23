@@ -68,7 +68,7 @@ const Ladder = {
     if (!this.passed(match.results)) { award.lines.push('Ladder: not cleared. Retry any time.'); return; }
     const first = !state.cleared[this.key(tag.tier, tag.match)];
     state.cleared[this.key(tag.tier, tag.match)] = true;
-    if (first && award.breakdown.total > 0) award.xp += PROGRESS_XP.ladderMatch;   // the first clear pays only a player who took part (no idle farming)
+    if (first && Progress.paidMatch(award)) award.xp += PROGRESS_XP.ladderMatch;   // the first clear pays only a player who took part
     if (tag.tier === state.tier && tag.match === state.match) this.advance(state);
     award.lines.push(entry.final ? 'Ladder champion! The Warden of Nine has fallen.' : 'Ladder match cleared.');
     Save.scheduleSave();
@@ -237,7 +237,7 @@ const Operations = {
     state.tickets = [this.carryTickets(OperationRun.tickets[0]), this.carryTickets(OperationRun.tickets[1])];
     state.comeback = winner >= 0 ? 1 - winner : -1;
     state.stage++;
-    if (award.breakdown.total > 0) award.xp += PROGRESS_XP.operationStage;   // the map pays only a player who took part (no idle farming)
+    if (Progress.paidMatch(award)) award.xp += PROGRESS_XP.operationStage;   // the map pays only a player who took part
     award.lines.push(row.name + ' map ' + state.stage + ' of ' + row.stages.length + ': ' + (winner === PROGRESS_PLAYER_TEAM ? 'won' : winner < 0 ? 'drawn' : 'lost')
       + '. Tickets next map: ' + state.tickets[0] + ' / ' + state.tickets[1]);
     if (state.stage >= row.stages.length) this.complete(row, state, award);
@@ -290,7 +290,7 @@ const Daily = {
     const tag = match.setup.progress, daily = Progress.profile().daily, points = Progress.points(DAILY_RULES.points, metrics, 0);
     const first = daily[tag.key] === undefined;
     daily[tag.key] = Math.max(daily[tag.key] || 0, points);
-    if (first && award.breakdown.total > 0) award.xp += PROGRESS_XP.daily;   // the first play pays only a player who took part (no idle farming)
+    if (first && Progress.paidMatch(award)) award.xp += PROGRESS_XP.daily;   // the first play pays only a player who took part
     award.lines.push('Daily ' + tag.key + ': ' + points + ' points (best ' + daily[tag.key] + ')');
     const keys = Object.keys(daily).sort();
     while (keys.length > DAILY_RULES.historyDays) delete daily[keys.shift()];
