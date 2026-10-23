@@ -168,6 +168,19 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('layout: the smallest HUD text is 14 px at 100% scale (ACC-008)', HUD_TEXT_SMALL >= 14);
 }));
 
+// ACC-008 as drawn: a full HUD on a landscape phone (844 x 390, touch) has no text under 14 px at 100% scale.
+Test.add('hud', (check) => hudTestWith(() => {
+  hudTestFillScene(hudTestMatch());
+  Render.size.cssWidth = 844; Render.size.cssHeight = 390; Input.device = 'touch';
+  const small = [], textAt = HudBatch.textAt;
+  HudBatch.textAt = function (string, color, align, alpha) {
+    if (hudTextAt[2] < HUD_TEXT_SMALL - 1e-6 && small.length < 8) small.push(string + ' ' + hudTextAt[2].toFixed(1));
+    return textAt.call(this, string, color, align, alpha);
+  };
+  try { hudTestFrame(); } finally { HudBatch.textAt = textAt; }
+  check('layout: no HUD text under 14 px on a landscape phone (ACC-008, as drawn)', small.length === 0, small.join(' | '));
+}));
+
 Test.add('hud', (check) => hudTestWith(() => {
   const camera = Render.camera, out = { x: 0, y: 0, depth: 0, distance: 0, onScreen: false, dirX: 0, dirY: 0 };
   Object.assign(camera, { x: 0, y: 1.6, z: 0, yaw: 0, pitch: 0, roll: 0, fov: 90 });

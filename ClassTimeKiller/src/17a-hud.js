@@ -13,7 +13,7 @@ const HUD_DESIGN_WIDTH = 1100, HUD_DESIGN_HEIGHT = 620;  // screen size where th
 const HUD_UNIT_MIN = 0.9, HUD_UNIT_MAX = 1.5;
 const HUD_COMPACT_HEIGHT = 520;                          // 'auto' compact layout below this height and on touch
 const HUD_MARGIN = 14;
-const HUD_TEXT_SMALL = 14;                               // ACC-008: nothing smaller than 14 px at 100% scale
+const HUD_TEXT_SMALL = 14;                               // ACC-008: nothing smaller than 14 px at 100% scale (the pen floors every text)
 const HUD_FLASHES_PER_SECOND = 3;                        // ACC-005 photosensitivity cap
 const HUD_PHOTOSENSITIVE_ALPHA = 0.5;                    // strongest full-screen flash in photosensitivity mode
 const HUD_REDUCED_FLASH = 0.5;                           // reduce motion: flashes at half strength
@@ -131,7 +131,7 @@ const hudFlashTimes = new Float64Array(HUD_FLASHES_PER_SECOND).fill(-1000);
 const hudKeyLabels = new Map();
 
 const Hud = {
-  shown: true, replaying: false, scale: 1, opacity: 1, compactSetting: 'auto', teamShapes: true, reduceMotionSetting: 'auto', paletteId: 'off',
+  shown: true, replaying: false, scale: 1, textFloor: HUD_TEXT_SMALL, opacity: 1, compactSetting: 'auto', teamShapes: true, reduceMotionSetting: 'auto', paletteId: 'off',
   noHud: false,                     // X36 Hardcore HUD in the running match
   photosensitive: false,            // ACC-005: screen flashes darken instead of brightening
   elements: {},                     // element id -> bool (cache of the hud.element.* settings)
@@ -187,6 +187,7 @@ const Hud = {
   applySettings() {
     this.shown = Settings.get('hud.show');
     this.scale = Settings.get('hud.scale') / 100;
+    this.textFloor = HUD_TEXT_SMALL * this.scale;
     this.opacity = Settings.get('hud.opacity') / 100;
     HudBatch.alphaScale = this.opacity;   // applied once per drawing call in setHudPaint (07f)
     this.compactSetting = Settings.get('hud.compact');
@@ -335,7 +336,12 @@ const HudPen = {
   rect(x, y, w, h, color, alpha) { HudBatch.rect(x, y, w, h, color, alpha); },
   line(x1, y1, x2, y2, thickness, color, alpha) { HudBatch.line(x1, y1, x2, y2, thickness, color, alpha); },
   ring(x, y, radius, thickness, color, alpha, start, end) { HudBatch.ring(x, y, radius, thickness, color, alpha, start, end); },
-  text(string, x, y, size, color, align, alpha) { return HudBatch.text(string, x, y, size, color, align, alpha); },
+  text(string, x, y, size, color, align, alpha) {
+    const at = hudTextAt;
+    at[0] = x; at[1] = y; at[2] = size;
+    this.textAt(string, color, align, alpha);
+    return at[3];
+  },
   // Text with a one-pixel shadow: readable on any background (world markers, banners).
   label(string, x, y, size, color, align, alpha) {
     const at = hudTextAt;
@@ -345,6 +351,7 @@ const HudPen = {
   },
   // label() at hudTextAt: the shadow is drawn from the same scratch, moved by the shadow offset and back.
   labelAt(string, color, align, alpha) {
+    if (hudTextAt[2] < Hud.textFloor) hudTextAt[2] = Hud.textFloor;
     const at = hudTextAt, x = at[0], y = at[1], shade = HUD_SHADOW_OFFSET * Math.max(1, at[2] / 16);
     at[0] = x + shade; at[1] = y + shade;
     HudBatch.textAt(string, HUD_COLOR.black, align, (alpha === undefined ? 1 : alpha) * HUD_SHADOW_ALPHA);
@@ -411,7 +418,11 @@ const HudPen = {
     if (at[2] > 0) this.rectAt(color, alpha);
     at[2] = width;
   },
-  textAt(string, color, align, alpha) { HudBatch.textAt(string, color, align, alpha); },
+  // ACC-008 in one place: a size under 14 px at 100% HUD scale (a phone's 0.9 unit) is drawn at the floor.
+  textAt(string, color, align, alpha) {
+    if (hudTextAt[2] < Hud.textFloor) hudTextAt[2] = Hud.textFloor;
+    HudBatch.textAt(string, color, align, alpha);
+  },
   ringAt(color, alpha) { HudBatch.ringAt(color, alpha); },
   weaponIcon(weaponClass, x, y, width, color, alpha) {
     const at = hudShapeAt;
