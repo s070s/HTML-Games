@@ -16,6 +16,45 @@ _Hand-off: print a self-contained block in chat (standing rules, state with SHAs
 
 ## Entries
 
+- 2026-10-23 ~22:45 GTBDT. `98bc531` on worktree-living-world fixes a real fault: the medic could not reach a person fallen inside a building's footprint, and the 35 s scene timer cut the walk short. Now:
+  - the medic walks the streets round the block to the nearest free spot;
+  - a casualty scene lasts until the person is tended;
+  - an ambulance never stops past its stop point (nose in the junction);
+  - the test waits for a walker near the hospital.
+  - Self-test 2470/0, twice.
+  - D58 recorded (m1-m8 first spawns unchanged, respawns step out of sight).
+  - OWNER question pending: landing damage to buildings in P8 (not implemented today; only aircraft crashes and sideways rams damage structures).
+  - In flight: p7a, p7b (on ab9e19c), p8-coop (ab9e19c). Merge them into the 98bc531 line afterwards.
+
+- 2026-10-23 ~22:05 GTBDT. p7-review-a: not ready.
+  - High: H1 m10 cannot be won (landed craft have their AI off, aircraft start in AA range); H2 m12 start and respawns are under fire, and the counterattack is badly timed.
+  - Medium: M1 the weaponGate flag would take later-gated weapons from pre-P7 saves; M2 the m13 brief and spotting differ.
+  - Low: L1-L5, plus weak co-op and hazard tests.
+  - Held: unlocks/saves/locks, co-op host-only hazards, old content, Training on 13 maps.
+  - Sent to p7a: fast-forward to ab9e19c, then fix. p7a owns the general respawn safety, the weaponGate list and the start-exposure test for m1-m18.
+  - In flight: p6-society (ambulance), p7a, p7b. Merging into worktree-living-world comes after all three.
+
+- 2026-10-23 ~22:00 GTBDT. p7-review-b: not ready.
+  - High:
+    - H1: m16 Skua harbour spawn inside turret sight.
+    - H2: Obj.rescue impossible from the air (speed limit below stall).
+    - H3: m17 harder than m3 (waves 300 m out, the player starts 535 m away).
+  - Medium: M1 m16 convoy fired on before moving; M2 m18 raiders camp the respawn; M3 test gaps.
+  - Low: L1-L3.
+  - Held: m14 on foot, the Metro move (0 fallbacks over 200 seeds), co-op host-only hazards, old content.
+  - Sent to p7b: fast-forward its worktree to ab9e19c, then fix.
+
+- 2026-10-23 ~21:50 GTBDT. P6 round 2 landed as `5a03b25`: the bend give-way plus 4 other hold and touch fixes, all 4 weak tests now fail with their fix off, and forged number-0 spawns are refused. Self-test 2348/0.
+  - Merged into worktree-living-world, each with --no-ff, conflicts resolved by union:
+    - `41de7f6`: docs.
+    - `5618178`: P7 part A.
+    - `1d066b0`: P7 part B, 3 conflicts.
+    - `194afc8`: P8 lows a, 1 conflict.
+    - `ab9e19c`: P8 UI, 1 conflict.
+  - Merged self-test 2470/1: 'society: first responders' medic check (metro seed 7; the layout changed with B's moved towns). Sent to p6-society.
+  - D56 addendum: the narrow P6 round-2 re-verify folds into one combined gate review of the merged tip (P6 round 2 + P7 + P8 lows/ui), after the P7 review fixes.
+  - In flight: p6-society (ambulance), p7-review-a, p7-review-b.
+
 - 2026-10-23 ~21:25 GTBDT. p8-ui done: branch `worktree-agent-afb6accd04e287a96`, tip `b0e9516` (base 1baa77c).
   - Touch training panel: below the message lines, text fitted, desktop unchanged.
   - Help text: new paragraphs plus release notes "18 missions, 13 battlefields" (true only after B merges).
