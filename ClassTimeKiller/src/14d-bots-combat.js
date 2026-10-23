@@ -32,7 +32,7 @@ const TARGET_VISIBLE_SCORE = 1, TARGET_KNOWN_SCORE = 0.4, TARGET_KEEP = 0.3, TAR
 const TARGET_DISTANCE_SCALE = 30;       // m: score halves at this distance
 const TARGET_REVENGE_SECONDS = 3;
 const TARGET_CARRIER_BONUS = 0.5;
-const TARGET_DOWNED_SHARE = 0.3;        // a harmless downed enemy is worth this share of a target
+const TARGET_DOWNED_SHARE = 0.3;        // a harmless downed enemy is worth this share of a target while a standing one is in sight
 const STRAFE_CHECK = 0.4;               // BOT-032: flip chance 6.5% per 0.4 s check
 const STRAFE_FLIP = 0.065;
 const RANGE_BACKOFF = 0.1;              // BOT-032: back off 10% inside the ideal range
@@ -179,6 +179,7 @@ const BotCombat = {
   },
   chooseTarget(id, now) {
     let best = -1, bestScore = 0;
+    this.standingInSight = this.standingEnemyInSight(id);
     for (let other = 0; other < Actors.count; other++) {
       if (!this.validTarget(id, other, now) || this.attackersFull(id, other)) continue;
       const score = this.targetScore(id, other, now);
@@ -193,10 +194,18 @@ const BotCombat = {
     if (other === this.target[id]) score += Bots.tier(id).targetSwitch ? TARGET_KEEP_SWITCHER : TARGET_KEEP;
     if (BotSense.attacker[id] === other && now - BotSense.attackedAt[id] < TARGET_REVENGE_SECONDS) score += Bots.trait(id, TRAIT.vengefulness);
     if (BotDecide.carriesObjective(other) || huntedRole(other)) score += TARGET_CARRIER_BONUS;
-    return this.harmless(other) ? score * TARGET_DOWNED_SHARE : score;
+    if (!this.harmless(other) || (visible && !this.standingInSight)) return score;   // with no standing enemy in sight it is finished off
+    return score * TARGET_DOWNED_SHARE;
   },
   // Downed without the Last Stand pistol: it cannot shoot, so standing enemies come first and it does not keep a revive away.
   harmless(other) { return (Actors.flags[other] & ACTOR_FLAG.DOWNED) !== 0 && Weapons.lowered(other); },
+  standingInSight: false,   // chooseTarget's: a standing enemy is in sight of the bot choosing
+  standingEnemyInSight(id) {
+    for (let other = 0; other < Actors.count; other++) {
+      if (Actors.alive[other] && Actors.isEnemy(id, other) && BotSense.sees(id, other) && !this.harmless(other)) return true;
+    }
+    return false;
+  },
   // DIF-002 max simultaneous attackers: bots beyond the limit leave the player alone (unless the player hits them).
   attackersFull(id, other) {
     if (Actors.kind[other] !== ACTOR_KIND.PLAYER || this.target[id] === other || BotSense.attacker[id] === other) return false;
