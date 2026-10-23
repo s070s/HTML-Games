@@ -4099,7 +4099,7 @@ function newWorld(cfg) {
     cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [], fauna: null,
     beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], events: [], feed: [], bridges: [], deckCells: null, roadData: null, roadMesh: null, flora: null,
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
-    diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [],
+    diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [], airports: [],
     stats: newStats(),
     hitMarker: 0, killMarker: 0, paused: false, timeScale: 1, flash: 0, dmgDirs: [], msgs: [],
     msg(text, snd) { this.msgL(text); if (snd) Snd.ui(snd); if (Net.host) Net.bcast(snd ? { t: 'msg', text, snd } : { t: 'msg', text }); },
@@ -8234,6 +8234,9 @@ class Platform {
     this.outOfBounds = false; this.arcSpeed = 0; this.noTarget = false; this.warnIncoming = null; this.isDecoy = false;
     this.training = false; this.spawnInfo = null; this.ejected = false; this.withdrew = false; this.shieldMsgT = 0;
     this.hideFromAI = !!def.unarmed; this.provoked = false;   // a civilian is ignored by the AI until provoked (D5)
+    // seats (P4.4): parked = free with nobody in it; pilot = the human riding inside; chute = falling under a parachute;
+    // ejectPilot = a player's pilot whose platform was lost by an ejection (a replacement is on its way)
+    this.parked = false; this.pilot = null; this.chute = false; this.ejectPilot = false;
     this.isPlayer = false; this.aimAssist = false; this.wear = 0; this.netPeer = null; this.netInc = null; this.netInit = false; this.seen = 0;
     this.nx = 0; this.ny = 0; this.nz = 0; this.nyaw = 0; this.npitch = 0; this.nroll = 0; this.nty = 0; this.ntp = 0;
     this.sw = null; this.status = newStatus(); this.scale = 1; this.swHistory = null;   // superweapon slot, superweapon status effects, size (Shrink Ray)
@@ -8373,6 +8376,11 @@ class Platform {
       if (Math.random() < 0.7) FX.emit(this.x + rand(-1, 1), this.y + 0.5, this.z + rand(-1, 1), rand(-2, 2), -rand(10, 18), rand(-2, 2), 0.35, 2, 0.5, 1, 0.7, 0.3, 0.8, 1, 0, true);
     }
     if (!this.grounded) this.vy -= GRAVITY * this.gravMult() * dt;
+    if (this.chute) {   // under a parachute: a slow fall, drifting to a stop
+      if (this.vy < -CHUTE_SINK) this.vy = -CHUTE_SINK;
+      const k = Math.exp(-CHUTE_DRAG * dt);
+      this.vx *= k; this.vz *= k;
+    }
     const px = this.x, pz = this.z;
     this.x += this.vx * dt; this.z += this.vz * dt; this.y += this.vy * dt;
     if (this.grounded && this.climbBlocked(px, pz)) { this.x = px; this.z = pz; this.vx = this.vz = 0; }   // jump jets still lift it up a ledge
@@ -8386,7 +8394,7 @@ class Platform {
     }
     if (!this.grounded && this.y <= gy) {
       const impact = -this.vy;
-      this.y = gy; this.grounded = true;
+      this.y = gy; this.grounded = true; this.chute = false;
       if (impact > 12) {
         this.stagger = Math.max(this.stagger, clamp((impact - 12) / 30, 0, 0.7) / this.def.stability);
         Snd.play('land', this.x, this.y, this.z, clamp(impact / 25, 0.4, 1.3));
@@ -9459,7 +9467,7 @@ function drawPlatformBody(p) {
   if (p.scale !== 1) st.t(p.x, p.y, p.z).s(p.scale, p.scale, p.scale).t(-p.x, -p.y, -p.z);   // shrunk by a superweapon
   switch (p.model) {
     case 'mech': drawMech(p, main, dark, acc, lod); break;
-    case 'infantry': drawInfantry(p, main, dark, acc, lod); break;
+    case 'infantry': drawInfantry(p, main, dark, acc, lod); if (p.chute) drawChute(p, acc); break;
     case 'wheeled': drawWheeled(p, main, dark, acc, lod); break;
     case 'tracked': drawTracked(p, main, dark, acc, lod); break;
     case 'hover': drawHover(p, main, dark, acc, lod); break;
@@ -9561,6 +9569,22 @@ function drawMech(p, main, dark, acc, lod) {
 }
 
 const CIV_PLAYER_HAIR = [0.2, 0.14, 0.1];
+const CHUTE_COL = [0.86, 0.84, 0.74], CHUTE_LINE = [0.25, 0.25, 0.25];
+const CHUTE_RISE = 5.5, CHUTE_R = 3.2;   // canopy height over the feet and its radius (m)
+/* a parachute canopy with four lines down to the shoulders */
+function drawChute(p, acc) {
+  const st = R.stack, top = CHUTE_RISE - 0.4, shoulder = 1.5, rim = CHUTE_R * 0.8;
+  const len = Math.hypot(top - shoulder, rim), tilt = Math.atan2(rim, top - shoulder);
+  st.push().t(p.x, p.y, p.z).ry(p.yaw);
+  part('sphere', 0, CHUTE_RISE, 0, CHUTE_R, 1.1, CHUTE_R, CHUTE_COL, 0, 0.1);
+  part('box', 0, CHUTE_RISE + 0.9, 0, 1.4, 0.2, 1.4, acc, 0.5, 0);
+  for (let i = 0; i < 4; i++) {
+    st.push().ry(i * PI / 2 + PI / 4).t(0, (top + shoulder) / 2, rim / 2).rx(-tilt);
+    part('box', 0, 0, 0, 0.04, len, 0.04, CHUTE_LINE, 0, 0);
+    st.pop();
+  }
+  st.pop();
+}
 function drawInfantry(p, main, dark, acc, lod) {
   const st = R.stack;
   const swing = Math.sin(p.walkPhase * INFANTRY_STRIDE) * 0.7 * clamp(p.speed / 4, 0, 1) * (p.grounded ? 1 : 0.2);
@@ -10485,23 +10509,177 @@ function tryResupply(pl) {
 const USE_HOLD = 0.4;         // seconds Use is held to exit (or eject)
 const EJECT_MIN_AGL = 25;     // an aircraft higher than this over ground or water ejects on a held Use; lower it lands first
 const NET_USE_TAP = 2048, NET_USE_HOLD = 8192;   // a guest's Use in the 'in' edge bits (the host decides what it does)
+const ENTER_SMALL = 6;        // a free vehicle this close (m) can be entered; a big one within its radius plus ENTER_PAD
+const ENTER_PAD = 4;
+const ENTER_RISE = 4;         // and from no more than this below its base or above its top (m)
+const EXIT_GAP = 0.8;         // m between a vehicle's side and the spot a human steps out to
+const EXIT_RINGS = 3, EXIT_RING_STEP = 2.5, EXIT_STEPS = 12;   // rings of spots searched around it, left side first
+const EXIT_MAX_SLOPE = 0.9;   // ground steeper than this (rise over run) is no place to step out
+const EXIT_ROOF_RISE = 40;    // a blocked human may go up to a roof this much higher than the vehicle (m)
+const EXIT_HOP = 12;          // m/s up out of the top when there is nowhere else
+const EJECT_POP = 8;          // m/s an ejection seat throws the pilot up
+const EJECT_CARRY = 0.15;     // share of the aircraft's speed the pilot keeps
+const CHUTE_MIN = 8;          // an ejected pilot higher than this (m) opens a parachute
+const CHUTE_SINK = 6;         // m/s a parachute falls at most
+const CHUTE_DRAG = 1.5;       // 1/s it slows sideways drift
+const EXIT_SPOT = { x: 0, y: 0, z: 0, hop: false };
+/* Enter, exit and eject (D28, D31). Every decision runs on the host; a guest only sends its taps and holds. A vehicle is
+   free when it is parked: alive, with nobody in it (no player, no AI). A human who gets in leaves the world and rides in
+   the vehicle's pilot slot; stepping out puts the same human back (or a new one of the player's On foot choice) and
+   parks the vehicle, keeping its team, hull, ammunition, heat and cooldowns. A neutral (team 2) vehicle joins its driver's
+   side: that is the hook for the civilian vehicles of P6. */
 const Seats = {
-  /* a tap of Use by player body p (peer: the co-op guest it belongs to, on the host) */
+  /* a tap of Use by player body p (peer: the co-op guest it belongs to, on the host): enter, else resupply */
   tap(p, peer) {
     if (!p || p.dead) return;
     if (Net.guest) { Net.pendEdge |= NET_USE_TAP; return; }
-    void peer;
+    const v = this.nearestFree(p);
+    if (v) { this.enter(p, v, peer); return; }
     tryResupply(p);
   },
   /* a held Use: exit, or eject from an aircraft in the air */
   hold(p, peer) {
     if (!p || p.dead) return;
     if (Net.guest) { Net.pendEdge |= NET_USE_HOLD; return; }
-    void peer;
     if (p.kind === 'air' && !p.grounded) {
       if (p.y - Water.top(p.x, p.z) > EJECT_MIN_AGL) p.eject();
       else notify(p, 'TOO LOW TO EJECT: LAND TO STEP OUT');
+      return;
     }
+    this.exit(p, peer);
+  },
+  canEnter(human, v) {
+    if (!v || v.dead || !v.parked || v === human || v.def.style === 'infantry' || human.def.style !== 'infantry') return false;
+    if (v.team !== human.team && v.team !== 2) return false;
+    const rise = human.y - v.y;
+    return Math.hypot(v.x - human.x, v.z - human.z) <= Math.max(ENTER_SMALL, v.radius + ENTER_PAD) && rise > -ENTER_RISE && rise < v.height + ENTER_RISE;
+  },
+  /* the closest free vehicle a human on foot could enter now, or null */
+  nearestFree(human) {
+    if (!human || human.dead || human.def.style !== 'infantry') return null;
+    let best = null, bestD = Infinity;
+    for (let i = 0; i < W.platforms.length; i++) {
+      const v = W.platforms[i];
+      if (!v.parked || !this.canEnter(human, v)) continue;
+      const d = Math.hypot(v.x - human.x, v.z - human.z);
+      if (d < bestD) { best = v; bestD = d; }
+    }
+    return best;
+  },
+  /* human gets into free vehicle v; false when v is no longer free (two in the same tick: the first wins) */
+  enter(human, v, peer) {
+    if (!this.canEnter(human, v)) return false;
+    v.parked = false; v.pilot = human;
+    if (v.team === 2) v.team = human.team;
+    if (human.hideFromAI && !v.def.civilian) human.provoke();   // a civilian in a combat vehicle is fair game
+    human.ejectPilot = false;   // a pilot who finds a ride needs no replacement
+    const i = W.platforms.indexOf(human);
+    if (i >= 0) W.platforms.splice(i, 1);
+    for (const pr of Net.peers) if (pr.known) pr.known.delete(human.id);   // guests drop it; it is sent again when it steps out
+    this.bind(v, human, peer);
+    notify(v, 'ENTERED ' + v.def.name.toUpperCase(), 'ok');
+    return true;
+  },
+  /* step out of v: the platform stays parked; the human stands in a free spot nearby (water: swimming), else on a
+     roof beside it, else is thrown up out of the top */
+  exit(v, peer) {
+    if (v.dead || v.def.style === 'infantry') return false;
+    const human = v.pilot || this.makeHuman(v, peer);
+    v.pilot = null;
+    const spot = this.findExit(v, human.radius, human.height, EXIT_SPOT);
+    human.x = spot.x; human.z = spot.z; human.y = spot.y; human.dead = false;
+    human.vx = human.vz = 0; human.vy = spot.hop ? EXIT_HOP : 0; human.grounded = !spot.hop; human.chute = false;
+    human.yaw = human.torsoYaw = v.kind === 'air' ? v.yaw : v.cmd.aimYaw;
+    W.platforms.push(human);
+    this.bind(human, v, peer);
+    this.park(v);
+    return true;
+  },
+  /* the pilot of a platform lost by an ejection (or a destroyed one whose seat fired) drops from it */
+  ejectPilot(from, peer) {
+    const h = from.pilot || this.makeHuman(from, peer);
+    from.pilot = null;
+    const gy = groundLevel(from.x, from.z, from.y, h.radius);
+    h.x = from.x; h.z = from.z; h.y = Math.max(gy, from.y);
+    h.vx = from.vx * EJECT_CARRY; h.vz = from.vz * EJECT_CARRY; h.vy = from.kind === 'air' ? EJECT_POP : 0;
+    h.grounded = h.y - gy < 0.5; h.chute = h.y - gy > CHUTE_MIN; h.dead = false; h.ejectPilot = true;
+    W.platforms.push(h);
+    this.bind(h, from, peer);
+    if (peer) peer.deathHandled = false;
+    return h;
+  },
+  /* who a player is on foot: the platform they picked when it is a human, else their On foot choice */
+  footDef(peer) {
+    const pid = peer ? peer.pid : Game.cfg && Game.cfg.platformId;
+    if (pid && PLATFORMS[pid] && PLATFORMS[pid].style === 'infantry') return PLATFORMS[pid];
+    return PLATFORMS[ON_FOOT[peer ? peer.foot : S.onFoot] || ON_FOOT.infantry];
+  },
+  makeHuman(v, peer) {
+    const def = this.footDef(peer);
+    const lo = peer ? (peer.pid === def.id && peer.loadout ? peer.loadout : def.loadout) : Loadout.forPlatform(def.id);
+    return new Platform(def, { team: v.team, x: v.x, z: v.z, yaw: v.yaw, loadout: Object.assign({}, lo), name: v.name, ammoMult: W.mods && W.mods.scarce ? SCARCE_AMMO : 1 });
+  },
+  /* hand a player's control from body old to q (peer: a co-op guest, told with 'ctl'; else the local player) */
+  bind(q, old, peer) {
+    q.isPlayer = true; q.name = old.name; q.stats = old.stats; q.target = null; q.controller = null; q.ai = null;
+    q.cmd.aimYaw = old.cmd.aimYaw; q.cmd.aimPitch = clamp(old.cmd.aimPitch, -0.75, 1.15); q.cmd.throttleSet = -1; q.cmd.brake = false;
+    if (old.sw && q.sw) q.sw.charge = old.sw.charge;   // one superweapon meter per player
+    old.controller = null;
+    if (peer) {
+      peer.p = q; q.netPeer = peer; q.localPlayer = false; old.netPeer = null;
+      Net.send(peer, { t: 'ctl', pid: q.id }, true);
+      return;
+    }
+    W.player = q; q.controller = PC; q.localPlayer = true; q.flightMode = S.flightMode;
+    PC.hadTarget = false; PC.manualHold = 0;
+  },
+  /* v stands parked: nobody drives it, no AI takes it over, it keeps its team and stops where it is */
+  park(v) {
+    v.parked = true; v.controller = null; v.ai = null; v.isPlayer = false; v.netPeer = null; v.localPlayer = false;
+    v.name = v.def.name; v.target = null; v.lock.target = null; v.lock.state = 'none'; v.lock.progress = 0;
+    const c = v.cmd;
+    c.moveF = c.moveS = c.turn = c.throttleIn = c.axisPitch = c.axisRoll = c.axisYaw = 0;
+    c.fire1 = c.fire2 = c.boost = c.jump = false; c.brake = true;
+    v.shieldOn = false; v.crouch = false; v.boosting = false; v.vx = v.vz = 0; v.speed = 0;
+    if (v.kind === 'air') { v.throttle = 0; c.throttleSet = 0; v.afterburner = false; }
+  },
+  /* an aircraft standing on the ground, gear down and engines idle */
+  groundAir(p) {
+    p.grounded = true; p.gear = true; p.speed = 0; p.throttle = 0; p.pitch = 0; p.roll = 0; p.vx = p.vy = p.vz = 0;
+    p.y = Terrain.h(p.x, p.z) + p.def.air.gearH;
+  },
+  /* a free spot beside v for a human of radius r and height h, written into out */
+  findExit(v, r, h, out) {
+    out.hop = false;
+    const base = v.radius + r + EXIT_GAP;
+    for (let ring = 0; ring < EXIT_RINGS; ring++) {
+      const rad = base + ring * EXIT_RING_STEP;
+      for (let i = 0; i < EXIT_STEPS; i++) {
+        const a = v.yaw - PI / 2 + i * TAU / EXIT_STEPS, x = v.x + Math.sin(a) * rad, z = v.z + Math.cos(a) * rad;
+        if (Math.abs(x) > GROUND_BOUND || Math.abs(z) > GROUND_BOUND || Terrain.slope(x, z) > EXIT_MAX_SLOPE) continue;
+        const y = groundLevel(x, z, v.y + 1, r);
+        if (groundBlocked(x, z, r, y, h) || this.platformAt(x, z, r, v)) continue;
+        out.x = x; out.z = z; out.y = y;
+        return out;
+      }
+    }
+    for (let i = 0; i < EXIT_STEPS; i++) {   // boxed in: the roof of whatever stands beside it
+      const a = v.yaw - PI / 2 + i * TAU / EXIT_STEPS, x = v.x + Math.sin(a) * base, z = v.z + Math.cos(a) * base;
+      const top = groundLevel(x, z, v.y + EXIT_ROOF_RISE, r);
+      if (top <= Terrain.h(x, z) + 0.5 || groundBlocked(x, z, r, top, h) || this.platformAt(x, z, r, v)) continue;
+      out.x = x; out.z = z; out.y = top;
+      return out;
+    }
+    out.x = v.x; out.z = v.z; out.y = v.y + v.height + 0.5; out.hop = true;
+    return out;
+  },
+  platformAt(x, z, r, v) {
+    for (let i = 0; i < W.platforms.length; i++) {
+      const q = W.platforms[i];
+      if (q === v || q.dead || (q.kind === 'air' && !q.grounded)) continue;
+      if (Math.hypot(q.x - x, q.z - z) < q.radius + r) return true;
+    }
+    return false;
   },
   /* What Use can do for p right now, written into out (no allocation): the touch layout and prompts read it.
      enter: the free vehicle a tap would enter; exit / eject: what a hold would do; gear: the air stance key moves the gear;
@@ -10514,6 +10692,8 @@ const Seats = {
     out.gear = air && p.def.air.landMax > 0;
     out.melee = p.kind === 'mech';
     if (air && !p.grounded) out.eject = p.y - Water.top(p.x, p.z) > EJECT_MIN_AGL;
+    else if (p.def.style !== 'infantry') out.exit = true;
+    else out.enter = this.nearestFree(p);
     return out;
   },
   anyUse(ctx) { return !!(ctx.enter || ctx.exit || ctx.eject || ctx.use); },
@@ -10538,6 +10718,16 @@ const Seats = {
   /* the word on the touch USE button for this context */
   useLabel(ctx) { return ctx.enter ? 'ENTER' : ctx.use ? 'USE' : ctx.eject ? 'EJECT' : ctx.exit ? 'EXIT' : 'USE'; },
 };
+
+/* where a player's aircraft comes back: parked at an airport when the battlefield has one (P4.5 fills W.airports) */
+function airportSpawn() {
+  const a = W.airports && W.airports[0];
+  return a ? { x: a.x, z: a.z, yaw: a.yaw || 0, parked: true } : null;
+}
+/* a lost player's next platform: an aircraft at an airport if there is one, else short of the fight (forwardSpawn) */
+function respawnSite(def) {
+  return (def.kind === 'air' && airportSpawn()) || forwardSpawn(W.mission.def.start, def.radius, def.kind === 'air');
+}
 
 /* True when a pad visit would restore something (energy and heat recover on their own). */
 function resupplyNeeded(pl, ammoMult) {
@@ -16904,9 +17094,34 @@ const TRAINING_DEF = {
   id: 'training', name: 'Training Range', type: 'Training', map: 'ashfall', timeLimit: 0, start: { x: 0, z: -150, yaw: 0 },
   sites: [{ x: 0, z: -150, r: 34, tag: 'pad' }, { x: 0, z: 100, r: 200, tag: 'open' }],
   build(ctx) {
-    ctx.later(() => buildTrainingTargets());
+    ctx.later(() => { buildTrainingTargets(); buildMotorPool(); });
   },
 };
+/* Training: every playable vehicle stands parked behind the start (no platform switch key: walk over and get in).
+   A slot whose platform is destroyed gets a new one after TRAIN_POOL_RESPAWN s; one driven away is left alone. */
+const TRAIN_POOL_ROW = [-185, -240];   // z of the ground and air rows
+const TRAIN_POOL_GAP = [24, 60];       // m between platforms in each row
+const TRAIN_POOL_RESPAWN = 4;
+function buildMotorPool() {
+  W.motorPool = [];
+  const ids = PLAYABLE.filter((id) => PLATFORMS[id].style !== 'infantry');
+  const rows = [ids.filter((id) => PLATFORMS[id].kind !== 'air'), ids.filter((id) => PLATFORMS[id].kind === 'air')];
+  rows.forEach((row, r) => row.forEach((id, i) => {
+    const slot = { id, x: (i - (row.length - 1) / 2) * TRAIN_POOL_GAP[r], z: TRAIN_POOL_ROW[r], p: null, t: 0 };
+    slot.p = spawnParked(id, slot.x, slot.z, 0);
+    W.motorPool.push(slot);
+  }));
+}
+/* a free friendly platform standing parked (training pool, P4.5 aprons, missions) */
+function spawnParked(id, x, z, yaw) {
+  const def = PLATFORMS[id];
+  const sp = findSpawn(x, z, 16, def.radius, 0);   // clear of rocks and buildings
+  const p = new Platform(def, { team: 0, x: sp ? sp.x : x, z: sp ? sp.z : z, yaw, loadout: Loadout.forPlatform(id), ammoMult: W.mods.scarce ? SCARCE_AMMO : 1 });
+  if (def.kind === 'air') Seats.groundAir(p);
+  Seats.park(p);
+  W.platforms.push(p);
+  return p;
+}
 function buildTrainingTargets(clear) {
   if (clear) { W.platforms = W.platforms.filter((p) => !p.training); }
   W.trainTargets = [];
@@ -16941,6 +17156,11 @@ function resetTrainingTargets() {
   W.msg('TARGETS RESET');
 }
 function respawnTrainingTargets() {
+  for (const slot of W.motorPool || []) {
+    if (!slot.p.dead) continue;
+    if (!slot.t) { slot.t = W.time + TRAIN_POOL_RESPAWN; continue; }
+    if (W.time >= slot.t) { slot.p = spawnParked(slot.id, slot.x, slot.z, 0); slot.t = 0; }
+  }
   const list = W.trainTargets || [];
   for (let i = 0; i < list.length; i++) {
     const t = list[i];
@@ -17249,6 +17469,7 @@ const Game = {
     const x = atPos ? atPos.x : st.x, z = atPos ? atPos.z : st.z, yaw = atPos && atPos.yaw !== undefined ? atPos.yaw : st.yaw;
     // in co-op the host's platform carries the pilot name everyone else sees; it reads as YOU only on screen
     const p = new Platform(def, { team: 0, x, z, yaw, loadout: lo, name: cfg.coop ? cleanName(Net.name) : 'YOU', ammoMult: W.mods.scarce ? SCARCE_AMMO : 1, y: def.kind === 'air' ? Terrain.h(x, z) + 160 : undefined });
+    if (def.kind === 'air' && atPos && atPos.parked) Seats.groundAir(p);   // at an airport: on the apron
     p.controller = PC; p.cmd.aimYaw = yaw; p.flightMode = S.flightMode; p.isPlayer = true;
     p.invuln = true; this.protectT = 3;
     if (old) { p.stats = old.stats; }
@@ -17307,10 +17528,15 @@ const Game = {
     } else {
       const moveWith = () => (touch() ? 'the LEFT-SIDE STICK' : pad() ? 'the LEFT STICK' : k('moveForward') + k('moveLeft') + k('moveBack') + k('moveRight'));
       steps.push({ text: () => 'Move with ' + moveWith() + (kind === 'ground' ? ' (left/right steers the vehicle)' : '') + ', aim with ' + aimWith(), test: () => Math.abs(p.cmd.moveF) + Math.abs(p.cmd.moveS) + Math.abs(p.cmd.turn) > 0 });
-      steps.push({ text: () => 'Hold ' + k('fire1') + ' to fire your primary. ' + k('fire2') + ' fires the secondary. ' + switchWith() + ' switch primaries', test: () => p.cmd.fire1 || p.cmd.fire2 });
-      steps.push({ text: () => k('cycleTarget') + ' cycles targets. Watch the heat bar: overheating locks your weapons', test: () => !!p.target });
-      steps.push({ text: () => k('defense') + ' uses your defense system. ' + (kind === 'mech' ? k('jump') + ' = jump jets, ' + k('melee') + ' = melee' : k('jump') + ' = handbrake') + ', ' + k('boost') + ' = boost', test: () => PC.usedDefense || p.cmd.jump || p.cmd.boost });
+      if (p.def.unarmed) steps.push({ text: () => 'You carry no weapon: ' + k('melee') + ' punches. The enemy ignores you until you fight, take a combat vehicle or near an objective', test: () => p.meleeT > 0 });
+      else {
+        steps.push({ text: () => 'Hold ' + k('fire1') + ' to fire your primary. ' + k('fire2') + ' fires the secondary. ' + switchWith() + ' switch primaries', test: () => p.cmd.fire1 || p.cmd.fire2 });
+        steps.push({ text: () => k('cycleTarget') + ' cycles targets. Watch the heat bar: overheating locks your weapons', test: () => !!p.target });
+        steps.push({ text: () => k('defense') + ' uses your defense system. ' + (kind === 'mech' ? k('jump') + ' = jump jets, ' + k('melee') + ' = melee' : k('jump') + ' = handbrake') + ', ' + k('boost') + ' = boost', test: () => PC.usedDefense || p.cmd.jump || p.cmd.boost });
+      }
     }
+    if (p.def.style === 'infantry') steps.push({ text: () => 'Tap ' + k('interact') + ' beside a free friendly vehicle to get in', test: () => W.player !== p });
+    else steps.push({ text: () => 'Hold ' + k('interact') + ' to step out' + (kind === 'air' ? ' once landed' : '') + '; on foot, tap it beside a free vehicle to get in', test: () => W.player !== p });
     this.tutorial = { steps, i: 0, t: 0, done: false, key: tutorialKey(kind) };
   },
 
@@ -17369,18 +17595,28 @@ const Game = {
     if (Net.host) Net.hostTick(dt);
     this.arsenalTick(dt);
     if (cfg && cfg.mode === 'training' && this.frames % 20 === 0) respawnTrainingTargets();
-    // player lifecycle
+    // player lifecycle: every lost body (a platform, or the human on foot) costs a life and counts as a death; an ejection
+    // counts once, as before, and its pilot parachutes down while the replacement is readied
     if (pl && pl.dead && this.state === 'playing') {
       if (!pl.deathHandled) {
-        pl.deathHandled = true; W.lives--;
-        W.stats.deaths++; W.stats.teamDeaths++;   // every lost platform counts, withdrawals included
-        if (pl.withdrew) { W.stats.withdrawals++; W.stats.teamWithdrawals++; }
-        this.respawnT = pl.withdrew ? EJECT_RESPAWN : RESPAWN_TIME;
-        if (cfg.mode === 'training') this.respawnT = 1.5;
-        if (W.lives <= 0 && cfg.mode !== 'training') this.respawnT = 999;
+        pl.deathHandled = true;
+        if (!pl.ejectPilot) {   // a pilot's own fall was counted with the ejection
+          W.lives--;
+          W.stats.deaths++; W.stats.teamDeaths++;   // every lost platform counts, withdrawals included
+          if (pl.withdrew) { W.stats.withdrawals++; W.stats.teamWithdrawals++; }
+          this.respawnT = pl.withdrew ? EJECT_RESPAWN : RESPAWN_TIME;
+          if (cfg.mode === 'training') this.respawnT = 1.5;
+          if (W.lives <= 0 && cfg.mode !== 'training') this.respawnT = 999;
+        }
+        if (pl.ejected) Seats.ejectPilot(pl, null);
       }
-      this.respawnT -= dt;
-      if (this.respawnT <= 0 && W.lives > 0) this.spawnPlayer(forwardSpawn(this.mission.def.start, PLATFORMS[cfg.platformId].radius, PLATFORMS[cfg.platformId].kind === 'air'));
+      if (W.player.dead) {
+        this.respawnT -= dt;
+        if (this.respawnT <= 0 && W.lives > 0) this.spawnPlayer(respawnSite(PLATFORMS[cfg.platformId]));
+      }
+    } else if (pl && pl.ejectPilot && this.state === 'playing' && W.lives > 0) {
+      this.respawnT -= dt;   // the replacement arrives once the pilot is down
+      if (this.respawnT <= 0 && pl.grounded && !pl.chute) this.spawnPlayer(respawnSite(PLATFORMS[cfg.platformId]));
     }
     if (this.protectT > 0) { this.protectT -= dt; if (this.protectT <= 0 && W.player) W.player.invuln = false; }
     if (m && m.state !== 'running' && m.endDelay <= 0 && this.state === 'playing') this.showResults();
@@ -18051,6 +18287,7 @@ const HUD = {
       g.fillStyle = C.dim; g.fillRect(x, y - 4 * u, w, 4 * u);
       g.fillStyle = C.warn; g.fillRect(x, y - 4 * u, w * sat(PC.useT / USE_HOLD), 4 * u);
     }
+    if (p.ejectPilot && (W.lives > 0 || W.mode === 'training')) this.txt('NEW PLATFORM ' + (p.chute || !p.grounded ? 'ONCE YOU LAND' : 'IN ' + Math.max(0, Math.ceil(Game.respawnT)) + ' s'), this.w / 2, y - 30 * u, 13, C.friend, 'center', true);
     if (ctx.enter) { this.txt('[' + actionLabel('interact') + '] ENTER ' + ctx.enter.def.name.toUpperCase(), this.w / 2, y + 16 * u, 13, C.friend, 'center', true); return; }
     if (ctx.use) this.drawPadPrompt(p, y, u);
   },
@@ -19136,9 +19373,9 @@ const SelfTest = {
       try {
         TouchControls.enabled = false;   // keys and pad buttons, also when the self-test runs on a phone
         S.tutorialMech = true; S.tutorialAir = false;
-        W.player = { kind: 'mech', cmd: {} }; Game.setTutorial();
+        W.player = { kind: 'mech', cmd: {}, def: PLATFORMS.bulwark }; Game.setTutorial();
         const mechHints = !!Game.tutorial;
-        W.player = { kind: 'air', cmd: {} }; Game.setTutorial();
+        W.player = { kind: 'air', cmd: {}, def: PLATFORMS.kestrel }; Game.setTutorial();
         this.check('a pilot who learned mechs still gets flight hints', !mechHints && !!Game.tutorial && Game.tutorial.key === 'tutorialAir');
         const tip = Game.tutorial.steps[1];
         Input.usingPad = true; const padTip = tip.text();
@@ -19682,10 +19919,11 @@ const SelfTest = {
       Game.startSession(cfg);
       this.check('session starts', Game.state === 'playing' && !!W.player);
       for (let i = 0; i < 30; i++) Game.tick(STEP);
-      const d0 = W.stats.deaths, w0 = W.stats.withdrawals;
+      const d0 = W.stats.deaths, w0 = W.stats.withdrawals, first = W.player;
       W.player.eject(); Game.tick(STEP);
-      this.check('ejecting with a healthy hull is a withdrawal that still loses the platform', W.stats.deaths === d0 + 1 && W.stats.withdrawals === w0 + 1 && W.player.dead);
+      this.check('ejecting with a healthy hull is a withdrawal that still loses the platform', W.stats.deaths === d0 + 1 && W.stats.withdrawals === w0 + 1 && first.dead && W.player.ejectPilot && !W.player.dead);
       for (let i = 0; i < 60 * 2.5; i++) Game.tick(STEP);
+      this.check('the pilot redeploys into a new platform', W.player !== first && W.player.def === first.def && !W.player.dead);
       W.player.hp = W.player.maxHp * 0.1; W.player.eject(); Game.tick(STEP);
       this.check('ejecting on a wrecked hull is a full loss', W.stats.deaths === d0 + 2 && W.stats.withdrawals === w0 + 1);
       PC.hadTarget = true; Game.spawnPlayer();
@@ -21037,7 +21275,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 5 (hazards)', NET_VERSION === 5);
+      this.check('the net version is 6 (enter and exit)', NET_VERSION === 6);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave };
@@ -21960,6 +22198,193 @@ const SelfTest = {
         this.check('a civilian within 60 m of an objective becomes a target, one farther away stays ignored', walker.provoked && !away.provoked && away.hideFromAI);
       } finally { W.mission = null; }
     });
+    t('enter and exit', () => {
+      const groundId = PLAYABLE.find((id) => PLATFORMS[id].kind === 'ground'), airId = PLAYABLE.find((id) => PLATFORMS[id].kind === 'air');
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null; W.pads = [];
+      const keep = { foot: S.onFoot, slope: Terrain.slope, peers: Net.peers, host: Net.host };
+      const mk = (id, x, z, team) => { const p = new Platform(PLATFORMS[id], { team: team || 0, x, z, yaw: 0, loadout: Loadout.forPlatform(id) }); W.platforms.push(p); return p; };
+      const drive = (p) => { p.isPlayer = true; p.controller = PC; p.localPlayer = true; W.player = p; };
+      const holdUse = (p) => { PC.resetUse(); for (let i = 0; i < Math.ceil(USE_HOLD / STEP) + 2; i++) PC.useInput(p, true, STEP); PC.useInput(p, false, STEP); return W.player; };
+      const tapUse = (p) => { PC.resetUse(); PC.useInput(p, true, STEP); PC.useInput(p, false, STEP); return W.player; };
+      const free = (h) => !groundBlocked(h.x, h.z, h.radius, h.y, h.height);
+      try {
+        S.onFoot = 'infantry'; Net.peers = []; Net.host = false;
+        // a mech: step out, it stays parked and still with its state, step back in
+        const sp = findSpawn(0, 0, 300, 30, 0) || { x: 0, z: 0 };
+        const mech = mk('bulwark', sp.x, sp.z);
+        drive(mech);
+        mech.hp = mech.maxHp * 0.7; mech.heat = 25; mech.wslots.primaryA.clip = 3; mech.wslots.primaryA.cd = 0.5; mech.vx = 4;
+        const state = () => [mech.hp, mech.heat, mech.wslots.primaryA.clip, mech.wslots.primaryA.cd].join();
+        const before = state();
+        const human = holdUse(mech);
+        this.check('holding Use steps out of a mech as the On foot choice (infantry by default)', human !== mech && human.def === PLATFORMS.ranger && W.platforms.indexOf(human) >= 0 && !human.dead && human.controller === PC && !mech.controller, human.def.id);
+        this.check('the mech stays parked, alive and still, on its team, with nobody driving it', mech.parked && !mech.dead && mech.team === 0 && !mech.ai && !mech.isPlayer && mech.vx === 0 && mech.vz === 0 && W.platforms.indexOf(mech) >= 0);
+        this.check('the human steps out clear of the mech and of buildings', Math.hypot(human.x - mech.x, human.z - mech.z) >= mech.radius + human.radius && free(human));
+        this.check('the context offers to enter the parked mech', Seats.context(human, {}).enter === mech);
+        const far = { x: human.x, z: human.z };
+        human.x = mech.x + mech.radius + ENTER_SMALL + 6; human.z = mech.z;
+        this.check('a free vehicle out of reach cannot be entered', !Seats.nearestFree(human));
+        human.x = far.x; human.z = far.z;
+        const back = tapUse(human);
+        this.check('a tap of Use beside it gets back in', back === mech && !mech.parked && mech.pilot === human && W.platforms.indexOf(human) < 0 && mech.controller === PC && mech.isPlayer);
+        this.check('hull, ammunition, heat and cooldowns are kept across exit and enter', state() === before, before + ' vs ' + state());
+        const again = holdUse(mech);
+        this.check('stepping out again brings back the same human', again === human && W.platforms.indexOf(human) >= 0);
+        const enemy = spawnUnit('tank', mech.x + 200, mech.z, { force: true });
+        const at = [mech.x, mech.z].join();
+        for (let i = 0; i < 60; i++) { enemy.ai.update(STEP); mech.update(STEP); }
+        this.check('nobody takes a parked platform over and it does not move', mech.parked && !mech.ai && !mech.controller && [mech.x, mech.z].join() === at);
+        enemy.dead = true;
+        // a ground vehicle and a landed aircraft
+        const car = mk(groundId, mech.x + 40, mech.z);
+        this.check('a vehicle that is not parked cannot be entered', !Seats.canEnter(human, car));
+        Seats.park(car);
+        tapUse(human);
+        this.check('a human enters only the closest free vehicle in reach', W.player === mech);
+        holdUse(mech);
+        human.x = car.x - car.radius - 2; human.z = car.z; human.y = Terrain.h(human.x, human.z);
+        const inCar = tapUse(human);
+        const outOfCar = holdUse(car);
+        this.check('a ground vehicle can be entered and left', inCar === car && outOfCar === human && car.parked && free(human), groundId);
+        const jet = mk(airId, mech.x - 80, mech.z);
+        Seats.groundAir(jet); Seats.park(jet);
+        human.x = jet.x + jet.radius + 1; human.z = jet.z; human.y = Terrain.h(human.x, human.z);
+        tapUse(human);
+        this.check('a landed aircraft can be entered', W.player === jet && !jet.parked, airId);
+        const outOfJet = holdUse(jet);
+        const jy = jet.y;
+        for (let i = 0; i < 60; i++) jet.update(STEP);
+        this.check('stepping out of a landed aircraft parks it on the ground', outOfJet === human && jet.parked && jet.grounded && !jet.dead && Math.abs(jet.y - jy) < 0.5 && Math.abs(jet.speed) < 0.5);
+        // nowhere free around it: a roof beside it, else up out of the top
+        Terrain.slope = () => 99;
+        const roofCar = mk(groundId, mech.x, mech.z + 120);
+        const wh = addStruct('warehouse', roofCar.x + 13 + roofCar.radius + 0.3, roofCar.z, {});
+        const roof = Seats.findExit(roofCar, 0.6, 1.75, {});
+        wh.destroyed = true;
+        const hop = Seats.findExit(roofCar, 0.6, 1.75, {});
+        Terrain.slope = keep.slope;
+        this.check('a human boxed in steps onto a roof beside the vehicle, else out of its top', !roof.hop && Math.abs(roof.y - (wh.y + wh.h)) < 0.7 && hop.hop && hop.y > roofCar.y + roofCar.height, JSON.stringify(roof));
+        // two players reach for one vehicle in the same tick: the first wins
+        const sent = [], peer = Net.newPeer();
+        peer.open = peer.hello = true; peer.tx = (s) => sent.push(JSON.parse(s)); peer.stats = newStats(); peer.name = 'Ally';
+        Net.peers = [peer]; Net.host = true;
+        const sp2 = findSpawn(sp.x, sp.z - 150, 200, 20, 0) || { x: sp.x, z: sp.z - 150 };
+        human.x = sp2.x; human.z = sp2.z; human.y = Terrain.h(sp2.x, sp2.z);
+        const ally = mk('ranger', human.x + 1, human.z); ally.isPlayer = true; ally.netPeer = peer; peer.p = ally;
+        const tank = mk(groundId, human.x + 4, human.z + 4);
+        Seats.park(tank);
+        Seats.tap(human, null); Seats.tap(ally, peer);
+        this.check('two players entering in the same tick: the first gets in, the second stays on foot', W.player === tank && tank.pilot === human && peer.p === ally && W.platforms.indexOf(ally) >= 0 && !sent.some((m) => m.t === 'ctl'));
+        // a civilian who takes a combat vehicle becomes a target
+        const civ = mk('civilian', mech.x + 3, mech.z - mech.radius - 2); civ.isPlayer = true;
+        holdUse(tank);
+        drive(civ);
+        this.check('a passive civilian is ignored until entering a combat vehicle', civ.hideFromAI && Seats.enter(civ, mech, null) && civ.provoked && !civ.hideFromAI);
+        // a neutral vehicle joins its driver's side (the hook for civilian vehicles)
+        const neutral = mk(groundId, mech.x + 60, mech.z + 60, 2); Seats.park(neutral);
+        const walker = mk('ranger', neutral.x + neutral.radius + 1, neutral.z); walker.isPlayer = true;
+        this.check('a free neutral vehicle can be entered and joins the driver\'s team', Seats.enter(walker, neutral, null) && neutral.team === 0);
+        const foe = mk(groundId, mech.x - 60, mech.z + 60, 1); Seats.park(foe);
+        const thief = mk('ranger', foe.x + foe.radius + 1, foe.z); thief.isPlayer = true;
+        this.check('an enemy vehicle cannot be entered', !Seats.canEnter(thief, foe));
+        // an airport hook for aircraft respawns, falling back to the current rule
+        W.mission = { def: { start: { x: 0, z: 0, yaw: 0 } }, objectives: [] };
+        W.airports = [{ x: 100, z: 50, yaw: 1 }];
+        const site = respawnSite(PLATFORMS[airId]), groundSite = respawnSite(PLATFORMS.bulwark);
+        W.airports = [];
+        const fallback = respawnSite(PLATFORMS[airId]);
+        this.check('aircraft respawn parked at an airport when there is one, else as before', site.parked && site.x === 100 && site.z === 50 && !groundSite.parked && !fallback.parked && Number.isFinite(fallback.x));
+      } finally { S.onFoot = keep.foot; Terrain.slope = keep.slope; Net.peers = keep.peers; Net.host = keep.host; W.mission = null; PC.resetUse(); }
+      // the lifecycle: the training motor pool, dying on foot, an ejection under a parachute
+      Game.startSession({ mode: 'training', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+      try {
+        const want = PLAYABLE.filter((id) => PLATFORMS[id].style !== 'infantry');
+        const pool = W.motorPool || [];
+        this.check('training parks every playable vehicle and aircraft to walk to', pool.length === want.length && want.every((id) => pool.some((s) => s.id === id && s.p.parked && !s.p.dead && W.platforms.indexOf(s.p) >= 0)));
+        const airSlot = pool.find((s) => PLATFORMS[s.id].kind === 'air'), airAt = [airSlot.p.x, airSlot.p.y, airSlot.p.z].map((v) => Math.round(v)).join();
+        const car = W.player;
+        Seats.exit(car, null);
+        const walker = W.player, d0 = W.stats.deaths;
+        this.check('the player steps out in training', walker.def.style === 'infantry' && car.parked);
+        walker.takeDamage(1e6, 'kinetic', null, 0, 0);
+        for (let i = 0; i < 3; i++) Game.tick(STEP);
+        this.check('dying on foot counts as a death', walker.dead && W.stats.deaths === d0 + 1);
+        for (let i = 0; i < 60 * 2; i++) Game.tick(STEP);
+        this.check('a player who died on foot redeploys in the hangar pick', W.player.def.id === 'bulwark' && !W.player.dead);
+        this.check('parked aircraft stay where they stand', !airSlot.p.dead && [airSlot.p.x, airSlot.p.y, airSlot.p.z].map((v) => Math.round(v)).join() === airAt, airAt);
+      } finally { Game.quitToMenu(); }
+      Game.startSession({ mode: 'training', platformId: airId, loadout: Loadout.forPlatform(airId), difficulty: 'veteran' });
+      try {
+        const jet = W.player, d0 = W.stats.deaths;
+        jet.y = Water.top(jet.x, jet.z) + 150; jet.invuln = false;
+        holdUse(jet);
+        Game.tick(STEP);
+        const pilot = W.player;
+        this.check('holding Use high in the air ejects under a parachute; the aircraft is lost once', jet.dead && pilot !== jet && pilot.def.style === 'infantry' && pilot.chute && pilot.ejectPilot && W.stats.deaths === d0 + 1);
+        let slowest = 0, landedAt = -1;
+        for (let i = 0; i < 60 * 40 && W.player === pilot; i++) {
+          Game.tick(STEP);
+          slowest = Math.min(slowest, pilot.vy);
+          if (landedAt < 0 && pilot.grounded) landedAt = i;
+        }
+        this.check('the pilot drifts down slowly and lands unhurt', landedAt > 0 && slowest >= -CHUTE_SINK - 0.01 && !pilot.dead && pilot.hp === pilot.maxHp, landedAt + ' ' + slowest);
+        this.check('a new aircraft comes once the pilot is down, with no extra death', W.player !== pilot && W.player.def.id === airId && !W.player.dead && W.stats.deaths === d0 + 1 && W.platforms.indexOf(pilot) < 0);
+      } finally { Game.quitToMenu(); PC.resetUse(); }
+    });
+    t('co-op enter and exit', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, map: Net.map, pend: Net.pendEdge, pendCtl: Net.pendCtl, t: Net.t }, sent = [];
+      try {
+        Net.host = true; Net.guest = false; Net.inSession = true; Net.t = 50;
+        const peer = Net.newPeer();
+        peer.open = peer.hello = true; peer.tx = (s) => sent.push(JSON.parse(s)); peer.pid = 'bulwark'; peer.stats = newStats(); peer.name = 'Ally'; peer.foot = 'civilian';
+        Net.peers = [peer];
+        const sp = findSpawn(0, 0, 300, 30, 0) || { x: 0, z: 0 };
+        const mech = new Platform(PLATFORMS.bulwark, { team: 0, x: sp.x, z: sp.z, yaw: 0, loadout: Loadout.forPlatform('bulwark'), name: 'Ally' });
+        mech.isPlayer = true; mech.netPeer = peer; peer.p = mech; W.platforms.push(mech);
+        Net.sendSnapshots();
+        peer.edges = NET_USE_HOLD; Net.applyCmd(peer);
+        const human = peer.p;
+        this.check('a guest\'s held Use steps out on the host, as the guest\'s On foot choice', human !== mech && human.def === PLATFORMS.civilian && human.netPeer === peer && mech.parked && !mech.netPeer && W.platforms.indexOf(human) >= 0);
+        this.check('the host tells the guest its new body with ctl', sent.some((m) => m.t === 'ctl' && m.pid === human.id));
+        sent.length = 0; Net.sendSnapshots();
+        const spH = sent.find((m) => m.t === 'sp' && m.id === human.id), snap = sent.find((m) => m.t === 's');
+        this.check('sp carries the driver and self flags', !!spH && spH.driver === 1 && spH.self === 1 && !!snap && snap.me.id === human.id);
+        const parkedSp = Net.newPeer(); parkedSp.open = parkedSp.hello = true; const s2 = []; parkedSp.tx = (s) => s2.push(JSON.parse(s)); parkedSp.stats = newStats();
+        Net.peers = [peer, parkedSp]; Net.sendSnapshots(); Net.peers = [peer];
+        const spM = s2.find((m) => m.t === 'sp' && m.id === mech.id);
+        this.check('a parked platform goes out with driver 0', !!spM && spM.driver === 0 && spM.self === 0);
+        sent.length = 0;
+        peer.edges = NET_USE_TAP; Net.applyCmd(peer);
+        this.check('a guest\'s tap gets back in, and the host says so', peer.p === mech && mech.netPeer === peer && !mech.parked && W.platforms.indexOf(human) < 0 && sent.some((m) => m.t === 'ctl' && m.pid === mech.id) && !peer.known.has(human.id));
+        // the guest side: it builds what the host sends and follows ctl
+        const msgSp = (p, self) => ({ t: 'sp', id: p.id, d: p.def.id, team: 0, name: p.name, arch: '', lo: p.loadout, x: r1(p.x), y: r1(p.y), z: r1(p.z), yaw: 0, self, pl: 1, sc: 1, driver: p.parked ? 0 : 1 });
+        const hostMech = mech, hostHuman = human;
+        hostMech.parked = true;
+        const spMech = msgSp(hostMech, 0);
+        hostMech.parked = false;
+        const spHuman = msgSp(hostHuman, 1);
+        newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+        W.mission = null; W.player = null;
+        Net.host = false; Net.guest = true; Net.map = {}; Net.pendCtl = 0; Net.pendEdge = 0;
+        Net.applySpawn(spMech); Net.applySpawn(spHuman);
+        const gMech = Net.map[hostMech.id], gHuman = Net.map[hostHuman.id];
+        this.check('a guest builds a parked platform from driver 0 and takes its own body from self', !!gMech && gMech.parked && W.player === gHuman && gHuman.controller === PC);
+        Seats.tap(gHuman); const tapBits = Net.pendEdge; Net.pendEdge = 0;
+        Seats.hold(gHuman); const holdBits = Net.pendEdge; Net.pendEdge = 0;
+        this.check('a guest only asks: Use goes to the host as tap and hold bits', tapBits === NET_USE_TAP && holdBits === NET_USE_HOLD && W.player === gHuman && gMech.parked);
+        Net.applyCtl({ t: 'ctl', pid: hostMech.id });
+        this.check('ctl moves the guest into the vehicle and the soldier leaves its world', W.player === gMech && gMech.controller === PC && !gHuman.controller && W.platforms.indexOf(gHuman) < 0 && !Net.map[hostHuman.id]);
+        Net.applyCtl({ t: 'ctl', pid: 987654 });
+        const waited = W.player === gMech && Net.pendCtl === 987654;
+        Net.applySpawn(Object.assign(msgSp(hostHuman, 0), { id: 987654 }));
+        this.check('a ctl that arrives before its sp binds once the sp comes', waited && W.player === Net.map[987654] && Net.pendCtl === 0);
+      } finally {
+        Net.host = saved.host; Net.guest = saved.guest; Net.inSession = saved.inSession; Net.peers = saved.peers; Net.map = saved.map; Net.pendEdge = saved.pend; Net.pendCtl = saved.pendCtl; Net.t = saved.t;
+      }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -21987,7 +22412,7 @@ UI.scr_selftest = function (r) {
    Message transport is a per-peer tx() function, so tests can loop back.
    ===================================================================== */
 const SNAP_PLATS = 44;    // platforms per snapshot (message size)
-const NET_VERSION = 5;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz')
+const NET_VERSION = 6;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -22000,7 +22425,7 @@ const ICE_STUN = [{ urls: 'stun:stun.l.google.com:19302' }];
 const Net = {
   supported: typeof RTCPeerConnection !== 'undefined',
   host: false, guest: false, inSession: false, peers: [], hostPeer: null, useStun: false, t: 0, nextPeerId: 1, maxPeers: 3,
-  name: 'Pilot', missionId: 'm1', status: '', seq: 0, inSeq: 0, snapAcc: 0, obAcc: 0, stAcc: 0, inAcc: 0, beatAcc: 0, pendEdge: 0,
+  name: 'Pilot', missionId: 'm1', status: '', seq: 0, inSeq: 0, pendCtl: 0, snapAcc: 0, obAcc: 0, stAcc: 0, inAcc: 0, beatAcc: 0, pendEdge: 0,
   dirty: new Set(), map: {}, projMap: {}, lastSnapSeq: 0, snapT: 0, lobbyView: null, myId: 0, inviteText: '', joined: false, onChange: null,
   get active() { return this.host || this.guest; },
   changed() { if (this.onChange) this.onChange(); },
@@ -22010,7 +22435,7 @@ const Net = {
     const p = {
       id: this.nextPeerId++, name: 'Pilot', pid: 'bulwark', loadout: null, ready: false, open: false, hello: false, rel: null, unr: null, pc: null,
       lastRecv: this.t, known: new Set(), p: null, lives: 3, respawnT: 0, deathHandled: false, protectT: 0, inp: null, edges: 0, lastInT: -1,
-      code: '', replyText: '', slot: 0, stats: null, resupplies: 0,
+      code: '', replyText: '', slot: 0, stats: null, resupplies: 0, foot: 'infantry',
     };
     p.tx = (str, reliable) => { const ch = reliable ? p.rel : p.unr; if (ch && ch.readyState === 'open') ch.send(str); };
     return p;
@@ -22129,6 +22554,7 @@ const Net = {
           peer.loadout = lo;
         }
         peer.ready = !!m.ready;
+        peer.foot = m.foot === 'civilian' ? 'civilian' : 'infantry';   // who the guest becomes on foot
         this.sendLobby();
         break;
       case 'in': this.hostInput(peer, m); break;
@@ -22147,6 +22573,7 @@ const Net = {
       case 's': this.applySnapshot(m); break;
       case 'hz': if (W) Hazards.apply(m); break;
       case 'sp': this.applySpawn(m); break;
+      case 'ctl': if (W) this.applyCtl(m); break;
       case 'ob': this.applyObjectives(m); break;
       case 'st': this.applyStructs(m); break;
       case 'x': if (W) explode(numIn(m.x, -3000, 3000), numIn(m.y, -500, 3000), numIn(m.z, -3000, 3000), numIn(m.r, 1, 40, 4), 0, 'explosive', null); break;
@@ -22180,7 +22607,7 @@ const Net = {
   sendLobbyState(ready) {
     if (!this.hostPeer) return;
     const pid = Save.data.platformId;
-    this.send(this.hostPeer, { t: 'lobby', pid, lo: Loadout.forPlatform(pid), ready: !!this.myReady });
+    this.send(this.hostPeer, { t: 'lobby', pid, lo: Loadout.forPlatform(pid), ready: !!this.myReady, foot: S.onFoot });
   },
   toggleReady() { this.myReady = !this.myReady; this.sendLobbyState(); this.changed(); },
   dropPeer(peer, why) {
@@ -22244,8 +22671,11 @@ const Net = {
   /* first deployment beside the host by slot; respawns pass a forward position */
   spawnFor(peer, pos) {
     const st = Game.mission.def.start, def = PLATFORMS[peer.pid], old = peer.p;
+    if (old && !old.dead) W.platforms = W.platforms.filter((q) => q !== old);   // a pilot on foot redeploys
+    const parkedAir = def.kind === 'air' && pos && pos.parked;
     const x = pos ? pos.x : st.x + peer.slot * 14, z = pos ? pos.z : st.z + (peer.slot % 2 ? 12 : -12), yaw = pos ? pos.yaw : st.yaw;
     const p = new Platform(def, { team: 0, x, z, yaw, loadout: peer.loadout, name: peer.name, y: def.kind === 'air' ? Terrain.h(x, z) + 160 : undefined });
+    if (parkedAir) Seats.groundAir(p);
     if (def.kind !== 'air' && groundBlocked(p.x, p.z, p.radius + 1)) {
       const sp = findSpawn(x, z, 40, p.radius, 0);
       if (sp) { p.x = sp.x; p.z = sp.z; p.y = Terrain.h(sp.x, sp.z); }
@@ -22301,15 +22731,24 @@ const Net = {
     for (const peer of this.peers) {
       if (!peer.hello || !peer.p) continue;
       const p = peer.p;
-      if (p.dead) {
+      if (p.dead) {   // as Game.tick for the host's own player
         if (!peer.deathHandled) {
-          peer.deathHandled = true; peer.lives--; peer.respawnT = p.withdrew ? EJECT_RESPAWN : RESPAWN_TIME;
-          peer.stats.deaths++; W.stats.teamDeaths++;   // every lost platform counts, withdrawals included
-          if (p.withdrew) { peer.stats.withdrawals++; W.stats.teamWithdrawals++; }
-          if (peer.lives <= 0) peer.respawnT = 1e9;
+          peer.deathHandled = true;
+          if (!p.ejectPilot) {
+            peer.lives--; peer.respawnT = p.withdrew ? EJECT_RESPAWN : RESPAWN_TIME;
+            peer.stats.deaths++; W.stats.teamDeaths++;   // every lost platform counts, withdrawals included
+            if (p.withdrew) { peer.stats.withdrawals++; W.stats.teamWithdrawals++; }
+            if (peer.lives <= 0) peer.respawnT = 1e9;
+          }
+          if (p.ejected) Seats.ejectPilot(p, peer);
         }
+        if (peer.p.dead) {
+          peer.respawnT -= dt;
+          if (peer.respawnT <= 0 && peer.lives > 0) this.spawnFor(peer, respawnSite(PLATFORMS[peer.pid]));
+        }
+      } else if (p.ejectPilot && peer.lives > 0) {
         peer.respawnT -= dt;
-        if (peer.respawnT <= 0 && peer.lives > 0) this.spawnFor(peer, forwardSpawn(Game.mission.def.start, PLATFORMS[peer.pid].radius, PLATFORMS[peer.pid].kind === 'air'));
+        if (peer.respawnT <= 0 && p.grounded && !p.chute) this.spawnFor(peer, respawnSite(PLATFORMS[peer.pid]));
       } else if (peer.protectT > 0) { peer.protectT -= dt; if (peer.protectT <= 0) p.invuln = false; }
       this.applyCmd(peer);
     }
@@ -22350,7 +22789,7 @@ const Net = {
     this.sendLobby();
   },
   platEntry(p) {
-    const f = (p.shieldOn ? 1 : 0) | (p.jetting ? 2 : 0) | (p.afterburner ? 4 : 0) | (p.gear ? 8 : 0) | (p.crouch ? 16 : 0) | (p.boosting ? 32 : 0) | (p.telegraph > 0 ? 64 : 0) | (p.grounded ? 128 : 0) | (p.meleeT > 0 ? 256 : 0) | (p.activeSlot === 'primaryB' ? 512 : 0);
+    const f = (p.shieldOn ? 1 : 0) | (p.jetting ? 2 : 0) | (p.afterburner ? 4 : 0) | (p.gear ? 8 : 0) | (p.crouch ? 16 : 0) | (p.boosting ? 32 : 0) | (p.telegraph > 0 ? 64 : 0) | (p.grounded ? 128 : 0) | (p.meleeT > 0 ? 256 : 0) | (p.activeSlot === 'primaryB' ? 512 : 0) | (p.parked ? 1024 : 0) | (p.chute ? 2048 : 0);
     return [p.id, r1(p.x), r1(p.y), r1(p.z), r2(p.yaw), r2(p.pitch), r2(p.roll), r2(p.torsoYaw), r2(p.torsoPitch), r2(p.hp / p.maxHp), r1(p.speed), f];
   },
   selfState(peer) {
@@ -22365,7 +22804,7 @@ const Net = {
       as: SLOT_ORDER.indexOf(p.activeSlot), u: p.util ? [p.util.charges, r1(p.util.cd), p.util.auto ? 1 : 0] : null,
       lk: [LOCK_STATES.indexOf(L.state), r2(L.progress), L.reason || '', L.target && !L.target.isStruct ? L.target.id : 0],
       th: r2(p.throttle), g: p.gear ? 1 : 0, gr: p.grounded ? 1 : 0, ab: p.afterburner ? 1 : 0, stl: p.stalled ? 1 : 0, wn: p.warn || '', bl: r2(p.beingLocked), sm: p.swimming ? 1 : 0,
-      inc: [inc.count, inc.count ? Math.round(inc.dist) : 0], cr: p.crouch ? 1 : 0, rf: p.radarFocus ? 1 : 0, abk: p.airbrake ? 1 : 0, lv: peer.lives, rs: 0,
+      inc: [inc.count, inc.count ? Math.round(inc.dist) : 0], cr: p.crouch ? 1 : 0, rf: p.radarFocus ? 1 : 0, abk: p.airbrake ? 1 : 0, lv: peer.lives, rs: p.ejectPilot ? r1(Math.max(0, peer.respawnT)) : 0, ep: p.ejectPilot ? 1 : 0,
       k: [peer.stats.kills, peer.stats.score, peer.stats.deaths, peer.stats.bestStreak], rc: peer.resupplies, sw: p.sw ? r2(p.sw.charge) : -1, tp: p.target ? 1 : 0, ej: 0,
     };
   },
@@ -22383,7 +22822,7 @@ const Net = {
       for (const p of W.platforms) {
         if (p.dead || peer.known.has(p.id)) continue;
         peer.known.add(p.id);
-        this.send(peer, { t: 'sp', id: p.id, d: p.def.id, team: p.team, name: p.name, arch: p.arch || '', lo: p.loadout, x: r1(p.x), y: r1(p.y), z: r1(p.z), yaw: r2(p.yaw), self: p === peer.p ? 1 : 0, pl: p.isPlayer ? 1 : 0, sc: r2(p.scale) });
+        this.send(peer, { t: 'sp', id: p.id, d: p.def.id, team: p.team, name: p.name, arch: p.arch || '', lo: p.loadout, x: r1(p.x), y: r1(p.y), z: r1(p.z), yaw: r2(p.yaw), self: p === peer.p ? 1 : 0, pl: p.isPlayer ? 1 : 0, sc: r2(p.scale), driver: p.parked ? 0 : 1 });
       }
       base.me = this.selfState(peer);
       this.send(peer, base, false);
@@ -22415,7 +22854,7 @@ const Net = {
   /* ---------- guest: building the mirrored world and applying updates ---------- */
   guestStart(m) {
     if (!m.cfg || !MISSION_BY_ID[m.cfg.missionId]) { this.leave('Unknown mission from host'); return; }
-    this.inSession = true; this.map = {}; this.projMap = {}; this.lastSnapSeq = 0; this.snapT = 0; this.inAcc = 0; this.beatAcc = 0; this.t = 0;
+    this.inSession = true; this.map = {}; this.projMap = {}; this.lastSnapSeq = 0; this.snapT = 0; this.inAcc = 0; this.beatAcc = 0; this.t = 0; this.pendCtl = 0;
     Game.cfg = null;
     if (!Game.startSession(m.cfg, true)) { this.leave('Could not start the mission'); return; }
     if (W.structs.length !== m.ns) this.leave('World mismatch with host (' + W.structs.length + ' vs ' + m.ns + ')');
@@ -22430,15 +22869,32 @@ const Net = {
     if (m.lo && typeof m.lo.strategic === 'string' && SUPERS[m.lo.strategic]) lo.strategic = m.lo.strategic;
     const p = new Platform(def, { team: numIn(m.team, 0, 2), x: m.x, z: m.z, yaw: m.yaw, y: m.y, loadout: lo, name: String(m.name).substring(0, 16), arch: m.arch || null });
     p.id = m.id; p.isPlayer = !!m.pl; p.y = m.y; p.nx = m.x; p.ny = m.y; p.nz = m.z; p.nyaw = m.yaw; p.npitch = 0; p.nroll = 0; p.nty = m.yaw; p.ntp = 0;
-    p.netInit = true; p.seen = this.t; p.speedMult = 1;
+    p.netInit = true; p.seen = this.t; p.speedMult = 1; p.parked = m.driver === 0;
     const sc = numIn(m.sc, 0.1, 3, 1);
     if (sc !== 1) { p.scale = sc; p.radius = def.radius * sc; p.height = def.height * sc; }
     this.map[m.id] = p;
     W.platforms.push(p);
-    if (m.self) {
-      p.name = 'YOU'; p.controller = PC; p.cmd.aimYaw = m.yaw; p.flightMode = S.flightMode;
-      W.player = p; Cam.reset(p); PC.hadTarget = false;
-    }
+    if (m.self || (this.pendCtl && m.id === this.pendCtl)) this.bindLocal(p);
+  },
+  /* the host moved our control to another body (we entered, stepped out or ejected) */
+  applyCtl(m) {
+    const p = this.map[m.pid | 0];
+    if (p) this.bindLocal(p); else this.pendCtl = m.pid | 0;   // its 'sp' is on the way
+  },
+  bindLocal(p) {
+    const old = W.player;
+    this.pendCtl = 0;
+    if (old === p) return;
+    if (old) {
+      old.controller = null; old.name = old.def.name;
+      if (!old.dead && old.def.style === 'infantry' && p.def.style !== 'infantry') {   // the soldier climbed in: gone from the world
+        W.platforms = W.platforms.filter((q) => q !== old); delete this.map[old.id];
+      }
+      p.cmd.aimYaw = old.cmd.aimYaw; p.cmd.aimPitch = old.cmd.aimPitch;
+    } else p.cmd.aimYaw = p.yaw;
+    p.name = 'YOU'; p.controller = PC; p.flightMode = S.flightMode; p.parked = false;
+    W.player = p; PC.hadTarget = false;
+    if (!old) Cam.reset(p);
   },
   /* the host went back to the lobby: drop the mirrored world, keep the connection */
   guestLobby() {
@@ -22477,6 +22933,7 @@ const Net = {
       const f = e[11] | 0;
       p.shieldOn = !!(f & 1); p.jetting = !!(f & 2); p.afterburner = !!(f & 4); p.gear = !!(f & 8); p.crouch = !!(f & 16); p.boosting = !!(f & 32);
       p.telegraph = (f & 64) ? 0.3 : 0; p.grounded = !!(f & 128); p.meleeT = (f & 256) ? 0.2 : 0; p.activeSlot = (f & 512) ? 'primaryB' : 'primaryA';
+      p.parked = !!(f & 1024); p.chute = !!(f & 2048);
       if (p.shieldOn && p.maxShield > 0) p.shield = p.maxShield * 0.6;
     }
     // projectiles
@@ -22512,7 +22969,7 @@ const Net = {
     if (sc !== p.scale) { p.scale = sc; p.radius = p.def.radius * sc; p.height = p.def.height * sc; }
   },
   applySelf(me) {
-    const gp = W.player;
+    let gp = W.player;
     W.lives = me.lv; Game.respawnT = me.rs || 0;
     if (me.dead) {
       if (!gp) return;
@@ -22520,8 +22977,12 @@ const Net = {
       gp.killedBy = Array.isArray(me.kb) ? { name: String(me.kb[0]).substring(0, 24), dist: Math.max(0, Math.round(Number(me.kb[1]) || 0)) } : null;
       return;
     }
-    if (!gp || gp.id !== me.id) return;
-    gp.dead = false;
+    if (!gp || gp.id !== me.id) {   // a lost 'ctl': the snapshot names the body we control
+      const q = this.map[me.id | 0];
+      if (!q) return;
+      this.bindLocal(q); gp = q;
+    }
+    gp.dead = false; gp.ejectPilot = !!me.ep;
     gp.hp = me.hp; gp.armor = me.ar; gp.shield = me.sh; gp.shieldOn = !!me.so; gp.shieldBroken = me.sb; gp.energy = me.en; gp.energyLock = !!me.el; gp.heat = me.ht; gp.overheated = !!me.ov;
     gp.sub.weapons = me.sub[0]; gp.sub.mobility = me.sub[1]; gp.sub.sensors = me.sub[2];
     SLOT_ORDER.forEach((s, i) => { const w = gp.wslots[s], a = me.w[i]; if (w && a) { w.clip = a[0]; w.reserve = a[1]; w.cd = a[2]; w.reloading = a[3]; w.charge = a[4]; } });
@@ -22825,7 +23286,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, SCENERY, Scenery, skirmishLayout, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, mapDef, SCENERY, Scenery, skirmishLayout, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
