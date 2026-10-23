@@ -186,7 +186,7 @@ const MapGen = {
   longLineAt(map, scan, n, limit, hit) {
     const x = MapScan.nodeX(scan, n), z = MapScan.nodeZ(scan, n), y = scan.nodeY[n];
     for (const [dx, dz] of MAPGEN_RING) {               // the validator's 16 directions (MAP_SIGHT_DIRECTIONS), from the fixed table
-      const free = Math.min(MapScan.rayLength(scan, x, y + MAP_EYE, z, dx, dz, limit + 1, hit), MapCheck.exitDistance(map, x, z, dx, dz));
+      const free = Math.min(MapScan.rayLength(scan, x, y + STAND_EYE, z, dx, dz, limit + 1, hit), MapCheck.exitDistance(map, x, z, dx, dz));
       if (free > limit) return { x, y, z, dx, dz };
     }
     return null;
@@ -194,7 +194,7 @@ const MapGen = {
   blocksLine(pillar, line, limit) {
     const along = (pillar.x - line.x) * line.dx + (pillar.z - line.z) * line.dz;
     const across = Math.abs((pillar.x - line.x) * line.dz - (pillar.z - line.z) * line.dx);
-    return along > 0 && along < limit && across < MAPGEN_PILLAR_SIZE / 2 && pillar.top > line.y + MAP_EYE;
+    return along > 0 && along < limit && across < MAPGEN_PILLAR_SIZE / 2 && pillar.top > line.y + STAND_EYE;
   },
   // A free spot on the line, away from other geometry so the pillar never narrows a passage below the 1.4 m door width.
   pillarFor(map, line, limit, added, settings) {

@@ -17,7 +17,6 @@ const TIME_WARNINGS = [300, 60, 30, 10];
 const SPAWN_ENEMY_RADIUS = 12;         // MAP-010: reject a spawn with an enemy this close
 const SPAWN_SIGHT_RADIUS = 25;         // MAP-010: ... or with an enemy in line of sight within this range
 const SPAWN_CAPSULE_RADIUS = 2 * ACTOR_RADIUS;   // two capsule radii (DATA-003): closer means spawning inside an actor
-const SPAWN_CAPSULE_HEIGHT = STAND_HEIGHT;
 const SPAWN_EYE_HEIGHT = STAND_EYE;
 const SPAWN_ENEMY_CAP = 60;            // enemies farther than this add no more preference
 const SPAWN_TEAMMATE_WEIGHT = 0.5;     // team modes prefer spawns near teammates (MAP-010)
@@ -335,7 +334,7 @@ const Modes = {
   rateAgainst(id, other, point) {
     const dx = Actors.x[other] - point.x, dy = Actors.y[other] - point.y, dz = Actors.z[other] - point.z;
     const flat = length2(dx, dz);
-    if (flat < SPAWN_CAPSULE_RADIUS && Math.abs(dy) < SPAWN_CAPSULE_HEIGHT) spawnRating.occupied = true;
+    if (flat < SPAWN_CAPSULE_RADIUS && Math.abs(dy) < STAND_HEIGHT) spawnRating.occupied = true;
     if (!Actors.isEnemy(id, other)) { spawnRating.nearestMate = Math.min(spawnRating.nearestMate, flat); return; }
     const distance = length2(flat, dy);
     spawnRating.nearestEnemy = Math.min(spawnRating.nearestEnemy, distance);

@@ -15,16 +15,10 @@
 const NAV_FINE = 0.5;                  // raster spacing (m): fine enough that a 1.6 m doorway always holds a standable column
 const NAV_RASTER_BLOCK = 8;            // raster columns that share one brush gather
 const NAV_CELL_SAMPLES = 4;            // raster columns per node cell side (one node per 2 m cell and surface)
-const NAV_RADIUS = ACTOR_RADIUS;       // DATA-003 capsule radius, heights, step and slope (S01)
-const NAV_STAND_HEIGHT = STAND_HEIGHT;
-const NAV_CROUCH_HEIGHT = CROUCH_HEIGHT;
-const NAV_STEP = STEP_HEIGHT;
-const NAV_MAX_SLOPE = MAX_SLOPE;
-const NAV_MIN_FLOOR_NORMAL = WALKABLE_NORMAL_Y;
 const NAV_OPEN_RADIUS = 0.6;           // a walk passing only samples with this much free space around them needs no line test:
                                        // every point of its chest line is within 0.48 m of such a sample
 const NAV_EDGE_MARGIN = 0.25;          // a sample keeps this much footing around its centre (capsule over a ledge)
-const NAV_COLUMN_RISE = Math.max(NAV_STEP, NAV_FINE * Math.tan(NAV_MAX_SLOPE)) + 0.02; // height change between neighbouring columns: a step or a 45 deg ramp
+const NAV_COLUMN_RISE = Math.max(STEP_HEIGHT, NAV_FINE * Math.tan(MAX_SLOPE)) + 0.02; // height change between neighbouring columns: a step or a 45 deg ramp
 const NAV_SCAN_STEP = NAV_FINE / 2;    // raster walk step: never skips a column
 const NAV_INSIDE_EPSILON = 0.01;       // a point this deep inside a brush is buried (a surface covered by another brush)
 const NAV_SURFACE_PROBE = 0.05;        // probe this far above a top face to see whether another brush covers it
@@ -42,11 +36,11 @@ const NAV_JUMP_MARGIN = 0.15;          // a jump must clear the highest obstacle
 const NAV_SWIM_DEPTH = 1.2;            // swimmer feet this far under the surface keep the head above water (eye 1.62)
 const NAV_WATER_PROBE = 0.5;           // a sample is wet when this point above its feet is inside a water volume
 const NAV_WATER_EXIT_RISE = NAV_SWIM_DEPTH + 0.5; // a swimmer climbs out onto a bank this high above its feet without a jump
-const NAV_DEEP_FLOOR = NAV_SWIM_DEPTH + NAV_STEP; // a floor this far under the water surface is no walk node: the actor swims above it
-const NAV_RIM_PROBE = NAV_STEP + 0.05;   // a swim exit needs a bank face at this height above the swimmer's feet (S10 findLedge knee ray)
+const NAV_DEEP_FLOOR = NAV_SWIM_DEPTH + STEP_HEIGHT; // a floor this far under the water surface is no walk node: the actor swims above it
+const NAV_RIM_PROBE = STEP_HEIGHT + 0.05;   // a swim exit needs a bank face at this height above the swimmer's feet (S10 findLedge knee ray)
 // Jump checks also run this far to each side of the line (the capsule's width). 5 cm under the radius: nodes stand a
 // full radius from walls, so a line at the radius would graze the wall beside every wall-hugging jump and refuse it.
-const NAV_SWEEP_OFFSET = NAV_RADIUS - 0.05;
+const NAV_SWEEP_OFFSET = ACTOR_RADIUS - 0.05;
 const NAV_BAND_BELOW = 0.6;            // height band for finding the node at a trigger's floor
 const NAV_BAND_ABOVE = 1.0;
 const NAV_LADDER_TOP_BAND = 1.6;       // the ladder's top node may sit this far below the volume top
@@ -316,7 +310,7 @@ function navBuildBrushGrid() {
   const grid = navBrushGrid, brushes = World.brushes;
   BrushGrid.build(grid, brushes, NAV_BRUSH_CELL, World.boundsMin.x, World.boundsMin.z, World.boundsMax.x, World.boundsMax.z);
   grid.topPlane = Int32Array.from(brushes, navTopPlaneIndex);
-  grid.walkable = Uint8Array.from(brushes, (brush, index) => (brush.planes[grid.topPlane[index] * 4 + 1] >= NAV_MIN_FLOOR_NORMAL ? 1 : 0));
+  grid.walkable = Uint8Array.from(brushes, (brush, index) => (brush.planes[grid.topPlane[index] * 4 + 1] >= WALKABLE_NORMAL_Y ? 1 : 0));
 }
 
 // The plane facing most upward is the brush top (box top or ramp slope).
@@ -406,7 +400,7 @@ function navHasFootingGathered(x, y, z) {
   const count = navBrushGrid.foundCount;
   for (let k = 0; k < count; k++) {
     const brushIndex = navBrushGrid.found[k];
-    if (navBrushGrid.walkable[brushIndex] && Math.abs(navTopAt(brushIndex, x, z) - y) <= NAV_STEP) return true;
+    if (navBrushGrid.walkable[brushIndex] && Math.abs(navTopAt(brushIndex, x, z) - y) <= STEP_HEIGHT) return true;
   }
   return false;
 }
@@ -509,10 +503,10 @@ function navFootprintHolds(brushIndex, x, z) {
 // Flags for how the capsule fits (0 = standing in open space), -1 when it does not fit at all. The boxes start a step
 // above the feet: steps and 45 deg slopes under the capsule never block. One wide box settles most samples.
 function navFitFlags(x, y, z) {
-  const open = NAV_OPEN_RADIUS, radius = NAV_RADIUS, bottom = y + NAV_STEP;
-  if (!navBoxBlockedGathered(x - open, bottom, z - open, x + open, y + NAV_STAND_HEIGHT, z + open)) return 0;
-  if (!navBoxBlockedGathered(x - radius, bottom, z - radius, x + radius, y + NAV_STAND_HEIGHT, z + radius)) return NAV_NODE.NARROW;
-  if (!navBoxBlockedGathered(x - radius, bottom, z - radius, x + radius, y + NAV_CROUCH_HEIGHT, z + radius)) return NAV_NODE.NARROW | NAV_NODE.CROUCH;
+  const open = NAV_OPEN_RADIUS, radius = ACTOR_RADIUS, bottom = y + STEP_HEIGHT;
+  if (!navBoxBlockedGathered(x - open, bottom, z - open, x + open, y + STAND_HEIGHT, z + open)) return 0;
+  if (!navBoxBlockedGathered(x - radius, bottom, z - radius, x + radius, y + STAND_HEIGHT, z + radius)) return NAV_NODE.NARROW;
+  if (!navBoxBlockedGathered(x - radius, bottom, z - radius, x + radius, y + CROUCH_HEIGHT, z + radius)) return NAV_NODE.NARROW | NAV_NODE.CROUCH;
   return -1;
 }
 
@@ -521,7 +515,7 @@ function navTrySwimSamples(x, z, heights, flags, first) {
   for (let i = 0; i < navVolumes.water.length; i++) {
     const water = navVolumes.water[i], feet = water.maxY - NAV_SWIM_DEPTH;
     if (x < water.minX || x > water.maxX || z < water.minZ || z > water.maxZ || feet < water.minY) continue;
-    if (navColumnHasBetween(heights, first, feet - NAV_STEP, water.maxY)) continue;
+    if (navColumnHasBetween(heights, first, feet - STEP_HEIGHT, water.maxY)) continue;
     navTrySample(x, feet, z, heights, flags, first, NAV_NODE.WATER, -1);
   }
 }
@@ -625,7 +619,7 @@ function navAddClusterNodes(builder, samples, cellI, cellJ) {
 function navFlatFullCell(samples) {
   if (samples.length !== NAV_CELL_SAMPLES * NAV_CELL_SAMPLES) return false;
   const y = navRaster.sampleY[samples[0]];
-  return samples.every((sample) => Math.abs(navRaster.sampleY[sample] - y) <= NAV_STEP);
+  return samples.every((sample) => Math.abs(navRaster.sampleY[sample] - y) <= STEP_HEIGHT);
 }
 
 function navBestSample(samples, centreX, centreZ) {
@@ -832,7 +826,7 @@ function navLinkAir(builder, a, b) {
 // Walk, crouch or swim link both ways. Nothing walks out of a jump pad or teleporter (it launches you first).
 function navTryWalk(builder, a, b) {
   const distance = Math.sqrt(navHorizontalSquared(a, b)), rise = Math.abs(Nav.nodeY[b] - Nav.nodeY[a]);
-  if (distance > NAV_WALK_RADIUS || rise > distance * Math.tan(NAV_MAX_SLOPE) + NAV_STEP) return false;
+  if (distance > NAV_WALK_RADIUS || rise > distance * Math.tan(MAX_SLOPE) + STEP_HEIGHT) return false;
   const forward = navScan(Nav.nodeSample[a], Nav.nodeX[b], Nav.nodeZ[b], Nav.nodeSample[b]);
   if (forward < 0) return false;
   const backward = (forward | Nav.nodeFlags[b]) & NAV_NODE.TRIGGER ? navScan(Nav.nodeSample[b], Nav.nodeX[a], Nav.nodeZ[a], Nav.nodeSample[a]) : forward;
@@ -852,7 +846,7 @@ function navTryAir(builder, from, to, highestBetween) {
   const lift = Math.max(highestBetween, Nav.nodeY[to]) - Nav.nodeY[from], type = navAirType(from, rise, lift);
   const height = type === NAV_LINK.DROP ? -rise : type === NAV_LINK.SWIM ? 0 : lift + NAV_JUMP_MARGIN;
   if (type === NAV_LINK.JUMP && height > limits.jumpUp) return;
-  if (type === NAV_LINK.SWIM && rise > NAV_STEP && !navHasRim(from, to)) return;
+  if (type === NAV_LINK.SWIM && rise > STEP_HEIGHT && !navHasRim(from, to)) return;
   const apex = Nav.nodeY[from] + (type === NAV_LINK.JUMP ? height : Math.max(0, lift));
   if (!navArcClear(from, to, apex)) return;
   const fallSeconds = type === NAV_LINK.DROP ? Math.sqrt(2 * height / limits.gravity) : 0;
@@ -874,7 +868,7 @@ function navHasRim(from, to) {
 
 function navAirType(from, rise, lift) {
   if ((Nav.nodeFlags[from] & NAV_NODE.WATER) && lift <= NAV_WATER_EXIT_RISE) return NAV_LINK.SWIM;
-  if (lift <= NAV_STEP && rise < -NAV_STEP) return NAV_LINK.DROP;
+  if (lift <= STEP_HEIGHT && rise < -STEP_HEIGHT) return NAV_LINK.DROP;
   return NAV_LINK.JUMP;
 }
 
@@ -895,7 +889,7 @@ const navBand = { limit: 0, wallBelow: 0 };
 function navJumpBand(a, b) {
   const base = Math.max(Nav.nodeY[a], Nav.nodeY[b]);
   navBand.limit = base + Nav.limits.jumpUp + NAV_JUMP_MARGIN;
-  navBand.wallBelow = base + NAV_STAND_HEIGHT;
+  navBand.wallBelow = base + STAND_HEIGHT;
   return navBand;
 }
 // True when a gathered brush could be a wall for a jump between a and b (its box reaches above the jump and below head
@@ -950,7 +944,7 @@ function navLinkLadder(builder, trigger) {
   const x = navVolumeCentreX(trigger), z = navVolumeCentreZ(trigger), top = trigger.max[1];
   const bottomNode = navFloorNodeOf(trigger);
   const topNode = navSearchNodes(x, top, z, top - NAV_LADDER_TOP_BAND, top + NAV_BAND_ABOVE, NAV_TRIGGER_REACH, false);
-  if (bottomNode < 0 || topNode < 0 || Nav.nodeY[topNode] - Nav.nodeY[bottomNode] <= NAV_STEP) return;
+  if (bottomNode < 0 || topNode < 0 || Nav.nodeY[topNode] - Nav.nodeY[bottomNode] <= STEP_HEIGHT) return;
   if (!navSegmentClear(x, Nav.nodeY[bottomNode] + NAV_CHEST, z, x, Nav.nodeY[topNode] + NAV_CHEST, z)) return;
   const climb = Nav.nodeY[topNode] - Nav.nodeY[bottomNode];
   const seconds = climb / Nav.limits.ladderSpeed + navLinkSeconds(NAV_LINK.LADDER, Math.sqrt(navHorizontalSquared(bottomNode, topNode)));
@@ -1124,13 +1118,13 @@ function navBestCover(node, best) {
 }
 
 function navNearWall(node) {
-  const x = Nav.nodeX[node], y = Nav.nodeY[node], z = Nav.nodeZ[node], reach = NAV_RADIUS + NAV_COVER_WALL;
+  const x = Nav.nodeX[node], y = Nav.nodeY[node], z = Nav.nodeZ[node], reach = ACTOR_RADIUS + NAV_COVER_WALL;
   navGatherBrushes(x - reach, z - reach, x + reach, z + reach);
-  return navBoxBlockedGathered(x - reach, y + NAV_STEP, z - reach, x + reach, y + NAV_HEAD, z + reach);
+  return navBoxBlockedGathered(x - reach, y + STEP_HEIGHT, z - reach, x + reach, y + NAV_HEAD, z + reach);
 }
 
 function navCoverKind(node, dx, dz) {
-  const x = Nav.nodeX[node], y = Nav.nodeY[node], z = Nav.nodeZ[node], reach = NAV_RADIUS + NAV_COVER_WALL;
+  const x = Nav.nodeX[node], y = Nav.nodeY[node], z = Nav.nodeZ[node], reach = ACTOR_RADIUS + NAV_COVER_WALL;
   if (navSegmentClear(x, y + NAV_COVER_LOW_HEIGHT, z, x + dx * reach, y + NAV_COVER_LOW_HEIGHT, z + dz * reach)) return NAV_COVER.NONE;
   if (!navSegmentClear(x, y + NAV_CHEST, z, x - dx * NAV_COVER_OPEN, y + NAV_CHEST, z - dz * NAV_COVER_OPEN)) return NAV_COVER.NONE;
   return navSegmentClear(x, y + NAV_HEAD, z, x + dx * reach, y + NAV_HEAD, z + dz * reach) ? NAV_COVER.LOW : NAV_COVER.FULL;

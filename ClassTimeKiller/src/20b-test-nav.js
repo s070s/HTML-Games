@@ -94,10 +94,8 @@ Test.add('nav', (check) => {
   Actors.reset(0);
   check('body: stance heights and eyes come from S01', STANCE_HEIGHT.join() === [STAND_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT].join() && STANCE_EYE.join() === [STAND_EYE, CROUCH_EYE, PRONE_EYE].join()
     && Actors.height[0] === Math.fround(STAND_HEIGHT) && Actors.eye[0] === Math.fround(STAND_EYE));
-  check('body: nav sizes are the S01 ones', NAV_RADIUS === ACTOR_RADIUS && NAV_STAND_HEIGHT === STAND_HEIGHT && NAV_CROUCH_HEIGHT === CROUCH_HEIGHT && NAV_STEP === STEP_HEIGHT
-    && NAV_MAX_SLOPE === MAX_SLOPE && NAV_MIN_FLOOR_NORMAL === WALKABLE_NORMAL_Y);
-  check('body: spawns and map checks use the S01 sizes', SPAWN_CAPSULE_HEIGHT === STAND_HEIGHT && SPAWN_CAPSULE_RADIUS === 2 * ACTOR_RADIUS && SPAWN_EYE_HEIGHT === STAND_EYE
-    && MAP_STEP === STEP_HEIGHT && MAP_EYE === STAND_EYE);
+  check('body: nav, spawns and map checks keep no copies of the S01 sizes', typeof NAV_STEP + typeof NAV_RADIUS + typeof MAP_STEP + typeof MAP_EYE === 'undefined'.repeat(4)
+    && SPAWN_CAPSULE_RADIUS === 2 * ACTOR_RADIUS && SPAWN_EYE_HEIGHT === STAND_EYE);
   check('body: nav ladder and swim links use the S10 speeds', Nav.limits.ladderSpeed === LADDER_SPEED && NAV_LINK_ROWS[NAV_LINK.SWIM].speedFactor === SWIM_SPEED_FRACTION);
 });
 
@@ -121,8 +119,8 @@ Test.add('nav', (check) => {
 function navTestNodesClearOfWall() {
   for (let node = 0; node < Nav.nodeCount; node++) {
     const x = Nav.nodeX[node], z = Nav.nodeZ[node];
-    const inDoor = x - NAV_RADIUS >= 1.2 && x + NAV_RADIUS <= 2.8;
-    if (!inDoor && Math.abs(z) < 0.15 + NAV_RADIUS) return false;
+    const inDoor = x - ACTOR_RADIUS >= 1.2 && x + ACTOR_RADIUS <= 2.8;
+    if (!inDoor && Math.abs(z) < 0.15 + ACTOR_RADIUS) return false;
   }
   return true;
 }
@@ -132,7 +130,7 @@ function navTestPathCrossesDoor(length) {
     const from = Nav.pathNodes[i], to = Nav.pathNodes[i + 1];
     if (Math.sign(Nav.nodeZ[from]) === Math.sign(Nav.nodeZ[to])) continue;
     const t = Nav.nodeZ[from] / (Nav.nodeZ[from] - Nav.nodeZ[to]), x = Nav.nodeX[from] + (Nav.nodeX[to] - Nav.nodeX[from]) * t;
-    if (x < 1.2 + NAV_RADIUS - 0.05 || x > 2.8 - NAV_RADIUS + 0.05) return false;
+    if (x < 1.2 + ACTOR_RADIUS - 0.05 || x > 2.8 - ACTOR_RADIUS + 0.05) return false;
   }
   return true;
 }
@@ -363,7 +361,7 @@ Test.add('nav', (check) => {
   check('water: path into the pool ends swimming', into.length > 0 && into[into.length - 1] === NAV_LINK.SWIM, into.join(','));
   check('water: swimmer climbs out without a jump', out.length > 0 && !out.includes(NAV_LINK.JUMP), out.join(','));
   let floorNodes = 0;
-  for (let node = 0; node < Nav.nodeCount; node++) if (Nav.nodeY[node] < surface - NAV_STEP) floorNodes++;
+  for (let node = 0; node < Nav.nodeCount; node++) if (Nav.nodeY[node] < surface - STEP_HEIGHT) floorNodes++;
   check('water: the floor of deep water has no walk nodes (the actor swims above it)', floorNodes === 0, floorNodes);
 });
 
@@ -383,7 +381,7 @@ Test.add('nav', (check) => {
 
 // Footprint half size of a low slab where a standing capsule cannot be: slab + capsule radius, minus one raster
 // column of tolerance (a straight line may clip a column corner between raster steps).
-const NAV_TEST_UNDER_SLAB = 2 + NAV_RADIUS - NAV_FINE / 2;
+const NAV_TEST_UNDER_SLAB = 2 + ACTOR_RADIUS - NAV_FINE / 2;
 
 Test.add('nav', (check) => {
   // A floating slab at 1.3..1.5 m (crouch-only underneath) in the middle of an open floor; the path passes beside it.
