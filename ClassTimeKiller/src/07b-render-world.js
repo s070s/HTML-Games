@@ -522,12 +522,6 @@ function sunVisibilityAt(data, offset) {
   if (ix < 0 || iy < 0 || iz < 0 || ix >= grid.countX || iy >= grid.countY || iz >= grid.countZ) return SUN_LIT;
   return grid.values[(iy * grid.countZ + iz) * grid.countX + ix];
 }
-// 0..1 sun visibility near a point (1 outside the grid): the float form for tests and tools.
-const sunProbePoint = new Float64Array(3);
-function sampleSunVisibility(x, y, z) {
-  sunProbePoint[0] = x; sunProbePoint[1] = y; sunProbePoint[2] = z;
-  return sunVisibilityAt(sunProbePoint, 0) / SUN_LIT;
-}
 
 function clearWorldMesh() {
   const gl = Render.gl;

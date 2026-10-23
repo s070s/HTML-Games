@@ -32,10 +32,6 @@ const HudBatch = {
     this.layers.push({ name, order, draw, start: 0, count: 0, failed: false });
     this.layers.sort((a, b) => a.order - b.order);
   },
-  removeLayer(name) {
-    const index = this.layers.findIndex((layer) => layer.name === name);
-    if (index >= 0) this.layers.splice(index, 1);
-  },
   rect(x, y, w, h, colorHex, alpha) {
     const corners = hudCorners;
     corners[0] = x; corners[1] = y; corners[2] = x + w; corners[3] = y + h;

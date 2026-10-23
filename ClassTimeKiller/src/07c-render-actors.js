@@ -352,8 +352,6 @@ Render.addPass(40, drawShadows);
 
 // ---- Actors (REN-002): rigid parts, code animation, LODs, style hook ----
 const NEAR_PARTS = CAT.actorParts.slice();
-const FAR_PARTS = CAT.actorParts.filter((part) => part.far);
-const DISTANT_PARTS = CAT.actorParts.filter((part) => part.distant);
 const LOD = { near: 0, far: 1, distant: 2 };   // distant = past the preset's lodFar: a still silhouette
 const FAR_ANIMATION_STRIDE = 4;          // the far LOD re-poses its walk cycle every 4th frame (plan step 1.8)
 const HIP_HEIGHT = 1.0;                  // parts with a pivot below this belong to the lower body
@@ -531,9 +529,11 @@ const ActorModels = {
     this.index[id] = 0;
     for (let i = 0; i < CAT.actorModels.length; i++) if (CAT.actorModels[i].kind === kind && CAT.actorModels[i].id === modelId) this.index[id] = i;
   },
+  // The level rule is Models.detailLevel's: when it drops the near details, the body keeps its near parts without them.
   partsFor(id, lod, quality) {
     actorModelRow = this.index[id];
-    return this.lists[actorModelRow][lod === LOD.near && !quality.modelDetail ? MODEL_LIST_PLAIN : lod];
+    const level = Models.detailLevel(lod, quality);
+    return this.lists[actorModelRow][level === lod ? lod : MODEL_LIST_PLAIN];
   },
 };
 let actorModelRow = 0;                   // the model row of the actor being emitted (partColor reads its colour)

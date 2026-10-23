@@ -112,7 +112,6 @@ const Fx = {
     }
     fxLights.endTime.fill(0);
   },
-  liveParticles() { return countLive(particlePool); },
 };
 const fxLights = { position: new Float32Array(MAX_DYNAMIC_LIGHTS * 4), color: new Float32Array(MAX_DYNAMIC_LIGHTS * 3),
   startTime: new Float32Array(MAX_DYNAMIC_LIGHTS), endTime: new Float32Array(MAX_DYNAMIC_LIGHTS) };
