@@ -542,7 +542,9 @@ const DIFFICULTY = {
 };
 
 /* flora (Flora): floraNear m within which plants are drawn in full (farther ones as stand-ins), floraVerts full-detail
-   vertices drawn per frame (nearest chunks first: a dense forest shows stand-ins nearer), floraBush bushes per chunk drawn, coverR m within which ground cover is drawn, coverCell plants per cover cell, coverCap cover instances per frame;
+   vertices drawn per frame on battlefields with new trees (nearest chunks first: a dense forest shows stand-ins nearer),
+   floraBush bushes per chunk drawn, coverR m within which ground cover is drawn, coverCell plants per cover cell,
+   coverCap cover instances per frame;
    fauna (Fauna): share of each group's animals placed, faunaDraw m within which animals are drawn (simple models past
    faunaLod), faunaCap animals drawn per frame, faunaSim animals placed (and simulated) in all;
    maxPx caps the rendered pixels (tablets and phones with a high pixel ratio), so fill rate fits Low and Medium */
@@ -1708,7 +1710,9 @@ void main(){
 }`;
 /* INST_VS for ground cover (Flora.drawCover): grass, flowers and reeds bend away from and flatten under the machines
    and soldiers in uPush (xyz the base of one, w the radius it bends cover within; 0 an empty slot), more the higher a
-   vertex stands above that base. A local look only: nothing of it is simulated or sent. */
+   vertex stands above its own plant's root. A cover instance carries that root's height in iD.w (Flora.recordCell)
+   instead of a glow; a machine more than 3 m above the root (jumping, on a roof) bends nothing. A local look only:
+   nothing of it is simulated or sent. */
 const COVER_PUSH = 8;            // machines and soldiers that bend the cover at once (the nearest to the camera)
 const COVER_VS = `
 attribute vec3 aPos; attribute vec3 aNrm;
@@ -1718,17 +1722,20 @@ varying vec3 vN; varying vec3 vW; varying vec3 vC; varying float vE;
 void main(){
   mat3 m = mat3(iA.xyz, iB.xyz, iC.xyz);
   vec3 w = m * aPos + vec3(iA.w, iB.w, iC.w);
+  float root = iD.w, up = clamp(w.y - root, 0.0, 3.0);
   for (int i = 0; i < ${COVER_PUSH}; i++) {
     vec4 p = uPush[i];
-    vec2 d = w.xz - p.xz;
-    float dist = length(d), up = clamp(w.y - p.y, 0.0, 3.0);
-    float f = p.w > 0.0 ? 1.0 - smoothstep(p.w * 0.5, p.w, dist) : 0.0;
-    w.xz += d / max(dist, 0.05) * up * f * 0.7;
-    w.y -= up * f * 0.8;
+    if (p.w > 0.0) {
+      vec2 d = w.xz - p.xz;
+      float r = max(p.w, 0.001), dist = length(d);
+      float f = (1.0 - smoothstep(r * 0.5, r, dist)) * (1.0 - smoothstep(1.0, 3.0, p.y - root));
+      w.xz += d / max(dist, 0.05) * up * f * 0.7;
+      w.y -= up * f * 0.8;
+    }
   }
   vW = w;
   vN = normalize(m * aNrm);
-  vE = iD.w;
+  vE = 0.0;
   vC = iD.rgb;
   gl_Position = uVP * vec4(w, 1.0);
 }`;
@@ -4321,6 +4328,7 @@ const FLORA_CELL_BUDGET = 1;        // cover cells grown per frame (about 0.2 ms
 const FLORA_EVICT_R = 2;            // a cover cell farther than this times coverR from the camera is released (regrown alike)
 const FLORA_EVICT_SCAN = 16;        // grown cover cells checked for release per frame
 const FLORA_SPARE = 64;             // released cover cells kept for reuse (their plants and instance store)
+const FLORA_KEEP = 0.8;             // a chunk drawn in full last frame weighs its squared distance by this for the budget
 const FLORA_PUSH_K = 1.3;           // cover bends within this times a machine's or soldier's radius ...
 const FLORA_PUSH_PAD = 0.6;         // ... plus this (m) (COVER_VS)
 const FLORA_REACH = Chunks.SIZE * 0.7;   // a chunk counts as near while its middle is within floraNear + this
@@ -4864,15 +4872,17 @@ const Flora = {
     }
     this.admit(F);
   },
-  /* the full-detail meshes drawn this frame (fl.on): the nearest within reach first, while their vertices fit the
-     quality's floraVerts; past the first that does not fit (cutD2) chunks keep their stand-ins and are not baked */
+  /* the full-detail meshes drawn this frame (fl.on): every one within reach, except on battlefields with new blocking
+     trees (dense forests; the original battlefields draw as they always did), where the nearest go first while their
+     vertices fit the quality's floraVerts; past the first that does not fit (cutD2) chunks keep their stand-ins and are
+     not baked. A chunk drawn in full last frame counts as FLORA_KEEP nearer, so the set does not flicker at the edge. */
   admit(F) {
-    const cam = R.cam, near = F.near, D = this.nearD, reach = this.q.floraNear + FLORA_REACH;
-    let left = this.q.floraVerts;
+    const cam = R.cam, near = F.near, D = this.nearD, reach = this.q.floraNear + FLORA_REACH, last = this.tick;
+    let left = F.f.block ? this.q.floraVerts : Infinity;
     this.tick++; this.cutD2 = Infinity;
     for (let k = 0; k < near.length; k++) {
       const c = near[k], dx = c.cx - cam.x, dy = c.cy - cam.y, dz = c.cz - cam.z, d2 = dx * dx + dy * dy + dz * dz;
-      D[k] = this.ready(c) && d2 <= reach * reach ? d2 : -1;
+      D[k] = this.ready(c) && d2 <= reach * reach ? d2 * (c.fl.on === last ? FLORA_KEEP : 1) : -1;
     }
     for (;;) {
       let best = -1;
@@ -4981,7 +4991,13 @@ const Flora = {
     for (const name of INST_SHAPES) rec.inst[name].n = 0;
     const prev = R.bake, st = R.stack, n = Math.min(cell.n, this.q.coverCell);
     R.bake = rec; st.push(); st.ident();
-    for (let k = 0; k < n; k++) this.drawNear(cell.plants[k]);
+    for (let k = 0; k < n; k++) {
+      const p = cell.plants[k];
+      for (const name of INST_SHAPES) rec.inst[name].start = rec.inst[name].n;
+      this.drawNear(p);
+      // each instance carries its plant's root height where the glow would be (COVER_VS bends it from there)
+      for (const name of INST_SHAPES) { const L = rec.inst[name]; for (let i = L.start; i < L.n; i++) L.data[i * INST_FLOATS + 15] = p.y; }
+    }
     st.pop(); R.bake = prev;
     // into the cell's own store (kept when the cell is released and reused), one view per shape
     let need = 0, at = 0;
@@ -15107,6 +15123,12 @@ function skirmishLayout(cfg) {
       if (Scenery.clearSpot(c, sites, null, lay) && flat(c, SITE_MAX_SLOPE)) { lay.cities.push(c); break; }
     }
   }
+  // a battlefield whose own city is a mega-city (metro) has it where it fits, when no central one did
+  const sc = SCENERY[cfg.map];
+  if (sc && sc.city.kind === 'mega' && !lay.cities.some((c) => c.kind === 'mega')) {
+    const c = Object.assign({}, sc.city);
+    if (Scenery.clearSpot(c, sites, null, lay) && Scenery.flatFor(cfg.map, c, SITE_MAX_SLOPE)) lay.cities.push(c);
+  }
   Scenery.addTowns(cfg.map, lay, sites, null);   // and the battlefield's own towns where they still fit
   return { lay, start, sites, own: ownBase, foe: foeBase, fallback };
 }
@@ -16972,6 +16994,7 @@ const SAVE_FIXTURE_V1 = {
   unlocked: [],
 };
 /* scenes timed by __IH.bench(): the busiest battles on every battlefield, plus one flight */
+const FULL_GRID = 40;       // spacing of the camera spots SelfTest.fullDetailFaults tries (m)
 const BENCH_SCENES = [
   { id: 'sk-ashfall', map: 'ashfall', platformId: 'bulwark' },
   { id: 'sk-verdant', map: 'verdant', platformId: 'bulwark' },
@@ -17019,6 +17042,34 @@ const SelfTest = {
       for (const p of cell.plants) vals.push(p.sp, p.x, p.z, p.h);
     }
     return hashFloats(vals, 1, FNV_BASIS);
+  },
+  /* where the battle in play draws a chunk's plants as stand-ins although it is within floraNear reach, over a grid of
+     camera spots (FULL_GRID apart) on every quality, after rebuilding the chunks (their real heights) and baking every
+     full mesh: { faults, last, most full-detail vertices at one spot, over: true when a spot exceeds floraVerts } */
+  fullDetailFaults() {
+    const keepQuality = S.quality, keepCam = R.cam, cs = W.chunks.filter((c) => c.plants.length), out = { faults: 0, last: '', most: 0, over: false };
+    try {
+      for (const c of W.chunks) Chunks.rebuild(c);
+      for (const q of ['low', 'medium', 'high']) {
+        S.quality = q; Flora.frame();
+        for (const c of cs) Flora.bakeNear(c);
+        const reach = QUALITY[q].floraNear + FLORA_REACH;
+        for (let z = -FLORA_EDGE; z <= FLORA_EDGE; z += FULL_GRID) for (let x = -FLORA_EDGE; x <= FLORA_EDGE; x += FULL_GRID) {
+          const cam = R.cam = { x, y: Terrain.h(x, z) + 2, z };
+          Flora.admit(W.flora);
+          let verts = 0;
+          for (const c of cs) {
+            const dx = c.cx - cam.x, dy = c.cy - cam.y, dz = c.cz - cam.z;
+            if (dx * dx + dy * dy + dz * dz > reach * reach) continue;
+            verts += c.fl.n;
+            if (c.fl.on !== Flora.tick) { out.faults++; out.last = q + ' at ' + x + ',' + z; }
+          }
+          out.most = Math.max(out.most, verts);
+          if (verts > QUALITY[q].floraVerts) out.over = true;
+        }
+      }
+    } finally { R.cam = keepCam; S.quality = keepQuality; Flora.frame(); }
+    return out;
   },
   /* the trees, bushes and (grown here) cover of every cell of the battle in play */
   allPlants() {
@@ -19165,6 +19216,11 @@ const SelfTest = {
         const again = Flora.growCell(Math.floor(idx / FLORA_CELLS), idx % FLORA_CELLS);
         Flora.recordCell(again);
         this.check('a released cover cell grows back the same plants and instances', print(again) === first && again.n === cell.n);
+        // every cover instance carries its plant's root height for the bending (COVER_VS)
+        const roots = new Set(again.plants.map((p) => Math.fround(p.y)));
+        let rootless = 0;
+        for (let k = 1; k < again.inst.length; k += 2) for (let i = 15; i < again.inst[k].length; i += INST_FLOATS) if (!roots.has(again.inst[k][i])) rootless++;
+        this.check('every cover instance carries the root height of its plant', again.ni > 0 && rootless === 0, rootless + ' of ' + again.ni);
         // the cover bends under the COVER_PUSH nearest machines and soldiers on foot within reach; aircraft and wrecks bend none
         const keepPlatforms = W.platforms, cam0 = { x: 0, y: 0, z: 0 }, unit = (d, kind, dead) => ({ x: d, y: 2, z: 0, radius: 2, kind: kind || 'ground', dead: !!dead });
         try {
@@ -19202,25 +19258,23 @@ const SelfTest = {
           }
         } finally { R.bake = prev; }
         this.check(map + ': every tree that blocks is drawn far away too', blocking > 0 && drawn === blocking, drawn + ' of ' + blocking + ' drawn');
-        // the full-detail budget never bites here: from any chunk, the full meshes in reach fit floraVerts on every quality
-        const keepQuality = S.quality, over = [];
-        try {
-          for (const q of ['low', 'medium', 'high']) {
-            S.quality = q; Flora.frame();
-            const cs = W.chunks.filter((c) => c.plants.length), reach = QUALITY[q].floraNear + FLORA_REACH;
-            for (const c of cs) Flora.bakeNear(c);
-            let most = 0;
-            for (const a of W.chunks) {
-              const y = Terrain.h(a.cx, a.cz) + 2;
-              most = Math.max(most, cs.reduce((n, c) => n + (Math.hypot(c.cx - a.cx, c.cy - y, c.cz - a.cz) <= reach ? c.fl.n : 0), 0));
-            }
-            if (most > QUALITY[q].floraVerts) over.push(q + ' ' + most);
-          }
-        } finally { S.quality = keepQuality; Flora.frame(); }
-        this.check(map + ': the full-detail budget never shows a stand-in nearer than floraNear', over.length === 0, over.join(', '));
       }
       Game.quitToMenu();
       this.check('the menu world keeps its trees', this.treeHash() === TREE_GOLDEN.menu, 'trees ' + this.treeHash());
+    });
+    // the original battlefields draw every plant within floraNear in full, as before the full-detail budget (several
+    // skirmish seeds; the budget would cut in on some of them)
+    let budgetWouldCut = false;
+    for (const map of ['ashfall', 'verdant', 'frost']) t('flora draws the original battlefield ' + map + ' in full', () => {
+      try {
+        for (const seed of [11, 23, 32]) {
+          floraBattle(map, seed);
+          const r = this.fullDetailFaults();
+          budgetWouldCut = budgetWouldCut || r.over;
+          this.check(map + ' seed ' + seed + ' draws every plant within floraNear in full on every quality', r.faults === 0, r.faults + ' stand-ins, last ' + r.last + ', most ' + r.most + ' vertices');
+        }
+        if (map === 'frost') this.check('the samples hold views the full-detail budget would cut', budgetWouldCut);
+      } finally { Game.quitToMenu(); }
     });
     for (const group of [MISSIONS.slice(0, 4), MISSIONS.slice(4)]) t('flora keeps the old trees of missions ' + group[0].id + '-' + group[group.length - 1].id, () => {
       try {
@@ -19240,6 +19294,8 @@ const SelfTest = {
           this.check('mission ' + m.id + ' keeps its trees, and no bush or cover grows on its sites', this.treeHash() === TREE_GOLDEN[m.id] && W.flora.trees === 0 && onSite === 0, 'trees ' + this.treeHash() + ', ' + onSite + ' on sites');
           const onSiteAnimals = W.fauna.groups.reduce((n, g) => n + g.members.filter((a) => !Flora.clearOfSites(a.x, a.z, 0)).length, 0);
           this.check('mission ' + m.id + ' has animals, none on its sites', W.fauna.count > 0 && onSiteAnimals === 0, W.fauna.count + ' animals, ' + onSiteAnimals + ' on sites');
+          const full = this.fullDetailFaults();
+          this.check('mission ' + m.id + ' draws every plant within floraNear in full on every quality', full.faults === 0, full.faults + ' stand-ins, last ' + full.last + ', most ' + full.most + ' vertices');
         }
       } finally { Game.quitToMenu(); }
     });
@@ -19259,6 +19315,29 @@ const SelfTest = {
         const nearest = on.every((a) => off.every((b) => dist(a) <= dist(b)));
         this.check('the jungle draws its nearest full meshes within floraVerts, stand-ins past them', all > QUALITY.high.floraVerts && verts <= QUALITY.high.floraVerts && on.length > 0 && off.length > 0 && nearest && !Flora.nearOf(off[0]) && Flora.nearOf(on[0]), verts + ' of ' + all + ' vertices, ' + on.length + ' of ' + inReach.length + ' chunks');
         this.check('every quality has a full-detail budget', ['low', 'medium', 'high'].every((q) => QUALITY[q].floraVerts > 0));
+        // no flicker at the budget's edge: a camera shaking 0.2 m keeps the same full-detail set
+        const keepCam = R.cam, set = () => inReach.filter((k) => k.fl.on === Flora.tick).map((k) => W.chunks.indexOf(k)).join(',');
+        let changes = 0, prev = '';
+        try {
+          for (let i = 0; i < 40; i++) {
+            R.cam = { x: c.cx + (i % 2 ? 0.2 : -0.2), y: y + (i % 3 ? 0.2 : -0.2), z: c.cz + (i % 4 < 2 ? 0.2 : -0.2) };
+            Flora.admit(W.flora);
+            if (prev && set() !== prev) changes++;
+            prev = set();
+          }
+          // two chunks at the same distance either side of the camera, only one fitting: the one drawn stays drawn
+          const fake = (x) => ({ cx: x, cy: 0, cz: 0, fl: { mesh: null, n: Math.ceil(QUALITY.high.floraVerts * 0.6), ctx: R.ctxId, q: Flora.qKey, on: 0 } });
+          const a = fake(100), b = fake(-100.1), pair = { f: { block: true }, near: [a, b] };
+          let swaps = 0, was = '';
+          for (let i = 0; i < 40; i++) {
+            R.cam = { x: i % 2 ? 0.2 : -0.2, y: 0, z: 0 };
+            Flora.admit(pair);
+            const now = a.fl.on === Flora.tick ? 'a' : b.fl.on === Flora.tick ? 'b' : '';
+            if (was && now !== was) swaps++;
+            was = now;
+          }
+          this.check('the full-detail set does not flicker when the camera shakes at the edge of the budget', changes === 0 && swaps === 0 && was !== '', changes + ' changes, ' + swaps + ' swaps');
+        } finally { R.cam = keepCam; }
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
@@ -19559,6 +19638,10 @@ const SelfTest = {
         return lay.cities.length !== 1 + (sc.towns || []).length || lay.cities[0].kind !== (sc.city.kind || 'city');
       });
       this.check('a mission layout places the city and every town of each battlefield', lost.length === 0 && SCENERY.metro.city.kind === 'mega', lost.join(', '));
+      // a metro skirmish gets a mega-city most of the time (its own, where the central one never fits across the river)
+      let megas = 0;
+      for (let k = 1; k <= 20; k++) if (skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map: 'metro', seed: k })).lay.cities.some((c) => c.kind === 'mega')) megas++;
+      this.check('a metro skirmish has a mega-city in most battles', megas >= 10, megas + ' of 20');
       for (const id of newMaps) {
         const m = MAPS[id], md = mapDef(id), sc = SCENERY[id];
         this.check('battlefield ' + id + ' has a name, a known biome, a description and known hazards', MAP_ID_RE.test(id) && !!m.name && !!m.desc && !!BIOME_NAMES[md.biome] && md.hazards.length > 0 && md.hazards.every((h) => HAZARD_IDS.indexOf(h) >= 0) && Array.isArray(md.lanes) && md.airport === null, md.biome + ' ' + md.hazards);
