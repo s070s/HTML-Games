@@ -36,6 +36,7 @@ const RETREAT_COVER_RANGE = 15, RETREAT_AWAY = 10;
 const COLLECT_BASE = 0.2, COLLECT_GAIN = 0.6, COLLECT_MAX = 0.9, COLLECT_DISTANCE = 15;
 const ITEM_VALUES = { health: 1.2, armor: 0.7, weapon: 0.8, ammo: 0.5, power: 0.6 };
 const ITEM_POWER_FOCUS = 0.4;
+const WEAPON_UPGRADE_PULL = 4;          // a map gun pulls by how much it beats the best gun the bot owns (balance-02)
 const ITEM_REVISIT = 20;                // s before a bot goes back to a spot it already took (unless its timer says it is up)
 const ITEM_EARLY_MIN = 1, ITEM_EARLY_MAX = 3;   // BOT-013: timed pickups arrive 1-3 s early
 const ITEM_TIMER_FOCUS = 0.5;
@@ -569,7 +570,8 @@ function itemValue(id, item) {
 
 function weaponItemValue(id, weapon, base) {
   if (Weapons.has(id, weapon.id)) return 0;
-  return BotCombat.weaponValue(id, weapon, base);
+  const gain = BotCombat.weaponValue(id, weapon, 1) - BotCombat.bestOwnedGun(id);
+  return gain > 0 ? base * WEAPON_UPGRADE_PULL * gain : 0;
 }
 
 // Up now, or (BOT-013, item-timing bots) up by the time the bot gets there, arriving 1-3 s early. Spots the bot took

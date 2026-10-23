@@ -436,6 +436,15 @@ const BotCombat = {
   },
   // A weapon's worth to the bot (drawing, picking up, buying): its botPref value x share, plus the favourite bonus.
   weaponValue(id, weapon, share) { return weapon.botPref.value * share + (BotDecide.favoriteWeapon(id) === weapon.id ? FAVORITE_BONUS : 0); },
+  // The value of the best gun (not a melee weapon) the bot owns: shop upgrades and map guns are judged against it.
+  bestOwnedGun(id) {
+    let best = 0;
+    for (let index = 0; index < WEAPON_COUNT; index++) {
+      const weapon = CAT.weapons[index];
+      if (weapon.class !== 'melee' && Weapons.owned[Weapons.slotIndex(id, index)]) best = Math.max(best, this.weaponValue(id, weapon, 1));
+    }
+    return best;
+  },
   hasRounds(id, weapon, slot) {
     return weapon.mag === 0 || Weapons.magazine[slot] > 0 || Weapons.reserve[slot] > 0 || Weapons.infiniteReserve(weapon);
   },

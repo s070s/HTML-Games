@@ -513,15 +513,7 @@ const BotEconomy = {
 function gunWorth(id, item) {
   if (item.kind !== 'weapon' || item.weaponClass === 'melee') return 0;
   const value = BotCombat.weaponValue(id, CAT.weapons.byId(item.key), 1);
-  return value >= bestOwnedGun(id) + BOT_BUY.upgrade ? value : 0;
-}
-function bestOwnedGun(id) {
-  let best = 0;
-  for (let index = 0; index < WEAPON_COUNT; index++) {
-    const weapon = CAT.weapons[index];
-    if (weapon.class !== 'melee' && Weapons.owned[Weapons.slotIndex(id, index)]) best = Math.max(best, BotCombat.weaponValue(id, weapon, 1));
-  }
-  return best;
+  return value >= BotCombat.bestOwnedGun(id) + BOT_BUY.upgrade ? value : 0;
 }
 // The best armour on sale (the dearer row protects more: vest and helmet over the vest).
 function armourWorth(id, item) { return item.kind === 'armor' || item.kind === 'helmet' ? item.price : 0; }

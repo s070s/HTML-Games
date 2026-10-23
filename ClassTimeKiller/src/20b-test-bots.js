@@ -1924,3 +1924,14 @@ Test.add('bots', (check) => {
   check('a keyed extra-cost path is cached and equals the uncached one', bot >= 0 && cached === plain, String(cached));
   endBotTest();
 });
+
+// balance-02: bots go for map guns that beat what they carry, so the Warden spawn pistol no longer scores most Arena Classic kills.
+const WARDEN_SHARE_RUNS = [['ffa', 'spire', 6, 1], ['ffa', 'spire', 6, 2], ['tdm', 'harbor', 10, 1]], WARDEN_SHARE_MAX = 0.4;
+Test.add('botsoak', (check) => {
+  let kills = 0, warden = 0;
+  const counter = Bus.on('kill', (event) => { kills++; if (event.weapon === 'warden') warden++; });
+  try {
+    for (const [mode, map, bots, seed] of WARDEN_SHARE_RUNS) DebugApi.soak(mode, map, 3, bots, seed, { timeLimit: 0, scoreLimit: 0 });
+  } finally { Bus.off('kill', counter); }
+  check('Arena Classic: the Warden spawn pistol scores at most 40% of kills on Foundry Spire and Harbor Nine', kills > 0 && warden <= kills * WARDEN_SHARE_MAX, warden + ' of ' + kills);
+}, { slow: true });
