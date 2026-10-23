@@ -154,6 +154,7 @@ function hudDrawBanners(pen, layout) {
     const alpha = Math.min(1, age / 0.15, (life - age) / HUD_BANNER_FADE);
     const size = (b.medal[slot] ? 30 : b.priority[slot] >= HUD_BANNER_PRIORITY_LONG ? 26 : 20) * unit, width = HudPen.measure(b.text[slot], size);
     y = hudBelowTouchButtons(layout, y, width / 2 + (b.medal[slot] ? size * 1.4 : 0), size);   // the stars reach 1.4 sizes past the text
+    if (y > layout.height * 0.6) break;   // no free line above there between the touch buttons (a crowded small phone): it waits unseen
     if (b.medal[slot]) {
       pen.label('★', layout.centerX - width / 2 - size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
       pen.label('★', layout.centerX + width / 2 + size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
