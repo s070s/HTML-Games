@@ -54,7 +54,7 @@ function runSoak(run) {
   const bots = run.bots || Array.from({ length: run.botCount }, () => ({}));
   Game.start({ mode: run.mode, map: run.map, ruleset: run.ruleset, seed: run.seed, bots, modeOptions: run.modeOptions, difficulty: run.difficulty,
     balance: run.balance, player: run.player });
-  const stats = { mode: run.mode, map: typeof run.map === 'string' ? run.map : run.map.id, bots: 0, seconds: 0, botSeconds: 0, stuckFraction: 0, maxStuck: 0, nan: 0, maxNoGoal: 0, aiP95: 0, aiMax: 0,
+  const stats = { mode: run.mode, map: typeof run.map === 'string' ? run.map : run.map.id, bots: 0, seconds: 0, botSeconds: 0, stuckFraction: 0, maxStuck: 0, enemyStuck: 0, enemyMaxStuck: 0, nan: 0, maxNoGoal: 0, aiP95: 0, aiMax: 0,
     kills: 0, shots: 0, unknownShots: 0, unperceivedShots: 0, objectivesTouched: 0, raysMax: 0,
     ended: false, winner: NOT_OVER, reason: '', teamCaptures: 0, actorCaptures: 0, holdPoints: 0 };
   for (let id = 0; id < Actors.count; id++) if (Bots.active[id]) stats.bots++;
@@ -109,9 +109,16 @@ function sampleSoak(stats) {
   for (const objective of Modes.objectives) if (objective.state === 'carried' || objective.owner >= 0 || objective.progress > 0) stats.objectivesTouched++;
 }
 
+// Stuck time counts only for bot brains (botSeconds counts only theirs); PvE enemies also move with BotMove, so their stuck
+// time is reported apart (enemyStuck, enemyMaxStuck) instead of being blamed on the bots (bots-03).
 function finishSoak(stats, timings, ticks) {
   let stuck = 0, longest = 0, noGoal = 0;
   for (let id = 0; id < Actors.count; id++) {
+    if (!Bots.active[id]) {
+      stats.enemyStuck += BotMove.stuckSeconds[id];
+      stats.enemyMaxStuck = Math.max(stats.enemyMaxStuck, BotMove.longestStuck[id]);
+      continue;
+    }
     stuck += BotMove.stuckSeconds[id];
     longest = Math.max(longest, BotMove.longestStuck[id]);
     noGoal = Math.max(noGoal, BotDecide.longestNoGoal[id]);
@@ -1543,6 +1550,25 @@ function checkSoaks(check, maps, minutes) {
 }
 
 Test.add('bots', (check) => { DebugApi.bots.lastQuickSoak = checkSoaks(check, SOAK_QUICK_MAPS.map((id) => CAT.maps.byId(id)), SOAK_QUICK_MINUTES); });
+
+// bots-03: a PvE enemy stuck on its BotMove path (PveMove) is reported as enemy stuck time, not as the bots' stuck share.
+const ENEMY_STUCK_SECONDS = 10;
+Test.add('bots', (check) => {
+  let enemy = -1;
+  const onTick = () => {
+    for (let id = 0; id < Actors.count && enemy < 0; id++) {
+      if (Actors.kind[id] !== ACTOR_KIND.ENEMY || !Actors.alive[id]) continue;
+      enemy = id;
+      BotMove.stuckSeconds[id] += ENEMY_STUCK_SECONDS;
+      BotMove.longestStuck[id] = ENEMY_STUCK_SECONDS;
+    }
+  };
+  const stats = playMatch({ mode: 'bank', map: 'cistern', minutes: 0.25, botCount: 4, seed: 1, modeOptions: SOAK_OPEN_MATCH, onTick });
+  const text = 'enemy ' + enemy + ': ' + JSON.stringify(stats);
+  check('bank: a PvE enemy spawned', enemy >= 0, text);
+  check('enemy stuck time stays out of the bots\' stuck share', stats.stuckFraction * stats.botSeconds < ENEMY_STUCK_SECONDS && stats.maxStuck < ENEMY_STUCK_SECONDS, text);
+  check('enemy stuck time is reported apart', stats.enemyStuck >= ENEMY_STUCK_SECONDS && stats.enemyMaxStuck >= ENEMY_STUCK_SECONDS, text);
+});
 Test.add('botsoak', (check) => { DebugApi.bots.lastSoak = checkSoaks(check, CAT.maps.filter((map) => !map.placeholder), SOAK_TEST_MINUTES); }, { slow: true });
 
 // ---- Same seed, same match: nothing an earlier match left in the bot modules steers the next one ----
