@@ -19,6 +19,16 @@ function saveFieldFits(freshValue, value) {
   const want = saveFieldKind(freshValue), have = saveFieldKind(value);
   return have === want || (want === 'null' && have === 'object');
 }
+// Fills the missing or wrong-kind fields of `loaded` from `fresh`, down every record the empty save spells out (loadouts.classes,
+// tips); a list keeps only its record entries (a null custom class would throw in its readers).
+function repairSaveFields(fresh, loaded) {
+  for (const field in fresh) {
+    const want = fresh[field];
+    if (!saveFieldFits(want, loaded[field])) loaded[field] = want;
+    else if (Array.isArray(want)) loaded[field] = loaded[field].filter((entry) => saveFieldKind(entry) === 'object');
+    else if (saveFieldKind(want) === 'object') repairSaveFields(want, loaded[field]);
+  }
+}
 // An import needs a version this game reads and one known, non-empty field of the right kind.
 function saveLooksReal(loaded, fresh) {
   if (!loaded || !Number.isInteger(loaded.version) || loaded.version < 1 || loaded.version > SAVE_VERSION) return false;
@@ -61,11 +71,10 @@ const Save = {
     }
     return this.data;
   },
-  // Brings a save up to SAVE_VERSION: fills missing or wrong-kind fields ("settings": null), checks every setting (load and import).
+  // Brings a save up to SAVE_VERSION: fills missing or wrong-kind fields ("settings": null, nested ones too), checks every setting (load and import).
   migrate(loaded) {
     if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) throw new Error('save is not an object');
-    const fresh = this.emptySave();
-    for (const field in fresh) if (!saveFieldFits(fresh[field], loaded[field])) loaded[field] = fresh[field];
+    repairSaveFields(this.emptySave(), loaded);
     Settings.sanitize(loaded.settings);
     // Version and revision first (SAVE_REVISION_HEAD).
     const ordered = Object.assign({ version: SAVE_VERSION, revision: 0 }, loaded);

@@ -85,6 +85,17 @@ Test.add('core', (check) => {
   Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';
 });
 
+// ARC-020: an import with partial nested records (loadouts, tips) is repaired to the empty-save shape, so readers never throw.
+Test.add('core', (check) => {
+  Save.importText('{"version":1,"loadouts":{"heroes":{},"classes":{"custom":[null,3,{"id":"class-1"}]}},"tips":{}}');
+  let error = '';
+  try { Loadouts.classes(); Loadouts.classById('class-1'); Loadouts.hero(); Loadouts.kitChoice('kit'); } catch (thrown) { error = String(thrown); }
+  const loadouts = Save.data.loadouts;
+  check('save: a partial loadouts import is repaired', error === '' && loadouts.classes.selected === CAT.classes[0].id && loadouts.heroes.hero === CAT.heroes[0].id
+    && loadouts.classes.custom.length === 1 && typeof loadouts.kits === 'object', error);
+  check('save: a partial tips import is repaired', Save.data.tips.matches === 0 && Save.data.tips.homeScreen === false, JSON.stringify(Save.data.tips));
+});
+
 // R-001 / R-163: a stale tab never writes over a newer save; an unchanged flush writes nothing.
 function saveOtherTabWrites(mark) {
   const other = JSON.parse(Save.read(SAVE_KEY));
