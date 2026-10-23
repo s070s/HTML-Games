@@ -139,6 +139,10 @@ Test.add('maps', (check) => {
   for (const mode of new Set(Object.values(MAP_SPEC_MODES).flat())) check('modes: forMode(' + mode + ') finds a map', Maps.forMode(mode).length >= 1);
   // play-02: Gantry's long sight lines with health regeneration gave Team Clash matches with almost no kills.
   check('modes: Team Clash is not offered on Gantry Run', !Maps.forMode('tdm').some((map) => map.id === 'gantry') && Maps.forMode('tdm').length >= 2);
+  // blight-01: over Skyward Yard's open void edges every human fall adds an infected.
+  const skySpawnsBlight = Maps.get('skyyard').spawns.some((spawn) => (spawn.modes || []).includes('infection'));
+  check('modes: Blight is not offered on Skyward Yard, nor in its spawn sets', !Maps.get('skyyard').modes.includes('infection') && !skySpawnsBlight
+    && Maps.forMode('infection').length >= 2);
   check('modes: every listed mode is a known mode', CAT.maps.every((map) => map.modes.every((mode) => MapRules.rule(mode))));
   // MODE-002: Play, Quick Match, Shuffle and Custom list only modes with a saved map, so every versus mode needs a hand-made one.
   const unserved = CAT.modes.filter((mode) => mode.family === 'versus' && !CAT.maps.some((map) => map.modes.includes(mode.id))).map((mode) => mode.id);
