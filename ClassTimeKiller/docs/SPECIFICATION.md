@@ -459,7 +459,7 @@ Perks (ECP04): Tier 1 Scavenger (ammo from bodies), Bandolier (+50% ammo), Hardl
 | Code | Key | Name | Rules and defaults (**T**) | Ref |
 |---|---|---|---|---|
 | M01 | `ffa` | Frenzy (FFA) | 8 players, frag limit 25, 10 min; +1 kill, -1 suicide; respawn 2 s / forced 10 s | Q3, UT, HL2DM |
-| M02 | `tdm` | Team Clash | 4v4, 50 kills, 10 min, FF 0 | all |
+| M02 | `tdm` | Team Clash | 4v4, 50 kills (15 in a hero ruleset), 10 min, FF 0 | all |
 | M03 | `duel` | Duel | 1v1, 10 min, no frag limit; bot queue winner-stays; items on | Q3 Tournament, UT3 Duel |
 | M04 | `ctf` | Flag Raid | 5v5, 3 caps, 15 min; own flag must be home to score; dropped flag auto-returns 20 s or on touch | Q3, UT, Halo |
 | M05 | `oneflag` | Lone Flag | neutral flag at centre, deliver to enemy base, 5 caps | Q3 TA |

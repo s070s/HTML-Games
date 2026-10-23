@@ -56,11 +56,11 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
   - `usable(id, row)`: not suppressed, not stunned (FROZEN/DOWNED), `modes` allows it, not `noCarrier` while carrying.
   - `canAfford(id, slot, row)`.
 - Kits:
-  - `economyKey()` returns `rules.params.economy` or else `rules.economy`. `usesHeroes()` is true for `heroKits`.
+  - `economyKey(rules?)` returns `rules.params.economy` or else `rules.economy` of the given built rules (default `currentRules()`). `usesHeroes()` is true for `heroKits`. `keptDraw(id)` is the drawn hero while the actor is still on the team it was drawn for, else null.
   - `kitOf(id)` returns the hero row or the matching `abilityKits` row.
-  - `heroOf(id)` and `pickHero(id)`. The hero comes from the loadout choice, else `profile.hero`, else `CAT.heroes[id % 8]`.
+  - `heroOf(id)` and `pickHero(id)`. The hero comes from the loadout choice, else `profile.hero`, else a hero drawn once per match per team (`drawHero`: a role the team lacks first, then one no teammate plays, then any; seeded by the match seed and actor id; kept in `Abilities.drawn` with the team it was drawn for in `Abilities.drawnTeam`, so a bot moved by auto-balance draws again; reset on actor.create). `wantedHero(id)` = the loadout choice or `profile.hero`.
   - `setChoice(id, { hero, ability1, ability2, ultimate })`. Disallowed choices fall back to the kit default.
-  - `assignSlots(id)`, `setSlot(id, slot, row|null)`.
+  - `assignSlots(id)`, `setSlot(id, slot, row|null)`, `replaceUltimate(id, row)` (ends a running ultimate, then sets the slot; used by `forceCast` and `loadReward`).
   - `refreshKit(id)`: an in-place respawn kit change (pools, weapons, movement, the gadget kit from scratch (`Gadgets.equip`, so the old hero's gadget goes), slots).
 - Use:
   - `tryActivate(id, slot)`: a second press turns a toggle off or cancels a channel. The effect's `cast` must succeed before anything is paid, so a missing target costs nothing.

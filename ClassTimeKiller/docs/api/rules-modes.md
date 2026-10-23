@@ -47,7 +47,7 @@ Ruleset schema (spec section 4) with defaults:
 
 ## Rules (`src/13a-rules.js`)
 
-- `Rules.build(setup)` -> deep-frozen ruleset. Runs on `match.setup` and stores it in `Game.match.rules`. Order (MOV-001): `mode` -> `bundle` -> `mutators` -> `difficulty` -> `handicap`. Each stage runs its built-in step, then its modifiers.
+- `Rules.build(setup)` -> deep-frozen ruleset. Runs on `match.setup` and stores it in `Game.match.rules`. Order (MOV-001): `mode` -> `bundle` -> `mutators` -> `difficulty` -> `handicap`. Each stage runs its built-in step, then its modifiers. Mutators stage (after the mutators): 12e `heroKillLimit` gives a mode listed in `HERO_KILL_LIMIT_MODES` (03k; now `tdm` only) under the `heroKits` economy `ceil(scoreLimit x HERO_KILL_LIMIT_SCALE 0.3)` (Team Clash 50 -> 15), unless `setup.modeOptions.scoreLimit` is set. Hero Frenzy keeps 25; Attrition, Curse Tag, Roulette Arms and objective modes keep theirs.
   - `mode`: schema defaults, then the mode row (`mode`, `teams`, `sizeDefault`, `scoreLimit`, `timeLimit`, `scoreBy`, `rounds`, `objective`, `params`, `tiebreak`, `family`, `respawnMode`, `scoring`), then `setup.modeOptions` (custom match: any of those fields; objects merge one level deep), then the row's `rules`.
   - `bundle`: `setup.ruleset` = a bundle id, a custom ruleset id (`custom-N`) or a ruleset object; default = the mode's `ruleset`. Unknown fields and ids are reported.
   - `mutators`: `rules.mutators` = bundle mutators + `setup.mutators` (strings or `{ id, value }`), normalized to `{ id, value }`.
