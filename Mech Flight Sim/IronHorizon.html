@@ -4806,6 +4806,7 @@ function drawCommandTop(s, h, c) {
   st.push().t(-s.w * 0.3, h * 2.02, 0).s(1.6, 1.6, 1.6); R.draw('sphere', bc[0], bc[1], bc[2], 1, 1.3, 0); st.pop();
 }
 /* ---------- static structure chunks (one merged mesh per 160 m square) ---------- */
+const STRUCT_FLASH_COL = [1, 0.9, 0.7];   // the additive flash on a structure just hit (Chunks.drawFlashes)
 const Chunks = {
   SIZE: 160, N: Math.ceil(2 * WORLD_HALF / 160),
   reset() { W.chunks = []; W.chunkGrid = new Array(this.N * this.N).fill(null); W.flashing = []; },
@@ -4877,7 +4878,7 @@ const Chunks = {
       for (let k = f.length - 1; k >= 0; k--) {
         const s = f[k];
         if (s.flash <= 0 || s.destroyed) { f.splice(k, 1); continue; }
-        if (R.visible(s.x, s.y + s.h * 0.5, s.z, Math.max(s.hx, s.hz, s.h * 0.5) + 2)) R.box(s.x, s.y + s.h * 0.5, s.z, s.w * 1.04, s.h * 1.04, s.d * 1.04, [1, 0.9, 0.7], 0.6, 0, 0.35);
+        if (R.visible(s.x, s.y + s.h * 0.5, s.z, Math.max(s.hx, s.hz, s.h * 0.5) + 2)) R.box(s.x, s.y + s.h * 0.5, s.z, s.w * 1.04, s.h * 1.04, s.d * 1.04, STRUCT_FLASH_COL, 0.6, 0, 0.35);
       }
       R.blend(false); R.depthWrite(true);
     }
@@ -6341,6 +6342,7 @@ const BOX_VERTS = (function () {
   return out;
 }());
 
+const BLD_HEAP_COL = [0.3, 0.29, 0.28];   // the rubble heap where a building has fallen (Bld.draw)
 const Bld = {
   relightLeft: TIME_RELIGHT_BUDGET,   // buildings that may still be re-written this frame for lit windows (drawWorld resets it)
   dropping: false,                    // true while a falling piece is destroyed (it leaves its chunk, not shattered bits)
@@ -6645,7 +6647,7 @@ const Bld = {
     const frac = b.alive / b.total;
     if (frac < 0.65) {
       const k = 1 - frac / 0.65, h = 0.6 + 3.2 * k * k;
-      R.box(b.cx, b.y0 + h / 2, b.cz, b.nx * CELL * (0.55 + 0.35 * k), h, b.nz * CELL * (0.55 + 0.35 * k), [0.3, 0.29, 0.28], 0, 0);
+      R.box(b.cx, b.y0 + h / 2, b.cz, b.nx * CELL * (0.55 + 0.35 * k), h, b.nz * CELL * (0.55 + 0.35 * k), BLD_HEAP_COL, 0, 0);
     }
   },
 
@@ -14829,7 +14831,9 @@ function barrel(x, y, z, w, len, col, recoil) {
   R.draw('cyl', col[0], col[1], col[2], 1, 0, 0.6);
   st.pop();
 }
-function tint(c, f, add) { return [c[0] * f + add, c[1] * f + add, c[2] * f + add]; }
+/* colour c times f plus add, into out (no new array per drawn platform) */
+function tint(c, f, add, out) { out[0] = c[0] * f + add; out[1] = c[1] * f + add; out[2] = c[2] * f + add; return out; }
+const TINT_MAIN = [0, 0, 0], TINT_DARK = [0, 0, 0];   // drawPlatformBody's scratch colours (read only while it draws)
 
 function drawPlatform(p) { drawPlatformBody(p); drawPlatformOverlay(p); }
 /* the opaque model (can be baked into a batch) */
@@ -14841,7 +14845,7 @@ function drawPlatformBody(p) {
   const acc = TEAM_ACCENT[p.team] || TEAM_ACCENT[2];
   const flash = p.hitFlash > 0 ? 0.3 : 0;
   const dmgK = p.hp / p.maxHp < 0.3 ? 0.65 : 1;
-  const main = tint(p.def.col.main, dmgK, flash), dark = tint(p.def.col.dark, dmgK, flash);
+  const main = tint(p.def.col.main, dmgK, flash, TINT_MAIN), dark = tint(p.def.col.dark, dmgK, flash, TINT_DARK);
   const lod = dist > 380;
   const st = R.stack;
   st.top = 0; st.ident();
@@ -15257,6 +15261,7 @@ function drawAcv(p, main, dark, acc, lod) {
 
 /* artillery (P5.3): the deployed share k (p.arty.deploy) lowers the spades, jacks and ramps */
 const ARTY_GUN = [0.15, 0.16, 0.17], ARTY_TRACK = [0.1, 0.1, 0.11], ARTY_LINK = [0.18, 0.18, 0.2];
+const ARTY_GLASS = [0.1, 0.18, 0.24], ARTY_TUBE = [0.05, 0.05, 0.05];   // a launcher truck's windscreen and its tube mouths
 function artyTracks(p, w, len, lod) {
   for (let s = -1; s <= 1; s += 2) {
     part('box', s * w, -0.1, 0, 1.2, 1.5, len, ARTY_TRACK, 0, 0.1);
@@ -15296,7 +15301,7 @@ function drawMrl(p, main, dark, acc, lod) {
   st.push().t(p.x, p.y + 1.2, p.z).ry(p.yaw).rx(-p.pitch).rz(p.roll);
   part('box', 0, 0.2, 0, 2.9, 0.5, 8.4, dark, 0, 0.2);                       // chassis
   part('box', 0, 1.1, 3.1, 2.9, 1.9, 2.2, main, 0, 0.3);                     // cab
-  part('box', 0, 1.5, 4.22, 2.5, 0.8, 0.1, [0.1, 0.18, 0.24], 0.3, 0.9);
+  part('box', 0, 1.5, 4.22, 2.5, 0.8, 0.1, ARTY_GLASS, 0.3, 0.9);
   part('box', 0, 2.1, 3.1, 2.95, 0.2, 2.25, acc, 0.6, 0);
   for (let sx = -1; sx <= 1; sx += 2) {
     for (let z = -3; z <= 3; z += 3) { st.push().t(sx * 1.55, -0.55, z).rz(PI / 2).rx(wr).s(1.3, 0.8, 1.3); R.draw('cyl', 0.08, 0.08, 0.09); st.pop(); }
@@ -15309,7 +15314,7 @@ function drawMrl(p, main, dark, acc, lod) {
   part('cyl', 0, 0, 0, 2.2, 0.4, 2.2, dark, 0, 0.3);                         // turntable
   st.push().t(0, 0.5, -1.4).rx(-p.torsoPitch);
   part('box', 0, 0.75, 1.4, 2.4, 1.5, 4.4, main, 0, 0.3);                    // the pod
-  if (!lod) for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) part('cyl', (c - 1) * 0.72, 0.4 + r * 0.7, 3.62, 0.5, 0.06, 0.5, [0.05, 0.05, 0.05], 0, 0);   // tube mouths
+  if (!lod) for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) part('cyl', (c - 1) * 0.72, 0.4 + r * 0.7, 3.62, 0.5, 0.06, 0.5, ARTY_TUBE, 0, 0);   // tube mouths
   st.pop();
   st.pop();
   st.pop();
