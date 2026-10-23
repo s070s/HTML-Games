@@ -184,16 +184,19 @@ const Items = {
     return slot;
   },
   // Weapon spots follow the match's weapon set (the ruleset's set or a match list): a weapon outside it becomes a set gun of
-  // its own class, else the set's next gun ('' = no gun in the set). Runs once per spot at match load.
+  // its own class, else the set's next pickup gun (one nobody spawns with, when the set has one; '' = no gun in the set).
+  // Runs once per spot at match load.
   spotWeapon(key) {
     if (!itemRule('weaponSet', '')) return key;
-    const listed = currentWeaponSet().weapons;
+    const set = currentWeaponSet(), listed = set.weapons;
     if (listed.includes(key)) return key;
     const weaponClass = CAT.weapons.byId(key).class;
     const sameClass = listed.find((other) => CAT.weapons.byId(other).class === weaponClass);
     if (sameClass) return sameClass;
     const guns = listed.filter((other) => CAT.weapons.byId(other).class !== 'melee');
-    return guns.length ? guns[this.matchSetCursor++ % guns.length] : '';
+    const upgrades = guns.filter((other) => !set.start.includes(other));
+    const pool = upgrades.length ? upgrades : guns;
+    return pool.length ? pool[this.matchSetCursor++ % pool.length] : '';
   },
   place(slot, kind, rowIndex, x, y, z) {
     this.state[slot] = PICKUP_STATE.READY; this.kind[slot] = kind; this.row[slot] = rowIndex;

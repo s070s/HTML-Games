@@ -77,7 +77,8 @@ Test.add('items', (check) => {
   const military = CAT.weaponSets.byId('militarySet').weapons;
   check('a pad outside the set hands out a set gun of its class', Items.keyOf(1) === 'vanguard' && Items.keyOf(2) === 'kestrel', Items.keyOf(2));
   ItemArena.start({ weaponSet: 'arenaSet' }, spots);
-  check('the Arena set has no rifle: the Vanguard pad becomes an Arena gun', Items.keyOf(1) !== 'vanguard' && CAT.weaponSets.byId('arenaSet').weapons.includes(Items.keyOf(1)) && military.includes('vanguard'), Items.keyOf(1));
+  const arena = CAT.weaponSets.byId('arenaSet');
+  check('the Arena set has no rifle: the Vanguard pad becomes an Arena pickup gun, not the spawn pistol', arena.weapons.includes(Items.keyOf(1)) && !arena.start.includes(Items.keyOf(1)) && military.includes('vanguard'), Items.keyOf(1));
   ItemArena.start({ economy: 'heroKits' }, spots);
   check('hero kits: no weapon pads, other pickups stay', Items.spotCount === 1 && Items.keyOf(0) === 'healthpack', Items.spotCount);
   TestArena.finish();
