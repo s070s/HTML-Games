@@ -968,7 +968,7 @@ Test.add('progress', (check) => progressWithPlayer(() => {
 }));
 
 // ---- XP: every mode's score pays at about the kill modes' pace (play-01: hold seconds and banked motes are many points) ----
-const PROGRESS_TEST_RATE_RUNS = [['ffa', 'spire'], ['tdm', 'harbor'], ['oddball', 'gantry'], ['bearer', 'spire'], ['bank', 'cistern']];
+const PROGRESS_TEST_RATE_RUNS = [['ffa', 'spire'], ['tdm', 'harbor'], ['oddball', 'gantry'], ['bearer', 'spire'], ['bank', 'cistern'], ['attrition', 'harbor']];
 const PROGRESS_TEST_RATE_SECONDS = 180, PROGRESS_TEST_RATE_MINUTES = 7, PROGRESS_TEST_RATE_SPREAD = 3;   // play time, run cap (sudden death), max / min
 // The best score + objective XP per minute of one 8-bot match: each player is read as the local one through Progress.matchXp. 0 when it never ended.
 function progressScoreRate(mode, map) {
@@ -988,7 +988,7 @@ function progressScoreRate(mode, map) {
 }
 Test.add('progress', (check) => {
   const rates = PROGRESS_TEST_RATE_RUNS.map(([mode, map]) => progressScoreRate(mode, map)), lowest = Math.min(...rates);
-  check('xp: score XP per minute stays within x' + PROGRESS_TEST_RATE_SPREAD + ' across Frenzy, Team Clash, Relic Run, Flame Bearer and Mote Rush',
+  check('xp: score XP per minute stays within x' + PROGRESS_TEST_RATE_SPREAD + ' across Frenzy, Team Clash, Relic Run, Flame Bearer, Mote Rush and Attrition',
     lowest > 0 && Math.max(...rates) <= lowest * PROGRESS_TEST_RATE_SPREAD, PROGRESS_TEST_RATE_RUNS.map(([mode], index) => mode + ' ' + rates[index]).join(', '));
 });
 

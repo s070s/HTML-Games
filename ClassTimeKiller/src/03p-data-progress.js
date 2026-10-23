@@ -12,8 +12,9 @@ const PROGRESS_XP = {
   challengeStar: 150, ladderMatch: 200, operationStage: 200, daily: 150,
 };
 // The score and objective XP x the mode's weights (a mode not listed pays x1), so every mode's points pay at about the kill
-// modes' pace a minute: Relic Run and Flame Bearer pay a point and an objective credit per second held, Mote Rush a point per mote.
-const PROGRESS_XP_MODES = { oddball: { score: 0.4, objective: 0 }, bearer: { score: 0.4, objective: 0 }, bank: { score: 0.1, objective: 1 } };
+// modes' pace a minute: Relic Run and Flame Bearer pay a point and an objective credit per second held (their kills are weighed too),
+// Mote Rush a point per mote, Attrition 5 points a player kill plus points for fodder.
+const PROGRESS_XP_MODES = { oddball: { score: 0.4, objective: 0 }, bearer: { score: 0.4, objective: 0 }, bank: { score: 0.1, objective: 1 }, attrition: { score: 0.4, objective: 1 } };
 const PROGRESS_XP_MODE_FULL = { score: 1, objective: 1 };
 // The whole match XP x the difficulty's factor (a difficulty not listed pays x1): easy matches pay less, hard ones more.
 const PROGRESS_XP_DIFFICULTY = { stroll: 0.5, recruit: 0.7, novice: 0.85, skilled: 1.1, veteran: 1.2, elite: 1.3, masterful: 1.4, nightmare: 1.5, ascendant: 1.5 };
