@@ -11312,10 +11312,11 @@ const Traffic = {
     if (!T) return;
     T.flightHit = Infinity;
     if (!(len > 0)) return;
-    this.sweepList(T.cars, x0, y0, z0, ux, uy, uz, len, dmg);
-    this.sweepList(T.parked, x0, y0, z0, ux, uy, uz, len, dmg);
-    this.sweepList(T.ships, x0, y0, z0, ux, uy, uz, len, dmg);
-    T.flightHit = Flights.sweep(T, x0, y0, z0, ux, uy, uz, len, dmg);
+    // (an empty list is skipped: the call boxes its float arguments, and it runs for every shot every tick)
+    if (T.cars.length) this.sweepList(T.cars, x0, y0, z0, ux, uy, uz, len, dmg);
+    if (T.parked.length) this.sweepList(T.parked, x0, y0, z0, ux, uy, uz, len, dmg);
+    if (T.ships.length) this.sweepList(T.ships, x0, y0, z0, ux, uy, uz, len, dmg);
+    T.flightHit = T.flights.length ? Flights.sweep(T, x0, y0, z0, ux, uy, uz, len, dmg) : Infinity;
   },
   sweepList(list, x0, y0, z0, ux, uy, uz, len, dmg) {
     const x1 = x0 + ux * len, z1 = z0 + uz * len;
