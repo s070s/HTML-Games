@@ -597,6 +597,18 @@ function accessTestScreen(check, name) {
   check('screen ' + name + ': it can be left with the keyboard, the gamepad and a touch button', leftByKeyboard && leftByPad && leftByTouch, [leftByKeyboard, leftByPad, leftByTouch].join());
 }
 
+// iOS Safari: no text inflation in landscape, and the layout scrolls back after the on-screen keyboard closed.
+Test.add('uiacc', (check) => {
+  check('ios: the page turns text size adjustment off', /html \{ -webkit-text-size-adjust: 100%; text-size-adjust: 100%; \}/.test(document.getElementById('ui-style').textContent));
+  const field = makeElement('input'), scrollTo = window.scrollTo;
+  let resets = 0;
+  field.type = 'text';
+  Ui.root.appendChild(field);
+  window.scrollTo = () => { resets++; };
+  try { field.dispatchEvent(new FocusEvent('focusout', { bubbles: true })); } finally { window.scrollTo = scrollTo; field.remove(); }
+  check('ios: leaving a text field scrolls the page back', resets === 1, resets);
+});
+
 // ACC-008 in the style sheets themselves, so screens the walk above never opens are covered too (em = of the 16 px overlay font).
 // Every sheet injected at boot (injectStyle gives each an id: touch buttons, scoreboard, play...), plus the ones a screen injects when it first opens.
 Test.add('uiacc', (check) => {

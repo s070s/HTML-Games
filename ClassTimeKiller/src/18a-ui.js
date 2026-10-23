@@ -16,7 +16,9 @@ const UI_SETTINGS = [
   { key: 'developer.botDebug', fallback: false, label: 'Bot debug view (F9)', category: 'developer' },
 ];
 
-const UI_CSS = '.ui-screen { color-scheme: dark; position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; color: var(--ui-text);'
+// iOS Safari enlarges text in landscape unless told not to: the menus are sized for 667 x 320 as they are.
+const UI_CSS = 'html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }'
+  + '.ui-screen { color-scheme: dark; position: fixed; inset: 0; z-index: 20; display: flex; flex-direction: column; color: var(--ui-text);'
   + ' padding: calc(16px + var(--safe-top)) calc(20px + var(--safe-right)) calc(16px + var(--safe-bottom)) calc(20px + var(--safe-left));'
   + ' background: radial-gradient(ellipse at 20% 0%, #1b2736 0%, #0b0f14 70%); overflow: hidden; }'
   + '.ui-screen.behind { display: none; } #overlay > .ui-screen.passthrough { background: none; pointer-events: none; } .passthrough > * { pointer-events: auto; }'
@@ -191,10 +193,10 @@ const Ui = {
   },
 
   // ---- Toasts and sound hook ----
-  // placement 'play' = the match toast spot (tips, hints), else the top of the screen.
-  toast(text, placement) {
+  // In a running match every toast sits below the crosshair, clear of the header and the top touch buttons; menus use the top.
+  toast(text) {
     this.lastToast = text;
-    const box = placement === 'play' ? this.playBox : this.toastBox;
+    const box = Game.state === 'playing' && !Game.paused ? this.playBox : this.toastBox;
     if (!box) return;
     const item = makeElement('div', 'ui-toast', text);
     box.appendChild(item);
@@ -259,8 +261,11 @@ const Ui = {
     this.playBox = makeElement('div', 'ui-toasts ui-toasts-play');
     this.root.appendChild(this.playBox);
     window.addEventListener('keydown', (event) => this.onKeyDown(event));
+    window.addEventListener('focusout', (event) => { if (isTextField(event.target)) this.resetScroll(); });
     this.applySettings();
   },
+  // iOS pans the page to show a focused field and can leave it shifted after the keyboard closes: the fixed layout goes back.
+  resetScroll() { window.scrollTo(0, 0); },
   applySettings() {
     document.documentElement.style.setProperty('--ui-scale', String(Settings.get('ui.scale')));
     this.perfVisible = Settings.get('developer.perfHud');
@@ -290,5 +295,5 @@ for (const row of UI_SETTINGS) {
 }
 Bus.on('boot', () => Ui.init());
 Bus.on('setting', () => { if (Ui.root) Ui.applySettings(); });
-Bus.on('toast', (payload) => Ui.toast(payload.text, payload.placement));
+Bus.on('toast', (payload) => Ui.toast(payload.text));
 Bus.on('input.menu', (payload) => Ui.onMenuCommand(payload.command));

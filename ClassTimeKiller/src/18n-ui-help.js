@@ -210,7 +210,7 @@ const Tips = {
     Save.data.tips.matches = seen + 1;
     Save.scheduleSave();
     const text = this.text(seen);
-    if (text) Ui.toast(text, 'play');
+    if (text) Ui.toast(text);
     return text;
   },
 };
