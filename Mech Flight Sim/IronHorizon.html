@@ -7394,6 +7394,8 @@ const CIV_RADIUS = 0.35, CIV_HEIGHT = 1.75;
 const CIV_CITY_STEP = 52;                // lot spacing of a plain city (Scenery.city)
 const CIV_ZONE_PAD = 10;                 // a zone's box reaches this far past its city (m)
 const CIV_LANE = [3.4, 4.4];             // how far from a street's centre line a civilian walks (m): the pavement, clear of the cars (Traffic)
+const CIV_CROSS_MIN = 1;                 // a civilian this far or more from its side of the next street crosses over at the corner first (m)
+const CIV_CORNER_IN = 6;                 // where crates or a barrier pull a corner's point toward the middle, civilians step in only this close to it (m)
 const CIV_WALK = [1.1, 1.6], CIV_RUN = [4, 5.4];   // walking and running speed (m/s)
 const CIV_LIMP = 0.55;                   // speed share of a wounded civilian
 const CIV_WADE = 0.3;                    // civilians never step into water deeper than this (m)
@@ -7516,6 +7518,7 @@ const Civ = {
     c.x = lerp(na.x, nb.x, f) + rx * c.lane; c.z = lerp(na.z, nb.z, f) + rz * c.lane;
     if (this.blocked(c.x, c.z, CIV_RADIUS, zone.blds)) { c.x = lerp(na.x, nb.x, f); c.z = lerp(na.z, nb.z, f); }
     c.y = Terrain.h(c.x, c.z); c.yaw = Math.atan2(nb.x - na.x, nb.z - na.z); c.from = a;
+    if (f * len < len - 2 * CIV_CORNER_IN) this.kerbOff(c, a, b, len, len - CIV_CORNER_IN);
     c.path.push(this.edgePoint(c, a, b));
   },
   /* one civilian with its own look and pace; every civilian has the same fields */
@@ -7539,14 +7542,37 @@ const Civ = {
   /* a path point: n is the street corner it stands for (-1 for none), free skips obstacle checks (doorways), enter is the
      door to go in by, act what the society does there (Society.act: work on a site, board a car, take a post) */
   point(x, z, n, free, enter, act) { return { x, z, n, free, enter, act: act || 0 }; },
-  /* the point at corner `to` on the walk from corner `from`, on the civilian's side of the street (nearer the
-     middle when crates or a barrier stand on the corner; the corner itself is always clear) */
-  edgePoint(c, from, to) {
+  /* the point d m along the street from corner `from` to corner `to`, on the civilian's side of it; pull: nearer the
+     middle where crates or a barrier stand there (at a corner, which is itself always clear) */
+  sidePoint(c, from, to, d, pull) {
     const ns = c.zone.nodes, a = ns[from], b = ns[to], len = Math.hypot(b.x - a.x, b.z - a.z) || 1, rx = -(b.z - a.z) / len, rz = (b.x - a.x) / len;
+    const x = a.x + rz * d, z = a.z - rx * d;
     let lane = c.lane;
-    while (Math.abs(lane) > 0.4 && this.blocked(b.x + rx * lane, b.z + rz * lane, CIV_RADIUS + 0.15, c.zone.blds)) lane *= 0.5;
+    while (pull && Math.abs(lane) > 0.4 && this.blocked(x + rx * lane, z + rz * lane, CIV_RADIUS + 0.15, c.zone.blds)) lane *= 0.5;
     if (Math.abs(lane) <= 0.4) lane = 0;
-    return this.point(b.x + rx * lane, b.z + rz * lane, to, false, null);
+    return this.point(x + rx * lane, z + rz * lane, -1, false, null);
+  },
+  streetLen(c, from, to) { const ns = c.zone.nodes; return Math.hypot(ns[to].x - ns[from].x, ns[to].z - ns[from].z); },
+  /* the point at corner `to` on the walk from corner `from` */
+  edgePoint(c, from, to) {
+    const p = this.sidePoint(c, from, to, this.streetLen(c, from, to), true);
+    p.n = to;
+    return p;
+  },
+  /* c walks on from corner `from` to corner `to` on its own side of that street, so never along the carriageway: first
+     over to that side at `from` when it stands elsewhere (round a corner, or turning back: it crosses at the corner), and
+     on the pavement up to CIV_CORNER_IN m from a corner whose point is pulled in toward the middle */
+  walkEdge(c, from, to) {
+    const len = this.streetLen(c, from, to), start = this.sidePoint(c, from, to, 0, true), last = c.path.length ? c.path[c.path.length - 1] : c;
+    if (Math.hypot(start.x - last.x, start.z - last.z) > CIV_CROSS_MIN) c.path.push(start);
+    if (len > 2 * CIV_CORNER_IN) { this.kerbOff(c, from, to, 0, CIV_CORNER_IN); this.kerbOff(c, from, to, len, len - CIV_CORNER_IN); }
+    c.path.push(this.edgePoint(c, from, to));
+  },
+  /* onto c's path its point d m along the street, on the pavement, when the corner point at `at` m is pulled in (and that
+     point is clear) */
+  kerbOff(c, from, to, at, d) {
+    const corner = this.sidePoint(c, from, to, at, true), full = this.sidePoint(c, from, to, at, false), p = this.sidePoint(c, from, to, d, false);
+    if (Math.hypot(corner.x - full.x, corner.z - full.z) > CIV_CROSS_MIN && !this.blocked(p.x, p.z, CIV_RADIUS + 0.15, c.zone.blds)) c.path.push(p);
   },
   /* the path ran out at a corner: stop a while, go into a building there, or walk on (rarely straight back) */
   next(c) {
@@ -7561,11 +7587,37 @@ const Civ = {
       if (this.shelters(d.b)) { this.toDoor(c, d); return; }
     }
     const ahead = node.nb.filter((k) => k !== c.prev), list = ahead.length ? ahead : node.nb;
-    c.path.push(this.edgePoint(c, c.from, list[Math.floor(Math.random() * list.length)]));
+    this.walkEdge(c, c.from, list[Math.floor(Math.random() * list.length)]);
   },
+  /* into door d along the pavement on its side of the street: from the corner it is reached from, over to that side
+     there first (a calm civilian), so it never walks along the middle of the street to it */
   toDoor(c, d) {
+    const n = c.zone.nodes[d.node], kerb = this.kerbSide(c, d.st, d.out, d.st, true);
     c.path.length = 0;
-    c.path.push(this.point(d.st.x, d.st.z, -1, false, null), this.point(d.out.x, d.out.z, -1, false, null), this.point(d.inn.x, d.inn.z, -1, true, d));
+    if (c.panic <= 0 && c.from === d.node) {
+      const corner = this.kerbSide(c, d.st, d.out, n, true), near = this.kerbNear(c, d, n);
+      if (Math.hypot(corner.x - c.x, corner.z - c.z) > CIV_CROSS_MIN) c.path.push(this.point(corner.x, corner.z, -1, false, null));
+      if (near) c.path.push(this.point(near.x, near.z, -1, false, null));
+    }
+    c.path.push(this.point(kerb.x, kerb.z, -1, false, null), this.point(d.out.x, d.out.z, -1, false, null), this.point(d.inn.x, d.inn.z, -1, true, d));
+  },
+  /* the point beside p on the middle of a street, on the pavement toward the place `out` beside it (a door's step, a
+     site) whose way meets the street at st: no further out than that place; pull: nearer the middle where something
+     stands there */
+  kerbSide(c, st, out, p, pull) {
+    const len = Math.hypot(out.x - st.x, out.z - st.z) || 1, sx = (out.x - st.x) / len, sz = (out.z - st.z) / len;
+    let lane = Math.min(Math.abs(c.lane), len);
+    while (pull && lane > 0.4 && this.blocked(p.x + sx * lane, p.z + sz * lane, CIV_RADIUS + 0.15, c.zone.blds)) lane *= 0.5;
+    if (lane <= 0.4) lane = 0;
+    return { x: p.x + sx * lane, z: p.z + sz * lane };
+  },
+  /* the point on door d's pavement CIV_CORNER_IN m from its corner node n, where one steps in to the corner's point when
+     that is pulled in toward the middle (null: it is not, the door is that near, or the point is blocked) */
+  kerbNear(c, d, n) {
+    const len = Math.hypot(d.st.x - n.x, d.st.z - n.z), corner = this.kerbSide(c, d.st, d.out, n, true), full = this.kerbSide(c, d.st, d.out, n, false);
+    if (len <= 2 * CIV_CORNER_IN || Math.hypot(corner.x - full.x, corner.z - full.z) <= CIV_CROSS_MIN) return null;
+    const f = CIV_CORNER_IN / len, p = this.kerbSide(c, d.st, d.out, { x: n.x + (d.st.x - n.x) * f, z: n.z + (d.st.z - n.z) * f }, false);
+    return this.blocked(p.x, p.z, CIV_RADIUS + 0.15, c.zone.blds) ? null : p;
   },
   /* lost or stuck: straight to the nearest street corner, through whatever is in the way */
   toNearest(c) {
@@ -7580,12 +7632,15 @@ const Civ = {
     c.state = 'inside'; c.door = d; c.t = c.job ? Society.stay(c, d) : rand(CIV_INSIDE[0], CIV_INSIDE[1]); c.path.length = 0; c.speed = 0; c.x = d.inn.x; c.z = d.inn.z;
     this.endChat(c);
   },
-  /* out through one of the building's doors and back to the street */
+  /* out through one of the building's doors and back to the street: along its pavement to the corner */
   leave(c) {
     const own = c.zone.doors.filter((d) => d.b === c.door.b), d = own[Math.floor(Math.random() * own.length)] || c.door, n = c.zone.nodes[d.node];
+    const kerb = this.kerbSide(c, d.st, d.out, d.st, true), near = this.kerbNear(c, d, n), corner = this.kerbSide(c, d.st, d.out, n, true);
     c.state = 'walk'; c.door = null; c.stuckT = 0;
     c.x = d.inn.x; c.z = d.inn.z; c.y = Terrain.h(c.x, c.z); c.yaw = Math.atan2(d.out.x - d.inn.x, d.out.z - d.inn.z);
-    c.path.push(this.point(d.out.x, d.out.z, -1, true, null), this.point(d.st.x, d.st.z, -1, false, null), this.point(n.x, n.z, d.node, false, null));
+    c.path.push(this.point(d.out.x, d.out.z, -1, true, null), this.point(kerb.x, kerb.z, -1, false, null));
+    if (near) c.path.push(this.point(near.x, near.z, -1, false, null));
+    c.path.push(this.point(corner.x, corner.z, d.node, false, null));
   },
   shelters(b) { return b.alive >= b.total * CIV_HIDE_SAFE; },
   idle(c) {
@@ -7646,7 +7701,7 @@ const Civ = {
         if (d > top) { top = d; pick = nb; }
       }
       if (pick < 0) break;
-      c.path.push(this.edgePoint(c, cur, pick));
+      this.walkEdge(c, cur, pick);
       back = cur; cur = pick;
     }
   },
@@ -8247,7 +8302,7 @@ const Society = {
     let pick = -1, k = 0;
     for (let i = 0; i < nb.length; i++) if (h[goal * n + nb[i]] === want && Math.random() * ++k < 1) pick = nb[i];
     if (pick < 0) return false;
-    c.path.push(Civ.edgePoint(c, here, pick));
+    Civ.walkEdge(c, here, pick);
     return true;
   },
   /* to a spot on its site: from the street in front of it, then about it */
@@ -8257,7 +8312,7 @@ const Society = {
       const px = g.x + rand(-SOC_SITE_SPREAD, SOC_SITE_SPREAD), pz = g.z + rand(-SOC_SITE_SPREAD, SOC_SITE_SPREAD);
       if (!Civ.blocked(px, pz, CIV_RADIUS, c.zone.blds)) { x = px; z = pz; break; }
     }
-    if (Math.hypot(c.x - g.x, c.z - g.z) > SOC_SITE_SPREAD * 3) c.path.push(Civ.point(g.sx, g.sz, -1, false, null));
+    if (Math.hypot(c.x - g.x, c.z - g.z) > SOC_SITE_SPREAD * 3) { const st = { x: g.sx, z: g.sz }, kerb = Civ.kerbSide(c, st, g, st, true); c.path.push(Civ.point(kerb.x, kerb.z, -1, false, null)); }   // its pavement in front of it
     c.path.push(Civ.point(x, z, -1, false, null, SOC_ACT_SITE));
   },
   /* to its own kerb car, on its kerb side (the street side where that is blocked) */
@@ -8609,7 +8664,7 @@ const Society = {
     for (let k = 0; here !== goal && k < n; k++) {
       const want = H[goal * n + here] - 1, next = zn.nodes[here].nb.find((j) => H[goal * n + j] === want);
       if (next === undefined) break;
-      h.path.push(Civ.edgePoint(h, here, next));
+      Civ.walkEdge(h, here, next);
       here = next;
     }
     // straight on to the last of those corners h already sees (it may stand on the street between two of them)
@@ -27647,20 +27702,37 @@ const SelfTest = {
       this.check('outdoor civilians start on clear ground', out().every((c) => !Civ.blocked(c.x, c.z, 0.1, zone.blds)));
       // a few minutes of routines (a street takes about 40 s to walk): they walk, go in and come out, and never stand inside a building's walls
       const start = new Map(zone.civs.map((c) => [c, { x: c.x, z: c.z }]));
-      let entered = 0, left = 0, walledIn = 0;
+      const ON_ROAD_MAX = 0.01, CORNER = 10;   // share of the samples along a street that may stand on the road (a dodge round someone); m from a corner where they cross
+      let entered = 0, left = 0, walledIn = 0, midStreet = 0, onRoad = 0;
       const wasIn = new Map(zone.civs.map((c) => [c, c.state === 'inside']));
+      // how far from the middle of the nearest street a calm civilian walking away from the corners stands (-1: not such a one)
+      const streets = [];
+      for (const i of zone.edgeNodes) for (const j of zone.nodes[i].nb) if (i < j) streets.push({ x1: zone.nodes[i].x, z1: zone.nodes[i].z, x2: zone.nodes[j].x, z2: zone.nodes[j].z });
+      const offMiddle = (c) => {
+        const p = c.path[0];
+        if (c.state !== 'walk' || c.panic > 0 || !p || p.free || zone.edgeNodes.some((i) => Math.hypot(zone.nodes[i].x - c.x, zone.nodes[i].z - c.z) < CORNER)) return -1;
+        return streets.reduce((m, s) => Math.min(m, segDist(c.x, c.z, s)), Infinity);
+      };
       for (let i = 0; i < 60 * 150; i++) {
         W.time += STEP; Civ.update(STEP);
         for (const c of zone.civs) {
           const inNow = c.state === 'inside';
           if (inNow !== wasIn.get(c)) { if (inNow) entered++; else left++; wasIn.set(c, inNow); }
         }
-        if (i % 30 === 0) for (const c of out()) if (Civ.blocked(c.x, c.z, 0.05, zone.blds) && !(c.path[0] && c.path[0].free)) walledIn++;
+        if (i % 30) continue;
+        for (const c of out()) {
+          if (Civ.blocked(c.x, c.z, 0.05, zone.blds) && !(c.path[0] && c.path[0].free)) walledIn++;
+          const off = offMiddle(c);
+          if (off < 0) continue;
+          midStreet++;
+          if (off < TRAFFIC_LANE + 1) onRoad++;   // where a car on its lane would be
+        }
       }
       const moved = zone.civs.filter((c) => Math.hypot(c.x - start.get(c).x, c.z - start.get(c).z) > 5).length;
       this.check('civilians walk about', moved > zone.civs.length * 0.5, moved + ' of ' + zone.civs.length + ' moved');
       this.check('civilians go into buildings and come out again', entered > 0 && left > 0, entered + ' in, ' + left + ' out');
       this.check('civilians never walk through walls or props', walledIn === 0, walledIn + ' samples inside');
+      this.check('along a street civilians keep to its pavement, clear of the cars (they cross at the corners)', midStreet > 100 && onRoad <= midStreet * ON_ROAD_MAX, onRoad + ' of ' + midStreet + ' samples along a street on the road');
       const [talker, listener] = out().filter((c) => c.panic <= 0 && !c.chat);
       listener.x = talker.x + 1; listener.z = talker.z;
       Civ.idle(talker);
