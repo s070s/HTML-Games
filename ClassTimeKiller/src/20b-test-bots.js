@@ -640,6 +640,10 @@ Test.add('bots', (check) => {
   check('a dash out over the void is not used', !abilityLands(bot, surge));
   Bots.wishZ[bot] = -1;
   check('a dash along the floor is used', abilityLands(bot, surge));
+  const glide = CAT.abilities.byId('glidepack');
+  check('a glide along the floor is held', abilityLands(bot, glide));
+  Bots.wishZ[bot] = 1;
+  check('a glide out over the void is not held', !abilityLands(bot, glide));
   endBotTest();
 });
 

@@ -70,6 +70,7 @@ const ABILITY_KEEP_SECONDS = 4;         // a toggle or channel is pressed off on
 const ABILITY_MIN_ON = 0.5;             // ...and no sooner than this (one press on, a later press off); an off press that did
                                         // not take is tried again this long later (the button released in between)
 const ABILITY_TRAVEL = 10;              // m: 'moving' abilities (glide, grapple, sprint) only on longer trips
+const GLIDE_LOOKAHEAD = 6;              // m along the move that must have floor below for a glide to be held
 const UNDER_FIRE_SECONDS = 1.5;         // hit this recently = under fire
 const LOW_AMMO_SHARE = 0.25;
 const DODGE_CHANCE_CAP = 0.6;           // BOT-033: no dodge is ever surer than 60%
@@ -698,7 +699,7 @@ const BotCombat = {
     const slot = this.holdSlot[id];
     if (slot < 0) return;
     const row = Abilities.row(id, slot);
-    if (now > this.holdSlotUntil[id] || !row || !triggerHolds(id, row.botUse)) { this.holdSlot[id] = -1; return; }
+    if (now > this.holdSlotUntil[id] || !row || !triggerHolds(id, row.botUse) || !abilityLands(id, row)) { this.holdSlot[id] = -1; return; }
     Bots.press(id, SLOT_BUTTONS[slot]);
   },
   // A seen enemy mine is passed crouched when crouching keeps it quiet, else steered around; an enemy grenade heard
@@ -821,8 +822,10 @@ function throwRange(pitch, rise) {
 // botUse { when, range [min, max], chance }: the trigger holds, the target (when the bot has one) is in range (max 0 = any),
 // the bot's tier reaches the row's tier (when it has one), and the per-check chance passes.
 // BOT-010 for movement abilities: a grapple or blink goes only where its end point (along the view, or along the move
-// for an input dash) has floor within the bot's drop limit below it, never out over the void.
+// for an input dash) has floor within the bot's drop limit below it, never out over the void. A glide is held only while
+// floor lies GLIDE_LOOKAHEAD m along the move (keepHolding lets go over the void).
 function abilityLands(id, row) {
+  if (row.effect === 'glide') return glideLands(id);
   if (row.effect !== 'grapple' && row.effect !== 'blink') return true;
   if (row.params.direction === 'input') Vec.set(abilityRay, Bots.wishX[id], 0, Bots.wishZ[id]);
   else Vec.fromAngles(abilityRay, Actors.yaw[id], Actors.pitch[id]);
@@ -830,6 +833,17 @@ function abilityLands(id, row) {
   if (row.effect === 'grapple' && !hooked) return true;   // nothing to hook: the cast fails on its own
   const reach = Math.max(0, (hooked ? abilityHit.distance : row.range) - ACTOR_RADIUS);
   const x = Actors.x[id] + abilityRay.x * reach, y = eyeY + abilityRay.y * reach + STEP_HEIGHT, z = Actors.z[id] + abilityRay.z * reach;
+  return floorBelow(id, x, y, z);
+}
+
+function glideLands(id) {
+  const wishLength = length2(Bots.wishX[id], Bots.wishZ[id]);
+  if (wishLength < 1e-3) return floorBelow(id, Actors.x[id], Actors.eyeY(id), Actors.z[id]);
+  const scale = GLIDE_LOOKAHEAD / wishLength;
+  return floorBelow(id, Actors.x[id] + Bots.wishX[id] * scale, Actors.eyeY(id), Actors.z[id] + Bots.wishZ[id] * scale);
+}
+
+function floorBelow(id, x, y, z) {
   return World.raycast(x, y, z, 0, -1, 0, BotMove.options[id].maxDrop + STAND_HEIGHT * 2, abilityHit);
 }
 
