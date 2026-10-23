@@ -33,7 +33,7 @@ const SIZE_WARN_BYTES = 3.0 * 1024 * 1024;   // D07: past 3.0 MB the build warns
 const SIZE_LIMIT_BYTES = 3.5 * 1024 * 1024;  // D07: past 3.5 MB the build fails (readable code, comment-only lines stripped)
 const BANNED_APIS = [/\bfetch\s*\(/, /XMLHttpRequest/, /\bimport\s*\(/, /new\s+WebSocket/, /navigator\.sendBeacon/, /\beval\s*\(/, /new\s+Function\s*\(/];
 // PERF-006: Math.hypot is a built-in call that boxes its result on every call; per-frame and per-step files use length2 / length3.
-const HOT_FILES = /^(07[a-f]-render|08a-world|08b-world-collide|08c-world-triggers|08d-world-bodies|10a-move|11a-weapons|11b-projectiles|14a-bots|14b-bots-perception|14c-bots-move|14d-bots-combat|14e-bots-decide|14h-pve|14i-pve-enemies|17[a-g]-hud)/;
+const HOT_FILES = /^(06-audio|06c-audio-music|07[a-f]-render|08a-world|08b-world-collide|08c-world-triggers|08d-world-bodies|10a-move|11a-weapons|11b-projectiles|14a-bots|14b-bots-perception|14c-bots-move|14d-bots-combat|14e-bots-decide|14h-pve|14i-pve-enemies|17[a-g]-hud)/;
 const HOT_BANNED_APIS = [/Math\.hypot\s*\(/];
 
 const checkOnly = process.argv.includes('--check');
@@ -123,7 +123,8 @@ function checkParses(code) {
   try { new Script(code, { filename: 'ClassTimeKiller.html' }); } catch (error) { problems.push('the joined script does not parse: ' + error.message); }
 }
 
-// A name declared at column 0 in two files would be a load-time SyntaxError (or a silent override).
+// A name declared at column 0 in two files would be a load-time SyntaxError (or a silent override). One declaration per
+// line: a second one after a ; would escape the column-0 match.
 function checkTopLevelNames(files) {
   const owner = new Map();
   const declaration = /^(?:const|let|var|function\*?|class|async\s+function)\s+([A-Za-z_$][\w$]*)/;
@@ -131,11 +132,30 @@ function checkTopLevelNames(files) {
     file.text.split('\n').forEach((line, index) => {
       const match = declaration.exec(line);
       if (!match) return;
+      if (/;\s*(?:const|let|var|function|class)\s/.test(outsideBrackets(line))) problems.push('two top-level declarations on one line in ' + file.name + ':' + (index + 1));
       const name = match[1];
       if (owner.has(name)) problems.push('duplicate top-level name "' + name + '" in ' + file.name + ':' + (index + 1) + ' (first in ' + owner.get(name) + ')');
       else owner.set(name, file.name + ':' + (index + 1));
     });
   }
+}
+
+// The line without its strings and bracketed parts: what stays is the line's top level.
+function outsideBrackets(line) {
+  let depth = 0, quote = '', kept = '';
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i];
+    if (quote) {
+      if (char === '\\') i++;
+      else if (char === quote) quote = '';
+      continue;
+    }
+    if (char === '"' || char === "'" || char === '`') quote = char;
+    else if ('([{'.includes(char)) depth++;
+    else if (')]}'.includes(char)) depth--;
+    else if (depth === 0) kept += char;
+  }
+  return kept;
 }
 
 function checkBannedApis(files) {

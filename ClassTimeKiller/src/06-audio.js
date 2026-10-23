@@ -37,7 +37,8 @@ const AUDIO_HRTF_QUALITY = ['high', 'ultra']; // AUD-004: head-related panning o
 const AUDIO_HEARTBEAT_SLOW = 1.0;             // seconds between beats at the threshold (LOW_HEALTH_FRACTION, S03)
 const AUDIO_HEARTBEAT_FAST = 0.5;             // seconds between beats at 0 health
 const AUDIO_GAMEPAD_POLL_SECONDS = 0.1;
-const AUDIO_GESTURES = ['pointerdown', 'pointerup', 'keydown', 'touchend', 'click'];const AUDIO_DIRECTIONS = ['ahead', 'right', 'behind', 'left'];
+const AUDIO_GESTURES = ['pointerdown', 'pointerup', 'keydown', 'touchend', 'click'];
+const AUDIO_DIRECTIONS = ['ahead', 'right', 'behind', 'left'];
 const AUDIO_CAPTION_KINDS = ['footstep', 'gunfire', 'explosion', 'item', 'voice', 'alert']; // HUD icon / colour per kind (ACC-003)
 
 // ---- Settings (ACC-006, AUD-001, Q3). Volumes are slider positions 0..1; the bus gain is the square (perceived loudness). ----
@@ -152,7 +153,7 @@ function audioDirection(pan, front) {
 function computeAudioSpatial(out, recipe, x, y, z) {
   const listener = audioListener;
   const dx = x - listener.x, dy = y - listener.y, dz = z - listener.z;
-  const horizontal = Math.hypot(dx, dz);
+  const horizontal = length2(dx, dz);
   out.distance = Math.sqrt(dx * dx + dy * dy + dz * dz);
   out.gain = audioAttenuation(recipe, out.distance);
   out.occluded = false;
@@ -363,7 +364,7 @@ const Sound = {
   assumeRunning: false,     // tests: an OfflineAudioContext never reports 'running'
   listenerSource: null,     // fn(out {x,y,z,yaw,pitch}) -> bool, set by spectate / killcam code when the listener is not the player
   lineOfSight: null,        // fn(ax,ay,az,bx,by,bz) -> true when nothing solid lies between; filled by the world section. null = no occlusion
-  nowMs: audioClockMs,      // tests replace it to drive the per-frame time budget
+  nowMs: audioClockMs,      // the clock updateMs is measured with (tests replace it)
   speechSynth: null,        // tests: replacement for window.speechSynthesis
   contextFactory: null,     // tests: returns the AudioContext to use
   context: null, buses: null, noiseBuffer: null, slots: [],
@@ -593,7 +594,7 @@ const Sound = {
     return true;
   },
 
-  // ---- Frame update (Loop phase 'audio'): listener, player cues, queue -> voices. Budget 0.3 ms (AUD-007). ----
+  // ---- Frame update (Loop phase 'audio'): listener, player cues, queue -> voices; the start cap keeps it cheap (AUD-007). ----
   update(seconds) {
     if (!this.live()) return;
     this.frameStart = this.nowMs();
@@ -688,7 +689,7 @@ const Sound = {
     if (!this.canPlay()) return false;
     return this.startVoice(recipe, spatial, spatial.gain * recipe.gain * queue.gain[row], queue.pitch[row], queue.priority[row]);
   },
-  // Sounds that got no voice (voice cap, time budget) still get their caption: a deaf player must not lose the warning (ACC-003).
+  // Sounds that got no voice (voice cap, start cap) still get their caption: a deaf player must not lose the warning (ACC-003).
   captionLeftovers() {
     const queue = SoundQueue;
     for (let row = 0; row < queue.count; row++) {
