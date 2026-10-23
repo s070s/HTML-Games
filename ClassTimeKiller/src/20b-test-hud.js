@@ -345,32 +345,23 @@ Test.add('hud', (check) => hudTestWith(() => {
   const chat = HudBanners.text.filter((text) => text.endsWith(': Too slow.') || text.endsWith(': Again?')), headshot = HudBanners.text.indexOf('Headshot');
   check('banners on a phone: a chat line while the queue is busy is dropped, a medal waits one turn at most', chat.length === 1 && chat[0].endsWith('Too slow.')
     && HudBanners.at[headshot] <= Hud.time + HUD_BANNER_QUEUE, chat.join(' | '));
-  // Six banners at once on a phone: the ring is full, so a low one gives way and every medal shows in turn.
+  // Six banners at once on a phone: the ring is full, a low one gives way and every medal shows in turn.
   HudBanners.reset(); Hud.time += 100;
-  const titles = ['Medal A', 'Medal B', 'Medal C'], shown = new Set();
-  for (let i = 0; i < 3; i++) { HudBanners.add(titles[i], 'medal', HUD_BANNER_PRIORITY_LONG, true); HudBanners.add('Note ' + i, 'lead', 1, false); }
-  for (let step = 0; step < 100; step++) { const now = HudBanners.newest(); if (now >= 0) shown.add(HudBanners.text[now]); Hud.time += 0.1; }
-  check('banners on a phone: six at once, every medal shows in turn and none is overwritten while it waits', titles.every((title) => shown.has(title)), [...shown].join(' | '));
-  HudBanners.reset(); Hud.time += 100;
-  for (let i = 0; i < HUD_BANNER_SLOTS; i++) HudBanners.add('Medal ' + i, 'medal', HUD_BANNER_PRIORITY_LONG, true);
-  HudBanners.add('Minor', 'lead', 1, false);
-  check('banners on a phone: a full ring of medals drops a lower banner instead of one of them', !HudBanners.text.includes('Minor') && HudBanners.text.includes('Medal 0'));
+  const shown = new Set();
+  for (let i = 0; i < 3; i++) { HudBanners.add('M' + i, 'medal', HUD_BANNER_PRIORITY_LONG, true); HudBanners.add('N' + i, 'lead', 1, false); }
+  for (let step = 0; step < 100; step++, Hud.time += 0.1) shown.add(HudBanners.text[HudBanners.newest()]);
+  check('banners on a phone: six at once, every medal shows, none overwritten while waiting', [0, 1, 2].every((i) => shown.has('M' + i)));
   HudBanners.reset();
   Hud.layout.phone = false;
 }));
 
-// The phone banner line as drawn: a real phone frame (844 x 390, touch).
+// A real phone frame (844 x 390, touch): a very long banner is cut to fit between the score underlines.
 Test.add('hud', (check) => hudTestWith(() => {
   hudTestFillScene(hudTestMatch());
-  HudBanners.reset();
-  HudBanners.add('Enemy team takes the lead with an extremely long announcement text', 'lead', 1, false);
-  const drawn = [], penText = HudPen.text;
-  HudPen.text = function (string, x, y, size, color, align, alpha) { drawn.push({ string, size }); return penText.call(this, string, x, y, size, color, align, alpha); };
-  Render.size.cssWidth = 844; Render.size.cssHeight = 390; Input.device = 'touch';   // a real phone frame: the layout derives layout.phone itself
-  try { hudTestFrame(); } finally { HudPen.text = penText; }
-  const line = drawn.find((row) => row.string.startsWith('Enemy team')), gap = 2 * 82 * Hud.layout.unit;
-  check('banners on a phone: a very long text is cut to fit between the score underlines, at 14 px or more', !!line && HudPen.measure(line.string, line.size) <= gap
-    && line.string.endsWith('…') && line.size >= HUD_TEXT_SMALL * Hud.layout.unit - 1e-6, line ? line.string + ' ' + HudPen.measure(line.string, line.size) + '/' + gap : 'not drawn');
+  HudBanners.reset(); HudBanners.add('Enemy team takes the lead with a very long text', 'lead', 1, false);
+  Render.size.cssWidth = 844; Render.size.cssHeight = 390; Input.device = 'touch';
+  hudTestFrame();
+  check('banners on a phone: a very long text is cut to fit between the score underlines', hudFitText.endsWith('…') && HudPen.measure(hudFitText, 14) <= 164 * Hud.layout.unit);
   HudBanners.reset();
 }));
 

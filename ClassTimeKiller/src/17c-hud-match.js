@@ -6,8 +6,6 @@ const HUD_FEED_SLOTS = 8, HUD_FEED_SECONDS = 6, HUD_FEED_FADE = 0.5, HUD_FEED_RO
 const HUD_BANNER_SLOTS = 4, HUD_BANNER_SECONDS = 2.6, HUD_BANNER_SECONDS_LONG = 3.4, HUD_BANNER_FADE = 0.5, HUD_BANNER_SHOWN = 3;
 const HUD_BANNER_QUEUE = 1.2;   // s: on a phone a new banner waits this long after the start of the last one (one line, each in turn)
 const HUD_BANNER_PRIORITY_LONG = 2;
-const HUD_BANNER_MEDAL_RANK = 1000;   // a medal outranks every announcer priority when a full phone ring must drop one banner
-const HUD_ELLIPSIS = '\u2026';
 const HUD_MAX_OBJECTIVE_CHIPS = 6;
 const HUD_FALLBACK_NAME = 'Player';
 const HUD_CAMEL_BREAK = /([a-z])([A-Z])/g;
@@ -116,28 +114,27 @@ const HudBanners = {
 
   reset() { this.at.fill(-1000); this.next = 0; },
   add(text, kind, priority, medal) {
+    let start = Hud.time;
     for (let i = 0; i < HUD_BANNER_SLOTS; i++) {
-      if (this.ends(i) > Hud.time && this.text[i] === text) { this.at[i] = Math.max(this.at[i], Hud.time); return; }   // a repeat restarts it: never twice at once
+      if (this.ends(i) <= Hud.time) continue;
+      if (this.text[i] === text) { this.at[i] = Math.max(this.at[i], Hud.time); return; }   // a repeat restarts it: never twice at once
+      if (Hud.layout.phone) start = Math.max(start, this.at[i] + HUD_BANNER_QUEUE);
     }
-    const phone = Hud.layout.phone, slot = phone ? this.phoneSlot(this.rank(priority, medal)) : this.next;
+    const slot = Hud.layout.phone ? this.phoneSlot(priority) : this.next;
     if (slot < 0) return;
     this.next = (slot + 1) % HUD_BANNER_SLOTS;
-    let start = Hud.time;
-    if (phone) for (let i = 0; i < HUD_BANNER_SLOTS; i++) if (i !== slot && this.ends(i) > Hud.time) start = Math.max(start, this.at[i] + HUD_BANNER_QUEUE);
     this.text[slot] = text; this.kind[slot] = kind; this.priority[slot] = priority; this.medal[slot] = medal ? 1 : 0; this.at[slot] = start;
   },
-  rank(priority, medal) { return medal ? HUD_BANNER_MEDAL_RANK : priority; },
-  // Phones: the ring slot for a new banner of this rank, -1 to drop it. Rule: take a slot whose banner has ended; with none, the
-  // lowest-ranked banner (medal > priority) goes, the oldest of equals (the one already shown before any that still waits), and a
-  // new banner ranked below even that one is dropped. So a medal or a long-priority banner is never lost to a lower one.
-  phoneSlot(newRank) {
-    let victim = -1, victimRank = 0;
+  // Phones: the ring slot for a new banner of this priority, -1 to drop it. Rule: take a slot whose banner has ended; with none, the
+  // lowest-priority banner goes (the oldest of equals: the one already shown before any that still waits), and a new banner below
+  // even that one is dropped. Medals carry HUD_BANNER_PRIORITY_LONG, so a medal or a long banner is never lost to a lower one.
+  phoneSlot(newPriority) {
+    let victim = -1;
     for (let i = 0; i < HUD_BANNER_SLOTS; i++) {
       if (this.ends(i) <= Hud.time) return i;
-      const rank = this.rank(this.priority[i], this.medal[i]);
-      if (victim < 0 || rank < victimRank || (rank === victimRank && this.at[i] < this.at[victim])) { victim = i; victimRank = rank; }
+      if (victim < 0 || this.priority[i] < this.priority[victim] || (this.priority[i] === this.priority[victim] && this.at[i] < this.at[victim])) victim = i;
     }
-    return newRank < victimRank ? -1 : victim;
+    return newPriority < this.priority[victim] ? -1 : victim;
   },
   ends(slot) { return this.at[slot] + this.seconds(slot); },
   // Phones: true while a new banner would wait its turn; a chat line is then dropped, never queued ahead of a game banner.
@@ -145,13 +142,10 @@ const HudBanners = {
   seconds(slot) { return this.priority[slot] >= HUD_BANNER_PRIORITY_LONG || this.medal[slot] ? HUD_BANNER_SECONDS_LONG : HUD_BANNER_SECONDS; },
   live(slot) { return Hud.time >= this.at[slot] && Hud.time < this.ends(slot); },   // a queued banner (at in the future) is not shown yet
   alpha(slot) { const age = Hud.time - this.at[slot]; return Math.min(1, age / 0.15, (this.seconds(slot) - age) / HUD_BANNER_FADE); },
-  // The newest banner still shown, -1 none: the latest start (a phone's slots are not taken in ring order), the later ring slot on a tie.
+  // The newest banner still shown, -1 none: the latest start (a phone's slots are not taken in ring order), the higher slot on a tie.
   newest() {
     let newest = -1;
-    for (let k = 1; k <= HUD_BANNER_SLOTS; k++) {
-      const slot = (this.next - k + HUD_BANNER_SLOTS) % HUD_BANNER_SLOTS;
-      if (this.live(slot) && (newest < 0 || this.at[slot] > this.at[newest])) newest = slot;
-    }
+    for (let slot = 0; slot < HUD_BANNER_SLOTS; slot++) if (this.live(slot) && (newest < 0 || this.at[slot] >= this.at[newest])) newest = slot;
     return newest;
   },
 };
@@ -160,15 +154,14 @@ const HudBanners = {
 function hudPhoneBanner(layout) { return layout.phone ? HudBanners.newest() : -1; }
 
 // The phone banner line fits the gap between the two team underlines (they end 82 units either side of the centre line, 6 units
-// of air kept), so it never crosses an underline or the panel edge: a longer text is cut short with an ellipsis, never below
-// the 14 px floor. Cached per text, size and width: the cut is made once, not every frame.
-const HUD_BANNER_PHONE_HALF = 76;
-let hudFitSource = '', hudFitText = '', hudFitWidth = -1, hudFitSize = -1;
+// of air kept), so it never crosses an underline or the panel edge: a longer text is cut short with an ellipsis (the size stays at
+// the 14 px floor). Cached per text and width: the cut is made once, not every frame.
+const HUD_BANNER_PHONE_WIDTH = 152;   // units
+let hudFitSource = '', hudFitText = '', hudFitWidth = -1;
 function hudFitPhoneBanner(text, size, width) {
-  if (text === hudFitSource && width === hudFitWidth && size === hudFitSize) return hudFitText;
-  hudFitSource = text; hudFitWidth = width; hudFitSize = size; hudFitText = text;
-  let length = text.length;
-  while (length > 0 && HudPen.measure(hudFitText, size) > width) hudFitText = text.slice(0, --length).trimEnd() + HUD_ELLIPSIS;
+  if (text === hudFitSource && width === hudFitWidth) return hudFitText;
+  hudFitSource = hudFitText = text; hudFitWidth = width;
+  for (let length = text.length; length > 0 && HudPen.measure(hudFitText, size) > width; length--) hudFitText = text.slice(0, length - 1) + '\u2026';
   return hudFitText;
 }
 
@@ -219,11 +212,7 @@ function hudBannersTop(layout, count) {
 }
 function hudDrawBanners(pen, layout) {
   const b = HudBanners, unit = layout.unit, phone = hudPhoneBanner(layout);
-  if (phone >= 0) {
-    const size = HUD_TEXT_SMALL * unit, line = hudFitPhoneBanner(b.text[phone], size, HUD_BANNER_PHONE_HALF * 2 * unit);
-    pen.text(line, layout.centerX, layout.top + HUD_LIMIT_Y * unit, size, b.medal[phone] ? HUD_COLOR.gold : HUD_COLOR.text, 'center', b.alpha(phone));
-    return;
-  }
+  if (phone >= 0) { const size = HUD_TEXT_SMALL * unit; pen.text(hudFitPhoneBanner(b.text[phone], size, HUD_BANNER_PHONE_WIDTH * unit), layout.centerX, layout.top + HUD_LIMIT_Y * unit, size, b.medal[phone] ? HUD_COLOR.gold : HUD_COLOR.text, 'center', b.alpha(phone)); return; }
   let count = 0;
   for (let k = 1; k <= HUD_BANNER_SLOTS && count < HUD_BANNER_SHOWN; k++) {
     const slot = (b.next - k + HUD_BANNER_SLOTS) % HUD_BANNER_SLOTS;
