@@ -14321,7 +14321,7 @@ const HZ_FIRE_BAND = 14;         // trees within this many m inside the front ca
 const HZ_FIRE_TALL = 12;         // m above the ground flames reach (into the canopy)
 const HZ_FIRE_GLOW = 2.5, HZ_FIRE_SEGS = 24, HZ_FIRE_COL = [1, 0.3, 0.05];   // the glowing front: height (m), boxes, colour
 const HZ_ASH_STEP = 10;          // m the fire spreads between the ash marks it leaves
-const HZ_CHAR = 0.3, HZ_CHAR_HIT = 0.25;   // trees burn down to this share of their hull (charred, still standing), this share per tick
+const HZ_CHAR = 0.3, HZ_CHAR_LEFT = 0.25;  // a tree above this share of its hull chars in one hit down to the second share (still standing; one re-bake per tree)
 const HZ_BURN_T = 2;             // seconds a unit keeps burning after it leaves the flames
 const HZ_IGNITE = 0.2, HZ_IGNITE_FUEL = 0.4;   // share of lightning strikes on fuel this rich that start a wildfire
 const HZ_ASH_COL = [0.06, 0.05, 0.04];
@@ -14372,7 +14372,7 @@ const HZ_GAS_COL = [0.62, 0.76, 0.24];
    radius r (m), damage per second (dps) and type; the other fields are read by their own behaviour in HZ_KIND.
    fog, tint, sand, sight: what the zone does to the camera's fog, sky colour and blowing sand, and AI sight inside */
 const HAZARDS = {
-  wildfire: { name: 'Wildfire', alert: 'WILDFIRE', triggers: ['schedule', 'explosion'], dur: 60, r: 16, rMax: 95, grow: 1.4, drift: 0.12, dps: 26, burn: 10, dtype: 'energy', trees: 10, flames: 110, smoke: 12 },
+  wildfire: { name: 'Wildfire', alert: 'WILDFIRE', triggers: ['schedule', 'explosion'], dur: 60, r: 16, rMax: 95, grow: 1.4, drift: 0.12, dps: 26, burn: 10, dtype: 'energy', trees: 5, flames: 110, smoke: 12 },
   flood: { name: 'Flash flood', alert: 'FLASH FLOOD', triggers: ['schedule'], dur: 45, r: 170, rise: 3.2, riseTime: 12, fall: 10, foam: 14, sound: 'splash' },
   avalanche: { name: 'Avalanche', alert: 'AVALANCHE', triggers: ['schedule', 'explosion'], dur: 30, r: 26, speed: 28, accel: 9, drag: 3.5, hit: 240, push: 26, structHit: 260, dtype: 'kinetic', slope: 0.35, snow: 60, sound: 'rumble' },
   rockfall: { name: 'Rockfall', alert: 'ROCKFALL', triggers: ['schedule', 'explosion'], dur: 22, r: 30, rocks: 7, rock: 2.2, speed: 24, hit: 220, structHit: 150, dtype: 'kinetic', slope: 0.4, sound: 'rumble' },
@@ -14644,6 +14644,13 @@ const Hazards = {
     this.dealing = true;
     try { return damageStruct(s, amount, dtype, null, 1); } finally { this.dealing = was; }
   },
+  /* a burning tree drops straight to HZ_CHAR_LEFT of its hull: the material and battle multipliers are divided out so it never falls */
+  charTree(s, dtype) {
+    const mult = MATERIAL[s.mat][dtype];
+    const scale = (mult === undefined ? 1 : mult) * (W.structDamage || 1);
+    if (scale <= 0) return 0;
+    return this.hurtStruct(s, (s.hp - s.maxHp * HZ_CHAR_LEFT) / scale, dtype);
+  },
   /* plain structures (not building pieces) reaching within r of (x, z), into this.scratch; returns how many */
   structsIn(x, z, r) {
     const n = Hash.query(x - r, z - r, x + r, z + r, undefined, undefined, true), out = this.scratch;
@@ -14902,7 +14909,7 @@ const HZ_KIND = {
         const s = Hazards.scratch[i];
         if (s.destroyed || s.mat !== 'wood' || s.objective) continue;
         if (s.type !== 'tree') Hazards.hurtStruct(s, s.maxHp * 2, d.dtype);
-        else if (s.hp > s.maxHp * HZ_CHAR && Math.hypot(s.x - h.x, s.z - h.z) > h.r - HZ_FIRE_BAND) Hazards.hurtStruct(s, s.maxHp * HZ_CHAR_HIT / MATERIAL.wood.energy, d.dtype);
+        else if (s.hp > s.maxHp * HZ_CHAR && Math.hypot(s.x - h.x, s.z - h.z) > h.r - HZ_FIRE_BAND) Hazards.charTree(s, d.dtype);
         else continue;
         left--;
       }
@@ -20922,7 +20929,8 @@ const SelfTest = {
           if (i % 20) continue;
           for (const a of all()) {
             const d = a.def, top = Water.top(a.x, a.z);
-            if (d.type === 'air' && a.y < top + (a.state === 'fly' && a.grp.state === 'fly' ? FAUNA_BIRD_CLEAR : 0) - 0.01) { low++; lowAt = d.id + ' ' + (a.y - top).toFixed(2); }
+            // a bird that took off this step still sits where it landed (speed 0); the clearance holds from its first wingbeat
+            if (d.type === 'air' && a.y < top + (a.state === 'fly' && a.grp.state === 'fly' && a.speed > 0 ? FAUNA_BIRD_CLEAR : 0) - 0.01) { low++; lowAt = d.id + ' ' + (a.y - top).toFixed(2); }
             if (d.type === 'water' && (!Water.at(a.x, a.z) || a.y >= Water.level(a.x, a.z) || a.y <= Terrain.h(a.x, a.z))) { dry++; dryAt = d.id; }
           }
         }
