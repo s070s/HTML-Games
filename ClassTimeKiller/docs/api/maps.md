@@ -85,7 +85,7 @@ Spawn protection, distance to enemies and last-death rules are dynamic and belon
 * Shared rules, global helpers: `mapServesMode(entry, modeId)` (a spawn, item or objective serves a mode when its `modes` list is missing, empty or holds the mode), `mapModesOf(entry)`, `mapInBox(box, x, y, z, marginXZ, marginY)`
   (point in a `{ min, max }` box: zones, triggers, lights).
 * `Maps.spawnList(map, modeId, team)`: cached array, do not modify. `Maps.spawnMatches(spawn, modeId, team)`.
-* `Maps.itemsFor(map, modeId)`, `Maps.objectivesFor(map, modeId, kind?)`: new arrays, call at match start, not per step.
+* `Maps.objectivesFor(map, modeId, kind?)`: a new array, call at match start, not per step. Items have no lookup: filter `map.items` with `mapServesMode`.
 * `Maps.zoneAt(map, x, y, z)`: the smallest callout zone holding the point or null (HUD callouts, bot barks); allocation free, safe to call every frame.
 * `Maps.sightLimit(map)`, `Maps.hash(map)` (stable fingerprint, MAP-020), `Maps.validate(map)` -> problem strings (empty = sound), `Maps.report(map)` -> `{ id, problems, stats }`.
 * Events: consumes `match.setup` and sets `Game.match.map` to the row of `setup.map` (id or code), or to `setup.map` itself when it is an object (generated or custom map); an unknown id leaves it null. Emits nothing.

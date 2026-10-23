@@ -7,9 +7,9 @@ The two `16x` files use nothing from S18 or later (dependency rule). What needs 
 ## What the player gets
 
 * A fly camera over the map on a 0.5 m grid (snap 0.5 / 1 / 2 m). Tools: Select, Box, Ramp, Spawn, Item pad, Objective, Zone, Trigger, Light, Nav hint. Box and ramp are the shapes the validator accepts (`wedge` and `cylinder` of S08 are not valid map shapes yet). Materials come from `MapRules.materials` and are drawn in the colour of `CAT.materials`.
-* Place, grab and drop, turn by 90 degrees, resize, copy and delete; properties of the selection (material, team, item, objective kind and team, bomb site stage, payload path points, trigger kind and far end, hazard damage and element, light colour and radius, zone name).
+* Props (the map's breakable crates, kept from a copied built-in map, a template or a code) are drawn, picked, moved and deleted like brushes; there is no tool to place a new one and they have no editable fields. Place, grab and drop, turn by 90 degrees, resize, copy and delete; properties of the selection (material, team, item, objective kind and team, bomb site stage, payload path points, trigger kind and far end, hazard damage and element, light colour and radius, zone name).
 * Item pads: the keys of `MapRules.itemKeys` (the validator's contract), named from `CAT.weapons`, `CAT.powerups` and `CAT.items` when those exist.
-* Object budget 400 (all lists together), shown live (amber from 90%, red when full) and enforced: the 401st object is refused with a toast. Lights stop at the validator limit of 24.
+* Object budget 400 (all lists together, breakable props included), shown live with a count per list (Props too) (amber from 90%, red when full) and enforced: the 401st object is refused with a toast. Lights stop at the validator limit of 24.
 * Undo / redo: a fixed ring of 128 entries (no growth); a group of edits (`MapEditor.group`) is one step.
 * Start from an empty map (a floor), a template (`MAPEDIT_TEMPLATES`: Platform arena for ffa / duel, Team yard for tdm / ctf / elim / attrition; both pass `Maps.validate`) or a copy of any built-in map (all 12 copy, serialise back and validate).
 * Check (the validation panel): `Maps.validate` problems as buttons; a click returns to the editor with the object selected and the camera on it. Helpers: add the nine callout zones, add a light to every zone, suggest modes.
@@ -33,8 +33,8 @@ The pad is read directly each frame (`MapEditorTools.readPad`); the menu command
 
 ## Model: `MapEditor` (16x-mapeditor.js)
 
-* State: `MapEditor.map` (a full map row, see `docs/api/maps.md`), `slotId`, `dirty`, `selection { list, index }` (list = `brushes spawns items objectives zones triggers lights navHints`), `message` (last refusal), `problems`.
-* Budget: `count()`, `budgetLeft()`, `add(list, object)` -> index or -1 (refused, with a toast), `deleteObject`, `replace(list, index, object)`, `setMeta(key, value)`, `group(fn)`.
+* State: `MapEditor.map` (a full map row, see `docs/api/maps.md`), `slotId`, `dirty`, `selection { list, index }` (list = `brushes spawns items objectives zones triggers lights navHints props`), `message` (last refusal), `problems`.
+* Budget: `count()` (props included), `countsText()` (the per-list counts shown in the panel, with Props when the map has any), `budgetLeft()`, `add(list, object)` -> index or -1 (refused, with a toast), `deleteObject`, `replace(list, index, object)`, `setMeta(key, value)`, `group(fn)`.
 * History: `undo()`, `redo()`, `canUndo()`, `canRedo()`; entries `{ op: add|del|set|meta, list, index, before, after, group }` in `MapEditor.history.entries` (fixed length `MAPEDIT_HISTORY_SIZE`).
 * Geometry helpers: `bounds(list, object, out)`, `moved / turned / resized` (return a changed clone, moves are limited to the map plus its 3 m shell), selection shortcuts `nudgeSelected`, `turnSelected`, `resizeSelected`, `deleteSelected`, `duplicateSelected`, `editSelected(mutate)`, `objectNear(x, y, z, reach, out)`.
 * Settings (each one undoable): `rename`, `setTheme` (also sets the sky from `CAT.themes`), `setSize(width, height, depth?)` (the depth stays when left out), `setCategory`, `setModes`; `feasibleModes(map, strict)`, `modeReady`, `modeNeeds`, `suggestModes`, `readyModes(map)` (the map's listed modes it can serve).
@@ -42,7 +42,7 @@ The pad is read directly each frame (`MapEditorTools.readPad`); the menu command
 * Serialising: `toMap()` (deep copy), `compact(map)` / `expand(def)` (MapKit compact rows plus the map `props` list, which codes made before props may lack; `expand` checks every field and returns `{ map }` or `{ error }`). The text codes are `MapEditorShare` in 18i (below).
 * Start points: `newFrom({ kind: 'empty' | 'template' | 'builtin', id })`, `MAPEDIT_TEMPLATES`.
 * Saves: `saved()`, `usedBytes()`, `freeBytes()`, `saveCurrent(name?)`, `saveAsNew()`, `loadSaved(id)`, `deleteSaved(id)`, `renameSaved(id, name)`, `syncRuntime()` (called on `boot` and after every change of the list; it registers `readyModes` only, through `registerPlayable`).
-* Saved entry: `{ id: 'user<N>', name, modes, bytes, data }`, `data` = the compact def. The runtime map has `id 'user<N>'`, `code 'U<NN>'`.
+* Saved entry: `{ id: 'user<N>', name, modes, bytes, data }`, `data` = the compact def. The runtime map has `id 'user<N>'`, `code 'U<NN>'` (`mapEditCodeOf(id)`).
 
 Numbers: `MAPEDIT_BUDGET` 400, `MAPEDIT_HISTORY_SIZE` 128, `MAPEDIT_MAX_MAPS` 20, `MAPEDIT_SAFE_SAVE_BYTES` 0.9 x `SAVE_MAX_BYTES`, `MAPEDIT_SNAPS` 0.5 / 1 / 2.
 
