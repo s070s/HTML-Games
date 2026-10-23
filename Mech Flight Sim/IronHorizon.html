@@ -25629,6 +25629,13 @@ const BENCH_SCENES = [
   { id: 'hz-coast', map: 'coast', platformId: 'bulwark', hazard: 'flood' },   // a flash flood near its top over the coast's low ground
   { id: 'sea-coast', map: 'coast', platformId: 'trident' },   // a destroyer at the harbour, the enemy fleet on the water
   { id: 'traffic-metro', map: 'metro', platformId: 'bulwark', city: true },   // at a street corner of the megacity, its traffic in view
+  { id: 'sk-archipelago', map: 'archipelago', platformId: 'bulwark' },
+  { id: 'sk-valley', map: 'valley', platformId: 'bulwark' },
+  { id: 'sk-alpine', map: 'alpine', platformId: 'bulwark' },
+  { id: 'sk-canyon', map: 'canyon', platformId: 'bulwark' },
+  { id: 'sk-volcano', map: 'volcano', platformId: 'bulwark' },
+  { id: 'sk-tundra', map: 'tundra', platformId: 'bulwark' },
+  { id: 'sk-farmland', map: 'farmland', platformId: 'bulwark' },
 ];
 const BENCH_HAZARD_AT = 60;   // m from the player a bench scene's hazard starts (it looks for fuel around there)
 const BENCH_WARM = 600;     // ticks simulated before timing, so the battle is under way
@@ -27277,6 +27284,7 @@ const SelfTest = {
       this.check('old save keeps its records', s.best.m1 && s.best.m1.score === 1234 && s.skirmishBest['ashfall-small'] && s.skirmishBest['ashfall-small'].won === true && s.career.kills === 12);
       this.check('old save keeps its last battle', s.skirmish && s.skirmish.map === 'frost' && s.skirmish.seed === 777);
       this.check('the bench lists real battlefields and platforms', BENCH_SCENES.every((sc) => (MAPS[sc.map] || sc.testMap) && PLATFORMS[sc.platformId] && PLATFORMS[sc.platformId].playable && (!sc.hazard || HAZARDS[sc.hazard])));
+      this.check('the bench times every battlefield', Object.keys(MAPS).every((id) => BENCH_SCENES.some((sc) => sc.map === id)), Object.keys(MAPS).filter((id) => !BENCH_SCENES.some((sc) => sc.map === id)).join());
       this.check('an old saved skirmish setup gets hazards at low', skirmishSetup(s.skirmish).hazards === 'low' && skirmishSetup(s.skirmish).map === 'frost');
     });
     t('map framework', () => {
