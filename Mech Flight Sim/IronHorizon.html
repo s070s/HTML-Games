@@ -7398,7 +7398,7 @@ const Civ = {
       const n = zone.nodes[i], onLine = ax !== 0 ? Math.abs(n.x - st.x) < 1 : Math.abs(n.z - st.z) < 1, d = Math.hypot(n.x - st.x, n.z - st.z);
       if (onLine && d < best && this.clearLine(st.x, st.z, n.x, n.z, zone.blds)) { best = d; node = i; }
     }
-    return node < 0 ? null : { b, out, inn, st, node };
+    return node < 0 ? null : { b, out, inn, st, node, walk: { x1: st.x, z1: st.z, x2: out.x, z2: out.z } };   // walk: from the street to the step
   },
   /* true when a civilian of radius r cannot stand at (x, z): a structure at body height or a building's ground floor */
   blocked(x, z, r, blds) {
@@ -7443,7 +7443,7 @@ const Civ = {
       // the society (Society): profession, the plan for now, home, workplace and lunch place, kerb car (and the one ridden),
       // where it left town, uniform cap, crouching, a responder's scene (duty), unit and vehicle, and its own hours
       job: null, want: SOC_OUT, home: null, work: null, lunch: null, car: null, ride: null, awayNode: -1, hat: null, crouch: false,
-      temp: false, gone: false, duty: null, unit: '', dutyCar: null, tended: false, early: 0, bed: 22, wake: 6, jit: 0, breakUntil: 0,
+      temp: false, gone: false, duty: null, unit: '', dutyCar: null, tended: false, early: 0, bed: 22, wake: 6, jit: 0, breakUntil: 0, doorTries: 0,
     };
   },
 
@@ -7805,6 +7805,7 @@ const SOC_LUNCH_AT = [12, 13];           // the lunch hour (a civilian's own sta
 const SOC_LUNCH_STAY = [25, 50];         // seconds in the shop at lunch
 const SOC_WORK_STAY = [45, 130], SOC_BREAK = [25, 60];   // seconds indoors at work before a short break outside, and the break
 const SOC_NEAR_HOPS = 2;                 // home and the lunch shop are this many streets from work, where there are some
+const SOC_DOOR_TRIES = 2;                // a civilian that fails to reach its door this often goes in once unwatched (Society.next)
 const SOC_SEEN = 140;                    // a civilian farther than this from the camera, out of its view, skips a walk of more streets (m)
 const SOC_SITE_IDLE = [6, 16];           // seconds an outdoor worker works on one spot
 const SOC_SITE_SPREAD = 2.2;             // m round its site it moves to
@@ -7836,8 +7837,9 @@ const SOC_ARRIVE = 15;                   // a car held this close to where it go
 const SOC_SPRAY = 22, SOC_SPRAY_RATE = 40, SOC_COOL = 2;   // a hose reaches (m), drops a second, and a wreck it reaches burns and smoulders this much faster
 const SOC_SMOULDER = 150;                // a wreck is a fire to put out until it has stood this long (s): burning, then smouldering
 const SOC_FLASH = 4;                     // flashes a second of a responder's beacon
-const SOC_RETRY = 3;                     // seconds before a service that could not be sent is asked again
-const SOC_FROM = [220, 520], SOC_FROM_TRIES = 3;   // a responder with no station comes from a lane this far off (m), tried on so many
+const SOC_RETRY = 3;                     // seconds before a service that could not be sent is asked again...
+const SOC_BACKOFF = 3, SOC_BACKOFF_MAX = 8;   // ...that many times longer after each failure past these many (at most MAX times)
+const SOC_FROM = [220, 520], SOC_FROM_TRIES = 3;   // a responder with no station comes from a lane this far off (m); places tried in all
 const SOC_KERB_TRIES = 7, SOC_KERB_STEP = 6;   // places along its lane a car tries to park or start, this far apart (m)
 const SOC_PULL_REACH = 12;               // a parked car pulls out onto a lane this close (m)
 const SOC_UTURN = 60;                    // a way that turns round at a lane's end counts this much longer (m)
@@ -7883,13 +7885,16 @@ const SOC_UNITS = {
 const SOC_UNIT_IDS = ['fire', 'ems', 'police'];
 const SOC_DRIVE = { kind: 'drive', x: 0, z: 0, node: -1 };   // a driver's work: driving about
 const SOC_FROM_AT = { x: 0, z: 0 }, SOC_GOAL = { L: null, s: 0 };   // scratch: where an out-of-town responder starts, the lane at a scene
+const SOC_STATIONS = [];                 // scratch: the stations a service is sent from (Society.stations)...
+const SOC_STATION_TRIES = 2;             // ...the nearest this many tried (of SOC_FROM_TRIES places in all)
+const socByD = (a, b) => a.d - b.d;
 const Society = {
   /* ---------- construction ---------- */
   /* jobs, homes and workplaces for the civilians of every town (after the traffic: the kerb cars and docks stand) */
   populate(seed) {
     const rng = makeRng((seed ^ SOC_SEED) >>> 0), q = Fauna.quality();
     const S = W.society = { incidents: [], scanT: SOC_SCAN, deaths: [], cars: 0, out: 0 };
-    for (let i = 0; i < SOC_INCIDENTS; i++) S.incidents.push({ on: false, kinds: 0, x: 0, z: 0, r: 0, t: 0, seen: 0, sent: 0, crewed: 0, retryAt: 0, hoseT: 0, age: 0, done: false, attacked: false, fire: null, ems: null, police: null, crew: [] });
+    for (let i = 0; i < SOC_INCIDENTS; i++) S.incidents.push({ on: false, kinds: 0, x: 0, z: 0, r: 0, t: 0, seen: 0, sent: 0, crewed: 0, retryAt: 0, fails: 0, hoseT: 0, age: 0, done: false, attacked: false, fire: null, ems: null, police: null, crew: [] });
     for (const zn of W.civZones) this.setupZone(zn, rng);
     for (const zn of W.civZones) {
       const counts = {};
@@ -8073,7 +8078,7 @@ const Society = {
     return (hops * zn.step / c.walk + SOC_WALK_SLACK) / SOC_HOUR;
   },
   setWant(c, w) {
-    c.want = w;
+    c.want = w; c.doorTries = 0;
     if (w === SOC_LUNCH) { const shops = c.zone.soc.work.shop; c.lunch = shops ? this.doorGoal(this.nearDoor(c.zone, shops, c.work.node, Math.random)) : null; }
   },
   /* where c is going now (null: about town) */
@@ -8135,7 +8140,10 @@ const Society = {
       return this.hop(c, node);
     }
     if (car) { this.toCar(c, car); return true; }
-    if (g.kind === 'door') { Civ.toDoor(c, g.door); return true; }
+    if (g.kind === 'door') {   // a door it keeps failing to reach (something in the way): in, once nobody watches
+      if (++c.doorTries > SOC_DOOR_TRIES && !R.visible(c.x, c.y + 1, c.z, 1.2)) { this.jump(c); return true; }
+      Civ.toDoor(c, g.door); return true;
+    }
     if (g.kind === 'site') { this.toSite(c, g); return true; }
     if (g.kind === 'away') { this.goAway(c, node); return true; }
     return false;
@@ -8183,6 +8191,7 @@ const Society = {
   /* how long c stays in the building of door d it went into (Civ.goInside, during the cycle) */
   stay(c, d) {
     const g = Clock.cycle && !c.temp ? this.goal(c) : null;
+    c.doorTries = 0;
     if (!g || g.kind !== 'door' || g.door.b !== d.b) return rand(CIV_INSIDE[0], CIV_INSIDE[1]);   // an errand, or shelter
     if (c.want === SOC_LUNCH) { c.lunch = null; return rand(SOC_LUNCH_STAY[0], SOC_LUNCH_STAY[1]); }
     if (c.want === SOC_WORK) { const t = rand(SOC_WORK_STAY[0], SOC_WORK_STAY[1]); c.breakUntil = W.time + t + rand(SOC_BREAK[0], SOC_BREAK[1]); return t; }
@@ -8276,7 +8285,8 @@ const Society = {
     const S = W.society;
     if (!S) return;
     this.thinkSome();
-    if ((S.scanT -= dt) <= 0) { S.scanT = SOC_SCAN; this.scan(); this.dispatchAll(); }
+    if ((S.scanT -= dt) <= 0) { S.scanT = SOC_SCAN; this.scan(); }
+    this.dispatchAll();
     for (let i = 0; i < S.incidents.length; i++) if (S.incidents[i].on) this.stepScene(S.incidents[i], dt);
   },
   /* a few civilians of each town a tick: their plans for the hour (during the cycle); a responder who ran is forgotten
@@ -8345,11 +8355,12 @@ const Society = {
       return inc;
     }
     if (!free) return null;
-    free.on = true; free.kinds = kind; free.x = x; free.z = z; free.r = r; free.t = 0; free.age = 0; free.seen = W.time; free.sent = 0; free.crewed = 0; free.retryAt = 0; free.hoseT = 0;
+    free.on = true; free.kinds = kind; free.x = x; free.z = z; free.r = r; free.t = 0; free.age = 0; free.seen = W.time; free.sent = 0; free.crewed = 0; free.retryAt = 0; free.fails = 0; free.hoseT = 0;
     free.done = false; free.attacked = false; free.fire = free.ems = free.police = null; free.crew.length = 0;
     return free;
   },
-  /* each scene gets the services it needs, while the quality's responders allow */
+  /* each scene gets the services it needs, while the quality's responders allow: one service sent a tick at most (the
+     search for its way is the costly part) */
   dispatchAll() {
     const S = W.society, q = Fauna.quality();
     for (let i = 0; i < S.incidents.length; i++) {
@@ -8361,29 +8372,42 @@ const Society = {
         if (S.out >= q.responders) return;
         inc.sent |= U.bit;
         this.send(inc, u);
+        return;
       }
     }
   },
-  /* service u's vehicle from its station nearest the scene that the lanes lead from (or from out of town) */
+  /* service u's vehicle from its station nearest the scene that the lanes lead from (or from out of town), SOC_FROM_TRIES
+     places tried at most */
   send(inc, u) {
     const U = SOC_UNITS[u], gap = u === 'fire' ? inc.r + SOC_FIRE_GAP : u === 'police' ? inc.r + SOC_CORDON * 0.5 : 0;
     const from = this.stations(U.station, inc.x, inc.z);
-    let car = null;
-    for (let i = 0; i < from.length && !car; i++) car = Traffic.dispatch(U.row, from[i].x, from[i].z, inc.x, inc.z, gap);
-    for (let i = 0; i < SOC_FROM_TRIES && !car; i++) { const o = this.outOfTown(inc.x, inc.z); if (o) car = Traffic.dispatch(U.row, o.x, o.z, inc.x, inc.z, gap); }
-    if (!car) { inc.sent &= ~U.bit; inc.retryAt = W.time + SOC_RETRY; return; }   // no room or no way now: asked again in a while
+    let car = null, tries = 0;
+    for (let i = 0; i < from.length && i < SOC_STATION_TRIES && !car; i++, tries++) car = Traffic.dispatch(U.row, from[i].x, from[i].z, inc.x, inc.z, gap);
+    for (; tries < SOC_FROM_TRIES && !car; tries++) { const o = this.outOfTown(inc.x, inc.z); if (o) car = Traffic.dispatch(U.row, o.x, o.z, inc.x, inc.z, gap); }
+    if (!car) {   // no room or no way now: asked again in a while, a longer while after each of SOC_BACKOFF failures
+      inc.sent &= ~U.bit; inc.fails++;
+      inc.retryAt = W.time + SOC_RETRY * Math.min(SOC_BACKOFF_MAX, Math.max(1, inc.fails - SOC_BACKOFF + 1));
+      return;
+    }
     car.duty = inc; car.crew = 0; inc[u] = car; W.society.out++;
   },
-  /* the streets in front of the standing civic buildings of use, the nearest to (x, z) first (made only when a scene
-     asks) */
+  /* the streets in front of the standing civic buildings of use, the nearest to (x, z) first (each town's made once, the
+     list shared and sorted in place) */
   stations(use, x, z) {
-    const out = [], zones = W.civZones;
+    const out = SOC_STATIONS, zones = W.civZones;
+    out.length = 0;
     for (let i = 0; i < zones.length; i++) {
       const soc = zones[i].soc;
       if (!soc) continue;
-      for (const k of soc.civic) if (k.row.use === use && k.doors.length && Civ.shelters(k.b)) out.push({ x: k.doors[0].st.x, z: k.doors[0].st.z, d: Math.hypot(k.b.cx - x, k.b.cz - z) });
+      if (!soc.stations) soc.stations = soc.civic.filter((k) => k.doors.length).map((k) => ({ k, use: k.row.use, x: k.doors[0].st.x, z: k.doors[0].st.z, d: 0 }));
+      for (let j = 0; j < soc.stations.length; j++) {
+        const s = soc.stations[j];
+        if (s.use !== use || !Civ.shelters(s.k.b)) continue;
+        s.d = Math.hypot(s.k.b.cx - x, s.k.b.cz - z);
+        out.push(s);
+      }
     }
-    return out.sort((a, b) => a.d - b.d);
+    return out.sort(socByD);
   },
   /* a lane SOC_FROM m from (x, z) out of the camera's sight, of the lane network there, to come from (null: none) */
   outOfTown(x, z) {
@@ -10030,6 +10054,11 @@ const TRAFFIC_LOOK = 0.2;            // seconds between a car's looks ahead for 
 const TRAFFIC_LOOK_MIN = 10;         // it looks this far, plus 2.5 s of its speed (m)
 const TRAFFIC_WAIT = 5;              // a car held this long by something that does not move turns back (s)
 const TRAFFIC_STUCK = 25;            // and by anything (s)
+const TRAFFIC_SWEEP = 1.5, TRAFFIC_SWEEP_GAP = 0.2;   // a car stops when that much further on (m, more when fast) its body would come closer to another than this (m)
+const TRAFFIC_NODE_STEP = 2;         // a car takes a junction only when its swing, tried this often (m) round its turn, is clear...
+const TRAFFIC_NODE_EVERY = 12;       // ...looked at again every this many ticks
+const TRAFFIC_SWEEP_POSES =[0, 1].map(() => ({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0, seg: 0, v: null }));   // scratch (Traffic.sweepPoses)
+const TRAFFIC_LINE_A = { x1: 0, z1: 0, x2: 0, z2: 0 }, TRAFFIC_LINE_B = { x1: 0, z1: 0, x2: 0, z2: 0 };   // scratch (Traffic.apart)
 const TRAFFIC_TURN_T = 1.2;          // s a turn back takes
 const TRAFFIC_TURN_NEAR = 40;        // a fleeing car with the danger this close ahead turns back (m)
 const TRAFFIC_MACHINE = 25;          // a combat machine moving this close scares drivers (m)
@@ -10053,14 +10082,18 @@ const TRAFFIC_DEEP = 0.6;            // water deeper than this with no bridge de
 const TRAFFIC_GUEST_BLAST = 3;       // a replayed blast (no damage is sent) deals this many car hulls at its centre
 const TRAFFIC_TAKE_SPEED = 6;        // a car this slow can be taken (m/s)
 const TRAFFIC_ASK_SLACK = 3;         // the host lets a guest's vehicle be this much farther than Use reaches (m)
+const TRAFFIC_ASK_WAIT = 4;          // s a guest's vehicle stays hidden after asking the host for it (no answer: refused, it is back)
+const TRAFFIC_ASK_NEAR = 4;          // the host refuses a guest's vehicle where a platform of that kind stands this close (m)
+const TRAFFIC_VID_BLOCK = 100000;    // vehicle numbers: parked, cars, flights, ships from 1, 2, 3, 4 times this
 const TRAFFIC_KERB_PER = 38;         // a town gets a kerb car per this many m of its radius, 2 to 6
 const TRAFFIC_BOATS = 3, TRAFFIC_BOAT_REACH = 900, TRAFFIC_BOAT_GAP = 40;   // boats moored, at the water nearest a town this far off, apart (m)
 const TRAFFIC_START_GAP = 40;        // nothing is placed this close to the start and the pads (m)
+const TRAFFIC_DOOR_CLEAR = 2;        // a kerb car keeps this clear of the walk from a street to a door (m)
 const TRAFFIC_SHADOW_DIST = 120;     // contact shadows up to (m)
 const TRAFFIC_BLOCK_CAR = 1, TRAFFIC_BLOCK_THING = 2, TRAFFIC_BLOCK_LINE = 3;   // what holds a car: a car driving, something that does not move, a junction
 // aircraft parked on an airfield's apron: [row, u, v] (Airports.at), noses to the runway, clear of its beacon and jets
 const TRAFFIC_APRON = { airport: [['airliner', -60, 128], ['cessna', 40, 128], ['twinprop', 72, 128]], strip: [['cessna', -16, 48]] };
-const TRAFFIC_AT = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, seg: 0 };   // scratch lane point
+const TRAFFIC_AT = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, seg: 0, v: null };   // scratch lane point (v: the size of the car tried there)
 const TRAFFIC_DEST = { L: null, s: 0 }, TRAFFIC_GOAL = { L: null, s: 0 };   // scratch: the lane and place a car goes to (Traffic.nearestLane)
 const Traffic = {
   /* ---------- construction ---------- */
@@ -10071,13 +10104,28 @@ const Traffic = {
     const rng = makeRng((seed ^ 0x7ca2f1) >>> 0), keep = (W.pads || []).slice();
     if (start) keep.push(start);
     this.buildGraph(T);
+    this.laneComps(T);             // now, not at the first scene (Society)
     this.parkCars(T, rng, keep);   // the same on every game (the seed and the world alone): co-op claims them by place
     this.parkBoats(T, rng);
     this.parkAircraft(T);
     this.placeCars(T, rng, keep);
     Flights.populate(T, seed);    // with seeds of their own, so the cars stay where they were
     Shipping.populate(T, seed);
+    this.number(T);
     Society.populate(seed);       // the civilians' jobs, homes and kerb cars (the towns, their cars and the docks now stand)
+  },
+  /* every vehicle the world starts with gets its number (vid): by its list and place in it, the same in every game (a
+     list cut short by the quality keeps the same first ones), so co-op names a vehicle wherever each game's copy went */
+  number(T) {
+    const lists = [T.parked, T.cars, T.flights, T.ships];
+    for (let k = 0; k < lists.length; k++) for (let i = 0; i < lists[k].length; i++) lists[k][i].vid = (k + 1) * TRAFFIC_VID_BLOCK + i;
+  },
+  /* the vehicle of the scenery numbered vid (null: none, or gone) */
+  byVid(vid) {
+    const T = W.traffic;
+    if (!T || !vid) return null;
+    for (const list of [T.parked, T.cars, T.flights, T.ships]) for (let i = 0; i < list.length; i++) if (list[i].vid === vid) return list[i];
+    return null;
   },
   /* the streets of every zone and the roads, as edges between nodes, then two lanes per edge and the turns between them */
   buildGraph(T) {
@@ -10262,15 +10310,17 @@ const Traffic = {
   /* a lane through points xs, zs at the drive height there (a bridge's deck), or null when a point is no place to drive */
   makeLane(kind, n0, n1, xs, zs, zone, blds) {
     const n = xs.length, pts = new Float32Array(n * 3), cum = new Float32Array(n);
-    let bridge = false;
+    let bridge = false, x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
     for (let i = 0; i < n; i++) {
       const x = xs[i], z = zs[i], g = Math.max(Terrain.h(x, z), Terrain.meshH(x, z)) + ROAD_LIFT, d = Water.deckTop(x, z, 1e9), y = d > g ? d : g;
       if (d > g) bridge = true;
       if (this.laneBlocked(x, z, y, blds)) return null;
       pts[i * 3] = x; pts[i * 3 + 1] = y; pts[i * 3 + 2] = z;
       if (i) cum[i] = cum[i - 1] + Math.hypot(x - xs[i - 1], z - zs[i - 1]);
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z);
     }
-    return { kind, node0: n0, node1: n1, pts, cum, len: cum[n - 1], twin: null, out: [], cars: [], zone, speed: TRAFFIC_SPEED[kind] || TRAFFIC_SPEED.turn, bridge, alive: true, uTried: false, from: null, to: null, id: -1, mx: xs[n >> 1], mz: zs[n >> 1] };
+    // (x0..x1, z0..z1: the box round its points, for nearestLane)
+    return { kind, node0: n0, node1: n1, pts, cum, len: cum[n - 1], twin: null, out: [], cars: [], zone, speed: TRAFFIC_SPEED[kind] || TRAFFIC_SPEED.turn, bridge, alive: true, uTried: false, from: null, to: null, id: -1, mx: xs[n >> 1], mz: zs[n >> 1], x0, x1, z0, z1 };
   },
   laneBlocked(x, z, y, blds) {
     if (Math.abs(x) > GROUND_BOUND - 5 || Math.abs(z) > GROUND_BOUND - 5) return true;
@@ -10335,6 +10385,10 @@ const Traffic = {
       // going somewhere (Society): the lanes still to take and where it stops (dest), its rider and owner (a civilian), the
       // scene it answers (duty), crew still out, one that goes once unseen (temp, done); a turn's swing, a pull-in to the kerb, and how long it has been held
       way: null, wayI: 0, dest: null, rider: null, owner: null, duty: null, crew: 0, temp: false, done: false, swing: PI, parkTo: false, parkX: 0, parkZ: 0, parkYaw: 0, heldT: 0,
+      // co-op: its number, the same in every game for the vehicles the world starts with (0: one made since); hidden
+      // until askUntil while the host answers a guest's ask for it
+      vid: 0, askUntil: 0,
+      nodeT: 0, nodeHit: false,   // whether its swing round the junction ahead would hit a car, looked at again from traffic tick nodeT
     };
   },
   /* kerb cars on each town's streets, beside the lanes */
@@ -10365,8 +10419,16 @@ const Traffic = {
       const px = x + fx * k * (v.hl - v.hw), pz = z + fz * k * (v.hl - v.hw);
       if (groundBlocked(px, pz, v.hw, y + 0.2, 1.5) || this.inBuilding(px, pz, v.hw, blds)) return false;
     }
-    if (T.parked.some((r) => Math.hypot(r.x - x, r.z - z) < r.v.hl + v.hl + 2)) return false;
+    if (T.parked.some((r) => Math.hypot(r.x - x, r.z - z) < r.v.hl + v.hl + 2) || this.onDoorPath(x, z, v.hl + TRAFFIC_DOOR_CLEAR)) return false;
     return !keep.some((q) => Math.hypot(q.x - x, q.z - z) < TRAFFIC_START_GAP);
+  },
+  /* (x, z) is within r of the walk from a town door's street point to its front step (a kerb car there would bar it) */
+  onDoorPath(x, z, r) {
+    for (const zn of W.civZones) {
+      if (!Civ.zoneNear(zn, x, z, r)) continue;
+      for (const d of zn.doors) if (segDist(x, z, d.walk) < r) return true;
+    }
+    return false;
   },
   /* boats moored at the water nearest each town (a coast's towns stand back from the shore), apart from each other and the harbours */
   parkBoats(T, rng) {
@@ -10525,7 +10587,7 @@ const Traffic = {
     let L = c.lane;
     c.s += mv;
     while (c.s > L.len) {
-      const next = c.next || this.pickNext(c, L);
+      const next = c.dest && L === c.dest.L ? null : c.next || this.pickNext(c, L);   // never past the lane it stops on
       if (!next) { c.s = L.len; break; }
       c.s -= L.len;
       this.drop(L.cars, c);
@@ -10607,8 +10669,35 @@ const Traffic = {
     if (n.lock) return n.lock === c;
     const to = N.to, k = to.cars.length;
     if (k && to.cars[k - 1].s - to.cars[k - 1].v.hl < c.v.l + TRAFFIC_GAP) return false;
+    const tick = W.traffic.tick;
+    if (tick >= c.nodeT) { c.nodeT = tick + TRAFFIC_NODE_EVERY; c.nodeHit = this.sweepsNode(c, N); }
+    if (c.nodeHit) return false;
     n.lock = c; c.lockNode = n;
     return true;
+  },
+  /* true when car c, going round turn N, would swing its body into a car at the junction's edge (a long one waiting at its
+     line, one just gone out): it waits till that one has gone (the holder of a junction looks at no other car) */
+  sweepsNode(c, N) {
+    const n = N.node0, P = TRAFFIC_SWEEP_POSES[0], reach = c.v.hl + TRAFFIC_SWEEP;
+    P.v = c.v;
+    for (let s = 0; s <= N.len + TRAFFIC_NODE_STEP; s += TRAFFIC_NODE_STEP) {
+      P.seg = 0;
+      if (s <= N.len) this.at(P, N, s); else this.at(P, N.to, Math.min(c.v.hl, N.to.len));
+      if (this.edgeCarIn(n.ins, c, P, reach, true) || this.edgeCarIn(n.outs, c, P, reach, false)) return true;
+    }
+    return false;
+  },
+  /* true when a car on lanes Ls near node's edge (their ends: into it; their starts: out of it) is closer to pose P than
+     TRAFFIC_SWEEP_GAP */
+  edgeCarIn(Ls, c, P, reach, into) {
+    for (let i = 0; i < Ls.length; i++) {
+      const cs = Ls[i].cars, len = Ls[i].len;
+      for (let k = 0; k < cs.length; k++) {
+        const o = cs[k], edge = into ? len - o.s - o.v.hl : o.s - o.v.hl;
+        if (o !== c && edge < reach && this.apart(P, o) < TRAFFIC_SWEEP_GAP) return true;
+      }
+    }
+    return false;
   },
   unlock(c) {
     const n = c.lockNode;
@@ -10629,7 +10718,7 @@ const Traffic = {
       for (let k = 0; k < cs.length; k++) {
         const h = cs[k];
         if (h.dead || h.state === 'inside') continue;
-        const d = this.inPath(c, fx, fz, h.x, h.z, CIV_RADIUS + 0.4, CIV_RADIUS + 0.4, look);
+        const d = this.inPath(c, fx, fz, h.x, h.z, CIV_RADIUS + 0.4, 0, look);   // one in its way, not one beside it on the pavement
         if (d < best) best = d;
       }
     }
@@ -10641,12 +10730,16 @@ const Traffic = {
       if (d < best) best = d;
     }
     if (!c.lockNode) {
-      const cars = T.cars;
+      const cars = T.cars, far = TRAFFIC_SWEEP + c.speed * TRAFFIC_LOOK * 2;
+      let F = null;
       for (let i = 0; i < cars.length; i++) {
         const o = cars[i];
         if (o === c || o.lane === c.lane || o.lane === c.next || (c.next && o.lane === c.next.to)) continue;
-        if (o.lane && o.lane.kind === 'turn' && c.lane.kind === 'turn' && o.lane.node0 === c.lane.node0 && !c.lane.node0.junction) continue;   // the two ways round a bend pass
-        const d = this.vehicleIn(c, fx, fz, o, look);
+        let d = o.lane && this.passAtBend(c, o) ? Infinity : this.vehicleIn(c, fx, fz, o, look);   // round a bend only its swing counts
+        if (d > 0 && this.mayReach(c, o, far)) {
+          if (!F) F = this.sweepPoses(c, far);
+          if (this.swingsInto(c, F, o)) d = 0;
+        }
         if (d < best) { best = d; kind = this.moving(o) ? TRAFFIC_BLOCK_CAR : TRAFFIC_BLOCK_THING; }
       }
       const ps = T.parked;
@@ -10668,6 +10761,52 @@ const Traffic = {
     }
     c.lookKind = kind;
     return best;
+  },
+  /* cars c and o going the two ways round the same bend (a node that is no junction), on its turns or on the lanes into
+     it: c, further round, goes first and o waits for it (a long one's swing would otherwise hold both for good) */
+  passAtBend(c, o) {
+    const n = c.lane.kind === 'turn' ? c.lane.node0 : c.lane.node1;
+    if (n.junction || (o.lane.kind === 'turn' ? o.lane.node0 : o.lane.node1) !== n) return false;
+    if ((c.lane.kind === 'turn' ? c.lane.from : c.lane) === (o.lane.kind === 'turn' ? o.lane.from : o.lane)) return false;
+    return this.bendRank(c) > this.bendRank(o);
+  },
+  /* how far round a bend a car is: along the lane into it (below 1), then along its turn (1 to 2) */
+  bendRank(c) { return (c.lane.kind === 'turn' ? 1 : 0) + c.s / (c.lane.len || 1); },
+  /* where car c stands by its next looks (both of them moving that long: TRAFFIC_SWEEP m and two looks at its speed) and
+     half way there, along its lanes (scratch poses) */
+  sweepPoses(c, far) {
+    const F = TRAFFIC_SWEEP_POSES;
+    this.poseAhead(c, F[0], far * 0.5);
+    this.poseAhead(c, F[1], far);
+    return F;
+  },
+  poseAhead(c, P, ds) {
+    const L = c.lane, s = c.s + ds;
+    P.v = c.v;
+    if (s <= L.len || !c.next) { P.seg = c.seg; this.at(P, L, Math.min(s, L.len)); } else { P.seg = 0; this.at(P, c.next, Math.min(s - L.len, c.next.len)); }
+  },
+  /* true when car o stands where car c's body could reach, moving far (m) on */
+  mayReach(c, o, far) {
+    const r = c.v.hl + o.v.hl + far + TRAFFIC_SWEEP_GAP, dx = o.x - c.x, dz = o.z - c.z;
+    return dx * dx + dz * dz < r * r && o.v.type !== 'air' && Math.abs(o.y - c.y) <= 4;
+  },
+  /* true when car c, moved on to poses F, would swing its body into car o (closer than TRAFFIC_SWEEP_GAP and closing) */
+  swingsInto(c, F, o) {
+    const then = Math.min(this.apart(F[0], o), this.apart(F[1], o));
+    return then < TRAFFIC_SWEEP_GAP && then < this.apart(c, o);
+  },
+  /* about how far apart the bodies of cars a and b are on the ground (m): each one's ends and middle against the other's
+     centre line */
+  apart(a, b) {
+    const A = this.bodyLine(a, TRAFFIC_LINE_A), B = this.bodyLine(b, TRAFFIC_LINE_B);
+    const d = Math.min(segDist(a.x, a.z, B), segDist(A.x1, A.z1, B), segDist(A.x2, A.z2, B), segDist(b.x, b.z, A), segDist(B.x1, B.z1, A), segDist(B.x2, B.z2, A));
+    return d - a.v.hw - b.v.hw;
+  },
+  /* car c's centre line, its length less its width's rounded ends, into the scratch segment out */
+  bodyLine(c, out) {
+    const k = Math.max(0, c.v.hl - c.v.hw), fx = Math.sin(c.yaw) * k, fz = Math.cos(c.yaw) * k;
+    out.x1 = c.x - fx; out.z1 = c.z - fz; out.x2 = c.x + fx; out.z2 = c.z + fz;
+    return out;
   },
   /* how far ahead of c's front something at (x, z) reaching ra along c's way and rs across it stands, when in c's way */
   inPath(c, fx, fz, x, z, ra, rs, look) {
@@ -10934,12 +11073,22 @@ const Traffic = {
       TRAFFIC_AT.seg = 0;
       this.at(TRAFFIC_AT, L, s);
       const ex = TRAFFIC_AT.x - cam.x, ez = TRAFFIC_AT.z - cam.z;
-      if (!this.roomAt(L, s, c.v.hl) || (ex * ex + ez * ez < TRAFFIC_UNSEEN * TRAFFIC_UNSEEN && R.visible(TRAFFIC_AT.x, TRAFFIC_AT.y + 1, TRAFFIC_AT.z, c.v.hl + 1))) continue;
+      TRAFFIC_AT.v = c.v;
+      if (!this.roomAt(L, s, c.v.hl) || this.carNear(T, TRAFFIC_AT, c) || (ex * ex + ez * ez < TRAFFIC_UNSEEN * TRAFFIC_UNSEEN && R.visible(TRAFFIC_AT.x, TRAFFIC_AT.y + 1, TRAFFIC_AT.z, c.v.hl + 1))) continue;
       this.unlock(c);
       if (c.lane) this.drop(c.lane.cars, c);
       this.drive(c, L, s);
       return;
     }   // no place for it now: it stays
+  },
+  /* true when a car other than c stands within TRAFFIC_GAP of pose P (of c's size), on any lane (a junction's turns cross) */
+  carNear(T, P, c) {
+    const cars = T.cars;
+    for (let i = 0; i < cars.length; i++) {
+      const o = cars[i];
+      if (o !== c && this.mayReach(P, o, TRAFFIC_GAP) && this.apart(P, o) < TRAFFIC_GAP) return true;
+    }
+    return false;
   },
   backLane(L, cam) {
     const dx = L.mx - cam.x, dz = L.mz - cam.z, d2 = dx * dx + dz * dz;
@@ -10955,8 +11104,8 @@ const Traffic = {
     out.L = null;
     if (comp !== undefined) this.laneComps(T);
     for (let i = 0; i < T.drive.length; i++) {
-      const L = T.drive[i], p = L.pts;
-      if ((comp !== undefined && L.comp !== comp) || Math.abs(L.mx - x) > reach + L.len || Math.abs(L.mz - z) > reach + L.len) continue;
+      const L = T.drive[i], p = L.pts, bx = Math.max(L.x0 - x, 0, x - L.x1), bz = Math.max(L.z0 - z, 0, z - L.z1);
+      if ((comp !== undefined && L.comp !== comp) || bx * bx + bz * bz >= best) continue;   // its box is farther than the best so far
       for (let k = 0; k < p.length; k += 3) {
         const dx = p[k] - x, dz = p[k + 2] - z, d2 = dx * dx + dz * dz;
         if (d2 < best && d2 >= g2) { best = d2; out.L = L; out.s = L.cum[k / 3]; }
@@ -11046,15 +11195,18 @@ const Traffic = {
     return n;
   },
   /* c drives to the lane nearest (x, z) gap or more from it (kind 'scene': it stops there; 'kerb': it parks there), its way
-     found from lane from (default its own); false, and its trip given up, when there is no way */
-  goTo(c, x, z, kind, gap, from) {
+     found from lane from (default its own); at: that lane place, already found; false, and its trip given up, when there
+     is no way */
+  goTo(c, x, z, kind, gap, from, at) {
     const D = TRAFFIC_DEST, A = from || c.lane, s = A === c.lane ? c.s : 0;
     let way = null;
     this.laneComps(W.traffic);
-    if (A && this.nearestLane(x, z, gap, SOC_REACH, D, A.comp)) {   // the nearest lane its own lanes lead to
+    if (at) { D.L = at.L; D.s = at.s; }
+    if (A && (at ? at.L.comp === A.comp : this.nearestLane(x, z, gap, SOC_REACH, D, A.comp))) {   // the nearest lane its own lanes lead to
+      D.s = this.stopAt(c, D.L, D.s);   // short of the lane's end, where a car would be on the next lane
       way = this.way(A, s, D.L, D.s);
-      const tw = D.L.twin, back = tw ? this.way(A, s, tw, tw.len - D.s) : null;   // or the lane the other way, if shorter
-      if (back && (!way || this.wayLen(back) < this.wayLen(way))) { way = back; D.s = tw.len - D.s; D.L = tw; }
+      const tw = D.L.twin, sT = tw ? this.stopAt(c, tw, tw.len - D.s) : 0, back = tw ? this.way(A, s, tw, sT) : null;   // or the lane the other way, if shorter
+      if (back && (!way || this.wayLen(back) < this.wayLen(way))) { way = back; D.s = sT; D.L = tw; }
     }
     if (!way) { c.way = null; c.dest = null; Society.lostWay(c); return false; }
     c.way = way; c.wayI = 0;
@@ -11065,6 +11217,8 @@ const Traffic = {
     }
     return true;
   },
+  /* where along lane L car c stops for a place at s: its front short of the lane's end */
+  stopAt(c, L, s) { return Math.min(s, Math.max(0, L.len - c.v.hl - 1)); },
   /* responder c drives by its scene on any lane (as near as its stop would be, give or take SOC_BY_SCENE) */
   atScene(c) {
     const d = c.dest, dx = c.x - d.x, dz = c.z - d.z, r = d.gap + SOC_BY_SCENE;
@@ -11142,7 +11296,7 @@ const Traffic = {
       const s = this.roomNear(L, i === -2 ? s0 : i === -1 ? L.len - s0 : 0, v.hl);
       if (s < 0) continue;
       this.drive(c, L, s);
-      if (this.goTo(c, tx, tz, 'scene', gap)) { c.slot = T.cars.length; T.cars.push(c); return c; }
+      if (this.goTo(c, tx, tz, 'scene', gap, undefined, G)) { c.slot = T.cars.length; T.cars.push(c); return c; }
       this.drop(L.cars, c); c.lane = null;
     }
     return null;
@@ -11172,7 +11326,7 @@ const Traffic = {
     return best;
   },
   rideDist(r, h) {
-    if (r.state === 'wreck' || r.state === 'turn' || (r.state === 'drive' && r.speed > TRAFFIC_TAKE_SPEED)) return Infinity;
+    if (r.state === 'wreck' || W.time < r.askUntil || r.state === 'turn' || (r.state === 'drive' && r.speed > TRAFFIC_TAKE_SPEED)) return Infinity;
     if (r.v.ship || (r.flight && r.phase !== FL_GATE)) return Infinity;   // a big ship never; an airliner only at its gate
     if (r.v.type === 'air' && !r.airport && !Airports.covers(r.x, r.z)) return Infinity;
     const dx = r.x - h.x, dz = r.z - h.z, reach = Math.max(ENTER_SMALL, r.def.radius + ENTER_PAD);
@@ -11191,28 +11345,32 @@ const Traffic = {
   /* human takes vehicle r (on the host or in solo play): it leaves the scenery and becomes a platform it rides in */
   take(human, r, peer) {
     this.remove(r, true);
-    return Seats.enter(human, this.spawnRide(r.def, r.x, r.y, r.z, r.yaw, r.col), peer);
+    return Seats.enter(human, this.spawnRide(r.def, r.x, r.y, r.z, r.yaw, r.col, r.vid), peer);
   },
-  /* a co-op guest: the host makes the platform; our copy of the vehicle goes now */
+  /* a co-op guest: the host makes the platform, and its 'sp' drops our copy of the vehicle; hidden until then (with no
+     answer in TRAFFIC_ASK_WAIT s the host refused, and it is back) */
   ask(human, r) {
-    Net.send(Net.hostPeer, { t: 'enterCiv', d: r.def.id, x: r1(r.x), y: r1(r.y), z: r1(r.z), yaw: r2(r.yaw), c: r.col }, true);
-    this.remove(r, true);
+    Net.send(Net.hostPeer, { t: 'enterCiv', d: r.def.id, v: r.vid, x: r1(r.x), y: r1(r.y), z: r1(r.z), yaw: r2(r.yaw), c: r.col }, true);
+    r.askUntil = W.time + TRAFFIC_ASK_WAIT;
   },
-  /* the parked platform of civilian def at (x, y, z) facing yaw in colour col (on the host or in solo play) */
-  spawnRide(def, x, y, z, yaw, col) {
+  /* the parked platform of civilian def at (x, y, z) facing yaw in colour col, of the scenery's vehicle vid (on the host
+     or in solo play) */
+  spawnRide(def, x, y, z, yaw, col, vid) {
     const p = new Platform(def, { team: 2, x, z, yaw, loadout: {} });
-    p.civCol = col;
+    p.civCol = col; p.civVid = vid || 0;
     if (def.kind === 'air') Seats.groundAir(p);
     else if (def.kind === 'ground') p.y = groundLevel(x, z, y + 0.5, 0.5);   // on a bridge's deck too
     Seats.park(p);
     W.platforms.push(p);
-    this.claim(def, x, z);
+    this.claim(def, x, z, p.civVid);
     return p;
   },
-  /* a platform of civilian def appeared at (x, z): our own copy of that vehicle of the scenery goes (its driver steps out) */
-  claim(def, x, z) {
+  /* a platform of civilian def appeared at (x, z): our own copy of that vehicle of the scenery goes (its driver steps
+     out): the one numbered vid wherever it went, else (one made since the start) the one there */
+  claim(def, x, z, vid) {
     const T = W.traffic;
     if (!T) return;
+    if (vid) { const r = this.byVid(vid); if (r && r.def === def) this.remove(r, true); return; }
     for (const list of [T.parked, T.cars, T.ships, T.flights]) for (let i = 0; i < list.length; i++) {
       const r = list[i];
       if (r.def === def && r.state !== 'wreck' && Math.hypot(r.x - x, r.z - z) < 4) { this.remove(r, true); return; }
@@ -11245,7 +11403,7 @@ const Traffic = {
     let n = 0;
     for (let i = 0; i < list.length && n < cap; i++) {
       const c = list[i], v = c.v, dx = c.x - cam.x, dy = c.y - cam.y, dz = c.z - cam.z, d2 = dx * dx + dy * dy + dz * dz;
-      if (d2 > far2 || !R.visible(c.x, c.y + v.h * 0.5, c.z, v.hl + v.h * 0.5)) continue;
+      if (d2 > far2 || W.time < c.askUntil || !R.visible(c.x, c.y + v.h * 0.5, c.z, v.hl + v.h * 0.5)) continue;
       n++;
       const wreck = c.state === 'wreck';
       P.paint = c.paint; P.acc = v.accCol; P.x = c.x; P.y = v.type === 'sea' && !wreck ? Naval.keelY(c.x, c.z, c.def) : c.y; P.z = c.z;
@@ -11706,7 +11864,7 @@ const Flights = {
     let n = 0;
     for (let i = 0; i < fl.length; i++) {
       const f = fl[i], v = f.v, dx = f.x - cam.x, dy = f.y - cam.y, dz = f.z - cam.z, d2 = dx * dx + dy * dy + dz * dz;
-      if (f.phase === FL_GONE || d2 > far2 || !R.visible(f.x, f.y, f.z, Math.max(v.hl, v.span / 2))) continue;
+      if (f.phase === FL_GONE || d2 > far2 || W.time < f.askUntil || !R.visible(f.x, f.y, f.z, Math.max(v.hl, v.span / 2))) continue;
       n++;
       P.paint = f.paint; P.acc = v.accCol; P.x = f.x; P.y = f.y; P.z = f.z; P.yaw = f.yaw; P.pitch = f.pitch; P.roll = f.roll;
       P.lod = d2 > lod2; P.spin = 0; P.prop = f.phase === FL_GATE ? 0 : W.time * 40; P.gear = f.gear; P.flat = 1;
@@ -12307,7 +12465,7 @@ const Shipping = {
     let n = 0;
     for (let i = 0; i < ships.length; i++) {
       const c = ships[i], v = c.v, dx = c.x - cam.x, dy = c.y - cam.y, dz = c.z - cam.z, d2 = dx * dx + dy * dy + dz * dz;
-      if (c.phase === SH_GONE || d2 > far2 || !R.visible(c.x, c.y + v.h * 0.5, c.z, v.hl + v.h * 0.5)) continue;
+      if (c.phase === SH_GONE || d2 > far2 || W.time < c.askUntil || !R.visible(c.x, c.y + v.h * 0.5, c.z, v.hl + v.h * 0.5)) continue;
       n++;
       const wreck = c.state === 'wreck';
       P.paint = c.paint; P.acc = v.accCol; P.x = c.x; P.y = c.y; P.z = c.z; P.yaw = c.yaw; P.pitch = c.pitch; P.roll = c.roll;
@@ -13129,6 +13287,7 @@ class Platform {
     // ejectPilot = a player's pilot whose platform was lost by an ejection (a replacement is on its way)
     this.parked = false; this.pilot = null; this.chute = false; this.ejectPilot = false;
     this.civCol = 0;   // a civilian vehicle (P6.2): its paint in its colour set (VEHICLES)
+    this.civVid = 0;   // and the number of the scenery's vehicle it was (Traffic.number; 0: one made since the start)
     this.isPlayer = false; this.aimAssist = false; this.wear = 0; this.netPeer = null; this.netInc = null; this.netInit = false; this.seen = 0;
     this.nx = 0; this.ny = 0; this.nz = 0; this.nyaw = 0; this.npitch = 0; this.nroll = 0; this.nty = 0; this.ntp = 0;
     this.sw = null; this.status = newStatus(); this.scale = 1; this.swHistory = null;   // superweapon slot, superweapon status effects, size (Shrink Ray)
@@ -22569,17 +22728,46 @@ function buildMotorPool() {
   }));
 }
 const APRON_AIRCRAFT = 2;      // parked friendly aircraft on a skirmish's airfield apron
-const APRON_PARK_U = 0.35;    // at this share of the apron's length either side of its middle (the beacon stays free)
+const APRON_PARK_U = 0.35;    // at this share of the apron's length either side of its middle (the beacon stays free)...
+const APRON_CLEAR = 12;       // ...or as near there as keeps this clear of the parked aircraft and the airliners' gates and taxi routes (m)
+const APRON_STEP = 4;         // m between the apron spots tried
+const APRON_BEACON = 5;       // radius kept free round the supply beacon (m)
 /* a skirmish's airfield: two free friendly aircraft parked on its apron, off the runway where the lost ones come back */
 function parkApronAircraft() {
   const ap = W.airports[0];
   if (!ap || !ap.spot) return;
   const spec = AIRFIELD[ap.spot.kind], q = spec.apron, ids = PLAYABLE.filter((id) => PLATFORMS[id].kind === 'air');
-  const mid = (q[0] + q[1]) / 2, half = (q[1] - q[0]) / 2, v = (q[2] + q[3]) / 2;
+  const mid = (q[0] + q[1]) / 2, half = (q[1] - q[0]) / 2, v = (q[2] + q[3]) / 2, taken = apronTaken(ap);
   for (let k = 0; k < APRON_AIRCRAFT && k < ids.length; k++) {
-    const p = Airports.at(ap.spot, mid + (k ? 1 : -1) * half * APRON_PARK_U * 2, v);
-    spawnParked(ids[k], p.x, p.z, ap.yaw);
+    const r = PLATFORMS[ids[k]].radius, want = Airports.at(ap.spot, mid + (k ? 1 : -1) * half * APRON_PARK_U * 2, v);
+    let best = want, bs = -Infinity;
+    for (let u = q[0] + r; u <= q[1] - r; u += APRON_STEP) for (let w = q[2] + r; w <= q[3] - r; w += APRON_STEP) {
+      const p = Airports.at(ap.spot, u, w);
+      let clear = APRON_CLEAR;
+      for (let i = 0; i < taken.length; i += 3) clear = Math.min(clear, Math.hypot(taken[i] - p.x, taken[i + 1] - p.z) - taken[i + 2] - r);
+      const s = clear - Math.hypot(p.x - want.x, p.z - want.z) * 1e-3;   // clear enough, then nearest the spot it would have
+      if (s > bs) { bs = s; best = p; }
+    }
+    const pl = spawnParked(ids[k], best.x, best.z, ap.yaw);
+    taken.push(pl.x, pl.z, r);
   }
+}
+/* what stands or moves on airfield a's apron, as [x, z, radius] triples: its parked aircraft, its beacon, and its
+   airliners' gates and taxi routes */
+function apronTaken(a) {
+  const T = W.traffic, b = a.apron, out = [(b.x0 + b.x1) / 2, (b.z0 + b.z1) / 2, APRON_BEACON], reach = Math.hypot(b.x1 - b.x0, b.z1 - b.z0) / 2 + 60;
+  if (!T) return out;
+  for (const r of T.parked) if (r.airport && Airports.apronAt(r) === a) out.push(r.x, r.z, Math.max(r.v.hl, r.def.radius));
+  for (const f of T.flights) {
+    const rt = f.route;
+    if (f.ap !== a || !rt) continue;
+    for (let i = 0; i < rt.n; i += 2) {
+      if (rt.cum[i] >= rt.roll && rt.cum[i] <= rt.vacate) continue;   // on the runway or in the air
+      const x = rt.p[i * 7], z = rt.p[i * 7 + 2];
+      if (Math.hypot(x - (b.x0 + b.x1) / 2, z - (b.z0 + b.z1) / 2) < reach) out.push(x, z, Math.max(f.v.hl, f.def.radius));
+    }
+  }
+  return out;
 }
 /* a free friendly platform standing parked: the training motor pool and a skirmish airfield's apron */
 function spawnParked(id, x, z, yaw) {
@@ -29220,6 +29408,24 @@ const SelfTest = {
         sent.length = 0; Net.sendSnapshots();
         const spT = sent.find((m) => m.t === 'sp' && m.id === taxi.id);
         this.check('its sp carries the paint (cc)', !!spT && spT.cc === 0 && spT.d === 'cv_taxi');
+        // two guests ask for the same car at once: one drives it, the other stays on foot; a number the host's world
+        // does not have (taken already, or forged) is refused
+        const guest = (dx) => {
+          const pr = Net.newPeer();
+          pr.open = pr.hello = true; pr.tx = (s) => sent.push(JSON.parse(s)); pr.pid = 'ranger'; pr.stats = newStats(); pr.name = 'Ally';
+          const body = new Platform(PLATFORMS.ranger, { team: 0, x: sp.x + dx, z: sp.z + 30, yaw: 0, loadout: Loadout.forPlatform('ranger'), name: 'Ally' });
+          body.isPlayer = true; body.netPeer = pr; pr.p = body; W.platforms.push(body); Net.peers.push(pr);
+          return pr;
+        };
+        const pa = guest(0), pb = guest(2), ga = pa.p, gb = pb.p, both = park('sedan', sp.x + 1, sp.z + 33, 0, 1);
+        both.vid = 2001;
+        const want = { t: 'enterCiv', d: 'cv_sedan', v: 2001, x: both.x, y: both.y, z: both.z, yaw: 0, c: 1 };
+        Net.hostMsg(pa, want); Net.hostMsg(pb, want);
+        const sedans = () => W.platforms.filter((q) => q.def.id === 'cv_sedan').length;
+        this.check('two guests asking for one car: one platform, the first drives it, the second stays on foot, the host\'s copy goes', sedans() === 1 && pa.p !== ga && pa.p.def.id === 'cv_sedan' && pb.p === gb && W.traffic.parked.indexOf(both) < 0, sedans() + ' sedans');
+        Net.hostMsg(pb, { t: 'enterCiv', d: 'cv_sedan', v: 2999, x: gb.x + 2, y: gb.y, z: gb.z, yaw: 0, c: 1 });
+        Net.hostMsg(pb, { t: 'enterCiv', d: 'cv_sedan', v: 2001, x: gb.x + 2, y: gb.y, z: gb.z, yaw: 0, c: 1 });
+        this.check('a car the host\'s world does not have (forged, or taken) makes no platform', pb.p === gb && sedans() === 1, sedans() + ' sedans');
         // the guest's side: its tap asks the host and drops its copy; a host's sp drops the copy where the platform appears
         newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
         W.mission = null; W.pads = [];
@@ -29227,13 +29433,21 @@ const SelfTest = {
         Net.host = false; Net.guest = true; Net.map = {}; Net.pendEdge = 0; Net.hostPeer = { tx: (s) => sent.push(JSON.parse(s)) };
         const me = mk('ranger', sp.x, sp.z);
         drive(me);
-        const mine = park('hatch', sp.x + 3, sp.z, 0.3, 4), theirs = park('taxi', sp.x + 40, sp.z, 0.2, 0);
+        const mine = park('hatch', sp.x + 3, sp.z, 0.3, 4), theirs = park('taxi', sp.x + 40, sp.z, 0.2, 0), old = park('sedan', sp.x + 60, sp.z, 0, 1);
+        mine.vid = 1001; theirs.vid = 1002;
         sent.length = 0;
         Seats.tap(me, null);
         const ask = sent.find((m) => m.t === 'enterCiv');
-        this.check('a guest\'s tap beside a vehicle of its scenery asks the host (enterCiv) and its copy goes', !!ask && ask.d === 'cv_hatch' && ask.c === 4 && Math.abs(ask.x - mine.x) < 0.1 && W.traffic.parked.indexOf(mine) < 0 && !(Net.pendEdge & NET_USE_TAP));
-        Net.applySpawn({ t: 'sp', id: 99101, d: 'cv_taxi', team: 0, name: 'Taxi', arch: '', lo: {}, x: theirs.x, y: theirs.y, z: theirs.z, yaw: 0.2, self: 0, pl: 1, sc: 1, driver: 1, cc: 0 });
-        this.check('a civilian vehicle\'s sp shows it in its paint and drops the guest\'s own copy there', !!Net.map[99101] && Net.map[99101].civCol === 0 && W.traffic.parked.indexOf(theirs) < 0);
+        this.check('a guest\'s tap beside a vehicle of its scenery asks the host (enterCiv, with its number) and hides its copy till the answer', !!ask && ask.d === 'cv_hatch' && ask.c === 4 && ask.v === 1001 && Math.abs(ask.x - mine.x) < 0.1 && W.traffic.parked.indexOf(mine) >= 0 && Traffic.rideDist(mine, me) === Infinity && !(Net.pendEdge & NET_USE_TAP));
+        W.time += TRAFFIC_ASK_WAIT + 0.1;
+        this.check('no answer (the host refused): its copy is back, to be taken again', Number.isFinite(Traffic.rideDist(mine, me)));
+        // the host's sp names the vehicle: the guest's copy goes wherever it went; one made since the start goes by place
+        const tx = theirs.x;
+        theirs.x += 30;
+        Net.applySpawn({ t: 'sp', id: 99101, d: 'cv_taxi', team: 0, name: 'Taxi', arch: '', lo: {}, x: tx, y: theirs.y, z: theirs.z, yaw: 0.2, self: 0, pl: 1, sc: 1, driver: 1, cc: 0, cv: 1002 });
+        Net.applySpawn({ t: 'sp', id: 99102, d: 'cv_sedan', team: 0, name: 'Sedan', arch: '', lo: {}, x: old.x + 1, y: old.y, z: old.z, yaw: 0, self: 0, pl: 1, sc: 1, driver: 1, cc: 1 });
+        this.check('a civilian vehicle\'s sp shows it in its paint and drops the guest\'s own copy (by its number, wherever it went)', !!Net.map[99101] && Net.map[99101].civCol === 0 && Net.map[99101].civVid === 1002 && W.traffic.parked.indexOf(theirs) < 0);
+        this.check('and one with no number by its place', !!Net.map[99102] && W.traffic.parked.indexOf(old) < 0);
       } finally {
         R.draw = keep.draw;
         S.onFoot = keep.foot; Net.peers = keep.peers; Net.host = keep.host; Net.guest = keep.guest; Net.inSession = keep.inSession; Net.hostPeer = keep.hostPeer; Net.map = keep.map; Net.pendEdge = keep.pend;
@@ -29292,25 +29506,34 @@ const SelfTest = {
         const s1 = sig(T);
         Traffic.populate(SEED, W.mission.def.start);
         this.check('the same seed parks and places the same vehicles', sig(W.traffic) === s1);
+        // no kerb car stands across the walk from a street to a door (the residents could not get in)
+        const barring = W.traffic.parked.filter((r) => r.v.type === 'road' && W.civZones.some((zn) => zn.doors.some((d) => segDist(d.st.x, d.st.z, d.out.x, d.out.z, r.x, r.z, r.x, r.z) < r.v.hl + 1)));
+        this.check('no kerb car stands across the walk from a street to a door', !barring.length, barring.length + ' of ' + W.traffic.parked.length);
         // a minute of traffic round the largest town: every car on its lane, none overlapping
         const T2 = W.traffic, zn = W.civZones.reduce((a, b) => (b.rad > a.rad ? b : a));
         R.cam.x = zn.cx; R.cam.y = Terrain.h(zn.cx, zn.cz) + 30; R.cam.z = zn.cz;
         let off = 0, worst = [], minCars = Infinity, moved = 0;
-        const start = T2.cars.map((c) => c.x + c.z);
+        const start = new Map(T2.cars.map((c) => [c, [c.x, c.z]]));
+        // where a car stands by its lane's own points (not Traffic.at): how far off the lane's line, and how far along it
+        const onLane = (c) => {
+          const p = c.lane.pts, cum = c.lane.cum;
+          let off2 = Infinity, s = 0;
+          for (let k = 0; k + 3 < p.length; k += 3) {
+            const ax = p[k], az = p[k + 2], vx = p[k + 3] - ax, vz = p[k + 5] - az, l2 = vx * vx + vz * vz || 1, f = clamp(((c.x - ax) * vx + (c.z - az) * vz) / l2, 0, 1);
+            const d = Math.hypot(c.x - ax - vx * f, c.z - az - vz * f);
+            if (d < off2) { off2 = d; s = cum[k / 3] + f * Math.sqrt(l2); }
+          }
+          return off2 < 0.05 && Math.abs(s - c.s) < 0.1;
+        };
         for (let i = 0; i < Math.round(SECONDS / STEP); i++) {
           Traffic.update(STEP);
           if (i % 30) continue;
           minCars = Math.min(minCars, T2.cars.length);
-          for (const c of T2.cars) {
-            if (c.state !== 'drive') continue;
-            at.seg = 0;
-            Traffic.at(at, c.lane, c.s);
-            if (T2.lanes.indexOf(c.lane) < 0 || c.s < -0.01 || c.s > c.lane.len + 0.01 || Math.hypot(at.x - c.x, at.z - c.z) > 0.05) off++;
-          }
+          for (const c of T2.cars) if (c.state === 'drive' && (T2.lanes.indexOf(c.lane) < 0 || c.s < -0.01 || c.s > c.lane.len + 0.01 || !onLane(c))) off++;
           const o = overlaps(T2.cars);
           if (o.length > worst.length) worst = o;
         }
-        T2.cars.forEach((c, i) => { if (Math.abs(c.x + c.z - start[i]) > 20) moved++; });
+        T2.cars.forEach((c) => { const p = start.get(c); if (p && Math.hypot(c.x - p[0], c.z - p[1]) > 20) moved++; });
         this.check('a minute on: every driving car is on its lane', off === 0, off + ' off');
         this.check('a minute on: no two cars overlap', !worst.length, worst.slice(0, 4).join(' '));
         this.check('a minute on: the cars keep moving and their number holds', moved > n0 / 2 && minCars === n0, moved + ' moved, ' + minCars + ' of ' + n0);
@@ -29373,6 +29596,18 @@ const SelfTest = {
         start('metro');
         const T = W.traffic, ap = W.airports[0].spot;
         this.check('the metro airport\'s gates get airliners (QUALITY flights at most), each with its loop, waiting at its gate', T.flights.length >= 2 && T.flights.length <= QUALITY.high.flights && T.flights.every((f) => f.route && f.phase === FL_GATE && f.ap), T.flights.length + ' flights');
+        // the apron: the friendly aircraft parked there, the parked civilian aircraft and the airliners at their gates keep
+        // their spans apart, and the airliners' taxi routes clear them all
+        const apron = W.airports[0], things = W.platforms.filter((p) => p.kind === 'air' && p.team === 0 && Airports.apronAt(p) === apron).map((p) => [p.def.id, p.x, p.z, p.radius])
+          .concat(T.parked.filter((r) => r.airport).map((r) => [r.v.id, r.x, r.z, Math.max(r.v.hl, r.def.radius)]));
+        let tight = Infinity, tightAt = '';
+        const near = (what, x, z, r, a) => { const d = Math.hypot(x - a[1], z - a[2]) - r - a[3]; if (d < tight) { tight = d; tightAt = what + '/' + a[0]; } };
+        for (let i = 0; i < things.length; i++) for (let k = i + 1; k < things.length; k++) near(things[i][0], things[i][1], things[i][2], things[i][3], things[k]);
+        for (const fl of T.flights) {
+          const rt = fl.route, span = Math.max(fl.v.hl, fl.def.radius);
+          for (let i = 0; i < rt.n; i++) if (rt.cum[i] < rt.roll || rt.cum[i] > rt.vacate) for (const a of things) near(fl.v.id + (i ? ' taxiing' : ' at its gate'), rt.p[i * 7], rt.p[i * 7 + 2], span, a);
+        }
+        this.check('on the apron the parked aircraft and the airliners at their gates and taxiing keep their spans apart', things.filter((a) => PLATFORMS[a[0]]).length === APRON_AIRCRAFT && tight > 4, Math.round(tight) + ' m at ' + tightAt);
         const s1 = sig(T.flights);
         T.flights = [];
         Flights.populate(T, SEED);
@@ -29571,7 +29806,7 @@ const SelfTest = {
         socStart('cycle');
         this.check('the same seed gives the same professions, homes and workplaces', sig() === s1);
         socLook(socTown());
-        // at 08:00 the workers are on their way to work or there; at lunch the streets have people; at 23:00 most are home
+        // at 08:00 the workers are on their way to work or there; at lunch the streets have people (the night: its own block)
         socAt(7);
         socRun(TIME_CYCLE_SECONDS / 24, DT);
         const morning = socPeople();
@@ -29580,10 +29815,6 @@ const SelfTest = {
         socRun(TIME_CYCLE_SECONDS / 48, DT);
         const noon = socPeople();
         this.check('12:30: the office workers are out for lunch and the streets have people', socShare(noon.filter((c) => c.job.lunch), (c) => c.want === SOC_LUNCH) > 0.5 && socShare(noon, (c) => c.state !== 'inside') > 0.3, Math.round(socShare(noon, (c) => c.state !== 'inside') * 100) + '% out');
-        socAt(20.5);
-        socRun(TIME_CYCLE_SECONDS * 2.5 / 24, DT);
-        const night = socPeople();
-        this.check('23:00: most civilians are inside', socShare(night, (c) => c.state === 'inside') > 0.75, Math.round(socShare(night, (c) => c.state === 'inside') * 100) + '%');
         // a fixed time of day (missions, D35): the old routine, the streets as busy as ever
         socStart('day');
         socLook(socTown());
@@ -29592,6 +29823,37 @@ const SelfTest = {
         this.check('a fixed time of day keeps the old routine: people out and about, none on a schedule', socShare(day, (c) => c.state !== 'inside') > 0.4 && day.every((c) => c.want === SOC_OUT && !c.ride), Math.round(socShare(day, (c) => c.state !== 'inside') * 100) + '% out');
       } finally {
         Math.random = keepRandom; S.quality = keepQ; R.visible = keepVisible; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
+        Game.quitToMenu();
+      }
+    });
+    t('society: the night', () => {
+      const keepQ = S.quality, keepCam = { x: R.cam.x, y: R.cam.y, z: R.cam.z }, keepVisible = R.visible, DT = 0.5;
+      try {
+        S.quality = 'high'; R.visible = () => false;
+        // 23:00, with the game's own dice (no pinned rng): the middle of three evenings
+        const nights = [];
+        for (let k = 0; k < 3; k++) {
+          socStart('cycle');
+          socLook(socTown());
+          socAt(20.5);
+          socRun(TIME_CYCLE_SECONDS * 2.5 / 24, DT);
+          nights.push(socShare(socPeople(), (c) => c.state === 'inside'));
+        }
+        nights.sort((a, b) => a - b);
+        this.check('23:00: most civilians are inside (the middle of three evenings, unpinned)', nights[1] > 0.7, nights.map((s) => Math.round(s * 100) + '%').join(' '));
+        // a resident whose door a car stands in front of still gets in (once nobody watches)
+        const res = socPeople().find((c) => c.home && c.want === SOC_HOME && !c.ride && c.awayNode < 0), d = res.home.door, nd = res.zone.nodes[d.node];
+        const bar = Traffic.make(VEHICLES[VEHICLE_IDS.indexOf('sedan')], 0);
+        bar.x = (d.st.x + d.out.x) / 2; bar.z = (d.st.z + d.out.z) / 2; bar.y = Terrain.h(bar.x, bar.z); bar.yaw = Math.atan2(d.out.x - d.st.x, d.out.z - d.st.z) + PI / 2;
+        W.traffic.parked.push(bar);
+        Civ.endChat(res);
+        Object.assign(res, { state: 'walk', door: null, ride: null, x: nd.x, z: nd.z, y: Terrain.h(nd.x, nd.z), from: d.node, doorTries: 0, stuckT: 0 });
+        res.path.length = 0;
+        socRun(150, DT);
+        W.traffic.parked.splice(W.traffic.parked.indexOf(bar), 1);
+        this.check('a resident with a car in front of the door still gets in', res.state === 'inside' && !!res.door && res.door.b === d.b, res.state + ' ' + res.doorTries + ' tries');
+      } finally {
+        S.quality = keepQ; R.visible = keepVisible; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
         Game.quitToMenu();
       }
     });
@@ -29641,6 +29903,27 @@ const SelfTest = {
         const medic = cas.inc && cas.inc.crew.find((h) => h.unit === 'ems');
         this.check('a casualty brings an ambulance, and its medic tends the fallen', cas.ems >= 0 && medic && medic.crouch && Math.hypot(medic.x - cx, medic.z - cz) < 4, cas.ems + ' s');
         clear();
+        // a casualty in front of a door whose nearest lane point is a lane's end (a street corner): the ambulance stops
+        // short of the end and gets there
+        const G = { L: null, s: 0 }, hosp = from(zn, 'hospital');
+        const ends = near(zn.doors.map((q) => q.st), hosp, (p) => [p.x, p.z]).filter((p) => Traffic.nearestLane(p.x, p.z, 0, SOC_REACH, G) && (G.s < 0.5 || G.s > G.L.len - 0.5));
+        Society.casualty(ends[0]);
+        const corner = watch(ends[0].x, ends[0].z, 120, (g) => g.ems >= 0);
+        this.check('a casualty where the nearest lane ends still gets its ambulance', ends.length > 0 && corner.ems >= 0, ends.length + ' such doors, ' + corner.ems + ' s');
+        clear();
+        // casualties about the town: most get their ambulance in time
+        let reached = 0, times = [];
+        for (let k = 0; k < 3; k++) {
+          const walkers = zn.civs.filter((c) => !c.dead && !c.duty && c.state === 'walk'), v = walkers[Math.floor(Math.random() * walkers.length)];
+          if (!v) break;
+          const vx = v.x, vz = v.z;
+          Civ.kill(v, 0, 1, 0);
+          const got = watch(vx, vz, 120, (g) => g.ems >= 0);
+          if (got.ems >= 0) reached++;
+          times.push(got.ems);
+          clear();
+        }
+        this.check('most casualties about the town get an ambulance within 120 s', reached >= 2, times.join(' ') + ' s');
         // a collapse: the police and an ambulance; the police stand a cordon round it, and run when it comes under fire
         const b = near(zn.blds.filter((q) => !q.civic && q.alive === q.total && zn.doors.some((d) => d.b === q)), from(zn, 'police'), (q) => [q.cx, q.cz])[0];
         const alive = b.alive;
@@ -29836,12 +30119,18 @@ const Net = {
     }
   },
   /* a guest took a civilian vehicle of its own scenery (Traffic.ask): the host makes it a parked platform there, if the
-     guest stands by it (an aircraft on an airfield, a boat afloat), and puts the guest in it */
+     guest stands by it (an aircraft on an airfield, a boat afloat) and the host's world still has that vehicle, and puts
+     the guest in it. Where a platform of that kind already stands (taken at the same time by another), the guest gets
+     into it while it is free; else it is refused (no answer: the guest's copy comes back). */
   hostEnterCiv(peer, m) {
     const h = peer.p, def = PLATFORMS[m.d];
     if (!this.inSession || !W || !h || h.dead || h.def.style !== 'infantry' || !def || !def.civilian || !Number.isFinite(m.x) || !Number.isFinite(m.z)) return;
     if (!Traffic.mayRide(def, m.x, m.z, h)) return;
-    const p = Traffic.spawnRide(def, m.x, Terrain.h(m.x, m.z) + (def.kind === 'ground' ? numIn(m.y - Terrain.h(m.x, m.z), 0, 60, 0) : 0), m.z, numIn(m.yaw, -TAU, TAU, 0), numIn(m.c, 0, 15, 0) | 0);
+    const there = W.platforms.find((q) => q.def === def && !q.dead && Math.hypot(q.x - m.x, q.z - m.z) < TRAFFIC_ASK_NEAR);
+    if (there) { if (there.parked) Seats.enter(h, there, peer); return; }
+    const vid = numIn(m.v, 0, TRAFFIC_VID_BLOCK * 5, 0) | 0, mine = Traffic.byVid(vid);
+    if (vid && (!mine || mine.def !== def || mine.state === 'wreck')) return;   // gone from our world (taken, wrecked), or never in it
+    const p = Traffic.spawnRide(def, m.x, Terrain.h(m.x, m.z) + (def.kind === 'ground' ? numIn(m.y - Terrain.h(m.x, m.z), 0, 60, 0) : 0), m.z, numIn(m.yaw, -TAU, TAU, 0), numIn(m.c, 0, 15, 0) | 0, vid);
     Seats.enter(h, p, peer);
   },
   /* a loadout from a guest's message, with only known weapons, superweapon and melee weapon */
@@ -30124,7 +30413,7 @@ const Net = {
         if (p.dead || peer.known.has(p.id)) continue;
         peer.known.add(p.id);
         const sp = { t: 'sp', id: p.id, d: p.def.id, team: p.team, name: p.name, arch: p.arch || '', lo: p.loadout, x: r1(p.x), y: r1(p.y), z: r1(p.z), yaw: r2(p.yaw), self: p === peer.p ? 1 : 0, pl: p.isPlayer ? 1 : 0, sc: r2(p.scale), driver: p.parked ? 0 : 1 };
-        if (p.def.civilian) sp.cc = p.civCol;   // a civilian vehicle's paint
+        if (p.def.civilian) { sp.cc = p.civCol; if (p.civVid) sp.cv = p.civVid; }   // a civilian vehicle's paint, and which it was
         this.send(peer, sp);
       }
       base.me = this.selfState(peer);
@@ -30176,7 +30465,7 @@ const Net = {
     p.netInit = true; p.seen = this.t; p.speedMult = 1; p.parked = m.driver === 0;
     const sc = numIn(m.sc, 0.1, 3, 1);
     if (sc !== 1) { p.scale = sc; p.radius = def.radius * sc; p.height = def.height * sc; }
-    if (def.civilian) { p.civCol = numIn(m.cc, 0, 15, 0) | 0; Traffic.claim(def, m.x, m.z); }   // our own copy of the scenery vehicle goes
+    if (def.civilian) { p.civCol = numIn(m.cc, 0, 15, 0) | 0; p.civVid = numIn(m.cv, 0, TRAFFIC_VID_BLOCK * 5, 0) | 0; Traffic.claim(def, m.x, m.z, p.civVid); }   // our own copy of the scenery vehicle goes
     this.map[m.id] = p;
     W.platforms.push(p);
     if (m.self || (this.pendCtl && m.id === this.pendCtl)) this.bindLocal(p);
