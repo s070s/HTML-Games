@@ -968,12 +968,13 @@ Test.add('progress', (check) => progressWithPlayer(() => {
 }));
 
 // ---- XP: every mode's score pays at about the kill modes' pace (play-01: hold seconds and banked motes are many points) ----
-const PROGRESS_TEST_RATE_RUNS = [['ffa', 'spire'], ['tdm', 'harbor'], ['oddball', 'gantry'], ['bearer', 'spire'], ['bank', 'cistern'], ['attrition', 'harbor']];
-const PROGRESS_TEST_RATE_SECONDS = 180, PROGRESS_TEST_RATE_MINUTES = 7, PROGRESS_TEST_RATE_SPREAD = 3;   // play time, run cap (sudden death), max / min
+const PROGRESS_TEST_RATE_RUNS = [['ffa', 'spire'], ['tdm', 'harbor'], ['oddball', 'gantry'], ['bearer', 'spire'], ['bank', 'cistern', 12], ['attrition', 'harbor']];
+// play time, run cap (sudden death; Mote Rush has no clock and ends by its boss after 4-10 minutes: its own cap), max / min
+const PROGRESS_TEST_RATE_SECONDS = 180, PROGRESS_TEST_RATE_MINUTES = 7, PROGRESS_TEST_RATE_SPREAD = 3;
 // The best score + objective XP per minute of one 8-bot match: each player is read as the local one through Progress.matchXp. 0 when it never ended.
-function progressScoreRate(mode, map) {
+function progressScoreRate(mode, map, minutes = PROGRESS_TEST_RATE_MINUTES) {
   let best = 0;
-  playMatch({ mode, map, minutes: PROGRESS_TEST_RATE_MINUTES, botCount: 8, seed: 1, modeOptions: { timeLimit: PROGRESS_TEST_RATE_SECONDS }, probe: () => {
+  playMatch({ mode, map, minutes, botCount: 8, seed: 1, modeOptions: { timeLimit: PROGRESS_TEST_RATE_SECONDS }, probe: () => {
     const results = Game.match.results, saved = Game.playerId;
     if (!results) return;
     try {
@@ -987,7 +988,7 @@ function progressScoreRate(mode, map) {
   return Math.round(best);
 }
 Test.add('progress', (check) => {
-  const rates = PROGRESS_TEST_RATE_RUNS.map(([mode, map]) => progressScoreRate(mode, map)), lowest = Math.min(...rates);
+  const rates = PROGRESS_TEST_RATE_RUNS.map(([mode, map, minutes]) => progressScoreRate(mode, map, minutes)), lowest = Math.min(...rates);
   check('xp: score XP per minute stays within x' + PROGRESS_TEST_RATE_SPREAD + ' across Frenzy, Team Clash, Relic Run, Flame Bearer, Mote Rush and Attrition',
     lowest > 0 && Math.max(...rates) <= lowest * PROGRESS_TEST_RATE_SPREAD, PROGRESS_TEST_RATE_RUNS.map(([mode], index) => mode + ' ' + rates[index]).join(', '));
 });
