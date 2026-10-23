@@ -177,7 +177,7 @@ const BotTeam = {
   squadPlan(id, plan) {
     const leader = this.squadLeader[id];
     if (BotCombat.target[id] >= 0) return 0;
-    if (leader < 0 || leader === id || !Actors.alive[leader] || (Actors.flags[leader] & ACTOR_FLAG.DOWNED) || Actors.team[leader] !== Actors.team[id]) return 0;
+    if (leader < 0 || !Actors.isAlly(id, leader) || !Actors.alive[leader] || (Actors.flags[leader] & ACTOR_FLAG.DOWNED)) return 0;
     setPlan(plan, Actors.x[leader], Actors.y[leader], Actors.z[leader], BOT_SQUAD.keep, ACTION.MOVE, leader);
     const keep = SQUAD_BASE + SQUAD_GAIN * Bots.trait(id, TRAIT.teamwork);
     return length2(Actors.x[leader] - Actors.x[id], Actors.z[leader] - Actors.z[id]) > BOT_SQUAD.regroup ? keep + SQUAD_REGROUP : keep;
@@ -378,7 +378,7 @@ function aimDirectionOf(player) {
 // Who a ping or the comm wheel can point at: an enemy (enemies true) or a bot of the player's team.
 function aimCandidate(player, id, enemies) {
   if (enemies) return Actors.isEnemy(player, id);
-  return Bots.isBot(id) && Actors.team[id] >= 0 && Actors.team[id] === Actors.team[player];
+  return Bots.isBot(id) && Actors.isAlly(player, id);
 }
 // The living candidate nearest the aim line (within PING_AIM_COS) and in sight, or -1.
 function aimedActor(player, dx, dy, dz, enemies) {

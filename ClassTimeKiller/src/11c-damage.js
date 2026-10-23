@@ -284,7 +284,7 @@ const Damage = {
   nearestDownedAlly(id, maxDistance) {
     let best = -1, bestSquared = maxDistance * maxDistance;
     for (let other = 0; other < Actors.count; other++) {
-      if (other === id || !Actors.alive[other] || !(Actors.flags[other] & ACTOR_FLAG.DOWNED) || Actors.team[other] !== Actors.team[id] || Actors.team[id] < 0) continue;
+      if (!Actors.isAlly(id, other) || !Actors.alive[other] || !(Actors.flags[other] & ACTOR_FLAG.DOWNED)) continue;
       const squared = distanceSquared3(Actors.x[id], Actors.y[id], Actors.z[id], Actors.x[other], Actors.y[other], Actors.z[other]);
       if (squared <= bestSquared) { best = other; bestSquared = squared; }
     }

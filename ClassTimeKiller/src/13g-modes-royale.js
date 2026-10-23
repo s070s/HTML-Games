@@ -191,7 +191,7 @@ function respawnSquad(squad) {
 
 function squadWinner(id) {
   const player = Game.playerId;
-  return Squads.count && player >= 0 && Actors.team[id] >= 0 && Actors.team[player] === Actors.team[id] ? player : id;
+  return Squads.count && player >= 0 && Actors.isAlly(player, id) ? player : id;
 }
 
 // ---- Ring ----

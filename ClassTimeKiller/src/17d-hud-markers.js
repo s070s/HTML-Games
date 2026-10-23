@@ -308,7 +308,7 @@ function hudDrawDownedAllies(pen, layout) {
   const player = Game.playerId;
   if (!Damage.downedCount || player < 0 || Actors.team[player] < 0) return;   // no scan while nobody is down
   for (let id = 0; id < Actors.count; id++) {
-    if (id === player || !Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.DOWNED) || Actors.team[id] !== Actors.team[player]) continue;
+    if (!Actors.isAlly(player, id) || !Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.DOWNED)) continue;
     hudDrawMarker(pen, layout, Actors.x[id], Actors.y[id] + HUD_DOWNED_MARKER_HEIGHT, Actors.z[id], 'diamond', HUD_COLOR.warn, -1, true);
   }
 }

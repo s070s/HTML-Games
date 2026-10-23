@@ -53,6 +53,11 @@ Test.add('core', (check) => {
   Actors.remove(second);
   check('actors: remove shrinks count', Actors.count === 1);
   check('actors: enemy test by team', Actors.isEnemy(first, Actors.create(ACTOR_KIND.BOT, 2, 'x')) && !Actors.isEnemy(first, first));
+  // R-159: one ally rule (same team, not free-for-all, not itself); an enemy is anyone else
+  const mate = Actors.create(ACTOR_KIND.BOT, 1, 'mate'), loner = Actors.create(ACTOR_KIND.BOT, -1, 'a'), other = Actors.create(ACTOR_KIND.BOT, -1, 'b');
+  check('actors: ally test', Actors.isAlly(first, mate) && !Actors.isAlly(first, first) && !Actors.isAlly(loner, other) && !Actors.isAlly(first, loner)
+    && Actors.isEnemy(loner, other) && !Actors.isEnemy(first, mate));
+  Actors.remove(other); Actors.remove(loner); Actors.remove(mate);
   Actors.buttons[first] = BTN.FIRE;
   Sim.step();
   check('sim: pressed edge on first step', (Actors.pressed[first] & BTN.FIRE) !== 0);

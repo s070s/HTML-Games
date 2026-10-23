@@ -382,7 +382,9 @@ const Actors = {
     for (let id = 0; id < MAX_ACTORS; id++) if (this.kind[id] !== ACTOR_KIND.NONE) this.remove(id);
     this.count = 0;
   },
-  isEnemy(a, b) { return a !== b && (this.team[a] < 0 || this.team[a] !== this.team[b]); },
+  // Allies share a team (team -1 = free-for-all: no allies); an actor is neither its own ally nor its own enemy.
+  isAlly(a, b) { return a !== b && this.team[a] >= 0 && this.team[a] === this.team[b]; },
+  isEnemy(a, b) { return a !== b && !this.isAlly(a, b); },
   eyeY(id) { return this.y[id] + this.eye[id]; },
 };
 

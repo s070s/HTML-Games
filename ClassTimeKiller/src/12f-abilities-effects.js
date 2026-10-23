@@ -167,7 +167,7 @@ function enemiesNear(id, x, y, z, radius, includeGhosts) {
   }
   return count;
 }
-function alliesOf(id, other) { return other === id || (Actors.team[id] >= 0 && Actors.team[other] === Actors.team[id]); }
+function alliesOf(id, other) { return other === id || Actors.isAlly(id, other); }
 function revealEnemies(id, x, y, z, radius, seconds) {
   const count = enemiesNear(id, x, y, z, radius, false);
   for (let k = 0; k < count; k++) Damage.addStatus(effectIds[k], 'reveal', id, seconds, 1);

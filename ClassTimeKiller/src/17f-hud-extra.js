@@ -113,7 +113,7 @@ function hudCollectObservers(player) {
   list[count++] = player;
   if (HudExtra.radarMode === 'team' && Actors.team[player] >= 0) {
     for (let id = 0; id < Actors.count && count < HUD_TRACKER_OBSERVERS; id++) {
-      if (id !== player && Actors.alive[id] && Actors.team[id] === Actors.team[player]) list[count++] = id;
+      if (Actors.isAlly(player, id) && Actors.alive[id]) list[count++] = id;
     }
   }
   HudExtra.observerCount = count;
