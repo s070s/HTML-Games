@@ -97,7 +97,7 @@ function careerLookCycle(kind, label, onChange) {
 // The worn body colour as a swatch, its glow showing the finish (an empty swatch: the default team look).
 function careerPaintSwatch(swatch) {
   const color = Progress.look.color, finish = Progress.look.finish;
-  const css = color === PROGRESS_NO_LOOK ? '' : '#' + color.toString(16).padStart(6, '0');
+  const css = color === PROGRESS_NO_LOOK ? '' : cssHex(color);
   swatch.style.background = css || 'transparent';
   swatch.style.boxShadow = css && finish !== PROGRESS_NO_LOOK ? '0 0 ' + Math.round(finish * CAREER_FINISH_GLOW_PX) + 'px ' + css : 'none';
 }
@@ -158,6 +158,18 @@ Ui.register('ladder', {
 });
 
 // ---- Challenge Rooms ----
+// How a room's points are earned, in its own terms (the weights of row.points, 15a Progress.points).
+const CAREER_POINT_LABELS = { kills: 'per kill', airKills: 'per kill in the air', headshots: 'per headshot', bestStreak: 'per kill of your best streak',
+  damageTaken: 'per damage taken', deaths: 'per death', won: 'for a win' };
+function careerPointsText(row) {
+  const parts = Object.keys(row.points).map((key) => {
+    const weight = row.points[key];
+    if (key === 'underPar') return weight + ' per second under ' + progressClock(row.par) + ' (a win)';
+    if (key === 'accuracy') return 'up to ' + weight + ' for accuracy (in full from ' + CHALLENGE_ACCURACY_HITS + ' hits)';
+    return weight + ' ' + (CAREER_POINT_LABELS[key] || key);
+  });
+  return 'Points: ' + parts.join(', ') + '.';
+}
 function careerRoomUnlockText(group) {
   const row = CAT.unlocks.find((unlock) => unlock.kind === 'challenge' && unlock.value === group);
   return row ? 'Opens at level ' + row.level : 'Locked';
@@ -170,7 +182,8 @@ function careerRoomRow(row) {
   const label = makeElement('span');
   label.textContent = row.code + ' ' + row.name;
   label.appendChild(makeElement('span', 'pg-stars', careerStars(record.stars)));
-  const detail = row.text + ' Best ' + record.best + (record.expertBest ? ', Expert ' + record.expertBest + ' ' + careerStars(record.expertStars) : '') + '. Stars at ' + row.stars.join(' / ') + ' points.';
+  const detail = row.text + ' ' + careerPointsText(row) + ' Best ' + record.best + (record.expertBest ? ', Expert ' + record.expertBest + ' ' + careerStars(record.expertStars) : '')
+    + '. Stars at ' + row.stars.join(' / ') + ' points.';
   const element = careerRow('', detail, buttons);
   element.firstChild.prepend(label);
   return element;
@@ -266,7 +279,7 @@ Ui.register('cardUse', {
     });
   },
 });
-// The pause row and the touch button exist only while the match holds active cards; the 'cards' action (Y, pad Home, touch CARD)
+// The pause row and the touch button exist only while the match holds active cards; the 'cards' action (Y, pad View + RB, touch CARD)
 // pauses and opens the same screen. Re-added at every match start (a test run may empty Ui.pauseEntries).
 const CARDS_PAUSE_ENTRY = { label: 'Cards', screen: 'cardUse', when: () => CardRun.slots.length > 0 };
 function careerOpenCards(event) {
@@ -321,10 +334,12 @@ function careerAwardPanel(container) {
 PlayResultsExtras.push(careerAwardPanel);
 
 // ---- First start: offer the Firing Range once (skippable, PRG-008); a build without the range keeps the offer for later ----
+const CAREER_RANGE_OFFER_TEXT = 'Warm up in the Firing Range first? Shoot the targets: your first shot starts a drill, every ' + PVE_RANGE.drillTargets
+  + ' kills finish it on the clock. The range never ends: leave it from the pause menu (Quit). You can skip it and go straight to the menu.';
 function careerOfferRange() {
   const profile = Progress.profile();
   if (Game.headless || profile.rangeOffered || !careerRangeAvailable()) return;
-  Ui.confirm({ title: 'Welcome', text: 'Warm up in the Firing Range first? You can skip it and go straight to the menu.', yes: 'Firing Range', no: 'Skip', onYes: careerOpenRange });
+  Ui.confirm({ title: 'Welcome', text: CAREER_RANGE_OFFER_TEXT, yes: 'Firing Range', no: 'Skip', onYes: careerOpenRange });
   profile.rangeOffered = true;
   Save.scheduleSave();
 }

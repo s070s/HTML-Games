@@ -414,7 +414,7 @@ Test.add('progress', (check) => {
   check('rooms: every Expert version adds Expert mutators', plain.length === 0 && CHALLENGE_KINDS.every((kind) => CHALLENGE_EXPERT_MUTATORS[kind].length > 0), plain.join());
   const row = CAT.challenges.byId('sprint');
   check('rooms: stars come from the data thresholds', Challenges.starsFor(row, 9999) === 0 && Challenges.starsFor(row, 10000) === 1 && Challenges.starsFor(row, 29999) === 2 && Challenges.starsFor(row, 30000) === 3);
-  const metrics = { kills: 5, seconds: 100 };
+  const metrics = { kills: 5, seconds: 100, won: 1 };
   check('rooms: points are weight x metric, underPar = seconds left of par', Progress.points(row.points, metrics, row.par) === 5 * row.points.kills + 50 * row.points.underPar
     && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 10, kills: 1 }, 0) === 0 && Progress.points({ damageTaken: -30, kills: 100 }, { damageTaken: 2, kills: 1 }, 0) === 40);
   const short = CAT.challenges.filter((room) => Challenges.starsFor(room, Progress.points(room.points, progressBestRun(room), room.par)) < CHALLENGE_STARS.length);
@@ -422,7 +422,7 @@ Test.add('progress', (check) => {
     short.map((room) => room.code + ' ' + Progress.points(room.points, progressBestRun(room), room.par)).join(', '));
   const award = () => ({ xp: 0, lines: [] });
   const fake = (expert) => ({ setup: { progress: { kind: 'challenge', id: 'sprint', expert } } });
-  const onePoints = 5 * row.points.kills, twoStars = { kills: 5, seconds: 100 };
+  const onePoints = 5 * row.points.kills, twoStars = { kills: 5, seconds: 100, won: 1 };
   check('rooms: Expert is locked at first', !Challenges.expertOpen('sprint') && !Challenges.start('sprint', true));
   const first = award();
   Challenges.onResult(fake(false), { kills: 5, seconds: row.par }, first);
@@ -529,7 +529,7 @@ Test.add('progress', (check) => {
   check('daily: the setup builds valid rules with the date seed', Rules.problems.length === 0 && setup.seed === hashString('daily:2026-10-22') && setup.mutators.length === 2);
   const lowestBots = Math.min(...CAT.quality.map((row) => row.bots));
   check('daily: a fixed bot count inside the lowest quality preset, so every device plays the same match', DAILY_RULES.bots <= lowestBots && setup.bots.length === DAILY_RULES.bots);
-  const award = () => ({ xp: 0, lines: [] });
+  const award = () => ({ xp: 0, lines: [], breakdown: { total: 1 } });   // a played match (it paid match XP)
   const fake = { setup: { progress: { kind: 'daily', key: '2026-10-22' } } };
   const first = award();
   Daily.onResult(fake, { kills: 4, score: 4 }, first);
@@ -637,7 +637,9 @@ Test.add('progress', (check) => {
   check('cards: removing refunds half', Cards.unequip('fury2') && Cards.marks() === 900 - 100 - 200 + 100);
   Cards.equip('freecards');
   const before = Cards.marks();
-  check('cards: with Patron placed, cards are placed for free and refund nothing', Cards.equip('rapid') && Cards.marks() === before && Cards.unequip('rapid') && Cards.marks() === before);
+  const half = Math.round(CAT.cards.byId('rapid').cost * CAT.cards.byId('freecards').effect.value);
+  check('cards: with Patron placed, cards cost its share and refund half of that', Cards.priceOf(CAT.cards.byId('rapid')) === half && Cards.equip('rapid') && Cards.marks() === before - half
+    && Cards.unequip('rapid') && Cards.marks() === before - half + Math.floor(half * CARD_REFUND));
   Cards.equip('hardy');
   check('cards: 2 passive slots', Cards.equipped('passive').length === 2 && Cards.equipProblem('thief') === 'No free passive slot.');
   Settings.set('progress.unlockAll', false);
@@ -646,7 +648,7 @@ Test.add('progress', (check) => {
     propsLeft: 2, secretsLeft: 1, optionalLeft: 3 };
   const meets = { stoneskin: {}, slowtide: { propsLeft: 0 }, soulkeep: { enemiesLeft: 0 }, longwick: { marks: 500 }, blessing: { bossSeconds: 119 }, refill: { explosiveShots: 0 },
     fleet: { souls: 100 }, fury2: { rangedKills: 0 }, darkpact: { secretsLeft: 0 }, rapid: { bossSeconds: 239 }, magnet: { souls: 0 }, encore: { wrathKills: 30 },
-    greed: { optionalLeft: 0 }, ironwill: { bossSeconds: 79 }, rage: { secretsLeft: 0 }, hardy: { armorPickups: 0 }, freecards: { cardsEquipped: 0 }, lastbreath: { secretsLeft: 0, hard: true },
+    greed: { optionalLeft: 0 }, ironwill: { bossSeconds: 79 }, rage: { secretsLeft: 0 }, hardy: { armorPickups: 0 }, freecards: { cardsEquipped: 0, hard: true }, lastbreath: { secretsLeft: 0, hard: true },
     discord: { wrathForms: 3 }, redeemer: { lowestHealth: 51 }, endless: { kills: 88 }, onehp: { weaponsUsed: 1 }, regenhp: { bossSeconds: 239, hard: true }, thief: { finalBossSeconds: 239 } };
   let exact = true;
   const wrong = [];
@@ -850,9 +852,9 @@ Test.add('progress', (check) => {
   Settings.set('progress.unlockAll', true);
   try {
     place(1000);
-    check('patron: removing it charges the cards it placed free', Cards.marks() === 1000 - cost('stoneskin') - cost('fleet') && Cards.isEquipped('stoneskin') && Cards.isEquipped('fleet'));
-    place(120);
-    check('patron: a card the Marks cannot pay is taken off', Cards.isEquipped('stoneskin') && !Cards.isEquipped('fleet') && Cards.marks() === 120 - cost('stoneskin'));
+    check('patron: removing it charges the rest of the price of the cards it placed cheaper', Cards.marks() === 1000 - cost('stoneskin') - cost('fleet') && Cards.isEquipped('stoneskin') && Cards.isEquipped('fleet'));
+    place(170);
+    check('patron: a card the Marks cannot pay is taken off', Cards.isEquipped('stoneskin') && !Cards.isEquipped('fleet') && Cards.marks() === 170 - cost('stoneskin') - cost('fleet') / 2, Cards.marks());
   } finally {
     Settings.set('progress.unlockAll', unlockAll);
     Object.assign(record, kept);
@@ -867,7 +869,7 @@ Test.add('progress', (check) => {
   check('operation: a map the player fought pays the stage XP', Progress.lastAward.xp >= PROGRESS_XP.operationStage, Progress.lastAward.xp);
   Operations.reset('ironcoast');
   Game.stop();
-  const pacifist = { pveFinished: 1, kills: 0, deaths: 0, hard: false, explosiveShots: 0, souls: 0, armorPickups: 0, cardsEquipped: 0, lowestHealth: 100 };
+  const pacifist = { pveFinished: 1, kills: 0, deaths: 0, hard: true, explosiveShots: 0, souls: 0, armorPickups: 0, cardsEquipped: 0, lowestHealth: 100 };
   const absence = ['refill', 'magnet', 'hardy', 'freecards', 'redeemer'], met = (metrics) => absence.filter((id) => cardConditionMet(CAT.cards.byId(id).unlock, metrics));
   check('cards: a level without a kill unlocks no absence card, one with a fight does', met(pacifist).length === 0 && met(Object.assign({}, pacifist, { kills: 3 })).length === 5, met(pacifist).join());
   progressCardMatch([], { modeOptions: {} });
@@ -905,5 +907,101 @@ Test.add('progress', (check) => {
   progressAdvance(CAT.challenges.byId('markYard').options.timeLimit);
   Sim.run(1);
   check('rooms: the range course ends as a win at its clock', !Modes.active && Progress.outcome(Game.match.results) === 'win');
+  Game.stop();
+});
+
+// ---- Trials pay only for play: rooms run and unlock no cards, one lucky hit is no perfect aim, a loss earns no par time ----
+Test.add('progress', (check) => {
+  const record = Cards.record(), keptUnlocked = Object.assign({}, record.unlocked), keptActive = record.active, keptPassive = record.passive;
+  try {
+    record.unlocked = { stoneskin: true }; record.active = [{ id: 'stoneskin', paid: 0 }]; record.passive = [];
+    check('rooms: a room runs no placed cards (a fixed trial)', CAT.challenges.every((room) => { const setup = Challenges.setup(room.id, true, 1); return Array.isArray(setup.cards) && setup.cards.length === 0; }));
+    Challenges.start('markYard', false);
+    check('rooms: the placed cards stay out of a room', Game.match.rules.cards.ids.length === 0);
+    const warden = CAT.weapons.byId('warden').index;
+    LocalPlayerStats.shots[warden] = 1; LocalPlayerStats.hits[warden] = 1;
+    progressAdvance(CAT.challenges.byId('markYard').options.timeLimit);
+    Sim.run(1);
+    const metrics = RunLog.measure(Game.match);
+    check('rooms: a won range course is no finished PvE level (no card unlocks)', metrics.pveFinished === 0 && Object.keys(record.unlocked).length === 1, Object.keys(record.unlocked).join());
+    check('rooms: one hit of one shot is not full accuracy points', metrics.accuracy <= 1 / CHALLENGE_ACCURACY_HITS + 1e-9, metrics.accuracy);
+  } finally {
+    record.unlocked = keptUnlocked; record.active = keptActive; record.passive = keptPassive;
+    Game.stop();
+  }
+  const sprint = CAT.challenges.byId('sprint');
+  check('rooms: a lost time trial earns no seconds under par', Progress.points(sprint.points, { kills: 2, seconds: 60, won: 0 }, sprint.par) === 2 * sprint.points.kills
+    && Progress.points(sprint.points, { kills: 2, seconds: 60, won: 1 }, sprint.par) === 2 * sprint.points.kills + 90 * sprint.points.underPar);
+  progressWithPlayer(() => {
+    const idle = progressTestResults({ teams: true, kills: 0, score: 0 }), fought = progressTestResults({ teams: true, kills: 2, score: 0 });
+    idle.players[1].team = fought.players[1].team = 0;
+    check('rooms: a side win the player sat out pays no win points', !Progress.creditedWin(idle) && Progress.creditedWin(fought));
+  });
+  const markYard = CAT.challenges.byId('markYard');
+  check('rooms: the range course has an Expert of its own', markYard.expert.length > 0 && markYard.expert.some((id) => !CHALLENGE_EXPERT_MUTATORS.accuracy.includes(id)));
+  const award = () => ({ xp: 0, lines: [], breakdown: { total: 0 } }), fake = { setup: { progress: { kind: 'challenge', id: 'chainYard', expert: false } } };
+  const keptRoom = Progress.profile().challenges.chainYard;
+  try {
+    delete Progress.profile().challenges.chainYard;
+    Challenges.onResult(fake, { bestStreak: 8, kills: 0 }, award());
+    const third = award();
+    Challenges.onResult(fake, { bestStreak: 12, kills: 0 }, third);
+    check('rooms: Expert is announced once, not again at 3 stars', Challenges.record('chainYard').stars === 3 && !third.lines.includes('Expert version unlocked.'), third.lines.join('; '));
+  } finally {
+    if (keptRoom) Progress.profile().challenges.chainYard = keptRoom; else delete Progress.profile().challenges.chainYard;
+  }
+  const idleDaily = award(), daily = Progress.profile().daily, dayKey = '2099-01-01';
+  Daily.onResult({ setup: { progress: { kind: 'daily', key: dayKey } } }, {}, idleDaily);
+  delete daily[dayKey];
+  check('daily: an idle first play pays no first-play XP', idleDaily.xp === 0, idleDaily.xp);
+});
+
+// ---- XP: difficulty and match length scale the pay; assists and damage count as taking part, a 0 XP match says why ----
+Test.add('progress', (check) => progressWithPlayer(() => {
+  const regular = Progress.matchXp(progressTestResults({}), 0, 'regular').total, stroll = Progress.matchXp(progressTestResults({}), 0, 'stroll').total;
+  const nightmare = Progress.matchXp(progressTestResults({}), 0, { preset: 'nightmare' }).total;
+  check('xp: an easier difficulty pays less, a harder one more', stroll < regular && nightmare > regular, stroll + ' / ' + regular + ' / ' + nightmare);
+  const short = Progress.matchXp(progressTestResults({ duration: 90 }), 0, 'regular');
+  check('xp: a short match pays only a share of the finish and win bonuses', short.finish < PROGRESS_XP.finish && short.win < PROGRESS_XP.win && short.finish > 0, JSON.stringify(short));
+  const helper = progressTestResults({ score: 0, kills: 0, objective: 0 });
+  helper.players.find((player) => player.id === Game.playerId).assists = 2;
+  check('xp: a match with assists but no kill pays XP', Progress.matchXp(helper, 0).total > 0);
+  check('xp: a 0 XP match names its reason', Progress.xpReason(progressTestResults({ score: 0, kills: 0, objective: 0 })).startsWith('No XP')
+    && Progress.xpReason(progressTestResults({ duration: 20 })).startsWith('No XP') && Progress.xpReason(progressTestResults({})) === '');
+}));
+
+// ---- Shown numbers come from the tuning: medal and card texts state their rule values ----
+Test.add('progress', (check) => {
+  const clock = (seconds) => Math.floor(seconds / 60) + ':' + String(seconds % 60).padStart(2, '0');
+  const numbersOf = (text) => (text.match(/\d+(?:[.:]\d+)?/g) || []);
+  const wrong = [];
+  for (const row of CAT.cards) {
+    const effect = row.effect, shown = [effect.value, effect.rate, Math.round(effect.value * 100)].filter((value) => value !== undefined).map(String);
+    if (numbersOf(row.text).some((number) => !shown.includes(number)) || (effect.value !== 1 && !numbersOf(row.text).length)) wrong.push(row.code);
+    const unlockShown = [String(row.unlock.value), clock(row.unlock.value)];
+    if (numbersOf(row.unlock.text).some((number) => !unlockShown.includes(number))) wrong.push(row.code + ' unlock');
+  }
+  check('cards: every number a card text shows is its effect or unlock value', wrong.length === 0, wrong.join());
+  check('medals: the medal texts state the detection rules', CAT.medals.byId('longShot').text.includes(String(MEDAL_RULES.longShotMetres))
+    && CAT.medals.byId('double').text.includes(String(MEDAL_RULES.chainSeconds)) && CAT.medals.byId('rampage').text.includes(String(MEDAL_RULES.streaks[1][0])));
+  const patron = CAT.cards.byId('freecards');
+  check('patron: a hard unlock that halves prices instead of zeroing them', patron.unlock.hard === true && patron.effect.value > 0 && patron.effect.value < 1);
+});
+
+// ---- Career screens: room star targets in the room's own terms, the first-start range offer explains the range ----
+Test.add('progress', (check) => {
+  const sprint = careerPointsText(CAT.challenges.byId('sprint')), holdout = careerPointsText(CAT.challenges.byId('holdout'));
+  check('rooms: the points rule is spelled out per room', sprint.includes('3000 per kill') && sprint.includes('2:30') && holdout.includes('22000 for a win'), sprint + ' | ' + holdout);
+  check('range offer: names the drill and how to leave', CAREER_RANGE_OFFER_TEXT.includes(String(PVE_RANGE.drillTargets)) && /pause/i.test(CAREER_RANGE_OFFER_TEXT));
+  check('ui: one colour-to-CSS rule', cssHex(0x0a0b0c) === '#0a0b0c' && cssHex(0xffb000) === '#ffb000');
+});
+
+// ---- One hit rule: splash and damage over time add damage but no hit, on the scoreboard as on the range HUD ----
+Test.add('progress', (check) => {
+  Game.start({ mode: 'ffa', map: 'spire', seed: 4, player: { name: 'You' }, bots: [{ dummy: true }] });
+  const player = Game.playerId, rival = player === 0 ? 1 : 0, rocket = CAT.weapons.byId('ramjet') || CAT.weapons[0];
+  Bus.emit('weapon.fire', { id: player, weapon: rocket.id, mode: 'primary' });
+  Bus.emit('damage', progressDamage(player, rival, 'splash', rocket.id));
+  check('accuracy: a splash hit counts no hit for the scoreboard', LocalPlayerStats.hits[rocket.index] === 0 && LocalPlayerStats.damage[rocket.index] > 0);
   Game.stop();
 });
