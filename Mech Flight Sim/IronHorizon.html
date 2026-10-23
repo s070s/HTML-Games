@@ -14872,7 +14872,7 @@ class Platform {
   /* the melee key: start a strike with the loadout's melee weapon (MELEE), chained to the last one when quick enough;
      it lands at the end of its wind-up (meleeStrike) */
   doMelee() {
-    if (this.meleeCd > 0 || this.stagger > 0) return;
+    if (this.meleeCd > 0 || this.stagger > 0 || this.chute) return;   // none under a parachute (as the touch Melee button)
     const m = this.meleeW, len = m.wind + m.swing + m.recover;
     this.meleeStep = W.time - this.meleeAt < len + MELEE_CHAIN && this.meleeStep + 1 < m.combo ? this.meleeStep + 1 : 0;
     this.meleeAt = W.time; this.meleeT = len;
@@ -14881,16 +14881,19 @@ class Platform {
     if (m.wind <= 0) this.meleeStrike();
   }
   meleeFinisher() { return this.meleeW.combo > 1 && this.meleeStep === this.meleeW.combo - 1; }
-  /* a strike lands: every platform on the ground in the cone of the weapon's reach and arc, and the structures at its tip */
+  /* a strike lands: every platform on the ground in the cone of the weapon's reach and arc and within its height band (as
+     the structure query: none from a roof onto the street), the structures at its tip, and the people, animals and
+     vehicles of the scenery there (each game its own, D6) */
   meleeStrike() {
     const m = this.meleeW, foot = this.def.style === 'infantry';
     const dmg = this.def.mech.meleeDmg * m.dmg * (foot ? 1 : m.mechScale) * (this.meleeFinisher() ? m.finisher : 1);
     const fx = Math.sin(this.torsoYaw), fz = Math.cos(this.torsoYaw), base = (foot ? MELEE_REACH.foot : MELEE_REACH.mech) * m.reach, reach = this.radius + base;
     Snd.play('melee', this.x, this.y, this.z, 1);
     const tip = this.radius + base * MELEE_TIP, hx = this.x + fx * tip, hz = this.z + fz * tip;
+    const top = this.y + this.height + reach * 0.5, bottom = this.y - 1;
     for (let i = 0; i < W.platforms.length; i++) {
       const p = W.platforms[i];
-      if (p === this || p.dead || p.kind === 'air') continue;
+      if (p === this || p.dead || p.kind === 'air' || p.y > top || p.y + p.height < bottom) continue;
       const dx = p.x - this.x, dz = p.z - this.z, dd = Math.hypot(dx, dz);
       if (dd > reach + p.radius || (dx * fx + dz * fz) / Math.max(1, dd) < m.arc) continue;
       const slice = m.slice && meleeSlices(p);
@@ -14904,7 +14907,9 @@ class Platform {
     const sr = 6 * m.reach, n = Hash.query(hx - sr, hz - sr, hx + sr, hz + sr, this.y - 1, this.y + this.height);   // only the floors within reach
     const list = Hash.out.slice(0, n);   // damageStruct may query the hash again
     for (const s of list) if (!s.destroyed && structContains(s, hx, hz, 4 * m.reach)) damageStruct(s, dmg * 1.8, 'kinetic', this, 1);
-    fxSparks(hx, this.y + this.height * 0.4, hz, 10, m.slice ? MELEE_HF_SPARK : MELEE_SPARK, 14);
+    const hy = this.y + this.height * 0.4;
+    Civ.blast(hx, hy, hz, base, dmg); Fauna.blast(hx, hy, hz, base, dmg); Traffic.blast(hx, hy, hz, base, dmg);
+    fxSparks(hx, hy, hz, 10, m.slice ? MELEE_HF_SPARK : MELEE_SPARK, 14);
     shakeFrom(hx, this.y, hz, 0.15, 60);
   }
 
@@ -16654,10 +16659,10 @@ const AIRPORT_SPAWN_STEP = 40;   // a lost aircraft's spot moves this far along 
 const AIRPORT_SPAWN_GAP = 6;     // and keeps this clear of anything standing there (m)
 /* Where a player's aircraft comes back: parked on the first free spot along the runway from its head (an aircraft or
    unit standing on the head moves it on by AIRPORT_SPAWN_STEP), or at the head when the whole runway is taken; null
-   without an airfield. */
+   without an airfield, or with one on the enemy's side of the battle (airfieldOurs). */
 function airportSpawn(radius) {
   const a = W.airports && W.airports[0];
-  if (!a) return null;
+  if (!a || !airfieldOurs(a)) return null;
   const r = (radius || 0) + AIRPORT_SPAWN_GAP;
   const sp = a.spot, rw = sp ? AIRFIELD[sp.kind].runway : null;
   const last = rw ? rw[1] - AIRFIELD_SPAWN : 0, first = rw ? rw[0] + AIRFIELD_SPAWN : 0;
@@ -16666,6 +16671,13 @@ function airportSpawn(radius) {
     if (!standingNear(p.x, p.z, r)) return { x: p.x, z: p.z, yaw: a.yaw || 0, parked: true };
   }
   return { x: a.x, z: a.z, yaw: a.yaw || 0, parked: true };
+}
+/* false when airfield a lies nearer the enemy base than ours (a skirmish layout seeds the bases round it on any bearing):
+   no lost aircraft comes back there and no friendly ones park there. Missions place theirs, so they keep it. */
+function airfieldOurs(a) {
+  const b = W.bases;
+  if (!b) return true;
+  return Math.hypot(a.x - b.own.x, a.z - b.own.z) <= Math.hypot(a.x - b.enemy.x, a.z - b.enemy.z);
 }
 /* true when a platform on the ground (not one flying over) stands within r of its edge from (x, z) */
 function standingNear(x, z, r) {
@@ -17080,8 +17092,10 @@ const SW = {
     } finally { this.dealing = false; }
     return dealt;
   },
-  /* damage every hostile platform (and, with opts.structs, every structure) within r of x,y,z, without an explosion */
+  /* damage every hostile platform (and, with opts.structs, every structure) within r of x,y,z, without an explosion; and
+     the people, animals and vehicles of the scenery there, on every game (each its own, D6) unless it spares the ground */
   area(x, y, z, r, dmg, dtype, ctx, opts) {
+    if (!opts || opts.ground !== false) { Civ.blast(x, y, z, r, dmg); Fauna.blast(x, y, z, r, dmg); Traffic.blast(x, y, z, r, dmg); }
     if (Net.guest) return;
     const falloff = !opts || opts.falloff !== false;
     for (const p of this.enemies(x, z, r, ctx, opts)) {
@@ -23817,10 +23831,11 @@ const APRON_PARK_U = 0.35;    // at this share of the apron's length either side
 const APRON_CLEAR = 12;       // ...or as near there as keeps this clear of the parked aircraft and the airliners' gates and taxi routes (m)
 const APRON_STEP = 4;         // m between the apron spots tried
 const APRON_BEACON = 5;       // radius kept free round the supply beacon (m)
-/* a skirmish's airfield: two free friendly aircraft parked on its apron, off the runway where the lost ones come back */
+/* a skirmish's airfield on our side (airfieldOurs): two free friendly aircraft parked on its apron, off the runway where
+   the lost ones come back */
 function parkApronAircraft() {
   const ap = W.airports[0];
-  if (!ap || !ap.spot) return;
+  if (!ap || !ap.spot || !airfieldOurs(ap)) return;
   const spec = AIRFIELD[ap.spot.kind], q = spec.apron, ids = PLAYABLE.filter((id) => PLATFORMS[id].kind === 'air');
   const mid = (q[0] + q[1]) / 2, half = (q[1] - q[0]) / 2, v = (q[2] + q[3]) / 2, taken = apronTaken(ap);
   for (let k = 0; k < APRON_AIRCRAFT && k < ids.length; k++) {
@@ -32270,7 +32285,7 @@ const Net = {
     const st = Game.mission.def.start, old = peer.p;
     if (old && !old.dead) W.platforms = W.platforms.filter((q) => q !== old);   // a pilot on foot redeploys
     // an on-foot mission (m14) sends a guest in as infantry with its On foot loadout when that is a soldier's
-    const foot = Game.mission.def.foot && peer.pid !== ON_FOOT.infantry, pid = foot ? ON_FOOT.infantry : peer.pid;
+    const pid = this.deployPid(peer), foot = pid !== peer.pid;
     const lo = foot ? (peer.foot === 'infantry' && peer.footLo) || PLATFORMS[pid].loadout : peer.loadout;
     const ship = Naval.deploy(PLATFORMS[pid], lo, pos || st), def = ship.def;   // a ship starts at the harbour
     if (ship.at) pos = ship.at;
@@ -32289,6 +32304,9 @@ const Net = {
     if (ship.fell) Naval.fellBack(p, PLATFORMS[pid]);
     if (ship.at) Naval.addHarbour(ship.at);
   },
+  /* the platform a guest deploys in: its hangar pick, or a soldier on an on-foot mission (m14), so a respawn site is
+     chosen for what it comes back as */
+  deployPid(peer) { return Game.mission.def.foot ? ON_FOOT.infantry : peer.pid; },
   allDown() {
     const hostDown = !W.player || (W.player.dead && W.lives <= 0);
     if (!hostDown) return false;
@@ -32348,11 +32366,11 @@ const Net = {
         }
         if (peer.p.dead) {
           peer.respawnT -= dt;
-          if (peer.respawnT <= 0 && peer.lives > 0) this.spawnFor(peer, respawnSite(PLATFORMS[peer.pid]));
+          if (peer.respawnT <= 0 && peer.lives > 0) this.spawnFor(peer, respawnSite(PLATFORMS[this.deployPid(peer)]));
         }
       } else if (p.ejectPilot && peer.lives > 0) {
         peer.respawnT -= dt;
-        if (peer.respawnT <= 0 && p.grounded && !p.chute) this.spawnFor(peer, respawnSite(PLATFORMS[peer.pid]));
+        if (peer.respawnT <= 0 && p.grounded && !p.chute) this.spawnFor(peer, respawnSite(PLATFORMS[this.deployPid(peer)]));
       } else if (peer.protectT > 0) { peer.protectT -= dt; if (peer.protectT <= 0) p.invuln = false; }
       this.applyCmd(peer);
     }
