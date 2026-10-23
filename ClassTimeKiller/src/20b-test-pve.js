@@ -611,6 +611,16 @@ Test.add('pve', (check) => {
   runUntil(() => Pve.phase[id] === ATTACK_PHASE.IDLE, 3);
   Sim.run(1);
   check('after the attack it cloaks again', (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) !== 0);
+  // R-204: a half-strength tell blends every channel of a plain part toward the tell colour, not only red
+  Actors.flags[id] &= ~ACTOR_FLAG.INVISIBLE;
+  Actors.health[id] = Actors.maxHealth[id];
+  const tellGlow = Pve.tellGlow, row = Pve.rowOf(id), half = { amount: 0.5, progress: 0.5, r: 0, g: 1, b: 0 };
+  const plain = row.parts.findIndex((part) => (PART_TINTS[part[7]] || 0) < PART_TINTS.glow), tint = PART_TINTS[row.parts[plain][7]] || 0;
+  const blended = meshRecorder();
+  Pve.tellGlow = () => half;
+  try { Pve.drawEnemy(blended, id); } finally { Pve.tellGlow = tellGlow; }
+  const part = blended.meshes[plain], expected = [0, 1, 2].map((channel) => lerp(row.colors[tint * 3 + channel], channel === 1 ? 1 : 0, 0.5));
+  check('a half tell blends red, green and blue of a plain part', [part.r, part.g, part.b].every((value, channel) => Test.near(value, expected[channel], 1e-4)), [part.r, part.g, part.b].join() + ' vs ' + expected.join());
   Game.stop();
 });
 
