@@ -10056,8 +10056,12 @@ const TRAFFIC_WAIT = 5;              // a car held this long by something that d
 const TRAFFIC_STUCK = 25;            // and by anything (s)
 const TRAFFIC_SWEEP = 1.5, TRAFFIC_SWEEP_GAP = 0.2;   // a car stops when that much further on (m, more when fast) its body would come closer to another than this (m)
 const TRAFFIC_NODE_STEP = 2;         // a car takes a junction only when its swing, tried this often (m) round its turn, is clear...
-const TRAFFIC_NODE_EVERY = 12;       // ...looked at again every this many ticks
-const TRAFFIC_SWEEP_POSES =[0, 1].map(() => ({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0, seg: 0, v: null }));   // scratch (Traffic.sweepPoses)
+const TRAFFIC_NODE_EVERY = 12;       // ...looked at again this many ticks after it was not
+const TRAFFIC_BEND_REACH = 30, TRAFFIC_BEND_STEP = 1, TRAFFIC_BEND_GAP = 0.5;   // round a bend the car giving way looks this far (m) along the other's way in steps this long, and keeps this much more clear of it than a swing needs (m)
+const TRAFFIC_BEND_PAST = 1000;   // how far round a bend a car just out of it counts (m): further than any still on it
+const TRAFFIC_YIELD_KEEP = TRAFFIC_LOOK * 2.5;   // giving way round a bend holds this long (s) after it was last said (it is said every look)
+const TRAFFIC_BEND_POSES = [0, 1].map(() => ({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0, seg: 0, v: null }));   // scratch (Traffic.bendGap)
+const TRAFFIC_SWEEP_POSES = [0, 1].map(() => ({ x: 0, y: 0, z: 0, yaw: 0, pitch: 0, seg: 0, v: null }));   // scratch (Traffic.sweepPoses)
 const TRAFFIC_LINE_A = { x1: 0, z1: 0, x2: 0, z2: 0 }, TRAFFIC_LINE_B = { x1: 0, z1: 0, x2: 0, z2: 0 };   // scratch (Traffic.apart)
 const TRAFFIC_TURN_T = 1.2;          // s a turn back takes
 const TRAFFIC_TURN_NEAR = 40;        // a fleeing car with the danger this close ahead turns back (m)
@@ -10100,7 +10104,7 @@ const Traffic = {
   /* the lane graph, the parked vehicles and the cars for the battlefield (after the civilians: the streets are their
      zones); start: the player's start, kept clear */
   populate(seed, start) {
-    const T = W.traffic = { nodes: [], lanes: [], drive: [], driveLen: 0, driveW: 0, cars: [], parked: [], near: [], movers: [], tick: 0, cycle: 0, drawn: 0, wrecked: 0, flights: [], ships: [], docks: [], flightHit: Infinity };
+    const T = W.traffic = { nodes: [], lanes: [], drive: [], driveLen: 0, driveW: 0, cars: [], parked: [], near: [], movers: [], tick: 0, time: 0, cycle: 0, drawn: 0, wrecked: 0, flights: [], ships: [], docks: [], flightHit: Infinity };
     const rng = makeRng((seed ^ 0x7ca2f1) >>> 0), keep = (W.pads || []).slice();
     if (start) keep.push(start);
     this.buildGraph(T);
@@ -10388,7 +10392,8 @@ const Traffic = {
       // co-op: its number, the same in every game for the vehicles the world starts with (0: one made since); hidden
       // until askUntil while the host answers a guest's ask for it
       vid: 0, askUntil: 0,
-      nodeT: 0, nodeHit: false,   // whether its swing round the junction ahead would hit a car, looked at again from traffic tick nodeT
+      nodeT: 0,   // its swing round the junction ahead would hit a car: looked at again from this traffic tick
+      yieldTo: null, yieldUntil: 0,   // the car it gives way to round a bend, and till when that holds unless said again (Traffic.bendGap)
     };
   },
   /* kerb cars on each town's streets, beside the lanes */
@@ -10525,7 +10530,7 @@ const Traffic = {
   update(dt) {
     const T = W.traffic;
     if (!T) return;
-    T.tick++;
+    T.tick++; T.time += dt;
     this.collectMachines(T);
     const cars = T.cars, cam = R.cam, far2 = TRAFFIC_FAR * TRAFFIC_FAR;
     for (let i = 0; i < cars.length; i++) {
@@ -10575,7 +10580,7 @@ const Traffic = {
     if (c.speed < 0.2 && c.halt <= 0) {
       c.wait += dt; c.heldT += dt;
       if (c.heldT > TRAFFIC_STUCK && (c.rider || c.duty)) { c.heldT = 0; Society.giveUp(c); }   // going somewhere, and boxed in for long
-      if (c.dest && c.wait > 1 && Math.hypot(c.x - c.dest.x, c.z - c.dest.z) < c.dest.gap + SOC_ARRIVE) { this.arrive(c); return; }
+      if (c.dest && c.wait > 1 && this.onLaneWhole(c) && Math.hypot(c.x - c.dest.x, c.z - c.dest.z) < c.dest.gap + SOC_ARRIVE) { this.arrive(c); return; }
       if (c.way && c.way[c.wayI] === L.twin && c.wait > 0.5) { this.turnBack(c); return; }   // its way goes back the other way
       if ((kind === TRAFFIC_BLOCK_THING && c.wait > TRAFFIC_WAIT) || c.wait > TRAFFIC_STUCK) this.turnBack(c);
     } else { c.wait = 0; c.heldT = 0; }
@@ -10595,7 +10600,7 @@ const Traffic = {
       L = c.lane = next; c.next = null; c.seg = 0;
       L.cars.push(c);   // it enters behind every car on its new lane
     }
-    if (c.lockNode && L.kind !== 'turn' && c.s > c.v.hl) this.unlock(c);   // its tail is off the junction
+    if (c.lockNode && L.kind !== 'turn' && L.node0 === c.lockNode && c.s > c.v.hl) this.unlock(c);   // its tail is off the junction (one asked for ahead is held till then)
     this.at(c, L, c.s);
     c.spin += mv / c.v.wheelR;
   },
@@ -10651,13 +10656,14 @@ const Traffic = {
     return m;
   },
   moving(o) { return o.state === 'drive' || o.state === 'turn'; },
-  /* the free length at the start of lane N, into the lane after it when N is an empty turn */
+  /* the free length at the start of lane N, into the lane after it when N is an empty turn; an empty lane shorter than c
+     (between two junctions) gives it room enough to get onto it, where it sees what lies past its end */
   room(N, c) {
-    const k = N.cars.length;
+    const k = N.cars.length, onto = c.v.l + TRAFFIC_GAP * 2;
     if (k) { const a = N.cars[k - 1]; if (!this.moving(a)) c.gapKind = TRAFFIC_BLOCK_THING; return a.s - a.v.hl; }
-    if (N.kind !== 'turn') return N.len;
+    if (N.kind !== 'turn') return Math.max(N.len, onto);
     const to = N.to, k2 = to.cars.length;
-    if (!k2) return N.len + to.len;
+    if (!k2) return N.len + Math.max(to.len, onto);
     const b = to.cars[k2 - 1];
     if (!this.moving(b)) c.gapKind = TRAFFIC_BLOCK_THING;
     return N.len + b.s - b.v.hl;
@@ -10670,8 +10676,8 @@ const Traffic = {
     const to = N.to, k = to.cars.length;
     if (k && to.cars[k - 1].s - to.cars[k - 1].v.hl < c.v.l + TRAFFIC_GAP) return false;
     const tick = W.traffic.tick;
-    if (tick >= c.nodeT) { c.nodeT = tick + TRAFFIC_NODE_EVERY; c.nodeHit = this.sweepsNode(c, N); }
-    if (c.nodeHit) return false;
+    if (tick < c.nodeT) return false;
+    if (this.sweepsNode(c, N)) { c.nodeT = tick + TRAFFIC_NODE_EVERY; return false; }
     n.lock = c; c.lockNode = n;
     return true;
   },
@@ -10735,7 +10741,13 @@ const Traffic = {
       for (let i = 0; i < cars.length; i++) {
         const o = cars[i];
         if (o === c || o.lane === c.lane || o.lane === c.next || (c.next && o.lane === c.next.to)) continue;
-        let d = o.lane && this.passAtBend(c, o) ? Infinity : this.vehicleIn(c, fx, fz, o, look);   // round a bend only its swing counts
+        // one behind it on the lane it turns from follows it (turning round, c faces it), and one on the turn onto c's lane
+        // comes after it (a long one turning round sticks out beside it): only c's swing minds them
+        let d = (c.lane.kind === 'turn' && o.lane === c.lane.from) || (o.lane && o.lane.kind === 'turn' && o.lane.to === c.lane) ? Infinity
+          : !o.lane ? this.vehicleIn(c, fx, fz, o, look)
+          : this.atSameBend(c, o) ? this.bendGap(c, o, fx, fz, look, far)
+          : this.holdsNext(c, o) ? this.giveWay(c, o, fx, fz, look, far, false)   // it holds the junction ahead and looks at nobody
+          : this.vehicleIn(c, fx, fz, o, look);
         if (d > 0 && this.mayReach(c, o, far)) {
           if (!F) F = this.sweepPoses(c, far);
           if (this.swingsInto(c, F, o)) d = 0;
@@ -10745,7 +10757,7 @@ const Traffic = {
       const ps = T.parked;
       for (let i = 0; i < ps.length; i++) {
         const d = this.vehicleIn(c, fx, fz, ps[i], look);
-        if (d < best) { best = d; kind = TRAFFIC_BLOCK_THING; }
+        if (d < best && this.wayHits(c, ps[i], d + c.v.hl + ps[i].v.hl)) { best = d; kind = TRAFFIC_BLOCK_THING; }
       }
     }
     if (c.lane.bridge) {   // a deck shot away: stop short of the gap (a car on it when it went is wrecked)
@@ -10762,16 +10774,95 @@ const Traffic = {
     c.lookKind = kind;
     return best;
   },
-  /* cars c and o going the two ways round the same bend (a node that is no junction), on its turns or on the lanes into
-     it: c, further round, goes first and o waits for it (a long one's swing would otherwise hold both for good) */
-  passAtBend(c, o) {
-    const n = c.lane.kind === 'turn' ? c.lane.node0 : c.lane.node1;
-    if (n.junction || (o.lane.kind === 'turn' ? o.lane.node0 : o.lane.node1) !== n) return false;
-    if ((c.lane.kind === 'turn' ? c.lane.from : c.lane) === (o.lane.kind === 'turn' ? o.lane.from : o.lane)) return false;
-    return this.bendRank(c) > this.bendRank(o);
+  /* true when cars c and o go the two ways round the same bend (a node that is no junction), on its turns, on the
+     lanes into it, or just out of it with their tails still on it */
+  atSameBend(c, o) {
+    const n = this.bendAt(c);
+    return !!n && this.bendAt(o) === n && this.bendWay(c) !== this.bendWay(o);
   },
-  /* how far round a bend a car is: along the lane into it (below 1), then along its turn (1 to 2) */
-  bendRank(c) { return (c.lane.kind === 'turn' ? 1 : 0) + c.s / (c.lane.len || 1); },
+  /* the bend car c is at (null: a junction): the one it is just out of, else the one its turn or lane leads round */
+  bendAt(c) {
+    const L = c.lane, n = this.pastBend(c) ? L.node0 : L.kind === 'turn' ? L.node0 : L.node1;
+    return n.junction ? null : n;
+  },
+  /* true when car c has just come round a bend onto its lane: its tail is less than its half length past it */
+  pastBend(c) { return c.lane.kind !== 'turn' && !c.lane.node0.junction && c.s < c.v.l; },
+  /* which way car c goes round the bend it is at: the lane it comes in on (just out of it: the lane whose turn led onto
+     its lane, else, at a dead end, the one it turned round from) */
+  bendWay(c) {
+    const L = c.lane;
+    if (this.pastBend(c)) return L.node0.ins.find((q) => q !== L.twin && q.out.some((t) => t.to === L)) || L.twin;
+    return L.kind === 'turn' ? L.from : L;
+  },
+  /* how far ahead car c sees car o round their bend: the one whose front is further round goes first (and keeps going
+     first while the other gives way to it) and only its swing counts for it
+     (lookAhead); the other stops short of the whole way the first sweeps round the bend, so that swing stays clear of it,
+     and goes on when it already stands in that way (to get out of it; its own swing still minds o). Both looking only
+     ahead, a long one's swing would hold the two till one turned back */
+  bendGap(c, o, fx, fz, look, far) {
+    if (this.yields(o, c)) return Infinity;   // o gives way to c already: c goes first, whoever is further round now
+    if (!this.yields(c, o) && this.bendFirst(c, o)) return Infinity;
+    const d = this.giveWay(c, o, fx, fz, look, far, true);
+    if (!this.inWay) { c.yieldTo = o; c.yieldUntil = W.traffic.time + TRAFFIC_YIELD_KEEP; }   // once it gives way it keeps to it (a quicker one coming level would swap them too late)
+    return d;
+  },
+  /* true when car c gives way to car o round their bend (it said so lately) */
+  yields(c, o) { return c.yieldTo === o && W.traffic.time < c.yieldUntil; },
+  /* true when car c has the right of way round their bend over car o: its front further round (on a tie, the first made) */
+  bendFirst(c, o) {
+    const a = this.bendRank(c) + c.v.hl, b = this.bendRank(o) + o.v.hl;
+    return a !== b ? a > b : c.slot < o.slot;
+  },
+  /* true when car o holds the junction car c is about to take */
+  holdsNext(c, o) {
+    const N = c.next;
+    return !!N && N.kind === 'turn' && N.node0.junction && N.node0.lock === o;
+  },
+  /* how far ahead car c sees car o when c gives way to it: 0 when c's next metres would bring it within reach of o's way
+     on round its turn (it stops short, clear of o's swing); when c already stands in that way, Infinity if it may go on
+     out of it (out), else 0 (inWay says which); else as it sees o ahead */
+  giveWay(c, o, fx, fz, look, far, out) {
+    const r = c.v.hl + o.v.hl + TRAFFIC_BEND_REACH, dx = o.x - c.x, dz = o.z - c.z;
+    this.inWay = false;
+    if (dx * dx + dz * dz > r * r) return this.vehicleIn(c, fx, fz, o, look);
+    const F = TRAFFIC_BEND_POSES[0], P = TRAFFIC_BEND_POSES[1], keep = TRAFFIC_SWEEP_GAP + TRAFFIC_BEND_GAP;
+    const len = Math.min(TRAFFIC_BEND_REACH, this.bendLeft(o) + o.v.hl);
+    this.poseAhead(c, F, far);
+    let ahead = false;
+    for (let ds = 0; ds <= len; ds += TRAFFIC_BEND_STEP) {
+      this.poseAlong(o, ds, P);
+      if (this.apart(P, c) < keep) { this.inWay = true; return out ? Infinity : 0; }   // waiting for o's junction, it goes no further in
+      if (!ahead && this.apart(P, F) < keep) ahead = true;
+    }
+    return ahead ? 0 : this.vehicleIn(c, fx, fz, o, look);
+  },
+  /* how far round a bend a car is: minus the m left to it on the lane into it, then the m along its turn, then (just out
+     of it) further than any still on it */
+  bendRank(c) { return c.lane.kind === 'turn' ? c.s : this.pastBend(c) ? TRAFFIC_BEND_PAST + c.s : c.s - c.lane.len; },
+  /* true when car c, driving up to len m on along its lanes, would touch car o (a kerb car ahead by c's heading may stand
+     clear of its lane: turning, c does not yet face along it) */
+  wayHits(c, o, len) {
+    const P = TRAFFIC_BEND_POSES[1];
+    for (let ds = 0; ds <= len; ds += TRAFFIC_BEND_STEP) {
+      this.poseAlong(c, ds, P);
+      if (this.apart(P, o) < TRAFFIC_SWEEP_GAP) return true;
+    }
+    return false;
+  },
+  /* the m car o has left to the end of its bend's turn */
+  bendLeft(o) {
+    const L = o.lane, N = L.kind === 'turn' ? null : this.turnAfter(o);
+    return L.len - o.s + (N ? N.len : 0);
+  },
+  /* the turn car o takes at the end of its lane: the one it picked, or the only one */
+  turnAfter(o) { return o.next || (o.lane.out.length === 1 ? o.lane.out[0] : null); },
+  /* pose P of car o ds m on along its way: its lane, the turn after it, the lane after that */
+  poseAlong(o, ds, P) {
+    let L = o.lane, s = o.s + ds, N = L.kind === 'turn' ? L.to : this.turnAfter(o);
+    if (s > L.len && N) { s -= L.len; L = N; N = L.kind === 'turn' ? L.to : null; if (s > L.len && N) { s -= L.len; L = N; } }
+    P.v = o.v; P.seg = 0;
+    this.at(P, L, Math.min(s, L.len));
+  },
   /* where car c stands by its next looks (both of them moving that long: TRAFFIC_SWEEP m and two looks at its speed) and
      half way there, along its lanes (scratch poses) */
   sweepPoses(c, far) {
@@ -11097,15 +11188,15 @@ const Traffic = {
 
   /* ---------- going somewhere (Society) ---------- */
   /* the drive lane and the place along it (into out: L, s) nearest (x, z) yet at least gap from it, within reach (and of
-     lane network comp, when given); false when there is none */
-  nearestLane(x, z, gap, reach, out, comp) {
+     lane network comp, when given; minLen m long or more, when given); false when there is none */
+  nearestLane(x, z, gap, reach, out, comp, minLen) {
     const T = W.traffic, g2 = gap * gap;
     let best = reach * reach;
     out.L = null;
     if (comp !== undefined) this.laneComps(T);
     for (let i = 0; i < T.drive.length; i++) {
       const L = T.drive[i], p = L.pts, bx = Math.max(L.x0 - x, 0, x - L.x1), bz = Math.max(L.z0 - z, 0, z - L.z1);
-      if ((comp !== undefined && L.comp !== comp) || bx * bx + bz * bz >= best) continue;   // its box is farther than the best so far
+      if ((comp !== undefined && L.comp !== comp) || L.len < (minLen || 0) || bx * bx + bz * bz >= best) continue;   // its box is farther than the best so far
       for (let k = 0; k < p.length; k += 3) {
         const dx = p[k] - x, dz = p[k + 2] - z, d2 = dx * dx + dz * dz;
         if (d2 < best && d2 >= g2) { best = d2; out.L = L; out.s = L.cum[k / 3]; }
@@ -11202,7 +11293,7 @@ const Traffic = {
     let way = null;
     this.laneComps(W.traffic);
     if (at) { D.L = at.L; D.s = at.s; }
-    if (A && (at ? at.L.comp === A.comp : this.nearestLane(x, z, gap, SOC_REACH, D, A.comp))) {   // the nearest lane its own lanes lead to
+    if (A && (at ? at.L.comp === A.comp : this.nearestLane(x, z, gap, SOC_REACH, D, A.comp, this.stopLen(c.v)))) {   // the nearest lane its own lanes lead to, long enough to stop on
       D.s = this.stopAt(c, D.L, D.s);   // short of the lane's end, where a car would be on the next lane
       way = this.way(A, s, D.L, D.s);
       const tw = D.L.twin, sT = tw ? this.stopAt(c, tw, tw.len - D.s) : 0, back = tw ? this.way(A, s, tw, sT) : null;   // or the lane the other way, if shorter
@@ -11217,12 +11308,17 @@ const Traffic = {
     }
     return true;
   },
-  /* where along lane L car c stops for a place at s: its front short of the lane's end */
-  stopAt(c, L, s) { return Math.min(s, Math.max(0, L.len - c.v.hl - 1)); },
+  /* where along lane L car c stops for a place at s: its body clear of both of the lane's ends (on a lane too short for
+     that, its middle) */
+  stopAt(c, L, s) { const m = c.v.hl + 1; return L.len < 2 * m ? L.len / 2 : clamp(s, m, L.len - m); },
+  /* the shortest lane a vehicle of kind v stops on whole (goTo picks no shorter one) */
+  stopLen(v) { return 2 * (v.hl + 1); },
+  /* true when car c's whole body is on its lane: none of it in a junction */
+  onLaneWhole(c) { return c.lane.kind !== 'turn' && c.s >= c.v.hl && c.s + c.v.hl <= c.lane.len; },
   /* responder c drives by its scene on any lane (as near as its stop would be, give or take SOC_BY_SCENE) */
   atScene(c) {
     const d = c.dest, dx = c.x - d.x, dz = c.z - d.z, r = d.gap + SOC_BY_SCENE;
-    return c.lane.kind !== 'turn' && dx * dx + dz * dz < r * r;   // never in a junction
+    return this.onLaneWhole(c) && dx * dx + dz * dz < r * r;   // never in a junction
   },
   /* c got where it was going: a responder stops at its scene; a civilian's car pulls in to the kerb, or lets its rider out */
   arrive(c) {
@@ -11237,9 +11333,12 @@ const Traffic = {
   pullIn(c) {
     const T = W.traffic, L = c.lane, P = TRAFFIC_AT, side = TRAFFIC_KERB - TRAFFIC_LANE, blds = L.zone ? L.zone.blds : W.buildings;
     if (L.kind === 'turn') return false;
+    const at = L.cars.indexOf(c), ahead = at > 0 ? L.cars[at - 1] : null, behind = at >= 0 ? L.cars[at + 1] : null;   // its lane's cars run front first
     for (let k = 0; k < SOC_KERB_TRIES; k++) {
       const s = c.s + ((k + 1) >> 1) * SOC_KERB_STEP * (k & 1 ? -1 : 1);
       if (s < c.v.hl + 1 || s > L.len - c.v.hl - 1) continue;
+      // the way there clear of the car before it and the one behind it on the lane
+      if (s < c.s ? behind && behind.s + behind.v.hl > s - c.v.hl - TRAFFIC_GAP : s > c.s && ahead && ahead.s - ahead.v.hl < s + c.v.hl + TRAFFIC_GAP) continue;
       P.seg = 0;
       this.at(P, L, s);
       const x = P.x - Math.cos(P.yaw) * side, z = P.z + Math.sin(P.yaw) * side;
@@ -11247,6 +11346,7 @@ const Traffic = {
       this.unlock(c);
       c.parkTo = true; c.parkX = x; c.parkZ = z; c.parkYaw = P.yaw;
       c.fromX = c.x; c.fromZ = c.z; c.fromYaw = c.yaw; c.swing = angleDiff(c.yaw, P.yaw); c.turnT = 0; c.speed = 0;
+      if (s < c.s) { c.s = s; c.seg = 0; }   // backing into it: the one behind keeps its distance from where it goes
       c.state = 'turn';
       return true;
     }
@@ -11270,6 +11370,10 @@ const Traffic = {
     if (!T || r.state !== 'park' || r.v.type !== 'road' || !this.nearestLane(r.x, r.z, 0, SOC_PULL_REACH, D)) return false;
     const L = D.L, s = clamp(D.s, r.v.hl + 0.5, L.len - r.v.hl - 0.5);
     if (L.len < 2 * r.v.hl + 1 || !this.roomAt(L, s, r.v.hl)) return false;
+    const P = TRAFFIC_AT;
+    P.seg = 0; P.v = r.v;
+    this.at(P, L, s);
+    if (this.carNear(T, P, r)) return false;   // a car there on another lane (one turning round swings over both)
     const fx = r.x, fz = r.z, fy = r.yaw;
     this.drop(T.parked, r);
     this.drive(r, L, s);
@@ -11283,11 +11387,11 @@ const Traffic = {
   /* a responder of row id from the lane nearest (fx, fz) to its scene at (tx, tz), stopping gap short of it; null when
      there is no room or no way */
   dispatch(id, fx, fz, tx, tz, gap) {
-    const T = W.traffic, D = TRAFFIC_DEST, G = TRAFFIC_GOAL;
-    if (!T || !T.drive.length || !this.nearestLane(tx, tz, gap, SOC_REACH, G)) return null;
+    const T = W.traffic, D = TRAFFIC_DEST, G = TRAFFIC_GOAL, v = VEHICLES[VEHICLE_IDS.indexOf(id)];
+    if (!T || !T.drive.length || !this.nearestLane(tx, tz, gap, SOC_REACH, G, undefined, this.stopLen(v))) return null;
     this.laneComps(T);
     if (!this.nearestLane(fx, fz, 0, SOC_REACH, D, G.L.comp)) return null;   // from a lane of the scene's lane network
-    const v = VEHICLES[VEHICLE_IDS.indexOf(id)], c = this.make(v, 0), A = D.L, s0 = D.s;
+    const c = this.make(v, 0), A = D.L, s0 = D.s;
     c.temp = true;
     // from the lane nearest the station, else the one the other way, else a lane after it: the first with room and a way
     for (let i = -2; i < A.out.length; i++) {
@@ -11368,13 +11472,18 @@ const Traffic = {
   /* a platform of civilian def appeared at (x, z): our own copy of that vehicle of the scenery goes (its driver steps
      out): the one numbered vid wherever it went, else (one made since the start) the one there */
   claim(def, x, z, vid) {
+    const r = vid ? this.byVid(vid) : this.vehicleAt(def, x, z, TRAFFIC_ASK_NEAR);
+    if (r && r.def === def) this.remove(r, true);
+  },
+  /* the vehicle of the scenery of civilian def within r m of (x, z), not a wreck (null: none) */
+  vehicleAt(def, x, z, r) {
     const T = W.traffic;
-    if (!T) return;
-    if (vid) { const r = this.byVid(vid); if (r && r.def === def) this.remove(r, true); return; }
+    if (!T) return null;
     for (const list of [T.parked, T.cars, T.ships, T.flights]) for (let i = 0; i < list.length; i++) {
-      const r = list[i];
-      if (r.def === def && r.state !== 'wreck' && Math.hypot(r.x - x, r.z - z) < 4) { this.remove(r, true); return; }
+      const o = list[i];
+      if (o.def === def && o.state !== 'wreck' && Math.hypot(o.x - x, o.z - z) < r) return o;
     }
+    return null;
   },
   /* r leaves the scenery (out: its driver steps out first) */
   remove(r, out) {
@@ -29425,7 +29534,13 @@ const SelfTest = {
         this.check('two guests asking for one car: one platform, the first drives it, the second stays on foot, the host\'s copy goes', sedans() === 1 && pa.p !== ga && pa.p.def.id === 'cv_sedan' && pb.p === gb && W.traffic.parked.indexOf(both) < 0, sedans() + ' sedans');
         Net.hostMsg(pb, { t: 'enterCiv', d: 'cv_sedan', v: 2999, x: gb.x + 2, y: gb.y, z: gb.z, yaw: 0, c: 1 });
         Net.hostMsg(pb, { t: 'enterCiv', d: 'cv_sedan', v: 2001, x: gb.x + 2, y: gb.y, z: gb.z, yaw: 0, c: 1 });
-        this.check('a car the host\'s world does not have (forged, or taken) makes no platform', pb.p === gb && sedans() === 1, sedans() + ' sedans');
+        Net.hostMsg(pb, { t: 'enterCiv', d: 'cv_sedan', v: 0, x: gb.x + 2, y: gb.y, z: gb.z, yaw: 0, c: 1 });
+        Net.hostMsg(pb, { t: 'enterCiv', d: 'cv_sedan', x: gb.x + 2, y: gb.y, z: gb.z, yaw: 0, c: 1 });
+        this.check('a car the host\'s world does not have (forged with a number, with none or 0, or taken) makes no platform', pb.p === gb && sedans() === 1, sedans() + ' sedans');
+        // one made since the start (no number) is found where the guest says
+        const since = park('sedan', gb.x + 2, gb.z, 0, 1);
+        Net.hostMsg(pb, { t: 'enterCiv', d: 'cv_sedan', v: 0, x: since.x, y: since.y, z: since.z, yaw: 0, c: 1 });
+        this.check('a car with no number the host has where the guest says: the guest drives it, the host\'s copy goes', pb.p !== gb && pb.p.def.id === 'cv_sedan' && sedans() === 2 && W.traffic.parked.indexOf(since) < 0, sedans() + ' sedans');
         // the guest's side: its tap asks the host and drops its copy; a host's sp drops the copy where the platform appears
         newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
         W.mission = null; W.pads = [];
@@ -29452,6 +29567,65 @@ const SelfTest = {
         R.draw = keep.draw;
         S.onFoot = keep.foot; Net.peers = keep.peers; Net.host = keep.host; Net.guest = keep.guest; Net.inSession = keep.inSession; Net.hostPeer = keep.hostPeer; Net.map = keep.map; Net.pendEdge = keep.pend;
         W.airports.length = 0;
+      }
+    });
+    t('road traffic: a bend, kerb cars', () => {
+      const keepQ = S.quality, keepCam = { x: R.cam.x, y: R.cam.y, z: R.cam.z }, SECONDS = 40, DT = 1 / 30, HOLD = 10, BENDS = 3, CLEAR = 120;
+      // the shortest distance between segments a0-a1 and b0-b1, and so whether two cars' bodies (capsules) overlap
+      const segDist = (ax, az, bx, bz, cx, cz, dx, dz) => {
+        const ux = bx - ax, uz = bz - az, vx = dx - cx, vz = dz - cz, wx = ax - cx, wz = az - cz;
+        const a = ux * ux + uz * uz, b = ux * vx + uz * vz, c = vx * vx + vz * vz, d = ux * wx + uz * wz, e = vx * wx + vz * wz, den = a * c - b * b;
+        let s = den > 1e-9 ? clamp((b * e - c * d) / den, 0, 1) : 0, u = c > 1e-9 ? (b * s + e) / c : 0;
+        if (u < 0) { u = 0; s = a > 1e-9 ? clamp(-d / a, 0, 1) : 0; } else if (u > 1) { u = 1; s = a > 1e-9 ? clamp((b - d) / a, 0, 1) : 0; }
+        return Math.hypot(ax + ux * s - cx - vx * u, az + uz * s - cz - vz * u);
+      };
+      const capsule = (c) => { const k = Math.max(0, c.v.hl - c.v.hw), fx = Math.sin(c.yaw) * k, fz = Math.cos(c.yaw) * k; return [c.x - fx, c.z - fz, c.x + fx, c.z + fz]; };
+      const overlap = (a, b) => { const p = capsule(a), q = capsule(b); return segDist(p[0], p[1], p[2], p[3], q[0], q[1], q[2], q[3]) < a.v.hw + b.v.hw - 0.25; };
+      // a lane's turn on round its bend (not back the way it came), and how far that turn bends
+      const turnOf = (L) => L.out.find((q) => q.to !== L.twin);
+      const bendOf = (q) => { const p = q.pts, n = p.length; return Math.abs(angleDiff(Math.atan2(p[3] - p[0], p[5] - p[2]), Math.atan2(p[n - 3] - p[n - 6], p[n - 1] - p[n - 4]))); };
+      try {
+        S.quality = 'high';
+        Game.startSession({ mode: 'skirmish', platformId: 'ranger', loadout: Loadout.forPlatform('ranger'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'coast', seed: 7, random: false, support: 'none', hazards: 'none', weather: 'clear' }) });
+        const T = W.traffic;
+        const bends = T.nodes.filter((n) => !n.junction && n.ins.length === 2 && n.ins.every((L) => L.len > 24 && turnOf(L)))
+          .sort((a, b) => bendOf(turnOf(b.ins[0])) - bendOf(turnOf(a.ins[0]))).slice(0, BENDS);
+        const rows = [VEHICLES[VEHICLE_IDS.indexOf('semi')], VEHICLES[VEHICLE_IDS.indexOf('citybus')]];
+        let worst = 0, through = 0, touched = 0;
+        const seen = [];
+        for (const n of bends) for (const swap of [0, 1]) {
+          // nobody else about: the two long ones meet at the bend from either side at once (then the other way about)
+          for (const o of T.cars.slice()) if (Math.hypot(o.x - n.x, o.z - n.z) < CLEAR) Traffic.remove(o, false);
+          for (const zn of W.civZones) for (const h of zn.civs) if (Math.hypot(h.x - n.x, h.z - n.z) < CLEAR) h.dead = true;
+          R.cam.x = n.x; R.cam.y = Terrain.h(n.x, n.z) + 30; R.cam.z = n.z;
+          const pair = n.ins.map((L, k) => { const c = Traffic.make(rows[k ^ swap], 0); c.slot = T.cars.length; Traffic.drive(c, L, L.len - 14); c.next = turnOf(L); T.cars.push(c); return { c, L, turn: c.next, wait: 0, done: false }; });
+          let hit = false;
+          for (let i = 0; i < SECONDS / DT; i++) {
+            Traffic.update(DT);
+            for (const q of pair) {
+              if (q.c.lane === q.turn.to) q.done = true;   // round the bend (past it, it drives on about the town)
+              if (!q.done) q.wait = Math.max(q.wait, q.c.wait);
+            }
+            if (overlap(pair[0].c, pair[1].c)) hit = true;
+          }
+          const passed = pair.filter((q) => q.done).length;
+          worst = Math.max(worst, ...pair.map((q) => q.wait));
+          through += passed; if (hit) touched++;
+          seen.push(Math.round(bendOf(pair[0].turn) * 180 / PI) + 'deg ' + pair[0].c.v.id + ': ' + passed + ' through, ' + pair.map((q) => q.wait.toFixed(1)).join('/') + ' s' + (hit ? ', touching' : ''));
+          for (const q of pair) if (q.c.lane) Traffic.remove(q.c, false);
+        }
+        this.check('two long vehicles meeting at a bend both get round it, neither held over ' + HOLD + ' s, never touching', bends.length === BENDS && through === BENDS * 4 && worst <= HOLD && !touched, seen.join('; '));
+        // no kerb car's body stands across the walk from a street to a door (the residents could not get in): on this
+        // battlefield and seed the rule turns spots away that would
+        const keepPath = Traffic.onDoorPath;
+        let turned = 0;
+        Traffic.onDoorPath = function (x, z, r) { const on = keepPath.call(this, x, z, r); if (on) turned++; return on; };
+        try { Traffic.populate(7, W.mission.def.start); } finally { Traffic.onDoorPath = keepPath; }
+        const barring = W.traffic.parked.filter((r) => r.v.type === 'road' && W.civZones.some((zn) => zn.doors.some((d) => { const p = capsule(r); return segDist(d.st.x, d.st.z, d.out.x, d.out.z, p[0], p[1], p[2], p[3]) < r.v.hw + CIV_RADIUS; })));
+        this.check('no kerb car stands across the walk from a street to a door (spots that would are turned away)', turned > 0 && !barring.length, turned + ' turned away, ' + barring.length + ' across');
+      } finally {
+        S.quality = keepQ; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
+        Game.quitToMenu();
       }
     });
     t('road traffic', () => {
@@ -29506,9 +29680,6 @@ const SelfTest = {
         const s1 = sig(T);
         Traffic.populate(SEED, W.mission.def.start);
         this.check('the same seed parks and places the same vehicles', sig(W.traffic) === s1);
-        // no kerb car stands across the walk from a street to a door (the residents could not get in)
-        const barring = W.traffic.parked.filter((r) => r.v.type === 'road' && W.civZones.some((zn) => zn.doors.some((d) => segDist(d.st.x, d.st.z, d.out.x, d.out.z, r.x, r.z, r.x, r.z) < r.v.hl + 1)));
-        this.check('no kerb car stands across the walk from a street to a door', !barring.length, barring.length + ' of ' + W.traffic.parked.length);
         // a minute of traffic round the largest town: every car on its lane, none overlapping
         const T2 = W.traffic, zn = W.civZones.reduce((a, b) => (b.rad > a.rad ? b : a));
         R.cam.x = zn.cx; R.cam.y = Terrain.h(zn.cx, zn.cz) + 30; R.cam.z = zn.cz;
@@ -29841,17 +30012,22 @@ const SelfTest = {
         }
         nights.sort((a, b) => a - b);
         this.check('23:00: most civilians are inside (the middle of three evenings, unpinned)', nights[1] > 0.7, nights.map((s) => Math.round(s * 100) + '%').join(' '));
-        // a resident whose door a car stands in front of still gets in (once nobody watches)
+        // a resident whose doorstep a car stands on (no way round it) still gets in, once nobody watches: after its tries
+        // at the door it is put inside
         const res = socPeople().find((c) => c.home && c.want === SOC_HOME && !c.ride && c.awayNode < 0), d = res.home.door, nd = res.zone.nodes[d.node];
         const bar = Traffic.make(VEHICLES[VEHICLE_IDS.indexOf('sedan')], 0);
-        bar.x = (d.st.x + d.out.x) / 2; bar.z = (d.st.z + d.out.z) / 2; bar.y = Terrain.h(bar.x, bar.z); bar.yaw = Math.atan2(d.out.x - d.st.x, d.out.z - d.st.z) + PI / 2;
+        bar.x = d.out.x; bar.z = d.out.z; bar.y = Terrain.h(bar.x, bar.z); bar.yaw = Math.atan2(d.out.x - d.st.x, d.out.z - d.st.z) + PI / 2;
         W.traffic.parked.push(bar);
         Civ.endChat(res);
         Object.assign(res, { state: 'walk', door: null, ride: null, x: nd.x, z: nd.z, y: Terrain.h(nd.x, nd.z), from: d.node, doorTries: 0, stuckT: 0 });
         res.path.length = 0;
-        socRun(150, DT);
+        const keepJump = Society.jump;
+        let putIn = 0;
+        Society.jump = function (c) { if (c === res && c.doorTries > SOC_DOOR_TRIES) putIn++; return keepJump.call(this, c); };   // the door's fallback (not a far town's)
+        socLook(res.zone);
+        try { socRun(150, DT); } finally { Society.jump = keepJump; }
         W.traffic.parked.splice(W.traffic.parked.indexOf(bar), 1);
-        this.check('a resident with a car in front of the door still gets in', res.state === 'inside' && !!res.door && res.door.b === d.b, res.state + ' ' + res.doorTries + ' tries');
+        this.check('a resident with a car on the doorstep still gets in (put inside after its tries at the door)', res.state === 'inside' && !!res.door && res.door.b === d.b && putIn > 0, res.state + ', put in ' + putIn + 'x');
       } finally {
         S.quality = keepQ; R.visible = keepVisible; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
         Game.quitToMenu();
@@ -29859,6 +30035,7 @@ const SelfTest = {
     });
     t('society: first responders', () => {
       const keepQ = S.quality, keepCam = { x: R.cam.x, y: R.cam.y, z: R.cam.z }, keepVisible = R.visible, keepRandom = Math.random;
+      const FAR_STATION = 150, CASUALTIES = 16, REACHED = 0.6;   // m from a hospital; scenes about the town, and the share reached (midday traffic: 69-100% seen)
       // the scene near (x, z) and when each service reached it (s; -1: not yet), until done says so
       const watch = (x, z, secs, done) => {
         const got = { fire: -1, ems: -1, police: -1, inc: null };
@@ -29903,27 +30080,39 @@ const SelfTest = {
         const medic = cas.inc && cas.inc.crew.find((h) => h.unit === 'ems');
         this.check('a casualty brings an ambulance, and its medic tends the fallen', cas.ems >= 0 && medic && medic.crouch && Math.hypot(medic.x - cx, medic.z - cz) < 4, cas.ems + ' s');
         clear();
-        // a casualty in front of a door whose nearest lane point is a lane's end (a street corner): the ambulance stops
-        // short of the end and gets there
+        // a casualty in front of a door whose nearest lane point is a lane's end (a street corner), well away from every
+        // hospital (the ambulance drives the streets to it): it stops short of the end and gets there
         const G = { L: null, s: 0 }, hosp = from(zn, 'hospital');
-        const ends = near(zn.doors.map((q) => q.st), hosp, (p) => [p.x, p.z]).filter((p) => Traffic.nearestLane(p.x, p.z, 0, SOC_REACH, G) && (G.s < 0.5 || G.s > G.L.len - 0.5));
-        Society.casualty(ends[0]);
-        const corner = watch(ends[0].x, ends[0].z, 120, (g) => g.ems >= 0);
-        this.check('a casualty where the nearest lane ends still gets its ambulance', ends.length > 0 && corner.ems >= 0, ends.length + ' such doors, ' + corner.ems + ' s');
+        const farOff = (p) => { const st = Society.stations('hospital', p.x, p.z); return !st.length || st[0].d >= FAR_STATION; };
+        const ends = [].concat(...W.civZones.map((q) => q.doors.map((d) => d.st))).filter((p) => farOff(p) && Traffic.nearestLane(p.x, p.z, 0, SOC_REACH, G) && (G.s < 0.5 || G.s > G.L.len - 0.5))
+          .sort((a, b) => Math.hypot(a.x - hosp.x, a.z - hosp.z) - Math.hypot(b.x - hosp.x, b.z - hosp.z));
+        const end = ends[0];
+        if (end) { R.cam.x = end.x; R.cam.z = end.z; Society.casualty(end); }
+        const corner = end ? watch(end.x, end.z, 120, (g) => g.ems >= 0) : { ems: -1 };
+        const hospD = end ? Math.round(Society.stations('hospital', end.x, end.z).reduce((m, s) => Math.min(m, s.d), Infinity)) : 0;
+        const amb = corner.ems >= 0 ? corner.inc.ems : null;
+        this.check('a casualty where the nearest lane ends, ' + FAR_STATION + ' m or more from every hospital, gets its ambulance, which stops clear of the junction', !!end && !!amb && Traffic.onLaneWhole(amb), ends.length + ' such doors, ' + hospD + ' m off, ' + corner.ems + ' s' + (amb ? ', at ' + amb.s.toFixed(1) + ' of ' + amb.lane.len.toFixed(1) + ' m (half ' + amb.v.hl + ')' : ''));
+        socLook(zn);
         clear();
-        // casualties about the town: most get their ambulance in time
-        let reached = 0, times = [];
-        for (let k = 0; k < 3; k++) {
+        // casualties about the town with the game's own dice: most get their ambulance in time
+        Math.random = keepRandom;
+        let reached = 0, inJunction = 0, times = [], where = '';
+        for (let k = 0; k < CASUALTIES; k++) {   // each at midday, when people are about (stops early when no one is)
+          socAt(12);
           const walkers = zn.civs.filter((c) => !c.dead && !c.duty && c.state === 'walk'), v = walkers[Math.floor(Math.random() * walkers.length)];
           if (!v) break;
           const vx = v.x, vz = v.z;
           Civ.kill(v, 0, 1, 0);
           const got = watch(vx, vz, 120, (g) => g.ems >= 0);
-          if (got.ems >= 0) reached++;
+          const a = got.ems >= 0 ? got.inc.ems : null;
+          if (a) reached++;
+          if (a && !Traffic.onLaneWhole(a)) { inJunction++; where += ' ' + a.lane.kind + ' ' + a.s.toFixed(1) + '/' + a.lane.len.toFixed(1); }
           times.push(got.ems);
           clear();
         }
-        this.check('most casualties about the town get an ambulance within 120 s', reached >= 2, times.join(' ') + ' s');
+        this.check('most casualties about the town (' + CASUALTIES + ' at midday, unpinned) get an ambulance within 120 s', times.length === CASUALTIES && reached >= CASUALTIES * REACHED, reached + ' of ' + times.length + ': ' + times.join(' ') + ' s');
+        this.check('and every ambulance there stops clear of the junctions', reached && !inJunction, inJunction + ' of ' + reached + ' with some of it in a junction' + where);
+        Math.random = makeRng(9);
         // a collapse: the police and an ambulance; the police stand a cordon round it, and run when it comes under fire
         const b = near(zn.blds.filter((q) => !q.civic && q.alive === q.total && zn.doors.some((d) => d.b === q)), from(zn, 'police'), (q) => [q.cx, q.cz])[0];
         const alive = b.alive;
@@ -30128,9 +30317,11 @@ const Net = {
     if (!Traffic.mayRide(def, m.x, m.z, h)) return;
     const there = W.platforms.find((q) => q.def === def && !q.dead && Math.hypot(q.x - m.x, q.z - m.z) < TRAFFIC_ASK_NEAR);
     if (there) { if (there.parked) Seats.enter(h, there, peer); return; }
-    const vid = numIn(m.v, 0, TRAFFIC_VID_BLOCK * 5, 0) | 0, mine = Traffic.byVid(vid);
-    if (vid && (!mine || mine.def !== def || mine.state === 'wreck')) return;   // gone from our world (taken, wrecked), or never in it
-    const p = Traffic.spawnRide(def, m.x, Terrain.h(m.x, m.z) + (def.kind === 'ground' ? numIn(m.y - Terrain.h(m.x, m.z), 0, 60, 0) : 0), m.z, numIn(m.yaw, -TAU, TAU, 0), numIn(m.c, 0, 15, 0) | 0, vid);
+    // ours: the one of that number (its copies drive their own ways), else (one made since the start) one of that kind
+    // where the guest says; none (taken, wrecked, never in our world): refused
+    const vid = numIn(m.v, 0, TRAFFIC_VID_BLOCK * 5, 0) | 0, mine = vid ? Traffic.byVid(vid) : Traffic.vehicleAt(def, m.x, m.z, TRAFFIC_ASK_NEAR);
+    if (!mine || mine.def !== def || mine.state === 'wreck') return;
+    const p = Traffic.spawnRide(def, m.x, Terrain.h(m.x, m.z) + (def.kind === 'ground' ? numIn(m.y - Terrain.h(m.x, m.z), 0, 60, 0) : 0), m.z, numIn(m.yaw, -TAU, TAU, 0), numIn(m.c, 0, 15, 0) | 0, mine.vid);
     Seats.enter(h, p, peer);
   },
   /* a loadout from a guest's message, with only known weapons, superweapon and melee weapon */
