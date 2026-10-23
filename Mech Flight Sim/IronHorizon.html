@@ -371,6 +371,35 @@ const GUN_SLOTS = ['primaryA', 'primaryB', 'secondary'];   // firing slots in fi
 const SLOT_LABEL = { primaryA: 'Primary A', primaryB: 'Primary B', secondary: 'Secondary', utility: 'Utility' };
 const SLOT_GROUP = { primaryA: 'primary', primaryB: 'primary', secondary: 'secondary', utility: 'utility' };
 
+/* ---------- melee weapons (P4.6, D8) ----------
+   The melee key strikes with the loadout's melee weapon (loadout key melee; none means fists). On foot: fists, or one
+   blade instead (knife, sword or HF katana); a civilian has fists only. Mechs: fists, sword or HF katana; vehicles and
+   aircraft have no melee. dmg scales the platform's meleeDmg, reach the base reach past its radius (MELEE_REACH), arc
+   is the cosine of the widest angle off the torso a hit lands at. A strike winds up for wind s, lands, swings on for
+   swing s and recovers for recover s; the next is ready after cd s. Pressing again within MELEE_CHAIN s of the end of
+   a strike chains the next of combo strikes, and the last of a chain hits finisher times harder (and waits
+   MELEE_FINISH_CD times longer). pose picks the keyframes (MELEE_POSES); slice: kills soldiers and light vehicles
+   outright and cuts them apart; blade: [length share, width share of the length, colour, glow] (drawMeleeWeapon). */
+const MELEE = {
+  fists: { name: 'Fists', foot: true, mech: true, dmg: 1, reach: 1, arc: 0.3, wind: 0, swing: 0.15, recover: 0.25, cd: 0.55, combo: 3, finisher: 1.6, pose: 'punch', slice: false, blade: null, desc: 'Jab, jab, hook: the third punch of a chain hits 1.6 times harder. Always at hand.' },
+  knife: { name: 'Combat Knife', foot: true, mech: false, dmg: 1.5, reach: 1.1, arc: 0.5, wind: 0.06, swing: 0.12, recover: 0.2, cd: 0.45, combo: 3, finisher: 1.5, pose: 'stab', slice: false, blade: [0.32, 0.12, [0.6, 0.62, 0.64], 0], desc: 'Quick stabs in a narrow cone; the third of a chain hits 1.5 times harder. On foot only.' },
+  sword: { name: 'Sword', foot: true, mech: true, dmg: 2.2, reach: 1.5, arc: 0, wind: 0.18, swing: 0.18, recover: 0.3, cd: 0.85, combo: 2, finisher: 1.4, pose: 'slash', slice: false, blade: [1, 0.08, [0.78, 0.8, 0.84], 0], desc: 'Slow, wide sweeps with long reach; the back-swing of a chain hits 1.4 times harder.' },
+  katana: { name: 'HF Katana', foot: true, mech: true, dmg: 2.6, reach: 1.6, arc: 0.15, wind: 0.12, swing: 0.14, recover: 0.26, cd: 0.7, combo: 3, finisher: 1.5, pose: 'slash', slice: true, blade: [1.05, 0.05, [0.55, 0.9, 1], 0.8], desc: 'A high-frequency blade: cuts soldiers and light vehicles in two at a stroke.' },
+};
+for (const k in MELEE) MELEE[k].id = k;
+const MELEE_IDS = Object.keys(MELEE);
+const MELEE_REACH = { foot: 2.2, mech: 7 };   // base reach past the radius (m); the tip of the cone sits at MELEE_TIP of it
+const MELEE_TIP = 0.4;
+const MELEE_CHAIN = 0.45;       // s after a strike ends that a press still chains the next one
+const MELEE_FINISH_CD = 1.6;    // a chain's last strike waits this much longer before the next
+const MELEE_SLICE_MASS = 1.5;   // a ground vehicle this light or lighter that can move is cut apart by a slicing blade
+const MELEE_SLICE_ARMOR = 4;    // a slicing hit carries this many points per armour point past the armour, so it always kills
+const MELEE_SPARK = [1, 0.8, 0.4], MELEE_HF_SPARK = [0.5, 0.95, 1];   // strike sparks; a high-frequency blade's are cyan
+/* true when a slicing blade cuts p apart: a soldier (or civilian) or a light ground vehicle that can move */
+function meleeSlices(p) {
+  return p.def.style === 'infantry' || p.kind === 'ground' && p.def.mass <= MELEE_SLICE_MASS && p.def.speed > 0;
+}
+
 /* ---------- platforms ----------
    kind: mech | ground | air.  Speeds are m/s at the baseline loadout.   */
 const PLATFORMS = {
@@ -1080,6 +1109,9 @@ const Loadout = {
       if (!w) { errors.push(slot + ': unknown weapon'); return; }
       if (def.allow[SLOT_GROUP[slot]].indexOf(id) < 0) errors.push(w.name + ' cannot mount on ' + def.name + ' (' + SLOT_LABEL[slot] + ')');
     });
+    const mel = lo.melee;   // none (an older loadout) means fists
+    if (mel && !MELEE[mel]) errors.push('Unknown melee weapon');
+    else if (mel && this.meleeFor(def).indexOf(mel) < 0) errors.push(def.unarmed ? 'A civilian fights with fists only' : MELEE[mel].name + ' cannot be carried by ' + def.name);
     if (lo.strategic && !SUPERS[lo.strategic]) errors.push('Unknown superweapon');
     else if (lo.strategic && def.unarmed) errors.push('A civilian carries no superweapon');
     const weight = this.weight(lo);
@@ -1092,6 +1124,18 @@ const Loadout = {
     return h;
   },
   speedMult(def, lo) { return clamp(1.04 - 0.22 * (this.weight(lo) / def.weightCap), 0.7, 1.05); },
+  /* the melee weapons def can carry: a civilian fists only, a soldier fists or a blade, a mech fists, sword or katana */
+  meleeFor(def) {
+    if (def.kind !== 'mech') return [];
+    if (def.unarmed) return ['fists'];
+    const foot = def.style === 'infantry';
+    return MELEE_IDS.filter((id) => (foot ? MELEE[id].foot : MELEE[id].mech));
+  },
+  /* the melee weapon a platform of def with loadout lo strikes with */
+  melee(def, lo) {
+    const id = lo && lo.melee;
+    return id && MELEE[id] && this.meleeFor(def).indexOf(id) >= 0 ? MELEE[id] : MELEE.fists;
+  },
   forPlatform(id) {
     const def = PLATFORMS[id];
     const saved = Save.data && Save.data.loadouts[id];
@@ -3976,6 +4020,7 @@ function bloodSpray(x, y, z, n, speed) {
 /* Gibs for src (a platform, or the plain copy a co-op guest builds): kind 'wear' sheds a few parts of a
    damaged platform, 'death' breaks it apart. Parts follow the platform's model, scaled by its size. */
 function spawnGibs(src, kind) {
+  if (kind === 'slice') { gibSlice(src); return; }
   const death = kind === 'death';
   if (src.def.style === 'infantry') { gibSoldier(src, death); return; }
   if (!death) { gibPlates(src, 2, 8 + src.radius * 2); return; }
@@ -4034,6 +4079,24 @@ function gibSoldier(src, death) {
   for (let i = 0; i < 5; i++) gibPart(src, rand(-0.3, 0.3), rand(0.6, 1.5), rand(-0.3, 0.3), rand(0.1, 0.22), rand(0.08, 0.18), rand(0.1, 0.2), i % 2 ? GIB_GORE_COL : GIB_BLOOD_COL, 'box', GIB_BLOOD, 10);
   addDecal(src.x, src.z, rand(1.1, 1.6), GIB_BLOOD_DECAL, BLOOD_DECAL_LIFE);
   Snd.play('gib', src.x, src.y, src.z, 1);
+}
+/* a slicing blade's kill (MELEE): a soldier falls apart at the waist, a vehicle splits lengthwise into two hull halves */
+function gibSlice(src) {
+  const col = src.def.col;
+  if (src.def.style === 'infantry') {
+    bloodSpray(src.x, src.y + 1, src.z, 30, 7);
+    gibPart(src, 0, 1.35, 0, 0.56, 0.75, 0.32, col.main, 'box', GIB_BLOOD, 3);   // the upper body, head on
+    gibPart(src, 0, 1.75, 0.02, 0.26, 0.28, 0.26, src.skin || GIB_SKIN_COL, 'sphere', GIB_BLOOD, 2);
+    gibPart(src, 0, 0.5, 0, 0.42, 0.9, 0.28, col.dark, 'box', GIB_BLOOD, 1);       // the legs, nearly where they stood
+    for (let i = 0; i < 4; i++) gibPart(src, rand(-0.25, 0.25), rand(0.9, 1.1), rand(-0.25, 0.25), rand(0.1, 0.2), rand(0.08, 0.16), rand(0.1, 0.18), i % 2 ? GIB_GORE_COL : GIB_BLOOD_COL, 'box', GIB_BLOOD, 6);
+    addDecal(src.x, src.z, rand(1.3, 1.8), GIB_BLOOD_DECAL, BLOOD_DECAL_LIFE);
+    Snd.play('gib', src.x, src.y, src.z, 1);
+    return;
+  }
+  const r = src.radius, h = src.height;
+  for (let side = -1; side <= 1; side += 2) gibPart(src, side * r * 0.3, h * 0.45, 0, r * 0.55, h * 0.8, r * 1.7, side > 0 ? col.main : col.dark, 'box', side > 0 ? GIB_SMOKE : 0, 4);
+  gibPlates(src, 3, 8);
+  fxSparks(src.x, src.y + h * 0.5, src.z, 16, MELEE_HF_SPARK, 18);
 }
 
 /* ---------- explosions ---------- */
@@ -8520,6 +8583,8 @@ class Platform {
     this.jamT = 0; this.cloakT = 0; this.cloakKeep = false; this.coolT = 0; this.droneT = 0; this.droneTick = 0;
     this.loadout = opts.loadout || def.loadout;
     this.buildLoadout(opts.ammoMult || 1);
+    // melee (MELEE): the weapon, the strike in a chain, when the strike began (also on co-op guests) and the wind-up left
+    this.meleeW = Loadout.melee(def, this.loadout); this.meleeStep = 0; this.meleeAt = -Infinity; this.meleeWind = 0;
     this.speedMult = this.kind === 'air' || def.playable ? Loadout.speedMult(def, this.loadout) : 1;
     if (this.kind === 'air') { this.speed = def.air.cruise * 0.9; this.throttle = 0.55; this.gear = false; }
     this.score = (this.arch && ARCH[this.arch] && ARCH[this.arch].score) || 0;
@@ -8555,6 +8620,7 @@ class Platform {
     this.stagger = Math.max(0, this.stagger - dt); this.hitFlash = Math.max(0, this.hitFlash - dt); this.recoil = Math.max(0, this.recoil - dt * 4);
     this.telegraph = Math.max(0, this.telegraph - dt); this.beingLocked = Math.max(0, this.beingLocked - dt);
     this.meleeCd = Math.max(0, this.meleeCd - dt); this.meleeT = Math.max(0, this.meleeT - dt); this.crashCd = Math.max(0, this.crashCd - dt);
+    if (this.meleeWind > 0) { this.meleeWind -= dt; if (this.meleeWind <= 0 && this.stagger <= 0) this.meleeStrike(); }   // a staggered wind-up is lost
     for (const k in this.sub) if (this.sub[k] > 0) { this.sub[k] -= dt; if (this.sub[k] <= 0) this.sub[k] = 0; }
     this.warn = '';
     const fxs = this.status;   // superweapon effects: blinded and EMP-struck platforms cannot fire; EMP also drops shields and slows
@@ -9525,25 +9591,42 @@ class Platform {
     FX.emit(this.x, this.y + 2, this.z, 0, 14, 0, 1.2, 4, 1, 1, 0.9, 0.5, 0.9, 1, 0, true);
     this.destroy(null, 'eject');
   }
+  /* the melee key: start a strike with the loadout's melee weapon (MELEE), chained to the last one when quick enough;
+     it lands at the end of its wind-up (meleeStrike) */
   doMelee() {
     if (this.meleeCd > 0 || this.stagger > 0) return;
-    this.meleeCd = 1.1; this.meleeT = 0.4;
-    const d = this.def.mech;
-    const fx = Math.sin(this.torsoYaw), fz = Math.cos(this.torsoYaw), reach = this.radius + (this.def.style === 'infantry' ? 2.2 : 7);
+    const m = this.meleeW, len = m.wind + m.swing + m.recover;
+    this.meleeStep = W.time - this.meleeAt < len + MELEE_CHAIN && this.meleeStep + 1 < m.combo ? this.meleeStep + 1 : 0;
+    this.meleeAt = W.time; this.meleeT = len;
+    this.meleeCd = m.cd * (this.meleeFinisher() ? MELEE_FINISH_CD : 1);
+    this.meleeWind = m.wind;
+    if (m.wind <= 0) this.meleeStrike();
+  }
+  meleeFinisher() { return this.meleeW.combo > 1 && this.meleeStep === this.meleeW.combo - 1; }
+  /* a strike lands: every platform on the ground in the cone of the weapon's reach and arc, and the structures at its tip */
+  meleeStrike() {
+    const m = this.meleeW, foot = this.def.style === 'infantry';
+    const dmg = this.def.mech.meleeDmg * m.dmg * (this.meleeFinisher() ? m.finisher : 1);
+    const fx = Math.sin(this.torsoYaw), fz = Math.cos(this.torsoYaw), base = (foot ? MELEE_REACH.foot : MELEE_REACH.mech) * m.reach, reach = this.radius + base;
     Snd.play('melee', this.x, this.y, this.z, 1);
-    const hx = this.x + fx * (this.radius + (this.def.style === 'infantry' ? 1 : 2.5)), hz = this.z + fz * (this.radius + (this.def.style === 'infantry' ? 1 : 2.5));
-    for (const p of W.platforms) {
+    const tip = this.radius + base * MELEE_TIP, hx = this.x + fx * tip, hz = this.z + fz * tip;
+    for (let i = 0; i < W.platforms.length; i++) {
+      const p = W.platforms[i];
       if (p === this || p.dead || p.kind === 'air') continue;
       const dx = p.x - this.x, dz = p.z - this.z, dd = Math.hypot(dx, dz);
-      if (dd > reach + p.radius || (dx * fx + dz * fz) / Math.max(1, dd) < 0.3) continue;
-      const dealt = p.takeDamage(d.meleeDmg, 'kinetic', this, fx, fz, { melee: true });
+      if (dd > reach + p.radius || (dx * fx + dz * fz) / Math.max(1, dd) < m.arc) continue;
+      const slice = m.slice && meleeSlices(p);
+      // a slicing blade carries the target's whole hull, armour and shield, so it falls in two (destroy: 'slice')
+      const amount = slice ? Math.max(dmg, p.hp + p.armor * MELEE_SLICE_ARMOR + (p.shieldOn ? p.shield : 0) + 1) : dmg;
+      const dealt = p.takeDamage(amount, slice ? 'slice' : 'kinetic', this, fx, fz, { melee: true });
       if (dealt <= 0 && p.team === this.team) continue;   // no shoving allies when friendly fire is off
+      if (p.dead) continue;
       p.stagger = Math.max(p.stagger, 0.6); p.vx += fx * 10 / p.def.mass; p.vz += fz * 10 / p.def.mass;
     }
-    const n = Hash.query(hx - 6, hz - 6, hx + 6, hz + 6, this.y - 1, this.y + this.height);   // only the floors within reach
-    const list = Hash.out.slice(0, n);
-    for (const s of list) if (!s.destroyed && structContains(s, hx, hz, 4)) damageStruct(s, d.meleeDmg * 1.8, 'kinetic', this, 1);
-    fxSparks(hx, this.y + this.height * 0.4, hz, 10, [1, 0.8, 0.4], 14);
+    const sr = 6 * m.reach, n = Hash.query(hx - sr, hz - sr, hx + sr, hz + sr, this.y - 1, this.y + this.height);   // only the floors within reach
+    const list = Hash.out.slice(0, n);   // damageStruct may query the hash again
+    for (const s of list) if (!s.destroyed && structContains(s, hx, hz, 4 * m.reach)) damageStruct(s, dmg * 1.8, 'kinetic', this, 1);
+    fxSparks(hx, this.y + this.height * 0.4, hz, 10, m.slice ? MELEE_HF_SPARK : MELEE_SPARK, 14);
     shakeFrom(hx, this.y, hz, 0.15, 60);
   }
 
@@ -9642,8 +9725,9 @@ class Platform {
     const rad = 4 + this.def.mass * 1.1 + this.height * 0.3;
     if (cause !== 'eject') {
       explode(this.x, cy, this.z, rad, 30, 'explosive', null, { exclude: this });
-      spawnGibs(this, 'death');
-      if (W.onGib) W.onGib(this, 'death');
+      const gib = cause === 'slice' ? 'slice' : 'death';   // a slicing blade cuts it in two (MELEE)
+      spawnGibs(this, gib);
+      if (W.onGib) W.onGib(this, gib);
       for (let i = 0; i < 8; i++) FX.emit(this.x, cy, this.z, rand(-8, 8), rand(2, 12), rand(-8, 8), rand(1.5, 3), 2, 5, 0.12, 0.12, 0.12, 0.7, 0.5, -1.5, false);
     }
     if (owner && cause !== 'eject') {
@@ -9816,26 +9900,33 @@ function drawMech(p, main, dark, acc, lod) {
   // cockpit
   part('box', 0, th * 0.55 + 0.7 * k, td * 0.2, tw * 0.38, 0.9 * k, td * 0.5, [0.1, 0.18, 0.24], 0.4, 0.9);
   if (!lod) {
-    // arms and primary weapons
-    const rc = p.recoil * 0.8;
+    // arms and primary weapons; a striking arm swings from the shoulder with its fist or blade (MELEE_POSES)
+    const rc = p.recoil * 0.8, strike = meleePose(p, true) ? MELEE_POSE.side : 0, armH = th * 0.85, sh = -0.2 * k + armH * 0.5;
     for (let side = -1; side <= 1; side += 2) {
       const ax = side * (tw * 0.5 + 0.9 * k);
-      part('box', ax, -0.2 * k, 0.3 * k, 1.1 * k, th * 0.85, 1.4 * k, dark, 0, 0.3);
+      if (side === strike) st.push().t(ax, sh, 0.3 * k).ry(MELEE_POSE.ry * side).rx(MELEE_POSE.rx).t(-ax, -sh, -0.3 * k);
+      part('box', ax, -0.2 * k, 0.3 * k, 1.1 * k, armH, 1.4 * k, dark, 0, 0.3);
       const slot = side > 0 ? 'primaryA' : 'primaryB', w = p.wslots[slot];
       if (w) {
         const big = w.def.weight > 10;
         barrel(ax, -0.3 * k, 0.9 * k, (big ? 0.85 : 0.5) * k, (big ? 3.8 : 2.6) * k, [0.16, 0.17, 0.19], rc);
         if (p.activeSlot === slot) part('box', ax, 0.5 * k, 0.9 * k, 0.2 * k, 0.2 * k, 0.5 * k, acc, 1, 0);
       }
+      if (side === strike) {
+        st.t(ax, sh - armH, 0.3 * k);   // the fist, at the end of the arm
+        drawMeleeWeapon(p.meleeW, 0.7 * k, 6 * k);
+        st.pop();
+      }
+    }
+    if (!strike && p.meleeW && p.meleeW.blade) {   // a blade not in use rides on the back
+      st.push().t(0, th * 0.2, -td * 0.62).rz(0.55).t(0, 3 * k, 0);
+      drawMeleeWeapon(p.meleeW, 0.7 * k, 6 * k);
+      st.pop();
     }
     // shoulder / secondary pod
     if (p.wslots.secondary) {
       part('box', 0, th * 0.55 + 1.8 * k, -td * 0.1, 1.8 * k, 1.1 * k, 1.6 * k, dark, 0, 0.3);
       for (let i = -1; i <= 1; i += 2) barrel(i * 0.45 * k, th * 0.55 + 1.9 * k, 0.4 * k, 0.5 * k, 1.5 * k, [0.2, 0.2, 0.22], 0);
-    }
-    if (p.meleeT > 0) { // melee swing
-      const f = 1 - p.meleeT / 0.4;
-      part('box', 0, 0, td * 0.5 + f * 4 * k, 2 * k, 2 * k, 3 * k, [0.6, 0.6, 0.65], 0.4, 0.5);
     }
   } else {
     part('box', 0, 0, td * 0.6, tw * 1.4, 0.6 * k, 2.5 * k, dark, 0, 0);
@@ -9844,6 +9935,43 @@ function drawMech(p, main, dark, acc, lod) {
   st.pop();
 }
 
+/* Keyframes of a melee strike: the striking arm's pitch at the shoulder from hanging (0; -PI/2 is straight ahead, -PI
+   straight up), its yaw to the outside and the bend of a soldier's elbow, held as a soldier holds it (a mech's arm
+   hangs), wound up, and at the end of the swing; it then recovers to rest. A chain alternates: punches between the
+   hands, blade strokes fore- and back-hand. */
+const MELEE_POSES = {
+  punch: { rest: [-0.35, 0, -1.3], wind: [0.45, 0.35, -2.1], strike: [-1.55, -0.12, -0.05] },
+  stab: { rest: [-0.35, 0, -1.3], wind: [0.35, 0.45, -1.7], strike: [-1.45, -0.08, -0.1] },
+  slash: { rest: [-0.35, 0, -1.3], wind: [-2.8, 0.8, -0.9], strike: [-0.6, -1.0, -0.2] },
+};
+const MELEE_MECH_REST = [0, 0, 0];
+const MELEE_POSE = { rx: 0, ry: 0, el: 0, side: 1 };   // meleePose's answer (no allocation per frame)
+const MELEE_GRIP = [0.16, 0.16, 0.17];
+/* the striking arm of p this frame into MELEE_POSE; false when p is not striking (mech: its arms hang at rest) */
+function meleePose(p, mech) {
+  if (!(p.meleeT > 0)) return false;
+  const m = p.meleeW, ps = MELEE_POSES[m.pose], e = W.time - p.meleeAt, len = m.wind + m.swing + m.recover;
+  if (!(e >= 0 && e < len)) return false;
+  const rest = mech ? MELEE_MECH_REST : ps.rest;
+  let a, b, t;
+  if (e < m.wind) { a = rest; b = ps.wind; t = smoothstep(0, 1, e / m.wind); }
+  else if (e < m.wind + m.swing) { const u = (e - m.wind) / m.swing; a = ps.wind; b = ps.strike; t = 1 - (1 - u) * (1 - u); }   // fast out of the wind-up
+  else { a = ps.strike; b = rest; t = smoothstep(0, 1, (e - m.wind - m.swing) / m.recover); }
+  const odd = p.meleeStep % 2 === 1;
+  MELEE_POSE.rx = lerp(a[0], b[0], t);
+  MELEE_POSE.ry = lerp(a[1], b[1], t) * (m.pose === 'slash' && odd ? -1 : 1);
+  MELEE_POSE.el = lerp(a[2], b[2], t);
+  MELEE_POSE.side = m.pose === 'punch' && odd ? -1 : 1;
+  return true;
+}
+/* melee weapon m held in a fist of size fist at the stack's origin, its blade (len m long at a model of 1) along -y */
+function drawMeleeWeapon(m, fist, len) {
+  part('box', 0, 0, 0, fist, fist, fist, MELEE_GRIP, 0, 0.2);
+  if (!m.blade) return;
+  const bl = m.blade, L = len * bl[0], w = L * bl[1];
+  part('box', 0, -fist * 0.6, 0, fist * (bl[0] > 0.5 ? 1.7 : 1.1), fist * 0.22, fist * 0.55, MELEE_GRIP, 0, 0.3);   // guard
+  part('box', 0, -fist * 0.7 - L * 0.5, 0, w, L, w * 0.3, bl[2], bl[3], 0.9);
+}
 const CIV_PLAYER_HAIR = [0.2, 0.14, 0.1];
 const CHUTE_COL = [0.86, 0.84, 0.74], CHUTE_LINE = [0.25, 0.25, 0.25];
 const CHUTE_RISE = 5.5, CHUTE_R = 3.2;   // canopy height over the feet and its radius (m)
@@ -9876,25 +10004,49 @@ function drawInfantry(p, main, dark, acc, lod) {
   part('box', 0, 1.2 - crouch * 0.3, 0, 0.56, 0.66, 0.32, main, 0, 0.1);
   part('box', 0, 1.38 - crouch * 0.3, 0.17, 0.42, 0.1, 0.03, acc, 0.9, 0);
   part('sphere', 0, 1.72 - crouch * 0.3, 0.02, 0.26, 0.28, 0.26, skin, 0, 0);
+  const cy = crouch * 0.3, striking = !lod && meleePose(p, false);
+  if (striking) drawSoldierStrike(p, main, cy);   // the gun slung, one arm strikes and the other guards (MELEE_POSES)
   if (p.def.unarmed) {   // a civilian: hair instead of a helmet, no pack, empty hands swinging with the stride
-    part('sphere', 0, 1.8 - crouch * 0.3, -0.03, 0.28, 0.16, 0.28, CIV_PLAYER_HAIR, 0, 0.1);
-    if (!lod) for (let side = -1; side <= 1; side += 2) {
-      st.push().t(side * 0.36, 1.46 - crouch * 0.3, 0).rx(-swing * side * 0.8);
+    part('sphere', 0, 1.8 - cy, -0.03, 0.28, 0.16, 0.28, CIV_PLAYER_HAIR, 0, 0.1);
+    if (!lod && !striking) for (let side = -1; side <= 1; side += 2) {
+      st.push().t(side * 0.36, 1.46 - cy, 0).rx(-swing * side * 0.8);
       part('box', 0, -0.3, 0, 0.12, 0.62, 0.14, main, 0, 0);
       st.pop();
     }
     st.pop();
     return;
   }
-  part('box', 0, 1.15 - crouch * 0.3, -0.24, 0.4, 0.5, 0.2, dark, 0, 0.1);
-  part('sphere', 0, 1.78 - crouch * 0.3, 0, 0.34, 0.24, 0.34, dark, 0, 0.2);
+  part('box', 0, 1.15 - cy, -0.24, 0.4, 0.5, 0.2, dark, 0, 0.1);
+  part('sphere', 0, 1.78 - cy, 0, 0.34, 0.24, 0.34, dark, 0, 0.2);
   if (!lod) {
-    part('box', 0.3, 1.3 - crouch * 0.3, 0.3, 0.12, 0.12, 0.55, main, 0, 0);
-    part('box', -0.22, 1.3 - crouch * 0.3, 0.3, 0.12, 0.12, 0.5, main, 0, 0);
-    const w = p.primary;
-    if (w) barrel(0.12, 1.3 - crouch * 0.3, 0.35, 0.07, w.def.id === 'sniper' ? 1.5 : 0.9, [0.14, 0.15, 0.17], p.recoil * 0.2);
-    if (p.wslots.secondary) part('box', -0.32, 1.62 - crouch * 0.3, 0.0, 0.16, 0.16, 0.8, [0.26, 0.3, 0.2], 0, 0.1);
+    if (!striking) {
+      part('box', 0.3, 1.3 - cy, 0.3, 0.12, 0.12, 0.55, main, 0, 0);
+      part('box', -0.22, 1.3 - cy, 0.3, 0.12, 0.12, 0.5, main, 0, 0);
+      const w = p.primary;
+      if (w) barrel(0.12, 1.3 - cy, 0.35, 0.07, w.def.id === 'sniper' ? 1.5 : 0.9, [0.14, 0.15, 0.17], p.recoil * 0.2);
+    }
+    if (p.wslots.secondary) part('box', -0.32, 1.62 - cy, 0.0, 0.16, 0.16, 0.8, [0.26, 0.3, 0.2], 0, 0.1);
+    const m = p.meleeW;
+    if (m && m.blade && !striking) {   // a knife rides on the belt, a long blade across the back
+      if (m.blade[0] < 0.5) st.push().t(0.24, 1.02 - cy, 0.08);
+      else st.push().t(-0.2, 1.62 - cy, -0.3).rz(0.62);
+      drawMeleeWeapon(m, 0.08, MELEE_FOOT_LEN);
+      st.pop();
+    }
   }
+  st.pop();
+}
+const MELEE_FOOT_LEN = 0.95;   // a soldier's sword (m); the other blades follow their model's length share
+/* a soldier's arms during a melee strike (MELEE_POSE): the striking one from its shoulder with its fist or blade */
+function drawSoldierStrike(p, main, cy) {
+  const st = R.stack, s = MELEE_POSE.side;
+  part('box', -s * 0.24, 1.32 - cy, 0.2, 0.12, 0.12, 0.42, main, 0, 0);   // the guarding forearm
+  st.push().t(s * 0.3, 1.46 - cy, 0).ry(MELEE_POSE.ry * s).rx(MELEE_POSE.rx);
+  part('box', 0, -0.16, 0, 0.12, 0.34, 0.14, main, 0, 0);   // upper arm, then the forearm from the elbow
+  st.t(0, -0.32, 0).rx(MELEE_POSE.el);
+  part('box', 0, -0.15, 0, 0.11, 0.32, 0.13, main, 0, 0);
+  st.t(0, -0.34, 0);
+  drawMeleeWeapon(p.meleeW, 0.12, MELEE_FOOT_LEN);
   st.pop();
 }
 /* a civilian: everyday clothes and hair, arms swinging (pumping when running); a cowering one crouches with hands up */
@@ -19034,6 +19186,9 @@ const UI = {
       const w = lo[s] && WEAPONS[lo[s]];
       return '<label class="f"><span>' + SLOT_LABEL[s] + '</span><select data-slot="' + s + '">' + options + '</select></label>' + (w ? '<div class="dim" style="font-size:.85em;margin:-.2em 0 .3em">' + esc(w.role) + '</div>' : '');
     }).join('');
+    const meleeIds = Loadout.meleeFor(def), mw = Loadout.melee(def, lo);   // fists are stored as no melee key
+    const melee = meleeIds.length < 2 ? '' : '<label class="f"><span>Melee</span><select data-slot="melee">' + meleeIds.map((id) => '<option value="' + (id === 'fists' ? '' : id) + '"' + (mw.id === id ? ' selected' : '') + '>' + esc(MELEE[id].name) + '</option>').join('') + '</select></label>' +
+      '<div class="dim" style="font-size:.85em;margin:-.2em 0 .3em">' + esc(mw.desc) + '</div>';
     const sd = lo.strategic && SUPERS[lo.strategic], open = Arsenal.unlockedList();
     const tierOpts = [1, 2, 3].map((t) => {
       const l = open.filter((x) => x.tier === t);
@@ -19047,7 +19202,7 @@ const UI = {
       '<div class="good">+ ' + esc(def.pros) + '</div><div class="bad">- ' + esc(def.cons) + '</div>' +
       nb('Hull', def.hp, 1000, def.hp) + nb('Armor', def.armor, 450, def.armor) + nb('Speed', def.kind === 'air' ? def.air.max : def.speed, spdMax, Math.round((def.kind === 'air' ? def.air.max : def.speed) * 3.6) + ' km/h') +
       nb('Energy', def.energy, 250, def.energy) + nb('Heat capacity', def.heatCap, 180, def.heatCap) + nb('Weight capacity', def.weightCap, 65, def.weightCap) + '</div>' +
-      '<div class="panel"><h3 style="margin-top:0">Loadout</h3>' + slots + strategic +
+      '<div class="panel"><h3 style="margin-top:0">Loadout</h3>' + slots + melee + strategic +
       '<div class="lbl"><span>Weight</span><span class="' + (v.weight > def.weightCap ? 'bad' : 'good') + '">' + v.weight + ' / ' + def.weightCap + '</span></div><div class="bar"><i style="width:' + clamp(v.weight / def.weightCap * 100, 2, 100) + '%;background:' + (v.weight > def.weightCap ? '#ff5a4d' : '') + '"></i></div>' +
       '<div class="dim">Mobility with this load: ' + Math.round(spd * 100) + '%. Heat load ' + heat.toFixed(0) + ' per second vs cooling ' + def.cooling + '. ' + (heat > def.cooling * 4 ? '<span class="warn">Sustained fire will overheat.</span>' : '') + '</div>' +
       (v.ok ? '<div class="good">Loadout valid</div>' : v.errors.map((e) => '<div class="bad">' + esc(e) + '</div>').join('')) +
@@ -19060,7 +19215,16 @@ const UI = {
       return '<div class="lbl"><span><b>' + d.n + '. ' + esc(d.name) + '</b> <span class="tag">' + esc(SUPER_AIM_LABEL[d.aim]) + '</span></span>' + prog + '</div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(d.desc) + '</div>';
     }).join('')).join('');
     return '<h2>Arsenal</h2><div class="panel">' + Arsenal.unlockedList().length + ' of ' + SUPER_LIST.length + ' superweapons unlocked. Give each platform one in Platform &amp; Loadout. It charges during battle (faster with kills) and fires with ' + esc(actionLabel('superweapon')) + '. Unlocks are permanent; progress counts every battle you finish, and some feats must happen within one battle.</div>' +
-      '<div class="panel">' + rows + '</div><div class="row"><button class="btn" data-act="back" data-focus>Back</button></div>';
+      '<div class="panel">' + rows + '</div>' + this.meleeArsenal() + '<div class="row"><button class="btn" data-act="back" data-focus>Back</button></div>';
+  },
+  /* the melee weapons (MELEE): who carries them and how they strike */
+  meleeArsenal() {
+    const rows = MELEE_IDS.map((id) => {
+      const m = MELEE[id], who = m.foot && m.mech ? 'On foot and mechs' : m.foot ? 'On foot' : 'Mechs';
+      const stats = 'damage x' + m.dmg + ', reach x' + m.reach + ', ' + Math.round(2 * Math.acos(m.arc) / DEG) + '&deg; arc, ' + m.combo + '-strike chain, ' + (m.wind + m.swing + m.recover).toFixed(2) + ' s a strike';
+      return '<div class="lbl"><span><b>' + esc(m.name) + '</b> <span class="tag">' + who + '</span></span><span class="dim">' + stats + '</span></div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(m.desc) + '</div>';
+    }).join('');
+    return '<div class="panel"><h3 style="margin-top:0">Melee weapons</h3><div class="dim" style="margin-bottom:.4em">Always available; pick one in Platform &amp; Loadout. ' + esc(actionLabel('melee')) + ' strikes, and pressing again as a strike ends chains the next. A civilian has fists only; vehicles and aircraft have no melee.</div>' + rows + '</div>';
   },
   scr_controls() {
     const b = Save.data.bindings;
@@ -21568,7 +21732,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 6 (enter and exit)', NET_VERSION === 6);
+      this.check('the net version is 7 (melee weapons)', NET_VERSION === 7);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave };
@@ -22763,6 +22927,95 @@ const SelfTest = {
       for (let k = 0; k < 900 && !p.dead && p.y - Terrain.h(p.x, p.z) < 30; k++) { const was = p.grounded; p.update(STEP); if (was && !p.grounded && !liftAt) liftAt = { x: p.x, z: p.z }; }
       this.check('it takes off from the runway', !p.dead && !!liftAt && onRunway(liftAt.x, liftAt.z, 0, 0) && p.y - Terrain.h(p.x, p.z) >= 30, JSON.stringify(liftAt));
     });
+    t('melee weapons', () => {
+      // the loadout slot: who may carry what; older loadouts (no melee key) fight with fists
+      const civ = PLATFORMS.civilian, lo = (id, melee) => Object.assign({}, PLATFORMS[id].loadout, { melee });
+      this.check('a civilian has fists only', Loadout.meleeFor(civ).join() === 'fists' && !Loadout.validate(civ, { melee: 'knife' }).ok && Loadout.melee(civ, { melee: 'katana' }) === MELEE.fists && !('melee' in Loadout.forPlatform('civilian')));
+      this.check('on foot: fists or one blade; mechs: fists, sword or katana; vehicles and aircraft: none', Loadout.meleeFor(PLATFORMS.ranger).join() === 'fists,knife,sword,katana' && Loadout.meleeFor(PLATFORMS.bulwark).join() === 'fists,sword,katana' && !Loadout.meleeFor(PLATFORMS.jackal).length && !Loadout.meleeFor(PLATFORMS.kestrel).length &&
+        Loadout.validate(PLATFORMS.ranger, lo('ranger', 'knife')).ok && Loadout.validate(PLATFORMS.bulwark, lo('bulwark', 'katana')).ok && !Loadout.validate(PLATFORMS.bulwark, lo('bulwark', 'knife')).ok && !Loadout.validate(PLATFORMS.jackal, lo('jackal', 'sword')).ok && !Loadout.validate(PLATFORMS.bulwark, lo('bulwark', 'axe')).ok);
+      this.check('the old loadouts still validate and fight with fists', PLAYABLE.every((id) => Loadout.validate(PLATFORMS[id], PLATFORMS[id].loadout).ok && Loadout.melee(PLATFORMS[id], PLATFORMS[id].loadout) === MELEE.fists));
+      const saved = Save.sanitize({ v: SAVE_VERSION, loadouts: { bulwark: lo('bulwark', 'katana'), wraith: lo('wraith', 'knife') } });
+      this.check('a save keeps a valid melee pick and drops a loadout with one the platform cannot carry', saved.loadouts.bulwark && saved.loadouts.bulwark.melee === 'katana' && !saved.loadouts.wraith);
+      // every weapon hits a dummy inside its reach and arc and misses it outside them, landing at the end of its wind-up
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const sp = findSpawn(0, 0, 300, 40, 0) || { x: 0, z: 0 };
+      const dummy = new Platform(PLATFORMS.dummy, { team: 1, x: sp.x, z: sp.z, yaw: 0 });
+      W.platforms.push(dummy);
+      const step = (p, n) => { for (let i = 0; i < n; i++) { W.time += STEP; p.update(STEP); } };
+      const bad = [];
+      for (const [aid, ids] of [['ranger', ['fists', 'knife', 'sword', 'katana']], ['bulwark', ['fists', 'sword', 'katana']]]) {
+        for (const id of ids) {
+          const m = MELEE[id], me = new Platform(PLATFORMS[aid], { team: 0, x: sp.x, z: sp.z, yaw: 0, loadout: lo(aid, id) });
+          W.platforms.push(me);
+          const reach = me.radius + MELEE_REACH[aid === 'ranger' ? 'foot' : 'mech'] * m.reach, edge = Math.acos(m.arc);
+          const strike = (dist, ang) => {
+            me.x = sp.x; me.z = sp.z; me.y = Terrain.h(me.x, me.z); me.yaw = me.torsoYaw = 0; me.meleeCd = 0; me.stagger = 0; me.meleeAt = -Infinity; me.vx = me.vz = 0;
+            dummy.x = sp.x + Math.sin(ang) * dist; dummy.z = sp.z + Math.cos(ang) * dist; dummy.y = Terrain.h(dummy.x, dummy.z); dummy.hp = dummy.maxHp; dummy.vx = dummy.vz = 0;
+            me.doMelee();
+            const early = dummy.hp < dummy.maxHp;
+            step(me, Math.ceil(m.wind / STEP) + 2);
+            return { early, hit: dummy.hp < dummy.maxHp };
+          };
+          const near = reach + dummy.radius - 0.4;   // never touching: reach is more than the radius
+          const inside = strike(near, 0), far = strike(reach + dummy.radius + 0.6, 0);
+          const inArc = strike(near, edge - 0.12), outArc = strike(near, Math.min(PI, edge + 0.3));
+          if (!inside.hit || far.hit || !inArc.hit || outArc.hit || inside.early !== (m.wind <= 0)) bad.push(aid + ' ' + id + ' ' + JSON.stringify([inside, far, inArc, outArc]));
+          W.platforms.splice(W.platforms.indexOf(me), 1);
+        }
+      }
+      this.check('each melee weapon hits a dummy inside its reach and arc, at the end of its wind-up, and misses outside them', bad.length === 0, bad.join('; '));
+      // a chain: three quick punches, the last 1.6 times harder; then a new chain
+      const boxer = new Platform(PLATFORMS.ranger, { team: 0, x: sp.x, z: sp.z, yaw: 0, loadout: lo('ranger', null) });
+      W.platforms.push(boxer);
+      dummy.x = sp.x; dummy.z = sp.z + boxer.radius + dummy.radius + 1;
+      const hits = [];
+      for (let k = 0; k < 4; k++) {
+        const hp0 = dummy.hp = dummy.maxHp;
+        boxer.stagger = 0; boxer.doMelee(); hits.push(Math.round(hp0 - dummy.hp));
+        step(boxer, Math.ceil(boxer.meleeCd / STEP) + 1);
+      }
+      this.check('a chain of punches lands its third 1.6 times harder, then starts again', hits[0] > 0 && hits[1] === hits[0] && Math.abs(hits[2] - hits[0] * MELEE.fists.finisher) <= 1 && hits[3] === hits[0], hits.join(','));
+      // the HF katana cuts soldiers and light vehicles in two; a sword does not, and a tank is too heavy
+      const gibs = [], keepGib = W.onGib;
+      W.onGib = (p, kind) => gibs.push(p.def.id + ':' + kind);
+      W.platforms.length = 0;   // only the two of each cut below
+      try {
+        const cut = (aid, melee, vid) => {
+          const me = new Platform(PLATFORMS[aid], { team: 0, x: sp.x, z: sp.z, yaw: 0, loadout: lo(aid, melee) });
+          const v = new Platform(PLATFORMS[vid], { team: 1, x: sp.x, z: sp.z + me.radius + PLATFORMS[vid].radius + 0.8, yaw: 0, loadout: PLATFORMS[vid].loadout || {} });
+          W.platforms.push(me, v);
+          me.torsoYaw = 0; me.doMelee(); step(me, Math.ceil(MELEE[melee].wind / STEP) + 2);
+          W.platforms.length = 0;
+          return v.dead;
+        };
+        const soldier = cut('ranger', 'katana', 'ranger'), car = cut('bulwark', 'katana', 'jackal'), hover = cut('ranger', 'katana', 'specter');
+        const swordCar = cut('bulwark', 'sword', 'jackal'), tank = cut('bulwark', 'katana', 'bastion');
+        const cuts = gibs.filter((g) => g.endsWith(':slice')).join();
+        this.check('the HF katana cuts a soldier and light vehicles in two at a stroke', soldier && car && hover && cuts === 'ranger:slice,jackal:slice,specter:slice', gibs.join());
+        this.check('a sword does not cut a light vehicle in two, nor a katana a tank', !swordCar && !tank && gibs.length === 3 + gibs.filter((g) => g.endsWith(':wear')).length, gibs.join());
+      } finally { W.onGib = keepGib; }
+      // co-op: guests draw the cut pieces, and know a platform's melee weapon from its loadout
+      const made = () => W.debris.length + W.debrisHead, before = made(), keepMap = Net.map;
+      Net.map = {};
+      try {
+        Net.applyGib({ t: 'g', p: 'jackal', tm: 1, k: 2, x: sp.x, y: Terrain.h(sp.x, sp.z), z: sp.z, vx: 0, vy: 0, vz: 0, yw: 0 });
+        Net.applySpawn({ t: 'sp', id: 99001, d: 'bulwark', team: 0, name: 'Ally', arch: '', lo: lo('bulwark', 'katana'), x: sp.x, y: Terrain.h(sp.x, sp.z), z: sp.z, yaw: 0, self: 0, pl: 1, sc: 1, driver: 1 });
+        const g = Net.map[99001];
+        this.check('a guest builds the sliced halves and a platform\'s melee weapon', made() > before && !!g && g.meleeW === MELEE.katana);
+      } finally { Net.map = keepMap; W.platforms.length = 0; }
+      // the keyframes: rest, wound up at the end of the wind-up, the swing's end, then back at rest
+      const kat = MELEE.katana, sw = boxer;
+      sw.meleeW = kat; sw.meleeStep = 0; sw.meleeT = 1;
+      const at = (e) => { sw.meleeAt = W.time - e; return meleePose(sw, false) ? [MELEE_POSE.rx, MELEE_POSE.ry] : null; };
+      const near = (a, b) => a && Math.abs(a[0] - b[0]) < 0.02 && Math.abs(a[1] - b[1]) < 0.02;
+      const P = MELEE_POSES.slash, len = kat.wind + kat.swing + kat.recover;
+      const keys = near(at(0), P.rest) && near(at(kat.wind), P.wind) && near(at(kat.wind + kat.swing - 1e-6), P.strike) && at(len + 0.01) === null;
+      sw.meleeStep = 1;
+      const back = at(kat.wind);
+      this.check('a strike runs rest, wind-up, swing and recovery, and the next of a chain swings back-hand', keys && !!back && Math.abs(back[1] + P.wind[1]) < 0.02);
+      sw.meleeT = 0;
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -22790,7 +23043,7 @@ UI.scr_selftest = function (r) {
    Message transport is a per-peer tx() function, so tests can loop back.
    ===================================================================== */
 const SNAP_PLATS = 44;    // platforms per snapshot (message size)
-const NET_VERSION = 6;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits)
+const NET_VERSION = 7;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -22929,6 +23182,7 @@ const Net = {
           const lo = {};
           WEAPON_SLOTS.forEach((s) => { lo[s] = typeof m.lo[s] === 'string' && WEAPONS[m.lo[s]] ? m.lo[s] : null; });
           lo.strategic = typeof m.lo.strategic === 'string' && SUPERS[m.lo.strategic] ? m.lo.strategic : null;   // unlocks are the guest's own
+          if (typeof m.lo.melee === 'string' && MELEE[m.lo.melee]) lo.melee = m.lo.melee;   // the platform keeps it only where it may carry it
           peer.loadout = lo;
         }
         peer.ready = !!m.ready;
@@ -23041,7 +23295,7 @@ const Net = {
   sessionBegin() {
     this.dirty.clear();
     W.onExplosion = (x, y, z, r) => this.bcast({ t: 'x', x: r1(x), y: r1(y), z: r1(z), r: r1(r) });
-    W.onGib = (p, kind) => this.bcast({ t: 'g', p: p.def.id, tm: p.team, k: kind === 'death' ? 1 : 0, x: r1(p.x), y: r1(p.y), z: r1(p.z), vx: r1(p.vx), vy: r1(p.vy), vz: r1(p.vz), yw: r2(p.yaw) });
+    W.onGib = (p, kind) => this.bcast({ t: 'g', p: p.def.id, tm: p.team, k: kind === 'slice' ? 2 : kind === 'death' ? 1 : 0, x: r1(p.x), y: r1(p.y), z: r1(p.z), vx: r1(p.vx), vy: r1(p.vy), vz: r1(p.vz), yw: r2(p.yaw) });
     if (W.player) W.player.isPlayer = true;
     let slot = 0;
     for (const peer of this.peers) { if (peer.hello && peer.open) { peer.slot = ++slot; this.spawnFor(peer); } }
@@ -23245,6 +23499,7 @@ const Net = {
     const lo = {};
     WEAPON_SLOTS.forEach((s) => { lo[s] = m.lo && typeof m.lo[s] === 'string' && WEAPONS[m.lo[s]] ? m.lo[s] : null; });
     if (m.lo && typeof m.lo.strategic === 'string' && SUPERS[m.lo.strategic]) lo.strategic = m.lo.strategic;
+    if (m.lo && typeof m.lo.melee === 'string' && MELEE[m.lo.melee]) lo.melee = m.lo.melee;   // its strikes are drawn with it
     const p = new Platform(def, { team: numIn(m.team, 0, 2), x: m.x, z: m.z, yaw: m.yaw, y: m.y, loadout: lo, name: String(m.name).substring(0, 16), arch: m.arch || null });
     p.id = m.id; p.isPlayer = !!m.pl; p.y = m.y; p.nx = m.x; p.ny = m.y; p.nz = m.z; p.nyaw = m.yaw; p.npitch = 0; p.nroll = 0; p.nty = m.yaw; p.ntp = 0;
     p.netInit = true; p.seen = this.t; p.speedMult = 1; p.parked = m.driver === 0;
@@ -23296,7 +23551,7 @@ const Net = {
       def, team: m.tm === 0 || m.tm === 1 ? m.tm : 2, kind: def.kind, model: def.model, radius: def.radius, height: def.height,
       x: numIn(m.x, -3000, 3000), y: numIn(m.y, -500, 3000), z: numIn(m.z, -3000, 3000),
       vx: numIn(m.vx, -400, 400), vy: numIn(m.vy, -400, 400), vz: numIn(m.vz, -400, 400), yaw: numIn(m.yw, -100, 100),
-    }, m.k === 1 ? 'death' : 'wear');
+    }, m.k === 2 ? 'slice' : m.k === 1 ? 'death' : 'wear');
   },
   applySnapshot(m) {
     if (!W || !Array.isArray(m.p) || m.q <= this.lastSnapSeq) return;
@@ -23310,6 +23565,7 @@ const Net = {
       p.hp = frac * p.maxHp; p.speed = e[10]; p.seen = this.t;
       const f = e[11] | 0;
       p.shieldOn = !!(f & 1); p.jetting = !!(f & 2); p.afterburner = !!(f & 4); p.gear = !!(f & 8); p.crouch = !!(f & 16); p.boosting = !!(f & 32);
+      if ((f & 256) && !(p.meleeT > 0)) p.meleeAt = W.time;   // a strike begins: its keyframes run from here (meleePose)
       p.telegraph = (f & 64) ? 0.3 : 0; p.grounded = !!(f & 128); p.meleeT = (f & 256) ? 0.2 : 0; p.activeSlot = (f & 512) ? 'primaryB' : 'primaryA';
       p.parked = !!(f & 1024); p.chute = !!(f & 2048);
       if (p.shieldOn && p.maxShield > 0) p.shield = p.maxShield * 0.6;
