@@ -1,4 +1,4 @@
-// Runs ClassTimeKiller's built-in self-test in headless Chrome (software WebGL), no dependencies (Chrome startup: tools/cdp.mjs).
+// Runs ClassTimeKiller's self-test (the test build, ClassTimeKiller.test.html, D09) in headless Chrome (software WebGL), no dependencies (Chrome startup: tools/cdp.mjs).
 // Usage: node tools/selftest.mjs [--file <html>] [--group <name>] [--slow] [--eval "<js, may be async>"] [--screenshot <png>] [--timeout 240] [--no-selftest]
 // Prints failed checks, page errors and the eval result. Exit code: 0 pass, 1 fail, 2 timeout, 3 runner error.
 import { writeFileSync } from 'node:fs';
@@ -9,7 +9,7 @@ import { openChrome, sleep } from './cdp.mjs';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
 const option = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback; };
-const file = resolve(option('--file', join(ROOT, 'ClassTimeKiller.html')));
+const file = resolve(option('--file', join(ROOT, 'ClassTimeKiller.test.html')));
 const group = option('--group', '');
 const slow = args.includes('--slow');   // also run the slow blocks (Test.add(..., { slow: true })) of every group
 const extra = option('--eval', '');
