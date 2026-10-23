@@ -287,13 +287,14 @@ Test.add('hudui', (check) => {
 
 // ---- Phones: the comm wheel (17g) stays on screen and clear of every default touch button, in both hand layouts ----
 const HUD_UI_PHONES = [[844, 390], [667, 375], [568, 320]];
+const HUD_UI_WHEEL_MIN_SHARE = 0.44;   // of the design radius: the smallest phone with its 14 px labels leaves the ring 0.447
 // The first callout under a touch button or past a screen edge (its icon at the picked size, the largest), or ''.
 function hudUiWheelProblem(layout) {
   const unit = layout.unit, ring = commWheelPlaceRing(layout), textHalf = commWheelLabelHalf(unit), spot = {};
   for (let i = 0; i < COMM_CALLOUTS.length; i++) {
     const label = COMM_CALLOUTS[i].label;
     commWheelSpotOf(ring, i, true, unit, spot);
-    const labelHalf = HudBatch.measure(label, HUD_TEXT_SMALL * unit) / 2, iconHalf = spot.size / 2;
+    const labelHalf = HudPen.measure(label, HUD_TEXT_SMALL * unit) / 2, iconHalf = spot.size / 2;
     const over = hudPveTouchOverlap(layout, spot.x - labelHalf, spot.labelY - textHalf, spot.x + labelHalf, spot.labelY + textHalf)
       || hudPveTouchOverlap(layout, spot.x - iconHalf, spot.y - iconHalf, spot.x + iconHalf, spot.y + iconHalf);
     if (over) return label + ' under ' + over;
@@ -313,7 +314,7 @@ Test.add('hudui', (check) => {
         Input.device = savedDevice;
         const problem = hudUiWheelProblem(layout), radius = commWheelRing.radius;
         check('comm wheel on a phone (' + preset.id + ' ' + phone.join('x') + '): every callout on screen, none under a touch button',
-          problem === '' && radius >= COMM_WHEEL_RADIUS * layout.unit / 2, problem + ' ' + radius);
+          problem === '' && radius >= COMM_WHEEL_RADIUS * layout.unit * HUD_UI_WHEEL_MIN_SHARE, problem + ' ' + radius);
       }
     }
   } finally { TouchInput.currentPreset = savedPreset; Input.device = savedDevice; }

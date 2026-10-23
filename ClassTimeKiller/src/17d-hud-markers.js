@@ -218,7 +218,7 @@ function hudDrawNameTags(pen, layout) {
     if (!Hud.project(Actors.x[id], Actors.y[id] + Actors.height[id] + HUD_TAG_HEIGHT_ABOVE, Actors.z[id])) continue;
     const x = hudProjection.x, y = hudProjection.y, at = hudShapeAt, text = hudTextAt;
     text[2] = HUD_TEXT_SMALL * unit;
-    HudBatch.measureAt(Actors.name[id]);
+    HudPen.measureAt(Actors.name[id]);
     at[0] = x - text[3] / 2 - 9 * unit; at[1] = y; at[2] = 11 * unit / 2;
     if (Hud.teamShapes) pen.shapeAt(Hud.teamShape(team), Hud.teamColor(team));
     text[0] = x + (Hud.teamShapes ? 4 * unit : 0); text[1] = y;
@@ -276,7 +276,7 @@ function hudDrawCaptions(pen, layout) {
     const alpha = Math.min(1, (HUD_CAPTION_SECONDS - age) / HUD_CAPTION_FADE);
     text[0] = layout.centerX; text[1] = y; text[2] = size;
     if (HudAccess.captionBackground) {
-      HudBatch.measureAt(c.text[slot]);
+      HudPen.measureAt(c.text[slot]);
       const width = text[3] + 16 * unit;
       box[0] = layout.centerX - width / 2; box[1] = y - size * 0.75; box[2] = width; box[3] = size * 1.5;
       pen.rectAt(HUD_COLOR.black, 0.6 * alpha);

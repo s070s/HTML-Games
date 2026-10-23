@@ -324,6 +324,8 @@ function pushHudDiamond() {
   corners[0] = x; corners[1] = y - tip; corners[2] = x + tip; corners[3] = y; corners[4] = x; corners[5] = y + tip; corners[6] = x - tip; corners[7] = y;
   pushHudSolid();
 }
+// ACC-008 in one place: a size under 14 px at 100% HUD scale (a phone's 0.9 unit) is drawn and measured at the floor.
+function hudFloorTextSize() { if (hudTextAt[2] < Hud.textFloor) hudTextAt[2] = Hud.textFloor; }
 
 const HudPen = {
   // The arguments pass through unchanged: a float computed here would be boxed on its way to HudBatch (PERF-006).
@@ -345,7 +347,7 @@ const HudPen = {
   },
   // label() at hudTextAt: the shadow is drawn from the same scratch, moved by the shadow offset and back.
   labelAt(string, color, align, alpha) {
-    if (hudTextAt[2] < Hud.textFloor) hudTextAt[2] = Hud.textFloor;
+    hudFloorTextSize();
     const at = hudTextAt, x = at[0], y = at[1], shade = HUD_SHADOW_OFFSET * Math.max(1, at[2] / 16);
     at[0] = x + shade; at[1] = y + shade;
     HudBatch.textAt(string, HUD_COLOR.black, align, (alpha === undefined ? 1 : alpha) * HUD_SHADOW_ALPHA);
@@ -412,10 +414,19 @@ const HudPen = {
     if (at[2] > 0) this.rectAt(color, alpha);
     at[2] = width;
   },
-  // ACC-008 in one place: a size under 14 px at 100% HUD scale (a phone's 0.9 unit) is drawn at the floor.
   textAt(string, color, align, alpha) {
-    if (hudTextAt[2] < Hud.textFloor) hudTextAt[2] = Hud.textFloor;
+    hudFloorTextSize();
     HudBatch.textAt(string, color, align, alpha);
+  },
+  // Widths for layouts, at the size the text is drawn: HUD drawers measure here, never with HudBatch.measure directly.
+  measure(string, sizePx) {
+    hudTextAt[2] = sizePx;
+    this.measureAt(String(string));
+    return hudTextAt[3];
+  },
+  measureAt(text) {
+    hudFloorTextSize();
+    HudBatch.measureAt(text);
   },
   ringAt(color, alpha) { HudBatch.ringAt(color, alpha); },
   weaponIcon(weaponClass, x, y, width, color, alpha) {

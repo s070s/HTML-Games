@@ -208,14 +208,16 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('use prompt: none, then key and text, then the unbound fallback', quiet === '' && planting === 'E|HOLD TO PLANT' && unbound === 'HOLD USE|HOLD TO PLANT', [quiet, planting, unbound].join());
 }));
 
-// ACC-008 as drawn: a full HUD on a landscape phone (844 x 390, touch) has no text under 14 px at 100% scale.
+// ACC-008 as drawn and as measured: a full HUD on a landscape phone (844 x 390, touch) has no text under 14 px at 100% scale,
+// and every width a layout reads (feed rows, tags, captions, the comm wheel) is taken at that drawn size.
 Test.add('hud', (check) => hudTestWith(() => {
   hudTestFillScene(hudTestMatch());
   Render.size.cssWidth = 844; Render.size.cssHeight = 390; Input.device = 'touch';
-  const small = [], textAt = HudBatch.textAt;
+  const small = [], textAt = HudBatch.textAt, measureAt = HudBatch.measureAt;
   HudBatch.textAt = function (string) { if (hudTextAt[2] < HUD_TEXT_SMALL - 1e-6) small.push(string); return textAt.apply(this, arguments); };
-  try { hudTestFrame(); } finally { HudBatch.textAt = textAt; }
-  check('layout: no text under 14 px on a phone (ACC-008)', small.length === 0, small.join());
+  HudBatch.measureAt = function (string) { if (hudTextAt[2] < HUD_TEXT_SMALL - 1e-6) small.push('measured ' + string); return measureAt.apply(this, arguments); };
+  try { hudTestFrame(); commWheelWidestLabel(Hud.layout.unit); } finally { HudBatch.textAt = textAt; HudBatch.measureAt = measureAt; }
+  check('layout: no text drawn or measured under 14 px on a phone (ACC-008)', Hud.layout.unit < 1 && small.length === 0, small.join());
 }));
 
 Test.add('hud', (check) => hudTestWith(() => {
