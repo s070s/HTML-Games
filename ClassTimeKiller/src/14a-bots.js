@@ -35,6 +35,8 @@ Settings.define('difficulty.botAimError', 1, { label: 'Bot aim error', category:
 Settings.define('difficulty.adaptive', false, { label: 'Adaptive bot skill (+-1 tier per match)', category: 'gameplay' });
 Settings.define('difficulty.tierShift', 0, { label: 'Adaptive tier shift', category: 'developer' });   // internal: no min/max, no control
 const ADAPTIVE_SHIFT_LIMIT = 3;
+// The one shift rule: whole tiers within the limit (a saved or imported value may be anything).
+const adaptiveShift = (value) => Math.round(clamp(value, -ADAPTIVE_SHIFT_LIMIT, ADAPTIVE_SHIFT_LIMIT));
 
 const Difficulty = {
   // Preset row merged with custom slider values (clamped to DIF-002). Unknown presets fall back to 'regular' (logged).
@@ -60,23 +62,33 @@ const Difficulty = {
   adapt(match) {
     if (!Settings.get('difficulty.adaptive') || Game.playerId < 0 || !match.results) return 0;
     const change = matchOutcome(match.results, Game.playerId);
-    const shift = clamp(Settings.get('difficulty.tierShift') + change, -ADAPTIVE_SHIFT_LIMIT, ADAPTIVE_SHIFT_LIMIT);
+    const shift = adaptiveShift(Settings.get('difficulty.tierShift') + change);
     Settings.set('difficulty.tierShift', shift);
     match.results.botTierChange = change;
     return change;
   },
-  tierShift() { return Settings.get('difficulty.adaptive') ? Settings.get('difficulty.tierShift') : 0; },
+  tierShift() { return Settings.get('difficulty.adaptive') ? adaptiveShift(Settings.get('difficulty.tierShift')) : 0; },
 };
+
+const OPEN_ENDED_MODES = ['endless', 'range'];   // runs that can only end lost (no win to reach): neither a win nor a loss
 
 // +1 won, -1 lost, 0 neither (a draw, the middle of a free-for-all ranking, or the player not in the results).
 function matchOutcome(results, player) {
   const players = results.players, playerRow = players.findIndex((row) => row.id === player);
-  if (playerRow < 0 || players.length < 2) return 0;
+  if (playerRow < 0) return 0;
+  if (OPEN_ENDED_MODES.includes(results.mode)) return 0;
+  if (coopResults(results)) return results.draw ? 0 : results.winnerId >= 0 ? 1 : -1;   // the party wins or loses together
+  if (players.length < 2) return 0;
   if (results.teams.length > 0) {
     if (results.winnerTeam === NO_TEAM) return 0;
     return players[playerRow].team === results.winnerTeam ? 1 : -1;
   }
   return playerRow === 0 ? 1 : playerRow === players.length - 1 ? -1 : 0;
+}
+// Co-op and solo PvE (teams below 2 outside the versus family): one result for every participant.
+function coopResults(results) {
+  const mode = CAT.modes.byId(results.mode);
+  return !!mode && mode.teams < TEAM_COUNT && mode.family !== 'versus';
 }
 
 // The difficulty stage: rules.botSkill, and the DIF-002 game speed slider (an ACC-007 assist, every mode) multiplies the mutators' time scale.
@@ -172,12 +184,6 @@ const Bots = {
       if (row && row.traits[key] !== undefined) value = row.traits[key];
       this.traits[base + index] = clamp(value, 0, 1);
     }
-  },
-  setTier(id, tier) {
-    if (Actors.kind[id] !== ACTOR_KIND.BOT) return false;
-    this.tierRow[id] = CAT.botTiers[clamp(parseTier(tier), 0, BOT_TIER_COUNT - 1)];
-    BotMove.configure(id);
-    return true;
   },
   onSpawn(id) {
     this.spawnedAt[id] = Sim.time;

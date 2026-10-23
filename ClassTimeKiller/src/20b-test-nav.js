@@ -8,6 +8,10 @@ const navTestBox = (min, max) => ({ shape: 'box', min, max });
 const navTestFloor = (minX, minZ, maxX, maxZ, top) => navTestBox([minX, top - 1, minZ], [maxX, top, maxZ]);
 const navTestSpawn = (x, y, z) => ({ x, y, z, yaw: 0, team: -1, modes: [] });
 const navTestNode = (x, y, z) => Nav.nearestNode(x, y, z);
+// Test-only readers of a slot's raw result (the game reads paths through Nav.resultPoint).
+const navResultNodeCount = (id) => navSlots.nodeCount[id];
+const navResultNode = (id, index) => navSlots.nodes[id * NAV_SLOT_PATH + index];
+const navPendingRequests = () => navSlots.queueCount;
 const NAV_TEST_MIRROR_SHARE = 0.005;   // unmirrored nodes allowed on a mirrored map
 
 function navTestLoad(brushes, extra) {
@@ -81,7 +85,7 @@ function navTestSegmentOver(a, b, minX, minZ, maxX, maxZ) {
 }
 
 function navTestServeAll() {
-  for (let tick = 0; tick < 64 && Nav.pendingRequests() > 0; tick++) Nav.serveRequests();
+  for (let tick = 0; tick < 64 && navPendingRequests() > 0; tick++) Nav.serveRequests();
 }
 
 // R-155: nav, movement, spawns and map checks read the S01 body sizes and the S10 ladder and swim speeds, never a copy.
@@ -107,7 +111,7 @@ Test.add('nav', (check) => {
   Nav.request(0, a, b);
   navTestServeAll();
   check('rooms: smoothed path never crosses the wall', Nav.result(0) === NAV_STATUS.DONE && navTestSmoothedClear(0));
-  check('rooms: smoothing keeps fewer points than nodes', Nav.resultPointCount(0) >= 2 && Nav.resultPointCount(0) < Nav.resultNodeCount(0), Nav.resultPointCount(0) + ' / ' + Nav.resultNodeCount(0));
+  check('rooms: smoothing keeps fewer points than nodes', Nav.resultPointCount(0) >= 2 && Nav.resultPointCount(0) < navResultNodeCount(0), Nav.resultPointCount(0) + ' / ' + navResultNodeCount(0));
   check('rooms: validate passes on a connected map', Nav.validate(World.map).length === 0, Nav.validate(World.map).join('; '));
 });
 
@@ -401,7 +405,7 @@ Test.add('nav', (check) => {
   const standing = navTestMovesOver(0, -half, -half, half, half, NAV_LINK.CROUCH), crouching = navTestMovesOver(1, -half, -half, half, half, NAV_LINK.CROUCH);
   check('smoothing: crouchOk false never cuts under a low slab', Nav.result(0) === NAV_STATUS.DONE && standing[0] === 0, standing.join(' / '));
   check('smoothing: a move under the slab is always typed CROUCH', Nav.result(1) === NAV_STATUS.DONE && crouching[1] === 0, crouching.join(' / '));
-  check('smoothing: still smooths the open floor', Nav.resultPointCount(0) < Nav.resultNodeCount(0), Nav.resultPointCount(0) + ' / ' + Nav.resultNodeCount(0));
+  check('smoothing: still smooths the open floor', Nav.resultPointCount(0) < navResultNodeCount(0), Nav.resultPointCount(0) + ' / ' + navResultNodeCount(0));
 });
 
 Test.add('nav', (check) => {
@@ -550,13 +554,13 @@ Test.add('nav', (check) => {
   navTestPillars();
   for (let id = 0; id < 10; id++) Nav.request(id, id, Nav.nodeCount - 1 - id * 3);
   Nav.request(3, 3, Nav.nodeCount - 10);   // re-request while queued: replaces, not queued twice
-  check('budget: ten requests queued', Nav.pendingRequests() === 10, Nav.pendingRequests());
+  check('budget: ten requests queued', navPendingRequests() === 10, navPendingRequests());
   Sim.step();
   const done = () => [...Array(10).keys()].filter((id) => Nav.result(id) === NAV_STATUS.DONE || Nav.result(id) === NAV_STATUS.FAILED).length;
   check('budget: one tick serves at most 4 searches (BOT-091)', Nav.searchesThisTick === NAV_QUERIES_PER_TICK && done() === 4, done());
   Sim.step(); Sim.step();
-  check('budget: the rest are served on the next ticks', done() === 10 && Nav.pendingRequests() === 0, done());
-  check('budget: replaced request answered with the new goal', Nav.resultNode(3, Nav.resultNodeCount(3) - 1) === Nav.nodeCount - 10);
+  check('budget: the rest are served on the next ticks', done() === 10 && navPendingRequests() === 0, done());
+  check('budget: replaced request answered with the new goal', navResultNode(3, navResultNodeCount(3) - 1) === Nav.nodeCount - 10);
   Nav.request(20, 0, 1);
   Nav.cancel(20);
   Nav.serveRequests();
@@ -570,9 +574,9 @@ Test.add('nav', (check) => {
   for (let id = 0; id < NAV_SLOTS; id++) Nav.request(id, 0, Nav.nodeCount - 1);
   Nav.serveRequests();
   check('budget: cache hits count too (' + NAV_QUERIES_PER_TICK + ' served per tick)', Nav.servedThisTick === NAV_QUERIES_PER_TICK && Nav.searchesThisTick === 0
-    && Nav.pendingRequests() === NAV_SLOTS - NAV_QUERIES_PER_TICK, Nav.servedThisTick + ' served, ' + Nav.pendingRequests() + ' pending');
+    && navPendingRequests() === NAV_SLOTS - NAV_QUERIES_PER_TICK, Nav.servedThisTick + ' served, ' + navPendingRequests() + ' pending');
   navTestServeAll();
-  check('budget: all 64 answered after 16 ticks', Nav.pendingRequests() === 0 && Nav.result(NAV_SLOTS - 1) === NAV_STATUS.DONE);
+  check('budget: all 64 answered after 16 ticks', navPendingRequests() === 0 && Nav.result(NAV_SLOTS - 1) === NAV_STATUS.DONE);
 });
 
 Test.add('nav', (check) => {
@@ -754,4 +758,19 @@ Test.add('nav', (check) => {
     const keeps = navTestLateMatch('ctf', 'twinkeeps');
     check('late graph: Twin Keeps flag teams have rally points', keeps && BotTeam.hasRally(0) && BotTeam.hasRally(1));
   } finally { Game.stop(); World.clear(); }
+});
+// normalize-01: the per-link passes of a build (bucket sort, link copies) are build steps of NAV_ITEM_SLICE items, so one
+// slice never runs a whole pass over a big map's links (21-44 ms on Firefox and Safari).
+function navTestSteps(steps) {
+  let count = 0, step = steps.next();
+  for (; !step.done; step = steps.next()) count++;
+  return { count, value: step.value };
+}
+Test.add('nav', (check) => {
+  const itemCount = NAV_ITEM_SLICE * 3, keys = Int32Array.from({ length: itemCount }, (unused, item) => item % 7);
+  const bucket = navTestSteps(navBucketByKey(keys, itemCount, 7)), start = bucket.value.start, items = bucket.value.items;
+  check('a bucket sort of 3 slices of items takes 6 build steps or more', bucket.count >= 6, bucket.count);
+  check('the sliced bucket sort keeps every item in its key bucket', start[7] === itemCount && keys[items[start[3]]] === 3 && keys[items[start[4] - 1]] === 3);
+  const copy = navTestSteps(navPickInOrder(keys, items, new Int32Array(itemCount)));
+  check('a link copy of 3 slices takes 3 build steps, in bucket order', copy.count >= 3 && copy.value[0] === 0 && copy.value[itemCount - 1] === 6, copy.count);
 });

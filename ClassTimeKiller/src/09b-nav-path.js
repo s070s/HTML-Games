@@ -107,9 +107,6 @@ Object.assign(Nav, {
   },
   result(id) { return navSlots.status[id]; },              // NAV_STATUS
   cancel(id) { navSlots.status[id] = NAV_STATUS.NONE; },
-  resultCost(id) { return navSlots.cost[id]; },
-  resultNodeCount(id) { return navSlots.nodeCount[id]; },
-  resultNode(id, index) { return navSlots.nodes[id * NAV_SLOT_PATH + index]; },
   resultPointCount(id) { return navSlots.pointCount[id]; },
   // Writes smoothed point index into out {x, y, z}; returns the link type of the move that starts there.
   resultPoint(id, index, out) {
@@ -129,7 +126,6 @@ Object.assign(Nav, {
     }
     return this.servedThisTick;
   },
-  pendingRequests() { return navSlots.queueCount; },
 
   // String pulling: keeps a node only when the corridor from the last kept node to the one after it is not walkable
   // in a straight line (raster walk + chest-height line, no crawl or swim that the replaced links lacked) or when a

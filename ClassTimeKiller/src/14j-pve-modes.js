@@ -4,9 +4,10 @@
 // the director (14h) and the rows (03o). Difficulty (rules.botSkill): lives (0 = unlimited), checkpoints and checkpointHeal
 // (wave retries, DIF-004 Guardian Plate), gameSpeed (rules.fx.timeScale, written by the 14a difficulty stage before the
 // ruleset freezes). Co-op results: winner = the player (or the first participant) on a win,
-// DRAW with reason 'defeat' on a loss. The HUD reads Modes.hud.pve (PVE_HUD fields, docs/api/pve.md).
+// PVE_LOST with reason 'defeat' on a loss. The HUD reads Modes.hud.pve (PVE_HUD fields, docs/api/pve.md).
 
 const PVE_WIN = 'victory', PVE_LOSE = 'defeat';
+const PVE_LOST = -3;                   // co-op loss winner: neither a winner nor DRAW, so the results read as a loss for every participant
 const PVE_WAVE_STATE = { SHOP: 'shop', FIGHT: 'fight', EXTRACT: 'extract', DONE: 'done' };
 const PVE_MAX_PICKS = 200;             // a wave budget is spent in at most this many picks
 const PVE_FIENDS_TEAM = 1, PVE_RAVAGER_TEAM = 0;
@@ -221,7 +222,7 @@ function makeWaveBehaviour(plan) {
     // of its own when checkpoints are on.
     failWave(run, now) {
       const plate = guardianOpen(run) && pveSkill().checkpoints;
-      if (run.retriesLeft <= 0 && !plate) { run.result = Modes.over(DRAW, PVE_LOSE); return; }
+      if (run.retriesLeft <= 0 && !plate) { run.result = Modes.over(PVE_LOST, PVE_LOSE); return; }
       if (plate) wearGuardianPlate(run); else run.retriesLeft--;
       Pve.clearEnemies();
       Pve.core.health = Math.max(run.coreAtWave, 1);
@@ -444,6 +445,14 @@ Modes.register('bank', {
 
 // ---- M26 Ravager vs Fiends: one ravager (team 0) against fiends (team 1) who summon fodder and revive each other ----
 const FiendRun = { reviveAt: new Float64Array(MAX_ACTORS).fill(Infinity), nextSummonAt: new Float64Array(MAX_ACTORS) };
+// The bots' bank goal (S14 planner registry): carrying botBankAt motes or more, go to the team's bank; a full load is as
+// urgent as an objective gets.
+BotDecide.registerPlanner('bank', (id, plan) => {
+  const carried = BankRun.carried[id], bank = Actors.team[id] >= 0 ? BankRun.banks[Actors.team[id]] : null;
+  if (!bank || carried < PVE_BANK.botBankAt) return false;
+  return planTarget(plan, bank, carried / PVE_BANK.carryMax, bank.radius * 0.5, ACTION.MOVE);
+});
+
 Modes.register('fiends', {
   start() {
     pveStart();
@@ -561,7 +570,7 @@ Modes.register('contract', {
     if (run.result !== NOT_OVER) return;
     if (run.holder < 0) this.tryTakeRelic();
     else if (Actors.alive[run.holder] && withinTouch(run.holder, run.extract.x, run.extract.y, run.extract.z, run.extract.radius)) this.complete(now);
-    if (teamWiped(NO_TEAM)) run.result = Modes.over(DRAW, PVE_LOSE);
+    if (teamWiped(NO_TEAM)) run.result = Modes.over(PVE_LOST, PVE_LOSE);
     this.updateHud(now);
   },
   tryTakeRelic() {
@@ -601,9 +610,10 @@ Bus.on('pve.alarm', () => { if (Modes.mode && Modes.mode.id === 'contract') Cont
 
 // ---- M30 Firing Range: stations on the 'dummy' hints (target, strafer, fire-back), shot statistics, repeating kill drills ----
 // Free practice: the range never ends on its own (leave it from the pause menu). Accuracy counts a shot once however many
-// pellets or blasts it lands; damage over time and splash add damage but no hits. Every drillTargets kills complete a
+// pellets or blasts it lands (ACCURACY_HIT_KINDS); damage over time adds damage but no hits. Every drillTargets kills complete a
 // drill (score from its time; the best time is kept) and the next drill starts.
-const RANGE_UNCOUNTED_KINDS = ['dot', 'splash'];
+const RANGE_INTRO_TEXT = 'Shoot ' + PVE_RANGE.drillTargets + ' targets for a timed drill. Pause > Quit to menu to leave.';   // what the room is and how to get out
+const ACCURACY_HIT_KINDS = ['hit', 'melee', 'beam', 'splash'];   // damage kinds that count as a hit for accuracy (range HUD, scoreboard)
 const RangeRun = { stations: [], shots: 0, hits: 0, headshots: 0, damage: 0, kills: 0, drillKills: 0, drillStart: -1, drillBest: 0, drills: 0,
   shotOpen: new Uint8Array(MAX_ACTORS), result: NOT_OVER };
 Modes.register('range', {
@@ -618,10 +628,11 @@ Modes.register('range', {
     spots.forEach((spot, index) => RangeRun.stations.push({ x: spot.x, y: spot.y, z: spot.z, yaw: Math.atan2(origin.x - spot.x, origin.z - spot.z),
       kind: PVE_RANGE.kinds[index % PVE_RANGE.kinds.length], shield: PVE_RANGE.shieldLevels[index % PVE_RANGE.shieldLevels.length], id: -1, respawnAt: 0 }));
     PVE_HUD.drillTargets = PVE_RANGE.drillTargets;
+    Modes.announce(RANGE_INTRO_TEXT, 'wave', 2);
   },
   step(dt, now) {
     for (const station of RangeRun.stations) this.keepStation(station, now);
-    if (teamWiped(NO_TEAM)) RangeRun.result = Modes.over(DRAW, PVE_LOSE);
+    if (teamWiped(NO_TEAM)) RangeRun.result = Modes.over(PVE_LOST, PVE_LOSE);
     PVE_HUD.shots = RangeRun.shots; PVE_HUD.hits = RangeRun.hits; PVE_HUD.headshots = RangeRun.headshots; PVE_HUD.damage = Math.round(RangeRun.damage);
     PVE_HUD.kills = RangeRun.kills; PVE_HUD.drillKills = RangeRun.drillKills; PVE_HUD.accuracy = RangeRun.shots > 0 ? RangeRun.hits / RangeRun.shots : 0;
     PVE_HUD.stateTimeLeft = RangeRun.drillStart >= 0 ? now - RangeRun.drillStart : 0;
@@ -646,7 +657,7 @@ Modes.register('range', {
     const source = event.source;
     if (!Pve.isEnemy(event.target) || source < 0 || !Modes.participant[source] || event.amount <= 0) return;
     RangeRun.damage += event.amount;
-    if (RANGE_UNCOUNTED_KINDS.includes(event.kind) || !RangeRun.shotOpen[source]) return;
+    if (!ACCURACY_HIT_KINDS.includes(event.kind) || !RangeRun.shotOpen[source]) return;
     RangeRun.shotOpen[source] = 0;
     RangeRun.hits++;
     if (event.zone === 'head') RangeRun.headshots++;

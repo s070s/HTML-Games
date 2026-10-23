@@ -501,7 +501,7 @@ const BotEconomy = {
     let best = null, bestValue = 0;
     for (let i = 0; i < list.length; i++) {
       const item = list[i];
-      if (item.price > money || Economy.limitReason(id, item)) continue;
+      if (Economy.priceFor(id, item) > money || Economy.limitReason(id, item)) continue;   // the player's price (a helmet over a vest costs less)
       const value = worth(id, item, money);
       if (value > bestValue) { bestValue = value; best = item; }
     }

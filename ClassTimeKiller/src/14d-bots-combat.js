@@ -32,7 +32,7 @@ const TARGET_VISIBLE_SCORE = 1, TARGET_KNOWN_SCORE = 0.4, TARGET_KEEP = 0.3, TAR
 const TARGET_DISTANCE_SCALE = 30;       // m: score halves at this distance
 const TARGET_REVENGE_SECONDS = 3;
 const TARGET_CARRIER_BONUS = 0.5;
-const TARGET_DOWNED_SHARE = 0.3;        // a harmless downed enemy is worth this share of a target
+const TARGET_DOWNED_SHARE = 0.3;        // a harmless downed enemy is worth this share of a target while a standing one is in sight
 const STRAFE_CHECK = 0.4;               // BOT-032: flip chance 6.5% per 0.4 s check
 const STRAFE_FLIP = 0.065;
 const RANGE_BACKOFF = 0.1;              // BOT-032: back off 10% inside the ideal range
@@ -70,6 +70,7 @@ const ABILITY_KEEP_SECONDS = 4;         // a toggle or channel is pressed off on
 const ABILITY_MIN_ON = 0.5;             // ...and no sooner than this (one press on, a later press off); an off press that did
                                         // not take is tried again this long later (the button released in between)
 const ABILITY_TRAVEL = 10;              // m: 'moving' abilities (glide, grapple, sprint) only on longer trips
+const GLIDE_LOOKAHEAD = 6;              // m along the move that must have floor below for a glide to be held
 const UNDER_FIRE_SECONDS = 1.5;         // hit this recently = under fire
 const LOW_AMMO_SHARE = 0.25;
 const DODGE_CHANCE_CAP = 0.6;           // BOT-033: no dodge is ever surer than 60%
@@ -84,6 +85,8 @@ const PRESSABLE_SLOTS = SLOT.PASSIVE;   // ability slots a bot presses: ABILITY1
 
 const aimPoint = Vec.make();
 const perceived = Vec.make();
+const abilityRay = Vec.make();
+const abilityHit = { distance: 0, x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, brush: null };
 
 // Bot-use triggers (ABL-003, BOT-035): the `when` word of an ability's botUse or a BOT_GADGET_USE row names one of
 // these; each tests only what the bot perceives (its target, its memory, its own state, team-mates it can see).
@@ -176,6 +179,7 @@ const BotCombat = {
   },
   chooseTarget(id, now) {
     let best = -1, bestScore = 0;
+    this.standingInSight = this.standingEnemyInSight(id);
     for (let other = 0; other < Actors.count; other++) {
       if (!this.validTarget(id, other, now) || this.attackersFull(id, other)) continue;
       const score = this.targetScore(id, other, now);
@@ -190,10 +194,18 @@ const BotCombat = {
     if (other === this.target[id]) score += Bots.tier(id).targetSwitch ? TARGET_KEEP_SWITCHER : TARGET_KEEP;
     if (BotSense.attacker[id] === other && now - BotSense.attackedAt[id] < TARGET_REVENGE_SECONDS) score += Bots.trait(id, TRAIT.vengefulness);
     if (BotDecide.carriesObjective(other) || huntedRole(other)) score += TARGET_CARRIER_BONUS;
-    return this.harmless(other) ? score * TARGET_DOWNED_SHARE : score;
+    if (!this.harmless(other) || (visible && !this.standingInSight)) return score;   // with no standing enemy in sight it is finished off
+    return score * TARGET_DOWNED_SHARE;
   },
   // Downed without the Last Stand pistol: it cannot shoot, so standing enemies come first and it does not keep a revive away.
   harmless(other) { return (Actors.flags[other] & ACTOR_FLAG.DOWNED) !== 0 && Weapons.lowered(other); },
+  standingInSight: false,   // chooseTarget's: a standing enemy is in sight of the bot choosing
+  standingEnemyInSight(id) {
+    for (let other = 0; other < Actors.count; other++) {
+      if (Actors.alive[other] && Actors.isEnemy(id, other) && BotSense.sees(id, other) && !this.harmless(other)) return true;
+    }
+    return false;
+  },
   // DIF-002 max simultaneous attackers: bots beyond the limit leave the player alone (unless the player hits them).
   attackersFull(id, other) {
     if (Actors.kind[other] !== ACTOR_KIND.PLAYER || this.target[id] === other || BotSense.attacker[id] === other) return false;
@@ -660,6 +672,7 @@ const BotCombat = {
       if (!row || row.activation === 'passive' || row.activation === 'ult' || !Abilities.ready(id, slot)) continue;
       if (row.activation === 'channel' && !BotDecide.holding(id)) continue;   // a channel roots the body: only where the bot stays
       if (!botUseWanted(id, row.botUse) && !(slot === SLOT.ULTIMATE && ultimateWanted(id, row.botUse))) continue;
+      if (!abilityLands(id, row)) continue;
       Bots.press(id, SLOT_BUTTONS[slot]);
       this.abilityAt[id] = now + ABILITY_INTERVAL / pace;
       this.uses.abilities++;
@@ -695,7 +708,7 @@ const BotCombat = {
     const slot = this.holdSlot[id];
     if (slot < 0) return;
     const row = Abilities.row(id, slot);
-    if (now > this.holdSlotUntil[id] || !row || !triggerHolds(id, row.botUse)) { this.holdSlot[id] = -1; return; }
+    if (now > this.holdSlotUntil[id] || !row || !triggerHolds(id, row.botUse) || !abilityLands(id, row)) { this.holdSlot[id] = -1; return; }
     Bots.press(id, SLOT_BUTTONS[slot]);
   },
   // A seen enemy mine is passed crouched when crouching keeps it quiet, else steered around; an enemy grenade heard
@@ -817,6 +830,32 @@ function throwRange(pitch, rise) {
 
 // botUse { when, range [min, max], chance }: the trigger holds, the target (when the bot has one) is in range (max 0 = any),
 // the bot's tier reaches the row's tier (when it has one), and the per-check chance passes.
+// BOT-010 for movement abilities: a grapple or blink goes only where its end point (along the view, or along the move
+// for an input dash) has floor within the bot's drop limit below it, never out over the void. A glide is held only while
+// floor lies GLIDE_LOOKAHEAD m along the move (keepHolding lets go over the void).
+function abilityLands(id, row) {
+  if (row.effect === 'glide') return glideLands(id);
+  if (row.effect !== 'grapple' && row.effect !== 'blink') return true;
+  if (row.params.direction === 'input') Vec.set(abilityRay, Bots.wishX[id], 0, Bots.wishZ[id]);
+  else Vec.fromAngles(abilityRay, Actors.yaw[id], Actors.pitch[id]);
+  const eyeY = Actors.eyeY(id), hooked = World.raycast(Actors.x[id], eyeY, Actors.z[id], abilityRay.x, abilityRay.y, abilityRay.z, row.range, abilityHit);
+  if (row.effect === 'grapple' && !hooked) return true;   // nothing to hook: the cast fails on its own
+  const reach = Math.max(0, (hooked ? abilityHit.distance : row.range) - ACTOR_RADIUS);
+  const x = Actors.x[id] + abilityRay.x * reach, y = eyeY + abilityRay.y * reach + STEP_HEIGHT, z = Actors.z[id] + abilityRay.z * reach;
+  return floorBelow(id, x, y, z);
+}
+
+function glideLands(id) {
+  const wishLength = length2(Bots.wishX[id], Bots.wishZ[id]);
+  if (wishLength < 1e-3) return floorBelow(id, Actors.x[id], Actors.eyeY(id), Actors.z[id]);
+  const scale = GLIDE_LOOKAHEAD / wishLength;
+  return floorBelow(id, Actors.x[id] + Bots.wishX[id] * scale, Actors.eyeY(id), Actors.z[id] + Bots.wishZ[id] * scale);
+}
+
+function floorBelow(id, x, y, z) {
+  return World.raycast(x, y, z, 0, -1, 0, BotMove.options[id].maxDrop + STAND_HEIGHT * 2, abilityHit);
+}
+
 function botUseWanted(id, use) {
   if (!use || use.chance <= 0 || (use.tierFlag && !Bots.tier(id)[use.tierFlag])) return false;
   if (!triggerHolds(id, use) || !inUseRange(id, use.range)) return false;

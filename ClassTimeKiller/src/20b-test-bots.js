@@ -23,7 +23,12 @@ DebugApi.spawnBot = (profile, team) => {
   Modes.spawnActor(id);
   return id;
 };
-DebugApi.setTier = (id, tier) => Bots.setTier(id, tier);
+DebugApi.setTier = (id, tier) => {
+  if (Actors.kind[id] !== ACTOR_KIND.BOT) return false;
+  Bots.tierRow[id] = CAT.botTiers[clamp(parseTier(tier), 0, BOT_TIER_COUNT - 1)];
+  BotMove.configure(id);
+  return true;
+};
 
 // Plays `minutes` of `mode` on `map` with 16 bots (or botCount), headless, with seed 1 (or seed), without a time or score
 // limit (or with modeOptions), and returns the soak numbers (BOT-091 / ARC-033 / tests).
@@ -270,6 +275,7 @@ Test.add('bots', (check) => {
   check('a named bot plays its roster tier (inside the difficulty range), setup.tier wins', Bots.tier(ids[0]).tier === CAT.bots.byId('pell').tier && Bots.tier(ids[1]).tier === 6);
   check('a named bot keeps its profile row', Bots.profile[ids[0]] === CAT.bots.byId('pell') && Actors.profile[ids[0]] === CAT.bots.byId('pell'));
   check('setTier changes the tier', DebugApi.setTier(ids[2], 7) && Bots.tier(ids[2]).tier === 7);
+  check('setTier is a test command, not a Bots method', Bots.setTier === undefined);
   const extra = DebugApi.spawnBot('nyx7', -1);
   check('spawnBot adds a live brain-driven bot mid-match', extra >= 0 && Actors.alive[extra] && Bots.active[extra] && Bots.profile[extra] === CAT.bots.byId('nyx7'));
   endBotTest();
@@ -611,6 +617,40 @@ Test.add('bots', (check) => {
   }
   // S09 links no rimless swim exit any more (navHasRim); the blocked kind stays for exits a bot fails at run time.
   check('harbor has open water exits and no rimless ones', open > 0 && blocked === 0 && exitCount > 0, open + ' open, ' + blocked + ' blocked');
+  let water = -1;
+  for (let node = 0; node < Nav.nodeCount && water < 0; node++) if (Nav.nodeFlags[node] & NAV_NODE.WATER) water = node;
+  const first = nearestExit(water, Nav.nodeX[water], Nav.nodeY[water], Nav.nodeZ[water]);
+  markBlockedExit(first);
+  const second = nearestExit(water, Nav.nodeX[water], Nav.nodeY[water], Nav.nodeZ[water]);
+  check('a blocked exit is never the nearest exit again', first >= 0 && second !== first, first + ' then ' + second);
+});
+
+// ---- BOT-010 over the void: a jump pad flight is ridden onto its target, and a dash or grapple never ends over the void ----
+const BOT_PAD_ISLES = { id: 'bots-isles', brushes: [{ shape: 'box', min: [-10, -1, -10], max: [10, 0, 10] }, { shape: 'box', min: [-10, -1, 24], max: [10, 0, 34] }],
+  spawns: [{ x: 0, y: 0, z: -6, yaw: 0 }, { x: 0, y: 0, z: -8, yaw: 0 }], objectives: [], items: [],
+  triggers: [{ kind: 'jumppad', min: [-1.5, 0, 5], max: [1.5, 0.4, 8], target: [0, 0, 28], peak: 4 }] };
+
+Test.add('bots', (check) => {
+  const [bot, dummy] = startBotTest(BOT_PAD_ISLES, 'ffa', { ruleset: 'vanguard' });   // strong air control: steering against the throw stops it short
+  Modes.endProtection(bot); Modes.endProtection(dummy);
+  Actors.flags[bot] |= ACTOR_FLAG.GOD;
+  for (let tick = 0; tick < TICK_RATE; tick++) { holdActor(dummy, FAR_DUMMY, FAR_DUMMY); Sim.run(1); }   // past the spawn settle: the brain steers
+  placeFacing(bot, 0, 6.5, Math.PI);
+  Bots.nextDecide[bot] = Infinity;   // the test gives the destination: back where it came from, against the pad's throw
+  BotMove.goTo(bot, 0, 0, -8, 1);
+  for (let tick = 0; tick < 3 * TICK_RATE; tick++) { holdActor(dummy, FAR_DUMMY, FAR_DUMMY); Sim.run(1); }
+  check('a bot thrown by a jump pad lands on its target island', Actors.y[bot] > -0.5 && Actors.z[bot] > 24, Actors.x[bot].toFixed(1) + ' ' + Actors.y[bot].toFixed(1) + ' ' + Actors.z[bot].toFixed(1));
+  const surge = CAT.abilities.byId('surge');
+  placeFacing(bot, 0, 8, 0);
+  Bots.wishX[bot] = 0; Bots.wishZ[bot] = 1;
+  check('a dash out over the void is not used', !abilityLands(bot, surge));
+  Bots.wishZ[bot] = -1;
+  check('a dash along the floor is used', abilityLands(bot, surge));
+  const glide = CAT.abilities.byId('glidepack');
+  check('a glide along the floor is held', abilityLands(bot, glide));
+  Bots.wishZ[bot] = 1;
+  check('a glide out over the void is not held', !abilityLands(bot, glide));
+  endBotTest();
 });
 
 // ---- DIF-003: the adaptive shift follows the player's team in team modes and the ranking in free-for-all ----
@@ -623,13 +663,33 @@ Test.add('bots', (check) => {
   check('team mode: a draw -> 0', matchOutcome(teamOutcome(NO_TEAM), 0) === 0);
   const ffa = { players: [outcomeRow(3, NO_TEAM), outcomeRow(0, NO_TEAM), outcomeRow(4, NO_TEAM)], teams: [], winnerTeam: NO_TEAM };
   check('free-for-all: first +1, middle 0, last -1', matchOutcome(ffa, 3) === 1 && matchOutcome(ffa, 0) === 0 && matchOutcome(ffa, 4) === -1);
+  const openEnded = (mode) => ({ mode, players: [outcomeRow(0, 0)], teams: [], winnerTeam: NO_TEAM, winnerId: PVE_LOST, draw: false });
+  check('an Endless Hold run or a Firing Range session (they only end lost) is neither a win nor a loss', matchOutcome(openEnded('endless'), 0) === 0 && matchOutcome(openEnded('range'), 0) === 0);
   const adaptive = Settings.get('difficulty.adaptive'), shift = Settings.get('difficulty.tierShift'), playerId = Game.playerId;
   Settings.set('difficulty.adaptive', true); Settings.set('difficulty.tierShift', 0);
   Game.playerId = 0;
   const match = { results: teamOutcome(1) };
   check('adapt: a team loss lowers the shift and shows on the results', Difficulty.adapt(match) === -1 && Settings.get('difficulty.tierShift') === -1 && match.results.botTierChange === -1);
+  Settings.set('difficulty.tierShift', 0.5);
+  check('a fractional saved shift reads as a whole tier', Difficulty.tierShift() === Math.round(0.5), Difficulty.tierShift());
+  Settings.set('difficulty.tierShift', 1e9);
+  check('an imported shift past the limit reads as the limit', Difficulty.tierShift() === ADAPTIVE_SHIFT_LIMIT, Difficulty.tierShift());
   Game.playerId = playerId;
   Settings.set('difficulty.tierShift', shift); Settings.set('difficulty.adaptive', adaptive);
+});
+
+// PERF-006: team play (14f) measures distances with length2; a bot pays the player's price (a helmet over a full vest
+// costs the rest).
+Test.add('bots', (check) => {
+  const sources = Object.values(BotTeam).concat(Object.values(BotEconomy), [spotKind]).filter((value) => typeof value === 'function').map(String).join();
+  check('team play uses no Math.hypot', !sources.includes('Math.hypot'));
+  startBotTest(botTestMap(false), 'bomb', { bots: [{ tier: 3, team: 0 }, { tier: 3, team: 1 }] });
+  const bot = 0, helmet = CAT.buyItems.find((item) => item.kind === 'helmet');
+  Actors.armor[bot] = Actors.maxArmor[bot] = helmet.amount;
+  Economy.setMoney(bot, Economy.priceFor(bot, helmet));
+  const bought = BotEconomy.buyBest(bot, (id, item) => (item.id === helmet.id ? 1 : 0));
+  check('a bot with a vest buys the helmet at the price for a vest owner', bought && Economy.money(bot) === 0, Economy.money(bot) + ' left of ' + Economy.priceFor(bot, helmet));
+  endBotTest();
 });
 
 // ---- Debug view (BOT-091/092): the HUD pass draws the nav graph, cones, labels and bars, and only while on ----
@@ -842,7 +902,7 @@ Test.add('bots', (check) => {
   check('a lone enemy in the open draws no frag', seen && BotCombat.uses.grenades === 0 && Gadgets.countOf(bot, THROW_ROW) === 2, BotCombat.uses.grenades + ' seen ' + seen);
   const flashAnywhere = Object.assign({}, BOT_GADGET_USE.flash, { when: 'always', range: [0, 0], chance: 1 });
   const tierSix = botUseWanted(bot, flashAnywhere);
-  Bots.setTier(bot, BOT_GADGET_USE.flash.tier - 1);
+  DebugApi.setTier(bot, BOT_GADGET_USE.flash.tier - 1);
   check('flash before a peek only from tier 3', tierSix && !botUseWanted(bot, flashAnywhere));
   endBotTest();
 });
@@ -867,14 +927,14 @@ Test.add('bots', (check) => {
   endBotTest();
 });
 
-// ---- BOT-050 CTF splits: enemy flag home 30% defend, 20% escort, the rest attack; enemy flag taken 60% defend, 30%
+// ---- BOT-050 CTF splits: enemy flag home 20% defend, 20% escort, the rest attack; enemy flag taken 60% defend, 30%
 // escort (from the next commander round). BOT-002: a chase on stale memory is the Search state ----
 Test.add('bots', (check) => {
   playMatch({ mode: 'ctf', map: 'twinkeeps', minutes: 1 / 60, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH, probe: () => {
     const team = [], roles = () => team.map((id) => ROLE_NAMES[BotTeam.role[id]]).sort().join();
     for (let id = 0; id < Actors.count; id++) if (Bots.active[id] && Actors.team[id] === 0) team.push(id);
     BotTeam.assignRoles();
-    check('ctf, flags home: 2 defend, 1 escort, 2 attack of 5', team.length === 5 && roles() === 'attack,attack,defend,defend,escort', roles());
+    check('ctf, flags home: 1 defend, 1 escort, 3 attack of 5', team.length === 5 && roles() === 'attack,attack,attack,defend,escort', roles());
     const enemyFlag = Modes.objectives.find((o) => o.kind === 'flag' && o.team === 1);
     enemyFlag.carrier = team[0];
     BotTeam.assignRoles();
@@ -1429,6 +1489,16 @@ const OBJECTIVE_RUNS = [
 Test.add('bots', (check) => { DebugApi.bots.lastQuickModes = checkObjectiveRuns(check, QUICK_OBJECTIVE_RUNS, KIT_QUICK_SECONDS); });
 Test.add('botsoak', (check) => { DebugApi.bots.lastModes = checkObjectiveRuns(check, OBJECTIVE_RUNS, MATCH_RUN_SECONDS); }, { slow: true });
 
+// ---- Flag Raid at its default size (5 v 5, the Play screen's 9 bots and the player): a 5-bot team raids with 3, so
+// every 15-minute match sees flags captured (an odd team used to keep 2 home and stall at 0-0) ----
+const CTF_DEFAULT_SIZE_SEEDS = [1, 2, 3, 4], CTF_DEFAULT_SIZE_BOTS = 10, CTF_DEFAULT_SIZE_MINUTES = 15, CTF_DEFAULT_SIZE_CAPTURES = 2;
+
+Test.add('botsoak', (check) => {
+  const captures = CTF_DEFAULT_SIZE_SEEDS.map((seed) => DebugApi.soak('ctf', 'twinkeeps', CTF_DEFAULT_SIZE_MINUTES, CTF_DEFAULT_SIZE_BOTS, seed,
+    { timeLimit: CTF_DEFAULT_SIZE_MINUTES * 60 }).teamCaptures);
+  check('ctf 5 v 5: every match captures flags', captures.every((count) => count >= CTF_DEFAULT_SIZE_CAPTURES), captures.join(', '));
+}, { slow: true });
+
 // ---- CTF attack play: 8 bots on twinkeeps capture in normal time, and neither side always wins (5 seeds) ----
 const CTF_SEEDS = [1, 2, 3, 4, 5], CTF_CAPTURE_MATCHES = 3;
 
@@ -1613,6 +1683,21 @@ Test.add('bots', (check) => {
   const selfInflicted = kills.filter((event) => event.killer < 0 || event.killer === event.victim).length;
   check('Skyward Yard: at most 10% of kills are bots falling off with no attacker', kills.length > 0 && selfInflicted <= kills.length * VOID_DEATH_SHARE_MAX, selfInflicted + ' of ' + kills.length);
 });
+// Hero and Frame Runner bots (glide, grapple, blink, knockback) on Skyward Yard: hazard deaths stay at what the bot
+// landing checks reach (heroes 44-54%, frame about 26%: most falls follow a hit, the knockback is S03e's), and downed
+// enemies in sight are finished off, so few kills are bleed-outs.
+const SKY_KIT_RULESETS = ['heroes', 'frame'], SKY_KIT_SEEDS = [1, 2], SKY_KIT_MINUTES = 3, SKY_KIT_BOTS = 10;
+const SKY_KIT_HAZARD_SHARE_MAX = 0.6, BLEED_OUT_SHARE_MAX = 0.2;
+Test.add('botsoak', (check) => {
+  for (const ruleset of SKY_KIT_RULESETS) {
+    const kills = startEventLog('kill');
+    for (const seed of SKY_KIT_SEEDS) playMatch({ mode: 'tdm', map: 'skyyard', ruleset, minutes: SKY_KIT_MINUTES, botCount: SKY_KIT_BOTS, seed, difficulty: 'regular' });
+    kills.stop();
+    const hazard = kills.filter((event) => event.weapon === 'hazard').length, bleedOut = kills.filter((event) => event.weapon === 'bleedout').length;
+    check(ruleset + ' on Skyward Yard: at most 60% of kills are hazards', kills.length > 0 && hazard <= kills.length * SKY_KIT_HAZARD_SHARE_MAX, hazard + ' of ' + kills.length);
+    check(ruleset + ' on Skyward Yard: under 20% of kills are bleed-outs', kills.length > 0 && bleedOut < kills.length * BLEED_OUT_SHARE_MAX, bleedOut + ' of ' + kills.length);
+  }
+}, { slow: true });
 Test.add('bots', (check) => {
   const [bot] = startBotTest(botTestMap(false));
   Motion.tapSignX[bot] = 1; Motion.tapClockX[bot] = 0.1; Motion.lastAxisX[bot] = 0; Actors.moveX[bot] = 1;
@@ -1627,7 +1712,8 @@ Test.add('bots', (check) => {
 const MANTLE_CRATE = { shape: 'box', min: [-3, 0, 2], max: [3, 2, 8] };
 Test.add('bots', (check) => {
   const [bot] = startBotTest(botTestMap(false, { brushes: [TEST_FLOOR, MANTLE_CRATE] }), 'ffa', { ruleset: 'modern' });
-  const from = Nav.nearestNode(0, 0, -6), to = Nav.nearestNode(0, 2, 5), options = BotMove.options[bot];
+  // The bot's own limits, without the danger costs its last path request (a match before this one) left in its options.
+  const from = Nav.nearestNode(0, 0, -6), to = Nav.nearestNode(0, 2, 5), options = Object.assign({}, BotMove.options[bot], { danger: null, avoid: null });
   check('a Modern bot (jump 0.83 m, mantle 2.2 m) plans the 2 m mantle link onto a crate', Move.preset(bot).id === 'modern' && Nav.findPath(from, to, options) > 0
     && Nav.nodeY[Nav.pathNodes[Nav.pathLength - 1]] > 1.5, 'jump limit ' + options.allowJumpHeight.toFixed(2) + ' m');
   endBotTest();

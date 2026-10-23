@@ -200,7 +200,7 @@ Test.add('pve', (check) => withShortShop(() => {
   Pve.damageCore(1e6, -1);
   runSeconds(0.5);
   const results = Game.match.results;
-  check('a destroyed core loses the run', !Modes.active && results && results.reason === PVE_LOSE && results.winner === DRAW, results && results.reason);
+  check('a destroyed core loses the run', !Modes.active && results && results.reason === PVE_LOSE && results.winner === PVE_LOST, results && results.reason);
   endModeTest();
   const retry = startPveMode('horde', [0]);
   runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 10);
@@ -209,6 +209,19 @@ Test.add('pve', (check) => withShortShop(() => {
   const run = Modes.behaviour.run;
   check('with checkpoints the wave restarts (retries 2)', Modes.active && run.retriesLeft === 1 && Pve.core.health > 0 && run.wave === 0, run.retriesLeft + ' ' + run.wave);
   check('the participants stand at the checkpoint', Actors.alive[retry[0]] === 1);
+  endModeTest();
+}));
+
+// A lost co-op run reads as a loss, not a draw: on the results screen (PlayFlow.outcome) and for the adaptive shift (14a).
+Test.add('pve', (check) => withShortShop(() => {
+  startPveMode('horde', [], {}, { difficulty: 'ascendant', player: { name: 'Tester', team: 0 } });
+  runUntil(() => Modes.behaviour.run.state === PVE_WAVE_STATE.FIGHT, 10);
+  Pve.damageCore(1e6, -1);
+  runSeconds(0.5);
+  const results = Game.match.results;
+  check('a lost run is not a draw', !!results && !results.draw && results.reason === PVE_LOSE, results && results.winner);
+  check('the results screen calls it a loss', !!results && PlayFlow.outcome(results) === 'loss', results && PlayFlow.outcome(results));
+  check('the adaptive shift reads it as a loss', !!results && matchOutcome(results, Game.playerId) === -1, results && matchOutcome(results, Game.playerId));
   endModeTest();
 }));
 
@@ -324,6 +337,20 @@ Test.add('pve', (check) => {
   Game.stop();
 });
 
+// M23: a bot carrying motes goes to its bank and deposits them (the 'bank' planner).
+Test.add('pve', (check) => {
+  World.load(pveTestMap({ spawns: PVE_HOME.concat([{ x: 30, y: 0, z: 30, yaw: 0, team: 1 }]) }));
+  Game.start({ mode: 'bank', seed: 1, bots: [{ tier: 3, team: 0 }, { dummy: true, team: 1 }], difficulty: 'regular' });
+  const bot = 0, bank = BankRun.banks[0];
+  Modes.endProtection(bot);
+  Actors.flags[bot] |= ACTOR_FLAG.GOD;
+  placeActor(bot, bank.x + 15, bank.z + 10);
+  BankRun.carried[bot] = PVE_BANK.carryMax;
+  runUntil(() => BankRun.banked[0] > 0, 15, () => Pve.clearEnemies());
+  check('a bot with a full load of motes banks it', BankRun.banked[0] >= PVE_BANK.carryMax && BankRun.carried[bot] === 0, BankRun.banked[0] + ' banked, goal ' + BotDecide.goal[bot]);
+  Game.stop();
+});
+
 // M23: kills of your own side's PvE give motes, banking scores and sends blockers, 100 banked summons the boss, its kill wins.
 Test.add('pve', (check) => {
   const [blue, red] = startPveMode('bank', [0, 1], { spawns: PVE_HOME.concat([{ x: 30, y: 0, z: 30, yaw: 0, team: 1 }]) });
@@ -425,7 +452,11 @@ Test.add('pve', (check) => {
 Test.add('pve', (check) => {
   const hints = [{ kind: 'dummy', x: 0, y: 0, z: 12 }, { kind: 'dummy', x: 4, y: 0, z: 12 }, { kind: 'dummy', x: -4, y: 0, z: 12 }];
   World.load(pveTestMap({ spawns: [{ x: 0, y: 0, z: 0, yaw: 0, modes: ['range'] }], navHints: hints }));
+  const announced = startEventLog('announce');
   Game.start({ mode: 'range', seed: 1, bots: [{ dummy: true }], difficulty: 'regular' });
+  announced.stop();
+  check('the range explains its drill and how to leave at the start', announced.some((event) => event.text === RANGE_INTRO_TEXT && event.text.includes(String(PVE_RANGE.drillTargets)) && event.text.includes('Pause > Quit to menu')),
+    announced.map((event) => event.text).join(' | '));
   const shooter = 0;
   Modes.endProtection(shooter);
   runSeconds(0.2);
@@ -443,6 +474,10 @@ Test.add('pve', (check) => {
   hitEnemy(shooter, target, 2, 'splash', 'body');
   hitEnemy(shooter, target, 2, 'dot', 'body');
   check('six pellets, a splash and a burn of one shot count one hit', RangeRun.hits === 2 && RangeRun.shots === shotsBefore + 2, RangeRun.hits + ' / ' + RangeRun.shots);
+  Bus.emit('weapon.fire', { id: shooter, weapon: 'ramjet', weaponClass: 'launcher', mode: 'primary', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
+  hitEnemy(shooter, target, 20, 'splash', 'body');
+  check('a rocket landing beside a dummy is a hit, as the scoreboard and challenge points count it', RangeRun.hits === 3 && SCOREBOARD_HIT_KINDS.every((kind) => ACCURACY_HIT_KINDS.includes(kind)),
+    RangeRun.hits + ' / ' + RangeRun.shots);
   runSeconds(0.05);
   check('accuracy never passes 100%', PVE_HUD.accuracy > 0 && PVE_HUD.accuracy <= 1, PVE_HUD.accuracy);
   runUntil(() => RangeRun.drills >= 2, 120, () => { Actors.health[shooter] = Actors.maxHealth[shooter]; killAllEnemies(shooter); });
@@ -715,6 +750,10 @@ Test.add('pve', (check) => {
   const tagged = (key) => rings.some((mesh) => colorMatches(mesh, PVE_CHAMPIONS[championIndex(key)].glow));
   check('champions stand on a ring in their tag colour', tagged('unstoppable') && tagged('barrier'));
   check('a coloured shield is drawn in its element colour', !!element && rings.filter((mesh) => colorMatches(mesh, element.color)).length === PVE_SHELL_HEIGHTS.length);
+  Actors.shield[shielded] = 0;
+  Pve.stagger(shielded, PVE_DIRECTOR.staggerSeconds, STAGGER_CAUSE.PARRY);
+  runSeconds(PVE_DIRECTOR.staggerSeconds / 2);
+  check('a staggered barrier champion regrows no shield (stunned)', Actors.shield[shielded] === 0, Actors.shield[shielded]);
   Game.stop();
 });
 
@@ -827,6 +866,11 @@ Test.add('pve', (check) => {
   Pve.nextThink[survivor] = Sim.time;
   Sim.run(1);
   check('survivors of a 75% loss fall back while reinforcements wait', Pve.goal[survivor] === PVE_GOAL.FALLBACK && Pve.goalZ[survivor] === Pve.homeZ[survivor], Pve.goal[survivor]);
+  Actors.flags[0] |= ACTOR_FLAG.GOD;
+  Actors.x[0] = Actors.x[survivor]; Actors.z[0] = Actors.z[survivor] - PVE_DIRECTOR.fallbackFightRange + 4;   // a foe in close reach, in view
+  const attacksBefore = Pve.stats.attacks;
+  runUntil(() => Pve.stats.attacks > attacksBefore, 5, () => { Pve.peakAt = Sim.time; });
+  check('a falling-back enemy still fires at a foe in close reach', Pve.stats.attacks > attacksBefore, Pve.stats.attacks - attacksBefore);
   Pve.queue.count = 0;
   Pve.nextThink[survivor] = Sim.time;
   Sim.run(1);
@@ -1048,6 +1092,24 @@ Test.add('pvesoak', (check) => {
     cleared + ' cleared, ' + (results && results.reason));
   check('no wave fights longer than ' + PVE_SOAK_WAVE_MINUTES + ' minutes', seconds.length === cleared && Math.max(...seconds) < PVE_SOAK_WAVE_MINUTES * 60, seconds.join(' ') + ' s');
   endModeTest();
+}, { slow: true });
+
+// ai-04: the PvE team modes with bots on their maps (the map soaks play them in free-for-all): bots are stuck under
+// SOAK_STUCK_LIMIT of the time (Cistern's gate walls once left a notch at the hall corners that bots snagged on) and play
+// the objective (Mote Rush banks motes, Attrition scores).
+const PVE_TEAM_SOAKS = [{ mode: 'bank', map: 'cistern' }, { mode: 'attrition', map: 'harbor' }], PVE_TEAM_SOAK_SEEDS = [1, 2];
+const PVE_TEAM_SOAK_MINUTES = 3, PVE_TEAM_SOAK_BOTS = 8;
+Test.add('pvesoak', (check) => {
+  for (const soak of PVE_TEAM_SOAKS) for (const seed of PVE_TEAM_SOAK_SEEDS) {
+    let banked = 0;
+    const stats = playMatch({ mode: soak.mode, map: soak.map, minutes: PVE_TEAM_SOAK_MINUTES, botCount: PVE_TEAM_SOAK_BOTS, seed, difficulty: 'regular',
+      probe: () => { banked = BankRun.banked[0] + BankRun.banked[1]; } });
+    const name = soak.mode + ' on ' + soak.map + ' (seed ' + seed + ')', text = name + ': ' + JSON.stringify(stats) + ', banked ' + banked;
+    check(name + ': no NaN, stuck under ' + SOAK_STUCK_LIMIT * 100 + '% of the time', stats.nan === 0 && stats.stuckFraction < SOAK_STUCK_LIMIT, text);
+    check(name + ': nobody stuck > 6 s', stats.maxStuck <= STUCK_GIVE_UP, text);
+    if (soak.mode === 'bank') check(name + ': bots bank motes', banked > 0, text);
+    else check(name + ': bots score kills', stats.kills > 0, text);
+  }
 }, { slow: true });
 
 // ---- P08 audit pass (pve-01..15) ----

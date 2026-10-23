@@ -15,7 +15,7 @@ const MAP_WATER_TANK = mapSpillProp('water');
 // MP07 Cistern - a square tank: the core room in the middle, four spawn gates (one per side), pump platforms west and east.
 const cisternWest = {                                                                                // west gate and pump platform, mirrored east
   brushes: [
-    ...MapKit.wall('concrete', 'z', -33, 1.5, -5, 5, 0, 5, [[0, 4, 3.4]]),                           // gate wall with a door
+    ...MapKit.wall('concrete', 'z', -33, 1.5, -5.5, 5.5, 0, 5, [[0, 4, 3.4]]),                       // gate wall with a door (flush with the hall walls: no notch to snag on)
     ['concrete', -40, 0, 4.5, -33, 5, 5.5], ['concrete', -40, 0, -5.5, -33, 5, -4.5],                // gate hall side walls
     ['metal', -28, 0, -8, -22, 3, 8], ['metal', -28, 0, -16, -22, 3, -8, '+z'],                      // pump platform and its ramp
     ['grip', -22, 0, 2, -21.8, 3, 6], ['grip', -22, 0, -6, -21.8, 3, -2],                           // grip panels beside the ladder (MV05 climb walls)
@@ -30,7 +30,7 @@ const cisternWest = {                                                           
 };
 const cisternNorth = {                                                                               // north gate, mirrored south
   brushes: [
-    ...MapKit.wall('concrete', 'x', 33, 1.5, -5, 5, 0, 5, [[0, 4, 3.4]]),
+    ...MapKit.wall('concrete', 'x', 33, 1.5, -5.5, 5.5, 0, 5, [[0, 4, 3.4]]),
     ['concrete', 4.5, 0, 33, 5.5, 5, 40], ['concrete', -5.5, 0, 33, -4.5, 5, 40],
   ],
   spawns: [[1, MAP_PVE_MODES, [[-2, 0, 38, 180], [2, 0, 38, 180], [0, 0, 36, 180]]]],
