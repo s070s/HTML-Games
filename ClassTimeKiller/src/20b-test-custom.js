@@ -13,6 +13,18 @@ function richDraft() {
 function codeWith(object) { return CustomCodec.pack(object); }
 function customRandomBytes(random, length, alphabet) { return Uint8Array.from({ length }, () => random.int(0, alphabet - 1)); }
 
+// R-157: every new match seed (custom, editor test play, generated map) comes from one recipe, newSeed (S02).
+Test.add('custom', (check) => {
+  const savedRandom = Math.random, saved = MapGenMenu.state.seed;
+  Math.random = () => 0.25;
+  try {
+    const expected = newSeed(() => 0.25);
+    MapGenMenu.newSeed();
+    check('seeds: custom matches and generated maps draw newSeed', expected === Math.floor(0.25 * SEED_RANGE) && CustomMatch.setup(CustomMatch.defaults()).seed === expected
+      && MapGenMenu.state.seed === expected, MapGenMenu.state.seed);
+  } finally { Math.random = savedRandom; MapGenMenu.state.seed = saved; }
+});
+
 Test.add('custom', (check) => {
   const random = makeRandom(77);
   let roundTrips = 0, tried = 0;

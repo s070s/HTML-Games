@@ -17,7 +17,6 @@ const MAPEDIT_CODE_FORMAT = shareCodeFormat(MAPEDIT_CODE_PREFIX, MAPEDIT_CODE_VE
 const MAPEDIT_LEGACY_CODE_PREFIX = 'CTKMAP';
 const MAPEDIT_LEGACY_CODE_VERSION = 1;
 const MAPEDIT_LEGACY_CODE_FORMAT = shareCodeFormat(MAPEDIT_LEGACY_CODE_PREFIX, MAPEDIT_LEGACY_CODE_VERSION, MAPEDIT_LEGACY_CODE_VERSION, MAPEDIT_CODE_MAX_CHARS, MAPEDIT_CODE_MAX_BYTES, 'map');
-const MAPEDIT_PLAY_SEED_RANGE = 99999;
 const MAPEDIT_KIND_CHANGE_TURNS = 1;         // a trigger whose kind is changed in the panel gets its far end towards +x
 // Parts of the editor screen a change of the model has to redraw (see MapEditorUi.mark).
 const MAPEDIT_PART_TOP = 1, MAPEDIT_PART_PALETTE = 2, MAPEDIT_PART_PROPERTIES = 4, MAPEDIT_PART_DIALOG = 8;
@@ -341,7 +340,7 @@ const MapEditorPlay = {
   returnDue: false,                     // a match stopped while returning: settle decides whether it was the last one
   testPlay(modeId) {
     if (!MapEditorTools.playableModes().includes(modeId)) return MapEditor.refuse('This map has no objectives or spawns for that mode.') >= 0;
-    const setup = CustomMatch.setup(CustomMatch.validate({ mode: modeId }).draft, Math.floor(performance.now()) % MAPEDIT_PLAY_SEED_RANGE);
+    const setup = CustomMatch.setup(CustomMatch.validate({ mode: modeId }).draft, newSeed());
     setup.map = MapEditor.toMap();
     this.returning = true;
     MapEditorTools.detach();

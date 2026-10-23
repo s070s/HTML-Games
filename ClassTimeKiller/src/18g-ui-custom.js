@@ -14,7 +14,6 @@ const EDITOR_PAYLOAD_MAX_BYTES = 16384;
 const EDITOR_DEFAULT = -1;                    // numeric fields: -1 = the mode's / bundle's own default
 const EDITOR_PERSONALITY_MIXED = 'mixed';
 const EDITOR_LIST_MUTATOR = 'weaponset';      // the Weapons tab list travels as this mutator
-const EDITOR_SEED_RANGE = 0x7fffffff;
 const LZ_MAX_RUN = 128, LZ_MIN_MATCH = 3, LZ_MAX_MATCH = 130, LZ_MAX_OFFSET = 65535, LZ_MATCH_FLAG = 0x80;
 const EDITOR_SCORE_LIMITS = [-1, 0, 10, 25, 50, 100, 150, 200, 300, 500];
 const EDITOR_TIME_LIMITS = [-1, 0, 120, 300, 600, 900, 1200, 1800, 3600];
@@ -315,7 +314,7 @@ const CustomMatch = {
   },
   // draft -> Game.start setup. seed picks a random map when none is chosen; withPlayer false starts a spectator match.
   setup(draft, seed, withPlayer) {
-    const mode = CAT.modes.byId(draft.mode), matchSeed = seed === undefined ? Date.now() % EDITOR_SEED_RANGE : seed;
+    const mode = CAT.modes.byId(draft.mode), matchSeed = seed === undefined ? newSeed() : seed;
     const setup = { mode: mode.id, map: this.mapFor(draft, matchSeed), seed: matchSeed, mutators: this.matchMutators(draft), difficulty: this.difficultyOf(draft),
       bots: this.botList(draft, mode), modeOptions: this.modeOptions(draft, mode) };
     setup.ruleset = this.hasOverrides(draft) || draft.name ? Object.assign(this.rulesetFields(draft), { id: 'custom', name: draft.name || 'Custom match' }) : this.bundleOf(draft).id;

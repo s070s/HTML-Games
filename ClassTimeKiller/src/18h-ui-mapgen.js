@@ -25,10 +25,10 @@ const MapGenMenu = {
     const generator = MapGen.generator(this.state.generator);
     if (key === 'generator' && !generator.modes.includes(this.state.mode)) this.state.mode = MAPGEN_MENU_ANY_MODE;
   },
-  newSeed() { this.set('seed', hashString('seed:' + Date.now()) % MAPGEN_SEED_RANGE); },
+  newSeed() { this.set('seed', newSeed()); },
   setSeedText(text) {
     if (!/^\d{1,10}$/.test(String(text).trim())) return false;
-    this.set('seed', Number(text) % MAPGEN_SEED_RANGE);
+    this.set('seed', Number(text) % SEED_RANGE);
     return true;
   },
   // The sizes the quality tier allows (13.4 size cap).

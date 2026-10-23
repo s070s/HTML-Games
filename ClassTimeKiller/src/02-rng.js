@@ -8,6 +8,10 @@ function hashString(text) { // 32-bit FNV-1a, used to turn seeds and names into 
   return hash >>> 0;
 }
 
+// Match and map seeds are whole numbers below SEED_RANGE; newSeed draws a fresh one (random: a 0..1 source, Math.random by default).
+const SEED_RANGE = 0x7fffffff;
+function newSeed(random) { return Math.floor((random || Math.random)() * SEED_RANGE); }
+
 function makeRandom(seed) {
   // The four state words live in an Int32Array: as closure variables, words above 2^31 would be boxed on the heap on
   // every draw (PERF-006). Same bits as unsigned words, so every seed gives the same numbers as before.
