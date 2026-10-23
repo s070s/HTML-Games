@@ -1079,6 +1079,33 @@ Test.add('pve', (check) => withShortShop(() => {
   endModeTest();
 }));
 
+// bots-01: an enemy gate in a walled corner. The spawn jitter and a swarm's spiral once put mites inside Cistern's gate-hall
+// wall, out of everyone's reach, and the wave never cleared; a wave's last enemy stuck in a wall moves out at the hunt ping.
+const PVE_CORNER_WALLS = [{ shape: 'box', min: [41, 0, 30], max: [46, 4, 46] }, { shape: 'box', min: [30, 0, 41], max: [46, 4, 46] }];
+function enemiesInWalls() {
+  const inside = [];
+  for (let id = 0; id < Actors.count; id++) if (Pve.isHostile(id) && !pveStandsAt(Actors.x[id], Actors.y[id], Actors.z[id])) inside.push(id + '@' + Actors.x[id].toFixed(1) + ',' + Actors.z[id].toFixed(1));
+  return inside;
+}
+Test.add('pve', (check) => {
+  startPveMode('horde', [0], { spawns: PVE_HOME.concat([PVE_ENEMY_GATES[0]]), brushes: [TEST_FLOOR].concat(PVE_CORNER_WALLS) });
+  const mite = CAT.enemies.byId('mite'), inside = [], run = Modes.behaviour.run;
+  let spawned = 0;
+  for (let swarm = 0; swarm < 4; swarm++) {
+    Pve.clearEnemies();
+    if (Pve.spawnQueued(mite, NO_TEAM, 1, -1, 1)) spawned += Pve.aliveCount();
+    inside.push(...enemiesInWalls());
+  }
+  check('every member of a swarm at a walled gate spawns where it can stand', spawned === 4 * mite.group && inside.length === 0, spawned + ' spawned, in walls: ' + inside.join(' '));
+  Pve.clearEnemies();
+  const last = Pve.spawnEnemy(mite, 30, 0, 30, 0);
+  relocateActor(last, 42, 0, 42, 0);   // inside the corner block (Cistern's mite stayed in its wall for minutes)
+  run.state = PVE_WAVE_STATE.FIGHT;    // this step hunts and pings it
+  Modes.behaviour.step(TICK_SECONDS, Sim.time);
+  check('a last enemy stuck in a wall moves out where the bots can reach it', enemiesInWalls().length === 0 && Actors.x[last] < 41 && Actors.z[last] < 41, Actors.x[last] + ',' + Actors.z[last]);
+  endModeTest();
+});
+
 // Soak (backs up the two blocks above): Siege Waves on Cistern with an idle player and three bots never stalls in a wave.
 const PVE_SOAK_MINUTES = 40, PVE_SOAK_WAVE_MINUTES = 6;
 Test.add('pvesoak', (check) => {

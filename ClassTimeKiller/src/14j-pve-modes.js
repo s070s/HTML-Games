@@ -282,7 +282,7 @@ function endEncounter(run) {
 }
 // NPC-007: the last few enemies of a wave (nothing queued) are marked for the player every tick (pveHunted, 17d) and pinged to
 // the co-op bots every few seconds, so both hunt them instead of waiting for them. A ping is memory, not sight (BotSense.share):
-// no shots through walls.
+// no shots through walls. Each ping also frees an enemy stuck inside a wall (bots-01: out of reach, it kept the wave from clearing).
 function huntLastEnemies(run, now) {
   const ping = now >= run.huntAt;
   if (ping) run.huntAt = now + PVE_WAVE_RULES.huntPingSeconds;
@@ -290,7 +290,9 @@ function huntLastEnemies(run, now) {
   for (let enemy = 0; enemy < Actors.count; enemy++) {
     if (!Pve.isHostile(enemy)) continue;
     pveHunted.push(enemy);
-    if (ping) pingToBots(enemy, now);
+    if (!ping) continue;
+    Pve.unstick(enemy);
+    pingToBots(enemy, now);
   }
 }
 function pingToBots(enemy, now) {
