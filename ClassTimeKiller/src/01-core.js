@@ -40,6 +40,7 @@ const length3 = (x, y, z) => Math.sqrt(x * x + y * y + z * z);
 const distanceSquared3 = (ax, ay, az, bx, by, bz) => { const dx = bx - ax, dy = by - ay, dz = bz - az; return dx * dx + dy * dy + dz * dz; };
 // A player-typed name or label: control characters and angle brackets removed, trimmed, cut to `limit` characters.
 const cleanLabel = (text, limit) => String(text).replace(/[\u0000-\u001f<>]/g, '').trim().slice(0, limit);
+const LABEL_MAX = 40;   // characters in a saved name (custom rulesets and presets, maps)
 
 const Vec = {
   make: (x = 0, y = 0, z = 0) => ({ x, y, z }),

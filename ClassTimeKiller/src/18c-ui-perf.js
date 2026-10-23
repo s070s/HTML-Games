@@ -2,7 +2,6 @@
 // DOM text panel refreshed 4 times a second while visible (nothing is touched while hidden). F10 toggles it, F9 toggles
 // Ui.botDebug, a four-finger tap toggles both (ARC-040). Reads Perf (S19) and Sim.timing at runtime only: the loop starts after every section has loaded.
 
-const PERF_REFRESH_MS = 250;
 const PERF_ERROR_LINES = 3;
 const PERF_ERROR_CHARS = 110;
 const PERF_SYSTEMS_SHOWN = 5;
@@ -32,7 +31,7 @@ const PerfOverlay = {
     }
     if (!this.shown) return;
     const now = performance.now();
-    if (now - this.lastUpdate < PERF_REFRESH_MS) return;
+    if (now - this.lastUpdate < UI_REFRESH_MS) return;
     this.lastUpdate = now;
     this.render(Perf.stats());
   },

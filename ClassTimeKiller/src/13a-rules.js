@@ -8,7 +8,6 @@ const DEFAULT_MODE = 'ffa';
 const DEFAULT_DIFFICULTY = 'regular';
 const MAX_CUSTOM_RULESETS = 50;          // MOV-002
 const CUSTOM_RULESET_PREFIX = 'custom-';
-const CUSTOM_NAME_MAX = 40;
 const HANDICAP_MIN = 0.25;               // X22: 25-100% damage dealt
 const HANDICAP_MAX = 1;
 const PRECISIONS = ['arena', 'standard', 'tactical', 'hero'];
@@ -82,7 +81,7 @@ const Rules = {
     get(id) { return this.list().find((row) => row.id === id) || null; },
     // Stores a copy of the known ruleset fields; returns the stored row, or null with lastError set.
     save(ruleset) {
-      const name = String(ruleset && ruleset.name || '').trim().slice(0, CUSTOM_NAME_MAX);
+      const name = cleanLabel(ruleset && ruleset.name || '', LABEL_MAX);
       if (!name) return this.fail('A custom ruleset needs a name.');
       const list = this.list();
       const existing = ruleset.id ? list.findIndex((row) => row.id === ruleset.id) : -1;

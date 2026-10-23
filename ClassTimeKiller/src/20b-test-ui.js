@@ -495,7 +495,7 @@ Test.add('ui', (check) => uiWith(() => {
   PerfOverlay.element.textContent = 'marker';
   PerfOverlay.frame();
   check('perf HUD: refreshes only 4 times a second', PerfOverlay.element.textContent === 'marker');
-  PerfOverlay.lastUpdate = performance.now() - PERF_REFRESH_MS - 1;
+  PerfOverlay.lastUpdate = performance.now() - UI_REFRESH_MS - 1;
   PerfOverlay.frame();
   check('perf HUD: refreshes after 250 ms', PerfOverlay.element.textContent !== 'marker');
   check('perf HUD: never blocks taps', getComputedStyle(PerfOverlay.element).pointerEvents === 'none');

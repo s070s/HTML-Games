@@ -103,7 +103,7 @@ const MapEditorUi = {
   },
   nameInput(value, onChange) {
     const input = makeElement('input', 'me-name');
-    input.type = 'text'; input.value = value; input.maxLength = MAPEDIT_NAME_MAX;
+    input.type = 'text'; input.value = value; input.maxLength = LABEL_MAX;
     input.addEventListener('change', () => onChange(input.value));
     return input;
   },

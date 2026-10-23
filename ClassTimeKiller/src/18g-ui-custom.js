@@ -5,7 +5,6 @@
 // The pure model (CustomCodec, CustomMatch) has no DOM and is what the self-test drives; the screens below it only call the model.
 // Contract: docs/api/mutators-custom.md.
 
-const EDITOR_NAME_MAX = 40;
 const EDITOR_BOTS_MAX = 23;                  // the highest bot cap of any quality preset (PERF-009)
 const EDITOR_CODE_PREFIX = 'CTK';
 const EDITOR_CODE_VERSION = 1;
@@ -162,7 +161,7 @@ function difficultySlidersCheck(value) {
 }
 
 const EDITOR_FIELD_CHECKS = {
-  name: (value) => (typeof value === 'string' ? cleanLabel(value, EDITOR_NAME_MAX) : undefined),
+  name: (value) => (typeof value === 'string' ? cleanLabel(value, LABEL_MAX) : undefined),
   mode: (value) => (isToken(value) && CAT.modes.byId(value) && Modes.isPlayable(value) ? value : undefined),
   map: isBlankOr((value) => !!CAT.maps && isToken(value) && !!Maps.get(value)),
   bundle: isBlankOr((value) => RULESET_ROWS.some((row) => row.id === value)),
@@ -639,7 +638,7 @@ Ui.register('customPresets', {
     head.appendChild(Ui.button('Back', () => Ui.back()));
     head.appendChild(makeElement('h1', 'ui-title', 'Saved Presets'));
     const nameInput = makeElement('input', 'cm-name');
-    nameInput.type = 'text'; nameInput.maxLength = EDITOR_NAME_MAX; nameInput.placeholder = 'Preset name';
+    nameInput.type = 'text'; nameInput.maxLength = LABEL_MAX; nameInput.placeholder = 'Preset name';
     nameInput.value = editorDraft().name;
     const count = makeElement('p', 'ui-sub'), list = makeElement('div', 'ui-scroll');
     const renderList = () => {

@@ -4,7 +4,6 @@
 // 'loadout': classes and custom classes (ECP04), the hero (ECP05) and ability kit choices, stored by S13 Loadouts.
 // Every control is a Ui button or cycle, so mouse, keyboard, gamepad (focus navigation) and touch all work.
 
-const BUY_REFRESH_MS = 250;
 const BUY_HOTKEY_COUNT = 9;
 const BUY_CSS = '.ui-buy .ui-panel { width: min(680px, 100%); max-height: 100%; display: flex; flex-direction: column; }'
   + '.buy-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 8px; overflow-y: auto; min-height: 0; touch-action: pan-y; }'
@@ -113,7 +112,7 @@ const BuyMenu = {
   },
   open() {
     this.openedWhileBuying = Economy.canBuy(Game.playerId);
-    this.timer = setInterval(() => this.tick(), BUY_REFRESH_MS);
+    this.timer = setInterval(() => this.tick(), UI_REFRESH_MS);
   },
   close() { clearInterval(this.timer); this.entries.length = 0; },
 };

@@ -8,7 +8,6 @@ const MAPEDIT_BUDGET = 400;                              // MAP-014: placed obje
 const MAPEDIT_HISTORY_SIZE = 128;                        // undo steps kept; the ring never grows past this
 const MAPEDIT_MAX_MAPS = 20;                             // saved maps
 const MAPEDIT_SAFE_SAVE_BYTES = Math.floor(SAVE_MAX_BYTES * 0.9);   // a save that would pass this is refused (the whole save stays under 1 MB, ARC-020)
-const MAPEDIT_NAME_MAX = 40;
 const MAPEDIT_BLURB_MAX = 200;
 const MAPEDIT_ID_PREFIX = 'user';
 const MAPEDIT_DRAFT_ID = 'draft';
@@ -51,7 +50,7 @@ const mapEditNamesZone = (text, name) => text.includes('zone ' + name + ' ') || 
 const mapEditClone = (value) => JSON.parse(JSON.stringify(value));
 const mapEditFinite = (value) => typeof value === 'number' && isFinite(value) && Math.abs(value) <= MAPEDIT_COORD_LIMIT;
 const mapEditTriple = (value) => Array.isArray(value) && value.length === 3 && value.every(mapEditFinite);
-const mapEditNameOf = (text) => cleanLabel(text || '', MAPEDIT_NAME_MAX);
+const mapEditNameOf = (text) => cleanLabel(text || '', LABEL_MAX);
 const mapEditAdd3 = (point, dx, dy, dz) => { point[0] += dx; point[1] += dy; point[2] += dz; };
 
 // A quarter turn of a point around (cx, cz): the same direction as '+z' -> '+x' and spawn yaw + 90.
@@ -675,8 +674,8 @@ const mapEditPropIs = (prop) => isPlainObject(prop) && mapEditTriple(prop.min) &
   && [prop.health, prop.mass, prop.debris].every(mapEditOptionalNumber) && (prop.color === undefined || mapColorIs(prop.color))
   && (prop.material === undefined || MapRules.materials.includes(prop.material));
 const MAPEDIT_DEF_LISTS = ['brushes', 'spawns', 'items', 'objectives', 'zones', 'triggers', 'lights', 'hints'];
-const mapEditText = (value, fallback, limit) => (typeof value === 'string' ? value.slice(0, limit || MAPEDIT_NAME_MAX) : fallback);
-const mapEditStrings = (list) => list.every((entry) => typeof entry === 'string' && entry.length <= MAPEDIT_NAME_MAX);
+const mapEditText = (value, fallback, limit) => (typeof value === 'string' ? value.slice(0, limit || LABEL_MAX) : fallback);
+const mapEditStrings = (list) => list.every((entry) => typeof entry === 'string' && entry.length <= LABEL_MAX);
 const mapEditOptionalNumber = (value) => value === undefined || mapEditFinite(value);
 const mapEditOptionalText = (value) => value === undefined || typeof value === 'string';
 // A copy of an object with only the listed keys, in their own order (a key such as __proto__ never survives).
