@@ -139,6 +139,7 @@ const Input = {
   padToggleRule: null,     // fn(actionId) -> 0: a controller press holds, 1: toggles, 2: toggles and a press while on is a new press. Filled by S10 (sprint)
   usePrompts: [],          // fn(id) -> what holding Use does right now ('HOLD TO PLANT'), '' = nothing: the HUD adds the key (17d). Later sections push
   pulsing: false,          // inside pulseAction
+  holding: false,          // inside holdAction
   padStyle: 'letters',     // glyph family of the active pad: 'letters' (A B X Y), 'shapes' (cross, circle...) or 'generic'
   uiOpen: false,           // set by the UI: a menu is open, game actions are ignored
   locked: false,           // pointer lock held
@@ -299,11 +300,13 @@ const Input = {
   },
   // A tap (tap-to-fire, wheel notch) never latches a toggled button action on; a toggled screen action (the scoreboard) still flips.
   pulseAction(index) { this.pulsing = true; this.pressAction(index); this.releaseAction(index); this.pulsing = false; },
+  // A plain hold whatever the Hold/Toggle setting says (the touch stick's full push sprints only while pushed).
+  holdAction(index, down) { this.holding = true; if (down) this.pressAction(index); else this.releaseAction(index); this.holding = false; },
   // A controller press of a padToggle row (L3 sprint) follows its own setting, then padToggleRule; every other press follows toggleMode.
   padRule(index) { return this.padToggleMode[index] && this.padToggleRule ? this.padToggleRule(ACTION_ROWS[index].id) : this.padToggleMode[index]; },
   toggleRuleNow(index) {
     const row = ACTION_ROWS[index];
-    if (this.pulsing && row.button) return 0;
+    if (this.holding || (this.pulsing && row.button)) return 0;
     return this.padPress && row.padToggle ? this.padRule(index) : this.toggleMode[index];
   },
   risingEdge(index) {

@@ -708,6 +708,13 @@ Test.add('input', (check) => {
   TouchInput.stickSprints = () => true; TouchInput.updateSprint(1);
   check('touch: a full stick push sprints elsewhere', TouchInput.stick.sprinting);
   TouchInput.updateSprint(0);
+  // The stick's sprint is a hold: the keyboard's Sprint Toggle setting must not latch it on.
+  setInputSetting('controls.toggle.sprint', 'toggle');
+  TouchInput.updateSprint(1);
+  const pushed = Input.effective[Input.actionIndex.sprint];
+  TouchInput.updateSprint(0);
+  check('touch: the stick sprint stops on release with Sprint set to Toggle', pushed === 1 && Input.effective[Input.actionIndex.sprint] === 0);
+  setInputSetting('controls.toggle.sprint', 'hold');
   TouchInput.stickSprints = stickSprints;
 });
 

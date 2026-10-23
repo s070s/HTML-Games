@@ -289,8 +289,8 @@ const TouchInput = {
   },
   updateSprint(push) {
     const stick = this.stick, index = Input.actionIndex.sprint;
-    if (!stick.sprinting && push > TOUCH_SPRINT_ON && (!this.stickSprints || this.stickSprints())) { stick.sprinting = true; Input.pressAction(index); }
-    else if (stick.sprinting && push < TOUCH_SPRINT_OFF) { stick.sprinting = false; Input.releaseAction(index); }
+    if (!stick.sprinting && push > TOUCH_SPRINT_ON && (!this.stickSprints || this.stickSprints())) { stick.sprinting = true; Input.holdAction(index, true); }
+    else if (stick.sprinting && push < TOUCH_SPRINT_OFF) { stick.sprinting = false; Input.holdAction(index, false); }
   },
   endStick() {
     const stick = this.stick;
