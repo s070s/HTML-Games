@@ -1,5 +1,6 @@
 // ==== S20 SELF-TEST ====
-// Test.add(group, fn, options) registers a block; fn(check) calls check(name, ok, detail). A throwing block becomes one failed check (ARC-030).
+// Test.add(group, fn, options) registers a block; fn(check) calls check(name, ok, detail), or check.skip(name, reason) for a
+// check this engine cannot run (reported apart from the passes). A throwing block becomes one failed check (ARC-030).
 // Blocks run in registration order (file order). options.slow: a long soak that runs only with Test.run({ slow: true }) or
 // when its group is named (--slow / --group in tools/selftest.mjs), so the default suite stays quick. Each block gets a clean slate: no match, default seed, memory storage.
 // DebugApi becomes window.__CTK at boot (ARC-040); test files add their debug commands to it.
@@ -28,6 +29,8 @@ const Test = {
       if (block.slow && !settings.slow && !settings.group) continue;
       groups.add(block.group);
       const check = (name, ok, detail) => { results.push({ group: block.group, name, ok: !!ok, detail: ok ? '' : String(detail === undefined ? '' : detail) }); };
+      // A check this engine cannot run (no heap counter, no GPU timer): counted apart, never as a pass.
+      check.skip = (name, reason) => { results.push({ group: block.group, name, ok: true, skipped: true, detail: reason || '' }); };
       Test.isolate();
       const errorsBefore = ErrorLog.entries.length;
       try { await block.run(check); } catch (error) { check('block threw', false, error && error.stack ? String(error.stack).split('\n').slice(0, 3).join(' | ') : error); }
@@ -39,8 +42,9 @@ const Test = {
     Save.data = savedData; Save.storage = savedStorage; Maps.runtime = savedRuntimeMaps;
     Settings.applyAll();   // settings changed by the tests reach their listeners again
     Game.headless = wasHeadless;
-    const failed = results.filter((r) => !r.ok).length;
-    return { total: results.length, failed, groups: groups.size, results };
+    const failed = results.filter((r) => !r.ok).length, skipped = results.filter((r) => r.skipped).length;
+    const known = [...new Set(this.blocks.map((block) => block.group))];
+    return { total: results.length, failed, skipped, groups: groups.size, known, results };
   },
   // Clean state between blocks: stops any match, memory-only storage, fresh save, no runtime maps, default seed.
   isolate() {
