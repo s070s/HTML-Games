@@ -197,7 +197,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .tb[data-a=jump]{right:calc(5vmin + var(--tbs)*1.5);bottom:calc(8vmin + var(--tbs)*1.7)}
 .tb[data-a=dash]{right:calc(7vmin + var(--tbs)*2.8);bottom:calc(6vmin + var(--tbs)*1.35)}
 .tb[data-a=crouch]{left:calc(6vmin + max(30vmin,130px));bottom:5vmin}
-.tb[data-a=stance]{right:2vmin;top:calc(21vmin + var(--tbs)*.95)}.tb[data-a=pause]{right:2vmin;top:21vmin}
+.tb[data-a=pause]{right:2vmin;top:21vmin}
 @media (orientation:portrait){
  :root{--tbs:max(50px,15vw)}
  #stickBase{left:3vw;bottom:4vh;width:36vw;height:36vw}
@@ -207,7 +207,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
  .tb[data-a=grapple]{right:calc(5vw + var(--tbs)*1.45);bottom:calc(8vh + var(--tbs)*1.6)}
  .tb[data-a=jump]{right:calc(5vw + var(--tbs)*1.6);bottom:calc(10vh + var(--tbs)*2.6)}.tb[data-a=crouch]{left:3vw;bottom:calc(6vh + 36vw)}
  .tb[data-a=dash]{right:calc(3vw + var(--tbs)*.22);bottom:calc(8vh + var(--tbs)*2.5)}
- .tb[data-a=stance]{right:2vw;top:calc(26vw + var(--tbs)*.95)}.tb[data-a=pause]{right:2vw;top:26vw}
+ .tb[data-a=pause]{right:2vw;top:26vw}
 }
 /* ---------- overlays ---------- */
 #toast{position:absolute;left:50%;top:1em;transform:translateX(-50%);max-width:90vw;pointer-events:none;z-index:30}
@@ -458,8 +458,12 @@ const SETTINGS_REVISION = 2;
 const KEY_PROGRESS = 'breakpoint.v1.progress';
 const KEY_BINDINGS = 'breakpoint.v1.keys';
 // Revision 2 moved Strong / Height / Dash off Shift, Ctrl and Alt (browser shortcuts, Sticky Keys).
-const KEYS_REVISION = 2;
+// Revision 3 merged the left / right punch and kick keys into one Punch and one Kick.
+const KEYS_REVISION = 3;
+const MERGED_ATTACKS_REVISION = 3;
 const OLD_DEFAULT_KEYS = { strong: 'ShiftLeft', height: 'ControlLeft', dash: 'AltLeft' };
+const MERGED_ATTACKS = { punch: 'lp', kick: 'lk' };                                // new action: the old left-side action it replaces
+const OLD_ATTACK_DEFAULTS = [{ lp: 'KeyJ', lk: 'KeyU' }, { lp: 'Numpad4', lk: 'Numpad7' }];   // P1, P2
 
 function readJson(key) {
   const raw = Store.get(key);
@@ -533,27 +537,27 @@ const Settings = {
 };
 
 /* ---------- key bindings (remappable) ---------- */
-const ACTIONS = ['up', 'down', 'left', 'right', 'lp', 'rp', 'lk', 'rk', 'strong', 'height', 'blockHigh', 'blockLow', 'jump', 'crouch', 'grapple', 'dash', 'stance', 'pause'];
+const ACTIONS = ['up', 'down', 'left', 'right', 'punch', 'kick', 'strong', 'height', 'blockHigh', 'blockLow', 'jump', 'crouch', 'grapple', 'dash', 'pause'];
 const ACTION_LABELS = {
   up: 'Move toward opponent', down: 'Move away', left: 'Circle left', right: 'Circle right',
-  lp: 'Left punch (Square)', rp: 'Right punch (Triangle)', lk: 'Left kick (Cross)', rk: 'Right kick (Circle)',
+  punch: 'Punch (Square / Triangle)', kick: 'Kick (Cross / Circle)',
   strong: 'Strong modifier (L1)', height: 'Height modifier (L2)', blockHigh: 'High block (R1)', blockLow: 'Low block (R2)',
-  jump: 'Jump', crouch: 'Crouch', grapple: 'Grapple / escape', dash: 'Dash / quick recovery (L3)', stance: 'Switch stance (R3)', pause: 'Pause (Start)',
+  jump: 'Jump', crouch: 'Crouch', grapple: 'Grapple / escape', dash: 'Dash / quick recovery (L3)', pause: 'Pause (Start)',
 };
 const DEFAULT_KEYS = {
   up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
-  lp: ['KeyJ'], rp: ['KeyK'], lk: ['KeyU'], rk: ['KeyI'],
+  punch: ['KeyJ'], kick: ['KeyK'],
   strong: ['KeyL'], height: ['KeyO'], blockHigh: ['KeyQ'], blockLow: ['KeyE'],   // modifiers next to the attack keys; arrows / numpad stay free
-  jump: ['Space'], crouch: ['KeyC'], grapple: ['KeyG'], dash: ['KeyF'], stance: ['KeyR'], pause: ['Escape', 'KeyP'],
+  jump: ['Space'], crouch: ['KeyC'], grapple: ['KeyG'], dash: ['KeyF'], pause: ['Escape', 'KeyP'],
 };
 const FALLBACK_KEYS = ['KeyZ', 'KeyX', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'KeyF', 'KeyH', 'KeyT', 'KeyY', 'KeyO', 'KeyL', 'KeyP'];
-// Player 2 (Versus): arrows move, the numpad mirrors P1's right hand (kicks above punches, modifiers to the right).
+// Player 2 (Versus): arrows move, the numpad mirrors P1's right hand (punch, kick and Strong in a row, Height above Strong).
 const KEY_BINDINGS_P2 = 'breakpoint.v1.keys2';
 const DEFAULT_KEYS_P2 = {
   up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'],
-  lp: ['Numpad4'], rp: ['Numpad5'], lk: ['Numpad7'], rk: ['Numpad8'],
+  punch: ['Numpad4'], kick: ['Numpad5'],
   strong: ['Numpad6'], height: ['Numpad9'], blockHigh: ['Numpad1'], blockLow: ['Numpad2'],
-  jump: ['Numpad0'], crouch: ['NumpadDecimal'], grapple: ['Numpad3'], dash: ['NumpadAdd'], stance: ['NumpadSubtract'], pause: ['NumpadEnter'],
+  jump: ['Numpad0'], crouch: ['NumpadDecimal'], grapple: ['Numpad3'], dash: ['NumpadAdd'], pause: ['NumpadEnter'],
 };
 const FALLBACK_KEYS_P2 = ['NumpadMultiply', 'NumpadDivide', 'Comma', 'Period', 'Slash', 'Semicolon', 'Quote', 'BracketLeft', 'BracketRight', 'Backslash', 'Minus', 'Equal'];
 const BINDABLE_CODE = /^(Key[A-Z]|Digit\d|Numpad\w+|Arrow(Up|Down|Left|Right)|Space|Shift(Left|Right)|Control(Left|Right)|Alt(Left|Right)|Comma|Period|Slash|Semicolon|Quote|Bracket(Left|Right)|Backslash|Minus|Equal|Backquote|Backspace)$/;
@@ -573,7 +577,8 @@ class KeyBindings {
   init() {
     this.reset();
     const stored = readJson(this.storeKey);
-    if (stored && this.player === 1 && (stored.revision || 1) < KEYS_REVISION) this.migrate(stored);
+    if (stored && (stored.revision || 1) < MERGED_ATTACKS_REVISION) this.mergeAttackKeys(stored);
+    if (stored && this.player === 1 && (stored.revision || 1) < 2) this.migrate(stored);
     if (stored || this.player === 2) this.load(stored || this.bindings);   // P2's defaults may clash with keys P1 chose
   }
   /* Load saved bindings: keep only valid, unique codes (P2 never takes P1's main keys); give every action at least one key. */
@@ -605,6 +610,19 @@ class KeyBindings {
       if (!Array.isArray(list) || list.length !== 1 || list[0] !== OLD_DEFAULT_KEYS[action]) continue;
       const taken = ACTIONS.some((a) => a !== action && Array.isArray(stored[a]) && stored[a].includes(code));
       if (!taken) stored[action] = [code];
+    }
+  }
+  /* Saves from before the merge: a left punch / kick key the player chose becomes the Punch / Kick key;
+     one still on its old default takes the new default. */
+  mergeAttackKeys(stored) {
+    const oldDefaults = OLD_ATTACK_DEFAULTS[this.player - 1];
+    for (const action in MERGED_ATTACKS) {
+      const oldAction = MERGED_ATTACKS[action], list = stored[oldAction];
+      if (Array.isArray(stored[action]) || !Array.isArray(list)) continue;
+      const untouched = list.length === 1 && list[0] === oldDefaults[oldAction];
+      const newDefault = this.defaults[action][0];
+      const taken = ACTIONS.some((a) => a !== action && Array.isArray(stored[a]) && stored[a].includes(newDefault));
+      if (!untouched || taken) stored[action] = list;   // the new default already belongs to another action: keep the old key
     }
   }
   save() { Store.set(this.storeKey, JSON.stringify(Object.assign({ revision: KEYS_REVISION }, this.bindings))); }
@@ -666,9 +684,10 @@ function keyLabel(code) {
 
 /* ---------- progress (selective persistence) ---------- */
 const DEFAULT_UNLOCKED = ['kai', 'mara', 'brutus', 'yuki'];
+const CLINCH_TIP_CLINCHES = 3;   // a player's first clinches show the full clinch instructions, later ones a short cue
 const Progress = {
   d: null,
-  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: false }; },
+  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: false, clinchTips: 0 }; },
   init() {
     const base = this.fresh();
     const s = readJson(KEY_PROGRESS) || {};
@@ -682,6 +701,7 @@ const Progress = {
     base.survivalKills = num(s.survivalKills, 9999);
     base.survivalSeconds = num(s.survivalSeconds, 999999);
     base.seenControls = s.seenControls === true;   // the first-match controls card was shown
+    base.clinchTips = num(s.clinchTips, CLINCH_TIP_CLINCHES + 1);   // clinches a player has been in (counting stops once learned)
     if (Array.isArray(s.unlocked)) for (const id of s.unlocked) if (typeof id === 'string' && ['dmitri', 'zero'].includes(id) && !base.unlocked.includes(id)) base.unlocked.push(id);
     this.d = base;
   },
@@ -710,38 +730,44 @@ const PAD_CROUCH_TAP_MS = 200;
 const PAD_FLICK_ON = 0.65;
 const PAD_FLICK_OFF = 0.4;
 const PAD_JUMP_TAP_STRENGTH = 0.9;    // a stick tap must be pushed this far up to jump (a light tap is a step)
-const PAD_SELECT_HOLD_MS = 500;       // Select: tap = switch stance, hold = reset positions in Training
+const PAD_SELECT_HOLD_MS = 500;       // Select held this long = reset positions in Training
 const TOUCH_RUN_TICKS = 27;           // touch stick held fully toward the opponent this long = run
 const TOUCH_CHARGE_MS = 220;          // touch PUNCH / KICK held at least this long, then released = strong attack
-const TOUCH_STRING_SECONDS = 0.8;     // a second PUNCH / KICK within this time uses the other hand / foot
+const ATTACK_STRING_SECONDS = 0.8;    // a second Punch / Kick within this time uses the other hand / foot (every device)
 
-/* Touch has one PUNCH and one KICK button: this picks the hand or foot and the line, without the stick.
-   Hands and feet alternate within a string; the attack goes where it can land: body shots against a crouching
-   or low-guarding opponent (high attacks pass over them), low kicks under a high guard. */
+/* Every device has one Punch and one Kick: this picks the hand or foot. Hands and feet alternate within a string
+   (left first: quicker; then right: harder); the running lunge is the right punch; in a clinch a plain punch is the
+   knee and a strong one the elbow. */
+function attackLimb(kind, alternate, strong, self) {
+  if (kind === 'kick') return alternate ? 'rk' : 'lk';
+  if (self && self.state === S.GRAPPLE) return strong ? 'rp' : 'lp';
+  const running = !!self && self.state === S.RUN;
+  return alternate || running ? 'rp' : 'lp';
+}
+/* Touch has no Height modifier, so the attack goes where it can land: body shots against a crouching or
+   low-guarding opponent (high attacks pass over them), low kicks under a high guard. */
 function touchAttackChoice(kind, alternate, strong, self, opp) {
   const os = opp ? opp.state : S.IDLE;
   const crouched = os === S.CROUCH || os === S.BLOCK_L;
   const counter = !!self && self.counterWindow > 0;   // a plain press after a perfect block is the counter attack
-  if (self && self.state === S.GRAPPLE && kind === 'punch') return { btn: strong ? 'rp' : 'lp', height: false };   // clinch: tap = knee, hold = elbow
-  if (kind === 'punch') {
-    const running = !!self && self.state === S.RUN;   // the running lunge is the right punch
-    return { btn: alternate || running ? 'rp' : 'lp', height: crouched && !counter && !running };
-  }
+  const btn = attackLimb(kind, alternate, strong, self);
+  if (self && self.state === S.GRAPPLE && kind === 'punch') return { btn, height: false };
+  if (kind === 'punch') return { btn, height: crouched && !counter && !(self && self.state === S.RUN) };
   if (os === S.BLOCK_H && !counter) return { btn: 'lk', height: true };
-  return { btn: alternate ? 'rk' : 'lk', height: crouched && alternate && !counter };   // the left kick is a mid already
+  return { btn, height: crouched && alternate && !counter };   // the left kick is a mid already
 }
 
 function makeIntent() {
   return {
     fwd: 0, side: 0, run: false, crouch: false, blockH: false, blockL: false, strong: false, height: false,
-    jump: false, lp: false, rp: false, lk: false, rk: false, grapple: false, dash: false, stance: false,
+    jump: false, lp: false, rp: false, lk: false, rk: false, grapple: false, dash: false,
     sidestep: 0, grapDir: 'fwd', noParry: false,
   };
 }
 function clearIntent(it) {
   it.fwd = 0; it.side = 0; it.run = false; it.crouch = false; it.blockH = false; it.blockL = false;
   it.strong = false; it.height = false; it.jump = false; it.lp = false; it.rp = false; it.lk = false; it.rk = false;
-  it.grapple = false; it.dash = false; it.stance = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false;
+  it.grapple = false; it.dash = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false;
   return it;
 }
 
@@ -769,7 +795,7 @@ class PlayerInput {
     this.padTapDownRelease = -9999;
     this.padUpPeak = 0;
     this.padUpDouble = false;
-    this.padSelectAt = 0;            // 0 = released, > 0 = time pressed, -1 = hold already used
+    this.padSelectAt = 0;            // 0 = released, > 0 = time pressed, -1 = hold already used (a tap does nothing)
     this.padIndex = -1;
     this.padCrouch = false;
     this.rightWas = 0;
@@ -779,7 +805,7 @@ class PlayerInput {
     this.touchRunTicks = 0;
     this.touchDownAt = {};           // PUNCH / KICK press times (hold length decides strong)
     this.touchAttack = null;         // released PUNCH / KICK waiting for the next tick: { kind, strong }
-    this.touchString = { punch: { at: -10, alt: false }, kick: { at: -10, alt: false } };
+    this.attackString = { punch: { at: -10, alt: false }, kick: { at: -10, alt: false } };   // shared by keys, pad and touch
     this.lastDevice = 'keyboard';
     this.analog = { fwd: 0, side: 0 };
   }
@@ -852,18 +878,26 @@ class PlayerInput {
     this.touchHeld[kind] = false;
     this.touchAttack = { kind, strong: now - (this.touchDownAt[kind] || now) >= TOUCH_CHARGE_MS };
   }
+  /* Whether this Punch / Kick uses the other hand / foot: true for every second press of a quick string. */
+  nextInString(kind) {
+    const string = this.attackString[kind];
+    const now = performance.now() / 1000;
+    string.alt = now - string.at < ATTACK_STRING_SECONDS ? !string.alt : false;
+    string.at = now;
+    return string.alt;
+  }
   /* The queued touch attack as a button press (see touchAttackChoice). */
   applyTouchAttack(it, self, opp) {
     const ta = this.touchAttack;
     this.touchAttack = null;
-    const string = this.touchString[ta.kind];
-    const now = performance.now() / 1000;
-    string.alt = now - string.at < TOUCH_STRING_SECONDS ? !string.alt : false;
-    string.at = now;
-    const pick = touchAttackChoice(ta.kind, string.alt, ta.strong, self, opp);
+    const pick = touchAttackChoice(ta.kind, this.nextInString(ta.kind), ta.strong, self, opp);
     it[pick.btn] = true;
     it.strong = ta.strong;
     it.height = pick.height;
+  }
+  /* A Punch / Kick key or pad press: the held Strong / Height modifiers pick the move, attackLimb the hand or foot. */
+  applyButtonAttack(kind, it, self) {
+    it[attackLimb(kind, this.nextInString(kind), it.strong, self)] = true;
   }
   touchStickSet(x, y, active) {
     this.touchStick.x = x; this.touchStick.y = y; this.touchStick.active = active;
@@ -896,10 +930,13 @@ class PlayerInput {
       if (!this.padInfo.standard) Events.emit('toast', { msg: 'Non-standard controller layout: using best-guess mapping', kind: 'warn' });
     }
     const down = (i) => !!(pad.buttons[i] && (pad.buttons[i].pressed || pad.buttons[i].value > 0.5));
-    const map = { lp: 2, rp: 3, lk: 0, rk: 1, strong: 4, blockHigh: 5, height: 6, blockLow: 7, dash: 10, grapple: 11, pause: 9 };
+    // both punch buttons punch and both kick buttons kick; Cross / Circle also confirm / go back in menus
+    const map = { punch: [2, 3], kick: [0, 1], strong: [4], blockHigh: [5], height: [6], blockLow: [7], dash: [10], grapple: [11], pause: [9] };
+    this.padHeld.menuOk = down(0);
+    this.padHeld.menuBack = down(1);
     let anyButton = false;
     for (const action in map) {
-      const isDown = down(map[action]);
+      const isDown = map[action].some((button) => down(button));
       if (isDown && !this.padHeld[action]) { this.press(action); }
       this.padHeld[action] = isDown;
       anyButton = anyButton || isDown;
@@ -908,7 +945,7 @@ class PlayerInput {
     const select = down(8);
     if (select && !this.padSelectAt) this.padSelectAt = now;
     if (select && this.padSelectAt > 0 && now - this.padSelectAt >= PAD_SELECT_HOLD_MS) { this.press('reset'); this.padSelectAt = -1; }
-    if (!select && this.padSelectAt) { if (this.padSelectAt > 0) this.press('stance'); this.padSelectAt = 0; }
+    if (!select) this.padSelectAt = 0;
     anyButton = anyButton || select;
     // left stick / d-pad with radial dead zone
     let ax = finite(pad.axes[0], 0), ay = finite(pad.axes[1], 0);
@@ -996,11 +1033,11 @@ class PlayerInput {
     it.height = !!h.height;
     it.jump = this.take('jump');
     if (it.jump && it.crouch) { it.jump = false; it.crouch = false; } // conflicting vertical inputs cancel
-    it.lp = this.take('lp'); it.rp = this.take('rp'); it.lk = this.take('lk'); it.rk = this.take('rk');
+    const kick = this.take('kick'), punch = this.take('punch');   // both at once: the kick, like the buffer's priority
+    if (kick) this.applyButtonAttack('kick', it, self); else if (punch) this.applyButtonAttack('punch', it, self);
     if (this.touchAttack) this.applyTouchAttack(it, self, opp);
     if (this.touchHeld.block) { if (it.crouch) it.blockL = true; else it.blockH = true; }   // touch BLOCK: with DUCK held it guards low
     it.dash = this.take('dash');
-    it.stance = this.take('stance');
     it.grapple = this.take('grapple');
     const dtap = this.latch.dtap;
     this.latch.dtap = null;
@@ -1057,7 +1094,7 @@ class PlayerInput {
 }
 const Input = new PlayerInput(0, Keymap);
 const Input2 = new PlayerInput(1, Keymap2);
-const MENU_PAD_BUTTONS = ['lk', 'rk', 'strong', 'blockHigh', 'height', 'blockLow'];   // menu confirm / back, creator tabs and turning
+const MENU_PAD_BUTTONS = ['menuOk', 'menuBack', 'strong', 'blockHigh', 'height', 'blockLow'];   // menu confirm / back, creator tabs and turning
 /* Shared devices: window listeners, key capture for remapping, and which player a key or a pad belongs to. */
 const Inputs = {
   players: [Input, Input2],
@@ -2044,6 +2081,7 @@ const Arena = {
     o.phase = 'destroyed';
     o.phaseTimer = 0;
     o.collider.active = false;
+    Debris.wake(o.collider);
     const mat = o.mat;
     const rng = simRng;
     const cx = o.x, cz = o.z;
@@ -2140,7 +2178,7 @@ const Arena = {
 
   /* Fighter (vertical cylinder) vs bounds and obstacles. Sets f.groundY and wall/obstacle contact info. */
   resolveFighter(f) {
-    const b = this.def.bounds, r = f.radius;
+    const b = this.def.bounds, r = f.radius, mx = b.x - r, mz = b.z - r;
     f.wallHit = false; f.obstacleHit = null;
     let groundY = 0;
     for (let pass = 0; pass < 3; pass++) {
@@ -2155,23 +2193,44 @@ const Arena = {
         if (d2 >= r * r) continue;
         if (c.top <= STEP_HEIGHT) { groundY = Math.max(groundY, c.top); continue; }
         if (f.y >= c.top - 0.25) { if (c.standable) groundY = Math.max(groundY, c.top); continue; }
-        if (d2 > 1e-8) {
-          const dist = Math.sqrt(d2), push = r - dist;
-          f.x += (dx / dist) * push; f.z += (dz / dist) * push;
-        } else {
-          const l = f.x - (c.x - c.hx), rr = c.x + c.hx - f.x, t = f.z - (c.z - c.hz), bt = c.z + c.hz - f.z;
-          const m = Math.min(l, rr, t, bt);
-          if (m === l) f.x = c.x - c.hx - r; else if (m === rr) f.x = c.x + c.hx + r; else if (m === t) f.z = c.z - c.hz - r; else f.z = c.z + c.hz + r;
-        }
+        this.pushOut(f, c, dx, dz, d2, mx, mz);
         moved = true;
         f.obstacleHit = c.obj || f.obstacleHit;
       }
       if (!moved) break;
     }
-    const mx = b.x - r, mz = b.z - r;
     if (f.x > mx) { f.x = mx; f.wallHit = true; } else if (f.x < -mx) { f.x = -mx; f.wallHit = true; }
     if (f.z > mz) { f.z = mz; f.wallHit = true; } else if (f.z < -mz) { f.z = -mz; f.wallHit = true; }
     f.groundY = groundY;
+  },
+
+  /* Moves a fighter out of an obstacle the shortest way that stays inside the arena (mx / mz: the fighter's limits).
+     An obstacle by a wall must never push a fighter toward the wall: the wall would put it straight back inside. */
+  pushOut(f, c, dx, dz, d2, mx, mz) {
+    const r = f.radius;
+    // the fighter may still be past a wall here (the wall clamp runs last): judge each spot as the clamp will leave it
+    const clears = (x, z) => {
+      const wx = clamp(x, -mx, mx), wz = clamp(z, -mz, mz);
+      const ex = wx - clamp(wx, c.x - c.hx, c.x + c.hx), ez = wz - clamp(wz, c.z - c.hz, c.z + c.hz);
+      return ex * ex + ez * ez >= r * r - 1e-6;
+    };
+    if (d2 > 1e-8) {
+      const dist = Math.sqrt(d2), push = r - dist;
+      const x = f.x + (dx / dist) * push, z = f.z + (dz / dist) * push;
+      if (clears(x, z)) { f.x = x; f.z = z; return; }
+    }
+    // centre inside the box, or the way out leads into a wall: leave through the nearest side that has room
+    const exits = [[c.x - c.hx - r, f.z], [c.x + c.hx + r, f.z], [f.x, c.z - c.hz - r], [f.x, c.z + c.hz + r]];
+    let best = null, bestCost = Infinity, nearest = null, nearestCost = Infinity;
+    for (let i = 0; i < exits.length; i++) {
+      const exit = exits[i];
+      const cost = Math.abs(exit[0] - f.x) + Math.abs(exit[1] - f.z);
+      if (cost < nearestCost) { nearestCost = cost; nearest = exit; }
+      const fits = i < 2 ? Math.abs(exit[0]) <= mx : Math.abs(exit[1]) <= mz;   // only the moved coordinate must have room
+      if (fits && cost < bestCost) { bestCost = cost; best = exit; }
+    }
+    const to = best || nearest;
+    f.x = to[0]; f.z = to[1];
   },
 
   /* ----- drawing ----- */
@@ -2383,13 +2442,12 @@ const Debris = {
       const prof = DEBRIS_PROFILE[d.kind];
       d.vy -= GRAVITY * prof.grav * dt;
       if (d.kind === 'paper') { d.vx *= 1 - dt * 2; d.vz *= 1 - dt * 2; d.vy = Math.max(d.vy, -1.2); }
+      const prevY = d.y;
       d.x += d.vx * dt; d.y += d.vy * dt; d.z += d.vz * dt;
       d.rx += d.wx * dt; d.ry += d.wy * dt; d.rz += d.wz * dt;
-      const lim = Math.max(b.x, b.z) + 1.5;
       if (Math.abs(d.x) > b.x + 1.2) { d.x = clamp(d.x, -b.x - 1.2, b.x + 1.2); d.vx *= -0.3; }
       if (Math.abs(d.z) > b.z + 1.0) { d.z = clamp(d.z, -b.z - 1.0, b.z + 1.0); d.vz *= -0.3; }
-      void lim;
-      const floor = Math.max(d.sy, Math.min(d.sx, d.sz) * 0.5, 0.025) * 0.5;
+      const floor = this.obstacleSupport(d, prevY) + Math.max(d.sy, Math.min(d.sx, d.sz) * 0.5, 0.025) * 0.5;
       if (d.y <= floor) {
         d.y = floor;
         if (d.vy < -1.2 && d.kind !== 'paper') Events.emit('debrisImpact', { kind: d.kind, x: d.x, z: d.z, power: Math.min(1, -d.vy / 6), big: d.sx > 0.3 });
@@ -2403,6 +2461,25 @@ const Debris = {
       }
     }
     this.active = count;
+  },
+  /* Intact objects stop debris: a piece coming down onto one rests on its top, a piece flying into a side bounces
+     back out of it. Returns the height the piece rests on (0 = the floor). */
+  obstacleSupport(d, prevY) {
+    let support = 0;
+    for (const c of Arena.colliders) {
+      if (!c.active || !c.obj) continue;   // rubble is drawn as loose pieces already
+      const overlapX = c.hx - Math.abs(d.x - c.x), overlapZ = c.hz - Math.abs(d.z - c.z);
+      if (overlapX <= 0 || overlapZ <= 0) continue;
+      if (prevY >= c.top) { support = Math.max(support, c.top); continue; }
+      if (overlapX < overlapZ) { d.x = c.x + (d.x < c.x ? -c.hx : c.hx); d.vx *= -0.3; } else { d.z = c.z + (d.z < c.z ? -c.hz : c.hz); d.vz *= -0.3; }
+    }
+    return support;
+  },
+  /* Pieces resting on top of an object that just broke fall again. */
+  wake(c) {
+    for (const d of this.pool) {
+      if (d.on && d.asleep && Math.abs(d.x - c.x) < c.hx && Math.abs(d.z - c.z) < c.hz) { d.asleep = false; d.still = 0; }
+    }
   },
   draw() {
     for (let i = 0; i < DEBRIS_MAX; i++) {
@@ -2774,17 +2851,9 @@ const J = {};
 const NP = 26;
 const THIGH = 0.44, SHIN = 0.44, FOOT_H = 0.07, HIP_DROP = 0.05, LIE_HEIGHT = 0.17;
 
-function mirrorPose(src) {
-  const o = new Float32Array(src);
-  const swap = [['shLx', 'shRx'], ['shLz', 'shRz'], ['shLy', 'shRy'], ['elL', 'elR'], ['hipLx', 'hipRx'], ['hipLz', 'hipRz'], ['knL', 'knR']];
-  for (const [a, b] of swap) { o[J[a]] = src[J[b]]; o[J[b]] = src[J[a]]; }
-  for (const k of ['torsoTwist', 'torsoRoll', 'headY', 'rootSide', 'bodyRoll', 'bodyYaw']) o[J[k]] = -o[J[k]];   // arm twist (shLy / shRy) is already mirrored by the renderer
-  return o;
-}
 function makePose(vals) { const p = new Float32Array(NP); for (const k in vals) p[J[k]] = vals[k]; return p; }
 /* Guard tuned to the references (plates 344 / 336, savate pad work): torso lean ~8 deg, shoulders ~30 deg to the hips, front knee ~155 deg. */
 const GUARD_ORTHO = makePose({ torsoLean: 0.14, torsoTwist: -0.5, headX: 0.12, shLx: 1.0, shLz: 0.15, elL: 1.85, shRx: 0.85, shRz: 0.1, elR: 2.0, hipLx: 0.36, hipLz: 0.1, knL: 0.42, hipRx: -0.3, hipRz: 0.12, knR: 0.26 });
-const GUARD = [GUARD_ORTHO, mirrorPose(GUARD_ORTHO)];
 
 const ARM_IDX = (s) => (s > 0 ? { x: J.shLx, z: J.shLz, e: J.elL } : { x: J.shRx, z: J.shRz, e: J.elR });
 const LEG_IDX = (s) => (s > 0 ? { h: J.hipLx, a: J.hipLz, k: J.knL } : { h: J.hipRx, a: J.hipRz, k: J.knR });
@@ -2801,17 +2870,6 @@ const STRIKE_BUILDERS = {
   airKick(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.35; p[l.k] = 0.1; p[o.h] = 0.8; p[o.k] = 1.3; p[J.torsoLean] = -0.3; p[J.shLx] = 0.4; p[J.shRx] = 0.4; },
   grab(p) { p[J.shLx] = 1.5; p[J.shRx] = 1.5; p[J.shLz] = -0.15; p[J.shRz] = -0.15; p[J.elL] = 0.3; p[J.elR] = 0.3; p[J.torsoLean] = 0.3; p[J.rootFwd] = 0.12; },
 };
-const strikeCache = {};
-function strikePose(mv, stance) {
-  const key = mv.anim + mv.limb + stance;
-  if (!strikeCache[key]) {
-    const p = new Float32Array(GUARD[stance]);
-    const s = mv.limb[0] === 'L' ? 1 : -1;
-    STRIKE_BUILDERS[mv.anim](p, s);
-    strikeCache[key] = p;
-  }
-  return strikeCache[key];
-}
 /* Extension curve: <0 = anticipation (wind-up), 1 = fully extended, 0 = back at guard. */
 function strikeExtension(t, startup, active, recovery, windup, snap) {
   if (t <= startup) {
@@ -2932,12 +2990,9 @@ function makeMotion(profile, scale, build) {
   m.bounce *= clamp(1 - heavy * 0.7, 0.6, 1.2);
   m.walkBounce *= clamp(1 - heavy * 0.6, 0.6, 1.2);
   m.bounceHz /= Math.sqrt(clamp(finite(scale, 1), SCALE_MIN, SCALE_MAX));
-  m.guard = [null, null];
-  const ortho = new Float32Array(GUARD_ORTHO);
-  applyStyleGuard(ortho, m);
-  m.guard[0] = ortho;
-  m.guard[1] = mirrorPose(ortho);
-  m.strikes = {};                                       // filled lazily, once per move and stance
+  m.guard = new Float32Array(GUARD_ORTHO);
+  applyStyleGuard(m.guard, m);
+  m.strikes = {};                                       // filled lazily, once per move
   return m;
 }
 /* Style offsets on the orthodox guard (lead = left side). */
@@ -2953,12 +3008,12 @@ function applyStyleGuard(p, m) {
 const KICK_ANIMS = ['front', 'low', 'round', 'roundLow', 'airKick'];
 const isKickAnim = (anim) => KICK_ANIMS.includes(anim);
 /* The fighter's own strike target pose: the library pose on the fighter's guard, with the style's hip turn and lean. */
-function styledStrikePose(mv, stance, m) {
-  const key = mv.anim + mv.limb + stance;
+function styledStrikePose(mv, m) {
+  const key = mv.anim + mv.limb;
   let p = m.strikes[key];
   if (p) return p;
   const s = mv.limb[0] === 'L' ? 1 : -1;
-  const g = m.guard[stance];
+  const g = m.guard;
   p = new Float32Array(g);
   STRIKE_BUILDERS[mv.anim](p, s);
   const kick = isKickAnim(mv.anim);
@@ -2969,12 +3024,12 @@ function styledStrikePose(mv, stance, m) {
   return p;
 }
 /* Kick chamber: knee lifted and folded, hip already turning; the kick extends from here. */
-function chamberPose(mv, stance, m) {
-  const key = mv.anim + mv.limb + stance + 'c';
+function chamberPose(mv, m) {
+  const key = mv.anim + mv.limb + 'c';
   let p = m.strikes[key];
   if (p) return p;
-  const strike = styledStrikePose(mv, stance, m);
-  const g = m.guard[stance];
+  const strike = styledStrikePose(mv, m);
+  const g = m.guard;
   const s = mv.limb[0] === 'L' ? 1 : -1;
   const l = LEG_IDX(s);
   p = new Float32Array(g);
@@ -2984,8 +3039,6 @@ function chamberPose(mv, stance, m) {
   m.strikes[key] = p;
   return p;
 }
-/* Which side is the rear (power) side for a limb in a stance: orthodox (0) leads with the left. */
-const isRearLimb = (limb, stance) => (limb[0] === 'R') === (stance === 0);
 
 /* Victory poses per style: t = seconds, st = ticks in the state. */
 const VICTORY_POSES = {
@@ -3076,7 +3129,6 @@ class Fighter {
     this.hp = this.maxHp * (hpFrac === undefined ? 1 : hpFrac);
     this.stam = this.maxStam * (stamFrac === undefined ? 1 : stamFrac);
     this.state = S.IDLE; this.stateTicks = 0; this.age = 0;
-    this.stance = 0;
     this.lock = 0; this.invuln = 0; this.exhaust = 0; this.noRegen = 0; this.counterWindow = 0; this.blockStun = 0; this.blockRead = null; this.blockFresh = false; this.lastBlockAt = -PERFECT_BLOCK_COOLDOWN; this.guardPressure = 0;
     this.buffer = null;
     this.move = null; this.moveTick = 0; this.moveId = 0; this.hitList = []; this.moveConnected = false; this.whiffExtra = 0; this.chainCount = 0; this.exhaustedMove = false;
@@ -3088,7 +3140,7 @@ class Fighter {
     this.flightId = 0; this.lastImpactTick = -99; this.fvx = 0; this.fvz = 0; this.pendingKO = false;
     this.dashDx = 1; this.dashDz = 0; this.dashKind = 1; this.dashSpeed = 8; this.sideDir = 0; this.airAttackUsed = false;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
-    this.pose.set(this.motion.guard[0]); this.tp.set(this.motion.guard[0]);
+    this.pose.set(this.motion.guard); this.tp.set(this.motion.guard);
     this.alive = true;
     this.skeleton(this.x, this.y, this.z, this.yaw, false);
   }
@@ -3162,14 +3214,15 @@ class Fighter {
     this.startAttack(mv);
     return true;
   }
+  /* Fighters lead with the left side: lead limbs are quicker, rear limbs hit harder. */
   moveSpeedMult(mv) {
-    const lead = (this.stance === 0) === (mv.limb[0] === 'L');
+    const lead = mv.limb[0] === 'L';
     let m = this.stats.atkSpeed * (lead ? 0.94 : 1.04);
     if (this.lowStamina) m *= 1.1;
     return m;
   }
   damageMult(mv) {
-    const lead = (this.stance === 0) === (mv.limb[0] === 'L');
+    const lead = mv.limb[0] === 'L';
     let m = this.stats.damage * (lead ? 0.95 : 1.08);
     if (this.exhaustedMove) m *= 0.6; else if (this.lowStamina) m *= 0.85;
     return m;
@@ -3324,7 +3377,6 @@ class Fighter {
       if (it.jump && this.stam >= 1 && this.state !== S.CROUCH && !this.airborne) { this.startJump(it); return; }
       if (it.dash && this.exhaust === 0 && this.stam >= DASH_COST) { this.startDash(it); return; }
       if (it.sidestep && this.exhaust === 0 && this.stam >= SIDESTEP_COST) { this.startSidestep(it.sidestep); return; }
-      if (it.stance) { this.stance ^= 1; this.lock = 8; Events.emit('stance', { f: this }); }
     }
     let target = S.IDLE;
     if (it.blockL) target = S.BLOCK_L; else if (it.blockH) target = S.BLOCK_H; else if (it.crouch) target = S.CROUCH;
@@ -3512,7 +3564,7 @@ class Fighter {
     }
   }
   computePose() {
-    const p = this.tp, g = this.motion.guard[this.stance], m = this.motion;
+    const p = this.tp, g = this.motion.guard, m = this.motion;
     p.set(g);
     const t = this.animT, st = this.stateTicks;
     let k = 0.3;
@@ -3677,7 +3729,7 @@ class Fighter {
     const tf = this.throwFollow;
     if (!tf || this.lock <= 0 || this.state !== S.IDLE) { this.throwFollow = null; return false; }
     const amount = smoothstep(this.lock / tf.recovery);
-    const g = this.motion.guard[this.stance];
+    const g = this.motion.guard;
     THROW_POSES[tf.anim](p, 1, tf.side);
     for (let i = 0; i < NP; i++) p[i] = g[i] + (p[i] - g[i]) * amount;
     return true;
@@ -3693,16 +3745,16 @@ class Fighter {
   /* Strike pose over time. Visual only: the move's ticks and reach decide hits, never this pose. */
   attackPose() {
     const mv = this.move, pose = this.pose, m = this.motion;
-    const g = m.guard[this.stance];
+    const g = m.guard;
     if (!mv) { pose.set(g); return; }
-    const strike = styledStrikePose(mv, this.stance, m);
+    const strike = styledStrikePose(mv, m);
     const kick = isKickAnim(mv.anim);
     const t = this.moveTick, startup = this.mStartup, active = this.mActive, recovery = this.mRecovery + this.whiffExtra;
     const windup = mv.tier === 3 ? 0.45 : 0.28, snap = kick ? m.kickSnap : m.punchSnap;
     const ext = strikeExtension(t, startup, active, recovery, windup, snap);
     if (kick && ext > 0) {
       // guard -> chamber -> extension on the way out, and back through the chamber on the way in
-      const chamber = chamberPose(mv, this.stance, m);
+      const chamber = chamberPose(mv, m);
       const rising = ext < CHAMBER_SPLIT;
       const from = rising ? g : chamber, to = rising ? chamber : strike;
       const u = rising ? ext / CHAMBER_SPLIT : (ext - CHAMBER_SPLIT) / (1 - CHAMBER_SPLIT);
@@ -3715,9 +3767,9 @@ class Fighter {
       const lead = strikeExtension(Math.min(t + HIP_LEAD_TICKS, startup), startup, active, recovery, windup, snap);
       pose[J.torsoTwist] = g[J.torsoTwist] + (strike[J.torsoTwist] - g[J.torsoTwist]) * Math.max(ext, lead);
     }
-    // heel pivot: rear-hand punches and round kicks turn the body over the support foot
+    // heel pivot: rear-hand (right) punches and round kicks turn the body over the support foot
     const roundKick = mv.anim === 'round' || mv.anim === 'roundLow';
-    const pivot = kick ? (roundKick ? m.kickPivot : m.kickPivot * 0.3) : (isRearLimb(mv.limb, this.stance) ? m.punchPivot : 0);
+    const pivot = kick ? (roundKick ? m.kickPivot : m.kickPivot * 0.3) : (mv.limb[0] === 'R' ? m.punchPivot : 0);
     const side = mv.limb[0] === 'L' ? 1 : -1;
     pose[J.bodyYaw] = g[J.bodyYaw] - side * pivot * Math.max(0, ext);
   }
@@ -5415,7 +5467,7 @@ const Showcase = {
       if (!f || f.profile !== profile) f = this.fighters[idx] = new Fighter(profile, idx);
       f.applyLook(alt ? alternateLook(profile.look) : profile.look);
       f.reset(x, 0, yaw);
-      f.stance = idx; f.pose.set(f.motion.guard[f.stance]);
+      f.pose.set(f.motion.guard);
       return f;
     };
     mk(leftId, 0, solo ? 0 : -1.5, solo ? 0 : Math.PI / 2, solo && altSolo);
@@ -5428,7 +5480,7 @@ const Showcase = {
     f.profile = profile; f.id = profile.id; f.name = profile.name;
     f.applyLook(profile.look);
     f.motion = makeMotion(profile, f.scale, f.build);   // movement style, attributes and body can all change in the creator
-    if (!this.creator) { f.reset(0, 0, 0); f.stance = 0; f.pose.set(f.motion.guard[0]); this.userYaw = 0.5; this.poseClock = 0; this.previewPose = 'guard'; }
+    if (!this.creator) { f.reset(0, 0, 0); f.pose.set(f.motion.guard); this.userYaw = 0.5; this.poseClock = 0; this.previewPose = 'guard'; }
     this.creator = true;
     this.solo = true;
     this.fighters[0] = f;
@@ -5465,6 +5517,8 @@ const Showcase = {
   update(dt) {
     this.t += dt;
     Arena.update(dt);
+    Debris.update(dt);
+    FX.update(dt);      // strike trails from the creator's pose preview fade like in a match
     const n = this.solo ? 1 : 2;
     for (let i = 0; i < n; i++) {
       const f = this.fighters[i];
@@ -5503,7 +5557,7 @@ const GS_TRANSITIONS = {
 const SIM_STATES = [GS.COUNTDOWN, GS.FIGHT, GS.ROUND_END, GS.VICTORY, GS.DEFEAT, GS.RESULTS];
 const RESULTS_DELAY = 2.6;            // seconds of victory / defeat pose before the results screen
 const SKIP_ARM_SECONDS = 0.5;         // presses this soon after a victory / defeat are ignored
-const SKIP_ACTIONS = ['lp', 'rp', 'lk', 'rk', 'grapple', 'jump'];
+const SKIP_ACTIONS = ['punch', 'kick', 'grapple', 'jump'];
 const ARCADE_DIFFS = ['easy', 'normal', 'hard', 'hard', 'expert'];
 const ARCADE_ARENAS = ['warehouse', 'dojo', 'pit', 'warehouse', 'pit'];
 const ARCADE_STAGES = 5;
@@ -6225,8 +6279,8 @@ const MODE_INFO = {
   versus: { label: 'Versus', desc: 'Two players, one screen: keyboard and / or gamepads. The score carries over between rematches.' },
 };
 const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'versus'];
-const GAMEPAD_LABELS = { lp: 'Square', rp: 'Triangle', lk: 'Cross (X)', rk: 'Circle', strong: 'L1', height: 'L2', blockHigh: 'R1', blockLow: 'R2', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R3 or right-stick flick', dash: 'L3 (press stick)', stance: 'Select (tap)', pause: 'Start' };
-const TOUCH_LABELS = { lp: 'PUNCH', rp: 'PUNCH (2nd in a row)', lk: 'KICK', rk: 'KICK (2nd in a row)', strong: 'Hold PUNCH / KICK, release', height: 'Automatic', blockHigh: 'BLOCK', blockLow: 'DUCK + BLOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', dash: 'DASH', stance: 'STANCE', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
+const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', strong: 'L1', height: 'L2', blockHigh: 'R1', blockLow: 'R2', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R3 or right-stick flick', dash: 'L3 (press stick)', pause: 'Start' };
+const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', strong: 'Hold PUNCH / KICK, release', height: 'Automatic', blockHigh: 'BLOCK', blockLow: 'DUCK + BLOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', dash: 'DASH', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 const RESULTS_GUARD_MS = 600;   // presses still mashed from the fight cannot skip the results screen
 const ONBOARD_MS = 6000;   // the first-match controls card closes itself after this long
 const VERSUS_CARD_MS = 9000;   // the Versus controls card holds both players' keys: a little longer
@@ -6263,7 +6317,7 @@ const UI = {
     Events.on('block', (e) => this.onBlock(e));
     Events.on('throw', (e) => this.popAt(e.x, 1.2, e.z, e.name.toUpperCase() + ' ' + Math.round(e.dmg), '#ffd24a'));
     Events.on('escape', (e) => this.popAt(e.x, 1.4, e.z, 'ESCAPE!', '#9cf4ff'));
-    Events.on('clinch', (e) => this.popAt(e.x, 1.6, e.z, 'CLINCH', '#ffffff'));
+    Events.on('clinch', (e) => { this.popAt(e.x, 1.6, e.z, 'CLINCH', '#ffffff'); this.countClinchTip(e); });
     Events.on('objBreak', (e) => { this.popAt(e.x, 1.3, e.z, (KIND_NAME[e.mat] || 'OBJECT') + ' SMASHED!', '#ffe9a6'); this.say('Object destroyed'); });
     Events.on('objStage', (e) => this.popAt(e.x, e.obj.h + 0.2, e.z, (e.obj.mat === 'metal' ? STAGE_NAMES_METAL : STAGE_NAMES)[e.stage].toUpperCase(), '#d0d8e8'));
     Events.on('wallSlam', (e) => this.popAt(e.x, 1.5, e.z, 'WALL SLAM', '#ffb27a'));
@@ -6323,7 +6377,7 @@ const UI = {
       '<kbd>GRAB</kbd> near the opponent, again to escape a grab<br>' +
       'Stick: move, flick twice to dash or sidestep<small>Tap to close</small>';
     else this.dom.onboard.innerHTML = '<h3>CONTROLS</h3>' +
-      'Attacks: ' + ['lp', 'rp', 'lk', 'rk'].map(k).join(' ') + '<br>' +
+      'Punch ' + k('punch') + ' Kick ' + k('kick') + ', press again to switch hands and feet<br>' +
       'Hold ' + k('strong') + ' strong or ' + k('height') + ' height, then attack<br>' +
       'Block high ' + k('blockHigh') + ', low ' + k('blockLow') + '<br>' +
       'Grapple / escape ' + k('grapple') + '<br>' +
@@ -6398,7 +6452,7 @@ const UI = {
     const train = match.training;
     const browserKeys = ACTIONS.some((a) => Keymap.bindings[a].some((c) => /^(Control|Alt)/.test(c)));
     if (!this.tipShown && browserKeys) { this.tipShown = true; this.toast('Tip: Ctrl / Alt shortcuts (Ctrl+W closes the tab) still work in a window. Use Fullscreen (Settings) or remap those keys.', 'warn'); }
-    if (window.innerHeight > window.innerWidth && (Settings.v.touch === 'on' || ('ontouchstart' in window))) this.toast('Rotate your device to landscape for the best view', 'warn');
+    if (!this.rotateShown && window.innerHeight > window.innerWidth && (Settings.v.touch === 'on' || ('ontouchstart' in window))) { this.rotateShown = true; this.toast('Rotate your device to landscape for the best view', 'warn'); }
     this.cache = {};
     this.dom.hn1.innerHTML = '<b>P1</b> ' + esc(match.fighters[0].name);
     this.dom.hn2.innerHTML = '<b>' + this.sideLabel(match, 1) + '</b> ' + esc(match.fighters[1].name);
@@ -6722,10 +6776,10 @@ const UI = {
     return '<b class="c1">P1</b>: ' + esc(this.layoutText(Keymap)) + ', or the first of two gamepads. <b class="c2">P2</b>: ' + esc(this.layoutText(Keymap2)) + ', or a gamepad. ' +
       'With one gamepad connected it plays P2 and P1 uses the keyboard. Touch controls are P1 only. Either player can pause.';
   },
-  /* "W A S D move, J K U I attack, ..." for one player's keyboard layout. */
+  /* "W A S D move, J K punch / kick, ..." for one player's keyboard layout. */
   layoutText(keymap) {
     const keys = (actions) => actions.map((a) => keyLabel(keymap.bindings[a][0])).join(' ');
-    return keys(['up', 'left', 'down', 'right']) + ' move, ' + keys(['lp', 'rp', 'lk', 'rk']) + ' attack, ' + keys(['blockHigh', 'blockLow']) + ' block, ' + keys(['grapple']) + ' grapple';
+    return keys(['up', 'left', 'down', 'right']) + ' move, ' + keys(['punch', 'kick']) + ' punch / kick, ' + keys(['blockHigh', 'blockLow']) + ' block, ' + keys(['grapple']) + ' grapple';
   },
   screen_arena() {
     const sel = Game.selection;
@@ -6750,17 +6804,17 @@ const UI = {
     const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td>' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1') + '</td><td>' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2') + '</td><td>' + esc(GAMEPAD_LABELS[a]) + '</td><td>' + esc(TOUCH_LABELS[a]) + '</td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
       '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (Versus)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
-      '<p class="hint">Modifiers do nothing alone: hold Strong and/or Height while pressing an attack. Block High covers high + mid attacks, Block Low covers low attacks. Press block just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses a kick or Grapple to throw that way. The clinch hint shows the aimed throw with an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Dash while knocked down = quick recovery. Gamepad: tap Select to switch stance, hold it in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
+      '<p class="hint">Punch and Kick start with the left hand or foot (quicker); pressed again within a moment they use the right (harder), and so on. Modifiers do nothing alone: hold Strong and/or Height while pressing an attack. Block High covers high + mid attacks, Block Low covers low attacks. Press block just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses a kick or Grapple to throw that way. The clinch hint shows the aimed throw with an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Dash while knocked down = quick recovery. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
       '<p class="hint">Versus: a key belongs to one player only. P1\'s spare arrow keys switch off in Versus, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only.</p>' +
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
   },
   screen_moves() {
-    const BTN = { lp: 'Left punch', rp: 'Right punch', lk: 'Left kick', rk: 'Right kick', grapple: 'Grapple' };
+    const BTN = { lp: 'Punch', rp: 'Punch again (2nd in a row)', lk: 'Kick', rk: 'Kick again (2nd in a row)', grapple: 'Grapple' };
     const adv = (n) => (n > 0 ? '+' : '') + n;
     const rows = ALL_MOVES.map((m) => {
       let input = BTN[m.btn] + (m.strong ? ' + Strong' : '') + (m.height ? ' + Height' : '');
       if (m.ctx === 'air') input = 'In the air: ' + (m.btn === 'rp' ? 'any punch' : 'any kick');
-      else if (m.ctx === 'run') input = 'Running: right punch';
+      else if (m.ctx === 'run') input = 'Running: Punch';
       else if (m.ctx === 'counter') input = 'After a block: ' + (m.btn === 'lp' ? 'any punch' : 'any kick');
       const fa = frameAdvantage(m);
       const note = [m.kind === 'launch' ? 'launcher' : '', m.kind === 'knockdown' ? 'knockdown' : '', m.kind === 'stagger' ? 'stagger' : '', m.gb ? 'guard break' : '', m.width >= 0.8 ? 'wide arc' : '', m.type === 'grab' ? 'beats blocks' : ''].filter(Boolean).join(', ');
@@ -6768,7 +6822,7 @@ const UI = {
     }).join('');
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub">Frame data at 60 fps. Strong moves cost more stamina and leave you open longer if they miss. Chains: light &rarr; medium &rarr; strong, never the other way round; strong moves end a combo.</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Hits</th><th>Start / Active / Recover</th><th>Dmg</th><th>Stam</th><th>Adv hit / block</th><th>Notes</th></tr>' + rows + '</table>' +
-      '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: left punch = knee (drains stamina), right punch = elbow (harder hit); kick or Grapple = throw in the direction you hold (the HUD arrow shows it). Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
+      '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: Punch = knee (drains stamina), Strong + Punch = elbow (harder hit); kick or Grapple = throw in the direction you hold (the HUD arrow shows it). Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
       this.throwTable() +
       '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-default data-act="back">Back</button></div></div></section>';
   },
@@ -6871,7 +6925,7 @@ const UI = {
     const unpause = Inputs.take('pause');   // P / gamepad Start close the pause screen (Esc goes through onKey)
     if (unpause && this.current === 'pause' && pauseShown && performance.now() > this.guardUntil) { Game.resume(); return; }
     const pd = Inputs.menuDir, ph = Inputs.menuHeld, p = this.padPrev;
-    const ok = !!(ph.lk), back = !!(ph.rk);
+    const ok = !!(ph.menuOk), back = !!(ph.menuBack);
     if (pd.down && !p.down) this.moveFocus(1);
     if (pd.up && !p.up) this.moveFocus(-1);
     const el = document.activeElement;
@@ -7000,6 +7054,17 @@ const UI = {
     el.hidden = !hint; el.textContent = hint;
     el.classList.toggle('go', hint.startsWith('ESCAPE'));
   },
+  /* A clinch with a human player in it; once a player has been in CLINCH_TIP_CLINCHES clinches the hints get short. */
+  countClinchTip(e) {
+    const m = Game.match;
+    if (!m || !m.fighters.includes(e.att) || Progress.d.clinchTips > CLINCH_TIP_CLINCHES) return;   // simulations outside the live match never count
+    const human = [e.att, e.def].some((f) => m.controllers[f.index] === PlayerController || m.controllers[f.index] === Player2Controller);
+    if (!human) return;
+    Progress.d.clinchTips++;
+    Progress.save();
+  },
+  /* Full instructions for the first clinches and always in Training; afterwards only the cues that matter mid-fight. */
+  fullClinchHints() { return Progress.d.clinchTips <= CLINCH_TIP_CLINCHES || !!(Game.match && Game.match.training); },
   /* Clinch hint for a human player's fighter: escape timing while held, throw aim while holding. */
   grappleHint(f) {
     if (f.state === S.CLINCH) return this.clinchHint(f);
@@ -7008,19 +7073,20 @@ const UI = {
   },
   /* Held player: wait while an escape would fail, then the call to press (a press in the last moments is kept). */
   clinchHint(f) {
-    const windowOpen = f.clinchTick >= escapeStartFor(f) - ESCAPE_GRACE_TICKS;
+    const windowOpen = f.clinchTick >= escapeStartFor(f) - ESCAPE_GRACE_TICKS, full = this.fullClinchHints();
     // stamina does not regenerate while held, so a tired fighter cannot escape this clinch at all
-    if (windowOpen && f.stam < ESCAPE_STAMINA) return 'TOO TIRED TO ESCAPE (' + GRIP_LABEL[f.grip] + ') · brace for the throw';
-    if (f.escapeLock > 0) return 'TOO EARLY! ' + GRIP_LABEL[f.grip] + ' · wait for ESCAPE NOW';
+    if (windowOpen && f.stam < ESCAPE_STAMINA) return full ? 'TOO TIRED TO ESCAPE (' + GRIP_LABEL[f.grip] + ') · brace for the throw' : 'TOO TIRED TO ESCAPE';
+    if (f.escapeLock > 0) return full ? 'TOO EARLY! ' + GRIP_LABEL[f.grip] + ' · wait for ESCAPE NOW' : 'TOO EARLY!';
     if (windowOpen) return 'ESCAPE NOW! Press ' + this.keyName('grapple', f.index);
-    return 'CLINCHED (' + GRIP_LABEL[f.grip] + ') · HOLD... an early escape fails';
+    return full ? 'CLINCHED (' + GRIP_LABEL[f.grip] + ') · HOLD... an early escape fails' : '';
   },
-  /* Clinch hint: grip, the throw the held direction will do and an on-screen arrow for it. */
+  /* Clinch hint: grip, the throw the held direction will do and an on-screen arrow for it (later clinches: arrow and throw only). */
   throwHint(f) {
     if (f.throwPending) return f.throwPending.data.name.toUpperCase() + '!';
     const data = throwFor(f.grip, f.throwAim), strikesLeft = CLINCH_STRIKE_MAX - f.clinchStrikes;
+    if (!this.fullClinchHints()) return this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase();
     const touch = Inputs.players[f.index].lastDevice === 'touch';
-    const strikeKeys = touch ? 'tap PUNCH knee / hold PUNCH elbow' : this.keyName('lp', f.index) + ' knee / ' + this.keyName('rp', f.index) + ' elbow';
+    const strikeKeys = touch ? 'tap PUNCH knee / hold PUNCH elbow' : this.keyName('punch', f.index) + ' knee / ' + this.keyName('strong', f.index) + ' + ' + this.keyName('punch', f.index) + ' elbow';
     const strikes = strikesLeft > 0 ? ', ' + strikeKeys + ' (' + strikesLeft + ' left)' : '';
     return GRIP_LABEL[f.grip] + ' · ' + this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase() + ' · hold a direction to aim, kick or ' + this.keyName('grapple', f.index) + ' throws' + strikes;
   },
@@ -7070,7 +7136,7 @@ const UI = {
     stick.addEventListener('pointercancel', end);
     stick.addEventListener('lostpointercapture', end);
     // [action, label, size]: lg = main fight buttons under the right thumb, sm = movement extras next to the stick
-    const defs = [['punch', 'PUNCH', 'lg'], ['kick', 'KICK', 'lg'], ['block', 'BLOCK', 'lg'], ['grapple', 'GRAB', ''], ['jump', 'JUMP', 'sm'], ['crouch', 'DUCK', 'sm'], ['dash', 'DASH', 'sm'], ['stance', 'STANCE', 'sm'], ['pause', 'II', 'sm']];
+    const defs = [['punch', 'PUNCH', 'lg'], ['kick', 'KICK', 'lg'], ['block', 'BLOCK', 'lg'], ['grapple', 'GRAB', ''], ['jump', 'JUMP', 'sm'], ['crouch', 'DUCK', 'sm'], ['dash', 'DASH', 'sm'], ['pause', 'II', 'sm']];
     const ariaLabels = { punch: 'Punch (hold for a strong punch)', kick: 'Kick (hold for a strong kick)', block: 'Block (with Duck: low block)' };
     for (const [action, label, size] of defs) {
       const b = document.createElement('div');
@@ -8032,6 +8098,63 @@ const SelfTest = {
       let left = 0; for (const d of Debris.pool) if (d.on) left++;
       return active <= cap && left === 0 ? true : 'active ' + active + ' cap ' + cap + ' left ' + left;
     });
+    test('Arena: no object traps a fighter, even by a wall or as rubble (every arena, every side)', () => {
+      const problems = [];
+      const f = new Fighter(ROSTER_BY_ID.brutus, 0);
+      const probe = (label) => {
+        const b = Arena.def.bounds;
+        for (const c of Arena.colliders) {
+          if (!c.active || c.top <= STEP_HEIGHT) continue;
+          for (let gx = -1.4; gx <= 1.4; gx += 0.2) {
+            for (let gz = -1.4; gz <= 1.4; gz += 0.2) {
+              f.x = c.x + gx * (c.hx + f.radius); f.z = c.z + gz * (c.hz + f.radius); f.y = 0;
+              for (let i = 0; i < 4; i++) Arena.resolveFighter(f);
+              const nx = clamp(f.x, c.x - c.hx, c.x + c.hx), nz = clamp(f.z, c.z - c.hz, c.z + c.hz);
+              const inside = Math.abs(f.x - c.x) < c.hx && Math.abs(f.z - c.z) < c.hz;
+              const depth = inside ? 9 : f.radius - Math.hypot(f.x - nx, f.z - nz);
+              const out = Math.abs(f.x) > b.x - f.radius + 1e-6 || Math.abs(f.z) > b.z - f.radius + 1e-6;
+              if (depth > 0.02 || out) { problems.push(label + ' ' + (c.obj ? c.obj.id : 'rubble') + ' depth ' + depth.toFixed(2) + (out ? ' outside' : '')); return; }
+            }
+          }
+        }
+      };
+      for (const id of ARENA_ORDER) {
+        Arena.build(ARENAS[id]);
+        probe(id);
+        for (const o of Arena.objects) Arena.breakObject(o, 0, 0);
+        probe(id + ' broken');
+      }
+      // pushed a little past the back wall beside a pillar: slide off its side, never a jump to its far side
+      Arena.build(ARENAS.warehouse);
+      const pillar = Arena.colliders.find((c) => c.obj && c.obj.id === 'pillarL'), bz = Arena.def.bounds.z;
+      f.x = pillar.x + pillar.hx + f.radius - 0.1; f.z = -(bz - f.radius) - 0.04; f.y = 0;
+      const sx = f.x, sz = f.z;
+      Arena.resolveFighter(f);
+      const moved = Math.hypot(f.x - sx, f.z - sz);
+      if (moved > 0.4 || !f.wallHit) problems.push('wall beside pillarL: moved ' + moved.toFixed(2) + ' wallHit ' + f.wallHit);
+      Arena.build(ARENAS.warehouse); Debris.clear(); FX.clear();
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Debris: pieces land on intact objects or bounce off their sides, never rest inside; they fall when the object breaks', () => {
+      Arena.build(ARENAS.warehouse); Debris.clear();
+      const crate = Arena.objects.find((o) => o.id === 'crateA'), pillar = Arena.objects.find((o) => o.id === 'pillarL');
+      const onTop = Debris.spawn('wood', crate.x, crate.h + 0.6, crate.z, 0, 0, 0, 0.3, 0.08, 0.17, '#9a6a35', 1);
+      const side = Debris.spawn('concrete', pillar.x - pillar.hx - 0.5, 0.6, pillar.z, 6, 0, 0, 0.2, 0.2, 0.2, '#8d9096', 1);
+      for (let i = 0; i < 240; i++) Debris.update(1 / 60);
+      const rests = onTop.asleep && Math.abs(onTop.y - crate.h) < 0.12;
+      const bounced = side.x < pillar.x - pillar.hx + 1e-6 && side.y < 0.2;
+      Arena.breakObject(crate, 0, 0);
+      for (let i = 0; i < 240; i++) Debris.update(1 / 60);
+      const fell = !onTop.on || onTop.y < 0.2;
+      let inside = 0;
+      for (const d of Debris.pool) {
+        if (!d.on) continue;
+        for (const c of Arena.colliders) if (c.active && c.obj && Math.abs(d.x - c.x) < c.hx - 0.01 && Math.abs(d.z - c.z) < c.hz - 0.01 && d.y < c.top - 0.05) inside++;
+      }
+      Arena.build(ARENAS.warehouse);
+      const r = { rests, bounced, fell, inside: inside === 0 };
+      return Object.values(r).every(Boolean) ? true : JSON.stringify(r);
+    });
     test('Arena reset restores every object, collider and clears debris', () => {
       mk({ arenaId: 'pit' });
       for (const o of Arena.objects) Arena.damageObject(o, 999, 'heavy', 77, 1, 0, o.x, 0.5, o.z);
@@ -8139,11 +8262,46 @@ const SelfTest = {
     });
     test('Input: presses are latched once, modifiers never fire alone', () => {
       const it = makeIntent();
-      Input.reset(); Input.press('lp'); Input.press('strong');
+      Input.reset(); Input.attackString.punch.at = -10; Input.press('punch'); Input.press('strong');
       Input.fillIntent(it, null, null);
       const first = it.lp;
       Input.fillIntent(it, null, null);
       return first && !it.lp && !it.rp && !it.lk && !it.rk ? true : 'edge repeated';
+    });
+    test('Keys and gamepad: one Punch and one Kick alternate hands and feet like touch; Strong + Punch is the clinch elbow', () => {
+      const f = new Fighter(ROSTER_BY_ID.kai, 0), o = new Fighter(ROSTER_BY_ID.mara, 1), it = makeIntent();
+      const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
+      const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons };
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
+      const key = (action) => { Input.press(action); return Input.fillIntent(it, f, o); };
+      const padTap = (button) => { buttons[button].pressed = true; Input.pollPad(); buttons[button].pressed = false; Input.pollPad(); return Input.fillIntent(it, f, o); };
+      let r;
+      try {
+        Input.reset(); Input.attackString.punch.at = Input.attackString.kick.at = -10;
+        key('punch'); const jab = it.lp && !it.rp;
+        key('punch'); const cross = it.rp && !it.lp;
+        key('punch'); const third = it.lp;
+        key('kick'); const front = it.lk && !it.rk;
+        key('kick'); const round = it.rk && !it.lk;
+        Input.attackString.punch.at = Input.attackString.kick.at = -10;
+        padTap(3); const triangle = it.lp;                // either punch button starts the string with the left hand
+        padTap(2); const square = it.rp;
+        padTap(1); const circle = it.lk;
+        padTap(0); const cross2 = it.rk;
+        const actions = !['lp', 'rp', 'lk', 'rk', 'stance'].some((a) => ACTIONS.includes(a)) && ACTIONS.includes('punch') && ACTIONS.includes('kick');
+        f.state = S.GRAPPLE; Input.attackString.punch.at = -10;
+        key('punch'); const knee = it.lp;
+        Input.kb.add(Keymap.bindings.strong[0]); Input.update();
+        key('punch'); const elbow = it.rp && it.strong;
+        Input.kb.clear(); Input.update();
+        const res = { jab, cross, third, front, round, triangle, square, circle, cross2, actions, knee, elbow };
+        r = Object.values(res).every(Boolean) ? true : JSON.stringify(res);
+      } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+      }
+      return r;
     });
     test('Screen-relative movement follows the camera', () => {
       const keep = Settings.v.movement, kr = Camera.dirRight.slice(), kf = Camera.dirFwd.slice();
@@ -8207,7 +8365,7 @@ const SelfTest = {
       const device = Input.lastDevice;
       const f = new Fighter(ROSTER_BY_ID.kai, 0), o = new Fighter(ROSTER_BY_ID.mara, 1), it = makeIntent();
       Input.reset(); Input.releaseAll();
-      Input.touchString.punch.at = Input.touchString.kick.at = -10;
+      Input.attackString.punch.at = Input.attackString.kick.at = -10;
       const strike = (kind, hold) => {
         Input.touchSet(kind, true);
         if (hold) Input.touchDownAt[kind] -= TOUCH_CHARGE_MS + 10;
@@ -8218,16 +8376,16 @@ const SelfTest = {
       const jab = it.lp && !it.strong && !it.height;
       strike('punch');
       const cross = it.rp && !it.lp;
-      Input.touchString.punch.at = -10;
+      Input.attackString.punch.at = -10;
       strike('punch', true);
       const power = it.lp && it.strong;
-      o.state = S.CROUCH; Input.touchString.punch.at = -10;
+      o.state = S.CROUCH; Input.attackString.punch.at = -10;
       strike('punch');
       const body = it.lp && it.height;
       o.state = S.BLOCK_H;
       strike('kick');
       const low = it.lk && it.height;
-      o.state = S.IDLE; f.state = S.GRAPPLE; Input.touchString.punch.at = -10;
+      o.state = S.IDLE; f.state = S.GRAPPLE; Input.attackString.punch.at = -10;
       strike('punch');
       const knee = it.lp;
       strike('punch', true);
@@ -8241,7 +8399,7 @@ const SelfTest = {
       const r = { jab, cross, power, body, low, knee, elbow, high, lowGuard };
       return Object.values(r).every(Boolean) ? true : JSON.stringify(r);
     });
-    test('Gamepad: firm taps jump but double taps do not, R3 grapples, Select taps stance and holds reset', () => {
+    test('Gamepad: firm taps jump but double taps do not, R3 grapples, a Select tap does nothing and a hold resets', () => {
       const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
       const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons };
       const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice;
@@ -8259,10 +8417,10 @@ const SelfTest = {
         Input.reset(); buttons[11].pressed = true; Input.pollPad(); buttons[11].pressed = false; Input.pollPad();
         const grab = Input.take('grapple');
         Input.reset(); buttons[8].pressed = true; Input.pollPad(); buttons[8].pressed = false; Input.pollPad();
-        const stance = Input.take('stance') && !Input.take('reset');
+        const tapIgnored = !Input.take('reset');
         buttons[8].pressed = true; Input.pollPad(); Input.padSelectAt -= PAD_SELECT_HOLD_MS; Input.pollPad(); buttons[8].pressed = false; Input.pollPad();
-        const reset = Input.take('reset') && !Input.take('stance');
-        r = firm && light && double && grab && stance && reset ? true : JSON.stringify({ firm, light, double, grab, stance, reset });
+        const reset = Input.take('reset');
+        r = firm && light && double && grab && tapIgnored && reset ? true : JSON.stringify({ firm, light, double, grab, tapIgnored, reset });
       } finally {
         if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
         Input.releasePad(); Input.reset(); Input.lastDevice = device;
@@ -8361,30 +8519,33 @@ const SelfTest = {
       Input.lastDevice = device;
       return kb && pad && touch ? true : JSON.stringify({ kb, pad, touch });
     });
-    test('Old saved key bindings move off Shift / Ctrl / Alt, customised keys stay', () => {
+    test('Old saved key bindings move off Shift / Ctrl / Alt and merge the left / right attacks, customised keys stay', () => {
       const raw = Store.get(KEY_BINDINGS), keep = JSON.stringify(Keymap.bindings);
-      Store.set(KEY_BINDINGS, JSON.stringify({ lp: ['KeyH'], strong: ['ShiftLeft'], height: ['ControlLeft'], dash: ['KeyV'], rp: ['KeyO'] }));
+      Store.set(KEY_BINDINGS, JSON.stringify({ lp: ['KeyH'], rp: ['KeyN'], lk: ['KeyU'], rk: ['KeyI'], strong: ['ShiftLeft'], height: ['ControlLeft'], dash: ['KeyV'], grapple: ['KeyO'] }));
       Keymap.init();
       const b = Keymap.bindings;
-      const moved = b.strong[0] === 'KeyL' && b.lp[0] === 'KeyH' && b.dash[0] === 'KeyV';
-      const clash = b.height[0] === 'ControlLeft' && b.rp[0] === 'KeyO';          // O already taken by the user: keep the old key
+      const moved = b.strong[0] === 'KeyL' && b.punch[0] === 'KeyH' && b.kick[0] === 'KeyK' && b.dash[0] === 'KeyV' && !('lp' in b) && !('rk' in b);   // the untouched old left kick takes the new default
+      const clash = b.height[0] === 'ControlLeft' && b.grapple[0] === 'KeyO';     // O already taken by the user: keep the old key
+      Store.set(KEY_BINDINGS, JSON.stringify({ revision: 2, lk: ['KeyU'], grapple: ['KeyK'] }));
+      Keymap.init();
+      const kickKept = Keymap.bindings.kick[0] === 'KeyU' && Keymap.bindings.grapple[0] === 'KeyK';   // K is the user's grapple key
       Store.set(KEY_BINDINGS, JSON.stringify({ revision: KEYS_REVISION, strong: ['ShiftLeft'] }));
       Keymap.init();
       const current = Keymap.bindings.strong[0] === 'ShiftLeft';                  // chosen after the change: never migrated
       const defaults = ['strong', 'height', 'dash'].every((a) => !/^(Shift|Control|Alt)/.test(DEFAULT_KEYS[a][0]));
       if (raw === null) Store.remove(KEY_BINDINGS); else Store.set(KEY_BINDINGS, raw);
       Keymap.bindings = JSON.parse(keep); Input.rebuildMap();
-      return moved && clash && current && defaults ? true : JSON.stringify({ moved, clash, current, defaults, b });
+      return moved && clash && kickKept && current && defaults ? true : JSON.stringify({ moved, clash, kickKept, current, defaults, b });
     });
     test('Key remapping rejects conflicts and invalid keys', () => {
       const keep = JSON.stringify(Keymap.bindings);
-      const a = Keymap.rebind('lp', 'KeyK'), b = Keymap.rebind('lp', 'Escape'), c = Keymap.rebind('lp', 'F5'), d = Keymap.rebind('lp', 'KeyH');
+      const a = Keymap.rebind('punch', 'KeyK'), b = Keymap.rebind('punch', 'Escape'), c = Keymap.rebind('punch', 'F5'), d = Keymap.rebind('punch', 'KeyH');
       Keymap.bindings = JSON.parse(keep); Keymap.save(); Input.rebuildMap();
       return !a.ok && !b.ok && !c.ok && d.ok ? true : JSON.stringify([a.ok, b.ok, c.ok, d.ok]);
     });
     test('Corrupted saved key bindings are repaired', () => {
       const raw = Store.get(KEY_BINDINGS), keep = JSON.stringify(Keymap.bindings);
-      Store.set(KEY_BINDINGS, '{"lp":["F5","KeyK"],"rp":5,"lk":["KeyU","KeyU"],"pause":["KeyP"]}');
+      Store.set(KEY_BINDINGS, '{"revision":3,"punch":["F5","KeyK"],"kick":5,"grapple":["KeyU","KeyU"],"pause":["KeyP"]}');
       Keymap.init();
       const all = ACTIONS.reduce((acc, a) => acc.concat(Keymap.bindings[a]), []);
       const unique = new Set(all).size === all.length;
@@ -8437,12 +8598,12 @@ const SelfTest = {
       const defaults = ACTIONS.every((a) => DEFAULT_KEYS_P2[a].every((c) => !p1Keys.includes(c)));
       const versus = Inputs.versus;
       Inputs.versus = true;                                              // in Versus P1 cannot take a P2 key either
-      const a = Keymap2.rebind('lp', 'KeyJ'), b = Keymap.rebind('lp', 'Numpad5'), c = Keymap2.rebind('lp', 'Escape'), d = Keymap2.rebind('lp', 'KeyH');
+      const a = Keymap2.rebind('punch', 'KeyJ'), b = Keymap.rebind('punch', 'Numpad5'), c = Keymap2.rebind('punch', 'Escape'), d = Keymap2.rebind('punch', 'KeyH');
       Inputs.versus = versus;
-      Keymap.rebind('lp', 'KeyN'); Keymap2.rebind('rp', 'KeyJ');       // J is free once P1 moves off it
-      Keymap.resetAll();                                                 // P1 takes J back: P2's right punch moves
-      const gaveWay = Keymap.bindings.lp[0] === 'KeyJ' && Keymap2.bindings.rp[0] !== 'KeyJ';
-      Store.set(KEY_BINDINGS_P2, JSON.stringify({ revision: KEYS_REVISION, lp: ['KeyJ'], rp: ['Numpad5', 'Numpad5'], pause: ['Escape'] }));
+      Keymap.rebind('punch', 'KeyN'); Keymap2.rebind('kick', 'KeyJ');   // J is free once P1 moves off it
+      Keymap.resetAll();                                                 // P1 takes J back: P2's kick moves
+      const gaveWay = Keymap.bindings.punch[0] === 'KeyJ' && Keymap2.bindings.kick[0] !== 'KeyJ';
+      Store.set(KEY_BINDINGS_P2, JSON.stringify({ revision: KEYS_REVISION, punch: ['KeyJ'], kick: ['Numpad5', 'Numpad5'], pause: ['Escape'] }));
       Keymap2.init();
       const all = ACTIONS.reduce((acc, x) => acc.concat(Keymap2.bindings[x]), []);
       const repaired = !all.includes('KeyJ') && !all.includes('Escape') && new Set(all).size === all.length && ACTIONS.every((x) => Keymap2.bindings[x].length >= 1);
@@ -8458,7 +8619,7 @@ const SelfTest = {
       Keymap.rebind('up', 'KeyT');
       const back = Keymap.rebind('up', p2Up);                            // e.g. the arrow P1 lost by rebinding
       const moved = back.ok && back.moved.includes('P2') && Keymap.bindings.up[0] === p2Up && !Keymap2.bindings.up.includes(p2Up) && Keymap2.bindings.up.length >= 1;
-      const numpad = Keymap.rebind('lp', Keymap2.bindings.lp[0]).ok;
+      const numpad = Keymap.rebind('punch', Keymap2.bindings.punch[0]).ok;
       const p1Main = Keymap.mainCodes();
       const separate = ACTIONS.every((x) => Keymap2.bindings[x].every((c) => !p1Main.includes(c)));   // still no shared main key when Versus starts
       raw.forEach((value, i) => { const storeKey = KEYMAPS[i].storeKey; if (value === null) Store.remove(storeKey); else Store.set(storeKey, value); });
@@ -8719,6 +8880,8 @@ const SelfTest = {
       return countdown && resumed && locked && koLock ? true : JSON.stringify({ countdown, resumed, locked, koLock });
     });
     test('Hints: too tired to escape, the clinch strike keys with strikes left, a Move list entry in the pause menu', () => {
+      const tips = Progress.d.clinchTips;
+      Progress.d.clinchTips = 0;
       const m = mk({});
       const [a, b] = m.fighters;
       a.grip = b.grip = 'front'; a.throwAim = 'fwd'; a.throwPending = null;
@@ -8728,11 +8891,37 @@ const SelfTest = {
       b.stam = ESCAPE_STAMINA;
       const escape = UI.clinchHint(b).startsWith('ESCAPE NOW');
       a.clinchStrikes = 0;
-      const fresh = UI.throwHint(a), strikes = fresh.includes(UI.keyName('lp', 0) + ' knee / ' + UI.keyName('rp', 0) + ' elbow (' + CLINCH_STRIKE_MAX + ' left)');
+      const fresh = UI.throwHint(a), strikes = fresh.includes(UI.keyName('punch', 0) + ' knee / ' + UI.keyName('strong', 0) + ' + ' + UI.keyName('punch', 0) + ' elbow (' + CLINCH_STRIKE_MAX + ' left)');
       a.clinchStrikes = CLINCH_STRIKE_MAX;
       const spent = !UI.throwHint(a).includes('knee');
       const pauseMoves = UI.screen_pause().includes('data-act="moves"');
+      Progress.d.clinchTips = tips;
       return tired && escape && strikes && spent && pauseMoves ? true : JSON.stringify({ tired, escape, fresh, spent, pauseMoves });
+    });
+    test('Hints: after the first clinches only short cues show (full ones stay in Training); simulations never count', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const saved = keepProgress();
+      Progress.d.clinchTips = 0;
+      const sim = mk({});
+      Events.emit('clinch', { att: sim.fighters[0], def: sim.fighters[1], grip: 'front', x: 0, y: 1.1, z: 0 });
+      const simIgnored = Progress.d.clinchTips === 0;
+      Game.chooseMode('free'); Game.startFromSelection();
+      const [a, b] = Game.match.fighters;
+      for (let i = 0; i < CLINCH_TIP_CLINCHES + 3; i++) Events.emit('clinch', { att: b, def: a, grip: 'front', x: 0, y: 1.1, z: 0 });
+      const capped = Progress.d.clinchTips === CLINCH_TIP_CLINCHES + 1 && JSON.parse(Store.get(KEY_PROGRESS)).clinchTips === CLINCH_TIP_CLINCHES + 1;
+      a.grip = b.grip = 'front'; a.throwAim = 'fwd'; a.throwPending = null; a.clinchStrikes = 0;
+      b.escapeLock = 0; b.clinchTick = 0; b.stam = ESCAPE_STAMINA;
+      const quiet = UI.clinchHint(b) === '';
+      b.clinchTick = escapeStartFor(b);
+      const escape = UI.clinchHint(b).startsWith('ESCAPE NOW');
+      const throwCue = UI.throwHint(a), short = throwCue.length < 30 && !throwCue.includes('knee') && throwCue.includes(throwFor('front', 'fwd').name.toUpperCase());
+      Game.match.training = true;
+      const training = UI.throwHint(a).includes('knee');
+      Game.match.training = false;
+      Game.quitToMenu();
+      restoreProgress(saved);
+      const r = { simIgnored, capped, quiet, escape, short, training };
+      return Object.values(r).every(Boolean) ? true : JSON.stringify(r) + ' ' + throwCue;
     });
     test('Pause: Esc or a pause press that leaves Controls or Settings lands on the pause screen; a later press resumes', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
@@ -9263,10 +9452,27 @@ const SelfTest = {
       const assigned = ROSTER.every((r) => MOVE_STYLE[r.moveStyle]) && new Set(ROSTER.map((r) => r.moveStyle)).size === ROSTER.length;
       return same.length === 0 && assigned ? true : 'too similar: ' + same.join(', ') + ' roster styles ok ' + assigned;
     });
+    test('Creator preview: strike trails of the punch and kick poses fade away', () => {
+      const keepEffects = Settings.v.effects;
+      Settings.v.effects = 'high';
+      FX.clear();
+      Showcase.showPreview(ROSTER_BY_ID.kai);
+      const lit = () => FX.p.filter((q) => q.on).length;
+      let peak = 0;
+      for (const pose of ['punch', 'kick']) {
+        Showcase.setPreviewPose(pose);
+        for (let i = 0; i < 90; i++) { Showcase.update(1 / 60); peak = Math.max(peak, lit()); }
+      }
+      Showcase.setPreviewPose('guard');
+      for (let i = 0; i < 30; i++) Showcase.update(1 / 60);
+      const left = lit();
+      Showcase.endPreview(); FX.clear(); Settings.v.effects = keepEffects;
+      return peak > 0 && left === 0 ? true : 'peak ' + peak + ' left ' + left;
+    });
     test('Motion: individuality is seeded and stable, never shared by two fighters', () => {
       const a1 = new Fighter(ROSTER_BY_ID.kai, 0).motion, a2 = new Fighter(ROSTER_BY_ID.kai, 1).motion;
       const twin = new Fighter(Object.assign({}, ROSTER_BY_ID.kai, { id: 'kai2' }), 0).motion;
-      const stable = a1.phase === a2.phase && a1.bounce === a2.bounce && a1.guard[0].every((v, i) => v === a2.guard[0][i]);
+      const stable = a1.phase === a2.phase && a1.bounce === a2.bounce && a1.guard.every((v, i) => v === a2.guard[i]);
       const distinct = a1.phase !== twin.phase && a1.bounce !== twin.bounce;
       return stable && distinct ? true : 'stable ' + stable + ' distinct ' + distinct;
     });
