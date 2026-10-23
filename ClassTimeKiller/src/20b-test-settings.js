@@ -375,6 +375,34 @@ Test.add('settings', (check) => {
   check('iPhone and iPad found by one rule (audio and device agree)', apple.join() === 'true/true,true/true,false/false,false/false', apple.join());
 });
 
+// PLT-004: a running match keeps the screen awake (a controller is no touch, so the phone would dim and lock); a pause or
+// the menu lets it sleep. Typing into a field and closing the iOS keyboard puts the page back in place.
+Test.add('settings', async (check) => {
+  const calls = [], sentinel = { release() { calls.push('release'); return Promise.resolve(); }, addEventListener() {} };
+  Object.defineProperty(navigator, 'wakeLock', { value: { request(type) { calls.push(type); return Promise.resolve(sentinel); } }, configurable: true });
+  const state = Game.state, scrollTo = window.scrollTo, field = document.createElement('input');
+  try {
+    Game.state = 'playing'; Game.paused = false;
+    Device.updateWakeLock(); Device.updateWakeLock();
+    await Promise.resolve();
+    check('wake lock: asked once while a match runs', calls.join() === 'screen', calls.join());
+    Game.paused = true;
+    Device.updateWakeLock();
+    check('wake lock: released on pause', calls.join() === 'screen,release', calls.join());
+    let scrolled = '';
+    window.scrollTo = (x, y) => { scrolled = x + ',' + y; };
+    document.body.appendChild(field);
+    // A page in the background gets no real focus changes: the event the browser sends on blur.
+    field.dispatchEvent(new FocusEvent('focusout', { bubbles: true }));
+    check('keyboard: leaving a text field scrolls the page back', scrolled === '0,0', scrolled);
+  } finally {
+    delete navigator.wakeLock;
+    Game.state = state; Game.paused = false;
+    Device.updateWakeLock();
+    window.scrollTo = scrollTo; field.remove();
+  }
+});
+
 // R-008: persistence is asked once, at the first gesture. The Home Screen tip shows once, in an iOS Safari tab, after the
 // first finished match (there is progress to keep) and only on the bare main menu, never over the Welcome dialog or a
 // match; a granted persist() needs no tip. The Home Screen app's first start (its own empty save) offers the import.
