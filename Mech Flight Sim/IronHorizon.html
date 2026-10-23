@@ -708,11 +708,11 @@ const DIFFICULTY = {
    fxFar m from the camera past which blasts, splashes and ships' wakes emit a lighter set of particles (fxFar), fleet
    most enemy ships in a skirmish's fleet: one of each of its size's types, the first fleet of them (SKIRMISH_FLEET);
    traffic (Traffic): most cars driving the streets and roads, trafficDraw m within which cars are drawn (simple models
-   past trafficLod) */
+   past trafficLod); flights most airliners in the air (Flights) */
 const QUALITY = {
-  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraVerts: 75000, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, fauna: 0.5, faunaDraw: 260, faunaLod: 70, faunaCap: 32, faunaSim: 48, maxPx: 800000, fxFar: 260, fleet: 1, traffic: 16, trafficDraw: 260, trafficLod: 60 },
-  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraVerts: 115000, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, fauna: 0.75, faunaDraw: 380, faunaLod: 110, faunaCap: 64, faunaSim: 96, maxPx: 1600000, fxFar: 380, fleet: 2, traffic: 32, trafficDraw: 380, trafficLod: 100 },
-  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraVerts: 140000, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000, fauna: 1, faunaDraw: 520, faunaLod: 150, faunaCap: 100, faunaSim: 150, fxFar: 500, fleet: 3, traffic: 48, trafficDraw: 500, trafficLod: 140 },
+  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraVerts: 75000, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, fauna: 0.5, faunaDraw: 260, faunaLod: 70, faunaCap: 32, faunaSim: 48, maxPx: 800000, fxFar: 260, fleet: 1, traffic: 16, trafficDraw: 260, trafficLod: 60, flights: 1 },
+  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraVerts: 115000, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, fauna: 0.75, faunaDraw: 380, faunaLod: 110, faunaCap: 64, faunaSim: 96, maxPx: 1600000, fxFar: 380, fleet: 2, traffic: 32, trafficDraw: 380, trafficLod: 100, flights: 2 },
+  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraVerts: 140000, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000, fauna: 1, faunaDraw: 520, faunaLod: 150, faunaCap: 100, faunaSim: 150, fxFar: 500, fleet: 3, traffic: 48, trafficDraw: 500, trafficLod: 140, flights: 3 },
 };
 
 /* ---------- maps (battlefields) ---------- */
@@ -4053,8 +4053,9 @@ const RUBBLE_MAX = 2.2;              // tallest mound (m)
 const RUBBLE_FULL = 1.2, RUBBLE_SLOW = 0.5;   // ground units on a mound this high go at 1 - RUBBLE_SLOW of their speed
 const RUBBLE_SHOW = 0.08;            // mounds lower than this are not drawn (m)
 const RUBBLE_COL = [0.34, 0.32, 0.3];
+const FALL_KEEP = 60;                // chunks a shot-down aircraft's wreckage leaves free for collapses (Falls.fling)
 function newFall() {
-  return { on: false, hit: false, src: null, t: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, hx: 0, hy: 0, hz: 0, rx: 0, rz: 0, wx: 0, wz: 0, vol: 0, hurt: 0, r: 0, g: 0, b: 0 };
+  return { on: false, hit: false, loose: false, src: null, t: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, hx: 0, hy: 0, hz: 0, rx: 0, rz: 0, wx: 0, wz: 0, vol: 0, hurt: 0, r: 0, g: 0, b: 0 };
 }
 const Falls = {
   list: Array.from({ length: FALL_CAP }, newFall),
@@ -4074,13 +4075,28 @@ const Falls = {
       Rubble.add(s.x + vx * t, s.z + vz * t, vol);
       return;
     }
-    f.on = true; f.hit = false; f.src = s; f.t = 0;
+    f.on = true; f.hit = false; f.loose = false; f.src = s; f.t = 0;
     f.x = s.x; f.y = s.y + hy; f.z = s.z; f.vx = vx; f.vy = 0; f.vz = vz;
     f.hx = s.hx; f.hy = hy; f.hz = s.hz; f.rx = 0; f.rz = 0; f.wx = wx; f.wz = wz;
     f.vol = vol; f.hurt = vol * FALL_DENSITY;
     if (b) Bld.pieceColor(b, s, PIECE_COL); else { const c = MATERIAL[s.mat].col; PIECE_COL[0] = c[0]; PIECE_COL[1] = c[1]; PIECE_COL[2] = c[2]; }
     f.r = PIECE_COL[0]; f.g = PIECE_COL[1]; f.b = PIECE_COL[2];
     this.n++;
+  },
+  /* A loose chunk of a shot-down aircraft (Flights.breakUp): a box of half sizes hx, hy, hz at (x, y, z), moving (vx,
+     vy, vz), of t tonnes in colour col. It hurts what it comes down on like a building piece, but the flights are local
+     scenery (D6): platforms only in solo play, in co-op only this game's civilians, animals and traffic; and it leaves
+     no rubble. False when the collapses need the chunks left. */
+  fling(x, y, z, hx, hy, hz, vx, vy, vz, t, col) {
+    if (this.n >= FALL_CAP - FALL_KEEP) return false;
+    const f = this.free();
+    f.on = true; f.hit = false; f.loose = true; f.src = null; f.t = 0;
+    f.x = x; f.y = y; f.z = z; f.vx = vx; f.vy = vy; f.vz = vz;
+    f.hx = hx; f.hy = hy; f.hz = hz; f.rx = 0; f.rz = 0; f.wx = rand(-FALL_SPIN, FALL_SPIN); f.wz = rand(-FALL_SPIN, FALL_SPIN);
+    f.vol = 8 * hx * hy * hz; f.hurt = t;
+    f.r = col[0]; f.g = col[1]; f.b = col[2];
+    this.n++;
+    return true;
   },
   free() {
     for (let i = 0; i < FALL_CAP; i++) if (!this.list[i].on) return this.list[i];
@@ -4095,7 +4111,7 @@ const Falls = {
       f.vy -= GRAVITY * dt;
       f.x += f.vx * dt; f.y += f.vy * dt; f.z += f.vz * dt;
       f.rx += f.wx * dt; f.rz += f.wz * dt;
-      if (!f.hit && !Net.guest) this.hitPlatforms(f);
+      if (!f.hit && !Net.guest && !(f.loose && Net.host)) this.hitPlatforms(f);
       const gy = Terrain.h(f.x, f.z);
       if (f.y - f.hy <= gy || f.t > FALL_LIFE) this.land(f, gy);
     }
@@ -4127,6 +4143,7 @@ const Falls = {
       Traffic.crush(x0, z0, x1, z1, gy, dmg);
     }
     if (Water.any && Water.level(f.x, f.z) > gy + 0.3) { Water.splash(f.x, f.z, Math.max(1, f.hx), false); return; }
+    if (f.loose) { spawnDebris(f.x, gy + 0.5, f.z, 2, null, 6); fxSmokePuff(f.x, gy + 0.5, f.z, 2.5, 1); return; }
     Rubble.add(f.x, f.z, f.vol);
     spawnDebris(f.x, gy + 0.5, f.z, 1, f.src, 6);
     if (f.vol > FALL_DUST_VOL) fxSmokePuff(f.x, gy + 0.5, f.z, 2.5, 1);
@@ -4333,15 +4350,9 @@ function gibSlice(src) {
 }
 
 /* ---------- explosions ---------- */
-function explode(x, y, z, radius, damage, dtype, owner, opts) {
-  opts = opts || {};
-  const big = radius >= 7;
-  // at the surface of a lake, river or sea (not on a bridge it hit, nor on a deck between it and the water): a splash,
-  // no crater, and less blast damage
-  const gh = Terrain.h(x, z), wl = Water.level(x, z);
-  const wet = !opts.excludeStruct && wl - gh > WATER_SPLASH_MIN && y - wl < WATER_SPLASH_REACH && Water.deckTop(x, z, y) < wl;
-  if (wet) { damage *= WATER_SPLASH_MULT; Water.splash(x, z, radius, true); }
-  // visuals (far from the camera, a lighter set: fxFar)
+/* the fire, smoke, sparks, shock ring and flash of a blast of radius at (x, y, z) (far from the camera, a lighter set:
+   fxFar); explode() and a shot-down airliner's (Flights) */
+function blastFx(x, y, z, radius) {
   const lite = fxFar(x, y, z);
   FX.emit(x, y, z, 0, 0, 0, 0.16, radius * 2.6, radius * 3.4, 1, 0.9, 0.6, 0.95, 0, 0, true);
   const nf = lite ? 3 : clamp(Math.floor(radius * 2.2), 4, 22);
@@ -4352,7 +4363,17 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
   fxSmokePuff(x, y + radius * 0.3, z, radius * 0.9, lite ? 1 : clamp(Math.floor(radius * 0.9), 2, 9));
   fxSparks(x, y, z, lite ? 4 : clamp(Math.floor(radius * 2.5), 6, 24), [1, 0.85, 0.45], radius * 3.5);
   if (radius >= 3 && !lite) W.rings.push({ x, y, z, r: 0.5, maxR: radius * 1.3, life: 0.35, maxLife: 0.35 });
-  addLight(x, y + 2, z, clamp(radius * 9, 30, 150), 1, 0.65, 0.3, big ? 0.55 : 0.35);
+  addLight(x, y + 2, z, clamp(radius * 9, 30, 150), 1, 0.65, 0.3, radius >= 7 ? 0.55 : 0.35);
+}
+function explode(x, y, z, radius, damage, dtype, owner, opts) {
+  opts = opts || {};
+  const big = radius >= 7;
+  // at the surface of a lake, river or sea (not on a bridge it hit, nor on a deck between it and the water): a splash,
+  // no crater, and less blast damage
+  const gh = Terrain.h(x, z), wl = Water.level(x, z);
+  const wet = !opts.excludeStruct && wl - gh > WATER_SPLASH_MIN && y - wl < WATER_SPLASH_REACH && Water.deckTop(x, z, y) < wl;
+  if (wet) { damage *= WATER_SPLASH_MULT; Water.splash(x, z, radius, true); }
+  blastFx(x, y, z, radius);
   if (radius >= 3 && y - gh < radius * 0.8 && !wet) {
     addDecal(x, z, radius * 0.8, undefined, 40);
   }
@@ -9083,8 +9104,8 @@ function civDef(v) {
   } else def.air = v.air;
   return def;
 }
-/* every row's recipe, wheels, half sizes (hw, hl, from y0 to y1 over its origin) and platform def */
-for (const v of VEHICLES) {
+/* row v's recipe, wheels, half sizes (hw, hl, from y0 to y1 over its origin) and platform def (v.def) */
+function buildVehicle(v) {
   const B = { parts: [], wheels: [] };
   if (v.type === 'air') v.h = v.fd * 0.4 + v.fd * 1.1 + 0.4 + v.air.gearH;
   v.wheelR = v.wheelR || (v.type === 'air' ? clamp(v.air.gearH * 0.22, 0.25, 0.7) : v.body === 'tractor' ? v.h * 0.28 : v.body === 'truck' ? 0.5 : clamp(v.h * 0.24, 0.3, 0.42));
@@ -9092,8 +9113,9 @@ for (const v of VEHICLES) {
   v.parts = B.parts; v.wheels = B.wheels; v.accCol = v.acc || CV_ACC;
   v.hw = v.type === 'air' ? v.fd / 2 : v.w / 2; v.hl = v.l / 2;
   v.y0 = v.type === 'air' ? -v.air.gearH : 0; v.y1 = v.type === 'air' ? v.h - v.air.gearH : v.h;
-  PLATFORMS['cv_' + v.id] = civDef(v);
+  v.def = civDef(v);
 }
+for (const v of VEHICLES) { buildVehicle(v); PLATFORMS['cv_' + v.id] = v.def; }
 const VEHICLE_IDS = VEHICLES.map((v) => v.id);
 /* the pose a vehicle is drawn in (one scratch object, so drawing allocates nothing): its paint and accent, place and
    attitude, the simple model, wheel and propeller turn, the gear down, crushed flat (share of its height), shade and
@@ -9199,7 +9221,7 @@ const Traffic = {
   /* the lane graph, the parked vehicles and the cars for the battlefield (after the civilians: the streets are their
      zones); start: the player's start, kept clear */
   populate(seed, start) {
-    const T = W.traffic = { nodes: [], lanes: [], drive: [], driveLen: 0, driveW: 0, cars: [], parked: [], near: [], movers: [], tick: 0, cycle: 0, drawn: 0, wrecked: 0 };
+    const T = W.traffic = { nodes: [], lanes: [], drive: [], driveLen: 0, driveW: 0, cars: [], parked: [], near: [], movers: [], tick: 0, cycle: 0, drawn: 0, wrecked: 0, flights: [], flightHit: Infinity };
     const rng = makeRng((seed ^ 0x7ca2f1) >>> 0), keep = (W.pads || []).slice();
     if (start) keep.push(start);
     this.buildGraph(T);
@@ -9207,6 +9229,7 @@ const Traffic = {
     this.parkBoats(T, rng);
     this.parkAircraft(T);
     this.placeCars(T, rng, keep);
+    Flights.populate(T, seed);    // with a seed of its own, so the cars stay where they were
   },
   /* the streets of every zone and the roads, as edges between nodes, then two lanes per edge and the turns between them */
   buildGraph(T) {
@@ -9456,9 +9479,9 @@ const Traffic = {
   },
   /* one vehicle of row v in colour col; every vehicle of the scenery has the same fields */
   make(v, col) {
-    const def = PLATFORMS['cv_' + v.id], set = CIV_PAINTS[v.paint], hp = 40 + 15 * v.tonnes;
+    const def = v.def, set = CIV_PAINTS[v.paint], hp = 40 + 15 * v.tonnes;
     return {
-      v, def, col, paint: set[col % set.length], x: 0, y: 0, z: 0, yaw: 0, pitch: 0, lane: null, s: 0, seg: 0, speed: 0, cap: 0, pace: 1,
+      v, def, col, paint: set[col % set.length], x: 0, y: 0, z: 0, yaw: 0, pitch: 0, roll: 0, lane: null, s: 0, seg: 0, speed: 0, cap: 0, pace: 1,
       hp, hp0: hp, state: 'park', panic: 0, threatX: 0, threatZ: 0, halt: 0, wait: 0, lookT: 0, block: Infinity, lookKind: 0, gapKind: 0,
       next: null, lockNode: null, flat: 1, burn: 0, life: 0, spin: 0, driver: false, airport: false, slot: 0, fromX: 0, fromZ: 0, fromYaw: 0, turnT: 0, far: false,
     };
@@ -9601,6 +9624,7 @@ const Traffic = {
     const ps = T.parked;
     for (let i = 0; i < ps.length; i++) { const r = ps[i]; if (r.state === 'wreck') this.stepWreck(r, dt); else this.touchMachines(r); }
     this.recycle(T);
+    Flights.update(T, dt);
   },
   /* the live units on the ground and the water this tick (what cars stop for), and the machines among them that move
      (what scares drivers and crushes cars: most stand still, so each car looks at a short list) */
@@ -9933,6 +9957,7 @@ const Traffic = {
     const hear = Math.max(CIV_BLAST_HEAR_MIN, radius * CIV_BLAST_HEAR);
     this.blastList(T.cars, x, y, z, radius, damage, hear);
     this.blastList(T.parked, x, y, z, radius, damage, hear);
+    Flights.blast(T, x, y, z, radius, damage);
   },
   blastList(list, x, y, z, radius, damage, hear) {
     for (let i = 0; i < list.length; i++) {
@@ -9947,12 +9972,16 @@ const Traffic = {
       if (c.state === 'drive' && dx * dx + dz * dz < hear * hear) this.scare(c, x, z);
     }
   },
-  /* a shot moving len m from (x0, y0, z0) along unit (ux, uy, uz) hits every vehicle in its way (their boxes) and flies on */
+  /* a shot moving len m from (x0, y0, z0) along unit (ux, uy, uz) hits every vehicle in its way (their boxes) and flies
+     on; T.flightHit is then how far along it the first aircraft in flight it struck was (Infinity: none) */
   sweep(x0, y0, z0, ux, uy, uz, len, dmg) {
     const T = W.traffic;
-    if (!T || !(len > 0)) return;
+    if (!T) return;
+    T.flightHit = Infinity;
+    if (!(len > 0)) return;
     this.sweepList(T.cars, x0, y0, z0, ux, uy, uz, len, dmg);
     this.sweepList(T.parked, x0, y0, z0, ux, uy, uz, len, dmg);
+    T.flightHit = Flights.sweep(T, x0, y0, z0, ux, uy, uz, len, dmg);
   },
   sweepList(list, x0, y0, z0, ux, uy, uz, len, dmg) {
     const x1 = x0 + ux * len, z1 = z0 + uz * len;
@@ -10045,10 +10074,12 @@ const Traffic = {
     let best = null, bd = within;
     for (let i = 0; i < T.parked.length; i++) { const d = this.rideDist(T.parked[i], human); if (d < bd) { bd = d; best = T.parked[i]; } }
     for (let i = 0; i < T.cars.length; i++) { const d = this.rideDist(T.cars[i], human); if (d < bd) { bd = d; best = T.cars[i]; } }
+    for (let i = 0; i < T.flights.length; i++) { const d = this.rideDist(T.flights[i], human); if (d < bd) { bd = d; best = T.flights[i]; } }
     return best;
   },
   rideDist(r, h) {
     if (r.state === 'wreck' || r.state === 'turn' || (r.state === 'drive' && r.speed > TRAFFIC_TAKE_SPEED)) return Infinity;
+    if (r.flight && r.phase !== FL_GATE) return Infinity;   // an airliner only at its gate
     if (r.v.type === 'air' && !r.airport && !Airports.covers(r.x, r.z)) return Infinity;
     const dx = r.x - h.x, dz = r.z - h.z, reach = Math.max(ENTER_SMALL, r.def.radius + ENTER_PAD);
     if (Math.abs(dx) > reach || Math.abs(dz) > reach) return Infinity;
@@ -10088,7 +10119,7 @@ const Traffic = {
   claim(def, x, z) {
     const T = W.traffic;
     if (!T) return;
-    for (const list of [T.parked, T.cars]) for (let i = 0; i < list.length; i++) {
+    for (const list of [T.parked, T.cars, T.flights]) for (let i = 0; i < list.length; i++) {
       const r = list[i];
       if (r.def === def && r.state !== 'wreck' && Math.hypot(r.x - x, r.z - z) < 4) { this.remove(r, true); return; }
     }
@@ -10098,6 +10129,7 @@ const Traffic = {
     const T = W.traffic;
     if (out) this.driverOut(r, false);
     if (r.lane) { this.unlock(r); this.drop(r.lane.cars, r); this.drop(T.cars, r); r.lane = null; }
+    else if (r.flight) this.drop(T.flights, r);
     else this.drop(T.parked, r);
   },
 
@@ -10108,6 +10140,7 @@ const Traffic = {
     if (!T) return;
     const q = Fauna.quality(), night = Clock.look.night > 0.5;
     T.drawn = this.drawList(T.cars, q, q.traffic, night ? 1 : 0.35) + this.drawList(T.parked, q, q.traffic + 24, 0);
+    Flights.draw(T, q, night);
     R.stack.top = 0; R.stack.ident();
   },
   drawList(list, q, cap, glow) {
@@ -10132,15 +10165,451 @@ const Traffic = {
     if (!T) return;
     this.shadowList(T.cars);
     this.shadowList(T.parked);
+    this.shadowList(T.flights);   // those on the ground
   },
   shadowList(list) {
     const st = R.stack, cam = R.cam, lim2 = TRAFFIC_SHADOW_DIST * TRAFFIC_SHADOW_DIST;
     for (let i = 0; i < list.length; i++) {
       const c = list[i], v = c.v, dx = c.x - cam.x, dz = c.z - cam.z;
-      if (v.type === 'sea' || dx * dx + dz * dz > lim2 || !R.visible(c.x, c.y, c.z, v.hl)) continue;
+      if (v.type === 'sea' || c.aloft || dx * dx + dz * dz > lim2 || !R.visible(c.x, c.y, c.z, v.hl)) continue;
       const gy = v.type === 'air' ? c.y - v.air.gearH : c.y, w = v.type === 'air' ? v.span * 0.8 : v.w * 1.1;
       st.push().t(c.x, gy + 0.03, c.z).ry(c.yaw).s(w, 0.05, v.l * 1.04); R.draw('box', 0, 0, 0); st.pop();
     }
+  },
+};
+
+/* ---------------------------------------------------------------------
+   Commercial flights (P6.3)
+   An airfield's airliners fly a loop from their gates in turn: taxi out, the take-off roll, the climb, a circuit at
+   height over the battlefield, the approach and landing, and taxi back to the gate, where they wait for the next
+   flight. Each loop is built once from the airfield's layout as a path of points with the height, attitude and speed
+   at each, raised where it must be to clear the ground and the buildings; a
+   battlefield with no airfield (or none whose circuit clears) gets airliners crossing it at height instead. Like the
+   road traffic they are local scenery (D6, never sent): the AI never sees them and they block nothing, but shots and
+   blasts hurt them, and a player's explosive shot goes off on one in solo play. One shot down falls burning and breaks
+   up into chunks (Falls.fling) that hurt what they come down on: platforms in solo play only, in co-op only this
+   game's civilians, animals and traffic.
+   --------------------------------------------------------------------- */
+const FL_GATE = 0, FL_TAXI = 1, FL_ROLL = 2, FL_CLIMB = 3, FL_CRUISE = 4, FL_APPROACH = 5, FL_LANDING = 6, FL_TAXI_IN = 7, FL_CROSS = 8, FL_DOWN = 9, FL_GONE = 10;
+const FLIGHT_PHASES = ['gate', 'taxi', 'roll', 'climb', 'cruise', 'approach', 'landing', 'taxi in', 'cross', 'down', 'gone'];
+// each airfield kind's gates: [row, u, v, side of the U-turn onto it] (Airports.at), clear of the parked aircraft (TRAFFIC_APRON)
+const FLIGHT_GATES = { airport: [['airliner', -120, 128, -1], ['cargojet', 120, 126, 1]], strip: [['twinprop', 30, 45, 1]] };
+const FLIGHT_TAXIWAY = 71;          // v of the airport's taxiway centre line (AIRFIELD.airport taxi[0])
+const FLIGHT_CONNECT = 390;         // u of the airport's end connectors from the taxiway to the runway
+const FLIGHT_STRIP_LINE = 7;        // m off a strip's centre line its aircraft roll along (they turn round on the strip)
+const FLIGHT_TAXI = 12, FLIGHT_TAXI_TURN = 6;  // taxi speed, and round corners (m/s)
+const FLIGHT_TAXI_ACCEL = 1.2;      // m/s2 taxiing
+const FLIGHT_CRAWL = 0.8;           // m/s it moves at least along its route (it starts from a stop at the gate)
+const FLIGHT_TURN_R = 15;           // taxiway corner radius (m); a strip's 10
+const FLIGHT_GATE_R = 15;           // radius of the U-turn onto a gate (m); a strip's 8
+const FLIGHT_STEP_GROUND = 2, FLIGHT_STEP_AIR = 6;   // m between route points
+const FLIGHT_ROLL_ACCEL = 4.5;      // take-off roll (m/s2)
+const FLIGHT_BRAKE = 5;             // landing roll (m/s2)
+const FLIGHT_AIR_ACCEL = 1.5;       // speed changes in the air (m/s2)
+const FLIGHT_CLIMB = 0.2, FLIGHT_GLIDE = 0.12;     // climb and glide gradients (steep: the battlefield is small)
+const FLIGHT_ALTS = [150, 200, 250];   // circuit heights over the airfield tried in turn (m)
+const FLIGHT_CLEAR = 70;            // m a flight keeps over the ground, water and buildings at most...
+const FLIGHT_LOW_CLEAR = 0.7;       // ...and lower down this share of its height over the airfield
+const FLIGHT_WIDE = 20;             // m round its path the buildings it keeps over
+const FLIGHT_STEEP = 0.3;           // steepest climb or descent raising it over them may take
+const FLIGHT_PATTERN = 0.3;         // share of the way from stall to cruise speed it flies the circuit at
+const FLIGHT_BANK = 0.6;            // bank of the circuit's turns (rad): their radius follows from the speed
+const FLIGHT_UPWIND = 250;          // m flown past the runway's end before the first turn
+const FLIGHT_TEAR = PI / 3;         // a teardrop's turn away (rad)
+const FLIGHT_FINAL = 4;             // s of straight final approach
+const FLIGHT_TOUCH = 60;            // m past the threshold it touches down
+const FLIGHT_LAND = 1.05;           // touch-down speed share of the take-off speed (the circuit's speed at most)
+const FLIGHT_AOA = 0.05;            // nose up in the air (rad)
+const FLIGHT_ROTATE = [60, 0.18];    // m of the roll before lift-off over which the nose comes up, and how far (rad)
+const FLIGHT_FLARE = [70, 0.06];    // the same before touch-down
+const FLIGHT_GEAR = 150;            // m after lift-off the gear comes up (it goes down where the approach starts)
+const FLIGHT_DWELL = [25, 50];      // s at the gate between flights
+const FLIGHT_CROSS_OUT = 1250;      // m from the middle a crossing starts and ends
+const FLIGHT_CROSS_SPREAD = 450;    // m off the middle it may pass
+const FLIGHT_CROSS_ALT = [280, 380];   // m it flies at...
+const FLIGHT_CROSS_OVER = 160;      // ...and at least this far over the highest ground
+const FLIGHT_CROSS_WAIT = [20, 60]; // s between crossings
+const FLIGHT_DOWN_T = 5;            // s a shot-down aircraft falls before it breaks up...
+const FLIGHT_BREAK_AGL = 45;        // ...unless it comes this low over the ground first (m)
+const FLIGHT_FALL_G = 0.45;         // share of gravity it falls with, its wings still carrying it a little
+const FLIGHT_DIVE = -0.6;           // pitch (rad) its nose drops to
+const FLIGHT_BACK = 120;            // s before a lost flight is replaced, out of sight
+const FLIGHT_BLAST = [14, 260];     // radius and damage of the fireball where it breaks up (the scenery only: D6)
+const FLIGHT_GUEST_BLAST = 0.5;     // a replayed blast (no damage sent) takes this share of a flight's hull at its centre
+const FLIGHT_WRECK_COL = [0.24, 0.24, 0.25];
+// the chunks an aircraft breaks into: [along (share of length), left (share of span), up (share of fuselage), half
+// sizes as shares of (span or fuselage, fuselage, length or chord), share of its tonnes, wing (sizes from span/chord)]
+const FLIGHT_PIECES = [
+  [0.32, 0, 0, 0.5, 0.5, 0.17, 0.22, false], [0, 0, 0, 0.5, 0.5, 0.17, 0.26, false], [-0.32, 0, 0.1, 0.45, 0.45, 0.16, 0.14, false],
+  [0, 0.3, -0.2, 0.4, 0.08, 0.5, 0.16, true], [0, -0.3, -0.2, 0.4, 0.08, 0.5, 0.16, true], [-0.44, 0, 0.8, 0.02, 0.55, 0.4, 0.06, true],
+];
+const Flights = {
+  /* ---------- construction ---------- */
+  /* a flight from each gate of each airfield, at most the quality's flights; with none, airliners crossing at height */
+  populate(T, seed) {
+    const rng = makeRng((seed ^ 0x3f1a77) >>> 0), cap = Fauna.quality().flights;
+    for (const ap of W.airports) {
+      if (!ap.spot) continue;
+      for (const g of FLIGHT_GATES[ap.spot.kind] || []) {
+        if (T.flights.length >= cap) break;
+        const v = VEHICLES[VEHICLE_IDS.indexOf(g[0])], route = this.pick(ap.spot, v, g), col = Math.floor(rng() * 8), wait = rng();
+        if (!route) continue;
+        const f = this.make(T, v, col);
+        f.route = route; f.ap = ap;
+        this.toGate(f, lerp(4, FLIGHT_DWELL[1], wait));   // the first ones leave soon
+        T.flights.push(f);
+      }
+    }
+    if (T.flights.length) return;   // crossings only over a battlefield with no airfield traffic
+    const top = Terrain.maxIn(-WORLD_HALF, -WORLD_HALF, WORLD_HALF, WORLD_HALF);
+    for (let i = 0; i < cap; i++) {
+      const f = this.make(T, VEHICLES[VEHICLE_IDS.indexOf(i % 2 ? 'cargojet' : 'airliner')], Math.floor(rng() * 8));
+      f.rng = makeRng((seed * 31 + i * 7919 + 0x51ab3) >>> 0); f.top = top;
+      this.cross(f);
+      if (i === 0) f.along = FLIGHT_CROSS_OUT * (0.6 + 0.6 * f.rng());   // the first is already over the battlefield
+      else { f.phase = FL_GONE; f.state = 'wreck'; f.life = 0; f.wait = i * lerp(FLIGHT_CROSS_WAIT[0], FLIGHT_CROSS_WAIT[1], f.rng()); }
+      this.stepCross(f, 0);
+      T.flights.push(f);
+    }
+  },
+  /* a flight of row v in colour col: a vehicle of the scenery (Traffic.make) with the fields a flight needs */
+  make(T, v, col) {
+    const f = Traffic.make(v, col);
+    Object.assign(f, { flight: true, phase: FL_GATE, route: null, ap: null, dwell: 0, gear: true, aloft: false, vr: 0, vx: 0, vy: 0, vz: 0, downT: 0, rollRate: 0, along: 0, x0: 0, z0: 0, alt: 0, wait: 0, top: 0, rng: null, slot: T.flights.length });
+    return f;
+  },
+  /* the loop from gate g of airfield a for row v: taking off toward the middle of the battlefield where it can, else
+     the other way; landing the same way, else (an airport only: the strip is too short to roll back on) the other way,
+     over the middle on a teardrop turn; null where none clears the ground and the buildings */
+  pick(a, v, g) {
+    const p = Airports.at(a, AIRFIELD[a.kind].runway[1], 0), q = Airports.at(a, AIRFIELD[a.kind].runway[0], 0), away = Math.hypot(p.x, p.z) > Math.hypot(q.x, q.z);
+    return this.route(a, v, g, away, false) || this.route(a, v, g, !away, false) || (a.kind === 'airport' && (this.route(a, v, g, away, true) || this.route(a, v, g, !away, true))) || null;
+  },
+  /* The loop from gate g [row, u, v, U-turn side] of airfield a for row v: taxi out, roll, climb, the circuit (a half
+     turn onto the downwind leg on the side toward the middle of the battlefield, a half turn onto the final; tear: a
+     turn away and a teardrop turn back onto the runway the other way), landing roll, taxi back onto the gate. Built in
+     the airfield's own frame (u along the runway, v across; flip: u the other way, so it takes off toward -u), then
+     laid on the world. null where no circuit height in FLIGHT_ALTS clears. */
+  route(a, v, g, flip, tear) {
+    const air = v.air, rw = AIRFIELD[a.kind].runway, strip = a.kind === 'strip', marks = {};
+    const us = [], ws = [], ths = [], tg = [], ac = [], dc = [];
+    const gu = flip ? -g[1] : g[1], turnSide = flip ? -g[3] : g[3];
+    let u = gu, w = g[2], th = -PI / 2;   // at the gate, facing the runway (-v)
+    const put = (t, acc, dec) => { us.push(u); ws.push(w); ths.push(th); tg.push(t); ac.push(acc); dc.push(dec); };
+    const line = (d, t, acc, dec, step) => {
+      if (d <= 0) return;
+      const n = Math.max(1, Math.ceil(d / step)), du = Math.cos(th) * d / n, dw = Math.sin(th) * d / n;
+      for (let k = 0; k < n; k++) { u += du; w += dw; put(t, acc, dec); }
+    };
+    const arc = (delta, r, t, acc, dec, step) => {   // a turn of delta (left +) on radius r
+      const s = Math.sign(delta), cu = u - Math.sin(th) * r * s, cw = w + Math.cos(th) * r * s, t0 = th, n = Math.max(2, Math.ceil(Math.abs(delta) * r / step));
+      for (let k = 1; k <= n; k++) { th = t0 + delta * k / n; u = cu + r * s * Math.sin(th); w = cw - r * s * Math.cos(th); put(t, acc, dec); }
+    };
+    const mark = (k) => { marks[k] = us.length - 1; };
+    const G = FLIGHT_STEP_GROUND, A = FLIGHT_STEP_AIR, taxi = FLIGHT_TAXI, turn = FLIGHT_TAXI_TURN, ta = FLIGHT_TAXI_ACCEL, aa = FLIGHT_AIR_ACCEL;
+    const R = strip ? 10 : FLIGHT_TURN_R, Ru = strip ? 8 : FLIGHT_GATE_R, uE = gu + turnSide * 2 * Ru;   // uE: where it turns up onto the apron
+    const vto = air.takeoff, vp = air.min + (air.cruise - air.min) * FLIGHT_PATTERN, vland = Math.min(vp, vto * FLIGHT_LAND), Rt = vp * vp / (GRAVITY * Math.tan(FLIGHT_BANK));
+    const lineW = strip ? -FLIGHT_STRIP_LINE : 0, e = tear ? -1 : 1;   // e: the way it lands along u
+    put(0, ta, ta);
+    // taxi out to the head of the runway
+    if (strip) {   // straight onto the strip, along it to its end, round onto the line it rolls along
+      line(w - FLIGHT_STRIP_LINE - R, taxi, ta, ta, G);
+      arc(-PI / 2, R, turn, ta, ta, G);
+      line(u - rw[0] - 18, taxi, ta, ta, G);
+      arc(PI, FLIGHT_STRIP_LINE, turn, ta, ta, G);
+    } else {       // down to the taxiway, along it to the end connector, down that to the runway
+      line(w - FLIGHT_TAXIWAY - R, taxi, ta, ta, G);
+      arc(-PI / 2, R, turn, ta, ta, G);
+      line(u + FLIGHT_CONNECT - R, taxi, ta, ta, G);
+      arc(PI / 2, R, turn, ta, ta, G);
+      line(w - R, taxi, ta, ta, G);
+      arc(PI / 2, R, turn, ta, ta, G);
+    }
+    mark('roll');
+    line(vto * vto / (2 * FLIGHT_ROLL_ACCEL), vto, FLIGHT_ROLL_ACCEL, FLIGHT_BRAKE, G); mark('lift');
+    const side = this.circuitSide(a, lineW + Rt), fin = vp * FLIGHT_FINAL;
+    if (!tear) {   // the circuit: upwind, a half turn, downwind, a half turn onto the final
+      const touchU = rw[0] + FLIGHT_TOUCH;
+      line(rw[1] + FLIGHT_UPWIND - u, vp, aa, aa, A);
+      arc(side * PI, Rt, vp, aa, aa, A);
+      line(u - (touchU - fin), vp, aa, aa, A);
+      arc(side * PI, Rt, vp, aa, aa, A);
+      line(touchU - u, vp, aa, aa, A);
+    } else {       // a turn away, a leg out and the teardrop turn back onto the centre line (its length solved for that)
+      const b = FLIGHT_TEAR;
+      line(FLIGHT_UPWIND, vp, aa, aa, A);
+      arc(-side * b, Rt, vp, aa, aa, A);
+      line(2 * Rt / Math.tan(b), vp, aa, aa, A);
+      arc(side * (PI + b), Rt, vp, aa, aa, A);
+      line(u - (rw[1] - FLIGHT_TOUCH), vp, aa, aa, A);
+    }
+    mark('touch');
+    tg[tg.length - 1] = vland;
+    // the landing roll, off the runway and back onto the gate
+    if (strip) {
+      line(uE - R - u, vland, 0, FLIGHT_BRAKE, G); mark('vacate');
+      arc(PI / 2, R, turn, ta, FLIGHT_BRAKE, G);
+    } else {
+      line(FLIGHT_CONNECT - R - e * u, vland, 0, FLIGHT_BRAKE, G); mark('vacate');
+      arc(e * PI / 2, R, turn, ta, FLIGHT_BRAKE, G);
+      line(FLIGHT_TAXIWAY - R - w, taxi, ta, ta, G);
+      arc(e * PI / 2, R, turn, ta, ta, G);
+      line(e * (u - uE) - R, taxi, ta, ta, G);
+      arc(-e * PI / 2, R, turn, ta, ta, G);
+    }
+    line(g[2] - w, taxi, ta, ta, G);
+    arc(turnSide * PI, Ru, turn, ta, ta, G);
+    tg[tg.length - 1] = 0;
+    for (const H of FLIGHT_ALTS) {
+      const r = this.lay(a, v, us, ws, ths, tg, ac, dc, marks, H, flip);
+      if (r) return r;
+    }
+    return null;
+  },
+  /* the side (+1 left, -1 right of the take-off run) of the circuit's downwind leg: the one nearer the middle */
+  circuitSide(a, off) {
+    const p = Airports.at(a, 0, off), q = Airports.at(a, 0, -off);
+    return Math.hypot(p.x, p.z) <= Math.hypot(q.x, q.z) ? 1 : -1;
+  },
+  /* the route's points in the world at circuit height H: { n, p (x, y, z, yaw, pitch, roll, speed per point), cum, len,
+     and the marks as distances along it }; null where it cannot clear the ground or a building (a climb or descent
+     steeper than FLIGHT_STEEP) */
+  lay(a, v, us, ws, ths, tg, ac, dc, marks, H, flip) {
+    const n = us.length, p = new Float32Array(n * 7), cum = new Float32Array(n), gear = v.air.gearH, base = Terrain.h(a.x, a.z);
+    for (let i = 0; i < n; i++) {
+      const u = flip ? -us[i] : us[i], w = ws[i], c = flip ? -Math.cos(ths[i]) : Math.cos(ths[i]), s = Math.sin(ths[i]), o = i * 7;
+      p[o] = a.axis ? a.x + u : a.x + w * a.side; p[o + 2] = a.axis ? a.z - w * a.side : a.z + u;
+      p[o + 3] = a.axis ? Math.atan2(c, -s * a.side) : Math.atan2(s * a.side, c);
+      if (i) cum[i] = cum[i - 1] + Math.hypot(p[o] - p[o - 7], p[o + 2] - p[o - 5]);
+    }
+    const sLift = cum[marks.lift], sTouch = cum[marks.touch];
+    // heights: on the ground on its gear; in the air climbing, level at H, gliding down, the corners rounded
+    const alt = new Float32Array(n);
+    for (let i = marks.lift + 1; i < marks.touch; i++) alt[i] = Math.min(H, (cum[i] - sLift) * FLIGHT_CLIMB, (sTouch - cum[i]) * FLIGHT_GLIDE);
+    for (let pass = 0; pass < 4; pass++) for (let i = marks.lift + 2; i < marks.touch - 1; i++) alt[i] = (alt[i - 1] + 2 * alt[i] + alt[i + 1]) / 4;
+    // raised where the ground or a building needs it (hills past the battlefield's edge), no steeper than FLIGHT_STEEP
+    for (let i = 0; i < n; i++) {
+      const o = i * 7, x = p[o], z = p[o + 2];
+      p[o + 1] = alt[i] > 0 ? Math.max(base + alt[i], this.floor(x, z, alt[i])) : Terrain.h(x, z);
+    }
+    for (let i = marks.touch - 1; i > marks.lift; i--) p[i * 7 + 1] = Math.max(p[i * 7 + 1], p[i * 7 + 8] - FLIGHT_STEEP * (cum[i + 1] - cum[i]));
+    for (let i = marks.lift + 1; i < marks.touch; i++) p[i * 7 + 1] = Math.max(p[i * 7 + 1], p[i * 7 - 6] - FLIGHT_STEEP * (cum[i] - cum[i - 1]));
+    for (let i = marks.lift + 1; i <= marks.touch; i++) if (Math.abs(p[i * 7 + 1] - p[i * 7 - 6]) > FLIGHT_STEEP * (cum[i] - cum[i - 1]) + 0.01) return null;
+    for (let i = 0; i < n; i++) p[i * 7 + 1] += gear;
+    // speeds: up to each point's target, no faster than its acceleration from the one before and its braking to the next
+    const sp = new Float32Array(n);
+    for (let i = 1; i < n; i++) sp[i] = Math.min(tg[i], Math.sqrt(sp[i - 1] * sp[i - 1] + 2 * ac[i] * (cum[i] - cum[i - 1])));
+    sp[n - 1] = 0;
+    for (let i = n - 2; i >= 0; i--) sp[i] = Math.min(sp[i], Math.sqrt(sp[i + 1] * sp[i + 1] + 2 * dc[i] * (cum[i + 1] - cum[i])));
+    // attitude: nose along the path (up in the air, at the rotation and the flare), banked into the turns
+    for (let i = 0; i < n; i++) {
+      const o = i * 7, i0 = Math.max(0, i - 1), i1 = Math.min(n - 1, i + 1), ds = cum[i1] - cum[i0] || 1, s = cum[i];
+      let pitch = Math.atan2(p[i1 * 7 + 1] - p[i0 * 7 + 1], ds) + (alt[i] > 0 ? FLIGHT_AOA : 0);
+      if (s > sLift - FLIGHT_ROTATE[0] && s <= sLift) pitch += FLIGHT_ROTATE[1] * (s - sLift + FLIGHT_ROTATE[0]) / FLIGHT_ROTATE[0];
+      if (s > sTouch - FLIGHT_FLARE[0] && s <= sTouch) pitch += FLIGHT_FLARE[1] * (s - sTouch + FLIGHT_FLARE[0]) / FLIGHT_FLARE[0];
+      p[o + 4] = pitch;
+      p[o + 5] = alt[i] > 0 ? -Math.atan(sp[i] * sp[i] * angleDiff(p[i0 * 7 + 3], p[i1 * 7 + 3]) / ds / GRAVITY) : 0;
+      p[o + 6] = sp[i];
+    }
+    for (let pass = 0; pass < 3; pass++) for (let i = 1; i < n - 1; i++) {   // round the roll in and out of the turns
+      const o = i * 7;
+      p[o + 5] = (p[o - 2] + 2 * p[o + 5] + p[o + 12]) / 4;
+      p[o + 4] = (p[o - 3] + 2 * p[o + 4] + p[o + 11]) / 4;
+    }
+    let sCruise = sTouch, sApproach = sLift;
+    for (let i = marks.lift; i < marks.touch; i++) if (alt[i] >= H - 1) { sCruise = Math.min(sCruise, cum[i]); sApproach = Math.max(sApproach, cum[i]); }
+    if (sApproach <= sCruise) return null;   // the circuit is too short to climb this high
+    return { n, p, cum, len: cum[n - 1], H, roll: cum[marks.roll], lift: sLift, cruise: sCruise, approach: sApproach, touch: sTouch, vacate: cum[marks.vacate], gearUp: sLift + FLIGHT_GEAR, gearDown: sApproach };
+  },
+  /* the lowest a flight alt m over the airfield may have its belly at (x, z): that far over the ground and the water
+     (FLIGHT_CLEAR at most) and the buildings round it (not its own airfield's lights and signs, low over it) */
+  floor(x, z, alt) {
+    let top = Math.max(alt >= FLIGHT_CLEAR ? Terrain.maxAt(x, z) : Terrain.h(x, z), Water.top(x, z));
+    if (alt >= FLIGHT_CLEAR || !Airports.covers(x, z)) {
+      const r = FLIGHT_WIDE, k = Hash.query(x - r, z - r, x + r, z + r);
+      for (let i = 0; i < k; i++) { const s = Hash.out[i]; if (!s.destroyed && s.top > top) top = s.top; }
+    }
+    return top + Math.min(FLIGHT_CLEAR, alt * FLIGHT_LOW_CLEAR);
+  },
+  /* f waits at its gate for dwell s, whole again */
+  toGate(f, dwell) {
+    f.phase = FL_GATE; f.state = 'park'; f.s = 0; f.seg = 0; f.speed = 0; f.dwell = dwell; f.gear = true; f.aloft = false; f.hp = f.hp0;
+    this.at(f, 0);
+  },
+  /* a new crossing for f: a straight line over the battlefield at height, from its edge */
+  cross(f) {
+    const r = f.rng, yaw = r() * TAU, off = (r() * 2 - 1) * FLIGHT_CROSS_SPREAD, fx = Math.sin(yaw), fz = Math.cos(yaw);
+    f.phase = FL_CROSS; f.state = 'drive'; f.aloft = true; f.gear = false; f.hp = f.hp0; f.along = 0; f.yaw = yaw; f.pitch = FLIGHT_AOA; f.roll = 0;
+    f.x0 = -fx * FLIGHT_CROSS_OUT + fz * off; f.z0 = -fz * FLIGHT_CROSS_OUT - fx * off;
+    f.alt = Math.max(lerp(FLIGHT_CROSS_ALT[0], FLIGHT_CROSS_ALT[1], r()), f.top + FLIGHT_CROSS_OVER);
+    f.speed = f.v.air.cruise;
+  },
+
+  /* ---------- per tick ---------- */
+  update(T, dt) {
+    const fl = T.flights;
+    for (let i = 0; i < fl.length; i++) {
+      const f = fl[i];
+      switch (f.phase) {
+        case FL_GONE: this.stepGone(f, dt); break;
+        case FL_DOWN: this.stepDown(T, f, dt); break;
+        case FL_CROSS: this.stepCross(f, dt); break;
+        case FL_GATE: if ((f.dwell -= dt) <= 0 && this.fieldFree(T, f)) { f.phase = FL_TAXI; f.state = 'drive'; } break;
+        default: this.stepRoute(T, f, dt);
+      }
+    }
+  },
+  /* along its route at the route's speed (an airfield's aircraft take turns, so none waits for another) */
+  stepRoute(T, f, dt) {
+    const r = f.route;
+    f.speed = Math.max(FLIGHT_CRAWL, f.vr);
+    f.s += f.speed * dt;
+    if (f.s >= r.len) { this.toGate(f, rand(FLIGHT_DWELL[0], FLIGHT_DWELL[1])); return; }
+    this.at(f, f.s);
+    const s = f.s;
+    f.phase = s < r.roll ? FL_TAXI : s < r.lift ? FL_ROLL : s < r.cruise ? FL_CLIMB : s < r.approach ? FL_CRUISE : s < r.touch ? FL_APPROACH : s < r.vacate ? FL_LANDING : FL_TAXI_IN;
+    f.aloft = s > r.lift && s < r.touch;
+    f.gear = s < r.gearUp || s > r.gearDown;
+  },
+  /* the pose s m along f's route into f (x, y, z, yaw, pitch, roll) and the route's speed there (f.vr) */
+  at(f, s) {
+    const r = f.route, cum = r.cum, p = r.p, last = r.n - 1;
+    let k = f.seg < last ? f.seg : last - 1;
+    while (k > 0 && cum[k] > s) k--;
+    while (k < last - 1 && cum[k + 1] < s) k++;
+    f.seg = k;
+    const a = k * 7, b = a + 7, t = clamp((s - cum[k]) / (cum[k + 1] - cum[k] || 1), 0, 1);
+    f.x = p[a] + (p[b] - p[a]) * t; f.y = p[a + 1] + (p[b + 1] - p[a + 1]) * t; f.z = p[a + 2] + (p[b + 2] - p[a + 2]) * t;
+    f.yaw = p[a + 3] + angleDiff(p[a + 3], p[b + 3]) * t; f.pitch = p[a + 4] + (p[b + 4] - p[a + 4]) * t; f.roll = p[a + 5] + (p[b + 5] - p[a + 5]) * t;
+    f.vr = p[a + 6] + (p[b + 6] - p[a + 6]) * t;
+  },
+  /* true when no other aircraft of f's airfield is away from its gate: they take turns (the taxiway has one lane,
+     and a teardrop's final comes in over the climb-out) */
+  fieldFree(T, f) {
+    const fl = T.flights;
+    for (let i = 0; i < fl.length; i++) {
+      const g = fl[i];
+      if (g !== f && g.ap === f.ap && g.phase >= FL_TAXI && g.phase <= FL_TAXI_IN) return false;
+    }
+    return true;
+  },
+  /* a crossing: straight on at its height; past the far edge it is gone for a while */
+  stepCross(f, dt) {
+    f.along += f.speed * dt;
+    const fx = Math.sin(f.yaw), fz = Math.cos(f.yaw);
+    f.x = f.x0 + fx * f.along; f.z = f.z0 + fz * f.along; f.y = f.alt;
+    if (f.along > 2 * FLIGHT_CROSS_OUT) { f.phase = FL_GONE; f.state = 'wreck'; f.life = 0; f.wait = lerp(FLIGHT_CROSS_WAIT[0], FLIGHT_CROSS_WAIT[1], f.rng()); }
+  },
+  /* gone (flown off or shot down): back after a while where nobody sees it come, at its gate or on a new crossing */
+  stepGone(f, dt) {
+    if ((f.life += dt) < f.wait) return;
+    if (f.route) {
+      const p = f.route.p, cam = R.cam, dx = p[0] - cam.x, dz = p[2] - cam.z;
+      if (dx * dx + dz * dz < TRAFFIC_UNSEEN * TRAFFIC_UNSEEN && R.visible(p[0], p[1], p[2], f.v.hl)) return;
+      this.toGate(f, rand(FLIGHT_DWELL[0], FLIGHT_DWELL[1]));
+      return;
+    }
+    this.cross(f);
+    this.stepCross(f, 0);
+  },
+
+  /* ---------- harm ---------- */
+  /* dmg to flight f from a hit at (x, y, z) */
+  hurt(T, f, dmg, x, y, z) {
+    if (f.state === 'wreck' || !(dmg > 0)) return;
+    f.hp -= dmg;
+    fxSparks(x, y, z, 3, [1, 0.85, 0.5], 6);
+    if (f.hp <= 0) this.shootDown(T, f);
+  },
+  /* f is shot down: in the air it falls burning, nose down and rolling, and breaks up lower down; on the ground at once */
+  shootDown(T, f) {
+    f.state = 'wreck'; f.hp = 0;
+    const fx = Math.sin(f.yaw), fz = Math.cos(f.yaw), cp = Math.cos(f.pitch);
+    f.vx = fx * f.speed * cp; f.vz = fz * f.speed * cp; f.vy = Math.sin(f.pitch) * f.speed;
+    blastFx(f.x, f.y, f.z, 5);
+    Snd.play('explosion', f.x, f.y, f.z, 1);
+    if (!f.aloft) { this.breakUp(T, f); return; }
+    f.phase = FL_DOWN; f.downT = 0; f.rollRate = randSign() * rand(0.4, 1.2); f.gear = false;
+  },
+  stepDown(T, f, dt) {
+    f.downT += dt;
+    f.vy -= GRAVITY * FLIGHT_FALL_G * dt;
+    f.x += f.vx * dt; f.y += f.vy * dt; f.z += f.vz * dt;
+    f.pitch = approach(f.pitch, FLIGHT_DIVE, 0.3 * dt); f.roll += f.rollRate * dt;
+    if (!fxFar(f.x, f.y, f.z)) {   // a burning trail
+      FX.emit(f.x, f.y, f.z, rand(-1, 1), rand(-1, 1), rand(-1, 1), rand(0.3, 0.6), f.v.fd * 1.4, f.v.fd * 0.4, 1, rand(0.4, 0.7), 0.12, 0.9, 0.5, 0, true);
+      FX.emit(f.x, f.y, f.z, rand(-1, 1), rand(1, 3), rand(-1, 1), rand(2.5, 4), f.v.fd * 1.2, f.v.fd * 3, 0.14, 0.13, 0.13, 0.6, 0.4, -0.5, false);
+    }
+    const agl = f.y - f.v.air.gearH - Water.top(f.x, f.z);
+    if (agl < FLIGHT_BREAK_AGL || f.downT > FLIGHT_DOWN_T) this.breakUp(T, f);
+  },
+  /* f breaks up into chunks that fall on with its speed and hurt what they land on (Falls.fling), in a fireball */
+  breakUp(T, f) {
+    const v = f.v, cs = Math.cos(f.yaw), sn = Math.sin(f.yaw), wing = v.span / 2;
+    for (let i = 0; i < FLIGHT_PIECES.length; i++) {
+      const q = FLIGHT_PIECES[i], along = q[0] * v.l, left = q[1] * v.span, up = q[2] * v.fd;
+      const hx = q[7] ? q[3] * wing : q[3] * v.fd, hy = q[4] * v.fd + 0.15, hz = q[7] ? q[5] * v.chord : q[5] * v.l;
+      Falls.fling(f.x + cs * left + sn * along, f.y + up, f.z - sn * left + cs * along, hx, hy, hz, f.vx + rand(-5, 5), f.vy + rand(0, 5), f.vz + rand(-5, 5), v.tonnes * q[6], q[7] ? FLIGHT_WRECK_COL : f.paint);
+    }
+    blastFx(f.x, f.y, f.z, FLIGHT_BLAST[0]);
+    Snd.play('bigExplosion', f.x, f.y, f.z, 1.6);
+    spawnDebris(f.x, f.y, f.z, 8, null, 14);
+    f.phase = FL_GONE; f.state = 'wreck'; f.life = 0; f.wait = FLIGHT_BACK; f.aloft = true;
+    // the fireball hurts this game's own scenery only (D6)
+    Civ.blast(f.x, f.y, f.z, FLIGHT_BLAST[0], FLIGHT_BLAST[1]);
+    Fauna.blast(f.x, f.y, f.z, FLIGHT_BLAST[0], FLIGHT_BLAST[1]);
+    Traffic.blast(f.x, f.y, f.z, FLIGHT_BLAST[0], FLIGHT_BLAST[1]);
+  },
+  /* a shot moving len m from (x0, y0, z0) along unit (ux, uy, uz) hurts every flight whose box it crosses (wings and
+     all) and flies on; returns how far along it struck the first, or Infinity */
+  sweep(T, x0, y0, z0, ux, uy, uz, len, dmg) {
+    const fl = T.flights;
+    let best = Infinity;
+    if (!fl.length) return best;
+    const x1 = x0 + ux * len, z1 = z0 + uz * len, y1 = y0 + uy * len;
+    const bx0 = Math.min(x0, x1), bx1 = Math.max(x0, x1), bz0 = Math.min(z0, z1), bz1 = Math.max(z0, z1), by0 = Math.min(y0, y1), by1 = Math.max(y0, y1);
+    for (let i = 0; i < fl.length; i++) {
+      const f = fl[i], v = f.v, wing = v.span / 2, reach = Math.max(wing, v.hl);
+      if (f.state === 'wreck' || f.x + reach < bx0 || f.x - reach > bx1 || f.z + reach < bz0 || f.z - reach > bz1 || f.y + v.h < by0 || f.y - v.h > by1) continue;
+      const cs = Math.cos(f.yaw), sn = Math.sin(f.yaw), dx = x0 - f.x, dz = z0 - f.z;
+      const ox = dx * cs - dz * sn, oz = dx * sn + dz * cs, lx = ux * cs - uz * sn, lz = ux * sn + uz * cs;
+      const t = segAABB(ox, y0 - f.y, oz, lx, uy, lz, len, -wing, v.y0, -v.hl, wing, v.y1, v.hl);
+      if (t < 0) continue;
+      if (t < best) best = t;
+      this.hurt(T, f, dmg, x0 + ux * t, y0 + uy * t, z0 + uz * t);
+    }
+    return best;
+  },
+  /* a blast at (x, y, z) hurts the flights in its reach; a co-op guest's replayed blasts carry no damage, so there its
+     size decides */
+  blast(T, x, y, z, radius, damage) {
+    const fl = T.flights;
+    for (let i = 0; i < fl.length; i++) {
+      const f = fl[i];
+      if (f.state === 'wreck' || Math.abs(f.x - x) > radius + f.v.span || Math.abs(f.z - z) > radius + f.v.span) continue;
+      const d = Math.hypot(f.x - x, f.y - y, f.z - z) - f.v.span * 0.3;
+      if (d >= radius) continue;
+      const k = 1 - clamp(d / radius, 0, 1);
+      this.hurt(T, f, damage > 0 ? damage * (0.15 + 0.85 * k) : Net.guest ? f.hp0 * FLIGHT_GUEST_BLAST * k : 0, f.x, f.y, f.z);
+    }
+  },
+
+  /* ---------- drawing ---------- */
+  /* the flights within the quality's view distance (simple models far off) */
+  draw(T, q, night) {
+    const fl = T.flights, st = R.stack, cam = R.cam, far2 = q.dist * q.dist, lod = q.trafficLod * 2, lod2 = lod * lod, P = CIV_POSE;
+    let n = 0;
+    for (let i = 0; i < fl.length; i++) {
+      const f = fl[i], v = f.v, dx = f.x - cam.x, dy = f.y - cam.y, dz = f.z - cam.z, d2 = dx * dx + dy * dy + dz * dz;
+      if (f.phase === FL_GONE || d2 > far2 || !R.visible(f.x, f.y, f.z, Math.max(v.hl, v.span / 2))) continue;
+      n++;
+      P.paint = f.paint; P.acc = v.accCol; P.x = f.x; P.y = f.y; P.z = f.z; P.yaw = f.yaw; P.pitch = f.pitch; P.roll = f.roll;
+      P.lod = d2 > lod2; P.spin = 0; P.prop = f.phase === FL_GATE ? 0 : W.time * 40; P.gear = f.gear; P.flat = 1;
+      P.shade = f.state === 'wreck' ? 0.35 : 1; P.add = 0; P.glow = f.phase === FL_GATE || f.state === 'wreck' ? 0 : night ? 1 : 0.35;
+      st.top = 0; st.ident();
+      drawVehicle(v, P);
+    }
+    T.flightsDrawn = n;
   },
 };
 
@@ -13104,6 +13573,8 @@ function updateProjectiles(dt) {
     Civ.sweep(x0, y0, z0, ux, uy, uz, bestT, p.dmg);   // civilians, animals and cars on the way are hit, and the shot flies on
     Traffic.sweep(x0, y0, z0, ux, uy, uz, bestT, p.dmg);
     Fauna.sweep(x0, y0, z0, ux, uy, uz, bestT, p.dmg);
+    // a player's explosive shot goes off on an airliner it strikes, in solo play (a flight is local scenery, D6)
+    if (W.traffic && W.traffic.flightHit < bestT && d.blast > 0 && !d.stick && !d.mine && p.owner && p.owner.isPlayer && !Net.host) { bestT = W.traffic.flightHit; kind = 'flight'; obj = null; }
     if (kind === '') { p.x = x0 + mx; p.y = y0 + my; p.z = z0 + mz; continue; }
     const hx = x0 + ux * bestT, hy = y0 + uy * bestT, hz = z0 + uz * bestT;
     p.x = hx; p.y = hy; p.z = hz;
@@ -27167,6 +27638,103 @@ const SelfTest = {
         S.difficulty = keepDiff; Game.quitToMenu();
       }
     });
+    t('commercial flights', () => {
+      const keepRandom = Math.random, keepHost = Net.host, keepQ = S.quality, keepCam = { x: R.cam.x, y: R.cam.y, z: R.cam.z }, keepVisible = R.visible, SEED = 7;
+      const start = (map) => Game.startSession({ mode: 'skirmish', platformId: 'ranger', loadout: Loadout.forPlatform('ranger'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map, seed: SEED, random: false, support: 'none' }) });
+      const sig = (list) => list.map((f) => f.v.id + ':' + f.route.n + ':' + f.route.p[(f.route.n >> 1) * 7].toFixed(2) + ',' + f.route.p[(f.route.n >> 1) * 7 + 1].toFixed(2)).join();
+      try {
+        S.quality = 'high';
+        start('metro');
+        const T = W.traffic, ap = W.airports[0].spot;
+        this.check('the metro airport\'s gates get airliners (QUALITY flights at most), each with its loop, waiting at its gate', T.flights.length >= 2 && T.flights.length <= QUALITY.high.flights && T.flights.every((f) => f.route && f.phase === FL_GATE && f.ap), T.flights.length + ' flights');
+        const s1 = sig(T.flights);
+        T.flights = [];
+        Flights.populate(T, SEED);
+        this.check('the same battlefield and seed give the same flights and loops', sig(T.flights) === s1);
+        // a whole loop: taxi out, take-off roll, climb, cruise, approach, landing, taxi back to the gate
+        const f = T.flights[0], other = T.flights[1], gx = f.x, gz = f.z, base = Terrain.h(ap.x, ap.z), seq = [f.phase];
+        let low = 0, top = 0, both = 0, t = 0;
+        f.dwell = 0; other.dwell = 0;
+        while (t < 900) {
+          Flights.update(T, STEP); t += STEP;
+          if (seq[seq.length - 1] !== f.phase) seq.push(f.phase);
+          if (f.y - f.v.air.gearH < Terrain.h(f.x, f.z) - 0.3) low++;
+          if (f.phase === FL_CRUISE) top = Math.max(top, f.y - base);
+          if (other.phase !== FL_GATE && f.phase !== FL_GATE) both++;
+          if (seq.length > 1 && f.phase === FL_GATE) break;
+        }
+        this.check('a flight completes its loop: taxi, take-off roll, climb, cruise, approach, landing, taxi in, at its gate again', seq.join() === [FL_GATE, FL_TAXI, FL_ROLL, FL_CLIMB, FL_CRUISE, FL_APPROACH, FL_LANDING, FL_TAXI_IN, FL_GATE].join() && Math.hypot(f.x - gx, f.z - gz) < 0.5, seq.map((k) => FLIGHT_PHASES[k]).join('>') + ' in ' + Math.round(t) + ' s');
+        this.check('it cruises at least 100 m over the airfield and never dips below the ground', top >= 100 && low === 0, Math.round(top) + ' m, ' + low + ' low');
+        this.check('the airfield\'s aircraft take turns: the other waits at its gate', both === 0);
+        // shot down in the air: it falls burning and breaks up into chunks (Falls)
+        Flights.toGate(other, 1e9); f.dwell = 0;   // (it may have just left)
+        for (let i = 0; i < 20000 && f.phase !== FL_CRUISE; i++) Flights.update(T, STEP);
+        Traffic.sweep(f.x - 100, f.y, f.z, 1, 0, 0, 200, f.hp0 * 2);
+        this.check('a shot through an airliner in flight strikes it (flightHit) and brings it down, burning', T.flightHit < 200 && f.phase === FL_DOWN && f.state === 'wreck', Math.round(T.flightHit) + ' m');
+        Falls.reset();
+        let k = 0;
+        while (f.phase === FL_DOWN && k++ < 600) Flights.update(T, STEP);
+        this.check('it breaks up within FLIGHT_DOWN_T s into chunks that fall on (Falls)', f.phase === FL_GONE && k * STEP <= FLIGHT_DOWN_T + 0.1 && Falls.n === FLIGHT_PIECES.length, (k * STEP).toFixed(1) + ' s, ' + Falls.n + ' chunks');
+        // the chunks hurt the units they land on in solo play only (D6: in co-op they are local scenery)
+        const X = W.player.x + 40, Z = W.player.z + 40;
+        const hurtBy = (host) => {
+          Falls.reset();
+          const tank = new Platform(PLATFORMS.bulwark, { team: 1, x: X, z: Z, yaw: 0, loadout: Loadout.forPlatform('bulwark') });
+          tank.y = Terrain.h(X, Z);
+          W.platforms.push(tank);
+          const was = tank.hp + tank.armor;
+          Net.host = host;
+          f.phase = FL_DOWN; f.state = 'wreck'; f.x = X; f.z = Z; f.y = tank.y + tank.height + 25; f.vx = 0; f.vy = 0; f.vz = 0; f.yaw = 0;
+          Math.random = () => 0.5;
+          Flights.breakUp(T, f);
+          Math.random = keepRandom;
+          for (let i = 0; i < 600 && Falls.n; i++) Falls.update(STEP);
+          Net.host = keepHost;
+          W.platforms.splice(W.platforms.indexOf(tank), 1);
+          return was - tank.hp - tank.armor;
+        };
+        const solo = hurtBy(false), host = hurtBy(true);
+        this.check('solo: the chunks of an airliner broken up over a tank hurt it', solo > 0, Math.round(solo));
+        this.check('co-op: they hurt no unit (local scenery, D6)', host === 0, Math.round(host));
+        // gone, it comes back to its gate after FLIGHT_BACK s, out of sight
+        R.cam.x = gx + 600; R.cam.z = gz + 600;
+        f.life = FLIGHT_BACK;
+        Flights.update(T, STEP);
+        this.check('a lost airliner comes back to its gate, whole, out of sight', f.phase === FL_GATE && f.hp === f.hp0 && Math.hypot(f.x - gx, f.z - gz) < 0.5);
+        // taken only at its gate (an airliner of the airfield, as on the apron)
+        const human = new Platform(PLATFORMS.ranger, { team: 0, x: other.x + 10, z: other.z, yaw: 0, loadout: Loadout.forPlatform('ranger') });
+        human.y = Terrain.h(human.x, human.z);
+        const atGate = Traffic.rideDist(other, human);
+        other.phase = FL_TAXI; other.state = 'drive';
+        const taxiing = Traffic.rideDist(other, human);
+        other.phase = FL_GATE; other.state = 'park';
+        this.check('an airliner can be taken at its gate only', atGate < Infinity && taxiing === Infinity);
+        // drawn (whatever the last frame's view)
+        R.cam.x = other.x + 60; R.cam.y = other.y + 10; R.cam.z = other.z + 60;
+        R.visible = () => true;
+        R.beginBatch('opaque');
+        Traffic.draw();
+        R.endBatch('opaque');
+        R.visible = keepVisible;
+        this.check('the flights near the camera are drawn', T.flightsDrawn > 0, T.flightsDrawn);
+        // no airfield: airliners cross the battlefield high up
+        start('ashfall');
+        const C = W.traffic.flights, c0 = C[0], top0 = Terrain.maxIn(-WORLD_HALF, -WORLD_HALF, WORLD_HALF, WORLD_HALF);
+        this.check('with no airfield, airliners cross at height (one already over the battlefield, the rest to come)', C.length === QUALITY.high.flights && C.every((c) => !c.route) && c0.phase === FL_CROSS && c0.y >= Math.max(FLIGHT_CROSS_ALT[0], top0 + FLIGHT_CROSS_OVER) && C.slice(1).every((c) => c.phase === FL_GONE));
+        const y0 = c0.y, yaw0 = c0.yaw;
+        let bent = 0, came = 0;
+        for (let i = 0; i < Math.round(240 / STEP); i++) {
+          Flights.update(W.traffic, STEP);
+          if (i * STEP < 5 && (c0.yaw !== yaw0 || c0.y !== y0)) bent++;
+          if (C[1].phase === FL_CROSS) came++;
+        }
+        this.check('a crossing flies straight and level, and the next comes', bent === 0 && came > 0);
+      } finally {
+        Math.random = keepRandom; Net.host = keepHost; S.quality = keepQ; R.visible = keepVisible;
+        R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
+        Falls.reset(); Game.quitToMenu();
+      }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -28127,7 +28695,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, drawVehicle, Civ };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, drawVehicle, Civ, Flights, Falls };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
