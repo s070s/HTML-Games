@@ -138,7 +138,7 @@ const Hud = {
   time: 0,                          // UI clock in seconds: advances every frame except while paused
   frameSeconds: 0,                  // length of the last frame (the killcam clock follows it)
   insets: { top: 0, right: 0, bottom: 0, left: 0 },
-  colors: { good: HUD_COLOR.good, bad: HUD_COLOR.bad, health: HUD_COLOR.health, healthLow: HUD_COLOR.healthLow, teams: [0x3d8bff, 0xff4d4d] },
+  colors: { good: HUD_COLOR.good, bad: HUD_COLOR.bad, health: HUD_COLOR.health, healthLow: HUD_COLOR.healthLow, teams: CAT.teamColors.map((row) => colorNumber(row.color)) },
   layout: { width: 1, height: 1, unit: 1, margin: HUD_MARGIN, left: 0, right: 0, top: 0, bottom: 0, centerX: 0, centerY: 0, compact: false, touch: false,
     barWidth: 0, barHeight: 0, barGap: 0, vitalsHeight: 0, ammoRight: 0, ammoHeight: 0, abilityY: 0, powerupY: 0, gadgetY: 0, moneyY: 0, weaponBarY: 0 },
   drawers: { back: [], world: [], main: [], front: [] },

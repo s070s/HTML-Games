@@ -187,6 +187,12 @@ Test.add('hud', (check) => hudTestWith(() => {
   check('header: free-for-all shows the rank box, the Firing Range does not', versus && !range);
 }));
 
+// One source for the team colours: without a colour-blind palette the HUD uses CAT.teamColors (03b), nothing of its own.
+Test.add('hud', (check) => hudTestWith(() => {
+  const source = String(Hud.refreshColors) + String(updateHudLayout);
+  check('team colours: the HUD reads CAT.teamColors', Hud.colors.teams.length === CAT.teamColors.length && Hud.colors.teams.every((color, index) => color === colorNumber(CAT.teamColors[index].color)) && source.includes('CAT.teamColors'));
+}));
+
 // The hold-Use prompt names the bound key and what Use does now, for any section that reports it (revive, plant, defuse...).
 Test.add('hud', (check) => hudTestWith(() => {
   hudTestMatch();
