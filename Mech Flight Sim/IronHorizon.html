@@ -4372,7 +4372,7 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
     const d = Math.hypot(cx - x, cy - y, cz - z);
     if (d >= radius) continue;
     const f = 1 - d / radius;
-    damageStruct(s, damage * (0.2 + 0.8 * f) * (opts.structMult === undefined ? 1 : opts.structMult), dtype, owner, 1);
+    damageStruct(s, damage * (0.2 + 0.8 * f) * (opts.structMult === undefined ? 1 : opts.structMult) * (s.objective && opts.objMult !== undefined ? opts.objMult : 1), dtype, owner, 1);
   }
 }
 
@@ -8934,6 +8934,13 @@ const ARTY_MARK_LEAD = 4;           // s before an enemy shell lands that its im
 const ARTY_MARK_CAP = 32;           // impact markers at once (the soonest to land is reused when full)
 const ARTY_WARN_R = 45;             // m from a showing marker within which the player is warned
 const ARTY_SPOT_MAX = 600;          // m at most from which a spotter calls in fire
+const ARTY_UNSPOTTED_OBJ = 0.15;    // damage share a human's indirect fire does to objective structures no friendly spotter sees (D52)
+const ARTY_SPOT_NEAR = 15;          // m: a spotter's sight line that ends on a structure this near the aim point sees it (the target building)
+const ARTY_SPOT_EVERY = 0.25;       // s between the HUD's looks for a spotter of the player's aim point
+const ARTY_OBJ_NEAR = 60;           // m from the impact point within which an objective structure makes the HUD show the spotting
+const ARTY_OWN_REACH = 300;         // m of an AI battery's arc checked for structures of its own side (or neutral) in the way
+const ARTY_OWN_STEP = 4;            // m between those checks along the ground
+const ARTY_SKY_GAP = 40;            // m over the ground past which a remote player's aim point is taken to be in the sky
 const ARTY_THINK = [0.4, 0.6];      // s between an AI battery's looks for a spotted target
 const ARTY_AI_ERR = 0.5;            // AI scatter (m per m of range) as a share of the difficulty's aim error
 const ARTY_AI_LEAD = 0.6;           // share of a moving target's travel during the flight that an AI battery leads, times its tactics
@@ -9046,14 +9053,44 @@ const Arty = {
   aim(p) {
     const a = p.arty, w = p.primary, ap = p.cmd.aimPoint;
     if (!w || !w.def.indirect || !ap) { a.sol.valid = false; return a.sol; }
-    return this.lay(p, w.def, this.muzzle(p, w), ap, a.sol);
+    const s = this.lay(p, w.def, this.muzzle(p, w), ap, a.sol);
+    if (s.reason !== 'min' && this.noGround(p)) s.reason = 'sky';
+    return s;
   },
-  /* the gate before an indirect weapon of p fires: false, with a notice to its crew, inside the minimum range or out of reach */
+  /* true when human p's aim finds no ground or water within reach (the sky): its own reticle ray, or for a co-op
+     player (or an aim point set otherwise), one far over the ground under it; an AI battery always lays on a target */
+  noGround(p) {
+    if (!p.isPlayer) return false;
+    const ap = p.cmd.aimPoint;
+    if (p === W.player && ap === W.aimPoint && W.aimInfo) return !W.aimInfo.hit;
+    return ap.y - this.groundY(ap.x, ap.z) > ARTY_SKY_GAP;
+  },
+  /* the multiplier of a shell of human p on objective structures: full when a friendly spotter sees its aim point (the
+     rule the AI batteries fire by, D51), else ARTY_UNSPOTTED_OBJ (D52); an AI battery's shells always 1 */
+  objMult(p) {
+    const ap = p.cmd.aimPoint;
+    return !p.isPlayer || !ap || this.spottedAt(ap.x, ap.y, ap.z, p, ARTY_SPOT_NEAR) ? 1 : ARTY_UNSPOTTED_OBJ;
+  },
+  /* the HUD's spotting state of human p's aim, looked at every ARTY_SPOT_EVERY s: a.spotted, and a.objNear when an
+     enemy objective structure stands within ARTY_OBJ_NEAR of the impact point */
+  spotState(p, dt) {
+    const a = p.arty, s = a.sol, ap = p.cmd.aimPoint;
+    a.spotT -= dt;
+    if (a.spotT > 0) return;
+    a.spotT = ARTY_SPOT_EVERY;
+    a.objNear = false;
+    if (!s.valid || !ap) return;
+    const n = Hash.query(s.ix - ARTY_OBJ_NEAR, s.iz - ARTY_OBJ_NEAR, s.ix + ARTY_OBJ_NEAR, s.iz + ARTY_OBJ_NEAR);
+    for (let i = 0; i < n && !a.objNear; i++) { const o = Hash.out[i]; if (o.objective && !o.destroyed && o.team !== p.team) a.objNear = true; }
+    a.spotted = a.objNear && this.spottedAt(ap.x, ap.y, ap.z, p, ARTY_SPOT_NEAR);
+  },
+  /* the gate before an indirect weapon of p fires: false, with a notice to its crew, inside the minimum range, out of
+     reach or aimed at the sky */
   clear(p, w) {
     if (!p.arty || !p.cmd.aimPoint) return true;
     const r = this.aim(p).reason;
-    if (r !== 'min' && r !== 'range') return true;
-    notify(p, r === 'min' ? 'INSIDE MINIMUM RANGE (' + w.def.indirect.min + ' m)' : 'OUT OF RANGE (' + w.def.range + ' m)', 'warn');
+    if (r !== 'min' && r !== 'range' && r !== 'sky') return true;
+    notify(p, r === 'min' ? 'INSIDE MINIMUM RANGE (' + w.def.indirect.min + ' m)' : r === 'sky' ? 'NO GROUND UNDER THE AIM: AIM AT THE GROUND' : 'OUT OF RANGE (' + w.def.range + ' m)', 'warn');
     return false;
   },
   /* a shot of weapon d fired by p from mz at aim point ap: dir becomes the laid barrel's direction (as aimed, without an
@@ -9143,7 +9180,7 @@ const Arty = {
     }
     const p = W.player, w = p && !p.dead && p.arty ? p.primary : null, s = w && w.def.indirect ? p.arty.sol : null;
     if (!s || !s.valid) return;
-    const k = s.reason === 'min' || s.reason === 'range' ? ARTY_COL.bad : s.reason === 'masked' ? ARTY_COL.masked : ARTY_COL.ok;
+    const k = s.reason === 'min' || s.reason === 'range' || s.reason === 'sky' ? ARTY_COL.bad : s.reason === 'masked' ? ARTY_COL.masked : ARTY_COL.ok;
     const v = w.def.speed, g = w.def.grav, u = s.dy * v - g * STEP / 2;
     for (let i = 1; i < ARTY_ARC_DOTS; i++) {
       const t = s.tof * i / ARTY_ARC_DOTS, x = s.mx + s.dx * v * t, y = s.my + u * t - g * t * t / 2, z = s.mz + s.dz * v * t;
@@ -9158,7 +9195,31 @@ const Arty = {
   },
   /* the size (m) of a mark at (x, y, z) that spans ARTY_DOT_ANG from the camera, min m at least */
   far(x, y, z, min) { return Math.max(min, Math.hypot(x - W.camPos.x, y - W.camPos.y, z - W.camPos.z) * ARTY_DOT_ANG); },
+  /* m from (bx, by, bz) to where the sight line from (ax, ay, az) to it first strikes something */
+  sightEnds(ax, ay, az, bx, by, bz) {
+    const dx = bx - ax, dy = by - ay, dz = bz - az, d = Math.hypot(dx, dy, dz);
+    if (d < 1) return 0;
+    const r = raycast(ax, ay, az, dx / d, dy / d, dz / d, d, null, true);
+    return r.hit ? Math.hypot(r.x - bx, r.z - bz) : 0;
+  },
   /* ---------- AI batteries ---------- */
+  /* true when solution s of battery p's weapon d passes through a standing structure that is not the enemy's within
+     ARTY_OWN_REACH of the gun: its own base, which the terrain check (lay) does not see */
+  structInArc(p, d, s) {
+    const v = d.speed, g = d.grav, u = s.dy * v - g * STEP / 2, vh = Math.hypot(s.dx, s.dz) * v;
+    if (vh < 1e-3) return false;
+    const reach = Math.min(ARTY_OWN_REACH, s.dist);
+    for (let r = ARTY_OWN_STEP; r <= reach; r += ARTY_OWN_STEP) {
+      const t = r / vh, x = s.mx + s.dx * v * t, y = s.my + u * t - g * t * t / 2, z = s.mz + s.dz * v * t;
+      const n = Hash.query(x - 1, z - 1, x + 1, z + 1, y - 1, y + 1);
+      for (let i = 0; i < n; i++) {
+        const o = Hash.out[i];
+        if (o.destroyed || (o.team !== p.team && o.team !== 2)) continue;
+        if (Math.abs(x - o.x) <= o.hx && Math.abs(z - o.z) <= o.hz && y >= o.y && y <= o.y + o.h) return true;
+      }
+    }
+    return false;
+  },
   /* the enemy platform nearest battery p inside its weapon's reach that a spotter sees (Arty.spotted), keeping cur
      while it is about as near; null when none */
   pickTarget(p, cur) {
@@ -9179,12 +9240,18 @@ const Arty = {
      clear line to it (aircraft look down on it); a battery never calls in fire on what only it sees */
   spotted(e, p) {
     tpos(e, ARTY_TP);
+    return this.spottedAt(ARTY_TP.x, ARTY_TP.y, ARTY_TP.z, p);
+  },
+  /* true when some platform of p's side other than artillery sees the point (x, y, z), by the rule of spotted; with
+     near, a sight line that ends on a structure within near m of the point sees it too (the target building itself) */
+  spottedAt(x, y, z, p, near) {
     for (let i = 0; i < W.platforms.length; i++) {
       const q = W.platforms[i];
       if (q === p || q.dead || q.team !== p.team || q.parked || q.isDecoy || q.def.style === 'artillery') continue;
-      const sight = Math.min(ARTY_SPOT_MAX, q.ai ? q.ai.sightRange() : q.def.sensor * 0.8), dx = e.x - q.x, dz = e.z - q.z;
+      const sight = Math.min(ARTY_SPOT_MAX, q.ai ? q.ai.sightRange() : q.def.sensor * 0.8), dx = x - q.x, dz = z - q.z;
       if (dx * dx + dz * dz > sight * sight) continue;
-      if (q.kind === 'air' || hasLOS(q.x, q.y + q.height * 0.8, q.z, ARTY_TP.x, ARTY_TP.y + 1, ARTY_TP.z)) return true;
+      if (q.kind === 'air' || hasLOS(q.x, q.y + q.height * 0.8, q.z, x, y + 1, z)) return true;
+      if (near && this.sightEnds(q.x, q.y + q.height * 0.8, q.z, x, y + 1, z) < near) return true;
     }
     return false;
   },
@@ -9232,7 +9299,7 @@ class Platform {
     this.training = false; this.spawnInfo = null; this.ejected = false; this.withdrew = false; this.shieldMsgT = 0;
     this.sinking = 0; this.wake = false;   // ships: seconds a wreck has left (Wrecks), white water behind it (also on co-op guests)
     // artillery (Arty): the crew wants it deployed, how far it is (0-1), the arc picked, and the solution for the gun in hand
-    this.arty = def.arty ? { want: false, deploy: 0, high: false, sol: artySol() } : null;
+    this.arty = def.arty ? { want: false, deploy: 0, high: false, sol: artySol(), spotT: 0, spotted: false, objNear: false } : null;
     this.hideFromAI = !!def.unarmed; this.provoked = false;   // a civilian is ignored by the AI until provoked (D5)
     // seats (P4.4): parked = free with nobody in it; pilot = the human riding inside; chute = falling under a parachute;
     // ejectPilot = a player's pilot whose platform was lost by an ejection (a replacement is on its way)
@@ -9299,7 +9366,7 @@ class Platform {
     if (this.arty) {   // artillery: deploying anchors it; the melee key picks the arc; a crew lays the barrel every tick
       if (c.meleeEdge) Arty.toggleArc(this);
       Arty.step(this, dt);
-      if (this.isPlayer) Arty.aim(this);
+      if (this.isPlayer) { Arty.aim(this); Arty.spotState(this, dt); }
     }
     this.updateResources(dt);
     // locomotion
@@ -11192,7 +11259,7 @@ function drawBomber(p, main, dark, acc) {
 // Every projectile slot gets all fields up front, so used and unused slots share one hidden shape.
 function newProjectileSlot() {
   return {
-    active: false, def: null, owner: null, team: 0, nid: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0,
+    active: false, def: null, owner: null, team: 0, nid: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, objMult: 1,
     life: 0, age: 0, dmg: 0, pierceLeft: 0, hitSet: null, target: null, curSpeed: 0, noGuide: false,
     stuck: null, sx: 0, sy: 0, sz: 0,   // a sticky round (needle, satchel): what it clings to (a platform, or true) and its offset
   };
@@ -11212,6 +11279,7 @@ function spawnProjectile(owner, w, mz, dx, dy, dz, charge) {
   const speed = d.arc ? (owner.arcSpeed || d.speed) : d.speed;
   p.active = true; p.def = d; p.owner = owner; p.team = owner.team; p.nid = ++W.nid;
   p.x = mz.x; p.y = mz.y; p.z = mz.z;
+  p.objMult = d.indirect ? Arty.objMult(owner) : 1;   // a human's unspotted shells barely scratch objectives (D52)
   const inherit = owner.kind === 'air' && !d.arc ? 1 : 0;   // arc shots are solved for a still muzzle; adding aircraft speed overshoots
   if (d.kind === 'bomb') { p.vx = owner.vx * 0.95; p.vy = owner.vy * 0.5 - 2; p.vz = owner.vz * 0.95; }
   else { p.vx = dx * speed + owner.vx * inherit; p.vy = dy * speed + owner.vy * inherit; p.vz = dz * speed + owner.vz * inherit; }
@@ -11230,7 +11298,7 @@ function spawnProjectile(owner, w, mz, dx, dy, dz, charge) {
 }
 /* fill a projectile slot with def d (split sub-munitions) */
 function launchProjectile(p, d, owner, team, x, y, z, vx, vy, vz) {
-  p.active = true; p.def = d; p.owner = owner; p.team = team; p.nid = ++W.nid;
+  p.active = true; p.def = d; p.owner = owner; p.team = team; p.nid = ++W.nid; p.objMult = 1;
   p.x = x; p.y = y; p.z = z; p.vx = vx; p.vy = vy; p.vz = vz;
   p.life = d.life; p.age = 0; p.dmg = d.dmg; p.pierceLeft = d.pierce || 0; p.hitSet = null; p.target = null;
   p.curSpeed = Math.hypot(vx, vy, vz); p.noGuide = !d.guide; p.stuck = null;
@@ -11266,7 +11334,7 @@ function detonate(p, x, y, z, excludePlatform, excludeStruct) {
   try {
     if (d.blast > 0) {
       const dmg = d.blastDmg !== undefined ? d.blastDmg : d.dmg;
-      explode(x, y, z, d.blast, dmg, d.dtype, p.owner, { exclude: excludePlatform, excludeStruct, structMult: d.structMult });
+      explode(x, y, z, d.blast, dmg, d.dtype, p.owner, { exclude: excludePlatform, excludeStruct, structMult: d.structMult, objMult: p.objMult });
     } else {
       fxSparks(x, y, z, 5, d.tracer, 10);
     }
@@ -11391,7 +11459,7 @@ function updateProjectiles(dt) {
       detonate(p, hx, hy, hz, obj);
     } else if (kind === 'struct') {
       // the struck structure takes the direct hit; the splash then spares it so it is not counted twice
-      damageStruct(obj, p.dmg, d.dtype, p.owner, d.structMult);
+      damageStruct(obj, p.dmg, d.dtype, p.owner, d.structMult * (obj.objective ? p.objMult : 1));
       const st = statsOf(p.owner);
       if (st) st.hits++;
       if (d.blast <= 0) Snd.play('hitStruct', hx, hy, hz, 0.6);
@@ -17435,7 +17503,12 @@ class AIController {
     if (p.arty.deploy < 1 || this.roundT > 0 || w.cd > 0 || w.reloading > 0 || w.burstLeft > 0 || p.overheated) return;
     if (Math.abs(angleDiff(p.torsoYaw, c.aimYaw)) > ARTY_AI_LAY) return;
     this.roundT = rand(ARTY_AI_GAP[0], ARTY_AI_GAP[1]) / Math.max(0.6, this.d.aggr);
-    if (Arty.aim(p).reason === '') c.fire1Edge = true;   // masked or out of reach from here: the next look lays it again
+    if (Arty.aim(p).reason !== '') { this.think = Math.min(this.think, 0.1); return; }   // masked or out of reach from here: the next look lays it again
+    if (Arty.structInArc(p, w.def, p.arty.sol)) {   // its own base in the way: the other arc next time, where the barrel has one
+      if (Arty.twoArcs(w.def)) p.arty.high = !p.arty.high;
+      return;
+    }
+    c.fire1Edge = true;
     this.think = Math.min(this.think, 0.1);   // the next round's point is picked just after this one is fired
   }
   /* the next round's aim point: the target's ground point, led a little for its speed over the flight, scattered by
@@ -18561,7 +18634,7 @@ function skirmishDef(cfg) {
         const k = SKIRMISH_ARTY_BACK / Math.max(1, Math.hypot(foe.x - own.x, foe.z - own.z));
         spawnGroup(SKIRMISH_ARTY[cfg.size] || SKIRMISH_ARTY.small, foe.x + (foe.x - own.x) * k, foe.z + (foe.z - own.z) * k, { radius: 45 }).forEach((u) => { u.garrison = true; });
       });
-      const humans =() => W.platforms.filter((p) => p.isPlayer && p.team === 0 && !p.dead);
+      const humans = () => W.platforms.filter((p) => p.isPlayer && p.team === 0 && !p.dead);
       const waveGoal = (u) => skirmishWaveGoal(u, ownHq);
       let idx = 0;
       const spawnWave = () => {
@@ -19619,11 +19692,13 @@ const HUD = {
     if (Net.guest) Arty.aim(p);   // the host lays the gun; a guest predicts its own shell from the mirrored one
     const s = a.sol;
     if (!s.valid) return;
-    const bad = s.reason === 'min' || s.reason === 'range', col = bad ? C.bad : s.reason === 'masked' ? C.warn : C.main;
+    const bad = s.reason === 'min' || s.reason === 'range' || s.reason === 'sky', col = bad ? C.bad : s.reason === 'masked' ? C.warn : C.main;
     this.txt('RNG ' + Math.round(s.dist) + ' m', xr, y, 14, col, 'left', true);
-    this.txt(s.reason === 'min' ? 'MIN RANGE ' + w.def.indirect.min + ' m' : s.reason === 'range' ? 'OUT OF RANGE (' + w.def.range + ' m)' : 'TOF ' + s.tof.toFixed(1) + ' s  ' + (s.high ? 'HIGH' : 'LOW') + ' ARC' + (s.high !== a.high && Arty.twoArcs(w.def) ? ' (NO ' + (a.high ? 'HIGH' : 'LOW') + ' ARC HERE)' : ''), xr, y + 18 * u, 12, col, 'left');
+    this.txt(s.reason === 'min' ? 'MIN RANGE ' + w.def.indirect.min + ' m' : s.reason === 'range' ? 'OUT OF RANGE (' + w.def.range + ' m)' : s.reason === 'sky' ? 'NO TARGET POINT' : 'TOF ' + s.tof.toFixed(1) + ' s  ' + (s.high ? 'HIGH' : 'LOW') + ' ARC' + (s.high !== a.high && Arty.twoArcs(w.def) ? ' (NO ' + (a.high ? 'HIGH' : 'LOW') + ' ARC HERE)' : ''), xr, y + 18 * u, 12, col, 'left');
     if (s.reason === 'masked') this.txt(Math.hypot(s.ix - s.mx, s.iz - s.mz) > s.dist ? 'REVERSE SLOPE: THE SHELL FLIES ON PAST' : 'ARC STRIKES TERRAIN ON THE WAY', xr, y + 34 * u, 11, C.warn, 'left');
-    else if (W.aimInfo && !W.aimInfo.hit && !Net.guest) this.txt('AIM AT THE GROUND', xr, y + 34 * u, 11, C.dim, 'left');
+    else if (s.reason === 'sky') this.txt('NO GROUND UNDER THE AIM: AIM AT THE GROUND', xr, y + 34 * u, 11, C.bad, 'left');
+    if (Net.guest) Arty.spotState(p, STEP);   // a guest looks for its spotters among the mirrored platforms
+    if (a.objNear) this.txt(a.spotted ? 'SPOTTED: FULL DAMAGE TO OBJECTIVES' : 'UNSPOTTED: REDUCED DAMAGE TO OBJECTIVES', xr, y + 50 * u, 11, a.spotted ? C.main : C.warn, 'left');
     const t = R.project(s.ix, s.iy, s.iz, this.w, this.h, this.tmp);   // where the shell comes down, with its flight time
     if (!t.vis) return;
     const r = 9 * u;
@@ -20509,7 +20584,7 @@ const UI = {
       const w = WEAPONS[id], on = guns.filter((s) => PLATFORMS[s].allow[w.slot].indexOf(id) >= 0).map((s) => PLATFORMS[s].name).join(', ');
       return '<div class="lbl"><span><b>' + esc(w.name) + '</b> <span class="tag">' + w.indirect.min + '-' + w.range + ' m</span></span><span class="dim">' + esc(on) + '</span></div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(w.role) + '</div>';
     }).join('');
-    return '<div class="panel"><h3 style="margin-top:0">Artillery</h3><div class="dim" style="margin-bottom:.4em">Indirect fire onto the ground point under the reticle, which shows where the shell lands and its time of flight. Each gun has a minimum range. Deploy (' + esc(actionLabel('stance')) + ') for a tighter spread; a deployed gun cannot move. Enemy batteries fire only on what their spotters see, and their shells mark the ground a few seconds before they land.</div>' + rows + '</div>';
+    return '<div class="panel"><h3 style="margin-top:0">Artillery</h3><div class="dim" style="margin-bottom:.4em">Indirect fire onto the ground point under the reticle, which shows where the shell lands and its time of flight. Each gun has a minimum range. Deploy (' + esc(actionLabel('stance')) + ') for a tighter spread; a deployed gun cannot move. Enemy batteries fire only on what their spotters see, and their shells mark the ground a few seconds before they land. Your shells do full damage to objective structures only where a friendly unit (not artillery) sees the target; unspotted, they do ' + Math.round(ARTY_UNSPOTTED_OBJ * 100) + '%.</div>' + rows + '</div>';
   },
   scr_controls() {
     const b = Save.data.bindings;
@@ -24810,6 +24885,61 @@ const SelfTest = {
         Net.host = keepNet.host; Net.guest = keepNet.guest; Net.map = keepNet.map; Net.projMap = keepNet.projMap; Net.lastSnapSeq = keepNet.seq;
         Game.reportError = keepRep; Game.quitToMenu();
       }
+    });
+    t('artillery spotting', () => {
+      const keepRep = Game.reportError, errs = [];
+      Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
+      try {
+        Game.startSession({ mode: 'skirmish', platformId: 'thunder', loadout: Loadout.forPlatform('thunder'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'farmland', size: 'small', seed: 3, random: false, support: 'none' }) });
+        const pl = W.player, w = pl.primary, hq = W.structs.find((s) => s.objective && s.team === 1 && s.type === 'command');
+        W.platforms.length = 0; W.platforms.push(pl);
+        for (const q of W.projs) q.active = false;
+        // aimed at the sky: the gun refuses, and says so
+        const sky = { x: pl.x + 300, y: Arty.groundY(pl.x + 300, pl.z) + 400, z: pl.z };
+        pl.cmd.aimPoint = sky; w.cd = 0; w.reloading = 0;
+        const nid0 = W.nid;
+        pl.handleFire(w, true, true, STEP, false);
+        this.check('aimed at the sky (no ground under the aim), the gun does not fire', Arty.aim(pl).reason === 'sky' && W.nid === nid0);
+        // a deployed Thunder at the start shells the enemy command center for 3 minutes with nobody spotting it
+        const dist = Math.hypot(hq.x - pl.x, hq.z - pl.z), ap = { x: hq.x, y: hq.y + hq.h * 0.6, z: hq.z }, yaw = Math.atan2(hq.x - pl.x, hq.z - pl.z);
+        pl.arty.want = true; pl.arty.deploy = 1; pl.torsoYaw = yaw;
+        const shell = (secs) => {
+          const nid = W.nid, hp = hq.hp;
+          for (let i = 0; i < secs / STEP; i++) {
+            const c = pl.cmd;
+            c.aimPoint = ap; c.hasAim = true; c.aimYaw = yaw; c.fire1 = true; c.fire1Edge = true; c.moveF = 0; c.turn = 0;
+            W.time += STEP; pl.update(STEP); updateProjectiles(STEP);
+            if (hq.destroyed) break;
+          }
+          for (let i = 0; i < 60 * ARTY_PRED_MAX && W.projs.some((q) => q.active); i++) updateProjectiles(STEP);
+          return { shots: W.nid - nid, lost: hp - Math.max(0, hq.hp) };
+        };
+        pl.cmd.aimPoint = ap; Arty.aim(pl); Arty.spotState(pl, ARTY_SPOT_EVERY);
+        const hudUnspotted = pl.arty.objNear && !pl.arty.spotted;
+        const alone = shell(180);
+        this.check('a deployed Thunder at the start cannot destroy the enemy command center in 3 minutes with no spotter (shells do ' + ARTY_UNSPOTTED_OBJ + ' of their damage), and the HUD says so', dist < w.def.range && !hq.destroyed && alone.shots >= 8 && alone.lost > 0 && hudUnspotted, Math.round(dist) + ' m, ' + alone.shots + ' shells, ' + Math.round(alone.lost) + ' of ' + Math.round(hq.maxHp) + ' hp');
+        // a friendly soldier 150 m short of it, in sight: full damage
+        const sx = hq.x - Math.sin(yaw) * 150, sz = hq.z - Math.cos(yaw) * 150, eye = new Platform(PLATFORMS.ranger, { team: 0, x: sx, z: sz, yaw, loadout: Loadout.forPlatform('ranger') });
+        W.platforms.push(eye);
+        pl.arty.spotT = 0; Arty.aim(pl); Arty.spotState(pl, STEP);
+        const seen = Arty.spottedAt(ap.x, ap.y, ap.z, pl, ARTY_SPOT_NEAR), hudSpotted = pl.arty.objNear && pl.arty.spotted;
+        w.clip = w.def.clip; w.reserve = w.def.reserve; pl.heat = 0; pl.overheated = false;
+        const spotted = shell(30), per = (r) => r.lost / Math.max(1, r.shots);
+        this.check('with a friendly spotter in sight of it, the same shells do full damage to it', seen && hudSpotted && spotted.shots > 0 && per(spotted) > per(alone) * 4 && per(spotted) * (w.def.clip + w.def.reserve) > hq.maxHp, Math.round(per(spotted)) + ' vs ' + Math.round(per(alone)) + ' hp a shell');
+        // an AI battery does not fire through its own base: the arc's first 300 m are checked against standing structures
+        const bat = new Platform(PLATFORMS.thunder, { team: 1, x: pl.x, z: pl.z, yaw, loadout: Loadout.forPlatform('thunder') });
+        const bw = bat.primary, far = { x: pl.x + Math.sin(yaw) * 900, z: pl.z + Math.cos(yaw) * 900 };
+        far.y = Arty.groundY(far.x, far.z);
+        bat.arty.high = false; bat.torsoYaw = yaw;
+        const sol = Arty.lay(bat, bw.def, Arty.muzzle(bat, bw), far, artySol());
+        const clearArc = Arty.structInArc(bat, bw.def, sol);
+        const t = 20 / Math.hypot(sol.dx * bw.def.speed, sol.dz * bw.def.speed), wx = sol.mx + sol.dx * bw.def.speed * t, wz = sol.mz + sol.dz * bw.def.speed * t;
+        const wall = addStruct('warehouse', wx, wz, { team: 1 });
+        const blocked = Arty.structInArc(bat, bw.def, sol);
+        wall.destroyed = true;
+        this.check('an AI battery sees its own base\'s structures in the way of its arc (and holds fire)', !clearArc && blocked);
+      } finally { Game.reportError = keepRep; Game.quitToMenu(); }
+      this.check('artillery spotting runs without errors', errs.length === 0, errs.join());
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
