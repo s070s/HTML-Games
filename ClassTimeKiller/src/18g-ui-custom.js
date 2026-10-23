@@ -283,16 +283,13 @@ const CustomMatch = {
     const wanted = draft.botCount >= 0 ? draft.botCount : Modes.defaultBots(mode.id, true).length;
     return Math.min(wanted, Quality.current().bots);
   },
-  botList(draft, mode) {
+  // Mixed: the named roster bots Quick Play fields for the seed (R-148); otherwise every bot plays the chosen personality.
+  botList(draft, mode, seed) {
     const count = this.botCount(draft, mode);
     const allies = draft.allies >= 0 ? Math.min(draft.allies, count) : Math.floor(count / 2);
-    const bots = [];
-    for (let index = 0; index < count; index++) {
-      const bot = {};
-      if (mode.teams === 2) bot.team = index < allies ? 0 : 1;
-      if (draft.personality !== EDITOR_PERSONALITY_MIXED) bot.profile = draft.personality;
-      bots.push(bot);
-    }
+    const bots = draft.personality === EDITOR_PERSONALITY_MIXED ? PlayFlow.rosterBots(count, draft.difficulty, seed)
+      : Array.from({ length: count }, () => ({ profile: draft.personality }));
+    if (mode.teams === 2) bots.forEach((bot, index) => { bot.team = index < allies ? 0 : 1; });
     return bots;
   },
   mapFor(draft, seed) {
@@ -315,7 +312,7 @@ const CustomMatch = {
   setup(draft, seed, withPlayer) {
     const mode = CAT.modes.byId(draft.mode), matchSeed = seed === undefined ? newSeed() : seed;
     const setup = { mode: mode.id, map: this.mapFor(draft, matchSeed), seed: matchSeed, mutators: this.matchMutators(draft), difficulty: this.difficultyOf(draft),
-      bots: this.botList(draft, mode), modeOptions: this.modeOptions(draft, mode) };
+      bots: this.botList(draft, mode, matchSeed), modeOptions: this.modeOptions(draft, mode) };
     setup.ruleset = this.hasOverrides(draft) || draft.name ? Object.assign(this.rulesetFields(draft), { id: 'custom', name: draft.name || 'Custom match' }) : this.bundleOf(draft).id;
     if (draft.allies >= 0 && mode.teams === 2) setup.balance = false;
     if (withPlayer !== false) setup.player = mode.teams === 2 ? { team: 0 } : {};

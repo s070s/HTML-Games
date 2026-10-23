@@ -130,6 +130,8 @@ Test.add('custom', (check) => {
   check('setup: overrides make a custom ruleset object named after the draft', setup.ruleset.id === 'custom' && setup.ruleset.name === 'Night Raid' && setup.ruleset.move === 'agile' && setup.ruleset.items === false && setup.ruleset.lives === 3 && setup.ruleset.respawn.delay === 5);
   const plain = CustomMatch.setup(CustomMatch.defaults(), 1);
   check('setup: an untouched draft uses the mode default bundle id and the mode default bot count', plain.ruleset === 'classic' && plain.bots.length === Modes.defaultBots('ffa', true).length && plain.balance === undefined);
+  const roster = PlayFlow.rosterBots(plain.bots.length, plain.difficulty, 1);
+  check('setup: mixed personality fields the named roster bots Quick Play picks for the seed (R-148)', JSON.stringify(plain.bots) === JSON.stringify(roster) && !!roster[0].profile, JSON.stringify(plain.bots[0]));
   check('setup: no map chosen picks one that serves the mode, the same one for the same seed', Maps.forMode('ffa').some((map) => map.id === plain.map) && CustomMatch.setup(CustomMatch.defaults(), 1).map === plain.map);
   const listed = CustomMatch.setup(Object.assign(CustomMatch.defaults(), { weaponList: ['maul', 'lancet'], mutators: [{ id: 'oneshot', value: true }] }), 1);
   check('setup: a weapon list becomes the last Weapon Set mutator and wins conflicts', listed.mutators.map((entry) => entry.id).join() === 'weaponset' && listed.mutators[0].value.join() === 'maul,lancet');
