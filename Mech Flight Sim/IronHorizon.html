@@ -14318,17 +14318,21 @@ const HZ_FIRE_SEARCH = 100;      // m around the scheduled point it looks for fu
 const HZ_FIRE_RING = 8;          // fuel samples on the burning front
 const HZ_FIRE_CREEP = 0.15;      // share of its spread speed a fire keeps with nothing to burn
 const HZ_FIRE_BAND = 14;         // trees within this many m inside the front catch fire
+const HZ_FIRE_TALL = 12;         // m above the ground flames reach (into the canopy)
+const HZ_FIRE_GLOW = 2.5, HZ_FIRE_SEGS = 24, HZ_FIRE_COL = [1, 0.3, 0.05];   // the glowing front: height (m), boxes, colour
+const HZ_ASH_STEP = 10;          // m the fire spreads between the ash marks it leaves
 const HZ_CHAR = 0.3, HZ_CHAR_HIT = 0.25;   // trees burn down to this share of their hull (charred, still standing), this share per tick
 const HZ_BURN_T = 2;             // seconds a unit keeps burning after it leaves the flames
 const HZ_IGNITE = 0.2, HZ_IGNITE_FUEL = 0.4;   // share of lightning strikes on fuel this rich that start a wildfire
 const HZ_ASH_COL = [0.06, 0.05, 0.04];
 /* flood */
-const HZ_FLOOD_REACH = 520;      // a scheduled flood comes from water this close to the player (m)
+const HZ_FLOOD_REACH = 800;      // a scheduled flood comes from water this close to the player (m)
 const HZ_FLOOD_TOWARD = 0.4;     // its zone sits this share of the way from the water toward the player
 const HZ_FLOOD_WET = 0.05;       // water shallower than this (m) is not a source
-const HZ_FLOOD_COL = [0.28, 0.32, 0.26], HZ_FLOOD_ALPHA = 0.72;
+const HZ_FLOOD_COL = [0.46, 0.42, 0.3], HZ_FLOOD_ALPHA = 0.8, HZ_FLOOD_GLOW = 0.2;   // muddy water
 /* avalanche and rockfall slide down the steepest way */
-const HZ_SLIDE_NEAR = [80, 420]; // m from the player they start (uphill spots score best)
+const HZ_SLIDE_NEAR = [60, 600]; // m from the player they start
+const HZ_SLOPE_STEP = 16, HZ_SLOPE_CAP = 1.5;   // m between the spots looked at; slopes past this score no better (no favouring sheer cliffs)
 const HZ_SNOW_MARGIN = 20;       // avalanches start this far below the snow line too
 const HZ_STEER = 2;              // a sliding front turns toward the steepest way at this rate (1/s)
 const HZ_SLIDE_NORM = 0.33;      // the slope (sine) at which a front gains its full acceleration
@@ -14346,16 +14350,19 @@ const HZ_BOLT_H = 320, HZ_BOLT_COL = [0.82, 0.88, 1], HZ_FLASH_RANGE = 600;
 const HZ_CLOUD_H = 240, HZ_CLOUD_COL = [0.2, 0.21, 0.24];
 /* tornado, sandstorm, earthquake */
 const HZ_TWIST_AIM = 0.6, HZ_TWIST_WOBBLE = 0.37, HZ_TWIST_TURN = 0.35, HZ_TWIST_HOLD = 1.2, HZ_TWIST_DEBRIS = 3;
-const HZ_TWIST_SEGS = 7, HZ_TWIST_BASE = 6, HZ_TWIST_COL = [0.42, 0.4, 0.37];
+const HZ_TWIST_SEGS = 14, HZ_TWIST_BASE = 6, HZ_TWIST_BEND = 18, HZ_TWIST_COL = [0.3, 0.28, 0.25];   // funnel rings, foot width and sway (m), colour
+const HZ_TWIST_CAP = 7, HZ_TWIST_CAP_H = 40;   // the storm cloud over it: width (zone radii) and depth (m)
 const HZ_DUST_LEAD = 60;         // a sandstorm starts this far upwind past its own edge from the player (m)
 const HZ_DUST_COL = [0.74, 0.6, 0.42], HZ_DUST_WALL = 14;
 const HZ_QUAKE_NEAR = 0.4;       // an earthquake's centre sits this share of the way from the player to the scheduled point
 const HZ_QUAKE_RUMBLE = 2, HZ_QUAKE_DUST_R = 70, HZ_QUAKE_STAGGER = 0.5, HZ_QUAKE_SALT = 4111;
+const HZ_QUAKE_PULSE = 9;        // the shake swells and eases this fast (rad/s)
 const HZ_QUAKE_CRACKED = 0.9;    // a building with fewer of its pieces standing is weak
 const HZ_QUAKE_BREAK = 0.35;     // share of a weak building's ground floor that breaks each tick
 /* lava */
-const HZ_LAVA_REACH = 420, HZ_LAVA_SLOPE = 0.15, HZ_LAVA_MIN = 4, HZ_LAVA_DROP = 0.15, HZ_LAVA_SCAR = 3;
-const HZ_LAVA_HOT = [1, 0.38, 0.06], HZ_LAVA_COLD = [0.12, 0.08, 0.06], HZ_LAVA_SCAR_COL = [0.08, 0.06, 0.05];
+const HZ_LAVA_REACH = 420, HZ_LAVA_SLOPE = 0.15, HZ_LAVA_MIN = 4, HZ_LAVA_DROP = 0.15, HZ_LAVA_SCAR = 3, HZ_LAVA_HIGH = 0.005;   // HIGH: score per m of height (cells score 1)
+const HZ_LAVA_HOT = [1, 0.3, 0.04], HZ_LAVA_COLD = [0.12, 0.08, 0.06], HZ_LAVA_SCAR_COL = [0.08, 0.06, 0.05], HZ_LAVA_GLOW = 1.2;
+const HZ_LAVA_CRUST_T = 40, HZ_LAVA_CRUST_MAX = 0.55;   // seconds a cell takes to crust over, and how far it does while the flow runs
 /* toxic gas */
 const HZ_GAS_SOURCES = ['factory', 'fuel', 'depot', 'generator', 'warehouse'];   // structures a leak comes from, the likeliest first
 const HZ_GAS_RANK = 60;          // m a less likely source must be nearer to be picked
@@ -14365,7 +14372,7 @@ const HZ_GAS_COL = [0.62, 0.76, 0.24];
    radius r (m), damage per second (dps) and type; the other fields are read by their own behaviour in HZ_KIND.
    fog, tint, sand, sight: what the zone does to the camera's fog, sky colour and blowing sand, and AI sight inside */
 const HAZARDS = {
-  wildfire: { name: 'Wildfire', alert: 'WILDFIRE', triggers: ['schedule', 'explosion'], dur: 60, r: 16, rMax: 95, grow: 1.4, drift: 0.12, dps: 26, burn: 10, dtype: 'energy', trees: 10, flames: 70, smoke: 10 },
+  wildfire: { name: 'Wildfire', alert: 'WILDFIRE', triggers: ['schedule', 'explosion'], dur: 60, r: 16, rMax: 95, grow: 1.4, drift: 0.12, dps: 26, burn: 10, dtype: 'energy', trees: 10, flames: 110, smoke: 12 },
   flood: { name: 'Flash flood', alert: 'FLASH FLOOD', triggers: ['schedule'], dur: 45, r: 170, rise: 3.2, riseTime: 12, fall: 10, foam: 14, sound: 'splash' },
   avalanche: { name: 'Avalanche', alert: 'AVALANCHE', triggers: ['schedule', 'explosion'], dur: 30, r: 26, speed: 28, accel: 9, drag: 3.5, hit: 240, push: 26, structHit: 260, dtype: 'kinetic', slope: 0.35, snow: 60, sound: 'rumble' },
   rockfall: { name: 'Rockfall', alert: 'ROCKFALL', triggers: ['schedule', 'explosion'], dur: 22, r: 30, rocks: 7, rock: 2.2, speed: 24, hit: 220, structHit: 150, dtype: 'kinetic', slope: 0.4, sound: 'rumble' },
@@ -14747,16 +14754,18 @@ const Hazards = {
     }
     return best;
   },
-  /* the steepest spot (slope over min) among a few within HZ_SLIDE_NEAR of the anchor, uphill of it scoring best;
-     snow true: only snowy ground, false: only bare ground */
+  /* a slope steeper than min within HZ_SLIDE_NEAR of the anchor, on a grid (shifted by the seed): steep and near score
+     best; snow true: only snowy ground, false: only bare ground */
   slopeSite(s, a, min, snow) {
-    const ah = Terrain.h(a.x, a.z);
+    const lo = HZ_SLIDE_NEAR[0], hi = HZ_SLIDE_NEAR[1], off = this.rnd(0, 1) * HZ_SLOPE_STEP;
     let best = 0;
-    for (let k = 0; k < HAZARD_SEARCH * 2; k++) {
-      const ang = this.rnd(k, 1) * TAU, dist = lerp(HZ_SLIDE_NEAR[0], HZ_SLIDE_NEAR[1], this.rnd(k, 2)), x = a.x + Math.sin(ang) * dist, z = a.z + Math.cos(ang) * dist;
-      if (Math.abs(x) > GROUND_BOUND || Math.abs(z) > GROUND_BOUND || this.snowy(x, z) !== snow || Water.at(x, z)) continue;
-      const sl = Terrain.slope(x, z), score = sl * Math.max(1, Terrain.h(x, z) - ah);
-      if (sl > min && score > best) { best = score; s.x = x; s.z = z; }
+    for (let x = a.x - hi + off; x <= a.x + hi; x += HZ_SLOPE_STEP) for (let z = a.z - hi + off; z <= a.z + hi; z += HZ_SLOPE_STEP) {
+      const d = Math.hypot(x - a.x, z - a.z);
+      if (d < lo || d > hi || Math.abs(x) > GROUND_BOUND || Math.abs(z) > GROUND_BOUND) continue;
+      const sl = Terrain.slope(x, z);
+      if (sl <= min || this.snowy(x, z) !== snow || Water.at(x, z)) continue;
+      const score = Math.min(sl, HZ_SLOPE_CAP) * (1 - d / hi);
+      if (score > best) { best = score; s.x = x; s.z = z; }
     }
     return best > 0;
   },
@@ -14814,8 +14823,16 @@ const Hazards = {
       if (h.kind.draw) h.kind.draw(h, pass);
       if (pass === 2 && h.state === HZ_WARN) {   // a pulsing ring where it will strike
         const pulse = 0.5 + 0.5 * Math.sin(h.t * HZ_WARN_PULSE);
-        SW_A.ringShape(SW, h.x, Terrain.h(h.x, h.z) + 1, h.z, h.r, 2, 0.8, HZ_WARN_COL, 0.35 + 0.35 * pulse, 1.6, HZ_WARN_SEGS);
+        this.groundRing(h.x, h.z, h.r, 2, 0.8, HZ_WARN_COL, 0.35 + 0.35 * pulse, 1.6, HZ_WARN_SEGS);
       }
+    }
+  },
+  /* a ring of n see-through boxes on the ground (each at its own ground height), radius r around (x, z) */
+  groundRing(x, z, r, width, h, col, alpha, emis, n) {
+    const len = TAU * r / n * 1.08;
+    for (let i = 0; i < n; i++) {
+      const a = i / n * TAU, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r;
+      SW.shape('box', px, Water.top(px, pz) + h * 0.5, pz, width, h, len, col, alpha, emis, -a);
     }
   },
 };
@@ -14849,16 +14866,21 @@ const HZ_KIND = {
         h.x += Weather.windX * d.drift * dt; h.z += Weather.windZ * d.drift * dt;
       }
       if (f <= 0) return;
+      if (h.r - h.dist > HZ_ASH_STEP) { h.dist = h.r; addDecal(h.x, h.z, h.r * 0.95, HZ_ASH_COL, 120); }   // the burnt ground behind the front
       const big = 0.3 + h.r / d.rMax;
       for (let n = Hazards.count(d.flames * f * big, dt); n > 0; n--) {   // flames along the front
         const a = Math.random() * TAU, rr = h.r * (0.7 + Math.random() * 0.32), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr;
         if (Water.at(x, z)) continue;
-        FX.emit(x, Terrain.h(x, z) + rand(0, 3), z, rand(-1, 1), rand(4, 9), rand(-1, 1), rand(0.6, 1.2), rand(2.5, 4.5), 1, 1, rand(0.35, 0.6), 0.1, 0.9, 1.1, -1.5, true);
+        FX.emit(x, Terrain.h(x, z) + rand(0, HZ_FIRE_TALL), z, rand(-1, 1), rand(5, 10), rand(-1, 1), rand(0.7, 1.3), rand(5, 8), 1.5, 1, rand(0.3, 0.55), 0.08, 0.95, 1.1, -1.5, true);
       }
-      for (let n = Hazards.count(d.smoke * f * big, dt); n > 0; n--) {   // smoke over the burnt ground
-        const a = Math.random() * TAU, rr = h.r * Math.sqrt(Math.random()), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr;
-        FX.emit(x, Terrain.h(x, z) + rand(4, 10), z, rand(-1, 1), rand(4, 8), rand(-1, 1), rand(4, 7), 6, 16, 0.16, 0.15, 0.14, 0.55, 0.3, -0.6, false);
+      for (let n = Hazards.count(d.smoke * f * big, dt); n > 0; n--) {   // a column of smoke over the burnt ground, above the trees
+        const a = Math.random() * TAU, rr = h.r * 0.8 * Math.sqrt(Math.random()), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr;
+        FX.emit(x, Terrain.h(x, z) + rand(6, HZ_FIRE_TALL * 1.5), z, rand(-1, 1), rand(6, 10), rand(-1, 1), rand(6, 9), 8, 24, 0.14, 0.13, 0.12, 0.65, 0.15, -0.4, false);
       }
+    },
+    draw(h, pass) {   // the glowing front
+      const f = Hazards.fade(h);
+      if (pass === 2 && f > 0) Hazards.groundRing(h.x, h.z, h.r, 3, HZ_FIRE_GLOW, HZ_FIRE_COL, 0.22 * f, 1.8, HZ_FIRE_SEGS);
     },
     tick(h) {
       const d = h.def, pl = W.platforms, r2 = h.r * h.r;
@@ -14917,7 +14939,7 @@ const HZ_KIND = {
       if (pass !== 1 || h.state === HZ_WARN || !R.visible(h.x, h.level, h.z, h.r)) return;
       const st = R.stack, a = HZ_FLOOD_ALPHA * (h.state === HZ_END ? Hazards.fade(h) : 1);
       st.push().t(h.x, h.level + 0.03, h.z).s(h.r * 2, 0.06, h.r * 2);
-      R.draw('cyl', HZ_FLOOD_COL[0], HZ_FLOOD_COL[1], HZ_FLOOD_COL[2], a, 0, 0.6); st.pop();
+      R.draw('cyl', HZ_FLOOD_COL[0], HZ_FLOOD_COL[1], HZ_FLOOD_COL[2], a, HZ_FLOOD_GLOW, 0.6); st.pop();
     },
   },
   /* a front of snow that breaks away high on a snowy slope and races down the steepest way, burying what it meets */
@@ -15107,10 +15129,11 @@ const HZ_KIND = {
       if (pass !== 1 || f <= 0) return;
       const d = h.def, gy = Terrain.h(h.x, h.z), st = R.stack, seg = d.funnel / HZ_TWIST_SEGS;
       for (let k = 0; k < HZ_TWIST_SEGS; k++) {
-        const u = k / (HZ_TWIST_SEGS - 1), w = lerp(HZ_TWIST_BASE, h.r * 2.4, u * u);
-        st.push().t(h.x + Math.sin(h.t * 1.3 + k * 0.7) * u * 10, gy + seg * (k + 0.5), h.z + Math.cos(h.t * 1.1 + k) * u * 8).ry(h.t * 4 + k).s(w, seg * 1.2, w);
-        R.draw('cyl', HZ_TWIST_COL[0], HZ_TWIST_COL[1], HZ_TWIST_COL[2], 0.28 * f, 0, 0); st.pop();
+        const u = k / (HZ_TWIST_SEGS - 1), w = lerp(HZ_TWIST_BASE, h.r * 2.4, Math.pow(u, 2.2)), bend = u * u * HZ_TWIST_BEND;
+        st.push().t(h.x + Math.sin(h.t * 0.9 + u * 2) * bend, gy + seg * (k + 0.5), h.z + Math.cos(h.t * 0.7 + u * 2) * bend).ry(h.t * 4 + k).s(w, seg * 1.3, w);
+        R.draw('cyl', HZ_TWIST_COL[0], HZ_TWIST_COL[1], HZ_TWIST_COL[2], 0.22 * f, 0, 0); st.pop();
       }
+      SW.shape('sphere', h.x, gy + d.funnel + HZ_TWIST_CAP_H * 0.3, h.z, h.r * HZ_TWIST_CAP, HZ_TWIST_CAP_H, h.r * HZ_TWIST_CAP, HZ_CLOUD_COL, 0.6 * f, 0);
     },
   },
   /* a wall of dust that rolls across the field with the wind: sight drops inside it and grit wears low aircraft */
@@ -15166,8 +15189,8 @@ const HZ_KIND = {
       if (!Net.guest) h.level = Hazards.fade(h);
       const k = h.level;
       if (k <= 0) return;
-      const gy = Terrain.h(h.x, h.z), cam = W.camPos;
-      shakeFrom(h.x, gy, h.z, d.shake * k * dt * 4, h.r * 1.5);
+      const gy = Terrain.h(h.x, h.z), cam = W.camPos, near = 1 - smoothstep(h.r, h.r * 1.5, Math.hypot(cam.x - h.x, cam.z - h.z));
+      W.shake = Math.max(W.shake, d.shake * k * near * (0.75 + 0.25 * Math.sin(h.t * HZ_QUAKE_PULSE)));   // a steady shake (shakeFrom adds a jolt)
       h.fxT -= dt;
       if (h.fxT <= 0) { h.fxT = HZ_QUAKE_RUMBLE; Snd.play('rumble', h.x, gy, h.z, 1.2 * k); }
       if (Math.hypot(cam.x - h.x, cam.z - h.z) > h.r) return;
@@ -15209,11 +15232,11 @@ const HZ_KIND = {
     site(s, a) {
       if (a) {
         let best = -Infinity;
-        for (let k = 0; k < HAZARD_SEARCH * 2; k++) {
+        for (let k = 0; k < HAZARD_SEARCH * 2; k++) {   // the longest flow, high up breaking ties
           const ang = Hazards.rnd(k, 1) * TAU, dist = Hazards.rnd(k, 2) * HZ_LAVA_REACH, x = a.x + Math.sin(ang) * dist, z = a.z + Math.cos(ang) * dist;
           if (Math.abs(x) > GROUND_BOUND || Math.abs(z) > GROUND_BOUND || Water.at(x, z) || Terrain.slope(x, z) < HZ_LAVA_SLOPE) continue;
-          const y = Terrain.h(x, z);
-          if (y > best) { best = y; s.x = x; s.z = z; }
+          const score = this.trace(x, z, null) + Terrain.h(x, z) * HZ_LAVA_HIGH;
+          if (score > best) { best = score; s.x = x; s.z = z; }
         }
         if (best === -Infinity) return false;
       }
@@ -15277,12 +15300,12 @@ const HZ_KIND = {
     draw(h, pass) {
       if (pass !== 0) return;
       const d = h.def, n = Math.min(h.nPath, Math.floor(h.level)), P = h.path, st = R.stack, heat = h.state === HZ_END ? Hazards.fade(h) : 1;
-      const cr = lerp(HZ_LAVA_COLD[0], HZ_LAVA_HOT[0], heat), cg = lerp(HZ_LAVA_COLD[1], HZ_LAVA_HOT[1], heat), cb = lerp(HZ_LAVA_COLD[2], HZ_LAVA_HOT[2], heat);
       for (let k = 0; k < n; k++) {
         const x = P[k * 2], z = P[k * 2 + 1], y = Terrain.h(x, z);
         if (!R.visible(x, y, z, d.r * 1.3)) continue;
+        const crust = Math.min(HZ_LAVA_CRUST_MAX, (h.level - k) / d.flow / HZ_LAVA_CRUST_T), hot = heat * (1 - crust);   // older cells crust over
         st.push().t(x, y + 0.2, z).ry(k * 1.7).s(d.r * 2.3, 0.7, d.r * 2.1);
-        R.draw('cyl', cr, cg, cb, 1, 1.8 * heat, 0); st.pop();
+        R.draw('cyl', lerp(HZ_LAVA_COLD[0], HZ_LAVA_HOT[0], hot), lerp(HZ_LAVA_COLD[1], HZ_LAVA_HOT[1], hot), lerp(HZ_LAVA_COLD[2], HZ_LAVA_HOT[2], hot), 1, HZ_LAVA_GLOW * hot, 0); st.pop();
       }
     },
   },
@@ -18139,7 +18162,8 @@ const UI = {
   mapCards(picked, act) {
     return '<div class="maps">' + menuMapIds().map((k) => {
       const m = mapDef(k);
-      return '<button class="card' + (k === picked ? ' sel' : '') + '" data-act="' + act + '" data-id="' + k + '"' + (k === picked ? ' aria-pressed="true"' : '') + '><b>' + esc(m.name) + '</b> <span class="tag">' + esc(BIOME_NAMES[m.biome] || m.biome) + '</span><br><small>' + esc(m.desc) + '</small></button>';
+      return '<button class="card' + (k === picked ? ' sel' : '') + '" data-act="' + act + '" data-id="' + k + '"' + (k === picked ? ' aria-pressed="true"' : '') + '><b>' + esc(m.name) + '</b> <span class="tag">' + esc(BIOME_NAMES[m.biome] || m.biome) + '</span><br><small>' + esc(m.desc) + '</small>' +
+        (m.hazards.length ? '<br><small>Hazards: ' + esc(m.hazards.map((id) => HAZARDS[id].name).join(', ')) + '</small>' : '') + '</button>';
     }).join('') + '</div>';
   },
   scr_skirmish() {
@@ -21197,6 +21221,8 @@ const SelfTest = {
       for (const id of Object.keys(MAPS)) for (const hz of mapDef(id).hazards) listed.add(hz);
       this.check('every hazard id has a row, a behaviour and known triggers, and a battlefield lists it', HAZARD_IDS.every((id) => HAZARDS[id] && HZ_KIND[id] && HAZARDS[id].dur > 0 && HAZARDS[id].r > 0 && HAZARDS[id].triggers.length > 0 && HAZARDS[id].triggers.every((tr) => ['schedule', 'weather', 'explosion'].indexOf(tr) >= 0) && listed.has(id)) && Object.keys(HAZARDS).length === HAZARD_IDS.length);
       this.check('the old battlefields list a modest set of hazards', ['ashfall', 'verdant', 'frost'].every((id) => mapDef(id).hazards.length >= 1 && mapDef(id).hazards.length <= 2));
+      const cards = UI.mapCards('ashfall', 'skMap'), setup = UI.scr_skirmish.call(Object.assign(Object.create(UI), { skirmish: skirmishSetup({ map: 'jungle', hazards: 'off' }) }));
+      this.check('each battlefield card names its hazards, and the skirmish setup has the Hazards select', menuMapIds().every((id) => cards.indexOf(esc(mapDef(id).hazards.map((hz) => HAZARDS[hz].name).join(', '))) >= 0) && setup.indexOf('data-skirm="hazards"') >= 0 && setup.indexOf('<option value="off" selected>') >= 0);
       // skirmish setting: saved additively, 'low' for setups saved before it
       this.check('skirmish hazards default to low, keep a saved level and drop an unknown one', skirmishSetup({}).hazards === 'low' && skirmishSetup({ hazards: 'off' }).hazards === 'off' && skirmishSetup({ hazards: 'normal' }).hazards === 'normal' && skirmishSetup({ hazards: 'wild' }).hazards === 'low' && skirmishSetup({ map: 'verdant', fog: true }).hazards === 'low');
       this.check('skirmish brings hazards at its own level; missions m1-m8 and training have none', Hazards.levelFor({ mode: 'skirmish', skirmish: { hazards: 'normal' } }, null) === 'normal' && Hazards.levelFor({ mode: 'skirmish', skirmish: {} }, null) === 'low' && MISSIONS.every((m) => !m.hazards && Hazards.levelFor({ mode: 'mission', missionId: m.id }, m) === 'off') && Hazards.levelFor({ mode: 'training' }, MISSIONS[0]) === 'off' && Hazards.levelFor({ mode: 'mission' }, { map: 'jungle', hazards: true }) === 'normal');
