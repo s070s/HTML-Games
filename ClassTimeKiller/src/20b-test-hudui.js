@@ -390,7 +390,7 @@ Test.add('ui', (check) => {
   Save.data.tips = { matches: 0 }; Input.device = 'touch';
   Ui.playBox.replaceChildren();
   Tips.show();
-  check('toast: the first-match tip lands in the match spot, not at the top', Ui.playBox.lastChild.textContent === TIP_TOUCH_TEXT && Ui.toastBox.lastChild !== Ui.playBox.lastChild);
+  check('toast: the first-match tip lands in the match spot, not at the top', Ui.playBox.lastChild.textContent === Tips.touchText() && Ui.toastBox.lastChild !== Ui.playBox.lastChild);
   check('help: a phone is told the pause menu, not B, and sees its buttons', !buyText().includes('with B') && buyText().includes('pause menu') && controlsSummary().includes('TAB: Scoreboard'));
   Input.device = 'gamepad';
   const padText = buyText();

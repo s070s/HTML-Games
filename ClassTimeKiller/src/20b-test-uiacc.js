@@ -529,7 +529,29 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   check('tips: the option turns them off', Tips.show() === '');
   Settings.set(TIPS_SETTING, true);
   Input.device = 'touch';
-  check('tips: touch players get touch words', Tips.text(0) === TIP_TOUCH_TEXT);
+  check('tips: touch players get touch words', Tips.text(0) === Tips.touchText() && Tips.text(0).startsWith('Left thumb moves') && Tips.text(0).includes('on the right'));
+  const savedPreset = TouchInput.currentPreset;
+  TouchInput.currentPreset = TOUCH_PRESETS.find((preset) => preset.mirror);
+  check('tips: the left-handed touch preset swaps the sides', Tips.text(0).startsWith('Right thumb moves') && Tips.text(0).includes('on the left'), Tips.text(0));
+  TouchInput.currentPreset = savedPreset;
+  const savedStyle = Input.padStyle;
+  Input.device = 'gamepad'; Input.padStyle = 'shapes';
+  check('tips: a PlayStation pad hears its own buttons', Tips.text(0).includes('R2 fires') && Tips.text(0).includes('Cross jumps'), Tips.text(0));
+  Input.padStyle = savedStyle;
+  Input.device = 'kbm';
+  Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: -1 }] });
+  const soloTip = Tips.text(2);
+  Game.start({ mode: 'tdm', seed: 1, bots: [{ dummy: true, team: 1 }] });
+  check('tips: the ping tip mentions the team only in a team mode', !soloTip.includes('team') && soloTip.includes('scoreboard') && Tips.text(2).includes('your team'), soloTip);
+  Game.stop();
+  Input.device = 'touch';
+  const classes = economyPanelLines(CAT.economy.byId('classes')).lines.join(' ');
+  check('economy panel: classes name the loadout screen and its pause row, not a buy menu', !classes.includes('buy menu') && classes.includes('loadout screen') && classes.includes(LOADOUT_PAUSE_ENTRY.label), classes);
+  // A mode whose objective and scoring lines say nothing about how it is won carries its own goal line.
+  const vague = CAT.modes.filter((row) => (row.objective || 'none') === 'none' && !['kills', 'rounds'].includes(row.scoreBy || 'kills') && !MODE_GOAL_TEXT[row.id]).map((row) => row.id);
+  check('rules panel: every mode with no objective and special scoring has its own goal line', vague.length === 0, vague.join());
+  const goalOf = (mode) => modeGoalLines({ mode, objective: 'none', scoreBy: CAT.modes.byId(mode).scoreBy }).join(' ');
+  check('rules panel: Last Standing and Arms Ladder say how they are won', !goalOf('lms').includes('wave') && goalOf('gungame').includes('ladder'), goalOf('lms') + ' | ' + goalOf('gungame'));
   Input.device = 'kbm';
 })));
 
