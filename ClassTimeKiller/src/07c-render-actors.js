@@ -376,7 +376,7 @@ const ACTOR_CULL_HALF_WIDTH = 1.2, ACTOR_CULL_HEIGHT = 2.4;
 const actorPhase = new Float32Array(MAX_ACTORS);
 const actorPendingSeconds = new Float32Array(MAX_ACTORS);   // walk time not yet applied (low-rate far LOD)
 const actorStyle = { r: 1, g: 1, b: 1, emissive: 0, scale: 1, headScale: 1, visible: true };
-const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0 };
+const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0, recorded: false, speed: 0, height: STAND_HEIGHT, grounded: true, health: 1, shield: 0, champion: -1 };   // recorded: a killcam pose carries its own state (see pvePose)
 const tintColor = new Float32Array(4);   // r g b and the self-lit share of the part being emitted (partColor)
 // placeActorPart's result: the part centre (from the feet) and pitch, and the size factors it used (squash: crouched legs, grow: head scale).
 const rotated = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, squash: 1, grow: 1 };
@@ -406,7 +406,7 @@ function actorBaseColor(id) {
 function readActorStyle(id) {
   writeColor(tintColor, 0, actorBaseColor(id));
   actorStyle.r = tintColor[0]; actorStyle.g = tintColor[1]; actorStyle.b = tintColor[2];
-  actorStyle.emissive = 0; actorStyle.scale = 1; actorStyle.headScale = 1; actorStyle.visible = (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0;
+  actorStyle.emissive = 0; actorStyle.scale = 1; actorStyle.headScale = 1; actorStyle.visible = Render.replayPose !== null || (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) === 0;   // a replay hides by its recording
   Render.applyActorStyle(id, actorStyle);
   return actorStyle;
 }
@@ -419,6 +419,7 @@ function readActorPosition(id, alpha) {
   pose.z = lerp(Actors.prevZ[id], Actors.z[id], alpha);
   pose.yaw = lerpAngle(Actors.prevYaw[id], Actors.yaw[id], alpha);
   pose.pitch = lerp(Actors.prevPitch[id], Actors.pitch[id], alpha);
+  pose.recorded = false;
   return pose;
 }
 
@@ -429,17 +430,17 @@ function lodFor(distanceSquared, quality) {
 
 // Walk cycle from speed, crouch from height. The far LOD applies its walk time in steps; distant actors stand still.
 function animateActor(id, pose, seconds, lod) {
-  const speed = length2(Actors.vx[id], Actors.vz[id]);
+  const recorded = pose.recorded, speed = recorded ? pose.speed : length2(Actors.vx[id], Actors.vz[id]);
   actorPendingSeconds[id] = lod === LOD.distant ? 0 : actorPendingSeconds[id] + seconds;
   if (lod === LOD.near || (ActorFrame.count + id) % FAR_ANIMATION_STRIDE === 0) {
     actorPhase[id] = (actorPhase[id] + speed * actorPendingSeconds[id] * (Math.PI * 2 / WALK_CYCLE_METRES)) % (Math.PI * 2);
     actorPendingSeconds[id] = 0;
   }
-  const grounded = (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
+  const grounded = recorded ? pose.grounded : (Actors.flags[id] & ACTOR_FLAG.ON_GROUND) !== 0;
   const amount = lod === LOD.distant ? 0 : Math.min(1, speed / RUN_REFERENCE_SPEED);
   pose.swing = grounded ? Math.sin(actorPhase[id]) * amount * MAX_SWING : AIR_SWING;
   pose.lift = grounded ? Math.abs(Math.cos(actorPhase[id])) * amount * 0.05 : 0;
-  pose.drop = (1 - clamp(Actors.height[id] / STAND_HEIGHT, 0.3, 1)) * STAND_HEIGHT * CROUCH_UPPER_SHARE;
+  pose.drop = (1 - clamp((recorded ? pose.height : Actors.height[id]) / STAND_HEIGHT, 0.3, 1)) * STAND_HEIGHT * CROUCH_UPPER_SHARE;
   pose.legSquash = clamp((LEG_LENGTH - pose.drop) / LEG_LENGTH, 0.2, 1);
 }
 

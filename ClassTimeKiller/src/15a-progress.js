@@ -197,6 +197,8 @@ const Progress = {
     if (results.duration < PROGRESS_XP.minimumSeconds) return 'No XP: matches under ' + PROGRESS_XP.minimumSeconds + ' s pay none.';
     return this.tookPart(mine) ? '' : 'No XP: you did not take part.';
   },
+  // A match pays its fixed XP bonuses (ladder clear, operation stage, daily) only when it paid XP itself (no idle farming).
+  paidMatch(award) { return award.breakdown.total > 0; },
   // The one "took part" rule (XP, a side's win): score, objective points, a kill, an assist or damage dealt.
   tookPart(mine) { return mine.score > 0 || mine.objective > 0 || mine.kills > 0 || mine.assists > 0 || this.playerDamage() > 0; },
   // A win the player earns: their side won, and they took part or had no ally to win it for them (a solo level).

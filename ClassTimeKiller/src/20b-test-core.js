@@ -186,6 +186,9 @@ Test.add('core', (check) => {
   let newer = [];
   Test.expectErrors(() => { ErrorLog.add('test', 'one'); ErrorLog.add('test', 'two'); newer = ErrorLog.since(ErrorLog.total - 1); });
   check('errors: ErrorLog.since lists only the newer entries', newer.length === 1 && newer[0] === 'test: two', newer.join());
+  let repeated = [];
+  Test.expectErrors(() => { ErrorLog.add('t', 'old'); ErrorLog.add('t', 'same'); const mark = ErrorLog.total; ErrorLog.add('t', 'same'); ErrorLog.add('t', 'same'); repeated = ErrorLog.since(mark); });
+  check('errors: ErrorLog.since skips older entries when the newest repeats', repeated.length === 1 && repeated[0].startsWith('t: same'), repeated.join());
   // R-007: 'listener broke' above needs the message, which WebKit and Firefox stacks lack. R-164: repeats count on one entry.
   let flood = [];
   const added = Test.expectErrors(() => { ErrorLog.add('t', 'root'); for (let i = 0; i < 200; i++) ErrorLog.add('t', 'step'); flood = ErrorLog.entries.slice(-2); });

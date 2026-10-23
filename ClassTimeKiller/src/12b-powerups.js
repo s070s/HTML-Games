@@ -362,9 +362,11 @@ const Powerups = {
     out.g = lerp(out.g, POWERUP_RGB[offset + 1], POWERUP_TINT);
     out.b = lerp(out.b, POWERUP_RGB[offset + 2], POWERUP_TINT);
     out.emissive = Math.max(out.emissive, POWERUP_GLOW);
-    if (this.setInvisible[id]) out.visible = (Sim.time + id * 0.37) % GHOST_SHIMMER_PERIOD < GHOST_SHIMMER_SECONDS;
+    if (this.setInvisible[id] && Render.replayPose === null) out.visible = ghostShimmerVisible(Sim.time, id);   // a replay shimmers by its own clock (S17)
   },
 };
+// Ghostveil shows a short shimmer of the body; each carrier is offset in time.
+function ghostShimmerVisible(time, id) { return (time + id * 0.37) % GHOST_SHIMMER_PERIOD < GHOST_SHIMMER_SECONDS; }
 
 Items.takers[PICKUP_KIND.POWERUP] = (id, slot) => Powerups.give(id, CAT.powerups[Items.row[slot]], Items.timeLeft[slot]);
 Items.givers[PICKUP_KIND.POWERUP] = (id, key) => Powerups.give(id, CAT.powerups.byId(key), 0);
