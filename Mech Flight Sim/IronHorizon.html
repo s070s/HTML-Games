@@ -704,11 +704,13 @@ const DIFFICULTY = {
    coverCap cover instances per frame;
    fauna (Fauna): share of each group's animals placed, faunaDraw m within which animals are drawn (simple models past
    faunaLod), faunaCap animals drawn per frame, faunaSim animals placed (and simulated) in all;
-   maxPx caps the rendered pixels (tablets and phones with a high pixel ratio), so fill rate fits Low and Medium */
+   maxPx caps the rendered pixels (tablets and phones with a high pixel ratio), so fill rate fits Low and Medium;
+   fxFar m from the camera past which blasts, splashes and ships' wakes emit a lighter set of particles (fxFar), fleet
+   most enemy ships in a skirmish's fleet: one of each of its size's types, the first fleet of them (SKIRMISH_FLEET) */
 const QUALITY = {
-  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraVerts: 75000, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, fauna: 0.5, faunaDraw: 260, faunaLod: 70, faunaCap: 32, faunaSim: 48, maxPx: 800000 },
-  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraVerts: 115000, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, fauna: 0.75, faunaDraw: 380, faunaLod: 110, faunaCap: 64, faunaSim: 96, maxPx: 1600000 },
-  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraVerts: 140000, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000, fauna: 1, faunaDraw: 520, faunaLod: 150, faunaCap: 100, faunaSim: 150 },
+  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraVerts: 75000, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, fauna: 0.5, faunaDraw: 260, faunaLod: 70, faunaCap: 32, faunaSim: 48, maxPx: 800000, fxFar: 260, fleet: 1 },
+  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraVerts: 115000, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, fauna: 0.75, faunaDraw: 380, faunaLod: 110, faunaCap: 64, faunaSim: 96, maxPx: 1600000, fxFar: 380, fleet: 2 },
+  high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraVerts: 140000, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000, fauna: 1, faunaDraw: 520, faunaLod: 150, faunaCap: 100, faunaSim: 150, fxFar: 500, fleet: 3 },
 };
 
 /* ---------- maps (battlefields) ---------- */
@@ -3499,7 +3501,7 @@ const Water = {
   splash(x, z, size, sound) {
     const y = this.level(x, z);
     if (y === -Infinity) return;
-    const n = clamp(Math.round(size * 3), 3, 18), up = 3 + Math.sqrt(size) * 3;
+    const n = fxFar(x, y, z) ? 3 : clamp(Math.round(size * 3), 3, 18), up = 3 + Math.sqrt(size) * 3;
     for (let i = 0; i < n; i++) {
       const a = Math.random() * TAU, s = rand(0.2, 1) * size;
       FX.emit(x + Math.cos(a) * size * 0.3, y + 0.1, z + Math.sin(a) * size * 0.3, Math.cos(a) * s, up * rand(0.6, 1.3), Math.sin(a) * s, rand(0.6, 1.2), 0.4 + size * 0.3, 0.8 + size * 0.8, 0.85, 0.92, 0.95, 0.8, 1.2, 16, false);
@@ -3922,6 +3924,12 @@ function groundBlocked(x, z, r, y, h) {
 }
 
 /* ---------- visual effects helpers ---------- */
+/* true when (x, y, z) is farther from the camera than the quality's fxFar: effects there emit a lighter set of particles,
+   which would show as a few pixels and still fill the particle budget */
+function fxFar(x, y, z) {
+  const f = (QUALITY[S.quality] || QUALITY.medium).fxFar, c = W.camPos, dx = x - c.x, dy = y - c.y, dz = z - c.z;
+  return dx * dx + dy * dy + dz * dz > f * f;
+}
 function fxSparks(x, y, z, n, col, speed) {
   for (let i = 0; i < n; i++) {
     const a = Math.random() * TAU, e = Math.random() * 1.3 - 0.1, s = speed * (0.4 + Math.random() * 0.8);
@@ -4327,16 +4335,17 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
   const gh = Terrain.h(x, z), wl = Water.level(x, z);
   const wet = !opts.excludeStruct && wl - gh > WATER_SPLASH_MIN && y - wl < WATER_SPLASH_REACH && Water.deckTop(x, z, y) < wl;
   if (wet) { damage *= WATER_SPLASH_MULT; Water.splash(x, z, radius, true); }
-  // visuals
+  // visuals (far from the camera, a lighter set: fxFar)
+  const lite = fxFar(x, y, z);
   FX.emit(x, y, z, 0, 0, 0, 0.16, radius * 2.6, radius * 3.4, 1, 0.9, 0.6, 0.95, 0, 0, true);
-  const nf = clamp(Math.floor(radius * 2.2), 4, 22);
+  const nf = lite ? 3 : clamp(Math.floor(radius * 2.2), 4, 22);
   for (let i = 0; i < nf; i++) {
     const a = Math.random() * TAU, e = Math.random() * 1.2 - 0.2, s = radius * rand(0.6, 2);
     FX.emit(x, y, z, Math.cos(a) * Math.cos(e) * s, Math.sin(e) * s + 2, Math.sin(a) * Math.cos(e) * s, rand(0.35, 0.85), radius * 0.9, radius * 0.3, 1, rand(0.4, 0.75), 0.15, 0.85, 1.8, -2, true);
   }
-  fxSmokePuff(x, y + radius * 0.3, z, radius * 0.9, clamp(Math.floor(radius * 0.9), 2, 9));
-  fxSparks(x, y, z, clamp(Math.floor(radius * 2.5), 6, 24), [1, 0.85, 0.45], radius * 3.5);
-  if (radius >= 3) W.rings.push({ x, y, z, r: 0.5, maxR: radius * 1.3, life: 0.35, maxLife: 0.35 });
+  fxSmokePuff(x, y + radius * 0.3, z, radius * 0.9, lite ? 1 : clamp(Math.floor(radius * 0.9), 2, 9));
+  fxSparks(x, y, z, lite ? 4 : clamp(Math.floor(radius * 2.5), 6, 24), [1, 0.85, 0.45], radius * 3.5);
+  if (radius >= 3 && !lite) W.rings.push({ x, y, z, r: 0.5, maxR: radius * 1.3, life: 0.35, maxLife: 0.35 });
   addLight(x, y + 2, z, clamp(radius * 9, 30, 150), 1, 0.65, 0.3, big ? 0.55 : 0.35);
   if (radius >= 3 && y - gh < radius * 0.8 && !wet) {
     addDecal(x, z, radius * 0.8, undefined, 40);
@@ -8970,7 +8979,8 @@ const Naval = {
   },
   /* white water behind a moving hull and along its bow */
   wakeFx(p, dt) {
-    if (Math.random() > dt * (8 + p.speed * 0.6)) return;
+    // fewer on lower qualities (their particle budget's share), none far from the camera (fxFar)
+    if (Math.random() > dt * (8 + p.speed * 0.6) * FX.budget / QUALITY.high.particles || fxFar(p.x, p.y, p.z)) return;
     const fx = Math.sin(p.yaw), fz = Math.cos(p.yaw), level = Water.level(p.x, p.z), side = Math.random() < 0.5 ? -1 : 1, r = p.radius;
     FX.emit(p.x - fx * r * 0.9 + fz * side * r * 0.25, level + 0.15, p.z - fz * r * 0.9 - fx * side * r * 0.25, -fx * 2 + rand(-1, 1), rand(0.4, 1.4), -fz * 2 + rand(-1, 1), rand(1, 1.8), 0.9 + r * 0.12, 1.8 + r * 0.25, 0.86, 0.92, 0.95, 0.65, 1.4, 0, false);
     FX.emit(p.x + fx * r * 0.8 + fz * side * r * 0.35, level + 0.2, p.z + fz * r * 0.8 - fx * side * r * 0.35, fz * side * 3, rand(1, 2.5), -fx * side * 3, 0.6, 0.6, 1.4, 0.9, 0.95, 0.97, 0.7, 2, 0, false);
@@ -18788,7 +18798,7 @@ function skirmishDef(cfg) {
       ctx.later(() => parkApronAircraft());
       // the fleet keeps to its patrol lanes and is not a wave: the battle is won without hunting every ship down
       // and starts NAVAL_FLEET_GAP from the player's base, start and harbour, or not at all
-      if (Naval.mapOk(mapDef(cfg.map))) ctx.later(() => spawnGroup(SKIRMISH_FLEET[cfg.size] || SKIRMISH_FLEET.small, foe.x, foe.z, { radius: 40, keepOff: W.player ? [own, start, W.player] : [own, start] }));
+      if (Naval.mapOk(mapDef(cfg.map))) ctx.later(() => spawnGroup((SKIRMISH_FLEET[cfg.size] || SKIRMISH_FLEET.small).slice(0, (QUALITY[S.quality] || QUALITY.medium).fleet), foe.x, foe.z, { radius: 40, exact: true, keepOff: W.player ? [own, start, W.player] : [own, start] }));
       ctx.later(() => {
         const k = SKIRMISH_ARTY_BACK / Math.max(1, Math.hypot(foe.x - own.x, foe.z - own.z));
         spawnGroup(SKIRMISH_ARTY[cfg.size] || SKIRMISH_ARTY.small, foe.x + (foe.x - own.x) * k, foe.z + (foe.z - own.z) * k, { radius: 45 }).forEach((u) => { u.garrison = true; });
@@ -24872,7 +24882,7 @@ const SelfTest = {
         const again = Naval.harbour(PLATFORMS.trident, start);
         this.check('the harbour is the same for the same battlefield (deterministic)', !!again && Naval.harbour(PLATFORMS.trident, start).x === again.x && Naval.harbour(PLATFORMS.trident, start).z === again.z);
         const fleet = W.platforms.filter((q) => q.team === 1 && q.kind === 'naval');
-        this.check('an enemy fleet patrols the water of a battlefield with open water', fleet.length >= SKIRMISH_FLEET.large.length && fleet.every((q) => Naval.navigable(q.x, q.z, q.def.naval.amphibious ? 1 : q.def.naval.draft) && q.ai), fleet.length);
+        this.check('an enemy fleet patrols the water of a battlefield with open water', fleet.length === Math.min(SKIRMISH_FLEET.large.length, (QUALITY[S.quality] || QUALITY.medium).fleet) && fleet.every((q) => Naval.navigable(q.x, q.z, q.def.naval.amphibious ? 1 : q.def.naval.draft) && q.ai), fleet.length);
         // every kind, ships included, on land and on water through a few seconds of every system (AI, physics, weapons, drawing)
         const seen = new Set();
         for (const k in ARCH) {
@@ -25074,6 +25084,21 @@ const SelfTest = {
         run(pl, 0.2);
         this.check('a ship stopped at its harbour is resupplied, as at a pad (Use works there too)', W.harbours.length === 1 && padInRange(pl) === harbour && w.clip === w.def.clip && W.resupplies === charges - 1, w.clip + ' ' + W.resupplies);
         Cam.update(STEP); Game.render(STEP);
+        // effects far from the camera are lighter (QUALITY fxFar), and a Low quality fleet is one ship
+        const cam = W.camPos;
+        FX.clear(); explode(cam.x + 6, cam.y, cam.z + 6, 8, 0, 'explosive', null);
+        const nearFx = FX.n;
+        FX.clear(); explode(cam.x + 900, cam.y, cam.z, 8, 0, 'explosive', null);
+        const farFx = FX.n;
+        FX.clear();
+        this.check('a blast far from the camera emits a lighter set of particles (QUALITY fxFar)', farFx > 0 && farFx * 3 < nearFx, farFx + ' vs ' + nearFx);
+        const keepQ = S.quality;
+        S.quality = 'low';
+        try {
+          Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'coast', size: 'large', seed: 7, random: false, support: 'none' }) });
+        } finally { S.quality = keepQ; }
+        const lowFleet = W.platforms.filter((q) => q.team === 1 && q.kind === 'naval');
+        this.check('a skirmish fleet has QUALITY fleet ships at most, one of each type (Low: a gunboat)', lowFleet.length === QUALITY.low.fleet && lowFleet[0].arch === SKIRMISH_FLEET.large[0], lowFleet.map((q) => q.arch).join());
         this.check('the naval hull checks run without errors', errs.length === 0, errs.slice(0, 2).join(' | '));
       } finally { Game.reportError = keepRep; Water.setFlood(0, 0, 0, -Infinity); Game.quitToMenu(); }
     });
