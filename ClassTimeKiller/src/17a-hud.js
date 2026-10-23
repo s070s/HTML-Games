@@ -27,6 +27,13 @@ const HUD_MAX_ABILITY_SLOTS = 4;
 const HUD_MAX_POWERUP_CHIPS = 4;
 const HUD_MAX_WEAPON_SLOTS = 9;
 const HUD_BAR_GAP = 4, HUD_BAR_WIDTH = 50, HUD_BAR_TOUCH_WIDTH = 42, HUD_BAR_TOUCH_HEIGHT = 34;   // design pixels (phones: boxes sized for a thumb)
+const HUD_GADGET_RISE = 18;                              // design pixels: on touch the gadget rings sit this far over the weapon bar
+const HUD_POWERUP_ROW = 22, HUD_POWERUP_HALF = 9;        // design pixels: powerup chips one above another, half a chip high
+const HUD_MONEY_HALF = 15, HUD_MONEY_TIMER_RISE = 12;    // design pixels: half the money panel; on touch the buy timer sits over it
+const HUD_GADGET_INSET = 14, HUD_GADGET_STEP = 74;       // design pixels: the first gadget ring's centre from the ammo panel's right edge; ring to ring
+const HUD_GADGET_COUNT_GAP = 22, HUD_GADGET_COUNT_WIDTH = 20;   // design pixels: a ring's centre to its count's right end; a count ("x2") wide
+const HUD_FIT_GAP = 4;                                   // design pixels the auto-fit keeps between two phone panels
+const HUD_FIT_WEAPON_SLOTS = 4, HUD_FIT_GADGET_SLOTS = 3;   // the auto-fit keeps room for this weapon bar and gadget row (gadget, grenade, consumables)
 const HUD_MONEY_ECONOMIES = ['roundBuy', 'waveShop'];    // rulesets whose economy is money based (others show money only when non-zero)
 const HUD_TEAM_SHAPES = ['circle', 'triangle', 'square', 'diamond'];
 const HUD_FREE_FOR_ALL_COLOR = 0xdde3ea;
@@ -72,7 +79,7 @@ const HUD_ELEMENTS = [
 
 const HUD_SETTINGS = [
   { key: 'hud.show', fallback: true, label: 'Show HUD', category: 'hud' },
-  { key: 'hud.scale', fallback: 100, label: 'HUD scale (%)', category: 'hud', min: HUD_SCALE_MIN, max: HUD_SCALE_MAX, step: 5 },
+  { key: 'hud.scale', fallback: 100, label: 'HUD scale (%; small touch screens fit it, portrait 100%)', category: 'hud', min: HUD_SCALE_MIN, max: HUD_SCALE_MAX, step: 5 },
   { key: 'hud.opacity', fallback: 100, label: 'HUD opacity (%)', category: 'hud', min: HUD_OPACITY_MIN, max: 100, step: 5 },
   { key: 'hud.compact', fallback: 'auto', label: 'Compact HUD (phones)', category: 'hud', options: ['auto', 'on', 'off'], optionLabels: ['Auto', 'On', 'Off'] },
   { key: 'hud.teamShapes', fallback: true, label: 'Team shapes next to team colours', category: 'accessibility' },
@@ -140,8 +147,11 @@ const Hud = {
   frameSeconds: 0,                  // length of the last frame (the killcam clock follows it)
   insets: { top: 0, right: 0, bottom: 0, left: 0 },
   colors: { good: HUD_COLOR.good, bad: HUD_COLOR.bad, health: HUD_COLOR.health, healthLow: HUD_COLOR.healthLow, teams: CAT.teamColors.map((row) => colorNumber(row.color)) },
-  layout: { width: 1, height: 1, unit: 1, margin: HUD_MARGIN, left: 0, right: 0, top: 0, bottom: 0, centerX: 0, centerY: 0, compact: false, touch: false, phone: false,
+  layout: { width: 1, height: 1, unit: 1, margin: HUD_MARGIN, left: 0, right: 0, top: 0, bottom: 0, centerX: 0, centerY: 0, compact: false, touch: false, phone: false, textFloor: HUD_TEXT_SMALL,
     barWidth: 0, barHeight: 0, barGap: 0, vitalsHeight: 0, ammoRight: 0, ammoHeight: 0, abilityY: 0, powerupY: 0, gadgetY: 0, moneyY: 0, weaponBarY: 0 },
+  // Design sizes of the top row the auto-fit keeps apart (updateHudLayout), filled by their sections: the minimap width (17f),
+  // the score panel's half width and its lowest row, and a kill feed row (17c).
+  fit: { topLeft: 0, topCentre: 0, topDepth: 0, topRight: 0 },
   drawers: { back: [], world: [], main: [], front: [] },
   stats: { quads: 0 },
   crosshairOverride: null,          // fn(weaponRow, out): per-weapon crosshair fields (17b fills it)
@@ -188,7 +198,6 @@ const Hud = {
   applySettings() {
     this.shown = Settings.get('hud.show');
     this.scale = Settings.get('hud.scale') / 100;
-    this.textFloor = HUD_TEXT_SMALL * this.scale;
     this.opacity = Settings.get('hud.opacity') / 100;
     HudBatch.alphaScale = this.opacity;   // applied once per drawing call in setHudPaint (07f)
     this.compactSetting = Settings.get('hud.compact');
@@ -199,6 +208,7 @@ const Hud = {
     this.noHud = !!(Game.match && Game.match.rules && Game.match.rules.fx && Game.match.rules.fx.noHud);
     for (const row of HUD_ELEMENTS) this.elements[row.id] = Settings.get('hud.element.' + row.id);
     this.refreshColors();
+    updateHudLayout(this.layout, window.innerWidth, window.innerHeight);   // the (fitted) scale and its text floor (Hud.textFloor)
     TouchInput.applyAll();   // the HUD scale sizes the score panel the touch buttons give way to
   },
   refreshColors() {
@@ -249,15 +259,45 @@ function hudReadSafeInsets() {
   insets.top = parseFloat(style.paddingTop) || 0; insets.right = parseFloat(style.paddingRight) || 0;
   insets.bottom = parseFloat(style.paddingBottom) || 0; insets.left = parseFloat(style.paddingLeft) || 0;
   probe.remove();
+  updateHudLayout(Hud.layout, window.innerWidth, window.innerHeight);   // the insets change the fitted scale
   TouchInput.applyAll();   // a turn or a resize moves the touch buttons and the HUD areas they give way to
 }
 
+// Auto-fit (touch): a HUD scale the screen cannot hold is lowered as far as the panels need, never under 100% (the base unit:
+// ACC-008's 14 px floor follows the fitted scale, layout.textFloor). The pen reads Hud.textFloor, set by the frame's layout.
 function updateHudLayout(layout, width, height) {
-  const insets = Hud.insets, touch = Input.device === 'touch';
+  const touch = Input.device === 'touch';
   layout.width = width; layout.height = height; layout.touch = touch;
   layout.phone = touch && Math.min(width, height) < HUD_PHONE_SIDE;   // phones: one line of banner or chat on the panel, ability rings only
   layout.compact = Hud.compactSetting === 'on' || (Hud.compactSetting === 'auto' && (touch || height < HUD_COMPACT_HEIGHT));
-  const unit = clamp(Math.min(width / HUD_DESIGN_WIDTH, height / HUD_DESIGN_HEIGHT), HUD_UNIT_MIN, HUD_UNIT_MAX) * Hud.scale;
+  const base = clamp(Math.min(width / HUD_DESIGN_WIDTH, height / HUD_DESIGN_HEIGHT), HUD_UNIT_MIN, HUD_UNIT_MAX);
+  hudPlaceStacks(layout, base * Hud.scale);
+  const fitted = touch ? Math.max(base, hudFitUnit(layout)) : Infinity;
+  if (fitted < layout.unit) hudPlaceStacks(layout, fitted);
+  layout.textFloor = HUD_TEXT_SMALL * layout.unit / base;
+  if (layout === Hud.layout) Hud.textFloor = layout.textFloor;
+}
+// The largest unit at which the phone panels keep HUD_FIT_GAP apart. Every extent is a design size times the unit, so each
+// limit is a free length over a design length (closed form): the top row across (minimap, score panel, kill feed: Hud.fit),
+// the top row over the taller bottom stack (4 powerups on the left, the money and its timer in the centre), and with the
+// right-handed buttons the left column (vitals, abilities, powerups) beside the centre column (ammo, money, a 4-weapon bar and a
+// 3-slot gadget row whichever reaches further, so picking up a weapon or a consumable never changes the scale).
+function hudFitUnit(layout) {
+  const insets = Hud.insets, fit = Hud.fit, unit = layout.unit, half = layout.width / 2, gap = HUD_FIT_GAP;
+  const leftStack = (layout.bottom - layout.powerupY) / unit + (HUD_MAX_POWERUP_CHIPS - 1) * HUD_POWERUP_ROW + HUD_POWERUP_HALF;
+  const centreStack = (layout.bottom - layout.moneyY) / unit + HUD_MONEY_HALF + HUD_MONEY_TIMER_RISE + HUD_TEXT_SMALL / 2;
+  const down = 2 * HUD_MARGIN + Math.max(fit.topLeft, fit.topDepth) + gap + Math.max(leftStack, centreStack);
+  const limit = Math.min((half - insets.left) / (HUD_MARGIN + fit.topLeft + gap + fit.topCentre), (half - insets.right) / (fit.topCentre + gap + fit.topRight + HUD_MARGIN),
+    (layout.height - insets.top - insets.bottom) / down);
+  if (TouchInput.preset().mirror) return limit;
+  const ammo = layout.ammoWidth / unit, bar = (HUD_FIT_WEAPON_SLOTS * (HUD_BAR_TOUCH_WIDTH + HUD_BAR_GAP) - HUD_BAR_GAP) / 2;
+  const gadgets = HUD_GADGET_INSET + (HUD_FIT_GADGET_SLOTS - 1) * HUD_GADGET_STEP + HUD_GADGET_COUNT_GAP + HUD_GADGET_COUNT_WIDTH;
+  const across = (layout.left - insets.left + layout.barWidth) / unit + gap + (half - layout.ammoRight) / unit + Math.max(ammo, ammo / 2 + bar, gadgets);
+  return Math.min(limit, (half - insets.left) / across);
+}
+// The anchors of the stacks around the screen at a unit.
+function hudPlaceStacks(layout, unit) {
+  const insets = Hud.insets, touch = layout.touch, width = layout.width, height = layout.height;
   const margin = HUD_MARGIN * unit, compact = layout.compact;
   layout.unit = unit; layout.margin = margin;
   layout.left = insets.left + margin; layout.right = width - insets.right - margin;
@@ -271,9 +311,9 @@ function updateHudLayout(layout, width, height) {
   layout.ammoWidth = (compact ? 132 : 176) * unit; layout.ammoHeight = (compact ? 58 : 66) * unit;
   const centreGap = 6 * unit;
   layout.ammoRight = !touch ? layout.right : TouchInput.preset().mirror ? width * 0.5 + centreGap + layout.ammoWidth : width * 0.5 - centreGap;
-  layout.gadgetY = layout.bottom - (compact ? 56 : 84) * unit;
-  layout.moneyY = layout.gadgetY - (touch ? 34 + HUD_BAR_TOUCH_HEIGHT + HUD_BAR_GAP : 34) * unit;   // phones: above the weapon bar
   layout.weaponBarY = touch ? layout.bottom - layout.ammoHeight - HUD_BAR_GAP * unit : layout.bottom - 12 * unit;   // phones: the bar sits on the ammo panel
+  layout.gadgetY = touch ? layout.weaponBarY - (HUD_BAR_TOUCH_HEIGHT + HUD_GADGET_RISE) * unit : layout.bottom - (compact ? 56 : 84) * unit;   // phones: over the bar
+  layout.moneyY = layout.gadgetY - 34 * unit;
 }
 
 // World point -> screen pixels with the render camera (same maths as the renderer: Hor+ FOV at 16:9, yaw/pitch, no roll).
@@ -689,10 +729,10 @@ function hudDrawGadgets(pen, layout) {
 }
 // Fills the scratch arrays for gadget slot `slot`: its ring, its icon (`iconSize` units wide) and its count to the left.
 function hudPlaceGadgetSlot(layout, slot, iconSize) {
-  const unit = layout.unit, x = layout.ammoRight - (14 + slot * 74) * unit, y = layout.gadgetY;
+  const unit = layout.unit, x = layout.ammoRight - (HUD_GADGET_INSET + slot * HUD_GADGET_STEP) * unit, y = layout.gadgetY;
   hudRingAt[0] = x; hudRingAt[1] = y; hudRingAt[2] = 14 * unit; hudRingAt[3] = 3 * unit;
   hudShapeAt[0] = x; hudShapeAt[1] = y; hudShapeAt[2] = iconSize * unit / 2;
-  hudTextAt[0] = x - 22 * unit; hudTextAt[1] = y; hudTextAt[2] = 15 * unit;
+  hudTextAt[0] = x - HUD_GADGET_COUNT_GAP * unit; hudTextAt[1] = y; hudTextAt[2] = 15 * unit;
 }
 // Carried loot consumables (I13..I17) with the heal key; a ring fills while one is in use.
 function hudDrawConsumables(pen, layout, slot) {
@@ -751,7 +791,7 @@ function hudDrawMoney(pen, layout) {
   const state = Economy.hudState(Game.playerId, hudMoneyState), rules = Game.match.rules;
   const usesMoney = !!rules && HUD_MONEY_ECONOMIES.includes(rules.economy);
   if (!usesMoney && state.money <= 0 && state.nextRoundMoney <= 0 && !state.canBuy) return;
-  const unit = layout.unit, right = layout.ammoRight, width = 150 * unit, height = 30 * unit, left = right - width, top = layout.moneyY - height / 2;
+  const unit = layout.unit, right = layout.ammoRight, width = layout.touch ? layout.ammoWidth : 150 * unit, height = HUD_MONEY_HALF * 2 * unit, left = right - width, top = layout.moneyY - height / 2;
   const box = hudBoxAt, text = hudTextAt;   // the pen's scratch forms: no float arguments (PERF-006)
   box[0] = left; box[1] = top; box[2] = width; box[3] = height;
   pen.panelAt();
@@ -759,8 +799,9 @@ function hudDrawMoney(pen, layout) {
   pen.textAt('$', HUD_COLOR.gold, 'left');
   text[0] = right - 8 * unit;
   pen.textAt(hudNumber(state.money), HUD_COLOR.text, 'right');
-  text[0] = left - 8 * unit; text[2] = 16 * unit;
-  if (state.canBuy) pen.textAt(hudTime(state.buyTimeLeft), HUD_COLOR.warn, 'right');
+  text[0] = layout.touch ? left + width / 2 : left - 8 * unit; text[2] = 16 * unit;   // phones: over the panel (the left column is beside it)
+  if (layout.touch) text[1] = top - HUD_MONEY_TIMER_RISE * unit;
+  if (state.canBuy) pen.textAt(hudTime(state.buyTimeLeft), HUD_COLOR.warn, layout.touch ? 'center' : 'right');
 }
 
 const hudPowerups = [];
@@ -769,9 +810,9 @@ function hudDrawPowerups(pen, layout) {
   const count = Math.min(Items.activePowerups(Game.playerId, hudPowerups), HUD_MAX_POWERUP_CHIPS), unit = layout.unit;
   const box = hudBoxAt, shape = hudShapeAt, text = hudTextAt;   // the pen's scratch forms: no float arguments (PERF-006)
   for (let i = 0; i < count; i++) {
-    const powerup = hudPowerups[i], y = layout.powerupY - i * 22 * unit, x = layout.left;
+    const powerup = hudPowerups[i], y = layout.powerupY - i * HUD_POWERUP_ROW * unit, x = layout.left;
     const color = colorNumber(powerup.color || HUD_COLOR.gold), share = powerup.remaining / Math.max(powerup.duration, 0.001);
-    box[0] = x; box[1] = y - 9 * unit; box[2] = 150 * unit; box[3] = 18 * unit;
+    box[0] = x; box[1] = y - HUD_POWERUP_HALF * unit; box[2] = 150 * unit; box[3] = HUD_POWERUP_HALF * 2 * unit;
     pen.panelAt(0.5);
     shape[0] = x + 9 * unit; shape[1] = y; shape[2] = 9 * unit / 2;
     pen.shapeAt('square', color);

@@ -399,6 +399,9 @@ TouchInput.keepClear.push((width, height) => {
   const size = (layout.compact ? HUD_MAP_SIZE_COMPACT : HUD_MAP_SIZE) * layout.unit;
   if (Hud.elements.minimap) TouchInput.addClear(layout.left, layout.top, layout.left + size, layout.top + size);
 });
+// The phone auto-fit (17a) keeps the score panel and the left stack off the minimap. No phone binds on it today (the score panel
+// and the stacks bind first); it stays as a safeguard for a larger minimap or a narrower screen.
+Hud.fit.topLeft = HUD_MAP_SIZE_COMPACT;
 Hud.register('main', 'compass', 'compass', hudDrawCompass);
 Hud.register('world', 'awareness', 'awareness', hudDrawAwareness);
 Hud.register('main', 'barks', 'barks', hudDrawBarks);

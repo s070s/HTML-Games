@@ -288,6 +288,31 @@ Test.add('hudui', (check) => {
 // ---- Phones: the comm wheel (17g) stays on screen and clear of every default touch button, in both hand layouts ----
 const HUD_UI_PHONES = [[844, 390], [667, 375], [568, 320]];
 const HUD_UI_WHEEL_MIN_SHARE = 0.44;   // of the design radius: the smallest phone with its 14 px labels leaves the ring 0.447
+const HUD_UI_ALL_NEEDS = new Proxy({}, { get: () => () => true });   // TouchInput.needs with every need met: each button shown
+// touch-01 at the extreme: every button shown (each need met, the left FIRE on) at layout scale 2 and HUD 150 on every screen,
+// the landscape ones with a notch too: none on another.
+Test.add('hudui', (check) => hudTestWith(() => {
+  const needs = TouchInput.needs, leftFire = Input.config.touchLeftFire, savedPreset = TouchInput.currentPreset, savedLayouts = Save.data.touchLayouts, problems = [], places = TouchInput.places;
+  try {
+    TouchInput.needs = HUD_UI_ALL_NEEDS;
+    Save.data.touchLayouts = Object.fromEntries(TOUCH_PRESETS.map((preset) => [preset.id, hudUiGrown()]));
+    Input.config.touchLeftFire = true; Input.device = 'touch'; Hud.scale = 1.5;
+    for (const notch of [0, 47]) for (const preset of TOUCH_PRESETS) for (const [width, height] of HUD_UI_SCREENS) {
+      if (notch && width < height) continue;
+      Hud.insets.left = Hud.insets.right = notch; Hud.insets.bottom = notch / 2; TouchInput.currentPreset = preset;
+      TouchInput.placeAll(width, height);
+      const shown = TOUCH_CONTROLS.map((control) => control.id).filter((id) => places[id].shown);
+      const pair = shown.find((a) => shown.some((b) => a !== b && length2(places[a].x - places[b].x, places[a].y - places[b].y) < places[a].radius + places[b].radius - 0.01));
+      if (pair) problems.push([notch, preset.id, width, height, pair].join(' '));
+    }
+  } finally {
+    TouchInput.needs = needs; Input.config.touchLeftFire = leftFire; Save.data.touchLayouts = savedLayouts; TouchInput.currentPreset = savedPreset;
+    Hud.insets.left = Hud.insets.right = Hud.insets.bottom = 0;
+  }
+  check('touch-01: every button shown at layout scale 2 and HUD 150, notch or none: none on another', problems.length === 0, problems.slice(0, 3).join('; '));
+}));
+// Every control at layout scale 2 (the editor's largest).
+function hudUiGrown() { return Object.fromEntries(TOUCH_CONTROLS.map((control) => [control.id, { scale: TOUCH_SCALE_MAX }])); }
 // The first callout under a touch button or past a screen edge (its icon at the picked size, the largest), or ''.
 function hudUiWheelProblem(layout) {
   TouchInput.placeAll(layout.width, layout.height);   // the ring reads the buttons' places
@@ -304,21 +329,28 @@ function hudUiWheelProblem(layout) {
   }
   return '';
 }
+// The default places, every button at layout scale 2, the left FIRE on, every need met (there a callout may stay under a button
+// rather than shrink the ring under its floor).
+const HUD_UI_WHEEL_CASES = ['', ', buttons at scale 2', ', left FIRE on', ', every need met'];
 Test.add('hudui', (check) => {
-  const layout = {}, savedDevice = Input.device, savedPreset = TouchInput.currentPreset;
+  const layout = {}, savedDevice = Input.device, savedPreset = TouchInput.currentPreset, savedLayouts = Save.data.touchLayouts, needs = TouchInput.needs, leftFire = Input.config.touchLeftFire;
   try {
     for (const preset of [TOUCH_PRESETS[0], TOUCH_PRESETS[2]]) {
       TouchInput.currentPreset = preset;
-      for (const phone of HUD_UI_PHONES) {
+      for (const phone of HUD_UI_PHONES) HUD_UI_WHEEL_CASES.forEach((name, kind) => {
+        Save.data.touchLayouts = kind === 1 ? { [preset.id]: hudUiGrown() } : {};
+        Input.config.touchLeftFire = kind === 2; TouchInput.needs = kind === 3 ? HUD_UI_ALL_NEEDS : needs;
         Input.device = 'touch';
         updateHudLayout(layout, phone[0], phone[1]);
         Input.device = savedDevice;
-        const problem = hudUiWheelProblem(layout), radius = commWheelRing.radius;
-        check('comm wheel on a phone (' + preset.id + ' ' + phone.join('x') + '): every callout on screen, none under a touch button',
-          problem === '' && radius >= COMM_WHEEL_RADIUS * layout.unit * HUD_UI_WHEEL_MIN_SHARE, problem + ' ' + radius);
-      }
+        const problem = hudUiWheelProblem(layout), share = commWheelRing.radius / (COMM_WHEEL_RADIUS * layout.unit);
+        check('comm wheel on a phone (' + preset.id + ' ' + phone.join('x') + name + '): every callout on screen, ' + (kind === 3 ? 'the ring at its floor or more' : 'none under a touch button'),
+          share >= (kind ? COMM_WHEEL_MIN_SHARE : HUD_UI_WHEEL_MIN_SHARE) - 1e-9 && (kind === 3 ? !problem.endsWith('off screen') : problem === ''), problem + ' ' + share);
+      });
     }
-  } finally { TouchInput.currentPreset = savedPreset; Input.device = savedDevice; }
+  } finally {
+    TouchInput.currentPreset = savedPreset; Input.device = savedDevice; Save.data.touchLayouts = savedLayouts; TouchInput.needs = needs; Input.config.touchLeftFire = leftFire;
+  }
   Input.device = 'kbm';
   updateHudLayout(layout, 1280, 800);
   Input.device = savedDevice;
@@ -391,8 +423,11 @@ Test.add('hudui', (check) => {
 // 1. no shown touch button on another; 2. none in the aim zone around the crosshair (TOUCH_AIM_ZONE of the short side);
 // each at least TOUCH_MIN_DIAMETER across (or its full size when that is smaller) and on its layout spot's half of the screen;
 // 3. the banners are drawn, clear of the buttons when a free place exists, and a moved stack stays out of the aim zone;
-// 4. no button over a quad the header (score panel, round pips, control meters, objective chips) or the killcam panel draws ----
-const HUD_UI_SCREENS = [[568, 320], [750, 342], [320, 568], [390, 664], [1080, 810], [810, 1080]];   // iPhone SE and 13 both ways, iPad
+// 4. no button over a quad the header (score panel, round pips, control meters, objective chips) or the killcam panel draws;
+// 5. landscape (auto-fit, 17a): no panel of a full kit (four weapons, three abilities, grenade, gadget and consumables, money in
+// the buy time, two powerups, kill feed rows with long names)
+// meets another, text 14 px or more ----
+const HUD_UI_SCREENS = [[568, 320], [667, 375], [750, 342], [320, 568], [390, 664], [1080, 810], [810, 1080]];   // iPhone SE, 8 and 13 landscape, SE and 13 portrait, iPad
 const HUD_UI_MODES = ['ffa', 'elim', 'bomb', 'dom', 'control', 'operation'];   // panel only, pips, pips + chips, chips, pips + meters + chips, tickets (tdm)
 const HUD_UI_BANNERS = ['Rook Varga takes the lead', 'Double Kill'];
 const HUD_UI_BANNER_GLYPHS = HUD_UI_BANNERS.join('').replace(/ /g, '').length + 2;   // the letters and the medal's two stars
@@ -438,15 +473,25 @@ function hudUiTouchBreak(fixed, banners, width, height, layout) {
 function hudUiDrawPanels(layout) {
   for (const draw of [hudDrawHeader, hudDrawTickets, hudDrawMinimap, hudDrawVitals, hudDrawAmmo, hudDrawWeaponBar]) draw(HudPen, layout);
 }
+const HUD_UI_KIT_PANELS = [hudDrawHeader, hudDrawKillFeed, hudDrawMinimap, hudDrawVitals, hudDrawAmmo, hudDrawWeaponBar, hudDrawGadgets, hudDrawAbilities, hudDrawMoney, hudDrawPowerups];
+// What breaks rule 5, or the empty string.
+function hudUiPanelsMeet(layout) {
+  const boxes = HUD_UI_KIT_PANELS.map((draw) => { HudBatch.quads = 0; draw(HudPen, layout); return hudUiDrawnBoxes(0); });
+  const meet = (p, q) => Math.min(p[2], q[2]) - Math.max(p[0], q[0]) > 0.5 && Math.min(p[3], q[3]) - Math.max(p[1], q[1]) > 0.5;
+  const first = boxes.findIndex((mine, index) => boxes.some((other, next) => next > index && mine.some((p) => other.some((q) => meet(p, q)))));
+  return first >= 0 ? HUD_UI_KIT_PANELS[first].name + ' meets a panel' : layout.textFloor < HUD_TEXT_SMALL ? 'text under 14 px' : '';
+}
 // HUD scale 100%, 125% and 150%; layouts at the defaults (-1) or every button moved to the top or bottom edge, at editor scales 1 to 2.
 const HUD_UI_HUD_SCALES = [1, 1.25, 1.5], HUD_UI_EDITS = [[-1, 0], [0.01, 0], [0.99, 0], [-1, 1.5], [-1, 1.75], [-1, 2], [0.01, 2]];
 function hudUiTouchProblems(width, height, draw) {
   const layout = {}, problems = [];
   for (const hudScale of HUD_UI_HUD_SCALES) {
-    Hud.scale = hudScale; Hud.textFloor = HUD_TEXT_SMALL * hudScale;   // as Hud.applySettings sets them
-    updateHudLayout(layout, width, height);
+    Hud.scale = hudScale;
     for (const preset of TOUCH_PRESETS) {
       TouchInput.currentPreset = preset;
+      updateHudLayout(layout, width, height); Hud.textFloor = layout.textFloor;   // as the frame's layout sets it (the fitted scale)
+      const meet = width > height && hudUiPanelsMeet(layout);
+      if (meet) problems.push([width, height, hudScale, preset.id, meet].join(' '));
       for (const [moved, scale] of HUD_UI_EDITS) {
         const saved = {};
         for (const control of TOUCH_CONTROLS) saved[control.id] = Object.assign(moved < 0 ? {} : { x: control.x, y: moved }, scale ? { scale } : {});
@@ -469,22 +514,30 @@ function hudUiTouchProblems(width, height, draw) {
   return problems;
 }
 Test.add('hudui', (check) => hudTestWith(() => {
-  const savedPreset = TouchInput.currentPreset;
+  const savedPreset = TouchInput.currentPreset, savedLayouts = Save.data.touchLayouts, kit = [Abilities.hudState, Items.activePowerups, Gadgets.hudState, Economy.hudState, Items.consumableCount];
+  Items.consumableCount = () => 2;
   Input.device = 'touch'; TouchInput.shown = true;
+  Abilities.hudState = (id, out) => { out.slots = ['A1', 'A2', 'ULT'].map((name) => ({ name, ready: true, key: 'ability1', charges: 2 })); return out; };
+  Gadgets.hudState = Economy.hudState = (id, out) => Object.assign(out, { grenade: 'frag', grenadeCount: 2, gadget: 'mine', gadgetCount: 1, money: 800, canBuy: true, buyTimeLeft: 20 });
+  Items.activePowerups = (id, list) => { list.splice(0, 9, { name: 'Haste', remaining: 5, duration: 10 }, { name: 'Shield', remaining: 5, duration: 10 }); return 2; };
   try {
     for (const mode of HUD_UI_MODES) {
       const operation = mode === 'operation', modeId = operation ? 'tdm' : mode;
       Game.start({ mode: modeId, map: PlayFlow.smallestMap(modeId).id, seed: 1, bots: [{ dummy: true }, { dummy: true }] });
       if (operation) { OperationRun.active = true; OperationRun.tickets.fill(250); }
+      for (let slot = 1; slot <= HUD_FIT_WEAPON_SLOTS; slot++) Weapons.owned[Weapons.slotIndex(Game.playerId, CAT.weapons.findIndex((row) => row.slot === slot))] = 1;   // a full weapon bar
       HudBanners.add(HUD_UI_BANNERS[0], 'lead', 1, false); HudBanners.add(HUD_UI_BANNERS[1], 'medal', HUD_BANNER_PRIORITY_LONG, true);
+      for (let i = 0; i < 3; i++) Actors.name[i] = 'Maximilian Featherstonehaugh ' + i;   // long names: the touch feed cuts them
+      for (let i = 0; i < 3; i++) HudFeed.add({ killer: (i + 1) % 3, victim: i % 3, weapon: 'smg', headshot: true });
       Hud.time += 1;   // the banners are fully faded in
       const problems = HUD_UI_SCREENS.flatMap(([width, height]) => hudUiTouchProblems(width, height, hudUiDrawPanels));
-      check('touch-01: buttons apart, off the aim zone, the header and the killcam panel, banners shown in ' + mode, problems.length === 0, problems.slice(0, 4).join('; '));
+      check('touch-01: buttons apart, off the aim zone, the header and the killcam panel, banners shown, panels apart in ' + mode, problems.length === 0, problems.slice(0, 4).join('; '));
       OperationRun.active = false;
       endModeTest();
     }
   } finally {
-    OperationRun.active = false; Killcam.playing = false; Save.data.touchLayouts = {}; TouchInput.currentPreset = savedPreset; TouchInput.shown = false;
+    [Abilities.hudState, Items.activePowerups, Gadgets.hudState, Economy.hudState, Items.consumableCount] = kit;
+    OperationRun.active = false; Killcam.playing = false; Save.data.touchLayouts = savedLayouts; TouchInput.currentPreset = savedPreset; TouchInput.shown = false;
     TouchInput.applyAll();
   }
 }));
