@@ -226,6 +226,11 @@ const Quality = {
     const stored = this.sessionId || (chosen === 'auto' ? (Settings.get('video.autoQuality') || this.autoId) : chosen);
     return CAT.quality.byId(stored) || CAT.quality.byId('medium');
   },
+  // The step-down's preset for this session; 'quality.change' (payload: the preset row) tells every reader of the caps at once.
+  setSession(id) {
+    this.sessionId = id;
+    Bus.emit('quality.change', this.current());
+  },
 };
 // Registered before S07's video settings listener, which then reads the new preset.
 Bus.on('setting', (key) => { if (key === 'video.quality' || key === 'video.autoQuality') Quality.sessionId = ''; });

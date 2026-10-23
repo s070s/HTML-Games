@@ -160,6 +160,7 @@ function readVideoSettings() {
 }
 readVideoSettings();
 Bus.on('setting', (key) => { if (key.startsWith('video.')) readVideoSettings(); });
+Bus.on('quality.change', readVideoSettings);
 
 // ---- Colour helpers: '#rrggbb' strings or 0xrrggbb numbers; strings are parsed once and cached ----
 const colorCache = new Map();

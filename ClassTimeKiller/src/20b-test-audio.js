@@ -156,6 +156,9 @@ Test.add('audio', (check) => {
   Settings.set('video.quality', 'high');
   Sound.refreshQuality();
   check('High has 24 voices and HRTF', Sound.allocator.limit === 24 && Sound.hrtfAllowed);
+  // PERF-013: the renderer's step-down in a match reaches the audio at once, not at the next match.
+  const medium = CAT.quality.byId('medium');
+  check('a quality step-down lowers the voices and HRTF at once', lowerQualityStep() && Sound.voiceLimit === medium.voices && !Sound.hrtfAllowed, Sound.voiceLimit);
   Settings.set('video.quality', 'medium');
   Sound.refreshQuality();
 });

@@ -787,6 +787,7 @@ function padHasPressedButton(pad) {
 
 Sound.captionClock.fill(-1000);
 Bus.on('setting', (key) => Sound.onSetting(key));
+Bus.on('quality.change', () => Sound.refreshQuality());   // the renderer's step-down mid-match (PERF-013)
 Bus.on('game.pause', (reason) => Sound.setPaused(true, reason));
 Bus.on('game.resume', () => Sound.setPaused(false, ''));
 // A match boundary also ends any pause: Game.stop and a restart emit no game.resume, and the next match must not start silent.

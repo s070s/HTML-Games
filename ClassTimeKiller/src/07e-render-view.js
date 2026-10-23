@@ -352,9 +352,8 @@ function lowerQualityStep() {
   const index = CAT.quality.indexOf(Render.quality);
   if (index < 0 || index >= CAT.quality.length - 1) return false;
   const next = CAT.quality[index + 1];
-  // Quality.current() now returns it, so the renderer and the PERF-009 caps agree.
-  Quality.sessionId = next.id;
-  readVideoSettings();
+  // Quality.current() now returns it, so the renderer, the audio and the PERF-009 caps agree.
+  Quality.setSession(next.id);
   emitToast('Quality lowered to ' + next.name + ' to keep the game smooth');
   return true;
 }
