@@ -22,7 +22,8 @@ const CAREER_FINISH_GLOW_PX = 16;      // swatch glow in pixels at finish 1 (the
 Progress.links.outcome = (results) => PlayFlow.outcome(results);
 Progress.links.playerStats = LocalPlayerStats;
 
-function careerStars(count) { return CAREER_STAR.repeat(count) + CAREER_NO_STAR.repeat(Math.max(0, CHALLENGE_STARS.length - count)); }
+// total: the stars there are to win (default: a Challenge Room's).
+function careerStars(count, total) { return CAREER_STAR.repeat(count) + CAREER_NO_STAR.repeat(Math.max(0, (total || CHALLENGE_STARS.length) - count)); }
 function careerBar(fraction) {
   const bar = makeElement('div', 'pg-bar'), fill = makeElement('div');
   fill.style.width = Math.round(clamp(fraction, 0, 1) * 100) + '%';
@@ -30,15 +31,29 @@ function careerBar(fraction) {
   return bar;
 }
 function careerList(root) { const list = makeElement('div', 'ui-scroll pg-list'); root.appendChild(list); return list; }
-function careerRow(label, detail, buttons) {
+// rowKey (optional): tags the row's buttons so careerRedraw finds the same row again.
+function careerRow(label, detail, buttons, rowKey) {
   const row = makeElement('div', 'ui-row');
   const text = makeElement('span', 'ui-label', label);
   if (detail) { text.appendChild(makeElement('br')); text.appendChild(makeElement('span', 'pg-small', detail)); }
   row.appendChild(text);
-  for (const button of buttons) row.appendChild(button);
+  for (const button of buttons) {
+    if (rowKey) button.dataset.row = rowKey;
+    row.appendChild(button);
+  }
   return row;
 }
 function careerDisabled(text) { const button = Ui.button(text, () => {}); button.disabled = true; return button; }
+// Redraws the open screen in place after a change on it (a card placed or removed, an operation restarted), keeping the list's
+// scroll and the focus on the first live button of the same row (data-row), else at the same position: reopening the screen
+// would drop a keyboard or gamepad user back on Back.
+function careerRedraw(rowKey) {
+  const entry = Ui.top(), list = entry.element.querySelector('.ui-scroll'), scroll = list ? list.scrollTop : 0;
+  Ui.rebuild(entry.element, () => { entry.element.textContent = ''; entry.screen.build(entry.element, entry.params); });
+  const newList = entry.element.querySelector('.ui-scroll'), same = entry.element.querySelector('[data-row="' + rowKey + '"]:not([disabled])');
+  if (newList) newList.scrollTop = scroll;
+  if (same) same.focus();
+}
 function careerModeName(modeId) { const row = CAT.modes.byId(modeId); return row ? row.name : modeId; }
 function careerMapName(mapId) { const row = CAT.maps.byId(mapId); return row ? row.name : STAT_MAP_GROUP_NAMES[mapId] || mapId; }
 function careerLevelText() {
@@ -208,8 +223,8 @@ function careerOperationRow(row) {
     : 'Map ' + (state.stage + 1) + ' of ' + row.stages.length + ': ' + careerModeName(stage.mode) + ' on ' + careerMapName(stage.map) + '. Tickets ' + state.tickets[0] + ' vs ' + state.tickets[1]
       + (state.comeback === PROGRESS_PLAYER_TEAM ? '. Your side gets the heavy unit.' : state.comeback === PROGRESS_ENEMY_TEAM ? '. The enemy gets the heavy unit.' : '');
   const buttons = [Ui.button(state.done ? 'Play again' : 'Play map ' + (state.stage + 1), () => Operations.start(row.id), 'primary')];
-  if (state.stage > 0 && !state.done) buttons.push(Ui.button('Restart', () => { Operations.reset(row.id); Ui.replace('operations'); }));
-  return careerRow(row.code + ' ' + row.name + ' - ' + row.text, detail, buttons);
+  if (state.stage > 0 && !state.done) buttons.push(Ui.button('Restart', () => { Operations.reset(row.id); careerRedraw(row.id); }));
+  return careerRow(row.code + ' ' + row.name + ' - ' + row.text, detail, buttons, row.id);
 }
 Ui.register('operations', {
   build(root) {
@@ -243,14 +258,14 @@ Ui.register('daily', {
 
 // ---- Cards ----
 function careerCardButton(row) {
-  if (Cards.isEquipped(row.id)) return Ui.button('Remove', () => { Cards.unequip(row.id); Ui.replace('cards'); });
+  if (Cards.isEquipped(row.id)) return Ui.button('Remove', () => { Cards.unequip(row.id); careerRedraw(row.id); });
   const problem = Cards.equipProblem(row.id);
   if (problem) return careerDisabled(Cards.isUnlocked(row.id) ? problem : 'Locked');
-  return Ui.button('Place (' + Cards.priceOf(row) + ')', () => { Cards.equip(row.id); Ui.replace('cards'); });
+  return Ui.button('Place (' + Cards.priceOf(row) + ')', () => { Cards.equip(row.id); careerRedraw(row.id); });
 }
 function careerCardRow(row) {
   const detail = row.text + ' Cost ' + row.cost + '.' + (row.versus ? ' Versus with Cards Allowed.' : ' PvE only.') + (Cards.isUnlocked(row.id) ? '' : ' Unlock: ' + row.unlock.text);
-  return careerRow(row.code + ' ' + row.name + ' (' + row.type + ')', detail, [careerCardButton(row)]);
+  return careerRow(row.code + ' ' + row.name + ' (' + row.type + ')', detail, [careerCardButton(row)], row.id);
 }
 Ui.register('cards', {
   build(root) {

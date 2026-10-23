@@ -677,6 +677,12 @@ Test.add('progress', (check) => {
     Game.stop();
   }
   check('cards: the shipped PvE levels measure every metric a card condition reads', unmeasured.length === 0 && enemiesMeasured, unmeasured.map((row) => row.code).join());
+  // A won Test Chambers run (a level with no enemies, no kills) unlocks no kill-based card: "Kill all enemies" needs a kill.
+  Cards.record().unlocked = {};
+  Game.start({ mode: 'puzzle', map: 'chambers', seed: 4, player: { name: 'You' } });
+  Modes.finish(Modes.over(Game.playerId, PVE_WIN));
+  check('cards: a won chamber run with no kills does not unlock C03 Soulkeep', Cards.record().unlocked.stoneskin && !Cards.record().unlocked.soulkeep, Object.keys(Cards.record().unlocked).join());
+  Game.stop();
 });
 
 // ---- Cards: every effect applies in a match ----
@@ -941,6 +947,15 @@ Test.add('progress', (check) => {
   Daily.onResult({ setup: { progress: { kind: 'daily', key: '2099' } } }, {}, third = award());
   delete Progress.profile().daily['2099'];
   check('daily: an idle first play pays no XP', third.xp === 0);
+  // The ladder keeps the same rule: a side's win the player sat out clears nothing; a cleared match too short for XP pays no first-clear XP.
+  progressWithPlayer(() => {
+    const idle = progressTestResults({ teams: true, kills: 0, score: 0 }), short = progressTestResults({ teams: true, duration: 20 }), cleared = Ladder.state().cleared;
+    idle.players[1].team = short.players[1].team = 0;
+    const ladderRun = (results) => { const paid = award(); Ladder.onResult({ setup: { progress: { kind: 'ladder', tier: 0, match: 0 } }, results }, {}, paid); return paid; };
+    const sat = ladderRun(idle), satCleared = !!cleared['0.0'], quick = ladderRun(short);
+    check('ladder: a sat-out win of the side clears nothing, a quick clear pays no XP', !Ladder.passed(idle) && sat.xp === 0 && !satCleared && cleared['0.0'] && quick.xp === 0,
+      [sat.xp, satCleared, quick.xp].join());
+  });
 });
 
 // ---- XP: difficulty and match length scale the pay; assists count as taking part, a 0 XP match says why ----
