@@ -249,13 +249,13 @@ Test.add('hudui', (check) => {
 
 // ---- Phones: the PvE side tables and notes stay clear of the default touch buttons and the ammo panel ----
 const HUD_UI_RULESET_BUTTONS = ['ability1', 'ability2', 'ultimate', 'gadget'];   // shown only where the ruleset gives abilities or a gadget
+// The buttons where TouchInput.placeAll puts them on the layout's screen (the places the layer draws).
 function hudPveTouchOverlap(layout, left, top, right, bottom, everything) {
-  const place = {};
+  TouchInput.placeAll(layout.width, layout.height);
   for (const control of TOUCH_CONTROLS) {
-    if (control.setting) continue;   // opt-in buttons (left fire) are not default layout
+    const place = TouchInput.places[control.id], radius = place.radius - 0.5, x = place.x, y = place.y;
+    if (!place.shown || control.setting) continue;   // opt-in buttons (left fire) are not default layout
     if (!everything && (control.id === 'stick' || HUD_UI_RULESET_BUTTONS.includes(control.id))) continue;   // the floating stick; ruleset buttons (the PvE tables are drawn where none exist)
-    TouchInput.layoutOf(control.id, place);
-    const radius = control.size * place.scale / 2, x = place.x * layout.width, y = place.y * layout.height;
     if (x + radius > left && x - radius < right && y + radius > top && y - radius < bottom) return control.id;
   }
   return '';
@@ -391,7 +391,7 @@ Test.add('hudui', (check) => {
 // 3. the banners are drawn, clear of the buttons when a free place exists, and a moved stack stays out of the aim zone;
 // 4. no button over a quad the header (score panel, round pips, control meters, objective chips) or the killcam panel draws ----
 const HUD_UI_SCREENS = [[568, 320], [750, 342], [320, 568], [390, 664], [1080, 810], [810, 1080]];   // iPhone SE and 13 both ways, iPad
-const HUD_UI_MODES = ['ffa', 'elim', 'bomb', 'dom', 'control'];   // panel only, pips, pips + chips, chips, pips + meters + chips
+const HUD_UI_MODES = ['ffa', 'elim', 'bomb', 'dom', 'control', 'operation'];   // panel only, pips, pips + chips, chips, pips + meters + chips, tickets (tdm)
 const HUD_UI_BANNERS = ['Rook Varga takes the lead', 'Double Kill'];
 const HUD_UI_BANNER_GLYPHS = HUD_UI_BANNERS.join('').replace(/ /g, '').length + 2;   // the letters and the medal's two stars
 // The [left, top, right, bottom] box of every quad in the HUD batch from quad first on (hudFloats: x y u v, then the colour, per vertex).
@@ -421,6 +421,10 @@ function hudUiTouchBreak(fixed, banners, width, height) {
   return moved && banners.some((box) => hudUiBoxMeetsCircle(box, width / 2, height / 2, aimRadius)) ? 'banners moved onto the crosshair' : '';
 }
 // The problems of the running match on one screen size: each preset, default and moved places (-1: none moved), in play and replay.
+// The panels the buttons must leave uncovered (rule 4): the header with its rows and tickets, the minimap, vitals, ammo, weapon bar.
+function hudUiDrawPanels(layout) {
+  for (const draw of [hudDrawHeader, hudDrawTickets, hudDrawMinimap, hudDrawVitals, hudDrawAmmo, hudDrawWeaponBar]) draw(HudPen, layout);
+}
 // HUD scale 100% and 150%; layouts at the defaults (-1) or every button moved to the top or bottom edge, at editor scales 1 to 2.
 const HUD_UI_HUD_SCALES = [1, 1.5], HUD_UI_EDITS = [[-1, 0], [0.01, 0], [0.99, 0], [-1, 1.5], [-1, 2], [0.01, 2]];
 function hudUiTouchProblems(width, height, draw) {
@@ -456,15 +460,18 @@ Test.add('hudui', (check) => hudTestWith(() => {
   Input.device = 'touch'; TouchInput.shown = true;
   try {
     for (const mode of HUD_UI_MODES) {
-      Game.start({ mode, map: PlayFlow.smallestMap(mode).id, seed: 1, bots: [{ dummy: true }, { dummy: true }] });
+      const operation = mode === 'operation', modeId = operation ? 'tdm' : mode;
+      Game.start({ mode: modeId, map: PlayFlow.smallestMap(modeId).id, seed: 1, bots: [{ dummy: true }, { dummy: true }] });
+      if (operation) { OperationRun.active = true; OperationRun.tickets.fill(250); }
       HudBanners.add(HUD_UI_BANNERS[0], 'lead', 1, false); HudBanners.add(HUD_UI_BANNERS[1], 'medal', HUD_BANNER_PRIORITY_LONG, true);
       Hud.time += 1;   // the banners are fully faded in
-      const problems = HUD_UI_SCREENS.flatMap(([width, height]) => hudUiTouchProblems(width, height, (layout) => hudDrawHeader(HudPen, layout)));
+      const problems = HUD_UI_SCREENS.flatMap(([width, height]) => hudUiTouchProblems(width, height, hudUiDrawPanels));
       check('touch-01: buttons apart, off the aim zone, the header and the killcam panel, banners shown in ' + mode, problems.length === 0, problems.slice(0, 4).join('; '));
+      OperationRun.active = false;
       endModeTest();
     }
   } finally {
-    Killcam.playing = false; Save.data.touchLayouts = {}; TouchInput.currentPreset = savedPreset; TouchInput.shown = false;
+    OperationRun.active = false; Killcam.playing = false; Save.data.touchLayouts = {}; TouchInput.currentPreset = savedPreset; TouchInput.shown = false;
     TouchInput.applyAll();
   }
 }));

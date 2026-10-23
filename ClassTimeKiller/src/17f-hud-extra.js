@@ -390,6 +390,14 @@ function hudDrawSuppression(pen, layout) {
 }
 
 Hud.register('main', 'minimap', 'minimap', hudDrawMinimap);
+// Touch buttons give way to the minimap at the top left (05b keepClear, touch-01), as hudDrawMinimap sizes it.
+const hudMinimapClearLayout = {};
+TouchInput.keepClear.push((width, height) => {
+  const layout = hudMinimapClearLayout;
+  updateHudLayout(layout, width, height);
+  const size = (layout.compact ? HUD_MAP_SIZE_COMPACT : HUD_MAP_SIZE) * layout.unit;
+  if (Hud.elements.minimap) TouchInput.addClear(layout.left, layout.top, layout.left + size, layout.top + size);
+});
 Hud.register('main', 'compass', 'compass', hudDrawCompass);
 Hud.register('world', 'awareness', 'awareness', hudDrawAwareness);
 Hud.register('main', 'barks', 'barks', hudDrawBarks);

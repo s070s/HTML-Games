@@ -25,7 +25,7 @@ const TOUCH_DEFAULT_OPACITY = 0.7;
 const TOUCH_AIM_ZONE = 0.18;            // of the short screen side: no button this close to the crosshair (the screen centre, touch-01)
 const TOUCH_SEARCH_DIRECTIONS = 16;     // spots tried on each ring around a button's layout spot when that spot is not free
 const TOUCH_SHRINK_STEP = 0.85;          // a button with no free spot at its size tries again this much smaller ...
-const TOUCH_SMALLEST = 0.55;            // ... down to this share of its preset size (the default scale always fits there)
+const TOUCH_SMALLEST = 0.45;            // ... down to this share of its preset size (all fit there, HUD scale 150 on a 568x320 phone too)
 const ROLE_NONE = 0, ROLE_STICK = 1, ROLE_LOOK = 2, ROLE_BUTTON = 3, ROLE_DRAG = 4;
 // Rotation axes of a phone held in each screen orientation: which device axes point screen-up and screen-right.
 const GYRO_AXES = {
@@ -506,9 +506,9 @@ const TouchInput = {
     const startX = place.startX, startY = place.startY, step = radius / 2, farthest = Math.max(width, height);
     let best = Infinity;
     for (let distance = 0; distance < farthest; distance += step) {
-      const directions = distance === 0 ? 1 : TOUCH_SEARCH_DIRECTIONS;
+      const directions = distance === 0 ? 1 : Math.max(TOUCH_SEARCH_DIRECTIONS, Math.ceil(2 * Math.PI * distance / step));   // spots a step apart on the ring
       for (let i = 0; i < directions; i++) {
-        const angle = i * 2 * Math.PI / TOUCH_SEARCH_DIRECTIONS, x = startX + Math.cos(angle) * distance, y = startY + Math.sin(angle) * distance;
+        const angle = i * 2 * Math.PI / directions, x = startX + Math.cos(angle) * distance, y = startY + Math.sin(angle) * distance;
         if (!this.spotAllowed(x, y, radius, width, height)) continue;
         const overlap = this.overlapAt(control, x, y, radius);
         if (overlap === 0 || (leastOverlap && overlap < best)) { place.x = x; place.y = y; place.radius = radius; best = overlap; }

@@ -370,3 +370,25 @@ function hudDrawTickets(pen, layout) {
 
 Hud.register('main', 'pve', 'pve', hudDrawPve);
 Hud.register('main', 'tickets', 'header', hudDrawTickets);
+
+// ---- Touch buttons give way to the tickets row and the PvE status rows (05b keepClear, touch-01) ----
+// The rows are measured by drawing them with a pen that draws nothing: each row moves hudPveAt[0] below itself, as on screen.
+const hudPveNothing = () => 0;
+const hudPveMeasurePen = new Proxy({}, { get: () => hudPveNothing });
+const hudPveClearLayout = {};
+const HUD_TICKETS_WIDEST = '9999';   // the widest ticket count the row is kept clear for
+TouchInput.keepClear.push((width, height) => {
+  const layout = hudPveClearLayout, pve = Modes.hud && Modes.hud.pve;
+  updateHudLayout(layout, width, height);
+  const unit = layout.unit;
+  if (OperationRun.active) {
+    const half = 44 * unit + HudPen.measure(HUD_TICKETS_WIDEST, 17 * unit);   // the counts sit 44 units either side (hudDrawTickets)
+    TouchInput.addClear(layout.centerX - half, layout.top, layout.centerX + half, layout.top + 54 * unit + hudTextHalf(17 * unit));
+  }
+  if (!pve || !pve.active) return;
+  const rows = HUD_PVE_PANELS[pve.mode] || [];
+  hudPvePlaceRows(layout);
+  const top = hudPveAt[0], left = hudPveAt[1], right = hudPveAt[2];
+  for (let i = 0; i < rows.length; i++) HUD_PVE_ROWS[rows[i]](hudPveMeasurePen, layout, pve);
+  if (rows.length) TouchInput.addClear(left, top, right, hudPveAt[0]);
+});

@@ -628,6 +628,19 @@ function hudWeaponSlotAt(x, y) {
 }
 TouchInput.weaponSlotAt = hudWeaponSlotAt;
 TouchInput.insets = Hud.insets;   // the touch layer sits inside the same safe-area insets (one reader: hudReadSafeInsets)
+// Touch buttons give way to the vitals, the ammo panel and the weapon bar (05b keepClear, touch-01), the bar at its widest
+// (HUD_MAX_WEAPON_SLOTS boxes) so a picked-up weapon never puts a box under a button; a button there would take slot taps.
+const hudPanelsClearLayout = {};
+TouchInput.keepClear.push((width, height) => {
+  const layout = hudPanelsClearLayout, box = hudBoxAt;
+  updateHudLayout(layout, width, height);
+  TouchInput.addClear(layout.left, layout.bottom - layout.vitalsHeight, layout.left + layout.barWidth, layout.bottom);
+  TouchInput.addClear(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoRight, layout.bottom);
+  hudPlaceWeaponBox(layout, HUD_MAX_WEAPON_SLOTS, 0);
+  const left = box[0], top = box[1], bottom = box[1] + box[3];
+  hudPlaceWeaponBox(layout, HUD_MAX_WEAPON_SLOTS, HUD_MAX_WEAPON_SLOTS - 1);
+  TouchInput.addClear(left, top, box[0] + box[2], bottom);
+});
 
 // Cooldown / charge ring around a point: dim track, bright remaining arc (remaining 0 = ready = full bright ring).
 function hudDrawCooldownRing(pen, x, y, radius, thickness, remaining, color) {
