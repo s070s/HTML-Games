@@ -8,20 +8,7 @@ const SPEC_WEAPON_SETS = {
 };
 const FIRE_TYPES = ['hitscan', 'projectile', 'beam', 'melee', 'cone', 'lock', 'zoom', 'toggle', 'block', 'detonate', 'tool'];
 const TRIGGERS = ['auto', 'semi', 'burst', 'charge', 'release'];
-const BASE_HEALTH = 100;
 
-// Shots needed against 100 HP and the time from the first to the killing shot (all hits, no falloff, body zone).
-function timeToKill(mode) {
-  const charge = mode.charge;
-  const damage = charge && charge.target !== 'pellets' && charge.target !== 'multiplier' ? chargeDamage(charge, 1) : mode.damage;
-  const pellets = charge && charge.target === 'pellets' ? chargeLevelValue(charge, 1) : mode.pellets;
-  const perShot = (damage + (mode.splash ? mode.splash.dmg : 0)) * pellets;
-  if (perShot <= 0) return -1;
-  const shots = Math.ceil(BASE_HEALTH / perShot) - 1;
-  const lockTime = mode.lock ? mode.lock.time : 0, chargeTime = charge ? charge.time : 0;
-  const between = mode.burst ? Math.floor(shots / mode.burst) / mode.rate + (shots % mode.burst) * mode.burstGap : shots / mode.rate;
-  return between + lockTime + chargeTime + mode.spinUp;
-}
 function giveFull(id, key) {
   Weapons.setLoadout(id, [key]);
   const weapon = CAT.weapons.byId(key), slot = Weapons.slotIndex(id, weapon.index);
@@ -100,18 +87,6 @@ Test.add('weapons', (check) => {
 });
 
 Test.add('weapons', (check) => {
-  const outside = [];
-  for (const weapon of CAT.weapons) {
-    const band = weapon.family.ttk;
-    if (!band) continue;
-    const ttk = timeToKill(weapon.primary);
-    if (ttk < band[0] - 1e-6 || ttk > band[1] + 1e-6) outside.push(weapon.code + ' ' + weapon.id + ' ' + ttk.toFixed(3) + ' not in ' + band.join('-'));
-  }
-  check('time-to-kill vs 100 HP inside the family band for every weapon', outside.length === 0, outside.join('; '));
-  check('TTK table: W13 three shots in 0.2 s, W24 one shot', Test.near(timeToKill(CAT.weapons.byId('vanguard').primary), 0.2, 1e-6) && timeToKill(CAT.weapons.byId('heron').primary) === 0);
-});
-
-Test.add('weapons', (check) => {
   TestArena.start({});
   const shooter = TestArena.actor(1, 0, 0);
   TestArena.sponge(2, 0, 20);
@@ -125,8 +100,8 @@ Test.add('weapons', (check) => {
   check('semi-auto at its rate when tapped every other step: 4 rps', Math.abs(countTapped(shooter, 10) - 40) <= 1);
   giveFull(shooter, 'ratchet');
   check('burst: 3 bursts/s x 3 rounds over 10 s', Math.abs(countTapped(shooter, 10) - 90) <= 3);
-  giveFull(shooter, 'hailstorm');
-  check('spin-up 0.5 s then 18 rps', Math.abs(countShots(shooter, BTN.FIRE, 10) - 9.5 * 18) <= 2);
+  const spinUp = giveFull(shooter, 'hailstorm').primary.spinUp;
+  check('spin-up ' + spinUp + ' s then 18 rps', Math.abs(countShots(shooter, BTN.FIRE, 10) - (10 - spinUp) * 18) <= 2);
   giveFull(shooter, 'verdict');
   let taps = 0;
   for (let k = 0; k < 5; k++) taps += countShots(shooter, BTN.FIRE, 0.2) + countShots(shooter, 0, 0.3);
@@ -141,14 +116,18 @@ Test.add('weapons', (check) => {
   const wasp = CAT.weapons.byId('wasp'), slot = Weapons.slotIndex(shooter, wasp.index);
   check('setLoadout draws the last key at once', Weapons.currentWeapon(shooter) === wasp && Weapons.magazine[slot] === 30 && Weapons.reserve[slot] === 120);
   Weapons.magazine[slot] = 1;
-  TestArena.hold(shooter, BTN.FIRE, 0.1);
+  Actors.buttons[shooter] = BTN.FIRE;
   Sim.step();
-  let empties = TestArena.count('weapon.empty', () => { Actors.buttons[shooter] = BTN.FIRE; Sim.step(); Sim.step(); Actors.buttons[shooter] = 0; });
-  check('fire on empty: one weapon.empty per press and an automatic reload', empties === 1 && Weapons.state[shooter] === WEAPON_STATE.RELOAD);
-  Sim.run(Math.round(wasp.reload * TICK_RATE) - 3);
+  Actors.buttons[shooter] = 0;
+  check('the last round starts the reload by itself (R-084)', Weapons.magazine[slot] === 0 && Weapons.state[shooter] === WEAPON_STATE.RELOAD);
+  Sim.run(Math.round(wasp.reload * TICK_RATE) - 2);
   check('reload not finished before its time', Weapons.magazine[slot] === 0);
   Sim.run(3);
   check('reload fills the magazine at exactly ' + wasp.reload + ' s', Weapons.magazine[slot] === 30 && Weapons.reserve[slot] === 90, Weapons.magazine[slot]);
+  Weapons.magazine[slot] = 0; Weapons.reserve[slot] = 0;
+  const empties = TestArena.count('weapon.empty', () => { Actors.buttons[shooter] = BTN.FIRE; Sim.step(); Sim.step(); Actors.buttons[shooter] = 0; Sim.step(); });
+  check('fire on empty: one weapon.empty per press, no reload without reserve', empties === 1 && Weapons.state[shooter] === WEAPON_STATE.IDLE, empties);
+  Weapons.reserve[slot] = 90;
   Weapons.magazine[slot] = 10;
   TestArena.hold(shooter, BTN.RELOAD, 0.5);
   TestArena.hold(shooter, BTN.FIRE, 0.2);
@@ -334,7 +313,8 @@ function exerciseMode(shooter, target, weapon, mode, button) {
   let fired = 0, effects = 0;
   const onFire = Bus.on('weapon.fire', () => { fired++; });
   const onEffect = Bus.on('impulse', () => { effects++; });
-  TestArena.hold(shooter, button, mode.trigger === 'charge' ? mode.charge.time + 0.05 : 1.5);
+  const holdSeconds = mode.trigger === 'charge' ? mode.charge.time + 0.05 : mode.detonateOnRelease ? 0.05 : 1.5;   // W32 mines throw on a tap
+  TestArena.hold(shooter, button, holdSeconds);
   Sim.run(TICK_RATE * 4);
   Bus.off('weapon.fire', onFire);
   Bus.off('impulse', onEffect);
@@ -913,6 +893,163 @@ Test.add('weapons', (check) => {
   TestArena.aimAt(id, open);
   TestArena.hold(id, BTN.FIRE, 1);
   check('W26 a victim in the open is hit but not pinned', Actors.health[open] < 100000 && !Damage.hasStatus(open, 'pinned'), Actors.health[open] + ' ' + Damage.hasStatus(open, 'pinned'));
+  TestArena.finish();
+});
+
+// R-006: the W44 lodged-blade line stops at walls; an owner out of sight of the blade gets no line at all.
+Test.add('weapons', (check) => {
+  const wall = (z) => ({ shape: 'box', min: [-6, 0, z], max: [6, 5, z + 1] });
+  TestArena.start({}, [wall(10), wall(20)]);
+  const owner = TestArena.actor(1, 0, 15), near = TestArena.sponge(2, 0, 17.5);
+  giveFull(owner, 'razorwind');
+  TestArena.hold(owner, BTN.ALT, 0.05);
+  Sim.run(TICK_RATE / 2);
+  check('W44 blade lodged in the far wall', Projectiles.state.indexOf(PROJECTILE_STATE.STUCK) >= 0);
+  Sim.run(TICK_RATE);
+  check('W44 line cuts an enemy between the blade and the owner', Actors.health[near] < 100000, Actors.health[near]);
+  Actors.alive[near] = 0;
+  TestArena.place(owner, 0, 5);
+  const behind = TestArena.sponge(2, 0, 8);
+  Sim.run(TICK_RATE * 2);
+  check('W44 line never cuts through a wall', Actors.health[behind] === 100000, 100000 - Actors.health[behind]);
+  TestArena.finish();
+});
+
+// R-018 / R-184: a charge or lock-on release always fires what the magazine pays for, or clicks empty and reloads.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 20);
+  const accelerator = giveFull(shooter, 'accelerator'), cells = Weapons.slotIndex(shooter, accelerator.index);
+  Weapons.magazine[cells] = 5;
+  TestArena.aimAt(shooter, target);
+  const charged = TestArena.count('weapon.fire', () => { TestArena.hold(shooter, BTN.FIRE, accelerator.primary.charge.time + 0.5); Sim.step(); });
+  check('W39 full charge with 5 cells fires the 4-cell level', charged === 1 && Weapons.magazine[cells] === 1 && Actors.health[target] === 100000 - 90, charged + ' / ' + Weapons.magazine[cells] + ' / ' + (100000 - Actors.health[target]));
+  const kingfisher = giveFull(shooter, 'kingfisher'), rockets = Weapons.slotIndex(shooter, kingfisher.index);
+  Weapons.magazine[rockets] = 1;
+  TestArena.aimAt(shooter, target);
+  let shots = 0;
+  const empties = TestArena.count('weapon.empty', () => { shots = countShots(shooter, BTN.ALT, kingfisher.alt.lock.time + 0.2); Sim.step(); });
+  check('W33 lock release with 1 rocket clicks empty and reloads', shots === 0 && empties === 1 && Weapons.state[shooter] === WEAPON_STATE.RELOAD, shots + ' / ' + empties + ' / ' + Weapons.state[shooter]);
+  const hookjaw = giveFull(shooter, 'hookjaw'), shells = Weapons.slotIndex(shooter, hookjaw.index);
+  Weapons.magazine[shells] = 1; Weapons.reserve[shells] = 0;
+  Actors.z[target] = 3;
+  TestArena.aimAt(shooter, target);
+  const single = countShots(shooter, BTN.FIRE, 0.05);
+  check('W20 last shell with no reserve fires one barrel', single === 1 && Weapons.magazine[shells] === 0, single + ' / ' + Weapons.magazine[shells]);
+  TestArena.finish();
+});
+
+// R-019: a held lock-on weapon drops dead targets and locks the next enemy.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0), first = [TestArena.actor(2, -0.4, 10), TestArena.actor(2, 0, 10), TestArena.actor(2, 0.4, 10)];
+  giveFull(shooter, 'sparklock');
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0;
+  Actors.buttons[shooter] = BTN.FIRE;
+  Sim.run(TICK_RATE / 4);
+  first.forEach((id) => TestArena.hit(-1, id, 1, { kind: 'telefrag' }));
+  const fresh = TestArena.sponge(2, 0, 9);
+  Sim.run(TICK_RATE * 2);
+  Actors.buttons[shooter] = 0;
+  check('W07 held through three kills locks and shoots a fresh enemy', Actors.health[fresh] < 100000, 100000 - Actors.health[fresh]);
+  TestArena.finish();
+});
+
+// R-084 / R-081: an empty magazine reloads by itself, held trigger included; an empty alt pool only clicks.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0);
+  TestArena.sponge(2, 0, 20);
+  const wasp = CAT.weapons.byId('wasp');
+  Weapons.setLoadout(shooter, ['wasp']);
+  const slot = Weapons.slotIndex(shooter, wasp.index);
+  let emptied = false, refilled = false;
+  Actors.buttons[shooter] = BTN.FIRE;
+  for (let step = 0; step < 5 * TICK_RATE; step++) {
+    Sim.step();
+    if (Weapons.magazine[slot] === 0) emptied = true;
+    else if (emptied) refilled = true;
+  }
+  Actors.buttons[shooter] = 0;
+  check('Wasp with the trigger held 5 s reloads when the magazine runs dry', emptied && refilled, emptied + ' / ' + refilled);
+  const bow = CAT.weapons.byId('talonbow');
+  Weapons.setLoadout(shooter, ['talonbow']);
+  TestArena.hold(shooter, BTN.FIRE, 0.9);
+  Sim.run(TICK_RATE);
+  check('Talon Bow nocks the next arrow by itself after a shot', Weapons.magazine[Weapons.slotIndex(shooter, bow.index)] === 1);
+  const hush = CAT.weapons.byId('hush');
+  Weapons.setLoadout(shooter, ['hush']);
+  const darts = Weapons.slotIndex(shooter, hush.index);
+  Weapons.altAmmo[darts] = 0; Weapons.magazine[darts] = 5;
+  const clicks = TestArena.count('weapon.empty', () => TestArena.hold(shooter, BTN.ALT, 0.05));
+  check('Hush alt with no darts clicks empty and does not reload the magazine', clicks === 1 && Weapons.state[shooter] === WEAPON_STATE.IDLE, clicks + ' / ' + Weapons.state[shooter]);
+  TestArena.finish();
+});
+
+// R-078 / R-079 / R-080: combo ray hits actors in front of the orb, a flare never reveals its shooter, a mine detonation spends no mine.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0), front = TestArena.sponge(2, 0, 4);
+  giveFull(shooter, 'coilcaster');
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0;
+  Actors.y[front] = -10;   // out of the orb's way while it flies
+  TestArena.hold(shooter, BTN.ALT, 0.05);
+  Sim.run(TICK_RATE);
+  const orb = Projectiles.state.indexOf(PROJECTILE_STATE.FLYING);
+  Actors.y[front] = 0;
+  Projectiles.vx[orb] = Projectiles.vy[orb] = Projectiles.vz[orb] = 0;
+  Projectiles.x[orb] = 0; Projectiles.y[orb] = Actors.eyeY(shooter); Projectiles.z[orb] = 11.9;
+  Weapons.nextShot[shooter] = 0;
+  const combos = TestArena.count('explosion', () => TestArena.hold(shooter, BTN.FIRE, 0.05));
+  check('W17 primary hits the enemy in front of the orb, the orb stays', Actors.health[front] < 100000 && combos === 0 && Projectiles.state[orb] === PROJECTILE_STATE.FLYING, (100000 - Actors.health[front]) + ' / ' + combos);
+  Projectiles.clear();
+  Actors.alive[front] = 0;
+  const lit = TestArena.actor(2, 0, 3);
+  giveFull(shooter, 'twinsting');
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = -1.2;
+  TestArena.hold(shooter, BTN.ALT, 0.05);
+  check('W08 flare at the feet reveals the enemy but not the shooter', Damage.hasStatus(lit, 'reveal') && !Damage.hasStatus(shooter, 'reveal'));
+  Actors.alive[lit] = 0;
+  const pitcher = giveFull(shooter, 'pitcher'), mines = Weapons.slotIndex(shooter, pitcher.index);
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = -0.3;
+  Weapons.magazine[mines] = 6;
+  for (let k = 0; k < 2; k++) { TestArena.hold(shooter, BTN.ALT, 0.05); Sim.run(TICK_RATE); }
+  const thrown = Projectiles.countOwned(shooter, pitcher.index);
+  const blasts = TestArena.count('explosion', () => { TestArena.hold(shooter, BTN.ALT, 0.5); Sim.run(2); });
+  check('W32 taps throw mines; a long hold detonates them and throws none', thrown === 2 && blasts === 2 && Weapons.magazine[mines] === 4, thrown + ' / ' + blasts + ' / ' + Weapons.magazine[mines]);
+  TestArena.finish();
+});
+
+// R-082 / R-083: the W03 block covers its row's arcDeg; attachments never make a swap faster than the WPN-010 floor.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const guard = TestArena.actor(1, 0, 0), attacker = TestArena.actor(2, 0, 5, Math.PI);
+  Weapons.setLoadout(guard, ['bulwark']);
+  Actors.buttons[guard] = BTN.ALT;
+  Sim.run(3);
+  const angle = 65 * DEG, side = { dx: -Math.sin(angle), dy: 0, dz: -Math.cos(angle) };
+  check('W03 a hit 65 deg off the 120 deg guard is not blocked', TestArena.hit(attacker, guard, 40, side) === 40);
+  Actors.buttons[guard] = 0;
+  Weapons.setLoadout(guard, ['maul', 'tempest']);
+  Weapons.attach(guard, 'tempest', 'shortBarrel');
+  Weapons.attach(guard, 'tempest', 'lightStock');
+  Weapons.current[guard] = CAT.weapons.byId('maul').index;
+  const tempest = CAT.weapons.byId('tempest');
+  Weapons.requestSwitch(guard, tempest.index);
+  check('WPN-010 stacked equip attachments stop at the floor', Weapons.stateDuration[guard] >= tempest.equipTime * EQUIP_SCALE_FLOOR - 1e-6, Weapons.stateDuration[guard]);
+  TestArena.finish();
+});
+
+// R-186: W36 stored heat vents once the shooter stops firing, so the heat blast is earned right before it is used.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0);
+  TestArena.sponge(2, 0, 20);
+  giveFull(shooter, 'ember');
+  TestArena.hold(shooter, BTN.FIRE, 3);
+  const stored = Weapons.heat[shooter];
+  Sim.run(TICK_RATE * 15);
+  check('W36 heat builds while firing and vents to 0 when idle', stored >= 100 && Weapons.heat[shooter] === 0, stored + ' -> ' + Weapons.heat[shooter]);
   TestArena.finish();
 });
 

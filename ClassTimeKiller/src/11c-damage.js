@@ -87,11 +87,12 @@ const Damage = {
     if (!this.canBeDamaged(target, info)) return 0;
     const rules = currentRules(), kind = CAT.damageKinds.byId(info.kind) || CAT.damageKinds[0];
     const attackerScale = this.attackerScale(source, target, info);
-    if (source === target) this.knockback(target, info.amount * attackerScale, info, rules);
+    if (source === target) this.knockback(target, info.amount * attackerScale, info);
     const relation = this.relationScale(source, target, kind, rules);
     if (relation <= 0) return 0;
     let amount = info.amount * attackerScale * relation;
-    if (amount <= 0) { this.applyHitStatus(source, target, info); return 0; }
+    // A status-only hit (sleep dart, flare) lands on others only: an own 0-damage blast never reveals or sleeps its source (R-079).
+    if (amount <= 0) { if (source !== target) this.applyHitStatus(source, target, info); return 0; }
     // HP-001: zone x precision first; HPP03 applies the head multiplier only to what reaches health (see takeLayers).
     const zoneFactor = zoneMultiplier(rules, info), lateZone = this.preset().shieldIgnoresZone ? zoneFactor : 1;
     amount *= falloffFactor(info) * zoneFactor / lateZone;
@@ -100,7 +101,7 @@ const Damage = {
     amount = this.reduce(source, target, amount, info);
     if (amount <= 0) return 0;
     const dealt = kind.lethal ? this.takeEverything(target) : this.takeLayers(target, amount, lateZone, kind, info);
-    this.afterDamage(source, target, info, kind, dealt, rules, attackerScale);
+    this.afterDamage(source, target, info, kind, dealt, attackerScale);
     return dealt;
   },
   canBeDamaged(target, info) {
@@ -199,12 +200,12 @@ const Damage = {
     return taken;
   },
 
-  afterDamage(source, target, info, kind, dealt, rules, attackerScale) {
+  afterDamage(source, target, info, kind, dealt, attackerScale) {
     this.lastDamageTime[target] = Sim.time;
     this.recordAttacker(source, target);
     this.wake(target);
     this.applyHitStatus(source, target, info);
-    if (source !== target) this.knockback(target, info.amount * attackerScale, info, rules);
+    if (source !== target) this.knockback(target, info.amount * attackerScale, info);
     this.emitDamage(source, target, info, kind, dealt);
     if (!Game.headless) Fx.burst('blood', info.x, info.y, info.z, -info.dx, -info.dy, -info.dz, Math.min(12, 2 + dealt / 10), 0xa01818);
     if (Actors.health[target] > 0) return;
@@ -217,12 +218,13 @@ const Damage = {
     this.lastAttacker[target] = source;
     this.lastAttackTime[target] = Sim.time;
   },
-  // MOV-017: dv = 0.15 x damage x rules.knockback x mode factor / mass factor, capped; own explosions push at full strength.
-  knockback(target, amount, info, rules) {
+  // MOV-017: dv = 0.15 x damage x mode factor / mass factor, capped; own explosions push at full strength. The ruleset's
+  // knockback scale is applied once, by S10 to every 'impulse' (R-097: it used to be applied here too, squaring it).
+  knockback(target, amount, info) {
     const length = Math.hypot(info.dx, info.dy, info.dz);
     if (length < 1e-6 || amount <= 0) return;
     const profile = Actors.profile[target], mass = profile && profile.massFactor ? profile.massFactor : 1;
-    const speed = Math.min(KNOCKBACK_CAP, KNOCKBACK_PER_DAMAGE * amount * rules.knockback * info.knockback / mass);
+    const speed = Math.min(KNOCKBACK_CAP, KNOCKBACK_PER_DAMAGE * amount * info.knockback / mass);
     emitImpulse(target, info.dx / length * speed, (info.dy / length + KNOCKBACK_LIFT) * speed, info.dz / length * speed);
   },
   emitDamage(source, target, info, kind, dealt) {

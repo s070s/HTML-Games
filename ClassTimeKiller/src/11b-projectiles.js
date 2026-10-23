@@ -399,13 +399,14 @@ const Projectiles = {
     const mode = this.modeOf(i);
     if (this.lodge[i] && mode.laser) this.stepLaser(i, mode, dt);
   },
-  // W44 lodged blade: a cutting line from the blade to its owner.
+  // W44 lodged blade: a cutting line from the blade to its owner. Walls stop it (R-006): no line while anything solid
+  // stands between the blade and the owner.
   stepLaser(i, mode, dt) {
     const owner = this.owner[i];
     if (!Actors.alive[owner] || !this.tickDue(i, dt, mode.laser.interval)) return;
     const eyeY = Actors.eyeY(owner) - 0.3, dx = Actors.x[owner] - this.x[i], dy = eyeY - this.y[i], dz = Actors.z[owner] - this.z[i];
     const length = length3(dx, dy, dz);
-    if (length < 0.5) return;
+    if (length < 0.5 || !World.lineClear(this.x[i], this.y[i], this.z[i], Actors.x[owner], eyeY, Actors.z[owner])) return;
     const count = RayHits.collect(owner, this.x[i], this.y[i], this.z[i], dx / length, dy / length, dz / length, length, 8, 0, false);
     for (let k = 0; k < count; k++) this.areaDamage(i, RayHits.ids[k], mode.laser.damage, mode, 'hit');
     if (!Game.headless) Fx.tracer(this.x[i], this.y[i], this.z[i], Actors.x[owner], eyeY, Actors.z[owner], 0xff4040);
@@ -516,23 +517,25 @@ const Projectiles = {
     this.age[i] = 0;
   },
 
-  // W17 combo: a hitscan ray that meets an energy orb before maxDistance detonates it as a big blast.
-  comboRay(shooter, mode, ox, oy, oz, dx, dy, dz, maxDistance) {
+  // W17 combo: the nearest energy orb a hitscan ray meets before maxDistance (its distance in comboDistance), or -1.
+  comboTarget(ox, oy, oz, dx, dy, dz, maxDistance) {
     let best = -1, bestDistance = maxDistance;
     for (let i = 0; i < PROJECTILE_CAP; i++) {
       if (this.state[i] !== PROJECTILE_STATE.FLYING || !this.row(i).comboTarget) continue;
       const distance = raySphere(ox, oy, oz, dx, dy, dz, this.x[i], this.y[i], this.z[i], this.row(i).radius + COMBO_TARGET_PADDING);
       if (distance >= 0 && distance < bestDistance) { best = i; bestDistance = distance; }
     }
-    if (best < 0) return false;
     this.comboDistance = bestDistance;
+    return best;
+  },
+  // The shot reached the orb: it goes off as the big combo blast.
+  detonateCombo(i, shooter, mode) {
     const blast = Damage.blast();
-    blast.x = this.x[best]; blast.y = this.y[best]; blast.z = this.z[best]; blast.owner = shooter; blast.mode = mode;
+    blast.x = this.x[i]; blast.y = this.y[i]; blast.z = this.z[i]; blast.owner = shooter; blast.mode = mode;
     blast.radius = mode.combo.radius; blast.damage = mode.combo.damage;
-    this.remove(best);
+    this.remove(i);
     Weapons.spendExtra(shooter, mode, mode.combo.ammo - mode.ammoPerShot);
     Damage.explode(blast);
-    return true;
   },
 
   // Render source: a projectile with a model (03q projectileModels) faces its flight, the rest are glowing spheres; puddles are flat discs.
