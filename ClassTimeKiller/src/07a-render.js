@@ -155,8 +155,7 @@ function readVideoSettings() {
   config.viewmodelFov = Settings.get('video.viewmodelFov');
   config.fxaa = Settings.get('video.fxaa');
   config.outlines = Settings.get('video.outlines');
-  const bob = Settings.get('video.headBob');
-  config.headBob = typeof bob === 'number' ? bob : bob ? 100 : 0;   // older saves stored a plain on/off
+  config.headBob = Settings.get('video.headBob');   // an old on/off save is turned into 0 or 100 on load (Settings.validValue)
   config.maxDpr = Settings.get('video.maxDpr');
   config.autoLower = Settings.get('video.autoLower');
   config.autoQuality = Settings.get('video.autoQuality');

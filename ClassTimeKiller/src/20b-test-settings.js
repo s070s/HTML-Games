@@ -174,6 +174,7 @@ Test.add('settings', (check) => {
   Save.load();
   Settings.applyAll();
   check('settings: bad stored values are dropped or clamped', read() === wanted(HUD_SCALE_MAX) && Render.config.fov === FOV_DEFAULT, read());
+  check('settings: an old on/off head bob reaches the renderer as 100 %', Render.config.headBob === 100, Render.config.headBob);
   Save.importText(JSON.stringify({ version: 1, settings: Object.assign({}, bad, { 'video.fov': 'wide', 'hud.scale': -5 }) }));
   check('settings: imports are checked too', read() === wanted(HUD_SCALE_MIN), read());
   Settings.resetKeys(Object.keys(bad));
