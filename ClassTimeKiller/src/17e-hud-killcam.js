@@ -13,6 +13,7 @@ const KILLCAM_SKIP_GRACE = 0.35;                            // a skip press coun
 const KILLCAM_SKIP_BUTTONS = BTN.FIRE | BTN.JUMP | BTN.USE;
 const KILLCAM_FIELDS = 6;                                   // x y z yaw pitch eye
 const KILLCAM_LOOK_FIELDS = 7;                              // speed height grounded hidden health shield champion: what a drawn pose reads
+const KILLCAM_CLOAK_SHIMMER = 2;                            // hidden: 0 no, 1 cloaked, 2 Ghostveil (shows its shimmer)
 const KILLCAM_BAR = 0.08;                                   // letterbox bar height as a share of the screen
 const KILLCAM_ORDER = 95;                                   // sim system order: after every other bookkeeping
 
@@ -54,7 +55,7 @@ const Killcam = {
   recordLook(o, id) {
     const looks = this.looks, flags = Actors.flags[id];
     looks[o] = length2(Actors.vx[id], Actors.vz[id]); looks[o + 1] = Actors.height[id];
-    looks[o + 2] = (flags & ACTOR_FLAG.ON_GROUND) !== 0 ? 1 : 0; looks[o + 3] = (flags & ACTOR_FLAG.INVISIBLE) !== 0 ? 1 : 0;
+    looks[o + 2] = (flags & ACTOR_FLAG.ON_GROUND) !== 0 ? 1 : 0; looks[o + 3] = (flags & ACTOR_FLAG.INVISIBLE) === 0 ? 0 : Powerups.setInvisible[id] ? KILLCAM_CLOAK_SHIMMER : 1;
     looks[o + 4] = Actors.health[id] / Math.max(1, Actors.maxHealth[id]); looks[o + 5] = Actors.shield[id] / Math.max(1, Actors.maxShield[id]);
     looks[o + 6] = Pve.champion[id];
   },
@@ -149,10 +150,11 @@ Render.heldWeapon = (id) => (Killcam.playing ? Killcam.weapons[Killcam.lower * M
 // Render.replayPose while it plays: every body (actors 07c, PvE enemies 14h) stands where the recording has it. The killer's is
 // not drawn (the camera is inside it), nor one that was not alive then.
 function killcamPose(id, pose) {
-  const body = Killcam.sample(id, Killcam.startTime + Math.min(Killcam.clock, Killcam.length));
+  const time = Killcam.startTime + Math.min(Killcam.clock, Killcam.length), body = Killcam.sample(id, time);
   if (id === Killcam.killer || !body.alive) return false;
   const looks = Killcam.looks, o = (Killcam.lower * MAX_ACTORS + id) * KILLCAM_LOOK_FIELDS;   // the frame last sampled: no blend for the discrete state
-  if (looks[o + 3] === 1) return false;   // it was cloaked then
+  const cloak = looks[o + 3];
+  if (cloak === 1 || (cloak === KILLCAM_CLOAK_SHIMMER && !ghostShimmerVisible(time, id))) return false;   // it was cloaked then
   pose.x = body.x; pose.y = body.y; pose.z = body.z; pose.yaw = body.yaw; pose.pitch = body.pitch;
   pose.speed = looks[o]; pose.height = looks[o + 1]; pose.grounded = looks[o + 2] === 1;
   pose.health = looks[o + 4]; pose.shield = looks[o + 5]; pose.champion = looks[o + 6]; pose.recorded = true;

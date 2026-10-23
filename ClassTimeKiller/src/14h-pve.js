@@ -941,7 +941,7 @@ const Pve = {
   },
 };
 const pveTellGlow = { amount: 0, progress: 0, r: 0, g: 0, b: 0 };
-const pvePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, recorded: false, health: 1, shield: 0, champion: -1 };   // the drawn enemy's feet and angles (Pve.placeBody); recorded: the replay's health, shield and champion
+const pvePose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, recorded: false, speed: 0, height: STAND_HEIGHT, grounded: true, health: 1, shield: 0, champion: -1 };   // the drawn enemy's feet and angles (Pve.placeBody); recorded: the replay's state
 const pveTellColor = new Float32Array(3);
 
 // NPC-004: a barrier champion's shield may carry an element (x1.5 for the matching element, x0.75 for others).
@@ -1005,7 +1005,7 @@ function drawShieldShell(batch, id, row) {
   const colors = PVE_SHIELD_COLORS, slot = Damage.shieldElement[id] * 3, size = row.size, instance = placePveMark();
   instance.sx = instance.sz = TORSO_RADIUS * 2.6 * size; instance.sy = 0.06;
   instance.r = colors[slot]; instance.g = colors[slot + 1]; instance.b = colors[slot + 2];
-  instance.emissive = 0.4 + 0.6 * (pvePose.recorded ? pvePose.shield : Actors.shield[id] / Math.max(1, Actors.maxShield[id]));
+  instance.emissive = 0.4 + (pvePose.recorded ? 0.6 * pvePose.shield : 0.6 * Actors.shield[id] / Math.max(1, Actors.maxShield[id]));
   for (let ring = 0; ring < PVE_SHELL_HEIGHTS.length; ring++) {   // an index loop: for-of boxes each float it yields
     instance.y = pvePose.y + PVE_SHELL_HEIGHTS[ring] * size;
     batch.meshFrom('ring', instance);

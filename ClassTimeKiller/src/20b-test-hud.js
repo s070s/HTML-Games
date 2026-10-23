@@ -922,7 +922,7 @@ Test.add('hud', (check) => hudTestWith(() => {
     Sim.run(KILLCAM_STEP_TICKS);
   }
   const hurtSum = hudTestEnemyColorSum();
-  Actors.vx[runner] = Actors.vz[runner] = 0; Actors.flags[runner] |= ACTOR_FLAG.INVISIBLE;   // by the replay it stands still and is cloaked
+  Actors.vx[runner] = Actors.vz[runner] = 0; Powerups.give(runner, CAT.powerups.byId('ghostveil'), 0);   // by the replay it stands still and is cloaked
   Actors.health[monster] = Actors.maxHealth[monster];
   const healthySum = hudTestEnemyColorSum();
   Actors.alive[player] = 0;
@@ -931,9 +931,24 @@ Test.add('hud', (check) => hudTestWith(() => {
   updateCamera(0, 1);
   actorBatch.clear(); shadowBatch.clear();
   fillActors(0.1, 1);
-  check('killcam: a cloaked body is replayed visible when it was visible then', actorBatch.counts.reduce((sum, count) => sum + count, 0) > 5);
+  let runnerParts = 0;
+  for (let shape = 0; shape < SHAPES.length; shape++) {
+    for (let i = 0; i < actorBatch.counts[shape]; i++) runnerParts += Math.abs(actorBatch.data[(shape * actorBatch.capacity + i) * INSTANCE_FLOATS + 2] - 10) < 1.5 ? 1 : 0;
+  }
+  check('killcam: a body that took Ghostveil after the recording is replayed, whatever its live shimmer', Powerups.setInvisible[runner] === 1 && runnerParts > 5, runnerParts);
   Render.replayPose(runner, actorPose); animateActor(runner, actorPose, 0.1, LOD.near);
   check('killcam: a replayed body walks with the recorded speed, not the live standstill', actorPose.recorded && Test.near(actorPose.speed, 5, 0.5) && Math.abs(actorPose.swing) > 0.01, JSON.stringify(actorPose));
   check('killcam: a replayed enemy shows the recorded health shade', hurtSum < healthySum - 0.01 && Test.near(hudTestEnemyColorSum(), hurtSum, 1e-3), hurtSum + ' ' + healthySum + ' ' + hudTestEnemyColorSum());
+  for (let frame = 0; frame < KILLCAM_FRAMES; frame++) Killcam.looks[(frame * MAX_ACTORS + runner) * KILLCAM_LOOK_FIELDS + 3] = KILLCAM_CLOAK_SHIMMER;   // as if it carried Ghostveil then
+  let shown = 0, hidden = 0, matches = true;
+  for (let step = 0; step < 24; step++) {
+    Killcam.clock = step * 0.05;
+    const drawn = Render.replayPose(runner, actorPose);
+    matches = matches && drawn === ghostShimmerVisible(Killcam.startTime + Killcam.clock, runner);
+    if (drawn) shown++; else hidden++;
+  }
+  check('killcam: a Ghostveil carrier flickers in the replay by its own clock instead of vanishing', matches && shown > 0 && hidden > shown, shown + ' shown, ' + hidden + ' hidden');
   Killcam.stop();
-  actorBatch.clear(); shadowBatch.clear();}));
+  actorBatch.clear(); shadowBatch.clear();
+  actorPose.recorded = false; actorPose.speed = 0;
+}));

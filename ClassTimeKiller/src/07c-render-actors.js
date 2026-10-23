@@ -376,7 +376,7 @@ const ACTOR_CULL_HALF_WIDTH = 1.2, ACTOR_CULL_HEIGHT = 2.4;
 const actorPhase = new Float32Array(MAX_ACTORS);
 const actorPendingSeconds = new Float32Array(MAX_ACTORS);   // walk time not yet applied (low-rate far LOD)
 const actorStyle = { r: 1, g: 1, b: 1, emissive: 0, scale: 1, headScale: 1, visible: true };
-const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0, recorded: false, speed: 0, height: STAND_HEIGHT, grounded: true };   // recorded: a killcam pose carries its own speed, height and grounded
+const actorPose = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, swing: 0, drop: 0, legSquash: 1, lift: 0, recorded: false, speed: 0, height: STAND_HEIGHT, grounded: true, health: 1, shield: 0, champion: -1 };   // recorded: a killcam pose carries its own state (see pvePose)
 const tintColor = new Float32Array(4);   // r g b and the self-lit share of the part being emitted (partColor)
 // placeActorPart's result: the part centre (from the feet) and pitch, and the size factors it used (squash: crouched legs, grow: head scale).
 const rotated = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, squash: 1, grow: 1 };
