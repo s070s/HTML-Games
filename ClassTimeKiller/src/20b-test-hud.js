@@ -89,18 +89,21 @@ function hudTestKill(victim, killer, extra) {
 }
 
 // Temporary content for the hooks other helpers fill later (gadgets, abilities, economy, items); returns the undo function.
+// The rows are made once and reused, as the real hooks do, so the HUD allocation probe measures the HUD alone.
 function hudTestStubs() {
   const saved = [Gadgets.hudState, Abilities.hudState, Economy.hudState, Items.activePowerups, Items.timers];
+  const dash = { id: 'dash', name: 'Dash', key: 'ability1', ready: false, cooldown: 0.5, charges: 2, active: false }, wall = { id: 'wall', name: 'Wall', key: 'ability2', ready: true, cooldown: 0, charges: 1, active: true };
+  const fury = { id: 'fury', name: 'Fury', remaining: 8, duration: 20, color: '#ff6a3d' }, megacell = { item: 'megacell', x: 0, y: 0, z: 10, remaining: 14, group: 'power' };
   Gadgets.hudState = (id, out) => { out.grenade = 'frag'; out.grenadeCount = 2; out.gadget = 'turret'; out.gadgetCount = 1; out.gadgetCooldown = 0.4; return out; };
   Abilities.hudState = (id, out) => {
     out.slots.length = 0;
-    out.slots.push({ id: 'dash', name: 'Dash', key: 'ability1', ready: false, cooldown: 0.5, charges: 2, active: false }, { id: 'wall', name: 'Wall', key: 'ability2', ready: true, cooldown: 0, charges: 1, active: true });
+    out.slots.push(dash, wall);
     out.meter.kind = 'ultimate'; out.meter.value = 0.6; out.meter.ready = false;
     return out;
   };
   Economy.hudState = (id, out) => { out.money = 1800; out.nextRoundMoney = 2400; out.canBuy = true; out.buyTimeLeft = 12; return out; };
-  Items.activePowerups = (id, out) => { out.length = 0; out.push({ id: 'fury', name: 'Fury', remaining: 8, duration: 20, color: '#ff6a3d' }); return 1; };
-  Items.timers = (out) => { out.length = 0; out.push({ item: 'megacell', x: 0, y: 0, z: 10, remaining: 14, group: 'power' }); return 1; };
+  Items.activePowerups = (id, out) => { out.length = 0; out.push(fury); return 1; };
+  Items.timers = (out) => { out.length = 0; out.push(megacell); return 1; };
   return () => { [Gadgets.hudState, Abilities.hudState, Economy.hudState, Items.activePowerups, Items.timers] = saved; };
 }
 
@@ -746,7 +749,7 @@ function hudTestMeasure(frames) {
   }
   return best;
 }
-// The busy scene of the cost test; `measure(scene)` runs inside it. Used by the cost test and by DebugApi.hudHeap.
+// The busy scene of the cost and allocation tests; `measure(scene)` runs inside it.
 function hudTestBusy(measure) {
   return hudTestWith(() => {
     const scene = hudTestMatch(), undo = hudTestStubs();
@@ -758,13 +761,18 @@ function hudTestBusy(measure) {
   });
 }
 DebugApi.hudCost = () => hudTestBusy(() => ({ ms: hudTestMeasure(HUD_TEST_COST_FRAMES), quads: HudBatch.quads }));
-// JS heap growth over many frames of the busy scene (Chrome only, coarse): a quick way to see per-frame allocation. Returns bytes, -1 without performance.memory.
-DebugApi.hudHeap = (frames) => hudTestBusy(() => {
-  if (!performance.memory) return -1;
-  hudTestMeasure(200);
-  const before = performance.memory.usedJSHeapSize;
-  for (let frame = 0; frame < frames; frame++) hudTestFrame();
-  return performance.memory.usedJSHeapSize - before;
+
+// PERF-006: the heap bytes of one HUD frame of the busy scene, through the perf group's allocation probe. A frame every
+// HUD_TEST_ALLOC_STRIDE probe calls keeps a round short enough to rarely hold a GC. The budget is what is known to be left:
+// the middle compiler tier boxes float arguments of pen calls it does not inline (docs/PERFORMANCE.md 3.8); a drawer that
+// starts building strings or records every frame goes over it.
+const HUD_TEST_ALLOC_STRIDE = 16;
+const HUD_TEST_ALLOC_BUDGET_BYTES = 1024;   // per frame
+Test.add('hud', (check) => {
+  if (!perfHeapCounterWorks()) { check.skip('HUD allocation probe', 'no exact heap counter on this page (Chrome without --enable-precise-memory-info)'); return; }
+  const bytes = hudTestBusy(() => perfAllocatedBytes((i) => { if (i % HUD_TEST_ALLOC_STRIDE === 0) hudTestFrame(); }));
+  const perFrame = bytes / (PERF_ALLOC_CALLS / HUD_TEST_ALLOC_STRIDE);
+  check('allocation: a HUD frame of the busy scene stays within its budget', perFrame < HUD_TEST_ALLOC_BUDGET_BYTES, Math.round(perFrame) + ' bytes per frame');
 });
 
 // HP-007 downed cues: a marker over a downed teammate, the hold-Use hint near it, the revive ring, the own bleed-out text.
