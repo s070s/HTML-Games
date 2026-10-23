@@ -3683,6 +3683,34 @@ function platformTonnes(def) {
   if (def.style === 'infantry') return INFANTRY_TONNES;
   return RAM_TONNES * Math.pow(def.mass, RAM_TONNES_POW);
 }
+/* Load on structures: a ground unit that lands on a structure piece brings 0.5·m·k³·v² of vertical energy (kJ, v its
+   falling speed), taken through the piece's RAM floor and perHp as a ram is; a piece it breaks lets it fall on through
+   with the energy left over (Platform.crush). A unit heavier than what a piece carries wears it down while it stands
+   there (Platform.bear). Objectives, bridge decks, indestructible pieces and rock take neither (loadExempt). */
+const LOAD_BEAR = { wood: 3, masonry: 20, concrete: 24, metal: 24 };   // t per m² of top a solid piece carries: a crate 20 t, a brick wall panel 60 t
+const LOAD_ROOF_SHARE = 0.05;   // a roof or floor slab is a span, not a solid block: it carries this share of that (a 6 m building slab 36 t: a medium mech stands on it, a heavy one does not)
+const LOAD_ROOF_SPAN = 6;       // m: a span wider than this carries less per m², as it bends more (a 13 x 11 m house roof 51 t)
+const LOAD_ROOFED = { house: true, warehouse: true, depot: true, factory: true, command: true };   // plain structures that are hollow buildings: their top is a roof
+const LOAD_WEAR = 1250;         // kJ per second an overloaded piece takes per unit of overload ((load - capacity) / capacity): a heavy mech breaks a building's roof slab in about 3 s, a house roof in about 4 s
+const LOAD_OVER_MAX = 4;        // overload past this wears no faster
+const LOAD_STEP = 0.2, LOAD_STEP_SPEED = 10;   // footfalls: a unit moving at LOAD_STEP_SPEED m/s or more weighs this share more
+const LOAD_TICK = 0.25;         // s between wear hits, so a unit on a roof sends few damage events and structure updates
+const VEHICLE_PERCH = 1;        // m a ground vehicle sits above its wheels' ground or deck before it looks for a structure top under it (only one put or thrown up there)
+const VEHICLE_SETTLE = 0.5;     // m above that top within which it rests its weight on it
+const LOAD_RULES = { land: true, floor: true, stand: true, capacity: true, objectives: true, bridges: true };   // self-test switches: each rule can be turned off to prove its test
+/* true when piece s takes no load or landing damage: objectives fall only to weapons (D45), and bridge decks carry any
+   platform, as units cross them in missions and in traffic */
+function loadExempt(s) {
+  return !s.ram || s.indestructible || (!!s.objective && LOAD_RULES.objectives) || (s.type === 'bridge' && LOAD_RULES.bridges);
+}
+/* what piece s carries in tonnes, from its material and the size of its top; a roof or floor slab carries less */
+function loadCapacity(s) {
+  if (!LOAD_RULES.capacity) return 0;
+  const solid = (LOAD_BEAR[s.mat] || 0) * s.w * s.d;
+  if (s.kind !== 'slab' && s.kind !== 'roof' && !LOAD_ROOFED[s.type] && s.type !== 'bridge') return solid;
+  const span = LOAD_ROOF_SPAN / Math.min(s.w, s.d);
+  return solid * LOAD_ROOF_SHARE * (span < 1 ? span * span : 1);
+}
 const OBJECTIVE_STRUCT_SCORE = 300;   // score for destroying a mission objective structure
 const STRUCT_SCORE = 10;              // score for any other hostile-owned structure a player brings down
 const SHIELDED_MSG_GAP = 4;           // seconds between "target shielded" reminders to one player
@@ -12897,13 +12925,15 @@ function tpos(t, out) {
   return out;
 }
 const talive = (t) => !!t && (t.isStruct ? !t.destroyed : !t.dead);
+let GROUND_PIECE = null;   // the structure the last groundLevel call found on top (null: the terrain), so a unit learns what it stands on without a second query
 function groundLevel(x, z, y, r) {
-  let g = Terrain.h(x, z);
+  let g = Terrain.h(x, z), on = null;
   const n = Hash.query(x - 0.5, z - 0.5, x + 0.5, z + 0.5, -1e9, y + 1);
   for (let i = 0; i < n; i++) {
     const s = Hash.out[i];
-    if (!s.destroyed && y >= s.top - 0.6 && s.top > g && structContains(s, x, z, 0)) g = s.top;
+    if (!s.destroyed && y >= s.top - 0.6 && s.top > g && structContains(s, x, z, 0)) { g = s.top; on = s; }
   }
+  GROUND_PIECE = on;
   return g;
 }
 
@@ -13646,6 +13676,7 @@ class Platform {
     this.outOfBounds = false; this.arcSpeed = 0; this.noTarget = false; this.warnIncoming = null; this.isDecoy = false;
     this.training = false; this.spawnInfo = null; this.ejected = false; this.withdrew = false; this.shieldMsgT = 0;
     this.sinking = 0; this.wake = false;   // ships: seconds a wreck has left (Wrecks), white water behind it (also on co-op guests)
+    this.support = null; this.loadT = 0;   // the structure piece a ground unit stands on (null: the ground), and seconds since its last load hit (bear)
     // m from its centre to what of it reaches others first (a ship's bow or stern, Naval.reach), s a ship has sat on dry ground
     this.hullR = def.naval ? Naval.reach(def) : def.radius; this.strandT = 0;
     // artillery (Arty): the crew wants it deployed, how far it is (0-1), the arc picked, and the solution for the gun in hand
@@ -13814,14 +13845,16 @@ class Platform {
     this.x += this.vx * dt; this.z += this.vz * dt; this.y += this.vy * dt;
     if (this.grounded && this.climbBlocked(px, pz)) { this.x = px; this.z = pz; this.vx = this.vz = 0; }   // jump jets still lift it up a ledge
     if (this.grounded && this.y - Terrain.h(this.x, this.z) < 0.5) this.slideDown(dt);   // not off a roof
-    let gy = groundLevel(this.x, this.z, this.y + 0.6, this.radius);
+    let gy = groundLevel(this.x, this.z, this.y + 0.6, this.radius), on = GROUND_PIECE;
     const floatY = Water.any && d.style === 'infantry' ? Water.level(this.x, this.z) - SWIM_SINK : -Infinity;   // a soldier swims at the surface
     const afloat = floatY > gy;
-    if (afloat) gy = floatY;
+    if (afloat) { gy = floatY; on = null; }
     if (this.grounded) {
       if (this.y - gy > 1.4) this.grounded = false; else this.y = gy;
     }
-    if (!this.grounded && this.y <= gy) {
+    const through = !this.grounded && this.y <= gy && on ? this.crush(on, -this.vy) : -1;
+    if (through >= 0) { this.vy = -through; on = null; }   // it broke the piece it came down on and falls on through
+    else if (!this.grounded && this.y <= gy) {
       const impact = -this.vy;
       this.y = gy; this.grounded = true; this.chute = false;
       if (impact > 12) {
@@ -13832,6 +13865,8 @@ class Platform {
       }
       this.vy = 0;
     }
+    this.support = this.grounded ? on : null;
+    if (this.support) this.bear(this.support, dt);
     // legs and torso
     const spd = Math.hypot(this.vx, this.vz);
     if (spd > 1.5 && this.grounded) {
@@ -13889,14 +13924,22 @@ class Platform {
     this.vx = fx * vf + rx * vl; this.vz = fz * vf + rz * vl;
     const px = this.x, pz = this.z;
     this.x += this.vx * dt; this.z += this.vz * dt;
-    if (this.climbBlocked(px, pz)) { this.x = px; this.z = pz; this.vx *= 0.3; this.vz *= 0.3; }
-    this.slideDown(dt);
+    if (!this.support && this.climbBlocked(px, pz)) { this.x = px; this.z = pz; this.vx *= 0.3; this.vz *= 0.3; }
+    if (!this.support) this.slideDown(dt);   // on a roof the slope of the ground below does not matter
     // suspension approximation: sample four points
     const L = this.radius, sy = Math.sin(this.yaw), cy = Math.cos(this.yaw);
     const hF = this.restH(this.x + sy * L, this.z + cy * L), hB = this.restH(this.x - sy * L, this.z - cy * L);
     const hL = this.restH(this.x + cy * L, this.z - sy * L), hR = this.restH(this.x - cy * L, this.z + sy * L);
-    const target = (hF + hB + hL + hR) / 4 + (g.type === 'hover' ? g.ride + Math.sin(this.age * 3 + this.seed) * 0.25 : 0);
+    const ride = g.type === 'hover' ? g.ride + Math.sin(this.age * 3 + this.seed) * 0.25 : 0;
+    let rest = (hF + hB + hL + hR) / 4, on = null;
+    if (this.y > rest + ride + VEHICLE_PERCH) {   // put or thrown up onto a structure: it rests on the top under it
+      const top = groundLevel(this.x, this.z, this.y - ride, this.radius);
+      if (GROUND_PIECE && top > rest) { rest = top; on = GROUND_PIECE; }
+    }
+    const target = rest + ride;
     this.y = damp(this.y, target, 14, dt);
+    this.support = on && this.y - target < VEHICLE_SETTLE ? on : null;   // not while lifted or still dropping onto it
+    if (this.support) this.bear(on, dt);
     this.pitch = damp(this.pitch, Math.atan((hF - hB) / (2 * L)), 8, dt);
     this.roll = damp(this.roll, Math.atan((hL - hR) / (2 * L)) - c.turn * (g.type === 'hover' ? 0.12 : 0.03) * clamp(sp / 20, 0, 1), 8, dt);
     this.speed = Math.hypot(this.vx, this.vz);
@@ -14260,6 +14303,32 @@ class Platform {
     if (head) { this.vx *= keep; this.vz *= keep; this.speed *= keep; } else { const cut = vn * (1 - keep); this.vx += nx * cut; this.vz += nz * cut; }
     return true;
   }
+  /* Landing on structure piece s at `impact` m/s, host only: the piece takes the vertical energy 0.5·m·k³·v² through its
+     material's floor and perHp, as a ram does. Returns the falling speed left when it broke (the unit falls on through
+     to what is below), else -1 (it lands on it). The broken piece reaches guests in 'st'. */
+  crush(s, impact) {
+    if (Net.guest || !LOAD_RULES.land || s.destroyed || impact < RAM_MIN_SPEED || loadExempt(s)) return -1;
+    const rm = s.ram, k3 = this.scale * this.scale * this.scale, e = 0.5 * this.tonnes * k3 * impact * impact;
+    if (e <= (LOAD_RULES.floor ? rm.floor : 0)) return -1;
+    const cost = s.hp * rm.perHp / (W.structDamage || 1);   // energy that breaks what is left of it
+    damageStruct(s, e / rm.perHp, 'ram', this, 1);
+    if (!s.destroyed) return -1;
+    return impact * Math.sqrt(Math.max(0, e - cost) / e);
+  }
+  /* Standing on structure piece s, host only: a unit heavier than the piece carries (loadCapacity) wears it down every
+     LOAD_TICK by its overload, a little more while it moves (footfalls). The piece reaches guests in 'st'. */
+  bear(s, dt) {
+    this.loadT += dt;
+    if (this.loadT < LOAD_TICK) return;
+    const t = this.loadT;
+    this.loadT = 0;
+    if (Net.guest || !LOAD_RULES.stand || s.destroyed || loadExempt(s)) return;
+    const k3 = this.scale * this.scale * this.scale, steps = 1 + LOAD_STEP * Math.min(1, this.speed / LOAD_STEP_SPEED);
+    const load = this.tonnes * k3 * steps, cap = loadCapacity(s);
+    if (load <= cap) return;
+    const over = cap > 0 ? Math.min(LOAD_OVER_MAX, (load - cap) / cap) : LOAD_OVER_MAX;
+    damageStruct(s, LOAD_WEAR * over * t / s.ram.perHp, 'ram', this, 1);
+  }
   /* a convoy truck or its escort on a mission's scripted route: what it breaks on the way costs its hull nothing */
   scripted() {
     const ai = this.ai, lead = ai && ai.follow;
@@ -14407,11 +14476,13 @@ class Platform {
   gravMult() { return this.status.grav > 0 ? this.status.gravMult : 1; }
   /* lifted by a superweapon (after the platform's own update): rise to floatH, hang, fall, take the slam on landing */
   stepFloat(dt) {
-    const s = this.status, g = groundLevel(this.x, this.z, this.y, this.radius);
+    const s = this.status, g = groundLevel(this.x, this.z, this.y, this.radius), on = GROUND_PIECE;
     if (s.float > 0) { s.floatCur = approach(s.floatCur, s.floatH, dt * Math.max(10, s.floatH * 1.5)); s.fallV = 0; }
     else { s.fallV += GRAVITY * dt; s.floatCur -= s.fallV * dt; }
     if (s.floatCur <= 0) {
       s.floatCur = 0; s.floatH = 0;
+      const through = on ? this.crush(on, s.fallV) : -1;
+      if (through >= 0) this.vy = -through;   // came down through a structure: it falls on with the speed left (a vehicle settles)
       if (s.slam > 0) {
         const dmg = s.slam; s.slam = 0;
         SW.dealing = true;
@@ -31561,6 +31632,121 @@ const SelfTest = {
         this.check('an untouched tree is never ticked', !listed(tree) && W.hotPlain.length < W.plain.length);
         this.check('platform colours are tinted into scratch arrays', tint([1, 1, 1], 0.5, 0.1, TINT_MAIN) === TINT_MAIN && Math.abs(TINT_MAIN[0] - 0.6) < 1e-9);
       } finally { Game.reportError = keepRep; Game.quitToMenu(); }
+    });
+    t('load damage', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [{ x: 0, z: 0, r: 300, tag: 'open' }], difficulty: 'veteran', seed: 5, start: { x: 0, z: -400, yaw: 0 } });
+      W.mission = null;
+      const keepGuest = Net.guest, keepRules = Object.assign({}, LOAD_RULES), keepDiff = S.difficulty, keepPid = Save.data.platformId;
+      let nextX = -240;
+      // a fresh shop and one of its roof slabs (each case gets its own building); a unit of def id on top of piece s,
+      // h m up (0: standing on it); `secs` of simulation, ending early once `until` holds
+      const roof = () => { const b = Bld.make('shop', nextX, 120, makeRng(4), 'load'); nextX += 40; return b.pieces.find((s) => s.kind === 'roof'); };
+      const put = (id, s, h) => {
+        const p = new Platform(PLATFORMS[id], { team: 0, x: s.x, z: s.z, yaw: 0 });
+        p.y = s.top + h; p.vy = 0; p.grounded = h === 0;
+        W.platforms.push(p);
+        return p;
+      };
+      const run = (units, secs, until) => {
+        let n = 0;
+        for (; n < secs * 60 && !(until && until()); n++) for (const p of units) {   // as the battle loop steps a platform
+          p.tickStatus(STEP);
+          const k = p.timeMult();
+          if (k > 0) p.update(STEP * k);
+          if (!p.dead && (p.status.float > 0 || p.status.floatCur > 0)) p.stepFloat(STEP);
+        }
+        return n / 60;
+      };
+      const whole = (s) => !s.destroyed && s.hp === s.maxHp;
+      const off = (rule, fn) => { LOAD_RULES[rule] = false; try { return fn(); } finally { LOAD_RULES[rule] = true; } };
+      try {
+        // landing: a heavy mech from 15 m punches through a roof; a soldier from the same height leaves it whole
+        const r1 = roof(), heavy = put('colossus', r1, 15);
+        run([heavy], 3);
+        this.check('a heavy mech dropped 15 m onto a roof breaks the roof piece and ends lower', r1.destroyed && heavy.y < r1.top - 1, 'at ' + (heavy.y - r1.top).toFixed(1) + ' m from the roof top');
+        const r1b = roof(), heavyOff = put('colossus', r1b, 15);
+        off('land', () => run([heavyOff], 3, () => heavyOff.grounded));
+        this.check('(with landing damage off the roof takes the landing whole)', whole(r1b) && Math.abs(heavyOff.y - r1b.top) < 0.1);
+        const r2 = roof(), soldier = put('ranger', r2, 15);
+        run([soldier], 3);
+        this.check('infantry dropped 15 m onto a roof breaks nothing', whole(r2) && Math.abs(soldier.y - r2.top) < 0.1);
+        const r2b = roof(), soldierOff = put('ranger', r2b, 15);
+        off('floor', () => run([soldierOff], 3));
+        this.check('(with the material floor off the soldier marks it)', r2b.hp < r2b.maxHp);
+        // a unit thrown up (a superweapon's lift) that comes down on a roof counts too
+        const r2c = roof(), thrown = put('bastion', r2c, 0);
+        thrown.status.float = 0.5; thrown.status.floatH = 15;
+        const landed = () => thrown.status.float <= 0 && thrown.status.floatCur <= 0;
+        run([thrown], 4, landed);
+        this.check('a heavy tank thrown 15 m up that comes down on a roof breaks it as it lands', landed() && r2c.destroyed);
+        const r2d = roof(), thrownOff = put('bastion', r2d, 0);
+        thrownOff.status.float = 0.5; thrownOff.status.floatH = 15;
+        off('land', () => run([thrownOff], 4, () => thrownOff.status.float <= 0 && thrownOff.status.floatCur <= 0));
+        this.check('(with landing damage off it lands on the roof whole)', whole(r2d));
+        // standing: a heavy mech caves a roof slab in within 5 s; a soldier and a light buggy stand on one for 10 s
+        const r3 = roof(), stander = put('colossus', r3, 0), took = run([stander], 6, () => r3.destroyed);
+        this.check('a heavy mech standing on a roof slab collapses it within 5 s', r3.destroyed && took <= 5, took.toFixed(2) + ' s');
+        const r3b = roof(), standOff = put('colossus', r3b, 0);
+        off('stand', () => run([standOff], 5));
+        this.check('(with standing load off it holds)', whole(r3b));
+        const r4 = roof(), r5 = roof(), trooper = put('ranger', r4, 0), buggy = put('jackal', r5, 0);
+        run([trooper, buggy], 10);
+        this.check('infantry and a light buggy standing on roof slabs for 10 s do nothing', whole(r4) && whole(r5) && trooper.support === r4 && buggy.support === r5 && Math.abs(buggy.y - r5.top) < 0.2, 'buggy at ' + (buggy.y - r5.top).toFixed(2) + ' m');
+        const r4b = roof(), r5b = roof(), trooperOff = put('ranger', r4b, 0), buggyOff = put('jackal', r5b, 0);
+        off('capacity', () => run([trooperOff, buggyOff], 2));
+        this.check('(with no load capacity both wear their slabs)', r4b.hp < r4b.maxHp && r5b.hp < r5b.maxHp);
+        const r6 = roof(), medium = put('bulwark', r6, 0);
+        run([medium], 10);
+        this.check('a medium mech standing on a roof slab for 10 s leaves it whole', whole(r6) && medium.support === r6);
+        const r7 = roof(), tank = put('bastion', r7, 0);
+        run([tank], 2);
+        this.check('a heavy tank on a shop roof cracks it', r7.destroyed || r7.state >= 1, 'state ' + r7.state);
+        const house = addStruct('house', 120, 200, {}), onHouse = put('colossus', house, 0), houseT = run([onHouse], 8, () => house.destroyed);
+        this.check('a heavy mech on a house roof collapses it within a few seconds', house.destroyed && houseT <= 6, houseT.toFixed(2) + ' s');
+        // bridge decks carry the heaviest platform there is (and the scaled-up superweapon titan) for 20 s
+        let heaviest = null;
+        for (const id in PLATFORMS) {
+          const d = PLATFORMS[id];
+          if ((d.kind !== 'mech' && d.kind !== 'ground') || d.speed <= 0 || (d.ground && d.ground.type === 'static')) continue;
+          if (!heaviest || platformTonnes(d) > platformTonnes(heaviest)) heaviest = d;
+        }
+        const deck = (x) => addStruct('bridge', x, 260, { y: Terrain.h(x, 260) + 2, dims: { w: 10, h: BRIDGE_DECK, d: 8 } });
+        const d1 = deck(-100), d2 = deck(-60), big = put(heaviest.id, d1, 0), titan = put('swcTitan', d2, 0);
+        titan.setScale(2.4);
+        run([big, titan], 20);
+        this.check('the heaviest platform (' + heaviest.id + ') and a titan parked on bridge decks for 20 s do nothing', whole(d1) && whole(d2) && big.support === d1 && titan.support === d2, Math.round(platformTonnes(heaviest)) + ' t, titan ' + Math.round(titan.tonnes * 13.824) + ' t');
+        const d1b = deck(-20), d2b = deck(20), bigOff = put(heaviest.id, d1b, 0), titanOff = put('swcTitan', d2b, 0);
+        titanOff.setScale(2.4);
+        off('bridges', () => run([bigOff, titanOff], 4));
+        this.check('(treated as plain spans the decks give way)', d1b.hp < d1b.maxHp && d2b.hp < d2b.maxHp);
+        // an objective takes no landing or load damage (D45)
+        const hq = addStruct('house', 200, 200, { objective: { name: 'hq' } }), onHq = put('colossus', hq, 15);
+        run([onHq], 8);
+        this.check('an objective takes no landing or load damage', whole(hq) && onHq.support === hq);
+        const hqOff = addStruct('house', 240, 240, { objective: { name: 'hq' } }), onHqOff = put('colossus', hqOff, 15);
+        off('objectives', () => run([onHqOff], 3));
+        this.check('(without the exemption it would)', hqOff.hp < hqOff.maxHp);
+        // a co-op guest runs none of it: the host's 'st' brings the broken pieces (D6)
+        const keepDS = damageStruct;
+        let calls = 0;
+        const r8 = roof(), r9 = roof(), guestDrop = put('colossus', r8, 15), guestStand = put('colossus', r9, 0);
+        Net.guest = true;
+        damageStruct = function () { calls++; return keepDS.apply(this, arguments); };
+        try { run([guestDrop, guestStand], 2); } finally { damageStruct = keepDS; Net.guest = keepGuest; }
+        this.check('a guest breaks nothing by landing or standing', calls === 0 && whole(r8) && whole(r9), calls + ' damage calls');
+        // m4: with its ambushes gone, every convoy truck drives the route to the forward base and never rests on a structure
+        Game.startSession({ mode: 'mission', missionId: 'm4', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        for (let i = 0; i < 3; i++) Game.tick(STEP);   // the mission's later() spawns
+        const trucks = W.platforms.filter((p) => p.def.id === 'truck');
+        for (const p of W.platforms) if (p.team === 1) p.dead = true;
+        for (const p of trucks) p.ai.enabled = true;
+        let perched = 0, secs = 0;
+        for (; secs < 300 && trucks.some((p) => !p.dead); secs += STEP) {
+          W.time += STEP;
+          for (const p of trucks) if (!p.dead) { p.ai.update(STEP); p.update(STEP); if (p.support) perched++; }
+        }
+        this.check('the m4 convoy still drives its route to the end and never rests on a structure', trucks.length === 4 && trucks.every((p) => p.arrivedFlag) && perched === 0, trucks.filter((p) => p.arrivedFlag).length + ' of ' + trucks.length + ' arrived in ' + Math.round(secs) + ' s, ' + perched + ' perched ticks');
+      } finally { Object.assign(LOAD_RULES, keepRules); Net.guest = keepGuest; S.difficulty = keepDiff; Save.data.platformId = keepPid; Game.quitToMenu(); }
     });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
