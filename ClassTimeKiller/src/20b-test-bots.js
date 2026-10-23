@@ -611,6 +611,12 @@ Test.add('bots', (check) => {
   }
   // S09 links no rimless swim exit any more (navHasRim); the blocked kind stays for exits a bot fails at run time.
   check('harbor has open water exits and no rimless ones', open > 0 && blocked === 0 && exitCount > 0, open + ' open, ' + blocked + ' blocked');
+  let water = -1;
+  for (let node = 0; node < Nav.nodeCount && water < 0; node++) if (Nav.nodeFlags[node] & NAV_NODE.WATER) water = node;
+  const first = nearestExit(water, Nav.nodeX[water], Nav.nodeY[water], Nav.nodeZ[water]);
+  markBlockedExit(first);
+  const second = nearestExit(water, Nav.nodeX[water], Nav.nodeY[water], Nav.nodeZ[water]);
+  check('a blocked exit is never the nearest exit again', first >= 0 && second !== first, first + ' then ' + second);
 });
 
 // ---- DIF-003: the adaptive shift follows the player's team in team modes and the ranking in free-for-all ----

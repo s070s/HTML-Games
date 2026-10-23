@@ -602,7 +602,9 @@ function classifyExit(to) {
 function nearestExit(from, x, y, z) {
   let best = -1, bestDistance = Infinity;
   for (let i = 0; i < exitCount; i++) {
-    const node = exitList[i], distance = length3(Nav.nodeX[node] - x, Nav.nodeY[node] - y, Nav.nodeZ[node] - z);
+    const node = exitList[i];
+    if (exitBlocked(node)) continue;   // a swimmer failed here: never sent back to it
+    const distance = length3(Nav.nodeX[node] - x, Nav.nodeY[node] - y, Nav.nodeZ[node] - z);
     if (distance < bestDistance && Nav.reachable(from, node)) { bestDistance = distance; best = node; }
   }
   return best;
