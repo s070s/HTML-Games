@@ -583,7 +583,7 @@ Test.add('weapons', (check) => {
   Weapons.setLoadout(id, ['tempest']);
   Game.playerId = id;
   const model = Render.viewModel({});
-  check('Render.viewModel describes the held weapon', model.visible && model.shape === 'rifle' && model.swap === 1 && model.reload === 0 && model.ads === 0);
+  check('Render.viewModel describes the held weapon', model.visible && model.shape === 'rifle' && model.swap === 0 && model.reload === 0 && model.ads === 0);
   Game.playerId = -1;
   TestArena.finish();
 });

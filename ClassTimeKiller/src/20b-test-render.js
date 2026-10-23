@@ -164,7 +164,7 @@ async function withRenderer(run) {
     Game.headless = wasHeadless; Benchmark.active = benchmarkActive; Benchmark.done = benchmarkDone; Render.worldQuery = worldQuery;
     Render.size.scale = renderScale; Render.size.dirty = true; ScaleControl.smoothedMs = smoothedMs; resetScaleCeiling(ScaleControl);
     GpuTimer.extension = timerExtension; GpuTimer.lastMs = timerMs; StepDown.slowSeconds = 0;
-    Render.cameraOverride = null; Render.viewModel = null; Render.actorStyle = null;
+    Render.cameraOverride = null; Render.viewModel = MATCH_VIEW_MODEL; Render.actorStyle = null;
     Game.state = 'menu'; Game.paused = false; Game.playerId = -1;
     Actors.clear(); World.clear(); clearWorldMesh(); Fx.clear(); Settings.resetKeys(settingKeysStarting('video.'));
   }
@@ -183,6 +183,7 @@ function makeTestActor(kind, team, x, z) {
   return id;
 }
 
+const MATCH_VIEW_MODEL = Render.viewModel;   // the real hook (S11, wrapped by S15): renderDemo and tests swap in stubs
 const batchInstances = (batch) => batch.counts.reduce((sum, count) => sum + count, 0);
 const instanceOffset = (batch, shape, index) => (SHAPE_INDEX[shape] * batch.capacity + index) * INSTANCE_FLOATS;
 // The default body's part lists as drawn (07c ActorModels row 0).
@@ -654,22 +655,47 @@ function viewModelShownShare(panel) {
   });
   return shown / Math.max(1, parts);
 }
-Test.add('render', (check) => withRenderer(() => {
+// fillViewModel from viewModelState on a 16:9 keyboard-and-mouse screen; returns the share of parts shown.
+function viewModelShownAt16x9() {
   const size = Render.size, saved = { width: size.width, height: size.height, device: Input.device, camera: Object.assign({}, Render.camera) };
   size.width = VIEWMODEL_TEST_SIZE[0]; size.height = VIEWMODEL_TEST_SIZE[1]; Input.device = 'kbm';
   Object.assign(Render.camera, { x: 0, y: 0, z: 0, yaw: 0, pitch: 0 });
   const layout = Object.assign({}, Hud.layout);
   updateHudLayout(layout, size.width, size.height);
-  const panel = { left: layout.ammoRight - layout.ammoWidth, top: layout.bottom - layout.ammoHeight }, hidden = [];
+  fillViewModel();
+  const share = viewModelShownShare({ left: layout.ammoRight - layout.ammoWidth, top: layout.bottom - layout.ammoHeight });
+  size.width = saved.width; size.height = saved.height; Input.device = saved.device; Object.assign(Render.camera, saved.camera);
+  viewModelBatch.clear();
+  return share;
+}
+Test.add('render', (check) => withRenderer(() => {
+  const hidden = [];
   CAT.weapons.map((weapon) => weapon.id).concat(CAT.viewModels.map((row) => row.id)).forEach((id) => {
     Object.assign(viewModelState, { visible: true, model: id, shape: id, ads: 0, kick: 0, reload: 0, swap: 0, dual: false });
-    fillViewModel();
-    const share = viewModelShownShare(panel);
+    const share = viewModelShownAt16x9();
     if (share < VIEWMODEL_MIN_SHOWN) hidden.push(id + ' ' + share.toFixed(2));
   });
   check('hip pose: every weapon shows on screen, clear of the ammo panel (render-03)', hidden.length === 0, hidden.join(', '));
-  size.width = saved.width; size.height = saved.height; Input.device = saved.device; Object.assign(Render.camera, saved.camera);
-  viewModelBatch.clear();
+}));
+
+// render-01/02: the match hook (S11 Weapons.viewModel, wrapped by S15) through updateCamera and poseWeapon. An idle held
+// weapon is fully raised (swap 0) and on screen; mid-swap the incoming weapon rises (swap falls from 1 towards 0).
+Test.add('render', (check) => withRenderer(() => {
+  TestArena.start({});
+  const id = TestArena.actor(1, 0, 0);
+  Weapons.setLoadout(id, ['tempest', 'warden']);
+  Game.playerId = id;
+  Render.viewModel = MATCH_VIEW_MODEL;
+  updateCamera(1 / 60, 1);
+  const idleSwap = viewModelState.swap, share = viewModelShownAt16x9();
+  check('a held weapon in a match is raised and on screen (render-01)', viewModelState.visible && idleSwap === 0 && share >= VIEWMODEL_MIN_SHOWN, [idleSwap, share]);
+  Game.playerId = -1;
+  Actors.buttons[id] = BTN.NEXT_WEAPON; Sim.step(); Actors.buttons[id] = 0;
+  Game.playerId = id;
+  updateCamera(1 / 60, 1);
+  check('a swap starts lowered and rises', Weapons.state[id] === WEAPON_STATE.SWAP && viewModelState.swap > 0.5, viewModelState.swap);
+  Game.playerId = -1;
+  TestArena.finish();
 }));
 
 // ---- HUD batch (REN-005) ----
