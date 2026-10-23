@@ -258,6 +258,7 @@ const TouchInput = {
     const tap = !slot.moved && event.timeStamp - slot.startTime < TOUCH_TAP_MS;
     if (slot.role === ROLE_STICK) this.endStick();
     else if (slot.role === ROLE_BUTTON) this.endButton(slot, event);
+    else if (slot.role === ROLE_DRAG) this.flushDrag();   // the button lands where the finger left it
     if (tap && slot.weaponSlot) Input.pulseAction(Input.actionIndex['slot' + slot.weaponSlot]);   // a still tap on the weapon bar picks that slot
     else if (tap && slot.role === ROLE_LOOK && Input.config.touchTapFire) Input.pulseAction(Input.actionIndex.fire);
     this.freeSlot(slot);
@@ -629,9 +630,20 @@ const TouchInput = {
     slot.role = ROLE_DRAG; slot.control = control;
     this.select(control.id);
   },
+  // A drag moves the button once a frame at most (placeAll re-places every button): the latest spot waits in drag.
+  drag: { id: null, x: 0, y: 0, queued: false }, flushDragFrame: null,
   dragControl(control, event) {
-    const rect = this.layer.getBoundingClientRect();
-    this.setProperty(control.id, 'position', { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height });
+    const rect = this.layer.getBoundingClientRect(), drag = this.drag;
+    drag.id = control.id; drag.x = (event.clientX - rect.left) / rect.width; drag.y = (event.clientY - rect.top) / rect.height;
+    if (drag.queued) return;
+    drag.queued = true;
+    requestAnimationFrame(this.flushDragFrame || (this.flushDragFrame = () => this.flushDrag()));
+  },
+  flushDrag() {
+    const drag = this.drag;
+    if (!drag.queued) return;
+    drag.queued = false;
+    this.setProperty(drag.id, 'position', drag);
   },
 };
 
