@@ -11733,9 +11733,14 @@ const Traffic = {
     for (let i = 0; i < T.flights.length; i++) { const d = this.rideDist(T.flights[i], human); if (d < bd) { bd = d; best = T.flights[i]; } }
     return best;
   },
+  /* false for a vehicle of the scenery no one may take wherever they stand: a wreck, a car turning or still moving fast,
+     a big ship, an airliner off its gate */
+  takeable(r) {
+    if (r.state === 'wreck' || r.state === 'turn' || (r.state === 'drive' && r.speed > TRAFFIC_TAKE_SPEED)) return false;
+    return !r.v.ship && !(r.flight && r.phase !== FL_GATE);
+  },
   rideDist(r, h) {
-    if (r.state === 'wreck' || W.time < r.askUntil || r.state === 'turn' || (r.state === 'drive' && r.speed > TRAFFIC_TAKE_SPEED)) return Infinity;
-    if (r.v.ship || (r.flight && r.phase !== FL_GATE)) return Infinity;   // a big ship never; an airliner only at its gate
+    if (W.time < r.askUntil || !this.takeable(r)) return Infinity;
     if (r.v.type === 'air' && !r.airport && !Airports.covers(r.x, r.z)) return Infinity;
     const dx = r.x - h.x, dz = r.z - h.z, reach = Math.max(ENTER_SMALL, r.def.radius + ENTER_PAD);
     if (Math.abs(dx) > reach || Math.abs(dz) > reach) return Infinity;
@@ -13448,12 +13453,14 @@ const Arty = {
     if (s.reason !== 'min' && this.noGround(p)) s.reason = 'sky';
     return s;
   },
-  /* true when human p's aim finds no ground or water within reach (the sky): its own reticle ray, or for a co-op
-     player (or an aim point set otherwise), one far over the ground under it; an AI battery always lays on a target */
+  /* true when human p's aim finds no ground or water within reach (the sky): its own reticle ray (a co-op guest's as it
+     sent it, cmd.aimHit), or for an older guest (or an aim point set otherwise), one far over the ground under it; an
+     AI battery always lays on a target */
   noGround(p) {
     if (!p.isPlayer) return false;
     const ap = p.cmd.aimPoint;
     if (p === W.player && ap === W.aimPoint && W.aimInfo) return !W.aimInfo.hit;
+    if (p.cmd.aimHit === 0 || p.cmd.aimHit === 1) return p.cmd.aimHit === 0;
     return ap.y - this.groundY(ap.x, ap.z) > ARTY_SKY_GAP;
   },
   /* the multiplier of a shell of human p on objective structures: full when a friendly spotter sees its aim point (the
@@ -14881,7 +14888,7 @@ class Platform {
   /* the melee key: start a strike with the loadout's melee weapon (MELEE), chained to the last one when quick enough;
      it lands at the end of its wind-up (meleeStrike) */
   doMelee() {
-    if (this.meleeCd > 0 || this.stagger > 0) return;
+    if (this.meleeCd > 0 || this.stagger > 0 || this.chute) return;   // none under a parachute (as the touch Melee button)
     const m = this.meleeW, len = m.wind + m.swing + m.recover;
     this.meleeStep = W.time - this.meleeAt < len + MELEE_CHAIN && this.meleeStep + 1 < m.combo ? this.meleeStep + 1 : 0;
     this.meleeAt = W.time; this.meleeT = len;
@@ -14890,16 +14897,19 @@ class Platform {
     if (m.wind <= 0) this.meleeStrike();
   }
   meleeFinisher() { return this.meleeW.combo > 1 && this.meleeStep === this.meleeW.combo - 1; }
-  /* a strike lands: every platform on the ground in the cone of the weapon's reach and arc, and the structures at its tip */
+  /* a strike lands: every platform on the ground in the cone of the weapon's reach and arc and within its height band (as
+     the structure query: none from a roof onto the street), the structures at its tip, and the people, animals and
+     vehicles of the scenery there (each game its own, D6) */
   meleeStrike() {
     const m = this.meleeW, foot = this.def.style === 'infantry';
     const dmg = this.def.mech.meleeDmg * m.dmg * (foot ? 1 : m.mechScale) * (this.meleeFinisher() ? m.finisher : 1);
     const fx = Math.sin(this.torsoYaw), fz = Math.cos(this.torsoYaw), base = (foot ? MELEE_REACH.foot : MELEE_REACH.mech) * m.reach, reach = this.radius + base;
     Snd.play('melee', this.x, this.y, this.z, 1);
     const tip = this.radius + base * MELEE_TIP, hx = this.x + fx * tip, hz = this.z + fz * tip;
+    const top = this.y + this.height + reach * 0.5, bottom = this.y - 1;
     for (let i = 0; i < W.platforms.length; i++) {
       const p = W.platforms[i];
-      if (p === this || p.dead || p.kind === 'air') continue;
+      if (p === this || p.dead || p.kind === 'air' || p.y > top || p.y + p.height < bottom) continue;
       const dx = p.x - this.x, dz = p.z - this.z, dd = Math.hypot(dx, dz);
       if (dd > reach + p.radius || (dx * fx + dz * fz) / Math.max(1, dd) < m.arc) continue;
       const slice = m.slice && meleeSlices(p);
@@ -14913,7 +14923,9 @@ class Platform {
     const sr = 6 * m.reach, n = Hash.query(hx - sr, hz - sr, hx + sr, hz + sr, this.y - 1, this.y + this.height);   // only the floors within reach
     const list = Hash.out.slice(0, n);   // damageStruct may query the hash again
     for (const s of list) if (!s.destroyed && structContains(s, hx, hz, 4 * m.reach)) damageStruct(s, dmg * 1.8, 'kinetic', this, 1);
-    fxSparks(hx, this.y + this.height * 0.4, hz, 10, m.slice ? MELEE_HF_SPARK : MELEE_SPARK, 14);
+    const hy = this.y + this.height * 0.4;
+    Civ.blast(hx, hy, hz, base, dmg); Fauna.blast(hx, hy, hz, base, dmg); Traffic.blast(hx, hy, hz, base, dmg);
+    fxSparks(hx, hy, hz, 10, m.slice ? MELEE_HF_SPARK : MELEE_SPARK, 14);
     shakeFrom(hx, this.y, hz, 0.15, 60);
   }
 
@@ -16465,12 +16477,13 @@ const Seats = {
     }
     this.exit(p, peer);
   },
-  canEnter(human, v) {
+  /* slack: m past the reach allowed (the host seating a guest its lagged copy of shows a little farther off) */
+  canEnter(human, v, slack) {
     if (!v || v.dead || !v.parked || v === human || v.def.style === 'infantry' || human.def.style !== 'infantry') return false;
     if (v.team !== human.team && v.team !== 2) return false;
     if (v.def.civilian && v.kind === 'air' && !Airports.covers(v.x, v.z)) return false;   // a civilian aircraft is taken only on an airfield
     const rise = human.y - v.y;
-    return Math.hypot(v.x - human.x, v.z - human.z) <= Math.max(ENTER_SMALL, v.radius + ENTER_PAD) && rise > -ENTER_RISE && rise < v.height + ENTER_RISE;
+    return Math.hypot(v.x - human.x, v.z - human.z) <= Math.max(ENTER_SMALL, v.radius + ENTER_PAD) + (slack || 0) && rise > -ENTER_RISE && rise < v.height + ENTER_RISE;
   },
   /* the closest free vehicle a human on foot could enter now, or null */
   nearestFree(human) {
@@ -16489,9 +16502,9 @@ const Seats = {
     const v = this.nearestFree(human);
     return Traffic.nearest(human, v ? Math.hypot(v.x - human.x, v.z - human.z) : Infinity) || v;
   },
-  /* human gets into free vehicle v; false when v is no longer free (two in the same tick: the first wins) */
-  enter(human, v, peer) {
-    if (!this.canEnter(human, v)) return false;
+  /* human gets into free vehicle v; false when v is no longer free (two in the same tick: the first wins); slack as canEnter */
+  enter(human, v, peer, slack) {
+    if (!this.canEnter(human, v, slack)) return false;
     v.parked = false; v.pilot = human;
     if (v.team === 2) v.team = human.team;
     if (human.hideFromAI && !v.def.civilian) human.provoke();   // a civilian in a combat vehicle is fair game
@@ -16665,10 +16678,10 @@ const AIRPORT_SPAWN_STEP = 40;   // a lost aircraft's spot moves this far along 
 const AIRPORT_SPAWN_GAP = 6;     // and keeps this clear of anything standing there (m)
 /* Where a player's aircraft comes back: parked on the first free spot along the runway from its head (an aircraft or
    unit standing on the head moves it on by AIRPORT_SPAWN_STEP), or at the head when the whole runway is taken; null
-   without an airfield. */
+   without an airfield, or with one on the enemy's side of the battle (airfieldOurs). */
 function airportSpawn(radius) {
   const a = W.airports && W.airports[0];
-  if (!a) return null;
+  if (!a || !airfieldOurs(a)) return null;
   const r = (radius || 0) + AIRPORT_SPAWN_GAP;
   const sp = a.spot, rw = sp ? AIRFIELD[sp.kind].runway : null;
   const last = rw ? rw[1] - AIRFIELD_SPAWN : 0, first = rw ? rw[0] + AIRFIELD_SPAWN : 0;
@@ -16677,6 +16690,13 @@ function airportSpawn(radius) {
     if (!standingNear(p.x, p.z, r)) return { x: p.x, z: p.z, yaw: a.yaw || 0, parked: true };
   }
   return { x: a.x, z: a.z, yaw: a.yaw || 0, parked: true };
+}
+/* false when airfield a lies nearer the enemy base than ours (a skirmish layout seeds the bases round it on any bearing):
+   no lost aircraft comes back there and no friendly ones park there. Missions place theirs, so they keep it. */
+function airfieldOurs(a) {
+  const b = W.bases;
+  if (!b) return true;
+  return Math.hypot(a.x - b.own.x, a.z - b.own.z) <= Math.hypot(a.x - b.enemy.x, a.z - b.enemy.z);
 }
 /* true when a platform on the ground (not one flying over) stands within r of its edge from (x, z) */
 function standingNear(x, z, r) {
@@ -17091,8 +17111,10 @@ const SW = {
     } finally { this.dealing = false; }
     return dealt;
   },
-  /* damage every hostile platform (and, with opts.structs, every structure) within r of x,y,z, without an explosion */
+  /* damage every hostile platform (and, with opts.structs, every structure) within r of x,y,z, without an explosion; and
+     the people, animals and vehicles of the scenery there, on every game (each its own, D6) unless it spares the ground */
   area(x, y, z, r, dmg, dtype, ctx, opts) {
+    if (!opts || opts.ground !== false) { Civ.blast(x, y, z, r, dmg); Fauna.blast(x, y, z, r, dmg); Traffic.blast(x, y, z, r, dmg); }
     if (Net.guest) return;
     const falloff = !opts || opts.falloff !== false;
     for (const p of this.enemies(x, z, r, ctx, opts)) {
@@ -23830,10 +23852,11 @@ const APRON_PARK_U = 0.35;    // at this share of the apron's length either side
 const APRON_CLEAR = 12;       // ...or as near there as keeps this clear of the parked aircraft and the airliners' gates and taxi routes (m)
 const APRON_STEP = 4;         // m between the apron spots tried
 const APRON_BEACON = 5;       // radius kept free round the supply beacon (m)
-/* a skirmish's airfield: two free friendly aircraft parked on its apron, off the runway where the lost ones come back */
+/* a skirmish's airfield on our side (airfieldOurs): two free friendly aircraft parked on its apron, off the runway where
+   the lost ones come back */
 function parkApronAircraft() {
   const ap = W.airports[0];
-  if (!ap || !ap.spot) return;
+  if (!ap || !ap.spot || !airfieldOurs(ap)) return;
   const spec = AIRFIELD[ap.spot.kind], q = spec.apron, ids = PLAYABLE.filter((id) => PLATFORMS[id].kind === 'air');
   const mid = (q[0] + q[1]) / 2, half = (q[1] - q[0]) / 2, v = (q[2] + q[3]) / 2, taken = apronTaken(ap);
   for (let k = 0; k < APRON_AIRCRAFT && k < ids.length; k++) {
@@ -32092,6 +32115,157 @@ const SelfTest = {
           lavaLines + ' lava segments for ' + lavaN + ' cells, ' + rockArcs + ' boulder dots for ' + rolling + ' rolling');
       } finally { Net.guest = keepGuest; Water.setFlood(0, 0, 0, -Infinity); Rubble.reset(); Hazards.reset(); Game.quitToMenu(); }
     });
+    t('final combat', () => {
+      const keep = { peers: Net.peers, host: Net.host, guest: Net.guest, inSession: Net.inSession, hostPeer: Net.hostPeer, map: Net.map, pend: Net.pendEdge, rep: Game.reportError };
+      const sent = [], lo = (id, melee) => Object.assign({}, PLATFORMS[id].loadout, { melee });
+      const body = (id, x, z, y) => { const p = new Platform(PLATFORMS[id], { team: 0, x, z, yaw: 0, loadout: lo(id, id === 'ranger' ? 'katana' : undefined) }); p.y = y === undefined ? Terrain.h(x, z) : y; W.platforms.push(p); return p; };
+      const peerFor = (pid, p) => {
+        const peer = Net.newPeer();
+        peer.open = peer.hello = true; peer.tx = (s) => sent.push(JSON.parse(s)); peer.pid = pid; peer.loadout = Loadout.forPlatform(pid); peer.stats = newStats(); peer.name = 'Ally'; peer.slot = 1;
+        if (p) { p.isPlayer = true; p.netPeer = peer; peer.p = p; }
+        return peer;
+      };
+      Game.reportError = () => {};
+      try {
+        // 1. a battle whose airfield lies nearer the enemy base (valley, seed 13: its runway head 146 m from an enemy
+        // turret): lost aircraft come back short of the fight instead, and no friendly jets wait on its apron
+        const sk = Object.assign({}, SKIRMISH_DEFAULT, { map: 'valley', seed: 13, random: false, support: 'none', hazards: 'off', platformId: 'kestrel' });
+        Game.startSession({ mode: 'skirmish', platformId: 'kestrel', loadout: Loadout.forPlatform('kestrel'), difficulty: 'veteran', skirmish: sk });
+        const ap = W.airports[0], b = W.bases, site = respawnSite(PLATFORMS.kestrel);
+        const foeSide = !!ap && !!b && Math.hypot(ap.x - b.enemy.x, ap.z - b.enemy.z) < Math.hypot(ap.x - b.own.x, ap.z - b.own.z);
+        const apronJets = W.platforms.filter((q) => q.kind === 'air' && q.parked && q.team === 0 && !q.dead).length;
+        const runway = airportSpawn(PLATFORMS.kestrel.radius);
+        this.check('an airfield nearer the enemy base: no runway spot for a lost aircraft (it comes back off the field), and no friendly jets park there', foeSide && runway === null && !site.parked && !Airports.covers(site.x, site.z) && apronJets === 0, 'foe side ' + foeSide + ', runway spot ' + !!runway + ', site ' + Math.round(site.x) + ',' + Math.round(site.z) + (site.parked ? ' parked' : '') + ', ' + apronJets + ' apron jets');
+        // 8. a melee strike and a superweapon's area damage hurt the scenery's people and vehicles, each game its own
+        // (a guest's too: D6)
+        const civs = [], cars = [];
+        for (const zn of W.civZones) for (const c of zn.civs) if (!c.dead && c.state !== 'inside' && Math.abs(c.y - Terrain.h(c.x, c.z)) < 0.5) civs.push(c);
+        if (W.traffic) for (const c of W.traffic.parked) if (c.state !== 'wreck' && c.v.type === 'road') cars.push(c);
+        const strikeAt = (x, y, z, yaw) => {
+          const me = body('ranger', x - Math.sin(yaw) * 1.2, z - Math.cos(yaw) * 1.2, y);
+          me.yaw = me.torsoYaw = yaw;
+          me.meleeStrike();
+          W.platforms = W.platforms.filter((q) => q !== me);
+        };
+        let scenery = civs.length >= 2 && cars.length >= 2;
+        const hurtCiv = (c) => c.dead || c.hp < CIV_HP, hurtCar = (c) => c.state === 'wreck' || c.hp < c.hp0;
+        if (scenery) {
+          const c0 = civs[0], k0 = cars[0], c1 = civs[1], k1 = cars[1];
+          strikeAt(c0.x, c0.y, c0.z, 0.3);
+          strikeAt(k0.x - Math.sin(k0.yaw + PI / 2) * k0.v.hw, k0.y, k0.z - Math.cos(k0.yaw + PI / 2) * k0.v.hw, k0.yaw + PI / 2);
+          Net.guest = true;
+          try {
+            SW.area(c1.x, c1.y + 1, c1.z, 8, 200, 'explosive', { team: 0, owner: null, x: c1.x, y: c1.y, z: c1.z });
+            SW.area(k1.x, k1.y + 1, k1.z, 8, 200, 'explosive', { team: 0, owner: null, x: k1.x, y: k1.y, z: k1.z });
+          } finally { Net.guest = keep.guest; }
+          scenery = hurtCiv(c0) && hurtCar(k0) && hurtCiv(c1) && hurtCar(k1);
+        }
+        this.check('a melee strike and a superweapon\'s area damage (on a guest too) hurt the people and vehicles of the scenery', scenery, civs.length + ' civilians, ' + cars.length + ' cars');
+        Game.quitToMenu();
+        // 2. an on-foot mission (m14): a guest who picked a ship or an aircraft comes back as a soldier where soldiers do,
+        // not at the harbour (in the sea) or on the runway
+        Game.startSession({ mode: 'mission', missionId: 'm14', platformId: 'ranger', loadout: Loadout.forPlatform('ranger'), difficulty: 'veteran' });
+        Net.host = true; Net.guest = false; Net.inSession = true;
+        const footSite = respawnSite(PLATFORMS[ON_FOOT.infantry]), backAs = [];
+        for (const pid of ['lancer', 'kestrel']) {
+          const peer = peerFor(pid, null);
+          Net.peers = [peer];
+          Net.spawnFor(peer);
+          peer.p.dead = true; peer.deathHandled = true; peer.respawnT = 0;
+          Net.hostTick(STEP);
+          const p = peer.p;
+          backAs.push({ pid, style: p.def.style, wet: Water.depth(p.x, p.z) > 0.3, d: Math.round(Math.hypot(p.x - footSite.x, p.z - footSite.z)) });
+          W.platforms = W.platforms.filter((q) => q !== p);
+        }
+        Net.peers = [];
+        this.check('m14: a guest who picked a ship or an aircraft comes back as a soldier on the soldiers\' respawn ground', backAs.every((r) => r.style === 'infantry' && !r.wet && r.d < 45), JSON.stringify(backAs));
+        // 4. a guest sinks the very ship the host lost, not a ship of the same kind beside it
+        const st = W.mission.def.start, harbour = Naval.harbour(PLATFORMS.lancer, st), deep = harbour && Naval.spot(harbour.x, harbour.z, PLATFORMS.lancer, NAVAL_SPOT_REACH, false);
+        let rightShip = false, gibId = null;
+        if (deep && Wrecks.sinks(deep.x, deep.z)) {
+          const hull = (dx) => { const q = new Platform(PLATFORMS.lancer, { team: 1, x: deep.x + dx, z: deep.z, yaw: 0, loadout: PLATFORMS.lancer.loadout }); q.y = Naval.keelY(q.x, q.z, q.def); W.platforms.push(q); return q; };
+          const beside = hull(3), lost = hull(0);
+          Net.peers = [];
+          Net.sessionBegin();
+          Net.peers = [peerFor('ranger', null)];
+          sent.length = 0;
+          W.onGib(lost, 'death');
+          const g = sent.find((m) => m.t === 'g');
+          gibId = g ? g.id : null;
+          Net.peers = []; Net.host = false; Net.guest = true; Net.map = { [beside.id]: beside, [lost.id]: lost };
+          try { if (g) Net.applyGib(g); } finally { Net.guest = false; Net.host = true; }
+          rightShip = !!g && W.platforms.indexOf(lost) < 0 && !Net.map[lost.id] && W.platforms.indexOf(beside) >= 0 && !!Net.map[beside.id];
+          // an older host's gib names none: the nearest of that kind and side goes
+          const beside2 = hull(3), lost2 = hull(0);
+          Net.host = false; Net.guest = true; Net.map = { [beside2.id]: beside2, [lost2.id]: lost2 };
+          try { if (g) Net.applyGib(Object.assign({}, g, { id: undefined, x: lost2.x, z: lost2.z })); } finally { Net.guest = false; Net.host = true; }
+          rightShip = rightShip && W.platforms.indexOf(lost2) < 0 && W.platforms.indexOf(beside2) >= 0;
+          W.platforms = W.platforms.filter((q) => q !== beside && q !== beside2);
+          Net.map = keep.map;
+        }
+        this.check('co-op: a guest drops the ship the host lost (the gib names it; from an older host the nearest), not the same kind of ship beside it', rightShip, 'deep ' + !!deep + ', id ' + gibId);
+        // 5. a guest's artillery aim on a tower face 60 m up: its own ray hit, so it is not taken for the sky
+        const gun = body('ranger', st.x + 20, st.z, undefined), gp = peerFor('ranger', gun), gy = Terrain.h(gun.x + 100, gun.z);
+        const aimAt = (ph) => { gp.inp = { pt: [gun.x + 100, gy + 60, gun.z], ph }; gp.inpT = Net.t; Net.applyCmd(gp); return Arty.noGround(gun); };
+        const keepAim = { pt: W.aimPoint, info: W.aimInfo, player: W.player };
+        W.player = gun; gun.cmd.aimPoint = W.aimPoint = { x: gun.x + 100, y: gy + 60, z: gun.z }; W.aimInfo = { hit: true };
+        Net.hostPeer = { open: true, tx: (s) => sent.push(JSON.parse(s)) };
+        sent.length = 0; Net.sendInput();
+        const inMsg = sent.find((m) => m.t === 'in');
+        W.aimPoint = keepAim.pt; W.aimInfo = keepAim.info; W.player = keepAim.player; Net.hostPeer = keep.hostPeer;
+        const hitAim = aimAt(1), missAim = aimAt(0), oldAim = aimAt(undefined);
+        this.check('a guest\'s artillery aim 60 m up a building face counts as ground when its own ray hit (the guest sends it); a miss, or no word from an old guest, is still the sky', !!inMsg && inMsg.ph === 1 && !hitAim && missAim && oldAim, 'sent ' + (inMsg && inMsg.ph) + ', hit ' + hitAim + ', miss ' + missAim + ', old ' + oldAim);
+        W.platforms = W.platforms.filter((q) => q !== gun);
+        // 6. the host refuses a forged enterCiv for vehicles that can never be taken: a big ship, an airliner off its
+        // gate, a car still driving fast; 7. and a guest whose lagged body is just past reach still gets in
+        if (!W.traffic) Traffic.populate(5, null);
+        const T = W.traffic, rec = (id, x, z, y, vid) => { const v = SHIP_ROWS.find((s) => s.id === id) || VEHICLES[VEHICLE_IDS.indexOf(id)], r = Traffic.make(v, 0); r.x = x; r.z = z; r.y = y; r.vid = vid; T.parked.push(r); return r; };
+        const ask = (peer, r) => Net.hostMsg(peer, { t: 'enterCiv', d: r.def.id, v: r.vid, x: r.x, y: r.y, z: r.z, yaw: 0, c: 0 });
+        const made = (id) => W.platforms.filter((q) => q.def.id === id).length;
+        const swimmer = body('ranger', deep ? deep.x : st.x, deep ? deep.z : st.z, deep ? Water.top(deep.x, deep.z) - 0.8 : undefined), sw = peerFor('ranger', swimmer);
+        const ship = rec('boxship', swimmer.x + 4, swimmer.z, Water.top(swimmer.x, swimmer.z), 7001);
+        const field = W.airports[0], gate = field ? { x: (field.apron.x0 + field.apron.x1) / 2, z: (field.apron.z0 + field.apron.z1) / 2 } : st;
+        const pilot = body('ranger', gate.x, gate.z, undefined), pp = peerFor('ranger', pilot);
+        const jet = rec('airliner', gate.x + 6, gate.z, Terrain.h(gate.x + 6, gate.z), 7002);
+        jet.flight = true; jet.phase = FL_TAXI;
+        const ground = findSpawn(st.x + 60, st.z, 60, 6, 0) || { x: st.x + 60, z: st.z };
+        const driver = body('ranger', ground.x, ground.z, undefined), dp = peerFor('ranger', driver);
+        const fast = rec('sedan', ground.x + 2, ground.z, Terrain.h(ground.x + 2, ground.z), 7003);
+        fast.state = 'drive'; fast.speed = TRAFFIC_TAKE_SPEED * 3;
+        Net.peers = [sw, pp, dp];
+        ask(sw, ship); ask(pp, jet); ask(dp, fast);
+        this.check('the host refuses a guest\'s enterCiv for a big ship, a taxiing airliner and a car still driving fast', made('cv_boxship') === 0 && made('cv_airliner') === 0 && made('cv_sedan') === 0 && sw.p === swimmer && pp.p === pilot && dp.p === driver, made('cv_boxship') + ' ships, ' + made('cv_airliner') + ' airliners, ' + made('cv_sedan') + ' cars');
+        // (a fresh car and the driver on foot again, whatever the asks above made)
+        W.platforms = W.platforms.filter((q) => !q.def.civilian || q.def.style === 'infantry');
+        if (W.platforms.indexOf(driver) < 0) W.platforms.push(driver);
+        dp.p = driver; driver.netPeer = dp;
+        const slow = rec('sedan', ground.x + 2, ground.z + 10, Terrain.h(ground.x + 2, ground.z + 10), 7004);
+        const reach = Math.max(ENTER_SMALL, PLATFORMS.cv_sedan.radius + ENTER_PAD);
+        driver.x = slow.x - reach - TRAFFIC_ASK_SLACK * 0.6; driver.z = slow.z; driver.y = Terrain.h(driver.x, driver.z);
+        ask(dp, slow);
+        const car = W.platforms.find((q) => q.def.id === 'cv_sedan') || null;
+        this.check('a guest whose body on the host is just past reach (lag) still gets into the car the host makes for it', !!car && car.pilot === driver && dp.p === car && !car.parked, car ? 'pilot ' + !!car.pilot + ', parked ' + car.parked : 'no car');
+        W.platforms = W.platforms.filter((q) => q !== swimmer && q !== pilot && q !== driver && (!q.def.civilian || q.def.style === 'infantry'));
+        // 3. melee: none under a parachute, and none at a platform far below or above the striker
+        const dummy = new Platform(PLATFORMS.dummy, { team: 1, x: ground.x, z: ground.z + 3, yaw: 0 });
+        dummy.y = Terrain.h(dummy.x, dummy.z); W.platforms.push(dummy);
+        const blade = body('ranger', ground.x, ground.z, undefined);
+        blade.yaw = blade.torsoYaw = 0;
+        const swing = (dy, chute) => {
+          blade.y = Terrain.h(blade.x, blade.z) + dy; blade.chute = chute; blade.meleeCd = 0; blade.meleeWind = 0; blade.stagger = 0; blade.meleeAt = -Infinity; dummy.hp = dummy.maxHp;
+          if (chute) blade.doMelee(); else blade.meleeStrike();
+          return { cd: blade.meleeCd > 0, hit: dummy.hp < dummy.maxHp };
+        };
+        const level = swing(0, false), roof = swing(12, false), high = swing(120, false), chute = swing(120, true);
+        blade.chute = false;
+        this.check('melee: a strike on level ground lands; none from 12 m or 120 m above, nor any swing under a parachute', level.hit && !roof.hit && !high.hit && !chute.cd && !chute.hit, JSON.stringify({ level, roof, high, chute }));
+        W.platforms = W.platforms.filter((q) => q !== blade && q !== dummy);
+      } finally {
+        Net.peers = keep.peers; Net.host = keep.host; Net.guest = keep.guest; Net.inSession = keep.inSession; Net.hostPeer = keep.hostPeer; Net.map = keep.map; Net.pendEdge = keep.pend;
+        Game.reportError = keep.rep;
+        Game.quitToMenu();
+      }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -32282,13 +32456,13 @@ const Net = {
     if (!this.inSession || !W || !h || h.dead || h.def.style !== 'infantry' || !def || !def.civilian || !Number.isFinite(m.x) || !Number.isFinite(m.z)) return;
     if (!Traffic.mayRide(def, m.x, m.z, h)) return;
     const there = W.platforms.find((q) => q.def === def && !q.dead && Math.hypot(q.x - m.x, q.z - m.z) < TRAFFIC_ASK_NEAR);
-    if (there) { if (there.parked) Seats.enter(h, there, peer); return; }
+    if (there) { if (there.parked) Seats.enter(h, there, peer, TRAFFIC_ASK_SLACK); return; }
     // ours: the one of that number (its copies drive their own ways), else (one made since the start) one of that kind
     // where the guest says; none (taken, wrecked, never in our world): refused
     const vid = numIn(m.v, 0, TRAFFIC_VID_BLOCK * 5, 0) | 0, mine = vid ? Traffic.byVid(vid) : Traffic.vehicleAt(def, m.x, m.z, TRAFFIC_ASK_NEAR);
-    if (!mine || mine.def !== def || mine.state === 'wreck') return;
+    if (!mine || mine.def !== def || !Traffic.takeable(mine)) return;   // (a forged ask for a big ship, a taxiing airliner, a fast car)
     const p = Traffic.spawnRide(def, m.x, Terrain.h(m.x, m.z) + (def.kind === 'ground' ? numIn(m.y - Terrain.h(m.x, m.z), 0, 60, 0) : 0), m.z, numIn(m.yaw, -TAU, TAU, 0), numIn(m.c, 0, 15, 0) | 0, mine.vid);
-    Seats.enter(h, p, peer);
+    Seats.enter(h, p, peer, TRAFFIC_ASK_SLACK);   // our copy of the guest lags its own: the reach mayRide allowed
   },
   /* a loadout from a guest's message, with only known weapons, superweapon and melee weapon */
   cleanLoadout(raw) {
@@ -32406,7 +32580,7 @@ const Net = {
   sessionBegin() {
     this.dirty.clear();
     W.onExplosion = (x, y, z, r) => this.bcast({ t: 'x', x: r1(x), y: r1(y), z: r1(z), r: r1(r) });
-    W.onGib = (p, kind) => this.bcast({ t: 'g', p: p.def.id, tm: p.team, k: kind === 'slice' ? 2 : kind === 'death' ? 1 : 0, x: r1(p.x), y: r1(p.y), z: r1(p.z), vx: r1(p.vx), vy: r1(p.vy), vz: r1(p.vz), yw: r2(p.yaw) });
+    W.onGib = (p, kind) => this.bcast({ t: 'g', id: p.id, p: p.def.id, tm: p.team, k: kind === 'slice' ? 2 : kind === 'death' ? 1 : 0, x: r1(p.x), y: r1(p.y), z: r1(p.z), vx: r1(p.vx), vy: r1(p.vy), vz: r1(p.vz), yw: r2(p.yaw) });
     if (W.player) W.player.isPlayer = true;
     let slot = 0;
     for (const peer of this.peers) { if (peer.hello && peer.open) { peer.slot = ++slot; this.spawnFor(peer); } }
@@ -32416,7 +32590,7 @@ const Net = {
     const st = Game.mission.def.start, old = peer.p;
     if (old && !old.dead) W.platforms = W.platforms.filter((q) => q !== old);   // a pilot on foot redeploys
     // an on-foot mission (m14) sends a guest in as infantry with its On foot loadout when that is a soldier's
-    const foot = Game.mission.def.foot && peer.pid !== ON_FOOT.infantry, pid = foot ? ON_FOOT.infantry : peer.pid;
+    const pid = this.deployPid(peer), foot = pid !== peer.pid;
     const lo = foot ? (peer.foot === 'infantry' && peer.footLo) || PLATFORMS[pid].loadout : peer.loadout;
     const ship = Naval.deploy(PLATFORMS[pid], lo, pos || st), def = ship.def;   // a ship starts at the harbour
     if (ship.at) pos = ship.at;
@@ -32435,6 +32609,9 @@ const Net = {
     if (ship.fell) Naval.fellBack(p, PLATFORMS[pid]);
     if (ship.at) Naval.addHarbour(ship.at);
   },
+  /* the platform a guest deploys in: its hangar pick, or a soldier on an on-foot mission (m14), so a respawn site is
+     chosen for what it comes back as */
+  deployPid(peer) { return Game.mission.def.foot ? ON_FOOT.infantry : peer.pid; },
   allDown() {
     const hostDown = !W.player || (W.player.dead && W.lives <= 0);
     if (!hostDown) return false;
@@ -32465,6 +32642,7 @@ const Net = {
       const pt = m.pt;
       if (Array.isArray(pt) && pt.length === 3 && pt.every(Number.isFinite) && Math.hypot(pt[0] - p.x, pt[2] - p.z) < ARTY_AIM_REACH + 100) c.aimPoint = { x: pt[0], y: pt[1], z: pt[2] };
       else c.aimPoint = null;
+      c.aimHit = c.aimPoint && (m.ph === 0 || m.ph === 1) ? m.ph : -1;   // whether the guest's own reticle ray hit (-1: not sent)
       const tg = m.tg | 0;
       p.target = tg > 0 ? (W.platforms.find((q) => q.id === tg && q.team !== p.team && !q.dead) || null) : (tg < 0 && W.structs[-tg - 1] && W.structs[-tg - 1].objective ? W.structs[-tg - 1] : null);
     }
@@ -32494,11 +32672,11 @@ const Net = {
         }
         if (peer.p.dead) {
           peer.respawnT -= dt;
-          if (peer.respawnT <= 0 && peer.lives > 0) this.spawnFor(peer, respawnSite(PLATFORMS[peer.pid]));
+          if (peer.respawnT <= 0 && peer.lives > 0) this.spawnFor(peer, respawnSite(PLATFORMS[this.deployPid(peer)]));
         }
       } else if (p.ejectPilot && peer.lives > 0) {
         peer.respawnT -= dt;
-        if (peer.respawnT <= 0 && p.grounded && !p.chute) this.spawnFor(peer, respawnSite(PLATFORMS[peer.pid]));
+        if (peer.respawnT <= 0 && p.grounded && !p.chute) this.spawnFor(peer, respawnSite(PLATFORMS[this.deployPid(peer)]));
       } else if (peer.protectT > 0) { peer.protectT -= dt; if (peer.protectT <= 0) p.invuln = false; }
       this.applyCmd(peer);
     }
@@ -32698,12 +32876,16 @@ const Net = {
   sinkShip(def, m) {
     const x = numIn(m.x, -3000, 3000), z = numIn(m.z, -3000, 3000);
     if (!Wrecks.sinks(x, z)) return;
-    for (const id in this.map) {   // the mirrored ship goes at once (the host sends no more snapshots of it)
-      const q = this.map[id];
-      if (q.def !== def || q === W.player || Math.hypot(q.x - x, q.z - z) > def.radius * 2) continue;
-      W.platforms = W.platforms.filter((o) => o !== q); delete this.map[id];
-      break;
+    // the mirrored ship goes at once (the host sends no more snapshots of it): the one the gib names, else (an older
+    // host) the nearest of that kind and side there
+    const named = Number.isInteger(m.id) && Object.prototype.hasOwnProperty.call(this.map, m.id) ? this.map[m.id] : null;
+    let goneId = named && named.def === def && named !== W.player ? m.id : null, bestD = def.radius * 2;
+    if (goneId === null) for (const id in this.map) {
+      const q = this.map[id], d = Math.hypot(q.x - x, q.z - z);
+      if (q.def !== def || q === W.player || q.team !== m.tm || d > bestD) continue;
+      goneId = id; bestD = d;
     }
+    if (goneId !== null) { const q = this.map[goneId]; W.platforms = W.platforms.filter((o) => o !== q); delete this.map[goneId]; }
     const w = new Platform(def, { team: m.tm === 0 || m.tm === 1 ? m.tm : 2, x, z, yaw: numIn(m.yw, -100, 100), loadout: def.loadout });
     w.y = numIn(m.y, -500, 3000); w.dead = true; w.hp = 0;
     Wrecks.add(w);
@@ -32902,6 +33084,7 @@ const Net = {
     this.send(this.hostPeer, {
       t: 'in', q: ++this.inSeq, mf: r2(c.moveF), ms: r2(c.moveS), tn: r2(c.turn), ti: r2(c.throttleIn), ay: r2(c.aimYaw), ap: r2(c.aimPitch),
       ax: [r2(c.axisPitch), r2(c.axisRoll), r2(c.axisYaw)], b, e, pt: ap ? [r1(ap.x), r1(ap.y), r1(ap.z)] : null,
+      ph: ap && ap === W.aimPoint && W.aimInfo ? (W.aimInfo.hit ? 1 : 0) : undefined,   // the reticle ray hit (Arty.noGround)
       tg: t && talive(t) ? (t.isStruct ? -1 - t.idx : t.id) : 0, fm: S.flightMode, aa: S.aimAssist ? 1 : 0,
     }, e !== 0);
   },
