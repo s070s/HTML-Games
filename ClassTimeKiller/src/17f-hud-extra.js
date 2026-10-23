@@ -81,7 +81,8 @@ Bus.on('bark', (event) => {
   if (player < 0) return;
   const mine = Actors.team[player] >= 0 && event.team === Actors.team[player];
   if (!mine && event.category !== HUD_BARK_TAUNT) return;
-  HudExtra.addBark(event);
+  if (Hud.layout.phone) HudBanners.add((Actors.name[event.id] || '') + ': ' + event.text, 'bark', 0, false);
+  else HudExtra.addBark(event);
 });
 // Announcer text is also a subtitle when captions are on.
 Bus.on('announce', (event) => { if (Hud.elements.captions && event.text) HudCaptions.addCaption(event.text); });

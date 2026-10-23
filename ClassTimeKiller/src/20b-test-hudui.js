@@ -423,7 +423,7 @@ function hudUiTouchBreak(fixed, banners, width, height, layout) {
     const over = fixed.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)) || (HudBanners.free && banners.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)));
     if (over) return control.id + ' over ' + over.map(Math.round);
   }
-  if (Math.min(width, height) < HUD_BANNER_PHONE_SIDE) {   // a phone: the newest banner alone, small, on the panel line
+  if (layout.phone) {   // a phone: the newest banner alone, small, on the panel line
     const panel = hudHeaderBox(layout, []);
     const letters = HUD_UI_BANNERS[1].replace(/ /g, '').length;   // each glyph and, at most, its shadow
     if (banners.length < letters || banners.length > 2 * letters) return banners.length + ' banner quads on a phone';

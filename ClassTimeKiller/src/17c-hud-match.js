@@ -4,7 +4,7 @@
 
 const HUD_FEED_SLOTS = 8, HUD_FEED_SECONDS = 6, HUD_FEED_FADE = 0.5, HUD_FEED_ROWS = 5, HUD_FEED_ROWS_COMPACT = 3;
 const HUD_BANNER_SLOTS = 4, HUD_BANNER_SECONDS = 2.6, HUD_BANNER_SECONDS_LONG = 3.4, HUD_BANNER_FADE = 0.5, HUD_BANNER_SHOWN = 3;
-const HUD_BANNER_PHONE_SIDE = 500;   // css px: a touch screen with a shorter side is a phone (one small banner on the panel line)
+const HUD_BANNER_QUEUE = 1.2;   // s: on a phone a new banner waits this long after the start of the last one (one line, each in turn)
 const HUD_BANNER_PRIORITY_LONG = 2;
 const HUD_MAX_OBJECTIVE_CHIPS = 6;
 const HUD_FALLBACK_NAME = 'Player';
@@ -114,13 +114,19 @@ const HudBanners = {
 
   reset() { this.at.fill(-1000); this.next = 0; },
   add(text, kind, priority, medal) {
-    for (let i = 0; i < HUD_BANNER_SLOTS; i++) if (this.text[i] === text && this.live(i)) return;   // never the same text twice at once
+    let start = Hud.time;
+    for (let i = 0; i < HUD_BANNER_SLOTS; i++) {
+      if (this.ends(i) <= Hud.time) continue;
+      if (this.text[i] === text) { this.at[i] = Math.max(this.at[i], Hud.time); return; }   // a repeat restarts it: never twice at once
+      if (Hud.layout.phone) start = Math.max(start, this.at[i] + HUD_BANNER_QUEUE);
+    }
     const slot = this.next;
     this.next = (slot + 1) % HUD_BANNER_SLOTS;
-    this.text[slot] = text; this.kind[slot] = kind; this.priority[slot] = priority; this.medal[slot] = medal ? 1 : 0; this.at[slot] = Hud.time;
+    this.text[slot] = text; this.kind[slot] = kind; this.priority[slot] = priority; this.medal[slot] = medal ? 1 : 0; this.at[slot] = start;
   },
+  ends(slot) { return this.at[slot] + this.seconds(slot); },
   seconds(slot) { return this.priority[slot] >= HUD_BANNER_PRIORITY_LONG || this.medal[slot] ? HUD_BANNER_SECONDS_LONG : HUD_BANNER_SECONDS; },
-  live(slot) { return Hud.time - this.at[slot] < this.seconds(slot); },
+  live(slot) { return Hud.time >= this.at[slot] && Hud.time < this.ends(slot); },   // a queued banner (at in the future) is not shown yet
   alpha(slot) { const age = Hud.time - this.at[slot]; return Math.min(1, age / 0.15, (this.seconds(slot) - age) / HUD_BANNER_FADE); },
   // The newest banner still shown, -1 none.
   newest() {
@@ -133,7 +139,7 @@ const HudBanners = {
 };
 // Phones: the newest banner alone, small and on one line, takes the panel line under the clock ("FIRST TO", GET READY) for its
 // life, so nothing is drawn between the header rows and the crosshair (objective rows reach the aim zone there: no room for a strip).
-function hudPhoneBanner(layout) { return layout.touch && Math.min(layout.width, layout.height) < HUD_BANNER_PHONE_SIDE ? HudBanners.newest() : -1; }
+function hudPhoneBanner(layout) { return layout.phone ? HudBanners.newest() : -1; }
 
 // "doubleKill" -> "Double Kill" when the medals catalogue (15.6) has no row yet.
 function hudMedalTitle(medal) {

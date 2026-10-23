@@ -16,8 +16,8 @@ const TOUCH_MIN_EVENT_MS = 4;
 const TOUCH_TAP_MS = 220;               // tap-to-fire: a short, still touch on the look area
 const TOUCH_TAP_SLOP = 12;              // px
 const TOUCH_HOLD_MS = 350;              // a button held this long on release does its holdAction (SWAP: previous weapon)
-const TOUCH_LONG_MS = 500;              // a button held this long does its longAction while still held (DUCK: lie prone)
-const TOUCH_SWIPE = 24;                 // px a finger slides on a swipeAction button before it counts as a swipe (NADE: next type)
+const TOUCH_COOK_MS = 150;              // a still finger on NADE this long starts the cook (a slide before it picks the type)
+const TOUCH_SWIPE = 24;                 // px a finger slides on a swipeAction button before it counts as a swipe (NADE: next type, DUCK: prone)
 const TOUCH_GYRO_WAIT_MS = 1000;        // no devicemotion event this long after the permission: the sensor is unavailable
 const TOUCH_GYRO_KEY = 'controls.touch.gyro', TOUCH_GYRO_MESSAGE = 'Gyro needs HTTPS and motion permission', TOUCH_GYRO_NOTE = ' (needs HTTPS and motion permission)';
 const TOUCH_FOUR_FINGER_MS = 300;       // four fingers down on the look area within this time toggle the debug views (ARC-040)
@@ -53,8 +53,8 @@ const TOUCH_PRESETS = [
 // a need with no fn reads a match flag that later sections set with TouchInput.setFlag (the card button only in matches
 // with active cards); 'breath' (11a flag) shows the hold-breath button (the Walk action) while the player's scope sways (W24).
 // Rare actions ride on other controls, so a phone shows fewer buttons: holdAction = what a press held TOUCH_HOLD_MS does on
-// release instead of action; longAction = what a press still held at TOUCH_LONG_MS does, letting go of action first;
-// swipeAction = what a slide of TOUCH_SWIPE does instead (action then waits for a still finger, TOUCH_TAP_MS, or the release).
+// release instead of action; swipeAction = what a slide of TOUCH_SWIPE does (action waits for a still finger, TOUCH_COOK_MS,
+// or the release; with swipeNow action is pressed at once and the swipe lets go of it first, so a held DUCK stays crouched).
 // The score panel holds the scoreboard (panelAt), and PING opens the comm wheel when held (17g). mirrorAt = its place in the left-handed preset where
 // a plain mirror would cover the minimap or the vitals. Default places keep clear of the phone HUD (hudui test).
 // edge = a small utility button that placeAll keeps in the top and side bands when it moves (never mid-screen, where the look
@@ -64,7 +64,7 @@ const TOUCH_CONTROLS = [
   { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
   { id: 'aim', label: 'Aim', face: 'AIM', action: 'alt', x: 0.80, y: 0.40, size: 60 },
   { id: 'jump', label: 'Jump', face: 'JUMP', action: 'jump', x: 0.82, y: 0.82, size: 64, mirrorAt: [0.20, 0.72] },
-  { id: 'crouch', label: 'Crouch (hold: lie prone)', face: 'DUCK', action: 'crouch', longAction: 'prone', x: 0.70, y: 0.88, size: 50 },
+  { id: 'crouch', label: 'Crouch (swipe: lie prone or get up)', face: 'DUCK', action: 'crouch', swipeAction: 'prone', swipeNow: true, x: 0.70, y: 0.88, size: 50 },
   { id: 'reload', label: 'Reload', face: 'LOAD', action: 'reload', x: 0.94, y: 0.34, size: 50 },
   { id: 'breath', label: 'Hold breath', face: 'HOLD', action: 'walk', x: 0.70, y: 0.42, size: 46, need: 'breath' },
   { id: 'swap', label: 'Swap weapon (hold: previous)', face: 'SWAP', action: 'nextWeapon', holdAction: 'prevWeapon', x: 0.76, y: 0.21, size: 46, mirrorAt: [0.28, 0.30] },
@@ -152,6 +152,7 @@ const TouchInput = {
     gadget: () => Game.playerId >= 0 && Gadgets.gadget[Game.playerId] >= 0,
     grenade: () => Game.playerId >= 0 && Gadgets.thrownTotal(Game.playerId) > 0,
     heal: touchHasHeal,
+    prone: () => Game.playerId >= 0 && Move.preset(Game.playerId).proneMult > 0,   // read by the DUCK swipe (swipeButton), not a button need
   },
   useNeeds: [],                    // fn() true -> Use can act outside the mode row (filled by S10, S11)
   stickSprints: null,              // fn() -> false: a full stick push must not press sprint (S10: presets where sprint walks)
@@ -179,7 +180,7 @@ const TouchInput = {
       this.elements[control.id] = element;
       this.controlById[control.id] = control;
       this.places[control.id] = {};   // placeControl fills x, y, radius and shown (applyAll places before it draws)
-      if (control.swipeAction) element.appendChild(this.notes[control.id] = makeElement('span', 'tc-note'));
+      if (control.swipeAction && !control.swipeNow) element.appendChild(this.notes[control.id] = makeElement('span', 'tc-note'));
       if (control.need && !this.needed.includes(control.need)) this.needed.push(control.need);
       this.layer.appendChild(element);
     }
@@ -251,7 +252,7 @@ const TouchInput = {
     if (slot.role === ROLE_STICK) this.moveStick(event);
     else if (slot.role === ROLE_LOOK) this.moveLook(slot, event);
     else if (slot.role === ROLE_DRAG) this.dragControl(slot.control, event);
-    else if (slot.role === ROLE_BUTTON && slot.waiting && length2(event.clientX - slot.startX, event.clientY - slot.startY) > TOUCH_SWIPE) this.swipeButton(slot);
+    else if (slot.role === ROLE_BUTTON && (slot.waiting || (slot.control.swipeNow && !slot.done)) && length2(event.clientX - slot.startX, event.clientY - slot.startY) > TOUCH_SWIPE) this.swipeButton(slot);
     else if (slot.role === ROLE_BUTTON && this.buttonLook && this.buttonLook(slot.control)) this.moveLook(slot, event);
     slot.lastX = event.clientX; slot.lastY = event.clientY; slot.lastTime = event.timeStamp;
     if (length2(event.clientX - slot.startX, event.clientY - slot.startY) > TOUCH_TAP_SLOP) slot.moved = true;
@@ -272,7 +273,7 @@ const TouchInput = {
 
   // ---- Buttons ----
   beginButton(slot, control) {
-    slot.role = ROLE_BUTTON; slot.control = control; slot.waiting = !!control.swipeAction; slot.done = false;
+    slot.role = ROLE_BUTTON; slot.control = control; slot.waiting = !!control.swipeAction && !control.swipeNow; slot.done = false;
     if (control.holdAction || slot.waiting) this.elements[control.id].classList.add('down');   // acts later: on release, a still finger or a swipe
     else this.setButton(control, true);
   },
@@ -290,24 +291,21 @@ const TouchInput = {
     this.elements[control.id].classList.toggle('down', down);
     if (down) Input.pressAction(index); else Input.releaseAction(index);   // last: a pause press resets this module
   },
-  // Once a frame while fingers are down: a still finger on a swipeAction button presses it after a tap's time (NADE cooks);
-  // one on a longAction button past TOUCH_LONG_MS lets go of its action, which ends a crouch latched by Toggle too, then does the long one.
+  // Once a frame while fingers are down: a still finger on a waiting swipeAction button presses it after TOUCH_COOK_MS (NADE cooks).
   stepHeldButtons(now) {
     for (let i = 0; i < TOUCH_SLOT_COUNT; i++) {
-      const slot = this.slots[i], control = slot.control, held = now - slot.startTime;
-      if (slot.role !== ROLE_BUTTON || slot.done) continue;
-      if (slot.waiting && held >= TOUCH_TAP_MS) { slot.waiting = false; this.setButton(control, true); }
-      if (!control.longAction || held < TOUCH_LONG_MS) continue;
-      slot.done = true;
-      this.setButton(control, false);
-      Input.resetToggle(control.action);
-      Input.pulseAction(Input.actionIndex[control.longAction]);
+      const slot = this.slots[i];
+      if (slot.role === ROLE_BUTTON && slot.waiting && now - slot.startTime >= TOUCH_COOK_MS) { slot.waiting = false; this.setButton(slot.control, true); }
     }
   },
+  // A swipe on a swipeNow button lets go of its action first, which also ends a crouch latched by Toggle. A swipe action
+  // with a needs fn of its id (prone) does nothing while that is false (a movement preset with no prone).
   swipeButton(slot) {
+    const control = slot.control, need = this.needs[control.swipeAction];
+    if (!slot.waiting) { this.setButton(control, false); Input.resetToggle(control.action); }
     slot.waiting = false; slot.done = true;
-    this.elements[slot.control.id].classList.remove('down');
-    Input.pulseAction(Input.actionIndex[slot.control.swipeAction]);
+    this.elements[control.id].classList.remove('down');
+    if (!need || need()) Input.pulseAction(Input.actionIndex[control.swipeAction]);
   },
   // The second line of a swipeAction button's face ('' hides it): set on a change only.
   setNote(controlId, text) { if (this.notes[controlId]) this.notes[controlId].textContent = text; },

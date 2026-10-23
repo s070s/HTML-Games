@@ -333,6 +333,12 @@ Test.add('hud', (check) => hudTestWith(() => {
   Hud.time += HUD_BANNER_SECONDS_LONG + 0.1;
   hudTestFrame();
   check('banners: they disappear after their time', Hud.quadsOf('banners') === 0);
+  Hud.layout.phone = true;
+  HudBanners.add('Double Kill', 'medal', HUD_BANNER_PRIORITY_LONG, true); HudBanners.add('Me takes the lead', 'lead', 1, false);
+  const medal = HudBanners.newest();
+  Hud.time += HUD_BANNER_QUEUE;
+  check('banners on a phone: a medal and a lead change both show, in turn', HudBanners.text[medal] === 'Double Kill' && HudBanners.text[HudBanners.newest()] === 'Me takes the lead');
+  Hud.layout.phone = false;
 }));
 
 Test.add('hud', (check) => hudTestWith(() => {

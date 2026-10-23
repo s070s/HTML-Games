@@ -328,7 +328,8 @@ function hudDrawDownedState(pen, layout) {
 }
 // The player's own bleed-out or a revive in progress; false when neither shows.
 function hudDrawDowned(pen, layout, player) {
-  const unit = layout.unit, x = layout.centerX, y = layout.height * 0.68;
+  const unit = layout.unit, x = layout.centerX;
+  const y = layout.phone ? Math.min(layout.height * 0.68, layout.weaponBarY - (HUD_BAR_TOUCH_HEIGHT + 70) * unit) : layout.height * 0.68;   // the block reaches 70 units down
   if (Actors.flags[player] & ACTOR_FLAG.DOWNED) {
     pen.label('DOWNED', x, y, 30 * unit, Hud.colors.bad, 'center');
     pen.label('BLEEDING OUT', x, y + 30 * unit, 16 * unit, HUD_COLOR.dim, 'center');

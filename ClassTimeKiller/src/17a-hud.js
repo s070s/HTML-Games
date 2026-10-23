@@ -11,6 +11,7 @@ const HUD_SCALE_MIN = 50, HUD_SCALE_MAX = 150;           // percent
 const HUD_OPACITY_MIN = 30;                              // percent
 const HUD_DESIGN_WIDTH = 1100, HUD_DESIGN_HEIGHT = 620;  // screen size where the unit is 1 (text never drops under 14 px at 100%)
 const HUD_UNIT_MIN = 0.9, HUD_UNIT_MAX = 1.5;
+const HUD_PHONE_SIDE = 500;                               // css px: a touch screen with a shorter side is a phone (layout.phone)
 const HUD_COMPACT_HEIGHT = 520;                          // 'auto' compact layout below this height and on touch
 const HUD_MARGIN = 14;
 const HUD_TEXT_SMALL = 14;                               // ACC-008: nothing smaller than 14 px at 100% scale (the pen floors every text)
@@ -139,7 +140,7 @@ const Hud = {
   frameSeconds: 0,                  // length of the last frame (the killcam clock follows it)
   insets: { top: 0, right: 0, bottom: 0, left: 0 },
   colors: { good: HUD_COLOR.good, bad: HUD_COLOR.bad, health: HUD_COLOR.health, healthLow: HUD_COLOR.healthLow, teams: CAT.teamColors.map((row) => colorNumber(row.color)) },
-  layout: { width: 1, height: 1, unit: 1, margin: HUD_MARGIN, left: 0, right: 0, top: 0, bottom: 0, centerX: 0, centerY: 0, compact: false, touch: false,
+  layout: { width: 1, height: 1, unit: 1, margin: HUD_MARGIN, left: 0, right: 0, top: 0, bottom: 0, centerX: 0, centerY: 0, compact: false, touch: false, phone: false,
     barWidth: 0, barHeight: 0, barGap: 0, vitalsHeight: 0, ammoRight: 0, ammoHeight: 0, abilityY: 0, powerupY: 0, gadgetY: 0, moneyY: 0, weaponBarY: 0 },
   drawers: { back: [], world: [], main: [], front: [] },
   stats: { quads: 0 },
@@ -254,6 +255,7 @@ function hudReadSafeInsets() {
 function updateHudLayout(layout, width, height) {
   const insets = Hud.insets, touch = Input.device === 'touch';
   layout.width = width; layout.height = height; layout.touch = touch;
+  layout.phone = touch && Math.min(width, height) < HUD_PHONE_SIDE;   // phones: one line of banner or chat on the panel, ability rings only
   layout.compact = Hud.compactSetting === 'on' || (Hud.compactSetting === 'auto' && (touch || height < HUD_COMPACT_HEIGHT));
   const unit = clamp(Math.min(width / HUD_DESIGN_WIDTH, height / HUD_DESIGN_HEIGHT), HUD_UNIT_MIN, HUD_UNIT_MAX) * Hud.scale;
   const margin = HUD_MARGIN * unit, compact = layout.compact;
@@ -716,13 +718,13 @@ function hudDrawAbilities(pen, layout) {
     ring[0] = x; ring[1] = y; ring[2] = radius; ring[3] = 4 * unit;
     hudDrawCooldownRingAt(pen, slot.ready ? 0 : slot.cooldown, slot.active ? HUD_COLOR.gold : Hud.colors.good);
     text[0] = x; text[1] = y; text[2] = HUD_TEXT_SMALL * unit;
-    pen.textAt(slot.name, slot.ready ? HUD_COLOR.text : HUD_COLOR.dim, 'center');
+    if (!layout.phone) pen.textAt(slot.name, slot.ready ? HUD_COLOR.text : HUD_COLOR.dim, 'center');
     text[1] = y + radius + 10 * unit;
     pen.textAt(Hud.keyLabel(slot.key), HUD_COLOR.dim, 'center');   // slots are packed (empty ones skipped): the key comes with the slot
     text[0] = x + radius; text[1] = y - radius;
     if (slot.charges > 1) pen.textAt(hudNumber(slot.charges), HUD_COLOR.gold, 'center');
   }
-  if (state.meter.kind !== 'none') hudDrawMeter(pen, layout, state.meter, slotCount);
+  if (state.meter.kind !== 'none' && !layout.phone) hudDrawMeter(pen, layout, state.meter, slotCount);
 }
 
 function hudDrawMeter(pen, layout, meter, slotCount) {
