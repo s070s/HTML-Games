@@ -23,12 +23,6 @@ function navTestRooms(withDoor) {
   return navTestLoad([navTestFloor(-10, -10, 10, 10, 0)].concat(wall), { spawns: [navTestSpawn(-5, 0, -6), navTestSpawn(5, 0, 6), navTestSpawn(-6, 0, 7)] });
 }
 
-// The type of the link a -> b, or -1.
-function navTestLinkType(a, b) {
-  for (let link = Nav.linkStart[a]; link < Nav.linkStart[a + 1]; link++) if (Nav.linkTarget[link] === b) return Nav.linkType[link];
-  return -1;
-}
-
 function navTestPathTypes(from, to, options) {
   const length = Nav.findPath(from, to, options), types = [];
   for (let i = 0; i < length - 1; i++) types.push(Nav.pathTypes[i]);
@@ -94,7 +88,7 @@ Test.add('nav', (check) => {
   Actors.reset(0);
   check('body: stance heights and eyes come from S01', STANCE_HEIGHT.join() === [STAND_HEIGHT, CROUCH_HEIGHT, PRONE_HEIGHT].join() && STANCE_EYE.join() === [STAND_EYE, CROUCH_EYE, PRONE_EYE].join()
     && Actors.height[0] === Math.fround(STAND_HEIGHT) && Actors.eye[0] === Math.fround(STAND_EYE));
-  check('body: nav, spawns and map checks keep no copies of the S01 sizes', typeof NAV_STEP + typeof NAV_RADIUS + typeof MAP_STEP + typeof MAP_EYE === 'undefined'.repeat(4)
+  check('body: no nav or map copies of the S01 sizes', typeof NAV_STEP + typeof NAV_RADIUS + typeof MAP_STEP + typeof MAP_EYE === 'undefined'.repeat(4)
     && SPAWN_CAPSULE_RADIUS === 2 * ACTOR_RADIUS && SPAWN_EYE_HEIGHT === STAND_EYE);
   check('body: nav ladder and swim links use the S10 speeds', Nav.limits.ladderSpeed === LADDER_SPEED && NAV_LINK_ROWS[NAV_LINK.SWIM].speedFactor === SWIM_SPEED_FRACTION);
 });

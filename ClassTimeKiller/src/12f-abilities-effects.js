@@ -32,7 +32,6 @@ const FENCE_REACH = 0.6;                 // an actor this close to a fence segme
 const FENCE_HEIGHT = 2;
 const SIGHT_INTERVAL = 0.25;
 const DECOY_HEALTH = 1;
-const STRIKE_COLOR = 0xff3030;
 const UNLIMITED_RANGE = 1e9;
 const HOSTILE_TO_ALL = -1;             // A24: a team of -1 is everyone's enemy (Actors.isEnemy)
 const PUPPET_DRIVE_ORDER = 19;         // A23: after every brain (10, 11) and nav (15), before abilities (20) and movement (30)
