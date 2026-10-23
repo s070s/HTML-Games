@@ -19,6 +19,8 @@ const makeMover = () => ({ x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, hull: makeHull
 // Seconds the per-step forms slideMover and stepSlideMover slide through, written by the caller first: a computed float
 // passed to a call that is not inlined is boxed on the heap, once per actor step (PERF-006).
 const slideClock = { seconds: 0 };
+// Metres Collide.gatherReached gathers around the mover, written by the caller first, for the same reason.
+const gatherReach = { metres: 0 };
 
 const Collide = {
   candidates: new Array(CANDIDATE_START_SIZE).fill(null),
@@ -34,8 +36,10 @@ const Collide = {
   // Gathers everything the mover's hull can touch while moving up to `reach` metres from where it stands. A box inside
   // the one this mover gathered last in the same sim step reuses that list (a superset: the traces give the same
   // results), so one actor step walks the brush tree once instead of once per sweep, settle and probe.
-  gatherAround(mover, reach) {
-    const box = wantedGather, side = hullSide(mover.hull) + reach + GATHER_MARGIN;
+  // A computed reach goes through gatherReach.metres and gatherReached (PERF-006); a constant one can be passed here.
+  gatherAround(mover, reach) { gatherReach.metres = reach; this.gatherReached(mover); },
+  gatherReached(mover) {
+    const reach = gatherReach.metres, box = wantedGather, side = hullSide(mover.hull) + reach + GATHER_MARGIN;
     box.minX = mover.x - side; box.minY = mover.y - hullBelow(mover.hull) - reach - GATHER_MARGIN; box.minZ = mover.z - side;
     box.maxX = mover.x + side; box.maxY = mover.y + hullAbove(mover.hull) + reach + GATHER_MARGIN; box.maxZ = mover.z + side;
     if (gatheredCovers(mover, box)) return;

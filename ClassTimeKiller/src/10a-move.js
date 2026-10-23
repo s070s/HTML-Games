@@ -329,7 +329,8 @@ function sweepActor(id, mover, dt, stepUp) {
   Motion.blocked[id] = 0;
   for (let i = 0; i < pieces; i++) {
     mover.planeCount = Math.min(mover.planeCount, firstPlanes);
-    Collide.gatherAround(mover, travel / pieces + (stepUp ? Math.max(STEP_HEIGHT, SETTLE_REACH) : SETTLE_REACH));
+    gatherReach.metres = travel / pieces + (stepUp ? Math.max(STEP_HEIGHT, SETTLE_REACH) : SETTLE_REACH);
+    Collide.gatherReached(mover);
     slideClock.seconds = dt / pieces;
     const hit = stepUp ? Collide.stepSlideMover(mover, STEP_HEIGHT) : Collide.slideMover(mover);
     if (hit) recordWall(id, mover);

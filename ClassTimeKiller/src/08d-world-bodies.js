@@ -233,7 +233,8 @@ function moveBody(index, dt) {
   mover.vx = Bodies.vx[index]; mover.vy = Bodies.vy[index] - bodyGravity() * dt; mover.vz = Bodies.vz[index];
   mover.planeCount = 0;
   const intoX = mover.vx, intoY = mover.vy, intoZ = mover.vz;
-  Collide.gatherAround(mover, length3(mover.vx, mover.vy, mover.vz) * dt);
+  gatherReach.metres = length3(mover.vx, mover.vy, mover.vz) * dt;
+  Collide.gatherReached(mover);
   const touched = Collide.slide(mover, dt);
   if (touched) bounce(mover, intoX, intoY, intoZ, dt);
   if (!Collide.depenetrate(mover)) { mover.x = Bodies.x[index]; mover.y = Bodies.y[index]; mover.z = Bodies.z[index]; }
