@@ -14345,6 +14345,8 @@ const HZ_ASH_COL = [0.06, 0.05, 0.04];
 const HZ_FLOOD_REACH = 800;      // a scheduled flood comes from water this close to the player (m)
 const HZ_FLOOD_TOWARD = 0.4;     // its zone sits this share of the way from the water toward the player
 const HZ_FLOOD_SHIFT = 0.5;      // but its centre moves no more than this share of its radius off the water (it keeps over its source)
+const HZ_FLOOD_STEP = 0.1, HZ_FLOOD_MOVE = 0.5;   // the drawn surface is rebuilt when the level moves this much (m), or the circle this far
+const HZ_FLOOD_CELL = 4, HZ_FLOOD_EDGE = 0.05;   // the drawn flood's lattice (m, dividing the ground's 8 m cells), and how far inside the circle it ends
 const HZ_FLOOD_WET = 0.05;       // water shallower than this (m) is not a source
 const HZ_FLOOD_COL = [0.46, 0.42, 0.3], HZ_FLOOD_ALPHA = 0.8, HZ_FLOOD_GLOW = 0.2;   // muddy water
 /* avalanche and rockfall slide down the steepest way */
@@ -14976,7 +14978,7 @@ const HZ_KIND = {
       s.y = w.y;
       return true;
     },
-    begin(h) { if (!Net.guest) h.level = h.y; else h.y = h.level; },   // a guest's source height until the host's pack says
+    begin(h) { if (!Net.guest) h.level = h.y; else h.y = h.level; this.surf.level = -Infinity; },   // a guest's source height until the host's pack says
     update(h, dt) {
       const d = h.def;
       if (!Net.guest) {
@@ -14987,21 +14989,90 @@ const HZ_KIND = {
       else { Water.setFlood(0, 0, 0, -Infinity); return; }   // no water on the land during the warning or once it has gone down
       for (let n = Hazards.count(d.foam * Hazards.fade(h), dt); n > 0; n--) {   // foam where it runs over the land
         const a = Math.random() * TAU, rr = h.r * Math.sqrt(Math.random()), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr;
-        if (Water.depth(x, z) > 0.3) FX.emit(x, h.level + 0.1, z, rand(-1, 1), rand(0.5, 1.5), rand(-1, 1), rand(1, 2), 1.5, 3.5, 0.85, 0.88, 0.86, 0.6, 1, 0, false);
+        if (Water.depth(x, z) > 0.3) FX.emit(x, Water.level(x, z) + 0.1, z, rand(-1, 1), rand(0.5, 1.5), rand(-1, 1), rand(1, 2), 1.5, 3.5, 0.85, 0.88, 0.86, 0.6, 1, 0, false);
       }
     },
     tick() {},
-    free() { Water.setFlood(0, 0, 0, -Infinity); },
+    free() { Water.setFlood(0, 0, 0, -Infinity); this.surf.level = -Infinity; },
     /* the source's surface (h.y) for 'hz' (p): Water rises from it on guests too */
     pack(h) { return [r2(h.y)]; },
     unpack(h, p) { h.y = numIn(p[0], -1000, 3000, h.y); },
     /* the water stands over the land only while the flood runs and is above its source */
     wet(h) { return h.state === HZ_ACTIVE && h.level > h.y; },
+    /* The drawn flood: a surface on a HZ_FLOOD_CELL lattice (inside the ground's 8 m cells) over the circle whose corners
+       stand at Water.level, so it follows the real water (a hollow shows the rise, not the source's level). Inside the
+       circle a corner on land the flood does not reach stands at the flood's top, under that ground, so the surface meets
+       the shore without covering it; a corner past the circle moves in onto its edge, so the surface ends where the water
+       does. Rebuilt when the level moves by HZ_FLOOD_STEP or the circle moves; the buffers are made once. */
+    surf: { data: null, xs: null, ys: null, zs: null, wet: null, mesh: null, n: 0, i0: 0, j0: 0, nv: 0, x: 0, z: 0, r: 0, level: -Infinity },
+    build(h) {
+      const S = this.surf, C = HZ_FLOOD_CELL, NV = Math.ceil(2 * HAZARDS.flood.r / C) + 2, last = 2 * WORLD_HALF / C;
+      if (!S.data) {
+        S.data = new Float32Array((NV - 1) * (NV - 1) * 54);
+        S.xs = new Float32Array(NV * NV); S.ys = new Float32Array(NV * NV); S.zs = new Float32Array(NV * NV); S.wet = new Uint8Array(NV * NV);
+      }
+      const i0 = clamp(Math.floor((h.x - h.r + WORLD_HALF) / C), 0, last), j0 = clamp(Math.floor((h.z - h.r + WORLD_HALF) / C), 0, last);
+      const nv = Math.min(NV, last - Math.max(i0, j0) + 1), edge = h.r - HZ_FLOOD_EDGE;
+      S.i0 = i0; S.j0 = j0; S.nv = nv; S.x = h.x; S.z = h.z; S.r = h.r; S.level = h.level;
+      for (let j = 0; j < nv; j++) for (let i = 0; i < nv; i++) {
+        let x = -WORLD_HALF + (i0 + i) * C, z = -WORLD_HALF + (j0 + j) * C;
+        const k = j * nv + i, dx = x - h.x, dz = z - h.z, d = Math.hypot(dx, dz);
+        S.wet[k] = 0;
+        if (d > h.r + 1.5 * C) continue;   // in no cell the water reaches
+        const inside = d < edge;
+        if (!inside) { x = h.x + dx / d * edge; z = h.z + dz / d * edge; }   // past the circle: onto its edge
+        const l = Water.level(x, z);   // a dry corner: the flood's top, under its ground
+        if (inside && l > Math.max(Water.baseLevel(x, z), Terrain.h(x, z))) S.wet[k] = 1;   // the flood stands here
+        S.xs[k] = x; S.zs[k] = z; S.ys[k] = l;
+      }
+      const out = S.data, e = 1 + HZ_FLOOD_GLOW, c = HZ_FLOOD_COL;
+      let w = 0;
+      for (let j = 0; j + 1 < nv; j++) for (let i = 0; i + 1 < nv; i++) {
+        const a = j * nv + i;
+        if (!(S.wet[a] | S.wet[a + 1] | S.wet[a + nv] | S.wet[a + nv + 1])) continue;   // no water anywhere in it: nothing to draw
+        w = this.vert(out, w, a, e, c); w = this.vert(out, w, a + nv, e, c); w = this.vert(out, w, a + 1, e, c);   // the same split as surfAt
+        w = this.vert(out, w, a + 1, e, c); w = this.vert(out, w, a + nv, e, c); w = this.vert(out, w, a + nv + 1, e, c);
+      }
+      S.n = w / 9;
+      if (!S.mesh || S.mesh.ctx !== R.ctxId) S.mesh = R.makeMesh(S.data);
+      else if (S.n > 0) R.patchMesh(S.mesh, S.data, 0, S.n);
+    },
+    vert(out, w, k, e, c) {
+      const S = this.surf;
+      out[w] = S.xs[k]; out[w + 1] = S.ys[k]; out[w + 2] = S.zs[k];
+      out[w + 3] = 0; out[w + 4] = e; out[w + 5] = 0; out[w + 6] = c[0]; out[w + 7] = c[1]; out[w + 8] = c[2];
+      return w + 9;
+    },
+    /* the drawn surface's height at (x, z) (the triangles build lays, moved in at the edge), or -Infinity where none is (self-test) */
+    surfAt(x, z) {
+      const S = this.surf, C = HZ_FLOOD_CELL, ci = Math.floor((x + WORLD_HALF) / C) - S.i0, cj = Math.floor((z + WORLD_HALF) / C) - S.j0;
+      if (!S.ys) return -Infinity;
+      for (let j = cj - 1; j <= cj + 1; j++) for (let i = ci - 1; i <= ci + 1; i++) {
+        if (i < 0 || j < 0 || i + 1 >= S.nv || j + 1 >= S.nv) continue;
+        const a = j * S.nv + i;
+        if (!(S.wet[a] | S.wet[a + 1] | S.wet[a + S.nv] | S.wet[a + S.nv + 1])) continue;
+        let y = this.triAt(x, z, a, a + S.nv, a + 1);
+        if (y === -Infinity) y = this.triAt(x, z, a + 1, a + S.nv, a + S.nv + 1);
+        if (y !== -Infinity) return y;
+      }
+      return -Infinity;
+    },
+    triAt(x, z, p, q, s) {
+      const S = this.surf, ax = S.xs[p], az = S.zs[p], bx = S.xs[q] - ax, bz = S.zs[q] - az, cx = S.xs[s] - ax, cz = S.zs[s] - az, px = x - ax, pz = z - az;
+      const det = bx * cz - bz * cx;
+      if (Math.abs(det) < 1e-9) return -Infinity;
+      const u = (px * cz - pz * cx) / det, v = (bx * pz - bz * px) / det;
+      if (u < -1e-6 || v < -1e-6 || u + v > 1 + 1e-6) return -Infinity;
+      return S.ys[p] + (S.ys[q] - S.ys[p]) * u + (S.ys[s] - S.ys[p]) * v;
+    },
     draw(h, pass) {
       if (pass !== 1 || !this.wet(h) || !R.visible(h.x, h.level, h.z, h.r)) return;
+      const S = this.surf;
+      if (Math.abs(h.level - S.level) >= HZ_FLOOD_STEP || Math.abs(h.x - S.x) + Math.abs(h.z - S.z) > HZ_FLOOD_MOVE || h.r !== S.r || !S.mesh || S.mesh.ctx !== R.ctxId) this.build(h);
       const st = R.stack;
-      st.push().t(h.x, h.level + 0.03, h.z).s(h.r * 2, 0.06, h.r * 2);
-      R.draw('cyl', HZ_FLOOD_COL[0], HZ_FLOOD_COL[1], HZ_FLOOD_COL[2], HZ_FLOOD_ALPHA, HZ_FLOOD_GLOW, 0.6); st.pop();
+      st.push().ident();
+      R.drawRaw(S.mesh, 0.6, HZ_FLOOD_ALPHA, S.n);
+      st.pop();
     },
   },
   /* a front of snow that breaks away high on a snowy slope and races down the steepest way, burying what it meets */
@@ -18481,6 +18552,7 @@ const BENCH_SCENES = [
   { id: 'sk-peaks', map: 'testpeaks', platformId: 'bulwark', testMap: TEST_PEAKS_MAP },   // mountains and a dense forest
   { id: 'sk-jungle', map: 'jungle', platformId: 'bulwark' },   // the heaviest new battlefield: the densest forest, rivers and a sea
   { id: 'hz-jungle', map: 'jungle', platformId: 'bulwark', hazard: 'wildfire' },   // the same with a wildfire burning near the player
+  { id: 'hz-coast', map: 'coast', platformId: 'bulwark', hazard: 'flood' },   // a flash flood near its top over the coast's low ground
 ];
 const BENCH_HAZARD_AT = 60;   // m from the player a bench scene's hazard starts (it looks for fuel around there)
 const BENCH_WARM = 600;     // ticks simulated before timing, so the battle is under way
@@ -21435,6 +21507,7 @@ const SelfTest = {
           const probes = [];
           if (type === 'flood') for (let k = 0; k < 300; k++) { const a = k * 2.399, rr = h.r * Math.sqrt(k / 300), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr; probes.push(x, z, Water.depth(x, z)); }
           let wetter = 0, flooded = 0, gap = Infinity, tooDeep = 0, firstJump = 0, sawActive = false;
+          let surfDone = false, surfWet = 0, surfOff = 0, surfWorst = 0, surfDry = 0;   // the drawn flood against the water, mid-rise
           let steps = 0;
           while (h.on && steps < 2000) {
             if (type === 'tornado' || type === 'sandstorm' || type === 'avalanche' || type === 'wildfire' || type === 'gas') { inside.x = h.x; inside.z = h.z; }
@@ -21454,6 +21527,15 @@ const SelfTest = {
                 if (first) firstJump = Math.max(firstJump, w - probes[k + 2]);
               }
               if (h.state !== HZ_ACTIVE && Water.fr2 > 0) wetter++;   // and no raised water at all (any battlefield's low ground)
+              if (!surfDone && h.state === HZ_ACTIVE && rise > d.rise * 0.5) {   // the surface drawn now stands at the water where it is raised, and over no dry land
+                surfDone = true; HZ_KIND.flood.build(h);
+                for (let k = 0; k < 4000; k++) {
+                  const a = k * 2.399, rr = h.r * 0.999 * Math.sqrt(k / 4000), x = h.x + Math.sin(a) * rr, z = h.z + Math.cos(a) * rr;
+                  const l = Water.level(x, z), below = Math.max(Water.baseLevel(x, z), Terrain.h(x, z)), y = HZ_KIND.flood.surfAt(x, z);
+                  if (l > below) { surfWet++; const off = Math.abs(y - l); if (!(off <= 0.15)) surfOff++; if (off > surfWorst) surfWorst = off; }
+                  else if (y > below) surfDry++;
+                }
+              }
             }
             steps++;
           }
@@ -21462,6 +21544,8 @@ const SelfTest = {
             Math.round(in0 - total(inside)) + ' inside, ' + Math.round(out0 - total(outside)) + ' outside, ' + gap.toFixed(1) + ' m from the edge at the nearest');
           if (type === 'flood') {
             this.check('a flood wets no ground during its warning or once it has gone down, only while it runs', wetter === 0 && flooded > 0, wetter + ' wetter outside the run, ' + flooded + ' flooded in it');
+            this.check('the drawn flood stands at the water (within 0.15 m) where it is raised and over no dry land', surfWet > 0 && surfOff === 0 && surfDry === 0,
+              surfWet + ' raised, ' + surfOff + ' off (worst ' + surfWorst.toFixed(2) + ' m), ' + surfDry + ' over dry land');
             this.check('a flood makes no dry ground deeper than its rise so far, and nothing deep on its first frame', tooDeep === 0 && firstJump <= 0.1, tooDeep + ' too deep, first frame +' + firstJump.toFixed(2) + ' m');
           }
           this.check('hazard ' + type + ' ends within its time', !h.on && steps * HZ_DT <= WARN + d.dur + HAZARD_FADE + 0.5, (steps * HZ_DT).toFixed(1) + ' s');
