@@ -162,6 +162,9 @@ function difficultySlidersCheck(value) {
   return Object.assign({}, value);
 }
 
+const SHARE_LOCAL_MAP_NOTE = 'The code named a map from a map editor, which lives only on that device, so a random map is used.';
+function isSharedMap(id) { return !id || (!!CAT.maps && !!CAT.maps.byId(id)); }
+
 const EDITOR_FIELD_CHECKS = {
   name: (value) => (typeof value === 'string' ? cleanLabel(value, EDITOR_NAME_MAX) : undefined),
   mode: (value) => (isToken(value) && CAT.modes.byId(value) && Modes.isPlayable(value) ? value : undefined),
@@ -222,19 +225,24 @@ const CustomMatch = {
   save(draft) { Settings.set('custom.draft', JSON.stringify(draft)); },
 
   // ---- Share codes ----
-  // Only the fields that differ from the defaults travel in a code.
+  // Only the fields that differ from the defaults travel in a code. Only a built-in map travels: an editor or generated map is
+  // a local slot (user1 is another map on the next device), so the code then plays a random map.
   encode(draft) {
     const defaults = customDefaults(), changed = {};
     for (const key in defaults) if (JSON.stringify(draft[key]) !== JSON.stringify(defaults[key])) changed[key] = draft[key];
+    if (!isSharedMap(changed.map)) delete changed.map;
     return CustomCodec.pack(changed);
   },
-  // text -> { draft } or { error }
+  // text -> { draft, note } or { error }
   decode(text) {
     const unpacked = CustomCodec.unpack(text);
     if (unpacked.error) return unpacked;
-    const checked = this.validate(unpacked.object);
+    const object = unpacked.object;
+    let note = '';
+    if (isPlainObject(object) && object.map && !isSharedMap(object.map)) { delete object.map; note = SHARE_LOCAL_MAP_NOTE; }
+    const checked = this.validate(object);
     if (checked.errors.length) return { error: 'The code holds settings this version cannot use: ' + checked.errors.slice(0, 3).join(', ') + '.' };
-    return { draft: checked.draft };
+    return { draft: checked.draft, note };
   },
 
   // ---- Ruleset and setup ----
@@ -695,7 +703,7 @@ Ui.register('customShare', {
     const importButton = Ui.button('Import code', () => {
       const result = CustomMatch.decode(paste.value);
       message.className = result.error ? 'ui-note cm-error' : 'ui-note';
-      message.textContent = result.error || 'Imported. The settings are loaded in the editor.';
+      message.textContent = result.error || ('Imported. The settings are loaded in the editor. ' + result.note).trim();
       if (result.error) return;
       EDITOR_STATE.draft = result.draft;
       mine.value = CustomMatch.encode(result.draft);

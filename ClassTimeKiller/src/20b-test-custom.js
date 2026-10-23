@@ -77,6 +77,16 @@ Test.add('custom', (check) => {
   check('a map that does not serve the mode is refused', bogus({ mode: 'duel', map: Maps.forMode('tdm').find((map) => !map.modes.includes('duel')).id }).includes('does not serve'));
   check('a code that is not an object is refused', CustomMatch.decode(codeWith([1, 2])).error === 'The code holds no settings.');
   check('a limit that makes no sense for the mode is dropped, not trusted', CustomMatch.decode(codeWith({ mode: 'ffa', roundWins: 3 })).draft.roundWins === -1);
+  // Editor maps are local save slots (user1 here is another map on the next device): a code never names one (meta-07).
+  const local = Maps.registerRuntime(Object.assign({}, CAT.maps.byId('spire'), { id: 'user19', name: 'Mine' }));
+  try {
+    const shared = CustomMatch.decode(CustomMatch.encode(Object.assign(CustomMatch.defaults(), { mode: 'ffa', map: local.id })));
+    check('a code leaves out an editor map', !!shared.draft && shared.draft.map === '', shared.error);
+    const foreign = CustomMatch.decode(codeWith({ mode: 'ffa', map: local.id }));
+    check("a code naming an editor map imports with a random map and says why", !!foreign.draft && foreign.draft.map === '' && /editor/.test(foreign.note || ''), foreign.error);
+  } finally {
+    Maps.unregisterRuntime(local.id);
+  }
 });
 
 Test.add('custom', (check) => {
