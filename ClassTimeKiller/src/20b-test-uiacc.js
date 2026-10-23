@@ -679,14 +679,14 @@ Test.add('uiacc', (check) => uiWith(() => {
 // ---- Scoreboard on a touch device, with and without the ACC-004 toggle setting: one toggle source, no drift ----
 Test.add('uiacc', (check) => uiWith(() => {
   const device = Input.device, index = Input.actionIndex.scoreboard;
-  const tap = () => Input.pulseAction(index);              // what the touch button does
+  const tap = () => Input.pulseAction(index);              // a quick touch on the score panel (05b panelAt)
   PlayFlow.quickMatch();
   Input.device = 'touch';
   Settings.set('controls.toggle.scoreboard', 'hold'); Input.refreshConfig(); Input.clearAll();
-  tap();
-  const openedByTap = Ui.current() === 'scoreboard';
-  tap();
-  check('touch scoreboard, hold setting: a tap opens, the next tap closes', openedByTap && Ui.current() === '');
+  Input.pressAction(index);
+  const openedByHold = Ui.current() === 'scoreboard';
+  Input.releaseAction(index);
+  check('touch scoreboard, hold setting: a finger on the score panel opens it, lifting it closes', openedByHold && Ui.current() === '');
 
   Settings.set('controls.toggle.scoreboard', 'toggle'); Input.refreshConfig(); Input.clearAll();
   const states = [];

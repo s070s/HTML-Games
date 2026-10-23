@@ -183,7 +183,7 @@ Test.add('hudui', (check) => uiWith(() => {
   check('grenade cycle: the action writes BTN.CYCLE_GRENADE into Actors.buttons', (inputHoldAction('grenadeNext', true), Input.frame(INPUT_TEST_FRAME), (Actors.buttons[id] & BTN.CYCLE_GRENADE) !== 0));
   inputHoldAction('grenadeNext', false); inputStepAndFrame(); inputStepAndFrame();
   check('grenade cycle: the bit is free (no other button shares it)', Object.keys(BTN).filter((key) => BTN[key] === BTN.CYCLE_GRENADE).length === 1 && (Actors.buttons[id] & BTN.CYCLE_GRENADE) === 0);
-  check('grenade cycle: a keyboard default and a touch button exist', Input.bound[Input.actionIndex.grenadeNext].length > 0 && TOUCH_CONTROLS.some((row) => row.action === 'grenadeNext'));
+  check('grenade cycle: a keyboard default and a touch gesture (a swipe on NADE) exist', Input.bound[Input.actionIndex.grenadeNext].length > 0 && TOUCH_CONTROLS.some((row) => row.swipeAction === 'grenadeNext'));
   Game.stop();
   World.load(pveTestMap({ spawns: PVE_HOME.concat(PVE_ENEMY_GATES) }));
   Game.start({ mode: 'horde', seed: 1, bots: [], player: { name: 'Me', team: 0 }, cards: ['stoneskin'] });
@@ -236,13 +236,13 @@ Test.add('hudui', (check) => {
   const player = Game.playerId;
   Gadgets.count.fill(0, player * GADGET_COUNT, (player + 1) * GADGET_COUNT);
   Gadgets.give(player, 'frag', 2);
-  check('touch: no TYPE button with one grenade type (nothing to cycle)', !TouchInput.needMet('grenadeCycle') && !('grenadeCycle' in TouchInput.flags));
-  Gadgets.give(player, 'smoke', 1);
-  check('touch: the TYPE button shows with two grenade types', TouchInput.needMet('grenadeCycle') && Gadgets.grenadeTypes(player) === 2);
-  Gadgets.cycleShown = true;
+  Gadgets.syncCycleButton();
+  check('touch: the NADE face names no type with one grenade type (nothing to cycle)', Gadgets.cycleShown === -1);
+  Gadgets.give(player, 'smoke', 1); Gadgets.syncCycleButton();
+  check('touch: the NADE face names the type with two grenade types', Gadgets.cycleShown === Gadgets.grenade[player] && Gadgets.grenadeTypes(player) === 2);
   Game.stop();
   Game.start({ mode: 'ffa', seed: 1, bots: [{ dummy: true, team: 0 }], player: { name: 'Me' } });
-  check('touch: a new match forgets the last TYPE button answer (the next step re-shows it)', !Gadgets.cycleShown);
+  check('touch: a new match forgets the last named type (the next step names it again)', Gadgets.cycleShown === -1);
   Game.stop();
   World.clear();
 });
@@ -407,8 +407,10 @@ function hudUiDrawnBoxes(first) {
 }
 // A box meets a circle (the nearest point of the box is inside it).
 function hudUiBoxMeetsCircle(box, x, y, radius) { return length2(clamp(x, box[0], box[2]) - x, clamp(y, box[1], box[3]) - y) < radius; }
+// The core buttons a thumb finds by feel: never on the other half, whatever keepsHalf allows (a DUCK beside the stick is a miss).
+const HUD_UI_CORE_BUTTONS = ['stick', 'fire', 'jump', 'aim', 'use', 'crouch', 'reload', 'grenade', 'melee', 'swap'];
 // What breaks rules 1, 2 and 4 for the shown buttons and rule 3's clear stack, or ''. Touching (half a pixel) is allowed.
-function hudUiTouchBreak(fixed, banners, width, height) {
+function hudUiTouchBreak(fixed, banners, width, height, layout) {
   const places = TouchInput.places, shown = TOUCH_CONTROLS.filter((control) => places[control.id].shown), aimRadius = TOUCH_AIM_ZONE * Math.min(width, height);
   for (const control of shown) {
     const place = places[control.id], radius = place.radius - 0.5, x = place.x, y = place.y;
@@ -417,8 +419,15 @@ function hudUiTouchBreak(fixed, banners, width, height) {
     if (length2(x - width / 2, y - height / 2) < aimRadius + radius) return control.id + ' in the aim zone';
     if (place.radius * 2 < Math.min(TOUCH_MIN_DIAMETER, place.fullRadius * 2) - 0.01) return control.id + ' ' + Math.round(place.radius * 2) + ' px across';
     if (!TouchInput.keepsHalf(place, x, width)) return control.id + ' left its half';
+    if (HUD_UI_CORE_BUTTONS.includes(control.id) && (x < width / 2) !== (place.startX < width / 2)) return control.id + ' crossed the centre';
     const over = fixed.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)) || (HudBanners.free && banners.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)));
     if (over) return control.id + ' over ' + over.map(Math.round);
+  }
+  if (layout.phone) {   // a phone: the newest banner alone, small, on the panel line
+    const panel = hudHeaderBox(layout, []);
+    const letters = HUD_UI_BANNERS[1].replace(/ /g, '').length;   // each glyph and, at most, its shadow
+    if (banners.length < letters || banners.length > 2 * letters) return banners.length + ' banner quads on a phone';
+    return banners.some((box) => (box[1] + box[3]) / 2 > panel[1] + panel[3]) ? 'phone banner outside the score panel' : '';
   }
   if (banners.length < HUD_UI_BANNER_GLYPHS) return 'banners hidden';
   const moved = HudBanners.top > height * 0.22 + 0.5;
@@ -430,7 +439,7 @@ function hudUiDrawPanels(layout) {
   for (const draw of [hudDrawHeader, hudDrawTickets, hudDrawMinimap, hudDrawVitals, hudDrawAmmo, hudDrawWeaponBar]) draw(HudPen, layout);
 }
 // HUD scale 100%, 125% and 150%; layouts at the defaults (-1) or every button moved to the top or bottom edge, at editor scales 1 to 2.
-const HUD_UI_HUD_SCALES = [1, 1.25, 1.5], HUD_UI_EDITS = [[-1, 0], [0.01, 0], [0.99, 0], [-1, 1.5], [-1, 2], [0.01, 2]];
+const HUD_UI_HUD_SCALES = [1, 1.25, 1.5], HUD_UI_EDITS = [[-1, 0], [0.01, 0], [0.99, 0], [-1, 1.5], [-1, 1.75], [-1, 2], [0.01, 2]];
 function hudUiTouchProblems(width, height, draw) {
   const layout = {}, problems = [];
   for (const hudScale of HUD_UI_HUD_SCALES) {
@@ -450,7 +459,7 @@ function hudUiTouchProblems(width, height, draw) {
           if (replay) hudDrawKillcamPanel(HudPen, layout);
           const fixed = hudUiDrawnBoxes(0), first = HudBatch.quads;
           hudDrawBanners(HudPen, layout);
-          const broken = hudUiTouchBreak(fixed, hudUiDrawnBoxes(first), width, height);
+          const broken = hudUiTouchBreak(fixed, hudUiDrawnBoxes(first), width, height, layout);
           if (broken) problems.push([width, height, hudScale, preset.id, moved, scale, replay, broken].join(' '));
         }
       }
@@ -495,7 +504,7 @@ Test.add('ui', (check) => {
   emitToast('Saved');
   check('toast: menus keep the top', Ui.toastBox.lastChild.textContent === 'Saved');
   Ui.playBox.replaceChildren(); Ui.toastBox.replaceChildren();
-  check('help: a phone is told the pause menu, not B, and sees its buttons', !buyText().includes('with B') && buyText().includes('pause menu') && controlsSummary().includes('TAB: Scoreboard'));
+  check('help: a phone is told the pause menu, not B, and sees its buttons', !buyText().includes('with B') && buyText().includes('pause menu') && controlsSummary().includes('score panel'));
   Input.device = 'gamepad';
   const padText = buyText();
   Input.device = 'kbm';
@@ -524,14 +533,10 @@ Test.add('input', (check) => {
   Input.setDevice('touch'); TouchInput.syncVisible();
   empty(id);
   frame();
-  check('needs: nothing to use hides A1, A2, ULT, GADGET, NADE, HEAL and PRONE', ['ability1', 'ability2', 'ultimate', 'gadget', 'grenade', 'heal', 'prone'].every(off));
+  check('needs: nothing to use hides A1, A2, ULT, GADGET, NADE and HEAL', ['ability1', 'ability2', 'ultimate', 'gadget', 'grenade', 'heal'].every(off));
   fill(id);
   frame();
-  check('needs: a filled slot, a grenade, a consumable and prone movement show only their buttons', !off('ability1') && off('ability2') && !off('grenade') && !off('heal') && !off('prone'));
-  inputTouchPointer('pointerdown', TouchInput.elements.prone, 5, 300, 300);
-  frame(); Sim.step();
-  check('prone: pressing the touch button sets the prone action', (Actors.buttons[id] & BTN.PRONE) !== 0);
-  inputTouchPointer('pointerup', TouchInput.elements.prone, 5, 300, 300);
+  check('needs: a filled slot, a grenade and a consumable show only their buttons', !off('ability1') && off('ability2') && !off('grenade') && !off('heal'));
   Move.setPreset(id, '');
   id = startInputMatch();   // the same needs again in the next match
   Input.setDevice('touch'); TouchInput.syncVisible();

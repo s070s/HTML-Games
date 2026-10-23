@@ -176,16 +176,14 @@ const Scoreboard = {
     return (mode ? mode.name : 'Match') + (map ? ' - ' + map : '');
   },
 
-  // Tab / View button / touch button. Mouse and pad hold to look; touch taps toggle. With the "toggle" setting on (ACC-004) Input
+  // Tab / View button / a finger on the touch score panel: held to look. With the "toggle" setting on (ACC-004) Input
   // keeps the toggle itself and reports the second press as a release, so the board closes on that release on every device.
-  tapToggles() { return Input.device === 'touch' && !Input.isToggleMode('scoreboard'); },
   onAction(down) {
     if (Game.headless || Game.state !== 'playing') return;
-    const open = Ui.isOpen('scoreboard'), toggle = this.tapToggles();
+    const open = Ui.isOpen('scoreboard');
     this.auto = false;
     if (down && !open && !Ui.current() && !Game.paused) Ui.open('scoreboard');
-    else if (down && open && toggle) Ui.back();
-    else if (!down && open && !toggle) Ui.back();
+    else if (!down && open) Ui.back();
   },
   // Between rounds the board opens by itself and closes when the next round starts.
   onRound(event) {

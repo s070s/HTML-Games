@@ -623,7 +623,7 @@ const Gadgets = {
   attackLocks: [],                                   // fn(id) -> true while the actor may not attack (12f: the NO_FIRE buff of A06 Phase Slip; 13f: a Blight infected)
   deployers: [],                                     // fn(id, row) -> true when 12d placed the gadget
   empHooks: [],                                      // fn(owner, x, y, z, radius, seconds): 12d disables devices
-  cycleShown: false,                                 // last answer of TouchInput.needs.grenadeCycle (syncCycleButton)
+  cycleShown: -1,                                    // the grenade row the touch NADE face names, -1 none (syncCycleButton)
 
   kit() { return CAT.gadgetKits.byId(itemRule('economy', 'pickups')) || CAT.gadgetKits.byId('pickups'); },
   countOf(id, key) { const row = CAT.gadgets.byId(key); return row ? this.count[id * GADGET_COUNT + row.index] : 0; },
@@ -646,7 +646,7 @@ const Gadgets = {
     if (kit.limits[row.id] !== undefined) return kit.limits[row.id];
     return kit.perType || row.carry;
   },
-  // Thrown rows this actor carries at least one of (the touch TYPE button shows from two: a cycle needs a choice).
+  // Thrown rows this actor carries at least one of (the touch NADE face names the type from two: a cycle needs a choice).
   grenadeTypes(id) {
     let types = 0;
     for (let rowIndex = 0; rowIndex < GADGET_COUNT; rowIndex++) if (CAT.gadgets[rowIndex].kind === 'thrown' && this.count[id * GADGET_COUNT + rowIndex]) types++;
@@ -732,13 +732,12 @@ const Gadgets = {
     Smoke.step();
     this.syncCycleButton();
   },
-  // The touch TYPE button follows the player's carried grenade types: the layout is re-applied on a change only.
+  // The touch NADE face names the grenade type it throws while there is a choice (a swipe on NADE picks the next), on a change only.
   syncCycleButton() {
-    if (!TouchInput.layer) return;
-    const canCycle = TouchInput.needs.grenadeCycle();
-    if (canCycle === this.cycleShown) return;
-    this.cycleShown = canCycle;
-    TouchInput.applyAll();
+    const id = Game.playerId, row = id >= 0 && this.grenadeTypes(id) >= 2 ? this.grenade[id] : -1;
+    if (row === this.cycleShown) return;
+    this.cycleShown = row;
+    TouchInput.setNote('grenade', row >= 0 ? CAT.gadgets[row].name.split(' ')[0] : '');
   },
   // One test for "cannot attack": grenades, gadgets and the offensive abilities (12e usable) all ask it.
   attackLocked(id) {
@@ -891,7 +890,7 @@ const Gadgets = {
     instance.sx = instance.sz = Math.max(0.5, row.radius * 2);
     batch.meshFrom('ring', instance);
   },
-  clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); this.cycleShown = false; },   // the touch layer hides TYPE at match start, so the next step re-checks it
+  clear() { Thrown.clear(); GadgetAreas.clear(); Smoke.clear(); this.cycleShown = -1; },   // a new match names the grenade type again on its first step
 };
 
 // Aim assist (INP-008) never locks through smoke (a filter, so whoever fills Input.aimAssistTarget keeps it).
@@ -902,7 +901,6 @@ WeaponSpecialState.grenadeHook = Thrown;
 Weapons.altClaim = (id) => Gadgets.holdStart[id] >= 0 || ((Actors.buttons[id] & BTN.GRENADE) !== 0 && Gadgets.grenadeReady(id));
 Settings.define('gameplay.grenadePreview', true, { label: 'Grenade arc preview', category: 'gameplay', options: [false, true], optionLabels: ['Off', 'On'] });
 Sim.addSystem('gadgets', 58, (dt) => Gadgets.step(dt));
-TouchInput.needs.grenadeCycle = () => Game.playerId >= 0 && Gadgets.grenadeTypes(Game.playerId) >= 2;
 Render.addSource('thrown', (batch) => { Thrown.draw(batch); Gadgets.drawHeld(batch); Gadgets.drawPreview(batch); });
 Render.addSource('smoke', (batch) => Smoke.draw(batch));
 Bus.on('weapon.fire', (event) => Smoke.onShot(event));

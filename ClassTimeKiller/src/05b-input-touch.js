@@ -16,6 +16,8 @@ const TOUCH_MIN_EVENT_MS = 4;
 const TOUCH_TAP_MS = 220;               // tap-to-fire: a short, still touch on the look area
 const TOUCH_TAP_SLOP = 12;              // px
 const TOUCH_HOLD_MS = 350;              // a button held this long on release does its holdAction (SWAP: previous weapon)
+const TOUCH_COOK_MS = 150;              // a still finger on NADE this long starts the cook (a slide before it picks the type)
+const TOUCH_SWIPE = 24;                 // px a finger slides on a swipeAction button before it counts as a swipe (NADE: next type, DUCK: prone)
 const TOUCH_GYRO_WAIT_MS = 1000;        // no devicemotion event this long after the permission: the sensor is unavailable
 const TOUCH_GYRO_KEY = 'controls.touch.gyro', TOUCH_GYRO_MESSAGE = 'Gyro needs HTTPS and motion permission', TOUCH_GYRO_NOTE = ' (needs HTTPS and motion permission)';
 const TOUCH_FOUR_FINGER_MS = 300;       // four fingers down on the look area within this time toggle the debug views (ARC-040)
@@ -31,8 +33,8 @@ const TOUCH_NEAR = 6;                   // radii a button may move before it shr
 const TOUCH_CROWD_SMALLEST = TOUCH_SMALLEST / TOUCH_SCALE_MAX;   // crowd factor floor: an editor-grown button shrinks to its smallest too
 const TOUCH_MIN_DIAMETER = 30;          // css px: no button shrinks below this (smaller cannot be tapped reliably)
 const TOUCH_GAP = 2;                    // css px kept between two buttons, so a tap at one's edge does not reach the next
-const TOUCH_CENTRE_BAND = 0.2;          // of the width: a layout spot this near the centre line belongs to neither half (keepsHalf)
-const ROLE_NONE = 0, ROLE_STICK = 1, ROLE_LOOK = 2, ROLE_BUTTON = 3, ROLE_DRAG = 4;
+const TOUCH_CENTRE_BAND = 0.05;         // of the width: a layout spot this near the centre line (pause) belongs to neither half (keepsHalf)
+const ROLE_NONE = 0, ROLE_STICK = 1, ROLE_LOOK = 2, ROLE_BUTTON = 3, ROLE_DRAG = 4, ROLE_PANEL = 5;
 // Rotation axes of a phone held in each screen orientation: which device axes point screen-up and screen-right.
 const GYRO_AXES = {
   0: { upX: 0, upY: 1, rightX: 1, rightY: 0 }, 90: { upX: 1, upY: 0, rightX: 0, rightY: -1 },
@@ -46,12 +48,14 @@ const TOUCH_PRESETS = [
   { id: 'mirrored', label: 'Left-handed', mirror: true, scale: 1 },
 ];
 // Control rows: x, y = centre as a share of the screen, size in css px, action = Input action id, setting = config flag that shows it,
-// need = TouchInput.needs key whose fn() must be true to show it (USE only in modes that need Use held, COMM once a comm wheel exists,
-// A1/A2/ULT/GADGET/NADE/HEAL/PRONE only while the player has what they use);
+// need = TouchInput.needs key whose fn() must be true to show it (USE only in modes that need Use held,
+// A1/A2/ULT/GADGET/NADE/HEAL only while the player has what they use);
 // a need with no fn reads a match flag that later sections set with TouchInput.setFlag (the card button only in matches
-// with active cards); 'grenadeCycle' (12c) shows the grenade type button while the player carries two thrown types or more;
-// 'breath' (11a flag) shows the hold-breath button (the Walk action) while the player's scope sways (W24).
-// holdAction = what a press held TOUCH_HOLD_MS does on release instead of action; mirrorAt = its place in the left-handed preset where
+// with active cards); 'breath' (11a flag) shows the hold-breath button (the Walk action) while the player's scope sways (W24).
+// Rare actions ride on other controls, so a phone shows fewer buttons: holdAction = what a press held TOUCH_HOLD_MS does on
+// release instead of action; swipeAction = what a slide of TOUCH_SWIPE does (action waits for a still finger, TOUCH_COOK_MS,
+// or the release; with swipeNow action is pressed at once and the swipe lets go of it first, so a held DUCK stays crouched).
+// The score panel holds the scoreboard (panelAt), and PING opens the comm wheel when held (17g). mirrorAt = its place in the left-handed preset where
 // a plain mirror would cover the minimap or the vitals. Default places keep clear of the phone HUD (hudui test).
 // edge = a small utility button that placeAll keeps in the top and side bands when it moves (never mid-screen, where the look
 // thumb sweeps); face = the button text: 14 px (ACC-008) and no wider than the button, so long words are short ones (DUCK, LOAD, TOOL).
@@ -60,26 +64,22 @@ const TOUCH_CONTROLS = [
   { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
   { id: 'aim', label: 'Aim', face: 'AIM', action: 'alt', x: 0.80, y: 0.40, size: 60 },
   { id: 'jump', label: 'Jump', face: 'JUMP', action: 'jump', x: 0.82, y: 0.82, size: 64, mirrorAt: [0.20, 0.72] },
-  { id: 'crouch', label: 'Crouch', face: 'DUCK', action: 'crouch', x: 0.70, y: 0.88, size: 50 },
-  { id: 'prone', label: 'Prone', face: 'LIE', action: 'prone', x: 0.53, y: 0.88, size: 36, need: 'prone' },
+  { id: 'crouch', label: 'Crouch (swipe: lie prone or get up)', face: 'DUCK', action: 'crouch', swipeAction: 'prone', swipeNow: true, x: 0.70, y: 0.88, size: 50 },
   { id: 'reload', label: 'Reload', face: 'LOAD', action: 'reload', x: 0.94, y: 0.34, size: 50 },
   { id: 'breath', label: 'Hold breath', face: 'HOLD', action: 'walk', x: 0.70, y: 0.42, size: 46, need: 'breath' },
   { id: 'swap', label: 'Swap weapon (hold: previous)', face: 'SWAP', action: 'nextWeapon', holdAction: 'prevWeapon', x: 0.76, y: 0.21, size: 46, mirrorAt: [0.28, 0.30] },
-  { id: 'grenade', label: 'Grenade', face: 'NADE', action: 'grenade', x: 0.60, y: 0.88, size: 46, need: 'grenade' },
+  { id: 'grenade', label: 'Grenade (swipe: next type)', face: 'NADE', action: 'grenade', swipeAction: 'grenadeNext', x: 0.60, y: 0.88, size: 46, need: 'grenade' },
   { id: 'heal', label: 'Use heal', face: 'HEAL', action: 'heal', x: 0.94, y: 0.16, size: 42, need: 'heal', mirrorAt: [0.17, 0.10] },
-  { id: 'grenadeNext', label: 'Next grenade type', face: 'TYPE', action: 'grenadeNext', x: 0.60, y: 0.74, size: 36, need: 'grenadeCycle' },
   { id: 'ability1', label: 'Ability 1', face: 'A1', action: 'ability1', x: 0.08, y: 0.32, size: 44, need: 'ability1' },
   { id: 'ability2', label: 'Ability 2', face: 'A2', action: 'ability2', x: 0.17, y: 0.32, size: 44, need: 'ability2' },
   { id: 'ultimate', label: 'Ultimate', face: 'ULT', action: 'ultimate', x: 0.26, y: 0.32, size: 44, need: 'ultimate' },
-  { id: 'ping', label: 'Ping', face: 'PING', action: 'ping', x: 0.58, y: 0.20, size: 40, edge: true },
-  { id: 'scoreboard', label: 'Scoreboard', face: 'TAB', action: 'scoreboard', x: 0.42, y: 0.20, size: 40, edge: true },
+  { id: 'ping', label: 'Ping (hold: comm wheel)', face: 'PING', action: 'ping', x: 0.58, y: 0.20, size: 40, edge: true },
   { id: 'pause', label: 'Pause', face: 'II', action: 'pause', x: 0.50, y: 0.20, size: 40, edge: true },
   { id: 'cards', label: 'Use a card', face: 'CARD', action: 'cards', x: 0.34, y: 0.20, size: 40, need: 'cards' },
   { id: 'fireLeft', label: 'Fire (left side)', face: 'FIRE', action: 'fire', x: 0.30, y: 0.62, size: 70, setting: 'touchLeftFire' },
   { id: 'use', label: 'Use / interact', face: 'USE', action: 'use', x: 0.70, y: 0.64, size: 54, need: 'use' },
   { id: 'melee', label: 'Melee', face: 'MELEE', action: 'melee', x: 0.86, y: 0.22, size: 46, mirrorAt: [0.20, 0.22] },
   { id: 'gadget', label: 'Gadget', face: 'TOOL', action: 'gadget', x: 0.35, y: 0.32, size: 44, need: 'gadget', edge: true },
-  { id: 'comm', label: 'Comm wheel', face: 'CHAT', action: 'comm', x: 0.66, y: 0.20, size: 40, need: 'comm', edge: true },
 ];
 const TOUCH_SETTINGS = [
   { key: 'controls.touch.sensitivity', field: 'touchSensitivity', fallback: 1, label: 'Touch look sensitivity', min: 0.2, max: 3, step: 0.05 },
@@ -135,6 +135,8 @@ const TouchInput = {
   needed: [], needBits: 0,         // the need keys of the controls and their last answers (syncNeeds)
   weaponSlotAt: null,              // fn(clientX, clientY) -> weapon slot 1..9 under that point, else 0 (17a weapon bar)
   buttonLook: null,                // fn(control) -> true: that held button's finger also turns the look (17g comm wheel)
+  panelAt: null,                   // fn(clientX, clientY) -> true on the score panel: a finger there holds the scoreboard (17c)
+  notes: {},                       // control id -> the small second line of a swipeAction button's face (setNote: 12c grenade type)
   layoutScratch: { x: 0, y: 0, scale: 1, opacity: 1, hidden: false },
   places: {},                      // control id -> { x, y, radius, shown, placed }: where it is drawn, in window css px (placeAll)
   placeOrder: TOUCH_CONTROLS.slice(),   // placeAll sorts it: the largest drawn first (the stick, FIRE, JUMP keep their places)
@@ -143,14 +145,14 @@ const TouchInput = {
   insets: { top: 0, right: 0, bottom: 0, left: 0 },   // the safe-area insets the layer sits inside (17a shares Hud.insets)
   keepClear: [],                   // fn(width, height) per HUD area the buttons give way to, each calls addClear (17c score panel, 17e killcam bars)
   clearRects: [], clearCount: 0,   // the areas of the last placeAll: { left, top, right, bottom } in window css px (addClear)
-  // control.need -> fn() true shows that button. 'comm' stays null until a later section adds the comm wheel and fills it.
+  // control.need -> fn() true shows that button.
   needs: {
-    use: () => useButtonNeeded(), comm: null,
+    use: () => useButtonNeeded(),
     ability1: () => touchHasAbility(SLOT.ABILITY1), ability2: () => touchHasAbility(SLOT.ABILITY2), ultimate: () => touchHasAbility(SLOT.ULTIMATE),
     gadget: () => Game.playerId >= 0 && Gadgets.gadget[Game.playerId] >= 0,
     grenade: () => Game.playerId >= 0 && Gadgets.thrownTotal(Game.playerId) > 0,
     heal: touchHasHeal,
-    prone: () => Game.playerId >= 0 && Move.preset(Game.playerId).proneMult > 0,
+    prone: () => Game.playerId >= 0 && Move.preset(Game.playerId).proneMult > 0,   // read by the DUCK swipe (swipeButton), not a button need
   },
   useNeeds: [],                    // fn() true -> Use can act outside the mode row (filled by S10, S11)
   stickSprints: null,              // fn() -> false: a full stick push must not press sprint (S10: presets where sprint walks)
@@ -158,7 +160,7 @@ const TouchInput = {
   init() {
     this.onMotion = (event) => { this.gyro.events++; if (event.rotationRate) gyroToLook(event.rotationRate, this.screenAngle(), this.gyro); };
     this.buildLayer();
-    for (let i = 0; i < TOUCH_SLOT_COUNT; i++) this.slots.push({ pointerId: -1, role: ROLE_NONE, control: null, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, lastTime: 0, moved: false, weaponSlot: 0 });
+    for (let i = 0; i < TOUCH_SLOT_COUNT; i++) this.slots.push({ pointerId: -1, role: ROLE_NONE, control: null, startX: 0, startY: 0, lastX: 0, lastY: 0, startTime: 0, lastTime: 0, moved: false, weaponSlot: 0, waiting: false, done: false });
     if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) Input.setDevice('touch');
     document.addEventListener('gesturestart', (event) => event.preventDefault());
     this.applyAll();
@@ -178,6 +180,7 @@ const TouchInput = {
       this.elements[control.id] = element;
       this.controlById[control.id] = control;
       this.places[control.id] = {};   // placeControl fills x, y, radius and shown (applyAll places before it draws)
+      if (control.swipeAction && !control.swipeNow) element.appendChild(this.notes[control.id] = makeElement('span', 'tc-note'));
       if (control.need && !this.needed.includes(control.need)) this.needed.push(control.need);
       this.layer.appendChild(element);
     }
@@ -234,6 +237,7 @@ const TouchInput = {
     slot.weaponSlot = control || !this.weaponSlotAt ? 0 : this.weaponSlotAt(event.clientX, event.clientY);   // picked on a still tap (onUp)
     if (control && control.action) this.beginButton(slot, control);
     else if (control) this.beginStick(slot, event, control);
+    else if (this.panelAt && this.panelAt(event.clientX, event.clientY)) { slot.role = ROLE_PANEL; Input.pressAction(Input.actionIndex.scoreboard); }
     else if (this.inMoveZone(event.clientX) && !this.stick.slot) this.beginStick(slot, event, null);
     else slot.role = ROLE_LOOK;
   },
@@ -248,6 +252,7 @@ const TouchInput = {
     if (slot.role === ROLE_STICK) this.moveStick(event);
     else if (slot.role === ROLE_LOOK) this.moveLook(slot, event);
     else if (slot.role === ROLE_DRAG) this.dragControl(slot.control, event);
+    else if (slot.role === ROLE_BUTTON && (slot.waiting || (slot.control.swipeNow && !slot.done)) && length2(event.clientX - slot.startX, event.clientY - slot.startY) > TOUCH_SWIPE) this.swipeButton(slot);
     else if (slot.role === ROLE_BUTTON && this.buttonLook && this.buttonLook(slot.control)) this.moveLook(slot, event);
     slot.lastX = event.clientX; slot.lastY = event.clientY; slot.lastTime = event.timeStamp;
     if (length2(event.clientX - slot.startX, event.clientY - slot.startY) > TOUCH_TAP_SLOP) slot.moved = true;
@@ -259,6 +264,7 @@ const TouchInput = {
     if (slot.role === ROLE_STICK) this.endStick();
     else if (slot.role === ROLE_BUTTON) this.endButton(slot, event);
     else if (slot.role === ROLE_DRAG) this.flushDrag();   // the button lands where the finger left it
+    else if (slot.role === ROLE_PANEL) Input.releaseAction(Input.actionIndex.scoreboard);
     if (tap && slot.weaponSlot) Input.pulseAction(Input.actionIndex['slot' + slot.weaponSlot]);   // a still tap on the weapon bar picks that slot
     else if (tap && slot.role === ROLE_LOOK && Input.config.touchTapFire) Input.pulseAction(Input.actionIndex.fire);
     this.freeSlot(slot);
@@ -267,12 +273,14 @@ const TouchInput = {
 
   // ---- Buttons ----
   beginButton(slot, control) {
-    slot.role = ROLE_BUTTON; slot.control = control;
-    if (control.holdAction) this.elements[control.id].classList.add('down');   // acts on release: a tap or a hold
+    slot.role = ROLE_BUTTON; slot.control = control; slot.waiting = !!control.swipeAction && !control.swipeNow; slot.done = false;
+    if (control.holdAction || slot.waiting) this.elements[control.id].classList.add('down');   // acts later: on release, a still finger or a swipe
     else this.setButton(control, true);
   },
   endButton(slot, event) {
     const control = slot.control;
+    if (slot.waiting) Input.pulseAction(Input.actionIndex[control.action]);   // a quick tap: NADE throws at once
+    if (slot.waiting || slot.done) { this.elements[control.id].classList.remove('down'); return; }
     if (!control.holdAction) { this.setButton(control, false); return; }
     const held = event.timeStamp - slot.startTime >= TOUCH_HOLD_MS;
     this.elements[control.id].classList.remove('down');
@@ -283,6 +291,24 @@ const TouchInput = {
     this.elements[control.id].classList.toggle('down', down);
     if (down) Input.pressAction(index); else Input.releaseAction(index);   // last: a pause press resets this module
   },
+  // Once a frame while fingers are down: a still finger on a waiting swipeAction button presses it after TOUCH_COOK_MS (NADE cooks).
+  stepHeldButtons(now) {
+    for (let i = 0; i < TOUCH_SLOT_COUNT; i++) {
+      const slot = this.slots[i];
+      if (slot.role === ROLE_BUTTON && slot.waiting && now - slot.startTime >= TOUCH_COOK_MS) { slot.waiting = false; this.setButton(slot.control, true); }
+    }
+  },
+  // A swipe on a swipeNow button lets go of its action first, which also ends a crouch latched by Toggle. A swipe action
+  // with a needs fn of its id (prone) does nothing while that is false (a movement preset with no prone).
+  swipeButton(slot) {
+    const control = slot.control, need = this.needs[control.swipeAction];
+    if (!slot.waiting) { this.setButton(control, false); Input.resetToggle(control.action); }
+    slot.waiting = false; slot.done = true;
+    this.elements[control.id].classList.remove('down');
+    if (!need || need()) Input.pulseAction(Input.actionIndex[control.swipeAction]);
+  },
+  // The second line of a swipeAction button's face ('' hides it): set on a change only.
+  setNote(controlId, text) { if (this.notes[controlId]) this.notes[controlId].textContent = text; },
 
   // ---- Floating stick (INP-004) ----
   beginStick(slot, event, control) {
@@ -377,6 +403,7 @@ const TouchInput = {
     this.syncVisible();
     if (!this.shown) return;
     this.syncNeeds();
+    if (this.activeCount) this.stepHeldButtons(performance.now());   // the clock of the pointer events' timeStamp
     Input.analog.moveX += this.stick.x;
     Input.analog.moveZ -= this.stick.y;
     if (!this.gyro.attached || !this.gyroEnabled()) return;
@@ -518,7 +545,7 @@ const TouchInput = {
   // The layout spot when it is free, else the nearest free spot on rings around it (spots half a radius apart), within
   // TOUCH_NEAR radii and on the button's own half of the screen (a thumb finds it where it was). A button with no such spot
   // tries again smaller (by TOUCH_SHRINK_STEP), down to TOUCH_SMALLEST of its preset size but never under TOUCH_MIN_DIAMETER;
-  // at that size it may search as far as its half reaches. An edge button (the small utility row: TAB, II, PING, CHAT, TOOL)
+  // at that size it may search as far as its half reaches. An edge button (the small utility row: II, PING, TOOL)
   // keeps to the top or side bands (TOUCH_EDGE_BAND), where the look thumb does not sweep, until nothing in them is free.
   // With nothing free on its half it takes a free spot anywhere, else the allowed spot that overlaps the others least.
   // The least radius a control shrinks to: TOUCH_SMALLEST of its preset size, never under TOUCH_MIN_DIAMETER (nor over its own).
@@ -558,13 +585,16 @@ const TouchInput = {
     }
     return best < Infinity;
   },
-  // x is on the same half of the screen as the button's layout spot. One that starts near the centre line (within
-  // TOUCH_CENTRE_BAND of the width: the utility row) belongs to neither half and may take either.
-  keepsHalf(place, x, width) { return Math.abs(place.startX - width / 2) < TOUCH_CENTRE_BAND * width || (x < width / 2) === (place.startX < width / 2); },
-  // The top band or a side band of the layer: TOUCH_EDGE_BAND of the short side from that edge (the button's centre).
+  // x is on the same half of the screen as the button's layout spot. An edge button (the utility row) and one that starts on
+  // the centre line (within TOUCH_CENTRE_BAND of the width) belong to neither half and may take either.
+  keepsHalf(place, x, width) {
+    return TOUCH_CONTROLS[place.order].edge || Math.abs(place.startX - width / 2) < TOUCH_CENTRE_BAND * width || (x < width / 2) === (place.startX < width / 2);
+  },
+  // The top band, or a side band in the top half of the layer (never beside the stick or FIRE): TOUCH_EDGE_BAND of the short
+  // side from that edge (the button's centre).
   inEdgeBand(x, y, width, height) {
     const insets = this.insets, band = TOUCH_EDGE_BAND * Math.min(width, height);
-    return y <= insets.top + band || x <= insets.left + band || x >= width - insets.right - band;
+    return y <= insets.top + band || (y <= height / 2 && (x <= insets.left + band || x >= width - insets.right - band));
   },
   // A circle of radius at x, y may go there: inside the layer, outside the aim zone and the keepClear areas.
   spotAllowed(x, y, radius, width, height) {
@@ -650,7 +680,7 @@ const TouchInput = {
 const TOUCH_CSS = '.tc-layer { position: fixed; left: var(--safe-left); right: var(--safe-right); top: var(--safe-top); bottom: var(--safe-bottom); display: none; z-index: 5; touch-action: none; }'
   + '.tc-layer.show { display: block; } .tc-zone { position: absolute; inset: 0; touch-action: none; }'
   + '.tc { position: absolute; transform: translate(-50%, -50%); border-radius: 50%; display: flex; align-items: center; justify-content: center; touch-action: none;'
-  + ' background: rgba(255, 255, 255, 0.14); border: 2px solid rgba(255, 255, 255, 0.5); color: #fff; font: 700 0.875em/1 var(--ui-font); }'   // 14 px faces (ACC-008)
+  + ' background: rgba(255, 255, 255, 0.14); border: 2px solid rgba(255, 255, 255, 0.5); color: #fff; font: 700 0.875em/1 var(--ui-font); flex-direction: column; } .tc-note { font-weight: 400; }'   // 14 px faces (ACC-008)
   + '.tc.down { background: rgba(255, 181, 71, 0.55); border-color: var(--ui-accent); } .tc.off { display: none; }'
   + '.tc-stick { background: rgba(255, 255, 255, 0.06); border-style: dashed; }'
   + '.tc-live { position: fixed; left: 0; top: 0; display: none; border-radius: 50%; background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.5); pointer-events: none; }'
