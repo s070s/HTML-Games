@@ -550,12 +550,7 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   Input.device = 'touch';
   const classes = economyPanelLines(CAT.economy.byId('classes')).lines.join(' ');
   check('economy panel: classes name the loadout, not a buy menu', !classes.includes('buy menu') && classes.includes(LOADOUT_PAUSE_ENTRY.label), classes);
-  // A mode whose objective and scoring lines say nothing about how it is won carries its own goal line.
-  const vague = CAT.modes.filter((row) => (row.objective || 'none') === 'none' && !['kills', 'rounds'].includes(row.scoreBy || 'kills') && !MODE_GOAL_TEXT[row.id]).map((row) => row.id);
-  check('rules panel: special modes have a goal line', vague.length === 0, vague.join());
-  const lms = modeGoalLines({ mode: 'lms' }).join(), ladder = modeGoalLines({ mode: 'gungame' }).join();
-  const roulette = modeGoalLines({ mode: 'roulette', params: { rotateEvery: 45 } }).join() + modeGoalLines({ mode: 'roulette' }).join();
-  check('rules panel: Last Standing, Arms Ladder and Roulette say how they are won, numbers from the mode params', !lms.includes('wave') && ladder.includes('ladder') && roulette.includes('every 45 s') && roulette.includes('every ' + CAT.modes.byId('roulette').params.rotateEvery + ' s'), lms + ladder + roulette);
+  // The goal lines come from the mode rows (one goal source per mode): checked in the 'modes' group.
   Input.device = 'kbm';
 })));
 

@@ -61,6 +61,18 @@ Test.add('modes', (check) => {
   }
   const noGoal = CAT.modes.filter((mode) => !mode.goal || /\d/.test(mode.goal)).map((mode) => mode.id);
   check('every mode has a one-line goal text, with no number that lives in another field (fun-02)', noGoal.length === 0, noGoal.join());
+  // One goal source per mode (regression-01): pause > Rules shows the row's goal, then its goalDetail with the {param} slots filled.
+  const panelGoals = CAT.modes.filter((mode) => {
+    const lines = modeGoalLines({ mode: mode.id, params: mode.params });
+    return lines[0] !== mode.goal || lines.length !== (mode.goalDetail ? 2 : 1) || /\d/.test(mode.goalDetail) || lines.join().includes('{');
+  }).map((mode) => mode.id);
+  const roulette = modeGoalLines({ mode: 'roulette', params: { rotateEvery: 45 } }).join() + modeGoalLines({ mode: 'roulette' }).join();
+  check('rules panel: the goal lines are the mode row goal and detail, numbers from the match params', typeof MODE_GOAL_TEXT === 'undefined' && panelGoals.length === 0
+    && roulette.includes('every 45 s') && roulette.includes('every ' + CAT.modes.byId('roulette').params.rotateEvery + ' s'), panelGoals.join() + roulette);
+  // Blight converts a human on any death after the outbreak (13f onKill), not on a hit; the range drill starts on the first shot (14j onFire).
+  const blight = CAT.modes.byId('infection'), range = CAT.modes.byId('range');
+  check('goal texts: Blight says a human who dies joins, the range says the first shot starts the drill', (blight.goal + blight.goalDetail).includes('dies') && !(blight.goal + blight.goalDetail).includes('hit')
+    && range.goalDetail.includes('first shot') && (range.goal + range.goalDetail).includes('Quit to menu'), blight.goal + blight.goalDetail + range.goal + range.goalDetail);
   for (const line of EXPECTED_MODES) {
     const [id, teams, size, scoreLimit, timeLimit] = line.split(' ');
     const row = CAT.modes.byId(id);

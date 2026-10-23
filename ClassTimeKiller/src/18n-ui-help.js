@@ -26,32 +26,6 @@ const TIP_ACTIONS = [                    // per tip: the actions whose keys fill
 const TIP_TOUCH_TEXT = '{touch}. The buttons on the {buttons} fire, jump and reload.';
 const TIP_PAD = { text: 'Left stick moves, right stick looks. {0} fires, {1} aims, {2} jumps.', actions: ['fire', 'alt', 'jump'] };
 
-const OBJECTIVE_TEXT = {
-  none: 'Defeat the other side.', flag: 'Capture the enemy flag and bring it to your base.', point: 'Capture and hold the points.', hill: 'Hold the marked hill.',
-  bombsite: 'Plant the bomb at a site, or defuse it.', relic: 'Carry the relic as long as you can.', payloadPath: 'Escort the payload along its route.', bank: 'Collect and bank the cash.',
-};
-// Modes whose goal the objective and scoring lines cannot tell (both are replaced by this line); {key} = that mode param.
-const MODE_GOAL_TEXT = {
-  lms: 'A few lives each: the last one standing wins.',
-  gungame: 'Each kill moves you up the weapon ladder: finish it first to win. A melee kill sets the victim back.',
-  infection: 'Survivors hold out to the end of the time; a survivor the infected hit joins them.',
-  juggernaut: 'The first kill makes the tough Colossus. Only its kills score; kill it to take its place.',
-  cursetag: 'Killing the cursed player (weak, melee only) scores. The cursed passes the curse on at the beacon.',
-  royale: 'No respawns: loot, stay inside the shrinking ring, be the last squad standing.',
-  bearer: 'The flame bearer scores every second and hits harder: kill the bearer to take it.',
-  roulette: 'Everyone has the same weapon, changed every {rotateEvery} s. Every kill scores.',
-  fiends: 'Ravager against fiends: wipe the other side out to win a round. Fiends stand up while a partner lives.',
-  horde: 'Defend the core against the waves; shop between waves.',
-  endless: 'Defend the core against growing waves; reach the extract zone when it opens.',
-  contract: 'Sneak past the guards, take the relic, reach the extract. Alarms and kills cost points.',
-  attrition: 'Minions march on each base: kill minions and players to reach the limit first.',
-  range: 'Free practice: the first hit at a station starts a drill. Pause and quit to leave.',
-  puzzle: 'Solve each chamber to open the next: buttons, plates and the cube.',
-};
-const SCORE_BY_TEXT = {
-  kills: 'Every kill scores.', objective: 'Objectives score.', tickets: 'Both sides have tickets; the side that runs out loses.', rounds: 'The first side to win enough rounds wins.',
-  survival: 'Outlast every wave.', pve: 'Fight the waves together.',
-};
 const FRIENDLY_FIRE_TEXT = ['Friendly fire is off.', 'Friendly fire is on.'];
 const ECONOMY_LINES = [   // [applies, text] per economy preset field; money amounts come from the row
   [(row) => row.money && row.buy === 'round', (row) => 'You start with $' + row.startMoney + ' (at most $' + row.maxMoney + '). Buy in the buy zone for ' + row.buyTime + ' s after each round starts.'],
@@ -110,12 +84,13 @@ function respawnText(rules) {
 }
 function percentText(label, value) { return label + ' ' + Math.round(value * 100) + '%'; }
 
-// What wins this match, in one or two lines.
+// What wins this match, in one or two lines: the mode row's goal (the one goal text) and its goalDetail with the params filled.
 function modeGoalLines(rules) {
-  const goal = MODE_GOAL_TEXT[rules.mode];
-  if (!goal) return [OBJECTIVE_TEXT[rules.objective] || '', SCORE_BY_TEXT[rules.scoreBy] || ''];
-  const params = rules.params || CAT.modes.byId(rules.mode).params;
-  return [goal.replace(/\{(\w+)\}/g, (all, key) => params[key])];
+  const mode = CAT.modes.byId(rules.mode);
+  if (!mode) return [];
+  if (!mode.goalDetail) return [mode.goal];
+  const params = rules.params || mode.params;
+  return [mode.goal, mode.goalDetail.replace(/\{(\w+)\}/g, (all, key) => params[key])];
 }
 // The running match as plain lines for the rules panel (also used by the self-test).
 function rulesPanelLines(rules) {
