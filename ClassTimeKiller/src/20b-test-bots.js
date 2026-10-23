@@ -666,6 +666,20 @@ Test.add('bots', (check) => {
   Settings.set('difficulty.tierShift', shift); Settings.set('difficulty.adaptive', adaptive);
 });
 
+// PERF-006: team play (14f) measures distances with length2; a bot pays the player's price (a helmet over a full vest
+// costs the rest).
+Test.add('bots', (check) => {
+  const sources = Object.values(BotTeam).concat(Object.values(BotEconomy), [spotKind]).filter((value) => typeof value === 'function').map(String).join();
+  check('team play uses no Math.hypot', !sources.includes('Math.hypot'));
+  startBotTest(botTestMap(false), 'bomb', { bots: [{ tier: 3, team: 0 }, { tier: 3, team: 1 }] });
+  const bot = 0, helmet = CAT.buyItems.find((item) => item.kind === 'helmet');
+  Actors.armor[bot] = Actors.maxArmor[bot] = helmet.amount;
+  Economy.setMoney(bot, Economy.priceFor(bot, helmet));
+  const bought = BotEconomy.buyBest(bot, (id, item) => (item.id === helmet.id ? 1 : 0));
+  check('a bot with a vest buys the helmet at the price for a vest owner', bought && Economy.money(bot) === 0, Economy.money(bot) + ' left of ' + Economy.priceFor(bot, helmet));
+  endBotTest();
+});
+
 // ---- Debug view (BOT-091/092): the HUD pass draws the nav graph, cones, labels and bars, and only while on ----
 function countingHud() {
   return { width: 800, height: 600, lines: 0, rects: 0, texts: 0, line() { this.lines++; }, rect() { this.rects++; }, text() { this.texts++; return 0; } };
