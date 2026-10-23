@@ -43,8 +43,8 @@ Test.add('modes2', (check) => {
     && convoy.checkpoints === 3 && rows('payload').timeLimit === 240 && convoy.checkpointTime === 120 && Test.near(convoy.speed * (1 + 2 * convoy.pushStack), convoy.maxSpeed, 1e-9));
   check('gungame: 18 tiers, the last one melee (M16)', rows('gungame').params.ladder.length === rows('gungame').params.tiers && rows('gungame').params.tiers === 18
     && CAT.weapons.byId(GUNGAME_LADDER[17]).class === 'melee' && GUNGAME_LADDER.every((key) => CAT.weapons.byId(key)));
-  check('infection: 1 per 6, after 20 s, 300 HP, 5 min (M17)', rows('infection').params.infectedPerPlayers === 6 && rows('infection').params.infectAfter === 20
-    && rows('infection').params.infectedHealth === 300 && rows('infection').timeLimit === 300);
+  check('infection: 1 per 6, after 20 s, 450 HP (tuned from the spec 300 since only kills convert), 5 min (M17)', rows('infection').params.infectedPerPlayers === 6
+    && rows('infection').params.infectAfter === 20 && rows('infection').params.infectedHealth === 450 && rows('infection').timeLimit === 300);
   check('juggernaut: x3 HP, x1.5 damage, 15 to win (M18)', rows('juggernaut').params.healthMult === 3 && rows('juggernaut').params.damageMult === 1.5 && rows('juggernaut').scoreLimit === 15);
   check('cursetag: 50 HP, melee only, the beacon passes the curse (M19)', rows('cursetag').params.cursedHealth === 50 && rows('cursetag').params.meleeOnly
     && rows('cursetag').params.passOnTag === false);
@@ -333,19 +333,22 @@ Test.add('modes2', (check) => {
   runSeconds(0.2);
   const first = ids.find((id) => Actors.team[id] === INFECTED_TEAM);
   check('infection: one infected per 6 players at 20 s', Modes.hud.infected === 1 && Modes.hud.survivors === 5 && Modes.actorRole[first] === ACTOR_ROLE.INFECTED);
-  check('infection: the infected has 300 HP and melee only', Actors.health[first] === 300 && Actors.maxHealth[first] === 300 && Weapons.currentWeapon(first).class === 'melee');
+  const infectedHealth = Modes.rules.params.infectedHealth;
+  check('infection: the infected is tough and melee only', Actors.health[first] === infectedHealth && Actors.maxHealth[first] === infectedHealth && Weapons.currentWeapon(first).class === 'melee');
   const human = ids.find((id) => Actors.team[id] === HUMAN_TEAM);
   hitActor(human, first, 30, 'melee');
-  check('infection: one infected hit turns a human', Actors.team[human] === INFECTED_TEAM && Actors.alive[human] && Actors.health[human] === 300 && Modes.score[first] === 1);
+  check('infection: a hit that does not kill leaves a human human (modes-02)', Actors.team[human] === HUMAN_TEAM && Modes.score[first] === 0);
+  damageKill(human, first, 'melee');
+  check('infection: an infected kill turns the human and scores 1', Actors.team[human] === INFECTED_TEAM && Modes.score[first] === 1);
   const victim = ids.find((id) => Actors.team[id] === HUMAN_TEAM);
   damageKill(victim, -1);
   check('infection: a human who dies joins the infected', Actors.team[victim] === INFECTED_TEAM);
   respawnAll();
-  check('infection: and comes back infected', Actors.alive[victim] && Actors.health[victim] === 300 && Weapons.currentWeapon(victim).class === 'melee');
+  check('infection: and comes back infected', Actors.alive[victim] && Actors.health[victim] === infectedHealth && Weapons.currentWeapon(victim).class === 'melee');
   Bus.emit('move.jump', { id: first, speed: 0, surface: '' });
   const leap = impulses.find((event) => event.id === first);
   check('infection: an infected jump is a leap', leap && Test.near(Math.hypot(leap.x, leap.z), 8, 1e-4) && leap.y === 3);
-  for (const id of ids) if (Actors.team[id] === HUMAN_TEAM) hitActor(id, first, 30, 'melee');
+  for (const id of ids) if (Actors.team[id] === HUMAN_TEAM) damageKill(id, first, 'melee');
   Sim.step();
   check('infection: the infected win when no human is left', Game.match.ended && Game.match.winner === INFECTED_TEAM && Game.match.results.reason === 'eliminated');
   impulses.stop();
@@ -355,6 +358,9 @@ Test.add('modes2', (check) => {
   runSeconds(30.05);
   check('infection: humans standing at the time limit win', Game.match.ended && Game.match.winner === HUMAN_TEAM && Game.match.results.reason === 'time');
   endModeTest();
+  // Balance probe (modes-02): with one hit converting, the infected wiped 12 bots in 51-133 s on every seed. Now the humans hold well into the match.
+  const runs = [1, 2].map((seed) => DebugApi.soak('infection', 'spire', 5.5, 11, seed, {}));
+  check('infection balance: bot matches on spire last past 3 minutes', runs.every((run) => run.ended && run.seconds > 180), runs.map((run) => run.winner + ':' + Math.round(run.seconds)).join());
 });
 
 // ---- M18 Colossus ----

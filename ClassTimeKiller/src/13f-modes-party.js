@@ -67,7 +67,7 @@ function ladderLoadouts(ladder, melee) {
 }
 
 // ---- M17 Blight: everyone starts human (team 0); after infectAfter s one in infectedPerPlayers becomes infected (team 1:
-// infectedHealth HP, melee only, a jump is a leap). One infected hit turns a human; a human who dies comes back infected.
+// infectedHealth HP, melee only, a jump is a leap). Only a kill turns a human: a human who dies comes back infected.
 // The infected win when no human is left; humans win at the time limit ----
 Modes.register('infection', {
   limits: ['time'],
@@ -105,13 +105,6 @@ Modes.register('infection', {
     Weapons.setLoadout(id, this.meleeLoadout);
   },
   onSpawn(id) { if (Modes.actorRole[id] === ACTOR_ROLE.INFECTED) this.applyInfection(id); },
-  onDamage(event) {
-    const source = event.source, target = event.target;
-    if (!this.outbreak || !(source >= 0) || Modes.actorRole[source] !== ACTOR_ROLE.INFECTED) return;
-    if (!Actors.alive[target] || !Modes.isActive(target) || Actors.team[target] !== HUMAN_TEAM) return;
-    this.infect(target);
-    Modes.awardPlayer(source, 1, 'infect');
-  },
   onKill(victim) {
     if (this.outbreak && victim >= 0 && Modes.isActive(victim) && Actors.team[victim] === HUMAN_TEAM) this.infect(victim);
   },
