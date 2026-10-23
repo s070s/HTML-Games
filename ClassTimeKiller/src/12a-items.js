@@ -339,7 +339,7 @@ const Items = {
     let best = -1, bestDistance = Infinity;
     for (let id = 0; id < Actors.count; id++) {
       if (!Actors.alive[id] || Actors.kind[id] === ACTOR_KIND.ENEMY) continue;
-      const distance = Math.hypot(Actors.x[id] - this.x[slot], Actors.z[id] - this.z[slot]);
+      const distance = length2(Actors.x[id] - this.x[slot], Actors.z[id] - this.z[slot]);
       if (distance < bestDistance && distance < soulHomingRange(id)) { best = id; bestDistance = distance; }
     }
     if (best < 0 || bestDistance < 1e-3) return;

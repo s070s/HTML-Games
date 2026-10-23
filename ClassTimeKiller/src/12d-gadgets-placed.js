@@ -206,7 +206,7 @@ const Devices = {
     return World.lineClear(this.x[device], this.y[device] + 0.2, this.z[device], devicePoint.x, devicePoint.y, devicePoint.z);
   },
   inCone(device, row, x, z) {
-    const dx = x - this.x[device], dz = z - this.z[device], length = Math.hypot(dx, dz) || 1;
+    const dx = x - this.x[device], dz = z - this.z[device], length = length2(dx, dz) || 1;
     return (dx * Math.sin(this.yaw[device]) + dz * Math.cos(this.yaw[device])) / length >= Math.cos(row.coneDeg / 2 * DEG);
   },
   // G12: projectiles and grenades that cross the dome wall are stopped both ways, whoever fired them; friends inside regain
@@ -283,7 +283,7 @@ const Devices = {
     const x = this.x[device], y = this.y[device] + TURRET_MUZZLE, z = this.z[device], spread = GADGET_TUNING.turretSpreadDeg * DEG;
     Hitbox.point(target, ZONE.BODY, devicePoint);
     this.yaw[device] = Math.atan2(devicePoint.x - x, devicePoint.z - z);
-    const pitch = Math.atan2(devicePoint.y - y, Math.hypot(devicePoint.x - x, devicePoint.z - z));
+    const pitch = Math.atan2(devicePoint.y - y, length2(devicePoint.x - x, devicePoint.z - z));
     const direction = Vec.fromAngles(deviceDirection, this.yaw[device] + Rng.weapons.range(-spread, spread), pitch + Rng.weapons.range(-spread, spread));
     const wallHit = World.raycast(x, y, z, direction.x, direction.y, direction.z, row.range, deviceHit);
     const wall = wallHit ? deviceHit.distance : row.range;
@@ -317,7 +317,7 @@ const Devices = {
   },
   rollTo(device, row, target, dt) {
     Hitbox.point(target, ZONE.BODY, devicePoint);
-    const dx = devicePoint.x - this.x[device], dz = devicePoint.z - this.z[device], length = Math.hypot(dx, dz);
+    const dx = devicePoint.x - this.x[device], dz = devicePoint.z - this.z[device], length = length2(dx, dz);
     if (length <= row.radius * DRONE_BLAST_SHARE) { this.detonateDrone(device, row); return; }
     const move = Math.min(length, row.speed * dt), hoverY = this.y[device] + DRONE_HOVER;
     if (World.raycast(this.x[device], hoverY, this.z[device], dx / length, 0, dz / length, move + DRONE_WALL_GAP, deviceHit)) return;

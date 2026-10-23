@@ -457,8 +457,8 @@ TouchInput.useNeeds.push(() => mapSize(World.map) >= SKIMMER_MIN_MAP_SIZE);   //
 function toggleBoard(id, preset) {
   if (!(Actors.pressed[id] & BTN.USE)) return;
   if (Motion.board[id]) { Move.setBoard(id, false); return; }
-  const running = Math.hypot(Actors.vx[id], Actors.vz[id]) >= preset.groundSpeed * SKIMMER_BOARD_RUN;
-  const moving = Math.hypot(Actors.moveX[id], Actors.moveZ[id]) >= SKIMMER_BOARD_INPUT;
+  const running = length2(Actors.vx[id], Actors.vz[id]) >= preset.groundSpeed * SKIMMER_BOARD_RUN;
+  const moving = length2(Actors.moveX[id], Actors.moveZ[id]) >= SKIMMER_BOARD_INPUT;
   if (running && moving && Motion.grounded[id]) Move.setBoard(id, true);
 }
 

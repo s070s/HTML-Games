@@ -191,7 +191,7 @@ const WeaponSpecialState = {
   },
   // Moves the actor out of the exit gate along its normal, keeping the speed magnitude (MOV-019).
   teleport(id, exit) {
-    const speed = Math.max(GATE_MIN_EXIT_SPEED, Math.hypot(Actors.vx[id], Actors.vy[id], Actors.vz[id]));
+    const speed = Math.max(GATE_MIN_EXIT_SPEED, length3(Actors.vx[id], Actors.vy[id], Actors.vz[id]));
     const nx = this.gateNx[exit], ny = this.gateNy[exit], nz = this.gateNz[exit];
     const lateral = Math.abs(ny) > GATE_FLAT_NY ? 0 : GATE_EXIT_OFFSET;
     Actors.x[id] = Actors.prevX[id] = this.gateX[exit] + nx * lateral;
@@ -222,7 +222,7 @@ const WeaponSpecialState = {
 
 // True when a push along (dx, dz) hits the target's front (within the arc whose cosine is given).
 function comesFromFront(target, dx, dz, arcCos) {
-  const length = Math.hypot(dx, dz);
+  const length = length2(dx, dz);
   if (length < 1e-6) return false;
   return -(dx * Math.sin(Actors.yaw[target]) + dz * Math.cos(Actors.yaw[target])) / length >= arcCos;
 }
@@ -254,7 +254,7 @@ function catchableProjectile(id, range) {
 // Distance from the actor's eye to flying projectile i when it lies closer than `range` inside the aim cone (specialScratch = aim), else -1.
 function projectileInAim(id, i, range, coneCos) {
   if (Projectiles.state[i] !== PROJECTILE_STATE.FLYING) return -1;
-  const dx = Projectiles.x[i] - Actors.x[id], dy = Projectiles.y[i] - Actors.eyeY(id), dz = Projectiles.z[i] - Actors.z[id], distance = Math.hypot(dx, dy, dz);
+  const dx = Projectiles.x[i] - Actors.x[id], dy = Projectiles.y[i] - Actors.eyeY(id), dz = Projectiles.z[i] - Actors.z[id], distance = length3(dx, dy, dz);
   if (distance >= range || (dx * specialScratch.x + dy * specialScratch.y + dz * specialScratch.z) / (distance || 1) < coneCos) return -1;
   return distance;
 }

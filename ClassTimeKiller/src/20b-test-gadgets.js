@@ -654,3 +654,11 @@ Test.add('gadgets', (check) => {
   check('F46 every gadget and ability column has a reader', unread.length === 0, unread.join(', '));
   check('F46 the smoke grid keeps no owner or row it never reads', !Smoke.owner && !Smoke.row);
 });
+
+// PERF-006: the per-step movement, damage and gear code (S10-S12) measures lengths with length2/length3, never Math.hypot.
+Test.add('gadgets', (check) => {
+  const sections = Array.from(document.scripts).map((element) => element.textContent).join('\n').split(/\n\/\/ ==== (\S+) ====\n/);
+  const offenders = [];
+  for (let k = 1; k < sections.length; k += 2) if (/^1[0-2][a-h]-/.test(sections[k]) && /Math\.hypot\s*\(/.test(sections[k + 1])) offenders.push(sections[k]);
+  check('PERF-006 no Math.hypot in S10-S12', sections.length > 10 && offenders.length === 0, offenders.join(', '));
+});
