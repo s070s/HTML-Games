@@ -4,7 +4,7 @@
 // Which modes each hand-made map must offer (spec s18 table, MP01..MP12; MP06 "all agile" = the agile-friendly modes).
 const MAP_SPEC_MODES = {
   spire: ['duel', 'ffa'], skyyard: ['ffa', 'tdm'], twinkeeps: ['ctf', 'oneflag', 'dom'], dustline: ['bomb', 'elim', 'ghostops'],
-  harbor: ['tdm', 'hardpoint', 'attrition'], gantry: ['ffa', 'tdm', 'duel', 'dom', 'hardpoint', 'oddball'], cistern: ['horde', 'endless', 'fiends'],
+  harbor: ['tdm', 'hardpoint', 'attrition'], gantry: ['ffa', 'duel', 'dom', 'hardpoint', 'oddball'], cistern: ['horde', 'endless', 'fiends'],
   convoyline: ['payload', 'rush', 'conquest'], isle: ['royale'], provinggrounds: ['range'], chambers: ['puzzle'], manor: ['contract'],
 };
 const MAP_SPEC_CODES = {
@@ -137,6 +137,8 @@ Test.add('maps', (check) => {
     check('modes: ' + id + ' offers ' + MAP_SPEC_MODES[id].join('/'), MAP_SPEC_MODES[id].every((mode) => map.modes.includes(mode)), map.modes.join());
   }
   for (const mode of new Set(Object.values(MAP_SPEC_MODES).flat())) check('modes: forMode(' + mode + ') finds a map', Maps.forMode(mode).length >= 1);
+  // play-02: Gantry's long sight lines with health regeneration gave Team Clash matches with almost no kills.
+  check('modes: Team Clash is not offered on Gantry Run', !Maps.forMode('tdm').some((map) => map.id === 'gantry') && Maps.forMode('tdm').length >= 2);
   check('modes: every listed mode is a known mode', CAT.maps.every((map) => map.modes.every((mode) => MapRules.rule(mode))));
   // MODE-002: Play, Quick Match, Shuffle and Custom list only modes with a saved map, so every versus mode needs a hand-made one.
   const unserved = CAT.modes.filter((mode) => mode.family === 'versus' && !CAT.maps.some((map) => map.modes.includes(mode.id))).map((mode) => mode.id);

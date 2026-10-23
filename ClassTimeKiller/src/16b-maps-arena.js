@@ -137,7 +137,7 @@ const gantryQuarter = {                                                         
     ['concrete', -31, 8, 20, -29, 12, 22], ['concrete', -18, 8, 16, -16, 12, 18], ['concrete', -14, 8, 18, -12, 12, 20], // roof vents (full cover, break the long roof lines)
   ],
   spawns: [
-    [0, ['tdm', 'dom', 'hardpoint'], [[-46, 0, 6, 90], [-46, 0, 12, 90], [-46, 0, 29, 90], [-46, 0, 35, 90]]],
+    [0, ['dom', 'hardpoint'], [[-46, 0, 6, 90], [-46, 0, 12, 90], [-46, 0, 29, 90], [-46, 0, 35, 90]]],
     [-1, ['ffa', 'duel', 'gungame', 'oddball'].concat(MAP_PARTY_MODES), [[-40, 0, 10, 90], [-44, 0, 32, 90], [-15, 0, 26, 90], [-30, 8, 18, 90], [-30, 0, 11, 90]]],
   ],
   items: [
@@ -189,7 +189,9 @@ const gantryCenter = {
 };
 Maps.rows.push(MapKit.make(Object.assign({
   id: 'gantry', code: 'MP06', name: 'Gantry Run', size: [100, 24, 80], theme: 'station', category: 'large',
-  modes: ['ffa', 'tdm', 'duel', 'dom', 'hardpoint', 'oddball', 'gungame'].concat(MAP_PARTY_MODES),
+  // No Team Clash (play-02): its long open sight lines with health regeneration (Modern Ops, Hero Squad) gave matches with
+  // almost no kills; Harbor Nine and the other mid-size maps carry it.
+  modes: ['ffa', 'duel', 'dom', 'hardpoint', 'oddball', 'gungame'].concat(MAP_PARTY_MODES),
   blurb: 'Agile playground: rooftop runs, 4 m wall-run lanes and a central hub; ladders and pads cross between levels.',
   props: MapKit.crates([[-50, -23.5], [48.5, 22], [-6.5, -6, 4], [-23, -8]]),   // breakable crates (MAP-013): two in corners, one on the hub, one by ground cover
   sky: { top: 0x3a5a88, horizon: 0xe9c9a0, fog: 0x7a7f8a, fogFar: 170, sun: [-0.3, 0.6, 0.4] },
