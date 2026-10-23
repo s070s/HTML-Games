@@ -3713,6 +3713,7 @@ function addStruct(type, x, z, opts) {
 }
 /* unspotted: a human's indirect fire no friendly spotter sees, which wears an objective down by ARTY_UNSPOTTED_CAP of
    its hull at most in a battle (D52) */
+var FUEL_BLAST_CAP_OFF = false;   // self-test switch: a fuel blast ignores the unspotted cap
 function damageStruct(s, amount, dtype, owner, structMult, unspotted) {
   if (Net.guest) return 0;
   if (s.invuln && s.objective && !s.destroyed && owner && owner.team !== s.team) warnShielded(owner);
@@ -3722,6 +3723,7 @@ function damageStruct(s, amount, dtype, owner, structMult, unspotted) {
   let eff = amount * (mm[dtype] === undefined ? 1 : mm[dtype]) * (structMult === undefined ? 1 : structMult) * (W.structDamage || 1);
   if (unspotted && s.objective) { eff = Math.min(eff, s.maxHp * ARTY_UNSPOTTED_CAP - s.unspot); if (eff > 0) s.unspot += eff; }
   if (eff <= 0) return 0;
+  s.unspotHit = !!unspotted;   // the last hit decides whether a fuel blast it sets off is unspotted too
   if (s.objective && owner && owner.hideFromAI && owner.team !== s.team) owner.provoke();
   const before = s.state;
   if (Net.host) Net.dirty.add(s.idx);
@@ -3753,7 +3755,7 @@ function destroyStruct(s, owner) {
   fxSmokePuff(s.x, s.y + s.h * 0.4, s.z, r * 0.8, 3);
   fxSparks(s.x, s.y + s.h * 0.5, s.z, 14, [1, 0.8, 0.4], 20);
   Snd.play('hitStruct', s.x, s.y, s.z, 1.4);
-  if (s.explosive) W.queue.push({ x: s.x, y: s.y + s.h * 0.5, z: s.z, radius: 15, dmg: 150, owner, delay: 0.1 + Math.random() * 0.12 });
+  if (s.explosive) W.queue.push({ x: s.x, y: s.y + s.h * 0.5, z: s.z, radius: 15, dmg: 150, owner, delay: 0.1 + Math.random() * 0.12, objMult: s.unspotHit && !FUEL_BLAST_CAP_OFF ? ARTY_UNSPOTTED_OBJ : undefined });
   else if (s.h * s.hx > 40) shakeFrom(s.x, s.y, s.z, 0.18, 120);
   if (W.onStructDestroyed) W.onStructDestroyed(s, owner);
 }
@@ -5867,7 +5869,7 @@ function updateWorldEffects(dt) {
   }
   for (let i = W.queue.length - 1; i >= 0; i--) {
     const q = W.queue[i]; q.delay -= dt;
-    if (q.delay <= 0) { W.queue.splice(i, 1); explode(q.x, q.y, q.z, q.radius, q.dmg, 'explosive', q.owner); }
+    if (q.delay <= 0) { W.queue.splice(i, 1); explode(q.x, q.y, q.z, q.radius, q.dmg, 'explosive', q.owner, q.objMult === undefined ? undefined : { objMult: q.objMult }); }
   }
   SW.update(dt);
   Hazards.update(dt);
@@ -22035,6 +22037,7 @@ function coopUnitScale(nPlayers) { return 1 + COOP_UNITS * (nPlayers - 1); }
 function unitCost(k) { return { infantry: 1, rpgTrooper: 1, sniper: 2, buggy: 1, tank: 3, lightMech: 2, medMech: 3, heavyMech: 5, jet: 3, gunship: 5 }[k] || 1; }
 
 /* ---------- spawning helpers ---------- */
+var SPAWN_OCCUPIED_OFF = false;   // self-test switch: findSpawn ignores units already on a spot
 function findSpawn(x, z, radius, clearR, minPlayerDist) {
   for (let i = 0; i < 24; i++) {
     const a = Math.random() * TAU, r = i === 0 ? 0 : Math.random() * radius * (1 + i / 24);
@@ -22042,9 +22045,20 @@ function findSpawn(x, z, radius, clearR, minPlayerDist) {
     if (groundBlocked(px, pz, clearR + 1.5)) continue;
     if (Terrain.slope(px, pz) > 0.55 || Water.at(px, pz)) continue;
     if (W.player && !W.player.dead && Math.hypot(px - W.player.x, pz - W.player.z) < (minPlayerDist || 0)) continue;
+    if (spawnOccupied(px, pz, clearR)) continue;
     return { x: px, z: pz };
   }
   return null;
+}
+/* True when a living ground unit already stands where a unit of radius clearR would spawn (co-op: two bodies on one
+   spot push a soldier through a thin wall). Aircraft are overhead and do not count. */
+function spawnOccupied(x, z, clearR) {
+  if (SPAWN_OCCUPIED_OFF) return false;
+  for (const e of W.platforms) {
+    if (e.dead || e.kind === 'air') continue;
+    if (Math.hypot(e.x - x, e.z - z) < (e.radius || 0) + clearR) return true;
+  }
+  return false;
 }
 const FORWARD_SPAWN_DIST = 250;   // players respawn this far short of the nearest objective
 const FORWARD_SPAWN_STEP = 100;   // and step back toward the start while that spot is unsafe
@@ -30813,6 +30827,50 @@ const SelfTest = {
         S.difficulty = keepDiff; Game.quitToMenu();
       }
     });
+    t('p8 lows a', () => {
+      const keepRep = Game.reportError;
+      Game.reportError = () => {};
+      try {
+        Game.startSession({ mode: 'skirmish', platformId: 'thunder', loadout: Loadout.forPlatform('thunder'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'farmland', size: 'small', seed: 3, random: false, support: 'none' }) });
+        const pl = W.player, hq = W.structs.find((s) => s.objective && s.team === 1 && s.type === 'command');
+        W.platforms.length = 0; W.platforms.push(pl); pl.dead = true;
+        // 1. a respawn spot never lands on a unit already standing there
+        const clear = 2, at = findSpawn(0, 0, 300, clear, 0);
+        const stander = new Platform(PLATFORMS.ranger, { team: 0, x: at.x, z: at.z, yaw: 0, loadout: Loadout.forPlatform('ranger') });
+        W.platforms.push(stander);
+        const spot = findSpawn(at.x, at.z, 40, clear, 0);
+        const apart = spot ? Math.hypot(spot.x - at.x, spot.z - at.z) : 1e9;
+        this.check('a respawn spot is not one a unit already stands on', apart >= stander.radius + clear, apart.toFixed(2) + ' m');
+        SPAWN_OCCUPIED_OFF = true; const bad = findSpawn(at.x, at.z, 40, clear, 0); SPAWN_OCCUPIED_OFF = false;
+        this.check('with the occupied check off the same call lands on the unit', bad && Math.hypot(bad.x - at.x, bad.z - at.z) < stander.radius + clear);
+        W.platforms.splice(W.platforms.indexOf(stander), 1);
+        // 2. the host sends the unspotted share of an objective, and a guest takes it
+        hq.unspot = hq.maxHp * ARTY_UNSPOTTED_CAP; const hp0 = hq.hp;
+        const entry = Net.stEntry(hq.idx, hq), plain = Net.stEntry(W.structs.find((q) => !q.objective).idx, W.structs.find((q) => !q.objective));
+        hq.unspot = 0; Net.applyStructs({ l: [entry] });
+        const got = hq.unspot;
+        hq.unspot = 0; NET_UNSPOT_OFF = true; Net.applyStructs({ l: [entry] }); NET_UNSPOT_OFF = false;
+        const off = hq.unspot;
+        Net.applyStructs({ l: [[hq.idx, hp0, 0, 0]] });   // an old host's entry has no share and leaves it be
+        this.check('a guest learns the unspotted share of an objective from the host (optional entry field)', Math.abs(got - hq.maxHp * ARTY_UNSPOTTED_CAP) < 1 && plain.length === 4 && Math.abs(off) < 1e-9 && hq.unspot === off, got.toFixed(1) + ' hp');
+        hq.hp = hp0; hq.unspot = 0;
+        // 3. a fuel tank brought down by unspotted fire blasts an objective beside it under the same cap
+        const blast = () => {
+          const tank = addStruct('fuel', hq.x + hq.hx + 6, hq.z, {});
+          hq.hp = hq.maxHp; hq.unspot = 0; hq.destroyed = false;
+          damageStruct(tank, 1e6, 'explosive', pl, 1, true);
+          for (let i = 0; i < 40; i++) updateWorldEffects(0.05);
+          return { lost: hq.maxHp - hq.hp, unspot: hq.unspot };
+        };
+        const capped = blast();
+        FUEL_BLAST_CAP_OFF = true; const free = blast(); FUEL_BLAST_CAP_OFF = false;
+        this.check('a fuel blast set off by unspotted fire wears an objective down only through the unspotted cap', capped.lost > 0 && capped.lost <= hq.maxHp * ARTY_UNSPOTTED_CAP + 1e-6 && capped.unspot > 0 && free.unspot === 0 && free.lost > capped.lost, Math.round(capped.lost) + ' vs ' + Math.round(free.lost) + ' hp');
+        hq.hp = hq.maxHp; hq.unspot = 0;
+      } finally {
+        Game.reportError = keepRep; SPAWN_OCCUPIED_OFF = false; FUEL_BLAST_CAP_OFF = false; NET_UNSPOT_OFF = false;
+        Game.quitToMenu();
+      }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -30840,6 +30898,7 @@ UI.scr_selftest = function (r) {
    Message transport is a per-peer tx() function, so tests can loop back.
    ===================================================================== */
 const SNAP_PLATS = 44;    // platforms per snapshot (message size)
+var NET_UNSPOT_OFF = false;   // self-test switch: the guest ignores the sent unspotted share
 const NET_VERSION = 10;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
@@ -31237,6 +31296,7 @@ const Net = {
   stEntry(i, s) {
     const fell = s.destroyed && !!s.bld && s.fell, e = [i, r1(s.hp), s.state, s.destroyed ? (fell ? 2 : 1) : 0];
     if (fell && s.bld.topple) e.push(r2(Math.atan2(s.bld.tx, s.bld.tz)), r1(s.bld.tY));
+    if (s.objective && s.unspot > 0) { while (e.length < 6) e.push(0); e.push(r1(s.unspot)); }   // optional 7th: the unspotted-fire share the guest HUD needs
     return e;
   },
   /* host keep-alive to every guest once a second */
@@ -31515,6 +31575,7 @@ const Net = {
     for (const e of m.l) {
       const s = W.structs[e[0]];
       if (!s) continue;
+      if (e[6] !== undefined && !NET_UNSPOT_OFF) s.unspot = e[6];
       s.hp = e[1]; s.scorch = Math.min(1, (1 - e[1] / s.maxHp) * 0.8); s.flash = 0.1;
       if (e[3] && !s.destroyed) {
         const ex = s.explosive; s.explosive = false;           // the host sends the blast as its own event
