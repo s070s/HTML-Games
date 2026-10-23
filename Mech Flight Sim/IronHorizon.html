@@ -9158,6 +9158,7 @@ const TRAFFIC_HEADWAY = 1;           // and seconds of travel to it when moving
 const TRAFFIC_AHEAD = 30;            // m before a lane's end a car picks its next lane and looks into it
 const TRAFFIC_CLAIM = 6;             // m before a junction's stop line a car asks for the junction
 const TRAFFIC_SPACING = 60;          // m of lane per car placed (QUALITY traffic the most)
+const TRAFFIC_TOWN_WEIGHT = 3;       // a m of street gets this many times the cars of a m of open road
 const TRAFFIC_LOOK = 0.2;            // seconds between a car's looks ahead for people, machines and other vehicles
 const TRAFFIC_LOOK_MIN = 10;         // it looks this far, plus 2.5 s of its speed (m)
 const TRAFFIC_WAIT = 5;              // a car held this long by something that does not move turns back (s)
@@ -9165,6 +9166,7 @@ const TRAFFIC_STUCK = 25;            // and by anything (s)
 const TRAFFIC_TURN_T = 1.2;          // s a turn back takes
 const TRAFFIC_TURN_NEAR = 40;        // a fleeing car with the danger this close ahead turns back (m)
 const TRAFFIC_MACHINE = 25;          // a combat machine moving this close scares drivers (m)
+const TRAFFIC_MOVER_SPEED = 1;       // m/s a machine moves faster than to scare or crush
 const TRAFFIC_ABANDON = 0.4;         // chance a scared driver in a town leaves the car and runs
 const TRAFFIC_PANIC = [8, 14];       // seconds a scared driver flees
 const TRAFFIC_HALT = [0.5, 1.4];     // and brakes first (s)
@@ -9197,7 +9199,7 @@ const Traffic = {
   /* the lane graph, the parked vehicles and the cars for the battlefield (after the civilians: the streets are their
      zones); start: the player's start, kept clear */
   populate(seed, start) {
-    const T = W.traffic = { nodes: [], lanes: [], drive: [], driveLen: 0, cars: [], parked: [], near: [], tick: 0, cycle: 0, drawn: 0, wrecked: 0 };
+    const T = W.traffic = { nodes: [], lanes: [], drive: [], driveLen: 0, driveW: 0, cars: [], parked: [], near: [], movers: [], tick: 0, cycle: 0, drawn: 0, wrecked: 0 };
     const rng = makeRng((seed ^ 0x7ca2f1) >>> 0), keep = (W.pads || []).slice();
     if (start) keep.push(start);
     this.buildGraph(T);
@@ -9209,7 +9211,7 @@ const Traffic = {
   /* the streets of every zone and the roads, as edges between nodes, then two lanes per edge and the turns between them */
   buildGraph(T) {
     const nodes = T.nodes, edges = [];
-    const addNode = (x, z, zone) => { nodes.push({ x, z, zone, deg: 0, junction: false, lock: null, ins: [], outs: [] }); return nodes[nodes.length - 1]; };
+    const addNode = (x, z, zone) => { nodes.push({ x, z, zone, deg: 0, junction: false, lock: null, ins: [], outs: [], lost: false, joined: false }); return nodes[nodes.length - 1]; };
     for (const zn of W.civZones) {
       const at = new Map();
       zn.nodes.forEach((n, i) => { if (n.nb.length) at.set(i, addNode(n.x, n.z, zn)); });
@@ -9220,10 +9222,12 @@ const Traffic = {
     const streets = edges.length, runs = this.roadRuns();
     this.crossRoads(runs, nodes, addNode);
     for (const run of runs) this.cutRun(run, nodes, addNode, edges);
-    // a street crossing a road between its junctions, or the same two corners as a road, is left out
+    // a street crossing a road between its junctions, or the same two corners as a road, or from a corner on a road that
+    // is not one of its junctions (lost), is left out
     const keep = edges.slice(streets);
     for (let i = 0; i < streets; i++) {
       const e = edges[i];
+      if ((e.a.lost && !e.a.joined) || (e.b.lost && !e.b.joined)) continue;
       if (!keep.some((r) => (r.a === e.a && r.b === e.b) || (r.a === e.b && r.b === e.a) || (r.a !== e.a && r.a !== e.b && r.b !== e.a && r.b !== e.b && this.crossesLine(e.xs[0], e.zs[0], e.xs[1], e.zs[1], r)))) keep.push(e);
     }
     const lanes = [];
@@ -9256,7 +9260,7 @@ const Traffic = {
       }
       for (const t of turns) if (t.alive && !(t.from.alive && t.to.alive)) { t.alive = false; changed = true; }
     }
-    for (const L of lanes) if (L.alive) { T.lanes.push(L); T.drive.push(L); T.driveLen += L.len; }
+    for (const L of lanes) if (L.alive) { T.lanes.push(L); T.drive.push(L); T.driveLen += L.len; T.driveW += this.weight(L); }
     for (const t of turns) if (t.alive && t.from.out.indexOf(t) >= 0) T.lanes.push(t);
     T.lanes.forEach((L, i) => { L.id = i; });
   },
@@ -9290,12 +9294,13 @@ const Traffic = {
           const k = this.nearestSample(run.pts, x, z);
           if (Math.hypot(run.pts[k].x - x, run.pts[k].z - z) > ROAD_STEP * 2) continue;   // not on this stretch (an airfield cut it)
           n = n || this.nodeNear(nodes, x, z, TRAFFIC_ROAD_JOIN) || addNode(x, z, null);
-          run.cuts.push({ k, node: n, d: 0 });
+          run.cuts.push({ k, node: n, d: 0, cross: true });
         }
       }
     }
   },
-  /* run's edges: cut at its crossings, at the street corners it passes and at its ends, the cuts at least MIN_EDGE apart,
+  /* run's edges: cut at its crossings, at the street corners it passes and at its ends, the cuts at least MIN_EDGE apart
+     (a crossing is both roads' junction, so it is always kept: it takes the place of a corner or an end too close to it),
      its points drawn smoothly onto each junction */
   cutRun(run, nodes, addNode, edges) {
     const pts = run.pts, last = pts.length - 1, cuts = run.cuts;
@@ -9307,8 +9312,17 @@ const Traffic = {
     const end = (k) => this.nodeNear(nodes, pts[k].x, pts[k].z, TRAFFIC_ROAD_SNAP) || addNode(pts[k].x, pts[k].z, null);
     cuts.sort((p, q) => p.k - q.k || p.d - q.d);
     const minK = Math.ceil(TRAFFIC_MIN_EDGE / ROAD_STEP), kept = [{ k: 0, node: end(0) }];
-    for (const c of cuts) if (c.k - kept[kept.length - 1].k >= minK && last - c.k >= minK && c.node !== kept[kept.length - 1].node) kept.push(c);
-    kept.push({ k: last, node: end(last) });
+    for (const c of cuts) {
+      const prev = kept[kept.length - 1], room = c.k - prev.k >= minK;
+      if (c.node === prev.node) continue;
+      if (!c.cross) { if (room && last - c.k >= minK) kept.push(c); continue; }
+      if (!room && !prev.cross) kept[kept.length - 1] = c;
+      else kept.push(c);
+    }
+    const tail = kept[kept.length - 1];
+    if (!tail.cross || last - tail.k >= minK) kept.push({ k: last, node: end(last) });   // else the run ends at that crossing
+    for (const c of cuts) c.node.lost = true;   // a corner on the road (lost unless some road joins it)
+    for (const c of kept) c.node.joined = true;
     for (const c of kept) {   // the road bends onto the junction over 3 points either side
       const ox = c.node.x - pts[c.k].x, oz = c.node.z - pts[c.k].z;
       for (let dk = -3; dk <= 3; dk++) {
@@ -9524,9 +9538,11 @@ const Traffic = {
       break;
     }
   },
+  /* a lane at random, the towns' streets busier than the open roads */
+  weight(L) { return L.kind === 'street' ? L.len * TRAFFIC_TOWN_WEIGHT : L.len; },
   pickLane(T, r) {
-    let x = r * T.driveLen;
-    for (const L of T.drive) { if ((x -= L.len) < 0) return L; }
+    let x = r * T.driveW;
+    for (const L of T.drive) { if ((x -= this.weight(L)) < 0) return L; }
     return T.drive[T.drive.length - 1];
   },
   /* car c starts driving on lane L at s */
@@ -9586,11 +9602,17 @@ const Traffic = {
     for (let i = 0; i < ps.length; i++) { const r = ps[i]; if (r.state === 'wreck') this.stepWreck(r, dt); else this.touchMachines(r); }
     this.recycle(T);
   },
-  /* the live ground machines (and ships) this tick: what crushes and scares cars, and what they stop for */
+  /* the live units on the ground and the water this tick (what cars stop for), and the machines among them that move
+     (what scares drivers and crushes cars: most stand still, so each car looks at a short list) */
   collectMachines(T) {
-    const near = T.near, pl = W.platforms;
-    near.length = 0;
-    for (let i = 0; i < pl.length; i++) { const p = pl[i]; if (!p.dead && p.kind !== 'air' && !p.def.lure) near.push(p); }
+    const near = T.near, movers = T.movers, pl = W.platforms;
+    near.length = 0; movers.length = 0;
+    for (let i = 0; i < pl.length; i++) {
+      const p = pl[i];
+      if (p.dead || p.kind === 'air' || p.def.lure) continue;
+      near.push(p);
+      if (p.def.style !== 'infantry' && Math.abs(p.speed) > TRAFFIC_MOVER_SPEED) movers.push(p);   // soldiers never crush anything
+    }
   },
   step(c, dt) {
     if (c.state === 'wreck') { this.stepWreck(c, dt); return; }
@@ -9657,14 +9679,27 @@ const Traffic = {
     const toEnd = L.len - front;
     c.gapKind = TRAFFIC_BLOCK_CAR;
     if (toEnd > TRAFFIC_AHEAD) return Infinity;
+    const back = toEnd + this.tailBack(L);   // a long vehicle just gone on may still stick back into this lane
     if (!c.next) c.next = this.pickNext(c, L);
     const N = c.next;
-    if (!N) { c.gapKind = TRAFFIC_BLOCK_THING; return toEnd; }
+    if (!N) { c.gapKind = TRAFFIC_BLOCK_THING; return Math.min(toEnd, back); }
     if (N.kind === 'turn' && L.kind !== 'turn' && N.node0.junction && c.lockNode !== N.node0 && !(toEnd < TRAFFIC_CLAIM && this.mayEnter(c, N))) {
       c.gapKind = TRAFFIC_BLOCK_LINE;
-      return toEnd;
+      return Math.min(toEnd, back);
     }
-    return toEnd + this.room(N, c);
+    return Math.min(back, toEnd + this.room(N, c));
+  },
+  /* how far back past the end of lane L the rearmost vehicle on the lanes after it reaches (m, 0 or less): through an
+     empty turn too */
+  tailBack(L) {
+    let m = 0;
+    for (let k = 0; k < L.out.length; k++) {
+      const O = L.out[k], cs = O.cars.length ? O.cars : O.kind === 'turn' ? O.to.cars : null, n = cs ? cs.length : 0;
+      if (!n) continue;
+      const r = (cs === O.cars ? 0 : O.len) + cs[n - 1].s - cs[n - 1].v.hl;
+      if (r < m) m = r;
+    }
+    return m;
   },
   moving(o) { return o.state === 'drive' || o.state === 'turn'; },
   /* the free length at the start of lane N, into the lane after it when N is an empty turn */
@@ -9760,13 +9795,16 @@ const Traffic = {
     const a = o.yaw - c.yaw, ca = Math.abs(Math.cos(a)), sa = Math.abs(Math.sin(a));
     return this.inPath(c, fx, fz, o.x, o.z, ca * o.v.hl + sa * o.v.hw, sa * o.v.hl + ca * o.v.hw, look);
   },
-  /* c turns round onto the lane the other way (its twin), when it has room there */
+  /* c turns round onto the lane the other way (its twin), when it has room there and no other car is where it swings */
   turnBack(c) {
-    const L = c.lane, tw = L.twin;
+    const L = c.lane, tw = L.twin, P = TRAFFIC_AT;
     c.wait = 0;
     if (!tw || c.state !== 'drive') return false;
     const s = clamp(L.len - c.s, 0, tw.len);
     if (!this.roomAt(tw, s, c.v.hl)) return false;
+    P.seg = 0;
+    this.at(P, tw, s);
+    if (this.swingBlocked(c, (c.x + P.x) / 2, (c.z + P.z) / 2, Math.hypot(P.x - c.x, P.z - c.z) / 2 + c.v.hl)) return false;
     this.unlock(c);
     this.drop(L.cars, c);
     c.fromX = c.x; c.fromZ = c.z; c.fromYaw = c.yaw; c.turnT = 0;
@@ -9774,6 +9812,15 @@ const Traffic = {
     this.insert(tw, c);
     c.state = 'turn';
     return true;
+  },
+  /* true when a car other than c reaches the circle of radius r round (x, z) that c sweeps turning round */
+  swingBlocked(c, x, z, r) {
+    const cars = W.traffic.cars;
+    for (let i = 0; i < cars.length; i++) {
+      const o = cars[i], reach = r + o.v.hl;
+      if (o !== c && Math.abs(o.x - x) < reach && Math.abs(o.z - z) < reach && Math.hypot(o.x - x, o.z - z) < reach) return true;
+    }
+    return false;
   },
   /* turning round: from where it stopped to its place on the other lane, swinging left through half a turn */
   stepTurn(c, dt) {
@@ -9788,15 +9835,14 @@ const Traffic = {
   },
   /* moving machines crush or wreck the vehicles they drive into; combat machines on the move close by scare drivers */
   touchMachines(c) {
-    const near = W.traffic.near, v = c.v;
+    const near = W.traffic.movers, v = c.v;
     if (v.type === 'air' || (c.state === 'wreck' && c.flat < 1)) return;
     const fx = Math.sin(c.yaw), fz = Math.cos(c.yaw), reach = TRAFFIC_MACHINE + v.hl;
     for (let i = 0; i < near.length; i++) {
       const p = near[i], dx = p.x - c.x, dz = p.z - c.z;
       if (Math.abs(dx) > reach || Math.abs(dz) > reach) continue;
-      const machine = p.def.style !== 'infantry', fast = Math.abs(p.speed);
-      if (!machine) continue;   // soldiers never crush anything
-      if (c.state === 'drive' && fast > 1 && !p.def.unarmed && dx * dx + dz * dz < TRAFFIC_MACHINE * TRAFFIC_MACHINE) this.scare(c, p.x, p.z);
+      const fast = Math.abs(p.speed);
+      if (c.state === 'drive' && !p.def.unarmed && dx * dx + dz * dz < TRAFFIC_MACHINE * TRAFFIC_MACHINE) this.scare(c, p.x, p.z);
       if (fast < TRAFFIC_CRUSH_SPEED) continue;
       const r = Naval.bodyR(p);
       if (Math.abs(dx * fx + dz * fz) > v.hl + r || Math.abs(dx * fz - dz * fx) > v.hw + r || p.y > c.y + v.h || p.y + p.height < c.y) continue;
@@ -22427,6 +22473,7 @@ const BENCH_SCENES = [
   { id: 'hz-jungle', map: 'jungle', platformId: 'bulwark', hazard: 'wildfire' },   // the same with a wildfire burning near the player
   { id: 'hz-coast', map: 'coast', platformId: 'bulwark', hazard: 'flood' },   // a flash flood near its top over the coast's low ground
   { id: 'sea-coast', map: 'coast', platformId: 'trident' },   // a destroyer at the harbour, the enemy fleet on the water
+  { id: 'traffic-metro', map: 'metro', platformId: 'bulwark', city: true },   // at a street corner of the megacity, its traffic in view
 ];
 const BENCH_HAZARD_AT = 60;   // m from the player a bench scene's hazard starts (it looks for fuel around there)
 const BENCH_WARM = 600;     // ticks simulated before timing, so the battle is under way
@@ -22606,6 +22653,7 @@ const SelfTest = {
     const skirmish = Object.assign({}, SKIRMISH_DEFAULT, { map: sc.map, size: 'large', seed: 11, random: false, platformId: pid, weather: o.weather || 'clear', time: o.time || 'day', hazards: sc.hazard ? 'normal' : 'off' });
     Game.startSession({ mode: 'skirmish', platformId: pid, loadout: Loadout.forPlatform(pid), difficulty: 'veteran', skirmish });
     if (sc.hazard) Hazards.force(sc.hazard, W.player.x + BENCH_HAZARD_AT, W.player.z + BENCH_HAZARD_AT, { warn: 0, find: true });
+    if (sc.city) this.benchCorner(W.player);
     UI.needResize = true; UI.resizeIfNeeded();
     for (let i = 0; i < o.warm; i++) Game.tick(STEP);
     if (Clock.cycle && Number.isFinite(o.at)) { Clock.start = ((o.at - Weather.clock() * 24 / TIME_CYCLE_SECONDS) % 24 + 24) % 24; Weather.update(0); }   // the timed frames start at hour `at`
@@ -22619,6 +22667,23 @@ const SelfTest = {
     ms.sort((a, b) => a - b);
     const avg = ms.reduce((a, b) => a + b, 0) / ms.length;
     return { avg: +avg.toFixed(2), p95: +ms[Math.floor(ms.length * 0.95)].toFixed(2), max: +ms[ms.length - 1].toFixed(2) };
+  },
+  /* p moves to the street corner nearest the middle of the largest town, facing along a street from it */
+  benchCorner(p) {
+    const zn = W.civZones.reduce((a, b) => (b.rad > a.rad ? b : a), W.civZones[0]);
+    if (!zn) return;
+    let best = null, bd = Infinity;
+    for (const n of zn.nodes) { const d = Math.hypot(n.x - zn.cx, n.z - zn.cz); if (n.nb.length > 2 && d < bd) { bd = d; best = n; } }
+    if (!best) return;
+    // the way with the most street corners ahead (within 30 deg), so the view runs down the town
+    let yaw = 0, most = -1;
+    for (const j of best.nb) {
+      const a = Math.atan2(zn.nodes[j].x - best.x, zn.nodes[j].z - best.z);
+      const k = zn.nodes.filter((n) => n !== best && Math.abs(angleDiff(Math.atan2(n.x - best.x, n.z - best.z), a)) < 0.52).length;
+      if (k > most) { most = k; yaw = a; }
+    }
+    p.x = best.x; p.z = best.z; p.y = Terrain.h(p.x, p.z); p.vx = p.vz = 0; p.speed = 0; p.yaw = yaw;
+    Cam.reset(p);
   },
   /* superweapon data, unlock rules, charging, firing and the co-op guest replay */
   superChecks() {
@@ -26976,6 +27041,130 @@ const SelfTest = {
         R.draw = keep.draw;
         S.onFoot = keep.foot; Net.peers = keep.peers; Net.host = keep.host; Net.guest = keep.guest; Net.inSession = keep.inSession; Net.hostPeer = keep.hostPeer; Net.map = keep.map; Net.pendEdge = keep.pend;
         W.airports.length = 0;
+      }
+    });
+    t('road traffic', () => {
+      const keepDiff = S.difficulty, keepRandom = Math.random, keepCam = { x: R.cam.x, y: R.cam.y, z: R.cam.z };
+      const SECONDS = 60, SLACK = 0.25, SEED = 7;   // the run, how far two cars may touch (m), the battle's seed
+      // the shortest distance between segments a0-a1 and b0-b1 on the ground (a car's capsule is its centre line, hw thick)
+      const segDist = (ax, az, bx, bz, cx, cz, dx, dz) => {
+        const ux = bx - ax, uz = bz - az, vx = dx - cx, vz = dz - cz, wx = ax - cx, wz = az - cz;
+        const a = ux * ux + uz * uz, b = ux * vx + uz * vz, c = vx * vx + vz * vz, d = ux * wx + uz * wz, e = vx * wx + vz * wz, den = a * c - b * b;
+        let s = den > 1e-9 ? clamp((b * e - c * d) / den, 0, 1) : 0, u = c > 1e-9 ? (b * s + e) / c : 0;
+        if (u < 0) { u = 0; s = a > 1e-9 ? clamp(-d / a, 0, 1) : 0; } else if (u > 1) { u = 1; s = a > 1e-9 ? clamp((b - d) / a, 0, 1) : 0; }
+        return Math.hypot(ax + ux * s - cx - vx * u, az + uz * s - cz - vz * u);
+      };
+      const capsule = (c) => { const k = Math.max(0, c.v.hl - c.v.hw), fx = Math.sin(c.yaw) * k, fz = Math.cos(c.yaw) * k; return [c.x - fx, c.z - fz, c.x + fx, c.z + fz]; };
+      const overlaps = (cars) => {
+        const out = [];
+        for (let i = 0; i < cars.length; i++) for (let j = i + 1; j < cars.length; j++) {
+          const a = cars[i], b = cars[j];
+          if (Math.abs(a.x - b.x) > a.v.hl + b.v.hl || Math.abs(a.z - b.z) > a.v.hl + b.v.hl || Math.abs(a.y - b.y) > 3) continue;
+          const p = capsule(a), q = capsule(b);
+          if (segDist(p[0], p[1], p[2], p[3], q[0], q[1], q[2], q[3]) < a.v.hw + b.v.hw - SLACK) out.push(a.v.id + '/' + b.v.id + '@' + Math.round(a.x) + ',' + Math.round(a.z));
+        }
+        return out;
+      };
+      const sig = (T) => T.parked.map((r) => r.v.id + r.col + ':' + r.x.toFixed(2) + ',' + r.z.toFixed(2)).join() + '|' + T.cars.map((c) => c.v.id + c.col + ':' + c.lane.id + '@' + c.s.toFixed(2)).join();
+      const at = { x: 0, y: 0, z: 0, yaw: 0, pitch: 0, seg: 0 };
+      try {
+        Game.startSession({ mode: 'skirmish', platformId: 'ranger', loadout: Loadout.forPlatform('ranger'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'metro', seed: SEED, random: false, support: 'none' }) });
+        const T = W.traffic, drive = T.drive, turns = T.lanes.filter((L) => L.kind === 'turn');
+        // the lane graph
+        this.check('the metro gets a lane graph: junctions, street and road lanes, and turns', T.nodes.some((n) => n.junction) && drive.some((L) => L.kind === 'street') && drive.some((L) => L.kind === 'road') && turns.length > 0, T.nodes.length + ' nodes, ' + T.lanes.length + ' lanes');
+        this.check('every lane has a twin the other way between the same two nodes', drive.every((L) => L.twin && L.twin.twin === L && L.twin.node0 === L.node1 && L.twin.node1 === L.node0 && T.lanes.indexOf(L.twin) >= 0));
+        this.check('every lane leads on, and every turn joins the end of one lane to the start of the next at its node', drive.every((L) => L.out.length > 0) && turns.every((t) => t.from.node1 === t.node0 && t.to.node0 === t.node0 && t.from.out.indexOf(t) >= 0));
+        this.check('a road joins the streets at a node', T.nodes.some((n) => n.ins.some((L) => L.kind === 'road') && n.outs.some((L) => L.kind === 'street')));
+        let inside = 0;
+        for (const L of T.lanes) for (let i = 0; i < L.pts.length; i += 3) if (Traffic.inBuilding(L.pts[i], L.pts[i + 2], 1, L.zone ? L.zone.blds : W.buildings)) inside++;
+        this.check('no lane runs through a building', inside === 0, inside + ' points');
+        // two lanes cross only at a junction of both (a turn crosses the lanes of its own node)
+        const box = (L) => { let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity; for (let i = 0; i < L.pts.length; i += 3) { x0 = Math.min(x0, L.pts[i]); x1 = Math.max(x1, L.pts[i]); z0 = Math.min(z0, L.pts[i + 2]); z1 = Math.max(z1, L.pts[i + 2]); } return [x0, x1, z0, z1]; };
+        const boxes = T.lanes.map(box), crossed = [];
+        for (let a = 0; a < T.lanes.length; a++) for (let b = a + 1; b < T.lanes.length; b++) {
+          const A = T.lanes[a], B = T.lanes[b], p = boxes[a], q = boxes[b];
+          if (p[1] < q[0] || q[1] < p[0] || p[3] < q[2] || q[3] < p[2] || A.node0 === B.node0 || A.node0 === B.node1 || A.node1 === B.node0 || A.node1 === B.node1) continue;
+          let hit = false;
+          for (let i = 0; i + 3 < A.pts.length && !hit; i += 3) for (let k = 0; k + 3 < B.pts.length && !hit; k += 3) hit = Traffic.segCross(A.pts[i], A.pts[i + 2], A.pts[i + 3], A.pts[i + 5], B.pts[k], B.pts[k + 2], B.pts[k + 3], B.pts[k + 5]) >= 0 && Math.abs(A.pts[i + 1] - B.pts[k + 1]) < 3;
+          if (hit) crossed.push(A.id + 'x' + B.id + '@' + Math.round(A.mx) + ',' + Math.round(A.mz));
+        }
+        this.check('lanes cross only at their junctions (roads crossing each other meet at one)', !crossed.length, crossed.slice(0, 4).join(' '));
+        const n0 = T.cars.length;
+        this.check('cars drive (at most QUALITY traffic) and cars are parked at the kerbs and on the aprons', n0 > 10 && n0 <= Fauna.quality().traffic && T.parked.some((r) => r.v.type === 'road') && T.parked.some((r) => r.v.type === 'air'), n0 + ' cars, ' + T.parked.length + ' parked');
+        // the same world and seed place the same vehicles
+        const s1 = sig(T);
+        Traffic.populate(SEED, W.mission.def.start);
+        this.check('the same seed parks and places the same vehicles', sig(W.traffic) === s1);
+        // a minute of traffic round the largest town: every car on its lane, none overlapping
+        const T2 = W.traffic, zn = W.civZones.reduce((a, b) => (b.rad > a.rad ? b : a));
+        R.cam.x = zn.cx; R.cam.y = Terrain.h(zn.cx, zn.cz) + 30; R.cam.z = zn.cz;
+        let off = 0, worst = [], minCars = Infinity, moved = 0;
+        const start = T2.cars.map((c) => c.x + c.z);
+        for (let i = 0; i < Math.round(SECONDS / STEP); i++) {
+          Traffic.update(STEP);
+          if (i % 30) continue;
+          minCars = Math.min(minCars, T2.cars.length);
+          for (const c of T2.cars) {
+            if (c.state !== 'drive') continue;
+            at.seg = 0;
+            Traffic.at(at, c.lane, c.s);
+            if (T2.lanes.indexOf(c.lane) < 0 || c.s < -0.01 || c.s > c.lane.len + 0.01 || Math.hypot(at.x - c.x, at.z - c.z) > 0.05) off++;
+          }
+          const o = overlaps(T2.cars);
+          if (o.length > worst.length) worst = o;
+        }
+        T2.cars.forEach((c, i) => { if (Math.abs(c.x + c.z - start[i]) > 20) moved++; });
+        this.check('a minute on: every driving car is on its lane', off === 0, off + ' off');
+        this.check('a minute on: no two cars overlap', !worst.length, worst.slice(0, 4).join(' '));
+        this.check('a minute on: the cars keep moving and their number holds', moved > n0 / 2 && minCars === n0, moved + ' moved, ' + minCars + ' of ' + n0);
+        // an explosion: the drivers who hear it flee
+        const calm = T2.cars.filter((c) => c.state === 'drive' && c.panic <= 0);
+        const c0 = calm[0], hear = CIV_BLAST_HEAR_MIN;
+        const heard = calm.filter((c) => Math.hypot(c.x - c0.x - 12, c.z - c0.z) < hear * 0.9);
+        explode(c0.x + 12, c0.y + 1, c0.z, 2, 0, 'explosive', null);
+        this.check('an explosion makes the drivers who hear it flee (or leave their cars)', heard.length > 0 && heard.every((c) => c.panic > 0 || c.state === 'abandon'), heard.length + ' heard');
+        // a scared driver in a town may leave the car and run: a civilian of the town
+        const calm2 = T2.cars.find((c) => c.state === 'drive' && c.panic <= 0 && c.lane.zone && c.driver), zc = calm2 && calm2.lane.zone, civs = zc ? zc.civs.length : 0;
+        Math.random = () => 0.01;
+        if (calm2) Traffic.scare(calm2, calm2.x + 5, calm2.z);
+        Math.random = keepRandom;
+        this.check('a driver who abandons the car becomes a civilian of the town, running', !!calm2 && calm2.state === 'abandon' && !calm2.driver && calm2.speed === 0 && zc.civs.length === civs + 1);
+        // a heavy machine crushes a parked car flat; a soldier walking over one does not
+        const kerb = T2.parked.filter((r) => r.v.type === 'road' && r.state === 'park');
+        const tank = new Platform(PLATFORMS.bulwark, { team: 1, x: kerb[0].x, z: kerb[0].z, yaw: kerb[0].yaw, loadout: Loadout.forPlatform('bulwark') }), man = new Platform(PLATFORMS.ranger, { team: 1, x: kerb[1].x, z: kerb[1].z, yaw: 0, loadout: Loadout.forPlatform('ranger') });
+        tank.y = kerb[0].y; tank.speed = 4; man.y = kerb[1].y; man.speed = 3;
+        W.platforms.push(tank, man);
+        Traffic.update(STEP);
+        W.platforms.splice(W.platforms.indexOf(tank), 1); W.platforms.splice(W.platforms.indexOf(man), 1);
+        this.check('a tank (' + tank.tonnes + ' t) driving over a parked car crushes it: a flat, burning wreck', tank.tonnes >= TRAFFIC_CRUSH_TONNES && kerb[0].state === 'wreck' && kerb[0].flat === TRAFFIC_FLAT && kerb[0].burn > 0);
+        this.check('a soldier walking over one does not', kerb[1].state === 'park');
+        const burn = kerb[0].burn;
+        for (let i = 0; i < 60; i++) Traffic.update(STEP);
+        this.check('the wreck burns down and stays where it was', kerb[0].burn < burn && kerb[0].state === 'wreck' && T2.parked.indexOf(kerb[0]) >= 0);
+        // a shot through a car wrecks it (a wreck keeps its height)
+        const target = T2.cars.find((c) => c.state === 'drive');
+        const ty = target.y + target.v.h * 0.5;
+        Traffic.sweep(target.x - 30, ty, target.z, 1, 0, 0, 60, target.hp0 * 2);
+        this.check('a shot through a car wrecks it', target.state === 'wreck' && target.flat === 1);
+        // a stopped car in the traffic is taken: its driver steps out and the player drives it
+        const ride = T2.cars.find((c) => c.state === 'drive' && c.driver && c.lane.zone && c.lane.kind === 'street');
+        ride.speed = 0;
+        const human = new Platform(PLATFORMS.ranger, { team: 0, x: ride.x - Math.cos(ride.yaw) * (ride.v.hw + 1), z: ride.z + Math.sin(ride.yaw) * (ride.v.hw + 1), yaw: 0, loadout: Loadout.forPlatform('ranger') });
+        human.y = ride.y; human.isPlayer = true; human.controller = PC; human.localPlayer = true;
+        W.platforms.push(human); W.player = human;
+        const civs2 = ride.lane.zone.civs.length, zone2 = ride.lane.zone, lane2 = ride.lane;
+        this.check('Use beside a stopped car in the traffic offers it', Seats.context(human, {}).enter === ride);
+        PC.resetUse(); PC.useInput(human, true, STEP); PC.useInput(human, false, STEP);
+        const car = W.player;
+        this.check('taken: the player drives a platform of that car in its paint, its driver steps out, the car leaves the traffic', car !== human && car.def.id === 'cv_' + ride.v.id && car.civCol === ride.col && T2.cars.indexOf(ride) < 0 && lane2.cars.indexOf(ride) < 0 && zone2.civs.length === civs2 + 1);
+        // drawn: the vehicles near the camera
+        R.beginBatch('opaque');
+        Traffic.draw();
+        R.endBatch('opaque');
+        this.check('the traffic and the parked vehicles near the camera are drawn', T2.drawn > 0, T2.drawn + ' drawn');
+      } finally {
+        Math.random = keepRandom; R.cam.x = keepCam.x; R.cam.y = keepCam.y; R.cam.z = keepCam.z;
+        S.difficulty = keepDiff; Game.quitToMenu();
       }
     });
     /* SELFTEST PART X END */
