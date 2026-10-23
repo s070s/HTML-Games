@@ -4,7 +4,7 @@
 
 const HUD_FEED_SLOTS = 8, HUD_FEED_SECONDS = 6, HUD_FEED_FADE = 0.5, HUD_FEED_ROWS = 5, HUD_FEED_ROWS_COMPACT = 3;
 const HUD_BANNER_SLOTS = 4, HUD_BANNER_SECONDS = 2.6, HUD_BANNER_SECONDS_LONG = 3.4, HUD_BANNER_FADE = 0.5, HUD_BANNER_SHOWN = 3;
-const HUD_BANNER_DUPLICATE_SECONDS = 1;
+const HUD_BANNER_PHONE_SIDE = 500;   // css px: a touch screen with a shorter side is a phone (one small banner on the panel line)
 const HUD_BANNER_PRIORITY_LONG = 2;
 const HUD_MAX_OBJECTIVE_CHIPS = 6;
 const HUD_FALLBACK_NAME = 'Player';
@@ -114,13 +114,26 @@ const HudBanners = {
 
   reset() { this.at.fill(-1000); this.next = 0; },
   add(text, kind, priority, medal) {
-    for (let i = 0; i < HUD_BANNER_SLOTS; i++) if (this.text[i] === text && Hud.time - this.at[i] < HUD_BANNER_DUPLICATE_SECONDS) return;
+    for (let i = 0; i < HUD_BANNER_SLOTS; i++) if (this.text[i] === text && this.live(i)) return;   // never the same text twice at once
     const slot = this.next;
     this.next = (slot + 1) % HUD_BANNER_SLOTS;
     this.text[slot] = text; this.kind[slot] = kind; this.priority[slot] = priority; this.medal[slot] = medal ? 1 : 0; this.at[slot] = Hud.time;
   },
   seconds(slot) { return this.priority[slot] >= HUD_BANNER_PRIORITY_LONG || this.medal[slot] ? HUD_BANNER_SECONDS_LONG : HUD_BANNER_SECONDS; },
+  live(slot) { return Hud.time - this.at[slot] < this.seconds(slot); },
+  alpha(slot) { const age = Hud.time - this.at[slot]; return Math.min(1, age / 0.15, (this.seconds(slot) - age) / HUD_BANNER_FADE); },
+  // The newest banner still shown, -1 none.
+  newest() {
+    for (let k = 1; k <= HUD_BANNER_SLOTS; k++) {
+      const slot = (this.next - k + HUD_BANNER_SLOTS) % HUD_BANNER_SLOTS;
+      if (this.live(slot)) return slot;
+    }
+    return -1;
+  },
 };
+// Phones: the newest banner alone, small and on one line, takes the panel line under the clock ("FIRST TO", GET READY) for its
+// life, so nothing is drawn between the header rows and the crosshair (objective rows reach the aim zone there: no room for a strip).
+function hudPhoneBanner(layout) { return layout.touch && Math.min(layout.width, layout.height) < HUD_BANNER_PHONE_SIDE ? HudBanners.newest() : -1; }
 
 // "doubleKill" -> "Double Kill" when the medals catalogue (15.6) has no row yet.
 function hudMedalTitle(medal) {
@@ -168,11 +181,12 @@ function hudBannersTop(layout, count) {
   return top;
 }
 function hudDrawBanners(pen, layout) {
-  const b = HudBanners, now = Hud.time, unit = layout.unit;
+  const b = HudBanners, unit = layout.unit, phone = hudPhoneBanner(layout);
+  if (phone >= 0) { pen.text(b.text[phone], layout.centerX, layout.top + HUD_LIMIT_Y * unit, HUD_TEXT_SMALL * unit, b.medal[phone] ? HUD_COLOR.gold : HUD_COLOR.text, 'center', b.alpha(phone)); return; }
   let count = 0;
   for (let k = 1; k <= HUD_BANNER_SLOTS && count < HUD_BANNER_SHOWN; k++) {
     const slot = (b.next - k + HUD_BANNER_SLOTS) % HUD_BANNER_SLOTS;
-    if (now - b.at[slot] >= b.seconds(slot)) continue;
+    if (!b.live(slot)) continue;
     const size = (b.medal[slot] ? 30 : b.priority[slot] >= HUD_BANNER_PRIORITY_LONG ? 26 : 20) * unit;
     hudBannerSlot[count] = slot; hudBannerSize[count] = size;
     hudBannerHalf[count] = HudPen.measure(b.text[slot], size) / 2 + (b.medal[slot] ? size * 1.4 : 0);   // the stars reach 1.4 sizes past the text
@@ -181,8 +195,8 @@ function hudDrawBanners(pen, layout) {
   if (count === 0) return;
   let y = b.top = hudBannersTop(layout, count);
   for (let i = 0; i < count; i++) {
-    const slot = hudBannerSlot[i], size = hudBannerSize[i], age = now - b.at[slot], life = b.seconds(slot);
-    const alpha = Math.min(1, age / 0.15, (life - age) / HUD_BANNER_FADE), textHalf = hudBannerHalf[i] - (b.medal[slot] ? size * 1.4 : 0);
+    const slot = hudBannerSlot[i], size = hudBannerSize[i];
+    const alpha = b.alpha(slot), textHalf = hudBannerHalf[i] - (b.medal[slot] ? size * 1.4 : 0);
     if (b.medal[slot]) {
       pen.label('★', layout.centerX - textHalf - size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
       pen.label('★', layout.centerX + textHalf + size * 0.9, y, size, HUD_COLOR.gold, 'center', alpha);
@@ -215,6 +229,7 @@ function hudDrawTime(pen, layout, state) {
   text[1] = y; text[2] = 24 * unit;
   if (state.timeLeft > 0) pen.textAt(hudTime(state.timeLeft), state.timeLeft <= 30 ? Hud.colors.bad : HUD_COLOR.text, 'center');
   text[1] = layout.top + HUD_LIMIT_Y * unit; text[2] = 14 * unit;
+  if (hudPhoneBanner(layout) >= 0) return;   // a phone banner has this line for now
   if (state.phase === 'freeze') pen.textAt('GET READY', HUD_COLOR.warn, 'center');
   else if (state.phase === 'roundEnd') pen.textAt('ROUND OVER', HUD_COLOR.warn, 'center');
   else if (state.scoreLimit > 0 && state.roundsToWin === 0 && !state.overtime) hudDrawScoreLimit(pen, layout, state.scoreLimit);

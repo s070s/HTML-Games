@@ -408,7 +408,7 @@ function hudUiDrawnBoxes(first) {
 // A box meets a circle (the nearest point of the box is inside it).
 function hudUiBoxMeetsCircle(box, x, y, radius) { return length2(clamp(x, box[0], box[2]) - x, clamp(y, box[1], box[3]) - y) < radius; }
 // What breaks rules 1, 2 and 4 for the shown buttons and rule 3's clear stack, or ''. Touching (half a pixel) is allowed.
-function hudUiTouchBreak(fixed, banners, width, height) {
+function hudUiTouchBreak(fixed, banners, width, height, layout) {
   const places = TouchInput.places, shown = TOUCH_CONTROLS.filter((control) => places[control.id].shown), aimRadius = TOUCH_AIM_ZONE * Math.min(width, height);
   for (const control of shown) {
     const place = places[control.id], radius = place.radius - 0.5, x = place.x, y = place.y;
@@ -419,6 +419,12 @@ function hudUiTouchBreak(fixed, banners, width, height) {
     if (!TouchInput.keepsHalf(place, x, width)) return control.id + ' left its half';
     const over = fixed.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)) || (HudBanners.free && banners.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)));
     if (over) return control.id + ' over ' + over.map(Math.round);
+  }
+  if (Math.min(width, height) < HUD_BANNER_PHONE_SIDE) {   // a phone: the newest banner alone, small, on the panel line
+    const panel = hudHeaderBox(layout, []);
+    const letters = HUD_UI_BANNERS[1].replace(/ /g, '').length;   // each glyph and, at most, its shadow
+    if (banners.length < letters || banners.length > 2 * letters) return banners.length + ' banner quads on a phone';
+    return banners.some((box) => (box[1] + box[3]) / 2 > panel[1] + panel[3]) ? 'phone banner outside the score panel' : '';
   }
   if (banners.length < HUD_UI_BANNER_GLYPHS) return 'banners hidden';
   const moved = HudBanners.top > height * 0.22 + 0.5;
@@ -450,7 +456,7 @@ function hudUiTouchProblems(width, height, draw) {
           if (replay) hudDrawKillcamPanel(HudPen, layout);
           const fixed = hudUiDrawnBoxes(0), first = HudBatch.quads;
           hudDrawBanners(HudPen, layout);
-          const broken = hudUiTouchBreak(fixed, hudUiDrawnBoxes(first), width, height);
+          const broken = hudUiTouchBreak(fixed, hudUiDrawnBoxes(first), width, height, layout);
           if (broken) problems.push([width, height, hudScale, preset.id, moved, scale, replay, broken].join(' '));
         }
       }

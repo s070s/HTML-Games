@@ -321,6 +321,9 @@ Test.add('hud', (check) => hudTestWith(() => {
   hudTestEvent('announce', { text: 'Overtime', kind: 'overtime', priority: 2 });
   hudTestEvent('announce', { text: 'Overtime', kind: 'overtime', priority: 2 });
   check('banners: the same announcement twice in a second shows once', HudBanners.at.filter((at) => at > 0).length === 1);
+  Hud.time += HUD_BANNER_SECONDS_LONG / 2;
+  hudTestEvent('announce', { text: 'Overtime', kind: 'overtime', priority: 2 });
+  check('banners: a text still shown is not shown twice at once', HudBanners.at.filter((at) => at > 0).length === 1);
   hudTestEvent('medal', { id: scene.id, medal: 'doubleKill' });
   hudTestEvent('medal', { id: scene.enemy, medal: 'spree' });
   check('banners: your medal shows as a banner, other players medals do not', HudBanners.at.filter((at) => at > 0).length === 2 && HudBanners.medal.includes(1));
