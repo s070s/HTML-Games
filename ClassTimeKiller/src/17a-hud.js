@@ -228,12 +228,6 @@ const Hud = {
       drawer.quads = HudBatch.quads - before;
     }
   },
-  // Quads drawn by the drawers of an element during the last frame (self-test: hidden elements draw nothing).
-  quadsOf(element) {
-    let total = 0;
-    for (const layer in this.drawers) for (const drawer of this.drawers[layer]) if (drawer.element === element) total += drawer.quads;
-    return total;
-  },
 };
 
 // The label of an action's first bound key for a device ('' when none: callers show their own fallback, such as HOLD USE).

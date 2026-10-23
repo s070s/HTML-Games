@@ -252,7 +252,6 @@ const Input = {
     }
     return others;
   },
-  allConflicts() { return ACTION_ROWS.filter((row) => this.conflictsOf(row.id).length > 0).map((row) => row.id); },
   bindingLabel(binding) {
     if (binding === NO_BINDING) return 'Unbound';
     const kind = binding.slice(0, binding.indexOf(':')), name = binding.slice(binding.indexOf(':') + 1);
@@ -276,7 +275,6 @@ const Input = {
   },
 
   // ---- Action state ----
-  isHeld(actionId) { return this.effective[this.actionIndex[actionId]] === 1; },
   isToggleMode(actionId) { return this.toggleMode[this.actionIndex[actionId]] === 1; },
   // A toggled action whose effect ended by other means (the scoreboard closed with its Close button, a run stopped) starts from off again.
   resetToggle(actionId) {
@@ -287,7 +285,6 @@ const Input = {
   },
   // True when the action was pressed within the last 0.10 s of simulation time (jump before landing, fire during a cooldown).
   buffered(actionId) { return Sim.tick - this.lastPressTick[this.actionIndex[actionId]] <= INPUT_BUFFER_TICKS; },
-  consumeBuffered(actionId) { this.lastPressTick[this.actionIndex[actionId]] = NEVER_PRESSED; },
   // Only rows flagged buffered keep a press time, so buffered() is false for every other action.
   markPressed(index) { if (ACTION_ROWS[index].buffered) this.lastPressTick[index] = Sim.tick; },
   pressAction(index) {

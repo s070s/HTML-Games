@@ -7,7 +7,6 @@
 
 const ACCESS_PALETTES = ['off', 'protanopia', 'deuteranopia', 'tritanopia'];
 const ACCESS_PARTICLES_MIN = 25;         // percent: even the lowest setting keeps some effects so hits stay readable
-const ACCESS_HOLD_ACTIONS = ACTION_ROWS.filter((row) => row.toggle).map((row) => row.id);
 const ACCESS_AIM_ASSIST_KEYS = ['controls.pad.aimAssist', 'controls.touch.aimAssist', 'controls.touch.autoFire'];
 const ACCESS_VOLUME_KEYS = ['audio.master', 'audio.sfx', 'audio.ui', 'audio.announcer', 'audio.music'];
 
@@ -45,8 +44,8 @@ const Access = {
       if (definition && isEditableSetting(definition)) container.appendChild(Ui.row(definition.label || key, settingControl(key, definition)));
     }
   },
-  holdKeys() { return ACCESS_HOLD_ACTIONS.map((id) => 'controls.toggle.' + id); },
-  mirroredCount() { return this.holdKeys().length + ACCESS_AIM_ASSIST_KEYS.length + ACCESS_VOLUME_KEYS.length; },
+  // Every hold or toggle setting of 05a, the controller's own sprint one included.
+  holdKeys() { return TOGGLE_SETTINGS.concat(PAD_TOGGLE_SETTINGS).map((row) => row.key); },
 };
 
 Bus.on('boot', () => { injectStyle('ui-access-style', ACCESS_CSS); Access.apply(); });

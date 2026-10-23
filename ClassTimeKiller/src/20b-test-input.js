@@ -4,6 +4,11 @@ DebugApi.input = Input;
 DebugApi.touch = TouchInput;
 DebugApi.pad = PadInput;
 
+// Readers only the tests need: they live here, so the game objects carry only what the game uses.
+Input.allConflicts = () => ACTION_ROWS.filter((row) => Input.conflictsOf(row.id).length > 0).map((row) => row.id);
+Input.isHeld = (actionId) => Input.effective[Input.actionIndex[actionId]] === 1;
+Input.consumeBuffered = (actionId) => { Input.lastPressTick[Input.actionIndex[actionId]] = NEVER_PRESSED; };
+
 const INPUT_TEST_FRAME = 1 / 60;
 const INP_DEFAULT_BINDINGS = {   // INP-003
   'Key:KeyW': 'forward', 'Key:KeyS': 'back', 'Key:KeyA': 'left', 'Key:KeyD': 'right', 'Key:Space': 'jump', 'Key:KeyC': 'crouch',

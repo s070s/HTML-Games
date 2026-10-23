@@ -7,6 +7,13 @@ DebugApi.killcam = Killcam;
 DebugApi.play = PlayFlow;
 DebugApi.bus = Bus;
 
+// Quads drawn by the drawers of an element during the last frame (hidden elements draw nothing). Only the tests read it.
+Hud.quadsOf = (element) => {
+  let total = 0;
+  for (const layer in Hud.drawers) for (const drawer of Hud.drawers[layer]) if (drawer.element === element) total += drawer.quads;
+  return total;
+};
+
 const HUD_TEST_WIDTH = 1280, HUD_TEST_HEIGHT = 720;
 const HUD_TEST_FRAME = 1 / 60;
 const HUD_TEST_COST_FRAMES = 100, HUD_TEST_COST_BATCHES = 6;

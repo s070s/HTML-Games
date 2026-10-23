@@ -5,6 +5,12 @@
 
 const ACCESS_TEST_WCAG_TEXT = 4.5;                 // contrast ratio of readable text
 const ACCESS_TEST_MIN_FONT = 14;                   // ACC-008: pixels at 100% scale
+// Rows the Accessibility tab mirrors from other tabs.
+Access.mirroredCount = () => Access.holdKeys().length + ACCESS_AIM_ASSIST_KEYS.length + ACCESS_VOLUME_KEYS.length;
+
+Test.add('uiacc', (check) => {
+  check('accessibility tab: hold or toggle lists every hold setting, the controller sprint one too', Access.holdKeys().includes('controls.toggle.sprintPad') && Access.holdKeys().length === TOGGLE_SETTINGS.length + PAD_TOGGLE_SETTINGS.length);
+});
 const ACCESS_TEST_SCREEN_COST_MS = 1000;           // UI-001: no screen takes longer than a second to open
 const ACCESS_TEST_HOLD_ACTIONS = ['crouch', 'sprint', 'walk', 'prone', 'fire', 'alt', 'use', 'scoreboard'];
 const ACCESS_TEST_NEXT_SHOT_NOISE = 60;
@@ -146,11 +152,12 @@ Test.add('uiacc', (check) => hudTestWith(() => {
 
 Test.add('uiacc', (check) => {
   // ---- ACC-004 hold or toggle for every hold action ----
-  check('hold/toggle: every hold action has a setting', ACCESS_TEST_HOLD_ACTIONS.every((id) => ACCESS_HOLD_ACTIONS.includes(id) && Settings.definitions.has('controls.toggle.' + id)));
+  const holdActions = ACTION_ROWS.filter((row) => row.toggle).map((row) => row.id);
+  check('hold/toggle: every hold action has a setting, mirrored on the Accessibility tab', ACCESS_TEST_HOLD_ACTIONS.every((id) => holdActions.includes(id) && Settings.definitions.has('controls.toggle.' + id) && Access.holdKeys().includes('controls.toggle.' + id)));
   const events = [];
   const listener = (event) => { if (event.action === 'scoreboard') events.push(event.down); };
   Bus.on('input.action', listener);
-  for (const id of ACCESS_HOLD_ACTIONS) {
+  for (const id of holdActions) {
     const index = Input.actionIndex[id];
     Input.clearAll();
     Settings.set('controls.toggle.' + id, 'hold');
