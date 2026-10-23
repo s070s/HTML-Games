@@ -17632,6 +17632,7 @@ function skirmishDef(cfg) {
       m.add(Obj.guard({ id: 'base', title: 'Protect your command center', struct: ownHq, status: 'active', label: 'HQ' }));
       const supportList = { none: [], light: ['allyMech', 'allyTank'], heavy: ['allyMech', 'allyMech', 'allyTank', 'allyJet'] }[cfg.support];
       ctx.later(() => { if (supportList.length) spawnGroup(supportList, start.x + 30, start.z + 30, { team: 0, radius: 40 }); });
+      ctx.later(() => parkApronAircraft());
       const humans = () => W.platforms.filter((p) => p.isPlayer && p.team === 0 && !p.dead);
       // where a wave unit heads: a human close by, else our command center
       const waveGoal = (u) => {
@@ -17689,7 +17690,20 @@ function buildMotorPool() {
     W.motorPool.push(slot);
   }));
 }
-/* a free friendly platform standing parked (training pool, P4.5 aprons, missions) */
+const APRON_AIRCRAFT = 2;      // parked friendly aircraft on a skirmish's airfield apron
+const APRON_PARK_U = 0.35;    // at this share of the apron's length either side of its middle (the beacon stays free)
+/* a skirmish's airfield: two free friendly aircraft parked on its apron, off the runway where the lost ones come back */
+function parkApronAircraft() {
+  const ap = W.airports[0];
+  if (!ap || !ap.spot) return;
+  const spec = AIRFIELD[ap.spot.kind], q = spec.apron, ids = PLAYABLE.filter((id) => PLATFORMS[id].kind === 'air');
+  const mid = (q[0] + q[1]) / 2, half = (q[1] - q[0]) / 2, v = (q[2] + q[3]) / 2;
+  for (let k = 0; k < APRON_AIRCRAFT && k < ids.length; k++) {
+    const p = Airports.at(ap.spot, mid + (k ? 1 : -1) * half * APRON_PARK_U * 2, v);
+    spawnParked(ids[k], p.x, p.z, ap.yaw);
+  }
+}
+/* a free friendly platform standing parked: the training motor pool and a skirmish airfield's apron */
 function spawnParked(id, x, z, yaw) {
   const def = PLATFORMS[id];
   const sp = findSpawn(x, z, 16, def.radius, 0);   // clear of rocks and buildings
@@ -23062,18 +23076,40 @@ const SelfTest = {
       const rc = ctr(rw);
       this.check('nothing stands or grows on the runway, the fuel tanks stand by the apron and the world hash covers the airfield', blocked === 0 && plants === 0 && fuel === AIRFIELD.airport.fuel.length && worldHash() !== (() => { const keep = W.airports; W.airports = []; const h = worldHash(); W.airports = keep; return h; })(), blocked + ' structs, ' + plants + ' plants, ' + fuel + ' tanks');
       this.check('the airfield\'s apron resupplies like a pad and the runway does not', padInRange({ x: ctr(ap.apron).x, z: ctr(ap.apron).z, y: 0, kind: 'ground' }) === ap && !padInRange({ x: rc.x, z: rc.z, y: 0, kind: 'ground' }));
-      // an approach with the gear coming down by itself: it lands on the apron, stops and is resupplied once
-      const p = W.player, a = p.def.air, sp = ap.spot, c = p.cmd;
-      const along = sp.axis ? 'x' : 'z', across = sp.axis ? 'z' : 'x', apC = ctr(ap.apron);
-      p.controller = null; p.yaw = ap.yaw; p[across] = apC[across]; p[along] = apC[along] - AIRFIELD.airport.apron[1] - 100;   // the runway's yaw points along +x or +z
+      // a skirmish's airfield has two free friendly aircraft on its apron, away from where lost ones come back
+      const apronJets = W.platforms.filter((q) => q.kind === 'air' && q.parked && q.team === 0 && !q.dead && Airports.apronAt(q) === ap), head0 = respawnSite(W.player.def);
+      this.check('two free friendly aircraft stand parked on the apron, off the runway and clear of the respawn spot', apronJets.length === APRON_AIRCRAFT && apronJets.every((q) => !onRunway(q.x, q.z, q.radius, q.radius) && Math.hypot(q.x - head0.x, q.z - head0.z) > 100 && Seats.canEnter(new Platform(PLATFORMS.ranger, { team: 0, x: q.x, z: q.z, yaw: 0 }), q)), apronJets.length);
+      // an approach along the runway with the gear coming down by itself: it touches down on the runway and stops
+      const p = W.player, a = p.def.air, sp = ap.spot, c = p.cmd, spec = AIRFIELD.airport, at = (u, v) => Airports.at(sp, u, v);
+      const s0 = at(spec.runway[0] + 20, 0);
+      p.controller = null; p.yaw = ap.yaw; p.x = s0.x; p.z = s0.z;
       p.y = Terrain.h(p.x, p.z) + a.clearance + 8; p.speed = a.landMax * 0.85; p.pitch = -0.05; p.grounded = false; p.gear = false; p.gearWish = false;
-      c.aimYaw = ap.yaw; c.aimPitch = -0.05; c.throttleSet = 0; c.brake = true;
+      c.aimYaw = ap.yaw; c.aimPitch = -0.05; c.throttleSet = 0; c.brake = true; c.moveS = 0;
       const gun = GUN_SLOTS.map((k) => p.wslots[k]).find((w) => w && w.def.kind !== 'beam');
       gun.reserve = 0; W.resupplies = 2;
-      let n = 0;
-      for (; n < 900 && !p.dead && !(p.grounded && p.speed < AIRFIELD_STOP); n++) { p.update(STEP); if (p.grounded) c.aimPitch = 0; }
-      for (let k = 0; k < 30 && !p.dead; k++) p.update(STEP);
-      this.check('an aircraft on approach lowers its gear, lands and stops on the apron, and is resupplied once', !p.dead && p.gear && p.grounded && p.speed < AIRFIELD_STOP && Airports.apronAt(p) === ap && gun.reserve > 0 && W.resupplies === 1, n + ' steps at ' + p.x.toFixed(0) + ',' + p.z.toFixed(0) + ' dead ' + p.dead);
+      let n = 0, touch = null;
+      for (; n < 900 && !p.dead && !(p.grounded && p.speed < AIRFIELD_STOP); n++) {
+        const was = p.grounded;
+        p.update(STEP);
+        if (!was && p.grounded) touch = { x: p.x, z: p.z };
+        if (p.grounded) c.aimPitch = 0;
+      }
+      this.check('an aircraft on approach along the runway lowers its gear, touches down on the runway and stops', !p.dead && p.gear && p.grounded && !!touch && onRunway(touch.x, touch.z, 0, 0) && W.resupplies === 2, n + ' steps, down at ' + JSON.stringify(touch));
+      // then it taxis: along the runway to its middle, up the middle taxiway to the apron's middle, slowly in the turns
+      const wps = [at(0, 0), at(0, (spec.apron[2] + spec.apron[3]) / 2)], near = 12;
+      let k = 0, taxi = 0;
+      for (; taxi < 60 * 120 && !p.dead && k < wps.length; taxi++) {
+        const w = wps[k], dx = w.x - p.x, dz = w.z - p.z;
+        if (Math.hypot(dx, dz) < near) { k++; continue; }
+        const err = angleDiff(p.yaw, Math.atan2(dx, dz));
+        c.moveS = clamp(-err * 3, -1, 1);
+        c.brake = p.speed > (Math.abs(err) > 0.3 ? 3 : 10) + 1; c.throttleSet = c.brake ? 0 : 0.1;
+        p.update(STEP);
+      }
+      c.moveS = 0; c.throttleSet = 0; c.brake = true;
+      for (let j = 0; j < 600 && p.speed >= AIRFIELD_STOP; j++) p.update(STEP);
+      for (let j = 0; j < 30 && !p.dead; j++) p.update(STEP);
+      this.check('it taxis to the apron, stops there and is resupplied once', !p.dead && p.grounded && k === wps.length && p.speed < AIRFIELD_STOP && Airports.apronAt(p) === ap && gun.reserve > 0 && W.resupplies === 1, taxi + ' steps at ' + p.x.toFixed(0) + ',' + p.z.toFixed(0) + ' dead ' + p.dead);
       // a lost aircraft comes back at the head of the runway and takes off along it
       const site = respawnSite(p.def);
       this.check('a lost aircraft comes back parked at the head of the runway, facing along it', site.parked && site.x >= rw.x0 && site.x <= rw.x1 && site.z >= rw.z0 && site.z <= rw.z1 && site.yaw === ap.yaw);
