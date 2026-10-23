@@ -1148,7 +1148,8 @@ const Save = {
     const bindings = {};
     ACTIONS.forEach((a) => { bindings[a[0]] = a[2]; });
     if (COARSE_POINTER || Device.ios) settings.quality = 'low';   // phones and tablets: start light, the player can raise it
-    return { v: SAVE_VERSION, settings, bindings, loadouts: {}, platformId: 'bulwark', best: {}, skirmishBest: {}, skirmish: null, career: Arsenal.blankCareer(), unlocked: [] };
+    // weaponGate: this save knows that missions unlock weapons (P7.1); a save written before that keeps every one (sanitize)
+    return { v: SAVE_VERSION, settings, bindings, loadouts: {}, platformId: 'bulwark', best: {}, skirmishBest: {}, skirmish: null, career: Arsenal.blankCareer(), unlocked: [], weaponGate: true };
   },
   sanitize(raw) {
     const out = this.defaults();
@@ -1193,7 +1194,9 @@ const Save = {
     }
     if (raw.skirmish && typeof raw.skirmish === 'object') out.skirmish = raw.skirmish;
     out.career = Arsenal.sanitizeCareer(raw.career);
-    if (Array.isArray(raw.unlocked)) out.unlocked = raw.unlocked.filter((id, i, a) => typeof id === 'string' && SUPERS[id] && a.indexOf(id) === i);
+    if (Array.isArray(raw.unlocked)) out.unlocked = raw.unlocked.filter((id, i, a) => typeof id === 'string' && (SUPERS[id] || Arsenal.gated(id)) && a.indexOf(id) === i);
+    // a save from before mission weapon unlocks could already carry every weapon: it keeps them all (nothing is taken away)
+    if (raw.weaponGate !== true) Arsenal.gatedIds().forEach((id) => { if (out.unlocked.indexOf(id) < 0) out.unlocked.push(id); });
     return out;
   },
   load() {
@@ -1266,10 +1269,22 @@ const Loadout = {
     const id = lo && lo.melee;
     return id && MELEE[id] && this.meleeFor(def).indexOf(id) >= 0 ? MELEE[id] : MELEE.fists;
   },
+  /* true when a human may pick weapon or melee id on def: a mission unlock it gates (D30) is open once won, and always on
+     a platform whose own default loadout carries it. AI units and validate() (the co-op host's check) ignore unlocks. */
+  open(def, id) {
+    if (!Arsenal.gated(id) || Arsenal.isUnlocked(id)) return true;
+    return WEAPON_SLOTS.some((s) => def.loadout[s] === id);
+  },
+  /* the first weapon or melee id in loadout lo that is still locked on def ('' for none) */
+  locked(def, lo) {
+    for (const s of WEAPON_SLOTS) if (lo[s] && !this.open(def, lo[s])) return lo[s];
+    return lo.melee && !this.open(def, lo.melee) ? lo.melee : '';
+  },
   forPlatform(id) {
     const def = PLATFORMS[id];
     const saved = Save.data && Save.data.loadouts[id];
-    const lo = Object.assign({}, saved && Loadout.validate(def, saved).ok ? saved : def.loadout);
+    // a locked pick (a save copied from another device) falls back to the default loadout, which is always open
+    const lo = Object.assign({}, saved && Loadout.validate(def, saved).ok && !Loadout.locked(def, saved) ? saved : def.loadout);
     if (!def.unarmed && (!lo.strategic || !Arsenal.isUnlocked(lo.strategic))) lo.strategic = SUPER_START_ID;   // every armed platform carries an unlocked superweapon
     return lo;
   },
@@ -16374,11 +16389,16 @@ const Arsenal = {
       case 'skirmishWin': case 'skirmishMap': return { have: Math.min(1, this.skirmishWins(r.a)), need: 1 };
       case 'career': return { have: Math.floor(this.career(r.a)), need: r.n };
       case 'match': return { have: Math.floor(this.matchStat(r.a)), need: r.n };
-      case 'unlocked': return { have: Save.data.unlocked.length, need: r.n };
+      case 'unlocked': return { have: Save.data.unlocked.filter((id) => SUPERS[id]).length, need: r.n };   // superweapons only, not weapons
       default: return { have: 0, need: 1 };
     }
   },
+  /* a superweapon's requirement, plus the mission that also unlocks it */
   reqText(d) {
+    const base = this.reqBaseText(d), mid = MISSION_UNLOCK[d.id];
+    return mid && this.reqOf(d).kind !== 'start' ? base + ', or complete mission ' + this.missionName(mid) : base;
+  },
+  reqBaseText(d) {
     const r = this.reqOf(d);
     switch (r.kind) {
       case 'start': return 'Available from the start';
@@ -16397,20 +16417,36 @@ const Arsenal = {
   missionName(id) { return MISSION_BY_ID[id] ? MISSION_BY_ID[id].name : id; },
   isUnlocked(id) {
     const d = SUPERS[id];
-    if (!d) return false;
+    if (!d) return this.gated(id) && !!Save.data && Save.data.unlocked.indexOf(id) >= 0;   // a weapon a mission unlocks
     return this.reqOf(d).kind === 'start' || Save.data.unlocked.indexOf(id) >= 0;
   },
   unlockedList() { return SUPER_LIST.filter((d) => this.isUnlocked(d.id)); },
+  /* mission unlocks (P7.1, D30): a mission's unlock names a weapon, a melee weapon or a superweapon its win opens. A weapon
+     or melee weapon it names is gated for human loadouts (Loadout.open); a superweapon keeps its own requirement and
+     gains the mission as a second way to it, so nothing anyone could unlock before is taken away. */
+  gated(id) { return Object.prototype.hasOwnProperty.call(MISSION_UNLOCK, id) && !SUPERS[id] && !!(WEAPONS[id] || MELEE[id]); },
+  gatedIds() { return Object.keys(MISSION_UNLOCK).filter((id) => this.gated(id)); },
+  missionWon(id) { const r = id ? this.bestRank(id) : ''; return !!r && r !== 'F'; },
+  /* display name of a weapon, melee weapon or superweapon id */
+  itemName(id) { return SUPERS[id] ? SUPERS[id].name : WEAPONS[id] ? WEAPONS[id].name : MELEE[id] ? MELEE[id].name : id; },
+  /* '' when weapon id is open on def, else what opens it (hangar and Arsenal notes) */
+  lockText(id) { return this.gated(id) && !this.isUnlocked(id) ? 'Complete mission ' + this.missionName(MISSION_UNLOCK[id]) : ''; },
   /* unlock everything whose requirement is now met; announces each new one in battle */
   check() {
     if (!Save.data) return 0;
     let n = 0;
+    const tell = (kind, name) => { if (W && Game.state === 'playing') { W.msgL(kind.toUpperCase() + ' UNLOCKED: ' + name.toUpperCase()); Snd.ui('objective'); } else UI.toast(kind + ' unlocked: ' + name); };
     for (const d of SUPER_LIST) {
       if (this.isUnlocked(d.id)) continue;
       const pr = this.progress(this.reqOf(d));
-      if (pr.have < pr.need) continue;
+      if (pr.have < pr.need && !this.missionWon(MISSION_UNLOCK[d.id])) continue;
       Save.data.unlocked.push(d.id); n++;
-      if (W && Game.state === 'playing') { W.msgL('SUPERWEAPON UNLOCKED: ' + d.name.toUpperCase()); Snd.ui('objective'); } else UI.toast('Superweapon unlocked: ' + d.name);
+      tell('Superweapon', d.name);
+    }
+    for (const id of this.gatedIds()) {
+      if (this.isUnlocked(id) || !this.missionWon(MISSION_UNLOCK[id])) continue;
+      Save.data.unlocked.push(id); n++;
+      tell('Weapon', this.itemName(id));
     }
     if (n) Save.persist();
     return n;
@@ -22448,6 +22484,8 @@ const MISSIONS = [
   },
 ];
 const MISSION_BY_ID = {}; MISSIONS.forEach((m) => { MISSION_BY_ID[m.id] = m; });
+const MISSION_UNLOCK = {};   // weapon, melee or superweapon id -> the mission whose win unlocks it (a row's unlock; Arsenal.gated)
+MISSIONS.forEach((m) => { if (m.unlock) MISSION_UNLOCK[m.unlock] = m.id; });
 
 /* ---------- skirmish ---------- */
 const SKIRMISH_SIZES = { small: { waves: 4, budget: 3 }, medium: { waves: 6, budget: 5 }, large: { waves: 9, budget: 7 } };
@@ -24432,6 +24470,8 @@ const UI = {
   act_hgSave() {
     const def = PLATFORMS[this.hg.platformId], v = Loadout.validate(def, this.hg.loadout);
     if (!v.ok) { this.toast(v.errors[0]); Snd.ui('warn'); return; }
+    const shut = Loadout.locked(def, this.hg.loadout);
+    if (shut) { this.toast(Arsenal.itemName(shut) + ' is locked: ' + Arsenal.lockText(shut)); Snd.ui('warn'); return; }
     if (def.style === 'infantry') S.onFoot = def.unarmed ? 'civilian' : 'infantry';   // the On foot pick is also who steps out of vehicles
     Save.data.platformId = def.id; Loadout.store(def.id, this.hg.loadout); Save.persist();
     if (Net.host && !Net.inSession) Net.sendLobby();                    // the lobby shows the new platform at once
@@ -24635,12 +24675,12 @@ const UI = {
     const spdMax = def.kind === 'mech' ? 30 : def.kind === 'ground' ? 50 : def.kind === 'naval' ? 35 : 220;
     const slots = def.unarmed ? '<div class="dim">Fists only: a civilian carries no weapons, gadgets or superweapon. The enemy ignores you until you attack, take a combat vehicle or come within ' + CIVILIAN_OBJ_RANGE + ' m of an objective.</div>' : WEAPON_SLOTS.map((s) => {
       const opts = def.allow[SLOT_GROUP[s]];
-      const options = (s === 'primaryA' ? '' : '<option value="">(empty)</option>') + opts.map((id) => '<option value="' + id + '"' + (lo[s] === id ? ' selected' : '') + '>' + esc(WEAPONS[id].name) + ' (wt ' + WEAPONS[id].weight + ')</option>').join('');
+      const options = (s === 'primaryA' ? '' : '<option value="">(empty)</option>') + opts.map((id) => '<option value="' + id + '"' + (lo[s] === id ? ' selected' : '') + (Loadout.open(def, id) ? '>' : ' disabled>') + esc(WEAPONS[id].name) + ' (wt ' + WEAPONS[id].weight + ')' + (Loadout.open(def, id) ? '' : ' - locked: ' + esc(Arsenal.lockText(id))) + '</option>').join('');
       const w = lo[s] && WEAPONS[lo[s]];
       return '<label class="f"><span>' + SLOT_LABEL[s] + '</span><select data-slot="' + s + '">' + options + '</select></label>' + (w ? '<div class="dim" style="font-size:.85em;margin:-.2em 0 .3em">' + esc(w.role) + '</div>' : '');
     }).join('');
     const meleeIds = Loadout.meleeFor(def), mw = Loadout.melee(def, lo);   // fists are stored as no melee key
-    const melee = meleeIds.length < 2 ? '' : '<label class="f"><span>Melee</span><select data-slot="melee">' + meleeIds.map((id) => '<option value="' + (id === 'fists' ? '' : id) + '"' + (mw.id === id ? ' selected' : '') + '>' + esc(MELEE[id].name) + '</option>').join('') + '</select></label>' +
+    const melee = meleeIds.length < 2 ? '' : '<label class="f"><span>Melee</span><select data-slot="melee">' + meleeIds.map((id) => '<option value="' + (id === 'fists' ? '' : id) + '"' + (mw.id === id ? ' selected' : '') + (Loadout.open(def, id) ? '>' : ' disabled>') + esc(MELEE[id].name) + (Loadout.open(def, id) ? '' : ' - locked: ' + esc(Arsenal.lockText(id))) + '</option>').join('') + '</select></label>' +
       '<div class="dim" style="font-size:.85em;margin:-.2em 0 .3em">' + esc(mw.desc) + '</div>';
     const sd = lo.strategic && SUPERS[lo.strategic], open = Arsenal.unlockedList();
     const tierOpts = [1, 2, 3].map((t) => {
@@ -24675,16 +24715,19 @@ const UI = {
     const rows = MELEE_IDS.map((id) => {
       const m = MELEE[id], who = m.foot && m.mech ? 'On foot and mechs' : m.foot ? 'On foot' : 'Mechs';
       const stats = 'damage x' + m.dmg + ', reach x' + m.reach + ', ' + Math.round(2 * Math.acos(m.arc) / DEG) + '&deg; arc, ' + m.combo + '-strike chain, ' + (m.wind + m.swing + m.recover).toFixed(2) + ' s a strike';
-      return '<div class="lbl"><span><b>' + esc(m.name) + '</b> <span class="tag">' + who + '</span></span><span class="dim">' + stats + '</span></div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(m.desc) + '</div>';
+      const lock = Arsenal.lockText(id);
+      return '<div class="lbl"><span><b>' + esc(m.name) + '</b> <span class="tag">' + who + '</span>' + (lock ? ' <span class="warn">Locked: ' + esc(lock) + '</span>' : '') + '</span><span class="dim">' + stats + '</span></div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(m.desc) + '</div>';
     }).join('');
-    return '<div class="panel"><h3 style="margin-top:0">Melee weapons</h3><div class="dim" style="margin-bottom:.4em">Always available; pick one in Platform &amp; Loadout. ' + esc(actionLabel('melee')) + ' strikes, and pressing again as a strike ends chains the next. A civilian has fists only; vehicles and aircraft have no melee.</div>' + rows + '</div>';
+    return '<div class="panel"><h3 style="margin-top:0">Melee weapons</h3><div class="dim" style="margin-bottom:.4em">Fists are always at hand; some blades open when you win a mission. Pick one in Platform &amp; Loadout. ' + esc(actionLabel('melee')) + ' strikes, and pressing again as a strike ends chains the next. A civilian has fists only; vehicles and aircraft have no melee.</div>' + rows + '</div>';
   },
   /* the ships' own weapons (P5.2): which ships mount them and what they do */
   navalArsenal() {
     const ships = PLAYABLE.filter((id) => PLATFORMS[id].kind === 'naval');
     const rows = NAVAL_WEAPON_IDS.map((id) => {
       const w = WEAPONS[id], on = ships.filter((s) => PLATFORMS[s].allow[w.slot].indexOf(id) >= 0).map((s) => PLATFORMS[s].name).join(', ');
-      return '<div class="lbl"><span><b>' + esc(w.name) + '</b> <span class="tag">' + esc(SLOT_LABEL[w.slot] || 'Primary') + '</span></span><span class="dim">' + esc(on) + '</span></div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(w.role) + '</div>';
+      const lock = Arsenal.lockText(id), own = ships.filter((s) => WEAPON_SLOTS.some((k) => PLATFORMS[s].loadout[k] === id)).map((s) => PLATFORMS[s].name).join(', ');
+      const note = lock ? ' <span class="warn">' + esc((own ? 'Open on the ' + own + '; elsewhere: ' : 'Locked: ') + lock) + '</span>' : '';
+      return '<div class="lbl"><span><b>' + esc(w.name) + '</b> <span class="tag">' + esc(SLOT_LABEL[w.slot] || 'Primary') + '</span>' + note + '</span><span class="dim">' + esc(on) + '</span></div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(w.role) + '</div>';
     }).join('');
     return '<div class="panel"><h3 style="margin-top:0">Naval weapons</h3><div class="dim" style="margin-bottom:.4em">Ships sail only on battlefields with open water and start at the harbour; mount these in Platform &amp; Loadout. A torpedo runs under the surface and dies in the shallows; it passes under a hovercraft.</div>' + rows + '</div>';
   },
