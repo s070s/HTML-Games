@@ -396,12 +396,17 @@ const Items = {
   },
   // The weapon pickup under the actor that holding Use would swap in now, -1 = none (the Use prompt and the touch USE button).
   swapOffer(id) {
-    if (id < 0 || Sim.tick < this.swapReadyTick[id] || !this.canTouch(id, true)) return -1;
+    if (id < 0 || Sim.tick < this.swapReadyTick[id] || !this.canTouch(id, true) || this.useTaken(id)) return -1;
     for (let slot = 0; slot < this.usedEnd; slot++) {
       if (this.state[slot] !== PICKUP_STATE.READY || this.kind[slot] !== PICKUP_KIND.WEAPON || this.blocker[slot] === id) continue;
       if (this.touching(id, slot) && Weapons.swapsOut(id, CAT.weapons[this.row[slot]])) return slot;
     }
     return -1;
+  },
+  // Use does something else here (swap-02): this hold served another action (Weapons.useClaimed), or a downed teammate
+  // is in revive reach (11c). No swap is offered then, so that action's prompt shows; 13g royale loot asks too.
+  useTaken(id) {
+    return Weapons.useClaimed[id] === 1 || (Damage.downedCount > 0 && Damage.nearestDownedAlly(id, REVIVE_REACH) >= 0);
   },
   swapPrompt(id) {
     const slot = this.swapOffer(id);

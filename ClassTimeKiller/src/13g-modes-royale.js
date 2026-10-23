@@ -69,7 +69,7 @@ Modes.register('royale', {
   step(dt, now) {
     stepRing(now);
     this.hurtOutside(dt);
-    if (intervalDue(this, 'lootTimer', dt, LOOT_CHECK_INTERVAL)) { touchLoot(); stepBeacons(LOOT_CHECK_INTERVAL); }
+    if (intervalDue(this, 'lootTimer', dt, LOOT_CHECK_INTERVAL)) { stepBeacons(LOOT_CHECK_INTERVAL); touchLoot(); }   // the beacon claims a Use hold before loot
     updateRingHud(now);
   },
   onSpawn(id) { dropIn(id); },
@@ -165,8 +165,14 @@ function stepBeacons(interval) {
   for (let squad = 0; squad < Squads.count; squad++) {
     const charging = Squads.holder[squad] && Squads.dead[squad] > 0 && Squads.beaconUses[squad] > 0;
     Squads.beaconProgress[squad] = charging ? Squads.beaconProgress[squad] + interval : 0;
+    if (charging) claimBeaconHolds(squad);
     if (charging && Squads.beaconProgress[squad] + TIME_EPSILON >= BEACON_SECONDS) respawnSquad(squad);
   }
+}
+
+// The Use holds charging a squad's beacon serve it: no loot swap on them (swap-02, Weapons.claimUse).
+function claimBeaconHolds(squad) {
+  for (let id = 0; id < Actors.count; id++) if (Actors.team[id] === squad && Actors.alive[id] && holdsBeacon(id, squad)) Weapons.claimUse(id);
 }
 
 function holdsBeacon(id, squad) {
@@ -335,7 +341,7 @@ function takeWeapon(id, spot) {
 
 // The weapon spot under the actor that holding Use would swap in now, -1 = none (the Use prompt; the mode row shows touch USE).
 function lootSwapOffer(id) {
-  if (id < 0 || Sim.tick < Items.swapReadyTick[id] || !mayLoot(id)) return -1;
+  if (id < 0 || Sim.tick < Items.swapReadyTick[id] || !mayLoot(id) || Items.useTaken(id)) return -1;
   for (let spot = 0; spot < RoyaleLoot.count; spot++) {
     if (RoyaleLoot.taken[spot] || RoyaleLoot.group[spot] !== LOOT_GROUP.WEAPON || RoyaleLoot.blocker[spot] === id) continue;
     if (withinTouchAt(id, RoyaleLoot.x, RoyaleLoot.y, RoyaleLoot.z, spot, TOUCH_RADIUS) && Weapons.swapsOut(id, CAT.weapons[RoyaleLoot.weapon[spot]])) return spot;

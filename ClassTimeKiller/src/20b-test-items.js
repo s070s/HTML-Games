@@ -111,9 +111,33 @@ Test.add('items', (check) => {
   Actors.x[id] = 30;
   Sim.run(1);
   Actors.x[id] = 20;
-  TestArena.hold(id, BTN.USE, 1 / TICK_RATE);
+  TestArena.hold(id, BTN.USE, 2 / TICK_RATE);   // the press step itself never swaps (a plant or defuse answering it comes later in the step)
   Bus.off('pickup', onPickup);
   check('stepping off and back on after the pause allows the next swap', swaps === 2, swaps);
+  TestArena.finish();
+});
+
+// swap-02: a Use hold spent on a revive never swaps the held gun for the one underfoot, not even after the revive ends,
+// and the revive prompt wins over the swap prompt; a fresh Use on the gun still swaps.
+Test.add('items', (check) => {
+  ItemArena.start({ carry: 1, downed: true, health: 'regen', teams: 2 }, []);
+  const shooter = ItemArena.actor(1, 0, 0), medic = ItemArena.actor(2, 20, 0), mate = ItemArena.actor(2, 21.3, 0);   // in revive reach, off the gun
+  Weapons.setLoadout(medic, ['vanguard']);
+  Items.drop('tempest', 20, 0, 0);
+  TestArena.hit(shooter, mate, 150);
+  Sim.step();   // Damage.downedCount is counted in the step
+  let swaps = 0;
+  const onPickup = (event) => { if (event.id === medic && event.group === 'weapon') swaps++; };
+  const usePrompt = () => { let prompt = ''; for (let i = 0; i < Input.usePrompts.length && !prompt; i++) prompt = Input.usePrompts[i](medic); return prompt; };
+  Bus.on('pickup', onPickup);
+  check('next to a downed teammate on a gun the Use prompt is the revive', (Actors.flags[mate] & ACTOR_FLAG.DOWNED) !== 0 && usePrompt() === 'HOLD TO REVIVE', usePrompt());
+  TestArena.hold(medic, BTN.USE, REVIVE_SECONDS + 1);
+  check('Use held for the revive (and on after it) swaps nothing', swaps === 0 && Weapons.has(medic, 'vanguard') && !(Actors.flags[mate] & ACTOR_FLAG.DOWNED), swaps);
+  Sim.step();
+  const prompt = usePrompt();
+  TestArena.hold(medic, BTN.USE, 0.1);
+  Bus.off('pickup', onPickup);
+  check('after the revive the swap is offered and a fresh Use takes it', prompt === 'HOLD TO SWAP VANGUARD RIFLE FOR TEMPEST RIFLE' && swaps === 1 && Weapons.has(medic, 'tempest'), prompt + ' / ' + swaps);
   TestArena.finish();
 });
 

@@ -691,6 +691,24 @@ Test.add('modes2', (check) => {
   endModeTest();
 });
 
+// swap-02: Use held at the squad beacon on a weapon spot at the carry limit (and on after the respawn) swaps nothing;
+// a fresh Use on the spot still swaps.
+Test.add('modes2', (check) => {
+  startModeTest('royale', modesTestMap({ spawns: FFA_SPAWNS, items: ROYALE_WEAPON_ITEMS }), [-1, -1, -1, -1, -1, -1]);
+  runSeconds(3);
+  const squads = Modes.squads, spot = 2;
+  RoyaleLoot.x[spot] = squads.beaconX[0]; RoyaleLoot.y[spot] = squads.beaconY[0]; RoyaleLoot.z[spot] = squads.beaconZ[0];
+  for (const key of ['verdict', 'hush', 'wasp', 'hornet', 'kestrel']) Weapons.give(0, key, 1);
+  killActor(2, 1);
+  placeActor(0, squads.beaconX[0], squads.beaconZ[0]);
+  holdUseFor(0, BEACON_SECONDS + 1);
+  check('royale: Use held at the beacon on a full inventory swaps nothing', Actors.alive[2] === 1 && Weapons.atCarryLimit(0) && !Weapons.has(0, 'vanguard'));
+  Sim.step();   // Use let go
+  holdUseFor(0, 0.3);
+  check('royale: a fresh Use on the spot swaps', Weapons.has(0, 'vanguard'));
+  endModeTest();
+});
+
 // The placeholder island MP09 runs a full-size royale: 18 actors (capped by quality), 48 loot spots, the ring around the island.
 Test.add('modes2', (check) => {
   Game.start({ mode: 'royale', map: 'isle', seed: 3, player: { name: 'Tester' }, bots: Modes.defaultBots('royale', true).map(() => ({ dummy: true })) });

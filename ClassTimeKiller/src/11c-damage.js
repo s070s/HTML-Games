@@ -402,6 +402,7 @@ const Damage = {
     if (target < 0 || target !== this.reviving[id]) this.reviveProgress[id] = 0;
     this.reviving[id] = target;
     if (target < 0) return;
+    Weapons.claimUse(id);   // this Use hold never swaps the held gun for one underfoot (swap-02)
     this.reviveProgress[id] += dt;
     if (this.reviveProgress[id] < REVIVE_SECONDS - TICK_EPSILON) return;
     this.revive(target);

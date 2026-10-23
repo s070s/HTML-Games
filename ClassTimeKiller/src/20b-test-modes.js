@@ -593,6 +593,24 @@ function holdUseFor(id, seconds) {
   Actors.buttons[id] = 0;
 }
 
+// swap-02: Use held to plant or defuse on a dropped gun at the carry limit (and on after it) keeps the held gun; a
+// fresh Use on the gun still swaps.
+Test.add('modes', (check) => {
+  startBombTest();
+  const fill = (id) => { Weapons.setLoadout(id, []); for (const key of ['vanguard', 'verdict', 'hush', 'hornet']) if (!Weapons.atCarryLimit(id)) Weapons.give(id, key, 0); };
+  fill(0); fill(1);
+  placeActor(0, 20, 0); placeActor(1, 20, 1.2);
+  Items.drop('tempest', 20, 0, 0); Items.drop('wasp', 20, 0, 1.2);
+  holdUseFor(0, 5);
+  check('bomb: Use held to plant on a gun at the carry limit swaps nothing', Modes.objectives[1].state === 'planted' && Weapons.atCarryLimit(0) && !Weapons.has(0, 'tempest'));
+  Sim.step();   // Use let go
+  holdUseFor(0, 0.1);
+  check('bomb: a fresh Use on the gun after the plant swaps', Weapons.has(0, 'tempest'));
+  holdUseFor(1, 7.5);
+  check('bomb: Use held to defuse on a gun swaps nothing', Modes.objectives[1].state === 'defused' && Weapons.atCarryLimit(1) && !Weapons.has(1, 'wasp'));
+  endModeTest();
+});
+
 Test.add('modes', (check) => {
   startBombTest();
   const charge = Modes.objectives[1];

@@ -690,14 +690,17 @@ const Modes = {
     return objective.name || 'point ' + String.fromCharCode(LETTER_A_CODE + this.objectiveLetter(this.objectives, objective.index));
   },
   // First standing participant near a point whose team relates to `team` as asked (NEAR_ANY / NEAR_TEAM / NEAR_ENEMY).
-  // With `buttons` (a BTN mask) only an actor holding one of those buttons counts; actors with any of `skipFlags`
-  // (an ACTOR_FLAG mask, e.g. PROTECTED) are passed over, so they never hide an actor behind them.
+  // With `buttons` (a BTN mask) only an actor holding one of those buttons counts (a Use hold found here serves the
+  // objective, a defuse or an arm: Weapons.claimUse); actors with any of `skipFlags` (an ACTOR_FLAG mask, e.g.
+  // PROTECTED) are passed over, so they never hide an actor behind them.
   findActorNear(x, y, z, radius, team, relation, buttons, skipFlags) {
     for (let id = 0; id < Actors.count; id++) {
       if (!this.actsOnObjectives(id) || !this.isActive(id) || !relationMatches(Actors.team[id], team, relation)) continue;
       if (buttons && (Actors.buttons[id] & buttons) === 0) continue;
       if (skipFlags && (Actors.flags[id] & skipFlags) !== 0) continue;
-      if (withinTouch(id, x, y, z, radius)) return id;
+      if (!withinTouch(id, x, y, z, radius)) continue;
+      if (buttons & BTN.USE) Weapons.claimUse(id);
+      return id;
     }
     return -1;
   },
@@ -741,6 +744,7 @@ const Modes = {
   stepPlant(charge, sites, dt, params) {
     const carrier = charge.carrier;
     const planting = carrier >= 0 && holdsUse(carrier) && this.zoneContaining(sites, carrier) !== null;
+    if (planting) Weapons.claimUse(carrier);   // no gun swap on this Use hold (swap-02)
     if (!this.advanceUse(charge, planting, dt, params.plantTime, 0)) return false;
     this.plantCharge(charge, carrier, params.fuse);
     return true;
