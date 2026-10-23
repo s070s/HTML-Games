@@ -7895,10 +7895,14 @@ const Fauna = {
     if (a.state === 'landed') {
       this.touchMachines(a, g);
       if (a.dead) return;
-      if (g.state === 'fly') { a.state = 'fly'; a.fold = 0; return; }
-      a.speed = 0; a.fold = 1;
-      a.graze = approach(a.graze, Math.sin(W.time * 1.7 + a.seed) > 0.3 ? 1 : 0, dt * 4);   // pecking
-      return;
+      if (g.state !== 'fly') {
+        a.speed = 0; a.fold = 1;
+        a.graze = approach(a.graze, Math.sin(W.time * 1.7 + a.seed) > 0.3 ? 1 : 0, dt * 4);   // pecking
+        return;
+      }
+      // its flock took off: the first wingbeat is on this step, so a far flock (stepped every few ticks) never
+      // shows a flying bird still sitting on the ground
+      a.state = 'fly'; a.fold = 0;
     }
     const landing = g.state !== 'fly';
     let px, py, pz;
@@ -21454,24 +21458,28 @@ const SelfTest = {
         this.check('the water map gets herds, flocks and schools', new Set(F.groups.map((g) => g.type)).size === 3 && F.count === all().length && F.count > 40, F.groups.length + ' groups, ' + F.count + ' animals');
         const badSpawn = all().filter((a) => !Flora.clearOfSites(a.x, a.z, 0) || (a.def.type === 'ground' && (!W.flora.free(a.x, a.z, 0) || Fauna.inBuilding(a.x, a.z, 0))));
         this.check('no animal starts in a building, on a road or on a site', badSpawn.length === 0, badSpawn.map((a) => a.def.id).join(', '));
-        // a while of life: birds keep above the ground and the water, swimmers inside the water
-        let low = 0, dry = 0, lowAt = '', dryAt = '';
-        const was = new Map();   // each bird's state on the step before
-        for (let i = 0; i < 60 * 20; i++) {
-          W.time += STEP; Fauna.update(STEP);
-          const sample = i % 20 === 0;
-          for (const a of all()) {
-            const before = was.get(a);
-            was.set(a, a.state);
-            if (!sample) continue;
-            const d = a.def, top = Water.top(a.x, a.z);
-            // a bird that took off on this very step still sits where it landed; the clearance holds from its first wingbeat
-            const tookOff = before === 'landed' && a.state === 'fly';
-            if (d.type === 'air' && a.y < top + (a.state === 'fly' && a.grp.state === 'fly' && !tookOff ? FAUNA_BIRD_CLEAR : 0) - 0.01) { low++; lowAt = d.id + ' ' + (a.y - top).toFixed(2); }
-            if (d.type === 'water' && (!Water.at(a.x, a.z) || a.y >= Water.level(a.x, a.z) || a.y <= Terrain.h(a.x, a.z))) { dry++; dryAt = d.id; }
+        // a while of life: birds keep above the ground and the water, swimmers inside the water. Every flock starts
+        // landed and takes off within the run, with the camera far away so every group thinks only every few ticks
+        // (the camera is wherever earlier tests left it otherwise)
+        let low = 0, dry = 0, lowAt = '', dryAt = '', tookOff = 0;
+        const camX = R.cam.x, camZ = R.cam.z, flocks = F.groups.filter((g) => g.type === 'air');
+        flocks.forEach((g, k) => {
+          g.state = 'landed'; g.t = 0.3 + k * 0.4; g.panic = 0;
+          for (const a of g.members) { a.state = 'landed'; a.fold = 1; a.y = Water.top(a.x, a.z); }
+        });
+        R.cam.x = R.cam.z = WORLD_HALF * 5;
+        try {
+          for (let i = 0; i < 60 * 20; i++) {
+            W.time += STEP; Fauna.update(STEP);
+            for (const a of all()) {
+              const d = a.def, top = Water.top(a.x, a.z);
+              if (d.type === 'air' && a.y < top + (a.state === 'fly' && a.grp.state === 'fly' ? FAUNA_BIRD_CLEAR : 0) - 0.01) { low++; lowAt = d.id + ' ' + (a.y - top).toFixed(2); }
+              if (d.type === 'water' && (!Water.at(a.x, a.z) || a.y >= Water.level(a.x, a.z) || a.y <= Terrain.h(a.x, a.z))) { dry++; dryAt = d.id; }
+            }
           }
-        }
-        this.check('birds keep above the ground and the water', low === 0, low + ' low, last ' + lowAt);
+          tookOff = flocks.filter((g) => g.state !== 'landed' || g.members.some((a) => a.state === 'fly')).length;
+        } finally { R.cam.x = camX; R.cam.z = camZ; }
+        this.check('birds keep above the ground and the water, from the first wingbeat of a take-off, near and far', low === 0 && flocks.length > 0 && tookOff === flocks.length, low + ' low, last ' + lowAt + ', ' + tookOff + '/' + flocks.length + ' flocks took off');
         this.check('swimmers keep inside the water', dry === 0, dry + ' out, last ' + dryAt);
         // a blast near a herd: the whole herd runs from it
         const herd = F.groups.find((g) => g.type === 'ground' && g.members.length >= 3);
