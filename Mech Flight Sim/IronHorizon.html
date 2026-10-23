@@ -11728,9 +11728,14 @@ const Traffic = {
     for (let i = 0; i < T.flights.length; i++) { const d = this.rideDist(T.flights[i], human); if (d < bd) { bd = d; best = T.flights[i]; } }
     return best;
   },
+  /* false for a vehicle of the scenery no one may take wherever they stand: a wreck, a car turning or still moving fast,
+     a big ship, an airliner off its gate */
+  takeable(r) {
+    if (r.state === 'wreck' || r.state === 'turn' || (r.state === 'drive' && r.speed > TRAFFIC_TAKE_SPEED)) return false;
+    return !r.v.ship && !(r.flight && r.phase !== FL_GATE);
+  },
   rideDist(r, h) {
-    if (r.state === 'wreck' || W.time < r.askUntil || r.state === 'turn' || (r.state === 'drive' && r.speed > TRAFFIC_TAKE_SPEED)) return Infinity;
-    if (r.v.ship || (r.flight && r.phase !== FL_GATE)) return Infinity;   // a big ship never; an airliner only at its gate
+    if (W.time < r.askUntil || !this.takeable(r)) return Infinity;
     if (r.v.type === 'air' && !r.airport && !Airports.covers(r.x, r.z)) return Infinity;
     const dx = r.x - h.x, dz = r.z - h.z, reach = Math.max(ENTER_SMALL, r.def.radius + ENTER_PAD);
     if (Math.abs(dx) > reach || Math.abs(dz) > reach) return Infinity;
@@ -13443,12 +13448,14 @@ const Arty = {
     if (s.reason !== 'min' && this.noGround(p)) s.reason = 'sky';
     return s;
   },
-  /* true when human p's aim finds no ground or water within reach (the sky): its own reticle ray, or for a co-op
-     player (or an aim point set otherwise), one far over the ground under it; an AI battery always lays on a target */
+  /* true when human p's aim finds no ground or water within reach (the sky): its own reticle ray (a co-op guest's as it
+     sent it, cmd.aimHit), or for an older guest (or an aim point set otherwise), one far over the ground under it; an
+     AI battery always lays on a target */
   noGround(p) {
     if (!p.isPlayer) return false;
     const ap = p.cmd.aimPoint;
     if (p === W.player && ap === W.aimPoint && W.aimInfo) return !W.aimInfo.hit;
+    if (p.cmd.aimHit === 0 || p.cmd.aimHit === 1) return p.cmd.aimHit === 0;
     return ap.y - this.groundY(ap.x, ap.z) > ARTY_SKY_GAP;
   },
   /* the multiplier of a shell of human p on objective structures: full when a friendly spotter sees its aim point (the
@@ -16459,12 +16466,13 @@ const Seats = {
     }
     this.exit(p, peer);
   },
-  canEnter(human, v) {
+  /* slack: m past the reach allowed (the host seating a guest its lagged copy of shows a little farther off) */
+  canEnter(human, v, slack) {
     if (!v || v.dead || !v.parked || v === human || v.def.style === 'infantry' || human.def.style !== 'infantry') return false;
     if (v.team !== human.team && v.team !== 2) return false;
     if (v.def.civilian && v.kind === 'air' && !Airports.covers(v.x, v.z)) return false;   // a civilian aircraft is taken only on an airfield
     const rise = human.y - v.y;
-    return Math.hypot(v.x - human.x, v.z - human.z) <= Math.max(ENTER_SMALL, v.radius + ENTER_PAD) && rise > -ENTER_RISE && rise < v.height + ENTER_RISE;
+    return Math.hypot(v.x - human.x, v.z - human.z) <= Math.max(ENTER_SMALL, v.radius + ENTER_PAD) + (slack || 0) && rise > -ENTER_RISE && rise < v.height + ENTER_RISE;
   },
   /* the closest free vehicle a human on foot could enter now, or null */
   nearestFree(human) {
@@ -16483,9 +16491,9 @@ const Seats = {
     const v = this.nearestFree(human);
     return Traffic.nearest(human, v ? Math.hypot(v.x - human.x, v.z - human.z) : Infinity) || v;
   },
-  /* human gets into free vehicle v; false when v is no longer free (two in the same tick: the first wins) */
-  enter(human, v, peer) {
-    if (!this.canEnter(human, v)) return false;
+  /* human gets into free vehicle v; false when v is no longer free (two in the same tick: the first wins); slack as canEnter */
+  enter(human, v, peer, slack) {
+    if (!this.canEnter(human, v, slack)) return false;
     v.parked = false; v.pilot = human;
     if (v.team === 2) v.team = human.team;
     if (human.hideFromAI && !v.def.civilian) human.provoke();   // a civilian in a combat vehicle is fair game
@@ -32151,13 +32159,13 @@ const Net = {
     if (!this.inSession || !W || !h || h.dead || h.def.style !== 'infantry' || !def || !def.civilian || !Number.isFinite(m.x) || !Number.isFinite(m.z)) return;
     if (!Traffic.mayRide(def, m.x, m.z, h)) return;
     const there = W.platforms.find((q) => q.def === def && !q.dead && Math.hypot(q.x - m.x, q.z - m.z) < TRAFFIC_ASK_NEAR);
-    if (there) { if (there.parked) Seats.enter(h, there, peer); return; }
+    if (there) { if (there.parked) Seats.enter(h, there, peer, TRAFFIC_ASK_SLACK); return; }
     // ours: the one of that number (its copies drive their own ways), else (one made since the start) one of that kind
     // where the guest says; none (taken, wrecked, never in our world): refused
     const vid = numIn(m.v, 0, TRAFFIC_VID_BLOCK * 5, 0) | 0, mine = vid ? Traffic.byVid(vid) : Traffic.vehicleAt(def, m.x, m.z, TRAFFIC_ASK_NEAR);
-    if (!mine || mine.def !== def || mine.state === 'wreck') return;
+    if (!mine || mine.def !== def || !Traffic.takeable(mine)) return;   // (a forged ask for a big ship, a taxiing airliner, a fast car)
     const p = Traffic.spawnRide(def, m.x, Terrain.h(m.x, m.z) + (def.kind === 'ground' ? numIn(m.y - Terrain.h(m.x, m.z), 0, 60, 0) : 0), m.z, numIn(m.yaw, -TAU, TAU, 0), numIn(m.c, 0, 15, 0) | 0, mine.vid);
-    Seats.enter(h, p, peer);
+    Seats.enter(h, p, peer, TRAFFIC_ASK_SLACK);   // our copy of the guest lags its own: the reach mayRide allowed
   },
   /* a loadout from a guest's message, with only known weapons, superweapon and melee weapon */
   cleanLoadout(raw) {
@@ -32275,7 +32283,7 @@ const Net = {
   sessionBegin() {
     this.dirty.clear();
     W.onExplosion = (x, y, z, r) => this.bcast({ t: 'x', x: r1(x), y: r1(y), z: r1(z), r: r1(r) });
-    W.onGib = (p, kind) => this.bcast({ t: 'g', p: p.def.id, tm: p.team, k: kind === 'slice' ? 2 : kind === 'death' ? 1 : 0, x: r1(p.x), y: r1(p.y), z: r1(p.z), vx: r1(p.vx), vy: r1(p.vy), vz: r1(p.vz), yw: r2(p.yaw) });
+    W.onGib = (p, kind) => this.bcast({ t: 'g', id: p.id, p: p.def.id, tm: p.team, k: kind === 'slice' ? 2 : kind === 'death' ? 1 : 0, x: r1(p.x), y: r1(p.y), z: r1(p.z), vx: r1(p.vx), vy: r1(p.vy), vz: r1(p.vz), yw: r2(p.yaw) });
     if (W.player) W.player.isPlayer = true;
     let slot = 0;
     for (const peer of this.peers) { if (peer.hello && peer.open) { peer.slot = ++slot; this.spawnFor(peer); } }
@@ -32337,6 +32345,7 @@ const Net = {
       const pt = m.pt;
       if (Array.isArray(pt) && pt.length === 3 && pt.every(Number.isFinite) && Math.hypot(pt[0] - p.x, pt[2] - p.z) < ARTY_AIM_REACH + 100) c.aimPoint = { x: pt[0], y: pt[1], z: pt[2] };
       else c.aimPoint = null;
+      c.aimHit = c.aimPoint && (m.ph === 0 || m.ph === 1) ? m.ph : -1;   // whether the guest's own reticle ray hit (-1: not sent)
       const tg = m.tg | 0;
       p.target = tg > 0 ? (W.platforms.find((q) => q.id === tg && q.team !== p.team && !q.dead) || null) : (tg < 0 && W.structs[-tg - 1] && W.structs[-tg - 1].objective ? W.structs[-tg - 1] : null);
     }
@@ -32570,12 +32579,16 @@ const Net = {
   sinkShip(def, m) {
     const x = numIn(m.x, -3000, 3000), z = numIn(m.z, -3000, 3000);
     if (!Wrecks.sinks(x, z)) return;
-    for (const id in this.map) {   // the mirrored ship goes at once (the host sends no more snapshots of it)
-      const q = this.map[id];
-      if (q.def !== def || q === W.player || Math.hypot(q.x - x, q.z - z) > def.radius * 2) continue;
-      W.platforms = W.platforms.filter((o) => o !== q); delete this.map[id];
-      break;
+    // the mirrored ship goes at once (the host sends no more snapshots of it): the one the gib names, else (an older
+    // host) the nearest of that kind and side there
+    const named = Number.isInteger(m.id) && Object.prototype.hasOwnProperty.call(this.map, m.id) ? this.map[m.id] : null;
+    let goneId = named && named.def === def && named !== W.player ? m.id : null, bestD = def.radius * 2;
+    if (goneId === null) for (const id in this.map) {
+      const q = this.map[id], d = Math.hypot(q.x - x, q.z - z);
+      if (q.def !== def || q === W.player || q.team !== m.tm || d > bestD) continue;
+      goneId = id; bestD = d;
     }
+    if (goneId !== null) { const q = this.map[goneId]; W.platforms = W.platforms.filter((o) => o !== q); delete this.map[goneId]; }
     const w = new Platform(def, { team: m.tm === 0 || m.tm === 1 ? m.tm : 2, x, z, yaw: numIn(m.yw, -100, 100), loadout: def.loadout });
     w.y = numIn(m.y, -500, 3000); w.dead = true; w.hp = 0;
     Wrecks.add(w);
@@ -32774,6 +32787,7 @@ const Net = {
     this.send(this.hostPeer, {
       t: 'in', q: ++this.inSeq, mf: r2(c.moveF), ms: r2(c.moveS), tn: r2(c.turn), ti: r2(c.throttleIn), ay: r2(c.aimYaw), ap: r2(c.aimPitch),
       ax: [r2(c.axisPitch), r2(c.axisRoll), r2(c.axisYaw)], b, e, pt: ap ? [r1(ap.x), r1(ap.y), r1(ap.z)] : null,
+      ph: ap && ap === W.aimPoint && W.aimInfo ? (W.aimInfo.hit ? 1 : 0) : undefined,   // the reticle ray hit (Arty.noGround)
       tg: t && talive(t) ? (t.isStruct ? -1 - t.idx : t.id) : 0, fm: S.flightMode, aa: S.aimAssist ? 1 : 0,
     }, e !== 0);
   },
