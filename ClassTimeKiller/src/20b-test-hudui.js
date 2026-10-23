@@ -249,13 +249,13 @@ Test.add('hudui', (check) => {
 
 // ---- Phones: the PvE side tables and notes stay clear of the default touch buttons and the ammo panel ----
 const HUD_UI_RULESET_BUTTONS = ['ability1', 'ability2', 'ultimate', 'gadget'];   // shown only where the ruleset gives abilities or a gadget
+// The buttons where TouchInput.placeAll puts them on the layout's screen (the places the layer draws).
 function hudPveTouchOverlap(layout, left, top, right, bottom, everything) {
-  const place = {};
+  TouchInput.placeAll(layout.width, layout.height);
   for (const control of TOUCH_CONTROLS) {
-    if (control.setting) continue;   // opt-in buttons (left fire) are not default layout
+    const place = TouchInput.places[control.id], radius = place.radius - 0.5, x = place.x, y = place.y;
+    if (!place.shown || control.setting) continue;   // opt-in buttons (left fire) are not default layout
     if (!everything && (control.id === 'stick' || HUD_UI_RULESET_BUTTONS.includes(control.id))) continue;   // the floating stick; ruleset buttons (the PvE tables are drawn where none exist)
-    TouchInput.layoutOf(control.id, place);
-    const radius = control.size * place.scale / 2, x = place.x * layout.width, y = place.y * layout.height;
     if (x + radius > left && x - radius < right && y + radius > top && y - radius < bottom) return control.id;
   }
   return '';
@@ -290,7 +290,8 @@ const HUD_UI_PHONES = [[844, 390], [667, 375], [568, 320]];
 const HUD_UI_WHEEL_MIN_SHARE = 0.44;   // of the design radius: the smallest phone with its 14 px labels leaves the ring 0.447
 // The first callout under a touch button or past a screen edge (its icon at the picked size, the largest), or ''.
 function hudUiWheelProblem(layout) {
-  const unit = layout.unit, ring = commWheelPlaceRing(layout), textHalf = commWheelLabelHalf(unit), spot = {};
+  TouchInput.placeAll(layout.width, layout.height);   // the ring reads the buttons' places
+  const unit = layout.unit, ring = commWheelPlaceRing(layout), textHalf = hudTextHalf(HUD_TEXT_SMALL * unit), spot = {};
   for (let i = 0; i < COMM_CALLOUTS.length; i++) {
     const label = COMM_CALLOUTS[i].label;
     commWheelSpotOf(ring, i, true, unit, spot);
@@ -372,18 +373,109 @@ Test.add('hudui', (check) => {
     for (const preset of TOUCH_PRESETS) {
       TouchInput.currentPreset = preset;
       updateHudLayout(layout, width, height);
-      const unit = layout.unit, map = HUD_MAP_SIZE_COMPACT * unit, header = HUD_HEADER_WIDTH * unit, bar = hudBoxAt;
+      const unit = layout.unit, map = HUD_MAP_SIZE_COMPACT * unit, bar = hudBoxAt;
       hudPlaceWeaponBox(layout, 5, 0);   // a five weapon bar: first box to last
       const first = bar[0], top = bar[1], boxHeight = bar[3];
       hudPlaceWeaponBox(layout, 5, 4);
-      const boxes = [box(layout.centerX - header / 2, layout.top, header, 44 * unit), box(layout.left, layout.top, map, map), box(layout.left, layout.bottom - layout.vitalsHeight, layout.barWidth, layout.vitalsHeight),
-        box(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoWidth, layout.ammoHeight), box(first, top, bar[0] + bar[2] - first, boxHeight)];   // header, minimap, vitals, ammo, bar
+      const boxes = [box(layout.left, layout.top, map, map), box(layout.left, layout.bottom - layout.vitalsHeight, layout.barWidth, layout.vitalsHeight),
+        box(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoWidth, layout.ammoHeight), box(first, top, bar[0] + bar[2] - first, boxHeight)];   // minimap, vitals, ammo, bar (the header: touch-01 below)
       const found = boxes.map((b, index) => index + hudPveTouchOverlap(layout, b.left, b.top, b.right, b.bottom, true)).filter((text) => text.length > 1);
       check('touch hud: no default button covers the HUD at ' + width + 'x' + height + ' ' + preset.id, found.length === 0, found.join());
     }
   }
   TouchInput.currentPreset = savedPreset; Input.device = savedDevice;
 });
+
+// ---- Phones and tablets both ways (touch-01), in modes with each header row, at the default places and with every button the
+// layout editor moved to the top or the bottom edge, in play and in the killcam replay:
+// 1. no shown touch button on another; 2. none in the aim zone around the crosshair (TOUCH_AIM_ZONE of the short side);
+// 3. the banners are drawn, clear of the buttons when a free place exists, and a moved stack stays out of the aim zone;
+// 4. no button over a quad the header (score panel, round pips, control meters, objective chips) or the killcam panel draws ----
+const HUD_UI_SCREENS = [[568, 320], [750, 342], [320, 568], [390, 664], [1080, 810], [810, 1080]];   // iPhone SE and 13 both ways, iPad
+const HUD_UI_MODES = ['ffa', 'elim', 'bomb', 'dom', 'control', 'operation'];   // panel only, pips, pips + chips, chips, pips + meters + chips, tickets (tdm)
+const HUD_UI_BANNERS = ['Rook Varga takes the lead', 'Double Kill'];
+const HUD_UI_BANNER_GLYPHS = HUD_UI_BANNERS.join('').replace(/ /g, '').length + 2;   // the letters and the medal's two stars
+// The [left, top, right, bottom] box of every quad in the HUD batch from quad first on (hudFloats: x y u v, then the colour, per vertex).
+function hudUiDrawnBoxes(first) {
+  const stride = HUD_VERTEX_BYTES / 4, corners = [0, 1, 2, 3], boxes = [];
+  for (let quad = first; quad < HudBatch.quads; quad++) {
+    const xs = corners.map((i) => hudFloats[(quad * 4 + i) * stride]), ys = corners.map((i) => hudFloats[(quad * 4 + i) * stride + 1]);
+    boxes.push([Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)]);
+  }
+  return boxes;
+}
+// A box meets a circle (the nearest point of the box is inside it).
+function hudUiBoxMeetsCircle(box, x, y, radius) { return length2(clamp(x, box[0], box[2]) - x, clamp(y, box[1], box[3]) - y) < radius; }
+// What breaks rules 1, 2 and 4 for the shown buttons and rule 3's clear stack, or ''. Touching (half a pixel) is allowed.
+function hudUiTouchBreak(fixed, banners, width, height) {
+  const places = TouchInput.places, shown = TOUCH_CONTROLS.filter((control) => places[control.id].shown), aimRadius = TOUCH_AIM_ZONE * Math.min(width, height);
+  for (const control of shown) {
+    const place = places[control.id], radius = place.radius - 0.5, x = place.x, y = place.y;
+    const other = shown.find((next) => next !== control && length2(places[next.id].x - x, places[next.id].y - y) < radius + places[next.id].radius - 0.5);
+    if (other) return control.id + ' on ' + other.id;
+    if (length2(x - width / 2, y - height / 2) < aimRadius + radius) return control.id + ' in the aim zone';
+    const over = fixed.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)) || (HudBanners.free && banners.find((box) => hudUiBoxMeetsCircle(box, x, y, radius)));
+    if (over) return control.id + ' over ' + over.map(Math.round);
+  }
+  if (banners.length < HUD_UI_BANNER_GLYPHS) return 'banners hidden';
+  const moved = HudBanners.top > height * 0.22 + 0.5;
+  return moved && banners.some((box) => hudUiBoxMeetsCircle(box, width / 2, height / 2, aimRadius)) ? 'banners moved onto the crosshair' : '';
+}
+// The problems of the running match on one screen size: each preset, default and moved places (-1: none moved), in play and replay.
+// The panels the buttons must leave uncovered (rule 4): the header with its rows and tickets, the minimap, vitals, ammo, weapon bar.
+function hudUiDrawPanels(layout) {
+  for (const draw of [hudDrawHeader, hudDrawTickets, hudDrawMinimap, hudDrawVitals, hudDrawAmmo, hudDrawWeaponBar]) draw(HudPen, layout);
+}
+// HUD scale 100% and 150%; layouts at the defaults (-1) or every button moved to the top or bottom edge, at editor scales 1 to 2.
+const HUD_UI_HUD_SCALES = [1, 1.5], HUD_UI_EDITS = [[-1, 0], [0.01, 0], [0.99, 0], [-1, 1.5], [-1, 2], [0.01, 2]];
+function hudUiTouchProblems(width, height, draw) {
+  const layout = {}, problems = [];
+  for (const hudScale of HUD_UI_HUD_SCALES) {
+    Hud.scale = hudScale; Hud.textFloor = HUD_TEXT_SMALL * hudScale;   // as Hud.applySettings sets them
+    updateHudLayout(layout, width, height);
+    for (const preset of TOUCH_PRESETS) {
+      TouchInput.currentPreset = preset;
+      for (const [moved, scale] of HUD_UI_EDITS) {
+        const saved = {};
+        for (const control of TOUCH_CONTROLS) saved[control.id] = Object.assign(moved < 0 ? {} : { x: control.x, y: moved }, scale ? { scale } : {});
+        Save.data.touchLayouts = moved < 0 && !scale ? {} : { [preset.id]: saved };
+        for (const replay of [false, true]) {
+          Killcam.playing = replay;
+          TouchInput.placeAll(width, height);
+          HudBatch.quads = 0;
+          draw(layout);
+          if (replay) hudDrawKillcamPanel(HudPen, layout);
+          const fixed = hudUiDrawnBoxes(0), first = HudBatch.quads;
+          hudDrawBanners(HudPen, layout);
+          const broken = hudUiTouchBreak(fixed, hudUiDrawnBoxes(first), width, height);
+          if (broken) problems.push([width, height, hudScale, preset.id, moved, scale, replay, broken].join(' '));
+        }
+      }
+    }
+  }
+  Hud.applySettings();
+  return problems;
+}
+Test.add('hudui', (check) => hudTestWith(() => {
+  const savedPreset = TouchInput.currentPreset;
+  Input.device = 'touch'; TouchInput.shown = true;
+  try {
+    for (const mode of HUD_UI_MODES) {
+      const operation = mode === 'operation', modeId = operation ? 'tdm' : mode;
+      Game.start({ mode: modeId, map: PlayFlow.smallestMap(modeId).id, seed: 1, bots: [{ dummy: true }, { dummy: true }] });
+      if (operation) { OperationRun.active = true; OperationRun.tickets.fill(250); }
+      HudBanners.add(HUD_UI_BANNERS[0], 'lead', 1, false); HudBanners.add(HUD_UI_BANNERS[1], 'medal', HUD_BANNER_PRIORITY_LONG, true);
+      Hud.time += 1;   // the banners are fully faded in
+      const problems = HUD_UI_SCREENS.flatMap(([width, height]) => hudUiTouchProblems(width, height, hudUiDrawPanels));
+      check('touch-01: buttons apart, off the aim zone, the header and the killcam panel, banners shown in ' + mode, problems.length === 0, problems.slice(0, 4).join('; '));
+      OperationRun.active = false;
+      endModeTest();
+    }
+  } finally {
+    OperationRun.active = false; Killcam.playing = false; Save.data.touchLayouts = {}; TouchInput.currentPreset = savedPreset; TouchInput.shown = false;
+    TouchInput.applyAll();
+  }
+}));
 
 Test.add('ui', (check) => {
   const savedTips = Save.data.tips, savedDevice = Input.device, economy = CAT.economy.find((row) => buyKeyAvailable(row)), buyText = () => economyPanelLines(economy).lines.join('\n');

@@ -198,6 +198,7 @@ const Hud = {
     this.noHud = !!(Game.match && Game.match.rules && Game.match.rules.fx && Game.match.rules.fx.noHud);
     for (const row of HUD_ELEMENTS) this.elements[row.id] = Settings.get('hud.element.' + row.id);
     this.refreshColors();
+    TouchInput.applyAll();   // the HUD scale sizes the score panel the touch buttons give way to
   },
   refreshColors() {
     const palette = HUD_PALETTES[this.paletteId], colors = this.colors;
@@ -247,6 +248,7 @@ function hudReadSafeInsets() {
   insets.top = parseFloat(style.paddingTop) || 0; insets.right = parseFloat(style.paddingRight) || 0;
   insets.bottom = parseFloat(style.paddingBottom) || 0; insets.left = parseFloat(style.paddingLeft) || 0;
   probe.remove();
+  TouchInput.applyAll();   // a turn or a resize moves the touch buttons and the HUD areas they give way to
 }
 
 function updateHudLayout(layout, width, height) {
@@ -327,6 +329,10 @@ function pushHudDiamond() {
 }
 // ACC-008 in one place: a size under 14 px at 100% HUD scale (a phone's 0.9 unit) is drawn and measured at the floor.
 function hudFloorTextSize() { if (hudTextAt[2] < Hud.textFloor) hudTextAt[2] = Hud.textFloor; }
+// Half a drawn text row of a size (px): the atlas cell, floored like the pen (ACC-008).
+function hudTextHalf(size) { return Math.max(size, Hud.textFloor) * HUD_CELL_PX / HUD_FONT_PX / 2; }
+// Half the height a label line of a size covers: its atlas cell and its shadow (labelAt).
+function hudLabelReach(size) { return hudTextHalf(size) + HUD_SHADOW_OFFSET * Math.max(1, size / 16); }
 
 const HudPen = {
   // The arguments pass through unchanged: a float computed here would be boxed on its way to HudBatch (PERF-006).
@@ -621,6 +627,20 @@ function hudWeaponSlotAt(x, y) {
   return 0;
 }
 TouchInput.weaponSlotAt = hudWeaponSlotAt;
+TouchInput.insets = Hud.insets;   // the touch layer sits inside the same safe-area insets (one reader: hudReadSafeInsets)
+// Touch buttons give way to the vitals, the ammo panel and the weapon bar (05b keepClear, touch-01), the bar at its widest
+// (HUD_MAX_WEAPON_SLOTS boxes) so a picked-up weapon never puts a box under a button; a button there would take slot taps.
+const hudPanelsClearLayout = {};
+TouchInput.keepClear.push((width, height) => {
+  const layout = hudPanelsClearLayout, box = hudBoxAt;
+  updateHudLayout(layout, width, height);
+  TouchInput.addClear(layout.left, layout.bottom - layout.vitalsHeight, layout.left + layout.barWidth, layout.bottom);
+  TouchInput.addClear(layout.ammoRight - layout.ammoWidth, layout.bottom - layout.ammoHeight, layout.ammoRight, layout.bottom);
+  hudPlaceWeaponBox(layout, HUD_MAX_WEAPON_SLOTS, 0);
+  const left = box[0], top = box[1], bottom = box[1] + box[3];
+  hudPlaceWeaponBox(layout, HUD_MAX_WEAPON_SLOTS, HUD_MAX_WEAPON_SLOTS - 1);
+  TouchInput.addClear(left, top, box[0] + box[2], bottom);
+});
 
 // Cooldown / charge ring around a point: dim track, bright remaining arc (remaining 0 = ready = full bright ring).
 function hudDrawCooldownRing(pen, x, y, radius, thickness, remaining, color) {
