@@ -1191,6 +1191,7 @@ Test.add('pvesoak', (check) => {
     const name = soak.mode + ' on ' + soak.map + ' (seed ' + seed + ')', text = name + ': ' + JSON.stringify(stats) + ', banked ' + banked;
     check(name + ': no NaN, stuck under ' + SOAK_STUCK_LIMIT * 100 + '% of the time', stats.nan === 0 && stats.stuckFraction < SOAK_STUCK_LIMIT, text);
     check(name + ': nobody stuck > 6 s', stats.maxStuck <= STUCK_GIVE_UP, text);
+    check(name + ': no enemy stuck > 6 s (bots-03)', stats.enemyMaxStuck <= STUCK_GIVE_UP, text);
     if (soak.mode === 'bank') check(name + ': bots bank motes', banked > 0, text);
     else check(name + ': bots score kills', stats.kills > 0, text);
   }
