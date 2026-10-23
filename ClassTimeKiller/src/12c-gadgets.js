@@ -141,14 +141,7 @@ const Smoke = {
     this.recount();
     return volume;
   },
-  freeSlot() {
-    let oldest = 0;
-    for (let volume = 0; volume < SMOKE_CAP; volume++) {
-      if (!this.active[volume]) return volume;
-      if (this.endTick[volume] < this.endTick[oldest]) oldest = volume;
-    }
-    return oldest;
-  },
+  freeSlot() { return oldestFreeSlot(this.active, this.endTick, SMOKE_CAP); },
   recount() { this.count = 0; for (let volume = 0; volume < SMOKE_CAP; volume++) this.count += this.active[volume]; },
   cellIndex(ix, iy, iz) { return (ix * SMOKE_DIM + iy) * SMOKE_DIM + iz; },
   // Breadth-first fill from the centre cell inside the radius, skipping cells whose centre is inside a brush (walls stop smoke).
@@ -329,8 +322,7 @@ const GadgetAreas = {
 
   clear() { this.active.fill(0); },
   spawn(row, owner, x, y, z, seconds) {
-    let slot = this.active.indexOf(0);
-    if (slot < 0) slot = 0;   // full: the first area gives way
+    const slot = oldestFreeSlot(this.active, this.endTick, AREA_CAP);   // full: the area that ends first gives way
     this.active[slot] = 1; this.row[slot] = row.index; this.owner[slot] = owner; this.x[slot] = x; this.y[slot] = y; this.z[slot] = z;
     this.startTick[slot] = Sim.tick; this.endTick[slot] = Sim.tick + itemTicks(seconds); this.clock[slot] = 0; this.pulses[slot] = row.pulses;
     return slot;
@@ -486,18 +478,13 @@ const Thrown = {
   clear() { this.state.fill(0); this.attached.fill(-1); this.active = 0; },
   // Launches a gadget row from (x, y, z); fuseTicks = ticks until it goes off (cooked grenades have less). Returns the slot.
   spawn(row, owner, x, y, z, vx, vy, vz, fuseTicks) {
-    let slot = this.state.indexOf(THROWN_STATE.FREE);
-    if (slot < 0) { slot = this.oldest(); this.remove(slot); }
+    const slot = oldestFreeSlot(this.state, this.fuseTick, THROWN_CAP);   // THROWN_STATE.FREE is 0
+    this.remove(slot);
     this.state[slot] = THROWN_STATE.FLYING; this.row[slot] = row.index; this.owner[slot] = owner;
     this.x[slot] = x; this.y[slot] = y; this.z[slot] = z; this.vx[slot] = vx; this.vy[slot] = vy; this.vz[slot] = vz;
     this.fuseTick[slot] = Sim.tick + fuseTicks; this.attached[slot] = -1;
     this.active++;
     return slot;
-  },
-  oldest() {
-    let found = 0;
-    for (let slot = 1; slot < THROWN_CAP; slot++) if (this.fuseTick[slot] < this.fuseTick[found]) found = slot;
-    return found;
   },
   remove(slot) {
     if (this.state[slot] === THROWN_STATE.FREE) return;

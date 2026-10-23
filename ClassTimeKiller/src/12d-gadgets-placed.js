@@ -101,13 +101,9 @@ const Devices = {
     return true;
   },
   freeSlot() {
-    let oldest = 0;
-    for (let device = 0; device < DEVICE_CAP; device++) {
-      if (!this.active[device]) return device;
-      if (this.endTick[device] < this.endTick[oldest]) oldest = device;
-    }
-    this.remove(oldest, false);
-    return oldest;
+    const device = oldestFreeSlot(this.active, this.endTick, DEVICE_CAP);
+    this.remove(device, false);
+    return device;
   },
   spawn(row, owner, x, y, z) {
     const device = this.freeSlot(), yaw = owner >= 0 ? Actors.yaw[owner] : 0;

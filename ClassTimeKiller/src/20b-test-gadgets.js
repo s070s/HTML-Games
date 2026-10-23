@@ -43,6 +43,15 @@ const GadgetArena = {
   armed(device) { Devices.armTick[device] = Sim.tick; },
 };
 
+// R-156 / R-190: every pool takes a free slot, else the one that ends (or began) first, through one helper.
+Test.add('gadgets', (check) => {
+  check('oldestFreeSlot: a free slot first, else the smallest age', oldestFreeSlot([1, 0, 1], [5, 9, 1], 3) === 1 && oldestFreeSlot([1, 1, 1], [5, 9, 1], 3) === 2);
+  GadgetAreas.clear();
+  for (let area = 0; area < AREA_CAP; area++) GadgetAreas.spawn(CAT.gadgets[0], -1, 0, 0, 0, area === 5 ? 1 : 10);
+  check('a full GadgetAreas pool gives the earliest-ending area way (not slot 0)', GadgetAreas.spawn(CAT.gadgets[0], -1, 0, 0, 0, 10) === 5);
+  GadgetAreas.clear();
+});
+
 Test.add('gadgets', (check) => {
   const missing = CAT.gadgets.filter((row) => !(row.kind === 'thrown' ? GadgetEffects[row.effect] : Devices.steps[row.effect]));
   check('G01..G24 every row has a behaviour', missing.length === 0, missing.map((row) => row.id).join(', '));

@@ -226,13 +226,9 @@ const AbilityZones = {
     return slot;
   },
   freeSlot() {
-    let oldest = 0;
-    for (let zone = 0; zone < ZONE_CAP; zone++) {
-      if (!this.alive[zone]) return zone;
-      if (this.born[zone] < this.born[oldest]) oldest = zone;
-    }
-    this.remove(oldest);
-    return oldest;
+    const zone = oldestFreeSlot(this.alive, this.born, ZONE_CAP);
+    this.remove(zone);
+    return zone;
   },
   remove(zone) {
     if (!this.alive[zone]) return;

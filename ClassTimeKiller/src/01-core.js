@@ -193,6 +193,16 @@ function makePool(size, create) {
   // Ring reuse: the oldest object is recycled when the pool wraps (documented per pool owner).
   return { items, take() { const item = items[next]; next = (next + 1) % size; return item; } };
 }
+// Struct-of-arrays pools: the first slot whose active[slot] is 0, else the one with the smallest age[slot] (the end tick or
+// birth order its owner keeps). The owner frees a taken busy slot itself.
+function oldestFreeSlot(active, age, capacity) {
+  let oldest = 0;
+  for (let slot = 0; slot < capacity; slot++) {
+    if (!active[slot]) return slot;
+    if (age[slot] < age[oldest]) oldest = slot;
+  }
+  return oldest;
+}
 
 // ---- Lookup grids (ARC-013, one source): nav (S09), the render bake (S07) and the map scan (S16) bucket brushes by xz cell ----
 // Lists per cell in compressed form: eachCell(index, visit) calls visit(cell) for every cell of item `index`. Returns { start, items }:
