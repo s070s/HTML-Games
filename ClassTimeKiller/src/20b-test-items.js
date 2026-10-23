@@ -88,24 +88,43 @@ Test.add('items', (check) => {
   TestArena.finish();
 });
 
-// A carry-limit swap by touch: standing on a pile of three dropped guns swaps once, not every few steps.
+// The one carry-limit rule: walking over a gun never swaps out the held one; holding Use swaps once (the
+// HUD prompt names both guns and the touch USE button shows), not every few steps on a pile of three dropped guns.
 Test.add('items', (check) => {
   ItemArena.start({ carry: 1 }, []);
-  const id = ItemArena.actor(1, 20, 0);
+  const id = ItemArena.actor(1, 20, 0), player = Game.playerId;
   Weapons.setLoadout(id, ['vanguard']);
   ['tempest', 'wasp', 'anvil'].forEach((key) => Items.drop(key, 20, 0, 0));
   let swaps = 0;
   const onPickup = (event) => { if (event.id === id && event.group === 'weapon') swaps++; };
   Bus.on('pickup', onPickup);
   Sim.run(3 * TICK_RATE);
-  check('one swap while standing still on the pile', swaps === 1, swaps);
+  check('standing on the pile without Use keeps the held gun', swaps === 0 && Weapons.has(id, 'vanguard'), swaps);
+  let prompt = '';
+  for (let i = 0; i < Input.usePrompts.length && !prompt; i++) prompt = Input.usePrompts[i](id);
+  Game.playerId = id;
+  const touchUse = TouchInput.needs.use();
+  Game.playerId = player;
+  check('the Use prompt names the held gun and the floor gun, and touch shows USE', prompt === 'HOLD TO SWAP VANGUARD RIFLE FOR TEMPEST RIFLE' && touchUse, prompt + ' / ' + touchUse);
+  TestArena.hold(id, BTN.USE, 3);
+  check('one swap while holding Use on the pile', swaps === 1 && !Weapons.has(id, 'vanguard'), swaps);
   Actors.x[id] = 30;
   Sim.run(1);
   Actors.x[id] = 20;
-  Sim.run(1);
+  TestArena.hold(id, BTN.USE, 1 / TICK_RATE);
   Bus.off('pickup', onPickup);
   check('stepping off and back on after the pause allows the next swap', swaps === 2, swaps);
   TestArena.finish();
+});
+
+// Bots at the carry limit still upgrade at the pads: a bot's collect goal is its choice, so it needs no Use (Weave Suit
+// carries two guns and spawns with two, so every pad gun is a swap).
+Test.add('items', (check) => {
+  let swaps = 0;
+  const onPickup = (event) => { if (event.group === 'weapon' && Bots.active[event.id]) swaps++; };
+  Bus.on('pickup', onPickup);
+  try { playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'suit', minutes: 1, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH }); } finally { Bus.off('pickup', onPickup); }
+  check('Weave Suit on Harbor Nine: bots at the carry limit swap guns at the pads', swaps >= 8, swaps);
 });
 
 Test.add('items', (check) => {

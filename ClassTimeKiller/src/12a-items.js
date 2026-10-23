@@ -17,7 +17,7 @@ const PICKUP_BOB = 0.08;                   // m up and down
 const PICKUP_NOISE = 12;                   // bots hear a pickup within this radius (BOT-005); power items further
 const POWER_PICKUP_NOISE = 40;
 const DROP_RING = 0.8;                     // several drops of one death spread on a ring this wide
-const SWAP_PICKUP_SECONDS = 2;             // after a carry-limit swap by touch, no other swap this long (no cycling on a pile of drops)
+const SWAP_PICKUP_SECONDS = 2;             // after a carry-limit swap (Use held), no other swap this long (no cycling on a pile of drops)
 const SOUL_ULTIMATE = 'wrath';             // A34 Wrath Form: what the PU18 souls pay for (S12 12e gives it in soul modes)
 const SOUL_HOMING_RANGE = CAT.abilities.byId(SOUL_ULTIMATE).params.homing;   // ABL-005: souls fly to a nearby player
 const SOUL_HOMING_SPEED = 8;
@@ -121,7 +121,8 @@ const Items = {
   usedEnd: 0,                                       // every slot from here on is FREE: the per-step loops stop here (PERF-002)
   carried: new Uint8Array(MAX_ACTORS * ITEM_COUNT), // loot consumables carried (I13..I17)
   usingItem: new Int16Array(MAX_ACTORS).fill(-1), useStart: new Int32Array(MAX_ACTORS), useEnd: new Int32Array(MAX_ACTORS),
-  swapReadyTick: new Int32Array(MAX_ACTORS),        // Sim.tick from which this actor may swap weapons by touch again
+  swapReadyTick: new Int32Array(MAX_ACTORS),        // Sim.tick from which this actor may swap weapons again
+  swapPrompts: [],                                  // 'HOLD TO SWAP <held> FOR <floor gun>' per weapon pair, built on first use (swapPrompt)
   noArmor: new Uint8Array(MAX_ACTORS),              // written by 12b (scout rune): armor pickups refused
   takers: [],                                       // PICKUP_KIND -> fn(id, slot) -> true when taken (12b fills POWERUP)
   givers: [],                                       // PICKUP_KIND -> fn(id, key) -> true when given without a pickup (item.grant; 12b fills POWERUP)
@@ -388,10 +389,26 @@ const Items = {
     const weapon = CAT.weapons[this.row[slot]];
     if (this.stays(slot) && Weapons.has(id, weapon.id)) return false;
     const swaps = Weapons.swapsOut(id, weapon);
-    if (swaps && Sim.tick < this.swapReadyTick[id]) return false;
+    if (swaps && (Sim.tick < this.swapReadyTick[id] || !Weapons.mayTake(id, weapon))) return false;
     if (!this.giveWeapon(id, weapon.id, this.rarity[slot], this.y[slot])) return false;
     if (swaps) this.blockSwapsAt(id);
     return true;
+  },
+  // The weapon pickup under the actor that holding Use would swap in now, -1 = none (the Use prompt and the touch USE button).
+  swapOffer(id) {
+    if (id < 0 || Sim.tick < this.swapReadyTick[id] || !this.canTouch(id, true)) return -1;
+    for (let slot = 0; slot < this.usedEnd; slot++) {
+      if (this.state[slot] !== PICKUP_STATE.READY || this.kind[slot] !== PICKUP_KIND.WEAPON || this.blocker[slot] === id) continue;
+      if (this.touching(id, slot) && Weapons.swapsOut(id, CAT.weapons[this.row[slot]])) return slot;
+    }
+    return -1;
+  },
+  swapPrompt(id) {
+    const slot = this.swapOffer(id), held = slot < 0 ? -1 : Weapons.swapVictim(id);
+    if (held < 0) return '';
+    const pair = held * WEAPON_COUNT + this.row[slot];
+    if (!this.swapPrompts[pair]) this.swapPrompts[pair] = ('HOLD TO SWAP ' + CAT.weapons[held].name + ' FOR ' + CAT.weapons[this.row[slot]].name).toUpperCase();
+    return this.swapPrompts[pair];
   },
   // After a swap every weapon pickup under the actor waits until they step off it, and no new swap comes for a moment.
   // A pickup holds one blocker: one already blocked by another actor stays open, so the per-actor wait is the main guard.
@@ -638,3 +655,5 @@ Bus.on('kill', (event) => { Items.dropWeapons(event.victim); Items.dropSoul(even
 Damage.downHooks.push((id) => Items.cancelUse(id));   // HP-007: a downed actor stops healing (the use must not finish at the revive)
 Bus.on('actor.spawn', (event) => Items.resetActor(event.id));
 Bus.on('actor.create', (id) => Items.resetActor(id));
+Input.usePrompts.push((id) => Items.swapPrompt(id));                         // a carry-limit swap needs Use held (Weapons.mayTake)
+TouchInput.useNeeds.push(() => Items.swapOffer(Game.playerId) >= 0);

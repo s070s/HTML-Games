@@ -186,7 +186,7 @@ const WEAPON_ROWS = [
   { id: 'scattergun', code: 'W19', name: 'Scattergun', class: 'shotgun', moveMult: 0.95, reloadShell: true, mag: 6, reserve: 30, price: 1100, killReward: 900, noise: 80, botPref: { range: [0, 10], value: 0.7 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 10, pellets: 12, rate: 1.1, spreadDeg: 5, moveSpread: 0.3, adsSpreadMult: 1, recoil: 'shotgun', falloff: [8, 20, 0.4] },
     alt: { type: 'hitscan', trigger: 'semi', damage: 55, rate: 1.1, spreadDeg: 0.3, recoil: 'shotgun', falloff: [20, 45, 0.6], zoom: 1.2 } },
-  // 20 x 8 = 160 point blank with a little more reach (falloff from 8 m): the two-shell burst has to win the fights it gets into.
+  // 20 x 8 = 160 point blank and full damage to 8 m (30% left at 18 m): the two-shell burst has to win the fights it gets into.
   { id: 'hookjaw', code: 'W20', name: 'Hookjaw', class: 'shotgun', reload: 1.1, mag: 2, reserve: 24, price: 1800, killReward: 900, noise: 85, botPref: { range: [0, 8], value: 0.8 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 8, pellets: 20, rate: 0.9, spreadDeg: 7, moveSpread: 0.3, recoil: 'shotgun', falloff: [8, 18, 0.3], ammoPerShot: 2 },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'hook', rate: 2, ammo: 'none', cooldown: 6, range: 25 } },
