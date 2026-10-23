@@ -437,11 +437,11 @@ Damage.poolOverride = (id, out) => {
   out.health = hero.health; out.armor = hero.armor; out.shield = hero.shield;
 };
 
-// balance-04: a kill-scored mode in a hero ruleset counts to HERO_KILL_LIMIT_SCALE of its score limit, unless the match
-// sets its own (custom editor, Play length, soaks). Runs after the mutators, which may change the economy.
+// balance-04: a HERO_KILL_LIMIT_MODES mode in a hero ruleset counts to HERO_KILL_LIMIT_SCALE of its score limit, unless
+// the match sets its own (custom editor, Play length, soaks). Runs after the mutators, which may change the economy.
 function heroKillLimit(rules, setup) {
   const ownLimit = setup.modeOptions && setup.modeOptions.scoreLimit !== undefined;
-  if (ownLimit || Abilities.economyKey(rules) !== 'heroKits' || rules.scoreBy !== 'kills' || rules.scoreLimit <= 0) return;
+  if (ownLimit || Abilities.economyKey(rules) !== 'heroKits' || !HERO_KILL_LIMIT_MODES.includes(rules.mode) || rules.scoreLimit <= 0) return;
   rules.scoreLimit = Math.ceil(rules.scoreLimit * HERO_KILL_LIMIT_SCALE);
 }
 

@@ -412,6 +412,9 @@ Test.add('abilities', (check) => {
   check('Arena Classic Team Clash keeps its limit', limit({ mode: 'tdm' }) === tdm);
   check('a match\'s own score limit is kept', limit({ mode: 'tdm', ruleset: 'heroes', modeOptions: { scoreLimit: 40 } }) === 40);
   check('objective modes keep theirs', limit({ mode: 'ctf', ruleset: 'heroes' }) === CAT.modes.byId('ctf').scoreLimit);
+  for (const mode of ['ffa', 'attrition', 'cursetag', 'roulette']) {
+    check(mode + ' keeps its own score limit in a hero ruleset', limit({ mode, ruleset: 'heroes' }) === CAT.modes.byId(mode).scoreLimit, String(limit({ mode, ruleset: 'heroes' })));
+  }
 });
 
 Test.add('abilities', (check) => {

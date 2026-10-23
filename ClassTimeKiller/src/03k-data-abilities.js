@@ -157,9 +157,11 @@ Data.define('heroes', {
 ]);
 
 // balance-04: hero bots see and hit enemies as much as Arena Classic bots, but hero pools, heals, barriers and downs make
-// kills a fifth to a quarter as frequent (Harbor, 10 bots, 3 min: 10-14 against 55), so a kill-scored mode in a hero
-// ruleset counts to this share of its score limit (Team Clash 15), unless the match sets its own.
-const HERO_KILL_LIMIT_SCALE = 0.3;
+// team kills a fifth to a quarter as frequent (Harbor, 10 bots, 3 min: 10-14 against 55), so the modes listed here count to
+// this share of their score limit in a hero ruleset (Team Clash 15), unless the match sets its own. Hero Frenzy keeps its
+// 25 (no teammates to heal or shield: its leader scores about 38 in the time limit); modes with their own points
+// (Attrition fodder, Curse Tag, Roulette Arms) keep theirs.
+const HERO_KILL_LIMIT_SCALE = 0.3, HERO_KILL_LIMIT_MODES = ['tdm'];
 
 // Ability kits outside hero rulesets (ABL-001): which ruleset, economy or mutator hands them out, the default slots and
 // the abilities a loadout may pick per slot (choices; [] = fixed). A kit applies when its `match` test passes, first row first.
