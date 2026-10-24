@@ -3690,6 +3690,20 @@ const RAM_MIN_SPEED = 7;                     // m/s: anything slower is a push t
 const RAM_TONNES = 8, RAM_TONNES_POW = 2;    // weight class m weighs 8·m² t (class 1: 8 t, class 2: 32 t, class 4: 128 t)
 const INFANTRY_TONNES = 0.12;                // a soldier with kit
 const RAM_SELF_FREE = 3000, RAM_SELF_DMG = 0.012;   // kJ a hull shrugs off per hit, and its damage per kJ past that
+/* Heavy smash (owner): a ground machine of SMASH_TONNES or more (Colossus, Bastion, AI heavies too) breaks any
+   building piece or plain structure it walks or drives into at SMASH_MIN_SPEED or more and goes on through. Each piece
+   costs it SMASH_KEEP of its closing speed and hull by the piece's size. Only these heavies damage structures by
+   landing or standing on them. Objectives (D45), bridges, rock and indestructible pieces never smash. */
+const SMASH_TONNES = 128;                       // weight class 4 and up
+const SMASH_MIN_SPEED = 2;                      // m/s: slower is a push
+const SMASH_KEEP = 0.85;                        // share of the closing speed kept per piece broken
+const SMASH_DMG = 0.008, SMASH_DMG_MAX = 15;    // hull per hit point of the piece broken (a brick wall 1.2; a skyscraper's ground floor, some 75 pieces at a Colossus's height, about 8%), capped
+/* Air puncture (owner): an aircraft flying into a piece of up to AIR_SMASH_MAX_HP punches through when its momentum
+   energy 0.5·m·k³·v² beats the piece's cost (hp·perHp); it keeps at most AIR_SMASH_KEEP of its speed and takes hull per
+   piece, so a light jet gets through 2-3 walls and stalls or dies after that. Bigger or slower hits are crashes. */
+const AIR_SMASH_MAX_HP = 400;                   // building pieces, houses, towers, tanks, trees; not warehouses or factories
+const AIR_SMASH_KEEP = 0.75;
+const AIR_SMASH_DMG = 40, AIR_SMASH_DMG_HP = 0.15;   // hull per piece: base plus per hit point of the piece (a brick wall 62)
 /* a platform def's mass in tonnes, from its weight class (or its own tonnes) */
 function platformTonnes(def) {
   if (def.tonnes !== undefined) return def.tonnes;
@@ -3710,7 +3724,7 @@ const LOAD_STEP = 0.2, LOAD_STEP_SPEED = 10;   // footfalls: a unit moving at LO
 const LOAD_TICK = 0.25;         // s between wear hits, so a unit on a roof sends few damage events and structure updates
 const VEHICLE_PERCH = 1;        // m a ground vehicle sits above its wheels' ground or deck before it looks for a structure top under it (only one put or thrown up there)
 const VEHICLE_SETTLE = 0.5;     // m above that top within which it rests its weight on it
-const LOAD_RULES = { land: true, floor: true, stand: true, capacity: true, objectives: true, bridges: true };   // self-test switches: each rule can be turned off to prove its test
+const LOAD_RULES = { land: true, floor: true, stand: true, capacity: true, objectives: true, bridges: true, heavyOnly: true };   // self-test switches: each rule can be turned off to prove its test
 /* true when piece s takes no load or landing damage: objectives fall only to weapons (D45), and bridge decks carry any
    platform, as units cross them in missions and in traffic */
 function loadExempt(s) {
@@ -14410,6 +14424,7 @@ class Platform {
         const s = Hash.out[i];
         if (s.destroyed) continue;
         if (Math.abs(this.x - s.x) < s.hx + r * 0.5 && Math.abs(this.z - s.z) < s.hz + r * 0.5 && this.y < s.top + 1 && this.y + r * 0.4 > s.y) {
+          if (this.puncture(s)) { if (this.dead) break; continue; }   // punched through it: on to what is behind
           this.crashCd = 0.6;
           damageStruct(s, 400 + this.speed * 2, 'explosive', this, 1);
           this.takeDamage(140 + this.speed * 0.9, 'collision', null, 0, 0, { noStagger: true });
@@ -14454,6 +14469,7 @@ class Platform {
     const d = Math.sqrt(d2), head = rm.snap || d < 1e-3;   // the centre inside the box: a head-on hit
     const nx = head ? 0 : dx / d, nz = head ? 0 : dz / d;
     const vn = head ? this.speed : -(this.vx * nx + this.vz * nz);   // closing speed
+    if (!rm.snap && s.type !== 'bridge' && this.smasher()) return this.smash(s, nx, nz, vn, head);
     if (vn < RAM_MIN_SPEED) return false;
     const k3 = this.scale * this.scale * this.scale, e = 0.5 * this.tonnes * k3 * vn * vn;
     if (e <= rm.floor) return false;
@@ -14466,11 +14482,38 @@ class Platform {
     if (head) { this.vx *= keep; this.vz *= keep; this.speed *= keep; } else { const cut = vn * (1 - keep); this.vx += nx * cut; this.vz += nz * cut; }
     return true;
   }
+  /* true for a ground machine heavy enough to smash buildings (SMASH_TONNES) */
+  smasher() {
+    return (this.kind === 'mech' || this.kind === 'ground') && this.def.speed > 0 && this.tonnes * this.scale * this.scale * this.scale >= SMASH_TONNES;
+  }
+  /* A heavy walks or drives into piece s at closing speed vn (normal nx, nz; head: centre inside it): it breaks the piece
+     whatever its strength and goes on, losing SMASH_KEEP of the closing speed and hull by the piece's size. Host only. */
+  smash(s, nx, nz, vn, head) {
+    if (vn < SMASH_MIN_SPEED) return false;
+    damageStruct(s, s.hp / (W.structDamage || 1) + 1, 'ram', this, 1);
+    if (!s.destroyed) return false;   // shielded: a push
+    if (!this.scripted()) this.takeDamage(Math.min(SMASH_DMG_MAX, s.maxHp * SMASH_DMG), 'collision', null, 0, 0, { noStagger: true });
+    if (head) { this.vx *= SMASH_KEEP; this.vz *= SMASH_KEEP; this.speed *= SMASH_KEEP; } else { const cut = vn * (1 - SMASH_KEEP); this.vx += nx * cut; this.vz += nz * cut; }
+    return true;
+  }
+  /* An aircraft flies into piece s: it punches through when its momentum energy beats the piece's cost, keeping at most
+     AIR_SMASH_KEEP of its speed and taking hull. Returns false for a crash (the caller's old rule). Host only. */
+  puncture(s) {
+    if (Net.guest || !s.ram || s.indestructible || s.objective || s.type === 'bridge' || s.maxHp > AIR_SMASH_MAX_HP) return false;
+    const k3 = this.scale * this.scale * this.scale, e = 0.5 * this.tonnes * k3 * this.speed * this.speed;
+    const cost = s.hp * s.ram.perHp / (W.structDamage || 1);
+    if (e <= cost) return false;
+    damageStruct(s, s.hp / (W.structDamage || 1) + 1, 'ram', this, 1);
+    if (!s.destroyed) return false;
+    this.speed *= Math.min(AIR_SMASH_KEEP, Math.sqrt(1 - cost / e));
+    this.takeDamage(AIR_SMASH_DMG + s.maxHp * AIR_SMASH_DMG_HP, 'collision', null, 0, 0, { noStagger: true });
+    return true;
+  }
   /* Landing on structure piece s at `impact` m/s, host only: the piece takes the vertical energy 0.5·m·k³·v² through its
      material's floor and perHp, as a ram does. Returns the falling speed left when it broke (the unit falls on through
-     to what is below), else -1 (it lands on it). The broken piece reaches guests in 'st'. */
+     to what is below), else -1 (it lands on it). Only heavies (smasher) do this. The broken piece reaches guests in 'st'. */
   crush(s, impact) {
-    if (Net.guest || !LOAD_RULES.land || s.destroyed || impact < RAM_MIN_SPEED || loadExempt(s)) return -1;
+    if (Net.guest || !LOAD_RULES.land || s.destroyed || impact < RAM_MIN_SPEED || loadExempt(s) || (LOAD_RULES.heavyOnly && !this.smasher())) return -1;
     const rm = s.ram, k3 = this.scale * this.scale * this.scale, e = 0.5 * this.tonnes * k3 * impact * impact;
     if (e <= (LOAD_RULES.floor ? rm.floor : 0)) return -1;
     const cost = s.hp * rm.perHp / (W.structDamage || 1);   // energy that breaks what is left of it
@@ -14485,7 +14528,7 @@ class Platform {
     if (this.loadT < LOAD_TICK) return;
     const t = this.loadT;
     this.loadT = 0;
-    if (Net.guest || !LOAD_RULES.stand || s.destroyed || loadExempt(s)) return;
+    if (Net.guest || !LOAD_RULES.stand || s.destroyed || loadExempt(s) || (LOAD_RULES.heavyOnly && !this.smasher())) return;
     const k3 = this.scale * this.scale * this.scale, cap = loadCapacity(s);
     if (this.tonnes * k3 <= cap) return;   // a weight the piece carries standing is not worn by walking (D61)
     const load = this.tonnes * k3 * (1 + LOAD_STEP * Math.min(1, this.speed / LOAD_STEP_SPEED));
@@ -28978,7 +29021,33 @@ const SelfTest = {
         const w1 = wall(0, 40), heavy = hit('colossus', boost, w1);
         this.check('a boosting heavy mech breaks a brick wall, loses speed and takes some damage', w1.destroyed && heavy.vx < boost * 0.9 && heavy.vx > 0 && (heavy.hp < heavy.maxHp || heavy.armor < heavy.maxArmor),heavy.vx.toFixed(1) + ' m/s left');
         const w2 = wall(0, 60), walker = hit('colossus', 8, w2);
-        this.check('the same mech walking slowly into it does nothing to it and is pushed back', !w2.destroyed && w2.hp === w2.maxHp && walker.vx <= 0 && walker.hp === walker.maxHp);
+        this.check('the same mech walking into it smashes it, slows a little and takes a little hull (heavy smash)', w2.destroyed && Math.abs(walker.vx - 8 * SMASH_KEEP) < 1e-6 && !sound(walker) && walker.maxHp + walker.maxArmor - walker.hp - walker.armor <= SMASH_DMG_MAX, walker.vx.toFixed(2) + ' m/s left');
+        const w2b = wall(0, 70), w2c = wall(0, 75), creep = hit('colossus', 1, w2b), medium = hit('bulwark', 8, w2c);
+        this.check('a heavy creeping slower than SMASH_MIN_SPEED and a medium mech walking break nothing', !w2b.destroyed && !w2c.destroyed && sound(creep) && sound(medium));
+        const ward = addStruct('bwall', 0, 85, { dims: { w: 0.5, h: 3.7, d: 6 }, objective: { name: 'ward' } }), deck = addStruct('bridge', 0, 95, {});
+        hit('colossus', 8, ward); hit('bastion', 8, deck);
+        this.check('heavies smash no objective and no bridge deck', !ward.destroyed && ward.hp === ward.maxHp && !deck.destroyed && deck.hp === deck.maxHp);
+        // aircraft punch through by momentum: a fast jet through a wall, a slow or huge hit is still a crash
+        const jetHit = (id, speed, s) => {
+          const def = PLATFORMS[id], p = new Platform(def, { team: 0, x: s.x - s.hx, z: s.z, yaw: PI / 2 });
+          p.y = s.y + 1.5; p.speed = speed; p.resolveWorld(STEP);
+          return p;
+        };
+        const w7 = wall(0, 600), jet = jetHit('kestrel', 150, w7);
+        this.check('a fast jet punches through a wall, keeps at most AIR_SMASH_KEEP of its speed and takes hull', w7.destroyed && jet.speed <= 150 * AIR_SMASH_KEEP + 1e-6 && jet.speed > 100 && !sound(jet) && jet.crashCd === 0, jet.speed.toFixed(1) + ' m/s left');
+        const big = addStruct('factory', 0, 680, {}), crash = jetHit('kestrel', 150, big), w8 = wall(0, 760), crawl = jetHit('kestrel', 8, w8);
+        this.check('a jet into a factory or a crawling jet into a wall crashes as before', !big.destroyed && crash.crashCd > 0 && crawl.crashCd > 0, 'factory hp ' + Math.round(big.hp));
+        // a heavy walks right through a skyscraper's ground floor at a fair cost
+        const tower = Bld.make('skyscraper', 300, 300, makeRng(6), 'smash'), half = tower.nx * CELL * 0.5;
+        const col = new Platform(PLATFORMS.colossus, { team: 0, x: tower.cx - half - 6, z: tower.cz, yaw: PI / 2 });
+        col.y = Terrain.h(col.x, col.z);
+        let steps = 0;
+        for (; steps < 600 && col.x < tower.cx + half + 4; steps++) {
+          col.vx = approach(col.vx, PLATFORMS.colossus.speed, PLATFORMS.colossus.mech.accel * STEP); col.vz = 0;
+          col.x += col.vx * STEP; col.speed = Math.hypot(col.vx, col.vz); col.resolveWorld(STEP);
+        }
+        const lost = (col.maxHp + col.maxArmor - col.hp - col.armor) / (col.maxHp + col.maxArmor);
+        this.check('a heavy walks through a skyscraper in under 10 s for 2-15% of its hull', col.x >= tower.cx + half + 4 && steps * STEP < 10 && lost > 0.02 && lost < 0.15, (steps * STEP).toFixed(1) + ' s, ' + (lost * 100).toFixed(1) + '% hull, ' + (tower.total - tower.alive) + ' pieces');
         const w3 = wall(0, 80), soldier = hit('ranger', sprint, w3);
         this.check('infantry at full sprint does not break a brick wall', !w3.destroyed && w3.hp === w3.maxHp && soldier.hp === soldier.maxHp);
         // a building's own wall panel: the building notices and checks its supports
@@ -32100,7 +32169,10 @@ const SelfTest = {
         this.check('infantry dropped 15 m onto a roof breaks nothing', whole(r2) && Math.abs(soldier.y - r2.top) < 0.1);
         const r2b = roof(), soldierOff = put('ranger', r2b, 15);
         off('floor', () => run([soldierOff], 3));
-        this.check('(with the material floor off the soldier marks it)', r2b.hp < r2b.maxHp);
+        this.check('(with the material floor off the soldier still breaks nothing: only heavies load structures)', whole(r2b));
+        const r2s = roof(), soldierOff2 = put('ranger', r2s, 15);
+        off('heavyOnly', () => off('floor', () => run([soldierOff2], 3)));
+        this.check('(with the material floor and heavies-only off the soldier marks it)', r2s.hp < r2s.maxHp);
         // a unit thrown up (a superweapon's lift) that comes down on a roof counts too
         const r2c = roof(), thrown = put('bastion', r2c, 0);
         thrown.status.float = 0.5; thrown.status.floatH = 15;
@@ -32121,8 +32193,8 @@ const SelfTest = {
         run([trooper, buggy], 10);
         this.check('infantry and a light buggy standing on roof slabs for 10 s do nothing', whole(r4) && whole(r5) && trooper.support === r4 && buggy.support === r5 && Math.abs(buggy.y - r5.top) < 0.2, 'buggy at ' + (buggy.y - r5.top).toFixed(2) + ' m');
         const r4b = roof(), r5b = roof(), trooperOff = put('ranger', r4b, 0), buggyOff = put('jackal', r5b, 0);
-        off('capacity', () => run([trooperOff, buggyOff], 2));
-        this.check('(with no load capacity both wear their slabs)', r4b.hp < r4b.maxHp && r5b.hp < r5b.maxHp);
+        off('heavyOnly', () => off('capacity', () => run([trooperOff, buggyOff], 2)));
+        this.check('(with no load capacity and heavies-only off both wear their slabs)', r4b.hp < r4b.maxHp && r5b.hp < r5b.maxHp);
         const r6 = roof(), medium = put('bulwark', r6, 0);
         run([medium], 10);
         this.check('a medium mech standing on a roof slab for 10 s leaves it whole', whole(r6) && medium.support === r6);
