@@ -1,0 +1,87 @@
+﻿UT-15-01 | M-15 | create defaults
+UT-15-02 | M-15 | fromSong locks tracks
+UT-15-03 | M-15 | serialize field order and history
+UT-15-04 | M-15 | serialize/parse round trip
+UT-15-05 | M-15 | addTrack limit
+UT-15-06 | M-15 | addTrack channel assignment
+UT-15-07 | M-15 | deleteTrack cascades and undo restores
+UT-15-08 | M-15 | reorder and duplicate
+UT-15-09 | M-15 | addEvents keeps order and overlap policy
+UT-15-10 | M-15 | moveEvents clamps
+UT-15-11 | M-15 | parse rejects wrong format
+UT-15-12 | M-15 | parse rejects bad JSON and depth
+UT-15-13 | M-15 | migrate refuses newer
+UT-15-14 | M-15 | migration failure leaves original intact
+UT-15-15 | M-15 | validate reference integrity
+UT-15-16 | M-15 | event limit
+UT-15-17 | M-15 | coalescing of setMix
+UT-15-18 | M-15 | undo limit 100
+UT-15-19 | M-15 | apply throw is isolated
+UT-15-20 | M-15 | composite group undo/redo
+UT-15-21 | M-15 | locked track protection
+UT-15-22 | M-15 | forkTrack semantics
+UT-15-23 | M-15 | quantize rules
+UT-15-24 | M-15 | checkpoint stripping and size gate
+UT-15-25 | M-15 | autosave safe-point gating and failure stop
+UT-15-26 | M-15 | autosave ring and timer cleanup
+UT-15-27 | M-15 | dirty tracking
+UT-15-28 | M-15 | setTempo native vs imported
+UT-15-29 | M-15 | replaceTake modes
+UT-15-30 | M-15 | unknown fields preserved
+UT-16-01 | M-16 | init full mode
+UT-16-02 | M-16 | init localOnly when idb open rejects
+UT-16-03 | M-16 | init localOnly when idb open hangs
+UT-16-04 | M-16 | init memory mode
+UT-16-05 | M-16 | safeSetLocal quota pre-check and error
+UT-16-06 | M-16 | leftover tmp cleanup
+UT-16-07 | M-16 | read-back verification failure restores previous
+UT-16-08 | M-16 | corrupt record detection and backup load
+UT-16-09 | M-16 | save routing both vs idb
+UT-16-10 | M-16 | index upsert, order and rebuild
+UT-16-11 | M-16 | transaction timeout maps to E-STO-002 and reset
+UT-16-12 | M-16 | save success emits and marks saved
+UT-16-13 | M-16 | save failure never marks saved
+UT-16-14 | M-16 | localOnly too-large refusal
+UT-16-15 | M-16 | conflict detection
+UT-16-16 | M-16 | lock acquire and heldByOther
+UT-16-17 | M-16 | lock loss via storage event
+UT-16-18 | M-16 | checkpoint sink ring behavior
+UT-16-19 | M-16 | download fallback selection
+UT-16-20 | M-16 | file read pre-check
+UT-16-21 | M-16 | delete removes everything
+UT-16-22 | M-16 | kv get with damaged value
+UT-16-23 | M-16 | quota warning
+UT-16-24 | M-16 | counters clean after release
+UT-16-25 | M-16 | idb-only combination
+UT-16-26 | M-16 | rename updates record and index
+UT-16-27 | M-16 | sanitize file names
+UT-17-01 | M-17 | open binds strips and transport
+UT-17-02 | M-17 | close leaves zero leaks
+UT-17-03 | M-17 | addTrack limit and readOnly refusal
+UT-17-04 | M-17 | ensureEditable forks locked tracks once
+UT-17-05 | M-17 | recorder count-in origin
+UT-17-06 | M-17 | capture press/release ticks
+UT-17-07 | M-17 | held notes closed on stop
+UT-17-08 | M-17 | abort never touches previous take
+UT-17-09 | M-17 | press before origin clamps to 0
+UT-17-10 | M-17 | same-pitch retrigger
+UT-17-11 | M-17 | overdub while playing starts immediately
+UT-17-12 | M-17 | audio suspension stops recording and keeps take
+UT-17-13 | M-17 | start refused when audio locked
+UT-17-14 | M-17 | deleteTrack during recording aborts first
+UT-17-15 | M-17 | recording auto-stops at event limit
+UT-17-16 | M-17 | loop record default keeps last pass
+UT-17-17 | M-17 | loop record keepAllPasses
+UT-17-18 | M-17 | commitTake replace vs merge
+UT-17-19 | M-17 | quantizeSelection uses bar rule
+UT-17-20 | M-17 | read-only mode blocks edits but allows playback
+UT-17-21 | M-17 | paste at snapped tick with new ids and channel
+UT-17-22 | M-17 | autosave safe points
+UT-17-23 | M-17 | strip creation failure degrades
+UT-17-24 | M-17 | close flushes checkpoint when dirty and safe
+UT-17-25 | M-17 | solo semantics via mixerState
+UT-17-26 | M-17 | sections derived from markers and fallback
+UT-17-27 | M-17 | setTempo refused while recording
+UT-17-28 | M-17 | sustain extends durations
+UT-17-29 | M-17 | moveSelection snap preserves relative timing
+UT-17-30 | M-17 | overview density cache

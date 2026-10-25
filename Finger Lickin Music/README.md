@@ -5,7 +5,8 @@ MIDI/MusicXML/Guitar Pro import, a procedural 3D band, dance mode and optional p
 multiplayer. Plain JavaScript, Web Audio, WebGL, no libraries, no network requests.
 
 Status: implementation plan in preparation. This commit holds the specification and this README;
-docs/IMPLEMENTATION-PLAN.md is added in the next commit. There is no game yet. Nothing in this folder runs.
+docs/IMPLEMENTATION-PLAN.md is not written yet. docs/plan-work/RESUME.md says exactly where the work
+stands and how to finish it. There is no game yet. Nothing in this folder runs.
 
 - docs/IMPLEMENTATION-PLAN.md is the complete design and the executable roadmap (Phases 0-16),
   written to be implemented in one go by an AI coding session (Opus 5.5, high effort).

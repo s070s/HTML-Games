@@ -1,0 +1,102 @@
+﻿UT-07-01 | M-07 | default maps match BRIEF 7
+UT-07-02 | M-07 | attach is idempotent-guarded
+UT-07-03 | M-07 | detach removes all listeners
+UT-07-04 | M-07 | keydown press lifecycle
+UT-07-05 | M-07 | keyup release
+UT-07-06 | M-07 | event.repeat ignored
+UT-07-07 | M-07 | duplicate keydown ignored
+UT-07-08 | M-07 | second owner cannot release
+UT-07-09 | M-07 | tAudio null before anchor
+UT-07-10 | M-07 | anchor median rejects outliers
+UT-07-11 | M-07 | perfToAudio mapping
+UT-07-12 | M-07 | blur releases all with source system
+UT-07-13 | M-07 | visibilitychange hidden and pagehide release all
+UT-07-14 | M-07 | modifier combos pass through
+UT-07-15 | M-07 | text field focus blocks gameplay keys
+UT-07-16 | M-07 | pointer down/up on pad
+UT-07-17 | M-07 | drag between pads
+UT-07-18 | M-07 | move outside all pads releases
+UT-07-19 | M-07 | pointercancel and pointer cap
+UT-07-20 | M-07 | four simultaneous pointers
+UT-07-21 | M-07 | gamepad edge detection and disconnect
+UT-07-22 | M-07 | gamepad dance context mapping
+UT-07-23 | M-07 | enableMidi without support
+UT-07-24 | M-07 | MIDI note mapping and pass-through
+UT-07-25 | M-07 | MIDI sustain CC
+UT-07-26 | M-07 | remap conflict detection
+UT-07-27 | M-07 | remap replaces after unbind, min one code
+UT-07-28 | M-07 | setMaps tolerates corrupt data
+UT-07-29 | M-07 | setContext releases non-live controls
+UT-07-30 | M-07 | Space is panic only while paused
+UT-07-31 | M-07 | timestamp sanity fallback
+UT-07-32 | M-07 | calibration clamp and non-application
+UT-08-01 | M-08 | profile A pitches C major
+UT-08-02 | M-08 | profile A octave shift
+UT-08-03 | M-08 | profile B intervals major and minor
+UT-08-04 | M-08 | profile C chords and voicing
+UT-08-05 | M-08 | profile C inversion
+UT-08-06 | M-08 | profile D paging and register
+UT-08-07 | M-08 | profile E by family
+UT-08-08 | M-08 | profile F pages
+UT-08-09 | M-08 | profile switch via controls
+UT-08-10 | M-08 | range policy
+UT-08-11 | M-08 | velocity from pressure
+UT-08-12 | M-08 | fixed note length
+UT-08-13 | M-08 | release without press
+UT-08-14 | M-08 | sustain defers note offs
+UT-08-15 | M-08 | tick null when stopped
+UT-08-16 | M-08 | dispatch isolates Instruments errors
+UT-08-17 | M-08 | quantization snaps recorded tick only
+UT-08-18 | M-08 | chord label within 30 ms
+UT-08-19 | M-08 | releaseAll closes everything
+UT-08-20 | M-08 | generate argument validation
+UT-08-21 | M-08 | empty track
+UT-08-22 | M-08 | determinism
+UT-08-23 | M-08 | beginner keeps beats, omits the rest
+UT-08-24 | M-08 | difficulty ladder
+UT-08-25 | M-08 | validate detects corruption
+UT-08-26 | M-08 | contour same-pitch and direction
+UT-08-27 | M-08 | multi-lane block ordering
+UT-08-28 | M-08 | drum lane map
+UT-08-29 | M-08 | chord-slot strategy
+UT-08-30 | M-08 | hold truncation
+UT-08-31 | M-08 | settingsHash composition
+UT-08-32 | M-08 | sparse relaxation
+UT-08-33 | M-08 | preview and describe
+UT-08-34 | M-08 | simplificationReport
+UT-09-01 | M-09 | windows table
+UT-09-02 | M-09 | load validation
+UT-09-03 | M-09 | boundary exactly +window (beginner)
+UT-09-04 | M-09 | boundary exactly -window (beginner)
+UT-09-05 | M-09 | one past each boundary
+UT-09-06 | M-09 | expert windows
+UT-09-07 | M-09 | rounding symmetry
+UT-09-08 | M-09 | points and multiplier
+UT-09-09 | M-09 | miss resets combo, multiplier from combo before note
+UT-09-10 | M-09 | accuracy and completion
+UT-09-11 | M-09 | miss by tick
+UT-09-12 | M-09 | nearest-note candidate
+UT-09-13 | M-09 | missed then retried (E 4.2)
+UT-09-14 | M-09 | chord all lanes within tolerance
+UT-09-15 | M-09 | chord lane beyond 50 ms tolerance
+UT-09-16 | M-09 | chord missing lane after window
+UT-09-17 | M-09 | hold tail judged on release
+UT-09-18 | M-09 | hold through a pause
+UT-09-19 | M-09 | early release = hold break, head kept
+UT-09-20 | M-09 | stall does not reorder
+UT-09-21 | M-09 | inactive ignores inputs
+UT-09-22 | M-09 | stray penalty option
+UT-09-23 | M-09 | calibration applied once
+UT-09-24 | M-09 | custom windows refuse narrower
+UT-09-25 | M-09 | input without tAudio
+UT-09-26 | M-09 | NaN time map guard
+UT-09-27 | M-09 | replay determinism
+UT-09-28 | M-09 | restart clears state
+UT-09-29 | M-09 | calibration change mid-run flags comparability
+UT-09-30 | M-09 | listener error isolation
+UT-09-31 | M-09 | sections from markers and 4-bar fallback
+UT-09-32 | M-09 | worst section
+UT-09-33 | M-09 | dance chart through the same Judge
+UT-09-34 | M-09 | total counts heads plus tails
+UT-09-35 | M-09 | speed does not change windows
+UT-09-36 | M-09 | nextNotes helper

@@ -1,0 +1,162 @@
+﻿UT-01-01 | M-01 | define registers namespace
+UT-01-02 | M-01 | define rejects duplicates
+UT-01-03 | M-01 | emitter on/emit order
+UT-01-04 | M-01 | emitter isolates listener errors
+UT-01-05 | M-01 | once fires once
+UT-01-06 | M-01 | off and offOwner
+UT-01-07 | M-01 | emit snapshot semantics
+UT-01-08 | M-01 | log ring wraps at 500
+UT-01-09 | M-01 | log once
+UT-01-10 | M-01 | caps report shape
+UT-01-11 | M-01 | caps probe isolation
+UT-01-12 | M-01 | timers tracked
+UT-01-13 | M-01 | classify table
+UT-01-14 | M-01 | report dedupes and emits
+UT-01-15 | M-01 | unhandled rejection captured
+UT-01-16 | M-01 | fatal screen renders safely
+UT-01-17 | M-01 | fatal shown once
+UT-01-18 | M-01 | diagnostics provider isolation
+UT-01-19 | M-01 | diagnostics redaction
+UT-01-20 | M-01 | diagnostics size cap
+UT-01-21 | M-01 | uid uniqueness
+UT-01-22 | M-01 | prng reference vector
+UT-01-23 | M-01 | prng int/pick/shuffle bounds
+UT-01-24 | M-01 | fnv1a32 vectors
+UT-01-25 | M-01 | formatTime
+UT-01-26 | M-01 | clamp/lerp/smoothstep
+UT-01-27 | M-01 | deepClone independence
+UT-01-28 | M-01 | assert throws coded error
+UT-02-01 | M-02 | noteName sharps
+UT-02-02 | M-02 | noteName flats by key
+UT-02-03 | M-02 | midiFromName parse
+UT-02-04 | M-02 | round trip names
+UT-02-05 | M-02 | scale table integrity
+UT-02-06 | M-02 | defineScale validation
+UT-02-07 | M-02 | unknown ids
+UT-02-08 | M-02 | scaleDegrees C major
+UT-02-09 | M-02 | scaleDegrees truncates at 127
+UT-02-10 | M-02 | scaleNote negative degree
+UT-02-11 | M-02 | snapToScale
+UT-02-12 | M-02 | chordNotes close
+UT-02-13 | M-02 | chordNotes voicings
+UT-02-14 | M-02 | chord table integrity
+UT-02-15 | M-02 | key tables
+UT-02-16 | M-02 | recognizeChord basics
+UT-02-17 | M-02 | recognizeChord tie rules
+UT-02-18 | M-02 | intervals
+UT-02-19 | M-02 | GM names
+UT-02-20 | M-02 | GM drum names
+UT-02-21 | M-02 | all 128 program names unique and present
+UT-02-22 | M-02 | aliases
+UT-03-01 | M-03 | Song.create defaults
+UT-03-02 | M-03 | Track.create defaults and colors
+UT-03-03 | M-03 | 32-track limit
+UT-03-04 | M-03 | compare ordering
+UT-03-05 | M-03 | insertEvent keeps order
+UT-03-06 | M-03 | insertEvents bulk
+UT-03-07 | M-03 | removeEvent by id and object
+UT-03-08 | M-03 | pairNotes unmatched on
+UT-03-09 | M-03 | pairNotes off before on
+UT-03-10 | M-03 | pairNotes velocity 0 as off
+UT-03-11 | M-03 | pairNotes same-pitch overlap
+UT-03-12 | M-03 | pairNotes zero duration
+UT-03-13 | M-03 | pairNotes channels independent
+UT-03-14 | M-03 | deriveSustain extends
+UT-03-15 | M-03 | deriveSustain retrigger cap
+UT-03-16 | M-03 | TempoMap conversions
+UT-03-17 | M-03 | TempoMap implicit start and last-wins
+UT-03-18 | M-03 | TempoMap precision
+UT-03-19 | M-03 | MeterMap bars and beats
+UT-03-20 | M-03 | validate catches unsorted
+UT-03-21 | M-03 | validate limits
+UT-03-22 | M-03 | fromJSON rejects bad shapes
+UT-03-23 | M-03 | computeDuration uses last event end
+UT-03-24 | M-03 | TrackIndex queries
+UT-03-25 | M-03 | indexFor cache invalidation
+UT-03-26 | M-03 | KeyMap keyAt
+UT-03-27 | M-03 | Song.clone independence
+UT-04-01 | M-04 | load resets
+UT-04-02 | M-04 | invalid actions ignored
+UT-04-03 | M-04 | default tempo without song entries
+UT-04-04 | M-04 | play anchors 50 ms ahead
+UT-04-05 | M-04 | positionAt / audioTimeAt inverse
+UT-04-06 | M-04 | speed math
+UT-04-07 | M-04 | pause freezes and resume re-anchors
+UT-04-08 | M-04 | seek while playing
+UT-04-09 | M-04 | seek clamps
+UT-04-10 | M-04 | stop returns to stopTick
+UT-04-11 | M-04 | count-in clicks only
+UT-04-12 | M-04 | count-in to playing transition and start item
+UT-04-13 | M-04 | pause during count-in resumes count-in
+UT-04-14 | M-04 | setLoop validation
+UT-04-15 | M-04 | loop wrap item and re-anchor
+UT-04-16 | M-04 | loop clamps sustained notes
+UT-04-17 | M-04 | loop does not retrigger notes before a
+UT-04-18 | M-04 | event exactly at b
+UT-04-19 | M-04 | event exactly at a
+UT-04-20 | M-04 | ten-minute loop drift
+UT-04-21 | M-04 | pullDue never returns items beyond until or at or before from
+UT-04-22 | M-04 | visibility continue drift re-anchor
+UT-04-23 | M-04 | visibility pause policy
+UT-04-24 | M-04 | cursor rebuild on track mutation
+UT-04-25 | M-04 | fake clock determinism
+UT-04-26 | M-04 | tempo source override
+UT-04-27 | M-04 | end of song
+UT-04-28 | M-04 | setSpeed while paused
+UT-05-01 | M-05 | unlock reports blocked state
+UT-05-02 | M-05 | constructor failure
+UT-05-03 | M-05 | statechange emits
+UT-05-04 | M-05 | stall detection
+UT-05-05 | M-05 | single context
+UT-05-06 | M-05 | graph topology
+UT-05-07 | M-05 | strip creation and reuse
+UT-05-08 | M-05 | pan fallback
+UT-05-09 | M-05 | solo set semantics
+UT-05-10 | M-05 | mute ramps not steps
+UT-05-11 | M-05 | gain product CC7 x CC11 x fader
+UT-05-12 | M-05 | allocator steal order
+UT-05-13 | M-05 | allocator counts
+UT-05-14 | M-05 | capacity by platform and setting
+UT-05-15 | M-05 | offline onset accuracy
+UT-05-16 | M-05 | lookahead bound
+UT-05-17 | M-05 | never schedules in the past
+UT-05-18 | M-05 | sched events payload
+UT-05-19 | M-05 | cc/program/bend routing
+UT-05-20 | M-05 | stall catch-up ordering
+UT-05-21 | M-05 | voice max duration cap
+UT-05-22 | M-05 | soft panic releases all
+UT-05-23 | M-05 | hard panic rebuilds
+UT-05-24 | M-05 | seek triggers soft panic
+UT-05-25 | M-05 | pause and stop fade
+UT-05-26 | M-05 | metronome click shape
+UT-05-27 | M-05 | latency estimate
+UT-05-28 | M-05 | peak meter
+UT-05-29 | M-05 | sample-rate independence
+UT-05-30 | M-05 | live note path
+UT-05-31 | M-05 | loopWrap releases
+UT-05-32 | M-05 | voices stats event
+UT-05-33 | M-05 | dispose closes
+UT-06-01 | M-06 | definition table integrity
+UT-06-02 | M-06 | fidelity declarations
+UT-06-03 | M-06 | family coverage
+UT-06-04 | M-06 | program clamp
+UT-06-05 | M-06 | velocity curve and layers
+UT-06-06 | M-06 | offline onset and release timing
+UT-06-07 | M-06 | pitch accuracy
+UT-06-08 | M-06 | pluck buffer determinism
+UT-06-09 | M-06 | pluck cache LRU
+UT-06-10 | M-06 | mono legato
+UT-06-11 | M-06 | drum map table
+UT-06-12 | M-06 | drum recipes render
+UT-06-13 | M-06 | hi-hat choke
+UT-06-14 | M-06 | program change keeps sounding voices
+UT-06-15 | M-06 | live sustain
+UT-06-16 | M-06 | unsupported CC logged once
+UT-06-17 | M-06 | instrument change while holding
+UT-06-18 | M-06 | bend and RPN
+UT-06-19 | M-06 | node failure isolation
+UT-06-20 | M-06 | slot watchdog
+UT-06-21 | M-06 | CC routing to strip
+UT-06-22 | M-06 | all programs build
+UT-06-23 | M-06 | range advisory
+UT-06-24 | M-06 | releaseTrack
