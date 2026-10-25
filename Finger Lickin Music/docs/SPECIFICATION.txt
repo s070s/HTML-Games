@@ -1,0 +1,3193 @@
+﻿Finger Lickin Music
+
+Complete Product Requirements and Technical Specification
+
+Document purpose: Define the complete game, its functionality, user experience, technical architecture, data models, performance requirements, testing strategy, and implementation sequence for an agentic AI software development agent.
+
+Implementation status: Specification only. Do not implement the game while preparing or reviewing this document.
+
+Primary platform: Desktop browsers and mobile browsers.
+
+Deployment constraint: The complete game must be deliverable as one standalone HTML file containing its HTML, CSS, JavaScript, UI, gameplay systems, and embedded resources where practical. External dependencies must be avoided unless they provide substantial functionality that would be impractical to reproduce reliably.
+
+Product name: Finger Lickin Music.
+
+⸻
+
+1. Mandatory Instructions for the Implementing Agent
+
+1.1 Specification-first workflow
+
+Before writing, generating, or modifying any implementation code, produce a complete, detailed, end-to-end table of contents covering the entire implementation from the initial project setup through final delivery.
+
+The table of contents must be generated before implementation begins and must cover every phase, subsystem, feature, dependency, integration, test, validation procedure, optimization, and release requirement defined in this specification.
+
+For every table-of-contents entry, include:
+
+* A unique, stable section identifier.
+* The section title and hierarchical position.
+* The purpose and expected outcome.
+* The requirements and subsystems covered.
+* Dependencies on preceding sections.
+* The implementation deliverables.
+* The verification criteria and relevant tests.
+* Any unresolved decisions, assumptions, or technical risks.
+
+The table of contents must be detailed enough to serve as an executable project roadmap for an agentic AI development workflow, not merely as a list of broad topics.
+
+The table of contents must extend from the first implementation activity through the final production-readiness review, browser testing, packaging, standalone-file validation, and delivery.
+
+1.2 Required planning artifacts
+
+Before implementation, produce the following planning artifacts in order:
+
+1. Complete end-to-end table of contents.
+2. Requirements traceability matrix mapping every requirement to its specification section, planned subsystem, implementation phase, and verification test.
+3. Architecture and technology decision record, including the justification for the single-file deployment model.
+4. System dependency graph and subsystem integration map.
+5. Data model and serialization specification.
+6. User interface and navigation specification.
+7. Audio, timing, input, rendering, and multiplayer architecture.
+8. File import, parsing, conversion, export, and compatibility strategy.
+9. Performance budgets and target-device matrix.
+10. Security, privacy, accessibility, and error-handling requirements.
+11. Phased implementation plan with explicit entry criteria, exit criteria, and dependencies.
+12. Comprehensive testing and acceptance plan.
+13. Final release and delivery checklist.
+
+1.3 Planning approval gate
+
+Do not begin implementation until the complete table of contents and the planning artifacts have been generated and reviewed for completeness and consistency.
+
+If the agent can interact with the user, present the planning artifacts for approval before implementation.
+
+If autonomous execution is explicitly authorized, the agent may proceed after validating the planning artifacts against this specification and recording its assumptions. It must not silently omit requirements because they are difficult.
+
+1.4 Implementation discipline
+
+During implementation:
+
+* Follow the approved table of contents in dependency order.
+* Maintain traceability between requirements, code modules, and tests.
+* Implement the smallest independently testable subsystem first.
+* Validate each subsystem before integrating the next.
+* Preserve all previously accepted functionality when modifying shared systems.
+* Maintain a continuously updated list of implemented, partially implemented, blocked, and unimplemented requirements.
+* Never report a feature as complete merely because its UI exists.
+* Do not substitute placeholder behavior for a required functional system without explicitly documenting the limitation.
+* Do not claim file-format compatibility, multiplayer synchronization, offline operation, or performance targets without verification.
+* If a requirement conflicts with the single-file constraint, identify the conflict and propose the smallest acceptable exception before proceeding.
+
+1.5 Definition of completion
+
+The project is complete only when the final artifact has been tested against the acceptance criteria, its supported file formats and limitations are documented, its desktop and mobile controls work, its core gameplay systems operate, and its delivery format satisfies the standalone HTML requirement to the extent technically possible.
+
+A visually convincing mockup, partial prototype, or collection of nonfunctional screens is not an acceptable final implementation.
+
+⸻
+
+2. Product Vision
+
+Finger Lickin Music is a browser-based 3D music creation, instrument-playing, rhythm, dance, and multiplayer game.
+
+It combines the accessibility of a four-button rhythm game with the musical flexibility of an instrument simulator, a multitrack recording workstation, a MIDI playback environment, and a customizable 3D virtual band.
+
+Players must be able to:
+
+* Play instruments using four primary buttons.
+* Perform notes, intervals, chords, riffs, and rhythmic patterns.
+* Play freely without predefined notes.
+* Record performances and layer multiple instruments into complete tracks.
+* Compose using musical keys, scales, tempo, time signatures, and other musical settings.
+* Import existing musical arrangements and play along with them.
+* Visualize performances through animated 3D musicians whose movements correspond to actual musical events.
+* Play using a dance mode inspired by dance rhythm games.
+* Customize the appearance of band members and avatars.
+* Play alone, locally where supported, or with other players online.
+* Use the game on desktop and mobile devices.
+* Save, load, and export projects using supported formats.
+* Run the application from a single HTML file with minimal external dependencies.
+
+The product must feel like a game first while offering meaningful musical capabilities rather than merely simulating musical interaction.
+
+3. Product Principles
+
+3.1 Musical accuracy
+
+Musical events, instrument assignments, note pitches, velocities, timing, articulation where available, and polyphonic arrangements must be preserved as accurately as the source data and playback engine allow.
+
+3.2 Playability
+
+A beginner must be able to produce satisfying music with four buttons, while advanced users can access chords, alternate voicings, free play, and more precise controls.
+
+3.3 Visual responsiveness
+
+The 3D performance must communicate which instruments are playing, which notes are being performed, the intensity of the performance, and the musical structure.
+
+3.4 Accessibility across devices
+
+Desktop keyboard and controller inputs and mobile touch inputs must offer equivalent access to the core game.
+
+3.5 Faithful import
+
+Imported arrangements must retain their musical structure. The game must not silently simplify polyphonic or multitrack music into an inaccurate monophonic representation.
+
+3.6 Honest technical limits
+
+The application must distinguish between a format that is fully supported, partially supported, imported through a conversion path, or unsupported.
+
+3.7 Single-file delivery
+
+The primary deliverable is one HTML document. If an optional service is necessary for functionality such as online multiplayer, it must be clearly separated from the standalone core and documented.
+
+⸻
+
+4. Scope and Feature Priorities
+
+4.1 Priority levels
+
+* P0: Required for a minimally complete product.
+* P1: Required for the full intended product.
+* P2: Advanced features or enhancements that may follow the stable core.
+
+These priorities define sequencing, not permission to omit requested functionality silently.
+
+4.2 P0 — Core experience
+
+* Standalone HTML application shell.
+* Desktop and mobile responsive UI.
+* Four-button instrument gameplay.
+* Free-play instrument mode.
+* Basic note, interval, and chord mapping.
+* Audio synthesis or bundled instrument playback.
+* MIDI file import and playback.
+* Tempo, key, and scale configuration.
+* Basic 3D band visualization.
+* Note-synchronized instrument animation.
+* Basic character selection and customization.
+* Recording and playback of basic performances.
+* Local project persistence and export.
+* Input calibration and latency configuration.
+* Automated tests for musical timing and file handling.
+
+4.3 P1 — Full product
+
+* Multitrack recording and mixing.
+* Full MIDI event and track preservation.
+* MusicXML import.
+* Guitar Pro import where technically supported.
+* Expanded General MIDI instrument coverage.
+* Polyphonic instrument animation.
+* Dance gameplay with configurable step patterns.
+* Expanded avatar customization.
+* Online multiplayer with synchronization.
+* More complete project export and import.
+* Mobile-specific interaction optimization.
+* Performance profiling and fallback rendering modes.
+
+4.4 P2 — Advanced features
+
+* Additional music formats and conversion adapters.
+* Advanced instrument articulations.
+* More sophisticated procedural humanoid animation.
+* Advanced dance styles and choreography editing.
+* Expanded visual effects and stage customization.
+* Advanced mixing, automation, and musical editing.
+* Optional controller integrations and additional accessibility mappings.
+* Optional community features, subject to privacy and security requirements.
+
+⸻
+
+5. Platform and Deployment Requirements
+
+5.1 Supported environments
+
+The application must target modern versions of:
+
+* Desktop Chromium-based browsers.
+* Desktop Firefox.
+* Desktop Safari.
+* Mobile Safari on iOS.
+* Mobile Chromium-based browsers on Android.
+
+Compatibility must be established through testing rather than assumed from browser names alone.
+
+5.2 Standalone operation
+
+The game must be designed to run when the user opens the HTML file directly, subject to browser security restrictions.
+
+The agent must verify the actual behavior of local-file execution in supported browsers.
+
+Core gameplay, the UI, local audio playback, basic visualization, and local project functionality must not require a remote server.
+
+5.3 Single-file packaging
+
+The final HTML should contain:
+
+* Application markup.
+* Styling.
+* Application logic.
+* Core game systems.
+* Musical timing and mapping logic.
+* Audio synthesis and playback logic.
+* Rendering logic.
+* Built-in presets and configuration.
+* Embedded resources where feasible.
+
+External libraries may be included in the file if their licensing and size permit it. Alternatively, a dependency may be loaded remotely only if the resulting limitation is clearly documented.
+
+The primary artifact must not require a separate build pipeline or a collection of JavaScript files to function.
+
+5.4 Required distinction: standalone versus online
+
+The application must expose two operating contexts:
+
+1. Standalone mode: no server required; local gameplay and local projects.
+2. Online mode: optional network services for multiplayer and any explicitly network-dependent features.
+
+A single HTML file cannot independently provide a persistent, authoritative, publicly reachable multiplayer server. Online multiplayer therefore requires an external service or server unless a suitable existing infrastructure is provided.
+
+The standalone application must remain usable when that service is unavailable.
+
+⸻
+
+6. User Experience and Navigation
+
+6.1 First launch
+
+The first-launch flow must:
+
+1. Display the game identity.
+2. Check browser support for required capabilities.
+3. Request audio activation through a user gesture.
+4. Determine the available rendering capabilities.
+5. Offer desktop or mobile input configuration where necessary.
+6. Allow the user to choose a gameplay mode.
+7. Explain any unavailable functionality without blocking supported modes.
+
+The game must not require an account to access standalone features.
+
+6.2 Main menu
+
+The main menu must provide access to:
+
+* Quick Play.
+* Instrument Mode.
+* Free Play.
+* Studio.
+* Song Library.
+* Import Music.
+* Dance Mode.
+* Multiplayer.
+* Character Customization.
+* Settings.
+* Help and Controls.
+* About, Credits, and Licenses.
+
+Unavailable features must be visibly distinguished from functional features.
+
+6.3 Shared interface elements
+
+The game must provide a consistent interface for:
+
+* Current mode.
+* Current song or project.
+* Play, pause, resume, and stop.
+* Master volume.
+* Instrument selection.
+* Tempo and musical configuration where applicable.
+* Input status.
+* Loading progress.
+* Error notifications.
+* Performance indicators when enabled.
+* Navigation back to the main menu.
+
+6.4 Responsive layout
+
+Desktop layouts may use multiple panels, a larger stage, and a dedicated editor area.
+
+Mobile layouts must prioritize:
+
+* Full-screen gameplay.
+* Large touch targets.
+* Four-button controls that do not obstruct essential visuals.
+* Collapsible settings and editing panels.
+* Touch-friendly transport controls.
+* Orientation-aware layouts.
+* Safe-area spacing.
+* Minimal text entry during active gameplay.
+
+The application must remain usable in both portrait and landscape orientations. Where a mode benefits strongly from landscape orientation, the game may recommend rotating the device without making unrelated features inaccessible.
+
+⸻
+
+7. Core Gameplay Modes
+
+7.1 Quick Play
+
+Quick Play provides the shortest path from launch to performing music.
+
+The player selects:
+
+* A built-in song or imported arrangement.
+* A playable instrument or dance mode.
+* Difficulty.
+* Control layout.
+* Optional backing tracks.
+* Performance visualization.
+* Audio and input settings.
+
+The game must transition from song selection to active play without requiring access to the studio.
+
+7.2 Instrument Rhythm Mode
+
+The player performs a selected instrument by pressing four primary buttons in time with incoming musical events.
+
+The mode must support:
+
+* Single notes.
+* Multiple simultaneous notes.
+* Chords.
+* Intervals.
+* Repeated-note patterns.
+* Sustained notes.
+* Rests.
+* Rhythmic subdivisions.
+* Tempo changes where supported by the arrangement.
+* Multiple difficulty levels.
+* Optional automatic accompaniment.
+* Scoring and performance feedback.
+
+The gameplay mapping must be instrument-independent at the input layer while allowing instrument-specific musical mappings.
+
+7.3 Free Play
+
+Free Play removes the requirement to follow a predefined song.
+
+Players must be able to:
+
+* Trigger notes and chords.
+* Select an instrument.
+* Select a musical key.
+* Select a scale or chromatic mode.
+* Adjust the playable register.
+* Adjust octave.
+* Control note duration.
+* Control velocity or intensity where supported.
+* Enable sustain.
+* Use a metronome.
+* Adjust tempo.
+* Record and replay a performance.
+* Switch between musical layouts.
+* Disable scale constraints for unrestricted playing.
+
+The mode must distinguish between quantized and unquantized playing.
+
+7.4 Studio Mode
+
+Studio Mode is a lightweight multitrack music creation environment.
+
+It must provide:
+
+* Track creation.
+* Instrument assignment per track.
+* Recording.
+* Playback.
+* Overdubbing.
+* Track mute and solo.
+* Volume and pan.
+* Track naming.
+* Tempo and time-signature configuration.
+* Musical key and scale settings.
+* Basic track positioning and timing edits.
+* Looping and section playback.
+* Undo and redo for supported operations.
+* Save, load, and export.
+* A basic mixer.
+* A clear distinction between MIDI-event editing and audio rendering.
+
+Studio Mode is not required to reproduce every feature of a professional digital audio workstation, but its core recording and playback operations must work reliably.
+
+7.5 Imported Song Mode
+
+Imported songs must be playable as rhythm-game experiences.
+
+The user must be able to:
+
+* Import a supported music file.
+* Inspect the detected tracks and instruments.
+* Select the track or tracks to play.
+* Choose the target instrument.
+* Map imported notes to the four-button layout.
+* Select difficulty or automatic mapping.
+* Play along with the source arrangement.
+* Mute or lower the target instrument.
+* Slow down or speed up playback.
+* Seek to a musical position.
+* Loop a section.
+* Pause and resume without timing drift.
+* View the score and performance feedback.
+* View the virtual band performing the arrangement.
+
+The source arrangement must remain intact internally even when the playable part is simplified for four-button controls.
+
+7.6 Dance Mode
+
+Dance Mode provides a rhythm-game experience based on dance steps rather than instrument performance.
+
+It must support:
+
+* Four directional or position-based step inputs.
+* Keyboard and touch controls.
+* Optional controller input.
+* Step charts aligned to musical time.
+* Multiple difficulty levels.
+* Timing judgments.
+* Combos and score.
+* Miss and accuracy feedback.
+* Song progress.
+* Optional avatar choreography.
+* Configurable input layouts.
+* Custom or imported dance charts where supported.
+
+The dance chart system must be independent of instrument note mapping.
+
+7.7 Multiplayer
+
+Multiplayer must support:
+
+* Room creation and joining.
+* A room code or equivalent join mechanism.
+* Player identity and avatar.
+* Song and mode selection.
+* Ready states.
+* Host-controlled session settings.
+* Synchronized start and pause behavior.
+* Shared tempo and song position.
+* Per-player performance state.
+* Multiplayer scoring.
+* Reconnection handling.
+* Graceful handling of a disconnected host.
+* Session cleanup.
+
+The product must distinguish between:
+
+* Shared-song synchronized play.
+* Cooperative performance.
+* Competitive scoring.
+* Shared creative sessions.
+
+Features that cannot be completed reliably in the initial multiplayer release must be explicitly scoped and documented.
+
+⸻
+
+8. Four-Button Input and Musical Mapping
+
+8.1 Input abstraction
+
+All physical and virtual inputs must feed a shared input abstraction.
+
+Supported sources should include:
+
+* Keyboard.
+* Mouse where applicable.
+* Touchscreen.
+* Standard game controllers where available.
+* Optional MIDI input devices where browser support permits.
+
+Every source must normalize into consistent press, release, hold, and timestamp events.
+
+8.2 Default controls
+
+A proposed desktop layout is four adjacent keys, such as A, S, K, and L.
+
+The exact keys must be configurable.
+
+Mobile must expose four large touch controls. The controls must support simultaneous presses where the browser and device allow them.
+
+8.3 Mapping profiles
+
+The system must support multiple profiles.
+
+Profile A: Four-note lane mapping
+
+Each button represents a lane or note group. Simultaneous buttons create chords.
+
+Profile B: Interval mapping
+
+The buttons represent musical intervals relative to a selected root.
+
+Profile C: Chord mapping
+
+The buttons represent selected chord types or voicings, with configurable root selection.
+
+Profile D: Scale mapping
+
+The buttons trigger notes selected from a scale, with configurable octave and register.
+
+Profile E: Instrument-specific mapping
+
+Mappings are adapted to the selected instrument and its playable range.
+
+Profile F: Rhythm mapping
+
+The buttons represent rhythmic or percussive actions.
+
+The user must be able to switch profiles without modifying the source arrangement.
+
+8.4 Chord and polyphony behavior
+
+The input system must support:
+
+* Simultaneous button presses.
+* Multiple active notes.
+* Note-on and note-off events.
+* Held notes.
+* Sustained notes.
+* Repeated notes.
+* Chord recognition where relevant.
+* Instrument-specific note limitations where necessary.
+
+Polyphonic source material must not be discarded because the player uses four buttons.
+
+8.5 Input calibration
+
+The user must be able to configure:
+
+* Input offset.
+* Audio output latency compensation.
+* Visual lead time.
+* Touch-control behavior.
+* Hold and release behavior.
+* Note sustain handling.
+
+The implementation must avoid applying latency compensation twice.
+
+⸻
+
+9. Rhythm Engine and Scoring
+
+9.1 Musical event timeline
+
+The rhythm engine must operate on a musical timeline based on ticks or another precisely defined representation.
+
+It must support:
+
+* Tempo.
+* Time signature.
+* Tick resolution.
+* Beat and subdivision positions.
+* Note-on and note-off events.
+* Chords.
+* Tempo maps.
+* Time-signature changes where available.
+* Song position.
+* Loop regions.
+* Count-in.
+* Pause and resume.
+* Seeking.
+* Playback speed changes.
+
+Musical time must be kept separate from rendering frame time.
+
+9.2 Scheduling
+
+Audio playback and visual gameplay must share a common timing model.
+
+The audio scheduler must schedule events ahead of playback using the audio clock. The rendering loop must estimate the corresponding musical position without using frame count as the authoritative clock.
+
+Background-tab throttling and dropped rendering frames must not permanently shift the musical timeline.
+
+9.3 Judgments
+
+The game must define configurable timing windows for judgments such as:
+
+* Perfect.
+* Great.
+* Good.
+* Miss.
+
+The exact thresholds must be configurable by difficulty and documented in milliseconds.
+
+A judgment must compare the input timestamp against the intended event timestamp after applying the configured calibration.
+
+9.4 Scoring
+
+The scoring system must support:
+
+* Per-note judgments.
+* Combo.
+* Maximum combo.
+* Accuracy percentage.
+* Score.
+* Miss count.
+* Song completion percentage.
+* Per-player statistics in multiplayer.
+
+Scoring must be deterministic for equivalent input event sequences.
+
+The game must not score visual frame timing as though it were actual musical timing.
+
+⸻
+
+10. Music Theory and Configuration
+
+10.1 Musical keys
+
+The system must represent all twelve chromatic pitch classes and distinguish enharmonic spellings where the source format provides them.
+
+10.2 Scales
+
+At minimum, provide:
+
+* Major.
+* Natural minor.
+* Harmonic minor.
+* Melodic minor.
+* Major pentatonic.
+* Minor pentatonic.
+* Blues.
+* Chromatic.
+* User-defined scale patterns.
+
+Additional modes and scales may be added through a data-driven definition.
+
+10.3 Chords and intervals
+
+Support configurable definitions for:
+
+* Major and minor triads.
+* Diminished and augmented triads.
+* Suspended chords.
+* Seventh chords.
+* Extended chords where practical.
+* Common musical intervals.
+* Inversions and voicings.
+
+10.4 Scale mapping
+
+Scale mapping must define:
+
+* Root pitch.
+* Scale interval pattern.
+* Octave.
+* Register.
+* Button-to-note or button-to-chord mapping.
+* Out-of-range behavior.
+* Optional note quantization.
+
+10.5 Tempo and meter
+
+The game must support configurable tempo and common time signatures.
+
+The internal representation must allow tempo changes and time-signature changes when imported arrangements contain them.
+
+⸻
+
+11. Audio Engine
+
+11.1 General requirements
+
+The audio engine must provide reliable playback for:
+
+* Synthesized notes.
+* Sampled instrument sounds.
+* Percussion.
+* Polyphonic sequences.
+* Multitrack arrangements.
+* Live input.
+* Recorded performances.
+* Imported MIDI.
+* Metronome clicks.
+* Backing tracks.
+
+The audio engine must support independent track volume and mute state.
+
+11.2 Audio implementation
+
+The preferred browser-native foundation is the Web Audio API.
+
+The agent must evaluate:
+
+* Oscillator-based synthesis.
+* Sample-based playback.
+* General MIDI sound-bank playback.
+* Sound-bank size and loading time.
+* Polyphony limits.
+* Voice allocation.
+* Note stealing.
+* Envelope handling.
+* Audio scheduling.
+* Mixing and master output.
+
+The implementation must use a suitable combination of synthesis and samples rather than assuming that simple oscillators can reproduce every instrument convincingly.
+
+11.3 General MIDI fidelity
+
+The target is broad General MIDI program coverage, including melodic instruments and percussion.
+
+The specification must distinguish:
+
+1. Correct instrument program assignment.
+2. Correct note pitches and timing.
+3. Correct percussion channel and drum mapping.
+4. Reasonable timbral similarity.
+5. Accurate instrument articulations and expression.
+
+These are different fidelity levels.
+
+General MIDI is a sound assignment standard, not a guarantee of identical sound across synthesizers.
+
+The game should provide General MIDI program mapping and, where licensing and file size permit, a compatible embedded sound bank or an explicitly documented alternative.
+
+If the entire sound bank is too large for the practical standalone file budget, use a documented strategy such as optional sound-bank loading or a reduced built-in sound set. Do not claim full acoustic fidelity when using simplified synthesis.
+
+11.4 Instrument behavior
+
+Instrument playback must preserve available event information, including:
+
+* Pitch.
+* Velocity.
+* Duration.
+* Program selection.
+* Channel.
+* Sustain.
+* Pitch bend.
+* Modulation.
+* Volume and expression.
+* Pan.
+* Relevant controller changes.
+
+Unsupported controllers must be handled deterministically and documented.
+
+11.5 Audio recording
+
+The application must distinguish between:
+
+* MIDI-event recording.
+* Recording of the player’s input events.
+* Recording the rendered audio output.
+* Exporting a final mixed track.
+
+MIDI recording preserves editable musical events. Audio recording preserves the rendered sound.
+
+Browser support and user-gesture requirements must be considered when capturing audio.
+
+11.6 Audio performance
+
+The engine must avoid:
+
+* Blocking the main UI thread during playback.
+* Unbounded voice creation.
+* Uncontrolled memory growth.
+* Large synchronous audio decoding tasks.
+* Scheduling every event only when it becomes visually visible.
+
+The agent must define and test polyphony and track-count limits for target devices.
+
+⸻
+
+12. 3D Rendering and Performance Visualization
+
+12.1 Stage
+
+The stage must provide a real-time 3D environment with:
+
+* Camera control.
+* Lighting.
+* Ground or stage geometry.
+* Optional environmental elements.
+* Musicians and instruments.
+* Visual effects.
+* Performance-reactive elements.
+
+The user must be able to select from at least several camera perspectives, including a full-band view and a focused musician view.
+
+12.2 Humanoid avatars
+
+Musicians must use a skeletal or equivalent articulated character representation capable of animating:
+
+* Torso.
+* Head.
+* Neck.
+* Shoulders.
+* Upper and lower arms.
+* Hands or hand targets.
+* Hips.
+* Upper and lower legs.
+* Feet.
+
+A practical implementation may use procedural skeletons rather than complex imported character models.
+
+Each avatar must support a consistent rig interface so that different instruments and character appearances can share the animation system.
+
+12.3 Instrument performance animation
+
+Animation must correspond to actual musical events rather than generic looping movements alone.
+
+Examples:
+
+* Piano and keyboard: hand movements correlated with notes and chord density.
+* Guitar and bass: fretting-hand positioning and strumming or picking activity.
+* Drums: limb motion coordinated with drum and cymbal events.
+* Strings: bow or plucking motion where supported.
+* Winds and brass: instrument-specific hand and breath-related gestures.
+* Percussion: strikes aligned to percussion events.
+* Synthesizers: keyboard performance or control gestures.
+
+The system must not imply that every instrument can be animated with the same generic arm movement.
+
+12.4 Abstract visualization
+
+Some instruments or source events may not have a practical one-to-one humanoid animation.
+
+The game must support abstract visual representations, including:
+
+* Floating notes.
+* Pitch or frequency indicators.
+* Animated shapes.
+* Particles.
+* Rings or waves.
+* Instrument-specific visual motifs.
+* Motion trails.
+* Beat-synchronized stage effects.
+
+Abstract visualizations must preserve the relationship between the underlying event and its visual representation.
+
+12.5 Polyphonic visualization
+
+The visualization must support multiple simultaneous notes and multiple performers.
+
+Animation intensity may be driven by note density, velocity, rhythmic activity, or other measurable musical attributes.
+
+It must not require a separate humanoid character for every MIDI note.
+
+12.6 Rendering architecture
+
+The agent must compare an appropriate lightweight 3D approach against a custom WebGL implementation.
+
+A library may be justified if it significantly reduces implementation complexity and is compatible with the standalone HTML requirement.
+
+The architecture must define:
+
+* Scene graph.
+* Camera system.
+* Geometry and material management.
+* Avatar rig.
+* Animation mixer or procedural animation scheduler.
+* Event-to-animation mapping.
+* Lighting.
+* Asset loading.
+* Resource disposal.
+* Render scaling.
+* Quality settings.
+* Device capability detection.
+
+12.7 Performance fallback
+
+When full rendering is too expensive, the game must degrade gracefully.
+
+Possible fallback levels:
+
+1. Full 3D stage and skeletal animation.
+2. Reduced 3D geometry and lighting.
+3. Reduced animation complexity.
+4. Simplified stage with abstract instrument visualizations.
+5. Lightweight non-3D visualization where necessary.
+
+Audio and musical timing must take priority over decorative rendering.
+
+⸻
+
+13. Character Customization
+
+13.1 Customization screen
+
+Provide a dedicated character editor.
+
+The user must be able to configure, where supported:
+
+* Character body or silhouette.
+* Skin or surface color.
+* Hair style and color.
+* Facial features.
+* Clothing.
+* Accessories.
+* Instrument assignment.
+* Stage position.
+* Animation style.
+* Preset appearance.
+
+13.2 Data-driven appearance
+
+Character options must be stored as configuration data rather than hardcoded separately into every avatar.
+
+13.3 Rig compatibility
+
+Appearance customization must not break the underlying skeleton or instrument animation.
+
+The agent must define which properties are visual only and which affect rig dimensions or attachment points.
+
+13.4 Persistence
+
+The selected character configuration must be saved in the local project or user settings and restored when the game is reopened.
+
+Multiplayer must synchronize the appearance data required to display remote players, subject to payload-size limits.
+
+⸻
+
+14. Dance System
+
+14.1 Dance chart model
+
+A dance chart must define:
+
+* Song identifier.
+* Tempo or reference timeline.
+* Step positions.
+* Step timestamps or musical ticks.
+* Direction or action.
+* Hold duration where relevant.
+* Difficulty.
+* Optional metadata.
+
+14.2 Gameplay
+
+The system must support:
+
+* Four-button step sequences.
+* Simultaneous steps.
+* Holds.
+* Timing judgments.
+* Combos.
+* Score.
+* Song progress.
+* Failure or completion rules configurable by mode.
+
+14.3 Choreography visualization
+
+The avatar must perform movements synchronized to the dance chart.
+
+Choreography may be authored, procedurally generated, or selected from presets, but the relationship between chart events and performance timing must be explicit.
+
+14.4 Input independence
+
+Dance inputs must be processed by the same low-level input system as instrument inputs while remaining independent of the instrument mapping and scoring logic.
+
+⸻
+
+15. File Import and Export
+
+15.1 Import architecture
+
+All supported formats must pass through a common internal music representation.
+
+The import pipeline must:
+
+1. Validate the input.
+2. Identify the file format.
+3. Parse the source.
+4. Normalize tracks and musical events.
+5. Preserve supported metadata.
+6. Report unsupported features.
+7. Present the imported tracks for inspection.
+8. Make the arrangement available to playback, visualization, and gameplay systems.
+
+15.2 MIDI
+
+MIDI support must include Standard MIDI Files where supported by the chosen parser.
+
+The parser must handle:
+
+* Format 0.
+* Format 1.
+* Track events.
+* Delta times.
+* Tempo maps.
+* Time signatures.
+* Key signatures.
+* Program changes.
+* Note-on and note-off.
+* Velocity.
+* Controllers.
+* Pitch bend.
+* Sustain pedal.
+* Track names and metadata where available.
+* Percussion channels.
+* Simultaneous notes.
+
+Running status, variable-length quantities, end-of-track events, and other structural details must be handled correctly.
+
+Malformed or truncated files must not crash the application.
+
+15.3 MusicXML
+
+MusicXML import must preserve supported information such as:
+
+* Parts and instruments.
+* Measures.
+* Notes and rests.
+* Durations.
+* Chords.
+* Ties.
+* Time signatures.
+* Key signatures.
+* Tempo markings.
+* Articulation and dynamics where available.
+* Repeats and navigation markings where supported.
+
+The agent must explicitly define support for compressed MusicXML containers and uncompressed XML variants.
+
+Engraving and complete notation rendering are separate features from event import and must not be assumed merely because MusicXML can be parsed.
+
+15.4 Guitar Pro
+
+The agent must identify the specific Guitar Pro versions and file extensions supported by the selected parser.
+
+Guitar Pro compatibility must be implemented through a verified parser or a clearly documented conversion path.
+
+The implementation must not claim universal support for all Guitar Pro versions.
+
+Where imported data includes tablature-specific information, preserve supported information such as:
+
+* String and fret.
+* Tuning.
+* Capo.
+* Rhythmic duration.
+* Bends.
+* Slides.
+* Hammer-ons and pull-offs.
+* Palm muting.
+* Harmonics.
+* Track and instrument information.
+
+Unsupported notation features must be reported rather than silently discarded.
+
+15.5 Additional formats
+
+The architecture should permit future adapters for formats such as:
+
+* WAV.
+* MP3.
+* OGG.
+* FLAC where browser decoding permits.
+* Other sequencer or notation formats through verified adapters.
+
+Audio files do not inherently provide MIDI note events. They must be treated as audio tracks unless a separate transcription or analysis process is used.
+
+The game must not claim that arbitrary audio files can be converted into accurate playable note charts without an appropriate transcription system.
+
+15.6 Export
+
+The game should support:
+
+* Exporting MIDI performances.
+* Exporting project data.
+* Exporting audio mixes where browser capabilities permit.
+* Exporting dance charts.
+* Downloading character and project presets where appropriate.
+
+Every export format must have a defined schema and round-trip tests where round-trip conversion is applicable.
+
+15.7 Internal music representation
+
+The internal representation must support:
+
+* Song metadata.
+* Tempo maps.
+* Time-signature maps.
+* Key-signature information.
+* Track collections.
+* Instrument assignments.
+* Ordered musical events.
+* Note-on and note-off events.
+* Controllers.
+* Track mute and solo state.
+* Track mixing properties.
+* Source-file metadata.
+* Import warnings.
+* Project editing state.
+* Recording data.
+
+The representation must distinguish source events from gameplay mappings and from rendered audio.
+
+⸻
+
+16. Recording and Multitrack Studio
+
+16.1 Track lifecycle
+
+Users must be able to create, rename, duplicate where supported, mute, solo, and delete tracks.
+
+Every track must have an instrument or audio-source assignment.
+
+16.2 Recording workflow
+
+The recording workflow must support:
+
+1. Selecting or creating a track.
+2. Selecting an instrument.
+3. Setting tempo and meter.
+4. Configuring count-in and metronome.
+5. Starting recording.
+6. Capturing note events with timing.
+7. Stopping recording.
+8. Reviewing the take.
+9. Re-recording or overdubbing.
+10. Saving the project.
+
+16.3 Layering
+
+Users must be able to record multiple instruments sequentially while listening to previously recorded tracks.
+
+Track playback must remain synchronized.
+
+16.4 Editing
+
+Basic editing should support:
+
+* Moving events.
+* Adjusting event duration.
+* Deleting events.
+* Quantization.
+* Copying and pasting event groups.
+* Loop regions.
+* Undo and redo.
+
+The exact editing granularity and limits must be defined before implementation.
+
+16.5 Mixing
+
+The mixer must support:
+
+* Per-track volume.
+* Per-track pan.
+* Mute.
+* Solo.
+* Master volume.
+* Peak or clipping indicators where practical.
+
+Effects such as reverb, delay, compression, and equalization may be implemented incrementally, with processing costs considered for mobile devices.
+
+⸻
+
+17. Multiplayer Architecture
+
+17.1 Client-server separation
+
+The single HTML file acts as the game client.
+
+Online multiplayer requires a network service responsible for room discovery or joining, session state, synchronization messages, and authoritative validation where required.
+
+The agent must document the proposed protocol, transport, hosting requirements, and operational costs.
+
+17.2 Synchronization model
+
+The system must define:
+
+* A shared session clock.
+* Server or host authority.
+* Scheduled start times.
+* Clock-offset estimation.
+* Input event timestamps.
+* Latency measurement.
+* Reconnection behavior.
+* Pause and resume semantics.
+* State reconciliation.
+
+Musical events must be scheduled against a shared timeline rather than triggered solely when network messages arrive.
+
+17.3 Network resilience
+
+The game must handle:
+
+* Temporary disconnection.
+* Duplicate messages.
+* Out-of-order messages where relevant.
+* Missing state updates.
+* Late-joining players if supported.
+* Host departure.
+* Server errors.
+* Session expiration.
+
+17.4 Security
+
+The online system must validate incoming messages and enforce payload-size limits.
+
+The server must not trust clients to determine authoritative multiplayer scores or session permissions when those values affect competitive results.
+
+The client must not execute imported music files as code.
+
+17.5 Standalone behavior
+
+When multiplayer is unavailable, the application must continue to provide local gameplay and local project functionality.
+
+⸻
+
+18. Data Persistence and Project Format
+
+18.1 Local persistence
+
+The application must support local project saving and restoration.
+
+The agent must evaluate appropriate browser storage options and file-based project downloads.
+
+The design must account for storage quotas, browser privacy settings, and differences between HTTP-origin storage and local-file execution.
+
+18.2 Project contents
+
+A saved project should contain:
+
+* Project metadata.
+* Tracks.
+* Instrument assignments.
+* Musical events.
+* Tempo and time-signature maps.
+* Key and scale configuration.
+* Mixer settings.
+* Recording metadata.
+* Character configurations.
+* Dance charts where applicable.
+* Supported references to audio resources.
+* Version and migration information.
+
+18.3 Versioning
+
+The project format must have a version identifier and a migration strategy.
+
+Unsupported project versions must produce an understandable error instead of silently corrupting data.
+
+18.4 Storage limits
+
+Large audio recordings and embedded samples must not be stored without accounting for browser limits.
+
+The game must report when a project is too large to persist and offer an appropriate export or download path.
+
+⸻
+
+19. Technical Architecture
+
+19.1 Architectural layers
+
+The application must separate concerns logically, even when every component is packaged in one file.
+
+Required layers:
+
+1. Application shell and navigation.
+2. Input abstraction.
+3. Musical data model.
+4. Music import and export.
+5. Musical timeline and transport.
+6. Audio engine.
+7. Rhythm gameplay.
+8. Free-play mapping.
+9. Recording and studio.
+10. Dance gameplay.
+11. 3D rendering.
+12. Avatar and instrument animation.
+13. Character customization.
+14. Project persistence.
+15. Multiplayer client.
+16. Settings and diagnostics.
+17. Error handling and recovery.
+18. Automated tests and validation.
+
+19.2 Module boundaries
+
+The implementation must define stable interfaces between the subsystems.
+
+For example:
+
+* The input system emits normalized events.
+* The mapping system converts applicable inputs into musical actions.
+* The musical data model stores and orders events.
+* The transport controls the authoritative musical position.
+* The audio engine schedules playback.
+* The rhythm engine evaluates player input.
+* The renderer consumes musical state without controlling audio timing.
+* The animation system converts instrument events into skeletal motion.
+* The persistence system serializes supported project state.
+
+19.3 Technology evaluation
+
+Before selecting libraries, compare:
+
+* Native Web Audio API versus additional audio engines.
+* Native WebGL versus a compact 3D library.
+* Custom parsers versus verified MIDI, MusicXML, and Guitar Pro parsers.
+* Embedded versus remotely loaded resources.
+* Native browser APIs versus optional compatibility layers.
+
+Selection criteria must include:
+
+* Browser compatibility.
+* Mobile performance.
+* File size.
+* License.
+* Maintenance.
+* Security.
+* Functional completeness.
+* Offline behavior.
+* Single-file compatibility.
+
+19.4 Single-file source organization
+
+The source may be logically organized into clearly separated sections inside one HTML file.
+
+The implementation should use clear names, stable interfaces, and explicit initialization order.
+
+Minification must not be prioritized over maintainability during development.
+
+19.5 Dependency policy
+
+Every external dependency must have:
+
+* A specific purpose.
+* A license review.
+* A documented version.
+* A known loading strategy.
+* A failure-handling strategy.
+* A justification for inclusion.
+
+No dependency should be included solely for convenience if a small, reliable native implementation would provide equivalent functionality.
+
+However, implementing complex music parsers or a full 3D renderer from scratch must not be presumed preferable merely to avoid dependencies.
+
+⸻
+
+20. Performance and Resource Management
+
+20.1 Performance targets
+
+The agent must establish measurable budgets for:
+
+* Initial load time.
+* HTML file size.
+* Time to first playable interaction.
+* Frame rate.
+* Audio scheduling precision.
+* Input latency.
+* Memory consumption.
+* Maximum supported active notes.
+* Maximum supported tracks.
+* Multiplayer update rate.
+* Project serialization time.
+
+Targets must be tested on representative desktop and mobile devices.
+
+20.2 Rendering targets
+
+The intended target is smooth 60 FPS on capable devices, with lower adaptive targets on constrained mobile hardware.
+
+The game must prioritize responsiveness and stable audio playback over maintaining a fixed frame rate at any cost.
+
+20.3 Resource cleanup
+
+The implementation must release:
+
+* Audio voices.
+* Decoded audio buffers when no longer needed.
+* GPU resources.
+* Event listeners.
+* Animation state.
+* Network connections.
+* Temporary recording buffers.
+* Imported-file buffers.
+
+Repeatedly entering and leaving gameplay must not produce unbounded resource growth.
+
+20.4 Loading strategy
+
+Large resources must be loaded progressively where possible.
+
+The game must distinguish critical startup resources from optional sound banks, visual assets, and additional presets.
+
+A loading screen must report actual progress when measurable and must not fabricate progress percentages.
+
+⸻
+
+21. Mobile-Specific Requirements
+
+21.1 Touch input
+
+Touch controls must:
+
+* Support reliable press and release.
+* Support simultaneous input where possible.
+* Avoid accidental browser gestures during gameplay.
+* Provide visible pressed states.
+* Recover from interrupted touch sequences.
+* Handle changes in orientation.
+* Avoid relying on hover.
+
+21.2 Audio activation
+
+The game must accommodate browser restrictions on audio playback.
+
+The initial audio context activation must be associated with an appropriate user gesture.
+
+21.3 Mobile performance
+
+The game must adapt:
+
+* Rendering resolution.
+* Shadow quality.
+* Lighting complexity.
+* Particle count.
+* Animation complexity.
+* Audio polyphony where necessary.
+
+Any reduction must be applied without corrupting the musical timeline.
+
+21.4 Interruptions
+
+The application must define behavior for:
+
+* Incoming calls or app switching.
+* Screen locking.
+* Browser backgrounding.
+* Audio context suspension.
+* Device orientation changes.
+* Temporary memory pressure.
+
+The game must pause or recover safely when uninterrupted timing cannot be guaranteed.
+
+⸻
+
+22. Accessibility and Usability
+
+The game must provide:
+
+* Remappable controls.
+* Adjustable note speed and difficulty.
+* Configurable timing windows where appropriate.
+* High-contrast gameplay indicators.
+* Visual feedback for audio events.
+* Optional reduced-motion settings.
+* Scalable UI.
+* Keyboard navigation for menus.
+* Accessible labels for controls.
+* Non-color-only indications of success and failure.
+* Adjustable visual effects.
+* Clear error messages.
+
+The application must not require color discrimination alone to identify note lanes or dance directions.
+
+⸻
+
+23. Security, Privacy, and Licensing
+
+23.1 File safety
+
+Imported files must be treated as untrusted input.
+
+The parsers must validate lengths, offsets, event counts, and structural constraints.
+
+The game must defend against malformed or excessively large files that could freeze the browser or consume excessive memory.
+
+Imported HTML, XML, metadata, or text must not be executed as code.
+
+23.2 Privacy
+
+Standalone mode must not require telemetry or account creation.
+
+Multiplayer must communicate what information is transmitted, such as player identity, room state, inputs, and avatar settings.
+
+23.3 Licensing
+
+The agent must verify the licenses of all included libraries, fonts, sounds, models, and other assets.
+
+The application must not bundle copyrighted sound banks, commercial character models, or third-party content without appropriate permission.
+
+23.4 Online service credentials
+
+Private server credentials and secret API keys must not be embedded in the standalone HTML.
+
+Any multiplayer service must use a security model appropriate to a publicly distributed client.
+
+⸻
+
+24. Error Handling and Diagnostics
+
+The game must provide actionable errors for:
+
+* Unsupported browser capabilities.
+* Audio initialization failure.
+* Failed sound-bank loading.
+* Invalid imported files.
+* Unsupported file versions.
+* Missing assets.
+* Storage quota errors.
+* Corrupted projects.
+* Multiplayer connection failure.
+* Rendering initialization failure.
+* Insufficient performance.
+* Unsupported export functionality.
+
+The application must preserve user work whenever possible.
+
+Diagnostics must distinguish recoverable errors from errors that require returning to the main menu or reloading the application.
+
+A development diagnostics mode should expose relevant timing, rendering, audio, and network metrics.
+
+⸻
+
+25. Testing Strategy
+
+25.1 Unit tests
+
+Test at minimum:
+
+* Musical time conversion.
+* Tempo-map conversion.
+* Note scheduling.
+* Input normalization.
+* Four-button mapping.
+* Chord generation.
+* Scale mapping.
+* Score calculation.
+* MIDI parsing.
+* Project serialization.
+* Project migration.
+* Dance chart parsing.
+* Error handling.
+
+25.2 Integration tests
+
+Test:
+
+* Input to audio playback.
+* Input to scoring.
+* Imported MIDI to playback.
+* Imported MIDI to 3D animation.
+* Recording to project save and reload.
+* Multitrack playback and mixing.
+* Dance chart to scoring.
+* Character customization to saved appearance.
+* Multiplayer session synchronization.
+* Offline operation without the multiplayer service.
+
+25.3 File-format tests
+
+Use a test corpus containing:
+
+* Simple monophonic MIDI.
+* Polyphonic MIDI.
+* Multitrack MIDI.
+* Percussion-heavy MIDI.
+* MIDI with tempo changes.
+* MIDI with controller events.
+* Valid MusicXML.
+* Valid Guitar Pro files for each claimed supported version.
+* Malformed files.
+* Truncated files.
+* Large files.
+* Files containing unsupported features.
+
+Tests must verify that unsupported data is reported and that parsing failures do not crash the application.
+
+25.4 Timing tests
+
+Measure:
+
+* Scheduled audio-event timing.
+* Input judgment timing.
+* Pause and resume behavior.
+* Seeking.
+* Looping.
+* Tempo changes.
+* Rendering stalls.
+* Background and foreground transitions.
+
+25.5 Cross-device tests
+
+Test representative desktop and mobile configurations.
+
+The matrix must include:
+
+* Chromium desktop.
+* Firefox desktop.
+* Safari desktop.
+* iOS Safari.
+* Android Chrome.
+
+Browser versions and actual test devices must be recorded.
+
+25.6 Performance tests
+
+Measure:
+
+* Startup.
+* Sustained playback.
+* Dense polyphonic passages.
+* Full-band visualization.
+* Mobile rendering fallback.
+* Long sessions.
+* Large project loading.
+* Memory after repeated mode changes.
+
+25.7 Acceptance tests
+
+Every P0 and P1 requirement must have a specific acceptance test.
+
+A feature cannot be marked complete solely because the implementation compiles or the page loads.
+
+⸻
+
+26. Acceptance Criteria
+
+26.1 Standalone application
+
+* The HTML file opens in supported desktop browsers.
+* Core functionality does not require a build process.
+* Local gameplay remains usable without network access.
+* Optional network failures do not disable standalone features.
+
+26.2 Instrument gameplay
+
+* Four-button input triggers the intended mapped musical actions.
+* Chords and simultaneous inputs work within documented limits.
+* Timing judgments are based on the musical timeline.
+* Input calibration affects scoring predictably.
+* Keyboard and touch controls work.
+
+26.3 Music playback
+
+* Imported supported MIDI files preserve the intended track and note structure.
+* Tempo changes are respected.
+* Polyphonic passages remain polyphonic.
+* Instrument program assignments are applied as documented.
+* Playback can pause, resume, seek, and loop without cumulative timing drift.
+
+26.4 Visualization
+
+* Instrument animations respond to actual events.
+* Multiple instruments can perform simultaneously.
+* The renderer handles dense musical passages without blocking audio scheduling.
+* Reduced-quality modes preserve the musical event timeline.
+
+26.5 Recording and studio
+
+* Users can record a performance.
+* Users can create multiple tracks.
+* Previously recorded tracks play during overdubbing.
+* Projects can be saved and reopened.
+* Exported supported formats pass their validation tests.
+
+26.6 Dance mode
+
+* Dance steps are aligned to the musical timeline.
+* Four-button inputs are evaluated correctly.
+* Scores and judgments are deterministic.
+* Avatar movement remains synchronized with the chart.
+
+26.7 Multiplayer
+
+* Players can join a session when the configured service is available.
+* Session start and musical position are synchronized within documented limits.
+* Disconnection and reconnection are handled without corrupting local state.
+* Standalone gameplay remains functional when multiplayer is unavailable.
+
+26.8 Delivery
+
+* The final standalone HTML is provided.
+* Any external services or optional resources are documented.
+* Dependency licenses are documented.
+* Supported file formats and limitations are listed.
+* Automated test results and known issues are included.
+* No feature is falsely described as complete.
+
+⸻
+
+27. Implementation Roadmap
+
+The following phases define the required implementation sequence. Each phase must have explicit entry criteria, deliverables, exit criteria, and regression tests in the approved implementation plan.
+
+Phase 0 — Specification and planning
+
+* Generate the complete end-to-end table of contents.
+* Generate all required planning artifacts.
+* Resolve architecture decisions.
+* Define acceptance criteria.
+* Establish the traceability matrix.
+* Identify technical risks.
+
+No implementation code may be written during this phase.
+
+Phase 1 — Standalone application foundation
+
+* Build the application shell.
+* Establish navigation.
+* Implement responsive layout.
+* Implement capability detection.
+* Establish the single-file source structure.
+* Add error handling and diagnostics.
+
+Phase 2 — Musical data and timing
+
+* Define the internal music model.
+* Implement tempo and meter handling.
+* Implement musical position conversion.
+* Implement the shared transport.
+* Test pause, resume, seek, and loop behavior.
+
+Phase 3 — Input and four-button gameplay
+
+* Implement input abstraction.
+* Implement configurable controls.
+* Implement mapping profiles.
+* Implement note, interval, and chord behavior.
+* Implement scoring and calibration.
+
+Phase 4 — Audio engine
+
+* Implement note synthesis or sample playback.
+* Implement scheduling.
+* Implement polyphony.
+* Implement instrument assignments.
+* Implement percussion.
+* Implement mixing and volume controls.
+
+Phase 5 — 3D stage and visualization
+
+* Implement rendering initialization.
+* Implement the stage and camera.
+* Implement avatar rigs.
+* Implement event-driven animation.
+* Implement abstract visualizations.
+* Implement rendering quality tiers.
+
+Phase 6 — Free Play
+
+* Implement key and scale configuration.
+* Implement instrument selection.
+* Implement live note triggering.
+* Implement sustained notes and simultaneous inputs.
+* Implement the metronome and free-play recording.
+
+Phase 7 — MIDI import and playback
+
+* Implement and validate the MIDI parser.
+* Preserve tracks and events.
+* Implement instrument assignment.
+* Connect imported events to audio and visualization.
+* Implement song selection, seeking, and looping.
+
+Phase 8 — Rhythm-game song mode
+
+* Implement chart mapping.
+* Implement difficulty settings.
+* Implement timing judgments.
+* Implement score and combo.
+* Implement performance summaries.
+
+Phase 9 — Studio and multitrack recording
+
+* Implement track lifecycle.
+* Implement recording and overdubbing.
+* Implement basic editing.
+* Implement mixer controls.
+* Implement project save and load.
+* Implement MIDI and project export.
+
+Phase 10 — Character customization
+
+* Implement customization UI.
+* Implement appearance presets.
+* Implement data-driven character configuration.
+* Implement persistence and animation compatibility.
+
+Phase 11 — Dance mode
+
+* Implement dance chart representation.
+* Implement step mapping.
+* Implement dance scoring.
+* Implement synchronized avatar choreography.
+* Implement difficulty settings.
+
+Phase 12 — MusicXML and Guitar Pro
+
+* Integrate verified parsers or documented conversion adapters.
+* Define supported versions and features.
+* Preserve supported notation and performance data.
+* Implement warnings for unsupported content.
+* Validate imported arrangements against reference files.
+
+Phase 13 — Multiplayer
+
+* Define the network protocol.
+* Implement room lifecycle.
+* Implement shared musical timing.
+* Implement player state and scoring.
+* Implement reconnection and failure handling.
+* Validate the standalone fallback.
+
+Phase 14 — Advanced audio and performance
+
+* Expand instrument coverage.
+* Evaluate sound-bank fidelity.
+* Optimize audio voice allocation.
+* Optimize 3D rendering.
+* Tune mobile performance.
+* Validate long-session stability.
+
+Phase 15 — Cross-browser and device validation
+
+* Execute unit and integration tests.
+* Execute file-format tests.
+* Test desktop and mobile browsers.
+* Measure audio and input timing.
+* Validate local-file operation.
+* Validate failure and recovery paths.
+
+Phase 16 — Packaging and final delivery
+
+* Produce the final standalone HTML.
+* Verify dependencies and licenses.
+* Validate the delivered file independently.
+* Run the complete acceptance suite.
+* Document supported features and limitations.
+* Provide test results.
+* Provide the final artifact and operating instructions.
+
+The roadmap must be adjusted only through documented changes to the requirements traceability matrix and implementation plan.
+
+⸻
+
+28. Final Implementation Report
+
+At completion, the agent must provide:
+
+1. Final standalone HTML artifact.
+2. Complete requirements traceability matrix.
+3. Updated implementation table of contents.
+4. Feature-completion report.
+5. Supported file-format and version matrix.
+6. External dependency and license inventory.
+7. Multiplayer service requirements, if applicable.
+8. Browser and device compatibility report.
+9. Performance measurements.
+10. Automated test results.
+11. Known issues and unsupported features.
+12. Instructions for launching and using the application.
+13. Instructions for optional multiplayer deployment.
+14. Verification that the final HTML satisfies the stated packaging requirements.
+
+The report must distinguish implemented and tested functionality from partial functionality, unverified behavior, and future work.
+
+29. Final Product Definition
+
+Finger Lickin Music is a single-file-first browser music game combining four-button rhythm gameplay, free instrument performance, multitrack recording, imported-song playback, a responsive 3D virtual band, avatar customization, dance gameplay, and optional online multiplayer.
+
+Its core architecture must preserve the separation between musical data, audio scheduling, player input, scoring, animation, rendering, and persistence.
+
+The most important engineering constraints are:
+
+* Musical timing must remain accurate independently of rendering performance.
+* Polyphonic source material must be preserved.
+* The 3D band must react to actual musical events.
+* Desktop and mobile controls must be fully usable.
+* Standalone gameplay must not depend on online services.
+* Online multiplayer must use an explicitly documented network architecture.
+* The single HTML file must be tested as a real deliverable.
+* The implementation agent must generate and validate the complete end-to-end table of contents before writing any implementation code.
+
+
+Specification version: FLM-1.1.0 | Last updated: 2026-10-23 | Status: Requirements extension | Scope: Edge cases, failure modes, technical risks, and acceptance tests
+Finger Lickin Music — Edge Cases and Critical Failure Modes
+This document extends the existing specification. Add it as a mandatory section of the agentic AI implementation plan, and include every subsection in the end-to-end table of contents generated before implementation begins.
+1. Highest-impact risks
+These issues should be addressed before adding large amounts of gameplay content.
+Priority	Risk	Potential impact
+Critical	Audio timing drifts away from gameplay	Rhythm scoring becomes unreliable
+Critical	Audio is blocked by the browser	Game appears broken or silent
+Critical	MIDI parsing loses or misorders events	Imported music plays incorrectly
+Critical	Note-off events are lost	Instruments sustain indefinitely or produce stuck notes
+Critical	Rendering blocks audio scheduling	Audio glitches during complex 3D scenes
+Critical	Single-file constraint is misunderstood	Final application depends on missing assets or services
+Critical	Multiplayer relies on message arrival time	Players hear or see events at different times
+Critical	Saving fails or corrupts projects	Users lose recorded music
+High	Mobile touch events remain stuck	Continuous notes, missed inputs, or incorrect scores
+High	Polyphonic playback exceeds resource limits	Crashes, dropped notes, or audio distortion
+High	File-format compatibility is overstated	Users cannot open files advertised as supported
+High	Project state leaks between modes	Incorrect instruments, tempo, or tracks after switching
+High	Browser storage assumptions are incorrect	Projects disappear or cannot be saved
+High	Imported data is treated as trusted	Excessive resource consumption or security vulnerabilities
+Browser behavior is a particularly important risk: audible playback can be blocked until user interaction, and Web MIDI device access is not available consistently across browsers. These must be handled as explicit capability and recovery cases, not assumptions.
+2. Audio engine and musical timing edge cases
+These are the highest-priority correctness requirements because the audio engine is shared by rhythm gameplay, free play, recording, song playback, and multiplayer.
+2.1 Audio lifecycle
+The agent must handle all of the following:
+* The browser blocks audio before the first user gesture.
+* The audio context becomes suspended while the game is running.
+* The user switches tabs and returns after several minutes.
+* The device locks its screen or enters a power-saving state.
+* The user connects or disconnects headphones during playback.
+* The operating system changes the default audio output device.
+* A sample fails to decode or is unavailable.
+* The user repeatedly starts and stops songs.
+* Audio initialization is attempted more than once.
+* A recording is started before audio initialization completes.
+Required behavior: Audio state must be explicitly managed. Failed playback must produce a recoverable error or a clear resume action. Reinitialization must not create duplicate audio engines or overlapping playback.
+2.2 Timing and scheduling
+* A rendering frame takes 100–500 ms to complete.
+* The browser throttles animation in a background tab.
+* A tempo change occurs during playback.
+* The song contains multiple tempo changes.
+* The player pauses during a sustained note.
+* The player seeks while notes are active.
+* A loop boundary occurs during a sustained note.
+* The user changes playback speed while playing.
+* The audio clock and performance clock diverge.
+* A scheduled event falls exactly on a loop boundary.
+* Several notes share an identical timestamp.
+* A dense chord contains many simultaneous note events.
+Required behavior: Audio scheduling must use the audio clock rather than frame count. Pause, seek, looping, and tempo changes must have explicit rules for active notes and future scheduled events.
+2.3 Stuck notes and voice management
+* A note-on event has no matching note-off event.
+* A note-off arrives before its note-on event.
+* The same pitch is triggered repeatedly before release.
+* Two overlapping notes use the same pitch and MIDI channel.
+* A sustain pedal is pressed and never released.
+* A track ends while notes are active.
+* A program change occurs while notes are sustaining.
+* The maximum polyphony limit is reached.
+* A user changes instruments while holding a note.
+Required behavior: Provide deterministic voice cleanup, note-release handling, sustain-pedal recovery, and a global panic/stop operation. The operation must stop active voices without leaving notes or audio nodes running indefinitely.
+3. MIDI and music-file edge cases
+File parsing must be treated as a data-integrity problem, not simply as an import dialog.
+3.1 MIDI structural cases
+* Format 0 file containing all events on one track.
+* Format 1 file containing multiple synchronized tracks.
+* Format 2 file containing independent sequences.
+* Missing or invalid header.
+* Invalid track length.
+* Truncated variable-length quantity.
+* Invalid event status byte.
+* Missing end-of-track event.
+* Duplicate or conflicting metadata.
+* Running-status events.
+* Empty track.
+* Track containing metadata but no notes.
+* File with extremely large event counts.
+* File containing zero-duration notes.
+* File containing unmatched note-on and note-off events.
+* Note-on with velocity zero used as note-off.
+* Multiple simultaneous notes with identical pitches.
+* Events sharing timestamps but appearing in different tracks.
+* Unusual ticks-per-quarter-note values.
+* SMPTE-based timing instead of musical ticks-per-quarter-note timing.
+Required behavior: Validate the header and event boundaries, enforce resource limits, preserve valid event ordering, and report malformed data. Do not interpret every MIDI file as a single synchronized song without checking its format.
+3.2 Musical interpretation cases
+* Tempo is not explicitly defined.
+* Tempo changes occur multiple times.
+* Time signature changes mid-song.
+* Key signature changes mid-song.
+* A track contains multiple program changes.
+* Percussion is assigned through a designated channel.
+* Pitch bend or modulation changes during a note.
+* Sustain pedal changes note duration.
+* Notes extend across measures.
+* A file uses unusual note velocities.
+* A note falls outside the playable instrument’s range.
+* Several instruments use the same MIDI channel.
+* Track names are missing or duplicated.
+* The final event occurs after the last note has ended.
+Required behavior: Preserve the original event data separately from normalized gameplay data. Missing metadata must use documented defaults, not guessed values presented as source facts.
+3.3 MusicXML and Guitar Pro cases
+* Compressed MusicXML is imported instead of uncompressed XML.
+* The file contains multiple parts, voices, or staves.
+* Chords and tied notes cross measure boundaries.
+* Tuplets and unusual rhythmic subdivisions occur.
+* Repeats and alternate endings are present.
+* A score uses transposing instruments.
+* Guitar tablature uses alternate tuning or a capo.
+* A Guitar Pro file contains unsupported effects.
+* The file was created by a version not supported by the parser.
+* An import converts notation to MIDI and loses notation-specific information.
+* The file is valid but contains no playable events.
+Required behavior: Publish a precise compatibility matrix identifying supported versions and preserved features. Do not silently flatten unsupported notation, discard instrument-specific information, or claim universal Guitar Pro compatibility.
+3.4 Imported audio files
+* Unsupported codec.
+* Corrupted audio.
+* Very long audio file.
+* Very large decoded audio buffer.
+* Variable bitrate audio.
+* Audio containing silence at the beginning.
+* Audio containing a long fade-out.
+* Audio file without tempo or beat metadata.
+* Audio and MIDI files have different start offsets.
+Required behavior: Audio playback and MIDI event playback must use a defined synchronization offset. Do not assume that arbitrary audio can be converted into accurate note charts without a transcription system.
+4. Four-button input and scoring edge cases
+4.1 Input handling
+* Two, three, or four buttons are pressed simultaneously.
+* A button is held while another is pressed.
+* A key is released after the window loses focus.
+* The user holds a key through a pause.
+* The operating system intercepts a keyboard shortcut.
+* Two players use the same keyboard.
+* Touch input produces duplicate pointer and touch events.
+* A touch ends outside the original button.
+* A finger is dragged from one button to another.
+* The user rapidly alternates between buttons.
+* Key repeat fires while a key is held.
+* The input device disconnects mid-performance.
+* Input calibration is changed during a song.
+Required behavior: Each physical press must produce a predictable logical press/release lifecycle. The implementation must suppress duplicate events and recover held inputs on focus loss, cancellation, pause, or device disconnection.
+4.2 Scoring and mapping
+* Two target notes occur at the same timestamp.
+* A chord overlaps another chord.
+* A target event is missed and later retried.
+* An input falls exactly on a judgment-window boundary.
+* An input is received before the visual target appears.
+* The player presses a button when no note is expected.
+* A note is sustained across a scoring boundary.
+* A chart has more simultaneous notes than four buttons can represent.
+* A scale mapping excludes a source note.
+* Two source notes map to the same button.
+* The difficulty changes during chart preparation.
+* The player changes instrument during an active song.
+Required behavior: Define deterministic rules for simultaneous notes, ambiguous mappings, missed events, held notes, and unsupported chords. Never silently delete source notes to make a chart fit four buttons.
+The full source arrangement must remain available even when a particular gameplay mapping is lossy.
+5. Studio, recording, and project persistence
+5.1 Recording
+* Recording starts before the count-in finishes.
+* Recording starts while playback is already running.
+* Recording stops while notes are held.
+* The user records over an existing take.
+* Two tracks record simultaneously.
+* The browser suspends audio during recording.
+* The user changes tempo during a recording.
+* The recording contains many simultaneous notes.
+* The recording exceeds the available memory.
+* The user navigates away before saving.
+Required behavior: Recording must define a consistent time origin, track assignment, and note-release policy. Interrupted recording must not corrupt previously saved takes.
+5.2 Editing and mixing
+* A user deletes a track referenced by an active recording.
+* A track is muted while a note is sustaining.
+* A track is soloed while another track is already soloed.
+* Multiple tracks produce clipping.
+* Volume or pan is changed during playback.
+* Undo is invoked repeatedly.
+* Redo is invoked after a new edit.
+* A track is moved beyond the song’s current end.
+* Quantization would move a note across a measure boundary.
+* A track uses an instrument unavailable in the current sound bank.
+Required behavior: Editing operations must maintain valid project state. Undo and redo must restore both musical events and associated track configuration where applicable.
+5.3 Saving and loading
+* Storage quota is exceeded.
+* A write is interrupted.
+* The browser closes during a save.
+* A project contains missing audio references.
+* A project uses an older schema version.
+* A project contains unknown fields.
+* A project is partially corrupted.
+* The same project is opened twice.
+* Two browser tabs edit the same project.
+* A saved project is renamed or moved.
+* The user attempts to overwrite a project with a smaller or incomplete version.
+* The project includes large recordings or embedded assets.
+Required behavior: Use validated, versioned project serialization and safe replacement strategies. Do not assume that browser storage is permanent or unlimited. Provide explicit export and recovery paths.
+6. 3D visualization and avatar edge cases
+6.1 Animation accuracy
+* Many notes trigger simultaneously.
+* A musician changes instruments mid-song.
+* A track contains long rests.
+* Notes are extremely short.
+* Notes sustain for several measures.
+* The camera switches while animation is active.
+* A musician is hidden or moved offstage.
+* The source instrument has no matching humanoid rig.
+* The avatar’s instrument attachment point is missing.
+* A character customization option changes body proportions.
+* The animation system receives events out of order.
+* The renderer drops several frames.
+Required behavior: Animation must be derived from musical state and event timestamps, not from the number of frames rendered. Abstract visualization must remain available when an instrument-specific humanoid animation is unavailable.
+6.2 Rendering and resources
+* WebGL initialization fails.
+* GPU resources are exhausted.
+* The device cannot sustain the target frame rate.
+* The browser loses its graphics context.
+* A model or texture fails to load.
+* A large scene causes excessive memory consumption.
+* A user repeatedly switches scenes.
+* A character is customized during playback.
+* Mobile orientation changes during a performance.
+Required behavior: Release unused resources, support reduced rendering quality, and provide a fallback visualization. A graphics failure must not permanently corrupt the audio timeline or the saved project.
+7. Dance mode edge cases
+* Two dance steps occur simultaneously.
+* A hold begins before a pause and ends after resume.
+* The chart contains an unsupported step type.
+* A song’s tempo changes during a dance sequence.
+* The user changes difficulty after chart generation.
+* A touch remains active while the page is interrupted.
+* The choreography asset is unavailable.
+* The chart and audio have different starting offsets.
+* A chart has overlapping or contradictory steps.
+* A player misses several consecutive steps.
+Required behavior: Dance charts must use the shared musical timeline. Missing choreography must not disable dance scoring or step input. Chart validation must reject or explicitly resolve contradictory events.
+8. Multiplayer edge cases
+Multiplayer is a separate distributed system and must have its own tests and operational requirements.
+8.1 Session management
+* Two users join simultaneously.
+* A room is full.
+* An invalid room code is entered.
+* The host leaves before the song starts.
+* The host disconnects during a song.
+* A player joins after the start.
+* A player reconnects with stale state.
+* The same player joins twice.
+* A room expires while a player is reconnecting.
+* The server restarts during a session.
+8.2 Synchronization
+* Network latency increases sharply.
+* Packets arrive out of order.
+* Duplicate input messages arrive.
+* A player has a substantially different clock offset.
+* A pause message arrives after a resume message.
+* A late message refers to an old song position.
+* Players use different rendering frame rates.
+* Players load different versions of the same chart.
+* One player has a different audio output latency.
+* The host changes tempo or seeks during a session.
+Required behavior: Define server authority, session versioning, clock-offset estimation, message ordering, duplicate suppression, and late-event handling. Never use message arrival time as the sole authority for musical timing.
+8.3 Security and abuse
+* A client submits impossible scores.
+* A client sends malformed messages.
+* A client floods the room with inputs.
+* A client attempts to join a private room without authorization.
+* A client sends an oversized avatar or project payload.
+* A player changes their local clock to manipulate results.
+* A client sends events for a song that is not active.
+* A room receives repeated reconnection attempts.
+Required behavior: Validate session state and payloads, apply rate limits, and define which scores are authoritative. The client must not contain private server credentials.
+9. Single-HTML-file and browser edge cases
+These cases directly test the deployment constraint.
+* The HTML is opened using a file:// URL.
+* The application is served over HTTP or HTTPS.
+* An external dependency is unavailable.
+* The browser is offline on first launch.
+* A CDN blocks or changes a dependency.
+* An external resource is incompatible with the current browser.
+* The HTML file exceeds practical download or memory limits.
+* Embedded resources cause excessive startup time.
+* The browser refuses access to a local file.
+* A feature requires a secure context.
+* A feature requires a server-side permission or response header.
+* Browser storage behaves differently under local-file execution.
+* A file import is blocked by a browser restriction.
+* A mobile browser suspends the page.
+* The browser does not support a required graphics feature.
+Required behavior: Test the actual distributed HTML in each claimed environment. Clearly distinguish core standalone functionality from features requiring HTTPS, permissions, external resources, or server infrastructure.
+The Web MIDI API is not universally available and requires a secure context in supporting browsers, so physical MIDI-device integration must remain optional rather than being a prerequisite for four-button gameplay.
+10. Common architecture mistakes to prohibit
+The agent must explicitly guard against these implementation failures:
+1. One global state object for everything. Audio, gameplay, editing, and multiplayer state become coupled, causing mode transitions to break unrelated systems.
+2. Using rendering time as musical time. Frame drops create timing errors and inaccurate scores.
+3. Treating MIDI as audio. MIDI describes musical events; it requires a synthesizer or instrument to produce sound.
+4. Treating every instrument as monophonic. Chords and overlapping notes are lost.
+5. Using generic animations for every instrument. The visualization no longer reflects actual performance.
+6. Assuming four buttons can represent every source arrangement without information loss. Mapping must be explicit and configurable.
+7. Using browser storage as the only backup. Users can lose work due to quotas, clearing data, or browser behavior.
+8. Building multiplayer before defining the timeline protocol. Retrofitting synchronization later causes expensive redesign.
+9. Loading all assets at startup. Large sound banks and 3D assets can delay or prevent first play.
+10. Adding dependencies without a packaging strategy. The final HTML may fail when opened offline or directly from disk.
+11. Claiming full format support after testing only one sample. Compatibility requires a representative corpus and documented version coverage.
+12. Marking UI completion as feature completion. Every feature requires functional tests.
+13. Ignoring cleanup on mode transitions. Active notes, timers, animation loops, listeners, and network connections can accumulate.
+14. Silently degrading fidelity. When a sound bank, effect, or animation is unavailable, the limitation must be visible and documented.
+15. Implementing every subsystem before testing any subsystem. Incremental validation is required to prevent interacting defects from becoming difficult to isolate.
+11. Mandatory failure-recovery rules
+Every subsystem must define the following before implementation:
+* What can fail.
+* How the failure is detected.
+* What state remains valid.
+* Whether the operation can be retried.
+* Whether user data is at risk.
+* How the user is informed.
+* Whether the application can continue in degraded mode.
+* How the system returns to a known-good state.
+* Which automated test verifies recovery.
+The minimum recovery rules are:
+* Audio failure must not destroy project data.
+* Rendering failure must not permanently stop the musical transport.
+* File-import failure must not corrupt the current project.
+* Save failure must not falsely report success.
+* Network failure must not disable standalone gameplay.
+* Invalid input must not crash the application.
+* Interrupted recording must not overwrite the previous successful take.
+* An unrecoverable mode transition must return to a valid application state.
+12. Required additions to the pre-implementation table of contents
+The agent must add these dedicated sections to the original roadmap, before writing code:
+* Risk register and severity classification.
+* Audio lifecycle and recovery matrix.
+* Timing, scheduling, and drift test plan.
+* MIDI parser edge-case corpus.
+* MusicXML and Guitar Pro compatibility matrix.
+* Input lifecycle and simultaneous-press tests.
+* Scoring boundary-condition tests.
+* Recording integrity and project recovery tests.
+* Rendering degradation and resource-cleanup tests.
+* Dance-chart validation tests.
+* Multiplayer synchronization and security tests.
+* Browser and standalone-file compatibility matrix.
+* Storage quota and project migration tests.
+* Dependency failure and offline tests.
+* Fault-injection strategy.
+* Requirements-to-test traceability matrix.
+* Final failure-recovery acceptance review.
+Each entry must identify its dependencies, implementation deliverables, and objective pass/fail criteria.
+13. Release-blocking acceptance gate
+The implementation must not be declared production-ready if any of the following remains unresolved:
+* Audio timing drifts during normal gameplay.
+* Stuck notes can persist after stopping or changing modes.
+* Valid supported MIDI files lose musical events.
+* Saving can silently destroy an existing project.
+* The advertised standalone file cannot perform its documented core functions.
+* A rendering failure permanently disables audio or transport.
+* Mobile controls fail to release inputs reliably.
+* Multiplayer accepts invalid authoritative results without the intended validation.
+* Required supported file formats have not been tested against a representative corpus.
+* Critical errors are silently ignored or reported as successful operations.
+Lower-priority features may be deferred only when their status is documented and the core acceptance criteria remain satisfied.
+Versioning rule: Increment the specification patch version for clarifications and additional edge cases, the minor version for backward-compatible requirements additions, and the major version for changes to the product scope, architecture constraints, or acceptance contract. Record the date and summarize changes at the top of the document.
+
+
+Specification version: FLM-1.2.0 | Last updated: 2026-10-23 | Status: Product improvement proposal | Scope: Essential improvements to gameplay, architecture, audio fidelity, usability, and release quality
+Finger Lickin Music — Essential Product Improvements
+The objective is to make Finger Lickin Music feel like a cohesive, professional music game rather than a collection of separate features. The following improvements address the capabilities that most strongly affect playability, musical accuracy, creative freedom, and long-term usability.
+A distinction is important: no optional feature is literally necessary for every player. Here, “necessary” means an improvement is required to deliver the intended quality, reliability, or coherence of the product as specified.
+1. Fix the core product architecture before expanding features
+1.1. Create one unified musical engine
+All modes must use the same underlying musical timeline, event model, audio scheduler, instrument definitions, and transport controls. Rhythm mode, free play, studio, imported songs, and dance mode should be different experiences built on shared foundations.
+Why it matters: Prevents timing inconsistencies, duplicated logic, and bugs that appear only when switching modes.
+1.2. Separate musical data from gameplay mappings
+Preserve the complete original arrangement independently of the four-button chart, difficulty settings, or selected instrument.
+Why it matters: Players can simplify a difficult song for gameplay without destroying the underlying composition.
+1.3. Separate audio, rendering, and animation clocks
+Musical events must be scheduled against the audio clock. Visuals must follow the musical timeline without controlling it.
+Why it matters: Prevents missed notes, inaccurate scoring, and synchronization drift when the 3D scene becomes expensive to render.
+2. Make the four-button gameplay genuinely musical
+The four-button concept should be a central design strength, not a limitation that makes every instrument feel identical.
+2.1. Introduce a universal musical control system
+Support multiple mapping profiles:
+* Four independent note lanes.
+* Chord and interval buttons.
+* Scale-based note selection.
+* Instrument-specific mappings.
+* Percussion triggers.
+* Configurable custom layouts.
+Allow players to switch profiles without modifying the original music.
+2.2. Add adaptive difficulty that preserves musical intent
+Difficulty should change the performance challenge rather than simply deleting random notes.
+* Beginner: simplified rhythms, reduced chord complexity, and forgiving timing.
+* Intermediate: more syncopation, chord changes, and rhythmic subdivisions.
+* Advanced: denser patterns, sustain management, and more demanding timing.
+* Expert: close correspondence to the source performance where the control scheme allows it.
+When simplification is unavoidable, retain important beats, melodic contours, chord changes, and instrument accents.
+2.3. Make every input feel responsive
+Required improvements:
+* Configurable input offset.
+* Visual lead-time adjustment.
+* Clear pressed and released states.
+* Simultaneous button handling.
+* Hold and sustain support.
+* Immediate feedback for successful and missed inputs.
+* Separate input latency and audio output compensation.
+* Calibration tools that do not require the player to understand technical audio settings.
+2.4. Add meaningful performance feedback
+Show accuracy, combo, streaks, missed events, and section-by-section performance. Feedback should explain where the player can improve without overwhelming the play area.
+The scoring system must be deterministic and independently testable.
+3. Upgrade the sound system from functional to convincing
+Audio quality will have an outsized effect on whether the game feels like a real musical instrument or a toy.
+3.1. Implement a layered instrument engine
+Use a suitable combination of sampled instruments, synthesis, and instrument-specific playback behavior. Support polyphony, velocity, sustain, program changes, percussion, pitch bend, and controller events where available.
+Prioritize a reliable baseline across General MIDI programs over a few impressive instruments and dozens of unusable ones.
+3.2. Add instrument-specific behavior
+A guitar should not sound and respond like a piano with a different preset. Account for note decay, articulation, velocity response, playing range, sustain, and instrument-specific limitations.
+Support legato or other advanced articulations where the selected sound engine can reproduce them.
+3.3. Make mixing and playback reliable
+Include track gain, master volume, mute, solo, pan, sensible peak management, and controlled voice allocation. Prevent clipping and runaway audio-node creation.
+Audio must remain stable during dense arrangements and long recording sessions.
+3.4. Add a sound-quality system with explicit fidelity levels
+Every instrument should declare what it supports:
+* Basic synthesized sound.
+* Sample-based sound.
+* Velocity layers.
+* Articulation support.
+* Controller support.
+* Percussion-specific playback.
+The UI should not imply that full General MIDI timbral fidelity is available when the application uses simplified synthesis.
+3.5. Add audio diagnostics
+Provide an optional calibration and diagnostics screen that measures or guides the user through:
+* Audio output latency.
+* Input response.
+* Playback stability.
+* Audio initialization.
+* Sample or sound-bank availability.
+Do not claim that browser software can accurately measure every component of a user’s hardware latency automatically. Where measurement is uncertain, provide a calibration procedure.
+4. Make the 3D band a signature feature
+The virtual band should be more than animated characters standing on a stage. It should be a visual interpretation of the actual music.
+4.1. Build a reusable skeletal animation system
+Use a consistent humanoid rig with instrument attachment points, reusable animation controllers, and procedural motion where appropriate.
+Characters should have believable body movement and instrument interaction without requiring a separate bespoke animation system for every model.
+4.2. Map musical events to instrument-specific actions
+Map notes, velocity, rhythmic density, and sustain to meaningful actions: strumming, key presses, drum strikes, bowing, or other appropriate gestures.
+If accurate hand-to-note animation is impractical, use a hybrid system combining skeletal animation with clear musical visualizations.
+4.3. Add a performance director
+A stage director should select camera angles, emphasize solos, react to song sections, and highlight important musical events.
+Camera changes must not obscure essential gameplay targets or interrupt the player’s control.
+4.4. Improve the visualizer with musical context
+Add:
+* Beat and measure indicators.
+* Active-note highlighting.
+* Instrument identity indicators.
+* Velocity-responsive animation.
+* Solo and accompaniment emphasis.
+* Section transitions.
+* Optional abstract effects for instruments without practical humanoid animations.
+* Adjustable camera distance and stage layout.
+Critical rule: The visualizer must never invent musical activity during silence or misrepresent inactive instruments as performing.
+5. Turn the studio into a usable creative tool
+The studio should allow a player to progress from a short musical idea to a complete multitrack composition without leaving the game.
+Essential improvements
+* Instant track creation: Add an instrument track and start recording with minimal navigation.
+* Count-in and metronome: Support configurable count-in, tempo, and time signature.
+* Overdubbing: Record a new instrument while hearing existing tracks.
+* Loop recording: Repeat a section for practice and composition.
+* Basic piano roll: Edit note pitch, start time, duration, and velocity.
+* Quantization: Snap selected events to configurable rhythmic subdivisions without forcing all performances onto a grid.
+* Undo and redo: Maintain a predictable edit history.
+* Track management: Rename, duplicate, mute, solo, reorder, and delete tracks.
+* Section markers: Label introductions, verses, choruses, bridges, and other sections.
+* Project export: Save editable musical events separately from rendered audio.
+5.1. Introduce a non-destructive editing model
+Keep original imported data intact. Store edits as project changes or derived data, rather than destructively rewriting the source arrangement.
+This makes it possible to reset mappings, compare edits, recover from mistakes, and switch gameplay modes without losing musical information.
+5.2. Add a song arrangement overview
+Display the full composition as a timeline containing tracks, sections, loops, and important events. Users should be able to navigate a long song without repeatedly scrubbing blindly.
+5.3. Add a project recovery system
+Use versioned project data, safe save operations, and recovery checkpoints. Warn users before destructive operations and offer an explicit recovery path when a save fails.
+Local browser storage must not be presented as a guaranteed permanent backup.
+6. Make imported music work reliably
+File import is one of the product’s strongest differentiators, but also one of its largest sources of potential defects.
+6.1. Add an import inspection screen
+Before starting gameplay, show:
+* Detected file format and version, where identifiable.
+* Tracks and instrument assignments.
+* Song duration and tempo information.
+* Detected time and key signatures where available.
+* Track event counts.
+* Unsupported features and conversion warnings.
+* Which track will be playable.
+* Whether the arrangement requires a simplified four-button mapping.
+6.2. Add an automatic playable-chart generator
+The chart generator should derive playable patterns from the source arrangement using configurable rules.
+For example, it can prioritize:
+* Melodic contours.
+* Chord roots and important chord tones.
+* Strong beats.
+* Rhythmic accents.
+* Instrument-specific note patterns.
+Users must be able to preview the generated chart and change the mapping before playing.
+Necessary safeguard: Automatic chart generation must be deterministic for identical inputs and settings, and must not overwrite the original arrangement.
+6.3. Add track isolation and practice tools
+Allow players to:
+* Mute the target instrument.
+* Lower accompaniment volume.
+* Solo an individual track.
+* Loop a difficult section.
+* Slow playback while preserving pitch where supported.
+* Increase speed progressively.
+* Restart from a measure or section.
+* Practice one hand or one part where the instrument mapping supports it.
+6.4. Publish an honest compatibility matrix
+Explicitly list supported MIDI, MusicXML, Guitar Pro, and audio formats, including known limitations.
+A format should not be advertised as supported merely because its file extension is recognized.
+7. Make dance mode feel like a complete game mode
+Dance mode should have its own presentation and progression rather than simply reusing instrument gameplay with different labels.
+Essential improvements:
+* Four-direction and configurable step layouts.
+* Simultaneous steps and hold notes.
+* Multiple difficulty levels.
+* Timing judgments and combos.
+* Song-specific charts.
+* A distinct gameplay HUD.
+* Avatar choreography synchronized to the chart.
+* A practice mode with speed control.
+* Chart validation and custom chart import.
+* Accessible control alternatives.
+Dance chart data, scoring, and choreography should remain separate systems connected through the common musical timeline.
+8. Improve character customization and identity
+Character customization is important to the band’s personality and multiplayer appeal.
+Include:
+* Preset characters.
+* Body and silhouette choices.
+* Color and material customization.
+* Hair and clothing options.
+* Accessories.
+* Instrument selection.
+* Stage positions.
+* Saved character presets.
+* Preview animations.
+* Avatar compatibility checks.
+The character editor should reuse the same rendering and rig systems as the gameplay stage.
+Performance requirement: Customization must not cause a full scene reload or lose the current song, recording, or project state.
+9. Add a proper progression and reward system
+The game needs reasons to return after the novelty of the initial experience wears off.
+9.1. Song and skill progression
+Introduce:
+* Song completion records.
+* Best accuracy and score.
+* Difficulty completion.
+* Personal bests.
+* Instrument-specific achievements.
+* Dance achievements.
+* Practice milestones.
+* Optional challenge objectives.
+Progression must reward improvement without locking core music creation tools behind grinding.
+9.2. Performance history
+Save results locally, including the song, difficulty, instrument, score, accuracy, and relevant settings. Allow users to compare attempts and identify improvement over time.
+9.3. Unlockable cosmetics
+Offer optional stage themes, avatar cosmetics, animations, and visual effects through progression.
+Cosmetic unlocks should not affect gameplay accuracy, input timing, or instrument performance.
+9.4. Daily challenges
+Optional challenges can provide short, repeatable activities such as mastering a rhythm, playing a difficult section, or completing a song with a particular instrument.
+Daily features must remain optional and must not require an account in standalone mode.
+10. Make multiplayer robust and meaningful
+Multiplayer should support more than seeing another player’s avatar.
+10.1. Define three clear multiplayer experiences
+Cooperative band
+Players perform different instruments within the same arrangement. Show each player’s contribution and synchronize the musical timeline.
+Competitive rhythm play
+Players perform the same chart and compare accuracy, combos, and scores using identical chart versions and scoring rules.
+Collaborative studio
+Players contribute tracks to a shared project, with explicit ownership, edit permissions, and conflict handling.
+10.2. Add synchronization diagnostics
+The game should measure network latency and clock offset, detect missed updates, and communicate synchronization quality to players.
+Musical events must be scheduled against a shared timeline, with suitable lead time, rather than played immediately when a network message arrives.
+10.3. Add robust session recovery
+Support reconnecting, resynchronizing song position, recovering room state, and handling host departure.
+A disconnected player must not corrupt the session or permanently block other players.
+10.4. Protect shared projects
+Collaborative editing requires explicit rules for simultaneous edits, versioning, permissions, and conflict resolution. These rules must be defined before implementing shared studio functionality.
+10.5. Keep multiplayer optional
+Do not make account creation, server access, or a network connection necessary for local play, recording, or local project management.
+11. Improve the interface and onboarding
+A complex game can still feel simple if the initial experience exposes only the decisions that matter.
+11.1. Introduce three levels of complexity
+* Quick Start: Choose a song, instrument, and difficulty, then play.
+* Customize: Change mappings, audio, controls, and visualization.
+* Advanced: Access editing, detailed musical settings, chart generation, and diagnostics.
+Do not expose every advanced control on the initial screen.
+11.2. Use contextual controls
+Show instrument settings when an instrument is selected, dance settings in dance mode, and track-editing tools in the studio.
+Avoid a single enormous settings screen containing every feature.
+11.3. Add an interactive tutorial
+Teach the user to:
+* Trigger a note.
+* Play two simultaneous notes.
+* Follow a simple rhythm.
+* Select a different instrument.
+* Record a short performance.
+* Import a song.
+* Enter the studio or dance mode.
+Each step must be skippable, repeatable, and usable with either keyboard or touch.
+11.4. Add clear loading and error states
+Every loading screen must report real progress where measurable. Every error must explain what failed and what the user can do next.
+The game must never silently ignore a failed import, recording, save, or connection.
+12. Make mobile support a first-class design requirement
+Mobile compatibility must be tested throughout development, not added after the desktop game is finished.
+Essential improvements:
+* Large, configurable touch controls.
+* Reliable simultaneous presses.
+* Correct handling of touch cancellation and focus changes.
+* Portrait and landscape layouts.
+* Adaptive rendering resolution.
+* Adjustable sound-bank loading.
+* Reduced visual effects on constrained devices.
+* Persistent settings and recoverable projects.
+* Clear audio activation behavior.
+* Protection against accidental navigation during active play.
+* Testing on actual iOS and Android devices.
+12.1. Establish device performance profiles
+Define at least three rendering profiles:
+* High: full stage, richer lighting, and detailed animation.
+* Balanced: reduced geometry and visual effects.
+* Low: simplified scene and reduced animation complexity.
+The audio scheduler must remain independent of these profiles.
+12.2. Prevent resource exhaustion
+Set explicit limits for simultaneous voices, loaded samples, active tracks, animation complexity, and project size. When a limit is reached, show a clear warning or use a documented fallback.
+13. Add a professional reliability and recovery layer
+This is essential because a music application can lose hours of user-created work through a single failed operation.
+Required improvements
+* Autosave at safe points.
+* Recoverable recording sessions.
+* Versioned project files.
+* Validation before loading projects.
+* Explicit save confirmation only after success.
+* Undo and redo.
+* Safe handling of failed exports.
+* Resource cleanup when changing modes.
+* Panic/stop control for all active notes.
+* Diagnostics for audio, rendering, storage, and network errors.
+* Automated regression tests for previously fixed bugs.
+13.1. Introduce fault-injection testing
+Deliberately simulate failures:
+* Drop network connections.
+* Suspend audio.
+* Force a rendering interruption.
+* Load malformed files.
+* Exhaust storage.
+* Interrupt a save.
+* Disconnect an input device.
+* Switch modes while notes are active.
+Verify that the application recovers without corrupting user data.
+13.2. Add a bug reproduction report
+For development builds, provide a way to export diagnostic information such as browser capabilities, application version, active mode, relevant settings, and recent non-sensitive error events.
+Do not include song contents, private files, or personal information unless the user explicitly chooses to attach them.
+14. Improve the single-file architecture without sacrificing quality
+The single-HTML-file requirement is useful for portability, but it must not become an excuse for a fragile architecture.
+14.1. Use logical modules inside the HTML
+Organize the application into clearly separated modules, even when all source code is embedded in one document.
+Keep the following independently testable:
+* Musical timeline.
+* Input and mapping.
+* Audio engine.
+* File parsers.
+* Rhythm scoring.
+* Studio and recording.
+* Rendering and animation.
+* Dance gameplay.
+* Character customization.
+* Persistence.
+* Multiplayer client.
+14.2. Establish a strict dependency budget
+For each dependency, record its purpose, version, license, size, loading strategy, and fallback behavior.
+Prefer native browser capabilities where appropriate, but use reliable libraries for complex tasks such as parsing intricate music formats or rendering skeletal 3D animation when that meaningfully improves correctness.
+14.3. Define two delivery profiles
+Profile A — Standalone edition
+Required
+One HTML file containing the core application. Local gameplay, supported music import, local recording, visualization, and project export must work without an online service.
+Profile B — Online edition
+Optional infrastructure
+The same HTML client with access to an external multiplayer service. Additional downloadable sound banks or assets may be used if their absence does not break the documented standalone functionality.
+The online edition must not be misrepresented as entirely self-contained. A public multiplayer service cannot be created solely by embedding client-side code in an HTML file.
+15. Add accessibility and customization beyond appearance
+The game should let users adapt the experience to their needs.
+Essential improvements:
+* Remappable keyboard and touch controls.
+* Adjustable note speed.
+* Adjustable judgment windows where appropriate.
+* Reduced-motion mode.
+* High-contrast note indicators.
+* Non-color-only lane identification.
+* Adjustable visual effects.
+* Scalable interface.
+* Clear focus indicators.
+* Keyboard navigation for menus.
+* Configurable control sizes.
+* Optional simplified visualization for lower-powered devices.
+Accessibility settings must be applied consistently across instrument, studio, and dance modes.
+16. Make the game easier to extend
+The product will become difficult to maintain if each new instrument, file format, avatar, or gameplay mode requires modifying several unrelated systems.
+16.1. Use data-driven instrument definitions
+Each instrument definition should describe, as applicable:
+* Display name.
+* General MIDI program.
+* Sound-bank mapping.
+* Percussion behavior.
+* Playable range.
+* Polyphony requirements.
+* Input mapping defaults.
+* Animation profile.
+* Visual representation.
+* Supported controllers and articulations.
+Adding an instrument should primarily involve adding or updating its definition and required assets, not rewriting the audio scheduler.
+16.2. Use adapters for music formats
+Each importer should convert its source into the shared internal music representation. The rest of the game should not need to know whether a song came from MIDI, MusicXML, or Guitar Pro.
+16.3. Use a consistent event system
+Musical events should be consumable by audio playback, scoring, visualization, recording, and animation without duplicating or modifying the original source event.
+16.4. Version all persistent data
+Instrument definitions, project formats, mappings, dance charts, and multiplayer messages must have explicit versioning and migration rules where appropriate.
+17. Add automated quality gates
+Do not wait until the application appears complete to discover that its foundational systems are unreliable.
+The implementation must automatically verify:
+* Musical time conversion.
+* Audio scheduling logic.
+* Note-on and note-off lifecycle.
+* Chord and scale mapping.
+* Scoring boundary conditions.
+* MIDI parsing.
+* Project save/load integrity.
+* Import/export round trips where supported.
+* Mode-transition cleanup.
+* Multiplayer message validation.
+* Mobile input lifecycle.
+* Resource limits.
+Every defect fixed after testing should receive a regression test whenever practical.
+The final release must also be tested by opening the actual delivered HTML file, not just running an intermediate development version.
+18. Prioritize improvements by impact
+1
+Foundation
+Unified musical timeline; separated audio and rendering clocks; event model; architecture boundaries; project versioning.
+2
+Core gameplay
+Responsive four-button input; calibration; chord and scale mappings; deterministic scoring; reliable note release.
+3
+Audio and imports
+Polyphonic audio engine; sound-bank strategy; robust MIDI parsing; track inspection; honest format compatibility.
+4
+Visual identity
+Skeletal avatar rigs; instrument-specific animation; event-driven stage effects; camera presets; quality scaling.
+5
+Creative tools
+Multitrack recording; overdubbing; piano roll; quantization; undo/redo; safe saving and export.
+6
+Additional modes
+Dance charts and scoring; customization; progression; practice tools.
+7
+Online features
+Shared musical clock; cooperative and competitive modes; reconnection; server validation; collaborative editing.
+8
+Release quality
+Cross-browser testing; mobile device testing; fault injection; performance budgets; standalone packaging verification.
+This order minimizes rework. Multiplayer, advanced animation, and extensive content should not be built on top of an unstable musical timeline or audio engine.
+19. Add measurable product-quality targets
+Before implementation, define target budgets and verification procedures for the following.
+Area	Required target
+Timing	No cumulative musical drift during supported playback and loop operations
+Input	Configurable calibration and deterministic judgment calculations
+Audio	No persistent stuck notes or unbounded voice growth
+File integrity	Valid supported files preserve required musical events
+Recording	Previously saved takes remain intact after failed recordings
+Rendering	Quality degrades gracefully on slower devices
+Persistence	Failed saves never report success
+Multiplayer	Synchronization quality is measured and documented
+Compatibility	Every advertised browser and format has explicit test evidence
+Packaging	The actual standalone HTML works in the environments claimed
+The exact numeric limits for latency, frame rate, file size, polyphony, track count, and memory must be established in the technical planning phase based on representative hardware. They must not be invented after implementation simply to make the results appear successful.
+20. Additional requirements for the pre-implementation table of contents
+The agent must include these improvement-specific sections in the complete table of contents generated before coding:
+* Unified musical engine and event architecture.
+* Four-button mapping and adaptive difficulty.
+* Audio fidelity and General MIDI coverage strategy.
+* Instrument-specific animation and stage direction.
+* Non-destructive studio editing.
+* Import inspection and automatic chart generation.
+* Dance-mode gameplay and choreography.
+* Player progression and performance history.
+* Multiplayer modes and synchronization architecture.
+* Onboarding and contextual interface design.
+* Mobile performance profiles.
+* Autosave, recovery, and fault injection.
+* Single-file dependency and packaging budget.
+* Accessibility requirements.
+* Data-driven instruments and extensible import adapters.
+* Automated quality gates and regression testing.
+* Quantitative performance targets.
+* Final product-quality acceptance review.
+Each section must include dependencies, deliverables, test cases, and measurable exit criteria. These additions must also appear in the requirements traceability matrix.
+21. Final recommendation
+The most important improvement is to treat Finger Lickin Music as one unified musical platform with multiple game modes, rather than as several separate games sharing a menu.
+The core experience should be built around five pillars:
+* Musical accuracy: Reliable timing, polyphony, instrument playback, and faithful import.
+* Immediate playability: Four-button controls that make complex music accessible without destroying its original structure.
+* Expressive visualization: A virtual band that responds to the actual musical performance.
+* Creative freedom: Free play, recording, layering, editing, and export.
+* Reliability: Recoverable projects, robust mobile input, graceful degradation, and verified standalone delivery.
+If these five pillars are implemented well, character customization, dance gameplay, progression, and multiplayer can extend the experience without undermining its foundation.
+
+
+
+
+
+Specification version: FLM-1.3.0 | Last updated: 2026-10-23 | Document type: Maximum-polish quality standard | Status: Mandatory implementation and release checklist
+
+Finger Lickin Music — Complete Maximum-Polish Checklist
+
+This specification defines what must be refined to make Finger Lickin Music feel cohesive, professional, responsive, visually impressive, musically accurate, and reliable.
+
+Mandatory agent instruction: Before implementation, include every applicable section below in the complete end-to-end table of contents. For each requirement, define its implementation dependency, acceptance criteria, verification method, and final status. Do not mark a feature polished merely because it works once.
+
+1. Overall game feel
+
+Polish tracker
+
+0/12
+
+Core experience
+
+Every primary action produces immediate, understandable feedback.
+
+The game feels responsive even on lower-powered supported devices.
+
+No screen, mode, or feature feels disconnected from the rest of the product.
+
+Transitions preserve relevant state and do not interrupt ongoing work unexpectedly.
+
+The player can reach a playable experience quickly after launching.
+
+Complex features remain discoverable without overwhelming beginners.
+
+Loading, waiting, saving, and failure states feel intentional rather than unfinished.
+
+Consistency
+
+All modes use consistent navigation, terminology, icons, control conventions, and feedback patterns.
+
+Buttons, menus, dialogs, sliders, and panels follow shared visual rules.
+
+Every setting has consistent behavior wherever it appears.
+
+Keyboard, touch, and controller interactions produce equivalent logical results.
+
+Every feature has a clearly defined empty, loading, success, error, and disabled state where applicable.
+
+Reset checklistCopy checklist
+
+2. Visual design and art direction
+
+2.1. Establish one recognizable visual identity
+
+* Define a cohesive visual direction that combines music culture, performance, and modern 3D game presentation.
+* Define a restrained color palette with semantic meanings.
+* Establish typography for headings, gameplay labels, numbers, menus, and diagnostics.
+* Define consistent spacing, alignment, corner radii, borders, and shadows.
+* Ensure the logo, menus, stage, character editor, and gameplay HUD feel like one product.
+* Avoid generic dashboard aesthetics in the actual gameplay experience.
+* Avoid excessive gradients, glow, blur, particle effects, and decorative borders.
+* Ensure visual effects emphasize music rather than compete with it.
+* Maintain readable contrast across bright stages, dark backgrounds, and different display conditions.
+
+2.2. Pixel-level interface quality
+
+* No misaligned icons, text, panels, or controls.
+* No unintended clipping or overlapping elements.
+* No inconsistent button heights or padding.
+* No text cut off at common desktop or mobile viewport sizes.
+* No accidental horizontal scrolling.
+* No layout jumps when panels open or close.
+* No visible flicker when switching modes.
+* No inconsistent capitalization or terminology.
+* No unexplained empty space or excessively dense panels.
+* No low-resolution, distorted, or incorrectly scaled assets.
+
+2.3. Visual hierarchy
+
+* The current task is immediately identifiable.
+* Primary actions are more prominent than secondary actions.
+* Critical status information is distinguishable from decorative information.
+* Advanced settings are available without dominating the default experience.
+* The player can distinguish actionable controls from informational labels.
+* Focus, hover, pressed, selected, disabled, and loading states are visually distinct.
+
+3. Main menu and navigation
+
+* The game opens into a polished, coherent main menu.
+* Quick Play is easy to find.
+* Instrument Mode, Free Play, Studio, Import, Dance, Multiplayer, and Customization have clear entry points.
+* Navigation does not require unnecessary screen transitions.
+* Back navigation returns to the expected screen.
+* Unsaved work triggers an appropriate confirmation before destructive navigation.
+* Opening and closing dialogs restores focus correctly.
+* Repeated navigation does not duplicate event listeners or leave background processes running.
+* The current project and song context are preserved when appropriate.
+* Unavailable online features explain their requirements clearly.
+* The user can return to the main menu without corrupting a recording or project.
+* Browser back and forward behavior is predictable.
+
+4. First launch and onboarding
+
+* First launch is fast and understandable.
+* Audio activation is explained only when necessary.
+* Browser capability checks do not unnecessarily block supported functionality.
+* The player can start a built-in demo without importing a file.
+* The tutorial teaches the actual controls used in gameplay.
+* Every tutorial step can be skipped or repeated.
+* Desktop and mobile tutorials use appropriate controls.
+* The tutorial demonstrates simultaneous inputs where supported.
+* The player understands the difference between instrument gameplay, free play, studio, and dance mode.
+* Permissions are requested only when required.
+* First-launch settings are saved correctly.
+* Returning users are not repeatedly forced through completed onboarding.
+
+5. Gameplay responsiveness and feel
+
+5.1. Input quality
+
+* Every button responds immediately.
+* Pressed and released states are visually clear.
+* Simultaneous presses are handled consistently.
+* Held notes do not become stuck.
+* Focus loss releases logically held keyboard inputs.
+* Touch cancellation does not leave controls active.
+* Key repeat does not create unintended repeated notes.
+* Input mapping changes take effect predictably.
+* Remapping conflicts are detected and explained.
+* Input calibration can be adjusted without confusion.
+* Input handling remains correct during pause, resume, seeking, and mode transitions.
+
+5.2. Rhythm gameplay
+
+* Note targets are visually readable at every supported speed.
+* Chords are visually distinguishable from individual notes.
+* Sustain notes communicate their required duration.
+* Incoming notes are not obscured by UI or effects.
+* Judgment windows are consistent and documented.
+* Perfect, Great, Good, and Miss feedback is immediate and unambiguous.
+* Scoring is deterministic for identical event sequences.
+* Combo changes are clear without overwhelming the screen.
+* Failure feedback is informative rather than punitive.
+* Song completion and restart behavior are consistent.
+* Pausing does not accidentally register additional notes.
+* Restarting does not reuse stale scoring state.
+
+5.3. Difficulty and fairness
+
+* Difficulty labels correspond to measurable differences.
+* Beginner charts preserve recognizable musical structure.
+* Higher difficulty introduces meaningful musical challenges.
+* Chord simplification follows documented rules.
+* Difficult sections can be practiced independently.
+* Score comparisons use compatible charts and settings.
+* Calibration settings cannot silently make competitive results incomparable.
+* Accessibility adjustments are clearly distinguished where they affect competitive scoring.
+
+6. Audio fidelity and sound quality
+
+This section is a release-critical polish requirement. A feature-rich music game with poor sound quality will still feel unfinished.
+
+6.1. Instrument sound
+
+* Instrument programs map correctly.
+* Different instruments have perceptibly appropriate timbres.
+* Notes have appropriate attacks and releases.
+* Velocity changes affect playback where supported.
+* Sustained instruments do not stop unnaturally.
+* Percussion uses appropriate drum mappings.
+* Instrument ranges and transpositions are handled correctly.
+* Program changes occur at the correct musical position.
+* Pitch bend and supported controllers behave predictably.
+* Voice allocation remains stable under dense polyphony.
+* Note stealing, when unavoidable, is controlled and documented.
+* Sound-bank loading failures have clear fallback behavior.
+
+6.2. Audio mixing
+
+* Master volume works consistently.
+* Track volume and pan behave as expected.
+* Mute and solo work without leaving sustained notes behind.
+* Multiple tracks do not cause uncontrolled clipping.
+* Audio transitions do not create unintended clicks or pops.
+* Starting and stopping playback does not cause volume spikes.
+* Metronome volume is adjustable.
+* Audio effects do not introduce unacceptable latency.
+* Audio playback remains stable during rendering slowdowns.
+* Long sessions do not create runaway voices or memory growth.
+
+6.3. Audio timing
+
+* Playback follows the authoritative musical timeline.
+* Tempo changes do not cause cumulative drift.
+* Pause and resume do not shift the entire song.
+* Seeking stops or reconciles previously scheduled events correctly.
+* Loop boundaries handle sustained notes correctly.
+* Backgrounding and returning do not leave the audio and visuals permanently desynchronized.
+* Calibration is not applied twice.
+* Audio scheduling and visual rendering remain independent.
+* Timing tests cover dense and sparse arrangements.
+* Timing tests cover long playback sessions, not only short examples.
+
+7. 3D stage and visualizer
+
+7.1. Scene quality
+
+* The stage has a recognizable composition and focal point.
+* Lighting makes performers readable.
+* Materials respond appropriately to lighting.
+* Camera movement is smooth and intentional.
+* Stage elements do not obscure important gameplay information.
+* Visual effects respond to musical events rather than running continuously without purpose.
+* Background geometry does not distract from active performers.
+* The scene remains visually coherent with different numbers of musicians.
+* The stage remains readable at mobile screen sizes.
+* Reduced-quality rendering still looks intentional.
+
+7.2. Character animation
+
+* Skeletal joints move without obvious snapping.
+* Hands and instruments remain correctly attached.
+* Feet do not visibly slide without purpose.
+* Instrument-specific gestures match the selected instrument.
+* Animation responds to note timing and velocity.
+* Sustained notes produce appropriate sustained behavior.
+* Performers remain appropriately still during rests.
+* Animations blend smoothly between idle, playing, and transition states.
+* Multiple musicians do not share visibly identical motion when their parts differ.
+* Avatar customization does not break rigging.
+* Animation continues to represent musical time correctly during frame drops.
+
+7.3. Cameras and stage direction
+
+* Full-band view frames all active musicians.
+* Focus views emphasize the relevant performer.
+* Camera transitions do not create disorienting jumps.
+* Solo highlighting responds to the actual arrangement.
+* Automatic camera direction is deterministic where required.
+* Camera motion can be reduced or disabled.
+* Gameplay targets remain visible.
+* Camera changes do not reset the song or animation timeline.
+
+8. Character customization
+
+* Every option has a visible and understandable effect.
+* Presets load correctly.
+* Randomization, if provided, stays within supported combinations.
+* Appearance changes preview immediately.
+* Customization settings persist.
+* Character models remain compatible with instrument rigs.
+* Colors and materials render correctly under stage lighting.
+* Accessories do not obviously intersect the body or instrument.
+* Invalid combinations are prevented or handled gracefully.
+* Multiplayer avatars display consistently within supported limits.
+* Character changes do not unexpectedly reload the entire application.
+* The editor performs acceptably on mobile devices.
+
+9. Free Play and music theory
+
+* All supported keys and scale patterns map correctly.
+* Octave and register changes behave consistently.
+* Chord inversions produce the expected notes.
+* Simultaneous notes sound together.
+* Scale-constrained and chromatic modes are clearly distinguished.
+* Note quantization is optional and understandable.
+* Metronome timing matches the selected tempo.
+* Sustain behavior is predictable.
+* Instrument changes do not leave notes stuck.
+* The player can play without a predefined chart.
+* Free-play performances can be recorded and replayed.
+* Key and scale changes have clear effects on the playable mapping.
+
+10. Studio and recording
+
+* Recording starts and stops predictably.
+* Count-in behavior is correct.
+* Overdubbing remains synchronized with existing tracks.
+* Tracks have independent instrument assignments.
+* Mute, solo, volume, and pan are consistent.
+* The timeline accurately represents musical positions.
+* Piano-roll note selection and editing are precise.
+* Quantization preserves intended timing when disabled.
+* Undo and redo restore the expected state.
+* Destructive operations have appropriate safeguards.
+* Track deletion handles active playback and recording correctly.
+* Recording failures preserve previous successful takes.
+* Long projects remain manageable.
+* Project save/load preserves supported musical information.
+* Exported projects can be reopened in the intended compatible tools.
+
+11. Music import and compatibility
+
+* The file picker clearly identifies accepted formats.
+* Import progress is shown when measurable.
+* Invalid files produce actionable errors.
+* MIDI tempo maps are respected.
+* Multitrack arrangements retain their tracks.
+* Polyphonic passages remain polyphonic.
+* Instrument and percussion assignments are preserved where supported.
+* Unsupported events produce warnings.
+* MusicXML import preserves supported notation and performance information.
+* Guitar Pro support is limited to verified versions.
+* Imported audio is not falsely treated as note-event data.
+* Large files are handled within documented limits.
+* Importing a new file does not overwrite the current project without confirmation.
+* Original imported data remains available after chart generation.
+* Automatic charts can be previewed before play.
+* Supported formats and known limitations are documented.
+
+12. Dance mode
+
+* Step targets are readable and arrive at the correct time.
+* Four-button controls work on desktop and mobile.
+* Simultaneous steps are supported where defined.
+* Holds and releases are judged consistently.
+* Choreography matches chart timing.
+* Difficulty changes have measurable effects.
+* The scoring HUD is distinct from instrument gameplay.
+* Practice speed and looping work correctly.
+* Chart errors are detected before gameplay.
+* Missing choreography does not disable chart scoring.
+* Reduced-motion settings are respected.
+* Song restart and pause behavior are reliable.
+
+13. Multiplayer
+
+* Room creation and joining are understandable.
+* Players can identify each other’s instruments and avatars.
+* Session start timing is coordinated.
+* Network delay is handled without relying solely on message arrival time.
+* Reconnection restores valid session state.
+* Host departure is handled explicitly.
+* Duplicate and late messages do not corrupt the session.
+* Scoring rules are consistent for all participants.
+* Shared project editing has defined conflict handling.
+* Invalid messages are rejected safely.
+* Network errors are explained clearly.
+* Multiplayer failure does not disable standalone play.
+* Privacy and data transmission are documented.
+* Server requirements and operational limitations are documented.
+
+14. Mobile and responsive polish
+
+* No essential control is too small to tap reliably.
+* Touch targets have adequate spacing.
+* Simultaneous touches work on supported devices.
+* Touch cancellation and interrupted gestures release controls.
+* Portrait and landscape layouts are deliberate.
+* Device safe areas are respected.
+* Browser UI does not obscure essential controls.
+* Orientation changes do not corrupt playback state.
+* Audio activation works with browser restrictions.
+* UI scaling preserves legibility.
+* Low-performance devices receive appropriate rendering settings.
+* Mobile memory limits are tested.
+* Returning from the background restores a valid state.
+* Menus, dialogs, sliders, and editors are usable without a mouse.
+
+15. Accessibility and interaction details
+
+* All core actions are accessible through supported alternative inputs.
+* Keyboard focus is visible.
+* Dialogs manage focus correctly.
+* Color is not the sole way to communicate musical information.
+* Reduced-motion mode limits unnecessary animation.
+* Text remains readable at supported scaling levels.
+* Screen-reader labels exist for relevant controls.
+* Error messages identify the affected operation.
+* Disabled controls explain why they are unavailable when appropriate.
+* Timing windows and difficulty can be adjusted where the mode allows.
+* Accessibility settings persist.
+* Visual effects can be reduced without breaking musical feedback.
+
+16. Persistence and project safety
+
+* Save operations report success only after successful completion.
+* Failed saves do not overwrite valid saved projects.
+* Project files have explicit versions.
+* Older projects are migrated or rejected safely.
+* Corrupted projects produce recoverable errors.
+* Storage quotas are handled explicitly.
+* Autosave does not interrupt gameplay.
+* Users can export projects for backup.
+* Imported assets are validated.
+* Project references are checked before playback.
+* Large projects do not cause uncontrolled memory use.
+* Repeated save/load cycles preserve the same supported content.
+
+17. Performance and resource management
+
+* Initial loading time is measured.
+* Time to first playable interaction is measured.
+* Frame rate is measured during demanding scenes.
+* Audio timing is tested under rendering load.
+* Polyphony and track limits are documented.
+* Sound-bank loading is optimized.
+* Graphics resources are released when no longer needed.
+* Event listeners are not duplicated.
+* Switching modes does not leak resources.
+* Long playback and recording sessions are tested.
+* Large file imports are tested.
+* Rendering quality adapts to device capability.
+* The application recovers from graphics-context loss where possible.
+* Performance targets are verified on representative physical devices.
+
+18. Single-file packaging and offline operation
+
+* The final artifact is one HTML file.
+* Required code is embedded.
+* Embedded assets are complete and correctly licensed.
+* External dependencies are explicitly documented.
+* The file opens directly in every claimed compatible environment.
+* Core offline features work without a network connection.
+* Optional remote assets fail gracefully.
+* No private credentials are embedded.
+* Browser storage behavior is verified for the actual deployment context.
+* File import and export are tested from the delivered file.
+* The final file is tested independently of the development environment.
+* No development-only dependency is required at runtime unless documented.
+
+19. Error handling and recovery
+
+* Every important asynchronous operation has failure handling.
+* Failed imports preserve the existing project.
+* Failed recordings preserve previous takes.
+* Audio failures offer recovery actions.
+* Rendering failures offer a fallback where possible.
+* Network failures do not leave sessions indefinitely stuck.
+* Invalid settings are rejected or normalized predictably.
+* Unsupported features are clearly identified.
+* Error messages avoid exposing sensitive information.
+* Diagnostic logging does not create unbounded storage growth.
+* Critical errors have regression tests.
+* No important operation silently fails.
+
+20. Testing and release quality
+
+* Unit tests cover musical timing and mapping.
+* Integration tests cover audio, input, scoring, and rendering.
+* Import tests cover valid, malformed, and unusually large files.
+* Save/load tests verify data integrity.
+* Multiplayer tests cover latency, disconnects, and invalid messages.
+* Mobile tests run on actual devices.
+* Cross-browser tests cover advertised browsers.
+* Performance tests cover long and demanding sessions.
+* Accessibility checks are completed.
+* Licensing and dependency inventories are reviewed.
+* The release build has no known critical defects.
+* All documented limitations are accurate.
+* Every P0 and P1 requirement has an acceptance test.
+* The final HTML has been independently validated.
+
+21. Micro-polish that separates good from excellent
+
+These details are small individually but substantially affect perceived quality.
+
+* Buttons provide subtle pressed feedback.
+* Focus transitions are smooth.
+* Panels open and close without abrupt jumps.
+* Loading indicators appear only when useful.
+* Progress indicators reflect real progress.
+* Audio preview transitions do not click.
+* Tooltips explain genuinely non-obvious controls.
+* Empty states guide the next action.
+* Confirmation dialogs describe consequences accurately.
+* Numeric controls display sensible units and precision.
+* Sliders respond correctly to keyboard and touch.
+* Long track names are handled without breaking layouts.
+* Missing artwork has an intentional fallback.
+* All icons have consistent visual weight.
+* Song selection preserves the user’s current filters and scroll position where appropriate.
+* The game does not unexpectedly reset volume, difficulty, or input mappings.
+* The user receives clear feedback when an operation is complete.
+* Visual effects remain synchronized with music without becoming distracting.
+* All built-in demo content is musically and visually coherent.
+
+22. Definition of maximum polish
+
+A subsystem is considered polished only when all applicable conditions are satisfied:
+
+* Functionally correct across its supported use cases.
+* Visually consistent with the overall product.
+* Responsive under expected loads.
+* Accessible through supported input methods.
+* Resilient to malformed data, interruptions, and recoverable failures.
+* Covered by automated or reproducible tests.
+* Integrated with the rest of the application.
+* Documented where limitations remain.
+* Verified in the actual target deployment environment.
+* Free of known release-blocking defects.
+
+A beautiful interface cannot compensate for broken timing. A powerful audio engine cannot compensate for confusing controls. A sophisticated 3D stage cannot compensate for lost recordings.
+
+The final quality bar is the combined experience: the game must look polished, sound convincing, respond immediately, preserve the player’s work, and behave predictably across supported devices.
