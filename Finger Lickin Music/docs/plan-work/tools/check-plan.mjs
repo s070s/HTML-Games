@@ -42,6 +42,9 @@ if (nonAscii.length) {
   err('Non-ASCII bytes: ' + nonAscii.length + ' e.g. ' + lim(locs).join(', '));
 }
 
+// Split a table row into cells; `\|` is an escaped pipe inside a cell (GFM).
+const cellsOf = (L) => L.replace(/\\\|/g, '\u0000').split('|').slice(1, -1).map(c => c.trim());
+
 // Collect definitions
 const defs = { T: new Map(), R: new Map(), UT: new Map(), IT: new Map(), FT: new Map(), TT: new Map(), PT: new Map(), XT: new Map(), FI: new Map(), LT: new Map(), AT: new Map(), RISK: new Map(), ADR: new Map(), M: new Map() };
 for (let i = 1; i <= 31; i++) defs.M.set('M-' + String(i).padStart(2, '0'), 0);
@@ -53,6 +56,7 @@ function addDef(kind, id, line) {
 const rRows = []; // {id, priority, line, tests, status, phaseCell}
 let inPart15 = false, inPart12 = false, inPart11 = false;
 let tHeaderCols = null;
+let part15Hdr = null;
 for (let i = 0; i < lines.length; i++) {
   const L = lines[i];
   const ln = i + 1;
@@ -65,21 +69,24 @@ for (let i = 0; i < lines.length; i++) {
   if ((m = L.match(/^### (T\d\d\.\d\d)\b/))) addDef('T', m[1], ln);
   if ((m = L.match(/^### \d+\.\d+ (ADR-\d\d)\b/))) addDef('ADR', m[1], ln);
   if ((m = L.match(/^\| (RISK-\d\d) \|/))) addDef('RISK', m[1], ln);
-  if ((m = L.match(/^\| (UT-\d\d-\d\d) \|/))) addDef('UT', m[1], ln);
-  if ((m = L.match(/^\| ((IT|FT|TT|PT|XT|FI|LT)-\d{3}) \|/))) addDef(m[2], m[1], ln);
+  // Test IDs are defined by full rows (4+ cells); 2-3 cell rows are index or coverage listings.
+  const nCells = L.startsWith('|') ? cellsOf(L).length : 0;
+  if (nCells >= 4 && (m = L.match(/^\| (UT-\d\d-\d\d) \|/))) addDef('UT', m[1], ln);
+  if (nCells >= 4 && (m = L.match(/^\| ((IT|FT|TT|PT|XT|FI|LT)-\d{3}) \|/))) addDef(m[2], m[1], ln);
   if ((m = L.match(/^\| (AT-R-[BEIP]\d+(?:\.\d+)*-\d\d) \|/))) addDef('AT', m[1], ln);
+  if (inPart15 && /^\| R-ID \|/i.test(L)) part15Hdr = cellsOf(L);
   if (inPart15 && (m = L.match(/^\| (R-[BEIP]\d+(?:\.\d+)*-\d\d) \|/))) {
     addDef('R', m[1], ln);
-    const cells = L.split('|').slice(1, -1).map(c => c.trim());
-    rRows.push({ id: m[1], line: ln, cells });
+    rRows.push({ id: m[1], line: ln, cells: cellsOf(L), hdr: part15Hdr });
   }
 }
 
 // Part 15 header columns -> find Priority/Tests/Status indexes per table (assume consistent header)
 let hdr = null;
-for (const L of lines) { if (/^\| R-ID \|/i.test(L)) { hdr = L.split('|').slice(1, -1).map(c => c.trim()); break; } }
+hdr = (rRows.find(r => r.hdr) || {}).hdr || null;
 if (!hdr) err('No Part 15 header row starting with "| R-ID |" found');
-const idx = (name) => hdr ? hdr.findIndex(h => new RegExp('^' + name, 'i').test(h)) : -1;
+const idxIn = (h, name) => h ? h.findIndex(c => new RegExp('^' + name, 'i').test(c)) : -1;
+const idx = (name) => idxIn(hdr, name);
 const iPri = idx('Priority'), iTests = idx('Tests'), iStatus = idx('Status'), iPhase = idx('Phase'), iMod = idx('Module');
 
 // Duplicates
@@ -155,12 +162,12 @@ const badTables = [];
 for (let i = 0; i < lines.length; i++) {
   if (!lines[i].startsWith('|')) continue;
   const start = i;
-  const hdrCols = lines[i].split('|').length - 2;
+  const hdrCols = cellsOf(lines[i]).length;
   let j = i + 1;
   if (!(j < lines.length && /^\|\s*:?-{2,}/.test(lines[j]))) { i = j; continue; }
   j++;
   while (j < lines.length && lines[j].startsWith('|')) {
-    const c = lines[j].split('|').length - 2;
+    const c = cellsOf(lines[j]).length;
     if (c !== hdrCols) badTables.push((j + 1) + ' (expected ' + hdrCols + ' got ' + c + ')');
     j++;
   }
@@ -172,9 +179,10 @@ if (badTables.length) err('Table rows with wrong column count: ' + badTables.len
 const p01NoAt = [], badStatus = [], phaseNotBackfilled = [];
 const okStatus = new Set(['Implemented', 'Partial', 'Blocked', 'Unimplemented', 'Deferred']);
 for (const r of rRows) {
-  const pri = iPri >= 0 ? r.cells[iPri] : '';
-  const st = iStatus >= 0 ? r.cells[iStatus] : '';
-  const ph = iPhase >= 0 ? r.cells[iPhase] : '';
+  const h = r.hdr || hdr;
+  const pri = r.cells[idxIn(h, 'Priority')] || '';
+  const st = r.cells[idxIn(h, 'Status')] || '';
+  const ph = r.cells[idxIn(h, 'Phase')] || '';
   if (st && !okStatus.has(st)) badStatus.push(r.id + '=' + st);
   if ((pri === 'P0' || pri === 'P1') && !defs.AT.has('AT-' + r.id)) p01NoAt.push(r.id);
   if (/^Phase\s*\d/.test(ph)) phaseNotBackfilled.push(r.id);
@@ -197,6 +205,7 @@ for (const [part, [a, b]] of Object.entries(ranges)) {
   for (let ln = a; ln <= b && ln <= spec.length; ln++) {
     const L = spec[ln - 1];
     let m;
+    if (L.length > 90 || /\.\s*$/.test(L)) continue; // list sentences, not headings
     if (part === 'B') {
       if ((m = L.match(/^(\d{1,2})\. \S/))) specSecs.push([part, m[1]]);
       else if ((m = L.match(/^(\d{1,2}\.\d{1,2}) \S/))) specSecs.push([part, m[1]]);
@@ -233,7 +242,7 @@ report.counts = {
   T: defs.T.size, tEntriesChecked: tCount,
   R: defs.R.size,
   R_byPart: ['B', 'E', 'I', 'P'].reduce((o, p) => (o[p] = [...defs.R.keys()].filter(k => k.startsWith('R-' + p)).length, o), {}),
-  R_P0P1: rRows.filter(r => iPri >= 0 && /^P[01]$/.test(r.cells[iPri])).length,
+  R_P0P1: rRows.filter(r => /^P[01]$/.test(r.cells[idxIn(r.hdr || hdr, 'Priority')] || '')).length,
   UT: defs.UT.size, IT: defs.IT.size, FT: defs.FT.size, TT: defs.TT.size, PT: defs.PT.size, XT: defs.XT.size, FI: defs.FI.size, LT: defs.LT.size, AT: defs.AT.size,
   RISK: defs.RISK.size, ADR: defs.ADR.size,
   specSections: specSecs.length,

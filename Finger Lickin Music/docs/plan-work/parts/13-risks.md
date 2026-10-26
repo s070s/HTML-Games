@@ -209,7 +209,7 @@ Gate review procedure:
 6. For each newly `realized` row: add the defect row to STATUS.md section 6 with severity
    and the regression test to be added, move the affected R-IDs to Partial or Blocked
    (0.7 rule 3), and apply 13.2 rule 6.
-7. New risks found during the phase get the next free number (RISK-78 onward), all eight
+7. New risks found during the phase get the next free number (the numbers after RISK-77), all eight
    columns, a severity by 13.2, and are added to 13.1 as a 1.0.x plan patch with a LEDGER
    "Decisions" line. Rows are never renumbered or deleted.
 8. Write the review block below into the gate's LEDGER entry and include it in the gate

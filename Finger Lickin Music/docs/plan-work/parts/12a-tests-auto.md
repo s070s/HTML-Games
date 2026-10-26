@@ -954,6 +954,7 @@ in 31 groups.
 | UT-23-31 | asJudgeChart |
 | UT-23-32 | generator leaves the song untouched |
 | UT-23-33 | HUD model |
+| UT-23-34 | miss streak hint |
 
 #### 12.2.24 M-24 `FLM.Net` (group `net`, `src/91-test-net.js`, Part 6.24.8): 40 tests
 
@@ -1117,6 +1118,7 @@ in 31 groups.
 | UT-28-19 | browser back pauses gameplay |
 | UT-28-20 | auto tier |
 | UT-28-21 | netConnections exemption |
+| UT-28-22 | dance difficulty change only while stopped |
 
 #### 12.2.29 M-29 `FLM.Boot` (group `boot`, `src/91-test-boot.js`, Part 6.29.8): 12 tests
 

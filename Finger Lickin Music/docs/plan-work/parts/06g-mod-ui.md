@@ -2033,6 +2033,7 @@ where timing matters; built-in song `tut-basics` (short) unless stated.
 | UT-28-19 | browser back pauses gameplay | history on; instrument playing; onPopState({depth:1}) | mode unchanged, transport paused, SCR-Pause pushed, history re-pushed |
 | UT-28-20 | auto tier | stub Render.stats p95 35 ms for 5 s with video.tier auto; then with video.tier 'high' | one setTier(lower,'auto') call and one toast; none when the tier is fixed |
 | UT-28-21 | netConnections exemption | fake Net with one connection; leave multiplayer next results; leave results next multiplayer | assertClean null in both; leave to menu with a connection reports `netConnections` |
+| UT-28-22 | dance difficulty change only while stopped | dance mode bound; request a difficulty change while `playing`, while `paused`, then while `stopped` | refused (state unchanged) while playing and paused; while stopped the chart is regenerated and `DanceJudge.bind` is called exactly once |
 
 #### 6.28.9 Implementation notes and browser quirks
 
@@ -3265,7 +3266,7 @@ All tests use `createRunner()` so the inner runs do not touch the real registry 
 | UT-31-05 | timeout | test with `{timeoutMs: 50}` awaiting a never-resolving promise | fail with `timeout after 50 ms`; the run finishes |
 | UT-31-06 | skip | `t.skip('no WebGL2 in headless')` | `skipped:true`, `pass:true`, message is the reason; group `skipped` count 1 |
 | UT-31-07 | slow filter | one slow and one normal test; run without and with `{slow:true}` | 1 test then 2 tests reported |
-| UT-31-08 | grep filter | tests 'UT-99-01 alpha' and 'UT-99-02 beta'; grep 'BETA' | only the beta test reported |
+| UT-31-08 | grep filter | tests 'ZZ-01 alpha' and 'ZZ-02 beta'; grep 'BETA' | only the beta test reported |
 | UT-31-09 | unknown group | `run('nonsense')` | `unknown` is ['nonsense'], total 0, `known` lists 36 names |
 | UT-31-10 | results shape and global | top-level `run('selftest')` with an inner flag preventing recursion | `window.__FLM_RESULTS === returned object`; keys match `RESULT_SHAPE`; group row totals equal the sum of entries |
 | UT-31-11 | assertion semantics | near(0.1 + 0.2, 0.3, 1e-12), within(5, 0, 5), deepEq on nested Map and Float32Array, throws with prefix, rejects with prefix | each passes; a deepEq mismatch message names the differing path |

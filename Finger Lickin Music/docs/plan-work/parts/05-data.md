@@ -968,7 +968,7 @@ practice settings (Part 8.12).
 | steps | DanceStep[] | 0-20,000 | | sorted by tick; no two steps share (tick, direction); hold tails do not overlap a later step in the same direction; max simultaneous directions: easy 1, normal 2, hard 2 |
 | generatorVersion | int | >= 1 | `Dance.DanceChartGenerator.VERSION` (1) | regenerate when different (generated charts only) |
 | layout | string | `arrows` or `pads` | `arrows` | display only; directions are the same data |
-| settingsHash | string | 8 hex | `hex8(fnv1a32(difficulty + '|' + generatorVersion + '|' + songId + '|' + durationTicks))` | recomputed on load for generated charts |
+| settingsHash | string | 8 hex | `hex8(fnv1a32(difficulty + '\|' + generatorVersion + '\|' + songId + '\|' + durationTicks))` | recomputed on load for generated charts |
 | source | string | `generated` or `imported` | `generated` | imported charts are validated but never regenerated |
 | name | string | 0-80 | `""` | imported charts may carry a name |
 
@@ -1201,7 +1201,7 @@ Cosmetics never change gameplay data.
 | field | type | invariant |
 |---|---|---|
 | date | string `YYYYMMDD` local date | one record per date; previous dates are summarized into `counters.dailyCompleted` |
-| seed | int | `fnv1a32('daily|' + date)` |
+| seed | int | `fnv1a32('daily\|' + date)` |
 | songId | id | built-in song chosen by `Prng(seed)`; imported songs are never required |
 | mode | string | `instrument` or `dance` (`Prng` 3:1) |
 | instrument | int or null | one of the chosen song's tracks' programs |

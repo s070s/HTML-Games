@@ -909,7 +909,7 @@ arpeggios with 5-note chords on beat 1).
 | UT-08-28 | drum lane map | `fx.drums` expert and beginner | kick in lane 0, snare lane 1, hats lane 2; beginner keeps kick on beat 1 and 3 with maxLanes 1 |
 | UT-08-29 | chord-slot strategy | `fx.chords` with profile C | lanes [0], [1], [2], [3] for I, IV, V, vi chords |
 | UT-08-30 | hold truncation | two notes in one lane where the first's duration overlaps the second (expert) | first `durTicks` = gap - 60; `isHold` false when below 960 |
-| UT-08-31 | settingsHash composition | `settingsHash('expert','A',1,'t1',473)` | 8 lowercase hex chars; differs when any argument changes; equals `Core.fnv1a32('expert|A|1|t1|473')` formatted |
+| UT-08-31 | settingsHash composition | `settingsHash('expert','A',1,'t1',473)` | 8 lowercase hex chars; differs when any argument changes; equals `Core.fnv1a32('expert\|A\|1\|t1\|473')` formatted |
 | UT-08-32 | sparse relaxation | syncopated fixture with no on-beat notes | beginner chart is non-empty (threshold relaxed), still spaced by 960 |
 | UT-08-33 | preview and describe | `preview(chart, song, 0, 4)`, `describe(chart)` | 4 bars; lane arrays contain only notes within the bar range; description string matches the format in M |
 | UT-08-34 | simplificationReport | `fx.dense` | beginner/intermediate `needsSimplification` true; expert false when maxSimultaneousSource <= 4 |

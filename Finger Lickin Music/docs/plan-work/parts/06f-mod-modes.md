@@ -619,6 +619,7 @@ s`) as in 6.9.8.
 | UT-23-31 | asJudgeChart | any chart | notes deep-equal steps mapped to `{id, tick, durTicks, lanes: directions, sourceEventIds:[], pitches:[], isHold}`; difficulty mapped via `WINDOW_MAP` |
 | UT-23-32 | generator leaves the song untouched | deep-frozen `fx.songDrums` | `generate` does not throw; `fnv1a32(JSON.stringify(song))` unchanged |
 | UT-23-33 | HUD model | bound run with lifeBar on, 3 judged steps | `hud()` has `kind:'dance'`, receptors with glyphs L D U R, `steps.total` equals chart length, `life` a number, `next.length <= 8` |
+| UT-23-34 | miss streak hint | bound run, 8 consecutive misses, then a ninth miss | S-PLAY-07 hint emitted exactly once after the 8th miss; combo is 0; no second hint on the 9th miss |
 
 #### 6.23.9 Implementation notes and browser quirks
 

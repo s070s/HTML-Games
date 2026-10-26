@@ -73,6 +73,7 @@ UT-28-18 | M-28 | target track policy
 UT-28-19 | M-28 | browser back pauses gameplay
 UT-28-20 | M-28 | auto tier
 UT-28-21 | M-28 | netConnections exemption
+UT-28-22 | M-28 | dance difficulty change only while stopped
 UT-29-01 | M-29 | URL parameter parsing
 UT-29-02 | M-29 | gate soft rows
 UT-29-03 | M-29 | gate hard rows

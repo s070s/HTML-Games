@@ -31,6 +31,7 @@ UT-23-30 | M-23 | unsupported step type
 UT-23-31 | M-23 | asJudgeChart
 UT-23-32 | M-23 | generator leaves the song untouched
 UT-23-33 | M-23 | HUD model
+UT-23-34 | M-23 | miss streak hint
 UT-24-01 | M-24 | code round trip
 UT-24-02 | M-24 | code rejection and whitespace
 UT-24-03 | M-24 | envelope rules
