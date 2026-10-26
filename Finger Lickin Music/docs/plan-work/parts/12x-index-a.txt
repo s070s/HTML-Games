@@ -1,0 +1,276 @@
+﻿IT-001 | keyboard lane press to live audio
+IT-002 | touch pads: four simultaneous pointers to live audio
+IT-003 | input to scoring: 31 perfect presses
+IT-004 | calibration affects scoring predictably
+IT-005 | chords and simultaneous presses within documented limits
+IT-006 | imported MIDI to playback: tracks, programs and notes
+IT-007 | imported MIDI with tempo changes plays on the tempo map
+IT-008 | polyphonic MIDI stays polyphonic in playback
+IT-009 | imported MIDI drives instrument animation at scheduled audio times
+IT-010 | multiple instruments perform simultaneously
+IT-011 | dense passage rendering never blocks audio scheduling
+IT-012 | reduced-quality tiers preserve the timeline and scores
+IT-013 | renderer never advances musical time in a live mode
+IT-014 | recording to project save and reload
+IT-015 | overdub: earlier tracks play while recording
+IT-016 | multitrack playback and mixing
+IT-017 | mix of 32 loud tracks stays below full scale
+IT-018 | undo and redo restore events and track configuration
+IT-019 | dance chart to scoring
+IT-020 | dance avatar movement stays synchronized with the chart
+IT-021 | dance scoring continues when choreography is missing
+IT-022 | character customization to saved appearance
+IT-023 | character edited during playback rebuilds one performer only
+IT-024 | characters saved inside a project
+IT-025 | multiplayer synchronized start over a loopback pair
+IT-026 | multiplayer scoring: host judges guest inputs
+IT-027 | multiplayer disconnect and reconnect keep local state intact
+IT-028 | multiplayer rejects invalid authoritative results
+IT-029 | multiplayer room full and late join
+IT-030 | offline operation without the multiplayer service
+IT-031 | optional relay failure does not disable standalone features
+IT-032 | twenty enter and leave cycles per mode stay clean
+IT-033 | leaving a mode with held notes leaves no stuck note
+IT-034 | animation follows scheduled events, not frames, on the full stage
+IT-035 | calibration values touch only the Judge
+IT-036 | imported text never executes in the inspection screen
+IT-037 | exported tables frozen and namespaces closed after a full session
+IT-038 | chart generation never mutates the source arrangement
+IT-039 | the audio clock is the only master
+IT-040 | bounded scheduling of a 2,000-note chord
+IT-041 | malformed files in sequence leave the application usable
+IT-042 | import never touches the current project until confirmed
+IT-043 | inputs are mode-stateless and released on leave
+IT-044 | save success only after read-back through the Studio UI
+IT-045 | tier changes during playback leave transport and judging alone
+IT-046 | audio panic never touches project data
+IT-047 | one audio engine per page
+IT-048 | Quick Play from the import screen uses the previewed chart
+IT-049 | practice: target track mute and lower
+IT-050 | practice: slower speed silences audio tracks
+IT-051 | practice: loop with progressive speed
+IT-052 | practice: restart at a bar and one-hand mode
+IT-053 | results and progression after a finished song
+IT-054 | two tabs editing the same project
+IT-055 | autosave only at safe points
+IT-056 | browser back during gameplay pauses instead of leaving
+IT-057 | page hide autosaves a dirty project and offers recovery
+IT-058 | storage unavailable: memory-only mode
+IT-059 | WebGL unavailable: Abstract tier still plays
+IT-060 | settings persist and restore
+FT-001 | files.midi.midi-controllers.mid
+FT-002 | files.midi.midi-drums-heavy.mid
+FT-003 | files.midi.midi-duplicate-meta.mid
+FT-004 | files.midi.midi-empty-and-text-tracks.mid
+FT-005 | files.midi.midi-format2.mid
+FT-006 | files.midi.midi-meter-key-changes.mid
+FT-007 | files.midi.midi-mono-running-status.mid
+FT-008 | files.midi.midi-mono-simple.mid
+FT-009 | files.midi.midi-multi-program-channel.mid
+FT-010 | files.midi.midi-multitrack-band.mid
+FT-011 | files.midi.midi-no-eot-no-meta.mid
+FT-012 | files.midi.midi-poly-chords.mid
+FT-013 | files.midi.midi-ppq-97.mid
+FT-014 | files.midi.midi-same-tick-tracks.mid
+FT-015 | files.midi.midi-smpte-25.mid
+FT-016 | files.midi.midi-tempo-changes.mid
+FT-017 | files.midi.midi-text-markers.mid
+FT-018 | files.midi.midi-trailing-events.mid
+FT-019 | files.midi.midi-unknown-chunk.mid
+FT-020 | files.midi.midi-unmatched.mid
+FT-021 | files.midi.midi-velocity-range.mid
+FT-022 | files.midi.midi-zero-duration.mid
+FT-023 | files.midi-damaged.midi-mono-simple.bad-data.mid
+FT-024 | files.midi-damaged.midi-mono-simple.bad-hlen.mid
+FT-025 | files.midi-damaged.midi-mono-simple.bad-magic.mid
+FT-026 | files.midi-damaged.midi-mono-simple.bad-status.mid
+FT-027 | files.midi-damaged.midi-mono-simple.bad-vlq.mid
+FT-028 | files.midi-damaged.midi-mono-simple.format3.mid
+FT-029 | files.midi-damaged.midi-mono-simple.huge-length.mid
+FT-030 | files.midi-damaged.midi-mono-simple.ppq0.mid
+FT-031 | files.midi-damaged.midi-mono-simple.short-length.mid
+FT-032 | files.midi-damaged.midi-mono-simple.trunc-12.mid
+FT-033 | files.midi-damaged.midi-mono-simple.trunc-128.mid
+FT-034 | files.midi-damaged.midi-mono-simple.trunc-131.mid
+FT-035 | files.midi-damaged.midi-mono-simple.trunc-20.mid
+FT-036 | files.limits.mem-1000001-events.mid
+FT-037 | files.limits.mem-10001-measures.musicxml
+FT-038 | files.limits.mem-101mb.wav
+FT-039 | files.limits.mem-129-mtrk.mid
+FT-040 | files.limits.mem-129-parts.musicxml
+FT-041 | files.limits.mem-1m-events.mid
+FT-042 | files.limits.mem-26mb.mid
+FT-043 | files.limits.mem-audio-400mb.wav
+FT-044 | files.limits.mem-budget.mid
+FT-045 | files.limits.mem-cancel.mid
+FT-046 | files.limits.mem-repeat-bomb.musicxml
+FT-047 | files.limits.midi-40-tracks.mid
+FT-048 | files.limits.midi-huge-ntrks.mid
+FT-049 | files.limits.midi-large-100k.mid
+FT-050 | files.musicxml.xml-basic-partwise.musicxml
+FT-051 | files.musicxml.xml-basic-partwise.trunc-half.musicxml
+FT-052 | files.musicxml.xml-basic-timewise.musicxml
+FT-053 | files.musicxml.xml-chords-ties-tuplets.musicxml
+FT-054 | files.musicxml.xml-expression.musicxml
+FT-055 | files.musicxml.xml-malformed.musicxml
+FT-056 | files.musicxml.xml-no-notes.musicxml
+FT-057 | files.musicxml.xml-not-a-score.xml
+FT-058 | files.musicxml.xml-opus.xml
+FT-059 | files.musicxml.xml-parts-voices-staves.musicxml
+FT-060 | files.musicxml.xml-repeats-endings.musicxml
+FT-061 | files.musicxml.xml-transposing.musicxml
+FT-062 | files.musicxml.xml-unsupported.musicxml
+FT-063 | files.security.mxl-ratio-bomb.mxl
+FT-064 | files.security.xml-entity-expansion.musicxml
+FT-065 | files.security.xml-script-text.musicxml
+FT-066 | files.mxl.mxl-deflate.mxl
+FT-067 | files.mxl.mxl-missing-rootfile.mxl
+FT-068 | files.mxl.mxl-no-container.mxl
+FT-069 | files.mxl.mxl-stored.bad-crc.mxl
+FT-070 | files.mxl.mxl-stored.encrypted.mxl
+FT-071 | files.mxl.mxl-stored.mxl
+FT-072 | files.mxl.mxl-stored.trunc-eocd.mxl
+FT-073 | files.mxl.zip-without-score.mxl
+FT-074 | files.gp.gp2-unsupported.gtp
+FT-075 | files.gp.gp3-basic.gp3
+FT-076 | files.gp.gp4-basic.gp4
+FT-077 | files.gp.gp4-l406.gp4
+FT-078 | files.gp.gp4-v400.gp4
+FT-079 | files.gp.gp5-basic.bad-strings.gp5
+FT-080 | files.gp.gp5-basic.gp5
+FT-081 | files.gp.gp5-basic.huge-measures.gp5
+FT-082 | files.gp.gp5-basic.trunc-header.gp5
+FT-083 | files.gp.gp5-basic.trunc-measure9.gp5
+FT-084 | files.gp.gp5-drums-mix-directions.gp5
+FT-085 | files.gp.gp5-effects.gp5
+FT-086 | files.gp.gp5-repeats.gp5
+FT-087 | files.gp.gp5-tuning-capo.gp5
+FT-088 | files.gp.gp6-file.gpx
+FT-089 | files.gp.gp7-file.gp
+FT-090 | files.audio.audio-garbage.mp3
+FT-091 | files.audio.audio-garbage.ogg
+FT-092 | files.audio.audio-lead-silence.wav
+FT-093 | files.audio.audio-sine-1s.wav
+FT-094 | files.audio.audio-unknown-codec.wav
+FT-095 | files.ident.compat-table
+FT-096 | files.ident.empty.mid
+FT-097 | files.ident.manifest-count
+FT-098 | files.ident.midi-named-as.xml
+FT-099 | files.ident.project-file.json
+FT-100 | files.ident.report-fields
+FT-101 | files.ident.riff-midi.rmi
+FT-102 | files.ident.soundfont.sf2
+FT-103 | files.ident.unknown-random.bin
+FT-104 | files.roundtrip.character-cycle
+FT-105 | files.roundtrip.dance-cycle
+FT-106 | files.roundtrip.diag-export
+FT-107 | files.roundtrip.mid-corpus
+FT-108 | files.roundtrip.mid-empty
+FT-109 | files.roundtrip.mid-fixpoint
+FT-110 | files.roundtrip.mid-take
+FT-111 | files.roundtrip.project-cycle
+FT-112 | files.roundtrip.project-limits
+FT-113 | files.roundtrip.settings-cycle
+FT-114 | files.roundtrip.wav-header
+TT-001 | scheduled onset precision, 1,000 notes offline
+TT-002 | onset precision is sample-rate independent
+TT-003 | real-clock scheduling error and late events
+TT-004 | no cumulative drift over a 10-minute loop, offline accelerated
+TT-005 | no cumulative drift with jittered scheduler ticks
+TT-006 | pause and resume do not shift the timeline
+TT-007 | pause during a sustained note
+TT-008 | fifty pause and resume cycles accumulate no error
+TT-009 | seek while notes are active
+TT-010 | seek while stopped, then play
+TT-011 | loop boundary with a sustained note
+TT-012 | event exactly on the loop end is never played while looping
+TT-013 | event exactly on the loop start plays every pass
+TT-014 | tempo change during playback
+TT-015 | ritardando of the piano demo
+TT-016 | meter change keeps beat and click positions
+TT-017 | speed change while playing
+TT-018 | speed preserves pitch
+TT-019 | scheduler stall injection does not shift the timeline
+TT-020 | render stalls of 100-500 ms leave the highway on the audio clock
+TT-021 | background and foreground in a gameplay mode
+TT-022 | background and foreground in the Studio (continue policy)
+TT-023 | calibration applied once across the chain
+TT-024 | calibration changed during a song
+TT-025 | input timestamp mapping accuracy
+TT-026 | judgment window boundaries in audio time
+TT-027 | input before the visual target appears
+TT-028 | dense chord at identical timestamps
+TT-029 | simultaneous presses at identical timestamps
+TT-030 | count-in and recording time origin
+TT-031 | sustain pedal release timing
+TT-032 | swing grid onsets
+TT-033 | highway placement matches audio time at every lead
+TT-034 | loop recording pass boundaries
+TT-035 | dance steps across a tempo change
+TT-036 | dance hold across pause and resume
+PT-001 | build-size
+PT-002 | boot-to-menu
+PT-003 | first-playable
+PT-004 | playback-dense
+PT-005 | full-band-render
+PT-006 | tier-downgrade
+PT-007 | loop-drift-short
+PT-008 | loop-drift
+PT-009 | input-latency
+PT-010 | steady-memory
+PT-011 | mode-cycles-20
+PT-012 | chord-stress-1000
+PT-013 | project-32-tracks
+PT-014 | import-large-midi
+PT-015 | zip-inflate
+PT-016 | serialize-100k
+PT-017 | storage-save
+PT-018 | content-expand
+PT-019 | chart-generate
+PT-020 | net-loopback
+PT-021 | import-repeat
+PT-022 | playback-long
+PT-023 | record-long
+PT-024 | touch-layout
+FI-001 | audio suspended during gameplay
+FI-002 | audio suspended during recording keeps the previous take
+FI-003 | audio suspended in a dirty Studio session
+FI-004 | audio resume blocked for 5 s
+FI-005 | node creation fails mid-song
+FI-006 | scheduling calls fail repeatedly
+FI-007 | audio context closed behind the engine
+FI-008 | audio initialization fails
+FI-009 | graphics context lost and restored
+FI-010 | graphics context never restored
+FI-011 | GPU memory exhausted
+FI-012 | slow frames trigger a graceful downgrade
+FI-013 | storage quota exhausted on save
+FI-014 | localStorage quota exhausted in localStorage-only mode
+FI-015 | IndexedDB open fails
+FI-016 | temporary-copy write fails
+FI-017 | read-back verification fails
+FI-018 | save interrupted at the swap
+FI-019 | backup copy fails
+FI-020 | guest connection dropped
+FI-021 | host connection dropped
+FI-022 | silent connection detected by timeout
+FI-023 | connection never opens
+FI-024 | network delay and jitter
+FI-025 | duplicated messages
+FI-026 | reordered messages
+FI-027 | gamepad disconnected while held
+FI-028 | MIDI device disconnected
+FI-029 | touch pointers cancelled
+FI-030 | truncation sweep over every base corpus file
+FI-031 | truncated import while a dirty project is open
+FI-032 | short scheduler stalls
+FI-033 | long stall pauses gameplay and stops recording
+FI-034 | background throttling of timers
+FI-035 | frame callback throws
+FI-036 | scheduler tick throws
+FI-037 | bus listener throws
+FI-038 | mode enter step fails
+FI-039 | error storm
+FI-040 | switch modes while notes are active
+FI-041 | random input fuzz never crashes
+FI-042 | page hidden during a recording
