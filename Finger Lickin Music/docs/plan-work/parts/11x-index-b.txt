@@ -1,0 +1,46 @@
+﻿T06.01 | Free Play key, scale, tempo and meter settings | R-B4.2-08 R-B6.3-06 R-B7.3-03 R-B7.3-04 R-B7.3-11 R-B7.3-14 R-B10.2-09 R-B10.5-01 R-P9-01
+T06.02 | Metronome and count-in for live play | R-B7.3-10 R-B11.1-10 R-I5-03 R-P9-07
+T06.03 | Live mapper for Free Play: profiles, octave, register, length, velocity, sustain | R-B3.2-02 R-B7.3-01 R-B7.3-05 R-B7.3-06 R-B7.3-07 R-B7.3-08 R-B7.3-09 R-B7.3-13 R-B10.4-07 R-P9-02 R-P9-08
+T06.04 | Live input-to-sound latency and held-note release | R-B11.1-07 R-E2.3-09 R-P9-04 R-P9-09
+T06.05 | Recorder core, RecordingTake and take replay | R-B4.2-12 R-B7.3-12 R-B7.3-15 R-B11.1-08 R-B11.5-01 R-B15.7-15 R-B20.3-07 R-E2.1-10 R-E5.1-01 R-E5.1-03 R-E5.1-06 R-E5.1-08 R-E5.1-09 R-E5.1-11 R-E5.1-13 R-I18-05 R-P9-06 R-P9-11
+T06.06 | SCR-FreePlay screen and the freeplay mode | R-B2-03 R-B4.2-04 R-B6.2-03 R-B6.3-05 R-B7.3-02 R-P9-05 R-P9-10 R-P9-12
+T06.07 | Phase 6 gate | R-B27-09
+T07.01 | SMF reader: header, chunks, VLQ, running status and division | R-B15.2-01 R-B15.2-02 R-B15.2-03 R-B15.2-05 R-B15.2-06 R-B15.2-19 R-B15.2-20 R-B15.2-21 R-B17.4-03 R-B23.1-02 R-E3.1-04 R-E3.1-05 R-E3.1-06 R-E3.1-07 R-E3.1-08 R-E3.1-10 R-E3.1-19 R-E3.1-20 R-E3.1-21 R-E3.1-25
+T07.02 | SMF events into the Song model: notes, controllers, programs, meta and maps | R-B3.1-01 R-B3.5-02 R-B4.3-02 R-B15.2-04 R-B15.2-07 R-B15.2-08 R-B15.2-09 R-B15.2-10 R-B15.2-11 R-B15.2-12 R-B15.2-13 R-B15.2-14 R-B15.2-15 R-B15.2-16 R-B15.2-17 R-B15.2-18 R-B29-03 R-E1-04 R-E3.1-01 R-E3.1-02 R-E3.1-03 R-E3.1-09 R-E3.1-11 R-E3.1-12 R-E3.1-14 R-E3.1-15 R-E3.1-16 R-E3.1-17 R-E3.1-18 R-E3.1-23 R-E3.2-01 R-E3.2-02 R-E3.2-03 R-E3.2-04 R-E3.2-05 R-E3.2-09 R-E3.2-10 R-E3.2-12 R-E3.2-13 R-E3.2-14 R-E3.2-16 R-P11-04 R-P11-05 R-P11-06 R-P11-07 R-P11-08
+T07.03 | Import pipeline: validation, identification, normalization, limits and audio files | R-B3.5-01 R-B3.6-01 R-B15.1-01 R-B15.1-02 R-B15.1-03 R-B15.1-04 R-B15.1-05 R-B15.1-06 R-B15.1-07 R-B15.2-22 R-B20.3-08 R-B23.1-01 R-B23.1-03 R-B23.1-04 R-B24-04 R-B24-05 R-E1-15 R-E3.1-13 R-E3.1-22 R-E3.1-24 R-P11-03 R-P11-12
+T07.04 | MIDI parser edge-case corpus | R-E12-05 R-B25.1-09 R-B25.3-01 R-B25.3-02 R-B25.3-03 R-B25.3-04 R-B25.3-05 R-B25.3-06 R-B25.3-09 R-B25.3-10 R-B25.3-11 R-B25.3-12 R-B25.3-13 R-E3-01 R-I17-07 R-P17-11 R-P20-03
+T07.05 | Data-driven instruments and extensible import adapters | R-I20-15 R-I16.2-01 R-B19.1-05 R-B11.4-12 R-B26.3-04 R-E3.2-06 R-E3.2-07 R-E3.2-11 R-P6.1-08
+T07.06 | Imported song playback: tempo map, polyphony, seek by bar and beat, loop | R-B4.2-07 R-B7.5-11 R-B7.5-12 R-B11.1-09 R-B25.2-03 R-B26.3-01 R-B26.3-02 R-B26.3-03 R-B26.3-05
+T07.07 | Imported events drive instrument animation and the band | R-B25.2-04 R-B26.4-01 R-B26.4-02
+T07.08 | Import inspection and automatic chart generation | R-I20-06 R-B7.5-03 R-B15.1-08 R-E3.2-08 R-E3.2-15 R-I6.1-01 R-I6.1-02 R-I6.1-03 R-I6.1-04 R-I6.1-05 R-I6.1-06 R-I6.1-07 R-I6.1-08 R-I6.2-01 R-I6.2-02 R-I6.2-03 R-I6.2-04 R-I6.2-05 R-I6.2-06 R-I6.2-07 R-I6.2-08 R-I6.2-09 R-P11-02 R-P11-15 R-P21-05 R-P21-06
+T07.09 | Import entry points, Song Library and catalog registration | R-B6.2-05 R-B6.2-06 R-B6.3-02 R-B7.5-02 R-B15.1-09 R-E9-09 R-E9-13 R-E11-12 R-P11-01 R-P19-02 R-P21-08 R-P21-13 R-P21-15
+T07.10 | Phase 7 gate | R-B27-10 R-I14.1-05 R-I19-05
+T08.01 | Four-button mapping and adaptive difficulty | R-I20-02 R-B7.2-02 R-B7.2-03 R-B7.2-04 R-B7.2-05 R-B7.2-06 R-B7.2-08 R-B7.2-09 R-B7.2-11 R-B7.5-06 R-B7.5-16 R-B8.4-09 R-B15.7-16 R-B26.2-01 R-B26.2-02 R-E4.2-01 R-E4.2-02 R-E4.2-08 R-E4.2-09 R-E4.2-10 R-E4.2-14 R-E4.2-15 R-I1.2-01 R-I2.2-01 R-I2.2-02 R-I2.2-03 R-I2.2-04 R-I2.2-05 R-I2.2-06 R-P5.3-01 R-P5.3-02 R-P5.3-03 R-P5.3-04 R-P11-14
+T08.02 | Scoring boundary-condition tests | R-E12-08 R-I17-06 R-B7.2-07 R-B7.2-10 R-B22-03 R-B26.2-03 R-B26.2-04 R-E4.2-13 R-I15-03 R-P5.2-12 R-P15-10
+T08.03 | Note highway readability, feedback and non-color cues | R-B22-02 R-B22-04 R-B22-05 R-B22-10 R-B22-13 R-I15-02 R-I15-05 R-I15-06 R-P5.2-01 R-P5.2-02 R-P5.2-03 R-P5.2-04 R-P5.2-06 R-P5.2-08 R-P5.2-09 R-P15-04
+T08.04 | Instrument Mode runs: backing tracks, target part, speed and practice tools | R-B2-06 R-B4.2-03 R-B6.4-02 R-B6.4-09 R-B7.2-01 R-B7.2-12 R-B7.5-01 R-B7.5-04 R-B7.5-05 R-B7.5-07 R-B7.5-08 R-B7.5-09 R-B7.5-10 R-B7.5-15 R-B11.1-11 R-B11.5-02 R-E4.2-11 R-E4.2-12 R-I6.3-01 R-I6.3-02 R-I12-11 R-I18-06 R-P5.2-10
+T08.05 | Quick Play and Instrument Mode selection | R-B6.2-01 R-B6.2-02 R-B7.1-01 R-B7.1-02 R-B7.1-03 R-B7.1-05 R-B7.1-06 R-B7.1-07 R-B7.1-08 R-B7.1-09 R-B7.1-10 R-P1-05 R-P2.1-06 R-P4-01 R-P4-04
+T08.06 | Performance summaries, SCR-Results and result history | R-B2-14 R-B7.2-13 R-B7.5-14 R-I2.4-01 R-I2.4-02 R-I9.1-01 R-I9.1-02 R-I9.1-03 R-I9.1-04 R-I9.2-01 R-I9.2-02
+T08.07 | Onboarding and contextual interface design | R-I20-10 R-I11.1-01 R-I11.1-02 R-I11.1-03 R-I11.1-04 R-I11.2-01 R-I11.2-02 R-I11.3-01 R-I11.3-02 R-I11.3-03 R-I11.3-04 R-I11.3-05 R-I11.3-06 R-I11.3-07 R-I11.3-08 R-P1-06 R-P4-05 R-P4-06 R-P4-07 R-P4-08 R-P4-09 R-P4-11 R-P4-12 R-P15-11 R-P21-16
+T08.08 | Phase 8 gate | R-B27-11 R-P20-02
+T09.01 | Project schema v1, validation, serialization and size accounting | R-B15.7-14 R-B18.2-01 R-B18.2-02 R-B18.2-03 R-B18.2-04 R-B18.2-05 R-B18.2-06 R-B18.2-07 R-B18.2-08 R-B18.2-12 R-B19.2-10 R-B20.1-11 R-B25.1-10 R-E5.3-06 R-E5.3-13 R-I13-03 R-I13-04 R-P16-03 R-P16-09 R-P16-10 R-P16-11
+T09.02 | Non-destructive studio editing | R-I20-05 R-B7.4-13 R-B16.4-07 R-E5.1-12 R-E5.2-06 R-E5.2-07 R-E5.2-11 R-E5.2-12 R-I5-08 R-I5.1-01 R-I5.1-02 R-I5.1-03 R-I13-06 R-P10-09
+T09.03 | Storage engine: safe write, routing, storage modes and verified saves | R-B18.1-01 R-B18.1-03 R-B18.4-01 R-B18.4-02 R-B19.1-15 R-B26.5-04 R-E1-09 R-E1-14 R-E5.3-02 R-E5.3-03 R-E5.3-12 R-E5.3-14 R-E9-12 R-E11-13 R-I13-05 R-I19-08 R-P16-01 R-P16-02
+T09.04 | Project library: open, rename, delete, backups, tab lock and save conflicts | R-B24-08 R-E5.3-07 R-E5.3-08 R-E5.3-09 R-E5.3-10 R-E5.3-11 R-P16-05 R-P3-09
+T09.05 | Studio session and track lifecycle | R-B2-05 R-B4.3-01 R-B6.2-04 R-B7.4-01 R-B7.4-02 R-B7.4-08 R-B7.4-09 R-B7.4-10 R-B16.1-01 R-B16.1-02 R-B16.1-03 R-B16.1-06 R-B16.1-07 R-B20.1-09 R-E5.2-01 R-E5.2-10 R-I5-02 R-I5-09 R-P10-04 R-P10-11
+T09.06 | Recording workflow, overdub and loop recording | R-B2-04 R-B7.4-03 R-B7.4-04 R-B7.4-05 R-B7.4-17 R-B16.2-01 R-B16.2-02 R-B16.2-03 R-B16.2-04 R-B16.2-05 R-B16.2-06 R-B16.2-07 R-B16.2-08 R-B16.2-09 R-B16.2-10 R-B16.3-01 R-B16.3-02 R-B19.1-10 R-B26.5-01 R-B26.5-02 R-B26.5-03 R-E5.1-02 R-E5.1-05 R-E5.1-07 R-I5-04 R-I5-05 R-P10-01 R-P10-02 R-P10-03 R-P10-08
+T09.07 | Recording integrity and project recovery tests | R-E12-09 R-B25.2-05 R-E5.1-04 R-E5.1-10 R-E5.1-14 R-E11-16 R-I13-02 R-I19-06 R-P10-12 R-P19-03 R-P3-11
+T09.08 | Piano roll, quantize, markers, sections and arrangement overview | R-B6.4-05 R-B7.4-11 R-B7.4-12 R-B16.4-01 R-B16.4-02 R-B16.4-03 R-B16.4-04 R-B16.4-05 R-B16.4-06 R-B16.4-08 R-E5.2-08 R-E5.2-09 R-I5-01 R-I5-06 R-I5-07 R-I5-10 R-I5.2-01 R-I5.2-02 R-P10-06 R-P10-07 R-P10-13
+T09.09 | Mixer: volume, pan, mute, solo, peak and clipping | R-B7.4-06 R-B7.4-07 R-B7.4-15 R-B16.1-04 R-B16.1-05 R-B16.5-01 R-B16.5-02 R-B16.5-03 R-B16.5-04 R-B16.5-06 R-B25.2-06 R-E5.2-02 R-E5.2-03 R-E5.2-04 R-E5.2-05 R-P10-05
+T09.10 | Exports: MIDI, project file and WAV mix | R-B2-12 R-B4.2-13 R-B4.3-10 R-B7.4-14 R-B7.4-16 R-B11.5-03 R-B11.5-04 R-B11.5-05 R-B11.5-06 R-B15.6-01 R-B15.6-02 R-B15.6-03 R-B15.6-06 R-B24-12 R-B26.5-05 R-E10-07 R-I5-11 R-I13-07 R-I17-09 R-P10-14 R-P10-15 R-P16-08 R-P16-12 R-P21-17
+T09.11 | Autosave, recovery, and fault injection | R-I20-12 R-B24-13 R-E5.3-16 R-I12-09 R-I13-01 R-I5.3-01 R-I5.3-03 R-I5.3-04 R-P16-07
+T09.12 | Storage quota and project migration tests | R-E12-14 R-B18.3-01 R-B18.3-02 R-B24-07 R-B25.1-11 R-E5.3-01 R-E5.3-04 R-E5.3-05 R-E5.3-15 R-I16.4-01 R-P16-04 R-P16-06
+T09.13 | Unsaved-work guards, destructive confirmations and mode transitions | R-I5.3-02 R-P1-04 R-P3-06 R-P10-10 R-P11-13 R-P21-09 R-P21-12
+T09.14 | Phase 9 gate | R-B27-12 R-I14.1-07 R-I14.1-11 R-I17-08 R-P20-04
+T10.01 | CharacterConfig schema, options catalog and validation | R-B4.3-08 R-B13.2-01 R-B13.3-02 R-I14.1-10 R-P8-03 R-P8-09
+T10.02 | Rig and animation compatibility of every appearance | R-B13.1-10 R-B13.3-01 R-E6.1-10 R-I8-10 R-P7.2-10 R-P8-06 R-P8-08
+T10.03 | Presets, randomize and character and settings files | R-B13.1-11 R-B15.6-05 R-I8-01 R-I8-08 R-P8-02
+T10.04 | SCR-Characters editor and the customize mode | R-B2-09 R-B4.2-11 R-B6.2-09 R-B13.1-01 R-B13.1-02 R-B13.1-03 R-B13.1-04 R-B13.1-05 R-B13.1-06 R-B13.1-07 R-B13.1-08 R-B13.1-09 R-I8-02 R-I8-03 R-I8-04 R-I8-05 R-I8-06 R-I8-07 R-I8-09 R-I8-11 R-P2.1-05 R-P8-01 R-P8-04 R-P8-07 R-P8-12
+T10.05 | Live character edits, persistence and project integration | R-B13.4-01 R-B18.2-09 R-B19.1-14 R-B25.2-08 R-E6.2-08 R-I8-12 R-P8-05 R-P8-11
+T10.06 | Player progression and performance history | R-I20-08 R-P5.3-06 R-P5.3-07 R-P5.3-08
+T10.07 | Phase 10 gate | R-B27-13
