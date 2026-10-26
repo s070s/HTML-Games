@@ -1,0 +1,343 @@
+﻿R-I1.1-01 | P0 | All modes share one timeline, event model, audio scheduler, instrument table and Transport.main | Phase 02 | AT-R-I1.1-01
+R-I1.1-02 | P0 | Rhythm, free play, studio, imported songs and dance are modes on shared foundations, not separate engines | Phase 02 | AT-R-I1.1-02
+R-I1.2-01 | P0 | Original arrangement is preserved independently of chart, difficulty and instrument (sourceEventIds only) | Phase 08 | AT-R-I1.2-01
+R-I1.3-01 | P0 | Musical events are scheduled against AudioContext.currentTime; timers only wake the scheduler | Phase 04 | AT-R-I1.3-01
+R-I1.3-02 | P0 | Visuals follow the timeline via Transport.positionAt and never control it, even under frame stalls | Phase 05 | AT-R-I1.3-02
+R-I2-01 | P1 | Four buttons make each instrument feel distinct (per-family profile E), not one identical control feel | Phase 03 | AT-R-I2-01
+R-I2.1-01 | P0 | Mapping profile A: four independent note lanes | Phase 03 | AT-R-I2.1-01
+R-I2.1-02 | P0 | Mapping profiles B and C: interval buttons and chord buttons | Phase 03 | AT-R-I2.1-02
+R-I2.1-03 | P0 | Mapping profile D: scale-based note selection in the configured key and scale | Phase 03 | AT-R-I2.1-03
+R-I2.1-04 | P1 | Mapping profile E: instrument-specific mappings per GM family | Phase 03 | AT-R-I2.1-04
+R-I2.1-05 | P0 | Mapping profile F: percussion triggers (drum lanes) | Phase 03 | AT-R-I2.1-05
+R-I2.1-06 | P1 | Configurable custom layouts: remappable lane controls and touch pad layout | Phase 03 | AT-R-I2.1-06
+R-I2.1-07 | P0 | Players switch profiles (Digit1-6, chart profile select) without modifying the original music | Phase 03 | AT-R-I2.1-07
+R-I2.2-01 | P0 | Difficulty changes the performance challenge by rule-based selection, never random note deletion | Phase 08 | AT-R-I2.2-01
+R-I2.2-02 | P0 | Beginner: simplified rhythms, reduced chord complexity, forgiving timing (45/90/135 ms windows) | Phase 08 | AT-R-I2.2-02
+R-I2.2-03 | P0 | Intermediate: more syncopation, chord changes and rhythmic subdivisions (35/70/110 ms windows) | Phase 08 | AT-R-I2.2-03
+R-I2.2-04 | P0 | Advanced: denser patterns, sustain management with holds, demanding timing (25/55/90 ms windows) | Phase 08 | AT-R-I2.2-04
+R-I2.2-05 | P0 | Expert: close correspondence to the source where four buttons allow it (18/40/70 ms windows) | Phase 08 | AT-R-I2.2-05
+R-I2.2-06 | P1 | Simplification keeps important beats, melodic contours, chord changes and instrument accents | Phase 08 | AT-R-I2.2-06
+R-I2.3-01 | P0 | Configurable input offset (Calibration.inputOffsetMs) applied once in Rhythm.Judge | Phase 03 | AT-R-I2.3-01
+R-I2.3-02 | P0 | Visual lead-time adjustment: visualLeadMs 600-3000 ms, default 1500 ms | Phase 03 | AT-R-I2.3-02
+R-I2.3-03 | P0 | Clear pressed and released states on touch pads, highway lane receptors and HUD | Phase 03 | AT-R-I2.3-03
+R-I2.3-04 | P0 | Simultaneous button handling: four lanes at once, chord grouping window 30 ms | Phase 03 | AT-R-I2.3-04
+R-I2.3-05 | P0 | Hold and sustain support: hold notes judged at release, sustain control in Free Play | Phase 03 | AT-R-I2.3-05
+R-I2.3-06 | P0 | Immediate feedback for successful and missed inputs, drawn in the frame after judgment | Phase 03 | AT-R-I2.3-06
+R-I2.3-07 | P0 | Input latency and audio output compensation are separate values (inputOffsetMs, audioLatencyMs) | Phase 03 | AT-R-I2.3-07
+R-I2.3-08 | P0 | Calibration wizard (DLG-Calibration, tap and listen) needs no knowledge of audio settings | Phase 03 | AT-R-I2.3-08
+R-I2.4-01 | P0 | Show accuracy, combo, streaks, missed events and per-section performance (HUD and SCR-Results) | Phase 08 | AT-R-I2.4-01
+R-I2.4-02 | P1 | Feedback names where to improve (weakest section, early or late tendency) without crowding lanes | Phase 08 | AT-R-I2.4-02
+R-I2.4-03 | P0 | Scoring is deterministic (integer ScoreState) and testable alone by replaying an input log | Phase 03 | AT-R-I2.4-03
+R-I3.1-01 | P0 | Layered engine: 16 synthesized family templates plus instrument-specific playback behavior | Phase 04 | AT-R-I3.1-01
+R-I3.1-02 | P2 | Sampled instruments: none bundled; sampled playback via a user SoundFont is a separate P2 feature | Phase 14 | n/a
+R-I3.1-03 | P0 | Support polyphony, velocity, sustain, program change, percussion, pitch bend and controller events | Phase 04 | AT-R-I3.1-03
+R-I3.1-04 | P1 | A reliable baseline across all 128 GM programs takes precedence over a few showcase instruments | Phase 04 | AT-R-I3.1-04
+R-I3.2-01 | P1 | A guitar does not sound or respond like a piano preset: family templates differ in behavior | Phase 04 | AT-R-I3.2-01
+R-I3.2-02 | P1 | Per instrument: note decay, articulation, velocity response, playing range, sustain, limitations | Phase 04 | AT-R-I3.2-02
+R-I3.2-03 | P2 | Legato, portamento, glissando and other advanced articulation synthesis | Phase 14 | n/a
+R-I3.3-01 | P0 | Track gain, master volume, mute, solo, pan, peak management (limiter, meter), voice allocation | Phase 04 | AT-R-I3.3-01
+R-I3.3-02 | P0 | Prevent clipping (master limiter) and runaway audio-node creation (bounded, disconnected nodes) | Phase 04 | AT-R-I3.3-02
+R-I3.3-03 | P0 | Audio stays stable in dense arrangements and long recording sessions (60 min soak) | Phase 14 | AT-R-I3.3-03
+R-I3.4-01 | P1 | Every instrument definition declares its supported fidelity features | Phase 04 | AT-R-I3.4-01
+R-I3.4-02 | P1 | Declare basic synthesized sound (fidelity synth-basic) | Phase 04 | AT-R-I3.4-02
+R-I3.4-03 | P1 | Declare sample-based sound (false for every v1 program; level sampled unused) | Phase 04 | AT-R-I3.4-03
+R-I3.4-04 | P1 | Declare velocity layers (fidelity synth-velocity where layers exist) | Phase 04 | AT-R-I3.4-04
+R-I3.4-05 | P1 | Declare articulation support per instrument | Phase 04 | AT-R-I3.4-05
+R-I3.4-06 | P1 | Declare controller support per instrument | Phase 04 | AT-R-I3.4-06
+R-I3.4-07 | P1 | Declare percussion-specific playback for the drum kit | Phase 04 | AT-R-I3.4-07
+R-I3.4-08 | P0 | UI never implies full GM timbral fidelity; Settings and About state sounds are synthesized | Phase 04 | AT-R-I3.4-08
+R-I3.5-01 | P1 | Optional calibration and diagnostics screen (SCR-Diagnostics with DLG-Calibration) | Phase 04 | AT-R-I3.5-01
+R-I3.5-02 | P1 | Measure or guide audio output latency (outputLatency estimate plus tap-and-listen step) | Phase 04 | AT-R-I3.5-02
+R-I3.5-03 | P1 | Measure or guide input response (tap test showing input-to-beat deltas) | Phase 04 | AT-R-I3.5-03
+R-I3.5-04 | P1 | Report playback stability (scheduler stalls and late events from sched.stall) | Phase 04 | AT-R-I3.5-04
+R-I3.5-05 | P1 | Report audio initialization (context state, sample rate, unlock result) | Phase 04 | AT-R-I3.5-05
+R-I3.5-06 | P1 | Report sample or sound-bank availability: "synthesized, no sound bank" in v1 | Phase 04 | AT-R-I3.5-06
+R-I3.5-07 | P0 | Never claim exact automatic hardware latency measurement; measured values are labeled estimates | Phase 04 | AT-R-I3.5-07
+R-I3.5-08 | P0 | Where measurement is uncertain, provide a calibration procedure (guided wizard) | Phase 03 | AT-R-I3.5-08
+R-I4-01 | P0 | The band visualizes the actual music, not characters animated independently of it | Phase 05 | AT-R-I4-01
+R-I4.1-01 | P0 | One humanoid rig with attachment points, reusable controllers and procedural motion (IK, idle) | Phase 05 | AT-R-I4.1-01
+R-I4.1-02 | P1 | Believable movement and instrument interaction without a bespoke animation system per model | Phase 05 | AT-R-I4.1-02
+R-I4.2-01 | P0 | Notes, velocity, density and sustain drive strum, key-press, drum-strike, bowing and other gestures | Phase 05 | AT-R-I4.2-01
+R-I4.2-02 | P1 | Hybrid fallback: skeletal animation plus clear note visualizers where hand-to-note accuracy fails | Phase 05 | AT-R-I4.2-02
+R-I4.3-01 | P1 | StageDirector picks camera presets, emphasizes solos, reacts to sections, highlights key events | Phase 05 | AT-R-I4.3-01
+R-I4.3-02 | P0 | Camera changes never obscure gameplay targets or interrupt player control | Phase 05 | AT-R-I4.3-02
+R-I4.4-01 | P1 | Beat and measure indicators (BeatIndicator driven by sched.beat) | Phase 05 | AT-R-I4.4-01
+R-I4.4-02 | P1 | Active-note highlighting | Phase 05 | AT-R-I4.4-02
+R-I4.4-03 | P1 | Instrument identity indicators per performer | Phase 05 | AT-R-I4.4-03
+R-I4.4-04 | P1 | Velocity-responsive animation | Phase 05 | AT-R-I4.4-04
+R-I4.4-05 | P1 | Solo and accompaniment emphasis | Phase 05 | AT-R-I4.4-05
+R-I4.4-06 | P1 | Section transitions shown in the stage | Phase 05 | AT-R-I4.4-06
+R-I4.4-07 | P1 | Optional abstract effects for instruments without practical humanoid animation (Visualizer) | Phase 05 | AT-R-I4.4-07
+R-I4.4-08 | P1 | Adjustable camera distance and stage layout (performer slots 0-4) | Phase 05 | AT-R-I4.4-08
+R-I4.4-09 | P0 | Visualizer never invents activity in silence nor shows inactive or muted instruments performing | Phase 05 | AT-R-I4.4-09
+R-I5-01 | P1 | Studio lets a player go from a short idea to a complete multitrack composition without leaving the game | Phase 09 | AT-R-I5-01
+R-I5-02 | P1 | Instant track creation: add an instrument track and start recording in at most two actions | Phase 09 | AT-R-I5-02
+R-I5-03 | P0 | Count-in (0, 1 or 2 bars, beat 1 accented) and metronome with configurable tempo and time signature | Phase 06 | AT-R-I5-03
+R-I5-04 | P1 | Overdubbing: record a new instrument while hearing existing tracks | Phase 09 | AT-R-I5-04
+R-I5-05 | P1 | Loop recording: repeat a section for practice and composition | Phase 09 | AT-R-I5-05
+R-I5-06 | P1 | Basic piano roll: edit note pitch, start time, duration and velocity | Phase 09 | AT-R-I5-06
+R-I5-07 | P1 | Quantize selected events to configurable subdivisions, never forced on whole performances | Phase 09 | AT-R-I5-07
+R-I5-08 | P1 | Undo and redo with a predictable edit history (UndoStack command pattern) | Phase 09 | AT-R-I5-08
+R-I5-09 | P1 | Track management: rename, duplicate, mute, solo, reorder and delete (confirmed, undoable) | Phase 09 | AT-R-I5-09
+R-I5-10 | P1 | Section markers label intro, verse, chorus, bridge and other sections | Phase 09 | AT-R-I5-10
+R-I5-11 | P0 | Project export saves editable musical events (.flm.json, .mid) separately from rendered audio (WAV) | Phase 09 | AT-R-I5-11
+R-I5.1-01 | P0 | Original imported data stays intact: lockedSource tracks are never mutated | Phase 09 | AT-R-I5.1-01
+R-I5.1-02 | P0 | Edits are stored as project changes or derived data: editing a locked track forks a derived copy | Phase 09 | AT-R-I5.1-02
+R-I5.1-03 | P1 | Users can reset mappings, compare an edit with its source, recover, and switch modes losslessly | Phase 09 | AT-R-I5.1-03
+R-I5.2-01 | P1 | Arrangement overview timeline shows tracks, sections, loops and important events | Phase 09 | AT-R-I5.2-01
+R-I5.2-02 | P1 | Navigate long songs without blind scrubbing: click a bar or section to seek, jump to markers | Phase 09 | AT-R-I5.2-02
+R-I5.3-01 | P0 | Versioned project data, safe save (temp write, read-back, swap, one .bak) and recovery checkpoints | Phase 09 | AT-R-I5.3-01
+R-I5.3-02 | P0 | Warn before destructive operations (delete, replace, discard unsaved changes) | Phase 09 | AT-R-I5.3-02
+R-I5.3-03 | P0 | Explicit recovery path when a save fails: DLG-SaveFailed offers Retry and Export | Phase 09 | AT-R-I5.3-03
+R-I5.3-04 | P0 | Local browser storage is never presented as a guaranteed permanent backup | Phase 09 | AT-R-I5.3-04
+R-I6.1-01 | P0 | Before gameplay, SCR-ImportInspect shows detected file format and version where identifiable | Phase 07 | AT-R-I6.1-01
+R-I6.1-02 | P0 | Show tracks and instrument assignments | Phase 07 | AT-R-I6.1-02
+R-I6.1-03 | P0 | Show song duration and tempo information | Phase 07 | AT-R-I6.1-03
+R-I6.1-04 | P0 | Show detected time and key signatures where available | Phase 07 | AT-R-I6.1-04
+R-I6.1-05 | P0 | Show track event counts | Phase 07 | AT-R-I6.1-05
+R-I6.1-06 | P0 | Show unsupported features and conversion warnings (ImportWarning list) | Phase 07 | AT-R-I6.1-06
+R-I6.1-07 | P0 | Show which track will be playable (recommendTrack) | Phase 07 | AT-R-I6.1-07
+R-I6.1-08 | P0 | Show whether the arrangement needs a simplified four-button mapping | Phase 07 | AT-R-I6.1-08
+R-I6.2-01 | P0 | Chart generator derives playable patterns from the source arrangement using configurable rules | Phase 07 | AT-R-I6.2-01
+R-I6.2-02 | P1 | Generator can prioritize melodic contours | Phase 07 | AT-R-I6.2-02
+R-I6.2-03 | P1 | Generator can prioritize chord roots and important chord tones | Phase 07 | AT-R-I6.2-03
+R-I6.2-04 | P1 | Generator can prioritize strong beats | Phase 07 | AT-R-I6.2-04
+R-I6.2-05 | P1 | Generator can prioritize rhythmic accents | Phase 07 | AT-R-I6.2-05
+R-I6.2-06 | P1 | Generator can prioritize instrument-specific note patterns | Phase 07 | AT-R-I6.2-06
+R-I6.2-07 | P0 | Users preview the generated chart per difficulty and change the mapping before playing | Phase 07 | AT-R-I6.2-07
+R-I6.2-08 | P0 | Generation is deterministic for identical inputs and settings (generatorVersion, settingsHash) | Phase 07 | AT-R-I6.2-08
+R-I6.2-09 | P0 | Generation never overwrites the original arrangement | Phase 07 | AT-R-I6.2-09
+R-I6.3-01 | P1 | Mute the target instrument (gameplay.targetTrackMode mute) | Phase 08 | AT-R-I6.3-01
+R-I6.3-02 | P1 | Lower accompaniment volume (gameplay.accompanimentVolume 0-1) | Phase 08 | AT-R-I6.3-02
+R-I6.3-03 | P1 | Solo an individual track from the practice panel | Phase 11 | AT-R-I6.3-03
+R-I6.3-04 | P1 | Loop a difficult section (Transport loop region, minimum 0.25 s) | Phase 11 | AT-R-I6.3-04
+R-I6.3-05 | P1 | Slow playback preserving pitch where supported: synthesized tracks keep pitch; audio tracks stay 1.0 | Phase 11 | AT-R-I6.3-05
+R-I6.3-06 | P1 | Increase speed progressively: +0.05 per completed loop pass up to 1.0 | Phase 11 | AT-R-I6.3-06
+R-I6.3-07 | P1 | Restart from a chosen measure or section | Phase 11 | AT-R-I6.3-07
+R-I6.3-08 | P1 | Practice one hand or part: keys hand split at MIDI 60, or one track of the arrangement | Phase 11 | AT-R-I6.3-08
+R-I6.4-01 | P1 | Compatibility matrix lists supported MIDI, MusicXML, Guitar Pro and audio formats with limitations | Phase 12 | AT-R-I6.4-01
+R-I6.4-02 | P0 | No format is advertised as supported because its extension is recognized; FT evidence required | Phase 12 | AT-R-I6.4-02
+R-I7-01 | P1 | Dance mode has its own presentation and progression, not relabeled instrument gameplay | Phase 11 | AT-R-I7-01
+R-I7-02 | P1 | Four-direction and configurable step layouts (arrows or pads, remappable step controls) | Phase 11 | AT-R-I7-02
+R-I7-03 | P1 | Simultaneous steps (jumps) and hold notes | Phase 11 | AT-R-I7-03
+R-I7-04 | P1 | Multiple dance difficulty levels: easy, normal, hard | Phase 11 | AT-R-I7-04
+R-I7-05 | P1 | Dance timing judgments (Rhythm.Judge windows) and combos | Phase 11 | AT-R-I7-05
+R-I7-06 | P1 | Song-specific dance charts generated per song by DanceChartGenerator | Phase 11 | AT-R-I7-06
+R-I7-07 | P1 | Distinct dance gameplay HUD | Phase 11 | AT-R-I7-07
+R-I7-08 | P1 | Avatar choreography synchronized to the chart (ChoreographyController) | Phase 11 | AT-R-I7-08
+R-I7-09 | P1 | Dance practice mode with speed control (practiceSpeed 0.5-1.0) | Phase 11 | AT-R-I7-09
+R-I7-10 | P1 | Dance chart validation and custom chart import (.flmdance.json) | Phase 11 | AT-R-I7-10
+R-I7-11 | P1 | Accessible control alternatives: alternate keys, touch pads, gamepad, optional no-fail play | Phase 11 | AT-R-I7-11
+R-I7-12 | P1 | Dance chart data, scoring and choreography are separate systems joined by the common timeline | Phase 11 | AT-R-I7-12
+R-I8-01 | P0 | Preset characters (8 presets) | Phase 10 | AT-R-I8-01
+R-I8-02 | P0 | Body and silhouette choices (slim, average, broad; heightScale 0.9-1.1) | Phase 10 | AT-R-I8-02
+R-I8-03 | P1 | Color and material customization | Phase 10 | AT-R-I8-03
+R-I8-04 | P1 | Hair and clothing options | Phase 10 | AT-R-I8-04
+R-I8-05 | P1 | Accessories | Phase 10 | AT-R-I8-05
+R-I8-06 | P0 | Instrument selection per character | Phase 10 | AT-R-I8-06
+R-I8-07 | P1 | Stage positions (slot 0-4) | Phase 10 | AT-R-I8-07
+R-I8-08 | P0 | Saved character presets (characters store, .flmchar.json export) | Phase 10 | AT-R-I8-08
+R-I8-09 | P1 | Preview animations (looped instrument preview phrase) | Phase 10 | AT-R-I8-09
+R-I8-10 | P1 | Avatar compatibility checks (validate, attachment check, version) | Phase 10 | AT-R-I8-10
+R-I8-11 | P0 | Character editor reuses the gameplay stage rendering and rig systems | Phase 10 | AT-R-I8-11
+R-I8-12 | P0 | Customization causes no full scene reload and never loses the current song, recording or project | Phase 10 | AT-R-I8-12
+R-I9.1-01 | P1 | Song completion records | Phase 08 | AT-R-I9.1-01
+R-I9.1-02 | P1 | Best accuracy and best score per song and chart | Phase 08 | AT-R-I9.1-02
+R-I9.1-03 | P1 | Difficulty completion records | Phase 08 | AT-R-I9.1-03
+R-I9.1-04 | P1 | Personal bests (comparable plays only) | Phase 08 | AT-R-I9.1-04
+R-I9.1-05 | P1 | Instrument-specific achievements | Phase 11 | AT-R-I9.1-05
+R-I9.1-06 | P1 | Dance achievements | Phase 11 | AT-R-I9.1-06
+R-I9.1-07 | P1 | Practice milestones | Phase 11 | AT-R-I9.1-07
+R-I9.1-08 | P1 | Optional challenge objectives | Phase 11 | AT-R-I9.1-08
+R-I9.1-09 | P1 | Progression rewards improvement and never locks core music creation tools | Phase 11 | AT-R-I9.1-09
+R-I9.2-01 | P1 | Save results locally: song, difficulty, instrument, score, accuracy and relevant settings | Phase 08 | AT-R-I9.2-01
+R-I9.2-02 | P1 | Compare attempts and show improvement over time (history list, best delta, per-chart trend) | Phase 08 | AT-R-I9.2-02
+R-I9.3-01 | P2 | Unlockable stage themes, avatar cosmetics and animated effects through progression (catalog M-25) | Phase 11 | n/a
+R-I9.3-02 | P1 | Cosmetic unlocks never affect accuracy, input timing or instrument performance | Phase 11 | AT-R-I9.3-02
+R-I9.4-01 | P2 | Optional daily challenges: short repeatable activities (rhythm, hard section, given instrument) | Phase 11 | n/a
+R-I9.4-02 | P1 | Daily features stay optional: nothing is locked or penalized when skipped | Phase 11 | AT-R-I9.4-02
+R-I9.4-03 | P0 | Daily features never require an account in standalone mode | Phase 11 | AT-R-I9.4-03
+R-I10-01 | P1 | Multiplayer offers shared musical play, not only the sight of other players' avatars | Phase 13 | AT-R-I10-01
+R-I10.1-01 | P1 | Cooperative Band: players perform different instruments within the same arrangement | Phase 13 | AT-R-I10.1-01
+R-I10.1-02 | P1 | Cooperative Band shows each player's contribution and synchronizes the musical timeline | Phase 13 | AT-R-I10.1-02
+R-I10.1-03 | P1 | Synchronized Play: same chart version (settingsHash) and scoring rules; compare accuracy, combo, score | Phase 13 | AT-R-I10.1-03
+R-I10.1-04 | P2 | Collaborative Studio: shared project with explicit ownership, edit permissions and conflict handling | Phase 13 | n/a
+R-I10.2-01 | P1 | Measure latency and clock offset (8 samples, then every 10 s), detect missed updates, show quality | Phase 13 | AT-R-I10.2-01
+R-I10.2-02 | P1 | Musical events use the shared timeline with lead time, never playback on message arrival | Phase 13 | AT-R-I10.2-02
+R-I10.3-01 | P1 | Support reconnecting, resynchronizing song position and recovering room state | Phase 13 | AT-R-I10.3-01
+R-I10.3-02 | P1 | Handle host departure: the session ends with results for every guest (host migration not built) | Phase 13 | AT-R-I10.3-02
+R-I10.3-03 | P1 | A disconnected player never corrupts the session or permanently blocks other players | Phase 13 | AT-R-I10.3-03
+R-I10.4-01 | P2 | Collaborative editing with rules for simultaneous edits, versioning, permissions, conflicts | Phase 13 | n/a
+R-I10.4-02 | P1 | Shared-studio rules are written down (Part 6 M-24) before any shared studio code exists | Phase 13 | AT-R-I10.4-02
+R-I10.5-01 | P0 | No account, server or network connection is needed for local play, recording or project management | Phase 13 | AT-R-I10.5-01
+R-I11.1-01 | P0 | Quick Start level: choose a song, instrument and difficulty, then play | Phase 08 | AT-R-I11.1-01
+R-I11.1-02 | P1 | Customize level: change mappings, audio, controls and visualization | Phase 08 | AT-R-I11.1-02
+R-I11.1-03 | P1 | Advanced level: editing, detailed musical settings, chart generation and diagnostics | Phase 08 | AT-R-I11.1-03
+R-I11.1-04 | P1 | The initial screen never exposes every advanced control | Phase 08 | AT-R-I11.1-04
+R-I11.2-01 | P1 | Contextual controls: instrument settings with an instrument, dance settings in dance, edit tools in studio | Phase 08 | AT-R-I11.2-01
+R-I11.2-02 | P1 | No single enormous settings screen: categorized settings plus contextual panels | Phase 08 | AT-R-I11.2-02
+R-I11.3-01 | P1 | Tutorial step: trigger a note | Phase 08 | AT-R-I11.3-01
+R-I11.3-02 | P1 | Tutorial step: play two simultaneous notes | Phase 08 | AT-R-I11.3-02
+R-I11.3-03 | P1 | Tutorial step: follow a simple rhythm | Phase 08 | AT-R-I11.3-03
+R-I11.3-04 | P1 | Tutorial step: select a different instrument | Phase 08 | AT-R-I11.3-04
+R-I11.3-05 | P1 | Tutorial step: record a short performance | Phase 08 | AT-R-I11.3-05
+R-I11.3-06 | P1 | Tutorial step: import a song (guided to the picker) | Phase 08 | AT-R-I11.3-06
+R-I11.3-07 | P1 | Tutorial step: enter the studio or dance mode | Phase 08 | AT-R-I11.3-07
+R-I11.3-08 | P1 | Every tutorial step is skippable, repeatable and usable with keyboard or touch | Phase 08 | AT-R-I11.3-08
+R-I11.4-01 | P1 | Loading screens report real progress where measurable, otherwise an indeterminate indicator | Phase 01 | AT-R-I11.4-01
+R-I11.4-02 | P0 | Every error explains what failed and what the user can do next (message catalog) | Phase 01 | AT-R-I11.4-02
+R-I11.4-03 | P0 | A failed import, recording, save or connection is never silently ignored | Phase 01 | AT-R-I11.4-03
+R-I12-01 | P1 | Mobile compatibility is tested at every phase gate, not after the desktop game is finished | Phase 01 | AT-R-I12-01
+R-I12-02 | P1 | Large, configurable touch controls: minimum 56x56 CSS px, sizes small, medium, large | Phase 03 | AT-R-I12-02
+R-I12-03 | P1 | Reliable simultaneous presses: four concurrent touch pointers | Phase 03 | AT-R-I12-03
+R-I12-04 | P0 | Touch cancellation and focus changes release held controls (pointercancel, blur, hidden page) | Phase 03 | AT-R-I12-04
+R-I12-05 | P1 | Portrait and landscape layouts | Phase 01 | AT-R-I12-05
+R-I12-06 | P1 | Adaptive rendering resolution (video.resolutionScale auto) | Phase 05 | AT-R-I12-06
+R-I12-07 | P2 | Adjustable sound-bank loading: no sound banks exist in v1; tied to the SoundFont feature | Phase 14 | n/a
+R-I12-08 | P1 | Reduced visual effects on constrained devices (tier auto-selection and effectsLevel) | Phase 14 | AT-R-I12-08
+R-I12-09 | P1 | Persistent settings and recoverable projects on mobile (checkpoints survive a killed tab) | Phase 09 | AT-R-I12-09
+R-I12-10 | P0 | Clear audio activation behavior: tap to start, DLG-AudioBlocked, DLG-ResumeAudio | Phase 01 | AT-R-I12-10
+R-I12-11 | P1 | Protection against accidental navigation during play (back, swipe, reload guarded; auto-pause) | Phase 08 | AT-R-I12-11
+R-I12-12 | P1 | Testing on actual iOS and Android devices | Phase 15 | AT-R-I12-12
+R-I12.1-01 | P1 | At least three rendering profiles are defined (plus the Abstract fallback) | Phase 05 | AT-R-I12.1-01
+R-I12.1-02 | P1 | High profile: full stage, richer lighting, detailed animation | Phase 05 | AT-R-I12.1-02
+R-I12.1-03 | P1 | Balanced profile: reduced geometry and visual effects | Phase 05 | AT-R-I12.1-03
+R-I12.1-04 | P1 | Low profile: simplified scene and reduced animation complexity | Phase 05 | AT-R-I12.1-04
+R-I12.1-05 | P0 | The audio scheduler is independent of the rendering profiles | Phase 05 | AT-R-I12.1-05
+R-I12.2-01 | P0 | Explicit limits: 64/32 voices, 4 decoded audio tracks, 32 tracks, 5 performers, 2 MB local project | Phase 14 | AT-R-I12.2-01
+R-I12.2-02 | P0 | Reaching any limit shows a clear warning naming the limit or applies a documented fallback | Phase 14 | AT-R-I12.2-02
+R-I13-01 | P0 | Autosave at safe points: on stop, on track add or delete, every 60 s idle; never while playing | Phase 09 | AT-R-I13-01
+R-I13-02 | P0 | Recoverable recording sessions: an interrupted take is kept with status aborted | Phase 09 | AT-R-I13-02
+R-I13-03 | P0 | Versioned project files | Phase 09 | AT-R-I13-03
+R-I13-04 | P0 | Validation before loading projects | Phase 09 | AT-R-I13-04
+R-I13-05 | P0 | Explicit save confirmation only after a verified successful write | Phase 09 | AT-R-I13-05
+R-I13-06 | P1 | Undo and redo for all edit commands | Phase 09 | AT-R-I13-06
+R-I13-07 | P0 | Safe handling of failed exports: error shown, project untouched, retry offered | Phase 09 | AT-R-I13-07
+R-I13-08 | P0 | Resource cleanup when changing modes (assertClean reports zero leaks) | Phase 01 | AT-R-I13-08
+R-I13-09 | P0 | Panic/stop control silences all active notes | Phase 04 | AT-R-I13-09
+R-I13-10 | P1 | Diagnostics for audio, rendering, storage and network errors (SCR-Diagnostics) | Phase 01 | AT-R-I13-10
+R-I13-11 | P1 | Automated regression tests for previously fixed bugs | Phase 01 | AT-R-I13-11
+R-I13.1-01 | P1 | Fault injection: drop network connections | Phase 15 | AT-R-I13.1-01
+R-I13.1-02 | P1 | Fault injection: suspend audio | Phase 15 | AT-R-I13.1-02
+R-I13.1-03 | P1 | Fault injection: force a rendering interruption (context loss) | Phase 15 | AT-R-I13.1-03
+R-I13.1-04 | P0 | Fault injection: load malformed files | Phase 15 | AT-R-I13.1-04
+R-I13.1-05 | P0 | Fault injection: exhaust storage | Phase 15 | AT-R-I13.1-05
+R-I13.1-06 | P0 | Fault injection: interrupt a save | Phase 15 | AT-R-I13.1-06
+R-I13.1-07 | P1 | Fault injection: disconnect an input device | Phase 15 | AT-R-I13.1-07
+R-I13.1-08 | P0 | Fault injection: switch modes while notes are active | Phase 15 | AT-R-I13.1-08
+R-I13.1-09 | P0 | Every injected fault is recovered from without corrupting user data | Phase 15 | AT-R-I13.1-09
+R-I13.2-01 | P1 | Bug report export (Diagnostics JSON <= 200 KB): Caps, version, mode, settings, recent error log | Phase 01 | AT-R-I13.2-01
+R-I13.2-02 | P0 | Report excludes song contents, private files and personal data unless the user opts to attach | Phase 01 | AT-R-I13.2-02
+R-I14-01 | P0 | Single-file delivery uses a modular source tree, not a fragile monolith (src/ built to one file) | Phase 01 | AT-R-I14-01
+R-I14.1-01 | P0 | Logical modules inside the HTML: one IIFE per module, one FLM namespace each | Phase 01 | AT-R-I14.1-01
+R-I14.1-02 | P0 | Musical timeline is independently testable | Phase 02 | AT-R-I14.1-02
+R-I14.1-03 | P0 | Input and mapping are independently testable | Phase 03 | AT-R-I14.1-03
+R-I14.1-04 | P0 | Audio engine is independently testable (OfflineAudioContext harness) | Phase 04 | AT-R-I14.1-04
+R-I14.1-05 | P0 | File parsers are independently testable | Phase 07 | AT-R-I14.1-05
+R-I14.1-06 | P0 | Rhythm scoring is independently testable | Phase 03 | AT-R-I14.1-06
+R-I14.1-07 | P0 | Studio and recording are independently testable | Phase 09 | AT-R-I14.1-07
+R-I14.1-08 | P0 | Rendering and animation are independently testable | Phase 05 | AT-R-I14.1-08
+R-I14.1-09 | P1 | Dance gameplay is independently testable | Phase 11 | AT-R-I14.1-09
+R-I14.1-10 | P0 | Character customization is independently testable | Phase 10 | AT-R-I14.1-10
+R-I14.1-11 | P0 | Persistence is independently testable (FakeIndexedDB) | Phase 09 | AT-R-I14.1-11
+R-I14.1-12 | P1 | Multiplayer client is independently testable | Phase 13 | AT-R-I14.1-12
+R-I14.2-01 | P1 | Record purpose, version, license, size, loading strategy and fallback for every dependency | Phase 01 | AT-R-I14.2-01
+R-I14.2-02 | P1 | Prefer native capabilities; a library only where it meaningfully improves correctness (v1: none) | Phase 01 | AT-R-I14.2-02
+R-I14.3-01 | P0 | Standalone edition: one HTML file containing the core application | Phase 16 | AT-R-I14.3-01
+R-I14.3-02 | P0 | Standalone: gameplay, import, recording, visualization and export work without an online service | Phase 16 | AT-R-I14.3-02
+R-I14.3-03 | P1 | Online edition: the same HTML client plus the optional relay (build flag --online) | Phase 13 | AT-R-I14.3-03
+R-I14.3-04 | P2 | Downloadable sound banks or assets only if their absence keeps standalone working; v1 ships none | Phase 14 | n/a
+R-I14.3-05 | P1 | The Online edition is never described as entirely self-contained | Phase 13 | AT-R-I14.3-05
+R-I14.3-06 | P1 | No claim that client code alone creates a public multiplayer service; the relay is separate | Phase 13 | AT-R-I14.3-06
+R-I15-01 | P1 | Remappable keyboard and touch controls with conflict detection | Phase 03 | AT-R-I15-01
+R-I15-02 | P1 | Adjustable note speed (visualLeadMs shown as Note speed) | Phase 08 | AT-R-I15-02
+R-I15-03 | P1 | Adjustable judgment windows where appropriate; non-standard windows mark results not comparable | Phase 08 | AT-R-I15-03
+R-I15-04 | P1 | Reduced-motion mode (system, on, off) | Phase 05 | AT-R-I15-04
+R-I15-05 | P1 | High-contrast note indicators | Phase 08 | AT-R-I15-05
+R-I15-06 | P1 | Non-color-only lane identification: lane glyphs and fixed lane positions | Phase 08 | AT-R-I15-06
+R-I15-07 | P1 | Adjustable visual effects (effectsLevel off, reduced, full) | Phase 05 | AT-R-I15-07
+R-I15-08 | P1 | Scalable interface (uiScale 0.8-1.5) | Phase 01 | AT-R-I15-08
+R-I15-09 | P1 | Clear focus indicators on every focusable control | Phase 01 | AT-R-I15-09
+R-I15-10 | P1 | Keyboard navigation for all menus and dialogs | Phase 01 | AT-R-I15-10
+R-I15-11 | P1 | Configurable control sizes (padSize small, medium, large) | Phase 03 | AT-R-I15-11
+R-I15-12 | P1 | Optional simplified visualization for lower-powered devices (Abstract tier selectable) | Phase 05 | AT-R-I15-12
+R-I15-13 | P1 | Accessibility settings apply consistently in instrument, studio and dance modes | Phase 11 | AT-R-I15-13
+R-I16.1-01 | P1 | Instrument definition: display name | Phase 04 | AT-R-I16.1-01
+R-I16.1-02 | P1 | Instrument definition: General MIDI program | Phase 04 | AT-R-I16.1-02
+R-I16.1-03 | P1 | Instrument definition: sound-bank mapping (family template; bank reference null in v1) | Phase 04 | AT-R-I16.1-03
+R-I16.1-04 | P1 | Instrument definition: percussion behavior | Phase 04 | AT-R-I16.1-04
+R-I16.1-05 | P1 | Instrument definition: playable range | Phase 04 | AT-R-I16.1-05
+R-I16.1-06 | P1 | Instrument definition: polyphony requirements | Phase 04 | AT-R-I16.1-06
+R-I16.1-07 | P1 | Instrument definition: input mapping defaults (default profile) | Phase 04 | AT-R-I16.1-07
+R-I16.1-08 | P1 | Instrument definition: animation profile (controller id) | Phase 04 | AT-R-I16.1-08
+R-I16.1-09 | P1 | Instrument definition: visual representation (prop id) | Phase 04 | AT-R-I16.1-09
+R-I16.1-10 | P1 | Instrument definition: supported controllers and articulations | Phase 04 | AT-R-I16.1-10
+R-I16.1-11 | P1 | Adding an instrument means adding or updating its definition, never changing the scheduler | Phase 04 | AT-R-I16.1-11
+R-I16.2-01 | P0 | Each importer is an adapter converting its source into the shared Song representation | Phase 07 | AT-R-I16.2-01
+R-I16.2-02 | P1 | The rest of the game never depends on whether a song came from MIDI, MusicXML or Guitar Pro | Phase 12 | AT-R-I16.2-02
+R-I16.3-01 | P0 | Audio, scoring, visuals, recording and animation consume events without copying or mutating them | Phase 02 | AT-R-I16.3-01
+R-I16.4-01 | P1 | Instruments, projects, charts, dance charts and net messages carry versions and migration rules | Phase 09 | AT-R-I16.4-01
+R-I17-01 | P0 | Automated verification runs from the first phase, not only when the game appears complete | Phase 01 | AT-R-I17-01
+R-I17-02 | P0 | Automatically verify musical time conversion | Phase 02 | AT-R-I17-02
+R-I17-03 | P0 | Automatically verify audio scheduling logic | Phase 04 | AT-R-I17-03
+R-I17-04 | P0 | Automatically verify note-on and note-off lifecycle | Phase 04 | AT-R-I17-04
+R-I17-05 | P0 | Automatically verify chord and scale mapping | Phase 03 | AT-R-I17-05
+R-I17-06 | P0 | Automatically verify scoring boundary conditions | Phase 08 | AT-R-I17-06
+R-I17-07 | P0 | Automatically verify MIDI parsing | Phase 07 | AT-R-I17-07
+R-I17-08 | P0 | Automatically verify project save and load integrity | Phase 09 | AT-R-I17-08
+R-I17-09 | P1 | Automatically verify import and export round trips where supported (MIDI, project JSON) | Phase 09 | AT-R-I17-09
+R-I17-10 | P0 | Automatically verify mode-transition cleanup | Phase 05 | AT-R-I17-10
+R-I17-11 | P1 | Automatically verify multiplayer message validation | Phase 13 | AT-R-I17-11
+R-I17-12 | P1 | Automatically verify mobile input lifecycle | Phase 03 | AT-R-I17-12
+R-I17-13 | P1 | Automatically verify resource limits | Phase 14 | AT-R-I17-13
+R-I17-14 | P1 | Every defect fixed after testing gets a regression test whenever practical | Phase 15 | AT-R-I17-14
+R-I17-15 | P0 | The final release is tested by opening the delivered FingerLickinMusic.html, not a dev build | Phase 16 | AT-R-I17-15
+R-I18-01 | P0 | Tier 1 Foundation first: timeline, separate clocks, event model, module boundaries, versioning | Phase 01 | AT-R-I18-01
+R-I18-02 | P0 | Tier 2 Core gameplay: four-button input, calibration, mappings, deterministic scoring, note release | Phase 03 | AT-R-I18-02
+R-I18-03 | P0 | Tier 3 Audio and imports: polyphony, sound strategy, MIDI parsing, track inspection, honest formats | Phase 04 | AT-R-I18-03
+R-I18-04 | P0 | Tier 4 Visual identity: rigs, instrument animation, event-driven effects, camera presets, quality tiers | Phase 05 | AT-R-I18-04
+R-I18-05 | P1 | Tier 5 Creative tools: multitrack recording, overdub, piano roll, quantize, undo, safe save, export | Phase 06 | AT-R-I18-05
+R-I18-06 | P1 | Tier 6 Additional modes: dance charts and scoring, customization, progression, practice tools | Phase 08 | AT-R-I18-06
+R-I18-07 | P1 | Tier 7 Online: shared clock, cooperative and competitive modes, reconnection, message validation | Phase 13 | AT-R-I18-07
+R-I18-08 | P2 | Tier 7 Online: collaborative editing | Phase 13 | n/a
+R-I18-09 | P1 | Tier 8 Release quality: cross-browser, mobile devices, fault injection, budgets, packaging check | Phase 15 | AT-R-I18-09
+R-I18-10 | P0 | Multiplayer, advanced animation and extensive content are not built before timeline and audio pass | Phase 00 | AT-R-I18-10
+R-I19-01 | P0 | Target budgets and verification procedures are defined before implementation (Part 9) | Phase 00 | AT-R-I19-01
+R-I19-02 | P0 | Timing target: no cumulative drift in playback and loops (abs drift < 2 ms after a 10 min loop) | Phase 04 | AT-R-I19-02
+R-I19-03 | P0 | Input target: configurable calibration and deterministic judgment calculations | Phase 03 | AT-R-I19-03
+R-I19-04 | P0 | Audio target: no persistent stuck notes and no unbounded voice growth | Phase 04 | AT-R-I19-04
+R-I19-05 | P0 | File integrity target: valid supported files preserve required musical events | Phase 07 | AT-R-I19-05
+R-I19-06 | P0 | Recording target: previously saved takes remain intact after a failed recording | Phase 09 | AT-R-I19-06
+R-I19-07 | P1 | Rendering target: quality degrades gracefully (auto-downgrade when p95 frame > 33 ms over 5 s) | Phase 14 | AT-R-I19-07
+R-I19-08 | P0 | Persistence target: failed saves never report success | Phase 09 | AT-R-I19-08
+R-I19-09 | P1 | Multiplayer target: synchronization quality is measured and documented (target <= 20 ms) | Phase 13 | AT-R-I19-09
+R-I19-10 | P0 | Compatibility target: every advertised browser and format has explicit recorded test evidence | Phase 15 | AT-R-I19-10
+R-I19-11 | P0 | Packaging target: the actual standalone HTML works in every environment claimed | Phase 16 | AT-R-I19-11
+R-I19-12 | P0 | Numeric limits for latency, frame rate, file size, polyphony, tracks and memory are set in planning | Phase 00 | AT-R-I19-12
+R-I19-13 | P0 | Limits are never invented or relaxed after implementation to make results look successful | Phase 16 | AT-R-I19-13
+R-I20-01 | P0 | Contents include section: Unified musical engine and event architecture | Phase 02 | AT-R-I20-01
+R-I20-02 | P0 | Contents include section: Four-button mapping and adaptive difficulty | Phase 08 | AT-R-I20-02
+R-I20-03 | P0 | Contents include section: Audio fidelity and General MIDI coverage strategy | Phase 04 | AT-R-I20-03
+R-I20-04 | P0 | Contents include section: Instrument-specific animation and stage direction | Phase 05 | AT-R-I20-04
+R-I20-05 | P0 | Contents include section: Non-destructive studio editing | Phase 09 | AT-R-I20-05
+R-I20-06 | P0 | Contents include section: Import inspection and automatic chart generation | Phase 07 | AT-R-I20-06
+R-I20-07 | P0 | Contents include section: Dance-mode gameplay and choreography | Phase 11 | AT-R-I20-07
+R-I20-08 | P0 | Contents include section: Player progression and performance history | Phase 10 | AT-R-I20-08
+R-I20-09 | P0 | Contents include section: Multiplayer modes and synchronization architecture | Phase 13 | AT-R-I20-09
+R-I20-10 | P0 | Contents include section: Onboarding and contextual interface design | Phase 08 | AT-R-I20-10
+R-I20-11 | P0 | Contents include section: Mobile performance profiles | Phase 14 | AT-R-I20-11
+R-I20-12 | P0 | Contents include section: Autosave, recovery, and fault injection | Phase 09 | AT-R-I20-12
+R-I20-13 | P0 | Contents include section: Single-file dependency and packaging budget | Phase 01 | AT-R-I20-13
+R-I20-14 | P0 | Contents include section: Accessibility requirements | Phase 01 | AT-R-I20-14
+R-I20-15 | P0 | Contents include section: Data-driven instruments and extensible import adapters | Phase 07 | AT-R-I20-15
+R-I20-16 | P0 | Contents include section: Automated quality gates and regression testing | Phase 01 | AT-R-I20-16
+R-I20-17 | P0 | Contents include section: Quantitative performance targets | Phase 00 | AT-R-I20-17
+R-I20-18 | P0 | Contents include section: Final product-quality acceptance review | Phase 16 | AT-R-I20-18
+R-I20-19 | P0 | Each such section states dependencies, deliverables, test cases and measurable exit criteria | Phase 00 | AT-R-I20-19
+R-I20-20 | P0 | Each such section also appears in the requirements traceability matrix (rows of I 20 above) | Phase 00 | AT-R-I20-20
+R-I21-01 | P0 | Treat the game as one unified musical platform with several modes, not separate games on one menu | Phase 02 | AT-R-I21-01
+R-I21-02 | P0 | Pillar musical accuracy: reliable timing, polyphony, instrument playback and faithful import | Phase 16 | AT-R-I21-02
+R-I21-03 | P0 | Pillar immediate playability: four buttons make complex music playable without altering its structure | Phase 16 | AT-R-I21-03
+R-I21-04 | P0 | Pillar expressive visualization: the virtual band responds to the actual musical performance | Phase 16 | AT-R-I21-04
+R-I21-05 | P1 | Pillar creative freedom: free play, recording, layering, editing and export | Phase 16 | AT-R-I21-05
+R-I21-06 | P0 | Pillar reliability: recoverable projects, robust mobile input, graceful degradation, verified file | Phase 16 | AT-R-I21-06
