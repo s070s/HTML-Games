@@ -1,0 +1,96 @@
+﻿UT-23-01 | M-23 | direction mapping
+UT-23-02 | M-23 | generated charts pass strict validation
+UT-23-03 | M-23 | same-tick steps: strict rejects, repair merges
+UT-23-04 | M-23 | overlapping holds in one direction
+UT-23-05 | M-23 | max simultaneous by difficulty
+UT-23-06 | M-23 | hold counts toward simultaneous
+UT-23-07 | M-23 | min spacing by difficulty
+UT-23-08 | M-23 | hold minimum and tap duration
+UT-23-09 | M-23 | determinism
+UT-23-10 | M-23 | easy uses beats 1 and 3
+UT-23-11 | M-23 | difficulty ordering
+UT-23-12 | M-23 | hard jumps at section starts and even bars
+UT-23-13 | M-23 | drum strong hits drive selection
+UT-23-14 | M-23 | silent bars produce no steps; empty song throws
+UT-23-15 | M-23 | no three identical in a row
+UT-23-16 | M-23 | alternate feet
+UT-23-17 | M-23 | holds on sustained bass
+UT-23-18 | M-23 | minimum gap in ms at fast tempo
+UT-23-19 | M-23 | meter and tempo change
+UT-23-20 | M-23 | window map
+UT-23-21 | M-23 | jump is a chord
+UT-23-22 | M-23 | pause and interruption during a hold
+UT-23-23 | M-23 | life bar rules
+UT-23-24 | M-23 | finish detection and once-only
+UT-23-25 | M-23 | loop passes and speed ramp
+UT-23-26 | M-23 | choreography is a function of audio time
+UT-23-27 | M-23 | choreography failure isolation
+UT-23-28 | M-23 | export/import round trip
+UT-23-29 | M-23 | import errors and notice
+UT-23-30 | M-23 | unsupported step type
+UT-23-31 | M-23 | asJudgeChart
+UT-23-32 | M-23 | generator leaves the song untouched
+UT-23-33 | M-23 | HUD model
+UT-24-01 | M-24 | code round trip
+UT-24-02 | M-24 | code rejection and whitespace
+UT-24-03 | M-24 | envelope rules
+UT-24-04 | M-24 | payload strictness
+UT-24-05 | M-24 | size caps
+UT-24-06 | M-24 | strings and depth
+UT-24-07 | M-24 | role rules
+UT-24-08 | M-24 | dedupe by seq
+UT-24-09 | M-24 | out-of-order
+UT-24-10 | M-24 | pause after resume ignored
+UT-24-11 | M-24 | offset math vector
+UT-24-12 | M-24 | median with outliers
+UT-24-13 | M-24 | quality thresholds and sample minimum
+UT-24-14 | M-24 | shared time conversions
+UT-24-15 | M-24 | rate limiter
+UT-24-16 | M-24 | invalid storm
+UT-24-17 | M-24 | hello checks
+UT-24-18 | M-24 | ready checks
+UT-24-19 | M-24 | scheduled start
+UT-24-20 | M-24 | start too close
+UT-24-21 | M-24 | input acceptance window
+UT-24-22 | M-24 | host judges guest with guest offset
+UT-24-23 | M-24 | score updates at 10 Hz
+UT-24-24 | M-24 | room full
+UT-24-25 | M-24 | same player twice and reconnect limit
+UT-24-26 | M-24 | reconnect resync
+UT-24-27 | M-24 | reconnect window and connect timeouts
+UT-24-28 | M-24 | host leaves
+UT-24-29 | M-24 | guest leaves
+UT-24-30 | M-24 | relay envelope and sender binding
+UT-24-31 | M-24 | relay control mapping
+UT-24-32 | M-24 | late join rejected
+UT-24-33 | M-24 | cleanup
+UT-24-34 | M-24 | room codes
+UT-24-35 | M-24 | avatar validation and privacy text
+UT-24-36 | M-24 | pause request throttle
+UT-24-37 | M-24 | missed updates
+UT-24-38 | M-24 | deferred studio types
+UT-24-39 | M-24 | non-trickle gathering and RTC failure
+UT-24-40 | M-24 | interruption routing
+UT-25-01 | M-25 | record shape
+UT-25-02 | M-25 | comparable rule
+UT-25-03 | M-25 | personal best update
+UT-25-04 | M-25 | bests keyed by song and chart
+UT-25-05 | M-25 | prune 500
+UT-25-06 | M-25 | achievement catalog integrity
+UT-25-07 | M-25 | first clear and dance clear
+UT-25-08 | M-25 | combo and full combo
+UT-25-09 | M-25 | clears count
+UT-25-10 | M-25 | instrument groups and full band
+UT-25-11 | M-25 | dance achievements
+UT-25-12 | M-25 | practice minutes carry
+UT-25-13 | M-25 | counters from events
+UT-25-14 | M-25 | unlock state and listener isolation
+UT-25-15 | M-25 | daily seed determinism
+UT-25-16 | M-25 | daily ranges and variety
+UT-25-17 | M-25 | daily completion
+UT-25-18 | M-25 | maxScoreFor
+UT-25-19 | M-25 | storage failure keeps memory
+UT-25-20 | M-25 | corrupt documents
+UT-25-21 | M-25 | newer version is read-only
+UT-25-22 | M-25 | history query, trend, compare, stats
+UT-25-23 | M-25 | cosmetics do not affect gameplay
