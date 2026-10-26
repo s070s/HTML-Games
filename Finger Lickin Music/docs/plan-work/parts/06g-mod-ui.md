@@ -956,7 +956,7 @@ rows; `Mapping.ChartGenerator.simplificationReport(song, trackId, profile)` for 
 playable"), target instrument (the chart's sound: track program by default; any GM program),
 difficulty (four names plus "Auto": the lowest difficulty whose report says no
 simplification is needed, else `advanced`), profile A-F with a one-line description from
-`Mapping.profileTable`, practice panel: speed slider 0.50x-1.50x step 0.05 (`speed != 1.0`
+`Mapping.profileTable`, practice panel: speed slider 0.25x-2.00x step 0.05 (`speed != 1.0`
 shows "Results at this speed are practice only" because they are `comparable:false`),
 "Speed up after each clean loop" toggle (+0.05 per loop pass with accuracy >= 0.9, up to
 1.00x), loop section (from `Model.sections(song)`; "Whole song" default), start at
@@ -2220,7 +2220,7 @@ the effective reason comes from `status.notice`.
 | `test` | present (any value) | test mode: no first launch, no banner, no history, audio unlocked without a gesture | n/a |
 | `tier` | `high`, `balanced`, `low`, `abstract` (case-insensitive) -> `High`... | forces the initial tier (`reason:'url'`); `video.tier` setting untouched | warning `W-URL-TIER`, ignored |
 | `diag` | present | `FLM.debug.enabled = true`; stats overlay on after boot | n/a |
-| `online` | `ws://` or `wss://` URL, length <= 256, parsable by `new URL` | `Net.setRelayUrl(url)`; Multiplayer offers the relay; `Settings.set('net.relayUrl', url, 'url')` without persisting (source `url` writes are memory-only) | warning `W-URL-ONLINE`, ignored |
+| `online` | `ws://` or `wss://` URL, length <= 200, parsable by `new URL` | `Net.setRelayUrl(url)`; Multiplayer offers the relay; `Settings.set('net.relayUrl', url, 'url')` without persisting (source `url` writes are memory-only) | warning `W-URL-ONLINE`, ignored |
 | `perf` | present (test build only) | enables `FLM.SelfTest.perf` hooks (Part 9.7) | ignored in the shipped build |
 
 Unknown parameters are ignored. Parameters are read once at boot; nothing else reads

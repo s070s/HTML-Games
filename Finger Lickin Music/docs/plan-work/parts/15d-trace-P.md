@@ -126,7 +126,7 @@ this document itself satisfies.
 | R-P6.2-02 | P 6.2 item 2 | Track gain and pan -1..1 on the ChannelStrip apply immediately and are stored in Track.mix | P1 | M-05, M-17 | Phase 04 | AT-R-P6.2-02 | Unimplemented |
 | R-P6.2-03 | P 6.2 item 3 | Mute and solo silence the voices of affected tracks within 20 ms and leave no hanging notes | P1 | M-05, M-06 | Phase 04 | AT-R-P6.2-03 | Unimplemented |
 | R-P6.2-04 | P 6.2 item 4 | The master limiter keeps the output at or below 0 dBFS with 32 tracks at full gain | P1 | M-05 | Phase 04 | AT-R-P6.2-04 | Unimplemented |
-| R-P6.2-05 | P 6.2 item 5 | Gain changes ramp over 5-20 ms and stop or panic fades voices over 10 ms, so no clicks or pops | P1 | M-05, M-06 | Phase 04 | AT-R-P6.2-05 | Unimplemented |
+| R-P6.2-05 | P 6.2 item 5 | Gain changes ramp over 5-20 ms and stop or panic fades voices over 30 ms, so no clicks or pops | P1 | M-05, M-06 | Phase 04 | AT-R-P6.2-05 | Unimplemented |
 | R-P6.2-06 | P 6.2 item 6 | Start and stop never spike volume: voices start from zero gain and stop releases through ramps | P1 | M-05, M-06 | Phase 04 | AT-R-P6.2-06 | Unimplemented |
 | R-P6.2-07 | P 6.2 item 7 | Metronome volume 0-100 % adjusts through Audio.setMetronomeGain, independent of master | P1 | M-05, M-27 | Phase 04 | AT-R-P6.2-07 | Unimplemented |
 | R-P6.2-08 | P 6.2 item 8 | Effects add no scheduling latency: reverb is a parallel send and only the limiter sits in series | P1 | M-05 | Phase 14 | AT-R-P6.2-08 | Unimplemented |
@@ -261,7 +261,7 @@ this document itself satisfies.
 | R-P14-07 | P 14 item 7 | Layout height follows the visual viewport (dvh with fallback) so browser bars never hide controls | P1 | M-26 | Phase 01 | AT-R-P14-07 | Unimplemented |
 | R-P14-08 | P 14 item 8 | Orientation changes relayout without stopping, seeking or re-anchoring the Transport | P1 | M-26, M-28 | Phase 14 | AT-R-P14-08 | Unimplemented |
 | R-P14-09 | P 14 item 9 | Audio unlocks through Audio.unlock on the first pointerup or keydown, including on iOS Safari | P0 | M-05, M-29 | Phase 04 | AT-R-P14-09 | Unimplemented |
-| R-P14-10 | P 14 item 10 | UI scale 0.85-1.5 keeps text legible and layouts intact | P1 | M-26 | Phase 01 | AT-R-P14-10 | Unimplemented |
+| R-P14-10 | P 14 item 10 | UI scale 0.8-1.5 keeps text legible and layouts intact | P1 | M-26 | Phase 01 | AT-R-P14-10 | Unimplemented |
 | R-P14-11 | P 14 item 11 | Mobile devices start on the Balanced or Low tier chosen by Render.pickTier | P1 | M-18 | Phase 05 | AT-R-P14-11 | Unimplemented |
 | R-P14-12 | P 14 item 12 | Mobile steady memory <= 150 MB is measured on a mid-range physical device | P1 | M-18, M-05, `tools/perf.mjs` | Phase 15 | AT-R-P14-12 | Unimplemented |
 | R-P14-13 | P 14 item 13 | Returning from background keeps the paused state, re-anchors clocks and restores GL if it was lost | P1 | M-28, M-04, M-18 | Phase 14 | AT-R-P14-13 | Unimplemented |
@@ -271,7 +271,7 @@ this document itself satisfies.
 | R-P15-03 | P 15 item 3 | Dialogs trap focus, close on Escape and restore focus on close | P1 | M-26 | Phase 01 | AT-R-P15-03 | Unimplemented |
 | R-P15-04 | P 15 item 4 | Lanes, judgments and status use shape and text in addition to color | P1 | M-21, M-26 | Phase 08 | AT-R-P15-04 | Unimplemented |
 | R-P15-05 | P 15 item 5 | Reduced motion (setting or prefers-reduced-motion) disables non-essential animation | P1 | M-26, M-20 | Phase 01 | AT-R-P15-05 | Unimplemented |
-| R-P15-06 | P 15 item 6 | Text stays readable at UI scale 0.85-1.5 and at 200 % browser zoom | P1 | M-26 | Phase 01 | AT-R-P15-06 | Unimplemented |
+| R-P15-06 | P 15 item 6 | Text stays readable at UI scale 0.8-1.5 and at 200 % browser zoom | P1 | M-26 | Phase 01 | AT-R-P15-06 | Unimplemented |
 | R-P15-07 | P 15 item 7 | Every interactive control has an accessible name and role; status changes use an aria-live region | P1 | M-26 | Phase 01 | AT-R-P15-07 | Unimplemented |
 | R-P15-08 | P 15 item 8 | Error messages name the operation that failed (for example "Save failed: ...") | P1 | M-01, M-27 | Phase 01 | AT-R-P15-08 | Unimplemented |
 | R-P15-09 | P 15 item 9 | Disabled controls show a one-line reason for being unavailable | P1 | M-26 | Phase 01 | AT-R-P15-09 | Unimplemented |

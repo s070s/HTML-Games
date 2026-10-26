@@ -46,7 +46,8 @@ FLM.Project = {
     maxCharacters: 5,
     maxRecordings: 64,
     maxNameLength: 120,
-    maxJsonDepth: 12,
+    maxJsonDepth: 32,
+    maxJsonContainers: 5000000,
     maxLocalStorageBytes: 2 * 1024 * 1024,
     maxCheckpointBytes: 8 * 1024 * 1024,
     undoLimit: 100,
@@ -332,7 +333,7 @@ B. Command semantics (apply / undoData / revert)
 | resizeEvents | `durTicks = max(1, durTicks + dDurTicks)` on note events only | `{before:[{id,durTicks}]}` | restore | none |
 | setVelocity | `velocity = clamp(value or velocity + delta, 1, 127)` | `{before:[{id,velocity}]}` | restore | none |
 | quantize | algorithm D below | `{before:[{id,tick,durTicks}]}` | restore | grid unknown -> E-PRJ-025 |
-| setTempo | native song (`song.source.format === 'flm'`): replace the tempoMap entry at `atTick` (default 0; entry created if absent) with `usPerQuarter = round(60e6 / bpm)`, recompute `secondsAt`; imported song: set `settings.tempoOverride = bpm` and leave the map intact | `{oldEntry or oldOverride}` | restore | bpm outside 20..400 -> E-PRJ-026 |
+| setTempo | native song (`song.source.format === 'flm'`): replace the tempoMap entry at `atTick` (default 0; entry created if absent) with `usPerQuarter = round(60e6 / bpm)`, recompute `secondsAt`; imported song: set `settings.tempoOverride = bpm` and leave the map intact | `{oldEntry or oldOverride}` | restore | bpm outside 20..300 -> E-PRJ-026 |
 | setMeter | native: replace meterMap entry at `atTick`; imported: set `settings.timeSig` only | `{old}` | restore | numerator 1..32, denominator in {1,2,4,8,16,32} else E-PRJ-027 |
 | setKeyScale | set `settings.key/scale`; native song also sets `keyMap.entries[0] = {tick:0, fifths, mode}` | `{old}` | restore | key or scale name unknown to `FLM.Theory` -> E-PRJ-028 |
 | addMarker | insert `Marker` keeping `markers` sorted by tick; same tick as an existing marker -> replace label (undo restores) | `{index, replaced}` | remove or restore | label trimmed to 60 chars |
@@ -416,7 +417,8 @@ JSON without the `sizeBytes` field (two passes: serialize with `sizeBytes:0`, me
 `deserialize(text)`:
 1. `text.length > 64 MB` -> `E-PRJ-010`. Depth check during a first `JSON.parse` with a
    reviver counting nesting is not possible; instead a pre-scan counts `{`/`[` nesting
-   outside strings and fails above `maxJsonDepth` with `E-PRJ-010` before parsing.
+   outside strings and fails above `maxJsonDepth` (32) or more than `maxJsonContainers`
+   (5,000,000) containers with `E-PRJ-010` before parsing.
 2. `JSON.parse` in try/catch -> `E-PRJ-001` on SyntaxError.
 3. `doc.format !== 'flm-project'` -> `E-PRJ-003`.
 4. `migrate(doc)`; failure -> its error (`E-PRJ-002` newer version, `E-PRJ-012` migration
@@ -536,7 +538,7 @@ gameplay, repeated save/load preserves content).
 | UT-15-09 | addEvents keeps order and overlap policy | insert notes out of order, two same-pitch overlaps | events sorted by comparator; earlier note shortened; undo restores original durations |
 | UT-15-10 | moveEvents clamps | note at tick 100 moved -200 ticks and +200 pitch | tick 0, pitch 127; undo restores 100 and original pitch |
 | UT-15-11 | parse rejects wrong format | text `{"format":"other"}` | `ok:false`, code E-PRJ-003, no project |
-| UT-15-12 | parse rejects bad JSON and depth | truncated text; 13-deep nested arrays | E-PRJ-001; E-PRJ-010 |
+| UT-15-12 | parse rejects bad JSON and depth | truncated text; 33-deep nested arrays | E-PRJ-001; E-PRJ-010 |
 | UT-15-13 | migrate refuses newer | doc with version 2 | E-PRJ-002, message contains 'format 2'; input doc unchanged (deep equal to copy) |
 | UT-15-14 | migration failure leaves original intact | inject failing MIGRATIONS[0] via test hook with version 0 doc | E-PRJ-012; input doc unchanged |
 | UT-15-15 | validate reference integrity | chart.trackId pointing to missing track | E-PRJ-007 (strict) with path `charts[0].trackId` |

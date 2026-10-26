@@ -220,7 +220,7 @@ values (brief section 6) unless the row says otherwise.
 | Synchronized Play | The competitive experience: all players play the same chart (equal `settingsHash`) and are scored by the host with identical rules. | ADR-07 |
 | Cooperative Band | The cooperative experience: players play different tracks of one arrangement on the shared timeline. | ADR-07 |
 | Collaborative Studio | Shared project editing; Deferred (P2) with its rules specified but not built. | Part 1.5 |
-| Rate limit | 60 messages per second per peer (token bucket); a violating peer is disconnected. | Brief section 6 |
+| Rate limit | 60 messages per second per peer (token bucket); excess messages are dropped and counted. | Brief section 6 |
 | Reconnection | Rejoining after a temporary disconnect with resynchronized position and room state; a stale state is replaced by the host's. Host departure ends the session with results (host migration is Deferred). | Part 1.5, Part 6.24 |
 
 ### B.8 Architecture and code conventions

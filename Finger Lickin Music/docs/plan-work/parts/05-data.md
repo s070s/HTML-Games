@@ -785,7 +785,7 @@ Repairable findings produce warnings (`W-PRJ-*`) and continue.
 
 | Step | Check | On failure | Code |
 |---|---|---|---|
-| 1 | Input text length <= 50 MB (UTF-16 code units * 2 as an estimate) | fatal | E-PRJ-010 |
+| 1 | Input text length <= 64 MB (UTF-16 code units * 2 as an estimate) | fatal | E-PRJ-010 |
 | 2 | `JSON.parse` succeeds | fatal | E-PRJ-001 |
 | 3 | Nesting depth <= 32 and total object/array count <= 5,000,000 (counted during a pre-walk) | fatal | E-PRJ-010 |
 | 4 | Root is an object with `format === 'flm-project'` | fatal | E-PRJ-003 |
@@ -968,7 +968,7 @@ practice settings (Part 8.12).
 | steps | DanceStep[] | 0-20,000 | | sorted by tick; no two steps share (tick, direction); hold tails do not overlap a later step in the same direction; max simultaneous directions: easy 1, normal 2, hard 2 |
 | generatorVersion | int | >= 1 | `Dance.DanceChartGenerator.VERSION` (1) | regenerate when different (generated charts only) |
 | layout | string | `arrows` or `pads` | `arrows` | display only; directions are the same data |
-| settingsHash | string | 8 hex | `hex8(fnv1a32(difficulty + '\|' + generatorVersion + '\|' + songId + '\|' + durationTicks))` | recomputed on load for generated charts |
+| settingsHash | string | 8 hex | `hex8(fnv1a32(difficulty + '\|' + profile + '\|' + generatorVersion + '\|' + trackId + '\|' + sourceEventCount))` with profile `F`, trackId = songId and sourceEventCount = NoteEvents of all song tracks (rule of 5.9.1) | recomputed on load for generated charts |
 | source | string | `generated` or `imported` | `generated` | imported charts are validated but never regenerated |
 | name | string | 0-80 | `""` | imported charts may carry a name |
 
@@ -1177,7 +1177,7 @@ message (5.16), so results are comparable and the client cannot gain by lying be
 | judged, total | int | | `judged <= total` |
 | completion | float | 0-1 | none |
 | durationS | float | seconds played | none |
-| speed | float | 0.5-1.5 | playback speed used |
+| speed | float | 0.25-2.0 | playback speed used |
 | settingsSnapshot | object | `{judgmentPreset, inputOffsetMs, audioLatencyMs, visualLeadMs, strayPressPenalty}` | copied at the end of play |
 | comparable | bool | | `judgmentPreset === 'standard' && speed === 1.0 && completion === 1` |
 | players | object[] or null | multiplayer only: `[{displayName, score, accuracy, maxCombo}]` <= 4 | none |

@@ -515,7 +515,7 @@ FLM.Core.define('Mapping', function (Core, Theory, Model, Transport, Audio, Inst
       describe(chart) {},
       /** Validates a Chart (sorted, lanes 0..3 unique per note, ids unique, hash matches). */
       validate(chart, song) {},     // -> {ok:boolean, errors:string[]}
-      settingsHash(difficulty, profile, generatorVersion, trackId, sourceNoteCount) {} // -> 8 hex chars
+      settingsHash(difficulty, profile, generatorVersion, trackId, sourceEventCount) {} // -> 8 hex chars
     }
   };
 });
@@ -783,8 +783,9 @@ Steps:
    `isHold` against `holdMinTicks`.
 10. Lanes are sorted ascending and unique per note; notes sorted by tick; two kept notes
     never share a tick (groups are spaced by minSpacing >= 240 > tolerance).
-11. `settingsHash = Core.fnv1a32(difficulty + '|' + profile + '|' + ChartGenerator.VERSION + '|' +
-    trackId + '|' + sourceNoteCount)` rendered as 8 lowercase hex characters (Part 5.9).
+11. `settingsHash = hex8(Core.fnv1a32(difficulty + '|' + profile + '|' + ChartGenerator.VERSION + '|' +
+    trackId + '|' + sourceEventCount))` (`sourceEventCount` = `src.length` = `stats.sourceNoteCount`),
+    `hex8` = 8 lowercase zero-padded hex characters (the Part 5.9.1 rule).
     `Chart.id = 'chart-' + settingsHash + '-' + trackId`.
 12. `stats = { sourceNoteCount, groupCount, keptCount, omittedSourceEventIds: number of source
     notes in groups not kept, laneCounts:[4], holdCount, chordCount (notes with lanes >= 2),
@@ -920,7 +921,7 @@ arpeggios with 5-note chords on beat 1).
 | UT-08-28 | drum lane map | `fx.drums` expert and beginner | kick in lane 0, snare lane 1, hats lane 2; beginner keeps kick on beat 1 and 3 with maxLanes 1 |
 | UT-08-29 | chord-slot strategy | `fx.chords` with profile C | lanes [0], [1], [2], [3] for I, IV, V, vi chords |
 | UT-08-30 | hold truncation | two notes in one lane where the first's duration overlaps the second (expert) | first `durTicks` = gap - 60; `isHold` false when below 960 |
-| UT-08-31 | settingsHash composition | `settingsHash('expert','A',1,'t1',473)` | 8 lowercase hex chars; differs when any argument changes; equals `Core.fnv1a32('expert\|A\|1\|t1\|473')` formatted |
+| UT-08-31 | settingsHash composition | `settingsHash('expert','A',1,'t1',473)` | 8 lowercase hex chars; differs when any argument changes; equals `hex8(Core.fnv1a32('expert\|A\|1\|t1\|473'))` |
 | UT-08-32 | sparse relaxation | syncopated fixture with no on-beat notes | beginner chart is non-empty (threshold relaxed), still spaced by 960 |
 | UT-08-33 | preview and describe | `preview(chart, song, 0, 4)`, `describe(chart)` | 4 bars; lane arrays contain only notes within the bar range; description string matches the format in M |
 | UT-08-34 | simplificationReport | `fx.dense` | beginner/intermediate `needsSimplification` true; expert false when maxSimultaneousSource <= 4 |
@@ -1228,7 +1229,8 @@ sourceEventIds: [], pitches: [], isHold}` and controls `dance0..3` map to lanes 
 - `results` <= `total` entries; `sections` <= 1 + bars/4.
 - Windows and points are constants; the UI's "custom windows" accessibility setting passes a
   widened copy through `setWindows(w, 'custom')` (each width >= the standard value; the
-  module refuses narrower-than-standard custom windows with `E-INP-011`).
+  module refuses custom windows narrower than the strict table (standard x0.75) with
+  `E-INP-011`; the presets standard, relaxed (x1.5) and strict (x0.75) are always accepted).
 
 #### 6.9.7 Spec coverage
 
@@ -1263,7 +1265,7 @@ tick)`, `hold(lane, tick, dur)`, built by `FLM.SelfTest.fixtures.chart([...])` w
 | UT-09-05 | one past each boundary | +46, +91, +136 | great, good, stray (no result; `stray === 1`) |
 | UT-09-06 | expert windows | load 'expert'; presses +18, +19, +40, +41, +70, +71 | perfect, great, great, good, good, stray |
 | UT-09-07 | rounding symmetry | press at +45.5 ms and -45.5 ms on two notes (beginner) | both `deltaMs` 46/-46 -> great; `roundMs(0.4) === 0`, `roundMs(-0.5) === -1` |
-| UT-09-08 | points and multiplier | 31 notes all perfect | score = 100*(10*1 + 10*2 + 10*3 + 1*4) = 7000; combo 31 |
+| UT-09-08 | points and multiplier | 31 notes all perfect | score = 100*(10*1 + 10*2 + 10*3 + 1*4) = 6400; combo 31 |
 | UT-09-09 | miss resets combo, multiplier from combo before note | 12 perfects, 1 miss, 1 perfect | score 100*10 + 100*2*2 + 0 + 100 = 1500; combo 1; maxCombo 12 |
 | UT-09-10 | accuracy and completion | 4 notes: perfect, great, good, miss (via tick) | pointsSum 210; accuracy 0.525; completion 1.0; counts {1,1,1,1} |
 | UT-09-11 | miss by tick | note at 1000; `tick(1.136)` (beginner) | one miss result with `tInput:null`; `tick(1.135)` before it declares nothing |
@@ -1279,7 +1281,7 @@ tick)`, `hold(lane, tick, dur)`, built by `FLM.SelfTest.fixtures.chart([...])` w
 | UT-09-21 | inactive ignores inputs | `setActive(false)`; press | returns null; `stray === 0`; log entry flagged ignored |
 | UT-09-22 | stray penalty option | `Judge.bind({strayPenalty:'combo'})`; 3 hits then a stray | combo 2; `lastStrayLane` set; `summary().comparable === false` |
 | UT-09-23 | calibration applied once | `setCalibration({inputOffsetMs:30, audioLatencyMs:20})`; note at 1000; press at 1050 | `deltaMs === 0` (perfect); no other module changed the event (`evt.tAudio` still 1.050) |
-| UT-09-24 | custom windows refuse narrower | `setWindows({perfect:10, great:40, good:70}, 'custom')` on expert | throws E-INP-011; widened windows accepted and `comparable === false` |
+| UT-09-24 | custom windows refuse narrower | `setWindows({perfect:10, great:40, good:70}, 'custom')` on expert; `setWindows` with the strict table | throws E-INP-011 (narrower than the strict table); the strict table (x0.75) accepted with preset `'strict'`; widened windows accepted and `comparable === false` |
 | UT-09-25 | input without tAudio | press with `tAudio:null` | null; Log has RHY_NO_TAUDIO once |
 | UT-09-26 | NaN time map guard | timeMap returning NaN | onInput returns null, tick declares nothing, no exception |
 | UT-09-27 | replay determinism | random-ish but fixed input log (200 events incl. a pause) on `fx.dense` expert chart | `replay(...).results` deep-equals live `results`; `state` deep-equals |

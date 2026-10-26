@@ -110,7 +110,7 @@ R-P6.2-01 | P1 | Master volume 0-100 % applies through Audio.setMasterGain with 
 R-P6.2-02 | P1 | Track gain and pan -1..1 on the ChannelStrip apply immediately and are stored in Track.mix | Phase 04 | AT-R-P6.2-02
 R-P6.2-03 | P1 | Mute and solo silence the voices of affected tracks within 20 ms and leave no hanging notes | Phase 04 | AT-R-P6.2-03
 R-P6.2-04 | P1 | The master limiter keeps the output at or below 0 dBFS with 32 tracks at full gain | Phase 04 | AT-R-P6.2-04
-R-P6.2-05 | P1 | Gain changes ramp over 5-20 ms and stop or panic fades voices over 10 ms, so no clicks or pops | Phase 04 | AT-R-P6.2-05
+R-P6.2-05 | P1 | Gain changes ramp over 5-20 ms and stop or panic fades voices over 30 ms, so no clicks or pops | Phase 04 | AT-R-P6.2-05
 R-P6.2-06 | P1 | Start and stop never spike volume: voices start from zero gain and stop releases through ramps | Phase 04 | AT-R-P6.2-06
 R-P6.2-07 | P1 | Metronome volume 0-100 % adjusts through Audio.setMetronomeGain, independent of master | Phase 04 | AT-R-P6.2-07
 R-P6.2-08 | P1 | Effects add no scheduling latency: reverb is a parallel send and only the limiter sits in series | Phase 14 | AT-R-P6.2-08
@@ -245,7 +245,7 @@ R-P14-06 | P1 | Safe-area insets pad the HUD, touch pads and dialogs | Phase 01 
 R-P14-07 | P1 | Layout height follows the visual viewport (dvh with fallback) so browser bars never hide controls | Phase 01 | AT-R-P14-07
 R-P14-08 | P1 | Orientation changes relayout without stopping, seeking or re-anchoring the Transport | Phase 14 | AT-R-P14-08
 R-P14-09 | P0 | Audio unlocks through Audio.unlock on the first pointerup or keydown, including on iOS Safari | Phase 04 | AT-R-P14-09
-R-P14-10 | P1 | UI scale 0.85-1.5 keeps text legible and layouts intact | Phase 01 | AT-R-P14-10
+R-P14-10 | P1 | UI scale 0.8-1.5 keeps text legible and layouts intact | Phase 01 | AT-R-P14-10
 R-P14-11 | P1 | Mobile devices start on the Balanced or Low tier chosen by Render.pickTier | Phase 05 | AT-R-P14-11
 R-P14-12 | P1 | Mobile steady memory <= 150 MB is measured on a mid-range physical device | Phase 15 | AT-R-P14-12
 R-P14-13 | P1 | Returning from background keeps the paused state, re-anchors clocks and restores GL if it was lost | Phase 14 | AT-R-P14-13
@@ -255,7 +255,7 @@ R-P15-02 | P1 | Every focusable element shows a visible focus ring (>= 2 px, >= 
 R-P15-03 | P1 | Dialogs trap focus, close on Escape and restore focus on close | Phase 01 | AT-R-P15-03
 R-P15-04 | P1 | Lanes, judgments and status use shape and text in addition to color | Phase 08 | AT-R-P15-04
 R-P15-05 | P1 | Reduced motion (setting or prefers-reduced-motion) disables non-essential animation | Phase 01 | AT-R-P15-05
-R-P15-06 | P1 | Text stays readable at UI scale 0.85-1.5 and at 200 % browser zoom | Phase 01 | AT-R-P15-06
+R-P15-06 | P1 | Text stays readable at UI scale 0.8-1.5 and at 200 % browser zoom | Phase 01 | AT-R-P15-06
 R-P15-07 | P1 | Every interactive control has an accessible name and role; status changes use an aria-live region | Phase 01 | AT-R-P15-07
 R-P15-08 | P1 | Error messages name the operation that failed (for example "Save failed: ...") | Phase 01 | AT-R-P15-08
 R-P15-09 | P1 | Disabled controls show a one-line reason for being unavailable | Phase 01 | AT-R-P15-09

@@ -479,7 +479,7 @@ never affects the content inventory above because no third-party content exists.
      peer, including the host as seen by guests (a guest disconnects from a host that floods
      it or sends invalid data, with E-NET-011 or E-NET-010).
    - Repeated reconnection attempts: a host accepts at most 3 reconnect handshakes per
-     `peerId` per 60 s window; further attempts are refused with E-NET-015.
+     `peerId` per 5 min; further attempts are refused with E-NET-015.
 5. Verification: FT credential-pattern scan of the shipped and online files; UT admission
    flow (unadmitted peer's messages other than `hello`, `ping`, `pong` and `leave` are
    dropped); IT relay session where a third client joins with the code and is declined; FI
@@ -691,7 +691,7 @@ the project (a refused command leaves the revision unchanged).
 | E-PRJ-023 | M-15 `addEvents` | more than 100,000 events on a track | Track event limit reached (100,000). | recoverable | toast | none |
 | E-PRJ-024 | M-15 `addEvents` | pitch or velocity outside 0..127 | That note is outside the playable range. | recoverable | toast | none |
 | E-PRJ-025 | M-15 `quantize` | unknown grid | That quantize grid is not available. | recoverable | toast | none |
-| E-PRJ-026 | M-15 `setTempo` | BPM outside 20..400 | Tempo must be between 20 and 400 BPM. | recoverable | inline on the tempo field | none |
+| E-PRJ-026 | M-15 `setTempo` | BPM outside 20..300 | Tempo must be between 20 and 300 BPM. | recoverable | inline on the tempo field | none |
 | E-PRJ-027 | M-15 `setMeter` | numerator not 1..32 or denominator not a power of two up to 32 | That time signature is not supported. | recoverable | inline | none |
 | E-PRJ-028 | M-15 `setKeyScale` | key or scale unknown | That key or scale is not available. | recoverable | inline | none |
 | E-PRJ-029 | M-15 `replaceTake` | the take is not complete | That take was not completed and cannot be used. | recoverable | toast | none |
@@ -719,7 +719,7 @@ failure rule 4). "Session" below means the multiplayer session only.
 | E-NET-012 | M-24 relay transport | relay unreachable or the socket closed unexpectedly | Could not reach the relay server at {relayUrl}. You can still play by exchanging invite codes directly. | recoverable | dialog DLG-NetError; the lobby switches to invite codes | none |
 | E-NET-013 | M-24 relay transport | relay error `BAD_CODE` or `ROOM_NOT_FOUND` | No room with this code exists. Check the code and try again. | recoverable | inline | none |
 | E-NET-014 | M-24 | room full (`ROOM_FULL` or the host's 4-player limit) | This room is full (4 players). | recoverable | inline | none |
-| E-NET-015 | M-24 | the 60 s reconnection window expired, or more than 3 reconnect attempts in 60 s | Could not reconnect within 60 seconds. You have left the session. | returnToMenu (guest); recoverable (host, the player is removed) | dialog DLG-NetError on the guest | none |
+| E-NET-015 | M-24 | the 60 s reconnection window expired, or more than 3 reconnects by one player in 5 min | Could not reconnect within 60 seconds. You have left the session. | returnToMenu (guest); recoverable (host, the player is removed) | dialog DLG-NetError on the guest | none |
 | E-NET-016 | M-24 host | a guest's connection dropped | {name} disconnected. They have 60 seconds to reconnect. | recoverable | toast on the host; the player's slot shows "Reconnecting" | none |
 | E-NET-017 | M-24 relay transport | relay sent `closed` with `expired` or `shutdown` | The relay closed this room ({reason}). Local results were kept. | returnToMenu | dialog DLG-NetError | none |
 | E-NET-018 | M-24 sync | sync quality poor for 30 s | Connection is unstable; timing between players may be less accurate. | recoverable | toast once per session; HUD sync badge "poor" | none |

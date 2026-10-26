@@ -80,7 +80,7 @@ FLM.Core.define('Dance', function (FLM) {
     // DanceIssue { code:string /* 'DANCE-...' */, severity:'error'|'warn', stepIndex:number|null,
     //              message:string /* user-facing ASCII <= 200 chars */ }
 
-    /** Part 5.9.3 hash: hex8(fnv1a32(difficulty + '|' + generatorVersion + '|' + songId + '|' + durationTicks)). */
+    /** Part 5.9.3 hash: hex8(fnv1a32(difficulty + '|' + 'F' + '|' + generatorVersion + '|' + song.id + '|' + sourceEventCount)), sourceEventCount = NoteEvents over all tracks (the 5.9.1 rule). */
     settingsHash(song /* Song */, difficulty /* string */) /* -> string 8 hex */,
 
     DanceChartGenerator: {
@@ -623,9 +623,9 @@ s`) as in 6.9.8.
 
 - Topic ownership (Part 4.4): `chart.finished` is emitted by M-09 `Judge.finish` for instrument
   runs and by M-23 `DanceJudge.finish` for dance runs; M-28 emits nothing.
-- The `strict` judgment preset (x0.75) is narrower than standard, which 6.9.6 refuses for
-  `'custom'`; DanceJudge passes the preset name `'strict'` so M-09 accepts narrower windows
-  for that preset only. The same rule must hold for instrument mode; recorded for 6.9.
+- The `strict` judgment preset (x0.75) is narrower than standard; 6.9.6 refuses only custom
+  windows narrower than the strict table and accepts the strict preset table, in instrument
+  mode and in DanceJudge alike.
 - `Prng` must be instantiated per `generate` call; never share a generator with other code
   (UT-23-09 guards this).
 - Keep `MAX_SIMULTANEOUS`, `WINDOW_MAP`, `POSES`, `LAYOUTS` and `FAILURE_RULES` deep-frozen
@@ -1253,7 +1253,7 @@ Liveness and disconnection detection:
   -> player `connected:false`, `disconnectedAt = now`, roomState broadcast, the player's judge
   keeps running (inputs during the outage are not received; notes become misses).
 
-Reconnection (within 60 s, at most 5 per player per session):
+Reconnection (within 60 s, at most 3 per player per 5 min):
 - P2P: SCR-Multiplayer on the host shows "Create reconnect invite for {name}" ->
   `createInvite({forPeerId})`; the guest pastes it into `joinWithInvite` with its stored
   `resumeToken` in hello. Relay: the guest reopens the socket with backoff 1, 2, 4, 8, 16 s
@@ -1384,7 +1384,7 @@ Part 10.6.8, the session either stays in the lobby or ends, and standalone play 
 | relay down or restarted (E 8.1) | socket close or `closed shutdown` | local state | relay backoff for guests (60 s) | none | E-NET-012 | standalone | idle | UT-24-31 |
 | room expired (E 8.1) | relay `closed expired` | local state | new room | none | E-NET-017 | standalone | idle | UT-24-31 |
 | reconnect after room expired | relay `ROOM_NOT_FOUND` during backoff | local state | no | none | E-NET-013 then E-NET-015 | standalone | ended | UT-24-27 |
-| too many reconnects (E 8.3) | `reconnects > 5` | session | no | none | E-NET-015 "too many reconnection attempts" to that player | player removed | others continue | UT-24-25 |
+| too many reconnects (E 8.3) | `reconnects > 3` within 5 min | session | no | none | E-NET-015 "too many reconnection attempts" to that player | player removed | others continue | UT-24-25 |
 | local AudioContext suspended during a song | `audio.state` | session | resume | none | DLG-ResumeAudio plus pause request | paused | resume message re-anchors | UT-24-10 |
 | `net.*` listener throws | Emitter isolation | session | n/a | none | ErrorReporter | n/a | n/a | UT-24-33 |
 
@@ -1399,7 +1399,7 @@ Security checks (E 8.3) and the response to each abuse case:
 | oversized avatar or project payload | CAP per type before parsing the payload; avatar `Character.validate` and <= 4,096 B; projects are never transferred in v1 | rejected as invalid (E-NET-023 counted) |
 | local clock changes to manipulate results | timing uses audio clocks and the measured offset, never wall clock; input `tShared` must lie in [hostNow - 2 s, hostNow + 2 s] and be non-decreasing; `judgeOffsetMs` bounded to +/- 500 | out-of-window inputs dropped; a shifted clock only changes the measured offset; the residual advantage is bounded by the 500 ms calibration bound and is visible in diagnostics |
 | events for a song that is not active | input accepted only in `playing` and not paused; `start` and `ready` must carry the bound `songId` and `settingsHash` | dropped (`ignored`) or E-NET-005 |
-| repeated reconnection attempts | 5 reconnects per player; resume token required; relay connection rate limits (Part 3.7) | further attempts refused with E-NET-015 |
+| repeated reconnection attempts | 3 reconnects per player per 5 min; resume token required; relay connection rate limits (Part 3.7) | further attempts refused with E-NET-015 |
 | spoofed sender id | `from` must equal the id bound to the link (p2p channel or relay member id) | rejected as invalid |
 | replayed old messages | `seq` strictly increasing; `stateSeq` monotonic | dropped as duplicates |
 | script injection through names or error text | strings without control characters, length capped, rendered with `textContent` only (ADR-12) | text shown literally |
@@ -1422,7 +1422,7 @@ Security checks (E 8.3) and the response to each abuse case:
 | startLeadS, startMinLeadS, resumeLeadS, resyncLeadS, startAttempts | 2.0, 1.0, 1.0, 0.5, 3 | scheduled starts |
 | iceGatherTimeoutMs, connectTimeoutMs, guestAnswerWaitMs, inviteTtlMs | 3000, 20000, 120000, 600000 | signaling |
 | hostSilenceMs, guestSilenceMs | 6000, 12000 | liveness |
-| reconnectWindowMs, maxReconnects | 60000, 5 | reconnection |
+| reconnectWindowMs, maxReconnects, reconnectLimitWindowMs | 60000, 3, 300000 | reconnection |
 | inputWindowS, judgeOffsetMaxMs | 2.0, 500 | input acceptance |
 | avatarBytes, codeMaxChars, sdpMaxChars | 4096, 16384, 12000 | payload limits |
 | pauseRequestMinIntervalMs | 10000 | guest pause requests |
@@ -1482,7 +1482,7 @@ speaks the Part 3.7.4 envelope. `msg(type, payload, seq, from)` builds envelopes
 | UT-24-22 | host judges guest with guest offset | guest offset 5.0 s, guest calibration 30 ms, guest press exactly at the heard note time + 30 ms | host guest-judge result `perfect`, `deltaMs 0`; lagS defers the miss declaration by 2*rtt + 0.1 s |
 | UT-24-23 | score updates at 10 Hz | play 1.0 s of fake clock | 10 scoreUpdate frames; `accuracyPermille` rounded; host row first |
 | UT-24-24 | room full | 5th hello (p2p) and relay `ROOM_FULL` | E-NET-014 both; no 5th player |
-| UT-24-25 | same player twice and reconnect limit | hello with a connected peerId; disconnected peer with the right resumeToken; 6th reconnect | E-NET-022; slot restored; E-NET-015 |
+| UT-24-25 | same player twice and reconnect limit | hello with a connected peerId; disconnected peer with the right resumeToken; 4th reconnect within 5 min | E-NET-022; slot restored; E-NET-015 |
 | UT-24-26 | reconnect resync | guest drops at t = 10 s of play, reconnects at t = 25 s | guest `transport.play({fromTick, atAudio})` with `fromTick` = host position at hostNow + 0.5; `resyncTick` set; host judge recorded misses during the gap |
 | UT-24-27 | reconnect window and connect timeouts | no reconnect within 60 s; guest channel never opens | E-NET-015 and player `left`; guest E-NET-002 after 120 s |
 | UT-24-28 | host leaves | host `close('user')` while playing | guest `ended`, `results().complete === false`, transport stopped, E-NET-009 |
@@ -1960,6 +1960,6 @@ write failures), a fake catalog with the five built-in ids and fixed track progr
   `toISOString()` (UTC would change the daily at the wrong hour).
 - Never block on writes inside a gameplay frame: `record()` is called from the results
   transition only.
-- `PerformanceRecord.speed` stores the speed actually used; Transport allows 0.25..2.0 while
-  Part 5.13 lists 0.5-1.5; the record keeps the true value (recorded as an open issue).
+- `PerformanceRecord.speed` stores the speed actually used; Transport allows 0.25..2.0 and
+  Part 5.13 lists 0.25-2.0; the record keeps the true value.
 - Achievement and cosmetic titles are ASCII and rendered with `textContent`.

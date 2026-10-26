@@ -4,9 +4,9 @@ A single-file browser music game: four-button rhythm play, free play, a multitra
 MIDI/MusicXML/Guitar Pro import, a procedural 3D band, dance mode and optional peer-to-peer
 multiplayer. Plain JavaScript, Web Audio, WebGL, no libraries, no network requests.
 
-Status: implementation plan in preparation. This commit holds the specification and this README;
-docs/IMPLEMENTATION-PLAN.md is not written yet. docs/plan-work/RESUME.md says exactly where the work
-stands and how to finish it. There is no game yet. Nothing in this folder runs.
+Status: implementation plan version 1.0.0 (assembled, mechanical checks pass). The coverage review
+(stage 5) has not been run and some cross-part follow-ups remain; docs/plan-work/RESUME.md and
+docs/plan-work/OPEN-ISSUES-stage1.md list them. There is no game yet. Nothing in this folder runs.
 
 - docs/IMPLEMENTATION-PLAN.md is the complete design and the executable roadmap (Phases 0-16),
   written to be implemented in one go by an AI coding session (Opus 5.5, high effort).

@@ -252,7 +252,7 @@ Decisions behind the head:
   --safe-right: env(safe-area-inset-right, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
   --safe-left: env(safe-area-inset-left, 0px);
-  /* UI scale: set by M-26 from the setting video.uiScale (0.8 .. 1.5, step 0.1) */
+  /* UI scale: set by M-26 from the setting video.uiScale (0.8 .. 1.5, step 0.05) */
   --ui: 1;
   /* layering */
   --z-view: 0;

@@ -8,8 +8,8 @@ scores are planning judgments made at plan version 1.0.0, not measurements; the 
 marked `(chosen)`. "Verification" names the test categories of Part 12 (UT, IT, FT, TT, PT,
 XT, FI, LT, AT) and the observable each must establish; test IDs are assigned in Part 12.
 
-Browser floor assumed throughout this part (the support policy itself is 1.6): Chromium 90,
-Firefox 90, Safari 14.1, iOS Safari 14.5, Android Chrome 90. A claim about any browser is
+Browser floor assumed throughout this part (the support policy itself is 1.6): Chromium 110,
+Edge 110, Firefox 115, Safari 16.4, iOS Safari 16.4, Android Chrome 110. A claim about any browser is
 published only after its XT tests pass (B 5.1).
 
 ### 2.1 ADR-01 Single-file delivery via a build step
@@ -503,8 +503,8 @@ Decision:
    network is OQ-3.
 4. One `RTCDataChannel` named `flm`, `{ordered:true}` (reliable), carrying UTF-8 JSON text
    messages of the `NetMessage` envelope (BRIEF section 5, schemas in Part 5.16). Message
-   size cap 64 KB, 60 messages per second per peer; violations disconnect the offending peer
-   with `error` type `rateLimit` (E 8.3).
+   size cap 64 KB, 60 messages per second per peer; excess messages are dropped and counted (a breach
+   sustained for 3 consecutive seconds disconnects the peer with E-NET-011, E 8.3).
 5. Shared clock = the host's audio clock. Each guest estimates its offset with 8 ping/pong
    samples at join (median of `((t1 - t0) + (t2 - t3)) / 2`) and 1 sample every 10 s
    thereafter (sliding median of the last 8). Target sync error <= 20 ms, shown in the lobby
@@ -583,7 +583,7 @@ Decision:
    the previous value to `<key>.bak` (one generation kept), move `.tmp` to `<key>` ->
    emit `project.saved`. Any failure before the final move leaves the previous value and
    emits `project.saveFailed`; success is reported only after the final read-back (P 16).
-3. IndexedDB wrapper: `open` with a 3 s timeout (Safari may hang on `file://`); every
+3. IndexedDB wrapper: `open` with a 2,000 ms timeout (Safari may hang on `file://`); every
    transaction wrapped in a promise with a 10 s timeout; `onversionchange` closes the
    connection and shows the concurrent-tab notice; `onblocked` reports E-STO-002.
 4. Fallback: when IndexedDB is unavailable or fails to open, the app runs in
@@ -599,8 +599,8 @@ Decision:
    tab when `download` is unsupported, which is the iOS Safari < 13 path); import by
    `<input type="file">` and drag-and-drop. The UI never calls local storage a backup
    (I 5.3).
-7. Concurrent tabs: a lock record `flm.v1.lock` `{tabId, ts}` refreshed every 5 s by the tab
-   that owns a project in Studio; another tab seeing a fresh lock (< 15 s) opens the project
+7. Concurrent tabs: a lock record `flm.v1.lock` `{tabId, ts}` refreshed every 15 s by the tab
+   that owns a project in Studio; another tab seeing a fresh lock (< 45 s) opens the project
    read-only with the notice "This project is open in another tab; opened read-only".
    `storage` events propagate index changes to SCR-Library.
 8. Autosave checkpoints (ring of 3 per project, stripped of recording buffers) go to
@@ -686,7 +686,7 @@ Alternatives considered:
 | Plain ES2020, IIFE modules, no transpiler (chosen) | 5 | 5 | 5 | 5 | 4 | 5 | 5 | 5 | 5 | 44 |
 
 Notes: TypeScript and Babel need npm installs (not available, ADR-02). Module scripts fail
-from `file://`. An uncapped syntax level breaks Safari 14-15 users silently (a single
+from `file://`. An uncapped syntax level breaks Safari 16.4 users silently (a single
 `SyntaxError` disables the whole game because it is one script).
 
 Consequences: easier - the shipped file runs where the floor browsers run; stack traces map
@@ -890,12 +890,13 @@ Decision:
    bounds-checked readers (`DataView` access wrapped in a cursor that throws a typed
    `ParseError` on overrun); every length field is checked against the remaining bytes
    before allocation; ZIP uncompressed sizes and ratios are checked before inflating; JSON
-   project documents are limited to 32 MB of text and nesting depth 32; MusicXML with
+   project documents are limited to 64 MB of text, nesting depth 32 and 5,000,000 containers; MusicXML with
    `<!ENTITY` is rejected (ADR-06 decision 3).
 5. Network messages are validated structurally against the Part 5.16 schemas before any
    field is read: unknown `type`, wrong `v`, missing fields, wrong types, oversize (> 64 KB)
-   and rate-limit violations each drop the message and count toward disconnecting the peer
-   (3 invalid messages in 10 s). Scores are computed by the host only (ADR-07 decision 7).
+   each drop the message and count toward disconnecting the peer (20 invalid messages in
+   10 s; duplicates and stale messages are not invalid; rate-limit violations are dropped
+   and counted, not disconnected). Scores are computed by the host only (ADR-07 decision 7).
 6. No credentials: the only URLs in the shipped file are the STUN constant and the optional
    relay default; a grep gate in the build fails on strings matching `api[_-]?key`,
    `secret`, `token=` or `Bearer `.
@@ -949,7 +950,7 @@ Decision:
    per frame via a single `requestAnimationFrame` batch owned by M-26.
 3. Theme is CSS custom properties on `:root` (names and values in Part 3.2): semantic
    palette, four lane colors, typography scale, spacing, radii, shadows, motion durations,
-   safe-area insets (`env(safe-area-inset-*)`), `--ui` scale (0.85-1.5, user setting).
+   safe-area insets (`env(safe-area-inset-*)`), `--ui` scale (0.8-1.5, step 0.05, user setting).
    One dark theme in v1 plus a high-contrast toggle; no light theme.
 4. Font stack `system-ui, -apple-system, "Segoe UI", Roboto, sans-serif`; numerals in the
    HUD use `font-variant-numeric: tabular-nums`. No `@font-face`.
@@ -1020,7 +1021,7 @@ Decision:
    generator change (`generatorVersion`) is picked up automatically. Built-in songs are
    `lockedSource:true` on every track.
 4. The tutorial sequence (I 11.3, seven steps) is content data in the same module: a short
-   8-bar exercise song plus per-step target definitions (Part 6 M-30 and Part 7.9).
+   16-bar exercise song plus per-step target definitions (Part 6 M-30 and Part 7.9).
 5. The eight character presets (Part 6 M-22) live in `30-content.js` as `CharacterConfig`
    objects, versioned with `version:1`.
 6. All built-in content carries `contentVersion: 1` (`FLM.Content.VERSION`); records keyed
@@ -1239,7 +1240,7 @@ not assume):
 | Service Worker | no | https only | yes | not used |
 | `fetch` of sibling files | no | yes | no | not used; everything is inline |
 | `performance.memory` | Chromium only | Chromium only | no | memory shown as "unavailable" |
-| Cross-tab `storage` event | yes (same origin rules above) | yes | no | lock record TTL (15 s) |
+| Cross-tab `storage` event | yes (same origin rules above) | yes | no | lock record TTL (45 s) |
 
 Deployment contexts and the sentence each shows on SCR-About:
 
@@ -1266,7 +1267,7 @@ that discovering the answer changes a switch, not a design.
 
 | ID | Question | Decided default | Decided fallback | How it is resolved | Where recorded |
 |---|---|---|---|---|---|
-| OQ-1 | Does iOS Safari deliver simultaneous Pointer Events for four touches on all supported devices? | Pointer Events on `#touch` (ADR-10 decision 2) | Touch Events path in M-07 selected per device when the first-launch four-pad probe counts fewer than 4 concurrent pointers (ADR-10 decision 10); the setting `input.touchApi` (`auto`, `pointer`, `touch`) lets the user force either | XT test on at least two physical iOS devices (one with iOS 14.x-15.x, one current) during Phase 15; the probe runs on every first launch regardless | LEDGER Assumptions, Part 9.2 device matrix row, SCR-Help sentence |
+| OQ-1 | Does iOS Safari deliver simultaneous Pointer Events for four touches on all supported devices? | Pointer Events on `#touch` (ADR-10 decision 2) | Touch Events path in M-07 selected per device when the first-launch four-pad probe counts fewer than 4 concurrent pointers (ADR-10 decision 10); the setting `input.touchApi` (`auto`, `pointer`, `touch`) lets the user force either | XT test on at least two physical iOS devices (one older device, class old-ios: A12 on iOS 16.4 or newer, and one current) during Phase 15; the probe runs on every first launch regardless | LEDGER Assumptions, Part 9.2 device matrix row, SCR-Help sentence |
 | OQ-2 | Is `OfflineAudioContext` WAV export acceptable on iOS for full mixes (memory)? | OfflineAudioContext render at 48 kHz stereo, written in 16-bit PCM chunks of 10 s to bound peak memory (ADR-04 decision 9) | MediaRecorder capture of a real-time render through `MediaStreamAudioDestinationNode`, producing the browser's native container (`audio/mp4` or `audio/webm`), chosen automatically on iOS when the estimated PCM size exceeds 60 MB or when the offline render throws | PT test on an iOS device with the longest demo (120 s) and a 32-track synthetic project during Phase 14 | LEDGER, Part 9.2, export dialog text "Exports as <format> on this device" |
 | OQ-3 | Is the public STUN server reachable from the owner's network? | STUN toggle off; host-candidate (same network) connectivity (ADR-07 decision 3) | If STUN is unreachable or blocked, the lobby shows "STUN unreachable; same-network play only" within 3 s of gathering and play proceeds on the LAN; the Online edition relay is the documented path for internet pairs | XT test of a two-device LAN session with the toggle on and off during Phase 13 | LEDGER, Part 1.4 delivery profile notes, SCR-Multiplayer diagnostics |
 

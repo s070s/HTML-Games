@@ -457,7 +457,7 @@ P 6.2 Audio mixing:
 | R-P6.2-02 | P1 | Track gain and pan -1..1 on the ChannelStrip apply immediately and are stored in Track.mix | M-05, M-17 | T04.02 | AT-R-P6.2-02 (auto: UT-05-07, UT-05-08, IT-016; manual: LT-039) | Unimplemented |
 | R-P6.2-03 | P1 | Mute and solo silence the voices of affected tracks within 20 ms and leave no hanging notes | M-05, M-06 | T04.02 | AT-R-P6.2-03 (auto: UT-05-09, UT-05-10, IT-016; manual: LT-039) | Unimplemented |
 | R-P6.2-04 | P1 | The master limiter keeps the output at or below 0 dBFS with 32 tracks at full gain | M-05 | T04.02 | AT-R-P6.2-04 (auto: IT-017, UT-05-06; manual: LT-034) | Unimplemented |
-| R-P6.2-05 | P1 | Gain changes ramp over 5-20 ms and stop or panic fades voices over 10 ms, so no clicks or pops | M-05, M-06 | T04.02 | AT-R-P6.2-05 (auto: UT-05-10, UT-05-22, UT-05-25; manual: LT-033) | Unimplemented |
+| R-P6.2-05 | P1 | Gain changes ramp over 5-20 ms and stop or panic fades voices over 30 ms, so no clicks or pops | M-05, M-06 | T04.02 | AT-R-P6.2-05 (auto: UT-05-10, UT-05-22, UT-05-25; manual: LT-033) | Unimplemented |
 | R-P6.2-06 | P1 | Start and stop never spike volume: voices start from zero gain and stop releases through ramps | M-05, M-06 | T04.02 | AT-R-P6.2-06 (auto: UT-05-25, UT-06-06; manual: LT-033) | Unimplemented |
 | R-P6.2-07 | P1 | Metronome volume 0-100 % adjusts through Audio.setMetronomeGain, independent of master | M-05, M-27 | T04.02 | AT-R-P6.2-07 (auto: UT-05-06, UT-05-26; manual: LT-039) | Unimplemented |
 | R-P6.2-08 | P1 | Effects add no scheduling latency: reverb is a parallel send and only the limiter sits in series | M-05 | T14.03 | AT-R-P6.2-08 (auto: UT-05-06, UT-05-15; manual: LT-040) | Unimplemented |
@@ -649,7 +649,7 @@ P 7.3 Cameras and stage direction:
 | R-P14-07 | P1 | Layout height follows the visual viewport (dvh with fallback) so browser bars never hide controls | M-26 | T01.06 | AT-R-P14-07 (manual: LT-010) | Unimplemented |
 | R-P14-08 | P1 | Orientation changes relayout without stopping, seeking or re-anchoring the Transport | M-26, M-28 | T14.06 | AT-R-P14-08 (auto: UT-26-16; manual: XT-040, XT-041, XT-042) | Unimplemented |
 | R-P14-09 | P0 | Audio unlocks through Audio.unlock on the first pointerup or keydown, including on iOS Safari | M-05, M-29 | T04.01 | AT-R-P14-09 (auto: UT-05-01, UT-29-09; manual: XT-006, XT-007, XT-008, XT-009, XT-010) | Unimplemented |
-| R-P14-10 | P1 | UI scale 0.85-1.5 keeps text legible and layouts intact | M-26 | T01.07 | AT-R-P14-10 (auto: UT-26-17; manual: XT-076) | Unimplemented |
+| R-P14-10 | P1 | UI scale 0.8-1.5 keeps text legible and layouts intact | M-26 | T01.07 | AT-R-P14-10 (auto: UT-26-17; manual: XT-076) | Unimplemented |
 | R-P14-11 | P1 | Mobile devices start on the Balanced or Low tier chosen by Render.pickTier | M-18 | T05.01 | AT-R-P14-11 (auto: UT-18-08, UT-28-20; manual: LT-087, XT-038, XT-039) | Unimplemented |
 | R-P14-12 | P1 | Mobile steady memory <= 150 MB is measured on a mid-range physical device | M-18, M-05, `tools/perf.mjs` | T15.06 | AT-R-P14-12 (auto: PT-010; manual: LT-086) | Unimplemented |
 | R-P14-13 | P1 | Returning from background keeps the paused state, re-anchors clocks and restores GL if it was lost | M-28, M-04, M-18 | T14.06 | AT-R-P14-13 (auto: TT-021, UT-28-09, UT-28-12, FI-009; manual: XT-046, XT-047) | Unimplemented |
@@ -664,7 +664,7 @@ P 7.3 Cameras and stage direction:
 | R-P15-03 | P1 | Dialogs trap focus, close on Escape and restore focus on close | M-26 | T01.07 | AT-R-P15-03 (auto: UT-26-08, UT-26-09; manual: LT-081) | Unimplemented |
 | R-P15-04 | P1 | Lanes, judgments and status use shape and text in addition to color | M-21, M-26 | T08.03 | AT-R-P15-04 (auto: UT-26-21; manual: LT-014) | Unimplemented |
 | R-P15-05 | P1 | Reduced motion (setting or prefers-reduced-motion) disables non-essential animation | M-26, M-20 | T01.07 | AT-R-P15-05 (auto: UT-26-26, UT-20-29; manual: LT-048) | Unimplemented |
-| R-P15-06 | P1 | Text stays readable at UI scale 0.85-1.5 and at 200 % browser zoom | M-26 | T01.07 | AT-R-P15-06 (auto: UT-26-17; manual: XT-076) | Unimplemented |
+| R-P15-06 | P1 | Text stays readable at UI scale 0.8-1.5 and at 200 % browser zoom | M-26 | T01.07 | AT-R-P15-06 (auto: UT-26-17; manual: XT-076) | Unimplemented |
 | R-P15-07 | P1 | Every interactive control has an accessible name and role; status changes use an aria-live region | M-26 | T01.07 | AT-R-P15-07 (manual: LT-080) | Unimplemented |
 | R-P15-08 | P1 | Error messages name the operation that failed (for example "Save failed: ...") | M-01, M-27 | T01.04 | AT-R-P15-08 (auto: UT-27-26, UT-27-18; manual: LT-092) | Unimplemented |
 | R-P15-09 | P1 | Disabled controls show a one-line reason for being unavailable | M-26 | T01.07 | AT-R-P15-09 (auto: UT-26-14, UT-27-02; manual: LT-080) | Unimplemented |
