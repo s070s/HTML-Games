@@ -501,7 +501,7 @@ if (orientation === 'portrait' || spec.layout === 'bottom') {
   `dance0..3`) it calls `setPressed(i, type === 'press')`, which toggles the class `pressed`
   (inverted contrast and a 2 px outline: shape change, not only color). Visual feedback happens
   in the same task as the event, before the next frame (P 5.1).
-- Pointer handling itself belongs to M-07 (`Input.attach({padRoot: #touch})`); M-26 only builds
+- Pointer handling itself belongs to M-07 (`Input.init({padRoot: #touch})`); M-26 only builds
   and positions the elements. `#touch` has `touch-action: none`; `contextmenu` on pads is
   prevented (long press on iOS and Android).
 - `maxTouches < 4`: the HUD note `text('pads.fewTouches', {n})` is shown once per mode enter.
@@ -671,8 +671,7 @@ history integration off unless stated; layout tests set the container size throu
   start with `javascript:` (`E-GEN-004` assertion).
 - `history.pushState` with an unchanged URL is used deliberately (no hash routing), so a reload
   always boots at the main menu; the screen stack is not restored from history after a reload.
-- Names follow Part 4.1 (`Core.dom`, `Core.timers`, `bus.removeOwner`); see 6.28.9 for the
-  correspondence with the M-01 section names.
+- Names follow Part 4.1 (`Core.dom`, `Core.timers`, `bus.removeOwner`).
 
 ### 6.27 M-27 Screens (`src/27-screens.js`, `FLM.Screens`)
 
@@ -685,9 +684,9 @@ Responsibilities:
   which modules it calls, which events it handles, how it leaves. Layouts, element ids,
   exact texts and per-state copy are Part 7.6 and 7.7; controllers build that DOM with
   `UI.el` and `UI.text`.
-- The settings store `FLM.Screens.Settings` over `FLM.Storage.kv` (key `flm.v1.settings`,
-  schema Part 5.11): load, normalize, get, set, reset, export, import, calibration view, and
-  the emission of `settings.changed` (6.27.4.2).
+- The settings store `FLM.Screens.Settings` over `FLM.Storage.loadSettings` and `saveSettings`
+  (key `flm.v1.settings`, owned by M-16; schema Part 5.11): normalize, debounce, get, set,
+  reset, export, import, calibration view (6.27.4.2). M-16 persists and emits `settings.changed`.
 - The tutorial state machine (I 11.3, seven steps; skippable, repeatable, keyboard and touch
   variants), the results screen content, the pause screen behavior.
 - Global user-facing reactions to bus topics that are not owned by one screen: save failures
@@ -728,14 +727,14 @@ FLM.Core.define('Screens', function (FLM) {
 
     Settings: {
       DEFAULTS /* frozen 5.11 default document */, SCHEMA /* frozen {path: {type, min, max, step, values, comparable, immediate}} */,
-      /** Boot step B6. Reads kv 'settings' (falls back to 'settings.bak'), migrates, normalizes.
+      /** Boot step B6. Reads `Storage.loadSettings()` (M-16 falls back to the `.bak`), migrates, normalizes.
        *  @returns {{doc:object, source:'stored'|'backup'|'defaults', warnings:string[]}}
-       *  Emits settings.changed {key:'*', source:'load', keys}. Never throws. */
+       *  M-16 emits settings.changed {key:'*', source:'load', keys}. Never throws. */
       load() {},
       get(path /* 'audio.masterVolume' */) /* -> value (copy for objects) */ {},
       all() /* -> deep copy of the document */ {},
-      /** Validates and normalizes; persists (debounced 250 ms, immediate for onboarding.* and
-       *  input.keys.*); emits settings.changed {key, value, prev, source}.
+      /** Validates and normalizes; persists through `Storage.saveSettings` (debounced 250 ms, immediate for
+       *  onboarding.*, input.keys.* and calibration.*), which emits settings.changed {key, value, prev, source}.
        *  @returns {{ok:boolean, value:any, error:string|null}} */
       set(path, value, source /* 'ui'|'wizard'|'url'|'load'|'reset' */) {},
       setMany(patch /* {path: value} */, source) /* -> {ok, errors:string[]} one event per key */ {},
@@ -743,7 +742,7 @@ FLM.Core.define('Screens', function (FLM) {
       calibration() /* -> Calibration {inputOffsetMs, audioLatencyMs, visualLeadMs} */ {},
       /** true when the gameplay settings keep results comparable (5.11 Comparable column). */
       comparable() /* -> boolean */ {},
-      flush() /* -> Promise<{ok:boolean}> write pending changes now (pagehide, tests) */ {},
+      flush() /* -> Promise<{ok:boolean}> Storage.flushSettings(): write pending changes now (pagehide, tests) */ {},
       export() /* -> string .flmsettings.json text */ {},
       /** Parses and validates; does not apply. @returns {{ok, doc, changes:[{path, from, to}], error}} */
       parseImport(text) {},
@@ -773,10 +772,8 @@ FLM.Core.define('Screens', function (FLM) {
 });
 ```
 
-Events emitted: `settings.changed` (by `Settings`; Part 4.4 lists M-16 as the owner, see
-6.28.9 note 4). All other effects are calls into lower modules. Events consumed (global,
-owner `SCREENS_OWNER`): `error`, `project.saveFailed`, `storage.quota`, `storage.state`
-(Part 6 M-16 name `storage.mode`), `audio.state`, `progress.unlock`. Per screen (owner =
+Events emitted: none (`settings.changed` is emitted by M-16 `Storage.saveSettings` and `loadSettings`, Part 4.4). All effects are calls into lower modules. Events consumed (global,
+owner `SCREENS_OWNER`): `error`, `project.saveFailed`, `storage.quota`, `storage.state`, `audio.state`, `progress.unlock`. Per screen (owner =
 screen owner, removed on unmount): listed in each controller below.
 
 TutorialState:
@@ -806,8 +803,7 @@ controllers never keep references to other controllers.
 Each controller section lists: Reads (data sources), Calls (lower-module API), Handles (bus
 topics and input), Leaves (how the screen or mode ends). "Owner" means the screen owner
 token; every subscription and DOM listener of a controller uses it, so `unmount` needs no
-manual cleanup beyond widgets (`widget.destroy()`). Lower-module names follow Part 4.1;
-6.28.9 maps them to the Part 6 module sections.
+manual cleanup beyond widgets (`widget.destroy()`). Lower-module names follow Part 4.1.
 
 6.27.4.1 Shared rules for all controllers
 
@@ -848,21 +844,21 @@ function normalize(doc) {                 // deep-merge over DEFAULTS, clamp, en
 }
 ```
 
-- `load()`: `text = Storage.kv.get('settings', null)`; on `null` try `kv.get('settings.bak',
-  null)` (source `backup`, toast `text('settings.reset')` only when both were damaged);
+- `load()`: `text = Storage.loadSettings()` (M-16 reads `flm.v1.settings` and falls back to the `.bak`:
+  source `backup`, toast `text('settings.reset')` only when both were damaged);
   `version > 1` -> keep defaults in memory, warn `W-SET-NEWER`, and do not write until the
   user changes a setting (5.17); `version < 1` impossible in v1. Normalize; if any warning,
-  `Log.once('W-SET-NORMALIZED', ...)`. Store `settings.doc`, emit `settings.changed {key:'*',
-  value:null, prev:null, source:'load', keys:[all paths]}`.
+  `Log.once('W-SET-NORMALIZED', ...)`. Store `settings.doc`; M-16 emits `settings.changed {key:'*',
+  value:null, prev:null, source:'load', keys:[all paths]}` from `loadSettings`.
 - `set(path, value, source)`: unknown path -> `{ok:false, error:'unknown setting'}`; coerce;
   if the normalized value deep-equals the current one return `{ok:true}` without an event;
-  else write into `doc`, emit `settings.changed {key:path, value, prev, source}`, schedule a
-  write: immediate when `SCHEMA[path].immediate` (paths `onboarding.*`, `input.keys.*`,
-  `calibration.*`), else debounced 250 ms (`Core.timers.setTimeout(..., 250, SCREENS_OWNER)`).
-  The write is `Storage.kv.set('settings', doc)`; on `{ok:false}` toast
+  else write into `doc` and call `Storage.saveSettings(doc, {key:path, value, prev, source}, {debounceMs})`:
+  M-16 emits `settings.changed {key:path, value, prev, source}` at once and persists the document,
+  immediately when `SCHEMA[path].immediate` (paths `onboarding.*`, `input.keys.*`,
+  `calibration.*`, `debounceMs` 0), else debounced 250 ms. On `{ok:false}` toast
   `text('settings.saveFailed')` once per session (settings stay in memory).
 - Special cases: `video.highContrast === true` forces `accessibility.laneGlyphs = true`
-  (second event); `input.keys.*` writes call `Input.setMaps(mapsFromSettings(doc))`;
+  (second event); `input.keys.*` writes call `Input.setMap(mapsFromSettings(doc))`;
   `net.relayUrl` validates `^wss?://` and length <= 200.
 - `calibration()` returns the three `calibration.*` values; `comparable()` returns
   `doc.gameplay.judgmentPreset === 'standard'` (speed comparability is decided per play by M-28,
@@ -904,7 +900,7 @@ Entries in the fixed order of BRIEF 7, each a `list` item (role `menu`):
 | Free Play | `Modes.enter('freeplay')` | never |
 | Studio | `Modes.enter('studio', {projectId: Settings.get('session.lastProjectId')})` | never (storage limits are shown inside) |
 | Song Library | `Modes.enter('library')` | never |
-| Import Music | synchronously `const files = Storage.files.pick({accept: Import.COMPATIBILITY.accept, multiple:false})` inside the gesture, then `Modes.enter('import', {files})` | never |
+| Import Music | synchronously `const files = Storage.pickFile({accept: Import.COMPATIBILITY.accept, multiple:false})` inside the gesture, then `Modes.enter('import', {files})` | never |
 | Dance Mode | `push('SCR-Dance', {phase:'select'})` | Catalog empty |
 | Multiplayer | `Modes.enter('multiplayer')` | no `RTCPeerConnection` and no relay URL ("This browser has no WebRTC support.") |
 | Characters | `Modes.enter('customize')` | never (Abstract tier shows a 2D preview) |
@@ -914,14 +910,14 @@ Entries in the fixed order of BRIEF 7, each a `list` item (role `menu`):
 
 Cards above the list (each optional, at most two visible, in this priority):
 
-1. Recovery: when `Storage.kv.get('recovery')` holds a project written by the reload class
+1. Recovery: when `Storage.get('recovery')` holds a project written by the reload class
    (Part 4.9), or `Project.Autosave.findRecoverable(lastProjectId, savedModifiedAt)` resolves a
    checkpoint newer than the saved project: "Recover unsaved project?" with "Recover" (opens
    Studio with the recovered project, marked dirty) and "Discard" (deletes the recovery key or
    ignores the checkpoint until the next autosave; consequence text names the project).
 2. Audio banner: while `Audio.isUnlocked()` is false: "Tap or press a key to enable sound"
    (M-29 installs the one-shot gesture listener; the banner hides on `audio.unlocked`).
-3. Storage notice: `Storage.status().notice` when non-null.
+3. Storage notice: `Storage.state().notice` when non-null.
 4. Continue: `flm.v1.lastSession` within the last 7 days: "Continue: <mode> - <song or
    project name>" re-enters that mode with the same song or project.
 
@@ -1013,16 +1009,16 @@ Handles: `input.event`, `transport.state`, `sched.beat` (metronome indicator), `
 
 6.27.4.8 SCR-Studio (mode `studio`; B 7.4, B 16, I 5)
 
-M-28 opened the session (`Studio.open(project)`); the controller is a view over `FLM.Studio`.
+M-28 opened the session (`Studio.Session.open(project)`); the controller is a view over `FLM.Studio`.
 
 | Panel | Reads | Calls | Handles |
 |---|---|---|---|
-| Arrangement overview | `Studio.overview()` | click -> `Transport.main.seek(tick)`; drag range -> `Studio.setLoop(a, b)`; marker click -> `Studio.playSection(i, {loop:false})` | `project.changed` (rebuild), playhead from the 10 Hz view timer |
-| Track list | `Studio.mixerState()`, project tracks | `addTrack`, `renameTrack` (field, commit on Enter), `duplicateTrack`, `reorderTrack` (drag or Alt+ArrowUp/Down), `deleteTrack` (after DLG-DeleteTrack), `setTrackInstrument` (program select), `selectTrack` | `project.changed`, `studio.recording` |
-| Piano roll | `Studio.pianoRollData(trackId, range)` | `select`, `moveSelection`, `resizeSelection`, `deleteSelection`, `setSelectionVelocity`, `copySelection`, `cut`, `paste`, `quantizeSelection`, `setGrid`; locked tracks show "Imported track: edits create an editable copy" and the first edit calls `Studio.ensureEditable` | `studio.selection`, `project.changed` |
-| Mixer | `Studio.mixerState()` | sliders -> `Studio.setMix(trackId, {...})` (coalesced 10 Hz by the slider), mute/solo toggles, master -> `Studio.setMaster` | `audio.peak` (meters, clip indicator held 1 s) |
-| Transport | `Transport.main` state | TransportBar actions: play/pause/stop -> `Transport.main.play/pause/stop`; record -> `Studio.Recorder.arm(currentTrackId, {countInBars, overdub:true, loop:loopEnabled})` then `start()`; loop toggle; metronome -> `Studio.setMetronome`; tempo/meter/key fields -> `Studio.setTempo/setMeter/setKeyScale` | `transport.state`, `transport.loop`, `studio.recording` |
-| Markers | `Studio.sections()` | add at playhead (label field), rename, remove, move | `project.changed` |
+| Arrangement overview | `Studio.Session.overview()` | click -> `Transport.main.seek(tick)`; drag range -> `Studio.Session.setLoop(a, b)`; marker click -> `Studio.Session.playSection(i, {loop:false})` | `project.changed` (rebuild), playhead from the 10 Hz view timer |
+| Track list | `Studio.Session.mixerState()`, project tracks | `addTrack`, `renameTrack` (field, commit on Enter), `duplicateTrack`, `reorderTrack` (drag or Alt+ArrowUp/Down), `deleteTrack` (after DLG-DeleteTrack), `setInstrument` (program select), `selectTrack` | `project.changed`, `studio.recording` |
+| Piano roll | `Studio.Session.pianoRollData(trackId, range)` | `select`, `move`, `resize`, `remove`, `setVelocity`, `copy`, `cut`, `paste`, `quantize`, `setGrid`; locked tracks show "Imported track: edits create an editable copy" and the first edit calls `Studio.Session.ensureEditable` | `studio.selection`, `project.changed` |
+| Mixer | `Studio.Session.mixerState()` | sliders -> `Studio.setMix(trackId, {...})` (coalesced 10 Hz by the slider), mute/solo toggles, master -> `Studio.Session.setMaster` | `audio.peak` (meters, clip indicator held 1 s) |
+| Transport | `Transport.main` state | TransportBar actions: play/pause/stop -> `Transport.main.play/pause/stop`; record -> `Studio.Recorder.arm(currentTrackId, {countInBars, overdub:true, loop:loopEnabled})` then `start()`; loop toggle; metronome -> `Studio.Session.setMetronome`; tempo/meter/key fields -> `Studio.Session.setTempo/setMeter/setKeyScale` | `transport.state`, `transport.loop`, `studio.recording` |
+| Markers | `Studio.Session.sections()` | add at playhead (label field), rename, remove, move | `project.changed` |
 
 Shortcuts (screen `keys`; inactive while a text field has focus; chosen so that none collides
 with the lane keys `KeyA KeyS KeyK KeyL`, the octave keys `KeyQ KeyE`, `Digit1-6` or Shift):
@@ -1034,10 +1030,10 @@ toggle, `KeyM` metronome, `KeyG` quantize the selection with the current grid,
 the selected track's instrument through a `LiveMapper` (profile from settings) when not
 recording; while recording, `Studio.Recorder` consumes `input.event` itself.
 
-Save: `Storage.projects.save(project)` -> `{ok:true}` toast "Saved" and `Settings.set(
+Save: `Storage.saveProject(project)` -> `{ok:true}` toast "Saved" and `Settings.set(
 'session.lastProjectId', id)`; `{ok:false}` -> nothing here (the global `project.saveFailed`
 reaction opens DLG-SaveFailed). Export menu: MIDI (`Midi.write(song, {tempoOverride})` ->
-`Storage.files.download(name + '.mid', bytes, 'audio/midi')`, showing the export notes of
+`Storage.download(name + '.mid', bytes, 'audio/midi')`, showing the export notes of
 5.14.1 first in a one-time confirm), Project (`Project.serialize` -> `.flm.json`), Audio mix
 (DLG-ExportWav), Dance chart (when the project has one). Read-only (lock held elsewhere):
 banner "Another tab has this project open. Studio opens read-only."; edit controls disabled
@@ -1051,21 +1047,21 @@ stays recoverable from the main menu); `cancel` -> stay. Leave = `Modes.leave('u
 
 6.27.4.9 SCR-Library (mode `library`)
 
-Reads: `Storage.projects.list()`, `Project.Catalog.list()`, `Settings.get(
-'session.libraryFilter')`, `Storage.status()`, last `storage.quota`. Shows two tabs:
+Reads: `Storage.listProjects()`, `Project.Catalog.list()`, `Settings.get(
+'session.libraryFilter')`, `Storage.state()`, last `storage.quota`. Shows two tabs:
 "Projects" and "Songs" (built-in and session imports, with the notice "Built-in songs are
 original demo arrangements"). Filter field (query, case-insensitive substring of name) and
 sort (`recent` or `name`); the filter and the scroll offset are restored on mount and saved
 on unmount (P 21). Actions per project: Open (`Modes.enter('studio', {projectId})`), Play
 (`push('SCR-Instrument', {phase:'select', songId})` after `Project.Catalog.register` of the
-project song), Rename (field -> `Storage.projects.rename`), Export (`.flm.json`), Delete
-(DLG-DeleteProject -> `Storage.projects.delete`). Per song: Play (SCR-Instrument select),
+project song), Rename (field -> `Storage.renameProject`), Export (`.flm.json`), Delete
+(DLG-DeleteProject -> `Storage.deleteProject`). Per song: Play (SCR-Instrument select),
 Preview (plays 15 s from the second section through `Modes.preview(songId)`, see 6.28.4.8),
 Open in Studio (`Project.fromSong(Catalog.getSong(id))`, guarded by DLG-ImportReplace when
 the current project is dirty). Toolbar: "Import file" (as the main menu entry) and "Open
-project file" (`Storage.files.pick({accept:['.flm.json','.json']})` -> `Storage.files.read` ->
-`Project.parse(text)` -> errors shown inline with the `E-PRJ-*` text; ok -> DLG-ImportReplace
-when a project with the same id exists in storage -> `Storage.projects.save` -> list
+project file" (`Storage.pickFile({accept:['.flm.json','.json']})` -> `Storage.readFile` ->
+`Project.deserialize(text)` -> errors shown inline with the `E-PRJ-*` text; ok -> DLG-ImportReplace
+when a project with the same id exists in storage -> `Storage.saveProject` -> list
 refresh). Space line: used/estimated bytes. Empty states: "No saved projects yet. Create one
 in Studio or import a song." Handles: `storage.quota`, `project.saved`. Leaves: Back ->
 `Modes.leave('user')`.
@@ -1106,7 +1102,7 @@ Actions: "Play this track" -> `Project.Catalog.register({id: report.song.id, kin
 title, song: report.song})`, `Modes.enter('instrument', {songId, trackId, difficulty, profile,
 returnTo:'SCR-Library'})`; "Open in Studio" -> if `Project.current()` is dirty ->
 DLG-ImportReplace ("Replace" saves nothing and continues, "Save first" runs
-`Storage.projects.save` then continues, "Cancel"); then `p = Project.fromSong(report.song)`,
+`Storage.saveProject` then continues, "Cancel"); then `p = Project.fromSong(report.song)`,
 `Project.setCurrent(p)`, `Modes.enter('studio', {project:p})`; "Import another file" (picker,
 in the gesture); "Back". Import never touches the current project before one of these
 confirmed actions (S-12).
@@ -1161,7 +1157,7 @@ closes the connection (4.7.2 step 12).
 6.27.4.13 SCR-Characters (mode `customize`; B 13, I 8)
 
 Reads: roster = `Project.current()?.characters` when a project is current, else the user
-roster `Storage.kv.get('characters')` merged with `Character.PRESETS`; `Character.OPTIONS`,
+roster `Storage.get('characters')` merged with `Character.PRESETS`; `Character.OPTIONS`,
 `Character.CATEGORIES`; `Progress.isUnlocked(id)` for cosmetic options and stage themes.
 Layout: performer tabs (slots 0-4), category tabs, option controls (style selects, color
 swatches from `params.palette`, height slider 0.90-1.10 step 0.01, accessory toggles with
@@ -1173,10 +1169,9 @@ Character.validate(cfg2)`; invalid -> control error state, previous config kept;
 store and `Character.applyTo(...)`/`character.changed` (M-22 emits) so M-21 rebuilds that one
 performer live (I 8: no scene reload, song and project state untouched). Randomize ->
 `Character.randomize(new Core.Prng(Core.fnv1a32(uid())))`. Presets apply appearance only
-(5.10). Save: roster changes -> `Storage.kv.set('characters', {version:1, presets})` (max
+(5.10). Save: roster changes -> `Storage.set('characters', {version:1, presets})` (max
 16 user presets; the 17th asks to replace the oldest); project characters ->
-`Project.Commands.setCharacter(slot, config)` pushed on the project's UndoStack (6.28.9 note
-5). Export -> `Character.serialize` -> `.flmchar.json`; Import -> `Character.deserialize` with
+`Project.Commands.setCharacter(slot, config)` pushed on the project's UndoStack (6.28.9 note 3). Export -> `Character.serialize` -> `.flmchar.json`; Import -> `Character.deserialize` with
 validation errors listed. Leaves: Back -> `Modes.leave('user')`; pending debounced writes are
 flushed in `unmount`.
 
@@ -1193,7 +1188,7 @@ Remapping (Controls): the user selects a control row ("Lane 1 (circle)"), presse
 the row shows "Press a key" and the controller captures the next `keydown` (capture listener
 with owner, `preventDefault`, `Escape` cancels, `Tab` is refused with "Tab is reserved for
 navigation"); `r = Input.remap(context, control, code)`; `r.ok` -> `Settings.set(
-'input.keys.<group>', mapsToSettings(Input.getMaps()), 'ui')`; `r.conflict` -> DLG-RemapConflict
+'input.keys.<group>', mapsToSettings(Input.getMap()), 'ui')`; `r.conflict` -> DLG-RemapConflict
 ("Swap" -> remap the other control to the old code then retry; "Cancel"). Reset Controls ->
 confirm -> `Input.resetMap()` and settings reset of `input.keys`. MIDI: "Enable MIDI input"
 -> `Input.enableMidi()` (disabled with the gate reason when not secure or not supported).
@@ -1210,7 +1205,7 @@ Leaves: Back -> pop (contextual) or `Modes.leave('user')`; pending writes flushe
 
 6.27.4.15 SCR-Help (mode `help`)
 
-Tabs: Controls (current keyboard map from `Input.getMaps()` through `codeLabel`, gamepad map
+Tabs: Controls (current keyboard map from `Input.getMap()` through `codeLabel`, gamepad map
 table of 6.7.1, touch pad description with glyph words, MIDI default notes), Modes (what each
 of Instrument, Free Play, Studio, Dance and Multiplayer does, P 4), Layouts (for each profile
 A-F: `Mapping.profileTable(profile, ctx)` rendered as four rows "control -> action, pitches"
@@ -1345,7 +1340,7 @@ Behavior rules (P 5.2, E 4.1):
 | DLG | Opened by | Buttons -> result | Effect of the result |
 |---|---|---|---|
 | DLG-UnsavedChanges | `UI.confirmUnsaved` from SCR-Studio, SCR-FreePlay, replace flows | Keep editing `cancel`, Discard changes `discard`, Save `save` | caller acts (6.27.4.7, 6.27.4.8) |
-| DLG-SaveFailed | global `project.saveFailed` reaction | Export `export`, Try again `retry`, Close `cancel` | export: `Project.serialize` + download (`.flm.json`) and toast on dispatch; retry: `Storage.projects.save(project)` again |
+| DLG-SaveFailed | global `project.saveFailed` reaction | Export `export`, Try again `retry`, Close `cancel` | export: `Project.serialize` + download (`.flm.json`) and toast on dispatch; retry: `Storage.saveProject(project)` again |
 | DLG-ImportReplace | SCR-ImportInspect, SCR-Library open flows | Replace `replace`, Save first `save` (only when storage works), Cancel `cancel` | caller acts |
 | DLG-AudioBlocked | `Modes.enter` for modes needing audio (6.28.4.1 step 3) | Enable sound `enable` (gesture: `Audio.unlock()` inside the click), Cancel `cancel` | the dialog stays open showing "Waiting for sound..." until `audio.unlocked` (resolves `enabled`) or 5 s (shows "Sound is still blocked. Check that the tab is not muted, then try again.") |
 | DLG-DeleteTrack | SCR-Studio | Delete track `delete` (danger), Cancel | consequence: "<name> and its <n> notes will be removed. You can undo this." plus "Recording on this track will stop." when armed |
@@ -1397,7 +1392,7 @@ code unchanged.
 |---|---|
 | `project.saveFailed` | `kind:'save'` (or `'manual'`/`'autosave'` from Part 4 payloads): `showSaveFailed(payload)` unless a DLG-SaveFailed is already open; `kind:'checkpoint'`: count per project; 2 consecutive failures -> toast `text('save.checkpointFailed')` with action Export; a success resets the count |
 | `storage.quota` | level `warn`: toast once per session "Storage is almost full (<percent>%). Export projects to keep backups."; `critical`: same text kind error with action "Library" |
-| `storage.state` / `storage.mode` | toast the notice when the mode degrades at runtime |
+| `storage.state` | toast the notice when the mode degrades at runtime |
 | `error` | `returnToMenu` class: none here (M-28 leaves the mode and then calls `showError`); `recoverable`: none (M-26 presenter) |
 | `audio.state` | none (M-28 decides when DLG-ResumeAudio is needed) |
 | `progress.unlock` | toast kind success "Unlocked: <title>" (the results screen also lists it) |
@@ -1406,8 +1401,8 @@ code unchanged.
 
 | What can fail | Detection | State that remains valid | Retry | User data at risk | User informed how | Degraded mode | Return to known-good | Test |
 |---|---|---|---|---|---|---|---|---|
-| Settings document damaged | kv.get fallback / normalize warnings | defaults or backup | n/a | settings only | toast "Settings were reset" when both damaged | defaults | next write persists | UT-27-13 |
-| Settings write fails (quota, private mode) | kv.set ok:false | in-memory settings | next change retries | settings only | toast once | memory-only settings | n/a | UT-27-14 |
+| Settings document damaged | `Storage.loadSettings` fallback / normalize warnings | defaults or backup | n/a | settings only | toast "Settings were reset" when both damaged | defaults | next write persists | UT-27-13 |
+| Settings write fails (quota, private mode) | `Storage.saveSettings` ok:false | in-memory settings | next change retries | settings only | toast once | memory-only settings | n/a | UT-27-14 |
 | Save fails | `project.saveFailed` | project in memory, previous saved copy (M-16) | Try again | unsaved changes | DLG-SaveFailed with Export | export path | successful save | UT-27-18 |
 | Import fails or is unsupported | `import.failed` / identify `unsupported` | current project untouched (S-12) | Choose another file | no | error state, DLG-Unsupported | none | Back to menu | UT-27-19 |
 | Calibration taps uneven | IQR check | previous calibration | restart page | no | inline message | none | Cancel keeps old values | UT-27-17 |
@@ -1453,14 +1448,14 @@ P 8, P 9, P 10, P 11, P 12, P 13, P 15, P 16, P 19, P 21.
 #### 6.27.8 Unit tests (group `screens`, file `src/91-test-screens.js`)
 
 Setup: the real M-26 with history off; fakes for the lower modules a test does not exercise
-(`t.fakes.stub(FLM.Storage.kv)` style spies from M-31) and the in-memory IndexedDB fake;
+(`t.fakes.stub(FLM.Storage)` style spies from M-31) and the in-memory IndexedDB fake;
 `Modes.enter` replaced by a spy unless stated.
 
 | ID | Name | Setup | Assertion |
 |---|---|---|---|
 | UT-27-01 | main menu entries and order | mount SCR-MainMenu | 12 items with the BRIEF 7 labels in order; focus on `onboarding.lastMode` entry |
 | UT-27-02 | disabled entries explain why | caps without RTCPeerConnection and no relay URL | Multiplayer item `aria-disabled` with reason "This browser has no WebRTC support."; activating shows the reason toast; `Modes.enter` not called |
-| UT-27-03 | import picker inside the gesture | spy `Storage.files.pick` and `Modes.enter` | on click `pick` is called synchronously before `enter`; `enter('import', {files})` receives the pick promise |
+| UT-27-03 | import picker inside the gesture | spy `Storage.pickFile` and `Modes.enter` | on click `pick` is called synchronously before `enter`; `enter('import', {files})` receives the pick promise |
 | UT-27-04 | quick play defaults | settings without `session.quickPlay` | selection is demo-poprock, Keys track, beginner, A, backing on; Play calls `enter('quickplay', ...)` with `returnTo:'SCR-QuickPlay'` and writes `session.quickPlay` |
 | UT-27-05 | quick play dance choice | choose Dance | difficulty options become easy, normal, hard; profile control hidden; enter params `kind:'dance'` |
 | UT-27-06 | instrument auto difficulty | stub simplificationReport: simplification needed for beginner and intermediate only; then for none; then for all | Auto resolves to `advanced`; then `beginner`; then `advanced` (fallback) |
@@ -1470,12 +1465,12 @@ Setup: the real M-26 with history off; fakes for the lower modules a test does n
 | UT-27-10 | tutorial variants | inputMode 'keyboard' with lanes KeyA..; then 'touch' | step 1 text contains "Press A"; touch text contains "circle pad" |
 | UT-27-11 | tutorial example import | spies on Midi.write and Import.importFile (rejecting) | importFile called with name 'tutorial-example.mid' and the written bytes; on rejection the card shows the error and Skip is enabled |
 | UT-27-12 | tutorial done sets flag | choose "Open Studio" at step 7 | `onboarding.tutorialDone` true; `enter('studio')` called |
-| UT-27-13 | settings load normalization | kv returns doc with masterVolume 3, padSize 'huge', unknown key `foo.bar` | masterVolume 1, padSize 'medium', `x.foo.bar` preserved, W-SET-NORMALIZED logged once; event key '*' with source 'load' |
-| UT-27-14 | settings set event and debounce | fake timers; 5 sets of audio.masterVolume within 100 ms; one onboarding set | 5 events with prev values; one kv write after 250 ms; onboarding write immediate |
+| UT-27-13 | settings load normalization | `Storage.loadSettings` returns doc with masterVolume 3, padSize 'huge', unknown key `foo.bar` | masterVolume 1, padSize 'medium', `x.foo.bar` preserved, W-SET-NORMALIZED logged once; event key '*' with source 'load' |
+| UT-27-14 | settings set event and debounce | fake timers; 5 sets of audio.masterVolume within 100 ms; one onboarding set | 5 events with prev values; one `Storage.saveSettings` write after 250 ms; onboarding write immediate |
 | UT-27-15 | settings export import round trip | change 3 settings; export; reset; parseImport; applyImport | `changes` lists the 3 paths; after apply `all()` deep-equals the pre-reset document |
 | UT-27-16 | remap capture and conflict | Input fake returning conflict for KeyS | DLG-RemapConflict shown; Swap calls remap for both controls; Escape during capture cancels without remap |
 | UT-27-17 | calibration math | synthetic taps: audio test taps at click + 120 ms +/- 5, visual at flash + 40 ms | inputOffsetMs 40, audioLatencyMs 80; with IQR 80 ms the page restarts with the uneven message |
-| UT-27-18 | save failed dialog | emit project.saveFailed kind 'save' | DLG-SaveFailed open; Export calls `Project.serialize` and `Storage.files.download` with `.flm.json`; a second event while open does not open another |
+| UT-27-18 | save failed dialog | emit project.saveFailed kind 'save' | DLG-SaveFailed open; Export calls `Project.serialize` and `Storage.download` with `.flm.json`; a second event while open does not open another |
 | UT-27-19 | import inspect renders I 6.1 fields | fixture InspectionReport with 3 tracks, warnings, tempo default | every I 6.1 item present by data-field attribute; default playable radio = recommendedTrackId; tempo source text "default 120 BPM, not in file" |
 | UT-27-20 | import mapping change regenerates preview | fake timers; change difficulty twice within 100 ms | `ChartGenerator.generate` called once after 150 ms with the last difficulty; describe line updated |
 | UT-27-21 | results content | PerformanceSummary fixture with worstSectionIndex 2, meanDeltaMs 25, judged 40, comparable false (speed) | section 2 labelled "Hardest section"; calibration hint shown; practice-result sentence names speed |
@@ -1489,7 +1484,7 @@ Setup: the real M-26 with history off; fakes for the lower modules a test does n
 
 #### 6.27.9 Implementation notes and browser quirks
 
-- `Storage.files.pick` must run synchronously inside the click or keydown handler: Safari and
+- `Storage.pickFile` must run synchronously inside the click or keydown handler: Safari and
   Firefox block `input.click()` for file pickers outside a user gesture, and the gesture is
   lost after any `await`. The same applies to `Audio.unlock()` and `Audio.resume()` in
   DLG-AudioBlocked and DLG-ResumeAudio, and to clipboard writes.
@@ -1622,7 +1617,7 @@ gp = {                                    // gameplay assembly, null when inacti
   owner, spec, song, chart, kind, judges: [{judge, map:PassTimeMap, from:number audio, to:number|Infinity}],
   pumpTimer, hitStrip:'hit'|null, hitVoices: Map<noteId, {pitches, offAt}>, velocityByNote: Map,
   passes: [], finishing:false, finished:false, startedAtIso, startAudio, unlocksSeen: [],
-  stage, frameErrors: [], autoTier: {ring:[], lastCheck:0}, rotateShown:false
+  stage, frameErrors: [], autoTierToastShown:false, rotateShown:false
 }
 preview = {active:false, timer:null, song:null}
 interrupt = {stallTimes:[], lastMemCheck:0, contextLostTimer:null}
@@ -1655,7 +1650,7 @@ async function doEnter(mode, p) {
       const r = await Screens.dialog('DLG-AudioBlocked', {mode});
       if (r !== 'enabled') { report('E-AUD-002', null, {mode}); return {ok:false, mode:'menu'}; }
     }
-    if (mode === 'studio' && Storage.status().readOnly) p.readOnly = true;                    // lock elsewhere
+    if (mode === 'studio' && Storage.state().readOnly) p.readOnly = true;                    // lock elsewhere
     const owner = Symbol(mode + ':' + Core.uid());
     current = {mode, params:p, owner, enteredAt: Core.now()};                                 // step 4
     document.body.dataset.mode = mode;
@@ -1685,13 +1680,13 @@ Implements Part 4.7.2 exactly; every step is wrapped in `try/catch` reporting `E
 
 | Step | Calls |
 |---|---|
-| 1 freeze input | `Input.releaseAll('mode')`; `Input.unbind(owner)` (6.28.9: `setContext('menu')`); `UI.setTextEntryAllowed(true)`; `body.classList.remove('in-game')` |
+| 1 freeze input | `Input.releaseAll('mode')`; `Input.unbind(owner)`; `UI.setTextEntryAllowed(true)`; `body.classList.remove('in-game')` |
 | 2 recording guard | `Studio.Recorder.state()` in `armed`, `countin`, `recording` -> `await Studio.Recorder.abort()`; free-play and tutorial takes are local and discarded |
 | 3 gameplay | `stopGameplay('leave')` (judges disposed, pump cleared, hit strip removed); `stopPreview()` |
 | 4 transport | `Transport.main.stop()` |
 | 5 soft panic | `Audio.panic(false)` |
 | 6 hard panic check | if `Audio.VoiceAllocator.activeCount() > 0`: wait 350 ms (`Core.timers.setTimeout(..., 350, owner)`), then if still `> 0` -> `Audio.panic(true)` and report `E-AUD-006` (recoverable) |
-| 7 bindings | mode `studio`: `await Studio.close()` (its own strips, lock, autosave stop); others: `Audio.Scheduler.unbind()`; `Transport.main.unload()` |
+| 7 bindings | mode `studio`: `await Studio.Session.close()` (its own strips, lock, autosave stop); others: `Audio.Scheduler.unbind()`; `Transport.main.unload()` |
 | 8 stage | `Render.stopLoop()`; `Stage.dispose()` when built; `Animation.Mixer.dispose()`; `Render.Flat2D.clear()` |
 | 9 timers | `Core.timers.clearOwner(owner)`; `Core.raf.cancelOwner(owner)` |
 | 10 UI | `UI.HUD.hide()`, `UI.HUD.reset()`, `UI.TouchPads.hide()`, hide `#rotate`, `UI.closeAllDialogs('mode-leave')`, `await UI.Screens.popTo('SCR-MainMenu')`, `body.dataset.mode = 'menu'` |
@@ -1714,7 +1709,7 @@ Implements Part 4.7.2 exactly; every step is wrapped in `try/catch` reporting `E
 | instrument | `replace('SCR-Instrument', {phase:'play'})` when the select screen is on top, else push; common gameplay (practice fields from params) | play with count-in | none |
 | dance | `replace('SCR-Dance', {phase:'play'})` or push; common gameplay `kind:'dance'`; `HUD.show('dance')`; dance pads | play with count-in | none |
 | freeplay | `song = Song.create({id:'freeplay', title:'Free Play'})` with one track `fp` (program from `session.freePlay`, `lockedSource:false`); `Transport.main.load(song, {tempoSource:'override', overrideBpm})`; `Audio.Scheduler.bind(Transport.main, song, {master})`; stage `single` (one performer for the program's family); `Input.bind({owner, context:'freeplay'})` with MIDI pass-through on; `HUD.show('freeplay', owner)`; pads on touch; push `SCR-FreePlay` | none (stopped; metronome per setting) | free-play take dropped (the screen asked first) |
-| studio | project = `p.project` or `Project.parse((await Storage.projects.load(p.projectId)).text).project` or `Project.create()`; `Project.setCurrent(project)`; `await Studio.open(project)` (strips, transport tempo, lock, autosave); stage `small` only when `UI.Layout.widthClass() === 'wide'`; `Input.bind({owner, context:'studio'})`; pads only while recording (on `studio.recording` state recording -> show, else hide); push `SCR-Studio` | none | `Studio.close()` in step 7; `Settings.set('session.lastProjectId', id)` |
+| studio | project = `p.project` or `Project.deserialize((await Storage.loadProject(p.projectId)).text).project` or `Project.create()`; `Project.setCurrent(project)`; `await Studio.Session.open(project)` (strips, transport tempo, lock, autosave); stage `small` only when `UI.Layout.widthClass() === 'wide'`; `Input.bind({owner, context:'studio'})`; pads only while recording (on `studio.recording` state recording -> show, else hide); push `SCR-Studio` | none | `Studio.Session.close()` in step 7; `Settings.set('session.lastProjectId', id)` |
 | library | push `SCR-Library`; previews on demand | none | `stopPreview()` |
 | import | push `SCR-ImportInspect` with `p.files` | none | `Import.cancel()` when running; `stopPreview()`; the report and its song are dropped unless registered in the Catalog |
 | multiplayer | push `SCR-Multiplayer` (`p.resume` shows the lobby of the open connection); gameplay is started by the screen with `startGameplay({..., net})` on the host `start` message | none | `Net.close` per step 12 |
@@ -1801,8 +1796,10 @@ in the next step); `gp = null`.
   `UI.setTextEntryAllowed(false)`. Multiplayer: only the host resumes (sends `resume` with a new
   `tStartShared`).
 - Finish: `finishOnce(endedBy)` is called by `transport.state {state:'stopped', reason:'end'}`
-  (song end without loop), by `chart.finished` (when M-09 emits it), by the life bar reaching 0
-  (`endedBy:'fail'`; transport stopped first), by the multiplayer host results (`'net'`). It runs
+  (song end without loop), by the `chart.finished` handler (emitted by M-09 `judge.finish(endedBy)`
+  or by M-23, Part 4.4), by the life bar reaching 0 (`endedBy:'fail'`; transport stopped first),
+  by the multiplayer host results (`'net'`); the triggers other than the event itself call
+  `judge.finish(endedBy)` first, which emits `chart.finished`. It runs
   once per gameplay (`gp.finishing` guard): `judge.tick(Audio.clock().now() + 10)` on the live
   judge (declares every remaining note missed or completed), `summary = judge.summary({songId,
   chartId, startedAt: gp.startedAtIso, durationSec})`, `summary.speed = spec.speed`,
@@ -1827,7 +1824,7 @@ class PassTimeMap {
 ```
 
 - `createPassJudge()`: `map = new PassTimeMap(Transport.main.tempoMap(), Transport.main.anchor())`;
-  `judge = Rhythm.createJudge({timeMap: map, strayPenalty})` (dance: `Dance.DanceJudge`), `load`,
+  `judge = Rhythm.Judge.bind({timeMap: map, strayPenalty})` (dance: `Dance.DanceJudge`), `load`,
   `setCalibration`, `setWindows`; push `{judge, map, from: map.audio, to: Infinity}`. The judge is
   not attached to `input.event`; M-28 routes.
 - Map refresh: on `transport.state` (to `playing` or `recording`), `transport.seek` and
@@ -1854,7 +1851,7 @@ class PassTimeMap {
 - `mute`: the chart's source track strip is muted; `lower`: its gain is multiplied by 0.35
   (-9.1 dB); `full`: unchanged. Other tracks' strips: gain multiplied by
   `accompanimentVolume`; `soloTrackId` sets that strip solo (solo-set semantics of M-05).
-  Applied through `Audio.strip(trackId).setGain/setMute/setSolo` after `Scheduler.bind`.
+  Applied through `Audio.createStrip(trackId).setGain/setMute/setSolo` after `Scheduler.bind`.
 - Hit strip: for instrument gameplay with `targetTrackMode !== 'full'`, `Audio.createStrip('hit')`
   and `Instruments.program('hit', instrumentOverride ?? chart.instrument)` (128 = drum kit).
   On `judge.result` with `holdPhase !== 'tail'` and judgment not `miss`: `vel =
@@ -1879,7 +1876,7 @@ Core.timers.setTimeout(stopPreview, durationS * 1000, current.owner)`. `stopPrev
 |---|---|---|---|---|
 | `document` `visibilitychange` -> hidden | `pause('hidden')` (reason text "Paused because the game went to the background"); `Input.releaseAll('system')` | `Input.releaseAll('system')`; Studio recording -> `Studio.Recorder.stop()` (take kept); Free Play recording -> stop and keep; transport continues | nothing | `stopPreview()` |
 | `visibilitychange` -> visible | stay paused; if `audio.state !== 'running'` -> DLG-ResumeAudio | `r = Transport.main.onVisible(audioNow, perfNow)`; `r.drifted` (> 5 ms) is logged and re-anchored by M-04; audio not running -> DLG-ResumeAudio | nothing | nothing |
-| `window` `pagehide` and `document` `freeze` | as hidden, plus `Screens.Settings.flush()` and the synchronous recovery write: if `Project.current()` is dirty and no recording is active and `Project.estimateSize <= 2 MB` -> `Storage.kv.set('recovery', {projectId, savedAt, text: Project.serialize(p)})` | same | settings flush and recovery write | stop |
+| `window` `pagehide` and `document` `freeze` | as hidden, plus `Screens.Settings.flush()` and the synchronous recovery write: if `Project.current()` is dirty and no recording is active and `Project.estimateSize <= 2 MB` -> `Storage.set('recovery', {projectId, savedAt, text: Project.serialize(p)})` | same | settings flush and recovery write | stop |
 | `window` `blur` | when the transport is `playing` or `countin`: `pause('blur')` ("Paused because the window lost focus"); M-07 releases keys | M-07 releases keys; playback continues | nothing | nothing |
 | `audio.state` leaves `running` | `pause('audio')`; DLG-ResumeAudio when the page is visible | `Transport.main.pause()` (playback only); recording -> `Recorder.stop()` (take kept, E 5.1); DLG-ResumeAudio | nothing | `stopPreview()` |
 | `audio.unlocked` after a rebuild | input anchors are re-sampled by M-07; the live judge map refreshes on the next play | same | nothing | nothing |
@@ -1899,12 +1896,14 @@ baseline) and dispatch by the current mode.
 
 6.28.4.10 Auto tier
 
-Every 1,000 ms in `frame`: `st = Render.stats()`; push `st.p95` to `gp.autoTier.ring` (max 5).
-When `Settings.get('video.tier') === 'auto'`, the ring holds 5 values and all are > 33 ms, and
-the tier is not `Abstract`: `Render.setTier(next lower, 'auto')`, clear the ring, toast
-`text('tier.auto')` once per mode. No automatic upgrade during the page life (a device that
-needed a downgrade keeps it; the user can raise it in Settings). The check uses frame
-statistics only and never touches audio or the transport.
+The auto-downgrade check is owned by M-18 (ADR-03 decision 4, Part 9.3.4, 6.18): it runs on the
+renderer's own stats tick and calls its own `setTier(next lower, 'auto')`. M-28 only calls
+`Render.holdAutoTier(3000)` at every mode enter, `Render.setAutoTier(false)` when the tier is
+fixed by `?tier=` or by the setting `video.tier` other than `auto`, and reacts to
+`render.tier {reason:'auto'}` with the toast `text('tier.auto')` once per mode. No automatic
+upgrade during the page life (a device that needed a downgrade keeps it; the user can raise
+it in Settings). The check uses frame statistics only and never touches audio or the
+transport.
 
 6.28.4.11 `baseline()`, `counters()`, `assertClean()`
 
@@ -1958,7 +1957,7 @@ non-menu mode is active compares against the same expectations (tests use it aft
 `init()` installs `window` `popstate` -> `UI.Screens.onPopState(event.state)`; M-26 decides
 (6.26.4.2). Gameplay screens answer `'handled'` with `pause('user')` (6.27.4.1 rule 5), so a
 browser Back during a song pauses instead of leaving. `writeLastSession(mode, p)` writes
-`flm.v1.lastSession = {mode, projectId, songId, at}` through `Storage.kv.set` for the modes
+`flm.v1.lastSession = {mode, projectId, songId, at}` through `Storage.set` for the modes
 `quickplay`, `instrument`, `dance`, `studio` (SCR-MainMenu's Continue card).
 
 #### 6.28.5 Error handling and recovery
@@ -2031,7 +2030,7 @@ where timing matters; built-in song `tut-basics` (short) unless stated.
 | UT-28-17 | practice loop per-pass judging | loop bars 1-2 of tut-basics, fake inputs perfect on pass 1, none on pass 2 | `gameplayState().passes` = [{accuracy 1}, {accuracy 0}]; a press just before the wrap is judged by pass 1; speed-up raises speed by 0.05 after pass 1 only when enabled |
 | UT-28-18 | target track policy | lower mode, accompaniment 0.5 | source strip gain x0.35, others x0.5; hit strip program equals chart instrument; a perfect head triggers liveNoteOn for every pitch; a miss triggers none |
 | UT-28-19 | browser back pauses gameplay | history on; instrument playing; onPopState({depth:1}) | mode unchanged, transport paused, SCR-Pause pushed, history re-pushed |
-| UT-28-20 | auto tier | stub Render.stats p95 35 ms for 5 s with video.tier auto; then with video.tier 'high' | one setTier(lower,'auto') call and one toast; none when the tier is fixed |
+| UT-28-20 | auto tier | enter a mode (stub `Render.holdAutoTier`); emit `render.tier {reason:'auto'}` twice; then enter with `video.tier` 'high' | `holdAutoTier(3000)` called at each enter; one toast per mode for the two events; `setAutoTier(false)` when the tier is fixed |
 | UT-28-21 | netConnections exemption | fake Net with one connection; leave multiplayer next results; leave results next multiplayer | assertClean null in both; leave to menu with a connection reports `netConnections` |
 | UT-28-22 | dance difficulty change only while stopped | dance mode bound; request a difficulty change while `playing`, while `paused`, then while `stopped` | refused (state unchanged) while playing and paused; while stopped the chart is regenerated and `DanceJudge.bind` is called exactly once |
 
@@ -2049,61 +2048,19 @@ where timing matters; built-in song `tut-basics` (short) unless stated.
 - The rotate recommendation uses `#rotate` (static DOM of Part 3.2.5); dismissing it adds a
   per-mode flag only (not persisted), so the next song can recommend again.
 
-Calls into lower modules. Part 6 sections of the lower modules were drafted in parallel and
-some name members differently from the Part 4.1 contract. Decisions:
+Calls into lower modules. Every Part 6 section uses the Part 4.1 member names and the Part 4.4
+topic names (the names that differed between the parallel drafts were renamed in the lower
+sections; no aliases are exported). Notes:
 
-1. M-26 to M-29 call the Part 4.1 names where Part 4.1 defines a name and the Part 6 names
-   otherwise. A lower module whose Part 6 section uses a different name for a Part 4.1 member
-   exports the Part 4.1 name as an alias of the same function (no behavior difference).
-2. The table lists every lower-module member used by this part whose Part 6 name differs or
-   is missing; missing members are required additions to the named module.
-
-| Name used here (Part 4.1) | Part 6 section name | Status |
-|---|---|---|
-| `Core.timers.setTimeout/setInterval/clearOwner/count` | 6.1 `Core.Timers.setTimeout/setInterval/clearOwner/counts()` | alias |
-| `Core.raf.request/cancelOwner/count` | 6.1 `Timers.requestFrame/cancelFrame`, `counts().frames` | alias; `cancelOwner` = `clearOwner` for frames |
-| `Core.dom.on/offOwner/count` | not in 6.1 (3.11 names it `Core.listen`) | required in M-01 |
-| `bus.removeOwner(owner)` | 6.1 `Emitter.offOwner(owner)` | alias |
-| `ErrorReporter.records()` | 6.1 `recent()` | alias |
-| `Transport.main` | not in 6.4 (`create` only) | required: M-04 creates `main = create({clock:null, bus})` at define; M-29 calls `main.setClock(Audio.clock())` |
-| `Transport.main.setCountIn(n)`, `clearLoop()`, `unload()` | 6.4 `setCountInBars(n)`, `setLoop(null)`, `load(null)` | alias |
-| `Transport.main.play({countInBars, fromTick, atAudio})` | 6.4 `play({countInBars, fromTick})` | `atAudio` (scheduled start, multiplayer) required |
-| `Audio.init/unlock/isUnlocked/clock/ctx/state` | 6.5 `engine.unlock/context()/now()/state()` on `Audio.engine` | alias; `isUnlocked()` is true after a successful unlock while the state is not `closed` |
-| `Audio.Scheduler.bind(T, song, mixer)` / `unbind()` | 6.5 `scheduler.start(T)` plus `strip(trackId)` per track / `scheduler.stop()` plus `removeStrip` | alias (bind creates the strips and applies mix) |
-| `Audio.Scheduler.running()`, `pending()` | 6.5 `scheduler.running()`, pending releases size | alias; `pending()` required |
-| `Audio.VoiceAllocator.activeCount()`, `panic`, `peak` | 6.5 `engine.voices.activeCount()`, `panic`, `peak` | alias |
-| `Audio.stripCount()`, `Audio.nodeCount()`, `Audio.createStrip(id)` | 6.5 `strips().length`, none, `strip(id)` | `nodeCount` required |
-| `Input.bind({owner, context})` / `Input.unbind(owner)` | 6.7 `attach` once at boot (M-29 B9) and `setContext(ctx)`; unbind = `setContext('menu')` | alias |
-| `Input.held()`, `boundSurfaces()`, `pollGamepad(t)` | 6.7 `State.held()`, `listenerCount()`, `poll(tPerf)` | alias; `boundSurfaces` compares to the baseline |
-| `Mapping.ChartGenerator.generateAsync(...)` | 6.8 `ChartGenerator.generate(...)` (synchronous) | M-28 wraps it in a Promise after one `setTimeout(0)` yield |
-| `Rhythm.Judge` usage | 6.9 `createJudge(opts)`, `load`, `setCalibration`, `setWindows`, `setActive`, `onInput`, `tick`, `summary`, `dispose` | used as in 6.28.4.6 (no `attach`; M-28 routes) |
-| `chart.finished` emitted by M-09 | not in 6.9 | M-28 detects completion itself (6.28.4.5); emission by M-09 is consumed when present |
-| `Project.current()`, `Project.setCurrent(p)` | not in 6.15 | required in M-15 (emits `project.loaded`) |
-| `Project.Catalog.*` | not in 6.15 | required in M-15; entry shape in 6.30.4.9 |
-| `Project.Commands.setCharacter(slot, config)` | not in 6.15 | required in M-15 (undoable, scope `characters`) |
-| `Project.isDirty(p)`, `Project.guard.describe(p)`, `Project.parse`, `Project.fromSong` | 6.15 same | same |
-| `Storage.autosave(project)` | 6.15 `Project.Autosave.flush()` | alias |
-| `Storage.projects.save/load/list/delete/rename`, `files.pick/download/read`, `kv.get/set`, `status()` | 6.16 same | same |
-| `Storage.loadSettings/saveSettings` and `settings.changed` emission | 6.16 assigns settings to M-27/M-29 through `kv` | implemented by `FLM.Screens.Settings` (M-27), which emits `settings.changed` |
-| topic `storage.state` | 6.16 `storage.mode` | M-27 and M-28 subscribe to both names |
-| `Studio.Session.open/close` | 6.17 `Studio.open/close` | alias |
-| `Studio.Recorder.state()` clean value `idle` | 6.17 `idle` | same |
-| topic `studio.recording` | 6.17 `studio.recorder` | M-27 and M-28 subscribe to both names |
-| `Render.init/tier/setTier/pickTier/renderer/startLoop/stopLoop/loopRunning/stats/counters/resize`, `Render.Flat2D.clear` | 6.18 drafted in parallel (06e) | Part 4.1 names; `counters()` returns `{buffers, textures, programs, vaos}` |
-| `Stage.build(renderer, performers, opts) -> Stage {update(tick, audioNow, dtMs), resize(), dispose()}`, `Animation.Mixer.add/update/dispose` | 6.20, 6.21 (06e) | Part 4.1 names with these argument shapes |
-| `Character.OPTIONS/CATEGORIES/PRESETS/registerPresets/normalize/validate/randomize/serialize/deserialize/applyTo` | 6.22 (06e) | `registerPresets` accepts the CharacterPreset records of 6.30.4.7 |
-| `Dance.DanceChartGenerator.generate(song, difficulty)`, `Dance.DanceJudge` (same instance methods as the 6.9 Judge), `Dance.WINDOW_MAP`, `Dance.validate/importChart/exportChart` | 6.23 (06f) | Part 4.1 names |
-| `Net.createRoom/joinWithInvite/acceptAnswer/send/broadcast/close/connectionCount/diagnostics/setRelayUrl/PRIVACY_TEXT`, `Net.Clock.toLocalAudio` | 6.24 (06f) | Part 4.1 names |
-| `Progress.record(summary, meta) -> {record, isBest, previousBest}`, `Progress.isUnlocked(id)` | 6.25 (06f) | return shape required by 6.28.4.5 |
-
-3. M-01 `Core.define` signature: 06a gives `define(name, factory(FLM))` and records `{name,
+1. M-01 `Core.define` signature: 06a gives `define(name, factory(FLM))` and records `{name,
    order}`; this part relies only on that.
-4. `settings.changed` is emitted by `FLM.Screens.Settings` (M-27) with the Part 4.4 payload
-   `{key, value, prev, source, keys?}`; lower modules subscribe through the bus as Part 4.4
-   lists, so ownership moves without changing any consumer.
-5. Characters edited in SCR-Characters reach the project only through the undoable
-   `Project.Commands.setCharacter`; the user roster is a settings-like document in `kv`
-   (`flm.v1.characters`, 5.15).
+2. `settings.changed` is emitted by M-16 (`Storage.loadSettings` and `Storage.saveSettings`)
+   with the Part 4.4 payload `{key, value, prev, source, keys?}`; `FLM.Screens.Settings` (M-27)
+   normalizes, debounces and calls `Storage.saveSettings`. Lower modules subscribe through the
+   bus as Part 4.4 lists.
+3. Characters edited in SCR-Characters reach the project only through the undoable
+   `Project.Commands.setCharacter`; the user roster is a document stored with `Storage.get` and
+   `Storage.set('characters', ...)` (`flm.v1.characters`, 5.15).
 
 ### 6.29 M-29 Boot (`src/29-boot.js`, `FLM.Boot`)
 
@@ -2184,8 +2141,8 @@ when `FLM.SelfTest` was defined, i.e. in the test build; ADR-11: the shipped bui
 | B2 | `params = parseUrlParams(location.search)`; `applyUrlParams(params)` | warnings logged | 1 ms |
 | B3 | `caps = Caps.refresh()` (the load-time report is reused when already computed) | none | 20 ms |
 | B4 | `gate = evaluateGate(caps)`; any hard row -> `ErrorReporter.fatal(row.code, null, {cap: row.id})` with `row.reason`; resolve `{ok:false, code}` | soft rows -> `gate.degraded` ids, shown by SCR-FirstLaunch step 2 and as disabled reasons | 1 ms |
-| B5 | `status = await Storage.init()` (never rejects; 2,000 ms probe) | localOnly or memory modes produce notices (6.16) | 100 ms |
-| B6 | `Screens.Settings.load()`; `UI.init({settings: Settings.all(), caps})`; `UI.setReducedMotion`, `setHighContrast`, `Layout.setScale` from settings; `Input.setMaps` from `input.keys.*`; `body.classList.toggle('touch', caps.maxTouchPoints > 0)` | damaged settings -> defaults (M-27) | 10 ms |
+| B5 | `status = await Storage.open()` (never rejects; 2,000 ms probe) | localOnly or memory modes produce notices (6.16) | 100 ms |
+| B6 | `Screens.Settings.load()`; `UI.init({settings: Settings.all(), caps})`; `UI.setReducedMotion`, `setHighContrast`, `Layout.setScale` from settings; `Input.setMap` from `input.keys.*`; `body.classList.toggle('touch', caps.maxTouchPoints > 0)` | damaged settings -> defaults (M-27) | 10 ms |
 | B7 | `Audio.init({mobile: Caps.isMobile(), polyphony: settings audio.polyphonyCap})` (context created suspended or lazily per 6.5); `Transport.main.setClock(Audio.clock())` | throw -> `fatal('E-AUD-001')` "Audio could not start in this browser" | 30 ms |
 | B8 | `Render.init(document.getElementById('view'), document.getElementById('flat'), params.tier or settings video.tier or Render.pickTier(caps))` | WebGL2 -> WebGL1 -> Abstract inside M-18; never fatal | 150 ms |
 | B9 | `Input.init()` / 6.7 `attach({keyboardTarget: window, padRoot: #touch, surface: #view})` once for the page; context `menu` | none | 5 ms |
@@ -2251,7 +2208,7 @@ nothing to `#fatal` except through M-01.
 The 2D-canvas and rAF probes are done by Boot itself at B4 (`document.createElement('canvas')
 .getContext('2d')` non-null; the rAF type check) because the M-01 report does not carry them.
 `secureContext` and `isFile` are informational (SCR-About). The storage rows are re-evaluated
-from `Storage.init()`'s status after B5 (a browser can expose the APIs and still refuse them);
+from `Storage.open()`'s status after B5 (a browser can expose the APIs and still refuse them);
 the effective reason comes from `status.notice`.
 
 6.29.4.6 URL parameters
@@ -2336,7 +2293,7 @@ onboarding), P 18 (offline core).
 | UT-29-02 | gate soft rows | synthetic caps without webgl2, webgl1, webMidi | `degraded` contains webgl2, webgl, midi; `hard` empty |
 | UT-29-03 | gate hard rows | caps with `audioContext:false` | `hard` contains audio with code E-CAP-001 and the exact reason text |
 | UT-29-04 | missing module is fatal | call the B1 check with a module list lacking 'Dance' | `ErrorReporter.fatal` spy called with E-GEN-001 and context module 'Dance' |
-| UT-29-05 | storage modes reach the menu notice | Storage.init stub resolving mode 'memory' | notice string passed to SCR-MainMenu; boot continues to B16 |
+| UT-29-05 | storage modes reach the menu notice | Storage.open stub resolving mode 'memory' | notice string passed to SCR-MainMenu; boot continues to B16 |
 | UT-29-06 | audio init failure | Audio.init stub throwing | fatal E-AUD-001; start resolves `{ok:false, code:'E-AUD-001'}` |
 | UT-29-07 | errors before ready escalate | emit a recoverable error record before boot.ready (test hook `Boot._simulatePhase('booting')`) | fatal called once with escalatedBy 'boot'; after ready a recoverable error does not escalate |
 | UT-29-08 | landing branch | `landing({onboarding:{firstLaunchDone:false}}, {test:false})`; then done true; then test true | SCR-FirstLaunch; SCR-MainMenu with banner when audio locked; SCR-MainMenu without banner in test mode |
@@ -3167,7 +3124,7 @@ Assertions throw `AssertionError` (a subclass of `Error` with `name = 'Assertion
   ceil(seconds * sampleRate), sampleRate)`; `onsets(buffer, {threshold, channel})` returns the times
   where `abs(sample)` first exceeds the threshold after at least 10 ms below it, used by the
   scheduling-precision tests (onset within 1 ms of the intended time).
-- `inputs`: wrappers over `FLM.Input._synth` (06b) so synthesized events go through the real
+- `inputs`: wrappers over `FLM.Input.synthesize` (06b) so synthesized events go through the real
   handlers; `event(control, type, tAudio, source)` emits a ready-made `input.event` payload for
   judge-level tests (`tPerf` computed back through the anchor).
 - `stub(obj, method, impl)`: saves `obj[method]`, replaces it with a spy that records calls and
@@ -3176,7 +3133,7 @@ Assertions throw `AssertionError` (a subclass of `Error` with `name = 'Assertion
   (`FLM.BUILD.test === false`); in the test build it applies `Object.seal` recursively to the
   namespace and its nested plain objects (members stay replaceable, nothing can be added), while
   the exported data tables of S-07 are deep-frozen in both builds. A stub therefore replaces
-  cross-module calls (`FLM.Storage.files.pick`), never a module's internal closures; stubbing a
+  cross-module calls (`FLM.Storage.pickFile`), never a module's internal closures; stubbing a
   frozen table throws `cannot stub frozen <method>`.
 
 6.31.4.4 Results object

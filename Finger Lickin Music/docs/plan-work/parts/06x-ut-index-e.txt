@@ -45,7 +45,7 @@ UT-19-18 | M-19 | dispose releases geometry
 UT-19-19 | M-19 | LOD rebuild
 UT-20-01 | M-20 | profile table
 UT-20-02 | M-20 | agrees with instrument definitions
-UT-20-03 | M-20 | readSched accepts both field schemes
+UT-20-03 | M-20 | readSched maps the sched.* payloads
 UT-20-04 | M-20 | drum kick contact and raise peak
 UT-20-05 | M-20 | drum limb map
 UT-20-06 | M-20 | crash goes to the nearest free hand

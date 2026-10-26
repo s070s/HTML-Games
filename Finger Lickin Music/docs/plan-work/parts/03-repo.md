@@ -1096,7 +1096,7 @@ ADR-09 rules, made concrete:
   suffix for millisecond durations, `sec` suffix for second durations.
 - DOM: created through `FLM.UI.el(tag, attrs, children)` and `textContent`; `innerHTML` and
   friends are banned by the build. Every listener added by a module is registered through
-  `FLM.Core.listen(target, type, handler, options)` which returns a disposer and counts, so
+  `FLM.Core.dom.on(target, type, handler, options, owner)` which returns a disposer and counts, so
   `FLM.Modes.assertClean()` can prove the listener delta is zero (Part 4.7).
 - Timers: `setTimeout`, `setInterval` and `requestAnimationFrame` are called through
   `FLM.Core.timers` wrappers for the same reason; raw calls are allowed only inside

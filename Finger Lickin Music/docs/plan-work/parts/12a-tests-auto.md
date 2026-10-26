@@ -196,7 +196,7 @@ in 31 groups.
 | UT-01-03 | emitter on/emit order |
 | UT-01-04 | emitter isolates listener errors |
 | UT-01-05 | once fires once |
-| UT-01-06 | off and offOwner |
+| UT-01-06 | off and removeOwner |
 | UT-01-07 | emit snapshot semantics |
 | UT-01-08 | log ring wraps at 500 |
 | UT-01-09 | log once |
@@ -384,7 +384,7 @@ in 31 groups.
 | UT-ID | Name |
 |---|---|
 | UT-07-01 | default maps match BRIEF 7 |
-| UT-07-02 | attach is idempotent-guarded |
+| UT-07-02 | init is idempotent-guarded |
 | UT-07-03 | detach removes all listeners |
 | UT-07-04 | keydown press lifecycle |
 | UT-07-05 | keyup release |
@@ -409,9 +409,9 @@ in 31 groups.
 | UT-07-24 | MIDI note mapping and pass-through |
 | UT-07-25 | MIDI sustain CC |
 | UT-07-26 | remap conflict detection |
-| UT-07-27 | remap replaces after unbind, min one code |
-| UT-07-28 | setMaps tolerates corrupt data |
-| UT-07-29 | setContext releases non-live controls |
+| UT-07-27 | remap replaces after unmap, min one code |
+| UT-07-28 | setMap tolerates corrupt data |
+| UT-07-29 | bind releases non-live controls |
 | UT-07-30 | Space is panic only while paused |
 | UT-07-31 | timestamp sanity fallback |
 | UT-07-32 | calibration clamp and non-application |
@@ -677,7 +677,7 @@ in 31 groups.
 | UT-15-01 | create defaults |
 | UT-15-02 | fromSong locks tracks |
 | UT-15-03 | serialize field order and history |
-| UT-15-04 | serialize/parse round trip |
+| UT-15-04 | serialize/deserialize round trip |
 | UT-15-05 | addTrack limit |
 | UT-15-06 | addTrack channel assignment |
 | UT-15-07 | deleteTrack cascades and undo restores |
@@ -730,7 +730,7 @@ in 31 groups.
 | UT-16-19 | download fallback selection |
 | UT-16-20 | file read pre-check |
 | UT-16-21 | delete removes everything |
-| UT-16-22 | kv get with damaged value |
+| UT-16-22 | get with damaged value |
 | UT-16-23 | quota warning |
 | UT-16-24 | counters clean after release |
 | UT-16-25 | idb-only combination |
@@ -759,7 +759,7 @@ in 31 groups.
 | UT-17-16 | loop record default keeps last pass |
 | UT-17-17 | loop record keepAllPasses |
 | UT-17-18 | commitTake replace vs merge |
-| UT-17-19 | quantizeSelection uses bar rule |
+| UT-17-19 | quantize uses bar rule |
 | UT-17-20 | read-only mode blocks edits but allows playback |
 | UT-17-21 | paste at snapped tick with new ids and channel |
 | UT-17-22 | autosave safe points |
@@ -769,7 +769,7 @@ in 31 groups.
 | UT-17-26 | sections derived from markers and fallback |
 | UT-17-27 | setTempo refused while recording |
 | UT-17-28 | sustain extends durations |
-| UT-17-29 | moveSelection snap preserves relative timing |
+| UT-17-29 | move snap preserves relative timing |
 | UT-17-30 | overview density cache |
 
 #### 12.2.18 M-18 `FLM.Render` (group `render`, `src/91-test-render.js`, Part 6.18.8): 26 tests
@@ -833,7 +833,7 @@ in 31 groups.
 |---|---|
 | UT-20-01 | profile table |
 | UT-20-02 | agrees with instrument definitions |
-| UT-20-03 | readSched accepts both field schemes |
+| UT-20-03 | readSched maps the sched.* payloads |
 | UT-20-04 | drum kick contact and raise peak |
 | UT-20-05 | drum limb map |
 | UT-20-06 | crash goes to the nearest free hand |
@@ -1208,7 +1208,7 @@ named in 12.1.5; their result is recorded like an automated one.
 | ID | Title | Modules | Setup | Steps | Expected | Pass criterion | Automated |
 |---|---|---|---|---|---|---|---|
 | IT-001 | keyboard lane press to live audio | M-07, M-08, M-05, M-06, M-28 | `freeplay` mode entered through `Modes.enter('freeplay', {})`; profile A, key C major, program 0; real clock; `Audio.unlock()` resolved true | dispatch a `keydown` then, 400 ms later, a `keyup` KeyboardEvent with `code` `KeyA` on the gameplay surface; spy on `input.event`, `sched.noteOn`, `sched.noteOff` | one `input.event` press and one release (source `keyboard`, control `lane0`); one `sched.noteOn` with `live:true` and the profile A lane 0 pitch of UT-08-01; one `sched.noteOff` with `reason:'live'` at the keyup's mapped audio time | event counts exactly 1, 1, 1, 1; `performance.now()` at the `sched.noteOn` emit minus `tPerf` <= 16.7 ms; `Audio.VoiceAllocator.activeCount()` is 0 within the program's release time plus 50 ms after the keyup | yes |
-| IT-002 | touch pads: four simultaneous pointers to live audio | M-07, M-26, M-08, M-05 | touch context (`integration@touch`); `freeplay`; pads shown at `input.padSize` medium; real clock | dispatch `pointerdown` for pointerIds 1 to 4 on pads 0 to 3 in one task; after 300 ms dispatch `pointerup` in the order 3, 1, 4, 2; then repeat with the browser's compatibility mouse events also dispatched | 4 presses then 4 releases (source `pointer`), each pad's pressed class set then cleared; 4 live `sched.noteOn` and 4 `sched.noteOff`; the compatibility mouse events produce no extra `input.event` | exactly 8 `input.event` per round; no control left in `Input.State.held()`; `activeVoices` 0 after the release tails; `assertClean()` null after leave | yes |
+| IT-002 | touch pads: four simultaneous pointers to live audio | M-07, M-26, M-08, M-05 | touch context (`integration@touch`); `freeplay`; pads shown at `input.padSize` medium; real clock | dispatch `pointerdown` for pointerIds 1 to 4 on pads 0 to 3 in one task; after 300 ms dispatch `pointerup` in the order 3, 1, 4, 2; then repeat with the browser's compatibility mouse events also dispatched | 4 presses then 4 releases (source `pointer`), each pad's pressed class set then cleared; 4 live `sched.noteOn` and 4 `sched.noteOff`; the compatibility mouse events produce no extra `input.event` | exactly 8 `input.event` per round; no control left in `Input.held()`; `activeVoices` 0 after the release tails; `assertClean()` null after leave | yes |
 | IT-003 | input to scoring: 31 perfect presses | M-07, M-09, M-04, M-28 | `instrument` mode with a test chart of 31 single-lane notes on beats 1 to 31 of a 120 BPM 4/4 test song (intermediate, lane `n % 4`); calibration all zero | chart bot presses and releases each note at `Transport.audioTimeAt(note.tick)`; record the input log; afterwards replay the log through a fresh `Rhythm.Judge` on the same chart | 31 `judge.result` perfect; final `ScoreState` `{score:6400, combo:31, maxCombo:31, counts:{perfect:31, great:0, good:0, miss:0}, judged:31, total:31, accuracy:1, completion:1}`; one `chart.finished` with `endedBy:'end'` | exact integer equality (score = 100 x (10 x 1 + 10 x 2 + 10 x 3 + 1 x 4) = 6400, multiplier from the combo before each note); the replayed ScoreState is deep-equal | yes |
 | IT-004 | calibration affects scoring predictably | M-07, M-09, M-27, M-21 | the IT-003 chart at expert; inputs synthesized 30 ms after each note's audio time | run 1: `inputOffsetMs 0`, `audioLatencyMs 0`; run 2: `inputOffsetMs 30`; run 3: `audioLatencyMs 30`, `inputOffsetMs 0`; settings set through `Settings.set` as SCR-Settings does | run 1: every `deltaMs` +30 and every judgment `great` (expert perfect 18 ms, great 40 ms); runs 2 and 3: every `deltaMs` 0 and `perfect`; Scheduler `at` values and the highway's hit-line crossing times identical in all three runs | per note abs(`deltaMs` - expected) <= 1 ms; the three `sched.noteOn.at` lists are equal; run 2 and run 3 ScoreStates deep-equal (S-04: calibration applied once, in the Judge) | yes |
 | IT-005 | chords and simultaneous presses within documented limits | M-07, M-09, M-08 | chart with chords of 2, 3 and 4 lanes (4 of each) at 1 s spacing, intermediate | press every lane of each chord with spreads of 0, 20 and 40 ms; for the last 4-lane chord press lane 3 60 ms after lane 0 | each in-tolerance chord yields one `judge.result` after its last press with `deltaMs` equal to the worst lane; the last chord's late press is a stray and the chord is a miss when the window closes (UT-09-15 rule) | 11 chord hits plus 1 chord miss; stray count 1; no lane judged twice | yes |
@@ -1252,7 +1252,7 @@ named in 12.1.5; their result is recorded like an automated one.
 | IT-043 | inputs are mode-stateless and released on leave | M-07, M-28 | SCR-MainMenu (mode `menu`) | press lanes 0 and 1 in `menu`; enter `freeplay`; hold lanes 2 and 3; leave | in `menu` only `input.event` fires (no note, no judgment); on leave exactly one release per held control | no `sched.noteOn` in `menu`; 2 releases with source `system` at leave; `held()` empty (S-13) | yes |
 | IT-044 | save success only after read-back through the Studio UI | M-27, M-16, M-15 | `studio` with a dirty project; spies on the fake database requests | press Save; then arm `storage.writeFail {stage:'verify'}` and press Save again | first save: the read-back request precedes `project.saved` and `markClean`; second save: DLG-SaveFailed, no `project.saved` | request order verified by the spy log; `isDirty()` true after the failed save (S-14) | yes |
 | IT-045 | tier changes during playback leave transport and judging alone | M-18, M-21, M-04, M-09 | `quickplay` with `demo-poprock`, chart bot; tier High | every 5 s switch `video.tier` High -> Low -> Abstract -> High while playing | geometry rebuilds in steps; the transport, Scheduler and Judge are not touched | `lateEvents === 0`; longest task during a switch <= 80 ms (Chromium `longtask`); all bot judgments perfect (S-15 applied to tier changes, Part 9.3.5) | yes |
-| IT-046 | audio panic never touches project data | M-05, M-15, M-27 | `studio` with a dirty project playing | call `Audio.panic(true)` three times during playback; then Export the project | voices stop and the graph rebuilds; the project is unchanged; the export succeeds | `Project.current()` deep-equal to the pre-panic snapshot (S-16); exported text parses with `Project.parse` | yes |
+| IT-046 | audio panic never touches project data | M-05, M-15, M-27 | `studio` with a dirty project playing | call `Audio.panic(true)` three times during playback; then Export the project | voices stop and the graph rebuilds; the project is unchanged; the export succeeds | `Project.current()` deep-equal to the pre-panic snapshot (S-16); exported text parses with `Project.deserialize` | yes |
 | IT-047 | one audio engine per page | M-05, M-28, M-29 | booted test build | call `Audio.init()` twice; enter `quickplay` twice in a row without waiting (transitions serialize); call `Scheduler.bind` while bound | the same context is returned; transitions run one after another; the second bind throws E-AUD-005 | `Audio.ctxCount() === 1`; exactly one Scheduler binding active (S-18) | yes |
 | IT-048 | Quick Play from the import screen uses the previewed chart | M-14, M-27, M-28, M-08 | corpus `midi-multitrack-band.mid` on SCR-ImportInspect with Keys, intermediate, profile C previewed | press Play now | Quick Play starts with the previewed chart; the current project is unchanged | the running chart's `settingsHash` equals the preview chart's; `Project.current()` deep-equal | yes |
 | IT-049 | practice: target track mute and lower | M-28, M-05, M-09 | `instrument` with `demo-poprock` Keys | set `gameplay.targetTrackMode` `mute`, play 4 bars with perfect bot inputs; then `lower` | `mute`: target strip gain 0 and each hit sounds the ChartNote pitches live on the player strip; `lower`: target strip gain 0.3 | strip gains within 0.001; one live `sched.noteOn` per judged hit pitch in `mute` | yes |
@@ -1574,7 +1574,7 @@ never wall-clock observation of sound (Part 9.1.1 item 7).
 | TT-008 | fifty pause and resume cycles accumulate no error | FakeClock transport | 50 cycles of play 0.7 s, pause 0.3 s at random positions (`Prng(50)`) | after the 50th resume the position equals the sum of played durations converted to ticks, within 1 tick; no `sched` item is emitted while paused | no | 2 | B 26.3 no cumulative drift; E 2.1 repeated start and stop |
 | TT-009 | seek while notes are active | offline engine; 4-track song with sustained notes | while 6 notes sound, `seek` to bar 9 | one `sched.noteOff` with `reason:'seek'` per sounding note before any new note; the first event at or after bar 9 starts at `audioTimeAt` of its tick under the new anchor; no event with tick < bar 9 is emitted after the seek | no | 2 | B 25.4 seeking; E 2.2 seek while notes are active |
 | TT-010 | seek while stopped, then play | FakeClock transport | seek to tick 7680 while stopped; play; stop | play starts from 7680 with the count-in before it; stop returns to 7680 (Part 6.4.4.3) | no | 2 | B 25.4 seeking |
-| TT-011 | loop boundary with a sustained note | offline engine; loop [bar 1, bar 3); a note starting in bar 2 lasting 2 bars | play 3 passes | the note's release lands exactly at each wrap time (`endAudio` clamped to `wrapAudio`); it is not retriggered at the start of the next pass | no | 2 | B 25.4 looping; E 2.2 loop boundary during a sustained note |
+| TT-011 | loop boundary with a sustained note | offline engine; loop [bar 1, bar 3); a note starting in bar 2 lasting 2 bars | play 3 passes | the note's release lands exactly at each wrap time (`atOff` clamped to `wrapAudio`); it is not retriggered at the start of the next pass | no | 2 | B 25.4 looping; E 2.2 loop boundary during a sustained note |
 | TT-012 | event exactly on the loop end is never played while looping | FakeClock transport; loop [0, 7680); a note at tick 7680 | play 4 passes; disable the loop during pass 5 | the tick-7680 note is emitted 0 times during passes 1-4 and once after the loop is disabled | no | 2 | E 2.2 event exactly on a loop boundary; UT-04-18 |
 | TT-013 | event exactly on the loop start plays every pass | FakeClock transport; loop [1920, 9600); a note at tick 1920 | play 5 passes | the note is emitted once per pass at that pass's `wrapAudio` (pass 1 at `audioTimeAt(1920)`); 5 emissions | no | 2 | E 2.2 event exactly on a loop boundary; UT-04-19 |
 | TT-014 | tempo change during playback | offline engine; corpus `midi-tempo-changes.mid` | render the whole song; also a note spanning the bar-5 tempo change | every onset within one render quantum plus 1 ms of the TempoMap time; the spanning note's release at `ticksToSeconds(end)` computed through both segments | no | 7 | B 25.4 tempo changes; E 2.2 tempo change during playback |
@@ -1692,7 +1692,7 @@ reached `window.onerror` other than the injected one, user data equals its pre-f
 | FI-010 | graphics context never restored | `render.contextLoss {restoreAfterMs:null}` | `instrument` playing, tier High | arm | after 3,000 ms tier Abstract with reason `contextLoss`, toast E-REN-004, highway on `#flat` | transport and Judge continue; the saved project record byte-identical before and after | E 11 rule 2; E 6.2 graphics failure must not corrupt the timeline or the saved project | 5 |
 | FI-011 | GPU memory exhausted | `render.contextLoss {oom:true}` | `quickplay` playing, tier High | arm, then trigger a buffer allocation by a camera preset change | one tier down (E-REN-005); the old tier's resources disposed | `lateEvents` 0; GL counters after the downgrade at the new tier's baseline | E 6.2 GPU resources exhausted | 5 |
 | FI-012 | slow frames trigger a graceful downgrade | `render.slowFrames {ms:300, everyN:1, durationMs:20000}` | `quickplay` with `demo-poprock`, auto tier on | arm 8 s after enter (after the 3 s hold and a full 5 s window) | automatic downgrade within 6 s with toast E-REN-006; at most one step per 10 s | highway tick equals `positionAt(audioNow)` within 1 tick throughout (S-01); audio onsets of the same schedule within 1 ms in the offline check | E 11 rule 2; I 19 rendering; E 6.2 device cannot sustain the target frame rate | 5 |
-| FI-013 | storage quota exhausted on save | `storage.quota {target:'both'}` | `studio` with a dirty project previously saved once (live record and `.bak` exist) | press Save | DLG-SaveFailed (E-STO-001) with Export | no `project.saved`; `isDirty()` true; live record and `.bak` byte-identical to before; Export produces a `.flm.json` that `Project.parse` accepts | E 11 rule 4; I 13.1 exhaust storage; E 5.3 quota exceeded | 9 |
+| FI-013 | storage quota exhausted on save | `storage.quota {target:'both'}` | `studio` with a dirty project previously saved once (live record and `.bak` exist) | press Save | DLG-SaveFailed (E-STO-001) with Export | no `project.saved`; `isDirty()` true; live record and `.bak` byte-identical to before; Export produces a `.flm.json` that `Project.deserialize` accepts | E 11 rule 4; I 13.1 exhaust storage; E 5.3 quota exceeded | 9 |
 | FI-014 | localStorage quota exhausted in localStorage-only mode | `storage.quota {target:'ls'}` | Storage in localOnly mode (fake IndexedDB open rejects); a 1.5 MB project | press Save; then autosave at stop | DLG-SaveFailed with Export on Save; the autosave failure is reported once and stops further autosaves until the next manual save (UT-15-25) | no false success; the previous localStorage record intact | E 11 rule 4; E 9 storage behaves differently under local-file execution | 9 |
 | FI-015 | IndexedDB open fails | `storage.writeFail {stage:'open'}` | fresh `Storage.open()` | open storage; open `studio`; save a 100 KB project | localStorage-only mode with notice E-STO-009 and the 2 MB cap; the save goes to localStorage | save verified by read-back before `project.saved`; nothing written to IndexedDB | E 5.3; Part 10.7.5 | 9 |
 | FI-016 | temporary-copy write fails | `storage.writeFail {stage:'tmp'}` | `studio`, dirty project with an existing live record | press Save | DLG-SaveFailed (E-STO-002) | live record and `.bak` unchanged; no `.tmp` left after the next `Storage.open()` | E 11 rule 4; E 5.3 write interrupted | 9 |
@@ -1720,7 +1720,7 @@ reached `window.onerror` other than the injected one, user data equals its pre-f
 | FI-038 | mode enter step fails | `error.throw {origin:'enter', count:1}` | SCR-MainMenu | `Modes.enter('quickplay', defaults)` | dialog E-MODE-002; the partial leave sequence runs; SCR-MainMenu shown | `Modes.current().mode === 'menu'`; `assertClean()` null; project in memory unchanged | E 11 rule 8 | 5 |
 | FI-039 | error storm | `error.throw {origin:'listener', count:20}` with an emitter of errors at 10 per second | `studio` with a dirty project | arm | E-GEN-003 dialog (or fatal when the class requires); Export offered | the dirty project exportable and deep-equal to the pre-fault state | E 11 rule 6; B 24 | 5 |
 | FI-040 | switch modes while notes are active | none (I 13.1 method of Part 10.9.3) | `freeplay` with 4 lanes and sustain held through `Input.synthesize`; then `studio` recording with 3 held notes | `Modes.enter('menu')` in each case | soft panic then hard panic after 350 ms if needed; the recording is aborted with "Recording discarded" | `activeVoices === 0` within 350 ms; `assertClean()` null; the previous take on the recorded track intact | I 13.1 switch modes while notes are active; E 13 stuck notes; E 11 rule 7 | 9 |
-| FI-041 | random input fuzz never crashes | none (seeded fuzz) | fresh page state | 200 random byte buffers (`Prng(1)` to `Prng(200)`, 0-64 KB, with valid magic numbers prefixed for half of them) through `Import.importFile`; 1,000 random `NetMessage` objects through `Net.validateMessage`; 500 random key and pointer event sequences through M-07 | every import ends in a typed error or a report; every message is accepted or rejected with a code; input lifecycle stays balanced | no uncaught error; `Project.current()` unchanged; `Input.State.held()` empty after a final `releaseAll` | E 11 rule 6; B 23.1 | 13 |
+| FI-041 | random input fuzz never crashes | none (seeded fuzz) | fresh page state | 200 random byte buffers (`Prng(1)` to `Prng(200)`, 0-64 KB, with valid magic numbers prefixed for half of them) through `Import.importFile`; 1,000 random `NetMessage` objects through `Net.validateMessage`; 500 random key and pointer event sequences through M-07 | every import ends in a typed error or a report; every message is accepted or rejected with a code; input lifecycle stays balanced | no uncaught error; `Project.current()` unchanged; `Input.held()` empty after a final `releaseAll` | E 11 rule 6; B 23.1 | 13 |
 | FI-042 | page hidden during a recording | none (dispatch `visibilitychange` hidden and `pagehide`) | `studio` recording a take over an existing take T1; dirty project under 2 MB | dispatch the events, then boot a fresh M-29 instance on the same storage | recording stopped at the hide; the pending take written with the autosave as `interrupted:true` and not applied; the recovery copy offered at boot | track 1 holds T1 in the recovered project; the pending take offered for review | E 11 rule 7; E 5.1 user navigates away before saving; I 13 recoverable recording sessions | 9 |
 
 #### 12.7.2 Coverage of the fault hooks (Part 10.9.2) and of I 13.1

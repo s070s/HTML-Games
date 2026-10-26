@@ -88,7 +88,7 @@ FLM.Render = {
   /** Starts the RAF loop. frameFn(audioNow:number seconds, dtMs:number 0..100) runs once per
    *  frame inside a try block (error origin 'frame', Part 4.9). One loop at a time: a second
    *  call stops the first (Log.warn). clock.now() returns audio seconds (frozen values are
-   *  allowed). owner tags the frame request for Core.Timers.clearOwner. */
+   *  allowed). owner tags the frame request for Core.raf.cancelOwner. */
   startLoop(frameFn, opts /* {clock:{now():number}, owner:any} */) /* -> void */,
   stopLoop() /* -> void */,
   loopRunning() /* -> boolean */,
@@ -98,9 +98,11 @@ FLM.Render = {
   /** Size the drawing buffers from CSS size, DPR and the tier scale (6.18.4.2).
    *  Also called from the ui.layout listener. @returns {{w:number, h:number}} buffer px */
   resize(cssW, cssH, dpr) /* -> {w, h} */,
-  /** Test and diagnostics fault hooks called by FLM.debug.inject for names starting
+  /** Test and diagnostics fault hook called by FLM.debug.inject for names starting
    *  'render.' (6.18.4.15). Returns false for unknown names or when unsupported. */
-  fault(name, args) /* -> boolean */,
+  debugInject(name, args) /* -> boolean */,
+  /** Disarms one fault armed by debugInject. */
+  debugClear(name) /* -> void */,
   /** Full teardown: stops the loop, deletes every GL object, removes listeners,
    *  counters return to 0. Used by tests and pagehide; not by mode leave. */
   dispose() /* -> void */,
@@ -701,10 +703,10 @@ on 'webglcontextlost' (listener via Core.dom.on(view, ..., {passive:false}, REND
   programs.* = null; staging buffers = null; counters.* = 0
   emit render.contextLost {tier, at: lostAt}; ErrorReporter.report('E-REN-003', null, {tier})  (recoverable, toast suppressed: M-28 shows the HUD note "Graphics paused")
   if st.losses.length >= 3: fallBack('repeated') and return
-  st.restoreTimer = Core.Timers.setTimeout(() => fallBack('timeout'), RESTORE_TIMEOUT_MS, RENDER_OWNER)
+  st.restoreTimer = Core.timers.setTimeout(() => fallBack('timeout'), RESTORE_TIMEOUT_MS, RENDER_OWNER)
 
 on 'webglcontextrestored':
-  Core.Timers.clear(st.restoreTimer)
+  Core.timers.clearTimeout(st.restoreTimer)
   t0 = Core.now()
   rebuild: compile programs (6.18.4.6); re-create staging buffers; upload every Texture in textures
            (re-run its draw fn) and every Mesh in meshes (eager, so the first frame does not stall)
@@ -733,7 +735,7 @@ visual modes during a song).
 startLoop(frameFn, {clock, owner}):
   if loop.running: Log.warn('render', 'startLoop while running'); stopLoop()
   loop = {running:true, frameFn, clock, owner, lastRaf:null}; frames = 0
-  loop.frameId = Core.Timers.requestFrame(step, owner)
+  loop.frameId = Core.raf.request(step, owner)
 step(tRaf):
   if !loop.running: return
   raw = loop.lastRaf === null ? 16.7 : tRaf - loop.lastRaf
@@ -746,8 +748,8 @@ step(tRaf):
   catch (e) { ErrorReporter.report('E-REN-008', e, {origin:'frame'}) }   // escalation rules of 4.9 live in M-01
   renderer && renderer.endFrame()
   if tRaf - lastStatsAt >= 1000: computeStats(); autoTierCheck(); maybe emit render.stats; lastStatsAt = tRaf
-  loop.frameId = Core.Timers.requestFrame(step, loop.owner)
-stopLoop(): loop.running = false; Core.Timers.cancelFrame(loop.frameId)
+  loop.frameId = Core.raf.request(step, loop.owner)
+stopLoop(): loop.running = false; Core.raf.cancel(loop.frameId)
 computeStats(): window = ring entries with ringT >= now - 5000; p50 and p95 by sorting a copy
   (<= 300 values); fps = frames counted in the last 1,000 ms
 ```
@@ -790,7 +792,7 @@ leaves `counters()` all zero.
   stage lights).
 - `clear()` fills `--c-bg` (`#0e1116`). Flat2D allocates no GL objects and is not counted.
 
-6.18.4.15 Fault hooks (`fault(name, args)`)
+6.18.4.15 Fault hooks (`debugInject(name, args)`, `debugClear(name)`)
 
 | Name | Args | Effect |
 |---|---|---|
@@ -857,13 +859,13 @@ headless SwiftShader context of Part 3.4.2 and call `t.skip('webgl unavailable')
 | UT-18-07 | primitive vertex and index counts | each primitive with the High-tier segments | counts equal 6.18.4.5 (box 24/36, capsule(0.05, 0.3, 16, 4) 170/864, sphere(1,16,12) 221/1152); all indices < vertexCount; normals unit length within 1e-5 |
 | UT-18-08 | tier pick table | `pickTier` with 8 caps and viewport combinations | desktop webgl2 1280x720 -> High; webgl2 touch -> Balanced; webgl2 500x800 -> Balanced; webgl1 only -> Low; none -> Abstract; `?tier=High` on webgl1 -> Balanced with reason 'url'; `video.tier:'low'` -> Low reason 'user' auto false; result for auto picks has auto true |
 | UT-18-09 | abstract init without GL | `glFactory` returning null for every api | result `{api:'none', tier:'Abstract'}`; `E-REN-001` recorded; `#flat` visible and `#view` hidden; `renderer()` null; `counters()` all 0 |
-| UT-18-10 | shader failure falls back | `fault('render.shaderFail')` before `init` | api `none`, tier Abstract, `E-REN-002` recorded, `glShaders === 0` and `glPrograms === 0` |
+| UT-18-10 | shader failure falls back | `debugInject('render.shaderFail')` before `init` | api `none`, tier Abstract, `E-REN-002` recorded, `glShaders === 0` and `glPrograms === 0` |
 | UT-18-11 | both programs compile and link | real context | `glPrograms === 2`, `glShaders === 0` after init; lit uses 7 and unlit 8 attribute locations at the fixed indices |
 | UT-18-12 | setTier clamping and events | init on webgl1 (forced through `glFactory` refusing webgl2) | `setTier('High','user')` sets Balanced and emits `render.tier {tier:'Balanced', reason:'user'}`; `setTier('Balanced','user')` again returns false and emits nothing |
 | UT-18-13 | auto-downgrade from p95 | feed 300 synthetic frames of 40 ms through the stats hook with auto enabled and no hold | exactly one `render.tier {reason:'auto'}` from High to Balanced; a second check within 10 s does nothing; with `holdAutoTier(3000)` active nothing happens |
 | UT-18-14 | hidden-tab gaps excluded | 299 frames of 16 ms plus one 5,000 ms delta | no downgrade; p95 computed from the window excludes the gap for the decision |
-| UT-18-15 | context loss and restore rebuild | build 20 meshes, `fault('render.contextLoss', {restoreAfterMs:100})` | `render.contextLost` then `render.contextRestored {fallback:false}`; counters after restore equal counters before the loss; every mesh has non-null `gl` |
-| UT-18-16 | restore timeout falls back | `fault('render.contextLoss', {restoreAfterMs:null})`, wait 3,100 ms (slow group) | `render.tier {tier:'Abstract', reason:'contextLoss'}` and `render.contextRestored {fallback:true}`; loop still running; a FakeClock-driven frameFn kept receiving frames |
+| UT-18-15 | context loss and restore rebuild | build 20 meshes, `debugInject('render.contextLoss', {restoreAfterMs:100})` | `render.contextLost` then `render.contextRestored {fallback:false}`; counters after restore equal counters before the loss; every mesh has non-null `gl` |
+| UT-18-16 | restore timeout falls back | `debugInject('render.contextLoss', {restoreAfterMs:null})`, wait 3,100 ms (slow group) | `render.tier {tier:'Abstract', reason:'contextLoss'}` and `render.contextRestored {fallback:true}`; loop still running; a FakeClock-driven frameFn kept receiving frames |
 | UT-18-17 | resource exhaustion downgrades | `glFactory` wrapper whose `createBuffer` returns null after 10 calls, then build 20 meshes | `E-REN-005` reported once; tier one step lower; no exception escapes |
 | UT-18-18 | dispose returns counters to zero | init, build a stage-sized scene (200 nodes, 30 geometries), `scene.clear()`, `Render.dispose()` | after clear counters equal the post-init baseline; after dispose all counters 0 and `scene.count() === 0` |
 | UT-18-19 | frame error isolation | frameFn throws on frame 3 only | frames 4 and later run; one `E-REN-008` record with `context.origin === 'frame'` |
@@ -877,8 +879,8 @@ headless SwiftShader context of Part 3.4.2 and call `t.skip('webgl unavailable')
 
 #### 6.18.9 Implementation notes and browser quirks
 
-- Listener and frame wrappers: M-18 uses `Core.Timers.requestFrame`, `Core.Timers.cancelFrame`
-  and `Core.Timers.setTimeout` (6.1.2) and `Core.dom.on(el, type, fn, opts, owner)` (4.7.3)
+- Listener and frame wrappers: M-18 uses `Core.raf.request`, `Core.raf.cancel`
+  and `Core.timers.setTimeout` (6.1.2) and `Core.dom.on(el, type, fn, opts, owner)` (4.7.3)
   so `assertClean()` counts them. The context listeners and the bus subscriptions use
   `RENDER_OWNER`, which belongs to the boot baseline; the frame request uses the mode owner
   passed in `startLoop`.
@@ -1443,8 +1445,8 @@ Events emitted: `director.cut {preset, slot, reason, at, tick}` (by the `StageDi
 through the Mixer, at most one per 4 bars except `user` and `reset`).
 
 Events consumed (subscribed in `Mixer.bind` with the mode owner): `sched.noteOn`,
-`sched.noteOff`, `sched.cc`, `sched.program`, `sched.bend`, and `sched.control` (the
-combined control topic of 6.5.2); `transport.state`, `transport.seek`; `render.tier`;
+`sched.noteOff`, `sched.cc`, `sched.program` and `sched.bend`;
+`transport.state`, `transport.seek`; `render.tier`;
 `settings.changed` for `video.reducedMotion` and `video.cameraMotion`. Beat and marker state
 is derived from the Transport position each frame (`BeatIndicator`), so `sched.beat` and
 `sched.marker` are not required by this module.
@@ -1499,18 +1501,17 @@ other program).
 
 6.20.4.2 Event intake (`readSched`, `Mixer` routing)
 
-`readSched(topic, p)` accepts the field names of the topic catalog (Part 4.4: `at`, `atOff`,
-`eventId`) and of the scheduler design (6.5.2: `atAudio`, `endAudio`, `noteId`, and the
-combined `sched.control {kind}` topic):
+`readSched(topic, p)` reads the payload fields of the topic catalog (Part 4.4: `at`, `atOff`,
+`eventId`; one topic per control kind: `sched.cc`, `sched.program`, `sched.bend`):
 
 ```js
 function readSched(topic, p) {
-  const at = num(p.at, p.atAudio); if (!Number.isFinite(at)) return null;
+  const at = num(p.at); if (!Number.isFinite(at)) return null;
   const base = { trackId: p.trackId, channel: p.channel | 0, at, live: !!p.live };
-  if (topic === 'sched.noteOn') return { ...base, type: 'noteOn', eventId: p.eventId || p.noteId,
-      pitch: p.pitch, velocity: p.velocity, atOff: num(p.atOff, p.endAudio, Infinity) };
-  if (topic === 'sched.noteOff') return { ...base, type: 'noteOff', eventId: p.eventId || p.noteId, pitch: p.pitch };
-  const kind = topic === 'sched.control' ? p.kind : topic.slice(6);     // 'cc' | 'bend' | 'program'
+  if (topic === 'sched.noteOn') return { ...base, type: 'noteOn', eventId: p.eventId,
+      pitch: p.pitch, velocity: p.velocity, atOff: num(p.atOff, Infinity) };
+  if (topic === 'sched.noteOff') return { ...base, type: 'noteOff', eventId: p.eventId, pitch: p.pitch };
+  const kind = topic.slice(6);     // 'cc' | 'bend' | 'program'
   if (kind === 'cc') return { ...base, type: 'cc', controller: p.controller, value: p.value };
   if (kind === 'bend') return { ...base, type: 'bend', value: p.value };
   if (kind === 'program') return { ...base, type: 'program', program: p.program };
@@ -1919,7 +1920,7 @@ meshes) and synthetic `SchedEvent` lists; times are animation seconds)
 |---|---|---|---|
 | UT-20-01 | profile table | `controllerFor` for programs 0-127 and drums | values per 6.20.4.1 including every override; drums -> 'drums' |
 | UT-20-02 | agrees with instrument definitions | `FLM.Instruments.definition(p).animProfile` for all p (test build) | equal to `PROFILE_BY_FAMILY[p >> 3]` for every program; overrides differ only for the listed programs |
-| UT-20-03 | readSched accepts both field schemes | payloads with `at/atOff/eventId` and with `atAudio/endAudio/noteId`; `sched.control {kind:'cc'}`; payload without a time | identical SchedEvents for the first two; control mapped to type 'cc'; null for the last |
+| UT-20-03 | readSched maps the sched.* payloads | `sched.noteOn` and `sched.noteOff` payloads with `at/atOff/eventId`; `sched.cc`, `sched.bend` and `sched.program` payloads; payload without a time | SchedEvents of type noteOn, noteOff, cc, bend, program with the same fields; null for the last |
 | UT-20-04 | drum kick contact and raise peak | kick `at = 2.0`, `seen = 1.88`, velocity 127 | right ankle pitch 0 at t 2.000; 25 degrees at t 1.940 within 0.1 degree; 0 at t 1.879 |
 | UT-20-05 | drum limb map | one event per GM key 35-59 | limb per `DRUM_MAP`; keys 54 and 56 alternate hands by arrival parity |
 | UT-20-06 | crash goes to the nearest free hand | snare (left) at 1.00 and crash 49 at 1.02 | crash assigned to handR; with no snare, crash 49 assigned to handL |
@@ -1953,9 +1954,8 @@ meshes) and synthetic `SchedEvent` lists; times are animation seconds)
 
 #### 6.20.9 Implementation notes and browser quirks
 
-- Field-name tolerance in `readSched` exists because the scheduler's payload names are
-  defined in two places (Part 4.4 and 6.5.2); the Mixer depends only on `readSched`, so the
-  scheduler can emit either form without breaking animation. UT-20-03 guards both forms.
+- The Mixer depends only on `readSched`, so a change of the scheduler's payload names (Part 4.4)
+  touches one function. UT-20-03 guards the field names.
 - All gesture functions take `t` explicitly; the only state that depends on the frame
   sequence is the reset ease start (`resetFrom`), which is captured at a transport event, not
   per frame.
@@ -2433,7 +2433,7 @@ highway model tests use a FakeClock transport and need no GL)
 | UT-21-15 | sparks deterministic and capped | 30 perfect results on Balanced; effects level 1; Low tier | 96 sparks alive (cap); same noteIds produce identical spark positions; level 1 spawns 6 per lane; Low spawns none |
 | UT-21-16 | live character edit | playing song, `character.changed` color change then body change for slot 1 | only slot 1 rig changes; other rigs' mesh objects identical; transport state and position unchanged; after body change the prop anchors equal `layoutFor` of the new lengths |
 | UT-21-17 | dispose returns to baseline | 20 build and dispose cycles with 5 performers and a highway | after each cycle `scene.count() === 0`, `Render.counters()` equal the baseline, `bus.listenerCount()` equals the baseline |
-| UT-21-18 | context loss keeps state advancing | `fault('render.contextLoss')` during playback | `update` returns `drawn:'none'` with ticks still advancing; after the fallback `drawn:'flat'` and the highway model continues from the same tick |
+| UT-21-18 | context loss keeps state advancing | `debugInject('render.contextLoss')` during playback | `update` returns `drawn:'none'` with ticks still advancing; after the fallback `drawn:'flat'` and the highway model continues from the same tick |
 | UT-21-19 | build failure falls back | `Rig.createRig` stub throwing | `E-REN-011`; `render.tier` Abstract; the stage still renders the highway through Flat2D |
 | UT-21-20 | loop shading | `transport.loopSet {a:1920, b:3840, enabled:true}` | one loop item between s(a) and s(b); none after `enabled:false` |
 | UT-21-21 | dance highway and themes | DanceChart with a jump (directions 0 and 3); theme 'theme-neon' then 'nope' | direction 'up', glyphSet 'arrows', chord item for the jump; neon colors applied; unknown id -> default colors |
@@ -2487,8 +2487,6 @@ FLM.Character = {
                   top Top, bottom Bottom, shoes Shoes, accessory Accessories */ ],
   /** The options catalog (6.22.3): 44 frozen CatalogOption entries (shape in Part 5.10). */
   OPTIONS: [ /* CatalogOption */ ],
-  /** Same frozen array as OPTIONS (the name used by Part 5.10). */
-  CATALOG: OPTIONS,
   PALETTES: { skin: { skin1: '#f6d7c3', /* ... 8 */ }, hair: [ /* 8 */ ], clothing: [ /* 12 */ ] },
   ACCESSORY_COLORS: { hat: {base, alt}, glasses: {base, alt}, headphones: {base, alt}, scarf: {base, alt}, wristband: {base, alt} },
   RULES: [ /* {id, when, effect, phase:'normalize'|'render'} x 5, 6.22.4.3 */ ],
@@ -2528,7 +2526,7 @@ FLM.Character = {
   /** Multiplayer payload: schema fields only, x reduced to {accAlt}. */
   forNet(config) /* -> {ok:boolean, config:CharacterConfig|null, bytes:number, error:string|null} */,
 
-  // ---- roster (flm.v1.characters through FLM.Storage.kv) ----
+  // ---- roster (flm.v1.characters through FLM.Storage.get and set) ----
   loadRoster() /* -> Roster */,
   saveRoster(roster) /* -> {ok:boolean, error:object|null} */,
   /** Band character for a slot when the project has none (roster 'band.<slot>' or default preset). */
@@ -2722,7 +2720,7 @@ a dress).
 4. Emit `character.changed {characterId: next.id, option: path, rigAffecting, config: next}`
    immediately when the previous emit for that character was >= 33 ms ago; otherwise store
    it as pending and emit the latest pending payload when 33 ms have passed since the previous
-   emit (one `Core.Timers.setTimeout` with `CHAR_OWNER`), so slider drags produce at most 30
+   emit (one `Core.timers.setTimeout` with `CHAR_OWNER`), so slider drags produce at most 30
    events per second and the final value is always delivered. A pending rig-affecting change
    keeps `rigAffecting:true` even if a later coalesced change is visual only.
 5. Return `{config: next, warnings, rigAffecting}`. The caller (SCR-Characters) stores the
@@ -2757,7 +2755,7 @@ a dress).
 
 ```text
 loadRoster():
-  doc = Storage.kv.get('characters', null)          // key flm.v1.characters (Part 5.15)
+  doc = Storage.get('characters', null)          // key flm.v1.characters (Part 5.15)
   presets = doc && Array.isArray(doc.presets) ? doc.presets : []
   band[s] for s in 0..4: the preset with presetId 'band.' + s -> config with id 'chr_band' + s, slot s, instrument null;
          missing -> the default band preset of slot s (applyPreset on create({slot:s}))
@@ -2767,7 +2765,7 @@ loadRoster():
 saveRoster(r):
   doc = {version:1, presets: [band.0..band.4, player, ...r.presets.slice(0, 10)]} with builtIn:false
   text size must be <= 64 KB (it is about 5 KB at the maximum)
-  result = Storage.kv.set('characters', doc)        // safe write with read-back (6.16.4 A)
+  result = Storage.set('characters', doc)        // safe write with read-back (6.16.4 A)
   return {ok: result.ok, error: result.error}       // never reports success on failure (E 11)
 ```
 
@@ -2794,8 +2792,8 @@ undoData`. Coalescing merges slider drags within 500 ms into one undo entry (M-1
 | Character file not JSON, wrong format or too large (E-CHR-001) | parse, format and size checks | roster and project untouched | user picks another file | no | dialog text "This is not a valid character file." or "This character file is too large." | none | n/a | UT-22-12 |
 | Newer character version (E-IMP-013) | `version > 1` | as above | n/a | no | "This character file needs a newer version of Finger Lickin Music." | none | n/a | UT-22-12 |
 | Oversized network avatar (E-CHR-003) | byte count | local config | n/a | no | peer receives `error E-NET-...` from M-24; local toast none | remote shown with a default character | default preset | UT-22-13 |
-| Roster save fails (quota, storage unavailable) | `Storage.kv.set` result | in-memory roster; previous stored roster intact (safe write) | next save | the latest edit only | toast "Character changes could not be saved. Export the character to keep it." with Export | memory-only roster | next successful save | UT-22-16 |
-| Roster document damaged | parse or shape failure in `kv.get` | defaults | n/a | old roster lost (the `.bak` is not kept for this key, Part 6.16) | toast "Saved characters were reset" (W-CHR-ROSTER-RESET) | defaults | defaults | UT-22-16 |
+| Roster save fails (quota, storage unavailable) | `Storage.set` result | in-memory roster; previous stored roster intact (safe write) | next save | the latest edit only | toast "Character changes could not be saved. Export the character to keep it." with Export | memory-only roster | next successful save | UT-22-16 |
+| Roster document damaged | parse or shape failure in `Storage.get` | defaults | n/a | old roster lost (the `.bak` is not kept for this key, Part 6.16) | toast "Saved characters were reset" (W-CHR-ROSTER-RESET) | defaults | defaults | UT-22-16 |
 | Preset registration receives invalid data | `normalize` warnings or invalid shape | other presets | n/a | no | diagnostics (`W-CHR-PRESET-SKIPPED`) | fewer presets | n/a | UT-22-08 |
 | Project already has 5 characters (E-CHR-020) | command apply | project unchanged | n/a | no | toast with the message | none | n/a | UT-22-18 |
 
@@ -2829,7 +2827,7 @@ UT-22-07's rig check, which uses the CPU-only rig of 6.20.8)
 
 | ID | Name | Setup | Assertion |
 |---|---|---|---|
-| UT-22-01 | catalog completeness | `OPTIONS` | 44 entries; ids unique; `rigAffecting` true exactly for the 3 body options and `height`; every label ASCII and <= 24 chars; `CATALOG === OPTIONS` |
+| UT-22-01 | catalog completeness | `OPTIONS` | 44 entries; ids unique; `rigAffecting` true exactly for the 3 body options and `height`; every label ASCII and <= 24 chars |
 | UT-22-02 | create defaults | `create()` | equals the Part 5.10 defaults field by field; `validate` ok; `serialize` length < 512 |
 | UT-22-03 | validate error codes | one config per row of 6.22.4.1 | each yields exactly the listed code at the listed path; a valid config yields none |
 | UT-22-04 | normalize repairs and is idempotent | config with name of 40 chars plus a tab, heightScale 1.3, skin 'skin9', color '#FFF', 7 accessories | name 24 chars without control chars; 1.1; 'skin3'; color default; accessories trimmed and deduped; second normalize returns equal config and no warnings |
@@ -2844,7 +2842,7 @@ UT-22-07's rig check, which uses the CPU-only rig of 6.20.8)
 | UT-22-13 | network payload limit | largest valid config; config with a 10 KB `x` | first `bytes <= 4096` and `x` absent unless accAlt; second drops `x` and stays ok; a forged object over the limit after dropping `x` returns `E-CHR-003` |
 | UT-22-14 | diff and rig-affecting split | change body, then top color, then accessories | diff paths ['body'] rigAffecting true; ['top.color'] false; ['accessories'] false; `isRigAffecting('heightScale') === true` |
 | UT-22-15 | edit emits and coalesces | 10 heightScale edits within 50 ms (FakeClock timers) | at most 2 `character.changed` events, the last carrying the final value with `rigAffecting:true`; a no-op edit emits nothing |
-| UT-22-16 | roster load, save and failure | empty kv; then save; then kv.set failing; then damaged document | defaults nova, kai, mira, juno, rex and player nova; saved document has presetIds band.0..band.4 and player; failing save returns ok false without throwing; damaged document -> defaults with `W-CHR-ROSTER-RESET` |
+| UT-22-16 | roster load, save and failure | empty storage; then save; then `Storage.set` failing; then damaged document | defaults nova, kai, mira, juno, rex and player nova; saved document has presetIds band.0..band.4 and player; failing save returns ok false without throwing; damaged document -> defaults with `W-CHR-ROSTER-RESET` |
 | UT-22-17 | preset file round trip | `exportPreset` then `importPreset` | file name ends with `.flmchar.json`; imported appearance equal; new id; slot 0; instrument null; builtIn false |
 | UT-22-18 | project command | project with characters in slots 0 and 1; set a new character to slot 1; undo; add a sixth character | slot swap applied (old slot-1 character moves to the new one's slot); revert restores the array; sixth returns `E-CHR-020` with the project unchanged |
 | UT-22-19 | frozen tables | `OPTIONS`, `PALETTES`, `ACCESSORY_COLORS`, `RULES`, `PRESETS` entries | deep-frozen |

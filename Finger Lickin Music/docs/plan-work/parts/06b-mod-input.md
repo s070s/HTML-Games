@@ -20,7 +20,7 @@ Responsibilities:
 Non-goals:
 - No musical meaning (that is M-08), no judging (M-09), no DOM styling of pads (M-26 toggles
   the pressed class by listening to `input.event`), no persistence (M-27 persists maps through
-  M-16 and restores them with `Input.setMaps` at boot).
+  M-16 and restores them with `Input.setMap` at boot).
 - Two players on one keyboard: Deferred (P2). v1 has exactly one logical player; `InputEvent`
   has no player field. The control name space is reserved so that a `playerIndex` field can be
   added in a later version without renaming controls.
@@ -75,28 +75,35 @@ context); CC 64 >= 64 -> `sustain` press, CC 64 < 64 -> `sustain` release. Remap
 /** @namespace FLM.Input */
 FLM.Core.define('Input', function (Core, Transport, Audio) {
   return {
-    /** Install listeners. opts: { keyboardTarget: Window, padRoot: HTMLElement|null,
-     *  surface: HTMLElement }. Idempotent: a second call without detach() throws
-     *  Core.assert failure 'Input.attach twice'. */
-    attach(opts) {},
+    /** Install the window-level listeners (once, at boot: Part 4.3 B9). opts: { keyboardTarget: Window,
+     *  padRoot: HTMLElement|null, surface: HTMLElement }. Idempotent: a second call without detach()
+     *  throws Core.assert failure 'Input.init twice'. */
+    init(opts) {},
     /** Remove every listener, stop MIDI listening, releaseAll('system'). Safe when not attached. */
     detach() {},
-    /** @param {'menu'|'instrument'|'freeplay'|'dance'|'studio'} ctx  Releases all controls
-     *  that are not live in the new context with source 'system'. */
-    setContext(ctx) {},
+    /** Binds the input context of a mode (Part 4.7.1 step 10). opts: { owner, context:
+     *  'menu'|'instrument'|'freeplay'|'dance'|'studio', surface?, pads?, controls? }. Releases all
+     *  controls that are not live in the new context with source 'system'. */
+    bind(opts) {},
+    /** Part 4.7.2 step 1: releases the controls of `owner` and returns to the 'menu' context
+     *  (the boot-level listeners of `init` stay). */
+    unbind(owner) {},
+    /** Number of surfaces currently bound through bind() (0 in the menu); assertClean() compares it
+     *  with the baseline (Part 4.7.3). */
+    boundSurfaces() {},
     /** @returns {string} current context */
     context() {},
     /** Called once per render frame by the active mode: gamepad edge detection + anchor sample
      *  (sample taken only when >= 25 ms since the previous one). @param {number} tPerf */
-    poll(tPerf) {},
+    pollGamepad(tPerf) {},
     /** Release every pressed control, emitting release events with source 'system'.
      *  @param {'system'|'mode'|'pause'|'device'|'context'} reason  (logged, not emitted) */
     releaseAll(reason) {},
 
     /** InputState */
+    /** @returns {string[]} control names currently pressed, in press order */
+    held() {},
     State: {
-      /** @returns {string[]} control names currently pressed, in press order */
-      held() {},
       /** @returns {boolean} */
       isHeld(control) {},
       /** @returns {number|null} tAudio of the press that owns the control */
@@ -106,17 +113,17 @@ FLM.Core.define('Input', function (Core, Transport, Audio) {
     },
 
     /** Maps. Shape: see 6.7.3 `Maps`. */
-    defaultMaps() {},
-    getMaps() {},
+    DEFAULT_MAPS: /* frozen copy of the defaults of 6.7.1 */ {},
+    getMap() {},
     /** Validates and installs maps; unknown controls/contexts are dropped with Log warnings;
      *  returns {ok:boolean, errors:string[]}. Never throws on bad data (settings may be stale). */
-    setMaps(maps) {},
+    setMap(maps) {},
     /** Bind a physical code (keyboard code string or MIDI note number) to a control.
      *  @param {'instrument'|'freeplay'|'studio'|'dance'|'global'|'midi'} ctx
      *  @returns {{ok:true}|{ok:false, conflict:{context:string, control:string, code:string}}} */
     remap(ctx, control, code) {},
     /** Remove one binding. @returns {boolean} removed */
-    unbind(ctx, control, code) {},
+    unmap(ctx, control, code) {},
     /** Restore defaults for one context (or all when ctx is undefined). */
     resetMap(ctx) {},
     /** @returns {string[]} control names live in a context (see 6.7.1) */
@@ -126,7 +133,7 @@ FLM.Core.define('Input', function (Core, Transport, Audio) {
      *  Returns null when the AudioContext is not running (no anchor). */
     perfToAudio(tPerf) {},
     /** @returns {{samples:number, offsetSec:number|null, spreadMs:number}} */
-    anchorStats() {},
+    anchor() {},
 
     /** @returns {{gamepads:[{index:number,id:string,mapping:string}],
      *            midi:{supported:boolean, secure:boolean, enabled:boolean, inputs:string[]}}} */
@@ -148,7 +155,7 @@ FLM.Core.define('Input', function (Core, Transport, Audio) {
 
     /** Test build only (undefined in the shipped build). Synthesizes events through the same
      *  handlers the browser would call. */
-    _synth: {
+    synthesize: {
       key(code, down, tPerf, mods) {},
       pointer(pointerId, type /* 'down'|'move'|'up'|'cancel' */, x, y, pressure, tPerf, pointerType) {},
       gamepad(stateOrNull /* {index, buttons:[{pressed,value}], mapping} */) {},
@@ -160,7 +167,7 @@ FLM.Core.define('Input', function (Core, Transport, Audio) {
 ```
 
 Events emitted: `EVT-input.event` (payload: `InputEvent`, one per press or release). Events
-consumed: none (Input reads `FLM.Transport.state()` and `FLM.Audio.context()` directly; both
+consumed: none (Input reads `FLM.Transport.state()` and `FLM.Audio.ctx()` directly; both
 are lower-numbered modules).
 
 #### 6.7.3 Internal state
@@ -172,7 +179,7 @@ ControlState { name, pressed:boolean, owner:{source, physical}|null, tAudioPress
 
 // Pointer tracking (pads): pointerId -> current pad index (0..3) or -1 (outside all pads)
 PointerTrack { pointerId, padIndex, pointerType }
-padRects: [DOMRect x4]   // recomputed on resize, orientationchange, setContext, attach
+padRects: [DOMRect x4]   // recomputed on resize, orientationchange, bind, init
 
 // Keyboard: physical code -> control resolved at keydown via maps[context] then maps.global
 keysDown: Set<code>      // physical keys believed down (cleared on releaseAll)
@@ -218,26 +225,26 @@ Invariants:
 A. Timestamping (every source)
 1. `tPerf`: for DOM events use `event.timeStamp` when `Math.abs(event.timeStamp -
    performance.now()) < 60000` (it is a performance-origin timestamp); otherwise (epoch-based
-   or missing) use `performance.now()`. Gamepad: the `tPerf` passed to `poll()`. MIDI:
+   or missing) use `performance.now()`. Gamepad: the `tPerf` passed to `pollGamepad()`. MIDI:
    `event.timeStamp` (always performance-origin per spec; same check applied anyway).
 2. `tAudio = perfToAudio(tPerf)` (algorithm B). `null` before the first anchor sample.
 3. `pressure`: pointer -> `event.pressure` (0..1; browsers report 0.5 for mouse without
    pressure); keyboard -> 1; gamepad -> `button.value` (0..1); MIDI -> `velocity / 127`.
 
 B. Anchor estimation (`perfToAudio`)
-1. `sample()`: let `ctx = FLM.Audio.context()`. If `!ctx || ctx.state !== 'running'`, return
+1. `sample()`: let `ctx = FLM.Audio.ctx()`. If `!ctx || ctx.state !== 'running'`, return
    (no sample). If `ctx.getOutputTimestamp` exists and returns `{contextTime, performanceTime}`
    with both finite: `offset = contextTime - performanceTime / 1000`. Else `offset =
    ctx.currentTime - performance.now() / 1000`. Push into the 20-slot ring; set
    `lastSampleTPerf = performance.now()`; recompute `median` (sort a copy of the filled slots,
    middle element, or mean of the two middle elements for even counts).
-2. `sample()` is called from `poll(tPerf)` when `tPerf - lastSampleTPerf >= 25`, and from
+2. `sample()` is called from `pollGamepad(tPerf)` when `tPerf - lastSampleTPerf >= 25`, and from
    every event handler before computing `tAudio` under the same 25 ms rule (so the first press
    after an idle period gets a fresh sample).
 3. `perfToAudio(tPerf) = median === null ? null : tPerf / 1000 + median`.
 4. When the context identity changes (Audio rebuilt after hard panic or failure), the ring is
    cleared (`n = 0`, `median = null`).
-5. `anchorStats().spreadMs = (max - min of ring) * 1000`; Diagnostics shows it.
+5. `anchor().spreadMs = (max - min of ring) * 1000`; Diagnostics shows it.
 
 C. Keyboard
 1. `keydown`: if `event.repeat` -> return (no preventDefault, nothing emitted). If
@@ -264,7 +271,7 @@ D. Pointer (touch pads and gameplay surface)
    `touchstart` and `touchmove` with `preventDefault()` only (`{passive:false}`);
    `contextmenu` -> `preventDefault()`. CSS `touch-action: none` is set by M-26 on both.
 2. Pad hit test: `padIndexAt(x, y)` over cached `padRects` (recomputed on `resize`,
-   `orientationchange`, `attach`, `setContext`, and whenever M-26 calls `Input.layoutChanged()`
+   `orientationchange`, `init`, `bind`, and whenever M-26 calls `Input.layoutChanged()`
    after moving pads; `layoutChanged` is an alias of the rect refresh exposed on the namespace).
    The pad control for index i is `lane<i>` in instrument contexts and `dance<i>` in dance.
 3. `pointerdown`: ignore if `pointerType === 'mouse' && event.button !== 0`. `i =
@@ -281,7 +288,7 @@ D. Pointer (touch pads and gameplay surface)
    is cleaned by release-all on blur/hidden, and by the 10-pointer cap: when an eleventh track
    would be created the oldest track is released and dropped with `Log.warn('INP_PTR_CAP')`.
 
-E. Gamepad (`poll`)
+E. Gamepad (`pollGamepad`)
 1. `navigator.getGamepads` missing -> skip. Choose `pad` = the lowest-index non-null gamepad
    with `connected === true`. If none and `gpPrev` exists -> `releaseAll('device')` for
    controls owned by `source:'gamepad'`; `gpPrev = null`; return.
@@ -305,7 +312,7 @@ F. `press(control, owner, tPerf, pressure)` and `release(control, owner, tPerf)`
    `source:'system'`, `tPerf = performance.now()`; clear `keysDown`, pointer tracks (pads),
    `midiNotesDown`; `gpPrev.buttons` all false; `Log.info('INP_RELEASE_ALL', reason)`.
 4. System triggers: `window.blur`, `document.visibilitychange` when `hidden`, `pagehide` ->
-   `releaseAll('system')`. `setContext` -> `releaseAll('context')` for controls not live in
+   `releaseAll('system')`. `bind` -> `releaseAll('context')` for controls not live in
    the new context (others are kept: e.g. `pause` held across a context change is harmless).
    Modes call `releaseAll('mode')` on leave (Part 4.7).
 
@@ -334,16 +341,16 @@ H. Remap and conflict detection
    found (contexts iterated in the order instrument, freeplay, studio, dance, global; controls
    in declaration order) is returned: `{ok:false, conflict:{context, control, code}}`. The UI
    shows `DLG-RemapConflict` (Part 7.7) and offers "Replace" which calls
-   `unbind(conflict.context, conflict.control, code)` then `remap` again.
+   `unmap(conflict.context, conflict.control, code)` then `remap` again.
 3. A control may have up to 3 codes; a fourth is refused with `{ok:false, conflict:null}`
-   and `Log.warn('INP_MAP_FULL')`. A control must keep at least one code: `unbind` of the last
+   and `Log.warn('INP_MAP_FULL')`. A control must keep at least one code: `unmap` of the last
    code is refused (`false`).
-4. `setMaps(maps)`: deep-validate; unknown keys dropped; codes must match
+4. `setMap(maps)`: deep-validate; unknown keys dropped; codes must match
    `/^[A-Za-z0-9]{1,32}$/`; MIDI notes integers 0..127; conflicts in the supplied data are
    resolved by keeping the first binding and dropping later ones (recorded in `errors`).
    Missing controls fall back to defaults. Installing maps calls `releaseAll('context')`.
 
-I. Context switch: `setContext(ctx)` sets the current context, refreshes pad rects, releases
+I. Context switch: `bind({owner, context})` sets the current context, refreshes pad rects, releases
    controls not live in `ctx`, and clears `keysDown` entries whose code resolves to nothing in
    the new context (so a key held across the switch produces no stale release).
 
@@ -354,13 +361,13 @@ I. Context switch: `setContext(ctx)` sets the current context, refreshes pad rec
 | keyup lost (focus loss, OS shortcut, alt-tab) | `blur`, `visibilitychange`, `pagehide` fire; or next keydown of the same code | maps, anchor | automatic | none | none (silent release) | none | `releaseAll('system')` | UT-07-12, UT-07-13 |
 | touch ends outside pad or is cancelled | `pointermove` outside rects, `pointercancel`, `pointerleave` | other pads stay pressed | automatic | none | pad pressed state clears | none | release that pointer's control | UT-07-16, UT-07-17 |
 | pointerup never arrives | 10-track cap or blur | other tracks | automatic | none | none | none | drop oldest track | UT-07-19 |
-| gamepad disconnects mid-performance | `gamepaddisconnected` or null slot in `poll` | keyboard and pointer | re-plug | none | HUD input status (M-26 polls `devices()`) | continue with other sources | release gamepad-owned controls | UT-07-21 |
+| gamepad disconnects mid-performance | `gamepaddisconnected` or null slot in `pollGamepad` | keyboard and pointer | re-plug | none | HUD input status (M-26 polls `devices()`) | continue with other sources | release gamepad-owned controls | UT-07-21 |
 | Web MIDI unsupported or insecure context | `enableMidi()` checks | everything else | no | none | Settings toggle shows E-INP-001 text | play without MIDI | toggle stays off | UT-07-23 |
 | MIDI permission denied | promise rejection | everything else | user may retry | none | E-INP-002 toast | play without MIDI | toggle stays off | UT-07-24 |
 | AudioContext not running (no anchor) | `perfToAudio` returns null | lifecycle still tracked | automatic when audio resumes | none | DLG-ResumeAudio is shown by M-28 on `audio.state` | menu-only input | ring refills within 20 samples (<= 500 ms) | UT-07-09 |
-| anchor spread grows (clock divergence, E 2.2) | `anchorStats().spreadMs > 5` | events still timestamped | automatic | none | Diagnostics shows spread | none | median tolerates outliers | UT-07-10 |
-| stale or corrupt maps in settings | `setMaps` validation | defaults | n/a | none | `errors[]` shown once as a toast by M-27 | defaults | `resetMap()` | UT-07-26 |
-| `attach` called twice | assert | first attachment | n/a | none | ErrorReporter (recoverable) | n/a | `detach` then `attach` | UT-07-02 |
+| anchor spread grows (clock divergence, E 2.2) | `anchor().spreadMs > 5` | events still timestamped | automatic | none | Diagnostics shows spread | none | median tolerates outliers | UT-07-10 |
+| stale or corrupt maps in settings | `setMap` validation | defaults | n/a | none | `errors[]` shown once as a toast by M-27 | defaults | `resetMap()` | UT-07-26 |
+| `init` called twice | assert | first attachment | n/a | none | ErrorReporter (recoverable) | n/a | `detach` then `init` | UT-07-02 |
 | text field focused during gameplay | `activeElement` check | none affected | n/a | none | n/a | keys go to the field | blur field (UI closes text entry on play) | UT-07-15 |
 
 #### 6.7.6 Limits and performance notes
@@ -372,7 +379,7 @@ I. Context switch: `setContext(ctx)` sets the current context, refreshes pad rec
 - Gamepad poll once per frame; only the first connected pad is read.
 - Added processing between the browser event and `input.event` emission <= 1 frame (BRIEF 6);
   it is synchronous within the handler.
-- No listener is added per screen; all listeners are installed once in `attach` and removed in
+- No listener is added per screen; all listeners are installed once in `init` and removed in
   `detach`; `listenerCount()` is part of `assertClean()`.
 
 #### 6.7.7 Spec coverage
@@ -386,44 +393,44 @@ lifecycle), P 5.1 (all 11 lines), P 14 (simultaneous touches, cancellation), P 1
 
 #### 6.7.8 Unit tests
 
-Setup common to all: `attach({keyboardTarget: window, padRoot: #touch (4 pads laid out by the
+Setup common to all: `init({keyboardTarget: window, padRoot: #touch (4 pads laid out by the
 test), surface: #view})`, context `instrument` unless stated, `FLM.Audio` replaced by the
 SelfTest fake context (`state:'running'`, `currentTime` driven by the fake clock, no
 `getOutputTimestamp`), a recorder listener on `input.event`.
 
 | ID | Name | Setup | Assertion |
 |---|---|---|---|
-| UT-07-01 | default maps match BRIEF 7 | `defaultMaps()` | lanes `KeyA KeyS KeyK KeyL`; dance arrows plus `KeyD KeyF KeyJ KeyK`; pause `Escape`; panic `KeyP` and `Space` under `panicWhilePaused`; octave `KeyQ`/`KeyE`; profiles `Digit1..6` |
-| UT-07-02 | attach is idempotent-guarded | `attach` twice | second call reports via ErrorReporter (recoverable), `listenerCount()` unchanged |
-| UT-07-03 | detach removes all listeners | attach, detach | `listenerCount() === 0`; a synthesized keydown emits nothing |
-| UT-07-04 | keydown press lifecycle | `_synth.key('KeyA', true, 1000)` | one event `{source:'keyboard', control:'lane0', type:'press', tPerf:1000}`; `State.isHeld('lane0')` |
-| UT-07-05 | keyup release | press then `_synth.key('KeyA', false, 1100)` | one release event; `held()` empty |
+| UT-07-01 | default maps match BRIEF 7 | `DEFAULT_MAPS` | lanes `KeyA KeyS KeyK KeyL`; dance arrows plus `KeyD KeyF KeyJ KeyK`; pause `Escape`; panic `KeyP` and `Space` under `panicWhilePaused`; octave `KeyQ`/`KeyE`; profiles `Digit1..6` |
+| UT-07-02 | init is idempotent-guarded | `init` twice | second call reports via ErrorReporter (recoverable), `listenerCount()` unchanged |
+| UT-07-03 | detach removes all listeners | init, detach | `listenerCount() === 0`; a synthesized keydown emits nothing |
+| UT-07-04 | keydown press lifecycle | `synthesize.key('KeyA', true, 1000)` | one event `{source:'keyboard', control:'lane0', type:'press', tPerf:1000}`; `State.isHeld('lane0')` |
+| UT-07-05 | keyup release | press then `synthesize.key('KeyA', false, 1100)` | one release event; `held()` empty |
 | UT-07-06 | event.repeat ignored | press, then key with `mods.repeat=true` x5 | exactly one press event |
 | UT-07-07 | duplicate keydown ignored | two keydowns without keyup | one press event |
 | UT-07-08 | second owner cannot release | keyboard presses lane0, pointer down on pad 0, pointer up | lane0 still held; exactly one press and zero releases emitted |
 | UT-07-09 | tAudio null before anchor | fake context `state:'suspended'`, key press | `tAudio === null`, event still emitted |
-| UT-07-10 | anchor median rejects outliers | feed 19 samples with offset 1.000 and 1 with 3.000 via `poll` and fake clock | `anchorStats().offsetSec` within 1e-9 of 1.000; `spreadMs` 2000 |
-| UT-07-11 | perfToAudio mapping | fake context currentTime 5.0 at performance.now 2000 ms; `poll(2000)`; `perfToAudio(2500)` | 5.5 +/- 1e-6 |
-| UT-07-12 | blur releases all with source system | hold lane0 and lane2, `_synth.blur()` | two release events `source:'system'`, order lane0 then lane2 |
-| UT-07-13 | visibilitychange hidden and pagehide release all | hold lane1; `_synth.hidden()`; hold again; `_synth.pagehide()` | release emitted in both cases; `held()` empty |
+| UT-07-10 | anchor median rejects outliers | feed 19 samples with offset 1.000 and 1 with 3.000 via `pollGamepad` and fake clock | `anchor().offsetSec` within 1e-9 of 1.000; `spreadMs` 2000 |
+| UT-07-11 | perfToAudio mapping | fake context currentTime 5.0 at performance.now 2000 ms; `pollGamepad(2000)`; `perfToAudio(2500)` | 5.5 +/- 1e-6 |
+| UT-07-12 | blur releases all with source system | hold lane0 and lane2, `synthesize.blur()` | two release events `source:'system'`, order lane0 then lane2 |
+| UT-07-13 | visibilitychange hidden and pagehide release all | hold lane1; `synthesize.hidden()`; hold again; `synthesize.pagehide()` | release emitted in both cases; `held()` empty |
 | UT-07-14 | modifier combos pass through | key `KeyA` with `mods.ctrlKey` | no event; `preventDefault` not called |
 | UT-07-15 | text field focus blocks gameplay keys | focus an `<input>`, key `KeyA`; then `Escape` | no lane event; `pause` press emitted |
-| UT-07-16 | pointer down/up on pad | `_synth.pointer(1,'down',cx0,cy0,0.5,...)`, `'up'` | press and release of `lane0`, `source:'pointer'`, `pressure 0.5` |
+| UT-07-16 | pointer down/up on pad | `synthesize.pointer(1,'down',cx0,cy0,0.5,...)`, `'up'` | press and release of `lane0`, `source:'pointer'`, `pressure 0.5` |
 | UT-07-17 | drag between pads | down on pad 0, move to pad 1 coordinates, up | events: press lane0, release lane0, press lane1, release lane1 |
 | UT-07-18 | move outside all pads releases | down on pad 2, move to (-10,-10) | release lane2; `held()` empty; moving back in presses again |
 | UT-07-19 | pointercancel and pointer cap | down on pad 3 then `'cancel'`; then 11 distinct pointer downs | release emitted; after the 11th, oldest released, `Log` has `INP_PTR_CAP` |
 | UT-07-20 | four simultaneous pointers | downs with ids 1-4 on pads 0-3 | `held()` equals `['lane0','lane1','lane2','lane3']` |
-| UT-07-21 | gamepad edge detection and disconnect | `_synth.gamepad({index:0,buttons:[b0 pressed]})`, `poll`; same again; `_synth.gamepad(null)`, `poll` | one press lane0; no duplicate on second poll; release with source `system` after null |
+| UT-07-21 | gamepad edge detection and disconnect | `synthesize.gamepad({index:0,buttons:[b0 pressed]})`, `pollGamepad`; same again; `synthesize.gamepad(null)`, `pollGamepad` | one press lane0; no duplicate on second poll; release with source `system` after null |
 | UT-07-22 | gamepad dance context mapping | context dance; button 12 pressed | press `dance2` |
 | UT-07-23 | enableMidi without support | `navigator.requestMIDIAccess` undefined (fake) | resolves `{ok:false, code:'E-INP-001'}` |
-| UT-07-24 | MIDI note mapping and pass-through | fake access; `_synth.midi([0x90,60,100])`, `[0x80,60,0]`, pass-through on then `[0x90,61,64]` | press/release `lane0` with pressure 100/127; press `midi:61` |
+| UT-07-24 | MIDI note mapping and pass-through | fake access; `synthesize.midi([0x90,60,100])`, `[0x80,60,0]`, pass-through on then `[0x90,61,64]` | press/release `lane0` with pressure 100/127; press `midi:61` |
 | UT-07-25 | MIDI sustain CC | `[0xB0,64,127]` then `[0xB0,64,0]` | press then release `sustain`, source `midi` |
 | UT-07-26 | remap conflict detection | `remap('instrument','lane1','KeyA')` | `{ok:false, conflict:{context:'instrument', control:'lane0', code:'KeyA'}}`; `remap('dance','dance0','KeyK')` returns `{ok:true}` (per-context) |
-| UT-07-27 | remap replaces after unbind, min one code | `unbind('instrument','lane0','KeyA')` (last code) | returns false; after `remap('instrument','lane0','KeyZ')`, unbind of `KeyA` returns true and `KeyZ` presses lane0 |
-| UT-07-28 | setMaps tolerates corrupt data | `setMaps({keyboard:{instrument:{lane0:['Key A!'], bogus:['KeyB']}}})` | `ok:false`, `errors.length >= 2`, lane0 keeps default `KeyA` |
-| UT-07-29 | setContext releases non-live controls | hold lane0 and pause; `setContext('dance')` | release lane0 (source system); pause still held |
+| UT-07-27 | remap replaces after unmap, min one code | `unmap('instrument','lane0','KeyA')` (last code) | returns false; after `remap('instrument','lane0','KeyZ')`, unmap of `KeyA` returns true and `KeyZ` presses lane0 |
+| UT-07-28 | setMap tolerates corrupt data | `setMap({keyboard:{instrument:{lane0:['Key A!'], bogus:['KeyB']}}})` | `ok:false`, `errors.length >= 2`, lane0 keeps default `KeyA` |
+| UT-07-29 | bind releases non-live controls | hold lane0 and pause; `bind({owner, context:'dance'})` | release lane0 (source system); pause still held |
 | UT-07-30 | Space is panic only while paused | Transport fake state `playing`: `Space` -> nothing; state `paused`: `Space` -> `panic` press | as stated |
-| UT-07-31 | timestamp sanity fallback | `_synth.key` with `tPerf` = epoch ms (1.7e12) | emitted `tPerf` within 50 ms of `performance.now()` |
+| UT-07-31 | timestamp sanity fallback | `synthesize.key` with `tPerf` = epoch ms (1.7e12) | emitted `tPerf` within 50 ms of `performance.now()` |
 | UT-07-32 | calibration clamp and non-application | `setCalibration({inputOffsetMs:900, audioLatencyMs:-900, visualLeadMs:100})`; press | stored `500, -500, 600`; event `tAudio` equals `perfToAudio(tPerf)` exactly (no offset applied) |
 
 #### 6.7.9 Implementation notes and browser quirks
@@ -474,7 +481,6 @@ FLM.Core.define('Mapping', function (Core, Theory, Model, Transport, Audio, Inst
   return {
     PROFILES: ['A','B','C','D','E','F'],
     DIFFICULTIES: ['beginner','intermediate','advanced','expert'],
-    GENERATOR_VERSION: 1,
 
     /** Live mapper for Free Play / Studio / Instrument-mode hits.
      *  ctx: { profile:'A'..'F', key:{tonic:0..11, mode:'major'|'minor'}, scale:string (Theory id,
@@ -496,6 +502,11 @@ FLM.Core.define('Mapping', function (Core, Theory, Model, Transport, Audio, Inst
       /** Deterministic. @returns {Chart} (with stats). Throws Error with .code 'E-INP-010'
        *  (unknown track), 'E-INP-011' (bad difficulty/profile/options). */
       generate(song, trackId, difficulty, profile, options) {},
+      /** Same result as generate(), returned as a Promise; yields to the event loop (setTimeout 0)
+       *  every 20,000 source events (Part 4.7.1 step 7). */
+      generateAsync(song, trackId, difficulty, profile, options) {},
+      /** Generator algorithm version (written to every chart and to settingsHash). */
+      VERSION: 1,
       /** Per-difficulty report for the inspection screen (I 6.1 "needs simplification"). */
       simplificationReport(song, trackId, profile) {},
       /** Preview rows for SCR-ImportInspect: lanes x bars. */
@@ -772,7 +783,7 @@ Steps:
    `isHold` against `holdMinTicks`.
 10. Lanes are sorted ascending and unique per note; notes sorted by tick; two kept notes
     never share a tick (groups are spaced by minSpacing >= 240 > tolerance).
-11. `settingsHash = Core.fnv1a32(difficulty + '|' + profile + '|' + GENERATOR_VERSION + '|' +
+11. `settingsHash = Core.fnv1a32(difficulty + '|' + profile + '|' + ChartGenerator.VERSION + '|' +
     trackId + '|' + sourceNoteCount)` rendered as 8 lowercase hex characters (Part 5.9).
     `Chart.id = 'chart-' + settingsHash + '-' + trackId`.
 12. `stats = { sourceNoteCount, groupCount, keptCount, omittedSourceEventIds: number of source
@@ -972,10 +983,11 @@ FLM.Core.define('Rhythm', function (Core, Model, Transport, Input) {
     /** Symmetric rounding used everywhere: sign(x) * round(abs(x)). */
     roundMs(x) {},
 
-    /** @returns {Judge} */
-    createJudge(opts) {},   // opts: { timeMap?: {audioTimeAt(tick), tickAt(audioTime)} (default FLM.Transport),
-                            //         strayPenalty?: 'none'|'combo' (default 'none'),
-                            //         windowsPreset?: 'standard'|'custom' }
+    /** Judge factory (Part 4.1 `Judge.bind`; Part 4.7.1 step 8 follows it with load(), setCalibration()
+     *  and attach()). @returns {Judge} */
+    Judge: { bind(opts) {} },   // opts: { timeMap?: {audioTimeAt(tick), tickAt(audioTime)} (default FLM.Transport),
+                                //         strayPenalty?: 'none'|'combo' (default 'none'),
+                                //         windowsPreset?: 'standard'|'custom' }
 
     /** Replay: judge an input log against a chart with a fixed time map; returns the final
      *  ScoreState and the list of JudgeResults. Deterministic. */
@@ -996,7 +1008,8 @@ Judge {
   setActive(on) : void,                             // false while paused/countin/stopped: inputs ignored, no misses declared
   onInput(evt) : JudgeResult|null,                  // see 6.9.4 B
   tick(audioNow) : JudgeResult[],                   // declares due misses and hold completions; see 6.9.4 D
-  restart() : void,                                 // clears all judged state, keeps chart/calibration/windows
+  restart() : void,                                 // clears all judged state, keeps chart/calibration/windows; re-arms finish()
+  finish(endedBy) : void,                           // 'end'|'user'|'fail'|'net': emits chart.finished once per bind (Part 4.4); called by M-28 and, for dance, by M-23
   state() : ScoreState,                             // copy
   summary(meta) : PerformanceSummary,               // meta: {songId, chartId, startedAt, durationSec}
   sections() : SectionStat[],
@@ -1022,8 +1035,9 @@ PerformanceSummary {
 ```
 
 Events emitted: `EVT-judge.result` (payload `JudgeResult`, one per head or tail judgment,
-including misses) and `EVT-score.update` (payload `ScoreState` copy, emitted after every
-change including strays). Events consumed: `EVT-input.event` when attached.
+including misses), `EVT-score.update` (payload `ScoreState` copy, emitted after every
+change including strays) and `EVT-chart.finished` (payload `{chartId, kind:'instrument', summary,
+endedBy}`, once per bind, from `finish(endedBy)`). Events consumed: `EVT-input.event` when attached.
 
 #### 6.9.3 Internal state
 
@@ -1124,7 +1138,7 @@ C. Holds:
    relDelta` (or null when caused by A.2), head judgment kept. Delete the hold. The HUD text
    for a tail miss is "Hold break" (M-26 reads `part:'tail'`).
 4. Pause: `setActive(false)` leaves holds untouched. On `setActive(true)` (resume), for each
-   hold: lanes in `lanesHeld` that are not in `Input.State.held()` are treated as released at
+   hold: lanes in `lanesHeld` that are not in `Input.held()` are treated as released at
    `tAdj = Transport.audioTimeAt(Transport.positionTick())` (the resume position), applying
    C.2. Lanes still physically held continue. (E 7 "hold begins before a pause and ends after
    resume".)
@@ -1152,7 +1166,7 @@ E. Scoring (integers only):
    (`100 * sum of multipliers`).
 5. Stray press: `stray++`, `lastStrayLane = lane`; if `strayPenalty === 'combo'`: `combo =
    max(0, combo - 1)`. No `judge.result`; emit `score.update` (the HUD flashes the pad).
-   `strayPenalty` is the setting `gameplay.strayPenalty` (Part 5.11, default `'none'`).
+   `strayPenalty` is `'combo'` when the setting `gameplay.strayPressPenalty` (Part 5.11, default false) is true, else `'none'`.
 6. `accuracy = judged === 0 ? 0 : pointsSum / (100 * judged)`; `completion = total === 0 ?
    0 : judged / total`. Display rounding (two decimals of percent) is done by the UI.
 
@@ -1182,7 +1196,7 @@ then `onInput(evt)`; finally `tick(lastEventT + 10)`. Returns `{state, results}`
 `results` must equal the replay `results` element by element (UT-09-27) - the primary
 determinism gate (I 2.4, B 9.4).
 
-I. Dance: M-23 calls `createJudge`, `load(danceChartAsChart, song, windowsFor(map[dance
+I. Dance: M-23 calls `Judge.bind`, `load(danceChartAsChart, song, windowsFor(map[dance
 difficulty]))` where `DanceStep` -> `ChartNote {id, tick, durTicks, lanes: directions,
 sourceEventIds: [], pitches: [], isHold}` and controls `dance0..3` map to lanes 0..3 through
 `laneOf`. Nothing else differs.
@@ -1233,7 +1247,7 @@ lines), P 5.3 (comparability flag), P 12 (holds and releases judged consistently
 
 #### 6.9.8 Unit tests
 
-Setup common to all: `judge = createJudge({timeMap: fixed 120 BPM map (tick t -> t/1920 s),
+Setup common to all: `judge = Judge.bind({timeMap: fixed 120 BPM map (tick t -> t/1920 s),
 ...})`, `load(chart, song, 'beginner')` unless stated, `setCalibration({inputOffsetMs:0,
 audioLatencyMs:0})`, `setActive(true)`. `press(lane, tMs)` and `release(lane, tMs)` build
 InputEvents with `tAudio = tMs/1000`. Chart fixtures: `single(lane, tick)`, `chord(lanes,
@@ -1259,11 +1273,11 @@ tick)`, `hold(lane, tick, dur)`, built by `FLM.SelfTest.fixtures.chart([...])` w
 | UT-09-15 | chord lane beyond 50 ms tolerance | press 0 at 990, press 2 at 1050 | second press is a stray; `tick(1.2)` -> chord miss |
 | UT-09-16 | chord missing lane after window | press 0 at 1000 only; `tick(1.2)` | miss; stray count 0 |
 | UT-09-17 | hold tail judged on release | hold lane1 tick 0 dur 1920 (1 s); press at 0; release at 1030 | head perfect; tail `part:'tail'` perfect (delta 30 <= 45) |
-| UT-09-18 | hold through a pause | hold 2 s; press at 0; `setActive(false)` at 500; `setActive(true)` with `Input.State.held()` fake containing lane | no break; `tick(3.0)` auto-completes tail perfect |
+| UT-09-18 | hold through a pause | hold 2 s; press at 0; `setActive(false)` at 500; `setActive(true)` with `Input.held()` fake containing lane | no break; `tick(3.0)` auto-completes tail perfect |
 | UT-09-19 | early release = hold break, head kept | release at 400 (end 1000, good 135) | tail miss; head result unchanged; `holdBreaks === 1`; combo 0 |
 | UT-09-20 | stall does not reorder | notes at 1000 (A) and 1200 (B); no tick until press on B at 1190 | results order: A miss (declared at onInput), then B hit; score identical to a run with `tick` every 10 ms |
 | UT-09-21 | inactive ignores inputs | `setActive(false)`; press | returns null; `stray === 0`; log entry flagged ignored |
-| UT-09-22 | stray penalty option | `createJudge({strayPenalty:'combo'})`; 3 hits then a stray | combo 2; `lastStrayLane` set; `summary().comparable === false` |
+| UT-09-22 | stray penalty option | `Judge.bind({strayPenalty:'combo'})`; 3 hits then a stray | combo 2; `lastStrayLane` set; `summary().comparable === false` |
 | UT-09-23 | calibration applied once | `setCalibration({inputOffsetMs:30, audioLatencyMs:20})`; note at 1000; press at 1050 | `deltaMs === 0` (perfect); no other module changed the event (`evt.tAudio` still 1.050) |
 | UT-09-24 | custom windows refuse narrower | `setWindows({perfect:10, great:40, good:70}, 'custom')` on expert | throws E-INP-011; widened windows accepted and `comparable === false` |
 | UT-09-25 | input without tAudio | press with `tAudio:null` | null; Log has RHY_NO_TAUDIO once |

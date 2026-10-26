@@ -159,11 +159,11 @@ mismatch.
 
 | Item | Decision |
 |---|---|
-| Picker call | `FLM.Storage.files.pick({accept, multiple:false})` (Part 6.16) from SCR-ImportInspect "Choose file"; drag and drop through `Storage.files.enableDrop` on the screen's drop zone; one file per import (a multi-file drop imports the first file and shows the toast "One file at a time; imported '<name>'.") |
+| Picker call | `FLM.Storage.pickFile({accept, multiple:false})` (Part 6.16) from SCR-ImportInspect "Choose file"; drag and drop through `Storage.enableDrop` on the screen's drop zone; one file per import (a multi-file drop imports the first file and shows the toast "One file at a time; imported '<name>'.") |
 | `accept` value | `.mid,.midi,.smf,.kar,.musicxml,.xml,.mxl,.gp3,.gp4,.gp5,.wav,.mp3,.ogg,.oga,.opus,.flac,.m4a,.aac,audio/midi,audio/x-midi,application/vnd.recordare.musicxml+xml,application/vnd.recordare.musicxml,audio/*` (omitted on iOS, D20) |
 | Hint text under the button (P 11 "the file picker clearly identifies accepted formats") | "MIDI (.mid), MusicXML (.musicxml, .xml, .mxl), Guitar Pro 3-5 (.gp3, .gp4, .gp5), or audio (.wav, .mp3, .ogg, .flac, .m4a) as a backing track. Up to 25 MB (audio 100 MB)." |
 | Second line of the hint | "Guitar Pro 6 and 7 files (.gpx, .gp) are not supported. Audio files never become playable notes." |
-| Size check | `Storage.files.read(file, {as:'arrayBuffer', maxBytes})` with `maxBytes` 25 MB or 100 MB by extension; the pipeline repeats the check in `validateFile` |
+| Size check | `Storage.readFile(file, {as:'arrayBuffer', maxBytes})` with `maxBytes` 25 MB or 100 MB by extension; the pipeline repeats the check in `validateFile` |
 | Project and dance files | not accepted here; they are opened from SCR-Library ("Open project file", `.flm.json`) and SCR-Dance ("Custom chart", `.flmdance.json`); dropping one onto SCR-ImportInspect yields the row 10 or 11 message |
 
 ### 8.3 MIDI preservation (Standard MIDI File)
@@ -1207,17 +1207,15 @@ current project), stops a running preview (`Scheduler.unbind`), cancels a runnin
 
 #### 8.11.1 Export table
 
-All exports are pure functions from model to bytes, delivered by `Storage.files.download`
+All exports are pure functions from model to bytes, delivered by `Storage.download`
 (Part 6.16) with the file-name rule of Part 5.14; none mutates the project, and a failed
 export never changes stored data (I 13 "safe handling of failed exports"). Round-trip tests
-are the FT subgroup `files.roundtrip`. Where Part 5.14 and Part 6 name a reader differently,
-the Part 6 name is used: `Midi.parse` (Part 5.14 "Midi.read") and `Project.parse` (Part 5.14
-"Project.load").
+are the FT subgroup `files.roundtrip`. The readers are `Midi.parse` and `Project.deserialize` (Part 4.1).
 
 | Format (suffix) | Schema reference | Producer, reader | Where offered | Round-trip test (`files.roundtrip.*`) | What is lossy |
 |---|---|---|---|---|---|
 | Standard MIDI File (`.mid`) | Part 5.14.1 writer rules and round-trip table | `Midi.write(song, {tempoOverride})`, `Midi.parse` | SCR-Studio Export (whole song); Studio track menu "Export track as MIDI" (a one-track song); SCR-FreePlay after a recording "Export take as MIDI"; SCR-Results "Export my performance" (the hit notes of the run, 8.11.3) | `mid-corpus`: import `midi-poly-chords.mid`, `midi-multitrack-band.mid`, `midi-meter-key-changes.mid`, `midi-controllers.mid`, `midi-text-markers.mid`, `gp5-basic.gp5`, `xml-expression.musicxml`; `write`; `parse`; compare per the 5.14.1 table (notes tick, durTicks, pitch, velocity, offVelocity, channel; CC, program, bend, text; tempo, meter, key maps; markers; track names, order, programs, `isDrums`; title; artist) after stripping ids. `mid-take`: record a 64-note take in a fake-clock Studio session, export, re-import, equal. `mid-fixpoint`: with `w1 = write(song)`, `w2 = write(parse(w1))`, `w3 = write(parse(w2))`, `w2` and `w3` are byte-equal for every song above (the first generation may differ only by trailing silence, D11 and Part 6.10.9) | note ids, track colors, visibility, mixer (`mix` gain, pan, mute, solo), `lockedSource`, `derived`, `SourceInfo` and warnings, charts, dance charts, characters, settings, recordings, audio tracks (W-EXP-AUDIO-SKIPPED), `x` data (articulation and tab flags), trailing silence after the last event; with `tempoOverride` the song's tempo map is replaced by one tempo (the dialog says so) |
-| Project (`.flm.json`) | Part 5.5 schema `flm-project` v1 | `Project.serialize`, `Project.parse` | SCR-Studio Export; SCR-Library item menu "Export project file"; DLG-SaveFailed and DLG-ProjectTooLarge "Export" | `project-cycle`: for a project built from `midi-multitrack-band.mid` plus 2 recorded takes, 3 characters, 1 dance chart, mixer and settings changes and an unknown field under `x`: `serialize` -> `parse` -> `serialize` is byte-equal and the projects are deep-equal; 10 save and load cycles through `Storage` with `FakeIndexedDB` stay byte-equal (P 16); unknown fields survive in `x` | the undo history (`history` is `{}` on disk), decoded audio buffers (metadata only), aborted takes, generated charts in checkpoints (regenerated) |
+| Project (`.flm.json`) | Part 5.5 schema `flm-project` v1 | `Project.serialize`, `Project.deserialize` | SCR-Studio Export; SCR-Library item menu "Export project file"; DLG-SaveFailed and DLG-ProjectTooLarge "Export" | `project-cycle`: for a project built from `midi-multitrack-band.mid` plus 2 recorded takes, 3 characters, 1 dance chart, mixer and settings changes and an unknown field under `x`: `serialize` -> `deserialize` -> `serialize` is byte-equal and the projects are deep-equal; 10 save and load cycles through `Storage` with `FakeIndexedDB` stay byte-equal (P 16); unknown fields survive in `x` | the undo history (`history` is `{}` on disk), decoded audio buffers (metadata only), aborted takes, generated charts in checkpoints (regenerated) |
 | Dance chart (`.flmdance.json`) | Part 5.14.2 `flm-dance` v1, `danceChart` definition of 5.5 | `Dance.exportChart(chart, song)`, `Dance.importChart` | SCR-Dance chart menu "Export chart" | `dance-cycle`: export the `normal` chart of built-in song 5, import, steps deep-equal; importing onto a different song shows the Part 5.14.2 notice and keeps the steps | generated charts become `source:'imported'` on re-import (never regenerated) |
 | Character (`.flmchar.json`) | Part 5.10 `CharacterPreset` (`flm-character` v1) | `Character.exportPreset(config)`, `Character.importPreset` | SCR-Characters "Download preset" | `character-cycle`: every built-in preset exported and imported, appearance fields deep-equal; `id`, `slot`, `instrument` are not part of a preset | `id`, `slot`, `instrument` (by design) |
 | Settings backup (`.flmsettings.json`) | Part 5.14.2 `flm-settings` v1 | `Settings.export()`, `Settings.import` | SCR-Settings "Back up settings" and "Restore settings" (DLG-ImportSettings confirms) | `settings-cycle`: non-default values in every group exported and imported, deep-equal after normalization | none (out-of-range values are normalized on import, W-SET-NORMALIZED) |
@@ -1233,7 +1231,7 @@ the Part 6 name is used: `Midi.parse` (Part 5.14 "Midi.read") and `Project.parse
 | Notices shown before a MIDI export | "Mixer settings are not part of MIDI." always; "Audio tracks are not included." when the song has audio tracks (W-EXP-AUDIO-SKIPPED); "The tempo you set in the Studio replaces the song's tempo changes." when `tempoOverride` is set; channel remaps (W-EXP-CHANNEL-REMAPPED) listed by track |
 | Progress | MIDI and project exports are synchronous (budget 200 ms for 100,000 events, Part 9); WAV shows an indeterminate "Rendering..." state (OfflineAudioContext reports no progress) and is cancellable by closing the dialog |
 | Failure | writer errors E-EXP-001 ("There are no MIDI tracks to export."), E-EXP-002 ("A MIDI delta time exceeds the maximum encodable value."), E-EXP-003 (WAV length cap) and a download `method:'none'` result (Part 6.16 texts) show the text in the dialog with "Try again"; the project is untouched |
-| Success message | "Downloaded '<file name>'." only after `Storage.files.download` resolved with `method` `anchor` or `dataUrl`; the browser's own download completion cannot be observed, so the text never says "saved" |
+| Success message | "Downloaded '<file name>'." only after `Storage.download` resolved with `method` `anchor` or `dataUrl`; the browser's own download completion cannot be observed, so the text never says "saved" |
 
 #### 8.11.3 MIDI performance exports (B 15.6 "Exporting MIDI performances")
 

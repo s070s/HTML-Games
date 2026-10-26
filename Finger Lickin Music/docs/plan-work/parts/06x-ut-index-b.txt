@@ -1,5 +1,5 @@
 ﻿UT-07-01 | M-07 | default maps match BRIEF 7
-UT-07-02 | M-07 | attach is idempotent-guarded
+UT-07-02 | M-07 | init is idempotent-guarded
 UT-07-03 | M-07 | detach removes all listeners
 UT-07-04 | M-07 | keydown press lifecycle
 UT-07-05 | M-07 | keyup release
@@ -24,9 +24,9 @@ UT-07-23 | M-07 | enableMidi without support
 UT-07-24 | M-07 | MIDI note mapping and pass-through
 UT-07-25 | M-07 | MIDI sustain CC
 UT-07-26 | M-07 | remap conflict detection
-UT-07-27 | M-07 | remap replaces after unbind, min one code
-UT-07-28 | M-07 | setMaps tolerates corrupt data
-UT-07-29 | M-07 | setContext releases non-live controls
+UT-07-27 | M-07 | remap replaces after unmap, min one code
+UT-07-28 | M-07 | setMap tolerates corrupt data
+UT-07-29 | M-07 | bind releases non-live controls
 UT-07-30 | M-07 | Space is panic only while paused
 UT-07-31 | M-07 | timestamp sanity fallback
 UT-07-32 | M-07 | calibration clamp and non-application

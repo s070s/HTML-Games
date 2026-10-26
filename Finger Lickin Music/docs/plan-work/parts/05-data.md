@@ -26,7 +26,7 @@ Conventions used in the field tables:
 
 | field | type | range/units | default | invariant |
 |---|---|---|---|---|
-| id | id | 1-64 chars | `uid('song')` | unique within a Project and within the library index; built-in songs use fixed ids `builtin-01` .. `builtin-05` |
+| id | id | 1-64 chars | `uid('song')` | unique within a Project and within the library index; built-in songs use the fixed ids `demo-poprock`, `demo-piano`, `demo-electro`, `demo-jazz`, `demo-dance` (Part 1.7) |
 | title | string | 1-120 chars, trimmed | `"Untitled"` | never empty after normalization (empty input becomes the default) |
 | artist | string | 0-120 chars, trimmed | `""` | none |
 | source | SourceInfo | see below | `{format:'empty'}` | `format` is one of the enum values |
@@ -779,7 +779,7 @@ Example document (a one-track Studio project with one recorded note; charts omit
 
 ### 5.6 Project validation rules and error codes
 
-`Project.load(text or object) -> {ok:true, project, warnings} or {ok:false, error:{code,
+`Project.deserialize(text or object) -> {ok:true, project, warnings} or {ok:false, error:{code,
 message, detail}}` runs these steps in order; the first failing fatal step stops the load.
 Repairable findings produce warnings (`W-PRJ-*`) and continue.
 
@@ -826,7 +826,7 @@ UI shows `message`, and the Diagnostics screen additionally shows `detail`):
 | E-PRJ-012 | "The project could not be upgraded from format version {from} to version 1: {detail}." | recoverable |
 
 Every failed load leaves the currently open project untouched (E 11: "File-import failure
-must not corrupt the current project"). `Project.load` never mutates its input object; it
+must not corrupt the current project"). `Project.deserialize` never mutates its input object; it
 works on a deep clone.
 
 ### 5.7 Migration framework
@@ -839,7 +839,7 @@ const MIGRATIONS = {
   // none for version 1; the first future entry will be MIGRATIONS[1] producing version 2
 };
 function migrate(doc) {
-  // doc is already a deep clone of the stored record (Project.load clones before step 6)
+  // doc is already a deep clone of the stored record (Project.deserialize clones before step 6)
   const applied = [];
   let cur = doc;
   while ((cur.version | 0) < CURRENT_VERSION) {
@@ -1010,7 +1010,7 @@ Serialized size cap: a CharacterConfig must serialize to <= 4,096 bytes (invaria
 by `Character.validate`; names and colors are the only variable-length fields so the cap
 cannot be exceeded by valid data; the check guards future options and multiplayer input).
 
-Options catalog (`FLM.Character.CATALOG`, data in `src/22-character.js`; the full list of
+Options catalog (`FLM.Character.OPTIONS`, data in `src/22-character.js`; the full list of
 entries is in Part 6 M-22):
 
 ```js
@@ -1065,6 +1065,8 @@ comparable, `NO` = results are flagged `comparable:false` (5.13), `n/a` = not ga
 | input.padSize | string | `small` (56 px), `medium` (72 px), `large` (88 px) minimum pad height | `medium` | same | yes |
 | input.padOpacity | float | 0.3-1 | 0.75 | same | yes |
 | input.gamepadEnabled | bool | | true | same | yes |
+| input.touchApi | string | `auto`, `pointer`, `touch` (Part 2.19 OQ-1 fallback switch) | `auto` | SCR-Settings Controls | yes |
+| input.padsVisible | string | `auto` (pads shown when the device reports touch points), `always`, `never` | `auto` | SCR-Settings Controls | yes |
 | input.midiEnabled | bool | effective only in a secure context with Web MIDI | false | same (disabled with reason otherwise) | yes |
 | input.midiLaneNotes | int[4] | 0-127 distinct | `[60,62,64,65]` | same | yes |
 | input.chordWindowMs | int | 10-60 | 30 | SCR-Settings Advanced | yes |
@@ -1106,16 +1108,18 @@ comparable, `NO` = results are flagged `comparable:false` (5.13), `n/a` = not ga
 | diagnostics.overlay | bool | | false | SCR-Diagnostics | n/a |
 | diagnostics.logLevel | string | `info`, `debug` | `info` | same | n/a |
 | diagnostics.selfTestLastRun | ISO or null | test build only | null | same | n/a |
+| settings.userScales | object[] | up to 64 `{id:string, name:string 1-24 chars, intervals:int[] 0..11 ascending, 0 included}`; the 65th is refused, built-in ids cannot be replaced (Part 6.2) | `[]` | SCR-FreePlay `fp-scale-editor` | n/a |
 
 Rules:
 
-- `Settings.load()` deep-merges the stored document over the defaults, then clamps every
+- `Storage.loadSettings()` (M-16) reads the stored document and emits `settings.changed` with
+  `source:'load'`; `Settings.load()` (M-27) deep-merges it over the defaults, then clamps every
   numeric value to its range and replaces every invalid enum value with the default,
   recording warning `W-SET-NORMALIZED` once (P 19: invalid settings are normalized
   predictably). Unknown keys are preserved under `x` like projects.
-- `Settings.set(path, value)` validates, writes, emits `settings.changed` with
-  `{path, value, previous}` and schedules a persisted write (debounced 250 ms; the write is
-  immediate for `onboarding.*`).
+- `Settings.set(path, value)` (M-27) validates and normalizes, then calls `Storage.saveSettings`
+  (M-16), which emits `settings.changed` with `{key, value, prev, source}` and persists the
+  document (debounced 250 ms; the write is immediate for `onboarding.*`).
 - Playback speed (`Transport.speed`) is per session, not a setting; a song-mode result with
   speed != 1.0 is `comparable:false`.
 - A settings backup (`.flmsettings.json`, 5.14) contains the whole document including
@@ -1219,8 +1223,8 @@ a round-trip test in Part 12 (FT group) where a reader exists.
 
 | Export | Suffix | Producer | Reader (round trip) |
 |---|---|---|---|
-| Standard MIDI File | `.mid` | `Midi.write(song, options)` | `Midi.read` (FT) |
-| Project | `.flm.json` | `Project.serialize(project)` (5.5 document, pretty-printed with 1-space indent to keep size down while staying diffable) | `Project.load` (FT) |
+| Standard MIDI File | `.mid` | `Midi.write(song, options)` | `Midi.parse` (FT) |
+| Project | `.flm.json` | `Project.serialize(project)` (5.5 document, pretty-printed with 1-space indent to keep size down while staying diffable) | `Project.deserialize` (FT) |
 | Dance chart | `.flmdance.json` | `Dance.exportChart(chart, song)` | `Dance.importChart` (FT) |
 | Character | `.flmchar.json` | `Character.exportPreset(config)` | `Character.importPreset` (FT) |
 | Settings backup | `.flmsettings.json` | `Settings.export()` | `Settings.import` (FT) |
@@ -1268,7 +1272,7 @@ a round-trip test in Part 12 (FT group) where a reader exists.
     produced them are exported, so a compliant player reproduces the sustain (round-trip
     preserves the source, not the derivation).
 
-Round-trip table (export then re-import with `Midi.read`):
+Round-trip table (export then re-import with `Midi.parse`):
 
 | Model data | Preserved | Notes |
 |---|---|---|
@@ -1354,7 +1358,10 @@ previous value at `<key>.bak`):
 | `flm.v1.progress.bests` | `{version:1, bests:{key: PersonalBest}}` | 128 KB | Progress |
 | `flm.v1.progress.unlocks` | UnlockState | 16 KB | Progress |
 | `flm.v1.progress.daily` | DailyChallenge | 4 KB | Progress |
-| `flm.v1.lock` | `{tabId, projectId, since: ISO}` concurrent-tab guard (Part 6 M-16) | 1 KB | Storage |
+| `flm.v1.lock.<id>` | `{tabId, ts}` concurrent-tab guard, one key per open project (Part 6 M-16) | 128 B | Storage |
+| `flm.v1.recovery` | `{projectId, savedAt, text}` the unsaved project written synchronously at a `reload`-class failure or on `pagehide` (Part 4.9) | 2 MB | Storage, Boot |
+| `flm.v1.ckpt.<id>.<slot>` | checkpoint document, mode `localOnly` only (Part 6 M-16) | 512 KB | Storage |
+| `flm.v1.probe` | transient `"1"` written and removed by the storage probe at open | 1 B | Storage |
 | `flm.v1.lastSession` | `{mode, projectId, songId, at: ISO}` for the "Continue" entry of SCR-MainMenu | 1 KB | Modes |
 
 `ProjectIndexEntry`: `{id, name, modifiedAt, sizeBytes, trackCount, durationTicks,

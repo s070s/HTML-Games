@@ -1,7 +1,7 @@
 ﻿UT-15-01 | M-15 | create defaults
 UT-15-02 | M-15 | fromSong locks tracks
 UT-15-03 | M-15 | serialize field order and history
-UT-15-04 | M-15 | serialize/parse round trip
+UT-15-04 | M-15 | serialize/deserialize round trip
 UT-15-05 | M-15 | addTrack limit
 UT-15-06 | M-15 | addTrack channel assignment
 UT-15-07 | M-15 | deleteTrack cascades and undo restores
@@ -49,7 +49,7 @@ UT-16-18 | M-16 | checkpoint sink ring behavior
 UT-16-19 | M-16 | download fallback selection
 UT-16-20 | M-16 | file read pre-check
 UT-16-21 | M-16 | delete removes everything
-UT-16-22 | M-16 | kv get with damaged value
+UT-16-22 | M-16 | get with damaged value
 UT-16-23 | M-16 | quota warning
 UT-16-24 | M-16 | counters clean after release
 UT-16-25 | M-16 | idb-only combination
@@ -73,7 +73,7 @@ UT-17-15 | M-17 | recording auto-stops at event limit
 UT-17-16 | M-17 | loop record default keeps last pass
 UT-17-17 | M-17 | loop record keepAllPasses
 UT-17-18 | M-17 | commitTake replace vs merge
-UT-17-19 | M-17 | quantizeSelection uses bar rule
+UT-17-19 | M-17 | quantize uses bar rule
 UT-17-20 | M-17 | read-only mode blocks edits but allows playback
 UT-17-21 | M-17 | paste at snapped tick with new ids and channel
 UT-17-22 | M-17 | autosave safe points
@@ -83,5 +83,5 @@ UT-17-25 | M-17 | solo semantics via mixerState
 UT-17-26 | M-17 | sections derived from markers and fallback
 UT-17-27 | M-17 | setTempo refused while recording
 UT-17-28 | M-17 | sustain extends durations
-UT-17-29 | M-17 | moveSelection snap preserves relative timing
+UT-17-29 | M-17 | move snap preserves relative timing
 UT-17-30 | M-17 | overview density cache

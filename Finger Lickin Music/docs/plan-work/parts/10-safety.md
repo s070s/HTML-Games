@@ -40,7 +40,7 @@ parser-specific algorithms are in Part 6.10 to 6.14 and must satisfy these rules
    import pipeline is bounded by the 5 s budget and yields to the event loop (10.1.4).
 4. Typed failure. Every rejection is an `Error` with a `.code` from 10.6; nothing throws an
    untyped exception out of a public parser entry point (`parseAsync`, `importFile`,
-   `Project.load`, `Net.validateMessage`).
+   `Project.deserialize`, `Net.validateMessage`).
 5. No partial effect. A failed import, load or message leaves the current project, the
    transport and the session state exactly as they were (S-12, Part 4.6).
 6. Inert display. Untrusted strings reach the DOM only through `textContent` or
@@ -126,9 +126,9 @@ parser-specific algorithms are in Part 6.10 to 6.14 and must satisfy these rules
   5 s budget does not apply to it, the size limits do. A decode that takes longer than 60 s
   is abandoned (the promise result is ignored) with E-IMP-005 and the text variant "Decoding
   the audio took longer than 60 seconds and was stopped. Try a shorter file."
-- `Project.load` stays synchronous (`JSON.parse` cannot be time-sliced); the 64 MB text cap
+- `Project.deserialize` stays synchronous (`JSON.parse` cannot be time-sliced); the 64 MB text cap
   bounds the block. SCR-Library and the file-open path show their "Opening project" state
-  and call `Project.load` from a `Core.timers.setTimeout(fn, 0, owner)` so the state paints
+  and call `Project.deserialize` from a `Core.timers.setTimeout(fn, 0, owner)` so the state paints
   first. The serialization target of the brief (<= 200 ms for 100,000 events) is the PT
   check for this path.
 - Chart generation (`ChartGenerator.generateAsync`) yields every 20,000 source events and
@@ -190,7 +190,7 @@ parser-specific algorithms are in Part 6.10 to 6.14 and must satisfy these rules
    unknown fields are preserved under `x` (never interpreted). Validation and migration run
    on a deep clone; the input object and the currently open project are never mutated.
 4. Stored records are untrusted: records read from localStorage or IndexedDB pass the same
-   `Project.load` path as files, plus the hash check of Part 6.16 (E-STO-003).
+   `Project.deserialize` path as files, plus the hash check of Part 6.16 (E-STO-003).
 5. Newer versions are refused (E-PRJ-002, E-IMP-012, E-IMP-013), never "best-effort" loaded.
 
 #### 10.1.9 DOM insertion rules
@@ -878,7 +878,7 @@ refer to 10.6; "known-good" names the state the system returns to.
 | Touch cancelled, finger leaves the pad, pointerup never arrives | `pointercancel`, `pointermove` outside, 10-pointer cap | other pads | automatic | none | pad pressed state clears | none | release that pointer's control | UT, XT (OQ-1) |
 | Gamepad disconnects mid-song | `gamepaddisconnected`, null slot in poll | keyboard and touch | re-plug | none | SCR-Pause reason (E-INP-003) | other sources | release gamepad-held controls; gameplay paused | FI `input.disconnect`, UT |
 | Remap conflict or reserved key | `conflicts()`; reserved list | previous map | user chooses | none | DLG-RemapConflict (E-INP-004), inline (E-INP-005) | none | map unchanged until confirmed | UT |
-| Corrupt stored maps | `setMaps` validation | defaults | n/a | the custom map | toast once | defaults | `resetMap()` | UT |
+| Corrupt stored maps | `setMap` validation | defaults | n/a | the custom map | toast once | defaults | `resetMap()` | UT |
 | Mapping cannot represent the source (more than four simultaneous notes, excluded scale notes) | generator rules (Part 6.8) | the full source arrangement (S-08) | n/a | none | SCR-ImportInspect simplification report | lossy chart, source intact | regenerate with other settings | UT |
 
 #### 10.7.4 Import (M-10 to M-14)
@@ -1024,7 +1024,9 @@ Rules common to every row:
 #### 10.9.1 Mechanism
 
 The fault registry lives in M-01 so every module can check it without referencing a higher
-module (R-DEP, Part 4.2). `FLM.debug.inject` (M-29, Part 4.8) is the only public entry point.
+module (R-DEP, Part 4.2). `FLM.debug.inject` (M-29, Part 4.8) is the only public entry point;
+it routes a name to the owning module's `debugInject(name, args)` (Part 4.1), which arms the
+fault in this registry.
 
 ```js
 // M-01 (added to the FLM.Core API of Part 4.1)
@@ -1122,7 +1124,7 @@ and metrics:
 | Storage | storage mode (both, localStorage-only, memory), localStorage bytes used by `flm.v1.*`, quota estimate (usage, quota, percent, or "unknown"), project count, last save result (ok or code, bytes, ms), lock state | `Storage.state()`, `estimateQuota()` |
 | Network | state, role, transport (p2p or relay), peers, per-peer RTT, clock offset, jitter, sync quality, messages sent, received, invalid, duplicates, dropped by rate limit | `Net.diagnostics()` |
 | Modes and resources | current mode, the `assertClean` counter snapshot, last leak report, heap used (Chromium only) | `Modes`, `FLM.debug.counters()` |
-| Errors and log | the last 50 error records (code, class, count, time) and the last 100 log lines with a level filter | `ErrorReporter.recent()`, `Log` |
+| Errors and log | the last 50 error records (code, class, count, time) and the last 100 log lines with a level filter | `ErrorReporter.records()`, `Log` |
 
 Actions on the screen: "Export diagnostics" (downloads `<date>-flm.flmdiag.json` through
 `Storage.download`), "Copy diagnostics" (clipboard, textarea fallback), checkbox "Attach

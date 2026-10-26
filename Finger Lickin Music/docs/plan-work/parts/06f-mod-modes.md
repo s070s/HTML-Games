@@ -170,7 +170,7 @@ on `reason:'end'`), `transport.seek` (restart), `transport.loop` (pass end), `in
 ```js
 DanceRun {                           // exists between bind() and dispose()
   chart: DanceChart, song: Song, judgeChart: Chart,
-  judge: RhythmJudge,                 // FLM.Rhythm.createJudge(...) instance
+  judge: RhythmJudge,                 // FLM.Rhythm.Judge.bind(...) instance
   owner, transport,
   windowsName: 'beginner'|'intermediate'|'advanced',
   lifeEnabled: boolean, life: number, lifeMin: number, failed: boolean,
@@ -348,7 +348,7 @@ bind(chart, song, opts):
   r = validate(chart, {mode: chart.source === 'imported' ? 'repair' : 'strict', song})
   if !r.ok: throw E-INP-012 (message "Dance chart data is invalid; regenerating.")
   run.chart = r.chart; run.judgeChart = asJudgeChart(r.chart)
-  judge = Rhythm.createJudge({strayPenalty: opts.strayPenalty ? 'combo' : 'none'})
+  judge = Rhythm.Judge.bind({strayPenalty: opts.strayPenalty ? 'combo' : 'none'})
   judge.load(run.judgeChart, song, WINDOW_MAP[chart.difficulty])
   judge.setCalibration(opts.calibration)
   preset: 'relaxed' -> judge.setWindows(scale(windowsFor(name), 1.5), 'custom')
@@ -621,10 +621,8 @@ s`) as in 6.9.8.
 
 #### 6.23.9 Implementation notes and browser quirks
 
-- Topic ownership: Part 4.4 lists M-09 as the emitter of `chart.finished` "on behalf of M-23";
-  the Rhythm design (6.9) has no finish emission, so M-23 emits `chart.finished` for dance
-  runs from `DanceJudge.finish` and M-28 emits nothing for dance. This deviation is recorded
-  for the Part 4.4 owner.
+- Topic ownership (Part 4.4): `chart.finished` is emitted by M-09 `Judge.finish` for instrument
+  runs and by M-23 `DanceJudge.finish` for dance runs; M-28 emits nothing.
 - The `strict` judgment preset (x0.75) is narrower than standard, which 6.9.6 refuses for
   `'custom'`; DanceJudge passes the preset name `'strict'` so M-09 accepts narrower windows
   for that preset only. The same rule must hold for instrument mode; recorded for 6.9.
@@ -1129,7 +1127,7 @@ start():                                                      // host
   room.state = 'countdown'; broadcast roomState (immediately, not coalesced)
   for each connected guest g: send g start {stateSeq, tStartShared: tStart, countInBars,
                                             songId, settingsHash: chartFor(g).settingsHash}
-  for each guest g: j = Rhythm.createJudge({timeMap: game.transport, strayPenalty: 'none'})
+  for each guest g: j = Rhythm.Judge.bind({timeMap: game.transport, strayPenalty: 'none'})
                     j.load(chartFor(g, g.trackId), game.song, windowsFor(g))
                     j.setCalibration({inputOffsetMs: g.judgeOffsetMs, audioLatencyMs: 0})
                     j.setActive(false)               // follows the host transport state; never attach()ed
@@ -1545,7 +1543,7 @@ Responsibilities:
 - The daily challenge: seed from the local date, deterministic song, mode, instrument,
   difficulty and goal; optional, local, no account (I 9.4, ADR-15).
 - History view data for SCR-Results and SCR-Library (attempt list, trend, comparison, stats).
-- Persistence through `FLM.Storage.kv` under the Part 5.15 keys with size caps, migration
+- Persistence through `FLM.Storage.get` and `set` under the Part 5.15 keys with size caps, migration
   and corruption handling.
 
 Non-goals:
@@ -1565,13 +1563,13 @@ FLM.Core.define('Progress', function (FLM) {
     VERSION: 1,
     LIMITS: { maxRecords: 500, historyBytes: 524288, bestsBytes: 131072, unlocksBytes: 16384,
               dailyBytes: 4096, trendPoints: 20, pruneStep: 50 },
-    /** Storage names passed to FLM.Storage.kv (kv prefixes 'flm.v1.'; Part 5.15 keys). */
+    /** Storage names passed to FLM.Storage.get and set (the prefix 'flm.v1.' is added; Part 5.15 keys). */
     KEYS: { history: 'progress.history', bests: 'progress.bests',
             unlocks: 'progress.unlocks', daily: 'progress.daily' },
     INSTRUMENT_GROUPS: { keys: [[0, 23], [80, 95]], guitar: [[24, 31]], bass: [[32, 39]], drums: [[128, 128]] },
 
     /** Loads the four documents, validates and migrates them, subscribes to studio.take and
-     *  import.done. Called once by M-29 after Storage.init. Never rejects. */
+     *  import.done. Called once by M-29 after Storage.open. Never rejects. */
     init() /* -> Promise<{ok:boolean, readOnly:boolean, warnings:string[]}> */,
 
     /** Called by M-28 on chart.finished for instrument, dance and multiplayer runs.
@@ -1802,7 +1800,7 @@ on when unlocked unless listed in `disabledEffects`. None of these values reach 
 localDate(d = new Date()) = pad4(d.getFullYear()) + pad2(d.getMonth() + 1) + pad2(d.getDate())
 daily(date = localDate()):
   if docs.daily and docs.daily.date === date: return copy(docs.daily)
-  ids = Project.Catalog.list().filter(e => e.builtIn).map(e => e.id).sort()   // builtin-01 .. builtin-05
+  ids = Project.Catalog.list().filter(e => e.builtIn).map(e => e.id).sort()   // demo-dance, demo-electro, demo-jazz, demo-piano, demo-poprock
   if ids.length === 0: return null
   seed = dailySeed(date); rng = new Core.Prng(seed)
   songId = ids[rng.int(ids.length)]
@@ -1865,7 +1863,7 @@ and "Compared with your last attempt" lines (I 9.2).
 6.25.4 G. Persistence, caps and corruption
 
 ```text
-load(kind): v = Storage.kv.get(KEYS[kind], null)        // kv removes an unparsable record and returns null
+load(kind): v = Storage.get(KEYS[kind], null)        // Storage.get removes an unparsable record and returns null
   if v === null: docs[kind] = empty(kind)
   else if !isObject(v) or typeof v.version !== 'number': docs[kind] = empty(kind); warn W-PRG-RESET
   else if v.version > 1: docs[kind] = v; readOnlyKinds.add(kind); warn W-PRG-NEWER
@@ -1874,7 +1872,7 @@ load(kind): v = Storage.kv.get(KEYS[kind], null)        // kv removes an unparsa
 persist(kind):
   if readOnlyKinds.has(kind): return {ok:false, skipped:true}
   text size check: history > 512 KB -> drop the oldest LIMITS.pruneStep records until it fits
-  r = Storage.kv.set(KEYS[kind], docs[kind])
+  r = Storage.set(KEYS[kind], docs[kind])
   if !r.ok and r.error.code === 'E-STO-001' and kind === 'history':
      drop the oldest 50 records; retry once
   if still !r.ok: keep in memory; Log.warn('W-PRG-SAVE-FAILED', r.error.code);
@@ -1890,8 +1888,8 @@ whose newest record is oldest are removed first, `W-PRG-BESTS-PRUNED`), unlocks 
 
 | What can fail | Detection | State that remains valid | Retry | User data at risk | User informed how | Degraded mode | Return to known-good | Test |
 |---|---|---|---|---|---|---|---|---|
-| storage unavailable or quota exceeded | `kv.set` result `E-STO-001` or `E-STO-002` | in-memory history, bests, unlocks | next `record()` writes again | results of this session if the page closes | one toast per page life (6.25.4 G) | memory-only progression | next successful write persists everything | UT-25-19 |
-| stored document corrupt | `kv.get` null or failed shape check | other documents | n/a | the corrupt document's content | toast "Your local results could not be read and were reset." once | fresh document | fresh document | UT-25-20 |
+| storage unavailable or quota exceeded | `Storage.set` result `E-STO-001` or `E-STO-002` | in-memory history, bests, unlocks | next `record()` writes again | results of this session if the page closes | one toast per page life (6.25.4 G) | memory-only progression | next successful write persists everything | UT-25-19 |
+| stored document corrupt | `Storage.get` null or failed shape check | other documents | n/a | the corrupt document's content | toast "Your local results could not be read and were reset." once | fresh document | fresh document | UT-25-20 |
 | single invalid record inside history | per-record validation | other records | n/a | that record | none (logged with count) | n/a | record dropped | UT-25-20 |
 | document from a newer version (Part 5.17) | `version > 1` | that document, read-only | n/a | none (not overwritten) | Library notice "History saved by a newer version" | read-only history; new results kept in memory only | update the game | UT-25-21 |
 | unusable summary (nothing judged) | `judged === 0 and completion === 0` | all | n/a | none | none | no record | n/a | UT-25-01 |
@@ -1908,7 +1906,7 @@ whose newest record is oldest are removed first, `W-PRG-BESTS-PRUNED`), unlocks 
   rule spirit).
 - About 600 bytes per record serialized; 500 records ~ 300 KB < 512 KB cap.
 - `daily()` expands one built-in song (M-30 lazy expansion, <= 10 ms) on the first call per date.
-- `init` reads four small keys synchronously through `kv` (<= 5 ms).
+- `init` reads four small keys synchronously through `Storage.get` (<= 5 ms).
 
 #### 6.25.7 Spec coverage
 
@@ -1923,7 +1921,7 @@ failure; bounded storage).
 
 #### 6.25.8 Unit tests (group `progress`, file `src/91-test-progress.js`)
 
-Harness: `FLM.SelfTest.fakes` in-memory `kv` (a `Storage.kv`-shaped fake with injectable
+Harness: `FLM.SelfTest.fakes` in-memory storage (a fake with the `Storage.get` and `Storage.set` shape and injectable
 write failures), a fake catalog with the five built-in ids and fixed track programs, a
 `summary(opts)` builder producing a `PerformanceSummary`, and a fixed `Date` for `playedAt`.
 
@@ -1947,18 +1945,17 @@ write failures), a fake catalog with the five built-in ids and fixed track progr
 | UT-25-16 | daily ranges and variety | `daily(d)` for 365 consecutive dates | songId in the 5 ids; mode ratio instrument between 0.65 and 0.85; difficulty per mode enum; goal values in range and on their steps; empty catalog -> null |
 | UT-25-17 | daily completion | matching comparable record meeting the goal, then a second one | completedAt set once; dailyCompleted 1; non-matching instrument record does not count; profile B record does not count |
 | UT-25-18 | maxScoreFor | 0, 10, 31, 100 | 0, 1000, 6400, 34000 |
-| UT-25-19 | storage failure keeps memory | fake kv fails with E-STO-001 on history | `record` returns `saved:false`; `history()` still contains the record; toast requested once over two failures; history retried after pruning 50 |
-| UT-25-20 | corrupt documents | kv returns a string for history; one record with `score:'x'` | history reset with W-PRG-RESET; bad record dropped with W-PRG-RECORD-DROPPED, others kept |
-| UT-25-21 | newer version is read-only | stored history `version:2` | `readOnly()` true; `record()` keeps the result in memory; kv.set never called for history |
+| UT-25-19 | storage failure keeps memory | fake `Storage.set` fails with E-STO-001 on history | `record` returns `saved:false`; `history()` still contains the record; toast requested once over two failures; history retried after pruning 50 |
+| UT-25-20 | corrupt documents | `Storage.get` returns a string for history; one record with `score:'x'` | history reset with W-PRG-RESET; bad record dropped with W-PRG-RECORD-DROPPED, others kept |
+| UT-25-21 | newer version is read-only | stored history `version:2` | `readOnly()` true; `record()` keeps the result in memory; `Storage.set` never called for history |
 | UT-25-22 | history query, trend, compare, stats | 30 mixed records | filters by mode and chart; limit/offset; trend <= 20 points oldest first; compare deltas; `stats().byGroup` sums to plays |
 | UT-25-23 | cosmetics do not affect gameplay | unlock every cosmetic, then replay a fixed input log through `Rhythm.replay` | ScoreState identical to the run before unlocking |
 
 #### 6.25.9 Implementation notes and browser quirks
 
-- Storage key names: Part 5.15 defines four keys (`flm.v1.progress.history`, `.bests`,
-  `.unlocks`, `.daily`); 6.16.3 lists one `flm.v1.progress` key. This module uses the Part 5.15
-  keys through `Storage.kv` with the name without prefix (`kv.keys()` reports names without
-  the prefix, 6.16.2); recorded as an open issue for the 6.16 owner.
+- Storage key names: the four Part 5.15 keys (`flm.v1.progress.history`, `.bests`,
+  `.unlocks`, `.daily`, also listed in 6.16.3), through `Storage.get` and `Storage.set` with
+  the name without prefix (`Storage.keys()` reports names without the prefix, 6.16.2).
 - `localDate` must use the local calendar (`getFullYear`, `getMonth`, `getDate`), never
   `toISOString()` (UTC would change the daily at the wrong hour).
 - Never block on writes inside a gameplay frame: `record()` is called from the results

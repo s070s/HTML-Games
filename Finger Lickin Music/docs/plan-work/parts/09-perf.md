@@ -536,8 +536,7 @@ and what is deferred to first use.
 
 #### 9.4.2 Patch compilation on first use
 
-Decisions (normative for M-06; the Part 6.6 API calls the warm-up entry point `warm`, the
-module table of Part 4.1 names it `warmup`; this part uses the Part 4.1 name):
+Decisions (normative for M-06; the warm-up entry point is `Instruments.warmup`, Part 4.1):
 
 1. `Instruments.definition(program)` resolves and freezes the definition on the first call
    for that program and returns the cached object on every later call. No definition is

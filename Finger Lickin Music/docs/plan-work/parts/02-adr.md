@@ -1059,7 +1059,7 @@ must motivate without gating creation tools and without any service.
 
 Decision:
 
-1. All progression data is local (`flm.v1.progress` in localStorage; Part 5.13 types). No
+1. All progression data is local (`flm.v1.progress.*` in localStorage; Part 5.13 types). No
    accounts, no network, no telemetry; nothing in the progression module touches
    `FLM.Net`.
 2. Performance history keeps at most 500 `PerformanceRecord`s (oldest pruned); personal

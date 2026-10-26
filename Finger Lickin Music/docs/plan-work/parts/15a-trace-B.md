@@ -461,7 +461,7 @@ Rows for B sections 1.4 and 1.5 and B sections 2 to 29, in spec order.
 | R-B10.2-06 | B 10.2 | Scale table includes Minor pentatonic | P0 | M-02 | Phase 03 | AT-R-B10.2-06 | Unimplemented |
 | R-B10.2-07 | B 10.2 | Scale table includes Blues | P0 | M-02 | Phase 03 | AT-R-B10.2-07 | Unimplemented |
 | R-B10.2-08 | B 10.2 | Scale table includes Chromatic | P0 | M-02 | Phase 03 | AT-R-B10.2-08 | Unimplemented |
-| R-B10.2-09 | B 10.2 | User-defined scale patterns (up to 64, persisted under flm.v1.settings.userScales) | P1 | M-02, M-27 | Phase 06 | AT-R-B10.2-09 | Unimplemented |
+| R-B10.2-09 | B 10.2 | User-defined scale patterns (up to 64, persisted under the settings key settings.userScales) | P1 | M-02, M-27 | Phase 06 | AT-R-B10.2-09 | Unimplemented |
 | R-B10.2-10 | B 10.2 | Further modes are data-driven SCALES entries (dorian, mixolydian and the rest of the table) | P1 | M-02 | Phase 03 | AT-R-B10.2-10 | Unimplemented |
 | R-B10.3-01 | B 10.3 | Configurable chord definitions include major and minor triads | P0 | M-02 | Phase 03 | AT-R-B10.3-01 | Unimplemented |
 | R-B10.3-02 | B 10.3 | Chord definitions include diminished and augmented triads | P0 | M-02 | Phase 03 | AT-R-B10.3-02 | Unimplemented |

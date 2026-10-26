@@ -53,11 +53,11 @@ FLM.Core = {
   // ---- Event bus ----
   Emitter: class Emitter {
     constructor();
-    /** @returns unsubscribe function. owner is any object used by offOwner(). */
+    /** @returns unsubscribe function. owner is any object used by removeOwner(). */
     on(topic /* string */, fn /* (payload, topic) => void */, owner /* ?object */) /* -> () => void */;
     once(topic, fn, owner) /* -> () => void */;
     off(topic, fn) /* -> boolean removed */;
-    offOwner(owner) /* -> number removed */;
+    removeOwner(owner) /* -> number removed */;
     /** Calls every listener in subscription order; a throwing listener is reported
      *  (E-GEN-001) and the others still run. Returns listener count called. */
     emit(topic, payload /* any */) /* -> number */;
@@ -68,12 +68,28 @@ FLM.Core = {
   /** The single application-wide bus used for every EVT-* topic in 4.4. */
   bus: /* Emitter */,
 
-  // ---- Tracked timers (all modules must use these, never window.setTimeout directly) ----
-  Timers: {
-    setTimeout(fn, ms, owner) /* -> id */, setInterval(fn, ms, owner) /* -> id */,
-    clear(id) /* -> void */, clearOwner(owner) /* -> number */,
-    requestFrame(fn, owner) /* -> id */, cancelFrame(id) /* -> void */,
-    counts() /* -> {timeouts:number, intervals:number, frames:number} */
+  // ---- Tracked timers, frames and DOM listeners (Part 4.7.3; all modules must use these,
+  //      never window.setTimeout, requestAnimationFrame or addEventListener directly) ----
+  timers: {
+    setTimeout(fn, ms, owner) /* -> id */, clearTimeout(id) /* -> void */,
+    setInterval(fn, ms, owner) /* -> id */, clearInterval(id) /* -> void */,
+    clearOwner(owner) /* -> number */, count(owner /* ?any */) /* -> number of live timeouts and intervals */
+  },
+  raf: {
+    request(fn, owner) /* -> id */, cancel(id) /* -> void */,
+    cancelOwner(owner) /* -> number */, count() /* -> number of live frame requests */
+  },
+  dom: {
+    on(el, type, fn, opts /* ?object */, owner /* ?any */) /* -> off() */, off(el, type, fn, opts) /* -> void */,
+    offOwner(owner) /* -> number */, count() /* -> number of live listeners */
+  },
+
+  // ---- Text catalog and fault registry (Parts 7.11.1 and 10.9.1) ----
+  Text: { get(code, params /* ?object */) /* -> string */, has(code) /* -> boolean */, all() /* -> object */ },
+  Faults: {
+    NAMES: [/* the 14 names of 10.9.2, frozen */],
+    set(name, args /* ?object */) /* -> boolean */, clear(name) /* -> void */, clearAll() /* -> void */,
+    active(name) /* -> object|null */, take(name) /* -> object|null */, list() /* -> Array */
   },
 
   // ---- Logging ----
@@ -103,7 +119,7 @@ FLM.Core = {
     classify(code, err) /* -> string */,
     /** Registered by M-26 so toasts/dialogs are shown by UI; Core falls back to #fatal only. */
     setPresenter(fn /* (ErrorRecord) => void */) /* -> void */,
-    recent() /* -> ErrorRecord[] (max 50) */,
+    records() /* -> ErrorRecord[] (max 50) */,
     showFatal(record) /* -> void (renders #fatal with textContent only) */
   },
   // ErrorRecord { id, t, code, class, message, stack /* <= 2000 chars */, context, count }
@@ -144,8 +160,8 @@ consumed: none.
   so listeners added or removed during emit take effect on the next emit. Invariant: no
   duplicate `{topic, fn}` pair (second `on` with the same fn returns the existing
   unsubscribe without adding).
-- `Timers`: `Map<id, {kind, nativeId, owner}>`; ids are positive integers from one counter;
-  `requestFrame` wraps `requestAnimationFrame` and removes the record when the callback runs.
+- `timers`, `raf`, `dom`: `Map<id, {kind, nativeId, owner}>` records; ids are positive integers from one counter;
+  `raf.request` wraps `requestAnimationFrame` and removes the record when the callback runs.
 - `Log`: fixed array of 500 slots, write index, count; `once` keys in a `Set` (max 1,000
   keys; when full, the oldest key is evicted).
 - `Caps`: one frozen report object; `refresh()` replaces it.
@@ -229,7 +245,7 @@ try/catch, a throwing probe yields `false`)
 
 6.1.4.6 Diagnostics.export(opts)
 1. `doc = { version: FLM.VERSION, build: FLM.BUILD, exportedAt: ISO, caps: Caps.get(),
-   providers: {}, errors: ErrorReporter.recent(), log: Log.entries() }`.
+   providers: {}, errors: ErrorReporter.records(), log: Log.entries() }`.
 2. For each provider `(key, fn)`: `providers[key] = safe(fn())` with try/catch; a throwing
    provider stores `{error: message}`.
 3. Redaction (always, unless `opts.includeContent === true`): walk the object; delete keys
@@ -285,7 +301,7 @@ pad3(floor((s - floor(s)) * 1000))`. `formatTime(NaN)` returns `'-:--'`.
 | Clipboard write fails in `#fatal` | promise rejection | textarea fallback | user | no | textarea visible with text selected | n/a | n/a | UT-01-16 |
 | `localStorage` probe throws (privacy mode) | try/catch | `caps.localStorage=false` | n/a | no | M-16 notice | memory-only settings (M-16) | n/a | UT-01-11 |
 | Log data not serializable | `safeData` | entry stored with `'[omitted]'` | n/a | no | n/a | n/a | n/a | UT-01-08 |
-| Timer owner forgets to clear | `Timers.counts()` delta in `assertClean()` | n/a | n/a | no | diagnostics overlay in test build | n/a | `clearOwner(owner)` | UT-01-12 |
+| Timer owner forgets to clear | `timers.count()` and `raf.count()` delta in `assertClean()` | n/a | n/a | no | diagnostics overlay in test build | n/a | `timers.clearOwner(owner)`, `raf.cancelOwner(owner)` | UT-01-12 |
 
 #### 6.1.6 Limits and performance notes
 
@@ -314,17 +330,17 @@ avoid sensitive information; logging bounded), P 15 (clear error messages).
 | UT-01-01 | define registers namespace | fresh registry (test hook `Core._resetRegistryForTests()`) | `FLM.X` is the factory result; `modules()` lists X with order 1 |
 | UT-01-02 | define rejects duplicates | define X twice | second call throws with message starting `E-GEN-001` |
 | UT-01-03 | emitter on/emit order | 3 listeners | called in subscription order with payload and topic |
-| UT-01-04 | emitter isolates listener errors | listener 2 throws | listeners 1 and 3 run; `ErrorReporter.recent()` has `E-GEN-001`; emit returns 3 |
+| UT-01-04 | emitter isolates listener errors | listener 2 throws | listeners 1 and 3 run; `ErrorReporter.records()` has `E-GEN-001`; emit returns 3 |
 | UT-01-05 | once fires once | once + 2 emits | fn called once; `listenerCount(topic) === 0` |
-| UT-01-06 | off and offOwner | 2 owners, 3 listeners | `offOwner(a)` returns 2; count 1; `off` returns false for unknown fn |
+| UT-01-06 | off and removeOwner | 2 owners, 3 listeners | `removeOwner(a)` returns 2; count 1; `off` returns false for unknown fn |
 | UT-01-07 | emit snapshot semantics | listener removes itself and adds another during emit | removed listener not called again; added listener not called in this emit |
 | UT-01-08 | log ring wraps at 500 | 600 writes | `entries().length === 500`; first entry is write 101; unserializable data stored as `'[omitted]'` |
 | UT-01-09 | log once | `once('k')` twice | returns true then false; one entry |
 | UT-01-10 | caps report shape | `Caps.get()` | all 20 keys present with declared types; frozen |
 | UT-01-11 | caps probe isolation | stub `localStorage.setItem` to throw | `localStorage === false`; other keys unaffected |
-| UT-01-12 | timers tracked | setTimeout + setInterval + requestFrame with owner | `counts()` reflects 1/1/1; `clearOwner` returns 3 and counts are 0 |
+| UT-01-12 | timers tracked | `timers.setTimeout` + `timers.setInterval` + `raf.request` with owner | `timers.count()` is 2 and `raf.count()` is 1; `timers.clearOwner` returns 2, `raf.cancelOwner` returns 1, and counts are 0 |
 | UT-01-13 | classify table | codes from 10.6 | `E-CAP-001 -> reload`, `E-AUD-001 -> reload`, `E-MODE-001 -> recoverable`, `E-MODE-002 -> returnToMenu`, unknown -> `E-GEN-000` recoverable |
-| UT-01-14 | report dedupes and emits | report same code+message 3 times | `recent().length === 1`, `count === 3`; `EVT-error` emitted 3 times |
+| UT-01-14 | report dedupes and emits | report same code+message 3 times | `records().length === 1`, `count === 3`; `EVT-error` emitted 3 times |
 | UT-01-15 | unhandled rejection captured | `install()`; dispatch synthetic `unhandledrejection` | record with `E-GEN-002` |
 | UT-01-16 | fatal screen renders safely | `showFatal` with message containing `<b>x</b>` | `#fatal` visible; text contains the literal `<b>`; no element `b` inside |
 | UT-01-17 | fatal shown once | two reload-class reports | one `#fatal` content render; second does not duplicate nodes |
@@ -351,7 +367,7 @@ avoid sensitive information; logging bounded), P 15 (clear error messages).
   hold a GPU context on mobile (some devices allow only a handful of live contexts).
 - `window.onerror` on `file://` in Firefox may deliver `"Script error."` without a stack; the
   record keeps whatever is available.
-- `Timers.requestFrame` must be used by M-18 for the render loop and by M-07 for gamepad
+- `Core.raf.request` must be used by M-18 for the render loop and by M-07 for gamepad
   polling so that `assertClean()` (4.7) sees zero frames after leaving a mode.
 - The early inline error handler in `shell.html` (3.2) buffers errors that occur before
   `01-core.js` runs; `ErrorReporter.install()` drains `window.__flmEarlyErrors` (an array of
@@ -432,7 +448,7 @@ Events: none emitted, none consumed.
 Frozen built-in tables (scales, chords, intervals, key tonics, GM names). A `Map` of
 user-defined scales (max 64; `defineScale` with an existing user id replaces it; built-in ids
 cannot be replaced, `E-GEN-006`). User scales are persisted by M-16 under
-`flm.v1.settings.userScales` (schema in Part 5.11) and re-registered at boot.
+the settings key `settings.userScales` (Part 5.11, inside `flm.v1.settings`) and re-registered at boot.
 
 Scale table (intervals are semitones from the root):
 
@@ -1021,14 +1037,21 @@ Non-goals: no audio nodes (M-05), no judging (M-09), no rendering. Transport nev
 
 ```js
 FLM.Transport = {
-  /** One transport per app, created by M-29; tests create their own with a FakeClock. */
+  /** Tests and the import preview player create their own with a FakeClock; the app uses `main`. */
   create(opts /* {clock:{now():seconds}, bus:Emitter} */) /* -> Transport */,
+  /** The one Transport used by every mode: `create({clock:null, bus})` at define time; M-29 calls
+   *  `main.setClock(Audio.clock())` after the audio engine exists. */
+  main /* Transport */,
   STATES: ['stopped', 'countin', 'playing', 'paused', 'recording'],
 
   // Transport instance
   // --- binding ---
   /** Binds a song (or null). Resets position to 0, state to 'stopped', clears loop. */
   load(song /* Song|null */, opts /* ?{tempoSource:'song'|'override', overrideBpm:number} */) /* -> void */,
+  /** Unbinds the song: same as `load(null)`. */
+  unload() /* -> void */,
+  /** Sets or replaces the audio clock `{now():seconds}` used by `positionAt` (before the first play). */
+  setClock(clock) /* -> void */,
   song() /* -> Song|null */,
   setTempoSource(source /* 'song'|'override' */, overrideBpm /* ?number 20..300 */) /* -> void */,
   tempoMap() /* -> TempoMap in effect */,
@@ -1038,17 +1061,18 @@ FLM.Transport = {
   // --- state machine ---
   state() /* -> string */,
   /** From stopped or paused. countInBars 0|1|2. Returns false if no song bound. */
-  play(opts /* ?{countInBars:number, fromTick:number} */) /* -> boolean */,
+  play(opts /* ?{countInBars:number, fromTick:number, atAudio:number} */) /* -> boolean */,
+  // atAudio: scheduled start (multiplayer): the anchor is set so that the first position (after the count-in) sounds at atAudio; must be >= audio now
   /** From stopped or paused; like play but final state 'recording'; recording starts at tick 0 of the take. */
   record(opts /* ?{countInBars:number, fromTick:number} */) /* -> boolean */,
   pause() /* -> boolean (only from countin, playing, recording) */,
-  resume() /* -> boolean (only from paused; re-anchors at audioNow + 0.05) */,
+  resume(opts /* ?{atAudio:number} */) /* -> boolean (only from paused; re-anchors at atAudio when given, else at audioNow + 0.05) */,
   stop() /* -> void (any state -> stopped; position returns to stopTick, see 6.4.4.3) */,
   seek(tick /* integer >= 0 */) /* -> void (allowed in every state) */,
   setSpeed(speed /* 0.25..2.0 */) /* -> void */, speed() /* -> number */,
-  setLoop(region /* {a:tick, b:tick} with a < b, or null */) /* -> void */, loop() /* -> region|null */,
+  setLoop(region /* {a:tick, b:tick} with a < b, or null */) /* -> void */, clearLoop() /* -> void (same as setLoop(null)) */, loop() /* -> region|null */,
   setLoopEnabled(flag) /* -> void */, loopEnabled() /* -> boolean */,
-  setCountInBars(n /* 0|1|2 */) /* -> void */, countInBars() /* -> number */,
+  setCountIn(n /* 0|1|2 */) /* -> void */, countInBars() /* -> number */,
 
   // --- clocks and position ---
   /** Musical position (ticks, float, may be negative in countin) at an audio time. */
@@ -1068,7 +1092,8 @@ FLM.Transport = {
   // DueItem =
   //   {kind:'note',  track, event:NoteEvent, atAudio, endAudio /* clamped to loop end */, trackIndex}
   // | {kind:'cc'|'program'|'bend', track, event, atAudio}
-  // | {kind:'click', atAudio, accent:boolean, bar, beat, countIn:boolean}
+  // | {kind:'click', atAudio, accent:boolean, bar, beat, countIn:boolean, audible:boolean /* metronome sounds this beat */}   // one per beat; the Scheduler emits sched.beat for each
+  // | {kind:'marker', atAudio, marker:Marker, index:number}   // the Scheduler emits sched.marker
   // | {kind:'loopWrap', atAudio, fromTick:b, toTick:a}
   // | {kind:'end', atAudio}                 // song end reached (no loop): state -> stopped
   // | {kind:'start', atAudio}               // emitted once when tick 0 is crossed after count-in
@@ -1095,12 +1120,14 @@ Events emitted (via the bus passed at creation):
 
 | Topic | Payload | When |
 |---|---|---|
+| `transport.loaded` | `{songId, name, durationTicks, tempoOverride, ppq}` (Part 4.4) | `load()` and `unload()` |
 | `transport.state` | `{from, to, tick, audioTime}` | every state change |
 | `transport.seek` | `{fromTick, toTick, audioTime}` | `seek()` and loop wraps |
-| `transport.loop` | `{a, b, atAudio, passIndex}` | each wrap (passIndex increments from 1) |
+| `transport.loop` | `{a, b, pass, atAudioTime}` (Part 4.4) | each wrap (`pass` increments from 1) |
+| `transport.loopSet` | `{a, b, enabled}` (Part 4.4) | `setLoop`, `clearLoop`, `setLoopEnabled` |
 | `transport.speed` | `{speed}` | `setSpeed` |
-| `transport.tempoSource` | `{source, bpm}` | `setTempoSource` |
-| `transport.end` | `{tick, atAudio}` | end of song without loop |
+| `transport.tempoSource` | `{source, bpm}` (Part 4.4) | `setTempoSource` |
+| `transport.end` | `{tick, atAudioTime}` (Part 4.4) | end of song without loop |
 
 Events consumed: none (M-28 calls `onHidden`/`onVisible` directly).
 
@@ -1208,10 +1235,9 @@ loop while true:
   tickUntil = positionAt(until)
   wrapping = loop.enabled && state != 'countin' && tickUntil >= loop.b && positionAt(from) < loop.b
   limitTick = wrapping ? loop.b : tickUntil
-  // 1. clicks
-  if metronome.enabled && (state == 'countin' || !metronome.countInOnly):
-     while clickCursor.nextTick < limitTick:
-        at = audioTimeAt(clickCursor.nextTick); if at > from: items.push(click(at, beatInfo(clickCursor.nextTick)))
+  // 1. beats (clicks); audible = metronome.enabled && (state == 'countin' || !metronome.countInOnly)
+  while clickCursor.nextTick < limitTick:
+        at = audioTimeAt(clickCursor.nextTick); if at > from: items.push(click(at, beatInfo(clickCursor.nextTick), audible))
         clickCursor.nextTick += ticksPerBeat at that tick
   // 2. start marker
   if !startEmitted && state != 'countin' && positionAt(from) < 0 <= limitTick: items.push({kind:'start', atAudio: audioTimeAt(0)}); startEmitted = true
@@ -1228,6 +1254,9 @@ loop while true:
               else items.push({kind:e.kind, track, event:e, atAudio:at})
            c++
         cursors[i] = c
+     while markerCursor < song.markers.length && song.markers[markerCursor].tick < limitTick:   // song Markers (sched.marker)
+        m = song.markers[markerCursor]; at = audioTimeAt(m.tick); if at > from: items.push({kind:'marker', atAudio:at, marker:m, index:markerCursor})
+        markerCursor++
   if wrapping:
      wrapAudio = audioTimeAt(loop.b)
      items.push({kind:'loopWrap', atAudio: wrapAudio, fromTick: loop.b, toTick: loop.a})
@@ -1329,7 +1358,7 @@ CC and a 2-bar note)
 | UT-04-12 | count-in to playing transition and start item | advance across tick 0 | state becomes playing when `positionAt(now) >= 0`; one `start` item at `audioTimeAt(0)`; note at tick 0 emitted exactly once |
 | UT-04-13 | pause during count-in resumes count-in | pause at tick -960, resume | state countin again; reaches playing later; no duplicate start |
 | UT-04-14 | setLoop validation | a >= b; too short | throws `E-TRN-001`; valid region accepted |
-| UT-04-15 | loop wrap item and re-anchor | loop [0, 3840) at 120 BPM | wrap at `audioTimeAt(3840)`; after wrap `audioTimeAt(0) === wrapAudio`; `transport.loop.passIndex` 1 then 2; `transport.seek` emitted |
+| UT-04-15 | loop wrap item and re-anchor | loop [0, 3840) at 120 BPM | wrap at `audioTimeAt(3840)`; after wrap `audioTimeAt(0) === wrapAudio`; `transport.loop.pass` 1 then 2; `transport.seek` emitted |
 | UT-04-16 | loop clamps sustained notes | 2-bar note starting at 1920, loop [0, 3840) | item `endAudio === wrapAudio` |
 | UT-04-17 | loop does not retrigger notes before a | loop [1920, 3840), note at 960 with dur 1920 | after wrap no item for the tick-960 note |
 | UT-04-18 | event exactly at b | note at 3840, loop [0, 3840) | never emitted while looping; emitted after `setLoopEnabled(false)` |
@@ -1374,10 +1403,12 @@ judging, no persistence. The Scheduler does not know charts or input.
 
 ```js
 FLM.Audio = {
-  /** Creates the engine object. ctx may be injected (OfflineAudioContext in tests). */
+  /** Creates an engine object (tests). ctx may be injected (OfflineAudioContext in tests). */
   createEngine(opts /* ?{context:BaseAudioContext, clock:{now()}, bus:Emitter, mobile:boolean} */) /* -> Engine */,
-  /** The app-wide engine (created by M-29 before the unlock gesture, context created lazily). */
-  engine /* Engine|null */,
+  /** Creates the app-wide engine (M-29, before the unlock gesture; the context is created lazily).
+   *  Idempotent: a second call returns the same engine. The members below are the engine's
+   *  and are exported on FLM.Audio under the Part 4.1 names. */
+  init(opts /* ?same as createEngine */) /* -> Engine */,
   LIMITER: { threshold: -6, knee: 6, ratio: 12, attack: 0.003, release: 0.25 },
   LOOKAHEAD_S: 0.120, TICK_MS: 25, RAMP_S: 0.005, SOFT_PANIC_S: 0.030,
   START_FADE_S: 0.020, STOP_FADE_S: 0.030, VOICE_MAX_S: 60,
@@ -1387,7 +1418,9 @@ FLM.Audio = {
    *  Resolves {ok, state, reason?}. Idempotent; never creates a second context. */
   unlock() /* -> Promise<{ok:boolean, state:string, reason?:string}> */,
   resume() /* -> Promise<boolean> */,
-  context() /* -> BaseAudioContext|null */,
+  ctx() /* -> BaseAudioContext|null */,
+  isUnlocked() /* -> boolean (true after a successful unlock while the state is not 'closed') */,
+  clock() /* -> {now():seconds} the audio clock handed to Transport.setClock */,
   state() /* -> 'none'|'suspended'|'running'|'closed'|'interrupted' */,
   now() /* -> context.currentTime or 0 */,
   latency() /* -> {seconds:number, estimated:boolean, base:number, output:number} */,
@@ -1395,9 +1428,10 @@ FLM.Audio = {
 
   // --- bus graph ---
   master /* GainNode */, limiter /* DynamicsCompressorNode */, metronomeBus /* GainNode */,
-  setMasterVolume(v /* 0..1 */), masterVolume(), setMetronomeVolume(v), metronomeVolume(),
+  setMasterGain(v /* 0..1 */), masterGain(), setMetronomeGain(v), metronomeGain(),
   /** Creates (or returns) the strip for a track id. */
-  strip(trackId) /* -> ChannelStrip */, removeStrip(trackId) /* -> void */, strips() /* -> ChannelStrip[] */,
+  createStrip(trackId) /* -> ChannelStrip */, disposeStrip(trackId) /* -> void */, strips() /* -> ChannelStrip[] */,
+  stripCount() /* -> number */, nodeCount() /* -> nodes created through Audio factories minus disposed */,
   /** Solo set semantics: any solo -> every non-solo strip is silenced. */
   setSolo(trackId, flag), setMute(trackId, flag), soloSet() /* -> Set<string> */,
   // ChannelStrip { trackId, input:GainNode /* voices connect here */, gain:GainNode, pan:StereoPannerNode|PannerNode,
@@ -1406,7 +1440,7 @@ FLM.Audio = {
   //                dispose() }
 
   // --- voices ---
-  voices /* VoiceAllocator */,
+  VoiceAllocator /* the engine's allocator instance */,
   // VoiceAllocator { capacity /* 64 desktop, 32 mobile, or setting */, activeCount(), releasedCount(),
   //   /** Returns a VoiceSlot or steals one; never returns null. */
   //   acquire(owner /* {trackId, channel, pitch, priority:0..2} */, atAudio) /* -> VoiceSlot */,
@@ -1416,18 +1450,20 @@ FLM.Audio = {
   //             levelAt(t) /* envelope estimate 0..1 */ }
 
   // --- scheduler ---
-  scheduler /* Scheduler */,
-  // Scheduler { start(transport), stop(), running(), tickOnce(audioNow) /* tests */, stats() -> {ticks, stalls, maxLateMs, scheduled},
+  Scheduler /* Scheduler */,
+  // Scheduler { bind(transport, song, mixer) /* start(transport) plus createStrip per track and mix applied */, unbind() /* stop() plus disposeStrip per bound track */,
+  //             start(transport), stop(), running(), pending() /* -> number of recorded scheduled releases */,
+  //             tickOnce(audioNow) /* tests */, stats() -> {ticks, stalls, maxLateMs, scheduled},
   //             setInstruments(instr /* FLM.Instruments */), liveNoteOn(trackId, pitch, velocity, channel, atAudio), liveNoteOff(...),
   //             liveControl(trackId, kind, event, atAudio) }
 
   /** soft: release all voices with a 30 ms ramp. hard: stop every node and rebuild the graph. */
   panic(hard /* boolean */) /* -> void */,
-  metronome /* { click(atAudio, accent) } */,
+  Metronome /* { click(atAudio, accent) } */,
   peak() /* -> {peak:number 0..1+, clip:boolean, holdPeak:number} */,
   /** Fade master to 0 over STOP_FADE_S then back to volume over START_FADE_S on next start. */
   fadeOut(atAudio), fadeIn(atAudio),
-  dispose() /* -> void (closes context) */
+  close() /* -> void (closes context) */
 };
 ```
 
@@ -1439,11 +1475,14 @@ Events emitted:
 | `audio.unlocked` | `{sampleRate, baseLatency, outputLatency}` | first successful `unlock()` |
 | `audio.voices` | `{active, released, capacity, stolen}` | once per second while the scheduler runs |
 | `audio.panic` | `{hard, releasedCount}` | `panic()` |
-| `sched.noteOn` | `{trackId, noteId, pitch, velocity, channel, atAudio, endAudio, tick, durTicks, live:boolean}` | each scheduled note |
-| `sched.noteOff` | `{trackId, noteId, pitch, atAudio, live}` | each scheduled release |
-| `sched.control` | `{trackId, kind, controller?, value, atAudio}` | cc/program/bend scheduled |
-| `sched.click` | `{atAudio, accent, bar, beat, countIn}` | metronome |
-| `sched.stall` | `{lateMs, items}` | catch-up after a stall |
+| `sched.noteOn` | `{trackId, channel, eventId, pitch, velocity, program, isDrums, at, atOff, durTicks, tick, live}` (Part 4.4) | each scheduled note |
+| `sched.noteOff` | `{trackId, channel, eventId, pitch, at, reason}` (Part 4.4) | each scheduled release |
+| `sched.program` | `{trackId, channel, program, bankMsb, bankLsb, at}` | program scheduled |
+| `sched.cc` | `{trackId, channel, controller, value, at}` | controller scheduled |
+| `sched.bend` | `{trackId, channel, value, at}` | pitch bend scheduled |
+| `sched.beat` | `{tick, bar, beat, numerator, denominator, at, isDownbeat, countin}` | every beat, also while the metronome is silent; count-in beats have `countin:true` |
+| `sched.marker` | `{tick, label, kind, at, index}` | each Marker |
+| `sched.stall` | `{gapMs, eventsRescheduled, at, cause}` (Part 4.4) | catch-up after a stall |
 
 Events consumed: `transport.seek` and `transport.state` (soft panic on seek, pause, stop;
 fade in on play/resume); `settings.changed` for `audio.masterVolume`, `audio.metronomeVolume`,
@@ -1458,7 +1497,7 @@ fade in on play/resume); `settings.changed` for `audio.masterVolume`, `audio.met
   `soloSet: Set<trackId>`.
 - `VoiceAllocator`: `slots: VoiceSlot[]` fixed length `capacity`; `freeList`; `stolen`
   counter.
-- `Scheduler`: `intervalId` (via `Core.Timers`), `transport`, `instruments`, `lastNow`,
+- `Scheduler`: `intervalId` (via `Core.timers`), `transport`, `instruments`, `lastNow`,
   `sameNowCount` (stall detection), `pending: Map<noteKey, {slot, endAudio}>` for scheduled
   releases, `stats`.
 - Mix state cache per strip (`gainValue`, `panValue`, `mute`, `solo`, `ccVolume`,
@@ -1466,7 +1505,7 @@ fade in on play/resume); `settings.changed` for `audio.masterVolume`, `audio.met
 - Peak: `Float32Array(1024)` scratch, `holdPeak` with 500 ms decay.
 
 Invariants: exactly one `AudioContext` per page; every voice node chain is connected to a
-strip `input` and nothing else; after `panic(true)` `voices.activeCount() === 0` and
+strip `input` and nothing else; after `panic(true)` `VoiceAllocator.activeCount() === 0` and
 `strips.size` is unchanged; `master.gain` never exceeds `masterVolume`.
 
 #### 6.5.4 Algorithms
@@ -1508,7 +1547,7 @@ ramps the strip to silence in 5 ms; voices keep running until their release (P 6
 notes left behind because the voices end normally; a muted strip still counts voices, which
 is why `panic(false)` is also wired to M-17's "delete track").
 
-6.5.4.3 Scheduler tick (every 25 ms via `Core.Timers.setInterval`, owner = engine)
+6.5.4.3 Scheduler tick (every 25 ms via `Core.timers.setInterval`, owner = engine)
 ```text
 tick():
   now = ctx.currentTime
@@ -1523,46 +1562,52 @@ tick():
     if at < now + 0.005: late = max(late, (now + 0.005 - at) * 1000); at = now + 0.005
     switch item.kind:
       'note':    scheduleNote(item, at)
-      'cc','program','bend': instruments.control(item.track, item.event, at); emit sched.control
-      'click':   metronome.click(at, item.accent); emit sched.click
+      'cc','program','bend': instruments.control(item.track, item.event, at); emit sched.cc, sched.program or sched.bend by item.kind
+      'click':   if item.audible: Metronome.click(at, item.accent); emit sched.beat {tick, bar, beat, numerator, denominator, at, isDownbeat: item.accent, countin: item.countIn}
+      'marker':  emit sched.marker {tick, label, kind, at, index}
       'loopWrap': releaseAllActive(at)   // every voice started by the scheduler is released at the wrap (end clamp already applied to notes crossing b; this is the safety net)
       'start':   fadeIn(at)
       'end':     fadeOut(at)
-  if late > 1: stats.stalls++; stats.maxLateMs = max(...); emit sched.stall {lateMs: late, items: items.length}; Log.warn('sched', 'stall catch-up', {late})
+  if late > 1: stats.stalls++; stats.maxLateMs = max(...); emit sched.stall {gapMs: late, eventsRescheduled: items.length, at: now, cause}; Log.warn('sched', 'stall catch-up', {late})
   stats.ticks++; stats.scheduled += items.length
   every 40 ticks: emit audio.voices
 scheduleNote(item, at):
   end = max(item.endAudio, at + 0.010)            // minimum audible 10 ms
   end = min(end, at + VOICE_MAX_S)                // 60 s cap (pedal never released, E 2.3)
-  if strip(item.track.id).effectiveMuted() and not item.track.visible: still schedule (mute is audibility only, animation needs the event)
-  slot = instruments.noteOn(item.track, item.event, at, end)     // M-06 acquires a voice through voices.acquire
-  emit sched.noteOn {..., atAudio: at, endAudio: end, live:false}
+  if createStrip(item.track.id).effectiveMuted() and not item.track.visible: still schedule (mute is audibility only, animation needs the event)
+  slot = instruments.noteOn(item.track, item.event, at, end)     // M-06 acquires a voice through VoiceAllocator.acquire
+  emit sched.noteOn {..., at: at, atOff: end, live:false}
   // M-06 schedules the release itself (voice.release(end)); the scheduler only records for panic
   pending.set(item.event.id, {slot, endAudio: end}); timers are not used for releases
-  emit sched.noteOff {..., atAudio: end} immediately (consumers that animate use the audio time, not arrival)
+  emit sched.noteOff {..., at: end} immediately (consumers that animate use the audio time, not arrival)
 ```
-Note: `sched.noteOff` is emitted at scheduling time with the future `atAudio`; animation
+Note: `sched.noteOff` is emitted at scheduling time with the future `at`; animation
 (M-20) and HUD consumers compare against `Transport.positionAt`/audio time. This avoids a
 timer per note. The Scheduler never schedules beyond `horizon`; a dense chord with 200 notes
 at one tick is 200 `noteOn` calls in one tick (M-06 bounds the cost by voice capacity).
 
 Live input path (Free Play and Studio recording): `liveNoteOn(trackId, pitch, velocity,
-channel, atAudio)` calls `instruments.noteOnLive(...)` at `max(atAudio, now + 0.002)` and
+channel, atAudio)` calls `instruments.liveNoteOn(...)` at `max(atAudio, now + 0.002)` and
 emits `sched.noteOn {live:true}`; `liveNoteOff` releases the live voice for that
 `(trackId, channel, pitch)` key (CC64 live sustain handled in M-06).
 
+Binding (Part 4.7.1 step 6): `Scheduler.bind(transport, song, mixer)` calls `createStrip(track.id)` for every
+track of `song`, applies the `mixer` gain, pan, mute and solo values, and then `start(transport)`;
+`Scheduler.unbind()` calls `stop()` and `disposeStrip` for every strip that `bind` created. The
+Scheduler binds one Transport at a time (a second `bind` while bound throws `E-GEN-004`).
+
 6.5.4.4 Panic
-- `panic(false)` (soft): `t = now`; `voices.releaseAll(t, SOFT_PANIC_S)` (each voice's
+- `panic(false)` (soft): `t = now`; `VoiceAllocator.releaseAll(t, SOFT_PANIC_S)` (each voice's
   `release(t)` with a 30 ms ramp override), `pending.clear()`, emit `audio.panic
   {hard:false}`. Wired to: `transport.seek`, `transport.state` to `paused` or `stopped`,
   M-28 mode leave (step 2 of 4.7), the UI panic key.
-- `panic(true)` (hard): `voices.stopAll()` (every voice `stop(now)` then `dispose()`); for
+- `panic(true)` (hard): `VoiceAllocator.stopAll()` (every voice `stop(now)` then `dispose()`); for
   each strip: disconnect and dispose nodes; `master.disconnect()`, `limiter.disconnect()`;
   rebuild master, limiter, analyser, metronome bus and every strip from the cached mix state;
   `instruments.onGraphRebuilt(engine)` so M-06 drops cached node references; emit
   `audio.panic {hard:true}`. Wired to: the second press of the panic key within 2 s, M-28
   step 3 ("hard panic after release time" = 100 ms after the soft panic when
-  `voices.activeCount() > 0` still), `E-AUD-004` recovery.
+  `VoiceAllocator.activeCount() > 0` still), `E-AUD-004` recovery.
 
 6.5.4.5 VoiceAllocator.acquire(owner, at)
 ```text
@@ -1581,7 +1626,7 @@ Capacity: `Caps.isMobile() ? 32 : 64`, overridable by the `audio.polyphonyCap` s
 `markReleased(slot, at, end)`: state `released`; after `end` M-06's `onended` calls
 `free(slot)` -> `freeList.push`.
 
-6.5.4.6 Metronome click (`metronome.click(at, accent)`)
+6.5.4.6 Metronome click (`Metronome.click(at, accent)`)
 ```text
 osc = ctx.createOscillator(); osc.type = 'triangle'; osc.frequency.value = accent ? 1600 : 1000
 g = ctx.createGain(); g.gain.setValueAtTime(0, at); g.gain.linearRampToValueAtTime(accent ? 1.0 : 0.7, at + 0.002)
@@ -1607,7 +1652,7 @@ lastValue = target`. Master fades use `START_FADE_S` (20 ms) and `STOP_FADE_S` (
 where decay = `0.5 ^ (dt / 0.5)`. Called by the mixer UI at its own frame rate; costs < 0.05 ms.
 
 6.5.4.10 Offline test harness: `createEngine({context: new OfflineAudioContext(2, 48000 * 4,
-48000), clock: fake})`. `scheduler.tickOnce(audioNow)` runs one tick with `now = audioNow`
+48000), clock: fake})`. `Scheduler.tickOnce(audioNow)` runs one tick with `now = audioNow`
 (the clock is injected, so `ctx.currentTime` is not consulted). Tests render with
 `ctx.startRendering()` and locate onsets by scanning the buffer for the first sample above
 0.01 after each expected time; the assertion is `abs(detected - expected) <= 1 / 48000 *
@@ -1665,7 +1710,7 @@ harness of 6.5.4.10; "live" tests run in headless Chromium with the autoplay fla
 | UT-05-04 | stall detection | fake clock frozen for 3 ticks | `audio.state {reason:'stalled'}` emitted once |
 | UT-05-05 | single context | `unlock()` twice concurrently and sequentially | one constructor call; same promise returned while pending |
 | UT-05-06 | graph topology | live context | `master -> limiter -> destination`; limiter params equal `LIMITER`; analyser not in path |
-| UT-05-07 | strip creation and reuse | `strip('t1')` twice; `removeStrip` | same object; after remove a new one; `strips().length` correct |
+| UT-05-07 | strip creation and reuse | `createStrip('t1')` twice; `disposeStrip` | same object; after remove a new one; `strips().length` correct |
 | UT-05-08 | pan fallback | stub context without `createStereoPanner` | PannerNode used with equalpower; `setPan(-1)` sets positionX -1 |
 | UT-05-09 | solo set semantics | strips a, b, c; solo a | b and c `effectiveMuted()`; solo b too -> c only; unsolo all -> none |
 | UT-05-10 | mute ramps not steps | offline render: tone then mute at 1.0 s | no sample-to-sample jump > 0.2 around 1.0 s; silence by 1.01 s |
@@ -1674,10 +1719,10 @@ harness of 6.5.4.10; "live" tests run in headless Chromium with the autoplay fla
 | UT-05-13 | allocator counts | acquire 3, release 1, free 1 | `activeCount 2`, `releasedCount 0` after free; `list()` length = capacity |
 | UT-05-14 | capacity by platform and setting | mobile flag; `setCapacity(16)` | 32 then 16; values outside 8..128 clamped |
 | UT-05-15 | offline onset accuracy | schedule 8 notes at 0.5 s intervals | detected onsets within 3.7 ms (6.5.4.10) of targets |
-| UT-05-16 | lookahead bound | ticks with items 1 s ahead | no `noteOn` emitted with `atAudio > now + 0.120` |
-| UT-05-17 | never schedules in the past | item due 50 ms ago | scheduled at `now + 0.005`; `sched.stall` emitted with `lateMs ~ 55` |
-| UT-05-18 | sched events payload | one note | `sched.noteOn` and `sched.noteOff` carry trackId, noteId, pitch, velocity, atAudio, endAudio equal to the instrument call |
-| UT-05-19 | cc/program/bend routing | items of each kind | `instruments.control` called with the event and audio time; `sched.control` emitted |
+| UT-05-16 | lookahead bound | ticks with items 1 s ahead | no `noteOn` emitted with `at > now + 0.120` |
+| UT-05-17 | never schedules in the past | item due 50 ms ago | scheduled at `now + 0.005`; `sched.stall` emitted with `gapMs ~ 55` |
+| UT-05-18 | sched events payload | one note | `sched.noteOn` and `sched.noteOff` carry trackId, eventId, pitch, velocity, at, atOff equal to the instrument call |
+| UT-05-19 | cc/program/bend routing | items of each kind | `instruments.control` called with the event and audio time; `sched.cc`, `sched.program` and `sched.bend` emitted by kind |
 | UT-05-20 | stall catch-up ordering | 20 overdue items | all scheduled at `now + 0.005` preserving original order; one `sched.stall` |
 | UT-05-21 | voice max duration cap | note with endAudio 120 s away | scheduled release at `at + 60` |
 | UT-05-22 | soft panic releases all | 10 voices; `panic(false)` | each voice `release` called with ramp 0.03; `audio.panic {hard:false}`; pending cleared |
@@ -1691,7 +1736,7 @@ harness of 6.5.4.10; "live" tests run in headless Chromium with the autoplay fla
 | UT-05-30 | live note path | `liveNoteOn` then `liveNoteOff` 100 ms later | `sched.noteOn {live:true}` at `>= now + 0.002`; voice released at off time |
 | UT-05-31 | loopWrap releases | items with `loopWrap` | every active voice released at `wrapAudio` |
 | UT-05-32 | voices stats event | run 40 ticks | one `audio.voices` with `capacity`, `active`, `stolen` |
-| UT-05-33 | dispose closes | `dispose()` | `ctx.close` called; interval cleared (`Timers.counts().intervals` back to baseline) |
+| UT-05-33 | close closes | `close()` | `ctx.close` called; interval cleared (`Core.timers.count()` back to baseline) |
 
 #### 6.5.9 Implementation notes and browser quirks
 
@@ -1717,7 +1762,7 @@ harness of 6.5.4.10; "live" tests run in headless Chromium with the autoplay fla
 Responsibilities: the data-driven instrument definition table (128 GM programs plus the drum
 kit) built from 16 family patch templates with per-program overrides; `Voice` synthesis
 graphs with velocity layers and ADSR; the 12 synthesized drum voices and the GM key map;
-voice lifecycle on top of `FLM.Audio.voices`; program change, pitch bend (with RPN 0 range),
+voice lifecycle on top of `FLM.Audio.VoiceAllocator`; program change, pitch bend (with RPN 0 range),
 CC 1/7/10/11/64/120/121/123 handling; deterministic ignore-and-log-once for unsupported
 controllers; the fidelity declaration API; per-channel live state (sustain flag, bend,
 modulation) for Free Play and recording.
@@ -1731,7 +1776,7 @@ scheduling decisions (M-05 decides when; M-06 decides how a note sounds).
 ```js
 FLM.Instruments = {
   VERSION: 1,                                   // definition table version (Part 5.17)
-  FAMILY_TEMPLATES: /* 16 Template records, 6.6.3 */,
+  FAMILIES: /* 16 Template records, 6.6.3 */,
   DEFINITIONS: /* 128 InstrumentDef records (frozen), 6.6.3 */,
   DRUM_VOICES: /* 12 DrumVoiceDef records */,
   DRUM_MAP: /* Uint8Array(128): GM key -> drum voice index, 255 = none (keys outside 35..81 map to 'misc') */,
@@ -1741,7 +1786,7 @@ FLM.Instruments = {
   onGraphRebuilt(engine) /* -> void (drops cached nodes, re-creates per-channel LFOs) */,
 
   definition(program /* 0..127 */) /* -> InstrumentDef (frozen) */,
-  drumDefinition(key /* 0..127 */) /* -> DrumVoiceDef */,
+  drumVoiceFor(key /* 0..127 */) /* -> DrumVoiceDef */,
   /** Fidelity declaration shown in UI (I 3.4). */
   fidelity(program /* 0..127 or 'drums' */) /* -> Fidelity */,
   // Fidelity { level:'synth-basic'|'synth-velocity', sampled:false, velocityLayers:number,
@@ -1751,9 +1796,9 @@ FLM.Instruments = {
   /** Scheduled playback (called by Audio.Scheduler). Returns the VoiceSlot (or null when the
    *  track is a drum track with an unmapped key, which is silent by design). */
   noteOn(track /* Track */, note /* NoteEvent */, atAudio, endAudio) /* -> VoiceSlot|null */,
-  /** Live input (Free Play / recording): voice held until noteOffLive or sustain release. */
-  noteOnLive(trackId, program, isDrums, channel, pitch, velocity, atAudio) /* -> VoiceSlot|null */,
-  noteOffLive(trackId, channel, pitch, atAudio) /* -> boolean */,
+  /** Live input (Free Play / recording): voice held until liveNoteOff or sustain release. */
+  liveNoteOn(trackId, program, isDrums, channel, pitch, velocity, atAudio) /* -> VoiceSlot|null */,
+  liveNoteOff(trackId, channel, pitch, atAudio) /* -> boolean */,
   /** Scheduled control event (cc, program, bend) for a track. */
   control(track, event /* ControlEvent|ProgramEvent|PitchBendEvent */, atAudio) /* -> void */,
   /** Live control for Free Play (sustain pedal key, mod wheel from MIDI, bend). */
@@ -1762,7 +1807,7 @@ FLM.Instruments = {
   programOf(trackId) /* -> number */,
   setTrackProgram(trackId, program, isDrums) /* -> void (initial assignment; M-17/M-27) */,
   /** Precomputes pluck buffers for a program over a pitch range (Free Play instrument select). */
-  warm(program, loPitch, hiPitch) /* -> Promise<void> (yields every 8 buffers) */,
+  warmup(requests /* [{program, loPitch, hiPitch}] */) /* -> Promise<void> (yields every 8 buffers) */,
   releaseTrack(trackId, atAudio, rampS) /* -> number released */,
   stats() /* -> {pluckCacheEntries, pluckCacheBytes, voicesBuilt, unsupportedCCs:number[]} */,
   dispose()
@@ -2028,7 +2073,7 @@ never sustain; `endAudio` is ignored except as the latest possible stop.
 #### 6.6.4 Algorithms
 
 6.6.4.1 Definition resolution (at load): for each program `p`, `def.params = deepClone(
-FAMILY_TEMPLATES[templateOf(p)])` then apply the override list; results are frozen. Each
+FAMILIES[templateOf(p)])` then apply the override list; results are frozen. Each
 template exposes `build(ctx, params, pitch, velocity, strip)` returning a `Voice`. The 128
 definitions are validated at load by UT-06-01 (every referenced field exists in the schema).
 
@@ -2068,8 +2113,8 @@ out = Float32Array(len); for i in 0..len-1: out[i] = ring[i % N]; next = damping
 normalize peak to 0.9; buffer = ctx.createBuffer(1, len, sr); copyToChannel(out, 0)
 ```
 Cost: 3 s at 48 kHz is 144k iterations (about 0.3-0.6 ms). Cache key `program:pitch:layer`;
-LRU eviction at the cap; `warm()` precomputes a range asynchronously (yield via
-`Timers.setTimeout(0)` every 8 buffers) when the user selects a pluck instrument in Free Play.
+LRU eviction at the cap; `warmup()` precomputes ranges asynchronously (yield via
+`Core.timers.setTimeout(fn, 0)` every 8 buffers) when the user selects a pluck instrument in Free Play.
 Playback uses `playbackRate = 1` (each pitch has its own buffer); bend and vibrato use
 `detune` on the buffer source.
 
@@ -2081,9 +2126,9 @@ Playback uses `playbackRate = 1` (each pitch has its own buffer); bend and vibra
    slot with priority 2; start at `at`; the recipe schedules its own end (`<= 2 s`).
 3. Melodic: `def = definition(program)`; if `note.pitch` outside `def.range`: still play (the
    range is advisory for mapping, not a mute) but log once `range-exceeded-<program>`.
-   `slot = engine.voices.acquire({trackId, channel, pitch, priority}, at)`; `voice = buildVoice`;
+   `slot = Audio.VoiceAllocator.acquire({trackId, channel, pitch, priority}, at)`; `voice = buildVoice`;
    `slot.voice = voice`; `voice.start(at)`; `voice.release(end)` scheduled on the parameter
-   timeline (no JS timers); `engine.voices.markReleased(slot, end, end + p.amp.r)` is
+   timeline (no JS timers); `Audio.VoiceAllocator.markReleased(slot, end, end + p.amp.r)` is
    scheduled by recording `releaseAt` on the slot so the allocator's steal order can treat it
    as released once `now >= end`.
 4. Return the slot.
@@ -2110,7 +2155,7 @@ parsing: CC 101 (RPN MSB) and 100 (RPN LSB) set `cs.rpn`; CC 6 (data entry MSB) 
 | 7 | `strip.setVolumeCC(value / 127, at)` (strip gain = fader x CC7 x CC11) |
 | 10 | `strip.setPan((value - 64) / 63, at)` clamped to -1..1 |
 | 11 | `strip.setExpression(value / 127, at)` |
-| 64 | `cs.sustain = value >= 64`. Live path: while true, `noteOffLive` moves the voice to `cs.sustainedLive` instead of releasing; on false, release every sustained voice at `at`. Scheduled path: the pedal is not interpreted in real time; `noteOn` extends `end` to the note's `DerivedNote.effectiveDurTicks` (Model `deriveSustain`, cached per track version) converted with `transport.audioTimeAt`, see 6.6.9 |
+| 64 | `cs.sustain = value >= 64`. Live path: while true, `liveNoteOff` moves the voice to `cs.sustainedLive` instead of releasing; on false, release every sustained voice at `at`. Scheduled path: the pedal is not interpreted in real time; `noteOn` extends `end` to the note's `DerivedNote.effectiveDurTicks` (Model `deriveSustain`, cached per track version) converted with `transport.audioTimeAt`, see 6.6.9 |
 | 120 | all sound off: `stop(at)` every voice of the channel (5 ms ramp) |
 | 121 | reset controllers: bend 0, mod 0, expression 127, sustain false (volume and pan unchanged per MIDI spec); release sustained live voices |
 | 123 | all notes off: `release(at)` every voice of the channel with template release |
@@ -2123,10 +2168,10 @@ def.params.layers.length` (1 for synth-basic); `controllers = [1, 7, 10, 11, 64,
 `label = level === 'synth-basic' ? 'Synthesized' : 'Synthesized, velocity-sensitive'`.
 The UI never shows the word "sampled" for any v1 instrument (ADR-04).
 
-6.6.4.9 Live input (`noteOnLive`): same as 6.6.4.4 without `end`; the slot is stored in
-`cs.heldLive[pitch]`. `noteOffLive(trackId, channel, pitch, at)`: look up the slot; if
+6.6.4.9 Live input (`liveNoteOn`): same as 6.6.4.4 without `end`; the slot is stored in
+`cs.heldLive[pitch]`. `liveNoteOff(trackId, channel, pitch, at)`: look up the slot; if
 `cs.sustain` move to `sustainedLive`; else `voice.release(at)`; remove from `heldLive`. A
-second `noteOnLive` for a pitch already held releases the old voice at `at` with 10 ms ramp
+second `liveNoteOn` for a pitch already held releases the old voice at `at` with 10 ms ramp
 (retrigger) before starting the new one. `releaseTrack(trackId, at, rampS)` releases every
 held and sustained live voice and every scheduled voice of the track (used by M-28 on mode
 leave and by M-17 on track delete).
@@ -2188,9 +2233,9 @@ context harness from 6.5.4.10 where sound is rendered)
 | UT-06-12 | drum recipes render | each of 12 voices at velocity 100 | non-silent; total duration <= 2 s; peak <= 1.0 |
 | UT-06-13 | hi-hat choke | openHat at 0, closedHat at 0.1 | open voice released at 0.1 (+/- 0.02) |
 | UT-06-14 | program change keeps sounding voices | note at 0 (program 0), program 40 at 0.2, note at 0.3 | first voice def program 0; second program 40; `programOf` 40 |
-| UT-06-15 | live sustain | `noteOnLive`, CC64 on, `noteOffLive`, CC64 off at 1.0 | voice released at 1.0 not at note-off; `sustainedLive` empty afterwards |
+| UT-06-15 | live sustain | `liveNoteOn`, CC64 on, `liveNoteOff`, CC64 off at 1.0 | voice released at 1.0 not at note-off; `sustainedLive` empty afterwards |
 | UT-06-16 | unsupported CC logged once | CC 91 three times, CC 93 once | two `Log.once` entries; `stats().unsupportedCCs` = [91, 93]; no exception |
-| UT-06-17 | instrument change while holding | live note, `setTrackProgram(..., 56)`, `noteOffLive` | old voice releases with piano release; next note uses brass |
+| UT-06-17 | instrument change while holding | live note, `setTrackProgram(..., 56)`, `liveNoteOff` | old voice releases with piano release; next note uses brass |
 | UT-06-18 | bend and RPN | RPN 0 range 12, bend +8191 | `cs.bendRangeSemis 12`; voice detune ~ +1200 cents; CC121 resets bend to 0 |
 | UT-06-19 | node failure isolation | stub `ctx.createOscillator` throwing once | `E-AUD-004` reported; next note succeeds; no leaked slot (`activeCount` consistent) |
 | UT-06-20 | slot watchdog | voice whose `onended` never fires (stub) | slot freed within the next stats pass after `releaseEnd + 1 s` |

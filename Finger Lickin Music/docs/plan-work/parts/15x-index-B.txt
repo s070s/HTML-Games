@@ -322,7 +322,7 @@ R-B10.2-05 | P0 | Scale table includes Major pentatonic | Phase 03 | AT-R-B10.2-
 R-B10.2-06 | P0 | Scale table includes Minor pentatonic | Phase 03 | AT-R-B10.2-06
 R-B10.2-07 | P0 | Scale table includes Blues | Phase 03 | AT-R-B10.2-07
 R-B10.2-08 | P0 | Scale table includes Chromatic | Phase 03 | AT-R-B10.2-08
-R-B10.2-09 | P1 | User-defined scale patterns (up to 64, persisted under flm.v1.settings.userScales) | Phase 06 | AT-R-B10.2-09
+R-B10.2-09 | P1 | User-defined scale patterns (up to 64, persisted under the settings key settings.userScales) | Phase 06 | AT-R-B10.2-09
 R-B10.2-10 | P1 | Further modes are data-driven SCALES entries (dorian, mixolydian and the rest of the table) | Phase 03 | AT-R-B10.2-10
 R-B10.3-01 | P0 | Configurable chord definitions include major and minor triads | Phase 03 | AT-R-B10.3-01
 R-B10.3-02 | P0 | Chord definitions include diminished and augmented triads | Phase 03 | AT-R-B10.3-02

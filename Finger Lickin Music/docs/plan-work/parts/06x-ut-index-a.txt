@@ -3,7 +3,7 @@ UT-01-02 | M-01 | define rejects duplicates
 UT-01-03 | M-01 | emitter on/emit order
 UT-01-04 | M-01 | emitter isolates listener errors
 UT-01-05 | M-01 | once fires once
-UT-01-06 | M-01 | off and offOwner
+UT-01-06 | M-01 | off and removeOwner
 UT-01-07 | M-01 | emit snapshot semantics
 UT-01-08 | M-01 | log ring wraps at 500
 UT-01-09 | M-01 | log once
