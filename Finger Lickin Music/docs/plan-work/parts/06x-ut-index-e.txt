@@ -1,0 +1,120 @@
+﻿UT-18-01 | M-18 | mat4 multiply and invert
+UT-18-02 | M-18 | perspective and lookAt
+UT-18-03 | M-18 | quat slerp and euler
+UT-18-04 | M-18 | normal trick equals inverse transpose
+UT-18-05 | M-18 | scene graph dirty propagation
+UT-18-06 | M-18 | node add detaches and counts
+UT-18-07 | M-18 | primitive vertex and index counts
+UT-18-08 | M-18 | tier pick table
+UT-18-09 | M-18 | abstract init without GL
+UT-18-10 | M-18 | shader failure falls back
+UT-18-11 | M-18 | both programs compile and link
+UT-18-12 | M-18 | setTier clamping and events
+UT-18-13 | M-18 | auto-downgrade from p95
+UT-18-14 | M-18 | hidden-tab gaps excluded
+UT-18-15 | M-18 | context loss and restore rebuild
+UT-18-16 | M-18 | restore timeout falls back
+UT-18-17 | M-18 | resource exhaustion downgrades
+UT-18-18 | M-18 | dispose returns counters to zero
+UT-18-19 | M-18 | frame error isolation
+UT-18-20 | M-18 | loop passes clock time untouched
+UT-18-21 | M-18 | instanced and per-draw paths agree
+UT-18-22 | M-18 | geometry cache sharing
+UT-18-23 | M-18 | camera spring settles without overshoot
+UT-18-24 | M-18 | Flat2D highway drawing
+UT-18-25 | M-18 | resolution scale and DPR cap
+UT-18-26 | M-18 | exported tables frozen
+UT-19-01 | M-19 | joint table order
+UT-19-02 | M-19 | lengths by body and height
+UT-19-03 | M-19 | rest pose FK positions
+UT-19-04 | M-19 | attachment positions
+UT-19-05 | M-19 | blend endpoints and midpoint
+UT-19-06 | M-19 | IK reachable target
+UT-19-07 | M-19 | IK unreachable target
+UT-19-08 | M-19 | IK pole side and degenerate pole
+UT-19-09 | M-19 | IK hand rotation
+UT-19-10 | M-19 | setPose drives nodes
+UT-19-11 | M-19 | default appearance mesh count
+UT-19-12 | M-19 | sleeve and leg rules
+UT-19-13 | M-19 | unknown style defaults
+UT-19-14 | M-19 | validateAttachments
+UT-19-15 | M-19 | NaN pose rejected
+UT-19-16 | M-19 | rig-affecting change keeps pose and moves attachments
+UT-19-17 | M-19 | visual-only change reuses geometry
+UT-19-18 | M-19 | dispose releases geometry
+UT-19-19 | M-19 | LOD rebuild
+UT-20-01 | M-20 | profile table
+UT-20-02 | M-20 | agrees with instrument definitions
+UT-20-03 | M-20 | readSched accepts both field schemes
+UT-20-04 | M-20 | drum kick contact and raise peak
+UT-20-05 | M-20 | drum limb map
+UT-20-06 | M-20 | crash goes to the nearest free hand
+UT-20-07 | M-20 | same-limb merge
+UT-20-08 | M-20 | keys split and position
+UT-20-09 | M-20 | keys press dip and hold
+UT-20-10 | M-20 | chord spread
+UT-20-11 | M-20 | guitar fret choice and hand position
+UT-20-12 | M-20 | guitar strum alternation
+UT-20-13 | M-20 | vibrato only on long notes
+UT-20-14 | M-20 | bowing and pizzicato
+UT-20-15 | M-20 | winds sustain posture and finger offsets
+UT-20-16 | M-20 | synth knob gesture
+UT-20-17 | M-20 | vocal and abstract
+UT-20-18 | M-20 | stillness during rests (S-17)
+UT-20-19 | M-20 | frame-count independence (S-03)
+UT-20-20 | M-20 | determinism and per-character variation
+UT-20-21 | M-20 | arrival order irrelevant
+UT-20-22 | M-20 | late arrival shortens anticipation; live dip
+UT-20-23 | M-20 | pause holds pose, resume continuous
+UT-20-24 | M-20 | seek eases to idle
+UT-20-25 | M-20 | intensity
+UT-20-26 | M-20 | director plan rules
+UT-20-27 | M-20 | director enable rules and resync
+UT-20-28 | M-20 | beat indicator
+UT-20-29 | M-20 | visualizer caps and reduced motion
+UT-20-30 | M-20 | controller failure isolation
+UT-20-31 | M-20 | program change swaps controller
+UT-20-32 | M-20 | low tier animated set
+UT-20-33 | M-20 | style gain
+UT-21-01 | M-21 | slot table
+UT-21-02 | M-21 | slot assignment
+UT-21-03 | M-21 | prop requirements align with the rig
+UT-21-04 | M-21 | stage detail node counts
+UT-21-05 | M-21 | FullBand frames every performer
+UT-21-06 | M-21 | Focus centers the slot
+UT-21-07 | M-21 | camera change leaves time and poses alone
+UT-21-08 | M-21 | highway crossing time with latency
+UT-21-09 | M-21 | lead time scaling
+UT-21-10 | M-21 | judged states
+UT-21-11 | M-21 | chords and glyphs
+UT-21-12 | M-21 | pool cap drops farthest
+UT-21-13 | M-21 | same model in 3D and Abstract
+UT-21-14 | M-21 | beat pulse from music position
+UT-21-15 | M-21 | sparks deterministic and capped
+UT-21-16 | M-21 | live character edit
+UT-21-17 | M-21 | dispose returns to baseline
+UT-21-18 | M-21 | context loss keeps state advancing
+UT-21-19 | M-21 | build failure falls back
+UT-21-20 | M-21 | loop shading
+UT-21-21 | M-21 | dance highway and themes
+UT-21-22 | M-21 | program change swaps the prop
+UT-22-01 | M-22 | catalog completeness
+UT-22-02 | M-22 | create defaults
+UT-22-03 | M-22 | validate error codes
+UT-22-04 | M-22 | normalize repairs and is idempotent
+UT-22-05 | M-22 | hat and headphones exclusive
+UT-22-06 | M-22 | bottom and dress rules
+UT-22-07 | M-22 | resolve render rules and colors
+UT-22-08 | M-22 | presets registered and valid
+UT-22-09 | M-22 | applyPreset keeps identity
+UT-22-10 | M-22 | randomize deterministic and valid
+UT-22-11 | M-22 | serialize round trip
+UT-22-12 | M-22 | file errors
+UT-22-13 | M-22 | network payload limit
+UT-22-14 | M-22 | diff and rig-affecting split
+UT-22-15 | M-22 | edit emits and coalesces
+UT-22-16 | M-22 | roster load, save and failure
+UT-22-17 | M-22 | preset file round trip
+UT-22-18 | M-22 | project command
+UT-22-19 | M-22 | frozen tables
+UT-22-20 | M-22 | x extension handling
