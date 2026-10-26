@@ -45,6 +45,11 @@ All files are UTF-8 with BOM, LF, ASCII content.
 | `parts/12b-tests-manual.md` + `12x-index-b.txt` | 12.8-12.11: XT-001..076, LT-001..096, release-blocking gate, evidence recording | Drafted (904) |
 | `parts/12c-tests-at-B.md` + `12x-index-c.txt` | 12.12: 897 acceptance tests for B P0/P1 rows (merged from two slices) | Drafted (914) |
 | `parts/12d-tests-at-EIP.md` + `12x-index-d.txt` | 12.13: 1,024 acceptance tests for E/I/P P0/P1 rows (merged from three slices) | Drafted (1,048) |
+| `parts/11a-toc-0-5.md` + `11x-index-a.txt` | Part 11 heading, 11.0 phase gates, phases 0-5 (66 T entries) | Drafted (1,683) |
+| `parts/11b-toc-6-10.md` + `11x-index-b.txt` | Phases 6-10 (46 T entries) | Drafted (1,395) |
+| `parts/11c-toc-11-16.md` + `11x-index-c.txt` | Phases 11-16 (62 T entries) | Drafted (642) |
+| `parts/14-release.md` | Part 14 release checklist, polish gates (all 360 P rows), templates | Drafted (1,747) |
+| `parts/A-coverage.md` | Appendix A coverage map (282 rows, gaps: none) | Drafted (357) |
 | `OPEN-ISSUES-stage1.md` | Cross-part conflicts and owner decisions reported by the stage 1 drafters; input for stages 5 and 6 | Open |
 | `tools/assemble.mjs` | Concatenates `parts/` in the fixed order into the single plan file, generates the contents list, rewrites the matrix Phase column to T-IDs from the `11x-index-*.txt` files, writes BOM + LF. Usage: `node tools/assemble.mjs <partsDir> <outFile>` | Ready, untested on a full set |
 | `tools/check-plan.mjs` | Mechanical checks on the assembled file: BOM, LF, ASCII, duplicate and undefined IDs (T, R, UT, IT, FT, TT, PT, XT, FI, LT, AT, RISK, ADR, M), seven mandatory labels per T entry, table column counts, invalid Status words, P0/P1 rows without an AT, spec sections missing from Appendix A, completion-claim scan, counts. Usage: `node tools/check-plan.mjs <plan> <spec>`; exit 1 on errors | Ready, untested on a full set |
@@ -54,7 +59,28 @@ All files are UTF-8 with BOM, LF, ASCII content.
 
 ## 2. What is missing (in dependency order)
 
-Stage 1 is complete (all 23 parts drafted). Stage 2 is complete (Parts 12a-12d). The matrix
+Stages 1-4 are complete: all 32 parts exist. All 1,988 R-IDs appear in a T entry (checked by
+script over the three 11x index files). Next is stage 5 (coverage critics), then stage 6
+(consistency, driven by `OPEN-ISSUES-stage1.md`), then stage 7 (assemble and check).
+
+Trial assembly at the end of stage 4 (not committed): `assemble.mjs` produced 32 of 32 parts,
+4,132,207 bytes, 41,205 lines, Phase column back-filled for 1,988 of 1,988 rows. This is about
+five times the 400-800 KB estimate in section 4; the owner should confirm the size is
+acceptable, or ask stage 6 to move Parts 12.2 (UT copy), 12.12/12.13 (AT tables) and 15 into
+separate files. `check-plan.mjs` exited 1 with these errors (stage 7 must clear them; some are
+checker issues, not plan issues):
+- Duplicate UT (833) and IT (60) definitions: 12.2 restates every UT of the 6.N.8 tables, and
+  the IT IDs appear in two tables. Either the checker counts only one defining table per ID
+  family or 12.2 becomes a reference list.
+- Undefined references: UT-99-01, UT-99-02 (line about 21556), UT-23-34, UT-28-22 (new IDs from
+  11c, must be added to 6.23.8/6.28.8 and the 06x indexes), RISK-78 (line about 35940).
+- Four table rows with a wrong column count (assembled lines 3116, 5528, 5761, 9139).
+- "Invalid Status" for the matrix rows: the checker reads the Spec ref column (B 1.4) as
+  Status, and `R_P0P1` counts 0; the checker's column detection for the 8-column matrix needs a
+  fix (the matrix files themselves were validated by their agents: 8 cells per row).
+- Spec sections "E 14", "E 15" not found in Appendix A: check whether the spec has such
+  headings or the checker misparses a line.
+- Warning: 20 lines that may claim completion (review by hand). The matrix
 rows were kept one per obligation (owner gave no collapse instruction), so 12c/12d hold 1,921
 acceptance tests. The license decision in `OPEN-ISSUES-stage1.md` section A is still open.
 Stage 2 notes: 12c and 12d were each drafted as row slices by parallel agents and merged by
@@ -146,6 +172,10 @@ exits 0. Expected final size: 400-800 KB, 10,000-18,000 lines. Then:
   describes a missing file as present; the final commit restores the wording above.
 - The first commit on this branch (1744cd5) holds `docs/SPECIFICATION.txt` and `README.md`.
 
+- Stages 3-4 (same session): three roadmap agents in parallel, each given a pre-split list of
+  its phases' R-IDs and told to write `Phase NN exit` for cross-file dependencies; then
+  Part 14 and Appendix A in parallel. The session stopped after stage 4 by the owner's budget
+  plan (stages 5-7 left for a later budget).
 - Stage 2 (same session): 12a and 12b first, then five AT slice agents (B 1-12, B 13-29, E, I,
   P) whose fragments were merged into 12c and 12d. Their open issues are appended to
   `OPEN-ISSUES-stage1.md` (lines starting with `- 12`).
