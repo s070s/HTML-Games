@@ -1,0 +1,62 @@
+﻿T11.01 | Dance chart model, constants and validation | R-B14.1-01 R-B14.1-02 R-B14.1-03 R-B14.1-04 R-B14.1-05 R-B14.1-06 R-B7.6-04 R-B26.6-01 R-E7-09 R-E7-13 R-B4.3-07
+T11.02 | Dance chart generator and difficulty settings | R-B7.6-05 R-B14.2-02 R-I7-04 R-I7-06 R-P12-06 R-B26.6-01 R-B7.6-13 R-E7-04 R-E7-05 R-B4.3-07
+T11.03 | Step input mapping and dance layouts | R-B7.6-01 R-B7.6-02 R-B7.6-03 R-B7.6-11 R-B14.4-01 R-I7-02 R-I7-11 R-P12-02 R-E7-06 R-I15-13
+T11.04 | Dance scoring through the shared Judge | R-B7.6-06 R-B7.6-07 R-B7.6-08 R-B14.2-01 R-B14.2-03 R-B14.2-04 R-B14.2-05 R-B14.2-06 R-B14.2-08 R-B14.4-02 R-B26.6-02 R-B26.6-03 R-E7-01 R-E7-02 R-E7-04 R-E7-08 R-E7-10 R-E7-11 R-I7-03 R-I7-05 R-I7-12 R-P12-03 R-P12-04
+T11.05 | Choreography controller | R-B7.6-10 R-B14.3-01 R-B14.3-02 R-B26.6-04 R-I7-08 R-P12-05 R-P12-10 R-P12-11 R-E7-07 R-E7-12
+T11.06 | Custom dance chart import, export and persistence | R-B7.6-12 R-B15.6-04 R-B18.2-10 R-B25.1-12 R-I7-10 R-E7-03 R-E7-09 R-E7-13
+T11.07 | Dance highway, receptors and stage themes | R-P12-01 R-P12-07 R-B4.4-06 R-I9.3-01 R-I9.3-02
+T11.08 | Dance-mode gameplay and choreography | R-I20-07 R-B2-08 R-B6.2-07 R-B7.1-04 R-B7.6-09 R-B14.2-07 R-B19.1-11 R-I7-01 R-I7-07 R-I7-12 R-I14.1-09 R-I15-13 R-P12-07 R-P12-09 R-P12-12 R-B27-14
+T11.09 | Practice panel for instrument and dance runs | R-I6.3-03 R-I6.3-04 R-I6.3-05 R-I6.3-06 R-I6.3-07 R-I6.3-08 R-I7-09 R-P5.3-05 R-P12-08
+T11.10 | Dance and practice progression, challenges and cosmetic unlocks | R-I9.1-05 R-I9.1-06 R-I9.1-07 R-I9.1-08 R-I9.1-09 R-I9.3-01 R-I9.3-02 R-I9.4-01 R-I9.4-02 R-I9.4-03 R-B4.4-06
+T11.11 | Dance-chart validation tests | R-E12-11 R-B25.1-12 R-B25.2-07 R-I14.1-09 R-B26.6-01 R-B26.6-02 R-B26.6-03 R-B26.6-04 R-E7-13
+T11.12 | Deferred register (Phase 11) | R-B4.4-05 R-B4.4-07
+T11.13 | Phase 11 gate | R-B27-14
+T12.01 | ZIP reader and inflate | R-B15.3-12 R-E3.3-01
+T12.02 | MusicXML structure: parts, measures, notes, durations, chords and ties | R-B4.3-03 R-B15.3-01 R-B15.3-02 R-B15.3-03 R-B15.3-04 R-B15.3-05 R-B15.3-06 R-B15.3-07 R-B15.3-12 R-B25.3-07 R-E3.3-01 R-E3.3-02 R-E3.3-03 R-E3.3-04
+T12.03 | MusicXML expression, tempo, repeats, transposition and warnings | R-B15.3-08 R-B15.3-09 R-B15.3-10 R-B15.3-11 R-B15.3-13 R-E3.3-05 R-E3.3-06 R-E3.3-10 R-E3.3-13 R-P11-09
+T12.04 | Guitar Pro reader: versions, structure, tuning, capo and durations | R-B4.3-04 R-B15.4-01 R-B15.4-02 R-B15.4-03 R-B15.4-05 R-B15.4-06 R-B15.4-07 R-B15.4-13 R-B25.3-08 R-E3.3-07 R-E3.3-09 R-E3.3-15 R-P11-10
+T12.05 | Guitar Pro note effects and warnings | R-B15.4-04 R-B15.4-08 R-B15.4-09 R-B15.4-10 R-B15.4-11 R-B15.4-12 R-B15.4-14 R-E3.3-08 R-E3.3-14
+T12.06 | MusicXML and Guitar Pro adapters in the import pipeline | R-B4.3-03 R-B4.3-04 R-B15.5-01 R-E3.3-10 R-E3.3-11 R-I16.2-02 R-P19-08
+T12.07 | Audio file adapter and backing audio tracks | R-B4.4-01 R-B11.1-02 R-B11.6-04 R-B15.5-02 R-B15.5-03 R-B15.5-04 R-B15.5-05 R-B15.5-07 R-B15.5-08 R-B18.2-11 R-B20.3-02 R-E2.1-07 R-E3.4-01 R-E3.4-02 R-E3.4-03 R-E3.4-04 R-E3.4-05 R-E3.4-06 R-E3.4-07 R-E3.4-08 R-E3.4-09 R-E3.4-10 R-E3.4-11 R-P11-11
+T12.08 | MusicXML and Guitar Pro compatibility matrix | R-E12-06 R-E1-12 R-E3.3-12 R-E3.3-15 R-E10-11 R-I6.4-01 R-I6.4-02 R-P11-16 R-B15.4-02 R-B25.3-07 R-B25.3-08
+T12.09 | Deferred register (Phase 12) | R-B4.4-02 R-B15.5-06
+T12.10 | Phase 12 gate | R-B27-15
+T13.01 | Multiplayer modes and synchronization architecture | R-I20-09 R-B2-10 R-B4.3-09 R-B7.7-15 R-B7.7-16 R-B7.7-17 R-B17.1-01 R-B17.1-02 R-B17.1-03 R-B17.2-01 R-B17.2-02 R-B17.2-10 R-B29-07 R-E1-08 R-E8-01 R-E8.2-11 R-E8.2-12 R-E8.2-16 R-I10-01 R-I10.1-01 R-I10.1-03 R-I10.4-02 R-I18-07 R-B27-16
+T13.02 | Message validation, size caps, ordering and rate limits | R-B17.3-02 R-B17.3-03 R-B17.4-01 R-B20.1-10 R-E8.2-02 R-E8.2-03 R-E8.2-14 R-E8.3-02 R-E8.3-03 R-E8.3-05 R-E8.3-07 R-E8.3-09 R-E8.3-10 R-I17-11 R-P13-07 R-P13-10
+T13.03 | Invite and answer codes, WebRTC signaling and the STUN option | R-B5.3-06 R-B5.4-02 R-B7.7-01 R-B7.7-02 R-E8.1-01 R-E8.1-03 R-E8.3-04 R-P13-01 R-P19-06
+T13.04 | Clock synchronization and the shared timeline | R-B7.7-07 R-B7.7-08 R-B17.2-03 R-B17.2-04 R-B17.2-05 R-B17.2-06 R-B26.7-02 R-E8.2-01 R-E8.2-04 R-E8.2-07 R-E8.2-13 R-E8.2-15 R-E8.3-06 R-I10.2-01 R-I10.2-02 R-I19-09 R-P13-03 R-P13-04
+T13.05 | Room lifecycle, lobby, identity, ready states and chart selection | R-B7.7-03 R-B7.7-04 R-B7.7-05 R-B7.7-06 R-B13.4-02 R-E8.1-02 R-E8.1-07 R-E8.2-08 R-E8.2-09 R-E8.2-10 R-E8.3-09 R-I10.1-02 R-I10.1-03 R-P8-10 R-P13-02 R-P13-08
+T13.06 | Host-authoritative judging, per-player scores and results | R-B7.7-09 R-B7.7-10 R-B7.7-17 R-B9.4-08 R-B17.4-02 R-E8.3-01 R-E8.3-11 R-I10.1-02 R-P13-08
+T13.07 | Pause, resume, reconnection, departure, expiry and cleanup | R-B7.7-11 R-B7.7-12 R-B7.7-14 R-B17.2-07 R-B17.2-08 R-B17.2-09 R-B17.3-01 R-B17.3-04 R-B17.3-06 R-B17.3-08 R-B20.3-06 R-B26.7-03 R-E8.1-04 R-E8.1-05 R-E8.1-09 R-E8.1-10 R-E8.1-11 R-E8.2-05 R-E8.2-06 R-E8.3-08 R-I10.3-01 R-I10.3-02 R-I10.3-03 R-P13-05 R-P13-06 R-P19-06
+T13.08 | Relay server and the Online edition | R-B3.7-02 R-B5.4-03 R-B17.1-03 R-B17.3-07 R-B23.4-01 R-B23.4-02 R-E8.1-12 R-E8.3-04 R-E8.3-12 R-I14.3-03 R-I14.3-05 R-I14.3-06 R-P13-14
+T13.09 | SCR-Multiplayer, privacy statement and standalone fallback | R-B5.4-04 R-B6.2-08 R-B7.7-19 R-B17.5-01 R-B19.1-16 R-B23.2-02 R-B24-09 R-B26.7-01 R-B26.7-04 R-E4.1-07 R-E11-14 R-I10.5-01 R-I14.1-12 R-P3-10 R-P13-11 R-P13-12 R-P13-13 R-P18-07
+T13.10 | Multiplayer synchronization and security tests | R-E12-12 R-E8-01 R-B25.2-09 R-B25.2-10 R-I14.1-12 R-I17-11 R-I19-09 R-P20-05 R-B26.7-02
+T13.11 | Deferred register (Phase 13) | R-B4.4-11 R-B7.7-13 R-B7.7-18 R-B17.3-05 R-E8.1-06 R-E8.1-08 R-I10.1-04 R-I10.4-01 R-I18-08 R-P13-09
+T13.12 | Phase 13 gate | R-B27-16
+T14.01 | General MIDI instrument coverage and fidelity review | R-B4.3-05 R-B11.3-05 R-B11.3-06 R-P6.1-02 R-P17-06
+T14.02 | Voice allocation, polyphony and resource limits | R-B11.6-06 R-B21.3-06 R-B25.6-03 R-I12.2-01 R-I12.2-02 R-I17-13 R-P17-05
+T14.03 | Global reverb and the effects chain | R-B16.5-07 R-P6.2-08
+T14.04 | Rendering optimization and graceful degradation | R-B4.3-12 R-B12.7-01 R-B20.1-04 R-B20.2-01 R-B20.2-02 R-B21.3-01 R-B21.3-02 R-B21.3-03 R-B21.3-04 R-B21.3-05 R-B21.3-07 R-B24-11 R-B25.6-04 R-B25.6-05 R-B26.4-03 R-B26.4-04 R-B29-02 R-E6.2-03 R-E6.2-06 R-I12-08 R-I19-07 R-P1-02 R-P17-03 R-P17-04 R-P17-12
+T14.05 | Startup and loading budgets | R-B20.1-01 R-B20.1-03 R-B25.6-01 R-E9-08 R-P17-01 R-P17-02
+T14.06 | Mobile performance profiles | R-I20-11 R-B4.3-11 R-B21.3-01 R-B21.3-02 R-B21.3-03 R-B21.3-04 R-B21.3-05 R-B21.3-06 R-B21.3-07 R-B21.4-01 R-B21.4-02 R-B21.4-03 R-B21.4-04 R-B21.4-05 R-B21.4-06 R-B21.4-07 R-B25.4-08 R-P14-08 R-P14-13
+T14.07 | Memory, cleanup and long-session stability | R-B11.6-03 R-B20.1-07 R-B20.3-09 R-B25.6-02 R-B25.6-06 R-B25.6-07 R-B25.6-08 R-I3.3-03 R-P6.2-10 R-P6.3-10 R-P17-09 R-P17-10 R-P20-08
+T14.08 | Deferred register (Phase 14) | R-B4.4-03 R-B4.4-04 R-B4.4-08 R-B16.5-08 R-I3.1-02 R-I3.2-03 R-I12-07 R-I14.3-04
+T14.09 | Phase 14 gate | R-B27-17
+T15.01 | Full automated suite on the release-candidate build | R-B4.2-15 R-B25.7-01 R-B25.7-02 R-B27-18 R-I17-14 R-I18-09 R-P19-11
+T15.02 | Fault-injection strategy | R-E12-16 R-I13.1-01 R-I13.1-02 R-I13.1-03 R-I13.1-04 R-I13.1-05 R-I13.1-06 R-I13.1-07 R-I13.1-08 R-I13.1-09 R-P19-11
+T15.03 | Dependency failure and offline tests | R-E12-15 R-B5.2-03 R-B26.1-03 R-B26.1-04 R-B29-06 R-P18-06
+T15.04 | Browser and standalone-file compatibility matrix | R-E12-13 R-B5.1-01 R-B5.1-02 R-B5.1-03 R-B5.1-04 R-B5.1-05 R-B5.1-06 R-B5.2-02 R-B25.5-01 R-B25.5-02 R-B25.5-03 R-B25.5-04 R-B25.5-05 R-B25.5-06 R-B25.5-07 R-B26.1-01 R-E9-16 R-I18-09 R-I19-10 R-P18-05 R-P18-09 R-P18-10 R-P20-07
+T15.05 | Desktop and mobile controls on devices | R-B1.5-03 R-B26.2-05 R-B29-05 R-I12-12 R-P20-06
+T15.06 | Device performance and timing measurements | R-B20.1-12 R-P14-12 R-P17-14
+T15.07 | Layout, accessibility and live manual test campaign | R-P2.2-01 R-P2.2-02 R-P2.2-04 R-P2.2-09 R-P20-09
+T15.08 | Phase 15 gate | R-B27-18
+T16.01 | Final build and packaging verification | R-B1.5-05 R-B26.1-02 R-B26.8-01 R-B28-01 R-B28-14 R-I14.3-01 R-I19-11 R-P18-08 R-P18-12
+T16.02 | Independent validation of the delivered file | R-B1.5-04 R-B29-08 R-E13-05 R-I14.3-02 R-I17-15 R-I19-11 R-P18-11 R-P20-14
+T16.03 | Complete acceptance suite and status update | R-B1.5-01 R-B1.5-06 R-B28-02 R-B28-03 R-E13-11 R-I19-13 R-P0-03
+T16.04 | Final failure-recovery acceptance review | R-E12-18 R-E13-01 R-E13-02 R-E13-03 R-E13-04 R-E13-05 R-E13-06 R-E13-07 R-E13-08 R-E13-09 R-E13-10 R-E13-11
+T16.05 | License and dependency inventory | R-B23.3-01 R-B23.3-02 R-B26.8-02 R-B26.8-03 R-B28-06 R-P18-03 R-P18-04 R-P20-10
+T16.06 | Final compatibility and limitations documentation | R-B1.5-02 R-B26.8-04 R-B28-05 R-B28-08 R-I19-13 R-P20-12
+T16.07 | Final report, known issues and status | R-B26.8-05 R-B26.8-06 R-B28-03 R-B28-04 R-B28-07 R-B28-08 R-B28-09 R-B28-10 R-B28-11 R-B28-15 R-P20-11
+T16.08 | Launch, usage and relay deployment instructions | R-B26.8-02 R-B28-07 R-B28-12 R-B28-13 R-P18-04
+T16.09 | Final product-quality acceptance review | R-I20-18 R-I21-02 R-I21-03 R-I21-04 R-I21-05 R-I21-06 R-P2.2-08 R-P6-01 R-P21-19 R-P22-01 R-P22-02 R-P22-03 R-P22-04 R-P22-05 R-P22-06 R-P22-07 R-P22-08 R-P22-09 R-P22-10 R-P22-11 R-P22-12 R-P22-13
+T16.10 | Final delivery | R-B27-19
