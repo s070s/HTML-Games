@@ -1,0 +1,172 @@
+﻿XT-001 | Open, boot and offline core functions - Desktop Chromium
+XT-002 | Open, boot and offline core functions - Desktop Firefox
+XT-003 | Open, boot and offline core functions - Desktop Safari
+XT-004 | Open, boot and offline core functions - iOS Safari
+XT-005 | Open, boot and offline core functions - Android Chrome
+XT-006 | Audio unlock - Desktop Chromium
+XT-007 | Audio unlock - Desktop Firefox
+XT-008 | Audio unlock - Desktop Safari
+XT-009 | Audio unlock - iOS Safari
+XT-010 | Audio unlock - Android Chrome
+XT-011 | Four simultaneous touches (OQ-1) - iOS Safari old-ios
+XT-012 | Four simultaneous touches (OQ-1) - iOS Safari ref-ios
+XT-013 | Four simultaneous touches (OQ-1) - iPadOS Safari tablet
+XT-014 | Four simultaneous touches (OQ-1) - Android Chrome ref-android
+XT-015 | Four simultaneous touches (OQ-1) - Android Chrome low-android
+XT-016 | Touch release lifecycle - iOS Safari ref-ios
+XT-017 | Touch release lifecycle - iOS Safari old-ios
+XT-018 | Touch release lifecycle - Android Chrome ref-android
+XT-019 | Touch release lifecycle - Android Chrome low-android
+XT-020 | Storage IndexedDB and localStorage - Desktop Chromium
+XT-021 | Storage IndexedDB and localStorage - Desktop Firefox
+XT-022 | Storage IndexedDB and localStorage - Desktop Safari
+XT-023 | Storage IndexedDB and localStorage - iOS Safari
+XT-024 | Storage IndexedDB and localStorage - Android Chrome
+XT-025 | Download and export - Desktop Chromium
+XT-026 | Download and export - Desktop Firefox
+XT-027 | Download and export - Desktop Safari
+XT-028 | Download and export - iOS Safari
+XT-029 | Download and export - Android Chrome
+XT-030 | File import from the delivered file - Desktop Chromium
+XT-031 | File import from the delivered file - Desktop Firefox
+XT-032 | File import from the delivered file - Desktop Safari
+XT-033 | File import from the delivered file - iOS Safari
+XT-034 | File import from the delivered file - Android Chrome
+XT-035 | WebGL initialization, tier and context loss - Desktop Chromium
+XT-036 | WebGL initialization, tier and context loss - Desktop Firefox
+XT-037 | WebGL initialization, tier and context loss - Desktop Safari
+XT-038 | WebGL initialization, tier and context loss - iOS Safari
+XT-039 | WebGL initialization, tier and context loss - Android Chrome
+XT-040 | Orientation change - iOS Safari
+XT-041 | Orientation change - Android Chrome
+XT-042 | Orientation change - tablet
+XT-043 | Background return - Desktop Chromium
+XT-044 | Background return - Desktop Firefox
+XT-045 | Background return - Desktop Safari
+XT-046 | Background return - iOS Safari
+XT-047 | Background return - Android Chrome
+XT-048 | Screen lock and power saving - Desktop Chromium
+XT-049 | Screen lock and power saving - Desktop Firefox
+XT-050 | Screen lock and power saving - Desktop Safari
+XT-051 | Screen lock and power saving - iOS Safari
+XT-052 | Screen lock and power saving - Android Chrome
+XT-053 | Web MIDI availability message - Desktop Chromium
+XT-054 | Web MIDI availability message - Desktop Firefox
+XT-055 | Web MIDI availability message - Desktop Safari
+XT-056 | Web MIDI availability message - iOS Safari
+XT-057 | Web MIDI availability message - Android Chrome
+XT-058 | WebRTC availability - Desktop Chromium
+XT-059 | WebRTC availability - Desktop Firefox
+XT-060 | WebRTC availability - Desktop Safari
+XT-061 | WebRTC availability - iOS Safari
+XT-062 | WebRTC availability - Android Chrome
+XT-063 | Two-device Synchronized Play on a LAN - Desktop Chromium host, Android Chrome guest
+XT-064 | Two-device Cooperative Band with STUN off and on (OQ-3) - Desktop Firefox host, iOS Safari guest
+XT-065 | Test build self-test and device scenarios - Desktop Chromium
+XT-066 | Test build self-test and device scenarios - Desktop Firefox
+XT-067 | Test build self-test and device scenarios - Desktop Safari
+XT-068 | Test build self-test and device scenarios - iOS Safari
+XT-069 | Test build self-test and device scenarios - Android Chrome
+XT-070 | Floor browser versions boot without a syntax failure - all five
+XT-071 | Non-US keyboard layouts AZERTY and QWERTZ - desktop browsers
+XT-072 | iOS ring and silent switch - iOS Safari
+XT-073 | Audio output changes and calibration per output - desktop and mobile
+XT-074 | Same project in two tabs - desktop browsers
+XT-075 | Touch target sizes and pad regions measured on devices
+XT-076 | UI scale and browser zoom layout on devices - all five
+LT-001 | First launch to playing demo on desktop within 5 s
+LT-002 | First launch to playing demo on iOS and Android within 8 s
+LT-003 | Returning user opens the main menu with saved choices
+LT-004 | Tutorial on keyboard, gamepad and touch
+LT-005 | Main menu reachability and back navigation
+LT-006 | Unsaved-changes guards on every exit path
+LT-007 | Discoverability of advanced features
+LT-008 | Layout review at the seven reference viewports
+LT-009 | Highway hit zone never covered on phones
+LT-010 | Safe areas and browser bars on phones
+LT-011 | Visual identity review against Part 7.1
+LT-012 | Mode and panel transitions without flicker or jumps
+LT-013 | Contrast measurement in default and high-contrast sets
+LT-014 | Grayscale review of lanes, directions and judgments
+LT-015 | Note and arrow readability at lead times 600 and 3000 ms
+LT-016 | Asset sharpness on high-density displays
+LT-017 | Highway and audio alignment on desktop
+LT-018 | Highway and audio alignment on phones per output
+LT-019 | Calibration makes scoring predictable
+LT-020 | Press feedback within the next frame
+LT-021 | Live input-to-sound feel and measured gap
+LT-022 | Judgment words, flash shapes and combo pulse
+LT-023 | Four-key chords and keyboard rollover
+LT-024 | Touch play feel in both orientations
+LT-025 | Protection against accidental navigation during play
+LT-026 | Gamepad controls in gameplay modes
+LT-027 | Free Play pitches, scales, inversions and octaves
+LT-028 | Difficulty ladder keeps musical intent
+LT-029 | Practice loop, speed and assisted results
+LT-030 | Pause and restart behavior
+LT-031 | Listening review of the 16 instrument families and 12 drum voices
+LT-032 | Demo content coherence and originality review
+LT-033 | No clicks or pops on transport and mixer transitions
+LT-034 | Dense passages without distortion
+LT-035 | No stuck notes after stop or mode change in every mode
+LT-036 | Real-world MIDI files compared by ear with a reference player
+LT-037 | Ten-minute loop without audible drift
+LT-038 | Metronome and count-in against a reference metronome
+LT-039 | Mixer gain, pan, mute and solo by ear
+LT-040 | Global reverb behavior
+LT-041 | Pitch bend, modulation, expression and sustain audible
+LT-042 | Velocity response audible
+LT-043 | Instrument-specific animation review per performer
+LT-044 | Full band performing simultaneously and framed
+LT-045 | Dense visuals never disturb the audio
+LT-046 | Camera direction and determinism review
+LT-047 | Designed looks of every quality tier
+LT-048 | Reduced motion and effects levels keep gameplay feedback
+LT-049 | Stage scene quality review
+LT-050 | App switching under GPU load
+LT-051 | Character editor options, presets and randomize
+LT-052 | Customized appearance on stage, after reload and in another browser
+LT-053 | Record a performance with count-in
+LT-054 | Multitrack overdub with earlier tracks playing
+LT-055 | Piano roll editing by mouse, keyboard and touch
+LT-056 | Interrupted recording keeps the previous take
+LT-057 | Save, quit and reopen a project
+LT-058 | Exported MIDI opens in an external program
+LT-059 | Exported audio mix matches the in-game mix
+LT-060 | Export, clear site data and re-import
+LT-061 | Studio usable by touch on a phone
+LT-062 | Destructive actions confirm and undo
+LT-063 | Real MusicXML exports compared with the source program
+LT-064 | Real Guitar Pro 3, 4 and 5 files compared with a reference
+LT-065 | Import inspection screen understandable
+LT-066 | Import progress and error messages
+LT-067 | Drag and drop import in desktop browsers
+LT-068 | Backing audio alignment with sync offset
+LT-069 | Dance controls and judging on keyboard, gamepad and pads
+LT-070 | Avatar choreography synchronized with the dance chart
+LT-071 | Dance HUD layouts readable on phones
+LT-072 | Dance practice loop, speed and pause
+LT-073 | Multiplayer session setup usability
+LT-074 | Invite and answer codes through chat apps, SMS and e-mail
+LT-075 | Four-player Cooperative Band and room-full refusal
+LT-076 | Disconnect, reconnect and host departure keep local state
+LT-077 | Local modes unaffected when multiplayer is unavailable
+LT-078 | Online edition relay rooms, relay restart and relay unreachable
+LT-079 | Keyboard-only pass of every screen
+LT-080 | Screen reader pass on four platforms
+LT-081 | Dialog focus handling
+LT-082 | High-contrast gameplay readability
+LT-083 | Touch-only pass of every screen
+LT-084 | Control remapping, conflicts and reserved keys
+LT-085 | Accessibility settings persist and apply in every mode
+LT-086 | Thirty-minute session on phones
+LT-087 | Low-end Android play experience
+LT-088 | Ten-minute recording take
+LT-089 | Large project editing responsiveness
+LT-090 | Independent validation of the delivered file on a clean computer
+LT-091 | Documentation accuracy against recorded results
+LT-092 | Error and fallback message wording
+LT-093 | Help screen content review
+LT-094 | License and dependency inventory review
+LT-095 | Relay deployment walkthrough from the README
+LT-096 | Final product review against the P 22 conditions
