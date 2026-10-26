@@ -1,0 +1,66 @@
+﻿T00.01 | End-to-end table of contents and plan validation | R-B27-01 R-B27-02 R-B29-09 R-E0-02 R-E12-01 R-E12-19 R-I20-19 R-P0-01 R-E13-12
+T00.02 | Architecture and technology decision record | R-B5.3-05 R-B11.2-02 R-B12.6-01 R-B18.1-02 R-B19.3-01 R-B19.3-02 R-B19.3-03 R-B19.3-04 R-B19.3-05 R-B19.3-06 R-B19.5-01 R-B19.5-02 R-B19.5-03
+T00.03 | Failure definitions, interface contracts and timeline protocol | R-E11-01 R-E11-02 R-E11-03 R-E11-04 R-E11-05 R-E11-06 R-E11-07 R-E11-08 R-E11-09 R-E10-08 R-I18-10
+T00.04 | Quantitative performance targets | R-I19-01 R-I19-12 R-I20-17
+T00.05 | Risk register and severity classification | R-E12-02 R-E1-01
+T00.06 | Requirements-to-test traceability matrix | R-E12-17 R-E0-01 R-P0-02 R-P20-13 R-I20-20 R-B4.1-01
+T00.07 | Planning approval gate | R-B27-02 R-B27-03 R-B29-09
+T00.08 | Repository preconditions, implementation branch and folders | R-B27-03
+T00.09 | Development ledger and status files | R-B27-20 R-B4.1-01
+T01.01 | Source tree, shell.html and module skeleton | R-B3.7-01 R-B4.2-01 R-B5.3-02 R-B19.1-01 R-B19.1-02 R-B19.2-01 R-B19.4-01 R-B19.4-02 R-B19.4-03 R-B29-01 R-E10-01 R-I14-01 R-I14.1-01 R-I18-01
+T01.02 | Single-file dependency and packaging budget | R-I20-13 R-B2-13 R-B5.3-01 R-B5.3-03 R-B5.3-04 R-B5.3-07 R-B20.1-02 R-E1-07 R-E9-03 R-E9-05 R-E9-07 R-E9-11 R-E10-10 R-I14.2-01 R-I14.2-02 R-P18-01 R-P18-02
+T01.03 | M-01 Core: namespace, event bus, tracked timers and listeners, log, utilities | R-B20.3-04 R-P17-08 R-P19-10
+T01.04 | Capability detection, error reporting and diagnostics export | R-B6.1-02 R-B6.1-04 R-B19.1-18 R-B22-12 R-B24-01 R-B24-14 R-B25.1-13 R-E1-16 R-E9-06 R-E9-10 R-E11-15 R-I11.4-02 R-I11.4-03 R-I13.2-01 R-I13.2-02 R-P4-03 R-P15-08 R-P19-01 R-P19-09 R-P19-12
+T01.05 | Automated quality gates and regression testing | R-I20-16 R-B1.4-01 R-B1.4-02 R-B1.4-03 R-B1.4-04 R-B1.4-05 R-B1.4-07 R-B19.1-19 R-E10-12 R-E10-15 R-I12-01 R-I13-11 R-I17-01
+T01.06 | M-26 UI framework: screen stack, widgets, dialogs, toasts, theme tokens and responsive layout | R-B2-11 R-B4.2-02 R-B6.3-01 R-B6.3-08 R-B6.3-09 R-B6.4-01 R-B6.4-03 R-B6.4-07 R-B6.4-08 R-B6.4-10 R-B20.4-03 R-I11.4-01 R-I12-05 R-P1-01 R-P1-03 R-P1-07 R-P1-08 R-P1-09 R-P1-12 R-P2.1-01 R-P2.1-02 R-P2.1-03 R-P2.1-04 R-P2.2-03 R-P2.2-05 R-P2.2-06 R-P2.3-01 R-P2.3-02 R-P2.3-03 R-P2.3-05 R-P2.3-06 R-P14-01 R-P14-02 R-P14-05 R-P14-06 R-P14-07 R-P21-01 R-P21-02 R-P21-03 R-P21-04 R-P21-07 R-P21-10 R-P21-11 R-P21-14
+T01.07 | Accessibility requirements | R-I20-14 R-B22-07 R-B22-08 R-B22-09 R-I15-08 R-I15-09 R-I15-10 R-P2.1-09 R-P3-07 R-P14-10 R-P14-14 R-P15-01 R-P15-02 R-P15-03 R-P15-05 R-P15-06 R-P15-07 R-P15-09
+T01.08 | Settings persistence subset and schema validation | R-B19.1-17 R-P1-10 R-P19-07 R-P2.3-04
+T01.09 | Mode manager, teardown contract and leak counters | R-B6.3-11 R-E1-13 R-E9-14 R-E10-13 R-E11-17 R-I13-08 R-P3-05 R-P3-08 R-P3-12
+T01.10 | Boot sequence, capability gate and standalone operation | R-B5.2-01 R-B5.4-01 R-B6.1-01 R-B6.1-07 R-B6.1-08 R-B20.4-01 R-B20.4-02 R-B23.2-01 R-B24-06 R-E9-01 R-E9-02 R-E9-04 R-E10-09 R-I12-10
+T01.11 | Main menu, first launch, settings, help, about and diagnostics screens | R-B6.1-06 R-B6.2-10 R-B6.2-12 R-B6.2-13 R-B24-15 R-E9-17 R-I13-10 R-P3-01 R-P3-02 R-P3-03 R-P3-04
+T01.12 | Status discipline and Phase 01 gate | R-B27-04 R-B1.4-06 R-B1.4-08 R-B1.4-09 R-B1.4-10
+T02.01 | M-02 Theory: pitch classes, spelling, scale and chord tables, GM names | R-B10.1-01 R-B10.1-02
+T02.02 | M-03 Model: Song, Track, events, ordering, pairing and validation | R-B9.1-06 R-B9.1-07 R-B15.7-01 R-B15.7-05 R-B15.7-06 R-B15.7-07 R-B15.7-08 R-B15.7-09 R-B15.7-10 R-B15.7-11 R-B15.7-12 R-B15.7-13 R-B19.1-04 R-B19.2-04 R-E2.3-02 R-E2.3-04
+T02.03 | TempoMap, MeterMap, KeyMap and musical position conversion | R-B9.1-01 R-B9.1-02 R-B9.1-03 R-B9.1-04 R-B9.1-05 R-B9.1-08 R-B9.1-09 R-B10.5-02 R-B15.7-02 R-B15.7-03 R-B15.7-04 R-B25.1-01 R-B25.1-02 R-E2.2-04 R-I17-02
+T02.04 | M-04 Transport state machine, audio-clock anchoring and positionAt | R-B7.5-13 R-B9.1-10 R-B9.1-13 R-B9.1-16 R-B19.1-06 R-B19.2-05 R-E2.2-02 R-E2.2-13 R-E10-02 R-I14.1-02 R-P6.3-01 R-P6.3-03
+T02.05 | Seek, loop, count-in, speed and tempo-change rules | R-B9.1-11 R-B9.1-12 R-B9.1-14 R-B9.1-15 R-E2.2-03 R-E2.2-07 R-E2.2-08 R-E2.2-10 R-E2.2-14 R-P6.3-05
+T02.06 | Unified musical engine and event architecture | R-I20-01 R-I1.1-01 R-I1.1-02 R-I16.3-01 R-I21-01
+T02.07 | Timing, scheduling, and drift test plan | R-E12-04 R-B25.4-03 R-B25.4-04 R-B25.4-05 R-B25.4-06 R-P6.3-02 R-P6.3-09
+T02.08 | Shared transport bar | R-B6.3-03 R-B6.4-06
+T02.09 | Phase 02 gate | R-B27-05
+T03.01 | M-07 Input core: keyboard source, InputEvent normalization and audio-time anchor | R-B7.2-14 R-B8.1-01 R-B8.1-02 R-B8.1-07 R-B19.1-03 R-B19.2-02 R-B20.1-06 R-B25.1-04 R-E2.2-09 R-E4.1-12 R-P5.1-07
+T03.02 | Pointer, touch pad, gamepad and optional Web MIDI sources | R-B3.4-01 R-B4.4-09 R-B6.3-07 R-B6.4-04 R-B6.4-11 R-B8.1-03 R-B8.1-04 R-B8.1-05 R-B8.1-06 R-B8.2-03 R-B8.2-04 R-B21.1-01 R-B21.1-02 R-B21.1-03 R-B21.1-04 R-B21.1-05 R-B21.1-06 R-B21.1-07 R-E4.1-08 R-E4.1-09 R-E4.1-10 R-E9-18 R-I2.3-03 R-I12-02 R-I12-03 R-P1-11 R-P4-10 R-P5.1-01 R-P5.1-02 R-P14-03
+T03.03 | Input lifecycle and simultaneous-press tests | R-E12-07 R-B8.4-01 R-B8.4-02 R-B8.4-03 R-E1-10 R-E4.1-01 R-E4.1-02 R-E4.1-03 R-E4.1-04 R-E4.1-05 R-E4.1-11 R-E4.1-13 R-E4.1-15 R-E4.1-16 R-E4.1-17 R-I2.3-04 R-I12-04 R-I17-12 R-P5.1-03 R-P5.1-04 R-P5.1-05 R-P5.1-06 R-P5.1-11 R-P14-04 R-E4.1-08 R-E4.1-09 R-E4.1-10 R-E4.1-12 R-E4.1-14
+T03.04 | Configurable controls, remapping and the Help and Controls entry | R-B6.1-05 R-B6.2-11 R-B8.2-01 R-B8.2-02 R-B8.5-04 R-B22-01 R-I2.1-06 R-I15-01 R-I15-11 R-P5.1-09
+T03.05 | M-08 Mapper: profiles A-F and musical actions | R-B2-01 R-B2-02 R-B3.2-01 R-B4.2-05 R-B8.3-01 R-B8.3-02 R-B8.3-03 R-B8.3-04 R-B8.3-05 R-B8.3-06 R-B8.3-07 R-B8.3-08 R-B19.1-09 R-B19.2-03 R-B25.1-05 R-E10-06 R-I2-01 R-I2.1-01 R-I2.1-02 R-I2.1-03 R-I2.1-04 R-I2.1-05 R-I2.1-07 R-I14.1-03 R-P5.1-08
+T03.06 | Notes, intervals, chords, scales, holds and sustain in the mapper | R-B8.4-04 R-B8.4-05 R-B8.4-06 R-B8.4-07 R-B8.4-08 R-B8.5-06 R-B10.2-01 R-B10.2-02 R-B10.2-03 R-B10.2-04 R-B10.2-05 R-B10.2-06 R-B10.2-07 R-B10.2-08 R-B10.2-10 R-B10.3-01 R-B10.3-02 R-B10.3-03 R-B10.3-04 R-B10.3-05 R-B10.3-06 R-B10.3-07 R-B10.4-01 R-B10.4-02 R-B10.4-03 R-B10.4-04 R-B10.4-05 R-B10.4-06 R-B25.1-06 R-B25.1-07 R-I2.3-05 R-I17-05 R-P9-03
+T03.07 | M-09 Judge: judgment windows, timing comparison and calibration applied once | R-B8.5-01 R-B8.5-02 R-B8.5-03 R-B8.5-05 R-B8.5-07 R-B9.3-01 R-B9.3-02 R-B9.3-03 R-B9.4-10 R-B19.1-08 R-B19.2-07 R-B25.4-02 R-E4.2-03 R-E4.2-04 R-E4.2-05 R-E4.2-06 R-E4.2-07 R-I2.3-01 R-I2.3-02 R-I2.3-07 R-P5.2-05 R-P5.2-11 R-P6.3-07
+T03.08 | Score, combo, accuracy and deterministic replay | R-B9.4-01 R-B9.4-02 R-B9.4-03 R-B9.4-04 R-B9.4-05 R-B9.4-06 R-B9.4-07 R-B9.4-09 R-B25.1-08 R-B25.2-02 R-I2.3-06 R-I2.4-03 R-I14.1-06 R-I19-03 R-P5.2-07
+T03.09 | Calibration settings and DLG-Calibration input step | R-B4.2-14 R-E4.1-14 R-I2.3-08 R-I3.5-08 R-P5.1-10
+T03.10 | Instrument-mode gameplay binding with a test chart | R-I18-02 R-P20-01
+T03.11 | Deferred register (Phase 03) | R-B4.4-10 R-E4.1-06
+T03.12 | Phase 03 gate | R-B27-06
+T04.01 | M-05 AudioContext lifecycle, unlock gesture and audio state machine | R-B6.1-03 R-B11.2-01 R-B19.1-07 R-B21.2-01 R-B21.2-02 R-B24-02 R-E1-03 R-E2.1-01 R-E2.1-09 R-E2.1-11 R-E2.1-13 R-P4-02 R-P14-09
+T04.02 | Bus graph, channel strips, master limiter, metronome and volume controls | R-B6.3-04 R-B11.1-06 R-B11.1-12 R-B11.2-08 R-B11.4-09 R-B11.4-10 R-B16.5-05 R-I3.3-01 R-I3.3-02 R-P6.2-01 R-P6.2-02 R-P6.2-03 R-P6.2-04 R-P6.2-05 R-P6.2-06 R-P6.2-07
+T04.03 | VoiceAllocator, polyphony caps and note stealing | R-B11.2-03 R-B11.2-04 R-B11.2-05 R-B11.6-02 R-B20.1-08 R-E1-11 R-E2.2-12 R-E2.3-08 R-P6.1-10 R-P6.1-11
+T04.04 | Lookahead Scheduler on the audio clock | R-B9.2-01 R-B9.2-02 R-B9.2-04 R-B11.2-07 R-B11.6-01 R-B11.6-05 R-B19.2-06 R-B20.1-05 R-B25.1-03 R-B25.4-01 R-E1-02 R-E1-06 R-E2.2-01 R-E2.2-05 R-E2.2-06 R-E2.2-11 R-I1.3-01 R-I14.1-04 R-I17-03 R-I19-02 R-P6.2-09 R-P6.3-04 R-P6.3-06
+T04.05 | Note lifecycle, sustain pedal, panic and release guarantees | R-B20.3-01 R-E1-05 R-E2.1-08 R-E2.3-01 R-E2.3-03 R-E2.3-05 R-E2.3-06 R-E2.3-07 R-E2.3-10 R-E2.3-11 R-E2.3-12 R-E2.3-13 R-E2.3-14 R-E10-04 R-I13-09 R-I17-04 R-I19-04
+T04.06 | M-06 Instruments: definitions, family templates, voices and drum kit | R-B4.2-06 R-B11.1-01 R-B11.1-04 R-B11.1-05 R-B11.2-06 R-B11.2-09 R-B11.3-02 R-B11.3-03 R-B11.3-04 R-B11.4-01 R-B11.4-02 R-B11.4-03 R-B11.4-04 R-B11.4-05 R-B11.4-06 R-B11.4-07 R-B11.4-08 R-B11.4-11 R-E10-03 R-I3.1-01 R-I3.1-03 R-I3.2-01 R-I3.2-02 R-I16.1-01 R-I16.1-02 R-I16.1-03 R-I16.1-04 R-I16.1-05 R-I16.1-06 R-I16.1-07 R-I16.1-08 R-I16.1-09 R-I16.1-10 R-I16.1-11 R-P6.1-01 R-P6.1-03 R-P6.1-04 R-P6.1-05 R-P6.1-06 R-P6.1-07 R-P6.1-09 R-P6.1-12
+T04.07 | Audio fidelity and General MIDI coverage strategy | R-I20-03 R-B11.3-01 R-B11.3-07 R-B11.3-08 R-B11.3-09 R-B11.3-10 R-E10-14 R-I3.1-04 R-I3.4-01 R-I3.4-02 R-I3.4-03 R-I3.4-04 R-I3.4-05 R-I3.4-06 R-I3.4-07 R-I3.4-08 R-I3.5-06
+T04.08 | Audio lifecycle and recovery matrix | R-E12-03 R-B25.2-01 R-E2-01 R-E2.1-02 R-E2.1-03 R-E2.1-04 R-E2.1-05 R-E2.1-06 R-E2.1-12 R-E11-10 R-P19-04 R-E2.1-01 R-E2.1-08 R-E2.1-09 R-E2.1-11 R-E2.1-13
+T04.09 | Audio diagnostics, latency estimate and calibration listen step | R-I3.5-01 R-I3.5-02 R-I3.5-03 R-I3.5-04 R-I3.5-05 R-I3.5-07
+T04.10 | M-30 built-in demo arrangements, tutorial data and catalog registration | R-B5.3-03 R-B5.3-04 R-E10-09
+T04.11 | Deferred register (Phase 04) | R-B11.1-03 R-B24-03
+T04.12 | Phase 04 gate | R-B27-07 R-I18-03
+T05.01 | M-18 renderer initialization, tier selection and WebGL fallback chain | R-B12.6-09 R-B12.6-11 R-B12.6-12 R-B12.6-13 R-B19.1-12 R-B24-10 R-E6.2-01 R-E9-15 R-I12-06 R-P14-11 R-P19-05
+T05.02 | Scene graph, camera, lights, materials and draw batching | R-B12.1-02 R-B12.6-02 R-B12.6-03 R-B12.6-04 R-B12.6-08 R-P2.2-10 R-P7.1-03
+T05.03 | Quality tiers, automatic downgrade and render-loop independence | R-B6.3-10 R-B9.2-03 R-B12.7-02 R-B12.7-03 R-B12.7-04 R-B12.7-05 R-B12.7-06 R-B12.7-07 R-B19.2-08 R-E6.2-02 R-E6.2-11 R-I1.3-02 R-I12.1-01 R-I12.1-02 R-I12.1-03 R-I12.1-04 R-I12.1-05 R-I15-12 R-P6.3-08
+T05.04 | M-19 Rig: skeleton, procedural mesh, attachment points and two-bone IK | R-B12.2-01 R-B12.2-02 R-B12.2-03 R-B12.6-05 R-E6.1-09 R-I4.1-01 R-P7.2-01 R-P7.2-02 R-P7.2-03
+T05.05 | M-20 per-instrument animation controllers and Animation.Mixer | R-B2-07 R-B3.3-01 R-B4.2-10 R-B4.3-06 R-B12.3-01 R-B12.3-02 R-B12.3-03 R-B12.3-04 R-B12.3-05 R-B12.3-06 R-B12.3-07 R-B12.3-08 R-B12.3-09 R-B12.5-01 R-B12.5-02 R-B12.6-06 R-B12.6-07 R-B19.1-13 R-B19.2-09 R-B29-04 R-E6.1-01 R-E6.1-02 R-E6.1-03 R-E6.1-04 R-E6.1-05 R-E6.1-06 R-E6.1-07 R-E6.1-11 R-E6.1-12 R-E6.1-13 R-E10-05 R-I4-01 R-I4.1-02 R-I4.2-01 R-I4.4-04 R-P7.2-04 R-P7.2-05 R-P7.2-06 R-P7.2-07 R-P7.2-08 R-P7.2-09 R-P7.2-11
+T05.06 | Abstract visualizers, beat and section indicators, reduced motion | R-B12.4-01 R-B12.4-02 R-B12.4-03 R-B12.4-04 R-B12.4-05 R-B12.4-06 R-B12.4-07 R-B12.4-08 R-B12.4-09 R-B12.4-10 R-B22-06 R-E6.1-08 R-E6.1-14 R-I4.2-02 R-I4.4-01 R-I4.4-02 R-I4.4-03 R-I4.4-06 R-I4.4-07 R-I4.4-09 R-I15-04
+T05.07 | M-21 Stage: composition, performer slots, props, effects and camera presets | R-B4.2-09 R-B12.1-01 R-B12.1-03 R-B12.1-04 R-B12.1-05 R-B12.1-06 R-B12.1-07 R-B12.1-08 R-B12.5-03 R-B22-11 R-I4.4-08 R-I15-07 R-P2.1-07 R-P2.1-08 R-P7.1-01 R-P7.1-02 R-P7.1-04 R-P7.1-06 R-P7.1-07 R-P7.1-08 R-P7.1-09 R-P7.1-10 R-P21-18
+T05.08 | StageDirector camera direction and solo emphasis | R-I4.3-01 R-I4.3-02 R-I4.4-05 R-P7.3-01 R-P7.3-02 R-P7.3-03 R-P7.3-04 R-P7.3-05 R-P7.3-06 R-P7.3-07 R-P7.3-08
+T05.09 | Note highway in the 3D tiers and on Flat2D | R-E6.2-09 R-E6.2-12 R-P7.1-05 R-P15-12
+T05.10 | Instrument-specific animation and stage direction | R-I20-04 R-I18-04
+T05.11 | Rendering degradation and resource-cleanup tests | R-E12-10 R-B12.6-10 R-B20.3-03 R-B20.3-05 R-B25.4-07 R-E6.2-04 R-E6.2-05 R-E6.2-07 R-E6.2-10 R-E6.2-13 R-E11-11 R-I14.1-08 R-I17-10 R-P2.2-07 R-P17-07 R-P17-13 R-E6.2-01 R-E6.2-02 R-E6.2-09 R-E6.2-11 R-E6.2-12
+T05.12 | Phase 05 gate | R-B27-08
