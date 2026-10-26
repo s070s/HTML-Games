@@ -1,0 +1,117 @@
+﻿UT-26-01 | M-26 | push and pop order
+UT-26-02 | M-26 | lower screens inert
+UT-26-03 | M-26 | failing mount keeps stack
+UT-26-04 | M-26 | unmount throw still cleans
+UT-26-05 | M-26 | back consults onBack
+UT-26-06 | M-26 | history entries follow stack
+UT-26-07 | M-26 | forward is a no-op
+UT-26-08 | M-26 | dialog focus trap and restore
+UT-26-09 | M-26 | dialog escape and danger default
+UT-26-10 | M-26 | dialog stack limit
+UT-26-11 | M-26 | toast queue, durations, dedupe
+UT-26-12 | M-26 | button states
+UT-26-13 | M-26 | slider keyboard
+UT-26-14 | M-26 | disabled reason
+UT-26-15 | M-26 | roving tabindex list
+UT-26-16 | M-26 | layout classes and event
+UT-26-17 | M-26 | ui scale clamp and compact cap
+UT-26-18 | M-26 | pad geometry portrait
+UT-26-19 | M-26 | pad geometry landscape right
+UT-26-20 | M-26 | pad pressed state from input
+UT-26-21 | M-26 | pad glyphs and labels
+UT-26-22 | M-26 | HUD per kind and coalescing
+UT-26-23 | M-26 | text catalog
+UT-26-24 | M-26 | text entry restriction
+UT-26-25 | M-26 | truncate rules
+UT-26-26 | M-26 | reduced motion and contrast classes
+UT-27-01 | M-27 | main menu entries and order
+UT-27-02 | M-27 | disabled entries explain why
+UT-27-03 | M-27 | import picker inside the gesture
+UT-27-04 | M-27 | quick play defaults
+UT-27-05 | M-27 | quick play dance choice
+UT-27-06 | M-27 | instrument auto difficulty
+UT-27-07 | M-27 | first launch steps and flag
+UT-27-08 | M-27 | tutorial transitions
+UT-27-09 | M-27 | tutorial success criteria
+UT-27-10 | M-27 | tutorial variants
+UT-27-11 | M-27 | tutorial example import
+UT-27-12 | M-27 | tutorial done sets flag
+UT-27-13 | M-27 | settings load normalization
+UT-27-14 | M-27 | settings set event and debounce
+UT-27-15 | M-27 | settings export import round trip
+UT-27-16 | M-27 | remap capture and conflict
+UT-27-17 | M-27 | calibration math
+UT-27-18 | M-27 | save failed dialog
+UT-27-19 | M-27 | import inspect renders I 6.1 fields
+UT-27-20 | M-27 | import mapping change regenerates preview
+UT-27-21 | M-27 | results content
+UT-27-22 | M-27 | multiplayer views follow net.state
+UT-27-23 | M-27 | clipboard fallback
+UT-27-24 | M-27 | studio back guard
+UT-27-25 | M-27 | library filter restore
+UT-27-26 | M-27 | codeLabel table
+UT-27-27 | M-27 | pause screen registers no notes
+UT-27-28 | M-27 | audio blocked dialog resolves on unlock
+UT-28-01 | M-28 | enter and leave freeplay is clean
+UT-28-02 | M-28 | 20 cycles per gameplay mode
+UT-28-03 | M-28 | leave with a held note
+UT-28-04 | M-28 | transitions serialize
+UT-28-05 | M-28 | enter failure returns to menu
+UT-28-06 | M-28 | leave step failure continues
+UT-28-07 | M-28 | assertClean detects leaks
+UT-28-08 | M-28 | audio blocked gate
+UT-28-09 | M-28 | visibility hidden pauses gameplay
+UT-28-10 | M-28 | live mode continues when hidden
+UT-28-11 | M-28 | gamepad disconnect pauses only when held
+UT-28-12 | M-28 | context loss keeps transport
+UT-28-13 | M-28 | frame errors escalate
+UT-28-14 | M-28 | finish runs once
+UT-28-15 | M-28 | autosave on leave from studio
+UT-28-16 | M-28 | multiplayer hash mismatch
+UT-28-17 | M-28 | practice loop per-pass judging
+UT-28-18 | M-28 | target track policy
+UT-28-19 | M-28 | browser back pauses gameplay
+UT-28-20 | M-28 | auto tier
+UT-28-21 | M-28 | netConnections exemption
+UT-29-01 | M-29 | URL parameter parsing
+UT-29-02 | M-29 | gate soft rows
+UT-29-03 | M-29 | gate hard rows
+UT-29-04 | M-29 | missing module is fatal
+UT-29-05 | M-29 | storage modes reach the menu notice
+UT-29-06 | M-29 | audio init failure
+UT-29-07 | M-29 | errors before ready escalate
+UT-29-08 | M-29 | landing branch
+UT-29-09 | M-29 | one-shot unlock gesture
+UT-29-10 | M-29 | debug surface and fault gating
+UT-29-11 | M-29 | public surface keys
+UT-29-12 | M-29 | boot stage order
+UT-30-01 | M-30 | expansion determinism
+UT-30-02 | M-30 | durations
+UT-30-03 | M-30 | note counts
+UT-30-04 | M-30 | tempo and meter change present
+UT-30-05 | M-30 | pitch ranges inside instrument ranges
+UT-30-06 | M-30 | drum voice coverage
+UT-30-07 | M-30 | swing and ties
+UT-30-08 | M-30 | controllers
+UT-30-09 | M-30 | notation errors
+UT-30-10 | M-30 | model validity
+UT-30-11 | M-30 | catalog registration
+UT-30-12 | M-30 | presets valid
+UT-30-13 | M-30 | tutorial charts
+UT-30-14 | M-30 | pedal derivation
+UT-31-01 | M-31 | passing test recorded
+UT-31-02 | M-31 | failing assertion recorded
+UT-31-03 | M-31 | thrown error recorded
+UT-31-04 | M-31 | async test awaited
+UT-31-05 | M-31 | timeout
+UT-31-06 | M-31 | skip
+UT-31-07 | M-31 | slow filter
+UT-31-08 | M-31 | grep filter
+UT-31-09 | M-31 | unknown group
+UT-31-10 | M-31 | results shape and global
+UT-31-11 | M-31 | assertion semantics
+UT-31-12 | M-31 | stubs restored
+UT-31-13 | M-31 | fake clock with transport
+UT-31-14 | M-31 | fake IndexedDB basics and faults
+UT-31-15 | M-31 | group leak check
+UT-31-16 | M-31 | corpus hash check

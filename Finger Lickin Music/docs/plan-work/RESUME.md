@@ -1,6 +1,7 @@
 ﻿# RESUME: Finger Lickin Music implementation plan, work in progress
 
-Snapshot date: 2026-10-25. Branch: `claude/modest-ramanujan-pgmwvt`. Status: the plan document
+Snapshot date: 2026-10-26. Branch: `claude/determined-albattani-savk7i` (stage 1 completed there;
+the 2026-10-25 work was on `claude/modest-ramanujan-pgmwvt`). Status: the plan document
 `docs/IMPLEMENTATION-PLAN.md` does not exist yet. This folder holds everything needed to finish
 it in a fresh session (the owner intends to resume locally with Opus 5.5 at high effort).
 
@@ -26,7 +27,21 @@ All files are UTF-8 with BOM, LF, ASCII content.
 | `parts/06b-mod-input.md` | Modules M-07, M-08, M-09 | Drafted (1,293) |
 | `parts/06c-mod-parsers.md` | Modules M-10..M-14 | Drafted (2,364) |
 | `parts/06d-mod-project.md` | Modules M-15, M-16, M-17 | Drafted (1,569) |
-| `parts/06x-ut-index-{a,b,c,d}.txt` | Unit-test indexes (`UT-MM-nn | M-MM | name`) for the four module parts above: 162 + 102 + 149 + 87 tests | Drafted |
+| `parts/06e-mod-render.md` | Modules M-18..M-22 | Drafted (2,863) |
+| `parts/06f-mod-modes.md` | Modules M-23, M-24, M-25 | Drafted (1,967) |
+| `parts/06g-mod-ui.md` | Modules M-26..M-31 | Drafted (3,290) |
+| `parts/06x-ut-index-{a..g}.txt` | Unit-test indexes (`UT-MM-nn | M-MM | name`) for the module parts: a 162, b 102, c 149, d 87, e 120, f 96, g 117 | Drafted |
+| `parts/07-ui.md` | Part 7 "User interface and navigation" | Drafted (2,191) |
+| `parts/08-import.md` | Part 8 "Import, export, and compatibility strategy" | Drafted (1,239) |
+| `parts/09-perf.md` | Part 9 "Performance budgets and device matrix" | Drafted (1,081) |
+| `parts/10-safety.md` | Part 10 "Security, privacy, accessibility, and failure recovery" | Drafted (1,168) |
+| `parts/13-risks.md` | Part 13 "Risk register" (RISK-01..77) | Drafted (253) |
+| `parts/15a-trace-B.md` + `15x-index-B.txt` | Matrix 15.0 preface and 15.1 (B): 921 rows | Drafted (1,193) |
+| `parts/15b-trace-E.md` + `15x-index-E.txt` | Matrix 15.2 (E): 364 rows | Drafted (443) |
+| `parts/15c-trace-I.md` + `15x-index-I.txt` | Matrix 15.3 (I): 343 rows | Drafted (352) |
+| `parts/15d-trace-P.md` + `15x-index-P.txt` | Matrix 15.4 (P): 360 rows | Drafted (376) |
+| `parts/B-appendices.md` | Appendices B (glossary), C (prohibited mistakes), D (templates) | Drafted (751) |
+| `OPEN-ISSUES-stage1.md` | Cross-part conflicts and owner decisions reported by the stage 1 drafters; input for stages 5 and 6 | Open |
 | `tools/assemble.mjs` | Concatenates `parts/` in the fixed order into the single plan file, generates the contents list, rewrites the matrix Phase column to T-IDs from the `11x-index-*.txt` files, writes BOM + LF. Usage: `node tools/assemble.mjs <partsDir> <outFile>` | Ready, untested on a full set |
 | `tools/check-plan.mjs` | Mechanical checks on the assembled file: BOM, LF, ASCII, duplicate and undefined IDs (T, R, UT, IT, FT, TT, PT, XT, FI, LT, AT, RISK, ADR, M), seven mandatory labels per T entry, table column counts, invalid Status words, P0/P1 rows without an AT, spec sections missing from Appendix A, completion-claim scan, counts. Usage: `node tools/check-plan.mjs <plan> <spec>`; exit 1 on errors | Ready, untested on a full set |
 | `tools/workflow-flm-plan.js` | The orchestration script used in the cloud session (Claude Code Workflow tool API). Reference only: its paths point at a scratchpad that no longer exists; the prompt texts in it are the ones to reuse | Reference |
@@ -35,11 +50,9 @@ All files are UTF-8 with BOM, LF, ASCII content.
 
 ## 2. What is missing (in dependency order)
 
-Stage 1 parts not yet drafted (each is independent; run in parallel):
-`06e-mod-render.md` (+ `06x-ut-index-e.txt`), `06f-mod-modes.md` (+ `-f.txt`),
-`06g-mod-ui.md` (+ `-g.txt`), `07-ui.md`, `08-import.md`, `09-perf.md`, `10-safety.md`,
-`13-risks.md`, `15a-trace-B.md` (+ `15x-index-B.txt`), `15b-trace-E.md` (+ `-E.txt`),
-`15c-trace-I.md` (+ `-I.txt`), `15d-trace-P.md` (+ `-P.txt`), `B-appendices.md`.
+Stage 1 is complete (all 23 parts drafted). Before stage 2, the owner decides the two items in
+`OPEN-ISSUES-stage1.md` section A (game license; whether to collapse matrix rows). The matrix
+row count drives the size and cost of Parts 12c/12d.
 
 Stage 2 (after stage 1): `12a-tests-auto.md`, `12b-tests-manual.md` in parallel, then
 `12c-tests-at-B.md`, `12d-tests-at-EIP.md` in parallel (each with its `12x-index-*.txt`).
@@ -129,6 +142,15 @@ exits 0. Expected final size: 400-800 KB, 10,000-18,000 lines. Then:
 - The README was committed early with an "in preparation" status line so the branch never
   describes a missing file as present; the final commit restores the wording above.
 - The first commit on this branch (1744cd5) holds `docs/SPECIFICATION.txt` and `README.md`.
+
+- 2026-10-26 session (cloud, `claude/determined-albattani-savk7i`): the 13 missing stage 1
+  parts were drafted by 13 parallel agents and committed one by one as each finished. Agents
+  wrote files without a BOM; the session added the BOM before each commit. Every agent's open
+  issues are in `OPEN-ISSUES-stage1.md`. The matrices came out larger than the brief expected
+  (1,988 rows in total). Several parts invented error codes independently (E-NET, E-REN,
+  E-PRJ, E-AUD ranges overlap between 06e, 06f, 07 and 10); stage 6 must build one registry,
+  with Part 10.6 as the base. The session stopped at the stage 1 boundary to stay within the
+  owner's credit budget.
 
 ## 6. Conventions the next session must keep
 
