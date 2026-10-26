@@ -26696,6 +26696,10 @@ When the owner chooses a license (for example MIT), the implementer replaces
 The final report lists the notice in force (final release checklist item). The game's own license
 never affects the content inventory above because no third-party content exists.
 
+Owner decision (2026-10-26): the game is published as "All rights reserved", like every game in
+the repository. The notice above is the final notice; T00.09 records this decision as the first
+LEDGER "Decisions" entry, and no `LICENSE` file with an open-source license is added.
+
 ### 10.4 Online credentials
 
 1. No credentials of any kind are embedded: no API keys, tokens, passwords, client

@@ -7,6 +7,14 @@ line; the stage 5 coverage critics may use them as hints. Nothing here is fixed 
 
 ## A. Owner decisions (not for agents to decide)
 
+Decided by the owner on 2026-10-26:
+- A.1 License: "All rights reserved" for this game and all games in the repository (Part 10.3.3).
+- A.2 Matrix size: keep one row per obligation and one plan file (4.2 MB accepted).
+- Flood rule: keep drop-and-count, then disconnect after a breach sustained for 3 s (E-NET-011).
+- Dance chart seed: keep the shared settingsHash formula (profile F).
+
+Original items:
+
 1. The game's own license. Part 10.3 writes an interim "All rights reserved" notice.
 2. Matrix size. Part 15a has 921 rows (target 450-600), 15b 364, 15c 343, 15d 360: 1,988 rows
    and about 1,900 AT names for Parts 12c/12d. Option A: keep one row per obligation (larger
