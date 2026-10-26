@@ -93,7 +93,7 @@ here are defined in the module designs (Part 6) and the message catalog (Part 10
 | R-E3.1-03 | E 3.1 | Handle: SMF format 2 -> one Song per sequence; user picks one (W-MIDI-FORMAT2); sequences never merged | P0 | M-10, M-14 | Phase 07 | AT-R-E3.1-03 | Unimplemented |
 | R-E3.1-04 | E 3.1 | Handle: missing or invalid header -> import refused with E-IMP-003; current project untouched | P0 | M-10, M-14 | Phase 07 | AT-R-E3.1-04 | Unimplemented |
 | R-E3.1-05 | E 3.1 | Handle: invalid track length -> chunk bounded by file end; events before the cut kept (W-MIDI-TRUNCATED) | P0 | M-10 | Phase 07 | AT-R-E3.1-05 | Unimplemented |
-| R-E3.1-06 | E 3.1 | Handle: truncated variable-length quantity -> rest of that track skipped (W-MIDI-BAD-VLQ); earlier events kept | P0 | M-10 | Phase 07 | AT-R-E3.1-06 | Unimplemented |
+| R-E3.1-06 | E 3.1 | Handle: truncated variable-length quantity -> rest of that track skipped (W-MIDI-BAD-VLQ for an over-long quantity, W-MIDI-TRUNCATED for one cut by the end of the file); earlier events kept | P0 | M-10 | Phase 07 | AT-R-E3.1-06 | Unimplemented |
 | R-E3.1-07 | E 3.1 | Handle: invalid status byte -> rest of that track skipped (W-MIDI-BAD-STATUS); other tracks kept | P0 | M-10 | Phase 07 | AT-R-E3.1-07 | Unimplemented |
 | R-E3.1-08 | E 3.1 | Handle: missing end-of-track event -> the track ends at its last event (W-MIDI-NO-EOT) | P0 | M-10 | Phase 07 | AT-R-E3.1-08 | Unimplemented |
 | R-E3.1-09 | E 3.1 | Handle: duplicate or conflicting metadata -> last value at a tick wins (W-MIDI-DUPLICATE-META) | P0 | M-10 | Phase 07 | AT-R-E3.1-09 | Unimplemented |

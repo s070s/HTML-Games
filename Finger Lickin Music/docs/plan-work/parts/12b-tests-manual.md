@@ -378,7 +378,7 @@ works whether or not MIDI is available; (5) SCR-Help shows the same Web MIDI sen
 
 Covers R-B26.7-04, R-P13-12, R-P18-07, R-E9-04 (multiplayer part), Part 1.4 rules 2-4.
 
-Procedure: (1) SCR-MainMenu: Multiplayer is enabled, or disabled with E-NET-016
+Procedure: (1) SCR-MainMenu: Multiplayer is enabled, or disabled with E-CAP-005
 "Multiplayer needs WebRTC, which this browser does not provide." when `RTCPeerConnection`
 is missing; (2) SCR-Multiplayer: the "How this works" panel shows the Standalone edition
 sentence and the privacy statement (S-NET-01); (3) with STUN off, create a Synchronized
@@ -395,7 +395,7 @@ Play and play 10 s).
 | ID | Browser | Device class | Contexts | Browser-specific steps and expectations | Pass criterion |
 |---|---|---|---|---|---|
 | XT-058 | Desktop Chromium | `ref-desktop` | C1, C3 | step 4 between two windows of the same profile | steps 1-6 hold in every context; no network request is made while STUN is off (Network panel and rule 10) |
-| XT-059 | Desktop Firefox | `ref-desktop` | C1, C3 | `media.peerconnection.enabled` at default; one extra run with it set to false must show the E-NET-016 disabled entry while every other entry stays enabled | as XT-058 plus the extra run |
+| XT-059 | Desktop Firefox | `ref-desktop` | C1, C3 | `media.peerconnection.enabled` at default; one extra run with it set to false must show the E-CAP-005 disabled entry while every other entry stays enabled | as XT-058 plus the extra run |
 | XT-060 | Desktop Safari | `ref-desktop` | C1, C3 | as XT-058 | as XT-058 |
 | XT-061 | iOS Safari | `ref-ios` | C3 | step 4 with a second device (Desktop Chromium on the same LAN) | as XT-058 |
 | XT-062 | Android Chrome | `ref-android` | C1, C3 | step 4 with a second device (Desktop Firefox on the same LAN) | as XT-058 |

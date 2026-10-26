@@ -292,7 +292,7 @@ children has a uniform scale; `scene.count()` is 0 whenever no stage is built; e
 7. No context, or step 5/6 failed: `api = 'none'`, tier `Abstract`, report `E-REN-001`
    (recoverable; class from 4.9 defaults) with `context.reason` naming the failed step.
 8. Get the 2D context of `flat` (`getContext('2d', {alpha:false})`). If null and the tier is
-   Abstract: `ErrorReporter.fatal('E-REN-007', ...)` (the 2D canvas is a hard capability,
+   Abstract: `ErrorReporter.fatal('E-CAP-002', ...)` (the 2D canvas is a hard capability,
    Part 4.3 B4, so this only happens on a broken page).
 9. Clamp the requested tier to the ceiling: `api === 'none'` -> Abstract; `api ===
    'webgl1'` -> at most Balanced. Apply visibility: Abstract shows `#flat` and hides
@@ -743,7 +743,7 @@ step(tRaf):
   audioNow = loop.clock.now()
   renderer && renderer.beginFrame()
   try { loop.frameFn(audioNow, dt) }
-  catch (e) { ErrorReporter.report('E-REN-006', e, {origin:'frame'}) }   // escalation rules of 4.9 live in M-01
+  catch (e) { ErrorReporter.report('E-REN-008', e, {origin:'frame'}) }   // escalation rules of 4.9 live in M-01
   renderer && renderer.endFrame()
   if tRaf - lastStatsAt >= 1000: computeStats(); autoTierCheck(); maybe emit render.stats; lastStatsAt = tRaf
   loop.frameId = Core.Timers.requestFrame(step, loop.owner)
@@ -803,13 +803,13 @@ leaves `counters()` all zero.
 | What can fail | Detection | State that remains valid | Retry | User data at risk | User informed how | Degraded mode | Return to known-good | Test |
 |---|---|---|---|---|---|---|---|---|
 | No WebGL context (E-REN-001) | every `getContext` null or throwing | transport, audio, project untouched | no (per page) | no | Settings Video shows "3D stage unavailable in this browser; using the flat visualizer." (Part 4.3 B4 text) | Abstract tier (Flat2D) | n/a | UT-18-08 |
-| Shader compile or link failure (E-REN-002) | `COMPILE_STATUS`/`LINK_STATUS` false | context unused, Flat2D | no | no | same text as above; info log in diagnostics | Abstract | n/a | UT-18-10 |
+| Shader compile or link failure (E-REN-002) | `COMPILE_STATUS`/`LINK_STATUS` false | context unused, Flat2D | no | no | toast "Graphics were simplified to {tier} after a graphics error."; info log in diagnostics | Abstract | n/a | UT-18-10 |
 | Context lost (E-REN-003) | `webglcontextlost` | every CPU-side mesh and texture description; transport and audio continue (S-15) | automatic restore | no | HUD note "Graphics paused" (M-28) | nothing drawn for up to 3 s | restore rebuild from CPU descriptions | UT-18-15 |
-| Restore missing after 3 s, or 3 losses in 60 s, or rebuild failure (E-REN-004) | timer, loss counter, rebuild error | as above | user may select a 3D tier later in Settings | no | toast "3D graphics were lost; showing the simplified view" (M-27 on `render.tier` reason `contextLoss`) | Abstract for the session | `setTier` by the user | UT-18-16 |
+| Restore missing after 3 s, or 3 losses in 60 s, or rebuild failure (E-REN-004) | timer, loss counter, rebuild error | as above | user may select a 3D tier later in Settings | no | toast "Graphics could not be restored; using the flat visualizer." (M-27 on `render.tier` reason `contextLoss`) | Abstract for the session | `setTier` by the user | UT-18-16 |
 | GPU resource creation returns null or `OUT_OF_MEMORY` (E-REN-005) | null from `glx.create*`; `getError()` checked after stage builds and resizes only (never per frame) | existing scene objects | no | no | toast via the `render.tier` auto path text | one tier lower (`setTier(next, 'auto')`) | next lower tier | UT-18-17 |
-| Frame callback throws (E-REN-006) | try/catch in `step` | loop keeps running | next frame | no | per 4.9 origin rules (third error in 10 s -> returnToMenu by M-01) | frame skipped | next frame | UT-18-19 |
+| Frame callback throws (E-REN-008) | try/catch in `step` | loop keeps running | next frame | no | per 4.9 origin rules (third error in 10 s -> returnToMenu by M-01) | frame skipped | next frame | UT-18-19 |
 | Sustained slow frames | p95 > 33 ms over 5 s | everything | n/a | no | toast "Graphics quality lowered to <tier> to keep the music smooth" | lower tier | user raises the tier in Settings | UT-18-13 |
-| 2D context unavailable (E-REN-007) | `getContext('2d')` null in Abstract | none | reload | no | `#fatal` | none | reload | UT-18-09 |
+| 2D context unavailable (E-CAP-002) | `getContext('2d')` null in Abstract | none | reload | no | `#fatal` | none | reload | UT-18-09 |
 | Leaked GL objects after a stage | `counters()` vs baseline in `assertClean` | n/a | n/a | no | diagnostics (E-MODE-001) | none | `Scene.clear()` and `releaseGeometry` | UT-18-18 |
 
 #### 6.18.6 Limits and performance notes
@@ -866,7 +866,7 @@ headless SwiftShader context of Part 3.4.2 and call `t.skip('webgl unavailable')
 | UT-18-16 | restore timeout falls back | `fault('render.contextLoss', {restoreAfterMs:null})`, wait 3,100 ms (slow group) | `render.tier {tier:'Abstract', reason:'contextLoss'}` and `render.contextRestored {fallback:true}`; loop still running; a FakeClock-driven frameFn kept receiving frames |
 | UT-18-17 | resource exhaustion downgrades | `glFactory` wrapper whose `createBuffer` returns null after 10 calls, then build 20 meshes | `E-REN-005` reported once; tier one step lower; no exception escapes |
 | UT-18-18 | dispose returns counters to zero | init, build a stage-sized scene (200 nodes, 30 geometries), `scene.clear()`, `Render.dispose()` | after clear counters equal the post-init baseline; after dispose all counters 0 and `scene.count() === 0` |
-| UT-18-19 | frame error isolation | frameFn throws on frame 3 only | frames 4 and later run; one `E-REN-006` record with `context.origin === 'frame'` |
+| UT-18-19 | frame error isolation | frameFn throws on frame 3 only | frames 4 and later run; one `E-REN-008` record with `context.origin === 'frame'` |
 | UT-18-20 | loop passes clock time untouched | FakeClock returning 1.0, 1.5, 9.0 on successive frames | frameFn receives exactly those values; dt values are clamped to 0..100 |
 | UT-18-21 | instanced and per-draw paths agree | render 50 identical boxes with instancing, then with `caps.instancing` forced to 'none', read pixels | both images identical (readPixels compare, tolerance 1 per channel); draws 1 versus 50 |
 | UT-18-22 | geometry cache sharing | `geometry('capsule', {r:0.0501, len:0.3})` twice and once with r 0.0504 | first two return the same Mesh (refCount 2; quantized key); the third differs; releasing all three disposes both meshes |
@@ -1244,7 +1244,7 @@ change <= 2 ms, a rig-affecting change <= 8 ms on desktop.
 `required = ATTACHMENT_REQUIREMENTS[propKind] or ATTACHMENT_REQUIREMENTS.generic`; `missing =
 required.filter(n => rig.attachmentNode(n) === null)`; returns `{ok: missing.length === 0,
 missing}`. M-21 calls it for every performer at build and after every rig-affecting change;
-a failure is reported once per performer as `E-REN-010` and the performer is shown as an
+a failure is reported once per performer as `E-REN-009` and the performer is shown as an
 abstract visualizer instead of a humanoid (E 6.1: abstract visualization remains available).
 
 6.19.4.7 `Pose.blend(out, a, b, t)`
@@ -1260,7 +1260,7 @@ it costs no trigonometry.
 | What can fail | Detection | State that remains valid | Retry | User data at risk | User informed how | Degraded mode | Return to known-good | Test |
 |---|---|---|---|---|---|---|---|---|
 | Appearance field invalid (should not happen after M-22 normalization) | `buildMesh` checks enums; unknown style -> default style | rig with defaults for that part | no | no | none (logged `W-RIG-DEFAULTED` once per field) | default part | next valid `applyConfig` | UT-19-13 |
-| Required attachment missing (E-REN-010) | `validateAttachments` | rig and pose | after the next rig-affecting change | no | none for the user; diagnostics log | performer drawn as abstract visualizer | rebuild with a valid config | UT-19-14 |
+| Required attachment missing (E-REN-009) | `validateAttachments` | rig and pose | after the next rig-affecting change | no | none for the user; diagnostics log | performer drawn as abstract visualizer | rebuild with a valid config | UT-19-14 |
 | IK target unreachable or degenerate pole | distance and projection checks | pose with a straight arm toward the target | every frame | no | none | arm fully extended | next reachable target | UT-19-07, UT-19-08 |
 | NaN in a pose (controller defect) | `setPose` checks the first component of each quaternion with `Number.isFinite` | last valid pose | next frame | no | `Log.once('rig-nan-<id>')` | previous pose kept | next valid pose | UT-19-15 |
 | Geometry creation fails (GL resource exhaustion) | `Render.geometry` reports `E-REN-005` | rig nodes without the failed mesh | after tier downgrade (`rebuildLod`) | no | toast from the tier change | part missing until rebuilt | `rebuildLod` at the lower tier | UT-19-17 |
@@ -1874,7 +1874,7 @@ these values; they are music structure, not invented activity, so they continue 
 
 | What can fail | Detection | State that remains valid | Retry | User data at risk | User informed how | Degraded mode | Return to known-good | Test |
 |---|---|---|---|---|---|---|---|---|
-| Controller throws in `update` (E-REN-020) | try/catch per performer in `Mixer.update` | other performers, transport, audio | after 5 s the controller is recreated once; a second failure keeps the fallback | no | diagnostics only | that performer shows its idle pose and visualizer spawns | recreation on the next `transport.seek` or mode enter | UT-20-30 |
+| Controller throws in `update` (E-REN-010) | try/catch per performer in `Mixer.update` | other performers, transport, audio | after 5 s the controller is recreated once; a second failure keeps the fallback | no | diagnostics only | that performer shows its idle pose and visualizer spawns | recreation on the next `transport.seek` or mode enter | UT-20-30 |
 | Events out of order or duplicated | binary insert by `at`; duplicate `eventId` ignored | stored event list | n/a | no | none | none | n/a | UT-20-21 |
 | Unknown or malformed `sched.*` payload | `readSched` returns null | everything | n/a | no | `Log.once('anim-bad-payload')` | event ignored | n/a | UT-20-03 |
 | Note-off missing (stuck) | `atOff` Infinity; notes older than 60 s are treated as released (scheduler `VOICE_MAX_S`) | pose | n/a | no | none | hold ends at 60 s | prune | UT-20-09 |
@@ -1946,7 +1946,7 @@ meshes) and synthetic `SchedEvent` lists; times are animation seconds)
 | UT-20-27 | director enable rules and resync | `cameraMotion:false`; then enabled with a seek to bar 30; then `setUser('Side')` | no cuts when disabled; resync emits the cut in effect with reason 'reset'; user cut emitted immediately with reason 'user' and the plan is suspended |
 | UT-20-28 | beat indicator | 4/4 then 3/4 from bar 2; count-in ticks -3840..-1 | beats and bars per 6.20.4.13; count-in beats 0..3 with `countIn:true`; phase 0.5 at the half beat |
 | UT-20-29 | visualizer caps and reduced motion | 300 note spawns alive at once on High, Low; reduced motion on | 128 and 48 items (newest kept); reduced motion: y independent of age and no trail items; with no events `items(t)` is empty |
-| UT-20-30 | controller failure isolation | a controller stub throwing in `update` | other performers update; failing performer holds its idle pose; `E-REN-020` recorded once |
+| UT-20-30 | controller failure isolation | a controller stub throwing in `update` | other performers update; failing performer holds its idle pose; `E-REN-010` recorded once |
 | UT-20-31 | program change swaps controller | track starts program 0 (keys), `sched.program` 25 at 2.0 | profile 'keys' before 2.0, 'guitar' after; pose at 2.15 is the 50 percent crossfade within 1e-4; 600 events in 1 s keep at most 512 stored |
 | UT-20-32 | low tier animated set | 5 performers, Low tier, playerSlot 0 | 3 animated (slot 0 plus the two busiest); others idle; poses updated on every second frame only |
 | UT-20-33 | style gain | drum strike with calm, normal, energetic | peak lift ratios 0.7 : 1.0 : 1.3 |
@@ -2167,7 +2167,7 @@ Scene fog: color = theme `floor`, start 12 m, end 40 m; clear color = theme `flo
 2. `appearance = opts.resolve(p.character)`; `rig = Rig.createRig(appearance, {tierParams,
    seed: fnv1a32(p.character.id)})`; place `rig.root` at the slot position with the slot yaw.
 3. `propKind = PROP_FOR_PROFILE[profile]`; `Rig.validateAttachments(rig, propKind)`; on
-   failure report `E-REN-010` once, dispose the rig and add the performer to the Mixer with
+   failure report `E-REN-009` once, dispose the rig and add the performer to the Mixer with
    `rig:null` (abstract visualizer at the slot).
 4. `layout = Animation.layoutFor(profile, rig.lengths)`; build the prop parts (table below) as
    nodes under `rig.root` (world props such as the drum kit, keyboard and mic stand) or under
@@ -2373,8 +2373,8 @@ both sides in landscape); `beatRect` a 24 px strip at the top of the band area.
 
 | What can fail | Detection | State that remains valid | Retry | User data at risk | User informed how | Degraded mode | Return to known-good | Test |
 |---|---|---|---|---|---|---|---|---|
-| Stage build throws (E-REN-030) | try/catch in `build` | transport, audio, judge (built before the stage in 4.7.1) | no | no | toast "3D stage could not be built; showing the simplified view" | `setTier('Abstract','auto')` and a Flat2D-only stage | next mode enter at the stored tier | UT-21-19 |
-| Prop attachment missing (E-REN-010) | `validateAttachments` | other performers | after a rig-affecting change | no | none (diagnostics) | abstract visualizer at the slot | rebuild | UT-21-03 |
+| Stage build throws (E-REN-011) | try/catch in `build` | transport, audio, judge (built before the stage in 4.7.1) | no | no | toast "3D stage could not be built; showing the simplified view" | `setTier('Abstract','auto')` and a Flat2D-only stage | next mode enter at the stored tier | UT-21-19 |
+| Prop attachment missing (E-REN-009) | `validateAttachments` | other performers | after a rig-affecting change | no | none (diagnostics) | abstract visualizer at the slot | rebuild | UT-21-03 |
 | Character config invalid in `character.changed` | `opts.resolve` returns normalized data (M-22) | performer keeps the previous appearance on a resolver throw | next change | no | none | previous appearance | next valid change | UT-21-16 |
 | Chart with notes beyond the pool | counts.dropped | nearest notes | n/a | no | diagnostics counter | farthest notes not drawn | next frame | UT-21-12 |
 | Context lost mid-song | renderer.lost() | everything (state advances) | M-18 restore | no | HUD "Graphics paused" (M-28) | nothing drawn up to 3 s, then Flat2D | restore or fallback | UT-21-18 |
@@ -2418,7 +2418,7 @@ highway model tests use a FakeClock transport and need no GL)
 |---|---|---|---|
 | UT-21-01 | slot table | `SLOTS` | positions and yaws per 6.21.4.1; slot 4 y = 0.70 |
 | UT-21-02 | slot assignment | 7 note tracks incl. drums, player track = track 3, one character bound to track 5 in slot 2 | drums slot 4; track 3 slot 0; track 5 slot 2; remaining by note count to slots 1 and 3; 2 tracks in `ensemble`; repeated call identical |
-| UT-21-03 | prop requirements align with the rig | every `PROP_FOR_PROFILE` kind | each kind exists in `Rig.ATTACHMENT_REQUIREMENTS`; a rig stub missing 'hip' makes a guitar performer abstract with one `E-REN-010` |
+| UT-21-03 | prop requirements align with the rig | every `PROP_FOR_PROFILE` kind | each kind exists in `Rig.ATTACHMENT_REQUIREMENTS`; a rig stub missing 'hip' makes a guitar performer abstract with one `E-REN-009` |
 | UT-21-04 | stage detail node counts | build an empty stage at full, reduced, minimal | static node counts 26 (High, full), 11 (reduced), 4 (minimal) per 6.21.4.2; Abstract builds no GL nodes |
 | UT-21-05 | FullBand frames every performer | 5 performers, aspect 16:9 and 9:16 | every performer head projects into NDC x and y within [-0.9, 0.9] |
 | UT-21-06 | Focus centers the slot | Focus(1) | slot 1 head projects within 0.1 of the NDC center |
@@ -2434,7 +2434,7 @@ highway model tests use a FakeClock transport and need no GL)
 | UT-21-16 | live character edit | playing song, `character.changed` color change then body change for slot 1 | only slot 1 rig changes; other rigs' mesh objects identical; transport state and position unchanged; after body change the prop anchors equal `layoutFor` of the new lengths |
 | UT-21-17 | dispose returns to baseline | 20 build and dispose cycles with 5 performers and a highway | after each cycle `scene.count() === 0`, `Render.counters()` equal the baseline, `bus.listenerCount()` equals the baseline |
 | UT-21-18 | context loss keeps state advancing | `fault('render.contextLoss')` during playback | `update` returns `drawn:'none'` with ticks still advancing; after the fallback `drawn:'flat'` and the highway model continues from the same tick |
-| UT-21-19 | build failure falls back | `Rig.createRig` stub throwing | `E-REN-030`; `render.tier` Abstract; the stage still renders the highway through Flat2D |
+| UT-21-19 | build failure falls back | `Rig.createRig` stub throwing | `E-REN-011`; `render.tier` Abstract; the stage still renders the highway through Flat2D |
 | UT-21-20 | loop shading | `transport.loopSet {a:1920, b:3840, enabled:true}` | one loop item between s(a) and s(b); none after `enabled:false` |
 | UT-21-21 | dance highway and themes | DanceChart with a jump (directions 0 and 3); theme 'theme-neon' then 'nope' | direction 'up', glyphSet 'arrows', chord item for the jump; neon colors applied; unknown id -> default colors |
 | UT-21-22 | program change swaps the prop | keys track, `sched.program` 33 at 2.0 | prop kind 'keyboard' until animation time 2.0, 'bass' after; the old prop geometry references released |

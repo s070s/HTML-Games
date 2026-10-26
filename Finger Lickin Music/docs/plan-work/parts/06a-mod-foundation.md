@@ -45,7 +45,7 @@ FLM.Core = {
   VERSION: '1.0.0',
 
   /** Register a module namespace. factory(FLM) returns the namespace object.
-   *  @throws Error code 'E-CORE-DUP' if name is already defined. */
+   *  @throws Error code 'E-GEN-001' if name is already defined. */
   define(name /* string */, factory /* (FLM) => object */) /* -> object */,
   /** Ordered list of {name, order} in load order. */
   modules() /* -> Array<{name:string, order:number}> */,
@@ -59,7 +59,7 @@ FLM.Core = {
     off(topic, fn) /* -> boolean removed */;
     offOwner(owner) /* -> number removed */;
     /** Calls every listener in subscription order; a throwing listener is reported
-     *  (E-CORE-LISTENER) and the others still run. Returns listener count called. */
+     *  (E-GEN-001) and the others still run. Returns listener count called. */
     emit(topic, payload /* any */) /* -> number */;
     listenerCount(topic /* ?string */) /* -> number (all topics when omitted) */;
     topics() /* -> string[] */;
@@ -119,7 +119,7 @@ FLM.Core = {
   clamp(x, lo, hi), lerp(a, b, t), smoothstep(e0, e1, x),
   uid() /* -> string, 12-20 chars, [0-9a-z-] */,
   deepClone(v) /* structuredClone when present, else JSON round trip (plain data only) */,
-  assert(cond, msg) /* throws Error code 'E-CORE-ASSERT' */,
+  assert(cond, msg) /* throws Error code 'E-GEN-004' */,
   /** seconds -> 'm:ss' ; opts.ms -> 'm:ss.mmm' ; negative -> '-0:02' (count-in). */
   formatTime(seconds, opts /* ?{ms:boolean} */) /* -> string */,
   fnv1a32(str /* string */) /* -> number uint32 */,
@@ -156,16 +156,16 @@ consumed: none.
 #### 6.1.4 Algorithms
 
 6.1.4.1 `define(name, factory)`
-1. If `registry.has(name)` throw `Error('E-CORE-DUP: module ' + name)`.
+1. If `registry.has(name)` throw `Error('E-GEN-001: module ' + name)`.
 2. `ns = factory(FLM)`; `assert(ns && typeof ns === 'object')`.
 3. `FLM[name] = ns`; `registry.set(name, {name, order: registry.size + 1})`; return `ns`.
 
 6.1.4.2 Emitter.emit(topic, payload)
 1. `list = map.get(topic)`; if none return 0. `snapshot = list.slice()`.
 2. For each entry: if `entry.once` remove it from `list` first; then `try { entry.fn(payload,
-   topic) } catch (e) { ErrorReporter.report('E-CORE-LISTENER', e, {topic}) }`.
+   topic) } catch (e) { ErrorReporter.report('E-GEN-001', e, {topic}) }`.
 3. Return `snapshot.length`. Nested emits are allowed (depth is not limited; a listener that
-   re-emits its own topic synchronously is a bug reported once as `E-CORE-LISTENER` when
+   re-emits its own topic synchronously is a bug reported once as `E-GEN-001` when
    depth exceeds 32).
 4. `on` logs `warn` once per topic when a topic exceeds 100 listeners (leak signal).
 
@@ -205,19 +205,19 @@ try/catch, a throwing probe yields `false`)
 `isMobile()` returns `mobile`. The report also records `probedAt` (ISO timestamp).
 
 6.1.4.5 ErrorReporter
-1. `classify(code, err)`: explicit table by code prefix: `E-CAP-*` -> `reload`;
-   `E-CORE-ASSERT`, `E-CORE-BOOT` -> `reload`; `E-REN-001` (no renderer at all) ->
-   `recoverable` (Abstract tier); `E-AUD-*` -> `recoverable`; `E-IMP-*`, `E-STO-*`,
-   `E-PRJ-*`, `E-NET-*`, `E-INP-*`, `E-EXP-*` -> `recoverable`; `E-MODE-*` ->
-   `returnToMenu`; unknown code or uncaught `window.onerror` -> `returnToMenu`; a second
-   uncaught error within 2 s of a `returnToMenu` -> `reload`.
+1. `classify(code, err)`: explicit table `CLASS_TABLE` taken from the class column of Part 10.6:
+   `E-CAP-001` to `E-CAP-004` and `E-AUD-001` -> `reload`; `E-AUD-008`, `E-IMP-010`,
+   `E-MODE-002`, `E-NET-009`, `E-NET-017`, `E-GEN-003` -> `returnToMenu`; every other
+   registered code -> `recoverable` (`E-MODE-001` and `E-MODE-003` included; `E-GEN-001` by
+   origin per Part 4.9); an unknown code is reported as `E-GEN-000` and is `recoverable`; a
+   second uncaught error within 2 s of a `returnToMenu` -> `reload`.
 2. `report(code, err, context)`: build `ErrorRecord` (message = `err && err.message or
    String(err)`, stack truncated to 2,000 chars); dedupe into `recent`; `Log.error(code,
    message, context)`; `bus.emit('error', record)`; if `presenter` set call it (inside
    try/catch); if `class === 'reload'` call `showFatal(record)`. Return record.
-3. `install()`: `window.addEventListener('error', e => report('E-CORE-UNCAUGHT', e.error or
+3. `install()`: `window.addEventListener('error', e => report('E-GEN-001', e.error or
    e.message, {src: e.filename, line: e.lineno}))`; `window.addEventListener(
-   'unhandledrejection', e => report('E-CORE-UNHANDLED', e.reason, {}))`. Idempotent.
+   'unhandledrejection', e => report('E-GEN-002', e.reason, {}))`. Idempotent.
 4. `showFatal(record)`: if `fatalShown` return. Set `fatalShown = true`; `el =
    document.getElementById('fatal')`; if missing, create a `div#fatal` appended to body.
    Build children with `document.createElement` and `textContent` only: heading "Finger
@@ -312,9 +312,9 @@ avoid sensitive information; logging bounded), P 15 (clear error messages).
 | ID | Name | Setup | Assertion |
 |---|---|---|---|
 | UT-01-01 | define registers namespace | fresh registry (test hook `Core._resetRegistryForTests()`) | `FLM.X` is the factory result; `modules()` lists X with order 1 |
-| UT-01-02 | define rejects duplicates | define X twice | second call throws with message starting `E-CORE-DUP` |
+| UT-01-02 | define rejects duplicates | define X twice | second call throws with message starting `E-GEN-001` |
 | UT-01-03 | emitter on/emit order | 3 listeners | called in subscription order with payload and topic |
-| UT-01-04 | emitter isolates listener errors | listener 2 throws | listeners 1 and 3 run; `ErrorReporter.recent()` has `E-CORE-LISTENER`; emit returns 3 |
+| UT-01-04 | emitter isolates listener errors | listener 2 throws | listeners 1 and 3 run; `ErrorReporter.recent()` has `E-GEN-001`; emit returns 3 |
 | UT-01-05 | once fires once | once + 2 emits | fn called once; `listenerCount(topic) === 0` |
 | UT-01-06 | off and offOwner | 2 owners, 3 listeners | `offOwner(a)` returns 2; count 1; `off` returns false for unknown fn |
 | UT-01-07 | emit snapshot semantics | listener removes itself and adds another during emit | removed listener not called again; added listener not called in this emit |
@@ -323,9 +323,9 @@ avoid sensitive information; logging bounded), P 15 (clear error messages).
 | UT-01-10 | caps report shape | `Caps.get()` | all 20 keys present with declared types; frozen |
 | UT-01-11 | caps probe isolation | stub `localStorage.setItem` to throw | `localStorage === false`; other keys unaffected |
 | UT-01-12 | timers tracked | setTimeout + setInterval + requestFrame with owner | `counts()` reflects 1/1/1; `clearOwner` returns 3 and counts are 0 |
-| UT-01-13 | classify table | codes from 10.6 | `E-CAP-001 -> reload`, `E-AUD-001 -> recoverable`, `E-MODE-001 -> returnToMenu`, unknown -> returnToMenu |
+| UT-01-13 | classify table | codes from 10.6 | `E-CAP-001 -> reload`, `E-AUD-001 -> reload`, `E-MODE-001 -> recoverable`, `E-MODE-002 -> returnToMenu`, unknown -> `E-GEN-000` recoverable |
 | UT-01-14 | report dedupes and emits | report same code+message 3 times | `recent().length === 1`, `count === 3`; `EVT-error` emitted 3 times |
-| UT-01-15 | unhandled rejection captured | `install()`; dispatch synthetic `unhandledrejection` | record with `E-CORE-UNHANDLED` |
+| UT-01-15 | unhandled rejection captured | `install()`; dispatch synthetic `unhandledrejection` | record with `E-GEN-002` |
 | UT-01-16 | fatal screen renders safely | `showFatal` with message containing `<b>x</b>` | `#fatal` visible; text contains the literal `<b>`; no element `b` inside |
 | UT-01-17 | fatal shown once | two reload-class reports | one `#fatal` content render; second does not duplicate nodes |
 | UT-01-18 | diagnostics provider isolation | provider throws | export JSON parses; `providers.bad.error` present |
@@ -338,7 +338,7 @@ avoid sensitive information; logging bounded), P 15 (clear error messages).
 | UT-01-25 | formatTime | 0, 61.5, 3599.999, -2, NaN | `'0:00'`, `'1:01'`, `'59:59'`, `'-0:02'`, `'-:--'`; with ms `'1:01.500'` |
 | UT-01-26 | clamp/lerp/smoothstep | edge values | `clamp(5,0,1)=1`, `lerp(0,10,0.5)=5`, `smoothstep(0,1,0.5)=0.5`, `smoothstep(1,1,2)=1` |
 | UT-01-27 | deepClone independence | nested object with arrays | clone deep-equal and mutation-independent |
-| UT-01-28 | assert throws coded error | `assert(false,'m')` | error message starts `E-CORE-ASSERT` |
+| UT-01-28 | assert throws coded error | `assert(false,'m')` | error message starts `E-GEN-004` |
 
 #### 6.1.9 Implementation notes and browser quirks
 
@@ -355,7 +355,7 @@ avoid sensitive information; logging bounded), P 15 (clear error messages).
   polling so that `assertClean()` (4.7) sees zero frames after leaving a mode.
 - The early inline error handler in `shell.html` (3.2) buffers errors that occur before
   `01-core.js` runs; `ErrorReporter.install()` drains `window.__flmEarlyErrors` (an array of
-  `{message, source, line}`) into `report('E-CORE-BOOT', ...)` and deletes the global.
+  `{message, source, line}`) into `report('E-GEN-001', ...)` and deletes the global.
 
 ### 6.2 M-02 Theory (`src/02-theory.js`, `FLM.Theory`)
 
@@ -382,14 +382,14 @@ FLM.Theory = {
    *  Spelling: fifths >= 0 -> sharps, fifths < 0 -> flats. */
   noteName(midi /* 0..127 */, key /* ?number|{fifths,mode} */) /* -> 'C#4' */,
   /** Accepts 'C4', 'c#4', 'Db-1', 'E##3', 'Fb5' (double accidentals allowed). Returns
-   *  integer 0..127 or throws Error 'E-THEORY-NAME'. */
+   *  integer 0..127 or throws Error 'E-GEN-005'. */
   midiFromName(name) /* -> number */,
   pitchClass(midi) /* -> 0..11 */, octaveOf(midi) /* -> -1..9 */,
 
   scales() /* -> Array<ScaleDef> (built-in then user) */,
   scale(id) /* -> ScaleDef or undefined */,
   /** Registers a user scale; intervals must be ascending, unique, 0..11, start at 0, length 1..12.
-   *  Returns the ScaleDef; throws 'E-THEORY-SCALE' when invalid. */
+   *  Returns the ScaleDef; throws 'E-GEN-006' when invalid. */
   defineScale(id, name, intervals) /* -> ScaleDef */,
   /** count notes ascending from root in octave (root pitch = root + 12*(octave+1)); wraps
    *  octaves; results are clamped to 0..127 and truncated at the range end. */
@@ -431,7 +431,7 @@ Events: none emitted, none consumed.
 
 Frozen built-in tables (scales, chords, intervals, key tonics, GM names). A `Map` of
 user-defined scales (max 64; `defineScale` with an existing user id replaces it; built-in ids
-cannot be replaced, `E-THEORY-SCALE`). User scales are persisted by M-16 under
+cannot be replaced, `E-GEN-006`). User scales are persisted by M-16 under
 `flm.v1.settings.userScales` (schema in Part 5.11) and re-registered at boot.
 
 Scale table (intervals are semitones from the root):
@@ -562,11 +562,11 @@ GM drum names (keys 35-81):
 
 6.2.4.2 `midiFromName(name)`: regex `^([A-Ga-g])(#{1,2}|b{1,2}|x)?(-?\d{1,2})$`; letter ->
 pc via `{C:0,D:2,E:4,F:5,G:7,A:9,B:11}`; accidental `#`=+1, `##`/`x`=+2, `b`=-1, `bb`=-2;
-`midi = pc + acc + 12 * (octave + 1)`; throw `E-THEORY-NAME` when no match or result outside
+`midi = pc + acc + 12 * (octave + 1)`; throw `E-GEN-005` when no match or result outside
 0..127.
 
 6.2.4.3 `scaleDegrees(root, scaleId, octave, count)`
-1. `def = scale(scaleId)`; throw `E-THEORY-SCALE` if missing. `base = root + 12 * (octave + 1)`.
+1. `def = scale(scaleId)`; throw `E-GEN-006` if missing. `base = root + 12 * (octave + 1)`.
 2. For `i` in `0..count-1`: `oct = floor(i / len)`, `step = def.intervals[i % len]`, `midi =
    base + 12 * oct + step`; stop when `midi > 127`.
 3. Return the array (may be shorter than `count`).
@@ -635,8 +635,8 @@ correctly; inversions produce expected notes).
 | UT-02-03 | midiFromName parse | `C4`, `c#4`, `Db-1`, `E##3`, `Fb5`, `H4`, `C10` | 60, 61, 1, 54, 64, throws, throws |
 | UT-02-04 | round trip names | all 128 midis, fifths 0 and -3 | `midiFromName(noteName(m,k)) === m` |
 | UT-02-05 | scale table integrity | every built-in | intervals ascending, unique, within 0..11, start 0; `major` has 7 |
-| UT-02-06 | defineScale validation | `[0,2,2]`, `[1,3]`, `[]`, 13 entries, replacing `major` | each throws `E-THEORY-SCALE`; valid `[0,3,7]` returns def and `scales()` includes it |
-| UT-02-07 | unknown ids | `scale('nope')`, `chord('nope')` | undefined; `scaleDegrees` throws `E-THEORY-SCALE` |
+| UT-02-06 | defineScale validation | `[0,2,2]`, `[1,3]`, `[]`, 13 entries, replacing `major` | each throws `E-GEN-006`; valid `[0,3,7]` returns def and `scales()` includes it |
+| UT-02-07 | unknown ids | `scale('nope')`, `chord('nope')` | undefined; `scaleDegrees` throws `E-GEN-006` |
 | UT-02-08 | scaleDegrees C major | root 0, octave 4, count 8 | `[60,62,64,65,67,69,71,72]` |
 | UT-02-09 | scaleDegrees truncates at 127 | root 0, octave 9, count 8 | returns `[120,122,124,125,127]` |
 | UT-02-10 | scaleNote negative degree | root 0, major, octave 4, degree -1 | 59 |
@@ -880,7 +880,7 @@ the Scheduler additionally caps any single voice at 60 s of audio, 6.5.4.5).
 | E-MDL-009 | keyMap fifths not -7..7 or mode not major/minor | error |
 | E-MDL-010 | `addTrack` beyond 32 tracks | error (thrown) |
 | E-MDL-011 | total events > 1,000,000 | error |
-| W-MDL-DURATION | `durationTicks` smaller than the last event end | warning (auto-fixed by `computeDuration`) |
+| W-MDL-DURATION | `durationTicks` smaller than the last event end | info (auto-fixed by `computeDuration`) |
 | W-MDL-EMPTY-TRACK | track with zero events | info |
 | W-MDL-NO-NOTES | song with no notes at all | warn |
 
@@ -1480,7 +1480,7 @@ strip `input` and nothing else; after `panic(true)` `voices.activeCount() === 0`
    `destination`, `start(0)`; this is needed on iOS Safari to transition from
    `interrupted`/`suspended` reliably.
 4. If `ctx.state === 'running'`: emit `audio.unlocked` once; resolve `{ok:true, state}`.
-   Otherwise resolve `{ok:false, state, reason:'E-AUD-001'}` (UI shows DLG-AudioBlocked with a
+   Otherwise resolve `{ok:false, state, reason:'E-AUD-002'}` (UI shows DLG-AudioBlocked with a
    "Tap to enable sound" button that calls `unlock()` again).
 5. `onstatechange`: emit `audio.state {state, previous}`; if the new state is `suspended` or
    `interrupted` (Safari) while the Scheduler runs: emit with `reason:'suspended'`; M-28
@@ -1620,7 +1620,7 @@ where decay = `0.5 ^ (dt / 0.5)`. Called by the mixer UI at its own frame rate; 
 | Autoplay policy blocks audio (E 2.1) | `unlock()` returns `ok:false` | everything except sound | yes, next gesture | no | DLG-AudioBlocked "Sound is blocked until you tap. Tap to enable sound." | silent UI works (menus, studio editing) | `unlock()` again | UT-05-01 |
 | Context suspended mid-play (call, lock screen, headphones) | `statechange` -> `audio.state` | transport paused by M-28 | `resume()` | no (recording take kept, M-17) | DLG-ResumeAudio "Audio was interrupted. Resume" | paused | resume re-anchors | UT-05-03 |
 | Audio clock stalls without statechange | `sameNowCount === 3` | transport paused | `resume()` | no | same dialog | paused | same | UT-05-04 |
-| AudioContext constructor throws (`E-AUD-002`) | try/catch | app usable silently | reload | no | capability gate: "This browser cannot play audio. Menus and the studio editor still work." | silent | reload | UT-05-02 |
+| AudioContext constructor throws (`E-AUD-001`) | try/catch | stored projects (the recovery copy is written first) | reload | no | `#fatal` with the E-AUD-001 text of Part 10.6.3 (Part 4.3 B7) | none (no mode works without Web Audio) | reload | UT-05-02 |
 | Second context creation attempted | `created` flag | single context | n/a | no | log `E-AUD-003` | n/a | n/a | UT-05-05 |
 | Voice pool exhausted | `acquire` steals | sound continues | n/a | no | About screen documents stealing; `audio.voices.stolen` in Diagnostics | stealing | n/a | UT-05-12 |
 | Render stall > 120 ms (E 2.2) | `late > 1 ms` | timeline intact (audio clock master) | n/a | no | `sched.stall` counted in Diagnostics | late events clamped to now+5 ms | automatic | UT-05-20 |
@@ -1659,8 +1659,8 @@ harness of 6.5.4.10; "live" tests run in headless Chromium with the autoplay fla
 
 | ID | Name | Setup | Assertion |
 |---|---|---|---|
-| UT-05-01 | unlock reports blocked state | stub context whose `resume` leaves state suspended | `{ok:false, reason:'E-AUD-001'}`; no `audio.unlocked` |
-| UT-05-02 | constructor failure | stub `AudioContext` throwing | engine state `'none'`; `E-AUD-002` reported; `unlock()` resolves ok:false |
+| UT-05-01 | unlock reports blocked state | stub context whose `resume` leaves state suspended | `{ok:false, reason:'E-AUD-002'}`; no `audio.unlocked` |
+| UT-05-02 | constructor failure | stub `AudioContext` throwing | engine state `'none'`; `E-AUD-001` reported; `unlock()` resolves ok:false |
 | UT-05-03 | statechange emits | stub context, fire `statechange` to suspended | `audio.state {state:'suspended'}` |
 | UT-05-04 | stall detection | fake clock frozen for 3 ticks | `audio.state {reason:'stalled'}` emitted once |
 | UT-05-05 | single context | `unlock()` twice concurrently and sequentially | one constructor call; same promise returned while pending |

@@ -668,7 +668,7 @@ history integration off unless stated; layout tests set the container size throu
   `toggle`) act on them, so navigation does not rely on default actions.
 - Never use `innerHTML`, `insertAdjacentHTML` or `outerHTML` (build lint); `el()` sets
   attributes with `setAttribute` and refuses `on*` attribute names and `href`/`src` values that
-  start with `javascript:` (`E-GEN-001` assertion).
+  start with `javascript:` (`E-GEN-004` assertion).
 - `history.pushState` with an unchanged URL is used deliberately (no hash routing), so a reload
   always boots at the main menu; the screen stack is not restored from history after a reload.
 - Names follow Part 4.1 (`Core.dom`, `Core.timers`, `bus.removeOwner`); see 6.28.9 for the

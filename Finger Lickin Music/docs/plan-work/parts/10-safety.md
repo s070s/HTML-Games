@@ -123,9 +123,9 @@ parser-specific algorithms are in Part 6.10 to 6.14 and must satisfy these rules
   bounded by 20,000 events of work; the target for one slice is <= 50 ms on the desktop
   reference device of Part 9 (checked by a PT test).
 - `decodeAudioData` is asynchronous in the browser and is not time-sliced by the game; the
-  5 s budget does not apply to it, the size limits do. A decode that takes longer than 30 s
+  5 s budget does not apply to it, the size limits do. A decode that takes longer than 60 s
   is abandoned (the promise result is ignored) with E-IMP-005 and the text variant "Decoding
-  this audio file took too long."
+  the audio took longer than 60 seconds and was stopped. Try a shorter file."
 - `Project.load` stays synchronous (`JSON.parse` cannot be time-sliced); the 64 MB text cap
   bounds the block. SCR-Library and the file-open path show their "Opening project" state
   and call `Project.load` from a `Core.timers.setTimeout(fn, 0, owner)` so the state paints
@@ -555,7 +555,7 @@ The gamepad column restates Part 6.7 `DEFAULT_MAPS`; Part 6.7 governs if they ev
   `IMP` import, `STO` storage, `PRJ` project, `NET` multiplayer, `INP` input and chart
   mapping, `EXP` export. Internal families (never shown as such; they surface through a
   user-visible code or only in the log): `GEN` general, `MODE` mode manager, `MDL` model
-  validation, `TRN` transport. Warnings use `W-<AREA>-<NAME>` and are not errors (they are
+  validation, `TRN` transport, `CHR` character validation, `CNT` built-in content notation. Warnings use `W-<AREA>-<NAME>` and are not errors (they are
   `ImportWarning` or `Log` entries, owned by Part 5 and Part 6).
 - Classes (Part 4.9): `recoverable` (the operation failed, the mode continues),
   `returnToMenu` (the mode is left with full teardown and a dialog on SCR-MainMenu),
@@ -617,6 +617,8 @@ The gamepad column restates Part 6.7 `DEFAULT_MAPS`; Part 6.7 governs if they ev
 | E-REN-007 | M-28 auto-tier check | still over budget for 10 s at the Abstract tier | Playback may stutter on this device. Closing other tabs and apps can help. | recoverable | toast once per mode | none |
 | E-REN-008 | M-18 frame wrapper | the frame callback threw (origin `frame`, Part 4.9 rule 2) | The stage stopped drawing because of an internal error. Your work is safe. | recoverable (first two in 10 s), returnToMenu (third in 10 s) | log, then the returnToMenu dialog | none |
 | E-REN-009 | M-20, M-21 | an instrument has no rig controller or the character lacks an attachment point | (none) | recoverable | log; that performer uses the abstract visualizer for its instrument (E 6.1) | none |
+| E-REN-010 | M-20 `Mixer.update` | a performer's animation controller threw in `update` | (none) | recoverable | log; after 5 s the controller is recreated once, a second failure keeps the idle pose and the abstract visualizer for that performer | none |
+| E-REN-011 | M-21 `build` | the stage build threw | 3D stage could not be built; showing the simplified view. | recoverable | toast; `setTier('Abstract','auto')` and a Flat2D-only stage; the next mode enter retries at the stored tier | none |
 
 #### 10.6.5 E-IMP import and file opening
 
@@ -631,7 +633,7 @@ the current project (S-12).
 | E-IMP-002 | M-14 `identify` | format not recognized | This file type is not recognized. Supported: MIDI (.mid), MusicXML (.xml, .musicxml, .mxl), Guitar Pro 3-5 (.gp3, .gp4, .gp5) and audio files. | recoverable | inline; Choose another file, link to the compatibility matrix | none |
 | E-IMP-003 | M-10 to M-14 | malformed, truncated beyond recovery, empty, or an internal parser exception | The file is damaged or not in the expected layout. {detail} | recoverable | inline; Choose another file | none |
 | E-IMP-004 | M-10 to M-14 | a limit of 10.1.2 exceeded | The file exceeds an import limit: {detail} | recoverable | inline; Choose another file, limits listed | none |
-| E-IMP-005 | M-14 | the 5 s budget (or the 30 s audio decode cap) elapsed | Importing took longer than 5 seconds and was stopped. Try a smaller file or a faster device. | recoverable | inline; Retry, Choose another file | none |
+| E-IMP-005 | M-14 | the 5 s budget (or the 60 s audio decode watchdog) elapsed | Importing took longer than 5 seconds and was stopped. Try a smaller file or a faster device. (audio decode watchdog: Decoding the audio took longer than 60 seconds and was stopped. Try a shorter file.) | recoverable | inline; Retry, Choose another file | none |
 | E-IMP-006 | M-14 `identify`, M-11, M-13 | recognized but unsupported (GP6/GP7, GP1/GP2, RMID, opus, ZIP64, encrypted ZIP) | {format-specific sentence}; for GP6/GP7 exactly: This is a Guitar Pro 6 or 7 file (.gpx or .gp). Only Guitar Pro 3, 4 and 5 files (.gp3, .gp4, .gp5) can be imported. Export the file as GP5 or as MIDI from Guitar Pro and import that. | recoverable | inline; Choose another file | none |
 | E-IMP-007 | M-12 `parseMxl` | `.mxl` without a score | The compressed MusicXML archive contains no score. | recoverable | inline | none |
 | E-IMP-008 | M-14 `decodeAudio` | `decodeAudioData` rejected | Your browser cannot decode this audio file. WAV files work in every supported browser. | recoverable | inline | none |
@@ -652,7 +654,7 @@ the current project (S-12).
 | Code | Raised by | Condition | User text | Class | Shown as; recovery action | Data at risk |
 |---|---|---|---|---|---|---|
 | E-STO-001 | M-16 safe write | quota exceeded, the pre-check found too little space, or the project exceeds 2 MB on the localStorage-only path | Save failed: there is not enough browser storage for this project. Export it to a file to keep your work, or delete old projects. | recoverable | dialog DLG-SaveFailed with "Export", "Manage projects", "Cancel" (DLG-ProjectTooLarge variant on the 2 MB path) | unsaved edits |
-| E-STO-002 | M-16 | IndexedDB open failed or timed out, a transaction errored or timed out (10 s), or the database was closed by another tab's upgrade | Save failed: the browser database is not available right now. Export the project to a file to keep your work. | recoverable | dialog DLG-SaveFailed; the next operation reopens the database | unsaved edits |
+| E-STO-002 | M-16 | IndexedDB open failed or timed out, a transaction errored or timed out (10 s), the database was closed by another tab's upgrade, or a localStorage write failed for a reason other than quota | Save failed: the browser database is not available right now. Export the project to a file to keep your work. | recoverable | dialog DLG-SaveFailed; the next operation reopens the database | unsaved edits |
 | E-STO-003 | M-16 load | a stored record fails its hash or JSON parse | The saved copy of this project is damaged. A backup from the previous save may be available. | recoverable | dialog with "Open backup", "Cancel" | the saved copy |
 | E-STO-004 | M-16 safe write | read-back verification failed | Save failed: the saved copy could not be verified, so the previous version was kept. Try again or export the project. | recoverable | dialog DLG-SaveFailed | unsaved edits |
 | E-STO-005 | M-16 `open` | localStorage probe failed (private mode, disabled storage) | Settings and projects cannot be saved in this browser mode. Use Export to keep your work. | recoverable | notice on SCR-MainMenu, SCR-Studio, SCR-Library; Save buttons read "Export" | unsaved edits (every session) |
@@ -723,6 +725,10 @@ failure rule 4). "Session" below means the multiplayer session only.
 | E-NET-018 | M-24 sync | sync quality poor for 30 s | Connection is unstable; timing between players may be less accurate. | recoverable | toast once per session; HUD sync badge "poor" | none |
 | E-NET-019 | M-24 | a joiner tried to enter while a song is in progress | A song is in progress. You will join the room when it ends. | recoverable | lobby status line | none |
 | E-NET-020 | M-24 host | the host declined the joiner | The host did not admit you to the room. | recoverable | dialog DLG-NetError | none |
+| E-NET-021 | M-24 `acceptAnswer`, relay join | an answer code arrived after its invite expired or was cancelled, the invite was already used, or the answer does not belong to the current invite | This invite has expired or was already used. Ask the host for a new invite. | recoverable | dialog DLG-NetError | none |
+| E-NET-022 | M-24 `hello` | the `peerId` is already connected in the room | This player is already in the room. | recoverable | dialog DLG-NetError; that link closed | none |
+| E-NET-023 | M-24 `validateMessage`, relay `TOO_LARGE` | a message was larger than 65,536 bytes and was rejected | (none) | recoverable | log; counted as an invalid message (E-NET-010 after 20 in 10 s) | none |
+| E-NET-024 | M-24 `ready`, reserved message types | a request cannot be honoured in the current state: a cooperative track already held by another player, or a reserved Collaborative Studio message | That is not possible right now: {detail}. | recoverable | toast on the sender; for a reserved Collaborative Studio type the detail is "Collaborative Studio is not available in this version." | none |
 
 #### 10.6.9 E-INP input and chart mapping
 
@@ -750,6 +756,7 @@ failure rule 4). "Session" below means the multiplayer session only.
 | E-EXP-006 | M-16 `download` | the export blob exceeds 256 MB | Export too large for this browser. | recoverable | toast | none |
 | E-EXP-007 | M-05 `renderWav` | offline rendering rejected or ran out of memory | The audio mix could not be rendered. Try a shorter section. | recoverable | dialog | none |
 | E-EXP-008 | M-05 capture | MediaRecorder capture failed or was stopped by the browser | Audio capture stopped unexpectedly. The part recorded so far was discarded. | recoverable | toast | none |
+| E-EXP-009 | M-16 `download` | the data-URL fallback was needed and the export is larger than 32 MB | This browser cannot download files larger than 32 MB from a local page. Try a desktop browser. | recoverable | toast | none |
 
 #### 10.6.11 Internal families
 
@@ -760,11 +767,32 @@ failure rule 4). "Session" below means the multiplayer session only.
 | E-GEN-002 | M-01 | unhandled promise rejection | Something went wrong. Your work is safe. | as E-GEN-001 | as E-GEN-001 | none |
 | E-GEN-003 | M-01 | error storm: more than 20 reports in 10 s, or more than 3 returnToMenu in 60 s | The game hit repeated errors and returned to the menu. Your work is safe in memory. | returnToMenu (second rule: reload) | dialog or fatal | unsaved edits (exportable; recovery copy on reload) |
 | E-GEN-004 | M-01 `assert` | an internal assertion failed | (none) | recoverable (boot: reload) | log | none |
+| E-GEN-005 | M-02 `Theory` | a note name is invalid or outside 0..127 (thrown to the caller) | (none) | recoverable | log; the caller reports it or falls back | none |
+| E-GEN-006 | M-02 `Theory` | a scale or chord definition is unknown or invalid (thrown to the caller) | (none) | recoverable | log; callers fall back to Major (W-THEORY-FALLBACK) | none |
 | E-MODE-001 | M-28 leave step 15 | `assertClean()` found leaks | (none) | recoverable | log; Diagnostics lists the counters; integration tests fail on it | none |
 | E-MODE-002 | M-28 `enter` | a step of the enter sequence threw | {mode} could not start: {message} | returnToMenu | dialog on SCR-MainMenu | none |
 | E-MODE-003 | M-28 `leave` | a step of the leave sequence threw (the sequence continues) | (none) | recoverable | log | none |
 | E-MDL-001 to E-MDL-011 | M-03 `validate`, `addTrack` | model invariants (Part 6.3 table) | (none directly) | recoverable | surfaced as E-IMP-003 "The file produced an invalid arrangement ({code})" during import, as E-PRJ-005 or E-PRJ-009 during load, as E-PRJ-020 for E-MDL-010 | none |
 | E-TRN-001 | M-04 `setLoop` | loop region shorter than one beat or inverted | Loop region is too short. | recoverable | toast | none |
+| E-CHR-001 | M-22 `deserialize`, `importPreset` | the text is not valid JSON, `format` is not `flm-character`, or the text is over 65,536 characters | This is not a valid character file. | recoverable | inline on the screen that opened the file (surfaced as E-IMP-018); variant when the text is too large: "This character file is too large."; roster and project untouched | none |
+| E-CHR-002 | M-22 `validate` | the config is not a plain object | (none) | recoverable | log; normalized from defaults with W-CHR-NORMALIZED | none |
+| E-CHR-003 | M-22 `serialize`, `deserialize` | the serialized config is over 4,096 bytes after the `x` extension was dropped | (none) | recoverable | log; a network peer is shown with a default character | none |
+| E-CHR-010 | M-22 `validate` | `id` does not match `^[A-Za-z0-9_.:-]{1,64}$` | (none) | recoverable | log; normalize repairs it (W-CHR-NORMALIZED) | none |
+| E-CHR-011 | M-22 `validate` | `name` is not a string of 1-24 characters after trimming, or contains code points below 0x20 | (none) | recoverable | log; normalize repairs it | none |
+| E-CHR-012 | M-22 `validate` | `body`, `skin`, `face`, `animationStyle` or a hair, top, bottom or shoes style is outside the catalog | (none) | recoverable | log; the issue names the path; normalize repairs it | none |
+| E-CHR-013 | M-22 `validate` | `heightScale` is not finite or outside 0.9-1.1 | (none) | recoverable | log; normalize repairs it | none |
+| E-CHR-014 | M-22 `validate` | a colour does not match `^#[0-9a-f]{6}$` | (none) | recoverable | log; the issue names the path; normalize repairs it | none |
+| E-CHR-015 | M-22 `validate` | `accessories` is not an array, has more than 5 entries, duplicates or unknown ids | (none) | recoverable | log; normalize repairs it | none |
+| E-CHR-016 | M-22 `validate` | `hat` and `headphones` are both present | (none) | recoverable | log; the later one is removed (W-CHR-EXCLUSIVE) | none |
+| E-CHR-017 | M-22 `validate` | `bottom.style` is `none` while `top.style` is not `dress` | (none) | recoverable | log; normalize repairs it | none |
+| E-CHR-018 | M-22 `validate` | `slot` is not an integer 0-4 | (none) | recoverable | log; normalize repairs it | none |
+| E-CHR-019 | M-22 `validate` | `instrument` is neither null nor an id string | (none) | recoverable | log; normalize repairs it | none |
+| E-CHR-020 | M-22 project command | a sixth character was added to a project | A project can have at most 5 characters. | recoverable | toast; the project is unchanged | none |
+| E-CNT-001 | M-30 `expand` | a bar check or the grid length of a pattern does not fit the meter | (none) | recoverable | log; the caller reports E-GEN-001 with `context.content`; that demo song is disabled | none |
+| E-CNT-002 | M-30 `expand` | a part list does not match the length of its section | (none) | recoverable | log; as E-CNT-001 | none |
+| E-CNT-003 | M-30 `expand` | an unknown chord symbol, pattern or token | (none) | recoverable | log; as E-CNT-001 | none |
+| E-CNT-004 | M-30 `expand` | a pitch outside 0..127 | (none) | recoverable | log; as E-CNT-001 | none |
+| E-CNT-005 | M-30 `expand` | the expanded song fails `Model.validate` | (none) | recoverable | log; as E-CNT-001 | none |
 
 #### 10.6.12 Reconciliation with other parts
 
@@ -793,6 +821,25 @@ part stay as written unless this table says otherwise.
 | Part 3.2.5 early handler shows only the browser's message | script parse failure before M-01 | the early handler shows the E-CAP-004 text, then the browser message on a second line (both through `textContent`) |
 | Part 4.3 gate text "This browser has no WebRTC support." | `RTCPeerConnection` missing | the Part 1.4 wording used by E-CAP-005: "Multiplayer needs WebRTC, which this browser does not provide." |
 | Part 4.1 M-01 API list (no fault registry) | fault injection | M-01 adds `FLM.Core.Faults` (10.9.1); `FLM.debug.inject` delegates to it |
+| Part 6.1 `E-THEORY-NAME`, `E-THEORY-SCALE` | invalid note name, unknown scale or chord | E-GEN-005, E-GEN-006 |
+| Part 6.18 `E-REN-006` (frame callback threw), `E-REN-007` (2D context unavailable) | frame error, missing 2D canvas | E-REN-008, E-CAP-002 |
+| Part 6.20 and 6.21 `E-REN-010` (attachment missing), `E-REN-020` (controller threw), `E-REN-030` (stage build threw) | rig and stage failures | E-REN-009, E-REN-010, E-REN-011 |
+| Part 7.11 `E-REN-001` (graphics could not start), `E-REN-002`, `E-REN-003` (texts and meanings) | rendering failures | the 10.6.4 meanings and texts: E-REN-001 no WebGL, E-REN-002 shader failure, E-REN-003 context lost |
+| Part 7.11 `E-EXP-004`, `E-EXP-005`, `E-EXP-008` (texts and meanings) | export failures | E-EXP-005 (download blocked), E-EXP-009 (over 32 MB from a local page), E-EXP-004 (no `OfflineAudioContext`) |
+| Part 6.23 `E-IMP-020`, `E-IMP-021`, `E-IMP-022` | invalid, unusable or oversized dance chart file | E-IMP-017 with `{detail}` |
+| Part 6.24 and Part 7.11 E-NET numbering (6.24: 001 no WebRTC, 002 bad code, 009 connect timeout, 011 room full, 012 invite expired, 013 host left, 014 reconnect failed, 015 relay down, 016 no room, 017 duplicate peer, 018 flood, 019 message too large, 020 not possible, 021 declined, 022 song in progress, 023 room expired; 7.11: 001 connect failed, 002 bad code, 009 room full, 011 host left, 013 reconnect timed out, 014 answer mismatch, 015 no room, 016 no WebRTC) | multiplayer failures | the 10.6.8 numbering: E-CAP-005 no WebRTC, E-NET-001 bad code, E-NET-002 connect failed or timed out, E-NET-014 room full, E-NET-021 invite expired or answer mismatch, E-NET-009 host left, E-NET-015 reconnect failed or limit, E-NET-012 relay down, E-NET-013 no room, E-NET-022 duplicate peer, E-NET-011 flood, E-NET-023 message too large, E-NET-024 not possible, E-NET-020 declined, E-NET-019 song in progress, E-NET-017 relay room expired or shut down |
+| Parts 1.6, 6.16 and 12a `E-STO-002` for the localStorage-only notice | IndexedDB unavailable at boot | E-STO-009 (E-STO-005 when localStorage is unavailable too) |
+| Part 8.1.2 audio decode watchdog 60 s versus 30 s | decode watchdog | 60 s, E-IMP-005 with the audio text variant |
+
+#### 10.6.13 Code registry rule
+
+Part 10.6 is the single registry for `E-` codes and Part 8.8 is the single registry for `W-`
+codes. Every other part uses these codes with exactly these meanings and, where it quotes a
+user text, the text of the registry (Part 7.11 repeats the user texts of 10.6 verbatim).
+A new code is added to the registry first, with the next free number of its family, and is
+then used elsewhere; a part never defines a private code or reuses a registry code for
+another condition. The left columns of 10.6.12 name superseded draft codes only to record
+their replacement; they are not valid codes.
 
 ### 10.7 Failure-recovery matrix (E 11)
 

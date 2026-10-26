@@ -299,7 +299,7 @@ automatically.
 
 | Behavior | What to verify on `file://` | Fallback when unavailable | Where the result is recorded |
 |---|---|---|---|
-| IndexedDB availability and persistence | `indexedDB.open('flm-db')` succeeds; records survive reload; quota via `navigator.storage.estimate()` when present | localStorage-only path with the 2 MB project cap and the notice of Part 6.16 (`E-STO-002`) | Part 9.2 device matrix, `docs/COMPATIBILITY.md` |
+| IndexedDB availability and persistence | `indexedDB.open('flm-db')` succeeds; records survive reload; quota via `navigator.storage.estimate()` when present | localStorage-only path with the 2 MB project cap and the notice of Part 6.16 (`E-STO-009`) | Part 9.2 device matrix, `docs/COMPATIBILITY.md` |
 | localStorage availability | Read and write of `flm.v1.*` keys inside try/catch; private-mode behavior | Session-only settings; export offered on every save | Same |
 | Audio unlock | `AudioContext` created on the first gesture reaches `running`; iOS needs the silent-buffer kick; `statechange` to `suspended` after backgrounding re-unlocks through DLG-ResumeAudio | DLG-AudioBlocked with a retry button; the game never auto-plays before the gesture | Same |
 | File import | `<input type=file>` opens and returns a `File`; drag and drop onto `#app` works; `.mxl` and `.gp5` are not filtered out by the accept list | Drag and drop; a hint naming it | Same |

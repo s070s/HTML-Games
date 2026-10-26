@@ -252,7 +252,7 @@ builds):
    `isDirty = revision !== savedRevision`.
 4. A track with `lockedSource:true` is never the target of `addEvents`, `deleteEvents`,
    `moveEvents`, `resizeEvents`, `setVelocity`, `quantize`, `replaceTake`,
-   `setTrackInstrument` or `renameTrack`. Factories throw `E-PRJ-010` (programming error,
+   `setTrackInstrument` or `renameTrack`. Factories throw `E-PRJ-031` (programming error,
    never user-facing) when given a locked target; UI code must call `editableTrackId` first.
 5. `derived:true` tracks carry `derivedFromTrackId` naming an existing `lockedSource` track.
    Deleting a derived track restores `visible:true` and `mix.mute:false` on its source.
@@ -278,7 +278,7 @@ A. Command lifecycle (`UndoStack.push`)
 
 1. `assert(cmd.apply && cmd.revert)`; if `cmd.params.trackId` names a track with
    `lockedSource:true` and the type is in the mutating set of invariant 4, throw
-   `E-PRJ-010` (never reaches the user; a unit test guards every factory).
+   `E-PRJ-031` (never reaches the user; a unit test guards every factory).
 2. `res = cmd.apply(project)`. If `res.ok === false`: do not push, do not change revision,
    return `res` (the UI shows `res.error.message` as a toast).
 3. Coalescing: let `prev = undo[undo.length-1]`. If `cmd.coalesceKey !== null`,
@@ -296,7 +296,7 @@ with `source:'undo'`. `redo()` mirrors with `apply`. A composite entry (from `gr
 reverts its children in reverse order and applies them in forward order; if any child fails
 during undo or redo, the already-processed children are re-applied in the opposite direction
 so the project returns to the state before the undo/redo call, and the entry is dropped with
-`ErrorReporter.report('E-PRJ-011', err, {type})`.
+`ErrorReporter.report('E-PRJ-030', err, {type})`.
 
 B. Command semantics (apply / undoData / revert)
 
@@ -304,7 +304,7 @@ B. Command semantics (apply / undoData / revert)
 |---|---|---|---|---|
 | addTrack | `Track.create` with name default `Track N` (N = count+1), channel = first free channel 0-15 skipping 9 unless isDrums (then 9), program default 0, `lockedSource:false, derived:false`; insert at `index` or end; create empty chart set | `{trackId, index}` | remove track by id | 32 tracks reached -> `E-PRJ-020` "Track limit reached (32). Delete a track to add another." |
 | deleteTrack | remove track; remove charts and danceCharts referencing it; remove recordings referencing it; if `derived`, restore source `visible/mute` | `{track, index, charts, recordings, sourceState}` deep copies | reinsert all at saved index | track id unknown -> `E-PRJ-021` |
-| renameTrack | set `name` (trimmed, <= 120 chars, empty -> `Track N`) | `{oldName}` | restore | locked target -> E-PRJ-010 (programming) |
+| renameTrack | set `name` (trimmed, <= 120 chars, empty -> `Track N`) | `{oldName}` | restore | locked target -> E-PRJ-031 (programming) |
 | reorderTrack | splice to `newIndex` clamped to `[0, n-1]` | `{oldIndex}` | splice back | none |
 | duplicateTrack | deep copy with new ids for track and every event, name `<name> copy`, inserted after source, `lockedSource:false, derived:false`, charts not copied | `{newTrackId}` | remove copy | 32 tracks -> E-PRJ-020 |
 | setTrackInstrument | set `program/bankMsb/bankLsb/isDrums`; if `isDrums` flips, set channel 9 or first free | `{old fields}` | restore | program not 0..127 -> E-PRJ-022 |
@@ -322,7 +322,7 @@ B. Command semantics (apply / undoData / revert)
 | addMarker | insert `Marker` keeping `markers` sorted by tick; same tick as an existing marker -> replace label (undo restores) | `{index, replaced}` | remove or restore | label trimmed to 60 chars |
 | removeMarker | splice by index | `{marker, index}` | reinsert | index out of range -> E-PRJ-021 |
 | replaceTake | mode `replace`: remove the track's events with `tick` in `[take.startTick, take.endTick)`, then insert `take.events`; mode `merge`: insert only | `{removed:[Event], insertedIds}` | remove inserted, re-insert removed | take.status !== 'complete' -> `E-PRJ-029` (aborted takes are never committed) |
-| forkTrack | deep copy of the locked track with new ids, `lockedSource:false, derived:true, derivedFromTrackId`, inserted directly after the source; source gets `visible:false, mix.mute:true`; existing charts stay bound to the source | `{newTrackId, sourceState}` | remove copy, restore source | source not locked -> E-PRJ-010 |
+| forkTrack | deep copy of the locked track with new ids, `lockedSource:false, derived:true, derivedFromTrackId`, inserted directly after the source; source gets `visible:false, mix.mute:true`; existing charts stay bound to the source | `{newTrackId, sourceState}` | remove copy, restore source | source not locked -> E-PRJ-031 |
 
 `changed` arrays: tracks commands -> `['tracks']` (deleteTrack also `'charts'`,
 `'recordings'`); event commands -> `['events']`; setMix/setMaster -> `['mix']`; setTempo ->
@@ -398,15 +398,16 @@ JSON without the `sizeBytes` field (two passes: serialize with `sizeBytes:0`, me
 (gain, pan, heightScale) are rounded to 6 decimals. `JSON.stringify` with no indent.
 
 `parse(text)`:
-1. `text.length > 64 MB` -> `E-PRJ-008`. Depth check during a first `JSON.parse` with a
+1. `text.length > 64 MB` -> `E-PRJ-010`. Depth check during a first `JSON.parse` with a
    reviver counting nesting is not possible; instead a pre-scan counts `{`/`[` nesting
-   outside strings and fails above `maxJsonDepth` with `E-PRJ-003` before parsing.
-2. `JSON.parse` in try/catch -> `E-PRJ-007` on SyntaxError.
-3. `doc.format !== 'flm-project'` -> `E-PRJ-001`.
-4. `migrate(doc)`; failure -> its error (`E-PRJ-002` newer version, `E-PRJ-006` migration
+   outside strings and fails above `maxJsonDepth` with `E-PRJ-010` before parsing.
+2. `JSON.parse` in try/catch -> `E-PRJ-001` on SyntaxError.
+3. `doc.format !== 'flm-project'` -> `E-PRJ-003`.
+4. `migrate(doc)`; failure -> its error (`E-PRJ-002` newer version, `E-PRJ-012` migration
    failure).
-5. `validate(migrated)`; failure -> errors (`E-PRJ-003` schema, `E-PRJ-004` references,
-   `E-PRJ-005` limits).
+5. `validate(migrated)`; failure -> errors (`E-PRJ-004` missing required data, `E-PRJ-005`
+   schema, `E-PRJ-006` duplicate identifiers, `E-PRJ-007` references (strict only),
+   `E-PRJ-009` limits).
 6. Build the runtime `Project`: `FLM.Model.Song.fromDoc(doc.song)` (rebuilds TempoMap
    cumulative seconds, re-sorts events, re-pairs nothing: notes are stored paired), fresh
    `history`, `rebuildIndexes`. Unknown top-level fields and unknown fields inside known
@@ -417,14 +418,18 @@ Error codes used by `parse`/`validate` (owner: Part 5.6; messages are the user-f
 
 | Code | Message |
 |---|---|
-| E-PRJ-001 | This file is not a Finger Lickin Music project. |
-| E-PRJ-002 | This project was saved by a newer version of Finger Lickin Music (format {v}). Update the game to open it. |
-| E-PRJ-003 | The project file is damaged ({path}: {detail}). It cannot be opened. |
-| E-PRJ-004 | The project references data that is missing ({path}). It cannot be opened. |
-| E-PRJ-005 | The project exceeds a limit ({detail}). It cannot be opened. |
-| E-PRJ-006 | The project could not be upgraded from format {from} to {to}. The original file was not changed. |
-| E-PRJ-007 | The project file is not valid JSON. |
-| E-PRJ-008 | The project file is too large to open (limit 64 MB). |
+| E-PRJ-001 | This project file is not valid JSON and cannot be opened. |
+| E-PRJ-002 | This project was saved by a newer version of Finger Lickin Music (format version {v}; this build reads up to version 1). Open it with the newer version or export it from there as MIDI. |
+| E-PRJ-003 | This file is not a Finger Lickin Music project (expected format 'flm-project', found '{format}'). |
+| E-PRJ-004 | The project is missing required data at {pointer} and cannot be opened. |
+| E-PRJ-005 | The project contains an invalid value at {pointer} and cannot be opened. |
+| E-PRJ-006 | The project contains duplicate identifiers ({pointer}) and cannot be opened. |
+| E-PRJ-007 | The project refers to data that does not exist ({pointer}). |
+| E-PRJ-008 | The project's musical events are out of order and could not be repaired. |
+| E-PRJ-009 | The project exceeds the supported size: {detail} (limits: 32 tracks, 1,000,000 events). |
+| E-PRJ-010 | The project file is too large or too deeply nested to open safely. |
+| E-PRJ-011 | The project's tempo or meter data is invalid and could not be repaired. |
+| E-PRJ-012 | The project could not be upgraded from format version {from} to version 1: {detail}. |
 
 F. Migration framework
 
@@ -433,13 +438,13 @@ const MIGRATIONS = {            // key = from version, value = function(docCopy)
   // 1 -> 2 will be added when version 2 exists. Empty at plan version 1.0.0.
 };
 migrate(doc):
-  if (!Number.isInteger(doc.version) || doc.version < 1) -> E-PRJ-003 at path 'version'
+  if (!Number.isInteger(doc.version) || doc.version < 1) -> E-PRJ-005 at path 'version'
   if (doc.version > VERSION) -> E-PRJ-002
   copy = deepClone(doc); applied = []
   for v = copy.version; v < VERSION; v++:
-    step = MIGRATIONS[v]; if (!step) -> E-PRJ-006
-    try { copy = step(copy); copy.version = v + 1 } catch (e) -> E-PRJ-006
-    r = validate(copy); if (!r.ok) -> E-PRJ-006 (first error appended to message)
+    step = MIGRATIONS[v]; if (!step) -> E-PRJ-012
+    try { copy = step(copy); copy.version = v + 1 } catch (e) -> E-PRJ-012
+    r = validate(copy); if (!r.ok) -> E-PRJ-012 (first error appended to message)
     applied.push(v + 1)
   return {ok:true, doc:copy, applied}
 ```
@@ -453,15 +458,15 @@ never writes). Every future migration ships with a fixture document of the old v
 
 | What can fail | Detection | State that remains valid | Retry | User data at risk | User informed how | Degraded mode | Return to known-good | Test |
 |---|---|---|---|---|---|---|---|---|
-| Command apply throws (bug or bad params) | try/catch in `push`; `ErrorReporter.report('E-PRJ-011')` | project unchanged (apply mutates only after validation; partial mutation guarded by revert-on-throw) | user retries the edit | none | toast "That edit could not be applied." | n/a | `revert` of partial changes using undoData collected so far | UT-15-19 |
+| Command apply throws (bug or bad params) | try/catch in `push`; `ErrorReporter.report('E-PRJ-030')` | project unchanged (apply mutates only after validation; partial mutation guarded by revert-on-throw) | user retries the edit | none | toast "That edit could not be applied." | n/a | `revert` of partial changes using undoData collected so far | UT-15-19 |
 | Undo/redo of a composite fails midway | child result `ok:false` | restored by re-applying processed children | no | none | toast "Undo could not complete; the project is unchanged." | n/a | step A rollback | UT-15-20 |
 | Parse of a damaged project | `parse` returns `ok:false` with code | current open project untouched (parse never replaces it) | user picks another file | the damaged file only | DLG-SaveFailed style dialog with the E-PRJ message and "Open backup" when M-16 has a `.bak` | n/a | nothing to undo | UT-15-11, UT-15-12 |
 | Newer version document | `migrate` E-PRJ-002 | same | no | none | exact E-PRJ-002 text | n/a | n/a | UT-15-13 |
-| Migration step throws | E-PRJ-006 | stored record untouched | no | none | E-PRJ-006 text | n/a | n/a | UT-15-14 |
+| Migration step throws | E-PRJ-012 | stored record untouched | no | none | E-PRJ-012 text | n/a | n/a | UT-15-14 |
 | Checkpoint sink rejects (quota, unavailable) | promise rejection | project in memory | automatic on next safe point; stops after 3 failures | yes, unsaved edits are at risk until exported | `project.saveFailed` -> Studio notice "Autosave stopped: <message>. Export to keep your work." | manual save/export remains available | user saves or exports | UT-15-25 |
 | Checkpoint too large | `buildCheckpoint` returns null | project in memory | n/a | yes | one-line notice (6.15.4 C step 4) | manual save only | n/a | UT-15-24 |
 | Track or event limit hit | command returns `ok:false` E-PRJ-020/023 | unchanged | after deleting data | none | toast with the code's text | n/a | n/a | UT-15-05, UT-15-16 |
-| Locked track targeted by an edit | factory throws E-PRJ-010 in the test build; in the shipped build the factory returns `ok:false` and logs once | unchanged | n/a | none | never user-facing (UI calls `editableTrackId` first) | n/a | n/a | UT-15-21 |
+| Locked track targeted by an edit | factory throws E-PRJ-031 in the test build; in the shipped build the factory returns `ok:false` and logs once | unchanged | n/a | none | never user-facing (UI calls `editableTrackId` first) | n/a | n/a | UT-15-21 |
 | Autosave timer left running after Studio leave | `assertClean` timer counter | n/a | n/a | none | diagnostics only | n/a | `Autosave.stop()` in Modes leave contract | UT-15-26 |
 
 #### 6.15.6 Limits and performance notes
@@ -514,17 +519,17 @@ gameplay, repeated save/load preserves content).
 | UT-15-08 | reorder and duplicate | 3 tracks | reorder moves to clamped index; duplicate has new track and event ids, name ends with ' copy', inserted after source |
 | UT-15-09 | addEvents keeps order and overlap policy | insert notes out of order, two same-pitch overlaps | events sorted by comparator; earlier note shortened; undo restores original durations |
 | UT-15-10 | moveEvents clamps | note at tick 100 moved -200 ticks and +200 pitch | tick 0, pitch 127; undo restores 100 and original pitch |
-| UT-15-11 | parse rejects wrong format | text `{"format":"other"}` | `ok:false`, code E-PRJ-001, no project |
-| UT-15-12 | parse rejects bad JSON and depth | truncated text; 13-deep nested arrays | E-PRJ-007; E-PRJ-003 |
+| UT-15-11 | parse rejects wrong format | text `{"format":"other"}` | `ok:false`, code E-PRJ-003, no project |
+| UT-15-12 | parse rejects bad JSON and depth | truncated text; 13-deep nested arrays | E-PRJ-001; E-PRJ-010 |
 | UT-15-13 | migrate refuses newer | doc with version 2 | E-PRJ-002, message contains 'format 2'; input doc unchanged (deep equal to copy) |
-| UT-15-14 | migration failure leaves original intact | inject failing MIGRATIONS[0] via test hook with version 0 doc | E-PRJ-006; input doc unchanged |
-| UT-15-15 | validate reference integrity | chart.trackId pointing to missing track | E-PRJ-004 with path `charts[0].trackId` |
+| UT-15-14 | migration failure leaves original intact | inject failing MIGRATIONS[0] via test hook with version 0 doc | E-PRJ-012; input doc unchanged |
+| UT-15-15 | validate reference integrity | chart.trackId pointing to missing track | E-PRJ-007 (strict) with path `charts[0].trackId` |
 | UT-15-16 | event limit | track with 100,000 events, addEvents of 1 | E-PRJ-023 |
 | UT-15-17 | coalescing of setMix | 5 setMix pushes within 100 ms with fake ts, then one 600 ms later | undo count 2; first undo restores to the 5th value's predecessor state; second undo restores original mix |
 | UT-15-18 | undo limit 100 | 120 renameTrack commands | `counts().undo === 100`; oldest dropped; undo 100 times reaches the state after the 20th command |
-| UT-15-19 | apply throw is isolated | command whose apply throws after partial mutation (test-only command) | push returns ok:false; project deep-equals pre-state; ErrorReporter received E-PRJ-011 |
+| UT-15-19 | apply throw is isolated | command whose apply throws after partial mutation (test-only command) | push returns ok:false; project deep-equals pre-state; ErrorReporter received E-PRJ-030 |
 | UT-15-20 | composite group undo/redo | group of addTrack + addEvents + setMix | one undo entry; undo removes all three effects; redo restores all |
-| UT-15-21 | locked track protection | fromSong project, `Commands.addEvents(lockedId, ...)` | throws E-PRJ-010 in test build; `editableTrackId` returns null before fork and the derived id after `forkTrack` |
+| UT-15-21 | locked track protection | fromSong project, `Commands.addEvents(lockedId, ...)` | throws E-PRJ-031 in test build; `editableTrackId` returns null before fork and the derived id after `forkTrack` |
 | UT-15-22 | forkTrack semantics | fork a locked track | derived track `derived:true`, `derivedFromTrackId`, new ids; source `visible:false, mix.mute:true`; undo restores source flags and removes copy |
 | UT-15-23 | quantize rules | notes at ticks 230, 250, 3830 in 4/4 at grid 1/16 strength 100 and 50; `allowBarCross:false` | 230->240, 250->240; 3830 stays within bar 0 (-> 3600 not 3840); strength 50 moves half way (230->235) |
 | UT-15-24 | checkpoint stripping and size gate | project with a 1,000-event recording; then LIMITS.maxCheckpointBytes set to 10 via test hook | doc.recordings[0].events is []; `stripped:true`; `eventCount` 1000; second call returns null |
@@ -668,7 +673,7 @@ FLM.Storage = {
     download(fileName, data /* Blob|string|ArrayBuffer */, mimeType),   // Promise<{ok, method:'anchor'|'dataUrl'|'none', error}>
     pick({accept:string[], multiple:boolean}),                           // Promise<File[]>  [] when cancelled
     enableDrop(element, onFiles /* (File[]) => void */),                 // returns dispose()
-    /** Size-checked read. maxBytes default 25 MB; exceeded -> E-IMP-size error from Part 10.6 */
+    /** Size-checked read. maxBytes default 25 MB; exceeded -> E-IMP-001 error from Part 10.6 */
     read(file, {as:'arrayBuffer'|'text', maxBytes})                      // Promise<{ok, data, error}>
   },
 
@@ -889,17 +894,17 @@ F. Download and import
 
 `files.download(fileName, data, mimeType)`:
 1. `blob = data instanceof Blob ? data : new Blob([data], {type: mimeType})`; cap 256 MB
-   (above -> `{ok:false, error:E-EXP-size}` from Part 10.6 and the toast "Export too large
+   (above -> `{ok:false, error:E-EXP-006}` from Part 10.6 and the toast "Export too large
    for this browser.").
 2. If `'download' in HTMLAnchorElement.prototype` and not `isIosSafari`: `url =
    URL.createObjectURL(blob)`; `a = document.createElement('a'); a.href = url; a.download =
    sanitize(fileName); a.rel = 'noopener'; document.body.appendChild(a); a.click(); remove;
    setTimeout(revokeObjectURL, 10000)`; `method:'anchor'`.
-3. Else: `FileReader.readAsDataURL(blob)` (<= 32 MB; above -> `method:'none'`, error text
+3. Else: `FileReader.readAsDataURL(blob)` (<= 32 MB; above -> `method:'none'`, error E-EXP-009 text
    "This browser cannot download files larger than 32 MB from a local page. Try a desktop
    browser.") then `window.open(dataUrl, '_blank')`; if `open` returns null (popup blocked)
-   -> `method:'none'` with the text "The browser blocked the download window. Allow
-   pop-ups for this page and try again."
+   -> `method:'none'` with E-EXP-005 and its text "The browser blocked the download. Allow
+   downloads for this page, or use Copy to clipboard."
 4. `sanitize(fileName)`: replace characters outside `[A-Za-z0-9._ -]` with `_`, collapse
    runs, max 80 chars, keep the extension.
 
@@ -1031,7 +1036,7 @@ backends are exercised by the integration tests in Part 12.
 | UT-16-16 | lock acquire and heldByOther | pre-seed lock record of tab 'other' with fresh ts; then with ts 50 s old | fresh: `ok:false, heldBy 'other'`; stale: `ok:true` and record now names this tab |
 | UT-16-17 | lock loss via storage event | acquire; dispatch synthetic `storage` event for the key with another tabId | `storage.lock {state:'lost'}` emitted; `isHeldByOther` true; heartbeat timer cleared |
 | UT-16-18 | checkpoint sink ring behavior | write slots 0,1,2 then list | three entries with the right revisions; `remove` deletes all; localOnly mode rejects a 600 KB checkpoint with cause 'ckptCap' |
-| UT-16-19 | download fallback selection | stub `HTMLAnchorElement.prototype.download` absent and `window.open` returning null | `method:'none'` with the pop-up text; with `download` present `method:'anchor'` and an anchor click observed |
+| UT-16-19 | download fallback selection | stub `HTMLAnchorElement.prototype.download` absent and `window.open` returning null | `method:'none'` with E-EXP-005; with `download` present `method:'anchor'` and an anchor click observed |
 | UT-16-20 | file read pre-check | fake File of 30 MB with maxBytes 25 MB | `ok:false` before any read (reader stub not called) |
 | UT-16-21 | delete removes everything | save, write 2 checkpoints, acquire lock, then `delete` | project, `.bak`, checkpoints, lock and index entry all gone; `exists` false |
 | UT-16-22 | kv get with damaged value | seed `flm.v1.settings` with invalid JSON | `get` returns fallback, key removed, one Log entry |

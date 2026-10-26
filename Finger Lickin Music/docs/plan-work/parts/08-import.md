@@ -831,8 +831,8 @@ from the Song, which is why W-IMP-CHORD-LIMIT has loss `no`.
 | W-EXP-AUDIO-SKIPPED | M-10 writer caller (export dialog) | info | n/a | Audio tracks are not part of a MIDI file and were left out ({n}). |
 | W-EXP-CHANNEL-REMAPPED | M-10 writer | info | n/a | Track "{name}" used channel 10 but is not a drum track; it was moved to channel {value}. |
 
-Part 5.3 names the implicit tempo warning W-TEMPO-DEFAULT-INSERTED; the code used is
-W-TEMPO-IMPLICIT-START (Part 6.3), and no second code exists.
+Parts 5.3 and 6.3 both use W-TEMPO-IMPLICIT-START for the implicit tempo warning; no second
+code exists.
 
 #### 8.8.7 Error codes of the import family (reference)
 
@@ -840,6 +840,59 @@ The `E-IMP-*` user texts are fixed in Part 6.14.5 and repeated in 8.2. This part
 text variants that keep their codes: E-IMP-005 for the audio watchdog (8.1.2) and E-IMP-004
 details for audio track count and project audio size (D8). Error codes never appear as
 `ImportWarning`s; a refused file produces no report.
+
+#### 8.8.8 Warnings owned by other parts (registered here)
+
+These codes are written to the `Log` (and, where a screen lists them, to SCR-Diagnostics or the
+load report) by the module named in the Owner column, using the severity and message below. They
+are not `ImportWarning`s of an import report, so "Loss" does not apply. `W-DANCE-<suffix>` is
+formed from the `DANCE-<suffix>` validation issue codes of Part 6.23; the two listed are the ones
+that are logged or shown.
+
+| Code | Owner | Severity | Loss | Message |
+|---|---|---|---|---|
+| W-PRJ-UNKNOWN-FIELD | M-15 `hoistUnknown` (5.6 step 7) | info | n/a | Unknown fields were kept under x ({n} paths). |
+| W-PRJ-DROPPED-CHART | M-15 `validate` (step 11) | warn | n/a | {n} charts referred to a missing track or song and were removed. |
+| W-PRJ-ORPHAN-TAKE | M-15 `validate` (step 11) | warn | n/a | {n} recorded takes referred to a missing track and were moved aside. |
+| W-PRJ-CHARACTER-UNBOUND | M-15 `validate` (step 11) | info | n/a | A character's instrument no longer exists and was cleared. |
+| W-PRJ-DERIVED-UNBOUND | M-15 `validate` (step 11) | info | n/a | A derived track lost its source track and became a normal track. |
+| W-PRJ-RESORTED | M-15 `validate` (step 12) | info | n/a | Events were out of order and were sorted. |
+| W-PRJ-CHANNEL-FIXED | M-15 `validate` (step 13) | info | n/a | Event channels were set to the channel of their track. |
+| W-PRJ-MAP-REPAIRED | M-15 `validate` (step 14) | info | n/a | The tempo or meter map was repaired. |
+| W-PRJ-DURATION-FIXED | M-15 `validate` (step 15) | info | n/a | The song length was recomputed from its events. |
+| W-PRJ-TIMESIG-FIXED | M-15 `validate` (step 16) | info | n/a | The time signature setting was set from the meter map. |
+| W-PRJ-TAKES-PRUNED | M-15 `validate` (step 17) | info | n/a | Older or aborted takes were removed. |
+| W-PRJ-CHART-STALE | M-15 `validate` (step 18) | info | n/a | Generated charts were out of date and are regenerated when needed. |
+| W-PRJ-SLOT-FIXED | M-15 `validate` (step 19) | info | n/a | Character slots were reassigned and extra characters were dropped. |
+| W-PRJ-AUDIO-FIXED | M-15 `validate` (step 20) | info | n/a | An audio track without audio was changed to a MIDI track. |
+| W-PRJ-X-TRUNCATED | M-15 `validate` (step 21) | warn | n/a | Extension data larger than 64 KB was removed. |
+| W-SET-NEWER | M-27 `Settings.load` | warn | n/a | The settings were saved by a newer version; defaults are used and the stored settings are kept. |
+| W-SET-NORMALIZED | M-27 `Settings.load`, `Settings.import` | info | n/a | Settings values that were not valid were replaced. |
+| W-CHR-NO-VERSION | M-22 `validate` | info | n/a | The character file has no version; version 1 is assumed. |
+| W-CHR-UNKNOWN-FIELD | M-22 `normalize` | info | n/a | Unknown character fields were dropped. |
+| W-CHR-X-LARGE | M-22 `validate`, `normalize` | info | n/a | The character extension data was larger than 1,024 bytes and was dropped. |
+| W-CHR-X-DROPPED | M-22 `deserialize` | info | n/a | The character extension data was dropped to fit the network limit of 4,096 bytes. |
+| W-CHR-NORMALIZED | M-22 `normalize` | info | n/a | A character value was not valid and was replaced. |
+| W-CHR-EXCLUSIVE | M-22 `normalize` | info | n/a | A hat and headphones cannot be worn together; the later one was kept. |
+| W-CHR-PRESET-SKIPPED | M-22 `registerPresets` | warn | n/a | A character preset was not valid and was skipped. |
+| W-CHR-ROSTER-RESET | M-22 roster load | warn | n/a | The saved characters could not be read and were reset. |
+| W-RIG-DEFAULTED | M-19 `buildMesh` | info | n/a | An unknown appearance value was replaced by the default (logged once per field). |
+| W-DANCE-HOLD-OVERLAP | M-23 `validate` (V11) | info | n/a | {n} overlapping holds were shortened. |
+| W-DANCE-CHOREO-DISABLED | M-23 `ChoreographyController` | warn | n/a | Dance choreography failed and was turned off; steps are still judged. |
+| W-NET-LATE-RESUME | M-24 `resume` handling | info | n/a | A resume arrived less than 0.5 s ahead; playback resumed immediately at the converted time. |
+| W-PRG-SKIPPED | M-25 `record` | info | n/a | A session without judged notes or completion was not recorded. |
+| W-PRG-RESET | M-25 document load | warn | n/a | A progress document was not valid and was reset. |
+| W-PRG-NEWER | M-25 document load | warn | n/a | A progress document was saved by a newer version and is read-only. |
+| W-PRG-RECORD-DROPPED | M-25 document load | warn | n/a | {n} progress records were not valid and were dropped. |
+| W-PRG-SAVE-FAILED | M-25 save | warn | n/a | Progress could not be saved and is kept in memory. |
+| W-PRG-BESTS-PRUNED | M-25 size caps | info | n/a | The oldest best scores were removed to stay under the size cap. |
+| W-UI-HISTORY | M-26 `Screens` | info | n/a | The browser history could not be used; in-app Back is used (logged once). |
+| W-URL-TIER | M-29 `parseUrlParams` | warn | n/a | The tier parameter of the page address was not valid and was ignored. |
+| W-URL-ONLINE | M-29 `parseUrlParams` | warn | n/a | The online parameter of the page address was not valid and was ignored. |
+| W-INS-PROGRAM | M-06 `definition` | warn | n/a | A program number outside 0..127 was replaced by 0. |
+| W-THEORY-FALLBACK | M-08 via M-02 `Theory` | info | n/a | An unknown scale or chord was replaced by Major. |
+| W-TRANSPORT-DRIFT | M-04 `onVisible` | info | n/a | The transport clock drifted while the page was hidden and was re-anchored. |
+| W-JSON-PROTO-KEY | M-15 `parse`, M-16 | warn | n/a | A JSON document contained a `__proto__`, `constructor` or `prototype` key; the key was removed (logged once per document). |
 
 ### 8.9 Test corpus definition (`test-corpus/`)
 

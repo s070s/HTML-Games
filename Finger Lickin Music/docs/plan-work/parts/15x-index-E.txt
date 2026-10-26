@@ -64,7 +64,7 @@ R-E3.1-02 | P0 | Handle: SMF format 1 -> one Song; all tracks share one merged t
 R-E3.1-03 | P0 | Handle: SMF format 2 -> one Song per sequence; user picks one (W-MIDI-FORMAT2); sequences never merged | Phase 07 | AT-R-E3.1-03
 R-E3.1-04 | P0 | Handle: missing or invalid header -> import refused with E-IMP-003; current project untouched | Phase 07 | AT-R-E3.1-04
 R-E3.1-05 | P0 | Handle: invalid track length -> chunk bounded by file end; events before the cut kept (W-MIDI-TRUNCATED) | Phase 07 | AT-R-E3.1-05
-R-E3.1-06 | P0 | Handle: truncated variable-length quantity -> rest of that track skipped (W-MIDI-BAD-VLQ); earlier events kept | Phase 07 | AT-R-E3.1-06
+R-E3.1-06 | P0 | Handle: truncated variable-length quantity -> rest of that track skipped (W-MIDI-BAD-VLQ for an over-long quantity, W-MIDI-TRUNCATED for one cut by the end of the file); earlier events kept | Phase 07 | AT-R-E3.1-06
 R-E3.1-07 | P0 | Handle: invalid status byte -> rest of that track skipped (W-MIDI-BAD-STATUS); other tracks kept | Phase 07 | AT-R-E3.1-07
 R-E3.1-08 | P0 | Handle: missing end-of-track event -> the track ends at its last event (W-MIDI-NO-EOT) | Phase 07 | AT-R-E3.1-08
 R-E3.1-09 | P0 | Handle: duplicate or conflicting metadata -> last value at a tick wins (W-MIDI-DUPLICATE-META) | Phase 07 | AT-R-E3.1-09

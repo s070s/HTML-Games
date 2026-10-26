@@ -146,7 +146,7 @@ FLM.Core.define('Dance', function (FLM) {
     exportChart(chart /* DanceChart */, song /* Song */) /* -> {fileName:string, text:string, bytes:number} */,
     /** Parse, migrate, validate (repair). Never throws.
      *  -> {ok:true, chart, warnings:DanceIssue[], notice:string|null}
-     *   | {ok:false, error:{code:'E-IMP-012'|'E-IMP-020'|'E-IMP-021'|'E-IMP-022', message, detail}} */
+     *   | {ok:false, error:{code:'E-IMP-012'|'E-IMP-017', message, detail}} */
     importChart(text /* string */, song /* Song */) /* -> object */,
     /** Part 5.7 shape; MIGRATIONS is empty for version 1. */
     migrate(doc /* object */) /* -> {ok:boolean, doc:object|null, applied:string[], error:object|null} */
@@ -209,7 +209,7 @@ mode every finding is `severity:'error'` and the report has `ok:false`, `chart:n
 
 | Rule | Check | Issue code | Repair action (imported charts) |
 |---|---|---|---|
-| V1 | schema: the `danceChart` definition of Part 5.5 (ids, enums, integer ticks, `directions` 1-2 items, `steps` <= 20,000) after the import pre-pass (6.23.4 G) | `DANCE-SCHEMA` | none: fatal (`E-IMP-021`) |
+| V1 | schema: the `danceChart` definition of Part 5.5 (ids, enums, integer ticks, `directions` 1-2 items, `steps` <= 20,000) after the import pre-pass (6.23.4 G) | `DANCE-SCHEMA` | none: fatal (`E-IMP-017`) |
 | V2 | `steps` sorted by tick ascending | `DANCE-UNSORTED` | stable sort by tick |
 | V3 | one step per tick | `DANCE-SAME-TICK` | merge same-tick steps: union of directions, `isHold` true if any part was a hold, `durTicks` the longest hold part |
 | V4 | `directions` distinct, ascending, each 0..3 | `DANCE-DUP-DIRECTION` | dedupe and sort; out-of-range values are dropped by the pre-pass (V1) |
@@ -220,7 +220,7 @@ mode every finding is `severity:'error'` and the report has `ok:false`, `chart:n
 | V9 | consecutive step spacing `>= MIN_SPACING_TICKS[difficulty]` | `DANCE-DENSE` | none; kept with a `warn` (custom charts may be denser; generated charts never are) |
 | V10 | step ids unique and matching the id pattern | `DANCE-ID` | reassign every id as `d<base36 ordinal>` in tick order |
 | V11 | `songId` equals `opts.song.id` (only with `opts.song`) | `DANCE-OTHER-SONG` | `songId` rewritten; `info` severity; the import notice of Part 5.14.2 is returned |
-| V12 | at least one step remains | `DANCE-EMPTY` | none: fatal (`E-IMP-021`) |
+| V12 | at least one step remains | `DANCE-EMPTY` | none: fatal (`E-IMP-017`) |
 
 Repair mode returns `ok:true` when no fatal issue remains; every repair adds one `warn` issue
 (V11 `info`) with `stepIndex` of the first affected step and a count in the message when one
@@ -502,18 +502,18 @@ exportChart(chart, song):
   text = JSON.stringify(doc, null, 1); fileName = sanitize(song.title) + '-' + chart.difficulty + '.flmdance.json'
 
 importChart(text, song):
-  if text.length * 2 > LIMITS.maxFileBytes: E-IMP-022
-  doc = JSON.parse(text) catch -> E-IMP-020
-  depth(doc) > 8 -> E-IMP-020
-  doc.format !== 'flm-dance' -> E-IMP-020
+  if text.length * 2 > LIMITS.maxFileBytes: E-IMP-017 (detail 'too large (limit 2 MB)')
+  doc = JSON.parse(text) catch -> E-IMP-017
+  depth(doc) > 8 -> E-IMP-017
+  doc.format !== 'flm-dance' -> E-IMP-017
   doc.version > 1 -> E-IMP-012 (Part 5.17 text)
-  m = migrate(doc) (version < 1 none exist) ; if !m.ok -> E-IMP-020
+  m = migrate(doc) (version < 1 none exist) ; if !m.ok -> E-IMP-017
   pre-pass on doc.chart.steps (E 7 "unsupported step type"):
     a step with a field `type` whose value is not 'tap' or 'hold' (for example 'mine', 'roll')
       is dropped with DANCE-UNSUPPORTED-STEP (warn); 'tap' and 'hold' set isHold and the field is removed
     directions outside 0..3 are removed (DANCE-DUP-DIRECTION); unknown step fields are removed (DANCE-SCHEMA warn)
   chart.source = 'imported'; chart.id = uid('dance') when missing or invalid
-  r = validate(chart, {mode:'repair', song}); if !r.ok -> E-IMP-021 with r.issues
+  r = validate(chart, {mode:'repair', song}); if !r.ok -> E-IMP-017 with r.issues
   notice = songRef.songId !== song.id ? "This chart was made for '" + songRef.title +
            "'; steps will be aligned to the current song's ticks." : null
   return {ok:true, chart: r.chart, warnings: r.issues, notice}
@@ -524,9 +524,7 @@ Error texts:
 | Code | Message |
 |---|---|
 | E-IMP-012 | "This dance chart file needs a newer version of Finger Lickin Music." (Part 5.17) |
-| E-IMP-020 | "This file is not a valid Finger Lickin Music dance chart." |
-| E-IMP-021 | "The dance chart could not be used: {first error message}." |
-| E-IMP-022 | "The dance chart file is too large (limit 2 MB)." |
+| E-IMP-017 | "This dance chart file is invalid: {detail}" (detail: not a dance chart file, the first validation error message, or "too large (limit 2 MB)") |
 
 Imported charts are aligned by ticks to the current song (Part 5.14.2); there is no separate
 offset field because the shared tick timeline defines alignment (E 7 "chart and audio have
@@ -539,7 +537,7 @@ different starting offsets").
 | song without notes or bars | `generate` precheck | previous chart, song | choose another song | none | SCR-Dance empty state "This song has no notes to dance to." (E-IMP-010) | Dance unavailable for that song | menu stays | UT-23-14 |
 | generator output fails strict validation (defect) | step 9 of 6.23.4 B | song untouched | no | none | toast via ErrorReporter E-IMP-010 returnToMenu | none | leave to menu | UT-23-02 |
 | imported chart contradictory (E 7) | `validate` repair | current chart and project | user edits file | none (source file unchanged) | SCR-Dance warning list with counts | chart used after repair | n/a | UT-23-03, UT-23-04 |
-| imported file invalid or newer | `importChart` | current chart | other file | none | dialog with E-IMP-012/020/021/022 text | n/a | previous chart remains selected | UT-23-29 |
+| imported file invalid or newer | `importChart` | current chart | other file | none | dialog with E-IMP-012 or E-IMP-017 text | n/a | previous chart remains selected | UT-23-29 |
 | chart and song mismatch | V11 | chart | n/a | none | notice text of 6.23.4 G | aligned by ticks | n/a | UT-23-29 |
 | input while paused or in count-in | `setActive(false)` | score | n/a | none | none | inputs ignored | resume | UT-23-22 |
 | hold across pause (E 7) | Rhythm C.4 | hold state | n/a | none | HUD hold indicator | n/a | resume | UT-23-22 |
@@ -614,7 +612,7 @@ s`) as in 6.9.8.
 | UT-23-26 | choreography is a function of audio time | `poseAt(t)` for t in a grid, computed after 10 and after 1,000 `update` calls | identical poses; no step within range -> exactly `POSES.idle`; peak weight 1 at `ts` |
 | UT-23-27 | choreography failure isolation | fake rig whose `setPose` throws | `enabled()` false after first update; subsequent `onInput` still judged; `W-DANCE-CHOREO-DISABLED` logged once |
 | UT-23-28 | export/import round trip | export generated `hard` chart, import into the same song | chart steps deep-equal except `source:'imported'` and `id`; no warnings; `notice` null |
-| UT-23-29 | import errors and notice | invalid JSON; `format:'x'`; `version:2`; 3 MB text; other song | E-IMP-020, E-IMP-020, E-IMP-012, E-IMP-022; other song -> ok with the exact notice text |
+| UT-23-29 | import errors and notice | invalid JSON; `format:'x'`; `version:2`; 3 MB text; other song | E-IMP-017, E-IMP-017, E-IMP-012, E-IMP-017; other song -> ok with the exact notice text |
 | UT-23-30 | unsupported step type | imported steps with `type:'mine'` and `type:'hold'` | mine dropped with `DANCE-UNSUPPORTED-STEP`; hold kept with `isHold:true` |
 | UT-23-31 | asJudgeChart | any chart | notes deep-equal steps mapped to `{id, tick, durTicks, lanes: directions, sourceEventIds:[], pitches:[], isHold}`; difficulty mapped via `WINDOW_MAP` |
 | UT-23-32 | generator leaves the song untouched | deep-frozen `fx.songDrums` | `generate` does not throw; `fnv1a32(JSON.stringify(song))` unchanged |
@@ -881,9 +879,9 @@ invalid). Rates are per sender; the limiter (6.24.4 D) enforces the global 60 pe
 
 | type | Sender -> receiver | Payload (Part 5.16) | Rx states | Validation beyond schema | Cap | Rate |
 |---|---|---|---|---|---|---|
-| hello | guest -> host first; host -> guest reply | `protocol, appVersion, peerId, displayName, avatar, mobile, resumeToken` | connecting, reconnecting | protocol 1 else E-NET-003; major of `appVersion` equal else E-NET-004; avatar `Character.validate` and serialized <= 4,096 B; host: room not full (E-NET-011), not playing unless `resumeToken` matches a disconnected player (E-NET-022), peerId not already connected (E-NET-017) | 8 KB | once per link |
+| hello | guest -> host first; host -> guest reply | `protocol, appVersion, peerId, displayName, avatar, mobile, resumeToken` | connecting, reconnecting | protocol 1 else E-NET-003; major of `appVersion` equal else E-NET-004; avatar `Character.validate` and serialized <= 4,096 B; host: room not full (E-NET-014), not playing unless `resumeToken` matches a disconnected player (E-NET-019), peerId not already connected (E-NET-022) | 8 KB | once per link |
 | roomState | host -> all | `roomCode, hostId, mode, state, stateSeq, players[<=4], song, chart, position` | guest: any connected state | `stateSeq` > last applied; `hostId` equals the bound host; the receiving guest appears in `players` | 32 KB | on change (coalesced 200 ms) and every 2 s |
-| ready | guest -> host | `ready, settingsHash, judgmentPreset, judgeOffsetMs, trackId` | host: lobby | `judgmentPreset === 'standard'` else E-NET-006; `settingsHash` equals `chartFor(peer, trackId).settingsHash` else E-NET-005; coop: `trackId` exists in the song and no other player holds it else E-NET-020 | 512 B | <= 4 per s |
+| ready | guest -> host | `ready, settingsHash, judgmentPreset, judgeOffsetMs, trackId` | host: lobby | `judgmentPreset === 'standard'` else E-NET-006; `settingsHash` equals `chartFor(peer, trackId).settingsHash` else E-NET-005; coop: `trackId` exists in the song and no other player holds it else E-NET-024 | 512 B | <= 4 per s |
 | selectChart | host -> all | `songId, difficulty, profile, trackId, mode` | guest: lobby | song resolvable locally (6.24.4 F) else reply E-NET-007; difficulty in the instrument or dance enum (dance when `easy`, `normal`, `hard`; then `profile` and `trackId` are null) | 512 B | <= 2 per s |
 | start | host -> one guest (unicast, each with its own hash) | `stateSeq, tStartShared, countInBars, songId, settingsHash` | guest: lobby, countdown | `songId` and `settingsHash` equal the guest's bound chart else E-NET-005; lead >= 1.0 s else E-NET-008 | 256 B | <= 1 per countdown attempt |
 | pause | guest -> host (request); host -> all (authoritative) | `stateSeq, tick, tShared` | host: playing; guest: playing | host honors at most one request per guest per 10 s; guest applies only `stateSeq` > last applied | 128 B | request <= 1 per 10 s |
@@ -914,10 +912,10 @@ The host does not send `avatar` messages: avatar changes are reflected in the ne
 | From | Event | To | Action |
 |---|---|---|---|
 | idle | `createRoom` p2p | lobby (via creating) | `selfId`, `roomCode = makeRoomCode()`, host Player slot 0, `hostId = selfId` |
-| idle | `createRoom` relay | creating -> lobby | open socket (10 s timeout -> error E-NET-015), send `{"op":"create"}`, on `created` take `code` as `roomCode` |
-| lobby (host) | `createInvite` | inviting -> awaitingAnswer | 6.24.4 E; invite timer 10 min -> `cancelInvite`, state lobby, invite invalid (E-NET-012 when its answer arrives later) |
-| awaitingAnswer | `acceptAnswer` | connecting -> lobby | set remote description; channel open within 20 s else E-NET-009; hello exchange; `net.peer {joined:true}` |
-| idle (guest) | `joinWithInvite` | connecting | 6.24.4 E; wait 120 s for channel open else error E-NET-009 |
+| idle | `createRoom` relay | creating -> lobby | open socket (10 s timeout -> error E-NET-012), send `{"op":"create"}`, on `created` take `code` as `roomCode` |
+| lobby (host) | `createInvite` | inviting -> awaitingAnswer | 6.24.4 E; invite timer 10 min -> `cancelInvite`, state lobby, invite invalid (E-NET-021 when its answer arrives later) |
+| awaitingAnswer | `acceptAnswer` | connecting -> lobby | set remote description; channel open within 20 s else E-NET-002; hello exchange; `net.peer {joined:true}` |
+| idle (guest) | `joinWithInvite` | connecting | 6.24.4 E; wait 120 s for channel open else error E-NET-002 |
 | idle (guest) | `joinRelay` | connecting | socket, `{"op":"join","code"}`; on `joined` send hello to member 1; host admits -> hello reply |
 | connecting (guest) | hello reply received | connected -> lobby | first `roomState` moves to lobby; start sync burst |
 | lobby | host `selectChart` | lobby | all `ready = false`; guests resolve the song and prepare charts (M-27) |
@@ -937,11 +935,11 @@ paused; the pause is visible in `room().state === 'paused'`) and `results`.
 
 ```text
 validateMessage(input, ctx):
-  1. text input: if text.length > 65536 -> reject 'size' (E-NET-019); obj = JSON.parse in try -> reject 'json'
+  1. text input: if text.length > 65536 -> reject 'size' (E-NET-023); obj = JSON.parse in try -> reject 'json'
   2. depth(obj) > 8 or total keys > 2,000 -> reject 'depth'
   3. obj is a plain object with exactly the keys v, type, seq, from, tSend, payload -> else 'envelope'
   4. v === 1 -> else 'version' (E-NET-003)
-  5. type in MESSAGE_TYPES -> else 'type' (RESERVED_TYPES -> 'deferred', reply E-NET-020 once)
+  5. type in MESSAGE_TYPES -> else 'type' (RESERVED_TYPES -> 'deferred', reply E-NET-024 once)
   6. seq integer 1..4294967295 and seq > ctx.lastSeq -> else 'seq' (duplicate or out of order)
   7. from matches ^p[0-9a-z]{9}$ and (ctx.expectedFrom === null or from === ctx.expectedFrom)
      -> else 'from'; a guest additionally requires from === ctx.hostId after hello
@@ -1019,11 +1017,11 @@ allow(now, isInput):
 The limiter runs before JSON parsing on the frame text; `isInput` is decided by a substring
 check for `"type":"input"` (cheap; a false guess only affects which frame is shed first).
 Dropped frames are counted per player; more than 120 drops in 10 s disconnects the sender
-with `error E-NET-018 fatal`. The sender side also self-limits: a guest coalesces nothing but
+with `error E-NET-011 fatal`. The sender side also self-limits: a guest coalesces nothing but
 never sends more than 50 inputs per second (excess presses are still judged locally for the
 display and simply not forwarded; the host then records them as not received, which can only
 lower that player's score). Outgoing messages above their CAP are a defect: `send` refuses
-them with `E-NET-019` in the log.
+them with `E-NET-023` in the log.
 
 DataChannel back-pressure: when `dc.bufferedAmount > 1 MB` the link is considered stalled and
 closed with reason `'timeout'` (a stalled peer cannot grow memory).
@@ -1034,11 +1032,11 @@ closed with reason `'timeout'` (a stalled peer cannot grow memory).
 rtcConfig() = {iceServers: stunEnabled ? [{urls: STUN_URL}] : [], iceCandidatePoolSize: 0}
 
 createInvite(opts):                                           // host, state lobby, no invite pending
-  pc = new RTCPeerConnection(rtcConfig())                     // throws -> E-NET-001
+  pc = new RTCPeerConnection(rtcConfig())                     // throws -> E-CAP-005
   dc = pc.createDataChannel('flm', {ordered: true})           // reliable, ordered
   offer = await pc.createOffer(); await pc.setLocalDescription(offer)
   await gather(pc)                                            // 6.24.4 E gather
-  slot = opts.slot ?? lowest free slot 1..3 (none -> E-NET-011)
+  slot = opts.slot ?? lowest free slot 1..3 (none -> E-NET-014)
   code = encodeCode('invite', {room: roomCode, hostId: selfId, slot, sdp: pc.localDescription.sdp,
                                stun: stunEnabled, forPeerId: opts.forPeerId ?? null})
   invite = {pc, dc, slot, forPeerId, expiresAt: Core.now() + 600000}; timer(600000, cancelInvite)
@@ -1056,14 +1054,14 @@ joinWithInvite(code, opts):                                   // guest
   await pc.setLocalDescription(answer); await gather(pc)
   answerCode = encodeCode('answer', {room: d.data.room, hostId: d.data.hostId, slot: d.data.slot,
                                      guestId: selfId, sdp: pc.localDescription.sdp})
-  state 'connecting'; timer(120000 -> E-NET-009); return {ok:true, answerCode}
+  state 'connecting'; timer(120000 -> E-NET-002); return {ok:true, answerCode}
 
 acceptAnswer(code):                                            // host
   d = decodeCode(code); require kind 'answer', room === roomCode, slot === invite.slot, invite not expired
-    (else E-NET-012)
+    (else E-NET-021)
   await invite.pc.setRemoteDescription({type:'answer', sdp: d.data.sdp})
-  state 'connecting'; wait dc 'open' (20 s -> close pc, E-NET-009)
-  link = p2pLink(pc, dc); wait guest hello (5 s -> E-NET-009); validate hello; reply hello;
+  state 'connecting'; wait dc 'open' (20 s -> close pc, E-NET-002)
+  link = p2pLink(pc, dc); wait guest hello (5 s -> E-NET-002); validate hello; reply hello;
   register player; invite = null; state 'lobby'; broadcast roomState
 
 encodeCode(kind, obj): prefix = kind === 'invite' ? 'FLMI1.' : 'FLMA1.'
@@ -1072,13 +1070,13 @@ encodeCode(kind, obj): prefix = kind === 'invite' ? 'FLMI1.' : 'FLMA1.'
 
 decodeCode(text):
   s = text with all whitespace removed (pasted codes often wrap)
-  s.length > 16384 or prefix not 'FLMI1.' or 'FLMA1.' or body has a char outside [A-Za-z0-9_-] -> E-NET-002
-  json = new TextDecoder('utf-8', {fatal:true}).decode(base64urlDecode(body)) catch -> E-NET-002
-  data = JSON.parse(json) catch -> E-NET-002
+  s.length > 16384 or prefix not 'FLMI1.' or 'FLMA1.' or body has a char outside [A-Za-z0-9_-] -> E-NET-001
+  json = new TextDecoder('utf-8', {fatal:true}).decode(base64urlDecode(body)) catch -> E-NET-001
+  data = JSON.parse(json) catch -> E-NET-001
   checks: v === 1; k matches the prefix; room 6 symbols of ROOM_ALPHABET; hostId pid; slot int 1..3;
           invite: stun bool, forPeerId pid or null; answer: guestId pid;
           sdp string <= 12,000 chars, starts with 'v=0', contains 'a=fingerprint:' and
-          'm=application', only printable ASCII plus CR and LF -> else E-NET-002
+          'm=application', only printable ASCII plus CR and LF -> else E-NET-001
   return {ok:true, kind: k, data}
 ```
 
@@ -1093,12 +1091,12 @@ texts travel inside `{"op":"msg","to":<memberId or 0>,"data":"<NetMessage text>"
 member id. The host binds `memberId -> peerId` on the guest's hello and afterwards requires
 `from(envelope) === boundPeer(memberId)`; a guest accepts game messages only from member 1
 (the host). Relay control frames map as: `peer {event:'join'}` -> pending admit; `peer
-{event:'leave'}` -> link closed for that member; `closed {reason:'host-left'}` -> E-NET-013,
-`'expired'` -> E-NET-023, `'shutdown'` -> E-NET-015; `error` codes `ROOM_NOT_FOUND` and
-`BAD_CODE` -> E-NET-016, `ROOM_FULL` -> E-NET-011, `SERVER_FULL` -> E-NET-015, `TOO_LARGE` ->
-E-NET-019, `RATE_LIMIT` -> counted (`dropped`), others -> logged. Relay rooms require host
+{event:'leave'}` -> link closed for that member; `closed {reason:'host-left'}` -> E-NET-009,
+`'expired'` -> E-NET-017, `'shutdown'` -> E-NET-017; `error` codes `ROOM_NOT_FOUND` and
+`BAD_CODE` -> E-NET-013, `ROOM_FULL` -> E-NET-014, `SERVER_FULL` -> E-NET-012, `TOO_LARGE` ->
+E-NET-023, `RATE_LIMIT` -> counted (`dropped`), others -> logged. Relay rooms require host
 approval: a hello from a new member waits in `admits` until the host calls `admit(peerId,
-true)`; declining sends `error E-NET-021 fatal` to that member. Part 5.16's `{v:1,
+true)`; declining sends `error E-NET-020 fatal` to that member. Part 5.16's `{v:1,
 type:'join', ...}` relay envelope is superseded by the Part 3.7.4 `op` envelope.
 
 6.24.4 F. Song resolution, chart identity and scheduled start
@@ -1263,7 +1261,7 @@ Reconnection (within 60 s, at most 5 per player per session):
   `resumeToken` in hello. Relay: the guest reopens the socket with backoff 1, 2, 4, 8, 16 s
   (stopping at 60 s), re-joins the room code and sends hello with its `resumeToken`.
 - Host matches `resumeToken` to the disconnected player (wrong token or `left` -> treated
-  as a new player: E-NET-022 while playing, else normal join), restores the slot, replies
+  as a new player: E-NET-019 while playing, else normal join), restores the slot, replies
   hello and a full roomState. If playing: `position = {tShared: now + 0.5, tick:
   floor(transport.positionAt(now + 0.5))}`.
 - Guest resync: `frozenOffsetS = offsetS` (after a fresh 8-sample burst when time allows,
@@ -1272,7 +1270,7 @@ Reconnection (within 60 s, at most 5 per player per session):
   so the HUD suppresses flashes for notes before it (E 8.1 "reconnects with stale state": all
   local state is replaced by the host's roomState).
 - After 60 s the host marks the player `left` (kept in results with its last score); the
-  guest ends with E-NET-014 and frozen results.
+  guest ends with E-NET-015 and frozen results.
 
 Departure:
 - Host `close()` or host leave: guests receive `leave` (or relay `closed host-left`, or
@@ -1334,45 +1332,47 @@ not use Multiplayer.
 | Versioning | the project revision (M-15) increments per applied op; `studioAck {opId, revision}` confirms; late joiners receive `studioSnapshot` chunks (<= 48 KB each, `index/count`, `fnv1a32` of the whole) |
 | Recording | each player records locally against the shared clock; the take is submitted as one `replaceTake` op after stop |
 | Undo | a player undoes only its own ops; the host converts an undo into the inverse op |
-| v1 behavior | the four `studio*` types are in `RESERVED_TYPES`; receiving one is rejected as `deferred` and answered once with `error E-NET-020` "Collaborative Studio is not available in this version." |
+| v1 behavior | the four `studio*` types are in `RESERVED_TYPES`; receiving one is rejected as `deferred` and answered once with `error E-NET-024` "Collaborative Studio is not available in this version." |
 
 #### 6.24.5 Error handling and recovery
 
-Error codes (class recoverable for all, Part 4.9; the session either stays in the lobby or
-ends, and standalone play continues):
+Error codes (numbering and texts are those of Part 10.6.8, which is the registry; classes per
+Part 10.6.8, the session either stays in the lobby or ends, and standalone play continues):
 
 | Code | Message (ERRORS) |
 |---|---|
-| E-NET-001 | "Multiplayer could not start a connection in this browser." |
-| E-NET-002 | "That code is not a valid invite or answer code. Copy the whole code and try again." |
-| E-NET-003 | "The other player uses an incompatible multiplayer version (protocol {v})." |
-| E-NET-004 | "The other player runs version {version}; both players need the same major version of Finger Lickin Music." |
-| E-NET-005 | "Your chart does not match the host's chart. Make sure you both have the same song and settings." |
-| E-NET-006 | "Multiplayer uses the standard timing windows. Set Judgment windows to Standard to join." |
-| E-NET-007 | "You do not have the song '{title}'. Import the same file, then try again." |
-| E-NET-008 | "The start signal arrived too late; the host restarts the countdown." |
-| E-NET-009 | "Could not connect to the other player. Make sure you are on the same network or turn on the public STUN server, then create a new invite." |
-| E-NET-010 | "A player sent too many invalid messages and was disconnected." |
-| E-NET-011 | "The room is full (4 players)." |
-| E-NET-012 | "This invite has expired or was already used. Ask the host for a new invite." |
-| E-NET-013 | "The host left the session." |
-| E-NET-014 | "The connection could not be restored within 60 seconds." |
-| E-NET-015 | "The online relay is not reachable. Standalone play is not affected." |
-| E-NET-016 | "No room with that code exists." |
-| E-NET-017 | "This player is already in the room." |
-| E-NET-018 | "A player sent too many messages and was disconnected." |
-| E-NET-019 | "A message was too large and was rejected." |
-| E-NET-020 | "That is not possible right now: {detail}." |
-| E-NET-021 | "The host did not admit you to the room." |
-| E-NET-022 | "A song is already being played in this room. Wait for the host to return to the lobby." |
-| E-NET-023 | "The room expired after 10 minutes without activity." |
+| E-CAP-005 | "Multiplayer needs WebRTC, which this browser does not provide." |
+| E-NET-001 | "This is not a valid {expected} code. Copy the whole code and paste it again." |
+| E-NET-002 | "Could not connect to the other player. Without the STUN option, players usually need to be on the same network." |
+| E-NET-003 | "The other player uses an incompatible multiplayer version. Both players need the same version of the game." |
+| E-NET-004 | "The other player has a different version of Finger Lickin Music ({version}). Both players need the same version." |
+| E-NET-005 | "Your chart differs from the host's. The host's chart settings were applied; press Ready again." |
+| E-NET-006 | "Multiplayer uses standard timing windows. Your timing preset was set to Standard for this session." |
+| E-NET-007 | "You do not have this song. Ask the host to choose a built-in song or one you both imported." |
+| E-NET-008 | (log only; no user text) |
+| E-NET-009 | "The host has left. The session has ended; here are the results so far." |
+| E-NET-010 | "Disconnected {name} because their game sent invalid data." |
+| E-NET-011 | "Disconnected {name} because their game sent too many messages." |
+| E-NET-012 | "Could not reach the relay server at {relayUrl}. You can still play by exchanging invite codes directly." |
+| E-NET-013 | "No room with this code exists. Check the code and try again." |
+| E-NET-014 | "This room is full (4 players)." |
+| E-NET-015 | "Could not reconnect within 60 seconds. You have left the session." |
+| E-NET-016 | "{name} disconnected. They have 60 seconds to reconnect." |
+| E-NET-017 | "The relay closed this room ({reason}). Local results were kept." |
+| E-NET-018 | "Connection is unstable; timing between players may be less accurate." |
+| E-NET-019 | "A song is in progress. You will join the room when it ends." |
+| E-NET-020 | "The host did not admit you to the room." |
+| E-NET-021 | "This invite has expired or was already used. Ask the host for a new invite." |
+| E-NET-022 | "This player is already in the room." |
+| E-NET-023 | (log only; no user text) |
+| E-NET-024 | "That is not possible right now: {detail}." |
 
 | What can fail | Detection | State that remains valid | Retry | User data at risk | User informed how | Degraded mode | Return to known-good | Test |
 |---|---|---|---|---|---|---|---|---|
-| WebRTC missing or `RTCPeerConnection` throws | `p2pAvailable()`, try/catch | menu, projects | no | none | Multiplayer entry disabled with reason (Part 4.3 gate) or E-NET-001 | relay if available, else standalone | idle | UT-24-39 |
+| WebRTC missing or `RTCPeerConnection` throws | `p2pAvailable()`, try/catch | menu, projects | no | none | Multiplayer entry disabled with reason (Part 4.3 gate) or E-CAP-005 | relay if available, else standalone | idle | UT-24-39 |
 | ICE gathering finds nothing (no STUN, isolated network) | 3 s timeout, no candidate lines | lobby | new invite with STUN on | none | warning text on the invite | none | lobby | UT-24-39 |
-| connection never opens | 20 s (host) / 120 s (guest) timers | lobby | new invite | none | E-NET-009 | standalone | lobby or idle | UT-24-27 |
-| bad or expired code | `decodeCode`, invite timer | lobby | paste again or new invite | none | E-NET-002, E-NET-012 | n/a | lobby | UT-24-02 |
+| connection never opens | 20 s (host) / 120 s (guest) timers | lobby | new invite | none | E-NET-002 | standalone | lobby or idle | UT-24-27 |
+| bad or expired code | `decodeCode`, invite timer | lobby | paste again or new invite | none | E-NET-001, E-NET-021 | n/a | lobby | UT-24-02 |
 | version or protocol mismatch | hello checks | host lobby | update | none | E-NET-003, E-NET-004 | n/a | link closed | UT-24-17 |
 | chart mismatch (E 8.2) | ready and start hash checks | lobby | re-select | none | E-NET-005 | n/a | lobby, ready false | UT-24-18 |
 | missing song | song resolution | lobby | import file | none | E-NET-007 | n/a | lobby | UT-24-18 |
@@ -1380,13 +1380,13 @@ ends, and standalone play continues):
 | latency increases sharply (E 8.2) | rtt samples, lagS | session | n/a | none | sync badge fair or poor; `net.sync` | host waits up to 2 s for inputs | automatic | UT-24-22 |
 | duplicate or reordered messages (E 8.2) | seq check | session | n/a | none | diagnostics counters | n/a | n/a | UT-24-08, UT-24-09 |
 | pause after resume arrives late (E 8.2) | stateSeq | transport state | n/a | none | none | n/a | n/a | UT-24-10 |
-| malformed messages or flood (E 8.3) | validation, limiter | session | n/a | none | E-NET-010, E-NET-018 on the offender | offender disconnected | others continue | UT-24-16, UT-24-15 |
+| malformed messages or flood (E 8.3) | validation, limiter | session | n/a | none | E-NET-010, E-NET-011 on the offender | offender disconnected | others continue | UT-24-16, UT-24-15 |
 | guest disconnects (E 8.1) | close, failed, 12 s silence | session, other players | reconnect within 60 s | none | lobby row "Disconnected (reconnect within 60 s)" | game continues | slot freed after 60 s | UT-24-29 |
-| host disconnects or leaves (E 8.1) | leave, close, 6 s silence | local project and settings | guest: reconnect within 60 s | none | E-NET-013 or E-NET-014 with results | standalone | results then menu | UT-24-28 |
-| relay down or restarted (E 8.1) | socket close or `closed shutdown` | local state | relay backoff for guests (60 s) | none | E-NET-015 | standalone | idle | UT-24-31 |
-| room expired (E 8.1) | relay `closed expired` | local state | new room | none | E-NET-023 | standalone | idle | UT-24-31 |
-| reconnect after room expired | relay `ROOM_NOT_FOUND` during backoff | local state | no | none | E-NET-016 then E-NET-014 | standalone | ended | UT-24-27 |
-| too many reconnects (E 8.3) | `reconnects > 5` | session | no | none | E-NET-020 "too many reconnection attempts" to that player | player removed | others continue | UT-24-25 |
+| host disconnects or leaves (E 8.1) | leave, close, 6 s silence | local project and settings | guest: reconnect within 60 s | none | E-NET-009 or E-NET-015 with results | standalone | results then menu | UT-24-28 |
+| relay down or restarted (E 8.1) | socket close or `closed shutdown` | local state | relay backoff for guests (60 s) | none | E-NET-012 | standalone | idle | UT-24-31 |
+| room expired (E 8.1) | relay `closed expired` | local state | new room | none | E-NET-017 | standalone | idle | UT-24-31 |
+| reconnect after room expired | relay `ROOM_NOT_FOUND` during backoff | local state | no | none | E-NET-013 then E-NET-015 | standalone | ended | UT-24-27 |
+| too many reconnects (E 8.3) | `reconnects > 5` | session | no | none | E-NET-015 "too many reconnection attempts" to that player | player removed | others continue | UT-24-25 |
 | local AudioContext suspended during a song | `audio.state` | session | resume | none | DLG-ResumeAudio plus pause request | paused | resume message re-anchors | UT-24-10 |
 | `net.*` listener throws | Emitter isolation | session | n/a | none | ErrorReporter | n/a | n/a | UT-24-33 |
 
@@ -1396,12 +1396,12 @@ Security checks (E 8.3) and the response to each abuse case:
 |---|---|---|
 | impossible scores submitted by a client | no message type lets a guest send a score; `scoreUpdate` from a non-host is rejected by the role rule | guest scores are computed only by the host's judges from inputs; a forged `scoreUpdate` counts as invalid |
 | malformed messages | 6.24.4 C on every frame | dropped and counted; 20 in 10 s -> E-NET-010 and disconnect |
-| input flood | RateLimiter 60 per s with input shedding; 120 drops in 10 s | excess dropped; then E-NET-018 and disconnect |
-| joining a private room without authorization | p2p: joining requires the host's invite code and the host pasting the answer; relay: host must `admit` every new member | unknown joiners never reach the lobby; declined joiners get E-NET-021 |
-| oversized avatar or project payload | CAP per type before parsing the payload; avatar `Character.validate` and <= 4,096 B; projects are never transferred in v1 | rejected as invalid (E-NET-019 counted) |
+| input flood | RateLimiter 60 per s with input shedding; 120 drops in 10 s | excess dropped; then E-NET-011 and disconnect |
+| joining a private room without authorization | p2p: joining requires the host's invite code and the host pasting the answer; relay: host must `admit` every new member | unknown joiners never reach the lobby; declined joiners get E-NET-020 |
+| oversized avatar or project payload | CAP per type before parsing the payload; avatar `Character.validate` and <= 4,096 B; projects are never transferred in v1 | rejected as invalid (E-NET-023 counted) |
 | local clock changes to manipulate results | timing uses audio clocks and the measured offset, never wall clock; input `tShared` must lie in [hostNow - 2 s, hostNow + 2 s] and be non-decreasing; `judgeOffsetMs` bounded to +/- 500 | out-of-window inputs dropped; a shifted clock only changes the measured offset; the residual advantage is bounded by the 500 ms calibration bound and is visible in diagnostics |
 | events for a song that is not active | input accepted only in `playing` and not paused; `start` and `ready` must carry the bound `songId` and `settingsHash` | dropped (`ignored`) or E-NET-005 |
-| repeated reconnection attempts | 5 reconnects per player; resume token required; relay connection rate limits (Part 3.7) | further attempts refused with E-NET-020 |
+| repeated reconnection attempts | 5 reconnects per player; resume token required; relay connection rate limits (Part 3.7) | further attempts refused with E-NET-015 |
 | spoofed sender id | `from` must equal the id bound to the link (p2p channel or relay member id) | rejected as invalid |
 | replayed old messages | `seq` strictly increasing; `stateSeq` monotonic | dropped as duplicates |
 | script injection through names or error text | strings without control characters, length capped, rendered with `textContent` only (ADR-12) | text shown literally |
@@ -1461,7 +1461,7 @@ speaks the Part 3.7.4 envelope. `msg(type, payload, seq, from)` builds envelopes
 | ID | Name | Setup | Assertion |
 |---|---|---|---|
 | UT-24-01 | code round trip | `encodeCode('invite', {room:'ABC234', hostId:'p000000001', slot:1, sdp:SDP, stun:false, forPeerId:null})` | `decodeCode` returns `ok`, `kind:'invite'`, identical fields; text starts with `FLMI1.`; body only `[A-Za-z0-9_-]` |
-| UT-24-02 | code rejection and whitespace | code with inserted spaces and line breaks; wrong prefix; `+` character; 20,000 chars; SDP without fingerprint | first decodes ok; the others `E-NET-002` |
+| UT-24-02 | code rejection and whitespace | code with inserted spaces and line breaks; wrong prefix; `+` character; 20,000 chars; SDP without fingerprint | first decodes ok; the others `E-NET-001` |
 | UT-24-03 | envelope rules | missing `tSend`; extra key; `v:2`; `seq:0`; `from:'x'` | reasons `envelope`, `envelope`, `version`, `seq`, `from` |
 | UT-24-04 | payload strictness | `ping` with extra field; `input` without `iSeq`; `leave` reason `'bye'` | all rejected `payload`; valid forms accepted |
 | UT-24-05 | size caps | 70,000-char text; `scoreUpdate` payload of 1,100 B; avatar of 4,200 B | `size` for all three; nothing parsed for the first (JSON.parse spy not called) |
@@ -1477,28 +1477,28 @@ speaks the Part 3.7.4 envelope. `msg(type, payload, seq, from)` builds envelopes
 | UT-24-15 | rate limiter | 70 frames within 1 s, first 55 inputs then 15 controls | 50 inputs allowed, 5 inputs dropped, 10 controls allowed, 5 dropped; window slides after 1 s |
 | UT-24-16 | invalid storm | 20 invalid frames in 9 s from one guest | host sends `error E-NET-010 fatal` and closes that link; other guests unaffected |
 | UT-24-17 | hello checks | protocol 2; appVersion '2.0.0' vs '1.0.0'; valid hello | E-NET-003, E-NET-004 with link closed; valid -> player registered and hello replied with a resumeToken |
-| UT-24-18 | ready checks | wrong settingsHash; `judgmentPreset:'relaxed'`; `judgeOffsetMs` 600; coop duplicate trackId; guest without the song | E-NET-005, E-NET-006, `payload` invalid, E-NET-020, E-NET-007 |
+| UT-24-18 | ready checks | wrong settingsHash; `judgmentPreset:'relaxed'`; `judgeOffsetMs` 600; coop duplicate trackId; guest without the song | E-NET-005, E-NET-006, `payload` invalid, E-NET-024, E-NET-007 |
 | UT-24-19 | scheduled start | host clock 100.0, guest offset 5.0 | start payload `tStartShared` 102.0; guest `transport.play` called with `atAudio` 97.0; both count-ins begin at the same shared time |
 | UT-24-20 | start too close | loopback latency 1,500 ms | guest replies E-NET-008; host re-issues with a higher stateSeq; after 3 failures `stopGame` and lobby |
 | UT-24-21 | input acceptance window | inputs with tShared hostNow - 2.5, hostNow + 1, decreasing tShared, repeated iSeq | first dropped, second judged, third and fourth dropped |
 | UT-24-22 | host judges guest with guest offset | guest offset 5.0 s, guest calibration 30 ms, guest press exactly at the heard note time + 30 ms | host guest-judge result `perfect`, `deltaMs 0`; lagS defers the miss declaration by 2*rtt + 0.1 s |
 | UT-24-23 | score updates at 10 Hz | play 1.0 s of fake clock | 10 scoreUpdate frames; `accuracyPermille` rounded; host row first |
-| UT-24-24 | room full | 5th hello (p2p) and relay `ROOM_FULL` | E-NET-011 both; no 5th player |
-| UT-24-25 | same player twice and reconnect limit | hello with a connected peerId; disconnected peer with the right resumeToken; 6th reconnect | E-NET-017; slot restored; E-NET-020 |
+| UT-24-24 | room full | 5th hello (p2p) and relay `ROOM_FULL` | E-NET-014 both; no 5th player |
+| UT-24-25 | same player twice and reconnect limit | hello with a connected peerId; disconnected peer with the right resumeToken; 6th reconnect | E-NET-022; slot restored; E-NET-015 |
 | UT-24-26 | reconnect resync | guest drops at t = 10 s of play, reconnects at t = 25 s | guest `transport.play({fromTick, atAudio})` with `fromTick` = host position at hostNow + 0.5; `resyncTick` set; host judge recorded misses during the gap |
-| UT-24-27 | reconnect window and connect timeouts | no reconnect within 60 s; guest channel never opens | E-NET-014 and player `left`; guest E-NET-009 after 120 s |
-| UT-24-28 | host leaves | host `close('user')` while playing | guest `ended`, `results().complete === false`, transport stopped, E-NET-013 |
+| UT-24-27 | reconnect window and connect timeouts | no reconnect within 60 s; guest channel never opens | E-NET-015 and player `left`; guest E-NET-002 after 120 s |
+| UT-24-28 | host leaves | host `close('user')` while playing | guest `ended`, `results().complete === false`, transport stopped, E-NET-009 |
 | UT-24-29 | guest leaves | one of 3 guests sends leave | host continues; player row `left:true` with last score; other guests unaffected |
 | UT-24-30 | relay envelope and sender binding | fake WebSocket; guest member 3 sends a message with `from` of member 2's peer | wrapped as `{"op":"msg","to":1,...}`; spoofed message rejected `from` |
-| UT-24-31 | relay control mapping | `closed host-left`, `closed expired`, `error ROOM_NOT_FOUND`, socket close | E-NET-013, E-NET-023, E-NET-016, E-NET-015 (guest after backoff exhausted) |
-| UT-24-32 | late join rejected | new hello without resumeToken while playing | E-NET-022; link closed |
+| UT-24-31 | relay control mapping | `closed host-left`, `closed expired`, `error ROOM_NOT_FOUND`, socket close | E-NET-009, E-NET-017, E-NET-013, E-NET-012 (guest after backoff exhausted) |
+| UT-24-32 | late join rejected | new hello without resumeToken while playing | E-NET-019; link closed |
 | UT-24-33 | cleanup | full session then `close()` | `connectionCount() === 0`; `Core.timers.count(owner) === 0`; bus listeners for the owner 0; fake RTC `close` called on every pc |
 | UT-24-34 | room codes | `makeRoomCode` 1,000 times with a fixed random source | 6 symbols, all in ROOM_ALPHABET; never contains I, O, 0, 1 |
 | UT-24-35 | avatar validation and privacy text | avatar 4,200 B; invalid `body` value; `PRIVACY_TEXT` | rejected; rejected; text non-empty, ASCII, mentions "STUN" and "relay" |
 | UT-24-36 | pause request throttle | guest sends 3 pause requests within 5 s | host pauses once; later requests ignored until 10 s passed |
 | UT-24-37 | missed updates | host silent for 650 ms during play, then a second 650 ms gap 3 s later | first gap: `missedUpdates` += 5, badge stays good; after the second gap (10 missed in 10 s) badge fair |
-| UT-24-38 | deferred studio types | message type `studioOp` | rejected reason `deferred`; one `error E-NET-020` reply |
-| UT-24-39 | non-trickle gathering and RTC failure | fake RTC that never completes gathering; fake RTC with no candidates; constructor throws | invite returned after 3,000 ms of fake time; warning text present; E-NET-001 |
+| UT-24-38 | deferred studio types | message type `studioOp` | rejected reason `deferred`; one `error E-NET-024` reply |
+| UT-24-39 | non-trickle gathering and RTC failure | fake RTC that never completes gathering; fake RTC with no candidates; constructor throws | invite returned after 3,000 ms of fake time; warning text present; E-CAP-005 |
 | UT-24-40 | interruption routing | guest `audio.state` suspended while playing | guest sends a pause request; host pauses everyone; guest does not pause its transport before the host message |
 
 #### 6.24.9 Implementation notes and browser quirks

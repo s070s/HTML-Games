@@ -1087,8 +1087,8 @@ ADR-09 rules, made concrete:
 - Every module registers through `FLM.Core.define(name, factory)` and returns a frozen
   namespace object. `define` throws on a duplicate name, calls the factory immediately, assigns
   `FLM[name]`, records `{ name, file, order }` in `FLM.Core.modules`, and if the factory throws
-  it reports `E-CAP-001`-class failure through `ErrorReporter` as `reload` (a module that fails to
-  load is fatal) and rethrows so the early handler shows `#fatal`.
+  it reports `E-GEN-001` (`context.module`) through `ErrorReporter`, a `reload`-class failure at boot (a module that
+  fails to load is fatal) and rethrows so the early handler shows `#fatal`.
 - Naming: `camelCase` functions and variables, `PascalCase` classes and types, `UPPER_SNAKE`
   module-level constants, event topics lower-case dotted (`transport.state`), error codes
   `E-XXX-nnn`, warning codes `W-XXX-NAME`. Time variables carry their domain: `tick` (integer

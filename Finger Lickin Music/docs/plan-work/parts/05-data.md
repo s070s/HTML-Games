@@ -310,7 +310,7 @@ Rules:
    `Model.insertEvent(track, evt)` (binary-search insert), `Model.removeEvent(track, evt)`,
    `Model.replaceEvents(track, events)` (sorts with `Array.prototype.sort` using the
    comparator, which is stable in ES2019+) and `Model.moveEvents` (remove then insert).
-   `Model.validate` reports `E-MODEL-UNSORTED` when the invariant does not hold; the
+   `Model.validate` reports `E-MDL-004` when the invariant does not hold; the
    project loader repairs by re-sorting and records warning `W-PRJ-RESORTED`.
 4. Text events sort last so that a marker at the tick of a note does not change note
    scheduling order.
@@ -325,7 +325,7 @@ change by `rebuild()`:
 rebuild() {
   // 1. sort by tick (stable); 2. when several entries share a tick keep the LAST one in
   //    input order (last wins), drop the others; 3. if entries[0].tick !== 0 insert
-  //    {tick:0, usPerQuarter:500000} with warning W-TEMPO-DEFAULT-INSERTED;
+  //    {tick:0, usPerQuarter:500000} with warning W-TEMPO-IMPLICIT-START;
   // 4. cumulative seconds:
   let s = 0;
   for (let i = 0; i < e.length; i++) {
