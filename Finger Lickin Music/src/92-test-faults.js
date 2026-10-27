@@ -27,5 +27,35 @@ FLM.SelfTest.group('faults', (t) => {
     t.eq(core.modules().length, moduleCount);
     emitter.removeOwner(t.owner);
   });
+
+  // T04.01: FI-008 on a fresh engine with an injected context factory (the app engine is already running).
+  t.test('FI-008 audio initialization fails', () => {
+    const core = FLM.Core;
+    const settingsBefore = JSON.stringify(FLM.Screens.Settings.all());
+    const stand = t.fakes.fakeAudioContext();
+    const factory = t.fakes.spy(() => stand.context);
+    const engine = FLM.Audio.createEngine({ contextFactory: factory, bus: new core.Emitter(), mobile: false });
+    core.ErrorReporter._resetForTests();
+    core.Faults.set('audio.fail', { phase: 'init' });
+    try {
+      t.throws(() => engine.init(), 'E-AUD-001');
+      t.eq(engine.state(), 'none', 'no context');
+      const panel = window.document.getElementById('fatal');
+      t.ok(panel && panel.classList.contains('show'), '#fatal is shown');
+      const text = window.document.getElementById('fatal-text');
+      t.ok(text.textContent.includes(core.Text.get('E-AUD-001')), 'with the text of Part 10.6.3');
+      t.eq(text.children.length, 0, 'the text went in as text, not as markup');
+      t.eq(core.Faults.active('audio.fail'), null, 'the fault was used up');
+      engine.init();
+      engine.init();
+      t.eq(factory.count, 1, 'a second init does not create a second context');
+      t.eq(engine.ctxCount(), 1);
+      t.eq(JSON.stringify(FLM.Screens.Settings.all()), settingsBefore, 'settings untouched');
+    } finally {
+      core.Faults.clearAll();
+      core.ErrorReporter._resetForTests();
+      engine.close();
+    }
+  });
 });
 })();

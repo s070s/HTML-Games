@@ -669,6 +669,28 @@ FLM.SelfTest.group('ui', (t) => {
     t.eq(doc.getElementById('hud-score').textContent, '0');
   });
 
+  // T04.02: the master meter follows audio.peak while the HUD is up and costs nothing while it is down.
+  t.test('UT-26-22c HUD master meter', () => {
+    const baseline = Core.timers.count();
+    const meter = () => doc.getElementById('hud-meter');
+    UI.HUD.show('instrument');
+    t.eq(bus.listenerCount('audio.peak'), 1, 'one listener while the HUD is up');
+    t.eq(Core.timers.count(), baseline + 1, 'the peak feed runs');
+    t.eq(meter().hidden, false);
+    t.eq(meter().getAttribute('role'), 'meter');
+    bus.emit('audio.peak', { l: 0.5, r: 0.5, clipped: false, audioTime: 0 });
+    t.eq(doc.querySelector('#hud-meter .hud-meter-fill').style.width, '50%');
+    t.eq(meter().classList.contains('clip'), false);
+    bus.emit('audio.peak', { l: 1.4, r: 1.4, clipped: true, audioTime: 0 });
+    t.eq(doc.querySelector('#hud-meter .hud-meter-fill').style.width, '100%', 'the bar stops at full scale');
+    t.eq(meter().classList.contains('clip'), true, 'a clipping peak is marked');
+    UI.HUD.show('instrument');
+    t.eq(bus.listenerCount('audio.peak'), 1, 'showing the HUD again adds no second listener');
+    UI.HUD.hide();
+    t.eq(bus.listenerCount('audio.peak'), 0, 'no listener after hide');
+    t.eq(Core.timers.count(), baseline, 'the feed is stopped again');
+  });
+
   // ---------------------------------------------------------------- UT-26-23 to UT-26-26: text and presentation
 
   t.test('UT-26-23 text catalog', () => {

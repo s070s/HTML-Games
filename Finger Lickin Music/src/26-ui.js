@@ -87,16 +87,16 @@ FLM.Core.define('UI', function (FLM) {
   const HUD_PARTS = Object.freeze({
     instrument: { score: 1, combo: 1, accuracy: 1, judgment: 1, progress: 1, section: 1, performers: 1,
       beat: 'flashOnBeat',
-      countin: 1, pause: 'touch' },
+      countin: 1, pause: 'touch', meter: 1 },
     dance: { score: 1, combo: 1, accuracy: 1, judgment: 1, progress: 1, section: 1, beat: 1, life: 'lifeBar',
       countin: 1,
-      step: 1, pause: 'touch' },
-    freeplay: { performers: 1, beat: 1, chord: 1, keyinfo: 1, countin: 1, pause: 'touch' },
-    studio: { progress: 1, section: 1, performers: 1, beat: 1, countin: 1 },
+      step: 1, pause: 'touch', meter: 1 },
+    freeplay: { performers: 1, beat: 1, chord: 1, keyinfo: 1, countin: 1, pause: 'touch', meter: 1 },
+    studio: { progress: 1, section: 1, performers: 1, beat: 1, countin: 1, meter: 1 },
     multiplayer: { score: 1, combo: 1, accuracy: 1, judgment: 1, progress: 1, section: 1, performers: 1,
-      beat: 'flashOnBeat', sync: 1, peers: 1, countin: 1, pause: 'touch' },
+      beat: 'flashOnBeat', sync: 1, peers: 1, countin: 1, pause: 'touch', meter: 1 },
     tutorial: { score: 1, combo: 1, accuracy: 1, judgment: 1, progress: 1, beat: 1, countin: 1, step: 1,
-      pause: 'touch' }
+      pause: 'touch', meter: 1 }
   });
   const JUDGMENTS = Object.freeze(['perfect', 'great', 'good', 'miss']);
   const TRANSPORT_BUTTONS = Object.freeze(['play', 'pause', 'stop', 'record', 'loop', 'metronome', 'rewind']);
@@ -134,7 +134,7 @@ FLM.Core.define('UI', function (FLM) {
     'dlg.unsaved.cancel': 'Cancel',
     'ui.on': 'On', 'ui.off': 'Off', 'ui.back': 'Back', 'ui.backTo': 'Back to {name}', 'ui.close': 'Close',
     'ui.closeToast': 'Close notification', 'ui.loading': 'Loading', 'ui.noProject': 'No project open',
-    'hud.pause': 'Pause', 'hud.progress': 'Song progress', 'hud.life': 'Life {n}%',
+    'hud.pause': 'Pause', 'hud.progress': 'Song progress', 'hud.meter': 'Output level', 'hud.life': 'Life {n}%',
       'hud.step': 'Step {index} of {total}',
     'hud.countIn': 'Count-in {n}',
     'judgment.perfect': 'Perfect', 'judgment.great': 'Great', 'judgment.good': 'Good', 'judgment.miss': 'Miss',
@@ -287,6 +287,9 @@ FLM.Core.define('UI', function (FLM) {
       ' pointer-events: none; font-weight: var(--fw-bold); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); }',
     '.hud-progress { position: absolute; top: 0; left: 0; right: 0; height: 6px; background: var(--c-line); }',
     '.hud-progress-fill { height: 100%; width: 0; background: var(--c-accent-2); }',
+    '.hud-meter { width: 6rem; height: 6px; background: var(--c-line); }',
+    '.hud-meter-fill { height: 100%; width: 0; background: var(--c-ok); }',
+    '.hud-meter.clip .hud-meter-fill { background: var(--c-error); }',
     '.hud-left { position: absolute; top: calc(6px + var(--sp-2)); left: var(--sp-3); display: flex;' +
       ' flex-direction: column; gap: var(--sp-1); max-width: 45%; }',
     '.hud-right { position: absolute; top: calc(6px + var(--sp-2)); right: var(--sp-3); display: flex;' +
@@ -373,7 +376,7 @@ FLM.Core.define('UI', function (FLM) {
   const presentation = { reducedMotion: false, mode: 'system', highContrast: false };
   const prefs = defaultPrefs();
   const hud = { kind: null, owner: null, fields: {}, rendered: {}, shown: {}, els: {}, nodes: [], fill: null,
-    built: false, pending: null,
+    meterFill: null, peakOff: null, built: false, pending: null,
     lastApply: -Infinity, applies: 0, flashTimer: null, wordTimer: null, announcedCombo: 0, lastSection: null };
   const pads = { spec: null, els: [], rects: [], pressed: [false, false, false, false], shrunkNoted: false };
   let layout = emptyLayout();
@@ -2170,6 +2173,12 @@ FLM.Core.define('UI', function (FLM) {
     return hudElement('hitline', 'div', { class: 'hud-hitline', 'aria-hidden': 'true' }, markers);
   }
 
+  function buildHudMeter() {
+    hud.meterFill = el('div', { class: 'hud-meter-fill' });
+    return hudElement('meter', 'div', { class: 'hud-meter', role: 'meter', 'aria-valuemin': 0, 'aria-valuemax': 100,
+      'aria-valuenow': 0, 'aria-label': text('hud.meter') }, hud.meterFill);
+  }
+
   function buildHud() {
     if (hud.built) return;
     const host = doc.getElementById('hud');
@@ -2183,7 +2192,7 @@ FLM.Core.define('UI', function (FLM) {
         { class: 'hud-note' })]);
     const right = el('div', { class: 'hud-right' }, [hudElement('score', 'div', { class: 'num' }),
       hudElement('accuracy', 'div', { class: 'num' }), hudElement('life', 'div', { class: 'num' }),
-        hudElement('sync', 'div')]);
+        hudElement('sync', 'div'), buildHudMeter()]);
     const word = hudElement('judgment', 'div', { class: 'hud-judgment' });
     const center = el('div', { class: 'hud-center' }, [word, hudElement('combo', 'div', { class: 'num' }),
       hudElement('countin', 'div', { class: 'num' }), hudElement('chord', 'div'), hudElement('keyinfo', 'div'),
@@ -2318,6 +2327,7 @@ FLM.Core.define('UI', function (FLM) {
     renderSync(fields.sync);
     setHudShown('beat', show('beat'));
     setHudShown('progress', show('progress'));
+    setHudShown('meter', show('meter'));
     setHudShown('pause', show('pause'));
     setHudShown('judgment', show('judgment') && hud.rendered.judgment !== undefined && hud.rendered.judgment !== '');
     setHudShown('hitline', show('judgment'));
@@ -2353,6 +2363,34 @@ FLM.Core.define('UI', function (FLM) {
     hud.wordTimer = null;
   }
 
+  // The master meter listens to audio.peak (10 Hz) only while the HUD is up; M-05 stops the feed with the last
+  // listener.
+  function onMeterPeak(event) {
+    const width = (100 * clamp(Number(event && event.l) || 0, 0, 1)).toFixed(0) + '%';
+    const clipped = Boolean(event && event.clipped);
+    if (hud.rendered.meter !== width) {
+      hud.rendered.meter = width;
+      hud.meterFill.style.width = width;
+    }
+    hud.els.meter.classList.toggle('clip', clipped);
+  }
+
+  function subscribeMeter() {
+    const audio = FLM.Audio;
+    if (hud.peakOff !== null || !audio || typeof audio.subscribePeak !== 'function') return;
+    try {
+      const off = audio.subscribePeak(onMeterPeak, hud.owner);
+      hud.peakOff = typeof off === 'function' ? off : null;
+    } catch (error) {
+      Core.Log.warn('ui', 'the master meter is off: ' + error.message);
+    }
+  }
+
+  function unsubscribeMeter() {
+    if (hud.peakOff !== null) hud.peakOff();
+    hud.peakOff = null;
+  }
+
   function hudShow(kind, owner) {
     assert(hasOwn(HUD_PARTS, kind), 'unknown HUD kind ' + kind);
     buildHud();
@@ -2371,10 +2409,12 @@ FLM.Core.define('UI', function (FLM) {
     hud.els.note.textContent = '';
     stopGamepadNav();
     applyHud();
+    subscribeMeter();
   }
 
   function hudHide() {
     clearHudTimers();
+    unsubscribeMeter();
     hud.kind = null;
     hud.owner = null;
     const host = doc.getElementById('hud');
@@ -2882,7 +2922,8 @@ FLM.Core.define('UI', function (FLM) {
     while (stack.length > 0) unmountEntry(stack.pop());
     Array.from(liveWidgets).forEach(destroyWidget);
     hud.nodes.forEach((node) => node.remove());
-    Object.assign(hud, { nodes: [], els: {}, fill: null, built: false, rendered: {}, shown: {}, fields: {} });
+    Object.assign(hud, { nodes: [], els: {}, fill: null, meterFill: null, built: false, rendered: {}, shown: {},
+      fields: {} });
     setHistory(false);
     resolver = null;
     forcedMeasure = null;

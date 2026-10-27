@@ -179,6 +179,21 @@ FLM.SelfTest.group('integration', (t) => {
     t.deepEq(forbidden, [], 'no note was scheduled and nothing was judged');
   });
 
+  // T04.01: the audio half of IT-047 (the Scheduler binding half waits for T04.04; the serialized transitions half is
+  // the partial IT-047 of the modes group).
+  t.test('IT-047b one audio engine per page: init twice returns the same engine and the same context', () => {
+    const Audio = FLM.Audio;
+    const engine = Audio.init();
+    const context = Audio.ctx();
+    t.ok(Audio.init() === engine && Audio.init({ mobile: true }) === engine, 'the same engine');
+    t.ok(Audio.ctx() === context && context instanceof window.AudioContext, 'the same context');
+    t.eq(Audio.ctxCount(), 1);
+    t.eq(Core.modules().filter((item) => item.name === 'Audio').length, 1);
+    t.ok(Audio.clock() === Audio.clock(), 'one clock for the Transport');
+    t.near(Audio.clock().now(), context.currentTime, 0.5, 'the clock reads the context');
+    t.eq(Modes.assertClean(), null, 'nothing was added to the page');
+  });
+
   // ------------------------------------------------------------------------------------------ T03.10
   // IT-003, IT-004, IT-035 and the real-clock part of TT-023 run the `instrument` mode on a test chart
   // (params.testChart) with the chart bot. The Scheduler and the highway do not exist yet, so their halves of the
@@ -194,6 +209,9 @@ FLM.SelfTest.group('integration', (t) => {
   const SCORE_FIELDS = ['score', 'combo', 'maxCombo', 'counts', 'judged', 'total', 'accuracy', 'completion'];
   const LANE_CONTROL = /^lane[0-3]$/;
   const TIME_EPSILON = 1e-6;
+  // The anchor of a real audio clock moves by about a millisecond between samples; the calibration under test is 50 ms.
+  const REAL_CLOCK_DELTA_MS = 5;
+  const REAL_CLOCK_EPSILON = 0.005;
   const PERF_SAMPLES = 10;
   const REAL_NOTE_COUNT = 6;
   const BOT_DELAY_MS = 30;
@@ -294,6 +312,7 @@ FLM.SelfTest.group('integration', (t) => {
       setCalibration(ZERO_CALIBRATION);
       const timers = t.fakes.timers();
       timers.install();
+      t.fakes.detachAudio();                 // the real audio clock does not follow fake time
       const setup = startRun(NOTE_COUNT, 'intermediate');
       const run = await playOnFakeTimers(timers, setup, 0);
       timers.uninstall();
@@ -316,6 +335,7 @@ FLM.SelfTest.group('integration', (t) => {
     await withSettingsStore(async () => {
       const timers = t.fakes.timers();
       timers.install();
+      t.fakes.detachAudio();                 // the real audio clock does not follow fake time
       const runs = [];
       const cases = [ZERO_CALIBRATION, { inputOffsetMs: BOT_DELAY_MS, audioLatencyMs: 0 },
         { inputOffsetMs: 0, audioLatencyMs: BOT_DELAY_MS }];
@@ -345,6 +365,7 @@ FLM.SelfTest.group('integration', (t) => {
     await withSettingsStore(async () => {
       const timers = t.fakes.timers();
       timers.install();
+      t.fakes.detachAudio();                 // the real audio clock does not follow fake time
       setCalibration(ZERO_CALIBRATION);
       const plain = await playOnFakeTimers(timers, startRun(NOTE_COUNT, 'expert'), 0);
       setCalibration({ inputOffsetMs: 40, audioLatencyMs: 25, visualLeadMs: 0 });
@@ -375,15 +396,17 @@ FLM.SelfTest.group('integration', (t) => {
       const finished = new Promise((resolve) => bus.on('chart.finished', resolve, run.owner));
       zeroAudio = FLM.Transport.main.audioTimeAt(0);
       const noteTimes = setup.chart.notes.map((note) => FLM.Transport.main.audioTimeAt(note.tick) - zeroAudio);
+      FLM.Input.resampleAnchor();            // the bot maps audio time to performance time through the anchor
       const bot = FLM.SelfTest.chartBot(setup.chart, { offsetMs: REAL_BOT_DELAY_MS, owner: run.owner });
       bot.start();
       await finished;
       bot.stop();
       t.eq(run.results.length, REAL_NOTE_COUNT);
       t.deepEq(run.results.map((result) => result.judgment), new Array(REAL_NOTE_COUNT).fill('perfect'));
-      t.ok(run.results.every((result) => Math.abs(result.deltaMs) === 0), 'every deltaMs is 0');
-      lanePresses(run).forEach((event, index) => t.ok(Math.abs(event.tAudio - (noteTimes[index] +
-        REAL_BOT_DELAY_MS / 1000)) <= TIME_EPSILON, 'press ' + (index + 1) + ' keeps the uncalibrated audio time'));
+      t.ok(run.results.every((result) => Math.abs(result.deltaMs) <= REAL_CLOCK_DELTA_MS),
+        'every deltaMs is 0 within the noise of a real clock');
+      lanePresses(run).forEach((event, index) => t.near(event.tAudio, noteTimes[index] + REAL_BOT_DELAY_MS / 1000,
+        REAL_CLOCK_EPSILON, 'press ' + (index + 1) + ' keeps the uncalibrated audio time'));
       run.stop();                              // the recorder is no leak of the mode
       t.eq((await Modes.leave('user')).leaks, null);
     } finally {

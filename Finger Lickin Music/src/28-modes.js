@@ -9,7 +9,7 @@
 // T03.10: the `instrument` mode is assembled (assembleGameplay, bindGameplayInput, startGameplay): the chart comes from
 // params.testChart (test build only), a Judge is bound to Transport.main, Input is bound, pause and finish are handled.
 // EXTENSION POINT: later tasks add their enter steps (generated charts, stage, the other modes) at the marked place in
-// setupMode(); until Audio exists the 50 ms pump also makes the Scheduler's two calls for the transport.
+// setupMode(); until the Scheduler exists (T04.04) the 50 ms pump also makes its two calls for the transport.
 // Spec: docs/IMPLEMENTATION-PLAN.md Part 4.7 (4.7.1 to 4.7.4) and Part 6.28 (6.28.2 to 6.28.4).
 (function () {
 'use strict';
@@ -592,8 +592,8 @@ FLM.Core.define('Modes', function (FLM) {
     if (running) gp.began = true;
   }
 
-  // The Scheduler normally makes these two calls for the transport (Part 6.4.4.9). Until M-05 exists the pump makes
-  // them, so that the count-in ends and the end of the song is detected.
+  // The Scheduler normally makes these two calls for the transport (Part 6.4.4.9). Until it exists (T04.04) the pump
+  // makes them, so that the count-in ends and the end of the song is detected.
   function standInForScheduler(now) {
     if (available('Audio.Scheduler.bind')) return;
     invokeStep('transport pump', 'Transport.main.update', now);
@@ -638,7 +638,7 @@ FLM.Core.define('Modes', function (FLM) {
     if (top && top.id === 'SCR-Pause' && typeof top.controller.onBack === 'function') top.controller.onBack('key');
   }
 
-  // KeyP: pauses first, then stops every sound (Part 7.6.4); Audio itself arrives with T04.01.
+  // KeyP: pauses first, then stops every sound (Part 7.6.4); Audio.panic itself arrives with T04.05.
   function onPanicControl() {
     if (state.pauseReason === null) startPause('user');
     invokeStep('panic', 'Audio.panic', false);

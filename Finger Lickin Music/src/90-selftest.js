@@ -21,6 +21,7 @@ FLM.Core.define('SelfTest', function (FLM) {
   const MESSAGE_LIMIT = 500;             // result messages are cut to this many characters (6.31.4.1)
   const VALUE_LIMIT = 200;               // values inside assertion messages are cut to this many characters
   const MAX_DIFF_DEPTH = 200;            // deepEq gives up on structures nested deeper than this
+  const MS_PER_SECOND = 1000;
   const FRAME_MS = 1000 / 60;            // fake requestAnimationFrame step (6.31.4.3)
   const MAX_FAKE_CALLBACKS = 100000;     // guards FakeTimers.advance against endless interval chains
   const DEFAULT_SAMPLE_RATE = 48000;
@@ -920,6 +921,35 @@ FLM.Core.define('SelfTest', function (FLM) {
     return Promise.resolve(new Context(settings.channels, frames, settings.sampleRate));
   }
 
+  /**
+   * A stand-in for an AudioContext, built on a real OfflineAudioContext so that nodes are real. `overrides` replaces
+   * any property of the context (state, resume, close, baseLatency, outputLatency, currentTime, createStereoPanner as
+   * undefined, ...); setState(next) changes the state and fires the context's onstatechange handler.
+   * @returns {{context:object, inner:OfflineAudioContext, overrides:object, setState:function}}
+   */
+  function fakeAudioContext(settings) {
+    const Context = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+    const inner = new Context(2, DEFAULT_SAMPLE_RATE, DEFAULT_SAMPLE_RATE);
+    const overrides = Object.assign({ state: 'suspended', resume: () => Promise.resolve(),
+      close: () => Promise.resolve() }, settings);
+    const context = new Proxy(inner, {
+      get(target, name) {
+        if (Object.prototype.hasOwnProperty.call(overrides, name)) return overrides[name];
+        const value = Reflect.get(target, name, target);
+        return typeof value === 'function' ? value.bind(target) : value;
+      },
+      set(target, name, value) {
+        target[name] = value;
+        return true;
+      }
+    });
+    function setState(next) {
+      overrides.state = next;
+      if (typeof inner.onstatechange === 'function') inner.onstatechange(new Event('statechange'));
+    }
+    return { context, inner, overrides, setState };
+  }
+
   /** Seconds at which abs(sample) first exceeds the threshold after at least 10 ms below it. */
   function onsets(audioBuffer, options) {
     const settings = Object.assign({ threshold: DEFAULT_ONSET_THRESHOLD, channel: 0 }, options);
@@ -1110,6 +1140,34 @@ FLM.Core.define('SelfTest', function (FLM) {
     activeStubs = [];
   }
 
+  function resampleInputAnchor() {
+    if (FLM.Input && typeof FLM.Input.resampleAnchor === 'function') FLM.Input.resampleAnchor();
+  }
+
+  /**
+   * For tests that run on fake timers: takes FLM.Audio away and puts Transport.main on the performance clock, so that
+   * Core.now() is the only time base (the real AudioContext does not follow fake time). Both come back after the test
+   * (or through the returned restore function).
+   */
+  function detachAudio() {
+    const hadAudio = Object.prototype.hasOwnProperty.call(FLM, 'Audio');
+    const audio = FLM.Audio;
+    const main = FLM.Transport && FLM.Transport.main;
+    const handle = { restore() {} };
+    handle.restore = () => {
+      if (hadAudio) FLM.Audio = audio;
+      if (main && audio && typeof audio.clock === 'function') main.setClock(audio.clock());
+      Promise.resolve().then(resampleInputAnchor);   // after the fake timers are gone: the real time base is back
+      activeStubs = activeStubs.filter((entry) => entry !== handle);
+      handle.restore = () => {};
+    };
+    if (main) main.setClock({ now: () => FLM.Core.now() / MS_PER_SECOND });
+    delete FLM.Audio;
+    resampleInputAnchor();                   // the old anchor belongs to the audio clock
+    activeStubs.push(handle);
+    return handle.restore;
+  }
+
   function uninstallAllTimers() {
     activeFakeTimers.slice().forEach((timers) => timers.uninstall());
     activeFakeTimers = [];
@@ -1121,7 +1179,7 @@ FLM.Core.define('SelfTest', function (FLM) {
     timers() { return new FakeTimers(); },
     indexedDB(options) { return new FakeIndexedDB(options); },
     localStorage(options) { return new FakeStorage(options); },
-    offlineContext, onsets, inputs,
+    offlineContext, onsets, inputs, detachAudio, fakeAudioContext,
     inputEvent: emitInputEvent,
     stub,
     spy(fn) { return createSpy(fn); },

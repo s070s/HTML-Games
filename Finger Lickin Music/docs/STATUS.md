@@ -3,9 +3,9 @@
 Plan version: 1.0.0
 Updated: 2026-10-27 (UTC date of the last change to this file)
 Current phase: Phase 04
-Last completed T section: T03.12
-Build: FingerLickinMusic.html 720904 bytes
-Self-test (--all): 586/586 on 2026-10-27 (22 groups; --slow included)
+Last completed T section: T04.02
+Build: FingerLickinMusic.html 754486 bytes
+Self-test (--all): 623/623 on 2026-10-27 (23 groups)
 Live and device tests (LT, XT): not run
 
 ## 1. Counts per specification part
@@ -26,7 +26,7 @@ Live and device tests (LT, XT): not run
 | Phase 01 | 12 / 12 | gate commit (see LEDGER) | 2026-10-27 | 246/246 |
 | Phase 02 | 9 / 9 | gate commit (see LEDGER) | 2026-10-27 | 326/326 |
 | Phase 03 | 12 / 12 | gate commit (see LEDGER) | 2026-10-27 | 586/586 |
-| Phase 04 | 0 / - | - | - | - |
+| Phase 04 | 2 / 12 | - | - | - |
 | Phase 05 | 0 / - | - | - | - |
 | Phase 06 | 0 / - | - | - | - |
 | Phase 07 | 0 / - | - | - | - |

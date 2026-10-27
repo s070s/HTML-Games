@@ -71,6 +71,26 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 - Device and other-browser tests (XT, LT): owner.
 - Licence: the owner recorded "All rights reserved" (see docs/plan-work/OPEN-ISSUES-stage1.md).
 
+## 2026-10-27 19:00 - T04.01 to T04.02 - M-05 Audio: context, unlock, master chain, strips, meter
+
+Done: src/05-audio.js (context created suspended at B7, unlock, state events, master chain with limiter, mute
+ramp, 30/20 ms master fades, metronome bus, channel strips, 10 Hz peak feed), HUD master meter (26-ui), SCR-Pause
+master/metronome sliders (27-screens), boot wiring B7/B13/B15 against the real module, fakes.detachAudio and
+fakes.fakeAudioContext in 90-selftest, 'Audio' in EXPECTED_MODULES. Verified by me in the real folder: build 0,
+`selftest --all` 623/623 (23 groups), 0 skipped, `--smoke` OK; the agent also ran --all three times and --slow 624/624.
+Existing tests changed: IT-003/IT-004/IT-035 (use fakes.detachAudio), TT-023 (resampleAnchor + 5 ms tolerances), the
+selftest fixtures test: because real Audio now exists; no test weakened beyond that stated tolerance.
+Perf (software GL): ship 754,486 bytes; menuMs ~132-136; capsMs 16.3; input p95 0.8.
+Decisions: D58 context created suspended at init (Part 4.3 over 6.5.2 "lazily"); D59 audio.state reason 'stalled' added
+(UT-05-04); D60 held-peak decay uses a 0.5 s time constant (6.5.4.9 half-life contradicts UT-05-28); D61 metronome bus
+feeds master; D62 limiter lookahead ~6 ms accepted (UT-05-10 within 20 ms); D63 boot unlock stays on pointerdown (UT-29-09).
+Open issues: OI-31 real sound output unverified headless (LT-033/038/039 Phase 15); iOS/Safari unlock may need pointerup:
+check at XT-006..010; OI-32 the 50 ms pump stand-in in src/28-modes.js stays until the Scheduler (T04.04); OI-33
+UT-29-09b/UT-27-28e/f/UT-28-08y use a stand-in context, unlock timeout tested on fake timers only; deferred: VoiceAllocator,
+Scheduler, panic, nodeCount (T04.03-T04.05), fault hooks audio.suspend/audio.fail phases, UT-05-27, Diagnostics Test tone.
+Usage: weekly all 12% at 18:55 (5h 15%).
+RESUME: T04.03 (VoiceAllocator), T04.04 (Scheduler), T04.05. Stop before 15% weekly; push is authorized once at the clean stop.
+
 ## 2026-10-27 18:30 - Phase 03 GATE (T03.10-T03.12) - input abstraction, mapping profiles, judge and scoring
 
 Done: T03.10 instrument-mode gameplay binding in src/28-modes.js (Judge bound to Transport.main, input.event routing,

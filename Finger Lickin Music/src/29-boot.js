@@ -36,8 +36,8 @@ FLM.Core.define('Boot', function (FLM) {
     'ScrollLock', 'Fn', 'FnLock', 'Tab']);
 
   /** Namespaces whose files exist (convention 6 of Part 11); every entry that adds a module file appends its name. */
-  const EXPECTED_MODULES = Object.freeze(['Core', 'Theory', 'Model', 'Transport', 'Input', 'Mapping', 'Rhythm', 'UI',
-    'Storage', 'Screens', 'Modes', 'Boot']);
+  const EXPECTED_MODULES = Object.freeze(['Core', 'Theory', 'Model', 'Transport', 'Audio', 'Input', 'Mapping',
+    'Rhythm', 'UI', 'Storage', 'Screens', 'Modes', 'Boot']);
 
   /** Fault prefix -> namespace that owns the fault (Part 6.29.4.8). */
   const FAULT_ROUTES = Object.freeze({
@@ -423,7 +423,8 @@ FLM.Core.define('Boot', function (FLM) {
     const audio = run.mod('Audio');
     if (!hasFunction(audio, 'init')) return skipStep('B7', 'Audio');
     try {
-      audio.init({ mobile: run.caps.mobile === true, polyphony: settingValue(run, 'audio.polyphonyCap') });
+      audio.init({ mobile: run.caps.mobile === true, polyphony: settingValue(run, 'audio.polyphonyCap'),
+        readSetting: run.settingsApi ? (path) => run.settingsApi.get(path) : undefined });
       const transport = run.mod('Transport');
       if (transport && transport.main && hasFunction(transport.main, 'setClock')) {
         transport.main.setClock(audio.clock());

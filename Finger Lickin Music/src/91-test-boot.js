@@ -1,6 +1,7 @@
 ﻿// 91-test-boot.js - unit tests for M-29 FLM.Boot (group 'boot'; test build only).
-// UT-29-01 to UT-29-12 follow Part 6.29.8. UT-29-06 and UT-29-09 are partial until T04.01 (they use a stand-in
-// FLM.Audio because M-05 does not exist yet; the banner part of UT-29-09 belongs to M-27 in T01.11).
+// UT-29-01 to UT-29-12 follow Part 6.29.8. UT-29-06 and UT-29-09 first ran on a stand-in FLM.Audio (M-05 did not
+// exist); since T04.01 the rows UT-29-06b and UT-29-09b run the same checks on the real engine of M-05 (the banner part
+// of UT-29-09 belongs to M-27).
 (function () {
 'use strict';
 const FLM = window.FLM;
@@ -154,6 +155,25 @@ FLM.SelfTest.group('boot', (t) => {
     t.eq(record.class, 'reload');
   });
 
+  t.test('UT-29-06b audio init failure with the real engine: #fatal shows E-AUD-001 (T04.01)', async () => {
+    const engine = FLM.Audio.createEngine({ bus: new Core.Emitter(),
+      contextFactory: () => { throw new Error('the AudioContext constructor failed'); } });
+    const { modules, enterCalls } = fakeModules({ Audio: engine });
+    Core.ErrorReporter._resetForTests();
+    const run = await Boot._runForTests({ modules });
+    t.eq(run.result.ok, false);
+    t.eq(run.result.code, 'E-AUD-001');
+    t.eq(run.stages[run.stages.length - 1].stage, 'B7');
+    t.eq(enterCalls.length, 0, 'boot stopped before the menu');
+    const records = Core.ErrorReporter.records().filter((item) => item.code === 'E-AUD-001');
+    t.ok(records.length > 0 && records.every((item) => item.class === 'reload'), 'reported with the reload class');
+    const panel = window.document.getElementById('fatal');
+    t.ok(panel && panel.classList.contains('show'), '#fatal is shown');
+    t.ok(window.document.getElementById('fatal-text').textContent.includes(Core.Text.get('E-AUD-001')));
+    t.eq(engine.state(), 'none');
+    engine.close();
+  });
+
   t.test('UT-29-07 errors before ready escalate', () => {
     const escalated = [];
     Core.bus.on('error', (record) => {
@@ -217,6 +237,41 @@ FLM.SelfTest.group('boot', (t) => {
         remove();
       }
     });
+  });
+
+  t.test('UT-29-09b one-shot unlock gesture with the real engine (T04.01)', async () => {
+    const fake = t.fakes.fakeAudioContext();
+    const resume = t.fakes.spy(() => {
+      fake.setState('running');
+      return Promise.resolve();
+    });
+    fake.overrides.resume = resume;
+    const engine = FLM.Audio.createEngine({ context: fake.context, mobile: false });
+    const flush = async () => {
+      for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+    };
+    try {
+      await withFake('Audio', engine, async () => {
+        const listenersBefore = Core.dom.count();
+        const remove = Boot._installUnlockGesture();
+        try {
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', code: 'Tab' }));
+          t.eq(resume.count, 0, 'Tab is ignored');
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', code: 'KeyA' }));
+          t.eq(resume.count, 1, 'resume() ran synchronously inside the key handler (R-B21.2-02)');
+          await flush();
+          t.eq(engine.isUnlocked(), true);
+          t.eq(Core.dom.count(), listenersBefore, 'both listeners are removed after audio.unlocked');
+          window.dispatchEvent(new KeyboardEvent('keydown', { key: 'b', code: 'KeyB' }));
+          t.eq(resume.count, 1, 'no further unlock attempts');
+        } finally {
+          remove();
+        }
+      });
+    } finally {
+      engine.close();
+      FLM.Input.resampleAnchor();            // the anchor read the stand-in context while it was FLM.Audio
+    }
   });
 
   t.test('UT-29-10 debug surface and fault gating', async () => {

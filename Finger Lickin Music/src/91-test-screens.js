@@ -1,7 +1,7 @@
 ﻿// 91-test-screens.js - unit tests for M-27 FLM.Screens (group 'screens'; test build only).
 // T01.08 delivers UT-27-13 to UT-27-15 (the settings store, Part 6.27.8). T01.11 adds UT-27-01, UT-27-02, UT-27-07,
-// UT-27-26 and UT-27-28 (partial until T04.01: the enable button needs the audio module) and checks for the
-// settings, help, about and diagnostics screens. T03.04 adds UT-27-16 (remap capture and conflict) with its
+// UT-27-26 and UT-27-28 (on stand-ins until T04.01; UT-27-28e and f run the dialogs on the real M-05) and checks for
+// the settings, help, about and diagnostics screens. T03.04 adds UT-27-16 (remap capture and conflict) with its
 // variants, a settings-to-Input maps check and the Help and first launch checks for controls.
 // T03.09 adds UT-27-17 (calibration math and the DLG-Calibration steps) and the calibration settings checks.
 // A lower-case letter after an id marks an extra check of that row.
@@ -344,6 +344,30 @@ FLM.SelfTest.group('screens', (t) => {
     t.eq(Settings.get('onboarding.inputMode'), 'auto');
   });
 
+  // T04.02: the master and metronome volume sliders of SCR-Pause store the setting; M-05 follows settings.changed.
+  t.test('T04.02 pause screen: master and metronome volume sliders write through Settings.set', async () => {
+    await openStorage();
+    await Screens.show('SCR-Pause', {});
+    const stored = { master: Settings.get('audio.masterVolume'), metronome: Settings.get('audio.metronomeVolume') };
+    const master = control('ps-audio-masterVolume');
+    const metronome = control('ps-audio-metronomeVolume');
+    t.eq(master.value, String(Math.round(Settings.get('audio.masterVolume') * 100)), 'shows the stored value');
+    t.ok(doc.getElementById('set-audio-masterVolume') === null, 'its ids do not clash with SCR-Settings');
+    const changes = [];
+    bus.on('settings.changed', (event) => changes.push([event.key, event.value]), t.owner);
+    [[master, 30], [metronome, 55]].forEach(([node, value]) => {
+      node.value = String(value);
+      node.dispatchEvent(new window.Event('input', { bubbles: true }));
+      node.dispatchEvent(new window.Event('change', { bubbles: true }));
+    });
+    t.deepEq(changes, [['audio.masterVolume', 0.3], ['audio.metronomeVolume', 0.55]]);
+    t.eq(Settings.get('audio.masterVolume'), 0.3);
+    t.near(FLM.Audio.masterGain(), 0.3, 1e-9, 'the audio engine took the master volume');
+    t.near(FLM.Audio.metronomeGain(), 0.55, 1e-9, 'and the metronome volume');
+    Settings.setMany({ 'audio.masterVolume': stored.master, 'audio.metronomeVolume': stored.metronome }, 'ui');
+    t.near(FLM.Audio.masterGain(), stored.master, 1e-9, 'the page volumes are back');
+  });
+
   t.test('UT-27-26 codeLabel table', () => {
     const codes = ['KeyA', 'Digit3', 'ArrowLeft', 'ShiftLeft', 'Escape', 'Semicolon', 'midi:60', 'Foo'];
     t.deepEq(codes.map((code) => Screens.codeLabel(code)),
@@ -392,6 +416,60 @@ FLM.SelfTest.group('screens', (t) => {
     const stay = Screens.dialog('DLG-ResumeAudio', {});
     dialogButton('Stay paused').click();
     t.eq(await stay, 'cancel');
+  });
+
+  // T04.01: the two audio dialogs on the real engine of M-05 (its context is a stand-in whose resume() we control).
+  async function withEngineAsAudio(engine, body) {
+    const original = FLM.Audio;
+    FLM.Audio = engine;
+    try {
+      await body();
+    } finally {
+      FLM.Audio = original;
+      engine.close();
+      FLM.Input.resampleAnchor();            // the anchor read the stand-in context while it was FLM.Audio
+    }
+  }
+
+  t.test('UT-27-28e the enable button unlocks the real engine inside the click and the dialog resolves (T04.01)',
+    async () => {
+      const fake = t.fakes.fakeAudioContext();
+      const resume = t.fakes.spy(() => {
+        fake.setState('running');
+        return Promise.resolve();
+      });
+      fake.overrides.resume = resume;
+      await withEngineAsAudio(FLM.Audio.createEngine({ context: fake.context, mobile: false }), async () => {
+        const pending = Screens.dialog('DLG-AudioBlocked', { mode: 'freeplay' });
+        dialogButton('Turn on sound').click();
+        t.eq(resume.count, 1, 'resume() ran synchronously inside the click');
+        t.eq(await pending, 'enabled');
+        t.eq(FLM.Audio.isUnlocked(), true);
+        t.eq(UI.dialogCount(), 0, 'the dialog closed');
+      });
+    });
+
+  t.test('UT-27-28f the resume dialog resumes the real engine inside the click (T04.01)', async () => {
+    const fake = t.fakes.fakeAudioContext({ state: 'running' });
+    const resume = t.fakes.spy(() => {
+      fake.setState('running');
+      return Promise.resolve();
+    });
+    fake.overrides.resume = resume;
+    const engine = FLM.Audio.createEngine({ context: fake.context, mobile: false });
+    await withEngineAsAudio(engine, async () => {
+      await engine.unlock();
+      fake.setState('interrupted');
+      fake.overrides.resume = t.fakes.spy(() => {
+        fake.setState('running');
+        return Promise.resolve();
+      });
+      const pending = Screens.dialog('DLG-ResumeAudio', {});
+      dialogButton('Resume sound').click();
+      t.eq(fake.overrides.resume.count, 1, 'resume() ran synchronously inside the click');
+      t.eq(await pending, 'resume');
+      t.eq(engine.state(), 'running');
+    });
   });
 
   t.test('UT-27-28d showError opens the returned-to-menu dialog; unknown and later dialogs are refused', async () => {

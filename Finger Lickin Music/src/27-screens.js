@@ -2635,6 +2635,7 @@ FLM.Core.define('Screens', function (FLM) {
   // from the judge and answers Back with a pause. The select phase waits for the catalog (Phase 05) and Phase 08.
   const COUNTDOWN_STEP_MS = 500;             // "3", "2", "1" over 1,500 ms, then the resume (Part 6.27.4.20 rule 2)
   const COUNTDOWN_START = 3;
+  const PAUSE_VOLUME_ROWS = 2;               // the first two audio rows of SETTINGS_ROWS: master and metronome volume
   const PAUSE_REASON_IDS = Object.freeze({ hidden: 'S-PLAY-03', gamepad: 'S-PLAY-04', stall: 'S-PLAY-05',
     audio: 'S-PLAY-06' });
 
@@ -2718,6 +2719,20 @@ FLM.Core.define('Screens', function (FLM) {
       return [view.resume, restart, calibrate, quit].map((handle) => handle.root);
     }
 
+    // The master and metronome volume sliders (R-P6.2-01, R-P6.2-07): the same settings rows as SCR-Settings, so the
+    // value is stored and M-05 follows settings.changed. Their own ids: SCR-Settings can open over this screen.
+    // Widgets inside the screen are destroyed with it.
+    function volumeSlider(row) {
+      return UI.Widgets.slider({ id: 'ps-' + row.path.replace(/\./g, '-'), label: row.label, min: row.min,
+        max: row.max, step: row.step, value: Math.round(Settings.get(row.path) * row.scale), format: row.format,
+        onChange: (value) => Settings.set(row.path, value / row.scale, 'ui') }).root;
+    }
+
+    function buildVolumes() {
+      const rows = SETTINGS_ROWS.audio.slice(0, PAUSE_VOLUME_ROWS);
+      return el('div', { id: 'ps-volumes', class: 'pause-volumes' }, rows.map(volumeSlider));
+    }
+
     return {
       mount(root, params, ctx) {
         ensureStyles();
@@ -2727,7 +2742,8 @@ FLM.Core.define('Screens', function (FLM) {
         view.count = el('p', { id: 'ps-count', class: 'pause-count', 'aria-live': 'assertive' });
         const reason = paragraph(pauseReasonText(params), { id: 'ps-reason' });
         root.appendChild(el('div', { class: 'pause-panel', role: 'dialog', 'aria-labelledby': 'ps-title' },
-          [el('h1', { id: 'ps-title' }, say('ps.title')), reason, view.count].concat(buildButtons())));
+          [el('h1', { id: 'ps-title' }, say('ps.title')), reason, view.count].concat(buildButtons(),
+            [buildVolumes()])));
       },
       initialFocus: () => view.resume.root,
       onBack: toggleResume                     // Escape, browser Back and the gamepad B button all resume

@@ -278,6 +278,7 @@ FLM.SelfTest.group('selftest', (t) => {
     const main = FLM.Transport.main;
     const timers = t.fakes.timers();
     timers.install();
+    t.fakes.detachAudio();                   // the real audio clock does not follow fake time
     const events = [];
     FLM.Core.bus.on('input.event', (event) => events.push(event), t.owner);
     FLM.Input.bind({ owner, context: 'instrument' });

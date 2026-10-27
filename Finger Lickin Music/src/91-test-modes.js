@@ -222,6 +222,37 @@ FLM.SelfTest.group('modes', (t) => {
     t.eq(Modes.current().mode, 'quickplay');
   });
 
+  // T04.01: the gate on the real engine of M-05; its context is a stand-in whose resume() we control.
+  t.test('UT-28-08y audio gate on the real engine: a blocked unlock keeps the menu, a working one enters', async () => {
+    const fake = t.fakes.fakeAudioContext();
+    const engine = FLM.Audio.createEngine({ context: fake.context, mobile: false });
+    const original = FLM.Audio;
+    const unlockInDialog = async () => {
+      await engine.unlock();                 // what the "Turn on sound" button does
+      return engine.isUnlocked() ? 'enabled' : 'cancel';
+    };
+    standIn('Screens', { Settings: FLM.Screens.Settings, dialog: unlockInDialog });
+    FLM.Audio = engine;
+    try {
+      const refused = await Modes.enter('quickplay');
+      t.eq(refused.ok, false, 'resume() leaves the context suspended: the dialog is cancelled');
+      t.eq(refused.mode, 'menu');
+      t.ok(Core.ErrorReporter.records().some((record) => record.code === 'E-AUD-002'), 'E-AUD-002 is recorded');
+      fake.overrides.resume = () => {
+        fake.setState('running');
+        return Promise.resolve();
+      };
+      const allowed = await Modes.enter('quickplay');
+      t.eq(allowed.ok, true);
+      t.eq(Modes.current().mode, 'quickplay');
+      t.eq((await Modes.leave('user')).leaks, null);
+    } finally {
+      FLM.Audio = original;
+      engine.close();
+      FLM.Input.resampleAnchor();            // the anchor read the stand-in context while it was FLM.Audio
+    }
+  });
+
   t.test('UT-28-09x interruptions pause gameplay and leave panels alone', async () => {
     let transportState = 'playing';
     const pauses = [];
