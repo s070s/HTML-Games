@@ -12,7 +12,11 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
   next T section would plausibly cross 15%, finish only the current T section, run its
   verification, write the ledger entry, commit, and stop. Do not start another T section.
   Do not schedule a self-resume.
-- Never push; the owner says when (project profile). Commit on branch flm-implementation.
+- Never push unless the owner says so (project profile). Owner instruction 2026-10-27 17:31 local, verbatim:
+  "push the commits in the end". Interpretation: at the clean stop of this session, push branch
+  flm-implementation to origin once (fetch first, report the commit count); not main; no force; no later
+  pushes without a new go.
+- Commit on branch flm-implementation.
 - Regression policy (Part 12.1.7) and foundation guard (Part 3.9 item 3) apply from T01.05.
 - New files: UTF-8 with BOM, LF, ASCII content.
 - Regression policy (Part 12.1.7, in force from T01.05): (1) every defect found after its
@@ -66,6 +70,31 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 - Push of branch flm-implementation: pending owner approval.
 - Device and other-browser tests (XT, LT): owner.
 - Licence: the owner recorded "All rights reserved" (see docs/plan-work/OPEN-ISSUES-stage1.md).
+
+## 2026-10-27 17:55 - T03.04 to T03.08 - remapping, M-08 Mapping, M-09 Rhythm (judge, score, replay)
+
+Done (three agents in parallel, each tested in a private scratch copy): T03.04 Input getMap/setMap/remap/unmap/
+resetMap/conflicts, Settings->Input.setMap wiring (mapsFromSettings), Controls tab remap UI, Help Controls table;
+T03.05/T03.06 src/08-mapping.js (FLM.Mapping profiles A-F, chords, scales, holds, sustain); T03.07/T03.08
+src/09-rhythm.js (FLM.Rhythm: windows, judge, score, sections, replay; the entry names Rhythm, not Judge).
+'Mapping' and 'Rhythm' added to EXPECTED_MODULES. Verified by me in the real folder: build 0, `selftest --all` 548/548
+(22 groups) twice, 0 skipped; `--smoke` OK.
+Decisions: D38 input.keys.more settings row for extra keys (not in Part 5 table: owner to confirm); D39 conflict
+dialog per Part 7.7 ("Use for {control}"); D40 input.map payload adds `context`; D41 Mapping API per 6.8.2 (createLive/handle)
+with Mapper/onInput/actions aliases; D42 chord voicing drop limit 9 semitones (plan examples contradict 7); D43 UT-08-12
+asserts 0.25 s (plan says 0.5 s at 960 tpq); D44 window edges use rounded integer ms snapped to 1e-6; D45 miss declared
+before a later stray (TT-026); D46 replay log carries pause/resume and calibration markers; D47 Rhythm.calibration()
+module-level, pushed to bound Judges; D48 misses and hold completions in close-time order.
+Open issues: OI-18 input/UT-07-04 flaked 2/5 runs under heavy machine load (anchor 25 ms sampling vs fake clock), passed
+12/12 when idle: watch, if it flakes again use skill flake-triage. OI-19 Core code table words E-INP-011 as "Track too
+dense" but 6.9 uses it for bad window name; reconcile. OI-20 fixed-length notes: pending note-off cannot be cancelled
+on retrigger (T04.06); drum key replacement rule 35..81 not implemented; Instruments.range/liveNoteOn signatures unchecked
+until M-06. OI-21 MIDI lane-note pickers on Controls tab not built; first-launch no-keyboard trigger uses touch only.
+OI-22 typed-array input log (6.9.6) not implemented (plain objects). Deferred: IT-003/004/035, TT-023 real-clock (T03.10);
+UT-21-08/09 (T05.09); UT-08-20..34 ChartGenerator (Phase 08); UT-09-29 banner (T03.09).
+Usage: weekly all 11% at 17:45 (5h 12%).
+RESUME: T03.09 (calibration settings and DLG-Calibration input step) and T03.11 (deferred register) in parallel, then
+T03.10 (instrument-mode gameplay binding with a test chart), T03.12 gate.
 
 ## 2026-10-27 17:35 - T03.01 to T03.03 - M-07 Input (keyboard, pointer/touch, gamepad, Web MIDI, lifecycle)
 

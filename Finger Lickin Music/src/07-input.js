@@ -6,9 +6,9 @@
 // It may use only lower-numbered modules (Part 4.2, R-DEP). It declares no module-level global state object (S-07):
 // all state lives inside the factory closure. It reads FLM.Audio and FLM.Transport lazily, because M-05 is built
 // later (T04.01) and tests swap both namespaces.
-// Delivered so far: T03.01 (keyboard, anchor), T03.02 (pointer, touch, gamepad, MIDI), T03.03 (lifecycle).
-// EXTENSION POINT: T03.04 adds getMap, setMap, remap, unmap, resetMap, conflicts and the input.map event next to
-// state.maps; T03.09 adds setCalibration and calibration.
+// Delivered so far: T03.01 (keyboard, anchor), T03.02 (pointer, touch, gamepad, MIDI), T03.03 (lifecycle), T03.04
+// (getMap, setMap, remap, unmap, resetMap, conflicts and the input.map event).
+// EXTENSION POINT: T03.09 adds setCalibration and calibration.
 // Spec: docs/IMPLEMENTATION-PLAN.md Part 6.7 (API 6.7.2, algorithms 6.7.4), Part 4.5 (anchor), ADR-10 (Part 2.10).
 (function () {
 'use strict';
@@ -75,6 +75,12 @@ FLM.Core.define('Input', function (FLM) {
     dance: [].concat(DANCE_NAMES, ['pause', 'panic'])
   });
   const FREE_PLAY_CONTEXTS = Object.freeze(['freeplay', 'studio']);   // the contexts that accept midi:<n> controls
+  // The keyboard map tables, in the order conflicts are searched.
+  const KEYBOARD_CONTEXTS = Object.freeze(['instrument', 'freeplay', 'studio', 'dance', 'global']);
+  const GLOBAL_CONTROLS = Object.freeze(['pause', 'panic', 'panicWhilePaused']);
+  const MAX_CODES_PER_CONTROL = 3;
+  const KEY_CODE_PATTERN = /^[A-Za-z0-9]{1,32}$/;
+  const MIDI_NOTE_MAX = 127;
 
   function instrumentKeys() {
     return { lane0: ['KeyA'], lane1: ['KeyS'], lane2: ['KeyK'], lane3: ['KeyL'], octDown: ['KeyQ'], octUp: ['KeyE'],
@@ -116,7 +122,7 @@ FLM.Core.define('Input', function (FLM) {
   const state = {
     attached: null,                  // {target, padRoot, surface, offs[]} while init() is in force
     context: 'menu',
-    maps: DEFAULT_MAPS,
+    maps: Core.deepClone(DEFAULT_MAPS),   // a private, editable copy; DEFAULT_MAPS stays frozen
     keyLookup: new Map(),            // physical code -> control for the current context plus the global table
     touchApi: 'auto',
     useTouchEvents: false,
@@ -376,8 +382,272 @@ FLM.Core.define('Input', function (FLM) {
     return true;
   }
 
+  /** Control names live in a context; 'global' and 'midi' list the controls the remap API accepts for them. */
   function controlsFor(contextName) {
+    if (contextName === 'global') return GLOBAL_CONTROLS.slice();
+    if (contextName === 'midi') return LANE_NAMES.slice();
     return LIVE_CONTROLS[contextName] ? LIVE_CONTROLS[contextName].slice() : [];
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Maps: read, install, remap, unmap, reset and conflict detection (Part 6.7.4 H)
+  // ---------------------------------------------------------------------------------------------
+  const cloneMaps = (maps) => Core.deepClone(maps);
+  const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+  const isPlain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const sameList = (a, b) => a.length === b.length && a.every((item, index) => item === b[index]);
+  const isMidiNumber = (value) => Number.isInteger(value) && value >= 0 && value <= MIDI_NOTE_MAX;
+  const isKeyCode = (value) => typeof value === 'string' && KEY_CODE_PATTERN.test(value);
+
+  function refreshKeyLookup() {
+    state.keyLookup = state.context === 'menu' ? new Map() : buildKeyLookup(state.context);
+  }
+
+  /** input.map: one event per control whose codes changed (source 'keyboard' or 'midi'; codes are note numbers). */
+  function emitMapEvent(context, control, codes, source) {
+    bus.emit('input.map', { context, control, codes: codes.slice(), source });
+  }
+
+  function announceChanges(before, after) {
+    KEYBOARD_CONTEXTS.forEach((context) => {
+      Object.keys(after.keyboard[context]).forEach((control) => {
+        const codes = after.keyboard[context][control];
+        const previous = before.keyboard[context][control] || [];
+        if (!sameList(previous, codes)) emitMapEvent(context, control, codes, 'keyboard');
+      });
+    });
+    Object.keys(after.midi).forEach((name) => {
+      if (before.midi[name] !== after.midi[name]) emitMapEvent('midi', name, [after.midi[name]], 'midi');
+    });
+  }
+
+  /** Installs a complete, validated map: rebuilds the key lookup, releases everything, announces what changed. */
+  function installMaps(next) {
+    const before = state.maps;
+    state.maps = next;
+    refreshKeyLookup();
+    releaseAll('context');
+    announceChanges(before, next);
+  }
+
+  function getMap() {
+    return cloneMaps(state.maps);
+  }
+
+  // Conflicts: the same code on another control of the same context or of 'global'; 'global' clashes with every
+  // context. The first hit in the order instrument, freeplay, studio, dance, global (controls as declared) is returned.
+  function conflictScopes(context) {
+    return context === 'global' ? KEYBOARD_CONTEXTS : KEYBOARD_CONTEXTS.filter((name) => name === context ||
+      name === 'global');
+  }
+
+  function findKeyConflict(maps, context, control, code) {
+    for (const scope of conflictScopes(context)) {
+      const table = maps.keyboard[scope];
+      const clash = Object.keys(table).find((name) => (scope !== context || name !== control) &&
+        table[name].includes(code));
+      if (clash !== undefined) return { context: scope, control: clash, code };
+    }
+    return null;
+  }
+
+  function findMidiConflict(control, note) {
+    const clash = LANE_NAMES.find((name) => name !== control && state.maps.midi[name] === note);
+    return clash === undefined ? null : { context: 'midi', control: clash, code: note };
+  }
+
+  function canRemap(context, control, code) {
+    if (context === 'midi') return LANE_NAMES.includes(control) && isMidiNumber(code);
+    const table = state.maps.keyboard[context];
+    return Boolean(table) && hasOwn(table, control) && isKeyCode(code);
+  }
+
+  /** The clash a remap would cause, or null. Names the other control so the UI can say so before anything is saved. */
+  function conflicts(context, control, code) {
+    if (!canRemap(context, control, code)) return null;
+    return context === 'midi' ? findMidiConflict(control, code) : findKeyConflict(state.maps, context, control, code);
+  }
+
+  function remapMidi(control, note) {
+    if (state.maps.midi[control] === note) return { ok: true };
+    const conflict = findMidiConflict(control, note);
+    if (conflict) return { ok: false, conflict };
+    state.maps.midi[control] = note;
+    emitMapEvent('midi', control, [note], 'midi');
+    return { ok: true };
+  }
+
+  /**
+   * Binds a physical code (a KeyboardEvent.code, or a note number for context 'midi') to a control.
+   * @returns {{ok:true}|{ok:false, conflict:({context:string, control:string, code:(string|number)}|null)}}
+   *   conflict is null when the request itself is unusable or the control already has three codes.
+   */
+  function remap(context, control, code) {
+    if (!canRemap(context, control, code)) {
+      Log.warn('input', 'INP_REMAP_INVALID', { context: String(context), control: String(control) });
+      return { ok: false, conflict: null };
+    }
+    if (context === 'midi') return remapMidi(control, code);
+    const codes = state.maps.keyboard[context][control];
+    if (codes.includes(code)) return { ok: true };
+    const conflict = findKeyConflict(state.maps, context, control, code);
+    if (conflict) return { ok: false, conflict };
+    if (codes.length >= MAX_CODES_PER_CONTROL) {
+      Log.warn('input', 'INP_MAP_FULL', { context, control });
+      return { ok: false, conflict: null };
+    }
+    codes.push(code);
+    refreshKeyLookup();
+    emitMapEvent(context, control, codes, 'keyboard');
+    return { ok: true };
+  }
+
+  /** Removes one code. A control keeps at least one code (replace it with remap first), so the last one is refused. */
+  function unmap(context, control, code) {
+    const table = state.maps.keyboard[context];
+    const codes = table && hasOwn(table, control) ? table[control] : null;
+    if (!codes || codes.length <= 1 || !codes.includes(code)) return false;
+    codes.splice(codes.indexOf(code), 1);
+    refreshKeyLookup();
+    emitMapEvent(context, control, codes, 'keyboard');
+    return true;
+  }
+
+  /** Restores the defaults of one context ('midi' included), or of everything when context is undefined. */
+  function resetMap(context) {
+    const next = cloneMaps(state.maps);
+    const defaults = cloneMaps(DEFAULT_MAPS);
+    if (context === undefined) {
+      next.keyboard = defaults.keyboard;
+      next.midi = defaults.midi;
+    } else if (context === 'midi') {
+      next.midi = defaults.midi;
+    } else if (KEYBOARD_CONTEXTS.includes(context)) {
+      next.keyboard[context] = defaults.keyboard[context];
+    } else {
+      Log.warn('input', 'INP_RESET_INVALID', { context: String(context) });
+      return;
+    }
+    installMaps(next);
+  }
+
+  // setMap: deep validation of supplied (possibly stale or corrupt) data. Anything unusable falls back to the default
+  // of that control and is reported in errors; the call never throws.
+  function usableCodes(raw, label, errors) {
+    if (!Array.isArray(raw)) {
+      errors.push(label + ': the codes must be a list');
+      return null;
+    }
+    const valid = [];
+    raw.forEach((code) => {
+      if (!isKeyCode(code)) errors.push(label + ': invalid code ' + JSON.stringify(String(code).slice(0, 40)));
+      else if (!valid.includes(code)) valid.push(code);
+    });
+    if (valid.length > MAX_CODES_PER_CONTROL) {
+      errors.push(label + ': more than ' + MAX_CODES_PER_CONTROL + ' codes');
+      valid.length = MAX_CODES_PER_CONTROL;
+    }
+    if (valid.length === 0) errors.push(label + ': no usable code, the default is kept');
+    return valid.length > 0 ? valid : null;
+  }
+
+  function readContextTable(raw, table, context, errors) {
+    if (!isPlain(raw)) {
+      errors.push(context + ': the table must be an object');
+      return;
+    }
+    Object.keys(raw).forEach((control) => {
+      if (!hasOwn(table, control)) {
+        errors.push(context + '.' + control + ': unknown control');
+        return;
+      }
+      const codes = usableCodes(raw[control], context + '.' + control, errors);
+      if (codes) table[control] = codes;
+    });
+  }
+
+  function readKeyboard(raw, next, errors) {
+    if (!isPlain(raw)) {
+      errors.push('keyboard: must be an object');
+      return;
+    }
+    Object.keys(raw).forEach((context) => {
+      if (KEYBOARD_CONTEXTS.includes(context)) readContextTable(raw[context], next.keyboard[context], context, errors);
+      else errors.push('keyboard.' + context + ': unknown context');
+    });
+  }
+
+  /** Keeps the first binding of a code, drops later ones (6.7.4 H.4). @returns {boolean} false: a control has no key */
+  function dropClashingCodes(next, errors) {
+    const settled = { keyboard: {} };
+    KEYBOARD_CONTEXTS.forEach((context) => { settled.keyboard[context] = {}; });
+    KEYBOARD_CONTEXTS.forEach((context) => {
+      Object.keys(next.keyboard[context]).forEach((control) => {
+        settled.keyboard[context][control] = [];
+        next.keyboard[context][control].forEach((code) => {
+          const clash = findKeyConflict(settled, context, control, code);
+          if (clash) errors.push(context + '.' + control + ': ' + code + ' is already used by ' + clash.control);
+          else settled.keyboard[context][control].push(code);
+        });
+      });
+    });
+    const everyControlHasKeys = KEYBOARD_CONTEXTS.every((context) => Object.keys(settled.keyboard[context])
+      .every((control) => restoreDefaultKeys(settled, context, control, errors)));
+    if (everyControlHasKeys) next.keyboard = settled.keyboard;
+    return everyControlHasKeys;
+  }
+
+  /** A control that lost every code gets the default codes nobody else holds. @returns {boolean} false: none free */
+  function restoreDefaultKeys(settled, context, control, errors) {
+    const codes = settled.keyboard[context][control];
+    if (codes.length > 0) return true;
+    const free = DEFAULT_MAPS.keyboard[context][control].filter((code) => !findKeyConflict(settled, context, control,
+      code));
+    codes.push(...free);
+    if (free.length > 0) errors.push(context + '.' + control + ': the default keys are used');
+    return free.length > 0;
+  }
+
+  function readMidi(raw, next, errors) {
+    if (!isPlain(raw)) {
+      errors.push('midi: must be an object');
+      return;
+    }
+    const candidate = Object.assign({}, next.midi);
+    Object.keys(raw).forEach((name) => {
+      if (!hasOwn(candidate, name)) errors.push('midi.' + name + ': unknown setting');
+      else if (!isMidiNumber(raw[name])) errors.push('midi.' + name + ': must be a whole number from 0 to 127');
+      else candidate[name] = raw[name];
+    });
+    const notes = LANE_NAMES.map((name) => candidate[name]);
+    if (new Set(notes).size !== notes.length) {
+      errors.push('midi: the lane notes must differ, the defaults are kept');
+      return;
+    }
+    next.midi = candidate;
+  }
+
+  /** Validates and installs maps. @returns {{ok:boolean, errors:string[]}} never throws */
+  function setMap(maps) {
+    const errors = [];
+    const next = cloneMaps(DEFAULT_MAPS);
+    if (!isPlain(maps)) {
+      errors.push('maps: must be an object');
+    } else {
+      if (maps.version !== undefined && maps.version !== DEFAULT_MAPS.version) errors.push('version: not supported');
+      Object.keys(maps).forEach((name) => {
+        if (!['version', 'keyboard', 'midi'].includes(name)) errors.push(name + ': unknown section');
+      });
+      if (maps.keyboard !== undefined) readKeyboard(maps.keyboard, next, errors);
+      if (maps.midi !== undefined) readMidi(maps.midi, next, errors);
+      if (!dropClashingCodes(next, errors)) {
+        errors.push('keyboard: a control lost every code, the default keys are used');
+        next.keyboard = cloneMaps(DEFAULT_MAPS).keyboard;
+      }
+    }
+    if (errors.length > 0) Log.warn('input', 'INP_MAP_INVALID', { count: errors.length, first: errors[0] });
+    installMaps(next);
+    return { ok: errors.length === 0, errors };
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -1049,7 +1319,7 @@ FLM.Core.define('Input', function (FLM) {
         return record && record.pressed ? Object.assign({}, record.owner) : null;
       }
     }),
-    CONTROLS, DEFAULT_MAPS, controlsFor,
+    CONTROLS, DEFAULT_MAPS, controlsFor, getMap, setMap, remap, unmap, resetMap, conflicts,
     perfToAudio, audioToPerf, anchor: anchorSummary, resampleAnchor,
     devices, enableMidi, disableMidi, setMidiPassThrough,
     listenerCount, layoutChanged, debugInject, debugClear,

@@ -2,7 +2,8 @@
 // T03.01: UT-07-01 to UT-07-11, UT-07-14, UT-07-15, UT-07-31 and the input part of TT-025 and PT-009.
 // T03.02: UT-07-16 to UT-07-25 (pointer, Touch Events fallback, gamepad, MIDI on fakes: no hardware is used).
 // T03.03: UT-07-12, UT-07-13, UT-07-29, UT-07-30, the lifecycle rows of Part 6.7 and E 4.1, the input part of FI-027
-// and TT-029, and the anchor half of TT-021. UT-07-26 to UT-07-28 (maps API) belong to T03.04, UT-07-32 to T03.09.
+// and TT-029, and the anchor half of TT-021. T03.04: UT-07-26 to UT-07-28 (maps API: remap, unmap, setMap, resetMap,
+// conflicts, input.map); UT-07-32 belongs to T03.09.
 // Every test starts from a private fixture: four pads laid out here, a fresh init, the instrument context bound.
 (function () {
 'use strict';
@@ -95,6 +96,7 @@ FLM.SelfTest.group('input', (t) => {
     Input.synthesize.gamepad(null);          // announces a disconnect, so M-26 stops its gamepad menu polling
     Input.pollGamepad(window.performance.now());
     Input.detach();
+    Input.resetMap();                        // a test that remapped keys must not leak them into the next
     Input.debugClear();
     fixture.remove();
     restores.reverse().forEach((restore) => restore());
@@ -1089,6 +1091,158 @@ FLM.SelfTest.group('input', (t) => {
     await Input.enableMidi();
     Input.detach();
     t.eq(Input.listenerCount(), 0, 'detach stops MIDI listening');
+  });
+
+  // ------------------------------------------------------------------------------------------ T03.04
+  const mapEvents = () => {
+    const seen = [];
+    bus.on('input.map', (event) => seen.push(event), t.owner);
+    return seen;
+  };
+
+  t.test('UT-07-26 remap conflict detection', () => {
+    const seen = mapEvents();
+    t.deepEq(Input.remap('instrument', 'lane1', 'KeyA'),
+      { ok: false, conflict: { context: 'instrument', control: 'lane0', code: 'KeyA' } });
+    t.deepEq(Input.getMap().keyboard.instrument.lane1, ['KeyS'], 'a refused remap changes nothing');
+    t.deepEq(seen, [], 'and announces nothing');
+    t.deepEq(Input.conflicts('instrument', 'lane1', 'KeyA'), { context: 'instrument', control: 'lane0', code: 'KeyA' });
+    t.eq(Input.conflicts('instrument', 'lane1', 'KeyZ'), null, 'a free key has no conflict');
+    // Per context: KeyL is lane3 in the instrument contexts but free in dance. (The plan row names KeyK, which the
+    // default dance map already gives to dance3 as its second key, so that pair is a conflict inside dance.)
+    t.deepEq(Input.remap('dance', 'dance0', 'KeyL'), { ok: true });
+    t.deepEq(Input.remap('dance', 'dance0', 'KeyK'),
+      { ok: false, conflict: { context: 'dance', control: 'dance3', code: 'KeyK' } });
+    t.deepEq(seen.map((event) => [event.context, event.control, event.codes.join(), event.source]),
+      [['dance', 'dance0', 'ArrowLeft,KeyD,KeyL', 'keyboard']]);
+  });
+
+  t.test('UT-07-26b global keys clash with every context and the reverse; limits and bad requests', () => {
+    t.deepEq(Input.remap('freeplay', 'profile1', 'Escape').conflict, { context: 'global', control: 'pause',
+      code: 'Escape' });
+    t.deepEq(Input.remap('global', 'pause', 'KeyF').conflict, { context: 'dance', control: 'dance1', code: 'KeyF' },
+      'a global key clashes with a key of any context');
+    t.deepEq(Input.remap('global', 'pause', 'KeyK').conflict, { context: 'instrument', control: 'lane2',
+      code: 'KeyK' }, 'the first clash in context order is named');
+    t.deepEq(Input.remap('global', 'pause', 'KeyU'), { ok: true });
+    t.deepEq(Input.remap('instrument', 'lane0', 'KeyZ'), { ok: true });
+    t.deepEq(Input.remap('instrument', 'lane0', 'KeyZ'), { ok: true }, 'a key the control already has is a no-op');
+    t.deepEq(Input.remap('instrument', 'lane0', 'KeyX'), { ok: true });
+    Core.Log.clear();
+    t.deepEq(Input.remap('instrument', 'lane0', 'KeyC'), { ok: false, conflict: null }, 'a fourth key is refused');
+    t.ok(Core.Log.entries().some((entry) => entry.msg === 'INP_MAP_FULL'), 'and logged');
+    [['instrument', 'bogus', 'KeyC'], ['nowhere', 'lane0', 'KeyC'], ['instrument', 'lane1', 'Key C!'],
+      ['instrument', 'lane1', 7], ['midi', 'lane1', 128], ['midi', 'sustainCC', 5]].forEach((args) => {
+      t.deepEq(Input.remap(args[0], args[1], args[2]), { ok: false, conflict: null }, args.join(' '));
+    });
+    t.deepEq(Input.controlsFor('global'), ['pause', 'panic', 'panicWhilePaused']);
+    t.deepEq(Input.controlsFor('midi'), ['lane0', 'lane1', 'lane2', 'lane3']);
+  });
+
+  t.test('UT-07-26c MIDI lane notes remap, a note used by another lane is a conflict', () => {
+    t.deepEq(Input.remap('midi', 'lane1', 60),
+      { ok: false, conflict: { context: 'midi', control: 'lane0', code: 60 } });
+    t.deepEq(Input.remap('midi', 'lane0', 61), { ok: true });
+    t.eq(Input.getMap().midi.lane0, 61);
+    t.eq(Input.unmap('midi', 'lane0', 61), false, 'a MIDI lane keeps its note');
+    t.deepEq(Input.remap('midi', 'lane1', 60), { ok: true }, 'the old note of lane0 is free now');
+  });
+
+  t.test('UT-07-27 remap replaces after unmap, a control keeps at least one key', () => {
+    const seen = mapEvents();
+    t.eq(Input.unmap('instrument', 'lane0', 'KeyA'), false, 'the last key cannot be removed');
+    t.deepEq(Input.remap('instrument', 'lane0', 'KeyZ'), { ok: true });
+    t.eq(Input.unmap('instrument', 'lane0', 'KeyA'), true);
+    t.eq(Input.unmap('instrument', 'lane0', 'KeyA'), false, 'a key the control does not have');
+    t.deepEq(Input.getMap().keyboard.instrument.lane0, ['KeyZ']);
+    key('KeyA', true, 10);
+    t.deepEq(events, [], 'the old key does nothing');
+    key('KeyZ', true, 20);
+    key('KeyZ', false, 30);
+    t.deepEq(shape(events), ['press lane0 keyboard', 'release lane0 keyboard']);
+    t.deepEq(seen.map((event) => event.codes.join()), ['KeyA,KeyZ', 'KeyZ']);
+  });
+
+  t.test('UT-07-27b a freed key can be given to another control, and a held remapped key still releases', () => {
+    Input.unmap('instrument', 'lane0', 'KeyA');
+    Input.remap('instrument', 'lane0', 'KeyZ');
+    Input.unmap('instrument', 'lane0', 'KeyA');
+    t.deepEq(Input.remap('instrument', 'lane1', 'KeyA'), { ok: true });
+    key('KeyA', true, 10);
+    t.deepEq(shape(events), ['press lane1 keyboard']);
+    Input.unmap('instrument', 'lane1', 'KeyA');
+    Input.remap('instrument', 'lane1', 'KeyX');
+    key('KeyA', false, 20);
+    t.deepEq(shape(events), ['press lane1 keyboard', 'release lane1 keyboard'], 'the owner releases its own press');
+  });
+
+  t.test('UT-07-28 setMap tolerates corrupt data', () => {
+    const result = Input.setMap({ keyboard: { instrument: { lane0: ['Key A!'], bogus: ['KeyB'] } } });
+    t.eq(result.ok, false);
+    t.ok(result.errors.length >= 2, 'one error per problem: ' + result.errors.join(' | '));
+    t.deepEq(Input.getMap().keyboard.instrument.lane0, ['KeyA'], 'the default stays');
+    key('KeyA', true, 10);
+    t.deepEq(shape(events), ['press lane0 keyboard']);
+  });
+
+  t.test('UT-07-28b setMap installs valid maps, fills the gaps with defaults and never throws', () => {
+    const seen = mapEvents();
+    key('KeyA', true, 5);
+    const result = Input.setMap({ version: 1, keyboard: { instrument: { lane0: ['KeyF', 'KeyG'] },
+      global: { pause: ['KeyU'] } }, midi: { lane2: 70 } });
+    t.deepEq(result, { ok: true, errors: [] });
+    t.deepEq(shape(events), ['press lane0 keyboard', 'release lane0 system'], 'installing maps releases held controls');
+    const map = Input.getMap();
+    t.deepEq([map.keyboard.instrument.lane0, map.keyboard.instrument.lane1, map.keyboard.global.pause,
+      map.keyboard.global.panic, map.midi.lane2, map.midi.lane0],
+    [['KeyF', 'KeyG'], ['KeyS'], ['KeyU'], ['KeyP'], 70, 60]);
+    t.deepEq(seen.map((event) => event.context + '.' + event.control).sort(),
+      ['global.pause', 'instrument.lane0', 'midi.lane2'], 'only the changed controls are announced');
+    key('KeyG', true, 10);
+    key('KeyU', true, 20);
+    t.deepEq(shape(events).slice(2), ['press lane0 keyboard', 'press pause keyboard']);
+    [null, 5, 'text', [], { keyboard: 3, midi: [] }, { keyboard: { dance: 'x', nowhere: {} }, extra: 1 }]
+      .forEach((bad) => {
+        const outcome = Input.setMap(bad);
+        t.eq(outcome.ok, false);
+        t.ok(outcome.errors.length > 0);
+      });
+    t.deepEq(Input.getMap(), JSON.parse(JSON.stringify(Input.DEFAULT_MAPS)), 'corrupt data leaves the defaults');
+  });
+
+  t.test('UT-07-28c clashes inside supplied maps keep the first binding; unusable data is reported', () => {
+    const result = Input.setMap({ keyboard: { instrument: { lane0: ['KeyZ'], lane1: ['KeyZ'] },
+      dance: { dance0: ['KeyA', 'KeyB', 'KeyC', 'KeyD'] } }, midi: { lane0: 61, lane1: 61, sustainCC: 200 } });
+    t.eq(result.ok, false);
+    const map = Input.getMap();
+    t.deepEq([map.keyboard.instrument.lane0, map.keyboard.instrument.lane1], [['KeyZ'], ['KeyS']]);
+    t.deepEq(map.keyboard.dance.dance0, ['KeyA', 'KeyB', 'KeyC'], 'at most 3 keys');
+    t.deepEq(map.midi, Input.DEFAULT_MAPS.midi, 'duplicate lane notes or a bad controller number: MIDI defaults');
+    t.ok(result.errors.some((line) => line.includes('already used')));
+  });
+
+  t.test('UT-07-28d resetMap restores one context or everything, and the keys follow', () => {
+    Input.remap('instrument', 'lane0', 'KeyZ');
+    Input.remap('dance', 'dance1', 'KeyZ');
+    Input.remap('midi', 'lane0', 61);
+    Input.resetMap('instrument');
+    t.deepEq(Input.getMap().keyboard.instrument.lane0, ['KeyA']);
+    t.deepEq(Input.getMap().keyboard.dance.dance1, ['ArrowDown', 'KeyF', 'KeyZ'], 'other contexts keep theirs');
+    Input.resetMap('nowhere');
+    t.eq(Input.getMap().midi.lane0, 61, 'an unknown context changes nothing');
+    Input.resetMap();
+    t.deepEq(Input.getMap(), JSON.parse(JSON.stringify(Input.DEFAULT_MAPS)));
+    key('KeyA', true, 10);
+    t.deepEq(shape(events), ['press lane0 keyboard']);
+  });
+
+  t.test('getMap returns a copy and the defaults stay frozen through every change', () => {
+    const copy = Input.getMap();
+    copy.keyboard.instrument.lane0.push('KeyZ');
+    t.deepEq(Input.getMap().keyboard.instrument.lane0, ['KeyA']);
+    Input.remap('instrument', 'lane0', 'KeyZ');
+    t.deepEq(Input.DEFAULT_MAPS.keyboard.instrument.lane0, ['KeyA']);
+    t.eq(Object.isFrozen(Input.DEFAULT_MAPS.keyboard.instrument.lane0), true);
   });
 
   // ------------------------------------------------------------------------------------------ test hooks

@@ -26,6 +26,15 @@ FLM.Core.define('Screens', function (FLM) {
   const ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
   const RELAY_PATTERN = /^$|^wss?:\/\/\S+$/;
   const MAX_USER_SCALES = 64;
+  const MAX_KEYS_PER_CONTROL = 3;            // Part 6.7.4 H.3: a control has up to 3 keys
+  const MAX_EXTRA_KEYS = MAX_KEYS_PER_CONTROL - 1;
+  const LANE_CONTROLS = Object.freeze(['lane0', 'lane1', 'lane2', 'lane3']);
+  const DANCE_CONTROLS = Object.freeze(['dance0', 'dance1', 'dance2', 'dance3']);
+  const PROFILE_CONTROLS = Object.freeze(['profile1', 'profile2', 'profile3', 'profile4', 'profile5', 'profile6']);
+  const EXTRA_KEY_CONTROLS = Object.freeze([].concat(LANE_CONTROLS, DANCE_CONTROLS, PROFILE_CONTROLS,
+    ['pause', 'panic', 'octUp', 'octDown', 'sustain']));
+  const SUSTAIN_CC = 64;                     // the fixed MIDI sustain controller (Part 6.7.1)
+  const SPACE_WHILE_PAUSED = 'Space';        // the fixed second panic key (Part 6.7.1)
   const TEXT = Object.freeze({
     saveFailed: 'Settings could not be saved in this browser. They are kept until you close the page.',
     importNewer: 'These settings were saved by a newer version of the game and cannot be imported.',
@@ -85,6 +94,7 @@ FLM.Core.define('Screens', function (FLM) {
     ['input.keys.octDown', code(), 'KeyQ', 'yes'],
     ['input.keys.profiles', codes(6), ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'], 'yes'],
     ['input.keys.sustain', code(), 'ShiftLeft', 'yes'],
+    ['input.keys.more', { type: 'extraKeys' }, { sustain: ['ShiftRight'] }, 'yes'],
     ['input.padLayout', choice(['bottom', 'right']), 'bottom', 'yes'],
     ['input.padSize', choice(['small', 'medium', 'large']), 'medium', 'yes'],
     ['input.padOpacity', float(0.3, 1), 0.75, 'yes'],
@@ -282,9 +292,25 @@ FLM.Core.define('Screens', function (FLM) {
     return kept.length === raw.length ? accepted(kept) : adjustedTo(kept);
   }
 
+  // input.keys.more: the keys a control has beyond its one or two schema keys (up to 3 in all), by control name.
+  // The default holds the second sustain key, so the defaults reproduce the BRIEF 7 maps.
+  function validExtraList(list) {
+    return Array.isArray(list) && list.length >= 1 && list.length <= MAX_EXTRA_KEYS &&
+      list.every((item) => typeof item === 'string' && CODE_PATTERN.test(item)) && new Set(list).size === list.length;
+  }
+
+  function coerceExtraKeys(spec, raw) {
+    if (!isPlain(raw)) return rejected(spec);
+    const kept = {};
+    Object.keys(raw).forEach((control) => {
+      if (EXTRA_KEY_CONTROLS.includes(control) && validExtraList(raw[control])) kept[control] = raw[control].slice();
+    });
+    return Object.keys(kept).length === Object.keys(raw).length ? accepted(kept) : adjustedTo(kept);
+  }
+
   const COERCERS = {
     bool: coerceBool, int: coerceNumber, float: coerceNumber, enum: coerceEnum, text: coerceText,
-    codes: coerceCodes, ints: coerceInts, object: coerceObject, scales: coerceScales
+    codes: coerceCodes, ints: coerceInts, object: coerceObject, scales: coerceScales, extraKeys: coerceExtraKeys
   };
 
   /** @returns {{ok:boolean, value:*, adjusted:boolean}} ok false = the raw value was unusable (default returned) */
@@ -325,9 +351,74 @@ FLM.Core.define('Screens', function (FLM) {
     return { doc, warnings };
   }
 
+  // ---------------------------------------------------------------- settings <-> Input maps (Part 6.7.3, 6.27.4.2)
+  // The schema keeps one key per control (two for the dance arrows); input.keys.more keeps the rest, so a map with
+  // up to 3 keys per control survives a reload. The gameplay contexts share their keys; profile keys belong to
+  // Free Play and Studio; pause and panic are global.
+  function keyList(primary, extra) {
+    const list = [];
+    primary.concat(extra || []).forEach((item) => { if (!list.includes(item)) list.push(item); });
+    return list.slice(0, MAX_KEYS_PER_CONTROL);
+  }
+
+  /** Builds the Input.setMap argument from a settings document (damaged parts fall back to the defaults). */
+  function mapsFromSettings(source) {
+    const settingsDoc = normalize(source).doc;
+    const keys = settingsDoc.input.keys;
+    const listFor = (control, primary) => keyList(primary, keys.more[control]);
+    const gameplay = {};
+    LANE_CONTROLS.forEach((control, index) => { gameplay[control] = listFor(control, [keys.lanes[index]]); });
+    gameplay.octDown = listFor('octDown', [keys.octDown]);
+    gameplay.octUp = listFor('octUp', [keys.octUp]);
+    gameplay.sustain = listFor('sustain', [keys.sustain]);
+    const profiles = {};
+    PROFILE_CONTROLS.forEach((control, index) => { profiles[control] = listFor(control, [keys.profiles[index]]); });
+    const dance = {};
+    DANCE_CONTROLS.forEach((control, index) => {
+      dance[control] = listFor(control, [keys.dance[index], keys.danceAlt[index]]);
+    });
+    const notes = settingsDoc.input.midiLaneNotes;
+    return { version: 1,
+      keyboard: { instrument: copy(gameplay), freeplay: Object.assign(copy(gameplay), copy(profiles)),
+        studio: Object.assign(copy(gameplay), copy(profiles)), dance,
+        global: { pause: listFor('pause', [keys.pause]), panic: listFor('panic', [keys.panic]),
+          panicWhilePaused: [SPACE_WHILE_PAUSED] } },
+      midi: { lane0: notes[0], lane1: notes[1], lane2: notes[2], lane3: notes[3], sustainCC: SUSTAIN_CC } };
+  }
+
+  /** The reverse: a patch for Settings.setMany with every input.keys.* path, from an Input.getMap() result. */
+  function mapsToSettings(maps) {
+    const play = maps.keyboard.instrument;
+    const free = maps.keyboard.freeplay;
+    const dance = maps.keyboard.dance;
+    const global = maps.keyboard.global;
+    const more = {};
+    const first = (control, codes, slots) => {
+      const rest = codes.slice(slots).slice(0, MAX_EXTRA_KEYS);
+      if (rest.length > 0) more[control] = rest;
+      return codes[0];
+    };
+    const patch = {
+      'input.keys.lanes': LANE_CONTROLS.map((control) => first(control, play[control], 1)),
+      'input.keys.dance': DANCE_CONTROLS.map((control) => first(control, dance[control], 2)),
+      // A dance arrow with a single key repeats it as its alternate: the schema has no empty slot.
+      'input.keys.danceAlt': DANCE_CONTROLS.map((control) => dance[control][1] || dance[control][0]),
+      'input.keys.pause': first('pause', global.pause, 1),
+      'input.keys.panic': first('panic', global.panic, 1),
+      'input.keys.octUp': first('octUp', play.octUp, 1),
+      'input.keys.octDown': first('octDown', play.octDown, 1),
+      'input.keys.profiles': PROFILE_CONTROLS.map((control) => first(control, free[control], 1)),
+      'input.keys.sustain': first('sustain', play.sustain, 1)
+    };
+    patch['input.keys.more'] = more;
+    return patch;
+  }
+
+  const isInputMapPath = (path) => path.startsWith('input.keys.') || path === 'input.midiLaneNotes';
+
   // ---------------------------------------------------------------- the store
   function createSettings() {
-    const store = { doc: copy(DEFAULTS), saveFailedShown: false };
+    const store = { doc: copy(DEFAULTS), saveFailedShown: false, batching: 0, mapsStale: false };
 
     function toast(message, key, kind) {
       if (FLM.UI && typeof FLM.UI.toast === 'function') FLM.UI.toast(message, { kind, key });
@@ -386,12 +477,31 @@ FLM.Core.define('Screens', function (FLM) {
       return copy(getPath(store.doc, path));
     }
 
+    /**
+     * Hands the key and MIDI lane settings to M-07 (Part 6.27.4.2). A batch (setMany, import) pushes once at its end
+     * so the half-written state of a swap is never installed.
+     * @returns {{ok:boolean, errors:string[]}|null} the setMap result, or null when nothing was pushed
+     */
+    function pushMapsToInput() {
+      if (store.batching > 0) {
+        store.mapsStale = true;
+        return null;
+      }
+      store.mapsStale = false;
+      const input = FLM.Input;
+      if (!input || typeof input.setMap !== 'function') return null;
+      const result = input.setMap(mapsFromSettings(store.doc));
+      if (!result.ok) Core.Log.warn('settings', 'input map: ' + result.errors[0]);
+      return result;
+    }
+
     function applyValue(path, value, source) {
       const spec = SCHEMA[path];
       const prev = getPath(store.doc, path);
       if (sameValue(prev, value)) return { ok: true, value: copy(value), error: null };
       setPath(store.doc, path, copy(value));
       persist({ key: path, value: copy(value), prev: copy(prev), source }, spec);
+      if (isInputMapPath(path)) pushMapsToInput();
       if (path === 'video.highContrast' && value === true) applyValue('accessibility.laneGlyphs', true, source);
       return { ok: true, value: copy(value), error: null };
     }
@@ -408,10 +518,16 @@ FLM.Core.define('Screens', function (FLM) {
 
     function setMany(patch, source) {
       const errors = [];
-      Object.keys(patch).forEach((path) => {
-        const result = set(path, patch[path], source);
-        if (!result.ok) errors.push(path + ': ' + result.error);
-      });
+      store.batching += 1;
+      try {
+        Object.keys(patch).forEach((path) => {
+          const result = set(path, patch[path], source);
+          if (!result.ok) errors.push(path + ': ' + result.error);
+        });
+      } finally {
+        store.batching -= 1;
+      }
+      if (store.mapsStale) pushMapsToInput();
       return { ok: errors.length === 0, errors };
     }
 
@@ -423,6 +539,7 @@ FLM.Core.define('Screens', function (FLM) {
       paths.forEach((path) => setPath(store.doc, path, copy(SCHEMA[path].default)));
       const change = { key: '*', value: copy(store.doc), prev: null, source: 'reset', keys: paths };
       FLM.Storage.saveSettings(copy(store.doc), change, { debounceMs: 0 }).then(noteSaveResult);
+      if (paths.some(isInputMapPath)) pushMapsToInput();
     }
 
     function calibration() {
@@ -485,7 +602,8 @@ FLM.Core.define('Screens', function (FLM) {
 
     return Object.freeze({
       DEFAULTS, SCHEMA, load, get, all: () => copy(store.doc), set, setMany, reset, calibration, comparable, flush,
-      export: exportText, parseImport, applyImport, _resetForTests: resetForTests
+      export: exportText, parseImport, applyImport, mapsFromSettings, mapsToSettings, pushMapsToInput,
+      _resetForTests: resetForTests
     });
   }
 
@@ -535,6 +653,8 @@ FLM.Core.define('Screens', function (FLM) {
     'S-AUD-02': 'Your browser keeps sound off until you tap or press a key on this page.',
     'S-AUD-03': 'Sound did not start. Check that this tab and the device are not muted, then try again.',
     'S-CAP-01': 'Gamepad input is not available in this browser.',
+    'S-INP-01': 'Each control needs at least one key.',
+    'S-INP-02': 'Press a key for {control}. Escape cancels.',
     'S-INP-03': 'Gamepad buttons are fixed in this version.',
     'S-INP-04': 'If chords do not register on a touch screen, choose Settings > Controls > Touch input: Touch events.',
     'S-EXP-02': 'Download started: {fileName}.',
@@ -571,7 +691,22 @@ FLM.Core.define('Screens', function (FLM) {
     'dlg.reset.body': 'Controls, calibration, volumes and display settings return to their defaults. Projects, ' +
       'characters and performance history are kept.',
     'dlg.reset.consequence': 'Your current settings are replaced and this cannot be undone.',
-    'dlg.reset.apply': 'Reset settings'
+    'dlg.reset.apply': 'Reset settings',
+    'dlg.resetControls.title': 'Reset controls?',
+    'dlg.resetControls.body': 'Every control returns to its default keys. Pad, sound and display settings are kept.',
+    'dlg.resetControls.consequence': 'Your own keys are removed and this cannot be undone.',
+    'dlg.resetControls.apply': 'Reset controls',
+    'dlg.remap.title': 'Key already in use',
+    'dlg.remap.move': '{key} is already used for {control} ({context}). Use it for {newControl} instead? ' +
+      '{control} keeps its other keys.',
+    'dlg.remap.stuck': '{control} has no other key, so {key} cannot be moved. Choose another key, or give ' +
+      '{control} a second key first.',
+    'dlg.remap.use': 'Use for {newControl}',
+    'dlg.remap.again': 'Choose another key',
+    'remap.tab': 'Tab is reserved for navigation.',
+    'remap.full': 'Each control can have up to 3 keys. Remove one first.',
+    'remap.add': 'Add key',
+    'remap.reset': 'Reset controls to defaults'
   });
 
   function fillText(template, vars) {
@@ -608,6 +743,11 @@ FLM.Core.define('Screens', function (FLM) {
     '.set-cats .tabs { overflow-x: auto; }',
     '.set-panel { max-width: 44rem; padding-top: var(--sp-3); }',
     '.set-note { color: var(--c-text-muted); font-size: var(--fs-2); }',
+    '.remap-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-1) 0;' +
+      ' border-bottom: var(--border); }',
+    '.remap-label { flex: 0 0 11rem; font-weight: var(--fw-bold); }',
+    '.remap-chips { display: flex; flex-wrap: wrap; gap: var(--sp-1); }',
+    '.remap-status { flex: 1 0 100%; margin: 0; color: var(--c-text-muted); font-size: var(--fs-2); }',
     '.badge-test { display: inline-block; margin-left: var(--sp-2); padding: 0 var(--sp-2); border: var(--border);' +
       ' border-radius: var(--r-pill); color: var(--c-warn); border-color: var(--c-warn); font-size: var(--fs-1); }'
   ].join('\n');
@@ -930,6 +1070,9 @@ FLM.Core.define('Screens', function (FLM) {
     const INPUT_OPTIONS = Object.freeze([{ value: 'auto', label: 'Automatic' },
       { value: 'desktop', label: 'Keyboard and mouse' }, { value: 'touch', label: 'Touch' }]);
 
+    const PAD_SIZE_OPTIONS = Object.freeze([{ value: 'small', label: 'Small (56 px)' },
+      { value: 'medium', label: 'Medium (72 px)' }, { value: 'large', label: 'Large (88 px)' }]);
+
     function stepInput() {
       const touch = Core.Caps.get().maxTouchPoints > 0;
       const lanes = Settings.get('input.keys.lanes').map(codeLabel).join(' ');
@@ -938,9 +1081,19 @@ FLM.Core.define('Screens', function (FLM) {
         value: Settings.get('onboarding.inputMode'),
         onChange: (value) => Settings.set('onboarding.inputMode', value, 'ui') }));
       return [el('h2', null, 'Controls'), paragraph('Detected input: ' + (touch ? 'touch' : 'keyboard')),
-        choice.root, paragraph(preview, { id: 'fl-input-preview' }),
+        choice.root, paragraph(preview, { id: 'fl-input-preview' }), inputSetup(touch),
         paragraph('Trying the keys and pads on this page is added in a later build step.', { class: 'set-note' }),
         navigation()];
+    }
+
+    // The configuration this device needs (Part 7.6.1 step 5): pad size where there is touch, the key hint otherwise.
+    function inputSetup(touch) {
+      if (!touch && Settings.get('onboarding.inputMode') !== 'touch') {
+        return paragraph('Change any key later in Settings > Controls.', { id: 'fl-keys-hint', class: 'set-note' });
+      }
+      const size = track(UI.Widgets.select({ id: 'fl-pad-size', label: 'Pad size', options: PAD_SIZE_OPTIONS,
+        value: Settings.get('input.padSize'), onChange: (value) => Settings.set('input.padSize', value, 'ui') }));
+      return size.root;
     }
 
     // Every choice sets the flag first (written at once, Part 5.11), then acts.
@@ -1040,7 +1193,8 @@ FLM.Core.define('Screens', function (FLM) {
       slider('audio.metronomeVolume', 'Metronome volume', 0, 100, 1), toggle('audio.metronomeAccent', 'Accent beat 1'),
       toggle('audio.reverbEnabled', 'Reverb'), slider('audio.reverbAmount', 'Reverb amount', 0, 100, 1)],
     controls: [select('input.padLayout', 'Pad layout', choices([['bottom', 'Bottom'], ['right', 'Right']])),
-      select('input.padSize', 'Pad size', choices([['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']])),
+      select('input.padSize', 'Pad size', choices([['small', 'Small (56 px)'], ['medium', 'Medium (72 px)'],
+        ['large', 'Large (88 px)']])),
       slider('input.padOpacity', 'Pad opacity', 30, 100, 5),
       select('input.padsVisible', 'Touch pads', choices([['auto', 'Automatic'], ['always', 'Always show'],
         ['never', 'Never show']])),
@@ -1116,19 +1270,47 @@ FLM.Core.define('Screens', function (FLM) {
   const ROW_BUILDERS = Object.freeze({ toggle: toggleWidget, slider: sliderWidget, select: selectWidget,
     number: numberWidget });
 
+  // The controls a player can remap, in table order. contexts: the Input map tables the row changes together
+  // (the gameplay contexts share their keys, "all modes" controls live in 'global').
+  const GAMEPLAY_CONTEXTS = Object.freeze(['instrument', 'freeplay', 'studio']);
+  const PROFILE_CONTEXTS = Object.freeze(['freeplay', 'studio']);
+  const CONTEXT_WORDS = Object.freeze({ instrument: 'Instrument', freeplay: 'Free Play', studio: 'Studio',
+    dance: 'Dance', global: 'all modes', midi: 'MIDI' });
+  const CONTROL_ROWS = Object.freeze([].concat(
+    LANE_CONTROLS.map((control, index) => ({ control, label: 'Lane ' + (index + 1) + ' (' +
+      padWords('lanes')[index] + ')', contexts: GAMEPLAY_CONTEXTS })),
+    DANCE_CONTROLS.map((control, index) => ({ control, label: 'Dance ' + padWords('dance')[index],
+      contexts: ['dance'] })),
+    [{ control: 'pause', label: 'Pause', contexts: ['global'] },
+      { control: 'panic', label: 'Stop all sound', contexts: ['global'] },
+      { control: 'octDown', label: 'Octave down', contexts: GAMEPLAY_CONTEXTS },
+      { control: 'octUp', label: 'Octave up', contexts: GAMEPLAY_CONTEXTS },
+      { control: 'sustain', label: 'Sustain', contexts: GAMEPLAY_CONTEXTS }],
+    PROFILE_CONTROLS.map((control, index) => ({ control, label: 'Profile ' + (index + 1),
+      contexts: PROFILE_CONTEXTS }))));
+  const FUNCTION_KEY_COUNT = 12;
+  // Keys the browser or system keeps for itself (E-INP-005); Tab has its own message (navigation).
+  const RESERVED_CODES = Object.freeze(['ContextMenu', 'MetaLeft', 'MetaRight', 'OSLeft', 'OSRight', 'PrintScreen',
+    'ScrollLock', 'Pause', 'NumLock', 'CapsLock'].concat(
+    Array.from({ length: FUNCTION_KEY_COUNT }, (item, index) => 'F' + (index + 1))));
+
+  /** The live maps of M-07; before M-07 exists (or in a stand-in) the maps the settings describe. */
+  function currentMap() {
+    const input = FLM.Input;
+    return input && typeof input.getMap === 'function' ? input.getMap() : mapsFromSettings(Settings.all());
+  }
+
+  const rowOfControl = (control) => CONTROL_ROWS.find((row) => row.control === control);
+  const codesOfRow = (map, row) => map.keyboard[row.contexts[0]][row.control];
+
+  function controlWords(control) {
+    const row = rowOfControl(control);
+    return row ? row.label : 'Stop all sound while paused';
+  }
+
   const keyRows = () => {
-    const codes = (path) => Settings.get(path);
-    const words = padWords('lanes');
-    const lanes = codes('input.keys.lanes').map((code, index) => ['Lane ' + (index + 1) + ' (' + words[index] + ')',
-      codeLabel(code)]);
-    const arrows = ['left', 'down', 'up', 'right'];
-    const dance = codes('input.keys.dance').map((code, index) => ['Dance ' + arrows[index],
-      codeLabel(code) + ' or ' + codeLabel(codes('input.keys.danceAlt')[index])]);
-    const singles = [['Pause', 'input.keys.pause'], ['Stop all sound', 'input.keys.panic'],
-      ['Octave down', 'input.keys.octDown'], ['Octave up', 'input.keys.octUp'], ['Sustain', 'input.keys.sustain']]
-      .map((pair) => [pair[0], codeLabel(codes(pair[1]))]);
-    const profiles = codes('input.keys.profiles').map((code, index) => ['Profile ' + (index + 1), codeLabel(code)]);
-    return lanes.concat(dance, singles, profiles);
+    const map = currentMap();
+    return CONTROL_ROWS.map((row) => [row.label, codesOfRow(map, row).map(codeLabel).join(' or ')]);
   };
 
   const GAMEPAD_ROWS = Object.freeze([
@@ -1142,9 +1324,12 @@ FLM.Core.define('Screens', function (FLM) {
 
   function createSettingsScreen() {
     const view = { frame: null, panel: null, tabs: null, category: 'audio', widgets: [], owner: null, params: {},
-      byPath: {}, comparable: null };
+      byPath: {}, comparable: null, remapHost: null, remapWidgets: [], capture: null };
 
     function dropWidgets() {
+      endCapture();
+      dropRemapWidgets();
+      view.remapHost = null;
       view.widgets.forEach((handle) => handle.destroy());
       view.widgets = [];
       view.byPath = {};
@@ -1193,11 +1378,170 @@ FLM.Core.define('Screens', function (FLM) {
       laterButton('set-test', 'Play test sound')];
     }
 
+    // ---- remapping (Part 6.27.4.14, 7.6.12): key chips per control, "Add key" capture, conflict dialog, reset
+    function dropRemapWidgets() {
+      view.remapWidgets.forEach((handle) => handle.destroy());
+      view.remapWidgets = [];
+    }
+
+    function endCapture() {
+      if (!view.capture) return;
+      view.capture.off();
+      view.capture = null;
+    }
+
+    function setRemapStatus(control, message) {
+      const line = view.remapHost ? view.remapHost.querySelector('[data-status="' + control + '"]') : null;
+      if (line) line.textContent = message;
+    }
+
+    function chipFor(row, code) {
+      const chip = actionButton({ id: 'set-key-' + row.control + '-' + code, label: codeLabel(code), icon: 'close',
+        kind: 'ghost', ariaLabel: 'Remove key ' + codeLabel(code) + ' from ' + row.label,
+        onPress: () => removeKey(row, code) });
+      view.remapWidgets.push(chip);
+      return chip.root;
+    }
+
+    function remapRow(row, map) {
+      const add = actionButton({ id: 'set-add-' + row.control, label: say('remap.add'),
+        ariaLabel: say('remap.add') + ' for ' + row.label, onPress: () => beginCapture(row) });
+      view.remapWidgets.push(add);
+      return el('div', { class: 'remap-row', 'data-control': row.control }, [
+        el('span', { class: 'remap-label' }, row.label),
+        el('span', { class: 'remap-chips' }, codesOfRow(map, row).map((code) => chipFor(row, code))), add.root,
+        el('p', { class: 'remap-status', 'data-status': row.control, role: 'status' }, '')]);
+    }
+
+    function refreshRemap(focusId) {
+      if (!view.remapHost) return;
+      dropRemapWidgets();
+      const map = currentMap();
+      view.remapHost.textContent = '';
+      addAll(view.remapHost, CONTROL_ROWS.map((row) => remapRow(row, map)));
+      const target = focusId ? doc.getElementById('w-' + focusId) : null;
+      if (target) target.focus();
+    }
+
+    /** Why a captured key cannot be used (Tab, shortcuts, system keys), or null. */
+    function refusalFor(event) {
+      const code = event.code;
+      if (code === 'Tab') return say('remap.tab');
+      const shortcut = event.ctrlKey || event.altKey || event.metaKey;
+      const named = typeof code === 'string' && CODE_PATTERN.test(code);
+      if (named && !shortcut && !RESERVED_CODES.includes(code)) return null;
+      const name = shortcut ? 'A shortcut with Ctrl, Alt or Command' : (named ? codeLabel(code) : 'This key');
+      return Core.Text.get('E-INP-005', { key: name });
+    }
+
+    function onCaptureKey(event) {
+      const capture = view.capture;
+      event.preventDefault();
+      event.stopPropagation();                 // no screen shortcut and no Escape-to-go-back while a key is awaited
+      if (event.repeat || !capture) return;
+      if (event.code === 'Escape') {
+        endCapture();
+        setRemapStatus(capture.row.control, '');
+        return;
+      }
+      const refusal = refusalFor(event);
+      if (refusal) {
+        setRemapStatus(capture.row.control, refusal);   // the capture stays open for another key
+        return;
+      }
+      endCapture();
+      addKey(capture.row, event.code);
+    }
+
+    function beginCapture(row) {
+      if (view.capture) setRemapStatus(view.capture.row.control, '');
+      endCapture();
+      // On window in the capture phase: before the document handler that turns Escape into "back".
+      view.capture = { row, off: Core.dom.on(window, 'keydown', onCaptureKey, { capture: true }, view.owner) };
+      setRemapStatus(row.control, say('S-INP-02', { control: row.label }));
+    }
+
+    /** Binds code to every context of the row; all or nothing, so a clash in one context leaves no half change. */
+    function applyAdd(row, code) {
+      const input = FLM.Input;
+      const before = currentMap();
+      const added = [];
+      for (const context of row.contexts) {
+        const present = before.keyboard[context][row.control].includes(code);
+        const result = input.remap(context, row.control, code);
+        if (!result.ok) {
+          added.forEach((done) => input.unmap(done, row.control, code));
+          return result;
+        }
+        if (!present) added.push(context);
+      }
+      return { ok: true };
+    }
+
+    function persistMaps() {
+      const result = Settings.setMany(mapsToSettings(currentMap()), 'ui');
+      if (!result.ok) Core.Log.warn('settings', 'controls not saved: ' + result.errors[0]);
+    }
+
+    async function addKey(row, code) {
+      const result = applyAdd(row, code);
+      if (result.ok) {
+        persistMaps();
+        refreshRemap('set-add-' + row.control);
+        return;
+      }
+      if (result.conflict) {
+        await resolveConflict(row, code, result.conflict);
+        return;
+      }
+      refreshRemap('set-add-' + row.control);
+      const full = codesOfRow(currentMap(), row).length >= MAX_KEYS_PER_CONTROL;
+      setRemapStatus(row.control, full ? say('remap.full') : Core.Text.get('E-INP-005', { key: codeLabel(code) }));
+    }
+
+    // DLG-RemapConflict names the clashing control before anything is saved; "Use for" moves the key.
+    async function resolveConflict(row, code, conflict) {
+      const holder = rowOfControl(conflict.control);
+      const holderContexts = holder ? holder.contexts : [conflict.context];
+      const canMove = currentMap().keyboard[conflict.context][conflict.control].length > 1;
+      const answer = await openDialog('DLG-RemapConflict', { key: codeLabel(code),
+        control: controlWords(conflict.control), context: CONTEXT_WORDS[conflict.context], newControl: row.label,
+        canMove });
+      if (answer === 'again') {
+        beginCapture(row);
+        return;
+      }
+      if (answer !== 'swap') return;           // Cancel: the map stays as it was
+      holderContexts.forEach((context) => FLM.Input.unmap(context, conflict.control, code));
+      await addKey(row, code);
+    }
+
+    function removeKey(row, code) {
+      if (codesOfRow(currentMap(), row).length <= 1) {
+        UI.toast(say('S-INP-01'), { kind: 'warn', key: 'S-INP-01' });
+        return;
+      }
+      row.contexts.forEach((context) => FLM.Input.unmap(context, row.control, code));
+      persistMaps();
+      refreshRemap('set-add-' + row.control);
+    }
+
+    async function resetControls() {
+      const answer = await openDialog('DLG-ConfirmReset', { scope: 'controls' });
+      if (answer !== 'reset') return;
+      if (FLM.Input && typeof FLM.Input.resetMap === 'function') FLM.Input.resetMap();
+      Settings.reset('input.keys');
+      refreshRemap('set-remap-reset');
+    }
+
     function controlsExtras() {
-      return [dataTable('set-remap', 'Keyboard controls (read only in this build)', ['Control', 'Key'], keyRows()),
-        laterButton('set-remap-change', 'Change keys'),
-        dataTable('set-gamepad', say('S-INP-03'), ['Button', 'Instrument, Free Play, Studio', 'Dance'],
-          GAMEPAD_ROWS)];
+      view.remapHost = el('div', { id: 'set-remap', class: 'remap', role: 'group', 'aria-label': 'Keyboard controls' });
+      refreshRemap();
+      const reset = keep(actionButton({ id: 'set-remap-reset', label: say('remap.reset'), onPress: resetControls }));
+      return [paragraph('Choose Add key, then press the key to use. A control keeps at least one key and can ' +
+        'have up to 3.', { class: 'set-note' }), view.remapHost, el('div', { class: 'btn-row' }, reset),
+      dataTable('set-gamepad', say('S-INP-03'), ['Button', 'Instrument, Free Play, Studio', 'Dance'],
+        GAMEPAD_ROWS)];
     }
 
     function gameplayExtras() {
@@ -1309,6 +1653,7 @@ FLM.Core.define('Screens', function (FLM) {
       mount(root, params, ctx) {
         ensureStyles();
         view.params = params;
+        view.owner = ctx.owner;
         view.frame = UI.Frame.create(root, { prefix: 'set', title: say('screen.SCR-Settings'), subtitle: '' });
         const tabs = categoriesFor(params);
         const wanted = tabs.some((tab) => tab.id === params.category) ? params.category : tabs[0].id;
@@ -1368,13 +1713,26 @@ FLM.Core.define('Screens', function (FLM) {
   ]);
 
   function createHelp() {
+    const view = { keys: null };
+
+    const keyTable = () => dataTable('hlp-keys', 'Keyboard', ['Control', 'Key'], keyRows());
+
+    // The key table is generated from the live maps, so a remap made elsewhere shows up at once (input.map).
+    function refreshKeys() {
+      if (!view.keys || !view.keys.isConnected) return;
+      const next = keyTable();
+      view.keys.replaceWith(next);
+      view.keys = next;
+    }
+
     function controlsPanel() {
       const midi = Settings.get('input.midiLaneNotes').map(noteLabel).join(', ');
       const touch = 'The ' + padWords('lanes').join(', ') + ' pads play lanes 1 to 4. In Dance Mode the pads are the ' +
         padWords('dance').join(', ') + ' arrows. Place up to four fingers on the pads.';
       const change = actionButton({ id: 'hlp-change', label: 'Change',
         onPress: () => enterMode('settings', { category: 'controls' }) });
-      return panel('hlp-controls', 'Controls', [dataTable('hlp-keys', 'Keyboard', ['Control', 'Key'], keyRows()),
+      view.keys = keyTable();
+      return panel('hlp-controls', 'Controls', [view.keys,
         el('div', { class: 'btn-row' }, change.root),
         dataTable('hlp-gamepad', 'Gamepad (' + say('S-INP-03') + ')', ['Button', 'Instrument, Free Play, Studio',
           'Dance'], GAMEPAD_ROWS), paragraph(touch, { id: 'hlp-touch' }),
@@ -1399,8 +1757,9 @@ FLM.Core.define('Screens', function (FLM) {
     }
 
     return {
-      mount(root) {
+      mount(root, params, ctx) {
         ensureStyles();
+        bus.on('input.map', refreshKeys, ctx.owner);
         const frame = UI.Frame.create(root, { prefix: 'hlp', title: say('screen.SCR-Help'), subtitle: '' });
         const pages = { controls: controlsPanel(), modes: modesPanel(), profiles: profilesPanel(),
           tips: tipsPanel() };
@@ -1839,17 +2198,32 @@ FLM.Core.define('Screens', function (FLM) {
         { id: 'cancel', label: say('dlg.cancel'), kind: 'secondary', isCancel: true, isDefault: true }] });
   }
 
-  function openConfirmReset() {
-    return UI.dialog({ id: 'DLG-ConfirmReset', title: say('dlg.reset.title'), body: say('dlg.reset.body'),
-      consequence: say('dlg.reset.consequence'),
-      buttons: [{ id: 'reset', label: say('dlg.reset.apply'), kind: 'danger' },
+  // params.scope 'controls' asks about the keys only; without it the question is about every setting.
+  function openConfirmReset(params) {
+    const part = params && params.scope === 'controls' ? 'dlg.resetControls' : 'dlg.reset';
+    return UI.dialog({ id: 'DLG-ConfirmReset', title: say(part + '.title'), body: say(part + '.body'),
+      consequence: say(part + '.consequence'),
+      buttons: [{ id: 'reset', label: say(part + '.apply'), kind: 'danger' },
         { id: 'cancel', label: say('dlg.cancel'), kind: 'secondary', isCancel: true, isDefault: true }] });
+  }
+
+  // DLG-RemapConflict (Part 7.7): params {key, control, context, newControl, canMove}. Resolves 'swap' (use the key
+  // for the new control), 'again' (capture another key) or 'cancel'. "Use for" is hidden when the other control
+  // would be left without a key.
+  function openRemapConflict(params) {
+    const message = say(params.canMove ? 'dlg.remap.move' : 'dlg.remap.stuck', params);
+    const buttons = [{ id: 'again', label: say('dlg.remap.again'), kind: 'secondary', isDefault: !params.canMove },
+      { id: 'cancel', label: say('dlg.cancel'), kind: 'secondary', isCancel: true }];
+    if (params.canMove) {
+      buttons.unshift({ id: 'swap', label: say('dlg.remap.use', params), kind: 'primary', isDefault: true });
+    }
+    return UI.dialog({ id: 'DLG-RemapConflict', title: say('dlg.remap.title'), body: message, buttons });
   }
 
   // Dialogs of the list that later steps build; asking for one now is a clear error, never a silent no-op.
   const dialogBuilders = new Map([['DLG-AudioBlocked', openAudioBlocked], ['DLG-ResumeAudio', openResumeAudio],
     ['DLG-Unsupported', openUnsupported], ['DLG-ImportSettings', openImportSettings],
-    ['DLG-ConfirmReset', openConfirmReset]]);
+    ['DLG-ConfirmReset', openConfirmReset], ['DLG-RemapConflict', openRemapConflict]]);
 
   /** Opens a dialog by id; resolves to the chosen button id. */
   function openDialog(id, params) {

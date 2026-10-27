@@ -1,7 +1,9 @@
 ﻿// 91-test-screens.js - unit tests for M-27 FLM.Screens (group 'screens'; test build only).
 // T01.08 delivers UT-27-13 to UT-27-15 (the settings store, Part 6.27.8). T01.11 adds UT-27-01, UT-27-02, UT-27-07,
 // UT-27-26 and UT-27-28 (partial until T04.01: the enable button needs the audio module) and checks for the
-// settings, help, about and diagnostics screens. A lower-case letter after an id marks an extra check of that row.
+// settings, help, about and diagnostics screens. T03.04 adds UT-27-16 (remap capture and conflict) with its
+// variants, a settings-to-Input maps check and the Help and first launch checks for controls.
+// A lower-case letter after an id marks an extra check of that row.
 (function () {
 'use strict';
 const FLM = window.FLM;
@@ -194,6 +196,7 @@ FLM.SelfTest.group('screens', (t) => {
       if (item.had) FLM[item.name] = item.value;
       else delete FLM[item.name];
     });
+    FLM.Input.resetMap();                    // a test that remapped keys must not leak them into the next
   });
 
   // Swaps a whole namespace for a stand-in (frozen namespaces cannot be stubbed per member).
@@ -496,6 +499,233 @@ FLM.SelfTest.group('screens', (t) => {
     Core.ErrorReporter.report('E-REN-007', new Error('probe'), { module: 'Screens' });
     await new Promise((resolve) => Core.timers.setTimeout(resolve, 1100, t.owner));
     t.ok(doc.querySelector('#dg-errors tbody').textContent.includes('E-REN-007'), 'the table refreshes each second');
+  });
+
+  // ---------------------------------------------------------------- T03.04: controls, remapping, Help and Controls
+  const JSON_CLONE = (value) => JSON.parse(JSON.stringify(value));
+  const pressKey = (code, init) => doc.body.dispatchEvent(new window.KeyboardEvent('keydown',
+    Object.assign({ code, key: code, bubbles: true, cancelable: true }, init)));
+  const statusOf = (control) => doc.querySelector('[data-status="' + control + '"]').textContent;
+  const chipTexts = (control) => Array.from(doc.querySelectorAll('[data-control="' + control +
+    '"] .remap-chips button')).map((node) => node.textContent);
+
+  /** A stand-in for M-07 that records its calls, finds conflicts by itself and starts from the default maps. */
+  function fakeInput() {
+    const map = Core.deepClone(FLM.Input.DEFAULT_MAPS);
+    const calls = [];
+    const clash = (context, control, code) => {
+      const scopes = context === 'global' ? Object.keys(map.keyboard) : [context, 'global'];
+      for (const scope of scopes) {
+        const other = Object.keys(map.keyboard[scope]).find((name) => (scope !== context || name !== control) &&
+          map.keyboard[scope][name].includes(code));
+        if (other) return { context: scope, control: other, code };
+      }
+      return null;
+    };
+    return { calls, map,
+      getMap: () => Core.deepClone(map),
+      setMap: () => ({ ok: true, errors: [] }),
+      resetMap: () => calls.push(['resetMap']),
+      remap(context, control, code) {
+        calls.push(['remap', context, control, code]);
+        const conflict = clash(context, control, code);
+        if (conflict) return { ok: false, conflict };
+        map.keyboard[context][control].push(code);
+        return { ok: true };
+      },
+      unmap(context, control, code) {
+        calls.push(['unmap', context, control, code]);
+        const list = map.keyboard[context][control];
+        if (list.length < 2 || !list.includes(code)) return false;
+        list.splice(list.indexOf(code), 1);
+        return true;
+      } };
+  }
+
+  async function showControls() {
+    await openStorage();
+    const calls = modesSpy('settings');
+    const controller = await Screens.show('SCR-Settings', { category: 'controls' });
+    return { calls, controller };
+  }
+
+  t.test('UT-27-16 remap capture and conflict', async () => {
+    const input = fakeInput();
+    ['instrument', 'freeplay', 'studio'].forEach((context) => input.map.keyboard[context].lane1.push('KeyX'));
+    standIn('Input', input);
+    const { calls } = await showControls();
+    button('set-add-lane0').click();
+    t.eq(statusOf('lane0'), 'Press a key for Lane 1 (circle). Escape cancels.');
+    pressKey('KeyS');
+    await waitFor(() => dialogNode('DLG-RemapConflict'), 'the conflict dialog');
+    const text = dialogNode('DLG-RemapConflict').textContent;
+    t.ok(text.includes('S is already used for Lane 2 (triangle) (Instrument). Use it for Lane 1 (circle) instead?'),
+      text);
+    t.ok(text.includes('Lane 2 (triangle) keeps its other keys.'));
+    t.deepEq(Settings.get('input.keys.lanes'), ['KeyA', 'KeyS', 'KeyK', 'KeyL'], 'nothing is saved before the answer');
+    dialogButton('Use for Lane 1').click();
+    await waitFor(() => !dialogNode('DLG-RemapConflict') && chipTexts('lane0').includes('S'), 'the swap');
+    t.deepEq(input.calls.filter((call) => call[0] === 'unmap').map((call) => call.slice(1)),
+      [['instrument', 'lane1', 'KeyS'], ['freeplay', 'lane1', 'KeyS'], ['studio', 'lane1', 'KeyS']],
+      'the other control gives the key up in every context it has it');
+    t.deepEq(chipTexts('lane1'), ['X']);
+    t.deepEq(Settings.get('input.keys.lanes'), ['KeyA', 'KeyX', 'KeyK', 'KeyL']);
+    t.deepEq(Settings.get('input.keys.more').lane0, ['KeyS']);
+    t.deepEq(calls, [], 'Escape never left the screen');
+  });
+
+  t.test('UT-27-16b Cancel keeps the map, Choose another key captures again, Escape cancels the capture', async () => {
+    const input = fakeInput();
+    ['instrument', 'freeplay', 'studio'].forEach((context) => input.map.keyboard[context].lane1.push('KeyX'));
+    standIn('Input', input);
+    const { calls } = await showControls();
+    button('set-add-lane0').click();
+    pressKey('KeyS');
+    await waitFor(() => dialogNode('DLG-RemapConflict'), 'the dialog');
+    dialogButton('Cancel').click();
+    await waitFor(() => !dialogNode('DLG-RemapConflict'), 'the dialog to close');
+    t.deepEq(input.calls.filter((call) => call[0] === 'unmap'), [], 'Cancel changes nothing');
+    t.deepEq(chipTexts('lane0'), ['A']);
+    button('set-add-lane0').click();
+    pressKey('KeyS');
+    await waitFor(() => dialogNode('DLG-RemapConflict'), 'the dialog again');
+    dialogButton('Choose another key').click();
+    await waitFor(() => !dialogNode('DLG-RemapConflict'), 'the dialog to close');
+    t.ok(statusOf('lane0').startsWith('Press a key for Lane 1'), 'the capture restarted');
+    pressKey('Escape');
+    t.eq(statusOf('lane0'), '', 'Escape cancels the capture');
+    t.deepEq(input.calls.filter((call) => call[0] === 'remap' && call[3] !== 'KeyS'), [], 'no remap was tried');
+    t.deepEq(calls, [], 'and the screen was not left');
+  });
+
+  t.test('UT-27-16c a conflict with a control that has no other key cannot be moved', async () => {
+    standIn('Input', fakeInput());
+    await showControls();
+    button('set-add-lane0').click();
+    pressKey('KeyS');
+    await waitFor(() => dialogNode('DLG-RemapConflict'), 'the dialog');
+    const text = dialogNode('DLG-RemapConflict').textContent;
+    t.ok(text.includes('Lane 2 (triangle) has no other key, so S cannot be moved.'));
+    t.eq(dialogButton('Use for'), undefined, 'the move button is hidden');
+    dialogButton('Cancel').click();
+    await waitFor(() => !dialogNode('DLG-RemapConflict'), 'the dialog to close');
+  });
+
+  t.test('UT-27-16d reserved keys are refused with their message and the capture stays open', async () => {
+    const input = fakeInput();
+    standIn('Input', input);
+    await showControls();
+    button('set-add-lane0').click();
+    pressKey('Tab');
+    t.eq(statusOf('lane0'), 'Tab is reserved for navigation.');
+    pressKey('F5');
+    t.eq(statusOf('lane0'), 'F5 cannot be used because the browser or system reserves it.');
+    pressKey('KeyC', { ctrlKey: true });
+    t.ok(statusOf('lane0').includes('cannot be used because the browser or system reserves it.'));
+    t.deepEq(input.calls, [], 'nothing reached M-07');
+    pressKey('KeyZ');
+    t.deepEq(input.calls, [['remap', 'instrument', 'lane0', 'KeyZ'], ['remap', 'freeplay', 'lane0', 'KeyZ'],
+      ['remap', 'studio', 'lane0', 'KeyZ']], 'a usable key is bound in every gameplay context');
+    t.deepEq(chipTexts('lane0'), ['A', 'Z']);
+  });
+
+  t.test('UT-27-16e real maps: add, remove, last key refused, persisted, reset, nothing lost on reload', async () => {
+    await showControls();
+    button('set-add-lane0').click();
+    pressKey('KeyF');
+    t.deepEq(chipTexts('lane0'), ['A', 'F']);
+    ['instrument', 'freeplay', 'studio'].forEach((context) => {
+      t.deepEq(FLM.Input.getMap().keyboard[context].lane0, ['KeyA', 'KeyF'], context);
+    });
+    t.deepEq(Settings.get('input.keys.more').lane0, ['KeyF'], 'stored with the settings');
+    t.deepEq(FLM.Input.getMap(), Settings.mapsFromSettings(Settings.all()), 'a reload restores the same map');
+    control('set-key-lane1-KeyS').click();
+    t.ok(toastTexts().includes('Each control needs at least one key.'), 'the last key stays (S-INP-01)');
+    t.deepEq(chipTexts('lane1'), ['S']);
+    control('set-key-lane0-KeyA').click();
+    t.deepEq(chipTexts('lane0'), ['F']);
+    t.deepEq(Settings.get('input.keys.lanes'), ['KeyF', 'KeyS', 'KeyK', 'KeyL']);
+    t.deepEq(chipTexts('sustain'), ['Left Shift', 'Right Shift']);
+    button('set-add-pause').click();
+    pressKey('KeyA');
+    t.ok(!dialogNode('DLG-RemapConflict'), 'KeyA was freed from lane 1');
+    t.deepEq(chipTexts('pause'), ['Esc', 'A']);
+    button('set-add-dance0').click();
+    pressKey('KeyA');
+    await waitFor(() => dialogNode('DLG-RemapConflict'), 'the global key clashes with a dance key');
+    t.ok(dialogNode('DLG-RemapConflict').textContent.includes('(all modes)'));
+    dialogButton('Cancel').click();
+    await waitFor(() => !dialogNode('DLG-RemapConflict'), 'the dialog to close');
+    button('set-remap-reset').click();
+    await waitFor(() => dialogNode('DLG-ConfirmReset'), 'the confirmation');
+    t.ok(dialogNode('DLG-ConfirmReset').textContent.includes('Reset controls?'));
+    dialogButton('Reset controls').click();
+    await waitFor(() => !dialogNode('DLG-ConfirmReset') && chipTexts('lane0').join() === 'A', 'the reset');
+    t.deepEq(FLM.Input.getMap(), JSON_CLONE(FLM.Input.DEFAULT_MAPS));
+    t.deepEq(Settings.get('input.keys.more'), { sustain: ['ShiftRight'] });
+    t.deepEq(Settings.get('input.keys.lanes'), ['KeyA', 'KeyS', 'KeyK', 'KeyL']);
+  });
+
+  t.test('UT-27-16f changing category or leaving drops an open capture', async () => {
+    const input = fakeInput();
+    standIn('Input', input);
+    const { controller } = await showControls();
+    button('set-add-lane0').click();
+    controller.showCategory('audio');
+    pressKey('KeyZ');
+    t.deepEq(input.calls, [], 'the key press after the switch is an ordinary key');
+  });
+
+  t.test('T03.04 settings and Input maps: defaults agree, writes reach Input, damage falls back', async () => {
+    await openStorage();
+    const defaults = Settings.mapsFromSettings(Settings.DEFAULTS);
+    t.deepEq(defaults, JSON_CLONE(FLM.Input.DEFAULT_MAPS), 'the default settings are the BRIEF 7 maps');
+    const patch = Settings.mapsToSettings(defaults);
+    Object.keys(patch).forEach((path) => {
+      t.deepEq(patch[path], Settings.DEFAULTS.input.keys[path.slice('input.keys.'.length)], path);
+    });
+    Settings.set('input.keys.lanes', ['KeyZ', 'KeyX', 'KeyC', 'KeyV'], 'ui');
+    t.deepEq(FLM.Input.getMap().keyboard.freeplay.lane3, ['KeyV'], 'an input.keys write calls Input.setMap');
+    Settings.setMany({ 'input.keys.lanes': ['KeyX', 'KeyZ', 'KeyC', 'KeyV'], 'input.keys.pause': 'KeyU' }, 'ui');
+    t.deepEq(FLM.Input.getMap().keyboard.global.pause, ['KeyU'], 'a batch is installed as a whole');
+    const damaged = Settings.mapsFromSettings({ input: { keys: { lanes: ['A', 'B'], more: { lane0: ['Key A!'] } } } });
+    t.deepEq(damaged.keyboard.instrument, Object.assign({}, defaults.keyboard.instrument, { sustain: ['ShiftLeft'] }),
+      'damaged key settings fall back to the defaults (an empty extra list drops the second sustain key)');
+    const imported = Settings.parseImport(JSON.stringify({ format: 'flm-settings', version: 1,
+      settings: { input: { keys: { more: { lane0: ['Key A!'], bogus: ['KeyB'], sustain: ['ShiftRight'],
+        lane1: ['KeyF', 'KeyG', 'KeyH'] } } } } }));
+    t.deepEq(imported.doc.input.keys.more, { sustain: ['ShiftRight'] }, 'only valid extra keys survive');
+    Settings.set('input.midiLaneNotes', [61, 62, 64, 65], 'ui');
+    t.eq(FLM.Input.getMap().midi.lane0, 61, 'the MIDI lane notes reach Input too');
+  });
+
+  t.test('T03.04 help controls tables come from the live maps and follow input.map', async () => {
+    await openStorage();
+    await Screens.show('SCR-Help', {});
+    const rows = () => Array.from(doc.querySelectorAll('#hlp-keys tbody tr')).map((row) => row.textContent);
+    t.ok(rows().includes('Lane 1 (circle)A'));
+    t.ok(rows().includes('SustainLeft Shift or Right Shift'));
+    t.eq(rows().length, 19, 'every control has a row');
+    FLM.Input.remap('instrument', 'lane0', 'KeyZ');
+    t.ok(rows().includes('Lane 1 (circle)A or Z'), 'a remap shows at once');
+    t.ok(button('hlp-change'), 'the Change link to Settings');
+  });
+
+  t.test('T03.04 first launch step 5 offers the pad size where touch is used', async () => {
+    await openStorage();
+    Settings.set('onboarding.inputMode', 'touch', 'ui');
+    const controller = await Screens.show('SCR-FirstLaunch', {});
+    controller.goTo(5);
+    const size = control('fl-pad-size');
+    t.ok(size, 'the pad size choice is offered');
+    size.value = 'large';
+    size.dispatchEvent(new window.Event('change', { bubbles: true }));
+    t.eq(Settings.get('input.padSize'), 'large');
+    Settings.set('onboarding.inputMode', 'desktop', 'ui');
+    controller.goTo(4);
+    controller.goTo(5);
+    t.eq(doc.getElementById('w-fl-pad-size'), null, 'no pad size on a keyboard device');
+    t.ok(doc.getElementById('fl-keys-hint'), 'the keyboard hint points to Settings');
   });
 });
 })();
