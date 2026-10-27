@@ -168,7 +168,7 @@ FLM.SelfTest.group('selftest', (t) => {
     t.eq(SelfTest.fakes.stubCount(), 0);
   });
 
-  t.test('UT-31-13 fake clock with transport (clock and timers now; transport part from T02.04)', async () => {
+  t.test('UT-31-13 fake clock with transport', async () => {
     const clock = SelfTest.fakes.clock(1);
     clock.advance(0.5);
     t.eq(clock.now(), 1.5);
@@ -193,7 +193,15 @@ FLM.SelfTest.group('selftest', (t) => {
     t.deepEq(order, ['frame17', 'interval40', 'interval40', 'timeout100']);
     t.ok(window.setTimeout === originalSetTimeout, 'setTimeout restored');
     t.ok(!Object.prototype.hasOwnProperty.call(performance, 'now'), 'performance.now is the prototype method again');
-    // Part 6.31.8 also asks for Transport.create({clock, bus}) with a 120 BPM song: added by T02.04.
+
+    // Part 6.31.8: a Transport on the fake clock. play anchors at now + 0.05, so one second later the position is
+    // (1.00 - 0.05) s x 1,920 ticks per second = 1,824.
+    const transportClock = SelfTest.fakes.clock();
+    const transport = FLM.Transport.create({ clock: transportClock, bus: new FLM.Core.Emitter() });
+    transport.load(FLM.Model.Song.create());
+    t.eq(transport.play(), true);
+    transportClock.advance(1);
+    t.eq(Math.floor(transport.positionAt(transportClock.now())), 1824);
   });
 
   t.test('UT-31-14 fake IndexedDB basics and faults', async () => {

@@ -283,6 +283,9 @@ FLM.Core.define('SelfTest', function (FLM) {
 
     advance(deltaSeconds) { this.seconds += deltaSeconds; }
 
+    /** Same as advance but in milliseconds (T02.04 names `advance(ms)`; `advance` keeps seconds per Part 6.31). */
+    advanceMs(deltaMs) { this.seconds += deltaMs / 1000; }
+
     set(seconds) { this.seconds = seconds; }
   }
 
