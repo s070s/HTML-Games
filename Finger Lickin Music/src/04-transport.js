@@ -635,9 +635,13 @@ FLM.Core.define('Transport', function (FLM) {
     function clickItem(tick) {
       const inCountIn = isCountInTick(tick);
       const info = inCountIn ? countInBeatInfo(tick) : beatInfoAt(meterMap(), tick);
+      const meter = meterMap().meterAt(inCountIn ? runStartTick : tick);
       return {
         kind: 'click',
         atAudio: audioTimeAt(tick),
+        tick: inCountIn ? tick - runStartTick : tick,    // count-in beats have negative ticks (Part 4.4 sched.beat)
+        numerator: meter.numerator,
+        denominator: meter.denominator,
         accent: info.beat === 0,
         bar: info.bar,
         beat: info.beat,

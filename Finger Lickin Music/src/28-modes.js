@@ -9,7 +9,7 @@
 // T03.10: the `instrument` mode is assembled (assembleGameplay, bindGameplayInput, startGameplay): the chart comes from
 // params.testChart (test build only), a Judge is bound to Transport.main, Input is bound, pause and finish are handled.
 // EXTENSION POINT: later tasks add their enter steps (generated charts, stage, the other modes) at the marked place in
-// setupMode(); until the Scheduler exists (T04.04) the 50 ms pump also makes its two calls for the transport.
+// setupMode(). The Scheduler (T04.04) makes the transport calls update() and pullDue() every 25 ms once it is bound.
 // Spec: docs/IMPLEMENTATION-PLAN.md Part 4.7 (4.7.1 to 4.7.4) and Part 6.28 (6.28.2 to 6.28.4).
 (function () {
 'use strict';
@@ -37,7 +37,6 @@ FLM.Core.define('Modes', function (FLM) {
   const PREVIEW_SECONDS = 15;                // library and import previews stop by themselves (Part 6.28.2)
   const MS_PER_SECOND = 1000;
   const PUMP_MS = 50;                        // the judge is ticked this often (Part 6.28.4.4 step 6)
-  const SCHEDULER_LOOKAHEAD_S = 0.12;        // pull window of the stand-in Scheduler (S-10)
   const FINISH_DELAY_MS = 1500;              // "Song complete" shows this long before the results (Part 7.6.4)
   const FINISH_TICK_AHEAD_S = 10;            // a finishing judge is ticked this far ahead: every note is declared
   const LANE_CONTROL = /^lane[0-3]$/;
@@ -460,7 +459,6 @@ FLM.Core.define('Modes', function (FLM) {
   // Steps of Part 4.7.1 whose module is not built yet; each is logged once and skipped (convention 6).
   const ASSEMBLED_MODES = Object.freeze(['instrument']);   // the judge and input steps are wired for these (T03.10)
   const PENDING_STEPS = Object.freeze([
-    { step: 'audio binding', module: 'Audio', applies: (row) => row.scheduler !== 'none' },
     { step: 'charts', module: 'Mapping', applies: (row) => row.chart !== 'none' },
     { step: 'judge', module: 'Rhythm',
       applies: (row, mode) => row.chart !== 'none' && !ASSEMBLED_MODES.includes(mode) },
@@ -524,6 +522,13 @@ FLM.Core.define('Modes', function (FLM) {
     return { master: { gain: typeof volume === 'number' ? volume : 1 } };
   }
 
+  // Step 6: one strip per track with its mix, the Scheduler started on Transport.main, the metronome settings applied.
+  function bindScheduler(song) {
+    invokeStep('audio binding', 'Audio.Scheduler.bind', FLM.Transport.main, song, mixerSettings());
+    const accent = settingValue('audio.metronomeAccent') !== false;
+    invokeStep('audio binding', 'Audio.Metronome.configure', { accent });
+  }
+
   /**
    * Steps 5 and 6: the song goes into the one Transport.main (never a transport of this mode's own, S-18) and the
    * one Scheduler binding is made over it. Free Play runs on the override tempo; the visibility policy follows the
@@ -538,9 +543,7 @@ FLM.Core.define('Modes', function (FLM) {
     const tempoOnly = row.transport === 'tempo';
     const options = tempoOnly ? { tempoSource: 'override', overrideBpm: params.overrideBpm } : undefined;
     invokeStep('music', 'Transport.main.load', song, options);
-    if (row.scheduler === 'bound') {
-      invokeStep('audio binding', 'Audio.Scheduler.bind', FLM.Transport.main, song, mixerSettings());
-    }
+    if (row.scheduler === 'bound') bindScheduler(song);
   }
 
   // ---------------------------------------------------------------- gameplay assembly (Part 4.7.1 steps 7, 8, 10, 14)
@@ -592,14 +595,6 @@ FLM.Core.define('Modes', function (FLM) {
     if (running) gp.began = true;
   }
 
-  // The Scheduler normally makes these two calls for the transport (Part 6.4.4.9). Until it exists (T04.04) the pump
-  // makes them, so that the count-in ends and the end of the song is detected.
-  function standInForScheduler(now) {
-    if (available('Audio.Scheduler.bind')) return;
-    invokeStep('transport pump', 'Transport.main.update', now);
-    invokeStep('transport pump', 'Transport.main.pullDue', now + SCHEDULER_LOOKAHEAD_S);
-  }
-
   function refreshHud(now, gp) {
     const tick = invoke('Transport.main.positionAt', now);
     const duration = gp.song.durationTicks;
@@ -608,13 +603,11 @@ FLM.Core.define('Modes', function (FLM) {
     FLM.UI.HUD.set({ progress: duration > 0 ? Core.clamp(tick / duration, 0, 1) : 0, countIn });
   }
 
-  /** The 50 ms pump: transport stand-in, judge ticks (misses) and the time-driven HUD fields. */
+  /** The 50 ms pump: judge ticks (misses) and the time-driven HUD fields. The Scheduler drives the transport. */
   function pump() {
     const gp = state.gp;
     if (!gp || gp.finishing) return;
     const now = audioClockNow();
-    standInForScheduler(now);
-    if (state.gp !== gp || gp.finishing) return;
     if (gp.judge) gp.judge.tick(now);
     refreshHud(now, gp);
   }
@@ -942,7 +935,7 @@ FLM.Core.define('Modes', function (FLM) {
     if (!usable || state.current.owner !== owner) return { ok: false };
     await stopPreview();
     invoke('Transport.main.load', song);
-    invokeStep('audio binding', 'Audio.Scheduler.bind', FLM.Transport.main, song, mixerSettings());
+    bindScheduler(song);
     const seconds = Number.isFinite(given.durationS) ? given.durationS : PREVIEW_SECONDS;
     const timer = Core.timers.setTimeout(() => {
       stopPreview().catch((error) => Core.Log.warn('modes', 'preview stop failed: ' + messageOf(error)));

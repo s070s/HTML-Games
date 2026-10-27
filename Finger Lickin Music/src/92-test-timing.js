@@ -3,9 +3,13 @@
 // hand every few milliseconds of fake time. Every assertion uses scheduled audio times (atAudio, endAudio, anchors),
 // never wall-clock observation.
 // Rows run here (Phase 2): TT-005 to TT-013, TT-021, TT-022, plus the FakeClock parts of TT-004 (slow) and IT-039.
-// Their offline-engine halves (rendered onsets, soft-panic releases, noteOff on seek) wait for M-05 (Phase 04);
-// the input anchor ring of TT-021 waits for M-07 (Phase 03); the `E-AUD-009` log of TT-022 is M-28's and is
-// tested in 91-test-modes.js. SCHEDULE below fixes the phase that makes every later TT row binding.
+// T04.04 adds the offline-engine rows of Phase 4 that need no demo song or real clock: TT-001, TT-002, TT-004 (rendered
+// onsets), TT-016 (meter change, on a fixture instead of demo-jazz) and the allocator half of TT-028. The rendered
+// halves of TT-006, TT-007, TT-009 and TT-011 (soft-panic releases, noteOff on seek) are covered by UT-05-24 and
+// UT-05-31 in the audio group; TT-003, TT-015, TT-017, TT-019 and TT-032 need demo songs, the instrument mode on a
+// real clock or the sound of M-06 and wait for later entries; the input anchor ring of TT-021 waits for M-07
+// (Phase 03); the `E-AUD-009` log of TT-022 is M-28's and is tested in 91-test-modes.js. SCHEDULE below fixes the
+// phase that makes every later TT row binding.
 // Two fixtures satisfy R-P6.3-09: dense (8 tracks with 16-note chords, seed 0xF1A9) and sparse (1 note per 4 bars);
 // the sparse one is a second case of TT-005 and TT-011 rather than a new row (OPEN-ISSUES 12d-P).
 (function () {
@@ -64,8 +68,8 @@ FLM.SelfTest.group('timing', (t) => {
   }
 
   // ------------------------------------------------------------------------------------------- fixtures
-  function songFromTracks(trackEvents, durationTicks) {
-    const song = Model.Song.create({ title: 'Timing fixture' });
+  function songFromTracks(trackEvents, durationTicks, songOptions) {
+    const song = Model.Song.create(Object.assign({ title: 'Timing fixture' }, songOptions));
     trackEvents.forEach((events, index) => {
       const track = Model.Track.create({ name: 'track ' + index }, song);
       Model.replaceEvents(track, events);
@@ -462,6 +466,201 @@ FLM.SelfTest.group('timing', (t) => {
     jump.restore();
     t.near(h.transport.position(), (h.clock.now() - LEAD_IN) * TICKS_PER_SECOND, EPS);
   });
+
+  // ------------------------------------------------------------------------------------------- Phase 4 rows (T04.04)
+  // The offline engine of Part 6.5.4.10: M-05 on an OfflineAudioContext with a FakeClock and a private bus; the
+  // Scheduler is driven by tickOnce every 25 ms of fake time, the buffer is rendered afterwards and every onset is
+  // compared with the scheduled time. The master limiter delays every onset by its 6 ms look-ahead.
+  const LIMITER_DELAY_S = 0.006;
+  const RENDER_QUANTUM = 128;
+  const ONSET_THRESHOLD = 0.01;
+  const TONE_LEVEL = 0.3;                  // below the limiter threshold: the limiter stays linear
+  const SIXTEENTH = BEAT / 4;
+  const BPM_133 = Math.round(60000000 / 133);
+  const LOOP_RATE = 16000;
+
+  async function offlineRun(seconds, rate, body, extra) {
+    const timers = t.fakes.timers();
+    timers.install();
+    const clock = t.fakes.clock(0);
+    const bus = new Core.Emitter();
+    const context = new window.OfflineAudioContext(1, Math.ceil(seconds * rate), rate);
+    const readSetting = (path) => (path === 'audio.polyphonyCap' ? 0 : 1);
+    const engine = FLM.Audio.createEngine(Object.assign({ context, clock, bus, mobile: false, readSetting }, extra));
+    const rig = { engine, context, clock, bus, timers, transport: Transport.create({ clock, bus }) };
+    try {
+      await body(rig);
+    } finally {
+      engine.close();
+      timers.uninstall();
+    }
+  }
+
+  /** Audible notes: a square wave from the scheduled start to the scheduled end through the strip of the track. */
+  function toneInstruments(rig) {
+    return { noteOn(track, event, at, end) {
+      const source = rig.context.createOscillator();
+      source.type = 'square';
+      source.frequency.value = 440 * Math.pow(2, (event.pitch - 69) / 12);
+      const level = rig.context.createGain();
+      level.gain.value = TONE_LEVEL;
+      source.connect(level);
+      level.connect(rig.engine.createStrip(track.id).input);
+      source.onended = () => {              // a real voice disconnects itself when it ends
+        source.disconnect();
+        level.disconnect();
+      };
+      source.start(at);
+      source.stop(end);
+      return null;
+    }, control() {} };
+  }
+
+  /** Loads and binds the song, starts it without a count-in; returns the list of sched.noteOn payloads. */
+  function startOffline(rig, song, instruments, loopRegion) {
+    const noteOns = [];
+    rig.bus.on('sched.noteOn', (event) => noteOns.push(event));
+    rig.transport.load(song);
+    if (loopRegion) rig.transport.setLoop(loopRegion);
+    rig.engine.Scheduler.setInstruments(instruments);
+    rig.engine.Scheduler.bind(rig.transport, song, {});
+    rig.transport.play({ countInBars: 0 });
+    return noteOns;
+  }
+
+  function tickUntil(rig, seconds) {
+    while (rig.clock.now() < seconds - 1e-9) {
+      rig.clock.advance(STEP);
+      rig.engine.Scheduler.tickOnce(rig.clock.now());
+    }
+  }
+
+  /** Largest distance between a rendered onset and the scheduled time (plus the limiter delay). */
+  function worstOnsetError(buffer, noteOns) {
+    const found = t.fakes.onsets(buffer, { threshold: ONSET_THRESHOLD });
+    t.eq(found.length, noteOns.length, 'one onset per scheduled note');
+    let worst = 0;
+    found.forEach((onset, index) => {
+      if (noteOns[index]) worst = Math.max(worst, Math.abs(onset - (noteOns[index].at + LIMITER_DELAY_S)));
+    });
+    return worst;
+  }
+
+  const sixteenthSong = (count, seed) => {
+    const random = new Core.Prng(seed);
+    const notes = Array.from({ length: count }, (unused, index) => Events.note(index * SIXTEENTH, SIXTEENTH / 2,
+      48 + random.int(37), 100));
+    return songFromTracks([notes], (count + 4) * SIXTEENTH, { tempoMap: [{ tick: 0, usPerQuarter: BPM_133 }] });
+  };
+
+  row('TT-001 scheduled onset precision: 1,000 notes rendered offline start within one render quantum plus 1 ms',
+    { slow: true }, async () => {
+      const count = 1000;
+      const song = sixteenthSong(count, DENSE_SEED);
+      const seconds = Math.ceil(song.tempoMap.ticksToSeconds(song.durationTicks)) + 2;
+      await offlineRun(seconds, 48000, async (rig) => {
+        const noteOns = startOffline(rig, song, toneInstruments(rig));
+        tickUntil(rig, seconds - 1);
+        t.eq(noteOns.length, count);
+        noteOns.forEach((event) => t.ok(Math.abs(event.at - rig.transport.audioTimeAt(event.tick)) < 1e-9,
+          'at is audioTimeAt(tick) exactly'));
+        const worst = worstOnsetError(await rig.context.startRendering(), noteOns);
+        t.ok(worst <= RENDER_QUANTUM / 48000 + 0.001, 'the worst onset is ' + (worst * 1000).toFixed(3) + ' ms off');
+      });
+    });
+
+  row('TT-002 onset precision is sample-rate independent: 200 notes at 44,100 Hz and 22,050 Hz', async () => {
+    const song = sixteenthSong(200, DENSE_SEED);
+    const seconds = Math.ceil(song.tempoMap.ticksToSeconds(song.durationTicks)) + 2;
+    const lists = [];
+    for (const rate of [44100, 22050]) {
+      await offlineRun(seconds, rate, async (rig) => {
+        const noteOns = startOffline(rig, song, toneInstruments(rig));
+        tickUntil(rig, seconds - 1);
+        const worst = worstOnsetError(await rig.context.startRendering(), noteOns);
+        t.ok(worst <= RENDER_QUANTUM / rate + 0.001, rate + ' Hz: the worst onset is ' + (worst * 1000).toFixed(3) +
+          ' ms off');
+        lists.push(noteOns.map((event) => event.at));
+      });
+    }
+    t.deepEq(lists[0], lists[1], 'the scheduled times do not depend on the sample rate');
+  });
+
+  row('TT-004 loop drift over ten minutes: the rendered click of pass N is N - 1 loop lengths after pass 1 (offline)',
+    { slow: true }, async () => {
+      const passes = RUN_SECONDS / LOOP_SECONDS;
+      const song = songFromTracks([[Events.note(0, BEAT, 60, 100)]], LOOP_BARS * BAR);
+      await offlineRun(RUN_SECONDS, LOOP_RATE, async (rig) => {
+        const noteOns = startOffline(rig, song, toneInstruments(rig), { a: 0, b: LOOP_BARS * BAR });
+        tickUntil(rig, RUN_SECONDS - 1);
+        t.eq(noteOns.length, passes, 'one click per pass');
+        noteOns.forEach((event, index) => t.near(event.at, noteOns[0].at + index * LOOP_SECONDS, EPS,
+          'pass ' + (index + 1) + ' is scheduled on the grid'));
+        const found = t.fakes.onsets(await rig.context.startRendering(), { threshold: ONSET_THRESHOLD });
+        t.eq(found.length, passes);
+        let worst = 0;
+        found.forEach((onset, index) => {
+          worst = Math.max(worst, Math.abs((onset - found[0]) - index * LOOP_SECONDS));
+        });
+        t.ok(worst < MAX_DRIFT_SECONDS, 'the largest drift is ' + (worst * 1000).toFixed(3) + ' ms');
+      });
+    });
+
+  row('TT-016 meter change keeps beat and click positions: sched.beat follows the MeterMap', async () => {
+    const meterMap = [{ tick: 0, numerator: 4, denominator: 4 }, { tick: 2 * BAR, numerator: 3, denominator: 4 },
+      { tick: 2 * BAR + 2 * 3 * BEAT, numerator: 4, denominator: 4 }];
+    const song = songFromTracks([[]], 6 * BAR, { meterMap });
+    await offlineRun(2, 8000, (rig) => {
+      const beats = [];
+      rig.bus.on('sched.beat', (event) => beats.push(event));
+      rig.transport.load(song);
+      rig.transport.setMetronome({ enabled: true });
+      rig.engine.Scheduler.bind(rig.transport, song, {});
+      rig.transport.play({ countInBars: 0 });
+      tickUntil(rig, 13);
+      const inBar = (bar) => beats.filter((beat) => beat.bar === bar);
+      t.deepEq([0, 1, 2, 3, 4, 5].map((bar) => inBar(bar).length), [4, 4, 3, 3, 4, 4], 'beats per bar');
+      const inThree = (beat) => beat.bar >= 2 && beat.bar < 4;
+      t.ok(beats.filter(inThree).every((beat) => beat.numerator === 3), '3/4 in bars 2 and 3');
+      t.ok(beats.filter((beat) => !inThree(beat)).every((beat) => beat.numerator === 4), '4/4 elsewhere');
+      t.ok(beats.every((beat) => beat.isDownbeat === (beat.beat === 0)), 'the accent is on every bar start');
+      beats.slice(1).forEach((beat, index) => t.near(beat.at - beats[index].at, 0.5, 1e-9, 'a beat is 0.5 s'));
+    });
+  });
+
+  row('TT-028 dense chord at identical timestamps (allocator half): 64 notes, 32 voices, the rest are stolen',
+    async () => {
+      const tracks = Array.from({ length: 4 }, () => Array.from({ length: 16 }, (unused, index) =>
+        Events.note(BEAT, BEAT, 40 + index, 100)));
+      const song = songFromTracks(tracks, 4 * BEAT);
+      await offlineRun(2, 8000, (rig) => {
+        const voices = rig.engine.VoiceAllocator;
+        const stops = [];
+        const instruments = { noteOn(track, event, at, end) {
+          const slot = voices.acquire({ trackId: track.id, channel: event.channel, pitch: event.pitch,
+            priority: 1 }, at);
+          const stand = { levelAt: () => 1, stop: () => stops.push(event.pitch + '@' + track.id), release() {} };
+          slot.voice = stand;
+          voices.markReleased(slot, end, end + 0.05);
+          return slot;
+        }, control() {} };
+        const noteOns = startOffline(rig, song, instruments);
+        tickUntil(rig, 1.2);
+        t.eq(voices.capacity, 32, 'the voice cap of this test');
+        t.eq(noteOns.length, 64);
+        t.eq(new Set(noteOns.map((event) => event.at)).size, 1, 'all 64 share one at');
+        const order = noteOns.map((event) => event.trackId + ':' + event.pitch);
+        const expected = song.tracks.flatMap((owner) => Array.from({ length: 16 }, (u, index) => owner.id + ':' +
+          (40 + index)));
+        t.deepEq(order, expected, 'track order, then pitch ascending');
+        const stats = voices.stats();
+        t.eq(stats.started + stats.dropped, 64, 'started + dropped === 64');
+        t.deepEq([stats.stolen, voices.activeCount()], [32, 32], '32 voices hold, 32 were stolen');
+        t.eq(stops.length, 32);
+        t.deepEq(stops.slice(0, 16), song.tracks[0].events.map((event) => event.pitch + '@' + song.tracks[0].id),
+          'the first notes of the chord are the first to go (equal levels: oldest first)');
+      }, { polyphony: 32 });
+    });
 
   // ------------------------------------------------------------------------------------------- schedule
   row('TT-schedule every TT row has an owning phase and the Phase 2 rows are the ones registered here', () => {

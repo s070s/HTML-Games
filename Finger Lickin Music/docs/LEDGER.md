@@ -71,6 +71,30 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 - Device and other-browser tests (XT, LT): owner.
 - Licence: the owner recorded "All rights reserved" (see docs/plan-work/OPEN-ISSUES-stage1.md).
 
+## 2026-10-27 19:45 - T04.03 to T04.04 - VoiceAllocator and Scheduler; STOPPED AT A CLEAN BOUNDARY
+
+Done: src/05-audio.js VoiceAllocator (1..64 slots, steal oldest released, stale-handle safe), Scheduler (look-ahead booking,
+4 ms tick budget, soft-panic helper, stall handling, audio.voices, diagnostics provider), Metronome.configure, click items carry
+tick/numerator/denominator (04-transport), the 50 ms pump stand-in removed from src/28-modes.js (real Scheduler binds),
+fakes.detachAudio installs a real engine on a stand-in context. Verified by me in the real folder: build 0,
+`selftest --all` 664/664 (23 groups), 0 skipped, `--smoke` OK; the agent also ran --all twice and --slow 667/667.
+Perf (software GL): ship 788,027 bytes; menuMs 128.5; input p95 0.9.
+Decisions: D64 polyphony setting clamp 16..64, createVoiceAllocator accepts 1..64 (AT-R-E2.3-08); D65 activeCount counts all
+unfreed slots; D66 a note > 0.5 s late is skipped and counted dropped, otherwise clamped to now+5 ms; D67 second bind throws
+E-AUD-005; D68 limiter 6 ms delay subtracted in onset tests; D69 TT-001 as written cannot fit (song is 113 s) and renders 116 s
+(slow); D70 500 events/s/track cap on sched.cc/sched.bend not implemented.
+Open issues: OI-34 TT-023 (real clock) failed once in about 12 integration runs: if it recurs use skill flake-triage (OI-28);
+OI-35 deferred: panic(hard), nodeCount (T04.05), live note path (T04.06), Diagnostics Audio panel (T04.09), TT-028 rendered half
+and PT-012 (Phase 05), TT-003/015/017/019/032, FI-032/034/036 hooks only, perf scenarios playback-dense and loop-drift-short
+(not added), PT-004, PT-007; OI-31..33 stand (real sound unverified headless, iOS unlock event, stand-in contexts);
+OI-27 touch-layout perf scenario still missing. Full OI list is in the entries below.
+Owner actions: push of flm-implementation done at this stop (see Usage line); delete the leftover browser profile folders
+%TEMP%\claude\flm-profile-* (locked LOCK file, OI-9); device and other-browser tests (XT, LT); Part 7.11 plan patch for S-INP-09;
+confirm settings row input.keys.more (D38).
+Usage: weekly all 13% at 19:40 (owner stop rule: stop before 15%; stopped here with one chunk of headroom unspent to keep the
+margin). Session 2026-10-27: T00.09, Phase 01, Phase 02, Phase 03 gates committed, Phase 04 T04.01-T04.04 done.
+RESUME: T04.05 (panic, nodeCount, audio.panic API), then T04.06, T04.07. Self-resume was not scheduled. Run `resume`.
+
 ## 2026-10-27 19:00 - T04.01 to T04.02 - M-05 Audio: context, unlock, master chain, strips, meter
 
 Done: src/05-audio.js (context created suspended at B7, unlock, state events, master chain with limiter, mute

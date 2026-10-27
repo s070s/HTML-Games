@@ -5,7 +5,8 @@
 // IT-043 runs against the real Modes leave steps. Free Play does not bind the input context on enter (only `instrument`
 // does, since T03.10), so the test binds one itself and routes the Input.unbind of Modes to that owner through a
 // stand-in namespace. T03.10 adds IT-003, IT-004, IT-035 and the real-clock part of TT-023 (TT-023 lives here because
-// this group has the mode harness; the timing group has none).
+// this group has the mode harness; the timing group has none). T04.04 adds IT-039 (real clock), IT-040 and the
+// Scheduler half of IT-047, all on the real app engine and the real audio clock.
 (function () {
 'use strict';
 const FLM = window.FLM;
@@ -414,6 +415,163 @@ FLM.SelfTest.group('integration', (t) => {
       Rhythm.setCalibration(rhythm);
       FLM.Input.setCalibration(input);
     }
+  });
+
+  // ------------------------------------------------------------------------------------------ T04.04
+  const pause = (ms) => new Promise((resolve) => window.setTimeout(resolve, ms));
+  const TICKS_PER_SECOND = 1920;           // 120 BPM at PPQ 960
+  const JUMP_MS = 5000;
+  const JUMP_SECONDS = 2;
+  const SAMPLE_PAUSE_MS = 16;
+  const CHORD_NOTES = 2000;
+  const CHORD_TRACKS = 8;
+  const CHORD_PITCHES = 125;               // a track holds 250 notes: 125 pitches on two channels
+  const MAX_AHEAD_S = 0.125;
+  const TICK_BODY_LIMIT_MS = 8;            // S-10: 4 ms of booking; twice that is headroom for a loaded headless runner
+  const NOTE_COST_LOOPS = 4000;            // what the stand-in voice build costs (about 10 us): several 4 ms ticks
+  const CLOCK_READ_MS = 1;                 // the audio clock is read at most this often: a read is not free
+  const CHORD_WAIT_MS = 4000;
+
+  function contextRunning() {
+    return FLM.Audio.ctx() !== null && FLM.Audio.state() === 'running';
+  }
+
+  t.test('IT-039 the audio clock is the only master (real clock): a 5 s clock jump moves nothing', async () => {
+    t.ok(contextRunning(), 'the real context is running');
+    const Audio = FLM.Audio;
+    const setup = startRun(REAL_NOTE_COUNT, 'expert');
+    const noteOns = [];
+    bus.on('sched.noteOn', (event) => noteOns.push(event), t.owner);
+    t.eq((await Modes.enter('instrument', setup.params)).ok, true);
+    const main = FLM.Transport.main;
+    const realNow = window.performance.now.bind(window.performance);
+    let jump = null;
+    try {
+      await pause(150);                      // past the lead-in: the position follows the clock from here
+      jump = t.fakes.stub(window.performance, 'now', () => realNow() + JUMP_MS);
+      let audio = Audio.ctx().currentTime;
+      let tick = main.positionAt(audio);
+      const stopAt = realNow() + JUMP_SECONDS * 1000;
+      let worst = 0;
+      let samples = 0;
+      while (realNow() < stopAt) {
+        await pause(SAMPLE_PAUSE_MS);
+        const nextAudio = Audio.ctx().currentTime;
+        const nextTick = main.positionAt(nextAudio);
+        worst = Math.max(worst, Math.abs((nextTick - tick) - (nextAudio - audio) * TICKS_PER_SECOND));
+        audio = nextAudio;
+        tick = nextTick;
+        samples += 1;
+      }
+      jump.restore();
+      FLM.Input.resampleAnchor();            // the anchor is sampled again after the jump
+      t.ok(samples >= 20, 'sampled ' + samples + ' times');
+      t.ok(worst <= 1, 'successive positions differ by the audio time delta within 1 tick, worst ' + worst);
+      const inOrder = noteOns.every((event, index) => index === 0 || event.tick >= noteOns[index - 1].tick);
+      t.ok(inOrder, 'sched.noteOn in tick order');
+      t.ok(noteOns.length > 0, 'notes were scheduled meanwhile');
+    } finally {
+      if (jump) jump.restore();
+      FLM.Input.resampleAnchor();
+      await Modes.leave('user');
+    }
+    t.eq(Modes.assertClean(), null);
+  });
+
+  /** One chord of 2,000 notes at the first beat: 8 tracks, 250 notes each. */
+  function chordSong() {
+    const Model = FLM.Model;
+    const song = Model.Song.create({ id: 'chord', title: 'Chord' });
+    for (let index = 0; index < CHORD_TRACKS; index += 1) {
+      const owner = Model.Track.create({ name: 'chord ' + index }, song);
+      const notes = Array.from({ length: CHORD_NOTES / CHORD_TRACKS }, (unused, position) => Model.Events.note(960, 960,
+        position % CHORD_PITCHES, 100, Math.floor(position / CHORD_PITCHES)));
+      Model.replaceEvents(owner, notes);
+      Model.Song.addTrack(song, owner);
+    }
+    song.durationTicks = 4 * 960;
+    return song;
+  }
+
+  t.test('IT-040 bounded scheduling of a 2,000-note chord: several ticks, 125 ms ahead, 4 ms a tick', async () => {
+    const Audio = FLM.Audio;
+    const main = FLM.Transport.main;
+    const pool = Audio.VoiceAllocator;
+    const song = chordSong();
+    const ahead = [];
+    const tickAt = [];
+    const realNow = window.performance.now.bind(window.performance);
+    const stand = { noteOn(owner, event, at, end) {
+      let work = 0;
+      for (let step = 0; step < NOTE_COST_LOOPS; step += 1) work += Math.sqrt(step);   // a voice takes time to build
+      if (work < 0) return null;
+      const slot = pool.acquire({ trackId: owner.id, channel: event.channel, pitch: event.pitch, priority: 1 }, at);
+      pool.markReleased(slot, end, end + 0.05);
+      return slot;
+    }, control() {} };
+    let audioNow = 0;
+    let ticksNow = 0;
+    let readAt = -Infinity;
+    const off = bus.on('sched.noteOn', (event) => {
+      if (realNow() - readAt >= CLOCK_READ_MS) {
+        readAt = realNow();
+        audioNow = Audio.ctx().currentTime;     // never newer than the emission: the distance can only look larger
+        ticksNow = Audio.Scheduler.stats().ticks;
+      }
+      ahead.push(event.at - audioNow);
+      tickAt.push(ticksNow);
+    }, t.owner);
+    main.load(song);
+    Audio.Scheduler.setInstruments(stand);
+    try {
+      Audio.Scheduler.bind(main, song, {});
+      main.play({ countInBars: 0 });
+      const deadline = Date.now() + CHORD_WAIT_MS;
+      const handled = () => pool.stats().started + pool.stats().dropped;
+      while (handled() < CHORD_NOTES && Date.now() < deadline) await pause(SAMPLE_PAUSE_MS);
+      t.eq(ahead.length, pool.stats().started, 'every started note was announced');
+      t.ok(ahead.every((delta) => delta <= MAX_AHEAD_S), 'no note more than 125 ms ahead; the largest is ' +
+        (Math.max(...ahead) * 1000).toFixed(1) + ' ms');
+      const stats = Audio.Scheduler.stats();
+      t.ok(stats.tickWorkMaxMs <= TICK_BODY_LIMIT_MS, 'the longest tick body was ' + stats.tickWorkMaxMs.toFixed(2) +
+        ' ms');
+      t.eq(stats.backlog, 0, 'nothing is left in the cursor');
+      const lastTick = tickAt[tickAt.length - 1];
+      t.ok(lastTick - tickAt[0] >= 3, 'the chord was booked over several ticks: ' + tickAt[0] + ' to ' + lastTick);
+      const counts = pool.stats();
+      t.eq(counts.started + counts.dropped, CHORD_NOTES, 'started + dropped === 2,000');
+      t.eq(counts.stolen, counts.started - pool.capacity, 'everything started beyond the capacity was a steal');
+      t.ok(counts.started >= CHORD_NOTES / 2, 'most of the chord was started, ' + counts.dropped + ' dropped as stale');
+      t.ok(counts.peakActive <= pool.capacity, 'the pool never grew: ' + counts.peakActive + ' of ' + pool.capacity);
+    } finally {
+      off();
+      main.stop();
+      Audio.Scheduler.unbind();
+      Audio.Scheduler.setInstruments(null);
+      pool.stopAll();
+      main.unload();
+    }
+    t.eq(Modes.assertClean(), null);
+  });
+
+  t.test('IT-047c one Scheduler binding at a time: a second bind throws E-AUD-005 and the first stays', async () => {
+    const Audio = FLM.Audio;
+    const setup = startRun(REAL_NOTE_COUNT, 'expert');
+    const contexts = Audio.ctxCount();
+    const first = Modes.enter('instrument', setup.params);
+    const next = startRun(REAL_NOTE_COUNT, 'expert');
+    const second = Modes.enter('instrument', next.params);       // no waiting: the transitions serialize
+    t.eq((await first).ok && (await second).ok, true, 'both transitions ran, one after the other');
+    t.eq(Audio.Scheduler.running(), true);
+    t.eq(Audio.stripCount(), 1, 'one binding, one strip');
+    t.throws(() => Audio.Scheduler.bind(FLM.Transport.main, setup.song, {}), 'E-AUD-005');
+    t.eq(Audio.Scheduler.running(), true, 'the existing binding is kept');
+    t.eq(Audio.stripCount(), 1);
+    t.eq((await Modes.leave('user')).leaks, null);
+    t.eq(Audio.Scheduler.running(), false);
+    t.deepEq([Audio.Scheduler.pending(), Audio.VoiceAllocator.activeCount(), Audio.stripCount()], [0, 0, 0]);
+    t.eq(Audio.ctxCount(), 1);
+    t.eq(contexts, 1);
   });
 });
 })();

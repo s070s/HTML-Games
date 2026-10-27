@@ -1145,24 +1145,45 @@ FLM.Core.define('SelfTest', function (FLM) {
   }
 
   /**
-   * For tests that run on fake timers: takes FLM.Audio away and puts Transport.main on the performance clock, so that
-   * Core.now() is the only time base (the real AudioContext does not follow fake time). Both come back after the test
-   * (or through the returned restore function).
+   * A real audio engine on a stand-in context and the performance clock: its Scheduler really ticks (on whatever timers
+   * are installed), calls Transport.update and pullDue and emits sched.*, and nothing is audible. Only the members the
+   * modes use are offered. Null when the audio module is not built.
+   */
+  function standInAudio(clock) {
+    const real = FLM.Audio;
+    if (!real || typeof real.createEngine !== 'function') return null;
+    const engine = real.createEngine({ context: fakeAudioContext({ state: 'running' }).context, clock, mobile: false });
+    const facade = Object.freeze({ clock: engine.clock, now: engine.now, isUnlocked: () => true,
+      stripCount: engine.stripCount, Scheduler: engine.Scheduler, VoiceAllocator: engine.VoiceAllocator,
+      Metronome: engine.Metronome });
+    return { engine, facade };
+  }
+
+  /**
+   * For tests that run on fake timers: puts Transport.main on the performance clock, so that Core.now() is the only
+   * time base (the real AudioContext does not follow fake time), and replaces FLM.Audio by a stand-in engine on that
+   * clock (standInAudio), so that the real Scheduler drives the transport. Both come back after the test (or through
+   * the returned restore function).
    */
   function detachAudio() {
     const hadAudio = Object.prototype.hasOwnProperty.call(FLM, 'Audio');
     const audio = FLM.Audio;
     const main = FLM.Transport && FLM.Transport.main;
+    const perfClock = { now: () => FLM.Core.now() / MS_PER_SECOND };
+    const stand = standInAudio(perfClock);
     const handle = { restore() {} };
     handle.restore = () => {
+      if (stand) stand.engine.close();
       if (hadAudio) FLM.Audio = audio;
+      else delete FLM.Audio;
       if (main && audio && typeof audio.clock === 'function') main.setClock(audio.clock());
       Promise.resolve().then(resampleInputAnchor);   // after the fake timers are gone: the real time base is back
       activeStubs = activeStubs.filter((entry) => entry !== handle);
       handle.restore = () => {};
     };
-    if (main) main.setClock({ now: () => FLM.Core.now() / MS_PER_SECOND });
-    delete FLM.Audio;
+    if (main) main.setClock(perfClock);
+    if (stand) FLM.Audio = stand.facade;
+    else delete FLM.Audio;
     resampleInputAnchor();                   // the old anchor belongs to the audio clock
     activeStubs.push(handle);
     return handle.restore;
