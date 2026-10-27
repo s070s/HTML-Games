@@ -67,6 +67,22 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 - Device and other-browser tests (XT, LT): owner.
 - Licence: the owner recorded "All rights reserved" (see docs/plan-work/OPEN-ISSUES-stage1.md).
 
+## 2026-10-27 15:55 - T01.08 to T01.09 - settings storage subset and mode manager
+
+Done: src/16-storage.js (M-16 subset), src/27-screens.js (Settings controller only; T01.11 extends),
+src/28-modes.js (M-28) and tests. Real Chrome run, scratch copy with stand-in boot: core 33/33,
+selftest 16/16, ui 42/42, ui@touch 43/43, storage 6/6, screens 6/6, modes 9/9 (155/155, no skips).
+Decisions: D12 added Storage.lastSettingsLoad() ({source, damaged}); D13 settings size cap 64 KB (5.15
+and 10) over 6.16's 256 KB; D14 release reason 'system' (4.7.2) over 'mode' (6.28.4.2); D15 Modes
+restart(changes) re-enters with merged params; D16 assertClean skips the screen-depth check until a
+mode was entered.
+Open issues: OI-5 still open (Core ErrorReporter drops function context members). OI-6 UI._resetForTests
+removes the menu screen, so once Boot enters the menu the runner's group-end assertClean may report
+screenDepth: check in T01.10 integration. Deferred inside this entry: input.keys writes to Input.setMap
+(M-07, Phase 03), D2 mirroring (Phase 09), popstate unsaved-changes guard test (needs Project).
+Usage: weekly all 9% at 15:42.
+RESUME: T01.10 (boot agent in progress at this checkpoint), then T01.11, T01.12.
+
 ## 2026-10-27 15:35 - T01.06 to T01.07 - M-26 UI framework and accessibility
 
 Done: src/26-ui.js (FLM.UI: Screens, widgets, dialogs, toasts, Layout, Focus, TouchPads, HUD, Frame)

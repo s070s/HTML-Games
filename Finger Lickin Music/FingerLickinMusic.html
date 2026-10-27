@@ -232,7 +232,7 @@ body.touch .hover-only { display: none; }
 (function () {
 'use strict';
 const VERSION = '0.1.0';
-const BUILD = '2026-10-27T13:29:41Z standalone ship';
+const BUILD = '2026-10-27T13:50:22Z standalone ship';
 const RELAY_URL = '';
 const FLM = window.FLM = { VERSION, BUILD, RELAY_URL };
 
@@ -1620,6 +1620,759 @@ FLM.Core = Core;
 registry.set('Core', { name: 'Core', order: 1 });
 bus.on('boot.ready', () => { bootReady = true; });
 ErrorReporter.install();
+})();
+
+// ==== 16-storage.js ====
+// 16-storage.js - M-16 FLM.Storage (Phase 01 subset): storage probe, key-value helpers with safe write,
+// settings persistence, export download, file picker and file reading.
+// Separation rule: this file owns exactly one namespace (Storage) and registers it once through
+// FLM.Core.define. It uses only M-01 (Core). It declares no module-level global state object (S-07): all state
+// lives inside the factory closure. Phase 09 adds projects, autosave, checkpoints, recordings, quota, the tab lock
+// and drag and drop (Part 6.16); the settings document is normalized and debounced by M-27, not here.
+// Spec: docs/IMPLEMENTATION-PLAN.md Part 6.16 (API 6.16.2, algorithms 6.16.4), Part 5.15 (key catalog).
+(function () {
+'use strict';
+const FLM = window.FLM;
+
+FLM.Core.define('Storage', function (FLM) {
+  const Core = FLM.Core;
+  const bus = Core.bus;
+
+  const OWNER = 'storage';                   // owner token of every timer and listener this module creates
+  const DB_NAME = 'flm-db';
+  const DB_VERSION = 1;
+  const KEY_PREFIX = 'flm.v1.';
+  const TMP_SUFFIX = '.tmp';
+  const BAK_SUFFIX = '.bak';
+  const PROBE_TIMEOUT_MS = 2000;             // Part 4.3 B5: IndexedDB open probe
+  const SETTINGS_DEBOUNCE_MS = 250;
+  const READ_TIMEOUT_MS = 30000;             // Part 6.16.4 F: file read
+  const PICK_FOCUS_DELAY_MS = 1500;          // iOS fallback: no change event after the window regains focus
+  const KIB = 1024;
+  const MIB = 1024 * KIB;
+  const DEFAULT_KEY_CAP_BYTES = 2 * MIB;
+  const DEFAULT_MAX_READ_BYTES = 25 * MIB;
+  const EXPORT_CAP_BYTES = 256 * MIB;
+  const DATA_URL_CAP_BYTES = 32 * MIB;
+  const FILE_NAME_LIMIT = 80;
+  const EXTENSION_LIMIT = 10;
+  const SETTING_SOURCES = Object.freeze(['load', 'ui', 'reset', 'url', 'wizard']);
+
+  // Relative key names (the flm.v1. prefix is added by every helper).
+  const KEYS = Object.freeze({
+    settings: 'settings',
+    projectsIndex: 'projects.index',
+    characters: 'characters',
+    progressHistory: 'progress.history',
+    progressBests: 'progress.bests',
+    progressUnlocks: 'progress.unlocks',
+    progressDaily: 'progress.daily',
+    recovery: 'recovery',
+    lastSession: 'lastSession',
+    probe: 'probe'
+  });
+  // Size caps in bytes (UTF-16 code units x 2); keys not listed use DEFAULT_KEY_CAP_BYTES (Part 5.15).
+  const KEY_CAP_BYTES = Object.freeze({
+    [KEYS.settings]: 64 * KIB,
+    [KEYS.projectsIndex]: 64 * KIB,
+    [KEYS.characters]: 64 * KIB,
+    [KEYS.progressHistory]: 512 * KIB,
+    [KEYS.progressBests]: 128 * KIB,
+    [KEYS.progressUnlocks]: 16 * KIB,
+    [KEYS.progressDaily]: 4 * KIB,
+    [KEYS.lastSession]: 1 * KIB
+  });
+  // Object stores and their single index (Part 6.16.3); every store has the key path "id".
+  const STORE_DEFINITIONS = Object.freeze([
+    { name: 'projects', index: 'byModified', indexPath: 'modifiedAt' },
+    { name: 'recordings', index: 'byProject', indexPath: 'projectId' },
+    { name: 'charts', index: 'byProject', indexPath: 'projectId' },
+    { name: 'characters', index: null, indexPath: null }
+  ]);
+  const STORES = Object.freeze(STORE_DEFINITIONS.map((definition) => definition.name));
+  const NOTICE_LOCAL_ONLY = 'Browser database unavailable: projects are saved in limited local storage ' +
+    '(2 MB each, no recordings). Export projects to keep them safe.';
+  const NOTICE_FILE_SUFFIX = ' Opening the file over http(s) usually restores the database.';
+  const NOTICE_LOCAL_BLOCKED = 'Settings cannot be saved by this browser context; they are stored with your ' +
+    'projects instead and may reset when site data is cleared.';
+  const NOTICE_MEMORY = 'Saving is unavailable in this browser context. Your work is kept in memory only until ' +
+    'you export it.';
+
+  const state = {
+    opened: false,
+    mode: 'memory',
+    isFile: false,
+    ls: null,                                // probed localStorage or an injected fake
+    idbFactory: null,
+    db: null,
+    local: { ok: false, error: null },
+    idb: { ok: false, error: null, openMs: 0 },
+    notice: null,
+    memory: new Map(),                       // key (without prefix) -> JSON text; used when localStorage is unusable
+    settingsWrite: null,                     // {text, timer, waiters} while a settings write is pending
+    settingsLoad: { source: 'none', damaged: false },
+    fileInput: null,
+    pendingUrls: [],                         // object URLs to revoke at the next download or at pagehide
+    offs: []                                 // off() functions of the permanent listeners
+  };
+
+  // ---------------------------------------------------------------- errors
+
+  function errorName(error) {
+    return error && typeof error.name === 'string' && error.name !== '' ? error.name : 'Error';
+  }
+
+  /** @returns {{code:string, message:string, cause:(string|null)}} StoError shape of Part 6.16.2 */
+  function failure(code, cause) {
+    return { code, message: Core.Text.get(code), cause: cause || null };
+  }
+
+  function isQuotaError(error) {
+    const name = errorName(error);
+    return name === 'QuotaExceededError' || name === 'NS_ERROR_DOM_QUOTA_REACHED';
+  }
+
+  function writeFailure(error) {
+    return isQuotaError(error) ? failure('E-STO-001', errorName(error)) : failure('E-STO-002', errorName(error));
+  }
+
+  const RESULT_OK = Object.freeze({ ok: true, error: null });
+
+  function failed(error) {
+    return { ok: false, error };
+  }
+
+  // ---------------------------------------------------------------- opening and probing
+
+  function defaultLocalStorage() {
+    try {
+      return window.localStorage || null;
+    } catch (error) {
+      return null;                           // SecurityError in some file:// and privacy configurations
+    }
+  }
+
+  function defaultIndexedDb() {
+    try {
+      return window.indexedDB || null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function probeLocal(ls) {
+    if (!ls) return { ok: false, error: 'unavailable' };
+    const key = KEY_PREFIX + KEYS.probe;
+    try {
+      ls.setItem(key, '1');
+      const readBack = ls.getItem(key) === '1';
+      ls.removeItem(key);
+      return { ok: readBack, error: readBack ? null : 'readback' };
+    } catch (error) {
+      return { ok: false, error: errorName(error) };
+    }
+  }
+
+  // An interrupted write never becomes live: leftover temp keys are removed at open (Part 6.16.4 A).
+  function removeLeftoverTemps(ls) {
+    try {
+      for (let index = ls.length - 1; index >= 0; index -= 1) {
+        const key = ls.key(index);
+        if (key && key.startsWith(KEY_PREFIX) && key.endsWith(TMP_SUFFIX)) ls.removeItem(key);
+      }
+    } catch (error) {
+      Core.Log.warn('storage', 'temp cleanup failed: ' + errorName(error));
+    }
+  }
+
+  function createSchema(db) {
+    STORE_DEFINITIONS.forEach((definition) => {
+      if (db.objectStoreNames.contains(definition.name)) return;
+      const store = db.createObjectStore(definition.name, { keyPath: 'id' });
+      if (definition.index) store.createIndex(definition.index, definition.indexPath, { unique: false });
+    });
+  }
+
+  function watchDatabase(db) {
+    const forget = () => { if (state.db === db) state.db = null; };
+    db.onversionchange = () => { db.close(); forget(); };
+    db.onclose = forget;
+  }
+
+  /** Opens flm-db v1 and resolves {ok, error, db}; never rejects. A hung open resolves with error 'timeout'. */
+  function openDatabase(factory, timeoutMs) {
+    return new Promise((resolve) => {
+      let settled = false;
+      const timer = Core.timers.setTimeout(() => finish({ ok: false, error: 'timeout', db: null }), timeoutMs, OWNER);
+      function finish(result) {
+        if (settled) {
+          if (result.db) result.db.close();  // success after the timeout: do not keep a handle nobody owns
+          return;
+        }
+        settled = true;
+        Core.timers.clearTimeout(timer);
+        resolve(result);
+      }
+      let request = null;
+      try {
+        request = factory.open(DB_NAME, DB_VERSION);
+      } catch (error) {
+        finish({ ok: false, error: errorName(error), db: null });
+        return;
+      }
+      request.onupgradeneeded = () => createSchema(request.result);
+      request.onsuccess = () => finish({ ok: true, error: null, db: request.result });
+      request.onerror = () => finish({ ok: false, error: errorName(request.error), db: null });
+      request.onblocked = () => Core.Log.warn('storage', 'idb blocked');
+    });
+  }
+
+  // Part 6.16.4 C and D: the mode and its notice from the two probes.
+  function decideMode() {
+    if (state.local.ok && state.idb.ok) return { mode: 'full', notice: null };
+    if (state.local.ok) {
+      return { mode: 'localOnly', notice: NOTICE_LOCAL_ONLY + (state.isFile ? NOTICE_FILE_SUFFIX : '') };
+    }
+    if (state.idb.ok) return { mode: 'full', notice: NOTICE_LOCAL_BLOCKED };
+    return { mode: 'memory', notice: NOTICE_MEMORY };
+  }
+
+  function usesMemory() {
+    return state.ls === null || !state.local.ok;
+  }
+
+  function status() {
+    return {
+      opened: state.opened,
+      mode: state.mode,
+      isFile: state.isFile,
+      readOnly: false,
+      lockedBy: null,
+      local: { ok: state.local.ok, error: state.local.error },
+      idb: { ok: state.idb.ok, error: state.idb.error, openMs: state.idb.openMs },
+      notice: state.notice
+    };
+  }
+
+  function closeDatabase() {
+    const db = state.db;
+    state.db = null;
+    if (!db) return;
+    try {
+      db.close();
+    } catch (error) {
+      Core.Log.warn('storage', 'db close failed: ' + errorName(error));
+    }
+  }
+
+  function releaseListeners() {
+    state.offs.forEach((off) => off());
+    state.offs = [];
+    Core.dom.offOwner(OWNER);
+  }
+
+  function installListeners() {
+    const onHidden = () => { writeSettingsNow(); revokePendingUrls(); };
+    const onVisibility = () => { if (window.document.visibilityState === 'hidden') writeSettingsNow(); };
+    state.offs.push(Core.dom.on(window, 'pagehide', onHidden, undefined, OWNER));
+    state.offs.push(Core.dom.on(window.document, 'visibilitychange', onVisibility, undefined, OWNER));
+  }
+
+  async function probeIndexedDb(factory) {
+    const started = Core.now();
+    const result = factory ? await openDatabase(factory, PROBE_TIMEOUT_MS)
+      : { ok: false, error: 'unavailable', db: null };
+    state.db = result.db;
+    if (result.db) watchDatabase(result.db);
+    state.idb = { ok: result.ok, error: result.error, openMs: Math.round(Core.now() - started) };
+  }
+
+  function publishState(reason) {
+    bus.emit('storage.state', {
+      mode: state.mode, notice: state.notice, localStorage: state.local.ok, indexedDB: state.idb.ok,
+      readOnly: false, lockedBy: null, reason
+    });
+  }
+
+  /**
+   * Probes localStorage and IndexedDB, creates the schema, publishes the storage mode. Never rejects.
+   * @param {{idbFactory?:object|null, localStorage?:object|null}=} options test injection (null = none)
+   * @returns {Promise<object>} StorageStatus
+   * Emits: storage.state
+   */
+  async function open(options) {
+    const config = options || {};
+    writeSettingsNow();                      // a pending write belongs to the previous backend
+    releaseListeners();
+    closeDatabase();
+    try {
+      state.ls = 'localStorage' in config ? config.localStorage : defaultLocalStorage();
+      state.idbFactory = 'idbFactory' in config ? config.idbFactory : defaultIndexedDb();
+      state.isFile = window.location.protocol === 'file:';
+      state.local = probeLocal(state.ls);
+      if (state.local.ok) removeLeftoverTemps(state.ls);
+      await probeIndexedDb(state.idbFactory);     // the 2 s timer is armed before the first await
+    } catch (error) {
+      Core.Log.error('storage', 'open failed: ' + errorName(error));
+    }
+    const decision = decideMode();
+    state.mode = decision.mode;
+    state.notice = decision.notice;
+    state.opened = true;
+    installListeners();
+    publishState('open');
+    return status();
+  }
+
+  // ---------------------------------------------------------------- text storage with safe write
+
+  function capFor(key) {
+    return Object.prototype.hasOwnProperty.call(KEY_CAP_BYTES, key) ? KEY_CAP_BYTES[key] : DEFAULT_KEY_CAP_BYTES;
+  }
+
+  function keepsBackup(key) {
+    return key === KEYS.settings || key.startsWith('progress.');
+  }
+
+  function readText(key) {
+    if (usesMemory()) return state.memory.has(key) ? state.memory.get(key) : null;
+    try {
+      return state.ls.getItem(KEY_PREFIX + key);
+    } catch (error) {
+      Core.Log.warn('storage', 'read failed: ' + errorName(error));
+      return null;
+    }
+  }
+
+  function removeText(key) {
+    if (usesMemory()) {
+      state.memory.delete(key);
+      return;
+    }
+    try {
+      state.ls.removeItem(KEY_PREFIX + key + TMP_SUFFIX);
+      state.ls.removeItem(KEY_PREFIX + key);
+    } catch (error) {
+      Core.Log.warn('storage', 'remove failed: ' + errorName(error));
+    }
+  }
+
+  function tryWrite(key, text) {
+    try {
+      state.ls.setItem(key, text);
+      return null;
+    } catch (error) {
+      return writeFailure(error);
+    }
+  }
+
+  function dropQuietly(key) {
+    try {
+      state.ls.removeItem(key);
+    } catch (error) {
+      Core.Log.warn('storage', 'cleanup failed: ' + errorName(error));
+    }
+  }
+
+  // Step 5 of Part 6.16.4 A: the live key must read back equal, else the previous value is restored.
+  function commitLive(fullKey, text, previous) {
+    const writeError = tryWrite(fullKey, text);
+    if (writeError) return writeError;
+    if (state.ls.getItem(fullKey) === text) return null;
+    if (previous !== null) tryWrite(fullKey, previous);
+    else dropQuietly(fullKey);
+    return failure('E-STO-004', null);
+  }
+
+  /** localStorage safe write (Part 6.16.4 A): temp, verify, optional .bak, swap, verify. @returns StoError|null */
+  function safeSetLocal(key, text, withBackup) {
+    if (text.length * 2 > capFor(key)) return failure('E-STO-001', 'cap');
+    const fullKey = KEY_PREFIX + key;
+    const tempKey = fullKey + TMP_SUFFIX;
+    const tempError = tryWrite(tempKey, text);
+    if (tempError) return tempError;
+    if (state.ls.getItem(tempKey) !== text) {
+      dropQuietly(tempKey);
+      return failure('E-STO-004', null);
+    }
+    const previous = state.ls.getItem(fullKey);
+    const backupError = withBackup && previous !== null ? tryWrite(fullKey + BAK_SUFFIX, previous) : null;
+    const error = backupError || commitLive(fullKey, text, previous);
+    dropQuietly(tempKey);
+    return error;
+  }
+
+  function writeText(key, text) {
+    if (usesMemory()) {
+      state.memory.set(key, text);
+      return RESULT_OK;
+    }
+    const error = safeSetLocal(key, text, keepsBackup(key));
+    return error ? failed(error) : RESULT_OK;
+  }
+
+  function isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  // A damaged record is removed and logged once; the caller sees "not found" (Part 6.16.5, UT-16-22).
+  function readJson(key) {
+    const text = readText(key);
+    if (text === null) return { found: false, value: undefined, damaged: false };
+    try {
+      return { found: true, value: JSON.parse(text), damaged: false };
+    } catch (error) {
+      removeText(key);
+      Core.Log.warn('storage', 'damaged value removed: ' + key);
+      return { found: false, value: undefined, damaged: true };
+    }
+  }
+
+  /** @returns {*} the stored JSON value, or fallback when missing or damaged (the damaged record is removed) */
+  function get(key, fallback) {
+    const record = readJson(key);
+    return record.found ? record.value : fallback;
+  }
+
+  /** @returns {{ok:boolean, error:(object|null)}} */
+  function set(key, value) {
+    let text = null;
+    try {
+      text = JSON.stringify(value);
+    } catch (error) {
+      text = null;
+    }
+    if (typeof text !== 'string') return failed(failure('E-STO-002', 'unserializable'));
+    return writeText(key, text);
+  }
+
+  function remove(key) {
+    removeText(key);
+  }
+
+  /** @returns {string[]} sorted key names under flm.v1. without the prefix */
+  function keys() {
+    const names = [];
+    if (usesMemory()) return Array.from(state.memory.keys()).sort();
+    try {
+      for (let index = 0; index < state.ls.length; index += 1) {
+        const key = state.ls.key(index);
+        if (key && key.startsWith(KEY_PREFIX)) names.push(key.slice(KEY_PREFIX.length));
+      }
+    } catch (error) {
+      Core.Log.warn('storage', 'key listing failed: ' + errorName(error));
+    }
+    return names.sort();
+  }
+
+  /** @returns {number} bytes used by flm.v1.* keys (UTF-16 code units x 2) */
+  function usedBytes() {
+    return keys().reduce((total, name) => {
+      const text = readText(name);
+      return total + (KEY_PREFIX.length + name.length + (text === null ? 0 : text.length)) * 2;
+    }, 0);
+  }
+
+  /** @param {string=} kind 'local', 'idb' or omitted for either backend */
+  function isAvailable(kind) {
+    if (kind === 'local') return state.local.ok;
+    if (kind === 'idb') return state.idb.ok;
+    return state.local.ok || state.idb.ok;
+  }
+
+  // ---------------------------------------------------------------- settings document
+
+  function leafPaths(node, prefix, out) {
+    Object.keys(node).forEach((name) => {
+      const path = prefix === '' ? name : prefix + '.' + name;
+      if (isPlainObject(node[name]) && Object.keys(node[name]).length > 0) leafPaths(node[name], path, out);
+      else out.push(path);
+    });
+    return out;
+  }
+
+  function readDocument(key) {
+    const record = readJson(key);
+    if (record.found && !isPlainObject(record.value)) {
+      removeText(key);
+      Core.Log.warn('storage', 'damaged value removed: ' + key);
+      return { doc: null, damaged: true };
+    }
+    return { doc: record.found ? record.value : null, damaged: record.damaged };
+  }
+
+  // The live record first; on a missing or damaged one the .bak is tried (Part 4.3 B6).
+  function readSettingsDocument() {
+    const main = readDocument(KEYS.settings);
+    if (main.doc) return { doc: main.doc, source: 'stored', damaged: false };
+    const backup = readDocument(KEYS.settings + BAK_SUFFIX);
+    if (backup.doc) return { doc: backup.doc, source: 'backup', damaged: main.damaged };
+    return { doc: null, source: 'none', damaged: main.damaged || backup.damaged };
+  }
+
+  /**
+   * Reads flm.v1.settings (the .bak when the live record is damaged). The document is returned as stored:
+   * M-27 normalizes it. A missing or unreadable record returns null.
+   * Emits: settings.changed {key:'*', source:'load'}
+   * @returns {(object|null)}
+   */
+  function loadSettings() {
+    const found = readSettingsDocument();
+    state.settingsLoad = { source: found.source, damaged: found.damaged };
+    const keysOfDocument = found.doc ? leafPaths(found.doc, '', []) : [];
+    bus.emit('settings.changed', { key: '*', value: null, prev: null, source: 'load', keys: keysOfDocument });
+    return found.doc;
+  }
+
+  function announceChange(change) {
+    if (!change) return;
+    Core.assert(SETTING_SOURCES.includes(change.source), 'unknown settings source ' + change.source);
+    const payload = { key: change.key, value: change.value, prev: change.prev, source: change.source };
+    if (Array.isArray(change.keys)) payload.keys = change.keys;
+    bus.emit('settings.changed', payload);
+  }
+
+  /** Writes the pending settings document now. @returns {(object|null)} the write result, null when none pending */
+  function writeSettingsNow() {
+    const pending = state.settingsWrite;
+    if (!pending) return null;
+    state.settingsWrite = null;
+    if (pending.timer !== null) Core.timers.clearTimeout(pending.timer);
+    const result = writeText(KEYS.settings, pending.text);
+    if (!result.ok) Core.Log.warn('storage', 'settings write failed', { code: result.error.code });
+    pending.waiters.forEach((resolve) => resolve(result));
+    return result;
+  }
+
+  /**
+   * Emits `change` at once, then safe-writes the document (debounced; 0 writes immediately). One write covers
+   * every call made while it waits.
+   * Emits: settings.changed
+   * @returns {Promise<{ok:boolean, error:(object|null)}>} resolves after the write
+   */
+  function saveSettings(doc, change, opts) {
+    announceChange(change);
+    const delay = opts && Number.isFinite(opts.debounceMs) ? Math.max(0, opts.debounceMs) : SETTINGS_DEBOUNCE_MS;
+    return new Promise((resolve) => {
+      const pending = state.settingsWrite || { text: '', timer: null, waiters: [] };
+      state.settingsWrite = pending;
+      pending.text = JSON.stringify(doc);
+      pending.waiters.push(resolve);
+      if (delay === 0) writeSettingsNow();
+      else if (pending.timer === null) pending.timer = Core.timers.setTimeout(writeSettingsNow, delay, OWNER);
+    });
+  }
+
+  /** Writes a pending debounced settings document now (pagehide, tests). */
+  function flushSettings() {
+    return Promise.resolve(writeSettingsNow() || RESULT_OK);
+  }
+
+  // ---------------------------------------------------------------- export, download, files
+
+  /** @returns {{ok:boolean, blob:(Blob|null), error:(object|null)}} E-EXP-006 above 256 MB */
+  function exportBlob(data, mimeType) {
+    const blob = data instanceof Blob ? data : new Blob([data], { type: mimeType || 'application/octet-stream' });
+    if (blob.size > EXPORT_CAP_BYTES) return { ok: false, blob: null, error: failure('E-EXP-006', null) };
+    return { ok: true, blob, error: null };
+  }
+
+  /** Letters, digits, dot, underscore, space and hyphen only; runs collapsed; 80 characters with the extension. */
+  function sanitizeFileName(fileName) {
+    const cleaned = String(fileName).replace(/[^A-Za-z0-9._ -]/g, '_').replace(/_{2,}/g, '_');
+    const dot = cleaned.lastIndexOf('.');
+    const extension = dot > 0 ? cleaned.slice(dot, dot + EXTENSION_LIMIT) : '';
+    const base = dot > 0 ? cleaned.slice(0, dot) : cleaned;
+    const name = base.slice(0, FILE_NAME_LIMIT - extension.length) + extension;
+    return name === '' ? 'download' : name;
+  }
+
+  function isIosSafari() {
+    const nav = window.navigator;
+    const agent = String(nav.userAgent || '');
+    const iPadOs = nav.platform === 'MacIntel' && nav.maxTouchPoints > 1;
+    return /iPad|iPhone|iPod/.test(agent) || iPadOs;
+  }
+
+  function revokePendingUrls() {
+    state.pendingUrls.forEach((url) => window.URL.revokeObjectURL(url));
+    state.pendingUrls = [];
+  }
+
+  function downloadByAnchor(blob, name) {
+    revokePendingUrls();                     // no timer: the previous URL is released at the next download
+    const url = window.URL.createObjectURL(blob);
+    const anchor = window.document.createElement('a');
+    anchor.href = url;
+    anchor.download = name;
+    anchor.rel = 'noopener';
+    window.document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    state.pendingUrls.push(url);
+    return { ok: true, method: 'anchor', error: null };
+  }
+
+  function readAsDataUrl(blob) {
+    return new Promise((resolve) => {
+      const reader = new window.FileReader();
+      reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+      reader.onerror = () => resolve(null);
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  // Fallback for browsers that ignore the download attribute: a new tab with the data URL.
+  async function downloadByDataUrl(blob) {
+    if (blob.size > DATA_URL_CAP_BYTES) return { ok: false, method: 'none', error: failure('E-EXP-009', null) };
+    const url = await readAsDataUrl(blob);
+    const opened = url === null ? null : window.open(url, '_blank');
+    if (!opened) return { ok: false, method: 'none', error: failure('E-EXP-005', null) };
+    return { ok: true, method: 'dataUrl', error: null };
+  }
+
+  /**
+   * Triggers a file download. Resolves when the click was dispatched; success is unknowable.
+   * @param {string} fileName
+   * @param {Blob|string|ArrayBuffer} data
+   * @param {string=} mimeType
+   * @returns {Promise<{ok:boolean, method:string, error:(object|null)}>} method 'anchor', 'dataUrl' or 'none'
+   */
+  async function download(fileName, data, mimeType) {
+    const made = exportBlob(data, mimeType);
+    if (!made.ok) return { ok: false, method: 'none', error: made.error };
+    const name = sanitizeFileName(fileName);
+    const anchorWorks = 'download' in window.HTMLAnchorElement.prototype && !isIosSafari();
+    return anchorWorks ? downloadByAnchor(made.blob, name) : downloadByDataUrl(made.blob);
+  }
+
+  function ensureFileInput() {
+    if (state.fileInput && state.fileInput.isConnected) return state.fileInput;
+    const input = window.document.createElement('input');
+    input.type = 'file';
+    input.hidden = true;
+    input.tabIndex = -1;
+    input.setAttribute('aria-hidden', 'true');
+    window.document.body.appendChild(input);
+    state.fileInput = input;
+    return input;
+  }
+
+  /**
+   * Opens the file picker. Call it synchronously inside a click or key handler (gesture rule).
+   * @param {{accept?:string[], multiple?:boolean}=} options
+   * @returns {Promise<File[]>} [] when cancelled
+   */
+  function pickFile(options) {
+    const config = options || {};
+    return new Promise((resolve) => {
+      const input = ensureFileInput();
+      input.accept = Array.isArray(config.accept) ? config.accept.join(',') : '';
+      input.multiple = config.multiple === true;
+      const offs = [];
+      let focusTimer = null;
+      const finish = (files) => {
+        offs.forEach((off) => off());
+        if (focusTimer !== null) Core.timers.clearTimeout(focusTimer);
+        input.value = '';                    // the same file can be chosen twice
+        resolve(files);
+      };
+      const onChange = () => finish(Array.from(input.files || []));
+      const onFocus = () => { focusTimer = Core.timers.setTimeout(() => finish([]), PICK_FOCUS_DELAY_MS, OWNER); };
+      offs.push(Core.dom.on(input, 'change', onChange, undefined, OWNER));
+      offs.push(Core.dom.on(input, 'cancel', () => finish([]), undefined, OWNER));
+      offs.push(Core.dom.on(window, 'focus', onFocus, { once: true }, OWNER));
+      input.click();
+    });
+  }
+
+  function withTimeout(promise, limitMs) {
+    return new Promise((resolve, reject) => {
+      const timer = Core.timers.setTimeout(() => reject(new Error('timeout')), limitMs, OWNER);
+      promise.then(
+        (value) => { Core.timers.clearTimeout(timer); resolve(value); },
+        (error) => { Core.timers.clearTimeout(timer); reject(error); }
+      );
+    });
+  }
+
+  /**
+   * Size-checked file read: a file over maxBytes is refused before any read (E-IMP-001).
+   * @param {File} file
+   * @param {{as?:'arrayBuffer'|'text', maxBytes?:number}=} options
+   * @returns {Promise<{ok:boolean, data:*, error:(object|null)}>}
+   */
+  async function readFile(file, options) {
+    const config = options || {};
+    const limit = Number.isFinite(config.maxBytes) ? config.maxBytes : DEFAULT_MAX_READ_BYTES;
+    if (!file || file.size > limit) return { ok: false, data: null, error: failure('E-IMP-001', null) };
+    try {
+      const reading = config.as === 'text' ? file.text() : file.arrayBuffer();
+      return { ok: true, data: await withTimeout(reading, READ_TIMEOUT_MS), error: null };
+    } catch (error) {
+      return { ok: false, data: null, error: failure('E-IMP-019', errorName(error)) };
+    }
+  }
+
+  // ---------------------------------------------------------------- housekeeping
+
+  /** Forgets the cached database handle (fault recovery); the next operation reopens it. */
+  function reset() {
+    closeDatabase();
+  }
+
+  /** For leak tests: open transactions, pending timers and listeners added by this module. */
+  function counters() {
+    return { tx: 0, timers: Core.timers.count(OWNER), listeners: state.offs.length };
+  }
+
+  // Tests only: drops pending writes, listeners and timers and returns to the unopened state.
+  function teardownForTests() {
+    const pending = state.settingsWrite;
+    state.settingsWrite = null;
+    if (pending) pending.waiters.forEach((resolve) => resolve(failed(failure('E-STO-002', 'teardown'))));
+    releaseListeners();
+    Core.timers.clearOwner(OWNER);
+    closeDatabase();
+    revokePendingUrls();
+    if (state.fileInput) state.fileInput.remove();
+    state.fileInput = null;
+    state.memory.clear();
+    Object.assign(state, {
+      opened: false, mode: 'memory', isFile: false, ls: null, idbFactory: null, notice: null,
+      local: { ok: false, error: null }, idb: { ok: false, error: null, openMs: 0 },
+      settingsLoad: { source: 'none', damaged: false }
+    });
+  }
+
+  return Object.freeze({
+    DB_NAME,
+    DB_VERSION,
+    STORES,
+    KEY_PREFIX,
+    KEYS,
+    open,
+    state: status,
+    isAvailable,
+    get,
+    set,
+    remove,
+    keys,
+    usedBytes,
+    loadSettings,
+    /** @returns {{source:string, damaged:boolean}} how the last loadSettings found the record (M-27 uses it) */
+    lastSettingsLoad: () => Object.assign({}, state.settingsLoad),
+    saveSettings,
+    flushSettings,
+    exportBlob,
+    download,
+    pickFile,
+    readFile,
+    reset,
+    counters,
+    _teardownForTests: teardownForTests
+  });
+});
 })();
 
 // ==== 26-ui.js ====
@@ -4407,6 +5160,1340 @@ FLM.Core.define('UI', function (FLM) {
     icon,
     counters,
     _resetForTests: resetForTests,
+    _teardownForTests: teardownForTests
+  });
+});
+})();
+
+// ==== 27-screens.js ====
+// 27-screens.js - M-27 FLM.Screens (Phase 01 step T01.08): the settings store FLM.Screens.Settings.
+// Separation rule: this file owns exactly one namespace (Screens) and registers it once through
+// FLM.Core.define. It may use only lower-numbered modules (Core, Storage, UI). It declares no module-level
+// global state object (S-07): the settings document lives inside the factory closure.
+// EXTENSION POINT: T01.10 and T01.11 add SCREENS, DIALOGS, register, get, show, dialog, showError, the screen
+// controllers and the dialog builders to the object returned at the bottom of this factory; later tasks add
+// Tutorial, codeLabel, padWords and counters. Do not register a second FLM.Screens namespace.
+// Spec: docs/IMPLEMENTATION-PLAN.md Part 6.27.2 and 6.27.4.2 (settings store), Part 5.11 (schema), Part 5.14.2.
+(function () {
+'use strict';
+const FLM = window.FLM;
+
+FLM.Core.define('Screens', function (FLM) {
+  const Core = FLM.Core;
+
+  const SETTINGS_VERSION = 1;
+  const DEBOUNCE_MS = 250;                   // Part 5.11: settings writes are debounced
+  const EXPORT_FORMAT = 'flm-settings';
+  const IMPORT_LIMIT_CHARS = 256 * 1024;     // a settings backup is far smaller; refuse anything larger
+  const EXPORT_INDENT = 1;
+  const ROUNDING = 1e6;                      // removes floating point noise after step snapping
+  const SOURCES = Object.freeze(['ui', 'wizard', 'url', 'load', 'reset']);
+  const UNSAFE_NAMES = Object.freeze(['__proto__', 'constructor', 'prototype']);
+  const IMMEDIATE_PREFIXES = Object.freeze(['onboarding.', 'input.keys.', 'calibration.']);
+  const CODE_PATTERN = /^[A-Za-z0-9]{1,32}$/;
+  const ID_PATTERN = /^[A-Za-z0-9._-]{1,64}$/;
+  const RELAY_PATTERN = /^$|^wss?:\/\/\S+$/;
+  const MAX_USER_SCALES = 64;
+  const TEXT = Object.freeze({
+    saveFailed: 'Settings could not be saved in this browser. They are kept until you close the page.',
+    importNewer: 'These settings were saved by a newer version of the game and cannot be imported.',
+    importInvalid: 'This file is not a settings backup.'
+  });
+
+  // ---------------------------------------------------------------- the Part 5.11 table
+  const bool = () => ({ type: 'bool' });
+  const int = (min, max, extra) => Object.assign({ type: 'int', min, max }, extra);
+  const float = (min, max, extra) => Object.assign({ type: 'float', min, max }, extra);
+  const choice = (values) => ({ type: 'enum', values });
+  const word = (min, max, extra) => Object.assign({ type: 'text', min, max, pattern: ID_PATTERN }, extra);
+  const codes = (count) => ({ type: 'codes', count });
+  const code = () => ({ type: 'text', min: 1, max: 32, pattern: CODE_PATTERN });
+
+  const FREE_PLAY_FIELDS = {
+    program: { spec: int(0, 127), default: 0 }, key: { spec: int(0, 11), default: 0 },
+    scale: { spec: word(1, 64), default: 'major' }, octave: { spec: int(2, 6), default: 4 },
+    profile: { spec: word(1, 64), default: 'D' }, quantize: { spec: bool(), default: false },
+    noteDurMs: { spec: int(50, 2000), default: 400 }, velocity: { spec: int(1, 127), default: 100 },
+    sustain: { spec: bool(), default: false }
+  };
+  const QUICK_PLAY_FIELDS = {
+    songId: { spec: word(1, 64), default: 'demo-poprock' }, instrument: { spec: int(0, 127), default: 0 },
+    difficulty: { spec: word(1, 64), default: 'beginner' }, profile: { spec: word(1, 64), default: 'A' }
+  };
+  const DANCE_FIELDS = {
+    difficulty: { spec: word(1, 64), default: 'easy' }, layout: { spec: word(1, 64), default: 'arrows' },
+    practiceSpeed: { spec: float(0.5, 1), default: 1 }
+  };
+  const LIBRARY_FIELDS = {
+    query: { spec: { type: 'text', min: 0, max: 100 }, default: '' },
+    sort: { spec: choice(['recent', 'name']), default: 'recent' }, scroll: { spec: int(0, 1000000), default: 0 }
+  };
+  const objectOf = (fields) => ({ type: 'object', fields });
+
+  // [path, spec, default, comparable]: comparable is 'yes', 'default' (only the default value keeps results
+  // comparable) or 'n/a' (not a gameplay setting).
+  const ROWS = [
+    ['audio.masterVolume', float(0, 1), 0.8, 'yes'],
+    ['audio.metronomeVolume', float(0, 1), 0.6, 'yes'],
+    ['audio.metronomeAccent', bool(), true, 'yes'],
+    ['audio.polyphonyCap', int(16, 64, { zero: true }), 0, 'yes'],
+    ['audio.countInBars', int(1, 2), 1, 'yes'],
+    ['audio.reverbEnabled', bool(), false, 'yes'],
+    ['audio.reverbAmount', float(0, 1), 0.2, 'yes'],
+    ['calibration.inputOffsetMs', int(-200, 200), 0, 'yes'],
+    ['calibration.audioLatencyMs', int(0, 500), 0, 'yes'],
+    ['calibration.visualLeadMs', int(600, 3000), 1500, 'yes'],
+    ['input.keymapVersion', int(1, 1), 1, 'n/a'],
+    ['input.keys.lanes', codes(4), ['KeyA', 'KeyS', 'KeyK', 'KeyL'], 'yes'],
+    ['input.keys.dance', codes(4), ['ArrowLeft', 'ArrowDown', 'ArrowUp', 'ArrowRight'], 'yes'],
+    ['input.keys.danceAlt', codes(4), ['KeyD', 'KeyF', 'KeyJ', 'KeyK'], 'yes'],
+    ['input.keys.pause', code(), 'Escape', 'yes'],
+    ['input.keys.panic', code(), 'KeyP', 'yes'],
+    ['input.keys.octUp', code(), 'KeyE', 'yes'],
+    ['input.keys.octDown', code(), 'KeyQ', 'yes'],
+    ['input.keys.profiles', codes(6), ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6'], 'yes'],
+    ['input.keys.sustain', code(), 'ShiftLeft', 'yes'],
+    ['input.padLayout', choice(['bottom', 'right']), 'bottom', 'yes'],
+    ['input.padSize', choice(['small', 'medium', 'large']), 'medium', 'yes'],
+    ['input.padOpacity', float(0.3, 1), 0.75, 'yes'],
+    ['input.gamepadEnabled', bool(), true, 'yes'],
+    ['input.touchApi', choice(['auto', 'pointer', 'touch']), 'auto', 'yes'],
+    ['input.padsVisible', choice(['auto', 'always', 'never']), 'auto', 'yes'],
+    ['input.midiEnabled', bool(), false, 'yes'],
+    ['input.midiLaneNotes', { type: 'ints', count: 4, min: 0, max: 127 }, [60, 62, 64, 65], 'yes'],
+    ['input.chordWindowMs', int(10, 60), 30, 'yes'],
+    ['gameplay.judgmentPreset', choice(['standard', 'relaxed', 'strict']), 'standard', 'default'],
+    ['gameplay.strayPressPenalty', bool(), false, 'yes'],
+    ['gameplay.showJudgmentText', bool(), true, 'yes'],
+    ['gameplay.targetTrackMode', choice(['mute', 'lower', 'full']), 'lower', 'yes'],
+    ['gameplay.accompanimentVolume', float(0, 1), 1, 'yes'],
+    ['gameplay.autoCountIn', bool(), true, 'yes'],
+    ['gameplay.lifeBar', bool(), false, 'yes'],
+    ['video.tier', choice(['auto', 'high', 'balanced', 'low', 'abstract']), 'auto', 'yes'],
+    ['video.resolutionScale', float(0.5, 1, { step: 0.05, zero: true }), 0, 'yes'],
+    ['video.cameraMotion', bool(), true, 'yes'],
+    ['video.cameraPreset', choice(['FullBand', 'Focus', 'Side', 'Overhead', 'Player']), 'FullBand', 'yes'],
+    ['video.effectsLevel', int(0, 2), 2, 'yes'],
+    ['video.reducedMotion', choice(['system', 'on', 'off']), 'system', 'yes'],
+    ['video.highContrast', bool(), false, 'yes'],
+    ['video.uiScale', float(0.8, 1.5, { step: 0.05 }), 1, 'yes'],
+    ['video.showStats', bool(), false, 'yes'],
+    ['video.stageTheme', word(1, 64), 'default', 'yes'],
+    ['accessibility.laneGlyphs', bool(), true, 'yes'],
+    ['accessibility.screenReaderLabels', bool(), true, 'yes'],
+    ['accessibility.flashOnBeat', bool(), false, 'yes'],
+    ['accessibility.largeJudgmentText', bool(), false, 'yes'],
+    ['privacy', objectOf({}), {}, 'n/a'],
+    ['net.displayName', { type: 'text', min: 1, max: 24 }, 'Player', 'n/a'],
+    ['net.stunEnabled', bool(), false, 'n/a'],
+    ['net.relayUrl', { type: 'text', min: 0, max: 200, pattern: RELAY_PATTERN }, '', 'n/a'],
+    ['onboarding.firstLaunchDone', bool(), false, 'n/a'],
+    ['onboarding.inputMode', choice(['auto', 'desktop', 'touch']), 'auto', 'n/a'],
+    ['onboarding.tutorialDone', bool(), false, 'n/a'],
+    ['onboarding.audioHintSeen', bool(), false, 'n/a'],
+    ['onboarding.lastMode', { type: 'text', min: 1, max: 20, pattern: /^[a-z]+$/ }, 'menu', 'n/a'],
+    ['session.quickPlay', objectOf(QUICK_PLAY_FIELDS), fieldDefaults(QUICK_PLAY_FIELDS), 'n/a'],
+    ['session.freePlay', objectOf(FREE_PLAY_FIELDS), fieldDefaults(FREE_PLAY_FIELDS), 'n/a'],
+    ['session.dance', objectOf(DANCE_FIELDS), fieldDefaults(DANCE_FIELDS), 'n/a'],
+    ['session.libraryFilter', objectOf(LIBRARY_FIELDS), fieldDefaults(LIBRARY_FIELDS), 'n/a'],
+    ['session.lastProjectId', word(1, 64, { nullable: true }), null, 'n/a'],
+    ['diagnostics.overlay', bool(), false, 'n/a'],
+    ['diagnostics.logLevel', choice(['info', 'debug']), 'info', 'n/a'],
+    ['diagnostics.selfTestLastRun', { type: 'text', min: 1, max: 40, nullable: true }, null, 'n/a'],
+    ['settings.userScales', { type: 'scales' }, [], 'n/a']
+  ];
+
+  function fieldDefaults(fields) {
+    const defaults = {};
+    Object.keys(fields).forEach((name) => { defaults[name] = fields[name].default; });
+    return defaults;
+  }
+
+  // ---------------------------------------------------------------- small object helpers
+  const isPlain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+  const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+  const copy = (value) => (value === undefined ? undefined : Core.deepClone(value));
+
+  function getPath(root, path) {
+    return path.split('.').reduce((node, name) => (isPlain(node) ? node[name] : undefined), root);
+  }
+
+  function setPath(root, path, value) {
+    const names = path.split('.');
+    const last = names.pop();
+    const holder = names.reduce((node, name) => {
+      if (!isPlain(node[name])) node[name] = {};
+      return node[name];
+    }, root);
+    holder[last] = value;
+  }
+
+  function sameValue(a, b) {
+    if (Array.isArray(a) && Array.isArray(b)) {
+      return a.length === b.length && a.every((item, index) => sameValue(item, b[index]));
+    }
+    if (isPlain(a) && isPlain(b)) {
+      const names = Object.keys(a);
+      const sameKeys = names.length === Object.keys(b).length;
+      return sameKeys && names.every((name) => hasOwn(b, name) && sameValue(a[name], b[name]));
+    }
+    return Object.is(a, b);
+  }
+
+  function deepFreeze(value) {
+    if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+      Object.freeze(value);
+      Object.keys(value).forEach((name) => deepFreeze(value[name]));
+    }
+    return value;
+  }
+
+  // ---------------------------------------------------------------- schema, defaults, coercion
+  const SCHEMA = {};
+  const DEFAULTS = { version: SETTINGS_VERSION, x: {} };      // x holds the keys this version does not know
+  const GROUP_PATHS = new Set();             // every proper prefix of a schema path (audio, input.keys, ...)
+
+  ROWS.forEach((row) => {
+    const path = row[0];
+    SCHEMA[path] = Object.assign({}, row[1], {
+      default: copy(row[2]), comparable: row[3], immediate: IMMEDIATE_PREFIXES.some((prefix) => path.startsWith(prefix))
+    });
+    setPath(DEFAULTS, path, copy(row[2]));
+    path.split('.').slice(0, -1).reduce((prefix, name) => {
+      const group = prefix === '' ? name : prefix + '.' + name;
+      GROUP_PATHS.add(group);
+      return group;
+    }, '');
+  });
+  deepFreeze(SCHEMA);
+  deepFreeze(DEFAULTS);
+
+  const isNumber = (value) => typeof value === 'number' && Number.isFinite(value);
+  const accepted = (value) => ({ ok: true, value, adjusted: false });
+  const adjustedTo = (value) => ({ ok: true, value, adjusted: true });
+  const rejected = (spec) => ({ ok: false, value: copy(spec.default), adjusted: true });
+
+  // The nearest allowed number: a "zero allowed" setting (auto) takes 0 below half of its minimum.
+  function limitNumber(spec, number) {
+    if (spec.zero && number === 0) return 0;
+    if (spec.zero && number < spec.min / 2) return 0;
+    const clamped = Core.clamp(number, spec.min, spec.max);
+    if (!spec.step) return clamped;
+    const snapped = spec.min + Math.round((clamped - spec.min) / spec.step) * spec.step;
+    return Math.round(snapped * ROUNDING) / ROUNDING;
+  }
+
+  function coerceNumber(spec, raw) {
+    if (!isNumber(raw)) return rejected(spec);
+    const number = spec.type === 'int' ? Math.round(raw) : raw;
+    const limited = limitNumber(spec, number);
+    return limited === raw ? accepted(limited) : adjustedTo(limited);
+  }
+
+  function coerceBool(spec, raw) {
+    return typeof raw === 'boolean' ? accepted(raw) : rejected(spec);
+  }
+
+  function coerceEnum(spec, raw) {
+    return spec.values.includes(raw) ? accepted(raw) : rejected(spec);
+  }
+
+  function coerceText(spec, raw) {
+    if (raw === null && spec.nullable) return accepted(null);
+    const fits = typeof raw === 'string' && raw.length >= spec.min && raw.length <= spec.max;
+    return fits && (!spec.pattern || spec.pattern.test(raw)) ? accepted(raw) : rejected(spec);
+  }
+
+  function coerceCodes(spec, raw) {
+    const valid = Array.isArray(raw) && raw.length === spec.count && raw.every((item) => CODE_PATTERN.test(item)) &&
+      new Set(raw).size === spec.count;
+    return valid ? accepted(raw.slice()) : rejected(spec);
+  }
+
+  function coerceInts(spec, raw) {
+    const inRange = (item) => Number.isInteger(item) && item >= spec.min && item <= spec.max;
+    const valid = Array.isArray(raw) && raw.length === spec.count && raw.every(inRange) &&
+      new Set(raw).size === spec.count;
+    return valid ? accepted(raw.slice()) : rejected(spec);
+  }
+
+  // A fixed-shape object: each known field is coerced on its own, missing fields take their default, extra fields
+  // are dropped.
+  function coerceObject(spec, raw) {
+    if (!isPlain(raw)) return rejected(spec);
+    const value = {};
+    let adjusted = false;
+    Object.keys(spec.fields).forEach((name) => {
+      const field = spec.fields[name];
+      const missing = raw[name] === undefined;
+      const result = missing ? accepted(copy(field.default)) : coerce(field.spec, raw[name], field.default);
+      value[name] = result.value;
+      adjusted = adjusted || !result.ok || result.adjusted;
+    });
+    return adjusted ? adjustedTo(value) : accepted(value);
+  }
+
+  function validScale(item) {
+    const intervals = isPlain(item) ? item.intervals : null;
+    const named = isPlain(item) && ID_PATTERN.test(item.id) && typeof item.name === 'string' &&
+      item.name.length >= 1 && item.name.length <= 24;
+    const steps = Array.isArray(intervals) && intervals.length > 0 && intervals[0] === 0 &&
+      intervals.every((step, index) => Number.isInteger(step) && step >= 0 && step <= 11 &&
+        (index === 0 || step > intervals[index - 1]));
+    return named && steps;
+  }
+
+  function coerceScales(spec, raw) {
+    if (!Array.isArray(raw)) return rejected(spec);
+    const kept = raw.filter(validScale).slice(0, MAX_USER_SCALES)
+      .map((item) => ({ id: item.id, name: item.name, intervals: item.intervals.slice() }));
+    return kept.length === raw.length ? accepted(kept) : adjustedTo(kept);
+  }
+
+  const COERCERS = {
+    bool: coerceBool, int: coerceNumber, float: coerceNumber, enum: coerceEnum, text: coerceText,
+    codes: coerceCodes, ints: coerceInts, object: coerceObject, scales: coerceScales
+  };
+
+  /** @returns {{ok:boolean, value:*, adjusted:boolean}} ok false = the raw value was unusable (default returned) */
+  function coerce(spec, raw, fallback) {
+    const result = COERCERS[spec.type](spec, raw);
+    if (!result.ok && fallback !== undefined) result.value = copy(fallback);
+    return result;
+  }
+
+  // Keys the schema does not know are kept under `x` like projects do (Part 5.11).
+  function collectUnknown(node, prefix, target) {
+    Object.keys(node).forEach((name) => {
+      const path = prefix === '' ? name : prefix + '.' + name;
+      const reserved = prefix === '' && (name === 'version' || name === 'x');
+      if (reserved || UNSAFE_NAMES.includes(name) || hasOwn(SCHEMA, path)) return;
+      if (GROUP_PATHS.has(path)) {
+        if (isPlain(node[name])) collectUnknown(node[name], path, target);
+        return;
+      }
+      setPath(target, path, copy(node[name]));
+    });
+  }
+
+  /** Deep-merge over the defaults, clamp, enum check (Part 6.27.4.2). @returns {{doc:object, warnings:string[]}} */
+  function normalize(source) {
+    const input = isPlain(source) ? source : {};
+    const doc = copy(DEFAULTS);
+    const warnings = [];
+    Object.keys(SCHEMA).forEach((path) => {
+      const raw = getPath(input, path);
+      if (raw === undefined) return;
+      const result = coerce(SCHEMA[path], raw);
+      if (!result.ok || result.adjusted) warnings.push(path);
+      setPath(doc, path, result.value);
+    });
+    doc.x = isPlain(input.x) ? copy(input.x) : {};
+    collectUnknown(input, '', doc.x);
+    return { doc, warnings };
+  }
+
+  // ---------------------------------------------------------------- the store
+  function createSettings() {
+    const store = { doc: copy(DEFAULTS), saveFailedShown: false };
+
+    function toast(message, key, kind) {
+      if (FLM.UI && typeof FLM.UI.toast === 'function') FLM.UI.toast(message, { kind, key });
+    }
+
+    function noteSaveResult(result) {
+      if (result.ok || store.saveFailedShown) return;
+      store.saveFailedShown = true;            // once per session; the settings stay in memory
+      toast(TEXT.saveFailed, 'settings.saveFailed', 'warn');
+    }
+
+    function persist(change, spec) {
+      const debounceMs = spec && spec.immediate ? 0 : DEBOUNCE_MS;
+      FLM.Storage.saveSettings(copy(store.doc), change, { debounceMs }).then(noteSaveResult);
+    }
+
+    function readStored() {
+      let doc = null;
+      try {
+        doc = FLM.Storage.loadSettings();
+      } catch (error) {
+        Core.Log.warn('settings', 'load failed: ' + (error && error.message));
+      }
+      const info = typeof FLM.Storage.lastSettingsLoad === 'function' ? FLM.Storage.lastSettingsLoad() : null;
+      if (!isPlain(doc)) return { doc: null, source: 'defaults', bothDamaged: Boolean(info && info.damaged) };
+      return { doc, source: info && info.source === 'backup' ? 'backup' : 'stored', bothDamaged: false };
+    }
+
+    /**
+     * Boot step B6: reads the stored document (M-16 tries the .bak), validates it against the schema.
+     * A document from a newer version is ignored (defaults) and not rewritten until the user changes a setting.
+     * @returns {{doc:object, source:'stored'|'backup'|'defaults', warnings:string[]}} never throws
+     */
+    function load() {
+      const stored = readStored();
+      let source = stored.source;
+      let warnings = [];
+      let raw = stored.doc;
+      if (raw && raw.version > SETTINGS_VERSION) {
+        Core.Log.once('W-SET-NEWER', 'warn', 'settings', 'W-SET-NEWER: settings version ' + raw.version);
+        raw = null;
+        source = 'defaults';
+        warnings = ['W-SET-NEWER'];
+      }
+      const result = normalize(raw);
+      store.doc = result.doc;
+      if (result.warnings.length > 0) {
+        warnings = warnings.concat(result.warnings);
+        Core.Log.once('W-SET-NORMALIZED', 'warn', 'settings', 'W-SET-NORMALIZED: ' + result.warnings.join(', '));
+      }
+      if (stored.bothDamaged) toast(Core.Text.get('E-STO-008'), 'settings.reset', 'warn');
+      return { doc: copy(store.doc), source, warnings };
+    }
+
+    function get(path) {
+      return copy(getPath(store.doc, path));
+    }
+
+    function applyValue(path, value, source) {
+      const spec = SCHEMA[path];
+      const prev = getPath(store.doc, path);
+      if (sameValue(prev, value)) return { ok: true, value: copy(value), error: null };
+      setPath(store.doc, path, copy(value));
+      persist({ key: path, value: copy(value), prev: copy(prev), source }, spec);
+      if (path === 'video.highContrast' && value === true) applyValue('accessibility.laneGlyphs', true, source);
+      return { ok: true, value: copy(value), error: null };
+    }
+
+    /** @returns {{ok:boolean, value:*, error:(string|null)}} out-of-range numbers are clamped, bad types refused */
+    function set(path, value, source) {
+      const sourceName = source === undefined ? 'ui' : source;
+      if (!hasOwn(SCHEMA, path)) return { ok: false, value: undefined, error: 'unknown setting' };
+      if (!SOURCES.includes(sourceName)) return { ok: false, value: get(path), error: 'unknown source' };
+      const result = coerce(SCHEMA[path], value);
+      if (!result.ok) return { ok: false, value: get(path), error: 'invalid value for ' + path };
+      return applyValue(path, result.value, sourceName);
+    }
+
+    function setMany(patch, source) {
+      const errors = [];
+      Object.keys(patch).forEach((path) => {
+        const result = set(path, patch[path], source);
+        if (!result.ok) errors.push(path + ': ' + result.error);
+      });
+      return { ok: errors.length === 0, errors };
+    }
+
+    /** Restores defaults for one group (e.g. 'audio') or everything. Emits '*' with source 'reset'. */
+    function reset(group) {
+      const paths = Object.keys(SCHEMA).filter((path) => group === undefined || path === group ||
+        path.startsWith(group + '.'));
+      if (paths.length === 0) return;
+      paths.forEach((path) => setPath(store.doc, path, copy(SCHEMA[path].default)));
+      const change = { key: '*', value: copy(store.doc), prev: null, source: 'reset', keys: paths };
+      FLM.Storage.saveSettings(copy(store.doc), change, { debounceMs: 0 }).then(noteSaveResult);
+    }
+
+    function calibration() {
+      const values = store.doc.calibration;
+      return { inputOffsetMs: values.inputOffsetMs, audioLatencyMs: values.audioLatencyMs,
+        visualLeadMs: values.visualLeadMs };
+    }
+
+    const comparable = () => store.doc.gameplay.judgmentPreset === 'standard';
+
+    /** Writes pending changes now (pagehide, tests). */
+    function flush() {
+      return FLM.Storage.flushSettings().then((result) => ({ ok: result.ok }));
+    }
+
+    function exportText() {
+      return JSON.stringify({ format: EXPORT_FORMAT, version: SETTINGS_VERSION, exportedAt: new Date().toISOString(),
+        appVersion: FLM.VERSION, settings: store.doc }, null, EXPORT_INDENT);
+    }
+
+    function differences(current, imported) {
+      return Object.keys(SCHEMA).filter((path) => !sameValue(getPath(current, path), getPath(imported, path)))
+        .map((path) => ({ path, from: copy(getPath(current, path)), to: copy(getPath(imported, path)) }));
+    }
+
+    function parseJson(text) {
+      if (typeof text !== 'string' || text.length > IMPORT_LIMIT_CHARS) return null;
+      try {
+        return JSON.parse(text);
+      } catch (error) {
+        return null;
+      }
+    }
+
+    /** Parses and validates a .flmsettings.json text; does not apply it. */
+    function parseImport(text) {
+      const refuse = (message) => ({ ok: false, doc: null, changes: [], error: message });
+      const parsed = parseJson(text);
+      const valid = isPlain(parsed) && parsed.format === EXPORT_FORMAT && isPlain(parsed.settings) &&
+        Number.isInteger(parsed.version) && parsed.version >= 1;
+      if (!valid) return refuse(TEXT.importInvalid);
+      if (parsed.version > SETTINGS_VERSION) return refuse(TEXT.importNewer);
+      const imported = normalize(parsed.settings).doc;
+      return { ok: true, doc: imported, changes: differences(store.doc, imported), error: null };
+    }
+
+    /** Applies a document from parseImport: one settings.changed event per changed path (source 'load'). */
+    function applyImport(doc) {
+      const imported = normalize(doc).doc;
+      const patch = {};
+      differences(store.doc, imported).forEach((change) => { patch[change.path] = change.to; });
+      setMany(patch, 'load');
+    }
+
+    // Tests only: back to the defaults (or to a saved document) without events or writes.
+    function resetForTests(saved) {
+      store.doc = copy(saved || DEFAULTS);
+      store.saveFailedShown = false;
+    }
+
+    return Object.freeze({
+      DEFAULTS, SCHEMA, load, get, all: () => copy(store.doc), set, setMany, reset, calibration, comparable, flush,
+      export: exportText, parseImport, applyImport, _resetForTests: resetForTests
+    });
+  }
+
+  return Object.freeze({
+    Settings: createSettings()
+  });
+});
+})();
+
+// ==== 28-modes.js ====
+// 28-modes.js - M-28 FLM.Modes (T01.09): the mode manager. Exactly one mode is active, enter and leave are
+// serialized, every resource a mode creates carries the mode's owner token and is released on leave, and
+// assertClean() proves that repeated navigation leaves nothing behind.
+// Separation rule: this file owns exactly one namespace (Modes) and registers it once through FLM.Core.define.
+// It declares no module-level global state object (S-07): state lives inside the factory closure.
+// Module presence (convention 6 of Part 11): a step whose module is not built yet is skipped and logged once.
+// EXTENSION POINT: later tasks add their enter steps (music, audio binding, charts, judge, stage, input) at the
+// marked place in setupMode(), and gameplay assembly (startGameplay, stopGameplay, preview) next to pause().
+// Spec: docs/IMPLEMENTATION-PLAN.md Part 4.7 (4.7.1 to 4.7.4) and Part 6.28 (6.28.2 to 6.28.4).
+(function () {
+'use strict';
+const FLM = window.FLM;
+
+FLM.Core.define('Modes', function (FLM) {
+  const Core = FLM.Core;
+  const bus = Core.bus;
+  const doc = window.document;
+
+  const MODES_OWNER = Symbol('modes');       // owner of the permanent listeners (part of the menu baseline)
+  const MENU_OWNER = Symbol('menu');
+  const HARD_PANIC_WAIT_MS = 350;            // longest patch release 300 ms plus margin (Part 4.7.2 step 5)
+  const AUTOSAVE_TIMEOUT_MS = 2000;
+  const STALL_PAUSE_MS = 500;                // sched.stall gaps above this pause a playing gameplay mode
+  const MENU_ROOTS = Object.freeze(['SCR-MainMenu', 'SCR-FirstLaunch']);
+  const MENU_ROOT = 'SCR-MainMenu';
+  const SESSION_MODES = Object.freeze(['quickplay', 'instrument', 'dance', 'studio']);   // flm.v1.lastSession
+  const PROJECT_MODES = Object.freeze(['studio', 'freeplay']);                            // autosave on leave
+  const RECORDER_BUSY = Object.freeze(['armed', 'countin', 'recording']);
+  const PAUSE_TEXT = Object.freeze({
+    hidden: 'Paused because the game went to the background', blur: 'Paused because the window lost focus',
+    audio: 'Paused because the sound stopped', gamepad: 'Controller disconnected', stall: 'Playback stalled',
+    user: 'Paused', net: 'Paused because the connection changed'
+  });
+  const TEXT = Object.freeze({
+    unsupportedTitle: 'Returned to the menu', graphicsPaused: 'Graphics paused', ok: 'OK',
+    unsavedTitle: 'Leave without saving?', unsavedBody: 'This project has changes that are not saved.'
+  });
+
+  const MODES = Object.freeze(['menu', 'quickplay', 'instrument', 'freeplay', 'studio', 'library', 'import', 'dance',
+    'multiplayer', 'customize', 'settings', 'help', 'about', 'diagnostics', 'tutorial', 'results']);
+  const GAMEPLAY = Object.freeze(['quickplay', 'instrument', 'dance', 'multiplayer', 'tutorial']);
+  const LIVE = Object.freeze(['freeplay', 'studio']);
+
+  function deepFreeze(value) {
+    if (value !== null && typeof value === 'object' && !Object.isFrozen(value)) {
+      Object.freeze(value);
+      Object.keys(value).forEach((name) => deepFreeze(value[name]));
+    }
+    return value;
+  }
+
+  // The Part 4.7 table as data (shape of Part 6.28.2). Panel modes share one base row.
+  const PANEL_ROW = { audio: false, transport: 'none', scheduler: 'none', chart: 'none', stage: 'none',
+    input: 'menu', hud: null, pads: 'never', landscape: false };
+  const PLAY_ROW = { audio: true, transport: 'song', scheduler: 'bound', chart: 'instrument', stage: 'full',
+    input: 'instrument', hud: 'instrument', pads: 'touch', landscape: true };
+  const panel = (screen, extra) => Object.assign({}, PANEL_ROW, { screen }, extra);
+  const play = (screen, extra) => Object.assign({}, PLAY_ROW, { screen }, extra);
+
+  const REQUIREMENTS = deepFreeze({
+    menu: panel('SCR-MainMenu'),
+    quickplay: play('SCR-QuickPlay', { chart: 'either' }),
+    instrument: play('SCR-Instrument'),
+    freeplay: play('SCR-FreePlay', { transport: 'tempo', chart: 'none', stage: 'single', input: 'freeplay',
+      hud: 'freeplay' }),
+    studio: play('SCR-Studio', { transport: 'project', chart: 'none', stage: 'small', input: 'studio', hud: 'studio',
+      pads: 'recording', landscape: false }),
+    library: panel('SCR-Library', { transport: 'preview', scheduler: 'preview' }),
+    import: panel('SCR-ImportInspect', { transport: 'preview', scheduler: 'preview', chart: 'instrument' }),
+    dance: play('SCR-Dance', { chart: 'dance', input: 'dance', hud: 'dance' }),
+    multiplayer: play('SCR-Multiplayer', { chart: 'either' }),
+    customize: panel('SCR-Characters', { stage: 'single' }),
+    settings: panel('SCR-Settings'),
+    help: panel('SCR-Help'),
+    about: panel('SCR-About'),
+    diagnostics: panel('SCR-Diagnostics'),
+    tutorial: play('SCR-Tutorial', { transport: 'tutorial', chart: 'step' }),
+    results: panel('SCR-Results')
+  });
+
+  const state = {
+    current: { mode: 'none', params: {}, owner: null, enteredAt: 0 },
+    queue: Promise.resolve(),
+    transitioning: false,
+    baseline: null,
+    baselineFromMenu: false,                 // false while the baseline is only the provisional load-time one
+    initialized: false,
+    pauseReason: null,
+    rotateDismissed: false,
+    skipGuardOnce: false
+  };
+
+  // ---------------------------------------------------------------- calling lower modules (module presence)
+
+  function locate(path) {
+    const names = path.split('.');
+    const name = names.pop();
+    const parent = names.reduce((node, key) => (node === undefined || node === null ? undefined : node[key]), FLM);
+    return parent && typeof parent[name] === 'function' ? { parent, name } : null;
+  }
+
+  const available = (path) => locate(path) !== null;
+
+  function invoke(path, ...args) {
+    const spot = locate(path);
+    return spot ? spot.parent[spot.name](...args) : undefined;
+  }
+
+  function noteSkip(step, path) {
+    const namespace = path.split('.')[0];
+    const reason = FLM[namespace] ? path + ' is not available' : namespace + ' not built';
+    Core.Log.once('modes.skip.' + step + '.' + path, 'info', 'modes', 'skip ' + step + ': ' + reason);
+  }
+
+  /** Calls a lower-module function when it exists; otherwise logs the skip once. */
+  function invokeStep(step, path, ...args) {
+    if (!available(path)) {
+      noteSkip(step, path);
+      return undefined;
+    }
+    return invoke(path, ...args);
+  }
+
+  // Runs every call even when one throws, then rethrows the first error (one failure must not skip its siblings).
+  async function runAll(step, calls) {
+    let firstError = null;
+    for (const call of calls) {
+      try {
+        await invokeStep(step, call[0], ...call.slice(1));
+      } catch (error) {
+        firstError = firstError || error;
+      }
+    }
+    if (firstError) throw firstError;
+  }
+
+  const messageOf = (error) => (error && error.message ? String(error.message) : String(error));
+
+  function plainCopy(value) {
+    try {
+      return JSON.parse(JSON.stringify(value));   // functions and cycles cannot travel in events
+    } catch (error) {
+      return {};
+    }
+  }
+
+  function withTimeout(promise, limitMs) {
+    return new Promise((resolve, reject) => {
+      const timer = Core.timers.setTimeout(() => reject(new Error('timeout after ' + limitMs + ' ms')), limitMs,
+        MODES_OWNER);
+      promise.then(
+        (value) => { Core.timers.clearTimeout(timer); resolve(value); },
+        (error) => { Core.timers.clearTimeout(timer); reject(error); }
+      );
+    });
+  }
+
+  function sleep(ms, owner) {
+    return new Promise((resolve) => Core.timers.setTimeout(resolve, ms, owner));
+  }
+
+  // ---------------------------------------------------------------- counters (Part 4.7.3, 6.28.4.11)
+
+  const BASELINE = Symbol('baseline');       // the counter must equal its value in the menu baseline
+  const NO_NEXT = Object.freeze({});
+
+  const element = (id) => doc.getElementById(id);
+  const glCounter = (name) => ({ path: 'Render.counters', map: (counts) => counts[name], want: BASELINE });
+
+  // key: counter name; path: lower-module function to call; map: reduces its result; want: the condition after
+  // leave (a constant, BASELINE, or a function of the current snapshot); no want = recorded, not asserted.
+  const COUNTERS = Object.freeze([
+    { key: 'activeVoices', path: 'Audio.VoiceAllocator.activeCount', want: 0 },
+    { key: 'schedulerRunning', path: 'Audio.Scheduler.running', want: false },
+    { key: 'schedulerPending', path: 'Audio.Scheduler.pending', want: 0 },
+    { key: 'strips', path: 'Audio.stripCount', want: BASELINE },
+    { key: 'audioNodes', path: 'Audio.nodeCount', want: BASELINE },
+    { key: 'transportState', path: 'Transport.main.state', want: 'stopped' },
+    { key: 'transportSong', path: 'Transport.main.song', map: (song) => song !== null, want: false },
+    { key: 'timers', read: () => Core.timers.count(), want: BASELINE },
+    { key: 'rafHandles', read: () => Core.raf.count(), want: 0 },
+    { key: 'loopRunning', path: 'Render.loopRunning', want: false },
+    { key: 'busListeners', read: () => bus.listenerCount(), want: BASELINE },
+    { key: 'domListeners', read: () => Core.dom.count(), want: BASELINE },
+    Object.assign({ key: 'glBuffers' }, glCounter('buffers')),
+    Object.assign({ key: 'glTextures' }, glCounter('textures')),
+    Object.assign({ key: 'glPrograms' }, glCounter('programs')),
+    Object.assign({ key: 'glVaos' }, glCounter('vaos')),
+    { key: 'sceneNodes', path: 'Render.renderer', map: (renderer) => (renderer ? renderer.scene.count() : 0), want: 0 },
+    { key: 'openDialogs', read: () => FLM.UI.dialogCount(), want: 0 },
+    { key: 'screenDepth', read: () => FLM.UI.Screens.depth(), want: (now) => (state.current.mode === 'none'
+      ? now.screenDepth : 1) },
+    { key: 'hudHidden', read: () => !element('hud') || element('hud').hidden, want: true },
+    { key: 'touchHidden', read: () => !element('touch') || element('touch').hidden, want: true },
+    { key: 'heldControls', path: 'Input.held', map: (held) => held.length, want: 0 },
+    { key: 'boundSurfaces', path: 'Input.boundSurfaces', want: BASELINE },
+    { key: 'recorderState', path: 'Studio.Recorder.state', want: 'idle' },
+    { key: 'netConnections', path: 'Net.connectionCount', want: (now, options) => (netExempt(options) &&
+      now.netConnections === 1 ? 1 : 0) },
+    { key: 'audioBuffers', path: 'Import.audioBufferCount', want: () => (available('Project.current') &&
+      invoke('Project.current') ? invoke('Project.current').audioTrackCount() : 0) },
+    { key: 'undoDepth', path: 'Project.current',
+      map: (project) => (project ? project.history.undoStack.counts().undo : 0) },
+    { key: 'heapMB', read: () => (window.performance.memory ? window.performance.memory.usedJSHeapSize / 1048576
+      : null) }
+  ]);
+
+  // The kept multiplayer session: leaving multiplayer for results (or back) keeps one connection open.
+  function netExempt(options) {
+    const next = options && options.next;
+    const from = options && options.from;
+    return (from === 'multiplayer' && next === 'results') || (from === 'results' && next === 'multiplayer');
+  }
+
+  function readCounter(counter) {
+    try {
+      if (counter.read) return counter.read();
+      const value = invoke(counter.path);
+      return counter.map ? counter.map(value) : value;
+    } catch (error) {
+      Core.Log.warn('modes', 'counter ' + counter.key + ' failed: ' + messageOf(error));
+      return null;
+    }
+  }
+
+  /** @returns {object} the current value of every counter whose module exists */
+  function counters() {
+    const snapshot = {};
+    COUNTERS.forEach((counter) => {
+      if (counter.read || available(counter.path)) snapshot[counter.key] = readCounter(counter);
+    });
+    return snapshot;
+  }
+
+  function expectedValue(counter, base, now, options) {
+    if (counter.want === BASELINE) return base[counter.key];
+    return typeof counter.want === 'function' ? counter.want(now, options) : counter.want;
+  }
+
+  /**
+   * Compares the counters with the menu baseline (Part 4.7.3).
+   * @param {{next?:string, from?:string, exempt?:string[]}=} options
+   * @returns {(object|null)} null when clean, else {counter: {expected, actual}} for every violation
+   */
+  function assertClean(options) {
+    const now = counters();
+    const base = state.baseline || now;
+    const strict = state.baselineFromMenu;   // a provisional baseline can only reveal growth, never shrinkage
+    const exempt = (options && options.exempt) || [];
+    const leaks = {};
+    COUNTERS.forEach((counter) => {
+      const asserted = counter.want !== undefined && counter.key in now && !exempt.includes(counter.key);
+      if (!asserted || (counter.want === BASELINE && !(counter.key in base))) return;
+      const expected = expectedValue(counter, base, now, options);
+      const actual = now[counter.key];
+      const differs = strict || counter.want !== BASELINE ? expected !== actual : actual > expected;
+      if (differs) leaks[counter.key] = { expected, actual };
+    });
+    return Object.keys(leaks).length > 0 ? leaks : null;
+  }
+
+  // ---------------------------------------------------------------- leave (Part 4.7.2, 6.28.4.2)
+
+  function leaveRecorder() {
+    if (!available('Studio.Recorder.state')) return invokeStep('recorder', 'Studio.Recorder.state');
+    return RECORDER_BUSY.includes(invoke('Studio.Recorder.state')) ? invoke('Studio.Recorder.abort') : undefined;
+  }
+
+  // Soft panic first; a voice that survives the 350 ms wait means a defect, so the bus graph is rebuilt.
+  async function leaveHardPanic(context) {
+    const counting = 'Audio.VoiceAllocator.activeCount';
+    if (!available(counting)) return invokeStep('hardPanic', counting);
+    if (invoke('Audio.VoiceAllocator.activeCount') === 0) return undefined;
+    await sleep(HARD_PANIC_WAIT_MS, context.owner);
+    if (invoke('Audio.VoiceAllocator.activeCount') === 0) return undefined;
+    invokeStep('hardPanic', 'Audio.panic', true);
+    Core.ErrorReporter.report('E-AUD-006', null, { module: 'Modes', mode: context.mode });
+    return undefined;
+  }
+
+  function leaveBindings(context) {
+    if (context.mode === 'studio') return invokeStep('bindings', 'Studio.Session.close');
+    return runAll('bindings', [['Audio.Scheduler.unbind'], ['Transport.main.unload']]);
+  }
+
+  function leaveTimers(context) {
+    Core.timers.clearOwner(context.owner);
+    Core.raf.cancelOwner(context.owner);
+  }
+
+  function leaveTextEntry() {
+    FLM.UI.setTextEntryAllowed(true);
+    doc.body.classList.remove('in-game');
+  }
+
+  function leaveHud() {
+    FLM.UI.HUD.hide();
+    FLM.UI.HUD.reset();
+  }
+
+  function leavePads() {
+    FLM.UI.TouchPads.hide();
+    hideRotate();
+  }
+
+  async function leaveScreens() {
+    await FLM.UI.Screens.popTo(MENU_ROOT);
+    doc.body.dataset.mode = 'menu';
+  }
+
+  function leaveListeners(context) {
+    Core.dom.offOwner(context.owner);
+    bus.removeOwner(context.owner);
+  }
+
+  function leaveNetwork(context) {
+    if (context.mode !== 'multiplayer' || context.next === 'results') return undefined;
+    return invokeStep('network', 'Net.close', context.reason);
+  }
+
+  async function leaveAutosave(context) {
+    if (!PROJECT_MODES.includes(context.mode)) return;
+    if (!available('Project.isDirty') || !available('Storage.autosave')) {
+      noteSkip('autosave', available('Project.isDirty') ? 'Storage.autosave' : 'Project.isDirty');
+      return;
+    }
+    if (!invoke('Project.isDirty')) return;
+    await withTimeout(Promise.resolve(invoke('Storage.autosave', invoke('Project.current'))), AUTOSAVE_TIMEOUT_MS);
+  }
+
+  // Steps 1 to 13 of Part 4.7.2 in order (the HUD, pads, dialogs and screens are the four parts of step 10).
+  const LEAVE_STEPS = Object.freeze([
+    { name: 'input', run: (context) => runAll('input', [['Input.releaseAll', 'system'], ['Input.unbind',
+      context.owner]]) },
+    { name: 'recorder', run: leaveRecorder },
+    { name: 'transport', run: () => invokeStep('transport', 'Transport.main.stop') },
+    { name: 'panic', run: () => invokeStep('panic', 'Audio.panic', false) },
+    { name: 'hardPanic', run: leaveHardPanic },
+    { name: 'bindings', run: leaveBindings },
+    { name: 'stage', run: () => runAll('stage', [['Render.stopLoop'], ['Stage.dispose'], ['Animation.Mixer.dispose'],
+      ['Render.Flat2D.clear']]) },
+    { name: 'timers', run: leaveTimers },
+    { name: 'textEntry', run: leaveTextEntry },
+    { name: 'hud', run: leaveHud },
+    { name: 'touchPads', run: leavePads },
+    { name: 'dialogs', run: () => FLM.UI.closeAllDialogs('mode-leave') },
+    { name: 'screens', run: leaveScreens },
+    { name: 'listeners', run: leaveListeners },
+    { name: 'network', run: leaveNetwork },
+    { name: 'autosave', run: leaveAutosave }
+  ]);
+
+  async function runLeaveStep(step, context) {
+    try {
+      await step.run(context);
+    } catch (error) {
+      Core.ErrorReporter.report('E-MODE-003', error, { module: 'Modes', step: step.name, mode: context.mode });
+    }
+  }
+
+  function isMenuLike(mode) {
+    return mode === 'menu' || mode === 'none';
+  }
+
+  function menuState() {
+    return { mode: 'menu', params: {}, owner: MENU_OWNER, enteredAt: Core.now() };
+  }
+
+  async function doLeave(reason, options) {
+    const leaving = state.current;
+    if (isMenuLike(leaving.mode)) return { leaks: null, ms: 0 };
+    const started = Core.now();
+    const next = options && options.next;
+    const context = { mode: leaving.mode, owner: leaving.owner, reason, next };
+    state.pauseReason = null;
+    for (const step of LEAVE_STEPS) await runLeaveStep(step, context);
+    const leaks = assertClean({ next, from: leaving.mode });
+    if (leaks) {
+      Core.ErrorReporter.report('E-MODE-001', new Error('leaked: ' + Object.keys(leaks).join(', ')),
+        { module: 'Modes', mode: leaving.mode, leaks });
+    }
+    const ms = Math.round(Core.now() - started);
+    state.current = menuState();
+    bus.emit('mode.leave', { mode: leaving.mode, next, reason, ms, leaks });
+    return { leaks, ms };
+  }
+
+  // ---------------------------------------------------------------- enter (Part 4.7.1, 6.28.4.1)
+
+  function hideRotate() {
+    const panelElement = element('rotate');
+    if (panelElement) panelElement.classList.remove('show');
+  }
+
+  // One recommendation per mode enter; dismissing it never blocks anything (Part 6.28.4.9).
+  function maybeShowRotate(mode) {
+    const wanted = REQUIREMENTS[mode].landscape && !state.rotateDismissed;
+    const panelElement = element('rotate');
+    if (!wanted || !panelElement || panelElement.classList.contains('show')) return;
+    if (!FLM.UI.Layout.compact() || FLM.UI.Layout.orientation() !== 'portrait') return;
+    panelElement.classList.add('show');
+    const dismiss = element('rotate-dismiss');
+    if (dismiss) {
+      Core.dom.on(dismiss, 'click', () => { state.rotateDismissed = true; hideRotate(); }, undefined,
+        state.current.owner);
+    }
+  }
+
+  function settingValue(path) {
+    return FLM.Screens && FLM.Screens.Settings ? FLM.Screens.Settings.get(path) : undefined;
+  }
+
+  function hudKind(mode, params) {
+    const wanted = REQUIREMENTS[mode].hud;
+    if (wanted === null) return null;
+    return (mode === 'quickplay' || mode === 'multiplayer') && params.kind === 'dance' ? 'dance' : wanted;
+  }
+
+  function showPads(mode, params) {
+    const rule = REQUIREMENTS[mode].pads;
+    const visibility = settingValue('input.padsVisible') || 'auto';
+    const touchDevice = Core.Caps.get().maxTouchPoints > 0;
+    const wanted = rule === 'touch' && (visibility === 'always' || (visibility === 'auto' && touchDevice));
+    if (!wanted) return;
+    FLM.UI.TouchPads.show({ kind: hudKind(mode, params) === 'dance' ? 'dance' : 'lanes',
+      size: settingValue('input.padSize'), layout: settingValue('input.padLayout') });
+  }
+
+  // Steps of Part 4.7.1 whose module is not built yet; each is logged once and skipped (convention 6).
+  const PENDING_STEPS = Object.freeze([
+    { step: 'music', module: 'Transport', applies: (row) => row.transport !== 'none' },
+    { step: 'audio binding', module: 'Audio', applies: (row) => row.scheduler !== 'none' },
+    { step: 'charts', module: 'Mapping', applies: (row) => row.chart !== 'none' },
+    { step: 'judge', module: 'Rhythm', applies: (row) => row.chart !== 'none' },
+    { step: 'stage', module: 'Stage', applies: (row) => row.stage !== 'none' },
+    { step: 'input', module: 'Input', applies: () => true }
+  ]);
+
+  function notePendingSteps(mode) {
+    const row = REQUIREMENTS[mode];
+    PENDING_STEPS.filter((item) => item.applies(row)).forEach((item) => {
+      const reason = FLM[item.module] ? item.module + ' step not wired yet' : item.module + ' not built';
+      Core.Log.once('modes.skip.enter.' + item.step, 'info', 'modes', 'skip ' + item.step + ': ' + reason);
+    });
+  }
+
+  async function setupMenu(params) {
+    if (FLM.UI.Screens.depth() === 0) {
+      const root = MENU_ROOTS.includes(params.screen) ? params.screen : MENU_ROOT;
+      await FLM.UI.Screens.push(root, params);
+    }
+    if (typeof params.returnTo === 'string') await FLM.UI.Screens.push(params.returnTo, params);
+  }
+
+  async function pushModeScreen(mode, params) {
+    const screen = REQUIREMENTS[mode].screen;
+    const top = FLM.UI.Screens.current();
+    if (top && top.id === screen) await FLM.UI.Screens.replace(screen, Object.assign({ phase: 'play' }, params));
+    else await FLM.UI.Screens.push(screen, params);
+  }
+
+  /** Steps 5 to 12 of Part 4.7.1. */
+  async function setupMode(mode, params) {
+    if (mode === 'menu') {
+      await setupMenu(params);
+      return;
+    }
+    notePendingSteps(mode);
+    // EXTENSION POINT: music load, audio binding, charts, judge, stage and input binding go here (later tasks).
+    const kind = hudKind(mode, params);
+    if (kind !== null) FLM.UI.HUD.show(kind, state.current.owner);
+    showPads(mode, params);
+    await pushModeScreen(mode, params);
+    maybeShowRotate(mode);
+  }
+
+  // Part 4.7 table note: a mode that needs sound waits for DLG-AudioBlocked (built by T01.11) or is refused.
+  async function passAudioGate(mode) {
+    if (!REQUIREMENTS[mode].audio) return true;
+    if (!available('Audio.isUnlocked')) {
+      noteSkip('audio unlock', 'Audio.isUnlocked');
+      return true;
+    }
+    if (invoke('Audio.isUnlocked')) return true;
+    const canAsk = FLM.Screens && typeof FLM.Screens.dialog === 'function';
+    const answer = canAsk ? await FLM.Screens.dialog('DLG-AudioBlocked', { mode }) : 'cancel';
+    if (answer === 'enabled') return true;
+    Core.ErrorReporter.report('E-AUD-002', null, { module: 'Modes', mode });
+    return false;
+  }
+
+  function rememberMode(mode, params) {
+    if (FLM.Screens && FLM.Screens.Settings) FLM.Screens.Settings.set('onboarding.lastMode', mode, 'ui');
+    if (!SESSION_MODES.includes(mode)) return;
+    FLM.Storage.set(FLM.Storage.KEYS.lastSession, { mode, projectId: params.projectId || null,
+      songId: params.songId || null, at: new Date().toISOString() });
+  }
+
+  function showError(record) {
+    const known = FLM.Screens && typeof FLM.Screens.showError === 'function';
+    const shown = known ? FLM.Screens.showError(record) : FLM.UI.dialog({ id: 'DLG-Unsupported',
+      title: TEXT.unsupportedTitle, body: record.userMessage || record.message,
+      buttons: [{ id: 'ok', label: TEXT.ok, kind: 'primary', isDefault: true, isCancel: true }] });
+    Promise.resolve(shown).catch((error) => Core.Log.warn('modes', 'error dialog failed: ' + messageOf(error)));
+  }
+
+  async function failEnter(mode, error) {
+    const record = Core.ErrorReporter.report('E-MODE-002', error, { module: 'Modes', mode,
+      message: messageOf(error) });
+    await doLeave('error', { next: 'menu' });
+    showError(record);                         // not awaited: the dialog waits for the user, the transition does not
+    return { ok: false, mode: 'menu', error: record };
+  }
+
+  // The HUD builds its nodes and listeners on first use; building them now keeps them in the baseline.
+  function takeBaseline() {
+    FLM.UI.HUD.note('');
+    state.baseline = counters();
+    state.baselineFromMenu = true;
+  }
+
+  // Boot enters the menu first; a mode entered before that gets the menu root under it (leave pops back to it).
+  async function openMenuRoot() {
+    state.current = menuState();
+    doc.body.dataset.mode = 'menu';
+    await setupMenu({});
+  }
+
+  async function doEnter(mode, rawParams) {
+    const started = Core.now();
+    const prev = state.current.mode;
+    const params = rawParams && typeof rawParams === 'object' ? rawParams : {};
+    try {
+      Core.assert(MODES.includes(mode), 'unknown mode ' + mode);
+      if (!isMenuLike(state.current.mode)) await doLeave('user', { next: mode });
+      if (state.current.mode === 'none' && mode !== 'menu') await openMenuRoot();
+      takeBaseline();                          // taken only in the menu (Part 4.7.1 step 2)
+      if (!(await passAudioGate(mode))) return { ok: false, mode: 'menu' };
+      const owner = mode === 'menu' ? MENU_OWNER : Symbol(mode + ':' + Core.uid());
+      state.current = { mode, params, owner, enteredAt: Core.now() };
+      doc.body.dataset.mode = mode;
+      await setupMode(mode, params);
+      bus.emit('mode.enter', { mode, prev, params: plainCopy(params), ms: Math.round(Core.now() - started) });
+      rememberMode(mode, params);
+      return { ok: true, mode };
+    } catch (error) {
+      return failEnter(mode, error);
+    }
+  }
+
+  // Serialization: every transition waits for the one before it (Part 4.7). Jobs never reject.
+  function runExclusive(job) {
+    const run = state.queue.then(async () => {
+      state.transitioning = true;
+      try {
+        return await job();
+      } finally {
+        state.transitioning = false;
+      }
+    });
+    state.queue = run.catch(() => {});
+    return run;
+  }
+
+  /** @returns {Promise<{ok:boolean, mode:string, error?:object}>} never rejects; failure returns to the menu */
+  function enter(mode, params) {
+    return runExclusive(() => doEnter(mode, params));
+  }
+
+  /**
+   * Full teardown to the menu (Part 4.7.2). Never rejects; a failing step is reported as E-MODE-003 and the
+   * sequence continues.
+   * @param {string} reason 'user', 'finished', 'error', 'interrupt' or 'net'
+   * @param {{next?:string}=} options
+   * @returns {Promise<{leaks:(object|null), ms:number}>}
+   */
+  function leave(reason, options) {
+    return runExclusive(() => doLeave(reason || 'user', options || NO_NEXT));
+  }
+
+  /** Restarts the current mode with changed parameters (fresh state; gameplay assembly refines it later). */
+  async function restart(changes) {
+    const mode = state.current.mode;
+    if (isMenuLike(mode)) return;
+    await enter(mode, Object.assign({}, state.current.params, changes || {}));
+  }
+
+  // ---------------------------------------------------------------- pause and interruptions (Part 4.7.4)
+
+  const isGameplay = (mode) => GAMEPLAY.includes(mode === undefined ? state.current.mode : mode);
+
+  function releaseInputs() {
+    invokeStep('release', 'Input.releaseAll', 'system');
+  }
+
+  /** Pauses the transport, releases inputs and shows SCR-Pause when it exists. @returns {Promise<boolean>} */
+  async function pause(reason) {
+    if (!isGameplay() || state.pauseReason !== null) return false;
+    state.pauseReason = reason;
+    releaseInputs();
+    invokeStep('pause', 'Transport.main.pause');
+    try {
+      await FLM.UI.Screens.push('SCR-Pause', { reason, text: PAUSE_TEXT[reason] || PAUSE_TEXT.user });
+    } catch (error) {
+      Core.Log.once('modes.skip.pause-screen', 'info', 'modes', 'skip SCR-Pause: ' + messageOf(error));
+    }
+    return true;
+  }
+
+  /** Pops SCR-Pause and resumes the transport. @returns {Promise<boolean>} */
+  async function resume() {
+    if (state.pauseReason === null) return false;
+    state.pauseReason = null;
+    const top = FLM.UI.Screens.current();
+    if (top && top.id === 'SCR-Pause') await FLM.UI.Screens.pop();
+    invokeStep('resume', 'Transport.main.resume');
+    return true;
+  }
+
+  function startPause(reason) {
+    pause(reason).catch((error) => Core.Log.warn('modes', 'pause failed: ' + messageOf(error)));
+    return 'paused';
+  }
+
+  function transportIsRunning() {
+    if (!available('Transport.main.state')) return true;   // a gameplay mode is active, so assume it is playing
+    return ['playing', 'countin'].includes(invoke('Transport.main.state'));
+  }
+
+  // Rows of Part 6.28.4.9 for the sources that exist in this build. Each handler returns the action taken.
+  function whenHidden(kind) {
+    if (kind === 'gameplay') return startPause('hidden');
+    if (kind === 'live') return releaseAndReport();
+    return 'ignored';
+  }
+
+  function releaseAndReport() {
+    releaseInputs();
+    return 'released';
+  }
+
+  function whenPageHidden(kind) {
+    if (FLM.Screens && FLM.Screens.Settings) FLM.Screens.Settings.flush();
+    return whenHidden(kind);
+  }
+
+  function whenBlur(kind) {
+    if (kind === 'gameplay') return transportIsRunning() ? startPause('blur') : 'ignored';
+    return kind === 'live' ? 'continued' : 'ignored';
+  }
+
+  function whenAudioStops(kind) {
+    if (kind === 'gameplay') return startPause('audio');
+    if (kind !== 'live') return 'ignored';
+    invokeStep('pause', 'Transport.main.pause');
+    return 'paused';
+  }
+
+  function whenGamepadGone(kind, detail) {
+    if (kind === 'gameplay' && detail && detail.released) return startPause('gamepad');
+    return kind === 'live' ? 'released' : 'ignored';
+  }
+
+  function whenStalled(kind, detail) {
+    if (!detail || !(detail.gapMs > STALL_PAUSE_MS)) return 'ignored';
+    if (kind === 'gameplay') return startPause('stall');
+    return kind === 'live' ? 'continued' : 'ignored';
+  }
+
+  function whenGraphicsChange(kind, lost) {
+    if (kind === 'panel' || !FLM.UI.HUD.visible()) return 'ignored';
+    FLM.UI.HUD.note(lost ? TEXT.graphicsPaused : '');
+    return 'continued';
+  }
+
+  function whenLayoutChanges() {
+    FLM.UI.TouchPads.layout();
+    if (!isMenuLike(state.current.mode)) maybeShowRotate(state.current.mode);
+    return 'continued';
+  }
+
+  function whenNetworkEnds() {
+    if (state.current.mode !== 'multiplayer') return 'ignored';
+    leave('net').catch(() => {});
+    return 'ended';
+  }
+
+  const INTERRUPTS = Object.freeze({
+    hidden: whenHidden,
+    visible: (kind) => (kind === 'panel' ? 'ignored' : 'continued'),
+    pagehide: whenPageHidden,
+    freeze: whenPageHidden,
+    blur: whenBlur,
+    audio: whenAudioStops,
+    gamepad: whenGamepadGone,
+    stall: whenStalled,
+    contextLost: (kind) => whenGraphicsChange(kind, true),
+    contextRestored: (kind) => whenGraphicsChange(kind, false),
+    layout: whenLayoutChanges,
+    net: whenNetworkEnds
+  });
+
+  function modeKind() {
+    const mode = state.current.mode;
+    if (GAMEPLAY.includes(mode)) return 'gameplay';
+    return LIVE.includes(mode) ? 'live' : 'panel';
+  }
+
+  /**
+   * Handles an interruption for the current mode kind (gameplay, live or panel).
+   * @param {string} cause 'hidden', 'visible', 'pagehide', 'freeze', 'blur', 'audio', 'gamepad', 'stall',
+   *   'contextLost', 'contextRestored', 'layout' or 'net'
+   * @returns {string} 'paused', 'continued', 'ended', 'released' or 'ignored'
+   * Emits: mode.interrupted {mode, cause, action} for every handled row
+   */
+  function onInterrupt(cause, detail) {
+    const handler = INTERRUPTS[cause];
+    if (!handler || isMenuLike(state.current.mode)) return 'ignored';
+    const action = handler(modeKind(), detail);
+    if (action !== 'ignored') bus.emit('mode.interrupted', { mode: state.current.mode, cause, action });
+    return action;
+  }
+
+  // ---------------------------------------------------------------- init: permanent listeners (Part 6.28.4.12)
+
+  // Browser back: the unsaved-changes guard first, then the screen stack decides (Part 6.28.4.12).
+  async function confirmLeaveUnsaved() {
+    const dirty = available('Project.isDirty') && invoke('Project.isDirty');
+    if (!dirty || !PROJECT_MODES.includes(state.current.mode)) return true;
+    const answer = await FLM.UI.confirmUnsaved({ title: TEXT.unsavedTitle, body: TEXT.unsavedBody });
+    return answer === 'discard';
+  }
+
+  async function onPopState(event) {
+    const skipGuard = state.skipGuardOnce;
+    state.skipGuardOnce = false;
+    if (!skipGuard && !(await confirmLeaveUnsaved())) {
+      state.skipGuardOnce = true;              // history.forward() fires one more popstate; let it through
+      window.history.forward();
+      return;
+    }
+    await FLM.UI.Screens.onPopState(event.state);
+  }
+
+  function guarded(handler) {
+    return (event) => {
+      Promise.resolve(handler(event)).catch((error) => Core.ErrorReporter.report('E-GEN-001', error,
+        { module: 'Modes', op: 'listener' }));
+    };
+  }
+
+  function installListeners() {
+    const listen = (target, type, handler) => Core.dom.on(target, type, guarded(handler), undefined, MODES_OWNER);
+    listen(window, 'popstate', onPopState);
+    listen(doc, 'visibilitychange', () => onInterrupt(doc.visibilityState === 'hidden' ? 'hidden' : 'visible'));
+    listen(window, 'pagehide', () => onInterrupt('pagehide'));
+    listen(doc, 'freeze', () => onInterrupt('freeze'));
+    listen(window, 'blur', () => onInterrupt('blur'));
+  }
+
+  // A returnToMenu error raised outside a transition sends the user back to the menu (Part 6.28.4.9).
+  function onErrorRecord(record) {
+    const ours = record.code === 'E-MODE-002';   // enter reports and handles its own failures
+    if (record.class !== 'returnToMenu' || ours || state.transitioning) return;
+    leave('error').then(() => showError(record));
+  }
+
+  function subscribe() {
+    const on = (topic, handler) => bus.on(topic, handler, MODES_OWNER);
+    on('error', onErrorRecord);
+    on('audio.state', (event) => { if (event && event.state !== 'running') onInterrupt('audio'); });
+    on('render.contextLost', () => onInterrupt('contextLost'));
+    on('render.contextRestored', () => onInterrupt('contextRestored'));
+    on('ui.layout', () => onInterrupt('layout'));
+    on('input.device', (event) => {
+      if (event && event.source === 'gamepad' && event.connected === false) onInterrupt('gamepad', event);
+    });
+    on('sched.stall', (event) => onInterrupt('stall', event));
+    on('net.state', (event) => {
+      if (event && (event.state === 'ended' || event.state === 'error')) onInterrupt('net');
+    });
+  }
+
+  /** Boot step B10: browser history on, interruption listeners and subscriptions installed once. */
+  function init() {
+    if (state.initialized) return;
+    state.initialized = true;
+    state.current = { mode: 'none', params: {}, owner: null, enteredAt: 0 };
+    FLM.UI.Screens.setHistory(true);
+    installListeners();
+    subscribe();
+    FLM.UI.HUD.note('');
+    state.baseline = counters();               // these permanent listeners are part of the menu baseline
+    state.baselineFromMenu = false;
+  }
+
+  // Tests only: removes the permanent listeners and returns to the "none" state.
+  function teardownForTests() {
+    Core.dom.offOwner(MODES_OWNER);
+    bus.removeOwner(MODES_OWNER);
+    Core.timers.clearOwner(MODES_OWNER);
+    if (state.initialized) FLM.UI.Screens.setHistory(false);
+    Object.assign(state, { current: { mode: 'none', params: {}, owner: null, enteredAt: 0 },
+      queue: Promise.resolve(), transitioning: false, initialized: false, pauseReason: null,
+      rotateDismissed: false, skipGuardOnce: false, baselineFromMenu: false });
+    state.baseline = counters();
+  }
+
+  state.baseline = counters();                 // provisional baseline until the first menu entry (see assertClean)
+
+  return Object.freeze({
+    MODES,
+    GAMEPLAY,
+    LIVE,
+    REQUIREMENTS,
+    init,
+    enter,
+    leave,
+    restart,
+    current: () => ({ mode: state.current.mode, params: plainCopy(state.current.params),
+      enteredAt: state.current.enteredAt, transitioning: state.transitioning }),
+    params: () => plainCopy(state.current.params),
+    isGameplay,
+    isTransitioning: () => state.transitioning,
+    pause,
+    resume,
+    onInterrupt,
+    baseline: counters,
+    assertClean,
+    counters,
     _teardownForTests: teardownForTests
   });
 });
