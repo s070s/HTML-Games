@@ -307,6 +307,7 @@ Every Deferred row is listed here (Part 0.7 rule 2). Rows of phases that have st
 
 | Module or screen | Limitation | Spec ref | Disclosure (exact UI text or document) | Affected R-IDs |
 |---|---|---|---|---|
+| M-02 Theory, M-03 Model | MusicXML per-note `step` and `alter` that disagree with the key spelling are not preserved: `NoteEvent` has no spelling field, so note names are derived from the `KeyMap` at the note's tick through `Theory.spell` | T02.01 open items, OPEN-ISSUES 12c-1 | This row (STATUS.md section 5) | R-B10.1-02 |
 | SCR-MainMenu entry "Quick Play" | Disabled; SCR-QuickPlay is built in Phase 08 | Part 7.6.2, T01.11 | Available after a later build step | R-B6.2-01 |
 | SCR-MainMenu entry "Instrument Mode" | Disabled; SCR-Instrument is built in Phase 08 | Part 7.6.2, T01.11 | Available after a later build step | R-B6.2-02 |
 | SCR-MainMenu entry "Free Play" | Disabled; SCR-FreePlay is built in Phase 06 | Part 7.6.2, T01.11 | Available after a later build step | R-B6.2-03 |
