@@ -232,7 +232,7 @@ body.touch .hover-only { display: none; }
 (function () {
 'use strict';
 const VERSION = '0.1.0';
-const BUILD = '2026-10-27T13:50:22Z standalone ship';
+const BUILD = '2026-10-27T14:17:48Z standalone ship';
 const RELAY_URL = '';
 const FLM = window.FLM = { VERSION, BUILD, RELAY_URL };
 
@@ -1620,6 +1620,1839 @@ FLM.Core = Core;
 registry.set('Core', { name: 'Core', order: 1 });
 bus.on('boot.ready', () => { bootReady = true; });
 ErrorReporter.install();
+})();
+
+// ==== 02-theory.js ====
+// 02-theory.js - M-02 FLM.Theory: pitch classes, spelling, scales, chords, intervals, keys, GM names.
+// Separation rule: this file owns exactly one namespace and registers it once through
+// FLM.Core.define. It may use only lower-numbered modules (Part 4.2, R-DEP). It declares no
+// module-level global state object (S-07): state lives inside the factory closure.
+(function () {
+'use strict';
+const FLM = window.FLM;
+
+FLM.Core.define('Theory', function (FLM) {
+  const TABLE_VERSION = 1;                  // Part 5.17 table version
+  const MIDI_MAX = 127;
+  const OCTAVE_SIZE = 12;
+  const MAX_USER_SCALES = 64;               // Part 6.2.3
+  const MAX_CHORD_PITCHES = 5;
+  const NOTE_NAME_PATTERN = /^([A-Ga-g])(#{1,2}|b{1,2}|x)?(-?\d{1,2})$/;
+  const LETTER_PITCH_CLASS = Object.freeze({ C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 });
+  const USER_PREFIX = 'user:';
+
+  // Recursively freezes tables so no caller can mutate shared theory data (Part 6.2.9).
+  function deepFreeze(value) {
+    if (value === null || typeof value !== 'object' || Object.isFrozen(value)) return value;
+    Object.freeze(value);
+    Object.keys(value).forEach((key) => deepFreeze(value[key]));
+    return value;
+  }
+
+  function codedError(code, text) {
+    const error = new Error(code + ': ' + text);
+    error.code = code;
+    return error;
+  }
+
+  function isIntegerIn(value, low, high) {
+    return Number.isInteger(value) && value >= low && value <= high;
+  }
+
+  function requireInteger(value, low, high, label) {
+    if (!isIntegerIn(value, low, high)) {
+      throw codedError('E-GEN-005', label + ' must be an integer from ' + low + ' to ' + high);
+    }
+    return value;
+  }
+
+  function clampMidi(midi) {
+    return Math.min(MIDI_MAX, Math.max(0, midi));
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Tables
+  // ---------------------------------------------------------------------------------------------
+  const PITCH_CLASS_SHARP = deepFreeze(['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']);
+  const PITCH_CLASS_FLAT = deepFreeze(['C', 'Db', 'D', 'Eb', 'E', 'F', 'Gb', 'G', 'Ab', 'A', 'Bb', 'B']);
+  const PITCH_CLASSES = deepFreeze(PITCH_CLASS_SHARP.map((sharp, pc) => ({ pc, sharp, flat: PITCH_CLASS_FLAT[pc] })));
+
+  const SCALES = deepFreeze([
+    { id: 'major', name: 'Major (Ionian)', intervals: [0, 2, 4, 5, 7, 9, 11], userDefined: false },
+    { id: 'naturalMinor', name: 'Natural minor (Aeolian)', intervals: [0, 2, 3, 5, 7, 8, 10], userDefined: false },
+    { id: 'harmonicMinor', name: 'Harmonic minor', intervals: [0, 2, 3, 5, 7, 8, 11], userDefined: false },
+    { id: 'melodicMinor', name: 'Melodic minor', intervals: [0, 2, 3, 5, 7, 9, 11], userDefined: false },
+    { id: 'majorPentatonic', name: 'Major pentatonic', intervals: [0, 2, 4, 7, 9], userDefined: false },
+    { id: 'minorPentatonic', name: 'Minor pentatonic', intervals: [0, 3, 5, 7, 10], userDefined: false },
+    { id: 'blues', name: 'Blues', intervals: [0, 3, 5, 6, 7, 10], userDefined: false },
+    { id: 'chromatic', name: 'Chromatic', intervals: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11], userDefined: false },
+    { id: 'dorian', name: 'Dorian', intervals: [0, 2, 3, 5, 7, 9, 10], userDefined: false },
+    { id: 'phrygian', name: 'Phrygian', intervals: [0, 1, 3, 5, 7, 8, 10], userDefined: false },
+    { id: 'lydian', name: 'Lydian', intervals: [0, 2, 4, 6, 7, 9, 11], userDefined: false },
+    { id: 'mixolydian', name: 'Mixolydian', intervals: [0, 2, 4, 5, 7, 9, 10], userDefined: false },
+    { id: 'locrian', name: 'Locrian', intervals: [0, 1, 3, 5, 6, 8, 10], userDefined: false },
+    { id: 'wholeTone', name: 'Whole tone', intervals: [0, 2, 4, 6, 8, 10], userDefined: false }
+  ]);
+  const SCALE_ALIASES = Object.freeze({ ionian: 'major', aeolian: 'naturalMinor' });
+
+  const CHORDS = deepFreeze([
+    { type: 'major', name: 'Major', symbol: '', intervals: [0, 4, 7] },
+    { type: 'minor', name: 'Minor', symbol: 'm', intervals: [0, 3, 7] },
+    { type: 'dim', name: 'Diminished', symbol: 'dim', intervals: [0, 3, 6] },
+    { type: 'aug', name: 'Augmented', symbol: 'aug', intervals: [0, 4, 8] },
+    { type: 'sus2', name: 'Suspended 2nd', symbol: 'sus2', intervals: [0, 2, 7] },
+    { type: 'sus4', name: 'Suspended 4th', symbol: 'sus4', intervals: [0, 5, 7] },
+    { type: 'maj7', name: 'Major 7th', symbol: 'maj7', intervals: [0, 4, 7, 11] },
+    { type: 'min7', name: 'Minor 7th', symbol: 'm7', intervals: [0, 3, 7, 10] },
+    { type: 'dom7', name: 'Dominant 7th', symbol: '7', intervals: [0, 4, 7, 10] },
+    { type: 'dim7', name: 'Diminished 7th', symbol: 'dim7', intervals: [0, 3, 6, 9] },
+    { type: 'halfDim7', name: 'Half-diminished 7th', symbol: 'm7b5', intervals: [0, 3, 6, 10] },
+    { type: 'minMaj7', name: 'Minor-major 7th', symbol: 'mMaj7', intervals: [0, 3, 7, 11] },
+    { type: 'add9', name: 'Add 9', symbol: 'add9', intervals: [0, 4, 7, 14] },
+    { type: 'six', name: 'Major 6th', symbol: '6', intervals: [0, 4, 7, 9] },
+    { type: 'min6', name: 'Minor 6th', symbol: 'm6', intervals: [0, 3, 7, 9] },
+    { type: 'nine', name: 'Dominant 9th', symbol: '9', intervals: [0, 4, 7, 10, 14] },
+    { type: 'maj9', name: 'Major 9th', symbol: 'maj9', intervals: [0, 4, 7, 11, 14] },
+    { type: 'min9', name: 'Minor 9th', symbol: 'm9', intervals: [0, 3, 7, 10, 14] }
+  ]);
+
+  // P1 to P15 (0 to 24 semitones); semitone 6 is named A4 with d5 accepted as an alias.
+  const INTERVAL_IDS = ['P1', 'm2', 'M2', 'm3', 'M3', 'P4', 'A4', 'P5', 'm6', 'M6', 'm7', 'M7', 'P8', 'm9', 'M9',
+    'm10', 'M10', 'P11', 'A11', 'P12', 'm13', 'M13', 'm14', 'M14', 'P15'];
+  const INTERVAL_NAMES = ['Perfect unison', 'Minor 2nd', 'Major 2nd', 'Minor 3rd', 'Major 3rd', 'Perfect 4th',
+    'Augmented 4th', 'Perfect 5th', 'Minor 6th', 'Major 6th', 'Minor 7th', 'Major 7th', 'Perfect octave',
+    'Minor 9th', 'Major 9th', 'Minor 10th', 'Major 10th', 'Perfect 11th', 'Augmented 11th', 'Perfect 12th',
+    'Minor 13th', 'Major 13th', 'Minor 14th', 'Major 14th', 'Perfect 15th'];
+  const INTERVALS = deepFreeze(INTERVAL_IDS.map((id, semitones) => (
+    { id, name: INTERVAL_NAMES[semitones], semitones })));
+  const INTERVAL_ALIASES = Object.freeze({ d5: 6 });
+
+  // Key signatures by fifths -7..7 (index = fifths + 7): major tonic and minor tonic names.
+  const KEY_FIFTHS_MIN = -7;
+  const KEY_FIFTHS_MAX = 7;
+  const MAJOR_TONICS = deepFreeze(['Cb', 'Gb', 'Db', 'Ab', 'Eb', 'Bb', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#']);
+  const MINOR_TONICS = deepFreeze(['Ab', 'Eb', 'Bb', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F#', 'C#', 'G#', 'D#', 'A#']);
+  const MAJOR_TONIC_PCS = deepFreeze([11, 6, 1, 8, 3, 10, 5, 0, 7, 2, 9, 4, 11, 6, 1]);
+  const MINOR_TONIC_PCS = deepFreeze(MAJOR_TONIC_PCS.map((pc) => (pc + 9) % OCTAVE_SIZE));
+
+  const GM_FAMILIES = deepFreeze(['Piano', 'Chromatic Percussion', 'Organ', 'Guitar', 'Bass', 'Strings', 'Ensemble',
+    'Brass', 'Reed', 'Pipe', 'Synth Lead', 'Synth Pad', 'Synth Effects', 'Ethnic', 'Percussive', 'Sound Effects']);
+  const PROGRAMS_PER_FAMILY = 8;
+
+  const GM_PROGRAMS = deepFreeze([
+    'Acoustic Grand Piano', 'Bright Acoustic Piano', 'Electric Grand Piano', 'Honky-tonk Piano',
+    'Electric Piano 1', 'Electric Piano 2', 'Harpsichord', 'Clavinet',
+    'Celesta', 'Glockenspiel', 'Music Box', 'Vibraphone', 'Marimba', 'Xylophone', 'Tubular Bells', 'Dulcimer',
+    'Drawbar Organ', 'Percussive Organ', 'Rock Organ', 'Church Organ', 'Reed Organ', 'Accordion', 'Harmonica',
+    'Tango Accordion',
+    'Acoustic Guitar (nylon)', 'Acoustic Guitar (steel)', 'Electric Guitar (jazz)', 'Electric Guitar (clean)',
+    'Electric Guitar (muted)', 'Overdriven Guitar', 'Distortion Guitar', 'Guitar Harmonics',
+    'Acoustic Bass', 'Electric Bass (finger)', 'Electric Bass (pick)', 'Fretless Bass', 'Slap Bass 1',
+    'Slap Bass 2', 'Synth Bass 1', 'Synth Bass 2',
+    'Violin', 'Viola', 'Cello', 'Contrabass', 'Tremolo Strings', 'Pizzicato Strings', 'Orchestral Harp', 'Timpani',
+    'String Ensemble 1', 'String Ensemble 2', 'Synth Strings 1', 'Synth Strings 2', 'Choir Aahs', 'Voice Oohs',
+    'Synth Voice', 'Orchestra Hit',
+    'Trumpet', 'Trombone', 'Tuba', 'Muted Trumpet', 'French Horn', 'Brass Section', 'Synth Brass 1',
+    'Synth Brass 2',
+    'Soprano Sax', 'Alto Sax', 'Tenor Sax', 'Baritone Sax', 'Oboe', 'English Horn', 'Bassoon', 'Clarinet',
+    'Piccolo', 'Flute', 'Recorder', 'Pan Flute', 'Blown Bottle', 'Shakuhachi', 'Whistle', 'Ocarina',
+    'Lead 1 (square)', 'Lead 2 (sawtooth)', 'Lead 3 (calliope)', 'Lead 4 (chiff)', 'Lead 5 (charang)',
+    'Lead 6 (voice)', 'Lead 7 (fifths)', 'Lead 8 (bass + lead)',
+    'Pad 1 (new age)', 'Pad 2 (warm)', 'Pad 3 (polysynth)', 'Pad 4 (choir)', 'Pad 5 (bowed)', 'Pad 6 (metallic)',
+    'Pad 7 (halo)', 'Pad 8 (sweep)',
+    'FX 1 (rain)', 'FX 2 (soundtrack)', 'FX 3 (crystal)', 'FX 4 (atmosphere)', 'FX 5 (brightness)',
+    'FX 6 (goblins)', 'FX 7 (echoes)', 'FX 8 (sci-fi)',
+    'Sitar', 'Banjo', 'Shamisen', 'Koto', 'Kalimba', 'Bag pipe', 'Fiddle', 'Shanai',
+    'Tinkle Bell', 'Agogo', 'Steel Drums', 'Woodblock', 'Taiko Drum', 'Melodic Tom', 'Synth Drum',
+    'Reverse Cymbal',
+    'Guitar Fret Noise', 'Breath Noise', 'Seashore', 'Bird Tweet', 'Telephone Ring', 'Helicopter', 'Applause',
+    'Gunshot'
+  ]);
+
+  const GM_DRUM_FIRST_KEY = 35;
+  const GM_DRUM_NAME_LIST = ['Acoustic Bass Drum', 'Bass Drum 1', 'Side Stick', 'Acoustic Snare', 'Hand Clap',
+    'Electric Snare', 'Low Floor Tom', 'Closed Hi-Hat', 'High Floor Tom', 'Pedal Hi-Hat', 'Low Tom',
+    'Open Hi-Hat', 'Low-Mid Tom', 'Hi-Mid Tom', 'Crash Cymbal 1', 'High Tom', 'Ride Cymbal 1', 'Chinese Cymbal',
+    'Ride Bell', 'Tambourine', 'Splash Cymbal', 'Cowbell', 'Crash Cymbal 2', 'Vibraslap', 'Ride Cymbal 2',
+    'Hi Bongo', 'Low Bongo', 'Mute Hi Conga', 'Open Hi Conga', 'Low Conga', 'High Timbale', 'Low Timbale',
+    'High Agogo', 'Low Agogo', 'Cabasa', 'Maracas', 'Short Whistle', 'Long Whistle', 'Short Guiro', 'Long Guiro',
+    'Claves', 'Hi Wood Block', 'Low Wood Block', 'Mute Cuica', 'Open Cuica', 'Mute Triangle', 'Open Triangle'];
+  const GM_DRUMS = deepFreeze(Object.fromEntries(
+    GM_DRUM_NAME_LIST.map((name, offset) => [GM_DRUM_FIRST_KEY + offset, name])));
+  const GM_DRUM_LAST_KEY = GM_DRUM_FIRST_KEY + GM_DRUM_NAME_LIST.length - 1;
+
+  // User-defined scales registered at runtime (persisted by M-16, re-registered at boot).
+  const userScales = new Map();
+
+  // ---------------------------------------------------------------------------------------------
+  // Pitch names
+  // ---------------------------------------------------------------------------------------------
+  function fifthsOf(key) {
+    if (typeof key === 'number') return key;
+    return key && typeof key.fifths === 'number' ? key.fifths : 0;
+  }
+
+  /** Middle C = 60 = 'C4'. fifths < 0 spells with flats, otherwise sharps. */
+  function noteName(midi, key) {
+    requireInteger(midi, 0, MIDI_MAX, 'midi');
+    const names = fifthsOf(key) < 0 ? PITCH_CLASS_FLAT : PITCH_CLASS_SHARP;
+    return names[midi % OCTAVE_SIZE] + (Math.floor(midi / OCTAVE_SIZE) - 1);
+  }
+
+  const ACCIDENTAL_OFFSET = Object.freeze({ '#': 1, '##': 2, x: 2, b: -1, bb: -2 });
+
+  /** Parses 'C4', 'c#4', 'Db-1', 'E##3'. Throws E-GEN-005 for any other text or a result outside 0..127. */
+  function midiFromName(name) {
+    const match = typeof name === 'string' ? NOTE_NAME_PATTERN.exec(name) : null;
+    if (match === null) throw codedError('E-GEN-005', 'not a note name: ' + String(name));
+    const accidental = match[2] === undefined ? 0 : ACCIDENTAL_OFFSET[match[2]];
+    const midi = LETTER_PITCH_CLASS[match[1].toUpperCase()] + accidental + OCTAVE_SIZE * (Number(match[3]) + 1);
+    if (midi < 0 || midi > MIDI_MAX) throw codedError('E-GEN-005', 'note out of range: ' + name);
+    return midi;
+  }
+
+  function pitchClass(midi) {
+    return ((midi % OCTAVE_SIZE) + OCTAVE_SIZE) % OCTAVE_SIZE;
+  }
+
+  function octaveOf(midi) {
+    return Math.floor(midi / OCTAVE_SIZE) - 1;
+  }
+
+  /** Enharmonic spelling of a pitch from its key context (KeyMap entry fifths). */
+  function spell(midi, key) {
+    return noteName(midi, key);
+  }
+
+  /** Moves a pitch, or every pitch of an array, by semitones; results are clamped to 0..127. */
+  function transpose(pitches, semitones) {
+    requireInteger(semitones, -MIDI_MAX, MIDI_MAX, 'semitones');
+    if (Array.isArray(pitches)) return pitches.map((pitch) => clampMidi(pitch + semitones));
+    return clampMidi(requireInteger(pitches, 0, MIDI_MAX, 'midi') + semitones);
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Scales
+  // ---------------------------------------------------------------------------------------------
+  function aliasTarget(id) {
+    return Object.prototype.hasOwnProperty.call(SCALE_ALIASES, id) ? SCALE_ALIASES[id] : undefined;
+  }
+
+  function scales() {
+    return SCALES.concat(Array.from(userScales.values()));
+  }
+
+  function scale(id) {
+    if (typeof id !== 'string') return undefined;
+    const builtInId = aliasTarget(id) || id;
+    const builtIn = SCALES.find((def) => def.id === builtInId);
+    if (builtIn) return builtIn;
+    return userScales.get(id.startsWith(USER_PREFIX) ? id : USER_PREFIX + id);
+  }
+
+  function isValidScaleIntervals(intervals) {
+    if (!Array.isArray(intervals) || intervals.length < 1 || intervals.length > OCTAVE_SIZE) return false;
+    if (intervals[0] !== 0) return false;
+    return intervals.every((value, index) => isIntegerIn(value, 0, OCTAVE_SIZE - 1) &&
+      (index === 0 || value > intervals[index - 1]));
+  }
+
+  /** Registers a user scale; intervals ascending, unique, 0..11, start at 0, length 1..12. */
+  function defineScale(id, name, intervals) {
+    const bareId = typeof id === 'string' && id.startsWith(USER_PREFIX) ? id.slice(USER_PREFIX.length) : id;
+    if (typeof bareId !== 'string' || !/^[A-Za-z0-9_.-]{1,40}$/.test(bareId)) {
+      throw codedError('E-GEN-006', 'scale id must be 1-40 letters, digits, dot, dash or underscore');
+    }
+    if (SCALES.some((def) => def.id === bareId) || aliasTarget(bareId)) {
+      throw codedError('E-GEN-006', 'built-in scale ids cannot be replaced: ' + bareId);
+    }
+    if (!isValidScaleIntervals(intervals)) {
+      throw codedError('E-GEN-006', 'Scale must list 1-12 ascending semitones starting at 0');
+    }
+    const fullId = USER_PREFIX + bareId;
+    if (!userScales.has(fullId) && userScales.size >= MAX_USER_SCALES) {
+      throw codedError('E-GEN-006', 'at most ' + MAX_USER_SCALES + ' user scales');
+    }
+    const label = typeof name === 'string' && name.trim() !== '' ? name.trim() : bareId;
+    const def = deepFreeze({ id: fullId, name: label, intervals: intervals.slice(), userDefined: true });
+    userScales.set(fullId, def);
+    return def;
+  }
+
+  function requireScale(scaleId) {
+    const def = scale(scaleId);
+    if (!def) throw codedError('E-GEN-006', 'unknown scale: ' + String(scaleId));
+    return def;
+  }
+
+  /** count notes ascending from root in octave; truncated at the top of the MIDI range. */
+  function scaleDegrees(root, scaleId, octave, count) {
+    requireInteger(root, 0, OCTAVE_SIZE - 1, 'root');
+    requireInteger(octave, -1, 9, 'octave');
+    requireInteger(count, 1, MIDI_MAX + 1, 'count');
+    const def = requireScale(scaleId);
+    const length = def.intervals.length;
+    const base = root + OCTAVE_SIZE * (octave + 1);
+    const result = [];
+    for (let index = 0; index < count; index += 1) {
+      const midi = base + OCTAVE_SIZE * Math.floor(index / length) + def.intervals[index % length];
+      if (midi > MIDI_MAX) break;
+      result.push(midi);
+    }
+    return result;
+  }
+
+  /** Degree is 0-based and may be negative or beyond the scale length (octave wrap). */
+  function scaleNote(root, scaleId, octave, degree) {
+    requireInteger(root, 0, OCTAVE_SIZE - 1, 'root');
+    requireInteger(octave, -1, 9, 'octave');
+    requireInteger(degree, -100000, 100000, 'degree');
+    const def = requireScale(scaleId);
+    const length = def.intervals.length;
+    const base = root + OCTAVE_SIZE * (octave + 1);
+    const step = def.intervals[((degree % length) + length) % length];
+    return clampMidi(base + OCTAVE_SIZE * Math.floor(degree / length) + step);
+  }
+
+  /** Nearest scale member to midi; ties go to the lower pitch. */
+  function snapToScale(midi, root, scaleId) {
+    const def = requireScale(scaleId);
+    const relative = pitchClass(midi - root);
+    let best = null;
+    def.intervals.forEach((interval) => {
+      [interval - OCTAVE_SIZE, interval, interval + OCTAVE_SIZE].forEach((candidate) => {
+        const distance = Math.abs(candidate - relative);
+        const isBetter = best === null || distance < best.distance ||
+          (distance === best.distance && candidate < best.candidate);
+        if (isBetter) best = { candidate, distance };
+      });
+    });
+    return clampMidi(midi + (best.candidate - relative));
+  }
+
+  function inScale(midi, root, scaleId) {
+    return requireScale(scaleId).intervals.includes(pitchClass(midi - root));
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Chords
+  // ---------------------------------------------------------------------------------------------
+  function chords() {
+    return CHORDS;
+  }
+
+  function chord(type) {
+    return CHORDS.find((def) => def.type === type);
+  }
+
+  /** Rotates the lowest note up an octave, `times` times (ascending input, ascending output). */
+  function invert(notes, times) {
+    const count = Math.min(Math.max(0, times | 0), notes.length - 1);
+    const rotated = notes.slice();
+    for (let step = 0; step < count; step += 1) rotated.push(rotated.shift() + OCTAVE_SIZE);
+    return rotated;
+  }
+
+  function applyVoicing(notes, voicing) {
+    if (voicing === 'open' && notes.length >= 3) {
+      const opened = notes.slice();
+      opened[opened.length - 2] -= OCTAVE_SIZE;
+      return opened.sort((a, b) => a - b);
+    }
+    if (voicing === 'spread') return [notes[0] - OCTAVE_SIZE].concat(notes);
+    return notes;
+  }
+
+  /** inversion 0..(size-1); voicing 'close' (default), 'open' or 'spread'; ascending, clamped to 0..127. */
+  function chordNotes(root, type, inversion, octave, voicing) {
+    requireInteger(root, 0, OCTAVE_SIZE - 1, 'root');
+    const def = chord(type);
+    if (!def) throw codedError('E-GEN-006', 'unknown chord: ' + String(type));
+    const base = root + OCTAVE_SIZE * ((octave === undefined ? 4 : octave) + 1);
+    const closed = invert(def.intervals.map((interval) => base + interval), inversion === undefined ? 0 : inversion);
+    return applyVoicing(closed, voicing).map(clampMidi).sort((a, b) => a - b);
+  }
+
+  function chordPitchClasses(root, def) {
+    return Array.from(new Set(def.intervals.map((interval) => (root + interval) % OCTAVE_SIZE)));
+  }
+
+  function sameSet(left, right) {
+    return left.length === right.length && left.every((value) => right.includes(value));
+  }
+
+  /** Finds the chord whose pitch classes equal the set; returns null when none matches. */
+  function recognizeChord(pitchSet) {
+    if (!Array.isArray(pitchSet) || pitchSet.length === 0) return null;
+    const pitchClasses = Array.from(new Set(pitchSet.map(pitchClass))).sort((a, b) => a - b);
+    if (pitchClasses.length < 2 || pitchClasses.length > MAX_CHORD_PITCHES) return null;
+    const bass = Math.min.apply(null, pitchSet);
+    const bassClass = pitchClass(bass);
+    const matches = [];
+    pitchClasses.forEach((root) => {
+      CHORDS.forEach((def, order) => {
+        if (sameSet(chordPitchClasses(root, def), pitchClasses)) {
+          matches.push({ root, def, order, rootIsBass: root === bassClass });
+        }
+      });
+    });
+    if (matches.length === 0) return null;
+    // Smallest chord, then table order, then root equal to the bass, then lowest root.
+    matches.sort((a, b) => (a.def.intervals.length - b.def.intervals.length) || (a.order - b.order) ||
+      (Number(b.rootIsBass) - Number(a.rootIsBass)) || (a.root - b.root));
+    const best = matches[0];
+    const inversion = best.def.intervals.map((interval) => (best.root + interval) % OCTAVE_SIZE).indexOf(bassClass);
+    return { root: best.root, type: best.def.type, inversion, bass, exact: true };
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Intervals
+  // ---------------------------------------------------------------------------------------------
+  function intervals() {
+    return INTERVALS;
+  }
+
+  function intervalName(semitones) {
+    requireInteger(semitones, 0, INTERVALS.length - 1, 'semitones');
+    return INTERVALS[semitones].id;
+  }
+
+  function intervalSemitones(id) {
+    const found = INTERVALS.find((interval) => interval.id === id);
+    if (found) return found.semitones;
+    if (Object.prototype.hasOwnProperty.call(INTERVAL_ALIASES, id)) return INTERVAL_ALIASES[id];
+    throw codedError('E-GEN-005', 'unknown interval: ' + String(id));
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Keys
+  // ---------------------------------------------------------------------------------------------
+  function keyTonic(fifths, mode) {
+    requireInteger(fifths, KEY_FIFTHS_MIN, KEY_FIFTHS_MAX, 'fifths');
+    const index = fifths - KEY_FIFTHS_MIN;
+    if (mode === 'minor') return { pc: MINOR_TONIC_PCS[index], name: MINOR_TONICS[index] };
+    return { pc: MAJOR_TONIC_PCS[index], name: MAJOR_TONICS[index] };
+  }
+
+  /** Inverse of keyTonic: the fewest accidentals, flats on a tie (Gb, Eb minor, Db, Bb minor, Ab, F minor). */
+  function keyFifths(tonicPc, mode) {
+    requireInteger(tonicPc, 0, OCTAVE_SIZE - 1, 'tonicPc');
+    const pcs = mode === 'minor' ? MINOR_TONIC_PCS : MAJOR_TONIC_PCS;
+    let best = null;
+    pcs.forEach((pc, index) => {
+      const fifths = index + KEY_FIFTHS_MIN;
+      if (pc !== tonicPc) return;
+      const isBetter = best === null || Math.abs(fifths) < Math.abs(best) ||
+        (Math.abs(fifths) === Math.abs(best) && fifths < best);
+      if (isBetter) best = fifths;
+    });
+    return best;
+  }
+
+  function keyName(fifths, mode) {
+    return keyTonic(fifths, mode).name + ' ' + (mode === 'minor' ? 'minor' : 'major');
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // General MIDI names
+  // ---------------------------------------------------------------------------------------------
+  function gmProgramName(program) {
+    return isIntegerIn(program, 0, MIDI_MAX) ? GM_PROGRAMS[program] : 'Program ' + program;
+  }
+
+  function gmFamily(program) {
+    const clamped = Math.min(MIDI_MAX, Math.max(0, Math.floor(Number(program)) || 0));
+    const index = Math.floor(clamped / PROGRAMS_PER_FAMILY);
+    return { index, name: GM_FAMILIES[index] };
+  }
+
+  function gmFamilies() {
+    return GM_FAMILIES;
+  }
+
+  function gmDrumName(key) {
+    return isIntegerIn(key, GM_DRUM_FIRST_KEY, GM_DRUM_LAST_KEY) ? GM_DRUMS[key] : 'Percussion ' + key;
+  }
+
+  return Object.freeze({
+    VERSION: TABLE_VERSION,
+    PITCH_CLASS_SHARP,
+    PITCH_CLASS_FLAT,
+    PITCH_CLASSES,
+    SCALES,
+    CHORDS,
+    INTERVALS,
+    GM_PROGRAMS,
+    GM_DRUMS,
+    GM_FAMILIES,
+    noteName,
+    midiFromName,
+    pitchClass,
+    octaveOf,
+    spell,
+    transpose,
+    scales,
+    scale,
+    defineScale,
+    scaleDegrees,
+    scaleNote,
+    snapToScale,
+    inScale,
+    chords,
+    chord,
+    chordNotes,
+    invert,
+    recognizeChord,
+    intervals,
+    intervalName,
+    intervalSemitones,
+    keyTonic,
+    tonicOf: keyTonic,
+    keyFromFifths: keyTonic,
+    keyFifths,
+    fifthsFromKey: keyFifths,
+    keyName,
+    gmProgramName,
+    gmFamily,
+    familyOf: gmFamily,
+    gmFamilies,
+    gmDrumName
+  });
+});
+})();
+
+// ==== 03-model.js ====
+// 03-model.js - M-03 FLM.Model: Song, Track, events, TempoMap, MeterMap, KeyMap, pairing, validation.
+// Separation rule: this file owns exactly one namespace and registers it once through
+// FLM.Core.define. It may use only lower-numbered modules (Part 4.2, R-DEP). It declares no
+// module-level global state object (S-07): state lives inside the factory closure.
+(function () {
+'use strict';
+const FLM = window.FLM;
+
+FLM.Core.define('Model', function (FLM) {
+  const PPQ = 960;                           // the one internal resolution (Part 5.1.1)
+  const MAX_TRACKS = 32;
+  const MAX_EVENTS_TOTAL = 1000000;
+  const MAX_MAP_ENTRIES = 10000;
+  const MAX_MARKERS = 1000;
+  const MAX_REPORTED_ERRORS = 200;           // keeps a badly broken import from building a huge error list
+  const MIN_US_PER_QUARTER = 1;
+  const MAX_US_PER_QUARTER = 16777215;       // 3-byte MIDI range
+  const DEFAULT_US_PER_QUARTER = 500000;     // 120 BPM
+  const MICROSECONDS_PER_MINUTE = 60e6;
+  const TEMPO_DIVISOR = PPQ * 1e6;           // ticks x us per quarter / this = seconds
+  const MAX_METER_NUMERATOR = 64;            // Part 6.3.4.5 (Part 5.1.4 says 32; the wider range is accepted)
+  const MAX_METER_DENOMINATOR = 64;
+  const DEFAULT_TITLE = 'Untitled';
+  const MAX_TITLE_LENGTH = 120;
+  const MAX_MARKER_LABEL = 80;
+  const MAX_MESSAGE_LENGTH = 200;
+  const PEDAL_CONTROLLER = 64;
+  const PEDAL_DOWN_VALUE = 64;               // CC 64 values at or above this mean pedal down
+  const BULK_INSERT_DIVISOR = 8;             // Part 6.3.4.2: sort path when m > n / 8
+  const DEFAULT_VELOCITY = 100;
+  const DEFAULT_OFF_VELOCITY = 64;
+  const BEND_MIN = -8192;
+  const BEND_MAX = 8191;
+  const TICK_PAD_WIDTH = 3;
+
+  const KIND_PRIORITY = Object.freeze({ program: 0, cc: 1, bend: 2, note: 3, text: 4 });
+  // The first eight are the Part 7.1.2 palette; the second eight are darker companions (ledger decision).
+  const TRACK_COLORS = Object.freeze(['#7aa2f7', '#9ece6a', '#e0af68', '#f7768e', '#bb9af7', '#2ac3de', '#ff9e64',
+    '#c0caf5', '#3d59a1', '#5a7d2c', '#a07a2e', '#b04a5f', '#7b5fbf', '#1c7f94', '#c46a2a', '#7f89b8']);
+
+  const Core = FLM.Core;
+
+  // ---------------------------------------------------------------------------------------------
+  // Small helpers
+  // ---------------------------------------------------------------------------------------------
+  function codedError(code, text) {
+    const error = new Error(code + ': ' + text);
+    error.code = code;
+    return error;
+  }
+
+  function isIntegerIn(value, low, high) {
+    return Number.isInteger(value) && value >= low && value <= high;
+  }
+
+  function isPlainObject(value) {
+    return value !== null && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function isPowerOfTwo(value) {
+    return Number.isInteger(value) && value > 0 && (value & (value - 1)) === 0;
+  }
+
+  function nowIso() {
+    return new Date().toISOString();
+  }
+
+  function cleanText(value, fallback, maxLength) {
+    const text = typeof value === 'string' ? value.trim().slice(0, maxLength) : '';
+    return text === '' ? fallback : text;
+  }
+
+  // Index of the last element with getValue(element) <= value, or -1 (binary search).
+  function lastIndexAtOrBefore(list, value, getValue) {
+    let low = 0;
+    let high = list.length - 1;
+    let found = -1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      if (getValue(list[middle]) <= value) {
+        found = middle;
+        low = middle + 1;
+      } else {
+        high = middle - 1;
+      }
+    }
+    return found;
+  }
+
+  // Sorted copy by tick where a later entry at the same tick replaces the earlier one (last wins).
+  function sortedLastWins(entries) {
+    const sorted = entries.slice().sort((a, b) => a.tick - b.tick);
+    const result = [];
+    sorted.forEach((entry) => {
+      const last = result.length - 1;
+      if (last >= 0 && result[last].tick === entry.tick) result[last] = entry;
+      else result.push(entry);
+    });
+    return result;
+  }
+
+  function entriesFromSource(source, errorCode) {
+    if (Array.isArray(source)) return source;
+    if (isPlainObject(source) && Array.isArray(source.entries)) return source.entries;
+    throw codedError(errorCode, 'map entries must be an array');
+  }
+
+  function requireTick(tick, errorCode) {
+    if (!Number.isInteger(tick) || tick < 0) throw codedError(errorCode, 'tick must be an integer >= 0');
+    return tick;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // ImportWarning and Marker
+  // ---------------------------------------------------------------------------------------------
+  const ImportWarning = Object.freeze({
+    /** Warning record of Part 5.1.4; message is cut to 200 characters. */
+    create(code, message, severity, location) {
+      return {
+        code,
+        message: String(message).slice(0, MAX_MESSAGE_LENGTH),
+        severity: severity || 'warn',
+        location: Object.assign({ track: null, tick: null }, location),
+        count: 1
+      };
+    }
+  });
+
+  const Marker = Object.freeze({
+    /** kind is 'section' or 'cue'. */
+    create(tick, label, kind) {
+      return {
+        tick: requireTick(tick, 'E-MDL-005'),
+        label: cleanText(label, 'Marker', MAX_MARKER_LABEL),
+        kind: kind === 'cue' ? 'cue' : 'section'
+      };
+    }
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // Events and ordering (Part 5.2)
+  // ---------------------------------------------------------------------------------------------
+  function compareEvents(a, b) {
+    if (a.tick !== b.tick) return a.tick - b.tick;
+    const priorityA = KIND_PRIORITY[a.kind];
+    const priorityB = KIND_PRIORITY[b.kind];
+    if (priorityA !== priorityB) return priorityA - priorityB;
+    const channelA = a.channel === undefined ? -1 : a.channel;
+    const channelB = b.channel === undefined ? -1 : b.channel;
+    if (channelA !== channelB) return channelA - channelB;
+    if (a.kind === 'note' && a.pitch !== b.pitch) return a.pitch - b.pitch;
+    if (a.kind === 'cc' && a.controller !== b.controller) return a.controller - b.controller;
+    const idA = a.id === undefined ? '' : a.id;
+    const idB = b.id === undefined ? '' : b.id;
+    if (idA < idB) return -1;
+    return idA > idB ? 1 : 0;
+  }
+
+  function endTick(event) {
+    return event.kind === 'note' ? event.tick + event.durTicks : event.tick;
+  }
+
+  const Events = Object.freeze({
+    note(tick, durTicks, pitch, velocity, channel, extra) {
+      const options = extra || {};
+      const event = {
+        kind: 'note',
+        tick,
+        durTicks: durTicks === undefined ? 1 : durTicks,
+        pitch,
+        velocity: velocity === undefined ? DEFAULT_VELOCITY : velocity,
+        offVelocity: options.offVelocity === undefined ? DEFAULT_OFF_VELOCITY : options.offVelocity,
+        channel: channel === undefined ? 0 : channel
+      };
+      if (options.id !== undefined) event.id = options.id;
+      return event;
+    },
+    cc(tick, controller, value, channel) {
+      return { kind: 'cc', tick, controller, value, channel: channel === undefined ? 0 : channel };
+    },
+    program(tick, program, bankMsb, bankLsb, channel) {
+      return {
+        kind: 'program',
+        tick,
+        program,
+        bankMsb: bankMsb === undefined ? 0 : bankMsb,
+        bankLsb: bankLsb === undefined ? 0 : bankLsb,
+        channel: channel === undefined ? 0 : channel
+      };
+    },
+    bend(tick, value, channel) {
+      return { kind: 'bend', tick, value, channel: channel === undefined ? 0 : channel };
+    },
+    text(tick, type, text) {
+      return { kind: 'text', tick, type, text };
+    },
+    compare: compareEvents,
+    endTick
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // Track version, ordered insertion and removal
+  // ---------------------------------------------------------------------------------------------
+  // The version counter is not enumerable so JSON.stringify and spreads skip it (Part 6.3.9).
+  function ensureVersion(track) {
+    if (!Object.prototype.hasOwnProperty.call(track, 'version')) {
+      Object.defineProperty(track, 'version', { value: 0, enumerable: false, writable: true, configurable: true });
+    }
+  }
+
+  /** Bumps the track version so cached indexes are rebuilt. */
+  function touch(track) {
+    ensureVersion(track);
+    track.version += 1;
+  }
+
+  function assignNoteId(track, event) {
+    if (event.kind !== 'note' || event.id !== undefined) return;
+    const sequence = Number.isInteger(track.idSeq) && track.idSeq >= 1 ? track.idSeq : 1;
+    event.id = track.id + '.' + sequence.toString(36);
+    track.idSeq = sequence + 1;
+  }
+
+  function isSorted(events) {
+    for (let index = 1; index < events.length; index += 1) {
+      if (compareEvents(events[index - 1], events[index]) > 0) return false;
+    }
+    return true;
+  }
+
+  function sortEvents(events) {
+    return events.sort(compareEvents);
+  }
+
+  // First index whose event sorts after `event` (upper bound).
+  function insertionIndex(events, event) {
+    let low = 0;
+    let high = events.length;
+    while (low < high) {
+      const middle = (low + high) >> 1;
+      if (compareEvents(events[middle], event) > 0) high = middle;
+      else low = middle + 1;
+    }
+    return low;
+  }
+
+  function insertEvent(track, event) {
+    assignNoteId(track, event);
+    const index = insertionIndex(track.events, event);
+    track.events.splice(index, 0, event);
+    touch(track);
+    return index;
+  }
+
+  function insertEvents(track, events) {
+    events.forEach((event) => assignNoteId(track, event));
+    if (events.length > track.events.length / BULK_INSERT_DIVISOR) {
+      track.events = sortEvents(track.events.concat(events));
+      touch(track);
+      return;
+    }
+    events.forEach((event) => {
+      track.events.splice(insertionIndex(track.events, event), 0, event);
+      touch(track);
+    });
+  }
+
+  /** Replaces all events with a sorted copy of `events` (Part 5.2 rule 3). */
+  function replaceEvents(track, events) {
+    const copy = events.slice();
+    copy.forEach((event) => assignNoteId(track, event));
+    track.events = sortEvents(copy);
+    touch(track);
+  }
+
+  function removeEvent(track, eventOrId) {
+    const index = typeof eventOrId === 'string'
+      ? track.events.findIndex((event) => event.id === eventOrId)
+      : track.events.indexOf(eventOrId);
+    if (index < 0) return false;
+    track.events.splice(index, 1);
+    touch(track);
+    return true;
+  }
+
+  function removeEvents(track, predicate) {
+    const kept = track.events.filter((event) => !predicate(event));
+    const removed = track.events.length - kept.length;
+    if (removed > 0) {
+      track.events = kept;
+      touch(track);
+    }
+    return removed;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // TempoMap (Part 5.3, 6.3.4.7)
+  // ---------------------------------------------------------------------------------------------
+  function checkTempoEntry(entry) {
+    if (!isPlainObject(entry)) throw codedError('E-MDL-007', 'tempo entry must be an object');
+    requireTick(entry.tick, 'E-MDL-007');
+    if (!isIntegerIn(entry.usPerQuarter, MIN_US_PER_QUARTER, MAX_US_PER_QUARTER)) {
+      throw codedError('E-MDL-007', 'usPerQuarter must be an integer from 1 to 16777215');
+    }
+  }
+
+  class TempoMap {
+    /** entries: [{tick, usPerQuarter}]; unsorted input is sorted, same-tick duplicates keep the last. */
+    constructor(entries) {
+      Object.defineProperty(this, 'warnings', { value: [], enumerable: false, writable: true });
+      const source = entries === undefined ? [{ tick: 0, usPerQuarter: DEFAULT_US_PER_QUARTER }] : entries;
+      if (!Array.isArray(source)) throw codedError('E-MDL-007', 'tempo entries must be an array');
+      source.forEach(checkTempoEntry);
+      this.entries = source.map((entry) => ({ tick: entry.tick, usPerQuarter: entry.usPerQuarter, secondsAt: 0 }));
+      this.rebuild();
+    }
+
+    static fromBpm(bpm) {
+      const microseconds = Math.round(MICROSECONDS_PER_MINUTE / bpm);
+      return new TempoMap([{ tick: 0, usPerQuarter: microseconds }]);
+    }
+
+    static fromJSON(source) {
+      return new TempoMap(entriesFromSource(source, 'E-MDL-007'));
+    }
+
+    /** Sort, last-wins, implicit start entry and cumulative seconds. */
+    rebuild() {
+      this.entries = sortedLastWins(this.entries);
+      if (this.entries.length === 0 || this.entries[0].tick !== 0) {
+        this.entries.unshift({ tick: 0, usPerQuarter: DEFAULT_US_PER_QUARTER, secondsAt: 0 });
+        this.warnings.push(ImportWarning.create('W-TEMPO-IMPLICIT-START',
+          'The tempo map had no entry at tick 0; 120 BPM was assumed at the start.', 'info', { tick: 0 }));
+      }
+      let seconds = 0;
+      this.entries.forEach((entry, index) => {
+        if (index > 0) {
+          const previous = this.entries[index - 1];
+          seconds += (entry.tick - previous.tick) * previous.usPerQuarter / TEMPO_DIVISOR;
+        }
+        entry.secondsAt = seconds;
+      });
+      return this;
+    }
+
+    /** Inserts or replaces the entry at `tick`. */
+    set(tick, usPerQuarter) {
+      checkTempoEntry({ tick, usPerQuarter });
+      const existing = this.entries.find((entry) => entry.tick === tick);
+      if (existing) existing.usPerQuarter = usPerQuarter;
+      else this.entries.push({ tick, usPerQuarter, secondsAt: 0 });
+      return this.rebuild();
+    }
+
+    /** Removes the entry at `tick`; the entry at tick 0 cannot be removed. */
+    remove(tick) {
+      const index = this.entries.findIndex((entry) => entry.tick === tick);
+      if (index <= 0) return false;
+      this.entries.splice(index, 1);
+      this.rebuild();
+      return true;
+    }
+
+    // Negative ticks use the first entry, which gives negative seconds for the count-in.
+    ticksToSeconds(tick) {
+      const entry = this.entries[Math.max(0, lastIndexAtOrBefore(this.entries, tick, (item) => item.tick))];
+      return entry.secondsAt + (tick - entry.tick) * entry.usPerQuarter / TEMPO_DIVISOR;
+    }
+
+    /** Returns float ticks; callers that need an integer round. */
+    secondsToTicks(seconds) {
+      const entry = this.entries[Math.max(0, lastIndexAtOrBefore(this.entries, seconds, (item) => item.secondsAt))];
+      return entry.tick + (seconds - entry.secondsAt) * TEMPO_DIVISOR / entry.usPerQuarter;
+    }
+
+    tempoAt(tick) {
+      const entry = this.entries[Math.max(0, lastIndexAtOrBefore(this.entries, tick, (item) => item.tick))];
+      return { usPerQuarter: entry.usPerQuarter, bpm: MICROSECONDS_PER_MINUTE / entry.usPerQuarter };
+    }
+
+    /** Serialized form: secondsAt is derived and never written. */
+    toJSON() {
+      return this.entries.map((entry) => ({ tick: entry.tick, usPerQuarter: entry.usPerQuarter }));
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // MeterMap (Part 5.4, 6.3.4.8)
+  // ---------------------------------------------------------------------------------------------
+  function checkMeterEntry(entry) {
+    if (!isPlainObject(entry)) throw codedError('E-MDL-008', 'meter entry must be an object');
+    requireTick(entry.tick, 'E-MDL-008');
+    if (!isIntegerIn(entry.numerator, 1, MAX_METER_NUMERATOR)) {
+      throw codedError('E-MDL-008', 'meter numerator must be an integer from 1 to ' + MAX_METER_NUMERATOR);
+    }
+    if (!isPowerOfTwo(entry.denominator) || entry.denominator > MAX_METER_DENOMINATOR) {
+      throw codedError('E-MDL-008', 'meter denominator must be a power of two up to ' + MAX_METER_DENOMINATOR);
+    }
+  }
+
+  class MeterMap {
+    constructor(entries) {
+      const source = entries === undefined ? [{ tick: 0, numerator: 4, denominator: 4 }] : entries;
+      if (!Array.isArray(source)) throw codedError('E-MDL-008', 'meter entries must be an array');
+      source.forEach(checkMeterEntry);
+      this.entries = source.map((entry) => ({
+        tick: entry.tick, numerator: entry.numerator, denominator: entry.denominator
+      }));
+      this.rebuild();
+    }
+
+    static fromJSON(source) {
+      return new MeterMap(entriesFromSource(source, 'E-MDL-008'));
+    }
+
+    /** Sort, last-wins, implicit 4/4 at tick 0, and the cached bar and beat counts per entry. */
+    rebuild() {
+      this.entries = sortedLastWins(this.entries);
+      if (this.entries.length === 0 || this.entries[0].tick !== 0) {
+        this.entries.unshift({ tick: 0, numerator: 4, denominator: 4 });
+      }
+      this.entries.forEach((entry, index) => {
+        entry.ticksPerBeat = PPQ * 4 / entry.denominator;
+        entry.ticksPerBar = entry.numerator * entry.ticksPerBeat;
+        if (index === 0) {
+          entry.barAtEntry = 0;
+          entry.beatsAtEntry = 0;
+          return;
+        }
+        const previous = this.entries[index - 1];
+        const span = entry.tick - previous.tick;
+        // A change inside a bar starts a new bar at its own tick; the partial bar counts as one.
+        entry.barAtEntry = previous.barAtEntry + Math.ceil(span / previous.ticksPerBar);
+        entry.beatsAtEntry = previous.beatsAtEntry + span / previous.ticksPerBeat;
+      });
+      return this;
+    }
+
+    set(tick, numerator, denominator) {
+      checkMeterEntry({ tick, numerator, denominator });
+      const existing = this.entries.find((entry) => entry.tick === tick);
+      if (existing) {
+        existing.numerator = numerator;
+        existing.denominator = denominator;
+      } else {
+        this.entries.push({ tick, numerator, denominator });
+      }
+      return this.rebuild();
+    }
+
+    /** Removes the entry at `tick`; the entry at tick 0 cannot be removed. */
+    remove(tick) {
+      const index = this.entries.findIndex((entry) => entry.tick === tick);
+      if (index <= 0) return false;
+      this.entries.splice(index, 1);
+      this.rebuild();
+      return true;
+    }
+
+    /** Last entry at or before `tick` (the first entry for negative ticks). */
+    entryAt(tick) {
+      return this.entries[Math.max(0, lastIndexAtOrBefore(this.entries, tick, (item) => item.tick))];
+    }
+
+    meterAt(tick) {
+      const entry = this.entryAt(tick);
+      return {
+        numerator: entry.numerator,
+        denominator: entry.denominator,
+        tick: entry.tick,
+        ticksPerBar: entry.ticksPerBar,
+        ticksPerBeat: entry.ticksPerBeat
+      };
+    }
+
+    /** 0-based bar index; count-in bars before tick 0 are negative. */
+    barAt(tick) {
+      if (tick < 0) return -Math.ceil(-tick / this.entries[0].ticksPerBar);
+      const entry = this.entryAt(tick);
+      return entry.barAtEntry + Math.floor((tick - entry.tick) / entry.ticksPerBar);
+    }
+
+    /** {bar, beat (0-based), frac 0..1} of the tick inside its bar. */
+    beatAt(tick) {
+      const bar = this.barAt(tick);
+      const entry = this.entryForBar(bar);
+      const remainder = tick - this.tickOfBar(bar);
+      const beat = Math.floor(remainder / entry.ticksPerBeat);
+      return { bar, beat, frac: (remainder - beat * entry.ticksPerBeat) / entry.ticksPerBeat };
+    }
+
+    // The entry whose meter governs a bar (negative bars use the first entry).
+    entryForBar(bar) {
+      return this.entries[Math.max(0, lastIndexAtOrBefore(this.entries, bar, (item) => item.barAtEntry))];
+    }
+
+    tickOfBar(bar) {
+      const entry = this.entryForBar(bar);
+      return entry.tick + (bar - entry.barAtEntry) * entry.ticksPerBar;
+    }
+
+    tickOfBeat(bar, beat) {
+      return this.tickOfBar(bar) + beat * this.entryForBar(bar).ticksPerBeat;
+    }
+
+    /** Length of a bar in ticks; a bar cut short by the next meter change is shorter than its nominal length. */
+    barLengthTicks(bar) {
+      const entry = this.entryForBar(bar);
+      const start = this.tickOfBar(bar);
+      const next = this.entries[this.entries.indexOf(entry) + 1];
+      const nominalEnd = start + entry.ticksPerBar;
+      return (next && next.tick < nominalEnd ? next.tick : nominalEnd) - start;
+    }
+
+    /** Part 5.4 position: {bar, beat, tickInBeat, barStartTick, ticksPerBar, ticksPerBeat}. */
+    positionAt(tick) {
+      const position = this.beatAt(tick);
+      const entry = this.entryForBar(position.bar);
+      return {
+        bar: position.bar,
+        beat: position.beat,
+        tickInBeat: position.frac * entry.ticksPerBeat,
+        barStartTick: this.tickOfBar(position.bar),
+        ticksPerBar: entry.ticksPerBar,
+        ticksPerBeat: entry.ticksPerBeat
+      };
+    }
+
+    /** Float beats counted from tick 0, summed per meter segment (for grid snapping). */
+    totalBeatsAt(tick) {
+      if (tick < 0) return tick / this.entries[0].ticksPerBeat;
+      const entry = this.entryAt(tick);
+      return entry.beatsAtEntry + (tick - entry.tick) / entry.ticksPerBeat;
+    }
+
+    /** Start ticks of every subdivision slot in a bar (`perBeat` slots per beat, cut at the next meter change). */
+    subdivisionTicks(bar, perBeat) {
+      if (!isIntegerIn(perBeat, 1, PPQ)) throw codedError('E-GEN-005', 'perBeat must be an integer from 1 to 960');
+      const entry = this.entryForBar(bar);
+      const start = this.tickOfBar(bar);
+      const length = this.barLengthTicks(bar);
+      const step = entry.ticksPerBeat / perBeat;
+      const ticks = [];
+      for (let offset = 0; offset < length; offset += step) ticks.push(start + offset);
+      return ticks;
+    }
+
+    /** Number of bars needed to hold `durationTicks` (at least 1). */
+    barCount(durationTicks) {
+      return durationTicks <= 0 ? 1 : this.barAt(durationTicks - 1) + 1;
+    }
+
+    toJSON() {
+      return this.entries.map((entry) => ({
+        tick: entry.tick, numerator: entry.numerator, denominator: entry.denominator
+      }));
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // KeyMap
+  // ---------------------------------------------------------------------------------------------
+  const DEFAULT_KEY = Object.freeze({ tick: 0, fifths: 0, mode: 'major' });
+
+  function checkKeyEntry(entry) {
+    if (!isPlainObject(entry)) throw codedError('E-MDL-009', 'key entry must be an object');
+    requireTick(entry.tick, 'E-MDL-009');
+    if (!isIntegerIn(entry.fifths, -7, 7)) throw codedError('E-MDL-009', 'fifths must be an integer from -7 to 7');
+    if (entry.mode !== 'major' && entry.mode !== 'minor') throw codedError('E-MDL-009', 'mode must be major or minor');
+  }
+
+  class KeyMap {
+    constructor(entries) {
+      const source = entries === undefined ? [DEFAULT_KEY] : entries;
+      if (!Array.isArray(source)) throw codedError('E-MDL-009', 'key entries must be an array');
+      source.forEach(checkKeyEntry);
+      this.entries = sortedLastWins(source.map((entry) => ({
+        tick: entry.tick, fifths: entry.fifths, mode: entry.mode
+      })));
+    }
+
+    static fromJSON(source) {
+      return new KeyMap(entriesFromSource(source, 'E-MDL-009'));
+    }
+
+    set(tick, fifths, mode) {
+      checkKeyEntry({ tick, fifths, mode });
+      const existing = this.entries.find((entry) => entry.tick === tick);
+      if (existing) {
+        existing.fifths = fifths;
+        existing.mode = mode;
+      } else {
+        this.entries = sortedLastWins(this.entries.concat([{ tick, fifths, mode }]));
+      }
+      return this;
+    }
+
+    remove(tick) {
+      const index = this.entries.findIndex((entry) => entry.tick === tick);
+      if (index < 0) return false;
+      this.entries.splice(index, 1);
+      return true;
+    }
+
+    /** Last entry at or before `tick`; C major when there is none. */
+    keyAt(tick) {
+      const index = lastIndexAtOrBefore(this.entries, tick, (item) => item.tick);
+      const entry = index < 0 ? DEFAULT_KEY : this.entries[index];
+      return { fifths: entry.fifths, mode: entry.mode, tick: entry.tick };
+    }
+
+    toJSON() {
+      return this.entries.map((entry) => ({ tick: entry.tick, fifths: entry.fifths, mode: entry.mode }));
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Source resolution and position formatting
+  // ---------------------------------------------------------------------------------------------
+  /**
+   * Exact rescale of an absolute source tick to PPQ 960, rounding half up (Part 6.10.3 rule),
+   * applied once to the absolute tick at import so there is no cumulative rounding.
+   */
+  function rescaleTicks(tick, sourcePpq) {
+    if (!isIntegerIn(sourcePpq, 1, 65535)) {
+      throw codedError('E-MDL-001', 'source PPQ must be an integer from 1 to 65535');
+    }
+    return Math.floor((tick * PPQ * 2 + sourcePpq) / (2 * sourcePpq));
+  }
+
+  // Count-in bars are shown as -1, -2 (there is no bar 0); other bars and beats count from 1.
+  function displayBar(bar) {
+    return bar >= 0 ? bar + 1 : bar;
+  }
+
+  /** "<bar>.<beat>" for the TransportBar, both 1-based. */
+  function formatBarBeat(meterMap, tick) {
+    const position = meterMap.beatAt(tick);
+    return displayBar(position.bar) + '.' + (position.beat + 1);
+  }
+
+  /** "<bar>.<beat>.<tick>" with the tick inside the beat padded to three digits. */
+  function formatBarBeatTick(meterMap, tick) {
+    const position = meterMap.positionAt(tick);
+    const tickText = String(Math.floor(position.tickInBeat)).padStart(TICK_PAD_WIDTH, '0');
+    return displayBar(position.bar) + '.' + (position.beat + 1) + '.' + tickText;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Pairing note on and off messages (Part 6.3.4.3 as amended by decision D10)
+  // ---------------------------------------------------------------------------------------------
+  const PAIR_WARNING_TEXT = Object.freeze({
+    'W-NOTE-UNMATCHED': ['warn', 'A note was never released; it was ended at the end of the track.'],
+    'W-NOTE-OFF-WITHOUT-ON': ['warn', 'A note-off had no matching note-on and was dropped.'],
+    'W-NOTE-OVERLAP': ['info', 'The same pitch started again before it ended; the earlier note was cut short.'],
+    'W-NOTE-ZERO-DURATION': ['info', 'A note had no length and was given the shortest length.'],
+    'W-NOTE-VELOCITY-CLAMP': ['info', 'A velocity above 127 was set to 127.'],
+    'W-NOTE-PITCH-RANGE': ['warn', 'A note outside the range 0 to 127 was dropped.']
+  });
+
+  function createPairingContext(options) {
+    const warnings = new Map();
+    return {
+      open: new Map(),
+      notes: [],
+      warnings,
+      maxTick: 0,
+      trackEndTick: options.trackEndTick,
+      trackIndex: options.trackIndex,
+      warn(code, location) {
+        const known = warnings.get(code);
+        if (known) {
+          known.count += 1;
+          return;
+        }
+        const text = PAIR_WARNING_TEXT[code];
+        const where = Object.assign({}, location);
+        if (this.trackIndex !== undefined) where.trackIndex = this.trackIndex;
+        warnings.set(code, ImportWarning.create(code, text[1], text[0], where));
+      }
+    };
+  }
+
+  function pushNote(context, start, durTicks, message, offVelocity) {
+    const note = Events.note(start.tick, durTicks, message.pitch, start.velocity, message.channel, { offVelocity });
+    context.notes.push(note);
+  }
+
+  function offVelocityOf(message) {
+    return isIntegerIn(message.velocity, 0, 127) ? message.velocity : DEFAULT_OFF_VELOCITY;
+  }
+
+  // Step 1 of D10: close the most recent open note of the key that started at an earlier tick.
+  function closeEarlierNote(context, message) {
+    const stack = context.open.get(message.channel * 128 + message.pitch);
+    if (!stack || stack.length === 0) return false;
+    const start = stack.pop();
+    pushNote(context, start, Math.max(1, message.tick - start.tick), message, offVelocityOf(message));
+    return true;
+  }
+
+  // Step 2 of D10: a same-pitch on while one is open ends the earlier note at this start (no stacking).
+  function openNote(context, message) {
+    const key = message.channel * 128 + message.pitch;
+    const stack = context.open.get(key) || [];
+    if (stack.length > 0) {
+      const previous = stack.pop();
+      pushNote(context, previous, Math.max(1, message.tick - previous.tick), message, DEFAULT_OFF_VELOCITY);
+      context.warn('W-NOTE-OVERLAP', { tick: message.tick, pitch: message.pitch, channel: message.channel });
+    }
+    stack.push({ tick: message.tick, velocity: message.velocity });
+    context.open.set(key, stack);
+  }
+
+  // Step 3 of D10: an off with no earlier note closes a note opened at the same tick with length 1.
+  function closeSameTickNote(context, message) {
+    const stack = context.open.get(message.channel * 128 + message.pitch);
+    const location = { tick: message.tick, pitch: message.pitch, channel: message.channel };
+    if (!stack || stack.length === 0 || stack[stack.length - 1].tick !== message.tick) {
+      context.warn('W-NOTE-OFF-WITHOUT-ON', location);
+      return;
+    }
+    pushNote(context, stack.pop(), 1, message, offVelocityOf(message));
+    context.warn('W-NOTE-ZERO-DURATION', location);
+  }
+
+  // Returns a cleaned copy of a raw message, or null when it must be dropped (the warning is recorded).
+  function cleanRawMessage(context, raw) {
+    const location = { tick: raw.tick, pitch: raw.pitch, channel: raw.channel };
+    if (!isIntegerIn(raw.pitch, 0, 127) || !Number.isFinite(raw.tick)) {
+      context.warn('W-NOTE-PITCH-RANGE', location);
+      return null;
+    }
+    const message = { tick: raw.tick, pitch: raw.pitch, channel: (raw.channel | 0) & 15, velocity: raw.velocity };
+    const isOff = raw.type === 'off' || (raw.type === 'on' && !(raw.velocity > 0));
+    message.isOff = isOff;
+    if (!isOff && raw.velocity > 127) {
+      message.velocity = 127;
+      context.warn('W-NOTE-VELOCITY-CLAMP', location);
+    }
+    return message;
+  }
+
+  function processTickGroup(context, group) {
+    const deferred = [];
+    group.filter((message) => message.isOff).forEach((message) => {
+      if (!closeEarlierNote(context, message)) deferred.push(message);
+    });
+    group.filter((message) => !message.isOff).forEach((message) => openNote(context, message));
+    deferred.forEach((message) => closeSameTickNote(context, message));
+  }
+
+  function closeUnmatched(context) {
+    const end = context.trackEndTick === undefined ? context.maxTick : context.trackEndTick;
+    context.open.forEach((stack, key) => {
+      stack.forEach((start) => {
+        const message = { pitch: key % 128, channel: Math.floor(key / 128) };
+        pushNote(context, start, Math.max(1, end - start.tick), message, 0);
+        context.warn('W-NOTE-UNMATCHED', { tick: start.tick, pitch: message.pitch, channel: message.channel });
+      });
+    });
+  }
+
+  /**
+   * Pairs raw on/off messages into NoteEvents. raw is in tick order (a stable sort fixes any disorder).
+   * @returns {{notes: object[], warnings: object[]}}
+   */
+  function pairNotes(raw, options) {
+    const context = createPairingContext(options || {});
+    const messages = [];
+    raw.forEach((item) => {
+      const message = cleanRawMessage(context, item);
+      if (message) messages.push(message);
+    });
+    messages.sort((a, b) => a.tick - b.tick);
+    let index = 0;
+    while (index < messages.length) {
+      const tick = messages[index].tick;
+      let stop = index;
+      while (stop < messages.length && messages[stop].tick === tick) stop += 1;
+      processTickGroup(context, messages.slice(index, stop));
+      context.maxTick = Math.max(context.maxTick, tick);
+      index = stop;
+    }
+    closeUnmatched(context);
+    sortEvents(context.notes);
+    return { notes: context.notes, warnings: Array.from(context.warnings.values()) };
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Sustain pedal derived layer (Part 6.3.4.4)
+  // ---------------------------------------------------------------------------------------------
+  // Per channel: pedal events in order plus, for each position, the index of the next pedal-up event.
+  function buildPedalChannels(events) {
+    const channels = new Map();
+    events.forEach((event) => {
+      if (event.kind !== 'cc' || event.controller !== PEDAL_CONTROLLER) return;
+      const list = channels.get(event.channel) || { events: [], nextUp: [] };
+      list.events.push(event);
+      channels.set(event.channel, list);
+    });
+    channels.forEach((list) => {
+      let nextUp = -1;
+      list.nextUp = new Array(list.events.length + 1).fill(-1);
+      for (let position = list.events.length - 1; position >= 0; position -= 1) {
+        if (list.events[position].value < PEDAL_DOWN_VALUE) nextUp = position;
+        list.nextUp[position] = nextUp;
+      }
+    });
+    return channels;
+  }
+
+  // For every note, the start of the next note with the same pitch and channel (or Infinity).
+  function nextSamePitchStarts(notes) {
+    const upcoming = new Map();
+    const result = new Array(notes.length);
+    for (let position = notes.length - 1; position >= 0; position -= 1) {
+      const key = notes[position].channel * 128 + notes[position].pitch;
+      result[position] = upcoming.has(key) ? upcoming.get(key) : Infinity;
+      upcoming.set(key, notes[position].tick);
+    }
+    return result;
+  }
+
+  function trackEndOf(events) {
+    return events.reduce((latest, event) => Math.max(latest, endTick(event)), 0);
+  }
+
+  // Tick at which the pedal releases a note that ended while the pedal was down, or null when it is up.
+  function pedalReleaseTick(list, note, trackEnd) {
+    if (!list) return null;
+    const noteEnd = note.tick + note.durTicks;
+    const state = lastIndexAtOrBefore(list.events, noteEnd - 1, (item) => item.tick);
+    if (state < 0 || list.events[state].value < PEDAL_DOWN_VALUE) return null;
+    const up = list.nextUp[state + 1];
+    return up < 0 ? trackEnd : list.events[up].tick;
+  }
+
+  /** Non-destructive sustain layer; one DerivedNote per note of the track, in note order. */
+  function deriveSustain(track) {
+    const notes = track.events.filter((event) => event.kind === 'note');
+    const pedals = buildPedalChannels(track.events);
+    const nextStarts = nextSamePitchStarts(notes);
+    const trackEnd = trackEndOf(track.events);
+    return notes.map((note, position) => {
+      const release = pedalReleaseTick(pedals.get(note.channel), note, trackEnd);
+      const effectiveEnd = release === null ? note.tick + note.durTicks : Math.min(release, nextStarts[position]);
+      const effectiveDurTicks = Math.max(note.durTicks, effectiveEnd - note.tick);
+      return {
+        note,
+        noteId: note.id,
+        tick: note.tick,
+        pitch: note.pitch,
+        velocity: note.velocity,
+        channel: note.channel,
+        effectiveDurTicks,
+        extendedBySustain: effectiveDurTicks > note.durTicks
+      };
+    });
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // TrackIndex
+  // ---------------------------------------------------------------------------------------------
+  class TrackIndex {
+    constructor(track) {
+      this.track = track;
+      this.builtVersion = -1;
+      this.refresh();
+    }
+
+    /** Rebuilds the lookup tables when the track version changed. */
+    refresh() {
+      ensureVersion(this.track);
+      if (this.builtVersion === this.track.version) return this;
+      this.notes = this.track.events.filter((event) => event.kind === 'note');
+      this.starts = Float64Array.from(this.notes, (note) => note.tick);
+      this.noteById = new Map(this.notes.filter((note) => note.id !== undefined).map((note) => [note.id, note]));
+      this.runningMaxDuration = new Float64Array(this.notes.length);
+      let longest = 0;
+      this.notes.forEach((note, position) => {
+        longest = Math.max(longest, note.durTicks);
+        this.runningMaxDuration[position] = longest;
+      });
+      this.maxEnd = this.notes.reduce((latest, note) => Math.max(latest, note.tick + note.durTicks), 0);
+      this.builtVersion = this.track.version;
+      return this;
+    }
+
+    /** Index into notes of the first note starting at or after `tick`. */
+    firstAtOrAfter(tick) {
+      let low = 0;
+      let high = this.starts.length;
+      while (low < high) {
+        const middle = (low + high) >> 1;
+        if (this.starts[middle] < tick) low = middle + 1;
+        else high = middle;
+      }
+      return low;
+    }
+
+    /** Notes starting in [from, to). */
+    notesBetween(from, to) {
+      return this.notes.slice(this.firstAtOrAfter(from), this.firstAtOrAfter(to));
+    }
+
+    /** Notes with tick <= t < tick + durTicks, in note order. */
+    activeAt(tick) {
+      const active = [];
+      for (let position = this.firstAtOrAfter(tick + 1) - 1; position >= 0; position -= 1) {
+        // No earlier note can still sound once the longest duration so far no longer reaches `tick`.
+        if (this.starts[position] + this.runningMaxDuration[position] <= tick) break;
+        const note = this.notes[position];
+        if (note.tick + note.durTicks > tick) active.push(note);
+      }
+      return active.reverse();
+    }
+
+    /** Most notes sounding at once (an end and a start at the same tick do not overlap). */
+    maxPolyphony() {
+      const ends = Float64Array.from(this.notes, (note) => note.tick + note.durTicks).sort();
+      let endPosition = 0;
+      let sounding = 0;
+      let peak = 0;
+      for (let position = 0; position < this.starts.length; position += 1) {
+        while (endPosition < ends.length && ends[endPosition] <= this.starts[position]) {
+          sounding -= 1;
+          endPosition += 1;
+        }
+        sounding += 1;
+        peak = Math.max(peak, sounding);
+      }
+      return peak;
+    }
+
+    pitchRange() {
+      if (this.notes.length === 0) return null;
+      let lo = 127;
+      let hi = 0;
+      this.notes.forEach((note) => {
+        lo = Math.min(lo, note.pitch);
+        hi = Math.max(hi, note.pitch);
+      });
+      return { lo, hi };
+    }
+
+    /** Index into track.events of the first event at or after `tick`. */
+    eventsAtOrAfter(tick) {
+      const events = this.track.events;
+      let low = 0;
+      let high = events.length;
+      while (low < high) {
+        const middle = (low + high) >> 1;
+        if (events[middle].tick < tick) low = middle + 1;
+        else high = middle;
+      }
+      return low;
+    }
+  }
+
+  // Cached per track object and version; a WeakMap cannot collide when two songs reuse ids like 't1'.
+  const indexCache = new WeakMap();
+
+  function indexFor(track) {
+    ensureVersion(track);
+    const cached = indexCache.get(track);
+    if (cached && cached.version === track.version) return cached.index;
+    const index = new TrackIndex(track);
+    indexCache.set(track, { version: track.version, index });
+    return index;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Track
+  // ---------------------------------------------------------------------------------------------
+  const Track = Object.freeze({
+    /**
+     * Defaults per Part 5.1.2. With `song`, the id comes from song.idSeq and the color from the
+     * number of tracks already in the song; without it the id is unique and the color index is
+     * partial.colorIndex or 0.
+     */
+    create(partial, song) {
+      const given = partial || {};
+      const position = song ? song.tracks.length : (given.colorIndex | 0);
+      const program = given.program === undefined ? 0 : given.program;
+      const track = {
+        id: given.id !== undefined ? given.id : (song ? 't' + (song.idSeq++).toString(36) : 't' + Core.uid()),
+        name: cleanText(given.name, 'Track ' + (position + 1) + ' (' + FLM.Theory.gmProgramName(program) + ')', 80),
+        kind: given.kind === 'audio' ? 'audio' : 'midi',
+        channel: given.channel === undefined ? 0 : given.channel,
+        program,
+        bankMsb: given.bankMsb === undefined ? 0 : given.bankMsb,
+        bankLsb: given.bankLsb === undefined ? 0 : given.bankLsb,
+        isDrums: Boolean(given.isDrums),
+        events: Array.isArray(given.events) ? sortEvents(given.events.slice()) : [],
+        mix: Object.assign({ gain: 1, pan: 0, mute: false, solo: false }, given.mix),
+        color: given.color !== undefined ? given.color : TRACK_COLORS[position % TRACK_COLORS.length],
+        visible: given.visible === undefined ? true : Boolean(given.visible),
+        lockedSource: given.lockedSource === undefined ? true : Boolean(given.lockedSource),
+        derived: Boolean(given.derived),
+        sourceTrackId: given.sourceTrackId === undefined ? null : given.sourceTrackId,
+        idSeq: Number.isInteger(given.idSeq) && given.idSeq >= 1 ? given.idSeq : 1,
+        audioRef: given.audioRef === undefined ? null : given.audioRef
+      };
+      ensureVersion(track);
+      return track;
+    }
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // Song
+  // ---------------------------------------------------------------------------------------------
+  function hydrateMap(MapClass, value) {
+    if (value === undefined) return new MapClass();
+    return value instanceof MapClass ? value : MapClass.fromJSON(value);
+  }
+
+  function defaultSource() {
+    return { format: 'empty', fileName: '', version: '', warnings: [], warningsDropped: 0, importedAt: null,
+      fileSizeBytes: 0, fileHash: '' };
+  }
+
+  function createSong(partial) {
+    const given = partial || {};
+    const stamp = nowIso();
+    return {
+      id: given.id !== undefined ? given.id : 'song_' + Core.uid(),
+      title: cleanText(given.title, DEFAULT_TITLE, MAX_TITLE_LENGTH),
+      artist: cleanText(given.artist, '', MAX_TITLE_LENGTH),
+      source: Object.assign(defaultSource(), given.source),
+      ppq: PPQ,
+      tempoMap: hydrateMap(TempoMap, given.tempoMap),
+      meterMap: hydrateMap(MeterMap, given.meterMap),
+      keyMap: hydrateMap(KeyMap, given.keyMap),
+      tracks: Array.isArray(given.tracks) ? given.tracks.slice() : [],
+      markers: Array.isArray(given.markers) ? given.markers.map((marker) => Object.assign({}, marker)) : [],
+      durationTicks: Number.isInteger(given.durationTicks) && given.durationTicks >= 0 ? given.durationTicks : 0,
+      createdAt: given.createdAt !== undefined ? given.createdAt : stamp,
+      modifiedAt: given.modifiedAt !== undefined ? given.modifiedAt : stamp,
+      idSeq: Number.isInteger(given.idSeq) && given.idSeq >= 1 ? given.idSeq : 1
+    };
+  }
+
+  function audioTrackEnd(song, track) {
+    const ref = track.audioRef;
+    if (track.kind !== 'audio' || !ref) return 0;
+    const seconds = (ref.durationS || 0) + (ref.syncOffsetMs || 0) / 1000;
+    return Math.ceil(song.tempoMap.secondsToTicks(seconds));
+  }
+
+  /** Duration implied by all tracks (decision D11 adds audio tracks) and markers; does not change the song. */
+  function durationTicks(song) {
+    let duration = 0;
+    song.tracks.forEach((track) => {
+      duration = Math.max(duration, trackEndOf(track.events), audioTrackEnd(song, track));
+    });
+    song.markers.forEach((marker) => {
+      duration = Math.max(duration, marker.tick);
+    });
+    return duration;
+  }
+
+  function computeDuration(song) {
+    song.durationTicks = durationTicks(song);
+    return song.durationTicks;
+  }
+
+  function addTrack(song, track) {
+    if (song.tracks.length >= MAX_TRACKS) throw codedError('E-MDL-010', 'Projects are limited to 32 tracks.');
+    if (song.tracks.some((existing) => existing.id === track.id)) {
+      throw codedError('E-MDL-003', 'duplicate track id: ' + track.id);
+    }
+    song.tracks.push(track);
+    return track;
+  }
+
+  function removeTrack(song, trackId) {
+    const index = song.tracks.findIndex((track) => track.id === trackId);
+    if (index < 0) return false;
+    song.tracks.splice(index, 1);
+    return true;
+  }
+
+  function trackById(song, trackId) {
+    return song.tracks.find((track) => track.id === trackId);
+  }
+
+  // Track copy for serialization or cloning: the non-enumerable version stays behind.
+  function copyTrack(track, copyEvent) {
+    const copy = Object.assign({}, track, {
+      events: track.events.map(copyEvent),
+      mix: Object.assign({}, track.mix),
+      audioRef: track.audioRef ? Object.assign({}, track.audioRef) : null
+    });
+    return copy;
+  }
+
+  function songToJSON(song) {
+    const plain = Object.assign({}, song, {
+      source: JSON.parse(JSON.stringify(song.source)),
+      tempoMap: song.tempoMap.toJSON(),
+      meterMap: song.meterMap.toJSON(),
+      keyMap: song.keyMap.toJSON(),
+      tracks: song.tracks.map((track) => {
+        const copy = copyTrack(track, (event) => Object.assign({}, event));
+        if (copy.audioRef) delete copy.audioRef.buffer;
+        return copy;
+      }),
+      markers: song.markers.map((marker) => Object.assign({}, marker))
+    });
+    return JSON.parse(JSON.stringify(plain));
+  }
+
+  function songClone(song) {
+    const copy = Object.assign({}, song, {
+      source: JSON.parse(JSON.stringify(song.source)),
+      tempoMap: new TempoMap(song.tempoMap.toJSON()),
+      meterMap: new MeterMap(song.meterMap.toJSON()),
+      keyMap: new KeyMap(song.keyMap.toJSON()),
+      tracks: song.tracks.map((track) => {
+        const trackCopy = copyTrack(track, (event) => Object.assign({}, event));
+        ensureVersion(trackCopy);
+        trackCopy.version = track.version | 0;
+        return trackCopy;
+      }),
+      markers: song.markers.map((marker) => Object.assign({}, marker))
+    });
+    return copy;
+  }
+
+  // Structural checks that must pass before a plain object can become a Song.
+  function checkSongShape(obj) {
+    if (!isPlainObject(obj)) throw codedError('E-MDL-001', 'a song must be an object');
+    if (obj.ppq !== PPQ) throw codedError('E-MDL-001', 'ppq must be ' + PPQ);
+    if (!Array.isArray(obj.tracks)) throw codedError('E-MDL-002', 'tracks must be an array');
+    if (obj.tracks.length > MAX_TRACKS) throw codedError('E-MDL-002', 'more than ' + MAX_TRACKS + ' tracks');
+    obj.tracks.forEach((track) => {
+      if (!isPlainObject(track) || !Array.isArray(track.events)) {
+        throw codedError('E-MDL-003', 'every track needs an events array');
+      }
+    });
+    if (obj.markers !== undefined && !Array.isArray(obj.markers)) {
+      throw codedError('E-MDL-005', 'markers must be an array');
+    }
+  }
+
+  function songFromJSON(obj) {
+    checkSongShape(obj);
+    const song = createSong(Object.assign({}, obj, { tracks: [] }));
+    song.tracks = obj.tracks.map((track) => {
+      const restored = Track.create(Object.assign({}, track, { id: track.id }));
+      restored.events = track.events.map((event) => Object.assign({}, event));
+      restored.name = typeof track.name === 'string' ? track.name : restored.name;
+      return restored;
+    });
+    const result = validate(song);
+    if (!result.ok) throw codedError(result.errors[0].code, result.errors[0].message);
+    return song;
+  }
+
+  const Song = Object.freeze({
+    create: createSong,
+    fromJSON: songFromJSON,
+    toJSON: songToJSON,
+    clone: songClone,
+    computeDuration,
+    addTrack,
+    removeTrack,
+    trackById
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // Validation (Part 6.3.4.5)
+  // ---------------------------------------------------------------------------------------------
+  function createReport() {
+    return {
+      errors: [],
+      warnings: [],
+      error(code, message, location) {
+        if (this.errors.length < MAX_REPORTED_ERRORS) this.errors.push({ code, message, location: location || {} });
+      }
+    };
+  }
+
+  function validateNote(report, event, location) {
+    const goodNote = isIntegerIn(event.durTicks, 1, Infinity) && isIntegerIn(event.pitch, 0, 127) &&
+      isIntegerIn(event.velocity, 1, 127) && isIntegerIn(event.channel, 0, 15);
+    if (!goodNote) report.error('E-MDL-005', 'note fields out of range', location);
+  }
+
+  function validateControl(report, event, location) {
+    const ok = event.kind === 'cc'
+      ? isIntegerIn(event.controller, 0, 127) && isIntegerIn(event.value, 0, 127)
+      : event.kind === 'bend'
+        ? isIntegerIn(event.value, BEND_MIN, BEND_MAX)
+        : isIntegerIn(event.program, 0, 127);
+    if (!ok) report.error('E-MDL-006', event.kind + ' event fields out of range', location);
+  }
+
+  function validateEvent(report, event, location) {
+    if (!isIntegerIn(event.tick, 0, Infinity)) {
+      report.error('E-MDL-005', 'event tick must be an integer >= 0', location);
+      return;
+    }
+    if (event.kind === 'note') validateNote(report, event, location);
+    else if (event.kind === 'cc' || event.kind === 'bend' || event.kind === 'program') {
+      validateControl(report, event, location);
+    } else if (event.kind !== 'text') report.error('E-MDL-006', 'unknown event kind', location);
+  }
+
+  function validateTrack(report, track, seenTrackIds) {
+    if (seenTrackIds.has(track.id)) report.error('E-MDL-003', 'duplicate track id ' + track.id, { track: track.id });
+    seenTrackIds.add(track.id);
+    if (!isSorted(track.events)) report.error('E-MDL-004', 'events are not in order', { track: track.id });
+    const seenEventIds = new Set();
+    track.events.forEach((event, index) => {
+      const location = { track: track.id, index, tick: event.tick };
+      validateEvent(report, event, location);
+      if (event.id === undefined) return;
+      if (seenEventIds.has(event.id)) report.error('E-MDL-003', 'duplicate event id ' + event.id, location);
+      seenEventIds.add(event.id);
+    });
+  }
+
+  function validateEntryOrder(report, code, entries, label) {
+    if (!Array.isArray(entries) || entries.length === 0) {
+      report.error(code, label + ' is empty');
+      return false;
+    }
+    if (entries[0].tick !== 0) report.error(code, label + ' must start at tick 0');
+    for (let index = 1; index < entries.length; index += 1) {
+      if (!(entries[index].tick > entries[index - 1].tick)) report.error(code, label + ' ticks must ascend');
+    }
+    return true;
+  }
+
+  function validateMaps(report, song) {
+    const tempo = song.tempoMap.entries;
+    if (validateEntryOrder(report, 'E-MDL-007', tempo, 'tempoMap')) {
+      tempo.forEach((entry) => {
+        if (!isIntegerIn(entry.usPerQuarter, MIN_US_PER_QUARTER, MAX_US_PER_QUARTER)) {
+          report.error('E-MDL-007', 'usPerQuarter out of range', { tick: entry.tick });
+        }
+      });
+    }
+    const meter = song.meterMap.entries;
+    if (validateEntryOrder(report, 'E-MDL-008', meter, 'meterMap')) {
+      meter.forEach((entry) => {
+        const good = isIntegerIn(entry.numerator, 1, MAX_METER_NUMERATOR) && isPowerOfTwo(entry.denominator) &&
+          entry.denominator <= MAX_METER_DENOMINATOR;
+        if (!good) report.error('E-MDL-008', 'meter out of range', { tick: entry.tick });
+      });
+    }
+    song.keyMap.entries.forEach((entry) => {
+      const good = isIntegerIn(entry.fifths, -7, 7) && (entry.mode === 'major' || entry.mode === 'minor');
+      if (!good) report.error('E-MDL-009', 'key out of range', { tick: entry.tick });
+    });
+  }
+
+  function addSongWarnings(report, song) {
+    let noteCount = 0;
+    song.tracks.forEach((track) => {
+      if (track.events.length === 0) {
+        report.warnings.push(ImportWarning.create('W-MDL-EMPTY-TRACK', 'A track has no events.', 'info',
+          { track: track.id }));
+      }
+      noteCount += track.events.filter((event) => event.kind === 'note').length;
+    });
+    if (noteCount === 0) report.warnings.push(ImportWarning.create('W-MDL-NO-NOTES', 'The song has no notes.', 'warn'));
+    if (song.durationTicks < durationTicks(song)) {
+      report.warnings.push(ImportWarning.create('W-MDL-DURATION', 'The song duration was shorter than its content.',
+        'info'));
+    }
+  }
+
+  /** Checks a Song against Part 5 and 6.3.4.5; errors stop loading, warnings do not. */
+  function validate(song) {
+    const report = createReport();
+    if (song.ppq !== PPQ) report.error('E-MDL-001', 'ppq must be ' + PPQ);
+    if (song.tracks.length > MAX_TRACKS) report.error('E-MDL-002', 'more than ' + MAX_TRACKS + ' tracks');
+    const totalEvents = song.tracks.reduce((sum, track) => sum + track.events.length, 0);
+    if (totalEvents > MAX_EVENTS_TOTAL) {
+      report.error('E-MDL-011', 'more than ' + MAX_EVENTS_TOTAL + ' events');
+      return { ok: false, errors: report.errors, warnings: report.warnings };
+    }
+    const seenTrackIds = new Set();
+    song.tracks.forEach((track) => validateTrack(report, track, seenTrackIds));
+    validateMaps(report, song);
+    addSongWarnings(report, song);
+    return { ok: report.errors.length === 0, errors: report.errors, warnings: report.warnings };
+  }
+
+  return Object.freeze({
+    PPQ,
+    KIND_PRIORITY,
+    TRACK_COLORS,
+    MAX_TRACKS,
+    MAX_MARKERS,
+    MAX_MAP_ENTRIES,
+    Song,
+    Track,
+    Events,
+    Marker,
+    ImportWarning,
+    compareEvents,
+    insertEvent,
+    insertEvents,
+    replaceEvents,
+    removeEvent,
+    removeEvents,
+    isSorted,
+    sortEvents,
+    pairNotes,
+    deriveSustain,
+    validate,
+    durationTicks,
+    computeDuration,
+    recomputeDuration: computeDuration,
+    clone: songClone,
+    fromJSON: songFromJSON,
+    TempoMap,
+    MeterMap,
+    KeyMap,
+    TrackIndex,
+    indexFor,
+    touch,
+    rescaleTicks,
+    formatBarBeat,
+    formatBarBeatTick
+  });
+});
 })();
 
 // ==== 16-storage.js ====
@@ -5657,8 +7490,1432 @@ FLM.Core.define('Screens', function (FLM) {
     });
   }
 
+  const Settings = createSettings();
+
+  // =================================================================================================
+  // T01.11: screens and dialogs (Part 6.27.4.3 to 6.27.4.17 and 6.27.4.21)
+  // =================================================================================================
+  const UI = FLM.UI;
+  const doc = window.document;
+  const bus = Core.bus;
+  const el = UI.el;
+  const icon = UI.icon;
+
+  const SCREENS_OWNER = Symbol('screens');
+  const STYLE_ID = 'flm-screens-style';
+  const SCREEN_IDS = Object.freeze(['SCR-FirstLaunch', 'SCR-MainMenu', 'SCR-QuickPlay', 'SCR-Instrument',
+    'SCR-FreePlay', 'SCR-Studio', 'SCR-Library', 'SCR-ImportInspect', 'SCR-Dance', 'SCR-Multiplayer',
+    'SCR-Characters', 'SCR-Settings', 'SCR-Help', 'SCR-About', 'SCR-Diagnostics', 'SCR-Tutorial', 'SCR-Results',
+    'SCR-Pause']);
+  const DIALOG_IDS = Object.freeze(['DLG-UnsavedChanges', 'DLG-SaveFailed', 'DLG-ImportReplace', 'DLG-AudioBlocked',
+    'DLG-DeleteTrack', 'DLG-Calibration', 'DLG-RemapConflict', 'DLG-ProjectTooLarge', 'DLG-Unsupported',
+    'DLG-NetError', 'DLG-ResumeAudio', 'DLG-DeleteProject', 'DLG-ExportWav', 'DLG-ImportSettings']);
+  // Part 11 T01.11 open item: every use is a STATUS.md section 5 placeholder row.
+  const LATER_BUILD = 'Available after a later build step';
+  const AUDIO_WAIT_MS = 5000;                // DLG-AudioBlocked: how long to wait for audio.unlocked
+  const AUDIO_STEP_FAIL_MS = 1000;           // first launch: an unlock that takes longer shows the inline error
+  const REFRESH_MS = 1000;                   // diagnostics panels refresh once per second
+  const LOG_TAIL = 100;
+  const ERROR_TAIL = 50;
+  const IMPORT_LIST_LIMIT = 20;
+  const SETTINGS_FILE_LIMIT = 256 * 1024;
+  const FIRST_LAUNCH_LAST_STEP = 6;
+  const LICENSE_NOTICE = 'Copyright (c) 2026 the Finger Lickin Music authors. All rights reserved.';   // Part 10.3.3
+  // Groups whose tests reset the screen stack; the Diagnostics button must not run them (it would remove itself).
+  const SELF_TEST_SKIPPED_GROUPS = Object.freeze(['ui', 'modes', 'screens', 'boot']);
+  const NOTE_NAMES = Object.freeze(['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']);
+
+  // Part 7.11 texts used by these screens, verbatim. M-26 and M-01 hold the E-* codes and screen names.
+  const SCREEN_TEXT = Object.freeze({
+    tagline: 'Play, record and perform music with four buttons.',
+    'S-GEN-03': 'Single file, no build needed to play.',
+    'S-GEN-04': 'Opening the file directly or over HTTPS gives the full feature set; plain HTTP disables MIDI input.',
+    'S-GEN-05': 'Diagnostics never include songs, projects or recordings unless you turn this on.',
+    'S-GEN-06': 'Diagnostics copied.',
+    'S-GEN-07': 'Copying is blocked here. The text is selected; copy it with your device\'s copy command.',
+    'S-AUD-01': 'Tap or press a key to enable sound.',
+    'S-AUD-02': 'Your browser keeps sound off until you tap or press a key on this page.',
+    'S-AUD-03': 'Sound did not start. Check that this tab and the device are not muted, then try again.',
+    'S-CAP-01': 'Gamepad input is not available in this browser.',
+    'S-INP-03': 'Gamepad buttons are fixed in this version.',
+    'S-INP-04': 'If chords do not register on a touch screen, choose Settings > Controls > Touch input: Touch events.',
+    'S-EXP-02': 'Download started: {fileName}.',
+    'S-SET-01': 'Finger Lickin Music keeps your settings, projects, characters and results only in this browser on ' +
+      'this device. It sends nothing anywhere: no account, no analytics, no telemetry. The only network ' +
+      'connections are the ones you start in Multiplayer.',
+    'S-SET-03': 'Settings replaced from {file}.',
+    'S-SET-04': 'Settings reset to defaults.',
+    'S-STO-03': 'Browser storage is not a permanent backup. Export projects you want to keep.',
+    'S-NET-02': 'Two players on one keyboard is not available in this version. Each player uses their own device ' +
+      'and connects by invite code.',
+    'gate.webrtc': 'This browser has no WebRTC support.',
+    'dlg.audio.title': 'Turn on sound',
+    'dlg.audio.enable': 'Turn on sound',
+    'dlg.audio.waiting': 'Waiting for sound...',
+    'dlg.audio.blocked': 'Sound is still blocked. Check that the tab is not muted, then try again.',
+    'dlg.resume.title': 'Sound was interrupted',
+    'dlg.resume.body': 'Another app, a call or the lock screen interrupted the sound.',
+    'dlg.resume.enable': 'Resume sound',
+    'dlg.resume.cancel': 'Stay paused',
+    'dlg.unsupported.title': '{feature} is not available',
+    'dlg.returned.title': '{operation} stopped',
+    'dlg.returned.body': 'You are back at the main menu. Your project is still open.',
+    'dlg.copy': 'Copy diagnostics',
+    'dlg.copy.title': 'Copy diagnostics',
+    'dlg.ok': 'OK',
+    'dlg.cancel': 'Cancel',
+    'dlg.importSettings.title': 'Replace settings?',
+    'dlg.importSettings.body': 'Replace your settings with the ones in {file}? Controls, calibration, volumes and ' +
+      'display settings change. Projects and performance history are not affected.',
+    'dlg.importSettings.apply': 'Replace settings',
+    'dlg.importSettings.more': '+{count} more',
+    'dlg.reset.title': 'Reset all settings?',
+    'dlg.reset.body': 'Controls, calibration, volumes and display settings return to their defaults. Projects, ' +
+      'characters and performance history are kept.',
+    'dlg.reset.consequence': 'Your current settings are replaced and this cannot be undone.',
+    'dlg.reset.apply': 'Reset settings'
+  });
+
+  function fillText(template, vars) {
+    return template.replace(/\{(\w+)\}/g, (match, name) => (vars && hasOwn(vars, name) ? String(vars[name]) : ''));
+  }
+
+  /** Text lookup: this module's table, then M-26 (screen names, widgets) and M-01 (E-* codes). */
+  function say(id, vars) {
+    return hasOwn(SCREEN_TEXT, id) ? fillText(SCREEN_TEXT[id], vars) : UI.text(id, vars);
+  }
+
+  const STYLE_RULES = [
+    '.panel { max-width: 44rem; margin: 0 0 var(--sp-5); }',
+    '.panel h2 { margin: 0 0 var(--sp-2); font-size: var(--fs-4); line-height: var(--lh-tight); }',
+    '.panel p, .panel ul { margin: 0 0 var(--sp-2); }',
+    '.panel ul { padding-left: var(--sp-5); }',
+    '.notice { display: flex; align-items: flex-start; gap: var(--sp-2); max-width: 44rem; margin: 0 0 var(--sp-3);' +
+      ' padding: var(--sp-3); border: var(--border); border-left: 4px solid var(--c-accent-2);' +
+      ' border-radius: var(--r-2); background: var(--c-panel); }',
+    '.notice.warn { border-left-color: var(--c-warn); }',
+    '.notice p, .notice ul { flex: 1 1 auto; margin: 0; }',
+    '.table-wrap { max-width: 44rem; margin: 0 0 var(--sp-3); overflow-x: auto; }',
+    '.data-table { width: 100%; border-collapse: collapse; font-size: var(--fs-2); }',
+    '.data-table caption { padding: var(--sp-1) 0; text-align: left; font-weight: var(--fw-bold); }',
+    '.data-table th, .data-table td { padding: var(--sp-1) var(--sp-2); border-bottom: var(--border); ' +
+      'text-align: left; vertical-align: top; }',
+    '.data-table.mono td, .mono { font-family: var(--font-mono); font-size: var(--fs-1); }',
+    '.btn-row { display: flex; flex-wrap: wrap; gap: var(--sp-2); margin: var(--sp-3) 0; }',
+    '.menu-wrap { max-width: 40rem; }',
+    '.menu-footer { margin: var(--sp-4) 0 0; color: var(--c-text-muted); font-size: var(--fs-2); }',
+    '.fl-card { max-width: 32rem; margin: 0 auto; padding: var(--sp-5) var(--sp-4); }',
+    '.fl-card h1 { margin: 0 0 var(--sp-2); font-size: var(--fs-6); line-height: var(--lh-tight); }',
+    '.fl-glyphs { display: flex; gap: var(--sp-3); margin: var(--sp-3) 0; }',
+    '.set-cats .tabs { overflow-x: auto; }',
+    '.set-panel { max-width: 44rem; padding-top: var(--sp-3); }',
+    '.set-note { color: var(--c-text-muted); font-size: var(--fs-2); }',
+    '.badge-test { display: inline-block; margin-left: var(--sp-2); padding: 0 var(--sp-2); border: var(--border);' +
+      ' border-radius: var(--r-pill); color: var(--c-warn); border-color: var(--c-warn); font-size: var(--fs-1); }'
+  ].join('\n');
+
+  function ensureStyles() {
+    if (doc.getElementById(STYLE_ID)) return;
+    const style = doc.createElement('style');
+    style.id = STYLE_ID;
+    style.textContent = STYLE_RULES;
+    doc.head.appendChild(style);
+  }
+
+  // ---------------------------------------------------------------- key and pad words (Part 6.27.4.23)
+  const CODE_LABELS = Object.freeze({
+    ShiftLeft: 'Left Shift', ShiftRight: 'Right Shift', ControlLeft: 'Left Ctrl', AltLeft: 'Left Alt', Escape: 'Esc',
+    Space: 'Space', Enter: 'Enter', Backspace: 'Backspace', Tab: 'Tab', Semicolon: ';', Quote: '\'', Comma: ',',
+    Period: '.', Slash: '/', BracketLeft: '[', BracketRight: ']', Minus: '-', Equal: '=', Backquote: '`'
+  });
+  const CODE_PATTERNS = Object.freeze([
+    [/^Key([A-Z])$/, (match) => match[1]],
+    [/^Digit(\d)$/, (match) => match[1]],
+    [/^Numpad(\d)$/, (match) => 'Num ' + match[1]],
+    [/^Arrow(Left|Right|Up|Down)$/, (match) => match[1]],
+    [/^midi:(\d{1,3})$/, (match) => 'MIDI ' + noteLabel(Number(match[1]))]
+  ]);
+
+  function noteLabel(note) {
+    return NOTE_NAMES[note % NOTE_NAMES.length] + (Math.floor(note / NOTE_NAMES.length) - 1);
+  }
+
+  /** 'KeyA' -> 'A', 'ShiftLeft' -> 'Left Shift', 'midi:60' -> 'MIDI C4'; an unknown code is returned unchanged. */
+  function codeLabel(code) {
+    const value = String(code);
+    if (hasOwn(CODE_LABELS, value)) return CODE_LABELS[value];
+    const found = CODE_PATTERNS.find((entry) => entry[0].test(value));
+    return found ? found[1](found[0].exec(value)) : value;
+  }
+
+  /** Words for touch instructions: the four lane pads or the four dance arrows. */
+  function padWords(kind) {
+    return kind === 'dance' ? ['left', 'down', 'up', 'right'] : ['circle', 'triangle', 'square', 'diamond'];
+  }
+
+  // ---------------------------------------------------------------- small DOM helpers
+  function addAll(parent, nodes) {
+    nodes.forEach((node) => { if (node) parent.appendChild(node); });
+    return parent;
+  }
+
+  const paragraph = (message, attrs) => el('p', attrs || null, message);
+
+  function panel(id, title, nodes) {
+    return addAll(el('section', { class: 'panel', id, 'aria-labelledby': id + '-title' },
+      [el('h2', { id: id + '-title' }, title)]), nodes);
+  }
+
+  function dataTable(id, caption, headers, rows) {
+    const head = el('tr', null, headers.map((name) => el('th', { scope: 'col' }, name)));
+    const body = rows.map((cells) => el('tr', null, cells.map((cell) => el('td', null, String(cell)))));
+    return el('div', { class: 'table-wrap' }, el('table', { id, class: 'data-table' },
+      [el('caption', null, caption), el('thead', null, head), el('tbody', null, body)]));
+  }
+
+  function notice(id, kind, message) {
+    return el('div', { class: 'notice ' + kind, id, role: 'status' }, [icon(kind === 'warn' ? 'warn' : 'info'),
+      el('p', null, message)]);
+  }
+
+  function actionButton(spec) {
+    return UI.Widgets.button(Object.assign({ kind: 'secondary' }, spec));
+  }
+
+  const yesNo = (value) => (value ? 'yes' : 'no');
+  const editionName = () => (FLM.RELAY_URL ? 'Online' : 'Standalone');
+  const buildDate = () => String(FLM.BUILD).slice(0, 10);
+  const isTestBuild = () => Boolean(FLM.SelfTest);
+  const currentMode = () => (FLM.Modes && FLM.Modes.current ? FLM.Modes.current().mode : 'menu');
+
+  function enterMode(mode, params) {
+    return Promise.resolve(FLM.Modes.enter(mode, params || {})).catch((error) => {
+      Core.Log.warn('screens', 'enter ' + mode + ' failed: ' + (error && error.message));
+    });
+  }
+
+  // Back from a panel screen: leave its mode (which ends at the menu) or just pop when it was pushed some other way.
+  function panelBack(mode) {
+    if (currentMode() !== mode) return 'pop';
+    Promise.resolve(FLM.Modes.leave('user')).catch((error) => {
+      Core.Log.warn('screens', 'leave ' + mode + ' failed: ' + (error && error.message));
+    });
+    return 'handled';
+  }
+
+  function gateEntries() {
+    const result = FLM.Boot && typeof FLM.Boot.gateResult === 'function' ? FLM.Boot.gateResult() : { soft: [] };
+    return result.soft.filter((row) => row.reason !== '');
+  }
+
+  function renderTierName() {
+    const caps = Core.Caps.get();
+    if (caps.webgl2) return 'WebGL2';
+    return caps.webgl1 ? 'WebGL1' : '2D';
+  }
+
+  // ---------------------------------------------------------------- clipboard and downloads
+  function showCopyFallback(json) {
+    const area = el('textarea', { class: 'field mono', rows: 8, readonly: true, 'aria-label': say('dlg.copy.title') });
+    area.value = json;
+    Core.timers.setTimeout(() => { area.focus(); area.select(); }, 0, SCREENS_OWNER);
+    return UI.dialog({ id: 'DLG-Unsupported', title: say('dlg.copy.title'), body: say('S-GEN-07'),
+      build: (container) => container.appendChild(area),
+      buttons: [{ id: 'ok', label: say('dlg.ok'), kind: 'primary', isDefault: true, isCancel: true }] });
+  }
+
+  /** Copies the diagnostics JSON; a blocked clipboard falls back to a selected textarea (S-GEN-07). */
+  async function copyDiagnostics(includeContent) {
+    const exported = Core.Diagnostics.export({ includeContent: includeContent === true });
+    try {
+      await window.navigator.clipboard.writeText(exported.json);
+      UI.toast(say('S-GEN-06'), { kind: 'success' });
+      return { ok: true };
+    } catch (error) {
+      UI.toast(say('S-GEN-07'), { kind: 'warn' });
+      showCopyFallback(exported.json);
+      return { ok: false };
+    }
+  }
+
+  async function downloadText(fileName, content, mimeType) {
+    const result = await FLM.Storage.download(fileName, content, mimeType);
+    if (result.ok) UI.toast(say('S-EXP-02', { fileName }), { kind: 'success' });
+    else UI.toast(Core.Text.get(result.error && result.error.code ? result.error.code : 'E-GEN-000',
+      { original: 'download' }), { kind: 'error' });
+    return result;
+  }
+
+  const todayStamp = () => new Date().toISOString().slice(0, 10);
+
+  // ---------------------------------------------------------------- SCR-MainMenu (Part 6.27.4.4 and 7.6.2)
+  // built is false while the mode's own screen does not exist yet (its phase has not started); such an entry is
+  // disabled with LATER_BUILD, and the reason becomes the capability or content reason of Part 7.6.2 when it ships.
+  const MENU_ENTRIES = Object.freeze([
+    { id: 'quickplay', mode: 'quickplay', label: 'Quick Play', subtitle: 'Pick a song and play', built: false },
+    { id: 'instrument', mode: 'instrument', label: 'Instrument Mode',
+      subtitle: 'Choose part, profile and practice options', built: false },
+    { id: 'freeplay', mode: 'freeplay', label: 'Free Play', subtitle: 'Play freely in any key', built: false },
+    { id: 'studio', mode: 'studio', label: 'Studio', subtitle: 'Record and arrange tracks', built: false },
+    { id: 'library', mode: 'library', label: 'Song Library', subtitle: 'Built-in songs, imports and projects',
+      built: false },
+    { id: 'import', mode: 'import', label: 'Import Music', subtitle: 'MIDI, MusicXML, Guitar Pro, audio',
+      built: false },
+    { id: 'dance', mode: 'dance', label: 'Dance Mode', subtitle: 'Step to the beat', built: false },
+    { id: 'multiplayer', mode: 'multiplayer', label: 'Multiplayer', subtitle: 'Play with 2 to 4 people',
+      built: false },
+    { id: 'customize', mode: 'customize', label: 'Characters', subtitle: 'Customize your band', built: false },
+    { id: 'settings', mode: 'settings', label: 'Settings', subtitle: 'Sound, controls, display', built: true },
+    { id: 'help', mode: 'help', label: 'Help and Controls', subtitle: 'Controls and how each mode works',
+      built: true },
+    { id: 'about', mode: 'about', label: 'About', subtitle: 'Version, limits and licenses', built: true }
+  ]);
+  // Entries that open a select screen on the menu stack instead of switching mode (Part 6.27.4.4).
+  const SELECT_SCREENS = Object.freeze({ quickplay: 'SCR-QuickPlay', instrument: 'SCR-Instrument',
+    dance: 'SCR-Dance' });
+  const LAST_USED_PREFIX = 'Last used - ';
+
+  function gateFailed(id) {
+    const result = FLM.Boot && typeof FLM.Boot.gateResult === 'function' ? FLM.Boot.gateResult() : { soft: [] };
+    return result.soft.some((row) => row.id === id);
+  }
+
+  // params.environment is a test seam: {webrtc, relayUrl} replace what the gate and the build say.
+  function menuEnvironment(override) {
+    return Object.assign({ webrtc: !gateFailed('webrtc'), relayUrl: FLM.RELAY_URL || '' }, override);
+  }
+
+  function menuReason(entry, env) {
+    if (entry.id === 'multiplayer' && !env.webrtc && env.relayUrl === '') return say('gate.webrtc');
+    return entry.built ? null : LATER_BUILD;
+  }
+
+  function menuItems(env, lastEntry) {
+    return MENU_ENTRIES.map((entry) => ({ id: entry.id, primary: entry.label, disabledReason: menuReason(entry, env),
+      secondary: (entry === lastEntry ? LAST_USED_PREFIX : '') + entry.subtitle }));
+  }
+
+  function openMenuEntry(entry) {
+    if (hasOwn(SELECT_SCREENS, entry.id)) return UI.Screens.push(SELECT_SCREENS[entry.id], { phase: 'select' });
+    const params = entry.id === 'studio' ? { projectId: Settings.get('session.lastProjectId') } : {};
+    return enterMode(entry.mode, params);
+  }
+
+  const audioIsLocked = () => Boolean(FLM.Audio) && typeof FLM.Audio.isUnlocked === 'function' &&
+    !FLM.Audio.isUnlocked();
+
+  function menuNotices(ctx) {
+    const nodes = [];
+    if (audioIsLocked()) {
+      const banner = notice('mm-audio-banner', 'info', say('S-AUD-01'));
+      bus.on('audio.unlocked', () => banner.remove(), ctx.owner);
+      nodes.push(banner);
+    }
+    const storageNotice = FLM.Storage.state().notice;
+    if (storageNotice) nodes.push(notice('mm-storage-notice', 'warn', storageNotice));
+    return nodes;
+  }
+
+  function createMainMenu() {
+    const view = { list: null, focusId: MENU_ENTRIES[0].id };
+    return {
+      mount(root, params, ctx) {
+        ensureStyles();
+        const env = menuEnvironment(params.environment);
+        const frame = UI.Frame.create(root, { prefix: 'mm', title: 'Finger Lickin Music', subtitle: say('tagline'),
+          back: false });
+        if (isTestBuild()) frame.status.appendChild(el('span', { class: 'badge-test' }, 'TEST BUILD'));
+        const lastEntry = MENU_ENTRIES.find((entry) => entry.mode === Settings.get('onboarding.lastMode'));
+        view.focusId = lastEntry ? lastEntry.id : MENU_ENTRIES[0].id;
+        view.list = UI.Widgets.list({ id: 'mm-list', label: 'Main menu', role: 'menu', selectedId: view.focusId,
+          items: menuItems(env, lastEntry),
+          onPick: (id) => openMenuEntry(MENU_ENTRIES.find((entry) => entry.id === id)) });
+        const version = 'Version ' + FLM.VERSION + ' (' + editionName() + ') - ' + buildDate();
+        addAll(frame.body, menuNotices(ctx).concat([
+          el('div', { class: 'menu-wrap' }, el('nav', { id: 'mm-nav', 'aria-label': 'Main menu' }, view.list.root)),
+          paragraph(version, { id: 'mm-version', class: 'menu-footer' })]));
+      },
+      initialFocus: () => view.list.root.querySelector('[data-item="' + view.focusId + '"]'),
+      onBack: () => 'pop'                      // the root: M-26 answers 'root' before this is asked
+    };
+  }
+
+  // ---------------------------------------------------------------- SCR-FirstLaunch (Part 6.27.4.3 and 7.6.1)
+  // Six steps: identity, capability summary, sound (T04.01 completes it), rendering, input (T03.04 completes it),
+  // mode choice with the features this browser lacks. Only completed onboarding is skipped on the next start.
+  function createFirstLaunch() {
+    const view = { step: 1, host: null, widgets: [], ctx: null };
+
+    function track(handle) {
+      view.widgets.push(handle);
+      return handle;
+    }
+
+    function navigation(primary) {
+      const row = el('div', { class: 'btn-row' });
+      if (view.step > 1) {
+        row.appendChild(track(actionButton({ id: 'fl-back', label: say('ui.back'), kind: 'ghost',
+          onPress: () => goTo(view.step - 1) })).root);
+      }
+      const next = track(actionButton(Object.assign({ id: 'fl-next', label: 'Continue', kind: 'primary',
+        onPress: () => goTo(view.step + 1) }, primary)));
+      next.root.setAttribute('data-autofocus', '');
+      row.appendChild(next.root);
+      return row;
+    }
+
+    function goTo(step) {
+      view.step = Core.clamp(step, 1, FIRST_LAUNCH_LAST_STEP);
+      render();
+      const target = view.host.querySelector('[data-autofocus]');
+      if (target) target.focus();
+    }
+
+    function stepIdentity() {
+      const glyphs = [0, 1, 2, 3].map((index) => UI.icon('lane' + index, 'glyph'));
+      const skip = track(actionButton({ id: 'fl-skip', label: 'Skip setup', kind: 'ghost', onPress: skipSetup }));
+      return [el('div', { id: 'fl-logo' }, [el('h1', null, 'Finger Lickin Music'),
+        el('div', { class: 'fl-glyphs', 'aria-hidden': 'true' }, glyphs)]),
+      paragraph(say('tagline'), { id: 'fl-tagline' }), paragraph('Version ' + FLM.VERSION, { id: 'fl-version' }),
+      navigation(), el('div', { class: 'btn-row' }, skip.root)];
+    }
+
+    function stepCapabilities() {
+      const entries = gateEntries();
+      const body = entries.length === 0
+        ? paragraph('Everything needed is available', { id: 'fl-checks' })
+        : el('ul', { id: 'fl-checks', role: 'list' }, entries.map((row) => el('li', null, row.reason)));
+      return [el('h2', null, 'This browser'), body, navigation()];
+    }
+
+    function advanceFromSound() {
+      if (view.step === 3) goTo(4);
+    }
+
+    function startSound() {
+      const error = view.host.querySelector('#fl-audio-error');
+      error.textContent = '';
+      const failTimer = Core.timers.setTimeout(() => { error.textContent = say('S-AUD-03'); }, AUDIO_STEP_FAIL_MS,
+        view.ctx.owner);
+      const attempt = FLM.Audio.unlock();      // called inside the click: browsers allow sound only after a gesture
+      return Promise.resolve(attempt).then(() => {
+        Core.timers.clearTimeout(failTimer);
+        advanceFromSound();
+      }, () => { error.textContent = say('S-AUD-03'); });
+    }
+
+    function stepSound() {
+      const canUnlock = Boolean(FLM.Audio) && typeof FLM.Audio.unlock === 'function';
+      const start = track(actionButton({ id: 'fl-start', label: 'Start sound', kind: 'primary',
+        onPress: startSound, disabledReason: canUnlock ? undefined : LATER_BUILD }));
+      const skip = track(actionButton({ id: 'fl-skip-sound', label: 'Continue without sound for now',
+        onPress: () => goTo(4) }));
+      return [el('h2', null, 'Sound'),
+        paragraph('Starting turns on sound. Nothing plays until you choose a mode.', { id: 'fl-start-hint' }),
+        paragraph('', { id: 'fl-audio-error', class: 'status status-error', role: 'status' }),
+        el('div', { class: 'btn-row' }, [start.root, skip.root]), navigation()];
+    }
+
+    const TIER_OPTIONS = Object.freeze([{ value: 'auto', label: 'Automatic' }, { value: 'high', label: 'High' },
+      { value: 'balanced', label: 'Balanced' }, { value: 'low', label: 'Low' },
+      { value: 'abstract', label: 'Abstract (2D)' }]);
+
+    function stepRendering() {
+      const kind = renderTierName();
+      const lines = [paragraph('Graphics: ' + kind, { id: 'fl-render-line' })];
+      if (kind === '2D') lines.push(paragraph(Core.Text.get('E-REN-001'), { id: 'fl-tier' }));
+      const tier = track(UI.Widgets.select({ id: 'fl-tier-select', label: 'Graphics quality', options: TIER_OPTIONS,
+        value: Settings.get('video.tier'), onChange: (value) => Settings.set('video.tier', value, 'ui') }));
+      return [el('h2', null, 'Graphics')].concat(lines, [tier.root, navigation()]);
+    }
+
+    const INPUT_OPTIONS = Object.freeze([{ value: 'auto', label: 'Automatic' },
+      { value: 'desktop', label: 'Keyboard and mouse' }, { value: 'touch', label: 'Touch' }]);
+
+    function stepInput() {
+      const touch = Core.Caps.get().maxTouchPoints > 0;
+      const lanes = Settings.get('input.keys.lanes').map(codeLabel).join(' ');
+      const preview = touch ? 'Pads: ' + padWords('lanes').join(', ') : 'Lane keys: ' + lanes;
+      const choice = track(UI.Widgets.select({ id: 'fl-input', label: 'How will you play?', options: INPUT_OPTIONS,
+        value: Settings.get('onboarding.inputMode'),
+        onChange: (value) => Settings.set('onboarding.inputMode', value, 'ui') }));
+      return [el('h2', null, 'Controls'), paragraph('Detected input: ' + (touch ? 'touch' : 'keyboard')),
+        choice.root, paragraph(preview, { id: 'fl-input-preview' }),
+        paragraph('Trying the keys and pads on this page is added in a later build step.', { class: 'set-note' }),
+        navigation()];
+    }
+
+    // Every choice sets the flag first (written at once, Part 5.11), then acts.
+    function chooseMode(action) {
+      Settings.set('onboarding.firstLaunchDone', true, 'ui');
+      return action();
+    }
+
+    const toMainMenu = () => UI.Screens.replace('SCR-MainMenu', {});
+
+    function skipSetup() {
+      Settings.set('onboarding.inputMode', 'auto', 'ui');
+      if (FLM.Audio && typeof FLM.Audio.unlock === 'function') FLM.Audio.unlock();   // the click is a gesture
+      return chooseMode(toMainMenu);
+    }
+
+    function choiceCard(id, label, subtitle, config) {
+      const handle = track(actionButton(Object.assign({ id, label, kind: config.kind }, config)));
+      return el('div', { class: 'panel' }, [handle.root, paragraph(subtitle, { class: 'subtitle' })]);
+    }
+
+    function stepModes() {
+      const cards = [
+        choiceCard('fl-learn', 'Learn the basics', 'Interactive tutorial, about 3 minutes',
+          { disabledReason: LATER_BUILD }),
+        choiceCard('fl-demo', 'Play a demo song', 'Neon Boulevard, keys part, beginner',
+          { disabledReason: LATER_BUILD }),
+        choiceCard('fl-menu', 'Go to the main menu', 'Everything in one list',
+          { kind: 'primary', onPress: () => chooseMode(toMainMenu) })];
+      const lacking = gateEntries();
+      const list = lacking.length === 0 ? null : el('div', { id: 'fl-unavailable', class: 'notice info' }, [
+        icon('info'), el('div', null, [paragraph('Not available in this browser'),
+          el('ul', null, lacking.map((row) => el('li', null, row.reason)))])]);
+      const back = el('div', { class: 'btn-row' }, track(actionButton({ id: 'fl-back', label: say('ui.back'),
+        kind: 'ghost', onPress: () => goTo(view.step - 1) })).root);
+      return [el('h2', null, 'Choose where to start'), el('div', { id: 'fl-choices' }, cards), list, back];
+    }
+
+    const STEPS = [null, stepIdentity, stepCapabilities, stepSound, stepRendering, stepInput, stepModes];
+
+    function render() {
+      view.widgets.forEach((handle) => handle.destroy());
+      view.widgets = [];
+      view.host.textContent = '';
+      const label = 'Step ' + view.step + ' of ' + FIRST_LAUNCH_LAST_STEP;
+      addAll(view.host, [paragraph(label, { id: 'fl-steps', class: 'subtitle' })].concat(STEPS[view.step]()));
+    }
+
+    function onBack() {
+      if (view.step > 1) goTo(view.step - 1);
+      return 'handled';                        // nothing is behind this screen
+    }
+
+    return {
+      mount(root, params, ctx) {
+        ensureStyles();
+        view.ctx = ctx;
+        view.host = el('div', { class: 'fl-card', id: 'fl-card' });
+        root.appendChild(el('div', { class: 'screen-body' }, view.host));
+        render();
+        bus.on('audio.unlocked', advanceFromSound, ctx.owner);
+        Core.dom.on(root, 'keydown', (evt) => {
+          if (evt.key !== 'Escape' || view.step === 1) return;
+          evt.preventDefault();
+          onBack();
+        }, undefined, ctx.owner);
+      },
+      initialFocus: () => view.host.querySelector('[data-autofocus]'),
+      onBack,
+      step: () => view.step,
+      goTo
+    };
+  }
+
+  // ---------------------------------------------------------------- SCR-Settings (Part 6.27.4.14 and 7.6.12)
+  const SETTINGS_CATEGORIES = Object.freeze([['audio', 'Audio'], ['controls', 'Controls'], ['gameplay', 'Gameplay'],
+    ['video', 'Video'], ['accessibility', 'Accessibility'], ['calibration', 'Calibration'],
+    ['data', 'Data and backup'], ['privacy', 'Privacy'], ['advanced', 'Advanced']]);
+  const CONTEXTUAL_CATEGORIES = Object.freeze(['audio', 'controls', 'video', 'calibration']);
+  const choices = (pairs) => pairs.map((pair) => ({ value: pair[0], label: pair[1] }));
+  const OFF_ON_SYSTEM = choices([['system', 'System'], ['on', 'On'], ['off', 'Off']]);
+  const RESOLUTION_OPTIONS = choices([[0, 'Automatic']].concat([50, 55, 60, 65, 70, 75, 80, 85, 90, 95, 100]
+    .map((percent) => [percent / 100, percent + ' %'])));
+  const POLYPHONY_OPTIONS = choices([[0, 'Automatic (64 desktop, 32 mobile)']].concat([16, 24, 32, 48, 64]
+    .map((voices) => [voices, voices + ' voices'])));
+  const percentFormat = (value) => value + ' %';
+  const noteSpeedFormat = (value) => 'x' + (1500 / value).toFixed(1) + ' (' + value + ' ms)';
+
+  // Row kinds: toggle, slider (scale turns 0..1 settings into percent), select, number.
+  const slider = (path, label, min, max, step, extra) => Object.assign({ kind: 'slider', path, label, min, max, step,
+    scale: 100, format: percentFormat }, extra);
+  const toggle = (path, label) => ({ kind: 'toggle', path, label });
+  const select = (path, label, options) => ({ kind: 'select', path, label, options });
+
+  const SETTINGS_ROWS = Object.freeze({
+    audio: [slider('audio.masterVolume', 'Master volume', 0, 100, 1),
+      slider('audio.metronomeVolume', 'Metronome volume', 0, 100, 1), toggle('audio.metronomeAccent', 'Accent beat 1'),
+      toggle('audio.reverbEnabled', 'Reverb'), slider('audio.reverbAmount', 'Reverb amount', 0, 100, 1)],
+    controls: [select('input.padLayout', 'Pad layout', choices([['bottom', 'Bottom'], ['right', 'Right']])),
+      select('input.padSize', 'Pad size', choices([['small', 'Small'], ['medium', 'Medium'], ['large', 'Large']])),
+      slider('input.padOpacity', 'Pad opacity', 30, 100, 5),
+      select('input.padsVisible', 'Touch pads', choices([['auto', 'Automatic'], ['always', 'Always show'],
+        ['never', 'Never show']])),
+      select('input.touchApi', 'Touch input', choices([['auto', 'Automatic'], ['pointer', 'Pointer events'],
+        ['touch', 'Touch events']])),
+      { kind: 'toggle', path: 'input.gamepadEnabled', label: 'Use gamepad', needs: 'gamepad' },
+      { kind: 'toggle', path: 'input.midiEnabled', label: 'Use MIDI devices', needs: 'webMidi' }],
+    gameplay: [select('gameplay.judgmentPreset', 'Timing windows', choices([['standard', 'Standard'],
+      ['relaxed', 'Relaxed (wider windows)'], ['strict', 'Strict (narrower windows)']])),
+    toggle('gameplay.strayPressPenalty', 'Extra presses break combo'),
+    toggle('gameplay.showJudgmentText', 'Show judgment text'),
+    select('gameplay.targetTrackMode', 'My part', choices([['mute', 'Mute my part'], ['lower', 'Lower my part'],
+      ['full', 'Full']])),
+    slider('gameplay.accompanimentVolume', 'Accompaniment volume', 0, 100, 1),
+    toggle('gameplay.autoCountIn', 'Count-in before play'),
+    select('audio.countInBars', 'Count-in length', choices([[1, '1 bar'], [2, '2 bars']])),
+    slider('calibration.visualLeadMs', 'Note speed', 600, 3000, 50, { scale: 1, format: noteSpeedFormat }),
+    toggle('gameplay.lifeBar', 'Life bar (song can be failed)')],
+    video: [select('video.tier', 'Graphics quality', choices([['auto', 'Automatic'], ['high', 'High'],
+      ['balanced', 'Balanced'], ['low', 'Low'], ['abstract', 'Abstract (2D)']])),
+    select('video.resolutionScale', 'Resolution', RESOLUTION_OPTIONS), toggle('video.cameraMotion', 'Camera motion'),
+    select('video.cameraPreset', 'Camera', choices([['FullBand', 'Full band'], ['Focus', 'Focus'], ['Side', 'Side'],
+      ['Overhead', 'Overhead'], ['Player', 'Player']])),
+    select('video.effectsLevel', 'Visual effects', choices([[0, 'Off'], [1, 'Reduced'], [2, 'Full']]))],
+    accessibility: [select('video.reducedMotion', 'Reduced motion', OFF_ON_SYSTEM),
+      toggle('video.highContrast', 'High contrast'), slider('video.uiScale', 'Interface size', 80, 150, 5),
+      toggle('accessibility.laneGlyphs', 'Lane symbols'),
+      toggle('accessibility.screenReaderLabels', 'Screen reader labels'),
+      toggle('accessibility.flashOnBeat', 'Flash on the beat'),
+      toggle('accessibility.largeJudgmentText', 'Large judgment text')],
+    calibration: [{ kind: 'number', path: 'calibration.inputOffsetMs', label: 'Input offset', min: -200, max: 200,
+      unit: 'ms' }, { kind: 'number', path: 'calibration.audioLatencyMs', label: 'Audio latency', min: 0, max: 500,
+      unit: 'ms' }, slider('calibration.visualLeadMs', 'Visual lead', 600, 3000, 50,
+      { scale: 1, format: (value) => value + ' ms' })],
+    advanced: [select('audio.polyphonyCap', 'Polyphony cap', POLYPHONY_OPTIONS),
+      slider('input.chordWindowMs', 'Chord window', 10, 60, 5, { scale: 1, format: (value) => value + ' ms' }),
+      toggle('video.showStats', 'Show stats overlay'), toggle('diagnostics.overlay', 'Diagnostics overlay'),
+      select('diagnostics.logLevel', 'Log level', choices([['info', 'Info'], ['debug', 'Debug']]))]
+  });
+
+  function widgetIdFor(path) {
+    return 'set-' + path.replace(/\./g, '-');
+  }
+
+  function rowReason(row) {
+    if (row.needs === 'gamepad' && !Core.Caps.get().gamepad) return say('S-CAP-01');
+    if (row.needs === 'webMidi' && !Core.Caps.get().webMidi) return Core.Text.get('E-INP-001');
+    return undefined;
+  }
+
+  function toggleWidget(row, change) {
+    return UI.Widgets.toggle({ id: widgetIdFor(row.path), label: row.label, value: Settings.get(row.path),
+      disabledReason: rowReason(row), onChange: (value) => change(value) });
+  }
+
+  function sliderWidget(row, change) {
+    const current = Math.round(Settings.get(row.path) * row.scale);
+    return UI.Widgets.slider({ id: widgetIdFor(row.path), label: row.label, min: row.min, max: row.max,
+      step: row.step, value: current, format: row.format, onChange: (value) => change(value / row.scale) });
+  }
+
+  function selectWidget(row, change) {
+    const byText = (text) => row.options.find((option) => String(option.value) === text);
+    return UI.Widgets.select({ id: widgetIdFor(row.path), label: row.label, options: row.options,
+      value: Settings.get(row.path), onChange: (text) => change(byText(text).value) });
+  }
+
+  function numberWidget(row, change) {
+    return UI.Widgets.number({ id: widgetIdFor(row.path), label: row.label, min: row.min, max: row.max,
+      step: 1, unit: row.unit, value: Settings.get(row.path), onChange: change });
+  }
+
+  const ROW_BUILDERS = Object.freeze({ toggle: toggleWidget, slider: sliderWidget, select: selectWidget,
+    number: numberWidget });
+
+  const keyRows = () => {
+    const codes = (path) => Settings.get(path);
+    const words = padWords('lanes');
+    const lanes = codes('input.keys.lanes').map((code, index) => ['Lane ' + (index + 1) + ' (' + words[index] + ')',
+      codeLabel(code)]);
+    const arrows = ['left', 'down', 'up', 'right'];
+    const dance = codes('input.keys.dance').map((code, index) => ['Dance ' + arrows[index],
+      codeLabel(code) + ' or ' + codeLabel(codes('input.keys.danceAlt')[index])]);
+    const singles = [['Pause', 'input.keys.pause'], ['Stop all sound', 'input.keys.panic'],
+      ['Octave down', 'input.keys.octDown'], ['Octave up', 'input.keys.octUp'], ['Sustain', 'input.keys.sustain']]
+      .map((pair) => [pair[0], codeLabel(codes(pair[1]))]);
+    const profiles = codes('input.keys.profiles').map((code, index) => ['Profile ' + (index + 1), codeLabel(code)]);
+    return lanes.concat(dance, singles, profiles);
+  };
+
+  const GAMEPAD_ROWS = Object.freeze([
+    ['Face buttons (bottom, right, left, top)', 'Lane 1, Lane 2, Lane 3, Lane 4', 'Down, Right, Left, Up'],
+    ['D-pad (up, down, left, right)', 'Octave up, Octave down, none, none', 'Up, Down, Left, Right'],
+    ['Shoulder buttons (left, right)', 'Octave down, Octave up', 'none'], ['Start', 'Pause', 'Pause'],
+    ['Select', 'Stop all sound', 'Stop all sound'], ['Triggers', 'Sustain', 'none']]);
+
+  const STORAGE_WORDS = Object.freeze({ full: 'browser database and local storage',
+    localOnly: 'local storage only (projects up to 2 MB, no recordings)', memory: 'memory only (nothing is saved)' });
+
+  function createSettingsScreen() {
+    const view = { frame: null, panel: null, tabs: null, category: 'audio', widgets: [], owner: null, params: {},
+      byPath: {}, comparable: null };
+
+    function dropWidgets() {
+      view.widgets.forEach((handle) => handle.destroy());
+      view.widgets = [];
+      view.byPath = {};
+    }
+
+    function keep(handle, path) {
+      view.widgets.push(handle);
+      if (path) view.byPath[path] = handle;
+      return handle.root;
+    }
+
+    function afterChange(row, value) {
+      if (row.path === 'video.highContrast') lockLaneGlyphs(value);
+      if (row.path === 'gameplay.judgmentPreset' && view.comparable) view.comparable.hidden = Settings.comparable();
+    }
+
+    // High contrast forces lane symbols on (Part 5.11); the row says why it cannot change.
+    function lockLaneGlyphs(locked) {
+      const handle = view.byPath['accessibility.laneGlyphs'];
+      if (!handle) return;
+      handle.set(Settings.get('accessibility.laneGlyphs'));
+      handle.setDisabled(locked ? 'On (required by high contrast)' : null);
+    }
+
+    function buildRow(row) {
+      const change = (value) => {
+        const result = Settings.set(row.path, value, 'ui');
+        if (result.ok) afterChange(row, value);
+      };
+      const root = keep(ROW_BUILDERS[row.kind](row, change), row.path);
+      if (row.path === 'accessibility.laneGlyphs' && Settings.get('video.highContrast')) lockLaneGlyphs(true);
+      return root;
+    }
+
+    function rowsOf(category) {
+      return (SETTINGS_ROWS[category] || []).map(buildRow);
+    }
+
+    function laterButton(id, label) {
+      return keep(actionButton({ id, label, disabledReason: LATER_BUILD }));
+    }
+
+    function audioExtras() {
+      return [paragraph('All instruments are synthesized in real time. Loading SoundFont (.sf2) sound banks is ' +
+        'not supported in this version.', { id: 'set-fidelity', class: 'set-note' }),
+      laterButton('set-test', 'Play test sound')];
+    }
+
+    function controlsExtras() {
+      return [dataTable('set-remap', 'Keyboard controls (read only in this build)', ['Control', 'Key'], keyRows()),
+        laterButton('set-remap-change', 'Change keys'),
+        dataTable('set-gamepad', say('S-INP-03'), ['Button', 'Instrument, Free Play, Studio', 'Dance'],
+          GAMEPAD_ROWS)];
+    }
+
+    function gameplayExtras() {
+      const note = paragraph('Practice setting: results are not comparable', { id: 'set-comparable', class: 'badge' });
+      note.hidden = Settings.comparable();
+      view.comparable = note;
+      return [note];
+    }
+
+    function videoExtras() {
+      const render = FLM.Render && typeof FLM.Render.tier === 'function' ? FLM.Render.tier() : 'not started';
+      return [paragraph('Running: ' + render, { id: 'set-running' })];
+    }
+
+    function calibrationExtras() {
+      const reset = keep(actionButton({ id: 'set-reset-calibration', label: 'Reset calibration', onPress: () => {
+        Settings.reset('calibration');
+        showCategory(view.category);
+      } }));
+      return [el('div', { class: 'btn-row' }, [laterButton('set-wizard', 'Run calibration'), reset])];
+    }
+
+    function exportSettings() {
+      return downloadText(todayStamp() + '-flm.flmsettings.json', Settings.export(), 'application/json');
+    }
+
+    async function applyImportFile(file) {
+      const read = await FLM.Storage.readFile(file, { as: 'text', maxBytes: SETTINGS_FILE_LIMIT });
+      const parsed = read.ok ? Settings.parseImport(read.data) : { ok: false, error: say('E-IMP-019') };
+      if (!parsed.ok) {
+        UI.toast(parsed.error, { kind: 'error' });
+        return;
+      }
+      const answer = await openDialog('DLG-ImportSettings', { file: file.name, changes: parsed.changes });
+      if (answer !== 'apply') return;
+      Settings.applyImport(parsed.doc);
+      UI.toast(say('S-SET-03', { file: file.name }), { kind: 'success' });
+      showCategory(view.category);
+    }
+
+    // The picker opens inside the click (gesture rule), the rest follows when a file was chosen.
+    function importSettings() {
+      const picking = FLM.Storage.pickFile({ accept: ['.json', 'application/json'], multiple: false });
+      return picking.then((files) => (files.length > 0 ? applyImportFile(files[0]) : undefined));
+    }
+
+    async function showFirstLaunchAgain() {
+      Settings.set('onboarding.firstLaunchDone', false, 'ui');
+      await FLM.Modes.leave('user');
+      await UI.Screens.replace('SCR-FirstLaunch', {});
+    }
+
+    async function resetEverything() {
+      const answer = await openDialog('DLG-ConfirmReset', {});
+      if (answer !== 'reset') return;
+      Settings.reset();
+      UI.toast(say('S-SET-04'), { kind: 'success' });
+      showCategory(view.category);
+    }
+
+    function dataExtras() {
+      const state = FLM.Storage.state();
+      const words = STORAGE_WORDS[state.mode] || state.mode;
+      const lines = [paragraph('Storage: ' + words, { id: 'set-storage' })];
+      if (state.notice) lines.push(notice('set-storage-notice', 'warn', state.notice));
+      lines.push(paragraph(say('S-STO-03'), { id: 'set-backup-note' }));
+      const buttons = [keep(actionButton({ id: 'set-export', label: 'Export settings (.flmsettings.json)',
+        onPress: exportSettings })), keep(actionButton({ id: 'set-import', label: 'Import settings...',
+        onPress: importSettings })), keep(actionButton({ id: 'set-first-launch', label: 'Show first-launch setup again',
+        onPress: showFirstLaunchAgain })), laterButton('set-clear-history', 'Clear performance history'),
+      keep(actionButton({ id: 'set-reset-all', label: 'Reset all settings', kind: 'danger',
+        onPress: resetEverything }))];
+      return lines.concat([el('div', { class: 'btn-row' }, buttons)]);
+    }
+
+    function privacyExtras() {
+      const statement = paragraph(PRIVACY_NETWORK, { id: 'set-network-privacy', hidden: true });
+      const link = keep(actionButton({ id: 'set-network-link', label: 'Multiplayer privacy', onPress: () => {
+        statement.hidden = !statement.hidden;
+      } }));
+      return [paragraph(say('S-SET-01'), { id: 'set-privacy' }), link, statement];
+    }
+
+    function advancedExtras() {
+      return [keep(actionButton({ id: 'set-diagnostics', label: 'Open diagnostics',
+        onPress: () => enterMode('diagnostics') }))];
+    }
+
+    const EXTRAS = { audio: audioExtras, controls: controlsExtras, gameplay: gameplayExtras, video: videoExtras,
+      calibration: calibrationExtras, data: dataExtras, privacy: privacyExtras, advanced: advancedExtras };
+
+    function showCategory(category) {
+      dropWidgets();
+      view.category = category;
+      view.comparable = null;
+      view.panel.textContent = '';
+      view.panel.setAttribute('aria-labelledby', 'w-set-cats-tab-' + category);
+      const rows = rowsOf(category);
+      const extras = EXTRAS[category] ? EXTRAS[category]() : [];
+      addAll(view.panel, rows.concat(extras));
+    }
+
+    function categoriesFor(params) {
+      const all = SETTINGS_CATEGORIES.map((pair) => ({ id: pair[0], label: pair[1] }));
+      return params.variant === 'contextual' ? all.filter((tab) => CONTEXTUAL_CATEGORIES.includes(tab.id)) : all;
+    }
+
+    return {
+      mount(root, params, ctx) {
+        ensureStyles();
+        view.params = params;
+        view.frame = UI.Frame.create(root, { prefix: 'set', title: say('screen.SCR-Settings'), subtitle: '' });
+        const tabs = categoriesFor(params);
+        const wanted = tabs.some((tab) => tab.id === params.category) ? params.category : tabs[0].id;
+        view.tabs = UI.Widgets.tabs({ id: 'set-cats', tabs, value: wanted, onChange: showCategory });
+        view.panel = el('div', { class: 'set-panel', id: 'set-panel', role: 'tabpanel' });
+        addAll(view.frame.body, [el('div', { class: 'set-cats' }, view.tabs.root), view.panel]);
+        showCategory(wanted);
+      },
+      unmount() {
+        dropWidgets();
+        Settings.flush();                      // pending writes go out when the screen closes
+      },
+      onBack: () => (view.params.variant === 'contextual' ? 'pop' : panelBack('settings')),
+      category: () => view.category,
+      showCategory: (category) => { view.tabs.set(category); showCategory(category); }
+    };
+  }
+
+  const PRIVACY_NETWORK = [
+    'What is shared',
+    'When you connect, Finger Lickin Music sends the other players: your display name, your character\'s ' +
+      'appearance, your ready state, the buttons you press during a song with their timing, and your scores. The ' +
+      'host also sends the room state, the song choice and the results. Nothing else is sent: no files, projects, ' +
+      'recordings, settings or history.',
+    'Connections go directly between the devices. Invite and answer codes contain your device\'s network ' +
+      'addresses, so share them only with the people you play with. Nothing is stored on any server.'
+  ].join(' ');
+
+  // ---------------------------------------------------------------- SCR-Help (Part 6.27.4.15 and 7.6.13)
+  const HELP_MODE_TEXTS = Object.freeze([
+    'Quick Play: pick a song, a part and a difficulty, and play along with the band.',
+    'Instrument Mode: the same as Quick Play with every option shown: mapping profile, backing tracks, speed, ' +
+      'practice loops and chart preview.',
+    'Free Play: no chart and no score. Choose an instrument, key and scale and play anything; record takes and ' +
+      'send them to the Studio.',
+    'Studio: build songs track by track. Record with a count-in, overdub, edit notes in the piano roll, mix, and ' +
+      'export MIDI, project files or an audio mix.',
+    'Dance Mode: step on four directions in time with the music. It has its own charts, difficulties and score, ' +
+      'separate from instrument play.',
+    'Multiplayer: 2 to 4 players on their own devices, connected by invite codes. Play the same chart ' +
+      'competitively or different parts as a band.'
+  ]);
+  const HELP_PROFILE_TEXTS = Object.freeze([
+    ['A', 'Lanes: each button plays one note of the scale.'],
+    ['B', 'Intervals: buttons add intervals above a root note.'],
+    ['C', 'Chords: each button plays a chord of the key.'],
+    ['D', 'Scale: buttons walk up and down the scale four notes at a time.'],
+    ['E', 'Instrument: patterns suited to the selected instrument (power chords on guitar, root and fifth on ' +
+      'bass).'],
+    ['F', 'Rhythm: drum sounds on every button.']
+  ]);
+  const HELP_TIPS = Object.freeze([
+    'Playback in a background tab may stutter in some browsers.',
+    'No sound on iPhone or iPad? Check that the ring and silent switch is not set to silent, and raise the volume.',
+    'A controller appears after you press one of its buttons.',
+    'MIDI devices are used only where the browser offers Web MIDI on a secure page.'
+  ]);
+
+  function createHelp() {
+    function controlsPanel() {
+      const midi = Settings.get('input.midiLaneNotes').map(noteLabel).join(', ');
+      const touch = 'The ' + padWords('lanes').join(', ') + ' pads play lanes 1 to 4. In Dance Mode the pads are the ' +
+        padWords('dance').join(', ') + ' arrows. Place up to four fingers on the pads.';
+      const change = actionButton({ id: 'hlp-change', label: 'Change',
+        onPress: () => enterMode('settings', { category: 'controls' }) });
+      return panel('hlp-controls', 'Controls', [dataTable('hlp-keys', 'Keyboard', ['Control', 'Key'], keyRows()),
+        el('div', { class: 'btn-row' }, change.root),
+        dataTable('hlp-gamepad', 'Gamepad (' + say('S-INP-03') + ')', ['Button', 'Instrument, Free Play, Studio',
+          'Dance'], GAMEPAD_ROWS), paragraph(touch, { id: 'hlp-touch' }),
+        paragraph('Default MIDI notes for lanes 1 to 4: ' + midi + '.', { id: 'hlp-midi' })]);
+    }
+
+    function modesPanel() {
+      return panel('hlp-modes', 'Modes', [el('ul', null, HELP_MODE_TEXTS.map((line) => el('li', null, line)))]);
+    }
+
+    function profilesPanel() {
+      const lines = HELP_PROFILE_TEXTS.map((pair) => el('li', null, 'Profile ' + pair[0] + ' - ' + pair[1]));
+      return panel('hlp-profiles', 'Profiles', [el('ul', null, lines),
+        paragraph('Key tables for each profile are added in a later build step.', { class: 'set-note' })]);
+    }
+
+    function tipsPanel() {
+      const tips = HELP_TIPS.concat([say('S-INP-04'), say('S-NET-02')]);
+      const tutorial = actionButton({ id: 'hlp-tutorial', label: 'Start the tutorial', disabledReason: LATER_BUILD });
+      return panel('hlp-tips', 'Tips', [el('ul', null, tips.map((line) => el('li', null, line))),
+        el('div', { class: 'btn-row' }, tutorial.root)]);
+    }
+
+    return {
+      mount(root) {
+        ensureStyles();
+        const frame = UI.Frame.create(root, { prefix: 'hlp', title: say('screen.SCR-Help'), subtitle: '' });
+        const pages = { controls: controlsPanel(), modes: modesPanel(), profiles: profilesPanel(),
+          tips: tipsPanel() };
+        const tabs = UI.Widgets.tabs({ id: 'hlp-tabs', value: 'controls', tabs: [{ id: 'controls', label: 'Controls' },
+          { id: 'modes', label: 'Modes' }, { id: 'profiles', label: 'Profiles' }, { id: 'tips', label: 'Tips' }] });
+        addAll(frame.body, [tabs.root].concat(Object.keys(pages).map((id) => pages[id])));
+        Object.keys(pages).forEach((id) => tabs.panel(id, pages[id]));
+      },
+      onBack: () => panelBack('help')
+    };
+  }
+
+  // ---------------------------------------------------------------- SCR-About (Part 6.27.4.16, 7.6.14, 7.11.6)
+  const EDITION_TEXT = Object.freeze({
+    standalone: 'Standalone edition. Everything runs from this file on your device: no server, account or network ' +
+      'connection is needed. Multiplayer uses direct peer-to-peer connections that you set up by exchanging ' +
+      'invite codes.',
+    online: 'Online edition. This build can also use the relay server at {relayUrl} to connect players by room ' +
+      'code. The relay only forwards messages between players and stores nothing. Every other feature works ' +
+      'without it.'
+  });
+  const LIMITS_TEXT = Object.freeze([
+    'Instrument sounds are synthesized by this file; no sampled sound bank is included, so timbres approximate ' +
+      'General MIDI instruments rather than reproduce recordings.',
+    'Import: MIDI (.mid, .midi) format 0, 1 and 2; MusicXML (.xml, .musicxml, .mxl); Guitar Pro 3, 4 and 5 ' +
+      '(.gp3, .gp4, .gp5). Guitar Pro 6 and 7 files (.gpx, .gp) cannot be imported. Audio files (.wav, .mp3, ' +
+      '.ogg, .flac, where this browser can decode them) are imported as backing audio only; notes are never ' +
+      'generated from audio.',
+    'MusicXML and Guitar Pro files are imported as musical events; sheet music and tablature are not displayed.',
+    'Studio effects are a master limiter and one global reverb. Per-track EQ, delay, compression and automation ' +
+      'are not included.',
+    'Multiplayer: 2 to 4 players in Synchronized Play or Cooperative Band. Shared studio editing, two players on ' +
+      'one keyboard, joining a song in progress and continuing after the host leaves are not included.',
+    'MIDI devices are used only where the browser offers Web MIDI on a secure page.',
+    'Browser and file-format support is listed in docs/COMPATIBILITY.md and reflects recorded tests, not ' +
+      'assumptions.',
+    'Sound: up to 64 voices at once on desktop and 32 on mobile; at the limit, the quietest released notes stop ' +
+      'first, then the oldest. Projects: up to 32 tracks, 100,000 notes per track and 1,000,000 events.'
+  ]);
+  const FIDELITY_TEXT = 'Instruments are synthesized; timbres approximate General MIDI programs.';
+  const CREDITS_TEXT = Object.freeze([
+    'Finger Lickin Music is a single file. All code, sounds, music, characters and graphics in it were made for ' +
+      'this game. It contains no third-party libraries, fonts, sound banks, samples or 3D models, so there are no ' +
+      'third-party licenses to list.',
+    'Instrument sounds are synthesized in real time; they approximate General MIDI instruments and are not ' +
+      'recordings of real instruments.',
+    'General MIDI, MusicXML and Guitar Pro are named only to describe file formats and instrument sets. They are ' +
+      'trademarks of their respective owners. This game is not affiliated with or endorsed by them.',
+    'The optional public STUN server stun.l.google.com is operated by Google and is used only when you turn it ' +
+      'on in Multiplayer.'
+  ]);
+  const DEPENDENCY_TEXT = Object.freeze([
+    'Runtime dependencies: none. The game is a single HTML file that loads nothing from the network: no ' +
+      'libraries, fonts, images, sound files, 3D models or scripts.',
+    'Development tools, not part of the game and not needed to play it: Node.js (MIT license) runs the build and ' +
+      'test scripts; Playwright (Apache-2.0 license) and its Chromium browser (BSD-3-Clause and bundled ' +
+      'component licenses) run the automated tests; Git keeps the history.'
+  ]);
+  const CONTENT_TEXT = 'Built-in content: the five demo songs, the tutorial, the character presets and the ' +
+    'default settings are part of the file as data or are generated by the program while it runs. Nothing is ' +
+    'downloaded or fetched.';
+  // What the standalone core needs versus what needs HTTPS, a permission, an outside service or a server (R-E9-17).
+  const NEEDS_ROWS = Object.freeze([
+    ['Playing, Free Play, Studio, Library, Import, Dance, Settings', 'Nothing: this file alone, opened from a ' +
+      'file or from any web server'],
+    ['MIDI input', 'A browser with Web MIDI on a secure page (https:// or localhost), and your permission for ' +
+      'each device'],
+    ['Multiplayer by invite code', 'WebRTC in the browser and the other player; no server'],
+    ['Multiplayer across networks', 'The optional public STUN server of Google, turned on by you in Multiplayer'],
+    ['Multiplayer by room code', 'The Online edition and its relay server']
+  ]);
+  const BROWSER_ROWS = Object.freeze([['Desktop Chromium (Chrome, Edge)', 'Not yet verified'],
+    ['Desktop Firefox', 'Not yet verified'], ['Desktop Safari', 'Not yet verified'],
+    ['iOS Safari', 'Not yet verified'], ['Android Chrome', 'Not yet verified']]);
+  const ABOUT_INDEX = Object.freeze([['ab-version', 'Version'], ['ab-limits', 'Limits'], ['ab-compat', 'Formats'],
+    ['ab-browsers', 'Browsers'], ['ab-licenses', 'Licenses'], ['ab-privacy', 'Privacy']]);
+
+  function openedFromWords() {
+    const protocol = window.location.protocol;
+    if (protocol === 'file:') return 'This device (file)';
+    return protocol === 'https:' ? 'a web server (https)' : 'a web server (http)';
+  }
+
+  function aboutVersionPanel() {
+    const online = fillText(EDITION_TEXT.online, { relayUrl: FLM.RELAY_URL });
+    const edition = FLM.RELAY_URL ? online : EDITION_TEXT.standalone;
+    const caps = Core.Caps.get();
+    const render = FLM.Render && typeof FLM.Render.tier === 'function' ? FLM.Render.tier() : 'not started';
+    const facts = [['Secure page', yesNo(caps.secureContext)], ['Opened from a file', yesNo(caps.isFile)],
+      ['Graphics', render], ['Storage', FLM.Storage.state().mode]];
+    return panel('ab-version', 'Finger Lickin Music ' + FLM.VERSION, [
+      paragraph('Build ' + buildDate() + (isTestBuild() ? ' (Test build)' : ''), { id: 'ab-build' }),
+      paragraph(edition, { id: 'ab-edition' }),
+      paragraph('Opened from: ' + openedFromWords(), { id: 'ab-context' }),
+      paragraph(say('S-GEN-03')), paragraph(say('S-GEN-04')),
+      dataTable('ab-needs', 'What needs more than this file', ['Feature', 'Needs'], NEEDS_ROWS),
+      dataTable('ab-facts', 'This device', ['Fact', 'Value'], facts)]);
+  }
+
+  function aboutLicensesPanel() {
+    const lines = ['Third-party code: none.', 'Fonts, sounds, models: none; all content is original and synthesized.',
+      'Built-in songs are original compositions for this game.', LICENSE_NOTICE];
+    return panel('ab-licenses', 'Credits and licenses', lines.map((line) => paragraph(line))
+      .concat(CREDITS_TEXT.map((line) => paragraph(line)), DEPENDENCY_TEXT.map((line) => paragraph(line)),
+        [paragraph(CONTENT_TEXT, { id: 'ab-content' }), paragraph(FIDELITY_TEXT, { id: 'ab-fidelity' }),
+          paragraph('Finger Lickin Music is part of the HTML-Games collection.', { id: 'ab-credits' })]));
+  }
+
+  function createAbout() {
+    function jumpTo(id) {
+      const target = doc.getElementById(id);
+      if (target) target.scrollIntoView({ block: 'start' });
+    }
+
+    function indexNav() {
+      const buttons = ABOUT_INDEX.map((pair) => actionButton({ id: 'ab-jump-' + pair[0], label: pair[1],
+        kind: 'ghost', onPress: () => jumpTo(pair[0]) }).root);
+      return el('nav', { id: 'ab-index', 'aria-label': 'On this page' }, el('div', { class: 'btn-row' }, buttons));
+    }
+
+    function actions() {
+      const copy = actionButton({ id: 'ab-copy', label: say('dlg.copy'), onPress: () => copyDiagnostics(false) });
+      const open = actionButton({ id: 'ab-diagnostics', label: 'Diagnostics',
+        onPress: () => enterMode('diagnostics') });
+      return el('div', { class: 'btn-row' }, [copy.root, open.root]);
+    }
+
+    return {
+      mount(root) {
+        ensureStyles();
+        const frame = UI.Frame.create(root, { prefix: 'ab', title: say('screen.SCR-About'), subtitle: '' });
+        addAll(frame.body, [indexNav(), aboutVersionPanel(),
+          panel('ab-limits', 'Limits of this version',
+            [el('ul', null, LIMITS_TEXT.map((line) => el('li', null, line)))]),
+          panel('ab-compat', 'Supported formats', [paragraph('The format table is added with the import step.')]),
+          panel('ab-browsers', 'Browsers', [dataTable('ab-browser-table', 'Browser claims', ['Browser', 'Status'],
+            BROWSER_ROWS)]),
+          aboutLicensesPanel(),
+          panel('ab-privacy', 'Privacy', [paragraph(say('S-SET-01')), paragraph('What is shared when you play with ' +
+            'others is described under Settings > Privacy > Multiplayer privacy.')]),
+          actions()]);
+      },
+      onBack: () => panelBack('about')
+    };
+  }
+
+  // ---------------------------------------------------------------- SCR-Diagnostics (Part 6.27.4.17 and 7.6.15)
+  const NO_SCENARIOS = 'No performance scenarios are registered yet.';
+  const LOG_TEXT_LIMIT = 160;
+
+  function laterSection() {
+    return { headers: ['Value', 'Status'], rows: () => [['Not measured yet', LATER_BUILD]] };
+  }
+
+  function loadTimingText() {
+    const stages = FLM.Boot && typeof FLM.Boot.stage === 'function' ? FLM.Boot.stage() : [];
+    if (stages.length === 0) return 'Load timing: not available';
+    const steps = stages.map((record) => record.stage + ' ' + record.stepMs + ' ms');
+    return 'Load timing: ' + steps.join(', ') + '; ready after ' + stages[stages.length - 1].ms + ' ms';
+  }
+
+  function buildSection() {
+    return { headers: ['Item', 'Value'], rows: () => {
+      const names = Object.keys(Core.urlParams());
+      return [['Version', FLM.VERSION], ['Edition', editionName()], ['Build date', buildDate()],
+        ['Test build', yesNo(isTestBuild())], ['URL parameters', names.length > 0 ? names.join(', ') : 'none']];
+    } };
+  }
+
+  function capsSection() {
+    return { headers: ['Capability', 'Value'], rows: () => {
+      const caps = Core.Caps.get();
+      const flags = Object.keys(caps).filter((name) => name !== 'degraded' && name !== 'userAgent')
+        .map((name) => [name, typeof caps[name] === 'boolean' ? yesNo(caps[name]) : caps[name]]);
+      const degraded = gateEntries().map((row) => row.id + ': ' + row.reason);
+      return flags.concat([['degraded', degraded.length > 0 ? degraded.join('; ') : 'none']]);
+    } };
+  }
+
+  function storageSection() {
+    return { headers: ['Item', 'Value'], rows: () => {
+      const state = FLM.Storage.state();
+      return [['Mode', state.mode], ['Notice', state.notice || 'none'], ['localStorage', yesNo(state.local.ok)],
+        ['IndexedDB', yesNo(state.idb.ok)], ['Bytes used by flm.v1 keys', FLM.Storage.usedBytes()]];
+    } };
+  }
+
+  function errorsSection() {
+    return { headers: ['Code', 'Class', 'Count', 'Message'], rows: () => Core.ErrorReporter.records().slice(-ERROR_TAIL)
+      .map((record) => [record.code, record.class, record.count, record.userMessage || record.message || '']) };
+  }
+
+  function logSection() {
+    return { headers: ['Time (ms)', 'Level', 'Tag', 'Message'], rows: () => {
+      const showDebug = Settings.get('diagnostics.logLevel') === 'debug';
+      return Core.Log.entries().filter((entry) => showDebug || entry.level !== 'debug').slice(-LOG_TAIL)
+        .map((entry) => [Math.round(entry.t), entry.level, entry.tag, UI.truncate(entry.msg, LOG_TEXT_LIMIT)]);
+    } };
+  }
+
+  const DIAG_SECTIONS = Object.freeze([['dg-build', 'Build', buildSection], ['dg-caps', 'Capabilities', capsSection],
+    ['dg-timing', 'Timing', laterSection], ['dg-audio', 'Audio', laterSection],
+    ['dg-render', 'Rendering', laterSection],
+    ['dg-storage', 'Storage', storageSection], ['dg-input', 'Input', laterSection], ['dg-net', 'Network', laterSection],
+    ['dg-errors', 'Errors', errorsSection], ['dg-log', 'Log', logSection]]);
+
+  function fillRows(body, rows) {
+    body.textContent = '';
+    rows.forEach((cells) => body.appendChild(el('tr', null, cells.map((cell) => el('td', null, String(cell))))));
+  }
+
+  // One section: a heading and a two or four column table that its provider refills; a throwing provider shows
+  // "unavailable" for its rows (Part 7.6.15 Error state).
+  function diagnosticsSection(definition) {
+    const spec = definition[2]();
+    const body = el('tbody');
+    const head = el('tr', null, spec.headers.map((name) => el('th', { scope: 'col' }, name)));
+    const table = el('table', { class: 'data-table mono' }, [el('thead', null, head), body]);
+    const refresh = () => {
+      try {
+        fillRows(body, spec.rows());
+      } catch (error) {
+        fillRows(body, [['unavailable']]);
+      }
+    };
+    refresh();
+    return { node: panel(definition[0], definition[1], [el('div', { class: 'table-wrap' }, table)]), refresh };
+  }
+
+  function resultRows(results) {
+    return results.tests.map((test) => [test.group, test.name, test.skipped ? 'Skipped' : (test.pass ? 'Pass' : 'Fail'),
+      test.ms, test.message || '']);
+  }
+
+  function createDiagnostics() {
+    const view = { mounted: false, includeContent: false, sections: [], selfTestBody: null, summary: null,
+      perfBody: null };
+
+    function refreshAll() {
+      view.sections.forEach((section) => section.refresh());
+    }
+
+    function exportDiagnostics() {
+      const exported = Core.Diagnostics.export({ includeContent: view.includeContent });
+      return downloadText(todayStamp() + '-flm.flmdiag.json', exported.json, 'application/json');
+    }
+
+    function overlayToggle() {
+      return UI.Widgets.toggle({ id: 'dg-overlay', label: 'Show stats overlay', value: Settings.get('video.showStats'),
+        onChange: (value) => Settings.set('video.showStats', value, 'ui') });
+    }
+
+    function includeToggle() {
+      return UI.Widgets.toggle({ id: 'dg-include', label: 'Include song content', value: false,
+        onChange: (value) => { view.includeContent = value; } });
+    }
+
+    function logLevelSelect() {
+      return UI.Widgets.select({ id: 'dg-log-level', label: 'Log level', value: Settings.get('diagnostics.logLevel'),
+        options: choices([['info', 'Info'], ['debug', 'Debug']]), onChange: (value) => {
+          Settings.set('diagnostics.logLevel', value, 'ui');
+          Core.Log.setLevel(value);
+          refreshAll();
+        } });
+    }
+
+    function actionPanel() {
+      const exportButton = actionButton({ id: 'dg-export', label: 'Export diagnostics', kind: 'primary',
+        onPress: exportDiagnostics });
+      const copy = actionButton({ id: 'dg-copy', label: say('dlg.copy'),
+        onPress: () => copyDiagnostics(view.includeContent) });
+      const tone = actionButton({ id: 'dg-tone', label: 'Test tone', disabledReason: LATER_BUILD });
+      return panel('dg-actions', 'Actions', [paragraph(say('S-GEN-05'), { id: 'dg-include-note' }),
+        includeToggle().root, overlayToggle().root, logLevelSelect().root,
+        el('div', { class: 'btn-row' }, [exportButton.root, copy.root, tone.root])]);
+    }
+
+    async function runSelfTest() {
+      const names = FLM.SelfTest.groups().map((group) => group.name)
+        .filter((name) => !SELF_TEST_SKIPPED_GROUPS.includes(name));
+      const results = await FLM.SelfTest.run(names, {});
+      const line = results.passed + ' of ' + results.total + ' passed';
+      if (!view.mounted) {
+        UI.toast(line, { kind: results.failed === 0 ? 'success' : 'error' });
+        return;
+      }
+      fillRows(view.selfTestBody, resultRows(results));
+      view.summary.textContent = line;
+    }
+
+    async function runPerformance() {
+      const names = FLM.SelfTest.perf.list();
+      const lines = [];
+      for (const name of names) {
+        const result = await FLM.SelfTest.perf.run(name, {});
+        lines.push([name, result.durationMs, result.notes.join('; ')]);
+      }
+      if (!view.mounted) {
+        UI.toast(names.length + ' performance scenarios finished', { kind: 'info' });
+        return;
+      }
+      fillRows(view.perfBody, lines);
+    }
+
+    function testBuildPanel() {
+      if (!isTestBuild()) return null;
+      const scenarios = FLM.SelfTest.perf.list();
+      const run = actionButton({ id: 'dg-selftest', label: 'Run self-test', onPress: runSelfTest });
+      const perf = actionButton({ id: 'dg-perf', label: 'Run performance scenarios', onPress: runPerformance,
+        disabledReason: scenarios.length === 0 ? NO_SCENARIOS : undefined });
+      view.selfTestBody = el('tbody');
+      view.perfBody = el('tbody');
+      view.summary = paragraph('', { id: 'dg-selftest-summary' });
+      const results = el('table', { class: 'data-table mono', id: 'dg-selftest-results' }, [el('thead', null,
+        el('tr', null, ['Group', 'Test', 'Result', 'ms', 'Message'].map((name) => el('th', { scope: 'col' }, name)))),
+      view.selfTestBody]);
+      const perfTable = el('table', { class: 'data-table mono', id: 'dg-perf-results' }, [el('thead', null,
+        el('tr', null, ['Scenario', 'ms', 'Notes'].map((name) => el('th', { scope: 'col' }, name)))), view.perfBody]);
+      return panel('dg-selftest-panel', 'Self-test (test build)', [el('div', { class: 'btn-row' },
+        [run.root, perf.root]), view.summary, el('div', { class: 'table-wrap' }, results),
+      el('div', { class: 'table-wrap' }, perfTable)]);
+    }
+
+    return {
+      mount(root, params, ctx) {
+        ensureStyles();
+        view.mounted = true;
+        const frame = UI.Frame.create(root, { prefix: 'dg', title: say('screen.SCR-Diagnostics'), subtitle: '' });
+        view.sections = DIAG_SECTIONS.map((definition) => diagnosticsSection(definition));
+        addAll(frame.body, [paragraph(loadTimingText(), { id: 'dg-load' }), actionPanel()]
+          .concat(view.sections.map((section) => section.node), [testBuildPanel()]));
+        Core.timers.setInterval(refreshAll, REFRESH_MS, ctx.owner);
+      },
+      unmount() {
+        view.mounted = false;
+      },
+      onBack: () => panelBack('diagnostics')
+    };
+  }
+
+  // ---------------------------------------------------------------- dialogs (Part 6.27.4.21 and 7.7)
+  const OK_BUTTON = Object.freeze({ id: 'ok', kind: 'primary', isDefault: true, isCancel: true });
+
+  function modeLabel(mode) {
+    const entry = MENU_ENTRIES.find((item) => item.mode === mode);
+    return entry ? entry.label : 'This mode';
+  }
+
+  function coded(code, message) {
+    return Object.assign(new Error(message), { code });
+  }
+
+  // DLG-AudioBlocked: the enable button calls Audio.unlock() inside the click, then the dialog waits for
+  // audio.unlocked (resolves 'enabled') and after 5 s says the sound is still blocked.
+  function openAudioBlocked(params) {
+    const token = Symbol('dlg-audio-blocked');
+    const view = { status: null, finish: null, enable: null };
+    const isUnlocked = () => Boolean(FLM.Audio) && typeof FLM.Audio.isUnlocked === 'function' &&
+      FLM.Audio.isUnlocked();
+    function tryUnlock() {
+      if (!FLM.Audio || typeof FLM.Audio.unlock !== 'function') {
+        view.status.textContent = say('S-AUD-03');
+        return undefined;
+      }
+      view.status.textContent = say('dlg.audio.waiting');
+      const attempt = FLM.Audio.unlock();      // inside the gesture, before any await
+      Core.timers.setTimeout(() => { view.status.textContent = say('dlg.audio.blocked'); }, AUDIO_WAIT_MS, token);
+      return Promise.resolve(attempt).then(() => { if (isUnlocked()) view.finish('enabled'); },
+        () => { view.status.textContent = say('S-AUD-03'); });
+    }
+    const spec = { id: 'DLG-AudioBlocked', title: say('dlg.audio.title'),
+      body: say('S-AUD-02') + ' ' + modeLabel(params.mode) + ' needs sound.',
+      buttons: [{ id: 'cancel', label: say('dlg.cancel'), kind: 'secondary', isCancel: true }],
+      build(container, finish) {
+        view.finish = finish;
+        view.enable = actionButton({ id: 'dlg-audio-enable', label: say('dlg.audio.enable'), kind: 'primary',
+          onPress: tryUnlock });
+        view.status = paragraph('', { id: 'dlg-audio-status', role: 'status' });
+        addAll(container, [el('div', { class: 'btn-row' }, view.enable.root), view.status]);
+      } };
+    const shown = UI.dialog(spec);
+    bus.on('audio.unlocked', () => view.finish('enabled'), token);
+    view.enable.focus();
+    return shown.then((result) => {
+      bus.removeOwner(token);
+      Core.timers.clearOwner(token);
+      return result;
+    });
+  }
+
+  // DLG-ResumeAudio: Audio.resume() runs inside the click, then the dialog closes with 'resume'.
+  function openResumeAudio(params) {
+    const detail = params.detail ? ' ' + params.detail : '';
+    const view = { resume: null };
+    const spec = { id: 'DLG-ResumeAudio', title: say('dlg.resume.title'), body: say('dlg.resume.body') + detail,
+      buttons: [{ id: 'cancel', label: say('dlg.resume.cancel'), kind: 'secondary', isCancel: true }],
+      build(container, finish) {
+        const resume = () => {
+          const attempt = FLM.Audio && typeof FLM.Audio.resume === 'function' ? FLM.Audio.resume() : undefined;
+          return Promise.resolve(attempt).then(() => finish('resume'));
+        };
+        view.resume = actionButton({ id: 'dlg-resume', label: say('dlg.resume.enable'), kind: 'primary',
+          onPress: resume });
+        container.appendChild(el('div', { class: 'btn-row' }, view.resume.root));
+      } };
+    const shown = UI.dialog(spec);
+    view.resume.focus();
+    return shown;
+  }
+
+  // DLG-Unsupported: a disabled feature (title, reason) or the "returned to the menu" variant of showError().
+  function openUnsupported(params) {
+    const returned = params.variant === 'returned';
+    const record = params.record || {};
+    const operation = record.context && record.context.mode ? modeLabel(record.context.mode) : 'The last action';
+    const title = returned ? say('dlg.returned.title', { operation }) :
+      say('dlg.unsupported.title', { feature: params.feature });
+    const body = returned ? [record.userMessage || record.message || '', say('dlg.returned.body')] : params.reason;
+    const buttons = [Object.assign({ label: say('dlg.ok') }, OK_BUTTON)];
+    if (returned) buttons.unshift({ id: 'copy', label: say('dlg.copy'), kind: 'secondary' });
+    return UI.dialog({ id: 'DLG-Unsupported', title, body, buttons }).then((result) => {
+      if (result === 'copy') copyDiagnostics(false);
+      return result;
+    });
+  }
+
+  function openImportSettings(params) {
+    const shown = params.changes.slice(0, IMPORT_LIST_LIMIT);
+    const rest = params.changes.length - shown.length;
+    const lines = shown.map((change) => el('li', null, change.path));
+    if (rest > 0) lines.push(el('li', null, say('dlg.importSettings.more', { count: rest })));
+    return UI.dialog({ id: 'DLG-ImportSettings', title: say('dlg.importSettings.title'),
+      body: say('dlg.importSettings.body', { file: params.file }),
+      build: (container) => container.appendChild(el('ul', { id: 'dlg-import-changes' }, lines)),
+      buttons: [{ id: 'apply', label: say('dlg.importSettings.apply'), kind: 'primary' },
+        { id: 'cancel', label: say('dlg.cancel'), kind: 'secondary', isCancel: true, isDefault: true }] });
+  }
+
+  function openConfirmReset() {
+    return UI.dialog({ id: 'DLG-ConfirmReset', title: say('dlg.reset.title'), body: say('dlg.reset.body'),
+      consequence: say('dlg.reset.consequence'),
+      buttons: [{ id: 'reset', label: say('dlg.reset.apply'), kind: 'danger' },
+        { id: 'cancel', label: say('dlg.cancel'), kind: 'secondary', isCancel: true, isDefault: true }] });
+  }
+
+  // Dialogs of the list that later steps build; asking for one now is a clear error, never a silent no-op.
+  const dialogBuilders = new Map([['DLG-AudioBlocked', openAudioBlocked], ['DLG-ResumeAudio', openResumeAudio],
+    ['DLG-Unsupported', openUnsupported], ['DLG-ImportSettings', openImportSettings],
+    ['DLG-ConfirmReset', openConfirmReset]]);
+
+  /** Opens a dialog by id; resolves to the chosen button id. */
+  function openDialog(id, params) {
+    const builder = dialogBuilders.get(id);
+    if (!builder) return Promise.reject(coded('E-MODE-002', 'dialog ' + id + ' is not built in this version'));
+    try {
+      return builder(params || {});
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  }
+
+  /** DLG-Unsupported variant "Returned to the menu" for the error records of M-28. */
+  function showError(record) {
+    return openDialog('DLG-Unsupported', { variant: 'returned', record }).then(() => undefined);
+  }
+
+  // ---------------------------------------------------------------- registry and global reactions
+  // Screens of the list that later steps build are known ids but have no controller yet (E-MODE-002).
+  const controllers = new Map([['SCR-FirstLaunch', createFirstLaunch], ['SCR-MainMenu', createMainMenu],
+    ['SCR-Settings', createSettingsScreen], ['SCR-Help', createHelp], ['SCR-About', createAbout],
+    ['SCR-Diagnostics', createDiagnostics]]);
+  const registration = { reactions: false };
+
+  /** Controller factory for a screen id; an unknown or not yet built id throws E-MODE-002. */
+  function get(id) {
+    if (!SCREEN_IDS.includes(id)) throw coded('E-MODE-002', 'unknown screen ' + id);
+    if (!controllers.has(id)) throw coded('E-MODE-002', 'screen ' + id + ' is not built in this version');
+    return controllers.get(id);
+  }
+
+  function installReactions() {
+    bus.on('progress.unlock', (event) => {
+      if (event && event.title) UI.toast('Unlocked: ' + event.title, { kind: 'success' });
+    }, SCREENS_OWNER);
+    bus.on('storage.state', (event) => {
+      if (event && event.notice && event.reason !== 'open') UI.toast(event.notice, { kind: 'warn' });
+    }, SCREENS_OWNER);
+  }
+
+  /** Boot step B11: installs the resolver into UI.Screens and the global reactions once. Idempotent. */
+  function register() {
+    ensureStyles();
+    UI.Screens.setResolver(get);
+    if (registration.reactions) return;
+    registration.reactions = true;
+    installReactions();
+  }
+
+  const show = (id, params) => UI.Screens.push(id, params);
+
   return Object.freeze({
-    Settings: createSettings()
+    SCREENS: SCREEN_IDS,
+    DIALOGS: DIALOG_IDS,
+    register,
+    get,
+    show,
+    dialog: openDialog,
+    showError,
+    codeLabel,
+    padWords,
+    counters: () => ({ globalListeners: registration.reactions ? 2 : 0,
+      activeController: UI.Screens.current() ? UI.Screens.current().id : null }),
+    Settings
   });
 });
 })();
@@ -6495,6 +9752,817 @@ FLM.Core.define('Modes', function (FLM) {
     assertClean,
     counters,
     _teardownForTests: teardownForTests
+  });
+});
+})();
+
+// ==== 29-boot.js ====
+// 29-boot.js - M-29 FLM.Boot (T01.10): the initialization order of Part 4.3 (Phase B steps B1 to B16), the
+// capability gate, URL parameters, the boot progress panel, the audio unlock gesture for returning users, the
+// global surface FLM.diagnostics / FLM.debug / FLM.selfTest and the fault dispatcher behind FLM.debug.inject.
+// Separation rule: this file owns exactly one namespace (Boot) and registers it once through FLM.Core.define.
+// It declares no module-level global state object (S-07): state lives inside the factory closure.
+// Module presence (convention 6 of Part 11): a step whose module is not built yet is skipped and logged once.
+// Stage records: `ms` is the absolute performance.now() at the END of the step (Part 9.1 row 3: menuMs is the
+// absolute B16 time, phaseAMs the B1 time); `stepMs` is the duration of the step, so the stepMs values add up to
+// the `ms` of boot.ready (UT-29-12).
+// Spec: docs/IMPLEMENTATION-PLAN.md Part 4.3, Part 6.29 (6.29.2 to 6.29.8) and Part 10.6.2 (E-CAP codes).
+(function () {
+'use strict';
+const FLM = window.FLM;
+
+FLM.Core.define('Boot', function (FLM) {
+  const Core = FLM.Core;
+  const bus = Core.bus;
+  const Log = Core.Log;
+  const doc = window.document;
+
+  const BOOT_OWNER = Symbol('boot');
+  const STEP_COUNT = 16;
+  const PANEL_DELAY_MS = 300;                // the progress panel appears when B1 to B8 take longer than this
+  const LAST_PROGRESS_STEP = 8;
+  const MAX_ONLINE_LENGTH = 200;
+  const MS_ROUNDING = 100;                   // stage times are kept to 0.01 ms
+  const FIRST_LAUNCH_SCREEN = 'SCR-FirstLaunch';
+  const MAIN_MENU_SCREEN = 'SCR-MainMenu';
+  const RELOAD_CLASS = 'reload';
+  const MIN_CATALOG_ENTRIES = 5;
+  const PROGRESS_LABELS = Object.freeze(['Storage', 'Settings', 'Sound', 'Graphics']);
+  const TIER_NAMES = Object.freeze({ high: 'High', balanced: 'Balanced', low: 'Low', abstract: 'Abstract' });
+  const LOG_LEVELS = Object.freeze({ debug: 10, info: 20, warn: 30, error: 40 });
+  // Keys that never count as the first gesture: modifiers alone, and Tab (keyboard navigation, Part 6.29.4.3).
+  const IGNORED_KEYS = Object.freeze(['Shift', 'Control', 'Alt', 'AltGraph', 'Meta', 'OS', 'CapsLock', 'NumLock',
+    'ScrollLock', 'Fn', 'FnLock', 'Tab']);
+
+  /** Namespaces whose files exist (convention 6 of Part 11); every entry that adds a module file appends its name. */
+  const EXPECTED_MODULES = Object.freeze(['Core', 'UI', 'Storage', 'Screens', 'Modes', 'Boot']);
+
+  /** Fault prefix -> namespace that owns the fault (Part 6.29.4.8). */
+  const FAULT_ROUTES = Object.freeze({
+    audio: 'Audio', render: 'Render', storage: 'Storage', net: 'Net', input: 'Input', import: 'Import',
+    transport: 'Transport', mode: 'Modes', error: 'Boot'
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // Capability gate (Part 6.29.4.5). Hard rows stop the boot; soft rows only disable features.
+  // canvas2d and raf are probed by Boot itself (the M-01 report does not carry them); a caps object
+  // without those two keys (synthetic caps in tests) counts as passing. The webrtc row reads caps.webrtc the same
+  // way: the build lint allows the WebRTC constructor name only in 24-net.js, and M-01 does not probe it yet.
+  // ---------------------------------------------------------------------------------------------
+  function hardRow(id, code, reason, test) {
+    return Object.freeze({ id, test, hard: true, code, reason, affects: Object.freeze(['everything']) });
+  }
+
+  function softRow(id, reason, affects, test) {
+    return Object.freeze({ id, test, hard: false, code: null, reason, affects: Object.freeze([affects]) });
+  }
+
+  const GATE = Object.freeze([
+    hardRow('canvas2d', 'E-CAP-002', 'This browser cannot draw graphics.', (caps) => caps.canvas2d !== false),
+    hardRow('audio', 'E-CAP-001', 'This browser has no Web Audio support, so nothing could play.',
+      (caps) => Boolean(caps.audioContext)),
+    hardRow('raf', 'E-CAP-003', 'This browser is missing animation support.', (caps) => caps.raf !== false),
+    softRow('webgl2', 'Advanced 3D unavailable; using simpler graphics.', 'High tier', (caps) => Boolean(caps.webgl2)),
+    softRow('webgl', '3D stage unavailable in this browser; using the flat visualizer.', '3D tiers',
+      (caps) => Boolean(caps.webgl2 || caps.webgl1)),
+    softRow('pointer', '', 'touch input', (caps) => Boolean(caps.pointerEvents)),
+    softRow('touch4', 'This device reports fewer than 4 simultaneous touches.', 'four-pad chords on touch',
+      (caps) => !(caps.maxTouchPoints > 0 && caps.maxTouchPoints < 4)),
+    softRow('gamepad', 'Gamepad input is not available in this browser.', 'gamepad', (caps) => Boolean(caps.gamepad)),
+    softRow('midi', 'Web MIDI needs a secure context and a supporting browser.', 'MIDI input',
+      (caps) => Boolean(caps.webMidi)),
+    softRow('localStorage', 'Settings and projects cannot be saved in this browser mode. Use Export.', 'saving',
+      (caps) => Boolean(caps.localStorage)),
+    softRow('indexedDB', 'Large projects cannot be stored; projects are limited to 2 MB. Use Export for backups.',
+      'large projects', (caps) => Boolean(caps.indexedDB)),
+    softRow('offline', 'WAV export is not available in this browser.', 'WAV export',
+      (caps) => Boolean(caps.offlineAudioContext)),
+    softRow('mediaRecorder', 'Real-time mix recording is not available in this browser.', 'mix recording',
+      (caps) => Boolean(caps.mediaRecorder)),
+    softRow('webrtc', 'This browser has no WebRTC support.', 'Multiplayer',
+      (caps) => caps.webrtc !== false),
+    softRow('visibility', '', 'interruption detection', (caps) => Boolean(caps.visibility)),
+    softRow('storageEstimate', '', 'quota display', (caps) => Boolean(caps.storageEstimate)),
+    softRow('memory', '', 'memory heuristic', (caps) => Boolean(caps.performanceMemory))
+  ]);
+
+  function rowFails(row, caps) {
+    try {
+      return !row.test(caps);
+    } catch (error) {
+      return true;                           // a probe that throws counts as missing
+    }
+  }
+
+  /** Pure: evaluates the gate against a caps object. @returns {{hard:object[], soft:object[], degraded:string[]}} */
+  function evaluateGate(caps) {
+    const source = caps && typeof caps === 'object' ? caps : {};
+    const failed = GATE.filter((row) => rowFails(row, source));
+    const soft = failed.filter((row) => !row.hard);
+    return { hard: failed.filter((row) => row.hard), soft, degraded: soft.map((row) => row.id) };
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // URL parameters (Part 6.29.4.6)
+  // ---------------------------------------------------------------------------------------------
+  function parseTier(query, warnings) {
+    if (!query.has('tier')) return null;
+    const name = TIER_NAMES[query.get('tier').toLowerCase()];
+    if (name) return name;
+    warnings.push('W-URL-TIER');
+    return null;
+  }
+
+  function isRelayUrl(text) {
+    if (text.length > MAX_ONLINE_LENGTH) return false;
+    try {
+      const protocol = new URL(text).protocol;
+      return protocol === 'ws:' || protocol === 'wss:';
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function parseOnline(query, warnings) {
+    if (!query.has('online')) return null;
+    const text = query.get('online');
+    if (isRelayUrl(text)) return text;
+    warnings.push('W-URL-ONLINE');
+    return null;
+  }
+
+  /** Pure: parses a search string such as '?test&tier=low'. Unknown keys are ignored. */
+  function parseUrlParams(search) {
+    const query = new URLSearchParams(typeof search === 'string' ? search : '');
+    const warnings = [];
+    return {
+      test: query.has('test'),
+      tier: parseTier(query, warnings),
+      diag: query.has('diag'),
+      online: parseOnline(query, warnings),
+      perf: query.has('perf'),
+      warnings
+    };
+  }
+
+  const isOnlineEdition = () => typeof Core.RELAY_URL === 'string' && Core.RELAY_URL !== '';
+
+  /** The relay URL that ?online may apply: none in the standalone build (T01.10). */
+  function relayUrlFrom(parsed) {
+    if (parsed.online === null) return null;
+    if (isOnlineEdition()) return parsed.online;
+    Log.once('boot.online.ignored', 'info', 'boot', '?online ignored in the standalone build');
+    return null;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // State of the page-wide boot (one run per page; tests use separate runs through _runForTests)
+  // ---------------------------------------------------------------------------------------------
+  const state = {
+    started: null,
+    stages: [],
+    gate: null,
+    params: parseUrlParams(''),
+    phase: 'idle',                           // idle, booting, ready or failed
+    bootDone: false,
+    gestureOff: null,
+    errorOff: null,
+    faults: new Map(),
+    showStats: false,
+    resolveReady: null
+  };
+  const readyPromise = new Promise((resolve) => { state.resolveReady = resolve; });
+
+  /** Applies parsed parameters (B2): warnings are logged, ?diag enables the debug surface, ?online the relay. */
+  function applyUrlParams(parsed) {
+    state.params = parsed;
+    parsed.warnings.forEach((code) => Log.warn('boot', code + ': ignored a bad URL parameter'));
+    if (parsed.diag && FLM.debug) FLM.debug.enabled = true;
+    const relayUrl = relayUrlFrom(parsed);
+    if (relayUrl !== null && FLM.Net && typeof FLM.Net.setRelayUrl === 'function') FLM.Net.setRelayUrl(relayUrl);
+    if (parsed.perf && FLM.SelfTest) Log.info('boot', '?perf: in-page performance hooks enabled');
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Landing (B14)
+  // ---------------------------------------------------------------------------------------------
+  function isAudioLocked() {
+    const audio = FLM.Audio;
+    return Boolean(audio) && typeof audio.isUnlocked === 'function' && !audio.isUnlocked();
+  }
+
+  /** Pure apart from reading the audio lock state: which screen boot lands on. */
+  function landing(settingsDoc, parsed) {
+    const onboarding = settingsDoc && settingsDoc.onboarding;
+    const isTest = Boolean(parsed && parsed.test);
+    const firstLaunch = !isTest && Boolean(onboarding) && onboarding.firstLaunchDone === false;
+    return {
+      mode: 'menu',
+      screen: firstLaunch ? FIRST_LAUNCH_SCREEN : MAIN_MENU_SCREEN,
+      banner: !isTest && !firstLaunch && isAudioLocked()
+    };
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Escalation of errors during boot (Part 4.9 origin rule 1, Part 6.29.4.4)
+  // ---------------------------------------------------------------------------------------------
+  function onBootError(record) {
+    if (!record || record.class === RELOAD_CLASS) return;   // reload records already show #fatal
+    // An Error object keeps this record distinct: M-01 merges records with equal code, message and module,
+    // and a merged record would keep its old (non-reload) class and never show #fatal.
+    const cause = new Error('escalated by boot: ' + record.code);
+    Core.ErrorReporter.fatal(record.code, cause, { escalatedBy: 'boot', original: record.id });
+  }
+
+  function beginPhase(phase) {
+    state.phase = phase;
+    if (!state.errorOff) state.errorOff = bus.on('error', onBootError, BOOT_OWNER);
+  }
+
+  function endPhase(phase) {
+    state.phase = phase;
+    if (state.errorOff) state.errorOff();
+    state.errorOff = null;
+  }
+
+  /** Test hook (UT-29-07): 'booting' starts the escalation of errors, any other phase stops it. */
+  function simulatePhase(phase) {
+    if (phase === 'booting') beginPhase(phase);
+    else endPhase(phase);
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Audio unlock gesture for returning users (Part 6.29.4.3)
+  // ---------------------------------------------------------------------------------------------
+  function removeUnlockGesture() {
+    if (state.gestureOff) state.gestureOff();
+    state.gestureOff = null;
+  }
+
+  function onGesture(event) {
+    if (event.type === 'keydown' && (event.repeat || IGNORED_KEYS.includes(event.key))) return;
+    const audio = FLM.Audio;
+    if (!audio || typeof audio.unlock !== 'function') return;
+    // unlock() must start inside the handler: browsers drop the user activation after any await.
+    Promise.resolve(audio.unlock()).catch((error) => Log.warn('boot', 'unlock failed: ' + (error && error.message)));
+  }
+
+  /** Installs the one-shot unlock listeners; returns a function that removes them. Idempotent. */
+  function installUnlockGesture() {
+    if (state.gestureOff) return removeUnlockGesture;
+    const overlay = doc.getElementById('overlay');
+    const offPointer = Core.dom.on(overlay, 'pointerdown', onGesture, { capture: true }, BOOT_OWNER);
+    const offKey = Core.dom.on(window, 'keydown', onGesture, { capture: true }, BOOT_OWNER);
+    state.gestureOff = () => { offPointer(); offKey(); };
+    bus.once('audio.unlocked', removeUnlockGesture, BOOT_OWNER);
+    return removeUnlockGesture;
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Boot progress panel (B1 to B8, Part 6.29.4.2): four labels, no percentage
+  // ---------------------------------------------------------------------------------------------
+  const PANEL_STYLE = 'position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);padding:1rem 1.5rem;'
+    + 'background:var(--c-panel);border:var(--border);border-radius:var(--r-2);color:var(--c-text);';
+
+  function labelText(label, isDone) {
+    return label + ': ' + (isDone ? 'Ready' : 'Checking');
+  }
+
+  function showPanel(run) {
+    if (run.panel || !run.main) return;
+    const overlay = doc.getElementById('overlay');
+    if (!overlay) return;
+    const panel = doc.createElement('div');
+    panel.className = 'boot-progress';
+    panel.setAttribute('role', 'status');
+    panel.style.cssText = PANEL_STYLE;
+    run.rows = PROGRESS_LABELS.map((label) => {
+      const row = doc.createElement('div');
+      row.textContent = labelText(label, run.done.has(label));
+      panel.appendChild(row);
+      return row;
+    });
+    overlay.appendChild(panel);
+    run.panel = panel;
+  }
+
+  function removePanel(run) {
+    if (run.panelTimer !== null) Core.timers.clearTimeout(run.panelTimer);
+    run.panelTimer = null;
+    if (run.panel && run.panel.parentNode) run.panel.parentNode.removeChild(run.panel);
+    run.panel = null;
+  }
+
+  function markProgress(run, label) {
+    run.done.add(label);
+    if (!run.panel) return;
+    const index = PROGRESS_LABELS.indexOf(label);
+    run.rows[index].textContent = labelText(label, true);
+  }
+
+  function schedulePanel(run) {
+    if (!run.main) return;
+    run.panelTimer = Core.timers.setTimeout(() => showPanel(run), PANEL_DELAY_MS, BOOT_OWNER);
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Steps B1 to B16. A step returns {} on success, {skipped:true} when its module is not built,
+  // {ok:false} for a failure that does not stop the boot, or {ok:false, fatal:true, code} to stop it.
+  // ---------------------------------------------------------------------------------------------
+  function skipStep(stage, namespace) {
+    Log.once('boot.skip.' + stage + '.' + namespace, 'info', 'boot', 'skip ' + stage + ': ' + namespace + ' not built');
+    return { skipped: true };
+  }
+
+  function hasFunction(owner, name) {
+    return Boolean(owner) && typeof owner[name] === 'function';
+  }
+
+  function settingValue(run, path) {
+    return path.split('.').reduce((node, key) => (node === undefined || node === null ? undefined : node[key]),
+      run.settings);
+  }
+
+  /** The B1 check: first expected namespace missing from `registered`, reported as fatal E-GEN-001. */
+  function checkModules(registered, expected) {
+    const missing = expected.find((name) => !registered.includes(name));
+    if (missing === undefined) return null;
+    // M-01 builds the user text from the plain E-GEN-001 row; the boot wording is the 'E-GEN-001:boot' variant
+    // (Part 7.11), so it goes on screen first (showFatal keeps the first text it is given).
+    const text = Core.Text.get('E-GEN-001:boot', { name: missing });
+    Core.ErrorReporter.showFatal({ code: 'E-GEN-001', userMessage: text });
+    Core.ErrorReporter.fatal('E-GEN-001', null, { module: missing });
+    return missing;
+  }
+
+  function stepModules(run) {
+    Log.info('boot', 'FLM ' + Core.VERSION + ' starting');
+    schedulePanel(run);
+    const registered = Core.modules().map((item) => item.name);
+    return checkModules(registered, EXPECTED_MODULES) === null ? {} : { ok: false, fatal: true, code: 'E-GEN-001' };
+  }
+
+  function stepParams(run) {
+    run.params = parseUrlParams(run.search);
+    if (run.main) applyUrlParams(run.params);
+    return {};
+  }
+
+  function stepCaps(run) {
+    run.caps = Core.Caps.get();              // the load-time report is reused when it already exists
+    return {};
+  }
+
+  function probeCanvas2d() {
+    const canvas = doc.createElement('canvas');
+    const available = Boolean(canvas.getContext && canvas.getContext('2d'));
+    canvas.width = 0;                        // release the probe surface at once
+    return available;
+  }
+
+  function stepGate(run) {
+    const probes = { canvas2d: probeCanvas2d(), raf: typeof window.requestAnimationFrame === 'function' };
+    run.gateCaps = Object.assign({}, run.caps, probes);
+    run.gate = evaluateGate(run.gateCaps);
+    if (run.main) state.gate = run.gate;
+    if (run.gate.hard.length === 0) return {};
+    const row = run.gate.hard[0];
+    Core.ErrorReporter.fatal(row.code, null, { cap: row.id });
+    return { ok: false, fatal: true, code: row.code };
+  }
+
+  // A browser can expose a storage API and still refuse it: the storage rows follow the B5 probe result.
+  function gateWithStorage(run, status) {
+    const overlay = {};
+    if (status.local && status.local.ok === false) overlay.localStorage = false;
+    if (status.idb && status.idb.ok === false) overlay.indexedDB = false;
+    return evaluateGate(Object.assign({}, run.gateCaps, overlay));
+  }
+
+  async function stepStorage(run) {
+    const storage = run.mod('Storage');
+    if (!hasFunction(storage, 'open')) return skipStep('B5', 'Storage');
+    run.status = await storage.open();
+    run.notice = run.status && run.status.notice ? run.status.notice : null;
+    if (run.status) run.gate = gateWithStorage(run, run.status);
+    if (run.main) state.gate = run.gate;
+    return {};
+  }
+
+  function applyInputMap(run) {
+    const input = run.mod('Input');
+    const settingsApi = run.settingsApi;
+    if (hasFunction(input, 'setMap') && hasFunction(settingsApi, 'mapsFromSettings')) {
+      input.setMap(settingsApi.mapsFromSettings(run.settings));
+      return;
+    }
+    skipStep('B6 input map', 'Input');
+  }
+
+  function stepSettings(run) {
+    const screens = run.mod('Screens');
+    run.settingsApi = screens && screens.Settings ? screens.Settings : null;
+    if (run.settingsApi) {
+      run.settingsApi.load();
+      run.settings = run.settingsApi.all();
+    } else {
+      skipStep('B6', 'Screens.Settings');
+    }
+    // UI.init applies the UI scale, reduced motion and high contrast from the settings document.
+    run.mod('UI').init({ settings: run.settings, caps: run.caps });
+    doc.body.classList.toggle('touch', run.caps.maxTouchPoints > 0);
+    applyInputMap(run);
+    const relayUrl = run.main ? relayUrlFrom(run.params) : null;
+    if (relayUrl !== null && run.settingsApi) run.settingsApi.set('net.relayUrl', relayUrl, 'url');
+    return {};
+  }
+
+  function stepAudio(run) {
+    const audio = run.mod('Audio');
+    if (!hasFunction(audio, 'init')) return skipStep('B7', 'Audio');
+    try {
+      audio.init({ mobile: run.caps.mobile === true, polyphony: settingValue(run, 'audio.polyphonyCap') });
+      const transport = run.mod('Transport');
+      if (transport && transport.main && hasFunction(transport.main, 'setClock')) {
+        transport.main.setClock(audio.clock());
+      }
+    } catch (error) {
+      Core.ErrorReporter.fatal('E-AUD-001', error, { module: 'Audio' });
+      return { ok: false, fatal: true, code: 'E-AUD-001' };
+    }
+    return {};
+  }
+
+  function stepRender(run) {
+    const render = run.mod('Render');
+    if (!hasFunction(render, 'init')) return skipStep('B8', 'Render');
+    try {
+      const pick = render.pickTier(run.caps, run.settings, run.params.tier);
+      render.init(doc.getElementById('view'), doc.getElementById('flat'), pick);
+    } catch (error) {
+      Log.error('boot', 'render init failed: ' + (error && error.message));   // Render falls back by itself
+      return { ok: false };
+    }
+    return {};
+  }
+
+  function stepInput(run) {
+    const input = run.mod('Input');
+    if (!hasFunction(input, 'init')) return skipStep('B9', 'Input');
+    input.init({ keyboardTarget: window, padRoot: doc.getElementById('touch'), surface: doc.getElementById('view') });
+    return {};
+  }
+
+  function stepModes(run) {
+    run.mod('Modes').init();
+    run.mod('UI').Screens.setHistory(!run.params.test);
+    return {};
+  }
+
+  function stepScreens(run) {
+    const screens = run.mod('Screens');
+    if (!hasFunction(screens, 'register')) return skipStep('B11', 'Screens.register');
+    screens.register();
+    return {};
+  }
+
+  function stepCatalog(run) {
+    const project = run.mod('Project');
+    if (!project || !project.Catalog) return skipStep('B12', 'Project');
+    if (project.Catalog.list().length < MIN_CATALOG_ENTRIES) Log.warn('boot', 'catalog incomplete');
+    return {};
+  }
+
+  async function stepTestHooks(run) {
+    if (!FLM.SelfTest) return { skipped: true };      // the shipped build has no selfTest property at all
+    if (run.main) {
+      FLM.selfTest = (groups, options) => FLM.SelfTest.run(groups, options);
+      FLM.debug.enabled = true;
+    }
+    if (!run.params.test) return {};
+    const audio = run.mod('Audio');
+    if (!hasFunction(audio, 'unlock')) return skipStep('B13', 'Audio');
+    try {
+      await audio.unlock();                           // allowed without a gesture by the headless autoplay flag
+    } catch (error) {
+      Log.warn('boot', 'test-mode unlock failed: ' + (error && error.message));   // tests then use OfflineAudioContext
+    }
+    return {};
+  }
+
+  async function stepLanding(run) {
+    run.land = landing(run.settings, run.params);
+    const modes = run.mod('Modes');
+    const screens = run.mod('Screens');
+    // Screens.register wires every SCR-* controller; without it no menu screen can be mounted yet.
+    if (!hasFunction(screens, 'register')) return skipStep('B14', 'SCR-MainMenu');
+    const entered = await modes.enter('menu', { screen: run.land.screen, notice: run.notice });
+    removePanel(run);
+    if (entered && entered.ok === false) return { ok: false, fatal: true, code: 'E-MODE-002' };
+    return {};
+  }
+
+  function stepUnlock(run) {
+    if (run.params.test || run.land.screen === FIRST_LAUNCH_SCREEN) return { skipped: true };
+    const audio = run.mod('Audio');
+    if (!hasFunction(audio, 'isUnlocked')) return skipStep('B15', 'Audio');
+    if (audio.isUnlocked()) return { skipped: true };
+    if (run.main) installUnlockGesture();
+    return {};
+  }
+
+  function setShowStats(value, source) {
+    const settingsApi = FLM.Screens && FLM.Screens.Settings;
+    if (settingsApi) settingsApi.set('video.showStats', Boolean(value), source);
+    state.showStats = Boolean(value);
+  }
+
+  function stepReady(run) {
+    if (!run.main) return {};
+    state.bootDone = true;
+    if (FLM.SelfTest) FLM.selfTestReady = true;
+    if (run.params.diag) setShowStats(true, 'ui');
+    return {};
+  }
+
+  const STEPS = Object.freeze([
+    { id: 'B1', name: 'modules', run: stepModules },
+    { id: 'B2', name: 'params', run: stepParams },
+    { id: 'B3', name: 'caps', run: stepCaps },
+    { id: 'B4', name: 'gate', run: stepGate },
+    { id: 'B5', name: 'storage', label: 'Storage', run: stepStorage },
+    { id: 'B6', name: 'settings', label: 'Settings', run: stepSettings },
+    { id: 'B7', name: 'audio', label: 'Sound', run: stepAudio },
+    { id: 'B8', name: 'render', label: 'Graphics', run: stepRender },
+    { id: 'B9', name: 'input', run: stepInput },
+    { id: 'B10', name: 'modes', run: stepModes },
+    { id: 'B11', name: 'screens', run: stepScreens },
+    { id: 'B12', name: 'catalog', run: stepCatalog },
+    { id: 'B13', name: 'testHooks', run: stepTestHooks },
+    { id: 'B14', name: 'landing', run: stepLanding },
+    { id: 'B15', name: 'unlock', run: stepUnlock },
+    { id: 'B16', name: 'ready', run: stepReady }
+  ]);
+
+  // ---------------------------------------------------------------------------------------------
+  // The run loop
+  // ---------------------------------------------------------------------------------------------
+  const roundMs = (value) => Math.round(value * MS_ROUNDING) / MS_ROUNDING;
+
+  function createRun(options) {
+    const settings = options || {};
+    const modules = settings.modules ? Object.assign({}, FLM, settings.modules) : FLM;
+    return {
+      main: settings.main === true,
+      search: typeof settings.search === 'string' ? settings.search : '',
+      mod: (name) => modules[name] || null,
+      stages: [],
+      params: parseUrlParams(''),
+      settings: {},
+      settingsApi: null,
+      caps: {},
+      gateCaps: {},
+      gate: null,
+      status: null,
+      notice: null,
+      land: { mode: 'menu', screen: MAIN_MENU_SCREEN, banner: false },
+      t0: 0,
+      lastEnd: 0,
+      panel: null,
+      rows: [],
+      panelTimer: null,
+      done: new Set()
+    };
+  }
+
+  function recordStep(run, step, index, outcome) {
+    const ended = Core.now();
+    const record = { stage: step.id, name: step.name, ms: roundMs(ended), stepMs: roundMs(ended - run.lastEnd),
+      ok: outcome.ok !== false, skipped: outcome.skipped === true };
+    run.lastEnd = ended;
+    run.stages.push(record);
+    if (!run.main) return;
+    state.stages.push(record);
+    bus.emit('boot.stage', { stage: record.stage, index: index + 1, total: STEP_COUNT, ms: record.ms,
+      stepMs: record.stepMs });
+  }
+
+  async function runStep(run, step, index) {
+    let outcome;
+    try {
+      outcome = (await step.run(run)) || {};
+    } catch (error) {
+      Core.ErrorReporter.fatal('E-GEN-001', error, { module: 'Boot', step: step.id });
+      outcome = { ok: false, fatal: true, code: 'E-GEN-001' };
+    }
+    recordStep(run, step, index, outcome);
+    if (step.label) markProgress(run, step.label);
+    if (index < LAST_PROGRESS_STEP && run.lastEnd - run.t0 > PANEL_DELAY_MS) showPanel(run);
+    return outcome;
+  }
+
+  function activeTier(run) {
+    const render = run.mod('Render');
+    return hasFunction(render, 'tier') ? render.tier() : 'none';
+  }
+
+  function finishRun(run, failure) {
+    removePanel(run);
+    const ms = roundMs(run.lastEnd - run.t0);
+    const firstLaunch = failure === null && run.land.screen === FIRST_LAUNCH_SCREEN;
+    const result = { ok: failure === null, ms, tier: activeTier(run), firstLaunch };
+    if (failure !== null) result.code = failure.code;
+    if (!run.main) return result;
+    if (failure === null) {
+      const degraded = run.gate ? run.gate.degraded.slice() : [];
+      bus.emit('boot.ready', { ms, tier: result.tier, firstLaunch, degraded });
+    }
+    endPhase(failure === null ? 'ready' : 'failed');
+    return result;
+  }
+
+  async function executeRun(run) {
+    run.t0 = Core.now();
+    run.lastEnd = run.t0;
+    if (run.main) beginPhase('booting');
+    let failure = null;
+    for (let index = 0; index < STEPS.length && failure === null; index += 1) {
+      const outcome = await runStep(run, STEPS[index], index);
+      if (outcome.fatal === true) failure = outcome;
+    }
+    return finishRun(run, failure);
+  }
+
+  const mainRun = createRun({ main: true, search: window.location.search });
+
+  /** Phase B. Runs once; a second call returns the same promise. Never rejects. */
+  function start() {
+    if (state.started) return state.started;
+    state.started = executeRun(mainRun).catch((error) => {
+      Core.ErrorReporter.fatal('E-GEN-001', error, { module: 'Boot' });
+      endPhase('failed');
+      return { ok: false, ms: 0, tier: 'none', firstLaunch: false, code: 'E-GEN-001' };
+    });
+    state.started.then((result) => state.resolveReady(result));
+    return state.started;
+  }
+
+  /** Test hook: an independent run that never emits boot events or touches the page-wide state. */
+  async function runForTests(options) {
+    const run = createRun(Object.assign({ search: '?test' }, options, { main: false }));
+    const result = await executeRun(run);
+    return { result, stages: run.stages.slice(), notice: run.notice, gate: run.gate };
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Fault dispatcher (Part 6.29.4.8, Part 10.9.1)
+  // ---------------------------------------------------------------------------------------------
+  function ownerOf(namespace) {
+    return namespace === 'Boot' ? null : FLM[namespace];
+  }
+
+  // error.throw {origin}: 'listener' needs an `error` listener to throw from; the others go to their module.
+  function armErrorThrow(args) {
+    const origin = args && args.origin ? args.origin : 'frame';
+    const namespace = { frame: 'Modes', scheduler: 'Audio' }[origin];
+    const owner = namespace ? FLM[namespace] : null;
+    if (hasFunction(owner, 'debugInject')) return owner.debugInject('error.throw', args) === true;
+    if (origin === 'listener') bus.once('error', () => {}, BOOT_OWNER);
+    return Core.Faults.set('error.throw', args);
+  }
+
+  function armFault(fault, args) {
+    const prefix = String(fault).split('.')[0];
+    if (!Object.prototype.hasOwnProperty.call(FAULT_ROUTES, prefix)) return false;
+    if (fault === 'error.throw') return armErrorThrow(args);
+    const owner = ownerOf(FAULT_ROUTES[prefix]);
+    if (hasFunction(owner, 'debugInject')) return owner.debugInject(fault, args) === true;
+    return Core.Faults.set(fault, args);     // the registry in M-01 is the mechanism behind every module hook
+  }
+
+  /** The fault dispatcher behind FLM.debug.inject: false unless FLM.debug.enabled. */
+  function inject(fault, args) {
+    if (!FLM.debug || FLM.debug.enabled !== true) return false;
+    const armed = armFault(fault, args);
+    if (!armed) {
+      Log.warn('fault', 'unsupported', { fault: String(fault) });
+      return false;
+    }
+    state.faults.set(String(fault), args || {});
+    return true;
+  }
+
+  function clear(fault) {
+    const prefix = String(fault).split('.')[0];
+    const owner = Object.prototype.hasOwnProperty.call(FAULT_ROUTES, prefix) ? ownerOf(FAULT_ROUTES[prefix]) : null;
+    if (hasFunction(owner, 'debugClear')) owner.debugClear(fault);
+    else Core.Faults.clear(fault);
+    state.faults.delete(String(fault));
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Public surface FLM.diagnostics and FLM.debug (Part 4.8, Part 6.29.4.7)
+  // ---------------------------------------------------------------------------------------------
+  function diagnostics(options) {
+    const includeContent = Boolean(options && options.includeSong === true);
+    return JSON.parse(Core.Diagnostics.export({ includeContent }).json);
+  }
+
+  function gateSummary() {
+    const gate = state.gate;
+    if (!gate) return { hard: [], soft: [], degraded: [] };
+    return { hard: gate.hard.map((row) => row.id), soft: gate.soft.map((row) => row.id),
+      degraded: gate.degraded.slice() };
+  }
+
+  function bootDiagnostics() {
+    const faults = Array.from(state.faults, ([fault, args]) => ({ fault, args }));
+    return { stages: state.stages.slice(), gate: gateSummary(), params: state.params, faults,
+      bootDone: state.bootDone };
+  }
+
+  function debugLog(level) {
+    const floor = Object.prototype.hasOwnProperty.call(LOG_LEVELS, level) ? LOG_LEVELS[level] : LOG_LEVELS.debug;
+    return Log.entries().filter((entry) => LOG_LEVELS[entry.level] >= floor);
+  }
+
+  function debugCounters() {
+    return hasFunction(FLM.Modes, 'counters') ? FLM.Modes.counters() : {};
+  }
+
+  function readTier() {
+    return hasFunction(FLM.Render, 'tier') ? FLM.Render.tier() : null;
+  }
+
+  function writeTier(name) {
+    if (hasFunction(FLM.Render, 'setTier')) FLM.Render.setTier(name, 'user');
+  }
+
+  function readShowStats() {
+    const settingsApi = FLM.Screens && FLM.Screens.Settings;
+    return settingsApi ? settingsApi.get('video.showStats') === true : state.showStats;
+  }
+
+  function createDebug() {
+    const debug = { enabled: false, inject, clear, log: debugLog, counters: debugCounters };
+    Object.defineProperty(debug, 'tier', { enumerable: true, get: readTier, set: writeTier });
+    Object.defineProperty(debug, 'showStats', { enumerable: true, get: readShowStats,
+      set: (value) => setShowStats(value, 'ui') });
+    return debug;
+  }
+
+  /** Defines FLM.diagnostics, FLM.debug, FLM.selfTestReady and, in the test build, FLM.selfTest. Idempotent. */
+  function installSurface() {
+    if (!FLM.debug) FLM.debug = createDebug();
+    if (typeof FLM.diagnostics !== 'function') FLM.diagnostics = diagnostics;
+    if (FLM.selfTestReady === undefined) FLM.selfTestReady = false;
+    if (FLM.SelfTest && typeof FLM.selfTest !== 'function') {
+      FLM.selfTest = (groups, options) => FLM.SelfTest.run(groups, options);
+    }
+  }
+
+  // ---------------------------------------------------------------------------------------------
+  // Phase A (Part 4.3 A3): surface first, so it works even when Phase B fails; then the start trigger.
+  // ---------------------------------------------------------------------------------------------
+  function scheduleStart() {
+    if (doc.readyState !== 'loading') {
+      Core.timers.setTimeout(start, 0, BOOT_OWNER);
+      return;
+    }
+    const onLoaded = () => {
+      Core.dom.off(doc, 'DOMContentLoaded', onLoaded);
+      start();
+    };
+    Core.dom.on(doc, 'DOMContentLoaded', onLoaded, undefined, BOOT_OWNER);
+  }
+
+  installSurface();
+  Core.Diagnostics.provide('boot', bootDiagnostics);
+  scheduleStart();
+
+  return Object.freeze({
+    EXPECTED_MODULES,
+    GATE,
+    FAULT_ROUTES,
+    start,
+    stage: () => state.stages.slice(),
+    ready: () => readyPromise,
+    gateResult: () => {
+      const gate = state.gate;
+      return gate ? { hard: gate.hard.slice(), soft: gate.soft.slice(), degraded: gate.degraded.slice() }
+        : { hard: [], soft: [], degraded: [] };
+    },
+    evaluateGate,
+    parseUrlParams,
+    applyUrlParams,
+    landing,
+    installSurface,
+    inject,
+    clear,
+    _simulatePhase: simulatePhase,
+    _checkModules: checkModules,
+    _installUnlockGesture: installUnlockGesture,
+    _runForTests: runForTests
   });
 });
 })();
