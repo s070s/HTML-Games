@@ -67,6 +67,23 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 - Device and other-browser tests (XT, LT): owner.
 - Licence: the owner recorded "All rights reserved" (see docs/plan-work/OPEN-ISSUES-stage1.md).
 
+## 2026-10-27 15:35 - T01.06 to T01.07 - M-26 UI framework and accessibility
+
+Done: src/26-ui.js (FLM.UI: Screens, widgets, dialogs, toasts, Layout, Focus, TouchPads, HUD, Frame)
+and src/91-test-ui.js. Real Chrome run through the CDP client in a scratch copy with a stand-in boot:
+core 33/33, selftest 16/16, ui 42/42, ui@touch 43/43 (134/134, no page errors, no skips).
+Decisions: D7 widget/screen CSS is injected by 26-ui.js as <style id="flm-ui-style"> (shell S02-S05
+stay empty); D8 error presentation only via ErrorReporter.setPresenter; D9 extra glyph icons g-* added
+by 26-ui.js at load; D10 toast durations from 6.26 over 7.11.4; D11 lower screens inert+aria-hidden.
+Open issues: OI-4 shell.html (Part 3.2.4 text) sets `html,body{font-size:var(--fs-3)}` after the
+`html{font-size:calc(16px*var(--ui))}` rule, so UI scale does nothing; 26-ui.js adds a corrective rule;
+fix at source (shell.html) when convenient. OI-5 Core ErrorReporter safeItem drops functions from the
+error context, so toast/dialog actions from context.onAction never fire; fix in 01-core.js with T01.10.
+Not verified: Part 12.9.14 keyboard-only task walk; 200% zoom; LT/XT/AT; orientationchange and
+visualViewport paths; HUD announcements; toast-action activation.
+Usage: 5h 4% / weekly all 9% at 15:30.
+RESUME: T01.08 (settings persistence subset M-16 + M-27 settings controller), then T01.09.
+
 ## 2026-10-27 15:10 - T01.01 to T01.05 - shell, build tool, core, self-test runner
 
 Done: T01.01 src/shell.html + module skeleton (src/README.md); T01.02 tools/build.mjs (build OK in a

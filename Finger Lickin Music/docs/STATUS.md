@@ -3,7 +3,7 @@
 Plan version: 1.0.0
 Updated: 2026-10-27 (UTC date of the last change to this file)
 Current phase: Phase 01
-Last completed T section: T01.05
+Last completed T section: T01.07
 Build: partial (no boot yet)
 Self-test (--all): not run
 Live and device tests (LT, XT): not run
@@ -23,7 +23,7 @@ Live and device tests (LT, XT): not run
 | Phase | T sections done / total | Gate commit | Gate date | --all result |
 |---|---|---|---|---|
 | Phase 00 | satisfied by plan 1.0.0 | n/a | 2026-10-25 | n/a |
-| Phase 01 | 5 / 12 | - | - | - |
+| Phase 01 | 7 / 12 | - | - | - |
 | Phase 02 | 0 / - | - | - | - |
 | Phase 03 | 0 / - | - | - | - |
 | Phase 04 | 0 / - | - | - | - |
