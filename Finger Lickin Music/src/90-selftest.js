@@ -1308,6 +1308,9 @@ FLM.Core.define('SelfTest', function (FLM) {
           { pass: false, skipped: false, message: errorMessage(afterError).slice(0, MESSAGE_LIMIT) }, 0));
       }
       await leaveToMenu();
+      // Error reports raised by a group's tests become toasts once Boot has started the UI; drop them
+      // so their timers and listeners are not counted as the group's leaks.
+      if (FLM.UI && typeof FLM.UI.clearToasts === 'function') FLM.UI.clearToasts();
       const leaks = findLeaks(baseline);
       if (leaks) {
         recordTest(results, row, testEntry(entry.name, entry.name + ' leak check',
