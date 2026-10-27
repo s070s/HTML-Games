@@ -100,6 +100,18 @@ FLM.Core.define('UI', function (FLM) {
   });
   const JUDGMENTS = Object.freeze(['perfect', 'great', 'good', 'miss']);
   const TRANSPORT_BUTTONS = Object.freeze(['play', 'pause', 'stop', 'record', 'loop', 'metronome', 'rewind']);
+  // The wired TransportBar (T02.08). The seek slider is fixed at 0..1000 (per mille of the song) because a slider's
+  // range cannot change after it is created and every song has another length.
+  const SEEK_RESOLUTION = 1000;
+  const SEEK_STEP = 5;                       // arrow keys move half a percent of the song
+  const SEEK_BIG_STEP = 50;                  // Page keys move five percent
+  const TRANSPORT_REFRESH_MS = 100;          // position readout and slider while the transport runs (10 Hz)
+  const SPEED_CHOICES = Object.freeze([0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]);
+  const COUNT_IN_CHOICES = Object.freeze([0, 1, 2]);
+  const COUNT_IN_TEXT = Object.freeze(['transport.countInOff', 'transport.countInOne', 'transport.countInTwo']);
+  const TRANSPORT_TOPICS = Object.freeze(['transport.loaded', 'transport.state', 'transport.seek',
+    'transport.loopSet', 'transport.speed', 'transport.tempoSource']);
+  const SONG_BUTTONS = Object.freeze(['play', 'stop', 'rewind']);   // need a loaded song to do anything
 
   // ---------------------------------------------------------------------------------------------
   // Text table (Part 7.11; rule 5: ASCII only). Ids with {name} placeholders are filled by text().
@@ -130,7 +142,10 @@ FLM.Core.define('UI', function (FLM) {
     'sr.getReady': 'Get ready', 'sr.combo': '{n} combo',
     'transport.play': 'Play', 'transport.pause': 'Pause', 'transport.stop': 'Stop', 'transport.record': 'Record',
     'transport.loop': 'Loop', 'transport.metronome': 'Metronome', 'transport.rewind': 'Rewind to start',
-    'transport.countIn': 'Count-in {n}',
+    'transport.countIn': 'Count-in {n}', 'transport.resume': 'Resume',
+    'transport.noSong': 'Load a song first.', 'transport.noLoop': 'Set a loop region first.',
+    'transport.seek': 'Position', 'transport.speed': 'Speed', 'transport.countInBars': 'Count-in',
+    'transport.countInOff': 'Off', 'transport.countInOne': '1 bar', 'transport.countInTwo': '2 bars',
     'screen.SCR-FirstLaunch': 'Welcome', 'screen.SCR-MainMenu': 'Main menu', 'screen.SCR-QuickPlay': 'Quick Play',
     'screen.SCR-Instrument': 'Instrument Mode', 'screen.SCR-FreePlay': 'Free Play', 'screen.SCR-Studio': 'Studio',
     'screen.SCR-Library': 'Song Library', 'screen.SCR-ImportInspect': 'Import Music', 'screen.SCR-Dance': 'Dance Mode',
@@ -234,6 +249,12 @@ FLM.Core.define('UI', function (FLM) {
     '.badge { flex: none; height: 22px; padding: 0 var(--sp-2); border: var(--border); border-radius: var(--r-pill);' +
       ' font-size: var(--fs-1); line-height: 20px; }',
     '.empty { margin: 0; padding: var(--sp-4); color: var(--c-text-muted); }',
+    '.transport { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-2);' +
+      ' background: var(--c-panel); border-top: var(--border); }',
+    '.transport .widget { flex: 0 1 auto; margin: 0; }',
+    '.transport .widget > label { flex: 0 0 auto; }',
+    '.transport .transport-seek { flex: 1 1 14rem; }',
+    '.transport .readout { min-width: 3rem; font-size: var(--fs-3); }',
     '.tabs { display: flex; gap: var(--sp-2); border-bottom: var(--border); overflow: hidden; width: 100%; }',
     '.tab { min-height: max(44px, 2.75rem); padding: 0 var(--sp-4); border: 0; border-bottom: 3px solid transparent;' +
       ' background: none; color: var(--c-text-muted); font: inherit; font-weight: var(--fw-medium); cursor: pointer; }',
@@ -2439,33 +2460,83 @@ FLM.Core.define('UI', function (FLM) {
     visible: () => hud.kind !== null });
 
   // ---------------------------------------------------------------------------------------------
-  // Transport bar (shell; wired by T02.08)
+  // Transport bar (T02.08). Without spec.transport it is a plain view (update(view) by the caller); with
+  // spec.transport (normally FLM.Transport.main) it drives that transport and follows its events itself.
   // ---------------------------------------------------------------------------------------------
+  /** Part 6.26 TransportView, read from a transport; bar and beat are 0-based, negative bars are the count-in. */
+  function transportView(transport) {
+    const song = transport.song();
+    const state = transport.state();
+    const tick = transport.position();
+    const where = transport.meterMap().beatAt(tick);
+    const tempoMap = transport.tempoMap();
+    const region = transport.loop();
+    const durationTicks = song ? song.durationTicks : 0;
+    return {
+      state, hasSong: song !== null, tick, durationTicks, bar: where.bar, beat: where.beat,
+      timeS: transport.positionSeconds(), durationS: tempoMap.ticksToSeconds(durationTicks),
+      bpm: tempoMap.tempoAt(tick).bpm, recording: state === 'recording',
+      loop: region ? { enabled: transport.loopEnabled(), aBar: transport.meterMap().barAt(region.a),
+        bBar: transport.meterMap().barAt(region.b) } : null,
+      countIn: state === 'countin' ? where.beat + 1 : null
+    };
+  }
+
+  /** The Play button is one control: Play when stopped, Pause while running, Resume when paused. */
+  function playActionFor(state) {
+    if (state === 'paused') return 'resume';
+    return state === 'stopped' ? 'play' : 'pause';
+  }
+
+  /** record and metronome belong to the Studio and are only reported through spec.onAction. */
+  function runTransportAction(transport, action) {
+    if (action === 'play') transport.play();
+    else if (action === 'pause') transport.pause();
+    else if (action === 'resume') transport.resume();
+    else if (action === 'stop') transport.stop();
+    else if (action === 'rewind') transport.seek(0);
+    else if (action === 'loop') transport.setLoopEnabled(!transport.loopEnabled());
+  }
+
+  function displayBar(bar) {
+    return bar >= 0 ? bar + 1 : bar;         // count-in bars show as -1, -2 (there is no bar 0), as in Model
+  }
+
   function createTransportBar(root, spec) {
     assert(root && root.nodeType === 1 && spec && Array.isArray(spec.buttons),
       'TransportBar.create needs a root and buttons');
+    const transport = spec.transport || null;
+    const owner = spec.owner || widgetContextOwner() || Symbol('transport-bar');
+    const eventBus = spec.bus || bus;
     const bar = el('div', { class: 'transport', role: 'group', 'aria-label': 'Transport' });
     const handles = {};
+    const extras = {};                       // seek, speed and countIn widgets (wired bars only)
+    const live = { view: null, scrubbing: false, pollId: null, offs: [] };
+    const act = function (id) {
+      const action = transport && id === 'play' ? playActionFor(transport.state()) : id;
+      if (transport) runTransportAction(transport, action);
+      if (typeof spec.onAction === 'function') spec.onAction(action);
+    };
     spec.buttons.filter((id) => TRANSPORT_BUTTONS.indexOf(id) >= 0).forEach(function (id) {
       handles[id] = Widgets.button({ id: 'transport-' + id, icon: id, label: '', ariaLabel: text('transport.' + id),
-        kind: 'secondary', onPress: () => spec.onAction(id) });
+        kind: 'secondary', onPress: () => act(id) });
       bar.appendChild(handles[id].root);
     });
     const position = el('span', { class: 'readout num', id: 'transport-position' });
     const clock = el('span', { class: 'readout num', id: 'transport-clock' });
     const tempo = spec.showTempo ? el('span', { class: 'readout num', id: 'transport-tempo' }) : null;
     const countIn = el('span', { class: 'badge', id: 'transport-countin', hidden: true });
+    if (transport) buildTransportControls(transport, extras, live, bar, owner);
     appendChildren(bar, [position, clock, tempo, countIn]);
     root.appendChild(bar);
     const setPressedState = (id, on) => { if (handles[id]) handles[id].root.setAttribute('aria-pressed',
       String(Boolean(on))); };
     const update = function (view) {
-      const playing = view.state === 'playing' || view.state === 'recording';
-      if (handles.play) handles.play.setLabel(text(playing ? 'transport.pause' : 'transport.play'),
-        playing ? 'pause' : 'play');
+      const label = view.state === 'paused' ? 'resume' : (isRunningState(view.state) ? 'pause' : 'play');
+      if (handles.play) handles.play.setLabel(text('transport.' + label), label === 'pause' ? 'pause' : 'play');
       setPressedState('record', view.recording);
       setPressedState('loop', view.loop && view.loop.enabled);
-      position.textContent = (Number(view.bar) + 1) + '.' + (Number(view.beat) + 1);
+      position.textContent = displayBar(Number(view.bar)) + '.' + (Number(view.beat) + 1);
       clock.textContent = Core.formatTime(view.timeS) + ' / ' + Core.formatTime(view.durationS);
       if (tempo) tempo.textContent = (Number(view.bpm) || 0).toFixed(1) + ' BPM';
       countIn.hidden = view.countIn === null || view.countIn === undefined;
@@ -2474,11 +2545,103 @@ FLM.Core.define('UI', function (FLM) {
     const setEnabled = function (id, enabled, reason) {
       if (handles[id]) handles[id].setDisabled(enabled ? null : (reason || '-'));
     };
-    const destroy = function () {
+    const handle = { update, setEnabled, root: bar, refresh: () => {}, destroy: function () {
       Object.keys(handles).forEach((id) => handles[id].destroy());
       bar.remove();
+    } };
+    if (transport) wireTransportBar({ transport, owner, eventBus, bar, handles, extras, live, handle, update,
+      setEnabled, act });
+    return Object.freeze(handle);
+  }
+
+  function isRunningState(state) {
+    return state === 'playing' || state === 'recording' || state === 'countin';
+  }
+
+  /** Seek slider, speed select and count-in select; their handlers talk to the transport directly. */
+  function buildTransportControls(transport, extras, live, bar, owner) {
+    extras.seek = Widgets.slider({ id: 'transport-seek', label: text('transport.seek'), min: 0,
+      max: SEEK_RESOLUTION, step: SEEK_STEP, bigStep: SEEK_BIG_STEP, value: 0, precision: 0,
+      format: function (value) {
+        const durationS = live.view ? live.view.durationS : 0;
+        return Core.formatTime(durationS * value / SEEK_RESOLUTION);
+      },
+      onChange: function (value) {
+        live.scrubbing = false;
+        const duration = transport.song() ? transport.song().durationTicks : 0;
+        transport.seek(Math.round(value / SEEK_RESOLUTION * duration));
+      } });
+    extras.seek.root.classList.add('transport-seek');
+    extras.speed = Widgets.select({ id: 'transport-speed', label: text('transport.speed'), value: transport.speed(),
+      options: SPEED_CHOICES.map((speed) => ({ value: speed, label: speed + 'x' })),
+      onChange: (value) => transport.setSpeed(Number(value)) });
+    extras.countIn = Widgets.select({ id: 'transport-countin-bars', label: text('transport.countInBars'),
+      value: transport.countInBars(),
+      options: COUNT_IN_CHOICES.map((bars) => ({ value: bars, label: text(COUNT_IN_TEXT[bars]) })),
+      onChange: (value) => transport.setCountIn(Number(value)) });
+    [extras.seek, extras.speed, extras.countIn].forEach((widget) => bar.appendChild(widget.root));
+    // A drag keeps the thumb where the user put it; the 10 Hz refresh must not pull it back until release.
+    live.offs.push(Core.dom.on(extras.seek.root, 'input', () => { live.scrubbing = true; }, undefined, owner));
+  }
+
+  /** Subscriptions, the refresh poll and the Space key; everything is undone again by handle.destroy(). */
+  function wireTransportBar(parts) {
+    const { transport, owner, eventBus, bar, handles, extras, live, handle } = parts;
+    const refresh = function () {
+      const view = transportView(transport);
+      live.view = view;
+      parts.update(view);
+      applyTransportAvailability(parts, view);
+      syncTransportControls(transport, extras, live, view);
+      syncRefreshPoll(parts, view);
     };
-    return Object.freeze({ update, setEnabled, destroy, root: bar });
+    const onTransportEvent = () => refresh();
+    TRANSPORT_TOPICS.forEach((topic) => eventBus.on(topic, onTransportEvent, owner));
+    live.offs.push(Core.dom.on(bar, 'keydown', function (evt) {
+      if (keyName(evt) !== 'Space' || evt.target.closest('button, select')) return;
+      evt.preventDefault();                  // the slider and the bar itself toggle; buttons keep their own Space
+      if (live.view && live.view.hasSong) parts.act('play');
+    }, undefined, owner));
+    handle.refresh = refresh;
+    handle.destroy = function () {
+      TRANSPORT_TOPICS.forEach((topic) => eventBus.off(topic, onTransportEvent));
+      if (live.pollId !== null) Core.timers.clearInterval(live.pollId);
+      live.pollId = null;
+      live.offs.forEach((off) => off());
+      Object.keys(handles).forEach((id) => handles[id].destroy());
+      Object.keys(extras).forEach((id) => extras[id].destroy());
+      bar.remove();
+    };
+    refresh();
+  }
+
+  /** Disabled states with reasons (Part 10.5: a disabled control says why). */
+  function applyTransportAvailability(parts, view) {
+    const noSong = view.hasSong ? null : text('transport.noSong');
+    SONG_BUTTONS.forEach((id) => parts.setEnabled(id, view.hasSong, noSong));
+    parts.setEnabled('loop', view.hasSong && view.loop !== null, noSong || text('transport.noLoop'));
+    parts.extras.seek.setDisabled(noSong);
+  }
+
+  function syncTransportControls(transport, extras, live, view) {
+    if (!live.scrubbing) {
+      const share = view.durationTicks > 0 ? view.tick / view.durationTicks * SEEK_RESOLUTION : 0;
+      extras.seek.set(share);
+    }
+    extras.speed.set(transport.speed());
+    extras.countIn.set(transport.countInBars());
+  }
+
+  // The poll runs only while the transport runs: an idle bar costs nothing.
+  function syncRefreshPoll(parts, view) {
+    const { live, owner } = parts;
+    const running = isRunningState(view.state);
+    if (running && live.pollId === null) {
+      live.pollId = Core.timers.setInterval(parts.handle.refresh, TRANSPORT_REFRESH_MS, owner);
+    } else if (!running && live.pollId !== null) {
+      Core.timers.clearInterval(live.pollId);
+      live.pollId = null;
+    }
   }
 
   const TransportBar = Object.freeze({ create: createTransportBar });

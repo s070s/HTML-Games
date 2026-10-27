@@ -1,7 +1,8 @@
 ﻿// 91-test-ui.js - unit tests for M-26 FLM.UI (group 'ui'; test build only).
 // UT-26-01 to UT-26-26 follow Part 6.26.8. UT-26-27 to UT-26-35 are extra checks for T01.06 and T01.07
 // (shared frame, token contrast, accessible names, focus ring, UI scale, dialog roles, tabs and number,
-// touch rules, gamepad menu navigation). The touch-only test runs in the touch pass of tools/selftest.mjs.
+// touch rules, gamepad menu navigation). UT-26-37 to UT-26-41 cover the wired transport bar (T02.08). The touch-only
+// tests run in the touch pass of tools/selftest.mjs.
 (function () {
 'use strict';
 const FLM = window.FLM;
@@ -994,6 +995,151 @@ FLM.SelfTest.group('ui', (t) => {
     t.ok(!(doc.activeElement && doc.activeElement.tagName === 'INPUT'), 'no text field is focused by itself on touch');
     UI.Focus.restore(field.root.querySelector('input'));
     t.ok(doc.activeElement.tagName !== 'INPUT', 'restore never opens the on-screen keyboard');
+  });
+
+  // ---------------------------------------------------------------- T02.08 wired transport bar
+
+  const BAR_TICKS = 3840;
+  const SONG_BARS = 8;                       // 16 s at 120 BPM
+  const SEEK_MAX = 1000;
+  const MIN_POINTER_SIDE = 44;
+  const MIN_GAP = 8;
+
+  function transportSong() {
+    const song = FLM.Model.Song.create({ title: 'Bar test' });
+    FLM.Model.Song.addTrack(song, FLM.Model.Track.create({ name: 'solo' }, song));
+    song.durationTicks = SONG_BARS * BAR_TICKS;
+    return song;
+  }
+
+  /** A private transport and bus, so no test touches Transport.main or the real subscriptions. */
+  function wiredBar(options) {
+    const given = options || {};
+    const clock = t.fakes.clock(0);
+    const eventBus = new Core.Emitter();
+    const transport = FLM.Transport.create({ clock, bus: eventBus });
+    if (given.song !== false) transport.load(transportSong());
+    const host = attach(UI.el('div'));
+    const actions = [];
+    const bar = UI.TransportBar.create(host, { buttons: given.buttons || ['play', 'stop', 'rewind', 'loop'],
+      showTempo: true, transport, bus: eventBus, owner: Symbol('bar-test'), onAction: (id) => actions.push(id) });
+    return { clock, eventBus, transport, host, bar, actions };
+  }
+
+  const control = (rig, id) => rig.host.querySelector('#w-' + id);
+  const iconOf = (node) => node.querySelector('use').getAttribute('href');
+
+  function change(node, value) {
+    node.value = String(value);
+    node.dispatchEvent(new window.Event('input', { bubbles: true }));
+    node.dispatchEvent(new window.Event('change', { bubbles: true }));
+  }
+
+  t.test('UT-26-37 wired bar: states, icons and disabled reasons', () => {
+    const rig = wiredBar({ song: false });
+    ['transport-play', 'transport-stop', 'transport-rewind', 'transport-loop'].forEach(function (id) {
+      t.eq(control(rig, id).getAttribute('aria-disabled'), 'true', id + ' is disabled without a song');
+      t.eq(control(rig, id).getAttribute('title'), 'Load a song first.', id + ' says why');
+    });
+    t.ok(control(rig, 'transport-seek-control').disabled, 'the seek slider is disabled without a song');
+    rig.transport.load(transportSong());
+    t.eq(control(rig, 'transport-play').getAttribute('aria-disabled'), null, 'a loaded song enables Play');
+    t.eq(control(rig, 'transport-loop').getAttribute('title'), 'Set a loop region first.',
+      'loop needs a region even with a song');
+    t.eq(iconOf(control(rig, 'transport-play')), '#g-play');
+    t.eq(control(rig, 'transport-play').getAttribute('aria-label'), 'Play');
+    control(rig, 'transport-play').click();
+    t.eq(rig.transport.state(), 'playing');
+    t.eq(control(rig, 'transport-play').getAttribute('aria-label'), 'Pause');
+    t.eq(iconOf(control(rig, 'transport-play')), '#g-pause');
+    control(rig, 'transport-play').click();
+    t.eq(rig.transport.state(), 'paused');
+    t.eq(control(rig, 'transport-play').getAttribute('aria-label'), 'Resume');
+    t.eq(iconOf(control(rig, 'transport-play')), '#g-play');
+    control(rig, 'transport-play').click();
+    t.eq(rig.transport.state(), 'playing', 'Resume continues');
+    t.eq(iconOf(control(rig, 'transport-stop')), '#g-stop');
+    control(rig, 'transport-stop').click();
+    t.eq(rig.transport.state(), 'stopped');
+    t.deepEq(rig.actions, ['play', 'pause', 'resume', 'stop'], 'onAction gets the resolved action');
+    rig.bar.destroy();
+  });
+
+  t.test('UT-26-38 wired bar: readouts, seek slider, rewind and loop', () => {
+    const timers = t.fakes.timers();
+    timers.install();
+    const rig = wiredBar();
+    t.eq(rig.host.querySelector('#transport-position').textContent, '1.1');
+    t.eq(rig.host.querySelector('#transport-clock').textContent, '0:00 / 0:16');
+    t.eq(rig.host.querySelector('#transport-tempo').textContent, '120.0 BPM');
+    rig.transport.play();
+    rig.clock.set(4.05);                     // 0.05 s lead-in plus 4 s = two bars
+    timers.advance(100);
+    t.eq(rig.host.querySelector('#transport-position').textContent, '3.1', 'the poll follows the running transport');
+    t.eq(rig.host.querySelector('#transport-clock').textContent, '0:04 / 0:16');
+    t.eq(control(rig, 'transport-seek-control').value, '250', 'the slider follows too');
+    change(control(rig, 'transport-seek-control'), SEEK_MAX / 2);
+    rig.clock.set(4.1);                      // the seek anchors 0.05 s ahead
+    t.eq(Math.round(rig.transport.position()), 4 * BAR_TICKS, 'dragging the slider seeks the transport');
+    rig.transport.stop();
+    control(rig, 'transport-rewind').click();
+    t.eq(rig.transport.position(), 0, 'rewind seeks to the start');
+    t.eq(rig.host.querySelector('#transport-position').textContent, '1.1');
+    rig.transport.setLoop({ a: 0, b: BAR_TICKS });
+    t.eq(control(rig, 'transport-loop').getAttribute('aria-pressed'), 'true');
+    control(rig, 'transport-loop').click();
+    t.eq(rig.transport.loopEnabled(), false, 'the loop button toggles the loop');
+    t.eq(control(rig, 'transport-loop').getAttribute('aria-pressed'), 'false');
+    rig.bar.destroy();
+  });
+
+  t.test('UT-26-39 wired bar: speed, count-in and Space', () => {
+    const rig = wiredBar();
+    t.eq(control(rig, 'transport-speed-control').options.length, 8, 'speed offers 0.25 to 2');
+    change(control(rig, 'transport-speed-control'), 0.5);
+    t.eq(rig.transport.speed(), 0.5);
+    rig.transport.setSpeed(1.5);
+    t.eq(control(rig, 'transport-speed-control').value, '1.5', 'the select follows the transport');
+    change(control(rig, 'transport-countin-bars-control'), 2);
+    t.eq(rig.transport.countInBars(), 2);
+    const space = () => control(rig, 'transport-seek-control').dispatchEvent(new window.KeyboardEvent('keydown',
+      { code: 'Space', key: ' ', bubbles: true, cancelable: true }));
+    space();
+    t.eq(rig.transport.state(), 'countin', 'Space on the bar starts play with the count-in');
+    t.eq(rig.host.querySelector('#transport-countin').hidden, false);
+    t.ok(rig.host.querySelector('#transport-countin').textContent.startsWith('Count-in '));
+    space();
+    t.eq(rig.transport.state(), 'paused', 'Space pauses');
+    control(rig, 'transport-stop').dispatchEvent(new window.KeyboardEvent('keydown',
+      { code: 'Space', key: ' ', bubbles: true, cancelable: true }));
+    t.eq(rig.transport.state(), 'stopped', 'Space on a button acts as that button (Stop), not as play or pause');
+    rig.bar.destroy();
+  });
+
+  t.test('UT-26-40 wired bar: pointer target sizes and cleanup', () => {
+    const rig = wiredBar();
+    const buttons = Array.from(rig.host.querySelectorAll('.transport .btn'));
+    buttons.forEach((node) => t.ok(node.getBoundingClientRect().height >= MIN_POINTER_SIDE - 0.5 &&
+      node.getBoundingClientRect().width >= MIN_POINTER_SIDE - 0.5, node.id + ' is at least 44 px'));
+    t.ok(control(rig, 'transport-seek-control').getBoundingClientRect().height >= MIN_POINTER_SIDE - 0.5);
+    t.ok(buttons.length >= 2);
+    const first = buttons[0].getBoundingClientRect();
+    const second = buttons[1].getBoundingClientRect();
+    t.ok(second.left - first.right >= MIN_GAP - 0.5 || second.top >= first.bottom, 'buttons keep an 8 px gap');
+    t.ok(rig.eventBus.emit('transport.state', {}) > 0, 'the bar listens while alive');
+    rig.bar.destroy();
+    t.eq(rig.eventBus.emit('transport.state', {}), 0, 'destroy removes every subscription');
+    t.eq(rig.host.querySelector('.transport'), null);
+  });
+
+  t.test('UT-26-41 wired bar: touch targets', { touch: true }, () => {
+    if (!(window.navigator.maxTouchPoints > 0)) t.skip('needs a touch device context (navigator.maxTouchPoints > 0)');
+    doc.body.classList.add('touch');
+    const rig = wiredBar();
+    const nodes = Array.from(rig.host.querySelectorAll('.transport .btn, .transport select, .transport input'));
+    nodes.forEach((node) => t.ok(node.getBoundingClientRect().height >= MIN_TOUCH_SIDE - 0.5,
+      (node.id || node.tagName) + ' is at least 56 px tall'));
+    rig.bar.destroy();
   });
 });
 })();
