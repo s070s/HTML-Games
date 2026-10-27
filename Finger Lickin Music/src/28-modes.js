@@ -4,8 +4,10 @@
 // Separation rule: this file owns exactly one namespace (Modes) and registers it once through FLM.Core.define.
 // It declares no module-level global state object (S-07): state lives inside the factory closure.
 // Module presence (convention 6 of Part 11): a step whose module is not built yet is skipped and logged once.
-// EXTENSION POINT: later tasks add their enter steps (music, audio binding, charts, judge, stage, input) at the
-// marked place in setupMode(), and gameplay assembly (startGameplay, stopGameplay, preview) next to pause().
+// One engine (S-18, T02.06): every mode that has music loads it into the one FLM.Transport.main and makes the one
+// Scheduler binding; no mode creates a transport of its own.
+// EXTENSION POINT: later tasks add their enter steps (charts, judge, stage, input) at the marked place in
+// setupMode(), and gameplay assembly (startGameplay, stopGameplay) next to pause().
 // Spec: docs/IMPLEMENTATION-PLAN.md Part 4.7 (4.7.1 to 4.7.4) and Part 6.28 (6.28.2 to 6.28.4).
 (function () {
 'use strict';
@@ -26,6 +28,12 @@ FLM.Core.define('Modes', function (FLM) {
   const SESSION_MODES = Object.freeze(['quickplay', 'instrument', 'dance', 'studio']);   // flm.v1.lastSession
   const PROJECT_MODES = Object.freeze(['studio', 'freeplay']);                            // autosave on leave
   const RECORDER_BUSY = Object.freeze(['armed', 'countin', 'recording']);
+  const FREE_PLAY_SONG_ID = 'freeplay';
+  const STUDIO_SONG_ID = 'studio';
+  const LIVE_TRACK_ID = 'fp';                // the one track of a Free Play song (Part 6.28.4.3)
+  const TUTORIAL_SONG_ID = 'tut-basics';
+  const PREVIEW_SECONDS = 15;                // library and import previews stop by themselves (Part 6.28.2)
+  const MS_PER_SECOND = 1000;
   const PAUSE_TEXT = Object.freeze({
     hidden: 'Paused because the game went to the background', blur: 'Paused because the window lost focus',
     audio: 'Paused because the sound stopped', gamepad: 'Controller disconnected', stall: 'Playback stalled',
@@ -87,7 +95,8 @@ FLM.Core.define('Modes', function (FLM) {
     initialized: false,
     pauseReason: null,
     rotateDismissed: false,
-    skipGuardOnce: false
+    skipGuardOnce: false,
+    preview: { active: false, timer: null }  // the library or import preview on Transport.main (Part 6.28.3)
   };
 
   // ---------------------------------------------------------------- calling lower modules (module presence)
@@ -278,8 +287,10 @@ FLM.Core.define('Modes', function (FLM) {
     return undefined;
   }
 
+  // The Studio session closes its own strips; without it (not built yet) the plain unbind and unload apply.
   function leaveBindings(context) {
-    if (context.mode === 'studio') return invokeStep('bindings', 'Studio.Session.close');
+    state.preview.active = false;              // the stop and unload below end any preview; its timer dies by owner
+    if (context.mode === 'studio' && available('Studio.Session.close')) return invoke('Studio.Session.close');
     return runAll('bindings', [['Audio.Scheduler.unbind'], ['Transport.main.unload']]);
   }
 
@@ -428,7 +439,6 @@ FLM.Core.define('Modes', function (FLM) {
 
   // Steps of Part 4.7.1 whose module is not built yet; each is logged once and skipped (convention 6).
   const PENDING_STEPS = Object.freeze([
-    { step: 'music', module: 'Transport', applies: (row) => row.transport !== 'none' },
     { step: 'audio binding', module: 'Audio', applies: (row) => row.scheduler !== 'none' },
     { step: 'charts', module: 'Mapping', applies: (row) => row.chart !== 'none' },
     { step: 'judge', module: 'Rhythm', applies: (row) => row.chart !== 'none' },
@@ -442,6 +452,73 @@ FLM.Core.define('Modes', function (FLM) {
       const reason = FLM[item.module] ? item.module + ' step not wired yet' : item.module + ' not built';
       Core.Log.once('modes.skip.enter.' + item.step, 'info', 'modes', 'skip ' + item.step + ': ' + reason);
     });
+  }
+
+  // ---------------------------------------------------------------- music and binding (Part 4.7.1 steps 5 and 6)
+
+  /** A song made through Song.create for a mode with no catalog song: Free Play (one track) or Studio (empty). */
+  function createLiveSong(id, title, withTrack) {
+    const song = FLM.Model.Song.create({ id, title });
+    if (withTrack) {
+      FLM.Model.Song.addTrack(song, FLM.Model.Track.create({ id: LIVE_TRACK_ID, name: title, lockedSource: false },
+        song));
+    }
+    return song;
+  }
+
+  // Null while the catalog is not built; a catalog that does not know the id is a failed enter (E-MODE-002).
+  async function catalogSong(songId) {
+    if (!available('Project.Catalog.getSong')) {
+      noteSkip('music', 'Project.Catalog.getSong');
+      return null;
+    }
+    const song = await invoke('Project.Catalog.getSong', songId);
+    if (!song) throw new Error('song not found: ' + songId);
+    return song;
+  }
+
+  function playableSong(mode, params) {
+    if (params.song && Array.isArray(params.song.tracks)) return params.song;
+    const songId = mode === 'tutorial' ? TUTORIAL_SONG_ID : params.songId;
+    return typeof songId === 'string' ? catalogSong(songId) : null;
+  }
+
+  function projectSong() {
+    const project = available('Project.current') ? invoke('Project.current') : null;
+    return project && project.song ? project.song : createLiveSong(STUDIO_SONG_ID, 'Studio', false);
+  }
+
+  /** The Song a mode puts into Transport.main, chosen by its REQUIREMENTS row; null means nothing to load. */
+  function songFor(mode, params) {
+    const source = REQUIREMENTS[mode].transport;
+    if (source === 'tempo') return createLiveSong(FREE_PLAY_SONG_ID, 'Free Play', true);
+    if (source === 'project') return projectSong();
+    if (source === 'song' || source === 'tutorial') return playableSong(mode, params);
+    return null;                               // 'none', and 'preview' (preview() loads it, not enter)
+  }
+
+  function mixerSettings() {
+    const volume = settingValue('audio.masterVolume');
+    return { master: { gain: typeof volume === 'number' ? volume : 1 } };
+  }
+
+  /**
+   * Steps 5 and 6: the song goes into the one Transport.main (never a transport of this mode's own, S-18) and the
+   * one Scheduler binding is made over it. Free Play runs on the override tempo; the visibility policy follows the
+   * mode kind (gameplay pauses in the background, live modes continue and re-anchor, Part 4.7.4).
+   */
+  async function setupMusic(mode, params) {
+    const row = REQUIREMENTS[mode];
+    if (row.transport === 'none') return;
+    invokeStep('music', 'Transport.main.setVisibilityPolicy', LIVE.includes(mode) ? 'continue' : 'pause');
+    const song = await songFor(mode, params);
+    if (song === null) return;
+    const tempoOnly = row.transport === 'tempo';
+    const options = tempoOnly ? { tempoSource: 'override', overrideBpm: params.overrideBpm } : undefined;
+    invokeStep('music', 'Transport.main.load', song, options);
+    if (row.scheduler === 'bound') {
+      invokeStep('audio binding', 'Audio.Scheduler.bind', FLM.Transport.main, song, mixerSettings());
+    }
   }
 
   async function setupMenu(params) {
@@ -466,7 +543,8 @@ FLM.Core.define('Modes', function (FLM) {
       return;
     }
     notePendingSteps(mode);
-    // EXTENSION POINT: music load, audio binding, charts, judge, stage and input binding go here (later tasks).
+    await setupMusic(mode, params);
+    // EXTENSION POINT: charts, judge, stage and input binding go here (later tasks).
     const kind = hudKind(mode, params);
     if (kind !== null) FLM.UI.HUD.show(kind, state.current.owner);
     showPads(mode, params);
@@ -588,6 +666,42 @@ FLM.Core.define('Modes', function (FLM) {
     await enter(mode, Object.assign({}, state.current.params, changes || {}));
   }
 
+  // ---------------------------------------------------------------- previews (library and import, Part 6.28.2)
+
+  /** Ends a preview: stop, release the Scheduler binding, unload the song. Safe to call when none is playing. */
+  async function stopPreview() {
+    if (!state.preview.active) return;
+    Core.timers.clearTimeout(state.preview.timer);
+    state.preview = { active: false, timer: null };
+    await runAll('preview', [['Transport.main.stop'], ['Audio.Scheduler.unbind'], ['Transport.main.unload']]);
+  }
+
+  /**
+   * Plays a candidate song on the one Transport.main in a mode whose row says 'preview' (library, import); the
+   * Scheduler binding is made here and released when the preview stops or the mode leaves.
+   * @param {(object|string)} songOrId a Song, or a catalog id
+   * @param {{fromTick?:number, durationS?:number}=} options
+   * @returns {Promise<{ok:boolean}>}
+   */
+  async function preview(songOrId, options) {
+    const given = options || {};
+    const mode = state.current.mode;
+    const owner = state.current.owner;
+    if (!REQUIREMENTS[mode] || REQUIREMENTS[mode].transport !== 'preview') return { ok: false };
+    const song = typeof songOrId === 'string' ? await catalogSong(songOrId) : songOrId;
+    const usable = song && Array.isArray(song.tracks) && available('Transport.main.play');
+    if (!usable || state.current.owner !== owner) return { ok: false };
+    await stopPreview();
+    invoke('Transport.main.load', song);
+    invokeStep('audio binding', 'Audio.Scheduler.bind', FLM.Transport.main, song, mixerSettings());
+    const seconds = Number.isFinite(given.durationS) ? given.durationS : PREVIEW_SECONDS;
+    const timer = Core.timers.setTimeout(() => {
+      stopPreview().catch((error) => Core.Log.warn('modes', 'preview stop failed: ' + messageOf(error)));
+    }, seconds * MS_PER_SECOND, owner);
+    state.preview = { active: true, timer };
+    return { ok: invoke('Transport.main.play', { countInBars: 0, fromTick: given.fromTick }) === true };
+  }
+
   // ---------------------------------------------------------------- pause and interruptions (Part 4.7.4)
 
   const isGameplay = (mode) => GAMEPLAY.includes(mode === undefined ? state.current.mode : mode);
@@ -631,10 +745,31 @@ FLM.Core.define('Modes', function (FLM) {
   }
 
   // Rows of Part 6.28.4.9 for the sources that exist in this build. Each handler returns the action taken.
+  // Live modes keep playing in the background; Transport.main notes when it was hidden so onVisible can compare the
+  // audio clock with the performance clock and re-anchor on a drift over 5 ms (Part 4.7.4, UT-04-22).
+  function audioClockNow() {
+    return available('Audio.clock') ? invoke('Audio.clock').now() : Core.now() / MS_PER_SECOND;
+  }
+
   function whenHidden(kind) {
     if (kind === 'gameplay') return startPause('hidden');
-    if (kind === 'live') return releaseAndReport();
-    return 'ignored';
+    if (kind !== 'live') return 'ignored';
+    invokeStep('visibility', 'Transport.main.onHidden', audioClockNow(), Core.now());
+    return releaseAndReport();
+  }
+
+  // A re-anchor after the background is recoverable and silent: logged and counted in the diagnostics (E-AUD-009).
+  function reportDrift(result) {
+    if (!result || result.drifted !== true) return;
+    Core.ErrorReporter.report('E-AUD-009', null, { module: 'Modes', driftMs: result.driftMs });
+  }
+
+  function whenVisible(kind) {
+    if (kind === 'panel') return 'ignored';
+    if (kind === 'live') {
+      reportDrift(invokeStep('visibility', 'Transport.main.onVisible', audioClockNow(), Core.now()));
+    }
+    return 'continued';
   }
 
   function releaseAndReport() {
@@ -690,7 +825,7 @@ FLM.Core.define('Modes', function (FLM) {
 
   const INTERRUPTS = Object.freeze({
     hidden: whenHidden,
-    visible: (kind) => (kind === 'panel' ? 'ignored' : 'continued'),
+    visible: whenVisible,
     pagehide: whenPageHidden,
     freeze: whenPageHidden,
     blur: whenBlur,
@@ -807,7 +942,7 @@ FLM.Core.define('Modes', function (FLM) {
     if (state.initialized) FLM.UI.Screens.setHistory(false);
     Object.assign(state, { current: { mode: 'none', params: {}, owner: null, enteredAt: 0 },
       queue: Promise.resolve(), transitioning: false, initialized: false, pauseReason: null,
-      rotateDismissed: false, skipGuardOnce: false, baselineFromMenu: false });
+      rotateDismissed: false, skipGuardOnce: false, baselineFromMenu: false, preview: { active: false, timer: null } });
     state.baseline = counters();
   }
 
@@ -829,6 +964,8 @@ FLM.Core.define('Modes', function (FLM) {
     isTransitioning: () => state.transitioning,
     pause,
     resume,
+    preview,
+    stopPreview,
     onInterrupt,
     baseline: counters,
     assertClean,

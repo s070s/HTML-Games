@@ -261,5 +261,201 @@ FLM.SelfTest.group('modes', (t) => {
     await yieldTurn();
     t.eq(UI.Screens.depth(), 1, 'browser back pops the screen through UI.Screens.onPopState');
   });
+
+  // ------------------------------------------------------------------------------------ T02.06: one engine (S-18)
+  const TRANSPORT_SOURCES = ['none', 'song', 'tempo', 'project', 'preview', 'tutorial'];
+  const SCHEDULER_BINDINGS = ['none', 'bound', 'preview'];
+  const NAMESPACE_KEYS = ['VERSION', 'BUILD', 'RELAY_URL', 'Core', 'Theory', 'Model', 'Transport', 'Audio',
+    'Instruments', 'Input', 'Mapping', 'Rhythm', 'Midi', 'Zip', 'MusicXml', 'GuitarPro', 'Import', 'Project', 'Storage',
+    'Studio', 'Render', 'Rig', 'Animation', 'Stage', 'Character', 'Dance', 'Net', 'Progress', 'UI', 'Screens', 'Modes',
+    'Boot', 'Content', 'SelfTest', 'selfTest', 'selfTestReady', 'diagnostics', 'debug'];   // Part 4.8
+  const PREVIEW_STOP_WAIT_MS = 80;
+
+  function musicSong(id) {
+    const Model = FLM.Model;
+    const song = Model.Song.create({ id, title: 'Test ' + id });
+    const track = Model.Track.create({ name: 'solo' }, song);
+    Model.replaceEvents(track, [Model.Events.note(0, 960, 60, 100), Model.Events.note(960, 960, 64, 100)]);
+    Model.Song.addTrack(song, track);
+    song.durationTicks = 3840;
+    return song;
+  }
+
+  // A stand-in Transport.main that records what Modes asks of it (the real one is checked in the other tests).
+  function recordingMain() {
+    const calls = [];
+    let loaded = null;
+    const record = (name) => (...args) => { calls.push([name].concat(args)); return true; };
+    const main = {
+      state: () => 'stopped',
+      song: () => loaded,
+      load(song, options) { loaded = song; calls.push(['load', song.id, options]); },
+      unload() { loaded = null; calls.push(['unload']); },
+      stop() {},
+      pause: record('pause'),
+      resume: record('resume'),
+      setVisibilityPolicy: record('policy'),
+      onHidden: record('hidden'),
+      onVisible: record('visible')
+    };
+    return { calls, main };
+  }
+
+  const isDeepFrozen = (value) => Object.isFrozen(value) && Object.values(value)
+    .every((item) => item === null || typeof item !== 'object' || isDeepFrozen(item));
+
+  t.test('T02.06 every requirement row names one transport source and one scheduler binding', () => {
+    Modes.MODES.forEach((mode) => {
+      const row = Modes.REQUIREMENTS[mode];
+      t.ok(TRANSPORT_SOURCES.includes(row.transport), mode + ' transport ' + row.transport);
+      t.ok(SCHEDULER_BINDINGS.includes(row.scheduler), mode + ' scheduler ' + row.scheduler);
+      if (row.scheduler === 'bound') t.ok(!['none', 'preview'].includes(row.transport), mode + ' binds a song');
+      if (row.scheduler === 'preview') t.eq(row.transport, 'preview', mode + ' previews on the transport');
+    });
+    t.eq(isDeepFrozen(Modes.REQUIREMENTS), true);
+  });
+
+  t.test('T02.06 free play, studio and the tutorial load Song.create songs into the one Transport.main', async () => {
+    const main = FLM.Transport.main;
+    t.eq(main.song(), null);
+    await Modes.enter('freeplay', { overrideBpm: 90 });
+    t.eq(main.song().id, 'freeplay');
+    t.eq(main.song().tracks.length, 1);
+    t.eq(main.state(), 'stopped');
+    t.near(main.tempoMap().tempoAt(0).bpm, 90, 1e-3);   // the tempo map stores whole microseconds per quarter
+    t.eq((await Modes.leave('user')).leaks, null);
+    t.eq(main.song(), null);
+    await Modes.enter('studio');
+    t.eq(main.song().id, 'studio');
+    t.eq(main.song().tracks.length, 0);
+    t.eq((await Modes.leave('user')).leaks, null);
+    t.eq(main.song(), null, 'leaving studio unloads even without a Studio session');
+    t.eq(Modes.assertClean(), null);
+  });
+
+  t.test('T02.06 gameplay modes load params.song or the catalog song and refuse an unknown id', async () => {
+    const main = FLM.Transport.main;
+    const asked = [];
+    const getSong = (id) => {
+      asked.push(id);
+      return id === 'missing' ? null : musicSong(id);
+    };
+    standIn('Project', { Catalog: { getSong } });
+    const given = musicSong('given');
+    await Modes.enter('quickplay', { song: given });
+    t.ok(main.song() === given, 'the song of the params is loaded as it is');
+    await Modes.enter('instrument', { songId: 'known' });
+    t.eq(main.song().id, 'known');
+    await Modes.enter('tutorial');
+    t.eq(main.song().id, 'tut-basics');
+    t.deepEq(asked, ['known', 'tut-basics']);
+    const refused = await Modes.enter('dance', { songId: 'missing' });
+    t.eq(refused.ok, false);
+    t.ok(Core.ErrorReporter.records().some((record) => record.code === 'E-MODE-002'), 'E-MODE-002 is recorded');
+    UI.closeAllDialogs('test');
+    t.eq(main.song(), null, 'the failed enter leaves nothing loaded');
+    t.eq(Modes.assertClean(), null);
+  });
+
+  t.test('T02.06 modes only ever use Transport.main and set the visibility policy of their kind', async () => {
+    const spy = recordingMain();
+    const created = [];
+    standIn('Transport', { create() { created.push('create'); }, main: spy.main });
+    await Modes.enter('freeplay', { overrideBpm: 100 });
+    await Modes.enter('quickplay', { song: musicSong('q') });
+    t.deepEq(created, [], 'no mode creates a transport of its own');
+    t.deepEq(spy.calls.filter((call) => call[0] === 'load').map((call) => call[1]), ['freeplay', 'q']);
+    t.deepEq(spy.calls.filter((call) => call[0] === 'policy').map((call) => call[1]), ['continue', 'pause']);
+    t.deepEq(spy.calls.find((call) => call[0] === 'load')[2], { tempoSource: 'override', overrideBpm: 100 });
+    t.eq(spy.calls.some((call) => call[0] === 'unload'), true, 'leaving unloads the song');
+  });
+
+  t.test('T02.06 live modes note the background on Transport.main; gameplay modes pause instead', async () => {
+    const spy = recordingMain();
+    standIn('Transport', { main: spy.main });
+    const watched = ['hidden', 'visible', 'pause'];
+    const names = () => spy.calls.map((call) => call[0]).filter((name) => watched.includes(name));
+    await Modes.enter('freeplay');
+    t.eq(Modes.onInterrupt('hidden'), 'released');
+    t.eq(Modes.onInterrupt('visible'), 'continued');
+    t.deepEq(names(), ['hidden', 'visible']);
+    const hiddenCall = spy.calls.find((call) => call[0] === 'hidden');
+    t.eq(hiddenCall.length, 3, 'audio time and performance time are passed');
+    spy.calls.length = 0;
+    await Modes.enter('quickplay', { song: musicSong('g') });
+    t.eq(Modes.onInterrupt('hidden'), 'paused');
+    await yieldTurn();
+    t.deepEq(names(), ['pause'], 'a gameplay mode pauses and does not take the live path');
+    await Modes.resume();
+    t.eq(Modes.onInterrupt('visible'), 'continued');
+    t.deepEq(names(), ['pause'], 'a gameplay mode stays paused when visible again');
+  });
+
+  t.test('T02.06 a re-anchor reported by Transport.main on return is logged as E-AUD-009 once', async () => {
+    const spy = recordingMain();
+    spy.main.onVisible = () => ({ drifted: true, driftMs: 7000 });
+    standIn('Transport', { main: spy.main });
+    await Modes.enter('studio');
+    Modes.onInterrupt('hidden');
+    t.eq(Modes.onInterrupt('visible'), 'continued');
+    const drift = Core.ErrorReporter.records().filter((record) => record.code === 'E-AUD-009');
+    t.eq(drift.length, 1);
+    t.eq(drift[0].class, 'recoverable');
+  });
+
+  t.test('T02.06 a preview plays on Transport.main in library and import and ends with the mode', async () => {
+    const main = FLM.Transport.main;
+    await Modes.enter('library');
+    t.deepEq(await Modes.preview(musicSong('p1')), { ok: true });
+    t.eq(main.state(), 'playing');
+    t.eq(main.song().id, 'p1');
+    await Modes.stopPreview();
+    t.eq(main.state(), 'stopped');
+    t.eq(main.song(), null);
+    await Modes.stopPreview();
+    t.deepEq(await Modes.preview(musicSong('p2')), { ok: true });
+    const left = await Modes.leave('user');
+    t.eq(left.leaks, null, 'leaving during a preview is clean');
+    t.eq(main.song(), null);
+    await Modes.enter('import');
+    t.deepEq(await Modes.preview(musicSong('p3'), { durationS: 0.02 }), { ok: true });
+    await new Promise((resolve) => Core.timers.setTimeout(resolve, PREVIEW_STOP_WAIT_MS, t.owner));
+    t.eq(main.state(), 'stopped', 'the preview stops by itself');
+    t.eq(main.song(), null);
+    await Modes.enter('settings');
+    t.deepEq(await Modes.preview(musicSong('p4')), { ok: false }, 'panel modes without a preview row refuse');
+    t.eq(main.song(), null);
+  });
+
+  t.test('IT-047 (partial) transitions serialize on the one Transport.main; audio parts wait for T04.01', async () => {
+    const events = [];
+    bus.on('mode.enter', (event) => events.push('enter ' + event.mode), t.owner);
+    bus.on('mode.leave', (event) => events.push('leave ' + event.mode), t.owner);
+    const main = FLM.Transport.main;
+    const results = await Promise.all([Modes.enter('quickplay', { song: musicSong('a') }),
+      Modes.enter('quickplay', { song: musicSong('b') })]);
+    t.eq(results[0].ok && results[1].ok, true);
+    t.deepEq(events, ['enter quickplay', 'leave quickplay', 'enter quickplay']);
+    t.ok(FLM.Transport.main === main, 'the same Transport.main throughout');
+    t.eq(main.song().id, 'b');
+    t.ok(FLM.Transport.create() !== main, 'create() makes private instances; only main is bound to modes');
+    t.eq(Core.modules().filter((item) => item.name === 'Transport').length, 1);
+  });
+
+  t.test('IT-037 (partial) tables stay frozen and namespaces closed after every mode was entered and left once',
+    async () => {
+      const left = [];
+      for (const mode of Modes.MODES.filter((name) => name !== 'menu')) {
+        const entered = await Modes.enter(mode);
+        UI.closeAllDialogs('test');
+        t.eq(entered.ok, true, mode + ' entered');
+        left.push((await Modes.leave('user')).leaks);
+      }
+      t.deepEq(left, new Array(left.length).fill(null), 'every leave is clean');
+      [FLM.Theory.SCALES, FLM.Model.KIND_PRIORITY, FLM.Model.TRACK_COLORS, FLM.Transport.STATES, Modes.REQUIREMENTS,
+        Modes.MODES].forEach((table, index) => t.eq(isDeepFrozen(table), true, 'table ' + index + ' is deep-frozen'));
+      const extra = Object.keys(FLM).filter((key) => !NAMESPACE_KEYS.includes(key));
+      t.deepEq(extra, [], 'no module added keys to the FLM namespace');
+    });
 });
 })();

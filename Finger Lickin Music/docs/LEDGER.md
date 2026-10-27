@@ -67,6 +67,27 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 - Device and other-browser tests (XT, LT): owner.
 - Licence: the owner recorded "All rights reserved" (see docs/plan-work/OPEN-ISSUES-stage1.md).
 
+## 2026-10-27 17:10 - Phase 02 GATE (T02.04-T02.09) - transport, engine, timing tests, transport bar
+
+Done: T02.04/T02.05 src/04-transport.js (Transport state machine, anchoring, positionAt, seek, loop,
+count-in, speed; fakes.clock advanceMs); T02.06 Modes load the mode's song into Transport.main, one
+Transport (S-18), visibility hooks, preview, events frozen in the test build; T02.07 src/92-test-timing.js
+(group timing, FakeClock TT-005..013, 021, 022); T02.08 UI.TransportBar wired to Transport.main; T02.09 gate.
+Gate run (real folder, headless Chrome via the CDP client): build exit 0; `selftest --all` 326/326 (16 groups),
+`--all --slow` 327/327; `--smoke` OK; PT-001 526,829 bytes; PT-002 menuMs 126.1 (budget 1500), capsMs 19.7
+(budget 20, noisy, software GL).
+Risk review: RISK-77 (timing drift) mitigated on FakeClock only; real-clock and offline-engine halves of
+TT-004/006/007/009/011 deferred to Phase 04, TT-021 input ring to Phase 03, full IT-037 to Phase 05.
+Decisions: D25 test build detected with FLM.SelfTest (FLM.BUILD is a stamp string); D26 events frozen at
+Transport.load in the test build only; D27 positions are floats, count-in negative, paused position frozen
+(Part 6.4 over 4.5.1); D28 default count-in 0 bars; D29 transport bar opt-in via spec.transport, one Play
+button with Play/Pause/Resume labels; D30 W-TRANSPORT-DRIFT in Transport, E-AUD-009 in Modes.
+Open issues: OI-14 S-07 lint (module-level global state) not in tools/build.mjs; add in a tooling touch.
+OI-15 src/29-boot.js EXPECTED_MODULES line is 128 chars (over 120): wrap on next edit of that file.
+OI-16 README Develop/diagram lines unchanged; OI-7 AT tests still not wired; earlier OI list stands.
+Usage: 5h 9% / weekly all 11% at 17:00.
+RESUME: T03.01 (M-07 Input core). Constraint: owner stop rule; stop before 15% weekly.
+
 ## 2026-10-27 16:45 - Phase 01 GATE (T01.10-T01.12) and T02.01-T02.03 - boot, screens, theory, model
 
 Done: T01.10 src/29-boot.js; T01.11 main menu, first launch, settings, help, about, diagnostics and audio

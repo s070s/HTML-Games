@@ -232,7 +232,7 @@ body.touch .hover-only { display: none; }
 (function () {
 'use strict';
 const VERSION = '0.1.0';
-const BUILD = '2026-10-27T14:46:54Z standalone ship';
+const BUILD = '2026-10-27T15:00:23Z standalone ship';
 const RELAY_URL = '';
 const LICENSE_NOTICE = 'Copyright (c) 2026 the Finger Lickin Music authors. All rights reserved.';   // Part 10.3.3, interim notice
 const FLM = window.FLM = { VERSION, BUILD, RELAY_URL };
@@ -3792,6 +3792,14 @@ FLM.Core.define('Transport', function (FLM) {
       loop.passIndex = 0;
     }
 
+    // Read-only event rule (Part 4.4, S-07, T02.06): consumers of a loaded Song never write to its events. The test
+    // build enforces it by freezing every event object, so a stray write throws a TypeError in strict mode.
+    // Editors replace an event through the Model API instead of changing it in place.
+    function freezeEventsInTestBuild(loaded) {
+      if (!FLM.SelfTest || loaded === null) return;
+      loaded.tracks.forEach((track) => track.events.forEach((event) => Object.freeze(event)));
+    }
+
     /** Binds a song (or null): position 0, stopped, loop cleared (a running transport is stopped first). */
     function load(newSong, loadOptions) {
       Core.assert(newSong === null || (newSong !== undefined && Array.isArray(newSong.tracks)),
@@ -3799,6 +3807,7 @@ FLM.Core.define('Transport', function (FLM) {
       if (state !== 'stopped') stopRun('mode');
       const hadLoop = loop.region !== null;
       const given = loadOptions || {};
+      freezeEventsInTestBuild(newSong);
       song = newSong;
       tempoSource = given.tempoSource === 'override' ? 'override' : 'song';
       if (tempoSource === 'override') setOverrideBpm(given.overrideBpm === undefined ? overrideBpm : given.overrideBpm);
@@ -5196,6 +5205,18 @@ FLM.Core.define('UI', function (FLM) {
   });
   const JUDGMENTS = Object.freeze(['perfect', 'great', 'good', 'miss']);
   const TRANSPORT_BUTTONS = Object.freeze(['play', 'pause', 'stop', 'record', 'loop', 'metronome', 'rewind']);
+  // The wired TransportBar (T02.08). The seek slider is fixed at 0..1000 (per mille of the song) because a slider's
+  // range cannot change after it is created and every song has another length.
+  const SEEK_RESOLUTION = 1000;
+  const SEEK_STEP = 5;                       // arrow keys move half a percent of the song
+  const SEEK_BIG_STEP = 50;                  // Page keys move five percent
+  const TRANSPORT_REFRESH_MS = 100;          // position readout and slider while the transport runs (10 Hz)
+  const SPEED_CHOICES = Object.freeze([0.25, 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2]);
+  const COUNT_IN_CHOICES = Object.freeze([0, 1, 2]);
+  const COUNT_IN_TEXT = Object.freeze(['transport.countInOff', 'transport.countInOne', 'transport.countInTwo']);
+  const TRANSPORT_TOPICS = Object.freeze(['transport.loaded', 'transport.state', 'transport.seek',
+    'transport.loopSet', 'transport.speed', 'transport.tempoSource']);
+  const SONG_BUTTONS = Object.freeze(['play', 'stop', 'rewind']);   // need a loaded song to do anything
 
   // ---------------------------------------------------------------------------------------------
   // Text table (Part 7.11; rule 5: ASCII only). Ids with {name} placeholders are filled by text().
@@ -5226,7 +5247,10 @@ FLM.Core.define('UI', function (FLM) {
     'sr.getReady': 'Get ready', 'sr.combo': '{n} combo',
     'transport.play': 'Play', 'transport.pause': 'Pause', 'transport.stop': 'Stop', 'transport.record': 'Record',
     'transport.loop': 'Loop', 'transport.metronome': 'Metronome', 'transport.rewind': 'Rewind to start',
-    'transport.countIn': 'Count-in {n}',
+    'transport.countIn': 'Count-in {n}', 'transport.resume': 'Resume',
+    'transport.noSong': 'Load a song first.', 'transport.noLoop': 'Set a loop region first.',
+    'transport.seek': 'Position', 'transport.speed': 'Speed', 'transport.countInBars': 'Count-in',
+    'transport.countInOff': 'Off', 'transport.countInOne': '1 bar', 'transport.countInTwo': '2 bars',
     'screen.SCR-FirstLaunch': 'Welcome', 'screen.SCR-MainMenu': 'Main menu', 'screen.SCR-QuickPlay': 'Quick Play',
     'screen.SCR-Instrument': 'Instrument Mode', 'screen.SCR-FreePlay': 'Free Play', 'screen.SCR-Studio': 'Studio',
     'screen.SCR-Library': 'Song Library', 'screen.SCR-ImportInspect': 'Import Music', 'screen.SCR-Dance': 'Dance Mode',
@@ -5330,6 +5354,12 @@ FLM.Core.define('UI', function (FLM) {
     '.badge { flex: none; height: 22px; padding: 0 var(--sp-2); border: var(--border); border-radius: var(--r-pill);' +
       ' font-size: var(--fs-1); line-height: 20px; }',
     '.empty { margin: 0; padding: var(--sp-4); color: var(--c-text-muted); }',
+    '.transport { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-2); padding: var(--sp-2);' +
+      ' background: var(--c-panel); border-top: var(--border); }',
+    '.transport .widget { flex: 0 1 auto; margin: 0; }',
+    '.transport .widget > label { flex: 0 0 auto; }',
+    '.transport .transport-seek { flex: 1 1 14rem; }',
+    '.transport .readout { min-width: 3rem; font-size: var(--fs-3); }',
     '.tabs { display: flex; gap: var(--sp-2); border-bottom: var(--border); overflow: hidden; width: 100%; }',
     '.tab { min-height: max(44px, 2.75rem); padding: 0 var(--sp-4); border: 0; border-bottom: 3px solid transparent;' +
       ' background: none; color: var(--c-text-muted); font: inherit; font-weight: var(--fw-medium); cursor: pointer; }',
@@ -7535,33 +7565,83 @@ FLM.Core.define('UI', function (FLM) {
     visible: () => hud.kind !== null });
 
   // ---------------------------------------------------------------------------------------------
-  // Transport bar (shell; wired by T02.08)
+  // Transport bar (T02.08). Without spec.transport it is a plain view (update(view) by the caller); with
+  // spec.transport (normally FLM.Transport.main) it drives that transport and follows its events itself.
   // ---------------------------------------------------------------------------------------------
+  /** Part 6.26 TransportView, read from a transport; bar and beat are 0-based, negative bars are the count-in. */
+  function transportView(transport) {
+    const song = transport.song();
+    const state = transport.state();
+    const tick = transport.position();
+    const where = transport.meterMap().beatAt(tick);
+    const tempoMap = transport.tempoMap();
+    const region = transport.loop();
+    const durationTicks = song ? song.durationTicks : 0;
+    return {
+      state, hasSong: song !== null, tick, durationTicks, bar: where.bar, beat: where.beat,
+      timeS: transport.positionSeconds(), durationS: tempoMap.ticksToSeconds(durationTicks),
+      bpm: tempoMap.tempoAt(tick).bpm, recording: state === 'recording',
+      loop: region ? { enabled: transport.loopEnabled(), aBar: transport.meterMap().barAt(region.a),
+        bBar: transport.meterMap().barAt(region.b) } : null,
+      countIn: state === 'countin' ? where.beat + 1 : null
+    };
+  }
+
+  /** The Play button is one control: Play when stopped, Pause while running, Resume when paused. */
+  function playActionFor(state) {
+    if (state === 'paused') return 'resume';
+    return state === 'stopped' ? 'play' : 'pause';
+  }
+
+  /** record and metronome belong to the Studio and are only reported through spec.onAction. */
+  function runTransportAction(transport, action) {
+    if (action === 'play') transport.play();
+    else if (action === 'pause') transport.pause();
+    else if (action === 'resume') transport.resume();
+    else if (action === 'stop') transport.stop();
+    else if (action === 'rewind') transport.seek(0);
+    else if (action === 'loop') transport.setLoopEnabled(!transport.loopEnabled());
+  }
+
+  function displayBar(bar) {
+    return bar >= 0 ? bar + 1 : bar;         // count-in bars show as -1, -2 (there is no bar 0), as in Model
+  }
+
   function createTransportBar(root, spec) {
     assert(root && root.nodeType === 1 && spec && Array.isArray(spec.buttons),
       'TransportBar.create needs a root and buttons');
+    const transport = spec.transport || null;
+    const owner = spec.owner || widgetContextOwner() || Symbol('transport-bar');
+    const eventBus = spec.bus || bus;
     const bar = el('div', { class: 'transport', role: 'group', 'aria-label': 'Transport' });
     const handles = {};
+    const extras = {};                       // seek, speed and countIn widgets (wired bars only)
+    const live = { view: null, scrubbing: false, pollId: null, offs: [] };
+    const act = function (id) {
+      const action = transport && id === 'play' ? playActionFor(transport.state()) : id;
+      if (transport) runTransportAction(transport, action);
+      if (typeof spec.onAction === 'function') spec.onAction(action);
+    };
     spec.buttons.filter((id) => TRANSPORT_BUTTONS.indexOf(id) >= 0).forEach(function (id) {
       handles[id] = Widgets.button({ id: 'transport-' + id, icon: id, label: '', ariaLabel: text('transport.' + id),
-        kind: 'secondary', onPress: () => spec.onAction(id) });
+        kind: 'secondary', onPress: () => act(id) });
       bar.appendChild(handles[id].root);
     });
     const position = el('span', { class: 'readout num', id: 'transport-position' });
     const clock = el('span', { class: 'readout num', id: 'transport-clock' });
     const tempo = spec.showTempo ? el('span', { class: 'readout num', id: 'transport-tempo' }) : null;
     const countIn = el('span', { class: 'badge', id: 'transport-countin', hidden: true });
+    if (transport) buildTransportControls(transport, extras, live, bar, owner);
     appendChildren(bar, [position, clock, tempo, countIn]);
     root.appendChild(bar);
     const setPressedState = (id, on) => { if (handles[id]) handles[id].root.setAttribute('aria-pressed',
       String(Boolean(on))); };
     const update = function (view) {
-      const playing = view.state === 'playing' || view.state === 'recording';
-      if (handles.play) handles.play.setLabel(text(playing ? 'transport.pause' : 'transport.play'),
-        playing ? 'pause' : 'play');
+      const label = view.state === 'paused' ? 'resume' : (isRunningState(view.state) ? 'pause' : 'play');
+      if (handles.play) handles.play.setLabel(text('transport.' + label), label === 'pause' ? 'pause' : 'play');
       setPressedState('record', view.recording);
       setPressedState('loop', view.loop && view.loop.enabled);
-      position.textContent = (Number(view.bar) + 1) + '.' + (Number(view.beat) + 1);
+      position.textContent = displayBar(Number(view.bar)) + '.' + (Number(view.beat) + 1);
       clock.textContent = Core.formatTime(view.timeS) + ' / ' + Core.formatTime(view.durationS);
       if (tempo) tempo.textContent = (Number(view.bpm) || 0).toFixed(1) + ' BPM';
       countIn.hidden = view.countIn === null || view.countIn === undefined;
@@ -7570,11 +7650,103 @@ FLM.Core.define('UI', function (FLM) {
     const setEnabled = function (id, enabled, reason) {
       if (handles[id]) handles[id].setDisabled(enabled ? null : (reason || '-'));
     };
-    const destroy = function () {
+    const handle = { update, setEnabled, root: bar, refresh: () => {}, destroy: function () {
       Object.keys(handles).forEach((id) => handles[id].destroy());
       bar.remove();
+    } };
+    if (transport) wireTransportBar({ transport, owner, eventBus, bar, handles, extras, live, handle, update,
+      setEnabled, act });
+    return Object.freeze(handle);
+  }
+
+  function isRunningState(state) {
+    return state === 'playing' || state === 'recording' || state === 'countin';
+  }
+
+  /** Seek slider, speed select and count-in select; their handlers talk to the transport directly. */
+  function buildTransportControls(transport, extras, live, bar, owner) {
+    extras.seek = Widgets.slider({ id: 'transport-seek', label: text('transport.seek'), min: 0,
+      max: SEEK_RESOLUTION, step: SEEK_STEP, bigStep: SEEK_BIG_STEP, value: 0, precision: 0,
+      format: function (value) {
+        const durationS = live.view ? live.view.durationS : 0;
+        return Core.formatTime(durationS * value / SEEK_RESOLUTION);
+      },
+      onChange: function (value) {
+        live.scrubbing = false;
+        const duration = transport.song() ? transport.song().durationTicks : 0;
+        transport.seek(Math.round(value / SEEK_RESOLUTION * duration));
+      } });
+    extras.seek.root.classList.add('transport-seek');
+    extras.speed = Widgets.select({ id: 'transport-speed', label: text('transport.speed'), value: transport.speed(),
+      options: SPEED_CHOICES.map((speed) => ({ value: speed, label: speed + 'x' })),
+      onChange: (value) => transport.setSpeed(Number(value)) });
+    extras.countIn = Widgets.select({ id: 'transport-countin-bars', label: text('transport.countInBars'),
+      value: transport.countInBars(),
+      options: COUNT_IN_CHOICES.map((bars) => ({ value: bars, label: text(COUNT_IN_TEXT[bars]) })),
+      onChange: (value) => transport.setCountIn(Number(value)) });
+    [extras.seek, extras.speed, extras.countIn].forEach((widget) => bar.appendChild(widget.root));
+    // A drag keeps the thumb where the user put it; the 10 Hz refresh must not pull it back until release.
+    live.offs.push(Core.dom.on(extras.seek.root, 'input', () => { live.scrubbing = true; }, undefined, owner));
+  }
+
+  /** Subscriptions, the refresh poll and the Space key; everything is undone again by handle.destroy(). */
+  function wireTransportBar(parts) {
+    const { transport, owner, eventBus, bar, handles, extras, live, handle } = parts;
+    const refresh = function () {
+      const view = transportView(transport);
+      live.view = view;
+      parts.update(view);
+      applyTransportAvailability(parts, view);
+      syncTransportControls(transport, extras, live, view);
+      syncRefreshPoll(parts, view);
     };
-    return Object.freeze({ update, setEnabled, destroy, root: bar });
+    const onTransportEvent = () => refresh();
+    TRANSPORT_TOPICS.forEach((topic) => eventBus.on(topic, onTransportEvent, owner));
+    live.offs.push(Core.dom.on(bar, 'keydown', function (evt) {
+      if (keyName(evt) !== 'Space' || evt.target.closest('button, select')) return;
+      evt.preventDefault();                  // the slider and the bar itself toggle; buttons keep their own Space
+      if (live.view && live.view.hasSong) parts.act('play');
+    }, undefined, owner));
+    handle.refresh = refresh;
+    handle.destroy = function () {
+      TRANSPORT_TOPICS.forEach((topic) => eventBus.off(topic, onTransportEvent));
+      if (live.pollId !== null) Core.timers.clearInterval(live.pollId);
+      live.pollId = null;
+      live.offs.forEach((off) => off());
+      Object.keys(handles).forEach((id) => handles[id].destroy());
+      Object.keys(extras).forEach((id) => extras[id].destroy());
+      bar.remove();
+    };
+    refresh();
+  }
+
+  /** Disabled states with reasons (Part 10.5: a disabled control says why). */
+  function applyTransportAvailability(parts, view) {
+    const noSong = view.hasSong ? null : text('transport.noSong');
+    SONG_BUTTONS.forEach((id) => parts.setEnabled(id, view.hasSong, noSong));
+    parts.setEnabled('loop', view.hasSong && view.loop !== null, noSong || text('transport.noLoop'));
+    parts.extras.seek.setDisabled(noSong);
+  }
+
+  function syncTransportControls(transport, extras, live, view) {
+    if (!live.scrubbing) {
+      const share = view.durationTicks > 0 ? view.tick / view.durationTicks * SEEK_RESOLUTION : 0;
+      extras.seek.set(share);
+    }
+    extras.speed.set(transport.speed());
+    extras.countIn.set(transport.countInBars());
+  }
+
+  // The poll runs only while the transport runs: an idle bar costs nothing.
+  function syncRefreshPoll(parts, view) {
+    const { live, owner } = parts;
+    const running = isRunningState(view.state);
+    if (running && live.pollId === null) {
+      live.pollId = Core.timers.setInterval(parts.handle.refresh, TRANSPORT_REFRESH_MS, owner);
+    } else if (!running && live.pollId !== null) {
+      Core.timers.clearInterval(live.pollId);
+      live.pollId = null;
+    }
   }
 
   const TransportBar = Object.freeze({ create: createTransportBar });
@@ -9815,8 +9987,10 @@ FLM.Core.define('Screens', function (FLM) {
 // Separation rule: this file owns exactly one namespace (Modes) and registers it once through FLM.Core.define.
 // It declares no module-level global state object (S-07): state lives inside the factory closure.
 // Module presence (convention 6 of Part 11): a step whose module is not built yet is skipped and logged once.
-// EXTENSION POINT: later tasks add their enter steps (music, audio binding, charts, judge, stage, input) at the
-// marked place in setupMode(), and gameplay assembly (startGameplay, stopGameplay, preview) next to pause().
+// One engine (S-18, T02.06): every mode that has music loads it into the one FLM.Transport.main and makes the one
+// Scheduler binding; no mode creates a transport of its own.
+// EXTENSION POINT: later tasks add their enter steps (charts, judge, stage, input) at the marked place in
+// setupMode(), and gameplay assembly (startGameplay, stopGameplay) next to pause().
 // Spec: docs/IMPLEMENTATION-PLAN.md Part 4.7 (4.7.1 to 4.7.4) and Part 6.28 (6.28.2 to 6.28.4).
 (function () {
 'use strict';
@@ -9837,6 +10011,12 @@ FLM.Core.define('Modes', function (FLM) {
   const SESSION_MODES = Object.freeze(['quickplay', 'instrument', 'dance', 'studio']);   // flm.v1.lastSession
   const PROJECT_MODES = Object.freeze(['studio', 'freeplay']);                            // autosave on leave
   const RECORDER_BUSY = Object.freeze(['armed', 'countin', 'recording']);
+  const FREE_PLAY_SONG_ID = 'freeplay';
+  const STUDIO_SONG_ID = 'studio';
+  const LIVE_TRACK_ID = 'fp';                // the one track of a Free Play song (Part 6.28.4.3)
+  const TUTORIAL_SONG_ID = 'tut-basics';
+  const PREVIEW_SECONDS = 15;                // library and import previews stop by themselves (Part 6.28.2)
+  const MS_PER_SECOND = 1000;
   const PAUSE_TEXT = Object.freeze({
     hidden: 'Paused because the game went to the background', blur: 'Paused because the window lost focus',
     audio: 'Paused because the sound stopped', gamepad: 'Controller disconnected', stall: 'Playback stalled',
@@ -9898,7 +10078,8 @@ FLM.Core.define('Modes', function (FLM) {
     initialized: false,
     pauseReason: null,
     rotateDismissed: false,
-    skipGuardOnce: false
+    skipGuardOnce: false,
+    preview: { active: false, timer: null }  // the library or import preview on Transport.main (Part 6.28.3)
   };
 
   // ---------------------------------------------------------------- calling lower modules (module presence)
@@ -10089,8 +10270,10 @@ FLM.Core.define('Modes', function (FLM) {
     return undefined;
   }
 
+  // The Studio session closes its own strips; without it (not built yet) the plain unbind and unload apply.
   function leaveBindings(context) {
-    if (context.mode === 'studio') return invokeStep('bindings', 'Studio.Session.close');
+    state.preview.active = false;              // the stop and unload below end any preview; its timer dies by owner
+    if (context.mode === 'studio' && available('Studio.Session.close')) return invoke('Studio.Session.close');
     return runAll('bindings', [['Audio.Scheduler.unbind'], ['Transport.main.unload']]);
   }
 
@@ -10239,7 +10422,6 @@ FLM.Core.define('Modes', function (FLM) {
 
   // Steps of Part 4.7.1 whose module is not built yet; each is logged once and skipped (convention 6).
   const PENDING_STEPS = Object.freeze([
-    { step: 'music', module: 'Transport', applies: (row) => row.transport !== 'none' },
     { step: 'audio binding', module: 'Audio', applies: (row) => row.scheduler !== 'none' },
     { step: 'charts', module: 'Mapping', applies: (row) => row.chart !== 'none' },
     { step: 'judge', module: 'Rhythm', applies: (row) => row.chart !== 'none' },
@@ -10253,6 +10435,73 @@ FLM.Core.define('Modes', function (FLM) {
       const reason = FLM[item.module] ? item.module + ' step not wired yet' : item.module + ' not built';
       Core.Log.once('modes.skip.enter.' + item.step, 'info', 'modes', 'skip ' + item.step + ': ' + reason);
     });
+  }
+
+  // ---------------------------------------------------------------- music and binding (Part 4.7.1 steps 5 and 6)
+
+  /** A song made through Song.create for a mode with no catalog song: Free Play (one track) or Studio (empty). */
+  function createLiveSong(id, title, withTrack) {
+    const song = FLM.Model.Song.create({ id, title });
+    if (withTrack) {
+      FLM.Model.Song.addTrack(song, FLM.Model.Track.create({ id: LIVE_TRACK_ID, name: title, lockedSource: false },
+        song));
+    }
+    return song;
+  }
+
+  // Null while the catalog is not built; a catalog that does not know the id is a failed enter (E-MODE-002).
+  async function catalogSong(songId) {
+    if (!available('Project.Catalog.getSong')) {
+      noteSkip('music', 'Project.Catalog.getSong');
+      return null;
+    }
+    const song = await invoke('Project.Catalog.getSong', songId);
+    if (!song) throw new Error('song not found: ' + songId);
+    return song;
+  }
+
+  function playableSong(mode, params) {
+    if (params.song && Array.isArray(params.song.tracks)) return params.song;
+    const songId = mode === 'tutorial' ? TUTORIAL_SONG_ID : params.songId;
+    return typeof songId === 'string' ? catalogSong(songId) : null;
+  }
+
+  function projectSong() {
+    const project = available('Project.current') ? invoke('Project.current') : null;
+    return project && project.song ? project.song : createLiveSong(STUDIO_SONG_ID, 'Studio', false);
+  }
+
+  /** The Song a mode puts into Transport.main, chosen by its REQUIREMENTS row; null means nothing to load. */
+  function songFor(mode, params) {
+    const source = REQUIREMENTS[mode].transport;
+    if (source === 'tempo') return createLiveSong(FREE_PLAY_SONG_ID, 'Free Play', true);
+    if (source === 'project') return projectSong();
+    if (source === 'song' || source === 'tutorial') return playableSong(mode, params);
+    return null;                               // 'none', and 'preview' (preview() loads it, not enter)
+  }
+
+  function mixerSettings() {
+    const volume = settingValue('audio.masterVolume');
+    return { master: { gain: typeof volume === 'number' ? volume : 1 } };
+  }
+
+  /**
+   * Steps 5 and 6: the song goes into the one Transport.main (never a transport of this mode's own, S-18) and the
+   * one Scheduler binding is made over it. Free Play runs on the override tempo; the visibility policy follows the
+   * mode kind (gameplay pauses in the background, live modes continue and re-anchor, Part 4.7.4).
+   */
+  async function setupMusic(mode, params) {
+    const row = REQUIREMENTS[mode];
+    if (row.transport === 'none') return;
+    invokeStep('music', 'Transport.main.setVisibilityPolicy', LIVE.includes(mode) ? 'continue' : 'pause');
+    const song = await songFor(mode, params);
+    if (song === null) return;
+    const tempoOnly = row.transport === 'tempo';
+    const options = tempoOnly ? { tempoSource: 'override', overrideBpm: params.overrideBpm } : undefined;
+    invokeStep('music', 'Transport.main.load', song, options);
+    if (row.scheduler === 'bound') {
+      invokeStep('audio binding', 'Audio.Scheduler.bind', FLM.Transport.main, song, mixerSettings());
+    }
   }
 
   async function setupMenu(params) {
@@ -10277,7 +10526,8 @@ FLM.Core.define('Modes', function (FLM) {
       return;
     }
     notePendingSteps(mode);
-    // EXTENSION POINT: music load, audio binding, charts, judge, stage and input binding go here (later tasks).
+    await setupMusic(mode, params);
+    // EXTENSION POINT: charts, judge, stage and input binding go here (later tasks).
     const kind = hudKind(mode, params);
     if (kind !== null) FLM.UI.HUD.show(kind, state.current.owner);
     showPads(mode, params);
@@ -10399,6 +10649,42 @@ FLM.Core.define('Modes', function (FLM) {
     await enter(mode, Object.assign({}, state.current.params, changes || {}));
   }
 
+  // ---------------------------------------------------------------- previews (library and import, Part 6.28.2)
+
+  /** Ends a preview: stop, release the Scheduler binding, unload the song. Safe to call when none is playing. */
+  async function stopPreview() {
+    if (!state.preview.active) return;
+    Core.timers.clearTimeout(state.preview.timer);
+    state.preview = { active: false, timer: null };
+    await runAll('preview', [['Transport.main.stop'], ['Audio.Scheduler.unbind'], ['Transport.main.unload']]);
+  }
+
+  /**
+   * Plays a candidate song on the one Transport.main in a mode whose row says 'preview' (library, import); the
+   * Scheduler binding is made here and released when the preview stops or the mode leaves.
+   * @param {(object|string)} songOrId a Song, or a catalog id
+   * @param {{fromTick?:number, durationS?:number}=} options
+   * @returns {Promise<{ok:boolean}>}
+   */
+  async function preview(songOrId, options) {
+    const given = options || {};
+    const mode = state.current.mode;
+    const owner = state.current.owner;
+    if (!REQUIREMENTS[mode] || REQUIREMENTS[mode].transport !== 'preview') return { ok: false };
+    const song = typeof songOrId === 'string' ? await catalogSong(songOrId) : songOrId;
+    const usable = song && Array.isArray(song.tracks) && available('Transport.main.play');
+    if (!usable || state.current.owner !== owner) return { ok: false };
+    await stopPreview();
+    invoke('Transport.main.load', song);
+    invokeStep('audio binding', 'Audio.Scheduler.bind', FLM.Transport.main, song, mixerSettings());
+    const seconds = Number.isFinite(given.durationS) ? given.durationS : PREVIEW_SECONDS;
+    const timer = Core.timers.setTimeout(() => {
+      stopPreview().catch((error) => Core.Log.warn('modes', 'preview stop failed: ' + messageOf(error)));
+    }, seconds * MS_PER_SECOND, owner);
+    state.preview = { active: true, timer };
+    return { ok: invoke('Transport.main.play', { countInBars: 0, fromTick: given.fromTick }) === true };
+  }
+
   // ---------------------------------------------------------------- pause and interruptions (Part 4.7.4)
 
   const isGameplay = (mode) => GAMEPLAY.includes(mode === undefined ? state.current.mode : mode);
@@ -10442,10 +10728,31 @@ FLM.Core.define('Modes', function (FLM) {
   }
 
   // Rows of Part 6.28.4.9 for the sources that exist in this build. Each handler returns the action taken.
+  // Live modes keep playing in the background; Transport.main notes when it was hidden so onVisible can compare the
+  // audio clock with the performance clock and re-anchor on a drift over 5 ms (Part 4.7.4, UT-04-22).
+  function audioClockNow() {
+    return available('Audio.clock') ? invoke('Audio.clock').now() : Core.now() / MS_PER_SECOND;
+  }
+
   function whenHidden(kind) {
     if (kind === 'gameplay') return startPause('hidden');
-    if (kind === 'live') return releaseAndReport();
-    return 'ignored';
+    if (kind !== 'live') return 'ignored';
+    invokeStep('visibility', 'Transport.main.onHidden', audioClockNow(), Core.now());
+    return releaseAndReport();
+  }
+
+  // A re-anchor after the background is recoverable and silent: logged and counted in the diagnostics (E-AUD-009).
+  function reportDrift(result) {
+    if (!result || result.drifted !== true) return;
+    Core.ErrorReporter.report('E-AUD-009', null, { module: 'Modes', driftMs: result.driftMs });
+  }
+
+  function whenVisible(kind) {
+    if (kind === 'panel') return 'ignored';
+    if (kind === 'live') {
+      reportDrift(invokeStep('visibility', 'Transport.main.onVisible', audioClockNow(), Core.now()));
+    }
+    return 'continued';
   }
 
   function releaseAndReport() {
@@ -10501,7 +10808,7 @@ FLM.Core.define('Modes', function (FLM) {
 
   const INTERRUPTS = Object.freeze({
     hidden: whenHidden,
-    visible: (kind) => (kind === 'panel' ? 'ignored' : 'continued'),
+    visible: whenVisible,
     pagehide: whenPageHidden,
     freeze: whenPageHidden,
     blur: whenBlur,
@@ -10618,7 +10925,7 @@ FLM.Core.define('Modes', function (FLM) {
     if (state.initialized) FLM.UI.Screens.setHistory(false);
     Object.assign(state, { current: { mode: 'none', params: {}, owner: null, enteredAt: 0 },
       queue: Promise.resolve(), transitioning: false, initialized: false, pauseReason: null,
-      rotateDismissed: false, skipGuardOnce: false, baselineFromMenu: false });
+      rotateDismissed: false, skipGuardOnce: false, baselineFromMenu: false, preview: { active: false, timer: null } });
     state.baseline = counters();
   }
 
@@ -10640,6 +10947,8 @@ FLM.Core.define('Modes', function (FLM) {
     isTransitioning: () => state.transitioning,
     pause,
     resume,
+    preview,
+    stopPreview,
     onInterrupt,
     baseline: counters,
     assertClean,

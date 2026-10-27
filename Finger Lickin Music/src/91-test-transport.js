@@ -809,5 +809,39 @@ FLM.SelfTest.group('transport', (t) => {
     clock.advanceMs(250);
     t.eq(clock.now(), 1.25);
   });
+
+  // ------------------------------------------------------------------------------- T02.06 read-only events
+  t.test('T02.06 events of a loaded song are frozen in the test build and a whole run never writes to them', () => {
+    const h = setup();
+    const loaded = h.song.tracks.reduce((all, track) => all.concat(track.events), []);
+    t.ok(loaded.length > 0 && loaded.every((event) => Object.isFrozen(event)), 'every event object is frozen');
+    let caught = null;
+    try {
+      loaded[0].tick += 1;
+    } catch (error) {
+      caught = error;
+    }
+    t.ok(caught instanceof TypeError, 'a write to a loaded event throws a TypeError in strict mode');
+    h.transport.setLoop({ a: BAR, b: 3 * BAR });
+    h.transport.setSpeed(0.5);
+    h.transport.play({ countInBars: 1 });
+    const items = advanceTo(h, 40);
+    h.transport.seek(BAR);
+    advanceTo(h, 44, items);
+    t.ok(ofKind(items, 'note').length > 20, 'notes were pulled');
+    t.ok(ofKind(items, 'note').every((item) => Object.isFrozen(item.event)), 'items hand out the frozen events');
+  });
+
+  t.test('T02.06 a clone of a loaded song stays editable and independent (UT-03-27 with frozen events)', () => {
+    const h = setup();
+    const copy = Model.Song.clone(h.song);
+    t.eq(Object.isFrozen(copy.tracks[0].events[0]), false);
+    copy.tracks[0].events[0].tick = 7;
+    t.eq(h.song.tracks[0].events[0].tick, 0);
+    const added = Events.note(BAR, BEAT, 70, 90);
+    Model.insertEvent(h.song.tracks[0], added);
+    t.eq(h.song.tracks[0].events.includes(added), true, 'the Model still edits a loaded track (new events)');
+    t.eq(copy.tracks[0].events.includes(added), false);
+  });
 });
 })();

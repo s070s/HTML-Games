@@ -332,6 +332,14 @@ FLM.Core.define('Transport', function (FLM) {
       loop.passIndex = 0;
     }
 
+    // Read-only event rule (Part 4.4, S-07, T02.06): consumers of a loaded Song never write to its events. The test
+    // build enforces it by freezing every event object, so a stray write throws a TypeError in strict mode.
+    // Editors replace an event through the Model API instead of changing it in place.
+    function freezeEventsInTestBuild(loaded) {
+      if (!FLM.SelfTest || loaded === null) return;
+      loaded.tracks.forEach((track) => track.events.forEach((event) => Object.freeze(event)));
+    }
+
     /** Binds a song (or null): position 0, stopped, loop cleared (a running transport is stopped first). */
     function load(newSong, loadOptions) {
       Core.assert(newSong === null || (newSong !== undefined && Array.isArray(newSong.tracks)),
@@ -339,6 +347,7 @@ FLM.Core.define('Transport', function (FLM) {
       if (state !== 'stopped') stopRun('mode');
       const hadLoop = loop.region !== null;
       const given = loadOptions || {};
+      freezeEventsInTestBuild(newSong);
       song = newSong;
       tempoSource = given.tempoSource === 'override' ? 'override' : 'song';
       if (tempoSource === 'override') setOverrideBpm(given.overrideBpm === undefined ? overrideBpm : given.overrideBpm);
