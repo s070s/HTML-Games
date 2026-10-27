@@ -20,3 +20,7 @@ dist/
 
 # ClassTimeKiller test build (tools/build.mjs writes it next to the game; D09)
 ClassTimeKiller/ClassTimeKiller.test.html
+
+# Finger Lickin Music test and online builds (tools/build.mjs writes them next to the game)
+Finger Lickin Music/FingerLickinMusic.test.html
+Finger Lickin Music/FingerLickinMusic.online.html
