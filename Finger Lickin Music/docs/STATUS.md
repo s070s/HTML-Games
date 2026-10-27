@@ -3,9 +3,9 @@
 Plan version: 1.0.0
 Updated: 2026-10-27 (UTC date of the last change to this file)
 Current phase: Phase 03
-Last completed T section: T03.08
+Last completed T section: T03.11
 Build: FingerLickinMusic.html 526829 bytes
-Self-test (--all): 548/548 on 2026-10-27 (22 groups)
+Self-test (--all): 564/564 on 2026-10-27 (22 groups)
 Live and device tests (LT, XT): not run
 
 ## 1. Counts per specification part
@@ -25,7 +25,7 @@ Live and device tests (LT, XT): not run
 | Phase 00 | satisfied by plan 1.0.0 | n/a | 2026-10-25 | n/a |
 | Phase 01 | 12 / 12 | gate commit (see LEDGER) | 2026-10-27 | 246/246 |
 | Phase 02 | 9 / 9 | gate commit (see LEDGER) | 2026-10-27 | 326/326 |
-| Phase 03 | 8 / 12 | - | - | - |
+| Phase 03 | 10 / 12 | - | - | - |
 | Phase 04 | 0 / - | - | - | - |
 | Phase 05 | 0 / - | - | - | - |
 | Phase 06 | 0 / - | - | - | - |
@@ -52,7 +52,7 @@ Every Deferred row is listed here (Part 0.7 rule 2). Rows of phases that have st
 | R-B4.4-05 | Deferred | T11.12 | Advanced dance styles and a choreography editor | Part 1.5 / SCR-About (Part 7.11) |
 | R-B4.4-07 | Deferred | T11.12 | Free-form stage customization editor | Part 1.5 / SCR-About (Part 7.11) |
 | R-B4.4-08 | Deferred | T14.08 | Advanced mixing and editing: automation, per-track effects, EQ, delay, compression | Part 1.5 / SCR-About (Part 7.11) |
-| R-B4.4-10 | Deferred | T03.11 | Additional accessibility input mappings (for example one-switch play) | Part 1.5 / SCR-About (Part 7.11) |
+| R-B4.4-10 | Deferred | T03.11 | One-switch and other alternative accessibility input mappings (P2): v1 meets motor-access needs through full remapping, three pad sizes and gamepad support, and a scanning one-switch mode needs its own timing model for the judge | SCR-Help Accessibility: "One-switch play is not available in this version. Every control can be remapped and touch pads can be enlarged." (Core.Text S-INP-09) |
 | R-B4.4-11 | Deferred | T13.11 | Optional community features (no accounts, servers, telemetry or shared content in v1) | Part 1.5 / SCR-About (Part 7.11) |
 | R-B7.7-13 | Deferred | T13.11 | Host migration to a guest when the host leaves | Part 1.5 / SCR-About (Part 7.11) |
 | R-B7.7-18 | Deferred | T13.11 | Shared creative sessions: Collaborative Studio rules specified, shown as a disabled card | Part 1.5 / SCR-About (Part 7.11) |
@@ -61,7 +61,7 @@ Every Deferred row is listed here (Part 0.7 rule 2). Rows of phases that have st
 | R-B16.5-08 | Deferred | T14.08 | Further effects: delay, per-track compression, EQ and automation | Part 1.5 / SCR-About (Part 7.11) |
 | R-B17.3-05 | Deferred | T13.11 | Late-joining players during a song: the joiner waits in the lobby until the song ends | Part 1.5 / SCR-About (Part 7.11) |
 | R-B24-03 | Deferred | T04.11 | Actionable error for failed sound-bank loading (applies only once SoundFont loading exists) | Part 1.5 / SCR-About (Part 7.11) |
-| R-E4.1-06 | Deferred | T03.11 | Two players sharing one keyboard (local two-player mode) | Part 1.5 / SCR-About (Part 7.11) |
+| R-E4.1-06 | Deferred | T03.11 | Two players on one keyboard (local two-player mode, P2): eight simultaneous keys exceed the key-rollover limits of common keyboards, so scoring would be unreliable; multiplayer on separate devices covers the use case | SCR-Help now, SCR-Multiplayer How this works in Phase 13: "Two players on one keyboard is not available in this version. Each player uses their own device and connects by invite code." (Core.Text S-NET-02) |
 | R-E8.1-06 | Deferred | T13.11 | Host migration so a session continues after the host leaves | Part 1.5 / SCR-About (Part 7.11) |
 | R-E8.1-08 | Deferred | T13.11 | Late join into a song in progress with chart and position catch-up | Part 1.5 / SCR-About (Part 7.11) |
 | R-I3.1-02 | Deferred | T14.08 | Sampled instruments: none bundled; sampled playback via a user SoundFont is a separate P2 feature | Part 1.5 / SCR-About (Part 7.11) |

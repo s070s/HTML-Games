@@ -7,8 +7,8 @@
 // all state lives inside the factory closure. It reads FLM.Audio and FLM.Transport lazily, because M-05 is built
 // later (T04.01) and tests swap both namespaces.
 // Delivered so far: T03.01 (keyboard, anchor), T03.02 (pointer, touch, gamepad, MIDI), T03.03 (lifecycle), T03.04
-// (getMap, setMap, remap, unmap, resetMap, conflicts and the input.map event).
-// EXTENSION POINT: T03.09 adds setCalibration and calibration.
+// (getMap, setMap, remap, unmap, resetMap, conflicts and the input.map event), T03.09 (setCalibration and calibration:
+// storage for the UI only).
 // Spec: docs/IMPLEMENTATION-PLAN.md Part 6.7 (API 6.7.2, algorithms 6.7.4), Part 4.5 (anchor), ADR-10 (Part 2.10).
 (function () {
 'use strict';
@@ -1305,8 +1305,37 @@ FLM.Core.define('Input', function (FLM) {
     pagehide() { onPageHide(); }
   });
 
+  // ---------------------------------------------------------------------------------------------
+  // Calibration storage (Part 6.7, 5.12): kept for the UI only. Input never adds or subtracts any of it: events keep
+  // the raw tAudio and Rhythm.Judge applies the offsets once (S-04).
+  // ---------------------------------------------------------------------------------------------
+  const CALIBRATION_LIMITS = Object.freeze({
+    inputOffsetMs: Object.freeze({ min: -500, max: 500, fallback: 0 }),   // 500: the host bound of Part 5.12
+    audioLatencyMs: Object.freeze({ min: -500, max: 500, fallback: 0 }),
+    visualLeadMs: Object.freeze({ min: 600, max: 3000, fallback: 1500 })
+  });
+  const storedCalibration = { inputOffsetMs: 0, audioLatencyMs: 0, visualLeadMs: 1500 };
+
+  function clampCalibrationValue(value, limits, previous) {
+    if (typeof value !== 'number' || !Number.isFinite(value)) return previous;
+    return Math.min(limits.max, Math.max(limits.min, Math.round(value)));
+  }
+
+  /** Stores the given keys (missing or non-numeric keys keep their value), clamped. @returns {Calibration} a copy */
+  function setCalibration(cal) {
+    const given = cal && typeof cal === 'object' ? cal : {};
+    Object.keys(CALIBRATION_LIMITS).forEach((key) => {
+      storedCalibration[key] = clampCalibrationValue(given[key], CALIBRATION_LIMITS[key], storedCalibration[key]);
+    });
+    return calibration();
+  }
+
+  function calibration() {
+    return Object.assign({}, storedCalibration);
+  }
+
   return Object.freeze({
-    init, detach, bind, unbind,
+    init, detach, bind, unbind, setCalibration, calibration,
     boundSurfaces: () => state.bindings.size,
     context: () => state.context,
     pollGamepad, releaseAll,

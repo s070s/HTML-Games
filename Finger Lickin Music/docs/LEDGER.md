@@ -71,6 +71,21 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 - Device and other-browser tests (XT, LT): owner.
 - Licence: the owner recorded "All rights reserved" (see docs/plan-work/OPEN-ISSUES-stage1.md).
 
+## 2026-10-27 18:05 - T03.09 and T03.11 - calibration and deferred register
+
+Done: T03.09 Input.setCalibration/calibration (UI-side store only; Rhythm applies calibration once), Settings pushes
+calibration.* to Input and Rhythm, DLG-Calibration wizard (flash/tap step; listen step disabled until T04.09),
+Screens.Calibration math; T03.11 two Deferred rows rewritten in STATUS section 3, catalog texts S-INP-09 and S-NET-02.
+Verified by me in the real folder: build 0, `selftest --all` 564/564 (22 groups), 0 skipped, `--smoke` OK.
+Decisions: D49 tap step per Part 7.7.1 (12 flashes at 90 BPM, first 4 ignored, >= 6 matched, IQR > 40 ms warns);
+D50 wizard text avoids the word "latency" (AT-R-I2.3-08); D51 Input stores audio latency range +-500 (UT-07-32), settings key 0..500;
+D52 S-INP-09 id chosen for the one-switch sentence (needs a 1.0.x plan patch to Part 7.11).
+Open issues: OI-23 "Calibration changed; results not comparable" toast (S-PLAY-08) not shown anywhere yet (T03.10 HUD/pause);
+OI-24 no "Browser estimate of the sound delay" line until Audio.latency exists (T04.05/T04.09); OI-25 Help Accessibility does
+not show S-INP-09; Screens keeps a local copy of S-NET-02; OI-26 wizard never run in a real browser, only headless self-test.
+Usage: weekly all 12% at 17:56 (5h 13%).
+RESUME: T03.10 (instrument-mode gameplay binding with a test chart), then T03.12 gate. Stop before 15% weekly.
+
 ## 2026-10-27 17:55 - T03.04 to T03.08 - remapping, M-08 Mapping, M-09 Rhythm (judge, score, replay)
 
 Done (three agents in parallel, each tested in a private scratch copy): T03.04 Input getMap/setMap/remap/unmap/

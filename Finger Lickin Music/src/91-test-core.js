@@ -440,6 +440,11 @@ FLM.SelfTest.group('core', (t) => {
     t.ok(!/[^\x20-\x7e]/.test(Object.values(Core.Text.all()).join('')), 'texts are printable ASCII');
   });
 
+  t.test('UT-26-23 deferred feature disclosures in the catalog', () => {
+    t.eq(Core.Text.get('S-INP-09'), 'One-switch play is not available in this version. Every control can be remapped and touch pads can be enlarged.');
+    t.eq(Core.Text.get('S-NET-02'), 'Two players on one keyboard is not available in this version. Each player uses their own device and connects by invite code.');
+  });
+
   t.test('UT-01-31 fault registry', () => {
     Core.Faults.clearAll();
     t.eq(Core.Faults.NAMES.length, 14);

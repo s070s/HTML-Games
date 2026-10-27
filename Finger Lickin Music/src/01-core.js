@@ -1346,7 +1346,12 @@ const TEXT_EXTRA = Object.freeze({
   'fatal.copy': 'Copy diagnostics',
   'fatal.reload': 'Reload',
   'fatal.code': 'Code: {code}',
-  'fatal.fallback': 'Something went wrong ({code}).'
+  'fatal.fallback': 'Something went wrong ({code}).',
+  // Deferred-feature disclosures (Part 1.5, T03.11). S-INP-09 is new wording awaiting a Part 7.11 patch.
+  'S-INP-09': 'One-switch play is not available in this version. Every control can be remapped and touch pads can be ' +
+      'enlarged.',
+  'S-NET-02': 'Two players on one keyboard is not available in this version. Each player uses their own device and ' +
+      'connects by invite code.'
 });
 
 const TEXT_TABLE = buildTextTable();

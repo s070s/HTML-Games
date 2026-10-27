@@ -3,6 +3,7 @@
 // UT-27-26 and UT-27-28 (partial until T04.01: the enable button needs the audio module) and checks for the
 // settings, help, about and diagnostics screens. T03.04 adds UT-27-16 (remap capture and conflict) with its
 // variants, a settings-to-Input maps check and the Help and first launch checks for controls.
+// T03.09 adds UT-27-17 (calibration math and the DLG-Calibration steps) and the calibration settings checks.
 // A lower-case letter after an id marks an extra check of that row.
 (function () {
 'use strict';
@@ -709,6 +710,261 @@ FLM.SelfTest.group('screens', (t) => {
     FLM.Input.remap('instrument', 'lane0', 'KeyZ');
     t.ok(rows().includes('Lane 1 (circle)A or Z'), 'a remap shows at once');
     t.ok(button('hlp-change'), 'the Change link to Settings');
+  });
+
+  // ---------------------------------------------------------------- T03.09: calibration settings and DLG-Calibration
+  const CAL_CLICKS = 12;
+  const CAL_SPACING_MS = 667;
+  const CAL_TEST_INTERVAL_MS = 120;          // a fast run: the same steps with a shorter beat
+  const CAL_WAIT_MS = 4000;
+  const CAL_POLL_MS = 10;
+  const CAL_POINTER_LAG_MS = 20;             // a tap shortly after its flash
+  const WIZARD_WORDS_FORBIDDEN = ['latency', 'buffer', 'sample rate'];
+  const calibrationTargets = (start) => Array.from({ length: CAL_CLICKS }, (item, index) => start + index *
+    CAL_SPACING_MS);
+  const tapsAt = (targets, deltas) => targets.map((target, index) => target + deltas[index % deltas.length]);
+
+  async function waitUntil(check, message) {
+    for (let waited = 0; waited < CAL_WAIT_MS; waited += CAL_POLL_MS) {
+      if (check()) return;
+      await new Promise((resolve) => Core.timers.setTimeout(resolve, CAL_POLL_MS, t.owner));
+    }
+    throw new Error('timed out waiting for ' + message);
+  }
+
+  // The modules that keep the calibration are shared, so each test puts them back.
+  async function keepingCalibration(body) {
+    const rhythm = FLM.Rhythm.calibration();
+    const input = FLM.Input.calibration();
+    try {
+      await body();
+    } finally {
+      FLM.Rhythm.setCalibration(rhythm);
+      FLM.Input.setCalibration(input);
+    }
+  }
+
+  t.test('UT-27-17 calibration math', () => {
+    const math = Screens.Calibration;
+    const targets = calibrationTargets(1000);
+    const audio = math.analyzeTaps(tapsAt(targets, [115, 125, 120, 118, 122]), targets);
+    t.eq(audio.status, 'ok');
+    t.near(audio.medianMs, 120, 5);
+    const visual = math.analyzeTaps(tapsAt(targets, [40]), targets);
+    t.deepEq([visual.status, visual.medianMs, visual.matched], ['ok', 40, 8], 'the first four flashes are ignored');
+    const current = { inputOffsetMs: 7, audioLatencyMs: 9, visualLeadMs: 1700 };
+    t.deepEq(math.calibrationFromMedians({ audioMs: 120, visualMs: 40 }, current),
+      { inputOffsetMs: 40, audioLatencyMs: 80, visualLeadMs: 1700 });
+    t.deepEq(math.calibrationFromMedians({ audioMs: null, visualMs: 40 }, current),
+      { inputOffsetMs: 40, audioLatencyMs: 9, visualLeadMs: 1700 }, 'a skipped click step keeps the sound delay');
+    t.deepEq(math.calibrationFromMedians({ audioMs: null, visualMs: null }, current), current);
+    t.deepEq(math.calibrationFromMedians({ audioMs: 900, visualMs: 600 }, current),
+      { inputOffsetMs: 200, audioLatencyMs: 300, visualLeadMs: 1700 }, 'clamped to the setting ranges');
+    t.deepEq(math.calibrationFromMedians({ audioMs: 10, visualMs: 90 }, current).audioLatencyMs, 0,
+      'a negative sound delay is clamped to 0');
+  });
+
+  t.test('UT-27-17b too few and uneven taps are reported and ignored taps do not count', () => {
+    const math = Screens.Calibration;
+    const targets = calibrationTargets(1000);
+    const few = math.analyzeTaps(tapsAt(targets, [30]).slice(0, 9), targets);
+    t.deepEq([few.status, few.matched], ['few', 5], 'five matched taps are not enough');
+    t.eq(math.analyzeTaps([], targets).status, 'few');
+    t.eq(math.analyzeTaps([], targets).medianMs, null);
+    const uneven = math.analyzeTaps(tapsAt(targets, [0, 80]), targets);
+    t.eq(uneven.status, 'uneven');
+    t.ok(uneven.iqrMs > 40);
+    const far = math.analyzeTaps(tapsAt(targets, [333]), targets);
+    t.eq(far.status, 'few', 'taps further than 300 ms from a flash match nothing');
+    const early = tapsAt(targets, [30]).map((tap, index) => (index < 4 ? tap + 5000 : tap));
+    t.eq(math.analyzeTaps(early, targets).status, 'ok', 'wild taps on the first four flashes change nothing');
+  });
+
+  /** Opens DLG-Calibration with a fast beat; taps are emitted on input.event with a fixed offset from each flash. */
+  async function openWizard(deltas, taps) {
+    const shown = Screens.dialog('DLG-Calibration', { intervalMs: CAL_TEST_INTERVAL_MS, startDelayMs: 0,
+      onRunStart: (targets) => {
+        const tapTimes = taps === undefined ? tapsAt(targets, deltas) : taps(targets);
+        tapTimes.forEach((tPerf, index) => {
+          Core.timers.setTimeout(() => bus.emit('input.event', { source: 'keyboard', control: 'lane0', type: 'press',
+            tPerf, tAudio: tPerf / 1000, pressure: 1 }), Math.max(0, targets[index] - Core.now()) + 5, t.owner);
+        });
+      } });
+    await waitUntil(() => dialogNode('DLG-Calibration'), 'the wizard');
+    return { closed: shown };   // wrapped: an async function would wait for the dialog to close
+  }
+
+  const wizardText = () => dialogNode('DLG-Calibration').textContent;
+  const statusText = () => doc.getElementById('cal-status').textContent;
+  const pressEscape = () => doc.body.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape',
+    code: 'Escape', bubbles: true, cancelable: true }));
+
+  async function runWatchStep() {
+    button('cal-listen-skip').click();
+    button('cal-start').click();
+    await waitUntil(() => doc.getElementById('w-cal-again') !== null, 'the step result');
+  }
+
+  t.test('UT-27-17c wizard: tap step, preview and summary save the three keys with source wizard', async () => {
+    await openStorage();
+    await keepingCalibration(async () => {
+      const changes = [];
+      bus.on('settings.changed', (event) => { if (event.key.startsWith('calibration.')) changes.push(event); },
+        t.owner);
+      const contextBefore = FLM.Input.context();
+      const shown = (await openWizard([40])).closed;
+      t.ok(wizardText().includes('1. Listen and tap'));
+      t.ok(wizardText().includes('Tap any lane key or pad on every click you hear.'));
+      t.eq(button('cal-listen-start').getAttribute('aria-disabled'), 'true',
+        'the click step waits for the audio build step');
+      await runWatchStep();
+      t.ok(statusText().includes('Tap timing measured: +40 ms.'), statusText());
+      button('cal-next').click();
+      t.ok(wizardText().includes('3. Note speed'));
+      t.ok(doc.getElementById('cal-preview'), 'the live preview is shown');
+      button('cal-next').click();
+      t.eq(doc.getElementById('cal-summary').textContent, 'Sound delay: 0 ms. Tap timing: +40 ms. Note speed: x1.0.');
+      WIZARD_WORDS_FORBIDDEN.forEach((word) => t.eq(wizardText().toLowerCase().includes(word), false, word));
+      t.eq(Settings.get('calibration.inputOffsetMs'), 0, 'nothing is saved before Save');
+      button('cal-save').click();
+      t.eq(await shown, 'save');
+      t.deepEq(Settings.calibration(), { inputOffsetMs: 40, audioLatencyMs: 0, visualLeadMs: 1500 });
+      t.ok(changes.length === 1 && changes[0].source === 'wizard', 'one change, source wizard');
+      t.eq(FLM.Rhythm.calibration().inputOffsetMs, 40, 'M-09 applies it');
+      t.eq(FLM.Input.calibration().inputOffsetMs, 40, 'M-07 stores it');
+      t.eq(FLM.Input.context(), contextBefore, 'the wizard released its input context');
+    });
+  });
+
+  t.test('UT-27-17d wizard: uneven taps offer Try again and Use anyway, too few taps only Try again', async () => {
+    await openStorage();
+    await keepingCalibration(async () => {
+      let shown = (await openWizard([0, 50])).closed;
+      await runWatchStep();
+      t.eq(statusText(), 'Your taps were uneven, so the result may be off. Try again for a steadier result.');
+      t.ok(button('cal-again') && button('cal-anyway'), 'both choices are offered');
+      t.eq(button('cal-next'), null);
+      button('cal-anyway').click();
+      t.ok(wizardText().includes('3. Note speed'));
+      dialogButton('Cancel').click();
+      t.eq(await shown, 'cancel');
+      t.eq(Settings.get('calibration.inputOffsetMs'), 0, 'Cancel keeps the old values');
+      shown = (await openWizard([40], (targets) => tapsAt(targets, [40]).slice(0, 8))).closed;
+      await runWatchStep();
+      t.eq(statusText(), 'Not enough taps were counted. Tap on each click, then try again.');
+      t.ok(button('cal-again') && button('cal-skip'));
+      t.eq(button('cal-anyway'), null, 'Use anyway is only for uneven taps');
+      dialogButton('Cancel').click();
+      await shown;
+    });
+  });
+
+  t.test('UT-27-17e wizard: Escape stops a running step only', async () => {
+    await openStorage();
+    await keepingCalibration(async () => {
+      const shown = (await openWizard([40], () => [])).closed;
+      button('cal-listen-skip').click();
+      button('cal-start').click();
+      t.ok(doc.getElementById('cal-pad'), 'the circle is shown');
+      pressEscape();
+      t.ok(dialogNode('DLG-Calibration'), 'the dialog stays open');
+      t.ok(statusText().startsWith('Press Start.'), 'the step is back at its start');
+      pressEscape();
+      await shown;
+      t.eq(dialogNode('DLG-Calibration'), null, 'Escape with no step running closes the dialog');
+    });
+  });
+
+  t.test('UT-27-17g wizard: pointer taps on the circle are counted', async () => {
+    await openStorage();
+    await keepingCalibration(async () => {
+      const shown = (await openWizard([40], (targets) => {
+        targets.forEach((target) => Core.timers.setTimeout(() => {
+          doc.getElementById('cal-pad').dispatchEvent(new window.Event('pointerdown', { bubbles: true }));
+        }, Math.max(0, target - Core.now()) + CAL_POINTER_LAG_MS, t.owner));
+        return [];
+      })).closed;
+      button('cal-listen-skip').click();
+      button('cal-start').click();
+      await waitUntil(() => doc.getElementById('w-cal-again') !== null, 'the step result');
+      t.eq(statusText().includes('Not enough taps'), false, statusText());
+      dialogButton('Cancel').click();
+      await shown;
+    });
+  });
+
+  t.test('UT-27-17f wizard summary: manual fields show milliseconds, Reset to 0 clears both offsets', async () => {
+    await openStorage();
+    await keepingCalibration(async () => {
+      Settings.setMany({ 'calibration.inputOffsetMs': 25, 'calibration.audioLatencyMs': 60 }, 'ui');
+      const shown = (await openWizard([40])).closed;
+      button('cal-listen-skip').click();
+      button('cal-skip').click();
+      button('cal-next').click();
+      t.ok(wizardText().includes('Sound delay: 60 ms. Tap timing: +25 ms.'), wizardText());
+      t.ok(doc.getElementById('w-cal-input-offset').textContent.includes('ms'), 'each offset is shown in ms');
+      t.ok(doc.getElementById('w-cal-sound-delay').textContent.includes('ms'));
+      button('cal-reset').click();
+      t.ok(wizardText().includes('Sound delay: 0 ms. Tap timing: 0 ms.'), wizardText());
+      button('cal-save').click();
+      await shown;
+      t.deepEq([Settings.get('calibration.inputOffsetMs'), Settings.get('calibration.audioLatencyMs')], [0, 0]);
+    });
+  });
+
+  t.test('T03.09 settings calibration values reach Input and Rhythm, and Reset calibration clears them', async () => {
+    await openStorage();
+    await keepingCalibration(async () => {
+      Settings.set('calibration.inputOffsetMs', 25, 'ui');
+      Settings.setMany({ 'calibration.audioLatencyMs': 60, 'calibration.visualLeadMs': 2000 }, 'ui');
+      t.deepEq(FLM.Rhythm.calibration(), { inputOffsetMs: 25, audioLatencyMs: 60, visualLeadMs: 2000 });
+      t.deepEq(FLM.Input.calibration(), { inputOffsetMs: 25, audioLatencyMs: 60, visualLeadMs: 2000 });
+      Settings.set('calibration.inputOffsetMs', 900, 'ui');
+      t.eq(Settings.get('calibration.inputOffsetMs'), 200, 'the setting clamps to -200..200');
+      modesSpy('settings');
+      await Screens.show('SCR-Settings', { category: 'calibration' });
+      ['inputOffsetMs', 'audioLatencyMs'].forEach((name) => {
+        t.ok(doc.getElementById('w-set-calibration-' + name).textContent.includes('ms'), name + ' is shown in ms');
+      });
+      button('set-reset-calibration').click();
+      t.deepEq(FLM.Rhythm.calibration(), { inputOffsetMs: 0, audioLatencyMs: 0, visualLeadMs: 1500 });
+      t.deepEq(FLM.Input.calibration(), { inputOffsetMs: 0, audioLatencyMs: 0, visualLeadMs: 1500 });
+    });
+  });
+
+  t.test('T03.09 Run calibration opens DLG-Calibration from the Calibration tab', async () => {
+    await openStorage();
+    modesSpy('settings');
+    await Screens.show('SCR-Settings', { category: 'calibration' });
+    button('set-wizard').click();
+    await waitUntil(() => dialogNode('DLG-Calibration'), 'the wizard');
+    t.ok(wizardText().includes('Calibration'));
+    dialogButton('Cancel').click();
+    await waitUntil(() => !dialogNode('DLG-Calibration'), 'the wizard to close');
+  });
+
+  t.test('UT-09-29 via Settings: a calibration change while a judge plays marks the run not comparable', async () => {
+    await openStorage();
+    await keepingCalibration(async () => {
+      const Model = FLM.Model;
+      const judge = FLM.Rhythm.Judge.bind({ timeMap: { audioTimeAt: (tick) => tick / 1920, tickAt: (s) => s * 1920,
+        position: () => 0 }, input: { held: () => [] },
+        bus: new Core.Emitter() });
+      try {
+        const note = { id: 'a', tick: 1920, durTicks: 1, lanes: [0], sourceEventIds: [], pitches: [60],
+          isHold: false };
+        judge.load({ id: 'song:test', songId: 'song', trackId: 'track', instrument: 0, difficulty: 'beginner',
+          profile: 'A', notes: [note], generatorVersion: 1, settingsHash: '00000000', omittedSourceEventIds: 0,
+          source: 'generated' }, Model.Song.create({ durationTicks: 3840 }), 'beginner');
+        judge.setActive(true);
+        Settings.set('calibration.visualLeadMs', 2000, 'ui');
+        t.eq(judge.summary().comparable, true, 'the note speed is not a timing change');
+        Settings.set('calibration.inputOffsetMs', 30, 'wizard');
+        t.eq(judge.summary().comparable, false);
+      } finally {
+        judge.dispose();
+      }
+    });
   });
 
   t.test('T03.04 first launch step 5 offers the pad size where touch is used', async () => {

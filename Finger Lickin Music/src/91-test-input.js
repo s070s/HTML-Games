@@ -3,7 +3,7 @@
 // T03.02: UT-07-16 to UT-07-25 (pointer, Touch Events fallback, gamepad, MIDI on fakes: no hardware is used).
 // T03.03: UT-07-12, UT-07-13, UT-07-29, UT-07-30, the lifecycle rows of Part 6.7 and E 4.1, the input part of FI-027
 // and TT-029, and the anchor half of TT-021. T03.04: UT-07-26 to UT-07-28 (maps API: remap, unmap, setMap, resetMap,
-// conflicts, input.map); UT-07-32 belongs to T03.09.
+// conflicts, input.map). T03.09: UT-07-32 (calibration storage: clamp, no application).
 // Every test starts from a private fixture: four pads laid out here, a fresh init, the instrument context bound.
 (function () {
 'use strict';
@@ -393,6 +393,41 @@ FLM.SelfTest.group('input', (t) => {
       t.near(event.tPerf, stamps[index], 1e-9);
       t.near(event.tAudio, stamps[index] / 1000 + 7.25, 1e-3, 'within 1 ms of the true mapping');
     });
+  });
+
+  t.test('UT-07-32 calibration clamp and non-application', () => {
+    const before = Input.calibration();
+    try {
+      fakeClock(5000);
+      installAudio(7.25);
+      for (let step = 0; step < 16; step += 1) {
+        clock.now = 5000 + step * SAMPLE_STEP_MS;
+        Input.pollGamepad(clock.now);
+      }
+      const stored = Input.setCalibration({ inputOffsetMs: 900, audioLatencyMs: -900, visualLeadMs: 100 });
+      t.deepEq(stored, { inputOffsetMs: 500, audioLatencyMs: -500, visualLeadMs: 600 });
+      t.deepEq(Input.calibration(), stored);
+      clock.now = 6000.3;
+      key('KeyA', true, 6000);
+      t.eq(events[0].tAudio, Input.perfToAudio(6000), 'the press time is the plain clock mapping');
+      t.near(events[0].tAudio, 6 + 7.25, 1e-3);
+    } finally {
+      Input.setCalibration(before);
+    }
+  });
+
+  t.test('UT-07-32b missing, non-numeric and fractional values keep or round, and the result is a copy', () => {
+    const before = Input.calibration();
+    try {
+      Input.setCalibration({ inputOffsetMs: 12.6, audioLatencyMs: 40, visualLeadMs: 2000 });
+      const kept = Input.setCalibration({ inputOffsetMs: 'x', visualLeadMs: NaN });
+      t.deepEq(kept, { inputOffsetMs: 13, audioLatencyMs: 40, visualLeadMs: 2000 });
+      Input.setCalibration(null);
+      kept.inputOffsetMs = 99;
+      t.deepEq(Input.calibration(), { inputOffsetMs: 13, audioLatencyMs: 40, visualLeadMs: 2000 });
+    } finally {
+      Input.setCalibration(before);
+    }
   });
 
   t.test('PT-009 input part: processing per press is far below one frame', () => {

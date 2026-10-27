@@ -1,7 +1,7 @@
 ﻿// 91-test-rhythm.js - unit tests for M-09 FLM.Rhythm (group 'rhythm'; test build only).
 // UT-09-01 to UT-09-36 follow Part 6.9.8 (UT-09-08 expects 6400 as IT-003 does, LEDGER decision). The judge halves of
-// TT-023, TT-026 and TT-029 are included because their harness is this one; IT-003, IT-004, IT-035 and the real-clock
-// part of TT-023 wait for the instrument mode (T03.10). Every test uses a fixed time map, never a clock.
+// TT-023, TT-024, TT-026 and TT-029 are included because their harness is this one; IT-003, IT-004, IT-035 and the
+// real-clock part of TT-023 wait for the instrument mode (T03.10). Every test uses a fixed time map, never a clock.
 (function () {
 'use strict';
 const FLM = window.FLM;
@@ -664,6 +664,21 @@ FLM.SelfTest.group('rhythm', (t) => {
     t.deepEq(judge.results().map((result) => [result.judgment, result.deltaMs]), [['perfect', 0]]);
     judge.detach();
     t.eq(Core.bus.listenerCount('input.event'), own + 1, 'detach removes only the judge listener');
+  });
+
+  t.test('TT-024 judge half: calibration changed during a song', () => {
+    const h = setup(spreadNotes(0, 16), { difficulty: 'expert' });
+    for (let index = 1; index <= 8; index += 1) press(h, 0, index * 1000 + 30);   // before the change: offset 0
+    const before = h.judge.results().map((result) => result.deltaMs);
+    t.deepEq(before, [30, 30, 30, 30, 30, 30, 30, 30], 'the offset 0 judges the late presses as late');
+    t.eq(h.judge.summary().comparable, true);
+    h.judge.setCalibration({ inputOffsetMs: 30, audioLatencyMs: 0 });             // the change, at "bar 9"
+    for (let index = 9; index <= 16; index += 1) press(h, 0, index * 1000 + 30);
+    const results = h.judge.results();
+    t.deepEq(results.slice(0, 8).map((result) => result.deltaMs), before, 'no judgment is recomputed');
+    t.deepEq(results.slice(8).map((result) => result.deltaMs), [0, 0, 0, 0, 0, 0, 0, 0], 'later inputs use 30');
+    t.eq(h.judge.summary().comparable, false, 'the run is flagged not comparable');
+    t.eq(h.judge.summary().calibration.inputOffsetMs, 30);
   });
 
   t.test('TT-026 judge half: judgment window boundaries in audio time (intermediate)', () => {

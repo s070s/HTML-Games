@@ -415,10 +415,12 @@ FLM.Core.define('Screens', function (FLM) {
   }
 
   const isInputMapPath = (path) => path.startsWith('input.keys.') || path === 'input.midiLaneNotes';
+  const isCalibrationPath = (path) => path.startsWith('calibration.');
 
   // ---------------------------------------------------------------- the store
   function createSettings() {
-    const store = { doc: copy(DEFAULTS), saveFailedShown: false, batching: 0, mapsStale: false };
+    const store = { doc: copy(DEFAULTS), saveFailedShown: false, batching: 0, mapsStale: false,
+      calibrationStale: false };
 
     function toast(message, key, kind) {
       if (FLM.UI && typeof FLM.UI.toast === 'function') FLM.UI.toast(message, { kind, key });
@@ -470,6 +472,7 @@ FLM.Core.define('Screens', function (FLM) {
         Core.Log.once('W-SET-NORMALIZED', 'warn', 'settings', 'W-SET-NORMALIZED: ' + result.warnings.join(', '));
       }
       if (stored.bothDamaged) toast(Core.Text.get('E-STO-008'), 'settings.reset', 'warn');
+      pushCalibration();
       return { doc: copy(store.doc), source, warnings };
     }
 
@@ -495,6 +498,23 @@ FLM.Core.define('Screens', function (FLM) {
       return result;
     }
 
+    /**
+     * Hands the three calibration values to M-07 (storage for the UI) and M-09 (the one place they are applied:
+     * every bound Judge picks them up, and a Judge that is playing marks its run not comparable, Part 5.12).
+     * A batch pushes once at its end, so a wizard save is one change.
+     */
+    function pushCalibration() {
+      if (store.batching > 0) {
+        store.calibrationStale = true;
+        return;
+      }
+      store.calibrationStale = false;
+      const values = calibration();
+      [FLM.Input, FLM.Rhythm].forEach((module) => {
+        if (module && typeof module.setCalibration === 'function') module.setCalibration(values);
+      });
+    }
+
     function applyValue(path, value, source) {
       const spec = SCHEMA[path];
       const prev = getPath(store.doc, path);
@@ -502,6 +522,7 @@ FLM.Core.define('Screens', function (FLM) {
       setPath(store.doc, path, copy(value));
       persist({ key: path, value: copy(value), prev: copy(prev), source }, spec);
       if (isInputMapPath(path)) pushMapsToInput();
+      if (isCalibrationPath(path)) pushCalibration();
       if (path === 'video.highContrast' && value === true) applyValue('accessibility.laneGlyphs', true, source);
       return { ok: true, value: copy(value), error: null };
     }
@@ -528,6 +549,7 @@ FLM.Core.define('Screens', function (FLM) {
         store.batching -= 1;
       }
       if (store.mapsStale) pushMapsToInput();
+      if (store.calibrationStale) pushCalibration();
       return { ok: errors.length === 0, errors };
     }
 
@@ -540,6 +562,7 @@ FLM.Core.define('Screens', function (FLM) {
       const change = { key: '*', value: copy(store.doc), prev: null, source: 'reset', keys: paths };
       FLM.Storage.saveSettings(copy(store.doc), change, { debounceMs: 0 }).then(noteSaveResult);
       if (paths.some(isInputMapPath)) pushMapsToInput();
+      if (paths.some(isCalibrationPath)) pushCalibration();
     }
 
     function calibration() {
@@ -652,6 +675,8 @@ FLM.Core.define('Screens', function (FLM) {
     'S-AUD-01': 'Tap or press a key to enable sound.',
     'S-AUD-02': 'Your browser keeps sound off until you tap or press a key on this page.',
     'S-AUD-03': 'Sound did not start. Check that this tab and the device are not muted, then try again.',
+    'S-CAL-01': 'Not enough taps were counted. Tap on each click, then try again.',
+    'S-CAL-02': 'Your taps were uneven, so the result may be off. Try again for a steadier result.',
     'S-CAP-01': 'Gamepad input is not available in this browser.',
     'S-INP-01': 'Each control needs at least one key.',
     'S-INP-02': 'Press a key for {control}. Escape cancels.',
@@ -706,7 +731,36 @@ FLM.Core.define('Screens', function (FLM) {
     'remap.tab': 'Tab is reserved for navigation.',
     'remap.full': 'Each control can have up to 3 keys. Remove one first.',
     'remap.add': 'Add key',
-    'remap.reset': 'Reset controls to defaults'
+    'remap.reset': 'Reset controls to defaults',
+    // DLG-Calibration (Part 7.7.1). No technical audio words appear in these texts (I 2.3).
+    'cal.title': 'Calibration',
+    'cal.listen.title': '1. Listen and tap',
+    'cal.listen.body': 'Close your eyes if it helps. Tap any lane key or pad on every click you hear. The first ' +
+      'four clicks are for getting into the rhythm.',
+    'cal.watch.title': '2. Watch and tap',
+    'cal.watch.body': 'Now there is no sound. Tap when the circle flashes on the line.',
+    'cal.watch.ready': 'Press Start. The first flash comes after a short pause. Escape stops this step.',
+    'cal.watch.counter': 'Flash {count} of 12',
+    'cal.watch.pad': 'Tap here, or press any lane key',
+    'cal.speed.title': '3. Note speed',
+    'cal.speed.body': 'Notes should reach the line exactly when you hear them. Choose a speed that is comfortable ' +
+      'to read.',
+    'cal.summary.title': 'Your calibration',
+    'cal.summary.line': 'Sound delay: {sound} ms. Tap timing: {tap} ms. Note speed: x{speed}.',
+    'cal.summary.honest': 'Browsers cannot measure every part of your device\'s delay; this test estimates it ' +
+      'from your taps.',
+    'cal.result': 'Tap timing measured: {tap} ms.',
+    'cal.start': 'Start',
+    'cal.again': 'Try again',
+    'cal.anyway': 'Use anyway',
+    'cal.skip': 'Skip this step',
+    'cal.next': 'Next',
+    'cal.back': 'Back',
+    'cal.save': 'Save',
+    'cal.reset': 'Reset to 0',
+    'cal.tapTiming': 'Tap timing',
+    'cal.soundDelay': 'Sound delay',
+    'cal.noteSpeed': 'Note speed'
   });
 
   function fillText(template, vars) {
@@ -748,6 +802,13 @@ FLM.Core.define('Screens', function (FLM) {
     '.remap-label { flex: 0 0 11rem; font-weight: var(--fw-bold); }',
     '.remap-chips { display: flex; flex-wrap: wrap; gap: var(--sp-1); }',
     '.remap-status { flex: 1 0 100%; margin: 0; color: var(--c-text-muted); font-size: var(--fs-2); }',
+    '.cal-pad { width: 6rem; height: 6rem; margin: var(--sp-3) auto; border: var(--border); border-radius: 50%; }',
+    '.cal-pad.on { background: var(--c-accent-2); }',
+    '.cal-preview { position: relative; display: flex; gap: var(--sp-2); height: 9rem; margin: var(--sp-3) 0;' +
+      ' padding-bottom: var(--sp-1); border-bottom: 4px solid var(--c-accent-2); overflow: hidden; }',
+    '.cal-lane { position: relative; flex: 1 1 0; border: var(--border); }',
+    '.cal-note { position: absolute; left: 25%; width: 50%; height: 0.75rem; border-radius: var(--r-pill);' +
+      ' background: var(--c-accent-2); }',
     '.badge-test { display: inline-block; margin-left: var(--sp-2); padding: 0 var(--sp-2); border: var(--border);' +
       ' border-radius: var(--r-pill); color: var(--c-warn); border-color: var(--c-warn); font-size: var(--fs-1); }'
   ].join('\n');
@@ -1561,7 +1622,12 @@ FLM.Core.define('Screens', function (FLM) {
         Settings.reset('calibration');
         showCategory(view.category);
       } }));
-      return [el('div', { class: 'btn-row' }, [laterButton('set-wizard', 'Run calibration'), reset])];
+      const wizard = keep(actionButton({ id: 'set-wizard', label: 'Run calibration', kind: 'primary',
+        onPress: async () => {
+          const answer = await openDialog('DLG-Calibration', {});
+          if (answer === 'save') showCategory(view.category);
+        } }));
+      return [el('div', { class: 'btn-row' }, [wizard, reset])];
     }
 
     function exportSettings() {
@@ -2220,10 +2286,317 @@ FLM.Core.define('Screens', function (FLM) {
     return UI.dialog({ id: 'DLG-RemapConflict', title: say('dlg.remap.title'), body: message, buttons });
   }
 
+  // ---------------------------------------------------------------- DLG-Calibration (Part 6.27.4.22 and 7.7.1)
+  // T03.09 delivers the "Watch and tap" step (input offset), the note speed preview and the summary. The "Listen
+  // and tap" step needs the audio clicks of M-05 and is completed in T04.09; until then it can only be skipped.
+  const CAL_TAP_COUNT = 12;            // flashes (or clicks) per step
+  const CAL_IGNORED = 4;               // the first four are for getting into the rhythm
+  const CAL_INTERVAL_MS = 667;         // 90 BPM
+  const CAL_START_DELAY_MS = 1000;
+  const CAL_MATCH_MS = 300;            // a tap counts for the nearest flash within this distance
+  const CAL_MATCH_SHARE = 0.45;        // ... and never for more than this share of the beat (300 ms at 90 BPM)
+  const CAL_END_MARGIN_MS = 100;       // the step ends this long after the last tap could still match
+  const CAL_MIN_MATCHED = 6;
+  const CAL_UNEVEN_MS = 40;            // an interquartile range above this shows S-CAL-02
+  const CAL_FLASH_MS = 120;
+  const CAL_PREVIEW_NOTES = 8;
+  const CAL_PREVIEW_LANES = 4;
+  const CAL_SPEED_STEP_MS = 50;
+  const CAL_TAP_CONTROL = /^(lane|dance)[0-3]$/;
+  const CAL_LIMITS = Object.freeze({ inputOffsetMs: [-200, 200], audioLatencyMs: [0, 500] });
+  const QUARTILE = Object.freeze({ low: 0.25, middle: 0.5, high: 0.75 });
+
+  function quantile(sorted, fraction) {
+    const position = (sorted.length - 1) * fraction;
+    const below = Math.floor(position);
+    const above = Math.ceil(position);
+    return sorted[below] + (sorted[above] - sorted[below]) * (position - below);
+  }
+
+  /** Tap minus flash (ms) for the flashes after the first four that have a tap within the match window. */
+  function matchedDeltas(taps, targets, matchMs) {
+    const deltas = [];
+    targets.forEach((target, index) => {
+      if (index < CAL_IGNORED) return;
+      const near = taps.map((tap) => tap - target).filter((delta) => Math.abs(delta) <= matchMs);
+      if (near.length === 0) return;
+      deltas.push(near.reduce((best, delta) => (Math.abs(delta) < Math.abs(best) ? delta : best)));
+    });
+    return deltas;
+  }
+
+  /**
+   * One tap step (Part 7.7.1): taps and targets in ms on one clock; matchMs is the distance a tap may be from
+   * its flash (default 300 ms).
+   * @returns {{status:'ok'|'few'|'uneven', medianMs:(number|null), iqrMs:(number|null), matched:number}}
+   */
+  function analyzeTaps(taps, targets, matchMs) {
+    const distanceMs = matchMs === undefined ? CAL_MATCH_MS : matchMs;
+    const sorted = matchedDeltas(taps, targets, distanceMs).sort((a, b) => a - b);
+    if (sorted.length === 0) return { status: 'few', medianMs: null, iqrMs: null, matched: 0 };
+    const iqrMs = quantile(sorted, QUARTILE.high) - quantile(sorted, QUARTILE.low);
+    let status = 'ok';
+    if (sorted.length < CAL_MIN_MATCHED) status = 'few';
+    else if (iqrMs > CAL_UNEVEN_MS) status = 'uneven';
+    return { status, medianMs: quantile(sorted, QUARTILE.middle), iqrMs, matched: sorted.length };
+  }
+
+  const clampRound = (value, limits) => Math.min(limits[1], Math.max(limits[0], Math.round(value)));
+
+  /**
+   * The wizard result (Part 7.7.1). measured: {audioMs, visualMs} step medians, null when the step was skipped. The
+   * flash step holds only input and display delay (V); the click step adds the sound delay (A), so the sound delay is
+   * A - V and the Judge offset (input offset + sound delay) equals A.
+   */
+  function calibrationFromMedians(measured, current) {
+    const next = Object.assign({}, current);
+    if (measured.visualMs === null) return next;
+    next.inputOffsetMs = clampRound(measured.visualMs, CAL_LIMITS.inputOffsetMs);
+    if (measured.audioMs !== null) {
+      next.audioLatencyMs = clampRound(measured.audioMs - measured.visualMs, CAL_LIMITS.audioLatencyMs);
+    }
+    return next;
+  }
+
+  const signed = (value) => (value > 0 ? '+' + value : String(value));
+
+  // params: {intervalMs, startDelayMs, onRunStart(targetsMs)} are test hooks; the player never sets them.
+  function openCalibration(params) {
+    const token = Symbol('dlg-calibration');
+    const intervalMs = params.intervalMs || CAL_INTERVAL_MS;
+    const startDelayMs = params.startDelayMs === undefined ? CAL_START_DELAY_MS : params.startDelayMs;
+    const matchMs = Math.min(CAL_MATCH_MS, intervalMs * CAL_MATCH_SHARE);
+    const view = { page: 'listen', values: Settings.calibration(), measured: { audioMs: null, visualMs: null },
+      host: null, finish: null, handles: [], run: null, result: null, pad: null, status: null, notes: [],
+      previewFrame: null, runFrame: null, runTimer: null, summaryLine: null };
+
+    function keepHandle(handle) {
+      view.handles.push(handle);
+      return handle;
+    }
+
+    const stepButton = (id, label, onPress, kind, disabledReason) => keepHandle(actionButton({ id: 'cal-' + id,
+      label: say(label), kind: kind || 'secondary', onPress, disabledReason })).root;
+
+    function stopRun() {
+      view.run = null;
+      Core.raf.cancel(view.runFrame);
+      Core.timers.clearTimeout(view.runTimer);
+    }
+
+    function disposePage() {
+      stopRun();
+      Core.raf.cancel(view.previewFrame);
+      view.handles.forEach((handle) => handle.destroy());
+      view.handles = [];
+      view.host.textContent = '';
+    }
+
+    function goTo(page) {
+      disposePage();
+      view.page = page;
+      PAGES[page]();
+    }
+
+    function showPage(title, body, nodes) {
+      addAll(view.host, [el('h3', null, title), paragraph(body)].concat(nodes));
+    }
+
+    // ---- the tap run: flashes on a fixed beat, taps collected until the last tap could still match
+    function addTap(tPerf) {
+      if (view.run) view.run.taps.push(tPerf);
+    }
+
+    function onInputEvent(evt) {
+      if (evt && evt.type === 'press' && CAL_TAP_CONTROL.test(evt.control)) addTap(evt.tPerf);
+    }
+
+    function onFrame() {
+      const run = view.run;
+      if (!run) return;
+      const nowMs = Core.now();
+      while (run.shown < run.targets.length && nowMs >= run.targets[run.shown]) run.shown += 1;
+      const lastFlash = run.shown > 0 ? run.targets[run.shown - 1] : -Infinity;
+      view.pad.classList.toggle('on', nowMs - lastFlash < CAL_FLASH_MS);
+      if (run.shown > 0) view.status.textContent = say('cal.watch.counter', { count: run.shown });
+      view.runFrame = Core.raf.request(onFrame, token);
+    }
+
+    function endRun() {
+      const run = view.run;
+      if (!run) return;
+      view.result = analyzeTaps(run.taps, run.targets, matchMs);
+      stopRun();
+      renderWatch(view.result.status);
+    }
+
+    function startRun() {
+      renderWatch('running');
+      const first = Core.now() + startDelayMs;
+      const targets = Array.from({ length: CAL_TAP_COUNT }, (item, index) => first + index * intervalMs);
+      view.run = { targets, taps: [], shown: 0 };
+      view.runFrame = Core.raf.request(onFrame, token);
+      const wait = targets[targets.length - 1] + matchMs + CAL_END_MARGIN_MS - Core.now();
+      view.runTimer = Core.timers.setTimeout(endRun, wait, token);
+      if (typeof params.onRunStart === 'function') params.onRunStart(targets.slice());
+    }
+
+    function acceptWatch() {
+      view.measured.visualMs = view.result.medianMs;
+      view.values = calibrationFromMedians(view.measured, view.values);
+      goTo('speed');
+    }
+
+    // ---- pages
+    function renderListen() {
+      showPage(say('cal.listen.title'), say('cal.listen.body'), [el('div', { class: 'btn-row' }, [
+        stepButton('listen-start', 'cal.start', () => {}, 'primary', LATER_BUILD),
+        stepButton('listen-skip', 'cal.skip', () => goTo('watch'))])]);
+    }
+
+    function watchButtons(outcome) {
+      const again = () => stepButton('again', 'cal.again', startRun);
+      const back = () => stepButton('back', 'cal.back', () => goTo('listen'));
+      const skip = () => stepButton('skip', 'cal.skip', () => goTo('speed'));
+      if (outcome === 'running') return [];
+      if (outcome === 'ok') return [stepButton('next', 'cal.next', acceptWatch, 'primary'), again(), back()];
+      if (outcome === 'few') return [again(), skip(), back()];
+      if (outcome === 'uneven') return [again(), stepButton('anyway', 'cal.anyway', acceptWatch), back()];
+      return [stepButton('start', 'cal.start', startRun, 'primary'), skip(), back()];
+    }
+
+    function watchMessage(outcome) {
+      if (outcome === 'few') return say('S-CAL-01');
+      if (outcome === 'uneven') return say('S-CAL-02');
+      if (outcome === 'ok') return say('cal.result', { tap: signed(Math.round(view.result.medianMs)) });
+      return say('cal.watch.ready');
+    }
+
+    function renderWatch(outcome) {
+      disposePage();
+      view.page = 'watch';
+      view.pad = el('div', { id: 'cal-pad', class: 'cal-pad', role: 'button', tabindex: '0', owner: token,
+        'aria-label': say('cal.watch.pad'), on: { pointerdown: (evt) => addTap(evt.timeStamp) } });
+      view.status = paragraph(watchMessage(outcome), { id: 'cal-status', role: 'status' });
+      showPage(say('cal.watch.title'), say('cal.watch.body'), [view.pad, view.status,
+        el('div', { class: 'btn-row' }, watchButtons(outcome))]);
+    }
+
+    function buildPreview() {
+      const lanes = Array.from({ length: CAL_PREVIEW_LANES }, () => el('div', { class: 'cal-lane' }));
+      view.notes = Array.from({ length: CAL_PREVIEW_NOTES }, (item, index) => {
+        const node = el('span', { class: 'cal-note', 'aria-hidden': 'true' });
+        lanes[index % CAL_PREVIEW_LANES].appendChild(node);
+        return { node, timeMs: index * intervalMs };
+      });
+      return el('div', { id: 'cal-preview', class: 'cal-preview', 'aria-hidden': 'true' }, lanes);
+    }
+
+    // A note crosses the line when its sound is heard: the sound delay shifts the display (Part 5.12), the note
+    // speed sets how long it is visible before that.
+    function onPreviewFrame() {
+      const loopMs = CAL_PREVIEW_NOTES * intervalMs;
+      const { audioLatencyMs, visualLeadMs } = view.values;
+      view.notes.forEach((note) => {
+        const remaining = (((note.timeMs + audioLatencyMs - Core.now()) % loopMs) + loopMs) % loopMs;
+        const visible = remaining <= visualLeadMs;
+        note.node.hidden = !visible;
+        if (visible) note.node.style.top = (1 - remaining / visualLeadMs) * 100 + '%';
+      });
+      view.previewFrame = Core.raf.request(onPreviewFrame, token);
+    }
+
+    function renderSpeed() {
+      const change = (value) => { view.values.visualLeadMs = value; };
+      const speed = keepHandle(UI.Widgets.slider({ id: 'cal-speed', label: say('cal.noteSpeed'), min: 600, max: 3000,
+        step: CAL_SPEED_STEP_MS, value: view.values.visualLeadMs, format: noteSpeedFormat, onInput: change,
+        onChange: change }));
+      showPage(say('cal.speed.title'), say('cal.speed.body'), [buildPreview(), speed.root,
+        el('div', { class: 'btn-row' }, [stepButton('next', 'cal.next', () => goTo('summary'), 'primary'),
+          stepButton('back', 'cal.back', () => goTo('watch'))])]);
+      view.previewFrame = Core.raf.request(onPreviewFrame, token);
+    }
+
+    function refreshSummary() {
+      view.summaryLine.textContent = say('cal.summary.line', { sound: view.values.audioLatencyMs,
+        tap: signed(view.values.inputOffsetMs), speed: (1500 / view.values.visualLeadMs).toFixed(1) });
+    }
+
+    function offsetField(id, label, key) {
+      const limits = CAL_LIMITS[key];
+      return keepHandle(UI.Widgets.number({ id, label: say(label), min: limits[0], max: limits[1], step: 1,
+        unit: 'ms', value: view.values[key], onChange: (value) => { view.values[key] = value; refreshSummary(); } }));
+    }
+
+    function resetOffsets() {
+      view.values.inputOffsetMs = 0;
+      view.values.audioLatencyMs = 0;
+      goTo('summary');
+    }
+
+    function renderSummary() {
+      view.summaryLine = paragraph('', { id: 'cal-summary', role: 'status' });
+      showPage(say('cal.summary.title'), say('cal.summary.honest'), [view.summaryLine,
+        offsetField('cal-input-offset', 'cal.tapTiming', 'inputOffsetMs').root,
+        offsetField('cal-sound-delay', 'cal.soundDelay', 'audioLatencyMs').root,
+        el('div', { class: 'btn-row' }, [stepButton('save', 'cal.save', save, 'primary'),
+          stepButton('reset', 'cal.reset', resetOffsets), stepButton('back', 'cal.back', () => goTo('speed'))])]);
+      refreshSummary();
+    }
+
+    function save() {
+      const values = { 'calibration.inputOffsetMs': view.values.inputOffsetMs,
+        'calibration.audioLatencyMs': view.values.audioLatencyMs,
+        'calibration.visualLeadMs': view.values.visualLeadMs };
+      Settings.setMany(values, 'wizard');
+      view.finish('save');
+    }
+
+    const PAGES = { listen: renderListen, watch: renderWatch, speed: renderSpeed, summary: renderSummary };
+
+    // Escape ends a running step only; with no step running the dialog's own Escape closes it.
+    function onEscape(evt) {
+      if (evt.key !== 'Escape' || !view.run) return;
+      evt.preventDefault();
+      evt.stopImmediatePropagation();
+      renderWatch();
+    }
+
+    function bindInput() {
+      if (FLM.Input && typeof FLM.Input.bind === 'function') FLM.Input.bind({ owner: token, context: 'instrument' });
+      bus.on('input.event', onInputEvent, token);
+      Core.dom.on(window, 'keydown', onEscape, { capture: true }, token);
+    }
+
+    function release() {
+      stopRun();
+      Core.raf.cancel(view.previewFrame);
+      bus.removeOwner(token);
+      Core.dom.offOwner(token);
+      Core.timers.clearOwner(token);
+      Core.raf.cancelOwner(token);
+      if (FLM.Input && typeof FLM.Input.unbind === 'function') FLM.Input.unbind(token);
+    }
+
+    const shown = UI.dialog({ id: 'DLG-Calibration', title: say('cal.title'),
+      buttons: [{ id: 'cancel', label: say('dlg.cancel'), kind: 'secondary', isCancel: true }],
+      build(container, finish) {
+        view.host = container;
+        view.finish = finish;
+        bindInput();
+        renderListen();
+      } });
+    return shown.then((result) => {
+      release();
+      return result;
+    });
+  }
+
   // Dialogs of the list that later steps build; asking for one now is a clear error, never a silent no-op.
   const dialogBuilders = new Map([['DLG-AudioBlocked', openAudioBlocked], ['DLG-ResumeAudio', openResumeAudio],
     ['DLG-Unsupported', openUnsupported], ['DLG-ImportSettings', openImportSettings],
-    ['DLG-ConfirmReset', openConfirmReset], ['DLG-RemapConflict', openRemapConflict]]);
+    ['DLG-ConfirmReset', openConfirmReset], ['DLG-RemapConflict', openRemapConflict],
+    ['DLG-Calibration', openCalibration]]);
 
   /** Opens a dialog by id; resolves to the chosen button id. */
   function openDialog(id, params) {
@@ -2285,6 +2658,7 @@ FLM.Core.define('Screens', function (FLM) {
     showError,
     codeLabel,
     padWords,
+    Calibration: Object.freeze({ analyzeTaps, calibrationFromMedians }),
     counters: () => ({ globalListeners: registration.reactions ? 2 : 0,
       activeController: UI.Screens.current() ? UI.Screens.current().id : null }),
     Settings
