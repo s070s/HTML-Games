@@ -36,7 +36,8 @@ FLM.Core.define('Boot', function (FLM) {
     'ScrollLock', 'Fn', 'FnLock', 'Tab']);
 
   /** Namespaces whose files exist (convention 6 of Part 11); every entry that adds a module file appends its name. */
-  const EXPECTED_MODULES = Object.freeze(['Core', 'Theory', 'Model', 'Transport', 'UI', 'Storage', 'Screens', 'Modes', 'Boot']);
+  const EXPECTED_MODULES = Object.freeze(['Core', 'Theory', 'Model', 'Transport', 'Input', 'UI', 'Storage', 'Screens',
+    'Modes', 'Boot']);
 
   /** Fault prefix -> namespace that owns the fault (Part 6.29.4.8). */
   const FAULT_ROUTES = Object.freeze({
@@ -450,7 +451,8 @@ FLM.Core.define('Boot', function (FLM) {
   function stepInput(run) {
     const input = run.mod('Input');
     if (!hasFunction(input, 'init')) return skipStep('B9', 'Input');
-    input.init({ keyboardTarget: window, padRoot: doc.getElementById('touch'), surface: doc.getElementById('view') });
+    input.init({ keyboardTarget: window, padRoot: doc.getElementById('touch'), surface: doc.getElementById('view'),
+      touchApi: settingValue(run, 'input.touchApi') });
     return {};
   }
 

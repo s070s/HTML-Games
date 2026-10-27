@@ -67,6 +67,23 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 - Device and other-browser tests (XT, LT): owner.
 - Licence: the owner recorded "All rights reserved" (see docs/plan-work/OPEN-ISSUES-stage1.md).
 
+## 2026-10-27 17:35 - T03.01 to T03.03 - M-07 Input (keyboard, pointer/touch, gamepad, Web MIDI, lifecycle)
+
+Done: src/07-input.js, src/91-test-input.js (group input, 59, also input@touch 59), src/92-test-integration.js
+(IT-002 input part, IT-043); 'Input' in EXPECTED_MODULES, Input.init gets touchApi. Verified by me: build 0,
+`selftest --all` 448/448 (20 groups, touch passes included), 0 skipped.
+Decisions: D31 identity audio anchor when FLM.Audio is absent, ring cleared on audio.state != running;
+D32 no setPointerCapture (ADR-10/6.7.9 over T03.02 wording); D33 Touch Events fallback by input.touchApi;
+D34 one owner per control (6.7 over ADR-10); D35 raw MIDI control ids midi:<n>; D36 Input.audioToPerf
+made real for fakes.inputs.event; D37 19 controls (6.7.6 says 20, names total 19).
+Open issues: OI-17 hardware unverified: gamepad, Web MIDI, real touch (4 simultaneous touches, OQ-1), keyboard
+rollover; pad rectangles refresh lazily (no M-26 layoutChanged call); M-26 input-status badge and lane receptors
+not built; Settings->Input.setMap wiring is T03.04. Deferred rows: UT-07-26..28 (T03.04), UT-07-32 (T03.09),
+judge half of TT-029 (T03.07), audio half of IT-002 (Phase 06), PT-009 perf scenario (T03.10).
+Usage: weekly all 11% at 17:25.
+RESUME: T03.04 (remapping and controls help), T03.05/T03.06 (M-08 Mapper), T03.07/T03.08 (M-09 Judge, score,
+replay) can run in parallel; then T03.09, T03.10, T03.11, T03.12 gate.
+
 ## 2026-10-27 17:10 - Phase 02 GATE (T02.04-T02.09) - transport, engine, timing tests, transport bar
 
 Done: T02.04/T02.05 src/04-transport.js (Transport state machine, anchoring, positionAt, seek, loop,
