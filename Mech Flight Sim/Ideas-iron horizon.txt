@@ -1,0 +1,11 @@
+- Problems with Start of various platforms in various contexts,maps
+Example Naval Starting at specific spawn far away from the objective or aircraft spawning close to map bounds.
+- Naval Platforms getting stuck due to shallow water (ex in rivers)
+- If possible.Add deformable terrain that lowers when hit with explosives.
+- Loadout Further Affects Visual Appearance of Platform,Unit
+- Selection of Color for Teams.
+- Up to Four Teams either allies enemies or mixed Each on its own spawns, bases on the map.
+- A special Platform,Unit that is a super Hero can use any configuration Loadout and Specials at will
+-Include missing Weapons ,Utilities, Items in the Arsenal
+-I cant see fauna,Animals
+- Reorganize the Missions into a single Campaign. It shouldn't be boring,cliche. Rework it make it well designed.
