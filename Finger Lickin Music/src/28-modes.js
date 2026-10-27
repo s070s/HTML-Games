@@ -534,12 +534,15 @@ FLM.Core.define('Modes', function (FLM) {
       Core.assert(MODES.includes(mode), 'unknown mode ' + mode);
       if (!isMenuLike(state.current.mode)) await doLeave('user', { next: mode });
       if (state.current.mode === 'none' && mode !== 'menu') await openMenuRoot();
-      takeBaseline();                          // taken only in the menu (Part 4.7.1 step 2)
+      // Taken only in the menu (Part 4.7.1 step 2). Entering the menu itself takes it after the menu screen is
+      // mounted, because menu-level resources (the screen and its listeners) belong to the baseline.
+      if (mode !== 'menu') takeBaseline();
       if (!(await passAudioGate(mode))) return { ok: false, mode: 'menu' };
       const owner = mode === 'menu' ? MENU_OWNER : Symbol(mode + ':' + Core.uid());
       state.current = { mode, params, owner, enteredAt: Core.now() };
       doc.body.dataset.mode = mode;
       await setupMode(mode, params);
+      if (mode === 'menu') takeBaseline();
       bus.emit('mode.enter', { mode, prev, params: plainCopy(params), ms: Math.round(Core.now() - started) });
       rememberMode(mode, params);
       return { ok: true, mode };
@@ -768,6 +771,8 @@ FLM.Core.define('Modes', function (FLM) {
   function subscribe() {
     const on = (topic, handler) => bus.on(topic, handler, MODES_OWNER);
     on('error', onErrorRecord);
+    // Boot-only resources (the error escalation listener) are gone once the menu is up: baseline again then.
+    on('boot.ready', () => { if (isMenuLike(state.current.mode)) takeBaseline(); });
     on('audio.state', (event) => { if (event && event.state !== 'running') onInterrupt('audio'); });
     on('render.contextLost', () => onInterrupt('contextLost'));
     on('render.contextRestored', () => onInterrupt('contextRestored'));

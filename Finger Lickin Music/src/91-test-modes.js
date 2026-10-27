@@ -209,6 +209,8 @@ FLM.SelfTest.group('modes', (t) => {
 
   t.test('UT-28-08x audio gate refuses or waits for the dialog', async () => {
     standIn('Audio', { isUnlocked: () => false });
+    // The real Screens.dialog waits for a click; the first half answers "cancel" itself (afterEach restores it).
+    standIn('Screens', { Settings: FLM.Screens.Settings, dialog: async () => 'cancel' });
     const refused = await Modes.enter('quickplay');
     t.eq(refused.ok, false);
     t.eq(refused.mode, 'menu');

@@ -25,16 +25,25 @@ FLM.SelfTest.group('ui', (t) => {
   const MIN_TOUCH_SIDE = 56;
 
   let ownsInit = false;
+  let hadMenu = false;                       // boot left the main menu on screen; this group puts it back
   let savedChildren = {};
 
   t.before(() => {
+    hadMenu = UI.Screens.depth() > 0;
     if (UI.counters().initialized) return;
     UI.init({ settings: {}, caps: {} });
     ownsInit = true;
   });
 
-  t.after(() => {
+  // The tests unmount the menu screen; mount it again and take a fresh leak baseline, as the screens group does.
+  t.after(async () => {
+    UI._resetForTests();
     if (ownsInit) UI._teardownForTests();
+    if (hadMenu) {
+      FLM.Screens.register();
+      await UI.Screens.push('SCR-MainMenu', {});
+    }
+    FLM.Modes._teardownForTests();
   });
 
   // Each test starts from empty #overlay, #hud and #touch; the runner's page content is put back afterwards.
@@ -858,6 +867,10 @@ FLM.SelfTest.group('ui', (t) => {
     const node = doc.querySelector('[data-dialog="DLG-Roles"]');
     t.eq(node.getAttribute('role'), 'dialog');
     t.eq(node.getAttribute('aria-modal'), 'true');
+    UI.dialog(dialogSpec('DLG-SaveFailed'));
+    UI.dialog(dialogSpec('DLG-Unsupported', { alert: true }));
+    t.eq(doc.querySelector('[data-dialog="DLG-SaveFailed"]').getAttribute('role'), 'alertdialog');
+    t.eq(doc.querySelector('[data-dialog="DLG-Unsupported"]').getAttribute('role'), 'alertdialog');
     t.eq(doc.getElementById(node.getAttribute('aria-labelledby')).tagName, 'H2');
     t.eq(doc.getElementById(node.getAttribute('aria-describedby')).querySelectorAll('p').length, 2);
     t.ok(node.querySelector('.consequence use[href="#g-warn"]'),

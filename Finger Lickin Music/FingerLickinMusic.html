@@ -232,8 +232,9 @@ body.touch .hover-only { display: none; }
 (function () {
 'use strict';
 const VERSION = '0.1.0';
-const BUILD = '2026-10-27T14:17:48Z standalone ship';
+const BUILD = '2026-10-27T14:30:55Z standalone ship';
 const RELAY_URL = '';
+const LICENSE_NOTICE = 'Copyright (c) 2026 the Finger Lickin Music authors. All rights reserved.';   // Part 10.3.3, interim notice
 const FLM = window.FLM = { VERSION, BUILD, RELAY_URL };
 
 // ---------------------------------------------------------------------------------------------
@@ -1588,6 +1589,7 @@ const Core = Object.freeze({
   VERSION,
   BUILD,
   RELAY_URL,
+  LICENSE_NOTICE,
   define,
   modules,
   Emitter,
@@ -4233,6 +4235,8 @@ FLM.Core.define('UI', function (FLM) {
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const HISTORY_FLAG = 1;                    // history.state.flm value of every entry M-26 creates
   const MAX_DIALOGS = 3;
+  // Part 7.4: these dialogs interrupt with a failure and are announced as alerts; a spec can ask for it with alert:true.
+  const ALERT_DIALOG_IDS = Object.freeze(['DLG-SaveFailed', 'DLG-NetError']);
   const MAX_TOASTS_VISIBLE = 3;
   const MAX_TOASTS_QUEUED = 10;
   const TOAST_DEDUPE_MS = 10000;
@@ -5828,7 +5832,9 @@ FLM.Core.define('UI', function (FLM) {
     record.buttonHandles = buttons.map((item) => Widgets.button({ id: spec.id + '-' + item.id, label: item.label,
       kind: item.kind, onPress: () => finish(item.id) }));
     content.push(el('div', { class: 'dialog-buttons' }, record.buttonHandles.map((handle) => handle.root)));
-    const dialogEl = el('div', { class: 'dialog', id: spec.id.toLowerCase(), role: 'dialog', 'aria-modal': 'true',
+    const alerting = spec.alert === true || ALERT_DIALOG_IDS.includes(spec.id);
+    const dialogEl = el('div', { class: 'dialog', id: spec.id.toLowerCase(),
+      role: alerting ? 'alertdialog' : 'dialog', 'aria-modal': 'true',
       'aria-labelledby': titleId, 'aria-describedby': bodyId, 'data-dialog': spec.id }, content);
     return dialogEl;
   }
@@ -7520,7 +7526,6 @@ FLM.Core.define('Screens', function (FLM) {
   const IMPORT_LIST_LIMIT = 20;
   const SETTINGS_FILE_LIMIT = 256 * 1024;
   const FIRST_LAUNCH_LAST_STEP = 6;
-  const LICENSE_NOTICE = 'Copyright (c) 2026 the Finger Lickin Music authors. All rights reserved.';   // Part 10.3.3
   // Groups whose tests reset the screen stack; the Diagnostics button must not run them (it would remove itself).
   const SELF_TEST_SKIPPED_GROUPS = Object.freeze(['ui', 'modes', 'screens', 'boot']);
   const NOTE_NAMES = Object.freeze(['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']);
@@ -8504,7 +8509,7 @@ FLM.Core.define('Screens', function (FLM) {
 
   function aboutLicensesPanel() {
     const lines = ['Third-party code: none.', 'Fonts, sounds, models: none; all content is original and synthesized.',
-      'Built-in songs are original compositions for this game.', LICENSE_NOTICE];
+      'Built-in songs are original compositions for this game.', Core.LICENSE_NOTICE];
     return panel('ab-licenses', 'Credits and licenses', lines.map((line) => paragraph(line))
       .concat(CREDITS_TEXT.map((line) => paragraph(line)), DEPENDENCY_TEXT.map((line) => paragraph(line)),
         [paragraph(CONTENT_TEXT, { id: 'ab-content' }), paragraph(FIDELITY_TEXT, { id: 'ab-fidelity' }),
@@ -8823,7 +8828,7 @@ FLM.Core.define('Screens', function (FLM) {
     const body = returned ? [record.userMessage || record.message || '', say('dlg.returned.body')] : params.reason;
     const buttons = [Object.assign({ label: say('dlg.ok') }, OK_BUTTON)];
     if (returned) buttons.unshift({ id: 'copy', label: say('dlg.copy'), kind: 'secondary' });
-    return UI.dialog({ id: 'DLG-Unsupported', title, body, buttons }).then((result) => {
+    return UI.dialog({ id: 'DLG-Unsupported', title, body, buttons, alert: returned }).then((result) => {
       if (result === 'copy') copyDiagnostics(false);
       return result;
     });
@@ -9457,12 +9462,15 @@ FLM.Core.define('Modes', function (FLM) {
       Core.assert(MODES.includes(mode), 'unknown mode ' + mode);
       if (!isMenuLike(state.current.mode)) await doLeave('user', { next: mode });
       if (state.current.mode === 'none' && mode !== 'menu') await openMenuRoot();
-      takeBaseline();                          // taken only in the menu (Part 4.7.1 step 2)
+      // Taken only in the menu (Part 4.7.1 step 2). Entering the menu itself takes it after the menu screen is
+      // mounted, because menu-level resources (the screen and its listeners) belong to the baseline.
+      if (mode !== 'menu') takeBaseline();
       if (!(await passAudioGate(mode))) return { ok: false, mode: 'menu' };
       const owner = mode === 'menu' ? MENU_OWNER : Symbol(mode + ':' + Core.uid());
       state.current = { mode, params, owner, enteredAt: Core.now() };
       doc.body.dataset.mode = mode;
       await setupMode(mode, params);
+      if (mode === 'menu') takeBaseline();
       bus.emit('mode.enter', { mode, prev, params: plainCopy(params), ms: Math.round(Core.now() - started) });
       rememberMode(mode, params);
       return { ok: true, mode };
@@ -9691,6 +9699,8 @@ FLM.Core.define('Modes', function (FLM) {
   function subscribe() {
     const on = (topic, handler) => bus.on(topic, handler, MODES_OWNER);
     on('error', onErrorRecord);
+    // Boot-only resources (the error escalation listener) are gone once the menu is up: baseline again then.
+    on('boot.ready', () => { if (isMenuLike(state.current.mode)) takeBaseline(); });
     on('audio.state', (event) => { if (event && event.state !== 'running') onInterrupt('audio'); });
     on('render.contextLost', () => onInterrupt('contextLost'));
     on('render.contextRestored', () => onInterrupt('contextRestored'));
@@ -9795,7 +9805,7 @@ FLM.Core.define('Boot', function (FLM) {
     'ScrollLock', 'Fn', 'FnLock', 'Tab']);
 
   /** Namespaces whose files exist (convention 6 of Part 11); every entry that adds a module file appends its name. */
-  const EXPECTED_MODULES = Object.freeze(['Core', 'UI', 'Storage', 'Screens', 'Modes', 'Boot']);
+  const EXPECTED_MODULES = Object.freeze(['Core', 'Theory', 'Model', 'UI', 'Storage', 'Screens', 'Modes', 'Boot']);
 
   /** Fault prefix -> namespace that owns the fault (Part 6.29.4.8). */
   const FAULT_ROUTES = Object.freeze({
@@ -10256,8 +10266,9 @@ FLM.Core.define('Boot', function (FLM) {
     const screens = run.mod('Screens');
     // Screens.register wires every SCR-* controller; without it no menu screen can be mounted yet.
     if (!hasFunction(screens, 'register')) return skipStep('B14', 'SCR-MainMenu');
-    const entered = await modes.enter('menu', { screen: run.land.screen, notice: run.notice });
+    // The panel and its timer go before the menu mounts: Modes takes its leak baseline once the menu is up.
     removePanel(run);
+    const entered = await modes.enter('menu', { screen: run.land.screen, notice: run.notice });
     if (entered && entered.ok === false) return { ok: false, fatal: true, code: 'E-MODE-002' };
     return {};
   }
@@ -10373,11 +10384,13 @@ FLM.Core.define('Boot', function (FLM) {
     const result = { ok: failure === null, ms, tier: activeTier(run), firstLaunch };
     if (failure !== null) result.code = failure.code;
     if (!run.main) return result;
+    // The error escalation listener goes first: Modes re-takes its leak baseline on boot.ready, and a boot-only
+    // listener must not be part of it.
+    endPhase(failure === null ? 'ready' : 'failed');
     if (failure === null) {
       const degraded = run.gate ? run.gate.degraded.slice() : [];
       bus.emit('boot.ready', { ms, tier: result.tier, firstLaunch, degraded });
     }
-    endPhase(failure === null ? 'ready' : 'failed');
     return result;
   }
 

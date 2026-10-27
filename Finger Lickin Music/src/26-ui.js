@@ -22,6 +22,8 @@ FLM.Core.define('UI', function (FLM) {
   const SVG_NS = 'http://www.w3.org/2000/svg';
   const HISTORY_FLAG = 1;                    // history.state.flm value of every entry M-26 creates
   const MAX_DIALOGS = 3;
+  // Part 7.4: these dialogs interrupt with a failure and are announced as alerts; a spec can ask for it with alert:true.
+  const ALERT_DIALOG_IDS = Object.freeze(['DLG-SaveFailed', 'DLG-NetError']);
   const MAX_TOASTS_VISIBLE = 3;
   const MAX_TOASTS_QUEUED = 10;
   const TOAST_DEDUPE_MS = 10000;
@@ -1617,7 +1619,9 @@ FLM.Core.define('UI', function (FLM) {
     record.buttonHandles = buttons.map((item) => Widgets.button({ id: spec.id + '-' + item.id, label: item.label,
       kind: item.kind, onPress: () => finish(item.id) }));
     content.push(el('div', { class: 'dialog-buttons' }, record.buttonHandles.map((handle) => handle.root)));
-    const dialogEl = el('div', { class: 'dialog', id: spec.id.toLowerCase(), role: 'dialog', 'aria-modal': 'true',
+    const alerting = spec.alert === true || ALERT_DIALOG_IDS.includes(spec.id);
+    const dialogEl = el('div', { class: 'dialog', id: spec.id.toLowerCase(),
+      role: alerting ? 'alertdialog' : 'dialog', 'aria-modal': 'true',
       'aria-labelledby': titleId, 'aria-describedby': bodyId, 'data-dialog': spec.id }, content);
     return dialogEl;
   }

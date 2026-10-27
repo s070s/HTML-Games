@@ -36,7 +36,7 @@ FLM.Core.define('Boot', function (FLM) {
     'ScrollLock', 'Fn', 'FnLock', 'Tab']);
 
   /** Namespaces whose files exist (convention 6 of Part 11); every entry that adds a module file appends its name. */
-  const EXPECTED_MODULES = Object.freeze(['Core', 'UI', 'Storage', 'Screens', 'Modes', 'Boot']);
+  const EXPECTED_MODULES = Object.freeze(['Core', 'Theory', 'Model', 'UI', 'Storage', 'Screens', 'Modes', 'Boot']);
 
   /** Fault prefix -> namespace that owns the fault (Part 6.29.4.8). */
   const FAULT_ROUTES = Object.freeze({
@@ -497,8 +497,9 @@ FLM.Core.define('Boot', function (FLM) {
     const screens = run.mod('Screens');
     // Screens.register wires every SCR-* controller; without it no menu screen can be mounted yet.
     if (!hasFunction(screens, 'register')) return skipStep('B14', 'SCR-MainMenu');
-    const entered = await modes.enter('menu', { screen: run.land.screen, notice: run.notice });
+    // The panel and its timer go before the menu mounts: Modes takes its leak baseline once the menu is up.
     removePanel(run);
+    const entered = await modes.enter('menu', { screen: run.land.screen, notice: run.notice });
     if (entered && entered.ok === false) return { ok: false, fatal: true, code: 'E-MODE-002' };
     return {};
   }
@@ -614,11 +615,13 @@ FLM.Core.define('Boot', function (FLM) {
     const result = { ok: failure === null, ms, tier: activeTier(run), firstLaunch };
     if (failure !== null) result.code = failure.code;
     if (!run.main) return result;
+    // The error escalation listener goes first: Modes re-takes its leak baseline on boot.ready, and a boot-only
+    // listener must not be part of it.
+    endPhase(failure === null ? 'ready' : 'failed');
     if (failure === null) {
       const degraded = run.gate ? run.gate.degraded.slice() : [];
       bus.emit('boot.ready', { ms, tier: result.tier, firstLaunch, degraded });
     }
-    endPhase(failure === null ? 'ready' : 'failed');
     return result;
   }
 

@@ -519,7 +519,6 @@ FLM.Core.define('Screens', function (FLM) {
   const IMPORT_LIST_LIMIT = 20;
   const SETTINGS_FILE_LIMIT = 256 * 1024;
   const FIRST_LAUNCH_LAST_STEP = 6;
-  const LICENSE_NOTICE = 'Copyright (c) 2026 the Finger Lickin Music authors. All rights reserved.';   // Part 10.3.3
   // Groups whose tests reset the screen stack; the Diagnostics button must not run them (it would remove itself).
   const SELF_TEST_SKIPPED_GROUPS = Object.freeze(['ui', 'modes', 'screens', 'boot']);
   const NOTE_NAMES = Object.freeze(['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B']);
@@ -1503,7 +1502,7 @@ FLM.Core.define('Screens', function (FLM) {
 
   function aboutLicensesPanel() {
     const lines = ['Third-party code: none.', 'Fonts, sounds, models: none; all content is original and synthesized.',
-      'Built-in songs are original compositions for this game.', LICENSE_NOTICE];
+      'Built-in songs are original compositions for this game.', Core.LICENSE_NOTICE];
     return panel('ab-licenses', 'Credits and licenses', lines.map((line) => paragraph(line))
       .concat(CREDITS_TEXT.map((line) => paragraph(line)), DEPENDENCY_TEXT.map((line) => paragraph(line)),
         [paragraph(CONTENT_TEXT, { id: 'ab-content' }), paragraph(FIDELITY_TEXT, { id: 'ab-fidelity' }),
@@ -1822,7 +1821,7 @@ FLM.Core.define('Screens', function (FLM) {
     const body = returned ? [record.userMessage || record.message || '', say('dlg.returned.body')] : params.reason;
     const buttons = [Object.assign({ label: say('dlg.ok') }, OK_BUTTON)];
     if (returned) buttons.unshift({ id: 'copy', label: say('dlg.copy'), kind: 'secondary' });
-    return UI.dialog({ id: 'DLG-Unsupported', title, body, buttons }).then((result) => {
+    return UI.dialog({ id: 'DLG-Unsupported', title, body, buttons, alert: returned }).then((result) => {
       if (result === 'copy') copyDiagnostics(false);
       return result;
     });

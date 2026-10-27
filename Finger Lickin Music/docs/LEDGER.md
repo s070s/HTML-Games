@@ -67,6 +67,49 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 - Device and other-browser tests (XT, LT): owner.
 - Licence: the owner recorded "All rights reserved" (see docs/plan-work/OPEN-ISSUES-stage1.md).
 
+## 2026-10-27 16:45 - Phase 01 GATE (T01.10-T01.12) and T02.01-T02.03 - boot, screens, theory, model
+
+Done: T01.10 src/29-boot.js; T01.11 main menu, first launch, settings, help, about, diagnostics and audio
+dialogs in src/27-screens.js (12 menu entries, 9 disabled with the reason "Available after a later
+build step", 23 STATUS section 5 rows); T01.12 gate fixes (modes baseline after the menu mounts,
+boot panel removed before the baseline, boot error listener removed before boot.ready, ui group
+restores the menu, UT-28-08x stubs Screens.dialog, alertdialog role for alert dialogs, LICENSE_NOTICE
+moved to Core). Started early at the owner's request to work in parallel (deviation from "no T section
+before its dependency is done"; kept because the Phase 01 gate passed): T02.01 Theory, T02.02/T02.03
+Model, TempoMap, MeterMap, KeyMap (src/02-theory.js, src/03-model.js; EXPECTED_MODULES now lists them).
+Gate run (real folder, headless Chrome through the CDP client, 2026-10-27): `node tools/build.mjs` exit 0;
+`node tools/selftest.mjs --all` 246/246, 0 failed, 0 skipped, 14 groups (core 33, selftest 16, ui 42,
+storage 6, screens 24, modes 9, boot 12, files 1, faults 1, perf-smoke 2, theory 24, model 32, ui@touch 43,
+faults@touch 1); `--smoke` OK; perf: PT-001 472,070 bytes; PT-002 menuMs 102.7 (budget 1500), capsMs 17.2
+(budget 20; one run 20.2, headless WebGL probe, environment cost); all software GL.
+0.5 checklist: T order followed except the early T02.01-03 above (recorded); every test registered in its
+group; STATUS updated; no placeholder without a STATUS section 5 row (23 rows); no format/multiplayer/offline/
+performance claim made beyond the runs above; modules communicate through APIs and the bus; files are BOM+LF+ASCII.
+NOT ticked honestly: per-row statuses. The AT-<R-ID> acceptance tests (1,921) are defined in Part 12 but not
+coded as runnable tests, so no Part 15 row has been moved to Partial or Implemented; STATUS counts stay
+1,962 Unimplemented and 26 Deferred. Decision D17: rows move only when their named UT/IT/FT tests exist and
+pass; a later T section must add an AT wiring step (open issue OI-7).
+Risk review (13.3): RISK-06 (single-file size) and RISK-24 retire: build enforces limits, 472,070 bytes;
+RISK-15 (global state object) guarded by the S-07 lint, no violation; RISK-29 retired by gate rule (tests
+run from T01.05 on); RISK-50 (secure-context features) mitigated by Caps flags secureContext/webMidi, re-check
+Phase 15; RISK-57 (Playwright absent) mitigated by decision D1, status: Node playwright path untested;
+RISK-66 (one syntax error disables the game) mitigated by the early handler and syntax-ceiling check, XT-070 at
+Phase 15.
+Decisions: D18 Boot panel removed before the menu baseline; D19 Part 4.7.1 baseline retaken on boot.ready in
+the menu; D20 UT-02-03 expected value for Fb5 is 76 not 64 (plan's own formula; Fb4 is 64); D21 first-launch has
+6 steps (6.27.4.3) not 3 (7.6.1); D22 settings tabs 9 per Part 7.6.12; D23 MeterMap API per Part 6 (barAt number,
+beatAt object); D24 Song.create gives a one-entry C major KeyMap (Part 6) not [] (Part 5).
+Open issues: OI-7 AT tests not wired (above). OI-8 shell.html html/body font-size rule (corrective rule in
+26-ui.js). OI-5 Core ErrorReporter drops function context members (unused so far). OI-9 five leftover browser
+profile folders under %TEMP%\claude (flm-profile-*): a locked LOCK file, owner may delete. OI-10 Escape/Back at
+stack depth 1 answers 'root' per 6.26.3 (menu has no back). OI-11 audio.unlocked and Boot unlock-gesture
+listeners are inside the menu baseline until the next enter. OI-12 UT-29-06/09, UT-27-28 partial until T04.01.
+OI-13 B7-B14 boot steps for unbuilt modules coded from plan text only (Input.init, Render.pickTier).
+Owner actions: push of flm-implementation (pending approval); delete OI-9 folders; Phase 15 device tests.
+Usage: 5h 7% / weekly all 10% at 16:30 (Fable weekly 3%).
+RESUME: T02.04 (M-04 Transport state machine, audio-clock anchoring and positionAt), then T02.05.
+Constraint: owner stop rule (stop before 15% weekly); T02.04 needs fakes.clock (also T01.05 UT-31-13 part).
+
 ## 2026-10-27 15:55 - T01.08 to T01.09 - settings storage subset and mode manager
 
 Done: src/16-storage.js (M-16 subset), src/27-screens.js (Settings controller only; T01.11 extends),

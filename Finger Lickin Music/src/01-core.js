@@ -8,6 +8,7 @@
 const VERSION = '0.1.0';
 const BUILD = '@@BUILD@@';
 const RELAY_URL = '@@RELAY_URL@@';
+const LICENSE_NOTICE = 'Copyright (c) 2026 the Finger Lickin Music authors. All rights reserved.';   // Part 10.3.3, interim notice
 const FLM = window.FLM = { VERSION, BUILD, RELAY_URL };
 
 // ---------------------------------------------------------------------------------------------
@@ -1362,6 +1363,7 @@ const Core = Object.freeze({
   VERSION,
   BUILD,
   RELAY_URL,
+  LICENSE_NOTICE,
   define,
   modules,
   Emitter,
