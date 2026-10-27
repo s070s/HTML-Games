@@ -692,6 +692,15 @@ FLM.Core.define('Screens', function (FLM) {
     'S-NET-02': 'Two players on one keyboard is not available in this version. Each player uses their own device ' +
       'and connects by invite code.',
     'gate.webrtc': 'This browser has no WebRTC support.',
+    'S-PLAY-03': 'Paused because the game went to the background.',
+    'S-PLAY-04': 'Paused because the controller disconnected.',
+    'S-PLAY-05': 'Paused because playback stalled.',
+    'S-PLAY-06': 'Paused because sound was interrupted.',
+    'ps.title': 'Paused',
+    'ps.resume': 'Resume',
+    'ps.restart': 'Restart',
+    'ps.calibrate': 'Calibration...',
+    'ps.quit': 'Quit',
     'dlg.audio.title': 'Turn on sound',
     'dlg.audio.enable': 'Turn on sound',
     'dlg.audio.waiting': 'Waiting for sound...',
@@ -802,6 +811,13 @@ FLM.Core.define('Screens', function (FLM) {
     '.remap-label { flex: 0 0 11rem; font-weight: var(--fw-bold); }',
     '.remap-chips { display: flex; flex-wrap: wrap; gap: var(--sp-1); }',
     '.remap-status { flex: 1 0 100%; margin: 0; color: var(--c-text-muted); font-size: var(--fs-2); }',
+    '.screen.play-screen { background: transparent; pointer-events: none; }',
+    '.screen.pause-screen { align-items: center; justify-content: center; background: rgba(0, 0, 0, 0.6); }',
+    '.pause-panel { width: min(24rem, 100%); padding: var(--sp-4); border: var(--border); border-radius: var(--r-2);' +
+      ' background: var(--c-panel); }',
+    '.pause-panel h1 { margin: 0 0 var(--sp-2); font-size: var(--fs-5); }',
+    '.pause-panel .btn { display: flex; width: 100%; margin: 0 0 var(--sp-2); }',
+    '.pause-count { min-height: 1.5em; margin: 0 0 var(--sp-2); text-align: center; font-size: var(--fs-6); }',
     '.cal-pad { width: 6rem; height: 6rem; margin: var(--sp-3) auto; border: var(--border); border-radius: 50%; }',
     '.cal-pad.on { background: var(--c-accent-2); }',
     '.cal-preview { position: relative; display: flex; gap: var(--sp-2); height: 9rem; margin: var(--sp-3) 0;' +
@@ -2614,11 +2630,115 @@ FLM.Core.define('Screens', function (FLM) {
     return openDialog('DLG-Unsupported', { variant: 'returned', record }).then(() => undefined);
   }
 
+  // ---------------------------------------------------------------- SCR-Instrument play phase and SCR-Pause (T03.10)
+  // The play phase has no panel of its own: the HUD (M-26) and the pads show the play, this screen only feeds the HUD
+  // from the judge and answers Back with a pause. The select phase waits for the catalog (Phase 05) and Phase 08.
+  const COUNTDOWN_STEP_MS = 500;             // "3", "2", "1" over 1,500 ms, then the resume (Part 6.27.4.20 rule 2)
+  const COUNTDOWN_START = 3;
+  const PAUSE_REASON_IDS = Object.freeze({ hidden: 'S-PLAY-03', gamepad: 'S-PLAY-04', stall: 'S-PLAY-05',
+    audio: 'S-PLAY-06' });
+
+  function createInstrument() {
+    const view = { playing: false };
+    return {
+      mount(root, params, ctx) {
+        ensureStyles();
+        view.playing = params.phase === 'play';
+        if (!view.playing) {
+          const frame = UI.Frame.create(root, { prefix: 'ins', title: say('screen.SCR-Instrument'), subtitle: '' });
+          addAll(frame.body, [notice('ins-later', 'info', LATER_BUILD)]);
+          return;
+        }
+        root.classList.add('play-screen');
+        bus.on('judge.result', (result) => UI.HUD.flash(result.judgment, result.lanes), ctx.owner);
+        bus.on('score.update', (score) => UI.HUD.set({ score: score.score, combo: score.combo,
+          accuracy: score.accuracy }), ctx.owner);
+      },
+      onBack() {
+        if (!view.playing) return 'pop';
+        FLM.Modes.pause('user').catch((error) => Core.Log.warn('screens', 'pause failed: ' + error.message));
+        return 'handled';                      // Back, the pause button and the browser Back all pause (Part 7.4)
+      }
+    };
+  }
+
+  function pauseReasonText(params) {
+    if (hasOwn(PAUSE_REASON_IDS, params.reason)) return say(PAUSE_REASON_IDS[params.reason]);
+    return params.reason === 'blur' && params.text ? params.text + '.' : '';
+  }
+
+  function createPause() {
+    const view = { owner: null, count: null, resume: null, timers: [] };
+
+    function showCount(value) {
+      view.count.textContent = value;
+    }
+
+    function cancelCountdown() {
+      view.timers.forEach((id) => Core.timers.clearTimeout(id));
+      view.timers = [];
+      showCount('');
+    }
+
+    function finishCountdown() {
+      view.timers = [];
+      showCount('');
+      Promise.resolve(FLM.Modes.resume()).catch((error) => Core.Log.warn('screens', 'resume failed: ' + error.message));
+    }
+
+    // The transport stays paused during the countdown, and the judge stays idle until Modes.resume (rule 2).
+    function startCountdown() {
+      for (let step = 1; step < COUNTDOWN_START; step += 1) {
+        const number = COUNTDOWN_START - step;
+        view.timers.push(Core.timers.setTimeout(() => showCount(String(number)), step * COUNTDOWN_STEP_MS,
+          view.owner));
+      }
+      view.timers.push(Core.timers.setTimeout(finishCountdown, COUNTDOWN_START * COUNTDOWN_STEP_MS, view.owner));
+      showCount(String(COUNTDOWN_START));
+    }
+
+    function toggleResume() {
+      if (view.timers.length > 0) cancelCountdown();
+      else startCountdown();
+      return 'handled';
+    }
+
+    function report(job) {
+      Promise.resolve(job).catch((error) => Core.Log.warn('screens', 'pause action failed: ' + error.message));
+    }
+
+    function buildButtons() {
+      view.resume = actionButton({ id: 'ps-resume', label: say('ps.resume'), kind: 'primary', onPress: toggleResume });
+      const restart = actionButton({ id: 'ps-restart', label: say('ps.restart'),
+        onPress: () => report(FLM.Modes.restart()) });
+      const calibrate = actionButton({ id: 'ps-calibrate', label: say('ps.calibrate'),
+        onPress: () => report(openDialog('DLG-Calibration', {})) });
+      const quit = actionButton({ id: 'ps-quit', label: say('ps.quit'),
+        onPress: () => report(FLM.Modes.leave('user')) });
+      return [view.resume, restart, calibrate, quit].map((handle) => handle.root);
+    }
+
+    return {
+      mount(root, params, ctx) {
+        ensureStyles();
+        view.owner = ctx.owner;
+        view.timers = [];
+        root.classList.add('pause-screen');
+        view.count = el('p', { id: 'ps-count', class: 'pause-count', 'aria-live': 'assertive' });
+        const reason = paragraph(pauseReasonText(params), { id: 'ps-reason' });
+        root.appendChild(el('div', { class: 'pause-panel', role: 'dialog', 'aria-labelledby': 'ps-title' },
+          [el('h1', { id: 'ps-title' }, say('ps.title')), reason, view.count].concat(buildButtons())));
+      },
+      initialFocus: () => view.resume.root,
+      onBack: toggleResume                     // Escape, browser Back and the gamepad B button all resume
+    };
+  }
+
   // ---------------------------------------------------------------- registry and global reactions
   // Screens of the list that later steps build are known ids but have no controller yet (E-MODE-002).
   const controllers = new Map([['SCR-FirstLaunch', createFirstLaunch], ['SCR-MainMenu', createMainMenu],
     ['SCR-Settings', createSettingsScreen], ['SCR-Help', createHelp], ['SCR-About', createAbout],
-    ['SCR-Diagnostics', createDiagnostics]]);
+    ['SCR-Diagnostics', createDiagnostics], ['SCR-Instrument', createInstrument], ['SCR-Pause', createPause]]);
   const registration = { reactions: false };
 
   /** Controller factory for a screen id; an unknown or not yet built id throws E-MODE-002. */

@@ -265,5 +265,41 @@ FLM.SelfTest.group('selftest', (t) => {
     t.deepEq(good.errors, []);
     t.eq(good.has('b.mid'), true);
   });
+
+  // T03.10: the fixtures and the chart bot of Part 9.1.1 item 12 (the IT rows use them through the instrument mode).
+  t.test('T03.10 fixtures: the IT-003 song and chart; the chart bot presses at the audio time of each note', () => {
+    const song = SelfTest.fixtures.song(4);
+    const chart = SelfTest.fixtures.chart(4, 'expert');
+    t.deepEq(chart.notes.map((note) => [note.tick, note.lanes[0]]), [[960, 1], [1920, 2], [2880, 3], [3840, 0]]);
+    t.eq(chart.difficulty, 'expert');
+    t.eq(song.durationTicks, 6 * 960, 'two beats after the last note');
+    t.eq(song.tempoMap.tempoAt(0).bpm, 120);
+    const owner = Symbol('bot-test');
+    const main = FLM.Transport.main;
+    const timers = t.fakes.timers();
+    timers.install();
+    const events = [];
+    FLM.Core.bus.on('input.event', (event) => events.push(event), t.owner);
+    FLM.Input.bind({ owner, context: 'instrument' });
+    main.load(song);
+    main.play({ countInBars: 0 });
+    const bot = SelfTest.chartBot(chart, { offsetMs: 30 });
+    try {
+      bot.start();
+      t.eq(bot.pending(), 8, 'a press and a release per note');
+      timers.advance(3000);
+      t.eq(bot.sent(), 8);
+      const presses = events.filter((event) => event.type === 'press');
+      t.deepEq(presses.map((event) => event.control), ['lane1', 'lane2', 'lane3', 'lane0']);
+      presses.forEach((event, index) => t.near(event.tAudio, main.audioTimeAt(chart.notes[index].tick) + 0.03, 1e-6));
+      t.deepEq(FLM.Input.held(), []);
+    } finally {
+      bot.stop();
+      main.stop();
+      main.unload();
+      FLM.Input.unbind(owner);
+    }
+    t.eq(bot.pending(), 0);
+  });
 });
 })();

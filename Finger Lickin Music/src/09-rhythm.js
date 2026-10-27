@@ -489,7 +489,8 @@ FLM.Core.define('Rhythm', function (FLM) {
         log: [],
         score: createScore(loaded.total, loaded.sections),
         finished: false,
-        calibrationChanged: false
+        calibrationChanged: false,
+        began: false                 // true once the judge was active: a change while paused still counts
       };
     }
 
@@ -763,6 +764,7 @@ FLM.Core.define('Rhythm', function (FLM) {
       const resumeAt = next ? (given.tAudio !== undefined ? given.tAudio : resumeTime()) : given.tAudio;
       const heldLanes = next ? (given.held !== undefined ? given.held : lanesFromInput()) : [];
       active = next;
+      if (next) run.began = true;
       run.log.push({ marker: 'active', on: next, tAudio: Number.isFinite(resumeAt) ? resumeAt : null,
         held: heldLanes.slice() });
       if (next) resumeHolds(resumeAt, heldLanes);
@@ -830,7 +832,7 @@ FLM.Core.define('Rhythm', function (FLM) {
       if (!run) return;
       run.log.push({ marker: 'calibration', inputOffsetMs: next.inputOffsetMs, audioLatencyMs: next.audioLatencyMs });
       // E 4.1: earlier results keep their value; the run is no longer comparable.
-      if (active) run.calibrationChanged = true;
+      if (active || run.began) run.calibrationChanged = true;
     }
 
     // ---- results, summary, restart, finish -------------------------------------------------------

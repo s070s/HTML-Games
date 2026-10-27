@@ -2,10 +2,10 @@
 
 Plan version: 1.0.0
 Updated: 2026-10-27 (UTC date of the last change to this file)
-Current phase: Phase 03
-Last completed T section: T03.11
-Build: FingerLickinMusic.html 526829 bytes
-Self-test (--all): 564/564 on 2026-10-27 (22 groups)
+Current phase: Phase 04
+Last completed T section: T03.12
+Build: FingerLickinMusic.html 720904 bytes
+Self-test (--all): 586/586 on 2026-10-27 (22 groups; --slow included)
 Live and device tests (LT, XT): not run
 
 ## 1. Counts per specification part
@@ -25,7 +25,7 @@ Live and device tests (LT, XT): not run
 | Phase 00 | satisfied by plan 1.0.0 | n/a | 2026-10-25 | n/a |
 | Phase 01 | 12 / 12 | gate commit (see LEDGER) | 2026-10-27 | 246/246 |
 | Phase 02 | 9 / 9 | gate commit (see LEDGER) | 2026-10-27 | 326/326 |
-| Phase 03 | 10 / 12 | - | - | - |
+| Phase 03 | 12 / 12 | gate commit (see LEDGER) | 2026-10-27 | 586/586 |
 | Phase 04 | 0 / - | - | - | - |
 | Phase 05 | 0 / - | - | - | - |
 | Phase 06 | 0 / - | - | - | - |
@@ -341,6 +341,7 @@ Every Deferred row is listed here (Part 0.7 rule 2). Rows of phases that have st
 
 | Budget (Part 9.1 row) | Value or "not measured" | Tool and scenario | Date |
 |---|---|---|---|
-| Shipped size (PT-001) | 526829 bytes (limit 2621440) | perf.mjs build-size | 2026-10-27 |
-| menuMs median (PT-002) | 126.1 ms (software GL; budget 1500) | perf.mjs boot-to-menu | 2026-10-27 |
-| capsMs (PT-002) | 19.7 ms (software GL; budget 20; noisy: runs 16.3-20.2) | perf.mjs boot-to-menu | 2026-10-27 |
+| Shipped size (PT-001) | 720904 bytes (limit 2621440) | perf.mjs build-size | 2026-10-27 |
+| menuMs median (PT-002) | 115.5 ms (software GL; budget 1500) | perf.mjs boot-to-menu | 2026-10-27 |
+| capsMs (PT-002) | 15.7 ms (software GL; budget 20; noisy: runs 15.7-20.2) | perf.mjs boot-to-menu | 2026-10-27 |
+| inputProcP95Ms (PT-009 input phase) | 0.7 ms (software GL; budget 4) | perf.mjs input-latency | 2026-10-27 |

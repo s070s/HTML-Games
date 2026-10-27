@@ -2,8 +2,10 @@
 // pass). Created by T03.03 with IT-002 and IT-043. Later entries append rows.
 // IT-002 is partial until Phase 06 exit: the input and pressed-class assertions run now on the real M-26 pads and the
 // real M-07 listeners; the audio assertions (sched.noteOn and noteOff, activeVoices) wait for Free Play sound.
-// IT-043 runs against the real Modes leave steps. Modes does not bind the input context on enter yet (T03.10), so the
-// test binds one itself and routes the Input.unbind of Modes to that owner through a stand-in namespace.
+// IT-043 runs against the real Modes leave steps. Free Play does not bind the input context on enter (only `instrument`
+// does, since T03.10), so the test binds one itself and routes the Input.unbind of Modes to that owner through a
+// stand-in namespace. T03.10 adds IT-003, IT-004, IT-035 and the real-clock part of TT-023 (TT-023 lives here because
+// this group has the mode harness; the timing group has none).
 (function () {
 'use strict';
 const FLM = window.FLM;
@@ -175,6 +177,220 @@ FLM.SelfTest.group('integration', (t) => {
     t.eq(Input.boundSurfaces(), 0);
     t.eq(Modes.assertClean(), null);
     t.deepEq(forbidden, [], 'no note was scheduled and nothing was judged');
+  });
+
+  // ------------------------------------------------------------------------------------------ T03.10
+  // IT-003, IT-004, IT-035 and the real-clock part of TT-023 run the `instrument` mode on a test chart
+  // (params.testChart) with the chart bot. The Scheduler and the highway do not exist yet, so their halves of the
+  // rows (sched.noteOn `at` lists, hit-line crossing times, activeVoices) are replaced by the note audio times of
+  // Transport.main and wait for Phase 04 and Phase 09. IT-003 to IT-035 run on fake timers: the whole song takes
+  // 19 s of fake time.
+  const Fixtures = FLM.SelfTest.fixtures;
+  const Rhythm = FLM.Rhythm;
+  const Settings = FLM.Screens.Settings;
+  const NOTE_COUNT = 31;
+  const FINISH_FAKE_MS = 19000;            // song end (16.5 s) plus the 1.5 s "Song complete" note
+  const ZERO_CALIBRATION = { inputOffsetMs: 0, audioLatencyMs: 0 };
+  const SCORE_FIELDS = ['score', 'combo', 'maxCombo', 'counts', 'judged', 'total', 'accuracy', 'completion'];
+  const LANE_CONTROL = /^lane[0-3]$/;
+  const TIME_EPSILON = 1e-6;
+  const PERF_SAMPLES = 10;
+  const REAL_NOTE_COUNT = 6;
+  const BOT_DELAY_MS = 30;
+  const REAL_BOT_DELAY_MS = 50;
+  const DEFAULT_VISUAL_LEAD_MS = 1500;
+
+  const flush = async () => {
+    for (let turn = 0; turn < 10; turn += 1) await Promise.resolve();
+  };
+
+  const pickScore = (state) => SCORE_FIELDS.reduce((picked, field) => Object.assign(picked, { [field]: state[field] }),
+    {});
+
+  function startRun(songNotes, difficulty, extra) {
+    const song = Fixtures.song(songNotes);
+    const chart = Fixtures.chart(songNotes, difficulty);
+    UI.Screens.setResolver(FLM.Screens.get);   // the real SCR-Instrument and SCR-Pause
+    return { song, chart, params: Object.assign({ song, testChart: chart, countInBars: 0 }, extra) };
+  }
+
+  /** Records what a run emits, with its own owner so that several runs of one test do not mix. */
+  function recordRun(chart, zero) {
+    const owner = Symbol('run');
+    const run = { results: [], scores: [], finished: [], events: [], owner };
+    bus.on('judge.result', (result) => run.results.push(result), owner);
+    bus.on('score.update', (state) => run.scores.push(state), owner);
+    bus.on('chart.finished', (event) => run.finished.push(event), owner);
+    bus.on('input.event', (event) => {
+      if (!LANE_CONTROL.test(event.control)) return;
+      run.events.push({ source: event.source, control: event.control, type: event.type,
+        tPerf: event.tPerf - zero() * 1000, tAudio: event.tAudio - zero(), pressure: event.pressure });
+    }, owner);
+    run.stop = () => bus.removeOwner(owner);
+    run.chart = chart;
+    return run;
+  }
+
+  /** One whole song through the mode on fake timers: enter, bot, song end, "Song complete", leave. */
+  async function playOnFakeTimers(timers, setup, botDelayMs) {
+    let zeroAudio = 0;
+    const entered = await Modes.enter('instrument', setup.params);   // the recorder follows: it is no baseline
+    t.eq(entered.ok, true, 'the instrument mode started');
+    const run = recordRun(setup.chart, () => zeroAudio);
+    zeroAudio = FLM.Transport.main.audioTimeAt(0);
+    run.noteTimes = setup.chart.notes.map((note) => FLM.Transport.main.audioTimeAt(note.tick) - zeroAudio);
+    FLM.Input.resampleAnchor();              // the anchor the bot and the mapping use
+    run.perfToAudio = Array.from({ length: PERF_SAMPLES },
+      (unused, index) => FLM.Input.perfToAudio((index + 1) * 1000));
+    const bot = FLM.SelfTest.chartBot(setup.chart, { offsetMs: botDelayMs, owner: run.owner });
+    bot.start();
+    timers.advance(FINISH_FAKE_MS);
+    await flush();
+    bot.stop();
+    await Modes.leave('user');
+    run.stop();
+    t.eq(Modes.assertClean(), null, 'the run left nothing behind');
+    run.state = run.scores.length > 0 ? run.scores[run.scores.length - 1] : null;
+    run.zero = zeroAudio;
+    return run;
+  }
+
+  // A fake settings store, so that Settings.set (as SCR-Settings does it) never writes the real storage.
+  async function withSettingsStore(body) {
+    const Storage = FLM.Storage;
+    const wasOpen = Storage.state().opened;
+    const savedDocument = Settings.all();
+    const rhythm = Rhythm.calibration();
+    const input = FLM.Input.calibration();
+    await Storage.open({ localStorage: t.fakes.localStorage(), idbFactory: null });
+    Settings.load();
+    Modes._teardownForTests();               // a fresh leak baseline, now that the store listeners are in place
+    await Modes.enter('menu');
+    try {
+      await body();
+    } finally {
+      Storage._teardownForTests();
+      Settings._resetForTests(savedDocument);
+      Rhythm.setCalibration(rhythm);
+      FLM.Input.setCalibration(input);
+      if (wasOpen) await Storage.open();
+    }
+  }
+
+  const setCalibration = (values) => {
+    const lead = values.visualLeadMs === undefined ? DEFAULT_VISUAL_LEAD_MS : values.visualLeadMs;
+    const patch = { 'calibration.inputOffsetMs': values.inputOffsetMs,
+      'calibration.audioLatencyMs': values.audioLatencyMs, 'calibration.visualLeadMs': lead };
+    t.eq(Settings.setMany(patch, 'ui').ok, true);
+  };
+
+  const sameTimes = (actual, expected) => actual.length === expected.length &&
+    actual.every((time, index) => Math.abs(time - expected[index]) <= TIME_EPSILON);
+
+  const lanePresses = (run) => run.events.filter((event) => event.type === 'press');
+
+  t.test('IT-003 input to scoring: 31 perfect presses through the instrument mode on a test chart', async () => {
+    await withSettingsStore(async () => {
+      setCalibration(ZERO_CALIBRATION);
+      const timers = t.fakes.timers();
+      timers.install();
+      const setup = startRun(NOTE_COUNT, 'intermediate');
+      const run = await playOnFakeTimers(timers, setup, 0);
+      timers.uninstall();
+      t.eq(run.results.length, NOTE_COUNT);
+      t.deepEq(run.results.map((result) => result.judgment), new Array(NOTE_COUNT).fill('perfect'));
+      t.ok(run.results.every((result) => Math.abs(result.deltaMs) === 0), 'every press is on the note');
+      t.eq(run.finished.length, 1, 'one chart.finished');
+      t.eq(run.finished[0].endedBy, 'end');
+      const expected = { score: 6400, combo: 31, maxCombo: 31, counts: { perfect: 31, great: 0, good: 0, miss: 0 },
+        judged: 31, total: 31, accuracy: 1, completion: 1 };
+      t.deepEq(pickScore(run.state), expected, 'score = 100 x (10 x 1 + 10 x 2 + 10 x 3 + 1 x 4) = 6400');
+      const replayed = Rhythm.replay(setup.chart, setup.song, 'intermediate', run.events, ZERO_CALIBRATION);
+      t.deepEq(pickScore(replayed.state), pickScore(run.state), 'the input log replays to the same ScoreState');
+      t.eq(Modes.current().mode, 'menu', 'the mode left by itself after "Song complete"');
+      t.eq(Modes.assertClean(), null);
+    });
+  });
+
+  t.test('IT-004 calibration affects scoring predictably: only the Judge moves, and once', async () => {
+    await withSettingsStore(async () => {
+      const timers = t.fakes.timers();
+      timers.install();
+      const runs = [];
+      const cases = [ZERO_CALIBRATION, { inputOffsetMs: BOT_DELAY_MS, audioLatencyMs: 0 },
+        { inputOffsetMs: 0, audioLatencyMs: BOT_DELAY_MS }];
+      for (const values of cases) {
+        setCalibration(values);
+        runs.push(await playOnFakeTimers(timers, startRun(NOTE_COUNT, 'expert'), BOT_DELAY_MS));
+      }
+      timers.uninstall();
+      const deltas = runs.map((run) => run.results.map((result) => result.deltaMs));
+      const kinds = runs.map((run) => run.results.map((result) => result.judgment));
+      t.ok(deltas[0].every((delta) => Math.abs(delta - BOT_DELAY_MS) <= 1), 'run 1: every deltaMs is +30');
+      t.deepEq(kinds[0], new Array(NOTE_COUNT).fill('great'), 'run 1: expert perfect is 18 ms, great 40 ms');
+      [1, 2].forEach((index) => {
+        t.ok(deltas[index].every((delta) => Math.abs(delta) <= 1), 'run ' + (index + 1) + ': every deltaMs is 0');
+        t.deepEq(kinds[index], new Array(NOTE_COUNT).fill('perfect'), 'run ' + (index + 1) + ': perfect');
+      });
+      t.deepEq(pickScore(runs[1].state), pickScore(runs[2].state), 'offset and latency give the same ScoreState');
+      t.ok(sameTimes(runs[1].noteTimes, runs[0].noteTimes), 'the note audio times are the same in runs 1 and 2');
+      t.ok(sameTimes(runs[2].noteTimes, runs[0].noteTimes), 'the note audio times are the same in runs 1 and 3');
+      runs.forEach((run, index) => t.ok(lanePresses(run).every((event, position) => Math.abs(event.tAudio -
+        (run.noteTimes[position] + BOT_DELAY_MS / 1000)) <= TIME_EPSILON), 'run ' + (index + 1) +
+        ': input.event.tAudio is the uncalibrated mapping'));
+    });
+  });
+
+  t.test('IT-035 calibration values touch only the Judge: input mapping and timeline are identical', async () => {
+    await withSettingsStore(async () => {
+      const timers = t.fakes.timers();
+      timers.install();
+      setCalibration(ZERO_CALIBRATION);
+      const plain = await playOnFakeTimers(timers, startRun(NOTE_COUNT, 'expert'), 0);
+      setCalibration({ inputOffsetMs: 40, audioLatencyMs: 25, visualLeadMs: 0 });
+      t.eq(Settings.get('calibration.visualLeadMs'), 600, 'a visual lead of 0 is clamped to the smallest value');
+      const shifted = await playOnFakeTimers(timers, startRun(NOTE_COUNT, 'expert'), 0);
+      timers.uninstall();
+      t.deepEq(shifted.perfToAudio, plain.perfToAudio, 'Input.perfToAudio gives the same 10 values');
+      t.ok(sameTimes(shifted.noteTimes, plain.noteTimes), 'the timeline of the song is the same');
+      t.ok(sameTimes(lanePresses(shifted).map((event) => event.tAudio),
+        lanePresses(plain).map((event) => event.tAudio)), 'input.event.tAudio is the same');
+      t.ok(plain.results.every((result) => Math.abs(result.deltaMs) === 0), 'with zero calibration: on the note');
+      t.ok(shifted.results.every((result) => Math.abs(result.deltaMs + 65) <= 1), 'only the Judge applied the 65 ms');
+    });
+  });
+
+  t.test('TT-023 calibration applied once across the chain (real clock)', async () => {
+    const rhythm = Rhythm.calibration();
+    const input = FLM.Input.calibration();
+    const values = { inputOffsetMs: 30, audioLatencyMs: 20 };
+    Rhythm.setCalibration(values);
+    FLM.Input.setCalibration(values);
+    const setup = startRun(REAL_NOTE_COUNT, 'expert');
+    let zeroAudio = 0;
+    let run = null;
+    try {
+      t.eq((await Modes.enter('instrument', setup.params)).ok, true);
+      run = recordRun(setup.chart, () => zeroAudio);
+      const finished = new Promise((resolve) => bus.on('chart.finished', resolve, run.owner));
+      zeroAudio = FLM.Transport.main.audioTimeAt(0);
+      const noteTimes = setup.chart.notes.map((note) => FLM.Transport.main.audioTimeAt(note.tick) - zeroAudio);
+      const bot = FLM.SelfTest.chartBot(setup.chart, { offsetMs: REAL_BOT_DELAY_MS, owner: run.owner });
+      bot.start();
+      await finished;
+      bot.stop();
+      t.eq(run.results.length, REAL_NOTE_COUNT);
+      t.deepEq(run.results.map((result) => result.judgment), new Array(REAL_NOTE_COUNT).fill('perfect'));
+      t.ok(run.results.every((result) => Math.abs(result.deltaMs) === 0), 'every deltaMs is 0');
+      lanePresses(run).forEach((event, index) => t.ok(Math.abs(event.tAudio - (noteTimes[index] +
+        REAL_BOT_DELAY_MS / 1000)) <= TIME_EPSILON, 'press ' + (index + 1) + ' keeps the uncalibrated audio time'));
+      run.stop();                              // the recorder is no leak of the mode
+      t.eq((await Modes.leave('user')).leaks, null);
+    } finally {
+      if (run) run.stop();
+      Rhythm.setCalibration(rhythm);
+      FLM.Input.setCalibration(input);
+    }
   });
 });
 })();

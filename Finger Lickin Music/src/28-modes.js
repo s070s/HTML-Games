@@ -6,8 +6,10 @@
 // Module presence (convention 6 of Part 11): a step whose module is not built yet is skipped and logged once.
 // One engine (S-18, T02.06): every mode that has music loads it into the one FLM.Transport.main and makes the one
 // Scheduler binding; no mode creates a transport of its own.
-// EXTENSION POINT: later tasks add their enter steps (charts, judge, stage, input) at the marked place in
-// setupMode(), and gameplay assembly (startGameplay, stopGameplay) next to pause().
+// T03.10: the `instrument` mode is assembled (assembleGameplay, bindGameplayInput, startGameplay): the chart comes from
+// params.testChart (test build only), a Judge is bound to Transport.main, Input is bound, pause and finish are handled.
+// EXTENSION POINT: later tasks add their enter steps (generated charts, stage, the other modes) at the marked place in
+// setupMode(); until Audio exists the 50 ms pump also makes the Scheduler's two calls for the transport.
 // Spec: docs/IMPLEMENTATION-PLAN.md Part 4.7 (4.7.1 to 4.7.4) and Part 6.28 (6.28.2 to 6.28.4).
 (function () {
 'use strict';
@@ -34,6 +36,13 @@ FLM.Core.define('Modes', function (FLM) {
   const TUTORIAL_SONG_ID = 'tut-basics';
   const PREVIEW_SECONDS = 15;                // library and import previews stop by themselves (Part 6.28.2)
   const MS_PER_SECOND = 1000;
+  const PUMP_MS = 50;                        // the judge is ticked this often (Part 6.28.4.4 step 6)
+  const SCHEDULER_LOOKAHEAD_S = 0.12;        // pull window of the stand-in Scheduler (S-10)
+  const FINISH_DELAY_MS = 1500;              // "Song complete" shows this long before the results (Part 7.6.4)
+  const FINISH_TICK_AHEAD_S = 10;            // a finishing judge is ticked this far ahead: every note is declared
+  const LANE_CONTROL = /^lane[0-3]$/;
+  const CALIBRATION_JUDGED = Object.freeze(['calibration.inputOffsetMs', 'calibration.audioLatencyMs']);
+  const GAMEPLAY_INPUT_CONTEXT = 'instrument';
   const PAUSE_TEXT = Object.freeze({
     hidden: 'Paused because the game went to the background', blur: 'Paused because the window lost focus',
     audio: 'Paused because the sound stopped', gamepad: 'Controller disconnected', stall: 'Playback stalled',
@@ -41,7 +50,9 @@ FLM.Core.define('Modes', function (FLM) {
   });
   const TEXT = Object.freeze({
     unsupportedTitle: 'Returned to the menu', graphicsPaused: 'Graphics paused', ok: 'OK',
-    unsavedTitle: 'Leave without saving?', unsavedBody: 'This project has changes that are not saved.'
+    unsavedTitle: 'Leave without saving?', unsavedBody: 'This project has changes that are not saved.',
+    songComplete: 'Song complete', calibrationChanged: 'Calibration changed; results not comparable.',
+    allSoundStopped: 'All sound stopped.'
   });
 
   const MODES = Object.freeze(['menu', 'quickplay', 'instrument', 'freeplay', 'studio', 'library', 'import', 'dance',
@@ -96,7 +107,8 @@ FLM.Core.define('Modes', function (FLM) {
     pauseReason: null,
     rotateDismissed: false,
     skipGuardOnce: false,
-    preview: { active: false, timer: null }  // the library or import preview on Transport.main (Part 6.28.3)
+    preview: { active: false, timer: null }, // the library or import preview on Transport.main (Part 6.28.3)
+    gp: null                                 // gameplay assembly of the current mode, null when none (Part 6.28.3)
   };
 
   // ---------------------------------------------------------------- calling lower modules (module presence)
@@ -287,6 +299,13 @@ FLM.Core.define('Modes', function (FLM) {
     return undefined;
   }
 
+  // Step 6: the judge is disposed (its time map and calibration subscription go with it); charts are plain data.
+  function leaveJudge() {
+    const gp = state.gp;
+    state.gp = null;
+    if (gp && gp.judge) gp.judge.dispose();
+  }
+
   // The Studio session closes its own strips; without it (not built yet) the plain unbind and unload apply.
   function leaveBindings(context) {
     state.preview.active = false;              // the stop and unload below end any preview; its timer dies by owner
@@ -347,6 +366,7 @@ FLM.Core.define('Modes', function (FLM) {
     { name: 'transport', run: () => invokeStep('transport', 'Transport.main.stop') },
     { name: 'panic', run: () => invokeStep('panic', 'Audio.panic', false) },
     { name: 'hardPanic', run: leaveHardPanic },
+    { name: 'judge', run: leaveJudge },
     { name: 'bindings', run: leaveBindings },
     { name: 'stage', run: () => runAll('stage', [['Render.stopLoop'], ['Stage.dispose'], ['Animation.Mixer.dispose'],
       ['Render.Flat2D.clear']]) },
@@ -438,17 +458,19 @@ FLM.Core.define('Modes', function (FLM) {
   }
 
   // Steps of Part 4.7.1 whose module is not built yet; each is logged once and skipped (convention 6).
+  const ASSEMBLED_MODES = Object.freeze(['instrument']);   // the judge and input steps are wired for these (T03.10)
   const PENDING_STEPS = Object.freeze([
     { step: 'audio binding', module: 'Audio', applies: (row) => row.scheduler !== 'none' },
     { step: 'charts', module: 'Mapping', applies: (row) => row.chart !== 'none' },
-    { step: 'judge', module: 'Rhythm', applies: (row) => row.chart !== 'none' },
+    { step: 'judge', module: 'Rhythm',
+      applies: (row, mode) => row.chart !== 'none' && !ASSEMBLED_MODES.includes(mode) },
     { step: 'stage', module: 'Stage', applies: (row) => row.stage !== 'none' },
-    { step: 'input', module: 'Input', applies: () => true }
+    { step: 'input', module: 'Input', applies: (row, mode) => !ASSEMBLED_MODES.includes(mode) }
   ]);
 
   function notePendingSteps(mode) {
     const row = REQUIREMENTS[mode];
-    PENDING_STEPS.filter((item) => item.applies(row)).forEach((item) => {
+    PENDING_STEPS.filter((item) => item.applies(row, mode)).forEach((item) => {
       const reason = FLM[item.module] ? item.module + ' step not wired yet' : item.module + ' not built';
       Core.Log.once('modes.skip.enter.' + item.step, 'info', 'modes', 'skip ' + item.step + ': ' + reason);
     });
@@ -521,6 +543,229 @@ FLM.Core.define('Modes', function (FLM) {
     }
   }
 
+  // ---------------------------------------------------------------- gameplay assembly (Part 4.7.1 steps 7, 8, 10, 14)
+  // Built for `instrument` only (T03.10). Steps 6, 7 and 9 wait for Audio, the chart generator and the stage: the
+  // chart comes from params.testChart (a Chart, or null for playback without a Judge), a test-build hook that is
+  // never reachable from the UI and is refused in the shipped build.
+
+  const hasOwn = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
+  const isTestBuild = () => Boolean(FLM.SelfTest);
+
+  function refuseTestHooks(params) {
+    if (hasOwn(params, 'testChart') && !isTestBuild()) {
+      throw new Error('params.testChart is only available in the test build');
+    }
+  }
+
+  /** Step 7 until Phase 08: the given test chart, or null (no chart, so no Judge). */
+  function chartFromParams(params) {
+    if (hasOwn(params, 'testChart')) return params.testChart;
+    noteSkip('charts', 'Mapping.ChartGenerator.generateAsync');
+    return null;
+  }
+
+  /** Step 8: a Judge bound to Transport.main. Calibration is applied once, inside the Judge (S-04). */
+  function createJudge(chart, song) {
+    if (chart === null) return null;
+    if (!available('Rhythm.Judge.bind')) {
+      noteSkip('judge', 'Rhythm.Judge.bind');
+      return null;
+    }
+    const judge = FLM.Rhythm.Judge.bind({ timeMap: FLM.Transport.main,
+      strayPenalty: settingValue('gameplay.strayPressPenalty') === true ? 'combo' : 'none',
+      windowsPreset: settingValue('gameplay.judgmentPreset') || 'standard' });
+    try {
+      judge.load(chart, song);                 // a bad chart throws E-INP-012 and the enter fails
+    } catch (error) {
+      judge.dispose();
+      throw error;
+    }
+    return judge;
+  }
+
+  /** A judge listens only while the transport plays: no judgment, stray or miss during count-in or pause. */
+  function syncJudgeActivity() {
+    const gp = state.gp;
+    if (!gp || !gp.judge || !available('Transport.main.state')) return;
+    const running = ['playing', 'recording'].includes(invoke('Transport.main.state'));
+    gp.judge.setActive(running);
+    if (running) gp.began = true;
+  }
+
+  // The Scheduler normally makes these two calls for the transport (Part 6.4.4.9). Until M-05 exists the pump makes
+  // them, so that the count-in ends and the end of the song is detected.
+  function standInForScheduler(now) {
+    if (available('Audio.Scheduler.bind')) return;
+    invokeStep('transport pump', 'Transport.main.update', now);
+    invokeStep('transport pump', 'Transport.main.pullDue', now + SCHEDULER_LOOKAHEAD_S);
+  }
+
+  function refreshHud(now, gp) {
+    const tick = invoke('Transport.main.positionAt', now);
+    const duration = gp.song.durationTicks;
+    const counting = invoke('Transport.main.state') === 'countin';
+    const countIn = counting ? invoke('Transport.main.meterMap').beatAt(tick).beat + 1 : null;
+    FLM.UI.HUD.set({ progress: duration > 0 ? Core.clamp(tick / duration, 0, 1) : 0, countIn });
+  }
+
+  /** The 50 ms pump: transport stand-in, judge ticks (misses) and the time-driven HUD fields. */
+  function pump() {
+    const gp = state.gp;
+    if (!gp || gp.finishing) return;
+    const now = audioClockNow();
+    standInForScheduler(now);
+    if (state.gp !== gp || gp.finishing) return;
+    if (gp.judge) gp.judge.tick(now);
+    refreshHud(now, gp);
+  }
+
+  // M-07 releases a lost gamepad's controls (source 'system') just before it reports input.device. The flag lives
+  // only until the end of that synchronous run, so an unrelated release-all never looks like a lost device.
+  function trackGamepad(gp, evt) {
+    if (evt.type === 'press' && evt.source === 'gamepad') gp.gamepadHeld.add(evt.control);
+    if (evt.type !== 'release' || !gp.gamepadHeld.delete(evt.control) || evt.source !== 'system') return;
+    gp.deviceLost = true;
+    Promise.resolve().then(() => { gp.deviceLost = false; });
+  }
+
+  function onPauseControl() {
+    if (state.gp.finishing) return;
+    if (state.pauseReason === null) {
+      startPause('user');
+      return;
+    }
+    const top = FLM.UI.Screens.current();
+    if (top && top.id === 'SCR-Pause' && typeof top.controller.onBack === 'function') top.controller.onBack('key');
+  }
+
+  // KeyP: pauses first, then stops every sound (Part 7.6.4); Audio itself arrives with T04.01.
+  function onPanicControl() {
+    if (state.pauseReason === null) startPause('user');
+    invokeStep('panic', 'Audio.panic', false);
+    FLM.UI.toast(TEXT.allSoundStopped, { kind: 'info', key: 'play.panic' });
+  }
+
+  /** The one input.event subscription of a gameplay mode: judge routing and the pause and panic controls. */
+  function onGameplayInput(evt) {
+    const gp = state.gp;
+    if (!gp || !evt) return;
+    trackGamepad(gp, evt);
+    if (LANE_CONTROL.test(evt.control)) {
+      if (gp.judge) gp.judge.onInput(evt);     // inactive while paused: nothing is judged, no stray is counted
+      return;
+    }
+    if (evt.type !== 'press') return;
+    if (evt.control === 'pause') onPauseControl();
+    else if (evt.control === 'panic') onPanicControl();
+  }
+
+  function resultsScreenBuilt() {
+    try {
+      return Boolean(FLM.Screens && FLM.Screens.get('SCR-Results'));
+    } catch (error) {
+      return false;
+    }
+  }
+
+  /** After "Song complete": the results mode, or the menu while SCR-Results is not built (Part 4.7.1 step 12). */
+  async function leaveAfterFinish(gp) {
+    if (state.gp !== gp) return;
+    const results = resultsScreenBuilt();
+    const replay = { mode: state.current.mode, params: state.current.params };
+    await leave('finished', results ? { next: 'results' } : undefined);
+    if (results) await enter('results', { summary: gp.summary, replay, returnTo: replay.params.returnTo });
+  }
+
+  /** Once per gameplay (the finishing guard): declares the remaining notes, ends the Judge, shows the end note. */
+  function finishGameplay(endedBy) {
+    const gp = state.gp;
+    if (!gp || gp.finishing) return;
+    gp.finishing = true;
+    if (gp.judge) {
+      gp.judge.tick(audioClockNow() + FINISH_TICK_AHEAD_S);
+      gp.judge.finish(endedBy, { songId: gp.song.id, startedAt: gp.startedAtIso,
+        durationSec: (Core.now() - gp.startedAtMs) / MS_PER_SECOND });
+    }
+    FLM.UI.HUD.note(TEXT.songComplete);
+    Core.timers.setTimeout(() => {
+      leaveAfterFinish(gp).catch((error) => Core.Log.warn('modes', 'finish failed: ' + messageOf(error)));
+    }, FINISH_DELAY_MS, gp.owner);
+  }
+
+  function onTransportState(event) {
+    const gp = state.gp;
+    if (!gp || !event) return;
+    if (event.state === 'stopped' && event.reason === 'end') finishGameplay('end');   // before the judge goes idle
+    syncJudgeActivity();
+  }
+
+  function onChartFinished(event) {
+    const gp = state.gp;
+    if (!gp || !event) return;
+    gp.summary = event.summary;
+    finishGameplay(event.endedBy);
+  }
+
+  // S-PLAY-08 (OI-23): a calibration change after the run began makes the results not comparable (the Judge flags it).
+  function onSettingsChanged(event) {
+    const gp = state.gp;
+    if (!gp || !gp.judge || !gp.began || !event) return;
+    const keys = event.key === '*' && Array.isArray(event.keys) ? event.keys : [event.key];
+    if (!keys.some((key) => CALIBRATION_JUDGED.includes(key))) return;
+    FLM.UI.toast(TEXT.calibrationChanged, { kind: 'warn', key: 'play.calibrationChanged' });
+  }
+
+  function subscribeGameplay(owner) {
+    const on = (topic, handler) => bus.on(topic, handler, owner);
+    on('input.event', onGameplayInput);
+    on('transport.state', onTransportState);
+    on('chart.finished', onChartFinished);
+    on('settings.changed', onSettingsChanged);
+  }
+
+  /** Steps 7, 8 and 12 of Part 4.7.1 for a mode that has a song loaded; null when there is nothing to assemble. */
+  function assembleGameplay(mode, params) {
+    if (!ASSEMBLED_MODES.includes(mode) || !available('Transport.main.song')) return;
+    const song = invoke('Transport.main.song');
+    if (song === null) return;
+    const chart = chartFromParams(params);
+    const owner = state.current.owner;
+    state.gp = { owner, song, chart, judge: createJudge(chart, song), began: false, finishing: false, summary: null,
+      gamepadHeld: new Set(), deviceLost: false, startedAtIso: new Date().toISOString(), startedAtMs: Core.now() };
+    subscribeGameplay(owner);
+    Core.timers.setInterval(pump, PUMP_MS, owner);
+  }
+
+  /** Step 10: the input context of the mode and the in-game look (no text entry, Escape belongs to pause). */
+  function bindGameplayInput() {
+    if (state.gp === null) return;
+    invokeStep('input', 'Input.bind', { owner: state.current.owner, context: GAMEPLAY_INPUT_CONTEXT,
+      surface: '#view', pads: '#touch' });
+    FLM.UI.setTextEntryAllowed(false);
+    doc.body.classList.add('in-game');
+  }
+
+  function countInBarsFor(params) {
+    if ([0, 1, 2].includes(params.countInBars)) return params.countInBars;
+    return settingValue('gameplay.autoCountIn') === false ? 0 : (settingValue('audio.countInBars') || 0);
+  }
+
+  /** Step 14: the transport starts, with the count-in of the settings (or params.countInBars). */
+  function startGameplay(params) {
+    if (state.gp === null || params.autoStart === false) return;
+    invokeStep('start', 'Transport.main.play', { countInBars: countInBarsFor(params) });
+  }
+
+  /** Part 6.28.2 gameplayState(): what a screen or test may ask about the running gameplay. */
+  function gameplayState() {
+    const gp = state.gp;
+    if (gp === null) return { active: false, kind: null, chartId: null, settingsHash: null, speed: 1, passes: [],
+      finished: false };
+    return { active: true, kind: 'instrument', chartId: gp.chart ? gp.chart.id : null,
+      settingsHash: gp.chart ? gp.chart.settingsHash || null : null, speed: invoke('Transport.main.speed'),
+      passes: [], finished: gp.finishing };
+  }
+
   async function setupMenu(params) {
     if (FLM.UI.Screens.depth() === 0) {
       const root = MENU_ROOTS.includes(params.screen) ? params.screen : MENU_ROOT;
@@ -533,7 +778,7 @@ FLM.Core.define('Modes', function (FLM) {
     const screen = REQUIREMENTS[mode].screen;
     const top = FLM.UI.Screens.current();
     if (top && top.id === screen) await FLM.UI.Screens.replace(screen, Object.assign({ phase: 'play' }, params));
-    else await FLM.UI.Screens.push(screen, params);
+    else await FLM.UI.Screens.push(screen, GAMEPLAY.includes(mode) ? Object.assign({ phase: 'play' }, params) : params);
   }
 
   /** Steps 5 to 12 of Part 4.7.1. */
@@ -544,7 +789,9 @@ FLM.Core.define('Modes', function (FLM) {
     }
     notePendingSteps(mode);
     await setupMusic(mode, params);
-    // EXTENSION POINT: charts, judge, stage and input binding go here (later tasks).
+    assembleGameplay(mode, params);
+    // EXTENSION POINT: stage (step 9) and the other modes' charts and judges go here (later tasks).
+    bindGameplayInput();
     const kind = hudKind(mode, params);
     if (kind !== null) FLM.UI.HUD.show(kind, state.current.owner);
     showPads(mode, params);
@@ -610,6 +857,7 @@ FLM.Core.define('Modes', function (FLM) {
     const params = rawParams && typeof rawParams === 'object' ? rawParams : {};
     try {
       Core.assert(MODES.includes(mode), 'unknown mode ' + mode);
+      refuseTestHooks(params);
       if (!isMenuLike(state.current.mode)) await doLeave('user', { next: mode });
       if (state.current.mode === 'none' && mode !== 'menu') await openMenuRoot();
       // Taken only in the menu (Part 4.7.1 step 2). Entering the menu itself takes it after the menu screen is
@@ -623,6 +871,7 @@ FLM.Core.define('Modes', function (FLM) {
       if (mode === 'menu') takeBaseline();
       bus.emit('mode.enter', { mode, prev, params: plainCopy(params), ms: Math.round(Core.now() - started) });
       rememberMode(mode, params);
+      startGameplay(params);
       return { ok: true, mode };
     } catch (error) {
       return failEnter(mode, error);
@@ -713,9 +962,12 @@ FLM.Core.define('Modes', function (FLM) {
   /** Pauses the transport, releases inputs and shows SCR-Pause when it exists. @returns {Promise<boolean>} */
   async function pause(reason) {
     if (!isGameplay() || state.pauseReason !== null) return false;
+    if (state.gp && state.gp.finishing) return false;   // the song is over: nothing left to pause
     state.pauseReason = reason;
-    releaseInputs();
     invokeStep('pause', 'Transport.main.pause');
+    syncJudgeActivity();                                // the judge is idle before the held controls are released
+    releaseInputs();
+    if (state.gp) FLM.UI.setTextEntryAllowed(true);
     try {
       await FLM.UI.Screens.push('SCR-Pause', { reason, text: PAUSE_TEXT[reason] || PAUSE_TEXT.user });
     } catch (error) {
@@ -731,6 +983,8 @@ FLM.Core.define('Modes', function (FLM) {
     const top = FLM.UI.Screens.current();
     if (top && top.id === 'SCR-Pause') await FLM.UI.Screens.pop();
     invokeStep('resume', 'Transport.main.resume');
+    syncJudgeActivity();                                // holds that began before the pause are checked here
+    if (state.gp) FLM.UI.setTextEntryAllowed(false);
     return true;
   }
 
@@ -813,6 +1067,7 @@ FLM.Core.define('Modes', function (FLM) {
 
   function whenLayoutChanges() {
     FLM.UI.TouchPads.layout();
+    invokeStep('layout', 'Input.layoutChanged');           // the pad rectangles M-07 hit-tests are measured again
     if (!isMenuLike(state.current.mode)) maybeShowRotate(state.current.mode);
     return 'continued';
   }
@@ -913,7 +1168,9 @@ FLM.Core.define('Modes', function (FLM) {
     on('render.contextRestored', () => onInterrupt('contextRestored'));
     on('ui.layout', () => onInterrupt('layout'));
     on('input.device', (event) => {
-      if (event && event.source === 'gamepad' && event.connected === false) onInterrupt('gamepad', event);
+      if (!event || event.source !== 'gamepad' || event.connected !== false) return;
+      // E-INP-003: only a pad that had a control held pauses the song (M-07 released those controls just before).
+      onInterrupt('gamepad', Object.assign({}, event, { released: Boolean(state.gp && state.gp.deviceLost) }));
     });
     on('sched.stall', (event) => onInterrupt('stall', event));
     on('net.state', (event) => {
@@ -936,13 +1193,15 @@ FLM.Core.define('Modes', function (FLM) {
 
   // Tests only: removes the permanent listeners and returns to the "none" state.
   function teardownForTests() {
+    leaveJudge();
     Core.dom.offOwner(MODES_OWNER);
     bus.removeOwner(MODES_OWNER);
     Core.timers.clearOwner(MODES_OWNER);
     if (state.initialized) FLM.UI.Screens.setHistory(false);
     Object.assign(state, { current: { mode: 'none', params: {}, owner: null, enteredAt: 0 },
       queue: Promise.resolve(), transitioning: false, initialized: false, pauseReason: null,
-      rotateDismissed: false, skipGuardOnce: false, baselineFromMenu: false, preview: { active: false, timer: null } });
+      rotateDismissed: false, skipGuardOnce: false, baselineFromMenu: false, preview: { active: false, timer: null },
+      gp: null });
     state.baseline = counters();
   }
 
@@ -962,6 +1221,7 @@ FLM.Core.define('Modes', function (FLM) {
     params: () => plainCopy(state.current.params),
     isGameplay,
     isTransitioning: () => state.transitioning,
+    gameplayState,
     pause,
     resume,
     preview,

@@ -970,6 +970,96 @@ FLM.Core.define('SelfTest', function (FLM) {
     event: emitInputEvent
   };
 
+  // ---------------------------------------------------------------- fixtures and the chart bot (Part 9.1.1 item 12)
+
+  const FIXTURE_BEAT_TICKS = 960;        // one beat at PPQ 960; the fixture song is 120 BPM in 4/4
+  const FIXTURE_TAIL_BEATS = 2;          // the fixture song runs this long after its last chart note
+  const FIXTURE_LANES = 4;
+  const BOT_STEP_MS = 5;                 // the bot's timer: every event goes out at most this late (limit: 50 ms)
+  const BOT_TAP_HOLD_MS = 20;            // how long the bot holds a tap before it releases it
+
+  /** The test song of IT-003: 120 BPM, 4/4, one track with a short note on each beat 1 to noteCount. */
+  function fixtureSong(noteCount) {
+    const Model = FLM.Model;
+    const song = Model.Song.create({ id: 'test-song', title: 'Test song' });
+    const track = Model.Track.create({ id: 'test-track', name: 'Test' }, song);
+    const events = [];
+    for (let beat = 1; beat <= noteCount; beat += 1) {
+      events.push(Model.Events.note(beat * FIXTURE_BEAT_TICKS, FIXTURE_BEAT_TICKS / 2, 60, 100));
+    }
+    Model.replaceEvents(track, events);
+    Model.Song.addTrack(song, track);
+    song.durationTicks = (noteCount + FIXTURE_TAIL_BEATS) * FIXTURE_BEAT_TICKS;
+    return song;
+  }
+
+  /** The chart of IT-003 for fixtureSong: one single-lane tap on beats 1 to noteCount, lane = beat % 4. */
+  function fixtureChart(noteCount, difficulty) {
+    const notes = [];
+    for (let beat = 1; beat <= noteCount; beat += 1) {
+      notes.push({ id: 'n' + beat, tick: beat * FIXTURE_BEAT_TICKS, durTicks: 1, lanes: [beat % FIXTURE_LANES],
+        sourceEventIds: [], pitches: [60], isHold: false });
+    }
+    const level = difficulty || 'intermediate';
+    return { id: 'test-song:test-track:' + level + ':A', songId: 'test-song', trackId: 'test-track', instrument: 0,
+      difficulty: level, profile: 'A', notes, generatorVersion: 1, settingsHash: '00000000',
+      omittedSourceEventIds: 0, source: 'generated' };
+  }
+
+  /**
+   * The chart bot: for every chart note a press (and a release, at the hold end or after BOT_TAP_HOLD_MS) is sent
+   * through Input.synthesize with the stamp of the note's audio time (Transport.main.audioTimeAt), turned into a
+   * performance stamp through the input anchor. A timer sends each event once its stamp has passed. Call start()
+   * after Transport.main.play() so that the anchor is the one of the run.
+   * options: {offsetMs: delay after the note time, default 0; owner: timer owner token}
+   */
+  function createChartBot(chart, options) {
+    const given = options || {};
+    const offsetSeconds = (given.offsetMs || 0) / 1000;
+    const owner = given.owner || Symbol('chart-bot');
+    let queue = [];
+    let timerId = null;
+    let sent = 0;
+
+    function keyFor(lane) {
+      const keys = FLM.Input.getMap().keyboard.instrument['lane' + lane];
+      return keys && keys.length > 0 ? keys[0] : LANE_KEYS[lane];
+    }
+
+    function eventsOf(note) {
+      const main = FLM.Transport.main;
+      const pressAt = main.audioTimeAt(note.tick) + offsetSeconds;
+      const releaseAt = note.isHold ? main.audioTimeAt(note.tick + note.durTicks) + offsetSeconds
+        : pressAt + BOT_TAP_HOLD_MS / 1000;
+      return note.lanes.reduce((list, lane) => list.concat([{ audio: pressAt, code: keyFor(lane), down: true },
+        { audio: releaseAt, code: keyFor(lane), down: false }]), []);
+    }
+
+    function sendDue() {
+      const input = FLM.Input;
+      const nowPerf = FLM.Core.now();
+      while (queue.length > 0 && input.audioToPerf(queue[0].audio) <= nowPerf) {
+        const item = queue.shift();
+        input.synthesize.key(item.code, item.down, input.audioToPerf(item.audio));
+        sent += 1;
+      }
+    }
+
+    function start() {
+      queue = chart.notes.reduce((list, note) => list.concat(eventsOf(note)), [])
+        .sort((a, b) => a.audio - b.audio);
+      if (timerId === null) timerId = FLM.Core.timers.setInterval(sendDue, BOT_STEP_MS, owner);
+    }
+
+    function stop() {
+      if (timerId !== null) FLM.Core.timers.clearInterval(timerId);
+      timerId = null;
+      queue = [];
+    }
+
+    return { start, stop, pending: () => queue.length, sent: () => sent };
+  }
+
   function createSpy(implementation) {
     const calls = [];
     function spy(...args) {
@@ -1375,6 +1465,8 @@ FLM.Core.define('SelfTest', function (FLM) {
     assert,
     AssertionError,
     fakes,
+    fixtures: Object.freeze({ song: fixtureSong, chart: fixtureChart }),
+    chartBot: createChartBot,
     corpus,
     perf
   });

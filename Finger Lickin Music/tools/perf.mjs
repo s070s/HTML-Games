@@ -1,6 +1,6 @@
 ﻿// tools/perf.mjs - runs the performance scenarios of Part 9.7 and compares them with the budgets of Part 9.1.
-// Spec: Part 3.5. Node built-ins only. Scenarios so far: build-size (PT-001) and boot-to-menu (PT-002);
-// later entries add scenarios to SCENARIOS and BUDGETS. Any other name is passed to the in-page harness
+// Spec: Part 3.5. Node built-ins only. Scenarios so far: build-size (PT-001), boot-to-menu (PT-002) and input-latency
+// (PT-009, input part; the tool sends the key presses); later entries add scenarios to SCENARIOS and BUDGETS. Any other name is passed to the in-page harness
 // FLM.SelfTest.perf.run (test build) and its metrics are reported as info until a budget is added here.
 //
 //   node tools/perf.mjs [--scenario <name>]... [--all] [--tier <High|Balanced|Low|Abstract>] [--repeat <n>]
@@ -19,6 +19,14 @@ const TIERS = ['High', 'Balanced', 'Low', 'Abstract'];
 const DESKTOP = { width: 1280, height: 720, deviceScaleFactor: 1, hasTouch: false };
 const READY_TIMEOUT_MS = 30000;
 const COLD_LOADS = 5;                      // Part 9.7.3: boot-to-menu uses 5 cold loads
+const KEY_PRESSES = 100;                   // Part 9.7.3: input-latency sends this many lane key presses
+const KEY_SPACING_MIN_MS = 50;             // random spacing between presses, seeded
+const KEY_SPACING_MAX_MS = 150;
+const KEY_HOLD_MS = 20;                    // how long a key stays down
+const KEY_SEED = 0xF1A9;
+const KEY_READY_TIMEOUT_MS = 20000;
+const LANE_KEYS = [{ code: 'KeyA', key: 'a', keyCode: 65 }, { code: 'KeyS', key: 's', keyCode: 83 },
+  { code: 'KeyK', key: 'k', keyCode: 75 }, { code: 'KeyL', key: 'l', keyCode: 76 }];
 const SHIP_TARGET_BYTES = 1572864;         // 1.5 MB target (a warning, a gate only at Phase 16)
 const SHIP_LIMIT_BYTES = 2621440;          // 2.5 MB hard limit (PT-001)
 const MIN_WATCHDOG_SECONDS = 240;
@@ -27,13 +35,14 @@ const CLOSE_GRACE_MS = 5000;
 const BYTES_PER_MB = 1048576;
 const USAGE = 'usage: node tools/perf.mjs [--scenario <name>]... [--all] [--tier <High|Balanced|Low|Abstract>] '
   + '[--repeat <n>] [--json <path>] [--headed] [--file <html>] [--timeout <seconds>]';
-const PLANNED_SECONDS = { 'build-size': 1, 'boot-to-menu': 10 };
+const PLANNED_SECONDS = { 'build-size': 1, 'boot-to-menu': 10, 'input-latency': 25 };
 const DEFAULT_SET = ['build-size', 'boot-to-menu'];
 
 // Budgets of Part 9.7.7 (desktop column). A metric without an entry is reported as info.
 const BUDGETS = {
   'build-size': { shipBytes: 2621440 },
-  'boot-to-menu': { menuMs: 1500, menuMsMax: 2250, phaseAMs: 600, bootMs: 400, capsMs: 20 }
+  'boot-to-menu': { menuMs: 1500, menuMsMax: 2250, phaseAMs: 600, bootMs: 400, capsMs: 20 },
+  'input-latency': { inputProcP95Ms: 4, inputProcMaxMs: 16.7 }
 };
 
 const BOOT_READY_EXPRESSION = "!!(window.FLM && window.FLM.Boot && typeof window.FLM.Boot.stage === 'function'"
@@ -189,7 +198,68 @@ async function runHarnessScenario(context, name) {
   }
 }
 
-const SCENARIOS = { 'build-size': runBuildSize, 'boot-to-menu': runBootToMenu };
+/** Seeded generator (mulberry32): the same press spacing in every run. */
+function seededRandom(seed) {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6D2B79F5) >>> 0;
+    let mixed = Math.imul(state ^ (state >>> 15), 1 | state);
+    mixed = (mixed + Math.imul(mixed ^ (mixed >>> 7), 61 | mixed)) ^ mixed;
+    return ((mixed ^ (mixed >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** One trusted key event: through the DevTools client when the page has send(), else through Playwright. */
+function sendKey(page, spec, down) {
+  if (typeof page.send === 'function') {
+    return page.send('Input.dispatchKeyEvent', { type: down ? 'keyDown' : 'keyUp', code: spec.code, key: spec.key,
+      windowsVirtualKeyCode: spec.keyCode });
+  }
+  return down ? page.page.keyboard.down(spec.code) : page.page.keyboard.up(spec.code);
+}
+
+async function sendKeyPresses(page, count) {
+  const random = seededRandom(KEY_SEED);
+  for (let index = 0; index < count; index += 1) {
+    const spec = LANE_KEYS[Math.floor(random() * LANE_KEYS.length)];
+    const spacing = KEY_SPACING_MIN_MS + random() * (KEY_SPACING_MAX_MS - KEY_SPACING_MIN_MS);
+    await sendKey(page, spec, true);
+    await delay(KEY_HOLD_MS);
+    await sendKey(page, spec, false);
+    await delay(Math.max(0, spacing - KEY_HOLD_MS));
+  }
+}
+
+/**
+ * PT-009 (input part): the page enters the instrument mode on a test chart and counts the presses; this tool sends
+ * 100 trusted key presses at seeded 50 to 150 ms spacing once the song plays. The Free Play phase and
+ * liveSchedMaxMs wait for the audio phase (Phase 06).
+ */
+async function runInputLatency(context) {
+  const file = resolveFile(context.options, TEST_FILE);
+  const page = await activeBrowser.newPage(DESKTOP);
+  try {
+    await page.goto(pathToFileURL(file).href + '?test&tier=' + context.options.tier + '&perf');
+    await page.waitFor('!!(window.FLM && window.FLM.selfTestReady === true)', READY_TIMEOUT_MS);
+    const running = page.evaluate('window.FLM.SelfTest.perf.run("input-latency", { assisted: true, presses: '
+      + KEY_PRESSES + ' })');
+    running.catch(() => {});                 // a failure is reported below, after the presses
+    await page.waitFor("window.FLM.Modes.current().mode === 'instrument' && window.FLM.Transport.main.state() === "
+      + "'playing'", KEY_READY_TIMEOUT_MS);
+    if (typeof page.send === 'function') await page.send('Page.bringToFront');
+    await sendKeyPresses(page, KEY_PRESSES);
+    const result = await running;
+    page.pageErrors.forEach((text) => result.notes.push('page error: ' + text));
+    Object.keys(BUDGETS['input-latency']).forEach((metric) => {
+      if (result.metrics[metric] === undefined || result.samples[metric] < KEY_PRESSES) result.metrics[metric] = NaN;
+    });
+    return result;
+  } finally {
+    await page.close();
+  }
+}
+
+const SCENARIOS = { 'build-size': runBuildSize, 'boot-to-menu': runBootToMenu, 'input-latency': runInputLatency };
 
 // ---------------------------------------------------------------- judging and output
 

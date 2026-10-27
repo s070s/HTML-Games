@@ -71,6 +71,31 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 - Device and other-browser tests (XT, LT): owner.
 - Licence: the owner recorded "All rights reserved" (see docs/plan-work/OPEN-ISSUES-stage1.md).
 
+## 2026-10-27 18:30 - Phase 03 GATE (T03.10-T03.12) - input abstraction, mapping profiles, judge and scoring
+
+Done: T03.10 instrument-mode gameplay binding in src/28-modes.js (Judge bound to Transport.main, input.event routing,
+pause/resume with 3-2-1, finish, E-INP-003 on gamepad disconnect, params.testChart refused in the shipped build),
+play-phase SCR-Instrument and SCR-Pause in src/27-screens.js, SelfTest.fixtures.song/chart and chartBot,
+perf scenario input-latency, S-PLAY-08 toast and pad layout refresh (OI-23, part of OI-17 fixed); T03.12 gate.
+Gate run (real folder, headless Chrome via the CDP client): build exit 0; `selftest --all --slow` 586/586 over 22
+groups (input@touch, integration@touch, ui@touch included), 0 skipped; `--smoke` OK; perf (software GL): PT-001
+720,904 bytes; PT-002 menuMs 115.5, capsMs 15.7; PT-009 input phase inputProcP95Ms 0.7 (budget 4).
+Gate gap: `perf.mjs --scenario touch-layout` (PT-024) is not registered anywhere (T03.02 should have delivered it);
+not run, recorded OI-27. Risk review (13.3): RISK-09 (input timing) and RISK-38 (simultaneous presses) covered by
+UT-07/TT-029 on synthetic input only; RISK-39 (touch multi-pointer) unverified on real devices (XT, OQ-1);
+RISK-40 (calibration) judged on synthetic clock, wizard never run in a real browser.
+Decisions: D53 chart is beats 1..31 at tick n*960, lane n%4, 120 BPM 4/4 (test fixture); D54 a 50 ms pump stands in for
+the Scheduler until M-05 (remove with T04.01); D55 a calibration change at any time after the run began, including
+while paused, marks the run not comparable; D56 gamepad held state tracked in M-28 from input.event; D57 panic toast
+uses S-PLAY-09 wording ("All sound stopped.") over 6.27's "All notes stopped".
+Open issues: OI-27 touch-layout scenario missing (above); OI-28 TT-023 runs in real time (~4 s) with a 70 ms margin:
+likeliest flake, use skill flake-triage if it fails intermittently; OI-29 SCR-Pause practice/view/touch-pad/volume panels,
+section restart, Stop-all-sound button, DLG-ResumeAudio not built; finish returns to the menu until SCR-Results exists;
+OI-30 PT-009 Free Play phase and liveSchedMaxMs in Phase 06; real audible play, touch, gamepad, visibilitychange
+unverified in a real browser; OI-15 still open (boot module list now wrapped at 120).
+Usage: weekly all 12% at 18:25 (5h 14%).
+RESUME: T04.01 (Phase 04 audio engine). Stop before 15% weekly; push of flm-implementation is authorized at the clean stop only.
+
 ## 2026-10-27 18:05 - T03.09 and T03.11 - calibration and deferred register
 
 Done: T03.09 Input.setCalibration/calibration (UI-side store only; Rhythm applies calibration once), Settings pushes

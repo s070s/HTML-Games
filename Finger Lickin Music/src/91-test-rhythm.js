@@ -1,7 +1,7 @@
 ﻿// 91-test-rhythm.js - unit tests for M-09 FLM.Rhythm (group 'rhythm'; test build only).
 // UT-09-01 to UT-09-36 follow Part 6.9.8 (UT-09-08 expects 6400 as IT-003 does, LEDGER decision). The judge halves of
 // TT-023, TT-024, TT-026 and TT-029 are included because their harness is this one; IT-003, IT-004, IT-035 and the
-// real-clock part of TT-023 wait for the instrument mode (T03.10). Every test uses a fixed time map, never a clock.
+// real-clock part of TT-023 run in 92-test-integration.js (T03.10). Every test here uses a fixed time map, no clock.
 (function () {
 'use strict';
 const FLM = window.FLM;
@@ -514,6 +514,17 @@ FLM.SelfTest.group('rhythm', (t) => {
     t.eq(h.judge.summary().comparable, false);
     t.ok(h.judge.results()[0] === first, 'earlier results are untouched');
     t.eq(press(h, 0, 2040).deltaMs, 0, 'later inputs use the new value');
+  });
+
+  t.test('UT-09-29c a calibration change while the run is paused still flags it not comparable (SCR-Pause)', () => {
+    const h = setup(spreadNotes(0, 2));
+    press(h, 0, 1000);
+    h.judge.setActive(false);
+    h.judge.setCalibration({ inputOffsetMs: 30, audioLatencyMs: 0 });
+    h.judge.setActive(true);
+    t.eq(h.judge.summary().comparable, false);
+    h.judge.restart();
+    t.eq(h.judge.summary().comparable, true, 'a restarted run is a fresh run');
   });
 
   t.test('UT-09-29 the module calibration is stored, clamped and handed to bound judges', () => {
