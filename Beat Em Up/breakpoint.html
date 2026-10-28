@@ -249,6 +249,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .reduced *{transition:none!important;animation:none!important}
 .reduced #combo,.reduced #combo2{transition:none}
 @media (max-width:700px){.screen{padding:1em}.panel{padding:.8em .9em}}
+@media (max-width:480px){.cards{grid-template-columns:repeat(2,1fr);gap:.5em}.card{padding:.5em .55em}}
 @media (max-height:520px){.screen{padding:.6em 1em}h1.logo{font-size:2.2em}button.mi{padding:.4em .9em;min-height:2.3em;margin:.2em 0}}
 </style>
 </head>
@@ -749,7 +750,32 @@ function keyLabel(code) {
 }
 
 /* ---------- progress (selective persistence) ---------- */
-const DEFAULT_UNLOCKED = ['kai', 'mara', 'brutus', 'yuki'];
+/* Starters (P1-06 role "starter") are open from the first launch. The first four stay first: the co-op seats use them as their defaults. */
+const DEFAULT_UNLOCKED = ['kai', 'mara', 'brutus', 'yuki', 'rosa', 'pranee', 'amara', 'sora', 'elise', 'cruz'];
+/* How every other preset is unlocked (P5-04): [counter, needed]. The counters are saved Progress fields (UNLOCK_COUNTERS); 'beat' = win against that
+   fighter in Arcade. Rivals and bosses only stand on the Arcade ladder in runs after the first clear (Game.ladderFor), so the first run is the 1.0 ladder. */
+const UNLOCK_RULES = {
+  dmitri: ['best', 3], zero: ['clears', 1],
+  lars: ['wins', 3], tiago: ['wins', 6], vikram: ['wins', 10], lucia: ['wins', 15], kasia: ['wins', 20],
+  armine: ['clears', 2], naran: ['clears', 3], tessa: ['clears', 4],
+  reid: ['streak', 3], camila: ['streak', 5], nia: ['streak', 8],
+  deacon: ['beat'], femke: ['beat'], diego: ['beat'], kelsey: ['beat'], giorgi: ['beat'], roxy: ['beat'],
+  hao: ['beat'], marlon: ['beat'], yoav: ['beat'],
+};
+const UNLOCK_COUNTERS = { wins: 'wins', clears: 'arcadeClears', best: 'arcadeBest', streak: 'survivalKills' };
+const hasUnlockRule = (id) => Object.prototype.hasOwnProperty.call(UNLOCK_RULES, id);
+/* The rule in plain words for locked cards and toasts ('' for a starter or a custom fighter). */
+function unlockRuleText(id) {
+  if (!hasUnlockRule(id)) return '';
+  const [counter, need] = UNLOCK_RULES[id];
+  if (counter === 'beat') return 'Beat ' + ROSTER_BY_ID[id].name + ' in Arcade, in a run after your first clear';
+  if (counter === 'wins') return 'Win ' + need + ' Arcade fights';
+  if (counter === 'clears') return need === 1 ? 'Clear Arcade' : 'Clear Arcade ' + need + ' times';
+  if (counter === 'best') return 'Win Arcade stage ' + need;
+  return 'Win ' + need + ' Survival fights in a row';
+}
+/* 'A', 'A and B', 'A, B and C'. */
+function joinNames(names) { return names.length < 2 ? names.join('') : names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1]; }
 const CONTROL_CARD_KINDS = ['keyboard', 'gamepad', 'touch'];   // the input types that get their own first-fight controls card
 const Progress = {
   d: null,
@@ -772,11 +798,25 @@ const Progress = {
     for (const kind of CONTROL_CARD_KINDS) base.seenControls[kind] = !oldControls && (s.seenControls === true || (!!s.seenControls && s.seenControls[kind] === true));
     base.seenClinch = s.seenClinch === true;   // the clinch instructions were shown (they appear in the first clinch only)
     base.seenHold = s.seenHold === true;       // the same for the submission hold instructions
-    if (Array.isArray(s.unlocked)) for (const id of s.unlocked) if (typeof id === 'string' && ['dmitri', 'zero'].includes(id) && !base.unlocked.includes(id)) base.unlocked.push(id);
+    // the starters always come from DEFAULT_UNLOCKED, so a save from before the new presets gets the new starters; the saved unlocks of non-starters are kept
+    if (Array.isArray(s.unlocked)) for (const id of s.unlocked) if (typeof id === 'string' && hasUnlockRule(id) && !base.unlocked.includes(id)) base.unlocked.push(id);
     this.d = base;
+    this.checkUnlocks(false);   // what the saved counters already earned (an old save's Arcade clears and wins), without a message
     if (oldControls) { this.save(); controlsChanged = true; }
   },
   save() { Store.set(KEY_PROGRESS, JSON.stringify(this.d)); },
+  /* Unlocks every preset whose counter rule (UNLOCK_RULES) is met and returns their names; saves when something changed. */
+  checkUnlocks(persist = true) {
+    const gained = [];
+    for (const id of Object.keys(UNLOCK_RULES)) {
+      const [counter, need] = UNLOCK_RULES[id];
+      if (counter === 'beat' || this.d.unlocked.includes(id) || !(this.d[UNLOCK_COUNTERS[counter]] >= need)) continue;
+      this.d.unlocked.push(id);
+      gained.push(ROSTER_BY_ID[id].name);
+    }
+    if (gained.length && persist) this.save();
+    return gained;
+  },
   unlock(id) {
     if (this.d.unlocked.includes(id)) return false;
     this.d.unlocked.push(id);
@@ -3166,26 +3206,27 @@ function deriveStats(raw) {
    DMITRI .52, ZERO .50; with KAI's CPU style for everyone (attributes only) .45-.57. Speed below 5 is avoided: -2 speed
    wins only ~11% (other attributes ~30-38%). CPU styles were tuned too: KAI's was the strongest, YUKI's wide circling
    and DMITRI's grab-heavy 1.0 range the weakest. rank is the Arcade ladder order, weakest first by the same measurements
-   (a hard CPU KAI wins most against YUKI, then BRUTUS, DMITRI and MARA); ZERO is always the final boss. */
+   (a hard CPU KAI wins most against YUKI, then BRUTUS, DMITRI and MARA); ZERO is always the final boss.
+   These six are the kept 1.0 roster; P5-04 appends 26 presets (PRESET_ROWS, in the character creator section) that have no rank: rivals and bosses join the ladder through Game.ladderFor. */
 const ROSTER = [
-  { id: 'kai', moveStyle: 'kickboxer', defense: 'block', name: 'KAI', title: 'The Balanced', rank: 0, attrs: { health: 6, stamina: 6, strength: 5, speed: 6, reach: 5, defense: 5, balance: 5, recovery: 6 }, range: 1.4,
+  { id: 'kai', moveStyle: 'kickboxer', defense: 'block', name: 'KAI', title: 'The Balanced', rank: 0, role: 'starter', country: 'Canada', origin: 'Gym kid', goal: 'Win the title', age: 26, gender: 'M', fit: [0.55, 0.5], attrs: { health: 6, stamina: 6, strength: 5, speed: 6, reach: 5, defense: 5, balance: 5, recovery: 6 }, range: 1.4,
     style: { aggr: 0.9, punch: 0.5, kick: 0.45, heavy: 0.4, grab: 0.1, defend: 0.5, circle: 0.5, low: 0.2 },
     look: { skin: '#d9a27c', hair: '#2a1a12', hairStyle: 'short', top: '#2f6fdd', shorts: '#18274d', glove: '#f1f1f5', shoe: '#202228', scale: 1, build: 1 } },
-  { id: 'mara', moveStyle: 'capoeira', defense: 'sway', name: 'MARA', title: 'The Viper', rank: 4, attrs: { health: 5, stamina: 6, strength: 5, speed: 7, reach: 6, defense: 5, balance: 4, recovery: 7 }, range: 1.65,
+  { id: 'mara', moveStyle: 'capoeira', defense: 'sway', name: 'MARA', title: 'The Viper', rank: 4, role: 'starter', country: 'Brazil', origin: 'Single parent', goal: 'Provide for family', age: 28, gender: 'F', fit: [0.55, 0.3], attrs: { health: 5, stamina: 6, strength: 5, speed: 7, reach: 6, defense: 5, balance: 4, recovery: 7 }, range: 1.65,
     style: { aggr: 1.1, punch: 0.45, kick: 0.55, heavy: 0.25, grab: 0.05, defend: 0.4, circle: 0.5, low: 0.35 },
     look: { skin: '#e8b894', hair: '#8a1636', hairStyle: 'ponytail', top: '#e5304b', shorts: '#2a0f18', glove: '#2a2a30', shoe: '#f0f0f0', scale: 0.96, build: 0.9 } },
-  { id: 'brutus', moveStyle: 'brawler', defense: 'block', name: 'BRUTUS', title: 'The Wall', rank: 2, attrs: { health: 7, stamina: 5, strength: 7, speed: 5, reach: 5, defense: 6, balance: 5, recovery: 6 }, range: 1.35,
+  { id: 'brutus', moveStyle: 'brawler', defense: 'block', name: 'BRUTUS', title: 'The Wall', rank: 2, role: 'starter', country: 'South Africa', origin: 'Port town', goal: 'Pay a debt', age: 42, gender: 'M', fit: [0.8, 0.85], attrs: { health: 7, stamina: 5, strength: 7, speed: 5, reach: 5, defense: 6, balance: 5, recovery: 6 }, range: 1.35,
     style: { aggr: 0.9, punch: 0.7, kick: 0.3, heavy: 0.6, grab: 0.2, defend: 0.5, circle: 0.1, low: 0.1 },
     look: { skin: '#a8704c', hair: '#000000', hairStyle: 'bald', top: null, shorts: '#2f5d2a', glove: '#c9a22b', shoe: '#3a2a1a', scale: 1.1, build: 1.28 } },
-  { id: 'yuki', moveStyle: 'boxer', defense: 'sway', name: 'YUKI', title: 'The Ghost', rank: 1, attrs: { health: 5, stamina: 6, strength: 5, speed: 8, reach: 5, defense: 5, balance: 4, recovery: 7 }, range: 1.4,
+  { id: 'yuki', moveStyle: 'boxer', defense: 'sway', name: 'YUKI', title: 'The Slipper', rank: 1, role: 'starter', country: 'Japan', origin: 'Small town', goal: 'Prove them wrong', age: 22, gender: 'F', fit: [0.4, 0.25], attrs: { health: 5, stamina: 6, strength: 5, speed: 8, reach: 5, defense: 5, balance: 4, recovery: 7 }, range: 1.4,
     style: { aggr: 1.0, punch: 0.45, kick: 0.55, heavy: 0.2, grab: 0.05, defend: 0.5, circle: 0.3, low: 0.3 },
     look: { skin: '#f0cfb4', hair: '#e8e8f4', hairStyle: 'long', top: '#7d4fd6', shorts: '#e9e9f5', glove: '#7d4fd6', shoe: '#e9e9f5', scale: 0.98, build: 0.86 } },
-  { id: 'dmitri', moveStyle: 'wrestler', defense: 'block', name: 'DMITRI', title: 'The Grappler', rank: 3, attrs: { health: 7, stamina: 5, strength: 7, speed: 5, reach: 5, defense: 6, balance: 4, recovery: 6 }, range: 1.3,
+  { id: 'dmitri', moveStyle: 'wrestler', defense: 'block', name: 'DMITRI', title: 'The Grappler', rank: 3, role: 'unlock', country: 'Kazakhstan', origin: 'Working class', goal: 'Make family proud', age: 37, gender: 'M', fit: [0.75, 0.75], attrs: { health: 7, stamina: 5, strength: 7, speed: 5, reach: 5, defense: 6, balance: 4, recovery: 6 }, range: 1.3,
     style: { aggr: 1.0, punch: 0.5, kick: 0.35, heavy: 0.5, grab: 0.3, defend: 0.5, circle: 0.1, low: 0.15 },
     look: { skin: '#c98c68', hair: '#c46a1a', hairStyle: 'mohawk', top: null, shorts: '#d86a12', glove: '#2a1a10', shoe: '#2a1a10', scale: 1.08, build: 1.2 } },
   // ZERO's playable build costs 46 points like the rest of the roster; the boss builds are only used for the Arcade final (see MatchSim).
   // They scale with the Arcade difficulty option: a hard CPU KAI beats them ~55% (easy, hard CPU), ~20-30% (normal, expert CPU), ~8% (hard, expert CPU).
-  { id: 'zero', moveStyle: 'karateka', defense: 'block', name: 'ZERO', title: 'The Champion', rank: 5, attrs: { health: 7, stamina: 6, strength: 6, speed: 5, reach: 6, defense: 5, balance: 6, recovery: 5 }, range: 1.4,
+  { id: 'zero', moveStyle: 'karateka', defense: 'block', name: 'ZERO', title: 'The Champion', rank: 5, role: 'champion', country: 'Spain', origin: 'Wealthy family', goal: 'Stay undefeated', age: 33, gender: 'M', fit: [0.7, 0.5], attrs: { health: 7, stamina: 6, strength: 6, speed: 5, reach: 6, defense: 5, balance: 6, recovery: 5 }, range: 1.4,
     bossAttrs: {
       easy: { health: 7, stamina: 6, strength: 6, speed: 6, reach: 6, defense: 5, balance: 6, recovery: 5 },     // 47 points
       normal: { health: 7, stamina: 6, strength: 6, speed: 6, reach: 6, defense: 5, balance: 6, recovery: 5 },   // 47 points
@@ -5542,6 +5583,76 @@ const NAME_IDEAS = ['NOVA', 'ORION', 'SABLE', 'JUNO', 'ONYX', 'ECHO', 'RAVEN', '
   'LYNX', 'NOMAD', 'OSPREY', 'PIKE', 'QUILL', 'ROOK', 'SIERRA', 'TORQUE', 'UMBRA', 'VOLT', 'WOLF', 'XENON', 'YARA', 'ZEPHYR'];
 const TIERS = ['standard', 'veteran'];
 
+/* ---------- the 26 new preset fighters (P5-04; table in Appendix C "Preset roster") ----------
+   They join ROSTER after the six kept fighters, which stay as they were. A row is the data to write; presetFromRow turns it into a ROSTER entry.
+   attrs follow ATTR_KEYS (health, stamina, strength, speed, reach, defense, balance, recovery) and cost 44 (starter), 45 (unlock, rival) or 46 (boss) points,
+   derived from the body and age (Appendix C). fit = [muscle, weight] on the fitness triangle; arch picks the AI personality and base range from ARCHETYPES.
+   Look fields left out use resolveLook's defaults (tank top when a top colour is given, shorts, gloves, shoes). No rank: only the six kept fighters are on the base Arcade ladder. */
+const PRESET_ROWS = [
+  { id: 'deacon', name: 'DEACON', title: 'The Veteran', moveStyle: 'boxer', defense: 'block', arch: 'counter', role: 'rival', country: 'Ireland', origin: 'Night-shift worker', goal: 'One last title', age: 41, gender: 'M', height: 1.04, fit: [0.7, 0.7], attrs: [6, 5, 6, 5, 5, 7, 6, 5],
+    look: { skin: '#f6d7c3', hair: '#c46a1a', hairStyle: 'buzz', beard: 'stubble', top: '#2f5d2a', shorts: '#16161c', glove: '#f1f1f5', shoe: '#16161c' } },
+  { id: 'rosa', name: 'ROSA', title: 'The Trapper', moveStyle: 'wingchun', defense: 'block', arch: 'striker', role: 'starter', country: 'Argentina', origin: 'Restaurant family', goal: 'Protect family', age: 34, gender: 'F', height: 0.94, fit: [0.45, 0.3], attrs: [5, 6, 7, 6, 5, 5, 5, 5],
+    look: { skin: '#e8b894', hair: '#15110f', hairStyle: 'ponytail', brows: 'thin', topStyle: 'tee', top: '#808894', legs: 'pants', shorts: '#16161c', hands: 'wraps', glove: '#f1f1f5', shoe: '#f1f1f5' } },
+  { id: 'hao', name: 'HAO', title: 'The Elder', moveStyle: 'wingchun', defense: 'block', arch: 'counter', role: 'boss', country: 'China', origin: 'Martial arts family', goal: 'Leave a legacy', age: 57, gender: 'M', height: 0.96, fit: [0.45, 0.4], attrs: [6, 6, 5, 5, 6, 7, 6, 5],
+    look: { skin: '#f0cfb4', hair: '#e8e8f4', hairStyle: 'short', eyes: 'narrow', beard: 'goatee', topStyle: 'gi', top: '#18274d', legs: 'pants', shorts: '#16161c', hands: 'wraps', glove: '#f1f1f5', belt: 'belt', feet: 'barefoot', shoe: '#16161c' } },
+  { id: 'femke', name: 'FEMKE', title: 'The Metronome', moveStyle: 'kickboxer', defense: 'sway', arch: 'counter', role: 'rival', country: 'Netherlands', origin: 'Sports family', goal: 'Beat the champion', age: 27, gender: 'F', height: 1.04, fit: [0.55, 0.4], attrs: [5, 6, 5, 6, 5, 7, 5, 6],
+    look: { skin: '#f6d7c3', hair: '#d9b36a', hairStyle: 'sideswept', top: '#f1f1f5', shorts: '#d86a12', glove: '#d86a12', shoe: '#f1f1f5' } },
+  { id: 'pranee', name: 'PRANEE', title: 'The Elbow', moveStyle: 'muaythai', defense: 'block', arch: 'striker', role: 'starter', country: 'Thailand', origin: 'Big-city street', goal: 'Earn respect', age: 25, gender: 'F', height: 0.96, fit: [0.6, 0.3], attrs: [4, 6, 6, 7, 5, 5, 5, 6],
+    look: { skin: '#d9a27c', hair: '#15110f', hairStyle: 'long', top: '#c9a22b', shorts: '#e5304b', hands: 'wraps', glove: '#f1f1f5', feet: 'barefoot', shoe: '#16161c', accent: '#e5304b' } },
+  { id: 'lars', name: 'LARS', title: 'The Clerk', moveStyle: 'muaythai', defense: 'block', arch: 'brawler', role: 'unlock', country: 'Sweden', origin: 'Office worker', goal: 'Lose weight', age: 36, gender: 'M', height: 1.06, fit: [0.35, 0.8], attrs: [7, 4, 6, 5, 5, 7, 7, 4],
+    look: { skin: '#f0cfb4', hair: '#5a3a22', hairStyle: 'short', beard: 'stubble', topStyle: 'tee', top: '#18274d', shorts: '#808894', glove: '#2f6fdd', shoe: '#f1f1f5' } },
+  { id: 'amara', name: 'AMARA', title: 'The Deputy', moveStyle: 'karateka', defense: 'sway', arch: 'kicker', role: 'starter', country: 'Nigeria', origin: 'Police family', goal: 'Defend the neighborhood', age: 31, gender: 'F', height: 1.0, fit: [0.6, 0.4], attrs: [5, 6, 5, 6, 7, 4, 5, 6],
+    look: { skin: '#7a4f35', hair: '#15110f', hairStyle: 'afro', topStyle: 'gi', top: '#f1f1f5', legs: 'pants', shorts: '#16161c', glove: '#e5304b', belt: 'belt', feet: 'barefoot', shoe: '#16161c' } },
+  { id: 'sora', name: 'SORA', title: 'The Spinner', moveStyle: 'taekwondo', defense: 'sway', arch: 'kicker', role: 'starter', country: 'South Korea', origin: 'College dropout', goal: 'Make friends', age: 24, gender: 'F', height: 1.0, fit: [0.45, 0.3], attrs: [4, 6, 5, 7, 7, 4, 5, 6],
+    look: { skin: '#f0cfb4', hair: '#2a1a12', hairStyle: 'topknot', eyes: 'narrow', topStyle: 'gi', top: '#f1f1f5', legs: 'pants', shorts: '#2f6fdd', glove: '#f1f1f5', shoe: '#f1f1f5' } },
+  { id: 'diego', name: 'DIEGO', title: 'The Courier', moveStyle: 'taekwondo', defense: 'sway', arch: 'speedster', role: 'rival', country: 'Colombia', origin: 'Delivery rider', goal: 'Fame', age: 20, gender: 'M', height: 1.02, fit: [0.55, 0.35], attrs: [5, 7, 5, 7, 6, 4, 4, 7],
+    look: { skin: '#c98c68', hair: '#15110f', hairStyle: 'buzz', topStyle: 'tee', top: '#e5304b', shorts: '#16161c', glove: '#16161c', shoe: '#e5304b' } },
+  { id: 'tiago', name: 'TIAGO', title: 'The Teacher', moveStyle: 'capoeira', defense: 'sway', arch: 'speedster', role: 'unlock', country: 'Portugal', origin: "Teacher's child", goal: 'Teach the kids', age: 39, gender: 'M', height: 1.02, fit: [0.55, 0.4], attrs: [4, 7, 5, 7, 6, 5, 4, 7],
+    look: { skin: '#d9a27c', hair: '#8a5a2b', hairStyle: 'sideswept', beard: 'goatee', topStyle: 'tee', top: '#f1f1f5', legs: 'pants', shorts: '#f1f1f5', hands: 'wraps', glove: '#f1f1f5', belt: 'sash', feet: 'barefoot', shoe: '#16161c', accent: '#2f5d2a' } },
+  { id: 'kelsey', name: 'KELSEY', title: 'The Comeback', moveStyle: 'wrestler', defense: 'block', arch: 'grappler', role: 'rival', country: 'USA', origin: 'Boarding school', goal: 'Redemption', age: 29, gender: 'F', height: 1.0, fit: [0.7, 0.6], attrs: [7, 6, 7, 5, 4, 5, 7, 4],
+    look: { skin: '#f6d7c3', hair: '#8a5a2b', hairStyle: 'topknot', top: '#2f6fdd', shorts: '#2f6fdd', hands: 'wraps', glove: '#f1f1f5', feet: 'boots', shoe: '#2f6fdd' } },
+  { id: 'elise', name: 'ELISE', title: 'The Survivor', moveStyle: 'judoka', defense: 'sway', arch: 'balanced', role: 'starter', country: 'France', origin: 'Foster care', goal: 'Escape the past', age: 33, gender: 'F', height: 0.98, fit: [0.55, 0.45], attrs: [5, 6, 5, 6, 5, 6, 6, 5],
+    look: { skin: '#f0cfb4', hair: '#15110f', hairStyle: 'short', brows: 'thin', topStyle: 'gi', top: '#2f6fdd', legs: 'pants', shorts: '#f1f1f5', hands: 'wraps', glove: '#f1f1f5', belt: 'belt', feet: 'barefoot', shoe: '#16161c' } },
+  { id: 'naran', name: 'NARAN', title: 'The Herder', moveStyle: 'judoka', defense: 'block', arch: 'grappler', role: 'unlock', country: 'Mongolia', origin: 'Farm family', goal: 'Prove worth', age: 27, gender: 'M', height: 1.12, fit: [0.7, 0.7], attrs: [7, 5, 7, 5, 5, 5, 7, 4],
+    look: { skin: '#c98c68', hair: '#15110f', hairStyle: 'short', beard: 'stubble', topStyle: 'gi', top: '#f1f1f5', legs: 'pants', shorts: '#18274d', hands: 'wraps', glove: '#f1f1f5', belt: 'belt', feet: 'barefoot', shoe: '#16161c' } },
+  { id: 'giorgi', name: 'GIORGI', title: 'The Sergeant', moveStyle: 'sambo', defense: 'block', arch: 'grappler', role: 'rival', country: 'Georgia', origin: 'Military family', goal: 'Revenge', age: 29, gender: 'M', height: 1.04, fit: [0.7, 0.6], attrs: [6, 6, 7, 5, 5, 6, 6, 4],
+    look: { skin: '#e8b894', hair: '#15110f', hairStyle: 'short', beard: 'full', top: '#2a0f18', shorts: '#2a0f18', glove: '#16161c', feet: 'boots', shoe: '#16161c' } },
+  { id: 'armine', name: 'ARMINE', title: 'The Anchor', moveStyle: 'sambo', defense: 'block', arch: 'balanced', role: 'unlock', country: 'Armenia', origin: 'Orphanage', goal: 'Find a lost sibling', age: 35, gender: 'F', height: 0.98, fit: [0.6, 0.45], attrs: [6, 6, 6, 6, 5, 5, 5, 6],
+    look: { skin: '#e8b894', hair: '#2a1a12', hairStyle: 'long', topStyle: 'tee', top: '#7d4fd6', legs: 'pants', shorts: '#16161c', hands: 'wraps', glove: '#808894', feet: 'boots', shoe: '#3a2a1a' } },
+  { id: 'reid', name: 'REID', title: 'The Professor', moveStyle: 'bjj', defense: 'sway', arch: 'grappler', role: 'unlock', country: 'Australia', origin: 'Immigrant family', goal: 'Honor a mentor', age: 44, gender: 'M', height: 1.02, fit: [0.35, 0.6], attrs: [7, 6, 6, 5, 4, 6, 7, 4],
+    look: { skin: '#f0cfb4', hair: '#5a3a22', hairStyle: 'buzz', beard: 'goatee', top: '#16161c', shorts: '#2f6fdd', hands: 'wraps', glove: '#f1f1f5', feet: 'barefoot', shoe: '#16161c' } },
+  { id: 'camila', name: 'CAMILA', title: 'The Gym Rat', moveStyle: 'bjj', defense: 'sway', arch: 'counter', role: 'unlock', country: 'Chile', origin: 'Famous parents', goal: 'Get fit', age: 26, gender: 'F', height: 0.96, fit: [0.4, 0.4], attrs: [5, 6, 5, 5, 5, 7, 5, 7],
+    look: { skin: '#d9a27c', hair: '#2a1a12', hairStyle: 'ponytail', top: '#ff5c93', shorts: '#16161c', hands: 'wraps', glove: '#f1f1f5', feet: 'barefoot', shoe: '#16161c' } },
+  { id: 'vikram', name: 'VIKRAM', title: 'The Doorman', moveStyle: 'hapkido', defense: 'sway', arch: 'counter', role: 'unlock', country: 'India', origin: 'Bouncer family', goal: 'Defend the neighborhood', age: 38, gender: 'M', height: 1.0, fit: [0.55, 0.45], attrs: [6, 6, 5, 5, 5, 7, 5, 6],
+    look: { skin: '#c98c68', hair: '#15110f', hairStyle: 'short', brows: 'thick', beard: 'full', topStyle: 'tee', top: '#16161c', legs: 'pants', shorts: '#808894', glove: '#16161c', shoe: '#16161c' } },
+  { id: 'lucia', name: 'LUCIA', title: 'The Needle', moveStyle: 'hapkido', defense: 'sway', arch: 'balanced', role: 'unlock', country: 'Italy', origin: 'Restaurant family', goal: 'Make family proud', age: 31, gender: 'F', height: 0.98, fit: [0.5, 0.35], attrs: [6, 6, 5, 7, 5, 5, 5, 6],
+    look: { skin: '#f0cfb4', hair: '#5a3a22', hairStyle: 'topknot', topStyle: 'tee', top: '#2f5d2a', legs: 'pants', shorts: '#808894', hands: 'wraps', glove: '#f1f1f5', shoe: '#f1f1f5' } },
+  { id: 'marlon', name: 'MARLON', title: 'The Dockhand', moveStyle: 'kali', defense: 'sway', arch: 'speedster', role: 'boss', country: 'Philippines', origin: 'Port town', goal: 'Earn respect', age: 49, gender: 'M', height: 1.0, fit: [0.5, 0.45], attrs: [5, 7, 5, 7, 6, 5, 5, 6],
+    look: { skin: '#c98c68', hair: '#15110f', hairStyle: 'short', eyes: 'narrow', beard: 'stubble', top: '#3a2a1a', shorts: '#2f5d2a', hands: 'wraps', glove: '#3a2a1a', shoe: '#3a2a1a' } },
+  { id: 'nia', name: 'NIA', title: 'The Sparrow', moveStyle: 'kali', defense: 'sway', arch: 'speedster', role: 'unlock', country: 'Jamaica', origin: 'Single parent', goal: 'Find a lost sibling', age: 19, gender: 'F', height: 0.92, fit: [0.4, 0.25], attrs: [4, 7, 4, 7, 6, 5, 5, 7],
+    look: { skin: '#4a3020', hair: '#15110f', hairStyle: 'buzz', headband: 'band', topStyle: 'tee', top: '#d4af37', shorts: '#16161c', hands: 'wraps', glove: '#f1f1f5', shoe: '#2f5d2a', accent: '#2f5d2a' } },
+  { id: 'yoav', name: 'YOAV', title: 'The Reservist', moveStyle: 'kravmaga', defense: 'block', arch: 'striker', role: 'boss', country: 'Israel', origin: 'Military family', goal: 'Protect family', age: 34, gender: 'M', height: 1.04, fit: [0.65, 0.5], attrs: [6, 6, 7, 6, 6, 5, 5, 5],
+    look: { skin: '#e8b894', hair: '#2a1a12', hairStyle: 'buzz', beard: 'stubble', topStyle: 'tee', top: '#808894', legs: 'pants', shorts: '#3a2a1a', glove: '#16161c', feet: 'boots', shoe: '#3a2a1a' } },
+  { id: 'kasia', name: 'KASIA', title: 'The Shift Worker', moveStyle: 'kravmaga', defense: 'block', arch: 'brawler', role: 'unlock', country: 'Poland', origin: 'Single parent', goal: 'Provide for family', age: 46, gender: 'F', height: 0.96, fit: [0.45, 0.55], attrs: [7, 5, 7, 5, 4, 7, 6, 4],
+    look: { skin: '#f0cfb4', hair: '#8a5a2b', hairStyle: 'long', topStyle: 'tee', top: '#2a0f18', legs: 'pants', shorts: '#16161c', hands: 'wraps', glove: '#f1f1f5', feet: 'boots', shoe: '#16161c' } },
+  { id: 'cruz', name: 'CRUZ', title: 'The Prospect', moveStyle: 'mma', defense: 'block', arch: 'balanced', role: 'starter', country: 'Mexico', origin: 'Gym kid', goal: 'Beat the champion', age: 28, gender: 'M', height: 1.02, fit: [0.65, 0.5], attrs: [6, 5, 6, 6, 5, 5, 5, 6],   // one point from stamina to strength: not a copy of KAI and the Balanced archetype
+    look: { skin: '#c98c68', hair: '#2a1a12', hairStyle: 'short', beard: 'goatee', topStyle: 'bare', shorts: '#18274d', glove: '#16161c', feet: 'barefoot', shoe: '#16161c' } },
+  { id: 'tessa', name: 'TESSA', title: 'The Farmhand', moveStyle: 'mma', defense: 'sway', arch: 'striker', role: 'unlock', country: 'New Zealand', origin: 'Farm family', goal: 'Win the title', age: 31, gender: 'F', height: 1.06, fit: [0.6, 0.55], attrs: [5, 6, 7, 6, 6, 5, 5, 5],
+    look: { skin: '#e8b894', hair: '#d9b36a', hairStyle: 'ponytail', top: '#16161c', shorts: '#e5304b', glove: '#e5304b', feet: 'barefoot', shoe: '#16161c' } },
+  { id: 'roxy', name: 'ROXY', title: 'The Scrapper', moveStyle: 'brawler', defense: 'sway', arch: 'brawler', role: 'rival', country: 'UK', origin: 'Foster care', goal: 'Thrill seeking', age: 23, gender: 'F', height: 0.98, fit: [0.5, 0.35], attrs: [7, 6, 7, 5, 4, 6, 6, 4],
+    look: { skin: '#e8b894', hair: '#8a1636', hairStyle: 'mohawk', brows: 'thick', top: '#16161c', legs: 'pants', shorts: '#18274d', hands: 'wraps', glove: '#16161c', feet: 'boots', shoe: '#16161c' } },
+];
+/* Build from the fitness triangle: weight sets the frame, muscle adds a little. Fits the six kept builds to within 0.05 (P6 replaces this with the creator's own fitness controls). */
+function presetBuild(fit) { return snapToStep(0.7 + 0.6 * fit[1] + 0.1 * (fit[0] - 0.5), BUILD_MIN, BUILD_MAX, BUILD_STEP); }
+function presetFromRow(row) {
+  const archetype = ARCHETYPES[row.arch], attrs = {};
+  ATTR_KEYS.forEach((key, i) => { attrs[key] = row.attrs[i]; });
+  const reachShift = 0.5 * (row.height - 1) + 0.04 * (attrs.reach - archetype.attrs.reach);   // taller, longer-armed fighters stand further off
+  const look = Object.assign({ scale: row.height, build: presetBuild(row.fit) }, row.look);
+  return Object.assign({}, row, { attrs, range: snapToStep(archetype.range + reachShift, 1.0, 1.7, 0.05), style: Object.assign({}, archetype.style), look });
+}
+for (const row of PRESET_ROWS) { const preset = presetFromRow(row); ROSTER.push(preset); ROSTER_BY_ID[preset.id] = preset; }
+
 /* ---------- colour helpers ---------- */
 function hexToHsl(hex) {
   const [r, g, b] = hexToRgb(hex);
@@ -7526,7 +7637,7 @@ const Game = {
   alpha: 0,
   match: null,
   run: null,
-  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', player2: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', party: DEFAULT_UNLOCKED.slice() },   // new players start on the easiest settings; party: the co-op pick per seat
+  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', player2: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS) },   // new players start on the easiest settings; party: the co-op pick per seat
   versus: null,          // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
   endTimer: 0,
   frameAvg: 16,
@@ -7578,7 +7689,23 @@ const Game = {
     else if (sel.mode === 'coop') this.startCoop();
     else this.startFree();
   },
-  opponentsFor(playerId) { return ROSTER.filter((r) => r.id !== playerId).sort((x, y) => x.rank - y.rank); },
+  /* The base Arcade ladder, weakest first: the six fighters that have a rank (the 1.0 roster, ZERO last); the presets added in P5-04 join through ladderFor. */
+  opponentsFor(playerId) { return ROSTER.filter((r) => r.id !== playerId && r.rank !== undefined).sort((x, y) => x.rank - y.rank); },
+  /* The five Arcade bouts of a run that starts after `clears` Arcade clears. The first run (0 clears) is the base ladder. Later runs swap bouts 2 and 3 for two rivals and bout 4 for a boss,
+     taken from the roster's rivals and bosses in table order (run k: rivals 2k and 2k+1, boss k; wrapping; never the player's own fighter); bout 1 and ZERO stay. */
+  ladderFor(playerId, clears) {
+    const ladder = this.opponentsFor(playerId).slice(-ARCADE_STAGES);   // custom players still end on ZERO
+    if (!(clears >= 1)) return ladder;
+    const run = clears - 1, taken = new Set([playerId]);
+    const draw = (role, start) => {
+      const list = ROSTER.filter((r) => r.role === role);
+      for (let i = 0; i < list.length; i++) { const r = list[(start + i) % list.length]; if (!taken.has(r.id)) { taken.add(r.id); return r; } }
+      return null;
+    };
+    const swaps = [[1, 'rival', 2 * run], [2, 'rival', 2 * run + 1], [3, 'boss', run]];
+    for (const [slot, role, start] of swaps) { const r = slot < ladder.length ? draw(role, start) : null; if (r) ladder[slot] = r; }
+    return ladder;
+  },
   /* Free Fight / Training opponents: the roster plus saved custom fighters. */
   opponentChoices(playerId, allowMirror) { return ROSTER.concat(CustomRoster.profiles()).filter((r) => allowMirror || r.id !== playerId); },
   /* The fighters a co-op seat can pick: the unlocked roster and the saved custom fighters. */
@@ -7593,10 +7720,9 @@ const Game = {
   /* keepRun: next stage or a retry of the same run (continues are counted); otherwise a new run starts. */
   startArcade(stage, keepRun) {
     const sel = this.selection;
-    const opponents = this.opponentsFor(sel.player);
-    const ladder = opponents.slice(Math.max(0, opponents.length - ARCADE_STAGES)); // custom players still end on ZERO
     const same = keepRun && this.run && this.run.mode === 'arcade' && this.run.player === sel.player;
-    if (!same) this.run = { mode: 'arcade', player: sel.player, level: sel.arcadeLevel, continues: 0 };
+    if (!same) this.run = { mode: 'arcade', player: sel.player, level: sel.arcadeLevel, continues: 0, clears: Progress.d.arcadeClears };   // clears: the ladder of this run (ladderFor) stays the same while it lasts
+    const ladder = this.ladderFor(sel.player, this.run.clears);
     Object.assign(this.run, { ladder, stage });
     const opp = ladder[stage];
     this.beginMatch({ mode: 'arcade', playerId: sel.player, opponentId: opp.id, arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, this.run.level), arcadeLevel: this.run.level, winsNeeded: 2, timer: 60 });
@@ -7691,11 +7817,12 @@ const Game = {
   /* Best streak and time are saved after every win and whenever a run ends, so quitting never loses them. */
   saveSurvivalRecord() {
     const run = this.run;
-    if (!run || run.mode !== 'survival') return;
+    if (!run || run.mode !== 'survival') return [];
     const unfinished = this.match && !this.match.matchOver ? Math.round(this.match.matchTicks / 60) : 0;
     Progress.d.survivalKills = Math.max(Progress.d.survivalKills, run.kills);
     Progress.d.survivalSeconds = Math.max(Progress.d.survivalSeconds, run.seconds + unfinished);
     Progress.save();
+    return Progress.checkUnlocks();   // a new best streak may unlock a fighter: the names
   },
   quitToMenu() {
     this.saveSurvivalRecord();
@@ -7718,6 +7845,24 @@ const Game = {
     this.go(GS.COUNTDOWN);   // first, so a countdown-less round's fightStart can move the state on to FIGHT
     this.match.startRound();
   },
+  /* The Arcade win of run.ladder[run.stage]: win count, best stage, clears, the fewest-continues record and every unlock it earns (written to data: newBest, cleared, unlocked). */
+  creditArcadeWin(run, data) {
+    Progress.d.wins++;
+    const defeated = run.ladder[run.stage], gained = [];
+    if (defeated.id === 'dmitri' || run.stage >= 2) if (Progress.unlock('dmitri')) gained.push('DMITRI');
+    data.newBest = run.stage + 1 > Progress.d.arcadeBest;
+    Progress.d.arcadeBest = Math.max(Progress.d.arcadeBest, run.stage + 1);
+    if (run.stage + 1 >= run.ladder.length) {
+      data.cleared = true; Progress.d.arcadeClears++;
+      if (Progress.unlock('zero')) gained.push('ZERO');
+      const fewest = Progress.d.arcadeFewestContinues;
+      if (fewest < 0 || run.continues < fewest) { data.newBest = fewest >= 0 || data.newBest; Progress.d.arcadeFewestContinues = run.continues; }
+    }
+    if (hasUnlockRule(defeated.id) && UNLOCK_RULES[defeated.id][0] === 'beat' && Progress.unlock(defeated.id)) gained.push(defeated.name);   // a rival or boss is open once beaten
+    gained.push(...Progress.checkUnlocks(false));   // wins, clears and best stage count already
+    if (gained.length) data.unlocked = joinNames(gained);
+    Progress.save();
+  },
   onMatchEnd() {
     const m = this.match;
     if (!m) return;
@@ -7730,18 +7875,7 @@ const Game = {
     if (run && run.mode === 'arcade') {
       data.stage = run.stage + 1; data.stages = run.ladder.length; data.continues = run.continues;
       if (playerWon) {
-        Progress.d.wins++;
-        const defeated = run.ladder[run.stage];
-        if (defeated.id === 'dmitri' || run.stage >= 2) if (Progress.unlock('dmitri')) data.unlocked = 'DMITRI';
-        data.newBest = run.stage + 1 > Progress.d.arcadeBest;
-        Progress.d.arcadeBest = Math.max(Progress.d.arcadeBest, run.stage + 1);
-        if (run.stage + 1 >= run.ladder.length) {
-          data.cleared = true; Progress.d.arcadeClears++;
-          if (Progress.unlock('zero')) data.unlocked = (data.unlocked ? data.unlocked + ' and ' : '') + 'ZERO';
-          const fewest = Progress.d.arcadeFewestContinues;
-          if (fewest < 0 || run.continues < fewest) { data.newBest = fewest >= 0 || data.newBest; Progress.d.arcadeFewestContinues = run.continues; }
-        }
-        Progress.save();
+        this.creditArcadeWin(run, data);
         data.buttons = data.cleared ? ['again', 'menu'] : ['next', 'menu'];
       } else { Progress.d.losses++; Progress.save(); data.buttons = ['retry', 'menu']; }
     } else if (run && run.mode === 'survival') {
@@ -7757,7 +7891,8 @@ const Game = {
         data.buttons = ['again', 'menu'];
       }
       data.kills = run.kills; data.survivalSeconds = run.seconds;
-      this.saveSurvivalRecord();
+      const gained = this.saveSurvivalRecord();
+      if (gained.length) data.unlocked = joinNames(gained);
     } else if (run && run.mode === 'versus') {
       this.versus.score[m.matchWinner]++;
       data.score = this.versus.score.slice();
@@ -8842,7 +8977,7 @@ const UI = {
   showPick() { const sel = Game.selection, key = this.pickKey(); this.menuScene(sel.arena, sel[key], null, true, key === 'player2' && sel.player2 === sel.player); },
   confirmFighter() {
     const sel = Game.selection;
-    if (!Progress.isUnlocked(sel[this.pickKey()])) { Sound.ui('bad'); this.toast('Locked. Win Arcade fights to unlock this fighter.', 'warn'); return; }
+    if (!Progress.isUnlocked(sel[this.pickKey()])) { Sound.ui('bad'); this.toast('Locked. ' + unlockRuleText(sel[this.pickKey()]) + ' to unlock this fighter.', 'warn'); return; }
     if (sel.mode === 'arcade') Game.startFromSelection();
     else if (sel.mode === 'versus') this.confirmVersusPick();
     else if (sel.mode === 'free' || sel.mode === 'training') { if (sel.mode === 'training' && sel.opponent === sel.player) sel.opponent = Game.opponentsFor(sel.player)[0].id; this.go('setup'); }
@@ -8923,7 +9058,12 @@ const UI = {
   },
   fighterCard(r, act, sel) {
     const locked = !Progress.isUnlocked(r.id) && act.startsWith('pick');
-    return '<button class="card' + (sel ? ' sel' : '') + (locked ? ' locked' : '') + '" data-nav ' + (sel ? 'data-default ' : '') + 'data-act="' + act + ':' + r.id + '" aria-pressed="' + !!sel + '"><b>' + esc(r.name) + (sel ? ' &#10003;' : '') + '</b><em>' + esc(r.title) + (r.custom ? ' &middot; CUSTOM' : '') + (locked ? ' &middot; LOCKED' : '') + ' &middot; ' + DEFENSE_LABEL[defenseFor(r)] + '</em>' + this.statBars(r.attrs) + '</button>';
+    return '<button class="card' + (sel ? ' sel' : '') + (locked ? ' locked' : '') + '" data-nav ' + (sel ? 'data-default ' : '') + 'data-act="' + act + ':' + r.id + '" aria-pressed="' + !!sel + '"><b>' + esc(r.name) + (sel ? ' &#10003;' : '') + '</b><em>' + esc(r.title) + (r.custom ? ' &middot; CUSTOM' : '') + (locked ? ' &middot; LOCKED' : '') + ' &middot; ' + DEFENSE_LABEL[defenseFor(r)] + '</em>' + (locked ? '<em>' + esc(unlockRuleText(r.id)) + '</em>' : '') + this.statBars(r.attrs) + '</button>';
+  },
+  /* One short line about a preset: style, age, where from, goal (customs have none). */
+  fighterBio(r) {
+    if (!r.country) return '';
+    return ' &middot; ' + esc(MOVE_STYLE[moveStyleFor(r)].label) + ', age ' + r.age + ' &middot; ' + esc(r.country) + ', ' + esc(r.origin.toLowerCase()) + ' &middot; goal: ' + esc(r.goal.toLowerCase());
   },
   screen_char() {
     const sel = Game.selection, picked = sel[this.pickKey()], p2 = this.pickKey() === 'player2';
@@ -8937,7 +9077,7 @@ const UI = {
     if (customs.length) h += '<h3>Custom</h3><div class="cards">' + customs.map((c) => this.fighterCard(c, 'pick', c.id === picked)).join('') + '</div>';
     const r = ROSTER_BY_ID[picked] || ROSTER_BY_ID.kai;
     if (sel.mode === 'arcade') h += this.optRow('Arcade difficulty', DIFFICULTY[sel.arcadeLevel].label, 'data-local="alevel"', '');
-    h += '<p class="hint">' + esc(r.name) + ' &ndash; ' + esc(r.title) + (r.custom ? ' (custom)' : '') + (Progress.isUnlocked(r.id) ? '' : ' (locked: ' + (r.id === 'dmitri' ? 'win Arcade stage 3' : 'clear Arcade') + ')') + (p2 && r.id === sel.player ? ' &middot; mirror match: P2 wears alternate colours' : '') + '</p>';
+    h += '<p class="hint">' + esc(r.name) + ' &ndash; ' + esc(r.title) + (r.custom ? ' (custom)' : '') + (Progress.isUnlocked(r.id) ? '' : ' (locked: ' + esc(unlockRuleText(r.id)) + ')') + this.fighterBio(r) + (p2 && r.id === sel.player ? ' &middot; mirror match: P2 wears alternate colours' : '') + '</p>';
     h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button>' + (r.custom && !p2 ? '<button class="mi" style="width:auto" data-nav data-act="editcustom">Edit fighter</button>' : '') + '<button class="mi" style="width:auto" data-nav data-act="confirm">Confirm</button></div></div></section>';
     return h;
   },
@@ -10537,10 +10677,12 @@ const SelfTest = {
       }
       return problems.length ? problems.join('; ') : true;
     });
-    test('Attack-string shares: over every preset pair at Normal and Hard no string tops ' + STRING_SHARE_LIMIT * 100 + '% of a fighter\'s damage and punches and kicks each carry ' + PUNCH_SHARE_BAND[0] * 100 + '-' + PUNCH_SHARE_BAND[1] * 100 + '% of the strike damage', () => {
-      const problems = [];
+    test('Attack-string shares: over every pair of the six ranked presets at Normal and Hard no string tops ' + STRING_SHARE_LIMIT * 100 + '% of a fighter\'s damage and punches and kicks each carry ' + PUNCH_SHARE_BAND[0] * 100 + '-' + PUNCH_SHARE_BAND[1] * 100 + '% of the strike damage', () => {
+      const problems = [], ranked = ROSTER.filter((r) => Number.isInteger(r.rank)).map((r) => r.id), pairs = [];
+      // the six ranked presets cover every string table; all 32 presets (P5-04) would take 40 s here: the full roster is P14-01's balance run
+      for (let i = 0; i < ranked.length; i++) for (let j = i + 1; j < ranked.length; j++) pairs.push([ranked[i], ranked[j]]);
       for (const difficulty of ['normal', 'hard']) {
-        const r = self.stringShare(STRING_SHARE_SEEDS, { difficulty, timer: 60, winsNeeded: 1 });
+        const r = self.stringShare(STRING_SHARE_SEEDS, { difficulty, timer: 60, winsNeeded: 1, pairs: pairs.slice() });
         if (r.error) return r.error;
         if (r.worst.share > STRING_SHARE_LIMIT) problems.push(difficulty + ': ' + r.worst.id + ' ' + r.worst.key + ' ' + Math.round(r.worst.share * 100) + '%');
         if (r.punch < PUNCH_SHARE_BAND[0] || r.punch > PUNCH_SHARE_BAND[1]) problems.push(difficulty + ': punches ' + Math.round(r.punch * 100) + '%');
@@ -12594,7 +12736,7 @@ const SelfTest = {
       Game.chooseMode('survival'); Game.startFromSelection();
       const pool = Game.opponentChoices('kai').map((r) => r.id);
       const seen = [Game.match.cfg.opponentId];
-      for (let i = 0; i < SURVIVAL_PEAK + 2; i++) { winAndContinue('next'); seen.push(Game.match.cfg.opponentId); }
+      for (let i = 0; i < Math.max(SURVIVAL_PEAK + 2, pool.length); i++) { winAndContinue('next'); seen.push(Game.match.cfg.opponentId); }   // a lap is the whole pool (31 presets and the customs)
       const lap = seen.slice(0, pool.length).sort().join() === pool.slice().sort().join();
       const late = Game.match.cfg.timer < SURVIVAL_TIMER && Game.match.cfg.difficulty === 'expert';
       Game.quitToMenu();
@@ -13273,7 +13415,7 @@ const SelfTest = {
           if (diff < 0.15) same.push(MOVE_STYLE_IDS[a] + '=' + MOVE_STYLE_IDS[b] + ' (' + diff.toFixed(3) + ')');
         }
       }
-      const assigned = ROSTER.every((r) => MOVE_STYLE[r.moveStyle]) && new Set(ROSTER.map((r) => r.moveStyle)).size === ROSTER.length;
+      const assigned = ROSTER.every((r) => MOVE_STYLE[r.moveStyle]) && new Set(ROSTER.map((r) => r.moveStyle)).size === MOVE_STYLE_IDS.length;   // all 16 styles have a preset
       return same.length === 0 && assigned ? true : 'too similar: ' + same.join(', ') + ' roster styles ok ' + assigned;
     });
     test('Creator preview: strike trails of the punch and kick poses fade away', () => {
@@ -13470,6 +13612,156 @@ const SelfTest = {
       if (matches !== ids.length * (ids.length + 1) / 2) problems.push('matches ' + matches);
       return problems.length ? problems.slice(0, 5).join('; ') : true;
     });
+    /* ----- preset roster (P5-04) ----- */
+    const countBy = (list, pick) => list.reduce((acc, item) => { acc[pick(item)] = (acc[pick(item)] || 0) + 1; return acc; }, {});
+    const presetStarters = () => ROSTER.filter((r) => r.role === 'starter').map((r) => r.id);
+    test('Presets: 32 fighters with every field, 2 per style, 16 F / 16 M, 16 Block / 16 Sway, 10 starters, 12 unlocks, 6 rivals, 3 bosses, the champion', () => {
+      const problems = [], text = (v) => typeof v === 'string' && v.length > 0;
+      for (const r of ROSTER) {
+        const bad = [];
+        if (!/^[a-z]{3,6}$/.test(r.id) || r.name !== r.id.toUpperCase() || ROSTER_BY_ID[r.id] !== r) bad.push('id/name');
+        if (!text(r.title) || !text(r.country) || !text(r.origin) || !text(r.goal)) bad.push('text');
+        if (!Number.isInteger(r.age) || r.age < 19 || r.age > 57 || !['M', 'F'].includes(r.gender)) bad.push('age/gender');
+        if (!['starter', 'unlock', 'rival', 'boss', 'champion'].includes(r.role)) bad.push('role');
+        if (!Array.isArray(r.fit) || r.fit.length !== 2 || r.fit.some((v) => !(v >= 0 && v <= 1))) bad.push('fit');
+        if (!MOVE_STYLE[r.moveStyle] || !DEFENSE_TYPES.includes(r.defense)) bad.push('style/defense');
+        if (!(r.look.scale >= SCALE_MIN && r.look.scale <= SCALE_MAX && r.look.build >= BUILD_MIN && r.look.build <= BUILD_MAX)) bad.push('body');
+        if (!ATTR_KEYS.every((k) => Number.isInteger(r.attrs[k]) && r.attrs[k] >= ATTR_MIN && r.attrs[k] <= ATTR_MAX) || !(r.range >= 1 && r.range <= 1.7) || !r.style) bad.push('attrs/range/style');
+        if (bad.length) problems.push(r.id + ': ' + bad.join());
+      }
+      const styles = countBy(ROSTER, (r) => r.moveStyle), gender = countBy(ROSTER, (r) => r.gender), defense = countBy(ROSTER, (r) => r.defense), roles = countBy(ROSTER, (r) => r.role);
+      const counts = ROSTER.length === 32 && new Set(ROSTER.map((r) => r.id)).size === 32 && MOVE_STYLE_IDS.length === 16 && MOVE_STYLE_IDS.every((id) => styles[id] === 2) && gender.F === 16 && gender.M === 16 &&
+        defense.block === 16 && defense.sway === 16 && roles.starter === 10 && roles.unlock === 12 && roles.rival === 6 && roles.boss === 3 && roles.champion === 1;
+      return !problems.length && counts ? true : JSON.stringify({ problems: problems.slice(0, 4), length: ROSTER.length, styles, gender, defense, roles });
+    });
+    test('Presets: the six kept fighters keep their ids, styles, attributes, ranks, ranges and bodies (saves, AI tuning and balance stay valid)', () => {
+      const want = {
+        kai: 'kickboxer|block|0|The Balanced|6,6,5,6,5,5,5,6|1.4|1|1', mara: 'capoeira|sway|4|The Viper|5,6,5,7,6,5,4,7|1.65|0.96|0.9', brutus: 'brawler|block|2|The Wall|7,5,7,5,5,6,5,6|1.35|1.1|1.28',
+        yuki: 'boxer|sway|1|The Slipper|5,6,5,8,5,5,4,7|1.4|0.98|0.86', dmitri: 'wrestler|block|3|The Grappler|7,5,7,5,5,6,4,6|1.3|1.08|1.2', zero: 'karateka|block|5|The Champion|7,6,6,5,6,5,6,5|1.4|1.04|1.05',
+      };
+      const changed = Object.keys(want).filter((id) => { const r = ROSTER_BY_ID[id]; return [r.moveStyle, r.defense, r.rank, r.title, ATTR_KEYS.map((k) => r.attrs[k]).join(), r.range, r.look.scale, r.look.build].join('|') !== want[id]; });
+      const order = ROSTER.slice(0, 6).map((r) => r.id).join() === 'kai,mara,brutus,yuki,dmitri,zero';
+      const boss = ATTR_KEYS.map((k) => ROSTER_BY_ID.zero.bossAttrs.hard[k]).join() === '7,7,6,6,6,6,6,6' && attrTotal(ROSTER_BY_ID.zero.bossAttrs.easy) === 47;
+      const ranks = ROSTER.filter((r) => r.rank !== undefined).length === 6 && Game.opponentsFor('kai').map((r) => r.id).join() === 'yuki,brutus,dmitri,mara,zero';
+      return !changed.length && order && boss && ranks ? true : JSON.stringify({ changed, order, boss, ranks });
+    });
+    test('Presets: costs follow the role (44 / 45 / 46), speed 5 or more, builds follow the fitness mapping, all five weight classes, every look different, titles and names pass the theme rule', () => {
+      const added = ROSTER.slice(6), cost = { starter: 44, unlock: 45, rival: 45, boss: 46 }, problems = [];
+      for (const r of added) {
+        if (attrTotal(r.attrs) !== cost[r.role]) problems.push(r.id + ' cost ' + attrTotal(r.attrs));
+        if (r.attrs.speed < 5 || r.attrs.balance < 4 || r.attrs.health < 4) problems.push(r.id + ' weak spot');
+        if (r.look.scale !== r.height || r.look.build !== presetBuild(r.fit)) problems.push(r.id + ' body');
+        if (!r.look.skin || !SKIN_SWATCHES.includes(r.look.skin) || !HAIR_SWATCHES.includes(r.look.hair)) problems.push(r.id + ' skin/hair');
+        for (const key of ['top', 'shorts', 'glove', 'shoe', 'accent']) if (r.look[key] !== undefined && !OUTFIT_SWATCHES.includes(r.look[key])) problems.push(r.id + ' ' + key);
+        for (const key of Object.keys(LOOK_CHOICES)) if (r.look[key] !== undefined && !LOOK_CHOICES[key].options.includes(r.look[key])) problems.push(r.id + ' ' + key);
+        if (r.look.glow === 'on' || r.look.hairStyle === 'mask') problems.push(r.id + ' glow/mask');
+      }
+      const keptFit = ROSTER.slice(0, 6).every((r) => Math.abs(presetBuild(r.fit) - r.look.build) <= 0.051);   // the mapping reproduces the six kept builds within one build step
+      const heights = ROSTER.map((r) => r.look.scale), classes = new Set(ROSTER.map((r) => weightClass(r)));
+      const spread = Math.min(...heights) === SCALE_MIN && Math.max(...heights) === SCALE_MAX && classes.size === 5;
+      const ages = ROSTER.map((r) => r.age), ageSpread = Math.min(...ages) === 19 && Math.max(...ages) === 57;
+      const signature = (r) => JSON.stringify(Object.assign({}, r.look, { scale: 0, build: 0 }));
+      const looks = new Set(ROSTER.map(signature)).size === ROSTER.length && new Set(ROSTER.map((r) => [r.look.skin, r.look.hair, r.look.hairStyle, r.look.top, r.look.shorts].join())).size === ROSTER.length;
+      const banned = /\b(ghost|phoenix|spectre|specter|titan|dragon|demon|devil|angel|wizard|witch|mage|magic|sorcerer|spirit|wraith|vampire|zombie|alien|robot|cyborg|android|laser|plasma|quantum|cosmic|galaxy|nova|xenon|volt|halo|umbra|orion|zephyr|ember|echo|onyx|raven|reaper|ninja|samurai|god|oracle|shaman|monster)\b/i;
+      const theme = ROSTER.filter((r) => banned.test([r.name, r.title, r.country, r.origin, r.goal].join(' ')));
+      return !problems.length && keptFit && spread && ageSpread && looks && !theme.length ? true : JSON.stringify({ problems: problems.slice(0, 4), keptFit, spread, ageSpread, looks, theme: theme.map((r) => r.id) });
+    });
+    test('Presets: starters are open from the start, every other preset has an unlock rule, the first Arcade run is the 1.0 ladder and later runs bring in the rivals and bosses, so all 32 can be unlocked', () => {
+      const saved = keepProgress(), problems = [];
+      try {
+        Progress.d = Progress.fresh();
+        const starters = presetStarters(), openAtStart = ROSTER.filter((r) => Progress.isUnlocked(r.id)).map((r) => r.id);
+        if (starters.length !== 10 || openAtStart.join() !== starters.join() || DEFAULT_UNLOCKED.slice(0, 4).join() !== 'kai,mara,brutus,yuki') problems.push('starters ' + openAtStart.join());
+        for (const r of ROSTER) {
+          const rule = hasUnlockRule(r.id) ? UNLOCK_RULES[r.id] : null, beat = !!rule && rule[0] === 'beat';
+          if (r.role === 'starter' ? !!rule || unlockRuleText(r.id) !== '' : !rule || !unlockRuleText(r.id) || beat !== (r.role === 'rival' || r.role === 'boss')) problems.push(r.id + ' rule');
+        }
+        if (Object.keys(UNLOCK_RULES).length !== 22 || hasUnlockRule('constructor') || unlockRuleText('c1') !== '') problems.push('rule table');
+        if (Game.ladderFor('kai', 0).map((r) => r.id).join() !== 'yuki,brutus,dmitri,mara,zero') problems.push('first run is not the 1.0 ladder');
+        const seenRivals = new Set(), seenBosses = new Set();
+        for (const player of ROSTER.map((r) => r.id).concat(['c1'])) {
+          for (let clears = 0; clears < 9; clears++) {
+            const ladder = Game.ladderFor(player, clears), ids = ladder.map((r) => r.id);
+            if (ladder.length !== ARCADE_STAGES || new Set(ids).size !== ARCADE_STAGES || ids.includes(player) || (player !== 'zero' && ids[4] !== 'zero')) problems.push(player + '/' + clears + ' ladder ' + ids.join());
+            if (player === 'kai' && clears >= 1) {
+              if (ladder[1].role !== 'rival' || ladder[2].role !== 'rival' || ladder[3].role !== 'boss' || ids[0] !== 'yuki') problems.push('kai/' + clears + ' roles ' + ids.join());
+              if (clears <= 3) { seenRivals.add(ids[1]); seenRivals.add(ids[2]); seenBosses.add(ids[3]); }
+            }
+          }
+        }
+        if (seenRivals.size !== 6 || seenBosses.size !== 3) problems.push('rivals ' + seenRivals.size + ' bosses ' + seenBosses.size + ' in 3 later runs');
+        // play it through: Arcade runs as KAI, crediting each win the way a match end does
+        let runs = 0, thirdWin = '', beforeStreak = [];
+        while (runs < 8 && ROSTER.some((r) => !Progress.isUnlocked(r.id) && UNLOCK_RULES[r.id][0] !== 'streak')) {
+          const ladder = Game.ladderFor('kai', Progress.d.arcadeClears);
+          for (let stage = 0; stage < ARCADE_STAGES; stage++) {
+            const data = {}; Game.creditArcadeWin({ stage, ladder, continues: 0 }, data);
+            if (runs === 0 && stage === 2) thirdWin = data.unlocked;
+          }
+          runs++;
+        }
+        beforeStreak = ['reid', 'camila', 'nia'].map((id) => Progress.isUnlocked(id));
+        Progress.d.survivalKills = 8; const gained = Progress.checkUnlocks();
+        const allOpen = ROSTER.every((r) => Progress.isUnlocked(r.id));
+        if (runs > 5 || thirdWin !== 'DMITRI and LARS' || beforeStreak.some(Boolean) || gained.join() !== 'REID,CAMILA,NIA' || !allOpen) problems.push('unlocking: runs ' + runs + ' third win "' + thirdWin + '" before ' + beforeStreak + ' gained ' + gained + ' all ' + allOpen);
+        // the cards: a locked one names its rule, an open one does not
+        Progress.d = Progress.fresh();
+        const locked = UI.fighterCard(ROSTER_BY_ID.deacon, 'pick', false), open = UI.fighterCard(ROSTER_BY_ID.rosa, 'pick', false), opponent = UI.fighterCard(ROSTER_BY_ID.deacon, 'opp', false);
+        if (!locked.includes('LOCKED') || !locked.includes(esc(unlockRuleText('deacon'))) || open.includes('LOCKED') || opponent.includes('LOCKED')) problems.push('cards');
+      } finally { restoreProgress(saved); }
+      return problems.length ? problems.slice(0, 4).join('; ') : true;
+    });
+    test('Presets: a save from before P5-04 gets the new starters and keeps its unlocks, counters and records; what its counters earned is open too; unknown ids are dropped', () => {
+      const saved = keepProgress(), problems = [];
+      try {
+        const old = { unlocked: ['kai', 'mara', 'brutus', 'yuki', 'dmitri', 'ghost', 'c1', 'constructor', 'hao'], arcadeClears: 2, arcadeBest: 5, arcadeFewestContinues: 1, wins: 12, losses: 3, survivalKills: 4, survivalSeconds: 100, controlsRevision: KEYS_REVISION };
+        Store.set(KEY_PROGRESS, JSON.stringify(old));
+        Progress.init();
+        const d = Progress.d, open = (id) => d.unlocked.includes(id);
+        if (!presetStarters().every(open)) problems.push('starters');
+        if (!open('dmitri') || !open('hao') || !open('zero')) problems.push('kept unlocks');
+        if (open('ghost') || open('c1') || open('constructor') || d.unlocked.length !== new Set(d.unlocked).size) problems.push('unknown ids');
+        if (!['lars', 'tiago', 'vikram', 'armine', 'reid'].every(open) || ['lucia', 'kasia', 'naran', 'camila', 'deacon', 'tessa'].some(open)) problems.push('earned by the counters: ' + d.unlocked.join());
+        if (d.arcadeClears !== 2 || d.arcadeBest !== 5 || d.wins !== 12 || d.losses !== 3 || d.survivalKills !== 4 || d.survivalSeconds !== 100 || d.arcadeFewestContinues !== 1) problems.push('counters');
+        Store.set(KEY_PROGRESS, JSON.stringify({ arcadeClears: 0, controlsRevision: KEYS_REVISION }));
+        Progress.init();
+        if (Progress.d.unlocked.join() !== DEFAULT_UNLOCKED.join()) problems.push('a save with nothing earned: ' + Progress.d.unlocked.join());
+      } finally { restoreProgress(saved); }
+      return problems.length ? problems.slice(0, 4).join('; ') : true;
+    });
+    test('Presets: the fighter select lists all 32 (locked ones with their rule), every picker has them, the co-op pick cycles the open ones, the bio line names style, age, country, origin and goal', () => {
+      const saved = keepProgress(), party = Game.selection.party.slice(), problems = [];
+      try {
+        Progress.d = Progress.fresh();
+        Game.selection.mode = 'arcade'; Game.selection.player = 'lars';
+        const html = UI.screen_char();
+        const cards = ROSTER.filter((r) => html.includes('data-act="pick:' + r.id + '"')).length, lockedCards = (html.match(/ locked"/g) || []).length;
+        if (cards !== 32 || lockedCards !== 22 || !html.includes(esc(unlockRuleText('lars'))) || !html.includes('Muay Thai, age 36') || !html.includes('Sweden, office worker') || !html.includes('goal: lose weight')) problems.push('select ' + cards + '/' + lockedCards);
+        if (Game.opponentChoices('kai').length !== 31 + CustomRoster.profiles().length || Game.opponentChoices('kai', true).length !== 32 + CustomRoster.profiles().length || Game.opponentsFor('mara').length !== 5) problems.push('pickers');
+        const open = Game.coopRoster().filter((r) => !r.custom).map((r) => r.id);
+        if (open.join() !== presetStarters().join()) problems.push('co-op roster ' + open.join());
+        Game.selection.party[0] = 'kai';
+        const steps = []; for (let i = 0; i < 12; i++) steps.push(Game.cycleParty(0, 1));
+        if (steps.slice(0, 3).join() !== 'mara,brutus,yuki' || steps.some((id) => !Progress.isUnlocked(id))) problems.push('co-op cycle ' + steps.join());
+        if (Game.cycleParty(0, -1) === undefined) problems.push('co-op back');
+        Game.selection.player = 'zero';
+        if (!UI.screen_char().includes('locked: Clear Arcade')) problems.push('locked hint');
+      } finally { Game.selection.party = party; restoreProgress(saved); }
+      return problems.length ? problems.slice(0, 4).join('; ') : true;
+    });
+    test('Presets: every new preset plays an AI match against KAI without errors and lands hits', () => {
+      const problems = [], hits = {};
+      ROSTER.slice(6).forEach((r, i) => {
+        try {
+          const run = SimRunner.run({ playerId: r.id, opponentId: 'kai', seed: 100 + i, difficulty: 'hard', timer: 10, winsNeeded: 1, listeners: { hit: (e) => { hits[e.att.id] = (hits[e.att.id] || 0) + 1; } } });
+          if (run.error) problems.push(r.id + ' ' + run.error);
+          else if (!(run.ticks > 60) || run.hpLeft.some((hp) => !Number.isFinite(hp) || hp < 0 || hp > 1)) problems.push(r.id + ' ticks ' + run.ticks + ' hp ' + run.hpLeft.join('/'));
+        } catch (e) { problems.push(r.id + ' ' + e.message); }
+      });
+      const silent = ROSTER.slice(6).filter((r) => !(hits[r.id] > 0)).map((r) => r.id);
+      if (silent.length) problems.push('no hits from ' + silent.join());
+      return problems.length ? problems.slice(0, 4).join('; ') : true;
+    });
     /* ----- Sway (P3-01 / P3-02): MARA is a Sway fighter by default, KAI a Block fighter ----- */
     /* Presses Defend on fighter 2 so the opponent's strike goes active `lead` ticks into the sway (stateTicks = lead on the first active tick). */
     const swayAt = (lead) => {
@@ -13480,7 +13772,8 @@ const SelfTest = {
       const wantByStyle = { boxer: 'sway', wingchun: 'block', kickboxer: 'block', muaythai: 'block', karateka: 'block', taekwondo: 'sway', capoeira: 'sway', wrestler: 'block', judoka: 'sway', sambo: 'block',
         bjj: 'sway', hapkido: 'sway', kali: 'sway', kravmaga: 'block', mma: 'block', brawler: 'block' };   // P1-04: 7 Sway, 9 Block
       const styles = MOVE_STYLE_IDS.every((id) => defaultDefense(id) === wantByStyle[id]) && MOVE_STYLE_IDS.length === Object.keys(wantByStyle).length;
-      const roster = ROSTER.every((r) => DEFENSE_TYPES.includes(r.defense) && r.defense === defaultDefense(r.moveStyle)) && ROSTER.some((r) => r.defense === 'block') && ROSTER.some((r) => r.defense === 'sway');
+      const overrides = ['deacon', 'femke', 'amara', 'naran', 'tessa', 'roxy'];   // P1-06: the six presets whose defense differs from their style's default
+      const roster = ROSTER.every((r) => DEFENSE_TYPES.includes(r.defense) && (r.defense === defaultDefense(r.moveStyle)) === !overrides.includes(r.id)) && ROSTER.some((r) => r.defense === 'block') && ROSTER.some((r) => r.defense === 'sway');
       const fighters = new Fighter(ROSTER_BY_ID.kai, 0).defense === 'block' && new Fighter(ROSTER_BY_ID.mara, 1).defense === 'sway';
       const noField = new Fighter(Object.assign({}, ROSTER_BY_ID.kai, { defense: undefined, moveStyle: 'boxer' }), 0).defense === 'sway';   // no field: the style decides
       return styles && roster && fighters && noField ? true : JSON.stringify({ styles, roster, fighters, noField });
