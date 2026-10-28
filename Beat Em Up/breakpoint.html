@@ -14,7 +14,7 @@
 <link rel="icon" href="data:,">
 <title>BREAKPOINT</title>
 <style>
-:root{--ui:1;--panel:rgba(8,12,22,.9);--line:#2f4170;--txt:#eef3ff;--mut:#a9b8da;--a1:#34dcff;--a2:#ff5c93;--ok:#6dff9c;--warn:#ffd24a;--bad:#ff6464;--tbs:max(58px,14vmin);
+:root{--ui:1;--panel:rgba(8,12,22,.9);--line:#2f4170;--txt:#eef3ff;--mut:#a9b8da;--a1:#34dcff;--a2:#ff5c93;--ok:#6dff9c;--warn:#ffd24a;--bad:#ff6464;
  /* notch, Dynamic Island and home bar (iPhone with viewport-fit=cover); 0 elsewhere */
  --sat:env(safe-area-inset-top,0px);--sar:env(safe-area-inset-right,0px);--sab:env(safe-area-inset-bottom,0px);--sal:env(safe-area-inset-left,0px)}
 *{box-sizing:border-box}
@@ -194,28 +194,9 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .tb.on{background:rgba(52,220,255,.55)}
 .tb.lg{width:calc(var(--tbs)*1.25);height:calc(var(--tbs)*1.25);font-size:calc(var(--tbs)*.24)}
 .tb.sm{width:calc(var(--tbs)*.8);height:calc(var(--tbs)*.8);font-size:calc(var(--tbs)*.17)}
-/* the stick stays 20px clear of the left edge, where Safari's swipe-back gesture starts */
-#stickBase{left:max(4vmin,20px);bottom:5vmin;width:30vmin;height:30vmin;min-width:130px;min-height:130px;border-radius:50%;background:rgba(18,28,50,.4);border:3px solid rgba(255,255,255,.5)}
+/* the button and stick positions come from TOUCH_LAYOUT (touchLayoutCss, injected by buildTouch) */
+#stickBase{border-radius:50%;background:rgba(18,28,50,.4);border:3px solid rgba(255,255,255,.5)}
 #stickKnob{position:absolute;left:50%;top:50%;width:42%;height:42%;margin:-21% 0 0 -21%;border-radius:50%;background:rgba(255,255,255,.55);border:3px solid #fff}
-/* right thumb: KICK in the corner, PUNCH beside it, DEFEND above it, GRAB on the inside, JUMP over PUNCH;
-   left thumb: stick with DUCK next to it */
-.tb[data-a=kick]{right:3vmin;bottom:4vmin}
-.tb[data-a=punch]{right:calc(5vmin + var(--tbs)*1.3);bottom:calc(4vmin + var(--tbs)*.35)}
-.tb[data-a=defend]{right:3vmin;bottom:calc(6vmin + var(--tbs)*1.3)}
-.tb[data-a=grapple]{right:calc(7vmin + var(--tbs)*2.6);bottom:4vmin}
-.tb[data-a=jump]{right:calc(5vmin + var(--tbs)*1.5);bottom:calc(8vmin + var(--tbs)*1.7)}
-.tb[data-a=crouch]{left:calc(max(4vmin,20px) + 2vmin + max(30vmin,130px));bottom:5vmin}
-.tb[data-a=pause]{right:2vmin;top:21vmin}
-@media (orientation:portrait){
- :root{--tbs:max(50px,15vw)}
- #stickBase{left:max(3vw,20px);bottom:4vh;width:36vw;height:36vw}
- .tb[data-a=kick]{right:3vw;bottom:4vh}
- .tb[data-a=punch]{right:calc(5vw + var(--tbs)*1.3);bottom:calc(4vh + var(--tbs)*.35)}
- .tb[data-a=defend]{right:3vw;bottom:calc(6vh + var(--tbs)*1.3)}
- .tb[data-a=grapple]{right:calc(5vw + var(--tbs)*1.45);bottom:calc(8vh + var(--tbs)*1.6)}
- .tb[data-a=jump]{right:calc(5vw + var(--tbs)*1.6);bottom:calc(10vh + var(--tbs)*2.6)}.tb[data-a=crouch]{left:max(3vw,20px);bottom:calc(6vh + 36vw)}
- .tb[data-a=pause]{right:2vw;top:26vw}
-}
 /* ---------- overlays ---------- */
 #toast{position:absolute;left:50%;top:calc(1em + var(--sat));transform:translateX(-50%);max-width:90vw;pointer-events:none;z-index:30}
 .toast{background:rgba(0,0,0,.85);border:2px solid var(--a1);padding:.45em 1em;margin-top:.4em;border-radius:.4em;font-weight:700;text-align:center}
@@ -516,6 +497,7 @@ const SETTING_DEFS = {
   shadows: { type: 'enum', options: ['off', 'blob', 'full'], def: 'full', label: 'Shadows' },
   effects: { type: 'enum', options: ['low', 'medium', 'high'], def: 'high', label: 'Effects' },
   touch: { type: 'enum', options: ['auto', 'on', 'off'], def: 'auto', label: 'Touch controls' },
+  autoAssist: { type: 'bool', def: false, label: 'Auto-assist', hint: 'Easier attack strings for you (not the CPU): the next move plays even after a miss, and you get twice as long to press it.' },
   showStats: { type: 'bool', def: false, label: 'Performance overlay' },
 };
 const Settings = {
@@ -727,9 +709,10 @@ function keyLabel(code) {
 
 /* ---------- progress (selective persistence) ---------- */
 const DEFAULT_UNLOCKED = ['kai', 'mara', 'brutus', 'yuki'];
+const CONTROL_CARD_KINDS = ['keyboard', 'gamepad', 'touch'];   // the input types that get their own first-fight controls card
 const Progress = {
   d: null,
-  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: false, seenClinch: false, controlsRevision: KEYS_REVISION }; },
+  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: { keyboard: false, gamepad: false, touch: false }, seenClinch: false, controlsRevision: KEYS_REVISION }; },
   init() {
     const base = this.fresh();
     const s = readJson(KEY_PROGRESS) || {};
@@ -744,7 +727,8 @@ const Progress = {
     base.survivalSeconds = num(s.survivalSeconds, 999999);
     // a save from before the current controls (no revision = 1.0.0) shows the controls card once more and a toast; saved at once, so both happen once
     const oldControls = Object.keys(s).length > 0 && num(s.controlsRevision, 999) < KEYS_REVISION;
-    base.seenControls = s.seenControls === true && !oldControls;   // the first-match controls card was shown
+    // the first-match controls card was shown, once per input type; an older save held one flag for the card (any device), which counts for all three
+    for (const kind of CONTROL_CARD_KINDS) base.seenControls[kind] = !oldControls && (s.seenControls === true || (!!s.seenControls && s.seenControls[kind] === true));
     base.seenClinch = s.seenClinch === true;   // the clinch instructions were shown (they appear in the first clinch only)
     if (Array.isArray(s.unlocked)) for (const id of s.unlocked) if (typeof id === 'string' && ['dmitri', 'zero'].includes(id) && !base.unlocked.includes(id)) base.unlocked.push(id);
     this.d = base;
@@ -784,7 +768,8 @@ const PAD_BUTTONS = { punch: [2, 3], kick: [0, 1], defend: [5], lock: [4], use: 
 const TOUCH_RUN_TICKS = 27;           // touch stick held fully toward the opponent this long = run
 const ATTACK_STRING_SECONDS = 0.8;    // a Punch / Kick press this soon after the previous string press, with contact, continues the string
 const ATTACK_STRING_TICKS = Math.round(ATTACK_STRING_SECONDS / FIXED_DT);   // counted in simulation ticks, so the headless sim and the AI stay deterministic
-const ATTACK_QUEUE_MAX = 3;           // Punch / Kick presses kept in press order until the fight reads them (hit-stop pauses reading)
+const ASSIST_STRING_WINDOW = 2;       // Auto-assist (human players only) multiplies the string window by this and lets a string go on after a whiff
+const ATTACK_QUEUE_MAX = 3;          // Punch / Kick presses kept in press order until the fight reads them (hit-stop pauses reading)
 
 /* Touch: DUCK held gives the low version; otherwise the attack goes where it can land. The move comes from the
    fighter's attack string (Fighter.pressMove): a body shot against a crouching or low-guarding opponent when the
@@ -801,13 +786,13 @@ function makeIntent() {
   return {
     fwd: 0, side: 0, run: false, crouch: false, defend: false, height: false,
     jump: false, punch: false, kick: false, grapple: false, use: false, lock: false,   // use / lock: one-tick presses, no gameplay yet (items P7, lock-on P4)
-    sidestep: 0, grapDir: 'fwd', noParry: false,
+    sidestep: 0, grapDir: 'fwd', noParry: false, assist: false,   // assist: the Auto-assist setting, set by human input only
   };
 }
 function clearIntent(it) {
   it.fwd = 0; it.side = 0; it.run = false; it.crouch = false; it.defend = false;
   it.height = false; it.jump = false; it.punch = false; it.kick = false;
-  it.grapple = false; it.use = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false;
+  it.grapple = false; it.use = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false; it.assist = false;
   return it;
 }
 
@@ -1057,6 +1042,7 @@ class PlayerInput {
     it.grapple = this.take('grapple');
     it.use = this.take('use');
     it.lock = this.take('lock');
+    it.assist = Settings.v.autoAssist === true;   // every device and both Versus players; the AI and the dummy never set it
     const dtap = this.latch.dtap;
     this.latch.dtap = null;
     if (dtap) {
@@ -3203,7 +3189,7 @@ class Fighter {
     this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.escapeQueued = false; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0;
     this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.fvx = 0; this.fvz = 0; this.pendingKO = false;
-    this.sideDir = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false;
+    this.sideDir = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.assist = false;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
     this.pose.set(this.motion.guard); this.tp.set(this.motion.guard);
     this.alive = true;
@@ -3289,11 +3275,13 @@ class Fighter {
   }
   /* The string step for a Punch / Kick press. It continues the string when it comes within ATTACK_STRING_TICKS of the
      previous string press, the previous string move made contact (hit or block) and the string has a row for the new
-     press; otherwise it is step 1 of a new string. The crouch rows need Crouch held at every press. */
+     press; otherwise it is step 1 of a new string. The crouch rows need Crouch held at every press. With Auto-assist
+     (human players) contact is not needed and the window is ASSIST_STRING_WINDOW times longer. */
   pickString(buf) {
     const letter = buf.btn === 'punch' ? 'P' : 'K';
     let keys = letter, low = buf.height;
-    const open = this.stringKeys !== '' && this.stringKeys.length < STRING_MAX_STEPS && this.moveConnected && buf.tick - this.stringTick <= ATTACK_STRING_TICKS;
+    const stringWindow = this.assist ? ATTACK_STRING_TICKS * ASSIST_STRING_WINDOW : ATTACK_STRING_TICKS;
+    const open = this.stringKeys !== '' && this.stringKeys.length < STRING_MAX_STEPS && (this.moveConnected || this.assist) && buf.tick - this.stringTick <= stringWindow;
     const stillLow = this.stringLow && buf.height;
     // a crouch string only continues on a crouch row (crouch P then crouch K starts over), so no strong move hides off the tables
     const row = stillLow ? STRINGS.crouch[this.stringKeys + letter] : STRINGS.stand[this.stringKeys + letter];
@@ -3417,6 +3405,7 @@ class Fighter {
     if (this.flash > 0) this.flash = Math.max(0, this.flash - 0.12);
     this.defendPressed = it.defend && !this.prevDefend;   // a fresh press, not a held button (quick recovery while down)
     this.prevDefend = it.defend;
+    this.assist = it.assist === true;   // Auto-assist: read by pickString
     this.bufferInput(it);
     this.regenerate();
     switch (this.state) {
@@ -6423,8 +6412,103 @@ const MODE_INFO = {
 const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'versus'];
 const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', defend: 'R1', use: 'L2', lock: 'L1', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R2, R3 or right-stick flick', pause: 'Start' };
 const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', defend: 'DEFEND (with DUCK: low)', use: 'USE', lock: 'LOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
+/* Touch buttons: [action, label, size]. lg = main fight buttons under the right thumb, sm = movement extras and the two
+   context buttons. USE and LOCK are built hidden; touchUseVisible / touchLockVisible say when each one shows. */
+const TOUCH_BUTTONS = [['punch', 'PUNCH', 'lg'], ['kick', 'KICK', 'lg'], ['defend', 'DEFEND', 'lg'], ['grapple', 'GRAB', ''], ['jump', 'JUMP', 'sm'], ['crouch', 'DUCK', 'sm'], ['pause', 'II', 'sm'], ['use', 'USE', 'sm'], ['lock', 'LOCK', 'sm']];
+const TOUCH_CONTEXT_ACTIONS = ['use', 'lock'];
+const TOUCH_BUTTON_SCALE ={ '': 1, lg: 1.25, sm: 0.8 };   // button size in tbs units (one standard button)
+/* Touch layout (P2-04). This one table drives both the button CSS (touchLayoutCss, injected by buildTouch) and the overlap
+   self-test (touchLayoutRects), so the test measures the numbers the screen uses. Landscape is the base; portrait
+   replaces it in a portrait window. An offset is a sum such as '5vmin + 1.3tbs' (vmin / vw / vh = % of the window, px, tbs = one
+   standard button) or max(a,b). Slot = [edge x, offset x, edge y, offset y], from that edge of the safe area to the button's
+   near edge. Right thumb: KICK in the corner, PUNCH beside it, DEFEND above KICK, GRAB on the inside, JUMP over PUNCH, LOCK over JUMP,
+   USE over GRAB (the old DASH slot). Left thumb: the stick with DUCK next to it. II sits under the HUD bars, top right. The stick
+   stays 20px clear of the left edge, where Safari's swipe-back gesture starts. */
+const TOUCH_LAYOUT = {
+  landscape: {
+    tbs: 'max(58px,14vmin)',
+    stick: ['max(4vmin,20px)', '5vmin', 'max(30vmin,130px)'],   // left, bottom, width = height
+    slots: {
+      kick: ['right', '3vmin', 'bottom', '4vmin'],
+      punch: ['right', '5vmin + 1.3tbs', 'bottom', '4vmin + 0.35tbs'],
+      defend: ['right', '3vmin', 'bottom', '6vmin + 1.3tbs'],
+      grapple: ['right', '7vmin + 2.6tbs', 'bottom', '4vmin'],
+      jump: ['right', '5vmin + 1.5tbs', 'bottom', '8vmin + 1.7tbs'],
+      crouch: ['left', 'max(4vmin,20px) + 2vmin + max(30vmin,130px)', 'bottom', '5vmin'],
+      pause: ['right', '2vmin', 'top', 'max(23vmin,80px)'],
+      use: ['right', '7vmin + 2.8tbs', 'bottom', '6vmin + 1.35tbs'],
+      lock: ['right', '5vmin + 1.5tbs', 'bottom', '10vmin + 2.5tbs'],
+    },
+  },
+  portrait: {
+    tbs: 'max(50px,15vw)',
+    stick: ['max(3vw,20px)', '4vh', 'max(36vw,130px)'],
+    slots: {
+      kick: ['right', '3vw', 'bottom', '4vh'],
+      punch: ['right', '5vw + 1.3tbs', 'bottom', '4vh + 0.35tbs'],
+      defend: ['right', '3vw', 'bottom', '6vh + 1.3tbs'],
+      grapple: ['right', '5vw + 1.45tbs', 'bottom', '8vh + 1.6tbs'],
+      jump: ['right', '5vw + 1.6tbs', 'bottom', '10vh + 2.6tbs'],
+      crouch: ['left', 'max(3vw,20px)', 'bottom', '6vh + max(36vw,130px)'],
+      pause: ['right', '2vw', 'top', '26vw'],
+      use: ['right', '3vw + 0.22tbs', 'bottom', '8vh + 2.5tbs'],
+      lock: ['right', '5vw + 1.6tbs', 'bottom', '12vh + 3.4tbs'],
+    },
+  },
+};
+/* The pixels of a TOUCH_LAYOUT offset; units = pixels per unit (vmin, vw, vh, px, tbs). */
+function touchOffsetPx(text, units) {
+  const tokens = text.match(/max\(|[\d.]+[a-z]+|[,)+]/g);
+  let at = 0;
+  const sum = () => { let total = term(); while (tokens[at] === '+') { at++; total += term(); } return total; };
+  const term = () => {
+    const token = tokens[at++];
+    if (token === 'max(') { const values = [sum()]; while (tokens[at] === ',') { at++; values.push(sum()); } at++; return Math.max(...values); }
+    const part = /^([\d.]+)([a-z]+)$/.exec(token);
+    return parseFloat(part[1]) * units[part[2]];
+  };
+  return sum();
+}
+/* The pixel rectangles ({ x0, y0, x1, y1 }) of the stick and every touch button for a window: view = { w, h, sat, sar, sab, sal }
+   (size and safe-area insets in px), orientation = 'landscape' or 'portrait'. */
+function touchLayoutRects(orientation, view) {
+  const layout = TOUCH_LAYOUT[orientation];
+  const units = { vmin: Math.min(view.w, view.h) / 100, vw: view.w / 100, vh: view.h / 100, px: 1 };
+  units.tbs = touchOffsetPx(layout.tbs, units);
+  const area = { left: view.sal, top: view.sat, right: view.w - view.sar, bottom: view.h - view.sab };   // the box #touch fills
+  const rects = {};
+  const stickSize = touchOffsetPx(layout.stick[2], units);
+  const stickX = area.left + touchOffsetPx(layout.stick[0], units), stickY = area.bottom - touchOffsetPx(layout.stick[1], units) - stickSize;
+  rects.stick = { x0: stickX, y0: stickY, x1: stickX + stickSize, y1: stickY + stickSize };
+  for (const [action, , size] of TOUCH_BUTTONS) {
+    const [edgeX, offsetX, edgeY, offsetY] = layout.slots[action];
+    const side = TOUCH_BUTTON_SCALE[size] * units.tbs;
+    const x0 = edgeX === 'left' ? area.left + touchOffsetPx(offsetX, units) : area.right - touchOffsetPx(offsetX, units) - side;
+    const y0 = edgeY === 'top' ? area.top + touchOffsetPx(offsetY, units) : area.bottom - touchOffsetPx(offsetY, units) - side;
+    rects[action] = { x0, y0, x1: x0 + side, y1: y0 + side };
+  }
+  return rects;
+}
+/* The CSS rules for TOUCH_LAYOUT: landscape as the base, portrait inside its media query. */
+function touchLayoutCss() {
+  const value = (text) => 'calc(' + text.replace(/([\d.]+)tbs/g, '$1*var(--tbs)') + ')';
+  const rules = (layout) => {
+    const [stickLeft, stickBottom, stickSize] = layout.stick;
+    let css = ':root{--tbs:' + layout.tbs + '}#stickBase{left:' + value(stickLeft) + ';bottom:' + value(stickBottom) + ';width:' + value(stickSize) + ';height:' + value(stickSize) + '}';
+    for (const action in layout.slots) {
+      const [edgeX, offsetX, edgeY, offsetY] = layout.slots[action];
+      css += '.tb[data-a=' + action + ']{' + edgeX + ':' + value(offsetX) + ';' + edgeY + ':' + value(offsetY) + '}';
+    }
+    return css;
+  };
+  return rules(TOUCH_LAYOUT.landscape) + '@media (orientation:portrait){' + rules(TOUCH_LAYOUT.portrait) + '}';
+}
+/* USE shows while an item is within pick-up reach or is held. Items arrive in P7; until then there is nothing to use. */
+function touchUseVisible(fighter, match) { return false; }
+/* LOCK shows while 2 or more hostile fighters are alive (every other fighter is hostile until P4 adds teams): never in the 1v1 modes. */
+function touchLockVisible(fighter, match) { return match.fighters.filter((other) => other !== fighter && other.alive).length >= 2; }
 const RESULTS_GUARD_MS = 600;   // presses still mashed from the fight cannot skip the results screen
-const ONBOARD_MS = 6000;   // the first-match controls card closes itself after this long
+const ONBOARD_MS = 8000;   // the first-match controls card closes itself after this long (it lists seven actions)
 const VERSUS_CARD_MS = 9000;   // the Versus controls card holds both players' keys: a little longer
 const SCENARIOS = ['1: Neutral distance', '2: Close range', '3: Opponent cornered', '4: Throw into scenery', '5: Opponent low stamina'];
 const KIND_NAME = { wood: 'WOOD', concrete: 'CONCRETE', metal: 'METAL', glass: 'GLASS', paper: 'SCREEN' };
@@ -6433,7 +6517,7 @@ const UI = {
   screen_creator() { return CreatorUI.render(); },
   current: null, stack: [], guardUntil: 0, dom: {}, padPrev: { up: false, down: false, left: false, right: false, ok: false, back: false },
   rebinding: null, scenIdx: 0, setupSel: { opp: 'mara' }, pops: [], popIdx: 0, tagEls: [], banners: 0, lastToast: '', ghost: [1, 1], cache: {},
-  listeners: [], frameCount: 0, onboardTimer: 0, pickSide: 0, lastScreen: null,
+  listeners: [], frameCount: 0, onboardTimer: 0, pickSide: 0, lastScreen: null, touchButtons: {},
 
   init() {
     for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'pips1', 'pips2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'onboard', 'training', 'modeinfo', 'tags', 'pauseBtn']) this.dom[id] = $(id);
@@ -6525,23 +6609,32 @@ const UI = {
   },
   /* The controls card shows the on-screen buttons: touch was used, or touch is on and no key is held. */
   onboardTouch() { return Input.lastDevice === 'touch' || (this.touchWanted() && Input.lastDevice === 'keyboard' && !Input.kb.size); },
-  /* First match only: a short card with the main controls for the device in use. */
+  /* The input type the controls card is for: the device used last (touch also when touch is on and no key is held). */
+  onboardKind() { return this.onboardTouch() ? 'touch' : Input.lastDevice === 'gamepad' ? 'gamepad' : 'keyboard'; },
+  /* The core actions for an input type: move, Punch, Kick, Defend, Grab, Jump / Crouch and one line on attack strings. */
+  controlsCardHtml(kind) {
+    const touch = kind === 'touch';
+    // labels follow the card's input type, not the device used last (a phone's first fight still reads 'keyboard' then)
+    const label = (a) => touch ? TOUCH_LABELS[a] : kind === 'gamepad' ? GAMEPAD_LABELS[a] : keyLabel(Keymap.bindings[a][0]);
+    const k = (a) => '<kbd>' + esc(label(a)) + '</kbd>';
+    const named = (label, action) => (touch ? '' : label + ' ') + k(action);   // on-screen buttons carry their own names
+    const move = touch ? 'Stick: move, flick twice to run or sidestep' : kind === 'gamepad' ? 'Move: left stick or D-pad' : 'Move: ' + ['up', 'left', 'down', 'right'].map(k).join(' ');
+    const close = touch ? 'Tap to close' : kind === 'gamepad' ? 'Closes by itself' : 'Click or press any key to close';
+    return '<h3>CONTROLS</h3>' + move + '<br>' +
+      named('Punch', 'punch') + ' ' + named('Kick', 'kick') + '<br>' +
+      named('Defend', 'defend') + '<br>' +
+      named('Grab / escape', 'grapple') + '<br>' +
+      named('Jump', 'jump') + ' ' + named('Crouch', 'crouch') + ' (hold it for low shots and a low guard)<br>' +
+      'Press Punch or Kick again as a hit lands to chain a string; strong moves come from strings<small>' + close + '</small>';
+  },
+  /* True when this fight starts with an input type that has not seen its card yet; a benchmark must not use up the one-time card. */
+  controlsCardDue(match) { return !Progress.d.seenControls[this.onboardKind()] && !match.cfg.benchmark; },
+  /* The first fight with each input type (keyboard, gamepad, touch): a short card with the main controls, then never again for that type. */
   showOnboarding() {
-    const k = (a) => '<kbd>' + esc(this.keyName(a)) + '</kbd>';
-    if (this.onboardTouch()) this.dom.onboard.innerHTML = '<h3>CONTROLS</h3>' +
-      '<kbd>PUNCH</kbd> <kbd>KICK</kbd> tap to attack; tap again after a hit for the next move of a string<br>' +
-      'Body and low shots are picked for you, or hold <kbd>DUCK</kbd> for low ones<br>' +
-      '<kbd>DEFEND</kbd> to guard, with <kbd>DUCK</kbd> to guard low<br>' +
-      '<kbd>GRAB</kbd> near the opponent, again to escape a grab<br>' +
-      'Stick: move, flick twice to run or sidestep<small>Tap to close</small>';
-    else this.dom.onboard.innerHTML = '<h3>CONTROLS</h3>' +
-      'Punch ' + k('punch') + ' Kick ' + k('kick') + ', press again after a hit for the next move of a string<br>' +
-      'Hold ' + k('crouch') + ' while you attack for low shots<br>' +
-      'Defend ' + k('defend') + ', with ' + k('crouch') + ' to guard low<br>' +
-      'Grapple / escape ' + k('grapple') + '<br>' +
-      'Move list: pause with ' + k('pause') + ', then Move list<small>Click or press any key to close</small>';
+    const kind = this.onboardKind();
+    this.dom.onboard.innerHTML = this.controlsCardHtml(kind);
     this.dom.onboard.hidden = false;
-    Progress.d.seenControls = true;
+    Progress.d.seenControls[kind] = true;
     Progress.save();
     clearTimeout(this.onboardTimer);
     this.onboardTimer = setTimeout(() => this.hideOnboarding(), ONBOARD_MS);
@@ -6622,7 +6715,7 @@ const UI = {
     this.dom.timer.hidden = train;
     this.dom.roundlbl.hidden = false;
     if (match.versus && this.cardSession !== Game.versus) this.showVersusCard();
-    else if (!Progress.d.seenControls && !match.cfg.benchmark) this.showOnboarding();   // a benchmark must not use up the one-time card
+    else if (this.controlsCardDue(match)) this.showOnboarding();
     this.pops.forEach((p) => { p.age = 99; p.el.style.opacity = '0'; });
     Inputs.reset();
   },
@@ -6986,7 +7079,7 @@ const UI = {
     const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td>' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1') + '</td><td>' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2') + '</td><td>' + esc(GAMEPAD_LABELS[a]) + '</td><td>' + esc(TOUCH_LABELS[a]) + '</td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
       '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (Versus)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
-      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list); hold Crouch while you press for the low versions. Hold Defend to block: standing it covers high + mid attacks, with Crouch held it covers low attacks. Press Defend just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Use and Lock on have no effect yet. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
+      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Hold Defend to block: standing it covers high + mid attacks, with Crouch held it covers low attacks. Press Defend just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Use and Lock on have no effect yet. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
       '<p class="hint">Versus: a key belongs to one player only. P1\'s spare arrow keys switch off in Versus, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only.</p>' +
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
   },
@@ -7043,6 +7136,7 @@ const UI = {
       else if (def.type === 'bool') text = v ? 'On' : 'Off';
       else text = def.labels ? def.labels[v] : v.charAt(0).toUpperCase() + v.slice(1);
       h += this.optRow(def.label, text, 'data-set="' + key + '"', '<button class="mi" style="display:inline;width:auto;margin:0 .4em;padding:.1em .5em;min-height:0" tabindex="-1" aria-label="decrease" data-act="dec:' + key + '">&#9664;</button>').replace('</span></div>', '<button class="mi" style="display:inline;width:auto;margin:0 0 0 .4em;padding:.1em .5em;min-height:0" tabindex="-1" aria-label="increase" data-act="inc:' + key + '">&#9654;</button></span></div>');
+      if (def.hint) h += '<p class="hint" style="margin:.1em 0 .6em">' + esc(def.hint) + '</p>';
     }
     if (!Store.ok) h += '<p class="hint">Browser storage is unavailable: settings and progress will not be kept after closing the page.</p>';
     const fullscreen = Device.canFullscreen();
@@ -7184,7 +7278,7 @@ const UI = {
   },
   frame(m) {
     const d = this.dom;
-    if (m && !d.hud.hidden) this.hudUpdate(m);
+    if (m && !d.hud.hidden) { this.hudUpdate(m); if (!d.touch.hidden) this.touchContextUpdate(m); }
     this.diagTick();
   },
   /* Final round, match point or a fighter close to a knock-out. */
@@ -7363,10 +7457,11 @@ const UI = {
     stick.addEventListener('pointercancel', endOwn);
     stick.addEventListener('lostpointercapture', endOwn);
     Events.on('inputReleased', () => { if (activeId !== null) end(); });
-    // [action, label, size]: lg = main fight buttons under the right thumb, sm = movement extras next to the stick
-    const defs = [['punch', 'PUNCH', 'lg'], ['kick', 'KICK', 'lg'], ['defend', 'DEFEND', 'lg'], ['grapple', 'GRAB', ''], ['jump', 'JUMP', 'sm'], ['crouch', 'DUCK', 'sm'], ['pause', 'II', 'sm']];   // USE and LOCK are placed in P2-04
+    const layout = document.createElement('style');
+    layout.textContent = touchLayoutCss();
+    document.head.appendChild(layout);
     const ariaLabels = { punch: 'Punch (with Duck: low punch)', kick: 'Kick (with Duck: low kick)', defend: 'Defend (with Duck: low guard)' };
-    for (const [action, label, size] of defs) {
+    for (const [action, label, size] of TOUCH_BUTTONS) {
       const b = document.createElement('div');
       b.className = 'tb' + (size ? ' ' + size : '');
       b.setAttribute('data-a', action);
@@ -7388,8 +7483,24 @@ const UI = {
       b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
       // released by the game (page hidden, blur): forget fingers whose pointerup may never arrive, so the button cannot stick
       Events.on('inputReleased', () => { if (!ids.size) return; ids.clear(); b.classList.remove('on'); });
+      // a context button that hides while a finger is on it must let go of its action (the finger's pointerup no longer arrives)
+      // only a button with a finger on it lets go: touchSet would also mark a keyboard or pad player as a touch player
+      this.touchButtons[action] = { el: b, release: () => { if (!ids.size) return; ids.clear(); b.classList.remove('on'); Input.touchSet(action, false); } };
+      b.hidden = TOUCH_CONTEXT_ACTIONS.includes(action);   // USE and LOCK start hidden and keep their reserved slot when they show
       root.appendChild(b);
     }
+  },
+  /* USE and LOCK show only when they can do something (touchUseVisible / touchLockVisible); a hidden button has no pointer events and no tab stop. */
+  touchContextUpdate(m) {
+    const me = m.fighters[0];   // touch plays P1
+    this.showTouchButton('use', touchUseVisible(me, m));
+    this.showTouchButton('lock', touchLockVisible(me, m));
+  },
+  showTouchButton(action, shown) {
+    const button = this.touchButtons[action];
+    if (!button || button.el.hidden === !shown) return;
+    button.el.hidden = !shown;
+    if (!shown) button.release();
   },
   touchWanted() {
     const mode = Settings.v.touch;
@@ -8843,6 +8954,152 @@ const SelfTest = {
       } finally { Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device; }
       return !problems.length && late === 0 ? true : 'late presses ' + late + ' ' + problems.join('; ');
     });
+    /* Presses Punch / Kick with the defender out of reach, so every step whiffs. Press n+1 comes once the fighter is free again and at least
+       spacing ticks (fighter age) after press n. fill(it, f, o, kind) feeds one tick like playString. Returns the ids of the moves fighter 1 started. */
+    const playWhiffs = (letters, spacing, fill) => {
+      const log = self.capture(['attackStart']);
+      let next = 0, from = 0, pressedAt = 0;
+      const m = mk({}, (it, f, o, mm) => {
+        o.x = f.x + 3.2; o.z = f.z; o.prevX = o.x; o.prevZ = o.z;
+        const ready = next === 0 ? mm.tick === 2 : f.state !== S.ATTACK && f.moveId !== from && f.age - pressedAt >= spacing;
+        let kind = null;
+        if (next < letters.length && ready) { kind = letters[next] === 'P' ? 'punch' : 'kick'; from = f.moveId; pressedAt = f.age; next++; }
+        fill(it, f, o, kind);
+      });
+      self.place(m, 3.2); self.run(m, 60 + (spacing + 40) * letters.length); log.stop(); m.dispose();
+      return log.attackStart.filter((e) => e.f.index === 0).map((e) => e.mv.id);
+    };
+    test('Touch layout: no button overlaps another, the stick or the HUD bars at 640x360 and 844x390, and every action is in thumb reach', () => {
+      const none = { sat: 0, sar: 0, sab: 0, sal: 0 }, notch = { sat: 0, sar: 47, sab: 21, sal: 47 };
+      const views = [['landscape', 640, 360, none], ['landscape', 844, 390, none], ['landscape', 844, 390, notch], ['landscape', 568, 320, none], ['portrait', 360, 640, none], ['portrait', 390, 844, { sat: 47, sar: 0, sab: 34, sal: 0 }]];
+      const MIN_GAP = 4, HUD_BARS_EM = 4.8, THUMB_REACH_TBS = 3.5;   // HUD bars: 0.6em margin + name + bar + stamina bar, at UI scale 1 and 16px
+      const problems = [];
+      for (const [orientation, w, h, insets] of views) {
+        const view = Object.assign({ w, h }, insets), label = orientation + ' ' + w + 'x' + h + (insets.sar || insets.sat ? ' notch' : '');
+        const rects = touchLayoutRects(orientation, view), names = Object.keys(rects);
+        const tbs = touchOffsetPx(TOUCH_LAYOUT[orientation].tbs, { vmin: Math.min(w, h) / 100, vw: w / 100, vh: h / 100, px: 1 });
+        const center = (name) => [(rects[name].x0 + rects[name].x1) / 2, (rects[name].y0 + rects[name].y1) / 2];
+        if (names.length !== TOUCH_BUTTONS.length + 1) problems.push(label + ': ' + names.length + ' rectangles');
+        for (const name of names) {
+          const r = rects[name];
+          if (r.x0 < view.sal || r.x1 > w - view.sar || r.y0 < view.sat || r.y1 > h - view.sab) problems.push(label + ': ' + name + ' leaves the safe area');
+          if (r.y0 < view.sat + HUD_BARS_EM * 16) problems.push(label + ': ' + name + ' reaches the HUD bars');
+          if (orientation === 'landscape' && name !== 'stick' && r.x1 - r.x0 < 44) problems.push(label + ': ' + name + ' is under 44px');
+        }
+        for (let i = 0; i < names.length; i++) for (let j = i + 1; j < names.length; j++) {
+          const a = rects[names[i]], b = rects[names[j]];
+          const gap = Math.max(a.x0 - b.x1, b.x0 - a.x1, a.y0 - b.y1, b.y0 - a.y1);   // negative = overlap
+          if (gap < MIN_GAP) problems.push(label + ': ' + names[i] + ' / ' + names[j] + ' gap ' + Math.round(gap));
+        }
+        if (orientation !== 'landscape') continue;
+        // two thumbs: the stick and DUCK in the left half; every other fight button in the right half, close to the KICK corner
+        for (const name of ['stick', 'crouch']) if (center(name)[0] > w / 2) problems.push(label + ': ' + name + ' is not under the left thumb');
+        const [kickX, kickY] = center('kick');
+        for (const [action] of TOUCH_BUTTONS) {
+          if (action === 'crouch') continue;
+          const [x, y] = center(action);
+          if (x < w / 2) problems.push(label + ': ' + action + ' is not under the right thumb');
+          if (action !== 'pause' && Math.hypot(x - kickX, y - kickY) > THUMB_REACH_TBS * tbs) problems.push(label + ': ' + action + ' is out of reach');
+        }
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Touch layout: USE and LOCK have fixed slots in both orientations, the CSS comes from the same table, offsets are evaluated right', () => {
+      const problems = [];
+      const actions = TOUCH_BUTTONS.map((b) => b[0]);
+      if (actions.join() !== 'punch,kick,defend,grapple,jump,crouch,pause,use,lock' || TOUCH_CONTEXT_ACTIONS.join() !== 'use,lock') problems.push('buttons ' + actions.join());
+      if (!actions.every((a) => ACTIONS.includes(a))) problems.push('a button is not an action');
+      const css = touchLayoutCss();
+      for (const orientation in TOUCH_LAYOUT) {
+        const slots = TOUCH_LAYOUT[orientation].slots;
+        if (Object.keys(slots).sort().join() !== actions.slice().sort().join()) problems.push(orientation + ' slots ' + Object.keys(slots).join());
+        const places = Object.values(slots).map((s) => s.join('|'));
+        if (new Set(places).size !== places.length) problems.push(orientation + ' shares a slot');
+      }
+      for (const action of actions) if (!css.includes('.tb[data-a=' + action + ']{')) problems.push('no CSS for ' + action);
+      if (!css.includes('@media (orientation:portrait){') || !css.includes(':root{--tbs:max(58px,14vmin)}') || !css.includes('#stickBase{left:calc(max(4vmin,20px))')) problems.push('CSS shape');
+      if (!css.includes('.tb[data-a=jump]{right:calc(5vmin + 1.5*var(--tbs));bottom:calc(8vmin + 1.7*var(--tbs))}')) problems.push('CSS jump rule');
+      const units = { vmin: 3.6, vw: 6.4, vh: 3.6, px: 1, tbs: 58 };
+      const a = touchOffsetPx('max(4vmin,20px) + 2vmin + max(30vmin,130px)', units), b = touchOffsetPx('5vmin + 1.3tbs', units), c = touchOffsetPx('max(23vmin,80px)', units);
+      if (Math.abs(a - 157.2) > 0.01 || Math.abs(b - 93.4) > 0.01 || Math.abs(c - 82.8) > 0.01) problems.push('offsets ' + [a, b, c].join());
+      // visibility: USE needs an item (none exist yet), LOCK needs 2 or more hostile fighters alive
+      const player = { alive: true }, foe = { alive: true }, third = { alive: true }, dead = { alive: false };
+      const lock = (...fighters) => touchLockVisible(player, { fighters: [player, ...fighters] });
+      if (touchUseVisible(player, { fighters: [player, foe] })) problems.push('USE shown without items');
+      if (lock(foe) || lock(foe, dead) || !lock(foe, third) || lock(dead, dead)) problems.push('LOCK rule');
+      // the buttons hide and show without moving, and a hidden one lets go of a held finger
+      const keep = UI.touchButtons, released = [];
+      const stand = (action) => ({ el: { hidden: true }, release: () => released.push(action) });
+      UI.touchButtons = { use: stand('use'), lock: stand('lock') };
+      try {
+        UI.touchContextUpdate({ fighters: [player, foe, third] });
+        if (UI.touchButtons.lock.el.hidden || !UI.touchButtons.use.el.hidden || released.length) problems.push('3 fighters: LOCK shows, USE stays hidden');
+        UI.touchContextUpdate({ fighters: [player, foe] });
+        if (!UI.touchButtons.lock.el.hidden || released.join() !== 'lock') problems.push('1v1: LOCK hides and lets go ' + released.join());
+        UI.touchContextUpdate({ fighters: [player, foe] });
+        if (released.length !== 1) problems.push('a hidden button released twice');
+      } finally { UI.touchButtons = keep; }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Auto-assist: a setting that is off by default, saved with the others, and only human input carries it', () => {
+      const keep = Settings.v.autoAssist, problems = [];
+      try {
+        if (SETTING_DEFS.autoAssist.def !== false || !SETTING_DEFS.autoAssist.hint || SETTING_DEFS.autoAssist.hint.length > 140) problems.push('definition');
+        if (Settings.validate('autoAssist', 'yes') !== false || Settings.validate('autoAssist', true) !== true) problems.push('validation');
+        Settings.set('autoAssist', true);
+        if (JSON.parse(Store.get(KEY_SETTINGS)).autoAssist !== true) problems.push('not saved');
+        const it = makeIntent();
+        Input.fillIntent(it, null, null);
+        if (!it.assist) problems.push('human intent lacks assist');
+        Settings.set('autoAssist', false);
+        Input.fillIntent(it, null, null);
+        if (it.assist || makeIntent().assist || clearIntent(it).assist) problems.push('assist set while off');
+        // the AI never gets it, even with the setting on
+        Settings.v.autoAssist = true;
+        const m = mk({ seed: 3 });
+        m.controllers[0] = new AIController(ROSTER_BY_ID.kai, 'hard'); m.controllers[1] = new AIController(ROSTER_BY_ID.mara, 'hard');
+        self.run(m, 120);
+        if (m.fighters.some((f) => f.assist) || m.intents.some((i) => i.assist)) problems.push('AI fighter assisted');
+        m.dispose();
+      } finally { Settings.v.autoAssist = keep; Settings.save(); }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Auto-assist on: Punch x3 and Kick x3 out of reach still play the whole string on keyboard, gamepad and touch; off, a miss restarts it', () => {
+      const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
+      const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons };
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice, keepAssist = Settings.v.autoAssist;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
+      const paths = {   // one tick of input for each device, then the intent
+        keyboard: (it, f, o, kind) => { Input.update(); if (kind) Input.press(kind); Input.fillIntent(it, f, o); },
+        gamepad: (it, f, o, kind) => { const button = kind === 'punch' ? 2 : 0; if (kind) buttons[button].pressed = true; Input.update(); Input.fillIntent(it, f, o); if (kind) buttons[button].pressed = false; },
+        touch: (it, f, o, kind) => { if (kind) Input.touchSet(kind, true); Input.update(); Input.fillIntent(it, f, o); if (kind) Input.touchSet(kind, false); },
+      };
+      const near = ATTACK_STRING_TICKS + 10, far = ATTACK_STRING_TICKS * ASSIST_STRING_WINDOW + 10;   // between the two windows / past both
+      const problems = [];
+      try {
+        for (const path in paths) {
+          const play = (letters, spacing, assist) => {
+            Input.reset(); Input.releaseAll(); Input.lastDevice = path; Settings.v.autoAssist = assist;
+            return playWhiffs(letters, spacing, paths[path]).join();
+          };
+          const want = { PPP: 'jab,cross,hook', KKK: 'front_kick,roundhouse,heavy_roundhouse' };
+          for (const letters in want) {
+            const on = play(letters, 0, true), off = play(letters, 0, false);
+            if (on !== want[letters]) problems.push(path + ' ' + letters + ' on: ' + on);
+            const first = STRINGS.stand[letters[0]][0];
+            if (off !== [first, first, first].join()) problems.push(path + ' ' + letters + ' off: ' + off);   // a miss starts step 1 again
+          }
+          const slow = play('PP', near, true), slowOff = play('PP', near, false), tooSlow = play('PP', far, true);
+          if (slow !== 'jab,cross') problems.push(path + ' doubled window: ' + slow);
+          if (slowOff !== 'jab,jab') problems.push(path + ' normal window: ' + slowOff);
+          if (tooSlow !== 'jab,jab') problems.push(path + ' past the doubled window: ' + tooSlow);
+        }
+      } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Settings.v.autoAssist = keepAssist; Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
     test('Gamepad: firm taps jump but double taps do not, R3 grapples, a Select tap does nothing and a hold resets', () => {
       const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
       const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons };
@@ -9077,18 +9334,20 @@ const SelfTest = {
       Store.set(KEY_PROGRESS, JSON.stringify({ wins: 3, seenControls: true }));   // 1.0.0: no controls revision
       controlsChanged = false;
       Progress.init();
-      const reset = Progress.d.seenControls === false && Progress.d.wins === 3 && Progress.d.controlsRevision === KEYS_REVISION && controlsChanged;
+      const cardsSeen = () => CONTROL_CARD_KINDS.filter((kind) => Progress.d.seenControls[kind]).length;   // how many input types have seen their card
+      const reset = cardsSeen() === 0 && Progress.d.wins === 3 && Progress.d.controlsRevision === KEYS_REVISION && controlsChanged;
       const stored = JSON.parse(Store.get(KEY_PROGRESS)).controlsRevision === KEYS_REVISION;
       const keepToast = UI.toast, shown = [];
       UI.toast = (msg) => shown.push(msg);
       const toast = UI.announceControlsChange() && !UI.announceControlsChange() && shown.join() === 'Controls changed: see Controls';   // one toast, then the flag is clear
       UI.toast = keepToast;
-      Progress.d.seenControls = true; Progress.save();                            // the card was shown
+      for (const kind of CONTROL_CARD_KINDS) Progress.d.seenControls[kind] = true;
+      Progress.save();                                                            // the cards were shown
       Progress.init();
-      const once = Progress.d.seenControls === true && !controlsChanged;           // the next load shows neither
+      const once = cardsSeen() === CONTROL_CARD_KINDS.length && !controlsChanged;  // the next load shows neither
       Store.remove(KEY_PROGRESS);
       Progress.init();
-      const fresh = Progress.d.seenControls === false && !controlsChanged;         // a new player has nothing to be told about
+      const fresh = cardsSeen() === 0 && !controlsChanged;                         // a new player has nothing to be told about
       if (raw === null) Store.remove(KEY_PROGRESS); else Store.set(KEY_PROGRESS, raw);
       Progress.d = keep;
       return reset && stored && toast && once && fresh ? true : JSON.stringify({ reset, stored, toast, once, fresh });
@@ -9373,13 +9632,12 @@ const SelfTest = {
       const saved = keepProgress();
       Store.set(KEY_PROGRESS, JSON.stringify({ arcadeClears: 1, wins: 3 }));   // a save from before the flag existed
       Progress.init();
-      const migrated = Progress.d.seenControls === false && Progress.d.wins === 3;
+      const migrated = CONTROL_CARD_KINDS.every((kind) => !Progress.d.seenControls[kind]) && Progress.d.wins === 3;
+      const kind = UI.onboardKind();
       Game.chooseMode('free'); Game.startFromSelection();
       const card = UI.dom.onboard;
-      // a touch device gets the on-screen button card, which has no move list line
-      const text = card.textContent;
-      const shown = !card.hidden && (UI.onboardTouch() ? text.includes(TOUCH_LABELS.grapple) : text.includes(UI.keyName('grapple')) && text.includes('Move list'));
-      const stored =JSON.parse(Store.get(KEY_PROGRESS)).seenControls === true;
+      const shown = !card.hidden && card.textContent.includes(UI.keyName('grapple'));
+      const stored = JSON.parse(Store.get(KEY_PROGRESS)).seenControls[kind] === true;
       window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ' }));
       const closed = card.hidden;
       Game.quitToMenu();
@@ -9388,6 +9646,40 @@ const SelfTest = {
       Game.quitToMenu();
       restoreProgress(saved);
       return migrated && shown && stored && closed && once ? true : JSON.stringify({ migrated, shown, stored, closed, once });
+    });
+    test('Onboarding: each input type (keyboard, gamepad, touch) gets one card with the core actions, once, kept in the save', () => {
+      const saved = keepProgress(), cardDom = UI.dom.onboard, device = Input.lastDevice, touchMode = Settings.v.touch, problems = [];
+      const card = { innerHTML: '', hidden: true };   // a stand-in for the card element, so the test needs no screen
+      UI.dom.onboard = card; Settings.v.touch = 'off';   // 'off': a keyboard player on a touch device stays a keyboard player
+      try {
+        Progress.d = Progress.fresh();
+        const match = { cfg: {} };
+        Input.lastDevice = 'keyboard';
+        if (UI.controlsCardDue({ cfg: { benchmark: true } }) || CONTROL_CARD_KINDS.some((kind) => Progress.d.seenControls[kind])) problems.push('a benchmark used up a card');
+        const shown = [];
+        for (const kind of CONTROL_CARD_KINDS) {
+          Input.lastDevice = kind;
+          if (UI.onboardKind() !== kind || !UI.controlsCardDue(match)) problems.push(kind + ' card not due');
+          UI.showOnboarding();
+          shown.push(kind);
+          const missing = ['punch', 'kick', 'defend', 'grapple', 'jump', 'crouch'].filter((action) => !card.innerHTML.includes(esc(UI.keyName(action))));
+          if (missing.length || !/string/.test(card.innerHTML) || !/Move|Stick/.test(card.innerHTML)) problems.push(kind + ' card lacks ' + missing.join('+'));
+          if (UI.controlsCardDue(match)) problems.push(kind + ' card due again');
+          if (!CONTROL_CARD_KINDS.every((other) => Progress.d.seenControls[other] === shown.includes(other))) problems.push('after ' + kind + ' seen ' + JSON.stringify(Progress.d.seenControls));
+        }
+        Progress.init();   // the save keeps all three
+        if (!CONTROL_CARD_KINDS.every((kind) => Progress.d.seenControls[kind] && !UI.controlsCardDue.call({ onboardKind: () => kind }, match))) problems.push('save lost a card ' + JSON.stringify(Progress.d.seenControls));
+        Input.lastDevice = 'keyboard';   // a phone's first fight: nothing has set the device to touch yet
+        const touchCard = UI.controlsCardHtml('touch'), padCard = UI.controlsCardHtml('gamepad');
+        if (!touchCard.includes(esc(TOUCH_LABELS.punch)) || touchCard.includes(esc(keyLabel(Keymap.bindings.punch[0])) + '</kbd>')) problems.push('touch card shows keys');
+        if (!padCard.includes(esc(GAMEPAD_LABELS.punch))) problems.push('pad card shows keys');
+        Store.set(KEY_PROGRESS, JSON.stringify({ wins: 1, seenControls: true, controlsRevision: KEYS_REVISION }));   // the single flag of an earlier build
+        Progress.init();
+        if (!CONTROL_CARD_KINDS.every((kind) => Progress.d.seenControls[kind])) problems.push('old flag not kept');
+      } finally {
+        UI.hideOnboarding(); UI.dom.onboard = cardDom; Settings.v.touch = touchMode; Input.lastDevice = device; restoreProgress(saved);
+      }
+      return problems.length ? problems.join('; ') : true;
     });
     test('Menus: choosing the selected fighter, opponent or arena again moves on', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';

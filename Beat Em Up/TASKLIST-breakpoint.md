@@ -98,17 +98,17 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: searching the file for `dash` (case-insensitive) finds no game logic, and the self-test passes.
 - [x] P2-03 - Bump `KEYS_REVISION` and migrate saved key bindings (keyboard P1 and P2, gamepad) to the new action list without data loss for unchanged actions.
   Done when: a save from 1.0.0 loads with correct bindings and the new actions have defaults.
-- [ ] P2-04 - Touch layout redesign: minimal buttons, no visual clutter, thumb reach on phones in landscape, safe areas respected. Context-sensitive buttons (example: `use` appears only when an item is in reach) only if approved in P2-01.
+- [x] P2-04 - Touch layout redesign: minimal buttons, no visual clutter, thumb reach on phones in landscape, safe areas respected. Context-sensitive buttons (example: `use` appears only when an item is in reach) only if approved in P2-01.
   Done when: layout fits a 360x640 CSS px landscape screen without overlap and all actions are reachable with two thumbs.
 - [x] P2-05 - Gamepad layout for the new action list (standard mapping), shown in the Controls screen.
   Done when: every action is mapped, no conflicts, labels updated.
 - [x] P2-06 - Keyboard layout for the new action list for P1 and P2 (shared keyboard).
   Done when: every action is mapped for both players with no key conflicts.
-- [ ] P2-07 - Quick-start onboarding: a short first-play card per input type showing only the core actions.
+- [x] P2-07 - Quick-start onboarding: a short first-play card per input type showing only the core actions.
   Done when: a new player can start a fight and see all core actions in one card per input type.
 - [x] P2-08 - Update Controls screen, help text, `ACTION_LABELS`, `GAMEPAD_LABELS`, `TOUCH_LABELS`.
   Done when: all labels match the new actions.
-- [ ] P2-09 - Optional auto-assist input setting (off by default): repeated taps on Punch or Kick chain the fighter's next valid string move automatically; no new input, no new on-screen button.
+- [x] P2-09 - Optional auto-assist input setting (off by default): repeated taps on Punch or Kick chain the fighter's next valid string move automatically; no new input, no new on-screen button.
   Done when: the setting exists in Settings and is saved; with it on, tapping Punch 3 times plays the style's 3-hit string on touch, gamepad and keyboard; with it off, behavior is unchanged; a self-test covers both.
 - [x] P2-10 - Attack strings on every device: Punch / Kick fire on press; the Fighter keeps its string state and picks the move from one STRINGS table (Appendix C, P2-01); crouch held at the press gives the low version. Remove the `strong` action and intent field, the touch hold (TOUCH_CHARGE_MS, charge, `charged` button look), strong throws, the strong key of MOVE_BY_INPUT and the hand / foot alternation of nextInString. The AI and the Training dummy use the same strings. Move list shows the strings; self-tests that use `strong` are rewritten.
   Done when: every row of the P2-01 string table plays the listed moves on keyboard, gamepad and touch (a self-test per device); no code reads `strong` from input; the AI and the dummy reach the 8 strong moves only through strings; the self-test suite passes.
