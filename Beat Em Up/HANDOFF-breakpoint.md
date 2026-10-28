@@ -4,19 +4,36 @@ Paste the text below into a new Claude Code session opened in `C:\Users\GS\Deskt
 
 ---
 
-Continue the Breakpoint tasklist (`Beat Em Up/TASKLIST-breakpoint.md`) on `main`, no new branches. Phases 0-2 are done (last pushed commit 615e992; the local commit that wrote this prompt is not pushed yet, push it with the next batch). Next is Phase 3. Work until 20% of the weekly Claude usage (read it with the usage tool before each batch) and stop before it at a clean boundary. Commit and push everything on main, then clean up. At the end give me a table of all changes and, if any, a table of locked folders and files to delete, and keep `C:\Users\GS\Desktop\Locked folders.txt` up to date.
+Continue the Breakpoint tasklist (`Beat Em Up/TASKLIST-breakpoint.md`) on `main`, no new branches.
+- **Progress:** Phases 0-2 are done. In Phase 3 every task is implemented and pushed. P3-09 (momentum boost) and P3-10 (combo audit) stay unticked only for their all-pairs win-rate check, which waits for P14-01. If P3-07 (falling) is not ticked, finish, review and push it first. Next is Phase 4.
+- **Budget:** work until about 35% of the weekly Claude usage, never past 40%. Read it with the usage tool before each batch and stop at a clean boundary before it.
+- **Finish:** commit and push everything on main, then clean up. At the end give me a table of all changes and, if any, a table of locked folders and files to delete. Keep `C:\Users\GS\Desktop\Locked folders.txt` up to date.
 
-Before Phase 3 code, ask me once, batched:
-1. P3-02 Block rules (perfect block, guard break, chip damage, stamina cost) and Sway rules (i-frame window, recovery, counter window). Each fighter has exactly one of the two.
-2. P3-04 submissions with minimal inputs and an escape that works on touch; P3-06 heavy tackle yes / no and the weight threshold.
-3. P3-10 combo audit: confirm or change the limit "no single string above 35% of a fighter's damage" (AI vs AI matches currently deal about 80% of their damage with kicks).
-4. Should USE keep tap = drop / hold = throw, or lose its hold too?
+Already decided, do not reopen (details in Appendix C, "Phase 3 owner decisions (2026-10-28)"):
+- **Attacks:** no hold anywhere; attacks fire on press. Strong moves come only as steps of fixed attack strings: the default STRINGS table plus per-style overrides (STYLE_STRINGS, P3-10). A strong punch comes from a Punch press and a strong kick from a Kick press. A strong string step breaks any non-perfect block.
+- **Defense:** each fighter has Block or Sway, defaulting from the style.
+  - Block: hold Defend; Crouch + Defend = low.
+  - Sway: press Defend for a 12-tick strike dodge with 15 recovery ticks; a late sway is a perfect sway that opens a counter.
+  - Block vs Sway AI is balanced at 45-55% on every difficulty (300-seed runs).
+- **Holds:** submission holds only on a downed foe (Wrestling, Judo), with a Defend vs Grapple tapping contest of at most 4 s.
+- **Heavy tackle:** only for a weight-class gap of 2 or more, triggered by running into the foe. Block stops it; Sway or sidestep dodges it. Weight classes come from body size until P6-03.
+- **Use:** no hold. Tap = throw, Crouch + Use = drop, Use near an item = pick up. P7-03's task text still says "hold" and must be corrected when P7 starts.
+- **P4-07 co-op:** friendly fire is a setting, off by default. A knocked-out player sits out until the next stage, and the level is lost only when everyone is out.
+- **Tips:** tips and controls cards show once only (seenClinch, seenHold, seenControls).
 
-Already decided, do not reopen: attacks fire on press with no hold anywhere; strong moves come only as steps of fixed attack strings (STRINGS table, Appendix C P2-01), a strong punch from a Punch press and a strong kick from a Kick press; a string continues only after contact, within 0.8 s (hit-stop pauses the count); strong throws removed. Dash removed; Defend replaces both block buttons (Crouch + Defend = low guard; a Defend press while down = quick recovery); sidestep = double-tap left / right; Use and Lock have keys but no gameplay yet. Tips and controls cards show once only. Auto-assist (off by default) lets a string continue after a whiff, human players only.
-
-Known small issues to keep in mind: releasing Crouch during a hit-freeze can change a queued attack's height; touch auto-height does not use the crouch strings; the Training panel overlaps the touch pause button.
+Known small issues to keep in mind:
+- Releasing Crouch during a hit-freeze can change a queued attack's height.
+- Touch auto-height does not use the crouch strings.
+- At Hard, Sway presets (Yuki, Mara) now beat Block heavies more often; preset matchups are for P14.
+- The AI never uses the heavy tackle.
+- The new hold and clinch-strike poses were never looked at on screen.
 
 How to work:
-- `breakpoint.html` and the tasklist are CRLF with a UTF-8 BOM: edit with the Edit tool or node scripts only, never `sed -i` in Git Bash; check `rg -c '\r$'` equals `rg -c ''` and the first bytes are `ef bb bf`.
-- Batches: one implementer agent per batch, then an independent reviewer agent on the diff, fix medium and higher findings, tick the tasks, commit (`Breakpoint: P3-xx - ...`, no AI attribution), push.
-- Tests: fast headless Node checks during work (extract the inline script, `node --check`, a small runner with a stubbed DOM; rebuild it, the old one is gone). Once per batch before committing: the `games` preview server (127.0.0.1:8765), Playwright on `http://127.0.0.1:8765/Beat%20Em%20Up/breakpoint.html`, accept the leave-page dialog, run `await BREAKPOINT.selfTest()` from the main menu (140 checks, all must pass). Close the browser and stop the server after each check.
+- **Encoding:** `breakpoint.html` and the tasklist are CRLF with a UTF-8 BOM. Edit them with the Edit tool or node scripts that replace exact strings, never `sed -i` in Git Bash. Check that `rg -c '\r$'` equals `rg -c ''` and that the first bytes are `ef bb bf`.
+- **Batches:** one implementer agent per batch (general-purpose, sonnet, effort high), then an independent reviewer agent (opus, high) on the saved diff. Fix medium and higher findings, tick the tasks, commit (`Breakpoint: P4-xx - ...`, no AI attribution), and push after `git fetch` plus `git rev-list --left-right --count origin/main...HEAD`.
+- **Headless tests during work:** use the Node runner in the session scratchpad: `extract.js` pulls the inline script, and `harness.js` stubs the DOM and runs `SelfTest`. `node harness.js game.js balance <seeds> <difficulty>` prints the Block vs Sway split. If the scratchpad is gone, rebuild both from the self-test API. 14 checks need a real browser.
+- **Browser test before each commit:**
+  - Start the `games` preview server (127.0.0.1:8765).
+  - In Playwright, open `http://127.0.0.1:8765/Beat%20Em%20Up/breakpoint.html` and accept the leave-page dialog.
+  - From the main menu, run `await BREAKPOINT.selfTest()`: 188 checks at the last push, and all must pass.
+  - Close the browser and stop the server after each check, then delete `.playwright-mcp/` at the end.
