@@ -124,9 +124,9 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: both strikes work from the grab on touch, gamepad and keyboard, with hit reactions and a strike limit per grab.
 - [x] P3-04 - DECIDE: submissions design with minimal inputs (proposal: start from a grab or a downed opponent with one existing input; escape by a short directional or mash contest that works on touch). Include which styles can submit.
   Done when: Appendix C has the design, inputs on all three control types, and rules for multi-opponent situations (other enemies can interrupt).
-- [ ] P3-05 - Implement submissions per P3-04: states, animations, escape contest, damage / stamina effect, AI use and AI escape.
+- [x] P3-05 - Implement submissions per P3-04: states, animations, escape contest, damage / stamina effect, AI use and AI escape.
   Done when: submissions work in 1v1 and in multi-opponent levels and the self-test covers start, escape and finish.
-- [ ] P3-06 - Optional heavy tackle: very heavy characters can charge through lighter ones by running into them with analog input only. DECIDE first whether to include, with the weight threshold.
+- [x] P3-06 - Optional heavy tackle: very heavy characters can charge through lighter ones by running into them with analog input only. DECIDE first whether to include, with the weight threshold.
   Done when: decision recorded; if included, the tackle triggers only by analog movement, only above the weight threshold, and has a counter.
 - [ ] P3-07 - Falling: on unstable or elevated surfaces, a character with no support falls (gravity, fall damage, edge reactions such as teeter / grab ledge if approved).
   Done when: characters fall off edges and broken surfaces in every level that has them, and the AI avoids edges unless pushed.
@@ -1252,6 +1252,10 @@ Every one of the 8 strong moves has exactly one string. Standing mixed pairs (P 
   - Balance target until P14-01 sets one: in the P0-06 runner, Block vs Sway fighters of equal stats win 45-55% each.
 - P3-04 submissions: only on a downed opponent. Grapple next to a knocked-down opponent starts a hold (styles: Brazilian Jiu-Jitsu, Hapkido, Judo, Wrestling, MMA). Escape contest: the victim taps Defend, the attacker taps Grapple; stamina tips the contest; damage builds while the hold lasts, at most 4 s. Inputs: keyboard Grapple / Defend keys, gamepad R2 / R1, touch GRAB / DEFEND taps. Multi-opponent: any hit on the attacker breaks the hold; no third fighter can join a hold.
 - P3-06 heavy tackle: included. Only when the running fighter is at least 2 weight classes heavier, triggered by running (analog or run) into the lighter one, no button; the lighter one is knocked back. Counter: a Block stops it (blocker pushed back, no damage), a Sway or sidestep makes the tackler run past.
+- Implemented values (P3-05 / P3-06, 2026-10-28):
+  - Submissions: styles that can submit today are Wrestling and Judo (BJJ, Hapkido and MMA join when P4 adds them). A hold needs the holder within 1.3 m and is allowed once per knockdown. It deals about 22 damage over the full 4 s. Escape taps and hold taps are scaled by stamina, and the holder's lead is capped, so mashing never makes escape impossible. A hold that ends without an escape leaves the victim down 20 more ticks and locks the holder 12 ticks.
+  - Weight classes (until P6-03 replaces the input): 0-4 from body scale x build, bounds 0.92 / 1.04 / 1.2 / 1.36. Today Yuki and Mara are class 0, Kai 1, Zero 2, Dmitri 3 and Brutus 4.
+  - Tackle: 12 damage plus a heavy stagger. A blocked tackle locks the tackler's run for 24 ticks. The first contact of a run decides the outcome.
 - USE: no hold. Tap Use = throw the held item at the target; Crouch + Use = drop it; Use near an item while empty-handed = pick up.
 - P3-10: the 35% limit stays.
 

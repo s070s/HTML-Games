@@ -712,7 +712,7 @@ const DEFAULT_UNLOCKED = ['kai', 'mara', 'brutus', 'yuki'];
 const CONTROL_CARD_KINDS = ['keyboard', 'gamepad', 'touch'];   // the input types that get their own first-fight controls card
 const Progress = {
   d: null,
-  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: { keyboard: false, gamepad: false, touch: false }, seenClinch: false, controlsRevision: KEYS_REVISION }; },
+  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: { keyboard: false, gamepad: false, touch: false }, seenClinch: false, seenHold: false, controlsRevision: KEYS_REVISION }; },
   init() {
     const base = this.fresh();
     const s = readJson(KEY_PROGRESS) || {};
@@ -730,6 +730,7 @@ const Progress = {
     // the first-match controls card was shown, once per input type; an older save held one flag for the card (any device), which counts for all three
     for (const kind of CONTROL_CARD_KINDS) base.seenControls[kind] = !oldControls && (s.seenControls === true || (!!s.seenControls && s.seenControls[kind] === true));
     base.seenClinch = s.seenClinch === true;   // the clinch instructions were shown (they appear in the first clinch only)
+    base.seenHold = s.seenHold === true;       // the same for the submission hold instructions
     if (Array.isArray(s.unlocked)) for (const id of s.unlocked) if (typeof id === 'string' && ['dmitri', 'zero'].includes(id) && !base.unlocked.includes(id)) base.unlocked.push(id);
     this.d = base;
     if (oldControls) { this.save(); controlsChanged = true; }
@@ -2604,28 +2605,29 @@ const FX = {
 const S = {
   IDLE: 'IDLE', WALK: 'WALK', RUN: 'RUN', SIDESTEP: 'SIDESTEP', SWAY: 'SWAY', CROUCH: 'CROUCH', JUMP: 'JUMP',
   ATTACK: 'ATTACK', BLOCK_H: 'BLOCK_H', BLOCK_L: 'BLOCK_L', HIT: 'HIT', STAGGER: 'STAGGER', STUN: 'STUN',
-  CLINCH: 'CLINCH', GRAPPLE: 'GRAPPLE', THROWN: 'THROWN', DOWN: 'DOWN', GETUP: 'GETUP', KO: 'KO', VICTORY: 'VICTORY', DEFEAT: 'DEFEAT',
+  CLINCH: 'CLINCH', GRAPPLE: 'GRAPPLE', SUBMIT: 'SUBMIT', THROWN: 'THROWN', DOWN: 'DOWN', GETUP: 'GETUP', KO: 'KO', VICTORY: 'VICTORY', DEFEAT: 'DEFEAT',
 };
 const STATE_LABEL = {
   IDLE: 'Idle', WALK: 'Walking', RUN: 'Running', SIDESTEP: 'Sidestep', SWAY: 'Swaying', CROUCH: 'Crouching', JUMP: 'Jumping',
   ATTACK: 'Attacking', BLOCK_H: 'High block', BLOCK_L: 'Low block', HIT: 'Hit reaction', STAGGER: 'Staggered', STUN: 'Stunned',
-  CLINCH: 'Clinched', GRAPPLE: 'Grappling', THROWN: 'Thrown', DOWN: 'Knocked down', GETUP: 'Recovering', KO: 'Knocked out', VICTORY: 'Victory', DEFEAT: 'Defeat',
+  CLINCH: 'Clinched', GRAPPLE: 'Grappling', SUBMIT: 'Holding', THROWN: 'Thrown', DOWN: 'Knocked down', GETUP: 'Recovering', KO: 'Knocked out', VICTORY: 'Victory', DEFEAT: 'Defeat',
 };
 const TERMINAL_STATES = [S.KO, S.VICTORY, S.DEFEAT];
 const REACTION_STATES = [S.HIT, S.STAGGER, S.STUN, S.CLINCH, S.THROWN, S.DOWN];
 const FREE_SET = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L];
-const STRING_BREAK_STATES = [...REACTION_STATES, S.GRAPPLE, S.GETUP, ...TERMINAL_STATES];   // entering one of these ends the fighter's attack string
+const STRING_BREAK_STATES = [...REACTION_STATES, S.GRAPPLE, S.SUBMIT, S.GETUP, ...TERMINAL_STATES];   // entering one of these ends the fighter's attack string
 /* Explicit transition table for voluntary changes. Reactions (hit, stagger, stun, clinch, thrown, down, KO)
    and round-end poses are allowed from any non-terminal state; see canTransition(). */
 const TRANSITIONS = {
-  IDLE: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK],
-  WALK: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK],
-  RUN: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK],
-  CROUCH: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK],
-  BLOCK_H: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK],
-  BLOCK_L: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK],
+  IDLE: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK, S.SUBMIT],
+  WALK: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK, S.SUBMIT],
+  RUN: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK, S.SUBMIT],
+  CROUCH: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK, S.SUBMIT],
+  BLOCK_H: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK, S.SUBMIT],
+  BLOCK_L: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK, S.SUBMIT],
   SIDESTEP: [S.IDLE, S.WALK, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.ATTACK],
   SWAY: [S.IDLE],
+  SUBMIT: [S.IDLE],
   JUMP: [S.IDLE, S.ATTACK],
   ATTACK: [S.IDLE, S.WALK, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.JUMP, S.ATTACK, S.GRAPPLE],
   HIT: [S.IDLE, S.CROUCH, S.BLOCK_H, S.BLOCK_L],
@@ -2900,6 +2902,41 @@ const CLINCH_ESCAPE_FROM_REAR = 14;  // a rear hold is harder to break (still op
 const ESCAPE_GRACE_TICKS = 6;       // an escape press this close before the window opens is kept and used when it opens
 const ESCAPE_STAMINA = 6;            // stamina an escape needs; below it the press fails
 const REAR_GRIP_DOT = 0.25;          // defender turned more than ~75 degrees away from the grabber = rear grip
+/* Submissions (P3-05): Grapple next to a knocked-down opponent starts a hold, for the move styles in SUBMISSION_STYLES. The holder taps
+   Grapple, the victim taps Defend: every fresh press moves holdContest (>= SUBMIT_ESCAPE_GOAL frees the victim), scaled by the presser's
+   stamina. Damage builds while the hold lasts (SUBMIT_MAX_TICKS at most). Any hit on the holder breaks it. The holder ends in IDLE and the
+   victim in the normal DOWN / GETUP flow. A fighter can be held once per knockdown. */
+const SUBMIT_MAX_TICKS = 240;        // 4 s
+const SUBMIT_RANGE = 1.3;            // m, centre to centre: how close the holder must stand to start one
+const SUBMIT_GAP = 0.8;              // m between the bodies once the hold starts
+const SUBMIT_MIN_STAMINA = 4;        // the holder needs this much stamina to start
+const SUBMIT_ESCAPE_GOAL = 100;      // holdContest that frees the victim
+const SUBMIT_CONTEST_FLOOR = -40;    // the holder's lead is capped, so a long hold never makes an escape impossible
+const SUBMIT_ESCAPE_TAP = 22;        // contest moved by one Defend press at full stamina (5 presses free the victim)
+const SUBMIT_HOLD_TAP = 18;          // ... by one Grapple press from the holder
+const SUBMIT_STAM_FLOOR = 0.6;       // a press by an empty fighter counts this much, a full one counts 1
+const SUBMIT_TAP_COST = 1.5;         // stamina each press costs
+const SUBMIT_DRIFT = 0.12;           // contest per tick towards the holder: the grip tightens when nobody taps
+const SUBMIT_DMG_START = 0.04;       // hp per tick at the start (before damage and defense stats) ...
+const SUBMIT_DMG_END = 0.14;         // ... rising to this at SUBMIT_MAX_TICKS (a full hold is about 22 hp)
+const SUBMIT_STAM_DRAIN = 0.05;      // victim stamina per tick
+const SUBMIT_FLASH_TICKS = 20;       // the victim flashes this often while the damage builds
+const SUBMIT_REST_TICKS = 20;        // the victim lies this much longer after a hold that did not end in an escape
+const SUBMIT_AFTER_LOCK = 12;        // holder lock after the hold ends
+const SUBMIT_ESCAPE_LOCK = 20;       // ... after the victim escapes
+/* Heavy tackle (P3-06): weight class comes from look.scale x look.build (a stand-in until P6-03, the fitness triangle, supplies a real
+   weight). A runner at least TACKLE_MIN_GAP classes heavier than the fighter it runs into knocks them back; Block stops it, Sway i-frames
+   and Sidestep let it run past. One tackle per run start. */
+const WEIGHT_CLASS_BOUNDS = [0.92, 1.04, 1.2, 1.36];   // scale x build below each bound is that class (0 = lightest): 5 classes
+const WEIGHT_CLASS_NAMES = ['Light', 'Lightweight', 'Middle', 'Heavy', 'Super heavy'];
+const TACKLE_MIN_GAP = 2;            // classes
+const TACKLE_REACH = 0.08;           // m past touching that still counts as the run reaching the target (a run covers about 0.08 m a tick)
+const TACKLE_BLOCK_PUSH = 5;         // m/s: the blocker slides back
+const TACKLE_BLOCK_STUN = 10;        // ticks the blocker cannot move
+const TACKLE_STOP_KNOCK = 2.5;       // m/s: the stopped tackler bounces back
+const TACKLE_STOP_LOCK = 24;         // ticks the stopped tackler is locked
+/* The tackle hits like a heavy stagger move (see Combat.landHit); not part of ATTACKS, so it has no place in the move list or strings. */
+const TACKLE_MOVE = { id: 'tackle', name: 'Charge', limb: 'RA', anim: 'straight', h: 'M', type: 'strike', tier: 3, cat: 'heavy', kind: 'stagger', dmg: 12, push: 1.8, hitstun: 26, blockstun: 0, hitStop: 8, cv: 1, ctx: 'run' };
 const JUGGLE_LIMIT = 3;
 const COMBO_RESET_TICKS = 12;
 const WALK_FORWARD = 2.2, WALK_BACK = 1.6, WALK_SIDE = 1.8, RUN_SPEED = 4.6, CROUCH_FACTOR = 0.45, BLOCK_FACTOR = 0.6;
@@ -3026,6 +3063,19 @@ const DEFENSE_HELP = {
   sway: 'Tap Defend to lean out of the way (Stick left / right leans sideways, otherwise back). Hits miss for ' + swaySeconds(SWAY_IFRAME_TICKS) + ' s, but grabs still land. It costs ' + SWAY_COST + ' stamina, and you can be hit for ' + swaySeconds(SWAY_RECOVERY_TICKS) + ' s while you recover. A hit dodged at the last moment is a perfect sway and opens a counter.',
 };
 const STYLE_DEFENSE = { boxer: 'sway', kickboxer: 'block', karateka: 'block', wrestler: 'block', judoka: 'sway', brawler: 'block', capoeira: 'sway' };
+/* Move styles whose fighters may hold a downed opponent (P3-05). Appendix C lists BJJ, Hapkido, Judo, Wrestling and MMA; only the
+   styles that exist today are here, later styles join by adding their id. */
+const SUBMISSION_STYLES = new Set(['wrestler', 'judoka']);
+const styleCanSubmit = (profile) => SUBMISSION_STYLES.has(moveStyleFor(profile));
+const submissionStyleText = () => [...SUBMISSION_STYLES].map((id) => MOVE_STYLE[id].label).join(' and ');
+/* Weight class 0 (lightest) .. 4 from the look: height x build. P6-03 (fitness triangle) will replace this input with a real weight. */
+function weightClass(profile) {
+  const look = (profile && profile.look) || {};
+  const mass = clamp(finite(look.scale, 1), SCALE_MIN, SCALE_MAX) * clamp(finite(look.build, 1), BUILD_MIN, BUILD_MAX);
+  let weight = 0;
+  while (weight < WEIGHT_CLASS_BOUNDS.length && mass >= WEIGHT_CLASS_BOUNDS[weight]) weight++;
+  return weight;
+}
 function defaultDefense(moveStyle) { return STYLE_DEFENSE[moveStyle] || DEFAULT_DEFENSE; }
 function defenseFor(profile) { return profile && DEFENSE_TYPES.includes(profile.defense) ? profile.defense : defaultDefense(moveStyleFor(profile)); }
 const MOTION_JITTER = 0.08;            // individuality: each fighter's style values vary by up to +-8 %
@@ -3219,6 +3269,7 @@ class Fighter {
     this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.escapeQueued = false; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0;
     this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.fvx = 0; this.fvz = 0; this.pendingKO = false;
+    this.pinnedBy = null; this.submitDone = false; this.holdRest = false; this.holdTicks = 0; this.holdContest = 0; this.holdDamage = 0; this.holdHp = 0; this.grapplePressed = false; this.prevGrapple = false; this.tackleUsed = false;   // submission (holder: partner, hold*; victim: pinnedBy) and tackle
     this.sideDir = 0; this.swayDir = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.assist = false;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
     this.pose.set(this.motion.guard); this.tp.set(this.motion.guard);
@@ -3231,6 +3282,7 @@ class Fighter {
     this.look = look;
     this.scale = clamp(finite(look.scale, 1), SCALE_MIN, SCALE_MAX);
     this.build = clamp(finite(look.build, 1), BUILD_MIN, BUILD_MAX);
+    this.weight = weightClass({ look });   // 0 .. 4, read by the heavy tackle
     this.lk = resolveLook(look);
     const c = this.lk.colors;
     this.col = { skin: C(c.skin), hair: C(c.hair), top: C(c.top), shorts: C(c.shorts), glove: C(c.glove), shoe: C(c.shoe), accent: C(c.accent), mask: C(c.mask), stubble: C(c.stubble) };
@@ -3257,7 +3309,12 @@ class Fighter {
     this.blockFresh = blockEntry && this.age - this.lastBlockAt >= PERFECT_BLOCK_COOLDOWN;
     if (blockEntry) this.lastBlockAt = this.age;
     if (next === S.GETUP) this.invuln = Math.max(this.invuln, this.getupTicks() + 2);   // covers the whole get-up, cleared once standing
-    if (TERMINAL_STATES.includes(next) || next === S.CLINCH || next === S.GRAPPLE || next === S.THROWN) { this.buffer = null; this.bufferNext = null; this.throwPressed = false; }
+    // a hold ends when its holder leaves SUBMIT (hit, KO, round end) or its victim leaves DOWN; the holder's own updateSubmit ends the normal ways
+    if (prev === S.SUBMIT && next !== S.SUBMIT && this.partner) Combat.dropSubmission(this, next === S.KO ? 'ko' : next === S.VICTORY || next === S.DEFEAT ? 'round' : 'broken');
+    if (prev === S.DOWN && next !== S.DOWN && this.pinnedBy) Combat.dropSubmission(this.pinnedBy, next === S.KO ? 'ko' : 'lost');
+    if (next === S.DOWN && prev !== S.DOWN) { this.submitDone = false; this.holdRest = false; }   // a new knockdown can be held again
+    if (next === S.RUN && prev !== S.RUN) this.tackleUsed = false;   // one tackle per run start
+    if (TERMINAL_STATES.includes(next) || next === S.CLINCH || next === S.GRAPPLE || next === S.SUBMIT || next === S.THROWN) { this.buffer = null; this.bufferNext = null; this.throwPressed = false; }
     if (STRING_BREAK_STATES.includes(next)) this.resetString();
     if (next !== S.ATTACK && prev === S.ATTACK) this.move = null;
     return true;
@@ -3273,7 +3330,7 @@ class Fighter {
 
   /* ----- input buffering ----- */
   bufferInput(it) {
-    const grab = it.grapple && this.state !== S.CLINCH && this.state !== S.GRAPPLE;   // in a clinch Grapple throws or escapes directly
+    const grab = it.grapple && this.state !== S.CLINCH && this.state !== S.GRAPPLE && this.state !== S.SUBMIT;   // in a clinch Grapple throws or escapes directly, in a hold it tightens
     const btn = it.kick ? 'kick' : it.punch ? 'punch' : grab ? 'grapple' : null; // simultaneous presses: kick > punch > grapple
     // tick = the press time for the string window, height = Crouch held at the press
     if (btn) {
@@ -3435,6 +3492,8 @@ class Fighter {
     if (this.flash > 0) this.flash = Math.max(0, this.flash - 0.12);
     this.defendPressed = it.defend && !this.prevDefend;   // a fresh press, not a held button (quick recovery while down)
     this.prevDefend = it.defend;
+    this.grapplePressed = it.grapple && !this.prevGrapple;   // a fresh Grapple press: the hold contest counts presses, not holding
+    this.prevGrapple = it.grapple;
     // a Sway press is kept a few ticks; a press while down is a quick recovery, never a sway after getting up
     if (this.defendPressed && this.defense === 'sway' && this.state !== S.DOWN) this.swayBuffer = SWAY_BUFFER_TICKS;
     else if (this.swayBuffer > 0) this.swayBuffer--;
@@ -3453,6 +3512,7 @@ class Fighter {
         break;
       case S.CLINCH: this.updateClinched(it, opp, match); break;
       case S.GRAPPLE: this.updateGrapple(it, opp, match); break;
+      case S.SUBMIT: this.updateSubmit(it, match); break;
       case S.THROWN:
         this.vx = this.vz = 0;
         // safety net: a throw flight lasts under 60 ticks; resting on support (or far too long) always lands the fighter
@@ -3480,7 +3540,8 @@ class Fighter {
       case S.IDLE: case S.CROUCH: k = 1; break;
       case S.WALK: k = 0.6; break;
       case S.BLOCK_H: case S.BLOCK_L: k = this.blockStun > 0 ? 0.1 : 0.4; break;
-      case S.DOWN: case S.GETUP: k = 0.6; break;
+      case S.DOWN: k = this.pinnedBy ? 0 : 0.6; break;   // held in a submission: the hold drains stamina, it never regenerates
+      case S.GETUP: k = 0.6; break;
       case S.JUMP: case S.SIDESTEP: k = 0.2; break;
       case S.HIT: case S.STAGGER: case S.STUN: k = 0.15; break;
       default: k = 0;
@@ -3494,6 +3555,7 @@ class Fighter {
     if (this.blockStun > 0) { this.blockStun--; this.vx = this.vz = 0; return; }
     if (this.lock === 0) {
       if (this.swayBuffer > 0 && this.stam >= SWAY_COST && !this.airborne) { this.swayBuffer = 0; this.startSway(it); return; }   // a fresh press only: a held Defend never repeats
+      if (this.trySubmission(opp, match)) return;   // Grapple next to a downed foe holds them instead of grabbing
       if (this.tryBufferedAttack(it)) return;
       if (it.jump && this.stam >= 1 && this.state !== S.CROUCH && !this.airborne) { this.startJump(it); return; }
       if (it.sidestep && this.exhaust === 0 && this.stam >= SIDESTEP_COST) { this.startSidestep(it.sidestep); return; }
@@ -3558,14 +3620,51 @@ class Fighter {
     this.vx += (wantX - this.vx) * 0.04; this.vz += (wantZ - this.vz) * 0.04;
     if (this.lock === 0 && !this.airAttackUsed) this.tryBufferedAttack(it);
   }
+  downTicks() { return Math.round(52 * this.stats.getup * this.downMult); }
   updateDown(it) {
     this.vx = this.vz = 0;
-    const dur = Math.round(52 * this.stats.getup * this.downMult);
-    const quick = this.defendPressed && this.stateTicks >= 14 && this.stam >= 8;   // a fresh Defend press gets up quickly
+    if (this.pinnedBy) { this.updatePinned(this.pinnedBy); return; }   // held: no timed get-up, and a Defend press is an escape tap, not a quick recovery
+    const dur = this.downTicks();
+    const quick = this.defendPressed && this.stateTicks >= 14 && !this.holdRest && this.stam >= 8;   // a fresh Defend press gets up quickly (not in the rest after a hold)
     if (this.stateTicks >= dur || quick) {
       if (quick && this.stateTicks < dur) { this.stam -= 8; this.quickRise = true; Events.emit('quickRise', { f: this }); } else this.quickRise = false;
       this.setState(S.GETUP);
     }
+  }
+
+  /* ----- submission (P3-05): the holder is in SUBMIT, the victim stays in DOWN with pinnedBy set ----- */
+  /* The contest value of one press: stamina tips it (an empty fighter's press counts SUBMIT_STAM_FLOOR of a full one's), each press costs a little. */
+  holdPress(base) {
+    const power = base * (SUBMIT_STAM_FLOOR + (1 - SUBMIT_STAM_FLOOR) * clamp(this.stam / this.maxStam, 0, 1));
+    this.stam = Math.max(0, this.stam - SUBMIT_TAP_COST);
+    return power;
+  }
+  trySubmission(opp, match) {
+    const buf = this.buffer;
+    if (!buf || buf.btn !== 'grapple' || !Combat.canSubmit(this, opp, match)) return false;
+    this.buffer = null; this.bufferNext = null;
+    return Combat.startSubmission(this, opp, match);
+  }
+  /* Victim side: every fresh Defend press pushes toward the escape (the holder's Grapple presses and the drift push back, see updateSubmit). */
+  updatePinned(att) {
+    if (!this.defendPressed) return;
+    att.holdContest += this.holdPress(SUBMIT_ESCAPE_TAP);
+    if (att.holdContest >= SUBMIT_ESCAPE_GOAL) Combat.escapeSubmission(this, att);
+  }
+  /* Holder side: tightens with Grapple presses, hurts the victim, and lets go after SUBMIT_MAX_TICKS, at the round end, or when hit. */
+  updateSubmit(it, match) {
+    this.vx = this.vz = this.kx = this.kz = 0;
+    const def = this.partner;
+    if (!def) { this.setState(S.IDLE); this.lock = SUBMIT_AFTER_LOCK; return; }   // the victim was taken out of it (KO, thrown)
+    if (!match.live) { Combat.endSubmission(this, 'round'); return; }
+    if (this.hp < this.holdHp) { Combat.endSubmission(this, 'broken'); return; }   // any damage to the holder breaks it, even from scenery
+    this.holdTicks++;
+    this.faceOpponent(def, 12 * FIXED_DT);
+    if (this.grapplePressed) this.holdContest -= this.holdPress(SUBMIT_HOLD_TAP);
+    this.holdContest = Math.max(SUBMIT_CONTEST_FLOOR, this.holdContest - SUBMIT_DRIFT);
+    Combat.holdDamage(this, def, match);
+    this.holdHp = this.hp;
+    if (this.partner && this.holdTicks >= SUBMIT_MAX_TICKS) Combat.endSubmission(this, 'time');
   }
 
   /* ----- clinch / grapple ----- */
@@ -3798,6 +3897,7 @@ class Fighter {
         break;
       case S.CLINCH: k = this.clinchPose(p, t); break;
       case S.GRAPPLE: k = this.grapplePose(p); break;
+      case S.SUBMIT: k = this.submitPose(p, t); break;
       case S.THROWN: {
         const u = clamp(st / 28, 0, 1);
         // continue from the release angle of a throw (0 for knockdowns) into the landing
@@ -3812,6 +3912,7 @@ class Fighter {
       case S.DOWN:
         this.liePose(p, 1);
         if (st < 12) { const settle = 1 - st / 12; p[J.hipLx] += 0.65 * settle; p[J.hipRx] += 0.5 * settle; }
+        if (this.pinnedBy) this.pinnedPose(p, t);
         k = 0.35;
         break;
       case S.GETUP: {
@@ -3878,6 +3979,22 @@ class Fighter {
     if (tp) { THROW_POSES[tp.data.anim](p, clamp(tp.tick / tp.data.startup, 0, 1), tp.side); return 0.55; }
     if (this.clinchStrikeAnim > 0) { const u = this.clinchStrikeAnim / 12; p[J.hipRx] = 1.2 * u; p[J.knR] = 1.4 * u + 0.3; p[J.torsoLean] = 0.4; }
     return 0.5;
+  }
+  /* Holder: kneeling low over the victim, both hands clamped on a limb, squeezing in a slow rhythm. */
+  submitPose(p, t) {
+    const squeeze = 0.5 + 0.5 * Math.sin(t * 6);
+    p[J.torsoLean] = 0.85 + 0.1 * squeeze; p[J.headX] = 0.3; p[J.torsoTwist] = 0;
+    p[J.hipLx] = 1.0; p[J.hipRx] = 0.75; p[J.hipLz] = 0.2; p[J.hipRz] = 0.2; p[J.knL] = 1.7; p[J.knR] = 1.9;
+    p[J.shLx] = 0.9 + 0.25 * squeeze; p[J.shRx] = 0.8 + 0.25 * squeeze; p[J.shLz] = -0.1; p[J.shRz] = -0.1; p[J.elL] = 1.2 - 0.35 * squeeze; p[J.elR] = 1.3 - 0.35 * squeeze;
+    return 0.35;
+  }
+  /* Held victim, on top of the lying pose: the free arm and the legs struggle, faster the closer the escape (the holder's tightening slows it). */
+  pinnedPose(p, t) {
+    const att = this.pinnedBy, effort = clamp(0.3 + att.holdContest / SUBMIT_ESCAPE_GOAL, 0.2, 1);
+    const s = Math.sin(t * (7 + 8 * effort));
+    p[J.shRx] = 1.5 + 0.4 * s * effort; p[J.elR] = 0.5 + 0.3 * effort; p[J.shRz] = 0.4;
+    p[J.hipLx] += 0.5 * Math.max(0, s) * effort; p[J.hipRx] += 0.5 * Math.max(0, -s) * effort;
+    p[J.torsoRoll] = 0.12 * s * effort; p[J.headY] = 0.25 * s * effort;
   }
   /* After a throw the thrower is locked for the recovery; blend from the release pose back to guard (visual only). */
   throwFollowPose(p) {
@@ -4100,7 +4217,7 @@ const Combat = {
     if (lat > mv.width + def.radius * 0.6) return null;
     const st = def.state;
     if (mv.type === 'grab') {
-      if (st === S.DOWN || st === S.GETUP || st === S.THROWN || st === S.CLINCH || st === S.GRAPPLE || def.y > 0.5 || att.y > 0.3) return null;
+      if (st === S.DOWN || st === S.GETUP || st === S.THROWN || st === S.CLINCH || st === S.GRAPPLE || st === S.SUBMIT || def.y > 0.5 || att.y > 0.3) return null;   // nobody grabs a holder or the held fighter (DOWN)
       return { type: 'grab', att, def, mv };
     }
     if (st === S.CLINCH || st === S.GRAPPLE) return null;
@@ -4285,7 +4402,7 @@ const Combat = {
 
   /* ----- clinch, throws and escapes ----- */
   startClinch(att, def, match) {
-    if (att.state !== S.ATTACK || TERMINAL_STATES.includes(def.state) || [S.DOWN, S.GETUP, S.THROWN, S.CLINCH, S.GRAPPLE].includes(def.state)) return;
+    if (att.state !== S.ATTACK || TERMINAL_STATES.includes(def.state) || [S.DOWN, S.GETUP, S.THROWN, S.CLINCH, S.GRAPPLE, S.SUBMIT].includes(def.state)) return;
     att.moveConnected = true;
     if (!att.setState(S.GRAPPLE)) return;
     def.setState(S.CLINCH);
@@ -4393,8 +4510,87 @@ const Combat = {
     def.kx = dx / l * 3; def.kz = dz / l * 3; att.kx = -dx / l * 3; att.kz = -dz / l * 3;
   },
 
+  /* ----- submissions (P3-05): see the SUBMIT_* constants. The holder is `partner`-linked to the victim, who stays in DOWN with pinnedBy set ----- */
+  canSubmit(att, def, match) {
+    if (!match.live || !def || att === def || !styleCanSubmit(att.profile)) return false;
+    if (!att.alive || att.airborne || att.stam < SUBMIT_MIN_STAMINA || att.pinnedBy || att.partner) return false;
+    if (def.state !== S.DOWN || def.pinnedBy || def.submitDone || !def.alive) return false;   // a hold is joined by nobody: the victim is taken, once per knockdown
+    return Math.hypot(def.x - att.x, def.z - att.z) <= SUBMIT_RANGE && Math.abs(def.y - att.y) < 0.6;
+  },
+  startSubmission(att, def, match) {
+    if (!att.setState(S.SUBMIT)) return false;
+    att.partner = def; def.pinnedBy = att; def.submitDone = true;
+    att.holdTicks = 0; att.holdContest = 0; att.holdDamage = 0; att.holdHp = att.hp;
+    const dx = att.x - def.x, dz = att.z - def.z, l = Math.hypot(dx, dz) || 1;
+    att.x = def.x + dx / l * SUBMIT_GAP; att.z = def.z + dz / l * SUBMIT_GAP;
+    att.yaw = Math.atan2(-dx, -dz);
+    att.vx = att.vz = att.kx = att.kz = def.vx = def.vz = def.kx = def.kz = 0;
+    Events.emit('submission', { att, def, x: def.x, y: 0.6, z: def.z });
+    return true;
+  },
+  /* Unlinks a hold and tells everybody. The holder's state is not touched here (setState and endSubmission do that). */
+  dropSubmission(att, reason) {
+    const def = att.partner;
+    if (!def) return;
+    att.partner = null;
+    if (def.pinnedBy === att) {
+      def.pinnedBy = null;
+      if (def.state === S.DOWN && reason !== 'escape') { def.stateTicks = Math.max(0, def.downTicks() - SUBMIT_REST_TICKS); def.holdRest = true; }   // lies a moment longer (no quick rise), then the normal get-up
+    }
+    Events.emit('submissionEnd', { att, def, reason, damage: att.holdDamage, ticks: att.holdTicks });
+  },
+  endSubmission(att, reason) {
+    this.dropSubmission(att, reason);
+    if (att.state === S.SUBMIT) { att.setState(S.IDLE); att.lock = SUBMIT_AFTER_LOCK; }
+  },
+  escapeSubmission(def, att) {
+    const dx = att.x - def.x, dz = att.z - def.z, l = Math.hypot(dx, dz) || 1;
+    Events.emit('submissionEscape', { att, def, x: (def.x + att.x) / 2, y: 0.6, z: (def.z + att.z) / 2 });
+    this.dropSubmission(att, 'escape');
+    def.quickRise = true;
+    def.setState(S.GETUP);
+    att.setState(S.IDLE);
+    att.lock = SUBMIT_ESCAPE_LOCK;
+    att.kx = dx / l * 2.5; att.kz = dz / l * 2.5;
+  },
+  /* One tick of the hold's damage: it builds from SUBMIT_DMG_START to SUBMIT_DMG_END over the hold. */
+  holdDamage(att, def, match) {
+    const dmg = lerp(SUBMIT_DMG_START, SUBMIT_DMG_END, clamp(att.holdTicks / SUBMIT_MAX_TICKS, 0, 1)) * att.stats.damage * def.stats.taken;
+    def.hp = Math.max(0, def.hp - dmg);
+    if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
+    att.holdDamage += dmg;
+    def.stam = Math.max(0, def.stam - SUBMIT_STAM_DRAIN);
+    if (att.holdTicks % SUBMIT_FLASH_TICKS === 0) def.flash = 0.7;
+    if (def.hp <= 0) this.knockOut(def, att, null, match);   // the KO drops the hold (Fighter.setState)
+  },
+
+  /* ----- heavy tackle (P3-06): called for each ordered pair after movement, before the bodies are pushed apart ----- */
+  tackle(att, def, match) {
+    if (att.state !== S.RUN || att.tackleUsed || !match.live || att.weight - def.weight < TACKLE_MIN_GAP || att.y > 0.3) return;
+    const dx = def.x - att.x, dz = def.z - att.z, dist = Math.hypot(dx, dz);
+    if (dist > att.radius + def.radius + TACKLE_REACH || att.vx * dx + att.vz * dz <= 0) return;   // body contact, moving into the target
+    att.tackleUsed = true;   // the first contact of a run decides it, whatever the answer: running into a downed or rising body uses it up too
+    if (TERMINAL_STATES.includes(def.state) || [S.DOWN, S.GETUP, S.THROWN, S.CLINCH, S.GRAPPLE, S.SUBMIT].includes(def.state) || def.invuln > 0 || def.y > 0.5) return;
+    const x = (att.x + def.x) / 2, z = (att.z + def.z) / 2, nx = dx / (dist || 1), nz = dz / (dist || 1);
+    if (def.state === S.SIDESTEP || (def.state === S.SWAY && def.stateTicks < SWAY_IFRAME_TICKS)) {   // the tackler runs past
+      Events.emit('tackle', { att, def, result: 'dodged', x, y: 1.1, z });
+      return;
+    }
+    if (isBlockState(def.state) && def.fwdX * -dx + def.fwdZ * -dz > 0) {   // a guard facing the charge stops it: no damage
+      def.kx = nx * TACKLE_BLOCK_PUSH; def.kz = nz * TACKLE_BLOCK_PUSH; def.blockStun = TACKLE_BLOCK_STUN; def.flash = 0.5;
+      att.setState(S.IDLE); att.vx = att.vz = 0; att.kx = -nx * TACKLE_STOP_KNOCK; att.kz = -nz * TACKLE_STOP_KNOCK; att.lock = Math.max(att.lock, TACKLE_STOP_LOCK); att.exhaust = Math.max(att.exhaust, TACKLE_STOP_LOCK);   // exhaust: no new run (or sidestep) until the stop is over
+      match.hitStop = Math.max(match.hitStop, 4);
+      Events.emit('tackle', { att, def, result: 'blocked', x, y: 1.1, z });
+      return;
+    }
+    att.exhaustedMove = false;   // damageMult reads the last attack's flag
+    this.landHit({ type: 'strike', att, def, mv: TACKLE_MOVE, block: 'none' }, match);
+    Events.emit('tackle', { att, def, result: 'hit', x, y: 1.1, z });
+  },
+
   knockOut(def, att, mv, match) {
     if (def.state === S.KO) return;
+    if (def.state === S.SUBMIT) this.dropSubmission(def, 'ko');   // a knocked-out holder frees the held fighter
     def.hp = 0;
     def.alive = false;
     def.partner = null;
@@ -4877,6 +5073,12 @@ const AI_THROW_READ = 0.6;       // escape chance per throw = difficulty escape 
 const AI_GRAB_BREAK = 0.3;       // chance to break a grab at the first legal tick = blockSkill x this, rolled once per grab
 const AI_BLOCK_PUNISH = 0.8;     // chance to punish a blocked, unsafe attack = difficulty punish skill x this
 const AI_BLOCK_PUNISH_EDGE = 4;  // the attacker must still be recovering this many ticks after the guard drops
+/* Submissions: an AI whose style allows it holds a downed foe it stands near with a chance per decision of grab skill x AI_SUBMIT_CHANCE
+   (easy .08 .. expert .6), then taps Grapple; a held AI taps Defend. Taps per tick = difficulty escape skill x AI_TAP_RATE (hard ~4 a second). */
+const AI_SUBMIT_CHANCE = 2;
+const AI_SUBMIT_APPROACH = 2.2;   // distance from which an AI walks in to hold a downed foe
+const AI_SUBMIT_SCORE = 3;        // a rolled hold beats every other plan
+const AI_TAP_RATE = 0.1;
 const DIFFICULTY_ORDER = ['easy', 'normal', 'hard', 'expert'];
 const AI_HISTORY = 48;
 
@@ -4950,6 +5152,8 @@ class AIController {
     // reactions to the clinch and getting up
     if (f.state === S.CLINCH) return this.thinkClinched(f, opp, it, snap);
     if (f.state === S.GRAPPLE) return this.thinkGrapple(f, opp, match, it);
+    if (f.state === S.SUBMIT) { this.plan = null; if (simRng() < d.escape * AI_TAP_RATE) it.grapple = true; return it; }   // the holder keeps tapping Grapple
+    if (f.state === S.DOWN && f.pinnedBy) { if (simRng() < d.escape * AI_TAP_RATE) it.defend = true; return it; }   // held: Defend taps are escape attempts
     if (f.state === S.DOWN) { if (d.id !== 'easy' && f.stam > 20 && f.stateTicks > 16 && simRng() < 0.15) it.defend = true; return it; }   // one Defend press = quick recovery
     if (REACTION_STATES.includes(f.state)) { this.plan = null; this.counterTried = false; return it; }
     if (f.state === S.SWAY) { this.plan = null; return it; }   // a sway runs by itself; the next decision comes after it
@@ -5169,6 +5373,10 @@ class AIController {
       }
       add(g, { kind: 'grab', ticks: d.lockout + 8 + (dist > 1.3 ? 12 : 0), dir, low: lowGrab });
     }
+    // a downed foe: a style that holds sometimes walks in and holds them
+    if (opp.state === S.DOWN && snap.state === S.DOWN && styleCanSubmit(this.profile) && !opp.pinnedBy && !opp.submitDone && dist < AI_SUBMIT_APPROACH && f.stam >= SUBMIT_MIN_STAMINA && simRng() < d.grab * AI_SUBMIT_CHANCE) {
+      add(AI_SUBMIT_SCORE, { kind: 'submit', ticks: d.lockout + 40, fired: false });
+    }
     // sidestep / jump for variety
     if (d.sidestep > 0 && dist < pref + 1 && f.stam > 15) add(0.1 + d.sidestep * st.circle * 0.5, { kind: 'sidestep', ticks: 14, side: simRng() < 0.5 ? -1 : 1 });
     if (d.id !== 'easy' && dist > 1.8 && dist < 2.8 && f.stam > f.maxStam * 0.6) add(0.08 * st.kick * aggr, { kind: 'jumpkick', ticks: 24, t: 0 });
@@ -5232,6 +5440,14 @@ class AIController {
         if (!this.inRange(f, ATTACKS.grab, Math.hypot(dx, dz))) { this.moveToward(f, it, dx, dz, false); break; }
         p.fired = true; it.grapple = true; it.grapDir = p.dir;
         if (p.low) it.crouch = true;
+        break;
+      }
+      case 'submit': {
+        if (p.fired) break;
+        if (opp.state !== S.DOWN) { this.plan = null; break; }
+        const dx = opp.x - f.x, dz = opp.z - f.z;
+        if (Math.hypot(dx, dz) > SUBMIT_RANGE - 0.15) { this.moveToward(f, it, dx, dz, false); break; }
+        p.fired = true; it.grapple = true;
         break;
       }
       case 'sidestep': if (!p.fired) { p.fired = true; it.sidestep = p.side; } break;
@@ -5440,6 +5656,7 @@ class MatchSim {
       }
     });
     on('throw', (e) => { this.stats[e.att.index].throws++; this.stats[e.att.index].damage += e.dmg; this.stats[e.def.index].taken += e.dmg; });
+    on('submissionEnd', (e) => { this.stats[e.att.index].damage += e.damage; this.stats[e.def.index].taken += e.damage; });
     on('objBreak', (e) => { if (e.by === 0 || e.by === 1) this.stats[e.by].objects++; });
     on('ko', (e) => { if (e.att) this.stats[e.att.index].kos++; });
     on('attackStart', (e) => {
@@ -5559,6 +5776,7 @@ class MatchSim {
   physics() {
     const [a, b] = this.fighters;
     const air = [a.integrate(DT), b.integrate(DT)];
+    Combat.tackle(a, b, this); Combat.tackle(b, a, this);   // body contact of a run, before the bodies are pushed apart
     this.separate(a, b);
     for (let i = 0; i < 2; i++) {
       const f = this.fighters[i];
@@ -6235,6 +6453,11 @@ const Effects = {
     on('clinch', (e) => FX.ring(e.x, 0.9, e.z, '#ffffff'));
     on('throw', (e) => { FX.dust(e.x, 0.1, e.z, 8, 0.6, '#b5ada0'); FX.sparks(e.x, 1.0, e.z, 8, 3.5, '#ffffff'); Camera.impact(0.6, 0.5); const thrown = Inputs.forFighter(e.def.index); if (thrown) thrown.rumble(0.7, RUMBLE_HIT_MS * 2); });
     on('escape', (e) => { FX.ring(e.x, 1.0, e.z, '#9cf4ff'); });
+    on('submission', (e) => FX.ring(e.x, 0.3, e.z, '#ffffff'));
+    on('submissionEscape', (e) => { FX.ring(e.x, 0.6, e.z, '#9cf4ff'); FX.dust(e.x, 0.1, e.z, 4, 0.4, '#b5ada0'); });
+    on('tackle', (e) => {
+      if (e.result === 'hit') { FX.dust(e.def.x, 0.1, e.def.z, 6, 0.6, '#b5ada0'); Camera.impact(0.7, 0.5); } else FX.ring(e.x, e.y, e.z, e.result === 'blocked' ? '#9ee7ff' : '#ffffff');
+    });
     on('ko', (e) => { FX.flash(e.x, e.y, e.z, 0.7, '#ffffff'); FX.sparks(e.x, e.y, e.z, 20, 5, '#ffd27a'); for (const p of Inputs.active()) p.rumble(RUMBLE_KO, RUMBLE_KO_MS); });
     on('wallSlam', (e) => { FX.dust(e.x, 0.6, e.z, 8, 0.5, '#b5ada0'); FX.sparks(e.x, 1.0, e.z, 8, 3, '#ffffff'); Camera.impact(0.7, 0.5); });
     on('envImpact', (e) => { FX.dust(e.x, 0.6, e.z, 8, 0.5, '#b5ada0'); Camera.impact(0.6, 0.4); });
@@ -6474,6 +6697,9 @@ const Sound = {
     on('throwStart', (e) => this.whoosh(1, e.f.x));
     on('throw', (e) => { this.slam(e.x); this.grunt(e.def.index, true); });
     on('escape', () => { this.tone('triangle', 600, 900, 0.1, 0.2); });
+    on('submission', () => { this.tone('sine', 120, 70, 0.12, 0.35); this.noise('bandpass', 900, 500, 0.6, 0.12, 0.25); });   // the clinch sound
+    on('submissionEscape', () => { this.tone('triangle', 600, 900, 0.1, 0.2); });   // the escape sound
+    on('tackle', (e) => { if (e.result === 'blocked') this.block(false, false, e.x); else if (e.result === 'hit') this.slam(e.x); else this.whoosh(0.8, e.x); });
     on('escapeFail', () => this.ui('bad'));
     on('knockdown', (e) => this.slam(e.f.x));
     on('ko', (e) => { this.slam(e.x); this.bell(); });
@@ -6717,6 +6943,9 @@ const UI = {
     Events.on('block', (e) => this.onBlock(e));
     Events.on('throw', (e) => this.popAt(e.x, 1.2, e.z, e.name.toUpperCase() + ' ' + Math.round(e.dmg), '#ffd24a'));
     Events.on('escape', (e) => this.popAt(e.x, 1.4, e.z, 'ESCAPE!', '#9cf4ff'));
+    Events.on('submission', (e) => { this.popAt(e.x, 0.9, e.z, 'HOLD', '#ffffff'); this.firstHoldTip(e); });
+    Events.on('submissionEscape', (e) => this.popAt(e.x, 1.0, e.z, 'ESCAPE!', '#9cf4ff'));
+    Events.on('tackle', (e) => this.popAt(e.x, e.y + 0.5, e.z, e.result === 'hit' ? 'TACKLE!' : e.result === 'blocked' ? 'STOPPED' : 'MISSED', e.result === 'hit' ? '#ffd24a' : '#9cf4ff'));
     Events.on('clinch', (e) => { this.popAt(e.x, 1.6, e.z, 'CLINCH', '#ffffff'); this.firstClinchTip(e); });
     Events.on('objBreak', (e) => { this.popAt(e.x, 1.3, e.z, (KIND_NAME[e.mat] || 'OBJECT') + ' SMASHED!', '#ffe9a6'); this.say('Object destroyed'); });
     Events.on('objStage', (e) => this.popAt(e.x, e.obj.h + 0.2, e.z, (e.obj.mat === 'metal' ? STAGE_NAMES_METAL : STAGE_NAMES)[e.stage].toUpperCase(), '#d0d8e8'));
@@ -7249,7 +7478,7 @@ const UI = {
     const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td>' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1') + '</td><td>' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2') + '</td><td>' + esc(GAMEPAD_LABELS[a]) + '</td><td>' + esc(TOUCH_LABELS[a]) + '</td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
       '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (Versus)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
-      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card). Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Use and Lock on have no effect yet. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
+      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card). Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Press Grapple next to a knocked-down opponent to hold them (' + submissionStyleText() + ' styles): tap Grapple to keep the hold tight, the held fighter taps Defend to escape. Use and Lock on have no effect yet. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
       '<p class="hint">Versus: a key belongs to one player only. P1\'s spare arrow keys switch off in Versus, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only.</p>' +
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
   },
@@ -7282,8 +7511,10 @@ const UI = {
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Hits</th><th>Start / Active / Recover</th><th>Dmg</th><th>Stam</th><th>Adv hit / block</th><th>Notes</th></tr>' + rows + '</table>' +
       '<h3>Attack strings</h3><p>Press Punch or Kick again soon after the last press (about ' + ATTACK_STRING_SECONDS + ' s, plus the short freeze of each hit), after that move hit or was blocked, to play the next move of the string. A miss, a pause, or getting hit starts over. Strings are up to 3 moves. Hold Crouch at every press for the crouch strings; otherwise the standing strings apply.</p>' +
       stringTable +
-      '<h3>Defend: Block or Sway</h3><p>Every fighter has one defense type, shown on its fighter card. <b>Block</b>: ' + esc(DEFENSE_HELP.block) + ' Strong string moves break a block unless it is perfect. <b>Sway</b>: ' + esc(DEFENSE_HELP.sway) + ' A sway fighter has no hold-guard; a Defend press while knocked down still gets up quickly for both types.</p>' +
+      '<h3>Defend: Block or Sway</h3><p>Every fighter has one defense type, shown on its fighter card. <b>Block</b>: ' + esc(DEFENSE_HELP.block) + ' Strong string moves break a block unless it is perfect. <b>Sway</b>: ' + esc(DEFENSE_HELP.sway) + ' A sway fighter has no hold-guard; a Defend press while knocked down still gets up quickly for both types (while held down, Defend presses are escape attempts instead).</p>' +
       '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: Kick = knee (drains stamina), Punch = elbow (harder hit); Grapple = throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
+      '<h3>Holds on a downed opponent</h3><p>Grapple next to a knocked-down opponent starts a hold, for ' + esc(submissionStyleText()) + ' fighters. Damage builds for up to ' + SUBMIT_MAX_TICKS / 60 + ' s. The holder taps Grapple to keep it tight; the held fighter taps Defend to escape, and a tired fighter taps weaker. A hit on the holder breaks the hold. A fighter can be held once per knockdown.</p>' +
+      '<h3>Heavy tackle</h3><p>A fighter at least ' + TACKLE_MIN_GAP + ' weight classes (' + esc(WEIGHT_CLASS_NAMES.join(' / ')) + ', from height and build) above its target knocks them back by running into them, with no button. Block stops the charge (no damage), and a Sway or a Sidestep lets it run past. Once per run.</p>' +
       this.throwTable() +
       '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-default data-act="back">Back</button></div></div></section>';
   },
@@ -7510,7 +7741,8 @@ const UI = {
       else if (f.state === S.SWAY) status = 'SWAY';
       else if (f.state === S.STUN) status = 'STUNNED';
       else if (f.state === S.CLINCH || f.state === S.GRAPPLE) status = 'CLINCH';
-      else if (f.state === S.DOWN) status = 'DOWN';
+      else if (f.state === S.SUBMIT) status = 'HOLD';
+      else if (f.state === S.DOWN) status = f.pinnedBy ? 'PINNED' : 'DOWN';
       else if (f.state === S.KO) status = 'K.O.';
       else if (f.lowStamina) status = 'TIRED';
       this.setHtml('tag' + i, el, (i === 0 ? '1P' : m.versus ? '2P' : m.training ? 'DUMMY' : 'CPU') + (status ? '<i>' + status + '</i>' : ''));
@@ -7551,7 +7783,21 @@ const UI = {
     Progress.save();
   },
   /* Clinch hint for a human player's fighter during the first clinch: escape timing while held, throw aim while holding. */
+  /* The hold instructions likewise appear in the first submission hold with a human player in it, and never again (saved). */
+  firstHoldTip(e) {
+    const m = Game.match;
+    this.tipHold = null;
+    if (!m || !m.fighters.includes(e.att) || Progress.d.seenHold) return;
+    const human = [e.att, e.def].some((f) => m.controllers[f.index] === PlayerController || m.controllers[f.index] === Player2Controller);
+    if (!human) return;
+    this.tipHold = e;
+    Progress.d.seenHold = true;
+    Progress.save();
+  },
   grappleHint(f) {
+    const hold = this.tipHold;
+    if (hold && hold.att === f && f.state === S.SUBMIT && f.partner === hold.def) return 'HOLD · tap ' + this.keyName('grapple', f.index) + ' to keep it tight';
+    if (hold && hold.def === f && f.pinnedBy === hold.att) return 'ESCAPE! Tap ' + this.keyName('defend', f.index) + ' fast';
     const tip = this.tipClinch;
     if (!tip || (tip.att !== f && tip.def !== f)) return '';
     if (f.state === S.CLINCH) return this.clinchHint(f);
@@ -8724,6 +8970,240 @@ const SelfTest = {
       };
       const fresh = rises(17, 60), held = rises(-1, 60, true), early = rises(6, 60), tired = rises(17, 0);   // a little regenerates while down, but not the 8 needed by tick 17
       return fresh && !held && !early && !tired ? true : JSON.stringify({ fresh, held, early, tired });
+    });
+    /* Submission tests: DMITRI (Wrestler, may hold) stands 1 m from KAI, who is knocked down; holder / victim script the two fighters. */
+    const holdMatch = (opts, holder, victim) => {
+      const m = mk(Object.assign({ playerId: 'dmitri', opponentId: 'kai' }, opts), holder, victim);
+      self.place(m, 1.0);
+      m.fighters[1].setState(S.HIT); m.fighters[1].setState(S.DOWN);
+      return m;
+    };
+    const holdAt2 = once(2, 'grapple');
+    /* A victim that taps Defend every `every` ticks from tick 5. */
+    const tapDefend = (every) => (it, f, o, m) => { it.defend = m.tick >= 5 && m.tick % every === 0; };
+    /* Ticks from the hold start until the victim is free (-1 = still held after `limit` ticks), plus the match for more checks. */
+    const escapeTicks = (victim, holder, setup, limit) => {
+      const m = holdMatch({}, holder || holdAt2, victim);
+      if (setup) setup(m);
+      const v = m.fighters[1];
+      let start = -1, free = -1;
+      for (let i = 0; i < limit; i++) { m.step(); if (start < 0 && m.fighters[0].state === S.SUBMIT) start = i; if (start >= 0 && free < 0 && !v.pinnedBy) free = i - start; }
+      return { start, free, m };
+    };
+    test('Submission: Grapple next to a downed foe holds them for the allowed styles only; a standing or far foe gets a plain grab', () => {
+      const started = {};
+      for (const style of MOVE_STYLE_IDS) {
+        const m = holdMatch({}, holdAt2);
+        const a = m.fighters[0], v = m.fighters[1];
+        a.profile = Object.assign({}, a.profile, { moveStyle: style });
+        const log = self.capture(['submission']); self.run(m, 6); log.stop();
+        started[style] = a.state === S.SUBMIT && v.pinnedBy === a && v.state === S.DOWN && a.partner === v && log.submission.length === 1 && Math.hypot(a.x - v.x, a.z - v.z) < SUBMIT_RANGE;
+        m.dispose();
+      }
+      const wrong = MOVE_STYLE_IDS.filter((style) => started[style] !== SUBMISSION_STYLES.has(style));
+      const standing = mk({ playerId: 'dmitri', opponentId: 'kai' }, holdAt2); self.place(standing, 1.0); self.run(standing, 6);
+      const far = holdMatch({}, holdAt2); self.place(far, 2.6); self.run(far, 6);
+      const ok = wrong.length === 0 && SUBMISSION_STYLES.has('wrestler') && SUBMISSION_STYLES.has('judoka') && [...SUBMISSION_STYLES].every((id) => MOVE_STYLE[id]) &&
+        standing.fighters[0].state === S.ATTACK && standing.fighters[1].pinnedBy === null && far.fighters[0].state !== S.SUBMIT && far.fighters[1].pinnedBy === null;
+      return ok ? true : JSON.stringify({ wrong, started, standing: standing.fighters[0].state, far: far.fighters[0].state });
+    });
+    test('Submission: damage builds while the hold lasts, the hold ends by itself after 240 ticks, both fighters end sane', () => {
+      const log = self.capture(['submissionEnd']);
+      const m = holdMatch({}, holdAt2);
+      const a = m.fighters[0], v = m.fighters[1], hp = [];
+      let start = -1, end = -1;
+      for (let i = 0; i < 520; i++) {
+        m.step(); hp.push(v.hp);
+        if (start < 0 && a.state === S.SUBMIT) start = i;
+        if (start >= 0 && end < 0 && a.state !== S.SUBMIT) end = i;
+      }
+      log.stop();
+      const early = hp[start] - hp[start + 60], late = hp[end - 61] - hp[end - 1], total = v.maxHp - v.hp;
+      const ok = start > 0 && SUBMIT_MAX_TICKS === 240 && end - start >= 238 && end - start <= 242 && late > early * 1.8 && early > 0.5 && total > 12 && total < 40 &&
+        log.submissionEnd.length === 1 && log.submissionEnd[0].reason === 'time' && Math.abs(log.submissionEnd[0].damage - total) < 0.01 && a.hp === a.maxHp &&
+        a.state === S.IDLE && v.state === S.IDLE && !v.pinnedBy && !a.partner;
+      m.dispose();
+      return ok ? true : JSON.stringify({ start, end, early, late, total, a: a.state, v: v.state, ends: log.submissionEnd.map((e) => e.reason) });
+    });
+    test('Submission: the victim escapes with fast Defend taps (stamina tips it); held Defend, no taps or a mashing holder keep the hold', () => {
+      const fresh = escapeTicks(tapDefend(6), null, null, 200);
+      const tired = escapeTicks(tapDefend(6), null, (m) => { m.fighters[1].stam = 0; }, 200);
+      const heldDefend = escapeTicks((it) => { it.defend = true; }, null, null, 120);
+      const noTaps = escapeTicks(() => {}, null, null, 120);
+      const mashing = escapeTicks(tapDefend(6), (it, f, o, m) => { if (m.tick === 2 || (m.tick > 4 && m.tick % 5 === 0)) it.grapple = true; }, null, 150);
+      const log = self.capture(['submissionEscape', 'quickRise']);
+      const m = holdMatch({}, holdAt2, tapDefend(6));
+      let rose = false; for (let i = 0; i < 90; i++) { m.step(); if (m.fighters[1].state === S.GETUP) rose = true; }
+      log.stop();
+      const a = m.fighters[0], v = m.fighters[1];
+      const mashQuick = mashing.m.fighters[1].state === S.DOWN && mashing.m.fighters[1].pinnedBy === mashing.m.fighters[0];
+      const ok = fresh.free > 0 && fresh.free <= 60 && tired.free > fresh.free && heldDefend.free < 0 && noTaps.free < 0 && mashing.free < 0 && mashQuick &&
+        log.submissionEscape.length === 1 && log.quickRise.length === 0 && a.state === S.IDLE && rose && v.quickRise && !v.pinnedBy && !a.partner;
+      [fresh, tired, heldDefend, noTaps, mashing].forEach((r) => r.m.dispose()); m.dispose();
+      return ok ? true : JSON.stringify({ fresh: fresh.free, tired: tired.free, held: heldDefend.free, none: noTaps.free, mash: mashing.free, mashQuick, escapes: log.submissionEscape.length, quick: log.quickRise.length, a: a.state, v: v.state });
+    });
+    test('Submission: any hit on the holder breaks it (a strike or scenery damage); the victim then gets up through DOWN / GETUP', () => {
+      const log = self.capture(['submissionEnd']);
+      const m = holdMatch({}, holdAt2);
+      const a = m.fighters[0], v = m.fighters[1];
+      self.run(m, 30);
+      const held = a.state === S.SUBMIT;
+      Combat.landHit({ type: 'strike', att: v, def: a, mv: ATTACKS.jab, block: 'none' }, m);   // a strike from somebody else (in 1v1 the victim stands in for them)
+      const reacting = a.state === S.HIT || a.state === S.STAGGER;
+      const freed = v.pinnedBy === null && a.partner === null;
+      const path = []; for (let i = 0; i < 200; i++) { m.step(); if (path[path.length - 1] !== v.state) path.push(v.state); }
+      const m2 = holdMatch({}, holdAt2);
+      self.run(m2, 30); const held2 = m2.fighters[0].state === S.SUBMIT;
+      Combat.envDamage(m2.fighters[0], 3, m2); self.run(m2, 2);
+      const ok = held && reacting && freed && log.submissionEnd[0] && log.submissionEnd[0].reason === 'broken' && path.join('>') === 'DOWN>GETUP>IDLE' && a.state === S.IDLE &&
+        held2 && m2.fighters[0].state !== S.SUBMIT && m2.fighters[1].pinnedBy === null && log.submissionEnd.length === 2;
+      log.stop(); m.dispose(); m2.dispose();
+      return ok ? true : JSON.stringify({ held, reacting, freed, path: path.join('>'), held2, ends: log.submissionEnd.map((e) => e.reason), a: a.state });
+    });
+    test('Submission: a third fighter can neither grab the holder or the held fighter nor start a second hold on the victim', () => {
+      const m = holdMatch({}, holdAt2);
+      self.run(m, 30);
+      const a = m.fighters[0], v = m.fighters[1];
+      const third = new Fighter(Object.assign({}, ROSTER_BY_ID.brutus, { moveStyle: 'wrestler' }), 2);
+      third.reset(a.x + 0.5, a.z + 0.2, 0);
+      third.yaw = Math.atan2(a.x - third.x, a.z - third.z);
+      third.startAttack(ATTACKS.grab); third.moveTick = third.mStartup + 1;
+      const control = new Fighter(ROSTER_BY_ID.kai, 3); control.reset(third.x + third.fwdX * 0.9, third.z + third.fwdZ * 0.9, 0);   // proof the grab itself reaches a standing fighter
+      const reachesStanding = Combat.evaluate(third, control);
+      const grabHolder = Combat.evaluate(third, a), grabVictim = Combat.evaluate(third, v);
+      third.yaw = Math.atan2(v.x - third.x, v.z - third.z);
+      const grabVictim2 = Combat.evaluate(third, v);
+      Combat.startClinch(third, a, m);
+      const canHold = Combat.canSubmit(third, v, m);
+      const intact = a.state === S.SUBMIT && v.pinnedBy === a && third.state === S.ATTACK;
+      m.dispose();
+      const ok = reachesStanding && reachesStanding.type === 'grab' && !grabHolder && !grabVictim && !grabVictim2 && !canHold && intact;
+      return ok ? true : JSON.stringify({ reachesStanding: !!reachesStanding, grabHolder: !!grabHolder, grabVictim: !!grabVictim, grabVictim2: !!grabVictim2, canHold, intact });
+    });
+    test('Submission: a KO during the hold ends the round normally; the round timer ending it stops the damage', () => {
+      const before = Diag.illegalTransitions;
+      const ends = self.capture(['submissionEnd']);
+      const ko = holdMatch({}, holdAt2); ko.fighters[1].hp = 3;
+      const events = self.capture(['roundEnd']);
+      self.run(ko, 400);
+      const kv = ko.fighters[1];
+      const koOk = kv.state === S.KO && !kv.alive && ko.fighters[0].state !== S.SUBMIT && !ko.fighters[0].partner && ko.phase !== 'fight' && ko.roundWinner === 0 && events.roundEnd.length === 1 && ends.submissionEnd[0].reason === 'ko';
+      const timed = holdMatch({ timer: 2 }, holdAt2);
+      self.run(timed, 125);
+      const tv = timed.fighters[1], hpAtEnd = tv.hp, phase = timed.phase;
+      self.run(timed, 40);
+      const timeOk = phase !== 'fight' && timed.fighters[0].state !== S.SUBMIT && tv.pinnedBy === null && tv.hp === hpAtEnd && timed.roundWinner === 0 && ends.submissionEnd[1].reason === 'round' && tv.hp < tv.maxHp;
+      ends.stop(); events.stop(); ko.dispose(); timed.dispose();
+      return koOk && timeOk && Diag.illegalTransitions === before ? true : JSON.stringify({ koOk, timeOk, kv: kv.state, phase, ends: ends.submissionEnd.map((e) => e.reason), illegal: Diag.illegalTransitions - before });
+    });
+    test('Submission AI: an allowed style holds a downed foe sometimes, other styles never; an AI victim taps Defend by difficulty, a Stand dummy never escapes', () => {
+      const holds = (holderId, difficulty) => {
+        let n = 0;
+        for (let seed = 1; seed <= 8; seed++) {
+          const m = holdMatch({ seed, playerId: holderId, opponentId: 'kai' });
+          m.controllers[0] = new AIController(ROSTER_BY_ID[holderId], difficulty);
+          m.fighters[1].downMult = 3;
+          const log = self.capture(['submission']); self.run(m, 100); log.stop(); m.dispose();
+          if (log.submission.length > 0) n++;
+        }
+        return n;
+      };
+      const wrestler = holds('dmitri', 'expert'), easy = holds('dmitri', 'easy'), kickboxer = holds('kai', 'expert'), boxer = holds('yuki', 'expert');
+      const escapes = (make, seeds) => {
+        let n = 0;
+        for (let seed = 1; seed <= seeds; seed++) {
+          const m = holdMatch({ seed }, holdAt2);
+          m.controllers[1] = make();
+          const log = self.capture(['submissionEscape']); self.run(m, 260); log.stop(); m.dispose();
+          n += log.submissionEscape.length;
+        }
+        return n;
+      };
+      const hard = escapes(() => new AIController(ROSTER_BY_ID.kai, 'hard'), 6), easyVictim = escapes(() => new AIController(ROSTER_BY_ID.kai, 'easy'), 6);
+      const standDummy = escapes(() => new DummyController(ROSTER_BY_ID.kai, 'stand'), 4), aiDummy = escapes(() => new DummyController(ROSTER_BY_ID.kai, 'expert'), 4);
+      const ok = wrestler >= 3 && wrestler > easy && kickboxer === 0 && boxer === 0 && hard >= 5 && hard > easyVictim && standDummy === 0 && aiDummy >= 3;
+      return ok ? true : JSON.stringify({ wrestler, easy, kickboxer, boxer, hard, easyVictim, standDummy, aiDummy });
+    });
+    test('Weight classes: derived from height and build, 5 classes, the heaviest presets are 2+ classes above the lightest', () => {
+      const classes = {}; for (const r of ROSTER) classes[r.id] = weightClass(r);
+      const values = Object.values(classes);
+      const low = weightClass({ look: { scale: SCALE_MIN, build: BUILD_MIN } }), high = weightClass({ look: { scale: SCALE_MAX, build: BUILD_MAX } });
+      const f = new Fighter(ROSTER_BY_ID.brutus, 0);
+      const ok = WEIGHT_CLASS_BOUNDS.length === 4 && WEIGHT_CLASS_NAMES.length === 5 && Math.max(...values) - Math.min(...values) >= 2 && classes.brutus - classes.yuki >= 2 && classes.dmitri - classes.mara >= 2 &&
+        low === 0 && high === 4 && weightClass(ROSTER_BY_ID.kai) === 1 && weightClass(null) === 1 && weightClass({ look: { scale: 'x', build: NaN } }) === 1 && f.weight === classes.brutus &&
+        weightClass({ look: { scale: 1, build: 1.1 } }) >= weightClass({ look: { scale: 1, build: 1 } });
+      return ok ? true : JSON.stringify({ classes, low, high });
+    });
+    /* Tackle tests: the runner (fighter 0) holds run toward the other fighter 3 m away. */
+    const runAt = (it) => { it.fwd = 1; it.run = true; };
+    const tackleMatch = (runnerId, targetId, victim, opts, runner) => {
+      const m = (opts && opts.block ? mkBlock : mk)({ playerId: runnerId, opponentId: targetId }, runner || runAt, victim);
+      self.place(m, 3.0);
+      return m;
+    };
+    test('Heavy tackle: a runner 2+ classes heavier knocks the lighter fighter back once per run; 1 class apart, walking or a lighter runner do nothing', () => {
+      const play = (runnerId, targetId, runner, ticks) => {
+        const log = self.capture(['tackle', 'hit']);
+        const m = tackleMatch(runnerId, targetId, null, null, runner);
+        const b = m.fighters[1], x0 = b.x, hp0 = b.hp;
+        let reacted = false;
+        for (let i = 0; i < (ticks || 100); i++) { m.step(); if (b.state === S.STAGGER || b.state === S.HIT) reacted = true; }
+        log.stop();
+        const r = { tackles: log.tackle.map((e) => e.result), hits: log.hit.filter((e) => e.mv.id === 'tackle').length, dmg: hp0 - b.hp, pushed: b.x - x0, reacted, runnerHp: m.fighters[0].hp, runnerMax: m.fighters[0].maxHp };
+        m.dispose();
+        return r;
+      };
+      const heavy = play('brutus', 'yuki'), edge = play('zero', 'yuki'), oneClass = play('kai', 'yuki'), walking = play('brutus', 'yuki', (it) => { it.fwd = 1; }), lighter = play('yuki', 'brutus');
+      const long = play('brutus', 'yuki', runAt, 220);
+      const hitOk = (r) => r.tackles.length === 1 && r.tackles[0] === 'hit' && r.hits === 1 && r.dmg >= 5 && r.dmg <= 25 && r.reacted && r.pushed > 0.5 && r.runnerHp === r.runnerMax;
+      const idle = (r) => r.tackles.length === 0 && r.hits === 0 && r.dmg === 0;
+      const ok = hitOk(heavy) && hitOk(edge) && hitOk(long) && idle(oneClass) && idle(walking) && idle(lighter) && weightClass(ROSTER_BY_ID.zero) - weightClass(ROSTER_BY_ID.yuki) === TACKLE_MIN_GAP;
+      return ok ? true : JSON.stringify({ heavy, edge, oneClass, walking, lighter, long });
+    });
+    test('Heavy tackle counters: Block stops it (no damage, blocker pushed back, tackler stopped); Sway i-frames and a Sidestep let it run past', () => {
+      const log = self.capture(['tackle', 'hit']);
+      const block = tackleMatch('brutus', 'yuki', (it) => { it.defend = true; }, { block: true }, (it, f, o, m) => { if (m.tick < 45) runAt(it); });   // one run: it stops after the charge
+      const blocker = block.fighters[1], runner = block.fighters[0], bx0 = blocker.x;
+      let runnerRan = false, blockerBlocked = false;
+      for (let i = 0; i < 100; i++) { block.step(); if (runner.state === S.RUN) runnerRan = true; if (isBlockState(blocker.state)) blockerBlocked = true; }
+      const blockLog = { tackles: log.tackle.map((e) => e.result), hits: log.hit.length };
+      const blockOk = blockLog.tackles.join() === 'blocked' && blockLog.hits === 0 && blocker.hp === blocker.maxHp && blocker.x - bx0 > 0.3 && runnerRan && blockerBlocked && runner.state !== S.RUN && runner.tackleUsed;
+      log.tackle.length = 0;
+      /* The dodge starts when the runner is `lead` m away. */
+      const dodge = (react, lead) => {
+        const l2 = self.capture(['tackle', 'hit']);
+        let did = false;
+        const m = tackleMatch('brutus', 'yuki', (it, f, o) => { if (!did && Math.hypot(o.x - f.x, o.z - f.z) < lead) { did = true; react(it); } });
+        const v = m.fighters[1];
+        let ran = false;
+        for (let i = 0; i < 110; i++) { m.step(); if (m.fighters[0].state === S.RUN) ran = true; }
+        l2.stop();
+        const r = { tackles: l2.tackle.map((e) => e.result), hits: l2.hit.length, hp: v.hp === v.maxHp, ran };
+        m.dispose();
+        return r;
+      };
+      const sway = dodge((it) => { it.defend = true; }, 1.25), side = dodge((it) => { it.sidestep = 1; }, 1.25);
+      const dodged = (r) => r.tackles.join() === 'dodged' && r.hits === 0 && r.hp && r.ran;
+      log.stop(); block.dispose();
+      return blockOk && dodged(sway) && dodged(side) ? true : JSON.stringify({ blockLog, blockOk, hp: blocker.hp, pushed: blocker.x - bx0, runner: runner.state, sway, side });
+    });
+    test('Heavy tackle: AI fighters that run into each other (all difficulties) keep legal states and finish the round', () => {
+      const before = Diag.illegalTransitions;
+      let tackles = 0, ended = 0, bad = '';
+      for (const difficulty of ['easy', 'normal', 'hard', 'expert']) {
+        for (let seed = 1; seed <= 3; seed++) {
+          const m = mk({ playerId: 'brutus', opponentId: 'yuki', seed, difficulty, timer: 20 });   // a 20 s round always ends inside the 1500 ticks
+          m.controllers[0] = new AIController(ROSTER_BY_ID.brutus, difficulty); m.controllers[1] = new AIController(ROSTER_BY_ID.yuki, difficulty);
+          const log = self.capture(['tackle']);
+          self.run(m, 1500); log.stop(); tackles += log.tackle.length;
+          for (const f of m.fighters) if (!Number.isFinite(f.x + f.z + f.hp + f.stam)) bad = 'NaN ' + difficulty + seed;
+          if (m.fighters.some((f) => f.state === S.RUN && f.stateTicks > 600)) bad = 'stuck run';
+          if (m.fighters.some((f) => !f.alive) || m.phase !== 'fight') ended++;   // the round got past the fight (a KO or the end of the round)
+          m.dispose();
+        }
+      }
+      // tackles is reported, not required: the AI has no tackle logic (the scripted tackle tests above cover the rules)
+      return Diag.illegalTransitions === before && !bad && ended === 12 ? true : JSON.stringify({ illegal: Diag.illegalTransitions - before, bad, tackles, ended });
     });
     test('Wake-up invulnerability lasts the whole get-up and ends when standing', () => {
       const problems = [];
