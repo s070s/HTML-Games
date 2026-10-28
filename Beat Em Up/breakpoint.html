@@ -261,7 +261,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
      03 render    WebGL 2 instanced renderer + camera
      04 world     materials, arenas, destructible objects, debris, effects
      05 fighters  profiles, attack catalogue, poses, state machine, combat
-     05a2 motion  move styles, per-fighter motion profile (visual only)
+     05a2 motion  move styles, per-fighter motion profile (looks; the style also picks defense, holds and attack strings)
      05d creator  custom fighters: point-buy rules, validation, save slots, share codes
      06 ai        perception, decisions, difficulty
      07 match     match/round rules, game state manager, game loop
@@ -2732,11 +2732,15 @@ function defAttack(id, over) {
   ATTACKS[id] = m;
   return m;
 }
-defAttack('jab', { name: 'Jab', btn: 'lp', limb: 'LA', anim: 'straight', h: 'H', tier: 1, startup: 5, active: 3, recovery: 9, dmg: 4, stam: 3, reach: 1.25, push: 0.25, hitstun: 14, blockstun: 8 });
-defAttack('body_jab', { name: 'Body Jab', btn: 'lp', height: true, limb: 'LA', anim: 'straightLow', h: 'M', tier: 1, startup: 6, active: 3, recovery: 10, dmg: 4, stam: 3, reach: 1.2, push: 0.25, hitstun: 14, blockstun: 8 });
+/* P3-10 punch / kick balance: the jab, body jab and cross reached 1.25 / 1.2 / 1.35 m, so every kick (1.45-1.65) out-ranged them and AI vs AI matches
+   threw 70-78 % of their damage with kicks. They now reach 1.4 / 1.35 / 1.5 m: punches still reach less than the kicks, but a fighter that stops
+   a kick's length away can answer with a punch too. The jab and body jab hit for 5 instead of 4 (the jab is the most-thrown punch, +1 adds 2-3 points of punch share
+   without a longer reach); together with the AI changes (AI_APPROACH_SLACK, strong steps continue a string) punches carry 38-40 % of the strike damage. */
+defAttack('jab', { name: 'Jab', btn: 'lp', limb: 'LA', anim: 'straight', h: 'H', tier: 1, startup: 5, active: 3, recovery: 9, dmg: 5, stam: 3, reach: 1.4, push: 0.25, hitstun: 14, blockstun: 8 });
+defAttack('body_jab', { name: 'Body Jab', btn: 'lp', height: true, limb: 'LA', anim: 'straightLow', h: 'M', tier: 1, startup: 6, active: 3, recovery: 10, dmg: 5, stam: 3, reach: 1.35, push: 0.25, hitstun: 14, blockstun: 8 });
 defAttack('power_jab', { name: 'Power Jab', btn: 'lp', strong: true, limb: 'LA', anim: 'straight', h: 'H', tier: 3, cat: 'heavy', startup: 10, active: 3, recovery: 17, dmg: 9, stam: 9, reach: 1.4, push: 0.55, hitstun: 22, blockstun: 12, kind: 'stagger', step: 0.25 });
 defAttack('gut_punch', { name: 'Gut Punch', btn: 'lp', strong: true, height: true, limb: 'LA', anim: 'straightLow', h: 'M', tier: 3, cat: 'heavy', startup: 11, active: 3, recovery: 19, dmg: 10, stam: 10, reach: 1.25, push: 0.6, hitstun: 24, blockstun: 13, kind: 'stagger', step: 0.25 });
-defAttack('cross', { name: 'Cross', btn: 'rp', limb: 'RA', anim: 'straight', h: 'H', tier: 2, startup: 8, active: 3, recovery: 13, dmg: 7, stam: 5, reach: 1.35, push: 0.4, hitstun: 16, blockstun: 9, step: 0.2 });
+defAttack('cross', { name: 'Cross', btn: 'rp', limb: 'RA', anim: 'straight', h: 'H', tier: 2, startup: 8, active: 3, recovery: 13, dmg: 7, stam: 5, reach: 1.5, push: 0.4, hitstun: 16, blockstun: 9, step: 0.2 });
 defAttack('hook', { name: 'Hook', btn: 'rp', strong: true, limb: 'RA', anim: 'hook', h: 'M', tier: 3, cat: 'heavy', startup: 12, active: 4, recovery: 21, dmg: 13, stam: 9, reach: 1.2, width: 0.85, push: 0.7, hitstun: 22, blockstun: 13, kind: 'stagger', gdm: 1.7 });
 defAttack('uppercut', { name: 'Uppercut', btn: 'rp', height: true, limb: 'RA', anim: 'upper', h: 'M', tier: 2, startup: 10, active: 3, recovery: 17, dmg: 8, stam: 6, reach: 1.1, width: 0.35, push: 0.1, hitstun: 18, blockstun: 10, kind: 'launch', launchV: 3.4 });
 defAttack('heavy_uppercut', { name: 'Heavy Uppercut', btn: 'rp', strong: true, height: true, limb: 'RA', anim: 'upper', h: 'M', tier: 3, cat: 'heavy', startup: 16, active: 4, recovery: 27, dmg: 15, stam: 12, reach: 1.1, width: 0.4, push: 0.1, hitstun: 24, blockstun: 14, kind: 'launch', launchV: 5.6, step: 0.2 });
@@ -2910,8 +2914,39 @@ const STRINGS = {
   },
 };
 const STRING_MAX_STEPS = 3;
-/* The row a string typed so far (keys such as 'PK') plays, or null when no row has those presses. */
-function stringRow(keys, low) { return (low && STRINGS.crouch[keys]) || STRINGS.stand[keys] || null; }
+/* Per-style string overrides (P3-10), same shape as STRINGS: a row replaces the default row of that name, null removes it. A removed row
+   means that press starts a new string (step 1) instead. Styles that are not listed (kickboxer, brawler) play the default rows.
+   Every override keeps the owner's rules: strong moves only as string steps, a Punch press plays a punch and a Kick press a kick. */
+const STYLE_STRINGS = {
+  boxer: {   // punch-heavy: the P K P string ends on the power jab (it moves from K K P), the heavy roundhouse is gone
+    stand: { PKP: ['jab', 'heavy_body_kick', 'power_jab'], KKK: null, KKP: ['front_kick', 'roundhouse', 'jab'] },
+  },
+  karateka: {   // kick-heavy: sharp straight punches only, the strong kicks do the work (no hook, no heavy uppercut)
+    stand: { PPP: null, KPP: null },
+  },
+  capoeira: {   // kick-heavy and flowing: no hook, no heavy uppercut, and no power jab (K K P ends on a plain jab)
+    stand: { PPP: null, KPP: null, KKP: ['front_kick', 'roundhouse', 'jab'] },
+  },
+  wrestler: {   // short strings that leave the foe staggered or down within grab range (and holdable): at most 2 steps, the strong step second
+    stand: { PPP: null, PKP: null, PPK: null, KKK: null, KPP: null, KKP: null, PP: ['jab', 'hook'], KK: ['front_kick', 'heavy_roundhouse'], KP: ['front_kick', 'power_jab'] },
+    crouch: { PPP: null, KKK: null },
+  },
+  judoka: {   // the same short shape: a push kick into the clinch distance, a stagger, and a leg sweep that drops the foe for a hold
+    stand: { PPP: null, PKP: null, PPK: null, KKK: null, KPP: null, KKP: null, PK: ['jab', 'heavy_front'], KP: ['front_kick', 'power_jab'] },
+    crouch: { PPP: null, KKK: null, KK: ['low_kick', 'sweep'] },
+  },
+};
+const STYLE_STRING_TABLES = {};
+/* The tables a fighter of this move style plays: the default rows with the style's overrides applied (built once per style). */
+function stringsFor(styleId) {
+  if (STYLE_STRING_TABLES[styleId]) return STYLE_STRING_TABLES[styleId];
+  const over = STYLE_STRINGS[styleId] || {};
+  const table = { stand: Object.assign({}, STRINGS.stand, over.stand), crouch: Object.assign({}, STRINGS.crouch, over.crouch) };
+  for (const side of ['stand', 'crouch']) for (const keys in table[side]) if (table[side][keys] === null) delete table[side][keys];
+  return (STYLE_STRING_TABLES[styleId] = table);
+}
+/* The row a string typed so far (keys such as 'PK') plays in a style's tables (default: STRINGS), or null when no row has those presses. */
+function stringRow(keys, low, table) { const t = table || STRINGS; return (low && t.crouch[keys]) || t.stand[keys] || null; }
 const ALL_MOVES = Object.keys(ATTACKS).map((k) => ATTACKS[k]);
 
 /* Timing constants (ticks unless noted) */
@@ -3047,7 +3082,8 @@ function frameAdvantage(mv, applied) {
 /* =====================================================================
    05a2 MOTION - move styles and per-fighter motion profiles. VISUAL ONLY.
    How a fighter moves = MOVE_STYLE (discipline) + attributes + body size + a small seeded individuality.
-   Nothing here changes the simulation: frame data, reach, hitboxes and timing stay in ATTACKS / THROW_SETS.
+   The motion profile never changes the simulation: frame data, reach, hitboxes and timing stay in ATTACKS / THROW_SETS. The move style
+   itself does reach it in three places: the defense type (STYLE_DEFENSE), submission holds (SUBMISSION_STYLES) and attack strings (STYLE_STRINGS).
    ===================================================================== */
 
 /* Style parameters (radians / metres / multipliers):
@@ -3293,7 +3329,7 @@ class Fighter {
     this.stats = deriveStats(profile.attrs);
     this.defense = defenseFor(profile);   // 'block' or 'sway': what the Defend input does for this fighter
     this.applyLook(profile.look);
-    this.motion = makeMotion(profile, this.scale, this.build);   // visual only: style, rhythm, strike shaping
+    this.motion = makeMotion(profile, this.scale, this.build);   // visual: rhythm, strike shaping (gameplay parts of the style read moveStyleFor)
     this.radius = 0.34;                // collision size is the same for every body: height and build are cosmetic
     this.pose = new Float32Array(NP);
     this.tp = new Float32Array(NP);
@@ -3341,6 +3377,7 @@ class Fighter {
     this.capHair = CAP_HAIR.includes(this.lk.hairStyle);
   }
 
+  get strings() { return stringsFor(moveStyleFor(this.profile)); }   // the attack strings of this fighter's move style (P3-10)
   get lowStamina() { return this.stam < this.maxStam * LOW_STAMINA; }
   get airborne() { return this.y > this.groundY + 0.05; }
   get fwdX() { return Math.sin(this.yaw); }
@@ -3422,9 +3459,10 @@ class Fighter {
     const open = this.stringKeys !== '' && this.stringKeys.length < STRING_MAX_STEPS && (this.moveConnected || this.assist) && buf.tick - this.stringTick <= stringWindow;
     const stillLow = this.stringLow && buf.height;
     // a crouch string only continues on a crouch row (crouch P then crouch K starts over), so no strong move hides off the tables
-    const row = stillLow ? STRINGS.crouch[this.stringKeys + letter] : STRINGS.stand[this.stringKeys + letter];
+    const table = this.strings;
+    const row = stillLow ? table.crouch[this.stringKeys + letter] : table.stand[this.stringKeys + letter];
     if (open && row) { keys = this.stringKeys + letter; low = stillLow; }
-    return { mv: ATTACKS[stringRow(keys, low)[keys.length - 1]], keys, low, cont: keys.length > 1, tick: buf.tick };
+    return { mv: ATTACKS[stringRow(keys, low, table)[keys.length - 1]], keys, low, cont: keys.length > 1, tick: buf.tick };
   }
   /* The move a Punch / Kick press (Crouch held or not) would play right now. The AI and touch auto-height read it. */
   pressMove(kind, height) { return this.resolveMove({ btn: kind, height, tick: this.age + 1 }).mv; }   // the press is buffered on the next update, one tick later
@@ -4749,7 +4787,8 @@ const Combat = {
 
 /* =====================================================================
    05d CHARACTER CREATOR - custom fighter data, point-buy rules, validation, save slots, share codes.
-   Only attrs and the archetype (AI style + range) reach the simulation; every look field is cosmetic.
+   Only attrs, the archetype (AI style + range), the move style (defense, holds, attack strings) and the defense field reach the simulation;
+   every look field is cosmetic.
    ===================================================================== */
 const KEY_CUSTOM = 'breakpoint.v1.custom';
 const CUSTOM_STORE_VERSION = 1;
@@ -5146,20 +5185,23 @@ const CustomRoster = {
    ===================================================================== */
 const DIFFICULTY = {
   easy: { id: 'easy', label: 'Easy', react: 20, interval: 34, blockSkill: 0.15, parry: 0.01, swayRead: 0.4, swayAim: 0.01, punish: 0.1, counter: 0.08, mistakes: 0.4, aggression: 0.4, heavy: 0.12, grab: 0.04, escape: 0.15, adapt: 0, sidestep: 0, lockout: 22, env: false, dmg: 0.75 },
-  normal: { id: 'normal', label: 'Normal', react: 14, interval: 20, blockSkill: 0.4, parry: 0.05, swayRead: 0.7, swayAim: 0.05, punish: 0.35, counter: 0.25, mistakes: 0.18, aggression: 0.6, heavy: 0.25, grab: 0.1, escape: 0.35, adapt: 0.1, sidestep: 0.12, lockout: 13, env: false, dmg: 0.85 },
-  hard: { id: 'hard', label: 'Hard', react: 10, interval: 9, blockSkill: 0.75, parry: 0.2, swayRead: 0.2, swayAim: 0.85, punish: 0.75, counter: 0.55, mistakes: 0.06, aggression: 1.05, heavy: 0.4, grab: 0.2, escape: 0.65, adapt: 0.35, sidestep: 0.35, lockout: 8, env: true, dmg: 1 },
-  expert: { id: 'expert', label: 'Expert', react: 8, interval: 6, blockSkill: 0.9, parry: 0.35, swayRead: 0.2, swayAim: 0.85, punish: 0.92, counter: 0.8, mistakes: 0.02, aggression: 1.2, heavy: 0.5, grab: 0.3, escape: 0.85, adapt: 0.7, sidestep: 0.55, lockout: 6, env: true, dmg: 1 },
+  normal: { id: 'normal', label: 'Normal', react: 14, interval: 20, blockSkill: 0.4, parry: 0.05, swayRead: 1.3, swayAim: 0.05, punish: 0.35, counter: 0.25, mistakes: 0.18, aggression: 0.6, heavy: 0.25, grab: 0.1, escape: 0.35, adapt: 0.1, sidestep: 0.12, lockout: 13, env: false, dmg: 0.85 },
+  hard: { id: 'hard', label: 'Hard', react: 10, interval: 9, blockSkill: 0.75, parry: 0.2, swayRead: 0.2, swayAim: 0.7, punish: 0.75, counter: 0.55, mistakes: 0.06, aggression: 1.05, heavy: 0.4, grab: 0.2, escape: 0.65, adapt: 0.35, sidestep: 0.35, lockout: 8, env: true, dmg: 1 },
+  expert: { id: 'expert', label: 'Expert', react: 8, interval: 6, blockSkill: 0.9, parry: 0.35, swayRead: 0.1, swayAim: 1, punish: 0.92, counter: 0.8, mistakes: 0.02, aggression: 1.2, heavy: 0.5, grab: 0.3, escape: 0.85, adapt: 0.7, sidestep: 0.55, lockout: 6, env: true, dmg: 1 },
 };
 /* react = reaction delay in ticks (slower than most strikes on Easy, so blockSkill matters more as difficulty rises);
    parry = chance a reaction block is timed as a perfect block; adapt = chance to guard where the opponent usually attacks;
    dmg = the CPU's damage dealt (Easy and Normal hit softer, so a beginner who trades blows still wins).
    P3-08, Block vs Sway balance: swayRead = the share of react a Sway AI needs to read a wind-up (a dodge is timed off the first frames, a guard is just raised);
    swayAim = chance a Sway AI times its dodge for a perfect sway (the counter). A plain dodge of a fast kick is a net loss (the kick's recovery ends before the
-   sway's does), so only a perfect sway pays: from Hard up the AI has to read fast enough (swayRead) to hit that window, or Block's reaction blocks win ~80-97%. */
+   sway's does), so only a perfect sway pays: from Hard up the AI has to read fast enough (swayRead) to hit that window, or Block's reaction blocks win ~80-97%.
+   P3-10 retune (the punches reach farther and the AI closes in, so more strikes meet a sway): Normal reads slower (swayRead 0.7 to 1.3), Hard aims less (swayAim 0.85 to 0.7),
+   Expert reads faster and always aims (swayRead 0.2 to 0.1, swayAim 0.85 to 1). Back to 45-55 % for both defenses at every difficulty. */
 const AI_SWAY_MIN_ETA = 6;       // a Sway AI only dodges a strike it sees at least this many ticks ahead: a late, plain dodge leaves the attacker free before the sway ends, so it just gets hit in the recovery
 const AI_SWAY_AIM = 3;         // a sway is timed so the strike goes active this many ticks into the dodge (a plain dodge, well inside the i-frames)
 const AI_SWAY_AIM_PERFECT = 8;   // ... or this many when the AI aims for a perfect sway (the last SWAY_PERFECT_TICKS of the i-frames are 6-11)
 const AI_HEIGHT_READ = 4;       // ticks into a strike before its height (high / mid / low) can be told apart
+const AI_APPROACH_SLACK = 0.1;   // an AI walks in until it is this far beyond its preferred range (P3-10: was 0.35, a distance where only the kicks reach, so AI vs AI matches threw 70-80 % kicks; 0 made every grab throw the same way)
 const AI_GRAB_APPROACH = 2.1;    // distance from which an AI may walk in for a grab
 const AI_GRAB_STAMINA = 0.3;     // share of max stamina an AI needs before grabbing (grab + throw cost ~20-30)
 const AI_THROW_TARGET_BONUS = 0.4;   // extra grab appeal when a wall or object would take the throw
@@ -5376,23 +5418,25 @@ class AIController {
 
   thinkChain(f, opp, it) {
     const d = this.d, mv = f.move;
-    if (!mv || !f.moveConnected || mv.tier === 3 || f.chainCount >= 3) return;
+    if (!mv || !f.moveConnected || f.chainCount >= 3) return;
     if (f.moveTick < f.mStartup + 1 || f.moveTick > f.mStartup + f.mActive + 4) return;
     if (simRng() > 0.18 + d.aggression * 0.22) return;
     const dist = Math.hypot(opp.x - f.x, opp.z - f.z);
-    const pool = this.reachable(f).filter((c) => Combat.canChain(mv, c.mv, f) && dist <= c.mv.reach * f.stats.reach + 0.2 && f.stam > c.mv.stam);
+    // the next step of an attack string may follow a strong step (P K P); any other follow-up has to pass the tier rule, which ends a chain on a strong move
+    const pool = this.reachable(f).filter((c) => (c.cont || Combat.canChain(mv, c.mv, f)) && dist <= c.mv.reach * f.stats.reach + 0.2 && f.stam > c.mv.stam);
     if (!pool.length) return;
     const pick = pool[Math.floor(simRng() * pool.length)];
     this.pressMove(it, pick);
   }
-  /* The moves a Punch / Kick press (standing or crouched) would play right now: { mv, btn, height }. The AI presses the
-     same inputs as a player, so it reaches the strong moves only as steps of the attack strings. */
+  /* The moves a Punch / Kick press (standing or crouched) would play right now: { mv, btn, height, cont }; cont = the press
+     continues an attack string. The AI presses the same inputs as a player, so it reaches the strong moves only as steps of the strings. */
   reachable(f) {
     const list = [];
     for (const btn of ['punch', 'kick']) {
       for (const height of [false, true]) {
-        const mv = f.pressMove(btn, height);
-        if (mv.type === 'strike' && !mv.ctx && !list.some((c) => c.mv === mv)) list.push({ mv, btn, height });
+        const pick = f.resolveMove({ btn, height, tick: f.age + 1 });   // the press is buffered on the next update, one tick later
+        const mv = pick.mv;
+        if (mv.type === 'strike' && !mv.ctx && !list.some((c) => c.mv === mv)) list.push({ mv, btn, height, cont: pick.cont });
       }
     }
     return list;
@@ -5445,7 +5489,7 @@ class AIController {
     const cornered = Math.abs(f.x) > b.x - 1.2 || Math.abs(f.z) > b.z - 1.0;
     const interval = d.interval;
     // spacing
-    if (dist > pref + 0.35) add(0.5 + clamp((dist - pref - 0.35) * 0.9, 0, 3) * aggr * (low ? 0.3 : 1), { kind: 'walk', ticks: interval, away: false, run: dist > 3.6 && f.stam > f.maxStam * 0.45 && d.id !== 'easy' });
+    if (dist > pref + AI_APPROACH_SLACK) add(0.5 + clamp((dist - pref - AI_APPROACH_SLACK) * 0.9, 0, 3) * aggr * (low ? 0.3 : 1), { kind: 'walk', ticks: interval, away: false, run: dist > 3.6 && f.stam > f.maxStam * 0.45 && d.id !== 'easy' });
     if (dist < pref - 0.25 || low) add((clamp(pref - dist, 0, 2) * 1.2 + (low ? 1.6 : 0.1)) * (1.2 - aggr * 0.4), cornered ? { kind: 'circle', ticks: interval, side: simRng() < 0.5 ? -1 : 1, hold: true } : { kind: 'walk', ticks: interval, away: true, run: false });
     if (Math.abs(dist - pref) < 0.9) add(0.15 + st.circle * 0.9 * (d.id === 'easy' ? 0.4 : 1), { kind: 'circle', ticks: interval + 4, side: simRng() < 0.5 ? -1 : 1, hold: true });
     if (dist < pref + 0.9 && !low) add(0.12 + st.defend * 0.5 * d.blockSkill, { kind: 'guard', ticks: interval + 4, low: simRng() < 0.3 });
@@ -5786,7 +5830,7 @@ class MatchSim {
     on('ko', (e) => { if (e.att) this.stats[e.att.index].kos++; });
     on('attackStart', (e) => {
       if (e.f.index !== 0) return;
-      const row = e.f.stringKeys ? stringRow(e.f.stringKeys, e.f.stringLow) : null;   // the string this step belongs to, up to and including this step
+      const row = e.f.stringKeys ? stringRow(e.f.stringKeys, e.f.stringLow, e.f.strings) : null;   // the string this step belongs to, up to and including this step
       note({ mv: e.mv, startup: e.f.mStartup, active: e.f.mActive, recovery: e.f.mRecovery, string: row ? 'step ' + row.length + ': ' + row.map((id) => ATTACKS[id].name).join(' > ') : '' });
     });
   }
@@ -6042,7 +6086,8 @@ class MatchSim {
 /* ---------- headless AI vs AI runner (balance work): no rendering, sound, effects or HUD ---------- */
 const SIM_MAX_TICKS = 60 * 60 * 15;   // safety cap: 15 minutes of game time
 const SimRunner = {
-  /* opts: playerId, opponentId, arenaId, difficulty (both sides) or difficulty1 / difficulty2, seed, winsNeeded, timer.
+  /* opts: playerId, opponentId, arenaId, difficulty (both sides) or difficulty1 / difficulty2, seed, winsNeeded, timer, listeners
+     ({ eventName: handler }, added after the run's own handlers so a measurement can watch the match, e.g. 'hit').
      Returns the winner (0 / 1, -1 if the cap was reached), duration and damage dealt per move type for each side.
      'other' is damage not carried by a hit or throw: walls, objects and chip damage. */
   run(opts) {
@@ -6057,6 +6102,7 @@ const SimRunner = {
     try {
       Events.on('hit', (e) => add(e.att.index, e.kind === 'ground' ? 'ground' : e.mv.cat || 'other', e.dmg));
       Events.on('throw', (e) => add(e.att.index, 'throw', e.dmg));
+      for (const name in cfg.listeners || {}) Events.on(name, cfg.listeners[name]);
       m = new MatchSim({ mode: 'free', evenDamage: true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer });
       m.controllers[0] = new AIController(m.fighters[0].profile, cfg.difficulty1 || cfg.difficulty);
       m.controllers[1] = new AIController(m.fighters[1].profile, cfg.difficulty2 || cfg.difficulty);
@@ -7647,10 +7693,23 @@ const UI = {
       for (const keys in STRINGS[table]) stringRows += '<tr><td>' + esc((table === 'crouch' ? 'Crouch + ' : '') + pressWords(keys)) + '</td><td>' + esc(STRINGS[table][keys].map((id) => ATTACKS[id].name).join(' → ')) + '</td></tr>';
     }
     const stringTable = '<table class="ctl"><tr><th>Presses</th><th>Moves</th></tr>' + stringRows + '</table>';
+    // move styles with their own rows (P3-10): only the rows that differ from the table above, and the rows they do without
+    const styleLine = (styleId) => {
+      const own = stringsFor(styleId), parts = [];
+      for (const table of ['stand', 'crouch']) {
+        const prefix = table === 'crouch' ? 'Crouch + ' : '';
+        for (const keys in own[table]) if (!STRINGS[table][keys] || own[table][keys].join() !== STRINGS[table][keys].join()) parts.push('<b>' + esc(prefix + pressWords(keys)) + '</b>: ' + esc(own[table][keys].map((id) => ATTACKS[id].name).join(' → ')));
+        for (const keys in STRINGS[table]) if (!own[table][keys]) parts.push('no ' + esc(prefix + pressWords(keys)));
+      }
+      return '<tr><td>' + esc(MOVE_STYLE[styleId].label) + '</td><td>' + parts.join('; ') + '</td></tr>';
+    };
+    const styleTable = '<table class="ctl"><tr><th>Move style</th><th>Differs from the table above</th></tr>' + Object.keys(STYLE_STRINGS).map(styleLine).join('') + '</table>';
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub">Frame data at 60 fps. Strong moves cost more stamina and leave you open longer if they miss. There is no hold: Punch and Kick attack on every press, and the strong moves are steps of the attack strings below.</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Hits</th><th>Start / Active / Recover</th><th>Dmg</th><th>Stam</th><th>Adv hit / block</th><th>Notes</th></tr>' + rows + clinchRows + tackleRow + '</table>' +
       '<h3>Attack strings</h3><p>Press Punch or Kick again soon after the last press (about ' + ATTACK_STRING_SECONDS + ' s, plus the short freeze of each hit), after that move hit or was blocked, to play the next move of the string. A miss, a pause, or getting hit starts over. Strings are up to 3 moves. Hold Crouch at every press for the crouch strings; otherwise the standing strings apply.</p>' +
       stringTable +
+      '<p>The table is the default (Kickboxer, Brawler). Some move styles change a few rows: the Boxer favours punches, the Karateka and Capoeira kicks, and the Wrestler and Judoka play short strings (2 moves at most) that leave the foe staggered or down for a grab or a hold. A removed row means that press starts a new string.</p>' +
+      styleTable +
       '<h3>Defend: Block or Sway</h3><p>Every fighter has one defense type, shown on its fighter card. <b>Block</b>: ' + esc(DEFENSE_HELP.block) + ' Strong string moves break a block unless it is perfect. <b>Sway</b>: ' + esc(DEFENSE_HELP.sway) + ' A sway fighter has no hold-guard; a Defend press while knocked down still gets up quickly for both types (while held down, Defend presses are escape attempts instead).</p>' +
       '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: Kick = knee (drains stamina), Punch = elbow (harder hit); Grapple = throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
       '<h3>Holds on a downed opponent</h3><p>Grapple next to a knocked-down opponent starts a hold, for ' + esc(submissionStyleText()) + ' fighters. Damage builds for up to ' + SUBMIT_MAX_TICKS / 60 + ' s. The holder taps Grapple to keep it tight; the held fighter taps Defend to escape, and a tired fighter taps weaker. A hit on the holder breaks the hold. A fighter can be held once per knockdown.</p>' +
@@ -8671,7 +8730,7 @@ const CreatorUI = {
     const tierText = d.tier === 'veteran' ? 'Veteran (' + VETERAN_BUDGET + ' points)' : 'Standard (' + POINT_BUDGET + ' points)' + (veteranUnlocked() ? '' : ' · Veteran locked');
     let h = this.row('Fighting style', arch.label, 'arch') + '<p class="hint">' + esc(arch.desc) + ' Sets how the CPU fights with this fighter and its preferred distance.</p>';
     const style = MOVE_STYLE[d.moveStyle] || MOVE_STYLE[DEFAULT_MOVE_STYLE];
-    h += this.row('Movement', style.label, 'movestyle') + '<p class="hint">' + esc(style.desc) + ' Looks only: stance, rhythm and how strikes are thrown.</p>';
+    h += this.row('Movement', style.label, 'movestyle') + '<p class="hint">' + esc(style.desc) + ' Sets the stance, rhythm and how strikes are thrown, and also the default defense, whether holds are possible and some attack strings (see the Move list).</p>';
     h += this.row('Defense', DEFENSE_LABEL[d.defense], 'defense') + '<p class="hint">' + esc(DEFENSE_HELP[d.defense]) + ' Each fighter has one defense, never both. Changing the movement style resets it to that style\'s usual choice.</p>';
     h += this.row('Tier', tierText, 'tier');
     h += '<div class="pts' + (left === 0 ? ' zero' : '') + '" role="status" aria-live="polite"><b>' + left + '</b> of ' + budget + ' points remaining</div>';
@@ -8776,6 +8835,53 @@ const SelfTest = {
     }
     return wins;
   },
+  /* Attack-string damage shares (P3-10): AI vs AI matches over `seeds` seeds for every pair of fighters in opts.pairs (default: each pair of
+     the six presets; even seeds swap the seats), counting each hit's damage under the string step that threw it ('cPP' = the crouch string's
+     step 2; a move outside the strings, such as a counter, a lunge or a clinch strike, counts under its own id). A throw counts as 'throw:<name>'
+     and a hold as 'hold'. opts go to SimRunner.run (difficulty, timer, winsNeeded).
+     Returns { fighters: { id: { total, keys: { key: dmg }, punch, kick, unused: [rows never thrown] } }, worst: { id, key, share }, punch, kick }:
+     punch / kick are the shares of strike damage thrown with a punch button (or clinch elbow) and a kick button (or clinch knee). */
+  stringShare(seeds, opts) {
+    const runOpts = Object.assign({}, opts);
+    const ids = ROSTER.map((r) => r.id), list = runOpts.pairs || [];
+    if (!runOpts.pairs) for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) list.push([ids[i], ids[j]]);
+    delete runOpts.pairs;
+    const fighters = {};
+    const tally = (id) => fighters[id] || (fighters[id] = { total: 0, keys: {}, punch: 0, kick: 0 });
+    const addKey = (id, key, dmg) => { const t = tally(id); t.total += dmg; t.keys[key] = (t.keys[key] || 0) + dmg; };
+    const listeners = {
+      hit: (e) => {
+        const att = e.att, onString = att.move === e.mv && att.stringKeys !== '' && e.kind !== 'ground';
+        addKey(att.id, onString ? (att.stringLow ? 'c' : '') + att.stringKeys : e.mv.id, e.dmg);
+        const punch = e.mv.btn ? e.mv.btn[1] === 'p' : e.mv.cat === 'punch';
+        tally(att.id)[punch ? 'punch' : 'kick'] += e.dmg;
+      },
+      throw: (e) => addKey(e.att.id, 'throw:' + e.name, e.dmg),
+      submissionEnd: (e) => addKey(e.att.id, 'hold', e.damage),
+    };
+    for (let seed = 1; seed <= seeds; seed++) {
+      for (const [a, b] of list) {
+        const swap = seed % 2 === 0;
+        const r = SimRunner.run(Object.assign({ playerId: swap ? b : a, opponentId: swap ? a : b, seed, listeners }, runOpts));
+        if (r.error) return { error: r.error };
+      }
+    }
+    const out = { fighters, worst: { id: '', key: '', share: 0 }, punch: 0, kick: 0 };
+    for (const id in fighters) {
+      const t = fighters[id];
+      out.punch += t.punch; out.kick += t.kick;
+      for (const key in t.keys) {
+        const share = t.total > 0 ? t.keys[key] / t.total : 0;
+        if (share > out.worst.share) out.worst = { id, key, share };
+      }
+      const table = stringsFor(moveStyleFor(ROSTER_BY_ID[id]));
+      t.unused = [];
+      for (const side of ['stand', 'crouch']) for (const keys in table[side]) if (!t.keys[(side === 'crouch' ? 'c' : '') + keys]) t.unused.push((side === 'crouch' ? 'c' : '') + keys);
+    }
+    const strikes = out.punch + out.kick;
+    out.punch = strikes > 0 ? out.punch / strikes : 0; out.kick = strikes > 0 ? out.kick / strikes : 0;
+    return out;
+  },
   capture(names) {
     const log = {};
     const offs = names.map((n) => { log[n] = []; return Events.on(n, (e) => log[n].push(e)); });
@@ -8810,10 +8916,10 @@ const SelfTest = {
     };
     /* Plays a string on a fresh match with the defender kept in reach, so every step makes contact. fill(it, f, o, kind) feeds one tick of
        input: kind is 'punch' or 'kick' on a press tick, else null. Returns the ids of the moves fighter 1 started. */
-    const playString = (letters, fill) => {
+    const playString = (letters, fill, attackerId) => {
       const log = self.capture(['attackStart']);
       let next = 0, from = 0;
-      const m = mk({}, (it, f, o, mm) => {
+      const m = mk(attackerId ? { playerId: attackerId } : {}, (it, f, o, mm) => {
         o.x = f.x + 1.0; o.z = f.z; o.prevX = o.x; o.prevZ = o.z;
         const ready = next === 0 ? mm.tick === 2 : f.moveConnected && f.moveId !== from;
         let kind = null;
@@ -8869,6 +8975,72 @@ const SelfTest = {
       const known = Object.keys(ATTACKS).filter((id) => ATTACKS[id].tier === 3 && !ATTACKS[id].ctx);
       const inStrings = known.every((id) => stringRows.filter((r) => r.moves[r.moves.length - 1] === id).length === 1);   // each strong move ends exactly one string row
       return stringRows.length === 18 && known.length === 8 && inStrings && !problems.length ? true : 'rows ' + stringRows.length + ' strong ' + known.length + ' once ' + inStrings + ' ' + problems.join('; ');
+    });
+    /* ----- per-style strings, punishable enders, damage shares (P3-10) ----- */
+    const STRING_SHARE_LIMIT = 0.35;          // no string above this share of a fighter's damage (owner decision 2026-10-28: the limit stays); measured worst case 0.24 (0.33 before P3-10)
+    const PUNCH_SHARE_BAND = [0.35, 0.65];    // punches and kicks each carry this share of strike damage; measured 0.39 Normal and 0.40 Hard (0.27 and 0.22 before P3-10)
+    const STRING_SHARE_SEEDS = 3;             // seeds x 15 preset pairs per difficulty
+    const STYLE_TESTERS = { boxer: 'yuki', karateka: 'zero', capoeira: 'mara', wrestler: 'dmitri', judoka: 'ptest' };   // a preset of each move style (the Judoka has none: a KAI copy)
+    const withJudoka = (fn) => {
+      ROSTER_BY_ID.ptest = Object.assign({}, ROSTER_BY_ID.kai, { id: 'ptest', name: 'PTEST', moveStyle: 'judoka' });
+      try { return fn(); } finally { delete ROSTER_BY_ID.ptest; }
+    };
+    test('Every move style plays its own string rows (each step after the previous one made contact); a removed row starts a new string', () => {
+      const problems = [];
+      withJudoka(() => {
+        for (const styleId of Object.keys(STYLE_STRINGS)) {
+          const table = stringsFor(styleId);
+          for (const side of ['stand', 'crouch']) for (const keys in table[side]) {
+            const low = side === 'crouch';
+            const got = playString(keys, (it, f, o, kind) => { if (kind) { it[kind] = true; it.height = low; } }, STYLE_TESTERS[styleId]).join();
+            if (got !== table[side][keys].join()) problems.push(styleId + ' ' + (low ? 'crouch ' : '') + keys + ': ' + got);
+          }
+        }
+        const third = playString('PPP', (it, f, o, kind) => { if (kind) it[kind] = true; }, STYLE_TESTERS.wrestler).join();   // the Wrestler has no P P P row: the string ends on the hook, a third press does not continue it
+        if (third !== 'jab,hook') problems.push('wrestler PPP: ' + third);
+      });
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Every string table (default and per style) keeps the owner rules: Punch plays a punch and Kick a kick, at most 3 steps, strong moves only after a light first step, every prefix is a row', () => {
+      const problems = [];
+      for (const styleId of ['kickboxer'].concat(Object.keys(STYLE_STRINGS))) {
+        const table = stringsFor(styleId);
+        for (const side of ['stand', 'crouch']) {
+          for (const keys in table[side]) {
+            const moves = table[side][keys], name = styleId + ' ' + side + ' ' + keys;
+            if (keys.length > STRING_MAX_STEPS || moves.length !== keys.length) problems.push(name + ' length');
+            moves.forEach((id, i) => { if (!ATTACKS[id] || ATTACKS[id].btn[1] !== keys[i].toLowerCase()) problems.push(name + ' step ' + (i + 1) + ' is not a ' + keys[i]); });
+            if (ATTACKS[moves[0]] && ATTACKS[moves[0]].tier === 3) problems.push(name + ' starts on a strong move');
+            if (keys.length > 1 && table[side][keys.slice(0, -1)].join() !== moves.slice(0, -1).join()) problems.push(name + ' prefix differs');
+          }
+          for (const first of ['P', 'K']) if (!table[side][first]) problems.push(styleId + ' ' + side + ' lacks ' + first);
+        }
+        const strong = new Set();
+        for (const side of ['stand', 'crouch']) for (const keys in table[side]) table[side][keys].forEach((id) => { if (ATTACKS[id].tier === 3) strong.add(id); });
+        if (!strong.size) problems.push(styleId + ' has no strong move');
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Every strong string move is punishable on block: its block advantage is at least as negative as the jab startup (a perfect block or a sway then hands the defender a counter)', () => {
+      const jabStartup = ATTACKS.jab.startup, problems = [];
+      for (const styleId of ['kickboxer'].concat(Object.keys(STYLE_STRINGS))) {
+        const table = stringsFor(styleId);
+        for (const side of ['stand', 'crouch']) for (const keys in table[side]) table[side][keys].forEach((id) => {
+          const mv = ATTACKS[id], onBlock = frameAdvantage(mv).onBlock;
+          if (mv.tier === 3 && onBlock > -jabStartup) problems.push(styleId + ' ' + keys + ' ' + id + ' ' + onBlock);
+        });
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Attack-string shares: over every preset pair at Normal and Hard no string tops ' + STRING_SHARE_LIMIT * 100 + '% of a fighter\'s damage and punches and kicks each carry ' + PUNCH_SHARE_BAND[0] * 100 + '-' + PUNCH_SHARE_BAND[1] * 100 + '% of the strike damage', () => {
+      const problems = [];
+      for (const difficulty of ['normal', 'hard']) {
+        const r = self.stringShare(STRING_SHARE_SEEDS, { difficulty, timer: 60, winsNeeded: 1 });
+        if (r.error) return r.error;
+        if (r.worst.share > STRING_SHARE_LIMIT) problems.push(difficulty + ': ' + r.worst.id + ' ' + r.worst.key + ' ' + Math.round(r.worst.share * 100) + '%');
+        if (r.punch < PUNCH_SHARE_BAND[0] || r.punch > PUNCH_SHARE_BAND[1]) problems.push(difficulty + ': punches ' + Math.round(r.punch * 100) + '%');
+      }
+      return problems.length ? problems.join('; ') : true;
     });
     test('Fast presses keep their order: P K P and K K K typed 3 ticks apart play the whole string', () => {
       const problems = [];
@@ -10931,8 +11103,9 @@ const SelfTest = {
         m.dispose();
         return r;
       };
-      const small = play({ scale: SCALE_MIN, build: BUILD_MIN, hairStyle: 'afro', topStyle: 'gi', legs: 'pants', hands: 'wraps' }, 'capoeira');
-      const big = play({ scale: SCALE_MAX, build: BUILD_MAX, hairStyle: 'bald', mask: 'full', feet: 'boots', glow: 'on' }, 'wrestler');
+      // kickboxer and brawler both play the default attack strings (the other move styles have string overrides, P3-10), so only their motion differs
+      const small = play({ scale: SCALE_MIN, build: BUILD_MIN, hairStyle: 'afro', topStyle: 'gi', legs: 'pants', hands: 'wraps' }, 'kickboxer');
+      const big = play({ scale: SCALE_MAX, build: BUILD_MAX, hairStyle: 'bald', mask: 'full', feet: 'boots', glow: 'on' }, 'brawler');
       delete ROSTER_BY_ID.ctest;
       return small === big ? true : small + ' != ' + big;
     });
@@ -11136,7 +11309,7 @@ const SelfTest = {
     const COMBO_LOCKED = [S.HIT, S.STAGGER, S.STUN, S.THROWN, S.DOWN, S.GETUP, S.KO];   // the defender cannot act
     const COMBO_ESCAPE_GAP = 3;       // free ticks in a row: press Defend, be in the guard, and be ready before the next strike lands
     const COMBO_LOCK_LIMIT = 240;     // ticks (4 s): the longest legal combo is a 3-step string into a guard break (80) or a knockdown (about 130) and the get-up; measured worst case 207
-    const COMBO_DAMAGE_SHARE = 0.6;   // of a full health bar in one combo; measured worst case 0.53 (the heaviest hitter with the boost on). P3-10 may tighten it
+    const COMBO_DAMAGE_SHARE = 0.55;  // of a full health bar in one combo; P3-10 tightened it from 0.6 after the audit: measured worst case 0.49 (the heaviest hitter with the boost on), 0.41 for the style strings
     /* Fighter 1 plays the letters of a string row over and over (the next press goes in the moment the input buffer is empty, so the chain and the next
        string start as early as the rules allow), with endless stamina and the defender always in reach, so only the rules can end the combo. The
        defender is a Block fighter with a huge health bar: posture 'stand' / 'crouch' do nothing, 'guard' holds Defend (with Crouch for the crouch rows),
@@ -11165,10 +11338,11 @@ const SelfTest = {
       m.dispose();
       return { lock, damage: worst, windows, juggle, hpBase };
     };
-    const comboRows = stringRows.filter((r, i) => !stringRows.some((o, j) => j < i && o.low === r.low && (new Set(o.keys + r.keys).size === 1)));   // 'K', 'KK' and 'KKK' press the same letter: one loop each is enough
-    const comboProblems = (attackerId, boost, postures) => {
+    const loopRows = (rows) => rows.filter((r, i) => !rows.some((o, j) => j < i && o.low === r.low && (new Set(o.keys + r.keys).size === 1)));   // 'K', 'KK' and 'KKK' press the same letter: one loop each is enough
+    const comboRows = loopRows(stringRows);
+    const comboProblems = (attackerId, boost, postures, rows) => {
       const problems = [];
-      for (const row of comboRows) {
+      for (const row of rows || comboRows) {
         for (const posture of postures) {
           const r = loopCombo(row, posture, 900, attackerId, boost);
           if (r.lock > COMBO_LOCK_LIMIT || r.damage > COMBO_DAMAGE_SHARE * r.hpBase || r.windows < 1 || r.juggle > JUGGLE_LIMIT) problems.push((row.low ? 'crouch ' : '') + row.keys + ' vs ' + posture + ': locked ' + r.lock + ' dmg ' + Math.round(r.damage) + ' windows ' + r.windows + ' juggle ' + r.juggle);
@@ -11179,6 +11353,17 @@ const SelfTest = {
     test('Combos end: every attack string and buffered chain, looped as fast as the buffer allows, leaves a standing, crouching, guarding or juggled defender free within ' + COMBO_LOCK_LIMIT + ' ticks and under ' + COMBO_DAMAGE_SHARE * 100 + '% of a health bar', () => {
       const problems = comboProblems('kai', false, ['stand', 'crouch', 'guard', 'juggle']);
       return problems.length ? problems.slice(0, 6).join('; ') + (problems.length > 6 ? ' (+' + (problems.length - 6) + ' more)' : '') : true;
+    });
+    test('Combos end for every move style\'s own strings (Boxer, Karateka, Capoeira, Wrestler, Judoka), standing, guarding and juggled', () => {
+      const problems = [];
+      withJudoka(() => {
+        for (const styleId of Object.keys(STYLE_STRINGS)) {
+          const table = stringsFor(styleId), rows = [];
+          for (const side of ['stand', 'crouch']) for (const keys in table[side]) rows.push({ keys, low: side === 'crouch', moves: table[side][keys] });
+          for (const p of comboProblems(STYLE_TESTERS[styleId], false, ['stand', 'crouch', 'guard', 'juggle'], loopRows(rows))) problems.push(styleId + ' ' + p);
+        }
+      });
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     test('Combos end with the momentum boost on and the hardest hitter (BRUTUS), standing and guarding', () => {
       const problems = comboProblems('brutus', true, ['stand', 'guard']);

@@ -137,6 +137,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Status (2026-10-28): implemented, rules in Appendix C, self-tests cover start / end / reset / AI. Balance open: the all-pairs win-rate check waits for P14-01 (Block vs Sway at Hard moved 73/27 to 77/23 with the boost on).
 - [ ] P3-10 - Combo audit and redesign for balance: for every attack string and buffered chain measure damage, stamina, frame advantage on hit and on block, guard break, knockdown / launch and juggle follow-ups; give each style family (P1-04) its own strings where the style needs them; make strong string enders punishable on block and keep any one string from dominating. Runs after P3-08.
   Done when: Appendix C has the final string table per style family with frame data and damage per string; the P0-06 runner (AI vs AI, every style pair) shows every string in use, no single string above 35% of a fighter's damage (threshold may be revised in Appendix C with a reason), no unintended infinite or guaranteed loop, and win rates inside the P14-01 target.
+  Status (2026-10-28): implemented, measurements and the final tables are in Appendix C ("P3-10 combo audit"). Worst string 25% (limit 35%), punch share 38-40%, strong enders -7 or less on block, per-style rows for 5 move styles, no loop. Open: the all-pairs win-rate check waits for P14-01 (Hard 37-63%, Expert 42-60%; Normal was already lopsided and is unchanged).
 
 ## Phase 4 - Multiple opponents and lock-on
 
@@ -1167,7 +1168,7 @@ Touch check: 7 permanent buttons (PUNCH, KICK, DEFEND, GRAB, JUMP, DUCK, II) plu
   - In a grab: Punch = elbow, Kick = knee (P3-03); the elbow no longer needs strong. Throws are on `grapple` only, and strong throws are removed.
   - New task: P2-10 (attack strings on every device). New task: P3-10 (combo audit and redesign for balance).
 
-#### Attack strings (default set; P3-10 audits and may change every row)
+#### Attack strings (default set; audited by P3-10, unchanged; the move styles' own rows are in the P3-10 section below)
 
 Rules:
 - The move is picked at the moment of each press from the presses so far; no waiting and no hold. So P then K already gives the strong kick of the P K P string.
@@ -1175,7 +1176,7 @@ Rules:
 - Strings are at most 3 steps. Crouch is read at each press; the crouch strings below need crouch held for every step, otherwise the standing table is used from that step.
 - Inside a string the step order is fixed by the table, so a string may go from a strong move to a lighter one (P K P). Outside strings the existing tier rule (Combat.canChain: never from stronger to lighter) stays for buffered chains.
 - Strong steps keep their costs: more stamina, longer recovery and the whiff penalty (whiffExtra).
-- Owner rule (2026-10-28): every strong string step breaks a block outright (stun), whatever the defender's stamina; only a perfect block stops it. Normal moves still break a guard only by draining stamina. P3-02 and P3-10 tune the stun length and damage around this.
+- Owner rule (2026-10-28): every strong string step breaks a block outright (stun), whatever the defender's stamina; only a perfect block stops it. Normal moves still break a guard only by draining stamina. P3-02 and P3-10 tune the stun length and damage around this (P3-10 kept the 80 ticks).
 - Counter, running (Running Lunge), air and grab moves are unchanged and are not part of strings.
 - The AI and the Training dummy press the same strings (no more `it.strong`), so players and AI have the same move set.
 - Implementation direction (P2-10): the input layer sends punch / kick plus height; the Fighter keeps its own string state (it knows whether the last move made contact) and picks the move from one STRINGS table. This replaces MOVE_BY_INPUT's strong key and the hand / foot alternation of nextInString.
@@ -1203,6 +1204,129 @@ Rules:
 | K K K | Low Kick, Body Kick, Sweep | Sweep: the only low knockdown, ender |
 
 Every one of the 8 strong moves has exactly one string. Standing mixed pairs (P K, K P) change: today they give Jab then Front Kick and Front Kick then Jab with the other limb rules; now they follow the table.
+
+#### P3-10 combo audit (2026-10-28)
+
+Implemented. Not ticked: the all-pairs win-rate target waits for P14-01 (win rates are listed below).
+
+- Method:
+  - Damage share: `SelfTest.stringShare(seeds, opts)` plays AI vs AI (`SimRunner.run`, new `listeners` option) over the 15 pairs of the six presets, seats swapped on even seeds, and counts each hit under the string step that threw it (`P K` = step 2 of the P K string, crouch rows start with `c`; moves outside the strings and throws count under their own name). Share = that damage / the fighter's total damage. Punch / kick = share of strike damage thrown with a Punch or Kick button (clinch elbow = punch, knee = kick). Share columns below: 24 seeds at Normal and Hard, pooled; headless call `ev('SelfTest.stringShare(24, { difficulty: "hard" })')`.
+  - Row data: each row played by a scripted fighter against an idle and a full-stamina Block defender kept in reach. Dmg = damage to the idle defender (combo scaling and the fighter's damage stat included), Foe locked = longest stretch the idle defender could not act, Against a full block = what the Block defender took. Frame advantage = `frameAdvantage()`, the numbers of the Move list and the Training panel.
+- Findings before the change:
+  - AI vs AI damage was 70-78 % kicks (punch share 30 / 27 / 22 / 23 % at Easy / Normal / Hard / Expert). Worst single string: the `K` opener (Front Kick) at 33 % of a fighter's damage at Hard and Expert, two points under the limit. Cause: kicks reach 1.45-1.65 m and punches 1.2-1.35 m, and the AI stopped 0.35 m beyond its preferred range, a distance where only kicks reach.
+  - P K P was never played by the AI (it ended every chain on a strong move); K P P and the crouch P P P / K K K were rare.
+  - Every strong move already had a block advantage of -7 or less (the jab starts in 5), so the data was punishable. Because every strong step breaks a non-perfect block (owner rule), the punish is real only after a perfect block (the attacker staggers 26 f and the defender gets a counter), a sway or a whiff; a broken block leaves the defender stunned 80 f (92 f in the table below, with the hit reaction) and the attacker free. The stun length stays 80.
+  - No loops: longest foe-locked stretch 207 f (limit 240), most health taken in one combo 41 % of a bar (49 % for BRUTUS with the boost on), at most 3 juggle hits (JUGGLE_LIMIT).
+- Changes (every number has a why-comment in the code):
+
+| What | Before | After | Why |
+|---|---|---|---|
+| Jab / Body Jab reach | 1.25 / 1.2 m | 1.4 / 1.35 m | punches were out-ranged by every kick (70-78 % kick damage) |
+| Cross reach | 1.35 m | 1.5 m | same; still shorter than the kicks |
+| Jab / Body Jab damage | 4 | 5 | the jab is the most-thrown punch; +1 adds 2-3 points of punch share without a longer reach |
+| AI approach (`AI_APPROACH_SLACK`) | stops 0.35 m beyond its preferred range | 0.1 m | at 0.35 m only kicks reach; 0 made every grab throw the same way (a test caught it) |
+| AI string chain (`thinkChain`) | stopped after any strong step | may press the next string step | P K P and the other strong-then-light rows are played |
+| Strings per move style (`STYLE_STRINGS`) | one table | boxer, karateka, capoeira, wrestler, judoka override rows (below) | style identity: punch-heavy, kick-heavy, short strings into grabs |
+| Block vs Sway AI (`swayRead` / `swayAim`) | Normal 0.7 / 0.05, Hard 0.2 / 0.85, Expert 0.2 / 0.85 | Normal 1.3 / 0.05, Hard 0.2 / 0.7, Expert 0.1 / 1 | the new reach and spacing moved Block / Sway to 36 / 65 (Normal), 41 / 59 (Hard) and 59 / 41 (Expert); back to 45-55 |
+| Combo damage limit in the loop test | 60 % of a bar | 55 % | worst measured 49 % |
+
+- Result (AI vs AI, 24 seeds, all 15 pairs):
+
+| Difficulty | Punch share before / after | Worst string before / after |
+|---|---|---|
+| Easy | 30 / 40 % | 21 % (K K) / 23 % (P K, Dmitri) |
+| Normal | 27 / 38 % | 20 % (K) / 19 % (P K, Dmitri) |
+| Hard | 22 / 38 % | 33 % (K, Dmitri) / 24 % (K, Zero) |
+| Expert | 23 / 40 % | 33 % (K, Brutus) / 25 % (K, Dmitri) |
+
+  - Win rate per fighter, all other presets, both seats (before / after): Hard KAI 43 / 49, MARA 63 / 63, BRUTUS 43 / 55, YUKI 67 / 50, DMITRI 38 / 37, ZERO 47 / 45. Expert KAI 44 / 53, MARA 76 / 55, BRUTUS 42 / 48, YUKI 58 / 60, DMITRI 36 / 42, ZERO 43 / 42. Normal was already lopsided and stays so (KAI 12 / 10, MARA 41 / 43, BRUTUS 84 / 79, YUKI 64 / 65, DMITRI 87 / 87, ZERO 12 / 16): P14-01 owns the target. Matches are shorter (Hard 51 s to 41 s, Expert 70 s to 57 s).
+  - Block vs Sway (300 seeds, both seats): Easy 51 / 49, Normal 49 / 51, Hard 47 / 53, Expert 52 / 48.
+  - Every row of every preset is thrown at some difficulty in 24 seeds; a few rare rows (K P P, K K P, Crouch P P P) miss one difficulty (for example KAI's K P P at Hard).
+  - The style tables shift the strong moves (boxer: 4 of 7 are punches, default 4 of 8; karateka and capoeira: 2-3 punches less), but a preset's punch share still follows its AI style weights (YUKI 0.45 punch / 0.55 kick: 37 %). Giving YUKI more punch weight raised her win rate to 83-88 % at Hard, so the weights stay; a more punch-heavy boxer needs P3-10 follow-up tuning together with P14-01.
+- Moves in the strings (frame data is nominal; Training shows the same numbers):
+
+| Move | Tier | Start / Active / Recover | Dmg | Stam | Reach | Adv hit / block | Effect |
+|---|---|---|---|---|---|---|---|
+| Jab | 1 | 5 / 3 / 9 | 5 | 3 | 1.4 | +3 / -3 | - |
+| Body Jab | 1 | 6 / 3 / 10 | 5 | 3 | 1.35 | +2 / -4 | - |
+| Power Jab | 3 strong | 10 / 3 / 17 | 9 | 9 | 1.4 | +3 / -7 | stagger, guard break |
+| Gut Punch | 3 strong | 11 / 3 / 19 | 10 | 10 | 1.25 | +3 / -8 | stagger, guard break |
+| Cross | 2 | 8 / 3 / 13 | 7 | 5 | 1.5 | +1 / -6 | - |
+| Hook | 3 strong | 12 / 4 / 21 | 13 | 9 | 1.2 | -2 / -11 | stagger, guard break |
+| Uppercut | 2 | 10 / 3 / 17 | 8 | 6 | 1.1 | -1 / -9 | launch |
+| Heavy Uppercut | 3 strong | 16 / 4 / 27 | 15 | 12 | 1.1 | -6 / -16 | launch, guard break |
+| Front Kick | 1 | 9 / 3 / 15 | 6 | 5 | 1.6 | -2 / -8 | - |
+| Push Kick | 3 strong | 15 / 4 / 25 | 12 | 11 | 1.65 | -4 / -14 | stagger, guard break |
+| Low Kick | 1 | 8 / 3 / 12 | 6 | 4 | 1.45 | 0 / -6 | - |
+| Sweep | 3 strong | 12 / 4 / 26 | 11 | 10 | 1.5 | -9 / -17 | knockdown, guard break |
+| Roundhouse | 2 | 11 / 4 / 19 | 11 | 7 | 1.5 | -2 / -11 | - |
+| Heavy Roundhouse | 3 strong | 17 / 5 / 30 | 18 | 13 | 1.55 | -8 / -19 | knockdown, guard break |
+| Body Kick | 2 | 11 / 4 / 19 | 9 | 7 | 1.45 | -2 / -11 | - |
+| Heavy Body Kick | 3 strong | 17 / 5 / 30 | 16 | 13 | 1.5 | -8 / -19 | stagger, guard break |
+
+- Default string table (Kickboxer and Brawler; the rows are unchanged by P3-10), measured with KAI:
+
+| Input | Steps | Dmg | Stam | Foe locked (f) | Against a full block | Share % |
+|---|---|---|---|---|---|---|
+| P | Jab | 4.8 | 3 | 19 | 1 blocked | 9.4 |
+| P P | Jab, Cross | 12.4 | 8 | 36 | 2 blocked | 9.1 |
+| P P P | Jab, Cross, Hook | 25.4 | 17 | 66 | 2 blocked, step 3 breaks it (foe stunned 92f) | 3.3 |
+| P K | Jab, Heavy Body Kick | 22.6 | 16 | 38 | 1 blocked, step 2 breaks it (foe stunned 92f) | 15.4 |
+| P K P | Jab, Heavy Body Kick, Cross | 29.4 | 21 | 39 | 1 blocked, step 2 breaks it (foe stunned 45f), then 1 hit | 2.5 |
+| P P K | Jab, Cross, Push Kick | 23 | 19 | 70 | 2 blocked, step 3 breaks it (foe stunned 92f) | 7.3 |
+| K | Front Kick | 5.7 | 5 | 20 | 1 blocked | 17.3 |
+| K K | Front Kick, Roundhouse | 17.6 | 12 | 43 | 2 blocked | 7.6 |
+| K K K | Front Kick, Roundhouse, Heavy Roundhouse | 35.6 | 25 | 149 | 2 blocked, step 3 breaks it (foe stunned 92f) | 1.9 |
+| K P | Front Kick, Jab | 10.5 | 8 | 29 | 2 blocked | 3.1 |
+| K P P | Front Kick, Jab, Heavy Uppercut | 25.5 | 20 | 131 | 2 blocked, step 3 breaks it (foe stunned 92f) | 0.3 |
+| K K P | Front Kick, Roundhouse, Power Jab | 25.5 | 21 | 66 | 2 blocked, step 3 breaks it (foe stunned 92f) | 0.8 |
+| Crouch + P | Body Jab | 4.8 | 3 | 19 | hits through (mid) | 8.1 |
+| Crouch + P P | Body Jab, Uppercut | 13.7 | 9 | 126 | hits through (mid) | 1.3 |
+| Crouch + P P P | Body Jab, Uppercut, Gut Punch | 22.5 | 19 | 146 | hits through (mid) | 0.3 |
+| Crouch + K | Low Kick | 5.7 | 4 | 19 | 1 blocked | 5.3 |
+| Crouch + K K | Low Kick, Body Kick | 15.4 | 11 | 43 | 1 blocked, 1 hit | 1.5 |
+| Crouch + K K K | Low Kick, Body Kick, Sweep | 25.1 | 21 | 143 | 1 blocked, 2 hit | 0.2 |
+
+- Per-style rows (a style plays the default table with these changes; a removed row means that press starts a new string):
+
+- boxer (measured with yuki): changed rows below; rows removed: K K K.
+
+| Input | Steps | Dmg | Stam | Foe locked (f) | Against a full block | Share % |
+|---|---|---|---|---|---|---|
+| P K P | Jab, Heavy Body Kick, Power Jab | 30.5 | 25 | 52 | 1 blocked, step 2 breaks it (foe stunned 58f), then 1 hit | 2.4 |
+| K K P | Front Kick, Roundhouse, Jab | 21.9 | 15 | 46 | 3 blocked | 1.3 |
+
+- karateka (measured with zero): no changed row; rows removed: P P P, K P P.
+
+- capoeira (measured with mara): changed rows below; rows removed: P P P, K P P.
+
+| Input | Steps | Dmg | Stam | Foe locked (f) | Against a full block | Share % |
+|---|---|---|---|---|---|---|
+| K K P | Front Kick, Roundhouse, Jab | 21.9 | 15 | 46 | 3 blocked | 0.5 |
+
+- wrestler (measured with dmitri): changed rows below; rows removed: P P P, P K P, P P K, K K K, K P P, K K P, Crouch + P P P, Crouch + K K K.
+
+| Input | Steps | Dmg | Stam | Foe locked (f) | Against a full block | Share % |
+|---|---|---|---|---|---|---|
+| P P | Jab, Hook | 21.1 | 12 | 51 | 1 blocked, step 2 breaks it (foe stunned 92f) | 10.5 |
+| K K | Front Kick, Heavy Roundhouse | 28.3 | 18 | 107 | 1 blocked, step 2 breaks it (foe stunned 92f) | 13.1 |
+| K P | Front Kick, Power Jab | 16 | 14 | 48 | 1 blocked, step 2 breaks it (foe stunned 92f) | 6.3 |
+
+- judoka (measured with a KAI copy, no preset fighter): changed rows below; rows removed: P P P, P K P, P P K, K K K, K P P, K K P, Crouch + P P P, Crouch + K K K.
+
+| Input | Steps | Dmg | Stam | Foe locked (f) | Against a full block | Share % |
+|---|---|---|---|---|---|---|
+| P K | Jab, Push Kick | 16.5 | 14 | 35 | 1 blocked, step 2 breaks it (foe stunned 92f) | n/a |
+| K P | Front Kick, Power Jab | 14.5 | 14 | 48 | 1 blocked, step 2 breaks it (foe stunned 92f) | n/a |
+| Crouch + K K | Low Kick, Sweep | 16.5 | 14 | 124 | 1 blocked, step 2 breaks it (foe stunned 92f) | n/a |
+  - Boxer: punch-heavy. The P K P string ends on the Power Jab, the Heavy Roundhouse (K K K) is gone, and K K P ends on a plain jab: strong punches Hook, Power Jab, Heavy Uppercut, Gut Punch; strong kicks Heavy Body Kick, Push Kick, Sweep.
+  - Karateka: kick-heavy. No Hook (P P P) and no Heavy Uppercut (K P P); the strong kicks (Heavy Body Kick, Push Kick, Heavy Roundhouse, Sweep) and the Power Jab and Gut Punch remain.
+  - Capoeira: kick-heavy and flowing. No Hook, no Heavy Uppercut and no Power Jab (K K P ends on a plain jab); the strong kicks and the Gut Punch / Sweep crouch rows remain.
+  - Wrestler and Judoka: strings of two moves at most, ending on a stagger or a knockdown so a grab or a hold (both styles can hold a downed foe) follows. Wrestler: P P = Jab, Hook; K K = Front Kick, Heavy Roundhouse (knockdown); K P = Front Kick, Power Jab; P K keeps the Heavy Body Kick. Judoka: P K = Jab, Push Kick; K P = Front Kick, Power Jab; Crouch K K = Low Kick, Sweep (knockdown). The two-move Hook row stands in for the lost three-move rows; without it DMITRI fell from 37 % to 20-30 % at Hard.
+  - Move styles without a preset (Judoka) were measured with a KAI copy. Styles the game does not have yet (the rest of the 16 in P1-04) use the default table until they get rows in `STYLE_STRINGS`.
+- Strong enders: all 8 strong moves have a block advantage between -7 (Power Jab) and -19 (Heavy Roundhouse, Heavy Body Kick), at least the jab's 5 startup. A self-test checks every strong move of every table.
+- Launch, knockdown and juggle: launchers are the Uppercut (Crouch P P step 2) and the Heavy Uppercut (K P P step 3); knockdowns are the Heavy Roundhouse (K K K, and Wrestler K K), the Sweep (Crouch K K K, and Judoka Crouch K K) and the counter kick. A launched foe is juggled: the next step can hit him (Gut Punch after the Uppercut lands, the foe is locked 146 f), the juggle count ends at JUGGLE_LIMIT 3, and a knockdown (down 107-149 f, then the 6 f wake-up grace) ends it.
+- Chains outside strings: a Punch or Kick press that does not continue the string is step 1 of a new one, so the only buffered chain left is a step 1 pressed in the chain window of the previous move; `Combat.canChain` allows it from the same or a lower tier only, a strong move ends the chain, tier-1 repeats are limited and 4 chained moves are the most. The looped-press self-tests (every row of every style, standing, guarding, juggled) cover them.
 
 #### Decisions (continued)
 
@@ -1270,6 +1394,7 @@ Every one of the 8 strong moves has exactly one string. Standing mixed pairs (P 
   - the default pair for the rest.
 - USE: no hold. Tap Use = throw the held item at the target; Crouch + Use = drop it; Use near an item while empty-handed = pick up.
 - P3-10: the 35% limit stays.
+- P4-07 co-op (owner, 2026-10-28): friendly fire is a co-op setting, off by default. A knocked-out player sits out until the next stage, and the level is lost only when every player is out.
 - Same-tick trades (P3-08): a strike that lands on the same tick as a grab wins (either player); two strikes both land; two grabs split by tick parity. After a get-up, strikes miss for 6 more ticks (wake-up grace, closes a knockdown loop); grabs and the tackle still connect.
 
 ## Appendix D - Audit findings
