@@ -73,9 +73,9 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 - [x] P1-01 - RESEARCH: For each reference franchise / game, list mechanics relevant to this game: Tekken, Dead or Alive, Virtua Fighter 4 and 5, Mortal Kombat, Urban Reign, Ryu Ga Gotoku (Yakuza / Like a Dragon), The Warriors, Final Fight Streetwise, Beat Down: Fists of Vengeance, God Hand, Fighting Force, Dynamite Cop, The Bouncer, Midnight Fight Express, Sifu, Power Stone, Sleeping Dogs, Dynamite Deka EX, Crisis Beat, Die Hard Arcade, Crimson Tears, Mortal Kombat: Shaolin Monks, Def Jam: Fight for NY, Devil May Cry.
   Done when: Appendix B has one entry per game with mechanics and a source (official site, manual, or other reliable source). Unverifiable items are marked "unknown".
-- [ ] P1-02 - Normalize the research into one reference table: mechanic, which games use it, fits Modern Urban (yes / no), mobile complexity (low / medium / high), already in BREAKPOINT (yes / partial / no).
+- [x] P1-02 - Normalize the research into one reference table: mechanic, which games use it, fits Modern Urban (yes / no), mobile complexity (low / medium / high), already in BREAKPOINT (yes / partial / no).
   Done when: the table is in Appendix B.
-- [ ] P1-03 - DECIDE: select the "best ideas not already implemented". Rule: accept only mechanics with Modern Urban fit = yes and mobile complexity low or medium, or that replace an existing mechanic without adding inputs.
+- [x] P1-03 - DECIDE: select the "best ideas not already implemented". Rule: accept only mechanics with Modern Urban fit = yes and mobile complexity low or medium, or that replace an existing mechanic without adding inputs.
   Done when: Appendix C lists accepted and rejected mechanics with one reason each, and each accepted one is mapped to a task in this file (add tasks if missing).
 - [ ] P1-04 - RESEARCH + DECIDE: list of real martial arts to cover "all martial arts styles" (striking, kicking, grappling, throwing, joint locks, weapon-based urban styles, hybrid / MMA, street fighting). Group into families that share animation where it makes sense (example from the ideas file: kickboxing punches and boxing punches).
   Done when: Appendix C has the final style list, each with family, signature traits, defense type default (block or sway, see P3-01) and which existing move style it replaces or extends.
@@ -108,6 +108,8 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: a new player can start a fight and see all core actions in one card per input type.
 - [ ] P2-08 - Update Controls screen, help text, `ACTION_LABELS`, `GAMEPAD_LABELS`, `TOUCH_LABELS`.
   Done when: all labels match the new actions.
+- [ ] P2-09 - Optional auto-assist input setting (off by default): repeated taps on Punch or Kick chain the fighter's next valid string move automatically; no new input, no new on-screen button.
+  Done when: the setting exists in Settings and is saved; with it on, tapping Punch 3 times plays the style's 3-hit string on touch, gamepad and keyboard; with it off, behavior is unchanged; a self-test covers both.
 
 ## Phase 3 - Core combat rework
 
@@ -127,6 +129,8 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: characters fall off edges and broken surfaces in every level that has them, and the AI avoids edges unless pushed.
 - [ ] P3-08 - Re-tune hitstop, juggle limit, combo reset and frame data for the new action list.
   Done when: frame data shows in Training for every move and no move has an unintended infinite combo (checked by P0-06 runner).
+- [ ] P3-09 - Automatic momentum boost: a gauge filled by landing hits, perfect blocks / sways and taking hits, giving a short stronger-damage state when full; same rules for AI; no extra input; shown on the fighter (pose / breathing, no glow, no sci-fi look) plus one thin bar.
+  Done when: rules and values are in Appendix C; the boost triggers and ends as defined in the P0-06 headless runner; with it on, no style pair's win rate leaves the P14-01 target.
 
 ## Phase 4 - Multiple opponents and lock-on
 
@@ -238,6 +242,8 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: an unlock screen shows locked items with the requirement, and `Progress` save migrates from 1.0.0.
 - [ ] P10-06 - Arcade uses brawler levels (multi-opponent) and 1v1 boss / rival fights (hybrid direction).
   Done when: a full Arcade run mixes both fight types.
+- [ ] P10-07 - Fight results grade: a letter or star grade from time, damage taken and move variety, shown on the results screen; no input; best grade per mode saved in Progress.
+  Done when: the grade comes from one pure function, is shown on RESULTS, is saved and migrates from the 1.0.0 Progress, and a self-test checks three sample fights.
 
 ## Phase 11 - Tournament mode
 
@@ -734,6 +740,60 @@ One entry per game or franchise: gameplay mechanics relevant to BREAKPOINT, in o
 - Copy-paste signaling: no source needed; offer/answer SDP is plain text, but trickle ICE must be waited out (gather all candidates before copying) [unknown, not sourced]
 - Recommendation for P12-02: use delay-based lockstep first. With 60 Hz deterministic sim, a star topology of 2-4 peers and LAN first, one-way latency is about 1-5 ms, so a fixed input delay of 2-3 frames (about 33-50 ms), raised automatically to 4-6 frames for WAN, is enough and avoids storing/restoring state for up to 4 fighters. The host collects inputs for frame N+delay from every peer, relays the full set, and each peer steps only when it has all inputs; stall the sim if one is missing. Send inputs redundantly (last few frames in each packet) over an ordered:false, maxRetransmits:0 data channel so loss costs nothing. Exchange a state checksum every ~60 frames to detect desync early. Rollback is a later upgrade only if the sim exposes cheap save/restore, because with 3-4 peers the prediction misses multiply.
 
+## P1-02 - Normalized reference table (2026-10-28)
+
+One row per distinct mechanic from the P1-01 entries; mechanics marked unknown there are left out.
+
+Built only from the Appendix B research log (24 games) and the BREAKPOINT "Current state" section, plus a search of breakpoint.html for the "In BREAKPOINT" column. 45 distinct mechanics. Mechanics marked unknown in the log are not rows. Game names are shortened: DOA = Dead or Alive, VF = Virtua Fighter 4/5, MK = Mortal Kombat, DMC = Devil May Cry, MFE = Midnight Fight Express, DHA = Die Hard Arcade, Deka EX = Dynamite Deka EX, Streetwise = Final Fight: Streetwise, Budokai = Dragon Ball Budokai / Budokai Tenkaichi series (from P1-08).
+
+| Mechanic | Games | Modern Urban fit (yes/no) | Mobile complexity (low/medium/high) | In BREAKPOINT (yes/partial/no) |
+|---|---|---|---|---|
+| Small attack button set (punch, kick, grab, guard; 3-4 buttons, no extra layers) | Tekken, DOA, VF, Fighting Force, Dynamite Cop, Power Stone 2, Sleeping Dogs, MFE, Def Jam | yes | low | yes |
+| Tap = weak / hold = strong attack, with the button choosing attack height (high / mid / low) | The Bouncer | yes | medium | partial (strong and height exist as modifier inputs) |
+| Knockdown flow: launchers, air juggles with a limit, recovery roll / quick rise | Tekken, VF, The Bouncer, Shaolin Monks, Urban Reign | yes | low | yes (JUGGLE_LIMIT 3, launch moves, quick rise) |
+| Sidestep / free 3D evade | Tekken, DOA, VF, Urban Reign | yes | low | yes (SIDESTEP state) |
+| Invincibility-frame dodge or lean / duck deflect instead of blocking (God Hand right-stick dodge, Sifu dodge and deflect, MFE dodge, DMC evasion, Trickster dodge core) | God Hand, Sifu, MFE, DMC | yes | medium | partial (sidestep exists; no i-frame sway) |
+| Dedicated block with a timed perfect block / parry window | MK, VF, DOA, Tekken, Urban Reign, MFE, Sifu, Sleeping Dogs, DMC (Royal Guard) | yes | medium | yes (blockHigh / blockLow, 6-tick perfect block) |
+| Auto-guard: standing guard covers high and mid, crouch covers low (no separate high / low buttons) | Tekken | yes | low | partial (two separate block buttons today) |
+| Counter-attack opened by a timed defense (parry or counter, then a free hit) | Tekken, DOA, Urban Reign, MFE, Sifu, Sleeping Dogs | yes | medium | partial (perfect block exists, AI punishes blocked attacks; no player counter follow-up) |
+| Direction-matched counter hold (guard + direction must match the attack height / type) | DOA, Tekken | yes | high | no |
+| Guard break / break bar: blocked hits wear the defender's guard down until it breaks | Sifu (structure bar), Def Jam (second health bar) | yes | low | partial (gb-flagged attacks and stamina exist; no break bar) |
+| Combo-extender and armor properties: bound, wall bound, power crush (uninterruptible move) | Tekken, VF | yes | low | partial (juggle and wall slam exist; no bound or armor) |
+| Strike / throw / guard triangle with a throw escape or clash window | DOA, VF | yes | low | yes (grapple, escape window, block) |
+| Grip-dependent throws (front / rear / low, flank harder) and throws into scenery or walls | Tekken, Urban Reign, Sleeping Dogs, Def Jam, Dynamite Cop, DOA | yes | low | yes (front / rear / low grips, wall slam, AI throws into walls and objects) |
+| Grab strikes (elbow, knee) and grab chains | Dynamite Cop, The Warriors | yes | low | yes (CLINCH_MOVES knee / elbow, CLINCH_STRIKE_MAX 2) |
+| Submission holds that wear down one body part, ending in submit or escape | Def Jam, Dynamite Cop | yes | medium | no |
+| Automatic boost state: comeback damage boost near defeat, or a meter filled by hits, counters and dodges that gives a short stronger state; also pickup-fed power-up chain | Tekken (Rage / Heat), The Warriors (rage meter), God Hand (tension gauge, non-supernatural core), Dynamite Cop (power-up chain) | yes | low | no |
+| Resource-spent specials and context finishers (heat actions with quick-time events, Blazin moves, two-button special arts, taunt-for-meter, health-costing special) | Yakuza, Def Jam, Urban Reign, God Hand, Fighting Force | yes | high | no |
+| Knockout / break finisher cinematic (per-style finisher, slow motion) | Def Jam, Sifu | yes | low | no |
+| Multi-enemy brawling in waves or rooms ending in a boss (up to about 6 on screen) | Urban Reign, The Warriors, Fighting Force, Crisis Beat, DHA, Shaolin Monks, Dynamite Cop | yes | low | no |
+| Lock-on with target switch | God Hand, DMC | yes | medium | no |
+| Area attack and combos that hit or carry across several enemies (360 spin, multi-hit) | Dynamite Cop, Urban Reign, Shaolin Monks | yes | medium | partial (wide sweep kicks; no crowd-clearing move) |
+| 2-4 player co-op and free-for-all in one scene | Urban Reign, The Warriors, Power Stone, DHA, Crisis Beat, Shaolin Monks, Def Jam | yes | low | partial (Versus, 2 players, one screen) |
+| Partner systems: AI allies with orders, tag partner switching | Urban Reign, The Warriors, Beat Down, DOA, Tekken | yes | high | no |
+| Camera that frames several fighters | Power Stone, Urban Reign | yes | low | partial (camera frames two fighters) |
+| Pick up, drop and throw objects and weapons | Urban Reign, The Warriors, Fighting Force, Dynamite Cop, MFE, Power Stone, Def Jam, Sleeping Dogs, DHA, Crisis Beat, Yakuza | yes | medium | no |
+| Weapons with their own move sets and limited durability (breaking, vanishing) | Sleeping Dogs, DHA, MK (weapon styles), Urban Reign, Yakuza, Crimson Tears | yes | low | no |
+| Destructible props yield weapons or parts (tear out posts, open car trunks) | Fighting Force, Dynamite Cop | yes | low | no (objects break into debris, no weapon yield) |
+| Restorative pickups (food, shield, flash heal / revive) | Power Stone, The Warriors | yes | low | no |
+| Carried-item management: firearms with aim and fire, item combining, swapping weapons or styles mid-fight | Sleeping Dogs, MFE, Fighting Force, Dynamite Cop, DHA, DMC, Def Jam, Yakuza | yes | high | no |
+| Stage hazards (danger zones, instant-kill pits, passing train, explosives) | DOA, Shaolin Monks, Def Jam, Sleeping Dogs | yes | low | no |
+| Multi-level arenas with falls and fall damage, floors and balconies that break or collapse | DOA, Tekken (6, Tag 2), Power Stone, VF (breakable wall) | yes | low | no |
+| Destructible walls and arena objects | Tekken, VF, DOA, Fighting Force, Shaolin Monks | yes | low | yes (wood, concrete, metal, glass, paper) |
+| Ring-out loss by leaving the ring | Budokai series | yes | low | no |
+| Crowd and bystander reactions (shove back, hold, offer weapons) | Def Jam | yes | low | no |
+| Elimination-bracket tournament with tiers and prize rewards | Budokai series, Yakuza (Coliseum) | yes | low | no |
+| Survival / endurance and practice modes | DMC (Bloody Palace), Tekken, MFE | yes | low | yes (Survival, Training) |
+| Story structure: branches by chosen character or route, consequences, rival or boss chosen to counter the player | The Bouncer, Fighting Force, DHA, Beat Down, Crisis Beat | yes | low | no (fixed Arcade ladder) |
+| Unlockables earned by play (fighters, items, modes, difficulty, cosmetics) | Dynamite Cop, Crisis Beat, VF, Sleeping Dogs, Power Stone, MFE | yes | low | partial (2 fighters unlock) |
+| Progression economy: XP or skill points, shop, gym training, gear with stat effects, move assignment | Final Fight Streetwise, God Hand, MFE, The Bouncer, Sleeping Dogs, Def Jam, Shaolin Monks, Yakuza | yes | high | no |
+| Costume customization (cosmetic outfits) | DOA, VF, Def Jam, Sleeping Dogs, MFE | yes | low | partial (Outfit tab in the creator) |
+| Performance grade / style rank after a fight or mission | DMC, MFE | yes | low | no |
+| Auto-assist input option (simplified combos) | DMC | yes | low | no |
+| Side systems: quick-time events, mini-games, negotiation and recruiting, open-world crime / hub / random encounters | DHA, Yakuza, Streetwise, Beat Down, The Warriors, Sleeping Dogs | yes | high | no |
+| Aging on death (character ages with each defeat; effects disputed in sources) | Sifu | yes | low | no |
+| Supernatural powers and gore finishers: roulette / orb special moves, power-up transformations, demon forms, teleport and wall-run, pull powers, fatalities / animalities / brutalities | God Hand, Power Stone, DMC, Dynamite Deka EX, MK | no | high | no |
+
 ## Appendix C - Decision log
 
 (Filled by DECIDE tasks and measurement tasks. One entry per task ID: decision or numbers, reason, date.)
@@ -768,6 +828,66 @@ One entry per game or franchise: gameplay mechanics relevant to BREAKPOINT, in o
 - `BREAKPOINT.simulate(opts)` from the main menu (code: `SimRunner.run`). Options: `playerId`, `opponentId`, `arenaId`, `difficulty` (both sides) or `difficulty1` / `difficulty2`, `seed`, `winsNeeded`, `timer`. Both sides deal unscaled damage (`evenDamage`), so the result shows the fighters, not the CPU difficulty bonus.
 - Returns winner (0 / 1, -1 if the 15-minute cap is reached), seconds, ticks, rounds, wins, health left and damage dealt per move type per side (`punch`, `kick`, `heavy`, clinch categories, `ground`, `throw`, `other` = walls, objects, chip).
 - Runs with no rendering, sound, effects or HUD (event listeners are swapped out for the run). Self-test case "Headless AI vs AI runner" checks a seeded match ends with a winner and the same seed gives the same result.
+
+### P1-03 - Best ideas not already implemented (2026-10-28)
+
+- Rule (owner): accept only mechanics with Modern Urban fit = yes and mobile complexity low or medium, or that replace an existing mechanic without adding inputs. Mechanics already fully in BREAKPOINT are not listed again.
+- Notes: grab knee / elbow strikes already exist (CLINCH_MOVES, 2 strikes per clinch), so P3-03 only adds per-style animations. Two rejections are judgment calls (bound / wall-bound duplicates the juggle limit and wall slam; aging on death duplicates the Age slider P6-04). The three new tasks add systems: the owner may drop them.
+
+Rule applied: accept = fit yes AND mobile low or medium, OR replaces an existing mechanic without adding inputs. "Already in" = In BREAKPOINT is yes. Overlaps resolved: accept one, reject the other.
+
+Already in (not accepted again): small attack set, knockdown flow (juggles, launchers, quick rise), sidestep, block with perfect-block window, strike / throw / guard triangle with escape, grip throws and throws into scenery, grab strikes (knee / elbow, 2 per clinch), destructible walls and objects, survival and practice modes.
+
+Accepted:
+
+| Mechanic | Reason (one line) | Task |
+|---|---|---|
+| Tap / hold strength with button-set height | Replaces the strong and height modifier inputs without adding an input. | P2-01 |
+| Invincibility-frame dodge / lean deflect = Sway | Fits, one `defend` input, replaces dash and the second block button; lean deflect is folded into sway. | P3-01, P3-02 |
+| Auto-guard: stand = high + mid, crouch = low | Replaces blockHigh / blockLow with one `defend` without adding inputs. | P2-01, P3-02 |
+| Counter-attack after a timed defense | Fits, uses existing inputs; direction-matched counter hold is not taken. | P3-02 |
+| Guard break via stamina and the existing gb attacks | Fits, no new input; no extra bar, the stamina bar is the break resource. | P3-02 |
+| Submission holds | Fits, medium (grab + escape contest on existing inputs); owner asked for submissions. | P3-04, P3-05 |
+| Automatic boost state (comeback / momentum) | Fits, low (automatic, no input); taunt and meter-spent specials are rejected as duplicates. | NEW P3-09 |
+| Knockout / break finisher cinematic | Fits, low (plays on the final KO, no input); belongs to the diegetic feedback list. | P13-01, P13-02 |
+| Multi-enemy waves / rooms ending in a boss | Fits, low; core of the hybrid direction. | P4-01, P4-02, P10-06 |
+| Lock-on with target switch | Fits, medium (one new `lock` input already planned). | P4-03, P4-04, P4-05 |
+| Area attack hitting several enemies | Fits, medium; needed to deal with crowds; one wide-arc signature move per style. | P5-01 |
+| 2-4 player co-op and free-for-all | Fits, low; already an owner requirement (up to 4 local and online). | P4-07, P11-02, P12-03 |
+| Camera framing several fighters | Fits, low; required once N fighters share a scene. | P4-06 |
+| Pick up, drop and throw objects | Fits, medium (one `use` input already planned). | P7-02, P7-03 |
+| Weapon move sets with durability | Fits, low (same attack buttons). | P7-01, P7-04 |
+| Destructible props yield weapons | Fits, low; gives realistic weapon placement. | P7-06, P8-02 |
+| Restorative pickups | Fits, low (walk over to take); heals / revive are part of the item list. | P7-01 |
+| Stage hazards | Fits, low; triggered by throws and hits, no input. | P7-05 |
+| Falls, breakable floors, collapsing stages | Fits, low; owner asked for falling and breaking stages. | P3-07, P8-04 |
+| Ring-out | Fits, low; optional rule for 1v1 tournament levels. | P8-05, P11-01 |
+| Crowd and bystander reactions | Fits, low; automatic, no input. | P9-01, P13-01 |
+| Elimination tournament with tiers and rewards | Fits, low; owner asked for a Budokai-style tournament. | P11-01 |
+| Story branches and rival chosen against the player | Fits, low; matches Country / Origin / Goal beats. | P10-03, P10-06 |
+| Unlockables earned by play | Fits, low; owner asked for clear unlocks. | P10-05 |
+| Cosmetic costume customization | Fits, low; owner asked for new customization items. | P6-01, P6-02 |
+| Performance grade after a fight | Fits, low (result screen only, no input). | NEW P10-07 |
+| Auto-assist input option | Fits, low; helps phone players with no extra on-screen button (setting only). | NEW P2-09 |
+
+Rejected:
+
+| Mechanic | Reason (one line) |
+|---|---|
+| Direction-matched counter hold | Mobile complexity high (direction and timing together); duplicate of counter-attack after a timed defense. |
+| Bound, wall bound, power crush | Duplicate of the juggle limit and wall slam already in; adds tuning load without a new decision for the player. |
+| Resource-spent specials, heat finishers, taunt-for-meter | Mobile complexity high (extra input or quick-time events); duplicate of the automatic boost state; taunt as an emote stays in P5-05. |
+| Partner systems: AI allies with orders, tag switching | Mobile complexity high (orders or switch input); duplicate of 2-4 player co-op, where AI can fill slots. |
+| Carried-item management: firearms, item combining, weapon / style swap | Mobile complexity high (aim, fire, combine or cycle input); one held item with `use` is the design. |
+| Progression economy: XP, shop, gym, gear stats, move assignment | Mobile complexity high (menus, move-assign UI); duplicate of unlockables and adds a balance axis. |
+| Side systems: quick-time events, mini-games, negotiation, open-world crime and hub | Mobile complexity high (timed prompts, extra menus); outside the fighter / brawler scope. |
+| Aging on death | Duplicate of the Age slider (P6-04) and Arcade continues; sources disagree on the effect. |
+| Supernatural powers and gore finishers | Fails Modern Urban fit (sci-fi / fantasy / supernatural). |
+
+New tasks proposed:
+- P2-09 (added to its phase) - Optional auto-assist input setting (off by default): repeated taps on Punch or Kick chain the fighter's next valid string move automatically; no new input, no new on-screen button. / Done when: the setting exists in Settings and is saved; with it on, tapping Punch 3 times plays the style's 3-hit string on touch, gamepad and keyboard; with it off, behavior is unchanged; a self-test covers both.
+- P3-09 (added to its phase) - Automatic momentum boost: a gauge filled by landing hits, perfect blocks / sways and taking hits, giving a short stronger-damage state when full; same rules for AI; no extra input; shown on the fighter (pose / breathing, no glow, no sci-fi look) plus one thin bar. / Done when: rules and values are in Appendix C; the boost triggers and ends as defined in the P0-06 headless runner; with it on, no style pair's win rate leaves the P14-01 target.
+- P10-07 (added to its phase) - Fight results grade: a letter or star grade from time, damage taken and move variety, shown on the results screen; no input; best grade per mode saved in Progress. / Done when: the grade comes from one pure function, is shown on RESULTS, is saved and migrates from the 1.0.0 Progress, and a self-test checks three sample fights.
 
 ## Appendix D - Audit findings
 
