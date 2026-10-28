@@ -1243,6 +1243,17 @@ Every one of the 8 strong moves has exactly one string. Standing mixed pairs (P 
 - Progress: add a controls revision so the first-match controls card shows again once (set Progress.seenControls to false when the stored controls revision is below 4). Recommendation for P2-07.
 - Labels to rewrite (P2-08): ACTIONS (:574), ACTION_LABELS (:575), DEFAULT_KEYS (:581), FALLBACK_KEYS (:587), DEFAULT_KEYS_P2 (:590), GAMEPAD_LABELS and TOUCH_LABELS (:6411-6412), showOnboarding (:6508-6521), layoutText (:6943), Controls screen hint text and movement text (:6961-6968, remove the back-dash and "Dash while knocked down" sentences), Move list input column (:6976, replace "+ Strong" / "+ Height" with "hold" / "+ Crouch") and clinch text (:6986), clinch hint (:7273-7275).
 
+### Phase 3 owner decisions (2026-10-28)
+
+- P3-02 Block and Sway ("balanced defaults"):
+  - Block: hold Defend; standing covers high + mid, Crouch + Defend covers low. Perfect block = the existing window (PERFECT_BLOCK_TICKS after the press, with the existing cooldown) and opens one counter. Stamina drain as today. Strong attack-string moves break any non-perfect block (stun 80 ticks); strong moves also deal small chip damage (8% of their damage, never the last point of health).
+  - Sway: press Defend = a 0.2 s dodge (12 ticks) with invincibility to strikes (not to grabs), 10 stamina, 0.25 s recovery (15 ticks) in which the fighter can be hit; a held Defend does not repeat. Stick direction picks the lean (back by default, left / right). A strike that would have hit during the last 6 ticks of the dodge counts as a perfect sway and opens one counter (same counter window and moves as a perfect block). Sway cannot be guard-broken; its risk is the recovery and the stamina.
+  - Balance target until P14-01 sets one: in the P0-06 runner, Block vs Sway fighters of equal stats win 45-55% each.
+- P3-04 submissions: only on a downed opponent. Grapple next to a knocked-down opponent starts a hold (styles: Brazilian Jiu-Jitsu, Hapkido, Judo, Wrestling, MMA). Escape contest: the victim taps Defend, the attacker taps Grapple; stamina tips the contest; damage builds while the hold lasts, at most 4 s. Inputs: keyboard Grapple / Defend keys, gamepad R2 / R1, touch GRAB / DEFEND taps. Multi-opponent: any hit on the attacker breaks the hold; no third fighter can join a hold.
+- P3-06 heavy tackle: included. Only when the running fighter is at least 2 weight classes heavier, triggered by running (analog or run) into the lighter one, no button; the lighter one is knocked back. Counter: a Block stops it (blocker pushed back, no damage), a Sway or sidestep makes the tackler run past.
+- USE: no hold. Tap Use = throw the held item at the target; Crouch + Use = drop it; Use near an item while empty-handed = pick up.
+- P3-10: the 35% limit stays.
+
 ## Appendix D - Audit findings
 
 (Filled by P0-02 and P16-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
