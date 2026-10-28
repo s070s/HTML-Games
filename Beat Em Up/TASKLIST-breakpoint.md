@@ -71,7 +71,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 1 - Research and content decisions
 
-- [ ] P1-01 - RESEARCH: For each reference franchise / game, list mechanics relevant to this game: Tekken, Dead or Alive, Virtua Fighter 4 and 5, Mortal Kombat, Urban Reign, Ryu Ga Gotoku (Yakuza / Like a Dragon), The Warriors, Final Fight Streetwise, Beat Down: Fists of Vengeance, God Hand, Fighting Force, Dynamite Cop, The Bouncer, Midnight Fight Express, Sifu, Power Stone, Sleeping Dogs, Dynamite Deka EX, Crisis Beat, Die Hard Arcade, Crimson Tears, Mortal Kombat: Shaolin Monks, Def Jam: Fight for NY, Devil May Cry.
+- [x] P1-01 - RESEARCH: For each reference franchise / game, list mechanics relevant to this game: Tekken, Dead or Alive, Virtua Fighter 4 and 5, Mortal Kombat, Urban Reign, Ryu Ga Gotoku (Yakuza / Like a Dragon), The Warriors, Final Fight Streetwise, Beat Down: Fists of Vengeance, God Hand, Fighting Force, Dynamite Cop, The Bouncer, Midnight Fight Express, Sifu, Power Stone, Sleeping Dogs, Dynamite Deka EX, Crisis Beat, Die Hard Arcade, Crimson Tears, Mortal Kombat: Shaolin Monks, Def Jam: Fight for NY, Devil May Cry.
   Done when: Appendix B has one entry per game with mechanics and a source (official site, manual, or other reliable source). Unverifiable items are marked "unknown".
 - [ ] P1-02 - Normalize the research into one reference table: mechanic, which games use it, fits Modern Urban (yes / no), mobile complexity (low / medium / high), already in BREAKPOINT (yes / partial / no).
   Done when: the table is in Appendix B.
@@ -85,9 +85,9 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: Appendix C contains the full roster table.
 - [ ] P1-07 - Theme audit of existing content (names, arenas, creator options such as "Accent glow", effects, colors) against Modern Urban.
   Done when: each violation has a removal or rework task added to Phase 7, 8 or 9.
-- [ ] P1-08 - RESEARCH: Tournament format in Dragon Ball Budokai and Budokai Tenkaichi series (bracket size, eliminations, ring-out rules, rewards, multiplayer support).
+- [x] P1-08 - RESEARCH: Tournament format in Dragon Ball Budokai and Budokai Tenkaichi series (bracket size, eliminations, ring-out rules, rewards, multiplayer support).
   Done when: Appendix B has the verified rules with sources; unknown items marked "unknown".
-- [ ] P1-09 - RESEARCH: how other browser and console fighting games do online play (delay-based vs rollback, input delay values, peer count, desync handling).
+- [x] P1-09 - RESEARCH: how other browser and console fighting games do online play (delay-based vs rollback, input delay values, peer count, desync handling).
   Done when: Appendix B has a summary with sources and a recommendation for P12-02.
 
 ## Phase 2 - Controls overhaul (mobile first)
@@ -384,6 +384,355 @@ never both. Dash is Removed completely.
 ## Appendix B - Research log
 
 (Filled by RESEARCH tasks. One entry per item: topic, finding, source, verified yes / no / unknown.)
+
+## P1-01 - Reference games (researched 2026-10-28)
+
+One entry per game or franchise: gameplay mechanics relevant to BREAKPOINT, in our own words. Items no source confirmed are marked "unknown".
+
+#### Tekken
+- Limb-per-button attacks: each of the four limbs has its own button instead of light/medium/heavy strength.
+- Sidestep and 3D movement: sidesteps into/out of the screen from Tekken 3; Tekken 4 added uneven arenas with walls and obstacles.
+- Neutral guard: from Tekken 2 standing/retreating auto-blocks high and mid, crouching blocks low; holding back gives a stronger active guard.
+- Parries and reversals: some characters can catch and reverse incoming attacks.
+- Throws and positional throws: throws exist; Tekken 4 made side and back throws hit harder to reward flanking.
+- Recovery rolls: from Tekken 3 a downed fighter can roll to recover, risking a hit while rolling.
+- Juggles, bounds, wall combos: airborne opponents can be kept in combos; later games added bound hits, power crushes (uninterruptible moves) and wall stun/bound.
+- Rage / Heat: comeback damage boost near defeat (Tekken 6/7, Rage Arts super), Heat mode in Tekken 8 pushes aggression.
+- Destructible stages: Tekken 6 breakable floors and walls; Tag 2 balcony breaks drop the fight to a lower level.
+- Side modes: Tekken Force (side-scrolling brawler vs many enemies), Tekken Ball, Survival, Tag (2v2), Scenario Campaign playable online.
+- Sources: https://en.wikipedia.org/wiki/Tekken
+- Verified: partly (customization and detailed online systems unknown; only first 100k chars of the article read)
+
+#### Dead or Alive
+- Strike / throw / hold triangle: strikes beat throws, throws beat holds, holds beat strikes, forcing mixups.
+- Four-button simplicity: punch, kick, throw (hold), guard keep inputs small.
+- Counter holds: guard plus direction at the right moment catches an incoming strike; direction must match the attack height/type.
+- Danger zones: ledges, walls, explosives and breakable structures add extra damage; can knock out a low-health fighter.
+- Multi-level arenas: stages grew from rings to multi-level areas; falls down levels hurt.
+- Free 3D movement: sidestepping makes most attacks dodgeable (DOA3).
+- Tag mode: switch partners mid-combo, tag throws for pairs, 4-player tag; partner can strike on entry.
+- Costume customization (DOA6), many alternate outfits.
+- Online play early in the genre (Ultimate onward).
+- Sources: https://en.wikipedia.org/wiki/Dead_or_Alive_(franchise)
+- Verified: partly (progression/story structure and exact stun/critical-hit rules unknown; only first 100k chars read)
+
+#### Virtua Fighter 4 and 5
+- Three-button core: punch, kick, guard (plus directions); widely known as the franchise control scheme (not confirmed in the fetched article).
+- Throws: startup lengthened (8 to 12 frames in VF5); zero-frame instant throws in guaranteed situations such as after an evade.
+- Throw clash: timing a throw against an incoming attack cancels it and returns both to neutral.
+- Evade and Offensive Move: Punch+Kick+Guard during an evade starts an angled forward dash; follow-ups can stagger/crumple for a guaranteed combo.
+- Walls and rings: ring size, weight and walls vary per stage; wall breaks only on a strong hit against a breakable wall.
+- Bound system (VF5 R onward): juggled opponents can be bounced off the ground to extend combos; depends on weight and stage.
+- Ring-outs: not confirmed in fetched text (series known for them; unverified).
+- Quest mode: arcade-hopping progression with unlockable items; details unknown.
+- Customization: cosmetic items, mainly DLC and R.E.V.O. editions.
+- Online: Xbox 360 only, 2 players; PS3 none at launch.
+- Sources: https://en.wikipedia.org/wiki/Virtua_Fighter_5
+- Verified: partly (three-button scheme, ring-outs, VF4 differences, Quest details unverified)
+
+#### Mortal Kombat
+- Dedicated block button: early cabs had high/low punch, high/low kick and block; MK3 added a run button.
+- Finishers: character-specific fatalities, plus animalities, brutalities, babalities; Armageddon let players build their own.
+- Stage fatalities: finishing by using the arena (spikes, acid pit); other arena interaction not confirmed.
+- Weapon styles: Deadly Alliance to Deception gave each fighter 2 unarmed + 1 weapon style; Armageddon reduced to two.
+- Style switching removed in MK vs DC for a larger special-move set.
+- Konquest: free-roam action-adventure mode in Deception and Armageddon.
+- Minigames: Chess Kombat, Puzzle Kombat, Motor Kombat.
+- Create-a-finisher (Kreate-A-Fatality) as customization.
+- X-ray / fatal blow, krypt, towers, kustomization, online: unknown (not in the read portion).
+- Sources: https://en.wikipedia.org/wiki/Mortal_Kombat_(franchise)
+- Verified: partly (X-ray moves, towers, krypt, kustomization, story mode structure, online unknown)
+
+#### Urban Reign
+- Multi-enemy brawling: AI and human fighters share the screen; one move can hit several foes.
+- Grapples and counters: low, high and aerial grapples; counter and counter-of-counter animations per character.
+- Combos: three quick presses, the third launches the target.
+- One-button timed defense: well-timed press neutralizes an attack; dodge plus direction can reverse it.
+- Weapons and environment: pick up weapons, throw objects, use surroundings.
+- AI partners: player can issue orders to computer allies.
+- Special arts: two-button super moves from a charged meter; cannot be countered except by another special; can be buffered.
+- Multiplayer: up to 4 players, arcade-style modes; roster of 60 including Tekken guests.
+- Story structure: brawler-for-hire clears gangs of Green Harbor to find a kidnapped member (details brief).
+- Character creation, mission structure, full control scheme: unknown.
+- Sources: https://en.wikipedia.org/wiki/Urban_Reign
+- Verified: partly (character creation, mission structure, lock-on, controls unknown)
+
+#### Ryu Ga Gotoku (Yakuza / Like a Dragon)
+- Multiple fighting styles: some entries let you swap styles; Majima and Shinada use unbreakable signature weapons.
+- Heat actions: filling a heat gauge unlocks context-sensitive finishers, some with quick-time events.
+- Street objects as weapons: grab objects, take dropped weapons, buy weapons in shops.
+- Random encounters: enemies approach while exploring and trigger a fight.
+- XP progression: battles give experience that raises stats; side stories give extra XP.
+- Crafting and gear: weapon/gear crafting, Coliseum tournaments.
+- Mini-games: bowling, darts, arcade, gambling, karaoke, cabaret management, racing.
+- Turn-based shift: Like a Dragon (2020) switched to turn-based RPG with party; Judgment spin-offs stay real-time.
+- Lock-on: unknown (not in source).
+- Sources: https://en.wikipedia.org/wiki/Yakuza_(franchise)
+- Verified: partly (lock-on, multi-enemy handling specifics, controls unknown)
+
+#### The Warriors (2005)
+- Gang rumbles with allies: one to eight AI Warriors fight alongside you; you control one per mission.
+- Light/heavy/grab/throw combos: 2-3 input strings; pause menu lists techniques (combos, wall smashes, charges, counters, weapon attacks).
+- Grab and grapple gauge: grabs trigger character power moves; a gauge drains while grabbing or mounting.
+- Rage meter: fills over time; when full gives stronger combos, finishers and brief invincibility.
+- Flash item: heals and revives knocked-out allies.
+- Weapons and loot: enemy drops, shops for knives, spray cans; gear upgrades (brass knuckles, boots).
+- Fixed-order missions: beating up gangs, stealing, chases; hub at Coney Island for training and talking.
+- Crime and police: mugging, graffiti, cops respond; stealth takedowns of rival scouts who call backup.
+- Checkpoint failure: health out fails the mission; resume from checkpoint.
+- Multiplayer: 2-player co-op and Rumble Mode free-for-all; lock-on unknown.
+- Sources: https://en.wikipedia.org/wiki/The_Warriors_(video_game)
+- Verified: partly (lock-on and button layout unknown)
+
+#### Final Fight: Streetwise
+- 3D beat 'em up in Metro City with story mode and a simpler arcade mode.
+- Arcade mode: 1-2 players, stripped-down brawler without upgrades, counters or instinct moves; ends when life bar empties.
+- Gym training upgrades: story mode Kyle trains at gyms to expand his moveset.
+- Money economy: earned from pit fights and side missions to pay for training.
+- Instinct system: counter enemy attacks and strengthen own (single unsourced claim).
+- Roaming the city for investigation; mechanics of roaming unknown.
+- Story minigames: ten, including arm-wrestling, slide puzzles, shooting contests.
+- Checkpoint saves.
+- Grapples, weapons, lock-on, environment interaction: unknown (not in source).
+- Sources: https://en.wikipedia.org/wiki/Final_Fight:_Streetwise
+- Verified: partly (grapples, weapons, lock-on, environment unknown)
+
+#### Beat Down: Fists of Vengeance
+- Negotiation: after wearing a target down (low health/pride, weapon or taunt helps), the player can talk instead of fight; success ends the fight.
+- Recruiting: nearly any NPC can be recruited into the crew, in conversation or mid-fight; failure can start a fight.
+- Crew in missions: recruited NPCs join missions and unlock minigames based on their skills.
+- Rob / interrogate options: out of fights the player can swindle or ask NPCs, or interrogate defeated enemies for information; refusal can lead to a fight.
+- Combat range: unarmed combat, melee weapons, later firearms; combos are learned from NPCs for cash or at a skill level.
+- Street fights lock the area so the player cannot chase enemies away.
+- Group battles and vs. fighting are separate formats (review called both only okay).
+- Dodge/block/grapple detail: unknown.
+- Sources: https://en.wikipedia.org/wiki/Beat_Down:_Fists_of_Vengeance; https://gameinformer.com/b/features/archive/2018/06/01/replay-beat-down-fists-of-vengeance
+- Verified: partly (defense, grapple, lock-on, multiplayer unknown)
+
+#### God Hand
+- Customizable move set: over a hundred moves, player assigns attacks to face buttons to build own combos.
+- God Reel (roulette): chosen special moves cost 1-3 orbs; orbs found via Skull Cards; wheel opens with a shoulder button, slows time, and is cancelled if the player is hit.
+- Orb capacity: two at start, upgradable by purchase; max is 5 or 6 depending on source (unverified which).
+- Right-stick dodge: four directional evasive moves on the right analog stick.
+- Tension gauge: filled by hits, taunts, and dodges; at full the player enters God Hand mode (invincible, stronger and faster attacks).
+- Lock-on target: roulette use forces facing the locked target (multi-enemy handling).
+- Move shop/economy: moves bought and upgraded (shop detail not source-checked).
+- Taunting as a risk/reward mechanic: gives gauge but exposes player.
+- Regional differences: some moves differ between JP and western versions (gore).
+- Sources: https://en.wikipedia.org/wiki/God_Hand; https://godhandcapcom.fandom.com/wiki/File:RWOrbs.jpg
+- Verified: partly (orb cap, shop details, enemy difficulty scaling unknown)
+
+#### Fighting Force
+- Four playable characters, each with different strengths and one health-costing special move.
+- Pick-up objects: street posts and railings can be torn out and used as weapons.
+- Breakables: car trunks can be hit open to drop weapons; many objects are destructible and yield parts to attack with.
+- Weapon variety: knives, guns, chairs, trash cans, tires, cans (cars also listed).
+- Simple three-button control scheme similar to Die Hard Arcade (per a 1997 preview).
+- Crowd density: up to six enemies on screen at once.
+- Branching paths: some levels offer multiple route choices (counts disagree between sources).
+- Multiplayer co-op: unknown (not confirmed in results).
+- Grapple/throw detail: unknown.
+- Sources: https://en.wikipedia.org/wiki/Fighting_Force; https://www.mobygames.com/game/3191
+- Verified: partly (grapples, block, co-op, lock-on unknown)
+
+#### Dynamite Cop (Dynamite Deka 2)
+- Simple controls: punch, kick, grab, plus a 360 spin attack that hits all surrounding enemies (other buttons not verified).
+- Grab leads into a chain of submission/throw moves; grabbing is central.
+- Environment weapons: firearms and everyday items; chairs, urinals, even other enemies can be used.
+- Power-up combo: collecting six power-ups or one super power-up grants a temporary strong attack chain.
+- Harder Showdown mode unlocked as extra content.
+- Short length noted as a main flaw by reviewers (pacing lesson).
+- VMU hint: handheld sound when near hidden illustrations (collectible hint idea).
+- Block/dodge, co-op, character select: unknown.
+- Sources: https://planetdc.segaretro.org/games/reviews/dynamitecop/; https://www.hardcoregaming101.net/dynamite-cop/
+- Verified: partly (button count, block, multiplayer unknown)
+
+#### The Bouncer
+- Pressure-sensitive attacks: face buttons map to high/mid/low; tap gives weak blow, hold/mash gives slower stronger blow.
+- Ragdoll physics: enemies launch into the air, enabling juggles.
+- Bouncer Points: awarded after clearing areas; spent on power/life/defense stats or new special moves.
+- Three playable characters with distinct styles; player picks one after each cutscene and story branches accordingly.
+- Short segments between cutscenes (very cinematic structure; reviewers cited short length and camera problems).
+- Versus/multiplayer modes: unknown (not confirmed here).
+- Block/grapple/lock-on detail: unknown.
+- Sources: https://en.wikipedia.org/wiki/The_Bouncer_(video_game); https://www.gamespot.com/reviews/the-bouncer-review/1900-2692332/
+- Verified: partly (defense, grapples, multiplayer unknown)
+
+#### Midnight Fight Express
+- Simple core inputs: one attack button and one dodge button; block and counter are timing based.
+- Parry and counter skills: parry followed by counterattack, some with kick or knockdown follow-ups.
+- Skill tree: one upgrade point per level completed, each upgrade costs one point, about 40 upgrades; points not refundable but skills can be toggled/assigned.
+- Gated trees: rope and secondary gun trees unlock later in story.
+- Grab and chain-finisher skills exist.
+- Weapons and secondary guns: gun ammo can carry effects such as electric stun.
+- Rolling away from gunfire is a key defensive tactic.
+- Mission scoring and ratings; challenges unlock cosmetics (customization).
+- Practice mode: test moves against chosen enemies and weapons.
+- Some missions add obstacles breaking up the brawling.
+- Sources: https://www.thegamer.com/midnight-fight-express-skills-upgrades-explained-guide/; https://checkpointgaming.net/reviews/2022/08/midnight-fight-express-review-the-john-wick-experience/
+- Verified: partly (lock-on, co-op, environment destruction details unknown)
+
+#### Sifu
+- Structure bar (posture): hits and blocked hits fill enemy bar; when full the enemy breaks and can be finished. Player bar fills when blocking and recovers over time or by evasion.
+- Defense set: block, dodge, parry, and deflect (lean/duck high or low hits without moving, can recover structure).
+- Perfect parry stuns enemy and opens a counter.
+- Focus: spendable resource for special attacks and guard-breaks (least-detailed, partly verified).
+- Aging on death: each death ages the character and raises death count; sources disagree on age effects (health loss vs. unlocking skills), and some skills tie to age.
+- Permanent skill unlocks: experience is gained by dying; linear run of levels.
+- Stance/style system and emphasis on dodging as the main differentiator.
+- Enemies block most attacks, forcing learned combos and dodging.
+- Multi-enemy handling, weapons, environment: unknown (not in results).
+- Sources: https://steventus.substack.com/p/deep-design-dive-sifu; https://gamingtrend.com/previews/sifu-preview-float-like-a-butterfly-sting-like-an-old-man
+- Verified: partly (focus, age effect disputed; weapons/environment/lock-on unknown)
+
+#### Power Stone / Power Stone 2
+- Arena brawling: 2 players (PS1) to 4 players (PS2) free-for-all in 3D arenas.
+- Item pickups: guns, swords, hammers, bombs offensive; food, shields, invisibility, wings defensive.
+- Power Stones: three collected from item boxes give a short super-powered transformation.
+- Heavy objects: only some characters lift heavy objects normally; others must transform first.
+- Interactive stages: arenas change during a match (e.g. airship falling apart into a skydive).
+- Simplified controls in PS2: one Attack button plus an Action button for grabbing items.
+- Adventure mode with unlockable items and cards; item crafting and trading add over 100 items.
+- Top-down-ish camera framing multiple fighters (described as top-down in one source).
+- Block/dodge, grapple/throw detail: unknown.
+- Sources: https://en.wikipedia.org/wiki/Power_Stone_2; https://powerstone.fandom.com/wiki/Power_Stone_(video_game)
+- Verified: partly (PS1 vs PS2 differences, defense, grapples unknown)
+
+#### Sleeping Dogs
+- Three-command melee: attack, grapple and counter are the core buttons, chained with movement; fights work with or without weapons.
+- Counter from any side: the counter button answers enemies attacking from any direction (defense is timing-based, not a dodge roll).
+- Grapple into environment: grabbing an enemy lets you drag them to scenery (hazards, objects) for environmental takedowns.
+- Environmental kills feed the face meter faster: rewards spectacle over plain hitting.
+- Breakable melee weapons: knives, tire irons, pans etc. wear out and break after extended use.
+- Scarce guns with cover and slow-motion shooting: firearms are limited, usually one carried, shooting is secondary to melee.
+- Three XP tracks: Triad XP (violence) unlocks combat upgrades, Face XP (civilian/side missions) unlocks cosmetics and the face meter, Police XP (low casualties/damage) unlocks gun skills.
+- Face meter: a full meter grants bonuses such as regeneration and higher damage.
+- Clothing/accessory customization: gear changes NPC reactions and can affect XP gain, damage, or heat (police attention).
+- Collectible-gated combos: collecting jade statuettes and returning them to a dojo unlocks new combos.
+- Sources: https://en.wikipedia.org/wiki/Sleeping_Dogs_(video_game)
+- Verified: partly (control scheme not verified; lock-on/multi-enemy targeting rules unknown; only first 100k chars of article read)
+
+#### Dynamite Deka EX (Asian Dynamite)
+- Item-based transformation: picking up items changes the character into different fighters with their own styles (series trait, from search summary).
+- Wield-anything weapons: series lets the player use many available objects as weapons.
+- Revised power-up system: EX is a revamped Dynamite Deka 2 with an upgraded power-up system and new graphics.
+- Three playable characters (Hong Kong setting): character roster differs from Deka 2.
+- Arcade only (Naomi), no home port: relevant only as a design reference.
+- Grab/throw, block, dodge, QTE, multi-enemy handling: unknown for EX specifically (parent series Die Hard Arcade has combined co-op moves and QTEs, see that entry).
+- Sources: https://www.hardcoregaming101.net/dynamite-deka-ex-asian-dynamite/ (search snippet only, page itself was down); https://gemubaka.com/2022/09/24/the-third-dynamite-deka-game-ex/ (snippet only)
+- Verified: partly (only search-snippet level; combat, grapple, defense details unknown)
+
+#### Crisis Beat
+- Waves-of-enemies stages: each stage is a set of enemy waves in full 3D; clear all to advance.
+- Hand-to-hand focus: fists, feet and scenery objects are used against enemies.
+- Four playable characters, two-player mode available.
+- Adaptive boss pick: the game picks a boss intended to counter the chosen character (per a secondary summary).
+- Unlockables: a harder difficulty and a story-less free mode.
+- Stealth/strategy element: only mentioned in publisher blurb; details unknown.
+- Special moves, grapples, defense, weapons: unknown.
+- Sources: https://en.wikipedia.org/wiki/Crisis_Beat
+- Verified: partly (structure only; move set, defense, weapons unknown)
+
+#### Die Hard Arcade (Dynamite Deka)
+- Rooms of minions then boss: each level is several rooms of enemy groups followed by a boss, with cutscenes between.
+- Pick-up weapons: weapons come from defeated enemies or the environment, from household items to heavy guns.
+- Item combining: items can be merged (spray plus lighter gives a flamethrower).
+- Weapon lifetime: most weapons vanish at the end of each action scene; handguns stay while they have ammo.
+- Quick time events between scenes: failing costs health or adds an extra action scene (a light branching/consequence mechanic).
+- Two-player co-op with combined special moves and combos.
+- Versus ending: if both players survive, they fight each other for the finale.
+- Fists and feet combat with a move set richer than typical beat-em-ups; grab/throw buttons not confirmed in sources read.
+- Sources: https://en.wikipedia.org/wiki/Die_Hard_Arcade
+- Verified: partly (button layout, throws/grabs, health model unknown)
+
+#### Crimson Tears
+- Dungeon-crawler structure: real-time combat in levels generated from templates, flat layouts.
+- Weapon-based beat-em-up with RPG elements: reader review describes it as beat-em-up merged with RPG.
+- Three playable characters with distinct abilities and combat styles.
+- Diverse weapon types (retail listing only; details unknown).
+- Criticized as repetitive (reception note).
+- Combos, lock-on, tag/switching, item use, leveling, customization: unknown (not found in sources).
+- Sources: https://en.wikipedia.org/wiki/Crimson_Tears; https://www.giantbomb.com/games/3030-2700/
+- Verified: partly (structure only; combat details unknown)
+
+#### Mortal Kombat: Shaolin Monks
+- Multi-directional combat: attack any surrounding enemy; combos carry across several enemies.
+- Juggles: strong attacks or throws launch enemies and combos continue in the air.
+- XP upgrades: experience from kills improves combos and special moves; combo count multiplies XP gain.
+- Environment hazards: pits and spiked rotating wheels are instant kills; destroying objects drives puzzles and secrets.
+- Fatality meter: landing combos fills a meter; when full, a Fatality can be done regardless of enemy health.
+- Multalities: unlockable finishers that hit multiple enemies at once.
+- Brutalities: grant stronger attacks for a limited time.
+- Two-player co-op (some areas/items need it), plus a versus mode in some arenas.
+- Controls and defense (block/dodge): unknown from sources read.
+- Sources: https://en.wikipedia.org/wiki/Mortal_Kombat:_Shaolin_Monks
+- Verified: partly (controls, block, lock-on unknown)
+
+#### Def Jam: Fight for NY
+- Five fighting styles (Streetfighting, Kickboxing, Martial Arts, Wrestling, Submissions); players use one to three; each has its own knockout finisher.
+- Controls: punch, kick, weak and strong grapple, timed block; grapple button also grabs weapons from floor/crowd, so you can pick up an item by accident (Cubed3, GameCube version).
+- Momentum meter: built by successful moves, countering and taunting; rate depends on Charisma stat, which gear (clothing, tattoos, jewelry) raises.
+- Blazin' Taunt and Blazin' Move: full meter unlocks a special move; created fighters can learn all but equip only four.
+- Two health bars: consciousness drains faster than physical wellness; low state triggers a knockout danger (red) state.
+- Submission holds wear down one body part's health bar; matches end by knockout or submission.
+- Environment: slam opponents into walls, doors, gates; crowd shoves fighters back, holds them, or offers weapons; stage hazards like a passing subway train.
+- Double-teaming: crowd members can help you or the opponent.
+- Career mode: cash for clothing, haircuts, tattoos, jewelry; development points at the gym raise skills and unlock moves/styles.
+- Customization: preset faces or custom eyes, nose, hair, voice; Cubed3 says no body editing and that created fighters are not carried through story mode (conflicts with Wikipedia's career description; treat as unverified). Multiplayer up to four players per Cubed3.
+- Sources: https://en.wikipedia.org/wiki/Def_Jam:_Fight_for_NY; https://www.cubed3.com/review/138/1/def-jam-fight-for-new-york-nintendo-gamecube.html
+- Verified: partly (character creation scope and multiplayer count rest on a single review)
+
+#### Devil May Cry (series)
+- Style rank D to S: graded on stylish play, time, currency and consumables; later games require varied attacks to keep rank.
+- Devil Trigger: temporary boosted form with more speed and damage, slow health regen, powers tied to the current weapon.
+- Weapon swapping: DMC2 added cycling ranged weapons; DMC3 added melee weapons and free swapping of weapons and styles; DMC5 has swappable Devil Breaker arms.
+- DMC3 styles: Trickster (dodging: dash upgrades, wall run, teleport), Swordmaster, Gunslinger, Royal Guard (timed block that stores energy for retaliation); style does not change base moves, it changes approach; styles level up through use.
+- Lock-on: DMC3 holds a shoulder button to lock on and a stick-click to change target (GameRevolution FAQ, default PS2 controls).
+- Devil Bringer (DMC4): pulls enemy to Nero or Nero to enemy, grapple points, context attacks and parries.
+- Aerial combos and dedicated evasion buttons from DMC2.
+- Red Orbs: currency for upgrades; DMC3 styles also gain separate experience.
+- Bloody Palace: arena survival/endurance mode (DMC2 onward).
+- DMC5 auto mode: simplified input that helps perform combos (accessibility option).
+- Sources: https://en.wikipedia.org/wiki/Devil_May_Cry; https://en.wikipedia.org/wiki/Devil_May_Cry_3:_Dante%27s_Awakening; https://www.gamerevolution.com/?p=30277
+- Verified: partly (lock-on behavior with multiple enemies and exact style-switch rules by game not verified; rest of Wikipedia article beyond 100k chars unread)
+
+## P1-08 and P1-09 - Tournament format and online play (researched 2026-10-28)
+
+#### P1-08 Budokai / Budokai Tenkaichi tournaments
+- Budokai 1 World Tournament bracket: tree-style elimination with between 8 and 20 competitors depending on setting; same rules as the anime tournament (source: https://en.wikipedia.org/wiki/Dragon_Ball_Z:_Budokai_(video_game), seen via search snippet) [verified, Wikipedia only]
+- Budokai 1 difficulty: three levels, Novice (3 rounds), Adept (4 rounds), Advanced (5 rounds); each must be cleared to unlock the next (source: Wikipedia Budokai page; https://thenortherner.com/news/2003/01/14/fight-to-the-finish-with-dragonball-z-budokai) [verified]
+- Budokai 1 rewards: prize money by finishing place (1st or 2nd), spent in the shop on capsules for customizing characters (source: https://www.gamingnexus.com/Article/401/Dragon-Ball-Z-Budokai-; Wikipedia Budokai page confirms money from tournament wins buys custom-fighter abilities) [verified]
+- Budokai 1 ring-outs: reviews say reaching the ring edge risks a ring-out loss (source: gamingnexus review above) [verified, review level only; exact rule detail unknown]
+- Budokai 3 World Tournament: player fights computer opponents for prizes/cash; three difficulty levels with different opponent counts and better prizes at higher levels (source: https://en.wikipedia.org/wiki/Dragon_Ball_Z:_Budokai_3) [verified; exact counts and prize values unknown]
+- Budokai 3 human players: up to 8 humans can join, but with more than one human no prizes are awarded (source: same Wikipedia page, flagged there as needing citations) [verified, weak source]
+- Budokai 3 Cell Games: separate tournament in the Cell ring, no ring-outs, fusions allowed (source: same page) [verified]
+- Budokai 3 regular tournament ring-out rule: not stated in sources found [unknown]
+- Budokai 2 tournament: has a tournament mode and money spent in an item shop; bracket size, difficulty, ring-out, human count [unknown] (source: Wikipedia Budokai page; Giant Bomb page returned 403)
+- Budokai Tenkaichi 3: tournaments (Cell Games, World Tournament, Otherworld Tournament) sit inside the Dragon World Tour mode, are unlocked by an in-game clock, and the player cannot pick their difficulty; a guide says the World Tournament uses ring-outs (source: https://worthplaying.com/article/2007/11/3/previews/46455-ps2wii-preview-dragon-ball-z-budokai-tenkaichi-3/ and https://www.supercheats.com/playstation2/dragon-ball-z-budokai-tenkaichi-3/31086/easy-world-tournament/, via search snippets) [verified, low depth]
+- Budokai Tenkaichi 1, 2, 3: bracket size, time limit, judging on time-out, prize money, human-player count, AI fill [unknown] (no accessible source; Fandom and Giant Bomb were blocked)
+- Budokai 1/2/3 time limit and time-out judging [unknown]
+- Canon (anime/manga) tournament rules, useful as design model: loss by touching ground outside the ring, a ten-count knockout, or giving up; preliminary mini-tournaments use one-minute matches decided by points (source: https://www.kanzenshuu.com/wiki/21st_Tenka'ichi_Bud%C5%8Dkai and https://smashbroslawlorigins.fandom.com/wiki/World_Martial_Arts_Tournament, via search snippets) [verified for canon, not for the games]
+
+#### P1-09 Online play for fighting games in the browser
+- Delay-based netcode: holds local input back so it lines up with remote input; the sim cannot advance until all inputs for a frame arrive, so high latency causes freezes (source: https://en.wikipedia.org/wiki/Netcode) [verified]
+- Rollback netcode: local input runs at once, remote input is predicted (usually "same as last tick"); on a wrong guess the state is restored and re-simulated; some games add a small fixed input delay to cut visible jumps (source: https://en.wikipedia.org/wiki/Netcode) [verified]
+- GGPO: predicts the remote input, advances immediately, and rolls back and re-simulates when the real input differs; rollback frames are not drawn; GGPO's own text puts the no-prediction lag at about 1 to 9 frames at 60 fps (5 to 150 ms) (source: https://github.com/pond3r/ggpo/blob/master/doc/README.md) [verified]
+- GGPO sync test: a mode that checks your save/step code is deterministic (source: same README) [verified]
+- GGPO desync detection: only via mismatch of predicted vs real input; no checksum exchange described in the README (source: same README) [verified]; typical checksum practice (peers exchange a state hash every N frames) [unknown, not sourced]
+- Typical input delay and rollback-window frames in shipped games (for example 2 frames delay, 7-8 frame max rollback) [unknown, not sourced]
+- Rollback games listed on Wikipedia: Street Fighter V, Killer Instinct, Mortal Kombat 11, Guilty Gear Strive, Street Fighter 6, Tekken 8, Dragon Ball FighterZ (source: https://en.wikipedia.org/wiki/Netcode) [verified]
+- Skullgirls skips one frame every seven so drifting machines resynchronize (source: same page) [verified]
+- Peer count / spectators in fighting games: [unknown, not sourced]. Fighting games are normally 2 peers; spectators not covered by sources found.
+- RTCDataChannel unreliable/unordered: createDataChannel with ordered:false plus maxRetransmits:0 (or maxPacketLifeTime) gives unordered, no-resend delivery; only one of the two limits may be set or a SyntaxError is thrown (source: https://developer.mozilla.org/en-US/docs/Web/API/RTCPeerConnection/createDataChannel) [verified]
+- CSP connect-src scope: MDN lists fetch, XHR, WebSocket, EventSource, sendBeacon, ping, fetchLater; RTCPeerConnection is not listed (source: https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Headers/Content-Security-Policy/connect-src) [verified]
+- CSP3 spec defines a `webrtc` directive (values 'allow' / 'block', section 6.2.1) and a pre-connect check, but it is still draft (source: https://www.w3.org/TR/CSP3/) [verified for existence]; spec text of the directive was not read
+- webrtc directive browser support: one third-party doc site says Chrome, Firefox and Safari do not implement it, and that data channels bypass connect-src (source: https://next.centralcsp.com/en/docs/web-security/policies/content-security-policy/directives/webrtc; 2018 W3C thread https://lists.w3.org/Archives/Public/public-webrtc/2018Jan/0109.html agrees connect-src does not cover data channels) [verified, weak: single secondary source]; MDN page for the directive returned 404
+- Practical consequence: a strict page CSP with connect-src 'none' should not block WebRTC today, but this may change if `webrtc` ships [partly verified, see above]
+- Host candidates need no STUN: they come from binding local interface addresses (source: https://www.rfc-editor.org/rfc/rfc8445, section 5.1.1.1) [verified]
+- mDNS host candidates: browsers replace local IPs with random UUID.local names; the remote peer resolves them via multicast DNS, so same-LAN peers can connect directly; if mDNS is blocked or resolution fails, ICE falls back to NAT hairpinning or TURN; the draft's own tests all configured a STUN server, so the no-STUN case is not directly confirmed (source: https://datatracker.ietf.org/doc/html/draft-ietf-rtcweb-mdns-ice-candidates) [verified; no-STUN LAN case inferred]
+- Without TURN: peers behind symmetric NAT or UDP-blocking firewalls generally cannot connect; with only host candidates it works on the same network only (source: MDN connectivity page https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Connectivity covers candidate types; the failure statements are general knowledge and not stated there) [partly verified]
+- Copy-paste signaling: no source needed; offer/answer SDP is plain text, but trickle ICE must be waited out (gather all candidates before copying) [unknown, not sourced]
+- Recommendation for P12-02: use delay-based lockstep first. With 60 Hz deterministic sim, a star topology of 2-4 peers and LAN first, one-way latency is about 1-5 ms, so a fixed input delay of 2-3 frames (about 33-50 ms), raised automatically to 4-6 frames for WAN, is enough and avoids storing/restoring state for up to 4 fighters. The host collects inputs for frame N+delay from every peer, relays the full set, and each peer steps only when it has all inputs; stall the sim if one is missing. Send inputs redundantly (last few frames in each packet) over an ordered:false, maxRetransmits:0 data channel so loss costs nothing. Exchange a state checksum every ~60 frames to detect desync early. Rollback is a later upgrade only if the sim exposes cheap save/restore, because with 3-4 peers the prediction misses multiply.
 
 ## Appendix C - Decision log
 
