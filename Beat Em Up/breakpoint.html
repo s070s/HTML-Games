@@ -189,6 +189,8 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .tag.p2{border-color:var(--a2)}
 .tag.lk{border-color:#ffe066;box-shadow:0 0 0 2px rgba(255,224,102,.55)}   /* P4-05: the lock-on marker is the locked enemy's own name tag in gold with a chevron under it; no extra element */
 .tag.lk::after{content:"\25BC";position:absolute;left:50%;top:100%;transform:translateX(-50%);color:#ffe066;font-size:1.5em;line-height:1;text-shadow:0 0 3px #000,0 0 6px #000}
+.edge{position:absolute;left:0;top:0;width:0;height:0;pointer-events:none;will-change:transform}   /* P4-06: arrow at the screen edge towards an off-screen attacker; rotated to point outward */
+.edge::before{content:"\25B6";position:absolute;left:-.6em;top:-.6em;font-size:1.6em;line-height:1;color:#ff5a4a;text-shadow:0 0 3px #000,0 0 6px #000}
 .tag i{font-style:normal;color:#ffe066;margin-left:.4em}
 .tag s{display:block;height:3px;margin-top:2px;background:#4a1020;text-decoration:none}
 .tag s u{display:block;height:100%;background:#ff7aa6;text-decoration:none}
@@ -1835,13 +1837,38 @@ const Quality = {
 };
 
 /* ---------- camera ---------- */
-const CAMERA_THREAT_RANGE = 6.5;      // brawl camera: living enemies this close to the player are kept in view
+/* Brawl camera (P4-06); the rules are in Appendix C of the tasklist. Everything here is outside the simulation: it reads the fighters and never changes them. */
+const CAMERA_THREAT_RANGE = 6.5;      // brawl camera: living enemies this close to the player are kept in view ...
+const CAMERA_THREAT_LEAVE = 7.5;      // ... and a framed one is dropped only beyond this (the gap keeps an enemy on the edge from flickering in and out)
+const CAMERA_MAX_PLAYERS = 4;         // fighters of the player team that are framed together (co-op, P4-07)
+const CAMERA_FIGHTER_HEIGHT = 2.0;    // m above the feet that has to stay on screen (the head; the name tag sits just above it)
+const CAMERA_SAFE_X = 0.8, CAMERA_SAFE_Y = 0.72;   // the screen's safe zone (-1..1 across the view): players and locked enemies are kept inside it
+const CAMERA_KEEP_PASSES = 4;         // corrections per frame (a pull-back changes what the next shift has to be)
+const CAMERA_VERT_SLACK = 1.0;        // m of height difference between the framed fighters that needs no extra distance (a jump, a crate)
+const CAMERA_AZ_LIMIT = 0.55, CAMERA_AZ_BIAS = 0.18;   // the azimuth follows the fighter axis within +-LIMIT of straight on, plus BIAS towards the +z side
+const CAMERA_ELEV_MAX = 1.15;         // rad: the steepest pitch the occlusion fix may use (66 degrees: clears a 1.9 m screen with a fighter 0.3 m behind it)
+const CAMERA_CHEST = 1.3;             // m above the feet: the point on a player the camera has to see
+const CAMERA_OCCLUSION_GRACE = 0.3;   // s a player may stay hidden behind scenery before the camera moves
+const CAMERA_OCCLUSION_RELEASE = 0.6; // s the normal view has to be clear before a swing is undone
+const CAMERA_EYE_SPREAD = 0.3;        // m: a view only counts as clear when it is also clear from this far to each side of the eye (no grazing an edge)
+/* [azimuth offset, pitch offset, aim at the players] tried in this order: first small moves round the prop, then a steeper view, then the same centred on the players (the
+   camera looks along the line to the group, so a prop beside a fighter at the group's edge needs the view from right above/behind it). Azimuth stays inside its limits, pitch inside CAMERA_ELEV_MAX. */
+const CAMERA_OCCLUSION_TRIES = [[0.25, 0, 0], [-0.25, 0, 0], [0.5, 0, 0], [-0.5, 0, 0], [0, 0.3, 0], [0.25, 0.3, 0], [-0.25, 0.3, 0], [0, 0.7, 0],
+  [0.25, 0, 1], [-0.25, 0, 1], [0.5, 0, 1], [-0.5, 0, 1], [0, 0.7, 1], [0.25, 0.7, 1], [-0.25, 0.7, 1]];
+const CAMERA_SWING_ELEV_RATE = 8, CAMERA_SWING_TARGET_RATE = 10;   // 1/s: how fast pitch and aim follow a swing (a normal drift uses 2 and 6)
+const CAMERA_EDGE_PAD = 30;           // px: how far inside the screen edge the arrow for an off-screen attacker sits
 const Camera = {
   pos: [0, 4, 9], target: [0, 1, 0], baseFov: 0.8, fov: 0.8, az: 0.2, dist: 8, elev: 0.46,
   shakeAmp: 0, fovPulse: 0, dirRight: [1, 0], dirFwd: [0, -1], aspect: 1.78,
   view: M4.create(), proj: M4.create(),
   snapNext: true,
   jx: 0, jy: 0, jz: 0,
+  // brawl framing state (P4-06); all of it is scratch or smoothing memory, allocated once
+  players: [], playerCount: 0,             // the player team's fighters in the frame (the lead is first)
+  keys: [], keyCount: 0,                   // x, y, z triples: feet and head of every player and locked enemy, which must stay in the safe zone (the lead's first)
+  framed: new Array(16).fill(false), framedFor: null,   // per fighter index: framed on the last call (hysteresis), and for which fighter list
+  occTime: 0, occClear: 0, occAz: 0, occElev: 0, occFocus: 0,   // seconds a player has been hidden / the normal view has been clear; the swing away from the normal view
+  eye: [0, 0, 0], base: [0, 0, 0, 0, 0, 0],   // scratch: an eye position; the normal view the swing is measured from (azimuth, pitch, aim x, aim z, arena half-extents)
 
   impact(shake, pulse) {
     if (Settings.v.reducedMotion) return;
@@ -1854,66 +1881,221 @@ const Camera = {
     this.frame(dt, def, (a.x + b.x) / 2, (a.z + b.z) / 2, Math.max(a.y, b.y), b.x - a.x, b.z - a.z);
   },
 
-  /* A brawl (P4-01): frame the player and the enemies near it (frameFighters), looking along the line from the player to the threats' centre. P4-06 refines this. */
-  box: { minX: 0, maxX: 0, minZ: 0, maxZ: 0, maxY: 0, sumX: 0, sumZ: 0 },
+  /* A brawl (P4-01, P4-06): frame the players and the enemies near them (frameFighters), looking along the line from the players to the threats' centre.
+     Smoothing and hysteresis, then keepInFrame (nobody who matters leaves the screen) and updateOcclusion (scenery never hides a player for long). */
+  box: { minX: 0, maxX: 0, minZ: 0, maxZ: 0, minY: 0, maxY: 0, sumX: 0, sumZ: 0, playerX: 0, playerZ: 0 },
+  /* Fills the box and the key points with: every living fighter of the lead's team (the lead even when out); the enemies within CAMERA_THREAT_RANGE of any of them (a framed
+     enemy stays until CAMERA_THREAT_LEAVE); the enemy each player has locked, however far (the lock's own release range ends that); or, with none close, the nearest enemy.
+     Returns how many fighters are in the box. */
   frameFighters(fighters) {
-    const p = fighters[0], box = this.box;
-    box.minX = box.maxX = p.x; box.minZ = box.maxZ = p.z; box.maxY = p.y; box.sumX = box.sumZ = 0;
-    let count = 1, nearest = null, nearestSq = Infinity;
-    for (let i = 1; i < fighters.length; i++) {
+    const box = this.box, players = this.players, framed = this.framed, lead = fighters[0];
+    if (this.framedFor !== fighters) { this.framedFor = fighters; framed.fill(false); }
+    box.minX = box.minZ = box.minY = Infinity; box.maxX = box.maxZ = box.maxY = -Infinity; box.sumX = box.sumZ = box.playerX = box.playerZ = 0;
+    this.keyCount = 0;
+    let playerCount = 0;
+    for (let i = 0; i < fighters.length && playerCount < CAMERA_MAX_PLAYERS; i++) {
       const f = fighters[i];
-      if (f.team === p.team || !f.alive) continue;
-      const dx = f.x - p.x, dz = f.z - p.z, sq = dx * dx + dz * dz;
-      if (sq < nearestSq) { nearestSq = sq; nearest = f; }
-      if (sq <= CAMERA_THREAT_RANGE * CAMERA_THREAT_RANGE) { this.addToBox(f); count++; }
+      if (f.team !== lead.team || (!f.alive && f !== lead)) continue;
+      players[playerCount++] = f;
+      box.playerX += f.x; box.playerZ += f.z;
+      this.addToBox(f); this.addKey(f);
     }
-    if (count === 1 && nearest) { this.addToBox(nearest); count++; }   // nobody close: still keep the nearest enemy in view
-    return count;
+    this.playerCount = playerCount;
+    let threats = 0, nearest = null, nearestSq = Infinity;
+    for (let i = 0; i < fighters.length; i++) {
+      const f = fighters[i], wasFramed = framed[i];
+      framed[i] = false;
+      if (f.team === lead.team || !f.alive) continue;
+      let sq = Infinity;
+      for (let k = 0; k < playerCount; k++) { const dx = f.x - players[k].x, dz = f.z - players[k].z; sq = Math.min(sq, dx * dx + dz * dz); }
+      if (sq < nearestSq) { nearestSq = sq; nearest = f; }
+      const range = wasFramed ? CAMERA_THREAT_LEAVE : CAMERA_THREAT_RANGE;
+      if (sq <= range * range) { framed[i] = true; this.addThreat(f); threats++; }
+    }
+    for (let k = 0; k < playerCount; k++) {
+      const locked = players[k].lockOn;
+      if (!locked || !locked.alive || locked.team === lead.team) continue;
+      if (!framed[locked.index]) { framed[locked.index] = true; this.addThreat(locked); threats++; }
+      this.addKey(locked);
+    }
+    if (threats === 0 && nearest) { this.addThreat(nearest); threats++; }   // nobody close: still keep the nearest enemy in view
+    return playerCount + threats;
   },
   addToBox(f) {
     const box = this.box;
-    box.minX = Math.min(box.minX, f.x); box.maxX = Math.max(box.maxX, f.x); box.minZ = Math.min(box.minZ, f.z); box.maxZ = Math.max(box.maxZ, f.z); box.maxY = Math.max(box.maxY, f.y);
-    box.sumX += f.x; box.sumZ += f.z;
+    box.minX = Math.min(box.minX, f.x); box.maxX = Math.max(box.maxX, f.x); box.minZ = Math.min(box.minZ, f.z); box.maxZ = Math.max(box.maxZ, f.z);
+    box.minY = Math.min(box.minY, f.y); box.maxY = Math.max(box.maxY, f.y);
+  },
+  /* An enemy in the frame: in the box, and in the sums that give the average threat position (the camera axis). */
+  addThreat(f) { this.addToBox(f); this.box.sumX += f.x; this.box.sumZ += f.z; },
+  addKey(f) {
+    const keys = this.keys, n = this.keyCount * 3;
+    keys[n] = f.x; keys[n + 1] = f.y; keys[n + 2] = f.z;
+    keys[n + 3] = f.x; keys[n + 4] = f.y + CAMERA_FIGHTER_HEIGHT * f.scale; keys[n + 5] = f.z;
+    this.keyCount += 2;
   },
   followGroup(dt, fighters, def) {
-    const p = fighters[0], box = this.box, threats = this.frameFighters(fighters) - 1;
+    if (this.snapNext) this.resetGroup();
+    const box = this.box, threats = this.frameFighters(fighters) - this.playerCount;
     const extent = Math.hypot(box.maxX - box.minX, box.maxZ - box.minZ);
-    const ax = threats > 0 ? box.sumX / threats - p.x : 0, az = threats > 0 ? box.sumZ / threats - p.z : 0;   // the camera axis: the player towards the average threat
+    const ax = threats > 0 ? box.sumX / threats - box.playerX / this.playerCount : 0, az = threats > 0 ? box.sumZ / threats - box.playerZ / this.playerCount : 0;   // the camera axis: the players towards the average threat
     // frame() reads the fighter axis length as the separation; the bounding extent is what has to fit on screen
-    this.frame(dt, def, (box.minX + box.maxX) / 2, (box.minZ + box.maxZ) / 2, box.maxY, ax, az, extent);
+    this.frame(dt, def, (box.minX + box.maxX) / 2, (box.minZ + box.maxZ) / 2, box.maxY, ax, az, extent, true);
+  },
+  /* A new fight or a restart: forget the hysteresis and any occlusion swing. */
+  resetGroup() {
+    this.framed.fill(false); this.framedFor = null;
+    this.occTime = this.occClear = 0; this.occAz = this.occElev = this.occFocus = 0;
   },
 
-  /* The shared framing: centre (mx, mz), the highest fighter, the axis (dx, dz) the camera looks across and how much has to fit (sep, default the axis length). */
-  frame(dt, def, mx, mz, maxY, dx, dz, spread) {
-    const bx = def.bounds.x, bz = def.bounds.z;
+  /* The shared framing: centre (mx, mz), the highest fighter, the axis (dx, dz) the camera looks across and how much has to fit (sep, default the axis length).
+     group (a brawl, P4-06): aim between the lowest feet and the highest head, add height differences to the distance, apply the occlusion swing, then keepInFrame and updateOcclusion.
+     Without it (1v1, Versus, Training) nothing below changes. */
+  frame(dt, def, mx, mz, maxY, dx, dz, spread, group) {
+    const bx = def.bounds.x, bz = def.bounds.z, box = this.box;
     const axis = Math.hypot(dx, dz), sep = spread === undefined ? axis : spread;
     let tx = mx, tz = mz;
-    const ty = 1.0 + Math.max(0, maxY) * 0.35;
+    const ty = group ? (box.minY + box.maxY + CAMERA_FIGHTER_HEIGHT) * 0.5 : 1.0 + Math.max(0, maxY) * 0.35;
     tx = clamp(tx, -bx * 0.8, bx * 0.8); tz = clamp(tz, -bz * 0.8, bz * 0.8);
+    const normalX = tx, normalZ = tz, swing = group && (this.occAz !== 0 || this.occElev !== 0 || this.occFocus !== 0);   // swing: the camera is away from its normal view because scenery hid a player
+    if (swing && this.occFocus) { tx = clamp(box.playerX / this.playerCount, -bx * 0.8, bx * 0.8); tz = clamp(box.playerZ / this.playerCount, -bz * 0.8, bz * 0.8); }
     // azimuth: stay on the +z side, follow the fighter axis softly
-    let azWanted = 0.18;
+    let azWanted = CAMERA_AZ_BIAS;
     if (axis > 0.3) {
       const az1 = Math.atan2(-dz, dx);
       const az2 = az1 + Math.PI;
       const c1 = Math.abs(wrapAngle(az1 - this.az)), c2 = Math.abs(wrapAngle(az2 - this.az));
-      azWanted = clamp(wrapAngle(c1 <= c2 ? az1 : az2), -0.55, 0.55) + 0.18;
+      azWanted = clamp(wrapAngle(c1 <= c2 ? az1 : az2), -CAMERA_AZ_LIMIT, CAMERA_AZ_LIMIT) + CAMERA_AZ_BIAS;
     }
+    const azBase = azWanted;
+    if (group) azWanted = clamp(azBase + this.occAz, CAMERA_AZ_BIAS - CAMERA_AZ_LIMIT, CAMERA_AZ_BIAS + CAMERA_AZ_LIMIT);
     const cam = def.camera;
-    this.elev = lerp(this.elev, cam.elev, 1 - Math.exp(-dt * 2));
+    this.elev = lerp(this.elev, group ? Math.min(cam.elev + this.occElev, CAMERA_ELEV_MAX) : cam.elev, 1 - Math.exp(-dt * (swing ? CAMERA_SWING_ELEV_RATE : 2)));
     const fovy = this.baseFov;
     const fovx = 2 * Math.atan(Math.tan(fovy / 2) * this.aspect);
     const needW = (sep * 0.92 + 3.4) * 0.5 / Math.tan(fovx / 2);
-    const needH = 2.4 / Math.tan(fovy / 2);
+    const needH = (group ? 2.4 + Math.max(0, box.maxY - box.minY - CAMERA_VERT_SLACK) : 2.4) / Math.tan(fovy / 2);
     const maxDist = cam.maxDist * clamp(1.15 / this.aspect, 1, 2.2);
     const distWanted = clamp(Math.max(needW, needH, cam.minDist), cam.minDist, maxDist);
     const k = this.snapNext ? 1 : 1 - Math.exp(-dt * 3.2);
-    this.az += wrapAngle(azWanted - this.az) * k;
+    this.az += wrapAngle(azWanted - this.az) * (swing && !this.snapNext ? 1 - Math.exp(-dt * 5.5) : k);   // a swing is quicker than a drift
     this.dist += (distWanted - this.dist) * k;
-    this.target[0] += (tx - this.target[0]) * (this.snapNext ? 1 : 1 - Math.exp(-dt * 6));
+    const kAim = this.snapNext ? 1 : 1 - Math.exp(-dt * (swing ? CAMERA_SWING_TARGET_RATE : 6));
+    this.target[0] += (tx - this.target[0]) * kAim;
     this.target[1] += (ty - this.target[1]) * (this.snapNext ? 1 : 1 - Math.exp(-dt * 4));
-    this.target[2] += (tz - this.target[2]) * (this.snapNext ? 1 : 1 - Math.exp(-dt * 6));
+    this.target[2] += (tz - this.target[2]) * kAim;
+    if (group) { this.keepInFrame(bx, bz, maxDist); this.updateOcclusion(dt, azBase, cam.elev, bx, bz, normalX, normalZ); }
     this.snapNext = false;
     this.finish(dt, bx, bz);
+  },
+
+  /* Where the eye sits for a pose around the aim point (tx, ty, tz): the clamps keep it inside a box around the arena and above the floor. */
+  eyeAt(tx, ty, tz, az, elev, dist, bx, bz, out) {
+    const ce = Math.cos(elev);
+    out[0] = clamp(tx + Math.sin(az) * ce * dist, -(bx + 5), bx + 5);
+    out[1] = Math.max(ty + Math.sin(elev) * dist, 1.8);
+    out[2] = clamp(tz + Math.cos(az) * ce * dist, -(bz + 3), bz + 12);
+    return out;
+  },
+
+  /* Brawl: with the pose settled, moves the target (and if the points cannot fit, pulls back up to maxDist) until every key point is inside the safe zone. The points are
+     the feet and head of each player and locked enemy; when they cannot all fit, the lead player stays in and the others give way. The shifts are done in the camera's own
+     right and up directions, so they change nothing else. Mostly idle: the smoothed framing already keeps everyone in; this is the guarantee, not the aim. */
+  keepInFrame(bx, bz, maxDist) {
+    const keys = this.keys, count = this.keyCount, eye = this.eye, tanY = Math.tan(this.baseFov / 2), tanX = tanY * this.aspect;
+    for (let pass = 0; pass < CAMERA_KEEP_PASSES; pass++) {
+      const target = this.target;
+      this.eyeAt(target[0], target[1], target[2], this.az, this.elev, this.dist, bx, bz, eye);
+      // the view basis of M4.lookAt: forward f, right r (level), up u
+      let fx = target[0] - eye[0], fy = target[1] - eye[1], fz = target[2] - eye[2];
+      const fl = Math.hypot(fx, fy, fz) || 1;
+      fx /= fl; fy /= fl; fz /= fl;
+      let rx = -fz, rz = fx;
+      const rl = Math.hypot(rx, rz) || 1;
+      rx /= rl; rz /= rl;
+      const ux = -fy * rz, uy = fx * rz - fz * rx, uz = fy * rx;
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, leadX = 0, leadY = 0, depthSum = 0;
+      for (let i = 0; i < count; i++) {
+        const vx = keys[i * 3] - eye[0], vy = keys[i * 3 + 1] - eye[1], vz = keys[i * 3 + 2] - eye[2];
+        const depth = Math.max(0.5, vx * fx + vy * fy + vz * fz);
+        const nx = (vx * rx + vz * rz) / (depth * tanX), ny = (vx * ux + vy * uy + vz * uz) / (depth * tanY);
+        minX = Math.min(minX, nx); maxX = Math.max(maxX, nx); minY = Math.min(minY, ny); maxY = Math.max(maxY, ny);
+        if (i < 2) { leadX += nx * 0.5; leadY += ny * 0.5; }
+        depthSum += depth;
+      }
+      const spanX = maxX - minX, spanY = maxY - minY;
+      const need = Math.max(spanX / (2 * CAMERA_SAFE_X), spanY / (2 * CAMERA_SAFE_Y));
+      if (need > 1.001 && this.dist < maxDist - 1e-6) { this.dist = Math.min(maxDist, this.dist * need); continue; }
+      let shiftX = 0, shiftY = 0;   // how far the picture has to move, in screen units
+      if (spanX > 2 * CAMERA_SAFE_X) shiftX = clamp(leadX, -CAMERA_SAFE_X, CAMERA_SAFE_X) - leadX;
+      else if (minX < -CAMERA_SAFE_X) shiftX = -CAMERA_SAFE_X - minX;
+      else if (maxX > CAMERA_SAFE_X) shiftX = CAMERA_SAFE_X - maxX;
+      if (spanY > 2 * CAMERA_SAFE_Y) shiftY = clamp(leadY, -CAMERA_SAFE_Y, CAMERA_SAFE_Y) - leadY;
+      else if (minY < -CAMERA_SAFE_Y) shiftY = -CAMERA_SAFE_Y - minY;
+      else if (maxY > CAMERA_SAFE_Y) shiftY = CAMERA_SAFE_Y - maxY;
+      if (shiftX === 0 && shiftY === 0) break;
+      const meanDepth = depthSum / count, moveR = -shiftX * meanDepth * tanX, moveU = -shiftY * meanDepth * tanY;   // the camera moves against the picture
+      target[0] += rx * moveR + ux * moveU; target[1] += uy * moveU; target[2] += rz * moveR + uz * moveU;
+    }
+  },
+
+  /* Whether scenery hides a player from an eye at (ex, ey, ez) looking at (tx, tz): it crosses the line to the player's chest. spread > 0 also tests the lines from that far to
+     each side of the eye, so a view that only just clears an edge does not count as clear. The same line test as the self-test uses (Arena.rayBlocked). */
+  hidden(ex, ey, ez, spread, tx, tz) {
+    const players = this.players;
+    let sideX = 0, sideZ = 0;
+    if (spread > 0) {
+      const gx = tx - ex, gz = tz - ez, gl = Math.hypot(gx, gz) || 1;
+      sideX = -gz / gl * spread; sideZ = gx / gl * spread;
+    }
+    for (let k = 0; k < this.playerCount; k++) {
+      const p = players[k], chest = p.y + CAMERA_CHEST * p.scale;
+      if (Arena.rayBlocked(ex, ey, ez, p.x, chest, p.z)) return true;
+      if (spread > 0 && (Arena.rayBlocked(ex + sideX, ey, ez + sideZ, p.x, chest, p.z) || Arena.rayBlocked(ex - sideX, ey, ez - sideZ, p.x, chest, p.z))) return true;
+    }
+    return false;
+  },
+  /* Whether the pose "normal view (this.base) plus this swing" shows every player clearly (see hidden). */
+  poseClear(swingAz, swingElev, focus) {
+    const base = this.base, bx = base[4], bz = base[5];
+    const tx = focus ? clamp(this.box.playerX / this.playerCount, -bx * 0.8, bx * 0.8) : base[2], tz = focus ? clamp(this.box.playerZ / this.playerCount, -bz * 0.8, bz * 0.8) : base[3];
+    const az = clamp(base[0] + swingAz, CAMERA_AZ_BIAS - CAMERA_AZ_LIMIT, CAMERA_AZ_BIAS + CAMERA_AZ_LIMIT), elev = Math.min(base[1] + swingElev, CAMERA_ELEV_MAX);
+    const eye = this.eyeAt(tx, this.target[1], tz, az, elev, this.dist, bx, bz, this.eye);
+    return !this.hidden(eye[0], eye[1], eye[2], CAMERA_EYE_SPREAD, tx, tz);
+  },
+  /* Brawl: times how long a player has been hidden from the camera as it is now. Past CAMERA_OCCLUSION_GRACE the camera swings (azimuth within its usual limits, then a
+     steeper pitch) to the first pose in CAMERA_OCCLUSION_TRIES that shows the player clearly, keeping the swing it has while that still works. The swing is undone once the
+     normal view has been clear for CAMERA_OCCLUSION_RELEASE, which also stops it flipping back and forth beside a prop. Up to 1 + 15 poses of 3 lines per player, only while hidden. */
+  updateOcclusion(dt, azBase, elevBase, bx, bz, normalX, normalZ) {
+    const target = this.target, base = this.base;
+    base[0] = azBase; base[1] = elevBase; base[2] = normalX; base[3] = normalZ; base[4] = bx; base[5] = bz;
+    const eye = this.eyeAt(target[0], target[1], target[2], this.az, this.elev, this.dist, bx, bz, this.eye);
+    this.occTime = this.hidden(eye[0], eye[1], eye[2], 0, target[0], target[2]) ? this.occTime + dt : 0;
+    if (this.occAz !== 0 || this.occElev !== 0 || this.occFocus !== 0) {
+      this.occClear = this.poseClear(0, 0, 0) ? this.occClear + dt : 0;
+      if (this.occClear >= CAMERA_OCCLUSION_RELEASE) { this.occAz = this.occElev = this.occFocus = 0; this.occClear = 0; }
+    }
+    if (this.occTime < CAMERA_OCCLUSION_GRACE || this.poseClear(this.occAz, this.occElev, this.occFocus)) return;
+    for (let i = 0; i < CAMERA_OCCLUSION_TRIES.length; i++) {
+      const swing = CAMERA_OCCLUSION_TRIES[i];
+      if (!this.poseClear(swing[0], swing[1], swing[2])) continue;
+      this.occAz = swing[0]; this.occElev = swing[1]; this.occFocus = swing[2]; this.occClear = 0;
+      return;
+    }
+  },
+
+  /* Whether the point (x, y, z) is off the w x h px screen (outside it or behind the camera) and, if so, where an arrow for it goes: out = [x, y, angle] with the position on the
+     screen edge, pad px inside it, in the direction of the point, and the angle (radians, y down) it points. Reads the camera as last applied. Allocation-free. */
+  offscreenMark(x, y, z, w, h, pad, out) {
+    const v = this.view, p = this.proj;
+    const xc = v[0] * x + v[4] * y + v[8] * z + v[12], yc = v[1] * x + v[5] * y + v[9] * z + v[13], depth = -(v[2] * x + v[6] * y + v[10] * z + v[14]);
+    if (depth > 0.05 && Math.abs(p[0] * xc / depth) <= 1 && Math.abs(p[5] * yc / depth) <= 1) return false;
+    // the direction from the screen centre; the same whether the point is beside the view or behind it (a point straight behind points down)
+    let dx = p[0] * xc * w * 0.5, dy = -p[5] * yc * h * 0.5;
+    if (Math.abs(dx) < 1e-6 && Math.abs(dy) < 1e-6) dy = 1;
+    const t = Math.min((w * 0.5 - pad) / (Math.abs(dx) || 1e-9), (h * 0.5 - pad) / (Math.abs(dy) || 1e-9));
+    out[0] = w * 0.5 + dx * t; out[1] = h * 0.5 + dy * t; out[2] = Math.atan2(dy, dx);
+    return true;
   },
 
   /* Slow orbit around a point (menus, character select). */
@@ -1930,12 +2112,7 @@ const Camera = {
   finish(dt, bx, bz) {
     this.shakeAmp = Math.max(0, this.shakeAmp - dt * 2.4);
     this.fovPulse = Math.max(0, this.fovPulse - dt * 0.9);
-    const ce = Math.cos(this.elev);
-    let px = this.target[0] + Math.sin(this.az) * ce * this.dist;
-    let py = this.target[1] + Math.sin(this.elev) * this.dist;
-    let pz = this.target[2] + Math.cos(this.az) * ce * this.dist;
-    px = clamp(px, -(bx + 5), bx + 5); pz = clamp(pz, -(bz + 3), bz + 12); py = Math.max(py, 1.8);
-    this.pos[0] = px; this.pos[1] = py; this.pos[2] = pz;
+    const pos = this.eyeAt(this.target[0], this.target[1], this.target[2], this.az, this.elev, this.dist, bx, bz, this.pos), px = pos[0], pz = pos[2];
     if (this.shakeAmp > 0.0005) {
       this.jx = (Math.random() - 0.5) * this.shakeAmp; this.jy = (Math.random() - 0.5) * this.shakeAmp; this.jz = (Math.random() - 0.5) * this.shakeAmp;
     } else { this.jx = this.jy = this.jz = 0; }
@@ -2262,25 +2439,43 @@ const Arena = {
     }
     return false;
   },
+  /* Whether the segment (x1,z1) + t (dx,dz), 0 <= t <= 1, passes through collider c's footprint; if so, footprintSpan holds the part inside it (enter..leave, as fractions of the segment). By slabs, allocation-free. */
+  footprintSpan: { enter: 0, leave: 0 },
+  crossesFootprint(c, x1, z1, dx, dz) {
+    let t0 = 0, t1 = 1;
+    if (Math.abs(dx) < 1e-9) { if (x1 < c.x - c.hx || x1 > c.x + c.hx) return false; } else {
+      let a = (c.x - c.hx - x1) / dx, b = (c.x + c.hx - x1) / dx;
+      if (a > b) { const swap = a; a = b; b = swap; }
+      t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+    }
+    if (t0 > t1) return false;
+    if (Math.abs(dz) < 1e-9) { if (z1 < c.z - c.hz || z1 > c.z + c.hz) return false; } else {
+      let a = (c.z - c.hz - z1) / dz, b = (c.z + c.hz - z1) / dz;
+      if (a > b) { const swap = a; a = b; b = swap; }
+      t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+    }
+    if (t0 > t1) return false;
+    this.footprintSpan.enter = t0; this.footprintSpan.leave = t1;
+    return true;
+  },
   /* True when scenery hides the straight line from (x1,z1) to (x2,z2): an active obstacle taller than eyeTop, not glass (P4-03 lock-on line of sight). Allocation-free. */
   sightBlocked(x1, z1, x2, z2, eyeTop) {
     const dx = x2 - x1, dz = z2 - z1;
     for (let i = 0; i < this.colliders.length; i++) {
       const c = this.colliders[i];
       if (!c.active || c.top <= eyeTop || (c.obj && c.obj.mat === 'glass')) continue;
-      let t0 = 0, t1 = 1;   // the part of the segment inside the box, by slabs
-      if (Math.abs(dx) < 1e-9) { if (x1 < c.x - c.hx || x1 > c.x + c.hx) continue; } else {
-        let a = (c.x - c.hx - x1) / dx, b = (c.x + c.hx - x1) / dx;
-        if (a > b) { const swap = a; a = b; b = swap; }
-        t0 = Math.max(t0, a); t1 = Math.min(t1, b);
-      }
-      if (t0 > t1) continue;
-      if (Math.abs(dz) < 1e-9) { if (z1 < c.z - c.hz || z1 > c.z + c.hz) continue; } else {
-        let a = (c.z - c.hz - z1) / dz, b = (c.z + c.hz - z1) / dz;
-        if (a > b) { const swap = a; a = b; b = swap; }
-        t0 = Math.max(t0, a); t1 = Math.min(t1, b);
-      }
-      if (t0 <= t1) return true;
+      if (this.crossesFootprint(c, x1, z1, dx, dz)) return true;
+    }
+    return false;
+  },
+  /* True when scenery hides the 3D line from (x1,y1,z1) to (x2,y2,z2) (P4-06 camera eye to a player's chest): an active obstacle, not glass, whose footprint the line crosses
+     lower than the obstacle's top. Allocation-free. */
+  rayBlocked(x1, y1, z1, x2, y2, z2) {
+    const dx = x2 - x1, dz = z2 - z1, dy = y2 - y1, span = this.footprintSpan;
+    for (let i = 0; i < this.colliders.length; i++) {
+      const c = this.colliders[i];
+      if (!c.active || (c.obj && c.obj.mat === 'glass') || !this.crossesFootprint(c, x1, z1, dx, dz)) continue;
+      if (Math.min(y1 + dy * span.enter, y1 + dy * span.leave) < c.top) return true;
     }
     return false;
   },
@@ -6419,6 +6614,14 @@ class MatchSim {
     }
     return false;
   }
+  /* True when enemy f is going for the player team right now: it holds an attack token against a fighter of that team, or it is in the middle of a strike or a grab on its
+     target (P4-06: the HUD points to such an enemy at the screen edge when it is off screen). */
+  isAttacker(f) {
+    const target = f.target;
+    if (this.locked || !f.alive || !target || target.team === f.team || target.team !== this.fighters[0].team) return false;   // no arrows once the fight is decided
+    if (this.crowd.token[f.index] && this.crowd.tokenTarget[f.index] === target.index) return true;
+    return f.state === S.ATTACK || f.state === S.GRAPPLE;
+  }
   /* The index credited when f is hurt by the scenery: whoever last damaged it; in a 1v1 the other fighter. */
   foeIndex(f) { return f.lastFoe ? f.lastFoe.index : this.fighters.length === 2 ? f.index ^ 1 : -1; }
 
@@ -7801,7 +8004,7 @@ const KIND_NAME = { wood: 'WOOD', concrete: 'CONCRETE', metal: 'METAL', glass: '
 const UI = {
   screen_creator() { return CreatorUI.render(); },
   current: null, stack: [], guardUntil: 0, dom: {}, padPrev: { up: false, down: false, left: false, right: false, ok: false, back: false },
-  rebinding: null, scenIdx: 0, setupSel: { opp: 'mara' }, pops: [], popIdx: 0, tagEls: [], banners: 0, lastToast: '', ghost: [1, 1], cache: {},
+  rebinding: null, scenIdx: 0, setupSel: { opp: 'mara' }, pops: [], popIdx: 0, tagEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, lastToast: '', ghost: [1, 1], cache: {},
   listeners: [], frameCount: 0, onboardTimer: 0, pickSide: 0, lastScreen: null, touchButtons: {},
 
   init() {
@@ -7824,6 +8027,7 @@ const UI = {
     add(document, 'pointerup', () => Sound.unlock(), { passive: true });
     for (let i = 0; i < 1 + BRAWL_MAX_ENEMIES; i++) { const el = document.createElement('div'); el.className = 'tag p' + Math.min(i + 1, 2); this.dom.tags.appendChild(el); this.tagEls.push(el); }   // a name tag per fighter: P1, P2 and up to six enemies share p2's colour
     for (let i = 0; i < 16; i++) { const el = document.createElement('div'); el.className = 'pop'; el.style.opacity = '0'; this.dom.tags.appendChild(el); this.pops.push({ el, age: 99, life: 1, x: 0, y: 0, z: 0 }); }
+    for (let i = 0; i < BRAWL_MAX_ENEMIES; i++) { const el = document.createElement('div'); el.className = 'edge'; el.style.display = 'none'; this.dom.tags.appendChild(el); this.edgeEls.push(el); }   // an arrow per possible enemy, for attackers off screen (P4-06)
     Events.on('toast', (e) => this.toast(e.msg, e.kind));
     Events.on('frame', () => this.update());
     Events.on('gamestate', (e) => this.onGameState(e));
@@ -8677,6 +8881,7 @@ const UI = {
       el.style.display = ok ? '' : 'none';
       if (ok) this.setTransform('tagpos' + i, el, 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) translate(-50%,-100%)');
     }
+    this.edgeMarks(m);
     for (const p of this.pops) {
       if (p.age > p.life) continue;
       p.age += 1 / 60;
@@ -8694,6 +8899,17 @@ const UI = {
     if (this.cache['tagmark' + i] === marked) return;
     this.cache['tagmark' + i] = marked;
     el.classList.toggle('lk', marked);
+  },
+  /* Off-screen attackers (P4-06): in a brawl, an arrow at the screen edge towards each enemy that is attacking the player team (MatchSim.isAttacker) while it is off screen or
+     behind the camera. One small pooled element per enemy slot in the HUD layer, hidden otherwise; no panel. */
+  edgeMarks(m) {
+    const out = this.edgeOut, w = R.cssW, h = R.cssH;
+    for (let k = 0; k < this.edgeEls.length; k++) {
+      const f = m.brawl ? m.fighters[k + 1] : null, el = this.edgeEls[k];
+      const show = !!f && m.isAttacker(f) && Camera.offscreenMark(f.x, f.y + 1.0 * f.scale, f.z, w, h, CAMERA_EDGE_PAD, out);
+      if (this.cache['edge' + k] !== show) { this.cache['edge' + k] = show; el.style.display = show ? '' : 'none'; }
+      if (show) this.setTransform('edgepos' + k, el, 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) rotate(' + Math.round(out[2] * 180 / Math.PI) + 'deg)');
+    }
   },
   /* Brawl: the right-hand bar is the enemies together (health left of all of them, and how many are still up). */
   enemyBar(m) {
@@ -13035,6 +13251,186 @@ const SelfTest = {
       const ok = near === 3 && withThird === 4 && afterKo === 3 && lone === 2 && Math.abs(box - 5) < 1e-9;
       return ok ? true : JSON.stringify({ near, withThird, afterKo, lone, box });
     });
+    /* ----- Brawl camera (P4-06) ----- */
+    /* Runs body on a 1280 x 720 screen with the camera snapped to the first frame, and puts the camera, the screen size, the shake and the FOV pulse back afterwards. */
+    const withCamera = (body) => {
+      const keep = { w: R.cssW, h: R.cssH, shake: Camera.shakeAmp, pulse: Camera.fovPulse, aspect: Camera.aspect, pos: Camera.pos.slice(), target: Camera.target.slice(), az: Camera.az, dist: Camera.dist, elev: Camera.elev };
+      R.cssW = 1280; R.cssH = 720; Camera.snapNext = true; Camera.shakeAmp = 0;
+      try { return body(); } finally {
+        R.cssW = keep.w; R.cssH = keep.h; Camera.shakeAmp = keep.shake; Camera.fovPulse = keep.pulse; Camera.aspect = keep.aspect;
+        for (let i = 0; i < 3; i++) { Camera.pos[i] = keep.pos[i]; Camera.target[i] = keep.target[i]; }
+        Camera.az = keep.az; Camera.dist = keep.dist; Camera.elev = keep.elev;
+        Camera.snapNext = true; Camera.resetGroup(); Camera.apply();
+      }
+    };
+    const cameraFrames = (m, frames) => { for (let i = 0; i < frames; i++) { Camera.shakeAmp = 0; Camera.followGroup(1 / 60, m.fighters, m.def); } };
+    const onScreen = (x, y, z) => {
+      const out = [0, 0];
+      return R.project(x, y, z, out) && out[0] > R.cssW * 0.03 && out[0] < R.cssW * 0.97 && out[1] > R.cssH * 0.03 && out[1] < R.cssH * 0.97;
+    };
+    const fighterOnScreen = (f) => onScreen(f.x, f.y, f.z) && onScreen(f.x, f.y + CAMERA_CHEST, f.z) && onScreen(f.x, f.y + CAMERA_FIGHTER_HEIGHT * f.scale, f.z);
+    test('Brawl camera: in every arena, with the player walked behind each tall prop, the camera never leaves the player hidden for more than the limit (and the run does hide the player where a prop can)', () => withCamera(() => {
+      const limitTicks = Math.round((CAMERA_OCCLUSION_GRACE + 0.6) * 60);   // the grace before the camera moves plus 0.6 s to swing clear
+      const problems = [];
+      for (const id of ARENA_ORDER) {
+        const m = new MatchSim({ mode: 'brawl', enemies: 3, difficulty: 'normal', arenaId: id, countdown: false, timer: 0, seed: 5, evenDamage: true });
+        try {
+          const p = m.fighters[0], b = m.def.bounds;
+          m.controllers[0] = self.scripted(() => {});
+          Camera.snapNext = true;
+          let streak = 0, worst = 0, hiddenTicks = 0, x = 0, z = 0;
+          const put = (px, pz) => { p.x = p.prevX = px; p.z = p.prevZ = pz; p.y = p.prevY = 0; p.hp = p.maxHp; };
+          const tick = (px, pz) => {
+            put(px, pz); m.step(); put(px, pz);
+            Camera.shakeAmp = 0; Camera.followGroup(1 / 60, m.fighters, m.def);
+            // the same line test the camera uses: from the eye as drawn to the player's chest
+            if (Arena.rayBlocked(Camera.pos[0], Camera.pos[1], Camera.pos[2], p.x, p.y + CAMERA_CHEST * p.scale, p.z)) { hiddenTicks++; streak++; worst = Math.max(worst, streak); } else streak = 0;
+          };
+          for (let i = 0; i < 90; i++) tick(0, 0);
+          const props = Arena.colliders.filter((c) => c.obj && c.obj.mat !== 'glass' && c.top >= 1.5);   // columns, posts, screens
+          for (const c of props) {
+            // the spot: on the line from the eye through the prop's centre, just behind the prop; walked to at 3 m/s, then held
+            let dx = c.x - Camera.pos[0], dz = c.z - Camera.pos[2];
+            const len = Math.hypot(dx, dz); dx /= len; dz /= len;
+            const reach = Math.min((c.hx + 0.34) / (Math.abs(dx) || 1e-9), (c.hz + 0.34) / (Math.abs(dz) || 1e-9)) + 0.05;   // as close behind the prop as a body (radius 0.34) can stand
+            const gx = clamp(c.x + dx * reach, -(b.x - 0.4), b.x - 0.4), gz = clamp(c.z + dz * reach, -(b.z - 0.4), b.z - 0.4);
+            const steps = Math.max(1, Math.ceil(Math.hypot(gx - x, gz - z) / 3 * 60));
+            for (let s = 1; s <= steps; s++) tick(x + (gx - x) * s / steps, z + (gz - z) * s / steps);
+            for (let s = 0; s < 120; s++) tick(gx, gz);
+            x = gx; z = gz;
+          }
+          if (props.length && hiddenTicks === 0) problems.push(id + ': the player was never hidden (the check proved nothing)');
+          if (worst > limitTicks) problems.push(id + ': hidden for ' + worst + ' ticks in a row (limit ' + limitTicks + ')');
+        } finally { m.dispose(); }
+      }
+      return problems.length ? problems.join('; ') : true;
+    }));
+    test('Brawl camera: the enemy a player has locked stays on screen at any lock distance, also past CAMERA_THREAT_RANGE (control: unlocked, that far enemy is left out of the frame)', () => withCamera(() => {
+      const problems = [];
+      for (const id of ARENA_ORDER) {
+        const m = self.makeBrawl({ enemies: 3, arenaId: id });
+        try {
+          const [p, e1, e2, e3] = m.fighters;
+          self.stand(p, -3, 0, 1, 0); self.stand(e1, -4.5, 1, 0, 0); self.stand(e2, -2, -1.5, 0, 0);
+          self.stand(e3, -3 + LOCK_RELEASE_RANGE - 0.5, 0.5, 0, 0);   // 8.5 m away: past the threat range, inside the lock's release range
+          Camera.frameFighters(m.fighters);
+          const leftOut = Camera.box.maxX < e3.x - 1;
+          p.lockOn = e3;
+          cameraFrames(m, 150);
+          const framed = Camera.frameFighters(m.fighters) === 4;
+          if (!leftOut) problems.push(id + ': control failed, the far enemy was framed without a lock');
+          if (!framed || !fighterOnScreen(e3) || !fighterOnScreen(p)) problems.push(id + ': locked ' + fighterOnScreen(e3) + ' player ' + fighterOnScreen(p) + ' framed ' + framed);
+          p.lockOn = null;
+          cameraFrames(m, 240);   // the lock is gone: the far enemy may leave, the player may not
+          if (!fighterOnScreen(p)) problems.push(id + ': player off screen after the lock ended');
+        } finally { m.dispose(); }
+      }
+      return problems.length ? problems.join('; ') : true;
+    }));
+    test('Brawl camera: threats enter the frame at CAMERA_THREAT_RANGE and leave only past CAMERA_THREAT_LEAVE (no flicker at the edge); a dead enemy leaves at once', () => withCamera(() => {
+      const m = self.makeBrawl({ enemies: 2 });
+      try {
+        const [p, e1, e2] = m.fighters;
+        self.stand(p, 0, 0, 1, 0); self.stand(e1, 2, 0, 0, 0); self.stand(e2, CAMERA_THREAT_RANGE + 0.3, 0, 0, 0);
+        const counts = [Camera.frameFighters(m.fighters)];   // e2 just outside: not framed
+        e2.x = CAMERA_THREAT_RANGE - 0.1; counts.push(Camera.frameFighters(m.fighters));   // inside: framed
+        e2.x = CAMERA_THREAT_RANGE + 0.3; counts.push(Camera.frameFighters(m.fighters));   // back out of the enter range, inside the leave range: stays
+        for (let i = 0; i < 10; i++) { e2.x = CAMERA_THREAT_RANGE + 0.5 + (i % 2) * 0.4; counts.push(Camera.frameFighters(m.fighters)); }   // wobbling inside the band: still no change
+        e2.x = CAMERA_THREAT_LEAVE + 0.1; counts.push(Camera.frameFighters(m.fighters));   // past the leave range: dropped
+        e2.x = CAMERA_THREAT_RANGE + 0.3; counts.push(Camera.frameFighters(m.fighters));   // and not framed again until the enter range
+        e2.x = CAMERA_THREAT_RANGE - 0.1; counts.push(Camera.frameFighters(m.fighters));
+        e2.alive = false; counts.push(Camera.frameFighters(m.fighters));
+        const want = '2,3,3,3,3,3,3,3,3,3,3,3,3,2,2,3,2'.split(',').map(Number);
+        return counts.join() === want.join() ? true : 'framed counts ' + counts.join() + ' (wanted ' + want.join() + ')';
+      } finally { m.dispose(); }
+    }));
+    test('Brawl camera: the player stays inside the screen when the enemies surround it from far off and when it stands in an arena corner', () => withCamera(() => {
+      const problems = [];
+      for (const id of ARENA_ORDER) {
+        const m = self.makeBrawl({ enemies: 4, arenaId: id });
+        try {
+          const [p, ...foes] = m.fighters, b = m.def.bounds;
+          const spots = [[-1, 0], [1, 0], [0, 1], [0, -1]];
+          for (const corner of [[-1, 1], [1, 1], [-1, -1], [1, -1]]) {
+            self.stand(p, corner[0] * (b.x - 0.5), corner[1] * (b.z - 0.5), 0, 0);
+            foes.forEach((f, k) => self.stand(f, p.x + spots[k][0] * CAMERA_THREAT_RANGE * 0.95, p.z + spots[k][1] * CAMERA_THREAT_RANGE * 0.95, p.x, p.z));
+            Camera.snapNext = true;
+            cameraFrames(m, 120);
+            if (!fighterOnScreen(p)) problems.push(id + ' corner ' + corner + ': the player left the screen');
+          }
+        } finally { m.dispose(); }
+      }
+      return problems.length ? problems.join('; ') : true;
+    }));
+    test('Brawl camera: a player up on a crate with an enemy on the floor, and the reverse, keep both on screen (also with an exaggerated 3 m drop)', () => withCamera(() => {
+      const problems = [];
+      for (const [py, ey] of [[0.95, 0], [0, 0.95], [3, 0], [0, 3]]) {
+        const m = self.makeBrawl({ enemies: 1, arenaId: 'warehouse' });
+        try {
+          const [p, e1] = m.fighters;
+          self.stand(p, -1.5, 0, 1, 0); self.stand(e1, 2, 1, 0, 0);
+          p.y = py; e1.y = ey;
+          Camera.snapNext = true;
+          cameraFrames(m, 150);
+          if (!fighterOnScreen(p) || !fighterOnScreen(e1)) problems.push('player y ' + py + ', enemy y ' + ey + ': player ' + fighterOnScreen(p) + ', enemy ' + fighterOnScreen(e1));
+          if (Math.abs(Camera.target[1] - (Math.min(py, ey) + Math.max(py, ey) + CAMERA_FIGHTER_HEIGHT) / 2) > 0.3) problems.push('player y ' + py + ', enemy y ' + ey + ': aimed at height ' + Camera.target[1].toFixed(2));
+        } finally { m.dispose(); }
+      }
+      return problems.length ? problems.join('; ') : true;
+    }));
+    test('Brawl camera: an attacking enemy behind the camera or off to the side gets an edge arrow pointing its way; an attacker on screen and an idle enemy off screen get none', () => withCamera(() => {
+      const m = self.makeBrawl({ enemies: 4 });
+      const keepEls = UI.edgeEls, keepCache = {};
+      for (let k = 0; k < BRAWL_MAX_ENEMIES; k++) for (const key of ['edge' + k, 'edgepos' + k]) { keepCache[key] = UI.cache[key]; delete UI.cache[key]; }   // an earlier match leaves these set: start from nothing cached
+      try {
+        const [p, behind, idle, side, near] = m.fighters, out = [0, 0, 0], W = R.cssW, H = R.cssH;
+        self.stand(p, 0, 0, 1, 0); self.stand(behind, 2, 0, 0, 0); self.stand(idle, -2, 0.5, 0, 0); self.stand(side, 1, -1, 0, 0); self.stand(near, -1, 1, 0, 0);
+        cameraFrames(m, 120);
+        // enemies off screen: one straight behind the camera (holds a token), an idle one beside it, one far off to the right (mid-strike)
+        behind.x = Camera.pos[0] - Camera.dirFwd[0] * 3; behind.z = Camera.pos[2] - Camera.dirFwd[1] * 3;
+        idle.x = Camera.pos[0] - Camera.dirFwd[0] * 3 + Camera.dirRight[0] * 2; idle.z = Camera.pos[2] - Camera.dirFwd[1] * 3 + Camera.dirRight[1] * 2;
+        side.x = Camera.target[0] + Camera.dirRight[0] * 40; side.z = Camera.target[2] + Camera.dirRight[1] * 40;
+        m.assignTargets();
+        m.crowd.token[behind.index] = true; m.crowd.tokenTarget[behind.index] = 0;
+        side.startAttack(ATTACKS.low_kick);
+        near.startAttack(ATTACKS.low_kick);   // attacking, but on screen
+        const isBehind = Camera.offscreenMark(behind.x, behind.y + 1, behind.z, W, H, CAMERA_EDGE_PAD, out), behindMark = out.slice();
+        const isSide = Camera.offscreenMark(side.x, side.y + 1, side.z, W, H, CAMERA_EDGE_PAD, out), sideMark = out.slice();
+        const isNear = Camera.offscreenMark(near.x, near.y + 1, near.z, W, H, CAMERA_EDGE_PAD, out);
+        const marks = [behindMark[1] > H * 0.5 && Math.abs(behindMark[1] - (H - CAMERA_EDGE_PAD)) < 1.5 && behindMark[2] > 0, sideMark[0] > W * 0.5 && Math.abs(sideMark[0] - (W - CAMERA_EDGE_PAD)) < 1.5 && Math.abs(sideMark[2]) < 0.6];   // bottom edge pointing down; right edge pointing right
+        const attackers = [m.isAttacker(behind), m.isAttacker(idle), m.isAttacker(side), m.isAttacker(near)];
+        // the HUD end: shown for the attackers that are off screen only
+        UI.edgeEls = Array.from({ length: BRAWL_MAX_ENEMIES }, () => ({ style: {} }));
+        UI.edgeMarks(m);
+        const shown = UI.edgeEls.slice(0, 4).map((el) => el.style.display === '');
+        UI.edgeMarks(Object.assign(Object.create(m), { brawl: false }));   // not a brawl: all hidden
+        const hiddenAgain = UI.edgeEls.every((el) => el.style.display === 'none');
+        const ok = isBehind && isSide && !isNear && marks[0] && marks[1] && attackers.join() === 'true,false,true,true' && shown.join() === 'true,false,true,false' && hiddenAgain;
+        return ok ? true : JSON.stringify({ isBehind, isSide, isNear, behindMark, sideMark, attackers, shown, hiddenAgain });
+      } finally {
+        UI.edgeEls = keepEls;
+        for (const key of Object.keys(keepCache)) { if (keepCache[key] === undefined) delete UI.cache[key]; else UI.cache[key] = keepCache[key]; }
+        m.dispose();
+      }
+    }));
+    test('Brawl camera: the 1v1 / Versus follow camera gives exactly the output it gave before P4-06 (fixed input, values recorded from the old code)', () => withCamera(() => {
+      const want = [[4.399824513,3.76750504,6.305148317,2.056297643,1,1.234678994,0.4329458457,6.233848048,0.46],[4.246652143,3.684648811,6.526843154,2.450772662,1,1.414479317,0.3378161231,6.047213107,0.46],[2.833292408,3.667920427,6.670450388,2.153959277,1,1.328617005,0.1264932798,6.009532162,0.46],[0.7051743468,3.890785698,6.312001161,1.176524068,1.226242674,0.9546568807,-0.08775600399,6.00192451,0.46],[-0.8671083798,3.734882239,5.683746558,-0.1974761537,1.071021101,0.3489457845,-0.1248684442,6.000388552,0.46],[-1.802165668,3.673335129,4.999321368,-1.517787721,1.009611661,-0.3695377138,-0.0529185881,6.000078447,0.46]];
+      const m = new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 11, arenaId: 'dojo' });
+      try {
+        const a = m.fighters[0], b = m.fighters[1], got = [];
+        Camera.snapNext = true; Camera.az = 0.2; Camera.dist = 8; Camera.elev = 0.46; Camera.aspect = 1.78; Camera.fovPulse = 0;   // the camera as it is at boot, which is where the recorded run started
+        Camera.target[0] = 0; Camera.target[1] = 1; Camera.target[2] = 0;
+        for (let i = 0; i < 180; i++) {
+          const t = i / 60;
+          a.x = -2 + Math.sin(t * 1.3) * 3; a.z = Math.cos(t * 0.7) * 2; a.y = i > 100 && i < 130 ? 0.9 : 0;
+          b.x = 2.5 + Math.cos(t * 0.9) * 2.5; b.z = Math.sin(t * 1.1) * 1.5; b.y = 0;
+          Camera.follow(1 / 60, a, b, m.def);
+          if (i % 30 === 29) got.push([Camera.pos[0], Camera.pos[1], Camera.pos[2], Camera.target[0], Camera.target[1], Camera.target[2], Camera.az, Camera.dist, Camera.elev]);
+        }
+        const worst = Math.max(...got.map((row, r) => Math.max(...row.map((v, c) => Math.abs(v - want[r][c])))));
+        return worst < 1e-8 ? true : 'differs by ' + worst;
+      } finally { m.dispose(); }
+    }));
     /* ----- Group AI (P4-02): attack tokens, ring, retreat, per-attacker combos ----- */
     /* A brawl whose player is a body that cannot lose: idle, at the arena centre, health and position restored every tick, so the CPU enemies attack and wait for as long as the
        test runs. direct = the control run: the director switched off, which is what a brawl was before P4-02. onTick(m, t) runs after every step. */
