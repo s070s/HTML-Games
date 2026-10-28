@@ -188,6 +188,9 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .tag.p1{border-color:var(--a1)}
 .tag.p2{border-color:var(--a2)}
 .tag i{font-style:normal;color:#ffe066;margin-left:.4em}
+.tag s{display:block;height:3px;margin-top:2px;background:#4a1020;text-decoration:none}
+.tag s u{display:block;height:100%;background:#ff7aa6;text-decoration:none}
+.brawl .hs.r .bar.st,.brawl .hs.r .bar.mo,.brawl .hs.r .pips{display:none}   /* brawl: the right bar is the enemies together, with no stamina or momentum */
 .pop{position:absolute;left:0;top:0;white-space:nowrap;font:900 italic 1.3em/1 Impact,"Arial Black",sans-serif;letter-spacing:.04em;will-change:transform,opacity;text-shadow:0 2px 3px #000,0 0 4px #000}
 .hc .bar{border-width:3px;background:#000}
 .hc .bar.mo{border-width:1px;height:.6em}
@@ -1826,6 +1829,7 @@ const Quality = {
 };
 
 /* ---------- camera ---------- */
+const CAMERA_THREAT_RANGE = 6.5;      // brawl camera: living enemies this close to the player are kept in view
 const Camera = {
   pos: [0, 4, 9], target: [0, 1, 0], baseFov: 0.8, fov: 0.8, az: 0.2, dist: 8, elev: 0.46,
   shakeAmp: 0, fovPulse: 0, dirRight: [1, 0], dirFwd: [0, -1], aspect: 1.78,
@@ -1841,15 +1845,48 @@ const Camera = {
 
   /* Follow two fighters: keep both visible, clamp to the arena, ease toward the new framing. */
   follow(dt, a, b, def) {
+    this.frame(dt, def, (a.x + b.x) / 2, (a.z + b.z) / 2, Math.max(a.y, b.y), b.x - a.x, b.z - a.z);
+  },
+
+  /* A brawl (P4-01): frame the player and the enemies near it (frameFighters), looking along the line from the player to the threats' centre. P4-06 refines this. */
+  box: { minX: 0, maxX: 0, minZ: 0, maxZ: 0, maxY: 0, sumX: 0, sumZ: 0 },
+  frameFighters(fighters) {
+    const p = fighters[0], box = this.box;
+    box.minX = box.maxX = p.x; box.minZ = box.maxZ = p.z; box.maxY = p.y; box.sumX = box.sumZ = 0;
+    let count = 1, nearest = null, nearestSq = Infinity;
+    for (let i = 1; i < fighters.length; i++) {
+      const f = fighters[i];
+      if (f.team === p.team || !f.alive) continue;
+      const dx = f.x - p.x, dz = f.z - p.z, sq = dx * dx + dz * dz;
+      if (sq < nearestSq) { nearestSq = sq; nearest = f; }
+      if (sq <= CAMERA_THREAT_RANGE * CAMERA_THREAT_RANGE) { this.addToBox(f); count++; }
+    }
+    if (count === 1 && nearest) { this.addToBox(nearest); count++; }   // nobody close: still keep the nearest enemy in view
+    return count;
+  },
+  addToBox(f) {
+    const box = this.box;
+    box.minX = Math.min(box.minX, f.x); box.maxX = Math.max(box.maxX, f.x); box.minZ = Math.min(box.minZ, f.z); box.maxZ = Math.max(box.maxZ, f.z); box.maxY = Math.max(box.maxY, f.y);
+    box.sumX += f.x; box.sumZ += f.z;
+  },
+  followGroup(dt, fighters, def) {
+    const p = fighters[0], box = this.box, threats = this.frameFighters(fighters) - 1;
+    const extent = Math.hypot(box.maxX - box.minX, box.maxZ - box.minZ);
+    const ax = threats > 0 ? box.sumX / threats - p.x : 0, az = threats > 0 ? box.sumZ / threats - p.z : 0;   // the camera axis: the player towards the average threat
+    // frame() reads the fighter axis length as the separation; the bounding extent is what has to fit on screen
+    this.frame(dt, def, (box.minX + box.maxX) / 2, (box.minZ + box.maxZ) / 2, box.maxY, ax, az, extent);
+  },
+
+  /* The shared framing: centre (mx, mz), the highest fighter, the axis (dx, dz) the camera looks across and how much has to fit (sep, default the axis length). */
+  frame(dt, def, mx, mz, maxY, dx, dz, spread) {
     const bx = def.bounds.x, bz = def.bounds.z;
-    const dx = b.x - a.x, dz = b.z - a.z;
-    const sep = Math.hypot(dx, dz);
-    let tx = (a.x + b.x) / 2, tz = (a.z + b.z) / 2;
-    const ty = 1.0 + Math.max(0, Math.max(a.y, b.y)) * 0.35;
+    const axis = Math.hypot(dx, dz), sep = spread === undefined ? axis : spread;
+    let tx = mx, tz = mz;
+    const ty = 1.0 + Math.max(0, maxY) * 0.35;
     tx = clamp(tx, -bx * 0.8, bx * 0.8); tz = clamp(tz, -bz * 0.8, bz * 0.8);
     // azimuth: stay on the +z side, follow the fighter axis softly
     let azWanted = 0.18;
-    if (sep > 0.3) {
+    if (axis > 0.3) {
       const az1 = Math.atan2(-dz, dx);
       const az2 = az1 + Math.PI;
       const c1 = Math.abs(wrapAngle(az1 - this.az)), c2 = Math.abs(wrapAngle(az2 - this.az));
@@ -3348,11 +3385,12 @@ const BROW_HEIGHT = { thin: 0.012, thick: 0.024 };
 const CAP_HAIR = ['short', 'ponytail', 'long', 'topknot', 'braids', 'sideswept'];   // styles drawn with a hair cap
 
 class Fighter {
-  constructor(profile, index) {
+  constructor(profile, index, team) {
     this.profile = profile;
     this.id = profile.id;
     this.name = profile.name;
     this.index = index;
+    this.team = team === undefined ? Math.min(index, 1) : team;   // 0 = players, 1 = enemies (P4-01); the two sides of a 1v1 are teams 0 and 1
     this.stats = deriveStats(profile.attrs);
     this.defense = defenseFor(profile);   // 'block' or 'sway': what the Defend input does for this fighter
     this.applyLook(profile.look);
@@ -3388,6 +3426,7 @@ class Fighter {
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
     this.pose.set(this.motion.guard); this.tp.set(this.motion.guard);
     this.alive = true;
+    this.lastFoe = null; this.target = null;   // lastFoe: who dealt the last damage (combo and scenery credit); target: who this fighter acts against, set every tick by MatchSim.assignTargets
     this.skeleton(this.x, this.y, this.z, this.yaw, false);
   }
 
@@ -4341,8 +4380,8 @@ class Fighter {
     const yaw = this.prevYaw + wrapAngle(this.yaw - this.prevYaw) * alpha;
     this.skeleton(px, py, pz, yaw, true);
     if (R.shadowMode === 1) R.put(LAYER.ALPHA, MESH.CYL, px, 0.02, pz, 1.1, 0.01, 1.1, 0, 0, 0, SHADOW_RGB, 0.32 * (1 - Math.min(0.7, py * 0.3)), 0, 1, false, 0);
-    // floor marker: cyan disc = player 1, magenta disc = player 2
-    R.put(LAYER.ALPHA, MESH.CYL, px, 0.018, pz, 1.5, 0.008, 1.5, 0, 0, 0, MARKER_RGB[this.index], 0.22, 0.6, 1, false, 0);
+    // floor marker: cyan disc = the players' team, magenta disc = the other team (every enemy of a brawl)
+    R.put(LAYER.ALPHA, MESH.CYL, px, 0.018, pz, 1.5, 0.008, 1.5, 0, 0, 0, MARKER_RGB[this.team], 0.22, 0.6, 1, false, 0);
   }
 }
 
@@ -4372,7 +4411,11 @@ const Combat = {
   },
   comboScale(n) { return COMBO_SCALE[Math.min(n, COMBO_SCALE.length - 1)]; },
   /* Momentum for damage that landed (strike, ground hit, clinch strike, throw, tackle): the dealer gains by the damage, the receiver by a share of it. */
-  momentum(att, def, dmg) { if (def.hp > 0) att.gainMomentum(dmg * MOMENTUM_PER_DAMAGE); def.gainMomentum(dmg * MOMENTUM_PER_DAMAGE * MOMENTUM_TAKEN_RATIO); },
+  momentum(att, def, dmg) {
+    def.lastFoe = att;   // every damaging hit passes here: the attacker is who the combo and a scenery impact are credited to (P4-01)
+    if (def.hp > 0) att.gainMomentum(dmg * MOMENTUM_PER_DAMAGE);
+    def.gainMomentum(dmg * MOMENTUM_PER_DAMAGE * MOMENTUM_TAKEN_RATIO);
+  },
 
   /* Decide what the attacker's active move would do to the defender this tick (no side effects). */
   evaluate(att, def) {
@@ -4380,6 +4423,7 @@ const Combat = {
     if (!mv || !def) return null;
     if (def.invuln > 0 || TERMINAL_STATES.includes(def.state)) return null;
     if (att.hitList.includes(def)) return null;
+    if (def.pinnedBy && def.pinnedBy !== att) return null;   // a fighter held in a submission is taken: a third fighter cannot join the hold or stomp the victim (hits on the holder still break it)
     const dx = def.x - att.x, dz = def.z - att.z;
     const fx = att.fwdX, fz = att.fwdZ;
     const fwd = dx * fx + dz * fz, lat = Math.abs(dx * fz - dz * fx);
@@ -4798,7 +4842,7 @@ const Combat = {
       const obj = f.obstacleHit;
       const nx = f.kx / speed, nz = f.kz / speed;
       f.lastImpactTick = match.tick;
-      Arena.damageObject(obj, speed * 6, 'impact', IMPACT_SRC_BASE - f.flightId * 8 - (match.tick & 7), nx, nz, f.x, 1.0, f.z, f.index ^ 1);   // credit whoever sent them flying
+      Arena.damageObject(obj, speed * 6, 'impact', IMPACT_SRC_BASE - f.flightId * 8 - (match.tick & 7), nx, nz, f.x, 1.0, f.z, match.foeIndex(f));   // credit whoever sent them flying
       const broke = obj.destroyed;
       const dmg = broke ? 1.5 : 2 + speed * 0.35;
       this.envDamage(f, dmg, match);
@@ -4853,7 +4897,7 @@ const Combat = {
       const reactive = REACTION_STATES.includes(f.state) || f.state === S.KO || (f.state === S.THROWN && f.juggle);
       if (reactive) f.calmTicks = 0; else f.calmTicks++;
       if (f.calmTicks > COMBO_RESET_TICKS) {
-        const other = fighters[f.index ^ 1];
+        const other = f.lastFoe || fighters[f.index ^ 1];
         Events.emit('comboEnd', { att: other, def: f, hits: other.comboHits, damage: other.comboDamage });
         f.gotHits = 0; f.juggleCount = 0; f.calmTicks = 0;
       }
@@ -5819,6 +5863,20 @@ const KO_SLOW_TICKS = 30;             // slow motion starts on the knock-out blo
 const SKIP_ARM_TICKS = 30;            // the round-end sequence can be skipped after this long
 const TIMER_LOW_SECONDS = 10;         // the round timer turns to the warning colour
 const TIMER_BEEP_SECONDS = 5;         // and beeps once a second from here
+/* N fighters in one scene (P4-01). Every fighter has a team: 0 = the players, 1 = the enemies. fighters[0] is the human player; a 1v1 mode is two teams of one.
+   Brawl (mode 'brawl'): one player against up to BRAWL_MAX_ENEMIES CPU enemies in one arena, no rounds; see Appendix C of the tasklist for the rules. */
+const TEAM_PLAYERS = 0, TEAM_ENEMIES = 1;
+const BRAWL_MAX_ENEMIES = 6;          // P1-05: up to six enemies on screen at once
+const BRAWL_DEFAULT_ENEMIES = 3;
+const BRAWL_SPAWN_SPACING = 0.8;      // metres between neighbouring enemy start points along z (a body is 0.68 m wide)
+const BRAWL_SPAWN_STAGGER = 0.5;      // every second enemy starts this much farther from the player, so the line is not a wall
+const CROWD_SEPARATION_PASSES = 3;    // body push-apart passes per tick with more than two fighters (two fighters need one)
+/* Whether a knock-out ends the fight (the whole team is out): in a brawl a single enemy going down gets no K.O. banner, bell or rumble. */
+function koEndsFight(def) {
+  const m = Game.match;
+  if (!m || !m.brawl || !def) return true;
+  return !m.fighters.some((f) => f.team === def.team && f.alive);
+}
 
 /* A human player: P1 reads Input, the second Versus player reads Input2. */
 const PlayerController = {
@@ -5844,18 +5902,29 @@ class MatchSim {
     const p1 = ROSTER_BY_ID[this.cfg.playerId] || ROSTER_BY_ID.kai;
     let p2 = ROSTER_BY_ID[this.cfg.opponentId] || ROSTER_BY_ID.mara;
     if (this.cfg.mode === 'arcade' && p2.bossAttrs) p2 = Object.assign({}, p2, { attrs: p2.bossAttrs[this.cfg.arcadeLevel] || p2.bossAttrs.normal });   // the Arcade final boss, scaled by the difficulty option
-    this.fighters = [new Fighter(p1, 0), new Fighter(p2, 1)];
-    if (p1.id === p2.id) this.fighters[1].applyLook(alternateLook(p2.look));
     this.training = this.cfg.mode === 'training';
     this.versus = this.cfg.mode === 'versus';
-    this.controllers = [PlayerController, this.rivalController(p2)];
-    if (!this.versus && !this.training && !this.cfg.evenDamage) this.fighters[1].stats.damage *=(DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg;
-    this.intents = [makeIntent(), makeIntent()];
+    this.brawl = this.cfg.mode === 'brawl';
+    this.friendlyFire = !!this.cfg.friendlyFire;   // damage between teammates; off, the co-op setting of P4-07 turns it on
+    const foes = this.brawl ? this.brawlEnemies(p1.id) : [p2];
+    this.fighters = [new Fighter(p1, 0, TEAM_PLAYERS)];
+    foes.forEach((profile, k) => {
+      const foe = new Fighter(profile, k + 1, TEAM_ENEMIES);
+      if (profile.id === p1.id) foe.applyLook(alternateLook(profile.look));
+      this.fighters.push(foe);
+    });
+    const count = this.fighters.length;
+    this.controllers = [PlayerController];
+    for (let k = 0; k < foes.length; k++) this.controllers.push(this.brawl ? new AIController(foes[k], this.cfg.difficulty) : this.rivalController(p2));
+    if (!this.versus && !this.training && !this.cfg.evenDamage) for (let k = 1; k < count; k++) this.fighters[k].stats.damage *=(DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg;
+    this.intents = this.fighters.map(() => makeIntent());
+    this.air = new Array(count).fill(false);   // scratch for physics(): which fighters were airborne before landing
+    this.descs = [];                           // scratch for resolveCombat()
     this.tick = 0;
     this.matchTicks = 0;
     this.round = 0;
     this.wins = [0, 0];
-    this.winsNeeded = this.cfg.winsNeeded;
+    this.winsNeeded = this.brawl ? 1 : this.cfg.winsNeeded;   // a brawl is one fight: the side left standing wins it
     this.decider = false;
     this.hitStop = 0;
     this.phase = 'countdown';
@@ -5867,7 +5936,7 @@ class MatchSim {
     this.matchOver = false;
     this.matchWinner = -1;
     this.slowTicks = 0;
-    this.stats = [this.newStats(), this.newStats()];
+    this.stats = this.fighters.map(() => this.newStats());
     this.lastMove = null;
     this.infiniteHp = false;
     this.infiniteStam = false;
@@ -5883,10 +5952,54 @@ class MatchSim {
     if (this.versus) return Player2Controller;
     return this.training ? new DummyController(profile, this.cfg.dummy) : new AIController(profile, this.cfg.difficulty);
   }
+  /* The enemy profiles of a brawl: cfg.enemies is a list of roster ids or a count (the roster cycles in ladder order, skipping the player's own fighter); at most BRAWL_MAX_ENEMIES, at least one. */
+  brawlEnemies(playerId) {
+    const want = this.cfg.enemies, pool = ROSTER.filter((r) => r.id !== playerId);
+    let ids = Array.isArray(want) ? want.filter((id) => ROSTER_BY_ID[id]) : [];
+    if (!Array.isArray(want)) {
+      const count = clamp(Math.floor(Number.isFinite(want) ? want : BRAWL_DEFAULT_ENEMIES), 1, BRAWL_MAX_ENEMIES);
+      for (let k = 0; k < count; k++) ids.push(pool[k % pool.length].id);
+    }
+    if (!ids.length) ids = [pool[0].id];
+    return ids.slice(0, BRAWL_MAX_ENEMIES).map((id) => ROSTER_BY_ID[id]);
+  }
   newStats() { return { damage: 0, taken: 0, hits: 0, blocks: 0, perfect: 0, maxCombo: 0, throws: 0, objects: 0, kos: 0 }; }
 
+  /* ----- teams and targets (P4-01) ----- */
+  /* True when att may damage def: another team, or a teammate while the friendly-fire setting is on. */
+  canHurt(att, def) { return att !== def && (att.team !== def.team || this.friendlyFire); }
+  teamAlive(team) {
+    for (const f of this.fighters) if (f.team === team && f.alive) return true;
+    return false;
+  }
+  /* Who fighter f acts against: its clinch or hold partner while locked in one; otherwise the nearest living hostile that is not in a terminal state (ties
+     go to the lower index); otherwise the nearest hostile of any kind, so a finished 1v1 round still faces the knocked-out opponent. This is the one place that
+     decides it: lock-on and soft facing (P4-03, P4-04) replace the choice here. Allocation-free: it runs for every fighter on every tick. */
+  targetFor(f) {
+    const bound = f.pinnedBy || (f.state === S.CLINCH || f.state === S.GRAPPLE || f.state === S.SUBMIT ? f.partner : null);
+    if (bound) return bound;
+    let best = null, bestSq = Infinity, any = null, anySq = Infinity;
+    const fighters = this.fighters;
+    for (let i = 0; i < fighters.length; i++) {
+      const other = fighters[i];
+      if (other.team === f.team) continue;
+      const dx = other.x - f.x, dz = other.z - f.z, sq = dx * dx + dz * dz;
+      if (sq < anySq) { anySq = sq; any = other; }
+      if (sq < bestSq && other.alive && !TERMINAL_STATES.includes(other.state)) { bestSq = sq; best = other; }
+    }
+    return best || any;
+  }
+  assignTargets() {
+    const fighters = this.fighters;
+    for (let i = 0; i < fighters.length; i++) fighters[i].target = this.targetFor(fighters[i]);
+  }
+  /* The index credited when f is hurt by the scenery: whoever last damaged it; in a 1v1 the other fighter. */
+  foeIndex(f) { return f.lastFoe ? f.lastFoe.index : this.fighters.length === 2 ? f.index ^ 1 : -1; }
+
   subscribe() {
-    const on = (name, fn) => this.unsub.push(Events.on(name, fn));
+    // only this match's fighters count: a stray Fighter (a test probe, another simulation) must not index past this.stats
+    const mine = (f) => !f || this.fighters[f.index] === f;
+    const on = (name, fn) => this.unsub.push(Events.on(name, (e) => { if (mine(e.att) && mine(e.def) && mine(e.f)) fn(e); }));
     /* Training frame data (P3-08): lastMove describes the last thing Player 1 did, whatever its kind, so the panel can show startup / active /
        recovery and the advantage for every move: strikes and string steps (attackStart), clinch strikes (hit), throws (throwStart), the tackle and holds. */
     const note = (data) => { this.lastMove = Object.assign({ result: '-', adv: null, dmg: 0, escape: 0, string: '', note: '' }, data); };
@@ -5939,7 +6052,7 @@ class MatchSim {
       this.stats[e.att.index].damage += e.damage; this.stats[e.def.index].taken += e.damage;
       if (e.att.index === 0 && this.lastMove && this.lastMove.mv.id === 'hold') { this.lastMove.result = e.reason; this.lastMove.dmg = e.damage; this.lastMove.active = e.ticks; }
     });
-    on('objBreak', (e) => { if (e.by === 0 || e.by === 1) this.stats[e.by].objects++; });
+    on('objBreak', (e) => { if (this.stats[e.by]) this.stats[e.by].objects++; });
     on('ko', (e) => { if (e.att) this.stats[e.att.index].kos++; });
     on('attackStart', (e) => {
       if (e.f.index !== 0) return;
@@ -5965,7 +6078,10 @@ class MatchSim {
   placeFighters(hpFrac) {
     const s = this.def.spawn;
     this.fighters[0].reset(-s, 0, Math.PI / 2, hpFrac, 1);
-    this.fighters[1].reset(s, 0, -Math.PI / 2, 1, 1);
+    if (this.brawl) {   // the enemies start in a loose line facing the player, centred on z = 0
+      const foes = this.fighters.length - 1;
+      for (let k = 1; k <= foes; k++) this.fighters[k].reset(s + ((k - 1) & 1) * BRAWL_SPAWN_STAGGER, (k - 1 - (foes - 1) / 2) * BRAWL_SPAWN_SPACING, -Math.PI / 2, 1, 1);
+    } else this.fighters[1].reset(s, 0, -Math.PI / 2, 1, 1);
     for (const c of this.controllers) c.reset();
     this.intents.forEach(clearIntent);
   }
@@ -6014,48 +6130,63 @@ class MatchSim {
     }
   }
   readIntents() {
-    const [a, b] = this.fighters;
-    for (let i = 0; i < 2; i++) {
-      const f = this.fighters[i], opp = this.fighters[i ^ 1];
+    const fighters = this.fighters;
+    for (let i = 0; i < fighters.length; i++) {
+      const f = fighters[i];
       if (this.locked || !f.alive) clearIntent(this.intents[i]);
-      else this.controllers[i].think(f, opp, this, this.intents[i]);
+      else this.controllers[i].think(f, f.target, this, this.intents[i]);
     }
     if (this.training) {
+      const b = fighters[1];
       if (this.infiniteStam) { b.stam = b.maxStam; }
       if (this.infiniteHp && b.alive && b.hp < b.maxHp && !REACTION_STATES.includes(b.state) && this.tick % 120 === 0) b.hp = b.maxHp;
     }
-    void a;
+  }
+  /* Every fighter updates in index order against its target (see targetFor). */
+  updateFighters() {
+    const fighters = this.fighters;
+    for (let i = 0; i < fighters.length; i++) fighters[i].update(this.intents[i], fighters[i].target, this);
   }
   stepFight() {
-    const [a, b] = this.fighters;
     if (this.hitStop > 0) {
       this.hitStop--;
       for (const f of this.fighters) f.animate(0);
       return;
     }
     this.matchTicks++;
+    this.assignTargets();
     this.readIntents();
-    for (let i = 0; i < 2; i++) this.fighters[i].update(this.intents[i], this.fighters[i ^ 1], this);
+    this.updateFighters();
     this.resolveCombat();
     this.physics();
     Combat.tickCombos(this.fighters);
     for (const f of this.fighters) f.animate(DT);
     if (this.training) this.trainingMaintenance();
     else this.checkRoundEnd();
-    void a; void b;
   }
   resolveCombat() {
-    const descs = [];
+    const descs = this.descs, fighters = this.fighters, count = fighters.length;
+    descs.length = 0;
     // D25: no fighter goes first by index. The order alternates every tick, and a strike is applied before a grab (a grab that lost the tick finds its thrower
     // in a hit reaction and does nothing), so a grab against a strike on the same tick loses for P1 and P2 alike; two grabs on one tick split by tick parity.
-    const firstIndex = this.tick & 1;
-    for (let n = 0; n < 2; n++) {
-      const att = this.fighters[firstIndex ^ n];
+    // With more fighters the first attacker rotates through them; each attacker meets every hostile in reach in index order (P4-01).
+    const firstIndex = this.tick % count;
+    for (let n = 0; n < count; n++) {
+      const att = fighters[(firstIndex + n) % count];
       if (att.state !== S.ATTACK || !att.move) continue;
       const t = att.moveTick;
       if (t > att.mStartup && t <= att.mStartup + att.mActive) {
-        const d = Combat.evaluate(att, this.fighters[att.index ^ 1]);
-        if (d) descs.push(d);
+        let grab = null, grabSq = Infinity;   // a grab holds one fighter: of several in reach the nearest is taken
+        for (let j = 0; j < count; j++) {
+          const def = fighters[j];
+          if (!this.canHurt(att, def)) continue;
+          const d = Combat.evaluate(att, def);
+          if (!d) continue;
+          if (d.type !== 'grab') { descs.push(d); continue; }
+          const sq = (def.x - att.x) * (def.x - att.x) + (def.z - att.z) * (def.z - att.z);
+          if (sq < grabSq) { grabSq = sq; grab = d; }
+        }
+        if (grab) descs.push(grab);
         if (att.move.type === 'strike') Combat.hitObjects(att, this);
       }
     }
@@ -6063,30 +6194,40 @@ class MatchSim {
     for (const d of descs) if (d.type === 'grab') Combat.apply(d, this);
   }
   physics() {
-    const [a, b] = this.fighters;
-    const air = [a.integrate(DT), b.integrate(DT)];
-    Combat.tackle(a, b, this); Combat.tackle(b, a, this);   // body contact of a run, before the bodies are pushed apart
-    this.separate(a, b);
-    for (let i = 0; i < 2; i++) {
-      const f = this.fighters[i];
+    const fighters = this.fighters, count = fighters.length, air = this.air;
+    for (let i = 0; i < count; i++) air[i] = fighters[i].integrate(DT);
+    for (let i = 0; i < count; i++) {   // body contact of a run, before the bodies are pushed apart
+      for (let j = 0; j < count; j++) if (this.canHurt(fighters[i], fighters[j])) Combat.tackle(fighters[i], fighters[j], this);
+    }
+    // every pair: bodies are pushed apart, teammates included; a crowd needs a few passes because each push can squeeze a third body
+    for (let pass = 0; pass < (count > 2 ? CROWD_SEPARATION_PASSES : 1); pass++) {
+      for (let i = 0; i < count; i++) for (let j = i + 1; j < count; j++) this.separate(fighters[i], fighters[j]);
+    }
+    for (let i = 0; i < count; i++) {
+      const f = fighters[i];
       Arena.resolveFighter(f);
       f.afterCollision(air[i], this);
       Combat.fallCheck(f, this);
       Combat.impactCheck(f, this);
     }
   }
+  /* Pushes two bodies apart. A clinched pair (grabber and held) is left alone; any other fighter that bumps into one pushes only itself away, because the
+     pair is carried by the grab. In a brawl the knocked-out stay where they fell and do not block. */
   separate(a, b) {
-    if (a.state === S.CLINCH || a.state === S.GRAPPLE || b.state === S.CLINCH || b.state === S.GRAPPLE) return;
+    const pinnedA = a.state === S.CLINCH || a.state === S.GRAPPLE || a.state === S.SUBMIT || !!a.pinnedBy, pinnedB = b.state === S.CLINCH || b.state === S.GRAPPLE || b.state === S.SUBMIT || !!b.pinnedBy;   // a hold pair is carried like a clinch pair
+    if ((pinnedA || pinnedB) && (this.fighters.length === 2 || a.partner === b || b.partner === a || (pinnedA && pinnedB))) return;
     if (a.state === S.THROWN || b.state === S.THROWN) return;
     if (Math.abs(a.y - b.y) > 1.25) return;
+    if (this.brawl && (!a.alive || !b.alive)) return;
     let dx = b.x - a.x, dz = b.z - a.z;
     let d = Math.hypot(dx, dz);
     const min = a.radius + b.radius;
     if (d >= min) return;
     if (d < 1e-5) { dx = 1; dz = 0; d = 1; }
     const push = (min - d) / 2;
-    a.x -= (dx / d) * push; a.z -= (dz / d) * push;
-    b.x += (dx / d) * push; b.z += (dz / d) * push;
+    const pushA = pinnedA ? 0 : pinnedB ? min - d : push, pushB = pinnedB ? 0 : pinnedA ? min - d : push;   // a pinned body does not move; the other takes the whole overlap
+    a.x -= (dx / d) * pushA; a.z -= (dz / d) * pushA;
+    b.x += (dx / d) * pushB; b.z += (dz / d) * pushB;
   }
   trainingMaintenance() {
     const [a, b] = this.fighters;
@@ -6118,7 +6259,8 @@ class MatchSim {
   /* ----- round rules ----- */
   checkRoundEnd() {
     const [a, b] = this.fighters;
-    if (!a.alive || !b.alive) {
+    const down = this.brawl ? !this.teamAlive(TEAM_PLAYERS) || !this.teamAlive(TEAM_ENEMIES) : !a.alive || !b.alive;   // a brawl ends when one whole side is out
+    if (down) {
       if (!this.locked) this.slowTicks = KO_SLOW_TICKS;
       this.locked = true;
       this.endTimer++;
@@ -6136,7 +6278,8 @@ class MatchSim {
   endRound(reason) {
     const [a, b] = this.fighters;
     let winner = -1;
-    if (a.alive && !b.alive) winner = 0;
+    if (this.brawl) winner = reason !== 'time' && this.teamAlive(TEAM_PLAYERS) ? TEAM_PLAYERS : TEAM_ENEMIES;   // the players need a survivor, and the clock beats them; a draw counts as lost
+    else if (a.alive && !b.alive) winner = 0;
     else if (b.alive && !a.alive) winner = 1;
     else if (a.alive && b.alive) {
       const ha = a.hp / a.maxHp, hb = b.hp / b.maxHp;
@@ -6155,8 +6298,9 @@ class MatchSim {
   }
   stepRoundEnd() {
     this.hitStopTick();
+    this.assignTargets();
     this.readIntents();
-    for (let i = 0; i < 2; i++) this.fighters[i].update(this.intents[i], this.fighters[i ^ 1], this);
+    this.updateFighters();
     this.physics();
     for (const f of this.fighters) f.animate(DT);
     if (this.phaseTicks === 60) this.settlePoses(false);
@@ -6169,9 +6313,9 @@ class MatchSim {
   }
   /* Winner / loser poses for standing fighters; late (true) also catches a thrown fighter that has landed. */
   settlePoses(late) {
-    this.fighters.forEach((f, i) => {
+    this.fighters.forEach((f) => {
       if (!f.alive || TERMINAL_STATES.includes(f.state) || f.airborne || (f.state === S.THROWN && !late)) return;
-      f.setState(this.roundWinner === i ? S.VICTORY : S.DEFEAT);
+      f.setState(this.roundWinner === f.team ? S.VICTORY : S.DEFEAT);   // the winners' team (a 1v1 side is its own team)
     });
   }
   /* A button press fast-forwards the round-end sequence once it has played for a moment. */
@@ -6184,16 +6328,25 @@ class MatchSim {
   }
   hitStopTick() { if (this.hitStop > 0) this.hitStop = 0; }
   stepIdle() {
-    for (const f of this.fighters) { f.update(clearIntent(makeIntent()), this.fighters[f.index ^ 1], this); f.animate(DT); }
+    this.assignTargets();
+    for (const f of this.fighters) { f.update(clearIntent(makeIntent()), f.target, this); f.animate(DT); }
     this.physics();
   }
 
   results() {
     const [a, b] = this.fighters;
-    return {
+    const r = {
       winner: this.matchWinner, wins: this.wins.slice(), rounds: this.round, seconds: Math.round(this.matchTicks / 60),
       stats: this.stats, playerHp: a.hp / a.maxHp, opponentHp: b.hp / b.maxHp, player: a.name, opponent: b.name,
     };
+    if (this.brawl) {   // the enemies as a group: how many there were and how much of their health is left
+      const foes = this.fighters.filter((f) => f.team === TEAM_ENEMIES);
+      r.enemies = foes.length;
+      r.enemiesDown = foes.filter((f) => !f.alive).length;
+      r.opponent = foes.length + (foes.length === 1 ? ' enemy' : ' enemies');
+      r.opponentHp = foes.reduce((sum, f) => sum + f.hp, 0) / foes.reduce((sum, f) => sum + f.maxHp, 0);
+    }
+    return r;
   }
 }
 
@@ -6210,28 +6363,33 @@ const SimRunner = {
     const savedHandlers = Events.handlers, savedReduced = Settings.v.reducedMotion;
     Events.handlers = {};   // only this run's listeners: the menu scene, sound and HUD never see the simulated match
     Settings.v.reducedMotion = false;   // reduced motion shortens hitstop; balance numbers must not depend on a viewer setting
-    const damage = [{}, {}];
+    let damage = [{}, {}];   // per fighter (a brawl has more than two)
     const add = (side, type, dmg) => { damage[side][type] = (damage[side][type] || 0) + dmg; };
     let m = null;
     try {
       Events.on('hit', (e) => add(e.att.index, e.kind === 'ground' ? 'ground' : e.mv.cat || 'other', e.dmg));
       Events.on('throw', (e) => add(e.att.index, 'throw', e.dmg));
       for (const name in cfg.listeners || {}) Events.on(name, cfg.listeners[name]);
-      m = new MatchSim({ mode: 'free', evenDamage: true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer });
+      // cfg.enemies (a count or a list of fighter ids) makes it a brawl: the player against that many CPU enemies, ended by one side being wiped out
+      m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
+        cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: opts.timer === undefined ? 0 : opts.timer } : null));   // a brawl has no clock unless asked for one (time up = the players lose)
+      const count = m.fighters.length;
+      if (count !== 2) damage = m.fighters.map(() => ({}));
       m.controllers[0] = new AIController(m.fighters[0].profile, cfg.difficulty1 || cfg.difficulty);
-      m.controllers[1] = new AIController(m.fighters[1].profile, cfg.difficulty2 || cfg.difficulty);
-      const lost = [0, 0];
+      for (let i = 1; i < count; i++) m.controllers[i] = new AIController(m.fighters[i].profile, cfg.difficulty2 || cfg.difficulty);
+      const lost = m.fighters.map(() => 0), before = m.fighters.map(() => 0);
       while (m.phase !== 'matchEnd' && m.tick < SIM_MAX_TICKS) {
-        const before = [m.fighters[0].hp, m.fighters[1].hp];
+        for (let i = 0; i < count; i++) before[i] = m.fighters[i].hp;
         m.step();
         if (m.phase === 'waiting') { m.startRound(); continue; }
-        for (let i = 0; i < 2; i++) lost[i] += Math.max(0, before[i] - m.fighters[i].hp);
+        for (let i = 0; i < count; i++) lost[i] += Math.max(0, before[i] - m.fighters[i].hp);
       }
-      for (let i = 0; i < 2; i++) {
-        let credited = 0;
+      for (let i = 0; i < count; i++) {
+        let credited = 0, hostileLost = 0;
         for (const k in damage[i]) credited += damage[i][k];
-        const other = lost[i ^ 1] - credited;
-        if (other > 0.05) add(i, 'other', other);
+        for (let j = 0; j < count; j++) if (m.fighters[j].team !== m.fighters[i].team) hostileLost += lost[j];   // a 1v1: just the other fighter's loss
+        const other = hostileLost - credited;
+        if (count === 2 && other > 0.05) add(i, 'other', other);   // with several fighters a loss cannot be told apart per attacker: no 'other' row
         for (const k in damage[i]) damage[i][k] = Math.round(damage[i][k] * 10) / 10;
       }
       return {
@@ -6475,6 +6633,15 @@ const Game = {
     this.beginMatch({ mode: 'versus', playerId: sel.player, opponentId: sel.player2, arenaId: sel.arena, winsNeeded: sel.rounds, timer: sel.timer });
   },
 
+  /* P4-01 debug entry (URL flag ?brawl=N, BREAKPOINT.brawl(N)): the selected fighter against N CPU enemies (a count or a list of fighter ids, at most
+     BRAWL_MAX_ENEMIES) in the selected arena. No level, menu or waves yet. */
+  startBrawl(enemies, arenaId, difficulty) {
+    const sel = this.selection;
+    if (this.state === GS.MENU) this.go(GS.CHARSEL);   // a match starts from a menu screen that may go on to the countdown
+    this.run = { mode: 'brawl', player: sel.player };
+    this.beginMatch({ mode: 'brawl', playerId: sel.player, enemies, arenaId: ARENAS[arenaId] ? arenaId : sel.arena, difficulty: DIFFICULTY[difficulty] ? difficulty : sel.difficulty, winsNeeded: 1, timer: 0 });
+  },
+
   beginMatch(cfg) {
     this.endMatch();
     cfg.seed = (Date.now() ^ (this.errorCount * 7919)) >>> 0;
@@ -6695,7 +6862,7 @@ const Game = {
     let env;
     if (m && this.state !== GS.LOADING) {
       env = m.def.env;
-      Camera.follow(dt, m.fighters[0], m.fighters[1], m.def);
+      if (m.brawl) Camera.followGroup(dt, m.fighters, m.def); else Camera.follow(dt, m.fighters[0], m.fighters[1], m.def);
     } else env = Arena.def ? Arena.def.env : DEFAULT_ENV;
     R.begin(env);
     if (m || Arena.def) { Camera.apply(); }
@@ -6750,7 +6917,7 @@ const Effects = {
     on('tackle', (e) => {
       if (e.result === 'hit') { FX.dust(e.def.x, 0.1, e.def.z, 6, 0.6, '#b5ada0'); Camera.impact(0.7, 0.5); } else FX.ring(e.x, e.y, e.z, e.result === 'blocked' ? '#9ee7ff' : '#ffffff');
     });
-    on('ko', (e) => { FX.flash(e.x, e.y, e.z, 0.7, '#ffffff'); FX.sparks(e.x, e.y, e.z, 20, 5, '#ffd27a'); for (const p of Inputs.active()) p.rumble(RUMBLE_KO, RUMBLE_KO_MS); });
+    on('ko', (e) => { FX.flash(e.x, e.y, e.z, 0.7, '#ffffff'); FX.sparks(e.x, e.y, e.z, 20, 5, '#ffd27a'); if (koEndsFight(e.def)) for (const p of Inputs.active()) p.rumble(RUMBLE_KO, RUMBLE_KO_MS); });
     on('wallSlam', (e) => { FX.dust(e.x, 0.6, e.z, 8, 0.5, '#b5ada0'); FX.sparks(e.x, 1.0, e.z, 8, 3, '#ffffff'); Camera.impact(0.7, 0.5); });
     on('envImpact', (e) => { FX.dust(e.x, 0.6, e.z, 8, 0.5, '#b5ada0'); Camera.impact(0.6, 0.4); });
     on('objHit', (e) => { const m = MATERIALS[e.obj.mat]; FX.sparks(e.x, e.y, e.z, e.dmg > 0 ? 6 : 2, 2.5, m ? m.color : '#ffffff'); if (e.dmg > 0 && e.obj.mat === 'concrete') FX.dust(e.x, e.y, e.z, 2, 0.3, '#a8a49b'); });
@@ -6980,7 +7147,7 @@ const Sound = {
     });
     on('block', (e) => { if (!e.sway || e.perfect) this.block(e.perfect, e.broke, e.x); });   // a plain sway makes no block sound
     on('attackActive', (e) => this.whoosh((e.mv.tier || 1) / 3, e.f.x));
-    on('attackStart', (e) => { if (e.mv.tier === 3 && e.f.index === 1) this.grunt(1, false); });
+    on('attackStart', (e) => { if (e.mv.tier === 3 && e.f.team === TEAM_ENEMIES) this.grunt(1, false); });
     on('step', (e) => this.step(e.run, e.f.x));
     on('land', (e) => this.land(e.impact / 6, e.f.x));
     on('jump', (e) => this.whoosh(0.2, e.f.x));
@@ -6995,7 +7162,7 @@ const Sound = {
     on('tackle', (e) => { if (e.result === 'blocked') this.block(false, false, e.x); else if (e.result === 'hit') this.slam(e.x); else this.whoosh(0.8, e.x); });
     on('escapeFail', () => this.ui('bad'));
     on('knockdown', (e) => this.slam(e.f.x));
-    on('ko', (e) => { this.slam(e.x); this.bell(); });
+    on('ko', (e) => { this.slam(e.x); if (koEndsFight(e.def)) this.bell(); });
     on('wallSlam', (e) => this.slam(e.x));
     on('envImpact', (e) => this.slam(e.x));
     on('objHit', (e) => this.material(MATERIALS[e.obj.mat] ? e.obj.mat : 'wood', false, e.x));
@@ -7224,7 +7391,7 @@ const UI = {
     // iOS only grants audio on the end of a tap
     add(document, 'touchend', () => Sound.unlock(), { passive: true });
     add(document, 'pointerup', () => Sound.unlock(), { passive: true });
-    for (let i = 0; i < 2; i++) { const el = document.createElement('div'); el.className = 'tag p' + (i + 1); this.dom.tags.appendChild(el); this.tagEls.push(el); }
+    for (let i = 0; i < 1 + BRAWL_MAX_ENEMIES; i++) { const el = document.createElement('div'); el.className = 'tag p' + Math.min(i + 1, 2); this.dom.tags.appendChild(el); this.tagEls.push(el); }   // a name tag per fighter: P1, P2 and up to six enemies share p2's colour
     for (let i = 0; i < 16; i++) { const el = document.createElement('div'); el.className = 'pop'; el.style.opacity = '0'; this.dom.tags.appendChild(el); this.pops.push({ el, age: 99, life: 1, x: 0, y: 0, z: 0 }); }
     Events.on('toast', (e) => this.toast(e.msg, e.kind));
     Events.on('frame', () => this.update());
@@ -7246,8 +7413,8 @@ const UI = {
     Events.on('envImpact', (e) => this.popAt(e.x, 1.5, e.z, 'CRASH', '#ffb27a'));
     Events.on('countdown', (e) => this.banner(String(e.n), '', 700));
     Events.on('fightStart', () => this.banner('FIGHT!', '', 900));
-    Events.on('roundStart', (e) => { if (e.match.cfg.countdown) this.banner(e.match.decider ? 'FINAL ROUND' : 'ROUND ' + e.round, this.roundSub(e.match), ROUND_BANNER_TICKS * 1000 / 60); else this.say('Round ' + e.round); });
-    Events.on('ko', () => this.banner('K.O.!', '', 1600));
+    Events.on('roundStart', (e) => { if (e.match.cfg.countdown) this.banner(e.match.brawl ? 'BRAWL' : e.match.decider ? 'FINAL ROUND' : 'ROUND ' + e.round, this.roundSub(e.match), ROUND_BANNER_TICKS * 1000 / 60); else this.say(e.match.brawl ? 'Brawl' : 'Round ' + e.round); });
+    Events.on('ko', (e) => { if (koEndsFight(e.def)) this.banner('K.O.!', '', 1600); });
     Events.on('roundEnd', (e) => this.onRoundEnd(e));
     Events.on('lowStamina', (e) => { if (Inputs.forFighter(e.f.index)) this.say(this.speaker(e.f.index) + 'Low stamina'); });
     Events.on('comboEnd', (e) => { if (e.hits >= 3 && e.att && Inputs.forFighter(e.att.index)) this.say(this.speaker(e.att.index) + e.hits + ' hit combo'); });
@@ -7398,13 +7565,14 @@ const UI = {
     if (!this.rotateShown && window.innerHeight > window.innerWidth && this.touchWanted()) { this.rotateShown = true; this.toast('Rotate your device to landscape for the best view', 'warn'); }
     this.cache = {};
     this.dom.hn1.innerHTML = '<b>P1</b> ' + esc(match.fighters[0].name);
-    this.dom.hn2.innerHTML = '<b>' + this.sideLabel(match, 1) + '</b> ' + esc(match.fighters[1].name);
+    this.dom.hn2.innerHTML = match.brawl ? '<b>CPU</b> ENEMIES' : '<b>' + this.sideLabel(match, 1) + '</b> ' + esc(match.fighters[1].name);   // a brawl: the right bar is the enemies together
     this.dom.hud.classList.toggle('vs', match.versus);
+    this.dom.hud.classList.toggle('brawl', match.brawl);
     this.ghost = [1, 1];
     this.dom.training.hidden = !train;
     this.dom.hud.hidden = false;
     this.dom.timer.textContent = match.cfg.timer ? String(match.cfg.timer) : '';
-    this.dom.timer.hidden = train;
+    this.dom.timer.hidden = train || (match.brawl && !match.cfg.timer);
     this.dom.roundlbl.hidden = false;
     if (match.versus && this.cardSession !== Game.versus) this.showVersusCard();
     else if (this.controlsCardDue(match)) this.showOnboarding();
@@ -7421,6 +7589,7 @@ const UI = {
   /* Round 1 introduces the fight: Arcade stage or Survival opponent number, then who you face. */
   roundSub(m) {
     if (m.round !== 1) return '';
+    if (m.brawl) return m.fighters.length - 1 + (m.fighters.length === 2 ? ' ENEMY' : ' ENEMIES');
     if (m.versus) return this.fighterName(m, 0) + ' VS ' + this.fighterName(m, 1);
     const run = Game.run, vs = 'VS ' + m.fighters[1].name;
     if (m.cfg.mode === 'arcade' && run) return 'STAGE ' + (run.stage + 1) + ' / ' + run.ladder.length + ' · ' + vs;
@@ -7431,6 +7600,7 @@ const UI = {
     const m = e.match;
     let t = e.reason === 'time' ? 'TIME UP' : 'K.O.';
     let sub = e.winner < 0 ? 'DRAW' : this.fighterName(m, e.winner) + ' WINS THE ROUND';
+    if (m.brawl) sub = e.winner === TEAM_PLAYERS ? 'ALL ENEMIES DOWN' : e.reason === 'time' ? 'THE ENEMIES HOLD OUT' : 'THE PLAYER IS DOWN';
     if (e.reason === 'time' && e.winner < 0) t = 'DRAW';
     this.banner(t, sub, 2200);
   },
@@ -7889,9 +8059,9 @@ const UI = {
     if (d.mode === 'versus') return this.versusResults(d);
     const s0 = d.stats[0], s1 = d.stats[1];
     const mm = clockText;
-    let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages + ' &middot; continues ' + d.continues : d.mode === 'survival' ? 'Survival &middot; defeated ' + (d.kills || 0) : d.mode === 'training' ? 'Training' : 'Free Fight';
+    let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages + ' &middot; continues ' + d.continues : d.mode === 'survival' ? 'Survival &middot; defeated ' + (d.kills || 0) : d.mode === 'training' ? 'Training' : d.mode === 'brawl' ? 'Brawl' : 'Free Fight';
     let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.playerWon ? 'Victory' : 'Defeat') + '</div><p class="sub">' + sub + ' &middot; ' + esc(d.player) + ' vs ' + esc(d.opponent) + '</p>';
-    h += '<div class="statgrid"><span>Rounds won</span><span>' + d.wins[0] + ' - ' + d.wins[1] + '</span><span>Fight time</span><span>' + mm(d.seconds) + '</span><span>Damage dealt</span><span>' + Math.round(s0.damage) + '</span><span>Damage taken</span><span>' + Math.round(s0.taken) + '</span><span>Hits landed</span><span>' + s0.hits + '</span><span>Best combo</span><span>' + s0.maxCombo + ' hits</span><span>Blocks or sways (perfect)</span><span>' + s0.blocks + ' (' + s0.perfect + ')</span><span>Throws</span><span>' + s0.throws + '</span><span>Objects destroyed</span><span>' + s0.objects + '</span></div>';
+    h += '<div class="statgrid">' + (d.mode === 'brawl' ? '<span>Enemies down</span><span>' + d.enemiesDown + ' / ' + d.enemies + '</span>' : '<span>Rounds won</span><span>' + d.wins[0] + ' - ' + d.wins[1] + '</span>') + '<span>Fight time</span><span>' + mm(d.seconds) + '</span><span>Damage dealt</span><span>' + Math.round(s0.damage) + '</span><span>Damage taken</span><span>' + Math.round(s0.taken) + '</span><span>Hits landed</span><span>' + s0.hits + '</span><span>Best combo</span><span>' + s0.maxCombo + ' hits</span><span>Blocks or sways (perfect)</span><span>' + s0.blocks + ' (' + s0.perfect + ')</span><span>Throws</span><span>' + s0.throws + '</span><span>Objects destroyed</span><span>' + s0.objects + '</span></div>';
     if (d.mode === 'survival') h += '<p>Survival time: <b>' + mm(d.survivalSeconds) + '</b> &middot; Opponents defeated: <b>' + d.kills + '</b>' + (d.ended ? ' &middot; Run over' : '') + ' &middot; Best: <b>' + Progress.d.survivalKills + '</b></p>';
     if (d.cleared) h += '<p><b>Arcade cleared!</b></p>';
     if (d.newBest) h += '<p class="newbest">NEW BEST!</p>';
@@ -8000,6 +8170,7 @@ const UI = {
   tenseMoment(m) {
     if (m.training) return false;
     const [a, b] = m.fighters;
+    if (m.brawl) return a.hp / a.maxHp < TENSE_HP_FRACTION;   // only the player's health counts against a crowd
     const matchPoint = m.round > 1 && (m.wins[0] === m.winsNeeded - 1 || m.wins[1] === m.winsNeeded - 1);
     const lowHp = Math.min(a.hp / a.maxHp, b.hp / b.maxHp) < TENSE_HP_FRACTION;
     return m.decider || matchPoint || lowHp;
@@ -8021,15 +8192,16 @@ const UI = {
       this.setTransform('mo' + i, this.dom['mo' + (i + 1)], 'scaleX(' + clamp(boosted ? f.boostTicks / BOOST_TICKS : f.momentum / MOMENTUM_MAX, 0, 1).toFixed(3) + ')');
       this.toggleOn('boost' + i, this.dom['mob' + (i + 1)], boosted);
     };
-    bar(0, a); bar(1, b);
+    bar(0, a);
+    if (m.brawl) this.enemyBar(m); else bar(1, b);
     Music.setIntensity(this.tenseMoment(m) ? MUSIC_TENSE : MUSIC_FIGHT);
     const tl = m.timeLeft;
     this.setText('timer', this.dom.timer, tl === null ? (m.training ? '' : '∞') : String(tl));
     const lowTime = tl !== null && tl <= TIMER_LOW_SECONDS;
     if (this.cache.lowTime !== lowTime) { this.cache.lowTime = lowTime; this.dom.timer.classList.toggle('low', lowTime); }
     const cfg = m.cfg;
-    this.setText('round', this.dom.roundlbl, m.training ? 'TRAINING' : (m.decider ? 'FINAL ROUND' : 'ROUND ' + m.round));
-    if (!m.training) {
+    this.setText('round', this.dom.roundlbl, m.training ? 'TRAINING' : m.brawl ? 'BRAWL' : (m.decider ? 'FINAL ROUND' : 'ROUND ' + m.round));
+    if (!m.training && !m.brawl) {
       const pip = (w) => '●'.repeat(w) + '○'.repeat(Math.max(0, m.winsNeeded - w));
       this.setText('pips1', this.dom.pips1, pip(m.wins[0])); this.setText('pips2', this.dom.pips2, pip(m.wins[1]));
     } else { this.setText('pips1', this.dom.pips1, ''); this.setText('pips2', this.dom.pips2, ''); }
@@ -8038,6 +8210,7 @@ const UI = {
     if (cfg.mode === 'arcade' && run) info = 'ARCADE · STAGE ' + (run.stage + 1) + ' / ' + run.ladder.length + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (cfg.mode === 'survival' && run) info = 'SURVIVAL · DEFEATED ' + run.kills + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (cfg.mode === 'free') info = m.def.name.toUpperCase() + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
+    else if (m.brawl) info = 'BRAWL · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase();
     else if (m.versus) info = 'VERSUS · ' + m.def.name.toUpperCase() + (Game.versus ? ' · SESSION ' + Game.versus.score[0] + ' - ' + Game.versus.score[1] : '');
     else info = m.def.name.toUpperCase() + (Input.lastDevice === 'gamepad' ? ' · hold Select: reset · Start: training menu' : ' · Tab reset · F2 reset arena · 1-5 scenarios');
     this.setText('modeinfo', this.dom.modeinfo, info);
@@ -8050,8 +8223,13 @@ const UI = {
     this.showHint('hint2', this.dom.grappleHint2, m.versus ? this.grappleHint(b) : '');
     // name tags + popups
     const out = [0, 0];
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < this.tagEls.length; i++) {
       const f = m.fighters[i], el = this.tagEls[i];
+      if (!f || (m.brawl && i > 0 && !f.alive)) {   // no fighter in this slot, or an enemy that is out
+        if (this.cache['tagoff' + i] !== true) { this.cache['tagoff' + i] = true; el.style.display = 'none'; }
+        continue;
+      }
+      this.cache['tagoff' + i] = false;
       const ok = R.project(f.x, f.y + 2.15 * f.scale, f.z, out);
       let status = '';
       if (f.state === S.BLOCK_H || f.state === S.BLOCK_L) status = 'BLOCK';
@@ -8062,7 +8240,8 @@ const UI = {
       else if (f.state === S.DOWN) status = f.pinnedBy ? 'PINNED' : 'DOWN';
       else if (f.state === S.KO) status = 'K.O.';
       else if (f.lowStamina) status = 'TIRED';
-      this.setHtml('tag' + i, el, (i === 0 ? '1P' : m.versus ? '2P' : m.training ? 'DUMMY' : 'CPU') + (status ? '<i>' + status + '</i>' : ''));
+      const health = m.brawl && i > 0 ? '<s><u style="width:' + Math.round(clamp(f.hp / f.maxHp, 0, 1) * 100) + '%"></u></s>' : '';   // a brawl enemy's tag carries its own health bar
+      this.setHtml('tag' + i, el, (i === 0 ? '1P' : m.versus ? '2P' : m.training ? 'DUMMY' : 'CPU') + (status ? '<i>' + status + '</i>' : '') + health);
       el.style.display = ok ? '' : 'none';
       if (ok) this.setTransform('tagpos' + i, el, 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) translate(-50%,-100%)');
     }
@@ -8075,6 +8254,16 @@ const UI = {
       p.el.style.opacity = String(u < 0.7 ? 1 : (1 - u) / 0.3);
     }
     if (m.training) this.trainingPanel(m);
+  },
+  /* Brawl: the right-hand bar is the enemies together (health left of all of them, and how many are still up). */
+  enemyBar(m) {
+    let hp = 0, maxHp = 0, up = 0, total = 0;
+    for (const f of m.fighters) if (f.team === TEAM_ENEMIES) { hp += f.hp; maxHp += f.maxHp; total++; if (f.alive) up++; }
+    const frac = clamp(hp / maxHp, 0, 1);
+    this.ghost[1] = frac >= this.ghost[1] ? frac : Math.max(frac, this.ghost[1] - (1 / 60) * 0.35);
+    this.setTransform('hp1', this.dom.hp2, 'scaleX(' + frac.toFixed(3) + ')');
+    this.setTransform('hg1', this.dom.hg2, 'scaleX(' + this.ghost[1].toFixed(3) + ')');
+    this.setText('ht1', this.dom.ht2, up + ' / ' + total + ' UP');
   },
   comboBox(key, el, f, allowed) {
     const show = allowed && f.comboShow > 0 && f.comboHits >= 2;
@@ -8922,6 +9111,17 @@ const SelfTest = {
     m.controllers[0] = this.scripted(s1 || (() => {}));
     m.controllers[1] = this.scripted(s2 || (() => {}));
     return m;
+  },
+  /* A brawl (P4-01) with scripted controllers: scripts[i] drives fighter i (default: stands still). */
+  makeBrawl(opts, ...scripts) {
+    const m = new MatchSim(Object.assign({ mode: 'brawl', enemies: 2, countdown: false, timer: 0, seed: 11 }, opts));
+    m.fighters.forEach((f, i) => { m.controllers[i] = this.scripted(scripts[i] || (() => {})); });
+    return m;
+  },
+  /* Puts fighter f at (x, z) facing (lookX, lookZ), at rest. */
+  stand(f, x, z, lookX, lookZ) {
+    f.x = f.prevX = x; f.z = f.prevZ = z;
+    f.yaw = f.prevYaw = Math.atan2(lookX - x, lookZ - z);
   },
   place(m, gap, x0) {
     const a = m.fighters[0], b = m.fighters[1], c = x0 === undefined ? 0 : x0;
@@ -12233,6 +12433,168 @@ const SelfTest = {
       if (!SimRunner.run({ arenaId: 'nowhere' }).error) return 'unknown arena accepted';
       return JSON.stringify(a) === JSON.stringify(b) ? true : 'same seed gave different results';
     });
+    /* ----- N fighters in one scene (P4-01) ----- */
+    /* The 1v1 path must not change: event log + result of three seeded matches, hashed, recorded from the code before P4-01 (kai-mara hard, zero-mara easy, the kai
+       mirror on expert). A task that changes 1v1 behaviour on purpose (balance, AI, moves) has to record new values here. */
+    const ONE_V_ONE_FINGERPRINTS = [
+      { opts: { seed: 1, playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard' }, hash: '64:shp12u' },
+      { opts: { seed: 7, playerId: 'zero', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'easy' }, hash: '64:1563zst' },
+      { opts: { seed: 3, playerId: 'kai', opponentId: 'kai', arenaId: 'pit', difficulty: 'expert' }, hash: '81:g3xni6' },
+    ];
+    const FINGERPRINT_EVENTS = ['hit', 'block', 'throw', 'throwStart', 'knockdown', 'clinch', 'tackle', 'sway', 'sidestep', 'escape', 'submission', 'submissionEnd', 'fall', 'ko', 'roundStart', 'roundEnd', 'matchEnd'];
+    const fingerprint = (opts) => {
+      const lines = [];
+      const listeners = {};
+      for (const name of FINGERPRINT_EVENTS) listeners[name] = (e) => lines.push([name, e.att && e.att.index, e.def && e.def.index, e.f && e.f.index, typeof e.dmg === 'number' ? e.dmg.toFixed(3) : '', e.winner, e.round, e.result].join(','));
+      const r = SimRunner.run(Object.assign({}, opts, { listeners }));
+      lines.push(JSON.stringify([r.winner, r.ticks, r.rounds, r.wins, r.hpLeft]));
+      return lines.length + ':' + fnv1a(lines.join('|')).toString(36);
+    };
+    test('N fighters: three seeded 1v1 matches keep the exact event log and result they had before the team / target generalisation', () => {
+      const got = ONE_V_ONE_FINGERPRINTS.map((f) => fingerprint(f.opts)), want = ONE_V_ONE_FINGERPRINTS.map((f) => f.hash);
+      return got.every((h, i) => h === want[i]) ? true : 'got ' + got.join(' ') + ' want ' + want.join(' ');
+    });
+    test('N fighters: a 1v6 brawl runs to a winner with no illegal transition or NaN, bodies stay apart, and every enemy is on team 1', () => {
+      const illegal = Diag.illegalTransitions;
+      const m = new MatchSim({ mode: 'brawl', enemies: BRAWL_MAX_ENEMIES, countdown: false, timer: 0, seed: 5, difficulty: 'normal', evenDamage: true });
+      m.controllers[0] = new AIController(m.fighters[0].profile, 'expert');
+      let minGap = 9, bad = '', ticks = 0;
+      while (m.phase !== 'matchEnd' && ticks < 20000 && !bad) {
+        m.step(); ticks++;
+        for (let i = 0; i < m.fighters.length && !bad; i++) {
+          const f = m.fighters[i];
+          if (![f.x, f.y, f.z, f.yaw, f.hp, f.stam].every(Number.isFinite)) bad = 'NaN in fighter ' + i + ' at tick ' + ticks;
+          for (let j = i + 1; j < m.fighters.length; j++) {
+            const g = m.fighters[j];
+            if (f.alive && g.alive && Math.abs(f.y - g.y) < 1.25 && f.state !== S.CLINCH && f.state !== S.GRAPPLE && g.state !== S.CLINCH && g.state !== S.GRAPPLE) minGap = Math.min(minGap, Math.hypot(f.x - g.x, f.z - g.z));
+          }
+        }
+      }
+      const teams = m.fighters.map((f) => f.team).join('');
+      const winnerLives = m.matchWinner === 0 ? m.teamAlive(TEAM_PLAYERS) && !m.teamAlive(TEAM_ENEMIES) : !m.teamAlive(TEAM_PLAYERS);
+      const info = JSON.stringify({ bad, ticks, phase: m.phase, winner: m.matchWinner, teams, minGap: Math.round(minGap * 100) / 100, illegal: Diag.illegalTransitions - illegal });
+      const ok = m.fighters.length === 1 + BRAWL_MAX_ENEMIES && teams === '0111111' && !bad && m.phase === 'matchEnd' && m.matchOver && (m.matchWinner === 0 || m.matchWinner === 1) && winnerLives &&
+        Diag.illegalTransitions === illegal && minGap > 0.3;   // a body is 0.68 m wide: crowding may squeeze, never stack
+      m.dispose();
+      return ok ? true : info;
+    });
+    test('N fighters: a brawl is won when every enemy is out, lost when every player is out (also on a draw or the clock), and not decided before', () => {
+      const result = (kill, opts) => {
+        const m = self.makeBrawl(Object.assign({ enemies: 3 }, opts));
+        self.run(m, 3);
+        for (const k of kill) Combat.knockOut(m.fighters[k], null, null, m);
+        self.run(m, KO_DELAY_TICKS + 20);   // the knock-out hit-stop (16 ticks) plus the delay
+        const out = { phase: m.phase, over: m.matchOver, winner: m.matchWinner, wins: m.wins.join('-') };
+        m.dispose();
+        return out;
+      };
+      const none = result([]), partial = result([1, 2]), cleared = result([1, 2, 3]), downed = result([0]), draw = result([0, 1, 2, 3]), clock = result([], { timer: 1 });
+      const ok = none.phase === 'fight' && !none.over && partial.phase === 'fight' && !partial.over && cleared.over && cleared.winner === 0 && cleared.wins === '1-0' &&
+        downed.over && downed.winner === 1 && downed.wins === '0-1' && draw.over && draw.winner === 1 && clock.over && clock.winner === 1;
+      return ok ? true : JSON.stringify({ none, partial, cleared, downed, draw, clock });
+    });
+    test('N fighters: teammates never damage each other (friendly fire off), the flag turns it on, and the opposing team is still hit', () => {
+      const run = (friendlyFire) => {
+        const hits = [];
+        const spam = (it, f, o, m) => { it.punch = m.tick % 30 === 2; };
+        const m = self.makeBrawl({ friendlyFire }, null, spam);   // enemy 1 punches along the row: enemy 2 stands in reach, the player just beyond it
+        self.stand(m.fighters[0], 1.9, 0, 0, 0); self.stand(m.fighters[1], 0, 0, 1.9, 0); self.stand(m.fighters[2], 0.8, 0, 1.9, 0);
+        const log = self.capture(['hit']);
+        self.run(m, 120);
+        log.stop();
+        for (const e of log.hit) hits.push(e.att.index + '>' + e.def.index);
+        const out = { hits, ally: m.fighters[2].hp / m.fighters[2].maxHp, kinds: new Set(log.hit.map((e) => e.att.team === e.def.team)).size };
+        m.dispose();
+        return out;
+      };
+      const off = run(false), on = run(true);
+      const friendly = (r) => r.hits.filter((h) => h === '1>2').length;
+      const ok = friendly(off) === 0 && off.ally === 1 && friendly(on) > 0 && on.ally < 1;
+      return ok ? true : JSON.stringify({ off, on });
+    });
+    test('N fighters: each fighter targets the nearest living hostile (ties by lower index), skips the out, follows its clinch partner, and a 1v1 targets the other fighter', () => {
+      const m = self.makeBrawl({ enemies: 4 });
+      const [p, e1, e2, e3, e4] = m.fighters;
+      self.stand(p, 0, 0, 3, 0); self.stand(e1, 3, 0, 0, 0); self.stand(e2, 1.5, 0.5, 0, 0); self.stand(e3, -2, 2, 0, 0); self.stand(e4, 0.5, -4, 0, 0);
+      m.assignTargets();
+      const nearest = p.target === e2 && [e1, e2, e3, e4].every((e) => e.target === p);
+      self.stand(e1, 2, 0, 0, 0); self.stand(e2, -2, 0, 0, 0); self.stand(e3, 0, 5, 0, 0); self.stand(e4, 0, -5, 0, 0);
+      m.assignTargets();
+      const tie = p.target === e1;   // e1 and e2 are equally near: the lower index wins
+      e1.alive = false; e1.state = S.KO;
+      m.assignTargets();
+      const skipsOut = p.target === e2;
+      e2.state = S.DEFEAT;
+      m.assignTargets();
+      const skipsTerminal = p.target === e3 || p.target === e4;   // both of those are 5 m away: the tie goes to e3
+      e3.partner = e4; p.state = S.GRAPPLE; p.partner = e4;
+      m.assignTargets();
+      const partner = p.target === e4;
+      p.state = S.IDLE; p.partner = null; for (const e of [e2, e3, e4]) { e.alive = false; e.state = S.KO; }
+      m.assignTargets();
+      const lastResort = p.target === e1 || p.target === e2 || p.target === e3 || p.target === e4;   // nobody valid is left: the nearest of any kind, never null
+      m.dispose();
+      const duel = mk({}); duel.assignTargets();
+      const oneVsOne = duel.fighters[0].target === duel.fighters[1] && duel.fighters[1].target === duel.fighters[0];
+      duel.fighters[1].alive = false; duel.fighters[1].state = S.KO; duel.assignTargets();
+      const afterKo = duel.fighters[0].target === duel.fighters[1];
+      const ok = nearest && tie && skipsOut && skipsTerminal && partner && lastResort && oneVsOne && afterKo;
+      return ok ? true : JSON.stringify({ nearest, tie, skipsOut, skipsTerminal, partner, lastResort, oneVsOne, afterKo });
+    });
+    test('N fighters: a third fighter cannot grab into a clinch, and two grabs on one defender on the same tick make exactly one clinch', () => {
+      const grabAt = (tick) => (it, f, o, m) => { it.grapple = m.tick === tick; };
+      // enemy 1 grabs the player at tick 2; enemy 2 (same team as the grabber, hostile to the held player) grabs at tick 20, into the running clinch
+      const late = self.makeBrawl({}, null, grabAt(2), grabAt(20));
+      self.stand(late.fighters[0], 0, 0, 1, 0); self.stand(late.fighters[1], 0.8, 0, 0, 0); self.stand(late.fighters[2], 0.8, 0.5, 0, 0);
+      let log = self.capture(['clinch']); self.run(late, 45); log.stop();
+      const [p, g, third] = late.fighters;
+      const held = p.state === S.CLINCH && g.state === S.GRAPPLE && p.partner === g && g.partner === p && third.partner === null && log.clinch.length === 1;
+      const thirdState = third.state;
+      // two grabbers on the same tick: the player is taken once
+      const same = self.makeBrawl({}, null, grabAt(2), grabAt(2));
+      self.stand(same.fighters[0], 0, 0, 1, 0); self.stand(same.fighters[1], 0.8, 0.1, 0, 0); self.stand(same.fighters[2], 0.8, -0.1, 0, 0);
+      log = self.capture(['clinch']); self.run(same, 12); log.stop();
+      const sp = same.fighters[0];
+      const once1 = log.clinch.length === 1 && sp.state === S.CLINCH && sp.partner && sp.partner.partner === sp && same.fighters.filter((f) => f.partner).length === 2;
+      // the evaluation itself: nobody grabs a fighter in a clinch or a grapple, a grabber's teammate included
+      const probe = new Fighter(ROSTER_BY_ID.brutus, 3, TEAM_ENEMIES);
+      probe.reset(0.3, 0.3, 0); probe.startAttack(ATTACKS.grab); probe.moveTick = probe.mStartup + 1; probe.yaw = Math.atan2(p.x - probe.x, p.z - probe.z);
+      const intoHeld = Combat.evaluate(probe, p), intoGrabber = Combat.evaluate(probe, g);
+      late.dispose(); same.dispose();
+      const ok = held && once1 && !intoHeld && !intoGrabber;
+      return ok ? true : JSON.stringify({ held, thirdState, clinches: log.clinch.length, once1, intoHeld: !!intoHeld, intoGrabber: !!intoGrabber });
+    });
+    test('N fighters: a fighter held in a submission cannot be stomped by a third fighter (control: the same low kick hits a downed fighter nobody holds)', () => {
+      const m = self.makeBrawl({ enemies: 2 });
+      const [p, holder, third] = m.fighters;
+      p.setState(S.HIT); p.setState(S.DOWN);
+      self.stand(p, 0, 0, 0, 1); self.stand(third, 0.7, 0, 0, 0);
+      third.startAttack(ATTACKS.low_kick); third.moveTick = third.mStartup + 1;
+      const free = Combat.evaluate(third, p);
+      p.pinnedBy = holder;
+      const held = Combat.evaluate(third, p);
+      p.pinnedBy = third;
+      const byHolder = Combat.evaluate(third, p);   // the holder's own attack still counts as before
+      p.pinnedBy = null;
+      m.dispose();
+      const ok = free && free.type === 'ground' && !held && byHolder && byHolder.type === 'ground';
+      return ok ? true : JSON.stringify({ free: free && free.type, held: !!held, byHolder: byHolder && byHolder.type });
+    });
+    test('N fighters: the brawl camera frames the player and the living enemies within range, or the nearest one when none is close', () => {
+      const m = self.makeBrawl({ enemies: 3 });
+      const [p, e1, e2, e3] = m.fighters;
+      self.stand(p, 0, 0, 1, 0); self.stand(e1, 2, 0, 0, 0); self.stand(e2, -3, 1, 0, 0); self.stand(e3, 20, 0, 0, 0);
+      const near = Camera.frameFighters(m.fighters), box = Camera.box.maxX - Camera.box.minX;
+      e3.x = 4;
+      const withThird = Camera.frameFighters(m.fighters);
+      e2.alive = false;
+      const afterKo = Camera.frameFighters(m.fighters);
+      e1.alive = false; e3.x = 30;
+      const lone = Camera.frameFighters(m.fighters);   // only e3 is left, out of range: the nearest living enemy is framed anyway
+      m.dispose();
+      const ok = near === 3 && withThird === 4 && afterKo === 3 && lone === 2 && Math.abs(box - 5) < 1e-9;
+      return ok ? true : JSON.stringify({ near, withThird, afterKo, lone, box });
+    });
     test('Auto quality keeps full scale on a 50 Hz screen and lowers it when 60 Hz frames are slow', () => {
       const keep = { quality: Settings.v.quality, autoScale: Quality.autoScale, best: Quality.bestFrameMs, block: Quality.blockUpUntil, frames: Diag.frameCount };
       const runFrames = (ms, n) => { for (let i = 0; i < n; i++) Quality.adapt(ms, ms / 1000); };
@@ -12273,17 +12635,19 @@ UI.runSimulation = function runSimulation(opts) {
 const BENCH_SECONDS = 10;
 const BENCH_WARMUP_SECONDS = 1;
 const BENCH_REBREAK_SECONDS = 2;
-UI.runBenchmark = function runBenchmark(seconds) {
+UI.runBenchmark = function runBenchmark(seconds, opts) {
   if (Game.state !== GS.MENU || Game.match) return Promise.resolve({ error: 'Benchmark is available from the main menu only.' });
   const duration = Number.isFinite(seconds) && seconds > 0 ? seconds : BENCH_SECONDS;
+  const enemies = opts && Number.isFinite(opts.enemies) ? clamp(Math.floor(opts.enemies), 1, BRAWL_MAX_ENEMIES) : 0;   // P4-01: opts.enemies = N runs the brawl scene (1 player + N enemies)
   const arenaId = ARENA_ORDER.reduce((best, id) => (ARENAS[id].objects.length > ARENAS[best].objects.length ? id : best));
   const smashAll = () => {
     Arena.reset();
     Arena.objects.forEach((o, i) => Arena.damageObject(o, 1e4, 'impact', -2 - i, 1, 0, o.x, 1, o.z, -1));
   };
   Game.go(GS.CHARSEL);
-  Game.run = { mode: 'free', player: 'kai' };
-  Game.beginMatch({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId, difficulty: 'expert', winsNeeded: 99, timer: 0, countdown: false, benchmark: true });
+  Game.run = { mode: enemies ? 'brawl' : 'free', player: 'kai' };
+  if (enemies) Game.beginMatch({ mode: 'brawl', playerId: 'kai', enemies, arenaId, difficulty: 'expert', winsNeeded: 1, timer: 0, countdown: false, benchmark: true });
+  else Game.beginMatch({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId, difficulty: 'expert', winsNeeded: 99, timer: 0, countdown: false, benchmark: true });
   const m = Game.match;
   m.controllers[0] = new AIController(m.fighters[0].profile, 'expert');
   smashAll();
@@ -12300,6 +12664,7 @@ UI.runBenchmark = function runBenchmark(seconds) {
     const offFrame = Events.on('frame', (e) => {
       if (abandoned()) { offFrame(); offRendered(); resolve({ error: 'Benchmark stopped: the match was paused or left.' }); return; }
       workStart = performance.now();
+      if (enemies) for (const f of m.fighters) f.hp = f.maxHp;   // a brawl would end when the player falls: keep the whole crowd fighting for the full run
       elapsed += e.dt; sinceBreak += e.dt;
       if (sinceBreak >= BENCH_REBREAK_SECONDS) { sinceBreak = 0; smashAll(); }
       if (elapsed > BENCH_WARMUP_SECONDS) frames.push(e.dt * 1000);
@@ -12316,12 +12681,19 @@ UI.runBenchmark = function runBenchmark(seconds) {
       const round = (v) => Math.round(v * 100) / 100;
       const [frameP50, frameP95, frameMax] = percentiles(frames), [workP50, workP95, workMax] = percentiles(work);
       resolve({
-        arena: arenaId, seconds: duration, frames: frames.length, frameP50, frameP95, frameMax, workP50, workP95, workMax,
+        arena: arenaId, fighters: m.fighters.length, seconds: duration, frames: frames.length, frameP50, frameP95, frameMax, workP50, workP95, workMax,
         quality: Quality.level, renderScale: round(R.scale), resolution: R.width + 'x' + R.height, gpu: GPU.tier, ...peak,
         heapMB: performance.memory ? round(performance.memory.usedJSHeapSize / 1048576) : null, startupMs: Math.round(Diag.startupMs),
       });
     });
   });
+};
+
+/* P4-01 debug entry: the selected fighter against `enemies` CPU enemies (a count or a list of fighter ids), from the main menu. opts: { arena, difficulty }. */
+UI.runBrawl = function runBrawl(enemies, opts) {
+  if (Game.state !== GS.MENU || Game.match) return { error: 'A brawl starts from the main menu only.' };
+  Game.startBrawl(enemies, opts && opts.arena, opts && opts.difficulty);
+  return { enemies: Game.match ? Game.match.fighters.length - 1 : 0, arena: Game.match ? Game.match.def.id : '' };
 };
 
 UI.runSelfTest = function runSelfTest() {
@@ -12411,6 +12783,8 @@ async function boot() {
     Game.go(GS.MENU);
     Game.start();
     Diag.log('info', 'Started in ' + Math.round(Diag.startupMs) + ' ms');
+    const brawlFlag = /[?&#]brawl(?:=(\d+))?(?![\w])/.exec(location.search + location.hash);   // debug flag (P4-01): ?brawl=6 starts a brawl with that many enemies
+    if (brawlFlag) UI.runBrawl(brawlFlag[1] ? Number(brawlFlag[1]) : BRAWL_DEFAULT_ENEMIES);
   } catch (e) {
     Diag.log('error', 'Startup failed: ' + (e && e.stack ? e.stack : e));
     fatalStartup('Startup failed: ' + (e && e.message ? e.message : e));
@@ -12424,7 +12798,7 @@ function fatalStartup(msg) {
   $('screens').innerHTML = '';
 }
 
-window.BREAKPOINT = { version: VERSION, selfTest: () => UI.runSelfTest(), simulate: (opts) => UI.runSimulation(opts), benchmark: (seconds) => UI.runBenchmark(seconds), diagnostics: () => ({ state: Game.state, fps: 1000 / Math.max(1, Diag.frameMs), errors: Diag.errors, logs: Diag.logs.slice(-20), illegalTransitions: Diag.illegalTransitions }) };
+window.BREAKPOINT = { version: VERSION, selfTest: () => UI.runSelfTest(), simulate: (opts) => UI.runSimulation(opts), benchmark: (seconds, opts) => UI.runBenchmark(seconds, opts), brawl: (enemies, opts) => UI.runBrawl(enemies, opts), diagnostics: () => ({ state: Game.state, fps: 1000 / Math.max(1, Diag.frameMs), errors: Diag.errors, logs: Diag.logs.slice(-20), illegalTransitions: Diag.illegalTransitions }) };
 boot();
 
 })();
