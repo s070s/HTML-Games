@@ -554,7 +554,7 @@ const Settings = {
 const ACTIONS = ['up', 'down', 'left', 'right', 'punch', 'kick', 'defend', 'jump', 'crouch', 'grapple', 'use', 'lock', 'pause'];
 const ACTION_LABELS = {
   up: 'Move toward opponent', down: 'Move away', left: 'Circle left', right: 'Circle right',
-  punch: 'Punch', kick: 'Kick', defend: 'Defend (block)',
+  punch: 'Punch', kick: 'Kick', defend: 'Defend (block or sway)',
   jump: 'Jump', crouch: 'Crouch', grapple: 'Grapple / escape', use: 'Use item', lock: 'Lock on', pause: 'Pause',
 };
 const DEFAULT_KEYS = {
@@ -2602,12 +2602,12 @@ const FX = {
    Combat timing is in 60 Hz frames ("ticks").
    ===================================================================== */
 const S = {
-  IDLE: 'IDLE', WALK: 'WALK', RUN: 'RUN', SIDESTEP: 'SIDESTEP', CROUCH: 'CROUCH', JUMP: 'JUMP',
+  IDLE: 'IDLE', WALK: 'WALK', RUN: 'RUN', SIDESTEP: 'SIDESTEP', SWAY: 'SWAY', CROUCH: 'CROUCH', JUMP: 'JUMP',
   ATTACK: 'ATTACK', BLOCK_H: 'BLOCK_H', BLOCK_L: 'BLOCK_L', HIT: 'HIT', STAGGER: 'STAGGER', STUN: 'STUN',
   CLINCH: 'CLINCH', GRAPPLE: 'GRAPPLE', THROWN: 'THROWN', DOWN: 'DOWN', GETUP: 'GETUP', KO: 'KO', VICTORY: 'VICTORY', DEFEAT: 'DEFEAT',
 };
 const STATE_LABEL = {
-  IDLE: 'Idle', WALK: 'Walking', RUN: 'Running', SIDESTEP: 'Sidestep', CROUCH: 'Crouching', JUMP: 'Jumping',
+  IDLE: 'Idle', WALK: 'Walking', RUN: 'Running', SIDESTEP: 'Sidestep', SWAY: 'Swaying', CROUCH: 'Crouching', JUMP: 'Jumping',
   ATTACK: 'Attacking', BLOCK_H: 'High block', BLOCK_L: 'Low block', HIT: 'Hit reaction', STAGGER: 'Staggered', STUN: 'Stunned',
   CLINCH: 'Clinched', GRAPPLE: 'Grappling', THROWN: 'Thrown', DOWN: 'Knocked down', GETUP: 'Recovering', KO: 'Knocked out', VICTORY: 'Victory', DEFEAT: 'Defeat',
 };
@@ -2618,13 +2618,14 @@ const STRING_BREAK_STATES = [...REACTION_STATES, S.GRAPPLE, S.GETUP, ...TERMINAL
 /* Explicit transition table for voluntary changes. Reactions (hit, stagger, stun, clinch, thrown, down, KO)
    and round-end poses are allowed from any non-terminal state; see canTransition(). */
 const TRANSITIONS = {
-  IDLE: [...FREE_SET, S.SIDESTEP, S.JUMP, S.ATTACK],
-  WALK: [...FREE_SET, S.SIDESTEP, S.JUMP, S.ATTACK],
-  RUN: [...FREE_SET, S.SIDESTEP, S.JUMP, S.ATTACK],
-  CROUCH: [...FREE_SET, S.SIDESTEP, S.JUMP, S.ATTACK],
-  BLOCK_H: [...FREE_SET, S.SIDESTEP, S.JUMP, S.ATTACK],
-  BLOCK_L: [...FREE_SET, S.SIDESTEP, S.JUMP, S.ATTACK],
+  IDLE: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK],
+  WALK: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK],
+  RUN: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK],
+  CROUCH: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK],
+  BLOCK_H: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK],
+  BLOCK_L: [...FREE_SET, S.SIDESTEP, S.SWAY, S.JUMP, S.ATTACK],
   SIDESTEP: [S.IDLE, S.WALK, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.ATTACK],
+  SWAY: [S.IDLE],
   JUMP: [S.IDLE, S.ATTACK],
   ATTACK: [S.IDLE, S.WALK, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.JUMP, S.ATTACK, S.GRAPPLE],
   HIT: [S.IDLE, S.CROUCH, S.BLOCK_H, S.BLOCK_L],
@@ -2681,24 +2682,24 @@ function deriveStats(raw) {
    and DMITRI's grab-heavy 1.0 range the weakest. rank is the Arcade ladder order, weakest first by the same measurements
    (a hard CPU KAI wins most against YUKI, then BRUTUS, DMITRI and MARA); ZERO is always the final boss. */
 const ROSTER = [
-  { id: 'kai', moveStyle: 'kickboxer', name: 'KAI', title: 'The Balanced', rank: 0, attrs: { health: 6, stamina: 6, strength: 5, speed: 6, reach: 5, defense: 5, balance: 5, recovery: 6 }, range: 1.4,
+  { id: 'kai', moveStyle: 'kickboxer', defense: 'block', name: 'KAI', title: 'The Balanced', rank: 0, attrs: { health: 6, stamina: 6, strength: 5, speed: 6, reach: 5, defense: 5, balance: 5, recovery: 6 }, range: 1.4,
     style: { aggr: 0.9, punch: 0.5, kick: 0.45, heavy: 0.4, grab: 0.1, defend: 0.5, circle: 0.5, low: 0.2 },
     look: { skin: '#d9a27c', hair: '#2a1a12', hairStyle: 'short', top: '#2f6fdd', shorts: '#18274d', glove: '#f1f1f5', shoe: '#202228', scale: 1, build: 1 } },
-  { id: 'mara', moveStyle: 'capoeira', name: 'MARA', title: 'The Viper', rank: 4, attrs: { health: 5, stamina: 6, strength: 5, speed: 7, reach: 6, defense: 5, balance: 4, recovery: 7 }, range: 1.65,
+  { id: 'mara', moveStyle: 'capoeira', defense: 'sway', name: 'MARA', title: 'The Viper', rank: 4, attrs: { health: 5, stamina: 6, strength: 5, speed: 7, reach: 6, defense: 5, balance: 4, recovery: 7 }, range: 1.65,
     style: { aggr: 1.1, punch: 0.45, kick: 0.55, heavy: 0.25, grab: 0.05, defend: 0.4, circle: 0.5, low: 0.35 },
     look: { skin: '#e8b894', hair: '#8a1636', hairStyle: 'ponytail', top: '#e5304b', shorts: '#2a0f18', glove: '#2a2a30', shoe: '#f0f0f0', scale: 0.96, build: 0.9 } },
-  { id: 'brutus', moveStyle: 'brawler', name: 'BRUTUS', title: 'The Wall', rank: 2, attrs: { health: 7, stamina: 5, strength: 7, speed: 5, reach: 5, defense: 6, balance: 5, recovery: 6 }, range: 1.35,
+  { id: 'brutus', moveStyle: 'brawler', defense: 'block', name: 'BRUTUS', title: 'The Wall', rank: 2, attrs: { health: 7, stamina: 5, strength: 7, speed: 5, reach: 5, defense: 6, balance: 5, recovery: 6 }, range: 1.35,
     style: { aggr: 0.9, punch: 0.7, kick: 0.3, heavy: 0.6, grab: 0.2, defend: 0.5, circle: 0.1, low: 0.1 },
     look: { skin: '#a8704c', hair: '#000000', hairStyle: 'bald', top: null, shorts: '#2f5d2a', glove: '#c9a22b', shoe: '#3a2a1a', scale: 1.1, build: 1.28 } },
-  { id: 'yuki', moveStyle: 'boxer', name: 'YUKI', title: 'The Ghost', rank: 1, attrs: { health: 5, stamina: 6, strength: 5, speed: 8, reach: 5, defense: 5, balance: 4, recovery: 7 }, range: 1.4,
+  { id: 'yuki', moveStyle: 'boxer', defense: 'sway', name: 'YUKI', title: 'The Ghost', rank: 1, attrs: { health: 5, stamina: 6, strength: 5, speed: 8, reach: 5, defense: 5, balance: 4, recovery: 7 }, range: 1.4,
     style: { aggr: 1.0, punch: 0.45, kick: 0.55, heavy: 0.2, grab: 0.05, defend: 0.5, circle: 0.3, low: 0.3 },
     look: { skin: '#f0cfb4', hair: '#e8e8f4', hairStyle: 'long', top: '#7d4fd6', shorts: '#e9e9f5', glove: '#7d4fd6', shoe: '#e9e9f5', scale: 0.98, build: 0.86 } },
-  { id: 'dmitri', moveStyle: 'wrestler', name: 'DMITRI', title: 'The Grappler', rank: 3, attrs: { health: 7, stamina: 5, strength: 7, speed: 5, reach: 5, defense: 6, balance: 4, recovery: 6 }, range: 1.3,
+  { id: 'dmitri', moveStyle: 'wrestler', defense: 'block', name: 'DMITRI', title: 'The Grappler', rank: 3, attrs: { health: 7, stamina: 5, strength: 7, speed: 5, reach: 5, defense: 6, balance: 4, recovery: 6 }, range: 1.3,
     style: { aggr: 1.0, punch: 0.5, kick: 0.35, heavy: 0.5, grab: 0.3, defend: 0.5, circle: 0.1, low: 0.15 },
     look: { skin: '#c98c68', hair: '#c46a1a', hairStyle: 'mohawk', top: null, shorts: '#d86a12', glove: '#2a1a10', shoe: '#2a1a10', scale: 1.08, build: 1.2 } },
   // ZERO's playable build costs 46 points like the rest of the roster; the boss builds are only used for the Arcade final (see MatchSim).
   // They scale with the Arcade difficulty option: a hard CPU KAI beats them ~55% (easy, hard CPU), ~20-30% (normal, expert CPU), ~8% (hard, expert CPU).
-  { id: 'zero', moveStyle: 'karateka', name: 'ZERO', title: 'The Champion', rank: 5, attrs: { health: 7, stamina: 6, strength: 6, speed: 5, reach: 6, defense: 5, balance: 6, recovery: 5 }, range: 1.4,
+  { id: 'zero', moveStyle: 'karateka', defense: 'block', name: 'ZERO', title: 'The Champion', rank: 5, attrs: { health: 7, stamina: 6, strength: 6, speed: 5, reach: 6, defense: 5, balance: 6, recovery: 5 }, range: 1.4,
     bossAttrs: {
       easy: { health: 7, stamina: 6, strength: 6, speed: 6, reach: 6, defense: 5, balance: 6, recovery: 5 },     // 47 points
       normal: { health: 7, stamina: 6, strength: 6, speed: 6, reach: 6, defense: 5, balance: 6, recovery: 5 },   // 47 points
@@ -2881,7 +2882,18 @@ const ALL_MOVES = Object.keys(ATTACKS).map((k) => ATTACKS[k]);
 const BUFFER_TICKS = 12;             // input buffer window (0.2 s)
 const PERFECT_BLOCK_TICKS = 6;       // perfect-block window after pressing block
 const PERFECT_BLOCK_COOLDOWN = 30;   // a block entered sooner than this after the previous one cannot be perfect (no parry mashing)
-const COUNTER_WINDOW_PERFECT = 50;   // only a perfect block opens a counter, and only for one move
+const COUNTER_WINDOW_PERFECT = 50;   // only a perfect block (or perfect sway) opens a counter, and only for one move
+/* Sway (the other defense type, P3-02): a fresh Defend press leans out of the way. Strikes miss during the first SWAY_IFRAME_TICKS
+   (grabs still connect); a strike that would have hit in the last SWAY_PERFECT_TICKS of them is a perfect sway and opens a counter.
+   The next SWAY_RECOVERY_TICKS the fighter can be hit. A held Defend never repeats the sway. */
+const SWAY_COST = 10;                // stamina a sway needs; below it the press does nothing
+const SWAY_IFRAME_TICKS = 12;        // 0.2 s
+const SWAY_PERFECT_TICKS = 6;
+const SWAY_RECOVERY_TICKS = 15;      // 0.25 s
+const SWAY_TOTAL_TICKS = SWAY_IFRAME_TICKS + SWAY_RECOVERY_TICKS;
+const SWAY_BUFFER_TICKS = 6;         // a press while busy (landing, recovery, an earlier sway) still sways once the fighter is free
+const SWAY_SPEED = 3.0;              // m/s at the start of the lean, fading to 0 over the i-frames (about 0.3 m of travel)
+const SWAY_NO_REGEN = 24;            // stamina regenerates this many ticks after a sway starts (same as a sidestep)
 const CLINCH_MAX = 110;
 const CLINCH_ESCAPE_FROM = 12;       // earliest tick a grapple escape can succeed
 const CLINCH_ESCAPE_FROM_REAR = 14;  // a rear hold is harder to break (still opens before any rear throw's escape window closes)
@@ -2891,6 +2903,8 @@ const REAR_GRIP_DOT = 0.25;          // defender turned more than ~75 degrees aw
 const JUGGLE_LIMIT = 3;
 const COMBO_RESET_TICKS = 12;
 const WALK_FORWARD = 2.2, WALK_BACK = 1.6, WALK_SIDE = 1.8, RUN_SPEED = 4.6, CROUCH_FACTOR = 0.45, BLOCK_FACTOR = 0.6;
+const THROWN_MAX_TICKS = 150, THROWN_HARD_CAP_TICKS = 300;   // throw flights end by landing; past these the fighter is landed anyway (rubble softlock net)
+const GUARD_WALK_SPEED = 0.15;       // m/s: above this a crouching or guarding fighter steps its legs instead of sliding
 const SIDESTEP_COST = 6, JUMP_COST = 4, RUN_DRAIN = 7;
 const GROUND_DAMP = 9, AIR_DAMP = 0.35;
 const LOW_STAMINA = 0.25;
@@ -3000,6 +3014,20 @@ const MOVE_STYLE_IDS = Object.keys(MOVE_STYLE);
 /* Default movement style for each creator archetype (the creator can override it). */
 const ARCHETYPE_MOVE_STYLE = { balanced: 'kickboxer', striker: 'boxer', kicker: 'karateka', brawler: 'brawler', grappler: 'wrestler', counter: 'judoka', speedster: 'capoeira' };
 const DEFAULT_MOVE_STYLE = 'kickboxer';
+/* Defense type (P3-01): every fighter has exactly one. The default follows the movement style (Appendix C, P1-04 table);
+   a preset fighter or the creator may override it with a `defense` field. */
+const DEFENSE_TYPES = ['block', 'sway'];
+const DEFENSE_LABEL = { block: 'Block', sway: 'Sway' };
+const DEFAULT_DEFENSE = 'block';
+const swaySeconds = (ticks) => +(ticks / 60).toFixed(2);
+/* What Defend does, in plain words (creator, controls card, Move list). */
+const DEFENSE_HELP = {
+  block: 'Hold Defend to guard. Standing covers high and mid hits; Crouch + Defend covers low hits. Pressing it just before a hit is a perfect block and opens a counter.',
+  sway: 'Tap Defend to lean out of the way (Stick left / right leans sideways, otherwise back). Hits miss for ' + swaySeconds(SWAY_IFRAME_TICKS) + ' s, but grabs still land. It costs ' + SWAY_COST + ' stamina, and you can be hit for ' + swaySeconds(SWAY_RECOVERY_TICKS) + ' s while you recover. A hit dodged at the last moment is a perfect sway and opens a counter.',
+};
+const STYLE_DEFENSE = { boxer: 'sway', kickboxer: 'block', karateka: 'block', wrestler: 'block', judoka: 'sway', brawler: 'block', capoeira: 'sway' };
+function defaultDefense(moveStyle) { return STYLE_DEFENSE[moveStyle] || DEFAULT_DEFENSE; }
+function defenseFor(profile) { return profile && DEFENSE_TYPES.includes(profile.defense) ? profile.defense : defaultDefense(moveStyleFor(profile)); }
 const MOTION_JITTER = 0.08;            // individuality: each fighter's style values vary by up to +-8 %
 const JITTER_KEYS = ['guardHands', 'guardTwist', 'guardCrouch', 'guardSplit', 'bounce', 'bounceHz', 'sway', 'swayHz', 'headBob', 'punchHip', 'kickChamber', 'kickPivot', 'stride', 'armSwing'];
 const HIP_LEAD_TICKS = 2;              // the hip starts turning this many ticks before the arm (kinetic chain)
@@ -3163,6 +3191,7 @@ class Fighter {
     this.name = profile.name;
     this.index = index;
     this.stats = deriveStats(profile.attrs);
+    this.defense = defenseFor(profile);   // 'block' or 'sway': what the Defend input does for this fighter
     this.applyLook(profile.look);
     this.motion = makeMotion(profile, this.scale, this.build);   // visual only: style, rhythm, strike shaping
     this.radius = 0.34;                // collision size is the same for every body: height and build are cosmetic
@@ -3190,7 +3219,7 @@ class Fighter {
     this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.escapeQueued = false; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0;
     this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.fvx = 0; this.fvz = 0; this.pendingKO = false;
-    this.sideDir = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.assist = false;
+    this.sideDir = 0; this.swayDir = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.assist = false;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
     this.pose.set(this.motion.guard); this.tp.set(this.motion.guard);
     this.alive = true;
@@ -3406,12 +3435,16 @@ class Fighter {
     if (this.flash > 0) this.flash = Math.max(0, this.flash - 0.12);
     this.defendPressed = it.defend && !this.prevDefend;   // a fresh press, not a held button (quick recovery while down)
     this.prevDefend = it.defend;
+    // a Sway press is kept a few ticks; a press while down is a quick recovery, never a sway after getting up
+    if (this.defendPressed && this.defense === 'sway' && this.state !== S.DOWN) this.swayBuffer = SWAY_BUFFER_TICKS;
+    else if (this.swayBuffer > 0) this.swayBuffer--;
     this.assist = it.assist === true;   // Auto-assist: read by pickString
     this.bufferInput(it);
     this.regenerate();
     switch (this.state) {
       case S.IDLE: case S.WALK: case S.RUN: case S.CROUCH: case S.BLOCK_H: case S.BLOCK_L: this.updateFree(it, opp, match); break;
       case S.SIDESTEP: this.updateSidestep(it, opp); break;
+      case S.SWAY: this.updateSway(it, opp); break;
       case S.JUMP: this.updateJump(it, opp); break;
       case S.ATTACK: this.updateAttack(it, opp, match); break;
       case S.HIT: case S.STAGGER: case S.STUN:
@@ -3420,7 +3453,13 @@ class Fighter {
         break;
       case S.CLINCH: this.updateClinched(it, opp, match); break;
       case S.GRAPPLE: this.updateGrapple(it, opp, match); break;
-      case S.THROWN: this.vx = this.vz = 0; break;
+      case S.THROWN:
+        this.vx = this.vz = 0;
+        // safety net: a throw flight lasts under 60 ticks; resting on support (or far too long) always lands the fighter
+        if (this.stateTicks > THROWN_MAX_TICKS && ((this.y <= this.groundY + 0.002 && this.vy <= 0) || this.stateTicks > THROWN_HARD_CAP_TICKS)) {
+          this.y = Math.max(this.y, this.groundY); this.vy = 0; this.onLand(0);
+        }
+        break;
       case S.DOWN: this.updateDown(it); break;
       case S.GETUP:
         this.vx = this.vz = 0;
@@ -3454,12 +3493,13 @@ class Fighter {
     this.faceOpponent(opp, 14 * FIXED_DT);
     if (this.blockStun > 0) { this.blockStun--; this.vx = this.vz = 0; return; }
     if (this.lock === 0) {
+      if (this.swayBuffer > 0 && this.stam >= SWAY_COST && !this.airborne) { this.swayBuffer = 0; this.startSway(it); return; }   // a fresh press only: a held Defend never repeats
       if (this.tryBufferedAttack(it)) return;
       if (it.jump && this.stam >= 1 && this.state !== S.CROUCH && !this.airborne) { this.startJump(it); return; }
       if (it.sidestep && this.exhaust === 0 && this.stam >= SIDESTEP_COST) { this.startSidestep(it.sidestep); return; }
     }
     let target = S.IDLE;
-    if (it.defend) target = it.crouch ? S.BLOCK_L : S.BLOCK_H; else if (it.crouch) target = S.CROUCH;   // Defend: standing = high + mid guard, Crouch + Defend = low guard
+    if (it.defend && this.defense === 'block') target = it.crouch ? S.BLOCK_L : S.BLOCK_H; else if (it.crouch) target = S.CROUCH;   // Block: standing = high + mid guard, Crouch + Defend = low guard; a Sway fighter has no hold-guard
     let fwd = it.fwd, side = it.side;
     const mag = Math.hypot(fwd, side);
     if (mag > 1) { fwd /= mag; side /= mag; }
@@ -3491,6 +3531,25 @@ class Fighter {
     this.vx = -this.fwdZ * this.sideDir * v; this.vz = this.fwdX * this.sideDir * v;
     if (t >= 9 && this.tryBufferedAttack(it)) return;
     if (t >= 18) { this.vx = this.vz = 0; this.setState(S.IDLE); }
+  }
+  /* Sway: the lean goes back unless the stick points left / right (movement axes are already in the fighter's frame). */
+  startSway(it) {
+    const sideways = Math.abs(it.side) >= AIM_DEADZONE && Math.abs(it.side) >= Math.abs(it.fwd);
+    this.swayDir = sideways ? Math.sign(it.side) : 0;
+    this.stam -= SWAY_COST;
+    this.noRegen = SWAY_NO_REGEN;
+    this.vx = this.vz = 0;
+    this.setState(S.SWAY);
+    Events.emit('sway', { f: this, dir: this.swayDir });
+  }
+  /* Ticks 0 .. SWAY_IFRAME_TICKS - 1 are invulnerable to strikes (see Combat.evaluate), the rest is recovery. */
+  updateSway(it, opp) {
+    this.faceOpponent(opp, 10 * FIXED_DT);
+    const t = this.stateTicks;
+    const v = SWAY_SPEED * Math.max(0, 1 - t / SWAY_IFRAME_TICKS);
+    if (this.swayDir === 0) { this.vx = -this.fwdX * v; this.vz = -this.fwdZ * v; }
+    else { this.vx = -this.fwdZ * this.swayDir * v; this.vz = this.fwdX * this.swayDir * v; }   // same side convention as the sidestep
+    if (t >= SWAY_TOTAL_TICKS) { this.vx = this.vz = 0; this.setState(S.IDLE); }
   }
   updateJump(it, opp) {
     this.faceOpponent(opp, 4 * FIXED_DT);
@@ -3591,9 +3650,12 @@ class Fighter {
       const impact = -this.vy;
       this.y = this.groundY;
       this.vy = 0;
-      if (wasAirborne || impact > 0.5) this.onLand(impact);
+      // rubble can lift a rising fighter onto its top without an airborne tick: a flight state still has to land
+      if (wasAirborne || impact > 0.5 || this.awaitsLanding()) this.onLand(impact);
     }
   }
+  /* States that end only by landing; each one starts with vy > 0, so this never lands them early. */
+  awaitsLanding() { return this.state === S.THROWN || this.state === S.JUMP || (this.state === S.ATTACK && !!this.move && this.move.ctx === 'air'); }
   onLand(impact) {
     if (impact > 2) Events.emit('land', { f: this, impact });
     this.airAttackUsed = false;
@@ -3618,7 +3680,7 @@ class Fighter {
     const carried = this.state === S.CLINCH && this.partner && this.partner.throwPending;
     if (!carried && this.liftY > 0) this.liftY = this.liftY < 0.002 ? 0 : this.liftY * Math.exp(-LIFT_DECAY * dt);
     const sp = Math.hypot(this.vx, this.vz);
-    if (this.state === S.WALK || this.state === S.RUN) {
+    if (this.state === S.WALK || this.state === S.RUN || this.guardWalking()) {   // the phase follows speed, so slower guard / crouch walks step slower
       const sign = this.vx * this.fwdX + this.vz * this.fwdZ >= -0.2 ? 1 : -1;
       this.walkPhase += sign * sp * dt * (this.state === S.RUN ? 2.4 : 3.4) / this.motion.stride;   // longer strides = slower cadence
       const idx = Math.floor(this.walkPhase / Math.PI);
@@ -3633,6 +3695,23 @@ class Fighter {
         FX.trail(this.pts[ix * 3], this.pts[ix * 3 + 1], this.pts[ix * 3 + 2], this.move.cat === 'heavy' ? '#ffd27a' : '#bfe8ff', this.move.cat === 'heavy' ? 0.2 : 0.14);
       }
     }
+  }
+  /* Crouching or guarding while the stick moves the fighter: the legs step instead of sliding. */
+  guardWalking() {
+    return (this.state === S.CROUCH || this.state === S.BLOCK_H || this.state === S.BLOCK_L) && Math.hypot(this.vx, this.vz) > GUARD_WALK_SPEED;
+  }
+  /* Standing walk legs from the walk phase (hips swing, the back leg's knee bends), on top of the current pose. */
+  walkLegs(p, g, amp) {
+    const sw = Math.sin(this.walkPhase), cw = Math.cos(this.walkPhase);
+    p[J.hipLx] = g[J.hipLx] + sw * amp; p[J.hipRx] = g[J.hipRx] - sw * amp;
+    p[J.knL] = g[J.knL] + Math.max(0, -cw) * 0.5; p[J.knR] = g[J.knR] + Math.max(0, cw) * 0.5;
+  }
+  /* Crouch walk: short alternating steps around the crouch pose, the lifted leg folds a little more. */
+  crouchWalkLegs(p) {
+    const sw = Math.sin(this.walkPhase), cw = Math.cos(this.walkPhase);
+    p[J.hipLx] += sw * 0.25; p[J.hipRx] -= sw * 0.25;
+    p[J.knL] += Math.max(0, -cw) * 0.3; p[J.knR] += Math.max(0, cw) * 0.3;
+    p[J.rootSide] = sw * 0.015;
   }
   computePose() {
     const p = this.tp, g = this.motion.guard, m = this.motion;
@@ -3668,16 +3747,28 @@ class Fighter {
         k = 0.5;
         break;
       }
+      case S.SWAY: {
+        // lean out of the way (fast in, slow out through the recovery): back = torso and head tip away, sideways = torso rolls and the hips shift
+        const lean = st < SWAY_IFRAME_TICKS ? Math.min(1, (st + 1) / 4) : Math.max(0, 1 - (st - SWAY_IFRAME_TICKS) / SWAY_RECOVERY_TICKS);
+        const s = this.swayDir;
+        if (s === 0) { p[J.torsoLean] -= 0.6 * lean; p[J.headX] -= 0.35 * lean; p[J.knL] += 0.2 * lean; p[J.knR] += 0.2 * lean; p[J.rootFwd] -= 0.08 * lean; }
+        else { p[J.torsoRoll] = -s * 0.4 * lean; p[J.rootSide] = s * 0.08 * lean; p[J.hipLz] += 0.2 * lean; p[J.hipRz] += 0.2 * lean; p[J.headY] = -s * 0.2 * lean; }
+        k = 0.5;
+        break;
+      }
       case S.CROUCH:
         p[J.hipLx] = 1.05; p[J.hipRx] = 1.05; p[J.knL] = 1.95; p[J.knR] = 1.95; p[J.hipLz] = 0.18; p[J.hipRz] = 0.18; p[J.torsoLean] = 0.55; p[J.headX] = 0.05;   // torso ~30-45 deg (plate 161)
+        if (this.guardWalking()) this.crouchWalkLegs(p);
         break;
       case S.BLOCK_H:
         p[J.shLx] = 1.4; p[J.elL] = 2.15; p[J.shRx] = 1.4; p[J.elR] = 2.15; p[J.shLz] = 0.22; p[J.shRz] = 0.22; p[J.torsoLean] = 0.24; p[J.headX] = 0.3; p[J.torsoTwist] *= 0.5;
+        if (this.guardWalking()) this.walkLegs(p, g, 0.4 * m.stride);   // guard stays up, the legs walk
         k = 0.5;
         break;
       case S.BLOCK_L:
         p[J.hipLx] = 1.0; p[J.hipRx] = 0.95; p[J.knL] = 1.85; p[J.knR] = 1.85; p[J.hipLz] = 0.18; p[J.hipRz] = 0.18;
         p[J.shLx] = 0.8; p[J.elL] = 1.25; p[J.shRx] = 0.8; p[J.elR] = 1.25; p[J.torsoLean] = 0.5; p[J.headX] = 0.25;
+        if (this.guardWalking()) this.crouchWalkLegs(p);
         k = 0.5;
         break;
       case S.JUMP: {
@@ -4019,6 +4110,8 @@ const Combat = {
     if (mv.h === 'H' && crouched) return null;
     if (mv.h === 'L' && def.y > 0.35) return null;
     if (mv.h === 'M' && def.y > 0.9 && !def.juggle) return null;
+    // Sway i-frames: strikes that would have hit miss (grabs were handled above and still connect); the last SWAY_PERFECT_TICKS of them make it a perfect sway
+    if (st === S.SWAY && def.stateTicks < SWAY_IFRAME_TICKS) return { type: 'sway', att, def, mv, perfect: def.stateTicks >= SWAY_IFRAME_TICKS - SWAY_PERFECT_TICKS };
     let block = 'none';
     const facing = def.fwdX * -dx + def.fwdZ * -dz > 0;
     if (facing) {
@@ -4033,6 +4126,7 @@ const Combat = {
     d.att.hitList.push(d.def);
     if (d.type === 'grab') this.startClinch(d.att, d.def, match);
     else if (d.type === 'ground') this.groundHit(d, match);
+    else if (d.type === 'sway') this.swayHit(d, match);
     else if (d.block === 'perfect') this.blockHit(d, match, true);
     else if (d.block === 'block') this.blockHit(d, match, false);
     else this.landHit(d, match);
@@ -4164,6 +4258,18 @@ const Combat = {
       }
     }
     Events.emit('block', { att, def, mv, perfect, broke, x: pos.x, y: pos.y, z: pos.z, dirx, dirz });
+  },
+
+  /* A strike met a swaying fighter's i-frames: it whiffs (the attacker's string does not continue). A perfect sway also opens one
+     counter, exactly like a perfect block. Reported as a 'block' event with sway: true, so the stats, effects and HUD cover both defenses. */
+  swayHit(d, match) {
+    const { att, def, mv, perfect } = d;
+    const pos = this.hitPoint(att, def, mv);
+    if (perfect) {
+      def.counterWindow = COUNTER_WINDOW_PERFECT;
+      match.hitStop = Math.max(match.hitStop, 4);
+    }
+    Events.emit('block', { att, def, mv, perfect, broke: false, sway: true, x: pos.x, y: pos.y, z: pos.z, dirx: att.fwdX, dirz: att.fwdZ });
   },
 
   /* Environmental hit: a strike that lands on scenery. */
@@ -4536,14 +4642,14 @@ function trimToBudget(attrs, budget) {
 /* ---------- records ---------- */
 function defaultCustom(slot) {
   return {
-    name: 'FIGHTER' + (slot + 1), title: 0, arch: 'balanced', tier: 'standard', moveStyle: ARCHETYPE_MOVE_STYLE.balanced,
+    name: 'FIGHTER' + (slot + 1), title: 0, arch: 'balanced', tier: 'standard', moveStyle: ARCHETYPE_MOVE_STYLE.balanced, defense: defaultDefense(ARCHETYPE_MOVE_STYLE.balanced),
     attrs: Object.assign({}, ARCHETYPES.balanced.attrs),
     look: { skin: '#d9a27c', hair: '#2a1a12', hairStyle: 'short', eyes: 'normal', brows: 'thin', beard: 'none', headband: 'none', mask: 'none',
       topStyle: 'tee', top: '#34dcff', legs: 'shorts', shorts: '#18274d', hands: 'gloves', glove: '#f1f1f5', belt: 'belt', feet: 'shoes', shoe: '#16161c',
       accent: '#ff5c93', glow: 'off', scale: 1, build: 1 },
   };
 }
-function cloneCustom(c) { return { name: c.name, title: c.title, arch: c.arch, tier: c.tier, moveStyle: c.moveStyle, attrs: Object.assign({}, c.attrs), look: Object.assign({}, c.look) }; }
+function cloneCustom(c) { return { name: c.name, title: c.title, arch: c.arch, tier: c.tier, moveStyle: c.moveStyle, defense: c.defense, attrs: Object.assign({}, c.attrs), look: Object.assign({}, c.look) }; }
 /* Snap to the slider grid and keep two decimals so saved values compare exactly. */
 function snapToStep(value, min, max, step) { return Math.round(clamp(min + Math.round((value - min) / step) * step, min, max) * 100) / 100; }
 
@@ -4558,6 +4664,8 @@ function validateCustom(raw) {
   // fighters saved before movement styles existed get their archetype's default style
   const moveStyle = raw.moveStyle === undefined ? ARCHETYPE_MOVE_STYLE[raw.arch] : raw.moveStyle;
   if (typeof moveStyle !== 'string' || !MOVE_STYLE_IDS.includes(moveStyle)) return fail('Unknown movement style');
+  // fighters saved before defense types existed get their movement style's default; an unreadable value falls back to Block
+  const defense = raw.defense === undefined ? defaultDefense(moveStyle) : DEFENSE_TYPES.includes(raw.defense) ? raw.defense : DEFAULT_DEFENSE;
   const attrsIn = raw.attrs, lookIn = raw.look;
   if (!attrsIn || typeof attrsIn !== 'object' || !lookIn || typeof lookIn !== 'object') return fail('Missing attributes or look');
   const attrs = {};
@@ -4585,7 +4693,7 @@ function validateCustom(raw) {
   if (!Number.isFinite(build) || build < BUILD_MIN - 1e-6 || build > BUILD_MAX + 1e-6) return fail('Build out of range');
   look.scale = Math.round(clamp(scale, SCALE_MIN, SCALE_MAX) * 100) / 100;
   look.build = Math.round(clamp(build, BUILD_MIN, BUILD_MAX) * 100) / 100;
-  return { ok: true, value: { name: raw.name, title: raw.title, arch: raw.arch, tier: raw.tier, moveStyle, attrs, look }, error: '' };
+  return { ok: true, value: { name: raw.name, title: raw.title, arch: raw.arch, tier: raw.tier, moveStyle, defense, attrs, look }, error: '' };
 }
 
 /* Simulation-facing profile, same shape as a ROSTER entry. */
@@ -4595,7 +4703,7 @@ function customProfile(custom, slot) {
   if (look.topStyle === 'bare') look.top = null;
   return {
     id: CUSTOM_IDS[slot], name: custom.name, title: TITLES[custom.title], rank: CUSTOM_RANK_BASE + slot, custom: true, slot,
-    arch: custom.arch, moveStyle: custom.moveStyle, attrs: Object.assign({}, custom.attrs), range: archetype.range, style: Object.assign({}, archetype.style), look,
+    arch: custom.arch, moveStyle: custom.moveStyle, defense: custom.defense, attrs: Object.assign({}, custom.attrs), range: archetype.range, style: Object.assign({}, archetype.style), look,
   };
 }
 
@@ -4620,6 +4728,7 @@ function randomCustom(seed) {
   look.build = snapToStep(BUILD_MIN + rng() * (BUILD_MAX - BUILD_MIN), BUILD_MIN, BUILD_MAX, BUILD_STEP);
   const fighter = { name: pick(NAME_IDEAS), title: Math.floor(rng() * TITLES.length) % TITLES.length, arch, tier: 'standard', attrs, look };
   fighter.moveStyle = rng() < 0.3 ? pick(MOVE_STYLE_IDS) : ARCHETYPE_MOVE_STYLE[arch];   // drawn last so older seeds keep their other picks
+  fighter.defense = defaultDefense(fighter.moveStyle);                                     // no extra draw: the style's default
   return fighter;
 }
 
@@ -4641,6 +4750,7 @@ function harmonize(look, schemeIndex) {
 const SHARE_LOOK_KEYS = ['hairStyle', 'eyes', 'brows', 'beard', 'headband', 'mask', 'topStyle', 'legs', 'hands', 'belt', 'feet', 'glow'];
 const SHARE_FIELD_COUNT = 5 + ATTR_KEYS.length + SHARE_LOOK_KEYS.length + 2 + LOOK_COLOR_KEYS.length;   // codes before movement styles
 const SHARE_FIELD_COUNT_STYLE = SHARE_FIELD_COUNT + 1;                                                     // + movement style index
+const SHARE_FIELD_COUNT_DEFENSE = SHARE_FIELD_COUNT_STYLE + 1;                                             // + defense type index (DEFENSE_TYPES)
 function fnv1a(text) {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
@@ -4658,7 +4768,7 @@ function encodeCustom(custom) {
   for (const key of SHARE_LOOK_KEYS) fields.push(LOOK_CHOICES[key].options.indexOf(custom.look[key]));
   fields.push(Math.round(custom.look.scale * 100), Math.round(custom.look.build * 100));
   for (const key of LOOK_COLOR_KEYS) fields.push(custom.look[key].slice(1).toLowerCase());
-  fields.push(MOVE_STYLE_IDS.indexOf(custom.moveStyle));
+  fields.push(MOVE_STYLE_IDS.indexOf(custom.moveStyle), DEFENSE_TYPES.indexOf(custom.defense));
   const payload = toBase64Url(JSON.stringify(fields));
   return SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload);
 }
@@ -4674,7 +4784,7 @@ function decodeCustom(text, allowVeteran) {
   if (shareChecksum(match[1]) !== match[2]) return fail('Code is damaged or was edited (checksum mismatch)');
   let fields;
   try { fields = JSON.parse(fromBase64Url(match[1])); } catch (e) { return fail('Code could not be read'); }
-  if (!Array.isArray(fields) || (fields.length !== SHARE_FIELD_COUNT && fields.length !== SHARE_FIELD_COUNT_STYLE)) return fail('Code has the wrong number of fields');
+  if (!Array.isArray(fields) || ![SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_STYLE, SHARE_FIELD_COUNT_DEFENSE].includes(fields.length)) return fail('Code has the wrong number of fields');
   if (fields[0] !== SHARE_VERSION) return fail('Code is from an unsupported version');
   let i = 1;
   const record = { name: fields[i++], title: fields[i++], arch: ARCHETYPE_IDS[fields[i++]], tier: TIERS[fields[i++]], attrs: {}, look: {} };
@@ -4683,7 +4793,8 @@ function decodeCustom(text, allowVeteran) {
   record.look.scale = Number.isInteger(fields[i]) ? fields[i] / 100 : NaN; i++;
   record.look.build = Number.isInteger(fields[i]) ? fields[i] / 100 : NaN; i++;
   for (const key of LOOK_COLOR_KEYS) { const hex = fields[i++]; record.look[key] = typeof hex === 'string' ? '#' + hex : null; }
-  if (fields.length === SHARE_FIELD_COUNT_STYLE) record.moveStyle = Number.isInteger(fields[i]) ? MOVE_STYLE_IDS[fields[i]] : null;
+  if (fields.length >= SHARE_FIELD_COUNT_STYLE) record.moveStyle = Number.isInteger(fields[i]) ? MOVE_STYLE_IDS[fields[i]] : null;
+  if (fields.length === SHARE_FIELD_COUNT_DEFENSE) record.defense = DEFENSE_TYPES[fields[i + 1]] || DEFAULT_DEFENSE;   // an unknown index means Block; older codes have no field and get the style default in validateCustom
   const checked = validateCustom(record);
   if (!checked.ok) return checked;
   if (checked.value.tier === 'veteran' && !allowVeteran) return fail('Veteran fighters need an Arcade clear first');
@@ -4754,7 +4865,11 @@ const DIFFICULTY = {
 /* react = reaction delay in ticks (slower than most strikes on Easy, so blockSkill matters more as difficulty rises);
    parry = chance a reaction block is timed as a perfect block; adapt = chance to guard where the opponent usually attacks;
    dmg = the CPU's damage dealt (Easy and Normal hit softer, so a beginner who trades blows still wins). */
-const AI_HEIGHT_READ = 4;        // ticks into a strike before its height (high / mid / low) can be told apart
+const AI_SWAY_REACT = 0.4;       // a Sway AI reads a wind-up after this share of its normal reaction delay (a dodge is timed off the first frames, a guard is just raised)
+const AI_SWAY_MIN_ETA = 6;       // a Sway AI only dodges a strike it sees at least this many ticks ahead: a late, plain dodge leaves the attacker free before the sway ends, so it just gets hit in the recovery
+const AI_SWAY_AIM = 3;         // a sway is timed so the strike goes active this many ticks into the dodge (a plain dodge, well inside the i-frames)
+const AI_SWAY_AIM_PERFECT = 8;   // ... or this many when the AI aims for a perfect sway (the last SWAY_PERFECT_TICKS of the i-frames are 6-11)
+const AI_HEIGHT_READ = 4;       // ticks into a strike before its height (high / mid / low) can be told apart
 const AI_GRAB_APPROACH = 2.1;    // distance from which an AI may walk in for a grab
 const AI_GRAB_STAMINA = 0.3;     // share of max stamina an AI needs before grabbing (grab + throw cost ~20-30)
 const AI_THROW_TARGET_BONUS = 0.4;   // extra grab appeal when a wall or object would take the throw
@@ -4776,7 +4891,7 @@ class AIController {
   reset() {
     this.head = 0; this.count = 0; this.plan = null; this.nextDecision = 0; this.lastMoves = [];
     this.readThrow = null; this.willEscape = false; this.escapeAt = 0;
-    this.threatId = -1; this.threatResp = null; this.breakGrabId = -1; this.punishId = -1; this.punishYes = false; this.steerSide = 1;
+    this.threatId = -1; this.threatResp = null; this.earlyRoll = null; this.breakGrabId = -1; this.punishId = -1; this.punishYes = false; this.steerSide = 1;
     this.oppRecent = []; this.lastOppMoveId = 0; this.counterTried = false; this.clinchPlan = null; this.tickNo = 0;
   }
   observe(f, opp) {
@@ -4837,6 +4952,7 @@ class AIController {
     if (f.state === S.GRAPPLE) return this.thinkGrapple(f, opp, match, it);
     if (f.state === S.DOWN) { if (d.id !== 'easy' && f.stam > 20 && f.stateTicks > 16 && simRng() < 0.15) it.defend = true; return it; }   // one Defend press = quick recovery
     if (REACTION_STATES.includes(f.state)) { this.plan = null; this.counterTried = false; return it; }
+    if (f.state === S.SWAY) { this.plan = null; return it; }   // a sway runs by itself; the next decision comes after it
     // facing: nothing to do, fighter auto-faces
     const dist = Math.hypot(opp.x - f.x, opp.z - f.z);
 
@@ -4846,6 +4962,10 @@ class AIController {
     this.reactToThreat(f, opp, snap, it);
     const tr = this.threatResp;
     if (tr && tr.until > this.tickNo && f.state !== S.ATTACK) {
+      if (tr.kind === 'sway') {   // one Defend press, at the planned tick
+        if (!tr.done && this.tickNo >= tr.at) { tr.done = true; it.defend = true; }
+        return it;
+      }
       if (tr.kind === 'block' && !tr.read && snap.moveId === tr.id && snap.moveTick >= AI_HEIGHT_READ) { tr.read = true; tr.h = snap.mvH; }   // the strike's line is visible now
       it.defend = tr.kind === 'block';
       it.crouch = tr.kind === 'block' && tr.h === 'L';   // Crouch + Defend = low guard
@@ -4878,23 +4998,53 @@ class AIController {
 
   reactToThreat(f, opp, snap, it) {
     const d = this.d;
+    if (f.defense === 'sway') this.readSway(f);
     const incoming = snap.state === S.ATTACK && (snap.mvType === 'strike' || snap.mvType === 'grab') && snap.moveTick <= snap.startup + 1 && snap.dist <= snap.mvReach + 1.0;
     if (!incoming || snap.moveId === this.threatId) return;
     this.threatId = snap.moveId;
-    const roll = simRng();
+    const roll = this.earlyRoll && this.earlyRoll.id === snap.moveId ? this.earlyRoll.roll : simRng();
     const hold = snap.startup + snap.active - snap.moveTick + d.react + 8;
     if (this.profile && f.state !== S.ATTACK && f.lock === 0) {
       if (snap.mvType === 'grab') {
         // too fast to dodge on reaction (startup ~9 vs react >= 8), but a grab seen coming is broken at the first legal tick
         if (roll < d.blockSkill * AI_GRAB_BREAK) this.breakGrabId = snap.moveId;
       } else if (roll < d.blockSkill) {
-        this.threatResp = { kind: 'block', h: this.guessHeight(), id: snap.moveId, read: false, parry: simRng() < d.parry, until: this.tickNo + hold, done: false };
-        this.plan = null;
+        // a Sway fighter's dodge was decided by readSway; seen this late, a sway would come too late
+        if (f.defense === 'block') {
+          this.threatResp = { kind: 'block', h: this.guessHeight(), id: snap.moveId, read: false, parry: simRng() < d.parry, until: this.tickNo + hold, done: false };
+          this.plan = null;
+        }
       } else if (roll < d.blockSkill + d.sidestep * 0.5 && snap.mvWidth < 0.5 && f.stam > 10) {
         this.threatResp = { kind: 'sidestep', h: snap.mvH, until: this.tickNo + 6, done: false };
         this.plan = null;
       }
     }
+  }
+  /* A sway has to start before the strike goes active. The snapshot is swayDelay() ticks old, so the strike's first active tick is
+     eta ticks from now (this tick = 1); the press is timed so that tick lands AI_SWAY_AIM ticks into the dodge, or AI_SWAY_AIM_PERFECT
+     (inside the perfect window) when this AI rolls its parry chance. Too late (eta < AI_SWAY_MIN_ETA) or too tired: no response. */
+  swayDelay() { return Math.round(this.d.react * AI_SWAY_REACT); }
+  /* Only the strike-to-sway roll uses the fresher snapshot: grabs and sidesteps keep the normal delay, and a roll that does not sway
+     is stored so the normal-delay read reuses it (a Sway AI gets no extra roll). */
+  readSway(f) {
+    const early = this.delayed(this.swayDelay());
+    const strike = early.state === S.ATTACK && early.mvType === 'strike' && early.moveTick <= early.startup + 1 && early.dist <= early.mvReach + 1.0;
+    if (!strike || early.moveId === this.threatId || (this.earlyRoll && this.earlyRoll.id === early.moveId)) return;
+    const roll = simRng();
+    if (roll < this.d.blockSkill && this.profile && f.state !== S.ATTACK && f.lock === 0) {
+      this.threatId = early.moveId;
+      this.threatResp = this.swayResponse(f, early);
+      this.plan = null;
+      return;
+    }
+    this.earlyRoll = { id: early.moveId, roll };
+  }
+  swayResponse(f, snap) {
+    const eta = snap.startup + 1 - snap.moveTick - this.swayDelay();
+    if (eta < AI_SWAY_MIN_ETA || f.stam < SWAY_COST) return null;
+    const aim = simRng() < this.d.parry ? AI_SWAY_AIM_PERFECT : AI_SWAY_AIM;
+    const at = this.tickNo + Math.max(0, eta - aim - 1);
+    return { kind: 'sway', id: snap.moveId, at, until: at + 3, done: false };
   }
   /* Too early to see where a strike goes: guard high (covers high and mid), or low once this AI has learned the opponent mostly attacks low. */
   guessHeight() {
@@ -5069,7 +5219,10 @@ class AIController {
     switch (p.kind) {
       case 'walk': { let dx = opp.x - f.x, dz = opp.z - f.z; if (p.away) { dx = -dx; dz = -dz; } this.moveToward(f, it, dx, dz, p.run); break; }
       case 'circle': it.side = p.side; it.fwd = p.hold ? clamp((this.profile.range - Math.hypot(opp.x - f.x, opp.z - f.z)) * -1.5, -0.6, 0.6) : 0; break;
-      case 'guard': it.defend = true; it.crouch = !!p.low; break;   // Crouch + Defend = low guard
+      case 'guard':
+        if (f.defense === 'sway') this.moveToward(f, it, f.x - opp.x, f.z - opp.z, false);   // no hold-guard: a sway fighter backs off instead
+        else { it.defend = true; it.crouch = !!p.low; }   // Crouch + Defend = low guard
+        break;
       case 'attack':
         if (!p.fired) { p.fired = true; this.pressMove(it, p.pick); }
         break;
@@ -5133,17 +5286,20 @@ class AIController {
 /* Training dummy: scripted behaviours for practice. */
 const DUMMY_MODES = ['stand', 'block', 'blockLow', 'crouch', 'jump', 'walk', 'attackHigh', 'attackLow', 'attackMix', 'blockAfterHit', 'easy', 'normal', 'hard', 'expert'];
 const DUMMY_LABEL = { stand: 'Stand still', block: 'Block high', blockLow: 'Block low', crouch: 'Crouch', jump: 'Jump', walk: 'Walk back and forth', attackHigh: 'Attack high', attackLow: 'Attack low', attackMix: 'Attack high or low', blockAfterHit: 'Block after the first hit', easy: 'CPU Easy', normal: 'CPU Normal', hard: 'CPU Hard', expert: 'CPU Expert' };
+const DUMMY_SWAY_LABEL = { block: 'Sway at each strike', blockLow: 'Sway at each strike (low too)', blockAfterHit: 'Sway after the first hit' };   // the guard modes of a dummy whose defense is Sway
+const dummyLabel = (match) => (match.fighters[1].defense === 'sway' && DUMMY_SWAY_LABEL[match.cfg.dummy]) || DUMMY_LABEL[match.cfg.dummy];
 const DUMMY_AI_MODES = ['easy', 'normal', 'hard', 'expert'];
 const DUMMY_ATTACK_EVERY = 75;       // ticks between dummy attacks: time to practise blocking and punishing
 const DUMMY_ATTACK_RANGE = 1.3;      // the attacking dummy walks in until it is this close
-const DUMMY_GUARD_TICKS = 40;        // 'block after hit' keeps blocking this long after a hit: only true combos land
+const DUMMY_SWAY_LEAD = 3;           // a swaying dummy lets a strike go active this many ticks into its dodge
+const DUMMY_GUARD_TICKS = 40;       // 'block after hit' keeps blocking this long after a hit: only true combos land
 class DummyController {
-  constructor(profile, mode) { this.profile = profile; this.mode = mode; this.ai = null; this.t = 0; this.guardTicks = 0; this.setMode(mode); }
+  constructor(profile, mode) { this.profile = profile; this.mode = mode; this.ai = null; this.t = 0; this.guardTicks = 0; this.swayedMoveId = 0; this.setMode(mode); }
   setMode(mode) {
     this.mode = mode;
     this.ai = DUMMY_AI_MODES.includes(mode) ? new AIController(this.profile, mode) : null;
   }
-  reset() { if (this.ai) this.ai.reset(); this.t = 0; this.guardTicks = 0; }
+  reset() { if (this.ai) this.ai.reset(); this.t = 0; this.guardTicks = 0; this.swayedMoveId = 0; }
   think(f, opp, match, it) {
     clearIntent(it);
     this.t++;
@@ -5151,16 +5307,27 @@ class DummyController {
     if (REACTION_STATES.includes(f.state)) this.guardTicks = DUMMY_GUARD_TICKS;
     if (!f.alive || REACTION_STATES.includes(f.state)) return it;
     switch (this.mode) {
-      case 'block': it.defend = true; break;
-      case 'blockLow': it.defend = true; it.crouch = true; break;   // Crouch + Defend = low guard
+      case 'block': this.guard(f, opp, it, false); break;
+      case 'blockLow': this.guard(f, opp, it, true); break;
       case 'crouch': it.crouch = true; break;
       case 'jump': if (this.t % 90 === 1) it.jump = true; break;
       case 'walk': it.side = Math.sin(this.t / 50) > 0 ? 1 : -1; break;
       case 'attackHigh': case 'attackLow': case 'attackMix': this.attack(f, opp, it); break;
-      case 'blockAfterHit': if (this.guardTicks > 0) { this.guardTicks--; it.defend = true; } break;
+      case 'blockAfterHit': if (this.guardTicks > 0) { this.guardTicks--; this.guard(f, opp, it, false); } break;
       default: break;
     }
     return it;
+  }
+  /* The dummy's defense: a Block fighter holds Defend (Crouch + Defend = low guard); a Sway fighter has no hold-guard, so it sways once
+     per incoming strike, pressed so the strike goes active DUMMY_SWAY_LEAD ticks into the dodge (a plain dodge, never a perfect one). */
+  guard(f, opp, it, low) {
+    if (f.defense !== 'sway') { it.defend = true; it.crouch = low; return; }
+    const mv = opp.move;
+    if (f.state === S.SWAY || opp.state !== S.ATTACK || !mv || mv.type !== 'strike' || opp.moveId === this.swayedMoveId) return;
+    const activeIn = opp.mStartup + 1 - opp.moveTick;   // ticks until the strike's first active tick (this tick = 1)
+    if (activeIn < 1 || activeIn > DUMMY_SWAY_LEAD + 1) return;
+    this.swayedMoveId = opp.moveId;
+    it.defend = true;
   }
   /* Walk in, then a jab (high) or a low kick on a steady beat. */
   attack(f, opp, it) {
@@ -5268,8 +5435,8 @@ class MatchSim {
       s.blocks++; if (e.perfect) s.perfect++;
       if (e.att.index === 0 && this.lastMove) {
         const lm = this.lastMove;
-        lm.result = e.perfect ? 'perfect block' : 'blocked';
-        lm.adv = frameAdvantage(e.mv, { active: lm.active, recovery: lm.recovery, blockstun: e.def.blockStun || e.mv.blockstun });
+        lm.result = e.sway ? (e.perfect ? 'perfect sway' : 'swayed') : e.perfect ? 'perfect block' : 'blocked';
+        lm.adv = e.sway ? null : frameAdvantage(e.mv, { active: lm.active, recovery: lm.recovery, blockstun: e.def.blockStun || e.mv.blockstun });
       }
     });
     on('throw', (e) => { this.stats[e.att.index].throws++; this.stats[e.att.index].damage += e.dmg; this.stats[e.def.index].taken += e.dmg; });
@@ -6056,7 +6223,7 @@ const Effects = {
       if (hurt && !e.ko) hurt.rumble(0.2 + tier * 0.15, RUMBLE_HIT_MS);   // each human player feels the hits they take on their own pad
     });
     on('block', (e) => {
-      FX.sparks(e.x, e.y, e.z, e.broke ? 14 : 6, e.broke ? 5 : 3, e.broke ? '#ffb347' : '#9ee7ff', e.dirx, e.dirz);
+      if (!e.sway) FX.sparks(e.x, e.y, e.z, e.broke ? 14 : 6, e.broke ? 5 : 3, e.broke ? '#ffb347' : '#9ee7ff', e.dirx, e.dirz);   // a sway dodges the hit: no impact sparks
       FX.ring(e.x, e.y, e.z, e.perfect ? '#ffe066' : '#9ee7ff');
       if (e.perfect) FX.flash(e.x, e.y, e.z, 0.35, '#fff4b0');
       if (e.broke) Camera.impact(0.7, 0.6);
@@ -6296,7 +6463,7 @@ const Sound = {
       if (e.mv.tier >= 2 || e.ko) this.grunt(e.def.index, e.ko || e.mv.tier === 3);
       if (e.counter) { this.tone('triangle', 1760, 1760, 0.16, 0.14); this.tone('sine', 2640, 2640, 0.12, 0.07, 0.03); }   // counter "ting"
     });
-    on('block', (e) => this.block(e.perfect, e.broke, e.x));
+    on('block', (e) => { if (!e.sway || e.perfect) this.block(e.perfect, e.broke, e.x); });   // a plain sway makes no block sound
     on('attackActive', (e) => this.whoosh((e.mv.tier || 1) / 3, e.f.x));
     on('attackStart', (e) => { if (e.mv.tier === 3 && e.f.index === 1) this.grunt(1, false); });
     on('step', (e) => this.step(e.run, e.f.x));
@@ -6621,9 +6788,11 @@ const UI = {
     const named = (label, action) => (touch ? '' : label + ' ') + k(action);   // on-screen buttons carry their own names
     const move = touch ? 'Stick: move, flick twice to run or sidestep' : kind === 'gamepad' ? 'Move: left stick or D-pad' : 'Move: ' + ['up', 'left', 'down', 'right'].map(k).join(' ');
     const close = touch ? 'Tap to close' : kind === 'gamepad' ? 'Closes by itself' : 'Click or press any key to close';
+    const p1 = Game.match && Game.match.fighters[0];   // the card opens with the fight, so it can name this fighter's defense
+    const defendHow = p1 ? (p1.defense === 'sway' ? '(you sway: tap to lean away)' : '(you block: hold to guard)') : '(Block: hold to guard. Sway: tap to lean away)';
     return '<h3>CONTROLS</h3>' + move + '<br>' +
       named('Punch', 'punch') + ' ' + named('Kick', 'kick') + '<br>' +
-      named('Defend', 'defend') + '<br>' +
+      named('Defend', 'defend') + ' ' + defendHow + '<br>' +
       named('Grab / escape', 'grapple') + '<br>' +
       named('Jump', 'jump') + ' ' + named('Crouch', 'crouch') + ' (hold it for low shots and a low guard)<br>' +
       'Press Punch or Kick again as a hit lands to chain a string; strong moves come from strings<small>' + close + '</small>';
@@ -7009,7 +7178,7 @@ const UI = {
   },
   fighterCard(r, act, sel) {
     const locked = !Progress.isUnlocked(r.id) && act.startsWith('pick');
-    return '<button class="card' + (sel ? ' sel' : '') + (locked ? ' locked' : '') + '" data-nav ' + (sel ? 'data-default ' : '') + 'data-act="' + act + ':' + r.id + '" aria-pressed="' + !!sel + '"><b>' + esc(r.name) + (sel ? ' &#10003;' : '') + '</b><em>' + esc(r.title) + (r.custom ? ' &middot; CUSTOM' : '') + (locked ? ' &middot; LOCKED' : '') + '</em>' + this.statBars(r.attrs) + '</button>';
+    return '<button class="card' + (sel ? ' sel' : '') + (locked ? ' locked' : '') + '" data-nav ' + (sel ? 'data-default ' : '') + 'data-act="' + act + ':' + r.id + '" aria-pressed="' + !!sel + '"><b>' + esc(r.name) + (sel ? ' &#10003;' : '') + '</b><em>' + esc(r.title) + (r.custom ? ' &middot; CUSTOM' : '') + (locked ? ' &middot; LOCKED' : '') + ' &middot; ' + DEFENSE_LABEL[defenseFor(r)] + '</em>' + this.statBars(r.attrs) + '</button>';
   },
   screen_char() {
     const sel = Game.selection, picked = sel[this.pickKey()], p2 = this.pickKey() === 'player2';
@@ -7080,7 +7249,7 @@ const UI = {
     const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td>' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1') + '</td><td>' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2') + '</td><td>' + esc(GAMEPAD_LABELS[a]) + '</td><td>' + esc(TOUCH_LABELS[a]) + '</td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
       '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (Versus)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
-      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Hold Defend to block: standing it covers high + mid attacks, with Crouch held it covers low attacks. Press Defend just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Use and Lock on have no effect yet. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
+      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card). Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Use and Lock on have no effect yet. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
       '<p class="hint">Versus: a key belongs to one player only. P1\'s spare arrow keys switch off in Versus, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only.</p>' +
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
   },
@@ -7099,7 +7268,7 @@ const UI = {
       let input = m.type === 'grab' ? 'Grapple' : stringInputs(m);
       if (m.ctx === 'air') input = 'In the air: ' + (punch ? 'any punch' : 'any kick');
       else if (m.ctx === 'run') input = 'Running: Punch';
-      else if (m.ctx === 'counter') input = 'After a block: ' + (punch ? 'any punch' : 'any kick');
+      else if (m.ctx === 'counter') input = 'After a perfect block or sway: ' + (punch ? 'any punch' : 'any kick');
       const fa = frameAdvantage(m);
       const note = [m.kind === 'launch' ? 'launcher' : '', m.kind === 'knockdown' ? 'knockdown' : '', m.kind === 'stagger' ? 'stagger' : '', m.gb ? 'guard break' : '', m.width >= 0.8 ? 'wide arc' : '', m.type === 'grab' ? 'beats blocks' : ''].filter(Boolean).join(', ');
       return '<tr><td>' + esc(m.name) + '</td><td>' + esc(input) + '</td><td>' + (m.type === 'grab' ? '-' : { H: 'High', M: 'Mid', L: 'Low' }[m.h]) + '</td><td>' + m.startup + ' / ' + m.active + ' / ' + m.recovery + '</td><td>' + m.dmg + '</td><td>' + m.stam + '</td><td>' + (m.type === 'grab' ? '-' : adv(fa.onHit) + ' / ' + adv(fa.onBlock)) + '</td><td>' + note + '</td></tr>';
@@ -7113,6 +7282,7 @@ const UI = {
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Hits</th><th>Start / Active / Recover</th><th>Dmg</th><th>Stam</th><th>Adv hit / block</th><th>Notes</th></tr>' + rows + '</table>' +
       '<h3>Attack strings</h3><p>Press Punch or Kick again soon after the last press (about ' + ATTACK_STRING_SECONDS + ' s, plus the short freeze of each hit), after that move hit or was blocked, to play the next move of the string. A miss, a pause, or getting hit starts over. Strings are up to 3 moves. Hold Crouch at every press for the crouch strings; otherwise the standing strings apply.</p>' +
       stringTable +
+      '<h3>Defend: Block or Sway</h3><p>Every fighter has one defense type, shown on its fighter card. <b>Block</b>: ' + esc(DEFENSE_HELP.block) + ' Strong string moves break a block unless it is perfect. <b>Sway</b>: ' + esc(DEFENSE_HELP.sway) + ' A sway fighter has no hold-guard; a Defend press while knocked down still gets up quickly for both types.</p>' +
       '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: Kick = knee (drains stamina), Punch = elbow (harder hit); Grapple = throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
       this.throwTable() +
       '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-default data-act="back">Back</button></div></div></section>';
@@ -7161,7 +7331,7 @@ const UI = {
       (mode === 'survival' ? '<button class="mi" data-nav data-act="restart">Abandon run<small>Your record is kept; a new run starts</small></button>' :
         mode === 'arcade' ? '<button class="mi" data-nav data-act="restart">Retry (uses a continue)<small>Counts as a loss</small></button>' : '<button class="mi" data-nav data-act="restart">Restart match</button>');
     if (m && m.training) {
-      h += this.optRow('Dummy', DUMMY_LABEL[m.cfg.dummy], 'data-local="tdummy"', '') +
+      h += this.optRow('Dummy', dummyLabel(m),'data-local="tdummy"', '') +
         '<button class="mi" data-nav data-act="thp">Dummy infinite health: ' + (m.infiniteHp ? 'On' : 'Off') + '</button><button class="mi" data-nav data-act="tstam">Dummy infinite stamina: ' + (m.infiniteStam ? 'On' : 'Off') + '</button>' +
         '<button class="mi" data-nav data-act="treset">Reset positions &amp; health<small>Tab</small></button><button class="mi" data-nav data-act="tarena">Reset arena objects<small>F2</small></button>' +
         this.optRow('Scenario', SCENARIOS[this.scenIdx], 'data-local="tscen"', '') + '<button class="mi" data-nav data-act="tscenGo">Load scenario (also keys 1-5)</button>';
@@ -7177,7 +7347,7 @@ const UI = {
     const mm = clockText;
     let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages + ' &middot; continues ' + d.continues : d.mode === 'survival' ? 'Survival &middot; defeated ' + (d.kills || 0) : d.mode === 'training' ? 'Training' : 'Free Fight';
     let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.playerWon ? 'Victory' : 'Defeat') + '</div><p class="sub">' + sub + ' &middot; ' + esc(d.player) + ' vs ' + esc(d.opponent) + '</p>';
-    h += '<div class="statgrid"><span>Rounds won</span><span>' + d.wins[0] + ' - ' + d.wins[1] + '</span><span>Fight time</span><span>' + mm(d.seconds) + '</span><span>Damage dealt</span><span>' + Math.round(s0.damage) + '</span><span>Damage taken</span><span>' + Math.round(s0.taken) + '</span><span>Hits landed</span><span>' + s0.hits + '</span><span>Best combo</span><span>' + s0.maxCombo + ' hits</span><span>Blocks (perfect)</span><span>' + s0.blocks + ' (' + s0.perfect + ')</span><span>Throws</span><span>' + s0.throws + '</span><span>Objects destroyed</span><span>' + s0.objects + '</span></div>';
+    h += '<div class="statgrid"><span>Rounds won</span><span>' + d.wins[0] + ' - ' + d.wins[1] + '</span><span>Fight time</span><span>' + mm(d.seconds) + '</span><span>Damage dealt</span><span>' + Math.round(s0.damage) + '</span><span>Damage taken</span><span>' + Math.round(s0.taken) + '</span><span>Hits landed</span><span>' + s0.hits + '</span><span>Best combo</span><span>' + s0.maxCombo + ' hits</span><span>Blocks or sways (perfect)</span><span>' + s0.blocks + ' (' + s0.perfect + ')</span><span>Throws</span><span>' + s0.throws + '</span><span>Objects destroyed</span><span>' + s0.objects + '</span></div>';
     if (d.mode === 'survival') h += '<p>Survival time: <b>' + mm(d.survivalSeconds) + '</b> &middot; Opponents defeated: <b>' + d.kills + '</b>' + (d.ended ? ' &middot; Run over' : '') + ' &middot; Best: <b>' + Progress.d.survivalKills + '</b></p>';
     if (d.cleared) h += '<p><b>Arcade cleared!</b></p>';
     if (d.newBest) h += '<p class="newbest">NEW BEST!</p>';
@@ -7193,7 +7363,7 @@ const UI = {
   versusResults(d) {
     const w = d.winner, names = [d.player, d.opponent], s = d.stats;
     const rows = [['Rounds won', d.wins[0], d.wins[1]], ['Damage dealt', Math.round(s[0].damage), Math.round(s[1].damage)], ['Hits landed', s[0].hits, s[1].hits],
-      ['Best combo', s[0].maxCombo + ' hits', s[1].maxCombo + ' hits'], ['Blocks (perfect)', s[0].blocks + ' (' + s[0].perfect + ')', s[1].blocks + ' (' + s[1].perfect + ')'],
+      ['Best combo', s[0].maxCombo + ' hits', s[1].maxCombo + ' hits'], ['Blocks or sways (perfect)',s[0].blocks + ' (' + s[0].perfect + ')', s[1].blocks + ' (' + s[1].perfect + ')'],
       ['Throws', s[0].throws, s[1].throws], ['Objects destroyed', s[0].objects, s[1].objects]];
     let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt c' + (w + 1) + '">P' + (w + 1) + ' wins</div><p class="sub">Versus &middot; ' + esc(names[w]) + ' takes the match &middot; ' + clockText(d.seconds) + '</p>';
     h += '<p>Session score: <b class="c1">P1 ' + d.score[0] + '</b> - <b class="c2">' + d.score[1] + ' P2</b></p>';
@@ -7267,7 +7437,7 @@ const UI = {
     this.popAt(e.x, e.y + 0.1, e.z, txt, e.counter ? COUNTER_COLOR : e.def.index === 0 ? '#ff9a9a' : '#ffffff');
   },
   onBlock(e) {
-    const t = e.broke ? 'GUARD BREAK!' : e.perfect ? 'PERFECT BLOCK!' : 'BLOCK';
+    const t = e.broke ? 'GUARD BREAK!' : e.sway ? (e.perfect ? 'PERFECT SWAY!' : 'SWAY') : e.perfect ? 'PERFECT BLOCK!' : 'BLOCK';
     this.popAt(e.x, e.y + 0.1, e.z, t, e.broke ? '#ffb347' : '#9cf4ff');
   },
   popAt(x, y, z, text, color) {
@@ -7337,6 +7507,7 @@ const UI = {
       const ok = R.project(f.x, f.y + 2.15 * f.scale, f.z, out);
       let status = '';
       if (f.state === S.BLOCK_H || f.state === S.BLOCK_L) status = 'BLOCK';
+      else if (f.state === S.SWAY) status = 'SWAY';
       else if (f.state === S.STUN) status = 'STUNNED';
       else if (f.state === S.CLINCH || f.state === S.GRAPPLE) status = 'CLINCH';
       else if (f.state === S.DOWN) status = 'DOWN';
@@ -7419,7 +7590,7 @@ const UI = {
       h += esc(lm.mv.name) + '<br>Startup ' + lm.startup + 'f &middot; Active ' + lm.active + 'f &middot; Recovery ' + lm.recovery + 'f<br>Result: ' + lm.result + (lm.adv ? '<br>Advantage: hit ' + adv(lm.adv.onHit) + ' / block ' + adv(lm.adv.onBlock) : '') + '<br>Damage: ' + (lm.dmg ? lm.dmg.toFixed(1) : '-');
     } else h += 'Perform a move';
     const a = m.fighters[0];
-    h += '<br><b>COMBO</b> ' + a.comboHits + ' hits / ' + Math.round(a.comboDamage) + ' dmg<br><b>Dummy:</b> ' + DUMMY_LABEL[m.cfg.dummy];
+    h += '<br><b>COMBO</b> ' + a.comboHits + ' hits / ' + Math.round(a.comboDamage) + ' dmg<br><b>Dummy:</b> ' + dummyLabel(m);
     h += '<br><b>Objects:</b> ' + (() => { const c = Arena.statusCounts(); return c.intact + ' intact, ' + c.damaged + ' damaged, ' + c.destroyed + ' destroyed'; })();
     this.setHtml('train', this.dom.training, h);
   },
@@ -7738,13 +7909,19 @@ const CreatorUI = {
     this.draft.arch = ARCHETYPE_IDS[(i + dir + ARCHETYPE_IDS.length) % ARCHETYPE_IDS.length];
     const a = ARCHETYPES[this.draft.arch];
     this.draft.moveStyle = ARCHETYPE_MOVE_STYLE[this.draft.arch];
-    this.changed('Fighting style: ' + a.label + '. ' + a.desc + ' Movement: ' + MOVE_STYLE[this.draft.moveStyle].label + '.');
+    this.draft.defense = defaultDefense(this.draft.moveStyle);   // a new style brings its default defense; the Defense row can override it
+    this.changed('Fighting style: ' + a.label + '. ' + a.desc + ' Movement: ' + MOVE_STYLE[this.draft.moveStyle].label + '. Defense: ' + DEFENSE_LABEL[this.draft.defense] + '.');
   },
   setMoveStyle(dir) {
     const i = MOVE_STYLE_IDS.indexOf(this.draft.moveStyle);
     this.draft.moveStyle = MOVE_STYLE_IDS[(i + dir + MOVE_STYLE_IDS.length) % MOVE_STYLE_IDS.length];
+    this.draft.defense = defaultDefense(this.draft.moveStyle);
     const style = MOVE_STYLE[this.draft.moveStyle];
-    this.changed('Movement: ' + style.label + '. ' + style.desc);
+    this.changed('Movement: ' + style.label + '. ' + style.desc + ' Defense: ' + DEFENSE_LABEL[this.draft.defense] + '.');
+  },
+  setDefense() {
+    this.draft.defense = this.draft.defense === 'block' ? 'sway' : 'block';   // exactly one of two
+    this.changed('Defense: ' + DEFENSE_LABEL[this.draft.defense] + '. ' + DEFENSE_HELP[this.draft.defense]);
   },
   applySuggestedBuild() {
     this.draft.attrs = Object.assign({}, ARCHETYPES[this.draft.arch].attrs);
@@ -7922,6 +8099,7 @@ const CreatorUI = {
     else if (kind === 'attr') this.stepAttr(name, dir);
     else if (kind === 'arch') this.setArchetype(dir);
     else if (kind === 'movestyle') this.setMoveStyle(dir);
+    else if (kind === 'defense') this.setDefense();
     else if (kind === 'tier') this.toggleTier();
     else if (kind === 'title') this.setTitle(dir);
     else if (kind === 'nameidea') this.cycleNameIdea(dir);
@@ -8099,6 +8277,7 @@ const CreatorUI = {
     let h = this.row('Fighting style', arch.label, 'arch') + '<p class="hint">' + esc(arch.desc) + ' Sets how the CPU fights with this fighter and its preferred distance.</p>';
     const style = MOVE_STYLE[d.moveStyle] || MOVE_STYLE[DEFAULT_MOVE_STYLE];
     h += this.row('Movement', style.label, 'movestyle') + '<p class="hint">' + esc(style.desc) + ' Looks only: stance, rhythm and how strikes are thrown.</p>';
+    h += this.row('Defense', DEFENSE_LABEL[d.defense], 'defense') + '<p class="hint">' + esc(DEFENSE_HELP[d.defense]) + ' Each fighter has one defense, never both. Changing the movement style resets it to that style\'s usual choice.</p>';
     h += this.row('Tier', tierText, 'tier');
     h += '<div class="pts' + (left === 0 ? ' zero' : '') + '" role="status" aria-live="polite"><b>' + left + '</b> of ' + budget + ' points remaining</div>';
     h += '<p class="hint">Each step above ' + ATTR_KNEE + ' costs 2 points.</p>';
@@ -8182,6 +8361,26 @@ const SelfTest = {
     a.prevX = a.x; b.prevX = b.x; a.prevZ = b.prevZ = 0;
   },
   run(m, n) { for (let i = 0; i < n; i++) m.step(); },
+  /* Block vs Sway balance (P3-02): two copies of KAI that differ only in their defense type play AI vs AI for `seeds` seeds, each seed
+     on both sides so the spawn side cancels out. opts go to SimRunner.run. Returns { block, sway, none } match wins (none = time cap). */
+  defenseSplit(seeds, opts) {
+    const blockId = 'dsplit_block', swayId = 'dsplit_sway';
+    ROSTER_BY_ID[blockId] = Object.assign({}, ROSTER_BY_ID.kai, { id: blockId, name: 'BLOCKER', defense: 'block' });
+    ROSTER_BY_ID[swayId] = Object.assign({}, ROSTER_BY_ID.kai, { id: swayId, name: 'SWAYER', defense: 'sway' });
+    const wins = { block: 0, sway: 0, none: 0 };
+    try {
+      for (let seed = 1; seed <= seeds; seed++) {
+        for (const swapped of [false, true]) {   // swapped: the Sway fighter is player 1
+          const r = SimRunner.run(Object.assign({ playerId: swapped ? swayId : blockId, opponentId: swapped ? blockId : swayId, seed }, opts));
+          if (r.error) return { error: r.error };
+          if (r.winner < 0) wins.none++; else if ((r.winner === 0) !== swapped) wins.block++; else wins.sway++;
+        }
+      }
+    } finally {
+      delete ROSTER_BY_ID[blockId]; delete ROSTER_BY_ID[swayId];
+    }
+    return wins;
+  },
   capture(names) {
     const log = {};
     const offs = names.map((n) => { log[n] = []; return Events.on(n, (e) => log[n].push(e)); });
@@ -8199,6 +8398,8 @@ const SelfTest = {
       void m;
     };
     const mk = (...a) => self.make(...a);
+    /* A match whose second fighter (MARA, a Sway fighter by default) holds Defend as a Block fighter: for the block tests. */
+    const mkBlock = (...a) => { const m = self.make(...a); m.fighters[1].defense = 'block'; return m; };
     const once = (tick, key, extra) => (it, f, o, m) => { if (m.tick === tick) { it[key] = true; if (extra) Object.assign(it, extra); } };
     /* Presses an attack string ('P' / 'K' letters) on fighter 1: the first press at tick 2, each next press right after the previous move connected.
        extra = fields set on every press tick (height: true = Crouch held). */
@@ -8340,7 +8541,7 @@ const SelfTest = {
     test('Defend: standing stops high + mid, with Crouch it stops low, mids beat the low guard', () => {
       const trial = (k, mods, low) => {
         const log = self.capture(['hit', 'block']);
-        const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) { it[k] = true; } if (mm.tick >= 1) Object.assign(it, mods); }, (it, f, o, mm) => { if (mm.tick >= 1) { it.defend = true; it.crouch = low; } });
+        const m = mkBlock({}, (it, f, o, mm) => { if (mm.tick === 2) { it[k] = true; } if (mm.tick >= 1) Object.assign(it, mods); }, (it, f, o, mm) => { if (mm.tick >= 1) { it.defend = true; it.crouch = low; } });
         self.place(m, 1.2); self.run(m, 50); log.stop(); m.dispose();
         return { hit: log.hit.length, block: log.block.length };
       };
@@ -8349,7 +8550,7 @@ const SelfTest = {
     });
     test('Defend picks the guard: standing = high, Crouch held = low, Crouch alone = crouch (no guard)', () => {
       const stateFor = (defend, crouch) => {
-        const m = mk({}, null, (it, f, o, mm) => { it.defend = defend; it.crouch = crouch; }); self.place(m, 3); self.run(m, 8);
+        const m = mkBlock({}, null, (it, f, o, mm) => { it.defend = defend; it.crouch = crouch; }); self.place(m, 3); self.run(m, 8);
         const state = m.fighters[1].state; m.dispose(); return state;
       };
       const standing = stateFor(true, false), low = stateFor(true, true), crouch = stateFor(false, true), idle = stateFor(false, false);
@@ -8371,19 +8572,41 @@ const SelfTest = {
     });
     test('Perfect block window, guard pressure and guard break', () => {
       let log = self.capture(['block']);
-      let m = mk({}, once(2, 'punch'), (it, f, o, mm) => { if (mm.tick >= 5) it.defend = true; }); self.place(m, 1.2); self.run(m, 40); log.stop();
+      let m = mkBlock({}, once(2, 'punch'), (it, f, o, mm) => { if (mm.tick >= 5) it.defend = true; }); self.place(m, 1.2); self.run(m, 40); log.stop();
       const perfect = log.block.length === 1 && log.block[0].perfect;
       m.dispose();
       log = self.capture(['block']);
-      m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.power_jab); }, (it) => { it.defend = true; }); self.place(m, 1.2); m.fighters[1].stam = 4; self.run(m, 60); log.stop();   // a strong move straight from the move table (the string path is tested above)
+      m = mkBlock({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.power_jab); }, (it) => { it.defend = true; }); self.place(m, 1.2); m.fighters[1].stam = 4; self.run(m, 60); log.stop();   // a strong move straight from the move table (the string path is tested above)
       const broke = log.block.some((b) => b.broke) && m.fighters[1].state === S.STUN;
       return perfect && broke ? true : 'perfect ' + perfect + ' broke ' + broke;
+    });
+    test('A thrown fighter lifted onto support without an airborne tick still lands, gets up and plays on (rubble softlock)', () => {
+      const m = mk({}, () => {}); self.place(m, 2.5);
+      const f = m.fighters[1], path = [];
+      f.setState(S.THROWN); f.y = f.groundY; f.vy = 0;   // what rubble does: the rising fighter is set on its top with vy 0
+      for (let i = 0; i < 400 && !(path.includes(S.DOWN) && f.state === S.IDLE); i++) { m.step(); if (path[path.length - 1] !== f.state) path.push(f.state); }
+      m.dispose();
+      return path.includes(S.DOWN) && f.state === S.IDLE ? true : 'path ' + path.join('>');
+    });
+    test('Guarding or crouching while moving steps the legs (walk legs with the guard up; crouch walk), slower than walking', () => {
+      const legSwing = (fill) => {
+        const m = mk({}, fill); self.place(m, 4);
+        const f = m.fighters[0], hips = [], states = new Set(), speeds = [];
+        for (let i = 0; i < 70; i++) { m.step(); f.animate(FIXED_DT); if (i > 20) { hips.push(f.tp[J.hipLx]); states.add(f.state); speeds.push(Math.hypot(f.vx, f.vz)); } }
+        m.dispose();
+        return { swing: Math.max(...hips) - Math.min(...hips), states: [...states].join(), speed: Math.max(...speeds) };
+      };
+      const walk = legSwing((it) => { it.fwd = -1; });
+      const guard = legSwing((it) => { it.defend = true; it.fwd = -1; });
+      const crouch = legSwing((it) => { it.crouch = true; it.fwd = -1; });
+      const ok = guard.states === S.BLOCK_H && crouch.states === S.CROUCH && guard.swing > 0.15 && crouch.swing > 0.15 && guard.speed < walk.speed && crouch.speed < walk.speed;
+      return ok ? true : JSON.stringify({ walk, guard, crouch });
     });
     test('Every strong string move breaks a full-stamina block (not a perfect one); a normal move does not', () => {
       const strong = Object.keys(ATTACKS).filter((id) => ATTACKS[id].tier === 3 && !ATTACKS[id].ctx);
       const tryBreak = (id) => {
         const log = self.capture(['block']);
-        const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS[id]); }, (it) => { it.defend = true; it.crouch = ATTACKS[id].h === 'L'; });   // held from the start: never a perfect block
+        const m = mkBlock({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS[id]); }, (it) => { it.defend = true; it.crouch = ATTACKS[id].h === 'L'; });   // held from the start: never a perfect block
         self.place(m, 1.2); self.run(m, 60); log.stop(); m.dispose();
         return log.block.length > 0 && log.block.every((b) => !b.perfect) && log.block.some((b) => b.broke);
       };
@@ -8393,7 +8616,7 @@ const SelfTest = {
     test('Perfect block opens one counter, the next press is a normal move', () => {
       const log = self.capture(['attackStart']);
       let first = 0, second = false;
-      const m = mk({}, once(2, 'punch'), (it, f, o, mm) => {
+      const m = mkBlock({}, once(2, 'punch'), (it, f, o, mm) => {
         if (!first && f.counterWindow > 0) { it.punch = true; first = mm.tick; } else if (first && !second && mm.tick >= first + 30) { it.punch = true; second = true; } else if (!first && mm.tick >= 5) it.defend = true;
       });
       self.place(m, 1.2); self.run(m, 90); log.stop();
@@ -8402,7 +8625,7 @@ const SelfTest = {
     });
     test('Mashing block never gives a perfect block', () => {
       const log = self.capture(['block']);
-      const m = mk({}, once(40, 'punch'), (it, f, o, mm) => { it.defend = mm.tick % 8 !== 0; });
+      const m = mkBlock({}, once(40, 'punch'), (it, f, o, mm) => { it.defend = mm.tick % 8 !== 0; });
       self.place(m, 1.2); self.run(m, 80); log.stop();
       return log.block.length === 1 && !log.block[0].perfect ? true : 'blocks ' + log.block.length + ' perfect ' + log.block.some((b) => b.perfect);
     });
@@ -8701,7 +8924,7 @@ const SelfTest = {
     test('AI difficulty changes defensive quality', () => {
       const trial = (diff, seed) => {
         const log = self.capture(['hit', 'block']);
-        const m = mk({ seed }, (it, f, o, mm) => { if (mm.tick % 80 === 20 && f.state === S.IDLE) f.startAttack(ATTACKS.heavy_roundhouse); });   // a slow, readable attack straight from the move table
+        const m = mkBlock({ seed }, (it, f, o, mm) => { if (mm.tick % 80 === 20 && f.state === S.IDLE) f.startAttack(ATTACKS.heavy_roundhouse); });   // a slow, readable attack straight from the move table
         const ai = new AIController(ROSTER_BY_ID.kai, diff);
         ai.nextDecision = Infinity; ai.d = Object.assign({}, ai.d, { punish: 0, counter: 0, sidestep: 0 });
         m.controllers[1] = ai;
@@ -8719,7 +8942,7 @@ const SelfTest = {
     test('AI reaction blocks are only sometimes perfect blocks', () => {
       const log = self.capture(['block']);
       for (const seed of [3, 4, 5]) {
-        const m = mk({ seed }, (it, f, o, mm) => { if (mm.tick % 60 === 20 && f.state === S.IDLE) f.startAttack(ATTACKS.cross); });
+        const m = mkBlock({ seed }, (it, f, o, mm) => { if (mm.tick % 60 === 20 && f.state === S.IDLE) f.startAttack(ATTACKS.cross); });
         const ai = new AIController(ROSTER_BY_ID.kai, 'expert');
         ai.nextDecision = Infinity; ai.d = Object.assign({}, ai.d, { punish: 0, counter: 0, sidestep: 0 });
         m.controllers[1] = ai;
@@ -9537,7 +9760,7 @@ const SelfTest = {
         m.dispose();
       }
       const attacks = /^H{3,}$/.test(heights.attackHigh) && /^L{3,}$/.test(heights.attackLow) && /H/.test(heights.attackMix) && /L/.test(heights.attackMix);
-      const m = mk({ mode: 'training', dummy: 'blockAfterHit' }, (it, f, o, mm) => { if (mm.tick === 2 || mm.tick === 45) it.punch = true; });
+      const m = mkBlock({ mode: 'training', dummy: 'blockAfterHit' }, (it, f, o, mm) => { if (mm.tick === 2 || mm.tick === 45) it.punch = true; });
       m.controllers[1] = new DummyController(ROSTER_BY_ID.mara, 'blockAfterHit');
       self.place(m, 1.2);
       const log = self.capture(['hit', 'block']);
@@ -10377,7 +10600,7 @@ const SelfTest = {
       c.moveStyle = 'judoka';
       const back = decodeCustom(encodeCustom(c), true);
       const fields = JSON.parse(fromBase64Url(encodeCustom(c).split('-')[1]));
-      fields.pop();                                                 // an older code: no movement style field
+      fields.pop(); fields.pop();                                   // an older code: no defense type and no movement style field
       const payload = toBase64Url(JSON.stringify(fields));
       const old = decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true);
       const stored = validateCustom(Object.assign({}, c, { moveStyle: undefined }));
@@ -10386,6 +10609,170 @@ const SelfTest = {
       const ok = back.ok && back.value.moveStyle === 'judoka' && old.ok && old.value.moveStyle === ARCHETYPE_MOVE_STYLE[c.arch] &&
         stored.ok && stored.value.moveStyle === ARCHETYPE_MOVE_STYLE[c.arch] && !bad.ok && new Fighter(profile, 0).motion.styleId === 'judoka';
       return ok ? true : 'round trip ' + (back.value && back.value.moveStyle) + ' old ' + old.ok + ' ' + (old.value && old.value.moveStyle) + ' stored ' + stored.ok + ' bad rejected ' + !bad.ok;
+    });
+    /* ----- Sway (P3-01 / P3-02): MARA is a Sway fighter by default, KAI a Block fighter ----- */
+    /* Presses Defend on fighter 2 so the opponent's strike goes active `lead` ticks into the sway (stateTicks = lead on the first active tick). */
+    const swayAt = (lead) => {
+      let done = false;
+      return (it, f, o) => { if (!done && o.state === S.ATTACK && o.move && o.mStartup + 1 - o.moveTick === lead + 1) { it.defend = true; done = true; } };
+    };
+    test('Sway: defense types come from the style table, creator and roster agree', () => {
+      const wantByStyle = { boxer: 'sway', kickboxer: 'block', karateka: 'block', wrestler: 'block', judoka: 'sway', brawler: 'block', capoeira: 'sway' };
+      const styles = MOVE_STYLE_IDS.every((id) => defaultDefense(id) === wantByStyle[id]) && MOVE_STYLE_IDS.length === Object.keys(wantByStyle).length;
+      const roster = ROSTER.every((r) => DEFENSE_TYPES.includes(r.defense) && r.defense === defaultDefense(r.moveStyle)) && ROSTER.some((r) => r.defense === 'block') && ROSTER.some((r) => r.defense === 'sway');
+      const fighters = new Fighter(ROSTER_BY_ID.kai, 0).defense === 'block' && new Fighter(ROSTER_BY_ID.mara, 1).defense === 'sway';
+      const noField = new Fighter(Object.assign({}, ROSTER_BY_ID.kai, { defense: undefined, moveStyle: 'boxer' }), 0).defense === 'sway';   // no field: the style decides
+      return styles && roster && fighters && noField ? true : JSON.stringify({ styles, roster, fighters, noField });
+    });
+    test('Sway: strikes miss for 12 ticks (0-11), the next 15 ticks (12-26) leave the fighter open, grabs always connect', () => {
+      const m = mk({}); self.place(m, 1.2);
+      const att = m.fighters[0], def = m.fighters[1];
+      att.startAttack(ATTACKS.jab); att.moveTick = att.mStartup + 1;   // the jab's first active tick
+      def.setState(S.SWAY);
+      const kinds = [];
+      for (let n = 0; n < SWAY_TOTAL_TICKS; n++) { def.stateTicks = n; const d = Combat.evaluate(att, def); kinds.push(d ? d.type + (d.perfect ? '+' : '') : 'none'); }
+      const dodged = kinds.slice(0, SWAY_IFRAME_TICKS), open = kinds.slice(SWAY_IFRAME_TICKS);
+      const perfectFrom = dodged.indexOf('sway+');
+      def.stateTicks = 3;
+      att.startAttack(ATTACKS.grab); att.moveTick = att.mStartup + 1;
+      const grab = Combat.evaluate(att, def);
+      const ok = dodged.every((k) => k === 'sway' || k === 'sway+') && perfectFrom === SWAY_IFRAME_TICKS - SWAY_PERFECT_TICKS && dodged.slice(perfectFrom).every((k) => k === 'sway+') &&
+        open.length === SWAY_RECOVERY_TICKS && open.every((k) => k === 'strike') && grab && grab.type === 'grab';
+      return ok ? true : kinds.join() + ' grab ' + (grab && grab.type);
+    });
+    test('Sway: a jab that goes active inside the dodge misses; one that arrives in the recovery hits', () => {
+      const trial = (defenderScript, attackerScript) => {
+        const log = self.capture(['hit', 'block']);
+        const m = mk({}, attackerScript, defenderScript); self.place(m, 1.2); self.run(m, 70); log.stop();
+        const hp = m.fighters[1].hp, max = m.fighters[1].maxHp; m.dispose();
+        return { hits: log.hit.length, blocks: log.block, lost: max - hp };
+      };
+      const dodge = trial(swayAt(3), once(2, 'punch'));
+      const late = trial(once(3, 'defend'), (it, f, o, mm) => { if (mm.tick === 17) it.punch = true; });   // the jab goes active ~21 ticks into the sway
+      const dodged = dodge.hits === 0 && dodge.lost === 0 && dodge.blocks.length === 1 && dodge.blocks[0].sway === true && !dodge.blocks[0].perfect;
+      const hit = late.hits === 1 && late.lost > 0 && late.blocks.length === 0;
+      return dodged && hit ? true : JSON.stringify({ dodge: { hits: dodge.hits, lost: dodge.lost, blocks: dodge.blocks.length }, late: { hits: late.hits, lost: late.lost } });
+    });
+    test('Sway: a strike that would have hit in the last 6 i-frame ticks is a perfect sway and opens one counter', () => {
+      const log = self.capture(['block', 'attackStart']);
+      let pressed = false;
+      const swayer = (it, f, o, mm) => {
+        swayAt(8)(it, f, o, mm);   // lead 8 = inside ticks 6-11
+        if (f.counterWindow > 0 && f.state === S.IDLE && !pressed) { it.punch = true; pressed = true; }
+      };
+      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.roundhouse); }, swayer); self.place(m, 1.2); self.run(m, 90); log.stop();   // a slower strike: the jab is gone before a sway pressed 8 ticks ahead
+      const perfect = log.block.length === 1 && log.block[0].sway === true && log.block[0].perfect === true;
+      const moves = log.attackStart.filter((e) => e.f.index === 1).map((e) => e.mv.id).join();
+      const stats = m.stats[1].perfect === 1 && m.stats[1].blocks === 1;   // the match stats count a perfect sway
+      const plain = (() => { const l = self.capture(['block']); const m2 = mk({}, once(2, 'punch'), swayAt(3)); self.place(m2, 1.2); self.run(m2, 40); l.stop(); const r = m2.fighters[1].counterWindow === 0 && l.block.length === 1 && !l.block[0].perfect; m2.dispose(); return r; })();
+      return perfect && moves === 'counter_strike' && stats && plain ? true : JSON.stringify({ perfect, moves, stats, plain });
+    });
+    test('Sway costs 10 stamina; below 10 the press does nothing', () => {
+      const attempt = (stamina) => {
+        let before = 0;
+        const m = mk({}, null, (it, f, o, mm) => { if (mm.tick === 3) { it.defend = true; before = f.stam; } }); self.place(m, 3);
+        m.fighters[1].stam = stamina; self.run(m, 4);
+        const f = m.fighters[1], r = { swaying: f.state === S.SWAY, spent: before - f.stam }; m.dispose(); return r;
+      };
+      const enough = attempt(20), short = attempt(8);
+      return SWAY_COST === 10 && enough.swaying && Math.abs(enough.spent - 10) < 1 && !short.swaying && Math.abs(short.spent) < 1 ? true : JSON.stringify({ enough, short });
+    });
+    test('Sway: a held Defend sways once, a new press sways again; the lean follows the stick (back, left, right)', () => {
+      const count = (script) => {
+        const log = self.capture(['sway']);
+        const m = mk({}, null, script); self.place(m, 3); m.fighters[1].stam = m.fighters[1].maxStam; self.run(m, 150); log.stop(); m.dispose();
+        return log.sway.length;
+      };
+      const held = count((it, f, o, mm) => { if (mm.tick >= 3) it.defend = true; });
+      const taps = count((it, f, o, mm) => { it.defend = mm.tick % 40 < 5; });
+      const lean = (side, fwd) => {
+        const m = mk({}, null, (it, f, o, mm) => { if (mm.tick === 3) { it.defend = true; it.side = side; it.fwd = fwd; } }); self.place(m, 3);
+        const f = m.fighters[1]; self.run(m, 3); const x0 = f.x, z0 = f.z; self.run(m, 12);
+        const r = { dir: f.swayDir, away: (f.x - x0) * f.fwdX + (f.z - z0) * f.fwdZ, across: (f.x - x0) * -f.fwdZ + (f.z - z0) * f.fwdX }; m.dispose(); return r;
+      };
+      const back = lean(0, 0), right = lean(1, 0), left = lean(-1, 0.2), fwdPush = lean(0, 1);
+      const leans = back.dir === 0 && back.away < -0.1 && right.dir === 1 && right.across > 0.1 && left.dir === -1 && left.across < -0.1 && fwdPush.dir === 0 && fwdPush.away < -0.1;
+      return held === 1 && taps >= 3 && leans ? true : JSON.stringify({ held, taps, back, right, left, fwdPush });
+    });
+    test('A Block fighter never sways, a Sway fighter never guards; both still get up quickly', () => {
+      const swayLog = self.capture(['sway']);
+      let blockerSwayed = false, swayerGuarded = false, blockerGuarded = false;
+      const mash = (it, f, o, mm) => {
+        it.defend = mm.tick % 6 < 3; it.crouch = mm.tick % 50 < 25;
+        if (f.defense === 'block') { if (f.state === S.SWAY) blockerSwayed = true; if (f.state === S.BLOCK_H || f.state === S.BLOCK_L) blockerGuarded = true; }
+        else if (f.state === S.BLOCK_H || f.state === S.BLOCK_L) swayerGuarded = true;
+      };
+      const m = mk({}, mash, mash); self.place(m, 3); self.run(m, 200); swayLog.stop(); m.dispose();
+      const swaysBy = [0, 0]; swayLog.sway.forEach((e) => { swaysBy[e.f.index]++; });
+      const rise = (id) => {
+        const log = self.capture(['quickRise']);
+        const m2 = mk({ playerId: id }, (it, f) => { if (f.state === S.DOWN && f.stateTicks >= 16) it.defend = true; });
+        self.place(m2, 3); m2.fighters[0].setState(S.HIT); m2.fighters[0].setState(S.DOWN); self.run(m2, 50); log.stop(); m2.dispose();
+        return log.quickRise.length;
+      };
+      const ok = !blockerSwayed && blockerGuarded && !swayerGuarded && swaysBy[0] === 0 && swaysBy[1] > 0 && rise('kai') === 1 && rise('mara') === 1;
+      return ok ? true : JSON.stringify({ blockerSwayed, blockerGuarded, swayerGuarded, swaysBy, riseBlock: rise('kai'), riseSway: rise('mara') });
+    });
+    test('Block: a strong move that breaks a guard costs 8 % chip once plus the 30 % break damage, and never the last point of health', () => {
+      const mv = ATTACKS.power_jab;
+      const play = (hp) => {
+        const m = mkBlock({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(mv); }, (it) => { it.defend = true; }); self.place(m, 1.2);
+        const def = m.fighters[1]; if (hp) def.hp = hp;
+        self.run(m, 40); const r = { lost: (hp || def.maxHp) - def.hp, left: def.hp, stun: def.state === S.STUN }; m.dispose(); return r;
+      };
+      const full = play(0), last = play(1);
+      const want = mv.dmg * (0.08 + 0.3);
+      return mv.tier === 3 && Math.abs(full.lost - want) < 0.01 && full.stun && last.left >= 1 ? true : JSON.stringify({ want, full, last });
+    });
+    test('Creator: the defense type saves, shares and loads; old codes and saves without it take the style default', () => {
+      const saved = keepCustoms();
+      try {
+        const c = validateCustom(randomCustom(2468)).value;
+        c.moveStyle = 'boxer'; c.defense = 'block';                     // against the style default (Sway)
+        const blockBack = decodeCustom(encodeCustom(c), true);
+        c.moveStyle = 'karateka'; c.defense = 'sway';                   // against the style default (Block)
+        const swayBack = decodeCustom(encodeCustom(c), true);
+        const fields = JSON.parse(fromBase64Url(encodeCustom(c).split('-')[1]));
+        const reencode = (list) => { const p = toBase64Url(JSON.stringify(list)); return SHARE_PREFIX + '-' + p + '-' + shareChecksum(p); };
+        const noDefense = decodeCustom(reencode(fields.slice(0, -1)), true);        // a code from before defense types: style field, no defense
+        const noStyle = decodeCustom(reencode(fields.slice(0, -2)), true);          // the oldest codes: neither
+        const unknown = decodeCustom(reencode(fields.slice(0, -1).concat([7])), true);
+        const oldSave = validateCustom(Object.assign({}, c, { defense: undefined }));
+        // the same two cases with a Sway-default style, so an ignored style (always Block) fails
+        const swayStyle = Object.assign({}, c, { moveStyle: 'boxer', defense: 'block' });
+        const swayFields = JSON.parse(fromBase64Url(encodeCustom(swayStyle).split('-')[1]));
+        const noDefenseSway = decodeCustom(reencode(swayFields.slice(0, -1)), true);
+        const oldSaveSway = validateCustom(Object.assign({}, swayStyle, { defense: undefined }));
+        const badSave = validateCustom(Object.assign({}, c, { defense: 'ninja' }));
+        CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null);
+        CustomRoster.put(2, c); CustomRoster.init();
+        const reloaded = CustomRoster.slots[2] && CustomRoster.slots[2].defense === 'sway';
+        const profile = ROSTER_BY_ID.c3, fighter = profile && new Fighter(profile, 0);
+        const clone = cloneCustom(c).defense === 'sway';
+        const ok = blockBack.ok && blockBack.value.defense === 'block' && swayBack.ok && swayBack.value.defense === 'sway' &&
+          noDefense.ok && noDefense.value.defense === 'block' && noStyle.ok && noStyle.value.defense === defaultDefense(ARCHETYPE_MOVE_STYLE[c.arch]) &&
+          unknown.ok && unknown.value.defense === 'block' && oldSave.ok && oldSave.value.defense === 'block' && badSave.ok && badSave.value.defense === 'block' &&
+          noDefenseSway.ok && noDefenseSway.value.defense === 'sway' && oldSaveSway.ok && oldSaveSway.value.defense === 'sway' &&
+          reloaded && fighter && fighter.defense === 'sway' && clone && encodeCustom(c).length <= SHARE_MAX_LENGTH;
+        return ok ? true : JSON.stringify({ blockBack: blockBack.value && blockBack.value.defense, swayBack: swayBack.value && swayBack.value.defense, noDefense: noDefense.value && noDefense.value.defense, noStyle: noStyle.value && noStyle.value.defense, unknown: unknown.value && unknown.value.defense, oldSave: oldSave.value && oldSave.value.defense, badSave: badSave.value && badSave.value.defense, reloaded, clone });
+      } finally { restoreCustoms(saved); }
+    });
+    test('AI and Training dummy use the fighter\'s defense type: a Sway fighter sways and never raises a guard', () => {
+      const log = self.capture(['sway']);
+      const m = mk({ seed: 7 });
+      m.controllers[0] = new AIController(m.fighters[0].profile, 'expert'); m.controllers[1] = new AIController(m.fighters[1].profile, 'expert');   // the quickest readers: a Sway AI only dodges what it sees coming in time
+      let guarded = false;
+      for (let i = 0; i < 1800; i++) { m.step(); const s = m.fighters[1].state; if (s === S.BLOCK_H || s === S.BLOCK_L) guarded = true; }
+      log.stop(); m.dispose();
+      const aiSways = log.sway.filter((e) => e.f.index === 1).length;
+      const dummyLog = self.capture(['hit', 'block']);
+      const m2 = mk({ mode: 'training', dummy: 'block' }, once(2, 'punch')); m2.controllers[1] = new DummyController(ROSTER_BY_ID.mara, 'block'); self.place(m2, 1.2); self.run(m2, 60); dummyLog.stop(); m2.dispose();
+      const dummyDodged = dummyLog.hit.length === 0 && dummyLog.block.length === 1 && dummyLog.block[0].sway === true;
+      return aiSways >= 1 && !guarded && dummyDodged ? true : JSON.stringify({ aiSways, guarded, dummyHits: dummyLog.hit.length, dummyBlocks: dummyLog.block.length });
+    });
+    test('Balance sample: Block and Sway fighters of equal stats each win some AI matches', () => {
+      const split = self.defenseSplit(4, { difficulty: 'normal', winsNeeded: 1, timer: 40 });   // the full 45-55 % check is BREAKPOINT.simulate over 20+ seeds (see the tasklist)
+      return !split.error && split.block >= 1 && split.sway >= 1 ? true : JSON.stringify(split);
     });
     test('Motion: kicks land in front of the body at the reference heights', () => {
       const problems = [];

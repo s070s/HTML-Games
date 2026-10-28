@@ -115,13 +115,14 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 3 - Core combat rework
 
-- [ ] P3-01 - Defense choice per character: each character has exactly one defense type, Block or Sway (an invincibility-frame dodge in the style of God Hand). Never both. Stored in preset data and in the creator (Style tab).
+- [x] P3-01 - Defense choice per character: each character has exactly one defense type, Block or Sway (an invincibility-frame dodge in the style of God Hand). Never both. Stored in preset data and in the creator (Style tab).
   Done when: the `defend` action performs only the character's defense type, AI uses the correct type, and the share code includes the defense type.
 - [ ] P3-02 - Define Block rules (high / low coverage without a second button, perfect block, stamina cost, chip damage, guard break) and Sway rules (i-frame window, recovery, stamina cost, punish window, counter-attack follow-up).
   Done when: rules and values are in Appendix C and implemented; P0-06 runner shows neither type wins more than the balance target set in P14-01.
+  Status (2026-10-28): rules implemented; balance open. Block vs Sway AI wins (same fighter, 60 matches each): Easy 55/45, Normal 42/58, Hard 73/27, Expert 95/5. Hard and Expert miss the 45-55% target: Block's parry rate grows with difficulty faster than the Sway AI's dodges. Tune in P3-08 / P3-10, then tick.
 - [ ] P3-03 - Grab attacks: in a grab, Punch = elbow strike, Kick = knee strike. Distinct animations per style family where the style supports it.
   Done when: both strikes work from the grab on touch, gamepad and keyboard, with hit reactions and a strike limit per grab.
-- [ ] P3-04 - DECIDE: submissions design with minimal inputs (proposal: start from a grab or a downed opponent with one existing input; escape by a short directional or mash contest that works on touch). Include which styles can submit.
+- [x] P3-04 - DECIDE: submissions design with minimal inputs (proposal: start from a grab or a downed opponent with one existing input; escape by a short directional or mash contest that works on touch). Include which styles can submit.
   Done when: Appendix C has the design, inputs on all three control types, and rules for multi-opponent situations (other enemies can interrupt).
 - [ ] P3-05 - Implement submissions per P3-04: states, animations, escape contest, damage / stamina effect, AI use and AI escape.
   Done when: submissions work in 1v1 and in multi-opponent levels and the self-test covers start, escape and finish.
