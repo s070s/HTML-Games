@@ -77,13 +77,13 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: the table is in Appendix B.
 - [x] P1-03 - DECIDE: select the "best ideas not already implemented". Rule: accept only mechanics with Modern Urban fit = yes and mobile complexity low or medium, or that replace an existing mechanic without adding inputs.
   Done when: Appendix C lists accepted and rejected mechanics with one reason each, and each accepted one is mapped to a task in this file (add tasks if missing).
-- [ ] P1-04 - RESEARCH + DECIDE: list of real martial arts to cover "all martial arts styles" (striking, kicking, grappling, throwing, joint locks, weapon-based urban styles, hybrid / MMA, street fighting). Group into families that share animation where it makes sense (example from the ideas file: kickboxing punches and boxing punches).
+- [x] P1-04 - RESEARCH + DECIDE: list of real martial arts to cover "all martial arts styles" (striking, kicking, grappling, throwing, joint locks, weapon-based urban styles, hybrid / MMA, street fighting). Group into families that share animation where it makes sense (example from the ideas file: kickboxing punches and boxing punches).
   Done when: Appendix C has the final style list, each with family, signature traits, defense type default (block or sway, see P3-01) and which existing move style it replaces or extends.
 - [ ] P1-05 - DECIDE: content counts - styles, preset fighters, levels / arenas, weapons, hazards, customization items per slot, countries, origins, goals, Tournament entrant counts (8 / 16).
   Done when: the counts are recorded in Appendix C with an estimated file size cost per item type.
 - [ ] P1-06 - DECIDE: list of new preset fighters (one or more per style), each with name, style, country, origin, goal, body (height, fitness triangle point, age, gender) and role.
   Done when: Appendix C contains the full roster table.
-- [ ] P1-07 - Theme audit of existing content (names, arenas, creator options such as "Accent glow", effects, colors) against Modern Urban.
+- [x] P1-07 - Theme audit of existing content (names, arenas, creator options such as "Accent glow", effects, colors) against Modern Urban.
   Done when: each violation has a removal or rework task added to Phase 7, 8 or 9.
 - [x] P1-08 - RESEARCH: Tournament format in Dragon Ball Budokai and Budokai Tenkaichi series (bracket size, eliminations, ring-out rules, rewards, multiplayer support).
   Done when: Appendix B has the verified rules with sources; unknown items marked "unknown".
@@ -888,6 +888,116 @@ New tasks proposed:
 - P2-09 (added to its phase) - Optional auto-assist input setting (off by default): repeated taps on Punch or Kick chain the fighter's next valid string move automatically; no new input, no new on-screen button. / Done when: the setting exists in Settings and is saved; with it on, tapping Punch 3 times plays the style's 3-hit string on touch, gamepad and keyboard; with it off, behavior is unchanged; a self-test covers both.
 - P3-09 (added to its phase) - Automatic momentum boost: a gauge filled by landing hits, perfect blocks / sways and taking hits, giving a short stronger-damage state when full; same rules for AI; no extra input; shown on the fighter (pose / breathing, no glow, no sci-fi look) plus one thin bar. / Done when: rules and values are in Appendix C; the boost triggers and ends as defined in the P0-06 headless runner; with it on, no style pair's win rate leaves the P14-01 target.
 - P10-07 (added to its phase) - Fight results grade: a letter or star grade from time, damage taken and move variety, shown on the results screen; no input; best grade per mode saved in Progress. / Done when: the grade comes from one pure function, is shown on RESULTS, is saved and migrates from the 1.0.0 Progress, and a self-test checks three sample fights.
+
+### P1-04 - Martial arts styles (2026-10-28)
+
+- The 7 existing style ids stay (old saves and share codes keep working); 9 styles are added. Block / Sway defaults are design choices, balanced later in P3-02 and P14-04. Savate and Silat are the first candidates if more styles are wanted.
+
+#### P1-04 style list (decision)
+
+Decision: 16 styles in 7 families. The 7 existing move styles are all kept (same ids, so old saves keep working) and 9 are new. Defense type below is only the DEFAULT for a new character of that style; the creator may change it (P3-01), a character still has exactly one.
+
+| Style | Family | Signature traits (own words) | Default defense + reason | Replaces / extends existing | Shared animations with |
+|---|---|---|---|---|---|
+| Boxing (boxer) | Hand striking | Hands-only; tight high guard and tucked chin; jab-cross-hook-uppercut strings; bounce on the balls of the feet; head movement (slip, bob, weave) instead of kicks | Sway - real boxers defend mostly by slipping and bobbing | Extends `boxer` (keep id) | Western punch set shared with Kickboxing, Muay Thai, MMA, Street Brawler, Krav Maga |
+| Wing Chun | Hand striking | Narrow, high stance with elbows in; guards the centre line; fast chain punches; traps and pins the opponent's arms at very short range; low, quick kicks only | Block - parry-and-strike deflection is its core defense | NEW | Chain punch is its own; shares straight-punch base with Boxing; traps shared with Kali (live hand) and Hapkido |
+| Kickboxing (kickboxer) | Clinch kickboxing | Upright long guard; boxing punches blended with karate-style and Thai-style kicks; rhythmic lead-leg bounce; body knees and short clinches | Block - raised guard and shin cover both punches and kicks | Extends `kickboxer` (keep id, stays the default style) | Punches from Boxing; round kick from Karate/Muay Thai; knee strike from Muay Thai |
+| Muay Thai | Clinch kickboxing | "Eight limbs": fists, elbows, knees, shins; neck clinch with knee strikes; push-kick (teep) to hold distance; round kick with the shin; blocks round kicks by lifting the shin | Block - shin check and forearm cover are its signature defense | NEW | Punches from Boxing; clinch/knee/elbow set shared with Kickboxing, MMA, Krav Maga; grab knee/elbow (P3-03) is its showcase |
+| Karate (karateka) | Kicking arts | Long, low, still stances; sharp straight punches (reverse punch); crisp front, round and side kicks; hard blocks (uke) then counter; full-contact Kyokushin flavour | Block - hard blocking is the defining karate defense | Extends `karateka` (keep id) | Linear kick set shared with Taekwondo; blocks shared with Kickboxing |
+| Taekwondo | Kicking arts | Kicks are the main weapon, hands support; head-height kicks; fast jumping and spinning kicks; light bouncing footwork and distance control | Sway - it avoids by distance and angle rather than blocking | NEW | Linear kicks shared with Karate; spinning/jump kicks shared with Capoeira (variant pivot) |
+| Capoeira | Kicking arts | Constant rocking step (ginga); dodges low and to the side (esquiva); low spinning kicks; handstands, cartwheels and inverted moves; almost no hand strikes | Sway - evasion is the whole art | Extends `capoeira` (keep id) | Round kick base shared with Taekwondo; low sweep with Judo/Wrestling takedown family only as a trip |
+| Wrestling (wrestler) | Throws and takedowns | Low level, wide base, hands up hunting for ties; single/double-leg takedowns and body-lift throws; pins and top control; no strikes in the sport | Block - hand fighting and sprawling absorb and stop attacks | Extends `wrestler` (keep id) | Takedown and lift set shared with Judo, Sambo, MMA; ground control shared with BJJ |
+| Judo (judoka) | Throws and takedowns | Upright relaxed stance; grip fighting on collar and sleeve; off-balance then throw (hip, shoulder, foot sweep, sacrifice); hold-downs, chokes and arm locks on the ground | Sway - judo uses body shifting to dodge and set up counter throws | Extends `judoka` (keep id) | Throw set shared with Wrestling, Sambo, Hapkido (judo-derived); newaza shared with BJJ |
+| Sambo | Throws and takedowns | Soviet military/police origin; wrestling-judo mix in a jacket; throws then ground control; leg locks and heel hooks; combat version adds strikes | Block - tough, forward, stand-your-ground military style | NEW | Throws from Judo/Wrestling; leg locks shared with BJJ; combat strikes from Boxing/Kickboxing |
+| Brazilian Jiu-Jitsu | Locks and submissions | Fights well from the back (guard); sweeps to reverse position; pins (side control, mount, back); chokes and joint locks to make the opponent tap; pulls guard instead of throwing | Sway - guard retention and hip movement slip pressure rather than blocking | NEW | Submission set shared with Hapkido (arm/wrist locks) and Sambo (leg locks); ground states shared with Wrestling, Judo, MMA |
+| Hapkido | Locks and submissions | Korean self-defense mix; wrist and elbow locks; judo-style throws; low sweeping and spinning heel kicks; circular movement redirects force; cane as a training weapon | Sway - circular evasion and redirection | NEW | Wrist/elbow locks with BJJ and Krav Maga; throws with Judo; kicks with Taekwondo |
+| Kali / Eskrima | Weapon styles | Philippine art built on the rattan stick (baston); numbered angles of attack; fast double-stick weaving (sinawali) and flow drills; the empty "live hand" traps, locks and disarms; same movement with empty hands and improvised tools | Sway - uses footwork and body angle to take the body off the line of the strike | NEW | Stick moves = weapon move set (P7); live-hand traps shared with Wing Chun; disarms shared with Krav Maga |
+| Krav Maga | Hybrid and street | Israeli military self-defense; blocks and counter-strikes in one motion; very aggressive finish once a fight starts; hits vulnerable targets (eyes, throat, groin, knees); defends against weapons; uses nearby objects as weapons | Block - "defend and strike at once" is its core idea | NEW | Punch set (Boxing), knee/elbow (Muay Thai), disarms (Kali), wrist locks (Hapkido), object use (P7) |
+| MMA | Hybrid and street | Cage sport mixing striking and grappling; uses takedowns, clinch work, submissions; ground-and-pound (strikes on a downed foe); fighter switches between ranges | Block - a high guard plus sprawl suits the all-range mixed game | NEW | Punch set (Boxing), kicks (Kickboxing), takedowns (Wrestling), submissions (BJJ); mostly reuses, few unique moves |
+| Street Brawler (brawler) | Hybrid and street | Unsanctioned, unschooled fighting: loose square stance, heavy looping swings, shoves, headbutt-style closing, wild and slow to recover; no formal technique | Block - instinctive covering up and taking hits | Extends `brawler` (keep id) | Looser version of the Boxing punch set; shove/grapple from Wrestling |
+
+Old-save mapping (P5-03): boxer -> Boxing, kickboxer -> Kickboxing, karateka -> Karate, wrestler -> Wrestling, judoka -> Judo, brawler -> Street Brawler, capoeira -> Capoeira. Creator archetypes keep their current default style (balanced=kickboxer, striker=boxer, kicker=karateka, brawler=brawler, grappler=wrestler, counter=judoka, speedster=capoeira).
+
+Default defense counts: Sway 7 (Boxing, Taekwondo, Capoeira, Judo, BJJ, Hapkido, Kali), Block 9 (the rest). Both types are well represented for the P3-02 balance test.
+
+#### Families
+
+| Family | Styles | Shared animation set |
+|---|---|---|
+| Hand striking | Boxing, Wing Chun | Punch set: jab, cross, hook, uppercut (Boxing); Wing Chun adds chain punch, trap, pin. This punch set is also reused by Kickboxing, Muay Thai, MMA, Krav Maga, Street Brawler (Street Brawler uses a looser, slower variant) |
+| Clinch kickboxing | Kickboxing, Muay Thai | Boxing punches + round kick + knee + elbow + neck clinch; Muay Thai adds shin check and teep (push kick) |
+| Kicking arts | Karate, Taekwondo, Capoeira | Kick set: front, round, side, hook, spinning; per-style variants of chamber, pivot and height (Karate crisp and linear, Taekwondo high/jumping, Capoeira low/inverted) |
+| Throws and takedowns | Wrestling, Judo, Sambo | Grip/tie-up entry, off-balance, hip throw, shoulder throw, leg takedown, sweep, pin; Wrestling = leg shots and lifts, Judo = collar-sleeve throws and sacrifice throws, Sambo = both plus a leg lock finish |
+| Locks and submissions | Brazilian Jiu-Jitsu, Hapkido | Submission set (P3-04): arm lock, wrist lock, choke, leg lock; ground states (guard, mount, side control, back); BJJ = ground-first, Hapkido = standing wrist/elbow locks and throw-lock combinations |
+| Weapon styles | Kali / Eskrima | Stick set: numbered angle strikes (forehand/backhand diagonals, thrusts), block-and-strike, double-stick weave if two sticks are held, disarm; same footwork empty-handed |
+| Hybrid and street | Krav Maga, MMA, Street Brawler | Mostly reuses other families: punch set, knee/elbow, takedown, ground strike (ground-and-pound), improvised-object strike; few unique animations (Krav Maga defend-and-strike, MMA sprawl) |
+
+Family count: 7. Each style belongs to exactly one family (its primary one); the "Shared animations with" column in the style table lists the cross-family reuse.
+
+#### Sources
+- Boxing: https://en.wikipedia.org/wiki/Boxing
+- Muay Thai: https://en.wikipedia.org/wiki/Muay_Thai
+- Kickboxing: https://en.wikipedia.org/wiki/Kickboxing
+- Karate: https://en.wikipedia.org/wiki/Karate
+- Taekwondo: https://en.wikipedia.org/wiki/Taekwondo
+- Wing Chun: https://en.wikipedia.org/wiki/Wing_Chun
+- Wrestling: https://en.wikipedia.org/wiki/Freestyle_wrestling
+- Judo: https://en.wikipedia.org/wiki/Judo ; https://www.ijf.org/history (International Judo Federation)
+- Brazilian Jiu-Jitsu: https://en.wikipedia.org/wiki/Brazilian_jiu-jitsu
+- Sambo: https://en.wikipedia.org/wiki/Sambo_(martial_art)
+- Hapkido: https://en.wikipedia.org/wiki/Hapkido
+- Kali / Eskrima: https://en.wikipedia.org/wiki/Eskrima
+- Krav Maga: https://en.wikipedia.org/wiki/Krav_Maga
+- Capoeira: https://en.wikipedia.org/wiki/Capoeira
+- MMA: https://en.wikipedia.org/wiki/Mixed_martial_arts
+- Street Brawler: https://en.wikipedia.org/wiki/Street_fighting (general definition only; techniques are the game's own caricature)
+- Rejected styles checked: https://en.wikipedia.org/wiki/Savate ; https://en.wikipedia.org/wiki/Pencak_silat ; https://en.wikipedia.org/wiki/Jeet_Kune_Do
+- Not confirmed by the pages fetched (written from general knowledge, flagged): Wrestling single/double-leg shots and sprawl; Wing Chun is only partly "hand striking" because trapping is grappling-like; defense defaults are design judgments, not facts about the arts.
+
+#### Notes
+- Savate (French boot kicking + boxing): rejected, overlaps Kickboxing (boxing punches plus kicks); could become a Kickboxing variant later.
+- Pencak Silat (Indonesian strikes, sweeps, locks, weapons): rejected for count; its sweeps/locks are covered by Hapkido and Capoeira, its blades fail the "urban, non-lethal" weapon limit.
+- Jeet Kune Do: rejected as a separate style; it is a concept (Wing Chun + boxing + fencing), covered by MMA/Wing Chun/Boxing.
+- Aikido: rejected, overlaps Hapkido (joint locks and redirection) and has no sport or competitive use.
+- Sumo: rejected, heavy-push tackle belongs to P3-06 and the Wrestling family, not a street style.
+- Greco-Roman / catch / folk wrestling, Kyokushin / Shotokan / Kenpo, Taekkyon, Lethwei, Dutch kickboxing: merged into Wrestling, Karate, Taekwondo, Muay Thai, Kickboxing respectively (same technique family).
+- Kendo, swords, nunchaku, knives, firearms: rejected, not Modern Urban fit or lethal weapon training (consistent with P1-03 rejection of carried-item management).
+- Bartitsu (cane/umbrella), police baton systems: rejected as separate styles; Kali already teaches stick, Krav Maga improvised objects (bottle, chair) and defense against weapons, so they cover the P7 improvised-weapon moves.
+- Bokator, Pankration, Systema, Tai Chi, Baguazhang, Kyudo: rejected; low recognition or low fit for fast mobile fights.
+- Weapons rule: only Kali carries a stick as its own style item; Krav Maga and Street Brawler use improvised objects through the shared `use` pickup (P7), not their own weapon animations.
+- Budget note: the 9 new styles are mostly data rows reusing shared set animations (about 4 genuinely new animation groups: Wing Chun traps, Taekwondo/Capoeira jump-spin variants, BJJ ground set, Kali stick set); this keeps file size low per the global rule.
+
+### P1-07 - Theme audit of existing content (2026-10-28)
+
+- Every item below is reworked by the task in its last column (P9-04 theme fixes, P8-02 arena rework). Share codes store the glow option and titles by position: rename or retire entries without changing array order or length.
+
+#### P1-07 theme audit
+
+Audited breakpoint.html 1.0.0. Rule: "Modern Urban. No sci-fi, fantasy, magic or supernatural elements."
+Severity: V = violation, B = borderline (decision needed, default fix given).
+
+| Item | Where (symbol) | Why it conflicts | Fix | Task |
+|---|---|---|---|---|
+| V. Creator option "Accent glow" (off/on) | LOOK_CHOICES.glow (line ~4416); Fighter.accentGlow (~3226); creator UI row `choiceRow('glow')` (~7952); randomizer `look.glow` (~4623); SHARE_LOOK_KEYS (~4647, index 11 of share code); resolveLook `glow` (~4492); default look `glow:'off'` (~4549); self-test uses `glow:'on'` (~9436) | Makes clothing emit light: glowing belt/sash/headband/mask reads as energy aura / sci-fi cyber-suit, not street clothing. | Remove the option and the `accentGlow` emission. Keep the share-code slot so old BP1 codes still decode: keep index 11 as a reserved field that is read and ignored (append-only rule), or bump SHARE_VERSION. Randomizer: drop the 25% glow roll. Update tests (~9436) and the "Auto-harmony/accent" help text. | P9-04 |
+| V. Emissive clothing parts | Fighter.draw: belt `part(... col.accent, glow ...)` (~3891), sash (~3893); drawHead headband (~3941), half mask (~3949), full mask `Math.max(0.25, this.accentGlow)` (~3927) | The `em` argument makes these parts self-lit even with glow off (full mask always emits 0.25). Light-emitting fabric is non-real-world. | Pass em = 0 for all clothing parts (matte/cloth roughness only). Do together with the glow option removal. | P9-04 |
+| V. Title "The Phoenix" | TITLES[6] (~4446) | Mythical fantasy creature (rebirth, fire). Selectable in creator and used by random fighters (title index in share code). | Replace with a street/gym nickname, e.g. "The Veteran". Keep array length and order (share-code stores the index). | P9-04 |
+| V. Title "The Specter" | TITLES[15] | Supernatural (ghost). | Replace, e.g. "The Closer". Keep index. | P9-04 |
+| V. Roster title "The Ghost" (YUKI) | ROSTER[yuki].title (~2726) | Supernatural title. Not a share-code item, safe to rename. | Rename to a skill-based nickname, e.g. "The Slipper" or "The Counter". | P9-04 |
+| B. Title "The Titan" | TITLES[12] | Greek-myth giant; mild. | Replace with "The Bruiser" (or keep if owner accepts mythic nicknames). | P9-04 |
+| B. Titles "The Storm", "The Cyclone", "The Comet" | TITLES[3], [8], [11] | Weather/space metaphors; common real boxing nicknames, no supernatural meaning. | Keep. Only change if the owner wants strictly mundane nicknames. | P9-04 |
+| V. Sci-fi / cosmic / mythic name ideas | NAME_IDEAS: NOVA, XENON, VOLT, UMBRA, HALO, ORION, ZEPHYR (~4448) | Sci-fi/cosmic/video-game-hero tone (xenon, nova, halo, umbra) or wind-god/constellation names. Offered as creator suggestions and used by the random-fighter generator. | Replace with real first names / street nicknames, e.g. DIEGO, TANK, RIZ, MOE, BISHOP, CRUZ, DEACON. Keep list length (index not stored, name is stored as text, safe). | P9-04 |
+| B. Name ideas JUNO, IRIS, EMBER, ECHO, ONYX, RAVEN | NAME_IDEAS | Real given names (Iris, Juno) or plain nicknames; EMBER/ECHO/ONYX/RAVEN lean fantasy-gamer. | Replace EMBER, ECHO, ONYX, RAVEN with real names in the same pass; JUNO and IRIS may stay. | P9-04 |
+| B. Block / clinch / escape rings | Effects 'block', 'clinch', 'escape' handlers -> `FX.ring` (~6057, 6065, 6067); FX.ring (~2603) | An additive expanding cyan/gold ring on a block reads as an energy shield / force-field pulse, not an impact. Perfect block adds a gold flash. | Replace the ring with a short white impact flash plus a few grey/white sparks and dust at the contact point; for perfect block use a brighter white flash, no ring. Cyan (#9ee7ff) -> white. | P9-04 |
+| B. Strike trails | Fighter limb trail `FX.trail(... '#bfe8ff' / '#ffd27a')` (~3632); FX.trail (~2604) | Glowing cyan/gold light streak following fists and feet looks like ki/energy slashes. | Make the trail a faint white/grey motion smear (low alpha, non-additive, shorter), or remove it on light attacks and keep only on heavy attacks. | P9-04 |
+| B. Cyan block sparks | Effects 'block' `FX.sparks(... '#9ee7ff')` (~6056) | Blue-cyan sparks suggest electricity/energy; ordinary impact sparks are white/orange. | White sparks (orange-gold already used for guard break is fine). | P9-04 |
+| B. ZERO final boss look | ROSTER[zero] (~2734); `hairStyle:'mask'` (legacy full mask), skin #3a3340 (grey-violet), gold #d4af37 accents, all-black outfit | Dark violet-grey skin tone with an always-glowing gold full-face mask can read as a robot/villain/masked-supernatural boss. Name ZERO itself is fine (a fighter alias). | Keep the masked-luchador idea but give a normal skin tone from SKIN_SWATCHES, matte cloth mask (no emission, see item 2), black/gold gym wear. Do not add cyborg/robot lore in Phase 10 story. | P9-04 |
+| B. Fluorescent swatches | OUTFIT_SWATCHES: #34dcff cyan, #6dff9c mint, #ff5c93 hot pink, #7d4fd6 violet (~4388); HAIR_SWATCHES #2f6fdd blue, #2fbf71 green (~4387) | Real sportswear and dyed hair come in these colours, so they are not violations alone. They only become sci-fi when combined with glow. | Keep. (Optionally rename none; swatches have no names.) | P9-04 |
+| B. Menu/HUD UI palette | CSS :root `--a1:#34dcff; --a2:#ff5c93; --ok:#6dff9c` and panel look (~line 17) | Cyan/magenta neon-on-dark UI chrome has a cyber/synthwave feel. Not game content, but the rule says visuals. | Keep for now; owner decision. If tightened: move to a street-poster palette (white/black/red/yellow) in Phase 13/16. | P9-04 |
+| B. Dojo arena | ARENAS.dojo (~1982): shoji paper screens, paper lanterns (orange emissive spheres) | Real-world gym/dojo, not fantasy. Only the "traditional temple" feel could drift toward fantasy Japan if extended. | Keep. In P8-02 rework make it a modern martial-arts gym/dojo (mirrors, mats, lockers, fluorescent lights) so it reads Modern Urban. | Phase 8 |
+| B. Pit arena crowd and fire barrels | buildProps 'pit' (~2047): silhouette crowd, barrels with flickering orange spheres | Underground fight-club crowd and burn barrels are real urban. Only watch that the lighting stays warm/orange. | Keep. | Phase 8 |
+
+#### Clean
+- Checked and fine: move names (defAttack, CLINCH_MOVES, THROW_SETS), MOVE_STYLE labels and descriptions, VICTORY_POSES (hips, arms, fist, bow, flex, ginga), ARCHETYPES labels/descriptions, other roster names (KAI, MARA "The Viper", BRUTUS "The Wall", DMITRI "The Grappler", KAI "The Balanced"), hair/beard/headband/top/legs/hands/belt/footwear creator options, warehouse arena, MATERIALS and debris, MODE_INFO and menu texts, hit sparks/flash/dust/KO flash (read as impact), sound and music (plain Web Audio synth, scale names only: minor/pentatonic/phrygian, no sci-fi cues), HUD texts and stats, fighter states.
 
 ## Appendix D - Audit findings
 
