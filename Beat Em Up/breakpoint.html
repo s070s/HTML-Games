@@ -3351,7 +3351,7 @@ const GRIP_POSES = {
 /* Clinch strikes (P3-03): Punch = elbow, Kick = knee, posed per style family on top of the grip pose (p); u = 1 at the blow, 0 when it is over.
    Visual only: damage, timing and the strike limit stay in CLINCH_MOVES / Combat.clinchStrike. Right arm and right leg strike, the left hand holds. */
 const CLINCH_STRIKE_POSES = {
-  default: {   // karateka, capoeira and any new style: the original knee, and a plain shoulder-height elbow
+  default: {   // karateka, capoeira, taekwondo, kali: the original knee, and a plain shoulder-height elbow
     knee(p, u) { p[J.hipRx] = 1.2 * u; p[J.knR] = 1.4 * u + 0.3; p[J.torsoLean] = 0.4; },
     elbow(p, u) { p[J.shRx] = 1.0; p[J.shRz] = 0.9 * u; p[J.elR] = 0.4 + 1.8 * u; p[J.torsoTwist] = 0.5 * u; p[J.torsoLean] = 0.35; },
   },
@@ -3372,9 +3372,9 @@ const CLINCH_STRIKE_POSES = {
     elbow(p, u) { p[J.shLx] = p[J.shRx] = 1.2; p[J.elL] = p[J.elR] = 1.0; p[J.headX] = 0.9 * u; p[J.torsoLean] = 0.3 + 0.35 * u; p[J.rootFwd] = 0.15 * u; },
   },
 };
-const CLINCH_STRIKE_FAMILY = { kickboxer: 'thai', boxer: 'boxer', wrestler: 'collar', judoka: 'collar', brawler: 'brawler' };   // other styles use 'default'
 const CLINCH_STRIKE_ANIM_TICKS = 12;   // how long the strike pose lasts (it fades out from u = 1)
-function clinchStrikePose(styleId, strikeId, p, u) { (CLINCH_STRIKE_POSES[CLINCH_STRIKE_FAMILY[styleId]] || CLINCH_STRIKE_POSES.default)[strikeId === 'elbow' ? 'elbow' : 'knee'](p, u); }
+/* The pose set a style plays is the grab field of its MOVE_STYLE row (an unknown style or set falls back to 'default'). */
+function clinchStrikePose(styleId, strikeId, p, u) { const row = MOVE_STYLE[styleId]; (CLINCH_STRIKE_POSES[row && row.grab] || CLINCH_STRIKE_POSES.default)[strikeId === 'elbow' ? 'elbow' : 'knee'](p, u); }
 /* Attack strings (P2-01 Appendix C; P3-10 audits every row). A Punch (P) or Kick (K) press plays the next step of the
    string typed so far, at most 3 steps. Rows are keyed by the presses; step n is the move of press n. Standing rows are
    the default; the crouch rows apply while Crouch was held at every press of the string. Every strong (tier 3) move
@@ -3393,7 +3393,8 @@ const STRINGS = {
 };
 const STRING_MAX_STEPS = 3;
 /* Per-style string overrides (P3-10), same shape as STRINGS: a row replaces the default row of that name, null removes it. A removed row
-   means that press starts a new string (step 1) instead. Styles that are not listed (kickboxer, brawler) play the default rows.
+   means that press starts a new string (step 1) instead. A style plays the table its MOVE_STYLE row names in moves (several styles may share one);
+   a style with moves: null plays the default rows.
    Every override keeps the owner's rules: strong moves only as string steps, a Punch press plays a punch and a Kick press a kick. */
 const STYLE_STRINGS = {
   boxer: {   // punch-heavy: the P K P string ends on the power jab (it moves from K K P), the heavy roundhouse is gone
@@ -3418,7 +3419,7 @@ const STYLE_STRING_TABLES = {};
 /* The tables a fighter of this move style plays: the default rows with the style's overrides applied (built once per style). */
 function stringsFor(styleId) {
   if (STYLE_STRING_TABLES[styleId]) return STYLE_STRING_TABLES[styleId];
-  const over = STYLE_STRINGS[styleId] || {};
+  const row = MOVE_STYLE[styleId], over = STYLE_STRINGS[row ? row.moves : styleId] || {};
   const table = { stand: Object.assign({}, STRINGS.stand, over.stand), crouch: Object.assign({}, STRINGS.crouch, over.crouch) };
   for (const side of ['stand', 'crouch']) for (const keys in table[side]) if (table[side][keys] === null) delete table[side][keys];
   return (STYLE_STRING_TABLES[styleId] = table);
@@ -3575,7 +3576,8 @@ function frameAdvantage(mv, applied) {
    05a2 MOTION - move styles and per-fighter motion profiles. VISUAL ONLY.
    How a fighter moves = MOVE_STYLE (discipline) + attributes + body size + a small seeded individuality.
    The motion profile never changes the simulation: frame data, reach, hitboxes and timing stay in ATTACKS / THROW_SETS. The move style
-   itself does reach it in three places: the defense type (STYLE_DEFENSE), submission holds (SUBMISSION_STYLES) and attack strings (STYLE_STRINGS).
+   itself does reach it in these places (all read from the style's row, P5-01): the defense type (defense), submission holds (submit, SUBMISSION_STYLES),
+   attack strings (moves, STYLE_STRINGS) and the clinch strike poses (grab).
    ===================================================================== */
 
 /* Style parameters (radians / metres / multipliers):
@@ -3587,45 +3589,145 @@ function frameAdvantage(mv, applied) {
    kickChamber knee chamber before extension (0 = swinging leg, 1 = full chamber); kickPivot = support-foot turn on
                round kicks; kickLean = upper body leaning away from the kick; kickSnap = return speed.
    stride      step length; armSwing = arm swing while walking; walkBounce = vertical bob while walking.
-   react       size of hit reactions; victory = victory pose. */
+   react       size of hit reactions; victory = victory pose.
+   Style data model (P5-01, one row per style; the first 7 rows are the old ids and must stay first, new rows are appended: share codes store the index):
+   stance      the guard* fields; footwork = the bounce / sway / headBob / stride / armSwing / walkBounce fields (STYLE_STANCE_KEYS, STYLE_FOOTWORK_KEYS).
+   family      key of STYLE_FAMILY_LABEL (the P1-04 family).
+   moves       key of STYLE_STRINGS (the attack-string table the style plays), or null for the default rows.
+   grab        key of CLINCH_STRIKE_POSES (knee / elbow poses in a clinch).
+   throws      key of THROW_SETS the style favours (its showcase grip; every style can still use all three grips until P5-02).
+   signature   [name, uses] pairs shown in the Move list: uses = an ATTACKS id, 'knee' / 'elbow' (clinch strikes), 'throw:<grip>.<dir>' or 'hold'.
+               They point at existing moves for now; P5-02 animates them in the style's own way.
+   submit      names of the holds the style can put on a downed foe ([] = none; SUBMISSION_STYLES is every style with a hold).
+   defense     the default defense type of a new fighter of this style ('block' or 'sway', P3-01). */
 const MOVE_STYLE = {
-  boxer: { label: 'Boxer', desc: 'Hands high, chin tucked, bouncing on the balls of the feet, quick slips and snapping punches.',
+  boxer: { label: 'Boxing', desc: 'Hands high, chin tucked, bouncing on the balls of the feet, quick slips and snapping punches.',
+    family: 'hand', moves: 'boxer', grab: 'boxer', throws: 'front', defense: 'sway', submit: [],
+    signature: [['Jab', 'jab'], ['Cross', 'cross'], ['Hook', 'hook'], ['Uppercut', 'uppercut']],
     guardHands: 0.22, guardTight: 0.18, guardTwist: -0.08, guardLean: 0.06, guardCrouch: 0.14, guardWidth: -0.02, guardSplit: -0.04, guardTuck: 0.16,
     bounce: 0.024, bounceHz: 2.3, sway: 0.012, swayHz: 1.15, headBob: 0.09,
     punchHip: 1.25, punchPivot: 0.2, punchLean: 0.06, punchSnap: 1.35, kickChamber: 0.45, kickPivot: 0.3, kickLean: 0.08, kickSnap: 1.0,
     stride: 0.82, armSwing: 0.04, walkBounce: 0.022, react: 0.9, victory: 'fist' },
-  kickboxer: { label: 'Kickboxer', desc: 'Upright, long guard, rhythmic lead-leg bounce; kicks turn the hip over and snap back.',
+  kickboxer: { label: 'Kickboxing', desc: 'Upright, long guard, rhythmic lead-leg bounce; kicks turn the hip over and snap back.',
+    family: 'clinch', moves: null, grab: 'thai', throws: 'front', defense: 'block', submit: [],
+    signature: [['Jab', 'jab'], ['Round Kick', 'roundhouse'], ['Body Knee', 'knee']],
     guardHands: 0.14, guardTight: 0.06, guardTwist: 0.02, guardLean: -0.02, guardCrouch: 0.02, guardWidth: 0.0, guardSplit: 0.04, guardTuck: 0.06,
     bounce: 0.014, bounceHz: 1.5, sway: 0.008, swayHz: 0.75, headBob: 0.03,
     punchHip: 1.1, punchPivot: 0.16, punchLean: 0.04, punchSnap: 1.15, kickChamber: 0.7, kickPivot: 0.55, kickLean: 0.22, kickSnap: 1.15,
     stride: 1.0, armSwing: 0.06, walkBounce: 0.014, react: 1.0, victory: 'arms' },
-  karateka: { label: 'Karateka', desc: 'Long, low front stance, very still between bursts; high chambered kicks and sharp straight punches.',
+  karateka: { label: 'Karate', desc: 'Long, low front stance, very still between bursts; high chambered kicks and sharp straight punches.',
+    family: 'kicking', moves: 'karateka', grab: 'default', throws: 'front', defense: 'block', submit: [],
+    signature: [['Reverse Punch', 'cross'], ['Front Kick', 'front_kick'], ['Round Kick', 'roundhouse']],
     guardHands: -0.06, guardTight: -0.12, guardTwist: -0.12, guardLean: 0.0, guardCrouch: 0.1, guardWidth: 0.04, guardSplit: 0.14, guardTuck: 0.0,
     bounce: 0.006, bounceHz: 1.0, sway: 0.004, swayHz: 0.5, headBob: 0.01,
     punchHip: 1.35, punchPivot: 0.12, punchLean: 0.02, punchSnap: 1.45, kickChamber: 1.0, kickPivot: 0.45, kickLean: 0.12, kickSnap: 1.3,
     stride: 1.1, armSwing: 0.02, walkBounce: 0.006, react: 0.85, victory: 'bow' },
-  wrestler: { label: 'Wrestler', desc: 'Low level, wide base, hands forward hunting for ties; short heavy steps, chest over the knees.',
+  wrestler: { label: 'Wrestling', desc: 'Low level, wide base, hands forward hunting for ties; short heavy steps, chest over the knees.',
+    family: 'throws', moves: 'wrestler', grab: 'collar', throws: 'low', defense: 'block', submit: ['Pin', 'Choke'],
+    signature: [['Double-Leg Takedown', 'throw:low.fwd'], ['Pull-Through Trip', 'throw:low.back'], ['Pin', 'hold']],
     guardHands: -0.22, guardTight: -0.55, guardTwist: 0.2, guardLean: 0.24, guardCrouch: 0.32, guardWidth: 0.08, guardSplit: 0.02, guardTuck: -0.08,
     bounce: 0.008, bounceHz: 0.9, sway: 0.03, swayHz: 0.8, headBob: 0.02,
     punchHip: 0.85, punchPivot: 0.1, punchLean: 0.1, punchSnap: 0.9, kickChamber: 0.35, kickPivot: 0.2, kickLean: 0.05, kickSnap: 0.85,
     stride: 0.75, armSwing: 0.02, walkBounce: 0.008, react: 0.8, victory: 'hips' },
-  judoka: { label: 'Judoka', desc: 'Upright and relaxed, hands at chest height reaching for the collar, smooth side-to-side weight shifts.',
+  judoka: { label: 'Judo', desc: 'Upright and relaxed, hands at chest height reaching for the collar, smooth side-to-side weight shifts.',
+    family: 'throws', moves: 'judoka', grab: 'collar', throws: 'front', defense: 'sway', submit: ['Hold-Down', 'Arm Lock', 'Choke'],
+    signature: [['Hip Toss', 'throw:front.fwd'], ['Side Throw', 'throw:front.left'], ['Leg Sweep', 'sweep'], ['Hold-Down', 'hold']],
     guardHands: -0.12, guardTight: -0.4, guardTwist: 0.12, guardLean: -0.04, guardCrouch: 0.0, guardWidth: -0.02, guardSplit: -0.06, guardTuck: -0.04,
     bounce: 0.004, bounceHz: 0.8, sway: 0.035, swayHz: 0.9, headBob: 0.02,
     punchHip: 0.95, punchPivot: 0.14, punchLean: 0.04, punchSnap: 1.0, kickChamber: 0.4, kickPivot: 0.3, kickLean: 0.08, kickSnap: 0.95,
     stride: 0.9, armSwing: 0.03, walkBounce: 0.006, react: 0.95, victory: 'bow' },
-  brawler: { label: 'Brawler', desc: 'Loose, square and heavy; rolling shoulders, big looping swings that are slow to come back.',
+  brawler: { label: 'Street Brawler', desc: 'Loose, square and heavy; rolling shoulders, big looping swings that are slow to come back.',
+    family: 'hybrid', moves: null, grab: 'brawler', throws: 'front', defense: 'block', submit: [],
+    signature: [['Haymaker', 'hook'], ['Shove', 'grab'], ['Head Lunge', 'elbow']],
     guardHands: -0.1, guardTight: -0.08, guardTwist: 0.16, guardLean: 0.08, guardCrouch: 0.06, guardWidth: 0.06, guardSplit: -0.06, guardTuck: 0.04,
     bounce: 0.012, bounceHz: 1.2, sway: 0.03, swayHz: 0.6, headBob: 0.05,
     punchHip: 1.4, punchPivot: 0.24, punchLean: 0.14, punchSnap: 0.8, kickChamber: 0.3, kickPivot: 0.35, kickLean: 0.06, kickSnap: 0.85,
     stride: 0.95, armSwing: 0.12, walkBounce: 0.02, react: 1.15, victory: 'flex' },
   capoeira: { label: 'Capoeira', desc: 'Constant ginga: rocking side to side, one arm guarding the face; wide whipping kicks with a big pivot.',
+    family: 'kicking', moves: 'capoeira', grab: 'default', throws: 'low', defense: 'sway', submit: [],
+    signature: [['Low Spinning Kick', 'body_kick'], ['Sweep', 'sweep'], ['Flying Kick', 'jump_kick']],
     guardHands: -0.18, guardTight: -0.3, guardTwist: 0.1, guardLean: 0.2, guardCrouch: 0.22, guardWidth: 0.1, guardSplit: -0.02, guardTuck: 0.0,
     bounce: 0.016, bounceHz: 1.1, sway: 0.075, swayHz: 0.55, headBob: 0.04,
     punchHip: 1.1, punchPivot: 0.2, punchLean: 0.06, punchSnap: 1.1, kickChamber: 0.25, kickPivot: 0.8, kickLean: 0.32, kickSnap: 1.05,
     stride: 1.05, armSwing: 0.16, walkBounce: 0.016, react: 1.05, victory: 'ginga' },
+  /* P5-01: the 9 styles added by P1-04. Stance and footwork are their own; moves, grabs and throws reuse family data until P5-02 animates them. */
+  wingchun: { label: 'Wing Chun', desc: 'Narrow, high stance with the elbows in; quick chain punches down the centre line and traps that pin an arm at close range.',
+    family: 'hand', moves: 'boxer', grab: 'boxer', throws: 'front', defense: 'block', submit: [],
+    signature: [['Chain Punch', 'jab'], ['Centre-Line Cross', 'cross'], ['Trap and Pin', 'grab'], ['Low Shin Kick', 'low_kick']],
+    guardHands: 0.08, guardTight: 0.3, guardTwist: 0.18, guardLean: -0.04, guardCrouch: -0.04, guardWidth: -0.06, guardSplit: 0.0, guardTuck: 0.1,
+    bounce: 0.006, bounceHz: 1.4, sway: 0.006, swayHz: 0.9, headBob: 0.01,
+    punchHip: 0.75, punchPivot: 0.06, punchLean: 0.0, punchSnap: 1.6, kickChamber: 0.25, kickPivot: 0.15, kickLean: 0.02, kickSnap: 1.2,
+    stride: 0.7, armSwing: 0.02, walkBounce: 0.008, react: 0.9, victory: 'bow' },
+  muaythai: { label: 'Muay Thai', desc: 'Eight limbs: fists, elbows, knees and shins. A push kick to hold the range, heavy shin kicks, and a neck clinch with knees.',
+    family: 'clinch', moves: null, grab: 'thai', throws: 'front', defense: 'block', submit: [],
+    signature: [['Teep', 'heavy_front'], ['Shin Round Kick', 'heavy_roundhouse'], ['Clinch Knee', 'knee'], ['Clinch Elbow', 'elbow']],
+    guardHands: 0.18, guardTight: 0.1, guardTwist: 0.06, guardLean: -0.06, guardCrouch: 0.0, guardWidth: 0.02, guardSplit: 0.02, guardTuck: 0.08,
+    bounce: 0.012, bounceHz: 1.3, sway: 0.01, swayHz: 0.7, headBob: 0.02,
+    punchHip: 1.2, punchPivot: 0.18, punchLean: 0.02, punchSnap: 1.0, kickChamber: 0.85, kickPivot: 0.7, kickLean: 0.3, kickSnap: 1.05,
+    stride: 0.95, armSwing: 0.05, walkBounce: 0.012, react: 0.95, victory: 'fist' },
+  taekwondo: { label: 'Taekwondo', desc: 'Kicks first and hands second: light bouncing steps, fast head-height kicks, flying and spinning kicks from a distance.',
+    family: 'kicking', moves: 'karateka', grab: 'default', throws: 'front', defense: 'sway', submit: [],
+    signature: [['Head Kick', 'roundhouse'], ['Spinning Kick', 'heavy_roundhouse'], ['Flying Kick', 'jump_kick'], ['Push Kick', 'heavy_front']],
+    guardHands: -0.16, guardTight: -0.15, guardTwist: -0.04, guardLean: -0.06, guardCrouch: 0.04, guardWidth: 0.02, guardSplit: 0.06, guardTuck: 0.02,
+    bounce: 0.02, bounceHz: 2.0, sway: 0.016, swayHz: 1.0, headBob: 0.03,
+    punchHip: 0.95, punchPivot: 0.1, punchLean: 0.02, punchSnap: 1.1, kickChamber: 0.95, kickPivot: 0.6, kickLean: 0.26, kickSnap: 1.4,
+    stride: 1.08, armSwing: 0.05, walkBounce: 0.018, react: 0.9, victory: 'arms' },
+  sambo: { label: 'Sambo', desc: 'Wrestling and judo in a jacket: grips and throws, then control on the ground and leg locks to finish.',
+    family: 'throws', moves: 'wrestler', grab: 'collar', throws: 'front', defense: 'block', submit: ['Leg Lock', 'Heel Hook'],
+    signature: [['Hip Toss', 'throw:front.fwd'], ['Rear Takedown', 'throw:rear.fwd'], ['Leg Lock', 'hold'], ['Sweep', 'sweep']],
+    guardHands: -0.16, guardTight: -0.45, guardTwist: 0.16, guardLean: 0.14, guardCrouch: 0.2, guardWidth: 0.05, guardSplit: 0.0, guardTuck: -0.06,
+    bounce: 0.006, bounceHz: 0.9, sway: 0.028, swayHz: 0.85, headBob: 0.02,
+    punchHip: 0.9, punchPivot: 0.1, punchLean: 0.08, punchSnap: 0.95, kickChamber: 0.4, kickPivot: 0.25, kickLean: 0.06, kickSnap: 0.9,
+    stride: 0.82, armSwing: 0.025, walkBounce: 0.008, react: 0.85, victory: 'flex' },
+  bjj: { label: 'Brazilian Jiu-Jitsu', desc: 'Ground first: wins from the back with guards and sweeps, then pins, chokes and joint locks. Pulls guard rather than throwing.',
+    family: 'locks', moves: 'judoka', grab: 'collar', throws: 'low', defense: 'sway', submit: ['Armbar', 'Choke', 'Leg Lock'],
+    signature: [['Guard Pull', 'throw:low.back'], ['Leg Sweep', 'throw:low.left'], ['Armbar', 'hold'], ['Low Kick', 'low_kick']],
+    guardHands: -0.2, guardTight: -0.35, guardTwist: 0.1, guardLean: 0.12, guardCrouch: 0.26, guardWidth: 0.12, guardSplit: -0.04, guardTuck: 0.0,
+    bounce: 0.004, bounceHz: 0.7, sway: 0.04, swayHz: 0.65, headBob: 0.015,
+    punchHip: 0.8, punchPivot: 0.08, punchLean: 0.08, punchSnap: 0.85, kickChamber: 0.3, kickPivot: 0.2, kickLean: 0.04, kickSnap: 0.8,
+    stride: 0.7, armSwing: 0.02, walkBounce: 0.006, react: 0.8, victory: 'hips' },
+  hapkido: { label: 'Hapkido', desc: 'Korean self-defence: wrist and elbow locks, judo-style throws and low spinning heel kicks, circling away from force.',
+    family: 'locks', moves: 'judoka', grab: 'collar', throws: 'front', defense: 'sway', submit: ['Wrist Lock', 'Elbow Lock'],
+    signature: [['Wrist Lock', 'hold'], ['Hip Toss', 'throw:front.fwd'], ['Spinning Heel Kick', 'heavy_roundhouse'], ['Low Sweep', 'low_kick']],
+    guardHands: -0.1, guardTight: -0.25, guardTwist: 0.0, guardLean: 0.02, guardCrouch: 0.1, guardWidth: 0.04, guardSplit: 0.02, guardTuck: 0.02,
+    bounce: 0.01, bounceHz: 1.1, sway: 0.05, swayHz: 0.7, headBob: 0.03,
+    punchHip: 1.0, punchPivot: 0.16, punchLean: 0.04, punchSnap: 1.0, kickChamber: 0.6, kickPivot: 0.65, kickLean: 0.2, kickSnap: 1.1,
+    stride: 0.95, armSwing: 0.08, walkBounce: 0.01, react: 1.0, victory: 'bow' },
+  kali: { label: 'Kali / Eskrima', desc: 'Stick fighting without the stick for now: weaving angles, quick flowing strikes and a live hand that traps and checks.',
+    family: 'weapon', moves: null, grab: 'default', throws: 'front', defense: 'sway', submit: [],
+    signature: [['Live-Hand Trap', 'grab'], ['Angle Strike', 'hook'], ['Thrust', 'power_jab'], ['Backhand', 'cross']],
+    guardHands: 0.04, guardTight: -0.1, guardTwist: -0.14, guardLean: 0.04, guardCrouch: 0.12, guardWidth: 0.0, guardSplit: 0.08, guardTuck: 0.06,
+    bounce: 0.014, bounceHz: 1.8, sway: 0.05, swayHz: 1.3, headBob: 0.05,
+    punchHip: 1.15, punchPivot: 0.22, punchLean: 0.05, punchSnap: 1.2, kickChamber: 0.4, kickPivot: 0.3, kickLean: 0.1, kickSnap: 1.0,
+    stride: 1.0, armSwing: 0.1, walkBounce: 0.016, react: 0.95, victory: 'fist' },
+  kravmaga: { label: 'Krav Maga', desc: 'Defend and strike in one move, then keep attacking: punches, knees and elbows up close and kicks to the low line.',
+    family: 'hybrid', moves: null, grab: 'thai', throws: 'front', defense: 'block', submit: [],
+    signature: [['Defend and Strike', 'counter_strike'], ['Knee', 'knee'], ['Elbow', 'elbow'], ['Low Kick', 'low_kick']],
+    guardHands: 0.1, guardTight: 0.0, guardTwist: 0.04, guardLean: 0.1, guardCrouch: 0.06, guardWidth: 0.02, guardSplit: 0.0, guardTuck: 0.1,
+    bounce: 0.01, bounceHz: 1.2, sway: 0.01, swayHz: 0.7, headBob: 0.04,
+    punchHip: 1.3, punchPivot: 0.2, punchLean: 0.1, punchSnap: 1.2, kickChamber: 0.35, kickPivot: 0.35, kickLean: 0.1, kickSnap: 1.1,
+    stride: 1.0, armSwing: 0.06, walkBounce: 0.014, react: 1.05, victory: 'fist' },
+  mma: { label: 'MMA', desc: 'Moves between ranges: punches and kicks, clinch work, takedowns, and holds on the ground.',
+    family: 'hybrid', moves: null, grab: 'thai', throws: 'low', defense: 'block', submit: ['Armbar', 'Choke'],
+    signature: [['Takedown', 'throw:low.fwd'], ['Cross', 'cross'], ['Round Kick', 'roundhouse'], ['Ground Hold', 'hold']],
+    guardHands: 0.06, guardTight: -0.02, guardTwist: -0.02, guardLean: 0.08, guardCrouch: 0.16, guardWidth: 0.04, guardSplit: 0.06, guardTuck: 0.1,
+    bounce: 0.016, bounceHz: 1.6, sway: 0.02, swayHz: 0.85, headBob: 0.05,
+    punchHip: 1.15, punchPivot: 0.16, punchLean: 0.06, punchSnap: 1.1, kickChamber: 0.55, kickPivot: 0.45, kickLean: 0.14, kickSnap: 1.05,
+    stride: 0.92, armSwing: 0.05, walkBounce: 0.016, react: 0.95, victory: 'flex' },
 };
 const MOVE_STYLE_IDS = Object.keys(MOVE_STYLE);
+const STYLE_FAMILY_LABEL = { hand: 'Hand striking', clinch: 'Clinch kickboxing', kicking: 'Kicking arts', throws: 'Throws and takedowns', locks: 'Locks and submissions', weapon: 'Weapon styles', hybrid: 'Hybrid and street' };
+const STYLE_STANCE_KEYS = ['guardHands', 'guardTight', 'guardTwist', 'guardLean', 'guardCrouch', 'guardWidth', 'guardSplit', 'guardTuck'];
+const STYLE_FOOTWORK_KEYS = ['bounce', 'bounceHz', 'sway', 'swayHz', 'headBob', 'stride', 'armSwing', 'walkBounce'];
+/* Old style ids (P5-03): saves, share codes and the random fighter generator name styles by these ids. All 7 are kept under the same id, so the map
+   is the identity; a later rename or merge adds one row (old id -> new id) and every save and code follows. The order is the old MOVE_STYLE order. */
+const LEGACY_STYLE_MAP = { boxer: 'boxer', kickboxer: 'kickboxer', karateka: 'karateka', wrestler: 'wrestler', judoka: 'judoka', brawler: 'brawler', capoeira: 'capoeira' };
+const CLASSIC_STYLE_IDS = Object.keys(LEGACY_STYLE_MAP);   // the styles random fighters pick from, so seeds from before the new styles still give the same fighters
+/* The current style id for any id a save, a share code or a profile may carry (old or new), or null when it names no style. */
+function styleFor(id) {
+  const mapped = typeof id === 'string' && Object.prototype.hasOwnProperty.call(LEGACY_STYLE_MAP, id) ? LEGACY_STYLE_MAP[id] : id;
+  return MOVE_STYLE_IDS.includes(mapped) ? mapped : null;
+}
 /* Default movement style for each creator archetype (the creator can override it). */
 const ARCHETYPE_MOVE_STYLE = { balanced: 'kickboxer', striker: 'boxer', kicker: 'karateka', brawler: 'brawler', grappler: 'wrestler', counter: 'judoka', speedster: 'capoeira' };
 const DEFAULT_MOVE_STYLE = 'kickboxer';
@@ -3640,12 +3742,10 @@ const DEFENSE_HELP = {
   block: 'Hold Defend to guard. Standing covers high and mid hits; Crouch + Defend covers low hits. Pressing it just before a hit is a perfect block and opens a counter.',
   sway: 'Tap Defend to lean out of the way (Stick left / right leans sideways, otherwise back). Hits miss for ' + swaySeconds(SWAY_IFRAME_TICKS) + ' s, but grabs still land. It costs ' + SWAY_COST + ' stamina, and you can be hit for ' + swaySeconds(SWAY_RECOVERY_TICKS) + ' s while you recover. A hit dodged at the last moment is a perfect sway and opens a counter.',
 };
-const STYLE_DEFENSE = { boxer: 'sway', kickboxer: 'block', karateka: 'block', wrestler: 'block', judoka: 'sway', brawler: 'block', capoeira: 'sway' };
-/* Move styles whose fighters may hold a downed opponent (P3-05). Appendix C lists BJJ, Hapkido, Judo, Wrestling and MMA; only the
-   styles that exist today are here, later styles join by adding their id. */
-const SUBMISSION_STYLES = new Set(['wrestler', 'judoka']);
+/* Move styles whose fighters may hold a downed opponent (P3-05): every style whose row lists holds in submit (Wrestling, Judo, Sambo, Brazilian Jiu-Jitsu, Hapkido, MMA). */
+const SUBMISSION_STYLES = new Set(MOVE_STYLE_IDS.filter((id) => MOVE_STYLE[id].submit.length > 0));
 const styleCanSubmit = (profile) => SUBMISSION_STYLES.has(moveStyleFor(profile));
-const submissionStyleText = () => [...SUBMISSION_STYLES].map((id) => MOVE_STYLE[id].label).join(' and ');
+const submissionStyleText = () => { const names = [...SUBMISSION_STYLES].map((id) => MOVE_STYLE[id].label); return names.length > 1 ? names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1] : names.join(''); };
 /* Weight class 0 (lightest) .. 4 from the look: height x build. P6-03 (fitness triangle) will replace this input with a real weight. */
 function weightClass(profile) {
   const look = (profile && profile.look) || {};
@@ -3654,7 +3754,7 @@ function weightClass(profile) {
   while (weight < WEIGHT_CLASS_BOUNDS.length && mass >= WEIGHT_CLASS_BOUNDS[weight]) weight++;
   return weight;
 }
-function defaultDefense(moveStyle) { return STYLE_DEFENSE[moveStyle] || DEFAULT_DEFENSE; }
+function defaultDefense(moveStyle) { const row = MOVE_STYLE[styleFor(moveStyle)]; return row ? row.defense : DEFAULT_DEFENSE; }
 function defenseFor(profile) { return profile && DEFENSE_TYPES.includes(profile.defense) ? profile.defense : defaultDefense(moveStyleFor(profile)); }
 const MOTION_JITTER = 0.08;            // individuality: each fighter's style values vary by up to +-8 %
 const JITTER_KEYS = ['guardHands', 'guardTwist', 'guardCrouch', 'guardSplit', 'bounce', 'bounceHz', 'sway', 'swayHz', 'headBob', 'punchHip', 'kickChamber', 'kickPivot', 'stride', 'armSwing'];
@@ -3667,7 +3767,8 @@ function hashText(text) {
   return h >>> 0;
 }
 function moveStyleFor(profile) {
-  if (profile && MOVE_STYLE[profile.moveStyle]) return profile.moveStyle;
+  const own = profile && styleFor(profile.moveStyle);
+  if (own) return own;
   if (profile && ARCHETYPE_MOVE_STYLE[profile.arch]) return ARCHETYPE_MOVE_STYLE[profile.arch];
   return DEFAULT_MOVE_STYLE;
 }
@@ -5554,8 +5655,8 @@ function validateCustom(raw) {
   if (!ARCHETYPE_IDS.includes(raw.arch)) return fail('Unknown fighting style');
   if (!TIERS.includes(raw.tier)) return fail('Unknown tier');
   // fighters saved before movement styles existed get their archetype's default style
-  const moveStyle = raw.moveStyle === undefined ? ARCHETYPE_MOVE_STYLE[raw.arch] : raw.moveStyle;
-  if (typeof moveStyle !== 'string' || !MOVE_STYLE_IDS.includes(moveStyle)) return fail('Unknown movement style');
+  const moveStyle = raw.moveStyle === undefined ? ARCHETYPE_MOVE_STYLE[raw.arch] : styleFor(raw.moveStyle);   // styleFor maps an old id to its current style (P5-03)
+  if (!moveStyle) return fail('Unknown movement style');
   // fighters saved before defense types existed get their movement style's default; an unreadable value falls back to Block
   const defense = raw.defense === undefined ? defaultDefense(moveStyle) : DEFENSE_TYPES.includes(raw.defense) ? raw.defense : DEFAULT_DEFENSE;
   const attrsIn = raw.attrs, lookIn = raw.look;
@@ -5600,7 +5701,8 @@ function customProfile(custom, slot) {
 }
 
 /* ---------- random fighters (seeded, reproducible) ---------- */
-function randomCustom(seed) {
+/* allStyles (the creator's Randomize button) also draws from the styles added in P5-01; the default keeps every older seed's fighter the same. */
+function randomCustom(seed, allStyles) {
   const rng = makeRng(seed);
   const pick = (list) => list[Math.floor(rng() * list.length) % list.length];
   const arch = pick(ARCHETYPE_IDS);
@@ -5619,7 +5721,7 @@ function randomCustom(seed) {
   look.scale = snapToStep(SCALE_MIN + rng() * (SCALE_MAX - SCALE_MIN), SCALE_MIN, SCALE_MAX, SCALE_STEP);
   look.build = snapToStep(BUILD_MIN + rng() * (BUILD_MAX - BUILD_MIN), BUILD_MIN, BUILD_MAX, BUILD_STEP);
   const fighter = { name: pick(NAME_IDEAS), title: Math.floor(rng() * TITLES.length) % TITLES.length, arch, tier: 'standard', attrs, look };
-  fighter.moveStyle = rng() < 0.3 ? pick(MOVE_STYLE_IDS) : ARCHETYPE_MOVE_STYLE[arch];   // drawn last so older seeds keep their other picks
+  fighter.moveStyle = rng() < 0.3 ? pick(allStyles ? MOVE_STYLE_IDS : CLASSIC_STYLE_IDS) : ARCHETYPE_MOVE_STYLE[arch];   // drawn last so older seeds keep their other picks
   fighter.defense = defaultDefense(fighter.moveStyle);                                     // no extra draw: the style's default
   return fighter;
 }
@@ -5685,7 +5787,8 @@ function decodeCustom(text, allowVeteran) {
   record.look.scale = Number.isInteger(fields[i]) ? fields[i] / 100 : NaN; i++;
   record.look.build = Number.isInteger(fields[i]) ? fields[i] / 100 : NaN; i++;
   for (const key of LOOK_COLOR_KEYS) { const hex = fields[i++]; record.look[key] = typeof hex === 'string' ? '#' + hex : null; }
-  if (fields.length >= SHARE_FIELD_COUNT_STYLE) record.moveStyle = Number.isInteger(fields[i]) ? MOVE_STYLE_IDS[fields[i]] : null;
+  // an index past the list (a code from a newer build) is rejected by validateCustom; -1 (no style) gets the archetype default there
+  if (fields.length >= SHARE_FIELD_COUNT_STYLE) record.moveStyle = !Number.isInteger(fields[i]) ? null : fields[i] < 0 ? undefined : fields[i] < MOVE_STYLE_IDS.length ? MOVE_STYLE_IDS[fields[i]] : 'style#' + fields[i];
   if (fields.length === SHARE_FIELD_COUNT_DEFENSE) record.defense = DEFENSE_TYPES[fields[i + 1]] || DEFAULT_DEFENSE;   // an unknown index means Block; older codes have no field and get the style default in validateCustom
   const checked = validateCustom(record);
   if (!checked.ok) return checked;
@@ -8999,15 +9102,23 @@ const UI = {
         for (const keys in own[table]) if (!STRINGS[table][keys] || own[table][keys].join() !== STRINGS[table][keys].join()) parts.push('<b>' + esc(prefix + pressWords(keys)) + '</b>: ' + esc(own[table][keys].map((id) => ATTACKS[id].name).join(' → ')));
         for (const keys in STRINGS[table]) if (!own[table][keys]) parts.push('no ' + esc(prefix + pressWords(keys)));
       }
-      return '<tr><td>' + esc(MOVE_STYLE[styleId].label) + '</td><td>' + parts.join('; ') + '</td></tr>';
+      const users = MOVE_STYLE_IDS.filter((id) => MOVE_STYLE[id].moves === styleId).map((id) => MOVE_STYLE[id].label);   // several styles may share one table
+      return '<tr><td>' + esc(users.join(', ')) + '</td><td>' + parts.join('; ') + '</td></tr>';
     };
     const styleTable = '<table class="ctl"><tr><th>Move style</th><th>Differs from the table above</th></tr>' + Object.keys(STYLE_STRINGS).map(styleLine).join('') + '</table>';
+    const overviewRow = (id) => {
+      const s = MOVE_STYLE[id];
+      return '<tr><td>' + esc(s.label) + '</td><td>' + esc(STYLE_FAMILY_LABEL[s.family]) + '</td><td>' + DEFENSE_LABEL[s.defense] + '</td><td>' + esc(s.signature.map((x) => x[0]).join(', ')) + '</td><td>' + (s.submit.length ? esc(s.submit.join(', ')) : '-') + '</td></tr>';
+    };
+    const styleOverview = '<table class="ctl"><tr><th>Move style</th><th>Family</th><th>Defense</th><th>Signature moves</th><th>Holds</th></tr>' + MOVE_STYLE_IDS.map(overviewRow).join('') + '</table>';
     return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub">Frame data at 60 fps. Strong moves cost more stamina and leave you open longer if they miss. There is no hold: Punch and Kick attack on every press, and the strong moves are steps of the attack strings below.</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Hits</th><th>Start / Active / Recover</th><th>Dmg</th><th>Stam</th><th>Adv hit / block</th><th>Notes</th></tr>' + rows + clinchRows + tackleRow + '</table>' +
       '<h3>Attack strings</h3><p>Press Punch or Kick again soon after the last press (about ' + ATTACK_STRING_SECONDS + ' s, plus the short freeze of each hit), after that move hit or was blocked, to play the next move of the string. A miss, a pause, or getting hit starts over. Strings are up to 3 moves. Hold Crouch at every press for the crouch strings; otherwise the standing strings apply.</p>' +
       stringTable +
-      '<p>The table is the default (Kickboxer, Brawler). Some move styles change a few rows: the Boxer favours punches, the Karateka and Capoeira kicks, and the Wrestler and Judoka play short strings (2 moves at most) that leave the foe staggered or down for a grab or a hold. A removed row means that press starts a new string.</p>' +
+      '<p>The table is the default (Kickboxing, Muay Thai, Street Brawler, Kali, Krav Maga, MMA). Some move styles change a few rows: Boxing and Wing Chun favour punches, Karate, Taekwondo and Capoeira kicks, and the throwing and locking styles play short strings (2 moves at most) that leave the foe staggered or down for a grab or a hold. A removed row means that press starts a new string.</p>' +
       styleTable +
+      '<h3>Move styles</h3><p>All ' + MOVE_STYLE_IDS.length + ' styles, their family, their default defense and their signature moves (today these use the moves above; each style animates them in its own way later).</p>' +
+      styleOverview +
       '<h3>Defend: Block or Sway</h3><p>Every fighter has one defense type, shown on its fighter card. <b>Block</b>: ' + esc(DEFENSE_HELP.block) + ' Strong string moves break a block unless it is perfect. <b>Sway</b>: ' + esc(DEFENSE_HELP.sway) + ' A sway fighter has no hold-guard; a Defend press while knocked down still gets up quickly for both types (while held down, Defend presses are escape attempts instead).</p>' +
       '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: Kick = knee (drains stamina), Punch = elbow (harder hit); Grapple = throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
       '<h3>Holds on a downed opponent</h3><p>Grapple next to a knocked-down opponent starts a hold, for ' + esc(submissionStyleText()) + ' fighters. Damage builds for up to ' + SUBMIT_MAX_TICKS / 60 + ' s. The holder taps Grapple to keep it tight; the held fighter taps Defend to escape, and a tired fighter taps weaker. A hit on the holder breaks the hold. A fighter can be held once per knockdown.</p>' +
@@ -9754,7 +9865,7 @@ const CreatorUI = {
     this.draft.moveStyle = MOVE_STYLE_IDS[(i + dir + MOVE_STYLE_IDS.length) % MOVE_STYLE_IDS.length];
     this.draft.defense = defaultDefense(this.draft.moveStyle);
     const style = MOVE_STYLE[this.draft.moveStyle];
-    this.changed('Movement: ' + style.label + '. ' + style.desc + ' Defense: ' + DEFENSE_LABEL[this.draft.defense] + '.');
+    this.changed('Movement: ' + style.label + ' (' + STYLE_FAMILY_LABEL[style.family] + '). ' + style.desc + ' Defense: ' + DEFENSE_LABEL[this.draft.defense] + '.');
   },
   setDefense() {
     this.draft.defense = this.draft.defense === 'block' ? 'sway' : 'block';   // exactly one of two
@@ -9784,7 +9895,7 @@ const CreatorUI = {
     this.randomCount++;
     const seed = (Date.now() + this.randomCount * 7919) >>> 0;
     const keepName = this.draft.name;
-    this.draft = randomCustom(seed);
+    this.draft = randomCustom(seed, true);
     if (keepName) this.draft.name = keepName;          // a typed name survives; everything else is rolled
     this.changed('Randomized with seed ' + seed);
   },
@@ -10113,7 +10224,7 @@ const CreatorUI = {
     const tierText = d.tier === 'veteran' ? 'Veteran (' + VETERAN_BUDGET + ' points)' : 'Standard (' + POINT_BUDGET + ' points)' + (veteranUnlocked() ? '' : ' · Veteran locked');
     let h = this.row('Fighting style', arch.label, 'arch') + '<p class="hint">' + esc(arch.desc) + ' Sets how the CPU fights with this fighter and its preferred distance.</p>';
     const style = MOVE_STYLE[d.moveStyle] || MOVE_STYLE[DEFAULT_MOVE_STYLE];
-    h += this.row('Movement', style.label, 'movestyle') + '<p class="hint">' + esc(style.desc) + ' Sets the stance, rhythm and how strikes are thrown, and also the default defense, whether holds are possible and some attack strings (see the Move list).</p>';
+    h += this.row('Movement', style.label, 'movestyle') + '<p class="hint"><b>' + esc(STYLE_FAMILY_LABEL[style.family]) + '.</b> ' + esc(style.desc) + ' Sets the stance, rhythm and how strikes are thrown, and also the default defense, whether holds are possible and some attack strings (see the Move list).</p>';
     h += this.row('Defense', DEFENSE_LABEL[d.defense], 'defense') + '<p class="hint">' + esc(DEFENSE_HELP[d.defense]) + ' Each fighter has one defense, never both. Changing the movement style resets it to that style\'s usual choice.</p>';
     h += this.row('Tier', tierText, 'tier');
     h += '<div class="pts' + (left === 0 ? ' zero' : '') + '" role="status" aria-live="polite"><b>' + left + '</b> of ' + budget + ' points remaining</div>';
@@ -13204,6 +13315,161 @@ const SelfTest = {
         stored.ok && stored.value.moveStyle === ARCHETYPE_MOVE_STYLE[c.arch] && !bad.ok && new Fighter(profile, 0).motion.styleId === 'judoka';
       return ok ? true : 'round trip ' + (back.value && back.value.moveStyle) + ' old ' + old.ok + ' ' + (old.value && old.value.moveStyle) + ' stored ' + stored.ok + ' bad rejected ' + !bad.ok;
     });
+    /* ----- Style data model (P5-01, P5-03): 16 styles in 7 families (Appendix C, P1-04) ----- */
+    const STYLE_WANT = {   // id -> [family, default defense]
+      boxer: ['hand', 'sway'], wingchun: ['hand', 'block'], kickboxer: ['clinch', 'block'], muaythai: ['clinch', 'block'], karateka: ['kicking', 'block'], taekwondo: ['kicking', 'sway'],
+      capoeira: ['kicking', 'sway'], wrestler: ['throws', 'block'], judoka: ['throws', 'sway'], sambo: ['throws', 'block'], bjj: ['locks', 'sway'], hapkido: ['locks', 'sway'],
+      kali: ['weapon', 'sway'], kravmaga: ['hybrid', 'block'], mma: ['hybrid', 'block'], brawler: ['hybrid', 'block'],
+    };
+    const OLD_STYLE_IDS = ['boxer', 'kickboxer', 'karateka', 'wrestler', 'judoka', 'brawler', 'capoeira'];   // MOVE_STYLE order before P5-01: share codes store the index
+    const HOLD_STYLES = ['wrestler', 'judoka', 'sambo', 'bjj', 'hapkido', 'mma'];
+    const moveUseOk = (uses, hasHold) => {
+      if (ATTACKS[uses] || CLINCH_MOVES[uses]) return true;
+      if (uses === 'hold') return hasHold;
+      const t = /^throw:(\w+)\.(\w+)$/.exec(uses);
+      return !!t && !!THROW_SETS[t[1]] && !!THROW_SETS[t[1]][t[2]];
+    };
+    test('Styles: all 16 styles exist with every data field, the P1-04 family and default defense', () => {
+      const problems = [];
+      if (MOVE_STYLE_IDS.length !== 16 || Object.keys(STYLE_WANT).some((id) => !MOVE_STYLE[id])) problems.push('ids ' + MOVE_STYLE_IDS.join());
+      if (MOVE_STYLE_IDS.slice(0, 7).join() !== OLD_STYLE_IDS.join()) problems.push('the old 7 ids must stay first');
+      const numeric = STYLE_STANCE_KEYS.concat(STYLE_FOOTWORK_KEYS, ['punchHip', 'punchPivot', 'punchLean', 'punchSnap', 'kickChamber', 'kickPivot', 'kickLean', 'kickSnap', 'react']);
+      for (const id of MOVE_STYLE_IDS) {
+        const s = MOVE_STYLE[id], want = STYLE_WANT[id] || [];
+        if (typeof s.label !== 'string' || !s.label || typeof s.desc !== 'string' || s.desc.length < 30) problems.push(id + ' text');
+        if (s.family !== want[0] || !STYLE_FAMILY_LABEL[s.family]) problems.push(id + ' family ' + s.family);
+        if (s.defense !== want[1] || defaultDefense(id) !== want[1]) problems.push(id + ' defense ' + s.defense);
+        for (const key of numeric) if (!Number.isFinite(s[key])) problems.push(id + ' ' + key);
+        if (!VICTORY_POSES[s.victory]) problems.push(id + ' victory');
+        if (s.moves !== null && !STYLE_STRINGS[s.moves]) problems.push(id + ' moves');
+        if (!CLINCH_STRIKE_POSES[s.grab]) problems.push(id + ' grab');
+        if (!THROW_SETS[s.throws]) problems.push(id + ' throws');
+        if (!Array.isArray(s.submit) || s.submit.some((name) => typeof name !== 'string' || !name)) problems.push(id + ' submit');
+        else if (SUBMISSION_STYLES.has(id) !== HOLD_STYLES.includes(id) || (s.submit.length > 0) !== HOLD_STYLES.includes(id)) problems.push(id + ' holds');   // holds for the grappling styles only
+        if (!Array.isArray(s.signature) || s.signature.length < 3 || s.signature.some((x) => !Array.isArray(x) || typeof x[0] !== 'string' || !moveUseOk(x[1], Array.isArray(s.submit) && s.submit.length > 0))) problems.push(id + ' signature');
+        if (stringsFor(id).stand.P === undefined || stringsFor(id).stand.K === undefined) problems.push(id + ' strings');
+      }
+      const families = new Set(MOVE_STYLE_IDS.map((id) => MOVE_STYLE[id].family));
+      if (families.size !== 7 || Object.keys(STYLE_FAMILY_LABEL).length !== 7) problems.push('families ' + families.size);
+      if (MOVE_STYLE_IDS.filter((id) => MOVE_STYLE[id].defense === 'sway').length !== 7) problems.push('Sway styles must be 7');
+      if (SUBMISSION_STYLES.size !== HOLD_STYLES.length) problems.push('hold set ' + [...SUBMISSION_STYLES].join());
+      if (new Set(MOVE_STYLE_IDS.map((id) => MOVE_STYLE[id].label)).size !== 16) problems.push('labels are not unique');
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Styles: old style ids map to themselves; old share codes and saves load unchanged; new styles round-trip share codes', () => {
+      const problems = [];
+      for (const id of OLD_STYLE_IDS) if (styleFor(id) !== id || LEGACY_STYLE_MAP[id] !== id) problems.push('map ' + id);
+      for (const bad of ['ninja', '', undefined, null, 7, 'constructor', '__proto__', 'toString']) if (styleFor(bad) !== null) problems.push('styleFor ' + String(bad));
+      const base = validateCustom(randomCustom(4321)).value;
+      const indexOf = (code) => { const fields = JSON.parse(fromBase64Url(code.split('-')[1])); return fields[fields.length - 2]; };   // the style field sits before the defense field
+      OLD_STYLE_IDS.forEach((id, index) => {
+        const c = Object.assign({}, base, { moveStyle: id, defense: defaultDefense(id) });
+        const code = encodeCustom(c);
+        const fields = JSON.parse(fromBase64Url(code.split('-')[1]));
+        fields.pop();                                   // a code from before defense types: the old style index, no defense field
+        const payload = toBase64Url(JSON.stringify(fields));
+        const old = decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true);
+        const save = validateCustom(JSON.parse(JSON.stringify(c)));   // a saved fighter that carries the old id
+        const back = decodeCustom(code, true);
+        const loads = back.ok && back.value.moveStyle === id && old.ok && old.value.moveStyle === id && old.value.defense === defaultDefense(id) && save.ok && save.value.moveStyle === id &&
+          new Fighter(customProfile(save.value, 0), 0).motion.styleId === id;
+        if (indexOf(code) !== index || !loads) problems.push(id + ' index ' + indexOf(code) + ' loads ' + loads);
+      });
+      for (const id of MOVE_STYLE_IDS.slice(7)) {
+        const c = Object.assign({}, base, { moveStyle: id, defense: defaultDefense(id) });
+        const code = encodeCustom(c), back = decodeCustom(code, true);
+        if (!back.ok || back.value.moveStyle !== id || back.value.defense !== defaultDefense(id) || indexOf(code) !== MOVE_STYLE_IDS.indexOf(id) || indexOf(code) < 7) problems.push(id + ' round trip');
+        const flipped = Object.assign({}, c, { defense: c.defense === 'block' ? 'sway' : 'block' });   // a chosen defense wins over the style default
+        const again = decodeCustom(encodeCustom(flipped), true);
+        if (!again.ok || again.value.defense !== flipped.defense) problems.push(id + ' defense override');
+      }
+      if (validateCustom(Object.assign({}, base, { moveStyle: 'ninja' })).ok) problems.push('an unknown id must still fail');
+      const withIndex = (styleIndex) => {   // a code whose style field holds styleIndex, as a newer build (more styles) or a styleless fighter would write it
+        const fields = JSON.parse(fromBase64Url(encodeCustom(base).split('-')[1]));
+        fields[fields.length - 2] = styleIndex;
+        const payload = toBase64Url(JSON.stringify(fields));
+        return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true);
+      };
+      if (withIndex(MOVE_STYLE_IDS.length).ok) problems.push('a style index past the list must fail');
+      const none = withIndex(-1);
+      if (!none.ok || none.value.moveStyle !== ARCHETYPE_MOVE_STYLE[base.arch]) problems.push('index -1 must give the archetype default');
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Styles: random fighters keep their seeds; only the creator\'s Randomize draws the new styles too', () => {
+      const before = { 1: 4129164379, 5: 2889055767, 42: 3127338665, 99: 152905950, 777: 4041409028, 4321: 230743926, 31337: 1450132950 };   // fnv1a of the JSON of randomCustom(seed) before P5-01
+      const problems = [];
+      for (const seed in before) if (fnv1a(JSON.stringify(randomCustom(Number(seed)))) !== before[seed]) problems.push('seed ' + seed + ' changed');
+      const rest = (c) => JSON.stringify(Object.assign({}, c, { moveStyle: 0, defense: 0 }));
+      let wide = 0;
+      for (let seed = 1; seed <= 400; seed++) {
+        const plain = randomCustom(seed), all = randomCustom(seed, true);
+        if (!CLASSIC_STYLE_IDS.includes(plain.moveStyle)) problems.push('classic ' + seed);
+        if (rest(plain) !== rest(all)) problems.push('other picks changed ' + seed);
+        if (!validateCustom(all).ok || all.defense !== defaultDefense(all.moveStyle)) problems.push('valid ' + seed);
+        if (!CLASSIC_STYLE_IDS.includes(all.moveStyle)) wide++;
+      }
+      if (CLASSIC_STYLE_IDS.join() !== OLD_STYLE_IDS.join()) problems.push('classic ids');
+      if (!(wide > 20)) problems.push('new styles drawn ' + wide);
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Styles: the creator cycles all 16 styles and shows label, family and description for each', () => {
+      const keep = { draft: CreatorUI.draft, slot: CreatorUI.slot, say: UI.say, rerender: UI.rerender }, problems = [], seen = [];
+      UI.say = () => {}; UI.rerender = () => {};   // no page in a headless run
+      try {
+        CreatorUI.slot = 0;
+        CreatorUI.draft = defaultCustom(0);
+        seen.push(CreatorUI.draft.moveStyle);
+        for (let n = 0; n < MOVE_STYLE_IDS.length; n++) {
+          const html = CreatorUI.tab_style(), s = MOVE_STYLE[CreatorUI.draft.moveStyle];
+          if (!html.includes(esc(s.label)) || !html.includes(esc(STYLE_FAMILY_LABEL[s.family])) || !html.includes(esc(s.desc))) problems.push(CreatorUI.draft.moveStyle + ' not shown');
+          CreatorUI.setMoveStyle(1);
+          const d = CreatorUI.draft;
+          if (d.defense !== defaultDefense(d.moveStyle)) problems.push(d.moveStyle + ' defense not reset');
+          if (!decodeCustom(encodeCustom(validateCustom(d).value), true).ok) problems.push(d.moveStyle + ' does not save');
+          seen.push(d.moveStyle);
+        }
+        const back = CreatorUI.draft.moveStyle;
+        CreatorUI.setMoveStyle(-1);
+        if (MOVE_STYLE_IDS[(MOVE_STYLE_IDS.indexOf(back) + MOVE_STYLE_IDS.length - 1) % MOVE_STYLE_IDS.length] !== CreatorUI.draft.moveStyle) problems.push('backwards');
+      } finally {
+        CreatorUI.draft = keep.draft; CreatorUI.slot = keep.slot; UI.say = keep.say; UI.rerender = keep.rerender; Showcase.endPreview();
+      }
+      if (new Set(seen).size !== 16 || seen[16] !== seen[0]) problems.push('cycle ' + new Set(seen).size);
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
+    test('Styles: the Move list names every style with its family, defense, signature moves and holds', () => {
+      const html = UI.screen_moves();
+      const missing = MOVE_STYLE_IDS.filter((id) => !html.includes(esc(MOVE_STYLE[id].label)) || !html.includes(esc(MOVE_STYLE[id].signature[0][0])));
+      const holds = html.includes(esc(submissionStyleText())) && submissionStyleText().includes('Brazilian Jiu-Jitsu') && !submissionStyleText().includes('Boxing');
+      return missing.length === 0 && holds ? true : 'missing ' + missing.join() + ' holds ' + holds;
+    });
+    test('Styles: every style plays an AI match against every style (and itself) without errors, and all of them land hits', () => {
+      const ids = MOVE_STYLE_IDS, keys = ids.map((id) => 'sty_' + id), problems = [], hits = {};
+      const run = (a, b, seed) => SimRunner.run({ playerId: keys[a], opponentId: keys[b], seed, difficulty: 'hard', timer: 10, winsNeeded: 1, listeners: { hit: (e) => { hits[e.att.id] = (hits[e.att.id] || 0) + 1; } } });
+      ids.forEach((id, i) => { ROSTER_BY_ID[keys[i]] = Object.assign({}, ROSTER_BY_ID.kai, { id: keys[i], name: id.toUpperCase(), moveStyle: id, defense: defaultDefense(id) }); });
+      let first = null, matches = 0;
+      try {
+        for (let a = 0; a < ids.length; a++) {
+          for (let b = a; b < ids.length; b++) {
+            try {
+              const r = run(a, b, 1 + a * 16 + b);
+              matches++;
+              if (r.error) problems.push(ids[a] + ' v ' + ids[b] + ' ' + r.error);
+              else if (!(r.ticks > 60) || r.hpLeft.some((hp) => !Number.isFinite(hp) || hp < 0 || hp > 1)) problems.push(ids[a] + ' v ' + ids[b] + ' ticks ' + r.ticks + ' hp ' + r.hpLeft.join('/'));
+              if (a === 3 && b === 12) first = JSON.stringify([r.winner, r.ticks, r.hpLeft, r.damage]);
+            } catch (e) { problems.push(ids[a] + ' v ' + ids[b] + ' ' + e.message); }
+          }
+        }
+        const again = run(3, 12, 1 + 3 * 16 + 12);
+        if (JSON.stringify([again.winner, again.ticks, again.hpLeft, again.damage]) !== first) problems.push('a rerun differs');
+      } finally {
+        for (const key of keys) delete ROSTER_BY_ID[key];
+      }
+      const silent = keys.filter((key) => !(hits[key] > 0));
+      if (silent.length) problems.push('no hits from ' + silent.join());
+      if (matches !== ids.length * (ids.length + 1) / 2) problems.push('matches ' + matches);
+      return problems.length ? problems.slice(0, 5).join('; ') : true;
+    });
     /* ----- Sway (P3-01 / P3-02): MARA is a Sway fighter by default, KAI a Block fighter ----- */
     /* Presses Defend on fighter 2 so the opponent's strike goes active `lead` ticks into the sway (stateTicks = lead on the first active tick). */
     const swayAt = (lead) => {
@@ -13211,7 +13477,8 @@ const SelfTest = {
       return (it, f, o) => { if (!done && o.state === S.ATTACK && o.move && o.mStartup + 1 - o.moveTick === lead + 1) { it.defend = true; done = true; } };
     };
     test('Sway: defense types come from the style table, creator and roster agree', () => {
-      const wantByStyle = { boxer: 'sway', kickboxer: 'block', karateka: 'block', wrestler: 'block', judoka: 'sway', brawler: 'block', capoeira: 'sway' };
+      const wantByStyle = { boxer: 'sway', wingchun: 'block', kickboxer: 'block', muaythai: 'block', karateka: 'block', taekwondo: 'sway', capoeira: 'sway', wrestler: 'block', judoka: 'sway', sambo: 'block',
+        bjj: 'sway', hapkido: 'sway', kali: 'sway', kravmaga: 'block', mma: 'block', brawler: 'block' };   // P1-04: 7 Sway, 9 Block
       const styles = MOVE_STYLE_IDS.every((id) => defaultDefense(id) === wantByStyle[id]) && MOVE_STYLE_IDS.length === Object.keys(wantByStyle).length;
       const roster = ROSTER.every((r) => DEFENSE_TYPES.includes(r.defense) && r.defense === defaultDefense(r.moveStyle)) && ROSTER.some((r) => r.defense === 'block') && ROSTER.some((r) => r.defense === 'sway');
       const fighters = new Fighter(ROSTER_BY_ID.kai, 0).defense === 'block' && new Fighter(ROSTER_BY_ID.mara, 1).defense === 'sway';
