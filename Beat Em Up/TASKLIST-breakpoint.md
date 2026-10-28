@@ -56,9 +56,9 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 - [x] P0-01 - Create a tagged baseline commit of the current game before changes.
   Done when: the commit hash is recorded in Appendix C.
-- [ ] P0-02 - Full audit of the current build. Classify every finding as Critical, High, Medium, Low or Informational (bugs, crashes, input, accessibility, performance, memory, security / CSP, storage, save migration, mobile layout, gamepad, audio).
+- [x] P0-02 - Full audit of the current build. Classify every finding as Critical, High, Medium, Low or Informational (bugs, crashes, input, accessibility, performance, memory, security / CSP, storage, save migration, mobile layout, gamepad, audio).
   Done when: Appendix D lists each finding with severity, location (line or function), reproduction and planned fix task ID.
-- [ ] P0-03 - Fix all Critical and High findings from P0-02 that do not depend on later phases.
+- [x] P0-03 - Fix all Critical and High findings from P0-02 that do not depend on later phases.
   Done when: each fixed finding is ticked in Appendix D and the self-test passes.
 - [x] P0-04 - Define the low-spec performance method: target device class, target frame rate, test scene (worst case arena + max fighters + max debris), metrics (frame time p50 / p95, JS heap, draw calls, load time, file size).
   Done when: the method and baseline numbers are recorded in Appendix C.
@@ -66,6 +66,8 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: the overlay shows the P0-04 metrics and is off by default.
 - [x] P0-06 - Extend the self-test with a headless "AI vs AI" match runner using fixed seeds (used later by the balance phase).
   Done when: a seeded match runs to the end without rendering and returns winner, duration, damage dealt per move type.
+- [ ] P0-07 - Fix the findings routed to P0-07 in Appendix D (error screen with a gamepad, loop recovery after errors, self-test coverage and isolation, storage and input edge cases).
+  Done when: each P0-07 row in Appendix D is ticked and the self-test passes.
 
 ## Phase 1 - Research and content decisions
 
@@ -421,3 +423,39 @@ never both. Dash is Removed completely.
 ## Appendix D - Audit findings
 
 (Filled by P0-02 and P16-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
+
+### P0-02 - Audit of 1.0.0 (2026-10-28)
+
+Method: four read-only auditors, one per area (input / storage / UI; renderer / world / performance; fighters / combat / AI / roster; game flow / audio / creator / self-test / CSP), each with the severity scale above. Every Critical and High was re-checked against the code before fixing, and each fix was checked in Chrome (self-test plus scripted key, mouse and menu runs). Raw count: 1 Critical, 4 High, 21 Medium, 31 Low, 6 Informational. Functions are named because line numbers move.
+
+| ID | Sev | Area | Location | Reproduction | Fix task | Status |
+|---|---|---|---|---|---|---|
+| D01 | Critical | Input / rebind | `UI.update`, `UI.startRebind` | Gamepad only: Controls > Rebind: menu frozen. Mouse: Rebind > Back > fight: first key rebinds silently | P0-03 | [x] fixed: pad back cancels; any screen change cancels |
+| D02 | High | Input / rebind | `Inputs.onKeyDown` + `UI.onKey` | Esc cancels and also closes Controls; Enter restarts a rebind | P0-03 | [x] fixed: capture stops propagation |
+| D03 | High | Accessibility | `UI.optRow` | Screen reader reads an unnamed "spin button" in Settings | P0-03 | [x] fixed: aria-label, aria-valuetext, aria-keyshortcuts |
+| D04 | High | Game flow / creator | `CreatorUI.exit` | Char select > Create > Fight preview > Quit > Back > Confirm: MENU -> COUNTDOWN rejected, frozen match | P0-03 | [x] fixed: exit restores CHARSEL |
+| D05 | High | Performance / quality | `Quality.adapt` | 50 Hz screen or 30 fps cap (iPhone Low Power Mode): render scale drops to 0.6 with an idle GPU | P0-03 | [x] fixed: judged against the display pace; self-test added |
+| D06 | Medium | Quality | `Quality.apply` | Auto lowers scale, then pick High: stays at 60 % | P0-03 | [x] fixed |
+| D07 | Medium | Animation | `Fighter.computePose` (walk, run), `VICTORY_POSES.flex` | Code merged into end-of-line comments: arms never swing when walking, right arm frozen when running | P0-03 | [x] fixed (3 lines) |
+| D08 | Medium | Determinism | `Combat.landHit` (hitstop halved by Reduced motion) | Same seed, different result with Reduced motion on | P12-05 | open; `SimRunner` pins the setting meanwhile |
+| D09 | Medium | Benchmark | `UI.runBenchmark` | Quit during a benchmark: objects keep breaking in the next match | P0-03 | [x] fixed: stops when paused or left |
+| D10 | Medium | Creator | `CreatorUI.importCode` | Import over unsaved edits loses them without asking | P0-03 | [x] fixed: unsaved-changes guard |
+| D11 | Medium | Accessibility | `Settings.reset` | OS reduced motion on, Reset: Reduced motion off for good | P0-03 | [x] fixed |
+| D12 | Medium | Touch / overlay | `#diag` CSS | `?perf` on a phone: overlay blocks the touch stick | P0-03 | [x] fixed: click-through while touch controls show |
+| D13 | Medium | Training input | `UI.onKey` | Jump bound to Digit1: each jump reloads scenario 1 | P0-03 | [x] fixed |
+| D14 | Medium | Settings UI | `UI.rerender` | Click an arrow in a row: focus and scroll jump to the first row | P0-03 | [x] fixed |
+| D15 | Medium | Onboarding | `applyTouchVisibility`, `onboardTouch` | Touchscreen laptop with keyboard: one-time card shows touch help | P2-07 | open |
+| D16 | Medium | Error screen | `UI.update`, `showFatal` | Error with only a gamepad: "Return to main menu" unreachable; menu behind overlay still focusable | P0-07 | open |
+| D17 | Medium | Colliders | `Arena.breakObject` -> `addRubble` | Pit barrier breaks: 2.7-3 m invisible rubble collider pushes fighters | P8-02 | open |
+| D18 | Medium | Object damage | `Arena.damageObject` (`lastSrc`) | Two overlapping attacks on one crate: damage every tick | P9-02 | open |
+| D19 | Medium | Throws | `Fighter.startThrow` | Strong throw at 0 stamina keeps x1.5 damage | P3-08 | open |
+| D20 | Medium | Loop / errors | `Game.fail` (`errorCount`) | 9th caught error in a session stops the loop for good | P0-07 | open |
+| D21 | Medium | Self-test health | real matchEnd -> VICTORY -> RESULTS path, preview return | Tests set states directly, so D04 passed 114/114 | P0-07 | open |
+| D22 | Low | Input / storage | `KeyBindings.load`, `Store.set`, `Progress.save`, `pollPad`, onboarding card, `touchStrike` | Unbound fallback key; one failed write disables storage for the session; two tabs overwrite saves; non-standard pad toast repeats; pad cannot close the controls card; two touch attacks in one tick drop one | P0-07 (touch: P2-04) | open |
+| D23 | Low | HUD / a11y | `#warn` under touch stick; `user-scalable=no`; spinbutton Up/Down move focus | Low-stamina warning hidden on touch; no pinch zoom in menus | P2-04, P2-08 | open |
+| D24 | Low | Renderer | `WEAK_GPU`, `R.push` culling uses `proj[5]`, shader `vN` precision, per-frame arrays | Strong Linux / Mac GPUs rated low; props vanish at the screen edge in portrait; paper debris shading breaks on 16-bit GPUs; GC churn | P15-02 | open |
+| D25 | Low | Combat | `resolveCombat` trade order, `tryEscape` one-tick bias, `blockHit` hp floor, impact / attack id overlap, per-tick allocations | Grab vs strike on the same tick favours P1; P1 gets one more escape tick; block at hp 0.6 sets hp 1 | P3-08 (allocations: P15-02) | open |
+| D26 | Low | Storage | `CustomRoster.init` | Corrupt custom data is overwritten by the next save | P6-11 | open |
+| D27 | Low | Game flow | `onNextRound` order, `errmenu` skips `quitToMenu`, preview clears the Versus score, menu shows the smashed arena, self-test leaks 4 matches and plays sounds | Auditor notes per item | P0-07 | open |
+| D28 | Low | Benchmark / runner | benchmark used up the onboarding card and left the menu arena; unknown arena threw | `BREAKPOINT.benchmark()` on a new profile | P0-03 | [x] fixed |
+| D29 | Info | Various | KO -> IDLE log comes from a deliberate self-test; decider tie goes to P1; share-code trimming is silent; style index in share codes must stay append-only; quick rise uses the dash input; grunt nodes not disconnected; CSP `frame-ancestors` needs an HTTP header if hosted | - | P2-02 (quick rise), P5-03 (style ids), P14-04 (tie), P12-04 (CSP) | noted |

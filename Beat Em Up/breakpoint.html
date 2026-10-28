@@ -223,6 +223,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 #toast{position:absolute;left:50%;top:calc(1em + var(--sat));transform:translateX(-50%);max-width:90vw;pointer-events:none;z-index:30}
 .toast{background:rgba(0,0,0,.85);border:2px solid var(--a1);padding:.45em 1em;margin-top:.4em;border-radius:.4em;font-weight:700;text-align:center}
 .toast.warn{border-color:var(--warn)}.toast.err{border-color:var(--bad)}
+#touch:not([hidden])~#diag{pointer-events:none}
 #diag{position:absolute;left:calc(.5em + var(--sal));bottom:calc(.5em + var(--sab));max-width:min(36em,96vw);max-height:60vh;max-height:60dvh;overflow:auto;font:12px/1.4 Consolas,monospace;background:rgba(0,0,0,.78);border:1px solid #6d82b8;padding:.5em .7em;pointer-events:auto;z-index:20;white-space:pre-wrap;user-select:text}
 #fatal{position:absolute;inset:0;z-index:40;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.92);padding:1.5em}
 #fatal .panel{border-color:var(--bad)}
@@ -528,7 +529,7 @@ const Settings = {
   init() {
     const stored = readJson(KEY_SETTINGS) || {};
     if ((stored.revision || 1) < SETTINGS_REVISION) delete stored.movement;
-    const prefersReduced = typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const prefersReduced = this.prefersReducedMotion();
     for (const key in SETTING_DEFS) {
       let value = key in stored ? this.validate(key, stored[key]) : SETTING_DEFS[key].def;
       if (key === 'reducedMotion' && !(key in stored) && prefersReduced) value = true;
@@ -545,7 +546,12 @@ const Settings = {
     this.apply();
   },
   save() { Store.set(KEY_SETTINGS, JSON.stringify({ ...this.v, revision: SETTINGS_REVISION })); },
-  reset() { for (const key in SETTING_DEFS) this.v[key] = SETTING_DEFS[key].def; this.save(); this.apply(); },
+  reset() {
+    for (const key in SETTING_DEFS) this.v[key] = SETTING_DEFS[key].def;
+    if (this.prefersReducedMotion()) this.v.reducedMotion = true;   // the operating system's choice is the default, as on first start
+    this.save(); this.apply();
+  },
+  prefersReducedMotion() { return typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches; },
   apply() {
     const app = document.getElementById('app');
     if (app) {
@@ -1164,6 +1170,7 @@ const Inputs = {
   onKeyDown(e) {
     if (this.captureCallback) {
       e.preventDefault();
+      e.stopImmediatePropagation();   // the key that ends a rebind must not also drive the menu
       const cb = this.captureCallback;
       this.captureCallback = null;
       cb(e.code);
@@ -1780,9 +1787,14 @@ const QUALITY_PRESETS = {
    Frames while the page is hidden or throttled are ignored. */
 // Measured on an Intel HD 4000: about 4.2 ms at 0.9 MP and 6.1 ms at 2.1 MP, so 1080p fits the 16.7 ms budget on weak GPUs.
 const PIXEL_BUDGET = { low: 2.1e6, high: 4.2e6 };
+const TARGET_FRAME_MS = 1000 / 60;
+const SLOW_FRAME_RATIO = 1.17;       // smoothed frame time above target x this = too slow (19.5 ms at 60 Hz)
+const FAST_FRAME_RATIO = 1.05;       // below target x this = room to raise the scale again (17.5 ms at 60 Hz)
+const REFRESH_SETTLE_FRAMES = 120;   // the smoothed frame time needs this many frames before it shows the display pace
 const Quality = {
   level: 'high',
   autoScale: 1,
+  bestFrameMs: Infinity,   // smoothest frame time seen this session (light menu scenes): the display's own pace
   slowTime: 0,
   fastTime: 0,
   blockUpUntil: 0,
@@ -1805,13 +1817,16 @@ const Quality = {
     const fx = Settings.v.effects;
     const fxMul = fx === 'low' ? 0.4 : fx === 'medium' ? 0.7 : 1;
     this.limits = { particles: Math.floor(p.particles * fxMul), debris: p.debris };
-    R.setQuality(scale * this.autoScale, p.dprCap, shadow);
+    R.setQuality(scale * (auto ? this.autoScale : 1), p.dprCap, shadow);
   },
   /* Called once per frame with the smoothed frame interval (ms) and this frame's dt (s). */
   adapt(frameMs, dt) {
     if (Settings.v.quality !== 'auto') { this.autoScale = 1; return; }
     if (document.hidden || dt > 0.1) { this.slowTime = 0; this.fastTime = 0; return; }
-    if (frameMs > 19.5) { this.slowTime += dt; this.fastTime = 0; } else if (frameMs < 17.5) { this.fastTime += dt; this.slowTime = 0; } else this.slowTime = 0;
+    // A 50 Hz screen or a browser capped at 30 fps never runs faster: judge frames against that pace, not against 60 fps
+    if (Diag.frameCount > REFRESH_SETTLE_FRAMES) this.bestFrameMs = Math.min(this.bestFrameMs, frameMs);
+    const target = Math.max(TARGET_FRAME_MS, Number.isFinite(this.bestFrameMs) ? this.bestFrameMs : 0);
+    if (frameMs > target * SLOW_FRAME_RATIO) { this.slowTime += dt; this.fastTime = 0; } else if (frameMs < target * FAST_FRAME_RATIO) { this.fastTime += dt; this.slowTime = 0; } else this.slowTime = 0;
     const now = performance.now();
     if (this.slowTime > 1.5 && this.autoScale > 0.6) {
       this.autoScale = Math.max(0.6, Math.round((this.autoScale - 0.1) * 100) / 100);
@@ -3108,7 +3123,7 @@ const VICTORY_POSES = {
     p[J.hipLx] = 0; p[J.hipRx] = 0; p[J.hipLz] = 0.04; p[J.hipRz] = 0.04; p[J.knL] = 0.05; p[J.knR] = 0.05;
   },
   flex(p, t) {
-    p[J.shLx] = 0; p[J.shRx] = 0; p[J.shLz] = 1.4; p[J.shRz] = 1.4; p[J.shLy] = 1.5; p[J.shRy] = 1.5; p[J.elL] = 2.0; p[J.elR] = 2.0;   // double biceps p[J.torsoLean] = -0.1; p[J.headX] = -0.15;
+    p[J.shLx] = 0; p[J.shRx] = 0; p[J.shLz] = 1.4; p[J.shRz] = 1.4; p[J.shLy] = 1.5; p[J.shRy] = 1.5; p[J.elL] = 2.0; p[J.elR] = 2.0; p[J.torsoLean] = -0.1; p[J.headX] = -0.15;   // double biceps
     p[J.torsoTwist] = Math.sin(t * 2.5) * 0.12; p[J.hipLz] = 0.22; p[J.hipRz] = 0.22; p[J.hipLx] = 0.15; p[J.hipRx] = 0.15; p[J.knL] = 0.3; p[J.knR] = 0.3;
   },
   ginga(p, t) {
@@ -3629,11 +3644,11 @@ class Fighter {
         p[J.hipLz] = g[J.hipLz] + Math.abs(this.moveSideNorm) * 0.25 * (1 + sw); p[J.hipRz] = g[J.hipRz] + Math.abs(this.moveSideNorm) * 0.25 * (1 - sw);
         p[J.torsoRoll] = -this.moveSideNorm * 0.1;
         // counter-rotation: shoulders turn against the stepping hip, arms swing opposite the legs, weight bobs twice per stride
-        p[J.torsoTwist] += -sw * 0.1 * fwdK;                             // shoulders counter-rotate ~10-15 deg (plate 1) p[J.shLx] -= sw * m.armSwing; p[J.shRx] += sw * m.armSwing;
+        p[J.torsoTwist] += -sw * 0.1 * fwdK; p[J.shLx] -= sw * m.armSwing; p[J.shRx] += sw * m.armSwing;   // shoulders counter-rotate ~10-15 deg (plate 1)
         p[J.knL] += m.walkBounce * 3 * (0.5 + 0.5 * Math.cos(2 * ph)); p[J.knR] += m.walkBounce * 3 * (0.5 + 0.5 * Math.cos(2 * ph));
         if (this.moveFwdNorm < -0.3) p[J.torsoLean] -= 0.06;            // backpedal: weight stays on the back foot
         if (run) {
-          p[J.torsoLean] = 0.3; p[J.shLx] = 0.5 + sw * 0.6;   // run lean 15-20 deg (plates 59 / 60 / 62) p[J.shRx] = 0.5 - sw * 0.6; p[J.elL] = 1.5; p[J.elR] = 1.5; p[J.shLz] = 0.1; p[J.shRz] = 0.1; p[J.torsoTwist] = sw * 0.25; p[J.headX] = 0.05;
+          p[J.torsoLean] = 0.3; p[J.shLx] = 0.5 + sw * 0.6; p[J.shRx] = 0.5 - sw * 0.6; p[J.elL] = 1.5; p[J.elR] = 1.5; p[J.shLz] = 0.1; p[J.shRz] = 0.1; p[J.torsoTwist] = sw * 0.25; p[J.headX] = 0.05;   // run lean 15-20 deg (plates 59 / 60 / 62)
         } else p[J.rootSide] = Math.sin(ph) * 0.02;
         break;
       }
@@ -5503,8 +5518,10 @@ const SimRunner = {
      'other' is damage not carried by a hit or throw: walls, objects and chip damage. */
   run(opts) {
     const cfg = Object.assign({ playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard', seed: 1, winsNeeded: 2, timer: 60 }, opts);
-    const savedHandlers = Events.handlers;
+    if (!ARENAS[cfg.arenaId] || !ROSTER_BY_ID[cfg.playerId] || !ROSTER_BY_ID[cfg.opponentId]) return { error: 'Unknown arena or fighter id' };
+    const savedHandlers = Events.handlers, savedReduced = Settings.v.reducedMotion;
     Events.handlers = {};   // only this run's listeners: the menu scene, sound and HUD never see the simulated match
+    Settings.v.reducedMotion = false;   // reduced motion shortens hitstop; balance numbers must not depend on a viewer setting
     const damage = [{}, {}];
     const add = (side, type, dmg) => { damage[side][type] = (damage[side][type] || 0) + dmg; };
     let m = null;
@@ -5535,6 +5552,7 @@ const SimRunner = {
     } finally {
       if (m) m.dispose();
       Events.handlers = savedHandlers;
+      Settings.v.reducedMotion = savedReduced;
     }
   },
 };
@@ -6572,7 +6590,7 @@ const UI = {
     this.dom.timer.hidden = train;
     this.dom.roundlbl.hidden = false;
     if (match.versus && this.cardSession !== Game.versus) this.showVersusCard();
-    else if (!Progress.d.seenControls) this.showOnboarding();
+    else if (!Progress.d.seenControls && !match.cfg.benchmark) this.showOnboarding();   // a benchmark must not use up the one-time card
     this.pops.forEach((p) => { p.age = 99; p.el.style.opacity = '0'; });
     Inputs.reset();
   },
@@ -6601,9 +6619,9 @@ const UI = {
   },
 
   /* ----- screens ----- */
-  go(name) { this.current = name; this.rerender(false); },
-  push(name) { if (this.current) this.stack.push(this.current); this.current = name; this.rerender(false); },
-  hideScreen() { this.current = null; this.stack = []; this.dom.screens.innerHTML = ''; },
+  go(name) { Inputs.capture(null); this.current = name; this.rerender(false); },
+  push(name) { Inputs.capture(null); if (this.current) this.stack.push(this.current); this.current = name; this.rerender(false); },
+  hideScreen() { Inputs.capture(null); this.current = null; this.stack = []; this.dom.screens.innerHTML = ''; },
   back() {
     const cur = this.current;
     if (cur === 'pause') { Game.resume(); return; }
@@ -6621,7 +6639,10 @@ const UI = {
   rerender(keepFocus) {
     const root = this.dom.screens;
     let idx = 0;
-    if (keepFocus) { const items = this.navItems(); idx = Math.max(0, items.indexOf(document.activeElement)); }
+    if (keepFocus) {
+      const items = this.navItems(), focused = document.activeElement;
+      idx = Math.max(0, items.indexOf(focused && focused.closest ? focused.closest('[data-nav]') : null));   // a clicked arrow button inside a row counts as its row
+    }
     const fn = this['screen_' + this.current];
     root.innerHTML = fn ? fn.call(this) : '';
     const items = this.navItems();
@@ -6645,7 +6666,7 @@ const UI = {
       const m = Game.match;
       if (e.code === 'Tab') { e.preventDefault(); m.resetFighters(); return; }
       if (e.code === 'F2') { e.preventDefault(); m.resetArenaObjects(); return; }
-      if (/^Digit[1-5]$/.test(e.code) && !e.repeat) { m.scenario(Number(e.code.slice(5))); return; }
+      if (/^Digit[1-5]$/.test(e.code) && !e.repeat && !Inputs.active().some((p) => p.codeMap.has(e.code))) { m.scenario(Number(e.code.slice(5))); return; }   // a digit bound to an action stays that action
     }
     if (e.code === 'F3') { e.preventDefault(); this.toggleDiag(); return; }
     if (!this.current) return;
@@ -6786,7 +6807,8 @@ const UI = {
   startRebind(keymap, action) {
     const p2 = keymap === Keymap2;
     const btn = this.dom.screens.querySelector('[data-act="' + (p2 ? 'rebind2:' : 'rebind:') + action + '"]');
-    if (btn) btn.textContent = 'Press a key... (Esc cancels)';
+    if (btn) btn.textContent = 'Press a key... (Esc or pad back cancels)';
+    this.say('Press a key for ' + ACTION_LABELS[action] + '. Escape cancels.');
     Inputs.capture((code) => {
       if (code === 'Escape') { this.rerender(true); return; }
       const r = keymap.rebind(action, code);
@@ -6815,7 +6837,7 @@ const UI = {
 
   /* ----- screen templates ----- */
   optRow(label, value, attr, extra) {
-    return '<div class="opt" role="spinbutton" tabindex="0" data-nav ' + attr + '><span class="k">' + esc(label) + '</span><span class="v">' + extra + esc(value) + '</span></div>';
+    return '<div class="opt" role="spinbutton" tabindex="0" aria-label="' + esc(label) + '" aria-valuetext="' + esc(value) + '" aria-keyshortcuts="ArrowLeft ArrowRight" data-nav ' + attr + '><span class="k">' + esc(label) + '</span><span class="v">' + extra + esc(value) + '</span></div>';
   },
   screen_main() {
     return '<section class="screen on" aria-label="Main menu"><div class="panel"><h1 class="logo">BREAKPOINT</h1><p class="sub">3D fighting game with destructible arenas</p><nav>' +
@@ -7040,7 +7062,8 @@ const UI = {
     const pauseShown = this.lastScreen === 'pause';   // a press that led back to the pause screen (Esc in Controls) must not also close it
     this.lastScreen = this.current;
     if (this.current === 'creator' && this.frameCount % 15 === 1) CreatorUI.measureFocus(); // panel size changes with layout
-    if (!this.current || Inputs.captureCallback) return;
+    if (!this.current) return;
+    if (Inputs.captureCallback) { this.padCancelCapture(); return; }
     const unpause = Inputs.take('pause');   // P / gamepad Start close the pause screen (Esc goes through onKey)
     if (unpause && this.current === 'pause' && pauseShown && performance.now() > this.guardUntil) { Game.resume(); return; }
     const pd = Inputs.menuDir, ph = Inputs.menuHeld, p = this.padPrev;
@@ -7054,6 +7077,13 @@ const UI = {
     if (back && !p.back && performance.now() > this.guardUntil) this.back();
     if (this.current === 'creator') this.creatorPad(ph, pd, p);
     p.up = pd.up; p.down = pd.down; p.left = pd.left; p.right = pd.right; p.ok = ok; p.back = back;
+  },
+
+  /* A rebind waits for a keyboard key; the pad's back button cancels it so a pad-only player is never stuck. */
+  padCancelCapture() {
+    const back = !!Inputs.menuHeld.menuBack;
+    if (back && !this.padPrev.back) { Inputs.capture(null); Sound.ui('back'); this.rerender(true); }
+    this.padPrev.back = back;
   },
 
   /* Creator extras on a gamepad: L1 / R1 switch tabs, L2 / R2 turn the preview. */
@@ -7429,7 +7459,10 @@ const CreatorUI = {
   exit() {
     this.confirm = null;
     Showcase.endPreview();
-    if (this.origin === 'char') { UI.showPick(); UI.go('char'); return; }
+    if (this.origin === 'char') {
+      if (Game.state === GS.MENU) Game.go(GS.CHARSEL);   // a Fight preview ended in MENU; character select must be live again to start a match
+      UI.showPick(); UI.go('char'); return;
+    }
     UI.menuScene('warehouse', 'kai', UI.showcaseOpponent(), false);
     UI.go('main');
   },
@@ -7634,10 +7667,13 @@ const CreatorUI = {
   importCode(text) {
     const result = decodeCustom(text, veteranUnlocked());
     if (!result.ok) { Sound.ui('bad'); UI.toast('Import failed: ' + result.error, 'err'); UI.say('Import failed. ' + result.error); return; }
-    this.draft = result.value;
-    this.tab = 'body';
-    this.changed('Imported ' + this.draft.name + '. Save to keep it in slot ' + (this.slot + 1));
-    UI.toast('Imported ' + this.draft.name + ' (not saved yet)');
+    this.guardUnsaved(() => {
+      this.confirm = null;
+      this.draft = result.value;
+      this.tab = 'body';
+      this.changed('Imported ' + this.draft.name + '. Save to keep it in slot ' + (this.slot + 1));
+      UI.toast('Imported ' + this.draft.name + ' (not saved yet)');
+    });
   },
   pasteCode() {
     const box = $('crImport');
@@ -9661,7 +9697,25 @@ const SelfTest = {
       if (!(a.seconds > 0)) return 'duration ' + a.seconds;
       const dealt = a.damage.map((d) => Object.values(d).reduce((sum, v) => sum + v, 0));
       if (!(dealt[0] + dealt[1] > 0)) return 'no damage recorded';
+      if (!SimRunner.run({ arenaId: 'nowhere' }).error) return 'unknown arena accepted';
       return JSON.stringify(a) === JSON.stringify(b) ? true : 'same seed gave different results';
+    });
+    test('Auto quality keeps full scale on a 50 Hz screen and lowers it when 60 Hz frames are slow', () => {
+      const keep = { quality: Settings.v.quality, autoScale: Quality.autoScale, best: Quality.bestFrameMs, block: Quality.blockUpUntil, frames: Diag.frameCount };
+      const runFrames = (ms, n) => { for (let i = 0; i < n; i++) Quality.adapt(ms, ms / 1000); };
+      try {
+        Settings.v.quality = 'auto'; Diag.frameCount = Math.max(Diag.frameCount, REFRESH_SETTLE_FRAMES + 1);
+        Quality.autoScale = 1; Quality.slowTime = 0; Quality.bestFrameMs = 20;
+        runFrames(20, 600);   // 12 s of steady 50 Hz frames
+        const at50Hz = Quality.autoScale;
+        Quality.autoScale = 1; Quality.slowTime = 0; Quality.bestFrameMs = TARGET_FRAME_MS;
+        runFrames(22, 150);   // 3.3 s of 22 ms frames on a 60 Hz screen
+        const slow60 = Quality.autoScale;
+        return at50Hz === 1 && slow60 < 1 ? true : '50 Hz scale ' + at50Hz + ', slow 60 Hz scale ' + slow60;
+      } finally {
+        Settings.v.quality = keep.quality; Quality.autoScale = keep.autoScale; Quality.bestFrameMs = keep.best; Quality.blockUpUntil = keep.block;
+        Quality.slowTime = 0; Quality.fastTime = 0; Diag.frameCount = keep.frames; Quality.apply();
+      }
     });
     return results;
   },
@@ -9696,7 +9750,7 @@ UI.runBenchmark = function runBenchmark(seconds) {
   };
   Game.go(GS.CHARSEL);
   Game.run = { mode: 'free', player: 'kai' };
-  Game.beginMatch({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId, difficulty: 'expert', winsNeeded: 99, timer: 0, countdown: false });
+  Game.beginMatch({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId, difficulty: 'expert', winsNeeded: 99, timer: 0, countdown: false, benchmark: true });
   const m = Game.match;
   m.controllers[0] = new AIController(m.fighters[0].profile, 'expert');
   smashAll();
@@ -9708,7 +9762,10 @@ UI.runBenchmark = function runBenchmark(seconds) {
     return [at(0.5), at(0.95), at(1)].map((v) => Math.round(v * 100) / 100);
   };
   return new Promise((resolve) => {
+    // the player quit or paused: stop measuring and leave whatever they are doing now alone
+    const abandoned = () => Game.match !== m || !SIM_STATES.includes(Game.state) || Game.state === GS.PAUSED;
     const offFrame = Events.on('frame', (e) => {
+      if (abandoned()) { offFrame(); offRendered(); resolve({ error: 'Benchmark stopped: the match was paused or left.' }); return; }
       workStart = performance.now();
       elapsed += e.dt; sinceBreak += e.dt;
       if (sinceBreak >= BENCH_REBREAK_SECONDS) { sinceBreak = 0; smashAll(); }
@@ -9722,6 +9779,7 @@ UI.runBenchmark = function runBenchmark(seconds) {
       if (elapsed < BENCH_WARMUP_SECONDS + duration) return;
       offFrame(); offRendered();
       Game.quitToMenu();
+      UI.resetMenuScene();
       const round = (v) => Math.round(v * 100) / 100;
       const [frameP50, frameP95, frameMax] = percentiles(frames), [workP50, workP95, workMax] = percentiles(work);
       resolve({
