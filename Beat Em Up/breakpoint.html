@@ -2220,6 +2220,18 @@ const Arena = {
     return false;
   },
 
+  /* Height of the footing under a fighter's cylinder at (x, z) standing at height y: the groundY rule of resolveFighter without moving anything (AI edge checks). */
+  supportAt(x, z, y, r) {
+    let top = 0;
+    for (const c of this.colliders) {
+      if (!c.active) continue;
+      const dx = x - clamp(x, c.x - c.hx, c.x + c.hx), dz = z - clamp(z, c.z - c.hz, c.z + c.hz);
+      if (dx * dx + dz * dz >= r * r) continue;
+      if (c.top <= STEP_HEIGHT || (y >= c.top - 0.25 && c.standable)) top = Math.max(top, c.top);
+    }
+    return top;
+  },
+
   /* Fighter (vertical cylinder) vs bounds and obstacles. Sets f.groundY and wall/obstacle contact info. */
   resolveFighter(f) {
     const b = this.def.bounds, r = f.radius, mx = b.x - r, mz = b.z - r;
@@ -2611,15 +2623,15 @@ const FX = {
 const S = {
   IDLE: 'IDLE', WALK: 'WALK', RUN: 'RUN', SIDESTEP: 'SIDESTEP', SWAY: 'SWAY', CROUCH: 'CROUCH', JUMP: 'JUMP',
   ATTACK: 'ATTACK', BLOCK_H: 'BLOCK_H', BLOCK_L: 'BLOCK_L', HIT: 'HIT', STAGGER: 'STAGGER', STUN: 'STUN',
-  CLINCH: 'CLINCH', GRAPPLE: 'GRAPPLE', SUBMIT: 'SUBMIT', THROWN: 'THROWN', DOWN: 'DOWN', GETUP: 'GETUP', KO: 'KO', VICTORY: 'VICTORY', DEFEAT: 'DEFEAT',
+  CLINCH: 'CLINCH', GRAPPLE: 'GRAPPLE', SUBMIT: 'SUBMIT', THROWN: 'THROWN', FALL: 'FALL', DOWN: 'DOWN', GETUP: 'GETUP', KO: 'KO', VICTORY: 'VICTORY', DEFEAT: 'DEFEAT',
 };
 const STATE_LABEL = {
   IDLE: 'Idle', WALK: 'Walking', RUN: 'Running', SIDESTEP: 'Sidestep', SWAY: 'Swaying', CROUCH: 'Crouching', JUMP: 'Jumping',
   ATTACK: 'Attacking', BLOCK_H: 'High block', BLOCK_L: 'Low block', HIT: 'Hit reaction', STAGGER: 'Staggered', STUN: 'Stunned',
-  CLINCH: 'Clinched', GRAPPLE: 'Grappling', SUBMIT: 'Holding', THROWN: 'Thrown', DOWN: 'Knocked down', GETUP: 'Recovering', KO: 'Knocked out', VICTORY: 'Victory', DEFEAT: 'Defeat',
+  CLINCH: 'Clinched', GRAPPLE: 'Grappling', SUBMIT: 'Holding', THROWN: 'Thrown', FALL: 'Falling', DOWN: 'Knocked down', GETUP: 'Recovering', KO: 'Knocked out', VICTORY: 'Victory', DEFEAT: 'Defeat',
 };
 const TERMINAL_STATES = [S.KO, S.VICTORY, S.DEFEAT];
-const REACTION_STATES = [S.HIT, S.STAGGER, S.STUN, S.CLINCH, S.THROWN, S.DOWN];
+const REACTION_STATES = [S.HIT, S.STAGGER, S.STUN, S.CLINCH, S.THROWN, S.FALL, S.DOWN];
 const FREE_SET = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L];
 const STRING_BREAK_STATES = [...REACTION_STATES, S.GRAPPLE, S.SUBMIT, S.GETUP, ...TERMINAL_STATES];   // entering one of these ends the fighter's attack string
 /* Explicit transition table for voluntary changes. Reactions (hit, stagger, stun, clinch, thrown, down, KO)
@@ -2642,6 +2654,7 @@ const TRANSITIONS = {
   CLINCH: [S.IDLE],
   GRAPPLE: [S.IDLE],
   THROWN: [S.DOWN],
+  FALL: [S.IDLE],
   DOWN: [S.GETUP],
   GETUP: [S.IDLE, S.CROUCH],
   KO: [], VICTORY: [], DEFEAT: [],
@@ -2650,7 +2663,7 @@ function canTransition(from, to) {
   if (TERMINAL_STATES.includes(from)) return false;
   if (to === S.KO) return true;
   if (to === S.VICTORY || to === S.DEFEAT) return true;
-  if (REACTION_STATES.includes(to)) return to !== S.DOWN || from === S.THROWN || from === S.HIT || from === S.STAGGER;
+  if (REACTION_STATES.includes(to)) return to !== S.DOWN || from === S.THROWN || from === S.FALL || from === S.HIT || from === S.STAGGER;
   if (from === to) return true;
   return TRANSITIONS[from].includes(to);
 }
@@ -3025,6 +3038,20 @@ const COMBO_RESET_TICKS = 12;
    gave the defender a single tick to act: an infinite loop for every string that ends in a knockdown. */
 const WAKEUP_GRACE_TICKS = 6;
 const WALK_FORWARD = 2.2, WALK_BACK = 1.6, WALK_SIDE = 1.8, RUN_SPEED = 4.6, CROUCH_FACTOR = 0.45, BLOCK_FACTOR = 0.6;
+/* Falling (P3-07). A drop is the height lost since the fighter last stood on something; today's footing is crate rubble (0.22), pillar rubble (0.55) and a crate top (about 0.9), P8's balconies reuse the same rules. */
+const FALL_STATE_DROP = 0.4;          // a drop deeper than this switches a fighter in a grounded-only state to FALL; shallower drops (crate rubble 0.22, pillar rubble settling 0.35) keep the state and just land
+const FALL_DAMAGE_FREE_DROP = 0.5;    // landing from this height or less costs nothing (a 0.55 m pillar top is nearly free)
+const FALL_DAMAGE_PER_METER = 8;      // HP per metre beyond the free drop, before the fighter's taken / impact scaling: a pillar top 0.4, a crate top 3.6, a 3 m balcony 20
+const FALL_DAMAGE_MAX = 40;           // a tall drop hurts but never takes more than this (before scaling), so it is no instant KO from full health
+const FALL_KNOCKDOWN_DROP = 1.6;      // a landing from this height knocks the fighter down; a lower one is a short stagger
+const FALL_LAND_BASE_TICKS = 14, FALL_LAND_TICKS_PER_METER = 10, FALL_LAND_MAX_TICKS = 40;   // length of the landing stagger: grows with the drop
+const FALL_DRIFT_DAMP = 0.97;         // per tick: the walk speed a fighter carries off an edge fades; nothing steers in the air
+const FALL_MAX_TICKS = 180;           // safety net: a fall lasts under a second, so past this the fighter is landed where it is
+const SUPPORT_EPS = 0.002;            // closer than this to the footing counts as standing on it
+const FALL_FROM_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.SIDESTEP, S.SWAY, S.ATTACK, S.GETUP, S.GRAPPLE, S.CLINCH, S.SUBMIT];   // grounded-only states that give way to FALL (an air attack, JUMP and the reactions already fly)
+const AI_EDGE_LOOK = 0.5, AI_EDGE_LOOK_RUN = 0.9, AI_EDGE_LOOK_SIDESTEP = 1.2, AI_EDGE_LOOK_JUMP = 1.4;   // metres ahead the CPU checks for footing before a walk / run / sidestep / jump
+const AI_EDGE_PATIENCE = 90;        // ticks the CPU holds at an edge before it climbs down on purpose: a CPU left on a crate must not stall the fight
+const AI_EDGE_SAFE_DAMAGE = 5;      // ... and only where the drop costs at most this much fall damage (crate and rubble tops yes, a balcony never)
 const THROWN_MAX_TICKS = 150, THROWN_HARD_CAP_TICKS = 300;   // throw flights end by landing; past these the fighter is landed anyway (rubble softlock net)
 const GUARD_WALK_SPEED = 0.15;       // m/s: above this a crouching or guarding fighter steps its legs instead of sliding
 const SIDESTEP_COST = 6, JUMP_COST = 4, RUN_DRAIN = 7;
@@ -3340,7 +3367,7 @@ class Fighter {
   reset(x, z, yaw, hpFrac, stamFrac) {
     this.x = x; this.y = 0; this.z = z; this.prevX = x; this.prevY = 0; this.prevZ = z; this.prevYaw = yaw;
     this.vx = 0; this.vy = 0; this.vz = 0; this.kx = 0; this.kz = 0; this.yaw = yaw;
-    this.groundY = 0; this.wallHit = false; this.obstacleHit = null;
+    this.groundY = 0; this.supportY = 0; this.wallHit = false; this.obstacleHit = null;   // supportY: the height of the footing this fighter last stood on (the start of a drop)
     this.maxHp = this.stats.maxHp; this.maxStam = this.stats.maxStam;
     this.hp = this.maxHp * (hpFrac === undefined ? 1 : hpFrac);
     this.stam = this.maxStam * (stamFrac === undefined ? 1 : stamFrac);
@@ -3623,6 +3650,7 @@ class Fighter {
           this.y = Math.max(this.y, this.groundY); this.vy = 0; this.onLand(0);
         }
         break;
+      case S.FALL: this.updateFall(); break;
       case S.DOWN: this.updateDown(it); break;
       case S.GETUP:
         this.vx = this.vz = 0;
@@ -3722,6 +3750,14 @@ class Fighter {
     const wantX = (fx * it.fwd + rx * it.side) * 1.4, wantZ = (fz * it.fwd + rz * it.side) * 1.4;
     this.vx += (wantX - this.vx) * 0.04; this.vz += (wantZ - this.vz) * 0.04;
     if (this.lock === 0 && !this.airAttackUsed) this.tryBufferedAttack(it);
+  }
+  /* FALL: nothing underfoot, so no steering; the speed carried off the edge fades. Landing is afterCollision's job (awaitsLanding). */
+  updateFall() {
+    this.vx *= FALL_DRIFT_DAMP; this.vz *= FALL_DRIFT_DAMP;
+    if (this.stateTicks <= FALL_MAX_TICKS) return;
+    const drop = Math.max(0, this.supportY - this.groundY);
+    this.y = this.groundY; this.vy = 0; this.supportY = this.groundY;
+    this.onLand(0, drop);
   }
   downTicks() { return Math.round(52 * this.stats.getup * this.downMult); }
   updateDown(it) {
@@ -3848,18 +3884,22 @@ class Fighter {
     if (Math.abs(this.kz) < 0.01) this.kz = 0;
     return airborne;
   }
-  afterCollision(wasAirborne) {
+  afterCollision(wasAirborne, match) {
     if (this.y <= this.groundY && this.vy <= 0) {
-      const impact = -this.vy;
+      const impact = -this.vy, drop = Math.max(0, this.supportY - this.groundY);   // drop: the height lost since the last footing (a jump from the floor back onto the floor loses none)
       this.y = this.groundY;
       this.vy = 0;
       // rubble can lift a rising fighter onto its top without an airborne tick: a flight state still has to land
-      if (wasAirborne || impact > 0.5 || this.awaitsLanding()) this.onLand(impact);
+      if (wasAirborne || impact > 0.5 || this.awaitsLanding()) {
+        if (match) Combat.fallDamage(this, drop, match);   // before the landing reaction: a knock-out by the fall skips it
+        this.onLand(impact, drop);
+      }
     }
+    if (this.y <= this.groundY + SUPPORT_EPS) this.supportY = this.groundY;
   }
   /* States that end only by landing; each one starts with vy > 0, so this never lands them early. */
-  awaitsLanding() { return this.state === S.THROWN || this.state === S.JUMP || (this.state === S.ATTACK && !!this.move && this.move.ctx === 'air'); }
-  onLand(impact) {
+  awaitsLanding() { return this.state === S.THROWN || this.state === S.FALL || this.state === S.JUMP || (this.state === S.ATTACK && !!this.move && this.move.ctx === 'air'); }
+  onLand(impact, drop = 0) {
     if (impact > 2) Events.emit('land', { f: this, impact });
     this.airAttackUsed = false;
     switch (this.state) {
@@ -3871,6 +3911,11 @@ class Fighter {
         this.fvx = 0; this.fvz = 0;
         if (this.pendingKO || this.hp <= 0) { this.pendingKO = false; Combat.knockOut(this, null, null, Match.current); }
         else { this.setState(S.DOWN); this.groundHits = 0; Events.emit('knockdown', { f: this }); }
+        break;
+      case S.FALL:
+        this.vx = this.vz = 0; this.kx *= 0.3; this.kz *= 0.3;
+        if (drop >= FALL_KNOCKDOWN_DROP) { this.setState(S.DOWN); this.groundHits = 0; this.lieSign = 1; this.downMult = 1; Events.emit('knockdown', { f: this }); }
+        else { this.hitKind = 'low'; this.reactDur = Math.min(FALL_LAND_MAX_TICKS, Math.round(FALL_LAND_BASE_TICKS + drop * FALL_LAND_TICKS_PER_METER)); this.setState(S.STAGGER); }   // the knees take it
         break;
       case S.KO: this.kx *= 0.3; this.kz *= 0.3; break;
       default: break;
@@ -4010,6 +4055,13 @@ class Fighter {
         p[J.shLx] = 0.2; p[J.shRx] = 0.2; p[J.shLz] = 0.9; p[J.shRz] = 0.9; p[J.elL] = 0.5; p[J.elR] = 0.5; p[J.knL] = 0.5; p[J.knR] = 0.7;
         const legsUp = smoothstep(Math.max(0, (u - 0.3) / 0.7));
         p[J.hipLx] = 0.9 * legsUp; p[J.hipRx] = 0.6 * legsUp;
+        k = 0.4;
+        break;
+      }
+      case S.FALL: {   // arms out, legs trailing: a drop with nothing underfoot
+        const flail = Math.sin(t * 14) * 0.25;
+        p[J.hipLx] = 0.6 + flail; p[J.hipRx] = 0.3 - flail; p[J.knL] = 0.9; p[J.knR] = 0.7;
+        p[J.shLx] = 0.5; p[J.shRx] = 0.5; p[J.shLz] = 0.9; p[J.shRz] = 0.9; p[J.elL] = 0.4; p[J.elR] = 0.4; p[J.torsoLean] = 0.1;
         k = 0.4;
         break;
       }
@@ -4769,6 +4821,30 @@ const Combat = {
     if (f.hp <= 0) this.knockOut(f, null, null, match);
   },
 
+  /* Fall damage (P3-07): the height lost beyond FALL_DAMAGE_FREE_DROP times FALL_DAMAGE_PER_METER, capped at FALL_DAMAGE_MAX. */
+  fallDamageFor(drop) { return clamp((drop - FALL_DAMAGE_FREE_DROP) * FALL_DAMAGE_PER_METER, 0, FALL_DAMAGE_MAX); },
+  /* Goes through envDamage like a wall slam, so the training floor HP and the KO event hold; it never feeds the momentum gauge (only Combat.momentum does). */
+  fallDamage(f, drop, match) {
+    const dmg = this.fallDamageFor(drop);
+    if (dmg <= 0 || f.state === S.KO || !match.live) return;   // a knocked-out body bouncing, or a finished round, takes nothing and reports nothing
+    this.envDamage(f, dmg, match);
+    Events.emit('fallDamage', { f, drop, dmg, x: f.x, y: 0.2, z: f.z });
+  },
+  /* Called after the fighter was moved and landed: a fighter whose footing is gone and who will drop past FALL_STATE_DROP ends any clinch or hold it is in and, from a
+     grounded-only state, switches to FALL. A shallower drop changes nothing: gravity (Fighter.integrate) carries the current state down and it lands. */
+  fallCheck(f, match) {
+    if (!f.alive || f.y <= f.groundY + SUPPORT_EPS || f.supportY - f.groundY <= FALL_STATE_DROP) return;
+    if (f.pinnedBy) this.endSubmission(f.pinnedBy, 'broken');   // a held fighter that drops frees the hold
+    if (!FALL_FROM_STATES.includes(f.state) || (f.state === S.ATTACK && f.move && f.move.ctx === 'air')) return;
+    if (f.state === S.CLINCH || f.state === S.GRAPPLE) {
+      const holder = f.state === S.GRAPPLE ? f : f.partner, held = holder && holder.partner;
+      if (holder && held) this.releaseClinch(holder, held);
+    }   // a holder in SUBMIT drops its hold by leaving the state (Fighter.setState)
+    f.blockStun = 0;
+    f.setState(S.FALL);
+    Events.emit('fall', { f, drop: f.supportY - f.groundY, x: f.x, y: f.y, z: f.z });
+  },
+
   /* Combo bookkeeping: ends when the victim has been out of hit reactions for a few ticks. */
   tickCombos(fighters) {
     for (const f of fighters) {
@@ -5229,7 +5305,7 @@ class AIController {
   reset() {
     this.head = 0; this.count = 0; this.plan = null; this.nextDecision = 0; this.lastMoves = [];
     this.readThrow = null; this.willEscape = false; this.escapeAt = 0;
-    this.threatId = -1; this.threatResp = null; this.earlyRoll = null; this.breakGrabId = -1; this.punishId = -1; this.punishYes = false; this.steerSide = 1;
+    this.threatId = -1; this.threatResp = null; this.earlyRoll = null; this.edgeWait = 0; this.breakGrabId = -1; this.punishId = -1; this.punishYes = false; this.steerSide = 1;
     this.oppRecent = []; this.lastOppMoveId = 0; this.counterTried = false; this.clinchPlan = null; this.tickNo = 0;
   }
   observe(f, opp) {
@@ -5277,7 +5353,44 @@ class AIController {
     it.run = !!run && it.fwd > 0.6;
   }
 
+  /* True when a move of `look` metres along (dx, dz) from f would leave it with a drop deeper than FALL_STATE_DROP under its feet. Probes stay inside the walls. */
+  dropAhead(f, dx, dz, look) {   // the deepest drop past FALL_STATE_DROP along the probe, or 0
+    const len = Math.hypot(dx, dz);
+    if (len < 1e-6) return 0;
+    let deepest = 0;
+    const b = Arena.def.bounds, mx = b.x - f.radius, mz = b.z - f.radius;
+    for (let i = 1; i <= 3; i++) {
+      const d = look * i / 3, x = clamp(f.x + dx / len * d, -mx, mx), z = clamp(f.z + dz / len * d, -mz, mz);
+      const drop = f.groundY - Arena.supportAt(x, z, f.y, f.radius);
+      if (drop > FALL_STATE_DROP) deepest = Math.max(deepest, drop);
+    }
+    return deepest;
+  }
+  /* The CPU does not walk, run, sidestep or jump off an elevated surface by accident (P3-07); knockback and throws still carry it off.
+     After AI_EDGE_PATIENCE ticks held at an edge it climbs down on purpose where the drop is cheap (AI_EDGE_SAFE_DAMAGE). */
+  holdAtEdge(f, it) {
+    if (!f.alive || f.airborne || f.groundY <= FALL_STATE_DROP) { this.edgeWait = 0; return; }   // on the floor or a low step there is no drop worth a fall
+    if (!FREE_SET.includes(f.state)) return;   // only free movement: in a grapple it.fwd / it.side aim the throw
+    let held = false;
+    const stop = (drop) => {   // true: cancel this move
+      if (!drop) return false;
+      held = true;
+      return this.edgeWait < AI_EDGE_PATIENCE || Combat.fallDamageFor(drop) > AI_EDGE_SAFE_DAMAGE;
+    };
+    const fx = f.fwdX, fz = f.fwdZ, rx = -fz, rz = fx;   // the movement frame of Fighter.updateFree
+    const dx = fx * it.fwd + rx * it.side, dz = fz * it.fwd + rz * it.side, moving = it.fwd !== 0 || it.side !== 0;
+    if (moving && stop(this.dropAhead(f, dx, dz, it.run ? AI_EDGE_LOOK_RUN : AI_EDGE_LOOK))) { it.fwd = 0; it.side = 0; it.run = false; }
+    if (it.sidestep && stop(this.dropAhead(f, rx * it.sidestep, rz * it.sidestep, AI_EDGE_LOOK_SIDESTEP))) it.sidestep = 0;
+    if (it.jump && moving && stop(this.dropAhead(f, dx, dz, AI_EDGE_LOOK_JUMP))) it.jump = false;
+    this.edgeWait = held ? this.edgeWait + 1 : 0;
+  }
+
   think(f, opp, match, it) {
+    this.chooseIntent(f, opp, match, it);
+    this.holdAtEdge(f, it);
+    return it;
+  }
+  chooseIntent(f, opp, match, it) {
     clearIntent(it);
     this.tickNo++;
     this.observe(f, opp);
@@ -5957,7 +6070,8 @@ class MatchSim {
     for (let i = 0; i < 2; i++) {
       const f = this.fighters[i];
       Arena.resolveFighter(f);
-      f.afterCollision(air[i]);
+      f.afterCollision(air[i], this);
+      Combat.fallCheck(f, this);
       Combat.impactCheck(f, this);
     }
   }
@@ -9154,6 +9268,177 @@ const SelfTest = {
       for (let i = 0; i < 400 && !(path.includes(S.DOWN) && f.state === S.IDLE); i++) { m.step(); if (path[path.length - 1] !== f.state) path.push(f.state); }
       m.dispose();
       return path.includes(S.DOWN) && f.state === S.IDLE ? true : 'path ' + path.join('>');
+    });
+    /* ----- Falling (P3-07). The shipped levels only give footing at crate tops (0.9-0.95) and rubble (0.22 / 0.55), so most of these tests add a standable box of their own:
+       after the match exists (a new match rebuilds the arena), and always taken out again. ----- */
+    const withLedge = (top, half, fn, x = 0) => {
+      const ledge = { x, z: 0, hx: half, hz: half, top, standable: true, active: true, obj: null, temp: false, timer: 0, thin: false };
+      Arena.colliders.push(ledge);
+      try { return fn(ledge); } finally { const at = Arena.colliders.indexOf(ledge); if (at >= 0) Arena.colliders.splice(at, 1); }
+    };
+    const putAt = (f, x, z, y) => { f.x = x; f.z = z; f.y = y; f.prevX = x; f.prevZ = z; f.prevY = y; f.vy = 0; };
+    /* Sets a fighter down on footing and steps once, so that height is recorded as the footing it last stood on. */
+    const standAt = (m, f, x, z, y) => { putAt(f, x, z, y); m.step(); };
+    /* Steps n ticks and reports: the state path, ticks spent above the footing, whether the fighter ever hovered (above it, not rising, yet no lower than the tick before,
+       two ticks running: the tick the footing goes still holds the old height) and the fall damage events that hit it (count, and the HP those ticks took). */
+    const watchFall = (m, f, n) => {
+      const r = { path: [f.state], air: 0, hover: false, fallEvents: 0, fallLoss: 0 };
+      let fired = false, still = 0;
+      const off = Events.on('fallDamage', (e) => { if (e.f === f) { fired = true; r.fallEvents++; } });
+      for (let i = 0; i < n; i++) {
+        const y0 = f.y, hp0 = f.hp;
+        fired = false;
+        m.step();
+        if (fired) r.fallLoss += hp0 - f.hp;
+        if (f.y > f.groundY + 0.02) { r.air++; still = f.y >= y0 && f.vy <= 0 ? still + 1 : 0; if (still >= 2) r.hover = true; } else still = 0;
+        if (r.path[r.path.length - 1] !== f.state) r.path.push(f.state);
+      }
+      off();
+      return r;
+    };
+    /* Fighter 0 stands on a ledge of height `top` and walks off its +x edge (fighter 1 waits out on the floor, in front of it); hp = a starting HP to set. */
+    const walkOff = (top, hp) => {
+      const m = mk({}, (it, f, o, mm) => { if (mm.tick >= 3) it.fwd = 1; });
+      const f = m.fighters[0], o = m.fighters[1];
+      return withLedge(top, 0.6, () => {
+        o.x = 4; o.z = 0; o.prevX = 4; o.prevZ = 0;
+        f.yaw = Math.PI / 2;
+        if (hp !== undefined) f.hp = hp;
+        standAt(m, f, 0.3, 0, top);
+        const hp0 = f.hp, w = watchFall(m, f, 160);
+        const res = { w, hpLoss: hp0 - f.hp, y: f.y, alive: f.alive, momentum: f.momentum + o.momentum, scale: Combat.comboScale(f.gotHits) * f.stats.taken * f.stats.impact };
+        m.dispose();
+        return res;
+      });
+    };
+    test('Falling: walking off a crate top drops the fighter in the Falling state under gravity (no floating), lands it with a stagger and charges the fall damage', () => {
+      const illegal = Diag.illegalTransitions, log = self.capture(['fall']);
+      const r = walkOff(0.95);
+      log.stop();
+      const expected = Combat.fallDamageFor(0.95) * r.scale, w = r.w;
+      const ok = w.path.includes(S.FALL) && w.path.indexOf(S.STAGGER) > w.path.indexOf(S.FALL) && !w.hover && w.air > 5 && Math.abs(r.y) < 1e-6
+        && log.fall.length === 1 && Math.abs(log.fall[0].drop - 0.95) < 1e-6 && w.fallEvents === 1 && expected > 1 && Math.abs(r.hpLoss - expected) < 1e-6 && Diag.illegalTransitions === illegal;
+      return ok ? true : JSON.stringify({ path: w.path, hover: w.hover, air: w.air, y: r.y, falls: log.fall.length, events: w.fallEvents, hpLoss: r.hpLoss, expected, illegal: Diag.illegalTransitions - illegal });
+    });
+    test('Falling: scenery that breaks under a standing fighter drops the fighter onto the rubble', () => {
+      const m = mk({ arenaId: 'warehouse' }), log = self.capture(['fall']);
+      try {
+        const crate = Arena.objects.find((q) => q.id === 'crateA'), f = m.fighters[0], o = m.fighters[1];
+        o.x = 3; o.z = 3; o.prevX = 3; o.prevZ = 3;
+        standAt(m, f, crate.x, crate.z, crate.h);
+        for (let i = 0; i < 5; i++) m.step();
+        const stood = f.state === S.IDLE && Math.abs(f.y - crate.h) < 1e-6;
+        Arena.damageObject(crate, 999, 'heavy', 4242, 1, 0, crate.x, 0.5, crate.z, 1);
+        const rubble = crate.rubble ? crate.rubble.top : -1, w = watchFall(m, f, 120);
+        log.stop();
+        const ok = stood && rubble > 0 && w.path.includes(S.FALL) && !w.hover && w.air > 5 && Math.abs(f.y - rubble) < 1e-6 && f.state !== S.FALL
+          && log.fall.length === 1 && Math.abs(log.fall[0].drop - (crate.h - rubble)) < 1e-6;
+        return ok ? true : JSON.stringify({ stood, rubble, path: w.path, hover: w.hover, air: w.air, y: f.y, falls: log.fall.length });
+      } finally { log.stop(); Arena.reset(); }
+    });
+    test('Falling: a knockback off a pillar top drops the fighter to the floor, and the fall damage follows the formula', () => {
+      const m = mk({ arenaId: 'warehouse' });
+      try {
+        const pillar = Arena.objects.find((q) => q.id === 'pillarL'), a = m.fighters[0], d = m.fighters[1];
+        Arena.damageObject(pillar, 999, 'heavy', 4243, 1, 0, pillar.x, 1, pillar.z, 0);
+        const top = pillar.rubble.top;
+        a.yaw = Math.PI / 2; d.yaw = -Math.PI / 2;
+        putAt(a, pillar.x - 0.2, pillar.z, top); putAt(d, pillar.x + 0.55, pillar.z, top);
+        m.step();
+        const stood = d.groundY === top && a.groundY === top;
+        a.startAttack(ATTACKS.roundhouse);   // the knock carries d past the rubble's edge
+        const w = watchFall(m, d, 200), expected = Combat.fallDamageFor(top) * Combat.comboScale(d.gotHits) * d.stats.taken * d.stats.impact;
+        const ok = stood && top > STEP_HEIGHT && w.air > 3 && !w.hover && Math.abs(d.y) < 1e-6 && w.fallEvents === 1 && expected > 0 && expected < 1 && Math.abs(w.fallLoss - expected) < 1e-6;
+        return ok ? true : JSON.stringify({ stood, top, air: w.air, hover: w.hover, y: d.y, events: w.fallEvents, loss: w.fallLoss, expected, path: w.path });
+      } finally { Arena.reset(); }
+    });
+    test('Falling: a drop under the threshold keeps the state and costs nothing; just past it the fighter switches to Falling (still free of damage below the free drop)', () => {
+      const shallow = [0.22, FALL_STATE_DROP - 0.02].map((top) => walkOff(top)), past = walkOff(FALL_STATE_DROP + 0.05);
+      const kept = shallow.every((r) => r.w.air > 0 && !r.w.hover && r.w.path.every((s) => s === S.IDLE || s === S.WALK) && r.w.fallEvents === 0 && r.hpLoss === 0 && Math.abs(r.y) < 1e-6);
+      const switched = past.w.path.includes(S.FALL) && past.w.fallEvents === 0 && past.hpLoss === 0 && Math.abs(past.y) < 1e-6 && !past.w.hover;
+      return kept && switched ? true : JSON.stringify({ shallow: shallow.map((r) => [r.w.path.join('>'), r.w.air, r.hpLoss]), past: [past.w.path.join('>'), past.w.air, past.hpLoss] });
+    });
+    test('Falling: fall damage grows with the height and is capped; a tall drop knocks the fighter down, a deadly one knocks it out, neither feeds the momentum gauge', () => {
+      const heights = [0, 0.3, 0.5, 0.55, 0.95, 2, 3, 6, 50], dmg = heights.map((h) => Combat.fallDamageFor(h));
+      const shape = dmg[0] === 0 && dmg[1] === 0 && dmg[2] === 0 && dmg[3] > 0 && dmg[3] < 1 && dmg.every((v, i) => i === 0 || v >= dmg[i - 1]) && dmg[8] === FALL_DAMAGE_MAX
+        && Math.abs(dmg[5] - (2 - FALL_DAMAGE_FREE_DROP) * FALL_DAMAGE_PER_METER) < 1e-9;
+      const tall = walkOff(2.4), expected = Combat.fallDamageFor(2.4) * tall.scale;
+      const knockedDown = tall.w.path.includes(S.FALL) && tall.w.path.includes(S.DOWN) && Math.abs(tall.w.fallLoss - expected) < 1e-6 && tall.momentum === 0;
+      const log = self.capture(['ko']), dead = walkOff(0.95, 1);
+      log.stop();
+      const knockedOut = dead.w.path.includes(S.KO) && !dead.alive && log.ko.length === 1 && dead.momentum === 0;
+      return shape && knockedDown && knockedOut ? true : JSON.stringify({ dmg, tall: [tall.w.path.join('>'), tall.w.fallLoss, expected, tall.momentum], dead: [dead.w.path.join('>'), dead.alive, log.ko.length, dead.momentum] });
+    });
+    test('Falling: the CPU does not walk off a high ledge on its own, climbs off a crate only after AI_EDGE_PATIENCE, and a hit still carries it off', () => {
+      const alone = (guard, top = 3) => {
+        const m = mk({}), ai = new AIController(ROSTER_BY_ID.kai, 'hard');
+        if (!guard) ai.holdAtEdge = () => {};   // the control run: the same scene with the edge check off
+        m.controllers[1] = ai;
+        const a = m.fighters[0], d = m.fighters[1];
+        return withLedge(top, 0.6, () => {
+          a.x = 3.5; a.z = 0; a.prevX = 3.5; a.prevZ = 0;
+          d.yaw = Math.PI / 2;
+          standAt(m, d, 0.3, 0, top);
+          let lowest = d.y, fell = false, edge = 0, fellAt = -1;
+          for (let i = 0; i < 600; i++) { m.step(); lowest = Math.min(lowest, d.y); if (d.state === S.FALL && !fell) { fell = true; fellAt = i; } if (d.x > 0.45) edge++; }
+          m.dispose();
+          return { lowest, fell, edge, fellAt };
+        });
+      };
+      const guarded = alone(true), control = alone(false), crate = alone(true, 0.95);   // 0.95 m costs 3.6 hp (cheap), 3 m costs 20
+      const m = mk({}), ai = new AIController(ROSTER_BY_ID.kai, 'hard');
+      m.controllers[1] = ai;
+      const a = m.fighters[0], d = m.fighters[1], log = self.capture(['fallDamage']);
+      const hit = withLedge(0.95, 0.6, () => {
+        a.yaw = Math.PI / 2; d.yaw = -Math.PI / 2;
+        putAt(a, -0.3, 0, 0.95); putAt(d, 0.4, 0, 0.95);
+        m.step();
+        Combat.landHit({ type: 'strike', att: a, def: d, mv: ATTACKS.roundhouse, block: 'none' }, m);
+        const w = watchFall(m, d, 150);
+        return { w, y: d.y };
+      });
+      log.stop(); m.dispose();
+      const ok = !guarded.fell && guarded.lowest > 2.9 && guarded.edge > 0 && control.fell && control.lowest < 0.5 && crate.fell && crate.fellAt >= AI_EDGE_PATIENCE && hit.w.air > 5 && Math.abs(hit.y) < 1e-6 && log.fallDamage.length === 1;
+      return ok ? true : JSON.stringify({ guarded, control, crate, hit: [hit.w.air, hit.y, log.fallDamage.length] });
+    });
+    test('Falling: a clinch ends cleanly when one fighter drops off the edge, and a hold ends when the footing goes (no illegal transitions)', () => {
+      const illegal = Diag.illegalTransitions;
+      const m = mk({}), a = m.fighters[0], b = m.fighters[1];
+      const clinch = withLedge(0.95, 0.6, () => {
+        a.yaw = Math.PI / 2; b.yaw = -Math.PI / 2;
+        putAt(a, 0.4, 0, 0.95); putAt(b, -0.4, 0, 0.95);
+        m.step();
+        a.setState(S.ATTACK); Combat.startClinch(a, b, m);   // the front grip puts b 0.78 ahead of a: well past the +x edge
+        const held = a.state === S.GRAPPLE && b.state === S.CLINCH;
+        const w = watchFall(m, b, 120);
+        return { held, w, ended: a.partner === null && b.partner === null && a.state !== S.GRAPPLE && b.state !== S.CLINCH, aStayed: Math.abs(a.y - 0.95) < 1e-6, bY: b.y };
+      });
+      m.dispose();
+      // a hold: the victim lies on one ledge, the holder stands on another; the footing under one of them goes (dropVictim: the victim's, else the holder's)
+      const holdCase = (dropVictim) => {
+        const m2 = mk({}), h = m2.fighters[0], v = m2.fighters[1], ends = self.capture(['submissionEnd']);
+        const res = withLedge(0.95, 0.4, (under) => withLedge(0.95, 0.6, (beside) => {   // under: narrow, so the holder (0.8 m away) stands on the other one only
+          h.yaw = Math.PI / 2; v.yaw = -Math.PI / 2;
+          putAt(h, -0.2, 0, 0.95); putAt(v, -1.0, 0, 0.95);
+          m2.step();
+          v.setState(S.HIT); v.setState(S.DOWN);
+          Combat.startSubmission(h, v, m2);
+          for (let i = 0; i < 4; i++) m2.step();
+          const held = h.state === S.SUBMIT && v.pinnedBy === h;
+          (dropVictim ? under : beside).active = false;
+          const w = watchFall(m2, dropVictim ? v : h, 120);
+          return { held, w, released: v.pinnedBy === null && h.partner === null && h.state !== S.SUBMIT, hY: h.y, vY: v.y, hState: h.state, vState: v.state };
+        }, 0.3), -1.0);
+        ends.stop(); m2.dispose();
+        return Object.assign(res, { ends: ends.submissionEnd.map((e) => e.reason).join() });
+      };
+      const victimFalls = holdCase(true), holderFalls = holdCase(false);
+      const ok = clinch.held && clinch.w.path.includes(S.FALL) && clinch.ended && clinch.aStayed && Math.abs(clinch.bY) < 1e-6
+        && victimFalls.held && victimFalls.released && victimFalls.ends === 'broken' && Math.abs(victimFalls.vY) < 1e-6 && Math.abs(victimFalls.hY - 0.95) < 1e-6 && victimFalls.hState === S.IDLE
+        && holderFalls.held && holderFalls.released && holderFalls.ends === 'broken' && holderFalls.w.path.includes(S.FALL) && Math.abs(holderFalls.hY) < 1e-6 && Math.abs(holderFalls.vY - 0.95) < 1e-6
+        && Diag.illegalTransitions === illegal;
+      const brief = (c) => [c.held, c.released, c.ends, c.hState, c.vState, c.hY, c.vY];
+      return ok ? true : JSON.stringify({ clinch: [clinch.held, clinch.w.path.join('>'), clinch.ended, clinch.aStayed, clinch.bY], victimFalls: brief(victimFalls), holderFalls: [...brief(holderFalls), holderFalls.w.path.join('>')], illegal: Diag.illegalTransitions - illegal });
     });
     test('Guarding or crouching while moving steps the legs (walk legs with the guard up; crouch walk), slower than walking', () => {
       const legSwing = (fill) => {

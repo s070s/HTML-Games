@@ -128,7 +128,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: submissions work in 1v1 and in multi-opponent levels and the self-test covers start, escape and finish.
 - [x] P3-06 - Optional heavy tackle: very heavy characters can charge through lighter ones by running into them with analog input only. DECIDE first whether to include, with the weight threshold.
   Done when: decision recorded; if included, the tackle triggers only by analog movement, only above the weight threshold, and has a counter.
-- [ ] P3-07 - Falling: on unstable or elevated surfaces, a character with no support falls (gravity, fall damage, edge reactions such as teeter / grab ledge if approved).
+- [x] P3-07 - Falling: on unstable or elevated surfaces, a character with no support falls (gravity, fall damage, edge reactions such as teeter / grab ledge if approved).
   Done when: characters fall off edges and broken surfaces in every level that has them, and the AI avoids edges unless pushed.
 - [x] P3-08 - Re-tune hitstop, juggle limit, combo reset and frame data for the new action list.
   Done when: frame data shows in Training for every move and no move has an unintended infinite combo (checked by P0-06 runner).
@@ -1396,6 +1396,7 @@ Implemented. Not ticked: the all-pairs win-rate target waits for P14-01 (win rat
 - P3-10: the 35% limit stays.
 - P4-07 co-op (owner, 2026-10-28): friendly fire is a co-op setting, off by default. A knocked-out player sits out until the next stage, and the level is lost only when every player is out.
 - Same-tick trades (P3-08): a strike that lands on the same tick as a grab wins (either player); two strikes both land; two grabs split by tick parity. After a get-up, strikes miss for 6 more ticks (wake-up grace, closes a knockdown loop); grabs and the tackle still connect.
+- Falling (P3-07; teeter and ledge grab are not approved): a fighter with no footing falls under the normal gravity. A drop is the height lost since the fighter last stood on something. Past 0.4 m a fighter in a grounded-only state (idle, walking, running, blocking, crouching, sidestep, sway, a ground attack, get-up, clinch, grapple, hold) switches to the Falling state; shallower drops (crate rubble 0.22, pillar rubble settling from 0.55 to 0.2) keep the state and just land. Reactions, jumps, air attacks and throws keep their own state and land the same way. A clinch or hold ends when either fighter drops past 0.4 m. Landing: under 1.6 m a stagger of 14 ticks plus 10 per metre (at most 40); from 1.6 m a knockdown. Fall damage: 8 HP per metre beyond a free 0.5 m, at most 40, then the combo scaling and the fighter's taken and impact scaling; it uses the scenery-impact damage path (training floor HP and the KO event hold) and never fills the momentum gauge. Examples: a pillar rubble top (0.55 m) costs 0.4 HP, a crate top (0.95 m) 3.6 HP, a 3 m balcony 20 HP. The CPU never walks, runs, sidesteps or jumps off a surface that would drop it past 0.4 m (it looks 0.5 m ahead, 0.9 m when running, 1.2 m for a sidestep, 1.4 m for a jump); knockback and throws still carry it off. After 1.5 s held at an edge it climbs down on purpose where the drop costs at most 5 HP (crate and rubble tops), never off a higher drop. Values: the FALL_* and AI_EDGE_* constants in breakpoint.html.
 
 ## Appendix D - Audit findings
 
