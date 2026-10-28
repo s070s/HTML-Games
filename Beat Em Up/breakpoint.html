@@ -187,6 +187,8 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .tag{position:absolute;left:0;top:0;white-space:nowrap;font-size:.8em;letter-spacing:.1em;padding:.1em .5em;background:rgba(0,0,0,.6);border:1px solid #fff;transform:translate(-50%,-100%);will-change:transform}
 .tag.p1{border-color:var(--a1)}
 .tag.p2{border-color:var(--a2)}
+.tag.lk{border-color:#ffe066;box-shadow:0 0 0 2px rgba(255,224,102,.55)}   /* P4-05: the lock-on marker is the locked enemy's own name tag in gold with a chevron under it; no extra element */
+.tag.lk::after{content:"\25BC";position:absolute;left:50%;top:100%;transform:translateX(-50%);color:#ffe066;font-size:1.5em;line-height:1;text-shadow:0 0 3px #000,0 0 6px #000}
 .tag i{font-style:normal;color:#ffe066;margin-left:.4em}
 .tag s{display:block;height:3px;margin-top:2px;background:#4a1020;text-decoration:none}
 .tag s u{display:block;height:100%;background:#ff7aa6;text-decoration:none}
@@ -795,14 +797,15 @@ function touchAttackHeight(kind, self, opp) {
 function makeIntent() {
   return {
     fwd: 0, side: 0, run: false, crouch: false, defend: false, height: false,
-    jump: false, punch: false, kick: false, grapple: false, use: false, lock: false,   // use / lock: one-tick presses, no gameplay yet (items P7, lock-on P4)
+    jump: false, punch: false, kick: false, grapple: false, use: false, lock: false,   // use / lock: one-tick presses (lock: lock-on, P4-03; use: no gameplay yet, items P7)
     sidestep: 0, grapDir: 'fwd', noParry: false, assist: false,   // assist: the Auto-assist setting, set by human input only
+    stickAnalog: false,   // fwd / side come from an analog stick (gamepad or touch), not keys or the d-pad: only then can the movement stick flick the lock-on (P4-03)
   };
 }
 function clearIntent(it) {
   it.fwd = 0; it.side = 0; it.run = false; it.crouch = false; it.defend = false;
   it.height = false; it.jump = false; it.punch = false; it.kick = false;
-  it.grapple = false; it.use = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false; it.assist = false;
+  it.grapple = false; it.use = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false; it.assist = false; it.stickAnalog = false;
   return it;
 }
 
@@ -825,7 +828,7 @@ class PlayerInput {
     this.runDir = null;              // direction key that armed running (double-tap toward the opponent, then hold)
     this.tmpRel = { fwd: 0, side: 0 };
     this.padInfo = { connected: false, name: '', standard: true };
-    this.padAxis = { fwd: 0, side: 0, active: false };
+    this.padAxis = { fwd: 0, side: 0, active: false, digital: false };   // digital: a d-pad button is held (the stick values are then -1 / 0 / 1)
     this.padDir = { up: false, down: false, left: false, right: false };
     this.padDownAt = { up: 0, down: 0 };
     this.padTapDownRelease = -9999;
@@ -840,7 +843,7 @@ class PlayerInput {
     this.touchDir = { up: false, down: false, left: false, right: false };
     this.touchRunTicks = 0;
     this.lastDevice = 'keyboard';
-    this.analog = { fwd: 0, side: 0 };
+    this.analog = { fwd: 0, side: 0, stick: false };   // stick: the values come from a gamepad stick or the touch stick, not from keys or the d-pad (lock-on flicks need that)
   }
 
   rebuildMap() {
@@ -873,7 +876,7 @@ class PlayerInput {
   releasePad() {
     this.padHeld = {};
     this.padAxis.fwd = this.padAxis.side = 0;
-    this.padAxis.active = false;
+    this.padAxis.active = false; this.padAxis.digital = false;
     this.padDir.up = this.padDir.down = this.padDir.left = this.padDir.right = false;
     this.padCrouch = false;
     this.padSelectAt = 0;
@@ -974,6 +977,7 @@ class PlayerInput {
     this.padAxis.fwd = -ay;
     this.padAxis.side = ax;
     this.padAxis.active = ax !== 0 || ay !== 0;
+    this.padAxis.digital = down(12) || down(13) || down(14) || down(15);
     const dirs = { up: ay < -PAD_DIGITAL, down: ay > PAD_DIGITAL, left: ax < -PAD_DIGITAL, right: ax > PAD_DIGITAL };
     if (dirs.up) this.padUpPeak = Math.max(this.padUpPeak, -ay);
     for (const name in dirs) {
@@ -1015,8 +1019,9 @@ class PlayerInput {
     // analog movement: gamepad stick > touch stick > digital keys
     let fwd = (this.held.up ? 1 : 0) - (this.held.down ? 1 : 0);
     let side = (this.held.right ? 1 : 0) - (this.held.left ? 1 : 0);
-    if (this.padAxis.active) { fwd = this.padAxis.fwd; side = this.padAxis.side; }
-    else if (this.touchStick.active) { fwd = -this.touchStick.y; side = this.touchStick.x; }
+    this.analog.stick = false;
+    if (this.padAxis.active) { fwd = this.padAxis.fwd; side = this.padAxis.side; this.analog.stick = !this.padAxis.digital; }
+    else if (this.touchStick.active) { fwd = -this.touchStick.y; side = this.touchStick.x; this.analog.stick = true; }
     this.analog.fwd = clamp(fwd, -1, 1);
     this.analog.side = clamp(side, -1, 1);
   }
@@ -1052,6 +1057,7 @@ class PlayerInput {
     it.grapple = this.take('grapple');
     it.use = this.take('use');
     it.lock = this.take('lock');
+    it.stickAnalog = this.analog.stick;
     it.assist = Settings.v.autoAssist === true;   // every device and both Versus players; the AI and the dummy never set it
     const dtap = this.latch.dtap;
     this.latch.dtap = null;
@@ -2256,6 +2262,28 @@ const Arena = {
     }
     return false;
   },
+  /* True when scenery hides the straight line from (x1,z1) to (x2,z2): an active obstacle taller than eyeTop, not glass (P4-03 lock-on line of sight). Allocation-free. */
+  sightBlocked(x1, z1, x2, z2, eyeTop) {
+    const dx = x2 - x1, dz = z2 - z1;
+    for (let i = 0; i < this.colliders.length; i++) {
+      const c = this.colliders[i];
+      if (!c.active || c.top <= eyeTop || (c.obj && c.obj.mat === 'glass')) continue;
+      let t0 = 0, t1 = 1;   // the part of the segment inside the box, by slabs
+      if (Math.abs(dx) < 1e-9) { if (x1 < c.x - c.hx || x1 > c.x + c.hx) continue; } else {
+        let a = (c.x - c.hx - x1) / dx, b = (c.x + c.hx - x1) / dx;
+        if (a > b) { const swap = a; a = b; b = swap; }
+        t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+      }
+      if (t0 > t1) continue;
+      if (Math.abs(dz) < 1e-9) { if (z1 < c.z - c.hz || z1 > c.z + c.hz) continue; } else {
+        let a = (c.z - c.hz - z1) / dz, b = (c.z + c.hz - z1) / dz;
+        if (a > b) { const swap = a; a = b; b = swap; }
+        t0 = Math.max(t0, a); t1 = Math.min(t1, b);
+      }
+      if (t0 <= t1) return true;
+    }
+    return false;
+  },
 
   /* Height of the footing under a fighter's cylinder at (x, z) standing at height y: the groundY rule of resolveFighter without moving anything (AI edge checks). */
   supportAt(x, z, y, r) {
@@ -3427,6 +3455,7 @@ class Fighter {
     this.pose.set(this.motion.guard); this.tp.set(this.motion.guard);
     this.alive = true;
     this.lastFoe = null; this.target = null;   // lastFoe: who dealt the last damage (combo and scenery credit); target: who this fighter acts against, set every tick by MatchSim.assignTargets
+    this.lockOn = null; this.lockCool = 0; this.flickAge = -1; this.flickReady = true; this.flickX = 0; this.flickZ = 0; this.aim = null; this.stickX = 0; this.stickZ = 0; this.stickMag = 0;   // lock-on and soft facing (P4-03, P4-04): the locked enemy, ticks until the next switch, flick state, the target an attack was aimed at, the stick as a world direction (unit vector) and length; only human fighters use them
     this.skeleton(this.x, this.y, this.z, this.yaw, false);
   }
 
@@ -3669,6 +3698,7 @@ class Fighter {
     this.assist = it.assist === true;   // Auto-assist: read by pickString
     this.bufferInput(it);
     this.regenerate();
+    const attackBefore = this.moveId;
     switch (this.state) {
       case S.IDLE: case S.WALK: case S.RUN: case S.CROUCH: case S.BLOCK_H: case S.BLOCK_L: this.updateFree(it, opp, match); break;
       case S.SIDESTEP: this.updateSidestep(it, opp); break;
@@ -3697,6 +3727,8 @@ class Fighter {
         break;
       default: this.vx = this.vz = 0; break;
     }
+    if (this.state !== S.ATTACK) this.aim = null;
+    else if (this.moveId !== attackBefore && match && match.softFace) match.softFace(this);   // an attack began this tick (a first press, a string step, a grab): aim it (P4-04)
     if (!this.lowWarned && this.lowStamina && this.alive) { this.lowWarned = true; Events.emit('lowStamina', { f: this }); }
     if (this.stam > this.maxStam * 0.4) this.lowWarned = false;
   }
@@ -5989,14 +6021,29 @@ function koEndsFight(def) {
   return !m.fighters.some((f) => f.team === def.team && f.alive);
 }
 
-/* A human player: P1 reads Input, the second Versus player reads Input2. */
+/* Lock-on and soft facing (P4-03, P4-04): how a human fighter's target is chosen when the choice is the player's. The rules are in Appendix C of the tasklist. */
+const LOCK_RANGE = 8;                 // m: an enemy is picked only this close
+const LOCK_RELEASE_RANGE = 9;         // m: a locked enemy is let go beyond this (the gap to LOCK_RANGE keeps the lock from flickering at the edge)
+const LOCK_VIEW_COS = Math.cos(100 * Math.PI / 180);   // the automatic choice sees 100 degrees to each side of where the fighter faces
+const LOCK_STICK_MIN = 0.5;           // stick length that counts as pushed in a direction
+const LOCK_STICK_COS = Math.cos(60 * Math.PI / 180);   // an enemy within 60 degrees of the stick direction is "in" that direction (anywhere around the fighter, view or not)
+const LOCK_ANGLE_WEIGHT = 6;          // score in the stick cone = distance + (1 - cosine of the angle off the stick) x this: 60 degrees off costs as much as 3 m
+const LOCK_SIGHT_HEIGHT = 1.2;        // m above the higher fighter's feet: scenery taller than this hides an enemy (columns, screens); crates, barriers, rails and glass do not
+const LOCK_FLICK_MAG = 0.75;          // a flick (analog stick only) goes out past this ...
+const LOCK_FLICK_REST = 0.35;         // ... and is back below this ...
+const LOCK_FLICK_TICKS = 8;           // ... within this many ticks; the lock switches on the return
+const LOCK_SWITCH_COOLDOWN = 12;      // ticks after any lock change before another flick counts
+
+/* A human player: P1 reads Input, the second Versus player reads Input2. human: lock-on and soft facing apply (MatchSim.updateLock, softFace). */
 const PlayerController = {
   input: Input,
+  human: true,
   think(f, opp, match, it) { return Input.fillIntent(it, f, opp); },
   reset() {},
 };
 const Player2Controller = {
   input: Input2,
+  human: true,
   think(f, opp, match, it) { return Input2.fillIntent(it, f, opp); },
   reset() {},
 };
@@ -6228,10 +6275,15 @@ class MatchSim {
   }
   /* Who fighter f acts against: its clinch or hold partner while locked in one; otherwise the nearest living hostile that is not in a terminal state (ties
      go to the lower index); otherwise the nearest hostile of any kind, so a finished 1v1 round still faces the knocked-out opponent. This is the one place that
-     decides it: lock-on and soft facing (P4-03, P4-04) replace the choice here. Allocation-free: it runs for every fighter on every tick. */
+     decides it. A human fighter's choice comes first (P4-03, P4-04): the enemy it has locked on, then the one its running attack was aimed at. A lock that no longer
+     holds (KO, out of range, no longer hostile) is dropped here. Allocation-free: it runs for every fighter on every tick. */
   targetFor(f) {
+    if (f.lockOn && !this.lockHolds(f, f.lockOn)) f.lockOn = null;   // checked first, so a lock also ends while the fighter is in a clinch or a hold
     const bound = f.pinnedBy || (f.state === S.CLINCH || f.state === S.GRAPPLE || f.state === S.SUBMIT ? f.partner : null);
     if (bound) return bound;
+    if (f.lockOn) return f.lockOn;
+    const aim = f.aim;
+    if (aim && f.state === S.ATTACK && aim.alive && !TERMINAL_STATES.includes(aim.state)) return aim;
     let best = null, bestSq = Infinity, any = null, anySq = Infinity;
     const fighters = this.fighters;
     for (let i = 0; i < fighters.length; i++) {
@@ -6246,6 +6298,126 @@ class MatchSim {
   assignTargets() {
     const fighters = this.fighters;
     for (let i = 0; i < fighters.length; i++) fighters[i].target = this.targetFor(fighters[i]);
+  }
+
+  /* ----- lock-on (P4-03) and soft facing (P4-04) -----
+     Who may be picked ("valid"): a hostile of another team (allies never, whatever the friendly-fire setting), alive, not knocked out or finished, not lying down
+     (S.DOWN), within LOCK_RANGE, and with a clear line of sight. A locked enemy that goes down stays locked; it is let go when it is out, out of LOCK_RELEASE_RANGE,
+     or no longer hostile (lockHolds). The choice (pickTarget): with the stick pushed, the valid enemy best in that direction (within LOCK_STICK_COS of it, anywhere
+     around the fighter); otherwise, or when nobody is that way, the nearest valid enemy in front (LOCK_VIEW_COS). Ties go to the lower index. */
+  isHuman(f) { return this.fighters[f.index] === f && !!this.controllers[f.index].human; }
+  /* Whether the lock f has on `other` stays: hostile, still in the fight, and not past the release range. A downed enemy holds. */
+  lockHolds(f, other) {
+    if (other.team === f.team || !other.alive || TERMINAL_STATES.includes(other.state)) return false;
+    const dx = other.x - f.x, dz = other.z - f.z;
+    return dx * dx + dz * dz <= LOCK_RELEASE_RANGE * LOCK_RELEASE_RANGE;
+  }
+  /* Whether `other` may be picked now (see above). */
+  lockValid(f, other) {
+    if (other.team === f.team || !other.alive || other.state === S.DOWN || TERMINAL_STATES.includes(other.state)) return false;
+    const dx = other.x - f.x, dz = other.z - f.z;
+    if (dx * dx + dz * dz > LOCK_RANGE * LOCK_RANGE) return false;
+    return !Arena.sightBlocked(f.x, f.z, other.x, other.z, Math.max(f.y, other.y) + LOCK_SIGHT_HEIGHT);
+  }
+  /* Cosine of the angle between f's stick direction and the direction to `other`. */
+  stickCos(f, other) {
+    const dx = other.x - f.x, dz = other.z - f.z;
+    return (dx * f.stickX + dz * f.stickZ) / (Math.sqrt(dx * dx + dz * dz) || 1e-6);
+  }
+  /* The best valid enemy for f by the rules above, or null; never `exclude`. stickOnly: only an enemy in the stick direction (a switch), no fallback to the front.
+     aboveCos: a stick candidate must also be closer to the stick direction than this cosine. */
+  pickTarget(f, stickOnly, exclude, aboveCos = -2) {
+    const fighters = this.fighters, stick = f.stickMag >= LOCK_STICK_MIN;
+    if (stickOnly && !stick) return null;
+    let byStick = null, stickScore = Infinity, inView = null, viewSq = Infinity;
+    for (let i = 0; i < fighters.length; i++) {
+      const other = fighters[i];
+      if (other === exclude || !this.lockValid(f, other)) continue;
+      const dx = other.x - f.x, dz = other.z - f.z, sq = dx * dx + dz * dz, dist = Math.sqrt(sq) || 1e-6;
+      if (stick) {
+        const cos = (dx * f.stickX + dz * f.stickZ) / dist;
+        const score = dist + (1 - cos) * LOCK_ANGLE_WEIGHT;
+        if (cos >= LOCK_STICK_COS && cos > aboveCos && score < stickScore) { stickScore = score; byStick = other; }
+      }
+      if (!stickOnly && sq < viewSq && (dx * f.fwdX + dz * f.fwdZ) / dist >= LOCK_VIEW_COS) { viewSq = sq; inView = other; }
+    }
+    return byStick || inView;
+  }
+  /* The enemy a stick push moves f's lock to: of the valid enemies in that direction that lie closer to the stick direction than the locked one, the best-scoring; else null. */
+  switchTarget(f) {
+    return this.pickTarget(f, true, f.lockOn, this.stickCos(f, f.lockOn) + 1e-6);
+  }
+  /* How many hostile fighters f has in this scene, alive or not: lock-on feedback and soft facing exist only with two or more (a 1v1 plays exactly as before). */
+  hostileCount(f) {
+    let count = 0;
+    for (let i = 0; i < this.fighters.length; i++) if (this.fighters[i].team !== f.team) count++;
+    return count;
+  }
+  /* The stick as a world direction: the intent's forward / side are in the fighter's frame (Fighter.updateFree). */
+  readStick(f, it) {
+    const mag = Math.min(1, Math.hypot(it.fwd, it.side));
+    f.stickMag = mag;
+    if (mag < 1e-6) return;
+    const fx = f.fwdX, fz = f.fwdZ, wx = it.fwd * fx - it.side * fz, wz = it.fwd * fz + it.side * fx, len = Math.hypot(wx, wz);
+    f.stickX = wx / len; f.stickZ = wz / len;
+  }
+  /* A flick of an analog stick (gamepad stick or touch stick, never keys or the d-pad, which jump from rest to full in one tick and are plain movement): the stick
+     goes out past LOCK_FLICK_MAG and is back under LOCK_FLICK_REST within LOCK_FLICK_TICKS. True on the tick it comes back, with the direction it went
+     (f.flickX, f.flickZ). A stick that stays out is walking: it never counts, and must come back to rest before it can start another. */
+  readFlick(f, it) {
+    const mag = f.stickMag;
+    if (mag >= LOCK_FLICK_REST && !it.stickAnalog) { f.flickAge = -1; f.flickReady = false; return false; }   // keys or the d-pad push: movement
+    if (mag < LOCK_FLICK_REST) {   // at rest (the intent's flag is off then): a flick that went out in time ends here
+      const quick = f.flickAge >= 0;
+      f.flickAge = -1; f.flickReady = true;
+      return quick;
+    }
+    if (f.flickAge < 0) {
+      if (f.flickReady && mag >= LOCK_FLICK_MAG) { f.flickReady = false; f.flickAge = 0; f.flickX = f.stickX; f.flickZ = f.stickZ; }
+      return false;
+    }
+    f.flickAge++;
+    if (mag >= LOCK_FLICK_MAG) { f.flickX = f.stickX; f.flickZ = f.stickZ; }
+    if (f.flickAge > LOCK_FLICK_TICKS) f.flickAge = -1;   // held out: that is walking; flickReady stays false until the stick rests
+    return false;
+  }
+  /* Once a tick for a human fighter, after its intent is read. A Lock press with no lock picks a target; with a lock it moves it to the enemy the stick points at,
+     or lets it go when the stick points at nobody better. An analog flick (readFlick) moves a lock the same way, LOCK_SWITCH_COOLDOWN ticks apart. Plain movement,
+     keys included, never changes the lock. */
+  updateLock(f, it) {
+    this.readStick(f, it);
+    if (f.lockCool > 0) f.lockCool--;
+    const flick = this.readFlick(f, it);
+    const before = f.lockOn;
+    if (it.lock) {
+      f.lockOn = f.lockOn ? this.switchTarget(f) : this.pickTarget(f, false, null);
+      f.lockCool = LOCK_SWITCH_COOLDOWN;
+    } else if (flick && f.lockOn && f.lockCool === 0) {
+      const mag = f.stickMag;   // the stick is back at rest on this tick: look along the flick's own direction
+      f.stickX = f.flickX; f.stickZ = f.flickZ; f.stickMag = 1;
+      const next = this.switchTarget(f);
+      f.stickMag = mag;
+      if (next) { f.lockOn = next; f.lockCool = LOCK_SWITCH_COOLDOWN; }
+    }
+    if (f.lockOn !== before) f.target = this.targetFor(f);
+  }
+  /* An attack of a human fighter has just begun: aim it at the locked enemy, else at the most likely target by the lock-on rules, at once. A later step of the same
+     string keeps the aim of the one before while it is still a valid pick, so a combo does not swing round to another enemy. With nobody valid it keeps the usual
+     target. Only with more than one hostile in the scene: a 1v1 plays exactly as before. */
+  softFace(f) {
+    if (!this.isHuman(f) || this.hostileCount(f) < 2) { f.aim = null; return; }
+    if (f.lockOn && this.lockHolds(f, f.lockOn)) f.aim = f.lockOn;
+    else if (!f.aim || !this.lockValid(f, f.aim)) f.aim = this.pickTarget(f, false, null);
+    if (f.aim) f.yaw = Math.atan2(f.aim.x - f.x, f.aim.z - f.z);
+  }
+  /* True when a human player has `other` locked on (and the lock holds): the HUD draws the lock marker on that fighter's tag only, and only where the player has
+     two or more hostiles, so a 1v1 shows nothing (P4-05). */
+  lockMarked(other) {
+    for (let i = 0; i < this.fighters.length; i++) {
+      const locker = this.fighters[i];
+      if (locker.lockOn === other && this.isHuman(locker) && this.lockHolds(locker, other) && this.hostileCount(locker) >= 2) return true;
+    }
+    return false;
   }
   /* The index credited when f is hurt by the scenery: whoever last damaged it; in a 1v1 the other fighter. */
   foeIndex(f) { return f.lastFoe ? f.lastFoe.index : this.fighters.length === 2 ? f.index ^ 1 : -1; }
@@ -6388,8 +6560,11 @@ class MatchSim {
     const fighters = this.fighters;
     for (let i = 0; i < fighters.length; i++) {
       const f = fighters[i];
-      if (this.locked || !f.alive) clearIntent(this.intents[i]);
-      else this.controllers[i].think(f, f.target, this, this.intents[i]);
+      if (this.locked || !f.alive) { clearIntent(this.intents[i]); f.lockOn = null; f.stickMag = 0; }   // the lock ends with the fight and with a knock-out
+      else {
+        this.controllers[i].think(f, f.target, this, this.intents[i]);
+        if (this.controllers[i].human) this.updateLock(f, this.intents[i]);
+      }
     }
     if (this.training) {
       const b = fighters[1];
@@ -8486,6 +8661,7 @@ const UI = {
         continue;
       }
       this.cache['tagoff' + i] = false;
+      this.tagMarker(m, f, el, i);
       const ok = R.project(f.x, f.y + 2.15 * f.scale, f.z, out);
       let status = '';
       if (f.state === S.BLOCK_H || f.state === S.BLOCK_L) status = 'BLOCK';
@@ -8510,6 +8686,14 @@ const UI = {
       p.el.style.opacity = String(u < 0.7 ? 1 : (1 - u) / 0.3);
     }
     if (m.training) this.trainingPanel(m);
+  },
+  /* Lock-on marker (P4-05): the locked fighter's own name tag gets the `lk` class (gold border and a chevron under it, see .tag.lk); no other element, so no panel.
+     It lives in the HUD layer, which no render-quality preset touches. */
+  tagMarker(m, f, el, i) {
+    const marked = m.lockMarked(f);
+    if (this.cache['tagmark' + i] === marked) return;
+    this.cache['tagmark' + i] = marked;
+    el.classList.toggle('lk', marked);
   },
   /* Brawl: the right-hand bar is the enemies together (health left of all of them, and how many are still up). */
   enemyBar(m) {
@@ -13040,6 +13224,315 @@ const SelfTest = {
       const hooks = ai.considerPickup(foe, foe, 2) === null && ai.considerHazard(foe, foe, 2) === null;
       const ok = !usedDuel && !usedLone && attacked && !usedLast && lastAttacks && hooks;
       return ok ? true : JSON.stringify({ usedDuel, usedLone, attacked, usedLast, lastAttacks, hooks });
+    });
+    /* ----- Lock-on (P4-03), soft facing (P4-04), lock-on marker (P4-05) ----- */
+    /* A scripted human player (the lock-on rules apply to it) driven by ctl = { lock, fwd, side, punch, analog }. It stands at the origin facing +x, so a stick push of fwd = 1 points along
+       +x, fwd = -1 along -x, side = 1 along +z and side = -1 along -z. Every enemy stands still where the scene puts it. */
+    const humanScript = (ctl) => Object.assign(self.scripted((it) => { it.lock = !!ctl.lock; it.fwd = ctl.fwd || 0; it.side = ctl.side || 0; it.punch = !!ctl.punch; it.stickAnalog = !!ctl.analog; }), { human: true });   // analog: the push comes from a gamepad or touch stick (the only kind that can flick); without it, from keys
+    const lockScene = (spots, opts, ctl) => {
+      const m = self.makeBrawl(Object.assign({ enemies: spots.length }, opts));
+      m.controllers[0] = humanScript(ctl);
+      m.home = [0, 0];   // where lockTap puts the player back
+      self.stand(m.fighters[0], 0, 0, 1, 0);
+      spots.forEach(([x, z], k) => self.stand(m.fighters[k + 1], x, z, 0, 0));
+      return m;
+    };
+    /* One step with the given input, then the input is cleared and the player is put back at its home spot facing +x (a push moves it a few millimetres). keepPose: leave it. */
+    const lockTap = (m, ctl, input, keepPose) => {
+      Object.assign(ctl, { lock: false, fwd: 0, side: 0, punch: false, analog: false }, input);
+      m.step();
+      Object.assign(ctl, { lock: false, fwd: 0, side: 0, punch: false, analog: false });
+      const home = m.home || [0, 0];
+      if (!keepPose) self.stand(m.fighters[0], home[0], home[1], home[0] + 1, home[1]);
+    };
+    const lockWait = (m, ctl, ticks) => { for (let t = 0; t < ticks; t++) lockTap(m, ctl, {}); };
+    /* The index of the enemy a first Lock press (with this stick) picks in a scene, -1 for nobody. setup(m) may change the scene (a wall, a downed enemy, an ally). */
+    const lockPick = (spots, input, setup) => {
+      const ctl = {}, m = lockScene(spots, {}, ctl);
+      try {
+        if (setup) setup(m);
+        lockTap(m, ctl, Object.assign({ lock: true }, input));
+        return m.fighters.indexOf(m.fighters[0].lockOn);
+      } finally { m.dispose(); }
+    };
+    /* The enemy the player's first punch is aimed at (index, -1 for none), whether it is attacking, how far its facing is off that enemy (radians) and who its target is, one tick
+       after the attack began (the tick it began is when the aim is set; the target follows on the next). */
+    const softAim = (spots, input, setup) => {
+      const ctl = {}, m = lockScene(spots, {}, ctl), p = m.fighters[0];
+      try {
+        if (setup) setup(m);
+        lockTap(m, ctl, Object.assign({ punch: true }, input), true);
+        const aim = m.fighters.indexOf(p.aim);
+        m.step();
+        return { aim, attacking: p.state === S.ATTACK, off: p.aim ? Math.abs(wrapAngle(Math.atan2(p.aim.x - p.x, p.aim.z - p.z) - p.yaw)) : -1, target: m.fighters.indexOf(p.target) };
+      } finally { m.dispose(); }
+    };
+    const withWall = (wall) => () => { Arena.colliders.push(wall); };   // the arena is rebuilt by the next match, which drops the wall
+    const CROWD = [[4, 0], [1.5, 2.5], [1.5, -3.5], [-2.5, 0]];   // e1 ahead, e2 front-left (nearest in view), e3 front-right, e4 behind
+    const HIDING_WALL = () => ({ x: 2, z: 0, hx: 0.3, hz: 1.6, top: 2.5, standable: false, active: true, obj: null, temp: false, timer: 0, thin: false });   // between the player and the spot (4, 0)
+    test('Lock-on: a crowd picks the enemy in the stick direction (view or not), else the nearest in front; behind the player, out of range and out of the 100 degree view are skipped', () => {
+      const got = {
+        none: lockPick(CROWD), ahead: lockPick(CROWD, { fwd: 1 }), left: lockPick(CROWD, { side: 1 }), right: lockPick(CROWD, { side: -1 }), back: lockPick(CROWD, { fwd: -1 }),
+        behindSkipped: lockPick([[6, 0], [-2, 0]]), behindByStick: lockPick([[6, 0], [-2, 0]], { fwd: -1 }), onlyBehind: lockPick([[-2, 0]]),
+        farAndBehind: lockPick([[9, 0], [-2, 0]]), inRange: lockPick([[7.9, 0]]), outOfRange: lockPick([[8.1, 0]]), farByStick: lockPick([[9, 0]], { fwd: 1 }),
+        edgeIn: lockPick([[-0.2, 3]]), edgeOut: lockPick([[-0.8, 3]]), weakStick: lockPick(CROWD, { side: 0.3 }),
+      };
+      const want = { none: 2, ahead: 1, left: 2, right: 3, back: 4, behindSkipped: 1, behindByStick: 2, onlyBehind: -1, farAndBehind: -1, inRange: 1, outOfRange: -1, farByStick: -1, edgeIn: 1, edgeOut: -1, weakStick: 2 };
+      return JSON.stringify(got) === JSON.stringify(want) ? true : 'got ' + JSON.stringify(got) + ' want ' + JSON.stringify(want);
+    });
+    test('Lock-on: scenery taller than a person hides an enemy (the pick skips it, also against the stick); crates, glass and a wall behind the target do not', () => {
+      const spots = [[4, 0], [3, 4]];   // e1 is straight behind the wall, e2 is off to the side with a clear line
+      const got = {
+        control: lockPick(spots), wall: lockPick(spots, {}, withWall(HIDING_WALL())), wallByStick: lockPick(spots, { fwd: 1 }, withWall(HIDING_WALL())),
+        wallOnly: lockPick([[4, 0]], {}, withWall(HIDING_WALL())), crate: lockPick(spots, {}, withWall(Object.assign(HIDING_WALL(), { top: 0.95 }))),
+        glass: lockPick(spots, {}, withWall(Object.assign(HIDING_WALL(), { obj: { mat: 'glass' } }))), behindTarget: lockPick(spots, {}, withWall(Object.assign(HIDING_WALL(), { x: 5.5 }))),
+        beyondSide: lockPick(spots, { side: 1 }, withWall(Object.assign(HIDING_WALL(), { x: 0, z: 3, hx: 3, hz: 0.2 }))),   // a long wall across the way to e2: only e1 is visible
+      };
+      const want = { control: 1, wall: 2, wallByStick: 2, wallOnly: -1, crate: 1, glass: 1, behindTarget: 1, beyondSide: 1 };
+      return JSON.stringify(got) === JSON.stringify(want) ? true : 'got ' + JSON.stringify(got) + ' want ' + JSON.stringify(want);
+    });
+    test('Lock-on: a downed enemy is skipped by the automatic pick but stays locked once chosen; an ally is never picked, whatever it stands or the stick says', () => {
+      const spots = [[2, 0], [4, 0]];
+      const down = (index) => (m) => { m.fighters[index].setState(S.HIT); m.fighters[index].setState(S.DOWN); };
+      const ally = (m) => { m.fighters[1].team = TEAM_PLAYERS; };
+      const got = {
+        downSkipped: lockPick(spots, {}, down(1)), downByStick: lockPick(spots, { fwd: 1 }, down(1)), allDown: lockPick(spots, {}, (m) => { down(1)(m); down(2)(m); }),
+        allyNearest: lockPick(spots, {}, ally), allyByStick: lockPick(spots, { fwd: 1 }, ally), onlyAlly: lockPick([[2, 0]], {}, ally),
+      };
+      const want = { downSkipped: 2, downByStick: 2, allDown: -1, allyNearest: 2, allyByStick: 2, onlyAlly: -1 };
+      // chosen first, then downed: the lock holds, the player still faces and targets it; the next Lock press lets go; the one after picks the standing enemy
+      const ctl = {}, m = lockScene(spots, {}, ctl), p = m.fighters[0];
+      try {
+        lockTap(m, ctl, { lock: true });
+        const chosen = p.lockOn === m.fighters[1];
+        down(1)(m);
+        lockWait(m, ctl, 10);
+        const kept = p.lockOn === m.fighters[1] && p.target === m.fighters[1];
+        lockTap(m, ctl, { lock: true });
+        const released = p.lockOn === null;
+        lockTap(m, ctl, { lock: true });
+        const next = p.lockOn === m.fighters[2];
+        // an ally's tag never carries the marker and the ally is never the player's target
+        m.fighters[2].team = TEAM_PLAYERS; lockWait(m, ctl, 3);
+        const allyNever = p.target !== m.fighters[2] && !m.lockMarked(m.fighters[2]);
+        return JSON.stringify(got) === JSON.stringify(want) && chosen && kept && released && next && allyNever ? true : JSON.stringify({ got, chosen, kept, released, next, allyNever });
+      } finally { m.dispose(); }
+    });
+    test('Lock-on: the lock lets go when its target is knocked out or goes past the release range (and not before), the next press picks a valid enemy; a round start or the player\'s own KO clears it', () => {
+      const ctl = {}, m = lockScene([[2.5, 0], [1.5, 3]], {}, ctl), p = m.fighters[0], [e1, e2] = [m.fighters[1], m.fighters[2]];
+      try {
+        lockTap(m, ctl, { lock: true });
+        const locked = p.lockOn === e1 && p.target === e1;
+        Combat.knockOut(e1, null, null, m);
+        lockWait(m, ctl, 20);   // the knock-out freezes the sim for 16 ticks of hit-stop
+        const released = p.lockOn === null && p.target === e2;
+        lockTap(m, ctl, { lock: true });
+        const next = p.lockOn === e2;
+        m.home = [-6, 0];   // the player stands 6 m from the middle, so the enemy can be 9 m away inside the arena (it is 17 m wide)
+        const awayAt = (gap) => { e2.x = e2.prevX = m.home[0] + gap; e2.z = e2.prevZ = 0; };
+        awayAt(LOCK_RELEASE_RANGE - 0.2); lockWait(m, ctl, 3);
+        const edgeHolds = p.lockOn === e2;   // past LOCK_RANGE but inside the release range: still locked
+        awayAt(LOCK_RELEASE_RANGE + 0.2); lockWait(m, ctl, 2);
+        const far = p.lockOn === null;
+        awayAt(LOCK_RANGE + 0.5); lockTap(m, ctl, { lock: true });
+        const noNewLock = p.lockOn === null;   // a new press needs LOCK_RANGE, not the release range
+        awayAt(3); lockTap(m, ctl, { lock: true });
+        const again = p.lockOn === e2;
+        // a lock is also checked while the player is in a clinch (the bound partner is the target meanwhile): the locked enemy is knocked out under it
+        p.state = S.GRAPPLE; p.partner = e1;
+        e2.alive = false; e2.state = S.KO;
+        m.assignTargets();
+        const inClinch = p.lockOn === null && p.target === e1;
+        p.state = S.IDLE; p.partner = null; e2.alive = true; e2.state = S.IDLE; p.lockOn = e2;
+        p.hp = 0; Combat.knockOut(p, null, null, m);
+        lockWait(m, ctl, 20);
+        const selfKo = p.lockOn === null;
+        p.lockOn = e2; m.startRound();
+        const roundStart = p.lockOn === null && p.aim === null;
+        const ok = locked && released && next && edgeHolds && far && noNewLock && again && inClinch && selfKo && roundStart;
+        return ok ? true : JSON.stringify({ locked, released, next, edgeHolds, far, noNewLock, again, inClinch, selfKo, roundStart });
+      } finally { m.dispose(); }
+    });
+    test('Lock-on: an analog-stick flick (out and back within LOCK_FLICK_TICKS) or a Lock press with the stick pushed moves the lock to the enemy in that direction (only if it is closer to the stick than the locked one), a Lock press without a push lets go, switches are LOCK_SWITCH_COOLDOWN apart', () => {
+      const ctl = {}, m = lockScene([[2.5, 0], [1.5, 2.5], [1.5, -3]], {}, ctl), p = m.fighters[0], [e1, e2, e3] = [m.fighters[1], m.fighters[2], m.fighters[3]];
+      const flick = (dir, ticksOut) => { for (let t = 0; t < (ticksOut || 1); t++) lockTap(m, ctl, Object.assign({ analog: true }, dir)); lockTap(m, ctl, { analog: true }); };   // out, then back to rest
+      try {
+        lockTap(m, ctl, { lock: true });
+        const start = p.lockOn === e1;
+        lockWait(m, ctl, LOCK_SWITCH_COOLDOWN + 2);
+        flick({ side: 1 });
+        const flickLeft = p.lockOn === e2 && p.target === e2;
+        lockTap(m, ctl, {}); flick({ side: -1 });   // too soon after the last switch
+        const debounced = p.lockOn === e2;
+        lockWait(m, ctl, LOCK_SWITCH_COOLDOWN + 2);
+        flick({ side: -1 }, 3);
+        const flickRight = p.lockOn === e3;
+        lockWait(m, ctl, LOCK_SWITCH_COOLDOWN + 2);
+        flick({ fwd: 1 });
+        const flickAhead = p.lockOn === e1;
+        lockWait(m, ctl, LOCK_SWITCH_COOLDOWN + 2);
+        flick({ fwd: 1 });   // already the enemy most ahead: the push does nothing
+        lockWait(m, ctl, LOCK_SWITCH_COOLDOWN);
+        const noBetter = p.lockOn === e1;
+        flick({ side: 0.5 }); lockWait(m, ctl, LOCK_SWITCH_COOLDOWN);
+        const weakPush = p.lockOn === e1;   // a push under LOCK_FLICK_MAG is no flick
+        flick({ side: 1 }, LOCK_FLICK_TICKS + 4);
+        const slowPush = p.lockOn === e1;   // out for too long is walking, not a flick
+        lockWait(m, ctl, LOCK_SWITCH_COOLDOWN);
+        lockTap(m, ctl, { lock: true, side: 1 });
+        const tapSwitch = p.lockOn === e2;
+        lockWait(m, ctl, LOCK_SWITCH_COOLDOWN + 2);
+        lockTap(m, ctl, { lock: true, side: -1 });
+        const tapSwitchRight = p.lockOn === e3;
+        lockTap(m, ctl, { lock: true, fwd: -1 });   // pushed at nobody (e4 does not exist): lets go
+        const tapNobody = p.lockOn === null;
+        lockTap(m, ctl, { lock: true });
+        lockTap(m, ctl, { lock: true });
+        const toggled = p.lockOn === null;   // pick, then let go
+        const ok = start && flickLeft && debounced && flickRight && flickAhead && noBetter && weakPush && slowPush && tapSwitch && tapSwitchRight && tapNobody && toggled;
+        return ok ? true : JSON.stringify({ start, flickLeft, debounced, flickRight, flickAhead, noBetter, weakPush, slowPush, tapSwitch, tapSwitchRight, tapNobody, toggled });
+      } finally { m.dispose(); }
+    });
+    test('Lock-on: plain movement never changes the lock: keys (held, tapped, backing off, circling) and a held analog stick, for 60+ ticks, with another enemy to the right and one behind', () => {
+      const trial = (label, push) => {
+        const ctl = {}, m = lockScene([[2.5, 0], [1.5, 2.5], [-2.5, 0]], {}, ctl), p = m.fighters[0], a = m.fighters[1];
+        try {
+          lockTap(m, ctl, { lock: true });   // A, straight ahead; B is to the right (+z), C is behind
+          lockWait(m, ctl, LOCK_SWITCH_COOLDOWN + 2);
+          if (p.lockOn !== a) return label + ': no lock';
+          for (let t = 0; t < 70; t++) { lockTap(m, ctl, push(t)); if (p.lockOn !== a) return label + ' moved the lock at tick ' + t; }
+          lockWait(m, ctl, 4);
+          return p.lockOn === a ? '' : label + ' moved the lock after';
+        } finally { m.dispose(); }
+      };
+      const problems = [
+        trial('key right held', () => ({ side: 1 })), trial('key back held', () => ({ fwd: -1 })), trial('key right tapped', (t) => (t % 2 ? {} : { side: 1 })),
+        trial('key back tapped', (t) => (t % 3 ? {} : { fwd: -1 })), trial('key circling', (t) => ({ side: t < 35 ? 1 : -1 })), trial('key right every 20 ticks', (t) => (t % 20 < 10 ? { side: 1 } : {})),
+        trial('analog right held', () => ({ side: 1, analog: true })), trial('analog back held', () => ({ fwd: -1, analog: true })),
+      ].filter(Boolean);
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Lock-on: a 1v1 locks its only foe and targets it exactly as before; a lock-less AI or dummy fighter never gets a lock', () => {
+      const ctl = {}, duel = self.make({}), p = duel.fighters[0], foe = duel.fighters[1];
+      let ai = null;
+      try {
+        duel.controllers[0] = humanScript(ctl);
+        lockTap(duel, ctl, { lock: true });
+        const locked = p.lockOn === foe && p.target === foe && foe.target === p;
+        const noMarker = !duel.lockMarked(foe);   // nothing to tell apart in a 1v1: no marker
+        lockTap(duel, ctl, { lock: true });
+        const released = p.lockOn === null && p.target === foe;
+        lockTap(duel, ctl, { lock: true, punch: true }); lockWait(duel, ctl, 4);
+        const noAim = p.aim === null && p.lockOn === foe;   // soft facing is for scenes with several enemies only
+        Combat.knockOut(foe, null, null, duel);
+        lockWait(duel, ctl, 20);
+        const afterKo = p.lockOn === null && p.target === foe;   // a finished round still faces the knocked-out opponent
+        ai = new MatchSim({ mode: 'brawl', enemies: 3, countdown: false, timer: 0, seed: 3, difficulty: 'hard', evenDamage: true });
+        ai.controllers[0] = self.scripted(() => {});   // an idle, non-human player: the live keyboard or pad cannot reach this match
+        for (let t = 0; t < 600; t++) { ai.step(); }
+        const noAiLock = ai.fighters.every((f) => f.lockOn === null && f.aim === null);   // the enemies are AIs and never lock or aim
+        const ok = locked && noMarker && released && noAim && afterKo && noAiLock;
+        return ok ? true : JSON.stringify({ locked, noMarker, released, noAim, afterKo, noAiLock });
+      } finally { duel.dispose(); if (ai) ai.dispose(); }
+    });
+    test('Soft facing: without a lock an attack is aimed at the same target the lock-on rules pick (stick direction, then nearest in front), never at a hidden, downed, far or allied enemy when a valid one exists', () => {
+      const down = (m) => { m.fighters[1].setState(S.HIT); m.fighters[1].setState(S.DOWN); };
+      const ally = (m) => { m.fighters[1].team = TEAM_PLAYERS; };
+      const got = {
+        crowd: softAim(CROWD), ahead: softAim(CROWD, { fwd: 1 }), right: softAim(CROWD, { side: -1 }), back: softAim(CROWD, { fwd: -1 }),
+        behind: softAim([[6, 0], [-2, 0]]), wall: softAim([[4, 0], [3, 4]], {}, withWall(HIDING_WALL())), downed: softAim([[2, 0], [4, 0]], {}, down),
+        allied: softAim([[2, 0], [4, 0], [5, 2]], {}, ally), far: softAim([[9, 0], [5, 3]]),
+      };
+      const want = { crowd: 2, ahead: 1, right: 3, back: 4, behind: 1, wall: 2, downed: 2, allied: 2, far: 2 };
+      const problems = [];
+      for (const key in want) {
+        if (got[key].aim !== want[key]) problems.push(key + ' aim ' + got[key].aim + ' want ' + want[key]);
+        else if (!got[key].attacking || got[key].off > 0.02 || got[key].target !== want[key]) problems.push(key + ' not facing it: ' + JSON.stringify(got[key]));
+      }
+      // nobody valid (both enemies are behind): no aim, the attack keeps the usual target, the nearest
+      const none = softAim([[-2, 0], [-3, 1]]);
+      if (none.aim !== -1 || !none.attacking || none.target !== 1) problems.push('none valid ' + JSON.stringify(none));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Soft facing: a locked enemy is the aim even when others are nearer, and the aim is kept to the end of the attack and then forgotten', () => {
+      const ctl = {}, m = lockScene(CROWD, {}, ctl), p = m.fighters[0];
+      try {
+        lockTap(m, ctl, { lock: true, fwd: 1 });
+        const locked = p.lockOn === m.fighters[1];
+        lockWait(m, ctl, LOCK_SWITCH_COOLDOWN);
+        self.stand(p, 0, 0, 0, 3);   // facing e2 (the nearest), away from the locked e1
+        lockTap(m, ctl, { punch: true }, true);
+        const foe = m.fighters[1];
+        const aimedAtLock = p.state === S.ATTACK && p.aim === foe && Math.abs(wrapAngle(Math.atan2(foe.x - p.x, foe.z - p.z) - p.yaw)) < 0.05;
+        let kept = true;
+        for (let t = 0; t < 4 && p.state === S.ATTACK; t++) { m.step(); if (p.state === S.ATTACK && (p.aim !== foe || p.target !== foe)) kept = false; }
+        let guard = 0;
+        while (p.state === S.ATTACK && guard++ < 120) m.step();
+        lockWait(m, ctl, 2);
+        const forgotten = p.aim === null && p.lockOn === m.fighters[1];
+        const ok = locked && aimedAtLock && kept && forgotten;
+        return ok ? true : JSON.stringify({ locked, aimedAtLock, kept, forgotten });
+      } finally { m.dispose(); }
+    });
+    test('Soft facing: a later step of a string keeps the aim of the one before while it is a valid pick (stick or no stick), picks again when it is not; with one hostile in the scene there is no soft facing', () => {
+      const ctl = {}, m = lockScene(CROWD, {}, ctl), p = m.fighters[0], [, , , e3, e4] = m.fighters;
+      try {
+        lockTap(m, ctl, { punch: true, side: -1 }, true);   // the first step, pushed at e3
+        const first = p.aim === e3 && p.state === S.ATTACK;
+        p.stickMag = 1; p.stickX = -1; p.stickZ = 0;   // the next step is pressed with the stick pushed at e4, behind
+        m.softFace(p);
+        const kept = p.aim === e3;
+        e3.setState(S.HIT); e3.setState(S.DOWN);   // e3 is no longer a valid pick
+        m.softFace(p);
+        const repicked = p.aim === e4 && Math.abs(wrapAngle(Math.atan2(e4.x - p.x, e4.z - p.z) - p.yaw)) < 0.02;
+        // one hostile left in the scene (the other two are on the player's side): the attack is not turned at all
+        const solo = lockScene([[2, 0], [4, 0], [5, 2]], {}, ctl);
+        try {
+          solo.fighters[2].team = TEAM_PLAYERS; solo.fighters[3].team = TEAM_PLAYERS;
+          const q = solo.fighters[0];
+          self.stand(q, 0, 0, 0, 3);   // facing away from the only hostile
+          lockTap(solo, ctl, { punch: true }, true);
+          const unturned = q.aim === null && Math.abs(wrapAngle(q.yaw - Math.atan2(2, 0))) > 1;
+          const ok = first && kept && repicked && unturned;
+          return ok ? true : JSON.stringify({ first, kept, repicked, unturned });
+        } finally { solo.dispose(); }
+      } finally { m.dispose(); }
+    });
+    test('Lock-on marker: only the locked enemy\'s tag carries it (none without a lock, in a 1v1, on an ally, or once the lock no longer holds), it adds no element, and no quality preset or style rule hides it', () => {
+      const ctl = {}, m = lockScene(CROWD, {}, ctl), problems = [];
+      const tags = m.fighters.map(() => { const el = { marked: false, classList: { toggle(name, on) { if (name === 'lk') el.marked = !!on; } } }; return el; });
+      const keepCache = UI.cache;
+      const draw = () => { m.fighters.forEach((f, i) => UI.tagMarker(m, f, tags[i], i)); return tags.map((el, i) => (el.marked ? i : '')).join(''); };
+      try {
+        UI.cache = {};
+        if (draw() !== '') problems.push('no lock: ' + draw());
+        lockTap(m, ctl, { lock: true, side: -1 });   // e3
+        if (draw() !== '3') problems.push('locked: ' + draw());
+        lockWait(m, ctl, LOCK_SWITCH_COOLDOWN);
+        lockTap(m, ctl, { lock: true });   // let go
+        if (draw() !== '') problems.push('released: ' + draw());
+        lockTap(m, ctl, { lock: true });   // the nearest in front: e2
+        const before = draw();
+        m.fighters[2].alive = false; m.fighters[2].state = S.KO;   // knocked out, before the next tick has dropped the lock: the marker already goes
+        const atOnce = draw();
+        lockWait(m, ctl, 2);
+        if (before !== '2' || atOnce !== '' || draw() !== '') problems.push('knock-out: ' + before + ' then ' + atOnce + ' then ' + draw());
+        // the render-quality presets only hold render budgets; the marker is HUD, so none of them (or any style rule) can hide it
+        for (const quality in QUALITY_PRESETS) {
+          const odd = Object.keys(QUALITY_PRESETS[quality]).filter((key) => !['scale', 'dprCap', 'shadow', 'particles', 'debris'].includes(key));
+          if (odd.length) problems.push('preset ' + quality + ' has the setting ' + odd.join());
+        }
+        const sheets = Array.from(document.querySelectorAll('style')).map((el) => (typeof el.textContent === 'string' ? el.textContent : ''));
+        if (sheets.length) {   // only where there is a page (the browser run)
+          const css = sheets.join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+          if (!/\.tag\.lk::after\s*\{[^}]*content/.test(css)) problems.push('the marker has no style rule');
+          for (const rule of css.match(/[^{}]+\{[^{}]*\}/g) || []) {
+            const selector = rule.slice(0, rule.indexOf('{')), body = rule.slice(rule.indexOf('{'));
+            if (/\.tag(?![\w-])/.test(selector) && /display\s*:\s*none|visibility\s*:\s*hidden|opacity\s*:\s*0(?![.\d])/.test(body)) problems.push('a style rule hides tags: ' + rule.trim().slice(0, 80));
+          }
+        }
+      } finally { UI.cache = keepCache; m.dispose(); }
+      return problems.length ? problems.join('; ') : true;
     });
     test('Auto quality keeps full scale on a 50 Hz screen and lowers it when 60 Hz frames are slow', () => {
       const keep = { quality: Settings.v.quality, autoScale: Quality.autoScale, best: Quality.bestFrameMs, block: Quality.blockUpUntil, frames: Diag.frameCount };
