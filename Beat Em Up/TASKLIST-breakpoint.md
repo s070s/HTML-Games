@@ -117,9 +117,9 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 - [x] P3-01 - Defense choice per character: each character has exactly one defense type, Block or Sway (an invincibility-frame dodge in the style of God Hand). Never both. Stored in preset data and in the creator (Style tab).
   Done when: the `defend` action performs only the character's defense type, AI uses the correct type, and the share code includes the defense type.
-- [ ] P3-02 - Define Block rules (high / low coverage without a second button, perfect block, stamina cost, chip damage, guard break) and Sway rules (i-frame window, recovery, stamina cost, punish window, counter-attack follow-up).
+- [x] P3-02 - Define Block rules (high / low coverage without a second button, perfect block, stamina cost, chip damage, guard break) and Sway rules (i-frame window, recovery, stamina cost, punish window, counter-attack follow-up).
   Done when: rules and values are in Appendix C and implemented; P0-06 runner shows neither type wins more than the balance target set in P14-01.
-  Status (2026-10-28): rules implemented; balance open. Block vs Sway AI wins (same fighter, 60 matches each): Easy 55/45, Normal 42/58, Hard 73/27, Expert 95/5. Hard and Expert miss the 45-55% target: Block's parry rate grows with difficulty faster than the Sway AI's dodges. Tune in P3-08 / P3-10, then tick.
+  Status (2026-10-28): done in P3-08 by AI tuning only (new per-difficulty `swayRead` / `swayAim`; no rule number changed). Block vs Sway wins, same fighter, 600 matches per level: Easy 51/49, Normal 48/52, Hard 49/51, Expert 51/50 (60-match samples vary by about ±6). Note: Easy's Sway CPU reads a wind-up slightly sooner than Normal's (8 vs 10 ticks), so the two can be balanced against their Block CPUs. Preset pairs shift with it (Sway presets gain at Hard): P14-01 / P14-04 rebalance them.
 - [x] P3-03 - Grab attacks: in a grab, Punch = elbow strike, Kick = knee strike. Distinct animations per style family where the style supports it.
   Done when: both strikes work from the grab on touch, gamepad and keyboard, with hit reactions and a strike limit per grab.
 - [x] P3-04 - DECIDE: submissions design with minimal inputs (proposal: start from a grab or a downed opponent with one existing input; escape by a short directional or mash contest that works on touch). Include which styles can submit.
@@ -130,7 +130,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: decision recorded; if included, the tackle triggers only by analog movement, only above the weight threshold, and has a counter.
 - [ ] P3-07 - Falling: on unstable or elevated surfaces, a character with no support falls (gravity, fall damage, edge reactions such as teeter / grab ledge if approved).
   Done when: characters fall off edges and broken surfaces in every level that has them, and the AI avoids edges unless pushed.
-- [ ] P3-08 - Re-tune hitstop, juggle limit, combo reset and frame data for the new action list.
+- [x] P3-08 - Re-tune hitstop, juggle limit, combo reset and frame data for the new action list.
   Done when: frame data shows in Training for every move and no move has an unintended infinite combo (checked by P0-06 runner).
 - [ ] P3-09 - Automatic momentum boost: a gauge filled by landing hits, perfect blocks / sways and taking hits, giving a short stronger-damage state when full; same rules for AI; no extra input; shown on the fighter (pose / breathing, no glow, no sci-fi look) plus one thin bar.
   Done when: rules and values are in Appendix C; the boost triggers and ends as defined in the P0-06 headless runner; with it on, no style pair's win rate leaves the P14-01 target.
@@ -1270,6 +1270,7 @@ Every one of the 8 strong moves has exactly one string. Standing mixed pairs (P 
   - the default pair for the rest.
 - USE: no hold. Tap Use = throw the held item at the target; Crouch + Use = drop it; Use near an item while empty-handed = pick up.
 - P3-10: the 35% limit stays.
+- Same-tick trades (P3-08): a strike that lands on the same tick as a grab wins (either player); two strikes both land; two grabs split by tick parity. After a get-up, strikes miss for 6 more ticks (wake-up grace, closes a knockdown loop); grabs and the tackle still connect.
 
 ## Appendix D - Audit findings
 
@@ -1299,13 +1300,13 @@ Method: four read-only auditors, one per area (input / storage / UI; renderer / 
 | D16 | Medium | Error screen | `UI.update`, `showFatal` | Error with only a gamepad: "Return to main menu" unreachable; menu behind overlay still focusable | P0-07 | [x] fixed: pad confirm / back and keyboard work the error screen only |
 | D17 | Medium | Colliders | `Arena.breakObject` -> `addRubble` | Pit barrier breaks: 2.7-3 m invisible rubble collider pushes fighters | P8-02 | open |
 | D18 | Medium | Object damage | `Arena.damageObject` (`lastSrc`) | Two overlapping attacks on one crate: damage every tick | P9-02 | open |
-| D19 | Medium | Throws | `Fighter.startThrow` | Strong throw at 0 stamina keeps x1.5 damage | P3-08 | open |
+| D19 | Medium | Throws | `Fighter.startThrow` | Strong throw at 0 stamina keeps x1.5 damage | P3-08 | [x] fixed: strong throws were removed in P2-10; P3-08 adds a self-test for throw damage at 0 vs full stamina |
 | D20 | Medium | Loop / errors | `Game.fail` (`errorCount`) | 9th caught error in a session stops the loop for good | P0-07 | [x] fixed: Return to main menu resets the count and restarts the loop |
 | D21 | Medium | Self-test health | real matchEnd -> VICTORY -> RESULTS path, preview return | Tests set states directly, so D04 passed 114/114 | P0-07 | [x] fixed: two self-tests (real knock-out to RESULTS; preview return to CHARSEL); the About screen keeps the results |
 | D22 | Low | Input / storage | `KeyBindings.load`, `Store.set`, `Progress.save`, `pollPad`, onboarding card, `touchStrike` | Unbound fallback key; one failed write disables storage for the session; two tabs overwrite saves; non-standard pad toast repeats; pad cannot close the controls card; two touch attacks in one tick drop one | P0-07; two tabs: P10-05; touch: P2-04 | [x] fixed for P0-07: unbound key list, write retry with one warning, toast once per pad, pad closes the card. Open: two tabs (P10-05), touch (P2-04) |
 | D23 | Low | HUD / a11y | `#warn` under touch stick; `user-scalable=no`; spinbutton Up/Down move focus | Low-stamina warning hidden on touch; no pinch zoom in menus | P2-04, P2-08 | open |
 | D24 | Low | Renderer | `WEAK_GPU`, `R.push` culling uses `proj[5]`, shader `vN` precision, per-frame arrays | Strong Linux / Mac GPUs rated low; props vanish at the screen edge in portrait; paper debris shading breaks on 16-bit GPUs; GC churn | P15-02 | open |
-| D25 | Low | Combat | `resolveCombat` trade order, `tryEscape` one-tick bias, `blockHit` hp floor, impact / attack id overlap, per-tick allocations | Grab vs strike on the same tick favours P1; P1 gets one more escape tick; block at hp 0.6 sets hp 1 | P3-08 (allocations: P15-02) | open |
+| D25 | Low | Combat | `resolveCombat` trade order, `tryEscape` one-tick bias, `blockHit` hp floor, impact / attack id overlap, per-tick allocations | Grab vs strike on the same tick favours P1; P1 gets one more escape tick; block at hp 0.6 sets hp 1 | P3-08 (allocations: P15-02) | [x] fixed in P3-08: strike before grab on the same tick (either player), equal escape window, chip damage never raises health, scenery ids negative. Open: per-tick allocations (P15-02) |
 | D26 | Low | Storage | `CustomRoster.init` | Corrupt custom data is overwritten by the next save | P6-11 | open |
 | D27 | Low | Game flow | `onNextRound` order, `errmenu` skips `quitToMenu`, preview clears the Versus score, menu shows the smashed arena, self-test leaks 4 matches and plays sounds | Auditor notes per item | P0-07; self-test sounds: P16-01 | [x] fixed: round order, error path uses quitToMenu, Versus score kept, menu arena rebuilt, self-test matches disposed. Open: the self-test still plays sounds, because some tests need the live listeners (P16-01) |
 | D28 | Low | Benchmark / runner | benchmark used up the onboarding card and left the menu arena; unknown arena threw | `BREAKPOINT.benchmark()` on a new profile | P0-03 | [x] fixed |
