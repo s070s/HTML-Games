@@ -454,6 +454,7 @@ class MatStack {
 const Store = {
   ok: false,
   mem: {},
+  warned: false,   // a failed write is reported once per session
   init() {
     try {
       localStorage.setItem('__bp_probe', '1');
@@ -467,7 +468,13 @@ const Store = {
   },
   set(key, value) {
     this.mem[key] = value;
-    try { if (this.ok) localStorage.setItem(key, value); } catch (e) { this.ok = false; }
+    try { if (this.ok) localStorage.setItem(key, value); } catch (e) { this.warnWrite(e); }   // reads keep using localStorage; the next write retries
+  },
+  warnWrite(e) {
+    if (this.warned) return;
+    this.warned = true;
+    Diag.log('warn', 'Could not save to localStorage: ' + (e && e.message ? e.message : e));
+    Events.emit('toast', { msg: 'Progress could not be saved in this browser', kind: 'warn' });
   },
   remove(key) {
     delete this.mem[key];
@@ -624,10 +631,11 @@ class KeyBindings {
     for (const a of ACTIONS) {
       if (next[a].length) continue;
       const code = this.defaults[a].find((c) => !used.has(c)) || this.fallbacks.find((c) => !used.has(c));
+      if (!code) { next[a] = []; continue; }   // every key is taken: leave the action unbound
       next[a] = [code];
       used.add(code);
     }
-    if (this.player === 1 && !next.pause.includes('Escape')) next.pause = ['Escape', next.pause[0]];
+    if (this.player === 1 && !next.pause.includes('Escape')) next.pause = ['Escape'].concat(next.pause.slice(0, 1));
     this.bindings = next;
   }
   /* An old save still holding a former default gets the new default, unless the user gave that key to another action. */
@@ -756,6 +764,7 @@ const PAD_CROUCH_TAP_MS = 200;
 const PAD_FLICK_ON = 0.65;
 const PAD_FLICK_OFF = 0.4;
 const PAD_JUMP_TAP_STRENGTH = 0.9;    // a stick tap must be pushed this far up to jump (a light tap is a step)
+const warnedPadIds = new Set();   // the non-standard layout toast shows once per controller id per session
 const PAD_SELECT_HOLD_MS = 500;       // Select held this long = reset positions in Training
 const TOUCH_RUN_TICKS = 27;           // touch stick held fully toward the opponent this long = run
 const TOUCH_CHARGE_MS = 220;          // touch PUNCH / KICK held at least this long, then released = strong attack
@@ -953,7 +962,7 @@ class PlayerInput {
       this.padInfo.connected = true;
       this.padInfo.name = pad.id;
       this.padInfo.standard = pad.mapping === 'standard';
-      if (!this.padInfo.standard) Events.emit('toast', { msg: 'Non-standard controller layout: using best-guess mapping', kind: 'warn' });
+      if (!this.padInfo.standard && !warnedPadIds.has(pad.id)) { warnedPadIds.add(pad.id); Events.emit('toast', { msg: 'Non-standard controller layout: using best-guess mapping', kind: 'warn' }); }
     }
     const down = (i) => !!(pad.buttons[i] && (pad.buttons[i].pressed || pad.buttons[i].value > 0.5));
     // both punch buttons punch and both kick buttons kick; Cross / Circle also confirm / go back in menus
@@ -5809,6 +5818,7 @@ const Game = {
     if (this.unsubMatch) { this.unsubMatch.forEach((off) => off()); this.unsubMatch = null; }
     if (this.match) { this.match.dispose(); this.match = null; }
     Debris.clear(); FX.clear();
+    Showcase.arenaId = null;   // the match smashed the arena: the next menu showcase must rebuild it
   },
   /* In Survival a restart abandons the run (no free retries): the record is kept and a new run starts. */
   restartMatch() {
@@ -5831,7 +5841,7 @@ const Game = {
     this.saveSurvivalRecord();
     this.endMatch();
     this.run = null;
-    this.versus = null;
+    if (!CreatorUI.returnState) this.versus = null;   // a creator fight preview returns to the creator, so the Versus session score stays
     this.pausedFrom = null;
     if (this.state !== GS.MENU) {
       if (!this.go(GS.MENU)) { this.state = GS.MENU; this.syncVersusInput(); Events.emit('gamestate', { from: 'FORCED', to: GS.MENU }); }
@@ -5845,8 +5855,8 @@ const Game = {
   },
   onNextRound() {
     if (!this.match) return;
+    this.go(GS.COUNTDOWN);   // first, so a countdown-less round's fightStart can move the state on to FIGHT
     this.match.startRound();
-    this.go(GS.COUNTDOWN);
   },
   onMatchEnd() {
     const m = this.match;
@@ -5930,6 +5940,7 @@ const Game = {
 
   /* ----- loop ----- */
   start() {
+    cancelAnimationFrame(this.rafId);   // never two loops, e.g. when restarting after the error limit
     this.last = performance.now();
     const loop = (now) => {
       this.rafId = requestAnimationFrame(loop);
@@ -6651,9 +6662,10 @@ const UI = {
     if (target) target.focus({ preventScroll: false });
   },
   navItems() { return Array.from(this.dom.screens.querySelectorAll('[data-nav]')); },
+  fatalShown() { return !this.dom.fatal.hidden; },
   moveFocus(dir) {
     const items = this.navItems();
-    if (!items.length) return;
+    if (!items.length || this.fatalShown()) return;
     let i = items.indexOf(document.activeElement);
     i = i < 0 ? 0 : (i + dir + items.length) % items.length;
     items[i].focus();
@@ -6669,6 +6681,11 @@ const UI = {
       if (/^Digit[1-5]$/.test(e.code) && !e.repeat && !Inputs.active().some((p) => p.codeMap.has(e.code))) { m.scenario(Number(e.code.slice(5))); return; }   // a digit bound to an action stays that action
     }
     if (e.code === 'F3') { e.preventDefault(); this.toggleDiag(); return; }
+    if (this.fatalShown()) {   // the error screen owns the keyboard: the menu behind it stays untouched
+      const errBtn = $('errBtn');
+      if (errBtn && (e.code === 'Enter' || e.code === 'Space')) { e.preventDefault(); errBtn.click(); } else if (errBtn) errBtn.focus();
+      return;
+    }
     if (!this.current) return;
     if (this.current === 'creator' && CreatorUI.onKey(e)) return;
     const el = document.activeElement;
@@ -6769,7 +6786,12 @@ const UI = {
       case 'inc': this.changeSetting(arg, 1); break;
       case 'ldec': this.changeLocal(arg, -1); break;
       case 'linc': this.changeLocal(arg, 1); break;
-      case 'errmenu': this.dom.fatal.hidden = true; Game.go(GS.MENU); break;
+      case 'errmenu':
+        this.dom.fatal.hidden = true;
+        Game.errorCount = 0;
+        Game.start();   // the loop stops after too many errors; start() also cancels a loop that is still running
+        Game.quitToMenu();
+        break;
       case 'create': CreatorUI.open(this.current === 'char' ? 'char' : 'main'); break;
       case 'editcustom': CreatorUI.openSlot('char', CUSTOM_IDS.indexOf(Game.selection.player)); break;
       default: if (name.startsWith('cr')) CreatorUI.act(name, arg); break;
@@ -7062,6 +7084,7 @@ const UI = {
     const pauseShown = this.lastScreen === 'pause';   // a press that led back to the pause screen (Esc in Controls) must not also close it
     this.lastScreen = this.current;
     if (this.current === 'creator' && this.frameCount % 15 === 1) CreatorUI.measureFocus(); // panel size changes with layout
+    if (this.padOverlay()) return;
     if (!this.current) return;
     if (Inputs.captureCallback) { this.padCancelCapture(); return; }
     const unpause = Inputs.take('pause');   // P / gamepad Start close the pause screen (Esc goes through onKey)
@@ -7079,6 +7102,17 @@ const UI = {
     p.up = pd.up; p.down = pd.down; p.left = pd.left; p.right = pd.right; p.ok = ok; p.back = back;
   },
 
+  /* The error screen and the controls card sit above everything: pad confirm / back (rising edge) uses or closes them.
+     Returns true while the error screen is up, so the hidden menu behind it gets no pad input. */
+  padOverlay() {
+    const fatal = this.fatalShown(), card = !this.dom.onboard.hidden;
+    const ok = !!Inputs.menuHeld.menuOk, back = !!Inputs.menuHeld.menuBack, p = this.padPrev;
+    const pressed = (ok && !p.ok) || (back && !p.back);
+    if (fatal || card) { p.ok = ok; p.back = back; }
+    if (!pressed) return fatal;
+    if (fatal) { const errBtn = $('errBtn'); if (errBtn) errBtn.click(); } else if (card) this.hideOnboarding();
+    return fatal;
+  },
   /* A rebind waits for a keyboard key; the pad's back button cancels it so a pad-only player is never stuck. */
   padCancelCapture() {
     const back = !!Inputs.menuHeld.menuBack;
@@ -8886,6 +8920,7 @@ const SelfTest = {
         self.run(m, 1200);   // about 15 attacks, so a random mix shows both heights
         log.stop();
         heights[mode] = log.attackStart.filter((e) => e.f.index === 1).map((e) => e.mv.h).join('');
+        m.dispose();
       }
       const attacks = /^H{3,}$/.test(heights.attackHigh) && /^L{3,}$/.test(heights.attackLow) && /H/.test(heights.attackMix) && /L/.test(heights.attackMix);
       const m = mk({ mode: 'training', dummy: 'blockAfterHit' }, (it, f, o, mm) => { if (mm.tick === 2 || mm.tick === 45) it.lp = true; });
@@ -9062,6 +9097,36 @@ const SelfTest = {
       restoreProgress(saved);
       return countdown && resumed && locked && koLock ? true : JSON.stringify({ countdown, resumed, locked, koLock });
     });
+    test('Match end: a real knock-out reaches VICTORY and then RESULTS through the normal handlers', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const saved = keepProgress();
+      Game.selection.rounds = 1;   // one knocked-out round wins the match
+      Game.chooseMode('free'); Game.startFromSelection();
+      const render = Game.render; Game.render = () => {};
+      let now = performance.now();
+      const frame = () => { now += 16.7; Game.frame(now); };
+      for (let i = 0; i < 400 && Game.state !== GS.FIGHT; i++) frame();
+      const fighting = Game.state === GS.FIGHT;
+      Combat.knockOut(Game.match.fighters[1], Game.match.fighters[0], null, Game.match);
+      for (let i = 0; i < 600 && Game.state !== GS.VICTORY; i++) frame();
+      const victory = Game.state === GS.VICTORY && !!Game.resultsData && Game.resultsData.playerWon === true;
+      for (let i = 0; i < 600 && Game.state !== GS.RESULTS; i++) frame();
+      const results = Game.state === GS.RESULTS && UI.current === 'results';
+      Game.render = render;
+      Game.quitToMenu();
+      restoreProgress(saved);
+      return fighting && victory && results ? true : JSON.stringify({ fighting, victory, results, state: Game.state });
+    });
+    test('Creator: leaving a preview that started from character select returns to character select', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const origin = CreatorUI.origin;
+      CreatorUI.origin = 'char';
+      CreatorUI.exit();
+      const landed = Game.state === GS.CHARSEL && UI.current === 'char';
+      Game.quitToMenu();
+      CreatorUI.origin = origin;
+      return landed ? true : JSON.stringify({ state: Game.state, screen: UI.current });
+    });
     test('Hints: too tired to escape, the clinch strike keys with strikes left, a Move list entry in the pause menu', () => {
       const m = mk({});
       const [a, b] = m.fighters;
@@ -9085,6 +9150,7 @@ const SelfTest = {
       const sim = mk({});
       Events.emit('clinch', { att: sim.fighters[0], def: sim.fighters[1], grip: 'front', x: 0, y: 1.1, z: 0 });
       const simIgnored = !Progress.d.seenClinch;
+      sim.dispose();
       Game.chooseMode('free'); Game.startFromSelection();
       const [a, b] = Game.match.fighters;
       a.grip = b.grip = 'front'; a.throwAim = 'fwd'; a.throwPending = null; a.clinchStrikes = 0;
@@ -9796,14 +9862,17 @@ UI.runSelfTest = function runSelfTest() {
   if (Game.state !== GS.MENU || Game.match) { if (out) out.textContent = 'Self-test is available from the main menu only.'; return; }
   const t0 = performance.now();
   const illegalBefore = Diag.illegalTransitions;
+  const screen = this.current, stack = this.stack.slice();
   const saved = SelfTest.snapshot();
   const res = SelfTest.run_all();
   SelfTest.restore(saved);
   Diag.illegalTransitions = illegalBefore;
   this.resetMenuScene();
+  if (screen && this.current !== screen) { this.go(screen); this.stack = stack; }   // flow tests visit other screens: show the results where the run started
   const pass = res.filter((r) => r.pass).length;
   const text = 'Self-test: ' + pass + ' / ' + res.length + ' passed in ' + Math.round(performance.now() - t0) + ' ms\n' + res.map((r) => (r.pass ? '[pass] ' : '[FAIL] ') + r.name + (r.detail ? '  -> ' + r.detail : '')).join('\n');
-  if (out) out.textContent = text;
+  const shown = $('selftestOut');
+  if (shown) shown.textContent = text;
   Diag.log(pass === res.length ? 'info' : 'warn', 'Self-test ' + pass + '/' + res.length);
   return res;
 };
