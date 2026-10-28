@@ -195,6 +195,32 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .tag s{display:block;height:3px;margin-top:2px;background:#4a1020;text-decoration:none}
 .tag s u{display:block;height:100%;background:#ff7aa6;text-decoration:none}
 .brawl .hs.r .bar.st,.brawl .hs.r .bar.mo,.brawl .hs.r .pips{display:none}   /* brawl: the right bar is the enemies together, with no stamina or momentum */
+/* co-op (P4-07): the left bar is the party together; under the top bar a cell per player (name, health, stamina) in the seat's colour; the join screen's seat cards use the same colours */
+.seat1{--pc:#34dcff}.seat2{--pc:#8dff7a}.seat3{--pc:#ffb347}.seat4{--pc:#c49bff}
+.coop .hs.l .bar.st,.coop .hs.l .bar.mo,.coop .hs.l .pips{display:none}
+#party{position:absolute;left:.9em;right:.9em;top:4.1em;display:none;gap:.35em}
+.coop #party{display:flex}
+.pc{flex:1 1 0;min-width:0;padding:.1em .3em .2em;border:2px solid var(--pc);background:rgba(0,0,0,.6)}
+.pc .pn{font-size:.7em;letter-spacing:.05em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pc .pn b{color:var(--pc)}
+.pc .ph,.pc .ps{position:relative;overflow:hidden;background:#101624}
+.pc .ph{height:.6em;margin-top:.1em}
+.pc .ps{height:.25em;margin-top:.15em}
+.pc .ph i,.pc .ps i{position:absolute;inset:0;transform-origin:left;background:var(--pc)}
+.pc .ps i{background:#8dff7a}
+.pc.out{opacity:.5;border-style:dashed}
+.pc.out .pn::after{content:" OUT";color:var(--bad)}
+.coop #modeinfo{top:8.3em}   /* modeinfo's em is .85 of the HUD's: this puts it under the party row (which ends near 6.8 HUD em) */
+.coop #combo,.coop #combo2{top:9.3em}
+.tag.seat1,.tag.seat2,.tag.seat3,.tag.seat4{border-color:var(--pc)}
+.hc .pc{background:#000;border-width:3px}
+.seats{display:grid;grid-template-columns:repeat(auto-fill,minmax(9em,1fr));gap:.6em;margin:.6em 0}
+.seatcard{border:2px solid var(--pc);border-radius:.5em;background:#0f1830;padding:.5em .7em;min-height:6em;cursor:pointer}
+.seatcard.open{border-style:dashed;opacity:.7;cursor:default}
+.seatcard .seatno{display:block;color:var(--pc);letter-spacing:.1em}
+.seatcard em{display:block;font-style:normal;color:var(--mut);font-size:.8em}
+.seatcard .dev{display:block;font-size:.75em;color:var(--pc);margin-top:.3em}
+.pcname{color:var(--pc)}
 .pop{position:absolute;left:0;top:0;white-space:nowrap;font:900 italic 1.3em/1 Impact,"Arial Black",sans-serif;letter-spacing:.04em;will-change:transform,opacity;text-shadow:0 2px 3px #000,0 0 4px #000}
 .hc .bar{border-width:3px;background:#000}
 .hc .bar.mo{border-width:1px;height:.6em}
@@ -235,6 +261,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
       <div class="hc-center"><div id="timer">60</div><div id="roundlbl"></div></div>
       <div class="hs r"><div class="hname" id="hn2"></div><div class="bar hp"><u id="hg2"></u><i id="hp2"></i><b id="ht2"></b></div><div class="bar st" id="stb2"><i id="st2"></i></div><div class="bar mo" id="mob2"><i id="mo2"></i></div><div class="pips" id="pips2"></div></div>
     </div>
+    <div id="party"></div>
     <div id="modeinfo"></div>
     <div id="combo"></div>
     <div id="combo2"></div>
@@ -511,6 +538,7 @@ const SETTING_DEFS = {
   effects: { type: 'enum', options: ['low', 'medium', 'high'], def: 'high', label: 'Effects' },
   touch: { type: 'enum', options: ['auto', 'on', 'off'], def: 'auto', label: 'Touch controls' },
   autoAssist: { type: 'bool', def: false, label: 'Auto-assist', hint: 'Easier attack strings for you (not the CPU): the next move plays even after a miss, and you get twice as long to press it.' },
+  friendlyFire: { type: 'bool', def: false, label: 'Friendly fire (co-op)', hint: 'Co-op brawls only, from the next brawl: with it on, the players (teammates) can hurt each other. CPU enemies never hurt each other.' },
   showStats: { type: 'bool', def: false, label: 'Performance overlay' },
 };
 const Settings = {
@@ -785,6 +813,14 @@ const ATTACK_STRING_TICKS = Math.round(ATTACK_STRING_SECONDS / FIXED_DT);   // c
 const ASSIST_STRING_WINDOW = 2;       // Auto-assist (human players only) multiplies the string window by this and lets a string go on after a whiff
 const ATTACK_QUEUE_MAX = 3;          // Punch / Kick presses kept in press order until the fight reads them (hit-stop pauses reading)
 
+/* Local co-op (P4-07): up to COOP_MAX_PLAYERS players, each on one device (Inputs.seats). A keyboard layout (P1's or P2's keys) takes seat 1 or 2 only, so seats 3 and 4 are for
+   gamepads; a gamepad takes any seat. */
+const COOP_MAX_PLAYERS = 4;
+const COOP_KEYBOARD_SEATS = 2;
+const COOP_JOIN_BUTTONS = [0, 9];     // gamepad: A or Start joins
+const COOP_LEAVE_BUTTON = 1;          // B leaves (a gamepad that has not joined: B goes back)
+const COOP_START_BUTTON = 9;          // Start on a gamepad that has joined starts the brawl
+
 /* Touch: DUCK held gives the low version; otherwise the attack goes where it can land. The move comes from the
    fighter's attack string (Fighter.pressMove): a body shot against a crouching or low-guarding opponent when the
    standing move would pass over them (high attacks), a low kick under a high guard. */
@@ -812,10 +848,10 @@ function clearIntent(it) {
 }
 
 /* One human player's input state: keyboard keys from that player's bindings, one gamepad, touch (P1 only).
-   P1 is `Input` (every singleplayer mode); P2 (`Input2`) only reads devices in Versus. */
+   P1 is `Input` (every singleplayer mode); P2 (`Input2`) only reads devices in Versus and co-op; P3 and P4 (`Input3`, `Input4`) only in co-op, on gamepads. */
 class PlayerInput {
   constructor(slot, keymap) {
-    this.slot = slot;                // 0 = P1, 1 = P2
+    this.slot = slot;                // 0 = P1 .. 3 = P4
     this.keymap = keymap;
     this.kb = new Set();
     this.codeMap = new Map();
@@ -850,9 +886,9 @@ class PlayerInput {
 
   rebuildMap() {
     this.codeMap.clear();
-    const taken = this.slot === 0 && Inputs.versus ? Keymap2 : null;   // in Versus a key P2 uses never moves P1
+    const taken = this.keymap === Keymap && Inputs.keymap2InPlay() ? Keymap2 : null;   // in Versus (and a co-op with P2's keyboard seated) a key P2 uses never moves P1's layout
     for (const a of ACTIONS) {
-      this.codes[a] = this.keymap.bindings[a].filter((c) => !taken || !taken.owner(c));
+      this.codes[a] = this.keymap ? this.keymap.bindings[a].filter((c) => !taken || !taken.owner(c)) : [];   // a gamepad seat of a co-op has no keys
       for (const c of this.codes[a]) this.codeMap.set(c, a);
     }
   }
@@ -1114,13 +1150,23 @@ class PlayerInput {
 }
 const Input = new PlayerInput(0, Keymap);
 const Input2 = new PlayerInput(1, Keymap2);
+const Input3 = new PlayerInput(2, null);   // co-op only; the keyboard layout of a seat is set by Inputs.applySeats
+const Input4 = new PlayerInput(3, null);
 const MENU_PAD_BUTTONS = ['menuOk', 'menuBack', 'menuL1', 'menuR1', 'menuL2', 'menuR2'];   // menu confirm / back, creator tabs (L1 / R1) and turning (L2 / R2): raw pad buttons
 /* Shared devices: window listeners, key capture for remapping, and which player a key or a pad belongs to. */
 const Inputs = {
-  players: [Input, Input2],
+  players: [Input, Input2, Input3, Input4],
   solo: [Input],
+  duo: [Input, Input2],
   versus: false,         // Versus: P2 reads the keyboard and pads too
-  padSlots: [-1, -1],    // pad index held by P1 / P2; a pad stays with its player until it disconnects
+  coop: false,           // Co-op brawl (P4-07): the seated players read their devices; see the seat block below
+  lobby: false,          // the co-op join screen is open: a device that has no seat can join
+  seats: [null, null, null, null],   // the device in each seat: 'key1' (Keymap's layout), 'key2' (Keymap2's) or 'pad<index>'; null = open
+  party: [],             // the seated players' inputs, in seat order (what active() returns in a co-op)
+  lobbyHeld: {},         // join screen: the buttons each pad held on the last frame, so only a new press counts (cleared whenever the screen opens, see setLobby)
+  seatPadIds: [null, null, null, null],   // the id string of the gamepad in each gamepad seat, to find it again if it returns in another browser slot
+  anyPad: { up: false, down: false, left: false, right: false, ok: false, back: false },   // scratch for anyPadMenu
+  padSlots: [-1, -1],    // Versus: pad index held by P1 / P2; a pad stays with its player until it disconnects (a co-op keeps its pads in seats)
   enabled: false,
   attached: false,
   captureCallback: null,
@@ -1147,10 +1193,14 @@ const Inputs = {
     this.attached = false;
   },
   rebuildMaps() { for (const p of this.players) p.rebuildMap(); },
-  /* Players reading devices right now: P1 alone, both in Versus. */
-  active() { return this.versus ? this.players : this.solo; },
-  /* The human player steering a fighter, or null for the CPU / dummy. */
-  forFighter(index) { return index === 0 ? Input : this.versus && index === 1 ? Input2 : null; },
+  /* Players reading devices right now: P1 alone, both in Versus, the seated players in a co-op. */
+  active() { return this.coop ? this.party : this.versus ? this.duo : this.solo; },
+  /* The human player steering a fighter, or null for the CPU / dummy. In a co-op fighter i belongs to the i-th seated player. */
+  forFighter(index) {
+    const match = Game.match;
+    if (this.coop && match && match.coop) { const seat = match.coop[index]; return seat ? this.players[seat.slot] : null; }
+    return index === 0 ? Input : this.versus && index === 1 ? Input2 : null;
+  },
   setVersus(on) {
     if (this.versus === on) return;
     this.versus = on;
@@ -1158,6 +1208,122 @@ const Inputs = {
     this.releaseAll();
     this.rebuildMaps();
     for (const p of this.players) if (p.lastDevice === 'gamepad') p.lastDevice = 'keyboard';   // pads may change hands; the next pad press sets it again
+  },
+  /* ----- co-op seats (P4-07) -----
+     A device takes the first open seat it may sit in (a keyboard layout: seat 1 or 2; a gamepad: any) by pressing Punch (keyboard) or A / Start (gamepad) on the join screen, and gives it up
+     with Defend (keyboard) or B (gamepad). The seat is the player's input (players[seat]); a keyboard seat plays with its layout's keys, a gamepad seat with no keys. The seats are
+     cleared when the co-op ends. 'lobby' events tell the join screen what changed. */
+  setCoop(on) {
+    if (this.coop === on) return;
+    this.coop = on;
+    this.lobby = false;
+    this.seats.fill(null);
+    this.seatPadIds.fill(null);
+    this.lobbyHeld = {};
+    this.applySeats();
+    this.releaseAll();
+    this.resetPads();
+    for (const p of this.players) if (p.lastDevice === 'gamepad') p.lastDevice = 'keyboard';
+  },
+  /* Opens or closes the join screen. Opening forgets what the pads held on the last visit, so a button still held from the screen after it (B to go back) is not a press here. */
+  setLobby(on) {
+    if (on && !this.lobby) this.lobbyHeld = {};
+    this.lobby = on;
+  },
+  seatOf(device) { return this.seats.indexOf(device); },
+  /* The id string of the gamepad behind a 'pad<index>' device, or null. */
+  padId(device) {
+    const pad = navigator.getGamepads ? navigator.getGamepads()[Number(device.slice(3))] : null;
+    return pad ? pad.id : null;
+  },
+  /* The first open seat a device may take, or -1. */
+  openSeat(device) {
+    const limit = device.startsWith('key') ? COOP_KEYBOARD_SEATS : COOP_MAX_PLAYERS;
+    for (let s = 0; s < limit; s++) if (!this.seats[s]) return s;
+    return -1;
+  },
+  /* Seats a device (the seat it already has when it is seated). Returns the seat, or -1 when it cannot join. */
+  join(device) {
+    if (!this.coop) return -1;
+    const have = this.seatOf(device);
+    if (have >= 0) return have;
+    const seat = this.openSeat(device);
+    if (seat < 0) return -1;
+    this.seats[seat] = device;
+    this.seatPadIds[seat] = device.startsWith('pad') ? this.padId(device) : null;
+    const player = this.players[seat];
+    player.releaseAll();
+    player.lastDevice = device.startsWith('pad') ? 'gamepad' : 'keyboard';
+    this.applySeats();
+    Events.emit('lobby', { kind: 'join', seat, device });
+    return seat;
+  },
+  /* Frees the device's seat. Returns the seat it had, or -1. */
+  leave(device) {
+    const seat = this.seatOf(device);
+    if (seat < 0) return -1;
+    this.seats[seat] = null;
+    this.seatPadIds[seat] = null;
+    this.players[seat].releaseAll();
+    this.applySeats();
+    Events.emit('lobby', { kind: 'leave', seat, device });
+    return seat;
+  },
+  /* The seat numbers in use, lowest first. */
+  seatedSlots() { return this.seats.map((device, seat) => (device ? seat : -1)).filter((seat) => seat >= 0); },
+  /* Sets what each player's keys are: outside a co-op the layouts of P1 and P2; in a co-op the layout of the keyboard device in the seat, none for a gamepad or an open seat. */
+  applySeats() {
+    const home = [Keymap, Keymap2, null, null];
+    this.players.forEach((p, seat) => {
+      const device = this.seats[seat];
+      p.keymap = !this.coop ? home[seat] : device === 'key1' ? Keymap : device === 'key2' ? Keymap2 : null;
+    });
+    this.party = this.coop ? this.players.filter((p, seat) => this.seats[seat]) : [];
+    this.rebuildMaps();
+  },
+  /* Whether P2's keyboard layout is in play (so P1's layout gives up the arrow keys). */
+  keymap2InPlay() { return this.versus || (this.coop && this.seats.includes('key2')); },
+  /* Join screen, keyboard: Punch of a layout joins, Defend leaves, left / right choose the fighter of a seated layout. Returns true when the key was used. */
+  lobbyKey(e) {
+    if (e.repeat) return false;
+    for (let n = 0; n < COOP_KEYBOARD_SEATS; n++) {
+      if (n === 0 && this.seatOf('key2') >= 0 && Keymap2.owner(e.code)) continue;   // a key P2's layout uses is not P1's once P2 has joined
+      const action = KEYMAPS[n].owner(e.code), device = 'key' + (n + 1), seat = this.seatOf(device);
+      if (action === 'punch' && seat < 0) { this.join(device); return true; }
+      if (seat < 0 || (action !== 'defend' && action !== 'left' && action !== 'right')) continue;
+      if (action === 'defend') this.leave(device); else Events.emit('lobby', { kind: 'cycle', seat, dir: action === 'left' ? -1 : 1 });
+      return true;
+    }
+    return false;
+  },
+  /* Join screen, gamepads (once per frame): an unseated pad joins on A or Start (B goes back); a seated pad leaves on B, starts on Start, and left / right choose the fighter. Seats of pads that
+     were unplugged are freed. A button still held when the screen opened is not a press. */
+  pollLobby() {
+    if (!navigator.getGamepads) return;
+    const pads = navigator.getGamepads();
+    const live = (i) => !!pads[i] && pads[i].connected;
+    for (const device of this.seats.slice()) if (device && device.startsWith('pad') && !live(Number(device.slice(3)))) this.leave(device);
+    for (let i = 0; i < pads.length; i++) {
+      const pad = pads[i];
+      if (!live(i)) { delete this.lobbyHeld[i]; continue; }
+      const down = (b) => !!(pad.buttons[b] && (pad.buttons[b].pressed || pad.buttons[b].value > 0.5));
+      const x = finite(pad.axes[0], 0);
+      const now = { join: COOP_JOIN_BUTTONS.some(down), leave: down(COOP_LEAVE_BUTTON), start: down(COOP_START_BUTTON), left: x < -PAD_DIGITAL || down(14), right: x > PAD_DIGITAL || down(15) };
+      const before = this.lobbyHeld[i];
+      this.lobbyHeld[i] = now;
+      if (before) this.lobbyPad('pad' + i, now, before);
+    }
+  },
+  lobbyPad(device, now, before) {
+    const pressed = (k) => now[k] && !before[k];
+    const seat = this.seatOf(device);
+    if (seat < 0) {
+      if (pressed('join')) this.join(device); else if (pressed('leave')) Events.emit('lobby', { kind: 'back' });
+      return;
+    }
+    if (pressed('leave')) this.leave(device);
+    else if (pressed('start')) Events.emit('lobby', { kind: 'start' });
+    else if (pressed('left') || pressed('right')) Events.emit('lobby', { kind: 'cycle', seat, dir: pressed('left') ? -1 : 1 });
   },
   capture(callback) { this.captureCallback = callback; },
 
@@ -1170,9 +1336,11 @@ const Inputs = {
       cb(e.code);
       return;
     }
-    const owner = this.active().find((p) => p.codeMap.has(e.code)) || Input;   // unbound keys (menus, shortcuts) count as P1's
-    if (this.enabled && (owner.codeMap.has(e.code) || e.code === 'Space' || e.code.startsWith('Arrow') || e.code === 'AltLeft' || e.code === 'AltRight' || e.code === 'Tab' || e.code === 'ControlLeft')) e.preventDefault();
-    owner.onKey(e);
+    if (this.lobby && this.lobbyKey(e)) return;   // the co-op join screen: Punch joins, Defend leaves, left / right choose the fighter
+    if (this.coop && !this.lobby && e.code === 'Escape' && !e.repeat && this.party.length && !this.party.some((p) => p.codeMap.has(e.code))) this.party[0].press('pause');   // a gamepad-only party can still pause from the keyboard
+    const owner = this.active().find((p) => p.codeMap.has(e.code)) || (this.coop ? null : Input);   // unbound keys (menus, shortcuts) count as P1's; in a co-op they belong to nobody, so a gamepad seat never flips to the keyboard
+    if (this.enabled && ((owner && owner.codeMap.has(e.code)) || e.code === 'Space' || e.code.startsWith('Arrow') || e.code === 'AltLeft' || e.code === 'AltRight' || e.code === 'Tab' || e.code === 'ControlLeft')) e.preventDefault();
+    if (owner) owner.onKey(e);
   },
   onKeyUp(e) {
     if (this.enabled && (e.code === 'AltLeft' || e.code === 'AltRight')) e.preventDefault();
@@ -1186,8 +1354,42 @@ const Inputs = {
   /* Pad routing: a pad stays with the player holding it until it disconnects, and a newly connected pad only fills a free
      slot. Outside Versus P1 takes the first pad; in Versus a lone pad plays P2 (P1 keeps the keyboard), two new pads split P1 / P2. */
   padFor(slot, pads) {
+    if (this.coop) return this.seatPad(slot, pads);
     this.assignPads(pads);
     return this.padSlots[slot];
+  },
+  /* A co-op seat's pad: the one that joined it, while it is plugged in. If it returns in another browser slot it is found by its id (the seat then follows it) - but only when no other seat holds a pad
+     with that id (two identical controllers share one) and exactly one unseated connected pad has it. */
+  seatPad(slot, pads) {
+    const device = this.seats[slot];
+    if (!device || !device.startsWith('pad')) return -1;
+    const index = Number(device.slice(3)), id = this.seatPadIds[slot], here = pads[index];
+    if (here && here.connected && (!id || here.id === id)) return index;
+    if (!id || this.seatPadIds.some((other, s) => s !== slot && other === id)) return -1;
+    const held = this.seats.filter((other) => other && other.startsWith('pad')).map((other) => Number(other.slice(3)));
+    let found = -1;
+    for (let i = 0; i < pads.length; i++) {
+      if (!pads[i] || !pads[i].connected || pads[i].id !== id || held.includes(i)) continue;
+      if (found >= 0) return -1;
+      found = i;
+    }
+    if (found >= 0) this.seats[slot] = 'pad' + found;
+    return found;
+  },
+  /* The menu buttons held on any connected gamepad, seated or not (the join screen's memory for the screen after it). */
+  anyPadMenu() {
+    const out = this.anyPad;
+    out.up = out.down = out.left = out.right = out.ok = out.back = false;
+    if (!navigator.getGamepads) return out;
+    for (const pad of navigator.getGamepads()) {
+      if (!pad || !pad.connected) continue;
+      const down = (b) => !!(pad.buttons[b] && (pad.buttons[b].pressed || pad.buttons[b].value > 0.5));
+      const x = finite(pad.axes[0], 0), y = finite(pad.axes[1], 0);
+      out.ok = out.ok || down(0); out.back = out.back || down(1);
+      out.up = out.up || y < -PAD_DIGITAL || down(12); out.down = out.down || y > PAD_DIGITAL || down(13);
+      out.left = out.left || x < -PAD_DIGITAL || down(14); out.right = out.right || x > PAD_DIGITAL || down(15);
+    }
+    return out;
   },
   assignPads(pads) {
     const slots = this.padSlots;
@@ -1209,6 +1411,7 @@ const Inputs = {
   },
   /* Called once per rendered frame, before any simulation steps. */
   update() {
+    if (this.lobby) this.pollLobby();
     for (const p of this.active()) p.update();
     this.mergeMenuPads();
   },
@@ -1840,7 +2043,7 @@ const Quality = {
 /* Brawl camera (P4-06); the rules are in Appendix C of the tasklist. Everything here is outside the simulation: it reads the fighters and never changes them. */
 const CAMERA_THREAT_RANGE = 6.5;      // brawl camera: living enemies this close to the player are kept in view ...
 const CAMERA_THREAT_LEAVE = 7.5;      // ... and a framed one is dropped only beyond this (the gap keeps an enemy on the edge from flickering in and out)
-const CAMERA_MAX_PLAYERS = 4;         // fighters of the player team that are framed together (co-op, P4-07)
+const CAMERA_MAX_PLAYERS = COOP_MAX_PLAYERS;   // fighters of the player team that are framed together (co-op, P4-07)
 const CAMERA_FIGHTER_HEIGHT = 2.0;    // m above the feet that has to stay on screen (the head; the name tag sits just above it)
 const CAMERA_SAFE_X = 0.8, CAMERA_SAFE_Y = 0.72;   // the screen's safe zone (-1..1 across the view): players and locked enemies are kept inside it
 const CAMERA_KEEP_PASSES = 4;         // corrections per frame (a pull-back changes what the next shift has to be)
@@ -1884,18 +2087,20 @@ const Camera = {
   /* A brawl (P4-01, P4-06): frame the players and the enemies near them (frameFighters), looking along the line from the players to the threats' centre.
      Smoothing and hysteresis, then keepInFrame (nobody who matters leaves the screen) and updateOcclusion (scenery never hides a player for long). */
   box: { minX: 0, maxX: 0, minZ: 0, maxZ: 0, minY: 0, maxY: 0, sumX: 0, sumZ: 0, playerX: 0, playerZ: 0 },
-  /* Fills the box and the key points with: every living fighter of the lead's team (the lead even when out); the enemies within CAMERA_THREAT_RANGE of any of them (a framed
+  /* Fills the box and the key points with: every living fighter of the lead's team (a knocked-out player sits out of the frame; with every player out the lead stays in); the enemies within CAMERA_THREAT_RANGE of any of them (a framed
      enemy stays until CAMERA_THREAT_LEAVE); the enemy each player has locked, however far (the lock's own release range ends that); or, with none close, the nearest enemy.
      Returns how many fighters are in the box. */
   frameFighters(fighters) {
-    const box = this.box, players = this.players, framed = this.framed, lead = fighters[0];
+    const box = this.box, players = this.players, framed = this.framed, lead = fighters[0], team = lead.team;
     if (this.framedFor !== fighters) { this.framedFor = fighters; framed.fill(false); }
+    let anyAlive = false;
+    for (let i = 0; i < fighters.length; i++) if (fighters[i].team === team && fighters[i].alive) { anyAlive = true; break; }
     box.minX = box.minZ = box.minY = Infinity; box.maxX = box.maxZ = box.maxY = -Infinity; box.sumX = box.sumZ = box.playerX = box.playerZ = 0;
     this.keyCount = 0;
     let playerCount = 0;
     for (let i = 0; i < fighters.length && playerCount < CAMERA_MAX_PLAYERS; i++) {
       const f = fighters[i];
-      if (f.team !== lead.team || (!f.alive && f !== lead)) continue;
+      if (f.team !== team || (!f.alive && (anyAlive || f !== lead))) continue;
       players[playerCount++] = f;
       box.playerX += f.x; box.playerZ += f.z;
       this.addToBox(f); this.addKey(f);
@@ -1905,7 +2110,7 @@ const Camera = {
     for (let i = 0; i < fighters.length; i++) {
       const f = fighters[i], wasFramed = framed[i];
       framed[i] = false;
-      if (f.team === lead.team || !f.alive) continue;
+      if (f.team === team || !f.alive) continue;
       let sq = Infinity;
       for (let k = 0; k < playerCount; k++) { const dx = f.x - players[k].x, dz = f.z - players[k].z; sq = Math.min(sq, dx * dx + dz * dz); }
       if (sq < nearestSq) { nearestSq = sq; nearest = f; }
@@ -1914,7 +2119,7 @@ const Camera = {
     }
     for (let k = 0; k < playerCount; k++) {
       const locked = players[k].lockOn;
-      if (!locked || !locked.alive || locked.team === lead.team) continue;
+      if (!locked || !locked.alive || locked.team === team) continue;
       if (!framed[locked.index]) { framed[locked.index] = true; this.addThreat(locked); threats++; }
       this.addKey(locked);
     }
@@ -6201,11 +6406,14 @@ const KO_SLOW_TICKS = 30;             // slow motion starts on the knock-out blo
 const SKIP_ARM_TICKS = 30;            // the round-end sequence can be skipped after this long
 const TIMER_LOW_SECONDS = 10;         // the round timer turns to the warning colour
 const TIMER_BEEP_SECONDS = 5;         // and beeps once a second from here
-/* N fighters in one scene (P4-01). Every fighter has a team: 0 = the players, 1 = the enemies. fighters[0] is the human player; a 1v1 mode is two teams of one.
+/* N fighters in one scene (P4-01). Every fighter has a team: 0 = the players, 1 = the enemies. fighters[0] is the human player (in a co-op, fighters 0 to partySize - 1 are the party); a 1v1 mode is two teams of one.
    Brawl (mode 'brawl'): one player against up to BRAWL_MAX_ENEMIES CPU enemies in one arena, no rounds; see Appendix C of the tasklist for the rules. */
 const TEAM_PLAYERS = 0, TEAM_ENEMIES = 1;
 const BRAWL_MAX_ENEMIES = 6;          // P1-05: up to six enemies on screen at once
 const BRAWL_DEFAULT_ENEMIES = 3;
+const COOP_ENEMIES_BASE = 2;          // P4-07: a co-op brawl faces this many enemies plus one per player (1 player: 3, as the debug brawl; 4 players: BRAWL_MAX_ENEMIES)
+const COOP_REVIVE_HP = 0.5;           // the share of its health a knocked-out player comes back with at a stage start (MatchSim.reviveTeam)
+function coopEnemyCount(players) { return Math.min(BRAWL_MAX_ENEMIES, COOP_ENEMIES_BASE + players); }
 const BRAWL_SPAWN_SPACING = 0.8;      // metres between neighbouring enemy start points along z (a body is 0.68 m wide)
 const BRAWL_SPAWN_STAGGER = 0.5;      // every second enemy starts this much farther from the player, so the line is not a wall
 const CROWD_SEPARATION_PASSES = 3;    // body push-apart passes per tick with more than two fighters (two fighters need one)
@@ -6242,6 +6450,11 @@ const Player2Controller = {
   think(f, opp, match, it) { return Input2.fillIntent(it, f, opp); },
   reset() {},
 };
+/* Co-op seats 3 and 4, and the table by seat (MatchSim gives party member k the controller of its seat, P4-07). */
+function humanController(input) { return { input, human: true, think(f, opp, match, it) { return input.fillIntent(it, f, opp); }, reset() {} }; }
+const Player3Controller = humanController(Input3);
+const Player4Controller = humanController(Input4);
+const HUMAN_CONTROLLERS = [PlayerController, Player2Controller, Player3Controller, Player4Controller];
 const ScriptedController = {
   make(fn) { return { think(f, opp, match, it) { clearIntent(it); fn(it, f, opp, match); return it; }, reset() {} }; },
 };
@@ -6400,18 +6613,26 @@ class MatchSim {
     this.training = this.cfg.mode === 'training';
     this.versus = this.cfg.mode === 'versus';
     this.brawl = this.cfg.mode === 'brawl';
-    this.friendlyFire = !!this.cfg.friendlyFire;   // damage between teammates; off, the co-op setting of P4-07 turns it on
-    const foes = this.brawl ? this.brawlEnemies(p1.id) : [p2];
-    this.fighters = [new Fighter(p1, 0, TEAM_PLAYERS)];
+    this.friendlyFire = !!this.cfg.friendlyFire;   // damage between teammates (the co-op setting of P4-07)
+    /* A co-op brawl: cfg.coop is the party, [{ slot, id }] in seat order (slot = the input seat 0 to 3, id = the roster fighter); fighter k is the k-th of them. Otherwise the party is the one player. */
+    this.coop = this.brawl && Array.isArray(this.cfg.coop) && this.cfg.coop.length > 0 ? this.cfg.coop.slice(0, COOP_MAX_PLAYERS) : null;
+    const party = this.coop ? this.coop.map((seat) => ROSTER_BY_ID[seat.id] || ROSTER_BY_ID.kai) : [p1];
+    this.partySize = party.length;
+    const foes = this.brawl ? this.brawlEnemies(party.map((profile) => profile.id)) : [p2];
+    this.fighters = party.map((profile, k) => {
+      const member = new Fighter(profile, k, TEAM_PLAYERS);
+      if (party.findIndex((other) => other.id === profile.id) < k) member.applyLook(alternateLook(profile.look));   // a second pick of the same fighter wears the alternate colours
+      return member;
+    });
     foes.forEach((profile, k) => {
-      const foe = new Fighter(profile, k + 1, TEAM_ENEMIES);
-      if (profile.id === p1.id) foe.applyLook(alternateLook(profile.look));
+      const foe = new Fighter(profile, this.partySize + k, TEAM_ENEMIES);
+      if (party.some((member) => member.id === profile.id)) foe.applyLook(alternateLook(profile.look));
       this.fighters.push(foe);
     });
     const count = this.fighters.length;
-    this.controllers = [PlayerController];
+    this.controllers = this.coop ? this.coop.map((seat) => HUMAN_CONTROLLERS[clamp(Math.floor(seat.slot) || 0, 0, COOP_MAX_PLAYERS - 1)]) : [PlayerController];
     for (let k = 0; k < foes.length; k++) this.controllers.push(this.brawl ? new AIController(foes[k], this.cfg.difficulty) : this.rivalController(p2));
-    if (!this.versus && !this.training && !this.cfg.evenDamage) for (let k = 1; k < count; k++) this.fighters[k].stats.damage *=(DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg;
+    if (!this.versus && !this.training && !this.cfg.evenDamage) for (let k = this.partySize; k < count; k++) this.fighters[k].stats.damage *=(DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg;   // the enemies hit harder or softer by difficulty
     this.intents = this.fighters.map(() => makeIntent());
     this.air = new Array(count).fill(false);   // scratch for physics(): which fighters were airborne before landing
     this.descs = [];                           // scratch for resolveCombat()
@@ -6448,9 +6669,13 @@ class MatchSim {
     if (this.versus) return Player2Controller;
     return this.training ? new DummyController(profile, this.cfg.dummy) : new AIController(profile, this.cfg.difficulty);
   }
-  /* The enemy profiles of a brawl: cfg.enemies is a list of roster ids or a count (the roster cycles in ladder order, skipping the player's own fighter); at most BRAWL_MAX_ENEMIES, at least one. */
-  brawlEnemies(playerId) {
-    const want = this.cfg.enemies, pool = ROSTER.filter((r) => r.id !== playerId);
+  /* The enemy profiles of a brawl: cfg.enemies is a list of roster ids or a count (the roster cycles in ladder order, skipping the players' own fighters); at most BRAWL_MAX_ENEMIES, at least one.
+     playerIds: the party's roster ids (one id also works). */
+  brawlEnemies(playerIds) {
+    const taken = Array.isArray(playerIds) ? playerIds : [playerIds];
+    let pool = ROSTER.filter((r) => !taken.includes(r.id));
+    if (!pool.length) pool = ROSTER;
+    const want = this.cfg.enemies;
     let ids = Array.isArray(want) ? want.filter((id) => ROSTER_BY_ID[id]) : [];
     if (!Array.isArray(want)) {
       const count = clamp(Math.floor(Number.isFinite(want) ? want : BRAWL_DEFAULT_ENEMIES), 1, BRAWL_MAX_ENEMIES);
@@ -6463,7 +6688,7 @@ class MatchSim {
 
   /* ----- teams and targets (P4-01) ----- */
   /* True when att may damage def: another team, or a teammate while the friendly-fire setting is on. */
-  canHurt(att, def) { return att !== def && (att.team !== def.team || this.friendlyFire); }
+  canHurt(att, def) { return att !== def && (att.team !== def.team || (this.friendlyFire && att.team === TEAM_PLAYERS)); }   // friendly fire is the players' setting: CPU enemies never hurt each other
   teamAlive(team) {
     for (const f of this.fighters) if (f.team === team && f.alive) return true;
     return false;
@@ -6705,15 +6930,32 @@ class MatchSim {
   get countFrom() { return this.round === 1 ? 3 : 2; }
 
   placeFighters(hpFrac) {
-    const s = this.def.spawn;
-    this.fighters[0].reset(-s, 0, Math.PI / 2, hpFrac, 1);
-    if (this.brawl) {   // the enemies start in a loose line facing the player, centred on z = 0
-      const foes = this.fighters.length - 1;
-      for (let k = 1; k <= foes; k++) this.fighters[k].reset(s + ((k - 1) & 1) * BRAWL_SPAWN_STAGGER, (k - 1 - (foes - 1) / 2) * BRAWL_SPAWN_SPACING, -Math.PI / 2, 1, 1);
+    const s = this.def.spawn, party = this.partySize;
+    for (let k = 0; k < party; k++) this.fighters[k].reset(-s, (k - (party - 1) / 2) * BRAWL_SPAWN_SPACING, Math.PI / 2, hpFrac, 1);   // the party stands in a line, centred on z = 0
+    if (this.brawl) {   // the enemies start in a loose line facing the players, centred on z = 0
+      const foes = this.fighters.length - party;
+      for (let j = 0; j < foes; j++) this.fighters[party + j].reset(s + (j & 1) * BRAWL_SPAWN_STAGGER, (j - (foes - 1) / 2) * BRAWL_SPAWN_SPACING, -Math.PI / 2, 1, 1);
     } else this.fighters[1].reset(s, 0, -Math.PI / 2, 1, 1);
     for (const c of this.controllers) c.reset();
     this.intents.forEach(clearIntent);
     this.crowd.reset();
+  }
+  /* Stage-start hook (P4-07). In a co-op a knocked-out player sits out the rest of the brawl (they take no part, enemies ignore them, the camera leaves them out). A stage system, which does not
+     exist yet, calls this when a stage starts to bring them back where they fell, on their feet with COOP_REVIVE_HP of their health. Nothing in play calls it today. Returns how many came back. */
+  reviveTeam(hpFraction = COOP_REVIVE_HP) {
+    if (!this.brawl || this.matchOver) return 0;
+    let revived = 0;
+    for (let k = 0; k < this.partySize; k++) {
+      const member = this.fighters[k];
+      if (member.alive) continue;
+      const { y, groundY, supportY } = member;   // it stands up where it lay, on whatever it lay on (a crate, a ledge)
+      member.reset(member.x, member.z, member.yaw, hpFraction, 1);
+      member.y = member.prevY = y; member.groundY = groundY; member.supportY = supportY;
+      const input = this.controllers[k].input;
+      if (input) input.reset();   // Punch and Kick presses mashed while out must not fire now
+      revived++;
+    }
+    return revived;
   }
   startRound() {
     this.round++;
@@ -6980,6 +7222,13 @@ class MatchSim {
       r.opponent = foes.length + (foes.length === 1 ? ' enemy' : ' enemies');
       r.opponentHp = foes.reduce((sum, f) => sum + f.hp, 0) / foes.reduce((sum, f) => sum + f.maxHp, 0);
     }
+    if (this.coop) {   // a row per player for the co-op results screen
+      r.players = this.coop.map((seat, k) => { const f = this.fighters[k]; return { slot: seat.slot, name: f.name, alive: f.alive, hp: f.hp / f.maxHp, stats: this.stats[k] }; });
+      r.player = r.players.map((member) => member.name).join(' + ');
+      r.friendlyFire = this.friendlyFire;
+      const party = this.fighters.slice(0, this.partySize);
+      r.playerHp = party.reduce((sum, f) => sum + f.hp, 0) / party.reduce((sum, f) => sum + f.maxHp, 0);
+    }
     return r;
   }
 }
@@ -7174,7 +7423,7 @@ const Game = {
   alpha: 0,
   match: null,
   run: null,
-  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', player2: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy' },   // new players start on the easiest settings
+  selection: { mode: 'arcade', player: 'kai', opponent: 'mara', player2: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', party: DEFAULT_UNLOCKED.slice() },   // new players start on the easiest settings; party: the co-op pick per seat
   versus: null,          // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
   endTimer: 0,
   frameAvg: 16,
@@ -7191,8 +7440,12 @@ const Game = {
     Events.emit('gamestate', { from: prev, to: next });
     return true;
   },
-  /* P2 reads the keyboard and pads from the Versus fighter select until the main menu. */
-  syncVersusInput() { Inputs.setVersus(this.selection.mode === 'versus' && this.state !== GS.MENU && this.state !== GS.LOADING); },
+  /* P2 reads the keyboard and pads from the Versus fighter select until the main menu; the co-op seats (P4-07) likewise from the join screen. */
+  syncVersusInput() {
+    const live = this.state !== GS.MENU && this.state !== GS.LOADING;
+    Inputs.setVersus(this.selection.mode === 'versus' && live);
+    Inputs.setCoop(this.selection.mode === 'coop' && live);
+  },
 
   /* ----- menu flow ----- */
   chooseMode(mode) {
@@ -7207,6 +7460,8 @@ const Game = {
     if (!ROSTER_BY_ID[sel.player]) sel.player = 'kai';
     if (!ROSTER_BY_ID[sel.opponent]) sel.opponent = sel.player === 'mara' ? 'kai' : 'mara';
     if (!ROSTER_BY_ID[sel.player2]) sel.player2 = 'mara';
+    if (!Array.isArray(sel.party)) sel.party = [];
+    for (let seat = 0; seat < COOP_MAX_PLAYERS; seat++) if (!ROSTER_BY_ID[sel.party[seat]]) sel.party[seat] = DEFAULT_UNLOCKED[seat];
   },
   chooseArena(id) { this.selection.arena = id; },
 
@@ -7217,11 +7472,21 @@ const Game = {
     else if (sel.mode === 'survival') this.startSurvival();
     else if (sel.mode === 'training') this.startTraining();
     else if (sel.mode === 'versus') this.startVersus();
+    else if (sel.mode === 'coop') this.startCoop();
     else this.startFree();
   },
   opponentsFor(playerId) { return ROSTER.filter((r) => r.id !== playerId).sort((x, y) => x.rank - y.rank); },
   /* Free Fight / Training opponents: the roster plus saved custom fighters. */
   opponentChoices(playerId, allowMirror) { return ROSTER.concat(CustomRoster.profiles()).filter((r) => allowMirror || r.id !== playerId); },
+  /* The fighters a co-op seat can pick: the unlocked roster and the saved custom fighters. */
+  coopRoster() { return ROSTER.concat(CustomRoster.profiles()).filter((r) => Progress.isUnlocked(r.id)); },
+  /* A seat's pick moves one step (dir 1 or -1) along the co-op roster, wrapping round; returns the new fighter id. */
+  cycleParty(seat, dir) {
+    const roster = this.coopRoster(), sel = this.selection;
+    const at = roster.findIndex((r) => r.id === sel.party[seat]);
+    sel.party[seat] = roster[(at + dir + roster.length) % roster.length].id;
+    return sel.party[seat];
+  },
   /* keepRun: next stage or a retry of the same run (continues are counted); otherwise a new run starts. */
   startArcade(stage, keepRun) {
     const sel = this.selection;
@@ -7267,6 +7532,16 @@ const Game = {
     this.beginMatch({ mode: 'versus', playerId: sel.player, opponentId: sel.player2, arenaId: sel.arena, winsNeeded: sel.rounds, timer: sel.timer });
   },
 
+  /* Co-op brawl (P4-07): the seated players (Inputs.seats; each plays its pick in selection.party) against coopEnemyCount CPU enemies, friendly fire from the setting. Returns false when nobody has joined. */
+  startCoop() {
+    const sel = this.selection;
+    const party = Inputs.seatedSlots().map((slot) => ({ slot, id: sel.party[slot] }));
+    if (!party.length) return false;
+    this.run = { mode: 'coop', player: party[0].id };
+    this.beginMatch({ mode: 'brawl', coop: party, playerId: party[0].id, enemies: coopEnemyCount(party.length), arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: 0 });
+    return true;
+  },
+
   /* P4-01 debug entry (URL flag ?brawl=N, BREAKPOINT.brawl(N)): the selected fighter against N CPU enemies (a count or a list of fighter ids, at most
      BRAWL_MAX_ENEMIES) in the selected arena. No level, menu or waves yet. */
   startBrawl(enemies, arenaId, difficulty) {
@@ -7279,6 +7554,7 @@ const Game = {
   beginMatch(cfg) {
     this.endMatch();
     cfg.seed = (Date.now() ^ (this.errorCount * 7919)) >>> 0;
+    if (cfg.coop) cfg.friendlyFire = Settings.v.friendlyFire;   // read at every start, so a rematch follows the Options toggle
     this.config = cfg;
     this.match = new MatchSim(cfg);
     this.acc = 0;
@@ -7896,8 +8172,9 @@ const MODE_INFO = {
   training: { label: 'Training', desc: 'Practice moves, combos, grapples and destruction. Frame data and a configurable dummy.' },
   free: { label: 'Free Fight', desc: 'Pick any opponent, arena, difficulty, round count and timer.' },
   versus: { label: 'Versus', desc: 'Two players, one screen: keyboard and / or gamepads. The score carries over between rematches.' },
+  coop: { label: 'Co-op Brawl', desc: 'Up to four players on keyboards and gamepads against a crowd. A knocked-out player sits out until the brawl is over.' },
 };
-const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'versus'];
+const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'versus', 'coop'];
 const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', defend: 'R1', use: 'L2', lock: 'L1', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R2, R3 or right-stick flick', pause: 'Start' };
 const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', defend: 'DEFEND (with DUCK: low)', use: 'USE', lock: 'LOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 /* Touch buttons: [action, label, size]. lg = main fight buttons under the right thumb, sm = movement extras and the two
@@ -8004,11 +8281,11 @@ const KIND_NAME = { wood: 'WOOD', concrete: 'CONCRETE', metal: 'METAL', glass: '
 const UI = {
   screen_creator() { return CreatorUI.render(); },
   current: null, stack: [], guardUntil: 0, dom: {}, padPrev: { up: false, down: false, left: false, right: false, ok: false, back: false },
-  rebinding: null, scenIdx: 0, setupSel: { opp: 'mara' }, pops: [], popIdx: 0, tagEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, lastToast: '', ghost: [1, 1], cache: {},
+  rebinding: null, scenIdx: 0, setupSel: { opp: 'mara' }, pops: [], popIdx: 0, tagEls: [], partyEls: [], edgeEls: [], edgeOut: [0, 0, 0], banners: 0, lastToast: '', ghost: [1, 1], cache: {},
   listeners: [], frameCount: 0, onboardTimer: 0, pickSide: 0, lastScreen: null, touchButtons: {},
 
   init() {
-    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'mo1', 'mo2', 'mob1', 'mob2', 'pips1', 'pips2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'onboard', 'training', 'modeinfo', 'tags', 'pauseBtn']) this.dom[id] = $(id);
+    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'mo1', 'mo2', 'mob1', 'mob2', 'pips1', 'pips2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'onboard', 'training', 'modeinfo', 'party', 'tags', 'pauseBtn']) this.dom[id] = $(id);
     const add = (t, type, fn, o) => { t.addEventListener(type, fn, o); this.listeners.push([t, type, fn, o]); };
     add(window, 'keydown', (e) => this.onKey(e));
     add(this.dom.onboard, 'pointerdown', () => this.hideOnboarding());
@@ -8025,7 +8302,14 @@ const UI = {
     // iOS only grants audio on the end of a tap
     add(document, 'touchend', () => Sound.unlock(), { passive: true });
     add(document, 'pointerup', () => Sound.unlock(), { passive: true });
-    for (let i = 0; i < 1 + BRAWL_MAX_ENEMIES; i++) { const el = document.createElement('div'); el.className = 'tag p' + Math.min(i + 1, 2); this.dom.tags.appendChild(el); this.tagEls.push(el); }   // a name tag per fighter: P1, P2 and up to six enemies share p2's colour
+    for (let i = 0; i < COOP_MAX_PLAYERS + BRAWL_MAX_ENEMIES; i++) { const el = document.createElement('div'); el.className = 'tag p' + Math.min(i + 1, 2); this.dom.tags.appendChild(el); this.tagEls.push(el); }   // a name tag per fighter: P1, P2 and up to six enemies share p2's colour (a co-op restyles them when the match is created)
+    for (let k = 0; k < COOP_MAX_PLAYERS; k++) {   // a HUD cell per co-op player (P4-07), shown only in a co-op
+      const root = document.createElement('div');
+      root.className = 'pc'; root.hidden = true;
+      root.innerHTML = '<div class="pn"></div><div class="ph"><i></i></div><div class="ps"><i></i></div>';
+      this.dom.party.appendChild(root);
+      this.partyEls.push({ root, name: root.children[0], hp: root.children[1].firstChild, st: root.children[2].firstChild });
+    }
     for (let i = 0; i < 16; i++) { const el = document.createElement('div'); el.className = 'pop'; el.style.opacity = '0'; this.dom.tags.appendChild(el); this.pops.push({ el, age: 99, life: 1, x: 0, y: 0, z: 0 }); }
     for (let i = 0; i < BRAWL_MAX_ENEMIES; i++) { const el = document.createElement('div'); el.className = 'edge'; el.style.display = 'none'; this.dom.tags.appendChild(el); this.edgeEls.push(el); }   // an arrow per possible enemy, for attackers off screen (P4-06)
     Events.on('toast', (e) => this.toast(e.msg, e.kind));
@@ -8049,7 +8333,8 @@ const UI = {
     Events.on('countdown', (e) => this.banner(String(e.n), '', 700));
     Events.on('fightStart', () => this.banner('FIGHT!', '', 900));
     Events.on('roundStart', (e) => { if (e.match.cfg.countdown) this.banner(e.match.brawl ? 'BRAWL' : e.match.decider ? 'FINAL ROUND' : 'ROUND ' + e.round, this.roundSub(e.match), ROUND_BANNER_TICKS * 1000 / 60); else this.say(e.match.brawl ? 'Brawl' : 'Round ' + e.round); });
-    Events.on('ko', (e) => { if (koEndsFight(e.def)) this.banner('K.O.!', '', 1600); });
+    Events.on('ko', (e) => { if (koEndsFight(e.def)) this.banner('K.O.!', '', 1600); else this.onPartyKo(e); });
+    Events.on('lobby', (e) => this.onLobby(e));
     Events.on('roundEnd', (e) => this.onRoundEnd(e));
     Events.on('lowStamina', (e) => { if (Inputs.forFighter(e.f.index)) this.say(this.speaker(e.f.index) + 'Low stamina'); });
     Events.on('comboEnd', (e) => { if (e.hits >= 3 && e.att && Inputs.forFighter(e.att.index)) this.say(this.speaker(e.att.index) + e.hits + ' hit combo'); });
@@ -8080,7 +8365,21 @@ const UI = {
     while (this.dom.toast.children.length > 3) this.dom.toast.removeChild(this.dom.toast.firstChild);
     setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 3200);
   },
-  speaker(index) { return Inputs.versus ? 'P' + (index + 1) + ': ' : ''; },   // Versus announcements say whose they are
+  speaker(index) {   // Versus and co-op announcements say whose they are
+    const m = Game.match;
+    if (Inputs.coop && m && m.coop && m.partySize > 1 && m.coop[index]) return 'P' + (m.coop[index].slot + 1) + ': ';
+    return Inputs.versus ? 'P' + (index + 1) + ': ' : '';
+  },
+  /* The input seat of fighter f: its index, except in a co-op, where the party need not start at seat 0. */
+  seatOf(f) { const m = Game.match; return m && m.coop && m.coop[f.index] ? m.coop[f.index].slot : f.index; },
+  /* A co-op player went down while the party still stands: a pop over the body and an announcement (the last one down gets the K.O. banner). */
+  onPartyKo(e) {
+    const m = Game.match;
+    if (!m || !m.coop || e.def.team !== TEAM_PLAYERS || m.fighters[e.def.index] !== e.def) return;
+    const seat = m.coop[e.def.index].slot + 1;
+    this.popAt(e.x, 1.6, e.z, 'P' + seat + ' OUT', '#ff9a9a');
+    this.say('Player ' + seat + ' is out');
+  },
   say(text) { this.dom.announce.textContent = ''; setTimeout(() => { this.dom.announce.textContent = text; }, 30); },
   banner(text, sub, ms) {
     const b = this.dom.banner, id = ++this.banners;
@@ -8097,7 +8396,7 @@ const UI = {
     const input = Inputs.players[slot || 0];
     if (input.lastDevice === 'gamepad') return GAMEPAD_LABELS[action];
     if (input.lastDevice === 'touch') return TOUCH_LABELS[action];
-    return keyLabel(input.keymap.bindings[action][0]);
+    return keyLabel(input.keymap ? input.keymap.bindings[action][0] : null);
   },
   /* The controls card shows the on-screen buttons: touch was used, or touch is on and no key is held. */
   onboardTouch() { return Input.lastDevice === 'touch' || (this.touchWanted() && Input.lastDevice === 'keyboard' && !Input.kb.size); },
@@ -8169,7 +8468,10 @@ const UI = {
         if (CreatorUI.resumeAfterPreview()) break;
         this.menuScene('warehouse', 'kai', this.showcaseOpponent(), false); this.go('main');
         break;
-      case GS.CHARSEL: this.stack = []; this.pickSide = 0; this.showPick(); this.go('char'); break;
+      case GS.CHARSEL:
+        this.stack = []; this.pickSide = 0;
+        if (Game.selection.mode === 'coop') { this.showCoopScene(); this.go('coop'); } else { this.showPick(); this.go('char'); }
+        break;
       case GS.ARENASEL: this.menuScene(Game.selection.arena, Game.selection.player, this.rivalId(), false); this.go('arena'); break;
       case GS.COUNTDOWN: case GS.FIGHT:
         this.hideScreen();
@@ -8187,6 +8489,7 @@ const UI = {
   victoryBanner() {
     const d = Game.resultsData;
     if (d && d.mode === 'versus') this.banner('P' + (d.winner + 1) + ' WINS', d.winner === 0 ? d.player : d.opponent, 3000);
+    else if (d && d.mode === 'coop') this.banner('VICTORY', 'The party wins', 3000);
     else this.banner('VICTORY', d ? d.player + ' wins' : '', 3000);
   },
   musicFor(def) { const a = def ? def.audio : { bpm: 84, root: 55, mode: 'minor' }; return { bpm: a.bpm, root: a.root, mode: a.mode }; },
@@ -8199,10 +8502,17 @@ const UI = {
     if (!this.tipShown && browserKeys) { this.tipShown = true; this.toast('Tip: Ctrl / Alt shortcuts (Ctrl+W closes the tab) still work in a window. ' + (Device.canFullscreen() ? 'Use Fullscreen (Settings) or remap those keys.' : 'Remap those keys in Settings.'), 'warn'); }
     if (!this.rotateShown && window.innerHeight > window.innerWidth && this.touchWanted()) { this.rotateShown = true; this.toast('Rotate your device to landscape for the best view', 'warn'); }
     this.cache = {};
-    this.dom.hn1.innerHTML = '<b>P1</b> ' + esc(match.fighters[0].name);
+    this.dom.hn1.innerHTML = match.coop ? '<b>PARTY</b> ' + match.partySize + (match.partySize === 1 ? ' PLAYER' : ' PLAYERS') : '<b>P1</b> ' + esc(match.fighters[0].name);   // a co-op: the left bar is the party together
     this.dom.hn2.innerHTML = match.brawl ? '<b>CPU</b> ENEMIES' : '<b>' + this.sideLabel(match, 1) + '</b> ' + esc(match.fighters[1].name);   // a brawl: the right bar is the enemies together
     this.dom.hud.classList.toggle('vs', match.versus);
     this.dom.hud.classList.toggle('brawl', match.brawl);
+    this.dom.hud.classList.toggle('coop', !!match.coop);
+    this.partyEls.forEach((cell, k) => {   // one cell per co-op player, coloured by seat
+      const seat = match.coop ? match.coop[k] : null;
+      cell.root.hidden = !seat;
+      if (seat) { cell.root.className = 'pc seat' + (seat.slot + 1); cell.name.innerHTML = '<b>P' + (seat.slot + 1) + '</b> ' + esc(match.fighters[k].name); }
+    });
+    this.tagEls.forEach((el, i) => { el.className = 'tag ' + (match.coop && i < match.partySize ? 'seat' + (match.coop[i].slot + 1) : 'p' + Math.min(i + 1, 2)); });
     this.ghost = [1, 1];
     this.dom.training.hidden = !train;
     this.dom.hud.hidden = false;
@@ -8210,7 +8520,7 @@ const UI = {
     this.dom.timer.hidden = train || (match.brawl && !match.cfg.timer);
     this.dom.roundlbl.hidden = false;
     if (match.versus && this.cardSession !== Game.versus) this.showVersusCard();
-    else if (this.controlsCardDue(match)) this.showOnboarding();
+    else if (!match.coop && this.controlsCardDue(match)) this.showOnboarding();   // the co-op join screen has said who plays on what
     this.pops.forEach((p) => { p.age = 99; p.el.style.opacity = '0'; });
     Inputs.reset();
   },
@@ -8224,7 +8534,7 @@ const UI = {
   /* Round 1 introduces the fight: Arcade stage or Survival opponent number, then who you face. */
   roundSub(m) {
     if (m.round !== 1) return '';
-    if (m.brawl) return m.fighters.length - 1 + (m.fighters.length === 2 ? ' ENEMY' : ' ENEMIES');
+    if (m.brawl) { const foes = m.fighters.length - m.partySize; return foes + (foes === 1 ? ' ENEMY' : ' ENEMIES'); }
     if (m.versus) return this.fighterName(m, 0) + ' VS ' + this.fighterName(m, 1);
     const run = Game.run, vs = 'VS ' + m.fighters[1].name;
     if (m.cfg.mode === 'arcade' && run) return 'STAGE ' + (run.stage + 1) + ' / ' + run.ladder.length + ' · ' + vs;
@@ -8235,15 +8545,15 @@ const UI = {
     const m = e.match;
     let t = e.reason === 'time' ? 'TIME UP' : 'K.O.';
     let sub = e.winner < 0 ? 'DRAW' : this.fighterName(m, e.winner) + ' WINS THE ROUND';
-    if (m.brawl) sub = e.winner === TEAM_PLAYERS ? 'ALL ENEMIES DOWN' : e.reason === 'time' ? 'THE ENEMIES HOLD OUT' : 'THE PLAYER IS DOWN';
+    if (m.brawl) sub = e.winner === TEAM_PLAYERS ? 'ALL ENEMIES DOWN' : e.reason === 'time' ? 'THE ENEMIES HOLD OUT' : m.coop ? 'THE PARTY IS DOWN' : 'THE PLAYER IS DOWN';
     if (e.reason === 'time' && e.winner < 0) t = 'DRAW';
     this.banner(t, sub, 2200);
   },
 
   /* ----- screens ----- */
-  go(name) { Inputs.capture(null); this.current = name; this.rerender(false); },
-  push(name) { Inputs.capture(null); if (this.current) this.stack.push(this.current); this.current = name; this.rerender(false); },
-  hideScreen() { Inputs.capture(null); this.current = null; this.stack = []; this.dom.screens.innerHTML = ''; },
+  go(name) { Inputs.capture(null); this.current = name; Inputs.setLobby(name === 'coop'); this.rerender(false); },
+  push(name) { Inputs.capture(null); if (this.current) this.stack.push(this.current); this.current = name; Inputs.setLobby(name === 'coop'); this.rerender(false); },
+  hideScreen() { Inputs.capture(null); this.current = null; Inputs.setLobby(false); this.stack = []; this.dom.screens.innerHTML = ''; },
   back() {
     const cur = this.current;
     if (cur === 'pause') { Game.resume(); return; }
@@ -8251,6 +8561,7 @@ const UI = {
     if (cur === 'creator') { CreatorUI.back(); return; }
     Sound.ui('back');
     if (cur === 'modes') { this.go('main'); return; }
+    if (cur === 'coop') { this.syncPadPrev(); Game.go(GS.MENU); this.go('modes'); return; }   // the button that went back may still be held when the main player's pad takes over
     if (cur === 'char' && this.pickSide === 1) { this.pickSide = 0; this.showPick(); this.go('char'); return; }   // Versus: back to P1's pick
     if (cur === 'char') { Game.go(GS.MENU); this.go('modes'); return; }
     if (cur === 'setup') { if (Game.selection.mode === 'versus') { this.pickSide = 1; this.showPick(); } this.go('char'); return; }
@@ -8301,6 +8612,7 @@ const UI = {
     if (this.current === 'creator' && CreatorUI.onKey(e)) return;
     const el = document.activeElement;
     const k = e.code;
+    if (this.current === 'coop' && k === 'Space') { e.preventDefault(); return; }   // Space is a fight key (jump), not a menu key, on the join screen
     const isOpt = el && el.classList && el.classList.contains('opt');
     if (k === 'ArrowDown' || k === 'KeyS') { e.preventDefault(); this.moveFocus(1); }
     else if (k === 'ArrowUp' || k === 'KeyW') { e.preventDefault(); this.moveFocus(-1); }
@@ -8376,6 +8688,9 @@ const UI = {
       case 'setupNext': Game.go(GS.ARENASEL); break;
       case 'arena': if (arg === Game.selection.arena) { Game.startFromSelection(); break; } Game.chooseArena(arg); this.menuScene(arg, Game.selection.player, this.rivalId(), false); this.rerender(true); break;
       case 'start': Game.startFromSelection(); break;
+      case 'coopStart': this.coopStart(); break;
+      case 'coopcycle': if (Inputs.seats[Number(arg)]) this.coopCycle(Number(arg), 1); break;
+      case 'coopdiff': this.changeLocal('diff', 1); break;
       case 'rebind': this.startRebind(Keymap, arg); break;
       case 'rebind2': this.startRebind(Keymap2, arg); break;
       case 'resetKeys': Keymap.resetAll(); this.toast('Keyboard bindings reset'); break;
@@ -8474,7 +8789,7 @@ const UI = {
   },
   screen_main() {
     return '<section class="screen on" aria-label="Main menu"><div class="panel"><h1 class="logo">BREAKPOINT</h1><p class="sub">3D fighting game with destructible arenas</p><nav>' +
-      '<button class="mi" data-nav data-default data-act="play">Play<small>Arcade, Survival, Training, Free Fight, Versus</small></button>' +
+      '<button class="mi" data-nav data-default data-act="play">Play<small>Arcade, Survival, Training, Free Fight, Versus, Co-op Brawl</small></button>' +
       '<button class="mi" data-nav data-act="create">Create Fighter<small>Design custom fighters: body, outfit, fighting style, ' + POINT_BUDGET + '-point build</small></button>' +
       '<button class="mi" data-nav data-act="controls">Controls<small>Keyboard, gamepad and touch reference, key remapping</small></button>' +
       '<button class="mi" data-nav data-act="settings">Settings<small>Audio, graphics, accessibility</small></button>' +
@@ -8522,6 +8837,70 @@ const UI = {
     h += '<p class="hint">' + esc(r.name) + ' &ndash; ' + esc(r.title) + (r.custom ? ' (custom)' : '') + (Progress.isUnlocked(r.id) ? '' : ' (locked: ' + (r.id === 'dmitri' ? 'win Arcade stage 3' : 'clear Arcade') + ')') + (p2 && r.id === sel.player ? ' &middot; mirror match: P2 wears alternate colours' : '') + '</p>';
     h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button>' + (r.custom && !p2 ? '<button class="mi" style="width:auto" data-nav data-act="editcustom">Edit fighter</button>' : '') + '<button class="mi" style="width:auto" data-nav data-act="confirm">Confirm</button></div></div></section>';
     return h;
+  },
+  /* ----- co-op join screen (P4-07) -----
+     A card per seat. A device joins with Punch (a keyboard layout) or A / Start (a gamepad), leaves with Defend / B, and chooses its fighter with left / right (Inputs.lobbyKey and
+     Inputs.pollLobby read the devices; this screen redraws on their 'lobby' events). Start: Enter on the button, or Start on a joined gamepad. */
+  screen_coop() {
+    const sel = Game.selection, seated = Inputs.seatedSlots();
+    const key = (keymap, action) => '<kbd>' + esc(keyLabel(keymap.bindings[action][0])) + '</kbd>';
+    let h = '<section class="screen on" style="justify-content:flex-end" aria-label="Co-op join screen"><div class="panel" style="max-width:min(40em,96vw)"><h2>Co-op brawl</h2>' +
+      '<p class="sub">Up to four players against a crowd. A knocked-out player sits out until the brawl is over; the party loses when everyone is out.</p><div class="seats">';
+    for (let seat = 0; seat < COOP_MAX_PLAYERS; seat++) h += this.seatCard(seat);
+    h += '</div><p class="hint"><b>Join</b>: ' + key(Keymap, 'punch') + ' (keyboard 1), ' + key(Keymap2, 'punch') + ' (keyboard 2) or A / Start on a gamepad. <b>Leave</b>: Defend (' + key(Keymap, 'defend') + ' / ' + key(Keymap2, 'defend') + ') or B. <b>Fighter</b>: left / right. ' +
+      'Seats 3 and 4 are for gamepads. Start with Enter or Start on a joined gamepad. Touch controls are not used in co-op.</p>';
+    h += '<button class="mi" data-nav data-act="coopdiff">Difficulty: ' + DIFFICULTY[sel.difficulty].label + '<small>Friendly fire is ' + (Settings.v.friendlyFire ? 'on' : 'off') + ' (Settings)</small></button>';
+    h += '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-default data-act="coopStart"' + (seated.length ? '' : ' disabled') + '>Choose arena</button></div></div></section>';
+    return h;
+  },
+  seatCard(seat) {
+    const tag = 'seat' + (seat + 1), who = 'P' + (seat + 1), device = Inputs.seats[seat];
+    if (!device) return '<div class="seatcard open ' + tag + '" role="group" aria-label="Player ' + (seat + 1) + ': open"><b class="seatno">' + who + '</b><em>Open</em></div>';
+    const r = ROSTER_BY_ID[Game.selection.party[seat]] || ROSTER_BY_ID.kai, label = this.deviceLabel(device);
+    return '<div class="seatcard ' + tag + '" role="group" data-act="coopcycle:' + seat + '" aria-label="Player ' + (seat + 1) + ': ' + esc(r.name) + ' on ' + esc(label) + '"><b class="seatno">' + who + '</b>' +
+      '<b>&#9664; ' + esc(r.name) + ' &#9654;</b><em>' + esc(r.title) + ' &middot; ' + DEFENSE_LABEL[defenseFor(r)] + '</em><span class="dev">' + esc(label) + '</span></div>';
+  },
+  deviceLabel(device) {
+    if (device === 'key1' || device === 'key2') {
+      const keymap = device === 'key1' ? Keymap : Keymap2;
+      return 'Keyboard ' + device.slice(3) + ': ' + ['up', 'left', 'down', 'right'].map((a) => keyLabel(keymap.bindings[a][0])).join(' ');
+    }
+    return 'Gamepad ' + (Number(device.slice(3)) + 1);
+  },
+  /* The scene behind the join screen: the first seated player's fighter (P1's pick before anyone has joined). */
+  showCoopScene(seat) {
+    const sel = Game.selection;
+    this.menuScene(sel.arena, sel.party[seat === undefined ? Inputs.seatedSlots()[0] || 0 : seat], null, true);
+  },
+  /* A join, leave, fighter change, Start or back from a device. */
+  onLobby(e) {
+    if (this.current !== 'coop') return;
+    if (e.kind === 'back') { this.back(); return; }
+    if (e.kind === 'start') { this.coopStart(); return; }
+    if (e.kind === 'cycle') this.coopCycle(e.seat, e.dir);
+    else {
+      Sound.ui(e.kind === 'join' ? 'ok' : 'back');
+      this.say('Player ' + (e.seat + 1) + (e.kind === 'join' ? ' joined' : ' left'));
+      this.showCoopScene(e.kind === 'join' ? e.seat : undefined);
+      this.rerender(true);
+    }
+  },
+  /* Seat's next (dir 1) or previous (dir -1) fighter of the unlocked roster. */
+  coopCycle(seat, dir) {
+    const id = Game.cycleParty(seat, dir);
+    Sound.ui('move');
+    this.say('Player ' + (seat + 1) + ': ' + ROSTER_BY_ID[id].name);
+    this.showCoopScene(seat);
+    this.rerender(true);
+  },
+  /* The join screen's Start: on to the arena once somebody has joined. */
+  coopStart() {
+    const sel = Game.selection, seated = Inputs.seatedSlots();
+    if (!seated.length) { Sound.ui('bad'); this.toast('Nobody has joined yet: press Punch on a keyboard or A on a gamepad', 'warn'); return; }
+    this.syncPadPrev();
+    sel.player = sel.party[seated[0]];   // the scene on the arena screen
+    if (sel.opponent === sel.player) sel.opponent = Game.opponentsFor(sel.player)[0].id;
+    Game.go(GS.ARENASEL);
   },
   screen_setup() {
     const sel = Game.selection;
@@ -8577,7 +8956,7 @@ const UI = {
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
       '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (Versus)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
       '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list; Auto-assist in Settings lets it go on after a miss); hold Crouch while you press for the low versions. Defend works by your fighter\'s defense type (Block or Sway, shown on its card). Block: ' + DEFENSE_HELP.block + ' Sway: ' + DEFENSE_HELP.sway + ' Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Press Grapple next to a knocked-down opponent to hold them (' + submissionStyleText() + ' styles): tap Grapple to keep the hold tight, the held fighter taps Defend to escape. Use and Lock on have no effect yet. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
-      '<p class="hint">Versus: a key belongs to one player only. P1\'s spare arrow keys switch off in Versus, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only.</p>' +
+      '<p class="hint">Versus: a key belongs to one player only. P1\'s spare arrow keys switch off in Versus, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only. Co-op Brawl: up to four players; each keyboard layout (P1\'s and P2\'s columns) and each gamepad joins on the join screen and keeps its seat, seats 3 and 4 are gamepad-only, and touch is not used.</p>' +
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
   },
   screen_moves() {
@@ -8692,6 +9071,7 @@ const UI = {
     const d = Game.resultsData;
     if (!d) return '';
     if (d.mode === 'versus') return this.versusResults(d);
+    if (d.mode === 'coop') return this.coopResults(d);
     const s0 = d.stats[0], s1 = d.stats[1];
     const mm = clockText;
     let sub = d.mode === 'arcade' ? 'Arcade &middot; stage ' + d.stage + ' of ' + d.stages + ' &middot; continues ' + d.continues : d.mode === 'survival' ? 'Survival &middot; defeated ' + (d.kills || 0) : d.mode === 'training' ? 'Training' : d.mode === 'brawl' ? 'Brawl' : 'Free Fight';
@@ -8707,6 +9087,17 @@ const UI = {
   resultsNav(d) {
     const labels = { next: d.mode === 'arcade' ? 'Next opponent' : 'Next fight', retry: 'Retry this stage', again: d.mode === 'survival' ? 'New run' : d.cleared ? 'Play again' : 'Rematch', setup: 'Change fighters', menu: 'Main menu' };
     return '<nav>' + d.buttons.map((b, i) => '<button class="mi" data-nav ' + (i === 0 ? 'data-default ' : '') + 'data-act="res:' + b + '">' + labels[b] + '</button>').join('') + '</nav></div></section>';
+  },
+  /* Co-op: the outcome and a column per player (seat colour, fighter, who was still standing, damage and hits). */
+  coopResults(d) {
+    const members = d.players;
+    const rows = [['Status', (s) => (s.alive ? 'standing' : 'knocked out')], ['Damage dealt', (s) => Math.round(s.stats.damage)], ['Damage taken', (s) => Math.round(s.stats.taken)], ['Hits landed', (s) => s.stats.hits],
+      ['Best combo', (s) => s.stats.maxCombo + ' hits'], ['Knock-outs', (s) => s.stats.kos], ['Throws', (s) => s.stats.throws], ['Objects destroyed', (s) => s.stats.objects]];
+    let h = '<section class="screen on center" style="background:rgba(0,0,0,.5)" aria-label="Results"><div class="panel"><div class="bigtxt">' + (d.playerWon ? 'Victory' : 'Defeat') + '</div>' +
+      '<p class="sub">Co-op brawl &middot; enemies down ' + d.enemiesDown + ' / ' + d.enemies + ' &middot; ' + clockText(d.seconds) + (d.friendlyFire ? ' &middot; friendly fire on' : '') + '</p>';
+    h += '<table class="ctl"><tr><th></th>' + members.map((s) => '<th><span class="pcname seat' + (s.slot + 1) + '">P' + (s.slot + 1) + ' ' + esc(s.name) + '</span></th>').join('') + '</tr>' +
+      rows.map((row) => '<tr><td>' + row[0] + '</td>' + members.map((s) => '<td>' + row[1](s) + '</td>').join('') + '</tr>').join('') + '</table>';
+    return h + this.resultsNav(d);
   },
   /* Versus: the winner, the session score and both players' stats side by side. */
   versusResults(d) {
@@ -8737,6 +9128,7 @@ const UI = {
     if (this.padOverlay()) return;
     if (!this.current) return;
     if (Inputs.captureCallback) { this.padCancelCapture(); return; }
+    if (this.current === 'coop') { this.syncPadPrev(); return; }   // A joins there and never confirms (Inputs.pollLobby)
     const unpause = Inputs.take('pause');   // P / gamepad Start close the pause screen (Esc goes through onKey)
     if (unpause && this.current === 'pause' && pauseShown && performance.now() > this.guardUntil) { Game.resume(); return; }
     const pd = Inputs.menuDir, ph = Inputs.menuHeld, p = this.padPrev;
@@ -8752,6 +9144,12 @@ const UI = {
     p.up = pd.up; p.down = pd.down; p.left = pd.left; p.right = pd.right; p.ok = ok; p.back = back;
   },
 
+  /* Marks every gamepad's menu buttons as already held (seated or not): the join screen reads the pads itself, and the screen after it must not take a button that is still down
+     (B to go back, Start) for a new press. */
+  syncPadPrev() {
+    const held = Inputs.anyPadMenu(), prev = this.padPrev;
+    prev.up = held.up; prev.down = held.down; prev.left = held.left; prev.right = held.right; prev.ok = held.ok; prev.back = held.back;
+  },
   /* The error screen and the controls card sit above everything: pad confirm / back (rising edge) uses or closes them.
      Returns true while the error screen is up, so the hidden menu behind it gets no pad input. */
   padOverlay() {
@@ -8805,7 +9203,10 @@ const UI = {
   tenseMoment(m) {
     if (m.training) return false;
     const [a, b] = m.fighters;
-    if (m.brawl) return a.hp / a.maxHp < TENSE_HP_FRACTION;   // only the player's health counts against a crowd
+    if (m.brawl) {   // only the players' health counts against a crowd: any player still up that is low (the lone player always)
+      for (let k = 0; k < m.partySize; k++) { const f = m.fighters[k]; if (f.hp / f.maxHp < TENSE_HP_FRACTION && (f.alive || m.partySize === 1)) return true; }
+      return false;
+    }
     const matchPoint = m.round > 1 && (m.wins[0] === m.winsNeeded - 1 || m.wins[1] === m.winsNeeded - 1);
     const lowHp = Math.min(a.hp / a.maxHp, b.hp / b.maxHp) < TENSE_HP_FRACTION;
     return m.decider || matchPoint || lowHp;
@@ -8827,7 +9228,7 @@ const UI = {
       this.setTransform('mo' + i, this.dom['mo' + (i + 1)], 'scaleX(' + clamp(boosted ? f.boostTicks / BOOST_TICKS : f.momentum / MOMENTUM_MAX, 0, 1).toFixed(3) + ')');
       this.toggleOn('boost' + i, this.dom['mob' + (i + 1)], boosted);
     };
-    bar(0, a);
+    if (m.coop) this.partyBars(m); else bar(0, a);
     if (m.brawl) this.enemyBar(m); else bar(1, b);
     Music.setIntensity(this.tenseMoment(m) ? MUSIC_TENSE : MUSIC_FIGHT);
     const tl = m.timeLeft;
@@ -8845,22 +9246,23 @@ const UI = {
     if (cfg.mode === 'arcade' && run) info = 'ARCADE · STAGE ' + (run.stage + 1) + ' / ' + run.ladder.length + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (cfg.mode === 'survival' && run) info = 'SURVIVAL · DEFEATED ' + run.kills + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (cfg.mode === 'free') info = m.def.name.toUpperCase() + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
-    else if (m.brawl) info = 'BRAWL · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase();
+    else if (m.brawl) info = (m.coop ? 'CO-OP BRAWL' : 'BRAWL') + ' · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase() + (m.coop && m.friendlyFire ? ' · FRIENDLY FIRE' : '');
     else if (m.versus) info = 'VERSUS · ' + m.def.name.toUpperCase() + (Game.versus ? ' · SESSION ' + Game.versus.score[0] + ' - ' + Game.versus.score[1] : '');
     else info = m.def.name.toUpperCase() + (Input.lastDevice === 'gamepad' ? ' · hold Select: reset · Start: training menu' : ' · Tab reset · F2 reset arena · 1-5 scenarios');
     this.setText('modeinfo', this.dom.modeinfo, info);
     // combo counters, low-stamina warnings and clinch hints: P1's always, P2's in Versus (on the right, with P2's controls)
-    this.comboBox('combo', this.dom.combo, a, true);
+    const lone = !m.coop || m.partySize === 1;   // a co-op party of several has no room for one player's combo, warning and hint: the cells show health and stamina
+    this.comboBox('combo', this.dom.combo, a, lone);
     this.comboBox('combo2', this.dom.combo2, b, m.versus);
-    this.toggleOn('warn', this.dom.warn, a.lowStamina && a.alive);
+    this.toggleOn('warn', this.dom.warn, lone && a.lowStamina && a.alive);
     this.toggleOn('warn2', this.dom.warn2, m.versus && b.lowStamina && b.alive);
-    this.showHint('hint', this.dom.grappleHint, this.grappleHint(a));
+    this.showHint('hint', this.dom.grappleHint, lone ? this.grappleHint(a) : '');
     this.showHint('hint2', this.dom.grappleHint2, m.versus ? this.grappleHint(b) : '');
     // name tags + popups
     const out = [0, 0];
     for (let i = 0; i < this.tagEls.length; i++) {
       const f = m.fighters[i], el = this.tagEls[i];
-      if (!f || (m.brawl && i > 0 && !f.alive)) {   // no fighter in this slot, or an enemy that is out
+      if (!f || (m.brawl && i >= m.partySize && !f.alive)) {   // no fighter in this slot, or an enemy that is out (a co-op player who is out keeps the tag, which then says K.O.)
         if (this.cache['tagoff' + i] !== true) { this.cache['tagoff' + i] = true; el.style.display = 'none'; }
         continue;
       }
@@ -8876,8 +9278,8 @@ const UI = {
       else if (f.state === S.DOWN) status = f.pinnedBy ? 'PINNED' : 'DOWN';
       else if (f.state === S.KO) status = 'K.O.';
       else if (f.lowStamina) status = 'TIRED';
-      const health = m.brawl && i > 0 ? '<s><u style="width:' + Math.round(clamp(f.hp / f.maxHp, 0, 1) * 100) + '%"></u></s>' : '';   // a brawl enemy's tag carries its own health bar
-      this.setHtml('tag' + i, el, (i === 0 ? '1P' : m.versus ? '2P' : m.training ? 'DUMMY' : 'CPU') + (status ? '<i>' + status + '</i>' : '') + health);
+      const health = m.brawl && i >= m.partySize ? '<s><u style="width:' + Math.round(clamp(f.hp / f.maxHp, 0, 1) * 100) + '%"></u></s>' : '';   // a brawl enemy's tag carries its own health bar
+      this.setHtml('tag' + i, el, this.tagLabel(m, i) + (status ? '<i>' + status + '</i>' : '') + health);
       el.style.display = ok ? '' : 'none';
       if (ok) this.setTransform('tagpos' + i, el, 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) translate(-50%,-100%)');
     }
@@ -8905,10 +9307,32 @@ const UI = {
   edgeMarks(m) {
     const out = this.edgeOut, w = R.cssW, h = R.cssH;
     for (let k = 0; k < this.edgeEls.length; k++) {
-      const f = m.brawl ? m.fighters[k + 1] : null, el = this.edgeEls[k];
+      const f = m.brawl ? m.fighters[m.partySize + k] : null, el = this.edgeEls[k];
       const show = !!f && m.isAttacker(f) && Camera.offscreenMark(f.x, f.y + 1.0 * f.scale, f.z, w, h, CAMERA_EDGE_PAD, out);
       if (this.cache['edge' + k] !== show) { this.cache['edge' + k] = show; el.style.display = show ? '' : 'none'; }
       if (show) this.setTransform('edgepos' + k, el, 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1]) + 'px) rotate(' + Math.round(out[2] * 180 / Math.PI) + 'deg)');
+    }
+  },
+  /* Who a name tag belongs to: the player's seat, DUMMY or CPU. */
+  tagLabel(m, i) {
+    if (m.coop && i < m.partySize) return (m.coop[i].slot + 1) + 'P';
+    return i === 0 ? '1P' : m.versus ? '2P' : m.training ? 'DUMMY' : 'CPU';
+  },
+  /* Co-op (P4-07): the left bar is the party together (the players' health left, how many are still up); under the top bar a cell per player with its own health and stamina,
+     greyed with OUT once it is knocked out. */
+  partyBars(m) {
+    let hp = 0, maxHp = 0, up = 0;
+    for (let k = 0; k < m.partySize; k++) { const f = m.fighters[k]; hp += f.hp; maxHp += f.maxHp; if (f.alive) up++; }
+    const frac = clamp(hp / maxHp, 0, 1);
+    this.ghost[0] = frac >= this.ghost[0] ? frac : Math.max(frac, this.ghost[0] - (1 / 60) * 0.35);
+    this.setTransform('hp0', this.dom.hp1, 'scaleX(' + frac.toFixed(3) + ')');
+    this.setTransform('hg0', this.dom.hg1, 'scaleX(' + this.ghost[0].toFixed(3) + ')');
+    this.setText('ht0', this.dom.ht1, up + ' / ' + m.partySize + ' UP');
+    for (let k = 0; k < m.partySize; k++) {
+      const f = m.fighters[k], cell = this.partyEls[k];
+      this.setTransform('phb' + k, cell.hp, 'scaleX(' + clamp(f.hp / f.maxHp, 0, 1).toFixed(3) + ')');
+      this.setTransform('pst' + k, cell.st, 'scaleX(' + clamp(f.stam / f.maxStam, 0, 1).toFixed(3) + ')');
+      if (this.cache['pout' + k] !== !f.alive) { this.cache['pout' + k] = !f.alive; cell.root.classList.toggle('out', !f.alive); }
     }
   },
   /* Brawl: the right-hand bar is the enemies together (health left of all of them, and how many are still up). */
@@ -8938,7 +9362,7 @@ const UI = {
     const m = Game.match;
     this.tipClinch = null;
     if (!m || !m.fighters.includes(e.att) || Progress.d.seenClinch) return;   // simulations outside the live match never count
-    const human = [e.att, e.def].some((f) => m.controllers[f.index] === PlayerController || m.controllers[f.index] === Player2Controller);
+    const human = [e.att, e.def].some((f) => m.controllers[f.index].human);
     if (!human) return;
     this.tipClinch = e;
     Progress.d.seenClinch = true;
@@ -8950,7 +9374,7 @@ const UI = {
     const m = Game.match;
     this.tipHold = null;
     if (!m || !m.fighters.includes(e.att) || Progress.d.seenHold) return;
-    const human = [e.att, e.def].some((f) => m.controllers[f.index] === PlayerController || m.controllers[f.index] === Player2Controller);
+    const human = [e.att, e.def].some((f) => m.controllers[f.index].human);
     if (!human) return;
     this.tipHold = e;
     Progress.d.seenHold = true;
@@ -8958,8 +9382,8 @@ const UI = {
   },
   grappleHint(f) {
     const hold = this.tipHold;
-    if (hold && hold.att === f && f.state === S.SUBMIT && f.partner === hold.def) return 'HOLD · tap ' + this.keyName('grapple', f.index) + ' to keep it tight';
-    if (hold && hold.def === f && f.pinnedBy === hold.att) return 'ESCAPE! Tap ' + this.keyName('defend', f.index) + ' fast';
+    if (hold && hold.att === f && f.state === S.SUBMIT && f.partner === hold.def) return 'HOLD · tap ' + this.keyName('grapple', this.seatOf(f)) + ' to keep it tight';
+    if (hold && hold.def === f && f.pinnedBy === hold.att) return 'ESCAPE! Tap ' + this.keyName('defend', this.seatOf(f)) + ' fast';
     const tip = this.tipClinch;
     if (!tip || (tip.att !== f && tip.def !== f)) return '';
     if (f.state === S.CLINCH) return this.clinchHint(f);
@@ -8972,16 +9396,16 @@ const UI = {
     // stamina does not regenerate while held, so a tired fighter cannot escape this clinch at all
     if (windowOpen && f.stam < ESCAPE_STAMINA) return 'TOO TIRED TO ESCAPE (' + GRIP_LABEL[f.grip] + ') · brace for the throw';
     if (f.escapeLock > 0) return 'TOO EARLY! ' + GRIP_LABEL[f.grip] + ' · wait for ESCAPE NOW';
-    if (windowOpen) return 'ESCAPE NOW! Press ' + this.keyName('grapple', f.index);
+    if (windowOpen) return 'ESCAPE NOW! Press ' + this.keyName('grapple', this.seatOf(f));
     return 'CLINCHED (' + GRIP_LABEL[f.grip] + ') · HOLD... an early escape fails';
   },
   /* Clinch hint: grip, the throw the held direction will do and an on-screen arrow for it. */
   throwHint(f) {
     if (f.throwPending) return f.throwPending.data.name.toUpperCase() + '!';
     const data = throwFor(f.grip, f.throwAim), strikesLeft = CLINCH_STRIKE_MAX - f.clinchStrikes;
-    const strikeKeys = this.keyName('punch', f.index) + ' elbow / ' + this.keyName('kick', f.index) + ' knee';
+    const strikeKeys = this.keyName('punch', this.seatOf(f)) + ' elbow / ' + this.keyName('kick', this.seatOf(f)) + ' knee';
     const strikes = strikesLeft > 0 ? ', ' + strikeKeys + ' (' + strikesLeft + ' left)' : '';
-    return GRIP_LABEL[f.grip] + ' · ' + this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase() + ' · hold a direction to aim, ' + this.keyName('grapple', f.index) + ' throws' + strikes;
+    return GRIP_LABEL[f.grip] + ' · ' + this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase() + ' · hold a direction to aim, ' + this.keyName('grapple', this.seatOf(f)) + ' throws' + strikes;
   },
   /* Arrow for a fighter-relative direction as it appears on screen. */
   screenArrow(f, dir) {
@@ -9103,7 +9527,7 @@ const UI = {
     return false;
   },
   applyTouchVisibility() {
-    const want = this.touchWanted();
+    const want = this.touchWanted() && !Inputs.coop;   // a co-op has keyboards and gamepads only (P4-07)
     const inMatch = [GS.COUNTDOWN, GS.FIGHT].includes(Game.state);
     this.dom.touch.hidden = !(want && inMatch);
     if (this.dom.pauseBtn) this.dom.pauseBtn.hidden = want;
@@ -11807,22 +12231,25 @@ const SelfTest = {
     test('Onboarding: the first match shows the controls once, a key closes it, old saves get it too', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
       const saved = keepProgress();
-      Store.set(KEY_PROGRESS, JSON.stringify({ arcadeClears: 1, wins: 3 }));   // a save from before the flag existed
-      Progress.init();
-      const migrated = CONTROL_CARD_KINDS.every((kind) => !Progress.d.seenControls[kind]) && Progress.d.wins === 3;
-      const kind = UI.onboardKind();
-      Game.chooseMode('free'); Game.startFromSelection();
-      const card = UI.dom.onboard;
-      const shown = !card.hidden && card.textContent.includes(UI.keyName('grapple'));
-      const stored = JSON.parse(Store.get(KEY_PROGRESS)).seenControls[kind] === true;
-      window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ' }));
-      const closed = card.hidden;
-      Game.quitToMenu();
-      Game.chooseMode('free'); Game.startFromSelection();
-      const once = card.hidden;
-      Game.quitToMenu();
-      restoreProgress(saved);
-      return migrated && shown && stored && closed && once ? true : JSON.stringify({ migrated, shown, stored, closed, once });
+      try {
+        Store.set(KEY_PROGRESS, JSON.stringify({ arcadeClears: 1, wins: 3 }));   // a save from before the flag existed
+        Progress.init();
+        const migrated = CONTROL_CARD_KINDS.every((kind) => !Progress.d.seenControls[kind]) && Progress.d.wins === 3;
+        const kind = UI.onboardKind();
+        Game.chooseMode('free'); Game.startFromSelection();
+        const card = UI.dom.onboard;
+        const shown = !card.hidden && card.textContent.includes(UI.keyName('grapple'));
+        const stored = JSON.parse(Store.get(KEY_PROGRESS)).seenControls[kind] === true;
+        window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyQ' }));
+        const closed = card.hidden;
+        Game.quitToMenu();
+        Game.chooseMode('free'); Game.startFromSelection();
+        const once = card.hidden;
+        return migrated && shown && stored && closed && once ? true : JSON.stringify({ migrated, shown, stored, closed, once });
+      } finally {
+        if (Game.state !== GS.MENU) Game.quitToMenu();   // never leave a running match behind, whatever failed above
+        restoreProgress(saved);
+      }
     });
     test('Onboarding: each input type (keyboard, gamepad, touch) gets one card with the core actions, once, kept in the save', () => {
       const saved = keepProgress(), cardDom = UI.dom.onboard, device = Input.lastDevice, touchMode = Settings.v.touch, problems = [];
@@ -11861,16 +12288,19 @@ const SelfTest = {
     test('Menus: choosing the selected fighter, opponent or arena again moves on', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
       const saved = keepProgress();
-      Game.chooseMode('free');
-      UI.act('pick:' + Game.selection.player);
-      const setup = UI.current === 'setup';
-      UI.act('opp:' + Game.selection.opponent);
-      const arena = Game.state === GS.ARENASEL;
-      UI.act('arena:' + Game.selection.arena);
-      const started = !!Game.match && Game.state === GS.COUNTDOWN;
-      Game.quitToMenu();
-      restoreProgress(saved);
-      return setup && arena && started ? true : JSON.stringify({ setup, arena, started, state: Game.state });
+      try {
+        Game.chooseMode('free');
+        UI.act('pick:' + Game.selection.player);
+        const setup = UI.current === 'setup';
+        UI.act('opp:' + Game.selection.opponent);
+        const arena = Game.state === GS.ARENASEL;
+        UI.act('arena:' + Game.selection.arena);
+        const started = !!Game.match && Game.state === GS.COUNTDOWN;
+        return setup && arena && started ? true : JSON.stringify({ setup, arena, started, state: Game.state });
+      } finally {
+        if (Game.state !== GS.MENU) Game.quitToMenu();   // never leave a running match behind, whatever failed above
+        restoreProgress(saved);
+      }
     });
     test('Results: presses in the first moments are ignored', () => {
       if (Game.state !== GS.MENU) return 'needs the main menu';
@@ -13149,7 +13579,7 @@ const SelfTest = {
         downed.over && downed.winner === 1 && downed.wins === '0-1' && draw.over && draw.winner === 1 && clock.over && clock.winner === 1;
       return ok ? true : JSON.stringify({ none, partial, cleared, downed, draw, clock });
     });
-    test('N fighters: teammates never damage each other (friendly fire off), the flag turns it on, and the opposing team is still hit', () => {
+    test('N fighters: teammates never damage each other (friendly fire off); the flag lets the players hurt each other but never the CPU enemies; the opposing team is still hit', () => {
       const run = (friendlyFire) => {
         const hits = [];
         const spam = (it, f, o, m) => { it.punch = m.tick % 30 === 2; };
@@ -13165,8 +13595,18 @@ const SelfTest = {
       };
       const off = run(false), on = run(true);
       const friendly = (r) => r.hits.filter((h) => h === '1>2').length;
-      const ok = friendly(off) === 0 && off.ally === 1 && friendly(on) > 0 && on.ally < 1;
-      return ok ? true : JSON.stringify({ off, on });
+      const duo = (friendlyFire) => {   // two players on the same row: the first punches, the second stands in reach
+        const m = new MatchSim({ mode: 'brawl', coop: [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], enemies: 1, friendlyFire, countdown: false, timer: 0, seed: 7, difficulty: 'normal', evenDamage: true });
+        try {
+          m.controllers[0] = self.scripted((it, f, o, mm) => { it.punch = mm.tick % 30 === 2; }); m.controllers[1] = self.scripted(() => {}); m.controllers[2] = self.scripted(() => {});
+          self.stand(m.fighters[0], 0, 0, 1.9, 0); self.stand(m.fighters[1], 0.8, 0, 1.9, 0); self.stand(m.fighters[2], 3, 0, 0, 0);
+          self.run(m, 120);
+          return m.fighters[1].hp < m.fighters[1].maxHp;
+        } finally { m.dispose(); }
+      };
+      const players = { off: duo(false), on: duo(true) };
+      const ok = friendly(off) === 0 && off.ally === 1 && friendly(on) === 0 && on.ally === 1 && !players.off && players.on;   // the CPU team never hurts itself, even with the flag on
+      return ok ? true : JSON.stringify({ off, on, players });
     });
     test('N fighters: each fighter targets the nearest living hostile (ties by lower index), skips the out, follows its clinch partner, and a 1v1 targets the other fighter', () => {
       const m = self.makeBrawl({ enemies: 4 });
@@ -13928,6 +14368,437 @@ const SelfTest = {
           }
         }
       } finally { UI.cache = keepCache; m.dispose(); }
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* ----- Local co-op (P4-07) ----- */
+    const fakePad = (id) => ({ id, connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons: Array.from({ length: 16 }, () => ({ pressed: false, value: 0 })) });
+    const padButton = (pad, button, on) => { pad.buttons[button] = { pressed: on, value: on ? 1 : 0 }; };
+    const keyEvent = (code) => ({ code, repeat: false, preventDefault() {}, stopImmediatePropagation() {} });
+    /* Runs body with co-op input on and the gamepads stubbed (navigator.getGamepads returns pads); puts every piece of input state it touches back afterwards. */
+    const withCoopInput = (pads, body) => {
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), slots = Inputs.padSlots, versus = Inputs.versus, lobby = Inputs.lobby, movement = Settings.v.movement;
+      const devices = Inputs.players.map((p) => p.lastDevice), indexes = Inputs.players.map((p) => p.padIndex), wasCoop = Inputs.coop, seats = Inputs.seats.slice(), seatIds = Inputs.seatPadIds.slice();
+      Object.defineProperty(navigator, 'getGamepads', { value: () => pads, configurable: true });
+      try { Inputs.setCoop(true); return body(); } finally {
+        Inputs.setCoop(false); Inputs.lobby = lobby;
+        if (wasCoop) { Inputs.setCoop(true); seats.forEach((device, seat) => { Inputs.seats[seat] = device; Inputs.seatPadIds[seat] = seatIds[seat]; }); Inputs.applySeats(); }   // a co-op that was already on stays on, with its seats
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Inputs.padSlots = slots; Inputs.versus = versus; Settings.v.movement = movement;
+        Inputs.players.forEach((p, i) => { p.releaseAll(); p.reset(); p.lastDevice = devices[i]; p.padIndex = indexes[i]; });
+        Inputs.rebuildMaps();
+      }
+    };
+    const FOUR = [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }, { slot: 2, id: 'brutus' }, { slot: 3, id: 'yuki' }];
+    const THREE = FOUR.slice(0, 3);
+    const coopMatch = (party, extra) => new MatchSim(Object.assign({ mode: 'brawl', coop: party, enemies: coopEnemyCount(party.length), countdown: false, timer: 0, seed: 7, difficulty: 'normal', evenDamage: true }, extra));
+    const idleEnemies = (m) => { for (let k = m.partySize; k < m.fighters.length; k++) m.controllers[k] = self.scripted(() => {}); };
+    test('Co-op seats: devices take P1 to P4 in order, a keyboard layout only seats 1 or 2, each pad belongs to one seat, leaving frees the seat, a fifth device cannot join', () => {
+      const pads = [fakePad('a'), fakePad('b'), fakePad('c')];
+      const idle = Inputs.join('key1') === -1 && Inputs.seatedSlots().length === 0;   // outside a co-op nothing can join
+      return withCoopInput(pads, () => {
+        const problems = [];
+        if (!idle) problems.push('joined outside a co-op');
+        const order = ['key1', 'key2', 'pad0', 'pad1'].map((device) => Inputs.join(device));
+        if (order.join() !== '0,1,2,3') problems.push('join order ' + order.join());
+        if (Inputs.join('pad0') !== 2 || Inputs.seatedSlots().join() !== '0,1,2,3') problems.push('a second join moved a device');
+        if (Inputs.join('pad2') !== -1 || Inputs.join('key2') !== 1 || Inputs.seatedSlots().length !== 4) problems.push('a fifth device got in');
+        const mapped = [0, 1, 2, 3].map((seat) => Inputs.padFor(seat, pads));
+        if (mapped.join() !== '-1,-1,0,1') problems.push('pad per seat ' + mapped.join());
+        if (Inputs.active().length !== 4 || Inputs.active()[3] !== Input4) problems.push('active players');
+        // keys: each keyboard seat plays its own layout, a pad seat plays no keys, and with P2's layout seated the arrows are P2's
+        const layouts = Input.keymap === Keymap && Input2.keymap === Keymap2 && Input3.keymap === null && Input4.keymap === null;
+        const arrows = !Input.codeMap.has('ArrowLeft') && Input2.codeMap.get('ArrowLeft') === 'left' && Input.codeMap.get('KeyA') === 'left' && Input3.codeMap.size === 0;
+        if (!layouts || !arrows) problems.push('layouts ' + layouts + ' arrows ' + arrows);
+        // leaving frees the seat: the next pad takes it (a pad may sit anywhere), a keyboard cannot take a seat past 2, and P1 gets the arrows back
+        const left = Inputs.leave('key2');
+        const back = Input.codeMap.get('ArrowLeft') === 'left' && Input2.codeMap.size === 0 && Inputs.seats[1] === null;
+        const refilled = Inputs.join('pad2') === 1 && Inputs.padFor(1, pads) === 2 && Input2.keymap === null;
+        Inputs.leave('pad0');
+        const noKeyboard = Inputs.join('key2') === -1 && Inputs.join('pad0') === 2 && Inputs.leave('pad7') === -1;
+        if (left !== 1 || !back || !refilled || !noKeyboard) problems.push('leave ' + JSON.stringify({ left, back, refilled, noKeyboard }));
+        // a seat keeps its pad while it is unplugged and takes it again when it returns
+        pads[1].connected = false;
+        const unplugged = Inputs.padFor(3, pads) === -1 && Inputs.seats[3] === 'pad1';
+        pads[1].connected = true;
+        if (!unplugged || Inputs.padFor(3, pads) !== 1) problems.push('unplugged pad');
+        return problems.length ? problems.join('; ') : true;
+      });
+    });
+    test('Co-op join screen: Punch joins and Defend leaves a keyboard layout, A / Start joins a gamepad, B leaves or goes back, Start starts, left / right choose the fighter, a button held when the screen opens is no press, an unplugged pad frees its seat', () => {
+      const pads = [fakePad('a'), fakePad('b'), fakePad('c')], events = [];
+      const off = Events.on('lobby', (e) => events.push(e.kind + (e.seat !== undefined ? e.seat : '')));
+      try {
+        return withCoopInput(pads, () => {
+          Inputs.lobby = true;
+          const problems = [];
+          const keys = [Keymap.bindings.punch[0], Keymap2.bindings.punch[0], Keymap2.bindings.right[0], Keymap.bindings.right[0], Keymap2.bindings.defend[0]].map((code) => Inputs.lobbyKey(keyEvent(code)));
+          if (keys.join() !== 'true,true,true,true,true' || Inputs.lobbyKey(keyEvent('KeyZ')) || Inputs.lobbyKey(keyEvent('Escape'))) problems.push('keys ' + keys.join());
+          if (Inputs.seats.join() !== 'key1,,,') problems.push('seats after the keys ' + Inputs.seats.join());
+          padButton(pads[0], 0, true); Inputs.pollLobby();   // held while the screen opened: only recorded
+          const heldAtOpen = Inputs.seatOf('pad0') < 0;
+          padButton(pads[0], 0, false); Inputs.pollLobby(); padButton(pads[0], 0, true); Inputs.pollLobby(); padButton(pads[0], 0, false); Inputs.pollLobby();   // pressed again: joins
+          padButton(pads[1], 9, true); Inputs.pollLobby(); padButton(pads[1], 9, false); Inputs.pollLobby();   // Start joins too
+          const joined = Inputs.seats.join() === 'key1,pad0,pad1,';
+          padButton(pads[0], 9, true); Inputs.pollLobby(); padButton(pads[0], 9, false); Inputs.pollLobby();   // Start on a seated pad: start
+          pads[0].axes[0] = -1; Inputs.pollLobby(); pads[0].axes[0] = 0; Inputs.pollLobby();                   // stick left: choose the fighter
+          padButton(pads[0], 1, true); Inputs.pollLobby(); padButton(pads[0], 1, false); Inputs.pollLobby();   // B leaves
+          padButton(pads[2], 1, true); Inputs.pollLobby(); padButton(pads[2], 1, false); Inputs.pollLobby();   // B on a pad without a seat: back
+          pads[1].connected = false; Inputs.pollLobby();                                                      // unplugged: the seat is free
+          const want = 'join0,join1,cycle1,cycle0,leave1,join1,join2,start,cycle1,leave1,back,leave2';
+          if (!heldAtOpen || !joined || events.join() !== want) problems.push('events ' + events.join() + ' (wanted ' + want + ') heldAtOpen ' + heldAtOpen + ' joined ' + joined);
+          if (Inputs.seats.join() !== 'key1,,,') problems.push('seats at the end ' + Inputs.seats.join());
+          return problems.length ? problems.join('; ') : true;
+        });
+      } finally { off(); }
+    });
+    test('Co-op join screen: coming back to it with a button still held (B from the arena screen, Start, a stick) is no press, so the seat is kept; an unseated pad\'s held B is remembered for the next screen', () => {
+      const pads = [fakePad('a'), fakePad('b')], events = [];
+      const off = Events.on('lobby', (e) => events.push(e.kind + (e.seat !== undefined ? e.seat : '')));
+      const keepPrev = Object.assign({}, UI.padPrev);
+      try {
+        return withCoopInput(pads, () => {
+          const problems = [];
+          Inputs.setLobby(true);
+          Inputs.pollLobby(); padButton(pads[0], 0, true); Inputs.pollLobby(); padButton(pads[0], 0, false); Inputs.pollLobby();   // pad 0 joins
+          Inputs.setLobby(false);                                   // on to the arena screen, where B goes back and is held while the join screen opens again
+          padButton(pads[0], 1, true); padButton(pads[0], 9, true); pads[0].axes[0] = -1;
+          Inputs.setLobby(true);
+          Inputs.pollLobby(); Inputs.pollLobby();
+          if (Inputs.seats[0] !== 'pad0' || events.join() !== 'join0') problems.push('held buttons counted as presses: seats ' + Inputs.seats.join() + ', events ' + events.join());
+          padButton(pads[0], 1, false); padButton(pads[0], 9, false); pads[0].axes[0] = 0; Inputs.pollLobby();
+          padButton(pads[0], 1, true); Inputs.pollLobby();           // a real press afterwards still counts
+          if (Inputs.seats[0] !== null) problems.push('a real B press no longer leaves');
+          padButton(pads[1], 1, true);                               // an unseated pad holds B (it went back from here): the next screen must see it as held
+          UI.syncPadPrev();
+          if (!Inputs.anyPadMenu().back || !UI.padPrev.back) problems.push('the held B of a pad without a seat was forgotten');
+          return problems.length ? problems.join('; ') : true;
+        });
+      } finally { off(); Object.assign(UI.padPrev, keepPrev); }
+    });
+    test('Co-op seats: a gamepad that returns in another browser slot is found again by its id (the seat follows it), unless another seat holds the same id; a different pad in its old slot is not taken for it', () => {
+      const problems = [];
+      withCoopInput([fakePad('a'), fakePad('b'), null, null], () => {
+        const pads = [fakePad('a'), fakePad('b'), null, null];
+        Object.defineProperty(navigator, 'getGamepads', { value: () => pads, configurable: true });
+        Inputs.join('pad0'); Inputs.join('pad1');
+        pads[1] = null;
+        const gone = Inputs.padFor(1, pads);
+        pads[3] = fakePad('b');
+        const back = Inputs.padFor(1, pads) === 3 && Inputs.seats[1] === 'pad3' && Inputs.padFor(0, pads) === 0;
+        pads[0] = fakePad('z'); pads[3] = null;                      // another pad sits in the first seat's old slot
+        const stranger = Inputs.padFor(0, pads) === -1 && Inputs.seats[0] === 'pad0';
+        if (gone !== -1 || !back || !stranger) problems.push('return ' + JSON.stringify({ gone, back, stranger }));
+        Inputs.leave('pad0'); Inputs.leave('pad3');
+        const twins = [fakePad('same'), fakePad('same'), null, null];
+        Object.defineProperty(navigator, 'getGamepads', { value: () => twins, configurable: true });
+        Inputs.join('pad0'); Inputs.join('pad1');
+        twins[1] = null; twins[2] = fakePad('same');                 // which of two identical pads came back? Not guessed
+        const shared = Inputs.padFor(1, twins) === -1 && Inputs.seats[1] === 'pad1' && Inputs.padFor(0, twins) === 0;
+        if (!shared) problems.push('identical pads were mixed up');
+      });
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Co-op match: the party is team 0 in seat order, the enemies number two more than the players (at most six) and avoid the players\' fighters, a repeated pick wears the alternate colours, a party of one starts exactly like a plain brawl', () => {
+      const problems = [], made = [];
+      const track = (m) => { made.push(m); return m; };
+      try {
+        const m = track(coopMatch(FOUR));
+        const teams = m.fighters.map((f) => f.team).join('');
+        if (m.fighters.length !== 10 || teams !== '0000111111' || m.partySize !== 4 || !m.coop) problems.push('four players: ' + m.fighters.length + ' fighters, teams ' + teams);
+        if (!FOUR.every((seat, k) => m.controllers[k] === HUMAN_CONTROLLERS[seat.slot] && m.fighters[k].id === seat.id)) problems.push('party order');
+        if (m.fighters.slice(4).some((f) => FOUR.some((seat) => seat.id === f.id))) problems.push('an enemy repeats a player\'s fighter');
+        const zs = m.fighters.slice(0, 4).map((f) => Math.round(f.z * 100) / 100).join();
+        if (zs !== '-1.2,-0.4,0.4,1.2' || m.fighters.slice(0, 4).some((f) => f.x !== -m.def.spawn)) problems.push('party spots ' + zs);
+        const counts = [1, 2, 3, 4].map((n) => coopEnemyCount(n)).join();
+        if (counts !== '3,4,5,6' || coopEnemyCount(9) !== BRAWL_MAX_ENEMIES) problems.push('enemy counts ' + counts);
+        const twin = track(coopMatch([{ slot: 0, id: 'kai' }, { slot: 1, id: 'kai' }], { enemies: 1 }));
+        if (twin.fighters[0].look !== ROSTER_BY_ID.kai.look || twin.fighters[1].look === twin.fighters[0].look) problems.push('a repeated pick keeps the same colours');
+        const solo = track(coopMatch([{ slot: 0, id: 'kai' }])), plain = track(new MatchSim({ mode: 'brawl', playerId: 'kai', enemies: 3, countdown: false, timer: 0, seed: 7, difficulty: 'normal', evenDamage: true }));
+        const spots = (match) => match.fighters.map((f) => [f.id, f.team, f.x, f.z, f.yaw, f.hp].join(':')).join('|');
+        if (spots(solo) !== spots(plain)) problems.push('a party of one starts differently from a plain brawl');
+        // two seats that are not the first ones: fighter k belongs to the k-th seat
+        const gap = track(coopMatch([{ slot: 0, id: 'kai' }, { slot: 2, id: 'mara' }]));
+        const pads = [fakePad('a')], keepMatch = Game.match;
+        Game.match = gap;
+        try {
+          withCoopInput(pads, () => {
+            const who = [0, 1, 2].map((k) => Inputs.forFighter(k)), want = [Input, Input3, null];
+            if (who.some((p, k) => p !== want[k]) || gap.controllers[1] !== Player3Controller) problems.push('seat mapping');
+          });
+        } finally { Game.match = keepMatch; }
+        for (const f of m.fighters) if (!Number.isFinite(f.hp + f.x + f.z)) problems.push('NaN');
+      } finally { made.forEach((match) => match.dispose()); }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Co-op match: four devices (two keyboard layouts, two gamepads) each drive only their own fighter: a press makes that fighter attack and nobody else, a stick moves only its fighter', () => {
+      const pads = [fakePad('a'), fakePad('b')];
+      return withCoopInput(pads, () => {
+        Settings.v.movement = 'opponent';
+        ['key1', 'key2', 'pad0', 'pad1'].forEach((device) => Inputs.join(device));
+        const presses = [
+          [() => Inputs.onKeyDown(keyEvent(Keymap.bindings.punch[0])), () => Inputs.onKeyUp(keyEvent(Keymap.bindings.punch[0]))],
+          [() => Inputs.onKeyDown(keyEvent(Keymap2.bindings.kick[0])), () => Inputs.onKeyUp(keyEvent(Keymap2.bindings.kick[0]))],
+          [() => padButton(pads[0], 2, true), () => padButton(pads[0], 2, false)],
+          [() => padButton(pads[1], 0, true), () => padButton(pads[1], 0, false)],
+        ];
+        const problems = [];
+        presses.forEach(([down, up], d) => {
+          const m = coopMatch(FOUR);
+          try {
+            idleEnemies(m); Inputs.reset(); down();
+            for (let i = 0; i < 8; i++) { Inputs.update(); m.step(); }
+            const attackers = m.fighters.slice(0, 4).map((f) => (f.state === S.ATTACK ? 1 : 0)).join('');
+            if (attackers !== [0, 1, 2, 3].map((k) => (k === d ? 1 : 0)).join('')) problems.push('device ' + d + ' made ' + attackers + ' attack');
+          } finally { up(); Inputs.update(); m.dispose(); }
+        });
+        const m = coopMatch(FOUR);
+        try {
+          idleEnemies(m); Inputs.reset();
+          const x0 = m.fighters.map((f) => f.x), z0 = m.fighters.map((f) => f.z);
+          pads[0].axes[1] = -1;   // the third player pushes the stick up (toward the enemies in Relative-to-opponent movement)
+          for (let i = 0; i < 12; i++) { Inputs.update(); m.step(); }
+          const moved = m.fighters.slice(0, 4).map((f, k) => (Math.hypot(f.x - x0[k], f.z - z0[k]) > 0.05 ? 1 : 0)).join('');
+          if (moved !== '0010') problems.push('the stick of player 3 moved ' + moved);
+        } finally { pads[0].axes[1] = 0; Inputs.update(); m.dispose(); }
+        return problems.length ? problems.join('; ') : true;
+      });
+    });
+    test('Co-op friendly fire: off, a teammate\'s punch does nothing to a teammate; on, it lands (an enemy hits a player either way)', () => {
+      const run = (friendlyFire) => {
+        const m = coopMatch([{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], { enemies: 1, friendlyFire });
+        try {
+          m.controllers[0] = self.scripted((it, f, o, mm) => { it.punch = mm.tick % 30 === 2; });   // P1 punches along the row: P2 stands in reach, the enemy just beyond it
+          m.controllers[1] = self.scripted(() => {});
+          m.controllers[2] = self.scripted(() => {});
+          self.stand(m.fighters[0], 0, 0, 1.9, 0); self.stand(m.fighters[1], 0.8, 0, 1.9, 0); self.stand(m.fighters[2], 1.9, 0, 0, 0);
+          const log = self.capture(['hit']);
+          self.run(m, 120);
+          log.stop();
+          const pair = (e) => e.att.index + '>' + e.def.index;
+          return { mate: log.hit.filter((e) => pair(e) === '0>1').length, ally: m.fighters[1].hp / m.fighters[1].maxHp, flag: m.friendlyFire };
+        } finally { m.dispose(); }
+      };
+      const foe = () => {   // an enemy punching a player lands in both settings
+        const m = coopMatch([{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], { enemies: 1 });
+        try {
+          m.controllers[0] = self.scripted(() => {}); m.controllers[1] = self.scripted(() => {});
+          m.controllers[2] = self.scripted((it, f, o, mm) => { it.punch = mm.tick % 30 === 2; });
+          self.stand(m.fighters[0], -3, 0, 0, 0); self.stand(m.fighters[1], 0, 0, 0.8, 0); self.stand(m.fighters[2], 0.8, 0, 0, 0);
+          const log = self.capture(['hit']);
+          self.run(m, 90);
+          log.stop();
+          return log.hit.filter((e) => e.att.index === 2 && e.def.index === 1).length;
+        } finally { m.dispose(); }
+      };
+      const off = run(false), on = run(true), foeHits = foe();
+      const ok = off.mate === 0 && off.ally === 1 && !off.flag && on.mate > 0 && on.ally < 1 && on.flag && foeHits > 0;
+      return ok ? true : JSON.stringify({ off, on, foeHits });
+    });
+    test('Co-op sit-out: a knocked-out player takes no input, is not targeted and does not come back; the brawl goes on while any player stands, is lost when all are out (also with enemies still up) and won when every enemy is out', () => {
+      const problems = [];
+      const scene = () => {
+        const m = coopMatch(THREE, { enemies: 2 });
+        m.controllers[0] = self.scripted((it) => { it.punch = true; });   // P1 mashes Punch all the time
+        m.controllers[1] = self.scripted(() => {}); m.controllers[2] = self.scripted(() => {});
+        idleEnemies(m);
+        self.stand(m.fighters[0], -3, 0, -2, 0); self.stand(m.fighters[1], -3, 5, -2, 5); self.stand(m.fighters[2], -3, -5, -2, -5);
+        self.stand(m.fighters[3], -2, 0, -3, 0); self.stand(m.fighters[4], -2, 1.2, -3, 1.2);   // the enemies are nearest to P1
+        return m;
+      };
+      const m = scene();
+      try {
+        m.assignTargets();
+        const nearest = m.fighters[3].target === m.fighters[0];
+        const control = self.capture(['attackStart']);
+        self.run(m, 6);
+        control.stop();
+        const mashes = control.attackStart.some((e) => e.f.index === 0);   // control: while standing, P1's Punch starts attacks
+        Combat.knockOut(m.fighters[0], m.fighters[3], null, m);
+        const log = self.capture(['attackStart']);
+        self.run(m, 150);
+        log.stop();
+        const [p1, p2, p3, e1, e2] = m.fighters;
+        const targets = [e1, e2].every((e) => e.target === p2 || e.target === p3);
+        const silent = log.attackStart.filter((e) => e.f.index === 0).length === 0 && p1.state === S.KO && !p1.alive;
+        if (!nearest || !mashes || !targets || !silent || m.phase !== 'fight' || m.matchOver) problems.push('one down: ' + JSON.stringify({ nearest, mashes, targets, silent, phase: m.phase, over: m.matchOver }));
+        Combat.knockOut(p2, e1, null, m);
+        self.run(m, KO_DELAY_TICKS + 20);
+        const still = m.phase === 'fight' && !m.matchOver && p3.alive;   // the last player standing keeps the brawl going
+        Combat.knockOut(p3, e1, null, m);
+        self.run(m, KO_DELAY_TICKS + 20);
+        if (!still || !m.matchOver || m.matchWinner !== 1 || m.wins.join('-') !== '0-1' || m.teamAlive(TEAM_PLAYERS) || !e1.alive) problems.push('all out: ' + JSON.stringify({ still, over: m.matchOver, winner: m.matchWinner, wins: m.wins.join('-') }));
+      } finally { m.dispose(); }
+      const w = scene();
+      try {
+        Combat.knockOut(w.fighters[0], null, null, w);   // a sat-out player does not stop the others winning
+        self.run(w, 20);
+        Combat.knockOut(w.fighters[3], w.fighters[1], null, w); Combat.knockOut(w.fighters[4], w.fighters[1], null, w);
+        self.run(w, KO_DELAY_TICKS + 20);
+        if (!w.matchOver || w.matchWinner !== 0 || w.wins.join('-') !== '1-0' || w.fighters[0].alive) problems.push('won: ' + JSON.stringify({ over: w.matchOver, winner: w.matchWinner, wins: w.wins.join('-'), p1: w.fighters[0].alive }));
+      } finally { w.dispose(); }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Co-op revive hook: reviveTeam brings the knocked-out players back where they fell on their feet with part of their health, leaves the standing and the enemies alone, and they take input and are targeted again (nothing in play calls it yet)', () => {
+      const problems = [];
+      const m = coopMatch(THREE, { enemies: 2 });
+      try {
+        m.controllers[0] = self.scripted((it) => { it.punch = true; });
+        m.controllers[1] = self.scripted(() => {}); m.controllers[2] = self.scripted(() => {});
+        idleEnemies(m);
+        const [p1, p2, p3, e1, e2] = m.fighters;
+        self.stand(p1, -3, 0, -2, 0); self.stand(p2, -3, 4, -2, 4); self.stand(p3, -3, -4, -2, -4); self.stand(e1, -2, 0.3, -3, 0.3); self.stand(e2, 3, 0, 2, 0);
+        Combat.knockOut(p1, e1, null, m); Combat.knockOut(p3, e1, null, m);
+        self.run(m, 40);
+        const at = [p1.x, p1.z, p3.x, p3.z], standing = [p2.hp, e1.hp, e2.hp];
+        const before = m.fighters.map((f) => f.alive).join();
+        const n = m.reviveTeam();
+        const back = n === 2 && p1.alive && p3.alive && p1.state === S.IDLE && Math.abs(p1.hp - p1.maxHp * COOP_REVIVE_HP) < 1e-9 && Math.abs(p3.hp - p3.maxHp * COOP_REVIVE_HP) < 1e-9;
+        const where = at.join() === [p1.x, p1.z, p3.x, p3.z].join();
+        const untouched = p2.hp === standing[0] && e1.hp === standing[1] && e2.hp === standing[2] && m.reviveTeam() === 0;
+        if (before !== 'false,true,false,true,true' || !back || !where || !untouched) problems.push('revive ' + JSON.stringify({ before, n, back, where, untouched }));
+        const log = self.capture(['attackStart']);
+        m.assignTargets(); self.run(m, 12);
+        log.stop();
+        const acts = log.attackStart.some((e) => e.f.index === 0), targeted = e1.target === p1;   // P1 is the nearest to e1 again
+        if (!acts || !targeted || !m.fighters.slice(0, 3).every((f) => f.alive)) problems.push('after the revive: attacks ' + acts + ', targeted ' + targeted);
+        Combat.knockOut(p2, e1, null, m); Combat.knockOut(p1, e1, null, m);
+        const full = m.reviveTeam(1);
+        if (full !== 2 || p1.hp !== p1.maxHp) problems.push('revive at full health ' + full);
+        for (const f of m.fighters.slice(0, 3)) Combat.knockOut(f, e1, null, m);
+        self.run(m, KO_DELAY_TICKS + 20);
+        if (!m.matchOver || m.reviveTeam() !== 0 || m.fighters[0].alive) problems.push('a lost brawl was revived');
+        // a body that lay on a crate stands up on it, and presses mashed while out are dropped
+        const m2 = coopMatch([{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], { enemies: 1 });
+        try {
+          const q = m2.fighters[0];
+          Combat.knockOut(q, null, null, m2);
+          q.y = q.prevY = 1.2; q.groundY = q.supportY = 1.2;
+          Input.attackQueue.push('punch', 'kick'); Input.latch.punch = true;
+          const n2 = m2.reviveTeam();
+          if (n2 !== 1 || q.y !== 1.2 || q.groundY !== 1.2 || q.supportY !== 1.2 || Input.attackQueue.length || Input.latch.punch) problems.push('revive ' + JSON.stringify({ n2, y: q.y, queue: Input.attackQueue.length, latch: !!Input.latch.punch }));
+        } finally { Input.reset(); m2.dispose(); }
+      } finally { m.dispose(); }
+      const duel = mk({});
+      if (duel.reviveTeam() !== 0) problems.push('a 1v1 has no party to revive');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Co-op camera: the frame holds the living players, not a knocked-out lead that lies far off, and keeps the lead in view only when every player is out', () => withCamera(() => {
+      const problems = [];
+      const m = coopMatch(FOUR, { enemies: 4 });
+      try {
+        idleEnemies(m);
+        const [p1, p2, p3, p4, e1, e2, e3, e4] = m.fighters;
+        self.stand(p1, -10, -6, 0, 0); self.stand(p2, -1, 0, 3, 0); self.stand(p3, -1, 1, 3, 1); self.stand(p4, -1, -1, 3, -1);
+        self.stand(e1, 3, 0, -1, 0); self.stand(e2, 3, 1, -1, 1); self.stand(e3, 3, -1, -1, -1); self.stand(e4, 4, 0, -1, 0);
+        const all = Camera.frameFighters(m.fighters), wideBox = Camera.box.minX;   // control: with the lead alive the frame stretches out to it
+        Combat.knockOut(p1, e1, null, m);
+        p1.x = p1.prevX = -10; p1.z = p1.prevZ = -6;
+        const living = Camera.frameFighters(m.fighters), box = Camera.box.minX, first = Camera.players[0];
+        if (all !== 8 || wideBox > -9) problems.push('control: lead alive ' + all + ' fighters, box starts at ' + wideBox);
+        if (living !== 7 || Camera.playerCount !== 3 || first !== p2 || box < -1.5) problems.push('lead out: ' + living + ' fighters, ' + Camera.playerCount + ' players, first ' + (first && first.id) + ', box from ' + box);
+        Camera.snapNext = true; Camera.resetGroup();
+        cameraFrames(m, 150);
+        const shown = [p2, p3, p4].map((f) => fighterOnScreen(f));
+        if (shown.some((s) => !s)) problems.push('a living player is off screen: ' + shown.join());
+        for (const f of [p2, p3, p4]) Combat.knockOut(f, e1, null, m);
+        const lone = Camera.frameFighters(m.fighters);
+        if (Camera.playerCount !== 1 || Camera.players[0] !== p1 || lone < 2) problems.push('everyone out: ' + Camera.playerCount + ' players');
+      } finally { m.dispose(); }
+      return problems.length ? problems.join('; ') : true;
+    }));
+    test('Co-op setting: Friendly fire is off by default, is kept in the save, is read from a save that lacks it as off, and a rematch takes the current setting', () => {
+      const keepRaw = Store.get(KEY_SETTINGS), keepSettings = Object.assign({}, Settings.v), problems = [];
+      try {
+        Store.remove(KEY_SETTINGS); Settings.init();
+        if (SETTING_DEFS.friendlyFire.def !== false || Settings.v.friendlyFire !== false) problems.push('default is not off');
+        Settings.set('friendlyFire', true);
+        const saved = JSON.parse(Store.get(KEY_SETTINGS)).friendlyFire === true;
+        Settings.v.friendlyFire = false; Settings.init();
+        if (!saved || Settings.v.friendlyFire !== true) problems.push('not kept: saved ' + saved + ', loaded ' + Settings.v.friendlyFire);
+        Store.set(KEY_SETTINGS, JSON.stringify({ master: 0.5, revision: SETTINGS_REVISION })); Settings.init();   // a save from before the option
+        if (Settings.v.friendlyFire !== false || Settings.v.master !== 0.5) problems.push('old save: ' + Settings.v.friendlyFire);
+        Store.set(KEY_SETTINGS, JSON.stringify({ friendlyFire: 'yes', revision: SETTINGS_REVISION })); Settings.init();
+        if (Settings.v.friendlyFire !== false) problems.push('a non-boolean value was taken');
+      } finally {
+        if (keepRaw === null) Store.remove(KEY_SETTINGS); else Store.set(KEY_SETTINGS, keepRaw);
+        Settings.v = keepSettings; Settings.apply();
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Co-op flow: the mode is on the list, joined seats start a brawl with enemies = 2 + players (at most 6), friendly fire follows the setting at every start, a co-op ends with the main menu', () => {
+      if (Game.state !== GS.MENU) return 'needs the main menu';
+      const keepSel = Object.assign({}, Game.selection), keepParty = Game.selection.party.slice(), keepFire = Settings.v.friendlyFire, problems = [];
+      try {
+        if (!MODE_ORDER.includes('coop') || !MODE_INFO.coop) problems.push('mode missing from the list');
+        const sizes = [];
+        for (const [n, fire] of [[1, false], [2, true], [3, false], [4, true]]) {
+          Settings.v.friendlyFire = fire;
+          Game.chooseMode('coop');
+          const seated = ['key1', 'key2', 'pad0', 'pad1'].slice(0, n).map((device) => Inputs.join(device));
+          Game.startFromSelection();
+          const m = Game.match;
+          sizes.push(n + ':' + (m ? m.fighters.length : 0));
+          if (seated.join() !== [0, 1, 2, 3].slice(0, n).join() || !m || !m.coop || m.coop.length !== n || m.friendlyFire !== fire || Game.state !== GS.COUNTDOWN) problems.push(n + ' players: ' + JSON.stringify({ seated, coop: !!(m && m.coop), fire: m && m.friendlyFire, state: Game.state }));
+          Game.quitToMenu();
+          if (Inputs.coop || Inputs.seatedSlots().length) problems.push('the seats outlived the co-op');
+        }
+        if (sizes.join() !== '1:4,2:6,3:8,4:10') problems.push('sizes ' + sizes.join());
+        Game.chooseMode('coop');
+        const empty = Game.startCoop();   // nobody has joined
+        if (empty || Game.match) problems.push('a brawl started with nobody in it');
+        Game.quitToMenu();
+      } finally {
+        if (Game.state !== GS.MENU) Game.quitToMenu();
+        Settings.v.friendlyFire = keepFire; Object.assign(Game.selection, keepSel); Game.selection.party = keepParty;
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Co-op screens and HUD: the join screen shows a card per seat (Choose arena off until somebody joins), the fighter pick wraps over the unlocked roster, the HUD cells and tags follow the seat and show OUT, the results have a column per player', () => {
+      const keepParty = Game.selection.party.slice(), keepDom = ['hp1', 'hg1', 'ht1'].map((id) => UI.dom[id]), keepCells = UI.partyEls, keepCache = UI.cache, keepGhost = UI.ghost, problems = [];
+      const m = coopMatch([{ slot: 0, id: 'kai' }, { slot: 2, id: 'mara' }], { enemies: 1 });
+      try {
+        withCoopInput([fakePad('a')], () => {
+          const empty = UI.screen_coop();
+          if ((empty.match(/seatcard open/g) || []).length !== COOP_MAX_PLAYERS || !/data-act="coopStart" disabled/.test(empty)) problems.push('empty join screen');
+          Inputs.join('pad0'); Inputs.join('key2');
+          const shown = UI.screen_coop();
+          if (!shown.includes('data-act="coopcycle:0"') || !shown.includes('data-act="coopcycle:1"') || !shown.includes('Gamepad 1') || !shown.includes('Keyboard 2') || /data-act="coopStart" disabled/.test(shown) || (shown.match(/seatcard open/g) || []).length !== 2) problems.push('join screen with two seated');
+          const roster = Game.coopRoster(), sel = Game.selection;
+          sel.party[0] = roster[roster.length - 1].id;
+          const wrapped = Game.cycleParty(0, 1) === roster[0].id && Game.cycleParty(0, -1) === roster[roster.length - 1].id;
+          sel.party[1] = 'locked-id-that-does-not-exist';
+          const stray = Game.cycleParty(1, 1);
+          if (!wrapped || !roster.some((r) => r.id === stray)) problems.push('fighter pick');
+        });
+        const cell = () => ({ root: { classList: { out: false, toggle(name, on) { this.out = !!on; } } }, hp: { style: {} }, st: { style: {} } });
+        UI.dom.hp1 = { style: {} }; UI.dom.hg1 = { style: {} }; UI.dom.ht1 = {}; UI.partyEls = [cell(), cell(), cell(), cell()]; UI.cache = {}; UI.ghost = [1, 1];
+        m.fighters[1].hp = m.fighters[1].maxHp * 0.5;
+        UI.partyBars(m);
+        const half = UI.partyEls[0].hp.style.transform === 'scaleX(1.000)' && UI.partyEls[1].hp.style.transform === 'scaleX(0.500)' && !UI.partyEls[1].root.classList.out && UI.dom.ht1.textContent === '2 / 2 UP';
+        Combat.knockOut(m.fighters[1], m.fighters[2], null, m);
+        UI.partyBars(m);
+        const out = UI.partyEls[1].root.classList.out === true && UI.partyEls[0].root.classList.out === false && UI.dom.ht1.textContent === '1 / 2 UP' && UI.partyEls[1].hp.style.transform === 'scaleX(0.000)';
+        if (!half || !out) problems.push('party cells ' + JSON.stringify({ half, out }));
+        const keepMatch = Game.match;
+        Game.match = m;
+        const seatOfSecond = UI.seatOf(m.fighters[1]);   // the seat, not the fighter index
+        Game.match = keepMatch;
+        if (UI.tagLabel(m, 0) !== '1P' || UI.tagLabel(m, 1) !== '3P' || UI.tagLabel(m, 2) !== 'CPU' || seatOfSecond !== 2) problems.push('labels');
+        const r = m.results();
+        r.mode = 'coop'; r.buttons = ['again', 'setup', 'menu']; r.playerWon = false;
+        const html = UI.coopResults(r);
+        const columns = (html.match(/pcname/g) || []).length === 2 && html.includes('P1 ' + m.fighters[0].name) && html.includes('P3 ' + m.fighters[1].name) && html.includes('knocked out') && html.includes('standing');
+        if (!columns || r.players.length !== 2 || r.player !== m.fighters[0].name + ' + ' + m.fighters[1].name || r.enemies !== 1) problems.push('results screen');
+        const sheets = typeof document.querySelectorAll === 'function' ? Array.from(document.querySelectorAll('style')).map((el) => (typeof el.textContent === 'string' ? el.textContent : '')) : [];
+        if (sheets.length) {   // only where there is a page (the browser run): the cells and seat colours have style rules and the HUD keeps them clear of the top bar
+          const css = sheets.join('\n').replace(/\/\*[\s\S]*?\*\//g, '');
+          if (!/#party\s*\{[^}]*top\s*:/.test(css) || !/\.coop #party\s*\{[^}]*display\s*:\s*flex/.test(css) || !/\.seat4\s*\{[^}]*--pc/.test(css)) problems.push('the party strip has no style rule');
+          const partyTop = Number((/#party\s*\{[^}]*top\s*:\s*([\d.]+)em/.exec(css) || [])[1]), infoTop = Number((/\.coop #modeinfo\s*\{[^}]*top\s*:\s*([\d.]+)em/.exec(css) || [])[1]);
+          if (!(infoTop * 0.85 >= partyTop + 2.6)) problems.push('the mode line (top ' + infoTop + ' x .85 em) is not under the party row (from ' + partyTop + ' em, about 2.6 em tall)');
+        }
+      } finally {
+        Game.selection.party = keepParty; ['hp1', 'hg1', 'ht1'].forEach((id, i) => { UI.dom[id] = keepDom[i]; }); UI.partyEls = keepCells; UI.cache = keepCache; UI.ghost = keepGhost; m.dispose();
+      }
       return problems.length ? problems.join('; ') : true;
     });
     test('Auto quality keeps full scale on a 50 Hz screen and lowers it when 60 Hz frames are slow', () => {
