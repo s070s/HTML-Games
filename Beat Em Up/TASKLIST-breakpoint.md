@@ -92,7 +92,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 2 - Controls overhaul (mobile first)
 
-- [ ] P2-01 - DECIDE: final action list. Required changes from the ideas file: remove `dash` completely; add `use` (pick up / drop / throw item); add `lock` (lock-on engage / disengage); replace block-high / block-low with one `defend` action whose meaning depends on the character (block or sway, P3-01). Decide what happens to: quick recovery (now on the dash input), `strong` and `height` modifiers, sidestep.
+- [x] P2-01 - DECIDE: final action list. Required changes from the ideas file: remove `dash` completely; add `use` (pick up / drop / throw item); add `lock` (lock-on engage / disengage); replace block-high / block-low with one `defend` action whose meaning depends on the character (block or sway, P3-01). Decide what happens to: quick recovery (now on the dash input), `strong` and `height` modifiers, sidestep.
   Done when: Appendix C has the final action list for touch, gamepad and keyboard, with no action needing more than one simultaneous modifier on touch.
 - [ ] P2-02 - Remove dash: DASH state, `DASH_COST`, transitions, AI use, touch DASH button, gamepad L3 mapping, keyboard binding, labels, help text, tutorials.
   Done when: searching the file for `dash` (case-insensitive) finds no game logic, and the self-test passes.
@@ -110,6 +110,8 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: all labels match the new actions.
 - [ ] P2-09 - Optional auto-assist input setting (off by default): repeated taps on Punch or Kick chain the fighter's next valid string move automatically; no new input, no new on-screen button.
   Done when: the setting exists in Settings and is saved; with it on, tapping Punch 3 times plays the style's 3-hit string on touch, gamepad and keyboard; with it off, behavior is unchanged; a self-test covers both.
+- [ ] P2-10 - Attack strings on every device: Punch / Kick fire on press; the Fighter keeps its string state and picks the move from one STRINGS table (Appendix C, P2-01); crouch held at the press gives the low version. Remove the `strong` action and intent field, the touch hold (TOUCH_CHARGE_MS, charge, `charged` button look), strong throws, the strong key of MOVE_BY_INPUT and the hand / foot alternation of nextInString. The AI and the Training dummy use the same strings. Move list shows the strings; self-tests that use `strong` are rewritten.
+  Done when: every row of the P2-01 string table plays the listed moves on keyboard, gamepad and touch (a self-test per device); no code reads `strong` from input; the AI and the dummy reach the 8 strong moves only through strings; the self-test suite passes.
 
 ## Phase 3 - Core combat rework
 
@@ -131,6 +133,8 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: frame data shows in Training for every move and no move has an unintended infinite combo (checked by P0-06 runner).
 - [ ] P3-09 - Automatic momentum boost: a gauge filled by landing hits, perfect blocks / sways and taking hits, giving a short stronger-damage state when full; same rules for AI; no extra input; shown on the fighter (pose / breathing, no glow, no sci-fi look) plus one thin bar.
   Done when: rules and values are in Appendix C; the boost triggers and ends as defined in the P0-06 headless runner; with it on, no style pair's win rate leaves the P14-01 target.
+- [ ] P3-10 - Combo audit and redesign for balance: for every attack string and buffered chain measure damage, stamina, frame advantage on hit and on block, guard break, knockdown / launch and juggle follow-ups; give each style family (P1-04) its own strings where the style needs them; make strong string enders punishable on block and keep any one string from dominating. Runs after P3-08.
+  Done when: Appendix C has the final string table per style family with frame data and damage per string; the P0-06 runner (AI vs AI, every style pair) shows every string in use, no single string above 35% of a fighter's damage (threshold may be revised in Appendix C with a reason), no unintended infinite or guaranteed loop, and win rates inside the P14-01 target.
 
 ## Phase 4 - Multiple opponents and lock-on
 
@@ -1091,6 +1095,152 @@ Severity: V = violation, B = borderline (decision needed, default fix given).
 - Countries used (32): Canada, Brazil, South Africa, Japan, Kazakhstan, Spain, Ireland, Argentina, China, Netherlands, Thailand, Sweden, Nigeria, South Korea, Colombia, Portugal, USA, France, Mongolia, Georgia, Armenia, Australia, Chile, India, Italy, Philippines, Jamaica, Israel, Poland, Mexico, New Zealand, UK. All belong in the 64-country P10-01 list; the other 32 are chosen there.
 - Origins used (24 of 24): Gym kid, Single parent, Port town, Small town, Working class, Wealthy family, Night-shift worker, Restaurant family, Martial arts family, Sports family, Big-city street, Office worker, Police family, College dropout, Delivery rider, Teacher's child, Boarding school, Foster care, Farm family, Military family, Orphanage, Immigrant family, Famous parents, Bouncer family. Proposed P10-01 origin list (24): Gym kid, Working class, Wealthy family, Immigrant family, Military family, Foster care, Small town, Big-city street, Sports family, College dropout, Office worker, Police family, Martial arts family, Single parent, Night-shift worker, Delivery rider, Farm family, Restaurant family, Bouncer family, Boarding school, Orphanage, Port town, Teacher's child, Famous parents.
 - Goals used (24 of 24): Win the title, Provide for family, Pay a debt, Prove them wrong, Make family proud, Stay undefeated, One last title, Protect family, Leave a legacy, Beat the champion, Earn respect, Lose weight, Defend the neighborhood, Make friends, Fame, Teach the kids, Redemption, Escape the past, Prove worth, Revenge, Find a lost sibling, Honor a mentor, Get fit, Thrill seeking. Proposed P10-01 goal list (24): Lose weight, Make friends, Revenge, Win the title, Prove worth, Protect family, Pay a debt, Honor a mentor, Redemption, Fame, Escape the past, Thrill seeking, Stay undefeated, Defend the neighborhood, Beat the champion, Teach the kids, One last title, Get fit, Provide for family, Make family proud, Prove them wrong, Earn respect, Find a lost sibling, Leave a legacy.
+
+### P2-01 - Final action list (2026-10-28)
+
+- Owner decisions: no hold-to-strengthen on any device (attacks fire on press); strong attacks are kept only as steps of fixed attack strings, with a combo balance audit (P3-10). Overrides the P1-03 "tap / hold strength" row.
+- Still a hold: USE tap = drop, hold = throw comes from the owner's ideas file and is kept until the owner says otherwise.
+
+Basis (fact, read from breakpoint.html 1.0.0): ACTIONS has 15 entries (breakpoint.html:574). Touch has a stick plus 8 buttons (PUNCH, KICK, BLOCK, GRAB, JUMP, DUCK, DASH, II; buildTouch, :7332). Touch already uses tap / hold for strength (TOUCH_CHARGE_MS = 220, :770) and picks height automatically (touchAttackChoice, :784). `dash` is also the back double-tap (:1082) and quick recovery (Fighter.updateDown :3504). Crouch is already the "low" modifier for Grapple (low grab, :3281).
+
+#### P2-01 final action list (decision)
+
+13 actions. Same list on every device. Owner decision (2026-10-28): no hold-to-strengthen on any device; attacks fire on press. Strong moves are reached only as steps of fixed attack strings (see "Attack strings" below). The intent no longer carries `strong`; `height` is derived from crouch held at the press.
+
+| Action | Purpose | Keyboard P1 | Keyboard P2 | Gamepad (standard mapping) | Touch | Notes |
+|---|---|---|---|---|---|---|
+| up | Move toward opponent (Settings: up the screen) | W, ArrowUp | ArrowUp | Left stick up / D-pad up | Stick up | Unchanged. P1 spare arrows switch off in Versus (unchanged). |
+| down | Move away (Settings: down the screen) | S, ArrowDown | ArrowDown | Left stick down / D-pad down | Stick down | Unchanged. Double-tap down no longer does anything (back-dash removed). |
+| left | Circle left | A, ArrowLeft | ArrowLeft | Left stick left / D-pad left | Stick left | Unchanged. Double-tap left = sidestep (gesture, see Decisions). |
+| right | Circle right | D, ArrowRight | ArrowRight | Left stick right / D-pad right | Stick right | Unchanged. Double-tap right = sidestep. |
+| punch | Punch | J | Numpad4 | X / Square (button 2) and Y / Triangle (button 3) | PUNCH | Fires on press, every device. The move comes from the attack string so far (table below). Crouch held at the press = body / low variant (replaces `height`). In a grab: elbow strike. |
+| kick | Kick | K | Numpad5 | A / Cross (button 0) and B / Circle (button 1) | KICK | As punch. Crouch held at the press = low kick family. In a grab: knee strike. |
+| defend | Block or Sway, by the character's defense type (P3-01) | L | Numpad6 | R1 (button 5) | DEFEND | Hold = guard (Block) or press = sway (Sway); P3-02 sets the numbers. Standing = high + mid cover. Crouch held + defend = low cover (no second button). Press while knocked down (tick 14 or later) = quick recovery. |
+| jump | Jump | Space | Numpad0 | Firm quick tap up on stick / D-pad | JUMP | Unchanged. Jump + crouch together cancel (unchanged). |
+| crouch | Crouch. Also the single modifier for low guard, low attacks and low grab | C | NumpadDecimal | Tap down, then hold down | DUCK | Unchanged input. New roles: defend + crouch = low guard; punch / kick + crouch = low variant; grapple + crouch = low grab (already). |
+| grapple | Grab, throw, escape | G | Numpad3 | R2 (button 7), R3 (button 11), right-stick flick | GRAB | Grab near opponent. In a clinch: attacker presses it to throw (direction = aim), defender presses it to escape. Kick no longer throws (kick = knee, P3-03). |
+| use | Pick up, drop, throw an item (P7-02, P7-03) | E | Numpad1 | L2 (button 6) | USE (context-sensitive, approved) | Empty-handed near an item: pick up, fires on press. Holding an item: tap = drop, hold 220 ms or more then release = throw (aim at the locked target, else facing). Nothing in reach and empty-handed: does nothing. |
+| lock | Lock-on engage / disengage (P4-03) | Q | Numpad2 | L1 (button 4) | LOCK (context-sensitive, approved) | Toggle. Recommendation for P4-03: tap with the stick pushed toward another enemy switches target instead of toggling. Harmless in 1v1 (no visible effect). |
+| pause | Pause / back | Escape, P | NumpadEnter | Start (button 9) | II (small, top right) | Unchanged. |
+
+Menu-only inputs (not actions, not remappable, never used in a fight):
+
+| Input | Keyboard | Gamepad | Touch |
+|---|---|---|---|
+| Confirm | Enter / Space / click | A / Cross (button 0) | Tap |
+| Back | Escape | B / Circle (button 1) | Back button |
+| Creator tab previous / next | click / existing keys | L1 / R1 (buttons 4 / 5) | Tap tabs |
+| Creator preview turn left / right | existing | L2 / R2 (buttons 6 / 7) | Drag |
+| Training reset | existing | Hold Select (button 8) | Menu item |
+
+These pad menu buttons are read from raw buttons 4 to 7. MENU_PAD_BUTTONS (:1132) must stop using the action names strong / blockHigh / height / blockLow (P2-02 / P2-08 job).
+
+Key conflict check (P1 and P2 share one keyboard):
+- P1 keys: W A S D, ArrowUp/Down/Left/Right (spare, off in Versus), J, K, L, Space, C, G, E, Q, Escape, P.
+- P2 keys: ArrowUp/Down/Left/Right, Numpad4, Numpad5, Numpad6, Numpad0, NumpadDecimal, Numpad3, Numpad1, Numpad2, NumpadEnter.
+- The only overlap is the P1 spare arrows, which are already switched off in Versus. No Shift, Ctrl or Alt used (browser shortcut clashes avoided, as in revision 2).
+- Freed keys: P1 O, F (and L, Q, E reused); P2 Numpad9, NumpadAdd.
+- Pad check: every standard button 0 to 7, 9 and 11 has one meaning in a fight; L3 (10) is unused on purpose (it was dash; keeping it free avoids accidental stick-click presses). R3 (11) is a grapple alias, as today.
+
+Touch check: 7 permanent buttons (PUNCH, KICK, DEFEND, GRAB, JUMP, DUCK, II) plus 2 context-sensitive (USE, LOCK). Old layout had 8 permanent buttons. 1v1 modes show 7 (8 when USE is up).
+
+#### Removed / merged
+
+| Old action | Fate | Reason |
+|---|---|---|
+| dash | Removed completely (state DASH, DASH_COST, back double-tap, side dash, pad L3, key F, touch DASH, AI plan 'dash'). Its i-frame job moves to Sway. Its quick-recovery job moves to `defend`. | Owner requirement. Sway gives the evasive step; sidestep stays for positioning. |
+| blockHigh | Merged into `defend` (stand = high + mid). | One defend action (P1-03 auto-guard). |
+| blockLow | Merged into `defend` + `crouch` (crouch + defend = low guard). | No second guard button; crouch already exists and is the low modifier everywhere. |
+| strong | Removed as an input and as an intent field, on every device. The touch hold (TOUCH_CHARGE_MS, touchStrike charge, `charged` button look) is removed too. The 8 strong moves stay, reachable only as attack-string steps. Strong throws are removed (every throw uses the normal values). | Owner decision 2026-10-28: no hold anywhere; strong attacks live in combos. Overrides the P1-03 "tap / hold strength" row. |
+| height | Removed as an input. Replaced by `crouch` held at the press (all devices). The intent keeps a derived `height` boolean. Touch keeps its existing automatic height choice when DUCK is not held. | P1-03 "button-set height": the button plus the crouch state set the height. Uses an existing action, no new input. |
+| sidestep (gesture, not an action) | Kept as a double-tap gesture on left / right. Not in the action list. | See Decisions. |
+| quick recovery (part of dash) | Moved to `defend`. | See Decisions. |
+
+#### Decisions
+
+- quick recovery: pressing `defend` (a fresh press, not a held one) while knocked down, at tick 14 or later and with at least 8 stamina, gets up quickly. Same numbers as now (DOWN state, 8 stamina, 0.6 getup scale). Reason: the player's thumb or finger is already on DEFEND, it works for Block and Sway characters alike, and it needs no extra button. Implementation note: Fighter keeps the previous `defend` value and tests the rising edge; the AI sets `defend` for one tick instead of `dash`. Rejected: jump (a rise-and-jump reads as a second meaning of Jump), grapple (a grab press while downed is already used for escapes in clinches).
+- strong / height modifiers: both removed as actions on all devices (owner decision 2026-10-28: "ditch the hold overall"; strong attacks are kept only inside combos, and the combos get a balance audit).
+  - Strength: no hold. Punch and Kick fire on press. Strong moves come only from attack strings (next section).
+  - Height: Punch or Kick with crouch held at the press = the low/body version. Standing = the high/mid version.
+  - In a grab: Punch = elbow, Kick = knee (P3-03); the elbow no longer needs strong. Throws are on `grapple` only, and strong throws are removed.
+  - New task: P2-10 (attack strings on every device). New task: P3-10 (combo audit and redesign for balance).
+
+#### Attack strings (default set; P3-10 audits and may change every row)
+
+Rules:
+- The move is picked at the moment of each press from the presses so far; no waiting and no hold. So P then K already gives the strong kick of the P K P string.
+- A press continues the string only when it comes within ATTACK_STRING_SECONDS (0.8 s) of the previous string press and the previous string move made contact (hit or block). A whiffed move, a gap, a hit taken, or a finished 3-step string starts a new string from step 1.
+- Strings are at most 3 steps. Crouch is read at each press; the crouch strings below need crouch held for every step, otherwise the standing table is used from that step.
+- Inside a string the step order is fixed by the table, so a string may go from a strong move to a lighter one (P K P). Outside strings the existing tier rule (Combat.canChain: never from stronger to lighter) stays for buffered chains.
+- Strong steps keep their costs: more stamina, longer recovery and the whiff penalty (whiffExtra).
+- Counter, running (Running Lunge), air and grab moves are unchanged and are not part of strings.
+- The AI and the Training dummy press the same strings (no more `it.strong`), so players and AI have the same move set.
+- Implementation direction (P2-10): the input layer sends punch / kick plus height; the Fighter keeps its own string state (it knows whether the last move made contact) and picks the move from one STRINGS table. This replaces MOVE_BY_INPUT's strong key and the hand / foot alternation of nextInString.
+
+| Input (standing) | Steps | Strong step and its role |
+|---|---|---|
+| P | Jab | none |
+| P P | Jab, Cross | none (same as today) |
+| P P P | Jab, Cross, Hook | Hook: wide stagger, string ender |
+| P K | Jab, Heavy Body Kick | Heavy Body Kick: guard break (owner example P K P) |
+| P K P | Jab, Heavy Body Kick, Cross | Cross follows the guard break |
+| P P K | Jab, Cross, Push Kick | Push Kick: guard break, pushes away, ender |
+| K | Front Kick | none |
+| K K | Front Kick, Roundhouse | none (same as today) |
+| K K K | Front Kick, Roundhouse, Heavy Roundhouse | Heavy Roundhouse: knockdown, ender |
+| K P | Front Kick, Jab | none |
+| K P P | Front Kick, Jab, Heavy Uppercut | Heavy Uppercut: big launch, ender (owner example K P P) |
+| K K P | Front Kick, Roundhouse, Power Jab | Power Jab: stagger, ender |
+
+| Input (crouch held) | Steps | Strong step and its role |
+|---|---|---|
+| P, P P | Body Jab, Uppercut | none (same as today) |
+| P P P | Body Jab, Uppercut, Gut Punch | Gut Punch: stagger on a juggled opponent, ender |
+| K, K K | Low Kick, Body Kick | none (same as today) |
+| K K K | Low Kick, Body Kick, Sweep | Sweep: the only low knockdown, ender |
+
+Every one of the 8 strong moves has exactly one string. Standing mixed pairs (P K, K P) change: today they give Jab then Front Kick and Front Kick then Jab with the other limb rules; now they follow the table.
+
+#### Decisions (continued)
+
+- sidestep: stays, as a gesture, not an action: double-tap left or right (relative to the opponent or lock target, as today). 6 stamina, 18 ticks, no i-frames, unchanged values. Double-tap toward the opponent still arms run. Double-tap away does nothing now. Reason: sidestep is movement, needs no button, and gives Block characters a way to leave a line without an i-frame dodge; Sway keeps the i-frame identity. Remove the `rel === 'back'` branch (breakpoint.html:1082) and the `Events.emit('dash')` name in startSidestep (:3380; rename the event, update sound/FX listeners).
+- context-sensitive touch buttons: approved for exactly two.
+  - USE: visible only while an item is within pick-up reach or is being held. Reason: items exist only in some arenas and moments; a permanent button would be dead weight most of the time. It takes a fixed reserved slot (the old DASH slot over GRAB), so nothing shifts when it appears. Hidden = no pointer events, no tab stop.
+  - LOCK: visible only while 2 or more hostile fighters are alive (brawler levels). Reason: in the four 1v1 modes the opponent is always the target, so the button would do nothing. Fixed reserved slot, same rules.
+  - Not approved: any other hide / show button, any button whose label changes meaning (for example turning GRAB into TAKE), and any auto-hiding of PUNCH, KICK, DEFEND, GRAB, JUMP, DUCK, II. Reason for the label rule: a swap would stop the player from grabbing an enemy that stands next to an item.
+  - P2-04 places them; constraint: both reachable by the right thumb without leaving the PUNCH / KICK cluster, both small size, both inside safe areas.
+- touch modifier check (rule: no action needs more than one simultaneous modifier; a held stick direction is movement, not a modifier button):
+  - Move, run (stick held toward target), sidestep (double flick): stick only, 0 modifiers.
+  - PUNCH / KICK press (strings are sequential presses): 0 modifiers.
+  - DUCK + PUNCH / KICK (low variant and crouch strings): 1 modifier (DUCK).
+  - Touch with DUCK not held: automatic height as today (keeps touch playable one-thumb); DUCK held overrides it.
+  - DEFEND hold or press: 0 modifiers. DEFEND + stick direction (sway direction): stick is movement, 0 modifier buttons.
+  - DUCK + DEFEND (low guard): 1 modifier (DUCK).
+  - DEFEND tap while down (quick recovery): 0 modifiers.
+  - GRAB: 0 modifiers; DUCK + GRAB (low grab): 1 modifier; stick direction aims a throw (movement).
+  - In a clinch: PUNCH (elbow), KICK (knee), GRAB (throw / escape): 0 modifiers each.
+  - JUMP: 0; in-air PUNCH / KICK: sequential, 0.
+  - USE tap (drop), USE hold-release (throw), USE press (pick up): 0 modifiers.
+  - LOCK tap: 0; LOCK + stick direction (switch target, recommended): stick only.
+  - II: 0.
+  - Result: the maximum is 2 simultaneous buttons (DUCK plus one other), so no action needs more than one modifier. No combo needs 3 buttons or 2 modifiers. No combo needs the left thumb on the stick and DUCK at the same time, so DUCK combos are done standing still.
+
+#### Migration notes for P2-03
+
+- Bump KEYS_REVISION from 3 to 4 (key `breakpoint.v1.keys` and `breakpoint.v1.keys2`, `revision` field). Order of migrations on load: revision below 3 -> existing mergeAttackKeys; revision below 4 -> the new step below. The revision-2 step (strong / height / dash off Shift, Ctrl, Alt) and OLD_DEFAULT_KEYS become dead code: delete them, since those actions no longer exist. Update the self-tests at breakpoint.html:8747-8750 that name strong / height / dash.
+- load() already ignores any saved action not in ACTIONS, so these old entries simply disappear on load: strong, height, dash, blockLow. Their keys become free.
+- Unchanged actions keep their saved keys exactly: up, down, left, right, punch, kick, jump, crouch, grapple, pause.
+- blockHigh -> defend:
+  - Saved list equals the old default (P1 ['KeyQ'], P2 ['Numpad1']) or is missing: defend takes the new default (P1 KeyL, P2 Numpad6), unless a kept binding already uses it (then load() falls back to the next free key, as it does today).
+  - Saved list differs from the old default (the player chose it): defend takes that list as is, subject to the normal validity and duplicate checks in load().
+- blockLow: dropped (no equivalent; crouch + defend replaces it). If the player customized only blockLow and left blockHigh at default, defend still takes the new default. Documented, not migrated.
+- New actions use and lock get their defaults (P1 E and Q, P2 Numpad1 and Numpad2) when those keys are free; a key a player moved onto Q, E, Numpad1 or Numpad2 for another action always wins, and the new action takes the next free fallback key. Same-key reuse note: an untouched 1.0.0 layout has Q = old high block and E = old low block; after migration Q = lock and E = use. Show one toast on first load after migration: "Controls changed: see Controls".
+- P2 (breakpoint.v1.keys2): same rules; P2 still never takes P1's main keys (existing `used` set).
+- Gamepad: no saved mapping exists (the map is hard-coded in pollPad, :969), so nothing to migrate. Replace the map with: punch [2,3], kick [0,1], defend [5], lock [4], use [6], grapple [7,11] (plus right-stick flick), pause [9], reset on Select hold. Remove strong, height, blockHigh, blockLow, dash entries. Menu buttons read raw 4 to 7.
+- Touch: nothing saved. Replace the block button with `defend`, remove `dash`, add `use` and `lock` (hidden by default). Remove the special `touchHeld.block` branch (:1074); `defend` is a normal action and `crouch` + `defend` is handled in fillIntent.
+- Intent fields (makeIntent / clearIntent): remove blockH, blockL, dash; add `defend` (held), `use` ('', 'press', 'tap', 'hold') and `lock` (one-tick pulse). Keep `strong`, `height`, `sidestep`, `grapple`, `crouch`, `jump`, lp / rp / lk / rk. `strong` and `height` become derived (hold time at release; crouch held at release or touch auto-height). Fighter reads `defend` + `crouch` where it read blockH / blockL (updateFree :3452, perfect-block timing, AI plans 'guard', dummy modes 'block' / 'blockLow' :5151-5152).
+- Progress: add a controls revision so the first-match controls card shows again once (set Progress.seenControls to false when the stored controls revision is below 4). Recommendation for P2-07.
+- Labels to rewrite (P2-08): ACTIONS (:574), ACTION_LABELS (:575), DEFAULT_KEYS (:581), FALLBACK_KEYS (:587), DEFAULT_KEYS_P2 (:590), GAMEPAD_LABELS and TOUCH_LABELS (:6411-6412), showOnboarding (:6508-6521), layoutText (:6943), Controls screen hint text and movement text (:6961-6968, remove the back-dash and "Dash while knocked down" sentences), Move list input column (:6976, replace "+ Strong" / "+ Height" with "hold" / "+ Crouch") and clinch text (:6986), clinch hint (:7273-7275).
 
 ## Appendix D - Audit findings
 
