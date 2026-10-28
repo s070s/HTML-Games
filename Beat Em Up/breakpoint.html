@@ -3415,7 +3415,7 @@ class Fighter {
     this.resetString();
     this.move = null; this.moveTick = 0; this.moveId = 0; this.hitList = []; this.moveConnected = false; this.whiffExtra = 0; this.chainCount = 0; this.exhaustedMove = false;
     this.mStartup = 1; this.mActive = 1; this.mRecovery = 1; this.lastMoveId = ''; this.repeatCount = 0; this.repeatTimer = 0;
-    this.comboHits = 0; this.comboDamage = 0; this.comboShow = 0; this.gotHits = 0; this.juggle = false; this.juggleCount = 0; this.calmTicks = 0;
+    this.comboHits = 0; this.comboDamage = 0; this.comboShow = 0; this.gotHits = 0; this.gotDamage = 0; this.comboFoe = null; this.juggle = false; this.juggleCount = 0; this.calmTicks = 0;   // gotHits / gotDamage / comboFoe: the combo this fighter is taking and whose it is (P4-02: per attacker)
     this.hitKind = 'mid'; this.reactDur = 10; this.hitDirX = 0; this.hitDirZ = 0; this.groundHits = 0; this.quickRise = false;
     this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.escapeQueued = false; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0; this.clinchStrikeKind = 'knee';
     this.momentum = 0; this.boostTicks = 0;   // momentum boost: gauge 0..MOMENTUM_MAX, ticks left of the running boost (a round start resets both)
@@ -4410,6 +4410,16 @@ const Combat = {
     return to.tier >= from.tier;
   },
   comboScale(n) { return COMBO_SCALE[Math.min(n, COMBO_SCALE.length - 1)]; },
+  /* A combo is the hits one attacker lands on one defender (P4-02): the defender keeps the count, the damage and whose combo it is (gotHits, gotDamage, comboFoe).
+     A hit by a different attacker closes that combo (comboEnd for its owner) and starts a new one at 0, so in a crowd neither the counters nor the damage scaling mix.
+     In a 1v1 the only attacker is the same fighter every time, so this never ends anything. juggleCount belongs to the flight, not the combo, and carries over. */
+  claimCombo(att, def) {
+    if (def.gotHits > 0 && def.comboFoe && def.comboFoe !== att) {
+      Events.emit('comboEnd', { att: def.comboFoe, def, hits: def.gotHits, damage: def.gotDamage });
+      def.gotHits = 0; def.calmTicks = 0;
+    }
+    def.comboFoe = att;
+  },
   /* Momentum for damage that landed (strike, ground hit, clinch strike, throw, tackle): the dealer gains by the damage, the receiver by a share of it. */
   momentum(att, def, dmg) {
     def.lastFoe = att;   // every damaging hit passes here: the attacker is who the combo and a scenery impact are credited to (P4-01)
@@ -4474,6 +4484,7 @@ const Combat = {
   landHit(d, match) {
     const { att, def, mv } = d;
     const counter = def.state === S.ATTACK && !!def.move && def.move.type === 'strike' && def.moveTick <= def.mStartup + def.mActive;
+    this.claimCombo(att, def);
     let dmg = mv.dmg * att.damageMult(mv) * this.comboScale(def.gotHits);
     if (att.repeatCount > 0) dmg *= Math.max(0.5, 1 - 0.2 * att.repeatCount);
     if (counter) dmg *= mv.cv;
@@ -4483,11 +4494,11 @@ const Combat = {
     def.hp = Math.max(0, def.hp - dmg);
     if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
     att.moveConnected = true;
-    if (def.gotHits === 0) { att.comboHits = 0; att.comboDamage = 0; }
+    if (def.gotHits === 0) { att.comboHits = 0; att.comboDamage = 0; def.gotDamage = 0; }
     def.gotHits++;
     def.calmTicks = 0;
     att.comboHits = def.gotHits;
-    att.comboDamage += dmg;
+    att.comboDamage += dmg; def.gotDamage += dmg;
     att.comboShow = 100;
     this.momentum(att, def, dmg);
     def.flash = 1;
@@ -4672,6 +4683,7 @@ const Combat = {
     att.clinchStrikeAnim = CLINCH_STRIKE_ANIM_TICKS;
     att.clinchStrikeKind = cm.id;
     att.clinchStrikes++;
+    this.claimCombo(att, def);
     const exhausted = att.stam < cm.stam;   // an empty tank still lands the strike, but weakly (like an exhausted attack)
     att.stam = Math.max(0, att.stam - cm.stam);
     att.noRegen = 30;
@@ -4680,7 +4692,8 @@ const Combat = {
     def.hp = Math.max(0, def.hp - dmg);
     if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
     def.flash = 1;
-    def.gotHits++; att.comboHits = def.gotHits; att.comboDamage += dmg; att.comboShow = 100;
+    if (def.gotHits === 0) def.gotDamage = 0;
+    def.gotHits++; att.comboHits = def.gotHits; att.comboDamage += dmg; def.gotDamage += dmg; att.comboShow = 100;
     this.momentum(att, def, dmg);
     match.hitStop = Math.max(match.hitStop, 5);
     if (def.hp <= 0) this.knockOut(def, att, null, match);   // before the hit event, so the KO blow gets its full feedback
@@ -4897,8 +4910,8 @@ const Combat = {
       const reactive = REACTION_STATES.includes(f.state) || f.state === S.KO || (f.state === S.THROWN && f.juggle);
       if (reactive) f.calmTicks = 0; else f.calmTicks++;
       if (f.calmTicks > COMBO_RESET_TICKS) {
-        const other = f.lastFoe || fighters[f.index ^ 1];
-        Events.emit('comboEnd', { att: other, def: f, hits: other.comboHits, damage: other.comboDamage });
+        const owner = f.comboFoe || f.lastFoe || fighters[f.index ^ 1];   // the attacker whose combo this was (P4-02); the counts are the defender's own, so a crowd cannot mix them
+        Events.emit('comboEnd', { att: owner, def: f, hits: f.gotHits, damage: f.gotDamage });
         f.gotHits = 0; f.juggleCount = 0; f.calmTicks = 0;
       }
     }
@@ -5337,6 +5350,39 @@ const AI_SUBMIT_SCORE = 3;        // a rolled hold beats every other plan
 const AI_TAP_RATE = 0.1;
 const DIFFICULTY_ORDER = ['easy', 'normal', 'hard', 'expert'];
 const AI_HISTORY = 48;
+/* Group AI (P4-02). Whenever two or more AI fighters share one target (a brawl), CrowdDirector (in the Match section) hands out attack tokens and ring positions; with one
+   attacker per target (every 1v1) none of this runs and the AI is exactly what it was.
+   Tokens: only a token holder may start an attack, a grab, a jump kick, a hold or a charging run at the shared target; the others wait on a ring around it.
+   BRAWL_ATTACK_TOKENS = how many may attack the same target at once, by difficulty (the toughest difficulty among the attackers counts). Several equal fighters attacking at
+   once beat any single fighter, so the count stays small. The pace constants below were tuned with AI-vs-AI brawls (SimRunner with enemies: N; see Appendix C): a longer
+   rest / gap and shorter strings are what make three Normal enemies beatable by an equal AI player, who reads only its nearest foe and so cannot guard against the others. */
+const BRAWL_ATTACK_TOKENS = { easy: 1, normal: 2, hard: 2, expert: 3 };
+const TOKEN_CHAIN_LIMIT = { easy: 0, normal: 0, hard: 0, expert: 1 };   // most steps a holder chains after its first move, by difficulty (a duel allows 3): a token buys a move or two, not a whole string
+const TOKEN_PATIENCE_TICKS = 90;      // a holder that has not started an attack by now gives the token back (it was cornered, blocked or just walking around)
+const TOKEN_REST_TICKS = { easy: 200, normal: 150, hard: 300, expert: 300 };   // by difficulty: after its attack a fighter waits this long before it can be handed a token again, so the others get their turn
+const TOKEN_GRANT_GAP_TICKS = { easy: 120, normal: 90, hard: 200, expert: 200 };   // by difficulty: at most one token is handed out per target in this time: the attackers step in one after the other, not all in the same breath
+/* Ring: the waiting fighters stand on a circle around the target, evenly spread, with the empty gap in front of the target (they take its sides and back). */
+const RING_MARGIN = 0.6;              // m between the target's longest reach (plus the waiting fighter's body) and the ring: close enough to step in, too far for a hit
+const RING_CHASE_SPEED = 0.8;         // m/s: a target closing in on a waiting fighter at this speed (or attacking) is chasing it
+const RING_DEADBAND = 0.3;            // within this of its spot a waiting fighter stands still
+const RING_REFRESH_TICKS = 45;        // the spots are re-dealt this often (and at once when the group changes); between deals they stay fixed in the world, so the group does not swirl with every turn of the target
+const RING_SPACING = 1.1;             // personal space: a waiting fighter is pushed away from any teammate closer than this (a body is 0.68 m wide)
+const RING_PUSH = 1.5;                // weight of that push against the pull to the spot
+const RING_WALL_MARGIN = 0.7;         // spots are kept this far inside the walls
+const RING_NO_RUN_DIST = 3.2;         // a waiting fighter never runs within this of the target (a run into a lighter fighter is a tackle, which needs a token)
+const RING_FEINT_CHANCE = 0.12;       // per decision, times the difficulty's aggression: a short step toward the target and back
+const RING_FEINT_STEP_TICKS = 6;      // the step in (about 0.2 m)
+const RING_FEINT_TICKS = 24;          // step in, then back to the spot
+const RING_SHUFFLE_CHANCE = 0.3;      // per decision: a sideways shuffle along the ring
+const RING_GUARD_CHANCE = 0.1;        // per decision: raise the guard while waiting
+/* Retreat: a waiting fighter that is low on health or stamina backs off to the outer edge of the ring (RETREAT_EXTRA beyond it) and rests there. */
+const RETREAT_HP = 0.3;               // share of max health under which a waiting fighter backs off
+const RETREAT_EXTRA = 1.5;            // m beyond the ring
+const RETREAT_RECOVER_STAM = 0.6;     // ... until its stamina is back to this share (but at least RETREAT_MIN_TICKS)
+const RETREAT_MIN_TICKS = 120;
+const RETREAT_MAX_TICKS = 300;        // ... and never longer than this, so a group of hurt fighters cannot all hide and stall the fight
+const RETREAT_COOLDOWN_TICKS = 600;   // before the same fighter may back off again
+const ATTACK_PLAN_KINDS = ['attack', 'grab', 'submit', 'jumpkick'];   // the plans that start an attack on the target: they need a token in a crowd
 
 class AIController {
   constructor(profile, difficultyId) {
@@ -5351,6 +5397,62 @@ class AIController {
     this.readThrow = null; this.willEscape = false; this.escapeAt = 0;
     this.threatId = -1; this.threatResp = null; this.earlyRoll = null; this.edgeWait = 0; this.breakGrabId = -1; this.punishId = -1; this.punishYes = false; this.steerSide = 1;
     this.oppRecent = []; this.lastOppMoveId = 0; this.counterTried = false; this.clinchPlan = null; this.tickNo = 0;
+    this.crowd = null;   // the match's CrowdDirector, set every tick by think()
+  }
+  /* ----- group AI (P4-02): see CrowdDirector ----- */
+  /* False only for a fighter that shares its target with other AI fighters and holds no attack token. A 1v1 (or a lone attacker) always may. */
+  mayAttack(f) { const c = this.crowd; return !c || !c.engaged[f.index] || c.token[f.index]; }
+  /* Most steps a fighter chains after its first move: 3 in a duel; a token holder in a crowd stops after TOKEN_CHAIN_LIMIT (a whole string from each of several attackers is what overwhelms a lone target). */
+  chainLimit(f) { const c = this.crowd; return c && c.engaged[f.index] ? Math.min(3, TOKEN_CHAIN_LIMIT[this.d.id]) : 3; }
+  waitsOnRing(f) { const c = this.crowd; return !!c && c.engaged[f.index] && !c.token[f.index]; }
+  /* P7 hooks, no behaviour yet: a weapon within reach of the fight may be worth a walk (a plan that fetches it), and a hazard (a breakable, a drop) may be worth luring the
+     target toward. Each returns a plan like the ones decide() builds, or null. decideRing() asks the pickup hook, decide() the hazard hook. */
+  considerPickup(f, opp, dist) { return null; }
+  considerHazard(f, opp, dist) { return null; }
+  /* True while the target is coming for this fighter: it attacks, or closes in on it faster than RING_CHASE_SPEED. A pressed waiter holds its ground (see ringStep). */
+  pressedBy(f, opp) {
+    const dx = f.x - opp.x, dz = f.z - opp.z, away = Math.hypot(dx, dz) || 1;
+    return opp.state === S.ATTACK || (opp.vx * dx + opp.vz * dz) / away > RING_CHASE_SPEED;
+  }
+  /* A waiting fighter's decision: walk to its ring spot (the outer edge when retreating), or wait there, shuffle, feint a step in, or guard. It never attacks. */
+  decideRing(f, opp, dist) {
+    const d = this.d, c = this.crowd, i = f.index;
+    const pickup = this.considerPickup(f, opp, dist);
+    if (pickup) return pickup;
+    if (!c.retreat[i] && dist <= c.reachDistance(opp) && this.pressedBy(f, opp)) return { kind: 'stand', ticks: d.interval };   // the target came to it: stand its ground (it still blocks what it sees coming, but it neither attacks nor keeps its guard up) instead of backing off; a target that chases a waiter would never catch it
+    if (Math.hypot(c.slotX[i] - f.x, c.slotZ[i] - f.z) > RING_DEADBAND) return { kind: 'ring', ticks: d.interval };
+    if (c.retreat[i]) return { kind: 'ring', ticks: d.interval };   // resting at the outer edge
+    const roll = simRng();
+    if (roll < RING_FEINT_CHANCE * d.aggression) return { kind: 'feint', ticks: RING_FEINT_TICKS, t: 0 };
+    if (roll < RING_FEINT_CHANCE * d.aggression + RING_SHUFFLE_CHANCE) return { kind: 'circle', ticks: d.interval, side: simRng() < 0.5 ? -1 : 1, hold: false };
+    if (roll < RING_FEINT_CHANCE * d.aggression + RING_SHUFFLE_CHANCE + RING_GUARD_CHANCE) return f.defense === 'sway' ? { kind: 'stand', ticks: d.interval } : { kind: 'guard', ticks: d.interval, low: false };   // a Sway fighter has no held guard: the guard plan would walk it away
+    return { kind: 'ring', ticks: d.interval };
+  }
+  /* One step toward the fighter's ring spot, pushed away from any teammate nearer than RING_SPACING; stands still inside the deadband.
+     A fighter the target has walked up to (inside the ring) keeps its distance to the target and only slides around it toward its angle: it never backs off, because the
+     ring moves with the target and a target that chases a fighter backing off at the same speed would never catch it. */
+  ringStep(f, it, opp) {
+    const c = this.crowd, i = f.index, fighters = c.match.fighters;
+    let spotX = c.slotX[i], spotZ = c.slotZ[i];
+    const dist = Math.hypot(opp.x - f.x, opp.z - f.z);
+    if (!c.retreat[i] && dist < c.ringRadius(opp) - RING_DEADBAND && this.pressedBy(f, opp)) {
+      const own = dist;   // keep the distance it has: never pushed back out to the reach line
+      spotX = opp.x + Math.cos(c.slotAngle[i]) * own; spotZ = opp.z + Math.sin(c.slotAngle[i]) * own;
+    }
+    let dx = spotX - f.x, dz = spotZ - f.z;
+    const gap = Math.hypot(dx, dz);
+    let px = 0, pz = 0;
+    for (let j = 0; j < fighters.length; j++) {
+      const other = fighters[j];
+      if (j === i || !other.alive || other.team !== f.team) continue;
+      const ox = f.x - other.x, oz = f.z - other.z, away = Math.hypot(ox, oz);
+      if (away >= RING_SPACING || away < 1e-4) continue;
+      const w = (RING_SPACING - away) / RING_SPACING;
+      px += ox / away * w; pz += oz / away * w;
+    }
+    if (gap <= RING_DEADBAND && Math.hypot(px, pz) < 0.05) return;
+    if (gap > RING_DEADBAND) { dx /= gap; dz /= gap; } else { dx = 0; dz = 0; }   // inside the deadband only the push from a neighbour moves it
+    this.moveToward(f, it, dx + px * RING_PUSH, dz + pz * RING_PUSH, false);
   }
   observe(f, opp) {
     const s = this.hist[this.head];
@@ -5430,8 +5532,10 @@ class AIController {
   }
 
   think(f, opp, match, it) {
+    this.crowd = match && match.crowd ? match.crowd : null;
     this.chooseIntent(f, opp, match, it);
     this.holdAtEdge(f, it);
+    if (it.run && this.waitsOnRing(f) && Math.hypot(opp.x - f.x, opp.z - f.z) < RING_NO_RUN_DIST) it.run = false;   // no charge at the target without a token
     return it;
   }
   chooseIntent(f, opp, match, it) {
@@ -5471,7 +5575,7 @@ class AIController {
       return it;
     }
     // 2. counter-attack after a successful block
-    if (f.counterWindow > 0 && !this.counterTried && f.state !== S.ATTACK) {
+    if (f.counterWindow > 0 && !this.counterTried && f.state !== S.ATTACK && this.mayAttack(f)) {
       this.counterTried = true;
       if (simRng() < d.counter) { if (simRng() < 0.6) it.punch = true; else it.kick = true; this.plan = null; return it; }
     }
@@ -5552,7 +5656,7 @@ class AIController {
     const br = f.blockRead;
     if (!br || f.blockStun > 0) return false;
     f.blockRead = null;
-    if (br.edge < AI_BLOCK_PUNISH_EDGE || f.state === S.ATTACK || f.lowStamina || simRng() >= this.d.punish * AI_BLOCK_PUNISH) return false;
+    if (br.edge < AI_BLOCK_PUNISH_EDGE || f.state === S.ATTACK || f.lowStamina || !this.mayAttack(f) || simRng() >= this.d.punish * AI_BLOCK_PUNISH) return false;
     const mv = this.pickMove(f, opp, snap, dist, true, br.edge);
     if (!mv) return false;
     this.threatResp = null;
@@ -5562,6 +5666,7 @@ class AIController {
   }
   checkPunish(f, opp, snap, dist) {
     const d = this.d;
+    if (!this.mayAttack(f)) return null;
     if (!(snap.state === S.ATTACK && (snap.mvType === 'strike' || snap.mvType === 'grab'))) return null;   // a grab still in ATTACK after its active ticks has whiffed
     const remaining = snap.total - snap.moveTick;
     if (snap.moveTick <= snap.startup + snap.active || remaining < 7) return null;
@@ -5575,7 +5680,7 @@ class AIController {
 
   thinkChain(f, opp, it) {
     const d = this.d, mv = f.move;
-    if (!mv || !f.moveConnected || f.chainCount >= 3) return;
+    if (!mv || !f.moveConnected || f.chainCount >= this.chainLimit(f) || !this.mayAttack(f)) return;
     if (f.moveTick < f.mStartup + 1 || f.moveTick > f.mStartup + f.mActive + 4) return;
     if (simRng() > 0.18 + d.aggression * 0.22) return;
     const dist = Math.hypot(opp.x - f.x, opp.z - f.z);
@@ -5636,6 +5741,7 @@ class AIController {
   }
 
   decide(f, opp, match, snap, dist) {
+    if (this.waitsOnRing(f)) return this.decideRing(f, opp, dist);   // a crowd and no token: wait on the ring
     const d = this.d, st = this.profile.style;
     const pref = this.profile.range;
     const options = [];
@@ -5675,6 +5781,8 @@ class AIController {
     // sidestep / jump for variety
     if (d.sidestep > 0 && dist < pref + 1 && f.stam > 15) add(0.1 + d.sidestep * st.circle * 0.5, { kind: 'sidestep', ticks: 14, side: simRng() < 0.5 ? -1 : 1 });
     if (d.id !== 'easy' && dist > 1.8 && dist < 2.8 && f.stam > f.maxStam * 0.6) add(0.08 * st.kick * aggr, { kind: 'jumpkick', ticks: 24, t: 0 });
+    const hazard = this.considerHazard(f, opp, dist);
+    if (hazard) return hazard;
     let best = null, bs = -1;
     for (const o of options) if (o.score > bs) { bs = o.score; best = o.plan; }
     if (best && best.kind === 'attack') { this.lastMoves.push(best.mv.id); if (this.lastMoves.length > 2) this.lastMoves.shift(); }
@@ -5718,6 +5826,7 @@ class AIController {
   runPlan(f, opp, it) {
     const p = this.plan;
     if (!p) return;
+    if (ATTACK_PLAN_KINDS.includes(p.kind) && !p.fired && !p.t && !this.mayAttack(f)) { this.plan = null; return; }   // the token was taken back before the attack started
     p.ticks--;
     switch (p.kind) {
       case 'walk': { let dx = opp.x - f.x, dz = opp.z - f.z; if (p.away) { dx = -dx; dz = -dz; } this.moveToward(f, it, dx, dz, p.run); break; }
@@ -5746,6 +5855,8 @@ class AIController {
         break;
       }
       case 'sidestep': if (!p.fired) { p.fired = true; it.sidestep = p.side; } break;
+      case 'ring': this.ringStep(f, it, opp); break;
+      case 'feint': p.t++; if (p.t <= RING_FEINT_STEP_TICKS) this.moveToward(f, it, opp.x - f.x, opp.z - f.z, false); else this.ringStep(f, it, opp); break;   // a step toward the target, then back to the spot
       case 'jumpkick':
         p.t++;
         if (p.t === 1) { it.jump = true; it.fwd = 1; }
@@ -5893,6 +6004,148 @@ const ScriptedController = {
   make(fn) { return { think(f, opp, match, it) { clearIntent(it); fn(it, f, opp, match); return it; }, reset() {} }; },
 };
 
+/* Group AI director (P4-02). Once per tick, before the AIs think (MatchSim.stepFight), for a match with more than two fighters. A fighter is "engaged" when it is an AI and
+   at least one other AI fighter has the same target (a brawl, or a later co-op fight): then it needs an attack token to start an attack on that target, and without one it
+   waits on a ring around it. Anything else (a 1v1, the last enemy standing, a human player) is not touched, draws no random number, and plays exactly as before.
+   - Tokens: BRAWL_ATTACK_TOKENS per target. The oldest waiter gets the next free token (ties to the lower index), not sooner than TOKEN_GRANT_GAP_TICKS after the last
+     grant and not while resting (TOKEN_REST_TICKS after its last attack). A holder keeps it until its attack is over (attack, grab, hold: the fighter leaves ATTACK /
+     GRAPPLE / SUBMIT and has no pressed attack waiting in the input buffer), until it is hit, or TOKEN_PATIENCE_TICKS if it never got started. Giving it back sends the
+     fighter back to the ring. A holder chains at most TOKEN_CHAIN_LIMIT steps (AIController.chainLimit).
+   - Ring: the engaged fighters of a target are dealt evenly spaced spots on a circle just outside the target's longest reach, the empty gap in front of the target, in the
+     angular order they already stand in (the shift with the least walking). The spots are fixed in the world between deals (RING_REFRESH_TICKS), centred on the target.
+   - A waiting fighter that the target walks up to stands its ground (it never backs off from a chaser); it blocks what it sees coming but starts no attack.
+   - Retreat: a waiting fighter under RETREAT_HP health or out of stamina takes its spot RETREAT_EXTRA farther out and rests there (see RETREAT_*).
+   Arrays are indexed by fighter index and allocated once; update() allocates nothing. The AI reads engaged / token / retreat / slotX / slotZ (AIController.mayAttack etc.). */
+const MAX_STAND_REACH = Math.max(...Object.values(ATTACKS).filter((mv) => mv.type === 'strike' && !mv.ctx).map((mv) => mv.reach));   // the longest plain strike
+class CrowdDirector {
+  constructor(match) {
+    this.match = match;
+    const n = match.fighters.length, fill = (v) => new Array(n).fill(v);
+    this.engaged = fill(false); this.token = fill(false); this.tokenTarget = fill(-1); this.grantTick = fill(0); this.usedToken = fill(false);
+    this.waitSince = fill(0); this.restUntil = fill(0);
+    this.retreat = fill(false); this.retreatSince = fill(0); this.retreatReady = fill(0);
+    this.slotAngle = fill(0); this.slotX = fill(0); this.slotZ = fill(0);
+    this.share = fill(0); this.nextGrant = fill(0); this.ringTick = fill(0); this.ringSig = fill(-1);
+    this.ord = fill(0); this.ang = fill(0);   // scratch for the ring deal
+    this.reset();
+  }
+  reset() {
+    for (const list of [this.engaged, this.token, this.usedToken, this.retreat]) list.fill(false);
+    for (const list of [this.grantTick, this.waitSince, this.restUntil, this.retreatSince, this.retreatReady, this.slotAngle, this.slotX, this.slotZ, this.share, this.nextGrant, this.ringTick, this.ord, this.ang]) list.fill(0);
+    this.tokenTarget.fill(-1); this.ringSig.fill(-1);
+  }
+  isAi(i) { return this.match.controllers[i] instanceof AIController; }
+  /* True while the fighter is in the middle of an attack on its target: a strike, a grab and the clinch it holds, a hold, or a pressed attack still waiting in the
+     input buffer (the next step of a string is pressed during the recovery and starts a tick or two after the state has dropped to IDLE). */
+  busy(f) { return f.state === S.ATTACK || f.state === S.GRAPPLE || f.state === S.SUBMIT || !!f.buffer || f.throwPressed; }
+  /* How many fighters may attack target t at once: the highest token count among the difficulties of the AIs that share it. */
+  capFor(t) {
+    const fighters = this.match.fighters;
+    let cap = 1;
+    for (let i = 0; i < fighters.length; i++) if (this.engaged[i] && fighters[i].target.index === t) cap = Math.max(cap, BRAWL_ATTACK_TOKENS[this.match.controllers[i].d.id] || 1);
+    return cap;
+  }
+  holders(t) {
+    let count = 0;
+    for (let i = 0; i < this.token.length; i++) if (this.token[i] && this.tokenTarget[i] === t) count++;
+    return count;
+  }
+  /* The ring radius around target f: its longest reach, the body of the waiting fighter, and RING_MARGIN. */
+  ringRadius(target) { return this.reachDistance(target) + RING_MARGIN; }
+  /* How far from the target's centre its longest plain strike still reaches a body (0.34 = the waiting fighter's radius). */
+  reachDistance(target) { return MAX_STAND_REACH * target.stats.reach + 0.34; }
+
+  update() {
+    const match = this.match, fighters = match.fighters, count = fighters.length, tick = match.tick, share = this.share;
+    share.fill(0);
+    for (let i = 0; i < count; i++) if (fighters[i].alive && fighters[i].target && this.isAi(i)) share[fighters[i].target.index]++;
+    for (let i = 0; i < count; i++) {
+      const f = fighters[i];
+      this.engaged[i] = f.alive && !!f.target && share[f.target.index] >= 2 && this.isAi(i);
+      if (!this.engaged[i]) { this.token[i] = false; this.retreat[i] = false; }
+    }
+    for (let i = 0; i < count; i++) if (this.engaged[i]) { this.upkeepToken(i, tick); this.upkeepRetreat(i, tick); }
+    for (let t = 0; t < count; t++) {
+      if (share[t] < 2) continue;
+      this.grant(t, tick);
+      this.dealRing(t, tick);
+    }
+    for (let i = 0; i < count; i++) if (this.engaged[i]) this.placeSlot(i);
+  }
+  upkeepToken(i, tick) {
+    if (!this.token[i]) return;
+    const f = this.match.fighters[i];
+    if (this.busy(f)) { this.usedToken[i] = true; return; }
+    // the attack is over, the holder was hit, or it never got started: back to the ring
+    if (this.usedToken[i] || REACTION_STATES.includes(f.state) || tick - this.grantTick[i] > TOKEN_PATIENCE_TICKS || this.tokenTarget[i] !== f.target.index) this.release(i, tick);
+  }
+  release(i, tick) {
+    const used = this.usedToken[i];   // only an attack earns the rest; a token that timed out or was cut short goes back to the end of the queue
+    this.token[i] = false; this.usedToken[i] = false; this.tokenTarget[i] = -1;
+    this.restUntil[i] = used ? tick + TOKEN_REST_TICKS[this.match.controllers[i].d.id] : tick; this.waitSince[i] = tick;
+    this.resetPlan(i);
+  }
+  resetPlan(i) { const ai = this.match.controllers[i]; ai.plan = null; ai.nextDecision = 0; }   // decide again now: step in with a token, back to the ring without
+  /* Hands the free tokens of target t to the oldest waiters. */
+  grant(t, tick) {
+    if (tick < this.nextGrant[t] || this.holders(t) >= this.capFor(t)) return;
+    const fighters = this.match.fighters;
+    let best = -1;
+    for (let i = 0; i < fighters.length; i++) {
+      const f = fighters[i];
+      if (!this.engaged[i] || this.token[i] || f.target.index !== t || this.retreat[i] || tick < this.restUntil[i]) continue;
+      if (TERMINAL_STATES.includes(f.state) || REACTION_STATES.includes(f.state)) continue;
+      if (best < 0 || this.waitSince[i] < this.waitSince[best]) best = i;   // the loop runs in index order, so a tie stays with the lower index
+    }
+    if (best < 0) return;
+    this.token[best] = true; this.tokenTarget[best] = t; this.grantTick[best] = tick; this.usedToken[best] = false;
+    this.nextGrant[t] = tick + TOKEN_GRANT_GAP_TICKS[this.match.controllers[best].d.id];
+    this.resetPlan(best);
+  }
+  upkeepRetreat(i, tick) {
+    const f = this.match.fighters[i];
+    if (!this.retreat[i]) {
+      if (!this.token[i] && tick >= this.retreatReady[i] && (f.hp < f.maxHp * RETREAT_HP || f.lowStamina)) { this.retreat[i] = true; this.retreatSince[i] = tick; this.resetPlan(i); }
+      return;
+    }
+    const rested = tick - this.retreatSince[i] >= RETREAT_MIN_TICKS && f.stam >= f.maxStam * RETREAT_RECOVER_STAM;
+    if (this.token[i] || rested || tick - this.retreatSince[i] >= RETREAT_MAX_TICKS) { this.retreat[i] = false; this.retreatReady[i] = tick + RETREAT_COOLDOWN_TICKS; }
+  }
+  /* Deals the ring spots of target t again when the group changed or RING_REFRESH_TICKS passed. */
+  dealRing(t, tick) {
+    const fighters = this.match.fighters, target = fighters[t], ord = this.ord, ang = this.ang;
+    let members = 0, signature = 0;
+    for (let i = 0; i < fighters.length; i++) if (this.engaged[i] && fighters[i].target === target) { members++; signature |= 1 << i; }
+    if (signature === this.ringSig[t] && tick - this.ringTick[t] < RING_REFRESH_TICKS) return;
+    this.ringSig[t] = signature; this.ringTick[t] = tick;
+    const base = Math.atan2(target.fwdZ, target.fwdX);   // angles are measured from straight ahead of the target
+    let filled = 0;
+    for (let i = 0; i < fighters.length; i++) {
+      if (!this.engaged[i] || fighters[i].target !== target) continue;
+      let a = wrapAngle(Math.atan2(fighters[i].z - target.z, fighters[i].x - target.x) - base);
+      if (a < 0) a += TAU;
+      let k = filled++;
+      while (k > 0 && ang[k - 1] > a) { ang[k] = ang[k - 1]; ord[k] = ord[k - 1]; k--; }   // insertion sort by angle (stable: ties keep the lower index first)
+      ang[k] = a; ord[k] = i;
+    }
+    const step = TAU / members;
+    let bestShift = 0, bestCost = Infinity;
+    for (let shift = 0; shift < members; shift++) {   // which rotation of the spots makes the group walk the least
+      let cost = 0;
+      for (let k = 0; k < members; k++) cost += Math.abs(wrapAngle(ang[k] - (step / 2 + ((k + shift) % members) * step)));
+      if (cost < bestCost - 1e-9) { bestCost = cost; bestShift = shift; }
+    }
+    for (let k = 0; k < members; k++) this.slotAngle[ord[k]] = base + step / 2 + ((k + bestShift) % members) * step;
+  }
+  /* The world spot of fighter i: on the ring around its target (farther out when retreating), kept inside the walls. */
+  placeSlot(i) {
+    const f = this.match.fighters[i], target = f.target, b = Arena.def.bounds;
+    const radius = this.ringRadius(target) + (this.retreat[i] ? RETREAT_EXTRA : 0);
+    this.slotX[i] = clamp(target.x + Math.cos(this.slotAngle[i]) * radius, -(b.x - RING_WALL_MARGIN), b.x - RING_WALL_MARGIN);
+    this.slotZ[i] = clamp(target.z + Math.sin(this.slotAngle[i]) * radius, -(b.z - RING_WALL_MARGIN), b.z - RING_WALL_MARGIN);
+  }
+}
+
 class MatchSim {
   constructor(cfg) {
     this.cfg = Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'normal', arcadeLevel: 'normal', winsNeeded: 2, timer: 60, seed: 1, playerHp: 1, countdown: true, dummy: 'stand' }, cfg);
@@ -5920,6 +6173,7 @@ class MatchSim {
     this.intents = this.fighters.map(() => makeIntent());
     this.air = new Array(count).fill(false);   // scratch for physics(): which fighters were airborne before landing
     this.descs = [];                           // scratch for resolveCombat()
+    this.crowd = new CrowdDirector(this);      // attack tokens and the ring for AI fighters that share a target (P4-02); idle in a 1v1
     this.tick = 0;
     this.matchTicks = 0;
     this.round = 0;
@@ -6084,6 +6338,7 @@ class MatchSim {
     } else this.fighters[1].reset(s, 0, -Math.PI / 2, 1, 1);
     for (const c of this.controllers) c.reset();
     this.intents.forEach(clearIntent);
+    this.crowd.reset();
   }
   startRound() {
     this.round++;
@@ -6155,6 +6410,7 @@ class MatchSim {
     }
     this.matchTicks++;
     this.assignTargets();
+    if (this.fighters.length > 2) this.crowd.update();   // a 1v1 has nothing to share
     this.readIntents();
     this.updateFighters();
     this.resolveCombat();
@@ -12466,7 +12722,7 @@ const SelfTest = {
           if (![f.x, f.y, f.z, f.yaw, f.hp, f.stam].every(Number.isFinite)) bad = 'NaN in fighter ' + i + ' at tick ' + ticks;
           for (let j = i + 1; j < m.fighters.length; j++) {
             const g = m.fighters[j];
-            if (f.alive && g.alive && Math.abs(f.y - g.y) < 1.25 && f.state !== S.CLINCH && f.state !== S.GRAPPLE && g.state !== S.CLINCH && g.state !== S.GRAPPLE) minGap = Math.min(minGap, Math.hypot(f.x - g.x, f.z - g.z));
+            if (f.alive && g.alive && Math.abs(f.y - g.y) < 1.25 && f.state !== S.CLINCH && f.state !== S.GRAPPLE && g.state !== S.CLINCH && g.state !== S.GRAPPLE && f.state !== S.THROWN && g.state !== S.THROWN) minGap = Math.min(minGap, Math.hypot(f.x - g.x, f.z - g.z));
           }
         }
       }
@@ -12594,6 +12850,196 @@ const SelfTest = {
       m.dispose();
       const ok = near === 3 && withThird === 4 && afterKo === 3 && lone === 2 && Math.abs(box - 5) < 1e-9;
       return ok ? true : JSON.stringify({ near, withThird, afterKo, lone, box });
+    });
+    /* ----- Group AI (P4-02): attack tokens, ring, retreat, per-attacker combos ----- */
+    /* A brawl whose player is a body that cannot lose: idle, at the arena centre, health and position restored every tick, so the CPU enemies attack and wait for as long as the
+       test runs. direct = the control run: the director switched off, which is what a brawl was before P4-02. onTick(m, t) runs after every step. */
+    const crowdRun = (enemies, difficulty, seed, ticks, onTick, direct) => {
+      const m = new MatchSim({ mode: 'brawl', enemies, difficulty, countdown: false, timer: 0, seed, evenDamage: true });
+      const p = m.fighters[0];
+      m.controllers[0] = self.scripted(() => {});
+      if (direct) m.crowd.update = () => {};
+      for (let t = 0; t < ticks; t++) {
+        p.hp = p.maxHp; p.x = p.prevX = 0; p.z = p.prevZ = 0;
+        m.step();
+        onTick(m, t);
+      }
+      return m;
+    };
+    const attacking = (f) => f.alive && (f.state === S.ATTACK || f.state === S.GRAPPLE || f.state === S.SUBMIT);
+    test('Group AI: no more fighters attack one target at once than it has tokens, at every difficulty over a long 1v6 brawl; tokens go round fairly and the run is repeatable (control: without the director all six attack)', () => {
+      const run = (difficulty, seed, direct) => {
+        const grants = [0, 0, 0, 0, 0, 0, 0], held = [false, false, false, false, false, false, false], log = [];
+        let most = 0, tokensOver = 0;
+        const m = crowdRun(6, difficulty, seed, 2400, (match, t) => {
+          let now = 0;
+          for (let i = 1; i < match.fighters.length; i++) {
+            if (attacking(match.fighters[i])) now++;
+            if (match.crowd.token[i] && !held[i]) { grants[i]++; log.push(t + ':' + i); }
+            held[i] = match.crowd.token[i];
+          }
+          most = Math.max(most, now);
+          if (match.crowd.holders(0) > match.crowd.capFor(0)) tokensOver++;
+        }, direct);
+        const cap = m.crowd.capFor(0);
+        m.dispose();
+        return { most, cap, tokensOver, grants: grants.slice(1), log: log.join(',') };
+      };
+      const problems = [];
+      for (const [difficulty, cap] of [['easy', 1], ['normal', 2], ['expert', 3]]) {
+        const r = run(difficulty, 4, false), control = run(difficulty, 4, true);
+        if (r.cap !== cap || r.most > cap || r.tokensOver > 0) problems.push(difficulty + ': cap ' + r.cap + ' most ' + r.most + ' over ' + r.tokensOver);
+        if (r.most < 1 || r.grants.some((n) => n < 2)) problems.push(difficulty + ': tokens never used ' + r.grants.join('/'));
+        if (Math.max(...r.grants) - Math.min(...r.grants) > 1) problems.push(difficulty + ': unfair grants ' + r.grants.join('/'));
+        if (control.most <= cap) problems.push(difficulty + ': control run never exceeded the cap (' + control.most + ')');
+      }
+      const again = run('normal', 4, false), first = run('normal', 4, false);
+      if (again.log !== first.log || again.log.length === 0) problems.push('the same seed gave different grants');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Group AI: tokens go to the oldest waiter, ties to the lower index; a holder gives the token back when its attack is over, when it is hit and when it never starts', () => {
+      const m = crowdRun(3, 'easy', 6, 1, () => {});   // easy: one token, so each grant is visible on its own
+      const c = m.crowd;
+      const firstOk = c.token[1] && !c.token[2] && !c.token[3] && c.holders(0) === 1;   // everyone has waited since the start: the lowest index goes first
+      c.token.fill(false); c.tokenTarget.fill(-1); c.nextGrant.fill(0); c.restUntil.fill(0);
+      c.waitSince[1] = 50; c.waitSince[2] = 10; c.waitSince[3] = 10;
+      c.grant(0, m.tick);
+      const oldest = c.token[2] && !c.token[1] && !c.token[3];   // 2 and 3 waited longest and tie: 2
+      c.usedToken[2] = true; c.release(2, m.tick);   // 2 attacked with it: it rests
+      c.nextGrant.fill(0);
+      c.grant(0, m.tick);
+      const resting = !c.token[2] && c.token[3] && c.restUntil[2] > m.tick;   // 2 is resting and has the newest wait time: 3 is next
+      c.token[3] = false; c.release(3, m.tick);   // 3 never started: no rest, back to the end of the queue
+      const unusedNoRest = c.restUntil[3] === m.tick;
+      // the holder is hit: the token goes back at once
+      m.fighters[3].setState(S.HIT);
+      c.upkeepToken(3, m.tick + 1);
+      const hit = !c.token[3];
+      // never started: back after TOKEN_PATIENCE_TICKS
+      c.nextGrant.fill(0); c.restUntil.fill(0); m.fighters[3].setState(S.IDLE);
+      c.grant(0, m.tick);
+      const holder = c.token.indexOf(true);
+      c.upkeepToken(holder, c.grantTick[holder] + TOKEN_PATIENCE_TICKS);
+      const kept = c.token[holder];
+      c.upkeepToken(holder, c.grantTick[holder] + TOKEN_PATIENCE_TICKS + 1);
+      const patience = holder > 0 && kept && !c.token[holder];
+      // an attack that has begun keeps the token until it ends
+      c.nextGrant.fill(0); c.restUntil.fill(0);
+      c.grant(0, m.tick);
+      const attacker = c.token.indexOf(true);
+      m.fighters[attacker].state = S.ATTACK;
+      c.upkeepToken(attacker, c.grantTick[attacker] + 5);
+      const duringAttack = c.token[attacker];
+      m.fighters[attacker].state = S.IDLE;
+      c.upkeepToken(attacker, c.grantTick[attacker] + 6);
+      const afterAttack = !c.token[attacker];
+      m.dispose();
+      const ok = firstOk && oldest && resting && unusedNoRest && hit && patience && duringAttack && afterAttack;
+      return ok ? true : JSON.stringify({ firstOk, oldest, resting, unusedNoRest, hit, patience, duringAttack, afterAttack });
+    });
+    test('Group AI: waiting enemies spread around the target on a ring just outside its reach, never closer than 0.6 m to each other (control: without the director they crowd in close and bunch up on one side)', () => {
+      const measure = (direct) => {
+        let minGap = 9, sumR = 0, samples = 0, sumDist = 0, count = 0;
+        const m = crowdRun(6, 'normal', 4, 2400, (match, t) => {
+          if (t < 300) return;
+          const free = [];
+          for (let i = 1; i < match.fighters.length; i++) {
+            const f = match.fighters[i];
+            if (f.alive && (direct || (match.crowd.engaged[i] && !match.crowd.token[i])) && (f.state === S.IDLE || f.state === S.WALK)) free.push(f);
+          }
+          for (let a = 0; a < free.length; a++) for (let b = a + 1; b < free.length; b++) minGap = Math.min(minGap, Math.hypot(free[a].x - free[b].x, free[a].z - free[b].z));
+          if (free.length < 3) return;
+          let sx = 0, sz = 0;
+          for (const f of free) { const d = Math.hypot(f.x, f.z) || 1; sx += f.x / d; sz += f.z / d; sumDist += d; count++; }
+          sumR += Math.hypot(sx, sz) / free.length; samples++;
+        }, direct);
+        const reach = m.crowd.reachDistance(m.fighters[0]);
+        m.dispose();
+        return { minGap, spread: samples ? sumR / samples : 1, dist: count ? sumDist / count : 0, samples, reach };
+      };
+      const ring = measure(false), control = measure(true);
+      // spread = the length of the average direction from the target to the waiting fighters: 1 = all on one side, 0 = evenly all round
+      const ok = ring.samples > 500 && ring.minGap > 0.6 && ring.spread < 0.3 && ring.spread < control.spread && ring.dist > ring.reach && ring.dist < ring.reach + 1.5 && control.dist < ring.reach;
+      return ok ? true : JSON.stringify({ ring, control });
+    });
+    test('Group AI: a hurt or exhausted enemy without a token backs off to the outer edge of the ring and rests; a healthy one does not', () => {
+      const trial = (hurt, tired) => {
+        let backed = false, backedFar = 0, ended = false, tokenWhileBacking = false;
+        const m = crowdRun(3, 'normal', 8, 900, (match, t) => {
+          const c = match.crowd, f = match.fighters[2];
+          if (t === 0) { if (hurt) f.hp = f.maxHp * 0.2; if (tired) f.stam = f.maxStam * 0.1; }
+          if (c.retreat[2]) { backed = true; backedFar = Math.max(backedFar, Math.hypot(f.x, f.z)); if (c.token[2]) tokenWhileBacking = true; } else if (backed) ended = true;
+        });
+        const ring = m.crowd.ringRadius(m.fighters[0]);
+        m.dispose();
+        return { backed, backedFar, ended, tokenWhileBacking, ring };
+      };
+      const hurt = trial(true, false), tired = trial(false, true), healthy = trial(false, false);
+      const away = (r) => r.backed && r.backedFar > r.ring + RETREAT_EXTRA - 0.7 && !r.tokenWhileBacking;
+      const ok = away(hurt) && away(tired) && tired.ended && !healthy.backed;   // the tired one rests, recovers and rejoins; the hurt one stays out for RETREAT_MAX_TICKS at most
+      return ok ? true : JSON.stringify({ hurt, tired, healthy });
+    });
+    test('Group AI: a combo belongs to one attacker; a hit by another attacker closes it (comboEnd) and starts a new one with the damage scaling back at the start, and a 1v1 combo never ends that way', () => {
+      const first = (att) => {   // damage of the first hit of a fresh combo by this enemy
+        const m = self.makeBrawl({ enemies: 2 });
+        const log = self.capture(['hit']);
+        Combat.landHit({ type: 'strike', att: m.fighters[att], def: m.fighters[0], mv: ATTACKS.jab, block: 'none' }, m);
+        log.stop();
+        const dmg = log.hit[0].dmg;
+        m.dispose();
+        return dmg;
+      };
+      const fresh1 = first(1), fresh2 = first(2);
+      const m = self.makeBrawl({ enemies: 2 });
+      const [p, a, b] = m.fighters;
+      const log = self.capture(['hit', 'comboEnd']);
+      const strike = (att) => { p.setState(S.IDLE); Combat.landHit({ type: 'strike', att, def: p, mv: ATTACKS.jab, block: 'none' }, m); };
+      strike(a); strike(a); strike(a);
+      const afterA = { got: p.gotHits, foe: p.comboFoe === a, aHits: a.comboHits };
+      strike(b);
+      const afterB = { got: p.gotHits, foe: p.comboFoe === b, aHits: a.comboHits, bHits: b.comboHits, ended: log.comboEnd.map((e) => e.att.index + ':' + e.hits).join() };
+      strike(a);
+      const hits = log.hit.map((e) => e.dmg);
+      const afterA2 = { got: p.gotHits, foe: p.comboFoe === a, ended: log.comboEnd.map((e) => e.att.index + ':' + e.hits).join(), aHits: a.comboHits };
+      for (let t = 0; t < 120; t++) { p.hp = p.maxHp; m.step(); }   // calm: the open combo ends by itself, credited to its owner with the defender's own counts
+      const last = log.comboEnd[log.comboEnd.length - 1];
+      log.stop();
+      const natural = last && last.att === a && last.hits === 1 && Math.abs(last.damage - hits[4]) < 1e-9 && p.gotHits === 0;
+      m.dispose();
+      // 1v1: the same fighter hits again and again, nothing ends and the count and the scaling carry on
+      const duel = self.make({}, null, null);
+      const dl = self.capture(['hit', 'comboEnd']);
+      for (let k = 0; k < 3; k++) { duel.fighters[1].setState(S.IDLE); Combat.landHit({ type: 'strike', att: duel.fighters[0], def: duel.fighters[1], mv: ATTACKS.jab, block: 'none' }, duel); }
+      dl.stop();
+      const duelOk = duel.fighters[1].gotHits === 3 && duel.fighters[0].comboHits === 3 && dl.comboEnd.length === 0 && dl.hit[2].dmg < dl.hit[0].dmg;
+      duel.dispose();
+      const ok = afterA.got === 3 && afterA.foe && afterA.aHits === 3 && hits[2] < hits[0] &&
+        afterB.got === 1 && afterB.foe && afterB.aHits === 3 && afterB.bHits === 1 && afterB.ended === '1:3' && Math.abs(hits[3] - fresh2) < 1e-9 &&
+        afterA2.got === 1 && afterA2.foe && afterA2.ended === '1:3,2:1' && Math.abs(hits[4] - hits[0]) < 1e-9 && Math.abs(hits[0] - fresh1) < 1e-9 && natural && duelOk;
+      return ok ? true : JSON.stringify({ fresh1, fresh2, hits, afterA, afterB, afterA2, natural, duelOk });
+    });
+    test('Group AI: a 1v1 and the last enemy of a brawl never use tokens or the ring (the seeded 1v1 fingerprints above cover the exact play); hooks for weapons and hazards (P7) exist and do nothing', () => {
+      const duel = new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 9, difficulty: 'hard' });
+      let usedDuel = false;
+      for (let t = 0; t < 900; t++) { duel.step(); if (duel.crowd.engaged.some(Boolean) || duel.crowd.token.some(Boolean)) usedDuel = true; }
+      duel.dispose();
+      const lone = new MatchSim({ mode: 'brawl', enemies: 1, countdown: false, timer: 0, seed: 9, difficulty: 'hard', evenDamage: true });
+      let usedLone = false, attacked = false;
+      for (let t = 0; t < 900; t++) { lone.step(); if (lone.crowd.engaged.some(Boolean) || lone.crowd.token.some(Boolean)) usedLone = true; if (attacking(lone.fighters[1])) attacked = true; }
+      lone.dispose();
+      const left = crowdRun(3, 'normal', 9, 1, () => {});   // two of the three knocked out: the one left plays a duel again
+      Combat.knockOut(left.fighters[2], null, null, left); Combat.knockOut(left.fighters[3], null, null, left);
+      let usedLast = false, lastAttacks = false;
+      for (let t = 0; t < 700; t++) {
+        left.fighters[0].hp = left.fighters[0].maxHp; left.step();
+        if (t >= 20 && (left.crowd.engaged[1] || left.crowd.token[1])) usedLast = true;   // the knock-outs freeze the sim for 16 ticks of hit-stop; the flags catch up after that
+        if (attacking(left.fighters[1])) lastAttacks = true;
+      }
+      left.dispose();
+      const ai = new AIController(ROSTER_BY_ID.kai, 'normal'), foe = new Fighter(ROSTER_BY_ID.mara, 1, TEAM_ENEMIES);
+      const hooks = ai.considerPickup(foe, foe, 2) === null && ai.considerHazard(foe, foe, 2) === null;
+      const ok = !usedDuel && !usedLone && attacked && !usedLast && lastAttacks && hooks;
+      return ok ? true : JSON.stringify({ usedDuel, usedLone, attacked, usedLast, lastAttacks, hooks });
     });
     test('Auto quality keeps full scale on a 50 Hz screen and lowers it when 60 Hz frames are slow', () => {
       const keep = { quality: Settings.v.quality, autoScale: Quality.autoScale, best: Quality.bestFrameMs, block: Quality.blockUpUntil, frames: Diag.frameCount };
