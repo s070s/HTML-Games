@@ -94,19 +94,19 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 - [x] P2-01 - DECIDE: final action list. Required changes from the ideas file: remove `dash` completely; add `use` (pick up / drop / throw item); add `lock` (lock-on engage / disengage); replace block-high / block-low with one `defend` action whose meaning depends on the character (block or sway, P3-01). Decide what happens to: quick recovery (now on the dash input), `strong` and `height` modifiers, sidestep.
   Done when: Appendix C has the final action list for touch, gamepad and keyboard, with no action needing more than one simultaneous modifier on touch.
-- [ ] P2-02 - Remove dash: DASH state, `DASH_COST`, transitions, AI use, touch DASH button, gamepad L3 mapping, keyboard binding, labels, help text, tutorials.
+- [x] P2-02 - Remove dash: DASH state, `DASH_COST`, transitions, AI use, touch DASH button, gamepad L3 mapping, keyboard binding, labels, help text, tutorials.
   Done when: searching the file for `dash` (case-insensitive) finds no game logic, and the self-test passes.
-- [ ] P2-03 - Bump `KEYS_REVISION` and migrate saved key bindings (keyboard P1 and P2, gamepad) to the new action list without data loss for unchanged actions.
+- [x] P2-03 - Bump `KEYS_REVISION` and migrate saved key bindings (keyboard P1 and P2, gamepad) to the new action list without data loss for unchanged actions.
   Done when: a save from 1.0.0 loads with correct bindings and the new actions have defaults.
 - [ ] P2-04 - Touch layout redesign: minimal buttons, no visual clutter, thumb reach on phones in landscape, safe areas respected. Context-sensitive buttons (example: `use` appears only when an item is in reach) only if approved in P2-01.
   Done when: layout fits a 360x640 CSS px landscape screen without overlap and all actions are reachable with two thumbs.
-- [ ] P2-05 - Gamepad layout for the new action list (standard mapping), shown in the Controls screen.
+- [x] P2-05 - Gamepad layout for the new action list (standard mapping), shown in the Controls screen.
   Done when: every action is mapped, no conflicts, labels updated.
-- [ ] P2-06 - Keyboard layout for the new action list for P1 and P2 (shared keyboard).
+- [x] P2-06 - Keyboard layout for the new action list for P1 and P2 (shared keyboard).
   Done when: every action is mapped for both players with no key conflicts.
 - [ ] P2-07 - Quick-start onboarding: a short first-play card per input type showing only the core actions.
   Done when: a new player can start a fight and see all core actions in one card per input type.
-- [ ] P2-08 - Update Controls screen, help text, `ACTION_LABELS`, `GAMEPAD_LABELS`, `TOUCH_LABELS`.
+- [x] P2-08 - Update Controls screen, help text, `ACTION_LABELS`, `GAMEPAD_LABELS`, `TOUCH_LABELS`.
   Done when: all labels match the new actions.
 - [ ] P2-09 - Optional auto-assist input setting (off by default): repeated taps on Punch or Kick chain the fighter's next valid string move automatically; no new input, no new on-screen button.
   Done when: the setting exists in Settings and is saved; with it on, tapping Punch 3 times plays the style's 3-hit string on touch, gamepad and keyboard; with it off, behavior is unchanged; a self-test covers both.

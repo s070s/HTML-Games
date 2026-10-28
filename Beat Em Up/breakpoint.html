@@ -197,14 +197,13 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 /* the stick stays 20px clear of the left edge, where Safari's swipe-back gesture starts */
 #stickBase{left:max(4vmin,20px);bottom:5vmin;width:30vmin;height:30vmin;min-width:130px;min-height:130px;border-radius:50%;background:rgba(18,28,50,.4);border:3px solid rgba(255,255,255,.5)}
 #stickKnob{position:absolute;left:50%;top:50%;width:42%;height:42%;margin:-21% 0 0 -21%;border-radius:50%;background:rgba(255,255,255,.55);border:3px solid #fff}
-/* right thumb: KICK in the corner, PUNCH beside it, BLOCK above it, GRAB on the inside, JUMP over PUNCH, DASH over GRAB;
+/* right thumb: KICK in the corner, PUNCH beside it, DEFEND above it, GRAB on the inside, JUMP over PUNCH;
    left thumb: stick with DUCK next to it */
 .tb[data-a=kick]{right:3vmin;bottom:4vmin}
 .tb[data-a=punch]{right:calc(5vmin + var(--tbs)*1.3);bottom:calc(4vmin + var(--tbs)*.35)}
-.tb[data-a=block]{right:3vmin;bottom:calc(6vmin + var(--tbs)*1.3)}
+.tb[data-a=defend]{right:3vmin;bottom:calc(6vmin + var(--tbs)*1.3)}
 .tb[data-a=grapple]{right:calc(7vmin + var(--tbs)*2.6);bottom:4vmin}
 .tb[data-a=jump]{right:calc(5vmin + var(--tbs)*1.5);bottom:calc(8vmin + var(--tbs)*1.7)}
-.tb[data-a=dash]{right:calc(7vmin + var(--tbs)*2.8);bottom:calc(6vmin + var(--tbs)*1.35)}
 .tb[data-a=crouch]{left:calc(max(4vmin,20px) + 2vmin + max(30vmin,130px));bottom:5vmin}
 .tb[data-a=pause]{right:2vmin;top:21vmin}
 @media (orientation:portrait){
@@ -212,10 +211,9 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
  #stickBase{left:max(3vw,20px);bottom:4vh;width:36vw;height:36vw}
  .tb[data-a=kick]{right:3vw;bottom:4vh}
  .tb[data-a=punch]{right:calc(5vw + var(--tbs)*1.3);bottom:calc(4vh + var(--tbs)*.35)}
- .tb[data-a=block]{right:3vw;bottom:calc(6vh + var(--tbs)*1.3)}
+ .tb[data-a=defend]{right:3vw;bottom:calc(6vh + var(--tbs)*1.3)}
  .tb[data-a=grapple]{right:calc(5vw + var(--tbs)*1.45);bottom:calc(8vh + var(--tbs)*1.6)}
  .tb[data-a=jump]{right:calc(5vw + var(--tbs)*1.6);bottom:calc(10vh + var(--tbs)*2.6)}.tb[data-a=crouch]{left:max(3vw,20px);bottom:calc(6vh + 36vw)}
- .tb[data-a=dash]{right:calc(3vw + var(--tbs)*.22);bottom:calc(8vh + var(--tbs)*2.5)}
  .tb[data-a=pause]{right:2vw;top:26vw}
 }
 /* ---------- overlays ---------- */
@@ -485,13 +483,14 @@ const KEY_SETTINGS = 'breakpoint.v1.settings';
 const SETTINGS_REVISION = 2;
 const KEY_PROGRESS = 'breakpoint.v1.progress';
 const KEY_BINDINGS = 'breakpoint.v1.keys';
-// Revision 2 moved Dash (and the since removed Strong / Height) off Shift, Ctrl and Alt (browser shortcuts, Sticky Keys).
 // Revision 3 merged the left / right punch and kick keys into one Punch and one Kick.
-const KEYS_REVISION = 3;
+// Revision 4 removed Dash, replaced High / Low block with Defend and added Use and Lock; it also re-shows the controls card once.
+const KEYS_REVISION = 4;
 const MERGED_ATTACKS_REVISION = 3;
-const OLD_DEFAULT_KEYS = { dash: 'AltLeft' };
 const MERGED_ATTACKS = { punch: 'lp', kick: 'lk' };                                // new action: the old left-side action it replaces
 const OLD_ATTACK_DEFAULTS = [{ lp: 'KeyJ', lk: 'KeyU' }, { lp: 'Numpad4', lk: 'Numpad7' }];   // P1, P2
+const OLD_BLOCK_HIGH_DEFAULTS = ['KeyQ', 'Numpad1'];                               // P1, P2: the 1.0.0 High block keys
+let controlsChanged = false;   // set when a save from before KEYS_REVISION is migrated; the UI shows one toast, then clears it
 
 function readJson(key) {
   const raw = Store.get(key);
@@ -570,27 +569,24 @@ const Settings = {
 };
 
 /* ---------- key bindings (remappable) ---------- */
-const ACTIONS = ['up', 'down', 'left', 'right', 'punch', 'kick', 'blockHigh', 'blockLow', 'jump', 'crouch', 'grapple', 'dash', 'pause'];
+const ACTIONS = ['up', 'down', 'left', 'right', 'punch', 'kick', 'defend', 'jump', 'crouch', 'grapple', 'use', 'lock', 'pause'];
 const ACTION_LABELS = {
   up: 'Move toward opponent', down: 'Move away', left: 'Circle left', right: 'Circle right',
-  punch: 'Punch (Square / Triangle)', kick: 'Kick (Cross / Circle)',
-  blockHigh: 'High block (R1)', blockLow: 'Low block (R2)',
-  jump: 'Jump', crouch: 'Crouch', grapple: 'Grapple / escape', dash: 'Dash / quick recovery (L3)', pause: 'Pause (Start)',
+  punch: 'Punch', kick: 'Kick', defend: 'Defend (block)',
+  jump: 'Jump', crouch: 'Crouch', grapple: 'Grapple / escape', use: 'Use item', lock: 'Lock on', pause: 'Pause',
 };
 const DEFAULT_KEYS = {
   up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
-  punch: ['KeyJ'], kick: ['KeyK'],
-  blockHigh: ['KeyQ'], blockLow: ['KeyE'],   // arrows / numpad stay free
-  jump: ['Space'], crouch: ['KeyC'], grapple: ['KeyG'], dash: ['KeyF'], pause: ['Escape', 'KeyP'],
+  punch: ['KeyJ'], kick: ['KeyK'], defend: ['KeyL'],   // arrows / numpad stay free
+  jump: ['Space'], crouch: ['KeyC'], grapple: ['KeyG'], use: ['KeyE'], lock: ['KeyQ'], pause: ['Escape', 'KeyP'],
 };
-const FALLBACK_KEYS = ['KeyZ', 'KeyX', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'KeyF', 'KeyH', 'KeyT', 'KeyY', 'KeyO', 'KeyL', 'KeyP'];
+const FALLBACK_KEYS = ['KeyZ', 'KeyX', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'KeyF', 'KeyH', 'KeyT', 'KeyY', 'KeyO', 'KeyP'];
 // Player 2 (Versus): arrows move, the numpad mirrors P1's right hand (punch and kick in a row).
 const KEY_BINDINGS_P2 = 'breakpoint.v1.keys2';
 const DEFAULT_KEYS_P2 = {
   up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'],
-  punch: ['Numpad4'], kick: ['Numpad5'],
-  blockHigh: ['Numpad1'], blockLow: ['Numpad2'],
-  jump: ['Numpad0'], crouch: ['NumpadDecimal'], grapple: ['Numpad3'], dash: ['NumpadAdd'], pause: ['NumpadEnter'],
+  punch: ['Numpad4'], kick: ['Numpad5'], defend: ['Numpad6'],
+  jump: ['Numpad0'], crouch: ['NumpadDecimal'], grapple: ['Numpad3'], use: ['Numpad1'], lock: ['Numpad2'], pause: ['NumpadEnter'],
 };
 const FALLBACK_KEYS_P2 = ['NumpadMultiply', 'NumpadDivide', 'Comma', 'Period', 'Slash', 'Semicolon', 'Quote', 'BracketLeft', 'BracketRight', 'Backslash', 'Minus', 'Equal'];
 const BINDABLE_CODE = /^(Key[A-Z]|Digit\d|Numpad\w+|Arrow(Up|Down|Left|Right)|Space|Shift(Left|Right)|Control(Left|Right)|Alt(Left|Right)|Comma|Period|Slash|Semicolon|Quote|Bracket(Left|Right)|Backslash|Minus|Equal|Backquote|Backspace)$/;
@@ -610,12 +606,23 @@ class KeyBindings {
   init() {
     this.reset();
     const stored = readJson(this.storeKey);
-    if (stored && (stored.revision || 1) < MERGED_ATTACKS_REVISION) this.mergeAttackKeys(stored);
-    if (stored && this.player === 1 && (stored.revision || 1) < 2) this.migrate(stored);
-    if (stored || this.player === 2) this.load(stored || this.bindings);   // P2's defaults may clash with keys P1 chose
+    const revision = stored ? stored.revision || 1 : KEYS_REVISION;
+    if (revision < MERGED_ATTACKS_REVISION) this.mergeAttackKeys(stored);
+    if (revision < KEYS_REVISION) this.migrateDefend(stored);
+    // P1's new actions skip keys P2 saved, so P2 keeps a key that was legal before the new actions existed
+    const reserved = this.player === 1 && stored && revision < KEYS_REVISION ? this.rivalSavedCodes() : [];
+    if (stored || this.player === 2) this.load(stored || this.bindings, reserved);   // P2's defaults may clash with keys P1 chose
+    if (revision < KEYS_REVISION) { this.save(); controlsChanged = true; }   // saved at once, so the notice comes once
   }
-  /* Load saved bindings: keep only valid, unique codes (P2 never takes P1's main keys); give every action at least one key. */
-  load(stored) {
+  /* Every key in the other player's save (read before that keymap loads). */
+  rivalSavedCodes() {
+    const saved = readJson(this.rival.storeKey);
+    if (!saved) return [];
+    return Object.keys(saved).filter((a) => Array.isArray(saved[a])).flatMap((a) => saved[a]);
+  }
+  /* Load saved bindings: keep only valid, unique codes (P2 never takes P1's main keys); give every action at least one key.
+     reserved: keys an action with no saved key must not take (P1's migration leaves them to P2). */
+  load(stored, reserved = []) {
     const used = new Set(this.player === 2 ? this.rival.mainCodes() : []);
     const next = {};
     for (const a of ACTIONS) {
@@ -629,7 +636,8 @@ class KeyBindings {
     }
     for (const a of ACTIONS) {
       if (next[a].length) continue;
-      const code = this.defaults[a].find((c) => !used.has(c)) || this.fallbacks.find((c) => !used.has(c));
+      const free = (c) => !used.has(c) && !reserved.includes(c);
+      const code = this.defaults[a].find(free) || this.fallbacks.find(free);
       if (!code) { next[a] = []; continue; }   // every key is taken: leave the action unbound
       next[a] = [code];
       used.add(code);
@@ -637,14 +645,14 @@ class KeyBindings {
     if (this.player === 1 && !next.pause.includes('Escape')) next.pause = ['Escape'].concat(next.pause.slice(0, 1));
     this.bindings = next;
   }
-  /* An old save still holding a former default gets the new default, unless the user gave that key to another action. */
-  migrate(stored) {
-    for (const action in OLD_DEFAULT_KEYS) {
-      const list = stored[action], code = DEFAULT_KEYS[action][0];
-      if (!Array.isArray(list) || list.length !== 1 || list[0] !== OLD_DEFAULT_KEYS[action]) continue;
-      const taken = ACTIONS.some((a) => a !== action && Array.isArray(stored[a]) && stored[a].includes(code));
-      if (!taken) stored[action] = [code];
-    }
+  /* Saves from before Defend: a High block key the player chose becomes the Defend key; one still on its old default
+     takes the new default. Low block and Dash no longer exist (load() ignores them); Use and Lock take their defaults
+     in load(), or the next free key when the player put another action on them. */
+  migrateDefend(stored) {
+    const list = stored.blockHigh;
+    if (Array.isArray(stored.defend) || !Array.isArray(list)) return;
+    const untouched = list.length === 1 && list[0] === OLD_BLOCK_HIGH_DEFAULTS[this.player - 1];
+    if (!untouched) stored.defend = list;
   }
   /* Saves from before the merge: a left punch / kick key the player chose becomes the Punch / Kick key;
      one still on its old default takes the new default. */
@@ -655,7 +663,8 @@ class KeyBindings {
       if (Array.isArray(stored[action]) || !Array.isArray(list)) continue;
       const untouched = list.length === 1 && list[0] === oldDefaults[oldAction];
       const newDefault = this.defaults[action][0];
-      const taken = ACTIONS.some((a) => a !== action && Array.isArray(stored[a]) && stored[a].includes(newDefault));
+      // every saved list counts, removed actions too (a High block key may become the Defend key in migrateDefend)
+      const taken = Object.keys(stored).some((a) => a !== action && a !== oldAction && Array.isArray(stored[a]) && stored[a].includes(newDefault));
       if (!untouched || taken) stored[action] = list;   // the new default already belongs to another action: keep the old key
     }
   }
@@ -720,7 +729,7 @@ function keyLabel(code) {
 const DEFAULT_UNLOCKED = ['kai', 'mara', 'brutus', 'yuki'];
 const Progress = {
   d: null,
-  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: false, seenClinch: false }; },
+  fresh() { return { unlocked: DEFAULT_UNLOCKED.slice(), arcadeClears: 0, arcadeBest: 0, arcadeFewestContinues: -1, wins: 0, losses: 0, survivalKills: 0, survivalSeconds: 0, seenControls: false, seenClinch: false, controlsRevision: KEYS_REVISION }; },
   init() {
     const base = this.fresh();
     const s = readJson(KEY_PROGRESS) || {};
@@ -733,10 +742,13 @@ const Progress = {
     base.losses = num(s.losses, 999999);
     base.survivalKills = num(s.survivalKills, 9999);
     base.survivalSeconds = num(s.survivalSeconds, 999999);
-    base.seenControls = s.seenControls === true;   // the first-match controls card was shown
+    // a save from before the current controls (no revision = 1.0.0) shows the controls card once more and a toast; saved at once, so both happen once
+    const oldControls = Object.keys(s).length > 0 && num(s.controlsRevision, 999) < KEYS_REVISION;
+    base.seenControls = s.seenControls === true && !oldControls;   // the first-match controls card was shown
     base.seenClinch = s.seenClinch === true;   // the clinch instructions were shown (they appear in the first clinch only)
     if (Array.isArray(s.unlocked)) for (const id of s.unlocked) if (typeof id === 'string' && ['dmitri', 'zero'].includes(id) && !base.unlocked.includes(id)) base.unlocked.push(id);
     this.d = base;
+    if (oldControls) { this.save(); controlsChanged = true; }
   },
   save() { Store.set(KEY_PROGRESS, JSON.stringify(this.d)); },
   unlock(id) {
@@ -765,6 +777,10 @@ const PAD_FLICK_OFF = 0.4;
 const PAD_JUMP_TAP_STRENGTH = 0.9;    // a stick tap must be pushed this far up to jump (a light tap is a step)
 const warnedPadIds = new Set();   // the non-standard layout toast shows once per controller id per session
 const PAD_SELECT_HOLD_MS = 500;       // Select held this long = reset positions in Training
+const PAD_SELECT_BUTTON = 8;          // Select / Back: hold = reset in Training (not an action)
+// Standard mapping, fight actions -> buttons. Up / down / jump / crouch come from the stick and D-pad; the right-stick flick also grapples.
+// Menus read raw buttons 4 to 7 (MENU_PAD_BUTTONS), so those buttons double as menu buttons outside a fight.
+const PAD_BUTTONS = { punch: [2, 3], kick: [0, 1], defend: [5], lock: [4], use: [6], grapple: [7, 11], pause: [9] };
 const TOUCH_RUN_TICKS = 27;           // touch stick held fully toward the opponent this long = run
 const ATTACK_STRING_SECONDS = 0.8;    // a Punch / Kick press this soon after the previous string press, with contact, continues the string
 const ATTACK_STRING_TICKS = Math.round(ATTACK_STRING_SECONDS / FIXED_DT);   // counted in simulation ticks, so the headless sim and the AI stay deterministic
@@ -783,15 +799,15 @@ function touchAttackHeight(kind, self, opp) {
 
 function makeIntent() {
   return {
-    fwd: 0, side: 0, run: false, crouch: false, blockH: false, blockL: false, height: false,
-    jump: false, punch: false, kick: false, grapple: false, dash: false,
+    fwd: 0, side: 0, run: false, crouch: false, defend: false, height: false,
+    jump: false, punch: false, kick: false, grapple: false, use: false, lock: false,   // use / lock: one-tick presses, no gameplay yet (items P7, lock-on P4)
     sidestep: 0, grapDir: 'fwd', noParry: false,
   };
 }
 function clearIntent(it) {
-  it.fwd = 0; it.side = 0; it.run = false; it.crouch = false; it.blockH = false; it.blockL = false;
+  it.fwd = 0; it.side = 0; it.run = false; it.crouch = false; it.defend = false;
   it.height = false; it.jump = false; it.punch = false; it.kick = false;
-  it.grapple = false; it.dash = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false;
+  it.grapple = false; it.use = false; it.lock = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false;
   return it;
 }
 
@@ -873,7 +889,7 @@ class PlayerInput {
   reset() { this.latch = {}; this.attackQueue.length = 0; this.lastPress = {}; this.runDir = null; this.flick = null; }
 
   /* A press edge from any device. A double tap on a direction is latched and resolved in fillIntent
-     (run / back-dash / sidestep), because its meaning depends on the movement mode and facing. */
+     (run / sidestep), because its meaning depends on the movement mode and facing. */
   press(action) {
     this.latch[action] = true;
     if ((action === 'punch' || action === 'kick') && this.attackQueue.length < ATTACK_QUEUE_MAX) this.attackQueue.push(action);
@@ -936,11 +952,12 @@ class PlayerInput {
     }
     const down = (i) => !!(pad.buttons[i] && (pad.buttons[i].pressed || pad.buttons[i].value > 0.5));
     // both punch buttons punch and both kick buttons kick; Cross / Circle also confirm / go back in menus
-    const map = { punch: [2, 3], kick: [0, 1], blockHigh: [5], blockLow: [7], dash: [10], grapple: [11], pause: [9] };
+    // L3 (10) is unused on purpose: a stick click is easy to press by accident
+    const map = PAD_BUTTONS;
     this.padHeld.menuOk = down(0);
     this.padHeld.menuBack = down(1);
     this.padHeld.menuL1 = down(4); this.padHeld.menuR1 = down(5); this.padHeld.menuL2 = down(6); this.padHeld.menuR2 = down(7);   // raw shoulder buttons: creator tabs and preview turn
-    let anyButton = this.padHeld.menuL1 || this.padHeld.menuL2;   // pad buttons without a fight action still count as pad use
+    let anyButton = false;
     for (const action in map) {
       const isDown = map[action].some((button) => down(button));
       if (isDown && !this.padHeld[action]) { this.press(action); }
@@ -948,7 +965,7 @@ class PlayerInput {
       anyButton = anyButton || isDown;
     }
     const now = performance.now();
-    const select = down(8);
+    const select = down(PAD_SELECT_BUTTON);
     if (select && !this.padSelectAt) this.padSelectAt = now;
     if (select && this.padSelectAt > 0 && now - this.padSelectAt >= PAD_SELECT_HOLD_MS) { this.press('reset'); this.padSelectAt = -1; }
     if (!select) this.padSelectAt = 0;
@@ -972,7 +989,7 @@ class PlayerInput {
         this.padDownAt[name] = now;
         if (name === 'down' && now - this.padTapDownRelease < PAD_CROUCH_REARM_MS) this.padCrouch = true;
       } else if (!is && was) {
-        // a quick, firm tap jumps; the second tap of a double tap (run / dash / sidestep) never does
+        // a quick, firm tap jumps; the second tap of a double tap (run / sidestep) never does
         if (name === 'up' && now - this.padDownAt.up < PAD_JUMP_TAP_MS && this.padUpPeak >= PAD_JUMP_TAP_STRENGTH && !this.padUpDouble) this.press('jump');
         if (name === 'down') {
           if (now - this.padDownAt.down < PAD_CROUCH_TAP_MS) this.padTapDownRelease = now;
@@ -1008,7 +1025,7 @@ class PlayerInput {
     this.analog.fwd = clamp(fwd, -1, 1);
     this.analog.side = clamp(side, -1, 1);
   }
-  /* Touch stick direction edges (screen directions, like keys): double flicks run, back-dash and sidestep. */
+  /* Touch stick direction edges (screen directions, like keys): double flicks run and sidestep. */
   touchDirections() {
     const ts = this.touchStick, dirs = this.touchDir;
     for (const name in dirs) {
@@ -1031,30 +1048,26 @@ class PlayerInput {
       it.fwd = clamp(r.fwd, -1, 1);
       it.side = clamp(r.side, -1, 1);
     }
-    it.blockH = !!h.blockHigh;
-    it.blockL = !!h.blockLow;
-    if (it.blockL) it.blockH = false; // simultaneous conflicting block inputs: low wins
+    it.defend = !!h.defend || this.take('defend');   // with crouch held it guards low (Fighter.updateFree); a tap shorter than a frame still counts once
     it.crouch = !!h.crouch;
     it.jump = this.take('jump');
-    if (it.jump && it.crouch) { it.jump = false; it.crouch = false; } // conflicting vertical inputs cancel
+    if (it.jump && it.crouch) { it.jump = false; if (!it.defend) it.crouch = false; } // conflicting vertical inputs cancel; a low guard stays low
     const attack = this.takeAttack();
     if (attack) this.applyAttackPress(attack, it, self, opp);
-    if (this.touchHeld.block) { if (it.crouch) it.blockL = true; else it.blockH = true; }   // touch BLOCK: with DUCK held it guards low
-    it.dash = this.take('dash');
     it.grapple = this.take('grapple');
+    it.use = this.take('use');
+    it.lock = this.take('lock');
     const dtap = this.latch.dtap;
     this.latch.dtap = null;
     if (dtap) {
       const rel = this.relativeDirection(dtap, self);
       if (rel === 'fwd') this.runDir = dtap;
-      else if (rel === 'back') { it.dash = true; it.fwd = Math.min(it.fwd, -1); }
-      else it.sidestep = rel === 'left' ? -1 : 1;
+      else if (rel === 'left' || rel === 'right') it.sidestep = rel === 'left' ? -1 : 1;   // a double tap away from the opponent does nothing
     }
     // touch run: stick held fully toward the opponent (after the screen-direction conversion) for a moment
     if (this.touchStick.active && it.fwd > 0.92) this.touchRunTicks++; else this.touchRunTicks = 0;
     it.run = (this.runDir !== null && !!h[this.runDir]) || this.touchRunTicks > TOUCH_RUN_TICKS;
-    // modifiers never fire on their own; block edges are discarded
-    this.latch.blockHigh = false; this.latch.blockLow = false;
+    // modifiers never fire on their own (the fighter watches the Defend state for quick recovery)
     this.latch.crouch = false; this.latch.up = false; this.latch.down = false; this.latch.left = false; this.latch.right = false;
     if (it.grapple) it.grapDir = this.grappleDirection(it, self, opp);
     if (!it.grapple && this.flick) this.flick = null;
@@ -2603,12 +2616,12 @@ const FX = {
    Combat timing is in 60 Hz frames ("ticks").
    ===================================================================== */
 const S = {
-  IDLE: 'IDLE', WALK: 'WALK', RUN: 'RUN', DASH: 'DASH', SIDESTEP: 'SIDESTEP', CROUCH: 'CROUCH', JUMP: 'JUMP',
+  IDLE: 'IDLE', WALK: 'WALK', RUN: 'RUN', SIDESTEP: 'SIDESTEP', CROUCH: 'CROUCH', JUMP: 'JUMP',
   ATTACK: 'ATTACK', BLOCK_H: 'BLOCK_H', BLOCK_L: 'BLOCK_L', HIT: 'HIT', STAGGER: 'STAGGER', STUN: 'STUN',
   CLINCH: 'CLINCH', GRAPPLE: 'GRAPPLE', THROWN: 'THROWN', DOWN: 'DOWN', GETUP: 'GETUP', KO: 'KO', VICTORY: 'VICTORY', DEFEAT: 'DEFEAT',
 };
 const STATE_LABEL = {
-  IDLE: 'Idle', WALK: 'Walking', RUN: 'Running', DASH: 'Dash', SIDESTEP: 'Sidestep', CROUCH: 'Crouching', JUMP: 'Jumping',
+  IDLE: 'Idle', WALK: 'Walking', RUN: 'Running', SIDESTEP: 'Sidestep', CROUCH: 'Crouching', JUMP: 'Jumping',
   ATTACK: 'Attacking', BLOCK_H: 'High block', BLOCK_L: 'Low block', HIT: 'Hit reaction', STAGGER: 'Staggered', STUN: 'Stunned',
   CLINCH: 'Clinched', GRAPPLE: 'Grappling', THROWN: 'Thrown', DOWN: 'Knocked down', GETUP: 'Recovering', KO: 'Knocked out', VICTORY: 'Victory', DEFEAT: 'Defeat',
 };
@@ -2619,14 +2632,13 @@ const STRING_BREAK_STATES = [...REACTION_STATES, S.GRAPPLE, S.GETUP, ...TERMINAL
 /* Explicit transition table for voluntary changes. Reactions (hit, stagger, stun, clinch, thrown, down, KO)
    and round-end poses are allowed from any non-terminal state; see canTransition(). */
 const TRANSITIONS = {
-  IDLE: [...FREE_SET, S.DASH, S.SIDESTEP, S.JUMP, S.ATTACK],
-  WALK: [...FREE_SET, S.DASH, S.SIDESTEP, S.JUMP, S.ATTACK],
-  RUN: [...FREE_SET, S.DASH, S.SIDESTEP, S.JUMP, S.ATTACK],
-  CROUCH: [...FREE_SET, S.DASH, S.SIDESTEP, S.JUMP, S.ATTACK],
-  BLOCK_H: [...FREE_SET, S.DASH, S.SIDESTEP, S.JUMP, S.ATTACK],
-  BLOCK_L: [...FREE_SET, S.DASH, S.SIDESTEP, S.JUMP, S.ATTACK],
-  DASH: [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.ATTACK, S.SIDESTEP],
-  SIDESTEP: [S.IDLE, S.WALK, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.ATTACK, S.DASH],
+  IDLE: [...FREE_SET, S.SIDESTEP, S.JUMP, S.ATTACK],
+  WALK: [...FREE_SET, S.SIDESTEP, S.JUMP, S.ATTACK],
+  RUN: [...FREE_SET, S.SIDESTEP, S.JUMP, S.ATTACK],
+  CROUCH: [...FREE_SET, S.SIDESTEP, S.JUMP, S.ATTACK],
+  BLOCK_H: [...FREE_SET, S.SIDESTEP, S.JUMP, S.ATTACK],
+  BLOCK_L: [...FREE_SET, S.SIDESTEP, S.JUMP, S.ATTACK],
+  SIDESTEP: [S.IDLE, S.WALK, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.ATTACK],
   JUMP: [S.IDLE, S.ATTACK],
   ATTACK: [S.IDLE, S.WALK, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.JUMP, S.ATTACK, S.GRAPPLE],
   HIT: [S.IDLE, S.CROUCH, S.BLOCK_H, S.BLOCK_L],
@@ -2892,7 +2904,7 @@ const REAR_GRIP_DOT = 0.25;          // defender turned more than ~75 degrees aw
 const JUGGLE_LIMIT = 3;
 const COMBO_RESET_TICKS = 12;
 const WALK_FORWARD = 2.2, WALK_BACK = 1.6, WALK_SIDE = 1.8, RUN_SPEED = 4.6, CROUCH_FACTOR = 0.45, BLOCK_FACTOR = 0.6;
-const DASH_COST = 12, SIDESTEP_COST = 6, JUMP_COST = 4, RUN_DRAIN = 7;
+const SIDESTEP_COST = 6, JUMP_COST = 4, RUN_DRAIN = 7;
 const GROUND_DAMP = 9, AIR_DAMP = 0.35;
 const LOW_STAMINA = 0.25;
 
@@ -3191,7 +3203,7 @@ class Fighter {
     this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.escapeQueued = false; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0;
     this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.fvx = 0; this.fvz = 0; this.pendingKO = false;
-    this.dashDx = 1; this.dashDz = 0; this.dashKind = 1; this.dashSpeed = 8; this.sideDir = 0; this.airAttackUsed = false;
+    this.sideDir = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
     this.pose.set(this.motion.guard); this.tp.set(this.motion.guard);
     this.alive = true;
@@ -3380,23 +3392,12 @@ class Fighter {
     this.setState(S.JUMP);
     Events.emit('jump', { f: this });
   }
-  startDash(it) {
-    const fx = this.fwdX, fz = this.fwdZ, rx = -fz, rz = fx;
-    let kind = 1, dx = fx, dz = fz, speed = 8.2;
-    if (it.fwd < -0.4) { kind = -1; dx = -fx; dz = -fz; speed = 7.2; }
-    else if (Math.abs(it.side) > 0.5 && Math.abs(it.fwd) < 0.5) { kind = 0; dx = rx * Math.sign(it.side); dz = rz * Math.sign(it.side); speed = 7.0; }
-    this.dashKind = kind; this.dashDx = dx; this.dashDz = dz; this.dashSpeed = speed;
-    this.stam = Math.max(0, this.stam - DASH_COST);
-    this.noRegen = 30;
-    this.setState(S.DASH);
-    Events.emit('dash', { f: this, kind });
-  }
   startSidestep(dir) {
     this.sideDir = dir;
     this.stam = Math.max(0, this.stam - SIDESTEP_COST);
     this.noRegen = 24;
     this.setState(S.SIDESTEP);
-    Events.emit('dash', { f: this, kind: 0 });
+    Events.emit('sidestep', { f: this, dir });
   }
 
   /* ----- per-tick logic ----- */
@@ -3414,11 +3415,12 @@ class Fighter {
     if (this.repeatTimer > 0) this.repeatTimer--;
     if (this.age % 45 === 0 && this.guardPressure > 0) this.guardPressure--;
     if (this.flash > 0) this.flash = Math.max(0, this.flash - 0.12);
+    this.defendPressed = it.defend && !this.prevDefend;   // a fresh press, not a held button (quick recovery while down)
+    this.prevDefend = it.defend;
     this.bufferInput(it);
     this.regenerate();
     switch (this.state) {
       case S.IDLE: case S.WALK: case S.RUN: case S.CROUCH: case S.BLOCK_H: case S.BLOCK_L: this.updateFree(it, opp, match); break;
-      case S.DASH: this.updateDash(it, opp); break;
       case S.SIDESTEP: this.updateSidestep(it, opp); break;
       case S.JUMP: this.updateJump(it, opp); break;
       case S.ATTACK: this.updateAttack(it, opp, match); break;
@@ -3450,7 +3452,7 @@ class Fighter {
       case S.WALK: k = 0.6; break;
       case S.BLOCK_H: case S.BLOCK_L: k = this.blockStun > 0 ? 0.1 : 0.4; break;
       case S.DOWN: case S.GETUP: k = 0.6; break;
-      case S.JUMP: case S.SIDESTEP: case S.DASH: k = 0.2; break;
+      case S.JUMP: case S.SIDESTEP: k = 0.2; break;
       case S.HIT: case S.STAGGER: case S.STUN: k = 0.15; break;
       default: k = 0;
     }
@@ -3464,11 +3466,10 @@ class Fighter {
     if (this.lock === 0) {
       if (this.tryBufferedAttack(it)) return;
       if (it.jump && this.stam >= 1 && this.state !== S.CROUCH && !this.airborne) { this.startJump(it); return; }
-      if (it.dash && this.exhaust === 0 && this.stam >= DASH_COST) { this.startDash(it); return; }
       if (it.sidestep && this.exhaust === 0 && this.stam >= SIDESTEP_COST) { this.startSidestep(it.sidestep); return; }
     }
     let target = S.IDLE;
-    if (it.blockL) target = S.BLOCK_L; else if (it.blockH) target = S.BLOCK_H; else if (it.crouch) target = S.CROUCH;
+    if (it.defend) target = it.crouch ? S.BLOCK_L : S.BLOCK_H; else if (it.crouch) target = S.CROUCH;   // Defend: standing = high + mid guard, Crouch + Defend = low guard
     let fwd = it.fwd, side = it.side;
     const mag = Math.hypot(fwd, side);
     if (mag > 1) { fwd /= mag; side /= mag; }
@@ -3493,15 +3494,6 @@ class Fighter {
     this.moveFwdNorm = target === S.RUN ? 1 : fwd; this.moveSideNorm = side;
     if (target === S.RUN) { this.vx = fx * RUN_SPEED * this.stats.walk; this.vz = fz * RUN_SPEED * this.stats.walk; }
   }
-  updateDash(it, opp) {
-    this.faceOpponent(opp, 5 * FIXED_DT);
-    const t = this.stateTicks;
-    const v = this.dashSpeed * (t < 12 ? 1 - 0.55 * (t / 12) : 0.25);
-    this.vx = this.dashDx * v; this.vz = this.dashDz * v;
-    if (t === 3 && this.dashKind !== 1) this.invuln = Math.max(this.invuln, 6);   // back and side dashes slip through; a forward dash commits
-    if (t >= 8 && this.tryBufferedAttack(it)) return;
-    if (t >= 16) { this.vx = this.vz = 0; this.setState(S.IDLE); }
-  }
   updateSidestep(it, opp) {
     this.faceOpponent(opp, 10 * FIXED_DT);
     const t = this.stateTicks;
@@ -3520,7 +3512,7 @@ class Fighter {
   updateDown(it) {
     this.vx = this.vz = 0;
     const dur = Math.round(52 * this.stats.getup * this.downMult);
-    const quick = it.dash && this.stateTicks >= 14 && this.stam >= 8;
+    const quick = this.defendPressed && this.stateTicks >= 14 && this.stam >= 8;   // a fresh Defend press gets up quickly
     if (this.stateTicks >= dur || quick) {
       if (quick && this.stateTicks < dur) { this.stam -= 8; this.quickRise = true; Events.emit('quickRise', { f: this }); } else this.quickRise = false;
       this.setState(S.GETUP);
@@ -3678,13 +3670,6 @@ class Fighter {
         if (run) {
           p[J.torsoLean] = 0.3; p[J.shLx] = 0.5 + sw * 0.6; p[J.shRx] = 0.5 - sw * 0.6; p[J.elL] = 1.5; p[J.elR] = 1.5; p[J.shLz] = 0.1; p[J.shRz] = 0.1; p[J.torsoTwist] = sw * 0.25; p[J.headX] = 0.05;   // run lean 15-20 deg (plates 59 / 60 / 62)
         } else p[J.rootSide] = Math.sin(ph) * 0.02;
-        break;
-      }
-      case S.DASH: {
-        const d = this.dashKind;
-        p[J.torsoLean] = 0.35 * d; p[J.hipLx] = 0.95 * d; p[J.hipRx] = -0.65 * d; p[J.knL] = 0.5; p[J.knR] = 0.7;
-        if (d === 0) { p[J.hipLz] = 0.5; p[J.hipRz] = 0.5; p[J.torsoRoll] = 0.2; p[J.hipLx] = 0.3; p[J.hipRx] = -0.2; }
-        k = 0.5;
         break;
       }
       case S.SIDESTEP: {
@@ -4860,7 +4845,7 @@ class AIController {
     // reactions to the clinch and getting up
     if (f.state === S.CLINCH) return this.thinkClinched(f, opp, it, snap);
     if (f.state === S.GRAPPLE) return this.thinkGrapple(f, opp, match, it);
-    if (f.state === S.DOWN) { if (d.id !== 'easy' && f.stam > 20 && f.stateTicks > 16 && simRng() < 0.15) it.dash = true; return it; }
+    if (f.state === S.DOWN) { if (d.id !== 'easy' && f.stam > 20 && f.stateTicks > 16 && simRng() < 0.15) it.defend = true; return it; }   // one Defend press = quick recovery
     if (REACTION_STATES.includes(f.state)) { this.plan = null; this.counterTried = false; return it; }
     // facing: nothing to do, fighter auto-faces
     const dist = Math.hypot(opp.x - f.x, opp.z - f.z);
@@ -4872,8 +4857,8 @@ class AIController {
     const tr = this.threatResp;
     if (tr && tr.until > this.tickNo && f.state !== S.ATTACK) {
       if (tr.kind === 'block' && !tr.read && snap.moveId === tr.id && snap.moveTick >= AI_HEIGHT_READ) { tr.read = true; tr.h = snap.mvH; }   // the strike's line is visible now
-      it.blockH = tr.kind === 'block' && tr.h !== 'L';
-      it.blockL = tr.kind === 'block' && tr.h === 'L';
+      it.defend = tr.kind === 'block';
+      it.crouch = tr.kind === 'block' && tr.h === 'L';   // Crouch + Defend = low guard
       it.noParry = tr.kind === 'block' && !tr.parry;
       if (tr.kind === 'sidestep' && !tr.done) { tr.done = true; it.sidestep = simRng() < 0.5 ? -1 : 1; }
       return it;
@@ -5044,9 +5029,8 @@ class AIController {
       }
       add(g, { kind: 'grab', ticks: d.lockout + 8 + (dist > 1.3 ? 12 : 0), dir, low: lowGrab });
     }
-    // sidestep / dash / jump for variety
+    // sidestep / jump for variety
     if (d.sidestep > 0 && dist < pref + 1 && f.stam > 15) add(0.1 + d.sidestep * st.circle * 0.5, { kind: 'sidestep', ticks: 14, side: simRng() < 0.5 ? -1 : 1 });
-    if (d.id !== 'easy' && dist > 2.4 && dist < 4.2 && f.stam > f.maxStam * 0.5) add(0.12 * aggr, { kind: 'dash', ticks: 14 });
     if (d.id !== 'easy' && dist > 1.8 && dist < 2.8 && f.stam > f.maxStam * 0.6) add(0.08 * st.kick * aggr, { kind: 'jumpkick', ticks: 24, t: 0 });
     let best = null, bs = -1;
     for (const o of options) if (o.score > bs) { bs = o.score; best = o.plan; }
@@ -5095,7 +5079,7 @@ class AIController {
     switch (p.kind) {
       case 'walk': { let dx = opp.x - f.x, dz = opp.z - f.z; if (p.away) { dx = -dx; dz = -dz; } this.moveToward(f, it, dx, dz, p.run); break; }
       case 'circle': it.side = p.side; it.fwd = p.hold ? clamp((this.profile.range - Math.hypot(opp.x - f.x, opp.z - f.z)) * -1.5, -0.6, 0.6) : 0; break;
-      case 'guard': if (p.low) it.blockL = true; else it.blockH = true; break;
+      case 'guard': it.defend = true; it.crouch = !!p.low; break;   // Crouch + Defend = low guard
       case 'attack':
         if (!p.fired) { p.fired = true; this.pressMove(it, p.pick); }
         break;
@@ -5108,7 +5092,6 @@ class AIController {
         break;
       }
       case 'sidestep': if (!p.fired) { p.fired = true; it.sidestep = p.side; } break;
-      case 'dash': if (!p.fired) { p.fired = true; it.dash = true; it.fwd = 1; } break;
       case 'jumpkick':
         p.t++;
         if (p.t === 1) { it.jump = true; it.fwd = 1; }
@@ -5178,13 +5161,13 @@ class DummyController {
     if (REACTION_STATES.includes(f.state)) this.guardTicks = DUMMY_GUARD_TICKS;
     if (!f.alive || REACTION_STATES.includes(f.state)) return it;
     switch (this.mode) {
-      case 'block': it.blockH = true; break;
-      case 'blockLow': it.blockL = true; break;
+      case 'block': it.defend = true; break;
+      case 'blockLow': it.defend = true; it.crouch = true; break;   // Crouch + Defend = low guard
       case 'crouch': it.crouch = true; break;
       case 'jump': if (this.t % 90 === 1) it.jump = true; break;
       case 'walk': it.side = Math.sin(this.t / 50) > 0 ? 1 : -1; break;
       case 'attackHigh': case 'attackLow': case 'attackMix': this.attack(f, opp, it); break;
-      case 'blockAfterHit': if (this.guardTicks > 0) { this.guardTicks--; it.blockH = true; } break;
+      case 'blockAfterHit': if (this.guardTicks > 0) { this.guardTicks--; it.defend = true; } break;
       default: break;
     }
     return it;
@@ -6091,7 +6074,7 @@ const Effects = {
     on('land', (e) => { FX.dust(e.f.x, 0.05, e.f.z, Math.min(10, 3 + Math.floor(e.impact)), 0.5, '#b5ada0'); if (e.impact > 4) Camera.impact(0.3, 0.2); });
     on('knockdown', (e) => FX.dust(e.f.x, 0.05, e.f.z, 6, 0.7, '#b5ada0'));
     on('step', (e) => { if (e.run) FX.dust(e.f.x, 0.05, e.f.z, 1, 0.2, '#b5ada0'); });
-    on('dash', (e) => FX.dust(e.f.x, 0.05, e.f.z, 3, 0.3, '#b5ada0'));
+    on('sidestep', (e) => FX.dust(e.f.x, 0.05, e.f.z, 3, 0.3, '#b5ada0'));
     on('clinch', (e) => FX.ring(e.x, 0.9, e.z, '#ffffff'));
     on('throw', (e) => { FX.dust(e.x, 0.1, e.z, 8, 0.6, '#b5ada0'); FX.sparks(e.x, 1.0, e.z, 8, 3.5, '#ffffff'); Camera.impact(0.6, 0.5); const thrown = Inputs.forFighter(e.def.index); if (thrown) thrown.rumble(0.7, RUMBLE_HIT_MS * 2); });
     on('escape', (e) => { FX.ring(e.x, 1.0, e.z, '#9cf4ff'); });
@@ -6329,7 +6312,7 @@ const Sound = {
     on('step', (e) => this.step(e.run, e.f.x));
     on('land', (e) => this.land(e.impact / 6, e.f.x));
     on('jump', (e) => this.whoosh(0.2, e.f.x));
-    on('dash', (e) => this.whoosh(0.5, e.f.x));
+    on('sidestep', (e) => this.whoosh(0.5, e.f.x));
     on('clinch', (e) => { this.tone('sine', 120, 70, 0.12, 0.35); this.noise('bandpass', 900, 500, 0.6, 0.12, 0.25); });
     on('throwStart', (e) => this.whoosh(1, e.f.x));
     on('throw', (e) => { this.slam(e.x); this.grunt(e.def.index, true); });
@@ -6438,8 +6421,8 @@ const MODE_INFO = {
   versus: { label: 'Versus', desc: 'Two players, one screen: keyboard and / or gamepads. The score carries over between rematches.' },
 };
 const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'versus'];
-const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', blockHigh: 'R1', blockLow: 'R2', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R3 or right-stick flick', dash: 'L3 (press stick)', pause: 'Start' };
-const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', blockHigh: 'BLOCK', blockLow: 'DUCK + BLOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', dash: 'DASH', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
+const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', defend: 'R1', use: 'L2', lock: 'L1', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R2, R3 or right-stick flick', pause: 'Start' };
+const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', defend: 'DEFEND (with DUCK: low)', use: 'USE', lock: 'LOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 const RESULTS_GUARD_MS = 600;   // presses still mashed from the fight cannot skip the results screen
 const ONBOARD_MS = 6000;   // the first-match controls card closes itself after this long
 const VERSUS_CARD_MS = 9000;   // the Versus controls card holds both players' keys: a little longer
@@ -6501,6 +6484,14 @@ const UI = {
     this.buildTouch();
     this.applyTouchVisibility();
     CreatorUI.init();
+    this.announceControlsChange();
+  },
+  /* One toast on the first load after saved controls were migrated (Keymap / Progress set the flag and saved the new revision). */
+  announceControlsChange() {
+    if (!controlsChanged) return false;
+    controlsChanged = false;
+    this.toast('Controls changed: see Controls');
+    return true;
   },
 
   /* ----- helpers ----- */
@@ -6540,13 +6531,13 @@ const UI = {
     if (this.onboardTouch()) this.dom.onboard.innerHTML = '<h3>CONTROLS</h3>' +
       '<kbd>PUNCH</kbd> <kbd>KICK</kbd> tap to attack; tap again after a hit for the next move of a string<br>' +
       'Body and low shots are picked for you, or hold <kbd>DUCK</kbd> for low ones<br>' +
-      '<kbd>BLOCK</kbd> to guard, with <kbd>DUCK</kbd> to guard low<br>' +
+      '<kbd>DEFEND</kbd> to guard, with <kbd>DUCK</kbd> to guard low<br>' +
       '<kbd>GRAB</kbd> near the opponent, again to escape a grab<br>' +
-      'Stick: move, flick twice to dash or sidestep<small>Tap to close</small>';
+      'Stick: move, flick twice to run or sidestep<small>Tap to close</small>';
     else this.dom.onboard.innerHTML = '<h3>CONTROLS</h3>' +
       'Punch ' + k('punch') + ' Kick ' + k('kick') + ', press again after a hit for the next move of a string<br>' +
       'Hold ' + k('crouch') + ' while you attack for low shots<br>' +
-      'Block high ' + k('blockHigh') + ', low ' + k('blockLow') + '<br>' +
+      'Defend ' + k('defend') + ', with ' + k('crouch') + ' to guard low<br>' +
       'Grapple / escape ' + k('grapple') + '<br>' +
       'Move list: pause with ' + k('pause') + ', then Move list<small>Click or press any key to close</small>';
     this.dom.onboard.hidden = false;
@@ -6970,7 +6961,7 @@ const UI = {
   /* "W A S D move, J K punch / kick, ..." for one player's keyboard layout. */
   layoutText(keymap) {
     const keys = (actions) => actions.map((a) => keyLabel(keymap.bindings[a][0])).join(' ');
-    return keys(['up', 'left', 'down', 'right']) + ' move, ' + keys(['punch', 'kick']) + ' punch / kick, ' + keys(['blockHigh', 'blockLow']) + ' block, ' + keys(['grapple']) + ' grapple';
+    return keys(['up', 'left', 'down', 'right']) + ' move, ' + keys(['punch', 'kick']) + ' punch / kick, ' + keys(['defend']) + ' defend, ' + keys(['grapple']) + ' grapple';
   },
   screen_arena() {
     const sel = Game.selection;
@@ -6988,14 +6979,14 @@ const UI = {
     const SCREEN_LABELS = { up: 'Move up the screen (away from camera)', down: 'Move down the screen (toward camera)', left: 'Move screen-left', right: 'Move screen-right' };
     const label = (a) => (screenMode && SCREEN_LABELS[a]) || ACTION_LABELS[a];
     const moveText = screenMode
-      ? 'Movement follows the screen: up = away from the camera, down = toward it, left / right = screen left / right. Double-tap the direction that points at your opponent and hold to run; double-tap away from them to back-dash, sideways to sidestep.'
-      : 'Movement is relative to your opponent: up = toward, down = away, left / right = circle. Double-tap left / right to sidestep, double-tap up and hold to run, double-tap down to back-dash.';
+      ? 'Movement follows the screen: up = away from the camera, down = toward it, left / right = screen left / right. Double-tap the direction that points at your opponent and hold to run; double-tap sideways to sidestep.'
+      : 'Movement is relative to your opponent: up = toward, down = away, left / right = circle. Double-tap left / right to sidestep, double-tap up and hold to run.';
     const keys = (keymap, a) => keymap.bindings[a].map((c) => '<kbd>' + esc(keyLabel(c)) + '</kbd>').join(' ');
     const rebind = (act, a, who) => '<button class="mi" style="margin:0;min-height:2.2em;padding:.2em .6em" data-nav data-act="' + act + ':' + a + '" aria-label="Rebind ' + who + ' ' + esc(label(a)) + '">Rebind</button>';
     const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td>' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1') + '</td><td>' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2') + '</td><td>' + esc(GAMEPAD_LABELS[a]) + '</td><td>' + esc(TOUCH_LABELS[a]) + '</td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
       '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (Versus)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
-      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list); hold Crouch while you press for the low versions. Block High covers high + mid attacks, Block Low covers low attacks. Press block just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Dash while knocked down = quick recovery. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
+      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list); hold Crouch while you press for the low versions. Hold Defend to block: standing it covers high + mid attacks, with Crouch held it covers low attacks. Press Defend just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Press Defend while knocked down for a quick recovery. Use and Lock on have no effect yet. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
       '<p class="hint">Versus: a key belongs to one player only. P1\'s spare arrow keys switch off in Versus, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only.</p>' +
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
   },
@@ -7373,8 +7364,8 @@ const UI = {
     stick.addEventListener('lostpointercapture', endOwn);
     Events.on('inputReleased', () => { if (activeId !== null) end(); });
     // [action, label, size]: lg = main fight buttons under the right thumb, sm = movement extras next to the stick
-    const defs = [['punch', 'PUNCH', 'lg'], ['kick', 'KICK', 'lg'], ['block', 'BLOCK', 'lg'], ['grapple', 'GRAB', ''], ['jump', 'JUMP', 'sm'], ['crouch', 'DUCK', 'sm'], ['dash', 'DASH', 'sm'], ['pause', 'II', 'sm']];
-    const ariaLabels = { punch: 'Punch (with Duck: low punch)', kick: 'Kick (with Duck: low kick)', block: 'Block (with Duck: low block)' };
+    const defs = [['punch', 'PUNCH', 'lg'], ['kick', 'KICK', 'lg'], ['defend', 'DEFEND', 'lg'], ['grapple', 'GRAB', ''], ['jump', 'JUMP', 'sm'], ['crouch', 'DUCK', 'sm'], ['pause', 'II', 'sm']];   // USE and LOCK are placed in P2-04
+    const ariaLabels = { punch: 'Punch (with Duck: low punch)', kick: 'Kick (with Duck: low kick)', defend: 'Defend (with Duck: low guard)' };
     for (const [action, label, size] of defs) {
       const b = document.createElement('div');
       b.className = 'tb' + (size ? ' ' + size : '');
@@ -8053,6 +8044,7 @@ const SelfTest = {
     return {
       raw: SELFTEST_STORE_KEYS.map((key) => Store.get(key)), settings: Object.assign({}, Settings.v), progress: JSON.parse(JSON.stringify(Progress.d)),
       keys: KEYMAPS.map((keymap) => JSON.stringify(keymap.bindings)), selection: Object.assign({}, Game.selection), devices: Inputs.players.map((p) => p.lastDevice),
+      controlsChanged,
     };
   },
   restore(saved) {
@@ -8064,6 +8056,7 @@ const SelfTest = {
     Inputs.rebuildMaps();
     Object.assign(Game.selection, saved.selection);
     Inputs.players.forEach((p, i) => { p.lastDevice = saved.devices[i]; });   // Versus tests switch pads between players
+    controlsChanged = saved.controlsChanged;   // the migration tests set it
   },
   make(opts, s1, s2) {
     const m = new MatchSim(Object.assign({ mode: 'free', countdown: false, timer: 0, seed: 11, winsNeeded: 2 }, opts));
@@ -8232,15 +8225,32 @@ const SelfTest = {
       const spent = full - f.stam;
       return h.stam > l.stam && h.recovery > l.recovery && spent >= h.stam - 1 ? true : 'spent ' + spent;
     });
-    test('High block stops high + mid, low block stops low, mids beat low block', () => {
-      const trial = (k, mods, block) => {
+    test('Defend: standing stops high + mid, with Crouch it stops low, mids beat the low guard', () => {
+      const trial = (k, mods, low) => {
         const log = self.capture(['hit', 'block']);
-        const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) { it[k] = true; } if (mm.tick >= 1) Object.assign(it, mods); }, (it, f, o, mm) => { if (mm.tick >= 1) it[block] = true; });
+        const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) { it[k] = true; } if (mm.tick >= 1) Object.assign(it, mods); }, (it, f, o, mm) => { if (mm.tick >= 1) { it.defend = true; it.crouch = low; } });
         self.place(m, 1.2); self.run(m, 50); log.stop(); m.dispose();
         return { hit: log.hit.length, block: log.block.length };
       };
-      const a = trial('punch', {}, 'blockH'), b = trial('kick', { height: true }, 'blockL'), c = trial('kick', {}, 'blockL'), d = trial('kick', { height: true }, 'blockH');
+      const a = trial('punch', {}, false), b = trial('kick', { height: true }, true), c = trial('kick', {}, true), d = trial('kick', { height: true }, false);
       return a.block === 1 && a.hit === 0 && b.block === 1 && c.hit === 1 && d.hit === 1 ? true : JSON.stringify([a, b, c, d]);
+    });
+    test('Defend picks the guard: standing = high, Crouch held = low, Crouch alone = crouch (no guard)', () => {
+      const stateFor = (defend, crouch) => {
+        const m = mk({}, null, (it, f, o, mm) => { it.defend = defend; it.crouch = crouch; }); self.place(m, 3); self.run(m, 8);
+        const state = m.fighters[1].state; m.dispose(); return state;
+      };
+      const standing = stateFor(true, false), low = stateFor(true, true), crouch = stateFor(false, true), idle = stateFor(false, false);
+      // the keyboard path: the Defend key alone, then with the Crouch key held
+      const device = Input.lastDevice, it = makeIntent(), f = new Fighter(ROSTER_BY_ID.kai, 0), o = new Fighter(ROSTER_BY_ID.mara, 1);
+      Input.reset(); Input.releaseAll(); Input.lastDevice = 'keyboard';
+      Input.kb.add(Keymap.bindings.defend[0]); Input.update(); Input.fillIntent(it, f, o);
+      const keyHigh = it.defend && !it.crouch;
+      Input.kb.add(Keymap.bindings.crouch[0]); Input.update(); Input.fillIntent(it, f, o);
+      const keyLow = it.defend && it.crouch;
+      Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+      const r = { standing: standing === S.BLOCK_H, low: low === S.BLOCK_L, crouch: crouch === S.CROUCH, idle: idle === S.IDLE, keyHigh, keyLow };
+      return Object.values(r).every(Boolean) ? true : JSON.stringify(r);
     });
     test('Crouching avoids a high attack', () => {
       const log = self.capture(['hit']);
@@ -8249,11 +8259,11 @@ const SelfTest = {
     });
     test('Perfect block window, guard pressure and guard break', () => {
       let log = self.capture(['block']);
-      let m = mk({}, once(2, 'punch'), (it, f, o, mm) => { if (mm.tick >= 5) it.blockH = true; }); self.place(m, 1.2); self.run(m, 40); log.stop();
+      let m = mk({}, once(2, 'punch'), (it, f, o, mm) => { if (mm.tick >= 5) it.defend = true; }); self.place(m, 1.2); self.run(m, 40); log.stop();
       const perfect = log.block.length === 1 && log.block[0].perfect;
       m.dispose();
       log = self.capture(['block']);
-      m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.power_jab); }, (it) => { it.blockH = true; }); self.place(m, 1.2); m.fighters[1].stam = 4; self.run(m, 60); log.stop();   // a strong move straight from the move table (the string path is tested above)
+      m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.power_jab); }, (it) => { it.defend = true; }); self.place(m, 1.2); m.fighters[1].stam = 4; self.run(m, 60); log.stop();   // a strong move straight from the move table (the string path is tested above)
       const broke = log.block.some((b) => b.broke) && m.fighters[1].state === S.STUN;
       return perfect && broke ? true : 'perfect ' + perfect + ' broke ' + broke;
     });
@@ -8261,7 +8271,7 @@ const SelfTest = {
       const log = self.capture(['attackStart']);
       let first = 0, second = false;
       const m = mk({}, once(2, 'punch'), (it, f, o, mm) => {
-        if (!first && f.counterWindow > 0) { it.punch = true; first = mm.tick; } else if (first && !second && mm.tick >= first + 30) { it.punch = true; second = true; } else if (!first && mm.tick >= 5) it.blockH = true;
+        if (!first && f.counterWindow > 0) { it.punch = true; first = mm.tick; } else if (first && !second && mm.tick >= first + 30) { it.punch = true; second = true; } else if (!first && mm.tick >= 5) it.defend = true;
       });
       self.place(m, 1.2); self.run(m, 90); log.stop();
       const moves = log.attackStart.filter((e) => e.f.index === 1).map((e) => e.mv.id).join();
@@ -8269,7 +8279,7 @@ const SelfTest = {
     });
     test('Mashing block never gives a perfect block', () => {
       const log = self.capture(['block']);
-      const m = mk({}, once(40, 'punch'), (it, f, o, mm) => { it.blockH = mm.tick % 8 !== 0; });
+      const m = mk({}, once(40, 'punch'), (it, f, o, mm) => { it.defend = mm.tick % 8 !== 0; });
       self.place(m, 1.2); self.run(m, 80); log.stop();
       return log.block.length === 1 && !log.block[0].perfect ? true : 'blocks ' + log.block.length + ' perfect ' + log.block.some((b) => b.perfect);
     });
@@ -8349,11 +8359,25 @@ const SelfTest = {
       const m = mk({}, (it, f, o, mm) => { if (mm.tick === 14) it.grapple = true; }, (it, f, o, mm) => { if (mm.tick === 2) it.jump = true; }); self.place(m, 1.0); self.run(m, 40); log.stop();
       return log.clinch.length === 0 ? true : 'clinched an airborne fighter';
     });
-    test('Sweep knockdown (Crouch + Kick, Kick, Kick), quick recovery with dash', () => {
-      const m = mk({}, pressString('KKK', { height: true }), (it, f, o) => { f.x = o.x + 1.0; f.prevX = f.x; f.z = o.z; if (f.state === S.DOWN && f.stateTicks > 16) it.dash = true; }); self.place(m, 1.2);   // the defender stays in reach of every step
+    test('Sweep knockdown (Crouch + Kick, Kick, Kick), quick recovery with a Defend press', () => {
+      const m = mk({}, pressString('KKK', { height: true }), (it, f, o) => { f.x = o.x + 1.0; f.prevX = f.x; f.z = o.z; it.defend = f.state === S.DOWN && f.stateTicks === 17; }); self.place(m, 1.2);   // the defender stays in reach of every step; one press
       let rose = -1;
       for (let i = 0; i < 200; i++) { m.step(); if (rose < 0 && m.fighters[1].state === S.GETUP) rose = i; }
       return rose > 0 && rose < 110 && m.fighters[1].quickRise ? true : 'getup at ' + rose;   // three string steps first; a normal get-up would come at 130 or later
+    });
+    test('Quick recovery: a fresh Defend press while knocked down gets up early; a held Defend, a press too early or too little stamina does not', () => {
+      const rises = (defendAt, stam, held) => {
+        const m = mk({}, (it, f) => { it.defend = !!held || f.stateTicks === defendAt; });
+        self.place(m, 4);
+        const f = m.fighters[0];
+        f.setState(S.HIT); f.setState(S.DOWN); f.stam = stam;   // a knockdown always follows a hit or a throw
+        let got = false;
+        for (let i = 0; i < 40; i++) { m.step(); if (f.state === S.GETUP && f.quickRise) got = true; }   // a normal get-up starts after about 52 ticks
+        m.dispose();
+        return got;
+      };
+      const fresh = rises(17, 60), held = rises(-1, 60, true), early = rises(6, 60), tired = rises(17, 0);   // a little regenerates while down, but not the 8 needed by tick 17
+      return fresh && !held && !early && !tired ? true : JSON.stringify({ fresh, held, early, tired });
     });
     test('Wake-up invulnerability lasts the whole get-up and ends when standing', () => {
       const problems = [];
@@ -8685,25 +8709,25 @@ const SelfTest = {
       Input.reset(); Input.press('right'); Input.press('right'); Input.fillIntent(it, f, null);
       const runArmed = Input.runDir === 'right';
       Input.reset(); Input.press('left'); Input.press('left'); Input.fillIntent(it, f, null);
-      const backDash = it.dash && it.fwd < 0;
+      const awayDoesNothing = !it.sidestep && Input.runDir === null && it.fwd === 0;   // a double tap away from the opponent is no longer a back-dash
       Settings.v.movement = keep;
       Camera.dirRight[0] = kr[0]; Camera.dirRight[1] = kr[1]; Camera.dirFwd[0] = kf[0]; Camera.dirFwd[1] = kf[1];
       Input.reset();
       const near = (a, b) => Math.abs(a - b) < 1e-6;
-      return near(right[0], 1) && near(right[1], 0) && near(up[0], 0) && near(up[1], -1) && runArmed && backDash ? true : JSON.stringify({ right, up, runArmed, backDash });
+      return near(right[0], 1) && near(right[1], 0) && near(up[0], 0) && near(up[1], -1) && runArmed && awayDoesNothing ? true : JSON.stringify({ right, up, runArmed, awayDoesNothing });
     });
-    test('Opponent-relative double taps: run, back-dash, sidestep', () => {
+    test('Opponent-relative double taps: run, sidestep; a double tap away does nothing', () => {
       const keep = Settings.v.movement;
       Settings.v.movement = 'opponent';
       const f = new Fighter(ROSTER_BY_ID.kai, 0), it = makeIntent();
       Input.reset(); Input.press('up'); Input.press('up'); Input.fillIntent(it, f, null);
       const run = Input.runDir === 'up';
       Input.reset(); Input.press('down'); Input.press('down'); Input.fillIntent(it, f, null);
-      const back = it.dash && it.fwd < 0;
+      const awayDoesNothing = !it.sidestep && Input.runDir === null && it.fwd === 0;
       Input.reset(); Input.press('left'); Input.press('left'); Input.fillIntent(it, f, null);
       const side = it.sidestep === -1;
       Settings.v.movement = keep; Input.reset();
-      return run && back && side ? true : JSON.stringify({ run, back, side });
+      return run && awayDoesNothing && side ? true : JSON.stringify({ run, awayDoesNothing, side });
     });
     test('Touch: double flicks sidestep, holding toward the opponent runs (screen movement)', () => {
       const keep = Settings.v.movement, kr = Camera.dirRight.slice(), kf = Camera.dirFwd.slice(), device = Input.lastDevice;
@@ -8727,7 +8751,7 @@ const SelfTest = {
       Camera.dirRight[0] = kr[0]; Camera.dirRight[1] = kr[1]; Camera.dirFwd[0] = kf[0]; Camera.dirFwd[1] = kf[1];
       return side && run && stop ? true : JSON.stringify({ side, run, stop });
     });
-    test('Touch: PUNCH / KICK fire on press (no hold), DUCK gives the low version, the automatic height aims where the attack lands; BLOCK + DUCK guards low', () => {
+    test('Touch: PUNCH / KICK fire on press (no hold), DUCK gives the low version, the automatic height aims where the attack lands; DEFEND + DUCK guards low', () => {
       const device = Input.lastDevice;
       const f = new Fighter(ROSTER_BY_ID.kai, 0), o = new Fighter(ROSTER_BY_ID.mara, 1), it = makeIntent();
       Input.reset(); Input.releaseAll();
@@ -8752,10 +8776,10 @@ const SelfTest = {
       const elbow = press('punch') && !it.height;
       const knee = press('kick') && !it.height;
       f.state = S.IDLE;
-      Input.touchSet('block', true); Input.update(); Input.fillIntent(it, f, o);
-      const high = it.blockH && !it.blockL;
+      Input.touchSet('defend', true); Input.update(); Input.fillIntent(it, f, o);
+      const high = it.defend && !it.crouch;
       Input.touchSet('crouch', true); Input.update(); Input.fillIntent(it, f, o);
-      const lowGuard = it.blockL;
+      const lowGuard = it.defend && it.crouch;
       Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
       const r = { jab, front, duckPunch, body, frontKick, low, elbow, knee, high, lowGuard };
       return Object.values(r).every(Boolean) ? true : JSON.stringify(r);
@@ -8939,23 +8963,135 @@ const SelfTest = {
       Input.lastDevice = device;
       return kb && pad && touch ? true : JSON.stringify({ kb, pad, touch });
     });
-    test('Old saved key bindings move off Shift / Ctrl / Alt and merge the left / right attacks, customised keys stay', () => {
+    test('Old saved key bindings merge the left / right attacks, drop removed actions, customised keys stay', () => {
       const raw = Store.get(KEY_BINDINGS), keep = JSON.stringify(Keymap.bindings);
       Store.set(KEY_BINDINGS, JSON.stringify({ lp: ['KeyH'], rp: ['KeyN'], lk: ['KeyU'], rk: ['KeyI'], strong: ['ShiftLeft'], height: ['ControlLeft'], dash: ['KeyV'], grapple: ['KeyO'] }));
       Keymap.init();
       const b = Keymap.bindings;
-      const moved = b.punch[0] === 'KeyH' && b.kick[0] === 'KeyK' && b.dash[0] === 'KeyV' && !('lp' in b) && !('rk' in b);   // the untouched old left kick takes the new default
-      const clash = b.grapple[0] === 'KeyO' && !('strong' in b) && !('height' in b) && !JSON.stringify(b).includes('ControlLeft');   // the removed Strong / Height actions load without errors and their keys vanish
+      const moved = b.punch[0] === 'KeyH' && b.kick[0] === 'KeyK' && !('dash' in b) && !('lp' in b) && !('rk' in b);   // the untouched old left kick takes the new default
+      const clash = b.grapple[0] === 'KeyO' && !('strong' in b) && !('height' in b) && !JSON.stringify(b).includes('ControlLeft');   // the removed Strong / Height / Dash actions load without errors and their keys vanish
       Store.set(KEY_BINDINGS, JSON.stringify({ revision: 2, lk: ['KeyU'], grapple: ['KeyK'] }));
       Keymap.init();
       const kickKept = Keymap.bindings.kick[0] === 'KeyU' && Keymap.bindings.grapple[0] === 'KeyK';   // K is the user's grapple key
-      Store.set(KEY_BINDINGS, JSON.stringify({ revision: KEYS_REVISION, dash: ['AltLeft'] }));
+      controlsChanged = false;
+      Store.set(KEY_BINDINGS, JSON.stringify({ revision: KEYS_REVISION, blockHigh: ['KeyH'], punch: ['KeyN'] }));
       Keymap.init();
-      const current = Keymap.bindings.dash[0] === 'AltLeft';                      // chosen after the change: never migrated
-      const defaults = ['dash'].every((a) => !/^(Shift|Control|Alt)/.test(DEFAULT_KEYS[a][0]));
+      const current = Keymap.bindings.punch[0] === 'KeyN' && Keymap.bindings.defend[0] === 'KeyL' && !controlsChanged;   // a current save is never migrated: the old action name is ignored
+      const defaults = ACTIONS.every((a) => DEFAULT_KEYS[a].every((c) => !/^(Shift|Control|Alt)/.test(c)));
       if (raw === null) Store.remove(KEY_BINDINGS); else Store.set(KEY_BINDINGS, raw);
       Keymap.bindings = JSON.parse(keep); Input.rebuildMap();
       return moved && clash && kickKept && current && defaults ? true : JSON.stringify({ moved, clash, kickKept, current, defaults, b });
+    });
+    test('Controls revision 4: a 1.0.0 save keeps its keys and gains Defend, Use and Lock for P1 and P2, saved once with one notice', () => {
+      const raw = [Store.get(KEY_BINDINGS), Store.get(KEY_BINDINGS_P2)], keep = KEYMAPS.map((k) => JSON.stringify(k.bindings));
+      const old1 = { revision: 3, up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'], punch: ['KeyH'], kick: ['KeyK'], blockHigh: ['KeyQ'], blockLow: ['KeyE'], jump: ['Space'], crouch: ['KeyC'], grapple: ['KeyG'], dash: ['KeyF'], pause: ['Escape', 'KeyP'] };
+      const old2 = { revision: 3, up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'], punch: ['Numpad8'], kick: ['Numpad5'], blockHigh: ['Numpad1'], blockLow: ['Numpad2'], jump: ['Numpad0'], crouch: ['NumpadDecimal'], grapple: ['Numpad3'], dash: ['NumpadAdd'], pause: ['NumpadEnter'] };
+      Store.set(KEY_BINDINGS, JSON.stringify(old1)); Store.set(KEY_BINDINGS_P2, JSON.stringify(old2));
+      controlsChanged = false;
+      Keymap.init(); Keymap2.init();
+      const p1 = Keymap.bindings, p2 = Keymap2.bindings;
+      const kept1 = ['up', 'down', 'left', 'right', 'kick', 'jump', 'crouch', 'grapple', 'pause'].every((a) => JSON.stringify(p1[a]) === JSON.stringify(old1[a])) && p1.punch[0] === 'KeyH';
+      const kept2 = ['up', 'down', 'left', 'right', 'kick', 'jump', 'crouch', 'grapple', 'pause'].every((a) => JSON.stringify(p2[a]) === JSON.stringify(old2[a])) && p2.punch[0] === 'Numpad8';
+      const new1 = p1.defend[0] === 'KeyL' && p1.use[0] === 'KeyE' && p1.lock[0] === 'KeyQ';   // the untouched 1.0.0 block keys Q / E now mean Lock / Use
+      const new2 = p2.defend[0] === 'Numpad6' && p2.use[0] === 'Numpad1' && p2.lock[0] === 'Numpad2';
+      const gone = !JSON.stringify([p1, p2]).match(/blockHigh|blockLow|dash/);
+      const saved = JSON.parse(Store.get(KEY_BINDINGS)).revision === KEYS_REVISION && JSON.parse(Store.get(KEY_BINDINGS_P2)).revision === KEYS_REVISION;
+      const flagged = controlsChanged;
+      controlsChanged = false; Keymap.init(); Keymap2.init();
+      const quiet = !controlsChanged && Keymap.bindings.punch[0] === 'KeyH' && Keymap.bindings.lock[0] === 'KeyQ' && Keymap2.bindings.punch[0] === 'Numpad8';   // the second load reads the saved revision 4 and has nothing to migrate
+      raw.forEach((value, i) => { const storeKey = KEYMAPS[i].storeKey; if (value === null) Store.remove(storeKey); else Store.set(storeKey, value); });
+      KEYMAPS.forEach((k, i) => { k.bindings = JSON.parse(keep[i]); });
+      Inputs.rebuildMaps();
+      return kept1 && kept2 && new1 && new2 && gone && saved && flagged && quiet ? true : JSON.stringify({ kept1, kept2, new1, new2, gone, saved, flagged, quiet });
+    });
+    test('Controls revision 4: a customised High block key carries over to Defend, a customised Low block key is dropped, a taken default falls back', () => {
+      const raw = [Store.get(KEY_BINDINGS), Store.get(KEY_BINDINGS_P2)], keep = KEYMAPS.map((k) => JSON.stringify(k.bindings));
+      const run = (p1, p2) => { Store.set(KEY_BINDINGS, JSON.stringify(Object.assign({ revision: 3 }, p1))); Store.set(KEY_BINDINGS_P2, JSON.stringify(Object.assign({ revision: 3 }, p2))); Keymap.init(); Keymap2.init(); return [Keymap.bindings, Keymap2.bindings]; };
+      let [a1, a2] = run({ blockHigh: ['KeyH'], blockLow: ['KeyE'] }, { blockHigh: ['Numpad9'] });
+      const carried = a1.defend[0] === 'KeyH' && a1.use[0] === 'KeyE' && a1.lock[0] === 'KeyQ' && a2.defend[0] === 'Numpad9' && a2.use[0] === 'Numpad1' && a2.lock[0] === 'Numpad2';
+      [a1, a2] = run({ blockLow: ['KeyU'] }, {});
+      const lowDropped = a1.defend[0] === 'KeyL' && !JSON.stringify(a1).includes('KeyU');   // only Low block was customised: Defend takes its default
+      [a1, a2] = run({ punch: ['KeyL'], blockHigh: ['KeyQ'], lock: ['KeyZ'] }, { kick: ['Numpad6'] });
+      const free = (b) => { const all = ACTIONS.reduce((acc, a) => acc.concat(b[a]), []); return new Set(all).size === all.length && ACTIONS.every((a) => b[a].length >= 1); };
+      const fallback = a1.punch[0] === 'KeyL' && a1.defend[0] !== 'KeyL' && a1.lock[0] === 'KeyZ' && a2.kick[0] === 'Numpad6' && a2.defend[0] !== 'Numpad6' && free(a1) && free(a2);   // a key the player moved onto L or Numpad6 wins over the new default
+      [a1, a2] = run({}, { punch: ['KeyL'] });
+      const p2Kept = a2.punch[0] === 'KeyL' && a1.defend[0] !== 'KeyL' && free(a1);   // P2's key from before Defend existed stays with P2
+      Store.set(KEY_BINDINGS, JSON.stringify({ revision: 2, lk: ['KeyU'], blockHigh: ['KeyK'] })); Store.remove(KEY_BINDINGS_P2);
+      Keymap.init(); Keymap2.init();
+      const olderSave = Keymap.bindings.kick[0] === 'KeyU' && Keymap.bindings.defend[0] === 'KeyK';   // a revision-2 High block on K keeps Kick on its old U
+      raw.forEach((value, i) => { const storeKey = KEYMAPS[i].storeKey; if (value === null) Store.remove(storeKey); else Store.set(storeKey, value); });
+      KEYMAPS.forEach((k, i) => { k.bindings = JSON.parse(keep[i]); });
+      Inputs.rebuildMaps();
+      return carried && lowDropped && fallback && p2Kept && olderSave ? true : JSON.stringify({ carried, lowDropped, fallback, p2Kept, olderSave, a1, a2 });
+    });
+    test('Controls: every action has a key for P1 and P2, the defaults have no conflicts, the old actions are gone', () => {
+      const list = (defaults) => ACTIONS.reduce((acc, a) => acc.concat(defaults[a]), []);
+      const unique = (all) => new Set(all).size === all.length;
+      const p1 = list(DEFAULT_KEYS), p2 = list(DEFAULT_KEYS_P2);
+      const p1Spares = ACTIONS.filter((a) => a !== 'pause').map((a) => DEFAULT_KEYS[a][1]).filter(Boolean);   // P1's spare arrows switch off in Versus
+      const p1Main = p1.filter((c) => !p1Spares.includes(c));
+      const everyAction = ACTIONS.every((a) => DEFAULT_KEYS[a].length >= 1 && DEFAULT_KEYS_P2[a].length >= 1 && DEFAULT_KEYS[a].concat(DEFAULT_KEYS_P2[a]).every((c) => BINDABLE_CODE.test(c) || c === 'Escape') && ACTION_LABELS[a] && GAMEPAD_LABELS[a] && TOUCH_LABELS[a]);   // Escape is pause's reserved key
+      const noClash = unique(p1) && unique(p2) && p2.every((c) => !p1Main.includes(c)) && Object.keys(DEFAULT_KEYS).length === ACTIONS.length && Object.keys(DEFAULT_KEYS_P2).length === ACTIONS.length;
+      const list13 = ACTIONS.length === 13 && ['defend', 'use', 'lock'].every((a) => ACTIONS.includes(a)) && ['blockHigh', 'blockLow', 'dash', 'strong', 'height'].every((a) => !ACTIONS.includes(a));
+      const exact = DEFAULT_KEYS.defend[0] === 'KeyL' && DEFAULT_KEYS.use[0] === 'KeyE' && DEFAULT_KEYS.lock[0] === 'KeyQ' && DEFAULT_KEYS_P2.defend[0] === 'Numpad6' && DEFAULT_KEYS_P2.use[0] === 'Numpad1' && DEFAULT_KEYS_P2.lock[0] === 'Numpad2';
+      const live = KEYMAPS.every((k) => ACTIONS.every((a) => k.bindings[a].length >= 1) && unique(ACTIONS.reduce((acc, a) => acc.concat(k.bindings[a]), [])));
+      const r = { everyAction, noClash, list13, exact, live };
+      return Object.values(r).every(Boolean) ? true : JSON.stringify(r);
+    });
+    test('Gamepad: every fight action has a button, no button has two fight meanings, L3 does nothing, menus still read buttons 4 to 7', () => {
+      const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
+      const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons };
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
+      const f = new Fighter(ROSTER_BY_ID.kai, 0), o = new Fighter(ROSTER_BY_ID.mara, 1), it = makeIntent();
+      let r;
+      try {
+        const owner = {}; let shared = false;
+        for (const action in PAD_BUTTONS) for (const button of PAD_BUTTONS[action]) { if (owner[button]) shared = true; owner[button] = action; }
+        const stickActions = ['up', 'down', 'left', 'right', 'jump', 'crouch'];   // the stick and D-pad
+        const covered = ACTIONS.every((a) => stickActions.includes(a) || a in PAD_BUTTONS) && Object.keys(PAD_BUTTONS).every((a) => ACTIONS.includes(a));
+        const reserved = [PAD_SELECT_BUTTON, 10, 12, 13, 14, 15].every((b) => !owner[b]);   // Select, L3 and the D-pad are not fight buttons
+        const intentOf = (button) => {
+          Input.reset(); Input.releaseAll(); Input.lastDevice = 'gamepad';
+          buttons[button].pressed = true; Input.update(); Input.fillIntent(it, f, o);
+          const got = ['punch', 'kick', 'defend', 'grapple', 'use', 'lock', 'jump'].filter((a) => it[a]);
+          const raw = ['menuL1', 'menuR1', 'menuL2', 'menuR2'].filter((k) => Input.padHeld[k]);
+          buttons[button].pressed = false; Input.update(); Input.fillIntent(it, f, o);
+          return { got, raw };
+        };
+        const meaning = { punch: 'punch', kick: 'kick', defend: 'defend', grapple: 'grapple', use: 'use', lock: 'lock' };
+        const problems = [];
+        for (const action in meaning) for (const button of PAD_BUTTONS[action]) { const g = intentOf(button).got; if (g.join() !== meaning[action]) problems.push('button ' + button + ' -> ' + g.join()); }
+        const l3 = intentOf(10).got.length === 0;
+        const menus = [4, 5, 6, 7].every((b, i) => intentOf(b).raw.join() === ['menuL1', 'menuR1', 'menuL2', 'menuR2'][i]);
+        const res = { shared: !shared, covered, reserved, buttons: !problems.length, l3, menus };
+        r = Object.values(res).every(Boolean) ? true : JSON.stringify({ res, problems });
+      } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+      }
+      return r;
+    });
+    test('Controls change notice: an older progress save shows the controls card and the toast once, a new player gets neither', () => {
+      const raw = Store.get(KEY_PROGRESS), keep = JSON.parse(JSON.stringify(Progress.d));
+      Store.set(KEY_PROGRESS, JSON.stringify({ wins: 3, seenControls: true }));   // 1.0.0: no controls revision
+      controlsChanged = false;
+      Progress.init();
+      const reset = Progress.d.seenControls === false && Progress.d.wins === 3 && Progress.d.controlsRevision === KEYS_REVISION && controlsChanged;
+      const stored = JSON.parse(Store.get(KEY_PROGRESS)).controlsRevision === KEYS_REVISION;
+      const keepToast = UI.toast, shown = [];
+      UI.toast = (msg) => shown.push(msg);
+      const toast = UI.announceControlsChange() && !UI.announceControlsChange() && shown.join() === 'Controls changed: see Controls';   // one toast, then the flag is clear
+      UI.toast = keepToast;
+      Progress.d.seenControls = true; Progress.save();                            // the card was shown
+      Progress.init();
+      const once = Progress.d.seenControls === true && !controlsChanged;           // the next load shows neither
+      Store.remove(KEY_PROGRESS);
+      Progress.init();
+      const fresh = Progress.d.seenControls === false && !controlsChanged;         // a new player has nothing to be told about
+      if (raw === null) Store.remove(KEY_PROGRESS); else Store.set(KEY_PROGRESS, raw);
+      Progress.d = keep;
+      return reset && stored && toast && once && fresh ? true : JSON.stringify({ reset, stored, toast, once, fresh });
     });
     test('Key remapping rejects conflicts and invalid keys', () => {
       const keep = JSON.stringify(Keymap.bindings);
@@ -9005,11 +9141,11 @@ const SelfTest = {
       Input2.analog.fwd = 0; Input2.analog.side = -1; Input2.fillIntent(it, f, null);
       const toward = it.fwd > 0.99;
       Input2.reset(); Input2.press('right'); Input2.press('right'); Input2.fillIntent(it, f, null);
-      const backDash = it.dash && it.fwd < 0;
+      const awayDoesNothing = !it.sidestep && Input2.runDir === null;   // a double tap away from the opponent does nothing (the move itself is still held)
       Input2.analog.side = 0; Input2.reset();
       Settings.v.movement = keep;
       Camera.dirRight[0] = kr[0]; Camera.dirRight[1] = kr[1]; Camera.dirFwd[0] = kf[0]; Camera.dirFwd[1] = kf[1];
-      return toward && backDash ? true : JSON.stringify({ toward, backDash });
+      return toward && awayDoesNothing ? true : JSON.stringify({ toward, awayDoesNothing });
     });
     test('P2 key bindings: no key is shared with P1, P2 gives way when P1 takes a key back', () => {
       const raw = [Store.get(KEY_BINDINGS), Store.get(KEY_BINDINGS_P2)], keep = KEYMAPS.map((k) => JSON.stringify(k.bindings));
@@ -9065,17 +9201,19 @@ const SelfTest = {
       for (let i = 0; i < 6; i++) { const m = mk({}); self.run(m, 5); m.dispose(); }
       return Events.count() === before ? true : before + ' -> ' + Events.count();
     });
-    test('Dashes need full stamina, a forward dash has no invulnerability', () => {
-      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.dash = true; if (mm.tick === 3) it.sidestep = 1; });
+    test('Sidestep needs its full stamina cost and has no invulnerability; the Dash state is gone', () => {
+      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 3) it.sidestep = 1; });
       self.place(m, 4); m.fighters[0].stam = SIDESTEP_COST / 2;   // half the cost used to be enough
       let tired = true;
-      for (let i = 0; i < 30; i++) { m.step(); if (m.fighters[0].state === S.DASH || m.fighters[0].state === S.SIDESTEP) tired = false; }
+      for (let i = 0; i < 30; i++) { m.step(); if (m.fighters[0].state === S.SIDESTEP) tired = false; }
       m.dispose();
-      const m2 = mk({}, (it, f, o, mm) => { if (mm.tick === 2) { it.dash = true; it.fwd = 1; } });
+      const m2 = mk({}, (it, f, o, mm) => { if (mm.tick === 3) it.sidestep = 1; });
       self.place(m2, 4);
-      let invulnerable = false;
-      for (let i = 0; i < 20; i++) { m2.step(); if (m2.fighters[0].invuln > 0) invulnerable = true; }
-      return tired && !invulnerable ? true : 'tired ' + tired + ' forward dash invulnerable ' + invulnerable;
+      let stepped = false, invulnerable = false;
+      for (let i = 0; i < 30; i++) { m2.step(); if (m2.fighters[0].state === S.SIDESTEP) stepped = true; if (m2.fighters[0].invuln > 0) invulnerable = true; }
+      m2.dispose();
+      const gone = !('DASH' in S) && !('DASH' in TRANSITIONS) && !('DASH' in STATE_LABEL);
+      return tired && stepped && !invulnerable && gone ? true : 'tired ' + tired + ' stepped ' + stepped + ' invulnerable ' + invulnerable + ' gone ' + gone;
     });
     test('Sidestep evades a slow linear attack', () => {
       const log = self.capture(['hit']);
@@ -9842,7 +9980,7 @@ const SelfTest = {
       const check = (label) => { f.skeleton(0, f.liftY, 0, 0.3, false); if (!finitePose(f)) bad.push(label); };
       for (const st of Object.values(S)) {
         if (st === S.ATTACK || st === S.GRAPPLE) continue;
-        f.state = st; f.reactDur = 18; f.dashKind = 1; f.sideDir = 1;
+        f.state = st; f.reactDur = 18; f.sideDir = 1;
         if (st === S.CLINCH) { f.partner = other; other.state = S.GRAPPLE; other.partner = f; }
         for (let tick = 0; tick < 70; tick += 7) { f.stateTicks = tick; f.animT = tick / 60; f.computePose(); check(st + '@' + tick); }
         f.partner = null;
