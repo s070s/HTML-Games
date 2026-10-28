@@ -1173,6 +1173,7 @@ Rules:
 - Strings are at most 3 steps. Crouch is read at each press; the crouch strings below need crouch held for every step, otherwise the standing table is used from that step.
 - Inside a string the step order is fixed by the table, so a string may go from a strong move to a lighter one (P K P). Outside strings the existing tier rule (Combat.canChain: never from stronger to lighter) stays for buffered chains.
 - Strong steps keep their costs: more stamina, longer recovery and the whiff penalty (whiffExtra).
+- Owner rule (2026-10-28): every strong string step breaks a block outright (stun), whatever the defender's stamina; only a perfect block stops it. Normal moves still break a guard only by draining stamina. P3-02 and P3-10 tune the stun length and damage around this.
 - Counter, running (Running Lunge), air and grab moves are unchanged and are not part of strings.
 - The AI and the Training dummy press the same strings (no more `it.strong`), so players and AI have the same move set.
 - Implementation direction (P2-10): the input layer sends punch / kick plus height; the Fighter keeps its own string state (it knows whether the last move made contact) and picks the move from one STRINGS table. This replaces MOVE_BY_INPUT's strong key and the hand / foot alternation of nextInString.
