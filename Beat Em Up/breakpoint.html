@@ -192,7 +192,6 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 #touch .tb,#touch #stickBase{position:absolute;pointer-events:auto;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none}
 .tb{width:var(--tbs);height:var(--tbs);border-radius:50%;background:rgba(18,28,50,.55);border:3px solid rgba(255,255,255,.6);color:#fff;font:800 calc(var(--tbs)*.26)/1 "Segoe UI",system-ui,sans-serif;display:flex;align-items:center;justify-content:center;text-align:center;letter-spacing:.02em}
 .tb.on{background:rgba(52,220,255,.55)}
-.tb.charged{background:rgba(255,92,147,.7);border-color:#fff;box-shadow:0 0 0 4px var(--a2)}
 .tb.lg{width:calc(var(--tbs)*1.25);height:calc(var(--tbs)*1.25);font-size:calc(var(--tbs)*.24)}
 .tb.sm{width:calc(var(--tbs)*.8);height:calc(var(--tbs)*.8);font-size:calc(var(--tbs)*.17)}
 /* the stick stays 20px clear of the left edge, where Safari's swipe-back gesture starts */
@@ -486,11 +485,11 @@ const KEY_SETTINGS = 'breakpoint.v1.settings';
 const SETTINGS_REVISION = 2;
 const KEY_PROGRESS = 'breakpoint.v1.progress';
 const KEY_BINDINGS = 'breakpoint.v1.keys';
-// Revision 2 moved Strong / Height / Dash off Shift, Ctrl and Alt (browser shortcuts, Sticky Keys).
+// Revision 2 moved Dash (and the since removed Strong / Height) off Shift, Ctrl and Alt (browser shortcuts, Sticky Keys).
 // Revision 3 merged the left / right punch and kick keys into one Punch and one Kick.
 const KEYS_REVISION = 3;
 const MERGED_ATTACKS_REVISION = 3;
-const OLD_DEFAULT_KEYS = { strong: 'ShiftLeft', height: 'ControlLeft', dash: 'AltLeft' };
+const OLD_DEFAULT_KEYS = { dash: 'AltLeft' };
 const MERGED_ATTACKS = { punch: 'lp', kick: 'lk' };                                // new action: the old left-side action it replaces
 const OLD_ATTACK_DEFAULTS = [{ lp: 'KeyJ', lk: 'KeyU' }, { lp: 'Numpad4', lk: 'Numpad7' }];   // P1, P2
 
@@ -571,26 +570,26 @@ const Settings = {
 };
 
 /* ---------- key bindings (remappable) ---------- */
-const ACTIONS = ['up', 'down', 'left', 'right', 'punch', 'kick', 'strong', 'height', 'blockHigh', 'blockLow', 'jump', 'crouch', 'grapple', 'dash', 'pause'];
+const ACTIONS = ['up', 'down', 'left', 'right', 'punch', 'kick', 'blockHigh', 'blockLow', 'jump', 'crouch', 'grapple', 'dash', 'pause'];
 const ACTION_LABELS = {
   up: 'Move toward opponent', down: 'Move away', left: 'Circle left', right: 'Circle right',
   punch: 'Punch (Square / Triangle)', kick: 'Kick (Cross / Circle)',
-  strong: 'Strong modifier (L1)', height: 'Height modifier (L2)', blockHigh: 'High block (R1)', blockLow: 'Low block (R2)',
+  blockHigh: 'High block (R1)', blockLow: 'Low block (R2)',
   jump: 'Jump', crouch: 'Crouch', grapple: 'Grapple / escape', dash: 'Dash / quick recovery (L3)', pause: 'Pause (Start)',
 };
 const DEFAULT_KEYS = {
   up: ['KeyW', 'ArrowUp'], down: ['KeyS', 'ArrowDown'], left: ['KeyA', 'ArrowLeft'], right: ['KeyD', 'ArrowRight'],
   punch: ['KeyJ'], kick: ['KeyK'],
-  strong: ['KeyL'], height: ['KeyO'], blockHigh: ['KeyQ'], blockLow: ['KeyE'],   // modifiers next to the attack keys; arrows / numpad stay free
+  blockHigh: ['KeyQ'], blockLow: ['KeyE'],   // arrows / numpad stay free
   jump: ['Space'], crouch: ['KeyC'], grapple: ['KeyG'], dash: ['KeyF'], pause: ['Escape', 'KeyP'],
 };
 const FALLBACK_KEYS = ['KeyZ', 'KeyX', 'KeyV', 'KeyB', 'KeyN', 'KeyM', 'KeyF', 'KeyH', 'KeyT', 'KeyY', 'KeyO', 'KeyL', 'KeyP'];
-// Player 2 (Versus): arrows move, the numpad mirrors P1's right hand (punch, kick and Strong in a row, Height above Strong).
+// Player 2 (Versus): arrows move, the numpad mirrors P1's right hand (punch and kick in a row).
 const KEY_BINDINGS_P2 = 'breakpoint.v1.keys2';
 const DEFAULT_KEYS_P2 = {
   up: ['ArrowUp'], down: ['ArrowDown'], left: ['ArrowLeft'], right: ['ArrowRight'],
   punch: ['Numpad4'], kick: ['Numpad5'],
-  strong: ['Numpad6'], height: ['Numpad9'], blockHigh: ['Numpad1'], blockLow: ['Numpad2'],
+  blockHigh: ['Numpad1'], blockLow: ['Numpad2'],
   jump: ['Numpad0'], crouch: ['NumpadDecimal'], grapple: ['Numpad3'], dash: ['NumpadAdd'], pause: ['NumpadEnter'],
 };
 const FALLBACK_KEYS_P2 = ['NumpadMultiply', 'NumpadDivide', 'Comma', 'Period', 'Slash', 'Semicolon', 'Quote', 'BracketLeft', 'BracketRight', 'Backslash', 'Minus', 'Equal'];
@@ -767,41 +766,31 @@ const PAD_JUMP_TAP_STRENGTH = 0.9;    // a stick tap must be pushed this far up 
 const warnedPadIds = new Set();   // the non-standard layout toast shows once per controller id per session
 const PAD_SELECT_HOLD_MS = 500;       // Select held this long = reset positions in Training
 const TOUCH_RUN_TICKS = 27;           // touch stick held fully toward the opponent this long = run
-const TOUCH_CHARGE_MS = 220;          // touch PUNCH / KICK held at least this long, then released = strong attack
-const ATTACK_STRING_SECONDS = 0.8;    // a second Punch / Kick within this time uses the other hand / foot (every device)
+const ATTACK_STRING_SECONDS = 0.8;    // a Punch / Kick press this soon after the previous string press, with contact, continues the string
+const ATTACK_STRING_TICKS = Math.round(ATTACK_STRING_SECONDS / FIXED_DT);   // counted in simulation ticks, so the headless sim and the AI stay deterministic
+const ATTACK_QUEUE_MAX = 3;           // Punch / Kick presses kept in press order until the fight reads them (hit-stop pauses reading)
 
-/* Every device has one Punch and one Kick: this picks the hand or foot. Hands and feet alternate within a string
-   (left first: quicker; then right: harder); the running lunge is the right punch; in a clinch a plain punch is the
-   knee and a strong one the elbow. */
-function attackLimb(kind, alternate, strong, self) {
-  if (kind === 'kick') return alternate ? 'rk' : 'lk';
-  if (self && self.state === S.GRAPPLE) return strong ? 'rp' : 'lp';
-  const running = !!self && self.state === S.RUN;
-  return alternate || running ? 'rp' : 'lp';
-}
-/* Touch has no Height modifier, so the attack goes where it can land: body shots against a crouching or
-   low-guarding opponent (high attacks pass over them), low kicks under a high guard. */
-function touchAttackChoice(kind, alternate, strong, self, opp) {
+/* Touch: DUCK held gives the low version; otherwise the attack goes where it can land. The move comes from the
+   fighter's attack string (Fighter.pressMove): a body shot against a crouching or low-guarding opponent when the
+   standing move would pass over them (high attacks), a low kick under a high guard. */
+function touchAttackHeight(kind, self, opp) {
+  if (!self || self.counterWindow > 0 || self.state === S.GRAPPLE || (self.state === S.RUN && kind === 'punch')) return false;   // a plain press after a perfect block is the counter attack; a running punch is the lunge
   const os = opp ? opp.state : S.IDLE;
   const crouched = os === S.CROUCH || os === S.BLOCK_L;
-  const counter = !!self && self.counterWindow > 0;   // a plain press after a perfect block is the counter attack
-  const btn = attackLimb(kind, alternate, strong, self);
-  if (self && self.state === S.GRAPPLE && kind === 'punch') return { btn, height: false };
-  if (kind === 'punch') return { btn, height: crouched && !counter && !(self && self.state === S.RUN) };
-  if (os === S.BLOCK_H && !counter) return { btn: 'lk', height: true };
-  return { btn, height: crouched && alternate && !counter };   // the left kick is a mid already
+  if (crouched) return self.pressMove(kind, false).h === 'H';
+  return kind === 'kick' && os === S.BLOCK_H && self.pressMove(kind, true).h === 'L';
 }
 
 function makeIntent() {
   return {
-    fwd: 0, side: 0, run: false, crouch: false, blockH: false, blockL: false, strong: false, height: false,
-    jump: false, lp: false, rp: false, lk: false, rk: false, grapple: false, dash: false,
+    fwd: 0, side: 0, run: false, crouch: false, blockH: false, blockL: false, height: false,
+    jump: false, punch: false, kick: false, grapple: false, dash: false,
     sidestep: 0, grapDir: 'fwd', noParry: false,
   };
 }
 function clearIntent(it) {
   it.fwd = 0; it.side = 0; it.run = false; it.crouch = false; it.blockH = false; it.blockL = false;
-  it.strong = false; it.height = false; it.jump = false; it.lp = false; it.rp = false; it.lk = false; it.rk = false;
+  it.height = false; it.jump = false; it.punch = false; it.kick = false;
   it.grapple = false; it.dash = false; it.sidestep = 0; it.grapDir = 'fwd'; it.noParry = false;
   return it;
 }
@@ -820,6 +809,7 @@ class PlayerInput {
     this.touchHeld = {};
     this.held = {};
     this.latch = {};
+    this.attackQueue = [];
     this.lastPress = {};
     this.runDir = null;              // direction key that armed running (double-tap toward the opponent, then hold)
     this.tmpRel = { fwd: 0, side: 0 };
@@ -838,9 +828,6 @@ class PlayerInput {
     this.touchStick = { x: 0, y: 0, active: false };
     this.touchDir = { up: false, down: false, left: false, right: false };
     this.touchRunTicks = 0;
-    this.touchDownAt = {};           // PUNCH / KICK press times (hold length decides strong)
-    this.touchAttack = null;         // released PUNCH / KICK waiting for the next tick: { kind, strong }
-    this.attackString = { punch: { at: -10, alt: false }, kick: { at: -10, alt: false } };   // shared by keys, pad and touch
     this.lastDevice = 'keyboard';
     this.analog = { fwd: 0, side: 0 };
   }
@@ -864,12 +851,11 @@ class PlayerInput {
   releaseAll() {
     this.kb.clear();
     this.touchHeld = {};
-    this.touchDownAt = {};
-    this.touchAttack = null;
     this.touchStick.x = this.touchStick.y = 0;
     this.touchStick.active = false;
     this.touchDir.up = this.touchDir.down = this.touchDir.left = this.touchDir.right = false;
     this.latch = {};
+    this.attackQueue.length = 0;
     this.runDir = null;
     this.releasePad();
   }
@@ -884,12 +870,13 @@ class PlayerInput {
     this.padInfo.connected = false;
     this.flick = null;
   }
-  reset() { this.latch = {}; this.lastPress = {}; this.runDir = null; this.flick = null; }
+  reset() { this.latch = {}; this.attackQueue.length = 0; this.lastPress = {}; this.runDir = null; this.flick = null; }
 
   /* A press edge from any device. A double tap on a direction is latched and resolved in fillIntent
      (run / back-dash / sidestep), because its meaning depends on the movement mode and facing. */
   press(action) {
     this.latch[action] = true;
+    if ((action === 'punch' || action === 'kick') && this.attackQueue.length < ATTACK_QUEUE_MAX) this.attackQueue.push(action);
     const now = performance.now() / 1000;
     const last = this.lastPress[action] || -10;
     this.lastPress[action] = now;
@@ -898,41 +885,24 @@ class PlayerInput {
   }
   take(action) { const v = !!this.latch[action]; this.latch[action] = false; return v; }
   takeAny(actions) { let any = false; for (const a of actions) any = this.take(a) || any; return any; }
+  /* The oldest queued Punch / Kick press, one per fight tick, so fast presses (or presses during hit-stop) keep their order. */
+  takeAttack() {
+    const kind = this.attackQueue.shift() || null;
+    for (const k of ['punch', 'kick']) if (!this.attackQueue.includes(k)) this.latch[k] = false;
+    return kind;
+  }
 
+  /* Every button, PUNCH and KICK included, fires on press: no hold. */
   touchSet(action, down) {
     this.lastDevice = 'touch';
-    if (action === 'punch' || action === 'kick') { this.touchStrike(action, down); return; }
     if (down && !this.touchHeld[action]) this.press(action);
     this.touchHeld[action] = down;
   }
-  /* PUNCH / KICK fire on release: a tap is the quick attack, a hold is the strong one. */
-  touchStrike(kind, down) {
-    const now = performance.now();
-    if (down) { if (!this.touchHeld[kind]) this.touchDownAt[kind] = now; this.touchHeld[kind] = true; return; }
-    if (!this.touchHeld[kind]) return;
-    this.touchHeld[kind] = false;
-    this.touchAttack = { kind, strong: now - (this.touchDownAt[kind] || now) >= TOUCH_CHARGE_MS };
-  }
-  /* Whether this Punch / Kick uses the other hand / foot: true for every second press of a quick string. */
-  nextInString(kind) {
-    const string = this.attackString[kind];
-    const now = performance.now() / 1000;
-    string.alt = now - string.at < ATTACK_STRING_SECONDS ? !string.alt : false;
-    string.at = now;
-    return string.alt;
-  }
-  /* The queued touch attack as a button press (see touchAttackChoice). */
-  applyTouchAttack(it, self, opp) {
-    const ta = this.touchAttack;
-    this.touchAttack = null;
-    const pick = touchAttackChoice(ta.kind, this.nextInString(ta.kind), ta.strong, self, opp);
-    it[pick.btn] = true;
-    it.strong = ta.strong;
-    it.height = pick.height;
-  }
-  /* A Punch / Kick key or pad press: the held Strong / Height modifiers pick the move, attackLimb the hand or foot. */
-  applyButtonAttack(kind, it, self) {
-    it[attackLimb(kind, this.nextInString(kind), it.strong, self)] = true;
+  /* A Punch / Kick press from any device. The fighter's attack string picks the move; the press only carries the
+     height: Crouch held at the press = the low version (touch without DUCK: the automatic choice). */
+  applyAttackPress(kind, it, self, opp) {
+    it[kind] = true;
+    it.height = it.crouch || (this.lastDevice === 'touch' && touchAttackHeight(kind, self, opp));
   }
   touchStickSet(x, y, active) {
     this.touchStick.x = x; this.touchStick.y = y; this.touchStick.active = active;
@@ -966,10 +936,11 @@ class PlayerInput {
     }
     const down = (i) => !!(pad.buttons[i] && (pad.buttons[i].pressed || pad.buttons[i].value > 0.5));
     // both punch buttons punch and both kick buttons kick; Cross / Circle also confirm / go back in menus
-    const map = { punch: [2, 3], kick: [0, 1], strong: [4], blockHigh: [5], height: [6], blockLow: [7], dash: [10], grapple: [11], pause: [9] };
+    const map = { punch: [2, 3], kick: [0, 1], blockHigh: [5], blockLow: [7], dash: [10], grapple: [11], pause: [9] };
     this.padHeld.menuOk = down(0);
     this.padHeld.menuBack = down(1);
-    let anyButton = false;
+    this.padHeld.menuL1 = down(4); this.padHeld.menuR1 = down(5); this.padHeld.menuL2 = down(6); this.padHeld.menuR2 = down(7);   // raw shoulder buttons: creator tabs and preview turn
+    let anyButton = this.padHeld.menuL1 || this.padHeld.menuL2;   // pad buttons without a fight action still count as pad use
     for (const action in map) {
       const isDown = map[action].some((button) => down(button));
       if (isDown && !this.padHeld[action]) { this.press(action); }
@@ -1064,13 +1035,10 @@ class PlayerInput {
     it.blockL = !!h.blockLow;
     if (it.blockL) it.blockH = false; // simultaneous conflicting block inputs: low wins
     it.crouch = !!h.crouch;
-    it.strong = !!h.strong;
-    it.height = !!h.height;
     it.jump = this.take('jump');
     if (it.jump && it.crouch) { it.jump = false; it.crouch = false; } // conflicting vertical inputs cancel
-    const kick = this.take('kick'), punch = this.take('punch');   // both at once: the kick, like the buffer's priority
-    if (kick) this.applyButtonAttack('kick', it, self); else if (punch) this.applyButtonAttack('punch', it, self);
-    if (this.touchAttack) this.applyTouchAttack(it, self, opp);
+    const attack = this.takeAttack();
+    if (attack) this.applyAttackPress(attack, it, self, opp);
     if (this.touchHeld.block) { if (it.crouch) it.blockL = true; else it.blockH = true; }   // touch BLOCK: with DUCK held it guards low
     it.dash = this.take('dash');
     it.grapple = this.take('grapple');
@@ -1085,8 +1053,8 @@ class PlayerInput {
     // touch run: stick held fully toward the opponent (after the screen-direction conversion) for a moment
     if (this.touchStick.active && it.fwd > 0.92) this.touchRunTicks++; else this.touchRunTicks = 0;
     it.run = (this.runDir !== null && !!h[this.runDir]) || this.touchRunTicks > TOUCH_RUN_TICKS;
-    // modifiers never fire on their own; strong/height edges are discarded
-    this.latch.strong = false; this.latch.height = false; this.latch.blockHigh = false; this.latch.blockLow = false;
+    // modifiers never fire on their own; block edges are discarded
+    this.latch.blockHigh = false; this.latch.blockLow = false;
     this.latch.crouch = false; this.latch.up = false; this.latch.down = false; this.latch.left = false; this.latch.right = false;
     if (it.grapple) it.grapDir = this.grappleDirection(it, self, opp);
     if (!it.grapple && this.flick) this.flick = null;
@@ -1129,7 +1097,7 @@ class PlayerInput {
 }
 const Input = new PlayerInput(0, Keymap);
 const Input2 = new PlayerInput(1, Keymap2);
-const MENU_PAD_BUTTONS = ['menuOk', 'menuBack', 'strong', 'blockHigh', 'height', 'blockLow'];   // menu confirm / back, creator tabs and turning
+const MENU_PAD_BUTTONS = ['menuOk', 'menuBack', 'menuL1', 'menuR1', 'menuL2', 'menuR2'];   // menu confirm / back, creator tabs (L1 / R1) and turning (L2 / R2): raw pad buttons
 /* Shared devices: window listeners, key capture for remapping, and which player a key or a pad belongs to. */
 const Inputs = {
   players: [Input, Input2],
@@ -2647,6 +2615,7 @@ const STATE_LABEL = {
 const TERMINAL_STATES = [S.KO, S.VICTORY, S.DEFEAT];
 const REACTION_STATES = [S.HIT, S.STAGGER, S.STUN, S.CLINCH, S.THROWN, S.DOWN];
 const FREE_SET = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L];
+const STRING_BREAK_STATES = [...REACTION_STATES, S.GRAPPLE, S.GETUP, ...TERMINAL_STATES];   // entering one of these ends the fighter's attack string
 /* Explicit transition table for voluntary changes. Reactions (hit, stagger, stun, clinch, thrown, down, KO)
    and round-end poses are allowed from any non-terminal state; see canTransition(). */
 const TRANSITIONS = {
@@ -2888,12 +2857,25 @@ const GRIP_POSES = {
   rear(p) { p[J.shLx] = p[J.shRx] = 1.15; p[J.shLz] = p[J.shRz] = -0.4; p[J.elL] = p[J.elR] = 1.5; p[J.torsoLean] = 0.25; p[J.knL] = 0.4; p[J.knR] = 0.4; },
   low(p) { p[J.torsoLean] = 0.85; p[J.knL] = 1.1; p[J.knR] = 0.8; p[J.hipLx] = 0.9; p[J.shLx] = p[J.shRx] = 0.8; p[J.shLz] = p[J.shRz] = -0.2; p[J.elL] = p[J.elR] = 1.2; p[J.headX] = -0.2; },
 };
-const MOVE_BY_INPUT = {};
-for (const id in ATTACKS) {
-  const m = ATTACKS[id];
-  if (m.ctx) continue;
-  MOVE_BY_INPUT[m.btn + (m.strong ? 'S' : '') + (m.height ? 'H' : '')] = m;
-}
+/* Attack strings (P2-01 Appendix C; P3-10 audits every row). A Punch (P) or Kick (K) press plays the next step of the
+   string typed so far, at most 3 steps. Rows are keyed by the presses; step n is the move of press n. Standing rows are
+   the default; the crouch rows apply while Crouch was held at every press of the string. Every strong (tier 3) move
+   is the step of exactly one string, so it can only be reached through a string. */
+const STRINGS = {
+  stand: {
+    P: ['jab'], PP: ['jab', 'cross'], PPP: ['jab', 'cross', 'hook'],
+    PK: ['jab', 'heavy_body_kick'], PKP: ['jab', 'heavy_body_kick', 'cross'], PPK: ['jab', 'cross', 'heavy_front'],
+    K: ['front_kick'], KK: ['front_kick', 'roundhouse'], KKK: ['front_kick', 'roundhouse', 'heavy_roundhouse'],
+    KP: ['front_kick', 'jab'], KPP: ['front_kick', 'jab', 'heavy_uppercut'], KKP: ['front_kick', 'roundhouse', 'power_jab'],
+  },
+  crouch: {
+    P: ['body_jab'], PP: ['body_jab', 'uppercut'], PPP: ['body_jab', 'uppercut', 'gut_punch'],
+    K: ['low_kick'], KK: ['low_kick', 'body_kick'], KKK: ['low_kick', 'body_kick', 'sweep'],
+  },
+};
+const STRING_MAX_STEPS = 3;
+/* The row a string typed so far (keys such as 'PK') plays, or null when no row has those presses. */
+function stringRow(keys, low) { return (low && STRINGS.crouch[keys]) || STRINGS.stand[keys] || null; }
 const ALL_MOVES = Object.keys(ATTACKS).map((k) => ATTACKS[k]);
 
 /* Timing constants (ticks unless noted) */
@@ -3200,7 +3182,8 @@ class Fighter {
     this.stam = this.maxStam * (stamFrac === undefined ? 1 : stamFrac);
     this.state = S.IDLE; this.stateTicks = 0; this.age = 0;
     this.lock = 0; this.invuln = 0; this.exhaust = 0; this.noRegen = 0; this.counterWindow = 0; this.blockStun = 0; this.blockRead = null; this.blockFresh = false; this.lastBlockAt = -PERFECT_BLOCK_COOLDOWN; this.guardPressure = 0;
-    this.buffer = null;
+    this.buffer = null; this.bufferNext = null; this.throwPressed = false;
+    this.resetString();
     this.move = null; this.moveTick = 0; this.moveId = 0; this.hitList = []; this.moveConnected = false; this.whiffExtra = 0; this.chainCount = 0; this.exhaustedMove = false;
     this.mStartup = 1; this.mActive = 1; this.mRecovery = 1; this.lastMoveId = ''; this.repeatCount = 0; this.repeatTimer = 0;
     this.comboHits = 0; this.comboDamage = 0; this.comboShow = 0; this.gotHits = 0; this.juggle = false; this.juggleCount = 0; this.calmTicks = 0;
@@ -3246,10 +3229,13 @@ class Fighter {
     this.blockFresh = blockEntry && this.age - this.lastBlockAt >= PERFECT_BLOCK_COOLDOWN;
     if (blockEntry) this.lastBlockAt = this.age;
     if (next === S.GETUP) this.invuln = Math.max(this.invuln, this.getupTicks() + 2);   // covers the whole get-up, cleared once standing
-    if (TERMINAL_STATES.includes(next) || next === S.CLINCH || next === S.GRAPPLE || next === S.THROWN) { this.buffer = null; }
+    if (TERMINAL_STATES.includes(next) || next === S.CLINCH || next === S.GRAPPLE || next === S.THROWN) { this.buffer = null; this.bufferNext = null; this.throwPressed = false; }
+    if (STRING_BREAK_STATES.includes(next)) this.resetString();
     if (next !== S.ATTACK && prev === S.ATTACK) this.move = null;
     return true;
   }
+  /* A string ends when this fighter is hit, grabbed, thrown, knocked down or out. */
+  resetString() { this.stringKeys = ''; this.stringLow = false; this.stringTick = -ATTACK_STRING_TICKS - 1; }
   to(next) { if (this.state !== next) this.setState(next); }
   faceOpponent(opp, maxTurn) {
     if (!opp) return;
@@ -3260,28 +3246,59 @@ class Fighter {
   /* ----- input buffering ----- */
   bufferInput(it) {
     const grab = it.grapple && this.state !== S.CLINCH && this.state !== S.GRAPPLE;   // in a clinch Grapple throws or escapes directly
-    const btn = it.rk ? 'rk' : it.rp ? 'rp' : it.lk ? 'lk' : it.lp ? 'lp' : grab ? 'grapple' : null; // simultaneous presses: rk > rp > lk > lp > grapple
-    if (btn) this.buffer = { btn, strong: it.strong, height: it.height, grapDir: it.grapDir || 'fwd', low: !!it.crouch, age: 0 };
-    else if (this.buffer) { this.buffer.age++; if (this.buffer.age > BUFFER_TICKS) this.buffer = null; }
+    const btn = it.kick ? 'kick' : it.punch ? 'punch' : grab ? 'grapple' : null; // simultaneous presses: kick > punch > grapple
+    // tick = the press time for the string window, height = Crouch held at the press
+    if (btn) {
+      const press = { btn, height: !!it.height, tick: this.age, grapDir: it.grapDir || 'fwd', low: !!it.crouch, age: 0 };
+      // a Punch / Kick press while another waits queues behind it, so a fast string keeps its order (P K P stays P K P)
+      if (this.buffer && this.buffer.btn !== 'grapple' && btn !== 'grapple') this.bufferNext = press;
+      else { this.buffer = press; this.bufferNext = null; }
+    } else if (this.buffer && !(this.state === S.ATTACK && this.moveTick <= this.mStartup + this.mActive)) {
+      // a press made before the current attack's hit frames are over waits for them: slow string steps keep the next press
+      this.buffer.age++; if (this.buffer.age > BUFFER_TICKS) this.shiftBuffer();
+    }
   }
-  resolveMove(buf, it) {
+  /* Drops the front buffered press; a queued one moves up and its buffer time starts now. */
+  shiftBuffer() {
+    this.buffer = this.bufferNext; this.bufferNext = null;
+    if (this.buffer) this.buffer.age = 0;
+  }
+  /* What a buffered press plays: { mv, keys, low, cont, tick }. keys is the attack string it belongs to ('' for context moves
+     that are not part of a string: air, counter, running lunge); cont = it continues a string (step 2 or 3). Pure: the
+     string state only changes in startAttack. */
+  resolveMove(buf) {
     if (buf.btn === 'grapple') return null;   // grabs start from tryBufferedAttack, never from a chain
-    const strong = buf.strong || it.strong, height = buf.height || it.height;
-    const punch = buf.btn === 'lp' || buf.btn === 'rp';
-    if (this.state === S.JUMP || this.airborne) return punch ? ATTACKS.jump_punch : ATTACKS.jump_kick;
-    if (this.counterWindow > 0 && !strong && !height) return punch ? ATTACKS.counter_strike : ATTACKS.counter_kick;   // modified presses keep their own move
-    if (this.state === S.RUN && buf.btn === 'rp') return ATTACKS.lunge;
-    return MOVE_BY_INPUT[buf.btn + (strong ? 'S' : '') + (height ? 'H' : '')] || null;
+    const punch = buf.btn === 'punch';
+    const context = (mv) => ({ mv, keys: '', low: false, cont: false, tick: buf.tick });
+    if (this.state === S.JUMP || this.airborne) return context(punch ? ATTACKS.jump_punch : ATTACKS.jump_kick);
+    if (this.counterWindow > 0 && !buf.height) return context(punch ? ATTACKS.counter_strike : ATTACKS.counter_kick);   // a Crouch press keeps its own move
+    if (this.state === S.RUN && punch) return context(ATTACKS.lunge);
+    return this.pickString(buf);
   }
+  /* The string step for a Punch / Kick press. It continues the string when it comes within ATTACK_STRING_TICKS of the
+     previous string press, the previous string move made contact (hit or block) and the string has a row for the new
+     press; otherwise it is step 1 of a new string. The crouch rows need Crouch held at every press. */
+  pickString(buf) {
+    const letter = buf.btn === 'punch' ? 'P' : 'K';
+    let keys = letter, low = buf.height;
+    const open = this.stringKeys !== '' && this.stringKeys.length < STRING_MAX_STEPS && this.moveConnected && buf.tick - this.stringTick <= ATTACK_STRING_TICKS;
+    const stillLow = this.stringLow && buf.height;
+    // a crouch string only continues on a crouch row (crouch P then crouch K starts over), so no strong move hides off the tables
+    const row = stillLow ? STRINGS.crouch[this.stringKeys + letter] : STRINGS.stand[this.stringKeys + letter];
+    if (open && row) { keys = this.stringKeys + letter; low = stillLow; }
+    return { mv: ATTACKS[stringRow(keys, low)[keys.length - 1]], keys, low, cont: keys.length > 1, tick: buf.tick };
+  }
+  /* The move a Punch / Kick press (Crouch held or not) would play right now. The AI and touch auto-height read it. */
+  pressMove(kind, height) { return this.resolveMove({ btn: kind, height, tick: this.age + 1 }).mv; }   // the press is buffered on the next update, one tick later
   tryBufferedAttack(it) {
     const buf = this.buffer;
     if (!buf) return false;
     if (buf.btn === 'grapple' && (this.state === S.JUMP || this.airborne)) return false;   // keep a grab press for the landing
-    this.buffer = null;
+    this.shiftBuffer();
     if (buf.btn === 'grapple') { this.grabDir = buf.grapDir; this.grabLow = buf.low || this.state === S.CROUCH; return this.startGrab(); }
-    const mv = this.resolveMove(buf, it);
-    if (!mv) return false;
-    this.startAttack(mv);
+    const pick = this.resolveMove(buf);
+    if (!pick) return false;
+    this.startAttack(pick.mv, pick);
     return true;
   }
   /* Fighters lead with the left side: lead limbs are quicker, rear limbs hit harder. */
@@ -3297,9 +3314,11 @@ class Fighter {
     if (this.exhaustedMove) m *= 0.6; else if (this.lowStamina) m *= 0.85;
     return m;
   }
-  startAttack(mv) {
+  /* pick = the string step this attack plays (see resolveMove); any other attack ends the string. */
+  startAttack(mv, pick) {
     const chained = this.state === S.ATTACK;
     if (!this.setState(S.ATTACK)) return false;
+    if (pick && pick.keys) { this.stringKeys = pick.keys; this.stringLow = pick.low; this.stringTick = pick.tick; } else this.resetString();
     if (mv.ctx === 'counter') this.counterWindow = 0;   // one counter per perfect block
     if (mv.ctx === 'air') this.airAttackUsed = true;    // one air attack per jump
     this.exhaustedMove = this.stam < mv.stam;
@@ -3337,10 +3356,10 @@ class Fighter {
     if (t === this.mStartup + 1) Events.emit('attackActive', { f: this, mv });
     const total = this.mStartup + this.mActive + this.mRecovery + this.whiffExtra;
     if (t === this.mStartup + this.mActive + 1 && !this.moveConnected && mv.tier === 3 && mv.type === 'strike') this.whiffExtra = 8; // recovery risk of strong moves
-    // chain into the next legal attack once this one connected (hit or block)
+    // chain into the next legal attack once this one connected (hit or block); the next step of an attack string may go from strong to light
     if (this.buffer && this.moveConnected && t > this.mStartup + 1 && t <= this.mStartup + this.mActive + Math.floor(this.mRecovery * 0.6)) {
-      const next = this.resolveMove(this.buffer, it);
-      if (next && Combat.canChain(mv, next, this)) { this.buffer = null; this.startAttack(next); return; }
+      const next = this.resolveMove(this.buffer);
+      if (next && (next.cont || Combat.canChain(mv, next.mv, this))) { this.shiftBuffer(); this.startAttack(next.mv, next); return; }
     }
     if (t >= total) {
       if (this.airborne) this.setState(S.JUMP); else this.setState(S.IDLE);
@@ -3523,29 +3542,29 @@ class Fighter {
       return;
     }
     this.throwAim = aimFromIntent(it) || this.grabDir;
+    if (it.grapple) this.throwPressed = true;   // a Grapple press in the first clinch ticks throws as soon as throws open
     if (this.clinchTick > 6) {
       const b = this.buffer;
-      const punch = !!b && (b.btn === 'lp' || b.btn === 'rp');
       const strikesLeft = this.clinchStrikes < CLINCH_STRIKE_MAX;
-      const waitForCooldown = punch && strikesLeft && this.clinchStrikeCd > 0;   // keep a strike press buffered until the cooldown ends
-      if (it.grapple) { this.buffer = null; this.startThrow(it, it.strong); }
+      const waitForCooldown = strikesLeft && this.clinchStrikeCd > 0;   // keep a strike press buffered until the cooldown ends
+      if (this.throwPressed) { this.throwPressed = false; this.buffer = null; this.bufferNext = null; this.startThrow(it); }
       else if (b && !waitForCooldown) {
-        this.buffer = null;
-        if (punch && strikesLeft) Combat.clinchStrike(this, def, b.btn === 'lp' ? CLINCH_MOVES.knee : CLINCH_MOVES.elbow, match);
-        else if (b.btn === 'lk' || b.btn === 'rk') this.startThrow(it, b.strong || it.strong);
+        this.shiftBuffer();
+        // Punch = elbow, Kick = knee; only Grapple throws
+        if (strikesLeft && (b.btn === 'punch' || b.btn === 'kick')) Combat.clinchStrike(this, def, b.btn === 'punch' ? CLINCH_MOVES.elbow : CLINCH_MOVES.knee, match);
       }
     }
     if (!this.throwPending && this.clinchTick > CLINCH_MAX) Combat.releaseClinch(this, def, 'timeout');
   }
   /* Aim: the held direction (fighter frame) wins, then the direction given with the grapple press, then the grab direction. */
-  startThrow(it, strong) {
+  startThrow(it) {
     const dir = aimFromIntent(it) || (it.grapple && it.grapDir) || this.grabDir || 'fwd';
     const data = throwFor(this.grip, dir);
     const def = this.partner;
-    this.throwPending = { tick: 0, dir, strong: !!strong, data, side: dir === 'left' ? -1 : 1, baseYaw: def ? def.yaw : this.yaw };
-    this.stam = Math.max(0, this.stam - Math.round(data.stam * (strong ? 1.75 : 1)));
+    this.throwPending = { tick: 0, dir, data, side: dir === 'left' ? -1 : 1, baseYaw: def ? def.yaw : this.yaw };
+    this.stam = Math.max(0, this.stam - data.stam);
     this.noRegen = 40;
-    Events.emit('throwStart', { f: this, dir, strong, name: data.name });
+    Events.emit('throwStart', { f: this, dir, name: data.name });
   }
   updateClinched(it, opp, match) {
     this.vx = this.vz = 0;
@@ -4248,18 +4267,18 @@ const Combat = {
   executeThrow(att, def, match) {
     const p = att.throwPending, t = p.data;
     att.throwPending = null;
-    let dmg = t.dmg * (p.strong ? 1.5 : 1) * att.stats.damage * def.stats.taken * def.stats.impact;
+    let dmg = t.dmg * att.stats.damage * def.stats.taken * def.stats.impact;
     dmg = match.live ? Math.max(1, Math.round(dmg * 10) / 10) : 0;   // a throw finishing after the round ends still lands, harmlessly
     def.hp = Math.max(0, def.hp - dmg);
     if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
     const v = this.throwVector(att, p.dir), vx = v[0], vz = v[1];
-    const speed = t.launch * (p.strong ? 1.12 : 1);
+    const speed = t.launch;
     def.setState(S.THROWN);
     def.juggle = false;
     def.flightId = ++this.flightCounter;
     def.partner = null; def.clinchTick = 0; def.gotHits = 0;
     def.kx = vx * speed; def.kz = vz * speed;
-    def.vy = t.arc * (p.strong ? 1.15 : 1);
+    def.vy = t.arc;
     def.y = Math.max(def.y, def.groundY) + 0.03;
     def.pendingKO = def.hp <= 0;
     def.hitKind = 'mid';
@@ -4273,7 +4292,7 @@ const Combat = {
     att.lock = t.recovery;
     att.throwFollow = { anim: t.anim, side: p.side, recovery: t.recovery };
     match.hitStop = Math.max(match.hitStop, 7);
-    Events.emit('throw', { att, def, dmg, dir: p.dir, grip: att.grip, strong: p.strong, name: t.name, x: def.x, y: 1.0, z: def.z });
+    Events.emit('throw', { att, def, dmg, dir: p.dir, grip: att.grip, name: t.name, x: def.x, y: 1.0, z: def.z });
   },
   escapeClinch(def, att, match) {
     att.throwPending = null;
@@ -4304,7 +4323,7 @@ const Combat = {
     def.kx = dirx * 3.5; def.kz = dirz * 3.5;
     def.vy = Math.max(def.vy, 3.4);
     def.y = Math.max(def.y, def.groundY) + 0.02;
-    def.buffer = null; def.move = null;
+    def.buffer = null; def.bufferNext = null; def.move = null;
     match.hitStop = Math.max(match.hitStop, 16);
     Events.emit('ko', { def, att, x: def.x, y: 1.1, z: def.z });
   },
@@ -4770,7 +4789,6 @@ const AI_BLOCK_PUNISH = 0.8;     // chance to punish a blocked, unsafe attack = 
 const AI_BLOCK_PUNISH_EDGE = 4;  // the attacker must still be recovering this many ticks after the guard drops
 const DIFFICULTY_ORDER = ['easy', 'normal', 'hard', 'expert'];
 const AI_HISTORY = 48;
-const AI_MOVES = ALL_MOVES.filter((m) => !m.ctx && m.type === 'strike');
 
 class AIController {
   constructor(profile, difficultyId) {
@@ -4863,7 +4881,7 @@ class AIController {
     // 2. counter-attack after a successful block
     if (f.counterWindow > 0 && !this.counterTried && f.state !== S.ATTACK) {
       this.counterTried = true;
-      if (simRng() < d.counter) { if (simRng() < 0.6) it.lp = true; else it.lk = true; this.plan = null; return it; }
+      if (simRng() < d.counter) { if (simRng() < 0.6) it.punch = true; else it.kick = true; this.plan = null; return it; }
     }
     if (f.counterWindow === 0) this.counterTried = false;
     // 3. chaining while attacking
@@ -4939,18 +4957,29 @@ class AIController {
     if (f.moveTick < f.mStartup + 1 || f.moveTick > f.mStartup + f.mActive + 4) return;
     if (simRng() > 0.18 + d.aggression * 0.22) return;
     const dist = Math.hypot(opp.x - f.x, opp.z - f.z);
-    const pool = AI_MOVES.filter((m) => Combat.canChain(mv, m, f) && dist <= m.reach * f.stats.reach + 0.2 && f.stam > m.stam);
+    const pool = this.reachable(f).filter((c) => Combat.canChain(mv, c.mv, f) && dist <= c.mv.reach * f.stats.reach + 0.2 && f.stam > c.mv.stam);
     if (!pool.length) return;
     const pick = pool[Math.floor(simRng() * pool.length)];
     this.pressMove(it, pick);
   }
-  pressMove(it, mv) {
-    it[mv.btn] = true;
-    it.strong = mv.strong;
-    it.height = mv.height;
+  /* The moves a Punch / Kick press (standing or crouched) would play right now: { mv, btn, height }. The AI presses the
+     same inputs as a player, so it reaches the strong moves only as steps of the attack strings. */
+  reachable(f) {
+    const list = [];
+    for (const btn of ['punch', 'kick']) {
+      for (const height of [false, true]) {
+        const mv = f.pressMove(btn, height);
+        if (mv.type === 'strike' && !mv.ctx && !list.some((c) => c.mv === mv)) list.push({ mv, btn, height });
+      }
+    }
+    return list;
   }
-  attackPlan(mv) {
-    return { kind: 'attack', ticks: this.d.lockout, mv, fired: false };
+  pressMove(it, pick) {
+    it[pick.btn] = true;
+    it.height = pick.height;
+  }
+  attackPlan(pick) {
+    return { kind: 'attack', ticks: this.d.lockout, mv: pick.mv, pick, fired: false };
   }
 
   inRange(f, mv, dist) { return dist <= mv.reach * f.stats.reach + 0.34 - 0.08 && dist >= 0.45; }
@@ -4960,7 +4989,8 @@ class AIController {
     const oppState = snap.state;
     const oppCrouch = oppState === S.CROUCH || oppState === S.BLOCK_L;
     const blockingH = oppState === S.BLOCK_H, blockingL = oppState === S.BLOCK_L;
-    for (const mv of AI_MOVES) {
+    for (const pick of this.reachable(f)) {
+      const mv = pick.mv;
       if (!this.inRange(f, mv, dist)) continue;
       if (fastOnly && mv.startup > 11) continue;
       if (mv.startup > maxStartup) continue;
@@ -4976,7 +5006,7 @@ class AIController {
       if (snap.y > 0.4 && mv.h === 'L') sc *= 0.1;
       if (this.lastMoves.includes(mv.id)) sc *= 0.6;
       sc *= 1 + (simRng() - 0.5) * (0.3 + d.mistakes * 3);
-      if (sc > bestScore) { bestScore = sc; best = mv; }
+      if (sc > bestScore) { bestScore = sc; best = pick; }
     }
     return best;
   }
@@ -5067,7 +5097,7 @@ class AIController {
       case 'circle': it.side = p.side; it.fwd = p.hold ? clamp((this.profile.range - Math.hypot(opp.x - f.x, opp.z - f.z)) * -1.5, -0.6, 0.6) : 0; break;
       case 'guard': if (p.low) it.blockL = true; else it.blockH = true; break;
       case 'attack':
-        if (!p.fired) { p.fired = true; this.pressMove(it, p.mv); }
+        if (!p.fired) { p.fired = true; this.pressMove(it, p.pick); }
         break;
       case 'grab': {
         if (p.fired) break;
@@ -5082,7 +5112,7 @@ class AIController {
       case 'jumpkick':
         p.t++;
         if (p.t === 1) { it.jump = true; it.fwd = 1; }
-        if (p.t === 8) it.rk = true;
+        if (p.t === 8) it.kick = true;
         break;
       default: break;
     }
@@ -5093,10 +5123,10 @@ class AIController {
     const cp = this.clinchPlan;
     if (f.throwPending) return it;
     if (f.clinchTick >= cp.at) {
-      if (cp.knees > 0 && f.clinchStrikeCd === 0 && f.stam > 12) { cp.knees--; it.lp = true; cp.at = f.clinchTick + 24; return it; }
+      if (cp.knees > 0 && f.clinchStrikeCd === 0 && f.stam > 12) { cp.knees--; it.kick = true; cp.at = f.clinchTick + 24; return it; }
       if (!cp.dir || cp.dir === 'pending') cp.dir = this.chooseThrowDir(f, opp);
       const dir = cp.dir;
-      it.lk = true; it.strong = f.stam > 40 && simRng() < 0.4;
+      it.grapple = true;
       // express the throw direction through movement axes, exactly like a player holding the stick
       it.fwd = dir === 'fwd' ? 1 : dir === 'back' ? -1 : 0; it.side = dir === 'right' ? 1 : dir === 'left' ? -1 : 0;
     }
@@ -5164,7 +5194,7 @@ class DummyController {
     if (Math.hypot(opp.x - f.x, opp.z - f.z) > DUMMY_ATTACK_RANGE) { it.fwd = 1; return; }
     if (this.t % DUMMY_ATTACK_EVERY !== 0) return;
     const low = this.mode === 'attackLow' || (this.mode === 'attackMix' && simRng() < 0.5);
-    if (low) { it.lk = true; it.height = true; } else it.lp = true;
+    if (low) { it.kick = true; it.height = true; } else it.punch = true;   // the beat is longer than the string window, so these are always step 1
   }
 }
 
@@ -6408,8 +6438,8 @@ const MODE_INFO = {
   versus: { label: 'Versus', desc: 'Two players, one screen: keyboard and / or gamepads. The score carries over between rematches.' },
 };
 const MODE_ORDER = ['arcade', 'survival', 'training', 'free', 'versus'];
-const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', strong: 'L1', height: 'L2', blockHigh: 'R1', blockLow: 'R2', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R3 or right-stick flick', dash: 'L3 (press stick)', pause: 'Start' };
-const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', strong: 'Hold PUNCH / KICK, release', height: 'Automatic', blockHigh: 'BLOCK', blockLow: 'DUCK + BLOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', dash: 'DASH', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
+const GAMEPAD_LABELS = { punch: 'Square / Triangle', kick: 'Cross (X) / Circle', blockHigh: 'R1', blockLow: 'R2', up: 'Stick up / D-pad up (firm tap = jump)', down: 'Stick down (tap, then hold = crouch)', left: 'Stick left', right: 'Stick right', jump: 'Firm quick tap up', crouch: 'Tap down, then hold down', grapple: 'R3 or right-stick flick', dash: 'L3 (press stick)', pause: 'Start' };
+const TOUCH_LABELS = { punch: 'PUNCH', kick: 'KICK', blockHigh: 'BLOCK', blockLow: 'DUCK + BLOCK', jump: 'JUMP', crouch: 'DUCK', grapple: 'GRAB', dash: 'DASH', pause: 'II', up: 'Stick up', down: 'Stick down', left: 'Stick left', right: 'Stick right' };
 const RESULTS_GUARD_MS = 600;   // presses still mashed from the fight cannot skip the results screen
 const ONBOARD_MS = 6000;   // the first-match controls card closes itself after this long
 const VERSUS_CARD_MS = 9000;   // the Versus controls card holds both players' keys: a little longer
@@ -6508,14 +6538,14 @@ const UI = {
   showOnboarding() {
     const k = (a) => '<kbd>' + esc(this.keyName(a)) + '</kbd>';
     if (this.onboardTouch()) this.dom.onboard.innerHTML = '<h3>CONTROLS</h3>' +
-      '<kbd>PUNCH</kbd> <kbd>KICK</kbd> tap for a quick attack, hold and release for a strong one<br>' +
-      'Repeated taps switch hands and feet; body and low shots are picked for you<br>' +
+      '<kbd>PUNCH</kbd> <kbd>KICK</kbd> tap to attack; tap again after a hit for the next move of a string<br>' +
+      'Body and low shots are picked for you, or hold <kbd>DUCK</kbd> for low ones<br>' +
       '<kbd>BLOCK</kbd> to guard, with <kbd>DUCK</kbd> to guard low<br>' +
       '<kbd>GRAB</kbd> near the opponent, again to escape a grab<br>' +
       'Stick: move, flick twice to dash or sidestep<small>Tap to close</small>';
     else this.dom.onboard.innerHTML = '<h3>CONTROLS</h3>' +
-      'Punch ' + k('punch') + ' Kick ' + k('kick') + ', press again to switch hands and feet<br>' +
-      'Hold ' + k('strong') + ' strong or ' + k('height') + ' height, then attack<br>' +
+      'Punch ' + k('punch') + ' Kick ' + k('kick') + ', press again after a hit for the next move of a string<br>' +
+      'Hold ' + k('crouch') + ' while you attack for low shots<br>' +
       'Block high ' + k('blockHigh') + ', low ' + k('blockLow') + '<br>' +
       'Grapple / escape ' + k('grapple') + '<br>' +
       'Move list: pause with ' + k('pause') + ', then Move list<small>Click or press any key to close</small>';
@@ -6965,25 +6995,40 @@ const UI = {
     const rows = ACTIONS.map((a) => '<tr><td>' + esc(label(a)) + '</td><td>' + keys(Keymap, a) + '</td><td>' + rebind('rebind', a, 'P1') + '</td><td>' + keys(Keymap2, a) + '</td><td>' + rebind('rebind2', a, 'P2') + '</td><td>' + esc(GAMEPAD_LABELS[a]) + '</td><td>' + esc(TOUCH_LABELS[a]) + '</td></tr>').join('');
     return '<section class="screen on" aria-label="Controls"><div class="panel wide"><h2>Controls</h2><p class="sub">PlayStation-style layout. ' + moveText + ' Change this in Settings &gt; Movement directions.</p>' +
       '<table class="ctl"><tr><th>Action</th><th>Keyboard</th><th></th><th>P2 keyboard (Versus)</th><th></th><th>Gamepad</th><th>Touch</th></tr>' + rows + '</table>' +
-      '<p class="hint">Punch and Kick start with the left hand or foot (quicker); pressed again within a moment they use the right (harder), and so on. Modifiers do nothing alone: hold Strong and/or Height while pressing an attack. Block High covers high + mid attacks, Block Low covers low attacks. Press block just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses a kick or Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Dash while knocked down = quick recovery. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
+      '<p class="hint">Punch and Kick attack on every press. Press again soon after a move hits or is blocked to play the next move of the string (see the Move list); hold Crouch while you press for the low versions. Block High covers high + mid attacks, Block Low covers low attacks. Press block just before a hit for a perfect block. Press Grapple at close range to clinch (hold Crouch for a low grab, grab from behind for a rear grip); the defender presses Grapple to escape, the attacker holds a direction and presses Grapple to throw that way. Your first clinch shows a hint with the aimed throw and an on-screen arrow (touch: aim with the stick, then GRAB; gamepad: hold the stick or flick the right stick). Dash while knocked down = quick recovery. Gamepad: hold Select in Training to reset. Keys on Ctrl or Alt clash with browser shortcuts (Ctrl + W closes the tab) unless you play in fullscreen.</p>' +
       '<p class="hint">Versus: a key belongs to one player only. P1\'s spare arrow keys switch off in Versus, where the arrows move P2. Gamepads: with two, the first plays P1 and the second P2; a lone gamepad plays P2 while P1 uses the keyboard. Touch controls are P1 only.</p>' +
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="resetKeys">Reset keyboard bindings</button><button class="mi" style="width:auto" data-nav data-act="resetKeys2">Reset P2 keys</button><button class="mi" style="width:auto" data-nav data-act="moves">Move list</button></div></div></section>';
   },
   screen_moves() {
-    const BTN = { lp: 'Punch', rp: 'Punch again (2nd in a row)', lk: 'Kick', rk: 'Kick again (2nd in a row)', grapple: 'Grapple' };
     const adv = (n) => (n > 0 ? '+' : '') + n;
+    const pressWords = (keys) => keys.split('').map((k) => (k === 'P' ? 'Punch' : 'Kick')).join(', ');
+    const stringInputs = (m) => {   // every press sequence that ends on this move (it is the last step of that row)
+      const found = [];
+      for (const table of ['stand', 'crouch']) {
+        for (const keys in STRINGS[table]) if (STRINGS[table][keys][keys.length - 1] === m.id) found.push((table === 'crouch' ? 'Crouch + ' : '') + pressWords(keys));
+      }
+      return found.join(' / ');
+    };
     const rows = ALL_MOVES.map((m) => {
-      let input = BTN[m.btn] + (m.strong ? ' + Strong' : '') + (m.height ? ' + Height' : '');
-      if (m.ctx === 'air') input = 'In the air: ' + (m.btn === 'rp' ? 'any punch' : 'any kick');
+      const punch = m.btn[1] === 'p';
+      let input = m.type === 'grab' ? 'Grapple' : stringInputs(m);
+      if (m.ctx === 'air') input = 'In the air: ' + (punch ? 'any punch' : 'any kick');
       else if (m.ctx === 'run') input = 'Running: Punch';
-      else if (m.ctx === 'counter') input = 'After a block: ' + (m.btn === 'lp' ? 'any punch' : 'any kick');
+      else if (m.ctx === 'counter') input = 'After a block: ' + (punch ? 'any punch' : 'any kick');
       const fa = frameAdvantage(m);
       const note = [m.kind === 'launch' ? 'launcher' : '', m.kind === 'knockdown' ? 'knockdown' : '', m.kind === 'stagger' ? 'stagger' : '', m.gb ? 'guard break' : '', m.width >= 0.8 ? 'wide arc' : '', m.type === 'grab' ? 'beats blocks' : ''].filter(Boolean).join(', ');
       return '<tr><td>' + esc(m.name) + '</td><td>' + esc(input) + '</td><td>' + (m.type === 'grab' ? '-' : { H: 'High', M: 'Mid', L: 'Low' }[m.h]) + '</td><td>' + m.startup + ' / ' + m.active + ' / ' + m.recovery + '</td><td>' + m.dmg + '</td><td>' + m.stam + '</td><td>' + (m.type === 'grab' ? '-' : adv(fa.onHit) + ' / ' + adv(fa.onBlock)) + '</td><td>' + note + '</td></tr>';
     }).join('');
-    return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub">Frame data at 60 fps. Strong moves cost more stamina and leave you open longer if they miss. Chains: light &rarr; medium &rarr; strong, never the other way round; strong moves end a combo.</p>' +
+    let stringRows = '';
+    for (const table of ['stand', 'crouch']) {
+      for (const keys in STRINGS[table]) stringRows += '<tr><td>' + esc((table === 'crouch' ? 'Crouch + ' : '') + pressWords(keys)) + '</td><td>' + esc(STRINGS[table][keys].map((id) => ATTACKS[id].name).join(' → ')) + '</td></tr>';
+    }
+    const stringTable = '<table class="ctl"><tr><th>Presses</th><th>Moves</th></tr>' + stringRows + '</table>';
+    return '<section class="screen on" aria-label="Move list"><div class="panel wide"><h2>Move list</h2><p class="sub">Frame data at 60 fps. Strong moves cost more stamina and leave you open longer if they miss. There is no hold: Punch and Kick attack on every press, and the strong moves are steps of the attack strings below.</p>' +
       '<table class="ctl"><tr><th>Move</th><th>Input</th><th>Hits</th><th>Start / Active / Recover</th><th>Dmg</th><th>Stam</th><th>Adv hit / block</th><th>Notes</th></tr>' + rows + '</table>' +
-      '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: Punch = knee (drains stamina), Strong + Punch = elbow (harder hit); kick or Grapple = throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
+      '<h3>Attack strings</h3><p>Press Punch or Kick again soon after the last press (about ' + ATTACK_STRING_SECONDS + ' s, plus the short freeze of each hit), after that move hit or was blocked, to play the next move of the string. A miss, a pause, or getting hit starts over. Strings are up to 3 moves. Hold Crouch at every press for the crouch strings; otherwise the standing strings apply.</p>' +
+      stringTable +
+      '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: Kick = knee (drains stamina), Punch = elbow (harder hit); Grapple = throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
       this.throwTable() +
       '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-default data-act="back">Back</button></div></div></section>';
   },
@@ -7123,11 +7168,11 @@ const UI = {
   /* Creator extras on a gamepad: L1 / R1 switch tabs, L2 / R2 turn the preview. */
   creatorPad(ph, pd, p) {
     const onTab = document.activeElement && document.activeElement.classList.contains('tab');
-    if ((ph.strong && !p.l1) || (onTab && pd.left && !p.left)) CreatorUI.stepTab(-1);
-    if ((ph.blockHigh && !p.r1) || (onTab && pd.right && !p.right)) CreatorUI.stepTab(1);
-    if (ph.height) Showcase.turnPreview(-0.04);
-    if (ph.blockLow) Showcase.turnPreview(0.04);
-    p.l1 = !!ph.strong; p.r1 = !!ph.blockHigh;
+    if ((ph.menuL1 && !p.l1) || (onTab && pd.left && !p.left)) CreatorUI.stepTab(-1);
+    if ((ph.menuR1 && !p.r1) || (onTab && pd.right && !p.right)) CreatorUI.stepTab(1);
+    if (ph.menuL2) Showcase.turnPreview(-0.04);
+    if (ph.menuR2) Showcase.turnPreview(0.04);
+    p.l1 = !!ph.menuL1; p.r1 = !!ph.menuR1;
   },
 
   /* ----- HUD ----- */
@@ -7269,10 +7314,9 @@ const UI = {
   throwHint(f) {
     if (f.throwPending) return f.throwPending.data.name.toUpperCase() + '!';
     const data = throwFor(f.grip, f.throwAim), strikesLeft = CLINCH_STRIKE_MAX - f.clinchStrikes;
-    const touch = Inputs.players[f.index].lastDevice === 'touch';
-    const strikeKeys = touch ? 'tap PUNCH knee / hold PUNCH elbow' : this.keyName('punch', f.index) + ' knee / ' + this.keyName('strong', f.index) + ' + ' + this.keyName('punch', f.index) + ' elbow';
+    const strikeKeys = this.keyName('punch', f.index) + ' elbow / ' + this.keyName('kick', f.index) + ' knee';
     const strikes = strikesLeft > 0 ? ', ' + strikeKeys + ' (' + strikesLeft + ' left)' : '';
-    return GRIP_LABEL[f.grip] + ' · ' + this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase() + ' · hold a direction to aim, kick or ' + this.keyName('grapple', f.index) + ' throws' + strikes;
+    return GRIP_LABEL[f.grip] + ' · ' + this.screenArrow(f, f.throwAim) + ' ' + data.name.toUpperCase() + ' · hold a direction to aim, ' + this.keyName('grapple', f.index) + ' throws' + strikes;
   },
   /* Arrow for a fighter-relative direction as it appears on screen. */
   screenArrow(f, dir) {
@@ -7330,7 +7374,7 @@ const UI = {
     Events.on('inputReleased', () => { if (activeId !== null) end(); });
     // [action, label, size]: lg = main fight buttons under the right thumb, sm = movement extras next to the stick
     const defs = [['punch', 'PUNCH', 'lg'], ['kick', 'KICK', 'lg'], ['block', 'BLOCK', 'lg'], ['grapple', 'GRAB', ''], ['jump', 'JUMP', 'sm'], ['crouch', 'DUCK', 'sm'], ['dash', 'DASH', 'sm'], ['pause', 'II', 'sm']];
-    const ariaLabels = { punch: 'Punch (hold for a strong punch)', kick: 'Kick (hold for a strong kick)', block: 'Block (with Duck: low block)' };
+    const ariaLabels = { punch: 'Punch (with Duck: low punch)', kick: 'Kick (with Duck: low kick)', block: 'Block (with Duck: low block)' };
     for (const [action, label, size] of defs) {
       const b = document.createElement('div');
       b.className = 'tb' + (size ? ' ' + size : '');
@@ -7339,18 +7383,10 @@ const UI = {
       b.setAttribute('aria-label', ariaLabels[action] || ACTION_LABELS[action]);
       b.textContent = label;
       const ids = new Set();
-      const chargeable = action === 'punch' || action === 'kick';
-      let chargeTimer = 0;
       const set = (down, id) => {
         if (down) ids.add(id); else ids.delete(id);
         const on = ids.size > 0;
         b.classList.toggle('on', on);
-        if (chargeable) {
-          // the button lights up once a release would be the strong attack
-          clearTimeout(chargeTimer);
-          b.classList.remove('charged');
-          if (on) chargeTimer = setTimeout(() => b.classList.add('charged'), TOUCH_CHARGE_MS);
-        }
         Input.touchSet(action, on);
       };
       b.addEventListener('pointerdown', (e) => {
@@ -7360,7 +7396,7 @@ const UI = {
       const up = (e) => { if (ids.has(e.pointerId)) set(false, e.pointerId); };
       b.addEventListener('pointerup', up); b.addEventListener('pointercancel', up); b.addEventListener('lostpointercapture', up);
       // released by the game (page hidden, blur): forget fingers whose pointerup may never arrive, so the button cannot stick
-      Events.on('inputReleased', () => { if (!ids.size) return; ids.clear(); clearTimeout(chargeTimer); b.classList.remove('on', 'charged'); });
+      Events.on('inputReleased', () => { if (!ids.size) return; ids.clear(); b.classList.remove('on'); });
       root.appendChild(b);
     }
   },
@@ -8059,10 +8095,39 @@ const SelfTest = {
     };
     const mk = (...a) => self.make(...a);
     const once = (tick, key, extra) => (it, f, o, m) => { if (m.tick === tick) { it[key] = true; if (extra) Object.assign(it, extra); } };
+    /* Presses an attack string ('P' / 'K' letters) on fighter 1: the first press at tick 2, each next press right after the previous move connected.
+       extra = fields set on every press tick (height: true = Crouch held). */
+    const pressString = (letters, extra) => {
+      let next = 0, from = 0;
+      return (it, f, o, m) => {
+        const ready = next === 0 ? m.tick === 2 : f.moveConnected && f.moveId !== from;
+        if (next >= letters.length || !ready) return;
+        it[letters[next] === 'P' ? 'punch' : 'kick'] = true;
+        if (extra) Object.assign(it, extra);
+        from = f.moveId; next++;
+      };
+    };
+    /* Plays a string on a fresh match with the defender kept in reach, so every step makes contact. fill(it, f, o, kind) feeds one tick of
+       input: kind is 'punch' or 'kick' on a press tick, else null. Returns the ids of the moves fighter 1 started. */
+    const playString = (letters, fill) => {
+      const log = self.capture(['attackStart']);
+      let next = 0, from = 0;
+      const m = mk({}, (it, f, o, mm) => {
+        o.x = f.x + 1.0; o.z = f.z; o.prevX = o.x; o.prevZ = o.z;
+        const ready = next === 0 ? mm.tick === 2 : f.moveConnected && f.moveId !== from;
+        let kind = null;
+        if (next < letters.length && ready) { kind = letters[next] === 'P' ? 'punch' : 'kick'; from = f.moveId; next++; }
+        fill(it, f, o, kind);
+      });
+      self.place(m, 1.2); self.run(m, 100 + 40 * letters.length); log.stop(); m.dispose();
+      return log.attackStart.filter((e) => e.f.index === 0).map((e) => e.mv.id);
+    };
+    const stringRows = [];   // every row of both tables: { keys, low, moves }
+    for (const table of ['stand', 'crouch']) for (const keys in STRINGS[table]) stringRows.push({ keys, low: table === 'crouch', moves: STRINGS[table][keys] });
 
     test('Deterministic simulation (same seed, same result)', () => {
       const play = () => {
-        const m = mk({ seed: 5, difficulty: 'hard' }, (it, f, o, mm) => { if (mm.tick % 40 === 3) it.lp = true; if (mm.tick % 90 === 20) it.rk = true; it.fwd = mm.tick % 120 < 60 ? 1 : -0.5; });
+        const m = mk({ seed: 5, difficulty: 'hard' }, (it, f, o, mm) => { if (mm.tick % 40 === 3) it.punch = true; if (mm.tick % 90 === 20) it.kick = true; it.fwd = mm.tick % 120 < 60 ? 1 : -0.5; });
         m.controllers[1] = new AIController(ROSTER_BY_ID.mara, 'hard');
         self.run(m, 500);
         const r = [m.fighters[0].hp, m.fighters[1].hp, m.fighters[0].x, m.fighters[1].z].join('|');
@@ -8074,40 +8139,97 @@ const SelfTest = {
     });
     test('Jab connects once and deals damage', () => {
       const log = self.capture(['hit']);
-      const m = mk({}, once(2, 'lp')); self.place(m, 1.2); self.run(m, 60); log.stop();
+      const m = mk({}, once(2, 'punch')); self.place(m, 1.2); self.run(m, 60); log.stop();
       const d = m.fighters[1].maxHp - m.fighters[1].hp;
       return log.hit.length === 1 && d >= 2 && d <= 8 ? true : 'hits ' + log.hit.length + ' dmg ' + d;
     });
     test('Attack out of range whiffs', () => {
       const log = self.capture(['hit', 'block']);
-      const m = mk({}, once(2, 'lp')); self.place(m, 3.2); self.run(m, 60); log.stop();
+      const m = mk({}, once(2, 'punch')); self.place(m, 3.2); self.run(m, 60); log.stop();
       return log.hit.length === 0 && log.block.length === 0 ? true : 'unexpected contact';
     });
-    test('Four core buttons map to jab / cross / front kick / roundhouse', () => {
-      const want = { lp: 'jab', rp: 'cross', lk: 'front_kick', rk: 'roundhouse' };
-      for (const k in want) {
-        const m = mk({}, once(2, k)); self.place(m, 3); self.run(m, 3);
-        const id = m.fighters[0].move ? m.fighters[0].move.id : 'none';
-        m.dispose();
-        if (id !== want[k]) return k + ' -> ' + id;
-      }
-      return true;
-    });
-    test('Strong / height modifiers select the right variant and never fire alone', () => {
-      const want = [['rk', { strong: true }, 'heavy_roundhouse'], ['lk', { height: true }, 'low_kick'], ['lk', { strong: true, height: true }, 'sweep'], ['rp', { height: true }, 'uppercut'], ['lp', { strong: true }, 'power_jab']];
+    test('A first Punch / Kick press plays jab / front kick; with Crouch held, body jab / low kick; Crouch alone fires nothing', () => {
+      const want = [['punch', {}, 'jab'], ['kick', {}, 'front_kick'], ['punch', { height: true }, 'body_jab'], ['kick', { height: true }, 'low_kick']];
       for (const [k, mods, id] of want) {
-        const m = mk({}, (it, f, o, mm) => { if (mm.tick >= 2) Object.assign(it, mods); if (mm.tick === 2) it[k] = true; }); self.place(m, 3); self.run(m, 3);
+        const m = mk({}, once(2, k, mods)); self.place(m, 3); self.run(m, 3);
         const got = m.fighters[0].move ? m.fighters[0].move.id : 'none';
         m.dispose();
         if (got !== id) return k + '+' + JSON.stringify(mods) + ' -> ' + got;
       }
-      const m = mk({}, (it) => { it.strong = true; it.height = true; }); self.place(m, 3); self.run(m, 40);
-      return m.fighters[0].state === S.IDLE && !m.fighters[0].move ? true : 'modifier alone started ' + m.fighters[0].state;
+      const m = mk({}, (it) => { it.height = true; it.crouch = true; }); self.place(m, 3); self.run(m, 40);
+      return m.fighters[0].state === S.CROUCH && !m.fighters[0].move ? true : 'crouch alone started ' + m.fighters[0].state;
+    });
+    test('Every row of both string tables plays its moves, each step after the previous one made contact', () => {
+      const problems = [];
+      for (const row of stringRows) {
+        const got = playString(row.keys, (it, f, o, kind) => { if (kind) { it[kind] = true; it.height = row.low; } }).join();
+        if (got !== row.moves.join()) problems.push((row.low ? 'crouch ' : '') + row.keys + ': ' + got);
+      }
+      const known = Object.keys(ATTACKS).filter((id) => ATTACKS[id].tier === 3 && !ATTACKS[id].ctx);
+      const inStrings = known.every((id) => stringRows.filter((r) => r.moves[r.moves.length - 1] === id).length === 1);   // each strong move ends exactly one string row
+      return stringRows.length === 18 && known.length === 8 && inStrings && !problems.length ? true : 'rows ' + stringRows.length + ' strong ' + known.length + ' once ' + inStrings + ' ' + problems.join('; ');
+    });
+    test('Fast presses keep their order: P K P and K K K typed 3 ticks apart play the whole string', () => {
+      const problems = [];
+      for (const keys of ['PKP', 'KKK']) {
+        const log = self.capture(['attackStart']);
+        let next = 0;
+        const m = mk({}, (it, f, o, mm) => {
+          if (next < keys.length && mm.tick >= 2 + next * 3) { it[keys[next] === 'P' ? 'punch' : 'kick'] = true; next++; }   // >=: a press during hit-stop is read right after it
+        });
+        self.place(m, 1.1); self.run(m, 200); log.stop(); m.dispose();
+        const got = log.attackStart.filter((e) => e.f.index === 0).map((e) => e.mv.id).join();
+        if (got !== STRINGS.stand[keys].join()) problems.push(keys + ': ' + got);
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('A crouch string with no crouch row starts over (Crouch P, Crouch K: body jab, then low kick)', () => {
+      const got = playString('PK', (it, f, o, kind) => { if (kind) { it[kind] = true; it.height = true; } }).join();
+      return got === 'body_jab,low_kick' ? true : got;
+    });
+    test('Punch / Kick presses reach the fight in press order, even when two arrive in the same frame', () => {
+      const p = new PlayerInput(1);
+      p.press('kick'); p.press('punch');
+      const first = p.takeAttack(), second = p.takeAttack(), none = p.takeAttack();
+      return first === 'kick' && second === 'punch' && none === null && !p.latch.punch && !p.latch.kick ? true : [first, second, none].join();
+    });
+    test('A whiffed string step restarts the string (K P, then P: a new jab, not the Heavy Uppercut)', () => {
+      const log = self.capture(['attackStart']);
+      let step = 0;
+      const m = mk({}, (it, f, o, mm) => {
+        if (mm.tick === 2) { it.kick = true; step = 1; }
+        else if (step === 1 && f.moveConnected) { o.x = f.x + 3; o.prevX = o.x; it.punch = true; step = 2; }   // the front kick hit; the jab that follows whiffs
+        else if (step === 2 && f.state !== S.ATTACK && f.lastMoveId === 'jab' && !f.moveConnected) { it.punch = true; step = 3; }
+      });
+      self.place(m, 1.2); self.run(m, 90); log.stop();
+      const ids = log.attackStart.filter((e) => e.f.index === 0).map((e) => e.mv.id).join();
+      return ids === 'front_kick,jab,jab' ? true : 'moves ' + ids;
+    });
+    test('A press within the string window continues the string, one tick later it restarts (counted in simulation ticks)', () => {
+      const run = (gap) => {   // gap = fighter ticks between the two presses (hit-stop pauses the fighters, so the match tick is not the clock)
+        const log = self.capture(['attackStart']);
+        let first = -1, second = false;
+        const m = mk({}, (it, f, o, mm) => {
+          if (mm.tick === 2) { it.kick = true; first = f.age; } else if (first >= 0 && !second && f.age - first === gap) { it.kick = true; second = true; }
+        });
+        self.place(m, 1.2); self.run(m, 2 + gap + 40); log.stop();
+        return log.attackStart.filter((e) => e.f.index === 0).map((e) => e.mv.id).join();
+      };
+      const edge = run(ATTACK_STRING_TICKS), late = run(ATTACK_STRING_TICKS + 1);
+      return ATTACK_STRING_TICKS === 48 && edge === 'front_kick,roundhouse' && late === 'front_kick,front_kick' ? true : 'edge ' + edge + ' late ' + late;
+    });
+    test('Being hit, clinched, thrown or knocked down ends the string; walking and blocking keep it', () => {
+      const f = new Fighter(ROSTER_BY_ID.kai, 0);
+      const ended = [S.HIT, S.STAGGER, S.STUN, S.CLINCH, S.THROWN].map((next) => { f.reset(0, 0, 0); f.stringKeys = 'PK'; f.setState(next); return f.stringKeys === ''; });
+      f.reset(0, 0, 0); f.setState(S.HIT); f.stringKeys = 'PK'; f.setState(S.DOWN); ended.push(f.stringKeys === '');
+      f.reset(0, 0, 0); f.stringKeys = 'PK'; f.setState(S.WALK); f.setState(S.BLOCK_H);
+      return ended.every(Boolean) && f.stringKeys === 'PK' ? true : 'ended ' + ended.join() + ' keys "' + f.stringKeys + '"';
     });
     test('Strong attacks cost more stamina and have longer recovery', () => {
       const l = ATTACKS.jab, h = ATTACKS.heavy_roundhouse;
-      const m = mk({}, once(2, 'rk', { strong: true })); self.place(m, 3); self.run(m, 3);
-      const spent = m.fighters[0].maxStam - m.fighters[0].stam;
+      const m = mk({}); const f = m.fighters[0];
+      const full = f.stam; f.startAttack(h);
+      const spent = full - f.stam;
       return h.stam > l.stam && h.recovery > l.recovery && spent >= h.stam - 1 ? true : 'spent ' + spent;
     });
     test('High block stops high + mid, low block stops low, mids beat low block', () => {
@@ -8117,29 +8239,29 @@ const SelfTest = {
         self.place(m, 1.2); self.run(m, 50); log.stop(); m.dispose();
         return { hit: log.hit.length, block: log.block.length };
       };
-      const a = trial('lp', {}, 'blockH'), b = trial('lk', { height: true }, 'blockL'), c = trial('lk', {}, 'blockL'), d = trial('lk', { height: true }, 'blockH');
+      const a = trial('punch', {}, 'blockH'), b = trial('kick', { height: true }, 'blockL'), c = trial('kick', {}, 'blockL'), d = trial('kick', { height: true }, 'blockH');
       return a.block === 1 && a.hit === 0 && b.block === 1 && c.hit === 1 && d.hit === 1 ? true : JSON.stringify([a, b, c, d]);
     });
     test('Crouching avoids a high attack', () => {
       const log = self.capture(['hit']);
-      const m = mk({}, once(2, 'lp'), (it) => { it.crouch = true; }); self.place(m, 1.2); self.run(m, 50); log.stop();
+      const m = mk({}, once(2, 'punch'), (it) => { it.crouch = true; }); self.place(m, 1.2); self.run(m, 50); log.stop();
       return log.hit.length === 0 ? true : 'jab hit a crouching fighter';
     });
     test('Perfect block window, guard pressure and guard break', () => {
       let log = self.capture(['block']);
-      let m = mk({}, once(2, 'lp'), (it, f, o, mm) => { if (mm.tick >= 5) it.blockH = true; }); self.place(m, 1.2); self.run(m, 40); log.stop();
+      let m = mk({}, once(2, 'punch'), (it, f, o, mm) => { if (mm.tick >= 5) it.blockH = true; }); self.place(m, 1.2); self.run(m, 40); log.stop();
       const perfect = log.block.length === 1 && log.block[0].perfect;
       m.dispose();
       log = self.capture(['block']);
-      m = mk({}, once(2, 'lp', { strong: true }), (it) => { it.blockH = true; }); self.place(m, 1.2); m.fighters[1].stam = 4; self.run(m, 60); log.stop();
+      m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.power_jab); }, (it) => { it.blockH = true; }); self.place(m, 1.2); m.fighters[1].stam = 4; self.run(m, 60); log.stop();   // a strong move straight from the move table (the string path is tested above)
       const broke = log.block.some((b) => b.broke) && m.fighters[1].state === S.STUN;
       return perfect && broke ? true : 'perfect ' + perfect + ' broke ' + broke;
     });
     test('Perfect block opens one counter, the next press is a normal move', () => {
       const log = self.capture(['attackStart']);
       let first = 0, second = false;
-      const m = mk({}, once(2, 'lp'), (it, f, o, mm) => {
-        if (!first && f.counterWindow > 0) { it.lp = true; first = mm.tick; } else if (first && !second && mm.tick >= first + 30) { it.lp = true; second = true; } else if (!first && mm.tick >= 5) it.blockH = true;
+      const m = mk({}, once(2, 'punch'), (it, f, o, mm) => {
+        if (!first && f.counterWindow > 0) { it.punch = true; first = mm.tick; } else if (first && !second && mm.tick >= first + 30) { it.punch = true; second = true; } else if (!first && mm.tick >= 5) it.blockH = true;
       });
       self.place(m, 1.2); self.run(m, 90); log.stop();
       const moves = log.attackStart.filter((e) => e.f.index === 1).map((e) => e.mv.id).join();
@@ -8147,13 +8269,13 @@ const SelfTest = {
     });
     test('Mashing block never gives a perfect block', () => {
       const log = self.capture(['block']);
-      const m = mk({}, once(40, 'lp'), (it, f, o, mm) => { it.blockH = mm.tick % 8 !== 0; });
+      const m = mk({}, once(40, 'punch'), (it, f, o, mm) => { it.blockH = mm.tick % 8 !== 0; });
       self.place(m, 1.2); self.run(m, 80); log.stop();
       return log.block.length === 1 && !log.block[0].perfect ? true : 'blocks ' + log.block.length + ' perfect ' + log.block.some((b) => b.perfect);
     });
     test('Combo chain: legal transitions, scaling, count', () => {
       const log = self.capture(['hit']);
-      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.lp = true; if (mm.tick >= 10 && mm.tick <= 16) it.rp = true; }); self.place(m, 1.1); self.run(m, 90); log.stop();
+      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2 || mm.tick === 14) it.punch = true; }); self.place(m, 1.1); self.run(m, 90); log.stop();   // the second press waits out the jab's hit-stop
       const ok = log.hit.length === 2 && log.hit[1].combo === 2;
       const rules = Combat.canChain(ATTACKS.jab, ATTACKS.cross, m.fighters[0]) && !Combat.canChain(ATTACKS.power_jab, ATTACKS.jab, m.fighters[0]) && !Combat.canChain(ATTACKS.cross, ATTACKS.jab, m.fighters[0]);
       return ok && rules ? true : 'hits ' + log.hit.length + ' rules ' + rules;
@@ -8182,15 +8304,22 @@ const SelfTest = {
     });
     test('Clinch: at most two strikes per clinch, then it times out', () => {
       const log = self.capture(['hit']);
-      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.grapple = true; if (f.state === S.GRAPPLE && mm.tick % 5 === 0) it.rp = true; });
+      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.grapple = true; if (f.state === S.GRAPPLE && mm.tick % 5 === 0) it.punch = true; });
       self.place(m, 1.0); self.run(m, 220); log.stop();
       const elbows = log.hit.filter((h) => h.mv.id === 'elbow').length;
       return elbows === CLINCH_STRIKE_MAX && m.fighters[1].state !== S.CLINCH ? true : 'elbows ' + elbows + ' defender ' + m.fighters[1].state;
     });
+    test('Clinch: Punch is the elbow, Kick is the knee, only Grapple throws', () => {
+      const log = self.capture(['hit', 'throw']);
+      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.grapple = true; if (f.state === S.GRAPPLE && f.clinchTick === 8) it.kick = true; if (f.state === S.GRAPPLE && f.clinchTick === 30) it.punch = true; });
+      self.place(m, 1.0); self.run(m, 80); log.stop();
+      const strikes = log.hit.filter((h) => h.mv.id === 'knee' || h.mv.id === 'elbow').map((h) => h.mv.id).join();
+      return strikes === 'knee,elbow' && log.throw.length === 0 ? true : 'strikes ' + strikes + ' throws ' + log.throw.length;
+    });
     test('Throw: damage, thrown flight, knockdown and recovery', () => {
       const states = new Set();
       const log = self.capture(['throw']);
-      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.grapple = true; if (f.state === S.GRAPPLE && f.clinchTick === 10 && !f.throwPending) it.lk = true; }); self.place(m, 1.0, 0);
+      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.grapple = true; if (f.state === S.GRAPPLE && f.clinchTick === 10 && !f.throwPending) it.grapple = true; }); self.place(m, 1.0, 0);
       for (let i = 0; i < 260; i++) { m.step(); states.add(m.fighters[1].state); }
       log.stop();
       const d = m.fighters[1].maxHp - m.fighters[1].hp;
@@ -8198,19 +8327,19 @@ const SelfTest = {
     });
     test('One air attack per jump', () => {
       const log = self.capture(['attackStart']);
-      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.jump = true; if (mm.tick === 4 || mm.tick === 28) it.rk = true; });
+      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.jump = true; if (mm.tick === 4 || mm.tick === 28) it.kick = true; });
       self.place(m, 4); self.run(m, 90); log.stop();
       const air = log.attackStart.filter((e) => e.mv.ctx === 'air').length;
       return air === 1 && m.fighters[0].state === S.IDLE && !m.fighters[0].airAttackUsed ? true : 'air attacks ' + air + ' state ' + m.fighters[0].state;
     });
     test('Buffered presses: a later grapple wins, a clinch strike waits for its cooldown', () => {
       let log = self.capture(['attackStart']);
-      let m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.lp = true; if (mm.tick === 4) it.grapple = true; });
+      let m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.punch = true; if (mm.tick === 4) it.grapple = true; });
       self.place(m, 1.0); m.fighters[0].blockStun = 8; self.run(m, 12); log.stop();
       const grabbed = log.attackStart.map((e) => e.mv.id).join() === 'grab';
       m.dispose();
       log = self.capture(['hit']);
-      m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.grapple = true; if (f.state === S.GRAPPLE && (f.clinchTick === 8 || f.clinchTick === 22)) it.rp = true; });
+      m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.grapple = true; if (f.state === S.GRAPPLE && (f.clinchTick === 8 || f.clinchTick === 22)) it.punch = true; });
       self.place(m, 1.0); self.run(m, 60); log.stop();
       const elbows = log.hit.filter((h) => h.mv.id === 'elbow').length;
       return grabbed && elbows === 2 ? true : 'grabbed ' + grabbed + ' elbows ' + elbows;
@@ -8220,16 +8349,16 @@ const SelfTest = {
       const m = mk({}, (it, f, o, mm) => { if (mm.tick === 14) it.grapple = true; }, (it, f, o, mm) => { if (mm.tick === 2) it.jump = true; }); self.place(m, 1.0); self.run(m, 40); log.stop();
       return log.clinch.length === 0 ? true : 'clinched an airborne fighter';
     });
-    test('Sweep knockdown, quick recovery with dash', () => {
-      const m = mk({}, once(2, 'lk', { strong: true, height: true }), (it, f) => { if (f.state === S.DOWN && f.stateTicks > 16) it.dash = true; }); self.place(m, 1.2);
+    test('Sweep knockdown (Crouch + Kick, Kick, Kick), quick recovery with dash', () => {
+      const m = mk({}, pressString('KKK', { height: true }), (it, f, o) => { f.x = o.x + 1.0; f.prevX = f.x; f.z = o.z; if (f.state === S.DOWN && f.stateTicks > 16) it.dash = true; }); self.place(m, 1.2);   // the defender stays in reach of every step
       let rose = -1;
       for (let i = 0; i < 200; i++) { m.step(); if (rose < 0 && m.fighters[1].state === S.GETUP) rose = i; }
-      return rose > 0 && rose < 80 && m.fighters[1].quickRise ? true : 'getup at ' + rose;
+      return rose > 0 && rose < 110 && m.fighters[1].quickRise ? true : 'getup at ' + rose;   // three string steps first; a normal get-up would come at 130 or later
     });
     test('Wake-up invulnerability lasts the whole get-up and ends when standing', () => {
       const problems = [];
       for (const id of ['brutus', 'yuki']) {
-        const m = mk({ opponentId: id }, once(2, 'lk', { strong: true, height: true }));
+        const m = mk({ opponentId: id }, pressString('KKK', { height: true }), (it, f, o) => { if (f.state !== S.DOWN && f.state !== S.GETUP) { f.x = o.x + 1.0; f.prevX = f.x; f.z = o.z; } });   // in reach for every step, free once knocked down
         self.place(m, 1.2);
         const b = m.fighters[1];
         let exposed = 0, rose = false;
@@ -8241,7 +8370,7 @@ const SelfTest = {
     });
     test('Knock-out stops all further combat', () => {
       const log = self.capture(['hit', 'ko', 'roundEnd']);
-      const m = mk({ winsNeeded: 2 }, (it, f, o, mm) => { if (mm.tick % 25 === 2) it.lp = true; }, (it, f, o, mm) => { if (mm.tick % 15 === 0) it.lp = true; });
+      const m = mk({ winsNeeded: 2 }, (it, f, o, mm) => { if (mm.tick % 25 === 2) it.punch = true; }, (it, f, o, mm) => { if (mm.tick % 15 === 0) it.punch = true; });
       self.place(m, 1.1); m.fighters[1].hp = 3; self.run(m, 400); log.stop();
       const f = m.fighters[1];
       return log.ko.length === 1 && f.state === S.KO && !f.alive && f.hp === 0 && log.roundEnd.length === 1 && m.wins[0] === 1 && log.hit.length >= 1 && log.hit.every((h) => h.att.index === 0) ? true : 'ko ' + log.ko.length + ' state ' + f.state + ' wins ' + m.wins;
@@ -8251,7 +8380,7 @@ const SelfTest = {
       return m.phase === 'roundEnd' && m.roundWinner === 1 ? true : m.phase + ' winner ' + m.roundWinner;
     });
     test('Stamina stays within 0..max and regenerates', () => {
-      const m = mk({}, (it, f, o, mm) => { if (mm.tick % 4 === 2) { it.rk = true; it.strong = true; } }); self.place(m, 3);
+      const m = mk({}, (it, f, o, mm) => { if (mm.tick % 4 === 2) it.kick = true; }); self.place(m, 3);
       let bad = false;
       for (let i = 0; i < 600; i++) { m.step(); const s = m.fighters[0].stam; if (!(s >= 0 && s <= m.fighters[0].maxStam)) bad = true; }
       const low = m.fighters[0].stam;
@@ -8292,13 +8421,13 @@ const SelfTest = {
       return glass.destroyed && !pillar.destroyed && pillar.hp < pillar.maxHp && pillar.hp > pillar.maxHp * 0.7 ? true : 'glass ' + glass.destroyed + ' pillar hp ' + pillar.hp;
     });
     test('Attacks damage scenery', () => {
-      const m = mk({ arenaId: 'warehouse' }, (it, f, o, mm) => { if (mm.tick % 30 === 2) { it.rk = true; it.strong = true; } });
+      const m = mk({ arenaId: 'warehouse' }, (it, f, o, mm) => { if (mm.tick % 30 === 2) it.kick = true; });
       const o = Arena.objects.find((q) => q.id === 'crateB');
       const a = m.fighters[0]; a.x = o.x - 1.4; a.z = o.z; a.yaw = Math.PI / 2; m.fighters[1].x = o.x + 3.5; m.fighters[1].z = o.z; self.run(m, 130);
       return o.hp < o.maxHp ? true : 'crate untouched';
     });
     test('Thrown fighter damages scenery', () => {
-      const m = mk({ arenaId: 'warehouse' }, (it, f, o, mm) => { if (mm.tick === 2) it.grapple = true; if (f.state === S.GRAPPLE && f.clinchTick === 8 && !f.throwPending) it.lk = true; });
+      const m = mk({ arenaId: 'warehouse' }, (it, f, o, mm) => { if (mm.tick === 2) it.grapple = true; if (f.state === S.GRAPPLE && f.clinchTick === 8 && !f.throwPending) it.grapple = true; });
       const o = Arena.objects.find((q) => q.id === 'crateB');
       const a = m.fighters[0], b = m.fighters[1]; a.x = o.x - 3.0; a.z = o.z; b.x = o.x - 2.1; b.z = o.z; a.yaw = Math.PI / 2; b.yaw = -Math.PI / 2;
       self.run(m, 140);
@@ -8399,10 +8528,33 @@ const SelfTest = {
       self.run(m, 900);
       return m.fighters[0].hp < m.fighters[0].maxHp ? true : 'AI never landed a hit';
     });
+    test('The AI and the Training dummy reach strong moves only as steps of an attack string', () => {
+      const fresh = new Fighter(ROSTER_BY_ID.kai, 0);
+      const firstPresses = new AIController(ROSTER_BY_ID.kai, 'expert').reachable(fresh).map((c) => c.mv.id).sort().join();
+      let strong = 0, asFirstStep = 0;
+      const off = Events.on('attackStart', (e) => {   // the string state is set before the event, so a strong move at step 1 shows as a key list shorter than 2
+        if (e.mv.tier === 3 && !e.mv.ctx && e.mv.type === 'strike') { strong++; if (e.f.stringKeys.length < 2) asFirstStep++; }
+      });
+      for (const [seed, diff] of [[3, 'expert'], [4, 'hard'], [5, 'normal']]) {
+        const m = mk({ seed });
+        m.controllers[0] = new AIController(ROSTER_BY_ID.mara, diff);
+        m.controllers[1] = new AIController(ROSTER_BY_ID.kai, diff);
+        self.run(m, 2400);
+        m.dispose();
+      }
+      for (const mode of ['attackHigh', 'attackLow', 'attackMix']) {
+        const m = mk({ mode: 'training', dummy: mode });
+        m.controllers[1] = new DummyController(ROSTER_BY_ID.mara, mode);
+        self.place(m, 3.5); self.run(m, 900);
+        m.dispose();
+      }
+      off();
+      return firstPresses === 'body_jab,front_kick,jab,low_kick' && strong >= 1 && asFirstStep === 0 ? true : 'first presses ' + firstPresses + ' strong ' + strong + ' as step 1: ' + asFirstStep;
+    });
     test('AI difficulty changes defensive quality', () => {
       const trial = (diff, seed) => {
         const log = self.capture(['hit', 'block']);
-        const m = mk({ seed }, (it, f, o, mm) => { if (mm.tick % 80 === 20 && f.state === S.IDLE) { it.rk = true; it.strong = true; } });
+        const m = mk({ seed }, (it, f, o, mm) => { if (mm.tick % 80 === 20 && f.state === S.IDLE) f.startAttack(ATTACKS.heavy_roundhouse); });   // a slow, readable attack straight from the move table
         const ai = new AIController(ROSTER_BY_ID.kai, diff);
         ai.nextDecision = Infinity; ai.d = Object.assign({}, ai.d, { punish: 0, counter: 0, sidestep: 0 });
         m.controllers[1] = ai;
@@ -8420,7 +8572,7 @@ const SelfTest = {
     test('AI reaction blocks are only sometimes perfect blocks', () => {
       const log = self.capture(['block']);
       for (const seed of [3, 4, 5]) {
-        const m = mk({ seed }, (it, f, o, mm) => { if (mm.tick % 60 === 20 && f.state === S.IDLE) it.rp = true; });
+        const m = mk({ seed }, (it, f, o, mm) => { if (mm.tick % 60 === 20 && f.state === S.IDLE) f.startAttack(ATTACKS.cross); });
         const ai = new AIController(ROSTER_BY_ID.kai, 'expert');
         ai.nextDecision = Infinity; ai.d = Object.assign({}, ai.d, { punish: 0, counter: 0, sidestep: 0 });
         m.controllers[1] = ai;
@@ -8477,13 +8629,13 @@ const SelfTest = {
     });
     test('Input: presses are latched once, modifiers never fire alone', () => {
       const it = makeIntent();
-      Input.reset(); Input.attackString.punch.at = -10; Input.press('punch'); Input.press('strong');
+      Input.reset(); Input.press('punch'); Input.press('crouch');
       Input.fillIntent(it, null, null);
-      const first = it.lp;
+      const first = it.punch && !it.height;   // a Crouch edge on its own is not an attack, and with no Crouch held the press is a standing one
       Input.fillIntent(it, null, null);
-      return first && !it.lp && !it.rp && !it.lk && !it.rk ? true : 'edge repeated';
+      return first && !it.punch && !it.kick ? true : 'edge repeated';
     });
-    test('Keys and gamepad: one Punch and one Kick alternate hands and feet like touch; Strong + Punch is the clinch elbow', () => {
+    test('Keys and gamepad: Punch and Kick fire on press, Crouch held at the press is the height; both pad buttons work', () => {
       const f = new Fighter(ROSTER_BY_ID.kai, 0), o = new Fighter(ROSTER_BY_ID.mara, 1), it = makeIntent();
       const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
       const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons };
@@ -8493,24 +8645,23 @@ const SelfTest = {
       const padTap = (button) => { buttons[button].pressed = true; Input.pollPad(); buttons[button].pressed = false; Input.pollPad(); return Input.fillIntent(it, f, o); };
       let r;
       try {
-        Input.reset(); Input.attackString.punch.at = Input.attackString.kick.at = -10;
-        key('punch'); const jab = it.lp && !it.rp;
-        key('punch'); const cross = it.rp && !it.lp;
-        key('punch'); const third = it.lp;
-        key('kick'); const front = it.lk && !it.rk;
-        key('kick'); const round = it.rk && !it.lk;
-        Input.attackString.punch.at = Input.attackString.kick.at = -10;
-        padTap(3); const triangle = it.lp;                // either punch button starts the string with the left hand
-        padTap(2); const square = it.rp;
-        padTap(1); const circle = it.lk;
-        padTap(0); const cross2 = it.rk;
-        const actions = !['lp', 'rp', 'lk', 'rk', 'stance'].some((a) => ACTIONS.includes(a)) && ACTIONS.includes('punch') && ACTIONS.includes('kick');
-        f.state = S.GRAPPLE; Input.attackString.punch.at = -10;
-        key('punch'); const knee = it.lp;
-        Input.kb.add(Keymap.bindings.strong[0]); Input.update();
-        key('punch'); const elbow = it.rp && it.strong;
+        Input.reset(); Input.lastDevice = 'keyboard'; Input.kb.clear(); Input.update();
+        key('punch'); const punch = it.punch && !it.kick && !it.height;
+        key('punch'); const again = it.punch && !it.kick && !it.height;   // the same press every time: the string is the fighter's job
+        key('kick'); const kick = it.kick && !it.punch && !it.height;
+        Input.kb.add(Keymap.bindings.crouch[0]); Input.update();
+        key('punch'); const lowPunch = it.punch && it.height;
+        key('kick'); const lowKick = it.kick && it.height;
         Input.kb.clear(); Input.update();
-        const res = { jab, cross, third, front, round, triangle, square, circle, cross2, actions, knee, elbow };
+        padTap(3); const triangle = it.punch && !it.height;   // either punch button punches, either kick button kicks
+        padTap(2); const square = it.punch;
+        padTap(1); const circle = it.kick;
+        padTap(0); const cross = it.kick;
+        Input.padCrouch = true; Input.update();
+        padTap(2); const padLow = it.punch && it.height;
+        Input.padCrouch = false; Input.update();
+        const actions = !['lp', 'rp', 'lk', 'rk', 'stance', 'strong', 'height'].some((a) => ACTIONS.includes(a)) && ACTIONS.includes('punch') && ACTIONS.includes('kick');
+        const res = { punch, again, kick, lowPunch, lowKick, triangle, square, circle, cross, padLow, actions };
         r = Object.values(res).every(Boolean) ? true : JSON.stringify(res);
       } finally {
         if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
@@ -8576,43 +8727,97 @@ const SelfTest = {
       Camera.dirRight[0] = kr[0]; Camera.dirRight[1] = kr[1]; Camera.dirFwd[0] = kf[0]; Camera.dirFwd[1] = kf[1];
       return side && run && stop ? true : JSON.stringify({ side, run, stop });
     });
-    test('Touch: PUNCH / KICK alternate limbs, hold for strong, aim where the attack lands; BLOCK + DUCK guards low', () => {
+    test('Touch: PUNCH / KICK fire on press (no hold), DUCK gives the low version, the automatic height aims where the attack lands; BLOCK + DUCK guards low', () => {
       const device = Input.lastDevice;
       const f = new Fighter(ROSTER_BY_ID.kai, 0), o = new Fighter(ROSTER_BY_ID.mara, 1), it = makeIntent();
       Input.reset(); Input.releaseAll();
-      Input.attackString.punch.at = Input.attackString.kick.at = -10;
-      const strike = (kind, hold) => {
+      const press = (kind) => {   // the finger goes down and stays down: the attack is in the intent already
         Input.touchSet(kind, true);
-        if (hold) Input.touchDownAt[kind] -= TOUCH_CHARGE_MS + 10;
+        Input.fillIntent(it, f, o);
+        const fired = it[kind];
         Input.touchSet(kind, false);
-        return Input.fillIntent(it, f, o);
+        return fired;
       };
-      strike('punch');
-      const jab = it.lp && !it.strong && !it.height;
-      strike('punch');
-      const cross = it.rp && !it.lp;
-      Input.attackString.punch.at = -10;
-      strike('punch', true);
-      const power = it.lp && it.strong;
-      o.state = S.CROUCH; Input.attackString.punch.at = -10;
-      strike('punch');
-      const body = it.lp && it.height;
+      const jab = press('punch') && !it.height;
+      const front = press('kick') && !it.height;
+      Input.touchSet('crouch', true); Input.update();
+      const duckPunch = press('punch') && it.height;                 // DUCK held: the low version
+      Input.touchSet('crouch', false); Input.update();
+      o.state = S.CROUCH;
+      const body = press('punch') && it.height;                      // the jab would pass over a crouching opponent
+      const frontKick = press('kick') && !it.height;                  // the front kick is a mid already
       o.state = S.BLOCK_H;
-      strike('kick');
-      const low = it.lk && it.height;
-      o.state = S.IDLE; f.state = S.GRAPPLE; Input.attackString.punch.at = -10;
-      strike('punch');
-      const knee = it.lp;
-      strike('punch', true);
-      const elbow = it.rp;
+      const low = press('kick') && it.height;                         // under a high guard
+      o.state = S.IDLE; f.state = S.GRAPPLE;
+      const elbow = press('punch') && !it.height;
+      const knee = press('kick') && !it.height;
       f.state = S.IDLE;
       Input.touchSet('block', true); Input.update(); Input.fillIntent(it, f, o);
       const high = it.blockH && !it.blockL;
       Input.touchSet('crouch', true); Input.update(); Input.fillIntent(it, f, o);
       const lowGuard = it.blockL;
       Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
-      const r = { jab, cross, power, body, low, knee, elbow, high, lowGuard };
+      const r = { jab, front, duckPunch, body, frontKick, low, elbow, knee, high, lowGuard };
       return Object.values(r).every(Boolean) ? true : JSON.stringify(r);
+    });
+    test('Keyboard: every string row plays its moves through the key path (Crouch key held = the crouch rows)', () => {
+      const device = Input.lastDevice, problems = [];
+      try {
+        for (const row of stringRows) {
+          Input.reset(); Input.releaseAll(); Input.lastDevice = 'keyboard';
+          const got = playString(row.keys, (it, f, o, kind) => {
+            if (row.low) Input.kb.add(Keymap.bindings.crouch[0]);
+            Input.update();
+            if (kind) Input.press(kind);
+            Input.fillIntent(it, f, o);
+          }).join();
+          if (got !== row.moves.join()) problems.push((row.low ? 'crouch ' : '') + row.keys + ': ' + got);
+        }
+      } finally { Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device; }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Gamepad: every string row plays its moves through the pad path (Square / Cross, crouch held = the crouch rows)', () => {
+      const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
+      const pad = { id: 'test pad', connected: true, mapping: 'standard', axes: [0, 0, 0, 0], buttons };
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => [pad], configurable: true });
+      const problems = [];
+      try {
+        for (const row of stringRows) {
+          Input.reset(); Input.releaseAll(); Input.lastDevice = 'gamepad';
+          const got = playString(row.keys, (it, f, o, kind) => {
+            Input.padCrouch = row.low;   // the pad's tap-down-then-hold gesture is tested with the movement checks
+            const button = kind === 'punch' ? 2 : 0;
+            if (kind) buttons[button].pressed = true;
+            Input.update();
+            Input.fillIntent(it, f, o);
+            if (kind) buttons[button].pressed = false;
+          }).join();
+          if (got !== row.moves.join()) problems.push((row.low ? 'crouch ' : '') + row.keys + ': ' + got);
+        }
+      } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Input.padCrouch = false; Input.releasePad(); Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device;
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Touch: every string row plays its moves and PUNCH / KICK fire on press (DUCK held = the crouch rows)', () => {
+      const device = Input.lastDevice, problems = [];
+      let late = 0;
+      try {
+        for (const row of stringRows) {
+          Input.reset(); Input.releaseAll();
+          const got = playString(row.keys, (it, f, o, kind) => {
+            if (row.low) Input.touchSet('crouch', true);
+            if (kind) Input.touchSet(kind, true);
+            Input.update();
+            Input.fillIntent(it, f, o);
+            if (kind) { if (!it[kind]) late++; Input.touchSet(kind, false); }   // the finger is still down: the attack must be in the intent already
+          }).join();
+          if (got !== row.moves.join()) problems.push((row.low ? 'crouch ' : '') + row.keys + ': ' + got);
+        }
+      } finally { Input.releaseAll(); Input.update(); Input.reset(); Input.lastDevice = device; }
+      return !problems.length && late === 0 ? true : 'late presses ' + late + ' ' + problems.join('; ');
     });
     test('Gamepad: firm taps jump but double taps do not, R3 grapples, a Select tap does nothing and a hold resets', () => {
       const buttons = Array.from({ length: 17 }, () => ({ pressed: false, value: 0 }));
@@ -8650,7 +8855,7 @@ const SelfTest = {
       let r;
       try {
         Input.lastDevice = 'gamepad'; Input.padIndex = 0; Settings.v.reducedMotion = false;
-        const m = mk({}, null, (it, f, o, mm) => { if (mm.tick === 2) it.lp = true; });
+        const m = mk({}, null, (it, f, o, mm) => { if (mm.tick === 2) it.punch = true; });
         self.place(m, 1.2); self.run(m, 40);
         const onHit = calls.length;
         Combat.knockOut(m.fighters[0], m.fighters[1], null, m);
@@ -8680,7 +8885,7 @@ const SelfTest = {
         const split = Inputs.padFor(0, two) === 0 && Inputs.padFor(1, two) === 2;
         Object.defineProperty(navigator, 'getGamepads', { value: () => two, configurable: true });
         Input.lastDevice = Input2.lastDevice = 'gamepad'; Input.padIndex = 0; Input2.padIndex = 2; Settings.v.reducedMotion = false;
-        const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.lp = true; });   // P1 hits P2
+        const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) it.punch = true; });   // P1 hits P2
         self.place(m, 1.2); self.run(m, 40);
         const p2Felt = calls.length >= 1 && calls.every((id) => id === 'b');
         r = solo && lone && split && p2Felt ? true : JSON.stringify({ solo, lone, split, calls });
@@ -8739,15 +8944,15 @@ const SelfTest = {
       Store.set(KEY_BINDINGS, JSON.stringify({ lp: ['KeyH'], rp: ['KeyN'], lk: ['KeyU'], rk: ['KeyI'], strong: ['ShiftLeft'], height: ['ControlLeft'], dash: ['KeyV'], grapple: ['KeyO'] }));
       Keymap.init();
       const b = Keymap.bindings;
-      const moved = b.strong[0] === 'KeyL' && b.punch[0] === 'KeyH' && b.kick[0] === 'KeyK' && b.dash[0] === 'KeyV' && !('lp' in b) && !('rk' in b);   // the untouched old left kick takes the new default
-      const clash = b.height[0] === 'ControlLeft' && b.grapple[0] === 'KeyO';     // O already taken by the user: keep the old key
+      const moved = b.punch[0] === 'KeyH' && b.kick[0] === 'KeyK' && b.dash[0] === 'KeyV' && !('lp' in b) && !('rk' in b);   // the untouched old left kick takes the new default
+      const clash = b.grapple[0] === 'KeyO' && !('strong' in b) && !('height' in b) && !JSON.stringify(b).includes('ControlLeft');   // the removed Strong / Height actions load without errors and their keys vanish
       Store.set(KEY_BINDINGS, JSON.stringify({ revision: 2, lk: ['KeyU'], grapple: ['KeyK'] }));
       Keymap.init();
       const kickKept = Keymap.bindings.kick[0] === 'KeyU' && Keymap.bindings.grapple[0] === 'KeyK';   // K is the user's grapple key
-      Store.set(KEY_BINDINGS, JSON.stringify({ revision: KEYS_REVISION, strong: ['ShiftLeft'] }));
+      Store.set(KEY_BINDINGS, JSON.stringify({ revision: KEYS_REVISION, dash: ['AltLeft'] }));
       Keymap.init();
-      const current = Keymap.bindings.strong[0] === 'ShiftLeft';                  // chosen after the change: never migrated
-      const defaults = ['strong', 'height', 'dash'].every((a) => !/^(Shift|Control|Alt)/.test(DEFAULT_KEYS[a][0]));
+      const current = Keymap.bindings.dash[0] === 'AltLeft';                      // chosen after the change: never migrated
+      const defaults = ['dash'].every((a) => !/^(Shift|Control|Alt)/.test(DEFAULT_KEYS[a][0]));
       if (raw === null) Store.remove(KEY_BINDINGS); else Store.set(KEY_BINDINGS, raw);
       Keymap.bindings = JSON.parse(keep); Input.rebuildMap();
       return moved && clash && kickKept && current && defaults ? true : JSON.stringify({ moved, clash, kickKept, current, defaults, b });
@@ -8778,9 +8983,9 @@ const SelfTest = {
       const read = () => { Inputs.update(); Input.fillIntent(it1, f1, f2); Input2.fillIntent(it2, f2, f1); };
       Inputs.setVersus(true);
       key('ArrowUp', true); key('Numpad4', true); read();
-      const p2Only = it2.fwd > 0 && it2.lp && it1.fwd === 0 && !it1.lp;
+      const p2Only = it2.fwd > 0 && it2.punch && it1.fwd === 0 && !it1.punch;
       key('ArrowUp', false); key('Numpad4', false); key('KeyW', true); key('KeyJ', true); read();
-      const p1Only = it1.fwd > 0 && it1.lp && it2.fwd === 0 && !it2.lp;
+      const p1Only = it1.fwd > 0 && it1.punch && it2.fwd === 0 && !it2.punch;
       key('KeyW', false); key('KeyJ', false);
       const versusMap = !Input.codeMap.has('ArrowUp') && Input2.codeMap.get('ArrowUp') === 'up';
       Inputs.setVersus(false);
@@ -8874,7 +9079,7 @@ const SelfTest = {
     });
     test('Sidestep evades a slow linear attack', () => {
       const log = self.capture(['hit']);
-      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) { it.lp = true; it.strong = true; } }, (it, f, o, mm) => { if (mm.tick === 3) it.sidestep = 1; });
+      const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.power_jab); }, (it, f, o, mm) => { if (mm.tick === 3) it.sidestep = 1; });   // a strong move straight from the move table
       self.place(m, 1.2); self.run(m, 60); log.stop();
       return log.hit.length === 0 ? true : 'power jab hit a sidestepping fighter';
     });
@@ -8906,7 +9111,7 @@ const SelfTest = {
       return calm && lowHp && matchPoint ? true : JSON.stringify({ calm, lowHp, matchPoint });
     });
     test('Training dummy can be set to infinite health', () => {
-      const m = mk({ mode: 'training', countdown: false }, (it, f, o, mm) => { if (mm.tick % 30 === 2) { it.rk = true; it.strong = true; } });
+      const m = mk({ mode: 'training', countdown: false }, (it, f, o, mm) => { if (mm.tick % 30 === 2) it.kick = true; });
       m.infiniteHp = true; m.fighters[1].hp = 3; self.place(m, 1.2); self.run(m, 200);
       return m.fighters[1].alive && m.fighters[1].hp >= 1 ? true : 'dummy was knocked out';
     });
@@ -8923,7 +9128,7 @@ const SelfTest = {
         m.dispose();
       }
       const attacks = /^H{3,}$/.test(heights.attackHigh) && /^L{3,}$/.test(heights.attackLow) && /H/.test(heights.attackMix) && /L/.test(heights.attackMix);
-      const m = mk({ mode: 'training', dummy: 'blockAfterHit' }, (it, f, o, mm) => { if (mm.tick === 2 || mm.tick === 45) it.lp = true; });
+      const m = mk({ mode: 'training', dummy: 'blockAfterHit' }, (it, f, o, mm) => { if (mm.tick === 2 || mm.tick === 45) it.punch = true; });
       m.controllers[1] = new DummyController(ROSTER_BY_ID.mara, 'blockAfterHit');
       self.place(m, 1.2);
       const log = self.capture(['hit', 'block']);
@@ -9019,7 +9224,7 @@ const SelfTest = {
       log.stop();
       const round2 = log.countdown.map((e) => e.n).join();
       m.dispose();
-      const k = mk({}, once(2, 'lp')); self.place(k, 1.2); k.fighters[1].hp = 1;
+      const k = mk({}, once(2, 'punch')); self.place(k, 1.2); k.fighters[1].hp = 1;
       let slowAtKo = false;
       for (let i = 0; i < 30 && !slowAtKo; i++) { k.step(); if (!k.fighters[1].alive) slowAtKo = k.slowTicks > 0 && k.phase === 'fight'; }
       const ok = first >= ROUND_BANNER_TICKS && round1 === '3,2,1' && round2 === '2,1' && ticks2 < ticks && !early && skipped && next && slowAtKo;
@@ -9137,7 +9342,7 @@ const SelfTest = {
       b.stam = ESCAPE_STAMINA;
       const escape = UI.clinchHint(b).startsWith('ESCAPE NOW');
       a.clinchStrikes = 0;
-      const fresh = UI.throwHint(a), strikes = fresh.includes(UI.keyName('punch', 0) + ' knee / ' + UI.keyName('strong', 0) + ' + ' + UI.keyName('punch', 0) + ' elbow (' + CLINCH_STRIKE_MAX + ' left)');
+      const fresh = UI.throwHint(a), strikes = fresh.includes(UI.keyName('punch', 0) + ' elbow / ' + UI.keyName('kick', 0) + ' knee (' + CLINCH_STRIKE_MAX + ' left)');
       a.clinchStrikes = CLINCH_STRIKE_MAX;
       const spent = !UI.throwHint(a).includes('knee');
       const pauseMoves = UI.screen_pause().includes('data-act="moves"');
@@ -9487,7 +9692,7 @@ const SelfTest = {
     const thrower = (dir, low) => (it, f, o, mm) => {
       if (mm.tick <= 2 && low) it.crouch = true;
       if (mm.tick === 2) it.grapple = true;
-      if (f.state === S.GRAPPLE && f.clinchTick >= 10 && !f.throwPending) { it.fwd = THROW_AXES[dir][0]; it.side = THROW_AXES[dir][1]; if (f.clinchTick === 10) it.lk = true; }
+      if (f.state === S.GRAPPLE && f.clinchTick >= 10 && !f.throwPending) { it.fwd = THROW_AXES[dir][0]; it.side = THROW_AXES[dir][1]; if (f.clinchTick === 10) it.grapple = true; }
     };
     const setupThrow = (grip, dir, opts) => {
       const m = mk(opts || {}, thrower(dir, grip === 'low'));
@@ -9542,7 +9747,7 @@ const SelfTest = {
           const log = self.capture(['escape', 'throw']);
           const m = mk({}, (it, f, o, mm) => {
             if (mm.tick === 2) it.grapple = true;
-            if (f.state === S.GRAPPLE && f.clinchTick >= 14 && !f.throwPending) { it.fwd = THROW_AXES[dir][0]; it.side = THROW_AXES[dir][1]; if (f.clinchTick === 14) it.lk = true; }
+            if (f.state === S.GRAPPLE && f.clinchTick >= 14 && !f.throwPending) { it.fwd = THROW_AXES[dir][0]; it.side = THROW_AXES[dir][1]; if (f.clinchTick === 14) it.grapple = true; }
           }, (it, f, o) => { if (f.state === S.CLINCH && o.throwPending && o.throwPending.tick === pressAt) it.grapple = true; });
           self.place(m, 0.9);
           self.run(m, 120);
@@ -9561,7 +9766,7 @@ const SelfTest = {
         const log = self.capture(['escape', 'throw']);
         const m = mk({}, (it, f, o, mm) => {
           if (mm.tick === 2) it.grapple = true;
-          if (f.state === S.GRAPPLE && !f.throwPending) { it.fwd = THROW_AXES[dir][0]; it.side = THROW_AXES[dir][1]; if (f.clinchTick === 6) it.lk = true; }   // the throw starts on clinch tick 7
+          if (f.state === S.GRAPPLE && !f.throwPending) { it.fwd = THROW_AXES[dir][0]; it.side = THROW_AXES[dir][1]; if (f.clinchTick === 6) it.grapple = true; }   // the throw starts on clinch tick 7
         }, (it, f) => { if (f.state === S.CLINCH && f.clinchTick === escapeStartFor(f) - 1) it.grapple = true; });   // first tick an escape can work
         self.place(m, 0.9);
         const b = m.fighters[1];
@@ -9654,7 +9859,7 @@ const SelfTest = {
         f.grip = grip;
         for (const dir of THROW_DIRS) {
           const data = THROW_SETS[grip][dir];
-          f.throwPending = { tick: 0, dir, strong: false, data, side: dir === 'left' ? -1 : 1, baseYaw: 0 };
+          f.throwPending = { tick: 0, dir, data, side: dir === 'left' ? -1 : 1, baseYaw: 0 };
           for (let tick = 0; tick <= data.startup; tick += 3) { f.throwPending.tick = tick; f.computePose(); check(grip + '/' + dir + '@' + tick); other.computePose(); }
         }
       }
