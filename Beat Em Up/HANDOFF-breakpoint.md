@@ -5,7 +5,7 @@ Paste the text below into a new Claude Code session opened in `C:\Users\GS\Deskt
 ---
 
 Continue the Breakpoint tasklist (`Beat Em Up/TASKLIST-breakpoint.md`) on `main`, no new branches.
-- **Progress:** Phases 0-2 and 4 are done. In Phase 3 every task is implemented and pushed; P3-09 (momentum boost) and P3-10 (combo audit) stay unticked only for their all-pairs win-rate check, which waits for P14-01. Phase 5: P5-01 to P5-04 are done (16-style data model, own stances and signature moves for the 9 new styles, 32 presets with unlocks). P5-05 waits for P10-02 (its list of story poses). Next is Phase 6 (character customization).
+- **Progress:** Phases 0-2 and 4 are done. In Phase 3 every task is implemented and pushed; P3-09 (momentum boost) and P3-10 (combo audit) stay unticked only for their all-pairs win-rate check, which waits for P14-01. Phase 5: P5-01 to P5-04 are done (16-style data model, own stances and signature moves for the 9 new styles, 32 presets with unlocks). P5-05 waits for P10-02 (its list of story poses). Phase 6: P6-01 (item list), P6-03 (fitness picker), P6-04 (age) and P6-05 (gender) are done; body, age and gender change looks and weight class only, never stat points. Next: P6-02 (items with shared generators; only 2 parts of headroom left under the 40-part rule), then P6-06 to P6-11.
 - **Budget:** work until about 35% of the weekly Claude usage, never past 40%. Read it with the usage tool before each batch and stop at a clean boundary before it.
 - **Finish:** commit and push everything on main, then clean up. At the end give me a table of all changes and, if any, a table of locked folders and files to delete. Keep `C:\Users\GS\Desktop\Locked folders.txt` up to date.
 
@@ -40,5 +40,5 @@ How to work:
 - **Browser test before each commit:**
   - Start the `games` preview server (127.0.0.1:8765).
   - In Playwright, open `http://127.0.0.1:8765/Beat%20Em%20Up/breakpoint.html` and accept the leave-page dialog.
-  - From the main menu, run `await BREAKPOINT.selfTest()`: 257 checks at the last push (about 14 s), and all must pass.
+  - From the main menu, run `await BREAKPOINT.selfTest()`: 261 checks at the last push (about 14 s), and all must pass.
   - Close the browser and stop the server after each check, then delete `.playwright-mcp/` at the end.
