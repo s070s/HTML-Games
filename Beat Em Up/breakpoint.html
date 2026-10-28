@@ -150,6 +150,10 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .bar.st i{background:#8dff7a}
 .bar.st.low i{background:repeating-linear-gradient(90deg,#ffb347 0 .35em,#7a3d00 .35em .7em)}
 .bar.st.low{border-style:dashed;border-color:#ffb347}
+.bar.mo{height:.4em;margin-top:.2em;border-width:1px;width:70%}
+.hs.r .bar.mo{margin-left:30%}
+.bar.mo i,.hs.r .bar.mo i{background:#c9b88a}
+.bar.mo.on i{background:#ffd24a}
 .pips{margin-top:.3em;font-size:.9em;letter-spacing:.2em;min-height:1.2em}
 .hc-center{width:7em;text-align:center;flex:none}
 #timer{font:900 2.3em/1 Impact,"Arial Black",sans-serif;min-width:1.6em;border:2px solid #fff;background:rgba(0,0,0,.65);padding:.05em .2em;display:inline-block}
@@ -185,6 +189,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .tag i{font-style:normal;color:#ffe066;margin-left:.4em}
 .pop{position:absolute;left:0;top:0;white-space:nowrap;font:900 italic 1.3em/1 Impact,"Arial Black",sans-serif;letter-spacing:.04em;will-change:transform,opacity;text-shadow:0 2px 3px #000,0 0 4px #000}
 .hc .bar{border-width:3px;background:#000}
+.hc .bar.mo{border-width:1px;height:.6em}
 .hc .tag,.hc #timer,.hc #grappleHint,.hc #grappleHint2,.hc #training,.hc #warn,.hc #warn2{background:#000;border-width:3px}
 .hc .pop{-webkit-text-stroke:2px #000}
 /* ---------- touch ---------- */
@@ -218,9 +223,9 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
   <canvas id="view" tabindex="-1" aria-label="Game view"></canvas>
   <div id="hud" hidden>
     <div class="hud-top">
-      <div class="hs l"><div class="hname" id="hn1"></div><div class="bar hp"><u id="hg1"></u><i id="hp1"></i><b id="ht1"></b></div><div class="bar st" id="stb1"><i id="st1"></i></div><div class="pips" id="pips1"></div></div>
+      <div class="hs l"><div class="hname" id="hn1"></div><div class="bar hp"><u id="hg1"></u><i id="hp1"></i><b id="ht1"></b></div><div class="bar st" id="stb1"><i id="st1"></i></div><div class="bar mo" id="mob1"><i id="mo1"></i></div><div class="pips" id="pips1"></div></div>
       <div class="hc-center"><div id="timer">60</div><div id="roundlbl"></div></div>
-      <div class="hs r"><div class="hname" id="hn2"></div><div class="bar hp"><u id="hg2"></u><i id="hp2"></i><b id="ht2"></b></div><div class="bar st" id="stb2"><i id="st2"></i></div><div class="pips" id="pips2"></div></div>
+      <div class="hs r"><div class="hname" id="hn2"></div><div class="bar hp"><u id="hg2"></u><i id="hp2"></i><b id="ht2"></b></div><div class="bar st" id="stb2"><i id="st2"></i></div><div class="bar mo" id="mob2"><i id="mo2"></i></div><div class="pips" id="pips2"></div></div>
     </div>
     <div id="modeinfo"></div>
     <div id="combo"></div>
@@ -2859,6 +2864,33 @@ const GRIP_POSES = {
   rear(p) { p[J.shLx] = p[J.shRx] = 1.15; p[J.shLz] = p[J.shRz] = -0.4; p[J.elL] = p[J.elR] = 1.5; p[J.torsoLean] = 0.25; p[J.knL] = 0.4; p[J.knR] = 0.4; },
   low(p) { p[J.torsoLean] = 0.85; p[J.knL] = 1.1; p[J.knR] = 0.8; p[J.hipLx] = 0.9; p[J.shLx] = p[J.shRx] = 0.8; p[J.shLz] = p[J.shRz] = -0.2; p[J.elL] = p[J.elR] = 1.2; p[J.headX] = -0.2; },
 };
+/* Clinch strikes (P3-03): Punch = elbow, Kick = knee, posed per style family on top of the grip pose (p); u = 1 at the blow, 0 when it is over.
+   Visual only: damage, timing and the strike limit stay in CLINCH_MOVES / Combat.clinchStrike. Right arm and right leg strike, the left hand holds. */
+const CLINCH_STRIKE_POSES = {
+  default: {   // karateka, capoeira and any new style: the original knee, and a plain shoulder-height elbow
+    knee(p, u) { p[J.hipRx] = 1.2 * u; p[J.knR] = 1.4 * u + 0.3; p[J.torsoLean] = 0.4; },
+    elbow(p, u) { p[J.shRx] = 1.0; p[J.shRz] = 0.9 * u; p[J.elR] = 0.4 + 1.8 * u; p[J.torsoTwist] = 0.5 * u; p[J.torsoLean] = 0.35; },
+  },
+  thai: {   // kickboxer: plum clinch, both hands on the neck, a rising knee with the body leaning back, a downward chop of the elbow
+    knee(p, u) { p[J.shLx] = p[J.shRx] = 1.25; p[J.shLz] = p[J.shRz] = -0.1; p[J.elL] = p[J.elR] = 1.9; p[J.hipRx] = 1.7 * u; p[J.knR] = 1.3 * u + 0.3; p[J.torsoLean] = -0.12 * u; p[J.headX] = 0.1; },
+    elbow(p, u) { p[J.shRx] = 1.9 + 0.5 * u; p[J.shRz] = 0.3; p[J.elR] = 2.4; p[J.shLx] = 1.2; p[J.elL] = 1.8; p[J.torsoLean] = 0.3 + 0.35 * u; p[J.torsoTwist] = 0.3 * u; },
+  },
+  boxer: {   // boxer: a short body knee under a high guard, an elbow thrown like a tight uppercut
+    knee(p, u) { p[J.hipRx] = 0.75 * u; p[J.knR] = 0.9 * u + 0.4; p[J.torsoLean] = 0.5; p[J.shLx] = p[J.shRx] = 1.0; p[J.elL] = p[J.elR] = 2.0; },
+    elbow(p, u) { p[J.shRx] = 0.7; p[J.shRz] = 0.1; p[J.elR] = 1.4 + 0.95 * u; p[J.torsoTwist] = 0.5 * u; p[J.torsoLean] = -0.1; p[J.knL] += 0.35 * u; p[J.knR] += 0.35 * u; },
+  },
+  collar: {   // wrestler, judoka: collar tie (left hand stays on the collar), a short knee that pulls the head down, a flat forearm smash
+    knee(p, u) { p[J.shLx] = p[J.shRx] = 1.1; p[J.elL] = p[J.elR] = 1.6; p[J.hipRx] = 0.85 * u; p[J.knR] = 1.2 * u + 0.3; p[J.torsoLean] = 0.55; p[J.headX] = 0.35; },
+    elbow(p, u) { p[J.shLx] = 1.1; p[J.elL] = 1.6; p[J.shRx] = 1.25; p[J.shRz] = 0.95 * u; p[J.elR] = 1.15; p[J.torsoTwist] = 0.6 * u; p[J.torsoLean] = 0.35; },
+  },
+  brawler: {   // brawler: a wild looping knee, and a head-first lunge in place of the elbow
+    knee(p, u) { p[J.hipRx] = 1.35 * u; p[J.hipRz] = 0.5 * u; p[J.knR] = 1.9 * u + 0.3; p[J.torsoRoll] = 0.35 * u; p[J.torsoTwist] = -0.3 * u; p[J.torsoLean] = 0.25; },
+    elbow(p, u) { p[J.shLx] = p[J.shRx] = 1.2; p[J.elL] = p[J.elR] = 1.0; p[J.headX] = 0.9 * u; p[J.torsoLean] = 0.3 + 0.35 * u; p[J.rootFwd] = 0.15 * u; },
+  },
+};
+const CLINCH_STRIKE_FAMILY = { kickboxer: 'thai', boxer: 'boxer', wrestler: 'collar', judoka: 'collar', brawler: 'brawler' };   // other styles use 'default'
+const CLINCH_STRIKE_ANIM_TICKS = 12;   // how long the strike pose lasts (it fades out from u = 1)
+function clinchStrikePose(styleId, strikeId, p, u) { (CLINCH_STRIKE_POSES[CLINCH_STRIKE_FAMILY[styleId]] || CLINCH_STRIKE_POSES.default)[strikeId === 'elbow' ? 'elbow' : 'knee'](p, u); }
 /* Attack strings (P2-01 Appendix C; P3-10 audits every row). A Punch (P) or Kick (K) press plays the next step of the
    string typed so far, at most 3 steps. Rows are keyed by the presses; step n is the move of press n. Standing rows are
    the default; the crouch rows apply while Crouch was held at every press of the string. Every strong (tier 3) move
@@ -2937,6 +2969,18 @@ const TACKLE_STOP_KNOCK = 2.5;       // m/s: the stopped tackler bounces back
 const TACKLE_STOP_LOCK = 24;         // ticks the stopped tackler is locked
 /* The tackle hits like a heavy stagger move (see Combat.landHit); not part of ATTACKS, so it has no place in the move list or strings. */
 const TACKLE_MOVE = { id: 'tackle', name: 'Charge', limb: 'RA', anim: 'straight', h: 'M', type: 'strike', tier: 3, cat: 'heavy', kind: 'stagger', dmg: 12, push: 1.8, hitstun: 26, blockstun: 0, hitStop: 8, cv: 1, ctx: 'run' };
+/* Momentum boost (P3-09), fully automatic: every fighter has a gauge (0 .. MOMENTUM_MAX) that fills from landing hits (by damage), perfect
+   blocks / sways and taking hits (less). A full gauge starts a BOOST_TICKS boost that multiplies the damage the fighter deals (damageMult,
+   clinch strikes, throws and the tackle; not submission holds or scenery), then the gauge restarts at 0 and cannot fill while the boost runs.
+   Both fighters follow the same rules, the AI included. Fighter.reset (every round start) clears it. */
+const MOMENTUM_MAX = 100;
+const MOMENTUM_PER_DAMAGE = 1.6;     // gauge per hp dealt: a round-winning 60 hp fills it once (a jab is +10, a heavy hit +25)
+const MOMENTUM_TAKEN_RATIO = 0.5;    // the fighter on the receiving end gets this share of it, so a beaten fighter also gets a late chance
+const MOMENTUM_PERFECT = 20;         // a perfect block or sway is skill: it is worth two jabs, five make a boost
+const BOOST_TICKS = 300;             // 5 s: long enough for a couple of strings, short enough not to decide the round alone
+const BOOST_DAMAGE_MULT = 1.15;      // small and readable: the boost rewards a good phase, it does not swing the exchange rates the balance runs set
+const BOOST_BREATH_HZ = 2.4;         // visual: chest rise during the boost (a calm stance breathes at about 1 Hz)
+const BOOST_POSE_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.SIDESTEP, S.SWAY];   // calm states that show the boost; strikes, reactions and holds keep their own poses
 const JUGGLE_LIMIT = 3;
 const COMBO_RESET_TICKS = 12;
 const WALK_FORWARD = 2.2, WALK_BACK = 1.6, WALK_SIDE = 1.8, RUN_SPEED = 4.6, CROUCH_FACTOR = 0.45, BLOCK_FACTOR = 0.6;
@@ -3266,7 +3310,8 @@ class Fighter {
     this.mStartup = 1; this.mActive = 1; this.mRecovery = 1; this.lastMoveId = ''; this.repeatCount = 0; this.repeatTimer = 0;
     this.comboHits = 0; this.comboDamage = 0; this.comboShow = 0; this.gotHits = 0; this.juggle = false; this.juggleCount = 0; this.calmTicks = 0;
     this.hitKind = 'mid'; this.reactDur = 10; this.hitDirX = 0; this.hitDirZ = 0; this.groundHits = 0; this.quickRise = false;
-    this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.escapeQueued = false; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0;
+    this.partner = null; this.clinchTick = 0; this.throwPending = null; this.grabDir = 'fwd'; this.escapeLock = 0; this.escapeQueued = false; this.clinchStrikeCd = 0; this.clinchStrikeAnim = 0; this.clinchStrikes = 0; this.clinchStrikeKind = 'knee';
+    this.momentum = 0; this.boostTicks = 0;   // momentum boost: gauge 0..MOMENTUM_MAX, ticks left of the running boost (a round start resets both)
     this.grip = 'front'; this.grabLow = false; this.throwAim = 'fwd'; this.downMult = 1; this.lieSign = 1; this.throwFollow = null; this.liftY = 0; this.throwPitch = 0; this.throwRoll = 0;
     this.flightId = 0; this.lastImpactTick = -99; this.fvx = 0; this.fvz = 0; this.pendingKO = false;
     this.pinnedBy = null; this.submitDone = false; this.holdRest = false; this.holdTicks = 0; this.holdContest = 0; this.holdDamage = 0; this.holdHp = 0; this.grapplePressed = false; this.prevGrapple = false; this.tackleUsed = false;   // submission (holder: partner, hold*; victim: pinnedBy) and tackle
@@ -3399,8 +3444,20 @@ class Fighter {
     const lead = mv.limb[0] === 'L';
     let m = this.stats.damage * (lead ? 0.95 : 1.08);
     if (this.exhaustedMove) m *= 0.6; else if (this.lowStamina) m *= 0.85;
-    return m;
+    return m * this.boostMult();
   }
+  /* ----- momentum boost (P3-09): see MOMENTUM_MAX ----- */
+  boostMult() { return this.boostTicks > 0 ? BOOST_DAMAGE_MULT : 1; }
+  /* A full gauge starts the boost and empties; nothing fills it while the boost runs, and nobody who is out of the fight gains. */
+  gainMomentum(amount) {
+    if (this.boostTicks > 0 || !this.alive || this.hp <= 0) return;
+    this.momentum = Math.min(MOMENTUM_MAX, this.momentum + amount);
+    if (this.momentum < MOMENTUM_MAX) return;
+    this.momentum = 0;
+    this.boostTicks = BOOST_TICKS;
+    Events.emit('boostStart', { f: this });
+  }
+  tickBoost() { if (this.boostTicks > 0 && --this.boostTicks === 0) Events.emit('boostEnd', { f: this }); }
   /* pick = the string step this attack plays (see resolveMove); any other attack ends the string. */
   startAttack(mv, pick) {
     const chained = this.state === S.ATTACK;
@@ -3487,6 +3544,7 @@ class Fighter {
     if (this.counterWindow > 0) this.counterWindow--;
     if (this.escapeLock > 0) this.escapeLock--;
     if (this.clinchStrikeCd > 0) this.clinchStrikeCd--;
+    this.tickBoost();
     if (this.repeatTimer > 0) this.repeatTimer--;
     if (this.age % 45 === 0 && this.guardPressure > 0) this.guardPressure--;
     if (this.flash > 0) this.flash = Math.max(0, this.flash - 0.12);
@@ -3945,6 +4003,7 @@ class Fighter {
         break;
       default: break;
     }
+    if (this.boostTicks > 0 && BOOST_POSE_STATES.includes(this.state) && !this.throwFollow) this.boostPose(p, t);
     const pose = this.pose;
     k = Math.min(0.9, k * m.blend);
     for (let i = 0; i < NP; i++) pose[i] += (p[i] - pose[i]) * k;
@@ -3959,6 +4018,15 @@ class Fighter {
     p[J.hipLz] += Math.max(0, sway) * m.sway * 2 * amount; p[J.hipRz] += Math.max(0, -sway) * m.sway * 2 * amount;
     p[J.headY] += Math.sin(t * m.swayHz * TAU * 1.7 + m.phase) * m.headBob * amount; p[J.headX] += bob * m.headBob * 0.3 * amount;
     p[J.shLx] += Math.sin(t * m.bounceHz * TAU + m.phase + 1) * 0.03 * amount; p[J.shRx] += Math.sin(t * m.bounceHz * TAU + m.phase + 2) * 0.03 * amount;
+  }
+  /* Momentum boost on the body (P3-09), on top of the calm pose: shoulders hunched up and out, chin down, and fast deep breaths (chest rise,
+     knees pumping a little). No glow or effect: a fighter in the zone just looks wound up. */
+  boostPose(p, t) {
+    const breath = Math.sin(t * BOOST_BREATH_HZ * TAU + this.motion.phase), amount = Settings.v.reducedMotion ? 0.4 : 1;
+    p[J.shLx] += 0.1 + 0.05 * breath * amount; p[J.shRx] += 0.1 + 0.05 * breath * amount;
+    p[J.shLz] += 0.1; p[J.shRz] += 0.1; p[J.headX] += 0.1;
+    p[J.torsoLean] += 0.04 * breath * amount;
+    p[J.knL] += 0.03 * (0.5 + 0.5 * breath) * amount; p[J.knR] += 0.03 * (0.5 + 0.5 * breath) * amount;
   }
   /* Held in a clinch; while a throw runs the pose follows the carry path (pitch / roll), arms flailing. */
   clinchPose(p, t) {
@@ -3977,7 +4045,7 @@ class Fighter {
     (GRIP_POSES[this.grip] || GRIP_POSES.front)(p);
     const tp = this.throwPending;
     if (tp) { THROW_POSES[tp.data.anim](p, clamp(tp.tick / tp.data.startup, 0, 1), tp.side); return 0.55; }
-    if (this.clinchStrikeAnim > 0) { const u = this.clinchStrikeAnim / 12; p[J.hipRx] = 1.2 * u; p[J.knR] = 1.4 * u + 0.3; p[J.torsoLean] = 0.4; }
+    if (this.clinchStrikeAnim > 0) clinchStrikePose(this.motion.styleId, this.clinchStrikeKind, p, this.clinchStrikeAnim / CLINCH_STRIKE_ANIM_TICKS);
     return 0.5;
   }
   /* Holder: kneeling low over the victim, both hands clamped on a limb, squeezing in a slow rhythm. */
@@ -4202,6 +4270,8 @@ const Combat = {
     return to.tier >= from.tier;
   },
   comboScale(n) { return COMBO_SCALE[Math.min(n, COMBO_SCALE.length - 1)]; },
+  /* Momentum for damage that landed (strike, ground hit, clinch strike, throw, tackle): the dealer gains by the damage, the receiver by a share of it. */
+  momentum(att, def, dmg) { if (def.hp > 0) att.gainMomentum(dmg * MOMENTUM_PER_DAMAGE); def.gainMomentum(dmg * MOMENTUM_PER_DAMAGE * MOMENTUM_TAKEN_RATIO); },
 
   /* Decide what the attacker's active move would do to the defender this tick (no side effects). */
   evaluate(att, def) {
@@ -4273,6 +4343,7 @@ const Combat = {
     att.comboHits = def.gotHits;
     att.comboDamage += dmg;
     att.comboShow = 100;
+    this.momentum(att, def, dmg);
     def.flash = 1;
     def.blockStun = 0;
     def.counterWindow = 0;
@@ -4328,6 +4399,7 @@ const Combat = {
     def.hp = Math.max(0, def.hp - dmg);
     if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
     def.groundHits++;
+    this.momentum(att, def, dmg);
     def.flash = 1;
     att.moveConnected = true;
     const pos = this.hitPoint(att, def, mv);
@@ -4346,6 +4418,7 @@ const Combat = {
     let broke = false;
     if (perfect) {
       def.counterWindow = COUNTER_WINDOW_PERFECT;
+      def.gainMomentum(MOMENTUM_PERFECT);
       def.stam = Math.min(def.maxStam, def.stam + 6);
       def.blockStun = 0;
       att.reactDur = 26; att.hitKind = 'mid';
@@ -4384,6 +4457,7 @@ const Combat = {
     const pos = this.hitPoint(att, def, mv);
     if (perfect) {
       def.counterWindow = COUNTER_WINDOW_PERFECT;
+      def.gainMomentum(MOMENTUM_PERFECT);
       match.hitStop = Math.max(match.hitStop, 4);
     }
     Events.emit('block', { att, def, mv, perfect, broke: false, sway: true, x: pos.x, y: pos.y, z: pos.z, dirx: att.fwdX, dirz: att.fwdZ });
@@ -4394,7 +4468,7 @@ const Combat = {
     const mv = att.move;
     const cx = att.x + att.fwdX * mv.reach * att.stats.reach * 0.8, cz = att.z + att.fwdZ * mv.reach * att.stats.reach * 0.8;
     const cy = (mv.h === 'H' ? 1.4 : mv.h === 'M' ? 1.0 : 0.35) + att.y; // body height is cosmetic, so it must not move the hit height
-    const raw = mv.dmg * att.damageMult(mv);
+    const raw = mv.dmg * att.damageMult(mv) / att.boostMult();   // the momentum boost is for fighters, not scenery
     const n = Arena.hitSphere(cx, cy, cz, 0.4, att.moveId, raw, mv.cat, att.fwdX, att.fwdZ, att.index);
     if (n > 0) match.hitStop = Math.max(match.hitStop, 3);
     return n;
@@ -4447,17 +4521,19 @@ const Combat = {
   clinchStrike(att, def, cm, match) {
     if (!match.live) return;
     att.clinchStrikeCd = 22;
-    att.clinchStrikeAnim = 12;
+    att.clinchStrikeAnim = CLINCH_STRIKE_ANIM_TICKS;
+    att.clinchStrikeKind = cm.id;
     att.clinchStrikes++;
     const exhausted = att.stam < cm.stam;   // an empty tank still lands the strike, but weakly (like an exhausted attack)
     att.stam = Math.max(0, att.stam - cm.stam);
     att.noRegen = 30;
     def.stam = Math.max(0, def.stam - cm.drain);
-    const dmg = Math.max(1, Math.round(cm.dmg * att.stats.damage * (exhausted ? 0.6 : 1) * this.comboScale(def.gotHits) * def.stats.taken * 10) / 10);
+    const dmg = Math.max(1, Math.round(cm.dmg * att.stats.damage * att.boostMult() * (exhausted ? 0.6 : 1) * this.comboScale(def.gotHits) * def.stats.taken * 10) / 10);
     def.hp = Math.max(0, def.hp - dmg);
     if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
     def.flash = 1;
     def.gotHits++; att.comboHits = def.gotHits; att.comboDamage += dmg; att.comboShow = 100;
+    this.momentum(att, def, dmg);
     match.hitStop = Math.max(match.hitStop, 5);
     if (def.hp <= 0) this.knockOut(def, att, null, match);   // before the hit event, so the KO blow gets its full feedback
     Events.emit('hit', { att, def, mv: { id: cm.id, name: cm.name, tier: 2, cat: cm.cat, h: 'M', kind: 'hit', hitStop: 5 }, dmg, counter: false, x: def.x, y: def.y + 0.9, z: def.z, dirx: att.fwdX, dirz: att.fwdZ, kind: 'hit', combo: att.comboHits, ko: def.state === S.KO });
@@ -4465,10 +4541,11 @@ const Combat = {
   executeThrow(att, def, match) {
     const p = att.throwPending, t = p.data;
     att.throwPending = null;
-    let dmg = t.dmg * att.stats.damage * def.stats.taken * def.stats.impact;
+    let dmg = t.dmg * att.stats.damage * att.boostMult() * def.stats.taken * def.stats.impact;
     dmg = match.live ? Math.max(1, Math.round(dmg * 10) / 10) : 0;   // a throw finishing after the round ends still lands, harmlessly
     def.hp = Math.max(0, def.hp - dmg);
     if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
+    this.momentum(att, def, dmg);
     const v = this.throwVector(att, p.dir), vx = v[0], vz = v[1];
     const speed = t.launch;
     def.setState(S.THROWN);
@@ -4591,6 +4668,7 @@ const Combat = {
   knockOut(def, att, mv, match) {
     if (def.state === S.KO) return;
     if (def.state === S.SUBMIT) this.dropSubmission(def, 'ko');   // a knocked-out holder frees the held fighter
+    def.boostTicks = 0;   // a knocked-out fighter's boost ends with no boostEnd
     def.hp = 0;
     def.alive = false;
     def.partner = null;
@@ -6697,6 +6775,7 @@ const Sound = {
     on('throwStart', (e) => this.whoosh(1, e.f.x));
     on('throw', (e) => { this.slam(e.x); this.grunt(e.def.index, true); });
     on('escape', () => { this.tone('triangle', 600, 900, 0.1, 0.2); });
+    on('boostStart', (e) => { this.tone('sine', 120, 70, 0.12, 0.35, 0, this.panFor(e.f.x)); });   // the clinch thud: a low heartbeat as the fighter winds up
     on('submission', () => { this.tone('sine', 120, 70, 0.12, 0.35); this.noise('bandpass', 900, 500, 0.6, 0.12, 0.25); });   // the clinch sound
     on('submissionEscape', () => { this.tone('triangle', 600, 900, 0.1, 0.2); });   // the escape sound
     on('tackle', (e) => { if (e.result === 'blocked') this.block(false, false, e.x); else if (e.result === 'hit') this.slam(e.x); else this.whoosh(0.8, e.x); });
@@ -6914,7 +6993,7 @@ const UI = {
   listeners: [], frameCount: 0, onboardTimer: 0, pickSide: 0, lastScreen: null, touchButtons: {},
 
   init() {
-    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'pips1', 'pips2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'onboard', 'training', 'modeinfo', 'tags', 'pauseBtn']) this.dom[id] = $(id);
+    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'mo1', 'mo2', 'mob1', 'mob2', 'pips1', 'pips2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'onboard', 'training', 'modeinfo', 'tags', 'pauseBtn']) this.dom[id] = $(id);
     const add = (t, type, fn, o) => { t.addEventListener(type, fn, o); this.listeners.push([t, type, fn, o]); };
     add(window, 'keydown', (e) => this.onKey(e));
     add(this.dom.onboard, 'pointerdown', () => this.hideOnboarding());
@@ -7703,6 +7782,10 @@ const UI = {
       this.setTransform('st' + i, this.dom['st' + (i + 1)], 'scaleX(' + clamp(f.stam / f.maxStam, 0, 1).toFixed(3) + ')');
       const low = f.lowStamina;
       if (this.cache['low' + i] !== low) { this.cache['low' + i] = low; this.dom['stb' + (i + 1)].classList.toggle('low', low); }
+      // momentum: the gauge filling, then the running boost draining
+      const boosted = f.boostTicks > 0;
+      this.setTransform('mo' + i, this.dom['mo' + (i + 1)], 'scaleX(' + clamp(boosted ? f.boostTicks / BOOST_TICKS : f.momentum / MOMENTUM_MAX, 0, 1).toFixed(3) + ')');
+      this.toggleOn('boost' + i, this.dom['mob' + (i + 1)], boosted);
     };
     bar(0, a); bar(1, b);
     Music.setIntensity(this.tenseMoment(m) ? MUSIC_TENSE : MUSIC_FIGHT);
@@ -11253,6 +11336,131 @@ const SelfTest = {
     test('Balance sample: Block and Sway fighters of equal stats each win some AI matches', () => {
       const split = self.defenseSplit(4, { difficulty: 'normal', winsNeeded: 1, timer: 40 });   // the full 45-55 % check is BREAKPOINT.simulate over 20+ seeds (see the tasklist)
       return !split.error && split.block >= 1 && split.sway >= 1 ? true : JSON.stringify(split);
+    });
+    test('Momentum (P3-09): the gauge fills from landed damage, perfect blocks and perfect sways, and from taking hits at a lower rate', () => {
+      const log = self.capture(['hit']);
+      const m = mk({}, once(2, 'punch')); self.place(m, 1.2); self.run(m, 40); log.stop();
+      const [a, b] = m.fighters, dmg = log.hit.length === 1 ? log.hit[0].dmg : 0;
+      const landed = dmg > 0 && Math.abs(a.momentum - dmg * MOMENTUM_PER_DAMAGE) < 0.01 && Math.abs(b.momentum - dmg * MOMENTUM_PER_DAMAGE * MOMENTUM_TAKEN_RATIO) < 0.01 && b.momentum > 0 && b.momentum < a.momentum;
+      m.dispose();
+      const blockLog = self.capture(['block']);
+      const mb = mkBlock({}, once(2, 'punch'), (it, f, o, mm) => { if (mm.tick >= 5) it.defend = true; }); self.place(mb, 1.2); self.run(mb, 40); blockLog.stop();
+      const perfectBlock = blockLog.block.length === 1 && blockLog.block[0].perfect && mb.fighters[1].momentum === MOMENTUM_PERFECT && mb.fighters[0].momentum === 0;
+      mb.dispose();
+      const swayLog = self.capture(['block']);
+      const ms = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.roundhouse); }, swayAt(8)); self.place(ms, 1.2); self.run(ms, 60); swayLog.stop();
+      const perfectSway = swayLog.block.length === 1 && swayLog.block[0].sway && swayLog.block[0].perfect && ms.fighters[1].momentum === MOMENTUM_PERFECT && ms.fighters[0].momentum === 0;
+      ms.dispose();
+      const plainLog = self.capture(['block']);
+      const mp = mk({}, once(2, 'punch'), swayAt(3)); self.place(mp, 1.2); self.run(mp, 40); plainLog.stop();
+      const plainSway = plainLog.block.length === 1 && !plainLog.block[0].perfect && mp.fighters[1].momentum === 0;   // a plain dodge is not rewarded
+      mp.dispose();
+      const blocked = (() => {   // a held guard (not perfect) gives nothing either
+        const l = self.capture(['block']); const m2 = mkBlock({}, once(40, 'punch'), (it) => { it.defend = true; }); self.place(m2, 1.2); self.run(m2, 80); l.stop();
+        const r = l.block.length === 1 && !l.block[0].perfect && m2.fighters[1].momentum === 0 && m2.fighters[0].momentum === 0; m2.dispose(); return r;
+      })();
+      const ok = landed && perfectBlock && perfectSway && plainSway && blocked && MOMENTUM_TAKEN_RATIO < 1;
+      return ok ? true : JSON.stringify({ landed, dmg, a: a.momentum, b: b.momentum, perfectBlock, perfectSway, plainSway, blocked });
+    });
+    test('Momentum boost: a full gauge starts it by a real hit, the boost raises damage by the constant, lasts BOOST_TICKS, and the gauge stays empty until it ends', () => {
+      const heavyDamage = (boosted) => {   // the same heavy hit with and without the boost, read from the hit event
+        const log = self.capture(['hit']);
+        const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.heavy_roundhouse); }); self.place(m, 1.2);
+        if (boosted) m.fighters[0].boostTicks = BOOST_TICKS;
+        self.run(m, 60); log.stop(); m.dispose();
+        return log.hit.length === 1 ? log.hit[0].dmg : 0;
+      };
+      const plain = heavyDamage(false), boosted = heavyDamage(true);
+      const ratioOk = plain > 10 && Math.abs(boosted / plain - BOOST_DAMAGE_MULT) < 0.01;
+      const f0 = new Fighter(ROSTER_BY_ID.kai, 0);
+      const multOk = f0.boostMult() === 1 && f0.damageMult(ATTACKS.jab) > 0 && (() => { const base = f0.damageMult(ATTACKS.jab); f0.boostTicks = 5; return Math.abs(f0.damageMult(ATTACKS.jab) / base - BOOST_DAMAGE_MULT) < 1e-9; })();
+      // a match: three jabs while boosted, one after it ended
+      const log = self.capture(['boostStart', 'boostEnd', 'hit']);
+      let startAge = -1, endAge = -1, mid = -1;
+      const offs = [Events.on('boostStart', (e) => { startAge = e.f.age; }), Events.on('boostEnd', (e) => { endAge = e.f.age; })];
+      const m = mk({}, (it, f, o, mm) => { o.x = f.x + 1.0; o.z = f.z; o.prevX = o.x; o.prevZ = o.z; if (mm.tick === 2 || mm.tick === 90 || mm.tick === 150) it.punch = true; if (mm.tick >= 190 && mid < 0) mid = f.momentum; if (mm.tick === 520) it.punch = true; });
+      self.place(m, 1.2);
+      const a = m.fighters[0];
+      a.momentum = MOMENTUM_MAX - 1;
+      self.run(m, 140);
+      const started = log.boostStart.length === 1 && log.boostStart[0].f === a && a.boostTicks > 0 && a.momentum === 0 && log.hit.length >= 2;   // the first hit filled the last point, the later ones found the gauge empty
+      self.run(m, 60);
+      const emptyDuring = a.boostTicks > 0 && a.momentum === 0 && mid === 0;
+      self.run(m, 400); log.stop(); offs.forEach((off) => off());
+      const lasted = log.boostEnd.length === 1 && log.boostEnd[0].f === a && endAge - startAge === BOOST_TICKS && a.boostTicks === 0;
+      const refills = a.momentum > 0 && log.hit.length >= 4;   // after the boost the gauge fills again
+      m.dispose();
+      const trainFloor = (() => {   // Training: the boost starts, and a boosted heavy hit still leaves the infinite-health dummy at 1 hp
+        const t = self.capture(['boostStart', 'ko']);
+        const mt = mk({ mode: 'training' }, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.heavy_roundhouse); });
+        mt.infiniteHp = true; self.place(mt, 1.2); mt.fighters[0].momentum = MOMENTUM_MAX - 1; mt.fighters[1].hp = 5; self.run(mt, 60); t.stop();
+        const r = t.boostStart.length === 1 && mt.fighters[1].hp === 1 && mt.fighters[1].alive && t.ko.length === 0; mt.dispose(); return r;
+      })();
+      const koHit = (() => {   // outside Training the same boosted hit knocks out a 5 hp fighter through the normal KO path
+        const t = self.capture(['ko']);
+        const mk2 = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(ATTACKS.heavy_roundhouse); });
+        self.place(mk2, 1.2); mk2.fighters[0].boostTicks = BOOST_TICKS; mk2.fighters[1].hp = 5; self.run(mk2, 60); t.stop();
+        const r = t.ko.length === 1 && mk2.fighters[1].state === S.KO && !mk2.fighters[1].alive; mk2.dispose(); return r;
+      })();
+      const ok = ratioOk && multOk && started && emptyDuring && lasted && refills && trainFloor && koHit && BOOST_DAMAGE_MULT > 1;
+      return ok ? true : JSON.stringify({ plain, boosted, ratioOk, multOk, started, emptyDuring, lasted, span: endAge - startAge, refills, trainFloor, koHit });
+    });
+    test('Momentum boost: every round start clears the gauge and a running boost (both fighters)', () => {
+      const m = mk({});
+      const [a, b] = m.fighters;
+      a.momentum = 60; b.momentum = 30; b.boostTicks = 120;
+      m.startRound();
+      const cleared = a.momentum === 0 && a.boostTicks === 0 && b.momentum === 0 && b.boostTicks === 0 && b.boostMult() === 1;
+      a.momentum = 40; m.resetFighters();   // the Training reset places the fighters again
+      const trainingReset = a.momentum === 0;
+      return cleared && trainingReset ? true : JSON.stringify({ cleared, trainingReset, a: a.momentum, b: b.boostTicks });
+    });
+    test('Momentum boost: an AI fighter fills the gauge and boosts under the same rules (empty gauge during the boost, boosted damage, no extra input)', () => {
+      const log = self.capture(['boostStart']);
+      const m = mk({ seed: 7 });
+      m.controllers[1] = new AIController(m.fighters[1].profile, 'hard');
+      const ai = m.fighters[1];
+      let steps = 0, bad = '';
+      while (steps < 5000 && !log.boostStart.length) {
+        m.step(); steps++;
+        for (const f of m.fighters) if (f.momentum < 0 || f.momentum >= MOMENTUM_MAX || f.boostTicks < 0 || f.boostTicks > BOOST_TICKS || (f.boostTicks > 0 && f.momentum !== 0)) bad = f.name + ' ' + f.momentum + '/' + f.boostTicks;
+      }
+      log.stop();
+      const started = log.boostStart.length === 1 && log.boostStart[0].f === ai && ai.boostTicks > 0 && ai.momentum === 0 && ai.boostMult() === BOOST_DAMAGE_MULT && m.controllers[1] instanceof AIController;
+      m.dispose();
+      return started && !bad ? true : JSON.stringify({ started, bad, steps, events: log.boostStart.map((e) => e.f.name) });
+    });
+    test('Clinch strikes (P3-03): elbow and knee have their own pose per style family, other styles use the default, and the strike itself is unchanged', () => {
+      const strike = (styleId, strikeId) => {
+        const m = mk({}); self.place(m, 0.8);
+        const [a, b] = m.fighters;
+        a.motion = makeMotion(Object.assign({}, a.profile, { moveStyle: styleId }), a.scale, a.build);
+        a.setState(S.ATTACK); Combat.startClinch(a, b, m);
+        const hp = b.hp;
+        Combat.clinchStrike(a, b, CLINCH_MOVES[strikeId], m);
+        const r = { lost: hp - b.hp, kindOk: a.state === S.GRAPPLE && a.clinchStrikeKind === strikeId && a.clinchStrikeAnim === CLINCH_STRIKE_ANIM_TICKS && a.clinchStrikes === 1 && a.motion.styleId === styleId };
+        a.clinchStrikeAnim = 8;   // a mid-strike tick
+        r.pose = new Float32Array(NP); a.grapplePose(r.pose);
+        m.dispose();
+        return r;
+      };
+      const far = (p, q) => { let d = 0; for (let i = 0; i < NP; i++) d = Math.max(d, Math.abs(p[i] - q[i])); return d; };
+      const styles = MOVE_STYLE_IDS, problems = [];
+      const got = {};
+      for (const id of styles) for (const s of ['knee', 'elbow']) got[id + '.' + s] = strike(id, s);
+      for (const key in got) if (!got[key].kindOk) problems.push('state ' + key);
+      for (const s of ['knee', 'elbow']) {
+        const lost = styles.map((id) => got[id + '.' + s].lost);
+        if (new Set(lost).size !== 1 || !(lost[0] > 0)) problems.push('damage differs ' + s + ' ' + lost.join('/'));   // pure animation: the same blow in every style
+        for (const [x, y] of [['kickboxer', 'boxer'], ['kickboxer', 'wrestler'], ['kickboxer', 'brawler'], ['boxer', 'wrestler'], ['boxer', 'brawler'], ['wrestler', 'brawler'], ['kickboxer', 'karateka'], ['boxer', 'karateka'], ['wrestler', 'karateka'], ['brawler', 'karateka']]) {
+          if (far(got[x + '.' + s].pose, got[y + '.' + s].pose) < 0.2) problems.push(s + ' ' + x + ' = ' + y);
+        }
+        if (far(got['wrestler.' + s].pose, got['judoka.' + s].pose) > 0.001 || far(got['karateka.' + s].pose, got['capoeira.' + s].pose) > 0.001) problems.push(s + ' family mapping');
+      }
+      if (far(got['karateka.knee'].pose, got['karateka.elbow'].pose) < 0.2) problems.push('default knee = elbow');
+      const knee = got['karateka.knee'].pose, u = 8 / CLINCH_STRIKE_ANIM_TICKS;
+      if (Math.abs(knee[J.hipRx] - 1.2 * u) > 1e-4 || Math.abs(knee[J.knR] - (1.4 * u + 0.3)) > 1e-4) problems.push('default knee changed');   // the default is the pre-P3-03 knee
+      return problems.length ? problems.join('; ') : true;
     });
     test('Motion: kicks land in front of the body at the reference heights', () => {
       const problems = [];

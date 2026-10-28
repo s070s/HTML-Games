@@ -120,7 +120,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [ ] P3-02 - Define Block rules (high / low coverage without a second button, perfect block, stamina cost, chip damage, guard break) and Sway rules (i-frame window, recovery, stamina cost, punish window, counter-attack follow-up).
   Done when: rules and values are in Appendix C and implemented; P0-06 runner shows neither type wins more than the balance target set in P14-01.
   Status (2026-10-28): rules implemented; balance open. Block vs Sway AI wins (same fighter, 60 matches each): Easy 55/45, Normal 42/58, Hard 73/27, Expert 95/5. Hard and Expert miss the 45-55% target: Block's parry rate grows with difficulty faster than the Sway AI's dodges. Tune in P3-08 / P3-10, then tick.
-- [ ] P3-03 - Grab attacks: in a grab, Punch = elbow strike, Kick = knee strike. Distinct animations per style family where the style supports it.
+- [x] P3-03 - Grab attacks: in a grab, Punch = elbow strike, Kick = knee strike. Distinct animations per style family where the style supports it.
   Done when: both strikes work from the grab on touch, gamepad and keyboard, with hit reactions and a strike limit per grab.
 - [x] P3-04 - DECIDE: submissions design with minimal inputs (proposal: start from a grab or a downed opponent with one existing input; escape by a short directional or mash contest that works on touch). Include which styles can submit.
   Done when: Appendix C has the design, inputs on all three control types, and rules for multi-opponent situations (other enemies can interrupt).
@@ -134,6 +134,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: frame data shows in Training for every move and no move has an unintended infinite combo (checked by P0-06 runner).
 - [ ] P3-09 - Automatic momentum boost: a gauge filled by landing hits, perfect blocks / sways and taking hits, giving a short stronger-damage state when full; same rules for AI; no extra input; shown on the fighter (pose / breathing, no glow, no sci-fi look) plus one thin bar.
   Done when: rules and values are in Appendix C; the boost triggers and ends as defined in the P0-06 headless runner; with it on, no style pair's win rate leaves the P14-01 target.
+  Status (2026-10-28): implemented, rules in Appendix C, self-tests cover start / end / reset / AI. Balance open: the all-pairs win-rate check waits for P14-01 (Block vs Sway at Hard moved 73/27 to 77/23 with the boost on).
 - [ ] P3-10 - Combo audit and redesign for balance: for every attack string and buffered chain measure damage, stamina, frame advantage on hit and on block, guard break, knockdown / launch and juggle follow-ups; give each style family (P1-04) its own strings where the style needs them; make strong string enders punishable on block and keep any one string from dominating. Runs after P3-08.
   Done when: Appendix C has the final string table per style family with frame data and damage per string; the P0-06 runner (AI vs AI, every style pair) shows every string in use, no single string above 35% of a fighter's damage (threshold may be revised in Appendix C with a reason), no unintended infinite or guaranteed loop, and win rates inside the P14-01 target.
 
@@ -1256,6 +1257,17 @@ Every one of the 8 strong moves has exactly one string. Standing mixed pairs (P 
   - Submissions: styles that can submit today are Wrestling and Judo (BJJ, Hapkido and MMA join when P4 adds them). A hold needs the holder within 1.3 m and is allowed once per knockdown. It deals about 22 damage over the full 4 s. Escape taps and hold taps are scaled by stamina, and the holder's lead is capped, so mashing never makes escape impossible. A hold that ends without an escape leaves the victim down 20 more ticks and locks the holder 12 ticks.
   - Weight classes (until P6-03 replaces the input): 0-4 from body scale x build, bounds 0.92 / 1.04 / 1.2 / 1.36. Today Yuki and Mara are class 0, Kai 1, Zero 2, Dmitri 3 and Brutus 4.
   - Tackle: 12 damage plus a heavy stagger. A blocked tackle locks the tackler's run for 24 ticks. The first contact of a run decides the outcome.
+- Momentum boost (P3-09, 2026-10-28):
+  - Gauge: 0-100. Damage dealt adds 1.6 per point and damage taken adds half that. A perfect block or perfect sway adds 20. Submission holds add nothing.
+  - Boost: a full gauge starts a 5 s boost with x1.15 damage, on strikes, ground hits, clinch strikes, throws and the tackle.
+  - Refill and reset: the gauge stays empty during the boost. Both reset at every round start.
+  - Display: shoulders up and faster breathing, plus a thin bar under the stamina bar that turns amber during the boost.
+- Clinch strikes (P3-03): elbow and knee poses per style family:
+  - Thai plum for Kickboxing;
+  - uppercut elbow and low knee for Boxing;
+  - collar tie for Wrestling and Judo;
+  - wild knee and headbutt lunge for the Brawler;
+  - the default pair for the rest.
 - USE: no hold. Tap Use = throw the held item at the target; Crouch + Use = drop it; Use near an item while empty-handed = pick up.
 - P3-10: the 35% limit stays.
 
