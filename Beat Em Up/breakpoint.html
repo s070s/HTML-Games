@@ -97,6 +97,9 @@ button.mi small.rec{color:var(--a1)}
 .sw.on{outline:3px solid var(--a1);outline-offset:2px;border-color:#fff}
 .sw.on::after{content:"\2713";position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:900;font-size:1.1em;text-shadow:0 0 3px #000,0 0 3px #000}
 .rng{width:8em;min-height:44px;accent-color:var(--a1);cursor:pointer}
+.fitpad{position:relative;height:9em;margin:.4em 0;border:2px solid #2a3b66;border-radius:.4em;background:linear-gradient(to right,#0f1830,#1d3470);touch-action:none;cursor:crosshair;user-select:none}
+.fitpad i{position:absolute;width:1.2em;height:1.2em;margin:-.6em 0 0 -.6em;border-radius:50%;background:var(--a1);border:2px solid #fff;pointer-events:none}
+.fitpad span{position:absolute;font-size:.75em;font-weight:800;letter-spacing:.06em;text-transform:uppercase;opacity:.7;pointer-events:none}.fitpad .fx{right:.5em;bottom:.3em}.fitpad .fy{left:.5em;top:.3em}
 .meter{display:inline-block;width:6em;height:.6em;background:#0b1224;border:1px solid #2a3b66;border-radius:3px;overflow:hidden}
 .meter i{display:block;height:100%;background:var(--a1)}
 .pts{margin:.5em 0;padding:.45em .7em;border:2px solid var(--a1);border-radius:.4em;text-align:center;letter-spacing:.06em}
@@ -3560,8 +3563,8 @@ const SUBMIT_FLASH_TICKS = 20;       // the victim flashes this often while the 
 const SUBMIT_REST_TICKS = 20;        // the victim lies this much longer after a hold that did not end in an escape
 const SUBMIT_AFTER_LOCK = 12;        // holder lock after the hold ends
 const SUBMIT_ESCAPE_LOCK = 20;       // ... after the victim escapes
-/* Heavy tackle (P3-06): weight class comes from look.scale x look.build (a stand-in until P6-03, the fitness triangle, supplies a real
-   weight). A runner at least TACKLE_MIN_GAP classes heavier than the fighter it runs into knocks them back; Block stops it, Sway i-frames
+/* Heavy tackle (P3-06): weight class comes from look.scale x look.build (the creator's fitness picker, P6-03, sets the build from weight and muscle).
+   A runner at least TACKLE_MIN_GAP classes heavier than the fighter it runs into knocks them back; Block stops it, Sway i-frames
    and Sidestep let it run past. One tackle per run start. */
 const WEIGHT_CLASS_BOUNDS = [0.92, 1.04, 1.2, 1.36];   // scale x build below each bound is that class (0 = lightest): 5 classes
 const WEIGHT_CLASS_NAMES = ['Light', 'Lightweight', 'Middle', 'Heavy', 'Super heavy'];
@@ -4097,7 +4100,11 @@ class Fighter {
     this.weight = weightClass({ look });   // 0 .. 4, read by the heavy tackle
     this.lk = resolveLook(look);
     const c = this.lk.colors;
-    this.col = { skin: C(c.skin), hair: C(c.hair), top: C(c.top), shorts: C(c.shorts), glove: C(c.glove), shoe: C(c.shoe), accent: C(c.accent), mask: C(c.mask), stubble: C(c.stubble) };
+    this.col = { skin: C(c.skin), hair: C(c.hair), top: C(c.top), shorts: C(c.shorts), glove: C(c.glove), shoe: C(c.shoe), accent: C(c.accent), mask: C(c.mask), stubble: C(c.stubble), line: C(c.line) };
+    // muscle 0.5, Male and an age up to AGE_OLD_FROM give factors of exactly 1 and lean 0: the original body
+    const muscle = clamp(finite(look.muscle, FIT_DEFAULT_MUSCLE), 0, 1) - 0.5, female = GENDER_SHAPE[look.gender] || 0;
+    this.shape = { arm: (1 + 0.45 * muscle) * (1 - 0.12 * female), chest: (1 + 0.2 * muscle) * (1 - 0.08 * female), leg: 1 + 0.25 * muscle, hip: 1 + 0.18 * female,
+      lean: clamp((finite(look.age, AGE_DEFAULT) - AGE_OLD_FROM) / (AGE_MAX - AGE_OLD_FROM), 0, 1) * 0.14 };   // older fighters stand a little bent
     this.accentGlow = this.lk.glow ? 0.65 : 0;
     this.capHair = CAP_HAIR.includes(this.lk.hairStyle);
   }
@@ -4918,7 +4925,7 @@ class Fighter {
   /* Walk the joint hierarchy; optionally queue draw calls. Also records key points in this.pts. */
   skeleton(px, py, pz, yaw, draw) {
     DRAW_NOW = draw;
-    const p = this.pose, col = this.col, sc = this.scale, b = this.build, pts = this.pts;
+    const p = this.pose, col = this.col, sc = this.scale, b = this.build, pts = this.pts, sh = this.shape;
     M4.identity(FBASE);
     M4.translate(FBASE, px, py, pz);
     M4.rotY(FBASE, yaw);
@@ -4934,14 +4941,14 @@ class Fighter {
     const fl = this.flash * 0.4;
     const skin = col.skin, lk = this.lk, glow = this.accentGlow;
     const pants = lk.legs === 'pants', legCol = pants ? col.shorts : skin;
-    part(MESH.CUBE, 0, 0, 0, 0.34 * b, 0.2, 0.22 * b, col.shorts, 0, 0.8, fl);
+    part(MESH.CUBE, 0, 0, 0, 0.34 * b * sh.hip, 0.2, 0.22 * b, col.shorts, 0, 0.8, fl);
     // legs
     for (let s = 1; s >= -1; s -= 2) {
       const hx = s > 0 ? p[J.hipLx] : p[J.hipRx], hz = s > 0 ? p[J.hipLz] : p[J.hipRz], kn = s > 0 ? p[J.knL] : p[J.knR];
       ms.push();
-      ms.t(s * 0.1 * b, -HIP_DROP, 0); ms.rz(s * hz); ms.rx(-hx);
-      part(MESH.CYL, 0, -0.22, 0, (pants ? 0.16 : 0.14) * b, 0.44, (pants ? 0.16 : 0.14) * b, legCol, 0, pants ? 0.85 : 0.7, fl);
-      if (!pants) part(MESH.CYL, 0, -0.13, 0, 0.17 * b, 0.28, 0.17 * b, col.shorts, 0, 0.8, fl);
+      ms.t(s * 0.1 * b * sh.hip, -HIP_DROP, 0); ms.rz(s * hz); ms.rx(-hx);
+      part(MESH.CYL, 0, -0.22, 0, (pants ? 0.16 : 0.14) * b * sh.leg, 0.44, (pants ? 0.16 : 0.14) * b * sh.leg, legCol, 0, pants ? 0.85 : 0.7, fl);
+      if (!pants) part(MESH.CYL, 0, -0.13, 0, 0.17 * b * sh.leg, 0.28, 0.17 * b * sh.leg, col.shorts, 0, 0.8, fl);
       ms.t(0, -THIGH, 0); ms.rx(kn);
       part(MESH.CYL, 0, -0.22, 0, (pants ? 0.125 : 0.11) * b, 0.44, (pants ? 0.125 : 0.11) * b, legCol, 0, pants ? 0.85 : 0.7, fl);
       part(MESH.SPHERE, 0, 0, 0, 0.12 * b, 0.12 * b, 0.12 * b, legCol, 0, 0.7, fl);
@@ -4955,17 +4962,17 @@ class Fighter {
     }
     // torso
     ms.push();
-    ms.t(0, 0.1, 0); ms.rx(p[J.torsoLean]); ms.ry(p[J.torsoTwist]); ms.rz(p[J.torsoRoll]);
-    part(MESH.CUBE, 0, 0.26, 0, 0.35 * b, 0.5, 0.21 * b, col.top, 0, 0.8, fl);
-    part(MESH.SPHERE, 0, 0.4, 0.02, 0.4 * b, 0.28, 0.25 * b, col.top, 0, 0.8, fl);
-    if (lk.belt === 'none') part(MESH.CUBE, 0, 0.0, 0, 0.36 * b, 0.07, 0.23 * b, col.shorts, 0, 0.6, fl);
-    else part(MESH.CUBE, 0, 0.0, 0, 0.365 * b, 0.09, 0.235 * b, col.accent, glow, 0.6, fl);
-    if (lk.topStyle === 'gi') part(MESH.CUBE, 0, -0.1, 0, 0.37 * b, 0.14, 0.235 * b, col.top, 0, 0.85, fl);       // jacket skirt
-    if (lk.belt === 'sash') part(MESH.CUBE, 0.13 * b, -0.15, 0.11 * b, 0.06, 0.22, 0.03, col.accent, glow, 0.7, fl); // hanging sash end
+    ms.t(0, 0.1, 0); ms.rx(p[J.torsoLean] + sh.lean); ms.ry(p[J.torsoTwist]); ms.rz(p[J.torsoRoll]);
+    part(MESH.CUBE, 0, 0.26, 0, 0.35 * b * sh.chest, 0.5, 0.21 * b, col.top, 0, 0.8, fl);
+    part(MESH.SPHERE, 0, 0.4, 0.02, 0.4 * b * sh.chest, 0.28, 0.25 * b, col.top, 0, 0.8, fl);
+    if (lk.belt === 'none') part(MESH.CUBE, 0, 0.0, 0, 0.36 * b * sh.hip, 0.07, 0.23 * b, col.shorts, 0, 0.6, fl);
+    else part(MESH.CUBE, 0, 0.0, 0, 0.365 * b * sh.hip, 0.09, 0.235 * b, col.accent, glow, 0.6, fl);
+    if (lk.topStyle === 'gi') part(MESH.CUBE, 0, -0.1, 0, 0.37 * b * sh.hip, 0.14, 0.235 * b, col.top, 0, 0.85, fl);       // jacket skirt
+    if (lk.belt === 'sash') part(MESH.CUBE, 0.13 * b * sh.hip, -0.15, 0.11 * b, 0.06, 0.22, 0.03, col.accent, glow, 0.7, fl); // hanging sash end
     pts[3] = ms.m[12] + ms.m[4] * 0.3; pts[4] = ms.m[13] + ms.m[5] * 0.3; pts[5] = ms.m[14] + ms.m[6] * 0.3;
     // head
     ms.push();
-    ms.t(0, 0.56, 0); ms.rx(p[J.headX]); ms.ry(p[J.headY]);
+    ms.t(0, 0.56, 0); ms.rx(p[J.headX] - 0.6 * sh.lean); ms.ry(p[J.headY]);
     this.drawHead(fl);
     pts[6] = ms.m[12] + ms.m[4] * 0.2; pts[7] = ms.m[13] + ms.m[5] * 0.2; pts[8] = ms.m[14] + ms.m[6] * 0.2;
     ms.pop();
@@ -4974,11 +4981,11 @@ class Fighter {
     for (let s = 1; s >= -1; s -= 2) {
       const sx = s > 0 ? p[J.shLx] : p[J.shRx], sz = s > 0 ? p[J.shLz] : p[J.shRz], sy = s > 0 ? p[J.shLy] : p[J.shRy], el = s > 0 ? p[J.elL] : p[J.elR];
       ms.push();
-      ms.t(s * 0.23 * b, 0.46, 0); ms.rz(s * sz); ms.ry(s * sy); ms.rx(-sx);   // sy = inward arm twist (same sign on both sides)
-      part(MESH.SPHERE, 0, 0, 0, 0.17 * b, 0.17 * b, 0.17 * b, sleeve ? col.top : skin, 0, sleeve ? 0.8 : 0.7, fl);
-      part(MESH.CYL, 0, -0.15, 0, (longSleeve ? 0.12 : 0.1) * b, 0.3, (longSleeve ? 0.12 : 0.1) * b, longSleeve ? col.top : skin, 0, 0.7, fl);
+      ms.t(s * 0.23 * b * sh.chest, 0.46, 0); ms.rz(s * sz); ms.ry(s * sy); ms.rx(-sx);   // sy = inward arm twist (same sign on both sides)
+      part(MESH.SPHERE, 0, 0, 0, 0.17 * b * sh.arm, 0.17 * b * sh.arm, 0.17 * b * sh.arm, sleeve ? col.top : skin, 0, sleeve ? 0.8 : 0.7, fl);
+      part(MESH.CYL, 0, -0.15, 0, (longSleeve ? 0.12 : 0.1) * b * sh.arm, 0.3, (longSleeve ? 0.12 : 0.1) * b * sh.arm, longSleeve ? col.top : skin, 0, 0.7, fl);
       ms.t(0, -0.3, 0); ms.rx(-el);
-      part(MESH.CYL, 0, -0.135, 0, (longSleeve ? 0.1 : 0.085) * b, 0.27, (longSleeve ? 0.1 : 0.085) * b, longSleeve ? col.top : wraps ? col.glove : skin, 0, 0.7, fl);
+      part(MESH.CYL, 0, -0.135, 0, (longSleeve ? 0.1 : 0.085) * b * sh.arm, 0.27, (longSleeve ? 0.1 : 0.085) * b * sh.arm, longSleeve ? col.top : wraps ? col.glove : skin, 0, 0.7, fl);
       ms.t(0, -0.27, 0);
       if (wraps) part(MESH.SPHERE, 0, -0.02, 0.01, 0.115 * b, 0.12 * b, 0.12 * b, col.glove, 0, 0.75, fl);
       else part(MESH.SPHERE, 0, -0.02, 0.01, 0.17 * b, 0.17 * b, 0.17 * b, col.glove, 0, 0.5, fl);
@@ -5018,6 +5025,11 @@ class Fighter {
     else if (lk.beard === 'goatee') part(MESH.CUBE, 0, 0.1, 0.103, 0.06, 0.07, 0.04, col.hair, 0, 0.9, fl);
     else if (lk.beard === 'full') part(MESH.SPHERE, 0, 0.13, 0.012, 0.25, 0.16, 0.255, col.hair, 0, 0.95, fl);
     if (lk.mask === 'half') part(MESH.SPHERE, 0, 0.14, 0.006, 0.242, 0.115, 0.25, col.mask, this.accentGlow, 0.5, fl);
+    if (lk.lines) for (let s = 1; s >= -1; s -= 2) {   // from AGE_LINES_FROM: a line on each cheek
+      FMS.push(); FMS.t(s * AGE_MARK.x, AGE_MARK.y, AGE_MARK.z); FMS.rz(s * AGE_MARK.tilt);
+      part(MESH.CUBE, 0, 0, 0, 0.012, 0.05, AGE_MARK.depth, col.line, 0, 0.95, fl);
+      FMS.pop();
+    }
   }
   drawHair(fl) {
     const hair = this.col.hair, style = this.lk.hairStyle;
@@ -5602,6 +5614,14 @@ const NAME_PATTERN = /^[A-Z0-9]{1,10}$/;
 const HEX_COLOR = /^#[0-9a-fA-F]{6}$/;
 const SCALE_MIN = 0.92, SCALE_MAX = 1.12, SCALE_STEP = 0.02;
 const BUILD_MIN = 0.8, BUILD_MAX = 1.3, BUILD_STEP = 0.05;
+/* Fitness, age and gender (P6-03 to P6-05): look only, never attribute points. A look without them takes the defaults and draws as before. */
+const FIT_STEP = 0.05, FIT_DEFAULT_MUSCLE = 0.5;
+const AGE_MIN = 16, AGE_MAX = 70, AGE_DEFAULT = 28, AGE_OLD_FROM = 45, AGE_LINES_FROM = 55;   // up to AGE_OLD_FROM the look is the original one
+const GENDERS = ['M', 'F', 'N'];                      // share-code order: append only
+const GENDER_LABEL = { M: 'Male', F: 'Female', N: 'Neutral' };
+const GENDER_SHAPE = { M: 0, F: 1, N: 0.5 };          // 0 is the original body; 1 narrows chest and arms and widens the hips
+const GREY_HAIR = '#c9c9d2';
+const AGE_MARK = { x: 0.066, y: 0.175, z: 0.096, depth: 0.024, tilt: 0.35 };   // age lines (head frame): on the cheeks below the eyes, under the hair cap, along the face
 const SHARE_PREFIX = 'BP1';
 const SHARE_VERSION = 1;
 const SHARE_MAX_LENGTH = 400;
@@ -5732,13 +5752,14 @@ const PRESET_ROWS = [
   { id: 'roxy', name: 'ROXY', title: 'The Scrapper', moveStyle: 'brawler', defense: 'sway', arch: 'brawler', role: 'rival', country: 'UK', origin: 'Foster care', goal: 'Thrill seeking', age: 23, gender: 'F', height: 0.98, fit: [0.5, 0.35], attrs: [7, 6, 7, 5, 4, 6, 6, 4],
     look: { skin: '#e8b894', hair: '#8a1636', hairStyle: 'mohawk', brows: 'thick', top: '#16161c', legs: 'pants', shorts: '#18274d', hands: 'wraps', glove: '#16161c', feet: 'boots', shoe: '#16161c' } },
 ];
-/* Build from the fitness triangle: weight sets the frame, muscle adds a little. Fits the six kept builds to within 0.05 (P6 replaces this with the creator's own fitness controls). */
+/* Build from the fitness square [muscle, weight], shared by the presets and the creator's picker (P6-03): weight sets the frame, muscle adds a little. Fits the six kept builds to within 0.05. */
 function presetBuild(fit) { return snapToStep(0.7 + 0.6 * fit[1] + 0.1 * (fit[0] - 0.5), BUILD_MIN, BUILD_MAX, BUILD_STEP); }
 function presetFromRow(row) {
   const archetype = ARCHETYPES[row.arch], attrs = {};
   ATTR_KEYS.forEach((key, i) => { attrs[key] = row.attrs[i]; });
   const reachShift = 0.5 * (row.height - 1) + 0.04 * (attrs.reach - archetype.attrs.reach);   // taller, longer-armed fighters stand further off
-  const look = Object.assign({ scale: row.height, build: presetBuild(row.fit) }, row.look);
+  // the 26 new presets also carry their muscle, weight, age and gender in the look (the six kept ones keep the defaults, so they draw as in 1.0)
+  const look = Object.assign({ scale: row.height, build: presetBuild(row.fit), muscle: row.fit[0], weight: row.fit[1], age: row.age, gender: row.gender }, row.look);
   return Object.assign({}, row, { attrs, range: snapToStep(archetype.range + reachShift, 1.0, 1.7, 0.05), style: Object.assign({}, archetype.style), look });
 }
 for (const row of PRESET_ROWS) { const preset = presetFromRow(row); ROSTER.push(preset); ROSTER_BY_ID[preset.id] = preset; }
@@ -5772,22 +5793,27 @@ function mixHex(a, b, t) {
   return '#' + toHex(lerp(ca[0], cb[0], t)) + toHex(lerp(ca[1], cb[1], t)) + toHex(lerp(ca[2], cb[2], t));
 }
 
+/* Hair turns grey after AGE_OLD_FROM; an age up to it (or none) returns the colour untouched. */
+function ageHair(hex, age) {
+  if (!(age > AGE_OLD_FROM) || hexToHsl(hex).l >= hexToHsl(GREY_HAIR).l) return hex;   // hair already lighter than the grey stays
+  return mixHex(hex, GREY_HAIR, Math.min(1, (age - AGE_OLD_FROM) / (AGE_MAX - AGE_OLD_FROM)) * 0.85);
+}
 /* Full cosmetic description for drawing. Built-in looks omit the newer fields, so defaults reproduce them exactly. */
 function resolveLook(look) {
   const legacyMask = look.hairStyle === 'mask';             // ZERO: masked, no hair, mask in hair colour
   const topStyle = look.topStyle || (look.top ? 'tank' : 'bare');
-  const skin = look.skin || '#d9a27c', hair = look.hair || '#2a1a12';
+  const skin = look.skin || '#d9a27c', hair = ageHair(look.hair || '#2a1a12', look.age);
   const accent = look.accent || look.glove || '#f1f1f5';
   return {
     hairStyle: legacyMask ? 'bald' : look.hairStyle || 'short',
     eyes: look.eyes || 'normal', brows: look.brows || 'none', beard: look.beard || 'none',
     mask: legacyMask ? 'full' : look.mask || 'none',
     headband: look.headband === 'band', topStyle, legs: look.legs || 'shorts', hands: look.hands || 'gloves',
-    belt: look.belt || 'none', feet: look.feet || 'shoes', glow: look.glow === 'on', legacyMask,
+    belt: look.belt || 'none', feet: look.feet || 'shoes', glow: look.glow === 'on', legacyMask, lines: look.age >= AGE_LINES_FROM,
     colors: {
       skin, hair, top: topStyle === 'bare' ? skin : look.top || skin, shorts: look.shorts || '#18274d',
       glove: look.glove || '#f1f1f5', shoe: look.shoe || '#202228', accent, mask: legacyMask ? hair : accent,
-      stubble: mixHex(skin, hair, 0.55),
+      stubble: mixHex(skin, hair, 0.55), line: mixHex(skin, '#3a2018', 0.3),
     },
   };
 }
@@ -5840,12 +5866,19 @@ function defaultCustom(slot) {
     attrs: Object.assign({}, ARCHETYPES.balanced.attrs),
     look: { skin: '#d9a27c', hair: '#2a1a12', hairStyle: 'short', eyes: 'normal', brows: 'thin', beard: 'none', headband: 'none', mask: 'none',
       topStyle: 'tee', top: '#34dcff', legs: 'shorts', shorts: '#18274d', hands: 'gloves', glove: '#f1f1f5', belt: 'belt', feet: 'shoes', shoe: '#16161c',
-      accent: '#ff5c93', glow: 'off', scale: 1, build: 1 },
+      accent: '#ff5c93', glow: 'off', scale: 1, build: 1, muscle: FIT_DEFAULT_MUSCLE, weight: 0.5, age: AGE_DEFAULT, gender: 'M' },
   };
 }
 function cloneCustom(c) { return { name: c.name, title: c.title, arch: c.arch, tier: c.tier, moveStyle: c.moveStyle, defense: c.defense, attrs: Object.assign({}, c.attrs), look: Object.assign({}, c.look) }; }
 /* Snap to the slider grid and keep two decimals so saved values compare exactly. */
 function snapToStep(value, min, max, step) { return Math.round(clamp(min + Math.round((value - min) / step) * step, min, max) * 100) / 100; }
+/* The weight that gives a build at average muscle (inverse of presetBuild): a look saved before the fitness picker keeps its build and shows this weight. */
+function weightFromBuild(build) { return Math.round(clamp((build - 0.7) / 0.6, 0, 1) * 100) / 100; }
+/* Muscle, weight, age and gender of a look, with the defaults for a look that has none. */
+function bodyOf(look) {
+  return { muscle: Number.isFinite(look.muscle) ? look.muscle : FIT_DEFAULT_MUSCLE, weight: Number.isFinite(look.weight) ? look.weight : weightFromBuild(finite(look.build, 1)),
+    age: Number.isInteger(look.age) ? look.age : AGE_DEFAULT, gender: GENDERS.includes(look.gender) ? look.gender : 'M' };
+}
 
 /* Strict validation: returns { ok, value, error }. value is a fresh, normalised record. Never throws. */
 function validateCustom(raw) {
@@ -5887,6 +5920,14 @@ function validateCustom(raw) {
   if (!Number.isFinite(build) || build < BUILD_MIN - 1e-6 || build > BUILD_MAX + 1e-6) return fail('Build out of range');
   look.scale = Math.round(clamp(scale, SCALE_MIN, SCALE_MAX) * 100) / 100;
   look.build = Math.round(clamp(build, BUILD_MIN, BUILD_MAX) * 100) / 100;
+  // fitness, age and gender (P6-03 to P6-05): saves and codes from before them lack these, so they take the defaults and the stored build stays as it was
+  const muscle = lookIn.muscle === undefined ? FIT_DEFAULT_MUSCLE : lookIn.muscle, weight = lookIn.weight === undefined ? weightFromBuild(look.build) : lookIn.weight;
+  const age = lookIn.age === undefined ? AGE_DEFAULT : lookIn.age, gender = lookIn.gender === undefined ? 'M' : lookIn.gender;
+  if (!Number.isFinite(muscle) || muscle < 0 || muscle > 1) return fail('Muscle out of range');
+  if (!Number.isFinite(weight) || weight < 0 || weight > 1) return fail('Weight out of range');
+  if (!Number.isInteger(age) || age < AGE_MIN || age > AGE_MAX) return fail('Age out of range');
+  if (!GENDERS.includes(gender)) return fail('Invalid gender');
+  look.muscle = Math.round(muscle * 100) / 100; look.weight = Math.round(weight * 100) / 100; look.age = age; look.gender = gender;
   return { ok: true, value: { name: raw.name, title: raw.title, arch: raw.arch, tier: raw.tier, moveStyle, defense, attrs, look }, error: '' };
 }
 
@@ -5926,6 +5967,12 @@ function randomCustom(seed, allStyles) {
   fighter.defense = defaultDefense(fighter.moveStyle);                                     // no extra draw: the style's default
   return fighter;
 }
+/* Fitness, age and gender for the creator's Randomize, from a stream of their own so that randomCustom keeps every seed's fighter (the build follows the fitness). */
+function randomBody(seed) {
+  const rng = makeRng((seed ^ 0x2c1b3c6d) >>> 0);
+  const muscle = snapToStep(rng(), 0, 1, FIT_STEP), weight = snapToStep(rng(), 0, 1, FIT_STEP);
+  return { build: presetBuild([muscle, weight]), muscle, weight, age: AGE_MIN + Math.floor(rng() * (AGE_MAX - AGE_MIN + 1)), gender: GENDERS[Math.floor(rng() * GENDERS.length) % GENDERS.length] };
+}
 
 /* Colour schemes derived from the top colour; repeated presses cycle the scheme. */
 const HARMONY_SCHEMES = ['complementary', 'triadic', 'analogous', 'monochrome'];
@@ -5946,6 +5993,7 @@ const SHARE_LOOK_KEYS = ['hairStyle', 'eyes', 'brows', 'beard', 'headband', 'mas
 const SHARE_FIELD_COUNT = 5 + ATTR_KEYS.length + SHARE_LOOK_KEYS.length + 2 + LOOK_COLOR_KEYS.length;   // codes before movement styles
 const SHARE_FIELD_COUNT_STYLE = SHARE_FIELD_COUNT + 1;                                                     // + movement style index
 const SHARE_FIELD_COUNT_DEFENSE = SHARE_FIELD_COUNT_STYLE + 1;                                             // + defense type index (DEFENSE_TYPES)
+const SHARE_FIELD_COUNT_BODY = SHARE_FIELD_COUNT_DEFENSE + 4;                                              // + muscle and weight (x100), age, gender index (GENDERS)
 function fnv1a(text) {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
@@ -5964,6 +6012,8 @@ function encodeCustom(custom) {
   fields.push(Math.round(custom.look.scale * 100), Math.round(custom.look.build * 100));
   for (const key of LOOK_COLOR_KEYS) fields.push(custom.look[key].slice(1).toLowerCase());
   fields.push(MOVE_STYLE_IDS.indexOf(custom.moveStyle), DEFENSE_TYPES.indexOf(custom.defense));
+  const body = bodyOf(custom.look);
+  fields.push(Math.round(body.muscle * 100), Math.round(body.weight * 100), body.age, GENDERS.indexOf(body.gender));
   const payload = toBase64Url(JSON.stringify(fields));
   return SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload);
 }
@@ -5979,7 +6029,7 @@ function decodeCustom(text, allowVeteran) {
   if (shareChecksum(match[1]) !== match[2]) return fail('Code is damaged or was edited (checksum mismatch)');
   let fields;
   try { fields = JSON.parse(fromBase64Url(match[1])); } catch (e) { return fail('Code could not be read'); }
-  if (!Array.isArray(fields) || ![SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_STYLE, SHARE_FIELD_COUNT_DEFENSE].includes(fields.length)) return fail('Code has the wrong number of fields');
+  if (!Array.isArray(fields) || ![SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_STYLE, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_BODY].includes(fields.length)) return fail('Code has the wrong number of fields');
   if (fields[0] !== SHARE_VERSION) return fail('Code is from an unsupported version');
   let i = 1;
   const record = { name: fields[i++], title: fields[i++], arch: ARCHETYPE_IDS[fields[i++]], tier: TIERS[fields[i++]], attrs: {}, look: {} };
@@ -5990,7 +6040,11 @@ function decodeCustom(text, allowVeteran) {
   for (const key of LOOK_COLOR_KEYS) { const hex = fields[i++]; record.look[key] = typeof hex === 'string' ? '#' + hex : null; }
   // an index past the list (a code from a newer build) is rejected by validateCustom; -1 (no style) gets the archetype default there
   if (fields.length >= SHARE_FIELD_COUNT_STYLE) record.moveStyle = !Number.isInteger(fields[i]) ? null : fields[i] < 0 ? undefined : fields[i] < MOVE_STYLE_IDS.length ? MOVE_STYLE_IDS[fields[i]] : 'style#' + fields[i];
-  if (fields.length === SHARE_FIELD_COUNT_DEFENSE) record.defense = DEFENSE_TYPES[fields[i + 1]] || DEFAULT_DEFENSE;   // an unknown index means Block; older codes have no field and get the style default in validateCustom
+  if (fields.length >= SHARE_FIELD_COUNT_DEFENSE) record.defense = DEFENSE_TYPES[fields[i + 1]] || DEFAULT_DEFENSE;   // an unknown index means Block; older codes have no field and get the style default in validateCustom
+  if (fields.length === SHARE_FIELD_COUNT_BODY) {   // older codes have no body fields: validateCustom gives them the defaults; a bad value stays NaN / null and is rejected there
+    const at = i + 2, whole = (v) => (Number.isInteger(v) ? v / 100 : NaN);
+    record.look.muscle = whole(fields[at]); record.look.weight = whole(fields[at + 1]); record.look.age = fields[at + 2]; record.look.gender = Number.isInteger(fields[at + 3]) ? GENDERS[fields[at + 3]] || null : null;
+  }
   const checked = validateCustom(record);
   if (!checked.ok) return checked;
   if (checked.value.tier === 'veteran' && !allowVeteran) return fail('Veteran fighters need an Arcade clear first');
@@ -9360,7 +9414,7 @@ const UI = {
       '<h3>Defend: Block or Sway</h3><p>Every fighter has one defense type, shown on its fighter card. <b>Block</b>: ' + esc(DEFENSE_HELP.block) + ' Strong string moves break a block unless it is perfect. <b>Sway</b>: ' + esc(DEFENSE_HELP.sway) + ' A sway fighter has no hold-guard; a Defend press while knocked down still gets up quickly for both types (while held down, Defend presses are escape attempts instead).</p>' +
       '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: Kick = knee (drains stamina), Punch = elbow (harder hit); Grapple = throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
       '<h3>Holds on a downed opponent</h3><p>Grapple next to a knocked-down opponent starts a hold, for ' + esc(submissionStyleText()) + ' fighters. Damage builds for up to ' + SUBMIT_MAX_TICKS / 60 + ' s. The holder taps Grapple to keep it tight; the held fighter taps Defend to escape, and a tired fighter taps weaker. A hit on the holder breaks the hold. A fighter can be held once per knockdown.</p>' +
-      '<h3>Heavy tackle</h3><p>A fighter at least ' + TACKLE_MIN_GAP + ' weight classes (' + esc(WEIGHT_CLASS_NAMES.join(' / ')) + ', from height and build) above its target knocks them back by running into them, with no button. Block stops the charge (no damage), and a Sway or a Sidestep lets it run past. Once per run.</p>' +
+      '<h3>Heavy tackle</h3><p>A fighter at least ' + TACKLE_MIN_GAP + ' weight classes (' + esc(WEIGHT_CLASS_NAMES.join(' / ')) + ', from height and fitness (build)) above its target knocks them back by running into them, with no button. Block stops the charge (no damage), and a Sway or a Sidestep lets it run past. Once per run.</p>' +
       this.throwTable() +
       '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-default data-act="back">Back</button></div></div></section>';
   },
@@ -9942,7 +9996,7 @@ const CreatorUI = {
     root.addEventListener('change', (e) => this.onChange(e));
     root.addEventListener('pointerdown', (e) => this.onPointerDown(e));
     root.addEventListener('pointermove', (e) => this.onPointerMove(e));
-    root.addEventListener('pointerup', () => { this.drag = null; });
+    root.addEventListener('pointerup', () => this.endDrag());
     root.addEventListener('pointercancel', () => { this.drag = null; });
   },
 
@@ -10024,12 +10078,20 @@ const CreatorUI = {
     UI.rerender(true);
   },
   onPointerDown(e) {
-    if (UI.current !== 'creator' || !e.target.classList || !e.target.classList.contains('creator')) return;
+    if (UI.current !== 'creator' || !e.target.closest) return;
+    const pad = e.target.closest('.fitpad');   // the fitness picker: press or drag to set weight (across) and muscle (up)
+    if (pad) {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;   // only the main button drags
+      this.drag = { id: e.pointerId, pad }; try { pad.setPointerCapture(e.pointerId); } catch (err) { /* capture is optional */ }
+      this.dragFit(e); return;
+    }
+    if (!e.target.classList.contains('creator')) return;
     this.drag = { id: e.pointerId, x: e.clientX };
     try { e.target.setPointerCapture(e.pointerId); } catch (err) { /* capture is optional */ }
   },
   onPointerMove(e) {
     if (!this.drag || e.pointerId !== this.drag.id) return;
+    if (this.drag.pad) { this.dragFit(e); return; }
     Showcase.turnPreview((e.clientX - this.drag.x) * 0.012);
     this.drag.x = e.clientX;
   },
@@ -10065,9 +10127,49 @@ const CreatorUI = {
   },
   stepBody(key, dir) {
     const look = this.draft.look;
-    if (key === 'scale') look.scale = snapToStep(look.scale + dir * SCALE_STEP, SCALE_MIN, SCALE_MAX, SCALE_STEP);
-    else look.build = snapToStep(look.build + dir * BUILD_STEP, BUILD_MIN, BUILD_MAX, BUILD_STEP);
-    this.changed(key === 'scale' ? 'Height ' + this.heightText() : 'Build ' + this.buildText());
+    if (key === 'age') { look.age = clamp(bodyOf(look).age + dir, AGE_MIN, AGE_MAX); this.changed('Age ' + this.ageText()); return; }
+    look.scale = snapToStep(look.scale + dir * SCALE_STEP, SCALE_MIN, SCALE_MAX, SCALE_STEP);
+    this.changed('Height ' + this.heightText());
+  },
+  /* Muscle and weight (0-1) set the build; attribute points are never touched. live = a pointer drag: no page rebuild under the finger. */
+  setFitness(muscle, weight, live) {
+    const look = this.draft.look;
+    look.muscle = Math.round(clamp(muscle, 0, 1) * 100) / 100; look.weight = Math.round(clamp(weight, 0, 1) * 100) / 100;
+    look.build = presetBuild([look.muscle, look.weight]);
+    if (!live) { this.changed('Weight ' + this.pct(look.weight) + ', muscle ' + this.pct(look.muscle) + '. Build ' + this.buildText()); return; }
+    this.refreshPreview(); this.updateFitDom(); this.updateStatus();
+  },
+  stepFit(name, dir) {
+    const body = bodyOf(this.draft.look), next = snapToStep(body[name] + dir * FIT_STEP, 0, 1, FIT_STEP);
+    this.setFitness(name === 'muscle' ? next : body.muscle, name === 'weight' ? next : body.weight, false);
+  },
+  endDrag() {   // a picker drag ends with one spoken summary and a rebuild; focus goes to the Weight row so the page keeps its place
+    const picked = !!(this.drag && this.drag.pad);
+    this.drag = null;
+    if (!picked) return;
+    const row = UI.dom.screens.querySelector('[data-cr="fit:weight"]');
+    if (row) row.focus({ preventScroll: true });
+    this.changed('Weight ' + this.pct(this.draft.look.weight) + ', muscle ' + this.pct(this.draft.look.muscle) + '. Build ' + this.buildText());
+  },
+  dragFit(e) {
+    if (!this.drag.pad.isConnected) this.drag.pad = UI.dom.screens.querySelector('.fitpad');   // the page was rebuilt mid-drag
+    if (!this.drag.pad) return;
+    const r = this.drag.pad.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) this.setFitness(1 - clamp((e.clientY - r.top) / r.height, 0, 1), clamp((e.clientX - r.left) / r.width, 0, 1), true);
+  },
+  updateFitDom() {
+    const root = UI.dom.screens, body = bodyOf(this.draft.look), dot = root.querySelector('.fitpad i'), build = root.querySelector('#fitBuild');
+    if (dot) { dot.style.left = Math.round(body.weight * 100) + '%'; dot.style.top = Math.round((1 - body.muscle) * 100) + '%'; }
+    if (build) build.textContent = this.buildText();
+    for (const name of ['weight', 'muscle']) {
+      const row = root.querySelector('[data-cr="fit:' + name + '"]'), label = row && row.querySelector('.v b');
+      if (label) { label.textContent = this.pct(body[name]); row.setAttribute('aria-valuetext', this.pct(body[name])); }
+    }
+  },
+  setGender(dir) {
+    const look = this.draft.look;
+    look.gender = GENDERS[(GENDERS.indexOf(bodyOf(look).gender) + dir + GENDERS.length) % GENDERS.length];
+    this.changed('Gender: ' + GENDER_LABEL[look.gender]);
   },
   fineStep(key, part, dir) {
     const hex = this.draft.look[key];
@@ -10141,6 +10243,7 @@ const CreatorUI = {
     const seed = (Date.now() + this.randomCount * 7919) >>> 0;
     const keepName = this.draft.name;
     this.draft = randomCustom(seed, true);
+    Object.assign(this.draft.look, randomBody(seed));
     if (keepName) this.draft.name = keepName;          // a typed name survives; everything else is rolled
     this.changed('Randomized with seed ' + seed);
   },
@@ -10287,6 +10390,8 @@ const CreatorUI = {
     if (kind === 'choice') this.cycleChoice(name, dir);
     else if (kind === 'col') this.cycleSwatch(name, dir);
     else if (kind === 'body') this.stepBody(name, dir);
+    else if (kind === 'fit') this.stepFit(name, dir);
+    else if (kind === 'gender') this.setGender(dir);
     else if (kind === 'fine') this.fineStep(name, part, dir);
     else if (kind === 'finekey') this.cycleFineKey(dir);
     else if (kind === 'attr') this.stepAttr(name, dir);
@@ -10365,10 +10470,10 @@ const CreatorUI = {
   onRange(key, value, el) {
     const [kind, name, part] = key.split(':');
     if (kind === 'body' && name === 'scale') this.draft.look.scale = snapToStep(value, SCALE_MIN, SCALE_MAX, SCALE_STEP);
-    if (kind === 'body' && name === 'build') this.draft.look.build = snapToStep(value, BUILD_MIN, BUILD_MAX, BUILD_STEP);
+    if (kind === 'body' && name === 'age') this.draft.look.age = clamp(Math.round(value), AGE_MIN, AGE_MAX);
     if (kind === 'fine') this.fineSet(name, part, value);
     const label = el.closest('.opt') && el.closest('.opt').querySelector('.v b');
-    if (label) label.textContent = kind === 'fine' ? this.fineText(name, part) : name === 'scale' ? this.heightText() : this.buildText();
+    if (label) label.textContent = kind === 'fine' ? this.fineText(name, part) : name === 'scale' ? this.heightText() : this.ageText();
     this.refreshPreview();
     this.updateStatus();
   },
@@ -10379,6 +10484,8 @@ const CreatorUI = {
 
   /* ----- text helpers ----- */
   heightText() { return Math.round(BASE_HEIGHT_CM * this.draft.look.scale) + ' cm'; },
+  pct(value) { return Math.round(value * 100) + '%'; },
+  ageText() { return bodyOf(this.draft.look).age + ' years'; },
   buildText() { const b = this.draft.look.build; return (b < 0.9 ? 'Lean' : b < 1.05 ? 'Athletic' : b < 1.2 ? 'Strong' : 'Heavy') + ' (' + b.toFixed(2) + ')'; },
   fineText(key, part) {
     const hsl = hexToHsl(this.draft.look[key]);
@@ -10440,12 +10547,17 @@ const CreatorUI = {
       this.row('Lightness', this.fineText(key, 'light'), 'fine:' + key + ':light', this.rangeInput('fine:' + key + ':light', range.lightMin, range.lightMax, 0.01, hsl.l.toFixed(2), 'Lightness'));
   },
   tab_body() {
-    const look = this.draft.look;
+    const look = this.draft.look, body = bodyOf(look);
     return this.row('Turn preview', 'Left / right', 'turn') +
       this.row('Height', this.heightText(), 'body:scale', this.rangeInput('body:scale', SCALE_MIN, SCALE_MAX, SCALE_STEP, look.scale, 'Height')) +
-      this.row('Build', this.buildText(), 'body:build', this.rangeInput('body:build', BUILD_MIN, BUILD_MAX, BUILD_STEP, look.build, 'Build')) +
+      '<h3>Fitness</h3><div class="fitpad" role="img" aria-label="Fitness picker: weight across, muscle up. Press or drag it, or use the Weight and Muscle rows with the arrow keys.">' +
+      '<i style="left:' + Math.round(body.weight * 100) + '%;top:' + Math.round((1 - body.muscle) * 100) + '%"></i><span class="fx">Weight &rarr;</span><span class="fy">Muscle &uarr;</span></div>' +
+      this.row('Weight', this.pct(body.weight), 'fit:weight') + this.row('Muscle', this.pct(body.muscle), 'fit:muscle') +
+      '<p class="hint">Build: <b id="fitBuild">' + this.buildText() + '</b>. Fitness shapes the body and the weight class the heavy tackle uses, never the attribute points.</p>' +
+      this.row('Age', this.ageText(), 'body:age', this.rangeInput('body:age', AGE_MIN, AGE_MAX, 1, body.age, 'Age')) +
+      this.row('Gender', GENDER_LABEL[body.gender], 'gender') +
       this.swatchRow('skin') + '<h3>Fine skin tone</h3>' + this.fineRows('skin') +
-      '<p class="hint">Height and build change how your fighter looks only. Reach, power and speed come from the Style tab.</p>';
+      '<p class="hint">Height and fitness (build) set the weight class the heavy tackle uses; age and gender only change the look (older fighters grey and stand a little bent). Reach, power and speed come from the Style tab.</p>';
   },
   tab_head() {
     const look = this.draft.look;
@@ -13010,12 +13122,12 @@ const SelfTest = {
           }
         }
         for (const extreme of [{ scale: SCALE_MIN, build: BUILD_MIN }, { scale: SCALE_MAX, build: BUILD_MAX }]) if (partsFor(extreme) < 20) problem = 'extreme body';
-        most = Math.max(most, partsFor({ hairStyle: 'braids', brows: 'thick', beard: 'full', mask: 'half', headband: 'band', topStyle: 'gi', belt: 'sash' }));
-        for (const r of ROSTER) { const f = new Fighter(r, 0); count = 0; f.skeleton(0, 0, 0, 0, true); if (count < 24 || count > 28) problem = r.id + ' drew ' + count; }
+        most = Math.max(most, partsFor({ hairStyle: 'braids', brows: 'thick', beard: 'full', mask: 'half', headband: 'band', topStyle: 'gi', belt: 'sash', age: AGE_MAX }));
+        for (const r of ROSTER) { const f = new Fighter(r, 0); count = 0; f.skeleton(0, 0, 0, 0, true); if (count < 24 || count > 29) problem = r.id + ' drew ' + count; }
       } catch (e) { problem = 'exception ' + e.message; }
       R.push = push;
       const zero = resolveLook(ROSTER_BY_ID.zero.look);
-      return !problem && most <= 36 && zero.mask === 'full' && zero.hairStyle === 'bald' ? true : problem || 'max parts ' + most;
+      return !problem && most <= 38 && zero.mask === 'full' && zero.hairStyle === 'bald' ? true : problem || 'max parts ' + most;
     });
     test('Creator: cosmetics never change the simulation', () => {
       const play = (look, moveStyle) => {
@@ -13035,8 +13147,96 @@ const SelfTest = {
       // kickboxer and brawler both play the default attack strings (the other move styles have string overrides, P3-10), so only their motion differs
       const small = play({ scale: SCALE_MIN, build: BUILD_MIN, hairStyle: 'afro', topStyle: 'gi', legs: 'pants', hands: 'wraps' }, 'kickboxer');
       const big = play({ scale: SCALE_MAX, build: BUILD_MAX, hairStyle: 'bald', mask: 'full', feet: 'boots', glow: 'on' }, 'brawler');
+      const aged = play({ scale: SCALE_MAX, build: BUILD_MAX, age: AGE_MAX, gender: 'F', muscle: 1 }, 'brawler');   // fitness, age and gender with the same build
       delete ROSTER_BY_ID.ctest;
-      return small === big ? true : small + ' != ' + big;
+      return small === big && big === aged ? true : small + ' != ' + big + ' != ' + aged;
+    });
+    test('Body: fitness picker sets muscle and weight; build, arms and weight class rise; stats stay', () => {
+      const keep = { draft: CreatorUI.draft, say: UI.say, rerender: UI.rerender, dom: UI.dom, status: CreatorUI.updateStatus }, problems = [];
+      UI.say = () => {}; UI.rerender = () => {}; UI.dom = { screens: { querySelector: () => null } }; CreatorUI.updateStatus = () => {};   // no page, and the real creator's status line stays untouched
+      try {
+        const d = CreatorUI.draft = defaultCustom(0), stats = JSON.stringify([d.attrs, deriveStats(d.attrs)]), steps = [0, 0.25, 0.5, 0.75, 1];
+        const rises = (list) => list.every((v, i) => i === 0 || v >= list[i - 1]) && list[4] > list[0], series = { weight: [], muscle: [], arm: [], weightClass: [] };
+        for (const v of steps) { CreatorUI.setFitness(0.5, v, false); series.weight.push(d.look.build); series.weightClass.push(weightClass(customProfile(d, 0))); }
+        for (const v of steps) { CreatorUI.setFitness(v, 0.5, false); series.muscle.push(d.look.build); series.arm.push(new Fighter(customProfile(d, 0), 0).shape.arm); }
+        if (!Object.values(series).every(rises)) problems.push('not monotone ' + JSON.stringify(series));
+        CreatorUI.setFitness(0.5, 0.5, false); CreatorUI.stepFit('weight', 1); CreatorUI.stepFit('muscle', -1);
+        if (d.look.weight !== 0.55 || d.look.muscle !== 0.45) problems.push('keyboard step');
+        CreatorUI.setFitness(1, 0, true);   // the pointer path
+        if (d.look.build !== presetBuild([1, 0])) problems.push('pointer');
+        if (!validateCustom(d).ok || JSON.stringify([d.attrs, deriveStats(d.attrs)]) !== stats) problems.push('stats changed');
+      } catch (e) { problems.push(e.message); } finally { CreatorUI.draft = keep.draft; UI.say = keep.say; UI.rerender = keep.rerender; UI.dom = keep.dom; CreatorUI.updateStatus = keep.status; Showcase.endPreview(); }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Body: age greys, bends and lines the face; gender shapes the body; stats stay', () => {
+      const keep = { draft: CreatorUI.draft, say: UI.say, rerender: UI.rerender, push: R.push }, problems = [], base = defaultCustom(0);
+      const lookOf = (extra) => Object.assign({}, base.look, extra), fighter = (extra) => new Fighter(customProfile(Object.assign({}, base, { look: lookOf(extra) }), 0), 0);
+      const hair = (age) => hexToHsl(resolveLook(lookOf({ age })).colors.hair).l, shape = (extra) => fighter(extra).shape;
+      if (hair(AGE_OLD_FROM) !== hair(AGE_MIN) || hair(AGE_DEFAULT) !== hair(AGE_MIN) || !(hair(55) > hair(AGE_MIN) && hair(AGE_MAX) > hair(55))) problems.push('hair');
+      if (resolveLook(lookOf({ age: AGE_MAX, hair: '#e8e8f4' })).colors.hair !== '#e8e8f4') problems.push('white hair darkened');
+      const headOut = (x, y, z) => (x / 0.115) ** 2 + ((y - 0.2) / 0.125) ** 2 + (z / 0.12) ** 2 > 1, cap = [0, 0.265, -0.015, 0.125, 0.085, 0.125];   // head and hair-cap ellipsoids as drawn (centre, radii)
+      const hairOf = { afro: [0, 0.29, -0.025, 0.17, 0.15, 0.165], buzz: [0, 0.25, -0.02, 0.119, 0.095, 0.124] }, m = AGE_MARK, front = m.z + m.depth / 2;
+      for (const style of LOOK_CHOICES.hairStyle.options) {   // the mark is in front of the head and not buried in any hair
+        const s = hairOf[style] || (CAP_HAIR.includes(style) ? cap : null);
+        for (const [x, y] of [[m.x, m.y], [m.x - 0.025 * Math.sin(m.tilt), m.y + 0.025 * Math.cos(m.tilt)], [m.x + 0.025 * Math.sin(m.tilt), m.y - 0.025 * Math.cos(m.tilt)]]) {
+          if (!headOut(x, y, front) || (s && ((x - s[0]) / s[3]) ** 2 + ((y - s[1]) / s[4]) ** 2 + ((front - s[2]) / s[5]) ** 2 < 1)) problems.push('age mark hidden by ' + style);
+        }
+      }
+      if (shape({ age: 45 }).lean !== 0 || !(shape({ age: 60 }).lean > 0 && shape({ age: 70 }).lean > shape({ age: 60 }).lean)) problems.push('posture');
+      const [male, neutral, female] = ['M', 'N', 'F'].map((gender) => shape({ gender }));
+      if (male.hip !== 1 || male.chest !== 1 || male.arm !== 1 || !(female.hip > neutral.hip && neutral.hip > 1 && female.chest < neutral.chest && neutral.chest < 1 && female.arm < neutral.arm)) problems.push('gender shape');
+      const aged = validateCustom(Object.assign({}, base, { look: lookOf({ age: 66, gender: 'F' }) }));
+      if (!aged.ok || JSON.stringify([aged.value.attrs, deriveStats(aged.value.attrs)]) !== JSON.stringify([base.attrs, deriveStats(base.attrs)])) problems.push('stats');
+      for (const bad of [{ age: 15 }, { age: 71 }, { age: 30.5 }, { gender: 'X' }, { muscle: 1.2 }, { weight: -0.1 }]) if (validateCustom(Object.assign({}, base, { look: lookOf(bad) })).ok) problems.push('accepted ' + JSON.stringify(bad));
+      UI.say = () => {}; UI.rerender = () => {};
+      try {
+        let count = 0;
+        const parts = (age) => { count = 0; R.push = function () { count++; }; fighter({ age }).skeleton(0, 0, 0, 0, true); return count; };
+        if (parts(60) !== parts(30) + 2) problems.push('face lines');
+        R.push = keep.push;
+        const d = CreatorUI.draft = defaultCustom(0), seen = [d.look.gender];
+        for (let i = 0; i < 3; i++) { CreatorUI.setGender(1); seen.push(d.look.gender); }
+        for (let i = 0; i < 80; i++) CreatorUI.stepBody('age', -1);
+        if (seen.join() !== 'M,F,N,M' || d.look.age !== AGE_MIN || !CreatorUI.tab_body().includes('16 years')) problems.push('controls ' + seen + d.look.age);
+      } catch (e) { problems.push(e.message); } finally { R.push = keep.push; CreatorUI.draft = keep.draft; UI.say = keep.say; UI.rerender = keep.rerender; Showcase.endPreview(); }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Body: share codes round-trip; older codes and saves keep the old body; random seeds stay', () => {
+      const problems = [], base = validateCustom(randomCustom(4321)).value, b0 = base.look;
+      if (b0.muscle !== 0.5 || b0.age !== AGE_DEFAULT || b0.gender !== 'M' || presetBuild([b0.muscle, b0.weight]) !== b0.build) problems.push('defaults');
+      for (let step = 0; step <= 10; step++) { const build = Math.round((BUILD_MIN + step * BUILD_STEP) * 100) / 100; if (presetBuild([0.5, weightFromBuild(build)]) !== build) problems.push('build ' + build); }
+      const set = Object.assign({}, base, { look: Object.assign({}, b0, { muscle: 0.85, weight: 0.3, age: 63, gender: 'F' }) });
+      const code = encodeCustom(set), back = decodeCustom(code, true), fields = JSON.parse(fromBase64Url(code.split('-')[1]));
+      if (!back.ok || JSON.stringify(back.value) !== JSON.stringify(validateCustom(set).value) || fields.length !== SHARE_FIELD_COUNT_BODY) problems.push('round trip');
+      const recode = (list) => { const payload = toBase64Url(JSON.stringify(list)); return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true); };
+      for (const count of [SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_STYLE, SHARE_FIELD_COUNT_DEFENSE]) {   // codes written before the body fields
+        const r = recode(fields.slice(0, count));
+        if (!r.ok || JSON.stringify(r.value.look) !== JSON.stringify(b0)) problems.push('old code ' + count);
+      }
+      for (const [offset, value] of [[0, 101], [1, -1], [2, 15], [2, 71], [3, 3], [3, -1], [3, '1'], [3, 1.5]]) { const copy = fields.slice(); copy[fields.length - 4 + offset] = value; if (recode(copy).ok) problems.push('accepted ' + offset + '=' + value); }
+      const stored = JSON.parse(JSON.stringify(base));   // a fighter saved before these fields existed
+      for (const key of ['muscle', 'weight', 'age', 'gender']) delete stored.look[key];
+      if (JSON.stringify(validateCustom(stored).value) !== JSON.stringify(base) || 'muscle' in randomCustom(1, true).look) problems.push('old save or randomCustom');
+      for (let seed = 1; seed <= 40; seed++) {   // Randomize: fitness, age and gender from their own stream
+        const body = randomBody(seed), fighter = randomCustom(seed, true), r = validateCustom(Object.assign(fighter, { look: Object.assign(fighter.look, body) }));
+        if (!r.ok || r.value.look.build !== presetBuild([body.muscle, body.weight])) problems.push('random body ' + seed);
+      }
+      return problems.length ? problems.slice(0, 4).join('; ') : true;
+    });
+    test('Body: kept presets and old customs draw as before (pinned hash); new presets carry fitness, age, gender', () => {
+      const push = R.push;
+      const hashOf = (profile) => {
+        let s = '';
+        R.push = function (layer, mesh, m, col, a, em, rough, flash) { s += Array.from(m).map((v) => v.toFixed(5)).join() + '|' + Array.from(col).map((v) => v.toFixed(4)).join() + '|' + em + '|' + rough + '|' + flash + ';'; };
+        try { const f = new Fighter(profile, 0); f.skeleton(0, 0, 0, 0, true); f.pose.set(GUARD_ORTHO); f.skeleton(1, 0, 2, 0.7, true); } finally { R.push = push; }
+        return fnv1a(s) + ':' + s.length;
+      };
+      const got = ROSTER.slice(0, 6).map(hashOf).concat([4321, 12345, 777].map((seed) => hashOf(customProfile(validateCustom(randomCustom(seed)).value, 0)))).join();
+      const want = '81066718:8668,1744787038:8986,725423470:8343,2806789988:8989,258918353:8664,2636707267:8355,778913287:10282,3867339228:9323,2999958420:9315';
+      const kai = ROSTER_BY_ID.kai, spelled = hashOf(Object.assign({}, kai, { look: Object.assign({}, kai.look, { muscle: 0.5, age: AGE_DEFAULT, gender: 'M' }) }));   // spelled-out defaults draw the same
+      const plain = ROSTER.slice(0, 6).every((r) => r.look.muscle === undefined && r.look.age === undefined && r.look.gender === undefined);
+      const carried = ROSTER.slice(6).every((r) => r.look.muscle === r.fit[0] && r.look.weight === r.fit[1] && r.look.age === r.age && r.look.gender === r.gender);
+      return got === want && spelled === want.split(',')[0] && plain && carried ? true : JSON.stringify({ got, spelled, plain, carried });
     });
     test('Creator: custom fighter finishes an AI match with no illegal transitions', () => {
       const illegal = Diag.illegalTransitions, errors = Diag.errors;
@@ -13552,7 +13752,7 @@ const SelfTest = {
       c.moveStyle = 'judoka';
       const back = decodeCustom(encodeCustom(c), true);
       const fields = JSON.parse(fromBase64Url(encodeCustom(c).split('-')[1]));
-      fields.pop(); fields.pop();                                   // an older code: no defense type and no movement style field
+      fields.length = SHARE_FIELD_COUNT;                            // an older code: no movement style, defense type or body field
       const payload = toBase64Url(JSON.stringify(fields));
       const old = decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true);
       const stored = validateCustom(Object.assign({}, c, { moveStyle: undefined }));
@@ -13608,12 +13808,12 @@ const SelfTest = {
       for (const id of OLD_STYLE_IDS) if (styleFor(id) !== id || LEGACY_STYLE_MAP[id] !== id) problems.push('map ' + id);
       for (const bad of ['ninja', '', undefined, null, 7, 'constructor', '__proto__', 'toString']) if (styleFor(bad) !== null) problems.push('styleFor ' + String(bad));
       const base = validateCustom(randomCustom(4321)).value;
-      const indexOf = (code) => { const fields = JSON.parse(fromBase64Url(code.split('-')[1])); return fields[fields.length - 2]; };   // the style field sits before the defense field
+      const indexOf = (code) => { const fields = JSON.parse(fromBase64Url(code.split('-')[1])); return fields[fields.length - 6]; };   // the style field sits before the defense and the four body fields
       OLD_STYLE_IDS.forEach((id, index) => {
         const c = Object.assign({}, base, { moveStyle: id, defense: defaultDefense(id) });
         const code = encodeCustom(c);
         const fields = JSON.parse(fromBase64Url(code.split('-')[1]));
-        fields.pop();                                   // a code from before defense types: the old style index, no defense field
+        fields.length = SHARE_FIELD_COUNT_STYLE;        // a code from before defense types: the old style index, no defense or body field
         const payload = toBase64Url(JSON.stringify(fields));
         const old = decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true);
         const save = validateCustom(JSON.parse(JSON.stringify(c)));   // a saved fighter that carries the old id
@@ -13633,7 +13833,7 @@ const SelfTest = {
       if (validateCustom(Object.assign({}, base, { moveStyle: 'ninja' })).ok) problems.push('an unknown id must still fail');
       const withIndex = (styleIndex) => {   // a code whose style field holds styleIndex, as a newer build (more styles) or a styleless fighter would write it
         const fields = JSON.parse(fromBase64Url(encodeCustom(base).split('-')[1]));
-        fields[fields.length - 2] = styleIndex;
+        fields[fields.length - 6] = styleIndex;
         const payload = toBase64Url(JSON.stringify(fields));
         return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true);
       };
@@ -14109,14 +14309,14 @@ const SelfTest = {
         const swayBack = decodeCustom(encodeCustom(c), true);
         const fields = JSON.parse(fromBase64Url(encodeCustom(c).split('-')[1]));
         const reencode = (list) => { const p = toBase64Url(JSON.stringify(list)); return SHARE_PREFIX + '-' + p + '-' + shareChecksum(p); };
-        const noDefense = decodeCustom(reencode(fields.slice(0, -1)), true);        // a code from before defense types: style field, no defense
-        const noStyle = decodeCustom(reencode(fields.slice(0, -2)), true);          // the oldest codes: neither
-        const unknown = decodeCustom(reencode(fields.slice(0, -1).concat([7])), true);
+        const noDefense = decodeCustom(reencode(fields.slice(0, SHARE_FIELD_COUNT_STYLE)), true);        // a code from before defense types: style field, no defense
+        const noStyle = decodeCustom(reencode(fields.slice(0, SHARE_FIELD_COUNT)), true);          // the oldest codes: neither
+        const unknown = decodeCustom(reencode(fields.slice(0, SHARE_FIELD_COUNT_DEFENSE - 1).concat([7])), true);
         const oldSave = validateCustom(Object.assign({}, c, { defense: undefined }));
         // the same two cases with a Sway-default style, so an ignored style (always Block) fails
         const swayStyle = Object.assign({}, c, { moveStyle: 'boxer', defense: 'block' });
         const swayFields = JSON.parse(fromBase64Url(encodeCustom(swayStyle).split('-')[1]));
-        const noDefenseSway = decodeCustom(reencode(swayFields.slice(0, -1)), true);
+        const noDefenseSway = decodeCustom(reencode(swayFields.slice(0, SHARE_FIELD_COUNT_STYLE)), true);
         const oldSaveSway = validateCustom(Object.assign({}, swayStyle, { defense: undefined }));
         const badSave = validateCustom(Object.assign({}, c, { defense: 'ninja' }));
         CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null);
