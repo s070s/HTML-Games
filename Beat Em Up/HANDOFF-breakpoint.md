@@ -5,7 +5,7 @@ Paste the text below into a new Claude Code session opened in `C:\Users\GS\Deskt
 ---
 
 Continue the Breakpoint tasklist (`Beat Em Up/TASKLIST-breakpoint.md`) on `main`, no new branches.
-- **Progress:** Phases 0-2 and 4 are done. In Phase 3 every task is implemented and pushed; P3-09 (momentum boost) and P3-10 (combo audit) stay unticked only for their all-pairs win-rate check, which waits for P14-01. Phase 5: P5-01, P5-03 (16-style data model) and P5-04 (32 presets, unlocks) are done. Next is P5-02 (distinct animations per style: stance and signature moves, Appendix C shared vs unique list). P5-05 waits for P10-02 (its list of story poses).
+- **Progress:** Phases 0-2 and 4 are done. In Phase 3 every task is implemented and pushed; P3-09 (momentum boost) and P3-10 (combo audit) stay unticked only for their all-pairs win-rate check, which waits for P14-01. Phase 5: P5-01 to P5-04 are done (16-style data model, own stances and signature moves for the 9 new styles, 32 presets with unlocks). P5-05 waits for P10-02 (its list of story poses). Next is Phase 6 (character customization).
 - **Budget:** work until about 35% of the weekly Claude usage, never past 40%. Read it with the usage tool before each batch and stop at a clean boundary before it.
 - **Finish:** commit and push everything on main, then clean up. At the end give me a table of all changes and, if any, a table of locked folders and files to delete. Keep `C:\Users\GS\Desktop\Locked folders.txt` up to date.
 
@@ -31,6 +31,7 @@ Known small issues to keep in mind:
 - Fighter select: with 33 cards the hint line and the Arcade difficulty row sit below the grid, and arrow / pad navigation steps one card at a time.
 - Brawl camera: the occlusion pose search tests the aim point before `keepInFrame` shifts it (no hide found, 0.3 m side rays cover it). Bosses other than ZERO have no `bossAttrs`; ZERO's P1-07 look fix waits for P9-04.
 - Co-op: tried on screen with two keyboard players only, not with real gamepads.
+- Styles left for later: no BJJ ground game, no MMA sprawl, Kali has no stick (P7) and no triangle step, Wing Chun's trap does not pin an arm, victory poses are the old six.
 
 How to work:
 - **Encoding:** `breakpoint.html` and the tasklist are CRLF with a UTF-8 BOM. Edit them with the Edit tool or node scripts that replace exact strings, never `sed -i` in Git Bash. Check that `rg -c '\r$'` equals `rg -c ''` and that the first bytes are `ef bb bf`.
@@ -39,5 +40,5 @@ How to work:
 - **Browser test before each commit:**
   - Start the `games` preview server (127.0.0.1:8765).
   - In Playwright, open `http://127.0.0.1:8765/Beat%20Em%20Up/breakpoint.html` and accept the leave-page dialog.
-  - From the main menu, run `await BREAKPOINT.selfTest()`: 253 checks at the last push (about 12 s), and all must pass.
+  - From the main menu, run `await BREAKPOINT.selfTest()`: 257 checks at the last push (about 14 s), and all must pass.
   - Close the browser and stop the server after each check, then delete `.playwright-mcp/` at the end.
