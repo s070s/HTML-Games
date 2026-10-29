@@ -549,6 +549,7 @@ const SETTING_DEFS = {
   autoAssist: { type: 'bool', def: false, label: 'Auto-assist', hint: 'Easier attack strings for you (not the CPU): the next move plays even after a miss, and you get twice as long to press it.' },
   friendlyFire: { type: 'bool', def: false, label: 'Friendly fire (co-op)', hint: 'Co-op brawls only, from the next brawl: with it on, the players (teammates) can hurt each other. CPU enemies never hurt each other.' },
   items: { type: 'bool', def: true, label: 'Items', hint: 'Weapons and objects lying around the arena that you can pick up, use and throw. From the next match; off keeps every fight bare-handed.' },
+  hazards: { type: 'bool', def: true, label: 'Hazards', hint: 'Dangers built into the arena (electric panel, steam pipe, falling load, glass wall, fire barrel) that hurt anyone near them, you included. From the next match; off keeps the arenas safe.' },
   showStats: { type: 'bool', def: false, label: 'Performance overlay' },
 };
 const Settings = {
@@ -2596,7 +2597,8 @@ const MATERIALS = {
 const DEBRIS_REPLACE_FRAME = 4; // stage index at which the intact collider is swapped out
 
 /* ---------- arenas (pristine definitions; live state is built from them) ----------
-   items (P7-02): where weapons lie, [item id, x, z, surface height, host object id]: on the floor (0), on a table-high top (crate, bench, barrier) or mounted high on a pillar or post (1.3 to 1.4); an item with a host falls when the host breaks. */
+   items (P7-02): where weapons lie, [item id, x, z, surface height, host object id]: on the floor (0), on a table-high top (crate, bench, barrier) or mounted high on a pillar or post (1.3 to 1.4); an item with a host falls when the host breaks.
+   hazards (P7-05): the stage dangers, [hazard type (HAZARDS), x, z, options]: yaw (the way a steam jet blows), tx / tz (where the trigger post stands when it is not at x, z), hx / hz (half sizes of a floor area), obj (the glass wall's scenery id). */
 const ARENAS = {
   warehouse: {
     id: 'warehouse', name: 'Industrial Warehouse', blurb: 'Crates, concrete pillars, steel railings and an office window. Big echoing hall.',
@@ -2616,6 +2618,7 @@ const ARENAS = {
       { id: 'window', type: 'panel', mat: 'glass', axis: 'x', x: 0, z: -4.85, hx: 1.6, hz: 0.08, h: 2.2 },
     ],
     items: [['bottle', -1.6, 3.7, 0], ['brick', 2.2, -3.0, 0], ['skateboard', 0.4, 4.1, 0], ['wrench', -5.4, -2.6, 0.95, 'crateA'], ['pipe', -3.2, -3.7, 1.4, 'pillarL'], ['hammer', 3.6, -3.7, 1.3, 'pillarR'], ['extinguisher', 7.0, 3.9, 0]],
+    hazards: [['panel', 5.4, -0.2], ['steam', -6.4, -3.9, { yaw: Math.PI / 2 }], ['load', 1.9, -2.0, { tx: 4.1, tz: -2.0 }]],
   },
   dojo: {
     id: 'dojo', name: 'Traditional Dojo', blurb: 'Open wooden floor with paper screens, benches and training posts. Dry, close sound.',
@@ -2632,8 +2635,10 @@ const ARENAS = {
       { id: 'benchR', type: 'box', look: 'bench', mat: 'wood', x: 4.6, z: 3.3, hx: 0.75, hz: 0.25, h: 0.5 },
       { id: 'postL', type: 'column', mat: 'wood', hpMul: 1.6, x: -1.2, z: -3.9, hx: 0.24, hz: 0.24, h: 1.7 },
       { id: 'postR', type: 'column', mat: 'wood', hpMul: 1.6, x: 1.2, z: -3.9, hx: 0.24, hz: 0.24, h: 1.7 },
+      { id: 'glassWall', type: 'panel', mat: 'glass', axis: 'z', x: -4.6, z: 0, hx: 0.08, hz: 1.4, h: 2.0 },
     ],
-    items: [['stick', -4.6, 3.3, 0.5, 'benchL'], ['bottle', 4.6, 3.3, 0.5, 'benchR'], ['bat', -1.2, -3.55, 1.3, 'postL'], ['broom', 1.2, -3.55, 1.35, 'postR'], ['chair', -5.2, -1.6, 0]],
+    items: [['stick', -4.6, 3.3, 0.5, 'benchL'], ['bottle', 4.6, 3.3, 0.5, 'benchR'], ['bat', -1.2, -3.55, 1.3, 'postL'], ['broom', 1.2, -3.55, 1.35, 'postR'], ['chair', -3.6, -2.6, 0]],
+    hazards: [['glass', 0, 0, { obj: 'glassWall' }]],
   },
   pit: {
     id: 'pit', name: 'Underground Pit', blurb: 'Dark concrete cage, barriers, pillars and a cracked observation glass. Heavy, rumbling sound.',
@@ -2652,6 +2657,7 @@ const ARENAS = {
       { id: 'obsGlass', type: 'panel', mat: 'glass', axis: 'x', x: 0.2, z: -4.85, hx: 1.3, hz: 0.08, h: 2.0 },
     ],
     items: [['binlid', -1.2, 3.8, 0], ['chain', -3.4, 3.3, 0.85, 'barrierB'], ['brick', 4.4, 2.9, 0.85, 'barrierC'], ['pipe', 3.2, -3.55, 1.4, 'pillarB'], ['wrench', -5.6, -3.15, 1.3, 'pillarA'], ['crate', 5.6, -2.4, 0], ['extinguisher', -6.0, -1.0, 0]],
+    hazards: [['fire', -5.2, -1.8], ['fire', 4.9, 0.9], ['steam', 5.3, -3.9, { yaw: -Math.PI / 2 }]],
   },
 };
 const ARENA_ORDER = ['warehouse', 'dojo', 'pit'];
@@ -2909,7 +2915,7 @@ const Arena = {
     const dx = x2 - x1, dz = z2 - z1;
     for (let i = 0; i < this.colliders.length; i++) {
       const c = this.colliders[i];
-      if (!c.active || c.top <= eyeTop || (c.obj && c.obj.mat === 'glass')) continue;
+      if (!c.active || c.haz || c.top <= eyeTop || (c.obj && c.obj.mat === 'glass')) continue;   // a hazard's post is a small thing in front of a wall or a corner: it hides nobody
       if (this.crossesFootprint(c, x1, z1, dx, dz)) return true;
     }
     return false;
@@ -2920,7 +2926,7 @@ const Arena = {
     const dx = x2 - x1, dz = z2 - z1, dy = y2 - y1, span = this.footprintSpan;
     for (let i = 0; i < this.colliders.length; i++) {
       const c = this.colliders[i];
-      if (!c.active || (c.obj && c.obj.mat === 'glass') || !this.crossesFootprint(c, x1, z1, dx, dz)) continue;
+      if (!c.active || c.haz || (c.obj && c.obj.mat === 'glass') || !this.crossesFootprint(c, x1, z1, dx, dz)) continue;
       if (Math.min(y1 + dy * span.enter, y1 + dy * span.leave) < c.top) return true;
     }
     return false;
@@ -2941,7 +2947,7 @@ const Arena = {
   /* Fighter (vertical cylinder) vs bounds and obstacles. Sets f.groundY and wall/obstacle contact info. */
   resolveFighter(f) {
     const b = this.def.bounds, r = f.radius, mx = b.x - r, mz = b.z - r;
-    f.wallHit = false; f.obstacleHit = null;
+    f.wallHit = false; f.obstacleHit = null; f.hazardTouch = null;
     let groundY = 0;
     for (let pass = 0; pass < 3; pass++) {
       groundY = 0;
@@ -2958,6 +2964,7 @@ const Arena = {
         this.pushOut(f, c, dx, dz, d2, mx, mz);
         moved = true;
         f.obstacleHit = c.obj || f.obstacleHit;
+        if (c.haz) f.hazardTouch = c.haz;   // a hazard's post (P7-05)
       }
       if (!moved) break;
     }
@@ -4456,6 +4463,42 @@ function drawWeapon(w, fl, em = 0) {
 }
 const newHeld = (id) => ({ id, dur: WEAPONS[id].dur, sprays: SPRAY_CHARGES });   // what a fighter holds (and what a loose item keeps of its state)
 
+/* =====================================================================
+   05b3 HAZARDS (P7-05). The 8 stage dangers of Appendix C ("Weapons, items and hazards"): one type row each and one handler (MatchSim.stepHazards) for all of them, placed per arena in ARENAS[id].hazards.
+   A hazard hurts every fighter in its zone, whatever the team, and is set off on purpose: by a strike or a thrown item on its post, by a fighter knocked into the post or the glass, by the clock (train) or by being
+   knocked into the zone (drop). Phases, in ticks: idle -> warn (the cue) -> active -> cool (until it can be set off again), or spent for the round.
+   trig: 'strike' | 'break' (its glass wall breaks) | 'timer' (every `period` ticks) | 'edge' (a fighter in the zone). shape: 'circle' (r), 'cone' (len, cosine of the half angle, along the row's yaw), 'rect'
+   (half sizes hx across and hz along the yaw, from the row). dmg is dealt every `gap` ticks to a fighter in the zone (0 = once per activation); first = only on the first active tick (the load lands once). fx = what the victim
+   suffers: stun (the shock, `stun` ticks), flinch, push (m/s along the jet), down (a knockdown flight away from the centre at `push` m/s), throw (a flight along the yaw), out (over the edge: down, and out of a brawl for an enemy).
+   post = [half x, half z, height] of the solid post that carries the trigger. shard = damage to a fighter knocked down on the broken glass. metalOnly: a thrown item sets it off only if it is metal. spill: the barrel tips away from whoever struck it and its fire pool lies this far beyond it.
+   snd names the sound of the Sfx recipes (Sound.hazard). */
+const HAZARDS = {
+  panel: { name: 'Electric panel', trig: 'strike', shape: 'circle', r: 1.2, warn: 24, dur: 120, cool: 360, dmg: 14, gap: 0, fx: 'stun', stun: 40, post: [0.35, 0.2, 1.3], metalOnly: 1, snd: 'zap' },
+  steam: { name: 'Steam pipe', trig: 'strike', shape: 'cone', len: 2.0, cos: 0.9, warn: 24, dur: 180, cool: 300, dmg: 3, gap: 15, fx: 'push', push: 3.2, post: [0.12, 0.12, 1.2], snd: 'hiss' },
+  drop: { name: 'Open drop', trig: 'edge', shape: 'rect', dmg: 25, fx: 'out', push: 4, snd: 'crash' },
+  glass: { name: 'Glass wall', trig: 'break', shape: 'rect', dmg: 10, fx: 'flinch', shard: 2, snd: 'glass' },
+  load: { name: 'Falling load', trig: 'strike', shape: 'circle', r: 1.5, warn: 36, dur: 90, cool: 600, dmg: 30, gap: 0, first: 1, fx: 'down', push: 3, post: [0.15, 0.15, 1.9], snd: 'crash' },
+  train: { name: 'Passing train', trig: 'timer', shape: 'rect', period: 1500, warn: 120, dur: 60, cool: 0, dmg: 40, gap: 0, fx: 'throw', push: 9, snd: 'train' },
+  fire: { name: 'Fire barrel', trig: 'strike', shape: 'circle', r: 1.2, spill: 0.9, warn: 15, dur: 240, spent: 1, dmg: 4, gap: 20, fx: 'flinch', post: [0.3, 0.3, 1.0], snd: 'fire' },
+};
+const hash01 = (n) => { const s = Math.sin(n * 12.9898) * 43758.5453; return s - Math.floor(s); };   // a fixed pseudo-random 0..1 for looks (flames, shards, arcs): the same tick always draws the same, and the match's random numbers are never touched
+/* One piece of a hazard in the world: layer, mesh, centre, size, turn about y, colour, alpha, glow, roughness; rx / rz tip it about x / z. */
+function hput(layer, mesh, x, y, z, sx, sy, sz, ry, hex, a, em, rough, rx, rz) { R.put(layer, mesh, x, y, z, sx, sy, sz, rx || 0, ry, rz || 0, C(hex), a, em, rough, false, 0); }
+const HAZARD_HEIGHT = 1.0;            // m: a fighter whose feet are higher than this (a jump) is clear of a hazard
+const HAZARD_STRIKE_R = 0.4;          // m: the radius of a strike's hit sphere on a hazard's post (as on scenery)
+const HAZARD_CUT_REACH = 0.25;        // m beyond a fighter's body: breaking glass cuts the fighter this close to the wall (the one thrown or knocked into it)
+const HAZARD_SHARD_SPREAD = 0.7;      // m: a broken glass wall's shards lie this far to each side of it
+const BOTTLE_SHARD_R = 0.5, HAZARD_SHARD_MAX = 6, HAZARD_SHARD_TICKS = 1500;   // a shattered bottle leaves a patch of this radius, for this long (the oldest of at most this many patches goes first)
+const HAZARD_NO_REACT = [S.THROWN, S.DOWN, S.FALL, S.SUBMIT, S.GETUP];   // states a shock, a flinch or a flight cannot be forced on: the damage still counts
+const HAZARD_FLINK_TICKS = 10, HAZARD_FLINK_PUSH = 5;   // a flinch (fire, glass): hit-stun ticks, and the knock away from the source (m/s)
+const HAZARD_LAND_TICKS = 10;          // the falling load drops during the last ticks of its warning
+const HAZARD_TIMER_EDGE = 2;           // m: a timed hazard (the train) is drawn this far beyond the zone at the start and the end of its pass
+const AI_HAZARD_PASS = 0.8;            // m: the CPU walks to its strike spot only along a path that keeps this far from the target
+const AI_HAZARD_RANGE = 1.5, AI_HAZARD_STAND = 0.7, AI_HAZARD_PAD = 0.15, AI_LURE_STAND = 0.8, AI_HAZARD_SPOT = 0.2;   // m: the target is "near" a hazard within this; the least distance from the post a strike spot has; the margin kept from an effect zone; how far from the target the CPU grabs; arrival radius
+const AI_HAZARD_WAIT = 240, AI_HAZARD_ASK = 60, AI_HAZARD_PLAN = 240, AI_HAZARD_LOOK = 8, AI_HAZARD_LURE_TICKS = 90, AI_HAZARD_AHEAD = 0.6;   // ticks: between hazard plans; before a CPU that declined a lure asks again; a plan may last; between looks at where the target went; a grab may be followed by its chosen throw
+const AI_HAZARD_LURE = { easy: 0.3, normal: 0.55, hard: 0.85, expert: 1 };   // the chance a CPU commits to a lure when one is on offer
+const HAZARD_LOAD_HANG = 4.4, HAZARD_LOAD_REST = 0.45, HAZARD_LOAD_BEAM = 5.6, HAZARD_LOAD_FADE = 1.1;   // m: the height of the hanging load's centre, of the landed one's, of the crane beam; the load fades when the camera's line to a fighter passes this near it
+
 class Fighter {
   constructor(profile, index, team) {
     this.profile = profile;
@@ -4478,6 +4521,7 @@ class Fighter {
     this.x = x; this.y = 0; this.z = z; this.prevX = x; this.prevY = 0; this.prevZ = z; this.prevYaw = yaw;
     this.vx = 0; this.vy = 0; this.vz = 0; this.kx = 0; this.kz = 0; this.yaw = yaw;
     this.groundY = 0; this.supportY = 0; this.wallHit = false; this.obstacleHit = null;   // supportY: the height of the footing this fighter last stood on (the start of a drop)
+    this.hazardTouch = null;   // P7-05: the hazard post this fighter was pushed out of this tick
     this.maxHp = this.stats.maxHp; this.maxStam = this.stats.maxStam;
     this.hp = this.maxHp * (hpFrac === undefined ? 1 : hpFrac);
     this.stam = this.maxStam * (stamFrac === undefined ? 1 : stamFrac);
@@ -5865,6 +5909,7 @@ const Combat = {
     const raw = mv.sp === 'smash' ? HAMMER_SMASH : mv.dmg * att.damageMult(mv) / att.boostMult();   // the momentum boost is for fighters, not scenery; a hammer breaks any destructible in one hit
     const n = Arena.hitSphere(cx, cy, cz, 0.4, att.moveId, raw, mv.cat, att.fwdX, att.fwdZ, att.index);
     if (n > 0) match.hitStop = Math.max(match.hitStop, 3);
+    if (match.hazards && match.hazards.length) match.hazardStrike(att, cx, cy, cz);   // a hazard's post (P7-05)
     return n;
   },
 
@@ -6086,7 +6131,13 @@ const Combat = {
     const speed = Math.hypot(f.kx, f.kz);
     const need = f.state === S.THROWN || f.state === S.KO ? 3.0 : 5.5;
     if (speed < need || match.tick - f.lastImpactTick < 14) return;
-    if (f.obstacleHit) {
+    if (f.hazardTouch) {   // knocked into a hazard's post (P7-05): it goes off, and the body bounces off it like off any obstacle
+      f.lastImpactTick = match.tick;
+      match.hazardKnocked(f.hazardTouch, f);
+      this.envDamage(f, 2 + speed * 0.35, match);
+      f.kx *= -0.25; f.kz *= -0.25;
+      Events.emit('envImpact', { f, obj: null, speed, broke: false, x: f.x, y: 1.0, z: f.z });
+    } else if (f.obstacleHit) {
       const obj = f.obstacleHit;
       const nx = f.kx / speed, nz = f.kz / speed;
       f.lastImpactTick = match.tick;
@@ -6798,6 +6849,7 @@ class AIController {
     this.readThrow = null; this.willEscape = false; this.escapeAt = 0;
     this.threatId = -1; this.threatResp = null; this.earlyRoll = null; this.edgeWait = 0; this.breakGrabId = -1; this.punishId = -1; this.punishYes = false; this.steerSide = 1;
     this.oppRecent = []; this.lastOppMoveId = 0; this.counterTried = false; this.clinchPlan = null; this.tickNo = 0;
+    this.hazardWait = 0; this.exit = null; this.exitHazard = null; this.lureDir = ''; this.lureUntil = 0;   // P7-05: the tick before which no new hazard plan is made; the spot out of a hazard's zone; the throw a lure chose
     this.crowd = null;   // the match's CrowdDirector, set every tick by think()
     this.match = null;   // and the match (P7: the items on its floor)
   }
@@ -6809,7 +6861,7 @@ class AIController {
   waitsOnRing(f) { const c = this.crowd; return !!c && c.engaged[f.index] && !c.token[f.index]; }
   /* P7 hooks. considerPickup (P7-06): an empty-handed fighter that holds no attack token fetches a floor item within AI_PICKUP_RANGE that is closer than its target (or uses one already in reach); a fighter holding a throwable
      throws it when the target is AI_THROW_MIN to AI_THROW_MAX away (a crate: up to AI_THROW_MAX, even point-blank). No item in the scene = null and no random number drawn, so a match without items plays as before.
-     considerHazard (P7-05, not built yet) will say whether a hazard is worth luring the target toward. Each returns a plan like the ones decide() builds, or null. decideRing() and decide() ask the pickup hook, decide() the hazard hook. */
+     considerHazard (P7-05) is described below. Each returns a plan like the ones decide() builds, or null. decideRing() and decide() ask the pickup hook, decide() the hazard hook. */
   considerPickup(f, opp, dist) {
     const match = this.match;
     if (!match || !f.alive || (this.crowd && this.crowd.token[f.index])) return null;
@@ -6832,7 +6884,187 @@ class AIController {
     if (w.cls === 'carry') return dist <= AI_THROW_MAX ? { kind: 'throw', ticks: 4, fired: false } : { kind: 'walk', ticks: this.d.interval, away: false, run: false };   // a crate cannot strike: thrown at any range (point-blank it knocks down), else carried toward the target
     return dist >= AI_THROW_MIN && dist <= AI_THROW_MAX ? { kind: 'throw', ticks: 4, fired: false } : null;   // every other class strikes with its Punch string
   }
-  considerHazard(f, opp, dist) { return null; }
+  /* considerHazard (P7-05), the CPU's play with the stage dangers. A CPU standing in the zone of a hazard that is warning or going off walks out of it on every tick (leaveHazard, asked first by chooseIntent, no plan and no cooldown in the way). Here,
+     when it is free to attack and the target is on its feet:
+     (1) STRIKE: the target is within reach of a hazard that a strike sets off (a steam valve, a falling load, a fire barrel, a panel): the CPU goes to a spot from which its next strike lands on the post and where it stands outside the effect zone, keeps
+     the spot up to date as the target moves (every AI_HAZARD_LOOK ticks; the plan ends when the target leaves), checks the hit area once more before it presses, and strikes once.
+     (2) LURE, "moves so its next hit drives the target into it": the target is within AI_HAZARD_RANGE of a post, an unbroken glass wall or the edge of a drop: the CPU walks to the side of the target from which one of its four throws sends the target through
+     the hazard, grabs there, and throws that way (chooseThrowDir). It commits with a chance by difficulty (AI_HAZARD_LURE: Easy seldom, Expert always), asked again after AI_HAZARD_ASK ticks, and plans again after AI_HAZARD_WAIT.
+     No hazards in the scene = null and no random number drawn (a match without hazards plays as before). */
+  considerHazard(f, opp, dist) {
+    const match = this.match;
+    if (!match || !match.hazards.length || !f.alive || !this.mayAttack(f) || f.carrying || this.tickNo < this.hazardWait || opp.y > 0.3) return null;
+    for (const h of match.hazards) {
+      if (h.state !== 'idle' || !h.post || h.def.trig !== 'strike' || !match.hazardAimIn(h, opp)) continue;
+      const spot = this.hazardSpot(f, opp, h);
+      if (spot) { this.hazardWait = this.tickNo + AI_HAZARD_WAIT; return { kind: 'hazard', mode: 'strike', stage: 'go', h, x: spot.x, z: spot.z, pick: spot.pick, dir: '', look: AI_HAZARD_LOOK, ticks: AI_HAZARD_PLAN }; }
+    }
+    if (f.stam <= f.maxStam * AI_GRAB_STAMINA) return null;
+    const lure = this.hazardLure(f, opp);
+    if (!lure) return null;
+    if (simRng() >= AI_HAZARD_LURE[this.d.id]) { this.hazardWait = this.tickNo + AI_HAZARD_ASK; return null; }
+    this.hazardWait = this.tickNo + AI_HAZARD_WAIT;
+    return { kind: 'hazard', mode: 'lure', stage: 'go', h: lure.h, x: lure.x, z: lure.z, pick: null, dir: lure.dir, look: AI_HAZARD_LOOK, ticks: AI_HAZARD_PLAN };
+  }
+  /* The CPU does not walk or lunge into the zone of a hazard that is warning or going off (P7-05): a step, or a punch, kick, grab or jump whose forward step would take it from outside to inside is cancelled, so it waits at the edge while the target burns or is steamed. */
+  holdAtHazard(f, it) {
+    const match = this.match, moving = it.fwd !== 0 || it.side !== 0, pressing = it.punch || it.kick || it.grapple || it.jump;
+    if (!match || !match.hazards.length || (!moving && !pressing) || !(FREE_SET.includes(f.state) || f.state === S.ATTACK)) return;
+    const fx = f.fwdX, fz = f.fwdZ, free = moving && FREE_SET.includes(f.state);
+    let dx = free ? fx * it.fwd - fz * it.side : fx, dz = free ? fz * it.fwd + fx * it.side : fz;
+    const len = Math.hypot(dx, dz) || 1;
+    dx = f.x + dx / len * AI_HAZARD_AHEAD; dz = f.z + dz / len * AI_HAZARD_AHEAD;
+    for (const h of match.hazards) {
+      if ((h.state === 'warn' || h.state === 'active') && h.def.dmg > 0 && !h.def.shard && match.hazardCovers(h, dx, dz) && !match.hazardCovers(h, f.x, f.z)) {
+        it.fwd = 0; it.side = 0; it.run = false; it.punch = it.kick = it.grapple = it.jump = false;
+        return;
+      }
+    }
+  }
+  /* True when f stands in the zone of a hazard that is warning or going off: it drops its plan and walks to a spot outside (re-found when the zone moves). Free states only: a fighter in a strike or a hold cannot walk. */
+  leaveHazard(f, it) {
+    const match = this.match;
+    if (!match || !match.hazards.length || !FREE_SET.includes(f.state)) { this.exit = null; return false; }
+    const danger = match.hazards.find((h) => (h.state === 'warn' || h.state === 'active') && h.def.dmg > 0 && !h.def.shard && match.hazardReaches(h, f));
+    if (!danger) { this.exit = null; return false; }
+    if (!this.exit || this.exitHazard !== danger || match.hazardCoversPad(danger, this.exit.x, this.exit.z, AI_HAZARD_PAD)) { this.exit = this.hazardExit(f, danger); this.exitHazard = danger; }
+    if (!this.exit) return false;
+    this.plan = null;
+    this.moveToward(f, it, this.exit.x - f.x, this.exit.z - f.z, true);
+    return true;
+  }
+  /* A spot a step outside the zone of hazard h, nearest to f, with room to stand (null: none within 3 m). */
+  hazardExit(f, h) {
+    const match = this.match, b = Arena.def.bounds;
+    let ax = f.x - h.x, az = f.z - h.z;
+    const len = Math.hypot(ax, az);
+    if (len < 0.05) { ax = h.fx; az = h.fz; } else { ax /= len; az /= len; }
+    for (let r = 0.6; r <= 3; r += 0.6) {
+      for (let k = 0; k < 8; k++) {   // straight away from the centre first, then round the circle
+        const turn = (k & 1 ? 1 : -1) * Math.ceil(k / 2) * 0.785, cos = Math.cos(turn), sin = Math.sin(turn);
+        const x = f.x + (ax * cos - az * sin) * r, z = f.z + (ax * sin + az * cos) * r;
+        if (Math.abs(x) > b.x - f.radius || Math.abs(z) > b.z - f.radius || Arena.blockedAt(x, z, f.radius) || match.hazardCoversPad(h, x, z, AI_HAZARD_PAD)) continue;
+        return { x, z };
+      }
+    }
+    return null;
+  }
+  /* Whether a fighter standing at (x, z) would be inside the effect zone of hazard h once it goes off (a barrel tips away from the one who strikes it, so its pool lies beyond the barrel as seen from (x, z)), or of a hazard already going off. */
+  hazardWouldReach(h, x, z) {
+    const match = this.match;
+    if (h.def.spill) {
+      const dx = h.tx - x, dz = h.tz - z, len = Math.hypot(dx, dz) || 1, cx = h.tx + dx / len * h.def.spill, cz = h.tz + dz / len * h.def.spill;
+      if (Math.hypot(x - cx, z - cz) <= h.def.r + AI_HAZARD_PAD) return true;
+    } else if (match.hazardCoversPad(h, x, z, AI_HAZARD_PAD)) return true;
+    return match.hazards.some((other) => (other.state === 'warn' || other.state === 'active') && other.def.dmg > 0 && !other.def.shard && match.hazardCoversPad(other, x, z, AI_HAZARD_PAD));
+  }
+  /* Whether a strike by f from (sx, sz) with move mv, facing the target, has its hit sphere on the post c (the sphere is centred 0.8 of the move's reach in front, Combat.hitObjects, and the post's height is checked). */
+  strikeOnPost(f, sx, sz, opp, mv, c) {
+    const reach = mv.reach * f.stats.reach * 0.8, fx = opp.x - sx, fz = opp.z - sz, fl = Math.hypot(fx, fz) || 1, hx = sx + fx / fl * reach, hz = sz + fz / fl * reach;
+    const cy = mv.h === 'H' ? 1.4 : mv.h === 'M' ? 1.0 : 0.35, dx = hx - clamp(hx, c.x - c.hx, c.x + c.hx), dz = hz - clamp(hz, c.z - c.hz, c.z + c.hz);
+    return cy - HAZARD_STRIKE_R <= c.top + 0.1 && dx * dx + dz * dz <= (HAZARD_STRIKE_R - 0.03) * (HAZARD_STRIKE_R - 0.03);
+  }
+  /* Where f can stand so that its next strike lands on h's post with the target in front of it, outside the effect zone, and with which move (null: nowhere). A move's hit sphere is centred 0.8 of its reach in front of the fighter, so the CPU stands
+     that far from the post on the line target - post (behind the post, seen from the target) when it can, else on spots round the post. */
+  hazardSpot(f, opp, h) {
+    const c = h.post, b = Arena.def.bounds;
+    let ux = c.x - opp.x, uz = c.z - opp.z;
+    const len = Math.hypot(ux, uz) || 1;
+    ux /= len; uz /= len;
+    let detour = null;   // the best spot whose straight walk is blocked by scenery (the steering goes round it): used when no clear one exists
+    for (const turn of [0, 0.9, -0.9, 1.8, -1.8, 2.7, -2.7, Math.PI]) {
+      const cos = Math.cos(turn), sin = Math.sin(turn);
+      for (const pick of this.reachable(f)) {
+        const stand = Math.max(pick.mv.reach * f.stats.reach * 0.8, AI_HAZARD_STAND);
+        const sx = c.x + (ux * cos - uz * sin) * stand, sz = c.z + (ux * sin + uz * cos) * stand;
+        if (Math.abs(sx) > b.x - f.radius || Math.abs(sz) > b.z - f.radius || Arena.blockedAt(sx, sz, f.radius) || this.hazardWouldReach(h, sx, sz)) continue;
+        const walkX = sx - f.x, walkZ = sz - f.z, along = clamp(((opp.x - f.x) * walkX + (opp.z - f.z) * walkZ) / (walkX * walkX + walkZ * walkZ || 1), 0, 1);
+        if (Math.hypot(f.x + walkX * along - opp.x, f.z + walkZ * along - opp.z) < AI_HAZARD_PASS || !this.strikeOnPost(f, sx, sz, opp, pick.mv, c)) continue;   // the walk to the spot would run into the target, or the strike would miss
+        if (!Arena.pathBlocked(f.x, f.z, sx, sz, 0.3)) return { x: sx, z: sz, pick };
+        if (!detour) detour = { x: sx, z: sz, pick };
+      }
+    }
+    return detour;
+  }
+  /* What a throw can drive the target into: a hazard's post (strike hazards), an unbroken glass wall, the zone of an open drop; null for the rest or when the hazard is no longer idle. */
+  hazardObstacle(h) {
+    if (h.state !== 'idle') return null;
+    if (h.obj) return h.obj.destroyed ? null : h.obj.collider;
+    if (h.post && h.def.trig === 'strike') return h.post;
+    return h.def.trig === 'edge' ? { x: h.x, z: h.z, hx: h.hx, hz: h.hz } : null;
+  }
+  /* The best lure (see considerHazard): { h, x, z, dir } or null. */
+  hazardLure(f, opp) {
+    let best = null, bestGap = Infinity;
+    for (const h of this.match.hazards) {
+      const spot = this.hazardLureSpot(f, opp, h);
+      const gap = spot ? Math.hypot(spot.x - f.x, spot.z - f.z) : Infinity;
+      if (gap < bestGap) { bestGap = gap; best = Object.assign(spot, { h }); }
+    }
+    return best;
+  }
+  /* Where f stands, and which throw it uses, to send the target through hazard h: the target is within AI_HAZARD_RANGE of the hazard, and for each of the four throws the spot on the line that makes that throw's direction point at the hazard (the throw vectors
+     of Combat.throwVector, with f facing the target) is tried; the nearest spot that has room and is outside every effect zone wins. */
+  hazardLureSpot(f, opp, h) {
+    const c = this.hazardObstacle(h), b = Arena.def.bounds;
+    if (!c) return null;
+    let wx = clamp(opp.x, c.x - c.hx, c.x + c.hx) - opp.x, wz = clamp(opp.z, c.z - c.hz, c.z + c.hz) - opp.z;
+    const gap = Math.hypot(wx, wz);
+    if (gap > AI_HAZARD_RANGE) return null;
+    if (gap < 0.05) { wx = c.x - opp.x; wz = c.z - opp.z; }
+    const len = Math.hypot(wx, wz);
+    if (len < 0.05) return null;
+    wx /= len; wz /= len;
+    let best = null, bestDist = Infinity;
+    for (const dir of THROW_DIRS) {
+      const px = dir === 'fwd' ? wx : dir === 'back' ? -wx : dir === 'left' ? -wz : wz, pz = dir === 'fwd' ? wz : dir === 'back' ? -wz : dir === 'left' ? wx : -wx;   // f's facing: the throw vector then equals w
+      const sx = opp.x - px * AI_LURE_STAND, sz = opp.z - pz * AI_LURE_STAND, dist = Math.hypot(sx - f.x, sz - f.z);
+      if (dist >= bestDist || Math.abs(sx) > b.x - f.radius || Math.abs(sz) > b.z - f.radius || Arena.blockedAt(sx, sz, f.radius) || this.hazardWouldReach(h, sx, sz)) continue;
+      bestDist = dist; best = { x: sx, z: sz, dir };
+    }
+    return best;
+  }
+  /* The throw direction that drives the target into a hazard next to it, or null (used for the CPUs that play the scenery when they grab on their own): the target is within AI_HAZARD_RANGE of an idle hazard post, an unbroken glass wall or the edge of a
+     drop, and one of the four throws sends it along a line that passes through it (the 3 m of a throw, checked every half metre; a body is about 0.55 m wide). */
+  hazardThrow(f, opp) {
+    let best = null, bestGap = 0.55;
+    for (const h of this.match.hazards) {
+      const c = this.hazardObstacle(h);
+      if (!c || Math.hypot(Math.max(Math.abs(opp.x - c.x) - c.hx, 0), Math.max(Math.abs(opp.z - c.z) - c.hz, 0)) > AI_HAZARD_RANGE) continue;
+      for (const dir of THROW_DIRS) {
+        const v = Combat.throwVector(f, dir);
+        let gap = Infinity;
+        for (let d = 0.5; d <= 3.01; d += 0.5) gap = Math.min(gap, Math.hypot(Math.max(Math.abs(opp.x + v[0] * d - c.x) - c.hx, 0), Math.max(Math.abs(opp.z + v[1] * d - c.z) - c.hz, 0)));
+        if (gap < bestGap) { bestGap = gap; best = { dir, kind: 'hazard' }; }
+      }
+    }
+    return best;
+  }
+  /* Runs a hazard plan ('go' walks to the spot, looking again every AI_HAZARD_LOOK ticks because the target moves; the plan ends if the hazard went off, the target left or no spot is left; 'press' does the one strike or the grab): a strike is pressed only if its
+     hit sphere reaches the post from where the CPU stands now and the CPU is outside the effect zone; a grab only when the target is within grab range. Walking out afterwards is leaveHazard's job. */
+  runHazard(f, opp, it, p) {
+    const h = p.h;
+    if (h.state !== 'idle' || !opp.alive || opp.y > 0.3) { this.plan = null; return; }
+    if (p.stage === 'go') {
+      if (--p.look <= 0) {
+        p.look = AI_HAZARD_LOOK;
+        const next = p.mode === 'lure' ? this.hazardLureSpot(f, opp, h) : this.match.hazardAimIn(h, opp) ? this.hazardSpot(f, opp, h) : null;
+        if (!next) { this.plan = null; return; }
+        p.x = next.x; p.z = next.z; p.pick = next.pick || null; p.dir = next.dir || '';
+      }
+      const dx = p.x - f.x, dz = p.z - f.z;
+      if (Math.hypot(dx, dz) > AI_HAZARD_SPOT) { this.moveToward(f, it, dx, dz, false); return; }
+      p.stage = 'press';
+    }
+    if (p.mode === 'lure') {
+      if (!this.inRange(f, ATTACKS.grab, Math.hypot(opp.x - f.x, opp.z - f.z))) { this.moveToward(f, it, opp.x - f.x, opp.z - f.z, false); return; }
+      it.grapple = true; this.lureDir = p.dir; this.lureUntil = this.tickNo + AI_HAZARD_LURE_TICKS;
+    } else {
+      if (!this.strikeOnPost(f, f.x, f.z, opp, p.pick.mv, h.post) || this.hazardWouldReach(h, f.x, f.z)) { p.stage = 'go'; p.look = 0; return; }   // not there yet: look again
+      this.pressMove(it, p.pick);
+    }
+    this.plan = null;
+  }
   /* True while the target is coming for this fighter: it attacks, or closes in on it faster than RING_CHASE_SPEED. A pressed waiter holds its ground (see ringStep). */
   pressedBy(f, opp) {
     const dx = f.x - opp.x, dz = f.z - opp.z, away = Math.hypot(dx, dz) || 1;
@@ -6960,6 +7192,7 @@ class AIController {
     this.match = match || null;
     this.chooseIntent(f, opp, match, it);
     this.holdAtEdge(f, it);
+    this.holdAtHazard(f, it);
     if (it.run && this.waitsOnRing(f) && Math.hypot(opp.x - f.x, opp.z - f.z) < RING_NO_RUN_DIST) it.run = false;   // no charge at the target without a token
     return it;
   }
@@ -6979,6 +7212,7 @@ class AIController {
     if (f.state === S.DOWN) { if (d.id !== 'easy' && f.stam > 20 && f.stateTicks > 16 && simRng() < 0.15) it.defend = true; return it; }   // one Defend press = quick recovery
     if (REACTION_STATES.includes(f.state)) { this.plan = null; this.counterTried = false; return it; }
     if (f.state === S.SWAY) { this.plan = null; return it; }   // a sway runs by itself; the next decision comes after it
+    if (this.leaveHazard(f, it)) return it;   // out of a hazard's zone before anything else (P7-05)
     // facing: nothing to do, fighter auto-faces
     const dist = Math.hypot(opp.x - f.x, opp.z - f.z);
 
@@ -7218,6 +7452,8 @@ class AIController {
 
   /* Find a breakable object (preferred) or a wall where a throw in some direction would land the opponent. */
   throwTarget(f, opp) {
+    const hazard = this.match && this.match.hazards.length ? this.hazardThrow(f, opp) : null;   // a hazard next to the target first (P7-05)
+    if (hazard) return hazard;
     let best = null, bd = 1e9;
     for (const dir of THROW_DIRS) {
       const v = Combat.throwVector(f, dir), dx = v[0], dz = v[1];
@@ -7241,6 +7477,7 @@ class AIController {
   }
   /* Deliberate throw choice: scenery or walls first (smarter CPUs), escape a corner by throwing past us, else by style. */
   chooseThrowDir(f, opp) {
+    if (this.lureDir && this.tickNo <= this.lureUntil) { const dir = this.lureDir; this.lureDir = ''; return dir; }   // the throw a hazard lure planned (P7-05)
     const target = this.d.env ? this.throwTarget(f, opp) : null;
     if (target) return target.dir;
     if (this.cornered(f)) return 'back';                     // the opponent lands in our corner, we face the open floor
@@ -7292,6 +7529,7 @@ class AIController {
         break;
       }
       case 'throw': if (!p.fired) { p.fired = true; it.use = true; } break;
+      case 'hazard': this.runHazard(f, opp, it, p); break;
       case 'feint': p.t++; if (p.t <= RING_FEINT_STEP_TICKS) this.moveToward(f, it, opp.x - f.x, opp.z - f.z, false); else this.ringStep(f, it, opp); break;   // a step toward the target, then back to the spot
       case 'jumpkick':
         p.t++;
@@ -7604,7 +7842,7 @@ class CrowdDirector {
 
 class MatchSim {
   constructor(cfg) {
-    this.cfg = Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'normal', arcadeLevel: 'normal', winsNeeded: 2, timer: 60, seed: 1, playerHp: 1, countdown: true, dummy: 'stand', items: true }, cfg);
+    this.cfg = Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'normal', arcadeLevel: 'normal', winsNeeded: 2, timer: 60, seed: 1, playerHp: 1, countdown: true, dummy: 'stand', items: true, hazards: true }, cfg);
     simRng = makeRng(this.cfg.seed);
     this.def = ARENAS[this.cfg.arenaId];
     Arena.build(this.def);
@@ -7641,6 +7879,9 @@ class MatchSim {
     this.itemsOn = this.cfg.items !== false;   // the Items setting (P7-02): off = nothing lies about, nothing to pick up
     this.items = [];                           // the loose items of the scene (see newItem)
     this.itemSeq = 0;
+    this.hazardsOn = this.cfg.hazards !== false;   // the Hazards setting (P7-05): off = the arena is safe, nothing is placed
+    this.hazards = [];                         // the hazards of the scene (see newHazard)
+    this.hazardSeq = 0;
     this.tick = 0;
     this.matchTicks = 0;
     this.round = 0;
@@ -7910,7 +8151,7 @@ class MatchSim {
       this.stats[e.att.index].damage += e.damage; this.stats[e.def.index].taken += e.damage;
       if (e.att.index === 0 && this.lastMove && this.lastMove.mv.id === 'hold') { this.lastMove.result = e.reason; this.lastMove.dmg = e.damage; this.lastMove.active = e.ticks; }
     });
-    on('objBreak', (e) => { if (this.stats[e.by]) this.stats[e.by].objects++; });
+    on('objBreak', (e) => { if (this.stats[e.by]) this.stats[e.by].objects++; this.hazardBreak(e.obj, this.fighters[e.by]); });
     on('ko', (e) => { if (e.att) this.stats[e.att.index].kos++; });
     on('attackStart', (e) => {
       if (e.f.index !== 0) return;
@@ -8031,6 +8272,7 @@ class MatchSim {
   }
   itemDebris(id, x, y, z) {
     const w = WEAPONS[id], size = clamp(w.len * 0.3, 0.06, 0.14);
+    if (w.sp === 'shatter') this.glassPatch(x, z);   // a bottle leaves its glass on the floor (P7-05)
     for (let k = 0; k < ITEM_DEBRIS; k++) {   // fixed fan of pieces: the match's random numbers stay untouched
       const a = k * 2.4;
       Debris.spawn(w.mat, x + Math.cos(a) * 0.08, y + 0.1, z + Math.sin(a) * 0.08, Math.cos(a) * 1.8, 1.5 + (k % 3) * 0.6, Math.sin(a) * 1.8, size, w.mat === 'glass' ? size * 0.2 : size, size * 1.3, w.hex, 1);
@@ -8102,6 +8344,7 @@ class MatchSim {
         if (least === left) it.x = c.x - c.hx - 0.15; else if (least === right) it.x = c.x + c.hx + 0.15; else if (least === near) it.z = c.z - c.hz - 0.15; else it.z = c.z + c.hz + 0.15;
         continue;
       }
+      if (c.haz) this.hazardItem(c.haz, it);   // a thrown item on a hazard's post (P7-05)
       if (c.obj) Arena.damageObject(c.obj, w.thrown, 'throw', ITEM_SRC_BASE - it.seq, it.vx, it.vz, it.x, it.y, it.z, it.owner.index);   // a thrown item damages it (a crate through a window) and drops
       if (w.burst) return this.burstItem(it, null);
       it.vx *= -0.2; it.vz *= -0.2; it.owner = null; it.mode = 'fall';
@@ -8151,6 +8394,344 @@ class MatchSim {
     }
   }
 
+  /* ----- hazards (P7-05). A hazard: { type, def, seq, x, z, tx, tz, yaw, fx, fz, hx, hz, state, t, by, hit, post, obj, cut, out, life, dirx, dirz }. state: 'idle' (waits for its trigger), 'warn' (the cue), 'active' (hurts everybody
+     in the zone, whatever the team), 'cool' (until it can be set off again) or 'spent'. (x, z) is the centre of the zone (the mouth of a steam jet, the barrel, where the load lands); (tx, tz) the post that is struck (the same spot unless the
+     row says otherwise: the load hangs from a support). fx / fz = the yaw as a unit vector; dirx / dirz = the way the barrel tipped. hit[i] = the tick fighter i was last hurt in this activation; cut[i] = fighter i was cut by the shards
+     while lying down; out[i] = the flight fighter i was last put back from the drop in; life > 0 = a patch that goes away after that many ticks (a shattered bottle). No random numbers are drawn: the match's sequence is untouched. ----- */
+  newHazard(type, x, z, o) {
+    const def = HAZARDS[type], at = (v, d) => (v === undefined ? d : v), yaw = at(o.yaw, 0);
+    const h = { type, def, seq: ++this.hazardSeq, x, z, tx: at(o.tx, x), tz: at(o.tz, z), yaw, fx: Math.sin(yaw), fz: Math.cos(yaw), hx: at(o.hx, 0), hz: at(o.hz, 0), state: 'idle', t: 0, by: null, hit: [], post: null, obj: null, cut: [], out: [], life: at(o.life, 0), dirx: 0, dirz: 1, dead: false };
+    if (def.post) {
+      h.post = { x: h.tx, z: h.tz, hx: def.post[0], hz: def.post[1], top: def.post[2], standable: false, active: true, obj: null, haz: h, temp: false, timer: 0, thin: false };
+      Arena.colliders.push(h.post);
+    }
+    h.obj = o.obj ? Arena.objects.find((q) => q.id === o.obj) || null : null;
+    if (h.obj) {   // the glass wall: its shards lie in a strip along it
+      const alongX = h.obj.axis !== 'z';
+      h.x = h.tx = h.obj.x; h.z = h.tz = h.obj.z; h.hx = alongX ? h.obj.hx : HAZARD_SHARD_SPREAD; h.hz = alongX ? HAZARD_SHARD_SPREAD : h.obj.hz;
+      if (h.obj.destroyed) h.state = 'active';   // broken in an earlier round: the shards lie there
+    }
+    return h;
+  }
+  /* Rebuilds the arena's hazards from the rows of its definition (and takes the old posts out of the colliders). Off (the Hazards setting) = nothing is placed. */
+  spawnHazards() {
+    for (const h of this.hazards) if (h.post) { const at = Arena.colliders.indexOf(h.post); if (at >= 0) Arena.colliders.splice(at, 1); }
+    this.hazards.length = 0;
+    if (!this.hazardsOn) return;
+    for (const [type, x, z, o] of this.def.hazards || []) this.hazards.push(this.newHazard(type, x, z, o || {}));
+  }
+  /* A shattered bottle leaves a patch of glass on the floor (same rules as the broken wall's shards). */
+  glassPatch(x, z) {
+    if (!this.hazardsOn) return;
+    const patches = this.hazards.filter((h) => h.life > 0);
+    if (patches.length >= HAZARD_SHARD_MAX) this.hazards.splice(this.hazards.indexOf(patches[0]), 1);
+    const patch = this.newHazard('glass', x, z, { hx: BOTTLE_SHARD_R, hz: BOTTLE_SHARD_R, life: HAZARD_SHARD_TICKS });
+    patch.state = 'active';
+    this.hazards.push(patch);
+  }
+  /* Whether the point (x, z) is inside the hazard's zone. */
+  hazardCovers(h, x, z) {
+    const def = h.def, dx = x - h.x, dz = z - h.z;
+    if (def.shape === 'circle') return dx * dx + dz * dz <= def.r * def.r;
+    if (def.shape === 'cone') { const d = Math.hypot(dx, dz); return d <= def.len && (d < 0.35 || (dx * h.fx + dz * h.fz) / d >= def.cos); }
+    const across = dx * h.fz - dz * h.fx, along = dx * h.fx + dz * h.fz;
+    return Math.abs(across) <= h.hx && Math.abs(along) <= h.hz;
+  }
+  /* The same with a margin: the point or one of four points a step (pad) round it is inside the zone. */
+  hazardCoversPad(h, x, z, pad) {
+    return this.hazardCovers(h, x, z) || this.hazardCovers(h, x + pad, z) || this.hazardCovers(h, x - pad, z) || this.hazardCovers(h, x, z + pad) || this.hazardCovers(h, x, z - pad);
+  }
+  /* Whether fighter f is in the zone and not clear of the floor (a jump). */
+  hazardReaches(h, f) { return f.y - f.groundY <= HAZARD_HEIGHT && this.hazardCovers(h, f.x, f.z); }
+  /* Whether f is within the reach of a hazard a strike sets off: its zone, or for a barrel, where its pool can lie (the pool lies beyond the barrel as seen from the striker). */
+  hazardAimIn(h, f) { return h.def.spill ? Math.hypot(f.x - h.tx, f.z - h.tz) <= h.def.spill + h.def.r : this.hazardCovers(h, f.x, f.z); }
+  /* Sets an idle hazard off; by = the fighter credited (null = nobody), via = how ('strike', 'item', 'knock', 'timer'). With a cue (warn) the hazard warns first; without, it goes off at once. */
+  hazardArm(h, by, via) {
+    if (h.state !== 'idle' || !this.hazardsOn) return false;
+    h.by = by || null; h.t = 0;
+    const dx = by ? h.tx - by.x : h.fx, dz = by ? h.tz - by.z : h.fz, len = Math.hypot(dx, dz) || 1;
+    h.dirx = dx / len; h.dirz = dz / len;   // away from whoever struck it: the way a barrel tips
+    if (h.def.spill) { h.x = h.tx + h.dirx * h.def.spill; h.z = h.tz + h.dirz * h.def.spill; }   // and where its fire pool lies
+    if (h.post && h.def.spent) h.post.active = false;   // a tipped barrel is no obstacle
+    Events.emit('hazardTrigger', { h, by: h.by, via });
+    if (h.def.warn > 0) { h.state = 'warn'; Events.emit('hazardWarn', { h }); } else this.hazardStart(h);
+    return true;
+  }
+  hazardStart(h) { h.state = 'active'; h.t = 0; h.hit = []; Events.emit('hazardStart', { h }); }
+  hazardEnd(h) { h.t = 0; h.state = h.def.spent ? 'spent' : 'cool'; Events.emit('hazardEnd', { h }); }
+  /* A strike's hit sphere (centre cx, cy, cz) on a hazard's post: the same test as for scenery. */
+  hazardStrike(att, cx, cy, cz) {
+    if (!this.live) return;
+    for (const h of this.hazards) {
+      const c = h.post;
+      if (!c || h.state !== 'idle' || h.def.trig !== 'strike' || cy - HAZARD_STRIKE_R > c.top + 0.1) continue;
+      const dx = cx - clamp(cx, c.x - c.hx, c.x + c.hx), dz = cz - clamp(cz, c.z - c.hz, c.z + c.hz);
+      if (dx * dx + dz * dz <= HAZARD_STRIKE_R * HAZARD_STRIKE_R) this.hazardArm(h, att, 'strike');
+    }
+  }
+  /* A thrown item reached a hazard's post: it sets it off (a panel only for a metal item). */
+  hazardItem(h, it) {
+    if (h.state !== 'idle' || h.def.trig !== 'strike') return;
+    const w = WEAPONS[it.id];
+    if (h.def.metalOnly && !(w.metal || w.mat === 'metal')) return;
+    this.hazardArm(h, it.owner, 'item');
+  }
+  /* A fighter was knocked into a hazard's post; whoever sent it flying is credited. */
+  hazardKnocked(h, f) {
+    if (h.state === 'idle' && h.def.trig === 'strike') this.hazardArm(h, f.lastFoe && this.canHurt(f.lastFoe, f) ? f.lastFoe : null, 'knock');
+  }
+  /* A glass wall broke (by a strike, a thrown item or a fighter): its shards are down, and a fighter against the wall is cut. */
+  hazardBreak(obj, by) {
+    if (!obj) return;
+    for (const h of this.hazards) {
+      if (h.obj !== obj || h.state !== 'idle') continue;
+      h.by = by || null; h.state = 'active'; h.t = 0; h.hit = [];
+      Events.emit('hazardTrigger', { h, by: h.by, via: 'break' });
+      Events.emit('hazardStart', { h });
+      if (!this.live) continue;
+      const c = obj.collider;
+      for (const f of this.fighters) {
+        if (!f.alive || f.state === S.ATTACK || TERMINAL_STATES.includes(f.state)) continue;
+        const gap = Math.hypot(Math.max(Math.abs(f.x - c.x) - c.hx, 0), Math.max(Math.abs(f.z - c.z) - c.hz, 0));
+        if (gap <= f.radius + HAZARD_CUT_REACH) this.hazardHit(h, f);
+      }
+    }
+  }
+  stepHazards() {
+    if (!this.hazards.length) return;
+    let expired = false;
+    for (const h of this.hazards) {
+      const def = h.def;
+      if (h.life > 0 && --h.life === 0) { h.dead = expired = true; continue; }
+      switch (h.state) {
+        case 'idle':
+          if (def.trig === 'timer' && ++h.t >= def.period) this.hazardArm(h, null, 'timer');
+          else if (def.trig === 'edge') this.stepEdge(h);
+          break;
+        case 'warn': if (++h.t >= def.warn) this.hazardStart(h); break;
+        case 'active':
+          this.hazardEffects(h);
+          if (def.dur > 0 && ++h.t >= def.dur) this.hazardEnd(h);
+          break;
+        case 'cool': if (++h.t >= def.cool) { h.state = 'idle'; h.t = 0; } break;
+        default: break;
+      }
+      if (h.state === 'active' || h.state === 'warn' || (h.type === 'fire' && h.state === 'idle')) this.hazardParticles(h);
+    }
+    if (expired) this.hazards = this.hazards.filter((h) => !h.dead);
+  }
+  /* The active tick of a hazard: every fighter in the zone that is due is hurt (the same fighter again only after `gap` ticks, or never within one activation when gap is 0). */
+  hazardEffects(h) {
+    const def = h.def;
+    if (!this.live) return;
+    if (def.shard) { this.shardEffects(h); return; }
+    if (def.first && h.t > 0) return;
+    for (const f of this.fighters) {
+      if (!f.alive || f.invuln > 0 || TERMINAL_STATES.includes(f.state) || !this.hazardReaches(h, f)) continue;
+      const last = h.hit[f.index];
+      if (last !== undefined && (!def.gap || this.tick - last < def.gap)) continue;
+      h.hit[f.index] = this.tick;
+      this.hazardHit(h, f);
+    }
+  }
+  /* Broken glass cuts a fighter once for each time it is knocked down on it. */
+  shardEffects(h) {
+    for (const f of this.fighters) {
+      if (f.state !== S.DOWN) { h.cut[f.index] = false; continue; }
+      if (h.cut[f.index] || !f.alive || !this.hazardCovers(h, f.x, f.z)) continue;
+      h.cut[f.index] = true;
+      this.hazardHit(h, f, h.def.shard, '');
+    }
+  }
+  /* The open drop: a fighter in its zone goes over the edge at once: put back at the nearest side, its speed taken away (a body still flying toward the drop would fall in again), then hurt and down. Once for each flight. */
+  stepEdge(h) {
+    if (!this.live) return;
+    for (const f of this.fighters) {
+      if (!f.alive || f.invuln > 0 || TERMINAL_STATES.includes(f.state) || !this.hazardCovers(h, f.x, f.z) || (h.out[f.index] === f.flightId && f.state === S.THROWN)) continue;
+      const dx = f.x - h.x, dz = f.z - h.z, room = f.radius + 0.1;
+      let across = dx * h.fz - dz * h.fx, along = dx * h.fx + dz * h.fz;
+      if (h.hz - Math.abs(along) <= h.hx - Math.abs(across)) along = (along < 0 ? -1 : 1) * (h.hz + room); else across = (across < 0 ? -1 : 1) * (h.hx + room);
+      const b = Arena.def.bounds, ox = clamp(h.x + along * h.fx + across * h.fz, -(b.x - f.radius), b.x - f.radius), oz = clamp(h.z + along * h.fz - across * h.fx, -(b.z - f.radius), b.z - f.radius);
+      const out = Math.hypot(ox - f.x, oz - f.z) || 1, ux = (ox - f.x) / out || h.fx, uz = (oz - f.z) / out || h.fz;
+      f.x = f.prevX = ox; f.z = f.prevZ = oz;
+      f.vx = f.vz = f.kx = f.kz = 0;
+      h.by = f.lastFoe && this.canHurt(f.lastFoe, f) ? f.lastFoe : null;
+      this.hazardHit(h, f, h.def.dmg, 'out', ux, uz);
+      h.out[f.index] = f.flightId;
+    }
+  }
+  /* The damage of a hazard to fighter f (scaled by f's balance like a hit, never by a combo), then what it does to f (fx; ux, uz = the direction, default from the source). The credit goes to whoever set it off if that fighter may hurt f. */
+  hazardHit(h, f, dmg = h.def.dmg, fx = h.def.fx, ux, uz) {
+    if (!f.alive || f.invuln > 0 || TERMINAL_STATES.includes(f.state)) return;   // a fighter getting up, out or finished takes nothing from any hazard
+    const by = h.by && this.canHurt(h.by, f) ? h.by : null;
+    let amount = 0;
+    if (dmg > 0) {
+      amount = Math.max(1, Math.round(dmg * f.stats.taken * 10) / 10);
+      f.hp = Math.max(0, f.hp - amount);
+      if (fx === 'out' && this.brawl && f.team === TEAM_ENEMIES) f.hp = 0;   // over the edge in a brawl: the enemy is out
+      if (this.floorHp(f) > f.hp) f.hp = this.floorHp(f);
+      f.flash = 1;
+      this.stats[f.index].taken += amount;
+      if (by) { this.stats[by.index].damage += amount; f.lastFoe = by; }
+    }
+    if (f.hp <= 0) Combat.knockOut(f, by, null, this);   // the one who set it off gets the knock-out
+    else if (fx) this.hazardReact(h, f, fx, ux, uz);
+    Events.emit('hazardHit', { h, f, by, dmg: amount, fx, x: f.x, y: f.y + 1.0, z: f.z });
+  }
+  /* What a hazard does to a fighter that is still standing after it: stun (shock), flinch, push (the jet), or a knockdown flight (down, throw, out). A fighter already down, flying, falling or held only takes the damage. */
+  hazardReact(h, f, fx, ux, uz) {
+    const def = h.def;
+    if (ux === undefined) {
+      if (fx === 'push' || fx === 'throw') { ux = h.fx; uz = h.fz; } else { ux = f.x - h.x; uz = f.z - h.z; }
+      const len = Math.hypot(ux, uz);
+      if (len < 0.05) { ux = h.fx; uz = h.fz; } else { ux /= len; uz /= len; }
+    }
+    if (HAZARD_NO_REACT.includes(f.state) || f.pinnedBy) return;
+    if (f.state === S.CLINCH || f.state === S.GRAPPLE) {   // a shock, a flinch or a flight breaks a clinch
+      const holder = f.state === S.GRAPPLE ? f : f.partner, held = holder && holder.partner;
+      if (holder && held) Combat.releaseClinch(holder, held);
+    }
+    if (fx === 'push') { f.kx = ux * def.push; f.kz = uz * def.push; return; }
+    f.blockStun = 0; f.hitKind = 'mid';
+    if (fx === 'stun') { f.reactDur = def.stun; f.vx = f.vz = 0; f.setState(S.STUN); }
+    else if (fx === 'flinch') { f.reactDur = HAZARD_FLINK_TICKS; f.setState(S.HIT); f.kx = ux * HAZARD_FLINK_PUSH; f.kz = uz * HAZARD_FLINK_PUSH; }
+    else if (fx === 'down' || fx === 'throw' || fx === 'out') {   // the same knockdown flight as a strong hit
+      if (f.partner) { if (f.partner.partner === f) f.partner.partner = null; f.partner = null; }
+      f.setState(S.THROWN);
+      f.lieSign = 1; f.downMult = 1; f.throwPitch = 0; f.throwRoll = 0; f.juggle = false;
+      f.flightId = ++Combat.flightCounter;
+      f.vy = 2.6; f.y = Math.max(f.y, f.groundY) + 0.02;
+      f.kx = ux * def.push; f.kz = uz * def.push;
+    }
+  }
+  /* Flames, steam and sparks of a hazard that is warning or going off (look only: they use the effects' own random numbers, never the match's). */
+  hazardParticles(h) {
+    const def = h.def, n = this.tick + h.seq * 7;
+    if (h.type === 'fire' && h.state === 'idle') {
+      if (n % 4 === 0) FX.spawn(MESH.SPHERE, true, h.tx + (hash01(n) - 0.5) * 0.3, 1.05, h.tz + (hash01(n + 1) - 0.5) * 0.3, (hash01(n + 2) - 0.5) * 0.3, 1.2, (hash01(n + 3) - 0.5) * 0.3, 0.6, 0.07, -0.08, '#ffb347', 0.8, -0.5, 0.5, 2);   // embers rise from the barrel
+    } else if (h.type === 'fire' && h.state === 'active' && n % 3 === 0) {
+      const a = hash01(n) * TAU, r = Math.sqrt(hash01(n + 1)) * def.r;
+      FX.spawn(MESH.SPHERE, true, h.x + Math.cos(a) * r, 0.1, h.z + Math.sin(a) * r, 0, 1.4, 0, 0.8, 0.12, -0.1, hash01(n + 2) < 0.5 ? '#ff8a1f' : '#ffcf4a', 0.8, -1.2, 0.5, 2);   // sparks and smoke over the pool; the flames themselves are drawn
+    } else if (h.type === 'steam' && (h.state === 'active' ? n % 2 === 0 : n % 6 === 0)) {
+      FX.spawn(MESH.SPHERE, false, h.tx + h.fx * 0.2, 1.15, h.tz + h.fz * 0.2, h.fx * 3.2 + (hash01(n) - 0.5), (hash01(n + 1) - 0.4) * 0.6, h.fz * 3.2 + (hash01(n + 2) - 0.5), 0.55, 0.18, 0.9, '#eef3f7', 0.5, -0.2, 0.6, 0);
+    } else if (h.type === 'panel' && h.state === 'active' && n % 4 === 0) {
+      FX.sparks(h.tx, 0.9 + hash01(n) * 0.5, h.tz, 4, 3, '#cfe8ff');
+    } else if (h.type === 'panel' && h.state === 'warn' && n % 8 === 0) {
+      FX.sparks(h.tx, 1.1, h.tz, 3, 2, '#ffd78a');
+    }
+  }
+  /* A fire: three tongues (long ellipsoids, red-orange to yellow) that lean and change height with the tick, each in its own phase, and a pale core. Look only. */
+  drawFlames(x, y, z, width, size, seed) {
+    const t = this.tick;
+    for (let k = 0; k < 3; k++) {
+      const flick = 0.6 + 0.4 * hash01(t * 0.35 + seed * 3 + k * 7), lean = (hash01(t * 0.15 + seed + k * 5) - 0.5) * 0.7, high = size * (0.62 - 0.14 * k) * flick, a = k * 2.1 + seed;
+      hput(LAYER.ADD, MESH.SPHERE, x + Math.cos(a) * width * 0.3, y + high / 2, z + Math.sin(a) * width * 0.3, width * (1 - 0.2 * k), high, width * (1 - 0.2 * k), 0, k === 0 ? '#ff5a10' : k === 1 ? '#ff9a1f' : '#ffd24a', 0.8, 2, 0.5, lean, -lean);
+    }
+    hput(LAYER.ADD, MESH.SPHERE, x, y + size * 0.1, z, width * 0.45, size * 0.2, width * 0.45, 0, '#fff3b0', 0.9, 2.2, 0.5);
+  }
+  /* Whether the falling load (centre lx, y, lz) hangs between the camera and a living fighter's chest, so that it can fade. */
+  loadHidesFighter(lx, y, lz) {
+    const p = Camera.pos;
+    for (const f of this.fighters) {
+      if (!f.alive) continue;
+      const qx = f.x - p[0], qy = f.y + 1.0 - p[1], qz = f.z - p[2], len2 = qx * qx + qy * qy + qz * qz || 1;
+      const along = clamp(((lx - p[0]) * qx + (y - p[1]) * qy + (lz - p[2]) * qz) / len2, 0, 1);
+      if (Math.hypot(p[0] + qx * along - lx, p[1] + qy * along - y, p[2] + qz * along - lz) < HAZARD_LOAD_FADE) return true;
+    }
+    return false;
+  }
+  /* One hazard type on the map: [drawn by drawHazards]. Flames are tongues that flicker (drawFlames); the load fades while it hangs between the camera and a fighter. */
+  drawHazards() {
+    for (const h of this.hazards) {
+      const warn = h.state === 'warn', blink = warn && ((this.tick >> 2) & 1) === 1, on = h.state === 'active', shake = warn ? Math.sin(this.tick * 2.7) * 0.025 : 0;
+      const x = h.tx + shake, z = h.tz, face = h.tz > 0 ? -1 : 1, t = this.tick;
+      if (warn && h.def.shape === 'circle' && h.type !== 'load') hput(LAYER.ALPHA, MESH.CYL, h.x, 0.02, h.z, h.def.r * 2, 0.01, h.def.r * 2, 0, '#ffb000', blink ? 0.3 : 0.12, 0.4, 0.9);   // the danger zone blinks on the floor
+      if (h.type === 'panel') {
+        hput(LAYER.SOLID, MESH.CUBE, x, 0.04, z, 0.82, 0.08, 0.52, 0, '#333c38', 1, 0, 0.9);
+        hput(LAYER.SOLID, MESH.CUBE, x, 0.7, z, 0.7, 1.3, 0.4, 0, '#4f5b57', 1, 0, 0.8);
+        hput(LAYER.SOLID, MESH.CUBE, x, 0.75, z + face * 0.205, 0.56, 0.9, 0.02, 0, '#3f4a46', 1, 0, 0.8);
+        hput(LAYER.SOLID, MESH.CUBE, x, 1.2, z + face * 0.215, 0.5, 0.07, 0.01, 0, '#e0b100', 1, 0, 0.7);
+        hput(LAYER.SOLID, MESH.CUBE, x + 0.18, 0.5, z + face * 0.23, 0.04, 0.22, 0.04, 0, '#b83a26', 1, 0, 0.6);
+        hput(LAYER.SOLID, MESH.SPHERE, x - 0.18, 1.0, z + face * 0.22, 0.09, 0.09, 0.09, 0, on ? '#ff3b30' : warn ? (blink ? '#ffb000' : '#553300') : '#2fbf71', 1, on || blink ? 1.8 : 0.5, 0.4);
+        if (on) for (let k = 0; k < 5; k++) {   // arcs along the floor to the edge of the zone
+          const a = k * 1.26 + hash01(t * 0.5 + k) * 1.1, len = h.def.r * (0.6 + 0.4 * hash01(t + k * 3));
+          if (hash01(t * 0.5 + k * 7) > 0.25) hput(LAYER.ADD, MESH.CUBE, h.x + Math.sin(a) * len / 2, 0.12, h.z + Math.cos(a) * len / 2, 0.04, 0.04, len, a, '#dff3ff', 0.85, 1.6, 0.4);
+        }
+      } else if (h.type === 'steam') {
+        const alongX = Math.abs(h.fx) > Math.abs(h.fz);
+        hput(LAYER.SOLID, MESH.CYL, x, 0.6, z, 0.16, 1.2, 0.16, 0, '#6e7783', 1, 0, 0.35);
+        hput(LAYER.SOLID, MESH.CYL, x + h.fx * 0.25, 1.15, z + h.fz * 0.25, 0.12, 0.5, 0.12, 0, '#6e7783', 1, 0, 0.35, alongX ? 0 : Math.PI / 2, alongX ? Math.PI / 2 : 0);
+        hput(LAYER.SOLID, MESH.CYL, x, 1.24, z, 0.26, 0.03, 0.26, 0, '#c0392b', 1, 0, 0.5);
+        if (warn) hput(LAYER.ALPHA, MESH.SPHERE, x + h.fx * 0.7, 1.12, z + h.fz * 0.7, 0.25, 0.25, 0.25, 0, '#eef3f7', 0.4, 0, 0.9);   // it leaks before it blows
+        if (on) for (let k = 0; k < 6; k++) {   // the jet: puffs that swell and thin out along it
+          const u = ((k + t * 0.06) % 6) / 6, size = 0.3 + 0.7 * u;
+          hput(LAYER.ALPHA, MESH.SPHERE, h.x + h.fx * u * h.def.len, 1.1, h.z + h.fz * u * h.def.len, size, size, size, 0, '#f2f6fa', 0.42 * (1 - u), 0.1, 0.9);
+        }
+        if (warn) for (let k = 0; k < 4; k++) { const u = (k + 1) / 5; hput(LAYER.ALPHA, MESH.CYL, h.x + h.fx * u * h.def.len, 0.02, h.z + h.fz * u * h.def.len, 0.5 + u * 0.6, 0.01, 0.5 + u * 0.6, 0, '#ffb000', blink ? 0.3 : 0.12, 0.4, 0.9); }
+      } else if (h.type === 'fire') {
+        const lit = h.state === 'idle', k = lit ? 0 : Math.min(1, h.t / Math.max(1, h.def.warn)), tip = warn ? k * 0.9 : 0;
+        if (lit || warn) {
+          const bx = x + h.dirx * 0.3 * k, bz = z + h.dirz * 0.3 * k;
+          hput(LAYER.SOLID, MESH.CYL, bx, 0.5 - 0.15 * k, bz, 0.6, 1.0, 0.6, 0, '#7a4a2e', 1, 0, 0.7, h.dirz * tip, -h.dirx * tip);
+          for (const ring of [0.22, 0.78]) hput(LAYER.SOLID, MESH.CYL, bx, ring - 0.15 * k, bz, 0.63, 0.06, 0.63, 0, '#2b2b2b', 1, 0, 0.7, h.dirz * tip, -h.dirx * tip);
+          this.drawFlames(bx, 1.0 - 0.45 * k, bz, 0.34, 1, h.seq);   // the fire in the barrel's mouth
+        } else {   // lying on its side, with the pool of fire (or the scorch) round it
+          const alongX = Math.abs(h.dirx) > Math.abs(h.dirz);
+          hput(LAYER.SOLID, MESH.CYL, x + h.dirx * 0.45, 0.3, z + h.dirz * 0.45, 0.6, 1.0, 0.6, 0, h.state === 'spent' ? '#3a2a22' : '#7a4a2e', 1, 0, 0.7, alongX ? 0 : Math.PI / 2, alongX ? Math.PI / 2 : 0);
+          if (on) {
+            hput(LAYER.ADD, MESH.CYL, h.x, 0.03, h.z, h.def.r * 2, 0.02, h.def.r * 2, 0, '#ff7a1a', 0.2 + 0.06 * Math.sin(t * 0.4), 1.2, 0.9);
+            for (let n = 0; n < 7; n++) {   // tongues of flame over the pool, each in its own place, rising and falling
+              const a = hash01(h.seq * 5 + n) * TAU, r = Math.sqrt(hash01(h.seq * 9 + n)) * h.def.r * 0.85;
+              this.drawFlames(h.x + Math.cos(a) * r, 0.02, h.z + Math.sin(a) * r, 0.36, 0.8 + 0.5 * hash01(h.seq + n * 3), h.seq + n * 11);
+            }
+          } else hput(LAYER.ALPHA, MESH.CYL, h.x, 0.015, h.z, h.def.r * 1.7, 0.01, h.def.r * 1.7, 0, '#1a1412', 0.5, 0, 1);
+        }
+      } else if (h.type === 'load') {
+        // A stack of crates on a pallet (about 1.2 m) hung high from a trolley on a crane beam by a chain; it fades while it hangs between the camera and a fighter.
+        const drop = warn ? clamp((h.t - (h.def.warn - HAZARD_LAND_TICKS)) / HAZARD_LAND_TICKS, 0, 1) : on || h.state === 'spent' ? 1 : h.state === 'cool' ? 1 - clamp(h.t / 90, 0, 1) : 0;
+        const y = HAZARD_LOAD_HANG + (HAZARD_LOAD_REST - HAZARD_LOAD_HANG) * drop * drop, lx = h.x + (warn ? shake * 1.6 : h.state === 'idle' ? Math.sin(t * 0.03) * 0.03 : 0);
+        const hidden = this.loadHidesFighter(lx, y, h.z), lay = hidden ? LAYER.ALPHA : LAYER.SOLID, al = hidden ? 0.25 : 1;
+        hput(LAYER.SOLID, MESH.CUBE, x, 0.95, z, 0.2, 1.9, 0.2, 0, '#59606b', 1, 0, 0.5);   // the support the load is released from
+        hput(LAYER.SOLID, MESH.CUBE, x, 1.0, z, 0.23, 0.12, 0.23, 0, '#e0b100', 1, 0, 0.7);
+        hput(LAYER.SOLID, MESH.SPHERE, x, 1.9, z, 0.12, 0.12, 0.12, 0, warn && blink ? '#ffb000' : '#b83a26', 1, warn && blink ? 1.6 : 0.2, 0.5);
+        hput(LAYER.SOLID, MESH.CUBE, h.x, HAZARD_LOAD_BEAM, h.z, 4.6, 0.22, 0.3, 0, '#3f454d', 1, 0, 0.5);   // the crane beam, the trolley on it, the chain and the hook
+        hput(lay, MESH.CUBE, lx, HAZARD_LOAD_BEAM - 0.2, h.z, 0.5, 0.2, 0.4, 0, '#2b2f36', al, 0, 0.5);
+        hput(lay, MESH.CYL, lx, (y + 0.8 + HAZARD_LOAD_BEAM - 0.3) / 2, h.z, 0.04, HAZARD_LOAD_BEAM - 0.3 - y - 0.8, 0.04, 0, '#2b2f36', al, 0, 0.6);
+        hput(lay, MESH.SPHERE, lx, y + 0.8, h.z, 0.14, 0.14, 0.14, 0, '#9aa3ad', al, 0, 0.4);
+        hput(lay, MESH.CUBE, lx, y - 0.35, h.z, 1.1, 0.12, 1.0, 0, '#5b4630', al, 0, 0.9);   // the pallet
+        hput(lay, MESH.CUBE, lx, y, h.z, 1.0, 0.58, 0.9, 0, '#7a5a38', al, 0, 0.85);
+        hput(lay, MESH.CUBE, lx, y, h.z, 1.04, 0.07, 0.94, 0, '#3b3f46', al, 0, 0.6);
+        hput(lay, MESH.CUBE, lx, y + 0.5, h.z, 0.6, 0.42, 0.6, 0, '#6e5438', al, 0, 0.85);
+        if (warn) hput(LAYER.ALPHA, MESH.CYL, h.x, 0.02, h.z, h.def.r * 2, 0.01, h.def.r * 2, 0, blink ? '#ffb000' : '#000000', blink ? 0.3 : 0.12 + 0.2 * h.t / h.def.warn, 0.4, 0.9);
+
+      } else if (h.type === 'train') {
+        const lamp = warn || on ? (((t >> 3) & 1) ? '#ff3b30' : '#661510') : '#3a1512';
+        for (const s of [-1, 1]) {   // warning lamps on posts at both ends of the track
+          const px = h.x + s * (h.hz + 0.6) * h.fx + (h.hx + 0.4) * h.fz, pz = h.z + s * (h.hz + 0.6) * h.fz - (h.hx + 0.4) * h.fx;
+          hput(LAYER.SOLID, MESH.CYL, px, 0.8, pz, 0.08, 1.6, 0.08, 0, '#59606b', 1, 0, 0.5);
+          hput(LAYER.SOLID, MESH.SPHERE, px, 1.65, pz, 0.2, 0.2, 0.2, 0, lamp, 1, warn || on ? 2 : 0.2, 0.4);
+        }
+        for (const s of [-1, 1]) hput(LAYER.SOLID, MESH.CUBE, h.x + s * 0.7 * h.fz, 0.03, h.z - s * 0.7 * h.fx, 0.06, 0.05, h.hz * 2, h.yaw, '#7b828c', 1, 0, 0.4);
+        if (on) {   // the train passes along the track
+          const k = clamp(h.t / h.def.dur, 0, 1), along = (-h.hz - HAZARD_TIMER_EDGE) + (2 * h.hz + 2 * HAZARD_TIMER_EDGE) * k, cx = h.x + along * h.fx, cz = h.z + along * h.fz;
+          hput(LAYER.SOLID, MESH.CUBE, cx, 1.35, cz, Math.min(h.hx * 1.8, 2.8), 2.4, 6, h.yaw, '#3a4656', 1, 0, 0.5);
+          hput(LAYER.SOLID, MESH.CUBE, cx, 1.7, cz, Math.min(h.hx * 1.8, 2.8) + 0.02, 0.5, 5.4, h.yaw, '#cfe3f5', 1, 0.3, 0.3);
+          hput(LAYER.SOLID, MESH.SPHERE, cx + h.fx * 3.0, 0.9, cz + h.fz * 3.0, 0.3, 0.3, 0.3, 0, '#fff6c8', 1, 2, 0.3);
+        }
+      } else if (h.type === 'drop') {
+        hput(LAYER.ALPHA, MESH.CUBE, h.x, 0.015, h.z, h.hx * 2, 0.01, h.hz * 2, h.yaw, '#050505', 0.85, 0, 1);
+        for (const s of [-1, 1]) hput(LAYER.SOLID, MESH.CUBE, h.x + s * h.hx * h.fz, 0.02, h.z - s * h.hx * h.fx, 0.12, 0.03, h.hz * 2, h.yaw, '#e0b100', 1, 0, 0.7);
+      } else if (h.type === 'glass' && on) {   // the shards on the floor
+        const count = h.obj ? 16 : 7;
+        for (let k = 0; k < count; k++) {
+          const s = 0.08 + 0.07 * hash01(h.seq * 31 + k), across = (hash01(h.seq * 17 + k * 3) - 0.5) * 2 * h.hx, along = (hash01(h.seq * 13 + k * 5) - 0.5) * 2 * h.hz;
+          hput(LAYER.ALPHA, MESH.SHARD, h.x + along * h.fx + across * h.fz, 0.02, h.z + along * h.fz - across * h.fx, s, s * 0.4, s * 1.3, hash01(h.seq + k) * TAU, '#cfeaff', 0.75, 0.25, 0.1);
+        }
+
+      }
+    }
+  }
+
   placeFighters(hpFrac) {
     const s = this.def.spawn, party = this.partySize;
     for (let k = 0; k < party; k++) this.fighters[k].reset(-s, (k - (party - 1) / 2) * BRAWL_SPAWN_SPACING, Math.PI / 2, hpFrac, 1);   // the party stands in a line, centred on z = 0
@@ -8183,6 +8764,7 @@ class MatchSim {
     this.round++;
     this.placeFighters(this.round === 1 || this.cfg.mode === 'survival' ? this.cfg.playerHp : 1);   // survival health carries into a drawn round's replay
     this.spawnItems();
+    this.spawnHazards();
     this.roundTicks = this.cfg.timer * 60;
     this.hitStop = 0;
     this.endTimer = 0;
@@ -8259,6 +8841,7 @@ class MatchSim {
     this.resolveCombat();
     this.physics();
     this.stepItems();
+    this.stepHazards();
     Combat.tickCombos(this.fighters);
     for (const f of this.fighters) f.animate(DT);
     if (this.training) this.trainingMaintenance();
@@ -8339,10 +8922,11 @@ class MatchSim {
   resetFighters() {
     this.placeFighters(1);
     this.spawnItems();
+    this.spawnHazards();
     Camera.snapNext = true;
     Events.emit('trainingReset', {});
   }
-  resetArenaObjects() { Arena.reset(); this.spawnItems(); Events.emit('trainingReset', {}); }
+  resetArenaObjects() { Arena.reset(); this.spawnItems(); this.spawnHazards(); Events.emit('trainingReset', {}); }
   scenario(n) {
     const [a, b] = this.fighters;
     this.placeFighters(1);
@@ -8484,7 +9068,7 @@ const SimRunner = {
       Events.on('throw', (e) => add(e.att.index, 'throw', e.dmg));
       for (const name in cfg.listeners || {}) Events.on(name, cfg.listeners[name]);
       // cfg.enemies (a count or a list of fighter ids) makes it a brawl: the player against that many CPU enemies, ended by one side being wiped out
-      m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
+      m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, hazards: cfg.hazards === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
         cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null));   // a brawl has no clock unless asked for one (time up = the players lose)
       const count = m.fighters.length;
       if (count !== 2) damage = m.fighters.map(() => ({}));
@@ -8800,6 +9384,7 @@ const Game = {
     this.endMatch();
     cfg.seed = (Date.now() ^ (this.errorCount * 7919)) >>> 0;
     if (cfg.items === undefined) cfg.items = Settings.v.items !== false;   // read at every start, so a rematch follows the Options toggle
+    if (cfg.hazards === undefined) cfg.hazards = Settings.v.hazards !== false;   // the same for the Hazards setting (P7-05)
     if (cfg.coop) cfg.friendlyFire = Settings.v.friendlyFire;   // read at every start, so a rematch follows the Options toggle
     this.config = cfg;
     this.match = new MatchSim(cfg);
@@ -8831,6 +9416,7 @@ const Game = {
     if (this.run && this.run.mode === 'arcade') { Progress.d.losses++; Progress.save(); this.run.continues++; this.startArcade(this.run.stage, true); return; }
     const again = Object.assign({}, this.config);
     delete again.items;   // read the Items setting again, like friendly fire
+    delete again.hazards;
     this.beginMatch(again);
   },
   /* Best streak and time are saved after every win and whenever a run ends, so quitting never loses them. */
@@ -9035,7 +9621,7 @@ const Game = {
     if (m || Arena.def) { Camera.apply(); }
     if (Arena.def) Arena.draw();
     Debris.draw();
-    if (m) { for (const f of m.fighters) f.draw(this.alpha); m.drawItems(); } else Showcase.draw();
+    if (m) { for (const f of m.fighters) f.draw(this.alpha); m.drawItems(); m.drawHazards(); } else Showcase.draw();
     FX.draw();
     R.render();
     Events.emit('rendered', { match: m });
@@ -9089,6 +9675,17 @@ const Effects = {
     on('envImpact', (e) => { FX.dust(e.x, 0.6, e.z, 8, 0.5, '#b5ada0'); Camera.impact(0.6, 0.4); });
     on('objHit', (e) => { const m = MATERIALS[e.obj.mat]; FX.sparks(e.x, e.y, e.z, e.dmg > 0 ? 6 : 2, 2.5, m ? m.color : '#ffffff'); if (e.dmg > 0 && e.obj.mat === 'concrete') FX.dust(e.x, e.y, e.z, 2, 0.3, '#a8a49b'); });
     on('objStage', (e) => FX.dust(e.x, e.y, e.z, 4, 0.5, '#a89a86'));
+    on('hazardStart', (e) => {   // the burst of each hazard that goes off (steam and fire keep going from MatchSim.hazardParticles)
+      const h = e.h;
+      if (h.type === 'panel') { FX.flash(h.tx, 1.0, h.tz, 0.4, '#cfe8ff'); FX.sparks(h.tx, 1.0, h.tz, 12, 4, '#cfe8ff'); } else if (h.type === 'load') { FX.dust(h.x, 0.1, h.z, 14, h.def.r, '#b5ada0'); Camera.impact(1.0, 0.9); } else if (h.type === 'fire') { FX.flash(h.x, 0.5, h.z, 0.5, '#ffb347'); FX.dust(h.x, 0.3, h.z, 6, 0.8, '#6b625a'); } else if (h.type === 'train') Camera.impact(0.6, 0.6);
+    });
+    on('hazardHit', (e) => {
+      if (e.dmg <= 0) return;
+      FX.sparks(e.x, e.y, e.z, 5, 2.5, e.h.type === 'panel' ? '#cfe8ff' : e.h.type === 'fire' ? '#ffb347' : '#ffffff');
+      Camera.impact(0.25, 0.2);
+      const hurt = Inputs.forFighter(e.f.index);
+      if (hurt) hurt.rumble(0.3, RUMBLE_HIT_MS);
+    });
   },
 };
 
@@ -9285,6 +9882,33 @@ const Sound = {
     else if (kind === 'metal') this.tone('square', 600 + Math.random() * 300, 400, 0.15, g * 0.4, 0, p);
     else this.noise('bandpass', kind === 'wood' ? 800 : 400, 300, 1.2, 0.07, g, 0, p);
   },
+  /* Hazards (P7-05): the sound of each type at its warning, when it goes off, and when it hurts someone. */
+  hazard(kind, phase, x) {
+    const p = this.panFor(x), start = phase === 'start';
+    if (kind === 'zap') {
+      if (!this.allow('hazZap', 0.2)) return;
+      if (!start) { this.tone('square', 1800, 1800, 0.03, 0.12, 0, p); this.tone('square', 1800, 1800, 0.03, 0.12, 0.09, p); return; }   // two clicks, then the buzz
+      this.noise('highpass', 3500, 2500, 0.8, 0.5, 0.35, 0, p); this.tone('sawtooth', 110, 90, 0.5, 0.2, 0, p); this.tone('square', 2200, 800, 0.12, 0.15, 0, p);
+    } else if (kind === 'hiss') {
+      if (!this.allow('hazHiss', 0.4)) return;
+      this.noise('highpass', 3000, 2000, 0.7, start ? 1.2 : 0.3, start ? 0.3 : 0.15, 0, p);
+    } else if (kind === 'crash') {
+      if (!start) { this.tone('triangle', 180, 140, 0.3, 0.14, 0, p); return; }   // the chain creaks, then the load lands
+      this.slam(x); this.material('metal', true, x);
+    } else if (kind === 'fire') {
+      if (!this.allow('hazFire', 0.3)) return;
+      if (!start) { this.noise('lowpass', 400, 1200, 0.6, 0.25, 0.25, 0, p); return; }   // a whoomph, then the crackle
+      for (let k = 0; k < 4; k++) this.noise('bandpass', 2500, 1500, 1.2, 0.05, 0.2, k * 0.07, p);
+    } else if (kind === 'train') {
+      if (!start) { this.tone('sine', 1000, 1000, 0.15, 0.2, 0, p); this.tone('sine', 1000, 1000, 0.15, 0.2, 0.3, p); return; }   // crossing bells, then the horn and the rumble
+      this.tone('sawtooth', 220, 200, 1.0, 0.22, 0, p); this.noise('lowpass', 300, 120, 0.6, 1.2, 0.35, 0, p);
+    }
+  },
+  hazardHurt(kind, x) {
+    if (kind === 'zap') this.tone('square', 600, 200, 0.1, 0.25, 0, this.panFor(x));
+    else if (kind === 'hiss' || kind === 'fire') { if (this.allow('hazHurt', 0.12)) this.noise('bandpass', 1800, 900, 0.8, 0.12, 0.22, 0, this.panFor(x)); }
+    else this.hit(0.4, false, x);
+  },
   ui(kind) {
     if (!this.allow('menu')) return;
     if (kind === 'move') this.tone('square', 660, 700, 0.04, 0.09);
@@ -9340,6 +9964,9 @@ const Sound = {
     on('itemThrow', (e) => this.whoosh(0.8, e.x));
     on('itemBreak', (e) => this.material(WEAPONS[e.id].mat, true, e.x));   // the debris sound of the item's material
     on('itemSpray', (e) => { if (this.allow('itemSpray', 0.15)) this.noise('highpass', 3000, 1800, 0.7, 0.35, 0.3, 0, this.panFor(e.x)); });   // a hiss
+    on('hazardWarn', (e) => this.hazard(e.h.def.snd, 'warn', e.h.tx));
+    on('hazardStart', (e) => { if (e.h.def.snd !== 'glass') this.hazard(e.h.def.snd, 'start', e.h.x); });   // the wall's own break sound is the object's
+    on('hazardHit', (e) => { if (e.dmg > 0) this.hazardHurt(e.h.def.snd, e.x); });
     on('debrisImpact', (e) => this.debris(e.kind, e.power, e.x));
     on('countdown', (e) => this.beep(e.n));
     on('fightStart', () => this.beep(0));
@@ -9560,6 +10187,7 @@ const UI = {
     Events.on('objStage', (e) => this.popAt(e.x, e.obj.h + 0.2, e.z, (e.obj.mat === 'metal' ? STAGE_NAMES_METAL : STAGE_NAMES)[e.stage].toUpperCase(), '#d0d8e8'));
     Events.on('wallSlam', (e) => this.popAt(e.x, 1.5, e.z, 'WALL SLAM', '#ffb27a'));
     Events.on('envImpact', (e) => this.popAt(e.x, 1.5, e.z, 'CRASH', '#ffb27a'));
+    Events.on('hazardWarn', (e) => this.popAt(e.h.x, 2.0, e.h.z, e.h.def.name.toUpperCase() + '!', '#ffb000'));
     Events.on('countdown', (e) => this.banner(String(e.n), '', 700));
     Events.on('fightStart', () => this.banner('FIGHT!', '', 900));
     Events.on('roundStart', (e) => { if (e.match.cfg.countdown) this.banner(e.match.brawl ? 'BRAWL' : e.match.decider ? 'FINAL ROUND' : 'ROUND ' + e.round, this.roundSub(e.match), ROUND_BANNER_TICKS * 1000 / 60); else this.say(e.match.brawl ? 'Brawl' : 'Round ' + e.round); });
@@ -11614,6 +12242,7 @@ function testApi() {
     touchLayoutCss, touchLockVisible, touchUseVisible, trimToBudget, unlockRuleText, validateCustom, weightClass, weightFromBuild,
     wrapAngle,
     BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, heldLabel, moveById, weaponTable,
+    AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };
@@ -11668,6 +12297,7 @@ UI.runBenchmark = function runBenchmark(seconds, opts) {
   const arenaId = ARENA_ORDER.reduce((best, id) => (ARENAS[id].objects.length > ARENAS[best].objects.length ? id : best));
   const smashAll = () => {
     Arena.reset();
+    if (Game.match) Game.match.spawnHazards();   // the reset took the hazards' posts out of the colliders
     Arena.objects.forEach((o, i) => Arena.damageObject(o, 1e4, 'impact', -2 - i, 1, 0, o.x, 1, o.z, -1));
   };
   Game.go(GS.CHARSEL);

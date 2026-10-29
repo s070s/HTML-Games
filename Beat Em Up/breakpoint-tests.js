@@ -39,6 +39,7 @@ const {
   touchLayoutCss, touchLockVisible, touchUseVisible, trimToBudget, unlockRuleText, validateCustom, weightClass, weightFromBuild,
   wrapAngle,
   BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, heldLabel, moveById, weaponTable,
+  AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -2603,7 +2604,7 @@ const SelfTest = {
       const stage = ARCADE_STAGES - 1, firstSeed = 1000, matches = 16, maxTicks = 40000;
       let wins = 0;
       for (let seed = firstSeed; seed < firstSeed + matches; seed++) {
-        const m = track(new MatchSim({ mode: 'arcade', countdown: false, playerId: 'kai', opponentId: 'zero', arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, 'normal'), arcadeLevel: 'normal', seed, items: false }));   // a balance measure of the bare-handed boss: items (P7) change who wins it
+        const m = track(new MatchSim({ mode: 'arcade', countdown: false, playerId: 'kai', opponentId: 'zero', arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, 'normal'), arcadeLevel: 'normal', seed, items: false, hazards: false }));   // a balance measure of the bare-handed boss in a bare arena: items and hazards (P7) change who wins it
         m.controllers[0] = new AIController(ROSTER_BY_ID.kai, 'hard');
         for (let i = 0; i < maxTicks && m.phase !== 'matchEnd'; i++) { m.step(); if (m.phase === 'waiting') m.startRound(); }
         if (m.matchWinner === 0) wins++;
@@ -5993,6 +5994,334 @@ const SelfTest = {
       if (again.mode !== 'fall' || again.host) problems.push('not falling');
       self.run(m, 90);
       if (again.mode !== 'rest' || !m.items.includes(again) || again.y < 0 || again.y > 1) problems.push('did not land: ' + again.mode + ' ' + again.y);
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* ----- Hazards (P7-05) ----- */
+    const hz = (arenaId, opts, s1, s2) => mk(Object.assign({ arenaId, items: false, hazards: true }, opts), s1, s2);
+    const hazardOf = (m, type, n) => m.hazards.filter((h) => h.type === type)[n || 0];
+    /* The hazard events of a run as plain rows; log.stop() unhooks it. */
+    const hazardLog = (m) => {
+      const log = [], offs = ['hazardTrigger', 'hazardWarn', 'hazardStart', 'hazardHit', 'hazardEnd'].map((name) => Events.on(name, (e) => log.push({ name, tick: m.tick, type: e.h.type, f: e.f ? e.f.index : -1, dmg: e.dmg, via: e.via, by: e.by ? e.by.index : -1, state: e.f ? e.f.state : '' })));
+      log.stop = () => offs.forEach((off) => off());
+      return log;
+    };
+    /* Runs fn with the given hazard rows in the arena's definition (a synthetic placement for the types no arena has yet, or a layout of the test's own); the real rows come back afterwards. */
+    const withRows = (arenaId, rows, fn) => { const saved = ARENAS[arenaId].hazards; ARENAS[arenaId].hazards = rows; try { return fn(); } finally { ARENAS[arenaId].hazards = saved; } };
+    const faceEach = (a, ax, az, b, bx, bz) => { self.stand(a, ax, az, bx, bz); self.stand(b, bx, bz, ax, az); };
+    test('Hazards: the table has the 8 hazards of the spec, each arena places the planned ones, the Hazards setting is on by default (after Items) and off places nothing, not even posts', () => {
+      const problems = [];
+      const want = 'panel strike 1.2 24 120 360 14 0 stun|steam strike 2 24 180 300 3 15 push|drop edge 0 0 0 0 25 0 out|glass break 0 0 0 0 10 0 flinch|load strike 1.5 36 90 600 30 0 down|train timer 0 120 60 0 40 0 throw|fire strike 1.2 15 240 0 4 20 flinch';
+      const got = Object.keys(HAZARDS).map((id) => { const d = HAZARDS[id]; return [id, d.trig, d.r || d.len || 0, d.warn || 0, d.dur || 0, d.cool || 0, d.dmg, d.gap || 0, d.fx].join(' '); }).join('|');
+      if (got !== want) problems.push('table ' + got);
+      const plan = { warehouse: 'panel,steam,load', dojo: 'glass', pit: 'fire,fire,steam' }, keys = Object.keys(SETTING_DEFS);
+      for (const id of ARENA_ORDER) {
+        const on = track(new MatchSim({ arenaId: id, countdown: false, seed: 2 }));
+        if (on.hazards.map((h) => h.type).join() !== plan[id] || !on.hazardsOn) problems.push(id + ' places ' + on.hazards.map((h) => h.type));
+        if (!Arena.colliders.some((c) => c.haz) !== !on.hazards.some((h) => h.post)) problems.push(id + ' posts');
+        const off = track(new MatchSim({ arenaId: id, countdown: false, seed: 2, hazards: false }));
+        if (off.hazards.length || Arena.colliders.some((c) => c.haz)) problems.push(id + ' off still places');
+      }
+      if (SETTING_DEFS.hazards.def !== true || Settings.validate('hazards', 'x') !== true || keys.indexOf('hazards') !== keys.indexOf('items') + 1) problems.push('setting');
+      const again = track(new MatchSim({ arenaId: 'pit', countdown: false, seed: 2 }));
+      again.startRound();
+      if (Arena.colliders.filter((c) => c.haz).length !== 3) problems.push('a new round doubled the posts');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Hazards: a panel, a steam jet, a falling load and a fire barrel each hurt every fighter in their zone, of either team, and two co-op teammates too', () => {
+      const problems = [];
+      const cases = [['warehouse', 'panel', [4.6, -0.2], [6.2, -0.2]], ['warehouse', 'steam', [-5.7, -3.9], [-5.1, -3.9]], ['warehouse', 'load', [1.3, -2.0], [2.5, -2.0]], ['pit', 'fire', [4.4, 1.9], [5.4, 1.9]]];
+      for (const [arenaId, type, p, q] of cases) {
+        const m = hz(arenaId, {}), h = hazardOf(m, type, type === 'fire' ? 1 : 0), [a, b] = m.fighters, before = [a.hp, b.hp];
+        faceEach(a, p[0], p[1], b, q[0], q[1]);
+        if (a.team === b.team || !m.hazardReaches(h, a) || !m.hazardReaches(h, b)) problems.push(type + ' setup');
+        m.hazardArm(h, type === 'fire' ? null : a, 'strike');   // a barrel tips away from whoever strikes it: set off by nobody it tips along its row's yaw, its pool over both fighters
+        self.run(m, 130);
+        if (a.hp >= before[0] || b.hp >= before[1]) problems.push(type + ' hurt ' + (before[0] - a.hp) + ' / ' + (before[1] - b.hp));
+      }
+      const party = self.makeBrawl({ arenaId: 'warehouse', items: false, hazards: true, enemies: 1, coop: [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }] }), [k, r] = party.fighters, pre = [k.hp, r.hp];
+      faceEach(k, 4.6, -0.2, r, 6.2, -0.2);
+      if (party.canHurt(k, r) || k.team !== r.team) problems.push('teammates can hurt each other');
+      party.hazardArm(hazardOf(party, 'panel'), k, 'strike');
+      self.run(party, 130);
+      if (k.hp >= pre[0] || r.hp >= pre[1]) problems.push('teammates not hurt');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Hazards: a real strike on the post sets off a panel, a steam valve, a falling load and a fire barrel (and a strike that falls short does not); the cue comes first', () => {
+      const problems = [];
+      const cases = [['warehouse', 'panel', 0, [4.5, -0.2], [6.3, -0.2]], ['warehouse', 'steam', 0, [-7.5, -3.9], [-5.3, -3.9]], ['warehouse', 'load', 0, [5.2, -2.0], [3.0, -2.0]], ['pit', 'fire', 1, [3.8, 0.9], [6.0, 0.9]]];
+      for (const [arenaId, type, n, p, q] of cases) {
+        for (const near of [true, false]) {
+          const m = hz(arenaId, {}, once(3, 'punch')), h = hazardOf(m, type, n), log = hazardLog(m);
+          faceEach(m.fighters[0], near ? p[0] : p[0] + (p[0] < q[0] ? -1.5 : 1.5), near ? p[1] : p[1] + (p[1] < q[1] ? -1.5 : 1.5), m.fighters[1], q[0], q[1]);
+          self.run(m, 14);
+          log.stop();
+          const trig = log.filter((e) => e.name === 'hazardTrigger');
+          if (near && (trig.length !== 1 || trig[0].via !== 'strike' || trig[0].by !== 0 || h.state !== 'warn' && h.state !== 'active')) problems.push(type + ' not set off: ' + JSON.stringify(log));
+          if (!near && (trig.length || h.state !== 'idle')) problems.push(type + ' set off from afar');
+        }
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Hazards: warn, active and cooldown last as the table says, a panel hurts each fighter once per activation, cannot be set off again until it has cooled, and steam hurts every 15 ticks', () => {
+      const problems = [];
+      const m = hz('warehouse', {}), h = hazardOf(m, 'panel'), [a, b] = m.fighters, log = hazardLog(m);
+      faceEach(a, 4.6, -0.2, b, 6.2, -0.2);
+      const D = HAZARDS.panel;
+      if (!m.hazardArm(h, a, 'strike')) problems.push('arm');
+      const armed = m.tick;
+      self.run(m, 5);
+      if (m.hazardArm(h, b, 'strike') || h.by !== a) problems.push('re-armed while warning');
+      self.run(m, D.warn + D.dur + 10);
+      if (h.state !== 'cool' || m.hazardArm(h, a, 'strike')) problems.push('not cooling: ' + h.state);
+      self.run(m, D.cool);
+      if (h.state !== 'idle' || !m.hazardArm(h, a, 'strike')) problems.push('not ready again: ' + h.state);
+      self.run(m, D.warn + 5);
+      log.stop();
+      const at = (name) => log.filter((e) => e.name === name).map((e) => e.tick), hits = log.filter((e) => e.name === 'hazardHit');
+      if (at('hazardWarn')[0] !== armed || at('hazardStart')[0] - armed !== D.warn || at('hazardEnd')[0] - at('hazardStart')[0] !== D.dur) problems.push('timing ' + [armed, at('hazardStart')[0], at('hazardEnd')[0]]);
+      if (hits.length !== 4 || hits.filter((e) => e.f === 0).length !== 2 || hits.some((e) => e.dmg < 1 || e.state !== 'STUN')) problems.push('hits ' + JSON.stringify(hits.map((e) => e.f + ':' + e.tick)));
+      const s = hz('warehouse', {}), jet = hazardOf(s, 'steam'), steamLog = hazardLog(s);
+      faceEach(s.fighters[0], -7.6, 1, s.fighters[1], -5.7, -3.9);
+      s.hazardArm(jet, null, 'timer');
+      self.run(s, HAZARDS.steam.warn + 60);
+      steamLog.stop();
+      const ticks = steamLog.filter((e) => e.name === 'hazardHit' && e.f === 1).map((e) => e.tick);
+      if (ticks.length < 3 || ticks[1] - ticks[0] !== 15 || ticks[2] - ticks[1] !== 15) problems.push('steam gaps ' + ticks);
+      if (s.fighters[1].kx <= 0 && s.fighters[1].x <= -5.7) problems.push('the jet did not push');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Hazards: a thrown item sets off a post (a panel only for a metal item), a fighter knocked into a barrel sets it off and the one who sent it flying is credited, a shattered bottle leaves glass', () => {
+      const problems = [];
+      const fly = (m, id, x, z, vx, owner) => { const it = m.newItem(id, x, 1.0, z, 0); it.mode = 'fly'; it.owner = owner; it.vx = vx; it.vy = 0; return m.addItem(it); };
+      for (const [id, metal] of [['pipe', true], ['bottle', false], ['brick', false]]) {
+        const m = hz('warehouse', {}), h = hazardOf(m, 'panel');
+        faceEach(m.fighters[0], 0, 3, m.fighters[1], -3, 3);
+        fly(m, id, 4.0, -0.2, 9, m.fighters[0]);
+        self.run(m, 30);
+        if ((h.state !== 'idle') !== metal) problems.push(id + ' on the panel: ' + h.state);
+        if (metal && h.by !== m.fighters[0]) problems.push('credit');
+      }
+      const brick = hz('pit', {}), barrel = hazardOf(brick, 'fire', 1);
+      faceEach(brick.fighters[0], 0, 3, brick.fighters[1], -3, 3);
+      fly(brick, 'brick', 3.8, 0.9, 9, brick.fighters[0]);
+      self.run(brick, 30);
+      if (barrel.state === 'idle') problems.push('a brick did not tip the barrel');
+      const k = hz('pit', {}), [a, b] = k.fighters, post = hazardOf(k, 'fire', 1), log = hazardLog(k);
+      faceEach(a, 2, 3, b, 3.9, 0.9);
+      b.lastFoe = a; b.setState(S.THROWN); b.flightId = 77; b.vy = 2.6; b.y = 0.02; b.kx = 6; b.kz = 0;
+      self.run(k, 30);
+      log.stop();
+      const trig = log.filter((e) => e.name === 'hazardTrigger');
+      if (trig.length !== 1 || trig[0].via !== 'knock' || trig[0].by !== 0 || post.state === 'idle') problems.push('knock ' + JSON.stringify(trig));
+      if (post.post.active) problems.push('a tipped barrel is still an obstacle');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Hazards: a glass wall breaks under a thrown fighter (10 damage), its shards cut a fighter knocked down on them (2, once per knockdown), a thrown item breaks it without cutting anyone, a bottle leaves a patch of glass', () => {
+      const problems = [];
+      const m = hz('dojo', {}), [a, b] = m.fighters, glass = hazardOf(m, 'glass'), log = hazardLog(m);
+      faceEach(a, -1, 0, b, -3.6, 0);
+      b.setState(S.THROWN); b.flightId = 88; b.vy = 2.6; b.y = 0.02; b.kx = -6; b.lastFoe = a;
+      self.run(m, 120);
+      log.stop();
+      const hits = log.filter((e) => e.name === 'hazardHit' && e.f === 1);
+      if (glass.state !== 'active' || hits.length !== 2 || hits[0].dmg !== 10 || hits[1].dmg !== 2 || hits[1].state !== 'DOWN' || log.filter((e) => e.name === 'hazardTrigger')[0].via !== 'break') problems.push('wall ' + JSON.stringify(log.map((e) => e.name + ':' + e.dmg)));
+      const lying = [b.state, b.hp];
+      self.run(m, 30);
+      if (b.state === S.DOWN && b.hp !== lying[1]) problems.push('cut twice for one knockdown');
+      const c = hz('dojo', {}), w = hazardOf(c, 'glass'), cl = hazardLog(c);
+      faceEach(c.fighters[0], 3, 3, c.fighters[1], -2, 3);
+      const brick = c.newItem('brick', -3.0, 1.2, 0, 0); brick.mode = 'fly'; brick.owner = c.fighters[0]; brick.vx = -9; brick.vy = 0; c.addItem(brick);
+      self.run(c, 30);
+      cl.stop();
+      if (w.state !== 'active' || cl.some((e) => e.name === 'hazardHit')) problems.push('item break ' + w.state + ' ' + cl.length);
+      const p = hz('dojo', {}), [x, y] = p.fighters;
+      faceEach(x, 3, 3, y, 3, 1);
+      for (let n = 0; n < HAZARD_SHARD_MAX + 3; n++) p.itemDebris('bottle', -3 + n * 0.1, 0.2, 2);
+      const patches = p.hazards.filter((h) => h.life > 0);
+      if (patches.length !== HAZARD_SHARD_MAX || patches[0].hx !== BOTTLE_SHARD_R) problems.push('patches ' + patches.length);
+      const last = patches[patches.length - 1], hp = y.hp;
+      y.x = y.prevX = last.x; y.z = y.prevZ = last.z;
+      y.setState(S.THROWN); y.flightId = 5; y.vy = 0; y.y = 0.3; y.kx = y.kz = 0;
+      self.run(p, 60);
+      if (y.hp >= hp) problems.push('a bottle patch did not cut');
+      self.run(p, HAZARD_SHARD_TICKS);
+      if (p.hazards.some((h) => h.life > 0)) problems.push('patches stay');
+      const off = mk({ arenaId: 'dojo', items: true, hazards: false });
+      off.itemDebris('bottle', 0, 0.2, 0);
+      if (off.hazards.length) problems.push('a patch with hazards off');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Hazards: the open drop hurts a fighter once for each flight even when it was thrown toward the edge, a fighter getting up takes nothing from any hazard, and whoever set a hazard off gets the knock-out', () => {
+      const problems = [];
+      withRows('warehouse', [['drop', 0, 0, { hx: 1, hz: 1 }]], () => {
+        const m = hz('warehouse', {}), [a, b] = m.fighters, log = hazardLog(m);
+        faceEach(a, -4, 0, b, 5, 3);
+        a.setState(S.THROWN); a.flightId = 41; a.vy = 2.6; a.y = 0.02; a.kx = 7; a.kz = 0;   // thrown straight at the drop
+        self.run(m, 150);
+        log.stop();
+        const hits = log.filter((e) => e.name === 'hazardHit' && e.f === 0);
+        if (hits.length !== 1 || a.x > -1) problems.push('drop hit ' + hits.length + ' times, x ' + a.x.toFixed(2));
+      });
+      const m = hz('warehouse', {}), panel = hazardOf(m, 'panel'), [a, b] = m.fighters;
+      faceEach(a, 4.6, -0.2, b, 6.2, -0.2);
+      a.invuln = 400;
+      m.hazardArm(panel, b, 'strike');
+      self.run(m, 130);
+      if (a.hp !== a.maxHp || b.hp === b.maxHp) problems.push('invulnerable ' + (a.maxHp - a.hp) + ' / ' + (b.maxHp - b.hp));
+      const d = hz('dojo', {}), glass = hazardOf(d, 'glass'), hp = d.fighters[1].hp;
+      d.fighters[1].invuln = 20;
+      d.hazardHit(glass, d.fighters[1]);
+      if (d.fighters[1].hp !== hp) problems.push('glass cut an invulnerable fighter');
+      const k = hz('warehouse', {}), ko = [];
+      faceEach(k.fighters[0], 4.6, -0.2, k.fighters[1], 6.2, -0.2);
+      k.fighters[1].hp = 1;
+      const off = Events.on('ko', (e) => ko.push(e.att && e.att.index));
+      k.hazardArm(hazardOf(k, 'panel'), k.fighters[0], 'strike');
+      self.run(k, 130);
+      off();
+      if (k.fighters[1].alive || ko.join() !== '0') problems.push('knock-out credit ' + ko.join());
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Hazards: an electric hit shocks for 40 ticks and then lets go', () => {
+      const problems = [];
+      const m = hz('warehouse', {}), panel = hazardOf(m, 'panel'), [a, b] = m.fighters;
+      faceEach(a, 4.6, -0.2, b, -2.6, 0);
+      m.hazardArm(panel, null, 'timer');
+      self.run(m, HAZARDS.panel.warn + 3);
+      if (a.hp === a.maxHp || a.state !== S.STUN || b.hp !== b.maxHp) problems.push('shock: ' + (a.maxHp - a.hp) + ' ' + a.state + ' / far ' + (b.maxHp - b.hp));
+      self.run(m, HAZARDS.panel.stun - 5);
+      if (a.state !== S.STUN) problems.push('shock ended early');
+      self.run(m, 12);
+      if (a.state === S.STUN) problems.push('shock lasts too long');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Hazards: the open drop (25 damage, down at the edge, out of a brawl for an enemy) and the passing train (timed, 120 ticks of warning, 40 damage and thrown along the track) work from synthetic placements', () => {
+      const problems = [];
+      withRows('warehouse', [['drop', 0, 0, { hx: 1, hz: 1 }]], () => {
+        const m = hz('warehouse', {}), [a, b] = m.fighters, log = hazardLog(m);
+        faceEach(a, 0.2, 0.1, b, 5, 3);
+        self.run(m, 2);
+        log.stop();
+        if (a.hp > a.maxHp - 24 || a.state !== S.THROWN || Math.abs(a.x) <= 1 && Math.abs(a.z) <= 1 || b.hp !== b.maxHp) problems.push('drop ' + (a.maxHp - a.hp) + ' ' + a.state + ' ' + a.x.toFixed(2) + ',' + a.z.toFixed(2));
+        const brawl = self.makeBrawl({ arenaId: 'warehouse', items: false, hazards: true, enemies: 2 }), [p, e1, e2] = brawl.fighters;
+        self.stand(p, 0, 0.3, 9, 9); self.stand(e1, 0.3, 0, 9, 9); self.stand(e2, 5, 3, 0, 0);
+        self.run(brawl, 2);
+        if (!p.alive || p.hp >= p.maxHp || e1.alive || e1.state !== S.KO || !e2.alive) problems.push('brawl drop: player ' + p.alive + ' enemy ' + e1.alive);
+      });
+      withRows('warehouse', [['train', 0, 0, { hx: 1.2, hz: 4 }]], () => {
+        const m = hz('warehouse', {}), h = hazardOf(m, 'train'), [a, b] = m.fighters, log = hazardLog(m), D = HAZARDS.train;
+        faceEach(a, 0, 0, b, 5, 3);
+        h.t = D.period - 2;
+        self.run(m, D.warn + 70);
+        log.stop();
+        const warn = log.find((e) => e.name === 'hazardWarn'), start = log.find((e) => e.name === 'hazardStart'), hits = log.filter((e) => e.name === 'hazardHit');
+        if (!warn || !start || start.tick - warn.tick !== D.warn || warn.tick > 3) problems.push('train timing');
+        if (hits.length !== 1 || hits[0].f !== 0 || hits[0].dmg < 39 || a.z <= 0.5 || b.hp !== b.maxHp) problems.push('train hit ' + JSON.stringify(hits) + ' z ' + a.z.toFixed(2));
+        if (h.state !== 'idle' && h.state !== 'cool') problems.push('train state ' + h.state);
+      });
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* The hazard triggers a CPU caused in a run, as rows { tick, type, via, by }; also whether the CPU (fighter 0) was hurt by a hazard. */
+    const cpuLog = (m) => {
+      const rows = [], offs = [Events.on('hazardTrigger', (e) => rows.push({ tick: m.tick, type: e.h.type, via: e.via, by: e.by ? e.by.index : -1 })), Events.on('hazardHit', (e) => { if (e.f.index === 0 && e.dmg > 0) rows.hurt = (rows.hurt || 0) + 1; })];
+      rows.stop = () => offs.forEach((off) => off());
+      return rows;
+    };
+    test('Hazards: a CPU whose target stands by a steam valve, a falling load or a fire barrel goes to a spot outside the effect zone, strikes the post and is not hurt by it', () => {
+      const problems = [];
+      const cases = [['warehouse', 'steam', [-2.5, -1.5], [-5.2, -3.9]], ['warehouse', 'load', [6.0, -0.5], [2.6, -2.0]], ['pit', 'fire', [2.0, 0.9], [5.6, 0.2]], ['pit', 'steam', [2.0, -1.5], [4.3, -3.9]]];
+      for (const [arenaId, type, ap, bp] of cases) {
+        for (const diff of ['normal', 'hard']) {
+          const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId, items: false, hazards: true, difficulty: diff })), [a, b] = m.fighters, log = cpuLog(m);
+          m.controllers[0] = new AIController(a.profile, diff); m.controllers[1] = self.scripted(() => {});
+          self.stand(a, ap[0], ap[1], bp[0], bp[1]); self.stand(b, bp[0], bp[1], ap[0], ap[1]);
+          for (let t = 0; t < 900 && !log.some((e) => e.type === type); t++) m.step();
+          self.run(m, 200);
+          log.stop();
+          const trig = log.find((e) => e.type === type);
+          if (!trig || trig.by !== 0 || trig.via !== 'strike') problems.push(arenaId + ' ' + type + ' ' + diff + ' not struck: ' + JSON.stringify(trig));
+          else if (log.hurt) problems.push(arenaId + ' ' + type + ' ' + diff + ' hurt the CPU itself');
+        }
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Hazards: a CPU near its target and a hazard moves to where a throw sends the target through it (the glass wall, a post, the edge), more often on the harder levels, and a CPU in a zone that is warning or going off walks out on every tick', () => {
+      const problems = [], breaks = {};
+      for (const diff of ['easy', 'normal', 'hard', 'expert']) {
+        breaks[diff] = 0;
+        for (let seed = 1; seed <= 12; seed++) {
+          const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed, arenaId: 'dojo', items: false, hazards: true, difficulty: diff })), [a, b] = m.fighters, log = cpuLog(m);
+          m.controllers[0] = new AIController(a.profile, diff); m.controllers[1] = self.scripted(() => {});
+          self.stand(a, -2.0, 0, -3.9, 0.3); self.stand(b, -3.9, 0.3, -2.0, 0);
+          for (let t = 0; t < 120 && !log.some((e) => e.via === 'break'); t++) m.step();
+          log.stop();
+          if (log.some((e) => e.via === 'break' && e.by === 0)) breaks[diff]++;
+        }
+      }
+      if (breaks.easy < 1 || breaks.easy >= breaks.normal || breaks.normal >= breaks.hard || breaks.hard > breaks.expert || breaks.expert < 11) problems.push('glass breaks of 12 in 2 s by level ' + JSON.stringify(breaks));
+      const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId: 'warehouse', items: false, hazards: true, difficulty: 'hard' })), [a, b] = m.fighters, panel = hazardOf(m, 'panel');
+      m.controllers[0] = new AIController(a.profile, 'hard'); m.controllers[1] = self.scripted(() => {});
+      self.stand(a, 4.7, -0.2, 0, 0); self.stand(b, -3, 3, 0, 0);
+      m.controllers[0].plan = { kind: 'walk', ticks: 99, away: false, run: false };   // a plan under way is dropped at once
+      m.hazardArm(panel, b, 'strike');
+      self.run(m, 2);
+      if (m.controllers[0].plan) problems.push('the plan stayed');
+      self.run(m, HAZARDS.panel.warn - 3);
+      if (m.hazardReaches(panel, a)) problems.push('the CPU stays in the zone ' + a.x.toFixed(2));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Hazards: in an ordinary seeded CPU against CPU match (nobody placed anywhere) a CPU sets a hazard off in every arena, and the match runs on without a hazard breaking a rule', () => {
+      const problems = [];
+      for (const arenaId of ARENA_ORDER) {
+        let found = null;
+        for (let seed = 1; seed <= 12 && !found; seed++) {
+          const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 60, seed, arenaId, difficulty: 'hard', items: true, hazards: true, winsNeeded: 2 })), log = cpuLog(m);
+          m.controllers[0] = new AIController(m.fighters[0].profile, 'hard'); m.controllers[1] = new AIController(m.fighters[1].profile, 'hard');
+          for (let t = 0; t < 7200 && m.phase !== 'matchEnd' && !log.some((e) => e.by >= 0); t++) { m.step(); if (m.phase === 'waiting') m.startRound(); }
+          log.stop();
+          found = log.find((e) => e.by >= 0) || null;
+          m.dispose();
+        }
+        if (!found) problems.push(arenaId + ': no CPU used a hazard in 12 seeded matches');
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Hazards: with the setting off nothing is placed or triggered, a seeded brawl with hazards and items repeats exactly, no hazard run breaks a state rule or makes a number invalid, and every hazard draws in every phase', () => {
+      const problems = [];
+      const illegal = Diag.illegalTransitions;
+      const run = (arenaId, hazards) => {
+        const m = track(new MatchSim({ mode: 'brawl', enemies: 3, countdown: false, timer: 0, seed: 4, arenaId, difficulty: 'hard', evenDamage: true, items: true, hazards })), rows = [];
+        m.controllers[0] = new AIController(m.fighters[0].profile, 'hard');
+        const offs = ['hazardTrigger', 'hazardStart', 'hazardHit'].map((name) => Events.on(name, (e) => rows.push([name, m.tick, e.h.type, e.f ? e.f.index : '', e.dmg || ''].join())));
+        for (let t = 0; t < 2400 && m.phase !== 'matchEnd'; t++) {
+          m.step();
+          for (const f of m.fighters) if (!Number.isFinite(f.x + f.z + f.hp + f.y)) { problems.push(arenaId + ' invalid number'); t = 1e9; break; }
+        }
+        offs.forEach((off) => off());
+        return { rows, hash: fnv1a(rows.join('|') + m.fighters.map((f) => f.hp.toFixed(3) + f.x.toFixed(3)).join()), m };
+      };
+      let used = 0;
+      for (const id of ARENA_ORDER) {
+        const a = run(id, true), b = run(id, true), off = run(id, false);
+        if (a.hash !== b.hash) problems.push(id + ' not repeatable');
+        if (off.rows.length || off.m.hazards.length) problems.push(id + ' hazards off still act');
+        used += a.rows.length;
+      }
+      if (!used) problems.push('no hazard ran in any brawl');
+      if (Diag.illegalTransitions !== illegal) problems.push('illegal transitions');
+      const puts = [], put = R.put;
+      R.put = (...args) => { puts.push(args[1]); };
+      try {
+        for (const id of ARENA_ORDER) {
+          const m = hz(id, {});
+          for (const state of ['idle', 'warn', 'active', 'cool', 'spent']) { for (const h of m.hazards) { h.state = state; h.t = 30; } m.drawHazards(); }
+        }
+        withRows('warehouse', [['drop', 0, 0, { hx: 1, hz: 1 }], ['train', 2, 2, { hx: 1.2, hz: 4 }]], () => {
+          const m = hz('warehouse', {});
+          for (const state of ['idle', 'warn', 'active']) { for (const h of m.hazards) { h.state = state; h.t = 30; } m.drawHazards(); }
+        });
+      } catch (e) { problems.push('draw: ' + e.message); } finally { R.put = put; }
+      if (puts.length < 100) problems.push('few pieces drawn ' + puts.length);
       return problems.length ? problems.join('; ') : true;
     });
     return results;
