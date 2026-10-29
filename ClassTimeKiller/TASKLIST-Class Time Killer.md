@@ -107,12 +107,15 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 4 - Game modes and configuration redesign
 
-- [ ] P4-01 - Map overlaps between the 31 modes and 12 rulesets (same goal, different name).
+- [x] P4-01 - Map overlaps between the 31 modes and 12 rulesets (same goal, different name).
   Done when: Appendix C has the overlap table.
-- [ ] P4-02 - DECIDE: merged mode list (modes that become variants of another mode) and the short curated list shown first, each with good default settings.
+  Status (2026-10-29): Appendix C "P4-01": table of the 31 modes (goal, win condition, rulesets, overlaps); rulesets have no goal of their own, 3 close pairs and 3 shared names noted.
+- [x] P4-02 - DECIDE: merged mode list (modes that become variants of another mode) and the short curated list shown first, each with good default settings.
   Done when: Appendix C has the curated list, the merge list and the defaults.
-- [ ] P4-03 - DECIDE: menu flow. Proposal: Play -> curated mode cards -> Start (defaults); "Advanced / Custom" for ruleset, mutators, map, bots, limits. Breadcrumb or step indicator so the player always sees where they are.
+  Status (2026-10-29): decided, Appendix C "P4-02": 31 modes shown as 15 (7 with variants, 8 alone), every old mode still playable as a variant with its old id; curated first list of 8 cards with defaults (Frenzy, Team Clash, Holdfast, Flag Raid, Detonate, Arms Ladder, Last Ring, Siege Waves).
+- [x] P4-03 - DECIDE: menu flow. Proposal: Play -> curated mode cards -> Start (defaults); "Advanced / Custom" for ruleset, mutators, map, bots, limits. Breadcrumb or step indicator so the player always sees where they are.
   Done when: Appendix C has the screen flow, and every setting from the current menus has a place in it.
+  Status (2026-10-29): decided, Appendix C "P4-03": Play -> mode cards (plus All modes, Shuffle) -> Match setup -> Start; Advanced opens the Custom editor prefilled; breadcrumb under each title; back returns focus to the card; LB / RB switch tabs.
 - [ ] P4-04 - Implement the merged modes and the new menu flow on touch, gamepad and keyboard / mouse.
   Done when: a new player can start any curated mode in 3 taps or fewer from the main menu, and custom matches still reach every option.
 - [ ] P4-05 - Migrate saved custom matches, ladder progress and challenges referencing merged modes.
@@ -548,6 +551,186 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - **Earned (unchanged, never a stat)**: level colours, titles and finishes (levels 1-30, about 10 hours), weapon mastery colours (25 / 75 / 150 / 300 kills), Challenge Room tiers, Expert rooms (2 stars), ladder tiers (win the previous tier), cards. Fast: each is one stated condition earned by normal play.
 - **Locked items in menus**: every locked row stays visible with a lock mark, its requirement and the player's progress, for example "Level 9 - you are level 4 (2150 / 3300 XP)", "Gold mastery: 150 kills, 40 headshots - 37 / 150, 12 / 40", the card's own unlock text, "Earn 2 stars (1 / 2)", "Win Rookie Circuit first". A new unlock shows a toast and a "New" badge until first viewed. In the loadout screen a weapon, gadget or ability a mode restricts stays visible with the reason instead of being hidden.
 - **Reason**: the owner asked for fast and clear acquisition; the spec forbids grind walls and stat unlocks (VIS-006, PRG-010, PRG-011); gating weapons behind XP would bring back the complaint.
+
+### P4-01 - Mode and ruleset overlap map (2026-10-29)
+
+- **Fact**: 31 modes (`src/03f-data-modes.js:38-70`) and 12 rulesets (`src/03e-data-rules.js:24-36`). A mode sets the goal, the win condition, team size, limits and a default ruleset (`ruleset`; `classic` when the row names none). A ruleset sets only the feel: movement, health, economy, precision, meter and abilities (P3-01). Every mode can be played with any of the 12 rulesets through Play > Rules (`src/18d-ui-play.js:183-185`) and Custom > Rules (`src/18g-ui-custom.js:412`).
+- "Rulesets" below = the mode's default, plus any other ruleset the data ties to it: Daily Seed (`src/03p-data-progress.js:256-257`: ffa, tdm, dom, hardpoint, ctf with RS01, RS02, RS04, RS05, RS06) and the hero kill limit (`src/03k-data-abilities.js:158`, tdm).
+- Shared code is the clearest sign of an overlap: ctf / oneflag run one `FLAG_BEHAVIOUR` (`src/13c-modes-core.js:70-71`); oddball / bearer one `makePrizeBehaviour` (`src/13e-modes-objective.js:250`, `src/13f-modes-party.js:257`); ghostops copies `BOMB_BEHAVIOUR` (`src/13e-modes-objective.js:367-368`); horde / endless one `makeWaveBehaviour` (`src/14j-pve-modes.js:357-358`); ffa / tdm / duel run on the default hooks (`src/13c-modes-core.js:12-14`).
+
+| Code | Mode (id) | Goal | Win condition | Rulesets | Overlaps (reason) |
+|---|---|---|---|---|---|
+| M01 | Frenzy (`ffa`) | every kill scores | first to 25 kills, else most at 10 min | RS01; Daily RS01/02/04/05/06 | M03, M15, M16, M25: the same free-for-all kill goal; they change only player count, lives or the weapon rule |
+| M02 | Team Clash (`tdm`) | team kills | first team to 50 kills (15 with hero kits), else lead at 10 min | RS01; Daily as M01 | M29: same team kill goal plus AI minions; M14: kill the other team, in one-life rounds |
+| M03 | Duel (`duel`) | 1v1 kills, winner stays | most kills at 10 min (no kill limit) | RS01 | M01: free-for-all kills with 2 active players and a queue |
+| M04 | Flag Raid (`ctf`) | bring the enemy flag home | 3 captures, else lead at 15 min | RS01; Daily as M01 | M05: same code, `params.neutral` is the only switch |
+| M05 | Lone Flag (`oneflag`) | carry the neutral flag to the enemy base | 5 captures, else lead at 15 min | RS01 | M04 (same code) |
+| M06 | Holdfast (`dom`) | hold points to score | 200 points, else lead at 10 min | RS04; Daily as M01 | M07, M09, M12: hold zones to win; only the scoring differs |
+| M07 | Frontline (`conquest`) | hold points, drain enemy tickets | enemy at 0 of 150 tickets, else more tickets at 20 min | RS04 | M06: same points and capture params; tickets instead of points |
+| M08 | Breach Assault (`rush`) | attackers arm relays, defenders stop them | attackers clear 3 stages before 75 tickets run out | RS04 | M13: arm with Use, defend, same `BOMB_PARAMS`; M11: staged attack and defence |
+| M09 | Hotpoint (`hardpoint`) | hold the moving hill | 150 points, else lead at 10 min | RS04; Daily as M01 | M06: hold a zone; the zone moves |
+| M10 | Relic Run (`oddball`) | hold the relic (melee carrier) | 100 points, else lead at 10 min | RS01 | M24 (same code), M18 (one marked player scores), M19 (one marked player, inverse) |
+| M11 | Convoy (`payload`) | attackers push the cart, defenders hold | cart reaches the end (3 checkpoints, 4 min + 2 min each), else defenders win | RS09 | M08: staged attack and defence (different object and maps) |
+| M12 | Uplink (`control`) | capture the point and fill its meter | best of 3 rounds; rounds have no clock (A-07) | RS09 | M06: hold one point; played in rounds |
+| M13 | Detonate (`bomb`) | plant or defuse the charge | first to 7 of 13 rounds; a wipe also wins a round | RS03 | M27 (same code), M08 (arm and defend), M14 (one-life rounds) |
+| M14 | Last Squad (`elim`) | wipe the other team each round | first to 5 of 9 rounds, 90 s with a shrinking zone | RS04 | M02: kill the other team; M13: one-life rounds without a charge |
+| M15 | Last Standing (`lms`) | keep your lives | last one with lives, else most lives at 10 min | RS01 | M01 + mutator X32 Lives + all weapons and armor; M20: last one standing |
+| M16 | Arms Ladder (`gungame`) | kill to climb 12 guns | melee kill on the last tier, else best tier at 10 min | RS01 | M01: free-for-all kills with a weapon rule; M25: the mode arms everyone |
+| M17 | Blight (`infection`) | humans outlast the infected | humans alive at 5 min, else the Blight | RS01 | none with the same goal (asymmetric sides like M26) |
+| M18 | Colossus (`juggernaut`) | be the Colossus; only it scores | 15 kills as Colossus, else lead at 10 min | RS01 | M10, M24: one marked player scores while marked |
+| M19 | Curse Tag (`cursetag`) | kill the cursed | 20 points, else lead at 10 min | RS01 | M18: one marked player; the score rule is inverted |
+| M20 | Last Ring (`royale`) | loot, stay in the ring | last squad standing | RS10 (same name as the mode) | M15: last one standing; RS10 name |
+| M21 | Siege Waves (`horde`) | defend the core | clear 10 waves; lose when the core falls and retries are spent | RS04 | M22 (same code) |
+| M22 | Endless Hold (`endless`) | survive harder waves | open-ended; extract every 5 waves to keep the score | RS04 | M21 (same code) |
+| M23 | Mote Rush (`bank`) | bank motes, kill your boss first | first team to kill its boss | RS04 | none with the same goal (M29 also mixes PvE into PvP) |
+| M24 | Flame Bearer (`bearer`) | hold the flame (x3 damage) | 120 points, else lead at 10 min | RS01 | M10 (same code), M18 |
+| M25 | Roulette Arms (`roulette`) | kills with one shared, changing gun | 25 kills, else most at 10 min | RS01 | M01: free-for-all kills with a weapon rule; M16 |
+| M26 | Ravager vs Fiends (`fiends`) | one Ravager against two Fiends | first to 3 of 5 rounds; rounds have no clock (A-07) | RS07 (name shared with the ruleset) | RS07 name; M17 asymmetric sides (different goal) |
+| M27 | Ghost Ops (`ghostops`) | cloaked attackers plant | first to 7 of 13 rounds | RS03 | M13: same code plus cloak and a fixed attacker loadout |
+| M28 | Silent Contract (`contract`) | take the relic and extract unseen | reach the extract; score by time, alarms, kills | RS04 | none |
+| M29 | Attrition (`attrition`) | kill the rival squad and the minions | 300 points, else lead at 15 min | RS05 | M02: team kills; minions add points |
+| M30 | Firing Range (`range`) | practice drills | none (leave by Pause) | RS01 | none |
+| M31 | Test Chambers (`puzzle`) | solve each chamber | reach the last exit | RS04 | none |
+
+**Ruleset overlaps** (rulesets have no goal; these are the "same thing, other name" cases)
+
+| Pair | Same | Different | Note |
+|---|---|---|---|
+| RS01 Arena Classic / RS02 Arena Tournament | move, health, economy, precision, pool, melee | RS02 adds the adrenaline meter, 1 extra jump and the wall dodge | RS02 = RS01 + X43 Combos + X26 Multi-Jump 1 (no mutator for the wall dodge) |
+| RS04 Modern Ops / RS05 Pilot Rush | regen health, classes, precision, kit, carry 2, downed | movement (modern / agile), meter (streak / boost) | close, but movement is the identity |
+| RS07 Ravager / RS08 Iron Bulwark | ravager health, pickups, ultimate meter, ability loadout | movement (ravager / knight), start melee | close, but movement is the identity |
+| RS10 Last Ring / M20 Last Ring | same name | ruleset = loot economy; mode = ring and squads | name clash |
+| RS07 Ravager / M26 Ravager vs Fiends | name | ruleset = feel; mode = 1 vs 2 rounds | name clash |
+| RS03 Tactical Breach / M08 Breach Assault | the word "Breach" | M08 defaults to RS04 | name only |
+| X32 Lives / M15; X08, X09, X10 / M16, M25 | lives; weapon rules | modes add all weapons and armor (M15) or arm everyone themselves (M16, M25) | mutators stay; the modes become variants (P4-02) |
+
+- **Result**: 7 overlap groups hold 23 modes: free-for-all kills (ffa, duel, lms, roulette, gungame), team kills (tdm, attrition, elim), flags (ctf, oneflag), zones (dom, hardpoint, conquest, control), plant and defend (bomb, ghostops, rush), one marked player or prize (oddball, bearer, juggernaut, cursetag), waves (horde, endless). 8 modes overlap with none in goal: payload, infection, royale, bank, fiends, contract, range, puzzle. Rulesets: 3 close pairs and 3 name clashes; no ruleset has a goal.
+
+### P4-02 - Merged modes, curated list and defaults (decided 2026-10-29 by the coordinator; the owner can change any row)
+
+- **Rule**: a merged mode becomes a variant of its parent mode. Its data row stays, with the same id and code (spec: ids are stable and never reused). It gains `variantOf: '<parent id>'` and a short `variant` label; the parent row gets a `variant` label too. Menus list the parents only; a Variant choice picks the row.
+- **Reason for keeping the rows**: the behaviours are separate code (`13c`-`14j`); maps, generators and editor templates list mode ids (`src/16a-maps.js:37-49`, `src/16b-maps-arena.js:6`, `src/03n-data-mapgen.js:89-98`); the Daily Seed picks from the mode list by hash (`src/15c-ladder.js:281-283`). With the ids kept, every save, share code, map and past daily stays valid with no rewrite.
+- **Counts**: 31 modes -> 15 modes in the menus (7 with variants, 8 single). 31 playable rows -> 31 variants: nothing is removed.
+
+**Merge list and id migration map** (default variant first in each group)
+
+| Old id (code, name) | New mode (card) | Variant setting | Stored id after migration |
+|---|---|---|---|
+| `ffa` (M01 Frenzy) | Frenzy | Classic (default) | `ffa` (parent) |
+| `duel` (M03 Duel) | Frenzy | Duel 1v1 | `duel` |
+| `lms` (M15 Last Standing) | Frenzy | Lives (Last Standing) | `lms` |
+| `roulette` (M25 Roulette Arms) | Frenzy | Roulette | `roulette` |
+| `gungame` (M16 Arms Ladder) | Frenzy | Arms Ladder | `gungame` |
+| `tdm` (M02 Team Clash) | Team Clash | Classic (default) | `tdm` (parent) |
+| `attrition` (M29 Attrition) | Team Clash | Minions (Attrition) | `attrition` |
+| `elim` (M14 Last Squad) | Team Clash | One-life rounds (Last Squad) | `elim` |
+| `ctf` (M04 Flag Raid) | Flag Raid | Two flags (default) | `ctf` (parent) |
+| `oneflag` (M05 Lone Flag) | Flag Raid | One flag (Lone Flag) | `oneflag` |
+| `dom` (M06 Holdfast) | Holdfast | Three points (default) | `dom` (parent) |
+| `hardpoint` (M09 Hotpoint) | Holdfast | Moving hill (Hotpoint) | `hardpoint` |
+| `conquest` (M07 Frontline) | Holdfast | Tickets (Frontline) | `conquest` |
+| `control` (M12 Uplink) | Holdfast | Uplink rounds | `control` |
+| `bomb` (M13 Detonate) | Detonate | Classic (default) | `bomb` (parent) |
+| `ghostops` (M27 Ghost Ops) | Detonate | Ghost attackers (Ghost Ops) | `ghostops` |
+| `rush` (M08 Breach Assault) | Detonate | Stages and tickets (Breach Assault) | `rush` |
+| `oddball` (M10 Relic Run) | Relic Run | Relic (default) | `oddball` (parent) |
+| `bearer` (M24 Flame Bearer) | Relic Run | Flame (Flame Bearer) | `bearer` |
+| `juggernaut` (M18 Colossus) | Relic Run | Colossus | `juggernaut` |
+| `cursetag` (M19 Curse Tag) | Relic Run | Curse (Curse Tag) | `cursetag` |
+| `horde` (M21 Siege Waves) | Siege Waves | Ten waves (default) | `horde` (parent) |
+| `endless` (M22 Endless Hold) | Siege Waves | Endless (Endless Hold) | `endless` |
+
+- **Single modes (no variants)**: Convoy (`payload`), Blight (`infection`), Last Ring (`royale`), Mote Rush (`bank`), Ravager vs Fiends (`fiends`), Silent Contract (`contract`), Firing Range (`range`), Test Chambers (`puzzle`).
+- **Old names stay visible**: each variant label keeps the old mode name in brackets, so a player who knew "Hotpoint" finds it. Everywhere a mode name is shown (Play, Custom, Career, Statistics, results, pause > Rules) it reads "<mode> - <variant>" for a non-default variant, for example "Frenzy - Duel 1v1".
+- **Variant switch**: picking a variant loads that row's own defaults (ruleset, size, limits, map list), as a mode change does today (`src/18d-ui-play.js:48-63`).
+- **Mode defaults changed (A-07)**: M12 Uplink rounds get a 240 s clock and M26 Ravager vs Fiends rounds a 180 s clock (`rounds.live`). Both behaviours already settle a timeout: the higher meter wins (`src/13c-modes-core.js:151`), the side with more alive wins (`src/14j-pve-modes.js:503`).
+
+**References to merged modes (every one found; none needs a rewrite because the ids stay)**
+
+| Reference | Location | Merged ids named | Effect of the merge |
+|---|---|---|---|
+| Last Play setup `Save.data.play.mode` | `src/18d-ui-play.js:66` (read by `normalize` `:48-63`) | any | stays valid; Play opens its parent card with the variant chosen |
+| Custom match draft (setting `custom.draft`) | `src/18g-ui-custom.js:29`, `:143`, check `:168` | any | stays valid; the editor shows parent + variant |
+| Saved custom presets `Save.data.rulesets[].editor.mode` | `src/18g-ui-custom.js:350`, load `:354-358` | any | stays valid |
+| Match share codes (`mode` field) | `src/18g-ui-custom.js:228-245` | any | codes made before P4 load unchanged |
+| Per-mode statistics `Save.data.stats.modes[id]` | `src/15a-progress.js:129`, `:359`; shown `src/18j-ui-progress.js:328-331` | any | kept per variant id; Statistics shows "<mode> - <variant>"; numbers are not summed, so nothing is lost |
+| Ladder progress `Save.data.ladder` | `src/15a-progress.js:130` | none (tier and match indexes) | no change |
+| Challenge, operation and daily progress | `src/15a-progress.js:127` | none (room id, operation id, date) | no change |
+| Ladder matches | `src/03p-data-progress.js:158, 163, 168, 172, 177, 181, 186, 189, 190`; `LADDER_OPTIONS.duel` `:154` | `duel` | shown as "Frenzy - Duel 1v1"; the other ladder matches name parents (ffa, tdm, ctf, dom, bomb) |
+| Challenge Room CR14 Duel Rush | `src/03p-data-progress.js:229` | `duel` | no change; the other rooms name ffa, horde, range, contract |
+| Operations OP1, OP3 | `src/03p-data-progress.js:245`, `:249` | `hardpoint` | no change; the other stages name tdm, dom, ctf |
+| Daily Seed mode list | `src/03p-data-progress.js:256` | `hardpoint` | no change, so past and future dailies stay the same |
+| XP weights per mode | `src/03p-data-progress.js:17` | `bearer`, `attrition` | no change |
+| Career Solo entries | `src/18j-ui-progress.js:14` | `endless` | no change |
+| Cards | `src/03p-data-progress.js:115-140`, `src/15d-cards.js` | none: card unlocks read PvE level metrics by family (`src/15a-progress.js:100`) | no change; Endless Hold still counts |
+| Medals | `src/03p-data-progress.js:39-60`, `src/15b-medals.js:91`, `:139-148` | none: MD17 / MD18 read any round mode, MD19 reads `params.stealth`, MD20 the waves | no change (elim, control, ghostops keep their rounds) |
+| Name clash | `src/03p-data-progress.js:136` | card C21 has the id `endless` | a card, not the mode: P4-05 must not touch it |
+| Code keyed by merged ids (listed for P4-04) | behaviours `src/13c-modes-core.js:14, 16, 71, 87, 114, 146, 207`, `src/13e-modes-objective.js:114, 368`, `src/13f-modes-party.js:21, 169, 197, 257, 261`, `src/14j-pve-modes.js:358, 531`; maps `src/16a-maps.js:37-49`, `src/16b-maps-arena.js:6, 10, 68, 196`, `src/16c-maps-tactical.js:16, 47, 100-103, 107`, `src/16d-maps-large.js:61, 120`, `src/16e-maps-pve.js:8, 73-74`; generators `src/03n-data-mapgen.js:89-98`; `src/16v-maps-validate.js:375`; `src/16w-mapgen-place.js:420`; editor templates `src/16x-mapeditor.js:785, 787`; HUD `src/17c-hud-match.js:391, 424`; bots `src/14a-bots.js:73` | many | no change |
+
+**Curated list shown first** (8 cards, in this order). Difficulty: the remembered one (new save: Regular). Bots: players - 1, capped by the device's quality preset (`src/18d-ui-play.js:29`). Match length: Standard. Team: Automatic.
+
+| # | Card | Mode / variant | Ruleset | Map | Players | Limits and other defaults | Why on the list |
+|---|---|---|---|---|---|---|---|
+| 1 | Frenzy | `ffa` Classic | RS01 Arena Classic | Foundry Spire (MP01) | 8 | 25 kills, 10 min, respawn 2 s | the default free-for-all; new-save Quick Match |
+| 2 | Team Clash | `tdm` Classic | RS01 Arena Classic | Skyward Yard (MP02) | 4v4 | 50 kills, 10 min, friendly fire off | the basic team mode |
+| 3 | Holdfast | `dom` Three points | RS04 Modern Ops | Twin Keeps (MP03) | 4v4 | 200 points, 10 min | zone control |
+| 4 | Flag Raid | `ctf` Two flags | RS01 Arena Classic | Twin Keeps (MP03) | 5v5 | 3 captures, 15 min, flag returns after 20 s | flag play |
+| 5 | Detonate | `bomb` Classic | RS03 Tactical Breach | Dustline (MP04) | 5v5 | first to 5 rounds (max 9, sides switch after 4), buy 15 s, round 100 s | round play; 5 wins instead of the mode's 7 keeps it near 15 min (7 stays in Advanced) |
+| 6 | Arms Ladder | Frenzy - `gungame` | RS01 Arena Classic | Gantry Run (MP06) | 8 | 12 guns, 10 min | the party pick; needs no loadout |
+| 7 | Last Ring | `royale` | RS10 Last Ring | Ring Isle (MP09) | 18 (squads of 3) | ring phases as the mode | battle royale |
+| 8 | Siege Waves | `horde` Ten waves | RS04 Modern Ops | Cistern (MP07) | 4 (co-op) | 10 waves, core 5000, 2 retries | co-op against AI |
+
+- **Not on the list, in "All modes"**: Relic Run, Convoy, Blight, Mote Rush, Ravager vs Fiends, Silent Contract, Firing Range, Test Chambers, and every variant through its parent. Their defaults are their data rows (with the A-07 clocks above).
+- **Stays reachable under Advanced / Custom**: every mode and variant; rule bundle (12) and the one-click bundle starts; movement, health, economy; friendly fire, respawn delay, items on the map; weapon set and weapon list; all 50 mutators; bot count, bots on your team, difficulty, personality, difficulty sliders; map, including a generated map; score, time, round and lives limits; saved presets; share codes.
+- **Nothing becomes impossible**: the 31 rows are 7 parents, 16 variants and 8 single modes. All 15 modes are in All modes (8 are also cards); each of the 16 variants is a Variant choice on its parent's Setup (Arms Ladder is also a card). Custom reaches every row through Game mode + Variant. Career routes (ladder, rooms, operations, daily, Solo) start the same ids as before. Shuffle draws from all 31 rows.
+
+### P4-03 - Menu flow (decided 2026-10-29 by the coordinator; the owner can change any row)
+
+**Screens and steps**
+
+| Step | Screen (reuse) | Breadcrumb | Content | Primary action |
+|---|---|---|---|---|
+| 0 | Main menu (`main`, `src/18b-ui-menus.js:7-18`, list changed) | none | Quick Match, Play, Career, Custom, Range, Map editor, Settings, Help | Quick Match (1 tap, PRG-001) |
+| 1 | Play (`play`, rebuilt as a card grid with `ui-menu`) | Play | 8 curated cards, then "All modes" and "Shuffle" tiles; each card: name, goal line, players and limit, variant if not the default | tap a card |
+| 1b | All modes (new small screen, `ui-menu` grid) | Play > All modes | the 15 modes in 3 groups: Versus, Party, Co-op and solo | tap a mode |
+| 2 | Match setup (the current Play form, `src/18d-ui-play.js:201-228`, moved) | Play > Holdfast | Variant (families only), Map, Bots, Difficulty, Match length, Your team; summary line | Start |
+| 3 | Advanced / Custom (`custom` editor, `src/18g-ui-custom.js:591-622`, reused) | Play > Holdfast > Advanced | tabs Mode (now with Variant), Rules, Weapons, Bots, Mutators, Map; Presets, Share code, Reset all | Start match |
+
+- **Tap count**: Play, card, Start = 3 taps to any curated mode (P4-04 target). Quick Match = 1 tap. From the main menu, Custom opens step 3 alone (breadcrumb "Custom").
+- **Into Advanced**: opening Advanced from Setup copies the card's mode, variant, map, bots, difficulty and limits into the editor draft. Back to Setup keeps the changes; Setup then shows "Advanced changes: ..." (for example "Modern Ops, 2 mutators") and a "Reset to card defaults" button. Start on Setup then uses those changes.
+- **Quick Match**: repeats the last start from Setup or Advanced. `Save.data.play` keeps the mode id (a variant id is fine) and, after an Advanced start, a flag that replays the editor draft. A new save gets the Frenzy card defaults.
+- **Results and pause**: results keep Play again, Next map and Main menu, and gain "Change mode" (opens Setup of the same card). Pause is unchanged; Pause > Rules names "<mode> - <variant>".
+
+**Input per screen** (the existing focus system: `src/18a-ui.js:131-194`, pad buttons `src/05c-input-gamepad.js:25`)
+
+| Screen | First focus | Focus order | Touch | Gamepad | Keyboard / mouse |
+|---|---|---|---|---|---|
+| Main menu | Quick Match | grid in reading order | tap | d-pad / stick moves, A opens | arrows, Enter; click |
+| Play | the last started card (new save: Frenzy) | Back, cards row by row, All modes, Shuffle | tap a card; scroll the grid | A opens Setup | arrows, Enter; click |
+| All modes | first mode of the last used group | Back, groups top to bottom | tap | A opens Setup | arrows, Enter; click |
+| Match setup | Start | Back, rows top to bottom, Start, Loadout, Advanced, Reset to card defaults | tap a value to cycle it | left / right change a row value, A on Start | left / right change a value, Enter on Start |
+| Advanced | Start match | Back, tabs, rows, footer | tap tabs | LB / RB switch tabs (new: the screen takes the prev / next command, `src/18a-ui.js:183`); Settings tabs get the same | Tab / Shift+Tab move focus; click tabs |
+
+- **Back**: one level per Back (touch Back button, Esc, pad B or Start). Setup -> Play with the same card focused (`Ui.pop` restores focus, `src/18a-ui.js:116-127`). Advanced -> Setup with the changes kept. Play -> Main menu.
+- **Breadcrumb**: one line under the screen title on every menu screen except the main menu, pause, results and in-match overlays; built from the screen stack (`screenHeader`, `src/18b-ui-menus.js:36-42`, takes a crumb title per screen). Every crumb except the last is a button for touch and mouse that goes back to that screen. Crumbs are not in the keyboard / gamepad focus order (Back steps one level), so the first focus stays on the main action. On short screens (height 520 px or less) only the last two crumbs show, after "...".
+
+**Every current setting has a place**
+
+| Now | Setting | New place |
+|---|---|---|
+| Main menu | Quick Match, Play, Career, Custom, Range, Map editor, Settings, Help | Main menu |
+| Main menu | Solo | Career > Solo (already there, `src/18j-ui-progress.js:98`) and Play > All modes (Siege Waves card, Endless as its variant, Test Chambers) |
+| Main menu | Generated map | Custom > Map tab (already there, `src/18g-ui-custom.js:548-551`) |
+| Play | Mode | Play cards and All modes; the variant on Setup |
+| Play | Map, Bots, Difficulty, Match length, Your team, Start, Loadout | Setup |
+| Play | Rules (ruleset) | Advanced > Rules > Rule bundle |
+| Play | Shuffle | Play (tile) |
+| Custom editor | all 6 tabs, Presets, Share code, Reset all, Start match | Advanced (unchanged), plus a Variant row on the Mode tab; Game mode lists the 15 modes |
+| Solo | Difficulty | Setup > Difficulty of Siege Waves and Test Chambers; the Solo screen keeps its own row |
+| Solo | Test Chambers best runs | Solo screen (unchanged) |
+| Career, results, pause | all rows | unchanged; results add Change mode |
+
+- **Docs to update with P4-04**: `docs/SPECIFICATION.md` UI-001 (main menu list), PRG-005 (Horde and Chambers entries), the mode table (variant column, the A-07 clocks); `docs/api/hud-play.md`; `docs/api/mutators-custom.md`; `docs/LIVE-TESTS.md`.
 
 ## Appendix D - Audit findings
 
