@@ -172,12 +172,15 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 8 - Rebalance
 
-- [ ] P8-01 - Define balance targets (time-to-kill ranges per class already exist in `weaponClasses.ttk`; add pick-rate, win-rate and usage targets for weapons, equipment and abilities).
+- [x] P8-01 - Define balance targets (time-to-kill ranges per class already exist in `weaponClasses.ttk`; add pick-rate, win-rate and usage targets for weapons, equipment and abilities).
   Done when: targets are in Appendix C.
-- [ ] P8-02 - For each weapon, equipment and ability write benefits, drawbacks and uses.
+  Status (2026-10-30): decided, Appendix C "P8-01": 12 metrics with one definition each and a pass rule; per-class weapon bands (overall, home / away win rate, kill rate, held share) on top of the existing TTK bands; pick bands per slot; gadget, item, ability, hero and ability x class targets; 12 mode and ruleset fairness targets (side win share 45-55 % per map over mirrored pairs). From the data today: W21 fails the new reload rule, 8 guns are never a bot spawn pick, A15 is under its pick floor, W23 / W24 are 3 profiles' favourites, 10 rows never appear on a map.
+- [x] P8-02 - For each weapon, equipment and ability write benefits, drawbacks and uses.
   Done when: Appendix C has the table, every row has at least one of each, and no two rows have the same profile.
-- [ ] P8-03 - Smart testing plan (not every combination): headless bot matches with fixed seeds, one-factor-at-a-time changes, pairwise combinations for interactions (weapon x ruleset, ability x weapon class), extremes first.
+  Status (2026-10-30): Appendix C "P8-02": 133 rows (38 weapons, 17 gadgets, 33 items, 45 abilities) from the current data, each with benefits, drawbacks and uses, no two alike; 7 overlaps flagged (O1-O7) with the distinguishing change for P8-04 (W26 burn, W21 reload, I02 / I06 respawn, AX5 vs PU04, A27 without downed, W40 / W45 text, AX6 name).
+- [x] P8-03 - Smart testing plan (not every combination): headless bot matches with fixed seeds, one-factor-at-a-time changes, pairwise combinations for interactions (weapon x ruleset, ability x weapon class), extremes first.
   Done when: the plan lists every test case and the total count.
+  Status (2026-10-30): Appendix C "P8-03": 715 cases (3,050 runs) in 14 families with every case ID, the follow-ups folded in (Harbor seeds 2-4 measured at 0 unperceived shots, W21 reload, open P8 notes), waves with stop rules; sample runs measured, estimate about 1.5 h wall on 4 workers; the missing tooling T1-T7 (forced loadouts, mirrors, metrics collector, overrides, batch runner, summary, static checks) specified for P8-04.
 - [ ] P8-04 - Run the plan, fix outliers, re-run only affected cases. Retune bots for the new roster.
   Done when: all cases meet the P8-01 targets, results summarized in Appendix C.
 
@@ -1125,6 +1128,367 @@ No cell is worse than +10 % and +0.3 ms: the gate holds (the machine was shared,
 - The weapon motion setting does not scale another body's gun kick (that is not the player's own motion).
 - The live tests LT-M-077 to LT-M-079 are written and not run (they need devices and ears). The tasks are not ticked.
 - Contact sheet of the visual effects (hit marker, kill confirm, damage direction, impacts on four surfaces and water, muzzle flash full and reduced and off, casings, low health): `C:\Users\GS\AppData\Local\Temp\claude\ctk-p6tools\sheet-p7.png`; `__CTK.feedbackDemo(scene)` makes each still.
+
+### P8-01 - Balance targets (decided 2026-10-30 by the coordinator; the owner can change any row)
+
+- **Fact (2026-10-30, HEAD 81a00f5)**: the only balance targets today are the time-to-kill bands of `weaponClasses.ttk` (`src/03c-data-weapons.js:11-22`), checked from the data for every primary by the `content` self-test (`src/20b-test-content.js:54-69`, with "only shotgun, marksman, sniper, power and melee rows one-shot 100 HP" and "every shotgun one-shots at 2 m and needs two shots at 15 m"). No pick, usage, win or side target exists. The one side check is `botsoak` "ctf: neither side wins every decided match" over 5 seeds (`src/20b-test-bots.js:1542-1567`); the one pace check is the hero kill pace over 4 seeds (`:1608-1625`).
+- **Fact, how bots arm** (the only pick data the game has: it is offline, with no telemetry). Primary: the profile favourite when it fits the slot, else an even draw among guns whose `botPref.range` holds the bot's fight distance (25 % of the map's long side x a style factor, clamped to 8-60 m), never an exotic or a magazine under 4 (`src/13d-economy.js:385-445`). Secondary: W04 unless the favourite is a sidearm. Melee: the ruleset's `melee`. Lethal, tactical, device, ability and ultimate: weighted by the row's botUse chance from the bot's own hash stream (`src/13d-economy.js:409-430`, `BOT_GADGET_USE` `src/03g-data-bots.js:180-197`); G13 weighs 0 (a bot's own wall is not in the nav graph). So bot pick shares follow from the data and can be computed without a match.
+- **Fact, exposure** (read from `CAT.maps` with `--eval`): hand-made maps place only two powerups (PU01 on spire, twinkeeps, harbor and gantry; PU03 on skyyard) and no power weapon; generated maps add PU02, PU05 and PU06 (`src/03n-data-mapgen.js:74`). PU04, PU09 to PU15, W45 and W46 reach a match only through editor maps, X17 Super Powerups or a mode.
+
+**Metrics** (one definition each; the P8-03 runner works them out from the `fire`, `damage`, `kill`, `gadget.use`, `ability.cast` / `ability.end`, `pickup` and `score` events plus a held-weapon sample every tick)
+
+| ID | Metric | Definition | Neutral value |
+|---|---|---|---|
+| M1 | Pick share | share of spawn loadouts (one per life) in a slot that hold the row (bots) | 1 / options |
+| M2 | Held share | share of the carrier's alive time with the weapon drawn | - |
+| M3 | Engagement win rate (EWR) | kills with the row / (kills with it + deaths of a holder while it is drawn) | 50 % |
+| M4 | Kill rate index (KRI) | kills per minute drawn / the mean of every combat weapon in the same case | 1.0 |
+| M5 | Use rate | gadget: uses per carrier life; ability: casts x cooldown / alive time with it (charges: per charge; energy: energy spent / energy gained); ultimate: share of ready ultimates cast within 20 s | 1.0 = used every time it is ready |
+| M6 | Kill participation (KP5) | share of uses after which an enemy the use touched (damage, status, reveal, pull, push, freeze) dies to the user's side within 5 s | - |
+| M7 | Carrier score index (CSI) | the carrier's final score rank as a percentile (0 last, 1 first), averaged over carriers | 0.5 |
+| M8 | Side win share | side 0 wins / decided matches, over mirrored seed pairs (same bots, sides swapped) | 50 % |
+| M9 | Score share | side 0 share of points, captures or rounds | 50 % |
+| M10 | Pace | match length / time limit when it ends by score, else the leader's score projected to the time limit / score limit | - |
+| M11 | Spawn deaths | share of deaths within 3 s after spawn protection ends | - |
+| M12 | Comeback rate | share of team matches won by the side behind at half time | - |
+
+- **Pass rule**: a row fails when its whole 95 % interval (Wilson for rates, a bootstrap over seeds for indexes) lies outside the band, and is "watch" when only the point value is outside. Under the minimum sample (150 engagements for M3, 40 uses for M5 / M6, 16 decided matches for M8) it is "no data" and gets more seeds, never a pass. A case with any bot shot at an unperceived target (`unperceivedShots` or `unknownShots` above 0, ARC-033) fails whatever its balance numbers say.
+
+**Weapons** (36 combat rows; the tools W41 / W42 have no combat target). "Home" = inside the row's `botPref.range`, "away" = outside it. The TTK band is the existing `weaponClasses.ttk`, unchanged.
+
+| Class | TTK band (s, exists) | EWR overall: per row; class mean | EWR home / away | KRI per row | Held share (carriers) | Class rule | Reason |
+|---|---|---|---|---|---|---|---|
+| melee | 0.3-1.5 | 35-55 %; 40-50 % | at 0-3 m 55 % or more / - | 0.6-1.5 | 3-20 % | melee kills 3-12 % of all kills (RS08 Iron Bulwark 10-25 %) | a backup slot that wins only at arm's length; RS08 is the melee ruleset |
+| sidearm | 0.3-1.5 | 40-55 %; 42-50 % | 50 % or more / 50 % or less | 0.7-1.3 | 5-35 % | sidearm kills 25 % or less of all kills in RS01 | MIS-023: a sidearm that beats primaries collapses the sandbox |
+| smg | 0.3-1.2 | 42-58 %; 45-55 % | 55 % or more / 45 % or less | 0.7-1.4 | 50 % or more | - | close-range primaries must lose at range (falloff) |
+| shotgun | 0-1 | 42-58 %; 45-55 % | inside 8 m 60 % or more / past 15 m 40 % or less | 0.7-1.4 | 50 % or more | one-shot at 2 m, two shots at 15 m (exists) | the steepest range curve |
+| rifle | 0.15-0.8 | 45-58 %; 47-55 % | 52 % or more / 48 % or less | 0.8-1.3 | 50 % or more | the reference class: the other bands are read against it | all-round guns keep only a small home edge |
+| marksman | 0-1.2 | 42-58 %; 45-55 % | 55 % or more / 45 % or less | 0.7-1.4 | 50 % or more | - | precision is paid back at range |
+| sniper | 0-0.5 | 40-58 % (one row) | past 25 m 58 % or more / inside 10 m 40 % or less | 0.6-1.4 | 50 % or more | sniper kills 20 % or less of the kills on any map | MIS-018: overwatch must not lock a map |
+| energy | 0.15-1.6 | 42-58 %; 45-55 % | 55 % or more / 45 % or less | 0.7-1.4 | 50 % or more | - | six rows, six mechanics: each needs a home |
+| heavy | 0.3-1.8 | 45-60 %; 47-57 % | 55 % or more / 45 % or less | 0.8-1.5 | 50 % or more | - | pays with move x0.75-0.85, so a slightly higher win is allowed |
+| explosive | 0-1.2 | 42-58 %; 45-55 % | 55 % or more / 45 % or less | 0.7-1.4 | 40 % or more | self damage 15 % or less of the class's damage; splash kills 30 % or less of all kills in RS01 | MIS-013: no grenade-launcher spam |
+| exotic | 0-2.5 | 40-58 % | 55 % or more / - | 0.6-1.4 | 40 % or more | W43 fodder kills count in PvE only | niche guns |
+| power | 0-0.5 | holder K/D while held 2-6 | - | - | - | power weapon kills 5-15 % of all kills where a pad exists; the top scorer held it in 40 % of matches or fewer | MIS-006: a map prize, not a match decider |
+
+- **Static rules** (from the data, no match; P8-04 adds them as a `balance` self-test group):
+  - R1 (exists): every primary inside its class TTK band.
+  - R2: a whole-magazine reload (not shell by shell) of a magazine over 2 rounds takes 1.0 s or more. Reason: the reload is the price of a magazine. **Fails now: W21 Shardcaster, 10 rounds in 0.5 s** (the shotgun class default of 0.5 s is meant per shell; W21 does not reload by shell), so it fires 10 close one-shots and needs half a second for the next 10.
+  - R3 (read from the F3 RS03 cases): in round buy, price follows power: within a class a dearer gun has the higher home EWR, and no gun above 4000 credits passes 62 % EWR.
+- **Weapon x ruleset** (P8-03 F3): per row 35-65 % EWR in every ruleset; per ruleset the spread of the class means (best minus worst) is 20 points or less. Reason: P3-01 opened the whole roster in every ruleset, and the health, movement and precision presets move both ranges and TTK.
+- **Bot skill** (P8-03 F2b): per row the EWR with every bot at the lowest and at the highest tier stays within 15 points of its mixed-tier EWR. Reason: a gun that only works for perfect aim, or only against poor aim, is a trap for one group of players.
+
+**Pick shares (M1, bots).** Band per row: 0.4x to 2.5x the slot's fair share. Reason: bots are what the player meets; a row bots never carry is a row the player never learns to fight.
+
+| Slot | Options | Fair share | Band | Result from the data (2026-10-30) |
+|---|---|---|---|---|
+| primary | the non-exotic primaries with a magazine of 4 or more whose range holds the fight distance | 1 / options per map | 0.4x-2.5x | fail: W20, W27, W40, W43, W44 are never drawn (W20 only as B11's favourite) |
+| secondary | 4 sidearms | 25 % | 10-62 % | fail: W04 100 %; W05, W06, W07 0 % (no profile's favourite is a sidearm except B01's W04) |
+| melee | the ruleset's field | - | exempt (the ruleset is the choice) | - |
+| lethal | 3 | 33 % | 13-83 % | pass: G01 35 %, G04 30 %, G06 35 % |
+| tactical | 6 | 16.7 % | 6.7-42 % | pass: G09 22 %, G03 19 % (tier 3 and up only), G02 17 %, G08 17 %, G07 14 %, G20 11 % |
+| device | 8 | 12.5 % | 5-31 % | pass except G13 0 % (recorded exception: nav); G10, G15, G18, G23 17.5 %, G21, G22 10.5 %, G24 9 % |
+| ability (loadout kit) | 26 | 3.8 % | 1.5-9.6 % | fail: A15 Scout Drone 0.8 %; lowest passing A07, A11, A14 1.6 %; highest A16, A27 7.9 % |
+| ultimate | 4 | 25 % | 10-62 % | pass: A37 30 %, A38 30 %, A40 26 %, A39 15 % |
+| favourite weapon | 23 profiles with a fixed favourite | - | a weapon is the favourite of 2 profiles at most; every class bots may draw has one | fail: W23 and W24 are the favourite of 3 profiles each; heavy (W28, W35) has none |
+
+- **Exposure**: every combat row is met in normal play (a spawn pick, a pad on a hand-made or generated map, or its own mode) in at least one curated card's default setup. Fails now: W45, W46, PU04, PU09, PU10, PU11, PU12, PU13, PU14, PU15. Reason: a row that only exists in the editor cannot be balanced by play.
+
+**Equipment** (gadgets; for every row CSI 0.42-0.58: no gadget decides a match)
+
+| Slot | Use rate (M5) | KP5 (M6) | Row value | Reason |
+|---|---|---|---|---|
+| lethal: G01, G04, G06 | 0.6 or more uses per life | 20-50 % | enemy damage per use G01 40-100, G04 30-90, G06 50-110; own-team and self damage 10 % or less of it | a thrown kill tool must hurt, not decide alone |
+| tactical: G02, G03, G07, G08, G09, G20 | 0.5 or more per life | 15-45 % | 1.0 or more enemies affected per use (G02: 3 or more enemy shots blocked per use) | utility pays through the team's next kill |
+| device: G10, G13, G15, G18, G21, G22, G23, G24 | 0.7 or more placed per life where it applies (holding, objective, team) | 10-40 % | G10 triggers on 25 % or more of placements; G13 absorbs 100 HP or more; G15 deals 60-250 per deployment; G18 jams 1 or more enemy pulse or drone per deployment; G21 hits with 30 % or more of drones; G22 stops 1 or more projectile; G23 hands out 30 % or more of a max ammo; G24 gives 1 or more team respawn | each device has one job; the number says it did it |
+
+**Items**
+
+| Group | Target | Reason |
+|---|---|---|
+| health and armour pickups I01-I07 | taken on 60 % or more of their spawns in pickup rulesets; top items I04, I07 on 85 % or more | a pickup nobody takes is noise; top items must be contested (MAP-005) |
+| ammo I08, I09 | taken on 40 % or more of their spawns; a carrier's "no ammo" switches at most 1 per 3 minutes | ammo is a backup, not a route |
+| weapon pads I10 | each pad's gun taken within 20 s of its respawn in 50 % or more of cases | pads are map control points |
+| bought protection I11, I12 | bought in 40 % or more of the rounds where it is affordable (RS03) | the buy menu offers real choices |
+| loot consumables I13-I17 | 50 % or more of carried units used; each row 10-35 % of all heal and shield uses | the speed against amount trade is real |
+| powerups PU01-PU06, PU09-PU15 | holder K/D while active 1.3-3.0 (PU01, PU10 up to 4.0); the holder tops the match in 35 % or fewer of the free-for-all matches it is taken in | MIS-006: leader snowball |
+| mode resources PU18-PU20 | judged by their mode's pace (B6, B11) | - |
+
+**Abilities** (for every row CSI 0.42-0.58 and carrier EWR 45-55 %: no must-pick, no dead pick)
+
+| Category | Use rate (M5) | Row value | Reason |
+|---|---|---|---|
+| mobility A05-A12 | 0.3-1.0 | escape tools (A06, A08, A09, A12): alive 5 s after a cast under fire in 55 % or more; movers (A05, A07, A10, A11): 3 m of height or 8 m of distance or more per cast | mobility is paid in time; it must buy survival or position |
+| recon A13-A16 | 0.3-1.0 (A16 passive: exempt) | 0.8 or more enemies revealed per cast; KP5 of revealed enemies 15-40 % | information must turn into kills |
+| control A17-A24 | 0.3-1.0 | 1.0 or more enemies affected per cast (A19, A21, A22, A24: 1.5 or more, they trigger on groups); KP5 20-50 % | control sets kills up, it does not kill alone |
+| sustain A25-A28 | 0.3-1.0 | 60 HP or more healed or stopped per cast; A27 0.9 or more revives per cast where downed exists | - |
+| offense A29, A32, A33 | 0.4-1.0 | KP5 20-50 %; A33: 5 or more enemy shots at the double per cast | - |
+| ultimates A37-A40 | ready 1-3 times per 10 minutes per player on the `ultimate` meter; cast within 20 s of ready in 70 % or more | KP5 30-70 % (A39: 1 or more ally through the rift) | the meter pace sets how often a match has its big moments |
+| suit A01-A04 (RS11) | each weave on for 10-50 % of alive time | - | one energy bar, four uses: none may starve the others |
+| meter rewards AX1-AX7 | earned 0.5-3 times per 10 minutes per player; used within 20 s in 70 % or more | as their ability twin | - |
+| PvE A23, A34; tools A35, A36 | judged by PvE pace (B11) and the tools' function tests | - | not versus balance |
+
+- **Ability x weapon class** (P8-03 F8): CSI 0.38-0.62 per pair; in each engagement profile the best ability's CSI is at most 0.15 above that profile's median ability. Reason: a must-pick combo (a gap closer with a shotgun, for example) removes the choice.
+- **Heroes** (RS09): each hero CSI 0.40-0.60 and EWR 40-60 %; each role's mean (tank, damage, support, initiator) 45-55 %.
+
+**Modes and rulesets (fairness)**
+
+| ID | Target | Band | Measured by | Reason |
+|---|---|---|---|---|
+| B1 | side win share M8, per symmetric team mode x map | 45-55 % target, 40-60 % tolerance; the mean over all those cases 47-53 % | 8 mirrored seed pairs per case | the spawn side or map half must not pick the winner |
+| B2 | score share M9, per symmetric case | 45-55 % | the same runs (more samples than wins) | catches a small side edge that 16 results cannot show |
+| B3 | attacker round share in bomb and ghostops | 42-58 % | 8 matches, rounds as samples | sides switch, so the match is fair; each round must be too |
+| B4 | attacker match wins in rush and payload | 35-65 % | 8 matches | stage modes swing harder |
+| B5 | asymmetric roles | infection humans win 30-60 %; fiends Ravager wins 35-65 % of rounds; juggernaut and cursetag: the marked player's score share at most 2x the fair share | 8 matches | asymmetric by design, still winnable both ways |
+| B6 | pace M10 | kill and zone modes end by score in 50-100 % of the time limit, or the leader reaches 80 % or more of the limit (as the hero pace check); a round lasts 40-100 % of its clock | every F10 case | no mode that always times out or ends in a minute |
+| B7 | spawn deaths M11 | 5 % of deaths or less (arena maps 8 % or less) | every match case | MIS-018: spawn kills |
+| B8 | free-for-all spawn points | deaths within 5 s of a spawn at one point at most 2x the map mean | free-for-all cases | no bad spawn point |
+| B9 | comeback M12 | 15-40 % in team kill and zone modes | symmetric cases | too low = snowball; too high = the first half does not matter |
+| B10 | ruleset pace | tdm on harbor ends in 0.6-1.6x the median time of the 12 rulesets (heroes keep their 0.3 limit scale) | F10 ruleset cases | a ruleset changes the feel, not the match length |
+| B11 | PvE | horde clears 10 waves at Regular in 60 % or more of runs with the default 2 retries, at Hard in 60 % or fewer; endless reaches wave 10 at Regular in 50 % or more | F10 PvE cases | the co-op card must be winnable and the hard step must bite |
+| B12 | bot fairness (ARC-033) | 0 unperceived and 0 unknown bot shots | every match case | a balance number from cheating bots is worthless |
+
+### P8-02 - Benefits, drawbacks and uses (decided 2026-10-30 by the coordinator; the owner can change any row)
+
+One row per catalogue row: 38 weapons, 17 gadgets, 33 items (17 pickups, 16 powerups) and 45 abilities = 133 rows. Numbers are the current data (`src/03c`, `03i`, `03j`, `03k`), not the P3-03 proposals. A profile is the row's benefits + drawbacks + uses together; no two rows share one. Rows whose data overlaps today carry an O-number (table below the list); the change is applied in P8-04, not now.
+
+**Weapons**
+
+| Code | Name | Benefits | Drawbacks | Uses |
+|---|---|---|---|---|
+| W01 | Breaker Maul | 2-hit kill in 0.4 s, no ammo, charged slam 30-120 launches the user 4.5 m | 1.6 m reach, 10 self damage per launch | finish a hurt foe, jump to ledges, the arena start melee |
+| W02 | Edge Tanto | silent (noise 0), backstab 150 kills at once, full move speed | 1.2 m reach, 3 hits from the front (0.8 s) | flank kills, Silent Contract, the tactical start melee |
+| W03 | Bulwark Shield-Saw | 120 deg block (pool 150), a 0.2 s parry sends projectiles back, hits stun 0.3 s | move x0.9, 3 hits to kill (1.33 s) | hold a doorway, return rockets, the Iron Bulwark start melee |
+| W04 | Warden Pistol | free, 12-round semi (0.75 s TTK) or 3-round burst (0.67 s), dual on a second pickup | 4 hits to kill, falloff from 20 m (burst from 10 m) | backup after a reload, Last Stand, every bot's sidearm |
+| W05 | Verdict Magnum | 55 damage: 2 hits in 0.45 s out to 25 m, penetrates, 2x zoom | 6 rounds, heavy kick, 700 credits | mid-range pick-offs from the sidearm slot, shots through thin cover |
+| W06 | Hush Pistol | no tracer and noise 6, head x2.5 (a 100 headshot), sleep dart 8 s (6 darts) | 3 body hits (0.8 s) at 2.5 shots/s | unheard picks, put a guard to sleep, ambushes |
+| W07 | Sparklock Pistol | locks up to 3 targets in 0.4 s inside 20 m: hits without fine aim | 9 hits to kill (1.4 s), cover breaks the lock, 20 m cap | fodder crowds, touch players, chip several foes at once |
+| W09 | Wasp SMG | fastest close kill (6 hits in 0.38 s), full move speed, hollow-point toggle slows | falloff 10-25 m to 60 %, 30 rounds last 2.3 s | rush rooms, chase a fleeing foe |
+| W10 | Hornet Carbine | 45 rounds, reach to 28 m, 3 contact grenades (80, r3.5) | 0.50 s TTK: slower than W09 close and W13 mid, move x0.97 | the default primary, flush cover, all-round play |
+| W12 | Needlethorn | needles home at 35 deg/s; 9 stuck needles burst for 40 | 1.1 s TTK, slow needles (35 m/s), falloff from 12 m | strafing targets, touch aim, Mirelle's gun |
+| W13 | Vanguard Rifle | best mid-range kill (3 hits in 0.20 s), penetrates | heaviest rifle kick (zigzag), move x0.92, 2700 credits | hold a mid lane; the rifle reference |
+| W15 | Ratchet Burst | 3-round bursts with no falloff, tight spread | a missed burst costs 0.33 s, 4 hits needed | duels past the range where falloff bites, controlled fire on touch |
+| W17 | Coilcaster | shooting its own orb makes a 200 r4 combo; 45 hitscan to long range | 1.4 shots/s, the orb flies 12 m/s, the combo needs timing | chokes and doors, arena skill shots |
+| W19 | Scattergun | one shot kills inside 8 m; the slug alt (55) reaches 45 m | pump 1.1 shots/s, reload 0.5 s per shell | corners and doorways, the slug as a second range |
+| W20 | Hookjaw | 160 point blank; the hook pulls the user to a foe within 25 m (6 s cooldown) | 2 shells = one shot per 1.1 s reload, falloff 8-18 m | close the gap and kill in one, aggressive engages |
+| W21 | Shardcaster | shards bounce twice round corners; splitting shell (100 + 6 shards) | shards fly 45 m/s with drop, the alt arms at 6 m (reload: O2) | rooms and corridors, hits behind a corner |
+| W23 | Lancet Rail | exact hip fire, 100 damage, pierces 4 | 0.67 shots/s, the trail shows the shooter | long lanes, lined-up foes, sniping without a scope |
+| W24 | Heron Sniper | one-shot body (115), 4x / 8x scope, 4 s breath hold, high penetration | 8 deg hip spread, scoped move x0.5, 3.6 s reload, 4700 credits | overwatch on large maps, deny an objective from afar |
+| W25 | Kestrel DMR | 2 body hits in 0.33 s, a headshot kills, 15 rounds | semi only, needs precision | mid-long picks, quick follow-up shots |
+| W26 | Stakedriver | a 90 stake pins a foe to a wall within 1.5 m; the incendiary alt burns at any range (6) | 60 m/s with drop, 1.2 shots/s (burn on both modes: O1) | punish foes near walls, burn a retreating foe |
+| W27 | Talon Bow | silent (noise 0), a full draw (110) kills a 100 HP body, works underwater, 6 explosive arrows | 0.7 s draw, one arrow per reload, drop | silent long-range kills, stealth levels |
+| W28 | Hailstorm | 270 dps (405 rooted), 150 rounds, high penetration | move x0.75, 0.2 s spin-up, cannot move while rooted, 4 s reload | lock a lane, PvE waves, fire through thin walls |
+| W30 | Linker | the only gun that repairs friendly devices (60/s) and links allies; plasma 132 dps | 0.67 s TTK with travel time, beam 30 m | team modes, core defence, keep turrets and barriers up |
+| W31 | Ramjet Launcher | 90 + 80 splash (r3.5), rocket jumps; the alt locks 1.2 s for 4 homing missiles | 2 hits to kill, self damage, 4 rounds, move x0.88 | groups, heavies, height and mobility |
+| W32 | Pitcher Launcher | a 100 r4.5 blast that bounces round cover; 4 remote mines | 2.5 s fuse, lob arc, no direct hit | chokes, objective rooms, mine traps |
+| W34 | Gloop Gun | goo puddles burn 3 s where they land; a charged blob splits in 3 | 20 direct damage, short arc (28 m/s), 1.0 s TTK | deny a floor, flag rooms, punish campers |
+| W35 | Kindler | a 9 m cone hits everyone in it and burns 4 s; the airblast pushes and deflects | 9 m range, move x0.85, 4 s reload | close quarters, PvE crowds, deflect rockets |
+| W36 | Ember Repeater | 160 dps with splash; stored heat releases as a 120 cone blast | 60 m/s travel, the heat vents when it stops firing | mid-close pressure, burst a pushed corner |
+| W37 | Stormlash | continuous beam at 160 dps; the alt arcs to 3 foes within 6 m | 24 m cap, rewards only steady tracking | close-mid tracking, chain a group |
+| W38 | Starthrower | discs bounce twice for bank shots; a splash disc alt | predictable 35 m/s travel | corridors, hits round cover |
+| W39 | Accelerator | charge levels 40 / 90 / 160; a 360 deg shockwave ring (60 + knockback) | 1.5 s to a full charge, 20 cells | duel opener, get-off-me ring |
+| W40 | Fusion Mortar | rolling orb 300 r6, harmless to its owner, detonate on demand | 1 round, 0.5 shots/s, move x0.85, 4500 credits | clear a room or a stairwell before an objective push |
+| W43 | Skull Auger | the drill homes on the head (90 deg/s), kills PvE fodder at once, detonate on demand | 3 rounds and 9 in reserve, 0.8 shots/s | PvE elites, campers behind cover |
+| W44 | Razorwind | no ammo, a piercing returning blade; a lodged blade is a laser tripwire | one blade out at a time, 3 hits to kill, about 18 m | PvE, tripwires across doors |
+| W45 | Daybreak Projector | 150 + 150 splash r6, with an 8 m aura (30/s) along the orb's flight | pad only (one per map), slow orb 18 m/s, move x0.85 | win a power-pad fight, deny a route for the orb's flight |
+| W46 | Halcyon Warhead | a camera-guided warhead, 300 r12 | the user stands still while guiding, 1 round, 120 s pad respawn | break a defended objective from afar |
+| W41 | Graviton Lifter | holds and punts props as ammo or a shield | needs props, no damage of its own, takes the hands | physics puzzles, prop fights |
+| W42 | Twin-Gate Projector | two linked gates up to 60 m apart | no damage | Test Chambers routes |
+
+**Gadgets**
+
+| Code | Name | Benefits | Drawbacks | Uses |
+|---|---|---|---|---|
+| G01 | Frag Charge | 100 r5, cook up to 2.5 s, 2 carried | the fuse warns (bots run), bounces off the target | flush cover, punish a cluster |
+| G02 | Veil Canister | smoke sphere r5 for 18 s | blocks your own side's sight too; shots punch 2 s holes | cover a plant, a revive or a crossing |
+| G03 | Glare Shell | blinds up to 20 m for 3.5 s, 2 carried | looking away keeps part of the sight, 1.5 s fuse | blind a holder before a push or a peek |
+| G04 | Cinder Jar | fire area r3 for 7 s up to 40 HP/s, plus burn | starts at a quarter of its damage: little burst | deny a doorway, flush a camper |
+| G06 | Leech Charge | sticks to a body, 110 r3.5 | must hit the actor, 1.5 s fuse, small radius | a sure kill on a tank or a carrier |
+| G07 | Kick Charge | 18 m/s knockback r4, launches its owner unharmed | 10 damage only | shove foes off a point or an edge, launch yourself |
+| G08 | Rime Bomb | freezes everyone within 4 m for 3 s | no damage of its own | stop a push, set up a sure kill |
+| G09 | Sink Charge | pulls a group together (14 m/s2, r6) and deals 60 | short of a kill alone, 1 s fuse | gather foes for a frag or a rocket |
+| G10 | Tripjaw Mine | a 150 directional (60 deg) proximity blast | crouch-safe, 1.5 s arm, seen within 8 m | guard a flank or a flag room |
+| G13 | Barrier Deploy | instant 300 HP cover (2 x 1.2 m) for 30 s | 60 s cooldown, blocks your own team's paths (bots never pick it) | cover in the open, cover for a plant |
+| G15 | Picket Turret | an auto turret, 12 x 5/s out to 25 m, for 40 s | 150 HP, 120 s cooldown, does not move | guard a point while you push |
+| G18 | Static Jammer | scrambles radar within 20 m for 30 s | no damage, 50 HP | hide an objective from pulses and drones |
+| G20 | Null Pulse | shuts devices, abilities and regen within 6 m for 4 s | no damage | break a dome, a turret or an ultimate push |
+| G21 | Scuttler | 2 seeking drones, 80 r2.5 each, out to 30 m | 20 HP each, 6 m/s, 90 s cooldown | dig a foe out of cover |
+| G22 | Snatcher | stops 3 incoming projectiles within 6 m (30 s) | nothing against hitscan, 40 HP | hold a point against rockets and grenades |
+| G23 | Supply Crate | team ammo: 20 % of max per second within 3 m, 20 s | no health, no damage | long holds, heavy and explosive guns |
+| G24 | Rally Beacon | a team spawn point for 60 s (one per team) | 100 HP, 120 s cooldown, team modes only | forward respawns for an attack |
+
+**Items**
+
+| Code | Name | Benefits | Drawbacks | Uses |
+|---|---|---|---|---|
+| I01 | Health Vial | +5 health up to 200 | a tiny amount each | route rewards that push health past 100 |
+| I02 | Health Pack | +25 health up to 100 | no overheal; same respawn as I03 (O3) | a quick top-up between fights |
+| I03 | Health Crate | +50 health up to 100 | no overheal; costs no more than I02 (O3) | recover after a lost trade |
+| I04 | Mega Cell | +100 health up to 200 | the map's prize: contested and timed by rivals | win item control: the top health item |
+| I05 | Armor Shard | +5 armour up to 200 | a tiny amount each | route rewards that build armour |
+| I06 | Light Plate | +50 armour | the small armour step; same respawn as I07 (O3) | refill armour between fights |
+| I07 | Heavy Plate | +100 armour, a top item | contested, its spot is known | item control: the top armour item |
+| I08 | Ammo Box | refills the held weapon's ammo type | only the held type | keep one favourite gun firing |
+| I09 | Ammo Cache | +50 % of max ammo for every weapon | 40 s respawn | restock the whole arsenal |
+| I10 | Weapon Pad | the map's weapon; respawn 5 s free-for-all, 30 s team, 120 s power | a fixed, known spot | weapon control points |
+| I11 | Helmet | head protection against the tactical x4 head multiplier | costs credits each round | round buy against headshots |
+| I12 | Vest | 100 body armour | costs credits, no head cover | round buy against body shots |
+| I13 | Patch | 15 health up to 75 in 3 s, 10 carried | stops at 75 | patch up between fights in Last Ring |
+| I14 | Med Kit | full health in 8 s, 3 carried | 8 s of using it | a full heal in a safe spot |
+| I15 | Cell | 25 shield in 2.5 s, 6 carried | a small amount | a shield top-up in a lull |
+| I16 | Battery | full shield in 5 s, 3 carried | 5 s of using it | a full shield before a push |
+| I17 | Fizz Can | 75 health, the overflow goes into the shield, in 2 s | only 2 carried | the fast heal inside a fight |
+| PU01 | Fury Core | damage x3 for 30 s | announced, drops on death, everyone hunts it | turn a match, break a hold |
+| PU02 | Warding Shell | damage taken x0.5 and immune to splash, falls and hazards for 30 s | adds no offence | survive explosives, take a held point |
+| PU03 | Quickening | speed and fire rate x1.3 for 30 s | no protection | chase, rotate, out-trade at the same TTK |
+| PU04 | Ghostveil | invisible for 30 s (bots see it at 25 % of their range) | drops with its time left on death; shots and steps are still heard (O4) | flank, steal a flag |
+| PU05 | Renewal | regen 15/s to 110, then 5/s to 200, for 30 s | slow against burst damage | outlast a long fight |
+| PU06 | Skyward | flight at 8 m/s, no fall damage, 30 s | exposed in the air | reach vantage points, cross gaps |
+| PU09 | Berserk Fist | melee x4 and heal to 100 for 20 s; melee kills fodder | only melee gains | a melee rampage, PvE fodder |
+| PU10 | Invulnerability Sigil | invulnerable for 10 s | short, 180 s respawn, announced | win a decisive fight, a plant or a capture |
+| PU11 | Bottomless | free ammo for 30 s | no damage boost | heavy and explosive spam |
+| PU12 | Vampire Fang | heals 30 % of the damage dealt, for 30 s | needs hits to heal | long fights, sustained guns |
+| PU13 | Seer Orb | reveals the holder's enemies for 15 s | 90 s respawn, no combat stat | team information, hunt hiders |
+| PU14 | Spring Boots | 3 double-height jumps, no fall damage | 3 jumps, never dropped for others | shortcuts and high ground |
+| PU15 | Guardian Rune | health and armour pools x2 until death | move x0.9, one rune at a time | tank, hold a point |
+| PU18 | Soul Shard | +1 heal and a soul | PvE only | fuel A34 Wrath Form |
+| PU19 | Bearer Flame | damage x3 until death; the Flame Bearer prize | the bearer is everyone's target, one in the match | score in Flame Bearer |
+| PU20 | Vital Shard | +25 max health (to 200), then max armour (to 150) | Ravager health matches and the campaign only | Ravager progression |
+
+**Abilities**
+
+| Code | Name | Benefits | Drawbacks | Uses |
+|---|---|---|---|---|
+| A01 | Bulwark Weave | suit armour mode, energy regen x2 | holds the suit's one weave slot | soak a fight in Weave Suit |
+| A02 | Overdrive Weave | sprint x1.5 | sprint only, drains 20 energy/s | escape, rotate fast |
+| A03 | Colossus Weave | jump x1.8, melee x2, prop throws | 15 energy per use | brawl, reach high ground |
+| A04 | Phantasm Weave | cloak (8 energy/s moving, 2 standing still) | firing or a stun ends it | ambush, flag steal |
+| A05 | Shadow Step | blink 10 m to the aimed point, ledge grab | 20 energy, needs line of sight, weapons lowered 0.3 s, not with an objective | vertical repositioning |
+| A06 | Phase Slip | invulnerable for 2 s | cannot fire meanwhile, 12 s cooldown | dodge a burst or an ultimate |
+| A07 | Grapnel | pulls the user at 18 m/s to a surface up to 30 m away | a straight, readable line, 10 s cooldown | reach heights, cross gaps |
+| A08 | Surge Dash | 3 dashes of 7 m in the input direction | 3 s per charge | dodge in duels |
+| A09 | Rewind Anchor | returns the user to where it stood 3 s ago | 15 s cooldown, must be timed | undo a bad peek |
+| A10 | Updraft | a 10 m lift zone for allies, 5 s | 20 s cooldown, a visible column | team high ground, escape |
+| A11 | Glidepack | glide at gravity x0.1 on 3 s of fuel | slow and exposed | long glides to vantage points |
+| A12 | Relocator | teleport to its beacon within 25 m, telefrag, 6 charges | drops a carried objective | escape routes, flank traps |
+| A13 | Echo Pulse | 3 reveal pulses within 15 m, 20 s cooldown | 15 m only | clear a room before entry; the class field upgrade |
+| A14 | Hunter Sight | sees enemies through cover within 30 m (toggle) | 5 energy/s | track through walls |
+| A15 | Scout Drone | a remote drone for 20 s that reveals and pulses an EMP r5 | the user stands defenceless, damage ends it, 40 s cooldown | scout a site before a push |
+| A16 | Tracker Sense | passive: enemy trails for 8 s within 30 m | nothing to press | hunt and chase |
+| A17 | Veil Curtain | a 12 m wide smoke wall for 15 s, 2 charges | blocks your own sight too | cut a long sightline |
+| A18 | Static Fence | up to 4 posts linked 12 m: 20 damage and 40 % slow for 1.5 s, 60 s life | low damage | zone a route or a flank |
+| A19 | Time Bend | time x0.25 within 8 m for 6 s | 60 energy, small radius | catch a group at a door |
+| A20 | Gale Push | a 30 deg push at 20 m/s that deflects projectiles | 8 m reach, 8 s cooldown | push foes off edges, swat rockets |
+| A21 | Binding Link | links the target with the enemies within 8 m of it for 8 s | needs a target and a group, 20 s cooldown | burst a group through one target |
+| A22 | Mesmer Lure | lures up to 2 enemies within 15 m for 6 s | 25 s cooldown | pull foes out of cover |
+| A23 | Puppet Jump | possesses a fodder or beast enemy for 10 s | PvE only, damage ends it | turn a PvE enemy against its wave |
+| A24 | Frenzy Hex | the target fights its own side for 8 s | needs a target, 30 s cooldown | break a group from inside |
+| A25 | Mender Drone | a heal zone r6 at 20/s for 8 s, allies included | a static zone, 30 s cooldown | team heal after a fight |
+| A26 | Aegis Dome | a dome r5 for 12 s that stops every shot both ways | you cannot shoot out either, 30 s cooldown | revive, plant or regroup |
+| A27 | Second Wind | revives a downed ally within 10 m | 60 s cooldown; no use where nobody goes down (O5) | squad revives |
+| A28 | Amp Wall | a 4 x 2 m wall stops shots from the front; own shots through it x1.25, 15 s | fixed facing, 20 s cooldown | win a lane duel from cover |
+| A29 | Arc Bolt | 30 damage and a 1 s shock at 30 m | 25 energy, low damage | finish a foe, interrupt a channel |
+| A32 | Swarm Cloud | 8 damage/s for 6 s on one target | slow damage, needs a target | flush a hider, chip a foe |
+| A33 | Holo Double | a decoy for 8 s that plays the owner's weapon sound | readable once a player knows it | draw fire, fake a flank |
+| A34 | Wrath Form | invulnerable for 8 s, kills on touch, homing (66 souls) | PvE only | wipe a wave |
+| A35 | Graviton Grip | the lifter's pull and punt without a weapon slot | 10 energy/s while held | prop fights with your gun kept |
+| A36 | Gate Pair | two gates from the ability button, 2 charges | solo puzzle modes only | puzzles without the tool in hand |
+| A37 | Overcore | damage x2 and fire rate x1.2 for 10 s | 1500 meter points for 10 s | win a fight, break a hold |
+| A38 | Orbital Lance | a 250 r8 strike after a 2 s warning, out to 60 m | the warning lets foes leave, 1800 points | wipe a held point |
+| A39 | Rift Gate | a two-way rift for 15 s within 60 m | no damage, 1500 points | team flank, escape |
+| A40 | Rally Cry | team +50 surplus health and speed x1.2 for 8 s | 8 s, 1200 points | start a team push |
+| AX1 | Seer Pulse | 3 map-wide reveal pulses | earned at a 300 streak (or H08's ultimate) | map-wide information before a push |
+| AX2 | Picket Swarm | 12 damage/s on up to 3 enemies map-wide for 6 s | an 800 streak or 80 boost | soften several foes at once |
+| AX3 | Speed Rush | speed x1.4 for 20 s | the FFFF combo costs 100 adrenaline | rotate across the map |
+| AX4 | Booster | regen 5/s for 20 s | weak against burst, 100 adrenaline | sustain between fights |
+| AX5 | Veil | invisible for 20 s | 100 adrenaline (O4) | escape or flank |
+| AX6 | Berserk | fire rate x1.5 for 20 s | 100 adrenaline (name: O7) | out-trade in a duel |
+| AX7 | Amped Rounds | damage x1.25 for 30 s | a 50 boost reward, a small bonus | carry a team push |
+
+**Rows that overlap today, and the distinguishing change** (applied in P8-04; each has an A / B case in P8-03 F0)
+
+| ID | Rows | Overlap in the current data | Proposed change | P8-03 case |
+|---|---|---|---|---|
+| O1 | W26 primary / W26 alt | the primary already burns 3 s inside 25 m (`statusRange: 25`), so the incendiary alt adds only range and 1 s of burn | the primary pins without burning; the alt is the only burn (4 s, any range) | F0-09 / F0-10 |
+| O2 | W21 / the shotgun class | the 10-round magazine reloads in 0.5 s (R2): the reload drawback is missing | reload 2.0 s for the whole magazine (the R7 phases are fractions of the live reload time, so the animation follows) | F0-07 / F0-08 |
+| O3 | I02 / I03, I06 / I07 | same effect, cap and respawn; only the amount differs, so the bigger row costs nothing more | the small steps come back sooner: I02 35 -> 25 s, I06 25 -> 20 s (I03 and I07 keep 35 / 25 s) | F0-14 / F0-15 |
+| O4 | PU04 Ghostveil / AX5 Veil | both are full invisibility (30 s / 20 s) | AX5 ends when its user fires (an escape combo); PU04 stays the attacking invisibility | F0-16 / F0-17 |
+| O5 | A27 Second Wind | no use where no teammate can go down: RS06, RS07, RS08 (the loadout kit) and every free-for-all, yet bots pick it 7.9 % of the time | in those matches the loadout shows it restricted with the reason "Needs downed teammates" (the P3-01 rule) and bots weigh it 0 | F0-18 / F0-19 |
+| O6 | W40 / W45 | P3-03 gave both the use "room wipe" | resolved by this table (W45: a pad fight with an aura along the flight; W40: a one-round room clear); no data change | - |
+| O7 | AX6 Berserk / PU09 Berserk Fist | the name only (fire rate against melee) | AX6 shows "Rapid Fire" (the id `berserkcombo` stays) | - |
+
+- **Close pairs checked and kept** (they differ in trigger, slot or source): W07 / W12 (lock in the sidearm slot against homing in the primary), W30 / W36 (support beam against heat blast), G02 / A17 (sphere against wall), G07 / A20 (thrown launch against cone push with deflect), G22 / A26 (3 projectiles with own shots passing, against every shot both ways), PU01 / PU19 (timed pickup against the mode's hunted prize), PU03 / AX3 / AX6 (both modifiers against one each), A13 / AX1 and A32 / AX2 (local against map-wide), A06 / PU10 (2 s without firing against 10 s with firing), A35 / W41 and A36 / W42 (a button with the gun kept against the tool in hand).
+- **Not a profile overlap, recorded for the tooling**: two ids are shared across catalogues, `bulwark` (W03 and A01) and `ammobox` (G23 and I08), measured with `--eval`; damage and kill events carry only the id, so the P8-03 runner keys its statistics by catalogue and code.
+- **Bot pick gaps** (P8-01 pick table, for the P8-04 bot retune): primaries W20, W27, W40, W43, W44 and sidearms W05, W06, W07 are never spawn picks; A15 is picked 0.8 %; W23 and W24 are 3 profiles' favourites each; no profile favours a heavy gun.
+
+### P8-03 - Smart test plan (decided 2026-10-30 by the coordinator; the owner can change any row)
+
+- **Principles.** (1) Headless bot matches through `playMatch` (`src/20b-test-bots.js:45`) with fixed seeds 1-4; team cases use mirrored pairs (the same bot list, sides swapped). (2) One factor at a time against a fixed baseline: RS01 Arena Classic, Regular difficulty, seeded mixed profiles, the pickup loadout, 12 bots (team cases 10), 3 simulated minutes, no time or score limit (fairness cases: the mode's own limits); the factor is forced on 3 bots (team cases: 3 bots on side A, mirrored), the rest arm as drawn. (3) Pairwise only where the decisions say rows interact: weapon x ruleset and ability x weapon class; a class or an engagement profile stands in for its rows where the row level would only repeat the answer. (4) Extremes first: each family starts with its most extreme settings (extreme rulesets, bot tiers and engagement profiles, and the rows furthest outside a static band); later waves run only where the extremes miss.
+- **Not every combination**: 34 weapons x 12 rulesets x 30 abilities x 8 versus maps x 4 seeds would be 391,680 runs; this plan has 3,050.
+- **Rosters named in case IDs.** WP, the 34 combat weapons a loadout or pad gives (36 minus the pad-only W45 / W46): W01 W02 W03 W04 W05 W06 W07 W09 W10 W12 W13 W15 W17 W19 W20 W21 W23 W24 W25 W26 W27 W28 W30 W31 W32 W34 W35 W36 W37 W38 W39 W40 W43 W44. CL, the 11 combat classes: melee, sidearm, smg, shotgun, rifle, marksman, sniper, energy, heavy, explosive, exotic. AB, the 30 loadout abilities: A05-A22, A24-A29, A32, A33 (26) and the ultimates A37-A40. EP, 5 engagement profiles: EP1 close burst (melee, shotgun), EP2 close sustained (smg, heavy), EP3 mid precision (rifle, sidearm, energy), EP4 long precision (marksman, sniper), EP5 area (explosive, exotic).
+- **Maps.** Close = MP01 spire (50 m), mid = MP02 skyyard (70 m), long = MP06 gantry (100 x 80 m), all `ffa`; team cases MP05 harbor (`tdm`) and MP03 twinkeeps (`dom`). A weapon's home map follows its `botPref.range` maximum (20 m or less spire, 21-50 m skyyard, over 50 m gantry): spire W01 W02 W03 W07 W09 W10 W19 W20 W21 W34 W35 W43 W44; skyyard W04 W05 W06 W12 W15 W28 W30 W31 W32 W36 W37 W38 W39 W40; gantry W13 W17 W23 W24 W25 W26 W27.
+
+**Case list** (every case is one ID from its pattern; runs = cases x seeds, mirrored pairs counted as two runs)
+
+| Family | Case IDs | Factor | Fixed | Runs per case | Cases | Runs | Est. s |
+|---|---|---|---|---|---|---|---|
+| F0 follow-ups | F0-01 to F0-19 (listed below) | known open items | per case | 1 or 4 | 19 | 54 | 245 |
+| F1 static | F1-S1 to F1-S7 (below) | the data | no match | 0 | 7 | 0 | 5 |
+| F2 weapon OFAT | F2-<WP>-<spire, skyyard, gantry> | weapon on 3 of 12 bots | RS01, ffa, 3 min | 4 seeds | 102 | 408 | 1,714 |
+| F2b bot skill | F2b-<WP>-T1, F2b-<WP>-T6 | all 12 bots at tier 1, then tier 6 | home map, RS01 | 4 | 68 | 272 | 1,142 |
+| F3a weapon x extreme ruleset | F3a-<WP>-<RS03, RS07, RS02, RS04> | ruleset (run in this order: one life and head x4; fast with the armour triangle; fastest with the extra jump; slowest with regen) | home map, ffa | 4 | 136 | 544 | 2,285 |
+| F3b class x other ruleset | F3b-<CL>-<RS05, RS06, RS08, RS10, RS11, RS12> | ruleset; the 3 bots draw a seeded gun of the class | skyyard, ffa (RS01 is F2; RS09 heroes are F9) | 4 | 66 | 264 | 1,109 |
+| F3c class x X41 Ballistics | F3c-<CL>-X41 | mutator X41 (hitscan flies as a bullet) | RS01, skyyard | 4 | 11 | 44 | 185 |
+| F4 power weapons | F4-W45-skyyard, F4-W46-gantry | a pad the harness places on the top item spot | RS01, ffa | 4 | 2 | 8 | 34 |
+| F5 gadgets | F5-<G01 ... G24>-tdm, -dom | the gadget in its slot on 3 bots of side A (17 rows) | RS01; tdm harbor, dom twinkeeps; mirrored | 4 | 34 | 136 | 449 |
+| F6 powerups | F6-<PU01-PU06, PU09-PU15> (13); F6-PU18 horde cistern; F6-PU19 bearer spire; F6-PU20 RS07 ffa skyyard | granted to 3 bots at every spawn (PU18-PU20 in their own mode) | RS01, ffa skyyard | 4 | 16 | 64 | 269 |
+| F7 abilities OFAT | F7-<AB> (30) in RS06 tdm harbor; F7-<A01-A04> RS11; F7-FR-<A05, A06, A08, A11, A14, A19, A20, A29, A35> RS12; F7-A23, F7-A34 horde cistern; F7-M-<RS02, RS04, RS05> (the meters' AX1-AX7 and A38 rewards) | the ability on 3 bots of side A (meter cases: as earned) | tdm harbor 10 bots, mirrored | 4 | 48 | 192 | 634 |
+| F8 ability x engagement profile | F8-<AB>-<EP1 ... EP5> | the ability with a seeded gun of the profile on 3 bots of side A | RS06 tdm harbor, mirrored | 4 | 150 | 600 | 1,980 |
+| F9 heroes | F9-<H01 ... H08> | the hero on 2 bots of side A | RS09 tdm harbor, mirrored | 4 | 8 | 32 | 106 |
+| F10 fairness | 48 cases (below) | mode x map, ruleset | the mode's default size, ruleset and limits | 4, 8 or 16 | 48 | 432 | 5,255 |
+| **Total** | | | | | **715** | **3,050** | **15,412** |
+
+- **F0 follow-ups** (the known open items folded in):
+  - F0-01 to F0-03: the Harbor soak at seeds 2, 3 and 4 (tdm, 16 bots, 3 minutes, open match: the `botsoak` setting). Measured 2026-10-30 on this build: 0 unperceived and 0 unknown shots in each (3,438, 4,540 and 3,134 shots), so the P3-04 note no longer reproduces; the cases stay as regressions. (The counter, `BotCombat.recordFairness` `src/14d-bots-combat.js:772-778`, counts a bot shot fired after the sight licence for its target ran out; melee swings are not counted.)
+  - F0-04 to F0-06: the same three seeds with every bot on W01 + W04 only, the two guns the note named.
+  - F0-07 / F0-08: W21 reload 0.5 s (now) / 2.0 s (O2), F2 setting on spire.
+  - F0-09 / F0-10: W26 primary burn on (now) / off (O1), on gantry.
+  - F0-11 / F0-12: W31 magazine 4 (now; a lock volley takes 2) / 6, the "P8: magazine size" note at `src/03c-data-weapons.js:208`, on skyyard.
+  - F0-13 (static probe): W32 and W34 primaries, the W21 alt and W27 fired at the crosshair point 10, 20 and 30 m away on the test floor: the miss distance (P2-03 left an exact lob as "a ballistic solve, left for P8 if wanted"); the owner decides with the numbers (proposal: solve it if the miss passes 1 m at 20 m).
+  - F0-14 / F0-15: I02 / I06 respawn as now / 25 s and 20 s (O3), ffa spire.
+  - F0-16 / F0-17: AX5 as now / ending on fire (O4), RS02 ffa skyyard.
+  - F0-18 / F0-19: A27 in RS06 tdm harbor (no downed: expected 0 casts, the O5 finding) / in RS04 with X46 Powers for All (downed on).
+  - The W06 Hush and W26 Stakedriver numbers that P3-03 left "for P8" are judged by their F2, F2b and F3a cases; no extra case.
+- **F1 static** (one page load, under 5 s): S1 the TTK bands (exists in `content`); S2 rule R2 (reload); S3 the M1 pick shares per slot from the botUse weights; S4 the favourite rule; S5 exposure; S6 statistics keys unique by catalogue and code; S7 the bot primary pool per map and style (which guns each map can draw).
+- **F10 fairness cases**: symmetric, 16 runs each (8 mirrored pairs): F10-tdm-skyyard, F10-tdm-twinkeeps, F10-tdm-harbor, F10-ctf-twinkeeps, F10-oneflag-twinkeeps, F10-dom-twinkeeps, F10-dom-gantry, F10-hardpoint-harbor, F10-hardpoint-gantry, F10-conquest-convoyline, F10-control-harbor, F10-elim-dustline, F10-attrition-harbor (13). Asymmetric, 8 runs: F10-bomb-dustline, F10-ghostops-dustline, F10-rush-convoyline, F10-payload-convoyline, F10-infection-spire, F10-infection-gantry, F10-fiends-cistern, F10-juggernaut-skyyard, F10-cursetag-spire (9). Free-for-all pace and spawn points, 4 runs: F10-ffa-spire, F10-ffa-skyyard, F10-ffa-gantry, F10-duel-spire, F10-lms-gantry, F10-gungame-gantry, F10-roulette-spire, F10-oddball-gantry, F10-bearer-spire (9). PvE, 4 runs: F10-horde-cistern-Regular, F10-horde-cistern-Hard, F10-endless-cistern-Regular, F10-bank-cistern (4). Royale, 4 runs: F10-royale-isle (18 bots, squads of 3) (1). Rulesets, 8 runs (4 mirrored pairs): F10-RS01 to F10-RS12 on tdm harbor, 10 bots (12). Silent Contract (solo stealth) and the solo tool modes stay with their function tests.
+- **Waves (extremes first) and stop rules.**
+  - Wave 0 (about 2 minutes): F1, F0-13 and F0-01 to F0-06. A failing S6 or any unperceived shot stops the plan: tooling or bots are fixed first.
+  - Wave 1: F2 on each weapon's home map (34 cases), F3a RS03 and RS07, F2b, F8 EP1 and EP4 (60 cases), the 13 symmetric F10 cases and the F0 A / B pairs.
+  - Wave 2: the rest of F2, F3a RS02 and RS04, F3b, F3c, F4 to F7, F9 and the rest of F10.
+  - Wave 3: F8 EP2, EP3 and EP5 (90 cases) only for abilities whose wave 1 CSI lies outside 0.44-0.56 (half the tolerance) or whose F7 case failed; expected about a third, which saves about 250 runs.
+  - P8-04 re-runs only the cases whose factors include a changed row, ruleset or mode, plus a seeded 10 % sample of the passing cases as a regression guard.
+- **Measured sample** (2026-10-30, this PC, i5-9600K; the test build of HEAD 81a00f5; `node tools/selftest.mjs --no-selftest --eval "__CTK.soak(...)"`):
+
+| Run | Wall time | Result |
+|---|---|---|
+| ffa spire, 8 bots, 1 min, seed 1 | 1.74 s | 26 kills, 818 shots |
+| tdm harbor, 16 bots, 3 min, seed 2 (the first match in the page) | 15.8 s | 92 kills, 3,438 shots, 0 unperceived |
+| tdm harbor, 16 bots, 3 min, seed 3 | 7.0 s | 99 kills, 4,540 shots, 0 unperceived |
+| tdm harbor, 16 bots, 3 min, seed 4 | 5.9 s | 89 kills, 3,134 shots, 0 unperceived |
+| tdm skyyard, 8 bots, 3 min, seed 1 | 2.2 s | 64 kills, 2,167 shots |
+| ffa harbor, 8 bots, 3 min, seed 1 | 2.8 s | 118 kills, 3,659 shots |
+| Chrome start and page load per `selftest.mjs` call | about 8.5 s | a call with 17.6 s of matches took 26 s |
+
+- **Estimate.** Cost per simulated minute: 8 bots about 0.85 s, 10 bots 1.1 s, 12 bots 1.4 s, 16 bots 2.2 s (10 and 12 interpolated); the first match in a page adds about 9 s. F10 runs use the full limits (on average about 12 simulated minutes for symmetric cases, 11 asymmetric, 10 for the rest). Total 15,412 s of matches (4.3 hours) on one worker, about 4.6 hours with page starts and warm-ups; with 4 workers (6 cores, at most 4 heavy jobs) and a 1.3 load factor about **1.5 hours wall**, about 1.3 hours with the wave 3 stop rule. P8-04 re-runs: expect 20-30 % of that.
+- **Tooling that exists**: `__CTK.soak(mode, map, minutes, botCount, seed, modeOptions)` (match totals: kills, shots, winner, captures, hold points, stuck time, unperceived and unknown shots); `playMatch` with ruleset, difficulty, bots, balance, player, `onTick` and `probe` (`src/20b-test-bots.js:39-80`); kit matches `__CTK.bots.kits.play` (ability and gadget use counts); the slow `botsoak` group; `selftest.mjs --eval` (one script per Chrome start, 480 s default timeout).
+- **Tooling missing for P8-04** (test build only: a new `src/20b-test-balance.js` with group `balance`, and `tools/balance.mjs`; the shipped `ClassTimeKiller.html` does not change):
+  - T1 **Forced loadouts and grants.** Setup bot entries gain `loadout: { melee, secondary, primary, lethal, tactical, device, ability1, ability2, ultimate, hero }`, read at one override point by `Loadouts.startKeys`, `Loadouts.gear` and `Loadouts.botAbility`, and by the class, round-buy (the forced gun is bought first, or given when unaffordable), loot (spawn with it) and hero paths. `grant: [keys]` gives powerups at every spawn (F6). `pads: [{ item, at: 'topItem' }]` adds a pad (F4). Today a profile's `favorite` forces only a primary in pickup economies, and nothing forces gadgets, abilities or heroes.
+  - T2 **Rosters and mirrors.** The bot list (profile, tier, team) is drawn once per seed; `mirror: true` swaps every team; `tier: n` sets every bot's tier (F2b).
+  - T3 **Metrics collector.** Bus listeners on `fire`, `damage`, `kill` (reads the victim's drawn weapon inside the listener), `gadget.use`, `ability.cast` / `ability.end`, `pickup`, `score` and `match.end`; per tick, the drawn weapon and alive time per actor in typed arrays (no allocation); spawn times; "touched by" marks per actor (row, side, time) from damage, statuses (a test-build wrapper of `Damage.addStatus`: reveal, freeze, blind, sleep), pulls and pushes, for KP5. Keys are `<catalogue>:<code>` because ids collide (`bulwark`, `ammobox`). One record per run: case id, seed, mirror, setup, overrides, the raw counts for M1-M12, the fairness counters and the wall time.
+  - T4 **A / B overrides.** `overrides: { 'weapons.shardcaster.reload': 2 }` sets a catalogue row (and its linked fire modes) before `Game.start` and restores it after; recorded in the run record. P8-04 tunes without rebuilding, then writes the winning values into `src/`.
+  - T5 **Batch runner** `tools/balance.mjs`: `--plan <families or case glob> --wave 0-3 --workers 1-4 --out <temp dir> --resume --run-timeout 120`. It builds the case list from one plan table (`tools/balance-plan.mjs`, the families above), keeps one Chrome page per worker for up to 200 runs (then restarts it), orders a worker's runs by map (one warm-up per map), writes one JSON line per run to `<temp>/ctk-balance/<date>/runs.jsonl`, skips done (case, seed, mirror) keys on `--resume`, prints a progress line every 25 runs, and exits 0 / 1 / 2 / 3 like `selftest.mjs`.
+  - T6 **Summary** `tools/balance.mjs --summary <runs.jsonl>`: aggregates per case and per row, works out the Wilson and bootstrap intervals, compares them with `BALANCE_TARGETS` (one data table in `src/20b-test-balance.js` that mirrors P8-01; the page returns it), prints only the fail, watch and no-data lines with a count per family, and writes `summary.json` for the P8-04 results in Appendix C.
+  - T7 **Static checks** S1-S7 as fast blocks of the `balance` group, so the default self-test catches a data change that breaks R2, the pick bands, the favourite rule or exposure.
 
 ## Appendix D - Audit findings
 
