@@ -38,6 +38,7 @@ const {
   randomCustom, randomItems, resolveLook, shareChecksum, stringsFor, styleFor, submissionStyleText, throwFor, toBase64Url,
   touchLayoutCss, touchLockVisible, touchUseVisible, trimToBudget, unlockRuleText, validateCustom, weightClass, weightFromBuild,
   wrapAngle,
+  BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, heldLabel, moveById, weaponTable,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -2602,7 +2603,7 @@ const SelfTest = {
       const stage = ARCADE_STAGES - 1, firstSeed = 1000, matches = 16, maxTicks = 40000;
       let wins = 0;
       for (let seed = firstSeed; seed < firstSeed + matches; seed++) {
-        const m = track(new MatchSim({ mode: 'arcade', countdown: false, playerId: 'kai', opponentId: 'zero', arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, 'normal'), arcadeLevel: 'normal', seed }));
+        const m = track(new MatchSim({ mode: 'arcade', countdown: false, playerId: 'kai', opponentId: 'zero', arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, 'normal'), arcadeLevel: 'normal', seed, items: false }));   // a balance measure of the bare-handed boss: items (P7) change who wins it
         m.controllers[0] = new AIController(ROSTER_BY_ID.kai, 'hard');
         for (let i = 0; i < maxTicks && m.phase !== 'matchEnd'; i++) { m.step(); if (m.phase === 'waiting') m.startRound(); }
         if (m.matchWinner === 0) wins++;
@@ -4707,7 +4708,7 @@ const SelfTest = {
       }
       return m;
     };
-    const attacking = (f) => f.alive && (f.state === S.ATTACK || f.state === S.GRAPPLE || f.state === S.SUBMIT);
+    const attacking = (f) => f.alive && ((f.state === S.ATTACK && !(f.move && f.move.type === 'pickup')) || f.state === S.GRAPPLE || f.state === S.SUBMIT);   // grabbing an item (P7) is no attack
     test('Group AI: no more fighters attack one target at once than it has tokens, at every difficulty over a long 1v6 brawl; tokens go round fairly and the run is repeatable (control: without the director all six attack)', () => {
       const run = (difficulty, seed, direct) => {
         const grants = [0, 0, 0, 0, 0, 0, 0], held = [false, false, false, false, false, false, false], log = [];
@@ -5669,6 +5670,330 @@ const SelfTest = {
         Settings.v.quality = keep.quality; Quality.autoScale = keep.autoScale; Quality.bestFrameMs = keep.best; Quality.blockUpUntil = keep.block;
         Quality.slowTime = 0; Quality.fastTime = 0; Diag.frameCount = keep.frames; Quality.apply();
       }
+    });
+    /* ----- Weapons and items (P7-02 to P7-04, P7-06) ----- */
+    const held = (id) => ({ id, dur: WEAPONS[id].dur, sprays: SPRAY_CHARGES });
+    /* A duel on the dojo floor with no items: the player at the origin facing +z, the foe at (0, gap). The test places what it needs (m.placeItem) and gives items (f.item = held(id)). */
+    const itemDuel = (gap, s1, s2, opts) => {
+      const m = mk(Object.assign({ arenaId: 'dojo', items: true }, opts), s1, s2);
+      m.items.length = 0;
+      self.stand(m.fighters[0], 0, 0, 0, 5); self.stand(m.fighters[1], 0, gap, 0, 0);
+      return m;
+    };
+    /* The hits of a run as snapshots taken the tick they land; log.stop() unhooks it. */
+    const hitLog = () => { const log = []; log.stop = Events.on('hit', (e) => log.push({ id: e.mv.id, kind: e.kind, def: e.def.index, react: e.def.reactDur, state: e.def.state })); return log; };
+    test('Items: the table has the 14 items of the spec (class, durability, damage, reach, startup, thrown damage) with 2 or 3 parts each, and every Punch step is a move kept out of ATTACKS', () => {
+      const want = 'bottle throwable 1 9 0.35 5 10|brick throwable 3 8 0.25 6 16|binlid light 6 6 0.4 6 8|stick light 8 7 0.7 4 6|bat heavy 6 16 0.9 10 12|pipe heavy 12 14 0.85 9 12|hammer heavy 8 15 0.45 8 14|wrench heavy 10 13 0.6 8 12|chain light 10 9 1 7 8|chair two 3 18 0.8 13 14|skateboard two 5 12 0.8 9 10|broom two 6 7 1.3 7 6|crate carry 2 0 0 0 20|extinguisher heavy 4 12 0.5 10 12';
+      const got = Object.keys(WEAPONS).map((id) => { const w = WEAPONS[id]; return [id, w.cls, w.dur, w.dmg, w.reach, w.startup, w.thrown].join(' '); }).join('|');
+      const parts = Object.keys(WEAPONS).filter((id) => WEAPONS[id].parts.length < 2 || WEAPONS[id].parts.length > 3);
+      const moves = Object.keys(WEAPONS).every((id) => {
+        const w = WEAPONS[id], n = WEAPON_STEPS[w.cls] + (id === 'stick' ? 1 : 0), first = WEAPON_MOVES[id + ':1'];
+        return Array.from({ length: n }, (u, i) => WEAPON_MOVES[id + ':' + (i + 1)]).every((mv) => mv && !ATTACKS[mv.id]) && (n === 0 || (Math.abs(first.reach - (0.8 + w.reach)) < 1e-9 && first.startup === w.startup));
+      });
+      const label = heldLabel({ item: { id: 'bat', dur: 4 } }) === 'BASEBALL BAT ●●●●○○' && heldLabel({ item: null }) === '';
+      return got === want && !parts.length && moves && label ? true : JSON.stringify({ table: got === want, parts, moves, label });
+    });
+    test('Items: Use picks up an item in reach (floor, table or rack height) with the matching grab pose over 14 ticks; a hit before it is in the hand cancels the grab; out of reach or empty reach does nothing', () => {
+      const problems = [];
+      [[0, 'reachLow'], [0.9, 'reachMid'], [1.4, 'reachHigh']].forEach(([y, anim]) => {
+        const m = itemDuel(5, once(2, 'use')), f = m.fighters[0], loose = m.placeItem('bat', 0, 0.7, y);
+        let n = 0;
+        for (let t = 1; t <= 40; t++) {
+          m.step();
+          if (f.state === S.ATTACK) n++;
+          if (t === 5 && (f.move.anim !== anim || f.pickup !== loose || !m.items.includes(loose) || f.item)) problems.push(anim + ': not grabbing at tick 5');
+          if (t === 14 && (!f.item || f.item.id !== 'bat' || m.items.includes(loose))) problems.push(anim + ': not in the hand');
+        }
+        if (n !== PICKUP_TICKS || PICKUP_TAKE_TICK >= PICKUP_TICKS) problems.push(anim + ': ' + n + ' ticks');
+      });
+      const cut = itemDuel(5, once(2, 'use')), loose = cut.placeItem('bat', 0, 0.7, 0);
+      self.run(cut, 5); cut.fighters[0].reactDur = 10; cut.fighters[0].setState(S.HIT); self.run(cut, 30);
+      if (cut.fighters[0].item || !cut.items.includes(loose) || loose.mode !== 'rest') problems.push('a hit did not cancel the grab');
+      const far = itemDuel(5, once(2, 'use')); far.placeItem('bat', 0, -0.9, 0); far.placeItem('bat', 0, 1.6, 0); self.run(far, 20);
+      const bare = itemDuel(5, once(2, 'use')); self.run(bare, 20);
+      if (far.fighters[0].item || far.fighters[0].state === S.ATTACK || bare.fighters[0].state === S.ATTACK) problems.push('Use out of reach did something');
+      const two = itemDuel(5); two.placeItem('pipe', 0.3, 0.8, 0); const straight = two.placeItem('bat', 0.05, 0.8, 0);
+      if (two.itemInReach(two.fighters[0]) !== straight) problems.push('not the item nearest the facing line');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Items: Use while holding throws at the locked enemy (not the nearest one), the item hurts only that enemy, costs 1 durability, and a brick to the head knocks down', () => {
+      const m = self.makeBrawl({ enemies: 2, arenaId: 'dojo', items: true }, once(2, 'use'));
+      m.controllers[0].human = true; m.items.length = 0;
+      const [p, near, far] = m.fighters;
+      self.stand(p, 0, 0, 0, 5); self.stand(near, 2.5, 1.5, 0, 0); self.stand(far, -1, 4.5, 0, 0);
+      p.item = held('brick'); p.lockOn = far;
+      const log = hitLog();
+      self.run(m, 70);
+      log.stop();
+      const left = m.items.find((i) => i.id === 'brick');
+      const ok = log.length === 1 && log[0].id === 'throw_brick' && log[0].def === far.index && log[0].kind === 'knockdown' && near.hp === near.maxHp && p.hp === p.maxHp && !p.item && left && left.dur === WEAPONS.brick.dur - 1 && far.hp < far.maxHp;
+      return ok ? true : JSON.stringify({ log, nearHurt: near.hp < near.maxHp, left: left && left.dur, item: p.item });
+    });
+    test('Items: Crouch + Use drops the held item at the feet with its wear; Use alone throws it along the facing when nothing is locked; touch USE shows only with an item held or in reach', () => {
+      const problems = [];
+      const drop = itemDuel(5, once(2, 'use', { crouch: true })), f = drop.fighters[0];
+      f.item = { id: 'bat', dur: 4, sprays: 3 };
+      self.run(drop, 4);
+      const lying = drop.items[0];
+      if (f.item || drop.items.length !== 1 || !lying || lying.id !== 'bat' || lying.dur !== 4 || Math.hypot(lying.x - f.x, lying.z - f.z) > 0.6 || drop.fighters[1].hp !== drop.fighters[1].maxHp) problems.push('drop');
+      const th = itemDuel(5, once(2, 'use')), g = th.fighters[0];
+      th.controllers[0].human = true; self.stand(g, 0, 0, 5, 0); g.item = held('bottle');
+      const shownHeld = touchUseVisible(g, th);
+      self.run(th, 3);
+      const flying = th.items[0];
+      if (g.item || !flying || flying.mode !== 'fly' || flying.vx < 5 || Math.abs(flying.vz) > flying.vx) problems.push('throw along the facing');
+      const idle = itemDuel(5);
+      const empty = touchUseVisible(idle.fighters[0], idle);
+      idle.placeItem('stick', 0, 0.6, 0);
+      if (!shownHeld || empty || !touchUseVisible(idle.fighters[0], idle)) problems.push('touch USE: held ' + shownHeld + ', empty ' + empty);
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Items: a hit costs the weapon 1 durability, landed or blocked; at 0 it breaks into debris and is gone; a bottle shatters on its first hit and adds stun', () => {
+      const problems = [];
+      const swing = (id, dur, foeScript, setup) => {
+        const m = itemDuel(1.2, once(2, 'punch'), foeScript), f = m.fighters[0];
+        f.item = { id, dur, sprays: 3 };
+        if (setup) setup(m);
+        const log = hitLog(), broke = [], off = Events.on('itemBreak', (e) => broke.push(e.id));
+        self.run(m, 60); log.stop(); off();
+        return { m, f, log, broke };
+      };
+      const landed = swing('bat', 2);
+      if (landed.f.item.dur !== 1 || !landed.log.length || landed.broke.length) problems.push('landed hit: dur ' + (landed.f.item && landed.f.item.dur));
+      const worn = swing('bat', 1);
+      if (worn.f.item || worn.broke.join() !== 'bat' || worn.m.items.length) problems.push('a worn bat did not break');
+      const blocked = swing('bat', 2, (it) => { it.defend = true; }, (m) => { m.fighters[1].defense = 'block'; });
+      if (!blocked.f.item || blocked.f.item.dur !== 1 || blocked.log.length) problems.push('blocked hit: dur ' + (blocked.f.item && blocked.f.item.dur) + ', hits ' + blocked.log.length);
+      const bottle = swing('bottle', 1), stick = swing('stick', 8);
+      if (bottle.f.item || bottle.broke.join() !== 'bottle' || bottle.log[0].react < SHATTER_STUN + 10 || stick.log[0].react >= SHATTER_STUN + 10) problems.push('bottle stun ' + bottle.log[0].react + ' against ' + stick.log[0].react);
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Items: a knockdown, a strong step that lands and a throw each make the victim drop the item at their feet; a light hit does not', () => {
+      const problems = [];
+      const acts = {
+        knockdown: (m, a, b) => Combat.landHit({ type: 'strike', att: a, def: b, mv: ATTACKS.heavy_roundhouse, block: 'none' }, m),
+        'strong step': (m, a, b) => Combat.landHit({ type: 'strike', att: a, def: b, mv: ATTACKS.power_jab, block: 'none' }, m),
+        throw: (m, a, b) => { a.throwPending = { tick: 0, dir: 'fwd', data: throwFor('front', 'fwd', moveStyleFor(a.profile)), side: 1, baseYaw: b.yaw }; Combat.executeThrow(a, b, m); },
+      };
+      for (const label in acts) {
+        const m = itemDuel(1.2), [a, b] = m.fighters;
+        b.item = held('bat');
+        acts[label](m, a, b);
+        const dropped = m.items[0];
+        if (b.item || m.items.length !== 1 || !dropped || dropped.id !== 'bat' || Math.hypot(dropped.x - b.x, dropped.z - b.z) > 0.6) problems.push(label + ': not dropped');
+        if (label === 'strong step' && b.state === S.THROWN) problems.push('a strong step knocked down');
+      }
+      const m = itemDuel(1.2), [a, b] = m.fighters; b.item = held('bat'); Combat.landHit({ type: 'strike', att: a, def: b, mv: ATTACKS.jab, block: 'none' }, m);
+      if (!b.item) problems.push('a light hit disarmed');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Items: Punch strings by class (light 3 steps, heavy 2, two-handed 2, throwable 1, crate none), Kicks stay the fighter\'s own, Kali with the stick gets 4; a bat string plays its two steps and the last one knocks down', () => {
+      const problems = [];
+      const len = (style, id) => ['P', 'PP', 'PPP', 'PPPP'].filter((keys) => weaponTable(style, id).stand[keys]).length;
+      Object.keys(WEAPONS).filter((id) => WEAPONS[id].cls !== 'carry').forEach((id) => {
+        const want = WEAPON_STEPS[WEAPONS[id].cls], table = weaponTable('kickboxer', id).stand;
+        if (len('kickboxer', id) !== want) problems.push(id + ' ' + len('kickboxer', id) + ' steps, wanted ' + want);
+        if (table.K.join() !== STRINGS.stand.K.join() || table.KK.join() !== STRINGS.stand.KK.join()) problems.push(id + ': Kick strings changed');
+      });
+      if (len('kali', 'stick') !== 4 || len('boxer', 'stick') !== 3 || len('kali', 'bat') !== 2) problems.push('Kali stick');
+      const kali = new Fighter(ROSTER_BY_ID.marlon, 0), plain = new Fighter(ROSTER_BY_ID.kai, 1);
+      kali.item = held('stick'); plain.item = held('stick');
+      if (kali.maxSteps !== 4 || plain.maxSteps !== 3 || !kali.strings.stand.PPPP) problems.push('Kali fighter');
+      const crate = new Fighter(ROSTER_BY_ID.kai, 0); crate.item = held('crate');
+      if (crate.resolveMove({ btn: 'punch', height: false, tick: 1 }) !== null || !crate.resolveMove({ btn: 'kick', height: false, tick: 1 })) problems.push('crate strikes');
+      const m = itemDuel(1.2, pressString('PP')), log = hitLog();
+      m.fighters[0].item = held('bat');
+      self.run(m, 90); log.stop();
+      if (log.map((h) => h.id).join() !== 'bat:1,bat:2' || log[1].kind !== 'knockdown' || log[0].kind === 'knockdown') problems.push('bat string ' + log.map((h) => h.id + ':' + h.kind).join());
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Items: a crate in the arms slows the walk to 70 percent and stops running, has no Punch strikes (Kick works), and Grapple puts a two-handed item down first but keeps a one-handed one', () => {
+      const problems = [];
+      const walked = (item, run) => { const m = itemDuel(12, (it) => { it.fwd = 1; it.run = run; }), f = m.fighters[0]; f.item = item; self.run(m, 40); return { z: f.z, state: f.state }; };
+      const bare = walked(null, false), crate = walked(held('crate'), false), runBare = walked(null, true), runCrate = walked(held('crate'), true);
+      if (Math.abs(crate.z / bare.z - CARRY_WALK) > 0.02 || runBare.state !== S.RUN || runCrate.state !== S.WALK || runCrate.z > crate.z * 1.01) problems.push('walk ' + (crate.z / bare.z).toFixed(3) + ' ' + runBare.state + ' ' + runCrate.state);
+      const struck = (key) => { const m = itemDuel(1.2, once(2, key)); m.fighters[0].item = held('crate'); self.run(m, 40); return m.fighters[1].hp < m.fighters[1].maxHp; };
+      if (struck('punch') || !struck('kick')) problems.push('crate Punch / Kick');
+      const grab = (id) => { const m = itemDuel(1.2, once(2, 'grapple')); m.fighters[0].item = held(id); self.run(m, 6); return { item: m.fighters[0].item, lying: m.items.length }; };
+      if (grab('chair').item || grab('chair').lying !== 1 || !grab('bat').item || grab('crate').item) problems.push('Grapple with items');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Items: thrown specials - a bottle shatters (+stun), a brick to the head knocks down, a crate knocks down everyone near and breaks, a skateboard trips, an extinguisher hits and blinds', () => {
+      const problems = [];
+      const throwAt = (id, spots) => {
+        const m = self.makeBrawl({ enemies: spots.length, arenaId: 'dojo', items: true }, once(2, 'use'));
+        m.items.length = 0; self.stand(m.fighters[0], 0, 0, 0, 5);
+        spots.forEach(([x, z], k) => self.stand(m.fighters[k + 1], x, z, 0, 0));
+        m.fighters[0].item = held(id);
+        const log = hitLog(), broke = [], off = Events.on('itemBreak', (e) => broke.push(e.id));
+        for (let left = 60; left > 0 && !log.length; left--) m.step();
+        self.run(m, 3); log.stop(); off();
+        return { m, log, broke, foes: m.fighters.slice(1) };
+      };
+      const bottle = throwAt('bottle', [[0, 3]]);
+      if (bottle.log.length !== 1 || bottle.log[0].react < SHATTER_STUN + 10 || bottle.broke.join() !== 'bottle') problems.push('bottle ' + JSON.stringify(bottle.log));
+      const brick = throwAt('brick', [[0, 4]]);
+      if (!brick.log.length || brick.log[0].kind !== 'knockdown' || brick.broke.length || !brick.m.items.some((i) => i.id === 'brick' && i.dur === WEAPONS.brick.dur - 1)) problems.push('brick head hit ' + JSON.stringify(brick.log));
+      const crate = throwAt('crate', [[0, 3.5], [0.7, 3.7]]);
+      if (crate.log.filter((h) => h.kind === 'knockdown').length !== 2 || crate.broke.join() !== 'crate' || crate.m.items.length) problems.push('crate ' + JSON.stringify(crate.log));
+      const board = throwAt('skateboard', [[0, 3]]);
+      if (!board.log.length || board.log[0].kind !== 'knockdown' || board.foes[0].state === S.IDLE) problems.push('skateboard ' + JSON.stringify(board.log));
+      const ext = throwAt('extinguisher', [[0, 3], [0.8, 3.2]]);
+      if (!ext.log.length || ext.foes.some((f) => f.blind <= 0) || ext.log[0].kind !== 'hit' || ext.broke.join() !== 'extinguisher') problems.push('extinguisher ' + JSON.stringify(ext.log) + ext.foes.map((f) => f.blind));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Items: held specials - hammer breaks a crate in one hit, chain gets half damage through a block, bin lid blocks for free and turns a Sway fighter into a blocker, wrench pulls into a clinch, chair hits every foe in front, broom\'s second step trips, extinguisher sprays a blinding cone', () => {
+      const problems = [];
+      const smash = (id) => {
+        const m = itemDuel(5, once(2, 'punch'), null, { arenaId: 'warehouse' }), f = m.fighters[0];
+        self.stand(f, -5.4, -1.2, -5.4, -5); self.stand(m.fighters[1], -5.4, -4.6, -5.4, -5);
+        f.item = held(id); self.run(m, 50);
+        return Arena.objects.find((o) => o.id === 'crateA').destroyed;
+      };
+      if (!smash('hammer') || smash('stick')) problems.push('hammer');
+      const wrapped = (id) => {
+        const m = itemDuel(1.2, once(2, 'punch'), (it) => { it.defend = true; }), blocks = [];
+        m.fighters[1].defense = 'block'; m.fighters[0].item = held(id);
+        const off = Events.on('block', () => blocks.push(1)); self.run(m, 50); off();
+        return { blocks: blocks.length, hp: m.fighters[1].hp / m.fighters[1].maxHp };
+      };
+      const chain = wrapped('chain'), stick = wrapped('stick');
+      if (!chain.blocks || chain.hp >= 1 || stick.hp !== 1) problems.push('chain ' + JSON.stringify([chain, stick]));
+      const shield = (item) => {
+        const m = itemDuel(1.2, once(2, 'punch'), (it) => { it.defend = true; }), d = m.fighters[1];
+        d.item = item; self.run(m, 50);
+        return { stam: d.stam / d.maxStam, mode: d.guardMode, dur: d.item && d.item.dur };
+      };
+      const lid = shield(held('binlid')), none = shield(null);
+      if (lid.stam !== 1 || none.stam >= 1 || lid.mode !== 'block' || none.mode !== 'sway' || lid.dur !== WEAPONS.binlid.dur - 1) problems.push('bin lid ' + JSON.stringify([lid, none]));
+      const wrench = itemDuel(1.4, pressString('PP')); wrench.fighters[0].item = held('wrench');
+      let clinched = false;
+      for (let t = 0; t < 90; t++) { wrench.step(); if (wrench.fighters[1].state === S.CLINCH && wrench.fighters[0].state === S.GRAPPLE) clinched = true; }
+      if (!clinched) problems.push('wrench');
+      const chairs = self.makeBrawl({ enemies: 2, arenaId: 'dojo', items: true }, once(2, 'punch')), chairLog = hitLog();
+      chairs.items.length = 0; self.stand(chairs.fighters[0], 0, 0, 0, 5); self.stand(chairs.fighters[1], -0.5, 1.4, 0, 0); self.stand(chairs.fighters[2], 0.5, 1.4, 0, 0);
+      chairs.fighters[0].item = held('chair'); self.run(chairs, 50); chairLog.stop();
+      if (new Set(chairLog.filter((h) => h.id === 'chair:1').map((h) => h.def)).size !== 2) problems.push('chair ' + JSON.stringify(chairLog));
+      const broom = itemDuel(1.5, pressString('PP')), broomLog = hitLog(); broom.fighters[0].item = held('broom'); self.run(broom, 90); broomLog.stop();
+      if (broomLog.map((h) => h.id).join() !== 'broom:1,broom:2' || broomLog[1].kind !== 'knockdown' || WEAPON_MOVES['broom:2'].h !== 'L') problems.push('broom ' + JSON.stringify(broomLog));
+      const spray = itemDuel(1.3, once(2, 'punch')); spray.fighters[0].item = held('extinguisher');
+      let blindMax = 0; for (let t = 0; t < 40; t++) { spray.step(); blindMax = Math.max(blindMax, spray.fighters[1].blind); }
+      if (blindMax <= 0 || blindMax > BLIND_TICKS || spray.fighters[0].item.sprays !== SPRAY_CHARGES - 1) problems.push('spray ' + blindMax + ' ' + spray.fighters[0].item.sprays);
+      const cone = itemDuel(1.5), c = cone.fighters[0]; c.item = held('extinguisher'); cone.spray(c);
+      const aimed = cone.fighters[1].blind === BLIND_TICKS;
+      self.stand(cone.fighters[1], 0, -1, 0, 0); cone.fighters[1].blind = 0; cone.spray(c);
+      const behind = cone.fighters[1].blind;
+      self.stand(cone.fighters[1], 0, 2.6, 0, 0); cone.spray(c);
+      if (!aimed || behind || cone.fighters[1].blind || c.item.sprays !== 0) problems.push('spray cone: front ' + aimed + ', behind ' + behind + ', far ' + cone.fighters[1].blind);
+      if (Object.keys(WEAPONS).filter((id) => WEAPONS[id].metal).join() !== 'pipe') problems.push('metal flag');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Items: a weapon hit costs the blocker 1.5 times the stamina, and the last step of a heavy or two-handed item breaks a block that is not perfect', () => {
+      const lost = (mv) => {
+        const m = itemDuel(1.2), [a, b] = m.fighters;
+        b.setState(S.BLOCK_H); const before = b.stam;
+        Combat.blockHit({ att: a, def: b, mv, block: 'block' }, m, false);
+        return before - b.stam;
+      };
+      const ratio = lost(Object.assign({}, ATTACKS.cross, { wpn: 'bat' })) / lost(Object.assign({}, ATTACKS.cross));
+      const breaks = Object.keys(WEAPONS).filter((id) => ['heavy', 'two'].includes(WEAPONS[id].cls)).every((id) => WEAPON_MOVES[id + ':2'].gb && WEAPON_MOVES[id + ':1'].tier < 3 && !WEAPON_MOVES[id + ':1'].gb);
+      const m = itemDuel(1.2), [a, b] = m.fighters; b.setState(S.BLOCK_H);
+      Combat.blockHit({ att: a, def: b, mv: WEAPON_MOVES['bat:2'], block: 'block' }, m, false);
+      return Math.abs(ratio - 1.5) < 1e-6 && breaks && b.state === S.STUN ? true : JSON.stringify({ ratio, breaks, state: b.state });
+    });
+    test('Items: a CPU without an attack token fetches a floor item that is closer than its target, throws a bottle at 3 to 8 m, and the thrown bottle hurts the target', () => {
+      const m = track(new MatchSim({ mode: 'free', arenaId: 'dojo', countdown: false, timer: 0, seed: 4, difficulty: 'hard', items: true }));
+      m.items.length = 0;
+      m.controllers[0] = new AIController(m.fighters[0].profile, 'hard'); m.controllers[1] = self.scripted(() => {});
+      self.stand(m.fighters[0], -2, 0, 3, 0); self.stand(m.fighters[1], 3, 0, -3, 0);
+      m.placeItem('bottle', -1.4, 0.4, 0);
+      const events = [], offs = ['itemTake', 'itemThrow', 'hit'].map((name) => Events.on(name, (e) => events.push(name + (e.f ? e.f.index : e.att.index) + (e.mv ? e.mv.id : ''))));
+      self.run(m, 400); offs.forEach((off) => off());
+      const ok = events.includes('itemTake0') && events.includes('itemThrow0') && events.includes('hit0throw_bottle') && events.indexOf('itemTake0') < events.indexOf('itemThrow0');
+      return ok ? true : events.join(',');
+    });
+    test('Items: the Items setting is on by default and off spawns nothing; each arena places 4 to 7 items at floor, table and rack heights; at most 12 stay loose; a seeded run with items repeats exactly and the default CPU run uses none', () => {
+      const problems = [];
+      if (SETTING_DEFS.items.def !== true || Settings.validate('items', 'x') !== true || track(new MatchSim({ countdown: false })).items.length === 0) problems.push('defaults');
+      for (const id of ARENA_ORDER) {
+        const on = track(new MatchSim({ arenaId: id, countdown: false, seed: 2 })), off = track(new MatchSim({ arenaId: id, countdown: false, seed: 2, items: false }));
+        const kinds = new Set(on.items.map((i) => (i.y < 0.4 ? 'floor' : i.y < 1.1 ? 'table' : 'rack')));
+        if (on.items.length < 4 || on.items.length > 7 || kinds.size !== 3 || off.items.length) problems.push(id + ' ' + on.items.length + ' ' + [...kinds].join('/') + ' off ' + off.items.length);
+      }
+      const crowded = itemDuel(5); for (let k = 0; k < 15; k++) crowded.placeItem('brick', -3 + k * 0.4, 3, 0);
+      if (crowded.items.length !== ITEM_MAX || crowded.items[0].x < -3 + 3 * 0.4 - 1e-9) problems.push('loose item maximum ' + crowded.items.length);
+      let picked = 0;
+      const base = { seed: 6, difficulty: 'hard', playerId: 'kai', opponentId: 'mara', arenaId: 'dojo', winsNeeded: 1, timer: 25 };
+      const run = (extra) => JSON.stringify(SimRunner.run(Object.assign({ listeners: { itemTake: () => { picked++; } } }, base, extra)));
+      const a = run({ items: true }), b = run({ items: true });
+      picked = 0; run({});
+      if (a !== b) problems.push('an items run is not repeatable');
+      if (picked !== 0) problems.push('the default run uses items');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Items: a thrown item hits only fighters a strike can touch (not a clinch, a knockdown flight, a wake-up, a hold by somebody else; a juggle yes), and one shared rule serves both', () => {
+      const m = itemDuel(1.2), [a, b] = m.fighters, problems = [];
+      if (!Combat.strikable(a, b)) problems.push('idle foe');
+      b.strikeGrace = 5; if (Combat.strikable(a, b)) problems.push('wake-up'); b.strikeGrace = 0;
+      b.state = S.CLINCH; if (Combat.strikable(a, b)) problems.push('clinch'); b.state = S.GRAPPLE; if (Combat.strikable(a, b)) problems.push('grapple');
+      b.state = S.THROWN; b.juggle = false; if (Combat.strikable(a, b)) problems.push('flight'); b.juggle = true; b.juggleCount = 0; if (!Combat.strikable(a, b)) problems.push('juggle');
+      b.state = S.IDLE; b.pinnedBy = m.fighters[0]; if (!Combat.strikable(a, b)) problems.push('own hold'); b.pinnedBy = { other: 1 }; if (Combat.strikable(a, b)) problems.push('hold by another'); b.pinnedBy = null;
+      const hit = (setup) => { const d = itemDuel(3, once(2, 'use')); d.fighters[0].item = held('brick'); setup(d.fighters[1]); const log = hitLog(); self.run(d, 50); log.stop(); return log.length; };
+      const idleHits = hit((f) => { f.state = S.IDLE; }), flightHits = hit((f) => { f.setState(S.THROWN); f.vy = 6; f.y = 0.5; f.juggle = false; });   // a flight that lasts the item's whole way
+      if (idleHits !== 1 || flightHits !== 0) problems.push('item hits ' + idleHits + ' ' + flightHits);
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Items: a front Block stops a thrown item for 1.5 times the stamina (a perfect block free), a bottle still shatters and a crate bursts without the knockdown, a skateboard needs the low guard, a Sway dodges', () => {
+      const problems = [];
+      const throwInto = (id, state, extra) => {
+        const m = itemDuel(3, once(2, 'use'), (it) => { it.defend = true; it.crouch = state === S.BLOCK_L; }), d = m.fighters[1];
+        d.defense = 'block'; m.fighters[0].item = held(id); if (extra) extra(d);
+        const log = hitLog(), blocks = [], broke = [], offs = [Events.on('block', (e) => blocks.push(e.perfect)), Events.on('itemBreak', (e) => broke.push(e.id))];
+        self.run(m, 50); log.stop(); offs.forEach((off) => off());
+        return { m, d, hits: log.length, blocks, broke, stam: d.stam / d.maxStam, hp: d.hp === d.maxHp };
+      };
+      const brick = throwInto('brick', S.BLOCK_H);
+      if (brick.hits || brick.blocks.length !== 1 || brick.stam >= 1 || !brick.hp || !brick.m.items.some((i) => i.id === 'brick' && i.dur === WEAPONS.brick.dur - 1)) problems.push('brick ' + JSON.stringify({ h: brick.hits, b: brick.blocks, s: brick.stam }));
+      const perfect = throwInto('brick', S.BLOCK_H, (d) => { d.blockFresh = true; d.stateTicks = 0; d.lastBlockAt = -999; });
+      const bottle = throwInto('bottle', S.BLOCK_H), crate = throwInto('crate', S.BLOCK_H);
+      if (bottle.hits || bottle.broke.join() !== 'bottle' || crate.hits || crate.broke.join() !== 'crate' || crate.m.fighters[1].state === S.THROWN) problems.push('bottle / crate');
+      const high = throwInto('skateboard', S.BLOCK_H), low = throwInto('skateboard', S.BLOCK_L);
+      if (!high.hits || low.hits || low.blocks.length !== 1) problems.push('skateboard ' + high.hits + ' ' + low.hits);
+      void perfect;
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Items: a CPU holding a crate throws it at any range up to 8 m, even point-blank, and the other classes have strikes, so none is stuck', () => {
+      const m = track(new MatchSim({ mode: 'free', arenaId: 'dojo', countdown: false, timer: 0, seed: 4, difficulty: 'hard', items: true }));
+      m.items.length = 0; m.controllers[0] = new AIController(m.fighters[0].profile, 'hard'); m.controllers[1] = self.scripted(() => {});
+      self.stand(m.fighters[0], 0, 0, 0, 5); self.stand(m.fighters[1], 0, 1.5, 0, 0); m.fighters[0].item = held('crate');
+      let thrown = 0; const off = Events.on('itemThrow', () => thrown++); self.run(m, 120); off();
+      const cls = Object.keys(WEAPONS).filter((id) => WEAPONS[id].cls !== 'carry' && !WEAPON_STEPS[WEAPONS[id].cls]);
+      return thrown === 1 && !cls.length ? true : 'thrown ' + thrown + ' ' + cls;
+    });
+    test('Items: a raised item is reachable from any side within 1 m of the body edge, a Use pressed while locked or busy is kept for 12 ticks, and any entry into the down state disarms', () => {
+      const problems = [];
+      const m = itemDuel(5, once(2, 'use')), f = m.fighters[0];
+      const top = m.placeItem('wrench', 0.9, -0.7, 0.9);   // beside and behind, on a table-high top
+      if (m.itemInReach(f) !== top) problems.push('raised item behind');
+      const far = itemDuel(5); far.placeItem('wrench', 2.0, 0, 0.9); if (far.itemInReach(far.fighters[0])) problems.push('raised item too far');
+      const buffered = itemDuel(5, once(2, 'use')); buffered.placeItem('bat', 0, 0.7, 0); buffered.fighters[0].lock = 6; self.run(buffered, 20);
+      if (!buffered.fighters[0].item) problems.push('Use press lost during a lock');
+      const down = itemDuel(1.2), d = down.fighters[1]; d.item = held('bat'); d.setState(S.HIT); d.setState(S.DOWN);
+      if (d.item || down.items.length !== 1) problems.push('down state keeps the item');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Items: next round an item whose table broke falls onto the rubble or floor instead of starting inside it, and pillar items are mounted on a bracket along the wall', () => {
+      const problems = [];
+      const m = track(new MatchSim({ arenaId: 'warehouse', countdown: false, seed: 3 }));
+      const wrench = m.items.find((i) => i.id === 'wrench'), pipe = m.items.find((i) => i.id === 'pipe'), bottle = m.items.find((i) => i.id === 'bottle');
+      if (!pipe.mount || pipe.mount[1] !== -1 || Math.abs(Math.sin(pipe.yaw)) !== 1 || wrench.mount || bottle.mount) problems.push('mounts');
+      Arena.breakObject(Arena.objects.find((o) => o.id === 'crateA'), 0, 0, 0);
+      m.spawnItems();
+      const again = m.items.find((i) => i.id === 'wrench');
+      if (again.mode !== 'fall' || again.host) problems.push('not falling');
+      self.run(m, 90);
+      if (again.mode !== 'rest' || !m.items.includes(again) || again.y < 0 || again.y > 1) problems.push('did not land: ' + again.mode + ' ' + again.y);
+      return problems.length ? problems.join('; ') : true;
     });
     return results;
   },

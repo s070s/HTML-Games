@@ -217,18 +217,23 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 7 - Weapons, items and hazards
 
-- [ ] P7-01 - DECIDE: weapon and item list (Modern Urban only: example types bottle, pipe, bat, chair, hammer, chain, trash can lid; final list per P1-05), each with class (light / heavy / throwable / two-handed), durability, damage, reach, speed, special effect.
+- [x] P7-01 - DECIDE: weapon and item list (Modern Urban only: example types bottle, pipe, bat, chair, hammer, chain, trash can lid; final list per P1-05), each with class (light / heavy / throwable / two-handed), durability, damage, reach, speed, special effect.
   Done when: Appendix C has the table and each weapon has a distinct use.
-- [ ] P7-02 - Pick-up rule: crouch near an item to pick it up (as in the ideas file). DECIDE how items placed above the floor (tables, racks, walls) are picked up, because the owner dislikes "crouch to take a hammer from a table" (proposal: the same input plays a reach / grab animation matched to the item height).
+  Status (2026-10-29): decided, Appendix C "Weapons, items and hazards" (14 items, each with a distinct use).
+- [x] P7-02 - Pick-up rule: crouch near an item to pick it up (as in the ideas file). DECIDE how items placed above the floor (tables, racks, walls) are picked up, because the owner dislikes "crouch to take a hammer from a table" (proposal: the same input plays a reach / grab animation matched to the item height).
   Done when: decision recorded; items at floor, table and wall height can be picked up with one input and a fitting animation.
-- [ ] P7-03 - Use input (owner decision, Phase 3: no hold): Use near an item while empty-handed = pick up; tap `use` while holding = throw it (aim from lock-on target or facing); Crouch + `use` = drop it.
+  Status (2026-10-29): implemented: one Use press, three grab poses by height, raised items reachable from any side within 1.0 m; self-tests "Items: ...".
+- [x] P7-03 - Use input (owner decision, Phase 3: no hold): Use near an item while empty-handed = pick up; tap `use` while holding = throw it (aim from lock-on target or facing); Crouch + `use` = drop it.
   Done when: works on touch, gamepad and keyboard; throw hits the locked target in the P4-03 scenarios.
-- [ ] P7-04 - Weapon combat: weapon move sets per class, durability and breaking, disarm on heavy hit, block / sway interaction.
+  Status (2026-10-29): implemented on keyboard, gamepad and touch (USE shows only near or holding an item; the press is buffered 12 ticks); throws go to the lock-on target.
+- [x] P7-04 - Weapon combat: weapon move sets per class, durability and breaking, disarm on heavy hit, block / sway interaction.
   Done when: each weapon class has its move set and breaks or drops as defined.
+  Status (2026-10-29): implemented: class strings (Kali stick 4 steps), durability and breaking, disarm on a strong step, knockdown, down state and throws, 1.5x block cost, specials; thrown items can be blocked (Appendix C). Poses and hand placement checked on screen only in the Warehouse brawl.
 - [ ] P7-05 - Hazards: environment dangers (DECIDE list, example types: electric panel, hot surface, open drop, breaking glass, falling objects) that players and AI can use.
   Done when: each hazard damages any character, can be triggered on purpose, and the AI uses at least one hazard per level that has them.
-- [ ] P7-06 - Pick up hazards and objects where approved in P7-01 (the ideas file says "pickup weapons and other Hazards").
+- [x] P7-06 - Pick up hazards and objects where approved in P7-01 (the ideas file says "pickup weapons and other Hazards").
   Done when: pickable hazards follow the P7-02 / P7-03 rules.
+  Status (2026-10-29): the extinguisher, crate, bottle and brick follow the pick-up and Use rules; CPUs pick up floor items and throw.
 
 ## Phase 8 - Levels
 
@@ -1575,7 +1580,7 @@ Implemented. Not ticked: the all-pairs win-rate target waits for P14-01 (win rat
     | crate | Crate | carry | 2 | - | - | - | 20 | Thrown: knockdown on everyone it hits, breaks into wood debris |
     | extinguisher | Fire extinguisher | heavy | 4 | 12 | 0.50 | 10 | 12 | 3 sprays: a strike also sprays a 2 m cone that blinds (30 ticks, no damage); thrown, it bursts into a cloud |
 
-  - Combat rules (P7-04 uses them): a weapon hit costs 1 durability (landed or blocked). Disarm: a strong string step that lands, any knockdown and any throw make the victim drop the item at their feet. Block: weapon hits cost the blocker 1.5x stamina; heavy and two-handed last steps count as strong (they break a non-perfect block). Sway dodges weapon swings like any strike. Grapple with a one-hand item works as normal (the item stays in hand); with a two-handed or carry item Grapple drops it first. Items never hurt their own team unless friendly fire is on.
+  - Combat rules (P7-04 uses them): a weapon hit costs 1 durability (landed or blocked). Disarm: a strong string step that lands, any knockdown and any throw make the victim drop the item at their feet. Block: weapon hits cost the blocker 1.5x stamina; heavy and two-handed last steps count as strong (they break a non-perfect block). Sway dodges weapon swings like any strike. Grapple with a one-hand item works as normal (the item stays in hand); with a two-handed or carry item Grapple drops it first. Items never hurt their own team unless friendly fire is on. Thrown items (decided after the P7 review, 2026-10-29): a front-facing Block stops a thrown item at 1.5x stamina (a perfect block costs none); the item bounces off and drops, a bottle still shatters and a crate still bursts but without the knockdown; a sliding skateboard needs Crouch + Defend. Sway dodges throws like strikes. A thrown item hits only fighters a normal strike could hit (not a clinched pair, a fighter in a knockdown flight, a submission-held fighter or one in wake-up grace).
   - Where items appear: placed per arena (P7 puts 4-7 in each of the 3 current arenas; P8 adds the level placements). Dropped and thrown items stay where they land (P9-03), at most 12 loose items per scene (the oldest broken-off piece goes first). Setting "Items": on by default in Arcade, brawls, Training, Free Fight and Versus; off in Tournament (P11 rules may turn it on).
   - AI (fills the P4-02 stubs): `considerPickup` = an empty-handed AI without an attack token takes an item within 2.5 m that is closer than its target; with a throwable or carry item and the target 3-8 m away it throws. `considerHazard` = an AI with its target within 1.5 m of an active hazard moves so its next hit drives the target into it, or strikes the hazard's trigger when the target is in its zone.
 - Pick-up rule (P7-02, decided): one press of Use, no crouch. The item must be within 1.0 m of the fighter's front (within 70 degrees of facing); several in reach = the one nearest the facing line. The fighter plays one of three grab poses by the item's height: floor (below 0.4 m) = crouch-and-grab, waist (0.4-1.1 m, tables) = lean grab, high (1.1-1.8 m, racks and walls) = reach grab. 14 ticks; a hit during the grab cancels it and the item stays. The owner's ideas-file wording "crouch to pick up" is replaced by this because the owner disliked "crouch to take a hammer from a table". USE input is as the Phase 3 decision: tap Use while holding = throw (lock-on target, else facing); Crouch + Use = drop.

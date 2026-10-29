@@ -159,6 +159,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .bar.mo i,.hs.r .bar.mo i{background:#c9b88a}
 .bar.mo.on i{background:#ffd24a}
 .pips{margin-top:.3em;font-size:.9em;letter-spacing:.2em;min-height:1.2em}
+.hitem{margin-top:.15em;font-size:.75em;letter-spacing:.1em;min-height:1.1em;color:#ffe9a8;text-shadow:0 1px 2px #000;white-space:nowrap}   /* the held item: name and durability pips (P7) */
 .hc-center{width:7em;text-align:center;flex:none}
 #timer{font:900 2.3em/1 Impact,"Arial Black",sans-serif;min-width:1.6em;border:2px solid #fff;background:rgba(0,0,0,.65);padding:.05em .2em;display:inline-block}
 #timer.low{color:var(--warn);border-color:var(--warn)}
@@ -198,10 +199,10 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .tag i{font-style:normal;color:#ffe066;margin-left:.4em}
 .tag s{display:block;height:3px;margin-top:2px;background:#4a1020;text-decoration:none}
 .tag s u{display:block;height:100%;background:#ff7aa6;text-decoration:none}
-.brawl .hs.r .bar.st,.brawl .hs.r .bar.mo,.brawl .hs.r .pips{display:none}   /* brawl: the right bar is the enemies together, with no stamina or momentum */
+.brawl .hs.r .bar.st,.brawl .hs.r .bar.mo,.brawl .hs.r .pips,.brawl .hs.r .hitem{display:none}   /* brawl: the right bar is the enemies together, with no stamina or momentum */
 /* co-op (P4-07): the left bar is the party together; under the top bar a cell per player (name, health, stamina) in the seat's colour; the join screen's seat cards use the same colours */
 .seat1{--pc:#34dcff}.seat2{--pc:#8dff7a}.seat3{--pc:#ffb347}.seat4{--pc:#c49bff}
-.coop .hs.l .bar.st,.coop .hs.l .bar.mo,.coop .hs.l .pips{display:none}
+.coop .hs.l .bar.st,.coop .hs.l .bar.mo,.coop .hs.l .pips,.coop .hs.l .hitem{display:none}
 #party{position:absolute;left:.9em;right:.9em;top:4.1em;display:none;gap:.35em}
 .coop #party{display:flex}
 .pc{flex:1 1 0;min-width:0;padding:.1em .3em .2em;border:2px solid var(--pc);background:rgba(0,0,0,.6)}
@@ -262,9 +263,9 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
   <canvas id="view" tabindex="-1" aria-label="Game view"></canvas>
   <div id="hud" hidden>
     <div class="hud-top">
-      <div class="hs l"><div class="hname" id="hn1"></div><div class="bar hp"><u id="hg1"></u><i id="hp1"></i><b id="ht1"></b></div><div class="bar st" id="stb1"><i id="st1"></i></div><div class="bar mo" id="mob1"><i id="mo1"></i></div><div class="pips" id="pips1"></div></div>
+      <div class="hs l"><div class="hname" id="hn1"></div><div class="bar hp"><u id="hg1"></u><i id="hp1"></i><b id="ht1"></b></div><div class="bar st" id="stb1"><i id="st1"></i></div><div class="bar mo" id="mob1"><i id="mo1"></i></div><div class="pips" id="pips1"></div><div class="hitem" id="item1"></div></div>
       <div class="hc-center"><div id="timer">60</div><div id="roundlbl"></div></div>
-      <div class="hs r"><div class="hname" id="hn2"></div><div class="bar hp"><u id="hg2"></u><i id="hp2"></i><b id="ht2"></b></div><div class="bar st" id="stb2"><i id="st2"></i></div><div class="bar mo" id="mob2"><i id="mo2"></i></div><div class="pips" id="pips2"></div></div>
+      <div class="hs r"><div class="hname" id="hn2"></div><div class="bar hp"><u id="hg2"></u><i id="hp2"></i><b id="ht2"></b></div><div class="bar st" id="stb2"><i id="st2"></i></div><div class="bar mo" id="mob2"><i id="mo2"></i></div><div class="pips" id="pips2"></div><div class="hitem" id="item2"></div></div>
     </div>
     <div id="party"></div>
     <div id="modeinfo"></div>
@@ -547,6 +548,7 @@ const SETTING_DEFS = {
   touch: { type: 'enum', options: ['auto', 'on', 'off'], def: 'auto', label: 'Touch controls' },
   autoAssist: { type: 'bool', def: false, label: 'Auto-assist', hint: 'Easier attack strings for you (not the CPU): the next move plays even after a miss, and you get twice as long to press it.' },
   friendlyFire: { type: 'bool', def: false, label: 'Friendly fire (co-op)', hint: 'Co-op brawls only, from the next brawl: with it on, the players (teammates) can hurt each other. CPU enemies never hurt each other.' },
+  items: { type: 'bool', def: true, label: 'Items', hint: 'Weapons and objects lying around the arena that you can pick up, use and throw. From the next match; off keeps every fight bare-handed.' },
   showStats: { type: 'bool', def: false, label: 'Performance overlay' },
 };
 const Settings = {
@@ -2593,7 +2595,8 @@ const MATERIALS = {
 };
 const DEBRIS_REPLACE_FRAME = 4; // stage index at which the intact collider is swapped out
 
-/* ---------- arenas (pristine definitions; live state is built from them) ---------- */
+/* ---------- arenas (pristine definitions; live state is built from them) ----------
+   items (P7-02): where weapons lie, [item id, x, z, surface height, host object id]: on the floor (0), on a table-high top (crate, bench, barrier) or mounted high on a pillar or post (1.3 to 1.4); an item with a host falls when the host breaks. */
 const ARENAS = {
   warehouse: {
     id: 'warehouse', name: 'Industrial Warehouse', blurb: 'Crates, concrete pillars, steel railings and an office window. Big echoing hall.',
@@ -2612,6 +2615,7 @@ const ARENAS = {
       { id: 'railR', type: 'rail', mat: 'metal', axis: 'z', x: 7.6, z: -0.25, hx: 0.12, hz: 2.25, h: 1.05 },
       { id: 'window', type: 'panel', mat: 'glass', axis: 'x', x: 0, z: -4.85, hx: 1.6, hz: 0.08, h: 2.2 },
     ],
+    items: [['bottle', -1.6, 3.7, 0], ['brick', 2.2, -3.0, 0], ['skateboard', 0.4, 4.1, 0], ['wrench', -5.4, -2.6, 0.95, 'crateA'], ['pipe', -3.2, -3.7, 1.4, 'pillarL'], ['hammer', 3.6, -3.7, 1.3, 'pillarR'], ['extinguisher', 7.0, 3.9, 0]],
   },
   dojo: {
     id: 'dojo', name: 'Traditional Dojo', blurb: 'Open wooden floor with paper screens, benches and training posts. Dry, close sound.',
@@ -2629,6 +2633,7 @@ const ARENAS = {
       { id: 'postL', type: 'column', mat: 'wood', hpMul: 1.6, x: -1.2, z: -3.9, hx: 0.24, hz: 0.24, h: 1.7 },
       { id: 'postR', type: 'column', mat: 'wood', hpMul: 1.6, x: 1.2, z: -3.9, hx: 0.24, hz: 0.24, h: 1.7 },
     ],
+    items: [['stick', -4.6, 3.3, 0.5, 'benchL'], ['bottle', 4.6, 3.3, 0.5, 'benchR'], ['bat', -1.2, -3.55, 1.3, 'postL'], ['broom', 1.2, -3.55, 1.35, 'postR'], ['chair', -5.2, -1.6, 0]],
   },
   pit: {
     id: 'pit', name: 'Underground Pit', blurb: 'Dark concrete cage, barriers, pillars and a cracked observation glass. Heavy, rumbling sound.',
@@ -2646,6 +2651,7 @@ const ARENAS = {
       { id: 'cageR', type: 'rail', mat: 'metal', axis: 'z', x: 6.5, z: -0.8, hx: 0.12, hz: 2.0, h: 1.05 },
       { id: 'obsGlass', type: 'panel', mat: 'glass', axis: 'x', x: 0.2, z: -4.85, hx: 1.3, hz: 0.08, h: 2.0 },
     ],
+    items: [['binlid', -1.2, 3.8, 0], ['chain', -3.4, 3.3, 0.85, 'barrierB'], ['brick', 4.4, 2.9, 0.85, 'barrierC'], ['pipe', 3.2, -3.55, 1.4, 'pillarB'], ['wrench', -5.6, -3.15, 1.3, 'pillarA'], ['crate', 5.6, -2.4, 0], ['extinguisher', -6.0, -1.0, 0]],
   },
 };
 const ARENA_ORDER = ['warehouse', 'dojo', 'pit'];
@@ -3431,16 +3437,16 @@ for (const r of ROSTER) ROSTER_BY_ID[r.id] = r;
 /* ---------- attack catalogue (data driven; no input-specific combat logic) ---------- */
 const TIER_HITSTOP = { 1: 4, 2: 6, 3: 9 };
 const ATTACKS = {};
-function defAttack(id, over) {
+function makeAttack(id, over) {   // a move row; defAttack also puts it in ATTACKS, the weapon moves (P7) stay out of it
   const base = { id, name: id, btn: 'lp', strong: false, height: false, limb: 'LA', anim: 'straight', h: 'H', tier: 1, cat: 'punch', startup: 6, active: 3, recovery: 12,
     dmg: 4, stam: 3, reach: 1.3, width: 0.3, push: 0.25, hitstun: 14, blockstun: 8, blockPush: 0.4, step: 0.1, kind: 'hit', gb: false, gdm: 1, cv: 1.2, launchV: 0, type: 'strike', ctx: '' };
   const m = Object.assign(base, over);
   m.cv = over.cv || (m.tier === 1 ? 1.15 : m.tier === 2 ? 1.25 : 1.5);
   if (m.tier === 3 && !m.ctx) m.gb = true;   // strong moves come only as attack-string steps, and every one of them breaks a block (owner rule)
   m.hitStop = over.hitStop || TIER_HITSTOP[m.tier] + (m.kind === 'knockdown' || m.kind === 'launch' ? 2 : 0);
-  ATTACKS[id] = m;
   return m;
 }
+function defAttack(id, over) { return (ATTACKS[id] = makeAttack(id, over)); }
 /* P3-10 punch / kick balance: the jab, body jab and cross reached 1.25 / 1.2 / 1.35 m, so every kick (1.45-1.65) out-ranged them and AI vs AI matches
    threw 70-78 % of their damage with kicks. They now reach 1.4 / 1.35 / 1.5 m: punches still reach less than the kicks, but a fighter that stops
    a kick's length away can answer with a punch too. The jab and body jab hit for 5 instead of 4 (the jab is the most-thrown punch, +1 adds 2-3 points of punch share
@@ -3827,6 +3833,10 @@ const STRIKE_BUILDERS = {
   roundLow(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 0.95; p[l.a] = 0.8; p[l.k] = 0.25; p[o.k] = 0.5; p[J.torsoRoll] = s * 0.3; p[J.torsoLean] = 0.3; },
   airKick(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.35; p[l.k] = 0.1; p[o.h] = 0.8; p[o.k] = 1.3; p[J.torsoLean] = -0.3; p[J.shLx] = 0.4; p[J.shRx] = 0.4; },
   grab(p) { p[J.shLx] = 1.5; p[J.shRx] = 1.5; p[J.shLz] = -0.15; p[J.shRz] = -0.15; p[J.elL] = 0.3; p[J.elR] = 0.3; p[J.torsoLean] = 0.3; p[J.rootFwd] = 0.12; },
+  /* P7-02 grabs of an item by its height: crouched to the floor, leaning over a table, stretching to a rack or wall mount (weapon swings reuse straight / hook / overhand / straightLow). */
+  reachLow(p, s) { const a = ARM_IDX(s); p[J.hipLx] = 1.1; p[J.hipRx] = 1.1; p[J.knL] = 2.0; p[J.knR] = 2.0; p[J.torsoLean] = 0.75; p[J.headX] = 0.2; p[a.x] = 0.45; p[a.z] = 0.05; p[a.e] = 0.3; p[J.shLx] = 0.5; },
+  reachMid(p, s) { const a = ARM_IDX(s); p[J.torsoLean] = 0.55; p[J.knL] += 0.3; p[J.knR] += 0.3; p[a.x] = 1.35; p[a.z] = 0.05; p[a.e] = 0.35; p[J.rootFwd] = 0.1; },
+  reachHigh(p, s) { const a = ARM_IDX(s); p[J.torsoLean] = -0.08; p[J.headX] = -0.2; p[a.x] = 2.7; p[a.z] = 0.1; p[a.e] = 0.15; p[J.rootFwd] = 0.06; p[J.shLx] = 1.3; },
   /* P5-02 style strikes. Hands: the other hand rests on the striker's elbow (chain), pins the guard down and across (trap), sweeps out wide (parry), or checks at the chin (elbow, angle).
      Legs: a flat-footed push (teep), a back kick with the body turned away (spinBack, see STRIKE_SPIN), a leap (jumpRound), a low sweeping heel (spinHeel). */
   chain(p, s) { const a = ARM_IDX(s), o = ARM_IDX(-s); p[a.x] = 1.5; p[a.z] = -0.05; p[a.e] = 0.15; p[o.x] = 1.25; p[o.z] = 0; p[o.e] = 1.3; p[J.torsoTwist] = -s * 0.25; p[J.torsoLean] = 0.18; p[J.rootFwd] = 0.1; },
@@ -4340,6 +4350,112 @@ function handScale(b, sh, T, H) {
   return Math.max(b, 2 / m * Math.sqrt((T[4] * b * sh.arm / 2 + 0.001) ** 2 + (BODY.handY * m / H[1]) ** 2));
 }
 
+/* =====================================================================
+   05b2 WEAPONS AND ITEMS (P7). The 14 items of Appendix C ("Weapons, items and hazards"), one row each, drawn by one generator in the hand and loose in the world.
+   cls: light | heavy | two (two-handed) | throwable | carry. dur = hits (landed or blocked) and throw impacts before it breaks; dmg / reach (m beyond the fist) / startup = a held strike;
+   thrown = thrown damage; mat = the debris material when it breaks; sp = the special (read by makeWeaponMove, Combat and MatchSim); burst = it breaks on its first thrown impact; metal = arcs an electric
+   panel (P7-05); len = length along the item's y axis; rest = half thickness when lying; lie = lies flat on the floor (else stands); tilt / hold = how it sits in the hand (lean forward, offset).
+   parts = [mesh, x, y, z, width, height, depth, colour, roughness, tilt about x] in the item's frame: the grip at the origin, +y out of the fist, +z forward. */
+const WEAPONS = {
+  bottle: { name: 'Bottle', cls: 'throwable', dur: 1, dmg: 9, reach: 0.35, startup: 5, thrown: 10, mat: 'glass', sp: 'shatter', burst: 1, len: 0.3, rest: 0.035, lie: 1,
+    parts: [[CY, 0, 0.09, 0, 0.065, 0.18, 0.065, '#2f6b45', 0.2], [CY, 0, 0.23, 0, 0.03, 0.1, 0.03, '#2f6b45', 0.2]] },
+  brick: { name: 'Brick', cls: 'throwable', dur: 3, dmg: 8, reach: 0.25, startup: 6, thrown: 16, mat: 'concrete', sp: 'head', len: 0.2, rest: 0, lie: 0,
+    parts: [[CB, 0, 0.05, 0, 0.1, 0.1, 0.2, '#a0523d', 0.9], [CB, 0, 0.1, 0, 0.09, 0.02, 0.19, '#8d4a38', 0.95]] },
+  binlid: { name: 'Bin lid', cls: 'light', dur: 6, dmg: 6, reach: 0.4, startup: 6, thrown: 8, mat: 'metal', sp: 'shield', len: 0, rest: 0.02, lie: 1, hold: [0.05, 0.1],
+    parts: [[CY, 0, 0, 0, 0.42, 0.03, 0.42, '#7b828c', 0.45, 1.5708], [CY, 0, 0, 0, 0.38, 0.05, 0.38, '#5d636c', 0.5, 1.5708], [CB, 0, 0, -0.04, 0.14, 0.03, 0.03, '#2b2f36', 0.7]] },
+  stick: { name: 'Escrima stick', cls: 'light', dur: 8, dmg: 7, reach: 0.7, startup: 4, thrown: 6, mat: 'wood', sp: 'fast', len: 0.7, rest: 0.02, lie: 1,
+    parts: [[CY, 0, 0.35, 0, 0.032, 0.7, 0.032, '#8a5a2b', 0.8], [CY, 0, 0.06, 0, 0.045, 0.12, 0.045, '#2a2a2e', 0.9]] },
+  bat: { name: 'Baseball bat', cls: 'heavy', dur: 6, dmg: 16, reach: 0.9, startup: 10, thrown: 12, mat: 'wood', sp: 'bigswing', len: 0.9, rest: 0.04, lie: 1,
+    parts: [[CY, 0, 0.13, 0, 0.034, 0.26, 0.034, '#2a2a2e', 0.9], [CY, 0, 0.55, 0, 0.07, 0.58, 0.07, '#c8a56a', 0.7], [SP, 0, 0.85, 0, 0.07, 0.07, 0.07, '#c8a56a', 0.7]] },
+  pipe: { name: 'Steel pipe', cls: 'heavy', dur: 12, dmg: 14, reach: 0.85, startup: 9, thrown: 12, mat: 'metal', sp: '', metal: 1, len: 0.85, rest: 0.03, lie: 1,
+    parts: [[CY, 0, 0.42, 0, 0.045, 0.85, 0.045, '#7d8794', 0.35], [CY, 0, 0.83, 0, 0.06, 0.04, 0.06, '#5d6670', 0.4]] },
+  hammer: { name: 'Hammer', cls: 'heavy', dur: 8, dmg: 15, reach: 0.45, startup: 8, thrown: 14, mat: 'metal', sp: 'smash', len: 0.45, rest: 0.04, lie: 1,
+    parts: [[CY, 0, 0.2, 0, 0.03, 0.4, 0.03, '#8a5a2b', 0.8], [CB, 0, 0.43, 0.02, 0.07, 0.08, 0.2, '#6b7280', 0.4], [CB, 0, 0.43, -0.1, 0.06, 0.05, 0.04, '#9aa3ad', 0.4]] },
+  wrench: { name: 'Pipe wrench', cls: 'heavy', dur: 10, dmg: 13, reach: 0.6, startup: 8, thrown: 12, mat: 'metal', sp: 'pull', len: 0.6, rest: 0.03, lie: 1,
+    parts: [[CY, 0, 0.27, 0, 0.035, 0.54, 0.035, '#b23a2a', 0.5], [CB, 0, 0.58, 0, 0.1, 0.12, 0.035, '#9aa3ad', 0.4], [CB, 0, 0.66, 0, 0.035, 0.06, 0.04, '#2b2f36', 0.5]] },
+  chain: { name: 'Bike chain', cls: 'light', dur: 10, dmg: 9, reach: 1.0, startup: 7, thrown: 8, mat: 'metal', sp: 'wrap', len: 0.7, rest: 0.03, lie: 1,
+    parts: [[CY, 0, 0.04, 0, 0.045, 0.12, 0.045, '#1f2228', 0.8], [CY, 0, 0.33, 0, 0.03, 0.56, 0.03, '#4b5563', 0.3], [SP, 0, 0.66, 0, 0.08, 0.08, 0.08, '#9aa3ad', 0.3]] },
+  chair: { name: 'Folding chair', cls: 'two', dur: 3, dmg: 18, reach: 0.8, startup: 13, thrown: 14, mat: 'metal', sp: 'arc', len: 0.6, rest: 0, lie: 0, hold: [0.2, 0.12],
+    parts: [[CB, 0, 0.25, 0, 0.4, 0.04, 0.4, '#6b7280', 0.5], [CB, 0, 0.47, -0.19, 0.4, 0.4, 0.04, '#6b7280', 0.5], [CB, 0, 0.12, 0.17, 0.36, 0.24, 0.03, '#4b5563', 0.5]] },
+  skateboard: { name: 'Skateboard', cls: 'two', dur: 5, dmg: 12, reach: 0.8, startup: 9, thrown: 10, mat: 'wood', sp: 'trip', len: 0.8, rest: 0.06, lie: 1,
+    parts: [[CB, 0, 0.4, 0, 0.2, 0.8, 0.025, '#c2410c', 0.6], [CB, 0, 0.15, -0.04, 0.17, 0.07, 0.05, '#2b2f36', 0.8], [CB, 0, 0.65, -0.04, 0.17, 0.07, 0.05, '#2b2f36', 0.8]] },
+  broom: { name: 'Broom', cls: 'two', dur: 6, dmg: 7, reach: 1.3, startup: 7, thrown: 6, mat: 'wood', sp: 'sweep', len: 1.3, rest: 0.03, lie: 1,
+    parts: [[CY, 0, 0.65, 0, 0.024, 1.3, 0.024, '#a07a4a', 0.8], [CB, 0, 1.27, 0.03, 0.28, 0.12, 0.07, '#d4b062', 0.95]] },
+  crate: { name: 'Crate', cls: 'carry', dur: 2, dmg: 0, reach: 0, startup: 0, thrown: 20, mat: 'wood', sp: 'crate', burst: 1, len: 0.44, rest: 0, lie: 0, hold: [0, 0.3],
+    parts: [[CB, 0, 0.22, 0, 0.42, 0.42, 0.42, '#9a6a35', 0.85], [CB, 0, 0.22, 0, 0.44, 0.07, 0.44, '#6f4a24', 0.9], [CB, 0, 0.22, 0, 0.07, 0.44, 0.44, '#6f4a24', 0.9]] },
+  extinguisher: { name: 'Fire extinguisher', cls: 'heavy', dur: 4, dmg: 12, reach: 0.5, startup: 10, thrown: 12, mat: 'metal', sp: 'spray', burst: 1, len: 0.5, rest: 0, lie: 0,
+    parts: [[CY, 0, 0.22, 0, 0.1, 0.36, 0.1, '#c81e1e', 0.4], [CY, 0, 0.43, 0, 0.045, 0.08, 0.045, '#1f2228', 0.5], [CB, 0, 0.49, 0.03, 0.03, 0.03, 0.1, '#1f2228', 0.5]] },
+};
+for (const id in WEAPONS) {
+  const w = WEAPONS[id];
+  w.id = id; w.hex = w.parts[0][7]; w.hold = w.hold || [0, 0]; if (w.tilt === undefined) w.tilt = 0.45;
+  w.parts.forEach((p) => { p[7] = C(p[7]); });   // colours resolved once
+}
+const WEAPON_STEPS = { light: 3, heavy: 2, two: 2, throwable: 1, carry: 0 };   // steps of the Punch string by class (the escrima stick gets a 4th for Kali fighters)
+const WEAPON_ARM = 0.8;               // m: the fist's own reach, to which an item's reach is added
+const PICKUP_REACH = 1.0, PICKUP_FEET = 0.55, PICKUP_CONE_COS = Math.cos(70 * Math.PI / 180);   // an item is in reach within 1.0 m in front (70 degrees), or at the feet (within 0.55 m, any side)
+const PICKUP_TICKS = 14, PICKUP_TAKE_TICK = 9;   // the grab lasts 14 ticks and the item is in the hand at tick 9: a hit before that cancels it
+const PICKUP_LOW_BELOW = 0.4, PICKUP_HIGH_FROM = 1.1;   // item heights (m): floor grab below 0.4, waist grab to 1.1, high reach above
+const ITEM_MAX = 12;                  // loose items in a scene; the oldest goes first
+const ITEM_RADIUS = 0.18;             // m: a thrown item hits a fighter this close to its body
+const THROW_SPEED = 11, THROW_SPEED_SLOW = 8, THROW_HAND = 1.3;   // m/s (a crate and a skateboard are slower), release height (m, before the fighter's scale)
+const THROW_LOCK_TICKS = 10, THROW_ANIM_TICKS = 14;
+const BLIND_TICKS = 30, SPRAY_CHARGES = 3, SPRAY_RANGE = 2.0, SPRAY_CONE_COS = Math.cos(40 * Math.PI / 180), CLOUD_RADIUS = 1.6, CRATE_BURST_RADIUS = 1.1;
+const CARRY_WALK = 0.7;               // walk speed share with a crate in the arms (no running)
+const HELD_POSE_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.SIDESTEP];   // calm states that show how an item is held and the throwing arm
+const SHATTER_STUN = 10;              // extra hit-stun ticks of a bottle that shatters on a foe
+const WEAPON_BLOCK_COST = 1.5;        // a weapon hit costs the blocker this much more stamina
+const HAMMER_SMASH = 1000;            // raw damage of a hammer swing on scenery: more than any material holds
+const HEAD_STAND = 1.2, HEAD_CROUCH = 0.85, THROWN_HIT_STUN = 16;   // a thrown brick is a head hit at this height above the foe's feet (m, before scale), standing or crouched; hit-stun of a thrown item
+const CHEST_AIM = 1.05, HEAD_AIM = 1.5, THROW_BLIND_RANGE = 5;   // where a throw is aimed on the target (m, before scale; a brick goes for the head), and how far a throw with no target is aimed
+const ITEM_SLIDE_DRAG = 1.6, ITEM_SLIDE_STOP = 0.8, ITEM_BOUNCE_MIN = 1.5, ITEM_SPIN = 14, ITEM_DEBRIS = 5;   // loose item physics: a sliding skateboard slows by this share per second, a bounce needs this fall speed, tumble rate, pieces of a broken item
+const ITEM_SRC_BASE = -1000000000;   // scenery damage source ids of thrown items: a range of their own (fighter impacts count down from IMPACT_SRC_BASE)
+const ITEM_MARK_RGB = [1.0, 0.85, 0.4];   // the glow disc under a loose item
+const ITEM_BRACKET_RGB = C('#4a505a');    // the steel bracket of a mounted item
+const ITEM_VIEW_SCALE = 1.2, ITEM_VIEW_LIGHT = 0.22;   // a loose item is drawn this much larger, and with this much light of its own
+/* One Punch step of an item: a move row like the bare-hand ones, kept out of ATTACKS (the strong-move tests count it). Heavy and two-handed items have a light step then a strong one; light items 3 (stick 4) tier 1 to 2 steps. */
+function makeWeaponMove(w, n) {
+  const light = w.cls === 'light', strong = (w.cls === 'heavy' || w.cls === 'two') && n === 2;
+  const over = {
+    name: w.name + (strong ? ' Smash' : ' Swing'), btn: 'rp', limb: 'RA', anim: strong ? 'overhand' : light ? ['straight', 'hook', 'overhand', 'hook'][n - 1] : 'hook', h: 'M',
+    tier: strong ? 3 : light && n < 3 ? 1 : 2, cat: strong ? 'heavy' : 'punch', startup: w.startup + (n > 1 ? (light ? -1 : 2) : 0), active: strong ? 4 : 3, recovery: strong ? 24 : light ? 11 : 16,
+    dmg: Math.round(w.dmg * (strong ? 1 : light ? (n >= 3 ? 1.2 : 1) : w.cls === 'throwable' ? 1 : 0.7) * 10) / 10, stam: strong ? 9 : light ? 3 : 6, reach: WEAPON_ARM + w.reach, width: w.sp === 'arc' ? 1.1 : strong ? 0.6 : 0.4,
+    push: strong ? 0.9 : 0.3, hitstun: strong ? (w.sp === 'smash' ? 34 : 24) : light ? 14 : 18, blockstun: strong ? 13 : 9, kind: strong ? (w.sp === 'bigswing' ? 'knockdown' : 'stagger') : 'hit',
+    step: light ? 0.1 : 0.15, wpn: w.id, sp: w.sp, pull: strong && w.sp === 'pull',
+  };
+  if (w.sp === 'sweep' && n === 2) Object.assign(over, { name: 'Broom Sweep', anim: 'straightLow', h: 'L', kind: 'knockdown' });   // the second step is a low sweep that trips
+  return makeAttack(w.id + ':' + n, Object.assign({ gdm: 1.2 }, over));
+}
+const WEAPON_MOVES = {};
+for (const id in WEAPONS) for (let n = 1; n <= WEAPON_STEPS[WEAPONS[id].cls] + (id === 'stick' ? 1 : 0); n++) WEAPON_MOVES[id + ':' + n] = makeWeaponMove(WEAPONS[id], n);
+const PICKUP_MOVES = ['reachLow', 'reachMid', 'reachHigh'].map((anim) => makeAttack('pickup_' + anim, { name: 'Pick up', limb: 'RA', anim, type: 'pickup', ctx: 'pickup', startup: 8, active: 0, recovery: 6, dmg: 0, stam: 0, reach: 0, width: 0, hitstun: 0, blockstun: 0, push: 0, step: 0 }));
+const pickupMoveFor = (y) => PICKUP_MOVES[y < PICKUP_LOW_BELOW ? 0 : y < PICKUP_HIGH_FROM ? 1 : 2];
+const moveById = (id) => ATTACKS[id] || WEAPON_MOVES[id];
+/* The string tables of a fighter holding an item: the move style's rows with every Punch step replaced by the item's step of that position (Kick steps stay the fighter's own), a row with a Punch step beyond
+   the item's string removed (that press starts a new string), and the plain Punch strings P, PP, PPP... of the item whatever the style removed. Built once per style and item. */
+const WEAPON_TABLES = {};
+function weaponTable(styleId, itemId) {
+  const key = styleId + ':' + itemId;
+  if (WEAPON_TABLES[key]) return WEAPON_TABLES[key];
+  const base = stringsFor(styleId), steps = WEAPON_STEPS[WEAPONS[itemId].cls] + (itemId === 'stick' && styleId === 'kali' ? 1 : 0), out = { stand: {}, crouch: {} };
+  for (const side of ['stand', 'crouch']) {
+    for (const keys in base[side]) {
+      if (keys.split('').some((letter, i) => letter === 'P' && i >= steps)) continue;
+      out[side][keys] = base[side][keys].map((id, i) => (keys[i] === 'P' ? itemId + ':' + (i + 1) : id));
+    }
+    for (let n = 1; n <= steps; n++) out[side]['P'.repeat(n)] = Array.from({ length: n }, (unused, i) => itemId + ':' + (i + 1));
+  }
+  return (WEAPON_TABLES[key] = out);
+}
+/* The item's parts in the current matrix (the hand's, or the world's). */
+function drawWeapon(w, fl, em = 0) {
+  for (const p of w.parts) {
+    if (p[9]) { FMS.push(); FMS.t(p[1], p[2], p[3]); FMS.rx(p[9]); part(p[0], 0, 0, 0, p[4], p[5], p[6], p[7], em, p[8], fl); FMS.pop(); }
+    else part(p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], em, p[8], fl);
+  }
+}
+const newHeld = (id) => ({ id, dur: WEAPONS[id].dur, sprays: SPRAY_CHARGES });   // what a fighter holds (and what a loose item keeps of its state)
+
 class Fighter {
   constructor(profile, index, team) {
     this.profile = profile;
@@ -4380,6 +4496,7 @@ class Fighter {
     this.pinnedBy = null; this.submitDone = false; this.holdRest = false; this.holdTicks = 0; this.holdContest = 0; this.holdDamage = 0; this.holdHp = 0; this.grapplePressed = false; this.prevGrapple = false; this.tackleUsed = false;   // submission (holder: partner, hold*; victim: pinnedBy) and tackle
     this.sideDir = 0; this.swayDir = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.assist = false;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
+    this.item = null; this.blind = 0; this.throwAnim = 0; this.pickup = null; this.useBuffer = 0; this.useCrouch = false;   // P7: useBuffer / useCrouch = a Use press waiting to be used and whether Crouch was held; item = what the fighter holds ({ id, dur, sprays }), blind = ticks left, throwAnim = ticks of the throwing arm, pickup = the loose item being grabbed
     this.pose.set(this.motion.guard); this.tp.set(this.motion.guard);
     this.alive = true;
     this.lastFoe = null; this.target = null;   // lastFoe: who dealt the last damage (combo and scenery credit); target: who this fighter acts against, set every tick by MatchSim.assignTargets
@@ -4424,7 +4541,14 @@ class Fighter {
     }
   }
 
-  get strings() { return stringsFor(moveStyleFor(this.profile)); }   // the attack strings of this fighter's move style (P3-10)
+  get strings() {   // the attack strings of this fighter's move style (P3-10); with an item in hand its Punch steps are the item's (P7-04)
+    const style = moveStyleFor(this.profile);
+    return this.item && this.itemDef.cls !== 'carry' ? weaponTable(style, this.item.id) : stringsFor(style);
+  }
+  get itemDef() { return this.item ? WEAPONS[this.item.id] : null; }
+  get carrying() { return !!this.item && this.itemDef.cls === 'carry'; }
+  get guardMode() { return this.item && this.item.id === 'binlid' ? 'block' : this.defense; }   // the bin lid is a shield: a Sway fighter holding it blocks
+  get maxSteps() { return this.item && this.item.id === 'stick' && moveStyleFor(this.profile) === 'kali' ? STRING_MAX_STEPS + 1 : STRING_MAX_STEPS; }
   get lowStamina() { return this.stam < this.maxStam * LOW_STAMINA; }
   get airborne() { return this.y > this.groundY + 0.05; }
   get fwdX() { return Math.sin(this.yaw); }
@@ -4452,13 +4576,14 @@ class Fighter {
     if (TERMINAL_STATES.includes(next) || next === S.CLINCH || next === S.GRAPPLE || next === S.SUBMIT || next === S.THROWN) { this.buffer = null; this.bufferNext = null; this.throwPressed = false; }
     if (STRING_BREAK_STATES.includes(next)) this.resetString();
     if (next !== S.ATTACK && prev === S.ATTACK) this.move = null;
+    if (this.item && (next === S.THROWN || next === S.DOWN || next === S.KO)) this.dropHeld();   // any knockdown (a flight, or lying down after a fall), throw or knock-out disarms (P7-04)
     return true;
   }
   /* A string ends when this fighter is hit, grabbed, thrown, knocked down or out. */
   resetString() { this.stringKeys = ''; this.stringLow = false; this.stringTick = -ATTACK_STRING_TICKS - 1; }
   to(next) { if (this.state !== next) this.setState(next); }
   faceOpponent(opp, maxTurn) {
-    if (!opp) return;
+    if (!opp || this.blind > 0) return;   // a blinded fighter cannot follow its foe
     const want = Math.atan2(opp.x - this.x, opp.z - this.z);
     this.yaw = wrapAngle(this.yaw + clamp(wrapAngle(want - this.yaw), -maxTurn, maxTurn));
   }
@@ -4489,6 +4614,7 @@ class Fighter {
   resolveMove(buf) {
     if (buf.btn === 'grapple') return null;   // grabs start from tryBufferedAttack, never from a chain
     const punch = buf.btn === 'punch';
+    if (punch && this.carrying) return null;   // a crate in the arms: no strikes (Kick still works)
     const context = (mv) => ({ mv, keys: '', low: false, cont: false, tick: buf.tick });
     if (this.state === S.JUMP || this.airborne) return context(punch ? ATTACKS.jump_punch : ATTACKS.jump_kick);
     if (this.counterWindow > 0 && !buf.height) return context(punch ? ATTACKS.counter_strike : ATTACKS.counter_kick);   // a Crouch press keeps its own move
@@ -4503,22 +4629,28 @@ class Fighter {
     const letter = buf.btn === 'punch' ? 'P' : 'K';
     let keys = letter, low = buf.height;
     const stringWindow = this.assist ? ATTACK_STRING_TICKS * ASSIST_STRING_WINDOW : ATTACK_STRING_TICKS;
-    const open = this.stringKeys !== '' && this.stringKeys.length < STRING_MAX_STEPS && (this.moveConnected || this.assist) && buf.tick - this.stringTick <= stringWindow;
+    const open = this.stringKeys !== '' && this.stringKeys.length < this.maxSteps && (this.moveConnected || this.assist) && buf.tick - this.stringTick <= stringWindow;
     const stillLow = this.stringLow && buf.height;
     // a crouch string only continues on a crouch row (crouch P then crouch K starts over), so no strong move hides off the tables
     const table = this.strings;
     const row = stillLow ? table.crouch[this.stringKeys + letter] : table.stand[this.stringKeys + letter];
     if (open && row) { keys = this.stringKeys + letter; low = stillLow; }
-    return { mv: ATTACKS[stringRow(keys, low, table)[keys.length - 1]], keys, low, cont: keys.length > 1, tick: buf.tick };
+    return { mv: moveById(stringRow(keys, low, table)[keys.length - 1]), keys, low, cont: keys.length > 1, tick: buf.tick };
   }
   /* The move a Punch / Kick press (Crouch held or not) would play right now. The AI and touch auto-height read it. */
-  pressMove(kind, height) { return this.resolveMove({ btn: kind, height, tick: this.age + 1 }).mv; }   // the press is buffered on the next update, one tick later
+  pressMove(kind, height) {   // the press is buffered on the next update, one tick later
+    const pick = this.resolveMove({ btn: kind, height, tick: this.age + 1 });
+    return pick ? pick.mv : ATTACKS.jab;   // no pick: a Punch with a crate in the arms does nothing, the jab only stands in for the callers that read a height
+  }
   tryBufferedAttack(it) {
     const buf = this.buffer;
     if (!buf) return false;
     if (buf.btn === 'grapple' && (this.state === S.JUMP || this.airborne)) return false;   // keep a grab press for the landing
     this.shiftBuffer();
-    if (buf.btn === 'grapple') { this.grabDir = buf.grapDir; this.grabLow = buf.low || this.state === S.CROUCH; return this.startGrab(); }
+    if (buf.btn === 'grapple') {
+      this.dropBothHands();
+      this.grabDir = buf.grapDir; this.grabLow = buf.low || this.state === S.CROUCH; return this.startGrab();
+    }
     const pick = this.resolveMove(buf);
     if (!pick) return false;
     this.startAttack(pick.mv, pick);
@@ -4588,7 +4720,11 @@ class Fighter {
       const v = mv.step / (this.mStartup * FIXED_DT);
       this.vx = this.fwdX * v; this.vz = this.fwdZ * v;
     } else { this.vx *= 0.5; this.vz *= 0.5; }
-    if (t === this.mStartup + 1) Events.emit('attackActive', { f: this, mv });
+    if (t === this.mStartup + 1) {
+      if (mv.type === 'pickup') { if (match) match.takeItem(this, this.pickup); }   // the item is in the hand: a hit before this tick cancelled the grab and left it where it was
+      else Events.emit('attackActive', { f: this, mv });
+      if (mv.sp === 'spray' && match) match.spray(this);
+    }
     const total = this.mStartup + this.mActive + this.mRecovery + this.whiffExtra;
     if (t === this.mStartup + this.mActive + 1 && !this.moveConnected && mv.tier === 3 && mv.type === 'strike') this.whiffExtra = 8; // recovery risk of strong moves
     // chain into the next legal attack once this one connected (hit or block); the next step of an attack string may go from strong to light
@@ -4622,6 +4758,34 @@ class Fighter {
     this.setState(S.SIDESTEP);
     Events.emit('sidestep', { f: this, dir });
   }
+  /* ----- items (P7-02, P7-03): one Use press. Holding an item: Crouch + Use drops it, Use throws it at the locked target (else the way the fighter faces).
+     Empty-handed with an item in reach: a 14-tick grab whose pose follows the item's height. Anything else does nothing. Returns true when the press was used. */
+  tryUse(match) {
+    if (this.useBuffer <= 0 || !match) return false;
+    this.useBuffer = 0;   // one press, used or not, once the fighter is free
+    if (this.item) {
+      if (this.useCrouch) match.dropItem(this); else match.throwItem(this);
+      this.lock = THROW_LOCK_TICKS;
+      return true;
+    }
+    const found = match.itemInReach(this);
+    return !!found && this.startPickup(found);
+  }
+  startPickup(found) {
+    const mv = pickupMoveFor(found.y - this.y);
+    if (!this.startAttack(mv)) return false;
+    this.pickup = found;
+    this.mStartup = PICKUP_TAKE_TICK - 1; this.mActive = 0; this.mRecovery = PICKUP_TICKS - this.mStartup;   // fixed 14 ticks, whatever the fighter's speed
+    this.vx = this.vz = 0;
+    return true;
+  }
+  /* A grab or a hold needs both hands: a two-handed item or a crate goes down first. */
+  dropBothHands() { if (this.item && (this.itemDef.cls === 'two' || this.itemDef.cls === 'carry')) this.dropHeld(); }
+  /* The held item goes to the floor at the fighter's feet (Crouch + Use, a disarm, a Grapple with both hands needed). */
+  dropHeld() {
+    const match = Match.current;
+    if (match && match.fighters[this.index] === this) match.dropItem(this); else this.item = null;
+  }
 
   /* ----- per-tick logic ----- */
   update(it, opp, match) {
@@ -4634,6 +4798,8 @@ class Fighter {
     if (this.noRegen > 0) this.noRegen--;
     if (this.exhaust > 0) this.exhaust--;
     if (this.counterWindow > 0) this.counterWindow--;
+    if (this.blind > 0) this.blind--;
+    if (this.throwAnim > 0) this.throwAnim--;
     if (this.escapeLock > 0) this.escapeLock--;
     if (this.clinchStrikeCd > 0) this.clinchStrikeCd--;
     this.tickBoost();
@@ -4645,9 +4811,10 @@ class Fighter {
     this.grapplePressed = it.grapple && !this.prevGrapple;   // a fresh Grapple press: the hold contest counts presses, not holding
     this.prevGrapple = it.grapple;
     // a Sway press is kept a few ticks; a press while down is a quick recovery, never a sway after getting up
-    if (this.defendPressed && this.defense === 'sway' && this.state !== S.DOWN) this.swayBuffer = SWAY_BUFFER_TICKS;
+    if (this.defendPressed && this.guardMode === 'sway' && this.state !== S.DOWN) this.swayBuffer = SWAY_BUFFER_TICKS;
     else if (this.swayBuffer > 0) this.swayBuffer--;
     this.assist = it.assist === true;   // Auto-assist: read by pickString
+    if (it.use) { this.useBuffer = BUFFER_TICKS; this.useCrouch = !!it.crouch; } else if (this.useBuffer > 0) this.useBuffer--;   // a Use press waits for the fighter to be free, like an attack press (P7-03)
     this.bufferInput(it);
     this.regenerate();
     const attackBefore = this.moveId;
@@ -4708,6 +4875,7 @@ class Fighter {
     this.faceOpponent(opp, 14 * FIXED_DT);
     if (this.blockStun > 0) { this.blockStun--; this.vx = this.vz = 0; return; }
     if (this.lock === 0) {
+      if (this.tryUse(match)) return;
       if (this.swayBuffer > 0 && this.stam >= SWAY_COST && !this.airborne) { this.swayBuffer = 0; this.startSway(it); return; }   // a fresh press only: a held Defend never repeats
       if (this.trySubmission(opp, match)) return;   // Grapple next to a downed foe holds them instead of grabbing
       if (this.tryBufferedAttack(it)) return;
@@ -4715,16 +4883,16 @@ class Fighter {
       if (it.sidestep && this.exhaust === 0 && this.stam >= SIDESTEP_COST) { this.startSidestep(it.sidestep); return; }
     }
     let target = S.IDLE;
-    if (it.defend && this.defense === 'block') target = it.crouch ? S.BLOCK_L : S.BLOCK_H; else if (it.crouch) target = S.CROUCH;   // Block: standing = high + mid guard, Crouch + Defend = low guard; a Sway fighter has no hold-guard
+    if (it.defend && this.guardMode === 'block') target = it.crouch ? S.BLOCK_L : S.BLOCK_H; else if (it.crouch) target = S.CROUCH;   // Block: standing = high + mid guard, Crouch + Defend = low guard; a Sway fighter has no hold-guard
     let fwd = it.fwd, side = it.side;
     const mag = Math.hypot(fwd, side);
     if (mag > 1) { fwd /= mag; side /= mag; }
     const moving = mag > 0.12;
-    if (target === S.IDLE && moving) target = (it.run && fwd > 0.5 && this.stam > 3 && this.exhaust === 0) ? S.RUN : S.WALK;
+    if (target === S.IDLE && moving) target = (it.run && fwd > 0.5 && this.stam > 3 && this.exhaust === 0 && !this.carrying) ? S.RUN : S.WALK;
     this.to(target);
     if (it.noParry) this.blockFresh = false;   // a CPU block it chose not to time as a parry
-    let speed = 0, mul = 1;
-    if (target === S.CROUCH) mul = CROUCH_FACTOR; else if (isBlockState(target)) mul = BLOCK_FACTOR;
+    let speed = 0, mul = this.carrying ? CARRY_WALK : 1;
+    if (target === S.CROUCH) mul *= CROUCH_FACTOR; else if (isBlockState(target)) mul *= BLOCK_FACTOR;
     if (target === S.RUN) {
       speed = RUN_SPEED;
       this.stam = Math.max(0, this.stam - RUN_DRAIN * FIXED_DT);
@@ -4805,6 +4973,7 @@ class Fighter {
     const buf = this.buffer;
     if (!buf || buf.btn !== 'grapple' || !Combat.canSubmit(this, opp, match)) return false;
     this.buffer = null; this.bufferNext = null;
+    this.dropBothHands();
     return Combat.startSubmission(this, opp, match);
   }
   /* Victim side: every fresh Defend press pushes toward the escape (the holder's Grapple presses and the drift push back, see updateSubmit). */
@@ -5124,6 +5293,7 @@ class Fighter {
         break;
       default: break;
     }
+    if (HELD_POSE_STATES.includes(this.state)) { if (this.item) this.heldPose(p); if (this.throwAnim > 0) this.throwPose(p); }
     if (this.boostTicks > 0 && BOOST_POSE_STATES.includes(this.state) && !this.throwFollow) this.boostPose(p, t);
     const pose = this.pose;
     pose[J.bodyYaw] = wrapAngle(pose[J.bodyYaw]);   // a spinning kick ends a full circle round: the next state blends from 0, not back through the turn
@@ -5149,6 +5319,18 @@ class Fighter {
     p[J.shLz] += 0.1; p[J.shRz] += 0.1; p[J.headX] += 0.1;
     p[J.torsoLean] += 0.04 * breath * amount;
     p[J.knL] += 0.03 * (0.5 + 0.5 * breath) * amount; p[J.knR] += 0.03 * (0.5 + 0.5 * breath) * amount;
+  }
+  /* An item in hand (visual): one hand on a one-handed item, both on a two-handed one, a crate held out in front. */
+  heldPose(p) {
+    const cls = this.itemDef.cls;
+    if (cls === 'carry') { p[J.shLx] = 1.0; p[J.shRx] = 1.0; p[J.elL] = 0.8; p[J.elR] = 0.8; p[J.shLz] = -0.3; p[J.shRz] = -0.3; p[J.torsoLean] += 0.08; }
+    else if (cls === 'two') { p[J.shRx] = 1.2; p[J.elR] = 1.0; p[J.shLx] = 1.1; p[J.elL] = 1.2; p[J.shLz] = -0.2; }
+    else { p[J.shRx] = 1.15; p[J.elR] = 1.15; }
+  }
+  /* The throwing arm after a release: out and forward, back to the guard over THROW_ANIM_TICKS. */
+  throwPose(p) {
+    const u = this.throwAnim / THROW_ANIM_TICKS;
+    p[J.shRx] = lerp(p[J.shRx], 2.3, u); p[J.elR] = lerp(p[J.elR], 0.2, u); p[J.torsoLean] += 0.2 * u;
   }
   /* Held in a clinch; while a throw runs the pose follows the carry path (pitch / roll), arms flailing. */
   clinchPose(p, t) {
@@ -5306,6 +5488,12 @@ class Fighter {
       ms.t(0, -BODY.foreLen, 0);
       part(MESH.SPHERE, 0, -BODY.handY, 0.01, H[0] * hand, H[1] * hand, H[2] * hand, col[H[4]], 0, H[5], fl);
       this.pieces(this.extra, 'x', s, fl);
+      if (s < 0 && this.item && DRAW_NOW) {   // the right hand holds the item: its +y runs on out of the fist, leaning forward
+        const w = this.itemDef;
+        ms.push(); ms.rz(Math.PI); ms.rx(w.tilt); ms.t(0, w.hold[0], w.hold[1]);
+        drawWeapon(w, fl);
+        ms.pop();
+      }
       const q = ms.m, hi = s > 0 ? 9 : 12;
       pts[hi] = q[12]; pts[hi + 1] = q[13]; pts[hi + 2] = q[14];
       ms.pop();
@@ -5406,6 +5594,13 @@ const Combat = {
     def.gainMomentum(dmg * MOMENTUM_PER_DAMAGE * MOMENTUM_TAKEN_RATIO);
   },
 
+  /* Whether att may strike or hit def with a thrown item at all, whatever the move: not while def is invulnerable, out, held in a submission by somebody else, in its wake-up grace, in a clinch
+     or grapple, or flying in a knockdown (a juggle excepted). Normal strikes (evaluate) and thrown items (MatchSim.itemStrike) both ask it. Grabs skip the wake-up grace and the clinch states. */
+  strikable(att, def) {
+    if (def.invuln > 0 || TERMINAL_STATES.includes(def.state) || (def.pinnedBy && def.pinnedBy !== att)) return false;
+    if (def.strikeGrace > 0 || def.state === S.CLINCH || def.state === S.GRAPPLE) return false;
+    return def.state !== S.THROWN || (def.juggle && def.juggleCount < JUGGLE_LIMIT);
+  },
   /* Decide what the attacker's active move would do to the defender this tick (no side effects). */
   evaluate(att, def) {
     const mv = att.move;
@@ -5424,10 +5619,8 @@ const Combat = {
       if (st === S.DOWN || st === S.GETUP || st === S.THROWN || st === S.CLINCH || st === S.GRAPPLE || st === S.SUBMIT || def.y > 0.5 || att.y > 0.3) return null;   // nobody grabs a holder or the held fighter (DOWN)
       return { type: 'grab', att, def, mv };
     }
-    if (def.strikeGrace > 0) return null;   // wake-up grace: strikes only (grabs were handled above)
-    if (st === S.CLINCH || st === S.GRAPPLE) return null;
+    if (!this.strikable(att, def)) return null;   // wake-up grace, a clinch or a knockdown flight: strikes only (grabs were handled above)
     if (st === S.DOWN) return mv.h === 'L' && def.groundHits < 1 ? { type: 'ground', att, def, mv } : null;
-    if (st === S.THROWN && (!def.juggle || def.juggleCount >= JUGGLE_LIMIT)) return null;
     const crouched = st === S.CROUCH || st === S.BLOCK_L;
     if (mv.h === 'H' && crouched) return null;
     if (mv.h === 'L' && def.y > 0.35) return null;
@@ -5526,7 +5719,65 @@ const Combat = {
     }
     if (def.wallHit) { att.kx = -dirx * v0 * 0.45; att.kz = -dirz * v0 * 0.45; }
     match.hitStop = Math.max(match.hitStop, hs);
+    if (def.item && mv.tier === 3) def.dropHeld();   // a strong step that lands disarms (knockdowns and knock-outs do it in setState)
+    if (mv.wpn) this.weaponHit(att, def, mv, match, false);
     Events.emit('hit', { att, def, mv, dmg, counter, x: pos.x, y: pos.y, z: pos.z, dirx, dirz, kind: mv.kind, combo: att.comboHits, ko: def.state === S.KO });
+  },
+
+  /* A weapon move connected (P7-04): the item pays 1 durability, landed or blocked, and breaks at 0. A bottle that lands adds SHATTER_STUN to the stun; the last step of a wrench pulls the foe into a clinch. */
+  weaponHit(att, def, mv, match, blocked) {
+    const held = att.item;
+    if (held && held.id === mv.wpn && --held.dur <= 0) match.breakHeld(att);
+    if (blocked) return;
+    if (mv.sp === 'shatter' && (def.state === S.HIT || def.state === S.STAGGER)) def.reactDur += SHATTER_STUN;
+    if (mv.pull && def.alive && att.state === S.ATTACK) this.startClinch(att, def, match);
+  },
+  /* A thrown item meets a guard (P7-03): a Block facing the item stops it (a skateboard on the floor needs the low guard, Crouch + Defend) and pays 1.5 times the stamina of a weapon block, nothing
+     for a perfect block; a held bin lid pays nothing and 1 durability. The item does no damage. Returns true when the item was stopped. */
+  itemBlock(it, def, match) {
+    const w = WEAPONS[it.id], low = it.mode === 'slide';
+    if (def.state !== (low ? S.BLOCK_L : S.BLOCK_H) || def.fwdX * -it.vx + def.fwdZ * -it.vz <= 0) return false;
+    const perfect = def.blockFresh && def.stateTicks <= PERFECT_BLOCK_TICKS, shield = !!def.item && def.item.id === 'binlid';
+    const dirx = it.vx / (Math.hypot(it.vx, it.vz) || 1), dirz = it.vz / (Math.hypot(it.vx, it.vz) || 1);
+    if (!perfect && !shield) def.stam = Math.max(0, def.stam - w.thrown * 0.9 * (1 + 0.15 * def.guardPressure) * def.stats.taken * def.stats.guard * WEAPON_BLOCK_COST);
+    if (shield && --def.item.dur <= 0) match.breakHeld(def);
+    if (perfect) def.counterWindow = COUNTER_WINDOW_PERFECT; else { def.guardPressure++; def.noRegen = 50; }
+    def.flash = 0.5;
+    match.hitStop = Math.max(match.hitStop, 3);
+    const mv = { id: 'throw_' + w.id, name: w.name + ' (thrown)', tier: 2, cat: 'punch', h: low ? 'L' : 'M', kind: 'hit', hitStop: 3, active: 1, recovery: 0, hitstun: 0, blockstun: 8 };
+    Events.emit('block', { att: it.owner, def, mv, perfect, broke: false, x: it.x, y: it.y, z: it.z, dirx, dirz });
+    return true;
+  },
+  /* A thrown item meets a fighter (P7-03; MatchSim.stepItems decides who and when). Thrown damage, no block or sway (the caller skips i-frames). A brick to the head, a crate and a skateboard
+     (feet only) knock down; a bottle adds SHATTER_STUN. The caller handles the item itself (durability, bursting, where it lands). */
+  itemHit(it, def, match) {
+    const w = WEAPONS[it.id], att = it.owner, speed = Math.hypot(it.vx, it.vz) || 1, dirx = it.vx / speed, dirz = it.vz / speed;
+    const head = w.sp === 'head' && it.y - def.y >= (def.state === S.CROUCH || def.state === S.BLOCK_L ? HEAD_CROUCH : HEAD_STAND) * def.scale;
+    const kind = w.sp === 'crate' || w.sp === 'trip' || head ? 'knockdown' : 'hit';
+    const mv = { id: 'throw_' + w.id, name: w.name + ' (thrown)', tier: kind === 'knockdown' ? 3 : 2, cat: w.cls === 'carry' || w.sp === 'head' ? 'heavy' : 'punch', h: w.sp === 'trip' ? 'L' : 'M', kind, hitStop: kind === 'knockdown' ? 9 : 6 };
+    if (def.partner) { if (def.partner.partner === def) def.partner.partner = null; def.partner = null; }   // never a clinch partner of anybody after this (the caller does not hit a clinched fighter)
+    this.claimCombo(att, def);
+    const dmg = Math.max(1, Math.round(w.thrown * att.stats.damage * att.boostMult() * def.stats.taken * (kind === 'hit' ? 1 : def.stats.impact) * 10) / 10);
+    def.hp = Math.max(0, def.hp - dmg);
+    if (match.floorHp(def) > def.hp) def.hp = match.floorHp(def);
+    if (def.gotHits === 0) { att.comboHits = 0; att.comboDamage = 0; def.gotDamage = 0; }
+    def.gotHits++; def.calmTicks = 0; att.comboHits = def.gotHits; att.comboDamage += dmg; def.gotDamage += dmg; att.comboShow = 100;
+    this.momentum(att, def, dmg);
+    def.flash = 1; def.blockStun = 0; def.counterWindow = 0; def.hitKind = head || w.sp === 'crate' ? 'high' : 'mid'; def.hitDirX = dirx; def.hitDirZ = dirz;
+    if (def.hp <= 0) this.knockOut(def, att, mv, match);
+    else if (kind === 'knockdown') {
+      def.setState(S.THROWN);
+      def.lieSign = 1; def.downMult = 1; def.throwPitch = 0; def.throwRoll = 0; def.juggle = false;
+      def.flightId = ++this.flightCounter;
+      def.vy = 2.6; def.y = Math.max(def.y, def.groundY) + 0.02;
+      def.kx = dirx * 4; def.kz = dirz * 4;
+    } else {
+      def.reactDur = Math.round(THROWN_HIT_STUN * def.stats.stun) + (w.sp === 'shatter' ? SHATTER_STUN : 0);
+      def.setState(S.HIT);
+      def.kx = dirx * 0.6 * KNOCK_DAMP; def.kz = dirz * 0.6 * KNOCK_DAMP;
+    }
+    match.hitStop = Math.max(match.hitStop, mv.hitStop);
+    Events.emit('hit', { att, def, mv, dmg, counter: false, x: it.x, y: it.y, z: it.z, dirx, dirz, kind, combo: att.comboHits, ko: def.state === S.KO });
   },
 
   groundHit(d, match) {
@@ -5543,6 +5794,7 @@ const Combat = {
     match.hitStop = Math.max(match.hitStop, 4);
     if (def.hp <= 0) this.knockOut(def, att, mv, match);
     Events.emit('hit', { att, def, mv, dmg, counter: false, x: pos.x, y: pos.y, z: pos.z, dirx: att.fwdX, dirz: att.fwdZ, kind: 'ground', combo: 1, ko: def.state === S.KO });
+    if (mv.wpn) this.weaponHit(att, def, mv, match, false);
   },
 
   /* Block damage never takes the last point of health, and never adds health: a fighter already below 1 hp stays where they are (D25: Math.max(1, ...) used to lift 0.6 hp to 1). */
@@ -5564,7 +5816,9 @@ const Combat = {
       att.kx = -dirx * 1.4 * KNOCK_DAMP * 0.5; att.kz = -dirz * 1.4 * KNOCK_DAMP * 0.5;
       match.hitStop = Math.max(match.hitStop, 8);
     } else {
-      const cost = mv.dmg * mv.gdm * 0.9 * (1 + 0.15 * def.guardPressure) * (mv.gb ? 2.2 : 1) * def.stats.taken * def.stats.guard;
+      const shield = !!def.item && def.item.id === 'binlid';   // a held bin lid takes the stamina cost of a block in front on itself, and 1 durability
+      const cost = shield ? 0 : mv.dmg * mv.gdm * 0.9 * (1 + 0.15 * def.guardPressure) * (mv.gb ? 2.2 : 1) * def.stats.taken * def.stats.guard * (mv.wpn ? WEAPON_BLOCK_COST : 1);
+      if (shield && --def.item.dur <= 0) match.breakHeld(def);
       def.stam = Math.max(0, def.stam - cost);
       def.guardPressure++;
       def.noRegen = 50;
@@ -5585,7 +5839,9 @@ const Combat = {
         match.hitStop = Math.max(match.hitStop, 3);
       }
     }
+    if (mv.sp === 'wrap' && !perfect) this.chipDamage(def, mv.dmg * att.damageMult(mv) * 0.5 * def.stats.taken);   // a chain wraps the guard: half its damage gets through
     Events.emit('block', { att, def, mv, perfect, broke, x: pos.x, y: pos.y, z: pos.z, dirx, dirz });
+    if (mv.wpn) this.weaponHit(att, def, mv, match, true);
   },
 
   /* A strike met a swaying fighter's i-frames: it whiffs (the attacker's string does not continue). A perfect sway also opens one
@@ -5606,7 +5862,7 @@ const Combat = {
     const mv = att.move;
     const cx = att.x + att.fwdX * mv.reach * att.stats.reach * 0.8, cz = att.z + att.fwdZ * mv.reach * att.stats.reach * 0.8;
     const cy = (mv.h === 'H' ? 1.4 : mv.h === 'M' ? 1.0 : 0.35) + att.y; // body height is cosmetic, so it must not move the hit height
-    const raw = mv.dmg * att.damageMult(mv) / att.boostMult();   // the momentum boost is for fighters, not scenery
+    const raw = mv.sp === 'smash' ? HAMMER_SMASH : mv.dmg * att.damageMult(mv) / att.boostMult();   // the momentum boost is for fighters, not scenery; a hammer breaks any destructible in one hit
     const n = Arena.hitSphere(cx, cy, cz, 0.4, att.moveId, raw, mv.cat, att.fwdX, att.fwdZ, att.index);
     if (n > 0) match.hitStop = Math.max(match.hitStop, 3);
     return n;
@@ -6524,6 +6780,9 @@ const RETREAT_RECOVER_STAM = 0.6;     // ... until its stamina is back to this s
 const RETREAT_MIN_TICKS = 120;
 const RETREAT_MAX_TICKS = 300;        // ... and never longer than this, so a group of hurt fighters cannot all hide and stall the fight
 const RETREAT_COOLDOWN_TICKS = 600;   // before the same fighter may back off again
+const AI_PICKUP_RANGE = 2.5;          // m: a CPU fetches a floor item this close (P7-06)
+const AI_PICKUP_STOP = 0.45;          // m: it walks onto the item, because it faces its target and the item has to be at its feet or in front
+const AI_THROW_MIN = 3, AI_THROW_MAX = 8;   // m: the target distances at which a CPU throws a throwable or a crate
 const ATTACK_PLAN_KINDS = ['attack', 'grab', 'submit', 'jumpkick'];   // the plans that start an attack on the target: they need a token in a crowd
 
 class AIController {
@@ -6540,6 +6799,7 @@ class AIController {
     this.threatId = -1; this.threatResp = null; this.earlyRoll = null; this.edgeWait = 0; this.breakGrabId = -1; this.punishId = -1; this.punishYes = false; this.steerSide = 1;
     this.oppRecent = []; this.lastOppMoveId = 0; this.counterTried = false; this.clinchPlan = null; this.tickNo = 0;
     this.crowd = null;   // the match's CrowdDirector, set every tick by think()
+    this.match = null;   // and the match (P7: the items on its floor)
   }
   /* ----- group AI (P4-02): see CrowdDirector ----- */
   /* False only for a fighter that shares its target with other AI fighters and holds no attack token. A 1v1 (or a lone attacker) always may. */
@@ -6547,9 +6807,31 @@ class AIController {
   /* Most steps a fighter chains after its first move: 3 in a duel; a token holder in a crowd stops after TOKEN_CHAIN_LIMIT (a whole string from each of several attackers is what overwhelms a lone target). */
   chainLimit(f) { const c = this.crowd; return c && c.engaged[f.index] ? Math.min(3, TOKEN_CHAIN_LIMIT[this.d.id]) : 3; }
   waitsOnRing(f) { const c = this.crowd; return !!c && c.engaged[f.index] && !c.token[f.index]; }
-  /* P7 hooks, no behaviour yet: a weapon within reach of the fight may be worth a walk (a plan that fetches it), and a hazard (a breakable, a drop) may be worth luring the
-     target toward. Each returns a plan like the ones decide() builds, or null. decideRing() asks the pickup hook, decide() the hazard hook. */
-  considerPickup(f, opp, dist) { return null; }
+  /* P7 hooks. considerPickup (P7-06): an empty-handed fighter that holds no attack token fetches a floor item within AI_PICKUP_RANGE that is closer than its target (or uses one already in reach); a fighter holding a throwable
+     throws it when the target is AI_THROW_MIN to AI_THROW_MAX away (a crate: up to AI_THROW_MAX, even point-blank). No item in the scene = null and no random number drawn, so a match without items plays as before.
+     considerHazard (P7-05, not built yet) will say whether a hazard is worth luring the target toward. Each returns a plan like the ones decide() builds, or null. decideRing() and decide() ask the pickup hook, decide() the hazard hook. */
+  considerPickup(f, opp, dist) {
+    const match = this.match;
+    if (!match || !f.alive || (this.crowd && this.crowd.token[f.index])) return null;
+    if (f.item) return this.considerThrow(f, opp, dist);
+    if (!match.items.length) return null;
+    const near = match.itemInReach(f);
+    if (near && this.wantsItem(f, near)) return { kind: 'pickup', ticks: 12, item: near };
+    let best = null, bestDist = AI_PICKUP_RANGE;
+    for (const loose of match.items) {
+      if (loose.mode !== 'rest' || loose.y >= PICKUP_LOW_BELOW || !this.wantsItem(f, loose)) continue;   // the CPU walks to floor items only: it turns toward its target, not toward a rack
+      const gap = Math.hypot(loose.x - f.x, loose.z - f.z);
+      if (gap < bestDist && gap < dist) { bestDist = gap; best = loose; }
+    }
+    return best ? { kind: 'pickup', ticks: 90, item: best } : null;
+  }
+  wantsItem(f, loose) { return loose.id !== 'binlid' || f.defense === 'block'; }   // the lid turns a Sway fighter's dodge into a block: a CPU that sways leaves it
+  considerThrow(f, opp, dist) {
+    const w = f.itemDef;
+    if (w.cls !== 'throwable' && w.cls !== 'carry') return null;
+    if (w.cls === 'carry') return dist <= AI_THROW_MAX ? { kind: 'throw', ticks: 4, fired: false } : { kind: 'walk', ticks: this.d.interval, away: false, run: false };   // a crate cannot strike: thrown at any range (point-blank it knocks down), else carried toward the target
+    return dist >= AI_THROW_MIN && dist <= AI_THROW_MAX ? { kind: 'throw', ticks: 4, fired: false } : null;   // every other class strikes with its Punch string
+  }
   considerHazard(f, opp, dist) { return null; }
   /* True while the target is coming for this fighter: it attacks, or closes in on it faster than RING_CHASE_SPEED. A pressed waiter holds its ground (see ringStep). */
   pressedBy(f, opp) {
@@ -6675,6 +6957,7 @@ class AIController {
 
   think(f, opp, match, it) {
     this.crowd = match && match.crowd ? match.crowd : null;
+    this.match = match || null;
     this.chooseIntent(f, opp, match, it);
     this.holdAtEdge(f, it);
     if (it.run && this.waitsOnRing(f) && Math.hypot(opp.x - f.x, opp.z - f.z) < RING_NO_RUN_DIST) it.run = false;   // no charge at the target without a token
@@ -6839,8 +7122,8 @@ class AIController {
     for (const btn of ['punch', 'kick']) {
       for (const height of [false, true]) {
         const pick = f.resolveMove({ btn, height, tick: f.age + 1 });   // the press is buffered on the next update, one tick later
-        const mv = pick.mv;
-        if (mv.type === 'strike' && !mv.ctx && !list.some((c) => c.mv === mv)) list.push({ mv, btn, height, cont: pick.cont });
+        const mv = pick && pick.mv;   // no pick: a Punch with a crate in the arms
+        if (mv && mv.type === 'strike' && !mv.ctx && !list.some((c) => c.mv === mv)) list.push({ mv, btn, height, cont: pick.cont });
       }
     }
     return list;
@@ -6884,6 +7167,8 @@ class AIController {
 
   decide(f, opp, match, snap, dist) {
     if (this.waitsOnRing(f)) return this.decideRing(f, opp, dist);   // a crowd and no token: wait on the ring
+    const pickup = this.considerPickup(f, opp, dist);
+    if (pickup) return pickup;
     const d = this.d, st = this.profile.style;
     const pref = this.profile.range;
     const options = [];
@@ -6998,6 +7283,15 @@ class AIController {
       }
       case 'sidestep': if (!p.fired) { p.fired = true; it.sidestep = p.side; } break;
       case 'ring': this.ringStep(f, it, opp); break;
+      case 'pickup': {   // walk onto the item, then press Use once
+        const loose = p.item;
+        if (f.item || loose.mode !== 'rest' || !this.match.items.includes(loose)) { this.plan = null; break; }
+        const dx = loose.x - f.x, dz = loose.z - f.z;
+        if (Math.hypot(dx, dz) > AI_PICKUP_STOP && this.match.itemInReach(f) !== loose) { this.moveToward(f, it, dx, dz, false); break; }
+        it.use = true; this.plan = null;
+        break;
+      }
+      case 'throw': if (!p.fired) { p.fired = true; it.use = true; } break;
       case 'feint': p.t++; if (p.t <= RING_FEINT_STEP_TICKS) this.moveToward(f, it, opp.x - f.x, opp.z - f.z, false); else this.ringStep(f, it, opp); break;   // a step toward the target, then back to the spot
       case 'jumpkick':
         p.t++;
@@ -7310,7 +7604,7 @@ class CrowdDirector {
 
 class MatchSim {
   constructor(cfg) {
-    this.cfg = Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'normal', arcadeLevel: 'normal', winsNeeded: 2, timer: 60, seed: 1, playerHp: 1, countdown: true, dummy: 'stand' }, cfg);
+    this.cfg = Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'normal', arcadeLevel: 'normal', winsNeeded: 2, timer: 60, seed: 1, playerHp: 1, countdown: true, dummy: 'stand', items: true }, cfg);
     simRng = makeRng(this.cfg.seed);
     this.def = ARENAS[this.cfg.arenaId];
     Arena.build(this.def);
@@ -7344,6 +7638,9 @@ class MatchSim {
     this.air = new Array(count).fill(false);   // scratch for physics(): which fighters were airborne before landing
     this.descs = [];                           // scratch for resolveCombat()
     this.crowd = new CrowdDirector(this);      // attack tokens and the ring for AI fighters that share a target (P4-02); idle in a 1v1
+    this.itemsOn = this.cfg.items !== false;   // the Items setting (P7-02): off = nothing lies about, nothing to pick up
+    this.items = [];                           // the loose items of the scene (see newItem)
+    this.itemSeq = 0;
     this.tick = 0;
     this.matchTicks = 0;
     this.round = 0;
@@ -7532,7 +7829,7 @@ class MatchSim {
      string keeps the aim of the one before while it is still a valid pick, so a combo does not swing round to another enemy. With nobody valid it keeps the usual
      target. Only with more than one hostile in the scene: a 1v1 plays exactly as before. */
   softFace(f) {
-    if (!this.isHuman(f) || this.hostileCount(f) < 2) { f.aim = null; return; }
+    if (!this.isHuman(f) || this.hostileCount(f) < 2 || f.blind > 0) { f.aim = null; return; }
     if (f.lockOn && this.lockHolds(f, f.lockOn)) f.aim = f.lockOn;
     else if (!f.aim || !this.lockValid(f, f.aim)) f.aim = this.pickTarget(f, false, null);
     if (f.aim) f.yaw = Math.atan2(f.aim.x - f.x, f.aim.z - f.z);
@@ -7552,7 +7849,7 @@ class MatchSim {
     const target = f.target;
     if (this.locked || !f.alive || !target || target.team === f.team || target.team !== this.fighters[0].team) return false;   // no arrows once the fight is decided
     if (this.crowd.token[f.index] && this.crowd.tokenTarget[f.index] === target.index) return true;
-    return f.state === S.ATTACK || f.state === S.GRAPPLE;
+    return (f.state === S.ATTACK && !!f.move && f.move.type !== 'pickup') || f.state === S.GRAPPLE;   // grabbing an item is no attack
   }
   /* The index credited when f is hurt by the scenery: whoever last damaged it; in a 1v1 the other fighter. */
   foeIndex(f) { return f.lastFoe ? f.lastFoe.index : this.fighters.length === 2 ? f.index ^ 1 : -1; }
@@ -7618,7 +7915,7 @@ class MatchSim {
     on('attackStart', (e) => {
       if (e.f.index !== 0) return;
       const row = e.f.stringKeys ? stringRow(e.f.stringKeys, e.f.stringLow, e.f.strings) : null;   // the string this step belongs to, up to and including this step
-      note({ mv: e.mv, startup: e.f.mStartup, active: e.f.mActive, recovery: e.f.mRecovery, string: row ? 'step ' + row.length + ': ' + row.map((id) => ATTACKS[id].name).join(' > ') : '' });
+      note({ mv: e.mv, startup: e.f.mStartup, active: e.f.mActive, recovery: e.f.mRecovery, string: row ? 'step ' + row.length + ': ' + row.map((id) => moveById(id).name).join(' > ') : '' });
     });
   }
   dispose() {
@@ -7635,6 +7932,224 @@ class MatchSim {
   get live() { return this.phase === 'fight' && !this.locked; }
   get timeLeft() { return this.cfg.timer > 0 && !this.training ? Math.ceil(this.roundTicks / 60) : null; }
   get countFrom() { return this.round === 1 ? 3 : 2; }
+
+  /* ----- loose items (P7). A loose item: { id, dur, sprays, x, y, z, vx, vy, vz, yaw, spin, mode, owner, host, seq }; y is the surface it rests on, mode is
+     'rest' (lies there, on its host object if it has one), 'fall' (dropped or knocked loose), 'fly' (thrown: hurts hostile fighters of `owner`) or 'slide' (a thrown skateboard on the floor). ----- */
+  newItem(id, x, y, z, yaw) {
+    return Object.assign(newHeld(id), { x, y, z, vx: 0, vy: 0, vz: 0, yaw, spin: 0, mode: 'rest', owner: null, host: null, seq: ++this.itemSeq });
+  }
+  /* Rebuilds the arena's items from the placement rows of its definition: [id, x, z, surface height, host object id]. An item whose host is already destroyed starts falling, onto the rubble or the floor;
+     one mounted high (PICKUP_HIGH_FROM) on a pillar or post lies along that surface on a bracket (mount = the unit direction to the wall). */
+  spawnItems() {
+    this.items.length = 0;
+    if (!this.itemsOn) return;
+    const rng = makeRng((this.cfg.seed ^ 0x2545f491) >>> 0);   // its own generator: placing items never moves the match's random sequence
+    for (const [id, x, z, y, hostId] of this.def.items || []) {
+      const host = hostId ? Arena.objects.find((o) => o.id === hostId) || null : null;
+      const loose = this.newItem(id, x, y, z, rng() * TAU);
+      if (host && host.destroyed) loose.mode = 'fall';
+      else if (host) {
+        loose.host = host;
+        if (y >= PICKUP_HIGH_FROM) { const dx = x - host.x, dz = z - host.z; loose.mount = Math.abs(dz) >= Math.abs(dx) ? [0, -Math.sign(dz)] : [-Math.sign(dx), 0]; loose.yaw = loose.mount[0] ? 0 : Math.PI / 2; }
+      }
+      this.items.push(loose);
+    }
+  }
+  /* Puts an item into the scene; past ITEM_MAX loose items the oldest one that lies about (not on a host) goes first. */
+  addItem(loose) {
+    this.items.push(loose);
+    while (this.items.length > ITEM_MAX) {
+      const at = this.items.findIndex((other) => other.mode === 'rest' && !other.host && other !== loose);
+      this.items.splice(at < 0 ? 0 : at, 1);
+    }
+    return loose;
+  }
+  placeItem(id, x, z, y = 0) { return this.addItem(this.newItem(id, x, y, z, 0)); }
+  /* The item f would pick up now (Use, empty-handed). A floor item: within PICKUP_REACH in front (PICKUP_CONE_COS) or at the feet (PICKUP_FEET); of several, the one nearest the facing line. A raised item
+     (on a table or mounted high; a fighter faces its foe, not the table): within PICKUP_REACH of the body edge, any side, when no floor item is in front; the nearest wins. */
+  itemInReach(f) {
+    if (!f.alive || f.item || f.airborne) return null;
+    let best = null, bestCos = -2, raised = null, raisedGap = Infinity;
+    for (const loose of this.items) {
+      if (loose.mode !== 'rest' || Math.abs(loose.y - f.y) > 2) continue;
+      const dx = loose.x - f.x, dz = loose.z - f.z, dist = Math.hypot(dx, dz);
+      const cos = dist < 1e-3 ? 1 : (dx * f.fwdX + dz * f.fwdZ) / dist;
+      if (loose.y - f.y >= PICKUP_LOW_BELOW && dist <= PICKUP_REACH + f.radius && dist < raisedGap) { raisedGap = dist; raised = loose; }
+      if (dist > PICKUP_REACH || (dist > PICKUP_FEET && cos < PICKUP_CONE_COS)) continue;
+      if (cos > bestCos) { bestCos = cos; best = loose; }
+    }
+    return best || raised;
+  }
+  /* The grab ends: the item is in f's hand unless something else took it first. */
+  takeItem(f, loose) {
+    f.pickup = null;
+    const at = loose ? this.items.indexOf(loose) : -1;
+    if (at < 0 || f.item || loose.mode !== 'rest') return false;
+    this.items.splice(at, 1);
+    f.item = { id: loose.id, dur: loose.dur, sprays: loose.sprays };
+    Events.emit('itemTake', { f, id: loose.id, x: loose.x, y: loose.y, z: loose.z });
+    return true;
+  }
+  /* The held item falls at the fighter's feet. */
+  dropItem(f) {
+    const held = f.item;
+    if (!held) return null;
+    f.item = null;
+    const loose = this.newItem(held.id, f.x + f.fwdX * 0.3, f.y + 0.9 * f.scale, f.z + f.fwdZ * 0.3, f.yaw);
+    loose.dur = held.dur; loose.sprays = held.sprays; loose.mode = 'fall'; loose.vx = f.fwdX * 0.8; loose.vz = f.fwdZ * 0.8; loose.vy = 1;
+    Events.emit('itemDrop', { f, id: held.id, x: loose.x, y: loose.y, z: loose.z });
+    return this.addItem(loose);
+  }
+  /* Who a thrown item is aimed at: a human's locked enemy (else the way it faces), a CPU's target. */
+  throwTargetFor(f) {
+    if (this.isHuman(f)) return f.lockOn && this.lockHolds(f, f.lockOn) ? f.lockOn : null;
+    return f.target && f.target.team !== f.team ? f.target : null;
+  }
+  /* Use while holding: the item leaves the hand on an arc that reaches the target's chest (a brick: its head) in about dist / THROW_SPEED seconds; a skateboard goes along the floor. */
+  throwItem(f) {
+    const held = f.item, w = WEAPONS[held.id], target = this.throwTargetFor(f);
+    let tx = f.x + f.fwdX * THROW_BLIND_RANGE, tz = f.z + f.fwdZ * THROW_BLIND_RANGE, ty = f.y + CHEST_AIM * f.scale;
+    if (target) { tx = target.x; tz = target.z; ty = target.y + (w.sp === 'head' ? HEAD_AIM : CHEST_AIM) * target.scale; }
+    const loose = this.newItem(held.id, f.x + f.fwdX * 0.45, f.y + (w.cls === 'carry' ? 1.0 : THROW_HAND) * f.scale, f.z + f.fwdZ * 0.45, f.yaw);
+    loose.dur = held.dur; loose.sprays = held.sprays; loose.owner = f;
+    const dx = tx - loose.x, dz = tz - loose.z, dist = Math.max(0.5, Math.hypot(dx, dz));
+    const slide = w.sp === 'trip', speed = slide || w.cls === 'carry' ? THROW_SPEED_SLOW : THROW_SPEED, flight = dist / speed;
+    loose.vx = dx / dist * speed; loose.vz = dz / dist * speed;
+    if (slide) { loose.mode = 'slide'; loose.y = Arena.supportAt(loose.x, loose.z, loose.y, ITEM_RADIUS); }
+    else { loose.mode = 'fly'; loose.vy = clamp((ty - loose.y + 0.5 * GRAVITY * flight * flight) / flight, -4, 8); }
+    f.item = null; f.throwAnim = THROW_ANIM_TICKS;
+    if (Math.hypot(dx, dz) > 0.05) f.yaw = Math.atan2(dx, dz);
+    Events.emit('itemThrow', { f, id: held.id, x: loose.x, y: loose.y, z: loose.z });
+    return this.addItem(loose);
+  }
+  /* The held item is worn out: it breaks in the hand. */
+  breakHeld(f) {
+    const held = f.item;
+    if (!held) return;
+    f.item = null;
+    this.itemDebris(held.id, f.pts[12], f.pts[13], f.pts[14]);
+  }
+  itemDebris(id, x, y, z) {
+    const w = WEAPONS[id], size = clamp(w.len * 0.3, 0.06, 0.14);
+    for (let k = 0; k < ITEM_DEBRIS; k++) {   // fixed fan of pieces: the match's random numbers stay untouched
+      const a = k * 2.4;
+      Debris.spawn(w.mat, x + Math.cos(a) * 0.08, y + 0.1, z + Math.sin(a) * 0.08, Math.cos(a) * 1.8, 1.5 + (k % 3) * 0.6, Math.sin(a) * 1.8, size, w.mat === 'glass' ? size * 0.2 : size, size * 1.3, w.hex, 1);
+    }
+    Events.emit('itemBreak', { id, x, y, z });
+  }
+  /* A cloud of foam at (x, y, z): every enemy of `owner` within CLOUD_RADIUS is blinded. */
+  cloud(x, y, z, owner) {
+    for (const other of this.fighters) {
+      if (other.alive && owner && this.canHurt(owner, other) && Math.hypot(other.x - x, other.z - z) <= CLOUD_RADIUS && Math.abs(other.y - y) < 2) other.blind = BLIND_TICKS;
+    }
+    FX.dust(x, Math.max(0.4, y), z, 12, CLOUD_RADIUS * 0.6, '#f2f6ff');
+  }
+  /* A strike with the extinguisher sprays a 2 m cone for as many strikes as it has charges: enemies in it are blinded for BLIND_TICKS (no damage). */
+  spray(f) {
+    const held = f.item;
+    if (!held || held.id !== 'extinguisher' || held.sprays <= 0) return;
+    held.sprays--;
+    for (const other of this.fighters) {
+      if (!other.alive || !this.canHurt(f, other)) continue;
+      const dx = other.x - f.x, dz = other.z - f.z, dist = Math.hypot(dx, dz);
+      if (dist <= SPRAY_RANGE && (dist < 0.05 || (dx * f.fwdX + dz * f.fwdZ) / dist >= SPRAY_CONE_COS)) other.blind = BLIND_TICKS;
+    }
+    FX.dust(f.x + f.fwdX * 1.0, f.y + 1.1, f.z + f.fwdZ * 1.0, 8, 0.8, '#f2f6ff');
+    Events.emit('itemSpray', { f, x: f.x + f.fwdX, y: f.y + 1.1, z: f.z + f.fwdZ });
+  }
+  /* An item that bursts or wears out where it is: its pieces, and what it does (a crate knocks down everyone near, an extinguisher blinds). hitDef was hit already. Returns true: the item is gone. */
+  burstItem(it, hitDef, blocked) {
+    const w = WEAPONS[it.id];
+    if (w.sp === 'crate' && !blocked) {
+      for (const other of this.fighters) {
+        if (other === hitDef || !other.alive || !this.canHurt(it.owner, other) || Math.hypot(other.x - it.x, other.z - it.z) > CRATE_BURST_RADIUS || Math.abs(other.y - it.y) > 1.8) continue;
+        if (other.state !== S.DOWN && Combat.strikable(it.owner, other)) Combat.itemHit(it, other, this);
+      }
+    }
+    if (w.sp === 'spray') this.cloud(it.x, it.y, it.z, it.owner);
+    this.itemDebris(it.id, it.x, it.y, it.z);
+    return true;
+  }
+  /* A thrown item (mode fly or slide) against the fighters: the first hostile it touches takes the hit. Returns undefined when it touched nobody, else true when the item is gone (burst or broken). */
+  itemStrike(it) {
+    const w = WEAPONS[it.id], sliding = it.mode === 'slide';
+    for (const def of this.fighters) {
+      if (!def.alive || !this.canHurt(it.owner, def) || def.state === S.DOWN || !Combat.strikable(it.owner, def)) continue;   // the same fighters a strike can touch
+      if (def.state === S.SWAY && def.stateTicks < SWAY_IFRAME_TICKS) continue;   // dodged
+      if (Math.hypot(def.x - it.x, def.z - it.z) > def.radius + ITEM_RADIUS) continue;
+      const top = def.y + (def.state === S.CROUCH || def.state === S.BLOCK_L ? 1.25 : 1.85) * def.scale;
+      if (sliding ? def.y > it.y + 0.35 : it.y < def.y - 0.05 || it.y > top) continue;   // a board takes the feet of a grounded fighter; anything else must be at body height
+      const stopped = Combat.itemBlock(it, def, this);
+      if (!stopped) Combat.itemHit(it, def, this);
+      if (w.burst || --it.dur <= 0) return this.burstItem(it, stopped ? null : def, stopped);
+      it.owner = null; it.mode = 'fall'; it.vx *= -0.15; it.vz *= -0.15; it.vy = 1.2;   // spent: it drops
+      return false;
+    }
+    return undefined;
+  }
+  /* One tick of a moving item; true when it is gone. */
+  moveItem(it) {
+    const w = WEAPONS[it.id], b = this.def.bounds, thrown = !!it.owner && (it.mode === 'fly' || it.mode === 'slide');
+    if (it.mode === 'slide') { const keep = Math.max(0, 1 - ITEM_SLIDE_DRAG * DT); it.vx *= keep; it.vz *= keep; } else it.vy -= GRAVITY * DT;
+    it.x += it.vx * DT; it.y += it.vy * DT; it.z += it.vz * DT;
+    if (it.mode === 'fly') it.spin += ITEM_SPIN * DT;
+    if (Math.abs(it.x) > b.x - 0.1) { it.x = clamp(it.x, -b.x + 0.1, b.x - 0.1); it.vx *= -0.3; }
+    if (Math.abs(it.z) > b.z - 0.1) { it.z = clamp(it.z, -b.z + 0.1, b.z - 0.1); it.vz *= -0.3; }
+    for (const c of Arena.colliders) {   // scenery taller than the item
+      if (!c.active || it.y >= c.top - 0.05 || Math.abs(it.x - c.x) > c.hx + 0.1 || Math.abs(it.z - c.z) > c.hz + 0.1) continue;
+      if (!thrown) {   // a dropped item that came down inside a footprint is moved out to the nearest side
+        const left = it.x - (c.x - c.hx), right = c.x + c.hx - it.x, near = it.z - (c.z - c.hz), far = c.z + c.hz - it.z, least = Math.min(left, right, near, far);
+        if (least === left) it.x = c.x - c.hx - 0.15; else if (least === right) it.x = c.x + c.hx + 0.15; else if (least === near) it.z = c.z - c.hz - 0.15; else it.z = c.z + c.hz + 0.15;
+        continue;
+      }
+      if (c.obj) Arena.damageObject(c.obj, w.thrown, 'throw', ITEM_SRC_BASE - it.seq, it.vx, it.vz, it.x, it.y, it.z, it.owner.index);   // a thrown item damages it (a crate through a window) and drops
+      if (w.burst) return this.burstItem(it, null);
+      it.vx *= -0.2; it.vz *= -0.2; it.owner = null; it.mode = 'fall';
+      break;
+    }
+    if (it.owner && (it.mode === 'fly' || it.mode === 'slide')) { const gone = this.itemStrike(it); if (gone !== undefined) return gone; }
+    const floor = Arena.supportAt(it.x, it.z, it.y, ITEM_RADIUS);
+    if (it.mode === 'slide') {
+      it.y = floor;
+      if (Math.hypot(it.vx, it.vz) < ITEM_SLIDE_STOP) this.settleItem(it, floor);
+    } else if (it.y <= floor && it.vy <= 0) {
+      if (thrown && w.burst) return this.burstItem(it, null);
+      if (it.vy < -ITEM_BOUNCE_MIN) { it.y = floor; it.vy *= -0.3; it.vx *= 0.6; it.vz *= 0.6; it.mode = 'fall'; it.owner = null; }
+      else this.settleItem(it, floor);
+    }
+    return false;
+  }
+  settleItem(it, floor) { it.mode = 'rest'; it.y = floor; it.vx = it.vy = it.vz = 0; it.spin = 0; it.owner = null; }
+  stepItems() {
+    for (const it of this.items.slice()) {   // a copy: a hit can drop another item into the list mid-loop
+      if (!this.items.includes(it)) continue;
+      if (it.mode === 'rest') { if (it.host && it.host.destroyed) { it.host = null; it.mode = 'fall'; } continue; }   // the table broke under it
+      if (this.moveItem(it) && this.items.includes(it)) this.items.splice(this.items.indexOf(it), 1);
+    }
+  }
+  /* Loose items in the scene: a glow disc under each one that lies about, and the item itself in the world's matrix. */
+  drawItems() {
+    for (const it of this.items) {
+      const w = WEAPONS[it.id];
+      const m = it.mount;
+      if (m && it.mode === 'rest') {   // mounted high: two pegs and a plate against the wall, and a small upright glow behind the item
+        const span = clamp(w.len * 0.5, 0.2, 0.5), alongX = m[1] !== 0;
+        M4.identity(FBASE); FMS.reset(FBASE);
+        DRAW_NOW = true;
+        part(MESH.CUBE, it.x + m[0] * 0.075, it.y + 0.03, it.z + m[1] * 0.075, alongX ? span : 0.025, 0.07, alongX ? 0.025 : span, ITEM_BRACKET_RGB, 0, 0.5, 0);
+        for (const s of [-1, 1]) part(MESH.CUBE, it.x + m[0] * 0.04 + (alongX ? s * span * 0.35 : 0), it.y - 0.015, it.z + m[1] * 0.04 + (alongX ? 0 : s * span * 0.35), alongX ? 0.03 : 0.08, 0.03, alongX ? 0.08 : 0.03, ITEM_BRACKET_RGB, 0, 0.5, 0);
+        DRAW_NOW = false;
+        R.put(LAYER.ALPHA, MESH.CYL, it.x + m[0] * 0.06, it.y + 0.03, it.z + m[1] * 0.06, 0.5, 0.006, 0.5, alongX ? Math.PI / 2 : 0, 0, alongX ? 0 : Math.PI / 2, ITEM_MARK_RGB, 0.28, 0.8, 1, false, 0);
+      } else if (it.mode === 'rest') R.put(LAYER.ALPHA, MESH.CYL, it.x, it.y + 0.012, it.z, 0.95, 0.006, 0.95, 0, 0, 0, ITEM_MARK_RGB, 0.4, 0.8, 1, false, 0);
+      M4.identity(FBASE); M4.translate(FBASE, it.x, it.y, it.z); M4.rotY(FBASE, it.yaw);
+      FMS.reset(FBASE); FMS.s(ITEM_VIEW_SCALE, ITEM_VIEW_SCALE, ITEM_VIEW_SCALE);   // a loose item is drawn a little larger and lighter than in the hand, so it is easy to find
+      if (it.mode === 'fly') { FMS.rx(it.spin); FMS.t(0, -w.len / 2, 0); }   // tumbles about its middle
+      else if (w.lie) { FMS.t(0, w.rest, 0); FMS.rx(-Math.PI / 2); FMS.t(0, -w.len / 2, 0); }
+      DRAW_NOW = true;
+      drawWeapon(w, 0, ITEM_VIEW_LIGHT);
+      DRAW_NOW = false;
+    }
+  }
 
   placeFighters(hpFrac) {
     const s = this.def.spawn, party = this.partySize;
@@ -7667,6 +8182,7 @@ class MatchSim {
   startRound() {
     this.round++;
     this.placeFighters(this.round === 1 || this.cfg.mode === 'survival' ? this.cfg.playerHp : 1);   // survival health carries into a drawn round's replay
+    this.spawnItems();
     this.roundTicks = this.cfg.timer * 60;
     this.hitStop = 0;
     this.endTimer = 0;
@@ -7742,6 +8258,7 @@ class MatchSim {
     this.updateFighters();
     this.resolveCombat();
     this.physics();
+    this.stepItems();
     Combat.tickCombos(this.fighters);
     for (const f of this.fighters) f.animate(DT);
     if (this.training) this.trainingMaintenance();
@@ -7821,10 +8338,11 @@ class MatchSim {
   }
   resetFighters() {
     this.placeFighters(1);
+    this.spawnItems();
     Camera.snapNext = true;
     Events.emit('trainingReset', {});
   }
-  resetArenaObjects() { Arena.reset(); Events.emit('trainingReset', {}); }
+  resetArenaObjects() { Arena.reset(); this.spawnItems(); Events.emit('trainingReset', {}); }
   scenario(n) {
     const [a, b] = this.fighters;
     this.placeFighters(1);
@@ -7966,7 +8484,7 @@ const SimRunner = {
       Events.on('throw', (e) => add(e.att.index, 'throw', e.dmg));
       for (const name in cfg.listeners || {}) Events.on(name, cfg.listeners[name]);
       // cfg.enemies (a count or a list of fighter ids) makes it a brawl: the player against that many CPU enemies, ended by one side being wiped out
-      m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
+      m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
         cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null));   // a brawl has no clock unless asked for one (time up = the players lose)
       const count = m.fighters.length;
       if (count !== 2) damage = m.fighters.map(() => ({}));
@@ -8281,6 +8799,7 @@ const Game = {
   beginMatch(cfg) {
     this.endMatch();
     cfg.seed = (Date.now() ^ (this.errorCount * 7919)) >>> 0;
+    if (cfg.items === undefined) cfg.items = Settings.v.items !== false;   // read at every start, so a rematch follows the Options toggle
     if (cfg.coop) cfg.friendlyFire = Settings.v.friendlyFire;   // read at every start, so a rematch follows the Options toggle
     this.config = cfg;
     this.match = new MatchSim(cfg);
@@ -8310,7 +8829,9 @@ const Game = {
     if (this.run && this.run.mode === 'survival') { this.saveSurvivalRecord(); this.startSurvival(); return; }
     // an Arcade retry from the pause menu costs what losing would, so the continues and win-loss records stay honest
     if (this.run && this.run.mode === 'arcade') { Progress.d.losses++; Progress.save(); this.run.continues++; this.startArcade(this.run.stage, true); return; }
-    this.beginMatch(Object.assign({}, this.config));
+    const again = Object.assign({}, this.config);
+    delete again.items;   // read the Items setting again, like friendly fire
+    this.beginMatch(again);
   },
   /* Best streak and time are saved after every win and whenever a run ends, so quitting never loses them. */
   saveSurvivalRecord() {
@@ -8514,7 +9035,7 @@ const Game = {
     if (m || Arena.def) { Camera.apply(); }
     if (Arena.def) Arena.draw();
     Debris.draw();
-    if (m) { for (const f of m.fighters) f.draw(this.alpha); } else Showcase.draw();
+    if (m) { for (const f of m.fighters) f.draw(this.alpha); m.drawItems(); } else Showcase.draw();
     FX.draw();
     R.render();
     Events.emit('rendered', { match: m });
@@ -8814,6 +9335,11 @@ const Sound = {
     on('objHit', (e) => this.material(MATERIALS[e.obj.mat] ? e.obj.mat : 'wood', false, e.x));
     on('objStage', (e) => this.material(e.obj.mat, false, e.x));
     on('objBreak', (e) => this.material(e.mat, true, e.x));
+    on('itemTake', (e) => { if (this.allow('itemTake', 0.1)) { const p = this.panFor(e.x); this.noise('bandpass', 500, 1100, 0.9, 0.09, 0.22, 0, p); this.tone('triangle', 300, 420, 0.06, 0.14, 0.02, p); } });   // a rustle and a light grip
+    on('itemDrop', (e) => this.material(WEAPONS[e.id].mat, false, e.x));
+    on('itemThrow', (e) => this.whoosh(0.8, e.x));
+    on('itemBreak', (e) => this.material(WEAPONS[e.id].mat, true, e.x));   // the debris sound of the item's material
+    on('itemSpray', (e) => { if (this.allow('itemSpray', 0.15)) this.noise('highpass', 3000, 1800, 0.7, 0.35, 0.3, 0, this.panFor(e.x)); });   // a hiss
     on('debrisImpact', (e) => this.debris(e.kind, e.power, e.x));
     on('countdown', (e) => this.beep(e.n));
     on('fightStart', () => this.beep(0));
@@ -8970,10 +9496,12 @@ function touchLayoutCss() {
   };
   return rules(TOUCH_LAYOUT.landscape) + '@media (orientation:portrait){' + rules(TOUCH_LAYOUT.portrait) + '}';
 }
-/* USE shows while an item is within pick-up reach or is held. Items arrive in P7; until then there is nothing to use. */
-function touchUseVisible(fighter, match) { return false; }
+/* USE shows while an item is within pick-up reach or is held (P7-03). */
+function touchUseVisible(fighter, match) { return !!fighter && (!!fighter.item || (!!match.itemInReach && !!match.itemInReach(fighter))); }
 /* LOCK shows while 2 or more hostile fighters are alive (every other fighter is hostile until P4 adds teams): never in the 1v1 modes. */
 function touchLockVisible(fighter, match) { return match.fighters.filter((other) => other !== fighter && other.alive).length >= 2; }
+/* The held item for the HUD: its name and one pip per durability point left (P7). */
+const heldLabel = (f) => (f.item ? WEAPONS[f.item.id].name.toUpperCase() + ' ' + '●'.repeat(f.item.dur) + '○'.repeat(Math.max(0, WEAPONS[f.item.id].dur - f.item.dur)) : '');
 const RESULTS_GUARD_MS = 600;   // presses still mashed from the fight cannot skip the results screen
 const ONBOARD_MS = 8000;   // the first-match controls card closes itself after this long (it lists seven actions)
 const VERSUS_CARD_MS = 9000;   // the Versus controls card holds both players' keys: a little longer
@@ -8987,7 +9515,7 @@ const UI = {
   listeners: [], frameCount: 0, onboardTimer: 0, pickSide: 0, lastScreen: null, touchButtons: {},
 
   init() {
-    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'mo1', 'mo2', 'mob1', 'mob2', 'pips1', 'pips2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'onboard', 'training', 'modeinfo', 'party', 'tags', 'pauseBtn']) this.dom[id] = $(id);
+    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'mo1', 'mo2', 'mob1', 'mob2', 'pips1', 'pips2', 'item1', 'item2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'onboard', 'training', 'modeinfo', 'party', 'tags', 'pauseBtn']) this.dom[id] = $(id);
     const add = (t, type, fn, o) => { t.addEventListener(type, fn, o); this.listeners.push([t, type, fn, o]); };
     add(window, 'keydown', (e) => this.onKey(e));
     add(this.dom.onboard, 'pointerdown', () => this.hideOnboarding());
@@ -9962,6 +10490,8 @@ const UI = {
     this.setText('timer', this.dom.timer, tl === null ? (m.training ? '' : '∞') : String(tl));
     const lowTime = tl !== null && tl <= TIMER_LOW_SECONDS;
     if (this.cache.lowTime !== lowTime) { this.cache.lowTime = lowTime; this.dom.timer.classList.toggle('low', lowTime); }
+    this.setText('item1', this.dom.item1, heldLabel(a));
+    this.setText('item2', this.dom.item2, m.versus ? heldLabel(b) : '');
     const cfg = m.cfg;
     this.setText('round', this.dom.roundlbl, m.training ? 'TRAINING' : m.brawl ? 'BRAWL' : (m.decider ? 'FINAL ROUND' : 'ROUND ' + m.round));
     if (!m.training && !m.brawl) {
@@ -10004,6 +10534,7 @@ const UI = {
       else if (f.state === S.SUBMIT) status = 'HOLD';
       else if (f.state === S.DOWN) status = f.pinnedBy ? 'PINNED' : 'DOWN';
       else if (f.state === S.KO) status = 'K.O.';
+      else if (f.blind > 0) status = 'BLIND';
       else if (f.lowStamina) status = 'TIRED';
       const health = m.brawl && i >= m.partySize ? '<s><u style="width:' + Math.round(clamp(f.hp / f.maxHp, 0, 1) * 100) + '%"></u></s>' : '';   // a brawl enemy's tag carries its own health bar
       this.setHtml('tag' + i, el, this.tagLabel(m, i) + (status ? '<i>' + status + '</i>' : '') + health);
@@ -11082,6 +11613,7 @@ function testApi() {
     randomBody, randomCustom, randomItems, resolveLook, shareChecksum, stringsFor, styleFor, submissionStyleText, throwFor, toBase64Url,
     touchLayoutCss, touchLockVisible, touchUseVisible, trimToBudget, unlockRuleText, validateCustom, weightClass, weightFromBuild,
     wrapAngle,
+    BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, heldLabel, moveById, weaponTable,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };
