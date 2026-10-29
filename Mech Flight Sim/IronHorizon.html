@@ -1046,6 +1046,7 @@ const ACTIONS = [
   ['stance', 'Crouch / landing gear (air) / deploy (artillery)', 'KeyC'],
   ['reload', 'Reload', 'KeyR'],
   ['switchWeapon', 'Switch primary weapon', 'KeyZ'],
+  ['reposition', 'Reposition when stuck (hold)', 'KeyH'],
   ['pause', 'Pause', 'KeyP'],
 ];
 /* fixed shortcuts that pick a primary directly, unless the player bound the key to an action (the mouse wheel switches) */
@@ -1067,7 +1068,7 @@ function keyLabel(code) {
 /* Gamepad buttons for actions shown in on-screen prompts (standard mapping, see Input.pad). */
 const PAD_LABELS = {
   fire1: 'RT', fire2: 'LT', boost: 'L3', jump: 'A', defense: 'B', melee: 'X', cycleTarget: 'Y', stance: 'LB', superweapon: 'RB',
-  interact: 'BACK', reload: 'R3', switchWeapon: 'D-PAD LEFT', pause: 'START',
+  interact: 'BACK', reload: 'R3', switchWeapon: 'D-PAD LEFT', reposition: 'D-PAD DOWN', pause: 'START',
 };
 /* The control to show for an action: its gamepad button when the pad was used last, else its key. */
 /* On-screen touch buttons for actions shown in prompts (see TouchControls); a function names it by platform kind
@@ -1076,7 +1077,7 @@ const TOUCH_LABELS = {
   fire1: 'FIRE', fire2: 'ALT', boost: 'BOOST', defense: 'DEF', cycleTarget: 'TGT', superweapon: 'SUPER',
   jump: (kind) => (kind === 'mech' ? 'JET' : 'BRAKE'), stance: (kind) => (kind === 'air' ? 'GEAR' : kind === 'artillery' ? 'DEPLOY' : 'CROUCH'),
   melee: (kind) => (kind === 'artillery' ? 'ARC' : 'MELEE'),
-  interact: 'USE', reload: 'RLD', switchWeapon: 'WPN', pause: 'II',
+  interact: 'USE', reload: 'RLD', switchWeapon: 'WPN', reposition: 'REPOS', pause: 'II',
 };
 /* the kind the touch labels go by: the platform's kind, or 'artillery' for the artillery's ground vehicles */
 const touchKind = (p) => (!p ? 'mech' : p.def.style === 'artillery' ? 'artillery' : p.kind);
@@ -1480,6 +1481,7 @@ const TOUCH_BUTTONS = [
   { name: 'interact', label: (kind, ctx) => Seats.useLabel(ctx), at: 'r', x: 1.54, y: 3.54, show: (p, ctx) => Seats.anyUse(ctx) },   // off FIRE's column, which runs up under the radar
   { name: 'stance', label: TOUCH_LABELS.stance, at: 'l', x: 0, y: 0, show: (p, ctx) => ctx.gear || ctx.deploy || !!(p && p.kind === 'mech' && !p.chute) },
   { name: 'melee', label: TOUCH_LABELS.melee, at: 'l', x: 0, y: 1.18, show: (p, ctx) => ctx.melee || ctx.arc },
+  { name: 'reposition', label: TOUCH_LABELS.reposition, at: 'l', x: 0, y: 2.36, show: () => Reposition.offered },   // only while the way out of a stuck place is offered (P2-04)
 ];
 const TOUCH_CTX = {};   // the Use context the touch layout was built from (filled by Seats.context)
 const TouchControls = {
@@ -3486,6 +3488,13 @@ const Water = {
     return d > 0 ? d : 0;
   },
   at(x, z) { return this.depth(x, z) > 0; },
+  /* metres of the battlefield's own water over the ground at (x, z): a flood left out, as it drains away */
+  baseDepth(x, z) {
+    const l = this.baseLevel(x, z);
+    if (l === -Infinity) return 0;
+    const d = l - Terrain.h(x, z);
+    return d > 0 ? d : 0;
+  },
   /* true where there is water without a flood */
   baseAt(x, z) { return this.baseLevel(x, z) > Terrain.h(x, z); },
   /* true when water reaches the middle or a corner of the square of half-size r around (x, z) */
@@ -3809,7 +3818,7 @@ function damageStruct(s, amount, dtype, owner, structMult, unspotted) {
 }
 function destroyStruct(s, owner) {
   if (s.destroyed) return;            // one break event only
-  s.destroyed = true; s.state = 3; s.hp = 0; s.destroyedAt = W.time;
+  s.destroyed = true; s.state = 3; s.hp = 0; s.destroyedAt = W.time; W.nDestroyed++;   // (counted for Nav: when enough are gone its land grids are built again)
   watchStruct(s);
   if (Net.host) Net.dirty.add(s.idx);
   creditStruct(s, owner);
@@ -4536,7 +4545,7 @@ function newWorld(cfg) {
   Hash.reset();
   W = {
     cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], hotPlain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [], fauna: null, traffic: null, society: null, farms: [],
-    beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], wrecks: [], artyMarks: [], events: [], feed: [], bridges: [], deckCells: null, roadData: null, roadMesh: null, flora: null,
+    beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], wrecks: [], artyMarks: [], events: [], feed: [], bridges: [], nDestroyed: 0, deckCells: null, roadData: null, roadMesh: null, flora: null,
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [], airports: [], harbours: [],
     stats: newStats(),
@@ -4549,7 +4558,7 @@ function newWorld(cfg) {
       if (this.msgs.length > 4) this.msgs.shift();
     },
   };
-  Chunks.reset(); Falls.reset();
+  Chunks.reset(); Falls.reset(); Nav.reset();
   SW.reset(); WPN.smokeUntil = -1;
   Hazards.reset();
   for (let i = 0; i < MAX_PROJECTILES; i++) W.projs.push(newProjectileSlot());
@@ -13146,8 +13155,28 @@ const NAVAL_SPOT_GAP = 8;        // a ship's spawn spot keeps this clear of anyt
 const NAVAL_SPOT_ROOM = 40;      // and has water deep enough this far past its hull every way, so it starts with room to sail (m)
 const NAVAL_SPOT_ROOM_MIN = 4;   // or, where no water has that room, this much: a river or small-lake harbour (m)
 const NAVAL_HARBOUR_REACH = 2 * WORLD_HALF;   // a harbour is looked for this far from the start: anywhere on the battlefield (m)
+// P2-01: where a ship starts. Passes, best first: the water of a big sheet (NAV_BODY_MIN) at least NAVAL_SPAWN_CLEAR under
+// the keel and NAVAL_SPAWN_EDGE inside the bound; then the old rule (NAVAL_KEEL_CLEAR under the keel, any water), which a
+// battlefield with only a pond (alpine, m12) still needs. `room`: open water past the hull every way.
+const NAVAL_SPAWN_CLEAR = 1.5;   // m of water under a starting ship's keel (the keel margin, NAVAL_KEEL_CLEAR, plus a metre)
+const NAVAL_SPAWN_EDGE = 200;    // m a starting ship keeps from the bound
+const NAVAL_RESPAWN_MAX = 350;   // a respawn spot lies this near the harbour when a spot there is unseen (m); else anywhere in its sheet of water out to...
+const NAVAL_RESPAWN_FAR = 1200;  // ...this far (m), looked for in rings...
+const NAVAL_RESPAWN_RING = 90;   // ...this far apart (m), each ring point asking for a spot within...
+const NAVAL_RESPAWN_PROBE = 70;  // ...this far of it (m)
+const NAVAL_RESPAWN_ARC = 80;    // m: a ring has a point every this far where that is more than SPAWN_RING_DIRS points
+const NAVAL_RESPAWN_EDGE = 100;  // m: and as a last resort a respawn out of sight may lie this far inside the bound (not NAVAL_SPAWN_EDGE)
+const NAVAL_GUEST_MAX = 120;     // and a co-op guest's ship starts this near the host's at most (m)
+const NAVAL_SHORE_MAX = 450;     // a skirmish with a ship pick lays our base within this of ship water where it can (m)
+const NAVAL_SPOT_PASSES = [
+  { strict: true, clear: NAVAL_SPAWN_CLEAR, room: NAVAL_SPOT_ROOM },
+  { strict: true, clear: NAVAL_SPAWN_CLEAR, room: NAVAL_SPOT_ROOM_MIN },
+  { strict: false, clear: NAVAL_KEEL_CLEAR, room: NAVAL_SPOT_ROOM },
+  { strict: false, clear: NAVAL_KEEL_CLEAR, room: NAVAL_SPOT_ROOM_MIN },
+];
 const NAVAL_FLEET_GAP = 700;     // an enemy fleet starts at least this far from the player's base, start and harbour (m)
 const NAVAL_STRAND_T = 2;        // s a ship sits on dry ground (a flood gone down) before it is towed back to water
+const NAVAL_AGROUND_TOW = 8;     // s a ship sits still aground (a flood gone down under it) before it is towed to water too
 const NAVAL_TOW_REACH = 200;     // m it is towed at most, else to its harbour
 const NAVAL_AVOID_SHIPS = 'ships';   // Naval.spot and fits: keep clear of other ships only
 const NAVAL_HULL_GAP = 1;        // m a ship's keel keeps from another ship's hull at its harbour (Naval.hullsClear)
@@ -13158,6 +13187,10 @@ const NAVAL_STOP = 1.5;          // m/s under which a ship has stopped there
 const NAVAL_LANE_R = [150, 60];  // radius (m) of a ship's patrol loop round its home, shrunk to this where the water is narrow
 const NAVAL_LANE_PTS = 6;        // points on that loop
 const NAVAL_LANE_REACH = 60;     // a patrolling ship heads for the next point this close to one (m)
+const NAVAL_ASTERN_ERR = 1.9;    // rad: an AI ship further than this off its heading...
+const NAVAL_ASTERN_SPEED = 4;    // ...and slower than this (m/s) for NAVAL_ASTERN_T s goes astern to swing round
+const NAVAL_ASTERN_T = 1.5;
+const NAVAL_LANE_STALL = 20;     // s without getting NAV_PROGRESS_D m nearer its lane point, and it takes the next one
 const NAVAL_FALLBACK = 'bulwark';   // what a ship's pilot gets on a battlefield without water it can sail
 const NAVAL_FITS = new WeakMap();   // per battlefield def, per ship id: whether it has water that ship can sail (Naval.shipOk)
 const KEEL_A = { x: 0, z: 0 }, KEEL_B = { x: 0, z: 0 };   // scratch points on two hulls' keels (resolvePairs)
@@ -13284,17 +13317,26 @@ const Naval = {
      (else, nowhere in reach, NAVAL_SPOT_ROOM_MIN: a river), facing the deepest water round it, as { x, z, yaw }; null
      when there is none. keepOff: points it stays NAVAL_FLEET_GAP from. Rings out from (x, z) in a fixed order, so it
      depends on the world alone. */
-  spot(x, z, def, reach, avoid, keepOff) {
+  spot(x, z, def, reach, avoid, keepOff, rules) {
     if (!Water.any) return null;
-    const need = Math.max(def.naval.draft, 1) + NAVAL_KEEL_CLEAR;   // an amphibious craft starts afloat too
-    for (let pass = 0; pass < 2; pass++) {
-      const room = pass ? NAVAL_SPOT_ROOM_MIN : NAVAL_SPOT_ROOM;
+    // rules (true, or { joins: { x, z }, edge, skip(x, z) }: also the same sheet of water as that point): the P2-01 passes first, which need
+    // the world's grid of this ship's water (Nav.ensure); an amphibious craft starts afloat too
+    const grid = rules ? Nav.ensure(navSpecShip(def)) : null, joins = rules && rules.joins ? rules.joins : null, draft = Math.max(def.naval.draft, 1);
+    const jp = joins && grid ? Nav.piece(grid, joins.x, joins.z, 3) : -1, lim = GROUND_BOUND - (rules && rules.edge !== undefined ? rules.edge : NAVAL_SPAWN_EDGE);   // (rules.edge: a respawn out of a hostile's sight may lie nearer the bound, D58)
+    for (let pass = grid ? 0 : 2; pass < NAVAL_SPOT_PASSES.length; pass++) {
+      const ps = NAVAL_SPOT_PASSES[pass], need = draft + ps.clear;
+      if (joins && !ps.strict) break;   // a spot asked to lie in a given sheet of water is not found in a pond by the old rule: the caller falls back
       for (let r = 0; r <= reach; r += NAVAL_SPOT_STEP) {
         const n = r === 0 ? 1 : Math.ceil(TAU * r / NAVAL_SPOT_ARC);
         for (let i = 0; i < n; i++) {
           const a = i * TAU / n, px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
           if (keepOff && keepOff.some((q) => Math.hypot(q.x - px, q.z - pz) < NAVAL_FLEET_GAP)) continue;
-          if (this.fits(px, pz, def, need, avoid, room)) return { x: px, z: pz, yaw: this.openYaw(px, pz, this.reach(def)) };
+          if (ps.strict) {   // the water of a big sheet, deep under the keel (a flood left out), well inside the bound, and the one asked for
+            if (Math.abs(px) > lim || Math.abs(pz) > lim || Nav.pieceArea(grid, px, pz) < NAV_BODY_MIN || Water.baseDepth(px, pz) < need) continue;
+            if (jp >= 0 && grid.comp[Nav.at(grid, px, pz)] !== jp) continue;
+          }
+          if (rules && rules.skip && rules.skip(px, pz)) continue;   // (rules.skip: a point the caller turns down, e.g. one a hostile sees, so the next candidate is tried instead of the search ending on it)
+          if (this.fits(px, pz, def, need, avoid, ps.room)) return { x: px, z: pz, yaw: this.openYaw(px, pz, this.reach(def)) };
         }
       }
     }
@@ -13311,19 +13353,20 @@ const Naval = {
   },
   /* the harbour a ship of def starts from: the water it can sail nearest to ref (the start or a base); null on a
      battlefield without such water (Naval.shipOk) */
-  harbour(def, ref) {
+  harbour(def, ref, within) {
     if (!this.shipOk(def, W.map)) return null;
     // clear of everything if it can be; else clear of other ships (a unit by the shore of a small lake); else beside
-    // the ship already there (a second ship on a lake one hull fits)
-    return this.spot(ref.x, ref.z, def, NAVAL_HARBOUR_REACH, true) || this.spot(ref.x, ref.z, def, NAVAL_HARBOUR_REACH, NAVAL_AVOID_SHIPS) ||
-      this.besideShips(this.spot(ref.x, ref.z, def, NAVAL_HARBOUR_REACH, false), def);
+    // the ship already there (a second ship on a lake one hull fits). within: only this far from ref (a co-op guest's, a respawn's)
+    const reach = within || NAVAL_HARBOUR_REACH;
+    return this.spot(ref.x, ref.z, def, reach, true, undefined, true) || this.spot(ref.x, ref.z, def, reach, NAVAL_AVOID_SHIPS, undefined, true) ||
+      this.besideShips(this.spot(ref.x, ref.z, def, reach, false, undefined, true), def);
   },
   /* What a player who picked def (loadout lo) deploys as near ref: a ship at its harbour (at), else, on a battlefield
      without water it can sail, the fallback platform with its own loadout (fell true); any other platform as it is
      (at null). */
-  deploy(def, lo, ref) {
+  deploy(def, lo, ref, within) {
     if (def.kind !== 'naval') return { def, lo, at: null, fell: false };
-    const at = this.harbour(def, ref);
+    const at = this.harbour(def, ref, within) || (within ? this.harbour(def, ref) : null);   // a guest's ship beside the host's, else wherever one floats
     if (at) return { def, lo, at, fell: false };
     const fb = PLATFORMS[NAVAL_FALLBACK];
     return { def: fb, lo: Loadout.forPlatform(fb.id), at: null, fell: true };
@@ -13367,15 +13410,34 @@ const Naval = {
     if (p === W.player) Cam.reset(p);
     return true;
   },
-  /* a ship's patrol loop: NAVAL_LANE_PTS points round (x, z), each pulled in toward it until a ship of def floats there */
+  /* a ship's patrol loop (P2-03): NAVAL_LANE_PTS points round (x, z), each pulled in toward it until it lies in an open cell
+     of the piece of water the ship is in (its route grid); a river that two points reach gets the two farthest open points
+     within 200 m instead. Water the grid holds no cell of (a pond) keeps the old rule: deep enough for the keel. */
   patrolLane(x, z, def) {
-    const out = [], draft = def.naval.amphibious ? 1 : def.naval.draft;
+    const out = [], g = Nav.ensure(navSpecShip(def)), home = Nav.piece(g, x, z, 4), draft = def.naval.amphibious ? 1 : def.naval.draft;
+    if (home < 0) {
+      for (let i = 0; i < NAVAL_LANE_PTS; i++) {
+        const a = i * TAU / NAVAL_LANE_PTS;
+        for (let r = NAVAL_LANE_R[0]; r >= NAVAL_LANE_R[1]; r -= 30) {
+          const px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
+          if (Math.abs(px) < GROUND_BOUND - def.radius && Math.abs(pz) < GROUND_BOUND - def.radius && this.navigableBase(px, pz, draft)) { out.push({ x: px, z: pz }); break; }
+        }
+      }
+      return out;
+    }
+    const inHome = (px, pz) => Nav.piece(g, px, pz, 0) === home;
     for (let i = 0; i < NAVAL_LANE_PTS; i++) {
       const a = i * TAU / NAVAL_LANE_PTS;
       for (let r = NAVAL_LANE_R[0]; r >= NAVAL_LANE_R[1]; r -= 30) {
         const px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r;
-        if (Math.abs(px) < GROUND_BOUND - def.radius && Math.abs(pz) < GROUND_BOUND - def.radius && this.navigableBase(px, pz, draft)) { out.push({ x: px, z: pz }); break; }
+        if (inHome(px, pz)) { out.push({ x: px, z: pz }); break; }
       }
+    }
+    if (out.length < 3) {   // a narrow river: the open points within 200 m, the farthest of them first
+      const cand = [];
+      for (let r = 40; r <= 200; r += 40) for (let i = 0; i < 16; i++) { const a = i * TAU / 16, px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r; if (inHome(px, pz)) cand.push({ x: px, z: pz, d: r }); }
+      cand.sort((u, v) => v.d - u.d);
+      for (const c of cand) if (out.length < 3 && out.every((q) => Math.hypot(q.x - c.x, q.z - c.z) > 60)) out.push({ x: c.x, z: c.z });
     }
     return out;
   },
@@ -13830,6 +13892,7 @@ class Platform {
     this.maxHeat = def.heatCap; this.heat = 0; this.overheated = false;
     this.dead = false; this.invuln = false; this.age = 0;
     this.grounded = this.kind !== 'air'; this.crouch = false; this.stagger = 0; this.jetting = false; this.boosting = false;
+    this.hurtAt = -Infinity;   // when it last lost hull (Reposition gives no help in a fight)
     this.sub = { weapons: 0, mobility: 0, sensors: 0 }; this.subIndex = 0; this.hitFlash = 0; this.recoil = 0; this.meleeT = 0; this.meleeCd = 0; this.apronStop = false;
     this.telegraph = 0; this.telegraphColor = 0;
     this.throttle = 0.6; this.speed = 0; this.gear = false; this.stalled = false; this.radarFocus = false; this.afterburner = false; this.airbrake = false;
@@ -14164,7 +14227,8 @@ class Platform {
     }
     if (aground && this.isPlayer) this.warn = 'RUN AGROUND: BACK OFF INTO DEEPER WATER';
     // left on dry ground (a flood gone down): it cannot sail off, so it is towed back to water (the host decides)
-    this.strandT = !n.amphibious && depth < n.draft * 0.3 ? this.strandT + dt : 0;
+    // (P2-03) also one left aground, not quite dry, by a flood going down: still on the bed for NAVAL_AGROUND_TOW s, it is towed too
+    this.strandT = n.amphibious ? 0 : depth < n.draft * 0.3 ? this.strandT + dt : aground && this.speed < NAVAL_STOP ? this.strandT + dt * NAVAL_STRAND_T / NAVAL_AGROUND_TOW : 0;
     if (this.strandT > NAVAL_STRAND_T && !Net.guest) { this.strandT = 0; Naval.tow(this); }
     this.floatNaval(dt, sp / Math.max(1, d.speed));
     this.speed = Math.hypot(this.vx, this.vz);
@@ -15146,7 +15210,7 @@ class Platform {
       this.armor = Math.max(0, this.armor - toArmor / soak); rem -= toArmor;
     }
     if (rem > 0) {
-      this.hp -= rem; this.hitFlash = 0.18;
+      this.hp -= rem; this.hitFlash = 0.18; this.hurtAt = W.time;
       this.gibWear(rem);
       if (!info.blast && !info.beam && !drown) Snd.play('hit', this.x, this.y, this.z, 0.9);
     }
@@ -16855,6 +16919,126 @@ const Seats = {
   useLabel(ctx) { return ctx.enter ? 'ENTER' : ctx.use ? 'USE' : ctx.eject ? 'EJECT' : ctx.exit ? 'EXIT' : 'USE'; },
 };
 
+/* =====================================================================
+   REPOSITION (P2-04): the way out of a place a platform cannot leave
+   A platform that is told to move (stick, throttle, rudder) and stays put for REPOSITION_OFFER s is stuck: the HUD, the
+   pause menu and, on a touch screen, a button offer to put it at the nearest valid place (held REPOSITION_HOLD s on a
+   key or the pad's d-pad down). Land and sea platforms go to the nearest place the spawn rules allow that joins the start
+   (ships: a harbour spot; aircraft: the inward heading and altitude of a spawn). In co-op the position belongs to the host:
+   a guest's request goes to it in the input edge bits, and it moves the guest if it has seen it stuck too.
+   ===================================================================== */
+const REPOSITION_OFFER = 6;       // s a platform is asked to move and does not before the way out is offered
+const REPOSITION_SPEED = 1.2;     // m/s: moving less than this is not moving
+const REPOSITION_FREE = 10;       // m it must get from where it was stuck for the offer to lapse by itself
+const REPOSITION_HOLD = 0.8;      // s the button is held to use it
+const REPOSITION_GAP = 12;        // s before it can be used again
+const REPOSITION_RING = 14;       // m between the rings of the search for a place...
+const REPOSITION_REACH = 700;     // ...out to this far
+const REPOSITION_HIDE = 60;       // m: a place out of a hostile's sight is preferred only this near (a move is no escape across the field)
+const REPOSITION_HURT = 5;        // s after losing hull a platform is in a fight: the nearest valid place, no protection
+const REPOSITION_ASK_GAP = 2;     // s a co-op guest waits after asking before it may ask again (the host keeps the long cooldown)
+const REPOSITION_PROTECT = 2;     // s the platform is safe afterwards
+const NET_REPOSITION = 128;       // a guest's request, in the 'in' edge bits
+const Reposition = {
+  me: null, offered: false, holdT: 0, cool: 0,
+  blank() { return { acc: 0, t: 0, ax: 0, az: 0, asked: false, offered: false, px: 0, pz: 0, who: null }; },
+  /* a new battle: nothing is stuck, nothing is cooling */
+  reset() { this.me = null; this.offered = false; this.holdT = 0; this.cool = 0; },
+  /* one step of the watch s (the local human's, or a co-op guest's on the host) over platform p and dt seconds: true while the way out is offered */
+  watch(s, p, dt) {
+    if (!p || p.dead || p.parked || p.chute || p.ejectPilot) { s.acc = 0; s.t = 0; s.offered = false; s.who = null; return false; }
+    if (s.who !== p) { s.who = p; s.acc = 0; s.t = 0; s.ax = p.x; s.az = p.z; s.offered = false; s.asked = false; }
+    const c = p.cmd, anchored = !!(p.arty && (p.arty.want || p.arty.deploy > 0));   // deployed artillery is meant to stay
+    if (!anchored && (p.kind === 'air' ? p.grounded && p.throttle > 0.3 : Math.abs(c.moveF) + Math.abs(c.moveS) + Math.abs(c.turn) * 0.3 > 0.5)) s.asked = true;
+    s.t += dt;
+    if (s.t >= 1) {
+      const moved = Math.hypot(p.x - s.ax, p.z - s.az);
+      s.acc = s.asked && moved < REPOSITION_SPEED * s.t ? s.acc + s.t : Math.max(0, s.acc - s.t * 2);
+      s.t = 0; s.asked = false; s.ax = p.x; s.az = p.z;
+      if (s.acc >= REPOSITION_OFFER && !s.offered) { s.offered = true; s.px = p.x; s.pz = p.z; }
+    }
+    if (s.offered && Math.hypot(p.x - s.px, p.z - s.pz) > REPOSITION_FREE) { s.offered = false; s.acc = 0; }
+    return s.offered;
+  },
+  /* once per frame for the local human p (PC.sample): the watch, and the button held (held) to use the way out */
+  frame(p, held, dt) {
+    if (!this.me) this.me = this.blank();
+    this.cool = Math.max(0, this.cool - dt);
+    this.offered = this.watch(this.me, p, dt) && this.cool <= 0;
+    if (!this.offered) { this.holdT = 0; return; }
+    this.holdT = held ? this.holdT + dt : 0;
+    if (this.holdT >= REPOSITION_HOLD) { this.holdT = 0; this.request(p); }
+  },
+  /* the local human asks (hold, touch button, pause menu): the host and solo play move the platform, a guest asks the host; true when sent */
+  request(p) {
+    p = p || (W && W.player);
+    if (!p || !this.offered) return false;
+    this.holdT = 0;
+    if (Net.guest) {   // the host decides and keeps the long cooldown: the guest waits only for the answer (a notice), and stays offered till it has moved
+      this.cool = REPOSITION_ASK_GAP; this.offered = false;
+      Net.pendEdge |= NET_REPOSITION;
+      return true;
+    }
+    this.cool = REPOSITION_GAP; this.offered = false;
+    if (this.me) { this.me.offered = false; this.me.acc = 0; }
+    return this.apply(p, null);
+  },
+  /* the host got a guest's request: it moves the guest when it has seen it stuck for most of the offer time too, else it says why not */
+  hostAsk(peer) {
+    const p = peer.p, s = peer.rp;
+    if (!p || p.dead) return false;
+    if (!s || s.acc < REPOSITION_OFFER * 0.6) { notify(p, 'REPOSITION REFUSED: THE HOST SEES YOU MOVING', 'warn'); return false; }
+    if (W.time < (peer.rpCool || 0)) { notify(p, 'REPOSITION: WAIT ' + Math.ceil(peer.rpCool - W.time) + ' s', 'warn'); return false; }
+    peer.rpCool = W.time + REPOSITION_GAP * 0.5; s.acc = 0; s.offered = false;
+    return this.apply(p, peer);
+  },
+  /* the nearest valid place for p as { x, z, yaw, y } or null: aircraft as a spawn (airSpawn), a ship at a harbour-grade
+     spot in its water, a land platform on dry, gentle, unblocked ground that joins the start; out of a hostile's sight only
+     within REPOSITION_HIDE m (a move is no escape across the field), and not at all for a platform hurt in the last
+     REPOSITION_HURT s (hurt: it is in a fight; it gets the nearest valid place and no protection) */
+  site(p, hurt) {
+    if (p.kind === 'air') return airSpawn(p.x, p.z, p.yaw);
+    if (p.kind === 'naval' && !p.def.naval.amphibious) {
+      const s = Naval.spot(p.x, p.z, p.def, REPOSITION_REACH, true, undefined, true) || Naval.harbour(p.def, W.mission ? W.mission.def.start : p);
+      return s ? { x: s.x, z: s.z, yaw: s.yaw } : null;
+    }
+    const spec = navSpecFor(p.def), g = spec ? Nav.ensure(spec) : null, home = W.mission ? W.mission.def.start : p;
+    const piece = g ? Nav.piece(g, home.x, home.z, 4) : -1, eye = spawnEyeH(p.def);
+    for (let pass = hurt ? 1 : 0; pass < 2; pass++) {
+      for (let r = REPOSITION_RING; r <= (pass ? REPOSITION_REACH : REPOSITION_HIDE); r += REPOSITION_RING) {
+        const n = Math.max(8, Math.ceil(TAU * r / (REPOSITION_RING * 2)));
+        for (let i = 0; i < n; i++) {
+          const a = i * TAU / n + r * 0.37, x = p.x + Math.sin(a) * r, z = p.z + Math.cos(a) * r;
+          if (Math.abs(x) > GROUND_BOUND - 20 || Math.abs(z) > GROUND_BOUND - 20 || Terrain.slope(x, z) > 0.5 || Water.depth(x, z) > 0.2) continue;
+          if (piece >= 0 && Nav.piece(g, x, z, 0) !== piece) continue;
+          if (groundBlocked(x, z, p.radius + 1.5) || spawnOccupied(x, z, p.radius)) continue;
+          if (pass === 0 && hostileSees(x, z, false, eye)) continue;
+          return { x, z, yaw: p.yaw, y: Terrain.h(x, z) };
+        }
+      }
+    }
+    return null;
+  },
+  /* put p at its site now (host or solo): at rest, safe for REPOSITION_PROTECT s; false when there is none */
+  apply(p, peer) {
+    const hurt = W.time - p.hurtAt < REPOSITION_HURT, s = this.site(p, hurt);
+    if (!s) { notify(p, 'NO PLACE TO REPOSITION TO', 'warn'); return false; }
+    p.x = s.x; p.z = s.z; p.yaw = s.yaw; p.torsoYaw = s.yaw; p.cmd.aimYaw = s.yaw;
+    p.vx = p.vy = p.vz = 0; p.speed = 0; p.stuckT = 0; p.strandT = 0; p.support = null; p.lastX = p.x; p.lastZ = p.z;
+    if (p.kind === 'air') {   // back in the air at a spawn's altitude, flying
+      p.y = s.y; p.grounded = false; p.pitch = p.roll = 0; p.gear = false; p.throttle = Math.max(p.throttle, 0.7);
+      p.speed = p.def.air.cruise; p.vx = Math.sin(p.yaw) * p.speed; p.vz = Math.cos(p.yaw) * p.speed;
+    } else p.y = p.kind === 'naval' ? Naval.keelY(p.x, p.z, p.def) : Terrain.h(p.x, p.z);
+    if (!hurt) {   // no protection for a platform in a fight
+      p.invuln = true;
+      if (peer) peer.protectT = REPOSITION_PROTECT; else if (p === W.player) Game.protectT = REPOSITION_PROTECT;
+    }
+    notify(p, 'REPOSITIONED', 'warn');
+    if (p === W.player) Cam.reset(p);
+    return true;
+  },
+};
+
 const AIRPORT_SPAWN_STEP = 40;   // a lost aircraft's spot moves this far along the runway while the last one is taken (m)
 const AIRPORT_SPAWN_GAP = 6;     // and keeps this clear of anything standing there (m)
 /* Where a player's aircraft comes back: parked on the first free spot along the runway from its head (an aircraft or
@@ -16888,16 +17072,56 @@ function standingNear(x, z, r) {
   }
   return false;
 }
+/* Where a lost player's ship comes back (P2-01, D58): the harbour h when no hostile sees it, else the nearest spot of the
+   harbour's own sheet of water that none sees, looked for in rings round it, first within NAVAL_RESPAWN_MAX of it, then
+   (the sea is open to a watching gunboat) anywhere in the sheet out to NAVAL_RESPAWN_FAR; the harbour itself only when no
+   such spot exists. Each ring point asks Naval.spot for a spot within NAVAL_RESPAWN_PROBE of it: a few dozen cells. */
+function navalRespawn(def, h) {
+  const eye = spawnEyeH(def);
+  if (!hostileSees(h.x, h.z, false, eye)) return h;
+  // passes: the sheet within NAVAL_RESPAWN_MAX; the sheet out to NAVAL_RESPAWN_FAR; a harbour in a pond or a narrow river (no big sheet to join) takes the old
+  // rule within NAVAL_RESPAWN_MAX; last, the sheet out to NAVAL_RESPAWN_FAR with the 200 m inset from the bound relaxed to NAVAL_RESPAWN_EDGE, then to the hull radius plus NAVAL_SPOT_ROOM, then to the hull radius (D58 wins over it)
+  const deep = Math.max(def.naval.draft, 1) + NAVAL_KEEL_CLEAR, sights = new Map(), seen = (x, z) => {   // (the passes ask about the same candidate points: each is looked at once)
+    const key = x + ',' + z;
+    let s = sights.get(key);
+    if (s === undefined) { s = hostileSees(x, z, false, eye); sights.set(key, s); }
+    return s;
+  };
+  const passes = [
+    { lo: 0, hi: NAVAL_RESPAWN_MAX, rules: { joins: h, skip: seen }, near: true },
+    { lo: NAVAL_RESPAWN_MAX, hi: NAVAL_RESPAWN_FAR, rules: { joins: h, skip: seen }, near: false },
+    { lo: 0, hi: NAVAL_RESPAWN_MAX, rules: true, near: true },   // (the old rule: no skip, the ring point's spot is checked after)
+    { lo: 0, hi: NAVAL_RESPAWN_FAR, rules: { joins: h, edge: NAVAL_RESPAWN_EDGE, skip: seen }, near: false },
+    { lo: 0, hi: NAVAL_RESPAWN_FAR, rules: { joins: h, edge: Naval.reach(def) + NAVAL_SPOT_ROOM, skip: seen }, near: false },   // then: hull radius plus its room from the bound...
+    { lo: 0, hi: NAVAL_RESPAWN_FAR, rules: { joins: h, edge: Naval.reach(def), skip: seen }, near: false },   // ...and the very last: the hull just inside the bound (the unseen deep water of a watched harbour can lie no further in)
+  ];
+  const big = Nav.pieceArea(Nav.ensure(navSpecShip(def)), h.x, h.z) >= NAV_BODY_MIN;   // (a harbour in a pond takes the old rule only; one in a big sheet never)
+  for (const ps of passes) {
+    if (ps.rules === true ? big : !big) continue;
+    const reachLim = ps.rules === true ? Infinity : GROUND_BOUND - (ps.rules.edge !== undefined ? ps.rules.edge : NAVAL_SPAWN_EDGE) + NAVAL_RESPAWN_PROBE;   // (a ring point further out than the pass's inset plus the probe has no spot to find)
+    for (let ring = 1; ring * NAVAL_RESPAWN_RING <= ps.hi; ring++) {
+      if (ring * NAVAL_RESPAWN_RING <= ps.lo) continue;
+      const dirs = Math.max(SPAWN_RING_DIRS, Math.ceil(TAU * ring * NAVAL_RESPAWN_RING / NAVAL_RESPAWN_ARC));   // (far rings get more points: 12 left 380 m between them at 730 m, and the unseen water between went unfound)
+      for (let i = 0; i < dirs; i++) {
+        const a = (i + (ring % 2) * 0.5) / dirs * TAU, px = h.x + Math.sin(a) * ring * NAVAL_RESPAWN_RING, pz = h.z + Math.cos(a) * ring * NAVAL_RESPAWN_RING;
+        if (Math.abs(px) > reachLim || Math.abs(pz) > reachLim || (ps.rules !== true && Water.baseDepth(px, pz) < deep)) continue;   // (a point on land or in the shallows has no spot worth the search; a spot is asked for within the probe of a deep point)
+        const s = Naval.spot(px, pz, def, NAVAL_RESPAWN_PROBE, true, undefined, ps.rules);   // (ps.rules.skip turns down seen points while it looks)
+        if (s && (!ps.near || Math.hypot(s.x - h.x, s.z - h.z) <= NAVAL_RESPAWN_MAX) && !hostileSees(s.x, s.z, false, eye)) return s;
+      }
+    }
+  }
+  return h;
+}
 /* a lost player's next platform: an aircraft at an airport if there is one no hostile sees, a ship at the harbour
    (Naval.harbour), else short of the fight (forwardSpawn), where no hostile sees it either if it can be helped */
 function respawnSite(def) {
-  if (def.kind === 'naval') {   // the harbour nearest the start, or the nearest one round it that no hostile sees
+  if (def.kind === 'naval') {   // the harbour nearest the start, or a spot of its water that no hostile sees (navalRespawn)
     const h = Naval.harbour(def, W.mission.def.start);
-    if (h) return hiddenNear(h, def.radius, false, spawnEyeH(def), (x, z) => Naval.harbour(def, { x, z }));
+    if (h) return navalRespawn(def, h);
   }
   const ap = def.kind === 'air' ? airportSpawn(def.radius) : null;
   if (ap && !hostileSees(ap.x, ap.z, true, spawnEyeH(def))) return ap;   // parked on the runway it is still an aircraft to AI perception (range alone, AA too)
-  return forwardSpawn(W.mission.def.start, def.radius, def.kind === 'air', spawnEyeH(def));
+  return forwardSpawn(W.mission.def.start, def.radius, def.kind === 'air', spawnEyeH(def), def);
 }
 
 /* True when a pad visit would restore something (energy and heat recover on their own). */
@@ -22048,6 +22272,502 @@ const STEER_ANGLES = [0.5, -0.5, 1.0, -1.0, 1.6, -1.6];   // headings (rad off t
 /* AI probe: uphill ground at (x, z) past p's climbing limit (gy: the ground under p); downhill and water p floats on stay open */
 function steepUphill(p, x, z, gy) { return Terrain.slope(x, z) > p.climbTan && Terrain.h(x, z) > gy && !p.floatsAt(x, z); }
 
+/* =====================================================================
+   ROUTES (P2-03 ships, P2-05 land units, P2-06 land links)
+   Per class of platform a grid of the water it can float in or the ground it can stand on, and a bounded route search
+   over it. A class is what a platform may cross: a ship by its draft; a land unit by the water it fords and the slope
+   it climbs. A ship's cell is open water with one more cell of it all round (room to turn); a land unit's cell is
+   ground below its slope limit, water no deeper than its ford, or a standing bridge deck. Banks cost more than open
+   ground, so routes keep off them. The grid of the world in use is built a few rows a tick the first time a unit asks
+   (Nav.step) and dropped with the world; the map def's own grid (navSrcBase) serves the skirmish layout, before any
+   world exists. The search is A* a slice of NAV_EXPAND cells a tick, one search at a time, so a route costs a frame
+   a little and never a hitch; a goal no route reaches ends at the nearest cell that is reached (partial).
+   ===================================================================== */
+const NAV_CELL = 15;                 // m: one cell of a world route grid for land units...
+const NAV_SEA_CELL = 7.5;            // ...and for ships, whose water is checked at the middle of each cell...
+const NAV_SEA_PAD = 3;               // ...with the hull's half beam and this much (m) kept from the shallows (a distance transform)
+const NAV_OBSTACLE_R = 3;            // m: a land cell is closed when a building or a tree stands within this of its middle
+const NAV_REBUILD_STRUCTS = 12;      // structures destroyed since a land grid was built before it is built again...
+const NAV_REBUILD_GAP = 15;          // ...no sooner than this many s after (a bridge shot down rebuilds at once); the old grid serves till the new is ready
+const NAV_PROGRESS_T = 5, NAV_PROGRESS_D = 10, NAV_PROGRESS_DEST = 5;   // a unit that moves under NAV_PROGRESS_D m in NAV_PROGRESS_T s toward a destination that moved under NAV_PROGRESS_DEST m is stuck: it is given a route, and the cell ahead is closed
+const NAV_CLOSE_T = 40;              // s a cell closed on a unit's word stays closed
+const NAV_FORD_SHARE = 0.8;          // share of its ford depth a route may use: a bank drops away faster than the grid looks, and a flood takes the rest
+const NAV_SLOPE_SHARE = 1;           // and of its slope limit (a slope is never deadly)
+const NAV_CLIFF = { ground: 0.85, mech: 1.1 };   // steerOpen's own cliff test (rise over run): nothing steeper is ever driven
+const NAV_BASE_FORD = 1.0;           // the ford a skirmish layout's land link assumes: a tank's, less the margin
+const NAV_ROWS = 1;                  // grid rows built a tick (about 1.5 ms: a grid takes two seconds, never a hitch)
+const NAV_EXPAND = 400;              // cells a route search expands a tick...
+const NAV_EXPAND_BUILD = 80;         // ...80 on a tick that also built a grid row
+const NAV_EXPAND_MAX = 30000;        // and in all on a ship's grid (62,000 cells), before it settles for the nearest cell it reached (so is a search whose heap, NAV_EXPAND_MAX * 8 entries, is full)...
+const NAV_EXPAND_LAND = 9000;        // ...on a land grid (15,600 cells; a goal no route reaches would otherwise search all of it every time)
+const NAV_UNREACH_GAP = 10;          // s before a unit whose route ended short asks again
+const NAV_QUEUE = 24;                // route requests waiting
+const NAV_BANK_COST = 1.7;           // a cell beside blocked ground costs this much to cross
+const NAV_FORD_MOVE = 3;             // a unit in water deeper than NAV_WET that moved this far (m) in a window is fording, not stuck...
+const NAV_FAR_JUMP = 20;             // (m: a way left that grows by more than this from one window to the next is a new route, not a unit going back)
+const NAV_FAR_WINDOWS = 3;           // ...and one that got under NAV_PROGRESS_D m nearer a fixed goal in this many windows (NAV_PROGRESS_T s each) is stuck, however it moved itself
+const NAV_WET = 0.25;                // water this deep (m) makes a land cell a ford...
+const NAV_WET_COST = 3;              // ...which costs this much to cross: a bridge or a dry way round up to that much longer wins
+const NAV_HEURISTIC = 1.15;          // the search leans a little toward the goal: near-optimal routes, far fewer cells
+const NAV_NEAR = 60;                 // m: closer than this to its destination a unit steers straight at it
+const NAV_THINK = 0.4;               // s between a unit's looks at whether a route is needed
+const NAV_REACH = 22;                // m: a waypoint is reached this close...
+const NAV_PRECISE = 7;               // ...a bridge deck's, and the point before it, this close
+const NAV_BRIDGE_APPROACH = 26;      // m: a route comes at a bridge from a point this far short of its deck, along it
+const NAV_REPLAN_DIST = 60;          // m the destination moves before the route is laid again
+const NAV_REPLAN_AGE = 15;           // s a route is kept at most
+const NAV_REPLAN_GAP = 2.5;          // s between two routes for one unit
+const NAV_FAIL_GAP = 8;              // and after one that found no start
+const NAV_SNAP = 4;                  // cells: how far from a blocked cell a unit's start is looked for
+const NAV_MAX_POINTS = 64;           // waypoints of a route
+const NAV_BODY_MIN = 40000;          // m2: the smallest sheet of water a ship's harbour is looked for in first (P2-01)
+const NAV_DX = [1, -1, 0, 0, 1, 1, -1, -1], NAV_DZ = [0, 0, 1, -1, 1, -1, 1, -1], NAV_DC = [1, 1, 1, 1, Math.SQRT2, Math.SQRT2, Math.SQRT2, Math.SQRT2];
+/* the class of platform def: { key, sea, draft } for a ship, { key, sea: false, ford, slope } for a land unit, or null when
+   it needs no route (aircraft, hovercraft, emplacements; infantry swim, but a route keeps them to what they wade) */
+function navSpecFor(def) {
+  if (def.kind === 'naval') return def.naval.amphibious ? null : navSpecShip(def);
+  if ((def.kind !== 'mech' && def.kind !== 'ground') || !(def.speed > 0) || (def.ground && def.ground.type === 'hover')) return null;
+  const infantry = def.style === 'infantry', mapSlope = W.map.maxSlope || MAP_FIELDS.maxSlope;
+  const ford = (infantry ? SWIM_DEPTH : def.kind === 'mech' ? def.height * MECH_HIP : def.ford || FORD_DEPTH) * NAV_FORD_SHARE;
+  const climb = mapSlope === Infinity ? Infinity : Math.tan((def.maxSlope || (infantry ? INFANTRY_MAX_SLOPE : mapSlope)) * DEG);
+  const slope = Math.min(climb, def.kind === 'mech' ? NAV_CLIFF.mech : NAV_CLIFF.ground) * NAV_SLOPE_SHARE;
+  return { key: 'land|' + ford.toFixed(2) + '|' + slope.toFixed(2), sea: false, ford, slope };
+}
+/* a ship's class: its draft (an amphibious craft counts as a keel of 1.2 m, for its harbour), the clearance it needs from
+   the nearest shallows (its half beam and NAV_SEA_PAD m: a narrow river is open water to a ship that fits it) and the
+   finer cell it is gridded in (rivers 30 m wide must not vanish) */
+const NAV_SHIP_SPECS = new WeakMap();
+function navSpecShip(def) {
+  let spec = NAV_SHIP_SPECS.get(def);
+  if (!spec) {
+    const draft = def.naval.amphibious ? 1.2 : def.naval.draft, clear = def.naval.hull[2] + NAV_SEA_PAD;
+    spec = { key: 'sea|' + draft + '|' + clear.toFixed(1), sea: true, draft, clear, cell: NAV_SEA_CELL };
+    NAV_SHIP_SPECS.set(def, spec);
+  }
+  return spec;
+}
+/* where a grid reads the ground from: the world in use... */
+const NAV_SRC_WORLD = {
+  slope(x, z) { return Terrain.slope(x, z); },
+  depth(x, z) { return Water.any ? Math.max(0, Water.baseLevel(x, z) - Terrain.h(x, z)) : 0; },   // the battlefield's own water: a flood drains away
+  deck(x, z) { return Water.any && Water.deckTop(x, z, Infinity) > -Infinity; },
+  // a building or a tree (what a vehicle's own probe finds, groundBlocked) within NAV_OBSTACLE_R of the middle; a bridge's deck is no obstacle to the cells at its ends
+  blocked(x, z) {
+    const y = Terrain.h(x, z), n = Hash.query(x - NAV_OBSTACLE_R - 2, z - NAV_OBSTACLE_R - 2, x + NAV_OBSTACLE_R + 2, z + NAV_OBSTACLE_R + 2, y - 1, y + 2.5);
+    for (let i = 0; i < n; i++) {
+      const s = Hash.out[i];
+      if (s.destroyed || s.type === 'bridge' || y >= s.top - 0.6 || y + 2.5 <= s.y + 0.02) continue;
+      if (structContains(s, x, z, NAV_OBSTACLE_R)) return true;
+    }
+    return false;
+  },
+};
+/* ...or a map def's unflattened grid, with its roads over water counted as bridges (cell m: the grid they are marked in) */
+const NAV_SRC_BASE = new Map();
+function navSrcBase(m, cell) {
+  const key = Terrain.gridKey(m) + '|' + cell;
+  let src = NAV_SRC_BASE.get(key);
+  if (src) return src;
+  const grid = Terrain.baseGrid(m), w = Terrain.baseWater[Terrain.gridKey(m)], L = w ? w.levels : null, n = Math.floor(2 * GROUND_BOUND / cell) + 1, decks = new Uint8Array(n * n);
+  for (const road of m.roads || []) for (const pt of Roads.samples(road.pts)) {
+    const rc = Math.ceil(road.w / 2 / cell);
+    const ci = Math.round((pt.x + GROUND_BOUND) / cell), cj = Math.round((pt.z + GROUND_BOUND) / cell);
+    for (let dj = -rc; dj <= rc; dj++) for (let di = -rc; di <= rc; di++) { const i = ci + di, j = cj + dj; if (i >= 0 && j >= 0 && i < n && j < n) decks[j * n + i] = 1; }
+  }
+  src = {
+    slope(x, z) { const e = 4; return Math.hypot(gridHeight(grid, x + e, z) - gridHeight(grid, x - e, z), gridHeight(grid, x, z + e) - gridHeight(grid, x, z - e)) / (2 * e); },
+    depth(x, z) { if (!L) return 0; const l = L[gridIndex(x, z)]; return l === -Infinity ? 0 : Math.max(0, l - gridHeight(grid, x, z)); },
+    deck(x, z) { const i = Math.round((x + GROUND_BOUND) / cell), j = Math.round((z + GROUND_BOUND) / cell); return i >= 0 && j >= 0 && i < n && j < n && decks[j * n + i] === 1; },
+  };
+  NAV_SRC_BASE.set(key, src);
+  return src;
+}
+/* 1 when a platform of class spec may be in the cell centred (x, z) */
+function navPass(spec, src, x, z) {
+  if (Math.abs(x) > GROUND_BOUND - 10 || Math.abs(z) > GROUND_BOUND - 10) return 0;
+  if (spec.sea) return src.depth(x, z) >= Math.max(spec.draft, 1) + NAVAL_KEEL_CLEAR ? 1 : 0;
+  if (src.deck(x, z)) return 5;   // bit 2: a bridge deck
+  const depth = src.depth(x, z);
+  if (depth > spec.ford) return 0;
+  return 1 | (depth > NAV_WET ? 2 : 0) | (src.slope(x, z) > spec.slope ? 0 : 8);   // bit 0: dry enough; bit 1: wet (a ford); bit 3: gentle enough (only the middle of a cell counts: a slope is never deadly)
+}
+function navGrid(spec, src) {
+  const cell = spec.cell || NAV_CELL, n = Math.floor(2 * GROUND_BOUND / cell) + 1, size = n * n;
+  return { spec, src, cell, n, raw: new Uint8Array(size), pass: new Uint8Array(size), near: new Uint8Array(size), wet: new Uint8Array(size), deck: new Uint8Array(size), cost: new Float32Array(size), row: 0, ready: false, comp: null, areas: null, patches: [], builtAt: 0, lostB: 0, lostS: 0 };
+}
+/* Builds up to rows more rows of g; true once it is ready. A land cell is open only when every point of a 3 x 3 lattice over
+   it (its middle, edges and corners, half a cell apart) is dry enough, so a channel or a steep bank narrower than a cell
+   cannot slip between the points the grid looks at; the lattice rows are shared by the cells that touch them. A ship's
+   cell is open water at its middle (the cells are small; the clearance comes after, navFinish). */
+function navRows(g, rows) {
+  if (g.row >= g.n) return navFinish(g);   // the rows are done: the finishing stages, one a call
+  if (g.spec.sea) {
+    const sn = g.n, send = Math.min(sn, g.row + rows);
+    for (; g.row < send; g.row++) for (let i = 0; i < sn; i++) g.raw[g.row * sn + i] = navPass(g.spec, g.src, i * g.cell - GROUND_BOUND, g.row * g.cell - GROUND_BOUND);
+    return false;
+  }
+  const n = g.n, half = g.cell / 2, L = 2 * n + 1, end = Math.min(n, g.row + rows);
+  const latRow = (lj, out) => { const z = (lj - 1) * half - GROUND_BOUND; for (let li = 0; li < L; li++) out[li] = navPass(g.spec, g.src, (li - 1) * half - GROUND_BOUND, z); };
+  if (!g.lat) { g.lat = [new Uint8Array(L), new Uint8Array(L), new Uint8Array(L)]; latRow(0, g.lat[2]); }
+  for (; g.row < end; g.row++) {
+    const j = g.row, a = g.lat[2], b = g.lat[0], c = g.lat[1];   // lattice rows 2j (kept from the row before), 2j + 1 and 2j + 2 (new)
+    latRow(2 * j + 1, b); latRow(2 * j + 2, c);
+    for (let i = 0; i < n; i++) {
+      const o = 2 * i;
+      // open when all nine are dry enough (bit 0) and its middle is gentle enough (bit 3), a ford when any is wet (bit 1); a bridge
+      // deck under its middle makes it open whatever lies beside (a deck is narrower than a cell)
+      const all = a[o] & a[o + 1] & a[o + 2] & b[o] & b[o + 1] & b[o + 2] & c[o] & c[o + 1] & c[o + 2], any = a[o] | a[o + 1] | a[o + 2] | b[o] | b[o + 1] | b[o + 2] | c[o] | c[o + 1] | c[o + 2];
+      // (bit 4: shut by a building or a tree, which closes the cell for a route but not for the pieces of ground it counts)
+      const open = (all & 1) && (b[o + 1] & 8);
+      g.raw[j * n + i] = (b[o + 1] & 4) ? 5 : (open ? 1 : 0) | (any & 2) | (open && g.src.blocked && g.src.blocked(i * g.cell - GROUND_BOUND, j * g.cell - GROUND_BOUND) ? 16 : 0);
+    }
+    g.lat[0] = a; g.lat[1] = b; g.lat[2] = c;   // c is next row's a
+  }
+  if (g.row < n) return false;
+  g.lat = null;
+  return navFinish(g);
+}
+/* the cells a unit may use (a ship's: open water the hull's half beam and a pad from the shallows), those beside blocked ones, and the
+   separate pieces of the open ground or water with their size in cells. Four stages, one a call (a tick of the host, or all at once for
+   Nav.ensure), so no tick carries the whole: 0 the forward chamfer pass of a ship's clearance (a land grid: its open cells), 1 the backward
+   pass, 2 the cells beside blocked ones and what each costs, 3 the pieces. True once the grid is ready. */
+function navFinish(g) {
+  const n = g.n, size = n * n, raw = g.raw, pass = g.pass, near = g.near, wet = g.wet, cost = g.cost, stage = g.fin || 0;
+  g.fin = stage + 1;
+  if (stage === 0) {
+    if (g.spec.sea) {
+      const c = g.cell, dg = c * Math.SQRT2, dist = g.dist = new Float32Array(size);
+      for (let k = 0; k < size; k++) dist[k] = raw[k] & 1 ? Infinity : 0;
+      for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+        const k = j * n + i;
+        let d = dist[k];
+        if (i === 0 || j === 0) d = Math.min(d, c);
+        if (i > 0) d = Math.min(d, dist[k - 1] + c);
+        if (j > 0) { d = Math.min(d, dist[k - n] + c); if (i > 0) d = Math.min(d, dist[k - n - 1] + dg); if (i < n - 1) d = Math.min(d, dist[k - n + 1] + dg); }
+        dist[k] = d;
+      }
+    } else for (let k = 0; k < size; k++) pass[k] = raw[k] & 1 && !(raw[k] & 16) ? 1 : 0;
+    return false;
+  }
+  if (stage === 1) {
+    if (g.spec.sea) {
+      const c = g.cell, dg = c * Math.SQRT2, dist = g.dist;
+      for (let j = n - 1; j >= 0; j--) for (let i = n - 1; i >= 0; i--) {
+        const k = j * n + i;
+        let d = dist[k];
+        if (i === n - 1 || j === n - 1) d = Math.min(d, c);
+        if (i < n - 1) d = Math.min(d, dist[k + 1] + c);
+        if (j < n - 1) { d = Math.min(d, dist[k + n] + c); if (i < n - 1) d = Math.min(d, dist[k + n + 1] + dg); if (i > 0) d = Math.min(d, dist[k + n - 1] + dg); }
+        dist[k] = d;
+      }
+      for (let k = 0; k < size; k++) pass[k] = dist[k] >= g.spec.clear + c / 2 ? 1 : 0;   // (dist is to the middle of the nearest shallow cell: its shore lies half a cell nearer)
+      g.dist = null;
+    }
+    return false;
+  }
+  if (stage === 2) {
+    for (let k = 0; k < size; k++) {
+      if (!pass[k]) continue;
+      const i = k % n, j = (k - i) / n;
+      near[k] = i === 0 || j === 0 || i === n - 1 || j === n - 1 || !pass[k - 1] || !pass[k + 1] || !pass[k - n] || !pass[k + n] ? 1 : 0;
+      wet[k] = raw[k] >> 1 & 1; g.deck[k] = raw[k] >> 2 & 1;
+      cost[k] = (near[k] ? NAV_BANK_COST : 1) * (wet[k] && !g.spec.sea ? NAV_WET_COST : 1);
+    }
+    return false;
+  }
+  // the pieces count the ground a building or a tree shuts too (a town does not cut its island in two): the terrain's open cells
+  const comp = new Int32Array(size).fill(-1), areas = [], stack = new Int32Array(size), open0 = g.spec.sea ? pass : raw, bit = 1;
+  for (let s = 0; s < size; s++) {
+    if (!(open0[s] & bit) || comp[s] >= 0) continue;
+    const id = areas.length;
+    let top = 0, area = 0;
+    stack[top++] = s; comp[s] = id;
+    while (top > 0) {
+      const k = stack[--top], i = k % n;
+      area++;
+      for (let d = 0; d < 4; d++) {
+        const a = i + NAV_DX[d], b = (k - i) / n + NAV_DZ[d];
+        if (a < 0 || b < 0 || a >= n || b >= n) continue;
+        const q = b * n + a;
+        if ((open0[q] & bit) && comp[q] < 0) { comp[q] = id; stack[top++] = q; }
+      }
+    }
+    areas.push(area);
+  }
+  g.comp = comp; g.areas = areas; g.ready = true;
+  return true;
+}
+const Nav = {
+  grids: new Map(), fresh: new Map(), base: new Map(), queue: [], cur: null, lostB: 0, lostS: 0, checkAt: 0, expanded: 0, plans: 0,
+  gS: null, par: null, st: null, hk: null, hn: null, hs: 0, full: false,
+  /* a new world: no grid, no route search survives it */
+  reset() { this.grids.clear(); this.fresh.clear(); this.queue.length = 0; this.cur = null; this.lostB = 0; this.lostS = 0; this.checkAt = 0; },
+  /* a new world grid for class spec, stamped with how many bridges and structures stood destroyed when it was started */
+  make(spec) {
+    const g = navGrid(spec, NAV_SRC_WORLD);
+    g.builtAt = W.time; g.lostB = this.lostB; g.lostS = this.lostS;
+    return g;
+  },
+  /* the world's grid for class spec (started, not necessarily ready) */
+  grid(spec) {
+    let g = this.grids.get(spec.key);
+    if (!g) { g = this.make(spec); this.grids.set(spec.key, g); }
+    return g;
+  },
+  /* starts the grid of platform def's class (built a few rows a tick), so a respawn or Reposition finds it ready */
+  prepare(def) { const spec = Water.any ? navSpecFor(def) : null; if (spec) this.grid(spec); },
+  /* builds the grid of every class of living platform in the world now (at load, once the first units stand): about 60 ms for the five of a jungle */
+  prewarm() {
+    if (!Water.any) return;
+    const done = new Set();
+    for (const q of W.platforms) {
+      const spec = q.dead ? null : navSpecFor(q.def);
+      if (spec && !done.has(spec.key)) { done.add(spec.key); this.ensure(spec); }
+    }
+  },
+  /* the world's grid for class spec, built now (a harbour or a spawn rule asks, before any frame) */
+  ensure(spec) {
+    const g = this.grid(spec);
+    while (!g.ready) navRows(g, NAV_ROWS * 8);
+    return g;
+  },
+  /* the grid of map def m for class spec, from its unflattened ground, built once and kept across worlds (the skirmish layout) */
+  baseGrid(m, spec) {
+    const key = Terrain.gridKey(m) + '|' + spec.key;
+    let g = this.base.get(key);
+    if (!g) {
+      g = navGrid(spec, navSrcBase(m, spec.cell || NAV_CELL));
+      while (!g.ready) navRows(g, 16);
+      this.base.set(key, g);
+    }
+    return g;
+  },
+  cellOf(g, v) { return Math.round((v + GROUND_BOUND) / g.cell); },
+  /* the cell index holding (x, z), or -1 outside the grid */
+  at(g, x, z) {
+    const i = this.cellOf(g, x), j = this.cellOf(g, z);
+    return i < 0 || j < 0 || i >= g.n || j >= g.n ? -1 : j * g.n + i;
+  },
+  passAt(g, x, z) { const k = this.at(g, x, z); return k >= 0 && g.pass[k] === 1; },
+  /* the open cell nearest (x, z) within rings cells of it (rings count NAV_CELL m, whatever the grid's cells), or -1 */
+  snap(g, x, z, rings) {
+    const ci = this.cellOf(g, x), cj = this.cellOf(g, z), n = g.n, reach = Math.ceil(rings * NAV_CELL / g.cell);
+    let best = -1, bestD = Infinity;
+    for (let r = 0; r <= reach && best < 0; r++) {
+      for (let dj = -r; dj <= r; dj++) for (let di = -r; di <= r; di++) {
+        if (Math.max(Math.abs(di), Math.abs(dj)) !== r) continue;
+        const i = ci + di, j = cj + dj;
+        if (i < 0 || j < 0 || i >= n || j >= n || !g.pass[j * n + i]) continue;
+        const d = Math.hypot(i * g.cell - GROUND_BOUND - x, j * g.cell - GROUND_BOUND - z);
+        if (d < bestD) { bestD = d; best = j * n + i; }
+      }
+    }
+    return best;
+  },
+  /* the piece of open ground or water (ready grids) holding (x, z) (snapped within rings), or -1 */
+  piece(g, x, z, rings) { const k = this.snap(g, x, z, rings === undefined ? 1 : rings); return k < 0 ? -1 : g.comp[k]; },
+  /* the size (m2) of the sheet of water or the ground holding (x, z), or 0 */
+  pieceArea(g, x, z) { const k = this.at(g, x, z); return k < 0 || !g.pass[k] ? 0 : g.areas[g.comp[k]] * g.cell * g.cell; },
+  /* true when (ax, az) and (bx, bz) lie in one piece of open ground or water */
+  linked(g, ax, az, bx, bz) { const a = this.piece(g, ax, az, 3); return a >= 0 && a === this.piece(g, bx, bz, 3); },
+  /* m from (x, z) to the nearest open cell of a piece at least minArea m2 big and inset m inside the bound, looking out to reach m (Infinity: none) */
+  bigDist(g, x, z, reach, minArea, inset) {
+    const ci = this.cellOf(g, x), cj = this.cellOf(g, z), rc = Math.ceil(reach / g.cell), n = g.n, lim = GROUND_BOUND - (inset || 0), sk = Math.max(1, Math.round(NAV_CELL / g.cell));   // (every sk cells: about NAV_CELL m apart)
+    let best = Infinity;
+    for (let dj = -rc; dj <= rc; dj += sk) for (let di = -rc; di <= rc; di += sk) {
+      const i = ci + di, j = cj + dj, d = Math.hypot(di, dj) * g.cell;
+      if (i < 0 || j < 0 || i >= n || j >= n || d > reach || d >= best) continue;
+      const k = j * n + i;
+      if (Math.abs(i * g.cell - GROUND_BOUND) > lim || Math.abs(j * g.cell - GROUND_BOUND) > lim) continue;
+      if (g.pass[k] && g.areas[g.comp[k]] * g.cell * g.cell >= minArea) best = d;
+    }
+    return best;
+  },
+  /* true when the straight line from (ax, az) to (bx, bz) crosses open cells only (dry: and no ford, no bridge deck: a
+     deck is narrower than a cell, so a route over one keeps to its waypoints) */
+  lineClear(g, ax, az, bx, bz, dry) {
+    const d = Math.hypot(bx - ax, bz - az), steps = Math.ceil(d / (g.cell * 0.5));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps, k = this.at(g, ax + (bx - ax) * t, az + (bz - az) * t);
+      if (k < 0 || !g.pass[k] || (dry && (g.wet[k] || g.deck[k]))) return false;
+    }
+    return true;
+  },
+  /* ---------- the route search ---------- */
+  /* ask for a route for ai from where it is to (gx, gz); the answer lands in ai.route within a few ticks */
+  request(ai, gx, gz) {
+    if (ai.routeReq || this.queue.length >= NAV_QUEUE) return;
+    ai.routeReq = true; ai.routeNext = W.time + NAV_REPLAN_GAP;
+    this.queue.push({ ai, gx, gz });
+  },
+  /* once a tick on the host: builds grids a few rows at a time, then searches for the next route a slice at a time */
+  step() {
+    if (!this.grids.size && !this.queue.length && !this.cur) return;
+    if (W.time >= this.checkAt) this.watch();
+    let built = false;
+    for (const g of this.grids.values()) if (!g.ready) { navRows(g, NAV_ROWS); built = true; break; }
+    if (!built) for (const [k, g] of this.fresh) {   // a land grid built again (a bridge or buildings and trees gone): the old one serves till it is ready
+      built = true;
+      if (navRows(g, NAV_ROWS)) { this.grids.set(k, g); this.fresh.delete(k); }
+      break;
+    }
+    if (!this.cur) this.begin();
+    if (this.cur) this.run(built ? NAV_EXPAND_BUILD : NAV_EXPAND);   // a tick that built a grid row searches a small slice, so no tick carries both
+  },
+  /* once a second: a bridge shot down, or NAV_REBUILD_STRUCTS buildings and trees destroyed since a land grid was built (and
+     NAV_REBUILD_GAP s), start that grid again beside the old; cells closed on a unit's word open again after NAV_CLOSE_T s */
+  watch() {
+    this.checkAt = W.time + 1;
+    let lostB = 0;
+    for (const s of W.bridges) if (s.destroyed) lostB++;
+    const lostS = W.nDestroyed;
+    this.lostB = lostB; this.lostS = lostS;
+    for (const [k, g] of this.grids) {
+      if (g.spec.sea || !g.ready || this.fresh.has(k)) continue;
+      if (lostB !== g.lostB || (Math.abs(lostS - g.lostS) >= NAV_REBUILD_STRUCTS && W.time - g.builtAt >= NAV_REBUILD_GAP)) this.fresh.set(k, this.make(g.spec));
+      for (let i = g.patches.length - 1; i >= 0; i--) if (g.patches[i].until <= W.time) { g.pass[g.patches[i].k] = g.patches[i].was; g.patches.splice(i, 1); }
+    }
+  },
+  /* a unit that cannot get on closes the cell at (x, z) in grid g for NAV_CLOSE_T s, so the next route goes round whatever is there */
+  close(g, x, z) {
+    const k = this.at(g, x, z);
+    if (k < 0 || !g.pass[k] || g.patches.length > 64) return;
+    g.patches.push({ k, was: g.pass[k], until: W.time + NAV_CLOSE_T });
+    g.pass[k] = 0;
+  },
+  /* starts the first valid request in the queue */
+  begin() {
+    while (this.queue.length) {
+      const req = this.queue.shift(), ai = req.ai, p = ai.p;
+      if (p.dead || !ai.enabled) { ai.routeReq = false; continue; }
+      const spec = navSpecFor(p.def), g = spec && this.grids.get(spec.key);
+      if (!g || !g.ready) { ai.routeReq = false; continue; }
+      if (this.start(req, g, p.x, p.z)) return;
+      ai.routeReq = false; ai.route = null; ai.routeNext = W.time + NAV_FAIL_GAP;   // it stands too far from open ground
+    }
+  },
+  /* sets up the search of req on grid g from (x, z); false when (x, z) is nowhere near an open cell. A goal on a blocked
+     cell is moved to the open one nearest it, so a search for a bank or an island ends where it should. */
+  start(req, g, x, z) {
+    const n = g.n, size = n * n, s = this.snap(g, x, z, NAV_SNAP);
+    if (s < 0) return false;
+    if (!this.gS || this.gS.length < size) { this.gS = new Float32Array(size); this.par = new Int32Array(size); this.st = new Uint8Array(size); this.hk = new Float32Array(NAV_EXPAND_MAX * 8); this.hn = new Int32Array(NAV_EXPAND_MAX * 8); }
+    this.st.fill(0, 0, size); this.hs = 0; this.full = false;
+    let goal = clamp(this.cellOf(g, req.gz), 0, n - 1) * n + clamp(this.cellOf(g, req.gx), 0, n - 1);
+    if (!g.pass[goal]) { const near = this.snap(g, req.gx, req.gz, NAV_SNAP * 2); if (near >= 0) goal = near; }
+    const gi = goal % n, gj = (goal - gi) / n;
+    this.gS[s] = 0; this.par[s] = -1; this.st[s] = 1;
+    this.push(this.heur(g, s, gi, gj), s);
+    this.cur = { req, g, goal, gi, gj, best: s, bestH: this.heur(g, s, gi, gj), total: 0 };
+    return true;
+  },
+  heur(g, k, gi, gj) {
+    const n = g.n, di = Math.abs(k % n - gi), dj = Math.abs(((k - k % n) / n) - gj);
+    return (Math.max(di, dj) + (Math.SQRT2 - 1) * Math.min(di, dj)) * NAV_HEURISTIC;
+  },
+  push(key, node) {
+    const hk = this.hk, hn = this.hn;
+    if (this.hs >= hk.length) { this.full = true; return; }   // full: the search ends as partial (run)
+    let i = this.hs++;
+    while (i > 0) {
+      const p = (i - 1) >> 1;
+      if (hk[p] < key || (hk[p] === key && hn[p] <= node)) break;
+      hk[i] = hk[p]; hn[i] = hn[p]; i = p;
+    }
+    hk[i] = key; hn[i] = node;
+  },
+  pop() {
+    if (this.hs === 0) return -1;
+    const hk = this.hk, hn = this.hn, top = hn[0], key = hk[--this.hs], node = hn[this.hs];
+    let i = 0;
+    for (;;) {
+      let c = i * 2 + 1;
+      if (c >= this.hs) break;
+      if (c + 1 < this.hs && (hk[c + 1] < hk[c] || (hk[c + 1] === hk[c] && hn[c + 1] < hn[c]))) c++;
+      if (hk[c] > key || (hk[c] === key && hn[c] >= node)) break;
+      hk[i] = hk[c]; hn[i] = hn[c]; i = c;
+    }
+    hk[i] = key; hn[i] = node;
+    return top;
+  },
+  /* expands up to budget cells of the search in hand */
+  run(budget) {
+    const s = this.cur, g = s.g, n = g.n, pass = g.pass, gS = this.gS, st = this.st, par = this.par, corner = g.spec.sea ? pass : g.raw;
+    while (budget-- > 0) {
+      const node = this.pop();
+      if (node < 0 || s.total > (g.spec.sea ? NAV_EXPAND_MAX : NAV_EXPAND_LAND) || this.full) { this.finish(s, s.best, true); return; }
+      if (st[node] === 2) continue;
+      st[node] = 2; s.total++; this.expanded++;
+      if (node === s.goal) { this.finish(s, node, false); return; }
+      const i = node % n, j = (node - i) / n, h = this.heur(g, node, s.gi, s.gj);
+      if (h < s.bestH) { s.bestH = h; s.best = node; }
+      for (let d = 0; d < 8; d++) {
+        const a = i + NAV_DX[d], b = j + NAV_DZ[d];
+        if (a < 0 || b < 0 || a >= n || b >= n) continue;
+        const q = b * n + a;
+        if (!pass[q] || st[q] === 2) continue;
+        if (d > 3 && !(corner[j * n + a] & 1 && corner[b * n + i] & 1)) continue;   // no cutting a corner of water or a cliff (a tree beside the corner leaves a vehicle's 15 m diagonal clear: a forest is passable)
+        const cost = gS[node] + NAV_DC[d] * g.cost[q];
+        if (st[q] === 1 && cost >= gS[q]) continue;
+        gS[q] = cost; par[q] = node; st[q] = 1;
+        this.push(cost + this.heur(g, q, s.gi, s.gj), q);
+      }
+    }
+  },
+  /* the search ended at cell end: the route as waypoints, the ones a straight line joins dropped */
+  finish(s, end, partial) {
+    this.cur = null; this.plans++;
+    const ai = s.req.ai, g = s.g, n = g.n, cells = [];
+    ai.routeReq = false;
+    for (let k = end; k >= 0; k = this.par[k]) cells.push(k);
+    cells.reverse();
+    const pt = (k) => ({ x: (k % n) * g.cell - GROUND_BOUND, z: Math.floor(k / n) * g.cell - GROUND_BOUND });
+    const pts = [], out = [];
+    for (const k of cells) pts.push(pt(k));
+    let a = 0;
+    while (a < pts.length - 1) {
+      let b = a + 1;
+      while (b + 1 < pts.length && this.lineClear(g, pts[a].x, pts[a].z, pts[b + 1].x, pts[b + 1].z, !g.spec.sea)) b++;   // a ford is followed cell by cell
+      out.push(pts[b]); a = b;
+    }
+    if (!out.length) out.push(pts[pts.length - 1]);   // already in the cell it is bound for
+    if (g.src === NAV_SRC_WORLD) {   // a waypoint on a bridge deck moves to the middle of the deck (the cell's middle may be a river's width off it) and is reached close up; a run of deck gets a straight approach before it
+      const onDeck = (w) => { const k = this.at(g, w.x, w.z); return k >= 0 && g.deck[k] === 1; };
+      for (const w of out) {
+        if (!onDeck(w)) continue;
+        let sx = 0, sz = 0, cnt = 0;
+        for (let dz = -9; dz <= 9; dz += 3) for (let dx = -9; dx <= 9; dx += 3) if (Water.deckTop(w.x + dx, w.z + dz, Infinity) > -Infinity) { sx += w.x + dx; sz += w.z + dz; cnt++; }
+        if (cnt) { w.x = sx / cnt; w.z = sz / cnt; }
+        w.r = NAV_PRECISE;
+      }
+      for (let i = out.length - 2; i >= 0; i--) {   // entering a deck: a point short of it, on the line of the deck, so the vehicle comes in straight
+        if (onDeck(out[i]) || !onDeck(out[i + 1])) continue;
+        const a = out[i + 1], along = out[i + 2] && onDeck(out[i + 2]), fx = along ? out[i + 2].x - a.x : a.x - out[i].x, fz = along ? out[i + 2].z - a.z : a.z - out[i].z, len = Math.hypot(fx, fz) || 1;
+        const pre = { x: a.x - fx / len * NAV_BRIDGE_APPROACH, z: a.z - fz / len * NAV_BRIDGE_APPROACH, r: NAV_PRECISE };
+        if (this.passAt(g, pre.x, pre.z)) out.splice(i + 1, 0, pre);
+      }
+    }
+    while (out.length > NAV_MAX_POINTS) out.splice(Math.floor(out.length / 2), 1);
+    // a route that ends short waits there when it is water (or land, for a ship) that stops it; where only a slope does, the unit pushes on straight as it always did
+    let wait = false;
+    if (partial) {
+      const last = out[out.length - 1], d = Math.hypot(s.req.gx - last.x, s.req.gz - last.z), steps = Math.ceil(d / (g.cell * 0.5));
+      wait = g.spec.sea;
+      for (let i = 1; i <= steps && !wait; i++) { const t = i / steps; if (g.src.depth(last.x + (s.req.gx - last.x) * t, last.z + (s.req.gz - last.z) * t) > g.spec.ford) wait = true; }
+    }
+    ai.route = { pts: out, i: 0, gx: s.req.gx, gz: s.req.gz, t: W.time, partial, wait };
+    ai.routeAt = 0;
+    if (partial) ai.routeNext = W.time + NAV_UNREACH_GAP;   // (a goal no route reaches is not searched for again at once)
+  },
+  /* a finished route from (ax, az) toward (gx, gz) for class spec, searched at once (tests, tools, the layout's ford; m: over map def m's own grid, else the world's): { pts, partial } or null */
+  plan(spec, ax, az, gx, gz, m) {
+    const g = m ? this.baseGrid(m, spec) : this.ensure(spec), fake = { p: { dead: false, x: ax, z: az, def: { kind: 'x' } }, enabled: true, routeReq: false, route: null };
+    if (this.cur) { this.queue.unshift(this.cur.req); this.cur = null; }   // a search in hand starts again afterwards
+    if (this.start({ ai: fake, gx, gz }, g, ax, az)) while (this.cur) this.run(100000);
+    return fake.route;
+  },
+};
+
 class AIController {
   constructor(p, profile, diff) {
     this.p = p; this.profile = profile; this.d = diff;
@@ -22067,6 +22787,11 @@ class AIController {
     this.enabled = true; this.altBase = 0;
     this.moveDir = { x: 0, z: 0 };
     this.lane = null; this.laneI = 0;   // a ship's patrol loop (Naval.patrolLane) and the point it heads for
+    // its route round water and cliffs (Nav): the waypoints, when to look again, whether one is wanted or asked for, the heading it gives
+    this.route = null; this.routeAt = 0; this.routeNext = 0; this.routeReq = false; this.routeDirect = true; this.routeX = 0; this.routeZ = 0; this.navSpec = undefined;
+    this.routeWait = false; this.routeForce = false; this.progAt = 0; this.progPx = 0; this.progPz = 0; this.progX = 0; this.progZ = 0; this.progI = 0; this.farN = 0; this.farWorst = 0; this.farLast = 0; this.farX = 0; this.farZ = 0; this.farD = 0;   // waiting at the end of a partial route; stuck (no progress); the last progress look (where it stood, where it was bound, its waypoint)
+    this.sternT = 0;   // s a ship has crept with its bow the wrong way
+    this.laneAt = 0; this.laneD = 0;   // a ship's patrol: when it set out for its lane point, and how far it was then
     this.roundT = 0; this.spot = null;   // an artillery battery's wait before its next round, and the spotted target it shells (runArtillery)
   }
   noticeDamage(owner) {
@@ -22177,24 +22902,31 @@ class AIController {
     if (hasTarget || W.time - this.seen.t < 4) dist = this.aimAtTarget(dt, this.weaponSpeed());
     else { c.aimYaw = p.kind === 'mech' ? p.torsoYaw : p.yaw; c.aimPitch = 0; c.aimPoint = null; }
     // desired movement direction
-    let dx = 0, dz = 0, speedF = 1;
+    let dx = 0, dz = 0, speedF = 1, destX = 0, destZ = 0, routed = false;   // routed: the heading is toward (destX, destZ), a place worth a route round water
     const toX = this.seen.x - p.x, toZ = this.seen.z - p.z, tl = Math.hypot(toX, toZ) || 1;
     const nx = toX / tl, nz = toZ / tl, px = -nz, pz = nx; // perpendicular
     switch (this.state) {
-      case 'approach': dx = nx; dz = nz; break;
+      case 'approach': dx = nx; dz = nz; destX = this.seen.x; destZ = this.seen.z; routed = true; break;
       case 'backoff': dx = -nx; dz = -nz; break;
       case 'strafe': dx = px * this.strafeDir * this.pr.strafe + nx * (dist > (this.pr.min + this.pr.max) / 2 ? 0.4 : -0.3); dz = pz * this.strafeDir * this.pr.strafe + nz * (dist > (this.pr.min + this.pr.max) / 2 ? 0.4 : -0.3); break;
       case 'flank': dx = px * this.strafeDir + nx * 0.35; dz = pz * this.strafeDir + nz * 0.35; break;
       case 'retreat': dx = -nx * 0.7 + (this.home.x - p.x) * 0.002; dz = -nz * 0.7 + (this.home.z - p.z) * 0.002; break;
       case 'advance': {
         const g = this.follow ? { x: this.follow.x, z: this.follow.z } : this.goal;
-        if (g) { dx = g.x - p.x; dz = g.z - p.z; const gl = Math.hypot(dx, dz); if (gl < (this.follow ? 40 : 25)) { dx = dz = 0; } else { dx /= gl; dz /= gl; } if (this.follow && gl < 80) speedF = 0.5; }
+        if (g) { dx = g.x - p.x; dz = g.z - p.z; destX = g.x; destZ = g.z; routed = true; const gl = Math.hypot(dx, dz); if (gl < (this.follow ? 40 : 25)) { dx = dz = 0; } else { dx /= gl; dz /= gl; } if (this.follow && gl < 80) speedF = 0.5; }
         break;
       }
       default: break;
     }
     const l = Math.hypot(dx, dz);
-    if (l > 0.01) { dx /= l; dz /= l; this.steerAround(dx, dz); dx = this.moveDir.x; dz = this.moveDir.z; } else { this.moveDir.x = this.moveDir.z = 0; }
+    if (this.escapeWater()) { this.moveDir.x = dx = this.routeX; this.moveDir.z = dz = this.routeZ; }   // afloat in water too deep for it: out, whatever it was doing
+    else if (l > 0.01) {
+      dx /= l; dz /= l;
+      const rt = routed ? this.routeDir(destX, destZ) : 0;
+      this.routeWait = rt === 2;
+      if (rt === 2) { this.moveDir.x = this.moveDir.z = 0; dx = dz = 0; }   // the nearest place a route reaches: it waits there
+      else { if (rt === 1) { dx = this.routeX; dz = this.routeZ; } this.steerAround(dx, dz); dx = this.moveDir.x; dz = this.moveDir.z; }
+    } else { this.moveDir.x = this.moveDir.z = 0; }
     // allies keep clear of the player
     if (p.team === 0 && W.player && !W.player.dead) {
       const ax = p.x - W.player.x, az = p.z - W.player.z, ad = Math.hypot(ax, az);
@@ -22217,8 +22949,12 @@ class AIController {
     if (!this.lane) this.lane = Naval.patrolLane(this.home.x, this.home.z, p.def);
     const lane = this.lane;
     if (lane.length && !this.follow && !(this.target && talive(this.target))) {
-      let g = lane[this.laneI % lane.length];
-      if (Math.hypot(g.x - p.x, g.z - p.z) < NAVAL_LANE_REACH) { this.laneI++; g = lane[this.laneI % lane.length]; }
+      let g = lane[this.laneI % lane.length], d = Math.hypot(g.x - p.x, g.z - p.z);
+      if (this.laneAt === 0) { this.laneAt = W.time; this.laneD = d; }
+      // on to the next point of the loop when this one is reached, when the route to it ends short and the ship has got there, or when LANE_STALL s bring it no nearer (P2-03)
+      const stalled = W.time - this.laneAt >= NAVAL_LANE_STALL && this.laneD - d < NAV_PROGRESS_D;
+      if (d < NAVAL_LANE_REACH || this.routeWait || stalled) { this.laneI++; g = lane[this.laneI % lane.length]; d = Math.hypot(g.x - p.x, g.z - p.z); this.laneAt = W.time; this.laneD = d; this.routeWait = false; }
+      else if (W.time - this.laneAt >= NAVAL_LANE_STALL) { this.laneAt = W.time; this.laneD = d; }
       this.goal = g;
     }
     this.runGround(dt);
@@ -22281,6 +23017,93 @@ class AIController {
     if (next !== prevState && this.stateT < 1.0 && prevState !== 'idle' && prevState !== 'advance' && next !== 'retreat') return;
     if (next !== prevState) { this.state = next; this.stateT = 0; }
   }
+  /* P2-05: a vehicle or mech that stands in water deeper than it takes (flooded, drowning) heads for the shallowest
+     water round it, whatever it was doing; true with the heading in routeX / routeZ */
+  escapeWater() {
+    const p = this.p;
+    if (!p.wet || p.kind === 'naval' || !Number.isFinite(p.fordDepth)) return false;
+    const here = Water.level(p.x, p.z) - Terrain.h(p.x, p.z);
+    if (here < p.fordDepth * 0.9) return false;
+    let best = here - 0.05, bx = 0, bz = 0;
+    for (let k = 0; k < 16; k++) {
+      const a = k * TAU / 16, sx = Math.sin(a), sz = Math.cos(a), d = Water.depth(p.x + sx * 16, p.z + sz * 16) + Water.depth(p.x + sx * 32, p.z + sz * 32) * 0.5;
+      if (d < best) { best = d; bx = sx; bz = sz; }
+    }
+    if (bx === 0 && bz === 0) return false;
+    this.routeX = bx; this.routeZ = bz;
+    return true;
+  }
+  /* P2-03 / P2-05: for a destination worth a route (where a ship patrols or a unit advances or closes in), 0 when it
+     steers straight at it (a clear line over open ground or water, or no route yet), 1 with the heading to the next
+     waypoint of its route in routeX / routeZ, or 2 when the route ends short of the destination and the unit has got
+     there (nowhere nearer is reached: it waits). Looks every NAV_THINK s; a route is asked of Nav when the line is blocked. */
+  /* the way left to (tx, tz): along the rest of its route when it follows one, else the straight line (m) */
+  wayLeft(tx, tz) {
+    const p = this.p, r = this.route;
+    if (this.routeDirect || !r || !r.pts[r.i]) return Math.hypot(tx - p.x, tz - p.z);
+    let left = Math.hypot(r.pts[r.i].x - p.x, r.pts[r.i].z - p.z);
+    for (let k = r.i; k < r.pts.length - 1; k++) left += Math.hypot(r.pts[k + 1].x - r.pts[k].x, r.pts[k + 1].z - r.pts[k].z);
+    return left;
+  }
+  routeDir(tx, tz) {
+    const p = this.p;
+    if (this.navSpec === undefined) this.navSpec = navSpecFor(p.def);   // its class, once
+    const spec = this.navSpec;
+    if (!spec || !Water.any) return 0;   // routes round water: a battlefield without any needs none
+    const g = Nav.grid(spec);
+    if (!g.ready) return 0;
+    if (W.time >= this.routeAt) {
+      this.routeAt = W.time + NAV_THINK + (p.id % 5) * 0.03;
+      const dist = Math.hypot(tx - p.x, tz - p.z);
+      // progress, not a timer: stuck is a unit that moved under NAV_PROGRESS_D m of its own in the last NAV_PROGRESS_T s, bound for a destination that
+      // stayed put (within NAV_PROGRESS_DEST m) and not on its way to a new waypoint (a tree, a wall the grid missed): the cell ahead is closed for a while
+      // and a route is laid even if the straight line looks clear. A unit on a long detour or chasing a target is moving: it is never stuck.
+      let stalled = false;
+      if (W.time >= this.progAt) {
+        const fresh = this.progAt > 0 && W.time - this.progAt < NAV_PROGRESS_T * 0.5;   // routeDir has been asked all through the window
+        const moved = Math.hypot(p.x - this.progPx, p.z - this.progPz);
+        // a vehicle fording water deeper than a ford crawls (that is not stuck); one held in a shallow bank (a hand's depth: p.wet, but not a ford) is
+        const fording = p.wet && Water.level(p.x, p.z) - Terrain.h(p.x, p.z) > NAV_WET && moved >= NAV_FORD_MOVE;
+        stalled = fresh && !spec.sea && !this.routeWait && !fording && dist > NAV_NEAR && moved < NAV_PROGRESS_D && Math.hypot(tx - this.progX, tz - this.progZ) < NAV_PROGRESS_DEST && (!this.route || this.route.i === this.progI);
+        // and the long way round: bound for the same destination over NAV_FAR_WINDOWS windows without getting NAV_PROGRESS_D m nearer (by the way left
+        // to go: along its route, round a lake as well as straight), however far it moved itself: a unit shuffling to and fro covers ground and goes nowhere
+        const aimD = spec.sea ? 0 : this.wayLeft(tx, tz);   // (a ship has its own lane test, NAVAL_LANE_STALL, and sits in water by nature: no stuck test for it)
+        // (a moved goal, or a way left that jumped up as a new route was laid, starts the count anew)
+        if (!fresh || this.farN === 0 || Math.hypot(tx - this.farX, tz - this.farZ) >= NAV_PROGRESS_DEST || aimD > this.farLast + NAV_FAR_JUMP) {
+          this.farN = 1; this.farX = tx; this.farZ = tz; this.farD = aimD; this.farWorst = 0;
+        } else {
+          this.farWorst = Math.max(this.farWorst, aimD);   // (the farthest it stood from the goal at a window since the first)
+          if (++this.farN > NAV_FAR_WINDOWS) {   // stuck when at some window it was not NAV_PROGRESS_D m nearer than at the first: a unit that moves keeps on getting nearer
+            if (!spec.sea && !this.routeWait && dist > NAV_NEAR && this.farWorst > this.farD - NAV_PROGRESS_D) stalled = true;
+            this.farN = 0;
+          }
+        }
+        this.farLast = aimD;
+        this.progAt = W.time + NAV_PROGRESS_T; this.progPx = p.x; this.progPz = p.z; this.progX = tx; this.progZ = tz; this.progI = this.route ? this.route.i : 0;
+        this.routeForce = stalled;
+        if (stalled) {
+          const look = p.radius * 2.5 + 10, h = Math.hypot(this.moveDir.x, this.moveDir.z) || 1, k = Nav.at(g, p.x + this.moveDir.x / h * look, p.z + this.moveDir.z / h * look);
+          if (k >= 0 && !g.deck[k] && !g.wet[k]) Nav.close(g, p.x + this.moveDir.x / h * look, p.z + this.moveDir.z / h * look);
+          this.routeNext = 0;
+        }
+      }
+      this.routeDirect = !this.routeForce && (dist < NAV_NEAR || Nav.lineClear(g, p.x, p.z, tx, tz, true));   // a line through a ford is asked about: a bridge may be the better way
+      const r = this.route;
+      if (!this.routeDirect && !this.routeReq && W.time >= this.routeNext && (!r || stalled || Math.hypot(tx - r.gx, tz - r.gz) > NAV_REPLAN_DIST || W.time - r.t > NAV_REPLAN_AGE)) {
+        if (Nav.snap(g, p.x, p.z, NAV_SNAP) >= 0) Nav.request(this, tx, tz);
+        else this.routeNext = W.time + NAV_FAIL_GAP;   // it stands too far from open ground: no asking till it is nearer
+      }
+      const next = r && r.pts[r.i + 1];
+      if (r && next && !next.r && !this.routeDirect && Nav.lineClear(g, p.x, p.z, next.x, next.z, true)) r.i++;   // the next waypoint is in clear view over dry ground: cut the corner
+    }
+    const r = this.route;
+    if (this.routeDirect || !r || !r.pts.length || Math.hypot(tx - r.gx, tz - r.gz) > NAV_REPLAN_DIST * 2) return 0;
+    while (r.i < r.pts.length - 1 && Math.hypot(r.pts[r.i].x - p.x, r.pts[r.i].z - p.z) < (r.pts[r.i].r || NAV_REACH)) r.i++;
+    const w = r.pts[r.i], dx = w.x - p.x, dz = w.z - p.z, d = Math.hypot(dx, dz);
+    if (r.i >= r.pts.length - 1 && d < (w.r || NAV_REACH)) return r.wait ? 2 : 0;
+    this.routeX = dx / (d || 1); this.routeZ = dz / (d || 1);
+    return 1;
+  }
   /* pick a heading that is not blocked by structures or steep slopes */
   steerAround(dx, dz) {
     if (this.steerOpen(dx, dz)) { this.moveDir.x = dx; this.moveDir.z = dz; return; }
@@ -22323,7 +23146,11 @@ class AIController {
       c.turn = clamp(-err * 2.4, -1, 1);
       c.moveS = 0;
       c.moveF = clamp((1 - Math.min(Math.abs(err) / 1.3, 0.85)) * speedF, -1, 1);
-      if (Math.abs(err) > 2.3 && p.kind === 'ground' && p.def.ground.type !== 'tracked') { c.moveF = -0.6; c.turn = -c.turn; }   // a ship turns on under way
+      if (Math.abs(err) > 2.3 && p.kind === 'ground' && p.def.ground.type !== 'tracked') { c.moveF = -0.6; c.turn = -c.turn; }   // a ship turns on under way...
+      else if (p.kind === 'naval') {   // ...but one that has crept along with its bow the wrong way for NAVAL_ASTERN_T s (a river's dead end: the rudder bites on way only) goes astern, the rudder reversed (P2-03)
+        this.sternT = Math.abs(err) > NAVAL_ASTERN_ERR && p.speed < NAVAL_ASTERN_SPEED ? this.sternT + dt : 0;
+        if (this.sternT > NAVAL_ASTERN_T) { c.moveF = -0.7; c.turn = -c.turn; }
+      }
     }
   }
   fireLogic(dt, dist, hasTarget) {
@@ -22616,6 +23443,13 @@ const SPAWN_RING_STEP_AIR = 150;  // an aircraft's or a ship's, wider: AA batter
 const SPAWN_RINGS = 8;            // in this many rings
 const SPAWN_RING_DIRS = 12;       // of this many points each
 const AIR_START_ALT = 160;        // an aircraft starts this high over its start point (m)
+const AIR_SPAWN_EDGE = 400;       // P2-01: it starts at least this far inside AIR_BOUND (m)...
+const AIR_SPAWN_RUN = 1000;       // ...heading inward, with at least this far to fly (m) before AIR_BOUND...
+const AIR_SPAWN_INWARD = 0.2;     // ...and at least this much (cosine) toward the middle (except where every such heading is in a hostile's sight: then a heading up to 24 degrees outward of the line along the bound, always with AIR_SPAWN_RUN m to the bound ahead...
+const AIR_SPAWN_FLANK = -0.4;     // ...cosine -0.4, D58 winning over inward)
+const AIR_SPAWN_LOOK = 600;       // and clears the highest ground within this far ahead (m)...
+const AIR_SPAWN_CLEAR = 90;       // ...by this much (m), under the ceiling
+const AIR_SPAWN_SPREAD = 45;      // co-op: guests line up this far apart across the heading (m), 15 m higher each
 /* True when a living hostile could spot a platform here at once: within SPAWN_SAFE_DIST of anything hostile,
    or within its current sight (capped) with line of sight, as AI perception needs. Aircraft respawn airborne,
    where perception skips the sight line, so for them range alone counts. AA batteries only count against aircraft.
@@ -22637,7 +23471,10 @@ function hostileSees(x, z, air, eyeH) {
 /* Respawn point for a player: short of the nearest active primary objective on the start side, else beside
    a living human teammate, else the mission start; never where a hostile would see it.
    Returns { x, z, yaw } facing the fight. air: the platform is an aircraft (AA batteries count); eyeH: its aim height. */
-function forwardSpawn(start, clearR, air, eyeH) {
+function forwardSpawn(start, clearR, air, eyeH, def) {
+  // P2-01: a land platform comes back on ground that joins the start (not an island it cannot leave) once its route grid is ready
+  const spec = def && !air && Water.any ? navSpecFor(def) : null, grid = spec && !spec.sea ? Nav.grid(spec) : null;
+  const linked = (sp) => !grid || !grid.ready || Nav.linked(grid, start.x, start.z, sp.x, sp.z);
   let goal = null, goalD = 0;
   const m = W.mission;
   if (m) for (const o of m.objectives) {
@@ -22650,27 +23487,28 @@ function forwardSpawn(start, clearR, air, eyeH) {
     for (let back = FORWARD_SPAWN_DIST; back < goalD; back += FORWARD_SPAWN_STEP) {
       const k = 1 - back / goalD;
       const sp = findSpawn(start.x + (goal.x - start.x) * k, start.z + (goal.z - start.z) * k, 30, clearR, 0);
-      if (sp && !hostileSees(sp.x, sp.z, air, eyeH)) return { x: sp.x, z: sp.z, yaw };
+      if (sp && linked(sp) && !hostileSees(sp.x, sp.z, air, eyeH)) return { x: sp.x, z: sp.z, yaw };
     }
   }
   for (const q of W.platforms) {
     if (!q.isPlayer || q.dead || q.team !== 0 || q.kind === 'air') continue;
     const sp = findSpawn(q.x, q.z, 30, clearR, 0);
-    if (sp && !hostileSees(sp.x, sp.z, air, eyeH)) return { x: sp.x, z: sp.z, yaw: q.yaw };
+    if (sp && linked(sp) && !hostileSees(sp.x, sp.z, air, eyeH)) return { x: sp.x, z: sp.z, yaw: q.yaw };
   }
-  return hiddenNear(start, clearR, air, eyeH);
+  return hiddenNear(start, clearR, air, eyeH, undefined, linked);
 }
 /* the start when no hostile sees it, else the nearest spot round it that none sees (rings of SPAWN_RING_STEP), else
    the start anyway: a respawn never lands where the enemy that killed the player is still watching if it can help it.
-   find(x, z): the spot to stand on near a ring point, or null (a free patch of ground, findSpawn, by default). */
-function hiddenNear(start, clearR, air, eyeH, find) {
+   find(x, z): the spot to stand on near a ring point, or null (a free patch of ground, findSpawn, by default).
+   ok(spot): true when the spot may be used (a land platform's must join the start). */
+function hiddenNear(start, clearR, air, eyeH, find, ok) {
   if (!hostileSees(start.x, start.z, air, eyeH)) return { x: start.x, z: start.z, yaw: start.yaw };
   const step = air || find ? SPAWN_RING_STEP_AIR : SPAWN_RING_STEP;
   for (let ring = 1; ring <= SPAWN_RINGS; ring++) {
     for (let i = 0; i < SPAWN_RING_DIRS; i++) {
       const a = (i + (ring % 2) * 0.5) / SPAWN_RING_DIRS * TAU, x = start.x + Math.sin(a) * ring * step, z = start.z + Math.cos(a) * ring * step;
       const sp = find ? find(x, z) : findSpawn(x, z, 20, clearR, 0);
-      if (sp && !hostileSees(sp.x, sp.z, air, eyeH)) return { x: sp.x, z: sp.z, yaw: sp.yaw !== undefined ? sp.yaw : start.yaw };
+      if (sp && (!ok || ok(sp)) && !hostileSees(sp.x, sp.z, air, eyeH)) return { x: sp.x, z: sp.z, yaw: sp.yaw !== undefined ? sp.yaw : start.yaw };
     }
   }
   return { x: start.x, z: start.z, yaw: start.yaw };
@@ -22678,13 +23516,69 @@ function hiddenNear(start, clearR, air, eyeH, find) {
 /* the point AI perception draws its sight line to on a platform (tpos), over the ground or the water's surface:
    a ship's keel lies its draft under the surface, an amphibious craft's rides over it (Naval.keelY) */
 const spawnEyeH = (def) => def.height * 0.5 + 1 + (def.naval ? (def.naval.amphibious ? def.naval.ride : -def.naval.draft) : 0);
+/* m from (x, z) along heading yaw to the edge of the square of half-size b (Infinity along neither axis cannot happen) */
+function rayToSquare(x, z, yaw, b) {
+  const dx = Math.sin(yaw), dz = Math.cos(yaw);
+  let t = Infinity;
+  if (dx > 1e-6) t = Math.min(t, (b - x) / dx); else if (dx < -1e-6) t = Math.min(t, (-b - x) / dx);
+  if (dz > 1e-6) t = Math.min(t, (b - z) / dz); else if (dz < -1e-6) t = Math.min(t, (-b - z) / dz);
+  return t;
+}
+/* P2-01: where an aircraft starts, given the start point and heading it would have: at least AIR_SPAWN_EDGE inside
+   AIR_BOUND (the point moved toward the middle if not), heading inward (the given heading if it has AIR_SPAWN_RUN m to
+   fly before AIR_BOUND and is inward (AIR_SPAWN_INWARD), else toward the middle), and high enough to clear the highest ground
+   or water AIR_SPAWN_LOOK m ahead by AIR_SPAWN_CLEAR (AIR_START_ALT over its point at least), under the ceiling.
+   slot: a co-op guest's place in the line across the heading. seen(x, z, heading): true when a hostile would see the start
+   flying that way (a respawn steps out of hostile sight, D58): the headings that are not seen come first.
+   Returns { x, z, yaw, y }. */
+function airSpawn(x, z, yaw, slot, seen) {
+  const lim = AIR_BOUND - AIR_SPAWN_EDGE, edge = Math.max(Math.abs(x), Math.abs(z));
+  if (edge > lim) { x *= lim / edge; z *= lim / edge; }
+  const r = Math.hypot(x, z), home = Math.atan2(-x, -z);
+  // inward: within about 78 degrees of the way to the middle (a heading along the bound, or across it, is not inward), where the point is off the middle
+  const cosIn = (a) => (r < 200 ? 1 : -(Math.sin(a) * x + Math.cos(a) * z) / r), runs = (a) => rayToSquare(x, z, a, AIR_BOUND) >= AIR_SPAWN_RUN;
+  const fits = (a) => runs(a) && cosIn(a) >= AIR_SPAWN_INWARD;
+  let h = null;
+  if (seen) {
+    // the given heading, then the ones nearest the middle; every inward heading seen (D58 wins over inward): one up to 24 degrees outward of the line along the bound, still with AIR_SPAWN_RUN m ahead, that is not
+    const cands = [yaw];
+    for (let k = 0; k <= 8; k++) { cands.push(home + k * PI / 8); if (k) cands.push(home - k * PI / 8); }
+    for (const minCos of [AIR_SPAWN_INWARD, AIR_SPAWN_FLANK]) {
+      for (const a of cands) if (runs(a) && cosIn(a) >= minCos && !seen(x, z, a)) { h = a; break; }
+      if (h !== null) break;
+    }
+  }
+  if (h === null) h = fits(yaw) ? yaw : home;   // nothing asked, or every way is seen: the given heading if it is inward, else the middle
+  if (slot) {
+    const lat = (slot % 2 ? 1 : -1) * Math.ceil(slot / 2) * AIR_SPAWN_SPREAD;
+    x += Math.cos(h) * lat; z -= Math.sin(h) * lat;
+    const e2 = Math.max(Math.abs(x), Math.abs(z));
+    if (e2 > lim) { x *= lim / e2; z *= lim / e2; }
+  }
+  let high = Water.top(x, z);
+  for (let d = 30; d <= AIR_SPAWN_LOOK; d += 30) high = Math.max(high, Water.top(x + Math.sin(h) * d, z + Math.cos(h) * d));
+  const y = Math.min(Math.max(Water.top(x, z) + AIR_START_ALT, high + AIR_SPAWN_CLEAR), AIR_CEILING - 30) + (slot || 0) * 15;
+  return { x, z, yaw: h, y };
+}
+/* the `seen` test of airSpawn for an aircraft of def: its start, and where it is a second on, in a hostile's sight (hostileSees, range alone for aircraft) */
+function airSeen(def) {
+  const eye = spawnEyeH(def);
+  return (x, z, h) => hostileSees(x, z, true, eye) || hostileSees(x + Math.sin(h) * def.speed, z + Math.cos(h) * def.speed, true, eye);
+}
+/* after a battle's first units stand (they come after the players): an aircraft in the air turns from what would see it, as a respawn does */
+function settleAir(p) {
+  if (!p || p.dead || p.kind !== 'air' || p.grounded) return;
+  const a = airSpawn(p.x, p.z, p.yaw, 0, airSeen(p.def));
+  if (Math.abs(angleDiff(a.yaw, p.yaw)) > 0.01) { p.yaw = a.yaw; p.torsoYaw = a.yaw; p.cmd.aimYaw = a.yaw; }
+}
 function spawnUnit(archKey, x, z, opts) {
   opts = opts || {};
   const a = ARCH[archKey], def = PLATFORMS[a.def];
   const team = opts.team === undefined ? 1 : opts.team;
   let pos = { x, z };
-  if (def.kind === 'naval') {   // ships: the nearest open water (amphibious craft too)
-    pos = Naval.spot(x, z, def, Math.max(opts.radius || 25, NAVAL_SPOT_REACH), true, opts.keepOff);
+  if (def.kind === 'naval') {   // ships: the nearest open water (amphibious craft too), in the sheet of water opts.joins is in where there is room
+    const reach = Math.max(opts.radius || 25, NAVAL_SPOT_REACH);
+    pos = (opts.joins && Naval.spot(x, z, def, reach, true, opts.keepOff, { joins: opts.joins })) || Naval.spot(x, z, def, reach, true, opts.keepOff, true);
     if (!pos) return null;
   } else if (def.kind !== 'air') {
     pos = findSpawn(x, z, opts.radius || 25, def.radius, opts.minPlayerDist || 0);
@@ -22694,7 +23588,7 @@ function spawnUnit(archKey, x, z, opts) {
   const diff = W.diff;
   const lo = Object.assign({}, a.loadout, opts.loadout);   // opts.loadout overrides slots (null empties one)
   const p = new Platform(def, {
-    team, x: pos.x, z: pos.z, yaw: opts.yaw !== undefined ? opts.yaw : pos.yaw !== undefined ? pos.yaw : Math.random() * TAU, y: opts.y, loadout: lo, arch: archKey,
+    team, x: pos.x, z: pos.z, yaw: opts.yaw !== undefined ? opts.yaw : pos.yaw !== undefined ? pos.yaw : def.kind === 'air' ? Math.atan2(-pos.x, -pos.z) + rand(-0.5, 0.5) : Math.random() * TAU, y: opts.y, loadout: lo, arch: archKey,   // an aircraft heads inward (P2-01)
     name: a.name || a.label, hpMult: (a.hpMult || 1) * (team === 1 ? diff.hp * (a.ai === 'boss' ? (W.bossHpMult || 1) : 1) : 1),
     armorMult: (a.armorMult || 1) * (team === 1 ? diff.hp : 1), extraShield: a.extraShield,
     ammoMult: 3,
@@ -23768,6 +24662,11 @@ const SKIRMISH_LAYOUT_TRIES_RELIEF = 96; // more attempts on a mountain map, whe
 const SKIRMISH_LAYOUT_TRIES_WATER = 320; // and more still where water does: both bases and the ground they level must stay dry (cheap grid look-ups)
 const SKIRMISH_FALLBACK_BEARINGS = 72;   // opposite spots on the base ring tried once the seeded tries run out
 const SKIRMISH_LAYOUT_SALT = 0x5bd1e995; // the layout draws from its own stream, so a seed's waves stay as they were
+const SKIRMISH_UNLINKED_MISS = 1e5;      // a base pair with no ground between them ranks this far below one with (P2-06)
+const SKIRMISH_WADE_MAX = 80;            // the deepest water the route for a built ford may cross (m)
+const SKIRMISH_FORD_STEP = 10;           // a built ford has a box of ground every this far along its route (m)...
+const SKIRMISH_FORD_HALF = 12;           // ...each this far from its middle to its side (m)...
+const SKIRMISH_FORD_DEPTH = 0.7;         // ...and its top this far under the surface (m): a tank (1.2 m) and a soldier (1 m) wade it
 const SKIRMISH_DISTRICT_SIDE = [265, 235];   // a base's district sits this far to one side of it (m), nearer if the edge is close
 const SKIRMISH_MEGA_SHIFT = [160, 230];  // the central mega-district sits this far off the line between the bases (m)
 const SKIRMISH_FORT = { recruit: { guns: 4, aa: 2 }, veteran: { guns: 5, aa: 2 }, elite: { guns: 6, aa: 3 } };   // enemy base defences
@@ -23801,14 +24700,26 @@ function skirmishLayoutWith(cfg, homes) {
   const flat = (c, deg) => Scenery.flatFor(cfg.map, c, deg) && (!field || Airports.gap(field, c.x, c.z) >= c.r + SITE_PAD + SITE_FADE);
   const tries = m.water.length ? SKIRMISH_LAYOUT_TRIES_WATER : relief ? SKIRMISH_LAYOUT_TRIES_RELIEF : SKIRMISH_LAYOUT_TRIES;
   let rng = null, own = null, foe = null;
+  // P2-06 / P2-01: of the seeded pairs the first that suits is kept: the two bases on ground a tank can drive between (no
+  // island apart; a bridge counts), and, for a ship pick, ours within NAVAL_SHORE_MAX of a big sheet of water its keel
+  // floats in. Where no pair has both, the one linked and nearest the water; a land pick on a battlefield whose bases
+  // are always linked gets the first pair, as before.
+  const shipDef = PLATFORMS[cfg.platformId], shore = shipDef && shipDef.kind === 'naval' && Naval.shipOk(shipDef, m) ? Nav.baseGrid(m, navSpecShip(shipDef)) : null;
+  const ms = m.maxSlope || MAP_FIELDS.maxSlope, linkSpec = { key: 'land|link', sea: false, ford: NAV_BASE_FORD, slope: Math.min(ms === Infinity ? Infinity : Math.tan(ms * DEG), NAV_CLIFF.ground) * NAV_SLOPE_SHARE };
+  const linkGrid = m.water.length ? Nav.baseGrid(m, linkSpec) : null;
   const seeded = () => {
     rng = makeRng((cfg.seed ^ SKIRMISH_LAYOUT_SALT) >>> 0);
-    for (let k = 0; k < tries && !foe; k++) {
+    let best = null, bestMiss = Infinity;
+    for (let k = 0; k < tries && bestMiss > 0; k++) {
       const a = rng() * TAU, b = a + PI + (rng() * 2 - 1) * SKIRMISH_BASE_SWING;
       const r1 = lerp(SKIRMISH_BASE_RING[0], SKIRMISH_BASE_RING[1], rng()), r2 = lerp(SKIRMISH_BASE_RING[0], SKIRMISH_BASE_RING[1], rng());
       const o = { x: Math.cos(a) * r1, z: Math.sin(a) * r1, r: FORT.r }, e = { x: Math.cos(b) * r2, z: Math.sin(b) * r2, r: FORT.r };
-      if (inField(o) && inField(e) && Math.hypot(o.x - e.x, o.z - e.z) >= SKIRMISH_BASE_GAP && flat(o, BASE_MAX_SLOPE) && flat(e, BASE_MAX_SLOPE)) { own = o; foe = e; }
+      if (!(inField(o) && inField(e) && Math.hypot(o.x - e.x, o.z - e.z) >= SKIRMISH_BASE_GAP && flat(o, BASE_MAX_SLOPE) && flat(e, BASE_MAX_SLOPE))) continue;
+      // a pair that is not linked ranks below every linked one; a ship pick's base counts the metres past NAVAL_SHORE_MAX it lies from water
+      const miss = (linkGrid && !Nav.linked(linkGrid, o.x, o.z, e.x, e.z) ? SKIRMISH_UNLINKED_MISS : 0) + (shore ? Math.min(SKIRMISH_UNLINKED_MISS / 2, Math.max(0, Nav.bigDist(shore, o.x, o.z, 900, NAV_BODY_MIN, NAVAL_SPAWN_EDGE) - NAVAL_SHORE_MAX)) : 0);
+      if (miss < bestMiss) { best = { o, e }; bestMiss = miss; }
     }
+    if (best) { own = best.o; foe = best.e; }
   };
   seeded();
   // where the home airfield leaves no seeded base pair the next one is tried; where none does, the bases go where they
@@ -23836,6 +24747,21 @@ function skirmishLayoutWith(cfg, homes) {
   const st = Scenery.fortAt(ownBase, FORT.start[0], FORT.start[1]);
   const start = { x: st.x, z: st.z, yaw: face };
   const sites = [{ x: start.x, z: start.z, r: 34, tag: 'pad' }];
+  // P2-06: bases no dry ground joins (archipelago: every seeded pair lies on two islands) get a built ford: level boxes of
+  // ground SKIRMISH_FORD_DEPTH m under the surface along the cheapest way across (a route that may cross any water, a
+  // cell of it dearer than ground), so tanks and soldiers can drive from one base to the other
+  if (linkGrid && !fixedPair && !Nav.linked(linkGrid, own.x, own.z, foe.x, foe.z)) {
+    const wade = Nav.plan({ key: 'land|wade', sea: false, ford: SKIRMISH_WADE_MAX, slope: linkSpec.slope }, own.x, own.z, foe.x, foe.z, m), levels = Terrain.baseWater[Terrain.gridKey(m)].levels;
+    let px = own.x, pz = own.z;
+    for (const w of wade && !wade.partial ? wade.pts : []) {   // (water is all that is crossed: a cliff between them is not a ford's work)
+      const len = Math.hypot(w.x - px, w.z - pz), n = Math.ceil(len / SKIRMISH_FORD_STEP);
+      for (let i = 1; i <= n; i++) {
+        const x = px + (w.x - px) * i / n, z = pz + (w.z - pz) * i / n, level = levels[gridIndex(x, z)];
+        if (level > -Infinity && !Nav.passAt(linkGrid, x, z)) sites.push({ x, z, r: SKIRMISH_FORD_HALF, hx: SKIRMISH_FORD_HALF, hz: SKIRMISH_FORD_HALF, h: level - SKIRMISH_FORD_DEPTH, level: true, tag: 'ford' });
+      }
+      px = w.x; pz = w.z;
+    }
+  }
   // the mega-district first (it needs the most room), then one district beside each base
   const mx = (own.x + foe.x) / 2, mz = (own.z + foe.z) / 2, px = Math.cos(face), pz = -Math.sin(face);   // (px, pz) is square to the line
   const side = rng() < 0.5 ? 1 : -1, shift = lerp(SKIRMISH_MEGA_SHIFT[0], SKIRMISH_MEGA_SHIFT[1], rng());
@@ -23947,7 +24873,7 @@ function skirmishDef(cfg) {
       ctx.later(() => parkApronAircraft());
       // the fleet keeps to its patrol lanes and is not a wave: the battle is won without hunting every ship down
       // and starts NAVAL_FLEET_GAP from the player's base, start and harbour, or not at all
-      if (Naval.mapOk(mapDef(cfg.map))) ctx.later(() => spawnGroup((SKIRMISH_FLEET[cfg.size] || SKIRMISH_FLEET.small).slice(0, (QUALITY[S.quality] || QUALITY.medium).fleet), foe.x, foe.z, { radius: 40, exact: true, keepOff: W.player ? [own, start, W.player] : [own, start] }));
+      if (Naval.mapOk(mapDef(cfg.map))) ctx.later(() => spawnGroup((SKIRMISH_FLEET[cfg.size] || SKIRMISH_FLEET.small).slice(0, (QUALITY[S.quality] || QUALITY.medium).fleet), foe.x, foe.z, { radius: 40, exact: true, keepOff: W.player ? [own, start, W.player] : [own, start], joins: W.player && W.player.kind === 'naval' ? { x: W.player.x, z: W.player.z } : undefined }));   // in the player's sheet of water when there is room (P2-01)
       ctx.later(() => {
         const k = SKIRMISH_ARTY_BACK / Math.max(1, Math.hypot(foe.x - own.x, foe.z - own.z));
         spawnGroup(SKIRMISH_ARTY[cfg.size] || SKIRMISH_ARTY.small, foe.x + (foe.x - own.x) * k, foe.z + (foe.z - own.z) * k, { radius: 45 }).forEach((u) => { u.garrison = true; });
@@ -24218,6 +25144,7 @@ const PC = {
     if (pad) this.padC = pad.cycle;
     if (S.autoTarget) this.autoTarget(p);
     this.useInput(p, Input.held('interact') || !!(pad && pad.interact), dt);
+    Reposition.frame(p, Input.held('reposition') || !!(pad && (pad.reposition || pad.down)), dt);   // stuck: the key, the d-pad down or the touch button, held (P2-04)
   },
   /* Use: let go within USE_HOLD for a tap (enter, resupply, pick up); keep it down USE_HOLD to exit, or eject in the air */
   useInput(p, held, dt) {
@@ -24386,7 +25313,10 @@ const Game = {
   /* ----- session construction ----- */
   buildDef(cfg) {
     if (cfg.mode === 'mission') return MISSION_BY_ID[cfg.missionId];
-    if (cfg.mode === 'skirmish') return skirmishDef(cfg.skirmish);
+    if (cfg.mode === 'skirmish') {
+      if (cfg.platformId) cfg.skirmish.platformId = cfg.platformId;   // the layout lays our base near water for a ship pick (P2-01)
+      return skirmishDef(cfg.skirmish);
+    }
     return trainingDef(cfg.map);   // Training on the battlefield picked (ashfall when none is)
   },
   startSession(cfg, guest) {
@@ -24409,7 +25339,7 @@ const Game = {
     const st = def.start;
     W.pads = [{ x: st.x + 20, z: st.z + 4 }];
     W.mission = this.mission = new Mission(def, cfg);
-    PC.hadTarget = false;
+    PC.hadTarget = false; Reposition.reset();
     W.mission.noTimeout = cfg.mode === 'training';
     W.maxLives = cfg.mode === 'training' ? UNLIMITED_LIVES : this.livesFor(cfg); W.lives = W.maxLives; W.resupplies = RESUPPLY_CHARGES;
     W.mods = mods;
@@ -24428,6 +25358,9 @@ const Game = {
       if (cfg.coop && Net.host) Net.sessionBegin();
       if (cfg.mode !== 'training') this.mission.later.push(() => Scenery.garrison(lay, def.outpostGuns === false));
       this.mission.later.forEach((fn) => fn());
+      settleAir(W.player);   // the units of the battle stand now: an aircraft turns from the ones that would see it
+      if (cfg.coop && Net.host) for (const peer of Net.peers) settleAir(peer.p);
+      Nav.prewarm();   // every class of unit in the battle has its route grid now, before the first frame (built later, a grid took a few ms of a tick in the first seconds)
     }
     W.stats.score = 0;
     if (W.player) Cam.reset(W.player);
@@ -24447,10 +25380,12 @@ const Game = {
     const ship = Naval.deploy(PLATFORMS[cfg.platformId], cfg.loadout, atPos || st);   // a ship starts at the harbour
     const def = ship.def, lo = Object.assign({}, ship.lo), at = ship.at || atPos;
     const old = W.player;
-    const x = at ? at.x : st.x, z = at ? at.z : st.z, yaw = at && at.yaw !== undefined ? at.yaw : st.yaw;
+    let x = at ? at.x : st.x, z = at ? at.z : st.z, yaw = at && at.yaw !== undefined ? at.yaw : st.yaw, y;
+    if (def.kind === 'air' && !(atPos && atPos.parked)) { const a = airSpawn(x, z, yaw, 0, airSeen(def)); x = a.x; z = a.z; yaw = a.yaw; y = a.y; }   // away from the bound, heading in, high enough (P2-01)
     // in co-op the host's platform carries the pilot name everyone else sees; it reads as YOU only on screen
-    const p = new Platform(def, { team: 0, x, z, yaw, loadout: lo, name: cfg.coop ? cleanName(Net.name) : 'YOU', ammoMult: W.mods.scarce ? SCARCE_AMMO : 1, y: def.kind === 'air' ? Terrain.h(x, z) + AIR_START_ALT : undefined });
+    const p = new Platform(def, { team: 0, x, z, yaw, loadout: lo, name: cfg.coop ? cleanName(Net.name) : 'YOU', ammoMult: W.mods.scarce ? SCARCE_AMMO : 1, y: def.kind === 'air' ? (y !== undefined ? y : Terrain.h(x, z) + AIR_START_ALT) : undefined });
     if (def.kind === 'air' && atPos && atPos.parked) Seats.groundAir(p);   // at an airfield: at the head of its runway
+    Nav.prepare(def);   // its route grid builds while the battle begins (forwardSpawn, Reposition)
     p.controller = PC; p.cmd.aimYaw = yaw; p.flightMode = S.flightMode; p.isPlayer = true;
     p.invuln = true; this.protectT = 3;
     if (old) { p.stats = old.stats; }
@@ -24557,6 +25492,7 @@ const Game = {
     const m = this.mission, pl = W.player;
     // controllers (AI) fill commands; the player's were filled per frame
     // a superweapon can stop (freeze), slow or speed up a platform's clock
+    Nav.step();   // route grids and route searches get their slice of this tick
     for (let i = 0; i < W.platforms.length; i++) { const p = W.platforms[i]; const k = p.timeMult(); if (p.ai && !p.dead && k > 0) p.ai.update(dt * k); }
     for (let i = 0; i < W.platforms.length; i++) {
       const p = W.platforms[i];
@@ -25456,6 +26392,14 @@ const HUD = {
       g.fillStyle = C.warn; g.fillRect(x, y - 4 * u, w * sat(PC.useT / USE_HOLD), 4 * u);
     }
     if (p.ejectPilot && (W.lives > 0 || W.mode === 'training')) this.txt('NEW PLATFORM ' + (p.chute || !p.grounded ? 'ONCE YOU LAND' : 'IN ' + Math.max(0, Math.ceil(Game.respawnT)) + ' s'), this.w / 2, y - 30 * u, 13, C.friend, 'center', true);
+    if (Reposition.offered && p === W.player) {   // stuck for a while: the way out, and how far its hold has come (P2-04)
+      const bw = 160 * u, bx = this.w / 2 - bw / 2, by = y + 40 * u;
+      // the control as it is now (a pad, a touch screen, the key as rebound); a key an old save lost to another action: the pause menu
+      const how = TouchControls.enabled || Input.usingPad || Input.code('reposition') ? 'HOLD [' + actionLabel('reposition') + '] TO REPOSITION' : 'OPEN THE PAUSE MENU: REPOSITION';
+      this.txt('STUCK? ' + how, this.w / 2, by - 8 * u, 12, C.warn, 'center', true);
+      this.g.fillStyle = C.dim; this.g.fillRect(bx, by, bw, 4 * u);
+      this.g.fillStyle = C.warn; this.g.fillRect(bx, by, bw * sat(Reposition.holdT / REPOSITION_HOLD), 4 * u);
+    }
     if (ctx.enter) { this.txt('[' + actionLabel('interact') + '] ENTER ' + ctx.enter.def.name.toUpperCase(), this.w / 2, y + 16 * u, 13, C.friend, 'center', true); return; }
     if (ctx.use) this.drawPadPrompt(p, y, u);
   },
@@ -25815,6 +26759,7 @@ const UI = {
     try { Game.startSession(cfg); } catch (e) { Game.reportError(e); Game.quitToMenu(); UI.fade(0); }
   },
   act_resume() { Game.resume(); },
+  act_reposition() { Game.resume(); Reposition.request(W && W.player); },   // the pause menu's way out of a stuck place (P2-04)
   act_restart() { this.show('confirm', { text: 'Restart this mission? Current progress will be lost.', yes: 'restartYes' }); },
   act_restartYes() { this.hideAll(); Game.state = 'playing'; Input.playing = true; Snd.resume(); Game.restart(); },
   act_quit() { this.show('confirm', { text: 'Return to the main menu? Current mission progress will be lost.', yes: 'quitYes' }); },
@@ -26118,7 +27063,7 @@ const UI = {
       const b = (k, label, on) => '<button class="btn small' + (on ? ' on' : '') + '" data-act="trainToggle" data-k="' + k + '">' + label + '</button>';
       train = '<div class="panel"><div class="lbl"><span>Training options</span></div><div class="row">' + b('ammo', 'Infinite ammo: ' + (W.infiniteAmmo ? 'ON' : 'OFF'), W.infiniteAmmo) + b('ff', 'Friendly fire: ' + (W.friendlyFire ? 'ON' : 'OFF'), W.friendlyFire) + b('destr', 'Reset destructibles') + b('targets', 'Reset targets') + b('help', 'Key reference on HUD', Game.trainingHelp) + '</div></div>';
     }
-    return '<div style="text-align:center"><h2>Paused</h2></div><div class="menu" style="margin:0 auto 1em"><button class="btn primary" data-act="resume" data-focus>Resume</button>' + (Net.guest ? '' : '<button class="btn" data-act="restart">Restart</button>') + '<button class="btn" data-act="nav" data-to="controls">Controls</button><button class="btn" data-act="nav" data-to="settings">Settings</button><button class="btn" data-act="quit">Quit to main menu</button></div>' + train;
+    return '<div style="text-align:center"><h2>Paused</h2></div><div class="menu" style="margin:0 auto 1em"><button class="btn primary" data-act="resume" data-focus>Resume</button>' + (Reposition.offered ? '<button class="btn" data-act="reposition">Reposition (stuck)</button>' : '') + (Net.guest ? '' : '<button class="btn" data-act="restart">Restart</button>') + '<button class="btn" data-act="nav" data-to="controls">Controls</button><button class="btn" data-act="nav" data-to="settings">Settings</button><button class="btn" data-act="quit">Quit to main menu</button></div>' + train;
   },
   scr_confirm(d) {
     return '<div style="text-align:center"><h2>Confirm</h2><div class="panel">' + esc(d.text) + '</div><div class="row" style="justify-content:center"><button class="btn primary" data-act="yes" data-what="' + d.yes + '" data-focus>Yes</button><button class="btn" data-act="cancel">No</button></div></div>';
@@ -27232,7 +28177,7 @@ const SelfTest = {
       for (let i = 0; i + 1 < hb.nx && pairI < 0; i++) if (hb.slab[1][i][0] && hb.slab[1][i + 1][0]) pairI = i;
       const slabA = hb.slab[1][pairI][0], slabB = hb.slab[1][pairI + 1][0];
       this.check('a face between touching slabs is hidden', (slabA.faceMask & 1) !== 0);
-      const removePiece = (s) => { s.destroyed = true; hb.alive--; Bld.markDirty(s, true); };
+      const removePiece = (s) => { s.destroyed = true; W.nDestroyed++; hb.alive--; Bld.markDirty(s, true); };
       removePiece(slabB);
       removePiece(hb.walls[2][0].pieces[0]);    // a wall on a chunk boundary floor
       Bld.refresh(hb);
@@ -28622,7 +29567,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 10 (civilian vehicles)', NET_VERSION === 10);
+      this.check('the net version is 11 (reposition)', NET_VERSION === 11);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave }, keepPid = Save.data.platformId;
@@ -30498,6 +31443,459 @@ const SelfTest = {
       } finally { Game.reportError = keepRep; Game.quitToMenu(); }
       this.check('battlefield ' + map + ': a ship deploys at a harbour, or its hangar card is disabled with the reason (' + (found.join(', ') || 'none') + ' sail here)', bad.length === 0 && errs.length === 0, bad.concat(errs).slice(0, 4).join('; '));
       this.check('battlefield ' + map + ': the enemy fleet starts ' + NAVAL_FLEET_GAP + ' m or more from the player\'s base, start and harbour', close.length === 0, close.slice(0, 3).join('; '));
+    });
+    // ---- Phase 2 (spawn rules, navigable water, reposition, ground routes, land links); run alone with selfTest('p2 ') ----
+    // P2-01 / P2-02: an aircraft starts well inside the bound, heading inward with room to fly, high enough over the ground ahead
+    t('p2 air spawn rules', () => {
+      const bad = [], keepNet = { host: Net.host, guest: Net.guest };
+      const edgeOf = (p) => AIR_BOUND - Math.max(Math.abs(p.x), Math.abs(p.z)), sideways = (p) => { const r = Math.hypot(p.x, p.z); return r >= 200 && -(Math.sin(p.yaw) * p.x + Math.cos(p.yaw) * p.z) / r < AIR_SPAWN_INWARD - 0.001; };   // along the bound, or outward
+      // (sideways is allowed only where every inward heading is in a hostile's sight: D58 wins; checked with the same test the spawn uses)
+      const ok = (tag, p) => { if (edgeOf(p) < AIR_SPAWN_EDGE - 0.01 || rayToSquare(p.x, p.z, p.yaw, AIR_BOUND) < AIR_SPAWN_RUN || (sideways(p) && !(W.platforms.some((q) => q.team === 1) && airSeen(p.def)(p.x, p.z, Math.atan2(-p.x, -p.z))))) bad.push(tag + ' edge ' + Math.round(edgeOf(p)) + ' run ' + Math.round(rayToSquare(p.x, p.z, p.yaw, AIR_BOUND)) + ' yaw ' + p.yaw.toFixed(2)); };
+      for (const r of [0, 300, 600, 700, 900, 1050]) for (let k = 0; k < (r ? 8 : 1); k++) for (let h = 0; h < 12; h++) {
+        const a = k * TAU / 8, s = airSpawn(Math.sin(a) * r, Math.cos(a) * r, h * TAU / 12);
+        ok('fn r' + r + ' k' + k + ' h' + h, s);
+      }
+      this.check('airSpawn: from any start and heading the point is AIR_SPAWN_EDGE inside AIR_BOUND, heads inward with AIR_SPAWN_RUN m ahead', bad.length === 0, bad.slice(0, 3).join('; '));
+      const cases = [['m2', 'kestrel'], ['m10', 'shrike'], ['m13', 'behemoth'], ['m17', 'kestrel'], ['m1', 'kestrel'], ['m4', 'shrike'], ['m9', 'kestrel']];
+      const ground = [];
+      try {
+        for (const [id, pid] of cases) {
+          Game.startSession({ mode: 'mission', missionId: id, platformId: pid, loadout: Loadout.forPlatform(pid), difficulty: 'veteran' });
+          const p = W.player;
+          ok(id + ' ' + pid, p);
+          let high = Water.top(p.x, p.z);
+          for (let d = 0; d <= AIR_SPAWN_LOOK; d += 30) high = Math.max(high, Water.top(p.x + Math.sin(p.yaw) * d, p.z + Math.cos(p.yaw) * d));
+          ground.push(p.y >= Math.min(high + AIR_SPAWN_CLEAR, AIR_CEILING - 30) - 0.5 && p.y - Water.top(p.x, p.z) >= 80);
+        }
+        this.check('missions m2, m10, m13, m17 (the audit\'s failures) and m1, m4, m9 start the aircraft inward, clear of the bound and of the ground ahead', bad.length === 0 && ground.every(Boolean), bad.slice(0, 3).join('; ') + ' ' + ground.join());
+        // skirmish and training: the same on a mountain map
+        for (const map of ['alpine', 'volcano', 'archipelago']) {
+          Game.startSession({ mode: 'skirmish', platformId: 'kestrel', loadout: Loadout.forPlatform('kestrel'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map, size: 'small', seed: 5, random: false, support: 'none' }) });
+          ok('skirmish ' + map, W.player);
+          Game.startSession({ mode: 'training', map, platformId: 'kestrel', loadout: Loadout.forPlatform('kestrel'), difficulty: 'veteran' });
+          ok('training ' + map, W.player);
+        }
+        this.check('skirmish and training starts on alpine, volcano and archipelago are inward too', bad.length === 0, bad.slice(0, 3).join('; '));
+        // co-op: the host and three guests (the audit: 9 of 9 guest aircraft under 800 m on m2, m10, m13, m17) in a line across the heading
+        for (const id of ['m2', 'm10']) {
+          Game.startSession({ mode: 'mission', missionId: id, platformId: 'kestrel', loadout: Loadout.forPlatform('kestrel'), difficulty: 'veteran', coop: true, nPlayers: 4, lives: 3 });
+          const all = [W.player];
+          for (let slot = 1; slot <= 3; slot++) { const peer = { hello: true, open: true, pid: 'shrike', slot, name: 'G' + slot, loadout: Loadout.forPlatform('shrike'), foot: null, footLo: null, lives: 3 }; Net.spawnFor(peer); all.push(peer.p); }
+          all.forEach((p, i) => ok(id + ' co-op ' + i, p));
+          let apart = Infinity;
+          for (let i = 0; i < all.length; i++) for (let j = i + 1; j < all.length; j++) apart = Math.min(apart, Math.hypot(all[i].x - all[j].x, all[i].z - all[j].z, all[i].y - all[j].y));
+          if (apart < AIR_SPAWN_SPREAD * 0.9) bad.push(id + ' guests ' + Math.round(apart) + ' m apart');
+        }
+        this.check('co-op guest aircraft on m2 and m10 start inward, clear of the bound and apart from each other', bad.length === 0, bad.slice(0, 3).join('; '));
+        // an AI aircraft spawned anywhere heads inward
+        Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'ashfall', seed: 5, random: false, support: 'none' }) });
+        const jets = [];
+        for (let i = 0; i < 12; i++) { const a = i * TAU / 12, j = spawnUnit('jet', Math.sin(a) * 800, Math.cos(a) * 800, { team: 1, radius: 5 }); if (j) jets.push(j); }
+        this.check('AI jets spawned round the edge of the field head inward', jets.length > 6 && jets.every((j) => Math.sin(j.yaw) * j.x + Math.cos(j.yaw) * j.z < 150), jets.length + ' jets');
+      } finally { Net.host = keepNet.host; Net.guest = keepNet.guest; Game.quitToMenu(); }
+    });
+    // P2-01 / P2-02 / P2-03: a ship starts in a big sheet of water, well under its keel and inside the bound, near our base in a skirmish, with the enemy fleet in the same water
+    t('p2 naval spawn rules', () => {
+      const bad = [], rows = [];
+      try {
+        for (const map of Object.keys(MAPS).filter((id) => Naval.mapOk(mapDef(id)))) for (const id of ['lancer', 'trident']) {
+          const def = PLATFORMS[id], md = mapDef(map);
+          if (!Naval.shipOk(def, md)) continue;
+          for (const seed of [11, 777]) {
+            const sk = Object.assign({}, SKIRMISH_DEFAULT, { map, size: 'medium', seed, random: false, support: 'none' });
+            Game.startSession({ mode: 'skirmish', platformId: id, loadout: Loadout.forPlatform(id), difficulty: 'veteran', skirmish: sk });
+            const pl = W.player, tag = map + ' ' + id + ' #' + seed;
+            if (pl.def.id !== id) { bad.push(tag + ': fell back'); continue; }
+            const grid = Nav.ensure(navSpecShip(def)), anyBig = grid.areas.some((a) => a * grid.cell * grid.cell >= NAV_BODY_MIN);
+            const clear = Water.baseDepth(pl.x, pl.z) - def.naval.draft, edge = GROUND_BOUND - Math.max(Math.abs(pl.x), Math.abs(pl.z)), own = W.bases.own, away = Math.hypot(pl.x - own.x, pl.z - own.z);
+            rows.push(tag + ' ' + Math.round(away) + ' m');
+            if (anyBig) {
+              if (clear < NAVAL_SPAWN_CLEAR - 0.05) bad.push(tag + ': ' + clear.toFixed(1) + ' m under the keel');
+              if (edge < NAVAL_SPAWN_EDGE - 1) bad.push(tag + ': ' + Math.round(edge) + ' m from the bound');
+              if (Nav.pieceArea(grid, pl.x, pl.z) < NAV_BODY_MIN) bad.push(tag + ': a small pond');
+              if (away > NAVAL_SHORE_MAX + 350) bad.push(tag + ': ' + Math.round(away) + ' m from our base');   // (tundra\'s Trident: its one lake lies 330 m from the middle, the bases 500 to 600)
+              const piece = grid.comp[Nav.at(grid, pl.x, pl.z)];
+              for (const q of W.platforms) if (q.team === 1 && q.kind === 'naval' && !q.def.naval.amphibious && q.def === def && grid.comp[Nav.at(grid, q.x, q.z)] !== piece) bad.push(tag + ': enemy ' + q.def.id + ' in other water');
+            }
+          }
+        }
+        this.check('skirmish ships (Lancer, Trident, two seeds a battlefield) start 1.5 m under the keel, 200 m inside the bound, in a big sheet of water and near our base', bad.length === 0, bad.slice(0, 4).join('; '));
+        // missions with ships: the rules hold where there is a sheet to use (m12\'s pond is the known exception)
+        for (const [mid, pid] of [['m9', 'trident'], ['m10', 'lancer'], ['m15', 'lancer'], ['m16', 'lancer'], ['m17', 'lancer']]) {
+          Game.startSession({ mode: 'mission', missionId: mid, platformId: pid, loadout: Loadout.forPlatform(pid), difficulty: 'veteran' });
+          const pl = W.player, def = PLATFORMS[pid];
+          if (pl.def.id !== pid) { bad.push(mid + ': fell back'); continue; }
+          const clear = Water.baseDepth(pl.x, pl.z) - def.naval.draft, edge = GROUND_BOUND - Math.max(Math.abs(pl.x), Math.abs(pl.z));
+          if (clear < NAVAL_SPAWN_CLEAR - 0.05 || edge < NAVAL_SPAWN_EDGE - 1) bad.push(mid + ' ' + pid + ': ' + clear.toFixed(1) + ' m under the keel, ' + Math.round(edge) + ' m from the bound');
+        }
+        this.check('mission ships (m9, m10, m15, m16, m17) start 1.5 m under the keel and 200 m inside the bound', bad.length === 0, bad.slice(0, 4).join('; '));
+        Game.startSession({ mode: 'mission', missionId: 'm12', platformId: 'lancer', loadout: Loadout.forPlatform('lancer'), difficulty: 'veteran' });
+        this.check('m12 keeps its ship in the pond, the known exception (the only water of its battlefield)', W.player.def.id === 'lancer' && Water.baseDepth(W.player.x, W.player.z) - PLATFORMS.lancer.naval.draft >= NAVAL_KEEL_CLEAR - 0.01);
+        // a respawn harbour stays near the first; a co-op guest\'s ship starts beside the host\'s
+        Game.startSession({ mode: 'skirmish', platformId: 'trident', loadout: Loadout.forPlatform('trident'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'coast', size: 'medium', seed: 11, random: false, support: 'none', lives: 5 }) });
+        const first = W.player, site = respawnSite(PLATFORMS.trident), peer = { hello: true, open: true, pid: 'trident', slot: 1, name: 'G1', loadout: Loadout.forPlatform('trident'), foot: null, footLo: null, lives: 3 };
+        Net.spawnFor(peer);
+        this.check('a respawn harbour is within ' + NAVAL_RESPAWN_MAX + ' m of the first, and a co-op guest\'s ship within ' + NAVAL_GUEST_MAX + ' m of the host\'s',
+          Math.hypot(site.x - first.x, site.z - first.z) <= NAVAL_RESPAWN_MAX && peer.p.def.id === 'trident' && Math.hypot(peer.p.x - first.x, peer.p.z - first.z) <= NAVAL_GUEST_MAX + 1, Math.round(Math.hypot(site.x - first.x, site.z - first.z)) + ' / ' + Math.round(Math.hypot(peer.p.x - first.x, peer.p.z - first.z)));
+        // D58: four tanks 90 m from the harbour watch it; the respawn is a spot of the same water that none of them sees, found cheaply
+        // (the deep unseen water lies outside the 200 m inset from the bound: the last passes relax it to NAVAL_RESPAWN_EDGE, the hull plus its room, the hull)
+        for (const [map, pid] of [['coast', 'trident'], ['jungle', 'lancer']]) {
+          const def = PLATFORMS[pid];
+          Game.startSession({ mode: 'skirmish', platformId: pid, loadout: Loadout.forPlatform(pid), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map, size: 'medium', seed: 11, random: false, support: 'none' }) });
+          const me = W.player;
+          // (the skirmish's own hostiles stay: the tanks are four more, parked ON the water 90 m round the harbour, as a player's shelled ship meets them)
+          let onWater = 0;
+          for (let i = 0; i < 4; i++) { const a = i * PI / 2, u = spawnUnit('tank', me.x + Math.sin(a) * 90, me.z + Math.cos(a) * 90, { team: 1, force: true, radius: 3 }); if (u) { u.x = me.x + Math.sin(a) * 90; u.z = me.z + Math.cos(a) * 90; if (Water.depth(u.x, u.z) > 0) onWater++; } }
+          const h = Naval.harbour(def, W.mission.def.start), tg = Nav.ensure(navSpecShip(def)), eye = spawnEyeH(def);
+          const watched = hostileSees(h.x, h.z, false, eye), t0 = performance.now(), back = respawnSite(def), ms = performance.now() - t0;
+          const edge = GROUND_BOUND - Math.max(Math.abs(back.x), Math.abs(back.z));
+          this.check(map + ' ' + pid + ': with 4 tanks parked on the water 90 m from the harbour the ship comes back where none sees it (even inside the 200 m inset from the bound, never nearer than its hull), in the harbour\'s own sheet of water, in under 60 ms (here ' + ms.toFixed(0) + ')', watched && !hostileSees(back.x, back.z, false, eye) && Nav.piece(tg, back.x, back.z, 0) === Nav.piece(tg, h.x, h.z, 3) && edge >= Naval.reach(def) - 1 && onWater >= 3 && ms < 60, 'tanks on water ' + onWater + ', watched ' + watched + ', seen ' + hostileSees(back.x, back.z, false, eye) + ' at ' + Math.round(Math.hypot(back.x - h.x, back.z - h.z)) + ' m, edge ' + Math.round(edge) + ', ' + ms.toFixed(0) + ' ms');
+        }
+      } finally { Game.quitToMenu(); }
+    });
+    // P2-03: the navigable-water mask per draft; shallow water stops a ship (the bow never swings up a beach, SHALLOW WATER warns) and routes keep to the mask
+    t('p2 navigable water', () => {
+      try {
+        Game.startSession({ mode: 'training', map: 'jungle', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        const lg = Nav.ensure(navSpecShip(PLATFORMS.lancer)), tg = Nav.ensure(navSpecShip(PLATFORMS.trident));
+        let lanc = 0, trid = 0, outside = 0, sample = 0, bad = 0;
+        for (let k = 0; k < lg.pass.length; k++) { if (lg.pass[k]) lanc++; if (tg.pass[k]) { trid++; if (!lg.pass[k]) outside++; } }
+        this.check('jungle: the Trident\'s navigable water (draft ' + PLATFORMS.trident.naval.draft + ') lies inside the Lancer\'s (draft ' + PLATFORMS.lancer.naval.draft + '), and is the smaller', lanc > trid && trid > 0 && outside === 0, lanc + ' / ' + trid + ' / ' + outside);
+        for (let k = 0; k < lg.pass.length; k += 7) {
+          if (!lg.pass[k]) continue;
+          const x = (k % lg.n) * lg.cell - GROUND_BOUND, z = Math.floor(k / lg.n) * lg.cell - GROUND_BOUND;
+          sample++;
+          if (!Naval.navigableBase(x, z, PLATFORMS.lancer.naval.draft) || Water.baseDepth(x + lg.cell / 2, z) < PLATFORMS.lancer.naval.draft + NAVAL_KEEL_CLEAR - 0.5) bad++;
+        }
+        this.check('every open cell of the Lancer\'s mask (a sample) has the depth its keel needs, and a cell of open water round it', sample > 50 && bad === 0, bad + ' of ' + sample);
+        const rivers = Nav.pieceArea(tg, -8, -113);
+        this.check('jungle: the narrow river harbour (-8, -113) is no Trident water and a Lancer\'s only as a small piece', rivers === 0 && Nav.pieceArea(lg, -8, -113) < NAV_BODY_MIN, Nav.pieceArea(lg, -8, -113) + '');
+        // alpine: its only water is a pond, a small piece
+        Game.startSession({ mode: 'training', map: 'alpine', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        const ag = Nav.ensure(navSpecShip(PLATFORMS.lancer));
+        this.check('alpine: the pond is the only water and holds no sheet of ' + NAV_BODY_MIN + ' m2', ag.areas.every((a) => a * ag.cell * ag.cell < NAV_BODY_MIN));
+        const pond = Naval.harbour(PLATFORMS.lancer, { x: 0, z: 0 });
+        this.check('a spot asked to lie in a given sheet stops after the big-sheet passes: none in the pond (the enemy fleet cannot take the old rule round the big-water one), while an ordinary harbour still finds it', !!pond && Naval.spot(pond.x, pond.z, PLATFORMS.lancer, 300, true, undefined, { joins: pond }) === null);
+        // metro: a river 44 m wide is water to a gunboat (finer cells, clearance by hull) though it holds no sheet of 40,000 m2
+        Game.startSession({ mode: 'training', map: 'metro', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        const mg = Nav.ensure(navSpecShip(PLATFORMS.lancer));
+        let open = 0; for (let k = 0; k < mg.pass.length; k++) open += mg.pass[k];
+        this.check('metro: the Lancer\'s grid has open cells in the river (' + mg.cell + ' m cells, ' + mg.spec.clear.toFixed(1) + ' m from the shallows)', open > 100 && mg.cell === NAV_SEA_CELL, open + ' open');
+        // a route search keeps to the mask: coast, harbour to a point across the sea
+        Game.startSession({ mode: 'skirmish', platformId: 'lancer', loadout: Loadout.forPlatform('lancer'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'coast', size: 'medium', seed: 11, random: false, support: 'none' }) });
+        const cg = Nav.ensure(navSpecShip(PLATFORMS.lancer)), me = W.player;
+        let far = null, farD = 0;
+        for (let k = 0; k < cg.pass.length; k += 3) {
+          if (!cg.pass[k] || cg.comp[k] !== cg.comp[Nav.at(cg, me.x, me.z)]) continue;
+          const x = (k % cg.n) * cg.cell - GROUND_BOUND, z = Math.floor(k / cg.n) * cg.cell - GROUND_BOUND, d = Math.hypot(x - me.x, z - me.z);
+          if (d > farD && d < 900) { far = { x, z }; farD = d; }
+        }
+        const route = far && Nav.plan(navSpecShip(PLATFORMS.lancer), me.x, me.z, far.x, far.z);
+        let wet = 0;
+        if (route) { let px = me.x, pz = me.z; for (const w of route.pts) { if (!Nav.lineClear(cg, px, pz, w.x, w.z)) wet++; px = w.x; pz = w.z; } }
+        this.check('coast: a route from the harbour to the far side of the sea reaches it in open water only', !!route && !route.partial && wet === 0 && Math.hypot(route.pts[route.pts.length - 1].x - far.x, route.pts[route.pts.length - 1].z - far.z) < cg.cell * 1.5, route ? route.pts.length + ' points, ' + wet + ' blocked legs' : 'no route');
+        // a goal on land ends at the nearest water: a partial route, never a path over land
+        const land = Nav.plan(navSpecShip(PLATFORMS.lancer), me.x, me.z, -600, -300);
+        this.check('a goal inland gives a partial route that ends in water', !!land && cg.pass[Nav.at(cg, land.pts[land.pts.length - 1].x, land.pts[land.pts.length - 1].z)] === 1);
+      } finally { Game.quitToMenu(); }
+    });
+    // P2-03: AI ships follow the mask: they get where they go on open water and never run aground, also where the metro river is cut
+    t('p2 naval AI routes', () => {
+      const keepRep = Game.reportError, errs = [];
+      Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
+      const run = (map, pid, arch, secs, pick) => {
+        Game.startSession({ mode: 'training', map, platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        W.platforms = W.platforms.filter((q) => q === W.player); W.player.noTarget = true;
+        const def = PLATFORMS[pid], grid = Nav.ensure(navSpecShip(def)), h = Naval.harbour(def, { x: 0, z: 0 });
+        if (!h) return null;
+        const goal = pick(grid, h);
+        if (!goal) return { skip: true };
+        const mark = spawnUnit('dummy', goal.x, goal.z, { team: 1, force: true, radius: 1 });   // a ship follows a unit (it patrols its loop when it has none)
+        mark.invuln = true;   // a ground dummy set down on the water would drown
+        const u = spawnUnit(arch, h.x, h.z, { team: 1, follow: mark, radius: 5 });
+        let minClear = Infinity, still = 0, longest = 0, px = u.x, pz = u.z, arrived = false;
+        for (let i = 0; i < secs * 60 && !u.dead; i++) {
+          W.player.x = 0; W.player.z = -900; Game.tick(STEP);
+          minClear = Math.min(minClear, Water.depth(u.x, u.z) - def.naval.draft);
+          if (Math.hypot(u.x - goal.x, u.z - goal.z) < 60) { arrived = true; break; }
+          if (i % 60 === 0) { still = Math.hypot(u.x - px, u.z - pz) < 2 ? still + 1 : 0; longest = Math.max(longest, still); px = u.x; pz = u.z; }
+        }
+        return { arrived, minClear, longest, dead: u.dead, d: Math.round(Math.hypot(u.x - goal.x, u.z - goal.z)) };
+      };
+      // the farthest point of the harbour's own water within 600 m
+      const farPoint = (grid, h) => {
+        const home = grid.comp[Nav.at(grid, h.x, h.z)]; let best = null, bd = 0;
+        for (let k = 0; k < grid.pass.length; k += 2) {
+          if (!grid.pass[k] || grid.comp[k] !== home) continue;
+          const x = (k % grid.n) * grid.cell - GROUND_BOUND, z = Math.floor(k / grid.n) * grid.cell - GROUND_BOUND, d = Math.hypot(x - h.x, z - h.z);
+          if (d > bd && d < 600) { bd = d; best = { x, z }; }
+        }
+        return best;
+      };
+      try {
+        const rows = [];
+        for (const [map, pid, arch] of [['coast', 'lancer', 'gunboat'], ['archipelago', 'trident', 'destroyer'], ['volcano', 'lancer', 'gunboat']]) {
+          const r = run(map, pid, arch, 100, farPoint);
+          rows.push(map + ' ' + pid + (r ? ' ' + JSON.stringify(r) : ' no harbour'));
+          this.check(map + ': an AI ' + arch + ' sails to the far side of its water, never aground (keel clear of the bed), not still for more than 15 s', !!r && !r.skip && r.arrived && r.minClear >= 0 && r.longest <= 15 && !r.dead, rows[rows.length - 1]);
+        }
+        // metro: the river is cut in two (P1-02): a goal in the other piece is never reached, and the ship neither grounds nor drowns trying
+        const metro = run('metro', 'lancer', 'gunboat', 60, (grid, h) => {
+          const home = grid.comp[Nav.at(grid, h.x, h.z)]; let best = null, bd = 0;
+          for (let k = 0; k < grid.pass.length; k++) if (grid.pass[k] && grid.comp[k] !== home) { const x = (k % grid.n) * grid.cell - GROUND_BOUND, z = Math.floor(k / grid.n) * grid.cell - GROUND_BOUND, d = Math.hypot(x - h.x, z - h.z); if (d > bd && d < 700) { bd = d; best = { x, z }; } }
+          return best;
+        });
+        this.check('metro: with the goal in the other piece of the cut river the ship waits afloat, never aground (a test that finds no goal fails: the grid must hold the river)', !!metro && !metro.skip && !metro.arrived && metro.minClear >= 0 && !metro.dead, JSON.stringify(metro));
+        // metro: the gunboat of the audit (260,-85, a patrol loop in the cut river that stood still 54 s of 60) patrols
+        Game.startSession({ mode: 'training', map: 'metro', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        W.platforms = W.platforms.filter((q) => q === W.player); W.player.noTarget = true;
+        const boat = spawnUnit('gunboat', 260, -85, { team: 1, radius: 5 });
+        let travelled = 0, lx = boat ? boat.x : 0, lz = boat ? boat.z : 0, aground = false, lanePts = 0, maxFrom = 0;
+        const x0 = lx, z0 = lz;
+        for (let i = 0; boat && i < 90 * 60 && !boat.dead; i++) {
+          W.player.x = 0; W.player.z = -900; Game.tick(STEP);
+          if (i % 30 === 0) { travelled += Math.hypot(boat.x - lx, boat.z - lz); lx = boat.x; lz = boat.z; maxFrom = Math.max(maxFrom, Math.hypot(boat.x - x0, boat.z - z0)); }
+          if (Water.depth(boat.x, boat.z) < boat.def.naval.draft - 0.05) aground = true;
+        }
+        lanePts = boat && boat.ai.lane ? boat.ai.lane.length : 0;
+        this.check('metro: the gunboat at 260,-85 patrols its loop of the river (at least 2 lane points, 200 m sailed, 40 m from where it began), never aground', !!boat && lanePts >= 2 && travelled > 200 && maxFrom > 40 && !aground, 'lane ' + lanePts + ', sailed ' + Math.round(travelled) + ' m, ' + Math.round(maxFrom) + ' m out, aground ' + aground);
+        this.check('the naval route runs without errors', errs.length === 0, errs.slice(0, 2).join(' | '));
+      } finally { Game.reportError = keepRep; Game.quitToMenu(); }
+    });
+    // P2-05: land units route round rivers and lakes by bridge, link or ford, and do not drown
+    t('p2 ground routes', () => {
+      const keepRep = Game.reportError, errs = [];
+      Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
+      const trial = (arch, a, b, secs) => {
+        W.platforms = W.platforms.filter((q) => q === W.player); W.player.noTarget = true;
+        const u = spawnUnit(arch, a.x, a.z, { team: 1, goal: b, force: true, radius: 2 });
+        u.x = a.x; u.z = a.z; u.y = Terrain.h(a.x, a.z);
+        let deep = 0, arrived = false;
+        for (let i = 0; i < secs * 60 && !u.dead; i++) {
+          W.player.x = 0; W.player.z = -900; Game.tick(STEP);
+          if (Number.isFinite(u.fordDepth) && Water.depth(u.x, u.z) > u.fordDepth) deep += STEP;
+          if (Math.hypot(u.x - b.x, u.z - b.z) < 40) { arrived = true; break; }
+        }
+        return { arrived, deep: +deep.toFixed(1), dead: u.dead, hp: u.hp / u.maxHp, end: Math.round(u.x) + ',' + Math.round(u.z), moved: Math.round(Math.hypot(u.x - a.x, u.z - a.z)), toGoal: Math.round(Math.hypot(u.x - b.x, u.z - b.z)), still: u.ai.routeWait };
+      };
+      try {
+        // the test battlefield: a river 26 m wide and 3.5 m deep with one bridge; a tank goes over the bridge
+        MAPS.testwater = TEST_WATER_MAP;
+        Game.startSession({ mode: 'training', map: 'testwater', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        const spec = navSpecFor(PLATFORMS.bastion), g = Nav.ensure(spec), bridge = W.bridges[Math.floor(W.bridges.length / 2)], k = bridge ? Nav.at(g, bridge.x, bridge.z) : -1;
+        this.check('the test battlefield has a bridge: its deck is open ground in the tank\'s mask, marked as a deck, and the river is not', k >= 0 && g.pass[k] === 1 && g.deck[k] === 1 && Water.baseDepth(bridge.x, bridge.z) > 1 && !g.pass[Nav.at(g, bridge.x + 22, bridge.z)], k >= 0 ? Math.round(bridge.x) + ',' + Math.round(bridge.z) : 'no bridge');
+        const south = { x: bridge.x, z: bridge.z - 150 }, north = { x: bridge.x, z: bridge.z + 150 };
+        const plan = Nav.plan(spec, south.x, south.z, north.x, north.z);
+        this.check('a route from the south bank to the north runs over the bridge, deck cell after deck cell', !!plan && !plan.partial && plan.pts.filter((w) => g.deck[Nav.at(g, w.x, w.z)] === 1).length >= 2, plan ? plan.pts.length + ' points' : 'none');
+        const east = { x: bridge.x + 150, z: bridge.z - 150 }, r2 = trial('tank', east, { x: bridge.x + 150, z: bridge.z + 150 }, 110);
+        this.check('an AI tank across the river from its goal crosses by the bridge, dry (no deep water, hull whole)', r2.arrived && r2.deep <= 2 && !r2.dead && r2.hp > 0.85, JSON.stringify(r2));
+        // a unit on a long detour (here 600 m west to the bridge and back) is moving: the stuck test closes no cell for it
+        const realClose = Nav.close; let closes = 0;
+        Nav.close = function (...a) { closes++; return realClose.apply(Nav, a); };
+        try {
+          const far = trial('tank', { x: 330, z: -265 }, { x: 330, z: -115 }, 200);
+          this.check('a tank on a 600 m detour to the bridge arrives and the stuck test closed no cell for it (' + closes + ' closed)', far.arrived && !far.dead && closes === 0, JSON.stringify(far) + ' closes ' + closes);
+          // and one chasing a moving target: the destination moves, so it is never stuck
+          Game.startSession({ mode: 'training', map: 'valley', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+          W.platforms = W.platforms.filter((q) => q === W.player); W.player.noTarget = true; closes = 0;
+          const mark = spawnUnit('dummy', 0, -60, { team: 1, force: true, radius: 1 }); mark.invuln = true;
+          const chaser = spawnUnit('tank', 0, -165, { team: 1, follow: mark, force: true, radius: 2 });
+          for (let i = 0; i < 70 * 60 && !chaser.dead; i++) { W.player.x = 0; W.player.z = -900; mark.x += 9 * STEP; mark.y = Terrain.h(mark.x, mark.z); Game.tick(STEP); }
+          this.check('a tank chasing a target that walks off at 9 m/s for 70 s closes no cell (' + closes + ' closed)', closes === 0 && !chaser.dead && Math.hypot(chaser.x - mark.x, chaser.z - mark.z) < 400, closes + ' closed, ' + Math.round(Math.hypot(chaser.x - mark.x, chaser.z - mark.z)) + ' m behind');
+          // a tank held where it cannot move is stuck, in a hand's depth of water (a shallow bank: wet, but no ford) as on dry ground, and so is one shuffling
+          // 12 m to and fro, once a window (so the 5 s test always sees it move more than 10 m, yet it gets nowhere in 15 s)
+          const pin = (wetSpot, shuffle) => {
+            Game.startSession({ mode: 'training', map: 'coast', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+            const pl = W.player; W.platforms = W.platforms.filter((q) => q === pl); pl.noTarget = true;
+            let s = null;
+            for (let x = -800; x < 800 && !s; x += 7) for (let z = -800; z < 800 && !s; z += 7) {
+              const shallow = (q) => 0.05 < q && q < 0.2;   // (a shuffling tank stays in the same sort of ground on both sides)
+              if (!(wetSpot ? shallow(Water.depth(x, z)) && (!shuffle || shallow(Water.depth(x + 12, z))) : Water.depth(x, z) === 0 && Water.depth(x + 40, z) === 0)) continue;
+              for (let a = 0; a < TAU && !s; a += 0.5) {
+                const gx = x + Math.sin(a) * 300, gz = z + Math.cos(a) * 300;
+                if (Water.depth(gx, gz) === 0 && Math.abs(gx) < 850 && Math.abs(gz) < 850) s = { x, z, gx, gz };
+              }
+            }
+            if (!s) return null;
+            const u = spawnUnit('tank', s.x, s.z, { team: 1, goal: { x: s.gx, z: s.gz }, force: true, radius: 2 });
+            closes = 0; let forced = 0, lastWindow = 0, side = 0;
+            for (let i = 0; i < 60 * 40; i++) {
+              pl.x = 0; pl.z = -900; Game.tick(STEP);
+              if (u.ai.progAt !== lastWindow) { lastWindow = u.ai.progAt; side ^= 1; }   // (a new window of the stuck test began: the tank is put on the other side, so each window starts 12 m from the last)
+              u.x = s.x + (shuffle ? side * 12 : 0); u.z = s.z; u.vx = u.vz = 0;
+              if (u.ai.routeForce) forced++;
+            }
+            return { depth: +Water.depth(s.x, s.z).toFixed(2), wet: u.wet, forced, closes };
+          };
+          for (const [wetSpot, shuffle, name] of [[false, false, 'held on dry ground'], [true, false, 'held in 0.05 to 0.2 m of water'], [false, true, 'shuffling 12 m to and fro on dry ground'], [true, true, 'shuffling 12 m to and fro in 0.05 to 0.2 m of water']]) {
+            const r = pin(wetSpot, shuffle);
+            this.check('a tank ' + name + ' for 40 s is found stuck (a route is forced for it; on dry ground the cell ahead is closed as well, a ford cell never is)', !!r && r.forced > 0 && (wetSpot ? r.wet : r.closes > 0), JSON.stringify(r));
+          }
+        } finally { Nav.close = realClose; }
+        // the P1-06 places: valley and jungle tanks, an infantry squad on valley, used to stick on the bank
+        for (const [map, arch, a, b] of [['valley', 'tank', { x: 0, z: -165 }, { x: 390, z: 180 }], ['valley', 'infantry', { x: 0, z: -165 }, { x: 390, z: 180 }], ['jungle', 'tank', { x: -135, z: 495 }, { x: 285, z: 135 }], ['jungle', 'tank', { x: 45, z: 540 }, { x: -300, z: 15 }], ['jungle', 'tank', { x: 45, z: 540 }, { x: -300, z: 15 }]]) {   // (the fourth and fifth: the run the trees stopped, twice)
+          Game.startSession({ mode: 'training', map, platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+          const r = trial(arch, a, b, 130);
+          this.check(map + ': an AI ' + arch + ' from ' + a.x + ',' + a.z + ' (stuck on the bank in the audit) reaches ' + b.x + ',' + b.z + ' and spends at most 8 s deeper than its ford (the audit: 11 to 15 s, or dead)', r.arrived && r.deep <= 8 && !r.dead && r.hp > 0.5, JSON.stringify(r));
+        }
+        // a goal across water that no ford crosses (archipelago): the unit waits on its shore, afloat, and does not drown
+        Game.startSession({ mode: 'training', map: 'archipelago', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        const lost = trial('tank', { x: 405, z: 405 }, { x: 165, z: 45 }, 80);
+        this.check('archipelago: a tank bound for another island drives to its shore (at least 100 m, nearer its goal), waits there afloat and does not drown', !lost.dead && lost.deep <= 2 && !lost.arrived && lost.moved >= 100 && lost.toGoal < 120 && lost.still === true, JSON.stringify(lost));
+        // trees and buildings close cells of the land grid; destroyed ones open them again when the grid is built anew (the old grid serves till then)
+        Game.startSession({ mode: 'training', map: 'jungle', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        const tspec = navSpecFor(PLATFORMS.bastion), tg = Nav.ensure(tspec), trees = W.structs.filter((s) => s.type === 'tree' && !s.destroyed && Nav.at(tg, s.x, s.z) >= 0 && !tg.deck[Nav.at(tg, s.x, s.z)]);
+        const shut = trees.filter((s) => !Nav.passAt(tg, s.x, s.z)).length;
+        let closed0 = 0; for (let k = 0; k < tg.raw.length; k++) closed0 += tg.pass[k];
+        this.check('jungle: the tank\'s grid shuts the cell of a tree (' + shut + ' of ' + trees.length + ' trees sit in shut cells; those in open cells stand beside their middle)', trees.length > 100 && shut > trees.length * 0.1, shut + ' of ' + trees.length);
+        for (const s of trees.slice(0, 400)) destroyStruct(s, null);
+        W.time += NAV_REBUILD_GAP + 1; Nav.checkAt = 0;
+        for (let i = 0; i < 400 && Nav.grids.get(tspec.key) === tg; i++) Nav.step();
+        const ng = Nav.grids.get(tspec.key); let closed1 = 0; for (let k = 0; k < ng.raw.length; k++) closed1 += ng.pass[k];
+        this.check('with 400 trees felled the land grid is built again beside the old and swapped in once ready: more open cells (' + closed0 + ' to ' + closed1 + ')', ng !== tg && ng.ready && closed1 > closed0, closed0 + ' to ' + closed1);
+        // a full heap ends the search as partial, never an error
+        Nav.plan(tspec, -300, 500, 300, 500);
+        const keepHk = Nav.hk, keepHn = Nav.hn;
+        Nav.hk = new Float32Array(30); Nav.hn = new Int32Array(30);
+        const squeezed = Nav.plan(tspec, -300, 500, 300, 500);
+        const wasFull = Nav.full;
+        Nav.hk = keepHk; Nav.hn = keepHn;
+        this.check('a route search whose heap fills up ends as a partial route', wasFull && !!squeezed && squeezed.partial === true && squeezed.pts.length > 0, wasFull + ' ' + (squeezed && squeezed.partial));
+        this.check('the ground routes run without errors', errs.length === 0, errs.slice(0, 2).join(' | '));
+      } finally { delete MAPS.testwater; Game.reportError = keepRep; Game.quitToMenu(); }
+    });
+    // P2-04: the way out of a stuck place, for every platform kind and in co-op
+    t('p2 reposition', () => {
+      const bad = [], keepNet = { host: Net.host, guest: Net.guest, peers: Net.peers, hostPeer: Net.hostPeer, pend: Net.pendEdge };
+      const stuck = (p, secs) => {   // asked to move, still: secs of frames
+        Reposition.me = Reposition.blank(); Reposition.offered = false; Reposition.cool = 0;
+        p.cmd.moveF = 1; p.cmd.throttleIn = 0; if (p.kind === 'air') { p.grounded = true; p.throttle = 0.8; }
+        for (let i = 0; i < secs * 2; i++) Reposition.frame(p, false, 0.5);
+      };
+      const press = (p) => { for (let i = 0; i < 4; i++) Reposition.frame(p, true, 0.5); };
+      try {
+        this.check('the reposition action is bound to H, the pad\'s d-pad down names it and the touch overlay has its button (shown only while it is offered)',
+          ACTIONS.some((a) => a[0] === 'reposition' && a[2] === 'KeyH') && PAD_LABELS.reposition === 'D-PAD DOWN' && TOUCH_BUTTONS.some((b) => b.name === 'reposition' && b.show() === Reposition.offered) && Save.defaults().bindings.reposition === 'KeyH');
+        const sites = [['valley', 'bulwark'], ['valley', 'bastion'], ['jungle', 'ranger'], ['ashfall', 'kestrel'], ['coast', 'trident']];
+        for (const [map, pid] of sites) {
+          const def = PLATFORMS[pid];
+          if (pid === 'trident') Game.startSession({ mode: 'skirmish', platformId: pid, loadout: Loadout.forPlatform(pid), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map, size: 'small', seed: 11, random: false, support: 'none' }) });
+          else Game.startSession({ mode: 'training', map, platformId: pid, loadout: Loadout.forPlatform(pid), difficulty: 'veteran' });
+          const p = W.player, tag = map + ' ' + pid;
+          if (p.def.id !== pid) { bad.push(tag + ': fell back'); continue; }
+          if (def.kind === 'naval') {   // a ship run up on a shoal, to be put back in open water
+            for (let a = 0; a < TAU; a += 0.3) {
+              let r = 20;
+              while (r < 900 && Water.baseDepth(p.x + Math.sin(a) * r, p.z + Math.cos(a) * r) >= def.naval.draft + 0.2) r += 10;
+              if (r < 900) { p.x += Math.sin(a) * r; p.z += Math.cos(a) * r; break; }
+            }
+          }
+          const x0 = p.x, z0 = p.z;
+          stuck(p, 5);
+          const early = Reposition.offered;
+          stuck(p, 8);
+          if (early || !Reposition.offered) bad.push(tag + ': offered ' + (early ? 'too early' : 'never'));
+          press(p);
+          const moved = Math.hypot(p.x - x0, p.z - z0);
+          if ((moved < 1 && def.kind !== 'air') || Reposition.offered) bad.push(tag + ': not moved (' + Math.round(moved) + ' m)');
+          else if (def.kind === 'air') { if (p.grounded || p.speed < 30 || AIR_BOUND - Math.max(Math.abs(p.x), Math.abs(p.z)) < AIR_SPAWN_EDGE - 1 || p.y - Terrain.h(p.x, p.z) < 80) bad.push(tag + ': bad air site'); }   // a grounded aircraft is back in the air, flying
+          else if (def.kind === 'naval') { if (Water.baseDepth(p.x, p.z) - def.naval.draft < NAVAL_KEEL_CLEAR || !Nav.passAt(Nav.ensure(navSpecShip(def)), p.x, p.z)) bad.push(tag + ': not in navigable water'); }
+          else {
+            const g = Nav.ensure(navSpecFor(def)), home = W.mission.def.start;
+            if (Water.depth(p.x, p.z) > 0.2 || Terrain.slope(p.x, p.z) > 0.5 || groundBlocked(p.x, p.z, p.radius + 1) || Nav.piece(g, p.x, p.z, 0) !== Nav.piece(g, home.x, home.z, 4)) bad.push(tag + ': a bad site');
+          }
+          if (!p.invuln || Reposition.cool <= 0) bad.push(tag + ': not safe / not cooled');
+        }
+        this.check('a mech, a vehicle, a soldier, an aircraft and a ship (valley, jungle, ashfall, coast) are offered the way out after ' + REPOSITION_OFFER + ' s stuck, not before, and a hold puts each at a valid place', bad.length === 0, bad.slice(0, 4).join('; '));
+        // moving, or not asked, is never stuck
+        Game.startSession({ mode: 'training', map: 'ashfall', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        const m = W.player; Reposition.me = Reposition.blank(); Reposition.offered = false; Reposition.cool = 0;
+        const menuOff = UI.scr_pause.call(UI);
+        Reposition.offered = true;
+        const menuOn = UI.scr_pause.call(UI);
+        Reposition.offered = false;
+        this.check('the pause menu offers Reposition only while it is offered (so a touch screen or a pad reaches it by the menu too)', menuOff.indexOf('data-act="reposition"') < 0 && menuOn.indexOf('data-act="reposition"') > 0 && typeof UI.act_reposition === 'function');
+        for (let i = 0; i < 40; i++) { m.cmd.moveF = 0; Reposition.frame(m, false, 0.5); }
+        const idle = Reposition.offered;
+        for (let i = 0; i < 40; i++) { m.cmd.moveF = 1; m.x += 4; Reposition.frame(m, false, 0.5); }
+        this.check('a platform at rest, and one moving under input, is never offered the way out', !idle && !Reposition.offered);
+        // co-op: the guest only asks (an input edge bit); the host moves it when it saw it stuck too, and refuses a guest that was not
+        Game.startSession({ mode: 'mission', missionId: 'm3', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', coop: true, nPlayers: 2, lives: 3 });
+        const peer = Net.newPeer();
+        const said = [];
+        Object.assign(peer, { hello: true, open: true, ready: true, pid: 'bulwark', loadout: Loadout.forPlatform('bulwark'), slot: 1, name: 'G1', foot: null, footLo: null, lives: 3, tx(s) { said.push(JSON.parse(s)); } });
+        Net.spawnFor(peer);
+        const gp = peer.p, x1 = gp.x, z1 = gp.z, notices = () => said.filter((q) => q.t === 'msg').map((q) => q.text).join(' | ');
+        Net.host = false; Net.guest = true; Net.pendEdge = 0;
+        stuck(gp, 8);
+        const asked = Reposition.request(gp), bit = Net.pendEdge;
+        this.check('a stuck guest\'s request goes to the host as input edge bit ' + NET_REPOSITION + ' and moves nothing here; the guest waits ' + REPOSITION_ASK_GAP + ' s for the answer, not ' + REPOSITION_GAP + ' s, and stays stuck-and-offered', asked && (bit & NET_REPOSITION) !== 0 && gp.x === x1 && gp.z === z1 && Reposition.cool === REPOSITION_ASK_GAP && Reposition.me.offered, bit + ' / ' + Reposition.cool);
+        Net.guest = false; Net.host = true; Net.pendEdge = 0; Net.peers = [peer];
+        peer.rp = Reposition.blank(); peer.edges = NET_REPOSITION; Net.applyCmd(peer);
+        this.check('the host refuses a guest it has not seen stuck, and tells it so', gp.x === x1 && gp.z === z1 && /REFUSED/.test(notices()), notices());
+        said.length = 0;
+        for (let i = 0; i < 16; i++) { gp.cmd.moveF = 1; Reposition.watch(peer.rp, gp, 0.5); }
+        W.time = 100; peer.rpCool = 0;
+        peer.edges = NET_REPOSITION; Net.applyCmd(peer);
+        const movedBy = Math.hypot(gp.x - x1, gp.z - z1), x2 = gp.x, z2 = gp.z;
+        this.check('and moves one it has: to a valid place, safe for a moment', movedBy > 1 && gp.invuln && Water.depth(gp.x, gp.z) < 0.3 && /REPOSITIONED/.test(notices()), Math.round(movedBy) + ' m');
+        // once per REPOSITION_GAP / 2 s: at once again (the guest still stuck) it is told to wait and not moved; 6.1 s on it is moved again
+        said.length = 0; gp.x = x2 + 3; gp.z = z2;   // (stuck again where it was put)
+        for (let i = 0; i < 16; i++) { gp.cmd.moveF = 1; Reposition.watch(peer.rp, gp, 0.5); }
+        peer.edges = NET_REPOSITION; Net.applyCmd(peer);
+        const blocked = gp.x === x2 + 3 && /WAIT/.test(notices());
+        W.time += REPOSITION_GAP / 2 + 0.1; said.length = 0;
+        peer.edges = NET_REPOSITION; Net.applyCmd(peer);
+        this.check('the host moves a guest once per ' + REPOSITION_GAP / 2 + ' s: asked again at once it says WAIT, ' + (REPOSITION_GAP / 2 + 0.1).toFixed(1) + ' s later it moves it', blocked && gp.x !== x2 + 3 && /REPOSITIONED/.test(notices()), blocked + ' ' + notices());
+        // old bindings: a save that lost H to another action leaves it unbound, and the prompt says where the way out is
+        const lost = Save.sanitize(Object.assign(JSON.parse(JSON.stringify(SAVE_FIXTURE_V1)), { bindings: Object.assign({}, SAVE_FIXTURE_V1.bindings, { melee: 'KeyH' }) }));
+        this.check('a save that binds H to another action leaves reposition unbound (the pad, the touch button and the pause menu still reach it)', lost.bindings.melee === 'KeyH' && lost.bindings.reposition === '');
+        // a platform in a fight gets the nearest valid place and no protection; six tanks 120 m away do not send it across the field
+        Game.startSession({ mode: 'training', map: 'ashfall', platformId: 'bastion', loadout: Loadout.forPlatform('bastion'), difficulty: 'veteran' });
+        const me = W.player; W.platforms = W.platforms.filter((q) => q === me);
+        for (let i = 0; i < 6; i++) { const a = i * PI / 3; spawnUnit('tank', me.x + Math.sin(a) * 120, me.z + Math.cos(a) * 120, { team: 1, force: true, radius: 3 }); }
+        const mx = me.x, mz = me.z, seenHere = hostileSees(mx, mz, false, spawnEyeH(me.def)), calm = Reposition.site(me, false), hurtSite = Reposition.site(me, true);
+        const dCalm = Math.hypot(calm.x - mx, calm.z - mz), dHurt = Math.hypot(hurtSite.x - mx, hurtSite.z - mz);
+        this.check('with 6 tanks watching from 120 m, a reposition goes no farther than ' + REPOSITION_HIDE + ' m looking for cover: the nearest valid place when nothing hides (the first version went 250 m)', seenHere && dCalm <= REPOSITION_HIDE, Math.round(dCalm) + ' m');
+        me.invuln = false; me.hurtAt = W.time - 1;
+        Reposition.apply(me, null);
+        this.check('a platform hurt in the last ' + REPOSITION_HURT + ' s is put at the nearest valid place and gets no protection', dHurt <= REPOSITION_RING * 3 && !me.invuln, Math.round(dHurt) + ' m, invuln ' + me.invuln);
+        me.invuln = false; me.hurtAt = -Infinity;
+        Reposition.apply(me, null);
+        this.check('and one not hurt gets its ' + REPOSITION_PROTECT + ' s of protection', me.invuln);
+      } finally { Object.assign(Net, { host: keepNet.host, guest: keepNet.guest, peers: keepNet.peers, hostPeer: keepNet.hostPeer, pendEdge: keepNet.pend }); Reposition.me = null; Reposition.offered = false; Reposition.cool = 0; Game.quitToMenu(); }
+    });
+    // P2-06: a skirmish\'s bases lie on ground a tank can drive between (archipelago: the audit\'s three cut-off seeds), and a land respawn comes back on the start\'s ground
+    t('p2 land links', () => {
+      const bad = [], changed = [];
+      const tankSpec = (md) => { const ms = md.maxSlope || MAP_FIELDS.maxSlope; return { key: 'land|link', sea: false, ford: NAV_BASE_FORD, slope: Math.min(ms === Infinity ? Infinity : Math.tan(ms * DEG), NAV_CLIFF.ground) * NAV_SLOPE_SHARE }; };
+      try {
+        for (const map of Object.keys(MAPS)) {
+          const md = mapDef(map), grid = Nav.baseGrid(md, tankSpec(md));
+          for (const seed of [11, 777, 4242, 1, 2, 3]) {
+            const lay = skirmishLayout(Object.assign({}, SKIRMISH_DEFAULT, { map, seed, random: false }));
+            const ford = lay.sites.filter((s) => s.tag === 'ford').length;
+            // (canyon: a cliff band lies between its halves on the 15 m grid, which no ford can mend; its units push straight on, as before)
+            if (!Nav.linked(grid, lay.own.x, lay.own.z, lay.foe.x, lay.foe.z) && !ford && map !== 'canyon') bad.push(map + '#' + seed);
+            if (ford) changed.push(map + '#' + seed);
+          }
+        }
+        this.check('on every battlefield (six seeds) our base and the enemy base are on ground a tank can drive between, or joined by a built ford', bad.length === 0, bad.slice(0, 5).join(' '));
+        this.check('only archipelago needs a built ford (its bases always lie on two islands); the other battlefields keep their layouts', changed.length > 0 && changed.every((c) => c.indexOf('archipelago#') === 0), changed.slice(0, 8).join(' '));
+        // the audit\'s cut-off seeds, in a real battle: the start and the enemy command centre share one piece of ground
+        for (const seed of [11, 777, 4242]) {
+          Game.startSession({ mode: 'skirmish', platformId: 'bastion', loadout: Loadout.forPlatform('bastion'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'archipelago', size: 'medium', seed, random: false, support: 'none' }) });
+          const g = Nav.ensure(navSpecFor(PLATFORMS.bastion)), hq = W.bases.enemy;
+          if (!Nav.linked(g, W.player.x, W.player.z, hq.x, hq.z)) bad.push('archipelago#' + seed + ' (world grid)');
+        }
+        this.check('archipelago seeds 11, 777, 4242: the world\'s own grid joins the start to the enemy command centre for a tank', bad.length === 0, bad.slice(0, 5).join(' '));
+        // a land respawn stays on the start\'s ground (archipelago: not on another island)
+        Game.startSession({ mode: 'skirmish', platformId: 'bastion', loadout: Loadout.forPlatform('bastion'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'archipelago', size: 'medium', seed: 11, random: false, support: 'none' }) });
+        const g = Nav.ensure(navSpecFor(PLATFORMS.bastion)), st = W.mission.def.start;
+        let off = 0;
+        for (let i = 0; i < 12; i++) { const s = respawnSite(PLATFORMS.bastion); if (!Nav.linked(g, st.x, st.z, s.x, s.z)) off++; }
+        this.check('12 respawns of a tank on archipelago all come back on the start\'s ground', off === 0, off + ' off');
+      } finally { Game.quitToMenu(); }
     });
     t('artillery solver', () => {
       const keepRep = Game.reportError, errs = [], hits = [];
@@ -32964,7 +34362,7 @@ const SNAP_PROJS = 70;    // projectiles per snapshot
 var NET_UNSPOT_OFF = false;   // self-test switch: the guest ignores the sent unspotted share
 var NET_SNAP_TURN_OFF = false;   // self-test switch: platforms past SNAP_PLATS take no turns in the snapshots
 var NET_SHELLS_FIRST_OFF = false;   // self-test switch: shells take no precedence in the snapshots
-const NET_VERSION = 10;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc)
+const NET_VERSION = 11;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -33263,11 +34661,15 @@ const Net = {
     // an on-foot mission (m14) sends a guest in as infantry with its On foot loadout when that is a soldier's
     const pid = this.deployPid(peer), foot = pid !== peer.pid;
     const lo = foot ? (peer.foot === 'infantry' && peer.footLo) || PLATFORMS[pid].loadout : peer.loadout;
-    const ship = Naval.deploy(PLATFORMS[pid], lo, pos || st), def = ship.def;   // a ship starts at the harbour
+    // a guest's ship starts beside the host's (P2-01: within NAVAL_GUEST_MAX of it, in the same water), at the first deployment
+    const host = W.player, beside = !pos && host && host.kind === 'naval' && !host.dead && PLATFORMS[pid].kind === 'naval' ? host : null;
+    const ship = beside ? Naval.deploy(PLATFORMS[pid], lo, beside, NAVAL_GUEST_MAX) : Naval.deploy(PLATFORMS[pid], lo, pos || st), def = ship.def;   // a ship starts at the harbour
     if (ship.at) pos = ship.at;
     const parkedAir = def.kind === 'air' && pos && pos.parked;
-    const x = pos ? pos.x : st.x + peer.slot * 14, z = pos ? pos.z : st.z + (peer.slot % 2 ? 12 : -12), yaw = pos ? pos.yaw : st.yaw;
-    const p = new Platform(def, { team: 0, x, z, yaw, loadout: ship.lo, name: peer.name, y: def.kind === 'air' ? Terrain.h(x, z) + 160 : undefined });
+    let x = pos ? pos.x : st.x + peer.slot * 14, z = pos ? pos.z : st.z + (peer.slot % 2 ? 12 : -12), yaw = pos ? pos.yaw : st.yaw, y;
+    if (def.kind === 'air' && !parkedAir) { const a = airSpawn(pos ? x : st.x, pos ? z : st.z, yaw, pos ? 0 : peer.slot, airSeen(def)); x = a.x; z = a.z; yaw = a.yaw; y = a.y; }   // each guest in the line across the heading, as the host's (P2-01)
+    const p = new Platform(def, { team: 0, x, z, yaw, loadout: ship.lo, name: peer.name, y: def.kind === 'air' ? (y !== undefined ? y : Terrain.h(x, z) + 160) : undefined });
+    Nav.prepare(def);
     if (parkedAir) Seats.groundAir(p);
     if (def.kind !== 'air' && def.kind !== 'naval' && groundBlocked(p.x, p.z, p.radius + 1)) {
       const sp = findSpawn(x, z, 40, p.radius, 0);
@@ -33323,6 +34725,7 @@ const Net = {
     if (e & 256) c.sel1 = true; if (e & 512) c.sel2 = true; if (e & 1024) c.selNext = true; if (e & 4096) c.superEdge = true;
     if (e & NET_USE_TAP) Seats.tap(p, peer);
     if (e & NET_USE_HOLD) Seats.hold(p, peer);
+    if (e & NET_REPOSITION) Reposition.hostAsk(peer);   // the host decides (P2-04)
   },
   hostTick(dt) {
     this.t += dt;
@@ -33349,6 +34752,7 @@ const Net = {
         peer.respawnT -= dt;
         if (peer.respawnT <= 0 && p.grounded && !p.chute) this.spawnFor(peer, respawnSite(PLATFORMS[this.deployPid(peer)]));
       } else if (peer.protectT > 0) { peer.protectT -= dt; if (peer.protectT <= 0) p.invuln = false; }
+      Reposition.watch(peer.rp || (peer.rp = Reposition.blank()), peer.p, dt);   // has the guest stayed put under its input? (P2-04)
       this.applyCmd(peer);
     }
     this.beat(dt);
@@ -33936,7 +35340,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, airSpawn, rayToSquare };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
