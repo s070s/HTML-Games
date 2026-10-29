@@ -360,7 +360,12 @@ const Faults = Object.freeze({
 // ---------------------------------------------------------------------------------------------
 // Event bus
 // ---------------------------------------------------------------------------------------------
-/** Topic bus. Listeners are isolated from each other; emit iterates a snapshot (Part 6.1.4.2). */
+/**
+ * Topic bus. Listeners are isolated from each other; emit iterates a snapshot (Part 6.1.4.2). The list of a topic is never changed
+ * in place: subscribing and unsubscribing make a new list, so an emit walks the list it found with no copy of its own.
+ */
+const EMPTY_LIST = Object.freeze([]);
+
 class Emitter {
   constructor() {
     this.topicMap = new Map();
@@ -378,16 +383,13 @@ class Emitter {
 
   addEntry(topic, fn, owner, once) {
     assert(typeof topic === 'string' && typeof fn === 'function', 'Emitter.on needs a topic string and a function');
-    let list = this.topicMap.get(topic);
-    if (!list) {
-      list = [];
-      this.topicMap.set(topic, list);
-    }
-    const existing = list.find((entry) => entry.fn === fn);
+    const current = this.topicMap.get(topic) || EMPTY_LIST;
+    const existing = current.find((entry) => entry.fn === fn);
     if (existing) return existing.unsubscribe;   // invariant: no duplicate {topic, fn} pair
     const entry = { fn, owner, once, unsubscribe: null };
     entry.unsubscribe = () => this.removeEntry(topic, entry);
-    list.push(entry);
+    const list = current.concat([entry]);
+    this.topicMap.set(topic, list);
     if (list.length > LISTENER_WARN_LIMIT) {
       logOnce('bus.leak.' + topic, 'warn', 'bus', 'more than ' + LISTENER_WARN_LIMIT + ' listeners on ' + topic);
     }
@@ -398,8 +400,8 @@ class Emitter {
     const list = this.topicMap.get(topic);
     const index = list ? list.indexOf(entry) : -1;
     if (index < 0) return false;
-    list.splice(index, 1);
-    if (list.length === 0) this.topicMap.delete(topic);
+    if (list.length === 1) this.topicMap.delete(topic);
+    else this.topicMap.set(topic, list.slice(0, index).concat(list.slice(index + 1)));
     return true;
   }
 
@@ -430,14 +432,13 @@ class Emitter {
       this.reportDepth(topic);
       return 0;
     }
-    const snapshot = list.slice();
     this.depth += 1;
     try {
-      snapshot.forEach((entry) => this.callListener(entry, topic, payload));
+      for (let index = 0; index < list.length; index += 1) this.callListener(list[index], topic, payload);
     } finally {
       this.depth -= 1;
     }
-    return snapshot.length;
+    return list.length;
   }
 
   callListener(entry, topic, payload) {

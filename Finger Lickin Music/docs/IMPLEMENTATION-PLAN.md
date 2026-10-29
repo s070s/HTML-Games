@@ -31398,7 +31398,7 @@ in 31 groups.
 | UT-01-26 | clamp/lerp/smoothstep |
 | UT-01-27 | deepClone independence |
 | UT-01-28 | assert throws coded error |
-| UT-01-29 | parts of a module: registered once, made once on first use; a duplicate or missing part is E-GEN-001 |
+| UT-01-33 | parts of a module: registered once, made once on first use; a duplicate or missing part is E-GEN-001 |
 
 #### 12.2.2 M-02 `FLM.Theory` (group `theory`, `src/91-test-theory.js`, Part 6.2.8): 22 tests
 
@@ -31492,7 +31492,7 @@ in 31 groups.
 | UT-04-27 | end of song |
 | UT-04-28 | setSpeed while paused |
 
-#### 12.2.5 M-05 `FLM.Audio` (group `audio`, `src/91-test-audio.js`, Part 6.5.8): 39 tests
+#### 12.2.5 M-05 `FLM.Audio` (group `audio`, `src/91-test-audio.js`, Part 6.5.8): 40 tests
 
 | UT-ID | Name |
 |---|---|
@@ -31535,8 +31535,9 @@ in 31 groups.
 | UT-05-37 | an output device change tells M-07 with audio.sink and does not unlock a second time |
 | UT-05-38 | voice builds are capped per tick (OI-37): six builds that cost more than a quarter ms, then the next tick |
 | UT-05-39 | one slow build does not starve the notes behind it: the estimate is capped and notes due soon are never held back (regression) |
+| UT-05-40 | booking at the start of playing: not for a seek, and never inside a tick (regression) |
 
-#### 12.2.6 M-06 `FLM.Instruments` (group `instruments`, `src/91-test-instruments.js`, Part 6.6.8): 33 tests
+#### 12.2.6 M-06 `FLM.Instruments` (group `instruments`, `src/91-test-instruments.js`, Part 6.6.8): 34 tests
 
 | UT-ID | Name |
 |---|---|
@@ -31573,6 +31574,7 @@ in 31 groups.
 | UT-06-31 | vibrato follows the track (D80): a track with CC 1 events has the vibrato from the first note |
 | UT-06-32 | a voice lives until its last source ends: the oscillator of program 99 sounds after the pluck buffer ran out (regression) |
 | UT-06-33 | the steal priority of a note follows the program timeline of its channel |
+| UT-06-34 | a drum voice stops its sources after they started: no warning, and the end is booked (regression) |
 
 #### 12.2.7 M-07 `FLM.Input` (group `input`, `src/91-test-input.js`, Part 6.7.8): 32 tests
 

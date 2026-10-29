@@ -53,7 +53,7 @@ FLM.SelfTest.group('core', (t) => {
     });
   });
 
-  t.test('UT-01-29 parts of a module: registered once, made once on first use; a duplicate or missing part is E-GEN-001', () => {
+  t.test('UT-01-33 parts of a module: registered once, made once on first use; a duplicate or missing part is E-GEN-001', () => {
     const moduleName = 'PartsTest' + Core.uid();
     let made = 0;
     Core.part(moduleName, 'wizard', (host, kit) => {

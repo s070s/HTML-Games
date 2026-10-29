@@ -1328,7 +1328,8 @@ FLM.SelfTest.group('audio', (t) => {
       first.setState('closed');                         // closed behind the engine (E-AUD-008)
       t.eq(await engine.restart(), true, 'a new context was made and runs');
       t.eq(sinks.length, 1, 'audio.sink tells M-07 to take its anchor on the new context');
-      t.ok(Math.abs(transport.positionAt(engine.now()) - heldTick) <= BEAT,
+      // The one lead-in of 50 ms (96 ticks) of the re-anchor is all that is lost; a second resync after it would lose 192.
+      t.ok(Math.abs(transport.positionAt(engine.now()) - heldTick) <= 110,
         'the song goes on from where it was on the new clock: ' + transport.positionAt(engine.now()) + ' near ' + heldTick);
       t.eq(factory.count, 2);
       t.eq(engine.state(), 'running');
@@ -1424,6 +1425,26 @@ FLM.SelfTest.group('audio', (t) => {
       t.deepEq(instruments.calls.noteOn.map((call) => call.event.velocity + '@' + call.event.pitch), ['90@62', '100@60'],
         'the quieter duplicate got no voice');
       t.deepEq(noteOns.map((event) => event.voiced), [true, true, false], 'and is announced last');
+    });
+  });
+
+  t.test('UT-05-40 booking at the start of playing: not for a seek, and never inside a tick (regression)', async () => {
+    await withRig({}, (rig) => {
+      let pulls = 0;
+      let announceInTick = false;
+      const transport = { state: () => 'playing', pullDue: () => { pulls += 1; return []; },
+        update() {
+          if (announceInTick) rig.bus.emit('transport.state', { state: 'playing', reason: 'user' });   // the count-in ends inside the tick
+        } };
+      rig.engine.Scheduler.start(transport);
+      rig.bus.emit('transport.state', { state: 'playing', reason: 'seek' });
+      t.eq(pulls, 0, 'a seek moves the cursors after its state event: nothing is booked from it');
+      rig.bus.emit('transport.state', { state: 'playing', reason: 'user' });
+      t.eq(pulls, 1, 'the start of playing books at once');
+      announceInTick = true;
+      rig.clock.set(1);
+      rig.engine.Scheduler.tickOnce(1);
+      t.eq(pulls, 2, 'a state event inside a tick books nothing more: the tick pulls once');
     });
   });
 

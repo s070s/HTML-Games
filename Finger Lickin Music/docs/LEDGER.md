@@ -65,10 +65,80 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 
 - Pushing: authorized by the owner after each checked batch (2026-10-29); the coordinator commits by path and pushes.
 - Plan patch (OI-50): AT-R-P6.1-12 arms `audio.fail {phase:'node'}` for the instrument fallback, FI-005 uses the same phase for E-AUD-004 and a hard panic; the code uses `phase:'definition'` for the fallback (D104).
+- Plan patch (D113): the sounds of three entries differ from the plan so that the plan's own node limits hold (11 a voice, 8 a drum hit): Part 6.6.3 crash (plan line 8062: 4 square partials 3100, 4300, 5700, 7200 Hz in a gain and a decay node; that recipe has 9 nodes by the plan's count, 10 with the voice output gain, against the limit of 8: the code has 3 partials, 3100, 4300, 5700 Hz, in the decay node), program 109 (plan line 8024: drone g0.3; the code uses 0.35 so the drone shares the gain node of the sawtooth) and program 55 (the three sawtooth oscillators of the ensemble template at one level, 0.5, instead of 0.5 / 0.6 / 0.5). Either the owner accepts the code or the plan limit changes.
 - Part 7.11 text catalog patch for S-INP-09 (D52), S-AUD-01..05 (D88) and the calibration listen texts (T04.09).
 - Delete the leftover browser profile folders %TEMP%\claude\flm-profile-* (locked LOCK files, OI-9).
 - Device and other-browser tests (XT, LT): owner.
 - Licence: the owner recorded "All rights reserved" (see docs/plan-work/OPEN-ISSUES-stage1.md).
+
+## 2026-10-29 21:10 - Phase 04 GATE, third round - reviewer findings, allocation cut in the hot path; GATE STILL OPEN (coordinator commits)
+
+Work on top of the commit d3b53ed. Superseded here: the counts, perf numbers and RESUME of the second review round entry below. Nothing is committed. Part A (reviewer findings) is done; part B (allocation) is done except item b; part C (the gate) was run
+twice on the final build and fails under host load, so the gate stays OPEN.
+
+A. Findings (what; test):
+- A1 `bookAtStart` is skipped when the state event has reason 'seek' (a seek moves the cursors after its event; at count-in a seek broke the first notes). UT-05-40.
+- A2 a `ticking` flag: a `transport.state` event inside a tick (the count-in ends in `update`) books nothing (without it the call recursed 8 times). UT-05-40.
+- A3 `perf.mjs`: a run without a finite value makes the merged metric invalid; the 'unknown scenario' flag is carried through the `--repeat` merge.
+- A4 `restart()` no longer replays 50 ms: the resync of the rebuild right after a re-anchor is skipped (`skipNextResync`); the UT-05-36 tolerance is 110 ticks (was 960; the unfixed code
+  loses 192).
+- A5 the plan patch of D113 is in the Owner actions (crash, program 109, program 55; the plan's crash recipe has 9 nodes by its own count, 10 with the voice output gain, against the limit of 8).
+- A6 the test of the parts mechanism is UT-01-33 (UT-01-29 to UT-01-32 were taken); the plan index row follows. Earlier LEDGER text that says UT-01-29 means this test.
+- A7 `setupMusic` passes the mode owner to `bindScheduler`, so the D115 guard covers it.
+
+B. Allocation (CDP heap sampling with minor and major collected objects counted, same workload before and after; chord-stress-1000 is 16,000 notes of which 1,024 get a voice, about 575 ticks):
+| | before | after |
+|---|---|---|
+| stress, bytes per note | 1,920 | 1,395 (-27 %) |
+| stress, bytes per tick | 52,862 | 38,410 (-27 %) |
+| stress, total | 30.0 MB | 21.8 MB |
+| a voiced note start, bytes | 7,535 | 4,970 (-34 %) |
+| warm note start, program 0 (7 nodes), median of 15 batches of 40 | 0.32 ms | 0.34 ms (no change; best 0.305 / 0.313) |
+- Done: (a) the voice and the node book are classes (`NoteVoice`, `NodeBook`) with prototype methods, the envelope is numbers (`env.amp`, `env.drumSeconds`), the detune list is flat, the shared gains need no
+  closure, the fallback chain is only built after a failure, `startVoice` returns the voice, the timing wrappers have no rest arrays; (c) partly: `VoiceSlot` is a class with the owner's fields on it, `acquire` and
+  `pickVictim` have no closure and ask each slot's level once; the slot objects are not pooled, because a freed handle must stay stale (UT-05-35 needs `next !== old`); (d) the end queue is two arrays
+  (times and entries, no record object), the `pending` Map is gone (a counter and the queue replace it), the owner object is gone (a scratch object, copied onto the slot); (e) the Emitter is copy-on-write
+  (no list copy and no closure per emit), `sched.noteOn` and `sched.noteOff` payloads are built only when someone listens, the id of a note is made when asked for; (f) partly: the cost estimates are typed
+  arrays (no boxed number in a Map per item), `worst` is cleared scratch, `hasChord` finds out without allocating that a pull has no chord; the transport item objects and the copy of the pulled list were kept;
+  (g) the fallback array, the returned objects, `noteIdOf`, `wraps.filter` of the harness (now a pointer).
+- Not done: (b) a persistent filter, gain and depth-gain chain per slot. Measured reason: creating the nodes of program 0 costs about 0.29 ms by itself (OscillatorNode 43 us, GainNode 28 us, BiquadFilterNode 73 us,
+  3 oscillators + 3 gains + 1 filter); a persistent chain would save the filter and the gains (about 0.16 ms) and still leave the three oscillators, which are one-shot: about 0.18 ms at best. The 0.15 ms target
+  cannot be reached by reuse alone; it would need fewer oscillators per voice (a sound change). The warm note start stays 0.32 to 0.34 ms.
+- Found by the profile and fixed: drum voices asked for the end of their sources while they were being built, before `start()`; the browser throws for that, so every drum source threw (474 warnings in 20 s of
+  stress, an exception with a stack per source) and was never stopped: a drum voice lived until the watchdog freed it. `NoteVoice.endAt` now waits for `start()`. UT-06-34. Effects: the mean note start in
+  chord-stress went from 0.99 to 0.36 - 0.47 ms on a similar load, and PT-004 `voicesMax` from 59 to 25 (drums no longer linger).
+
+C. Gate commands on the final code (build 1,001,619 bytes = 0.96 MB, 76 percent of the 1.25 MB Phase 05 envelope; the host was loaded: a CPU test took 2.4 s that takes under 1 s on a quiet machine):
+- `node tools/build.mjs` [exit 0, no problem line]. `node tools/selftest.mjs --all` three times before the last harness edit [775/775, 775/775, 775/775] and once after it [774/775: only IT-040 failed, tick body 10.0 ms,
+  pull 1.2, worst item 5.9 ms]. `--all --slow` [778/778]. `--smoke` [SMOKE OK].
+- `node tools/perf.mjs --repeat 3`, default set, two gate runs on this build, both FAIL:
+| metric | budget | run A (3 repeats) | judged | run B (3 repeats) | judged |
+|---|---|---|---|---|---|
+| PT-012 tickWorkMaxMs | 4 | 46.9 / 27.7 / 70.7 | 46.9 FAIL | 22.8 / 21.8 / 70.5 | 22.8 FAIL |
+| PT-012 lateEvents, accountError, errors, activeVoicesAfterStop, audioNodesExcess, voicesMax | 0 / 0 / 0 / 0 / 0 / 64 | all runs 0, voicesMax 64 | pass | all runs 0, voicesMax 64 | pass |
+| PT-012 audioNodesMax | 704 | 459 / 464 / 459 | pass | 464 / 464 / 464 | pass |
+| PT-004 tickWorkMaxMs | 4 | 460 / 320.1 / 110.6 | 320.1 FAIL | 161.5 / 205.8 / 52.9 | 161.5 FAIL |
+| PT-004 tickIntervalMaxMs | 95 | 200 / 200 / 200 | 200 FAIL | 200 / 200 / 108 | 200 FAIL |
+| PT-004 lateEvents | 0 | 90 / 119 / 39 | 119 (worst) FAIL | 12 / 55 / 0 | 55 (worst) FAIL |
+| PT-004 lookaheadMaxMs, schedErrorMaxMs | 125, 1 | values 120 and 0.02 | invalid: 3,728 and 3,602 samples | values 120 and 0.02 | invalid: 3,971 and 3,884 samples |
+| PT-004 tickIntervalP50 / P95, voicesMax | 23-27 / 50 / 64 | 25 / 34 / 29 | pass | 25 / 29 / 25 | pass |
+| PT-001, PT-002, PT-007, PT-018 | | 1,001,619 B; menuMs 173; driftMs 0; expand 4.7 ms | pass | menuMs 188; driftMs 0 | pass |
+  The "invalid" rows: in the first repeat of each run the scenario reached its 300 s cap with 3.7 to 4.0 thousand events (the host stalled it: 22 and 6 stalls), and the merge takes the smallest sample count.
+  The gate run of the previous round (before this round's changes, a quieter host): PT-012 tickWorkMaxMs 9.4 / 4.6 / 5.7, PT-004 tickWorkMaxMs 51.7 / 12.1 / 14.8, lateEvents 1 / 0 / 0.
+  Nothing was picked: these are all the gate runs of this round on the final build. The gated metrics pass only on the quiet part of the day; under load every run misses `tickWorkMaxMs`, which a thread
+  preemption or a garbage collection makes, as the trace of the last round showed.
+Gate state: OPEN. It is passed only by a gate run in which every gated metric passes on a quiet machine.
+
+Decisions: D119 the Emitter never changes a topic's list in place (copy-on-write) and emit walks the list it found. D120 a drum voice's end is booked when its sources have started (`pendingStop`).
+D121 `VoiceSlot` is a class; the owner's fields (`trackId`, `channel`, `pitch`, `priority`) are on the slot, `slot.owner` is gone. D122 the scheduled notes are tracked in the end queue only (two parallel arrays);
+`Scheduler.pending()` is a counter. D123 `sched.noteOn` and `sched.noteOff` payloads are built only when a listener exists; `eventId` of a scheduled note is made on demand.
+D124 the cost estimates of the booking loop are typed arrays indexed by item kind (note, cc, program, bend, voiceless, other).
+Open issues: OI-37 (the gate: tickWorkMaxMs, PT-004 lateEvents, tickIntervalMax under load; the next lever is the young-generation collection that a quiet run still shows, now with fewer allocations per note),
+the note start is bounded by node creation (0.32 ms against 0.15 ms: needs a sound change or fewer nodes), OI-47 (real-clock tests flake under load), OI-50 (plan patch of the fallback fault phase), the plan patch of D113.
+Owner actions: the plan patch of D113 is listed; the rest unchanged. Headless Chrome may play sound during these runs; the audio was left unmuted.
+RESUME: finish the Phase 04 gate: run `node tools/perf.mjs --repeat 3` (default set) on a quiet machine (no other test runs; check with a CPU test that takes under 1 s) and record it here and in STATUS; set the gate to passed only if every
+gated metric passes under the judging rules (worst run for the counts, median for the others, samples at least 5,000 events and 1,000 ticks). If it still misses on a quiet machine, reduce the allocation per note further (the transport item
+objects, the entry and its Map slots) and the tick work. Do not start Phase 05 before. Re-run `node tools/build.mjs` and `node tools/selftest.mjs --all` first (775/775 expected).
 
 ## 2026-10-29 19:30 - Phase 04 GATE, second review round - input/anchor root cause and the re-review fixes; GATE OPEN (coordinator commits)
 

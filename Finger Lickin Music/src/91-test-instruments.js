@@ -606,6 +606,18 @@ FLM.SelfTest.group('instruments', (t) => {
     t.eq(Instruments.priorityOf(track({ isDrums: true }), early, 0.5), 2, 'drums are always 2');
   });
 
+  t.test('UT-06-34 a drum voice stops its sources after they started: no warning, and the end is booked (regression)', async () => {
+    const rig = makeRig({ seconds: 3 });
+    Core.Log.clear();
+    const slot = Instruments.noteOn(track({ isDrums: true }), note(49, 100, { channel: 9 }), 0.1, 0.2);     // a crash: noise and metal partials
+    t.ok(slot && slot.voice, 'the crash sounds');
+    const failures = Core.Log.entries().filter((entry) => String(entry.msg).includes('stopping a source failed'));
+    t.eq(failures.length, 0, 'no source was stopped before it was started');
+    t.ok(slot.voice.stopAt > 0.1 + 0.5, 'the end of the sources is booked: ' + slot.voice.stopAt);
+    const data = (await rig.context.startRendering()).getChannelData(0);
+    t.ok(peakOf(data, 0.15, 0.5) > 0.005, 'and it sounds');
+  });
+
   t.test('UT-06-32 a voice lives until its last source ends: the oscillator of program 99 sounds after the pluck buffer ran out (regression)',
     async () => {
       const rig = makeRig({ seconds: 4.5 });

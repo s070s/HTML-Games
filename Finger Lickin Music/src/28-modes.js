@@ -577,7 +577,7 @@ FLM.Core.define('Modes', function (FLM) {
     const tempoOnly = row.transport === 'tempo';
     const options = tempoOnly ? { tempoSource: 'override', overrideBpm: params.overrideBpm } : undefined;
     invokeStep('music', 'Transport.main.load', song, options);
-    if (row.scheduler === 'bound') await bindScheduler(song);
+    if (row.scheduler === 'bound') await bindScheduler(song, state.current.owner);     // a mode left during the warm-up binds nothing
   }
 
   // ---------------------------------------------------------------- gameplay assembly (Part 4.7.1 steps 7, 8, 10, 14)

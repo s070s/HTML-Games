@@ -232,7 +232,7 @@ body.touch .hover-only { display: none; }
 (function () {
 'use strict';
 const VERSION = '0.1.0';
-const BUILD = '2026-10-29T16:44:06Z standalone ship';
+const BUILD = '2026-10-29T17:52:49Z standalone ship';
 const RELAY_URL = '';
 const LICENSE_NOTICE = 'Copyright (c) 2026 the Finger Lickin Music authors. All rights reserved.';   // Part 10.3.3, interim notice
 const FLM = window.FLM = { VERSION, BUILD, RELAY_URL };
@@ -586,7 +586,12 @@ const Faults = Object.freeze({
 // ---------------------------------------------------------------------------------------------
 // Event bus
 // ---------------------------------------------------------------------------------------------
-/** Topic bus. Listeners are isolated from each other; emit iterates a snapshot (Part 6.1.4.2). */
+/**
+ * Topic bus. Listeners are isolated from each other; emit iterates a snapshot (Part 6.1.4.2). The list of a topic is never changed
+ * in place: subscribing and unsubscribing make a new list, so an emit walks the list it found with no copy of its own.
+ */
+const EMPTY_LIST = Object.freeze([]);
+
 class Emitter {
   constructor() {
     this.topicMap = new Map();
@@ -604,16 +609,13 @@ class Emitter {
 
   addEntry(topic, fn, owner, once) {
     assert(typeof topic === 'string' && typeof fn === 'function', 'Emitter.on needs a topic string and a function');
-    let list = this.topicMap.get(topic);
-    if (!list) {
-      list = [];
-      this.topicMap.set(topic, list);
-    }
-    const existing = list.find((entry) => entry.fn === fn);
+    const current = this.topicMap.get(topic) || EMPTY_LIST;
+    const existing = current.find((entry) => entry.fn === fn);
     if (existing) return existing.unsubscribe;   // invariant: no duplicate {topic, fn} pair
     const entry = { fn, owner, once, unsubscribe: null };
     entry.unsubscribe = () => this.removeEntry(topic, entry);
-    list.push(entry);
+    const list = current.concat([entry]);
+    this.topicMap.set(topic, list);
     if (list.length > LISTENER_WARN_LIMIT) {
       logOnce('bus.leak.' + topic, 'warn', 'bus', 'more than ' + LISTENER_WARN_LIMIT + ' listeners on ' + topic);
     }
@@ -624,8 +626,8 @@ class Emitter {
     const list = this.topicMap.get(topic);
     const index = list ? list.indexOf(entry) : -1;
     if (index < 0) return false;
-    list.splice(index, 1);
-    if (list.length === 0) this.topicMap.delete(topic);
+    if (list.length === 1) this.topicMap.delete(topic);
+    else this.topicMap.set(topic, list.slice(0, index).concat(list.slice(index + 1)));
     return true;
   }
 
@@ -656,14 +658,13 @@ class Emitter {
       this.reportDepth(topic);
       return 0;
     }
-    const snapshot = list.slice();
     this.depth += 1;
     try {
-      snapshot.forEach((entry) => this.callListener(entry, topic, payload));
+      for (let index = 0; index < list.length; index += 1) this.callListener(list[index], topic, payload);
     } finally {
       this.depth -= 1;
     }
-    return snapshot.length;
+    return list.length;
   }
 
   callListener(entry, topic, payload) {
@@ -4471,6 +4472,12 @@ FLM.Core.define('Audio', function (FLM) {
   const TICK_BUDGET_MS = 4;                  // scheduling work per tick (S-10); the rest stays in the backlog
   const HEAVY_ITEM_MS = 0.25;                // an item that costs more than this is a voice build (counted per tick)
   const MAX_HEAVY_PER_TICK = 6;              // at most this many voice builds in one tick (OI-37)
+  // The kinds of item that have a booking-cost estimate of their own: indexes into the cost arrays of the Scheduler.
+  const COST_KINDS = Object.freeze(['note', 'cc', 'program', 'bend']);
+  const COST_VOICELESS = COST_KINDS.length;
+  const COST_OTHER = COST_VOICELESS + 1;
+  const COST_TYPE_COUNT = COST_OTHER + 1;
+  const COST_NAMES = Object.freeze(COST_KINDS.concat(['voiceless', 'other']));
   const LATE_EPSILON_S = 1e-9;               // a note booked later than the time the Transport gave it is late (clamped)
   const SLOW_ITEM_MS = 3;
   const SLOW_ITEM_KEEP = 40;
@@ -4712,16 +4719,34 @@ FLM.Core.define('Audio', function (FLM) {
     return fallbackLevel(slot, time);
   }
 
-  function createSlot(index, id) {
-    const slot = { id, index, owner: null, voice: null, seq: 0, startedAt: 0, releasedAt: null, releaseEndAt: null,
-      state: 'free' };
-    slot.levelAt = (time) => levelOf(slot, time);
-    return slot;
+  // A handle to one place of the pool. A slot object is never reused for another voice: free() and steal() put a new one in
+  // its place, so a handle kept by a caller goes stale (UT-05-35). The owner's fields sit on the slot itself.
+  class VoiceSlot {
+    constructor(index, id) {
+      this.id = id;
+      this.index = index;
+      this.trackId = null;
+      this.channel = 0;
+      this.pitch = 0;
+      this.priority = 0;
+      this.voice = null;
+      this.seq = 0;
+      this.startedAt = 0;
+      this.releasedAt = null;
+      this.releaseEndAt = null;
+      this.state = 'free';
+    }
+
+    levelAt(time) {
+      return levelOf(this, time);
+    }
   }
+
+  const createSlot = (index, id) => new VoiceSlot(index, id);
 
   function clearSlot(slot) {
     slot.state = 'free';
-    slot.owner = null;
+    slot.trackId = null;
     slot.voice = null;
     slot.releasedAt = null;
     slot.releaseEndAt = null;
@@ -4739,13 +4764,6 @@ FLM.Core.define('Audio', function (FLM) {
   }
 
   /** True when `first` is the better victim of two released slots: quieter at `time`, then older. */
-  function quieterThan(first, second, time) {
-    const levelFirst = first.levelAt(time);
-    const levelSecond = second.levelAt(time);
-    if (levelFirst !== levelSecond) return levelFirst < levelSecond;
-    return first.seq < second.seq;
-  }
-
   const olderThan = (first, second) => first.startedAt < second.startedAt ||
     (first.startedAt === second.startedAt && first.seq < second.seq);
 
@@ -4755,10 +4773,18 @@ FLM.Core.define('Audio', function (FLM) {
    */
   function pickVictim(slots, time) {
     let quietest = null;
+    let quietestLevel = 0;
     let oldest = null;
-    for (const slot of slots) {
+    for (let index = 0; index < slots.length; index += 1) {
+      const slot = slots[index];
       if (slot.state === 'free') continue;
-      if (slot.state === 'released' && (quietest === null || quieterThan(slot, quietest, time))) quietest = slot;
+      if (slot.state === 'released') {
+        const level = slot.levelAt(time);          // asked once per slot, and the quietest one's level is kept
+        if (quietest === null || level < quietestLevel || (level === quietestLevel && slot.seq < quietest.seq)) {
+          quietest = slot;
+          quietestLevel = level;
+        }
+      }
       if (oldest === null || olderThan(slot, oldest)) oldest = slot;
     }
     return quietest !== null ? quietest : oldest;
@@ -4796,6 +4822,11 @@ FLM.Core.define('Audio', function (FLM) {
         'the oldest', { capacity: slots.length });
     }
 
+    function firstFree() {
+      for (let index = 0; index < slots.length; index += 1) if (slots[index].state === 'free') return slots[index];
+      return null;
+    }
+
     function steal(time) {
       const victim = pickVictim(slots, time);
       callVoice(victim, 'stop', time, STEAL_FADE_S);
@@ -4812,9 +4843,12 @@ FLM.Core.define('Audio', function (FLM) {
     /** Returns a slot for a note starting at `atAudio`; steals one when the pool is full, never returns null. */
     function acquire(owner, atAudio) {
       const time = requireFinite(atAudio, 'voice start time');
-      const slot = slots.find((candidate) => candidate.state === 'free') || steal(time);
+      const slot = firstFree() || steal(time);
       acquireSerial += 1;
-      slot.owner = owner;
+      slot.trackId = owner.trackId;
+      slot.channel = owner.channel;
+      slot.pitch = owner.pitch;
+      slot.priority = owner.priority;
       slot.seq = acquireSerial;
       slot.startedAt = time;
       slot.releasedAt = null;
@@ -4982,14 +5016,19 @@ FLM.Core.define('Audio', function (FLM) {
   function createScheduler(env) {
     const bus = env.bus;
     const allocator = env.allocator;
-    const pending = new Map();               // sequence -> a scheduled note whose release is still to come
+    let pendingTotal = 0;                    // the scheduled notes whose release is still to come (they are in the end queue)
     const programs = new Map();              // trackId -> the program in force
     const sounding = new Map();              // trackId -> Map(channel * 128 + pitch -> the latest booked note), retrigger
     const liveHeld = new Map();              // trackId -> Map(channel * 128 + pitch -> a live note waiting for liveNoteOff)
-    let endQueue = [];                       // {entry, end} sorted by end time: the notes that will be over soon
+    let endTimes = [];                       // the end times of the notes that will be over soon, sorted; endEntries holds their entries
+    let endEntries = [];
     let endHead = 0;
-    const costs = new Map();                 // item type -> running estimate of its booking cost in ms
+    const worstCosts = new Float64Array(COST_TYPE_COUNT);     // the worst cost of each item type in the tick (scratch of bookBacklog)
+    const costs = new Float64Array(COST_TYPE_COUNT);          // item type -> running estimate of its booking cost in ms
+    const costKnown = new Uint8Array(COST_TYPE_COUNT);        // 1 once the estimate of a type has a first sample
     const slowItems = [];                   // [end time on the performance clock, ms, type] of the first items over 3 ms (diagnosis of load spikes)
+    let skipNextResync = false;              // set by reanchor, used up by the next resyncTransport
+    let ticking = false;                    // a tick is running: a transport.state event inside it must not book a second time
     let starved = false;                     // the last tick booked nothing although items were waiting
     const ownedStrips = new Set();           // strips this binding made: disposed at unbind
     const subscriptions = [];                // off() functions while the timer runs
@@ -5046,7 +5085,8 @@ FLM.Core.define('Audio', function (FLM) {
     /** stop() and every strip this binding made. Safe when nothing is bound. */
     // The cost estimates belong to one binding: a new song starts with none, and the next tick may book an item at once.
     function resetCostModel() {
-      costs.clear();
+      costs.fill(0);
+      costKnown.fill(0);
       starved = false;
       slowItems.length = 0;
     }
@@ -5100,8 +5140,16 @@ FLM.Core.define('Audio', function (FLM) {
 
     // ---- panic (6.5.4.4) -------------------------------------------------------------------------
     function noteOffPayload(entry, at, reason) {
-      return { trackId: entry.trackId, channel: entry.channel, eventId: entry.eventId, pitch: entry.pitch, at, reason };
+      return { trackId: entry.trackId, channel: entry.channel, eventId: eventIdOf(entry), pitch: entry.pitch, at, reason };
     }
+
+    // The id of a scheduled note is worked out when a listener needs it (a live note has its id from the start).
+    function eventIdOf(entry) {
+      if (entry.eventId === undefined) entry.eventId = noteIdOf(entry.track, entry.event);
+      return entry.eventId;
+    }
+
+    const heard = (topic) => typeof bus.listenerCount !== 'function' || bus.listenerCount(topic) > 0;
 
     function panicPayload(hard, reason, count, at) {
       return { hard, reason, voicesStopped: count, releasedCount: count, audioTime: at };
@@ -5113,14 +5161,18 @@ FLM.Core.define('Audio', function (FLM) {
      */
     function forgetAllNotes(at, reason) {
       const why = NOTE_OFF_REASON[reason] || 'stop';
-      pending.forEach((entry) => {
-        if (entry.endAudio > at) bus.emit('sched.noteOff', noteOffPayload(entry, at, why));
-      });
+      for (let index = endHead; index < endEntries.length; index += 1) {
+        const entry = endEntries[index];
+        if (entry.done) continue;              // queued twice (released earlier): the first visit settled it
+        entry.done = true;
+        if (entry.endAudio > at && heard('sched.noteOff')) bus.emit('sched.noteOff', noteOffPayload(entry, at, why));
+      }
       liveHeld.forEach((table) => table.forEach((entry) => bus.emit('sched.noteOff', noteOffPayload(entry, at, why))));
-      pending.clear();
+      pendingTotal = 0;
       sounding.clear();
       liveHeld.clear();
-      endQueue = [];
+      endTimes = [];
+      endEntries = [];
       endHead = 0;
       backlog = [];
       backlogHead = 0;
@@ -5181,6 +5233,7 @@ FLM.Core.define('Audio', function (FLM) {
     /** Puts the playing transport at `tick` on the clock of the new context (a 'resync' seek: no panic, no restart of the song). */
     function reanchor(tick) {
       if (tick === null || transport === null || typeof transport.seek !== 'function') return;
+      skipNextResync = true;                 // the seek below is the resync: the one of the rebuild that follows would replay 50 ms
       try {
         transport.seek(tick, 'resync');
       } catch (error) {
@@ -5189,6 +5242,10 @@ FLM.Core.define('Audio', function (FLM) {
     }
 
     function resyncTransport(at) {
+      if (skipNextResync) {
+        skipNextResync = false;
+        return;
+      }
       const playing = transport !== null && typeof transport.state === 'function' && transport.state() === 'playing';
       if (!playing || typeof transport.positionAt !== 'function' || typeof transport.seek !== 'function') return;
       try {
@@ -5207,7 +5264,7 @@ FLM.Core.define('Audio', function (FLM) {
     // started the transport. Waiting for the next 25 ms tick lets a busy main thread (the mode set-up that follows) delay it past
     // the first notes, and they are late.
     function bookAtStart() {
-      if (timer === null || transport === null) return;
+      if (timer === null || transport === null || ticking) return;      // inside a tick (the count-in ends there) the tick books
       try {
         pullAndBook(env.now(), env.perfNow());     // not a tick: the stall detection and the interval histogram do not see it
       } catch (error) {
@@ -5219,7 +5276,7 @@ FLM.Core.define('Audio', function (FLM) {
     function onState(event) {
       if (!event) return;
       if (event.state === 'paused' || event.state === 'stopped') softPanic('stop');
-      else if (event.state === 'playing') bookAtStart();
+      else if (event.state === 'playing' && event.reason !== 'seek') bookAtStart();   // a seek moves the cursors after this event
     }
 
     function onVisibility() {
@@ -5276,6 +5333,7 @@ FLM.Core.define('Audio', function (FLM) {
     function runTick(audioNow, fromTimer) {
       const started = env.perfNow();
       noteInterval(started);
+      ticking = true;
       try {
         env.pollFaults();
         if (fromTimer) throwInjectedFault();
@@ -5283,6 +5341,8 @@ FLM.Core.define('Audio', function (FLM) {
       } catch (error) {
         stats.errors += 1;
         env.reportError(error);
+      } finally {
+        ticking = false;
       }
       noteWork(env.perfNow() - started);
       stats.ticks += 1;
@@ -5445,9 +5505,20 @@ FLM.Core.define('Audio', function (FLM) {
      * than voices the others lose by priority, then round-robin over the tracks; the notes that lose are marked and never get a voice. The survivors are booked first (in their original order), the voiceless notes are announced after them
      * (D81); a control item inside the 1 ms of the chord goes before the notes. @returns {Array} the items in booking order
      */
+    // True when two notes of the list start within the chord window of each other (nothing is allocated to find out).
+    function hasChord(items) {
+      let previous = -Infinity;
+      for (let index = 0; index < items.length; index += 1) {
+        if (items[index].kind !== 'note') continue;
+        if (items[index].atAudio - previous <= CHORD_WINDOW_S) return true;
+        previous = items[index].atAudio;
+      }
+      return false;
+    }
+
     function arrangeChords(items) {
       const capacity = allocator.capacity;
-      if (items.length < 2) return items;
+      if (items.length < 2 || !hasChord(items)) return items;
       const runs = chordRuns(items).filter((run) => run.count > 1);
       if (runs.length === 0) return items;
       let arranged = [];
@@ -5485,7 +5556,8 @@ FLM.Core.define('Audio', function (FLM) {
       const round = { lateMs: 0, clamped: 0, error: null, loopEnd: loopEndOf(), songEnd: songEndAudio() };
       const budgetEnd = tickStart + TICK_BUDGET_MS - TICK_TAIL_RESERVE_MS;
       const hardEnd = tickStart + TICK_BUDGET_MS;
-      const worst = new Map();             // the most expensive item of each type in this tick
+      const worst = worstCosts;            // the most expensive item of each type in this tick
+      worst.fill(0);
       let handled = 0;
       let heavy = 0;
       while (backlogHead < backlog.length) {
@@ -5495,7 +5567,7 @@ FLM.Core.define('Audio', function (FLM) {
         // Stop when the 3.5 ms are spent, when the next item (at its estimated cost) would pass the 4 ms, or after six
         // voice builds (S-10, OI-37). After a tick that booked nothing one item is always booked.
         // A note due within about two ticks goes by the clock alone (the 4 ms), never by the estimate or the build cap.
-        const predicted = Math.max(costs.get(type) || 0, worst.get(type) || 0);
+        const predicted = Math.max(costs[type], worst[type]);
         const urgent = next.atAudio - audioNow < URGENT_S;
         const holdBack = urgent ? before >= hardEnd : before >= budgetEnd || before + predicted > hardEnd ||
           heavy >= MAX_HEAVY_PER_TICK;
@@ -5506,16 +5578,20 @@ FLM.Core.define('Audio', function (FLM) {
         bookItem(next, audioNow, round);
         const cost = env.perfNow() - before;
         if (cost > HEAVY_ITEM_MS) heavy += 1;
-        if (cost > SLOW_ITEM_MS && slowItems.length < SLOW_ITEM_KEEP) slowItems.push([Math.round((before + cost) * 10) / 10, Math.round(cost * 10) / 10, type]);
+        if (cost > SLOW_ITEM_MS && slowItems.length < SLOW_ITEM_KEEP) slowItems.push([Math.round((before + cost) * 10) / 10, Math.round(cost * 10) / 10, COST_NAMES[type]]);
         if (cost > stats.itemMaxMs) {
           stats.itemMaxMs = cost;
-          stats.itemMaxWhat = type + (next.track ? ' ' + next.track.id + ' program ' + next.track.program : '') + ' at tick ' +
+          stats.itemMaxWhat = COST_NAMES[type] + (next.track ? ' ' + next.track.id + ' program ' + next.track.program : '') + ' at tick ' +
             (next.event ? next.event.tick : '-') + ' of tick ' + stats.ticks;
         }
         const sample = Math.min(cost, COST_SAMPLE_CAP_MS);
-        worst.set(type, Math.max(worst.get(type) || 0, sample));
-        const known = costs.get(type);
-        costs.set(type, known === undefined ? sample : known + (sample - known) * COST_SMOOTHING);
+        if (sample > worst[type]) worst[type] = sample;
+        if (costKnown[type] === 0) {
+          costKnown[type] = 1;
+          costs[type] = sample;
+        } else {
+          costs[type] += (sample - costs[type]) * COST_SMOOTHING;
+        }
       }
       if (backlogHead >= backlog.length) {
         backlog = [];
@@ -5527,7 +5603,11 @@ FLM.Core.define('Audio', function (FLM) {
     }
 
     // Notes without a voice cost next to nothing; every other kind of item has its own running estimate.
-    const costType = (item) => (item.overflow === true ? 'voiceless' : item.kind);
+    function costType(item) {
+      if (item.overflow === true) return COST_VOICELESS;
+      const found = COST_KINDS.indexOf(item.kind);
+      return found < 0 ? COST_OTHER : found;
+    }
 
     function bookItem(item, audioNow, round) {
       const earliest = audioNow + LATE_CLAMP_S;
@@ -5650,20 +5730,20 @@ FLM.Core.define('Audio', function (FLM) {
       const canPlay = instruments && typeof instruments.noteOn === 'function';
       if (canPlay && voiceless) allocator.noteSkipped();
       else if (canPlay) slot = instruments.noteOn(track, event, at, end);
-      const entry = { trackId: track.id, channel: event.channel, eventId: noteIdOf(track, event), pitch: event.pitch,
-        endAudio: end, slot, table, sub, seq: 0, done: false };
-      noteSeq += 1;
-      entry.seq = noteSeq;
-      pending.set(noteSeq, entry);
+      const entry = { trackId: track.id, channel: event.channel, eventId: undefined, pitch: event.pitch, track, event,
+        endAudio: end, slot, table, sub, done: false };
+      pendingTotal += 1;
       if (!voiceless) table.set(sub, entry);
       queueEnd(entry);
       stats.notesScheduled += 1;
       stats.lookaheadMaxMs = Math.max(stats.lookaheadMaxMs, (at - audioNow) * MS_PER_SECOND);
-      const program = programs.has(track.id) ? programs.get(track.id) : track.program;
-      bus.emit('sched.noteOn', { trackId: track.id, channel: event.channel, eventId: entry.eventId, pitch: event.pitch,
-        velocity: event.velocity, program, isDrums: track.isDrums === true, at, atOff: end, durTicks: event.durTicks,
-        tick: event.tick, live: false, voiced: slot !== null && slot !== undefined, late: at - item.atAudio > LATE_EPSILON_S });
-      bus.emit('sched.noteOff', noteOffPayload(entry, end, releaseReason(event, round.loopEnd)));
+      if (heard('sched.noteOn')) {
+        const program = programs.has(track.id) ? programs.get(track.id) : track.program;
+        bus.emit('sched.noteOn', { trackId: track.id, channel: event.channel, eventId: eventIdOf(entry), pitch: event.pitch,
+          velocity: event.velocity, program, isDrums: track.isDrums === true, at, atOff: end, durTicks: event.durTicks,
+          tick: event.tick, live: false, voiced: slot !== null && slot !== undefined, late: at - item.atAudio > LATE_EPSILON_S });
+      }
+      if (heard('sched.noteOff')) bus.emit('sched.noteOff', noteOffPayload(entry, end, releaseReason(event, round.loopEnd)));
     }
 
     function controlPayload(item, at) {
@@ -5694,40 +5774,50 @@ FLM.Core.define('Audio', function (FLM) {
 
     // Notes that cross the loop end already have their release clamped to the wrap; this is the safety net.
     function releaseAtWrap(at) {
-      pending.forEach((entry) => {
-        if (entry.endAudio <= at + WRAP_EPSILON_S) return;
+      const waiting = endEntries.slice(endHead);       // queueEnd changes the queue while this goes through the notes
+      waiting.forEach((entry) => {
+        if (entry.done || entry.endAudio <= at + WRAP_EPSILON_S) return;
         if (entry.slot) allocator.releaseSlot(entry.slot, at);
         entry.endAudio = at;
         queueEnd(entry);
-        bus.emit('sched.noteOff', noteOffPayload(entry, at, 'loop'));
+        if (heard('sched.noteOff')) bus.emit('sched.noteOff', noteOffPayload(entry, at, 'loop'));
       });
     }
 
     // The notes sorted by the time they end: forgetting the finished ones looks at the front of the queue only.
+    // The end time is kept next to the entry, not in it: an entry that is released earlier is queued a second time under its new
+    // end, and the old position keeps the old end, so the queue stays sorted.
     function queueEnd(entry) {
-      const record = { entry, end: entry.endAudio };
+      const end = entry.endAudio;
       let low = endHead;
-      let high = endQueue.length;
+      let high = endTimes.length;
       while (low < high) {
         const middle = (low + high) >> 1;
-        if (endQueue[middle].end <= record.end) low = middle + 1;
+        if (endTimes[middle] <= end) low = middle + 1;
         else high = middle;
       }
-      endQueue.splice(low, 0, record);
+      if (low === endTimes.length) {
+        endTimes.push(end);
+        endEntries.push(entry);
+      } else {
+        endTimes.splice(low, 0, end);
+        endEntries.splice(low, 0, entry);
+      }
     }
 
     function forgetEnded(audioNow) {
-      while (endHead < endQueue.length && endQueue[endHead].end <= audioNow) {
-        const entry = endQueue[endHead].entry;
-        endQueue[endHead] = undefined;
+      while (endHead < endTimes.length && endTimes[endHead] <= audioNow) {
+        const entry = endEntries[endHead];
+        endEntries[endHead] = undefined;
         endHead += 1;
         if (entry.done) continue;           // an earlier record of the same note already ended it
         entry.done = true;
-        pending.delete(entry.seq);
+        pendingTotal -= 1;
         if (entry.table.get(entry.sub) === entry) entry.table.delete(entry.sub);
       }
-      if (endHead > COMPACT_AFTER && endHead * 2 > endQueue.length) {
-        endQueue = endQueue.slice(endHead);
+      if (endHead > COMPACT_AFTER && endHead * 2 > endTimes.length) {
+        endTimes = endTimes.slice(endHead);
+        endEntries = endEntries.slice(endHead);
         endHead = 0;
       }
     }
@@ -5835,7 +5925,7 @@ FLM.Core.define('Audio', function (FLM) {
     /** Number of scheduled releases still to come. */
     function pendingCount() {
       forgetEnded(env.now());
-      return pending.size;
+      return pendingTotal;
     }
 
     function setInstruments(instrumentsApi) {
@@ -7400,159 +7490,251 @@ FLM.Core.define('Instruments', function (FLM) {
   // ---------------------------------------------------------------------------------------------
   // Voice assembly: a node book that counts what it creates, and the Voice object
   // ---------------------------------------------------------------------------------------------
-  function nodeBook(context) {
-    const nodes = [];
-    const sources = [];
-    const cleanups = [];                     // run by abort: inputs that other nodes (the channel LFO) hold on these nodes
-    const track = (node) => {
-      nodes.push(node);
+  class NodeBook {
+    constructor(context) {
+      this.context = context;
+      this.nodes = [];
+      this.sources = [];
+      this.cleanups = null;                  // run by abort: inputs that other nodes (the channel LFO) hold on these nodes
+      this.sharedKeys = null;                // the gain nodes that oscillators share, by level (sharedGain)
+      this.sharedNodes = null;
+    }
+
+    gain(value) {
+      const node = this.context.createGain();
+      this.nodes.push(node);
+      node.gain.value = value;
       return node;
-    };
-    return {
-      nodes, sources,
-      gain(value) {
-        const node = track(context.createGain());
-        node.gain.value = value;
-        return node;
-      },
-      filter(type, hz, q) {
-        const node = track(context.createBiquadFilter());
-        node.type = type;
-        node.frequency.value = clamp(hz, 20, context.sampleRate / 2 - 100);
-        node.Q.value = q;
-        return node;
-      },
-      osc(type, hz) {
-        const node = track(context.createOscillator());
-        node.type = type;
-        node.frequency.value = hz;
-        sources.push(node);
-        return node;
-      },
-      buffer(buffer, loop) {
-        const node = track(context.createBufferSource());
-        node.buffer = buffer;
-        node.loop = loop === true;
-        sources.push(node);
-        return node;
-      },
-      shaper(curve) {
-        const node = track(context.createWaveShaper());
-        node.curve = curve;
-        return node;
-      },
-      onAbort(cleanup) {
-        cleanups.push(cleanup);
-      },
-      abort() {
-        nodes.forEach((node) => { try { node.disconnect(); } catch (error) { /* a node that never connected */ } });
-        cleanups.forEach((cleanup) => { try { cleanup(); } catch (error) { /* an input that was never connected */ } });
+    }
+
+    filter(type, hz, q) {
+      const node = this.context.createBiquadFilter();
+      this.nodes.push(node);
+      node.type = type;
+      node.frequency.value = clamp(hz, 20, this.context.sampleRate / 2 - 100);
+      node.Q.value = q;
+      return node;
+    }
+
+    osc(type, hz) {
+      const node = this.context.createOscillator();
+      this.nodes.push(node);
+      node.type = type;
+      node.frequency.value = hz;
+      this.sources.push(node);
+      return node;
+    }
+
+    buffer(buffer, loop) {
+      const node = this.context.createBufferSource();
+      this.nodes.push(node);
+      node.buffer = buffer;
+      node.loop = loop === true;
+      this.sources.push(node);
+      return node;
+    }
+
+    shaper(curve) {
+      const node = this.context.createWaveShaper();
+      this.nodes.push(node);
+      node.curve = curve;
+      return node;
+    }
+
+    onAbort(cleanup) {
+      if (this.cleanups === null) this.cleanups = [];
+      this.cleanups.push(cleanup);
+    }
+
+    abort() {
+      for (let index = 0; index < this.nodes.length; index += 1) {
+        try {
+          this.nodes[index].disconnect();
+        } catch (error) { /* a node that never connected */ }
       }
-    };
+      if (this.cleanups === null) return;
+      this.cleanups.forEach((cleanup) => { try { cleanup(); } catch (error) { /* an input that was never connected */ } });
+    }
+  }
+
+  const nodeBook = (context) => new NodeBook(context);
+
+  // One gain node per distinct level (to 1/1000), shared by the oscillators of a voice and its drone; level 1 needs none.
+  function sharedGain(book, target, value) {
+    if (Math.abs(value - 1) < 1 / GAIN_KEY_SCALE) return target;
+    const key = Math.round(value * GAIN_KEY_SCALE);
+    if (book.sharedKeys === null) {
+      book.sharedKeys = [];
+      book.sharedNodes = [];
+    }
+    const found = book.sharedKeys.indexOf(key);
+    if (found >= 0) return book.sharedNodes[found];
+    const node = book.gain(value);
+    node.connect(target);
+    book.sharedKeys.push(key);
+    book.sharedNodes.push(node);
+    return node;
   }
 
   /**
-   * The Voice of 6.6.2. `env` holds: book (the node book), out (the gain that feeds the strip), peak (the amp peak),
-   * level(t, voice) (the analytic envelope before the release), detunes ([{param, base}]) and the slot / channel links.
+   * The Voice of 6.6.2. `env` holds: book (the node book), out (the gain that feeds the strip), peak (the amp peak), amp (the
+   * envelope numbers a, d, s, decay2 of the melodic definition) or drumSeconds (the drum model), the flat list of detune
+   * parameters [param, base, param, base ...] and the channel link. The methods are on the prototype: a voice costs one object.
    */
-  function createVoice(state, env) {
-    const book = env.book;
-    const voice = { slot: null, started: false, ended: false, releaseAt: null, releaseRamp: 0, stopAt: null,
-      startAt: env.startAt, kind: env.kind, program: env.program, nodeCount: book.nodes.length, cs: env.cs,
-      releaseMax: env.releaseMax, isOpenHat: env.isOpenHat === true };
+  class NoteVoice {
+    constructor(state, env) {
+      this.state = state;
+      this.env = env;
+      this.book = env.book;
+      this.slot = null;
+      this.started = false;
+      this.ended = false;
+      this.releaseAt = null;
+      this.releaseRamp = 0;
+      this.stopAt = null;
+      this.startAt = env.startAt;
+      this.kind = env.kind;
+      this.program = env.program;
+      this.nodeCount = env.book.nodes.length;
+      this.cs = env.cs;
+      this.releaseMax = env.releaseMax;
+      this.isOpenHat = env.isOpenHat === true;
+      this.fading = false;
+      this.running = env.book.sources.length;     // the voice is over when its last source has ended
+      this.def = null;
+      this.pendingStop = null;
+      this.pitch = 0;
+      this.peak = 0;
+      this.layerIndex = 0;
+      this.duration = 0;
+      this.drumName = null;
+      this.bend = 0;
+    }
 
-    voice.endAt = (when) => stopSources(when);
+    // A source cannot be stopped before it is started (the browser throws): a drum voice asks for its end while it is built,
+    // so the end waits for start().
+    endAt(when) {
+      if (this.started) this.stopSources(when);
+      else this.pendingStop = when;
+    }
 
-    voice.start = (at) => {
-      if (voice.started) return;
-      voice.started = true;
-      book.sources.forEach((source) => source.start(at));
-    };
+    start(at) {
+      if (this.started) return;
+      this.started = true;
+      const sources = this.book.sources;
+      for (let index = 0; index < sources.length; index += 1) sources[index].start(at);
+      if (this.pendingStop !== null) this.stopSources(this.pendingStop);
+    }
+
+    // The amp level 0..1 before any release: from the envelope numbers (melodic) or the straight decay (drums).
+    modelAt(time) {
+      const env = this.env;
+      const age = time - this.startAt;
+      if (env.drumSeconds > 0) return 1 - age / (env.drumSeconds * 1.5);
+      const amp = env.amp;
+      const a = Math.max(amp.a, MIN_RAMP_S);
+      if (age < a) return age / a;
+      if (amp.d > 0 && amp.s < 1 && age < a + amp.d) return 1 - (1 - amp.s) * (age - a) / amp.d;
+      const held = amp.d > 0 ? amp.s : Math.min(1, amp.s);
+      return amp.decay2 ? held * Math.exp(-(age - a - amp.d) / amp.decay2) : held;
+    }
 
     // The level 0..1 of the amp at time t, release included (the allocator steals the quietest released voice).
-    voice.levelAt = (time) => {
-      if (voice.ended || time < voice.startAt) return 0;
-      if (voice.releaseAt === null || time < voice.releaseAt) return clamp(env.level(time), 0, 1);
-      const base = env.level(voice.releaseAt);
-      return clamp(base * (1 - (time - voice.releaseAt) / voice.releaseRamp), 0, 1);
-    };
+    levelAt(time) {
+      if (this.ended || time < this.startAt) return 0;
+      if (this.releaseAt === null || time < this.releaseAt) return clamp(this.modelAt(time), 0, 1);
+      const base = this.modelAt(this.releaseAt);
+      return clamp(base * (1 - (time - this.releaseAt) / this.releaseRamp), 0, 1);
+    }
 
-    function stopSources(when) {
-      voice.stopAt = when;
-      book.sources.forEach((source) => {
+    stopSources(when) {
+      this.stopAt = when;
+      const sources = this.book.sources;
+      for (let index = 0; index < sources.length; index += 1) {
         try {
-          source.stop(when);
+          sources[index].stop(when);
         } catch (error) {
           Log.warn('instruments', 'stopping a source failed: ' + messageOf(error));
         }
-      });
+      }
     }
 
-    function rampDown(at, rampS) {
+    rampDown(at, rampS) {
+      const env = this.env;
       const gain = env.out.gain;
-      const level = voice.levelAt(at) * env.peak;
+      const level = this.levelAt(at) * env.peak;
       // The earlier release ramp keeps running until `at` (cancelAndHold), then this release starts from the level reached.
       if (typeof gain.cancelAndHoldAtTime === 'function') gain.cancelAndHoldAtTime(at);
       else gain.cancelScheduledValues(at);
       gain.setValueAtTime(env.fromLevel ? level : env.peak, at);
       gain.linearRampToValueAtTime(0, at + rampS);
-      voice.releaseAt = at;
-      voice.releaseRamp = rampS;
-      stopSources(at + rampS + STOP_PAD_S);
+      this.releaseAt = at;
+      this.releaseRamp = rampS;
+      this.stopSources(at + rampS + STOP_PAD_S);
     }
 
     // A release that ends the sound earlier than the one in force replaces it (a soft panic shortens a 1.5 s tail).
-    voice.release = (at, rampS) => {
-      if (voice.ended) return;
-      const ramp = Math.max(MIN_RAMP_S, rampS === undefined ? env.releaseRamp : rampS);
-      const start = Math.max(at, voice.startAt);
-      if (voice.releaseAt !== null && start + ramp >= voice.releaseAt + voice.releaseRamp) return;
-      rampDown(start, ramp);
-    };
+    release(at, rampS) {
+      if (this.ended) return;
+      const ramp = Math.max(MIN_RAMP_S, rampS === undefined ? this.env.releaseRamp : rampS);
+      const start = Math.max(at, this.startAt);
+      if (this.releaseAt !== null && start + ramp >= this.releaseAt + this.releaseRamp) return;
+      this.rampDown(start, ramp);
+    }
 
-    voice.stop = (at, fadeS) => {
-      if (voice.ended) return;
-      if (!voice.fading) {
-        voice.fading = true;                // a stolen voice is a transient: the node budget of PT-012 does not count it
-        counters.fadingNodes += voice.nodeCount;
+    stop(at, fadeS) {
+      if (this.ended) return;
+      if (!this.fading) {
+        this.fading = true;                // a stolen voice is a transient: the node budget of PT-012 does not count it
+        counters.fadingNodes += this.nodeCount;
       }
       const fade = Math.max(MIN_RAMP_S, fadeS === undefined ? STEAL_FADE_S : fadeS);
-      rampDown(Math.max(at, voice.startAt), fade);
-    };
+      this.rampDown(Math.max(at, this.startAt), fade);
+    }
 
-    voice.setBend = (cents, at) => {
-      voice.bend = cents;
-      env.detunes.forEach((entry) => entry.param.setTargetAtTime(entry.base + cents, at, BEND_TIME_CONSTANT_S));
-    };
-
-    voice.setVibratoDepth = (cents, at) => {
-      if (env.depthGain) env.depthGain.gain.setTargetAtTime(env.vibratoBase + cents, at, BEND_TIME_CONSTANT_S);
-    };
-
-    voice.dispose = () => {
-      if (voice.ended) return;
-      voice.ended = true;
-      if (voice.fading) counters.fadingNodes -= voice.nodeCount;
-      book.abort();
-      state.engine.countNodes(-voice.nodeCount);
-      if (voice.cs) {
-        voice.cs.voices.delete(voice);
-        voice.cs.sustainedLive.delete(voice.slot);
-        if (voice.slot && voice.cs.heldLive.get(voice.pitch) === voice.slot) voice.cs.heldLive.delete(voice.pitch);
-        if (voice.cs.monoVoice === voice) voice.cs.monoVoice = null;
-        voice.cs.openHats.delete(voice);
-        if (voice.cs.voices.size === 0) releaseChannelLfos(state, voice.cs);
+    setBend(cents, at) {
+      this.bend = cents;
+      const detunes = this.env.detunes;
+      for (let index = 0; index < detunes.length; index += 2) {
+        detunes[index].setTargetAtTime(detunes[index + 1] + cents, at, BEND_TIME_CONSTANT_S);
       }
-      if (voice.slot) state.allocator.free(voice.slot);
-    };
+    }
 
-    // The voice is over when its last source has ended (a pluck buffer can run out before the other sources do).
-    let running = book.sources.length;
-    const onSourceEnded = () => {
-      running -= 1;
-      if (running <= 0) voice.dispose();
-    };
-    book.sources.forEach((source) => { source.onended = onSourceEnded; });
+    setVibratoDepth(cents, at) {
+      const env = this.env;
+      if (env.depthGain) env.depthGain.gain.setTargetAtTime(env.vibratoBase + cents, at, BEND_TIME_CONSTANT_S);
+    }
+
+    dispose() {
+      if (this.ended) return;
+      const state = this.state;
+      const cs = this.cs;
+      this.ended = true;
+      if (this.fading) counters.fadingNodes -= this.nodeCount;
+      this.book.abort();
+      state.engine.countNodes(-this.nodeCount);
+      if (cs) {
+        cs.voices.delete(this);
+        cs.sustainedLive.delete(this.slot);
+        if (this.slot && cs.heldLive.get(this.pitch) === this.slot) cs.heldLive.delete(this.pitch);
+        if (cs.monoVoice === this) cs.monoVoice = null;
+        cs.openHats.delete(this);
+        if (cs.voices.size === 0) releaseChannelLfos(state, cs);
+      }
+      if (this.slot) state.allocator.free(this.slot);
+    }
+  }
+
+  function createVoice(state, env) {
+    const voice = new NoteVoice(state, env);
+    const sources = env.book.sources;
+    if (sources.length > 0) {
+      const onSourceEnded = () => {         // one callback for all the sources of the voice
+        voice.running -= 1;
+        if (voice.running <= 0) voice.dispose();
+      };
+      for (let index = 0; index < sources.length; index += 1) sources[index].onended = onSourceEnded;
+    }
     state.engine.countNodes(voice.nodeCount);
     counters.voicesBuilt += 1;
     return voice;
@@ -7575,20 +7757,6 @@ FLM.Core.define('Instruments', function (FLM) {
     return a;
   }
 
-  // The analytic amp level (fraction of the peak) at time t, before any release.
-  function ampLevelModel(params, startAt) {
-    const a = Math.max(params.amp.a, MIN_RAMP_S);
-    const d = params.amp.d;
-    const s = params.amp.s;
-    return (time) => {
-      const age = time - startAt;
-      if (age < a) return age / a;
-      if (d > 0 && s < 1 && age < a + d) return 1 - (1 - s) * (age - a) / d;
-      const held = d > 0 ? s : Math.min(1, s);
-      return params.amp.decay2 ? held * Math.exp(-(age - a - d) / params.amp.decay2) : held;
-    };
-  }
-
   // wheelExpected: the track has CC 1 events, so the vibrato exists even while the wheel is down (D80).
   function addVibrato(state, book, params, cs, at, detunes, env, wheelExpected) {
     const depth = params.vibrato.autoDepth + cs.modDepthCents;
@@ -7597,7 +7765,7 @@ FLM.Core.define('Instruments', function (FLM) {
     const depthGain = book.gain(0);
     lfo.connect(depthGain);
     book.onAbort(() => lfo.disconnect(depthGain));
-    detunes.forEach((entry) => depthGain.connect(entry.param));
+    for (let index = 0; index < detunes.length; index += 2) depthGain.connect(detunes[index]);
     const delay = params.vibrato.delay;
     depthGain.gain.setValueAtTime(0, at);
     if (delay > 0) {
@@ -7610,45 +7778,37 @@ FLM.Core.define('Instruments', function (FLM) {
     env.vibratoBase = params.vibrato.autoDepth;
   }
 
-  function sourceGains(book, target) {
-    const shared = new Map();
-    return (value) => {
-      if (Math.abs(value - 1) < 1 / GAIN_KEY_SCALE) return target;
-      const key = Math.round(value * GAIN_KEY_SCALE);
-      if (!shared.has(key)) {
-        const node = book.gain(value);
-        node.connect(target);
-        shared.set(key, node);
-      }
-      return shared.get(key);
-    };
+  // One oscillator of a voice: its detune (with the pitch bend) is kept for later bends; the pitch drop of the template is booked.
+  function trackOscillator(source, base, hz, params, at, bendCents, detunes) {
+    source.detune.value = base + bendCents;
+    detunes.push(source.detune, base);
+    if (params.drop) {
+      source.frequency.setValueAtTime(hz * Math.pow(2, params.drop.oct), at);
+      source.frequency.exponentialRampToValueAtTime(hz, at + params.drop.s);
+    }
   }
 
-  function addOscillators(state, book, params, f0, at, target, detunes, bendCents, gainFor) {
-    const made = [];
-    const track = (source, base, hz) => {
-      source.detune.value = base + bendCents;
-      detunes.push({ param: source.detune, base });
-      if (params.drop) {
-        source.frequency.setValueAtTime(hz * Math.pow(2, params.drop.oct), at);
-        source.frequency.exponentialRampToValueAtTime(hz, at + params.drop.s);
-      }
-      made.push(source);
-    };
+  /** @returns {(object|null)} the first oscillator, the carrier of the FM pair */
+  function addOscillators(state, book, params, f0, at, target, detunes, bendCents) {
+    let carrier = null;
     if (params.partials) {
-      const base = params.partials.reduce((lowest, item) => Math.min(lowest, item[0]), Infinity);
+      let base = Infinity;
+      for (let index = 0; index < params.partials.length; index += 1) base = Math.min(base, params.partials[index][0]);
       const source = book.osc('sine', f0 * base);
       source.setPeriodicWave(additiveWave(state, params.partials, base));
       source.connect(target);
-      track(source, 0, f0 * base);
+      trackOscillator(source, 0, f0 * base, params, at, bendCents, detunes);
+      carrier = source;
     }
-    params.oscs.forEach((spec) => {
+    for (let index = 0; index < params.oscs.length; index += 1) {
+      const spec = params.oscs[index];
       const hz = spec.hz === undefined ? f0 * spec.ratio : spec.hz;
       const source = book.osc(spec.type, hz);
-      source.connect(gainFor(spec.gain));
-      track(source, spec.detune, hz);
-    });
-    return made;
+      source.connect(sharedGain(book, target, spec.gain));
+      trackOscillator(source, spec.detune, hz, params, at, bendCents, detunes);
+      if (carrier === null) carrier = source;
+    }
+    return carrier;
   }
 
   function addFm(book, params, f0, at, carrier) {
@@ -7680,14 +7840,14 @@ FLM.Core.define('Instruments', function (FLM) {
   function addPluck(state, book, def, sounding, target, detunes, bendCents) {
     const source = book.buffer(pluckBuffer(def, sounding), false);
     source.detune.value = bendCents;
-    detunes.push({ param: source.detune, base: 0 });
+    detunes.push(source.detune, 0);
     source.connect(target);
   }
 
-  function addDrone(book, params, f0, gainFor) {
+  function addDrone(book, params, f0, target) {
     if (!params.drone) return;
     const source = book.osc('sawtooth', f0 * params.drone.ratio);
-    source.connect(gainFor(params.drone.gain));
+    source.connect(sharedGain(book, target, params.drone.gain));
   }
 
   // The tremolo is a gain node in series after the envelope, so it follows the envelope and ends with the release.
@@ -7717,7 +7877,8 @@ FLM.Core.define('Instruments', function (FLM) {
     const velGain = params.vel.min + (1 - params.vel.min) * Math.pow(velocity / VEL_REFERENCE, params.vel.exp);
     const book = nodeBook(ctx);
     const env = { book, kind: 'melodic', program: def.program, startAt: at, cs, peak: 0, detunes: [], fromLevel: true,
-      releaseRamp: Math.max(params.amp.r, MIN_RAMP_S), releaseMax: params.releaseMax };
+      releaseRamp: Math.max(params.amp.r, MIN_RAMP_S), releaseMax: params.releaseMax, amp: params.amp, drumSeconds: 0,
+      out: null, depthGain: null, vibratoBase: 0, isOpenHat: false };
     try {
       const outGain = book.gain(0);
       connectOutput(book, params, outGain, strip);
@@ -7738,17 +7899,15 @@ FLM.Core.define('Instruments', function (FLM) {
       mainFilter.connect(head);
       scheduleFilter(mainFilter, params, cutoff0, velocity, at);
       const bendCents = bendAt(cs, at);
-      const gainFor = sourceGains(book, mainFilter);        // one gain node per distinct level, shared by oscillators and drone
-      const carriers = addOscillators(state, book, params, f0, at, mainFilter, env.detunes, bendCents, gainFor);
-      addFm(book, params, f0, at, carriers[0]);
+      const carrier = addOscillators(state, book, params, f0, at, mainFilter, env.detunes, bendCents);
+      addFm(book, params, f0, at, carrier);
       addNoise(state, book, params, f0, at, mainFilter);
       if (params.pluck) addPluck(state, book, def, sounding, mainFilter, env.detunes, bendCents);
-      addDrone(book, params, f0, gainFor);
+      addDrone(book, params, f0, mainFilter);
       addVibrato(state, book, params, cs, at, env.detunes, env, wheelExpected === true);
       const peak = velGain * layerDef.gainMul * params.gain * gainMul;
       env.peak = peak;
       ampEnvelope(outGain.gain, params, peak, at);
-      env.level = ampLevelModel(params, at);
       const voice = createVoice(state, env);
       voice.layerIndex = layerIndex;
       voice.peak = peak;
@@ -7931,14 +8090,14 @@ FLM.Core.define('Instruments', function (FLM) {
     const vg = (0.1 + 0.9 * Math.pow(velocity / VEL_REFERENCE, 1.3)) * info.scale;
     const book = nodeBook(state.ctx);
     const env = { book, kind: 'drum', program: 'drums', startAt: at, cs, peak: 1, detunes: [], fromLevel: false,
-      releaseRamp: CHOKE_RELEASE_S, releaseMax: DRUM_MAX_S, isOpenHat: name === 'openHat' };
+      releaseRamp: CHOKE_RELEASE_S, releaseMax: DRUM_MAX_S, amp: null, drumSeconds: 0, out: null, depthGain: null,
+      vibratoBase: 0, isOpenHat: name === 'openHat' };
     try {
       const out = book.gain(1);
       out.connect(strip.input);
       env.out = out;
       const seconds = Math.min(DRUM_MAX_S, DRUM_RECIPES[name](state, book, out, vg, at, info.params));
-      env.duration = seconds;
-      env.level = (time) => 1 - (time - at) / (seconds * 1.5);
+      env.drumSeconds = seconds;
       const voice = createVoice(state, env);
       voice.endAt(at + seconds * DRUM_TAIL + STOP_PAD_S);
       voice.duration = seconds;
@@ -8002,20 +8161,34 @@ FLM.Core.define('Instruments', function (FLM) {
    * not a definition problem: it is thrown to the caller.
    */
   function buildMelodicWithFallback(state, def, pitch, velocity, strip, at, cs, gainMul, wheelExpected) {
-    const known = state.fallbackLevel.get(def.program) || 0;
-    const chain = known === 0 ? [def].concat(fallbackDefinitions(def.program)) : fallbackDefinitions(def.program)
-      .slice(known - 1);
-    let lastError = null;
-    for (const candidate of chain) {
+    const known = state.fallbackLevel.get(def.program);
+    if (known === undefined) {
+      try {
+        const voice = buildMelodic(state, def, pitch, velocity, strip, at, cs, gainMul, wheelExpected);
+        voice.def = def;
+        return voice;
+      } catch (error) {
+        if (isNodeFailure(error)) throw error;
+        return buildFallbackVoice(state, def, 0, error, pitch, velocity, strip, at, cs, gainMul, wheelExpected);
+      }
+    }
+    return buildFallbackVoice(state, def, known, null, pitch, velocity, strip, at, cs, gainMul, wheelExpected);
+  }
+
+  // The rungs below the definition: the family template (level 1), then the basic voice (level 2); `from` is the first to try.
+  function buildFallbackVoice(state, def, from, firstError, pitch, velocity, strip, at, cs, gainMul, wheelExpected) {
+    const rungs = fallbackDefinitions(def.program);
+    let lastError = firstError;
+    for (let level = Math.max(from, 1); level <= rungs.length; level += 1) {
+      const candidate = rungs[level - 1];
       try {
         const voice = buildMelodic(state, candidate, pitch, velocity, strip, at, cs, gainMul, wheelExpected);
-        if (candidate !== def) {
-          state.fallbackLevel.set(def.program, candidate.template === 'basic' ? 2 : 1);
-          Log.once('instruments.fallback.' + def.program, 'warn', 'instruments', 'Program ' + def.program + ' failed (' +
-            messageOf(lastError) + '); the ' + (candidate.template === 'basic' ? 'basic voice' : 'family template') +
-            ' plays instead');
-        }
-        return { voice, def: candidate };
+        state.fallbackLevel.set(def.program, level);
+        Log.once('instruments.fallback.' + def.program, 'warn', 'instruments', 'Program ' + def.program + ' failed (' +
+          messageOf(lastError) + '); the ' + (candidate.template === 'basic' ? 'basic voice' : 'family template') +
+          ' plays instead');
+        voice.def = candidate;
+        return voice;
       } catch (error) {
         if (isNodeFailure(error)) throw error;
         lastError = error;
@@ -8064,29 +8237,31 @@ FLM.Core.define('Instruments', function (FLM) {
     const wanted = drums ? null : DEFINITION_LIST[clamp(program, 0, MIDI_MAX)];
     if (wanted) rangeAdvisory(wanted, pitch);
     let voice = null;
-    let def = wanted;
     try {
       const strip = state.engine.createStrip(track.id);
       if (drums) voice = buildDrum(state, pitch, velocity, strip, at, cs);
       else {
-        const built = buildMelodicWithFallback(state, wanted, pitch, velocity, strip, at, cs,
+        voice = buildMelodicWithFallback(state, wanted, pitch, velocity, strip, at, cs,
           gainMul === undefined ? 1 : gainMul, wheelUsed(track));
-        voice = built.voice;
-        def = built.def;
       }
     } catch (error) {
       reportNodeFailure(state, error);
       return null;
     }
-    const owner = { trackId: track.id, channel, pitch, priority: drums ? 2 : priorityOf(wanted) };
-    const slot = state.allocator.acquire(owner, at);
+    scratchOwner.trackId = track.id;
+    scratchOwner.channel = channel;
+    scratchOwner.pitch = pitch;
+    scratchOwner.priority = drums ? 2 : priorityOf(wanted);
+    const slot = state.allocator.acquire(scratchOwner, at);       // the allocator copies the fields onto the slot
     voice.pitch = pitch;
     voice.slot = slot;
     slot.voice = voice;
     cs.voices.add(voice);
     voice.start(at);
-    return { slot, voice, def };
+    return voice;
   }
+
+  const scratchOwner = { trackId: null, channel: 0, pitch: 0, priority: 0 };
 
   // A closed or pedal hat releases any open hat of the track within 20 ms.
   function applyChoke(cs, voice, at) {
@@ -8135,9 +8310,10 @@ FLM.Core.define('Instruments', function (FLM) {
     const cs = channelState(state, track.id, note.channel, track.program);
     const drums = track.isDrums === true;
     const program = drums ? 'drums' : programAt(cs, atAudio);
-    const started = startVoice(state, track, cs, note.channel, note.pitch, note.velocity, atAudio, program, drums);
-    if (!started) return null;
-    const { slot, voice, def } = started;
+    const voice = startVoice(state, track, cs, note.channel, note.pitch, note.velocity, atAudio, program, drums);
+    if (!voice) return null;
+    const slot = voice.slot;
+    const def = voice.def;
     if (drums) {
       applyChoke(cs, voice, atAudio);
       const over = atAudio + voice.duration;
@@ -8158,10 +8334,10 @@ FLM.Core.define('Instruments', function (FLM) {
     if (!def.params.echoes) return;
     def.params.echoes.forEach((echo) => {
       const echoAt = at + echo[0];
-      const started = startVoice(state, track, cs, note.channel, note.pitch, note.velocity, echoAt, program, false, echo[1]);
-      if (!started) return;
-      started.voice.release(end + echo[0]);
-      state.allocator.markReleased(started.slot, end + echo[0], end + echo[0] + Math.max(def.params.amp.r, MIN_RAMP_S));
+      const echoed = startVoice(state, track, cs, note.channel, note.pitch, note.velocity, echoAt, program, false, echo[1]);
+      if (!echoed) return;
+      echoed.release(end + echo[0]);
+      state.allocator.markReleased(echoed.slot, end + echo[0], end + echo[0] + Math.max(def.params.amp.r, MIN_RAMP_S));
     });
   }
 
@@ -8174,33 +8350,40 @@ FLM.Core.define('Instruments', function (FLM) {
     if (!isDrums) cs.program = finiteOr(program, cs.program);
     const old = cs.heldLive.get(pitch);
     if (old && old.voice) old.voice.release(atAudio, RETRIGGER_RELEASE_S);
-    const started = startVoice(state, track, cs, channel, pitch, velocity, atAudio, isDrums ? 'drums' : cs.program,
+    const voice = startVoice(state, track, cs, channel, pitch, velocity, atAudio, isDrums ? 'drums' : cs.program,
       isDrums === true);
-    if (!started) return null;
-    cs.heldLive.set(pitch, started.slot);
+    if (!voice) return null;
+    cs.heldLive.set(pitch, voice.slot);
     if (isDrums) {
-      applyChoke(cs, started.voice, atAudio);
-      state.allocator.markReleased(started.slot, atAudio + started.voice.duration, atAudio + started.voice.duration + 0.02);
+      applyChoke(cs, voice, atAudio);
+      state.allocator.markReleased(voice.slot, atAudio + voice.duration, atAudio + voice.duration + 0.02);
       cs.heldLive.delete(pitch);
     } else {
-      legato(cs, started.def, started.voice, atAudio);
-      started.voice.release(atAudio + VOICE_MAX_S);     // the 60 s cap of scheduled notes; the key coming up ends it earlier
+      legato(cs, voice.def, voice, atAudio);
+      voice.release(atAudio + VOICE_MAX_S);     // the 60 s cap of scheduled notes; the key coming up ends it earlier
     }
     sweepLater(state, atAudio);
-    return started.slot;
+    return voice.slot;
   }
 
   // The whole cost of starting a note in M-06: the build, the slot, start() and the release booking (Part 9.1.3 voice build).
-  const timed = (body) => (...args) => {
+  function timedNoteOn(track, note, atAudio, endAudio) {
     const begin = Core.now();
     try {
-      return body(...args);
+      return noteOn(track, note, atAudio, endAudio);
     } finally {
       counters.buildMs += Core.now() - begin;
     }
-  };
-  const timedNoteOn = timed(noteOn);
-  const timedStartLive = timed(startLive);
+  }
+
+  function timedStartLive(trackId, program, isDrums, channel, pitch, velocity, atAudio) {
+    const begin = Core.now();
+    try {
+      return startLive(trackId, program, isDrums, channel, pitch, velocity, atAudio);
+    } finally {
+      counters.buildMs += Core.now() - begin;
+    }
+  }
 
   function releaseLiveSlot(state, slot, at) {
     const voice = slot && slot.voice;
@@ -19230,7 +19413,7 @@ FLM.Core.define('Modes', function (FLM) {
     const tempoOnly = row.transport === 'tempo';
     const options = tempoOnly ? { tempoSource: 'override', overrideBpm: params.overrideBpm } : undefined;
     invokeStep('music', 'Transport.main.load', song, options);
-    if (row.scheduler === 'bound') await bindScheduler(song);
+    if (row.scheduler === 'bound') await bindScheduler(song, state.current.owner);     // a mode left during the warm-up binds nothing
   }
 
   // ---------------------------------------------------------------- gameplay assembly (Part 4.7.1 steps 7, 8, 10, 14)

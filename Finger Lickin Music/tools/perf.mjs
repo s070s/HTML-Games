@@ -204,7 +204,8 @@ async function runHarnessScenario(context, name) {
     const values = runs.map((run) => run.metrics[metric]);
     const worst = WORST_RUN_METRICS.has(metric);
     const finite = values.every((value) => Number.isFinite(value));
-    merged.metrics[metric] = !finite ? values[0] : worst ? Math.max(...values) : round(median(values), 2);
+    // a run without a usable value makes the metric invalid, whatever the other runs say
+    merged.metrics[metric] = !finite ? NaN : worst ? Math.max(...values) : round(median(values), 2);
     if (runs.every((run) => run.samples[metric] !== undefined)) merged.samples[metric] = Math.min(...runs.map((run) => run.samples[metric]));
     if (BUDGETS[name] && BUDGETS[name][metric] !== undefined) {
       merged.notes.push('runs of ' + metric + ': ' + values.join(' / ') + ' (budget ' + JSON.stringify(BUDGETS[name][metric]) +
@@ -212,6 +213,7 @@ async function runHarnessScenario(context, name) {
     }
   });
   runs.forEach((run, index) => run.notes.forEach((text) => merged.notes.push('run ' + (index + 1) + ': ' + text)));
+  if (runs.some((run) => run.notes.includes('unknown scenario'))) merged.notes.push('unknown scenario');     // judge() looks for this exact note
   return merged;
 }
 

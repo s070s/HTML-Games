@@ -4,8 +4,8 @@ Plan version: 1.0.0
 Updated: 2026-10-29 (UTC date of the last change to this file)
 Current phase: Phase 05
 Last completed T section: T04.12
-Build: FingerLickinMusic.html 993877 bytes
-Self-test (--all): 773/773 on 2026-10-29 (25 groups; two other runs of the same code failed only IT-040 under load)
+Build: FingerLickinMusic.html 1001619 bytes
+Self-test (--all): 774/775 on the final code on 2026-10-29 (25 groups; only IT-040 under load); 775/775 three times before the last harness edit
 Live and device tests (LT, XT): not run
 
 ## 1. Counts per specification part
@@ -26,7 +26,7 @@ Live and device tests (LT, XT): not run
 | Phase 01 | 12 / 12 | gate commit (see LEDGER) | 2026-10-27 | 246/246 |
 | Phase 02 | 9 / 9 | gate commit (see LEDGER) | 2026-10-27 | 326/326 |
 | Phase 03 | 12 / 12 | gate commit (see LEDGER) | 2026-10-27 | 586/586 |
-| Phase 04 | 12 / 12 | OPEN: the gate run misses PT-004 and PT-012 tickWorkMaxMs and PT-004 lateEvents (see LEDGER, second review round) | 2026-10-29 | 772-773/773, IT-040 flaky under load (OI-47) (776/776 with --slow) |
+| Phase 04 | 12 / 12 | OPEN: two gate runs on the final build miss PT-004 and PT-012 tickWorkMaxMs, PT-004 lateEvents and tickIntervalMaxMs, and PT-004 samples are short (see LEDGER, third round) | 2026-10-29 | 774/775 on the final code (IT-040 flaky under load, OI-47); 775/775 three times before the last harness edit (778/778 with --slow) |
 | Phase 05 | 0 / - | - | - | - |
 | Phase 06 | 0 / - | - | - | - |
 | Phase 07 | 0 / - | - | - | - |
@@ -348,6 +348,8 @@ Every Deferred row is listed here (Part 0.7 rule 2). Rows of phases that have st
 | One slow build (about 22 ms) set the cost estimate to the same value, so the Scheduler booked one note every other tick for about 400 ms and later notes were late | High (Part 13.2: wrong sound, late notes) | T04.12 | UT-05-39 | fixed (sample cap, notes due within 60 ms never held back, reset at bind) |
 | Restart audio with a replaced context left the transport on the dead clock and M-07 timing against the dead context; the warm-up ran after the bind without being awaited; duplicates in a chord that fits the voices both sounded; the steal priority ignored program changes | Medium (Part 13.2: wrong timing or sound) | T04.08, T04.12 | UT-05-36, UT-06-33, T04.06c | fixed (D114 to D118) |
 | D103 raised the plan limit of 11 nodes a voice to 13 without approval | Low (Part 13.2: a plan limit changed) | T04.12 | UT-06-22 | fixed (D113: shared channel LFO, 11 and 8 again) |
+| Drum voices asked for the end of their sources before `start()`; the browser throws for that, so no drum source was ever stopped (a drum voice lived until the watchdog freed it) and each source cost an exception | Medium (Part 13.2: a leak and a cost, sound intact) | T04.06 | UT-06-34 | fixed (D120) |
+| `bookAtStart` booked on a seek event and inside a tick; `restart()` replayed 50 ms; a run without a finite value hid in the `--repeat` median | Medium (Part 13.2: wrong timing or a hidden result) | T04.12 | UT-05-40, UT-05-36, perf.mjs merge | fixed |
 | PT-004 and PT-012 `tickWorkMaxMs` > 4 ms and PT-004 `lateEvents` > 0 in the gate run (host load, young-generation scavenges of 4 to 7 ms) | Medium (Part 13.2: a budget missed, data intact) | T04.12 | none yet (PT-004, PT-012 are the tests) | OPEN (LEDGER OI-37) |
 
 ## 7. Measurements recorded
@@ -358,11 +360,11 @@ Every Deferred row is listed here (Part 0.7 rule 2). Rows of phases that have st
 | menuMs median (PT-002) | 115.5 ms (software GL; budget 1500) | perf.mjs boot-to-menu | 2026-10-27 |
 | capsMs (PT-002) | 15.7 ms (software GL; budget 20; noisy: runs 15.7-20.2) | perf.mjs boot-to-menu | 2026-10-27 |
 | inputProcP95Ms (PT-009 input phase) | 0.7 ms (software GL; budget 4) | perf.mjs input-latency | 2026-10-27 |
-| Shipped size (PT-001, Phase 04 gate) | 993877 bytes (limit 2621440; envelope of the Phase 05 gate 1.25 MB, 76 percent used; LEDGER D108, approved by the owner) | perf.mjs build-size | 2026-10-29 |
+| Shipped size (PT-001, Phase 04 gate) | 1001619 bytes (limit 2621440; envelope of the Phase 05 gate 1.25 MB, 76 percent used; LEDGER D108, approved by the owner) | perf.mjs build-size | 2026-10-29 |
 | menuMs / capsMs (PT-002, Phase 04 gate) | 170.5 ms / 18.7 ms (software GL; budgets 1500 / 20) | perf.mjs boot-to-menu, repeat 3 | 2026-10-29 |
-| PT-004 playback-dense (gate run, 187 s of demo-electro at speed 2, 5,000 events) | lookaheadMaxMs 120 (125) pass; tickIntervalP50 25 (23-27) pass; P95 26 (50) pass; tickIntervalMaxMs 72 (95) pass, run 1 was 106; schedErrorMaxMs 0.02 (1) pass; voicesMax 59 pass; tickWorkMaxMs 51.7 / 12.1 / 14.8, median 14.8 (4) NOT MET; lateEvents 1 / 0 / 0, worst 1 (0) NOT MET | perf.mjs playback-dense, repeat 3 (no renderer, no chart bot) | 2026-10-29 |
+| PT-004 playback-dense (two gate runs on the final build, host loaded, demo-electro at speed 2) | tickIntervalP50 25 and P95 34 / 29 pass; voicesMax 29 / 25 pass; tickIntervalMaxMs 200 / 200 (95) NOT MET; tickWorkMaxMs 320.1 / 161.5 (4) NOT MET; lateEvents worst 119 / 55 (0) NOT MET; lookaheadMaxMs and schedErrorMaxMs INVALID (fewer than 5,000 samples: the scenario reached its 300 s cap in a repeat). The previous round on a quieter host: tickWorkMaxMs 51.7 / 12.1 / 14.8, lateEvents 1 / 0 / 0, all samples complete | perf.mjs playback-dense, repeat 3 (no renderer, no chart bot) | 2026-10-29 |
 | driftMs (PT-007) | 0 ms over 7 loop wraps in 60 s (budget 2.0); 4 stalls did not move the schedule | perf.mjs loop-drift-short | 2026-10-29 |
-| voicesMax, started + dropped, activeVoicesAfterStop, audioNodesMax (PT-012) | 64 (cap 64); 16000 + 0 = 16000; 0; 463 to 468 of 704 (64 x 11, fading stolen voices counted apart; D113) | perf.mjs chord-stress-1000 (real Instruments) | 2026-10-29 |
-| tickWorkMaxMs (PT-012, Part 9.1.3 tick body) | NOT MET. Gate run (default set, repeat 3): 9.4 / 4.6 / 5.7 ms, median 5.7 (budget 4). The run before the playback start fix: 5.3 / 5.2 / 61. Not a result: a separate quiet series 3.9 / 4.1 / 3.8 ms | perf.mjs --repeat 3 (default set) | 2026-10-29 |
-| voiceBuildMeanMs (Part 9.1.3, info) | 0.34 ms per note start (target 0.15: NOT MET), measured inside Instruments including slot, start and release booking | perf.mjs chord-stress-1000 | 2026-10-29 |
+| voicesMax, started + dropped, activeVoicesAfterStop, audioNodesMax (PT-012) | 64 (cap 64); 16000 + 0 = 16000; 0; 459 to 464 of 704 (64 x 11, fading stolen voices counted apart; D113) | perf.mjs chord-stress-1000 (real Instruments) | 2026-10-29 |
+| tickWorkMaxMs (PT-012, Part 9.1.3 tick body) | NOT MET. Two gate runs (default set, repeat 3) on the final build, host loaded: 46.9 / 27.7 / 70.7 (judged 46.9) and 22.8 / 21.8 / 70.5 (judged 22.8), budget 4. The previous round on a quieter host: 9.4 / 4.6 / 5.7 | perf.mjs --repeat 3 (default set) | 2026-10-29 |
+| voiceBuildMeanMs (Part 9.1.3, info) | 0.32 to 0.34 ms per note start of a 7-node voice (target 0.15: NOT MET; creating its nodes alone costs about 0.29 ms), measured inside Instruments including slot, start and release booking | perf.mjs chord-stress-1000 | 2026-10-29 |
 | expandMaxMs (PT-018, first half) | 4.2 ms (budget 50); chartBuiltinMaxMs not measured (Phase 08) | perf.mjs content-expand | 2026-10-29 |

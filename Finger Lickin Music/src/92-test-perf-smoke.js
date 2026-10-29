@@ -370,14 +370,15 @@ async function playbackDense() {
   main.setSpeed(DENSE_SPEED);
   main.setLoop({ a: 0, b: song.durationTicks });
   let cursor = 0;
+  let passed = 0;                              // the loop wraps whose time is not after the event being checked
   let checked = 0;
   let schedErrorMax = 0;
   const checkEvents = () => {
     const limit = FLM.Audio.now() - SETTLE_AUDIO_S;
     for (; cursor < heard.at.length && heard.at[cursor] <= limit; cursor += 1) {
       if (heard.late[cursor]) continue;                     // a clamped event is counted by lateEvents, not here
-      const generation = wraps.filter((time) => time <= heard.at[cursor]).length;
-      if (generation !== wraps.length) continue;            // booked on an earlier pass of the loop: the mapping has moved on
+      while (passed < wraps.length && wraps[passed] <= heard.at[cursor]) passed += 1;     // events come in time order
+      if (passed !== wraps.length) continue;                // booked on an earlier pass of the loop: the mapping has moved on
       schedErrorMax = Math.max(schedErrorMax, Math.abs(heard.at[cursor] - main.audioTimeAt(heard.tick[cursor])));
       checked += 1;
     }
