@@ -39,7 +39,7 @@ FLM.SelfTest.group('audio', (t) => {
     const clock = t.fakes.clock();
     const bus = new Core.Emitter();
     const readSetting = (path) => (path === 'audio.polyphonyCap' ? 0 : 1);      // 0: automatic polyphony
-    const engine = Audio.createEngine({ context, clock, bus, mobile: false, readSetting });
+    const engine = Audio.createEngine({ context, clock, bus, mobile: false, readSetting, polyphony: settings.polyphony });
     engines.push(engine);
     return { engine, context, clock, bus };
   }
@@ -534,6 +534,33 @@ FLM.SelfTest.group('audio', (t) => {
     t.ok(largestStep(data, 0.19, 0.3) < levelAt(reference, 0.15) * 0.05, 'no step');
   });
 
+  t.test('UT-05-27 latency estimate: base plus output latency, else a default that says it is an estimate', () => {
+    const reported = makeStubbed({ state: 'running', baseLatency: 0.01, outputLatency: 0.02 });
+    reported.engine.init();
+    t.near(reported.engine.latency().seconds, 0.03, 1e-12);
+    t.eq(reported.engine.latency().estimated, false);
+    const silent = makeStubbed({ state: 'running' });
+    silent.engine.init();
+    t.deepEq([silent.engine.latency().seconds, silent.engine.latency().estimated], [0.02, true], 'desktop default');
+    const mobile = Audio.createEngine({ contextFactory: () => makeStubbed({ state: 'running' }).context, mobile: true,
+      bus: new Core.Emitter() });
+    engines.push(mobile);
+    mobile.init();
+    t.deepEq([mobile.latency().seconds, mobile.latency().estimated], [0.04, true], 'mobile default');
+    t.deepEq(Object.keys(reported.engine.info()).sort(), ['attempts', 'contexts', 'latency', 'sampleRate', 'state',
+      'unlocked']);
+    t.eq(reported.engine.info().latency.estimated, false);
+  });
+
+  t.test('T04.09 the test tone ends by itself and leaves no node counted', async () => {
+    const { engine, context } = makeEngine({ seconds: 1 });
+    engine.testTone(440, 0.2);
+    t.eq(engine.nodeCount(), 4, 'the tone nodes are not part of the persistent count');
+    const data = (await context.startRendering()).getChannelData(0);
+    t.ok(largestSample(data, 0.05, 0.15) > 0.1, 'it sounds');
+    t.ok(largestSample(data, 0.4, 0.9) < 0.001, 'and ends');
+  });
+
   t.test('UT-05-28 peak meter', async () => {
     const { engine, context, clock } = makeEngine({ seconds: 2 });
     const square = context.createOscillator();
@@ -677,6 +704,17 @@ FLM.SelfTest.group('audio', (t) => {
     pool.resetStats();
     t.deepEq([pool.stats().started, pool.stats().stolen, pool.stats().dropped], [0, 0, 0], 'bind starts from zero');
     t.throws(() => pool.acquire({}, NaN), 'E-GEN-004');
+  });
+
+  t.test('UT-05-34 a voice that frees its own slot while it is released leaves the slot free (regression)', () => {
+    const pool = Audio.createVoiceAllocator({ capacity: 4 });
+    const slots = fillPool(pool, 3);
+    slots.forEach((slot) => {
+      slot.voice.release = () => { pool.free(slot); };          // an instrument whose release ends the voice at once
+    });
+    t.eq(pool.releaseAll(1, SOFT_PANIC_S), 3);
+    t.deepEq([pool.activeCount(), pool.releasedCount()], [0, 0], 'no slot was brought back to life');
+    t.eq(pool.releaseSlot(slots[0], 2), false, 'a freed slot is not released again');
   });
 
   t.test('UT-05-13 allocator counts', () => {
@@ -884,7 +922,7 @@ FLM.SelfTest.group('audio', (t) => {
       rig.engine.Scheduler.tickOnce(1);
       const call = instruments.calls.noteOn[0];
       t.deepEq(noteOns[0], { trackId: 't1', channel: 2, eventId: 'e64', pitch: 64, velocity: 90, program: 5,
-        isDrums: true, at: call.at, atOff: call.end, durTicks: BEAT, tick: 4800, live: false });
+        isDrums: true, at: call.at, atOff: call.end, durTicks: BEAT, tick: 4800, live: false, voiced: true, late: false });
       t.deepEq(noteOffs[0], { trackId: 't1', channel: 2, eventId: 'e64', pitch: 64, at: call.end, reason: 'end' });
       t.near(call.at, 1.05, 1e-12);
       t.near(call.end, 1.5, 1e-12);
@@ -1169,6 +1207,226 @@ FLM.SelfTest.group('audio', (t) => {
     });
   });
 
+  t.test('S-10 an item that would pass the 4 ms is left for the next tick: 1.5 ms items book two per tick', async () => {
+    await withRig({}, (rig) => {
+      const booked = [];
+      const instruments = { noteOn(item, event) {
+        rig.timers.virtualNow += 1.5;
+        booked.push(event.pitch);
+        return null;
+      }, control() {} };
+      const items = Array.from({ length: 6 }, (unused, index) => noteItem(fakeTrack(), 1.1, 2, 40 + index));
+      rig.engine.Scheduler.setInstruments(instruments);
+      rig.engine.Scheduler.start(fakeTransport(items));
+      const perTick = [];
+      for (let tick = 0; tick < 3; tick += 1) {
+        rig.clock.set(1 + tick * TICK_S);
+        const before = booked.length;
+        rig.engine.Scheduler.tickOnce(rig.clock.now());
+        perTick.push(booked.length - before);
+      }
+      t.deepEq(perTick, [2, 2, 2], 'two items fit in 4 ms, a third would end at 4.5 ms');
+      t.ok(rig.engine.Scheduler.stats().tickWorkMaxMs <= 4.0001);
+    });
+  });
+
+  t.test('T04.06 a chord of more notes than voices builds voices only for the notes that stay (E 2.2)', async () => {
+    await withRig({ polyphony: 16 }, (rig) => {
+      const instruments = stubInstruments(rig.engine);
+      const noteOns = topicLog(rig, 'sched.noteOn');
+      const noteOffs = topicLog(rig, 'sched.noteOff');
+      const chord = Array.from({ length: 40 }, (unused, index) => noteItem(fakeTrack(), 1.05, 2, 30 + index));
+      const apart = noteItem(fakeTrack(), 1.1, 2, 100);
+      rig.engine.Scheduler.setInstruments(instruments);
+      rig.engine.Scheduler.start(fakeTransport(chord.concat([apart])));
+      rig.clock.set(1);
+      rig.engine.Scheduler.tickOnce(1);
+      const built = instruments.calls.noteOn.map((call) => call.event.pitch);
+      t.eq(rig.engine.VoiceAllocator.capacity, 16);
+      t.deepEq(built, Array.from({ length: 16 }, (unused, index) => 30 + index).concat([100]),
+        'the first 16 notes of the chord (equal loudness: input order) and the lone note later');
+      t.eq(noteOns.length, 41, 'every note is still announced (animation needs them)');
+      t.eq(noteOffs.length, 41);
+      const counts = rig.engine.VoiceAllocator.stats();
+      t.deepEq([counts.started + counts.dropped, counts.stolen, counts.peakActive], [41, 25, 16],
+        'started + dropped = notes; the 24 skipped notes and the one real steal count as stolen');
+      t.eq(rig.engine.VoiceAllocator.activeCount(), 16);
+    });
+  });
+
+  t.test('UT-05-35 a freed slot is a new object: a stale handle cannot release the next voice (regression)', () => {
+    const pool = Audio.createVoiceAllocator({ capacity: 4 });
+    const old = pool.acquire({ trackId: 't', channel: 0, pitch: 60, priority: 1 }, 0);
+    old.voice = fakeVoice();
+    t.eq(pool.free(old), true);
+    const next = pool.acquire({ trackId: 't', channel: 0, pitch: 62, priority: 1 }, 0.1);
+    next.voice = fakeVoice();
+    t.ok(next !== old, 'the place is taken by a fresh slot object');
+    t.eq(pool.releaseSlot(old, 1), false, 'a release through the old handle does nothing');
+    t.eq(pool.markReleased(old, 1, 1.2), false);
+    t.eq(pool.free(old), false);
+    t.deepEq([next.state, next.voice.releases.length], ['active', 0], 'the new note is untouched');
+  });
+
+  t.test('T04.06b chord survivors (D81, D84): drums and bass first, a duplicate key keeps the louder note, voiceless last',
+    async () => {
+      await withRig({ polyphony: 16 }, (rig) => {
+        const instruments = stubInstruments(rig.engine);
+        instruments.priorityOf = (owner) => (owner.id === 'drums' ? 2 : 1);
+        const noteOns = topicLog(rig, 'sched.noteOn');
+        const drums = fakeTrack({ id: 'drums', isDrums: true });
+        const melody = fakeTrack({ id: 'melody' });
+        const drumNotes = Array.from({ length: 12 }, (unused, index) => noteItem(drums, 1.05, 2, 36 + index));
+        const melodyNotes = Array.from({ length: 20 }, (unused, index) => Object.assign(noteItem(melody, 1.05, 2, 60 + index),
+          { trackIndex: 1 }));
+        const louder = Object.assign(noteItem(melody, 1.05, 2, 60), { trackIndex: 1 });
+        louder.event = Events.note(0, BEAT, 60, 120, 2, { id: 'louder' });
+        rig.engine.Scheduler.setInstruments(instruments);
+        rig.engine.Scheduler.start(fakeTransport(melodyNotes.concat(drumNotes, [louder])));
+        rig.clock.set(1);
+        rig.engine.Scheduler.tickOnce(1);
+        const built = instruments.calls.noteOn.map((call) => call.track.id + ':' + call.event.pitch + ':' + call.event.velocity);
+        t.eq(built.length, 16, 'capacity 16 voices');
+        t.eq(built.filter((name) => name.startsWith('drums:')).length, 12, 'all twelve drum notes stay');
+        t.eq(built.filter((name) => name === 'melody:60:120').length, 1, 'the louder note of the duplicate pair stays');
+        t.eq(built.filter((name) => name === 'melody:60:90').length, 0, 'and the quieter one does not');
+        t.deepEq(noteOns.slice(0, 16).map((event) => event.voiced), new Array(16).fill(true), 'the survivors are announced first');
+        t.deepEq(noteOns.slice(16).map((event) => event.voiced), new Array(noteOns.length - 16).fill(false),
+          'the voiceless notes follow');
+        t.eq(noteOns.length, 33, 'every note is still announced');
+      });
+    });
+
+  t.test('UT-05-36 restart audio: a suspended context is resumed and the graph rebuilt; a closed one is replaced', async () => {
+    const stub = makeStubbed();
+    stub.overrides.resume = () => {
+      stub.setState('running');
+      return Promise.resolve();
+    };
+    const panics = record(stub.bus, 'audio.panic');
+    t.eq(await stub.engine.restart(), true, 'the sound runs again');
+    t.deepEq(panics.map((event) => [event.hard, event.reason]), [[true, 'rebuild']], 'the graph was rebuilt once');
+    const first = t.fakes.fakeAudioContext({ state: 'suspended', currentTime: 10 });
+    const second = t.fakes.fakeAudioContext({ state: 'running', currentTime: 50 });
+    const queue = [first, second];
+    const factory = t.fakes.spy(() => queue.shift().context);
+    const bus = new Core.Emitter();
+    const engine = Audio.createEngine({ contextFactory: factory, bus, mobile: false });
+    engines.push(engine);
+    engine.init();
+    engine.createStrip('a');
+    const sinks = record(bus, 'audio.sink');
+    const transport = FLM.Transport.create({ clock: engine.clock(), bus });
+    const song = songOf([[]], 8 * BEAT);
+    transport.load(song);
+    engine.Scheduler.bind(transport, song, {});
+    transport.seek(2 * BEAT);
+    transport.play({ countInBars: 0 });
+    const heldTick = transport.positionAt(engine.now());
+    Core.ErrorReporter._resetForTests();
+    try {
+      first.setState('closed');                         // closed behind the engine (E-AUD-008)
+      t.eq(await engine.restart(), true, 'a new context was made and runs');
+      t.eq(sinks.length, 1, 'audio.sink tells M-07 to take its anchor on the new context');
+      t.ok(Math.abs(transport.positionAt(engine.now()) - heldTick) <= BEAT,
+        'the song goes on from where it was on the new clock: ' + transport.positionAt(engine.now()) + ' near ' + heldTick);
+      t.eq(factory.count, 2);
+      t.eq(engine.state(), 'running');
+      t.eq(engine.stripCount(), 2, 'the strips survived: the one made by hand and the one of the bound song');
+    } finally {
+      engine.Scheduler.unbind();
+      Core.ErrorReporter._resetForTests();
+    }
+    const blocked = makeStubbed();
+    t.eq(await blocked.engine.restart(), false, 'a device that stays blocked reports failure');
+  });
+
+  t.test('UT-05-37 an output device change tells M-07 with audio.sink and does not unlock a second time', async () => {
+    const stub = makeStubbed({ state: 'running' });
+    const unlocked = record(stub.bus, 'audio.unlocked');
+    const sinks = record(stub.bus, 'audio.sink');
+    await stub.engine.unlock();
+    t.eq(unlocked.length, 1);
+    Core.ErrorReporter._resetForTests();
+    try {
+      stub.inner.dispatchEvent(new Event('sinkchange'));
+      t.eq(sinks.length, 1, 'audio.sink announces the new latency');
+      t.ok(typeof sinks[0].latencyMs === 'number');
+      t.eq(unlocked.length, 1, 'audio.unlocked is not sent again');
+    } finally {
+      Core.ErrorReporter._resetForTests();
+    }
+  });
+
+  t.test('UT-05-38 voice builds are capped per tick (OI-37): six builds that cost more than a quarter ms, then the next tick',
+    async () => {
+      await withRig({}, (rig) => {
+        const instruments = stubInstruments(rig.engine);
+        const quick = instruments.noteOn;
+        instruments.noteOn = (owner, event, at, end) => {
+          rig.timers.advance(0.4);                  // a voice build that takes 0.4 ms on the fake clock
+          return quick(owner, event, at, end);
+        };
+        const items = Array.from({ length: 20 }, (unused, index) => noteItem(fakeTrack(), 1.05 + index * 0.003, 3, 40 + index));
+        rig.engine.Scheduler.setInstruments(instruments);
+        rig.engine.Scheduler.start(fakeTransport(items));
+        rig.clock.set(1);
+        rig.engine.Scheduler.tickOnce(1);
+        t.eq(instruments.calls.noteOn.length, 6, 'six builds in the first tick');
+        t.eq(rig.engine.Scheduler.stats().backlog, 14, 'the rest waits in the backlog');
+        rig.clock.set(1.025);
+        rig.engine.Scheduler.tickOnce(1.025);
+        t.eq(instruments.calls.noteOn.length, 12, 'six more in the next');
+      });
+    });
+
+  t.test('UT-05-39 one slow build does not starve the notes behind it: the estimate is capped and notes due soon are never held back (regression)',
+    async () => {
+      await withRig({}, (rig) => {
+        const instruments = stubInstruments(rig.engine);
+        const quick = instruments.noteOn;
+        let builds = 0;
+        instruments.noteOn = (owner, event, at, end) => {
+          builds += 1;
+          rig.timers.advance(builds === 5 ? 30 : 0.3);        // the fifth build is preempted for 30 ms
+          return quick(owner, event, at, end);
+        };
+        const items = Array.from({ length: 60 }, (unused, index) => noteItem(fakeTrack(), 1.15 + index * 0.002, 3, 30 + (index % 40)));
+        const transport = { update() {}, pullDue: (until) => items.splice(0, items.findIndex((item) => item.atAudio > until) < 0 ?
+          items.length : items.findIndex((item) => item.atAudio > until)) };
+        rig.engine.Scheduler.setInstruments(instruments);
+        rig.engine.Scheduler.start(transport);
+        for (let tick = 0; tick < 24; tick += 1) {
+          rig.clock.set(1 + tick * 0.025);
+          rig.engine.Scheduler.tickOnce(1 + tick * 0.025);
+        }
+        const stats = rig.engine.Scheduler.stats();
+        t.eq(builds, 60, 'every note was built');
+        t.eq(stats.backlog, 0, 'nothing is left waiting');
+        t.eq(stats.clamped, 0, 'and no note was booked late');
+      });
+    });
+
+  t.test('T04.06c duplicates in a chord that fits the voices: the louder note of one key stays, the other is voiceless', async () => {
+    await withRig({}, (rig) => {
+      const instruments = stubInstruments(rig.engine);
+      const noteOns = topicLog(rig, 'sched.noteOn');
+      const owner = fakeTrack();
+      const quiet = noteItem(owner, 1.05, 2, 60);
+      quiet.event = Events.note(0, BEAT, 60, 50, 2, { id: 'quiet' });
+      const other = noteItem(owner, 1.05, 2, 62);
+      const loud = noteItem(owner, 1.05, 2, 60);
+      loud.event = Events.note(0, BEAT, 60, 100, 2, { id: 'loud' });
+      rig.engine.Scheduler.setInstruments(instruments);
+      rig.engine.Scheduler.start(fakeTransport([quiet, other, loud]));
+      rig.clock.set(1);
+      rig.engine.Scheduler.tickOnce(1);
+      t.deepEq(instruments.calls.noteOn.map((call) => call.event.velocity + '@' + call.event.pitch), ['90@62', '100@60'],
+        'the quieter duplicate got no voice');
+      t.deepEq(noteOns.map((event) => event.voiced), [true, true, false], 'and is announced last');
+    });
+  });
+
   t.test('T04.04 beats, markers and the metronome: sched.beat every beat, a click only when audible', async () => {
     await withRig({ seconds: 3 }, async (rig) => {
       const beats = topicLog(rig, 'sched.beat');
@@ -1355,5 +1613,388 @@ FLM.SelfTest.group('audio', (t) => {
       ' zero crossings in 30 ms');
     t.ok(crossings[0] >= 30, 'about 1 kHz: 60 crossings expected, got ' + crossings[0]);
   });
+  // ------------------------------------------------------------------------------------------- T04.05
+  // Panic, node accounting, retrigger, song-end closing and the live note path. The instruments are stand-ins that
+  // record the calls M-06 will receive (allNotesOff, onGraphRebuilt, liveNoteOn, liveNoteOff, controlLive).
+  function panicInstruments(engine) {
+    const instruments = stubInstruments(engine);
+    instruments.calls.allNotesOff = [];
+    instruments.calls.rebuilt = [];
+    instruments.allNotesOff = (at) => { instruments.calls.allNotesOff.push(at); };
+    instruments.onGraphRebuilt = (given) => { instruments.calls.rebuilt.push(given); };
+    return instruments;
+  }
+
+  const tenNotes = () => Array.from({ length: 10 }, (unused, index) => noteItem(fakeTrack(), 1.05, 5, 40 + index));
+
+  t.test('UT-05-22 soft panic releases all: ten voices get the 30 ms ramp, audio.panic goes out, pending is cleared',
+    async () => {
+      await withRig({}, (rig) => {
+        const panics = topicLog(rig, 'audio.panic');
+        const noteOffs = topicLog(rig, 'sched.noteOff');
+        const instruments = panicInstruments(rig.engine);
+        rig.engine.Scheduler.setInstruments(instruments);
+        rig.engine.Scheduler.start(fakeTransport(tenNotes()));
+        rig.clock.set(1);
+        rig.engine.Scheduler.tickOnce(1);
+        t.eq(rig.engine.Scheduler.pending(), 10);
+        const slots = rig.engine.VoiceAllocator.list().filter((slot) => slot.voice);
+        noteOffs.length = 0;
+        t.eq(rig.engine.panic(false), 10, 'ten voices released');
+        t.deepEq(panics, [{ hard: false, reason: 'user', voicesStopped: 10, releasedCount: 10, audioTime: 1 }]);
+        t.ok(slots.every((slot) => slot.voice.releases.length === 1 && slot.voice.releases[0][0] === 1 &&
+          slot.voice.releases[0][1] === SOFT_PANIC_S), 'each voice was released now with the 30 ms ramp');
+        t.eq(rig.engine.Scheduler.pending(), 0, 'pending is cleared');
+        t.deepEq([noteOffs.length, noteOffs[0].reason, noteOffs[0].at], [10, 'stop', 1],
+          'one sched.noteOff per note still due to sound');
+        t.deepEq(instruments.calls.allNotesOff, [1], 'the sustain pedal goes up (CC 64 = 0) on every panic');
+        t.deepEq(instruments.calls.rebuilt, [], 'a soft panic does not rebuild the graph');
+      });
+    });
+
+  t.test('UT-05-22b the panic reason: default user, unknown values fall back, seek ends notes with seek', async () => {
+    await withRig({}, (rig) => {
+      const panics = topicLog(rig, 'audio.panic');
+      const noteOffs = topicLog(rig, 'sched.noteOff');
+      rig.engine.Scheduler.setInstruments(stubInstruments(rig.engine));
+      rig.engine.panic(false, 'mode');
+      rig.engine.panic(false, 'bogus');
+      rig.engine.panic(false);
+      t.deepEq(panics.map((event) => event.reason), ['mode', 'user', 'user']);
+      rig.engine.Scheduler.start(fakeTransport([noteItem(fakeTrack(), 1.05, 5, 60)]));
+      rig.clock.set(1);
+      rig.engine.Scheduler.tickOnce(1);
+      noteOffs.length = 0;
+      rig.engine.panic(false, 'seek');
+      t.eq(noteOffs[0].reason, 'seek');
+      t.deepEq([typeof Audio.panic, typeof Audio.nodeCount, typeof Audio.countNodes], ['function', 'function',
+        'function'], 'FLM.Audio exports the panic and the node counter');
+    });
+  });
+
+  t.test('UT-05-22c a panic works with nothing bound, and it forgets live notes', async () => {
+    await withRig({}, (rig) => {
+      const panics = topicLog(rig, 'audio.panic');
+      const noteOffs = topicLog(rig, 'sched.noteOff');
+      t.eq(rig.engine.panic(false), 0);
+      t.eq(panics.length, 1);
+      rig.clock.set(1);
+      rig.engine.Scheduler.liveNoteOn('live', 60, 100, 0);
+      rig.engine.panic(false, 'user');
+      t.deepEq(noteOffs.map((event) => [event.reason, event.pitch]), [['stop', 60]]);
+      t.eq(rig.engine.Scheduler.liveNoteOff('live', 60, 0), false, 'the key was forgotten by the panic');
+    });
+  });
+
+  /** A chain from a constant source through `node`; returns the source (already started at 0). */
+  function drive(context, node, level) {
+    const source = context.createConstantSource();
+    source.offset.value = level;
+    source.connect(node);
+    source.start(0);
+    return source;
+  }
+
+  t.test('UT-05-23 hard panic rebuilds: new nodes, same strips and settings, voices gone, onGraphRebuilt called',
+    async () => {
+      await withRig({}, (rig) => {
+        const engine = rig.engine;
+        const panics = topicLog(rig, 'audio.panic');
+        const instruments = panicInstruments(engine);
+        engine.Scheduler.setInstruments(instruments);
+        const strip = engine.createStrip('a');
+        const other = engine.createStrip('b');
+        strip.setGain(0.3);
+        strip.setPan(-0.5);
+        strip.setMute(true);
+        other.setSolo(true);
+        const before = { master: engine.master, limiter: engine.limiter, input: strip.input, gain: strip.gain,
+          metronome: engine.metronomeBus };
+        const voices = fillPool(engine.VoiceAllocator, 3).map((slot) => slot.voice);
+        const nodes = engine.nodeCount();
+        t.eq(engine.panic(true, 'fatal'), 3);
+        t.ok(engine.master !== before.master && engine.limiter !== before.limiter &&
+          engine.metronomeBus !== before.metronome, 'master, limiter and metronome bus are new objects');
+        t.ok(strip.input !== before.input && strip.gain !== before.gain, 'the strip has new nodes');
+        t.ok(engine.strips().includes(strip) && engine.strips().includes(other) && engine.stripCount() === 2,
+          'the same strip objects remain');
+        t.deepEq(strip.mixState(), { gain: 0.3, pan: -0.5, ccVolume: 1, expression: 1, mute: true, solo: false });
+        t.near(strip.gain.gain.value, 0.3, 1e-6);
+        t.near(strip.pan.pan.value, -0.5, 1e-6);
+        t.eq(strip.muteGain.gain.value, 0, 'muted, and silenced by the solo of the other strip');
+        t.deepEq(Array.from(engine.soloSet()), ['b'], 'the solo set is kept');
+        t.eq(engine.VoiceAllocator.activeCount(), 0);
+        t.deepEq(voices.map((voice) => [voice.stops.length, voice.disposed]), [[1, 1], [1, 1], [1, 1]],
+          'every voice was stopped and disposed');
+        t.ok(instruments.calls.rebuilt.length === 1 && instruments.calls.rebuilt[0] === engine,
+          'Instruments.onGraphRebuilt(engine)');
+        t.deepEq(panics.map((event) => [event.hard, event.reason, event.voicesStopped]), [[true, 'fatal', 3]]);
+        t.eq(engine.nodeCount(), nodes, 'the node count is unchanged by a rebuild');
+        t.deepEq(instruments.calls.allNotesOff.length, 1);
+      });
+    });
+
+  t.test('UT-05-23b after a hard panic sound reaches the output through the new strip, not through the old one',
+    async () => {
+      let fresh = 0;
+      let stale = 0;
+      await withRig({}, async (rig) => {
+        const strip = rig.engine.createStrip('a');
+        rig.engine.panic(true);
+        drive(rig.context, strip.input, DC_LEVEL);
+        fresh = largestSample(await rendered(rig.context), 0.2, 0.4);
+      });
+      await withRig({}, async (rig) => {
+        const strip = rig.engine.createStrip('a');
+        const old = strip.input;
+        rig.engine.panic(true);
+        drive(rig.context, old, DC_LEVEL);
+        stale = largestSample(await rendered(rig.context), 0.2, 0.4);
+      });
+      t.ok(fresh > 0.1, 'the new chain is connected all the way to the destination: ' + fresh);
+      t.ok(stale < 1e-6, 'the old chain is disconnected: ' + stale);
+    });
+
+  t.test('UT-05-23c a hard panic during a pause keeps the new master silent', async () => {
+    await withRig({}, (rig) => {
+      rig.engine.fadeOut(0);
+      rig.engine.panic(true);
+      t.eq(rig.engine.master.gain.value, 0);
+      t.eq(rig.engine.masterGain(), 1, 'the volume itself is unchanged');
+    });
+  });
+
+  t.test('UT-05-23d a failing rebuild is reported E-AUD-004, never thrown; the panic event still goes out', async () => {
+    await withRig({}, (rig) => {
+      Core.ErrorReporter._resetForTests();
+      try {
+        const panics = topicLog(rig, 'audio.panic');
+        const instruments = panicInstruments(rig.engine);
+        instruments.onGraphRebuilt = () => { throw new Error('cached node lost'); };
+        rig.engine.Scheduler.setInstruments(instruments);
+        t.eq(rig.engine.panic(true), 0);
+        const report = Core.ErrorReporter.records().find((item) => item.code === 'E-AUD-004');
+        t.ok(report, 'E-AUD-004 was reported');
+        t.eq(panics.length, 1);
+      } finally {
+        Core.ErrorReporter._resetForTests();
+      }
+    });
+  });
+
+  t.test('T04.05 nodeCount: the graph, four per strip, what M-06 reports; clicks are transient and not counted',
+    async () => {
+      await withRig({}, (rig) => {
+        const engine = rig.engine;
+        t.eq(engine.nodeCount(), 4, 'master, limiter, analyser, metronome bus');
+        engine.createStrip('a');
+        engine.createStrip('a');
+        t.eq(engine.nodeCount(), 8);
+        t.eq(engine.countNodes(6), 6);
+        t.eq(engine.nodeCount(), 14);
+        t.eq(engine.countNodes(-100), 0, 'never below zero');
+        engine.Metronome.click(0.5, false);
+        t.deepEq([engine.transientNodeCount(), engine.nodeCount()], [2, 8]);
+        engine.disposeStrip('a');
+        t.eq(engine.nodeCount(), 4);
+        engine.panic(true);
+        t.deepEq([engine.transientNodeCount(), engine.nodeCount()], [0, 4], 'a hard panic drops the clicks');
+      });
+      t.eq(makeBare().engine.nodeCount(), 0, 'no context, no graph');
+    });
+
+  t.test('AT-R-E2.1-08 100 start and stop cycles leave voices, strips, nodes and timers at the baseline', async () => {
+    await withRig({}, (rig) => {
+      const engine = rig.engine;
+      const instruments = { noteOn(track, event, at, end) {
+        const slot = engine.VoiceAllocator.acquire({ trackId: track.id, channel: event.channel, pitch: event.pitch,
+          priority: 1 }, at);
+        engine.countNodes(6);
+        const voice = fakeVoice();
+        const finish = () => { if (engine.VoiceAllocator.free(slot)) engine.countNodes(-6); };
+        voice.release = finish;              // the voice ends at once: the accounting is what is under test
+        voice.stop = finish;
+        slot.voice = voice;
+        return slot;
+      }, control() {}, allNotesOff() {} };
+      const song = songOf([beatNotes(4)], 4 * BEAT);
+      const baseline = [engine.nodeCount(), Core.timers.count()];
+      for (let cycle = 0; cycle < 100; cycle += 1) {
+        const transport = startSong(rig, song, instruments);
+        tickTo(rig, rig.clock.now() + 0.3);
+        transport.stop();
+        engine.Scheduler.unbind();
+      }
+      t.deepEq([engine.nodeCount(), Core.timers.count()], baseline);
+      t.deepEq([engine.VoiceAllocator.activeCount(), engine.stripCount(), engine.Scheduler.pending()], [0, 0, 0]);
+      t.eq(engine.VoiceAllocator.stats().dropped, 0);
+    });
+  });
+
+  t.test('T04.05 a retrigger of the same track, channel and pitch releases the earlier voice first', async () => {
+    await withRig({}, (rig) => {
+      const instruments = stubInstruments(rig.engine);
+      const noteOffs = topicLog(rig, 'sched.noteOff');
+      const owner = fakeTrack();
+      const other = fakeTrack({ id: 't2' });
+      const items = [noteItem(owner, 1.02, 3, 60), noteItem(other, 1.03, 3, 60), noteItem(owner, 1.1, 3, 60),
+        noteItem(owner, 1.11, 3, 62)];
+      rig.engine.Scheduler.setInstruments(instruments);
+      rig.engine.Scheduler.start(fakeTransport(items));
+      rig.clock.set(1);
+      rig.engine.Scheduler.tickOnce(1);
+      const voices = rig.engine.VoiceAllocator.list().filter((slot) => slot.voice).map((slot) => slot.voice);
+      t.deepEq(voices.map((voice) => voice.releases), [[[1.1, undefined]], [], [], []],
+        'only the first voice is released, at the start of its replacement');
+      const overlap = noteOffs.filter((event) => event.reason === 'overlap');
+      t.deepEq(overlap.map((event) => [event.trackId, event.pitch, event.at]), [['t1', 60, 1.1]]);
+      t.eq(rig.engine.Scheduler.pending(), 4, 'all four notes are still booked');
+    });
+  });
+
+  t.test('T04.05 a note that is still held at the song end is closed there', async () => {
+    await withRig({}, (rig) => {
+      const noteOns = topicLog(rig, 'sched.noteOn');
+      const noteOffs = topicLog(rig, 'sched.noteOff');
+      const song = songOf([[Events.note(0, 8 * BEAT, 60, 100)]], 4 * BEAT);
+      const transport = startSong(rig, song, stubInstruments(rig.engine));
+      tickTo(rig, 0.2);
+      const endAt = transport.audioTimeAt(4 * BEAT);
+      t.near(noteOns[0].atOff, endAt, 1e-9, 'the planned release is the song end, not tick 8 beats');
+      t.near(noteOffs[0].at, endAt, 1e-9);
+      t.eq(noteOffs[0].reason, 'end');
+    });
+  });
+
+  t.test('T04.05 a program change leaves the sounding voices on the old patch', async () => {
+    await withRig({}, (rig) => {
+      const instruments = stubInstruments(rig.engine);
+      const owner = fakeTrack();
+      const items = [noteItem(owner, 1.02, 5, 60), { kind: 'program', track: owner,
+        event: Events.program(0, 73, 0, 0, 0), atAudio: 1.1 }];
+      rig.engine.Scheduler.setInstruments(instruments);
+      rig.engine.Scheduler.start(fakeTransport(items));
+      rig.clock.set(1);
+      rig.engine.Scheduler.tickOnce(1);
+      const voice = rig.engine.VoiceAllocator.list().find((slot) => slot.voice).voice;
+      t.deepEq([voice.releases, voice.stops], [[], []], 'the program event did not touch the voice');
+      t.eq(instruments.calls.control.length, 1);
+      t.eq(rig.engine.Scheduler.pending(), 1);
+    });
+  });
+
+  const clickItem = (atAudio) => ({ kind: 'click', atAudio, audible: true, accent: false, tick: 0, bar: 0, beat: 0,
+    numerator: 4, denominator: 4, countIn: false });
+
+  t.test('T04.05 a panic cancels the clicks the Scheduler booked and leaves hand-played ones alone', async () => {
+    await withRig({ seconds: 2 }, async (rig) => {
+      rig.engine.Scheduler.start(fakeTransport([clickItem(1.1)]));
+      rig.clock.set(1);
+      rig.engine.Scheduler.tickOnce(1);
+      rig.engine.Metronome.click(1.5, false);
+      t.eq(rig.engine.transientNodeCount(), 4);
+      rig.engine.panic(false);
+      const data = await rendered(rig.context);
+      t.ok(largestSample(data, 1.09, 1.2) < 1e-6, 'the booked click never sounds');
+      t.ok(largestSample(data, 1.5, 1.6) > 0.02, 'the click played by hand does');
+    });
+  });
+
+  t.test('UT-05-30 live note path: noteOn at max(at, now + 2 ms), a held key, noteOff releases it', async () => {
+    await withRig({}, (rig) => {
+      const noteOns = topicLog(rig, 'sched.noteOn');
+      const noteOffs = topicLog(rig, 'sched.noteOff');
+      const calls = { on: [], off: [] };
+      const instruments = {
+        startLive(...args) {
+          calls.on.push(args);
+          return rig.engine.VoiceAllocator.acquire({ trackId: args[0], channel: args[3], pitch: args[4] }, args[6]);
+        },
+        stopLive(...args) { calls.off.push(args); return true; }
+      };
+      rig.engine.Scheduler.setInstruments(instruments);
+      rig.clock.set(1);
+      const slot = rig.engine.Scheduler.liveNoteOn('live', 64, 100, 3, 0.5);
+      t.ok(slot && slot.state === 'active', 'the instrument made a voice');
+      t.deepEq(calls.on[0].slice(0, 6), ['live', 0, false, 3, 64, 100], 'program 0, not drums');
+      t.near(calls.on[0][6], 1.002, 1e-9, '2 ms after now, not in the past');
+      t.eq(noteOns.length, 1);
+      t.deepEq([noteOns[0].live, noteOns[0].atOff, noteOns[0].channel, noteOns[0].pitch, noteOns[0].velocity,
+        noteOns[0].isDrums, noteOns[0].tick], [true, null, 3, 64, 100, false, 0]);
+      t.near(noteOns[0].at, 1.002, 1e-9);
+      t.eq(rig.engine.stripCount(), 1, 'the live track has its strip');
+      rig.clock.set(1.1);
+      t.eq(rig.engine.Scheduler.liveNoteOff('live', 64, 3, 1.1), true);
+      t.deepEq(calls.off[0].slice(0, 3), ['live', 3, 64]);
+      t.near(calls.off[0][3], 1.102, 1e-9);
+      t.deepEq(noteOffs.map((event) => [event.reason, event.eventId === noteOns[0].eventId]), [['live', true]]);
+      t.near(noteOffs[0].at, 1.102, 1e-9);
+      t.eq(rig.engine.Scheduler.liveNoteOff('live', 64, 3, 1.2), false, 'a second noteOff finds nothing');
+      rig.engine.Scheduler.liveNoteOn('live', 36, 90, 9, undefined, { isDrums: true, program: 0 });
+      t.eq(calls.on[1][2], true, 'drums by option');
+      t.near(calls.on[1][6], 1.102, 1e-9, 'the default time is now + 2 ms');
+    });
+  });
+
+  t.test('UT-05-30b a key pressed twice releases the first live voice at the second press (overlap)', async () => {
+    await withRig({}, (rig) => {
+      const noteOffs = topicLog(rig, 'sched.noteOff');
+      const instruments = { startLive(trackId, program, isDrums, channel, pitch, velocity, at) {
+        const slot = rig.engine.VoiceAllocator.acquire({ trackId, channel, pitch }, at);
+        slot.voice = fakeVoice();
+        return slot;
+      }, stopLive() { return true; } };
+      rig.engine.Scheduler.setInstruments(instruments);
+      rig.clock.set(1);
+      const first = rig.engine.Scheduler.liveNoteOn('live', 64, 100, 0);
+      rig.clock.set(1.2);
+      rig.engine.Scheduler.liveNoteOn('live', 64, 100, 0);
+      t.eq(first.voice.releases.length, 1);
+      t.near(first.voice.releases[0][0], 1.202, 1e-9);
+      t.deepEq(noteOffs.map((event) => event.reason), ['overlap']);
+    });
+  });
+
+  t.test('UT-05-30c live controls reach controlLive and go out as sched.cc, sched.bend and sched.program', async () => {
+    await withRig({}, (rig) => {
+      const topics = { cc: topicLog(rig, 'sched.cc'), bend: topicLog(rig, 'sched.bend'),
+        program: topicLog(rig, 'sched.program') };
+      const calls = [];
+      rig.engine.Scheduler.setInstruments({ applyLive: (...args) => calls.push(args) });
+      rig.clock.set(1);
+      rig.engine.Scheduler.liveControl('live', 'cc', { channel: 1, controller: 64, value: 127 });
+      rig.engine.Scheduler.liveControl('live', 'bend', { channel: 1, value: -512 }, 1.5);
+      rig.engine.Scheduler.liveControl('live', 'program', { channel: 1, program: 40, bankMsb: 1, bankLsb: 2 });
+      t.deepEq(calls.map((call) => call.slice(0, 5)), [['live', 1, 'cc', 64, 127], ['live', 1, 'bend', -512, undefined],
+        ['live', 1, 'program', 40, 1]]);
+      t.near(calls[0][5], 1.002, 1e-9);
+      t.eq(calls[1][5], 1.5);
+      t.deepEq(topics.cc.map((event) => [event.trackId, event.channel, event.controller, event.value]),
+        [['live', 1, 64, 127]]);
+      t.near(topics.cc[0].at, 1.002, 1e-9);
+      t.deepEq(topics.bend, [{ trackId: 'live', channel: 1, value: -512, at: 1.5 }]);
+      t.deepEq(topics.program.map((event) => [event.program, event.bankMsb, event.bankLsb]), [[40, 1, 2]]);
+      t.throws(() => rig.engine.Scheduler.liveControl('live', 'sysex', {}), 'E-GEN-004');
+    });
+  });
+
+  t.test('UT-05-30d a live voice that cannot be made is counted dropped and reported once; the event still goes out',
+    async () => {
+      await withRig({}, (rig) => {
+        Core.ErrorReporter._resetForTests();
+        try {
+          const noteOns = topicLog(rig, 'sched.noteOn');
+          rig.engine.Scheduler.setInstruments({ startLive() { throw new Error('node creation failed'); } });
+          rig.clock.set(1);
+          t.eq(rig.engine.Scheduler.liveNoteOn('live', 60, 100, 0), null);
+          t.eq(rig.engine.VoiceAllocator.stats().dropped, 1);
+          t.eq(noteOns.length, 1);
+          t.eq(Core.ErrorReporter.records().filter((item) => item.code === 'E-AUD-004').length, 1);
+        } finally {
+          Core.ErrorReporter._resetForTests();
+        }
+      });
+    });
+
 });
 })();

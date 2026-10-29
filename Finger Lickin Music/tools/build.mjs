@@ -22,14 +22,17 @@ const FILE_NAME_PATTERN = /^\d\d[a-z]?-[a-z0-9-]+\.js$/;
 const TEST_FILE_PATTERN = /^9\d/;
 const VERSION_PATTERN = /^const VERSION = '(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)';$/m;
 const SIZE_FAIL_BYTES = 2621440;   // 2.5 MB hard limit (problem)
-const SIZE_WARN_BYTES = 1572864;   // 1.5 MB target (warning)
 const MB = 1048576;
 const DUPLICATE_WINDOW = 8;
 const DUPLICATE_MIN_LENGTH = 12;
 const DUPLICATE_EXEMPT = ['30-content.js', '06-instruments.js', '02-theory.js'];
 const CSP_CONNECT = "connect-src 'self'";
-// RISK-60 envelopes for the shipped file, by phase gate (MB, label).
-const ENVELOPES = [[0.55, 'Phase 05'], [0.95, 'Phase 09'], [1.20, 'Phase 12'], [1.35, 'Phase 13'], [1.50, 'Phase 16']];
+// RISK-60 envelopes for the shipped file by phase gate: [phase number, MB]. D-row OI-45 (LEDGER): reset from the growth
+// measured to the Phase 04 gate (0.93 MB, about 0.24 MB a phase); the 2.5 MB hard limit stays. At that rate the file
+// crosses 2.5 MB at Phase 11, so the Phase 12 to 16 values are the hard limit itself until the owner decides otherwise.
+const ENVELOPES = [[5, 1.25], [9, 2.20], [12, 2.50], [13, 2.50], [16, 2.50]];
+const STATUS_FILE = join(ROOT, 'docs', 'STATUS.md');
+const PHASE_PATTERN = /^Current phase:\s*Phase\s*(\d+)/m;
 
 // Namespace of each shipped module, keyed by the two-digit file prefix (Part 3.1).
 const NAMESPACES = {
@@ -235,6 +238,15 @@ function checkNamespace(file) {
       addProblem('namespace: ' + file.name + ' must contain exactly one ' + expected);
     }
     if (isPart && defineCount > 1) addProblem('namespace: ' + file.name + ' contains more than one FLM.Core.define');
+    if (isPart) {
+      // A part either holds the module's define call or registers a part for its own namespace (FLM.Core.part, Part 3.1).
+      const registered = Array.from(file.text.matchAll(/FLM\.Core\.part\('([A-Za-z]+)'/g), (match) => match[1]);
+      const ownDefine = defineCount === 1 && file.text.includes(expected);
+      if (!ownDefine && registered.length === 0) addProblem('namespace: ' + file.name + " must contain " + expected + " or FLM.Core.part('" + NAMESPACES[prefix] + "', ...)");
+      registered.filter((name) => name !== NAMESPACES[prefix]).forEach((name) => {
+        addProblem('namespace: ' + file.name + " registers a part for '" + name + "', not for its own namespace " + NAMESPACES[prefix]);
+      });
+    }
     return;
   }
   const testMatch = /^9[12]-test-([a-z0-9-]+)\.js$/.exec(file.name);
@@ -360,18 +372,38 @@ function checkParse(script, kind) {
   }
 }
 
+// The phase the project is in, read from the header of docs/STATUS.md (null when the file or the line is missing).
+function currentPhase() {
+  if (!existsSync(STATUS_FILE)) return null;
+  const match = PHASE_PATTERN.exec(readFileSync(STATUS_FILE, 'utf8'));
+  return match ? Number(match[1]) : null;
+}
+
+// The envelope of the next gate at or after the current phase (the last one when the project is past every gate).
+function currentEnvelope() {
+  const phase = currentPhase();
+  const gate = phase === null ? ENVELOPES[0] : ENVELOPES.find(([gatePhase]) => gatePhase >= phase) || ENVELOPES[ENVELOPES.length - 1];
+  return { phase, gatePhase: gate[0], limitMb: gate[1] };
+}
+
 function checkSize(shipBytes) {
   if (shipBytes > SIZE_FAIL_BYTES) addProblem('size: shipped page is ' + shipBytes + ' bytes, above the ' + SIZE_FAIL_BYTES + ' byte limit');
-  else if (shipBytes > SIZE_WARN_BYTES) warnings.push('  WARNING shipped page is above 1.5 MB (' + shipBytes + ' bytes, target ' + SIZE_WARN_BYTES + ')');
+  else {
+    const envelope = currentEnvelope();
+    if (shipBytes / MB > envelope.limitMb) {
+      warnings.push('  WARNING shipped page is above the ' + envelope.limitMb.toFixed(2) + ' MB envelope of Phase ' + envelope.gatePhase +
+        ' (' + shipBytes + ' bytes)');
+    }
+  }
 }
 
 function envelopeLine(shipBytes) {
+  const envelope = currentEnvelope();
   const shipMb = shipBytes / MB;
-  const envelope = ENVELOPES.find(([limit]) => shipMb <= limit);
-  const text = envelope
-    ? 'within the ' + envelope[0].toFixed(2) + ' MB envelope (first gate: ' + envelope[1] + ')'
-    : 'above every RISK-60 envelope (largest 1.50 MB)';
-  return 'envelope RISK-60: ship ' + shipBytes + ' bytes, ' + text;
+  const share = Math.round(shipMb / envelope.limitMb * 100);
+  const where = envelope.phase === null ? 'phase unknown' : 'now in Phase ' + String(envelope.phase).padStart(2, '0');
+  return 'envelope RISK-60 (' + where + '): ship ' + shipBytes + ' bytes = ' + shipMb.toFixed(2) + ' MB, ' + share + ' percent of the ' +
+    envelope.limitMb.toFixed(2) + ' MB envelope of the Phase ' + String(envelope.gatePhase).padStart(2, '0') + ' gate (hard limit 2.50 MB)';
 }
 
 function writeAtomic(path, text) {

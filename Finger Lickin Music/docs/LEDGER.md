@@ -6,16 +6,11 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 
 ## Standing rules
 
-- Owner stop rule (2026-10-27 14:14 local, verbatim): "Stop at a clean boundary before 15% of
-  weekly usage limit for all models (the one that resets on Saturday)". Interpretation: read
-  usage (get_usage, "Weekly - all models") before every T section; when it reaches 14% or a
-  next T section would plausibly cross 15%, finish only the current T section, run its
-  verification, write the ledger entry, commit, and stop. Do not start another T section.
-  Do not schedule a self-resume.
-- Never push unless the owner says so (project profile). Owner instruction 2026-10-27 17:31 local, verbatim:
-  "push the commits in the end". Interpretation: at the clean stop of this session, push branch
-  flm-implementation to origin once (fetch first, report the commit count); not main; no force; no later
-  pushes without a new go.
+- Owner stop rule: SUPERSEDED 2026-10-29. The old rule ("Stop at a clean boundary before 15% of weekly usage limit for
+  all models", 2026-10-27 14:14) is void. Owner, 2026-10-29, verbatim: "no weekly usage threshold", "work as much as you
+  need". A session stops at a clean T-section boundary (or the end of its brief); the usage log below is informative only.
+- Pushing: the owner authorized pushing after each checked batch (2026-10-29). The coordinator pushes and commits by path;
+  an implementing session does not commit or push unless its brief says so. No force pushes.
 - Commit on branch flm-implementation. Superseded 2026-10-29: at the owner's word the branch was merged into main and deleted; commit on main from now on, only files of the "Finger Lickin Music" folder, by path (main carries other games too).
 - Regression policy (Part 12.1.7) and foundation guard (Part 3.9 item 3) apply from T01.05.
 - New files: UTF-8 with BOM, LF, ASCII content.
@@ -47,6 +42,7 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 |---|---|---|---|
 | 2026-10-27 14:20 | 11 | 8 | start of implementation; weekly resets 2026-10-31 10:00 UTC |
 | 2026-10-27 15:08 | 2 | 9 | after T01.01-T01.05 (about 1 point per 50 min with 2 parallel agents) |
+| 2026-10-29 | n/a | n/a | not read: the owner removed the weekly threshold ("no weekly usage threshold"); session T04.05 to T04.12 took about 2.5 h |
 
 ## Assumptions
 
@@ -67,9 +63,423 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
 
 ## Owner actions
 
-- Push of branch flm-implementation: pending owner approval.
+- Pushing: authorized by the owner after each checked batch (2026-10-29); the coordinator commits by path and pushes.
+- Plan patch (OI-50): AT-R-P6.1-12 arms `audio.fail {phase:'node'}` for the instrument fallback, FI-005 uses the same phase for E-AUD-004 and a hard panic; the code uses `phase:'definition'` for the fallback (D104).
+- Part 7.11 text catalog patch for S-INP-09 (D52), S-AUD-01..05 (D88) and the calibration listen texts (T04.09).
+- Delete the leftover browser profile folders %TEMP%\claude\flm-profile-* (locked LOCK files, OI-9).
 - Device and other-browser tests (XT, LT): owner.
 - Licence: the owner recorded "All rights reserved" (see docs/plan-work/OPEN-ISSUES-stage1.md).
+
+## 2026-10-29 19:30 - Phase 04 GATE, second review round - input/anchor root cause and the re-review fixes; GATE OPEN (coordinator commits)
+
+The re-review failed the gate again and the coordinator reported a flaky `input/anchor` test. All of it is fixed below except the two performance
+budgets that the measurements still miss; therefore the gate is OPEN, not passed. Nothing is committed.
+Gate commands, run by me in the real folder, on the final code:
+- `node tools/build.mjs` [exit 0, no problem line; ship 993,877 bytes = 0.95 MB, 76 percent of the 1.25 MB Phase 05 envelope; test 1.63 MB].
+- `node tools/selftest.mjs --all` three times [772/773, 772/773 and 773/773; the only failure, in two runs, is `integration@touch/IT-040` with a tick body of 18.0 ms
+  (pull 4.5, arranging 3.7; worst item 15.4 ms, a voiceless note: no Web Audio call) and 8.3 ms (worst item 5.2 ms)]. Earlier runs of this round, with the machine
+  busy (a CPU test took 5.3 s that takes under 1 s on a quiet machine): 770/777, 771/773, 770/777, with IT-040, TT-002 and TT-023 timing out or missing; none was changed.
+- `node tools/selftest.mjs --all --slow` [776/776]. `node tools/selftest.mjs --smoke` [SMOKE OK].
+- `node tools/perf.mjs --repeat 3` on the default set, the gate run [FAIL, 6 scenario lines]. build-size 993,877 bytes pass; boot-to-menu menuMs 166.6, menuMsMax 733.1,
+  phaseAMs 70.2, bootMs 97.2, capsMs 18.9 pass; content-expand 4.9 ms pass; loop-drift-short driftMs 0 pass (7 wraps, 1 / 0 / 8 stalls).
+  playback-dense (PT-004, now 187 s of demo-electro looped at speed 2 until 5,000 events were checked): lookaheadMaxMs 120 pass (120 / 119.98 / 120);
+  tickIntervalP50 25 pass; P95 26 pass (26 / 31 / 26); tickIntervalMaxMs 72 pass (106 / 43 / 72 - run 1 was above 95; median judged); schedErrorMaxMs 0.02 pass;
+  voicesMax 59 pass; **tickWorkMaxMs 14.8 FAIL (51.7 / 12.1 / 14.8, budget 4)**; **lateEvents 1 FAIL (1 / 0 / 0, worst run judged, budget 0)**.
+  chord-stress-1000 (PT-012): voicesMax 64, accountError 0, lateEvents 0, activeVoicesAfterStop 0, audioNodesExcess 0, errors 0 pass; audioNodesMax 465 of 704 pass
+  (465 / 463 / 468, stolen voices that are still fading out counted apart); **tickWorkMaxMs 5.7 FAIL (9.4 / 4.6 / 5.7, budget 4)**; voiceBuildMeanMs 0.34 (target 0.15, info).
+  An earlier gate run of this round on the code before the playback start fix: PT-012 tickWorkMaxMs 5.3 / 5.2 / 61, PT-004 tickWorkMaxMs 20.4 / 47.9 / 31.1 and lateEvents 14 / 14 / 15.
+  The earlier "quiet series" 3.9 / 4.1 / 3.8 of the first review round is not a gate result and is not used.
+- Foundation guard: its five groups are part of `--all` and pass. `node tools/make-corpus.mjs --check`: not run (corpus untouched).
+
+Gate state: PT-004 and PT-012 miss `tickWorkMaxMs` <= 4 on all three runs of the gate run (best runs 12.1 and 4.6 ms) and PT-004 missed `lateEvents` 0 once.
+Phase 04 stays "open" in STATUS until a gate run passes every gated metric. Where the time goes (item 8 of the re-review): a CDP trace with GC events of
+chord-stress-1000 shows young-generation scavenges of 4 to 7 ms on a quiet machine (62 to 99 events of 1 ms or more in 20 s); with five busy processes
+the scavenges take 15 ms, 78 ms and once 1,295 ms (the main thread waits for starved helper threads) and the "voiceless" items, which make no Web Audio call,
+show the same 6 to 19 ms spikes as the notes with voices. Single items over 3 ms were 0 to 3 per quiet run and 37 in one loaded run. So the spikes are the
+host (preemption and garbage collection), not the voice build; but the 4 to 7 ms scavenges are ours to reduce (allocation per note) and are the next work
+item for the gate (OI-37). The warm mean cost of a note start, measured inside Instruments including slot, start and release booking, is 0.28 to 0.36 ms
+against the 0.15 ms target: not met (a voice needs 8 to 11 nodes at 25 to 65 microseconds each).
+
+Fixes of this round (message item: what; test):
+- Anchor (coordinator): root cause `Input.clearAnchor` kept `emittedOffset` and `emittedAtMs`, so the first sample after a clear (detach, new context, resume)
+  was held back by the once-a-second gate whenever the previous test's real-time press had set `emittedAtMs` within 1 s before the fake clock value 4000;
+  with the instruments group before it the page was about 4 s old, so it hit 3 times in 4. Reproduced with `--group instruments --group input` (1 in 3), fixed in
+  `clearAnchor` (the first sample of a new time base is always announced). Guard test "anchor: the first sample after a clear is announced even when input.anchor fired a moment
+  ago (regression)" fails without the fix (expected 2 got 1); 9 `--all` runs and 6 group runs since: no anchor failure.
+- High 1 PT-004: the scenario now measures `tickIntervalP50/P95/Max`, `tickWorkMaxMs`, `schedErrorMaxMs` (raw `at` and tick recorded, checked between ticks on the same loop pass,
+  clamped notes excluded through the new `late` flag of `sched.noteOn`), `lateEvents`, `voicesMax`; perf.mjs gates them with the 9.7.7 thresholds (ranges supported)
+  and treats a metric with fewer samples than its row needs (5,000 events, 1,000 ticks) as invalid. demo-electro has about 15 notes a second, so 5,000 events need
+  about 3 minutes: the scenario loops the song at speed 2 until 5,000 events are checked (D112).
+- High 2 and 3: the gate run above is the default set with `--repeat 3`; its result is reported as it is. `runHarnessScenario` judges the failure counts
+  (`accountError`, `errors`, `activeVoicesAfterStop`, `audioNodesExcess`, `voicesMax`, `lateEvents`) by the worst run, the others by the median, and lists every run.
+- High 4 cost model: the sample is capped at 2 ms, a note due within 60 ms is never held back by the estimate or the build cap (only by the 4 ms of the clock),
+  `costs` and `starved` are reset at bind and unbind. UT-05-39 (60 notes 2 ms apart, one build preempted for 30 ms: no late note; 53 late without the fix).
+- Medium 5: D103 reverted (D113). Medium 6: `restart()` with a replaced context re-anchors the playing transport (`heldPosition` / `reanchor`, a 'resync' seek) and
+  publishes `audio.sink`; UT-05-36 checks both. Medium 7: the warm-up is awaited before `Scheduler.bind` (and before play), primes every program and every drum recipe
+  the song uses (and the wheel path), is limited to the pluck cache size, and is repeated after `onGraphRebuilt` on a new context; the perf scenario calls `warmupSong` as
+  the modes do. Medium 8: see above. Medium 9: UT-06-27 now panics in the middle of release tails of more than 0.8 s (program 94). Medium 10: D108 stands, the owner's
+  approval of 2.5 MB at 2026-10-29 18:35 is recorded in it.
+- Low 11 `build.mjs` checks that each part file registers `FLM.Core.part` for its own namespace (or holds its define) and `resetRegistryForTests` clears and restores the parts
+  (UT-01-29). Low 12 duplicates of one key are removed in every chord, not only in chords larger than the voice cap (T04.06c). Low 13 `priorityOf` follows the program timeline
+  (UT-06-33). Low 14 `onGraphRebuilt` keeps the remembered fallback level and the wave and curve tables.
+- Also: playback starts booking its first notes in the call that starts the transport (`bookAtStart`, not a tick), because the first tick can come after the lead-in of 50 ms
+  while the mode set-up blocks the thread (startup lateness 8 events in the first round).
+
+Decisions:
+- D111 `clearAnchor` resets the emission state (see the anchor root cause).
+- D112 PT-004 runs the demo song looped at speed 2 for 5,000 events (rule 8 of 9.1.1); `late` is a field of `sched.noteOn`. Which budgets are gated and with which sample minimum is in perf.mjs.
+- D113 (reverts D103) Part 6.6.6 stands: 11 nodes a melodic voice with the mod wheel fully up, 8 a drum hit. The vibrato LFO is one oscillator per track and channel, shared by the
+  depth gains of its voices and ended with the last voice of the channel (`lfos` of the channel state, disposed by `onGraphRebuilt` and `dispose`). To stay at 11: program 55 uses the same level
+  (0.5) for its three sawtooth oscillators so they share one gain node; program 109's drone level is 0.35 (shares the gain node of the sawtooth); the crash drum has three metal partials
+  (the 7200 Hz one is gone) in one decaying gain: 8 nodes. The PT-012 budget is 704 again; voices that are stolen and still fading out are counted apart (`Instruments.stats().fadingNodes`).
+  UT-06-22 checks 11 and 8 with the wheel up.
+- D114 `Audio.restart()` with a replaced context: the transport position is taken before the swap and put back on the new clock, M-07 hears `audio.sink`.
+- D115 The warm-up is awaited by `Modes.bindScheduler` (before bind and play); a preview left during the warm-up does not bind.
+- D116 Playback booking at start (`bookAtStart`): see above. Notes in the cost model: `URGENT_S` 60 ms, sample cap 2 ms.
+- D117 Duplicates of one track, channel and pitch at the same instant: the louder one stays, in every chord. D118 The steal priority of a note uses the program in force at its time.
+- D108 is approved by the owner (recorded at its text above); the Phase 16 PT-001 change from 1.5 MB to 2.5 MB stands.
+
+Open issues: OI-37 (reopened as the gate blocker): PT-004 and PT-012 `tickWorkMaxMs` and PT-004 `lateEvents` miss their budgets in the gate run; next steps are less allocation per note
+(fewer young-generation scavenges of 4 to 7 ms) and a quiet machine for the measurement. OI-47 stays (real-clock tests flake under load; IT-040 failed in 2 of 3 `--all` runs of the final code
+at 8 to 18 ms with the worst item named in the message). Owner actions: unchanged; the plan patch of OI-50 (the fault phase of the fallback) is still due.
+RESUME: finish the Phase 04 gate: get a gate run (`node tools/perf.mjs --repeat 3`, default set) in which every gated metric passes, then record it here and in STATUS and set the gate to passed;
+do not start Phase 05 before. Next phase after the gate: T05.01 (M-18 renderer initialization). Re-run `node tools/build.mjs` and `node tools/selftest.mjs --all` first (773/773 expected).
+
+## 2026-10-29 16:50 - Phase 04 GATE, review round - fixes of the Opus review of T04.05 to T04.12 (coordinator commits)
+
+Superseded by the second review round entry above: its counts, perf numbers, the D103 node limit and its RESUME are replaced there.
+The Opus review failed the gate; everything it listed is fixed below, no commit was made. The gate record of the entry underneath
+is replaced by the numbers here (counts, size, perf); its text is kept for the checklist and the risk review.
+Gate commands, run by me in the real folder:
+- `node tools/build.mjs` [exit 0, no problem line; ship 984,463 bytes = 0.94 MB, test 1.61 MB; the build now reports "now in Phase 05:
+  75 percent of the 1.25 MB envelope of the Phase 05 gate (hard limit 2.50 MB)"].
+- `node tools/selftest.mjs --all` [768/768 passed, 25 groups: core 35, theory 24, model 32, transport 46, audio 85, instruments 37, input 71,
+  mapping 30, rhythm 43, storage 6, ui 49, screens 49, modes 35, boot 14, content 15, selftest 17, integration 10, timing 19, files 1,
+  faults 8, perf-smoke 2]. Earlier runs of the day had one real-clock flake each (the input anchor test, IT-040 once with a 35 ms tick body
+  at pull 1.3 ms, TT-001 and its leak checks once under heavy load); every one passed on the rerun and no test was changed to hide it (OI-47).
+- `node tools/selftest.mjs --all --slow` [771/771 passed; timing 22].
+- `node tools/selftest.mjs --smoke` [SMOKE OK on the shipped file].
+- `node tools/perf.mjs --repeat 3`: now runs a harness scenario three times in fresh pages and judges the median; every run is listed in a note.
+  Default set: build-size 984,463 bytes pass; boot-to-menu menuMs 186.3 ms, menuMsMax 291.2, phaseAMs 72.1, bootMs 111.3, capsMs 19.3 pass;
+  content-expand 3.7 ms pass (4.2 / 3.5 / 3.7); playback-dense lookaheadMaxMs 119.88 pass (119.78 / 119.88 / 119.93), tickWorkMaxMs 4.6 (info), 8 late
+  items, 1 stall; loop-drift-short driftMs 0 over 7 wraps pass (3 or 4 stalls per run did not move the schedule).
+  chord-stress-1000 (PT-012): voicesMax 64, accountError 0, lateEvents 0, activeVoicesAfterStop 0, audioNodesExcess 0, errors 0, audioNodesMax 703 to 751
+  of 832, voiceBuildMeanMs 0.28 to 0.34 (now measured inside Instruments), all pass. tickWorkMaxMs (budget 4), every run of every series, the host
+  being shared with other agents' test runs: quiet series 3.9 / 4.1 / 3.8 (median 3.9: the budget is met); series in the default set 15.5 / 5.1 / 59;
+  a later series 8 / 7.2 / 6.2; a series under heavy load 44.5 / 15.4 / 111.4. The longest single item in the quiet series was 1.4 to 2 ms; in the
+  loaded runs it was one voice build of a drum note or a first note taking 6 to 109 ms (a preempted thread or a garbage collection, not the cost model).
+  So PT-012 passes on its quiet runs and not on loaded runs; this is reported, not hidden (OI-37 stays open as a host-load observation).
+- Foundation guard: the five foundation groups are part of `--all` and pass. `node tools/make-corpus.mjs --check`: not run (corpus untouched).
+
+Fixes (review item: what was done; test):
+- High 1 stale slot: `VoiceAllocator.free` installs a fresh slot object (as `steal` does); `voice.dispose` removes its `heldLive` entry; the voice
+  knows its pitch. UT-05-35 (a freed slot is stale: release, markReleased and free through the old handle do nothing), UT-06-25 (held steel guitar after
+  its 2.5 s buffer ended: the next note is untouched).
+- High 2 soft panic: `voice.release` now returns only when the new release would not end the sound earlier (`start + ramp >= releaseAt + releaseRamp`);
+  the earlier ramp keeps running until the new one starts (`cancelAndHoldAtTime`). UT-06-26 (strings in a 1.5 s tail are silent 30 ms after the
+  panic, rendered), UT-06-27 (real engine, four voices in release tails, activeCount 0 within 350 ms, which is the test of the mode-leave step: no
+  hard panic, no E-AUD-006).
+- Medium 3 PT-012: `sched.noteOn` carries `voiced`; lateness counts voiced notes only; the harness records raw values and works them out after the run
+  (no `audioTimeAt` in the tick); the voice cost is the time Instruments spent building voices divided by the voices built (`stats().voiceBuildMs`).
+- Medium 4 survivors (D101, update of D81), Medium 5 fallback and Restart audio (D104, D105), Medium 6 last source and KS end fade, Medium 7 tremolo in
+  series, Medium 8 nodes (D103), Medium 9 live 60 s cap (D106): see the decisions. Tests: T04.06 and T04.06b (priority, duplicates, voiceless last),
+  TT-028 (new order), UT-06-28, FI-043, UT-05-36, UT-27-30, UT-06-32, UT-06-29, UT-06-30, UT-06-22 (mod wheel up), UT-06-10 and UT-06-15 (cap).
+- Low: D80 vibrato from the track's CC 1 events (UT-06-31); pluck cache key without the layer, `Instruments.warmupSong` (UT-06-29) called by
+  `Modes.bindScheduler`; calibration clicks never get time null, Escape and leaving cancel them (UT-27-17h checks the click spacing and the beats,
+  UT-27-29); recovery resync uses reason 'resync' (FI-005 asserts no soft panic follows); output device change sends `audio.sink`, not
+  `audio.unlocked` (UT-05-37, UT-07-03 now counts 5 subscriptions); build size line reports the real phase.
+- OI-37 in the order asked: (1) a running cost estimate per item type (smoothing 0.2) plus the worst of the tick predicts the next item; (2) at most 6
+  items costing over 0.25 ms per tick (UT-05-38); (3) finding 4; (4) harness work out of the tick (see Medium 3); (5) an end-time queue replaces the pending
+  scan in `forgetEnded`, the steal log line and its data are made once, sounding and live-held maps are nested by track with numeric keys; (6) re-measured
+  above. Also found by the profile: the chord arrangement itself cost 4 to 15 ms cold, so it works in one pass per priority and track, notes carry
+  a declared `overflow` field (one object shape), the pull is copied once; a tick whose pull used the budget books nothing and the next tick books at least
+  one item; `warmupSong` also builds one throw-away voice per program (through its own strip, uncounted) and fills the sustain table of every track, because the
+  first note of a track cost 4 to 9 ms. Statistics added: `arrangeMaxMs`, `itemMaxMs` and `itemMaxWhat`.
+
+Decisions:
+- D99 (High 1) `free()` replaces the slot object; every handle taken before is stale and all slot functions return false for it.
+- D100 (High 2) A release replaces the one in force when it ends the sound earlier; a soft panic therefore reaches voices in their tails.
+- D101 (Medium 4, updates D81) A chord is the notes within 1 ms of the first; only a chord larger than the voice cap is cut. Notes with the same track,
+  channel and pitch: the louder one stays. Survivors are chosen by priority (drums and bass 2, melody 1, pads and effects 0, `Instruments.priorityOf`,
+  D84), then round-robin over the tracks, the loudest note of a track first; they are booked first in their original order, the voiceless notes are announced
+  after them (`voiced: false`, counted started and stolen); a control item inside the chord goes before its notes. TT-028 expects 8 notes per track.
+- D102 (OI-37, updates D82) The tick model of the OI-37 entry above. The budget stays 4 ms.
+- D103 (Medium 8, updates D83; REVERTED by D113 of the second review round, the plan limit of 11 nodes and 8 for a drum hit stands again) With the mod wheel fully up programs 21, 23, 44, 52, 53, 54, 91 (12 nodes), 55 and 109 (13 nodes) exceed 11; the limit is
+  13 (`MAX_VOICE_NODES`) and the PT-012 budget `audioNodesMax` is 64 x 13 = 832, measured 703 to 751. Reason: the wheel is a fixed-cost feature (2 nodes), and
+  cutting oscillators would change the sound of nine programs. UT-06-22 now sets CC 1 to 127 first. A track with CC 1 events gets its vibrato LFO from the
+  first note (D80 changed: per track, so a wheel ramp reaches notes already sounding).
+- D104 (Medium 5, R-P6.1-12) A definition that fails (any error that is not a DOMException) plays the family template without the program's overrides, then a
+  basic triangle voice; the program remembers the level that works; one warning is logged. A DOMException from node creation is not a definition problem: it
+  is E-AUD-004 with the hard-panic recovery (FI-005). The fault `audio.fail {phase:'definition', count}` was added. The plan row AT-R-P6.1-12 arms
+  `phase:'node'` for the fallback, which contradicts FI-005 on the same fault; the plan needs a patch (owner action). The warning is only logged: M-06 cannot show
+  a toast (STATUS section 5).
+- D105 (Medium 5, R-P19-04) `Audio.restart()` (called inside the click): a context closed behind the engine is replaced by a new one and the strips are
+  rebuilt, the graph is rebuilt by a hard panic with reason 'rebuild', then the context is resumed. DLG-ResumeAudio has "Resume sound" and "Restart audio" and
+  closes with 'resume' only when the sound runs; otherwise it says the sound is still blocked and stays. SCR-Diagnostics has "Resume audio" and "Restart audio".
+- D106 (Medium 6, 7, 9) The voice is disposed when its last source has ended; the Karplus-Strong buffer fades out over 20 ms; the tremolo is a gain node in
+  series after the envelope (3 nodes); the pluck cache key is program, pitch and rate; a live note books its own release at +60 s (the key release is earlier).
+- D107 (Low) `Audio.Metronome.cancel()` and `scheduled()` (calibration cancels its own clicks; the test reads the booked times); the recovery resync is
+  `Transport.seek(tick, 'resync')`, which the Scheduler does not treat as a seek; `audio.sink` announces an output device change.
+- D108 (OI-45; APPROVED by the owner, 2026-10-29 18:35: asked "Finger Lickin Music is 0.98 MB now, and projections say it passes 2.5 MB around Phase 11 as instruments and songs are added. What should the final size limit be?", the owner answered "Raise to 2.5 MB (Recommended)", an option that "Keeps the planned content. Size is checked again at each phase gate, and content is trimmed if it goes over." The Phase 05 and Phase 09 envelopes, the Phase 12, 13 and 16 values and the Phase 16 PT-001 change from 1.5 MB to 2.5 MB all stand and are no longer pending) The RISK-60 envelopes are reset from the growth measured to the Phase 04 gate (0.93 MB, about 0.24 MB a
+  phase): Phase 05 1.25 MB, Phase 09 2.20 MB, Phases 12, 13 and 16 2.50 MB (the hard limit, which stays). No comment stripping for now. At this rate the file
+  crosses 2.5 MB at Phase 11, so the "revisit" trigger is already visible: revisit at the Phase 05 gate with the measured Phase 05 size. The build warns above the
+  envelope of the current phase (read from `Current phase` in STATUS.md) instead of above 1.5 MB. The plan lines were updated (Part 11 phase table, the T sections
+  of the gates, RISK-60, PT-001, the build specification).
+- D109 (OI-45) `27-screens.js` was 152,211 bytes; the calibration wizard (18.6 KB) moved to `27a-screens-calibration.js`, a part of the same module (Part 3.1 form
+  NNx-name-part.js): `Core.part(module, name, factory)` registers it, `Core.usePart` makes it on first use with a kit of the helpers of 27-screens.js. 27-screens.js is now
+  136.6 KB. UT-01-29 tests the mechanism. The shipped file grew by about 3 KB (kit and wrapper).
+- D110 Test numbering: the regression tests follow Part 12.1.7 (next free numbers: UT-05-35, UT-06-25 and UT-06-26, UT-06-30, UT-06-32, UT-27-29 and UT-27-30, FI-043); the
+  plan index tables 12.2.1, 12.2.5, 12.2.6, 12.2.27 and 12.7.1 have their rows.
+
+Open issues: OI-37 stays open as an observation: PT-012 meets the 4 ms tick budget on quiet runs only (see above); to be measured on a quiet machine and once the
+renderer exists. OI-45 is decided (D108); new OI-49: the size projection crosses 2.5 MB at Phase 11. OI-50: AT-R-P6.1-12 and FI-005 use the same fault phase for two
+behaviours (D104).
+Owner actions: unchanged (commit by path and push, authorized after each checked batch; the Part 7.11 patches; the plan patch of OI-50).
+RESUME: T05.01 (M-18 renderer initialization, tier selection and WebGL fallback chain). Phase 05 is not started. Read Part 0, Part 6.18 and the T05 sections first; re-run
+`node tools/build.mjs` and `node tools/selftest.mjs --all` (768/768 expected).
+
+## 2026-10-29 13:10 - Phase 04 GATE (T04.12) - audio engine, instruments, built-in content (coordinator commits)
+
+Superseded by the review-round entry above: the counts (750/753), the size (957,052), the PT-012 numbers (704 nodes, OI-45 and OI-37 as open) and RESUME of this
+entry are replaced by that entry; the checklist and the risk review below still hold.
+Done: T04.05 to T04.11 in this session on top of T04.01 to T04.04; Phase 04 is 12 of 12 with the gate checks below. The commit
+`Finger Lickin Music: Phase 04 - audio engine, instruments, built-in content` is made by the coordinator, by path.
+Gate commands, run by me in the real folder (result in brackets):
+- `node tools/build.mjs` [exit 0, no problem lines; ship 957,052 bytes (956,959 at the perf run), test 1.57 MB; the build tool reports the 0.95 MB envelope of
+  RISK-60 (Phase 09 row)].
+- `node tools/selftest.mjs --all` [750/750 passed, 0 skipped, 25 groups: core 34, theory 24, model 32, transport 46, audio 80,
+  instruments 29, input 71, mapping 30, rhythm 43, storage 6, ui 49, screens 47, modes 35, boot 14, content 15, selftest 17,
+  integration 10, timing 19, files 1, faults 7, perf-smoke 2; the touch variants of input, integration and others pass too].
+- `node tools/selftest.mjs --all --slow` [753/753 passed; timing 22 with the three slow rows].
+- `node tools/selftest.mjs --smoke` [SMOKE OK on the shipped file].
+- `node tools/perf.mjs --repeat 3` (default set) [see STATUS section 7: build-size 956,959 bytes (limit 2,621,440) pass; boot-to-menu menuMs 170.5 ms (1500), menuMsMax 629.9 (2250), phaseAMs 67.1 (600), bootMs 104 (400), capsMs 18.7 (20) pass; content-expand expandMaxMs 4.2 ms (50) pass; playback-dense lookaheadMaxMs 119.9 ms (125) pass (PT-004); loop-drift-short driftMs 0 (2.0) over 7 wraps pass (PT-007); chord-stress-1000 (PT-012) passes every budget except tickWorkMaxMs: 6.8 ms (best repeat run) and 21.4 ms (a later loaded run) against 4 ms. The tool exits 1 for that one budget. The gate is recorded as passed with this exception (OI-37); the decision to accept it is the coordinator's].
+- `node tools/make-corpus.mjs --check`: not run, the corpus and its generator were not touched (no corpus exists yet).
+- Foundation guard: the five foundation groups are part of `--all` and pass (core, model, transport, audio, rhythm).
+- C.2 review greps: `(src|href)="//` count 0; no `console.log` outside 01-core; no calibration names in 04/05/08; the only
+  `Date.now()` in the timing modules is the busy wait of the `timer.stall` fault in 05-audio.js (T04.04, by design: fake
+  timers must not move it).
+0.5 checklist (ticked unless noted): T sections in order and all dependencies done; every T section names its groups with
+counts in its LEDGER entry; modules in M-number order (M-05, M-06, M-15 Catalog subset, M-30); each group passed before the
+next section; `--all` passed at the gate; STATUS header and section 2 current; nothing called Implemented from UI alone (the
+per-row counts in STATUS section 1 stay at 0 Implemented because the AT rows are not coded as runnable tests, as in the earlier
+gates); placeholders listed in section 5; no claim without a recorded run (device and listening checks stay open, below);
+assumptions and decisions in the entries (D71 to D98); RESUME current; only plan names used; new files UTF-8 BOM + LF + ASCII
+(checked for the five new files). NOT ticked: the Part 7.11 text catalog patch for S-AUD-01..05 (and S-INP-09) is an owner action.
+Appendix C walk (G-09): rows held: 1, 2, 3, 4, 10, 12 (no row is marked Implemented), 13 (assertClean now also counts audio
+nodes, strips, voices, the Scheduler binding), 14, 15. Rows not yet testable: 5 (Phase 05), 6 (Phase 07), 7 (Phase 09), 8
+(Phase 13), 11 (Phase 07). Row 9 partly: lazy voice graphs and pluck buffers hold (nothing is built before first use) but the
+boot-time diagnostics providers that report zero compiled graphs and zero expanded songs are not built yet (OI-46).
+13.3 review block (state after this gate; "awaiting owner" = the automated verification passed, the named LT or XT needs a
+person or a device):
+- RISK-01 timing drift: open, awaiting owner (LT-017, LT-037). TT-001..TT-005, TT-015..TT-017 offline rows that exist pass; PT-007
+  loop-drift-short driftMs 0 ms over 7 wraps in 60 s. Re-check at Phase 15.
+- RISK-02 audio blocked: open, awaiting owner (XT-006..XT-010). UT-05-01..05, UT-29-06/09, UT-28-08, FI-004, FI-008 pass.
+- RISK-04 lost note-offs: open (retires at Phase 07 with imported files, LT-035 Phase 15). UT-05-21..24, UT-05-30, UT-05-31,
+  UT-05-34 (regression), AT-R-E2.1-08 (100 cycles at baseline), UT-28-03 pass.
+- RISK-10 polyphony limits: open, awaiting owner for the mobile cap (device run of chord-stress-1000). PT-012 on the desktop:
+  voicesMax 64, started 16,000, dropped 0, accountError 0, lateEvents 0 (chords that started late; 47 to 292 notes inside a chord were booked late), activeVoicesAfterStop 0, audioNodesMax 391 of 704, voiceBuildMeanMs 0.29 to 0.47 (target 0.15, info), tickWorkMaxMs 6.8 to 21.4 (budget 4: FAIL, OI-37). The same-instant overflow rule (D81) keeps the work bounded.
+- RISK-30 context suspended: open, awaiting owner (XT-043..XT-052, XT-073). FI-001, FI-004, FI-007 pass; Resume re-anchors.
+- RISK-31 duplicate engines: retired for the automated checks (IT-047 and IT-047b, c; UT-05-05): state `retired`.
+- RISK-32 pause, seek and loop notes: open, awaiting owner (LT-017). UT-05-24, UT-05-31, TT-006..TT-011 pass.
+- RISK-33 pedal, retrigger, program change: retired for the automated checks (UT-05-30.., UT-06-14, UT-06-15, UT-06-17 and the
+  retrigger and song-end tests): state `retired`; the listening review LT-035 is Phase 15.
+- RISK-70 clicks and pops: open, awaiting owner (LT-033, LT-038, LT-039). UT-05-10, UT-05-25, UT-05-26, UT-05-28 and the
+  offline renders pass.
+Risk events during the sessions: none realized. Early warning signals seen and handled: voice build cost (RISK-10, D81) and
+long tick bodies on a loaded host (OI-37, OI-44).
+Open issues (additions): OI-44 `playback-dense` on this host shows tick bodies up to 5.8 (best run) to 256 ms and 1 to 11 stalls in 30 s while
+`lookaheadMaxMs` passes; the scheduler ticks only wake on a loaded main thread (other agents were running tests); to be measured
+again on a quiet machine and with the renderer in Phase 05. OI-45 the shipped file is 956,959 bytes; Part 11 says the shipped
+file is at most 0.55 MB at the Phase 05 gate (RISK-60 first envelope) and the build tool already maps the size to the 0.95 MB
+envelope: the plan needs a decision (raise the Phase 05 envelope, or shrink the instrument tables); this is not blocking Phase
+04. OI-46 the zero-at-boot diagnostics providers of Appendix C row 9. OI-48 lines longer than 120 characters exist in the new and edited files (Part 3.11 limit; no tool enforces it); OI-47 real-clock tests (IT-040, TT-023, TT-002 near its
+10 s limit) flake under host load (see OI-28, OI-34); skill flake-triage applies; none was weakened.
+Owner actions: commit by path and push (authorized after each checked batch, 2026-10-29); delete %TEMP%\claude\flm-profile-*
+(locked LOCK files, OI-9); Part 7.11 patch for S-AUD-01..05, S-INP-09 and the new calibration texts; confirm settings row
+input.keys.more (D38); approve Part 7.11 patch for S-INP-09 (D52); device and other-browser tests (XT, LT) are owner-run.
+RESUME: T05.01 (M-18 renderer initialization, tier selection and WebGL fallback chain). Read Part 0, Part 6.18 and the T05
+sections first; re-run `node tools/build.mjs` and `node tools/selftest.mjs --all` (750/750 expected).
+
+## 2026-10-29 13:01 - T04.11 - Deferred register (Phase 04)
+
+Done: STATUS section 3 rows R-B11.1-03 (SoundFont sampled sounds, Deferred, P2) and R-B24-03 (sound-bank loading error,
+Deferred, P2) rewritten with their reasons and the disclosure sentences of T04.07 (SCR-Settings Audio `set-fidelity` S-AUD-01
+and SCR-About limits S-AUD-02; R-B24-03: no loading path exists, so no error can occur; a dropped .sf2 is refused at
+identification with E-IMP-006 in Phase 07).
+Verified: UT-26-23c (both disclosure strings present, word for word, and no other text says sampled or SoundFont loaded) passes
+in the `--all` run of the gate; AT-R-B4.1-01 review: both rows are Deferred with reason and disclosure; LT-094 is Phase 16.
+RESUME: T04.12 (Phase 04 gate).
+
+## 2026-10-29 13:00 - T04.10 - M-30 built-in demo arrangements, tutorial data and catalog registration
+
+Done: src/15-project.js (new): the `FLM.Project.Catalog` subset (`registerBuiltin`, `registerTutorial`, `register`,
+`unregister`, `list(kind)`, `get`, `getSong` with a one-time expand cache, `tutorial`, `cacheSize`). src/30-content.js (new):
+`NOTATION`, the five `ARRANGEMENTS` (`demo-poprock`, `demo-piano`, `demo-electro`, `demo-jazz`, `demo-dance`) and the tutorial
+song `tut-basics` typed exactly as Part 6.30.4.6, `TUTORIAL` (7 steps, lane pitches 60/64/67/72, instruments 0/25/80/12),
+`CHARACTER_PRESETS` (8), `expand` (deterministic, ids `t1.` ordinals, fixed timestamps, E-CNT-001..005), `parsePattern`,
+`tutorialChart`, `list`, `stats`, `durationSeconds`; load-time registration into the Catalog (and into `Character` when it
+exists, Phase 10). src/29-boot.js: `Project` and `Content` in EXPECTED_MODULES; B12 already checks the catalog. perf
+scenario `content-expand` (PT-018 first half): the slowest demo expands in 4 ms (limit 50). src/91-test-content.js (new).
+Verified: build 0 (ship 957,033 bytes), `selftest --all` 750/750 (25 groups, content 15), `--smoke` run at the gate.
+Tests: UT-30-01 to UT-30-11 and UT-30-14 pass, with the exact counts of the plan table (per track and 6,742 demo notes),
+durations 96.0 / 102.47 / 96.0 / 96.0 / 112.5 / 38.4 s, tempo entries at bars 29-32, jazz meter entries at bars 17, 25, 49,
+57, swing at 640, the tied G4 of 2,861 ticks, 9 bend gestures, the CC 1 ramp (51 events), the CC 11 dips (515), all 12 drum
+voices, ranges inside the instrument ranges; UT-30-12 and UT-30-13 in their structural form (partial until Phase 10 and
+Phase 08 exit as the plan says).
+Decisions: D95 the expander checks a bar check by looking whether the position is a bar start of the song (`barTick`), so a
+pattern that ends where the meter changes is valid; D96 note ids of a content track are `t<i>.<ordinal in base 36>` in event
+order after sorting and the track's `idSeq` continues after the last ordinal; D97 `Project.Catalog.register` accepts the three
+kinds and keeps registration order; the tutorial is not part of `list('builtin')`; D98 CHARACTER_PRESETS accessories are arrays
+and "(none)" is the empty array (Part 5.10 `Character.validate` will confirm in Phase 10).
+Open issues: OI-42 the About built-in content statement already named the demos and presets, so no text change was needed; the
+STATUS section 5 row for it is removed. OI-43 UT-30-12 (`Character.validate`) and UT-30-13 (chart checks of Phase 08), PT-018
+`chartBuiltinMaxMs` and the tutorial UI wait for their phases; LT-032 (originality review) is Phase 15.
+RESUME: T04.11 (Deferred register rows), T04.12 (Phase 04 gate).
+
+## 2026-10-29 12:52 - T04.09 - Audio diagnostics, latency estimate and calibration listen step
+
+Done: `Audio.info()` and `Audio.testTone(hz, seconds)`; SCR-Diagnostics Audio panel (context state, sample rate, unlock result
+and attempts, output latency "(estimate)" with a plain note whether the browser reported it, voices active / maximum / stolen /
+dropped, scheduler ticks / stalls / late events, input anchor jitter, Sound bank), "Test tone" enabled; SCR-Settings "Play test
+sound" enabled (a C major chord on the piano for 1 s through the live path, the track is removed after 2.5 s); DLG-Calibration
+listen step: Start unlocks sound, books 12 clicks on `Audio.Metronome` at times given in performance ms (converted with
+`Input.perfToAudio`), the taps of the player are matched like the flash step, the median becomes the click delay A and the sound
+delay is A minus the flash delay V (already in `calibrationFromMedians`); no technical words in the wizard.
+Verified: build 0, `selftest --all` 735/735 (24 groups), `--smoke` OK.
+Tests: UT-05-27 (latency estimate, defaults 20 ms desktop / 40 ms mobile, `info()` shape), a test-tone check, UT-27-17h (the
+listen step books clicks, measures +50 ms, then the flash step +30 ms gives a sound delay of 20 ms and saves it), the
+diagnostics Audio panel check. Existing test changed: UT-27-17c asserted that the listen Start button is disabled until this
+section; it now asserts it is available (the plan names UT-27-17 in this section).
+Decisions: D93 the wizard clicks use `Input.perfToAudio` for each target so the click is heard at the same moment the taps are
+compared against; the measured value is an estimate and the summary says so (existing `cal.summary.honest`). D94 the test sound
+and tone call `Audio.unlock()` first inside the click.
+Open issues: OI-41 LT-018, LT-019, LT-021 and XT-073 (calibration per output device) are Phase 15 and device-bound.
+RESUME: T04.10 (M-30 content and the Project.Catalog subset), T04.11, T04.12.
+
+## 2026-10-29 12:35 - T04.08 - Audio lifecycle and recovery matrix
+
+Done: src/05-audio.js - faults `audio.suspend {blockResumeMs}` (polled at each Scheduler tick: the live context is suspended,
+`resume()` / `unlock()` refuse with E-AUD-002 until the time has passed) and `audio.fail` phases `schedule` (booking throws),
+`closed` (context closed behind the engine) and, in M-06, `node`; `onsinkchange` reports E-AUD-011 and re-publishes
+`audio.unlocked` so M-07 samples its anchor again; a context that is closed without `close()` reports E-AUD-008
+(returnToMenu) once; a failed node or booking reports E-AUD-004 and `recover()` runs a hard panic with reason `rebuild`
+(at most one every 250 ms), after which the Scheduler seeks the transport to `positionAt(now)` so scheduling goes on.
+src/28-modes.js - an audio interruption in a gameplay mode pauses it and opens DLG-ResumeAudio (`FLM.Screens.dialog`); a
+successful Resume runs `Audio.resume()` inside the click and `Modes.resume()` continues from the frozen tick. The detachAudio
+facade offers `state` and `resume`.
+Verified: build 0, `selftest --all` 735/735 at the end of T04.09; faults group 7 (was 2), modes 35, audio 80.
+Tests: FI-001 (modes group, the frozen tick is kept; the lead-in after Resume is shown as ticks moved in 500 ms), FI-004 to
+FI-007 and IT-046 (faults group; IT-046 with a stand-in project object), FI-008 existed; UT-28-08 and IT-047 existed.
+Decisions: D89 the Resume dialog is opened by Modes, not by Audio (M-05 may not use screens). D90 an offline context that
+closes after rendering is not E-AUD-008 (only the fault or a real context closing is). D91 recovery after E-AUD-004 is rate
+limited to one per 250 ms of audio time. D92 `FLM.Screens.dialog` is the dialog entry for Modes (not `FLM.UI.Screens`).
+Open issues: OI-40 FI-002 and FI-003 (recording and dirty Studio forms), the recovery copy written before E-AUD-008 and IT-046
+with a real project are partial until Phase 09 exit (no Project, Recorder or recovery copy exists yet); XT-043..052 and XT-073
+are Phase 15.
+RESUME: T04.09, T04.10 .. T04.12.
+
+## 2026-10-29 12:20 - T04.07 - Audio fidelity and General MIDI coverage strategy
+
+Done: `Instruments.fidelity(program | 'drums')` (labels "Synthesized" and "Synthesized, velocity-sensitive", `sampled:false`),
+`Instruments.range`; the Part 1.5 sentences moved into the text catalog (`Core.Text` S-AUD-01 Settings sentence, S-AUD-02
+About limit, S-AUD-03 About fidelity line, S-AUD-04 "Sound bank: synthesized, no sound bank", S-AUD-05 coverage statement
+for 128 programs plus keys 35-81) and used by SCR-Settings Audio (`set-fidelity`, plus an "Instrument quality" list with the
+new `UI.Widgets.fidelityLabel` for piano, organ and drum kit), SCR-About (Limits, fidelity line, coverage) and
+SCR-Diagnostics (Sound bank row, built in T04.09); README coverage statement.
+Verified: build 0, `selftest --all` 735/735 at the end of T04.09 (ui 49, instruments 29).
+Tests: UT-06-02 (levels and labels of 0, 16, 109, 127 and 'drums', all 128 programs, no label says sampled), UT-26-23c (the
+fidelity scan of both catalogs: no "sampled", "SoundFont loaded", "authentic", "realistic", "full General MIDI" outside S-AUD-02;
+the two Part 1.5 sentences compared word for word), UT-26-23d (the widget).
+Decisions: D87 the fidelity scan is a new test UT-26-23c next to UT-26-23, not an edit of it (UT-26-23 keeps its assertions).
+D88 the sentence ids S-AUD-01..05 are new and need a Part 7.11 patch listing them (owner action, like S-INP-09).
+Exit criterion: 128 of 128 programs and 47 of 47 drum keys build a voice (UT-06-22: 175 voices, each at most 11 nodes).
+RESUME: T04.08, T04.09, T04.10 .. T04.12.
+
+## 2026-10-29 12:05 - T04.06 - M-06 Instruments: definitions, family templates, voices and drum kit
+
+Done: src/06-instruments.js (new, UTF-8 BOM, LF, ASCII): 16 frozen family templates, 128 frozen `InstrumentDef` records
+(family, template, fidelity, params, range, polyphonyHint, mono, animProfile, bank:null, defaultProfile, propId,
+controllers, articulations), 12 drum voices and `DRUM_MAP` (keys 35-81; others shakerMisc at 60 percent), voices
+(subtractive, FM, Karplus-Strong pluck with an LRU cache, noise, additive organ by PeriodicWave, velocity layers, ADSR with
+at least 2 ms ramps, per-voice vibrato and tremolo, waveshaper, formant filter), mono legato, hi-hat choke, program 102
+echoes, scheduled and live paths, program change (voices keep their patch), CC 1/6/7/10/11/38/64/100/101/120/121/123,
+RPN 0 bend range, pitch bend, the sustain pedal (scheduled: lengthened by Model.deriveSustain; live: sustainedLive),
+`releaseTrack`, `warmup`, `stats`, the 1 s slot watchdog, `fidelity`, `range`. src/29-boot.js: B7 attaches Instruments to
+the engine and makes it the Scheduler's instrument table; `Instruments` in EXPECTED_MODULES. src/05-audio.js: same-instant
+overflow rule, tick budget refinement, `pullMaxMs`. src/91-test-instruments.js (new). perf scenario `chord-stress-1000` now
+runs the real Instruments on a private engine (a real context when it runs).
+Verified by me in the real folder: build 0, `selftest --all` 735/735 (24 groups; instruments 29, audio 80), `--smoke` OK.
+Tests: UT-06-01, 03, 04, 05 to 24 (all of Part 6.6.8 except UT-06-02 which came with T04.07), plus whole-path rows: the
+Scheduler plays a song through Instruments (onsets within a quantum plus 4 ms), a hard panic empties voices and nodes, the
+pedal lengthens a scheduled note, echoes, a 300-note chord stays within 64 voices. Existing tests changed (Decisions D81):
+TT-028 (assertion on `stops` replaced by the `built` pitches), IT-040 (stand-in voice cost constant 4000 to 60000 loops),
+S-10 test unchanged; a new S-10 test for 1.5 ms items.
+Decisions: D80 vibrato and tremolo LFOs are per voice (2 nodes, ended with the voice), not per channel: nothing outlives a
+mode and the leave stays clean; limitation: a CC 1 change reaches only voices that were built with a vibrato (voices of
+templates with auto vibrato, or built while CC 1 was above 0). D81 a chord of the same instant (1 ms) with more notes than
+voices: its first (n - capacity) notes are counted started and stolen (`VoiceAllocator.noteSkipped`) and never get a voice,
+because stealing would remove them at once; the last notes sound, `sched.noteOn` / `noteOff` still go out for every note.
+Reason: a real voice build costs 0.3 to 1.2 ms (Web Audio node creation: oscillator 31 us, gain 23 us, biquad filter 65 us,
+measured), so building 1,000 voices a beat can never fit 4 ms ticks; without the rule PT-012 `lateEvents` was 3,219 and 12,749
+notes were dropped as stale. Replacing tests: TT-028 `built` assertion, IT-040 with 60000-loop voice cost (still spans
+several ticks). D82 a tick stops booking at 3.5 ms or when an item as costly as the last would pass 4 ms (extends D76). D83
+the organ and church organ are one additive oscillator (PeriodicWave); choir voices use the 900/500/1400 Hz bandpass as their
+only filter, so every voice has at most 11 nodes (UT-06-22). D84 voice `priority` is passed to the allocator but the steal
+order stays released-quietest then oldest (UT-05-12 fixes it). D85 `noteOn`, `control`, `startLive`, `stopLive`, `applyLive`
+do nothing when Instruments is not attached; `pluckBuffer` and `warmup` need a binding. D86 the public `liveNoteOn`,
+`liveNoteOff`, `controlLive` go through `Audio.Scheduler.liveNoteOn / liveNoteOff / liveControl` (so every live note is a
+sched.* event); the Scheduler calls the inner `startLive / stopLive / applyLive` (this renames the stand-in names of D75).
+Open issues: OI-37 `chord-stress-1000` with real voices: `voicesMax` 64, `started + dropped === 16000`, `lateEvents` 0,
+`activeVoicesAfterStop` 0 and `audioNodesMax` 453 (limit 704) pass, but `tickWorkMaxMs` varies from 4 to 95 ms between runs on
+this loaded host (3.6 ms with stand-in voices; the long ticks are the pull of 1,000 events and Web Audio lock waits) and
+`voiceBuildMeanMs` is 0.46 against the 0.15 target (info only); to be measured again on a quiet machine at the gate. OI-38
+timbres are only checked structurally; the listening reviews LT-031, LT-041, LT-042 are Phase 15. OI-39 TT-001 still renders
+with tone stand-ins; the rendered check with real voices is the Scheduler-through-Instruments test of the instruments group.
+RESUME: T04.07 (fidelity strategy), T04.08, T04.09, T04.10 .. T04.12.
+
+## 2026-10-29 11:30 - T04.05 - Note lifecycle, panic, node accounting, live note path
+
+Done: src/05-audio.js - `panic(hard, reason)` (soft: 30 ms release of every voice, booked and live notes forgotten with a
+sched.noteOff, booked clicks cancelled, sustain pedal up through `instruments.allNotesOff`; hard: voices stopped and
+disposed, master, limiter, analyser, metronome bus and every strip rebuilt on the same context from the cached mix state,
+strip objects and solo set kept, `instruments.onGraphRebuilt(engine)`), `audio.panic {hard, reason, voicesStopped,
+releasedCount, audioTime}`, `nodeCount()` / `countNodes(change)` / `transientNodeCount()`, retrigger of the same track,
+channel and pitch releases the earlier voice at the new start (sched.noteOff 'overlap'), notes still held at the song end
+are closed at the song end, `Scheduler.liveNoteOn / liveNoteOff / liveControl` (UT-05-30), tick tail reserve (0.5 ms).
+src/28-modes.js - the leave steps pass reason 'mode', a new step `audioNodes` waits up to 200 ms for the node counter to
+reach the menu baseline, a second panic key press within 2 s is a hard panic. src/90-selftest.js - the detachAudio facade
+offers `panic`. tools/perf.mjs + src/92-test-perf-smoke.js - scenario `chord-stress-1000` (in the default set).
+Verified by me in the real folder: build 0 (no problem lines; ship 803,446 bytes), `selftest --all` 686/686 (23 groups),
+0 skipped; audio group 76 (was 58), modes 34 (was 30); `perf.mjs --scenario chord-stress-1000 --repeat 3` PASS with
+stand-in voices (voicesMax 64, started 16,000, dropped 0, accountError 0, tickWorkMaxMs 3.6, lateEvents 0,
+activeVoicesAfterStop 0, audioNodesExcess 0).
+Tests added: UT-05-22 (+b, c), UT-05-23 (+b, c, d), UT-05-30 (+b, c, d), nodeCount, AT-R-E2.1-08 (100 cycles), retrigger,
+song-end close, program change keeps voices, booked-click cancel (audio); UT-28-03 (+b), KeyP / Space panic keys (modes).
+No existing test changed or weakened.
+Defect (regression policy): VoiceAllocator.releaseSlot re-marked a slot 'released' after the voice had freed it inside its
+own release call (found by the 100-cycle stand-in). STATUS section 6 row, fix, regression test UT-05-34 (fails without the
+fix: shown), row appended to Part 12.2.5 (now 34 tests).
+Decisions: D71 nodeCount = persistent nodes: 4 for the master graph + 4 per strip + the voice nodes M-06 reports through
+`Audio.countNodes(+n)` at build and `countNodes(-n)` at dispose (M-06 must do both); metronome click nodes live at most 80
+ms and end by themselves, so they are not counted (`transientNodeCount()` shows them). D72 a hard panic keeps the strip
+objects: `strip.input / gain / pan / muteGain` are getters over the current chain, so callers that fetch `createStrip(id)
+.input` at note start (M-06) always get the live node. D73 `audio.panic` carries `voicesStopped` and `audioTime` (Part 4.4)
+next to `releasedCount` (Part 6.5.2); reasons user, stop, seek, mode, fatal, rebuild; sched.noteOff for panicked notes uses
+reason 'seek' for a seek and 'stop' otherwise. D74 the Scheduler calls the optional `instruments.allNotesOff(atAudio)` on
+every panic (CC 64 = 0 and held live notes forgotten) and `instruments.onGraphRebuilt(engine)` after a hard rebuild; M-06
+(T04.06) implements both. D75 live API: `liveNoteOn(trackId, pitch, velocity, channel, atAudio, {program?, isDrums?})`,
+`liveNoteOff(trackId, pitch, channel, atAudio)`, `liveControl(trackId, kind, event, atAudio)`; instrument calls
+`liveNoteOn(trackId, program, isDrums, channel, pitch, velocity, at)`, `liveNoteOff(trackId, channel, pitch, at)`,
+`controlLive(trackId, channel, kind, a, b, at)`; the live `sched.noteOn` has `atOff: null` and `durTicks: 0`. D76 the
+Scheduler books for 3.5 ms (TICK_TAIL_RESERVE_MS 0.5), so the in-flight item and the tick tail keep the tick body at or
+below 4 ms (PT-012 gate); the S-10 unit test is unchanged. D77 only Scheduler-booked clicks are cancelled by a soft panic
+(a seek makes them wrong); clicks played by hand (calibration, T04.09) are left alone; a hard panic drops all. D78 the
+panic key's second press within 2 s is decided in M-28 (`onPanicControl`), not in M-05. D79 `chord-stress-1000` runs on a
+private engine with stand-in voices until T04.06; T04.06 switches it to FLM.Instruments.
+Open issues: OI-36 UT-06-14, UT-06-15, UT-06-24 (listed in this section's Verification) test M-06 voices and are delivered
+with T04.06; IT-033 stays partial until Phase 06; TT-028 and PT-012 with real voices and the rendered half wait for T04.06
+and Phase 05; LT-035 is Phase 15. OI-35 items otherwise unchanged.
+RESUME: T04.06 (M-06 Instruments), then T04.07, T04.08 .. T04.12 (Phase 04 gate).
 
 ## 2026-10-27 19:45 - T04.03 to T04.04 - VoiceAllocator and Scheduler; STOPPED AT A CLEAN BOUNDARY
 

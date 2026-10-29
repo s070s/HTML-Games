@@ -1099,10 +1099,40 @@ function modules() {
   return Array.from(registry.values(), (record) => ({ name: record.name, order: record.order }));
 }
 
+// A module that outgrew one file (Part 3.1: NNx-name-part.js) keeps one namespace: the parts register a factory under
+// the module name, and the module asks for a part the first time it needs it (after boot, so every file has loaded).
+const partFactories = new Map();   // module name -> Map(part name -> factory)
+const partResults = new Map();     // module name -> Map(part name -> what the factory returned)
+
+function part(moduleName, partName, factory) {
+  assert(typeof moduleName === 'string' && typeof partName === 'string' && typeof factory === 'function',
+    'part needs a module name, a part name and a factory');
+  if (!partFactories.has(moduleName)) partFactories.set(moduleName, new Map());
+  const table = partFactories.get(moduleName);
+  if (table.has(partName)) throw codedError('E-GEN-001', 'part ' + moduleName + '.' + partName);
+  table.set(partName, factory);
+}
+
+/** The result of factory(FLM, kit) of a part, made once. @throws E-GEN-001 when the part was never registered. */
+function usePart(moduleName, partName, kit) {
+  if (!partResults.has(moduleName)) partResults.set(moduleName, new Map());
+  const results = partResults.get(moduleName);
+  if (results.has(partName)) return results.get(partName);
+  const table = partFactories.get(moduleName);
+  if (!table || !table.has(partName)) throw codedError('E-GEN-001', 'missing part ' + moduleName + '.' + partName);
+  const made = table.get(partName)(FLM, kit);
+  results.set(partName, made);
+  return made;
+}
+
 // Tests only: empties the registry and returns restore(), which puts every module back.
 function resetRegistryForTests() {
   const saved = Array.from(registry.values(), (record) => ({ record, namespace: FLM[record.name] }));
+  const savedFactories = new Map(partFactories);        // the parts of a module belong to the registry: a test with an empty
+  const savedResults = new Map(partResults);            // registry gets none, and gets every one of them back
   registry.clear();
+  partFactories.clear();
+  partResults.clear();
   saved.forEach((item) => { if (item.record.name !== 'Core') delete FLM[item.record.name]; });
   return function restore() {
     Array.from(registry.keys()).forEach((name) => { if (name !== 'Core') delete FLM[name]; });
@@ -1111,6 +1141,10 @@ function resetRegistryForTests() {
       registry.set(item.record.name, item.record);
       FLM[item.record.name] = item.namespace;
     });
+    partFactories.clear();
+    partResults.clear();
+    savedFactories.forEach((table, name) => partFactories.set(name, table));
+    savedResults.forEach((table, name) => partResults.set(name, table));
   };
 }
 
@@ -1351,7 +1385,16 @@ const TEXT_EXTRA = Object.freeze({
   'S-INP-09': 'One-switch play is not available in this version. Every control can be remapped and touch pads can be ' +
       'enlarged.',
   'S-NET-02': 'Two players on one keyboard is not available in this version. Each player uses their own device and ' +
-      'connects by invite code.'
+      'connects by invite code.',
+  // Sound fidelity (Part 1.5, T04.07): the only sentences that may name sampled sounds or a SoundFont.
+  'S-AUD-01': 'All instruments are synthesized in real time. Loading SoundFont (.sf2) sound banks is not supported in ' +
+      'this version.',
+  'S-AUD-02': 'Instrument sounds are synthesized by this file; no sampled sound bank is included, so timbres ' +
+      'approximate General MIDI instruments rather than reproduce recordings.',
+  'S-AUD-03': 'Instruments are synthesized; timbres approximate General MIDI programs.',
+  'S-AUD-04': 'Sound bank: synthesized, no sound bank',
+  'S-AUD-05': 'Sound coverage: all 128 General MIDI programs and the percussion keys 35 to 81 are played by ' +
+      'synthesized sounds; other percussion keys play a quiet shaker.'
 });
 
 const TEXT_TABLE = buildTextTable();
@@ -1370,6 +1413,8 @@ const Core = Object.freeze({
   RELAY_URL,
   LICENSE_NOTICE,
   define,
+  part,
+  usePart,
   modules,
   Emitter,
   bus,

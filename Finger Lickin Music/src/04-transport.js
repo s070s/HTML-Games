@@ -683,7 +683,8 @@ FLM.Core.define('Transport', function (FLM) {
     function appendEvent(items, track, trackIndex, event) {
       const atAudio = audioTimeAt(event.tick);
       if (event.kind === 'note') {
-        items.push({ kind: 'note', track, event, atAudio, endAudio: noteEndAudio(event), trackIndex });
+        // overflow is set by M-05 on a note the chord rule leaves without a voice; it is declared here so the object keeps one shape
+        items.push({ kind: 'note', track, event, atAudio, endAudio: noteEndAudio(event), trackIndex, overflow: false });
       } else if (CONTROL_ITEM_KINDS.includes(event.kind)) {
         items.push({ kind: event.kind, track, event, atAudio });
       }

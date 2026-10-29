@@ -428,7 +428,7 @@ FLM.SelfTest.group('integration', (t) => {
   const CHORD_PITCHES = 125;               // a track holds 250 notes: 125 pitches on two channels
   const MAX_AHEAD_S = 0.125;
   const TICK_BODY_LIMIT_MS = 8;            // S-10: 4 ms of booking; twice that is headroom for a loaded headless runner
-  const NOTE_COST_LOOPS = 4000;            // what the stand-in voice build costs (about 10 us): several 4 ms ticks
+  const NOTE_COST_LOOPS = 60000;           // what the stand-in voice build costs (about 150 us, T04.06): several 4 ms ticks
   const CLOCK_READ_MS = 1;                 // the audio clock is read at most this often: a read is not free
   const CHORD_WAIT_MS = 4000;
 
@@ -533,7 +533,7 @@ FLM.SelfTest.group('integration', (t) => {
       t.ok(ahead.every((delta) => delta <= MAX_AHEAD_S), 'no note more than 125 ms ahead; the largest is ' +
         (Math.max(...ahead) * 1000).toFixed(1) + ' ms');
       const stats = Audio.Scheduler.stats();
-      t.ok(stats.tickWorkMaxMs <= TICK_BODY_LIMIT_MS, 'the longest tick body was ' + stats.tickWorkMaxMs.toFixed(2) +
+      t.ok(stats.tickWorkMaxMs <= TICK_BODY_LIMIT_MS, 'the longest tick body was ' + stats.tickWorkMaxMs.toFixed(2) + ' (pull ' + stats.pullMaxMs.toFixed(2) + ', of it arranging ' + stats.arrangeMaxMs.toFixed(2) + '; worst item ' + stats.itemMaxMs.toFixed(2) + ' ms, ' + stats.itemMaxWhat + ')' +
         ' ms');
       t.eq(stats.backlog, 0, 'nothing is left in the cursor');
       const lastTick = tickAt[tickAt.length - 1];

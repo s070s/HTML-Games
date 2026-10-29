@@ -1,6 +1,6 @@
 ﻿// tools/perf.mjs - runs the performance scenarios of Part 9.7 and compares them with the budgets of Part 9.1.
 // Spec: Part 3.5. Node built-ins only. Scenarios so far: build-size (PT-001), boot-to-menu (PT-002) and input-latency
-// (PT-009, input part; the tool sends the key presses); later entries add scenarios to SCENARIOS and BUDGETS. Any other name is passed to the in-page harness
+// (PT-009, input part; the tool sends the key presses), chord-stress-1000 (PT-012, in page); later entries add scenarios to SCENARIOS and BUDGETS. Any other name is passed to the in-page harness
 // FLM.SelfTest.perf.run (test build) and its metrics are reported as info until a budget is added here.
 //
 //   node tools/perf.mjs [--scenario <name>]... [--all] [--tier <High|Balanced|Low|Abstract>] [--repeat <n>]
@@ -35,14 +35,23 @@ const CLOSE_GRACE_MS = 5000;
 const BYTES_PER_MB = 1048576;
 const USAGE = 'usage: node tools/perf.mjs [--scenario <name>]... [--all] [--tier <High|Balanced|Low|Abstract>] '
   + '[--repeat <n>] [--json <path>] [--headed] [--file <html>] [--timeout <seconds>]';
-const PLANNED_SECONDS = { 'build-size': 1, 'boot-to-menu': 10, 'input-latency': 25 };
-const DEFAULT_SET = ['build-size', 'boot-to-menu'];
+const PLANNED_SECONDS = { 'build-size': 1, 'boot-to-menu': 10, 'input-latency': 25, 'chord-stress-1000': 20, 'content-expand': 5, 'playback-dense': 200, 'loop-drift-short': 65 };
+const DEFAULT_SET = ['build-size', 'boot-to-menu', 'chord-stress-1000', 'content-expand', 'playback-dense',
+  'loop-drift-short'];
 
 // Budgets of Part 9.7.7 (desktop column). A metric without an entry is reported as info.
 const BUDGETS = {
   'build-size': { shipBytes: 2621440 },
   'boot-to-menu': { menuMs: 1500, menuMsMax: 2250, phaseAMs: 600, bootMs: 400, capsMs: 20 },
-  'input-latency': { inputProcP95Ms: 4, inputProcMaxMs: 16.7 }
+  'input-latency': { inputProcP95Ms: 4, inputProcMaxMs: 16.7 },
+  // Part 9.6.4 and rows 21 and 22 (desktop cap 64); accountError is |started + dropped - 16000|; audioNodesMax = cap x 11 nodes (Part 6.6.6; stolen voices that are fading out are counted apart)
+  'chord-stress-1000': { voicesMax: 64, accountError: 0, tickWorkMaxMs: 4, lateEvents: 0, activeVoicesAfterStop: 0,
+    audioNodesExcess: 0, audioNodesMax: 704, errors: 0 },
+  'content-expand': { expandMaxMs: 50 },
+  // PT-004 (Part 9.7.7): a number is a maximum, {min, max} a range
+  'playback-dense': { lookaheadMaxMs: 125, tickIntervalP50Ms: { min: 23, max: 27 }, tickIntervalP95Ms: 50, tickIntervalMaxMs: 95,
+    tickWorkMaxMs: 4, schedErrorMaxMs: 1.0, lateEvents: 0, voicesMax: 64 },
+  'loop-drift-short': { driftMs: 2.0 }
 };
 
 const BOOT_READY_EXPRESSION = "!!(window.FLM && window.FLM.Boot && typeof window.FLM.Boot.stage === 'function'"
@@ -180,8 +189,33 @@ async function runBootToMenu(context) {
   return result;
 }
 
-/** Any other scenario runs in the page: FLM.SelfTest.perf.run in the test build (Part 9.7.2). */
+/**
+ * Any other scenario runs in the page: FLM.SelfTest.perf.run in the test build (Part 9.7.2). With --repeat n it runs n
+ * times, each in a fresh page: the metrics are the median of the runs, and every run is listed in a note, so a result
+ * that passes only on the quiet runs of a busy machine is visible (result.runs holds the metrics of each run).
+ */
 async function runHarnessScenario(context, name) {
+  const runs = [];
+  for (let index = 0; index < context.options.repeat; index += 1) runs.push(await runHarnessOnce(context, name));
+  if (runs.length === 1) return runs[0];
+  const merged = Object.assign({}, runs[0], { metrics: {}, samples: Object.assign({}, runs[0].samples), notes: [],
+    runs: runs.map((run) => run.metrics), durationMs: runs.reduce((sum, run) => sum + run.durationMs, 0) });
+  Object.keys(runs[0].metrics).forEach((metric) => {
+    const values = runs.map((run) => run.metrics[metric]);
+    const worst = WORST_RUN_METRICS.has(metric);
+    const finite = values.every((value) => Number.isFinite(value));
+    merged.metrics[metric] = !finite ? values[0] : worst ? Math.max(...values) : round(median(values), 2);
+    if (runs.every((run) => run.samples[metric] !== undefined)) merged.samples[metric] = Math.min(...runs.map((run) => run.samples[metric]));
+    if (BUDGETS[name] && BUDGETS[name][metric] !== undefined) {
+      merged.notes.push('runs of ' + metric + ': ' + values.join(' / ') + ' (budget ' + JSON.stringify(BUDGETS[name][metric]) +
+        (worst ? ', worst run judged)' : ', median judged)'));
+    }
+  });
+  runs.forEach((run, index) => run.notes.forEach((text) => merged.notes.push('run ' + (index + 1) + ': ' + text)));
+  return merged;
+}
+
+async function runHarnessOnce(context, name) {
   const file = resolveFile(context.options, TEST_FILE);
   const page = await activeBrowser.newPage(DESKTOP);
   try {
@@ -259,6 +293,15 @@ async function runInputLatency(context) {
   }
 }
 
+// Part 9.1.1 rule 8 and the rows of 9.1.2: fewer samples than this make the metric invalid, which fails a gated row.
+const MINIMUM_SAMPLES = {
+  'playback-dense': { lookaheadMaxMs: 5000, schedErrorMaxMs: 5000, tickIntervalP50Ms: 1000, tickIntervalP95Ms: 1000,
+    tickIntervalMaxMs: 1000, tickWorkMaxMs: 1000 }
+};
+
+// Metrics that count failures: with --repeat they are judged by the worst run, never by the median (a bad run must show).
+const WORST_RUN_METRICS = new Set(['accountError', 'errors', 'activeVoicesAfterStop', 'audioNodesExcess', 'voicesMax', 'lateEvents']);
+
 const SCENARIOS = { 'build-size': runBuildSize, 'boot-to-menu': runBootToMenu, 'input-latency': runInputLatency };
 
 // ---------------------------------------------------------------- judging and output
@@ -271,9 +314,16 @@ function judge(result) {
     const value = result.metrics[metric];
     if (budgets[metric] === undefined) result.results[metric] = 'info';
     else {
-      result.budgets[metric] = budgets[metric];
+      const budget = budgets[metric];
+      const limit = typeof budget === 'number' ? { max: budget } : budget;
+      const minimum = (MINIMUM_SAMPLES[result.name] || {})[metric];
+      result.budgets[metric] = typeof budget === 'number' ? budget : budget.min + '-' + budget.max;
       if (!Number.isFinite(value)) result.results[metric] = 'invalid';
-      else result.results[metric] = value <= budgets[metric] ? 'pass' : 'FAIL';
+      else if (minimum !== undefined && !(result.samples[metric] >= minimum)) {
+        result.results[metric] = 'invalid';
+        result.notes.push(metric + ' has ' + result.samples[metric] + ' samples, the row needs ' + minimum + ': invalid');
+      } else if (value > limit.max || (limit.min !== undefined && value < limit.min)) result.results[metric] = 'FAIL';
+      else result.results[metric] = 'pass';
     }
   });
   const unknown = result.notes.includes('unknown scenario');
@@ -285,7 +335,8 @@ function printResults(results) {
   say('SCENARIO       | METRIC           | VALUE      | BUDGET     | RESULT');
   results.forEach((result) => {
     Object.keys(result.metrics).forEach((metric) => {
-      const budget = result.budgets[metric] === undefined ? '-' : '<= ' + result.budgets[metric];
+      const limit = result.budgets[metric];
+      const budget = limit === undefined ? '-' : typeof limit === 'string' ? limit : '<= ' + limit;
       say(result.name.padEnd(14) + ' | ' + metric.padEnd(16) + ' | ' + String(result.metrics[metric]).padEnd(10)
         + ' | ' + budget.padEnd(10) + ' | ' + result.results[metric]);
     });

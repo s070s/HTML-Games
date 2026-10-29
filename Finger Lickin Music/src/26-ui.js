@@ -1581,7 +1581,25 @@ FLM.Core.define('UI', function (FLM) {
     return finishWidget(base, { set: (next) => { live.value = String(next); revert(); }, get: () => live.value });
   }
 
-  const Widgets = Object.freeze({ button, toggle, slider, select, number, list, tabs, field });
+  /**
+   * The fidelity label of an instrument program (I 3.4): "Synthesized" or "Synthesized, velocity-sensitive", from
+   * Instruments.fidelity; `program` may be 'drums'. Instrument pickers show one next to every program (T04.07).
+   */
+  function fidelityLabel(spec) {
+    const base = createBase('fidelity', spec);
+    const read = (program) => (FLM.Instruments && typeof FLM.Instruments.fidelity === 'function'
+      ? FLM.Instruments.fidelity(program).label : 'Synthesized');
+    base.root = base.control = el('span', { class: 'badge', 'data-program': String(spec.program) }, read(spec.program));
+    return finishWidget(base, {
+      set: (program) => {
+        base.root.setAttribute('data-program', String(program));
+        base.root.textContent = read(program);
+      },
+      get: () => base.root.textContent
+    });
+  }
+
+  const Widgets = Object.freeze({ button, toggle, slider, select, number, list, tabs, field, fidelityLabel });
 
   // ---------------------------------------------------------------------------------------------
   // Dialogs (Part 6.26.4.6)

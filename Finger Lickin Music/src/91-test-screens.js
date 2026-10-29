@@ -407,7 +407,9 @@ FLM.SelfTest.group('screens', (t) => {
   });
 
   t.test('UT-27-28c resume audio dialog calls resume inside the click', async () => {
-    const stubbed = { calls: 0, resume() { stubbed.calls += 1; return Promise.resolve(); } };
+    const stubbed = { calls: 0, restarts: 0, works: true,
+      resume() { stubbed.calls += 1; return Promise.resolve(stubbed.works); },
+      restart() { stubbed.restarts += 1; return Promise.resolve(true); } };
     standIn('Audio', stubbed);
     const pending = Screens.dialog('DLG-ResumeAudio', {});
     dialogButton('Resume sound').click();
@@ -417,6 +419,22 @@ FLM.SelfTest.group('screens', (t) => {
     dialogButton('Stay paused').click();
     t.eq(await stay, 'cancel');
   });
+
+  t.test('UT-27-30 resume audio dialog: a failed resume keeps the dialog open; Restart audio closes it (regression)',
+    async () => {
+      const stubbed = { restarts: 0, resume: () => Promise.resolve(false),
+        restart() { stubbed.restarts += 1; return Promise.resolve(true); } };
+      standIn('Audio', stubbed);
+      let result = null;
+      const pending = Screens.dialog('DLG-ResumeAudio', {}).then((value) => { result = value; });
+      dialogButton('Resume sound').click();
+      await waitUntil(() => doc.getElementById('dlg-resume-status').textContent.includes('still blocked'), 'the notice');
+      t.eq(result, null, 'the dialog stays open while the sound is still blocked');
+      dialogButton('Restart audio').click();
+      await pending;
+      t.eq(result, 'resume');
+      t.eq(stubbed.restarts, 1);
+    });
 
   // T04.01: the two audio dialogs on the real engine of M-05 (its context is a stand-in whose resume() we control).
   async function withEngineAsAudio(engine, body) {
@@ -573,6 +591,11 @@ FLM.SelfTest.group('screens', (t) => {
       'dg-log'].forEach((id) => t.ok(doc.getElementById(id), id));
     t.ok(doc.getElementById('dg-load').textContent.startsWith('Load timing:'));
     t.ok(doc.querySelector('#dg-storage tbody').textContent.includes('Mode'));
+    const audioRows = doc.querySelector('#dg-audio tbody').textContent;
+    ['Context state', 'Sample rate', 'Output latency (estimate)', 'Voices', 'Scheduler', 'Input anchor jitter',
+      'Sound bank'].forEach((name) => t.ok(audioRows.includes(name), 'the Audio panel shows ' + name));
+    t.ok(audioRows.includes('synthesized, no sound bank'), 'and says so');
+    t.ok(!/exact|measured latency/i.test(audioRows), 'no claim of an exact hardware measurement');
     t.ok(button('dg-export') && button('dg-copy') && button('dg-selftest') && button('dg-perf'));
     t.eq(button('dg-perf').getAttribute('aria-disabled'), FLM.SelfTest.perf.list().length === 0 ? 'true' : null);
     Core.ErrorReporter.report('E-REN-007', new Error('probe'), { module: 'Screens' });
@@ -893,8 +916,7 @@ FLM.SelfTest.group('screens', (t) => {
       const shown = (await openWizard([40])).closed;
       t.ok(wizardText().includes('1. Listen and tap'));
       t.ok(wizardText().includes('Tap any lane key or pad on every click you hear.'));
-      t.eq(button('cal-listen-start').getAttribute('aria-disabled'), 'true',
-        'the click step waits for the audio build step');
+      t.eq(button('cal-listen-start').getAttribute('aria-disabled'), null, 'the click step is available (T04.09)');
       await runWatchStep();
       t.ok(statusText().includes('Tap timing measured: +40 ms.'), statusText());
       button('cal-next').click();
@@ -911,6 +933,59 @@ FLM.SelfTest.group('screens', (t) => {
       t.eq(FLM.Rhythm.calibration().inputOffsetMs, 40, 'M-09 applies it');
       t.eq(FLM.Input.calibration().inputOffsetMs, 40, 'M-07 stores it');
       t.eq(FLM.Input.context(), contextBefore, 'the wizard released its input context');
+    });
+  });
+
+  t.test('UT-27-17h wizard: the listen step books clicks and its taps measure the sound delay (an estimate)', async () => {
+    await openStorage();
+    await keepingCalibration(async () => {
+      let runs = 0;
+      let firstTargets = null;
+      const shown = (await openWizard(null, (targets) => {
+        if (runs === 0) firstTargets = targets.slice();
+        return tapsAt(targets, [runs++ === 0 ? 50 : 30]);
+      })).closed;
+      t.ok(!statusText() || !statusText().includes('latency'), 'no technical words');
+      button('cal-listen-start').click();
+      await waitUntil(() => FLM.Audio.transientNodeCount() > 0, 'the booked clicks');
+      t.ok(FLM.Audio.transientNodeCount() >= 2 * 4, 'clicks are booked on the audio clock');
+      const booked = FLM.Audio.Metronome.scheduled();
+      t.ok(booked.length >= 2 && booked.every(Number.isFinite), 'the booked click times are real numbers');
+      booked.slice(1).forEach((time, index) => t.near((time - booked[index]) * 1000, CAL_TEST_INTERVAL_MS, 1,
+        'clicks are one beat apart'));
+      const anchored = FLM.Input.perfToAudio(firstTargets[0]);
+      if (Number.isFinite(anchored)) {
+        const nearest = booked.reduce((best, time) => (Math.abs(time - anchored) < Math.abs(best - anchored) ? time : best));
+        const beatIndex = Math.round((nearest - anchored) * 1000 / CAL_TEST_INTERVAL_MS);
+        t.near(nearest, anchored + beatIndex * CAL_TEST_INTERVAL_MS / 1000, 0.002, 'and on the beats of the run');
+      }
+      await waitUntil(() => doc.getElementById('w-cal-listen-again') !== null, 'the listen result');
+      t.ok(statusText().includes('Tap timing measured: +50 ms.'), statusText());
+      button('cal-listen-next').click();
+      t.ok(wizardText().includes('2. Watch and tap'));
+      button('cal-start').click();
+      await waitUntil(() => doc.getElementById('w-cal-again') !== null, 'the watch result');
+      button('cal-next').click();
+      button('cal-next').click();
+      t.eq(doc.getElementById('cal-summary').textContent, 'Sound delay: 20 ms. Tap timing: +30 ms. Note speed: x1.0.',
+        'the sound delay is the click delay minus the flash delay');
+      WIZARD_WORDS_FORBIDDEN.forEach((word) => t.eq(wizardText().toLowerCase().includes(word), false, word));
+      button('cal-save').click();
+      t.eq(await shown, 'save');
+      t.deepEq(Settings.calibration(), { inputOffsetMs: 30, audioLatencyMs: 20, visualLeadMs: 1500 });
+    });
+  });
+
+  t.test('UT-27-29 wizard: Escape during the listen step cancels the clicks that are still booked (regression)', async () => {
+    await openStorage();
+    await keepingCalibration(async () => {
+      const shown = (await openWizard(null, () => [])).closed;       // no taps: nothing is left to fire after the test
+      button('cal-listen-start').click();
+      await waitUntil(() => FLM.Audio.Metronome.scheduled().length >= 2, 'the booked clicks');
+      pressEscape();                                  // Escape ends the run and leaves the wizard open
+      t.eq(FLM.Audio.Metronome.scheduled().length, 0, 'no click is left to sound after Escape');
+      dialogButton('Cancel').click();
+      t.eq(await shown, 'cancel');
     });
   });
 

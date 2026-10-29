@@ -53,6 +53,27 @@ FLM.SelfTest.group('core', (t) => {
     });
   });
 
+  t.test('UT-01-29 parts of a module: registered once, made once on first use; a duplicate or missing part is E-GEN-001', () => {
+    const moduleName = 'PartsTest' + Core.uid();
+    let made = 0;
+    Core.part(moduleName, 'wizard', (host, kit) => {
+      made += 1;
+      return { kit, hostIsFlm: host === FLM };
+    });
+    t.throws(() => Core.part(moduleName, 'wizard', () => ({})), 'E-GEN-001');
+    const kit = { marker: 1 };
+    const first = Core.usePart(moduleName, 'wizard', kit);
+    t.eq(first.kit, kit, 'the factory gets the kit of the module');
+    t.eq(first.hostIsFlm, true);
+    t.eq(Core.usePart(moduleName, 'wizard', { marker: 2 }), first, 'the second ask returns the same result');
+    t.eq(made, 1, 'the factory ran once');
+    t.throws(() => Core.usePart(moduleName, 'missing', kit), 'E-GEN-001');
+    withFreshRegistry(() => {
+      t.throws(() => Core.usePart(moduleName, 'wizard', kit), 'E-GEN-001', 'a fresh registry has no parts');
+    });
+    t.eq(Core.usePart(moduleName, 'wizard', kit), first, 'and every part is back afterwards');
+  });
+
   t.test('UT-01-03 emitter on/emit order', () => {
     const emitter = new Core.Emitter();
     const calls = [];

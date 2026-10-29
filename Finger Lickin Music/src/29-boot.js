@@ -36,8 +36,8 @@ FLM.Core.define('Boot', function (FLM) {
     'ScrollLock', 'Fn', 'FnLock', 'Tab']);
 
   /** Namespaces whose files exist (convention 6 of Part 11); every entry that adds a module file appends its name. */
-  const EXPECTED_MODULES = Object.freeze(['Core', 'Theory', 'Model', 'Transport', 'Audio', 'Input', 'Mapping',
-    'Rhythm', 'UI', 'Storage', 'Screens', 'Modes', 'Boot']);
+  const EXPECTED_MODULES = Object.freeze(['Core', 'Theory', 'Model', 'Transport', 'Audio', 'Instruments', 'Input', 'Mapping',
+    'Rhythm', 'Project', 'UI', 'Storage', 'Screens', 'Content', 'Modes', 'Boot']);
 
   /** Fault prefix -> namespace that owns the fault (Part 6.29.4.8). */
   const FAULT_ROUTES = Object.freeze({
@@ -419,12 +419,21 @@ FLM.Core.define('Boot', function (FLM) {
     return {};
   }
 
+  // M-06 binds to the engine and becomes the Scheduler's instrument table (T04.06); a build without it still boots.
+  function attachInstruments(run, engine) {
+    const instruments = run.mod('Instruments');
+    if (!engine || !hasFunction(instruments, 'attach')) return;
+    instruments.attach(engine);
+    if (engine.Scheduler && hasFunction(engine.Scheduler, 'setInstruments')) engine.Scheduler.setInstruments(instruments);
+  }
+
   function stepAudio(run) {
     const audio = run.mod('Audio');
     if (!hasFunction(audio, 'init')) return skipStep('B7', 'Audio');
     try {
-      audio.init({ mobile: run.caps.mobile === true, polyphony: settingValue(run, 'audio.polyphonyCap'),
+      const engine = audio.init({ mobile: run.caps.mobile === true, polyphony: settingValue(run, 'audio.polyphonyCap'),
         readSetting: run.settingsApi ? (path) => run.settingsApi.get(path) : undefined });
+      attachInstruments(run, engine);
       const transport = run.mod('Transport');
       if (transport && transport.main && hasFunction(transport.main, 'setClock')) {
         transport.main.setClock(audio.clock());

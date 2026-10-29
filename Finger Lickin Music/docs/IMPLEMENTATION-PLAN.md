@@ -483,7 +483,7 @@ Step 4. For each T section of Part 11, in order:
 node tools/build.mjs
 ```
 
-   The build must exit 0. A size warning (above 1.5 MB) is recorded in the LEDGER; a size
+   The build must exit 0. A size warning (above the envelope of the current phase, OI-45) is recorded in the LEDGER; a size
    failure (above 2.5 MB) blocks the section until resolved.
 
 6. Run the self-test groups named in the T section's Verification. Until `tools/selftest.mjs`
@@ -1335,7 +1335,7 @@ Decision:
 4. Every input file may carry a UTF-8 BOM; the build strips them all and emits exactly one
    BOM at byte 0 of each output. All CRLF and lone CR are normalized to LF. Output encoding
    is UTF-8.
-5. Size gate on each output: warn above 1.5 MB, fail (exit code 3, no file written) above
+5. Size gate on each output: warn above the envelope of the current phase (read from the "Current phase" line of docs/STATUS.md, LEDGER OI-45), fail (exit code 3, no file written) above
    2.5 MB. The gate applies to the shipped file; the test file is reported but not failed.
 6. Syntax gate: the joined script (without the HTML wrapper) is written to a temporary file
    in the OS temp directory and checked with `node --check`; a failure aborts the build with
@@ -3118,7 +3118,7 @@ of the plan version.
 | non-ASCII | 3.3.2 item 4 |
 | duplicate blocks | 8 consecutive meaningful lines (>= 12 chars, not starting with `{`, `[`, quote, or comment) appearing twice across the shipped set -> problem `DRY: duplicated block at <file>:<line> (same as <file>:<line>)`; data files `30-content.js`, `06-instruments.js`, `02-theory.js` are exempt |
 | parse | the joined test script and the joined shipped script each pass `node --check` (3.3.5) |
-| size | shipped page > 2,621,440 bytes (2.5 MB) -> problem; > 1,572,864 bytes (1.5 MB) -> warning line, not a problem; the test page is reported but not gated |
+| size | shipped page > 2,621,440 bytes (2.5 MB) -> problem; > the envelope of the current phase (Part 11, OI-45) -> warning line, not a problem; the test page is reported but not gated |
 
 #### 3.3.5 `node --check`
 
@@ -3146,7 +3146,7 @@ and with `--online` also `Finger Lickin Music/FingerLickinMusic.online.html`. Ea
 one UTF-8 BOM, uses LF only, and ends with `</html>\n`.
 
 Report lines (stdout): `files <n> (ship <m>, test <k>)`, `version <VERSION> build <BUILD>`,
-`size ship <x.xx> MB, test <y.yy> MB`, one `  WARNING ...` line when over 1.5 MB, one line per
+`size ship <x.xx> MB, test <y.yy> MB`, one `  WARNING ...` line when over the envelope of the current phase, one line per
 problem, then `BUILD OK -> FingerLickinMusic.html, FingerLickinMusic.test.html` or `CHECK OK`
 or `BUILD FAILED: <n> problem(s)`.
 
@@ -25248,7 +25248,7 @@ binding.
 
 | No. | Budget | Value | How measured (tool, scenario, metric, sample size) | Pass criterion | Phase measured |
 |---|---|---|---|---|---|
-| 1 | Shipped HTML size, target | <= 1.5 MB | `node tools/build.mjs`: byte length of `FingerLickinMusic.html` including the BOM; every build; sample 1 | <= 1,572,864 bytes at the Phase 16 gate; above it earlier prints the warning line of Part 3.3 [B] | every build from Phase 1; binding at Phase 16 |
+| 1 | Shipped HTML size, envelope | <= the envelope of the phase (OI-45) | `node tools/build.mjs`: byte length of `FingerLickinMusic.html` including the BOM; every build; sample 1 | <= 2,621,440 bytes at the Phase 16 gate (1.25 MB at Phase 05, 2.20 MB at Phase 09); above the envelope of the current phase the build prints the warning line of Part 3.3 [B] | every build from Phase 1; binding at Phase 16 |
 | 2 | Shipped HTML size, hard limit | build fails above 2.5 MB | same | above 2,621,440 bytes the build exits 3 and writes no shipped file [B] | every build from Phase 1 |
 | 3 | Load to main menu, desktop | <= 1.5 s | perf `boot-to-menu` on the shipped file from `file://`: `menuMs` = absolute `performance.now()` of the B16 record in `FLM.Boot.stage` (boot.ready, after SCR-MainMenu or SCR-FirstLaunch is mounted); 5 cold loads | median <= 1,500 ms and every load <= 2,250 ms [HD] | Phase 1; binding at every gate from Phase 1; device claim Phase 15 |
 | 4 | Load to main menu, mobile | <= 3.0 s | same metric on the mobile devices of 9.2, read from SCR-Diagnostics "Load timing" of the shipped file; 5 cold loads | median <= 3,000 ms [D] | Phase 15 |
@@ -27527,18 +27527,18 @@ the implementing session's work and sum to 100.
 | 02 | Musical data and timing | Phase 01 exit | groups `theory`, `model`, `transport` pass; TT-005 to TT-013, TT-021, TT-022 pass; `--all --slow` passes; RISK-77 reviewed | build; `--all`; `--all --slow`; `--smoke`; mobile check | 5 |
 | 03 | Input and four-button gameplay | Phase 02 exit | groups `input`, `mapping` (profile rows), `rhythm` pass; IT-002 (input part), IT-003, IT-004, IT-005, IT-035, IT-043; TT-023 to TT-026, TT-029; PT-009 (input part), PT-024; FI-027; RISK-09, RISK-38, RISK-39, RISK-40 reviewed | build; `--all`; `--smoke`; `perf.mjs --scenario input-latency --scenario touch-layout`; mobile check (`input@touch`, `integration@touch`) | 7 |
 | 04 | Audio engine | Phase 03 exit | groups `audio`, `instruments`, `content` pass; TT-001 to TT-004, TT-015 to TT-017, TT-019, TT-028, TT-032; IT-039, IT-040, IT-046 (partial), IT-047; PT-004, PT-007, PT-012; FI-001, FI-004 to FI-008, FI-032, FI-034, FI-036; RISK-01, RISK-02, RISK-04, RISK-10, RISK-30, RISK-31, RISK-32, RISK-33, RISK-70 reviewed | build; `--all`; `--all --slow`; `--smoke`; `node tools/perf.mjs --repeat 3` default set (every later gate too); mobile check | 9 |
-| 05 | 3D stage and visualization | Phase 04 exit | groups `render`, `rig`, `animation`, `stage` pass; IT-010 to IT-013, IT-032, IT-034, IT-037, IT-045, IT-059; TT-020; PT-005, PT-006, PT-011; FI-009 to FI-012, FI-035, FI-038, FI-039; shipped file <= 0.55 MB; RISK-05, RISK-16, RISK-19, RISK-45 reviewed | build; `--all`; `--smoke`; `perf.mjs --repeat 3`; mobile check | 9 |
+| 05 | 3D stage and visualization | Phase 04 exit | groups `render`, `rig`, `animation`, `stage` pass; IT-010 to IT-013, IT-032, IT-034, IT-037, IT-045, IT-059; TT-020; PT-005, PT-006, PT-011; FI-009 to FI-012, FI-035, FI-038, FI-039; shipped file <= 1.25 MB (OI-45); RISK-05, RISK-16, RISK-19, RISK-45 reviewed | build; `--all`; `--smoke`; `perf.mjs --repeat 3`; mobile check | 9 |
 | 06 | Free Play | Phase 05 exit | Phase 06 rows of 12.3 to 12.7 (IT-001, IT-033, FI-028) pass; RISK-76 reviewed | as Phase 05 | 4 |
 | 07 | MIDI import and playback | Phase 06 exit | groups `midi`, `import`; FT subgroups `midi`, `midi-damaged`, `limits` (MIDI and audio rows), `audio`, `ident`; IT-006 to IT-009, TT-014, TT-031, FI-031, PT-014; RISK-03, RISK-14, RISK-17, RISK-18, RISK-34, RISK-35, RISK-37, RISK-65 reviewed, RISK-04 re-checked | as Phase 05 plus `node tools/make-corpus.mjs --check` (every later gate too) | 7 |
 | 08 | Rhythm-game song mode | Phase 07 exit; this requires the Phase 02, 04 and 07 gates, so the E 1 core mitigations (clock, unlock, MIDI parse, note-off, scheduler, packaging) precede all chart work | `mapping` chart rows; Phase 08 rows (IT-038, IT-048 to IT-052, IT-056, IT-060, TT-018, TT-027, TT-033, PT-003, PT-018, PT-019); RISK-20, RISK-67, RISK-68 reviewed, RISK-38 re-checked | as Phase 07 | 7 |
-| 09 | Studio and multitrack recording | Phase 08 exit | groups `project`, `storage`, `studio`; FT `roundtrip`; FI storage rows; Phase 09 rows of 12.3 to 12.7; shipped file <= 0.95 MB; RISK-08, RISK-21, RISK-41, RISK-42, RISK-43, RISK-44 reviewed | as Phase 07 plus `--all --slow` | 9 |
+| 09 | Studio and multitrack recording | Phase 08 exit | groups `project`, `storage`, `studio`; FT `roundtrip`; FI storage rows; Phase 09 rows of 12.3 to 12.7; shipped file <= 2.20 MB (OI-45); RISK-08, RISK-21, RISK-41, RISK-42, RISK-43, RISK-44 reviewed | as Phase 07 plus `--all --slow` | 9 |
 | 10 | Character customization | Phase 09 exit | groups `character`, `progress`; IT-022 to IT-024, IT-053; RISK-46 reviewed | as Phase 07 | 4 |
 | 11 | Dance mode | Phase 10 exit | group `dance`; IT-019 to IT-021, TT-035, TT-036, FI-029; RISK-47 reviewed | as Phase 07 | 5 |
-| 12 | MusicXML and Guitar Pro | Phase 11 exit | groups `zip`, `musicxml`, `guitarpro`; FT `musicxml`, `security`, `mxl`, `gp`; IT-036, IT-041, PT-015, PT-021, FI-030; `docs/COMPATIBILITY.md` written; shipped file <= 1.20 MB; RISK-11, RISK-25, RISK-36, RISK-51, RISK-52 reviewed, RISK-14 re-checked | as Phase 07 | 7 |
-| 13 | Multiplayer | Phase 12 exit; Part 5.16 protocol unchanged since Phase 00 | group `net`; IT-025 to IT-031, FI-020 to FI-026, FI-041, PT-020; relay self-test; shipped file <= 1.35 MB; RISK-07, RISK-22, RISK-48, RISK-49, RISK-55, RISK-56 reviewed | as Phase 07 plus `node server/relay.mjs --selftest` and the Automated "no" rows of 12.3 | 7 |
+| 12 | MusicXML and Guitar Pro | Phase 11 exit | groups `zip`, `musicxml`, `guitarpro`; FT `musicxml`, `security`, `mxl`, `gp`; IT-036, IT-041, PT-015, PT-021, FI-030; `docs/COMPATIBILITY.md` written; shipped file <= 2.50 MB (the hard limit, OI-45); RISK-11, RISK-25, RISK-36, RISK-51, RISK-52 reviewed, RISK-14 re-checked | as Phase 07 | 7 |
+| 13 | Multiplayer | Phase 12 exit; Part 5.16 protocol unchanged since Phase 00 | group `net`; IT-025 to IT-031, FI-020 to FI-026, FI-041, PT-020; relay self-test; shipped file <= 2.50 MB (the hard limit, OI-45); RISK-07, RISK-22, RISK-48, RISK-49, RISK-55, RISK-56 reviewed | as Phase 07 plus `node server/relay.mjs --selftest` and the Automated "no" rows of 12.3 | 7 |
 | 14 | Advanced audio and performance | Phase 13 exit | slow PT set (PT-008, PT-010, PT-022, PT-023) and Phase 14 rows pass; RISK-12, RISK-23, RISK-27, RISK-28, RISK-54, RISK-61, RISK-75 reviewed, RISK-05, RISK-10, RISK-65 re-checked | as Phase 13 plus `perf.mjs --slow` and `--all --slow` | 4 |
 | 15 | Cross-browser and device validation | Phase 14 exit | every row of 12.3 to 12.7 including slow rows passes; every XT and LT row has a recorded result or an owner-action entry; RISK-13, RISK-53, RISK-58, RISK-62, RISK-63, RISK-64, RISK-71 reviewed with the re-checks of 13.3 | as Phase 14 plus the XT and LT protocols of Part 12b | 5 |
-| 16 | Packaging and final delivery | Phase 15 exit | release-blocking gate of 12.10 without an unresolved item; shipped file <= 1.50 MB; final report, STATUS and Part 15 Status column agree; RISK-26, RISK-59, RISK-60, RISK-69, RISK-73, RISK-74 reviewed, final review of 13.3 item 6 | everything above on the final build of both editions | 3 |
+| 16 | Packaging and final delivery | Phase 15 exit | release-blocking gate of 12.10 without an unresolved item; shipped file <= 2.50 MB (the hard limit, OI-45); final report, STATUS and Part 15 Status column agree; RISK-26, RISK-59, RISK-60, RISK-69, RISK-73, RISK-74 reviewed, final review of 13.3 item 6 | everything above on the final build of both editions | 3 |
 
 ### Phase 0: Specification and planning
 
@@ -28849,7 +28849,7 @@ director and the note highway in 3D and on the 2D canvas (B 27 phase 5). The ren
 only reads `Transport.positionAt(audioNow)`; it never advances musical time. The stage is
 bound into the `instrument` mode (T05.10) and played with built-in demo songs and the test
 charts of T03.10 until Phase 08 provides generated charts and Quick Play. Modules created:
-M-18, M-19, M-20, M-21. At the gate the shipped file is at most 0.55 MB (RISK-60 envelope).
+M-18, M-19, M-20, M-21. At the gate the shipped file is at most 1.25 MB (RISK-60 envelope, reset by OI-45).
 Risks retired here: RISK-05, RISK-16, RISK-19, RISK-45.
 
 ### T05.01 M-18 renderer initialization, tier selection and WebGL fallback chain
@@ -29135,7 +29135,7 @@ Risks retired here: RISK-05, RISK-16, RISK-19, RISK-45.
   first size envelope, before Free Play and imported songs build on the stage.
 - Covers: R-B27-08; modules M-18, M-19, M-20, M-21.
 - Depends on: T05.01 to T05.11.
-- Deliverables: build report showing the shipped file at or below 0.55 MB (RISK-60 envelope;
+- Deliverables: build report showing the shipped file at or below 1.25 MB (RISK-60 envelope, reset by OI-45;
   if exceeded, apply the RISK-60 remedies before the gate: remove duplicated code, shorten
   comments that restate code, generate repetitive tables at load; never minify, never drop a
   feature); STATUS.md section 7 with PT-005, PT-006 and PT-011 values "(software GL)";
@@ -29944,7 +29944,7 @@ every Verification line of T09.01-T09.14 passes; the unit groups `project`, `sto
 the FI storage rows (FI-013 to FI-019) and the rows marked Phase 9 in Part 12 (IT-014 to
 IT-018, IT-042, IT-044, IT-054, IT-055, IT-057, IT-058, TT-030, TT-034, PT-013, PT-016,
 PT-017, FI-002, FI-003, FI-033, FI-040, FI-042) pass; `node tools/selftest.mjs --all --slow`
-passes (Part 12.1.5 step 6); the shipped file is at most 0.95 MB (RISK-60 envelope); RISK-08,
+passes (Part 12.1.5 step 6); the shipped file is at most 2.20 MB (RISK-60 envelope, reset by OI-45); RISK-08,
 RISK-21, RISK-41, RISK-42, RISK-43, RISK-44 are retired or recorded `open` with the reason.
 Regression suite at the gate: Part 12.1.5 steps 1-6. Deferred register: no requirement row of
 Phase 09 is Deferred (Part 15), so this phase has no Deferred register entry.
@@ -30339,9 +30339,9 @@ Phase 09 is Deferred (Part 15), so this phase has no Deferred register entry.
   T09.11, T09.12, T09.13.
 - Deliverables: LEDGER gate entry with the Part 12.1.5 summary lines (steps 1-6), the 13.3
   risk review block (RISK-08, RISK-21, RISK-41, RISK-42, RISK-43, RISK-44 retiring), the
-  build report against the 0.95 MB envelope (RISK-60), STATUS.md rows of Phase 09, the commit
+  build report against the 2.20 MB envelope (RISK-60, OI-45), STATUS.md rows of Phase 09, the commit
   `Finger Lickin Music: Phase 09 - Studio and multitrack recording` and `RESUME: T10.01`.
-- Verification: `node tools/build.mjs` exit 0 with the shipped file <= 0.95 MB; `node
+- Verification: `node tools/build.mjs` exit 0 with the shipped file <= 2.20 MB; `node
   tools/selftest.mjs --all --slow` exit 0 with groups `project`, `storage`, `studio` binding
   and the `studio` group run with FakeIndexedDB and no real storage; `node tools/selftest.mjs
   --smoke` exit 0; `node tools/perf.mjs --repeat 3` with PT-013, PT-016, PT-017; AT-R-B27-12,
@@ -30662,7 +30662,7 @@ song tick converted through the Song `TempoMap` and read from `Transport.main`.
 - Depends on: T11.01..T11.12.
 - Deliverables: LEDGER gate entry (Appendix D format) with the summary lines of `node tools/build.mjs`, `node tools/selftest.mjs --all`, `node tools/selftest.mjs --smoke`, `node tools/make-corpus.mjs --check` and `node tools/perf.mjs --repeat 3`; the risk review block (13.3): RISK-47 to `retired` when UT-09-18, UT-09-33, UT-23-02..UT-23-08, UT-23-22, UT-23-27, UT-23-34, UT-28-22, IT-019, IT-021 and TT-036 passed and the P 12 review records LT-069..LT-072 exist, otherwise kept `open` with the reason "awaiting owner device test"; STATUS.md sections 1-7 updated; commit "Finger Lickin Music: Phase 11 - dance mode" ending the LEDGER entry with `RESUME: T12.01`.
 - Verification: `--all` passes with every test binding at Phase 11 or earlier (12.1.5), including group `dance`, IT-019..IT-021, TT-035, TT-036, FI-029, FT-105; build size recorded in STATUS.md section 7; AT-R-B27-14.
-- Open items: RISK-47 is due for retirement at this gate; its LT part (LT-069..LT-072) is an owner action and is listed in the LEDGER "Owner actions" section until recorded. The shipped file has no Phase 11 size envelope; the next envelope check is 1.20 MB at the Phase 12 gate (RISK-60).
+- Open items: RISK-47 is due for retirement at this gate; its LT part (LT-069..LT-072) is an owner action and is listed in the LEDGER "Owner actions" section until recorded. The shipped file has no Phase 11 size envelope; the next envelope check is 2.50 MB (the hard limit) at the Phase 12 gate (RISK-60, OI-45).
 
 ### Phase 12: MusicXML and Guitar Pro
 
@@ -30675,7 +30675,7 @@ Phase 11 exit (Phase 07 import pipeline, InspectionReport and SCR-ImportInspect 
 project save of audio references exists). Exit: groups `zip`, `musicxml`, `guitarpro` and
 `import` pass in full; FT subgroups `musicxml`, `security`, `mxl`, `gp` and the Phase 12 rows
 of `limits` and `ident` pass; IT-036, IT-041, FI-030, PT-015 and PT-021 pass; the shipped file
-is at most 1.20 MB (RISK-60 envelope). Every published format claim comes from a recorded FT
+is at most 2.50 MB (RISK-60 envelope, the hard limit; OI-45). Every published format claim comes from a recorded FT
 result (E 1 row 11, I 6.4): a version is published Supported only with at least two passing
 valid FT files and one passing malformed FT file, otherwise Partial; MusicXML and Guitar Pro
 rows are Conversion (Part 8.7.1).
@@ -30766,8 +30766,8 @@ rows are Conversion (Part 8.7.1).
 - Purpose: Close Phase 12 with the full regression suite, the corpus check, the size envelope and the risk review.
 - Covers: R-B27-15; modules M-11, M-12, M-13, M-14.
 - Depends on: T12.01..T12.09.
-- Deliverables: LEDGER gate entry with the summary lines of `node tools/build.mjs`, `node tools/selftest.mjs --all`, `node tools/selftest.mjs --smoke`, `node tools/make-corpus.mjs --check`, `node tools/perf.mjs --repeat 3`; the shipped size against the 1.20 MB envelope (exceeded -> remove duplicated code and restating comments, never minify, never drop a feature); risk review (13.3): RISK-52 to `retired` when its UT, FT and PT verifications passed; RISK-11, RISK-25, RISK-36 and RISK-51 to `retired` only when their UT, FT and review checks passed and the real-file LT records (LT-063, LT-064, LT-036) exist, otherwise kept `open` with the reason "awaiting owner device test" and re-reviewed at the Phase 15 and Phase 16 gates; RISK-14 re-checked; STATUS.md and `docs/COMPATIBILITY.md` evidence rows updated; commit "Finger Lickin Music: Phase 12 - MusicXML, Guitar Pro and audio import" with `RESUME: T13.01`.
-- Verification: `--all` passes with groups `zip`, `musicxml`, `guitarpro`, `import` and FT-001..FT-114 rows binding up to Phase 12; IT-036, IT-041, FI-030, PT-015, PT-021 pass; shipped size <= 1.20 MB; AT-R-B27-15.
+- Deliverables: LEDGER gate entry with the summary lines of `node tools/build.mjs`, `node tools/selftest.mjs --all`, `node tools/selftest.mjs --smoke`, `node tools/make-corpus.mjs --check`, `node tools/perf.mjs --repeat 3`; the shipped size against the 2.50 MB envelope (exceeded -> remove duplicated code and restating comments, never minify, never drop a feature); risk review (13.3): RISK-52 to `retired` when its UT, FT and PT verifications passed; RISK-11, RISK-25, RISK-36 and RISK-51 to `retired` only when their UT, FT and review checks passed and the real-file LT records (LT-063, LT-064, LT-036) exist, otherwise kept `open` with the reason "awaiting owner device test" and re-reviewed at the Phase 15 and Phase 16 gates; RISK-14 re-checked; STATUS.md and `docs/COMPATIBILITY.md` evidence rows updated; commit "Finger Lickin Music: Phase 12 - MusicXML, Guitar Pro and audio import" with `RESUME: T13.01`.
+- Verification: `--all` passes with groups `zip`, `musicxml`, `guitarpro`, `import` and FT-001..FT-114 rows binding up to Phase 12; IT-036, IT-041, FI-030, PT-015, PT-021 pass; shipped size <= 2.50 MB; AT-R-B27-15.
 - Open items: The real-file LT rows (LT-063, LT-064) are owner actions (LEDGER "Owner actions"); until their records exist the MusicXML and Guitar Pro rows of `docs/COMPATIBILITY.md` carry "(not yet verified)" and RISK-11, RISK-25, RISK-36 and RISK-51 stay `open`.
 
 ### Phase 13: Multiplayer
@@ -30780,7 +30780,7 @@ recovery paths, the relay and Online edition build, and SCR-Multiplayer. Entry: 
 (every local mode, the character roster with `Character.forNet` and the Rhythm Judge exist).
 Exit: group `net` passes in full (40 tests); IT-025..IT-031, FI-020..FI-026 and PT-020 pass;
 `node server/relay.mjs --selftest` prints `RELAY SELFTEST <n>/<n>`; every local mode passes its
-tests with WebRTC stubbed out; the shipped file is at most 1.35 MB (RISK-60 envelope). Error
+tests with WebRTC stubbed out; the shipped file is at most 2.50 MB (RISK-60 envelope, the hard limit; OI-45). Error
 codes and user texts are those of Part 10.6.8 (E-NET-001..E-NET-024); Part 6.24.5 and Part 7.11 use
 the same numbering (Part 10.6.12 rule).
 
@@ -30888,8 +30888,8 @@ the same numbering (Part 10.6.12 rule).
 - Purpose: Close Phase 13 with the full regression suite including the relay self-test and the multiplayer rows, the size envelope and the risk review.
 - Covers: R-B27-16; modules M-24, M-31.
 - Depends on: T13.01..T13.11.
-- Deliverables: LEDGER gate entry with `node tools/build.mjs`, `node tools/selftest.mjs --all`, `node tools/selftest.mjs --smoke`, `node tools/make-corpus.mjs --check`, `node tools/perf.mjs --repeat 3` (including `net-loopback`), `node server/relay.mjs --selftest` and the online-build `net` group run; shipped size against the 1.35 MB envelope; risk review: RISK-22 and RISK-49 to `retired` when their UT, IT and FI verifications passed; RISK-07, RISK-48, RISK-55 and RISK-56 reviewed with their XT and LT parts (XT-063, XT-064, LT-074) as owner actions, kept `open` until recorded; STATUS.md updated; commit "Finger Lickin Music: Phase 13 - multiplayer and relay" with `RESUME: T14.01`.
-- Verification: `--all` passes with group `net`, IT-025..IT-031, FI-020..FI-026 and every earlier binding test; PT-020 passes; relay self-test passes; shipped size <= 1.35 MB; AT-R-B27-16.
+- Deliverables: LEDGER gate entry with `node tools/build.mjs`, `node tools/selftest.mjs --all`, `node tools/selftest.mjs --smoke`, `node tools/make-corpus.mjs --check`, `node tools/perf.mjs --repeat 3` (including `net-loopback`), `node server/relay.mjs --selftest` and the online-build `net` group run; shipped size against the 2.50 MB envelope; risk review: RISK-22 and RISK-49 to `retired` when their UT, IT and FI verifications passed; RISK-07, RISK-48, RISK-55 and RISK-56 reviewed with their XT and LT parts (XT-063, XT-064, LT-074) as owner actions, kept `open` until recorded; STATUS.md updated; commit "Finger Lickin Music: Phase 13 - multiplayer and relay" with `RESUME: T14.01`.
+- Verification: `--all` passes with group `net`, IT-025..IT-031, FI-020..FI-026 and every earlier binding test; PT-020 passes; relay self-test passes; shipped size <= 2.50 MB; AT-R-B27-16.
 - Open items: OQ-3 is answered only by XT-064 (STUN off and on, owner devices); until then the LEDGER records "STUN default off; LAN play verified on loopback only".
 
 ### Phase 14: Advanced audio and performance
@@ -30984,7 +30984,7 @@ TempoMap, the Judge windows or recorded data (Part 9.3.6, S-02).
 - Depends on: T14.01..T14.08.
 - Deliverables: LEDGER gate entry with `node tools/build.mjs`, `node tools/selftest.mjs --all --slow`, `node tools/selftest.mjs --smoke`, `node tools/make-corpus.mjs --check`, `node tools/perf.mjs --slow --json <scratch path>` (result JSON stored verbatim), `node server/relay.mjs --selftest`; STATUS.md section 7 with every Part 9.1.2 row's headless value or "not measured"; risk review: RISK-12, RISK-23, RISK-27 to `retired` when their verifications passed, RISK-28, RISK-54, RISK-61 and RISK-75 retired only when their LT, XT or device parts are recorded (else `open`, owner action), RISK-05, RISK-10 and RISK-65 re-checked; commit "Finger Lickin Music: Phase 14 - advanced audio and performance" with `RESUME: T15.01`.
 - Verification: `--all --slow` passes; `perf.mjs --slow` passes every headless-gated budget; release-blocking budget rows 2, 14, 15, 20, 21 and 22 pass headless; AT-R-B27-17.
-- Open items: There is no size envelope at Phase 14; the 1.50 MB target is checked at Phase 16 (RISK-60).
+- Open items: There is no size envelope at Phase 14; the 2.50 MB envelope is checked at Phase 16 (RISK-60, OI-45).
 
 ### Phase 15: Cross-browser and device validation
 
@@ -31092,9 +31092,9 @@ work (B 28).
 - Purpose: Produce the final standalone HTML from a clean tree and verify that it meets every packaging rule: one file, no runtime dependency, no build needed to play, no test code, no credentials, size within budget.
 - Covers: R-B1.5-05, R-B26.1-02, R-B26.8-01, R-B28-01, R-B28-14, R-I14.3-01, R-I19-11, R-P18-08, R-P18-12; modules M-01, M-29, M-31.
 - Depends on: Phase 15 exit; Phase 01 exit ("Single-file dependency and packaging budget").
-- Deliverables: `src/01-core.js` `const VERSION = '1.0.0';`; `node tools/build.mjs` from a clean tree with every Part 3.3.4 check (marker, skeleton, strict, namespace, top-level names, banned APIs, syntax ceiling, non-ASCII, duplicate blocks, parse, size) plus the credential-pattern check of T13.08 and the static scan of Part 10.3.1 rule 3 (`@license`, foreign `Copyright (c)`, base64 `data:` payloads > 4 KB); size <= 1,572,864 bytes (the 1.5 MB target becomes a gate here, RISK-60 envelope 1.50 MB) and never above 2,621,440 bytes; one UTF-8 BOM, LF only, ends with `</html>\n`; `FingerLickinMusic.html` contains no `90-` to `92-` file and `FLM.selfTest` is undefined; Node is used only for build, tests and the optional relay; the packaging record (commit hash, SHA-256, byte size, build report) for gate D-01 and final report items 1 and 14.
-- Verification: `node tools/build.mjs` prints `BUILD OK`; PT-001 (`build-size`) passes against 1.5 MB; `node tools/selftest.mjs --smoke` (default file `FingerLickinMusic.html`) passes, asserting no `FLM.selfTest` in the shipped build; `node tools/selftest.mjs --smoke --file FingerLickinMusic.online.html` passes; UT-29-11 (public surface keys) passes; AT-R-B1.5-05, AT-R-B26.1-02, AT-R-B26.8-01, AT-R-B28-01, AT-R-B28-14, AT-R-I14.3-01, AT-R-I19-11, AT-R-P18-08, AT-R-P18-12.
-- Open items: When the size exceeds 1.5 MB the fix is to remove duplicated code and restating comments or to generate repetitive tables at load; minifying and dropping features are not allowed (RISK-60). RISK-06 and RISK-24 are re-checked by the static scan.
+- Deliverables: `src/01-core.js` `const VERSION = '1.0.0';`; `node tools/build.mjs` from a clean tree with every Part 3.3.4 check (marker, skeleton, strict, namespace, top-level names, banned APIs, syntax ceiling, non-ASCII, duplicate blocks, parse, size) plus the credential-pattern check of T13.08 and the static scan of Part 10.3.1 rule 3 (`@license`, foreign `Copyright (c)`, base64 `data:` payloads > 4 KB); size within the Phase 16 envelope of 2,621,440 bytes (2.5 MB, RISK-60 as reset by OI-45) and never above it; one UTF-8 BOM, LF only, ends with `</html>\n`; `FingerLickinMusic.html` contains no `90-` to `92-` file and `FLM.selfTest` is undefined; Node is used only for build, tests and the optional relay; the packaging record (commit hash, SHA-256, byte size, build report) for gate D-01 and final report items 1 and 14.
+- Verification: `node tools/build.mjs` prints `BUILD OK`; PT-001 (`build-size`) passes against 2.5 MB; `node tools/selftest.mjs --smoke` (default file `FingerLickinMusic.html`) passes, asserting no `FLM.selfTest` in the shipped build; `node tools/selftest.mjs --smoke --file FingerLickinMusic.online.html` passes; UT-29-11 (public surface keys) passes; AT-R-B1.5-05, AT-R-B26.1-02, AT-R-B26.8-01, AT-R-B28-01, AT-R-B28-14, AT-R-I14.3-01, AT-R-I19-11, AT-R-P18-08, AT-R-P18-12.
+- Open items: When the size exceeds its phase envelope (OI-45) the fix is to remove duplicated code and restating comments or to generate repetitive tables at load; minifying and dropping features are not allowed (RISK-60). RISK-06 and RISK-24 are re-checked by the static scan.
 
 ### T16.02 Independent validation of the delivered file
 - Position: Phase 16 "Packaging and final delivery", step 2 of 10.
@@ -31366,7 +31366,7 @@ of each test are in its module section (Part 6.N.8); the runner group and file f
 Part 3.1. Test names in the runner are `<UT-ID> <name>` (12.1.2 rule 1). Totals: 833 unit tests
 in 31 groups.
 
-#### 12.2.1 M-01 `FLM.Core` (group `core`, `src/91-test-core.js`, Part 6.1.8): 28 tests
+#### 12.2.1 M-01 `FLM.Core` (group `core`, `src/91-test-core.js`, Part 6.1.8): 29 tests
 
 | UT-ID | Name |
 |---|---|
@@ -31398,6 +31398,7 @@ in 31 groups.
 | UT-01-26 | clamp/lerp/smoothstep |
 | UT-01-27 | deepClone independence |
 | UT-01-28 | assert throws coded error |
+| UT-01-29 | parts of a module: registered once, made once on first use; a duplicate or missing part is E-GEN-001 |
 
 #### 12.2.2 M-02 `FLM.Theory` (group `theory`, `src/91-test-theory.js`, Part 6.2.8): 22 tests
 
@@ -31491,7 +31492,7 @@ in 31 groups.
 | UT-04-27 | end of song |
 | UT-04-28 | setSpeed while paused |
 
-#### 12.2.5 M-05 `FLM.Audio` (group `audio`, `src/91-test-audio.js`, Part 6.5.8): 33 tests
+#### 12.2.5 M-05 `FLM.Audio` (group `audio`, `src/91-test-audio.js`, Part 6.5.8): 39 tests
 
 | UT-ID | Name |
 |---|---|
@@ -31528,8 +31529,14 @@ in 31 groups.
 | UT-05-31 | loopWrap releases |
 | UT-05-32 | voices stats event |
 | UT-05-33 | dispose closes |
+| UT-05-34 | a voice that frees its own slot while it is released leaves the slot free (regression) |
+| UT-05-35 | a freed slot is a new object: a stale handle cannot release the next voice (regression) |
+| UT-05-36 | restart audio: a suspended context is resumed and the graph rebuilt; a closed one is replaced |
+| UT-05-37 | an output device change tells M-07 with audio.sink and does not unlock a second time |
+| UT-05-38 | voice builds are capped per tick (OI-37): six builds that cost more than a quarter ms, then the next tick |
+| UT-05-39 | one slow build does not starve the notes behind it: the estimate is capped and notes due soon are never held back (regression) |
 
-#### 12.2.6 M-06 `FLM.Instruments` (group `instruments`, `src/91-test-instruments.js`, Part 6.6.8): 24 tests
+#### 12.2.6 M-06 `FLM.Instruments` (group `instruments`, `src/91-test-instruments.js`, Part 6.6.8): 33 tests
 
 | UT-ID | Name |
 |---|---|
@@ -31557,6 +31564,15 @@ in 31 groups.
 | UT-06-22 | all programs build |
 | UT-06-23 | range advisory |
 | UT-06-24 | releaseTrack |
+| UT-06-25 | held steel guitar: the key held after the 2.5 s buffer ended never cuts the next note (regression) |
+| UT-06-26 | soft panic: a voice in a 1.5 s release tail is silenced within 30 ms (regression) |
+| UT-06-27 | real engine: a soft panic empties a pool of voices in their release tails within 350 ms |
+| UT-06-28 | fallback chain: a failing definition plays the family template, then the basic voice; no recovery |
+| UT-06-29 | pluck buffers: one buffer per program and pitch whatever the layer; the end fades; warmupSong fills the cache |
+| UT-06-30 | tremolo: it follows the envelope, so the sound ends with the release (regression) |
+| UT-06-31 | vibrato follows the track (D80): a track with CC 1 events has the vibrato from the first note |
+| UT-06-32 | a voice lives until its last source ends: the oscillator of program 99 sounds after the pluck buffer ran out (regression) |
+| UT-06-33 | the steal priority of a note follows the program timeline of its channel |
 
 #### 12.2.7 M-07 `FLM.Input` (group `input`, `src/91-test-input.js`, Part 6.7.8): 32 tests
 
@@ -32239,7 +32255,7 @@ in 31 groups.
 | UT-26-25 | truncate rules |
 | UT-26-26 | reduced motion and contrast classes |
 
-#### 12.2.27 M-27 `FLM.Screens` (group `screens`, `src/91-test-screens.js`, Part 6.27.8): 28 tests
+#### 12.2.27 M-27 `FLM.Screens` (group `screens`, `src/91-test-screens.js`, Part 6.27.8): 30 tests
 
 | UT-ID | Name |
 |---|---|
@@ -32271,6 +32287,8 @@ in 31 groups.
 | UT-27-26 | codeLabel table |
 | UT-27-27 | pause screen registers no notes |
 | UT-27-28 | audio blocked dialog resolves on unlock |
+| UT-27-29 | wizard: Escape during the listen step cancels the clicks that are still booked (regression) |
+| UT-27-30 | resume audio dialog: a failed resume keeps the dialog open; Restart audio closes it (regression) |
 
 #### 12.2.28 M-28 `FLM.Modes` (group `modes`, `src/91-test-modes.js`, Part 6.28.8): 21 tests
 
@@ -32811,7 +32829,7 @@ caught between perf runs; a smoke pass never stands in for the PT result.
 
 | ID | Scenario | Set | Setup and procedure | Metrics and thresholds, desktop (mobile) | Part 9.1 rows | Gate | Smoke check (group `perf-smoke`) | Phase |
 |---|---|---|---|---|---|---|---|---|
-| PT-001 | `build-size` (tools/build.mjs, not a perf.mjs scenario) | every build | byte length of `FingerLickinMusic.html` including the BOM, printed by the build report | target <= 1,572,864 bytes (warning above it until Phase 16, a gate failure at Phase 16); hard limit: above 2,621,440 bytes the build exits 3 and writes no shipped file; phase envelopes 0.55, 0.95, 1.20, 1.35, 1.50 MB recorded per gate (RISK-60) | 1, 2 | [B] | none (the build itself) | 1 |
+| PT-001 | `build-size` (tools/build.mjs, not a perf.mjs scenario) | every build | byte length of `FingerLickinMusic.html` including the BOM, printed by the build report | phase envelope 1.25 MB (Phase 05), 2.20 MB (Phase 09), 2.50 MB (Phases 12, 13, 16), printed by the build report as a warning when exceeded and recorded per gate (RISK-60, OI-45); hard limit: above 2,621,440 bytes the build exits 3 and writes no shipped file | 1, 2 | [B] | none (the build itself) | 1 |
 | PT-002 | `boot-to-menu` | default; device by the Part 9.7.5 manual procedure | shipped file from `file://`, empty storage, 5 cold loads in new contexts | `menuMs` median <= 1,500 (mobile 3,000); `menuMsMax` <= 2,250 (4,500); `phaseAMs` <= 600 (1,200); `bootMs` <= 400 (800); `capsMs` <= 20 | 3, 4; 9.1.3 Phase A, Phase B, caps | [HD] | `boot.ready` record present in `FLM.Boot.stage` with all 16 stages in order (info: its `ms`) | 1 |
 | PT-003 | `first-playable` | default; device by the manual procedure | test build `?perf`; 3 cold loads with empty storage and 3 with onboarding completed; one real click on the unlock control | `ttiMs` and `ttiFirstLaunchMs` medians <= 5,000 (8,000); `enterMs` <= 1,000 (2,000) | 5, 6; 9.1.3 mode enter | [HD] | `Modes.enter('quickplay')` with the Part 1.7 default selection reaches `countin`; `enterMs` recorded as info | 8 |
 | PT-004 | `playback-dense` | default (30 s); device (120 s) | `instrument`, `demo-electro`, track Arp, expert, chart bot, all tracks audible | `lookaheadMaxMs` <= 125; `tickIntervalP50Ms` 23-27; `tickIntervalP95Ms` <= 50; `tickIntervalMaxMs` <= 95; `tickWorkMaxMs` <= 4; `schedErrorMaxMs` <= 1.0; `lateEvents` 0; `voicesMax` <= cap | 12, 13, 14; 9.1.3 tick body | [H] and [HD] per row | 5 s of the same scenario: `lateEvents` 0 and `lookaheadMaxMs` <= 125 | 4 |
@@ -32901,6 +32919,7 @@ reached `window.onerror` other than the injected one, user data equals its pre-f
 | FI-040 | switch modes while notes are active | none (I 13.1 method of Part 10.9.3) | `freeplay` with 4 lanes and sustain held through `Input.synthesize`; then `studio` recording with 3 held notes | `Modes.enter('menu')` in each case | soft panic then hard panic after 350 ms if needed; the recording is aborted with "Recording discarded" | `activeVoices === 0` within 350 ms; `assertClean()` null; the previous take on the recorded track intact | I 13.1 switch modes while notes are active; E 13 stuck notes; E 11 rule 7 | 9 |
 | FI-041 | random input fuzz never crashes | none (seeded fuzz) | fresh page state | 200 random byte buffers (`Prng(1)` to `Prng(200)`, 0-64 KB, with valid magic numbers prefixed for half of them) through `Import.importFile`; 1,000 random `NetMessage` objects through `Net.validateMessage`; 500 random key and pointer event sequences through M-07 | every import ends in a typed error or a report; every message is accepted or rejected with a code; input lifecycle stays balanced | no uncaught error; `Project.current()` unchanged; `Input.held()` empty after a final `releaseAll` | E 11 rule 6; B 23.1 | 13 |
 | FI-042 | page hidden during a recording | none (dispatch `visibilitychange` hidden and `pagehide`) | `studio` recording a take over an existing take T1; dirty project under 2 MB | dispatch the events, then boot a fresh M-29 instance on the same storage | recording stopped at the hide; the pending take written with the autosave as `interrupted:true` and not applied; the recovery copy offered at boot | track 1 holds T1 in the recovered project; the pending take offered for review | E 11 rule 7; E 5.1 user navigates away before saving; I 13 recoverable recording sessions | 9 |
+| FI-043 | an instrument definition fails: the family template plays (regression) | `audio.fail {phase:'definition', count:2}` | `quickplay` with `demo-poprock` playing | arm during playback | the family template, then the basic voice, plays the notes; one warning is logged; no E-AUD-004 and no hard panic | no note dropped; no leaked voice slot | R-P6.1-12 (LEDGER D104: a definition failure is not a node failure) | 4 |
 
 #### 12.7.2 Coverage of the fault hooks (Part 10.9.2) and of I 13.1
 
@@ -36024,7 +36043,7 @@ Fault names in the Verification column (`render.slowFrames`, `render.contextLoss
 | RISK-57 | High | Playwright or headless Chromium is absent or broken in the implementing environment (ADR-11). | No automated gate: defects pass phase gates unseen. | ADR-11 decision 5 fallback chain (`chromium.launch()`; `executablePath: '/opt/pw-browsers/chromium'`; raw CDP driver over Node 22's global `WebSocket`); a manual run of `FingerLickinMusic.test.html` with `__FLM_RESULTS` copied into the LEDGER; the 0.10 environment checks at 0.4 step 0. | `node -e "require('playwright')"` failing; `tools/selftest.mjs` exiting with code 2. | Phase 01 | IT (`tools/selftest.mjs` passes a trivial group through every launch path that exists); review (the LEDGER records which path ran at each gate). |
 | RISK-58 | High | `file://` storage differs between browsers (E 9, ADR-08 decision 10): Chromium shares one storage origin among all local files, Firefox scopes it per directory, Safari may deny or hang IndexedDB. | Projects vanish after the file is moved to another folder, are readable by other local pages, or saving hangs. | IndexedDB open timeout, then localStorage-only mode (Part 4.3 step B5, 6.16); key prefix `flm.v1.`; `Caps` records the actual behavior on SCR-Diagnostics; nothing secret is stored; decided here: SCR-Library and `README.md` state "Keep this file in one folder. Some browsers tie saved projects to the file's location; export your projects before moving the file."; no claim before XT. | XT showing IndexedDB open failing or taking more than 1 s; saved projects missing after the file was moved. | Phase 15 | UT (UT-16-02, UT-16-03, UT-16-04); XT (`file://` per browser: open, reload persistence, file moved to another folder); LT. |
 | RISK-59 | High | The implementing agent runs out of context during its single session (ADR-16). | Lost decisions, re-planning, inconsistent names, half-built T sections, placeholders under time pressure. | ADR-16 LEDGER with a `RESUME:` line; 0.4 steps 6-7 (pause and resume procedures); T sections sized to part of one module; WIP commits; the 0.3 reading order (each Part 6 module read just before it is implemented); STATUS.md live counts; names fixed in Parts 4 and 5. | A compaction notice; needing to re-read Part 4 or Part 5 for a name; one T section spanning more than one context window. | Phase 16; watched at every gate | review (every gate entry has a current `RESUME:` line; a fresh session can resume from Part 0, the newest LEDGER entry and STATUS.md alone). |
-| RISK-60 | Medium | Build size creeps above the 1.5 MB target or the 2.5 MB failure limit (ADR-01); unminified, commented source (B 19.4) grows with every module. | A failed build late in the project, or slow loading on mobile. | ADR-01 decision 5 and the Part 3.3.4 size gate (warning above 1.5 MB, failure above 2.5 MB); content module <= 60 KB (ADR-14 decision 7); the DRY duplicate-block check (Part 3.3.4); decided here, envelopes for the shipped file: <= 0.55 MB at the Phase 05 gate, <= 0.95 MB at Phase 09, <= 1.20 MB at Phase 12, <= 1.35 MB at Phase 13, <= 1.50 MB at Phase 16; when an envelope is exceeded: remove duplicated code, shorten comments that restate code (intent comments stay), generate repetitive tables at load; never minify and never drop a feature. | An envelope exceeded; one phase adding more than 250 KB; a single module above 150 KB. | Phase 16 | FT (build size report at every gate, recorded in STATUS.md section 7); PT (load to menu checked at each envelope). |
+| RISK-60 | Medium | Build size creeps above the 1.5 MB target or the 2.5 MB failure limit (ADR-01); unminified, commented source (B 19.4) grows with every module. | A failed build late in the project, or slow loading on mobile. | ADR-01 decision 5 and the Part 3.3.4 size gate (warning above the envelope of the current phase, failure above 2.5 MB); content module <= 60 KB (ADR-14 decision 7); the DRY duplicate-block check (Part 3.3.4); envelopes for the shipped file reset from the growth measured at the Phase 04 gate (0.93 MB, about 0.24 MB a phase; LEDGER D108, coordinator decision, the owner may change it): <= 1.25 MB at the Phase 05 gate, <= 2.20 MB at Phase 09, <= 2.50 MB (the hard limit) at Phases 12, 13 and 16 (the Phases 12, 13 and 16 values and PT-001 moving from 1.5 MB to 2.5 MB at Phase 16 were approved by the owner on 2026-10-29 at 18:35: "Raise to 2.5 MB (Recommended)"; size is checked again at each phase gate and content is trimmed if it goes over); at that rate the file crosses 2.5 MB at Phase 11, which is the signal to revisit (comment stripping is not used for now); when an envelope is exceeded: remove duplicated code, shorten comments that restate code (intent comments stay), generate repetitive tables at load; never minify and never drop a feature. | An envelope exceeded; one phase adding more than 250 KB; a single module above 150 KB (split into NNx-name-part.js files: M-27 has 27a-screens-calibration.js). | Phase 16 | FT (build size report at every gate, recorded in STATUS.md section 7); PT (load to menu checked at each envelope). |
 | RISK-61 | High | Synthesized General MIDI timbres are judged unacceptable (I 3, P 6.1 "perceptibly appropriate timbres", which P 6 calls release-critical; ADR-04). | The game sounds like a toy; the P 6 polish requirement fails. | ADR-04 decisions 2-4 (16 family templates with per-program overrides, velocity layers, Karplus-Strong plucks, additive organ, 12 drum voices); every program builds (UT-06-22), so no track meets an unavailable instrument (E 5.2); honest "synthesized" labeling; a first timbre review in Phase 04 and the fidelity evaluation of Phase 14 (B 27); an owner listening review recorded in the LEDGER; the SoundFont reader kept as a Deferred P2 interface. | LT notes calling a family unrecognizable; reviewers confusing two families. | Phase 14 | LT (all 16 families and the five demos, P 6.1); UT (UT-06-01, UT-06-03, UT-06-22). |
 | RISK-62 | Medium | Headless SwiftShader GL differs from real GPUs in precision, limits, extensions and speed (ADR-11 decision 9). | Shaders pass in tests but fail or render wrongly on mobile GPUs; frame-time numbers do not transfer. | Headless runs prove correctness, not speed, and their numbers are marked "(software GL)" (0.10); decided here for 6.18 M-18: shaders stay within the WebGL1 minimum limits (128 vertex uniform vectors, 16 fragment uniform vectors, 8 varying vectors), fragment math works at `mediump`, and every optional extension has a non-extension fallback path; shader compile and link logs are checked at init with fallback to the next tier (Part 4.3 step B8). | Shader warnings in any XT browser; visual artifacts on a mobile GPU in LT. | Phase 15 | UT (every program compiles and links in SwiftShader WebGL2 and WebGL1 contexts); XT (tier and visuals per device); PT (on devices). |
 | RISK-63 | Medium | The headless environment has no audio hardware clock, so real-time latency and jitter cannot be observed there (ADR-11). | Timing passes offline yet feels late on devices. | `OfflineAudioContext` tests for exact scheduling (ADR-11 decision 6); DLG-Calibration on devices; no latency claim before XT; `input.anchor` jitter shown on SCR-Diagnostics. | Testers reporting late feel at calibrated settings; anchor jitter above 4 ms on a device. | Phase 15 | TT (offline precision); XT (calibration wizard per device); LT (feel test with the metronome). |

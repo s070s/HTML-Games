@@ -235,7 +235,7 @@ FLM.SelfTest.group('input', (t) => {
     Input.detach();
     t.eq(Input.listenerCount(), 0);
     t.eq(Core.dom.count(), domBefore - own, 'every listener went through Core.dom');
-    t.eq(bus.listenerCount(), busBefore - 4, 'the four bus subscriptions are gone');
+    t.eq(bus.listenerCount(), busBefore - 5, 'the five bus subscriptions are gone');
     key('KeyA', true, 10);
     dispatchKey('keydown', 'KeyA');
     t.deepEq(events, []);
@@ -483,6 +483,26 @@ FLM.SelfTest.group('input', (t) => {
     Input.pollGamepad(2125);
     t.eq(seen.length, 2);
     t.eq(seen[1].samples, 4);
+  });
+
+  t.test('anchor: the first sample after a clear is announced even when input.anchor fired a moment ago (regression)', () => {
+    fakeClock(5000);
+    const context = installAudio(1.0);
+    const seen = [];
+    bus.on('input.anchor', (event) => seen.push(event), t.owner);
+    Input.pollGamepad(5000);
+    t.eq(seen.length, 1, 'the first sample');
+    context.offset = 2.0;
+    clock.now = 5100;
+    Input.resampleAnchor();                  // the time base changed (unlock, rebuild, resume): 100 ms after the last event
+    t.eq(seen.length, 2, 'announced at once, not held back by the once-a-second gate');
+    t.near(seen[1].offsetSec, 2.0, 1e-9);
+    Input.detach();                          // what an earlier test left behind must not decide the next one
+    attach();
+    context.offset = 3.0;
+    clock.now = 5150;
+    Input.pollGamepad(5150);
+    t.eq(seen.length, 3, 'a fresh attach announces its first sample');
   });
 
   t.test('anchor: a new AudioContext clears the ring; a missing Audio module maps identically', () => {

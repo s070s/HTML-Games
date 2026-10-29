@@ -23,6 +23,9 @@ FLM.Core.define('Modes', function (FLM) {
   const MODES_OWNER = Symbol('modes');       // owner of the permanent listeners (part of the menu baseline)
   const MENU_OWNER = Symbol('menu');
   const HARD_PANIC_WAIT_MS = 350;            // longest patch release 300 ms plus margin (Part 4.7.2 step 5)
+  const NODE_SETTLE_MS = 200;                // audio nodes are back at the baseline within this after a panic (R-E2.3-14)
+  const NODE_POLL_MS = 20;
+  const DOUBLE_PANIC_MS = 2000;              // a second panic key press inside this is a hard panic (Part 6.5.4.4)
   const AUTOSAVE_TIMEOUT_MS = 2000;
   const STALL_PAUSE_MS = 500;                // sched.stall gaps above this pause a playing gameplay mode
   const MENU_ROOTS = Object.freeze(['SCR-MainMenu', 'SCR-FirstLaunch']);
@@ -106,6 +109,8 @@ FLM.Core.define('Modes', function (FLM) {
     pauseReason: null,
     rotateDismissed: false,
     skipGuardOnce: false,
+    resumeDialog: false,                     // DLG-ResumeAudio is open for an audio interruption
+    lastPanicAt: null,                       // Core.now() of the last panic key press (a second one within 2 s is hard)
     preview: { active: false, timer: null }, // the library or import preview on Transport.main (Part 6.28.3)
     gp: null                                 // gameplay assembly of the current mode, null when none (Part 6.28.3)
   };
@@ -293,9 +298,21 @@ FLM.Core.define('Modes', function (FLM) {
     if (invoke('Audio.VoiceAllocator.activeCount') === 0) return undefined;
     await sleep(HARD_PANIC_WAIT_MS, context.owner);
     if (invoke('Audio.VoiceAllocator.activeCount') === 0) return undefined;
-    invokeStep('hardPanic', 'Audio.panic', true);
+    invokeStep('hardPanic', 'Audio.panic', true, 'mode');
     Core.ErrorReporter.report('E-AUD-006', null, { module: 'Modes', mode: context.mode });
     return undefined;
+  }
+
+  // R-E2.3-14: once the strips are gone the node counter is back at the menu baseline within 200 ms of the panic (the
+  // last voices end by themselves). Runs after the bindings step; it returns at once when the counter is already there.
+  async function awaitAudioNodes(context) {
+    if (!available('Audio.nodeCount') || !state.baselineFromMenu || !state.baseline || !('audioNodes' in state.baseline)) {
+      return;
+    }
+    const goal = state.baseline.audioNodes;
+    for (let waited = 0; invoke('Audio.nodeCount') > goal && waited < NODE_SETTLE_MS; waited += NODE_POLL_MS) {
+      await sleep(NODE_POLL_MS, context.owner);
+    }
   }
 
   // Step 6: the judge is disposed (its time map and calibration subscription go with it); charts are plain data.
@@ -363,10 +380,11 @@ FLM.Core.define('Modes', function (FLM) {
       context.owner]]) },
     { name: 'recorder', run: leaveRecorder },
     { name: 'transport', run: () => invokeStep('transport', 'Transport.main.stop') },
-    { name: 'panic', run: () => invokeStep('panic', 'Audio.panic', false) },
+    { name: 'panic', run: () => invokeStep('panic', 'Audio.panic', false, 'mode') },
     { name: 'hardPanic', run: leaveHardPanic },
     { name: 'judge', run: leaveJudge },
     { name: 'bindings', run: leaveBindings },
+    { name: 'audioNodes', run: awaitAudioNodes },
     { name: 'stage', run: () => runAll('stage', [['Render.stopLoop'], ['Stage.dispose'], ['Animation.Mixer.dispose'],
       ['Render.Flat2D.clear']]) },
     { name: 'timers', run: leaveTimers },
@@ -403,6 +421,7 @@ FLM.Core.define('Modes', function (FLM) {
     const next = options && options.next;
     const context = { mode: leaving.mode, owner: leaving.owner, reason, next };
     state.pauseReason = null;
+    state.lastPanicAt = null;
     for (const step of LEAVE_STEPS) await runLeaveStep(step, context);
     const leaks = assertClean({ next, from: leaving.mode });
     if (leaks) {
@@ -522,11 +541,26 @@ FLM.Core.define('Modes', function (FLM) {
     return { master: { gain: typeof volume === 'number' ? volume : 1 } };
   }
 
-  // Step 6: one strip per track with its mix, the Scheduler started on Transport.main, the metronome settings applied.
-  function bindScheduler(song) {
+  // What the first notes of the song need (primed voices, sustain tables, Karplus-Strong buffers) is made before the Scheduler is
+  // bound and before play starts, so no tick pays for it (a failure only logs).
+  async function warmInstruments(song) {
+    if (!available('Instruments.warmupSong')) return;
+    try {
+      await invoke('Instruments.warmupSong', song);
+    } catch (error) {
+      Core.Log.warn('modes', 'instrument warm-up failed: ' + messageOf(error));
+    }
+  }
+
+  // Step 6: the instruments warmed, then one strip per track with its mix, the Scheduler started on Transport.main, the metronome
+  // settings applied.
+  async function bindScheduler(song, owner) {
+    await warmInstruments(song);
+    if (owner !== undefined && state.current.owner !== owner) return false;     // the mode was left while the instruments warmed up
     invokeStep('audio binding', 'Audio.Scheduler.bind', FLM.Transport.main, song, mixerSettings());
     const accent = settingValue('audio.metronomeAccent') !== false;
     invokeStep('audio binding', 'Audio.Metronome.configure', { accent });
+    return true;
   }
 
   /**
@@ -543,7 +577,7 @@ FLM.Core.define('Modes', function (FLM) {
     const tempoOnly = row.transport === 'tempo';
     const options = tempoOnly ? { tempoSource: 'override', overrideBpm: params.overrideBpm } : undefined;
     invokeStep('music', 'Transport.main.load', song, options);
-    if (row.scheduler === 'bound') bindScheduler(song);
+    if (row.scheduler === 'bound') await bindScheduler(song);
   }
 
   // ---------------------------------------------------------------- gameplay assembly (Part 4.7.1 steps 7, 8, 10, 14)
@@ -631,10 +665,13 @@ FLM.Core.define('Modes', function (FLM) {
     if (top && top.id === 'SCR-Pause' && typeof top.controller.onBack === 'function') top.controller.onBack('key');
   }
 
-  // KeyP: pauses first, then stops every sound (Part 7.6.4); Audio.panic itself arrives with T04.05.
+  // KeyP: pauses first, then stops every sound (Part 7.6.4). A second press within 2 s is a hard panic (Part 6.5.4.4).
   function onPanicControl() {
     if (state.pauseReason === null) startPause('user');
-    invokeStep('panic', 'Audio.panic', false);
+    const pressedAt = Core.now();
+    const repeated = state.lastPanicAt !== null && pressedAt - state.lastPanicAt <= DOUBLE_PANIC_MS;
+    state.lastPanicAt = repeated ? null : pressedAt;
+    invokeStep('panic', 'Audio.panic', repeated, 'user');
     FLM.UI.toast(TEXT.allSoundStopped, { kind: 'info', key: 'play.panic' });
   }
 
@@ -935,7 +972,7 @@ FLM.Core.define('Modes', function (FLM) {
     if (!usable || state.current.owner !== owner) return { ok: false };
     await stopPreview();
     invoke('Transport.main.load', song);
-    bindScheduler(song);
+    if (!(await bindScheduler(song, owner))) return { ok: false };
     const seconds = Number.isFinite(given.durationS) ? given.durationS : PREVIEW_SECONDS;
     const timer = Core.timers.setTimeout(() => {
       stopPreview().catch((error) => Core.Log.warn('modes', 'preview stop failed: ' + messageOf(error)));
@@ -1034,8 +1071,30 @@ FLM.Core.define('Modes', function (FLM) {
     return kind === 'live' ? 'continued' : 'ignored';
   }
 
+  // A gameplay mode paused by an audio interruption offers DLG-ResumeAudio (E-AUD-007): Resume runs Audio.resume() inside
+  // the click, and the song goes on from the frozen tick (Transport.resume re-anchors there; no position jump).
+  async function offerAudioResume() {
+    if (state.resumeDialog) return;
+    state.resumeDialog = true;
+    try {
+      Core.Log.warn('modes', 'E-AUD-007: ' + Core.Text.get('E-AUD-007'));
+      if (!FLM.Screens || typeof FLM.Screens.dialog !== 'function') return;     // no dialog layer: the pause screen stays
+      const result = await FLM.Screens.dialog('DLG-ResumeAudio', {});
+      const running = available('Audio.state') && invoke('Audio.state') === 'running';
+      if (result === 'resume' && running && state.pauseReason === 'audio') await resume();
+    } catch (error) {
+      Core.Log.warn('modes', 'DLG-ResumeAudio failed: ' + messageOf(error));
+    } finally {
+      state.resumeDialog = false;
+    }
+  }
+
   function whenAudioStops(kind) {
-    if (kind === 'gameplay') return startPause('audio');
+    if (kind === 'gameplay') {
+      const action = startPause('audio');
+      offerAudioResume();
+      return action;
+    }
     if (kind !== 'live') return 'ignored';
     invokeStep('pause', 'Transport.main.pause');
     return 'paused';

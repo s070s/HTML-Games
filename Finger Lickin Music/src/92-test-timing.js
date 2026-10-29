@@ -635,11 +635,12 @@ FLM.SelfTest.group('timing', (t) => {
       const song = songFromTracks(tracks, 4 * BEAT);
       await offlineRun(2, 8000, (rig) => {
         const voices = rig.engine.VoiceAllocator;
-        const stops = [];
+        const built = [];
         const instruments = { noteOn(track, event, at, end) {
           const slot = voices.acquire({ trackId: track.id, channel: event.channel, pitch: event.pitch,
             priority: 1 }, at);
-          const stand = { levelAt: () => 1, stop: () => stops.push(event.pitch + '@' + track.id), release() {} };
+          built.push(track.id + ':' + event.pitch);
+          const stand = { levelAt: () => 1, stop() {}, release() {} };
           slot.voice = stand;
           voices.markReleased(slot, end, end + 0.05);
           return slot;
@@ -652,13 +653,19 @@ FLM.SelfTest.group('timing', (t) => {
         const order = noteOns.map((event) => event.trackId + ':' + event.pitch);
         const expected = song.tracks.flatMap((owner) => Array.from({ length: 16 }, (u, index) => owner.id + ':' +
           (40 + index)));
-        t.deepEq(order, expected, 'track order, then pitch ascending');
+        // D81 (review fix): the survivors are chosen round-robin over the tracks (8 of each) and booked first, in track
+        // and pitch order; the voiceless notes are announced after them in the same order.
+        const survivors = song.tracks.flatMap((owner) => Array.from({ length: 8 }, (u, index) => owner.id + ':' +
+          (40 + index)));
+        const voiceless = expected.filter((name) => !survivors.includes(name));
+        t.deepEq(order, survivors.concat(voiceless), 'survivors first, then the voiceless notes');
         const stats = voices.stats();
         t.eq(stats.started + stats.dropped, 64, 'started + dropped === 64');
         t.deepEq([stats.stolen, voices.activeCount()], [32, 32], '32 voices hold, 32 were stolen');
-        t.eq(stops.length, 32);
-        t.deepEq(stops.slice(0, 16), song.tracks[0].events.map((event) => event.pitch + '@' + song.tracks[0].id),
-          'the first notes of the chord are the first to go (equal levels: oldest first)');
+        // T04.06 (LEDGER D81): a chord of 64 notes at 32 voices builds 32 voices; the others are counted started and
+        // stolen without a voice. Which ones stay is decided by priority, then round-robin over the tracks.
+        t.eq(built.length, 32, 'only the notes that stay get a voice');
+        t.deepEq(built, survivors, 'every track keeps its lowest eight notes');
       }, { polyphony: 32 });
     });
 

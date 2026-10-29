@@ -1,12 +1,14 @@
-﻿// 05-audio.js - M-05 FLM.Audio (T04.01 to T04.04): the one AudioContext of the page, the unlock gesture and the audio
+﻿// 05-audio.js - M-05 FLM.Audio (T04.01 to T04.06): the one AudioContext of the page, the unlock gesture and the audio
 // state machine; the bus graph (master gain, limiter, analyser, metronome bus); channel strips with gain, pan, mute
 // and solo; the metronome click; the peak meter; the master fades; the VoiceAllocator (polyphony caps, note stealing);
 // the lookahead Scheduler that turns Transport.pullDue items into instrument calls and sched.* events.
 // Separation rule: this file owns exactly one namespace and registers it once through FLM.Core.define. It may use
 // only lower-numbered modules (Part 4.2, R-DEP). It declares no module-level global state object (S-07): every engine
 // keeps its state inside createEngine(), and FLM.Audio forwards to the one app engine that init() creates.
-// Not here yet (later Phase 4 entries): panic(hard) and nodeCount (T04.05), the live note path (T04.06). The Scheduler
-// has an internal soft panic (every pause, stop and seek needs one); T04.05 builds the public panic on top of it.
+// T04.05 added the note lifecycle: panic(hard, reason), the node counter (nodeCount, countNodes), the retrigger and
+// song-end rules and the live note path (Scheduler.liveNoteOn, liveNoteOff, liveControl). M-06 (FLM.Instruments) is the
+// instrument table the Scheduler calls: noteOn, control, startLive, stopLive, applyLive, allNotesOff, onGraphRebuilt.
+// Diagnostics Audio panel and the recovery matrix come with T04.08 and T04.09.
 // Spec: docs/IMPLEMENTATION-PLAN.md Part 6.5 (API 6.5.2, algorithms 6.5.4), Part 4.4 (events), Part 10.6 (E-AUD codes).
 // Time: every read goes through the engine clock {now() -> seconds}; an injected clock and an injected context
 // (OfflineAudioContext) make the engine fully deterministic in tests (6.5.4.10).
@@ -60,6 +62,18 @@ FLM.Core.define('Audio', function (FLM) {
   const LATE_CLAMP_S = 0.005;                // an overdue event is scheduled this far after "now", never in the past
   const MIN_NOTE_S = 0.010;                  // shortest audible note
   const TICK_BUDGET_MS = 4;                  // scheduling work per tick (S-10); the rest stays in the backlog
+  const HEAVY_ITEM_MS = 0.25;                // an item that costs more than this is a voice build (counted per tick)
+  const MAX_HEAVY_PER_TICK = 6;              // at most this many voice builds in one tick (OI-37)
+  const LATE_EPSILON_S = 1e-9;               // a note booked later than the time the Transport gave it is late (clamped)
+  const SLOW_ITEM_MS = 3;
+  const SLOW_ITEM_KEEP = 40;
+  const COST_SAMPLE_CAP_MS = 2;              // one slow build (a preempted thread) must not become the estimate of every build
+  const URGENT_S = 0.06;                     // a note due within about two ticks is never held back by the estimate
+  const COST_SMOOTHING = 0.2;                // weight of a new cost sample in the running estimate per item type
+  const CHORD_WINDOW_S = 0.001;              // notes within 1 ms of the first note of a chord are one chord
+  const COMPACT_AFTER = 1024;                // the end queue is cut down when this many records at its front are used
+  const SUB_CHANNEL_SPAN = 128;              // a (channel, pitch) pair as one number: channel * 128 + pitch
+  const TICK_TAIL_RESERVE_MS = 0.5;          // booking stops this early: the item in flight and the tick's tail stay inside 4 ms
   const STALL_REPORT_MS = 1;                 // lateness above this is a stall and emits sched.stall
   const STALE_NOTE_S = 0.5;                  // a note this late is dropped, not bunched at "now"
   const WRAP_EPSILON_S = 1e-6;
@@ -68,6 +82,17 @@ FLM.Core.define('Audio', function (FLM) {
   const BODY_BUCKETS = 200;                  // tick-body histogram: 0.1 ms buckets plus one overflow bucket
   const BODY_BUCKET_MS = 0.1;
   const CONTROL_TOPICS = Object.freeze({ cc: 'sched.cc', program: 'sched.program', bend: 'sched.bend' });
+  const RECOVERY_GAP_S = 0.25;               // two recoveries (hard panics after E-AUD-004) are at least this far apart
+  const TEST_TONE_HZ = 440;
+  const TEST_TONE_S = 0.5;
+  const TEST_TONE_LEVEL = 0.4;
+  const LIVE_LEAD_S = 0.002;                 // a live note starts no earlier than this after "now" (6.5.4.3)
+  const SUSTAIN_CONTROLLER = 0x40;           // CC 64, released by every panic (E 2.3)
+  const GRAPH_NODES = 4;                     // master, limiter, analyser, metronome bus
+  const STRIP_NODES = 4;                     // input, gain, pan, mute gain
+  const CLICK_NODES = 2;                     // oscillator and envelope of one metronome click
+  const PANIC_REASONS = Object.freeze(['user', 'stop', 'seek', 'mode', 'fatal', 'rebuild']);
+  const NOTE_OFF_REASON = Object.freeze({ seek: 'seek' });   // every other panic reason ends notes with 'stop'
 
   // ---------------------------------------------------------------------------------------------
   // Pure helpers
@@ -124,12 +149,13 @@ FLM.Core.define('Audio', function (FLM) {
     if (typeof context.createStereoPanner === 'function') {
       const node = context.createStereoPanner();
       const holder = { last: 0 };
-      return { node, set: (value, at) => rampThrough(holder, node.pan, at, [[value, RAMP_S]]) };
+      return { node, set: (value, at) => rampThrough(holder, node.pan, at, [[value, RAMP_S]]),
+        reset: (value) => { node.pan.value = value; holder.last = value; } };
     }
     const node = context.createPanner();
     node.panningModel = 'equalpower';
     placeEqualPower(node, 0);
-    return { node, set: (value) => placeEqualPower(node, value) };
+    return { node, set: (value) => placeEqualPower(node, value), reset: (value) => placeEqualPower(node, value) };
   }
 
   function defaultContextFactory() {
@@ -169,40 +195,57 @@ FLM.Core.define('Audio', function (FLM) {
    * dispose(trackId, strip)}. The strip keeps its mix values so that a graph rebuild can restore them (6.5.3).
    */
   function buildStrip(env, trackId) {
-    const context = env.context();
     const mix = { gain: 1, pan: 0, ccVolume: 1, expression: 1, mute: false };
-    const input = context.createGain();
-    const gain = context.createGain();
-    const panner = createPanner(context);
-    const muteGain = context.createGain();
     const gainState = { last: 1 };
     const muteState = { last: 1 };
-    input.connect(gain);
-    gain.connect(panner.node);
-    panner.node.connect(muteGain);
-    muteGain.connect(env.master());
+    let chain = null;                        // {input, gain, panner, muteGain}; replaced as a whole by rebuild()
 
     const effectiveMuted = () => mix.mute || env.silencedBySolo(trackId);
     const commandedGain = () => mix.gain * mix.ccVolume * mix.expression;
     const startOf = (at) => (at === undefined ? env.now() : at);
 
+    /** New nodes carrying the cached mix values at once: a hard panic restores the strip exactly (6.5.3). */
+    function assemble() {
+      const context = env.context();
+      const next = { input: context.createGain(), gain: context.createGain(), panner: createPanner(context),
+        muteGain: context.createGain() };
+      next.input.connect(next.gain);
+      next.gain.connect(next.panner.node);
+      next.panner.node.connect(next.muteGain);
+      next.muteGain.connect(env.master());
+      gainState.last = commandedGain();
+      next.gain.gain.value = gainState.last;
+      next.panner.reset(mix.pan);
+      muteState.last = effectiveMuted() ? 0 : 1;
+      next.muteGain.gain.value = muteState.last;
+      chain = next;
+    }
+
     function applyGain(at) {
-      rampThrough(gainState, gain.gain, startOf(at), [[commandedGain(), RAMP_S]]);
+      rampThrough(gainState, chain.gain.gain, startOf(at), [[commandedGain(), RAMP_S]]);
     }
 
     function refreshMute(at) {
-      rampThrough(muteState, muteGain.gain, startOf(at), [[effectiveMuted() ? 0 : 1, RAMP_S]]);
+      rampThrough(muteState, chain.muteGain.gain, startOf(at), [[effectiveMuted() ? 0 : 1, RAMP_S]]);
+    }
+
+    function disconnectChain() {
+      [chain.input, chain.gain, chain.panner.node, chain.muteGain].forEach((node) => node.disconnect());
     }
 
     const strip = {
-      trackId, input, gain, pan: panner.node, muteGain,
+      trackId,
+      get input() { return chain.input; },
+      get gain() { return chain.gain; },
+      get pan() { return chain.panner.node; },
+      get muteGain() { return chain.muteGain; },
       setGain(value, at) {
         mix.gain = Core.clamp(requireFinite(value, 'gain'), 0, MAX_STRIP_GAIN);
         applyGain(at);
       },
       setPan(value, at) {
         mix.pan = Core.clamp(requireFinite(value, 'pan'), -1, 1);
-        panner.set(mix.pan, startOf(at));
+        chain.panner.set(mix.pan, startOf(at));
       },
       setMute(flag, at) {
         mix.mute = Boolean(flag);
@@ -225,12 +268,14 @@ FLM.Core.define('Audio', function (FLM) {
       refreshMute,
       dispose: () => env.dispose(trackId, strip),
       /** Engine use: disconnects the chain. Voices that still feed `input` go quiet with it. */
-      release() {
-        [input, gain, panner.node, muteGain].forEach((node) => node.disconnect());
+      release: disconnectChain,
+      /** Engine use (hard panic): the old chain is disconnected and a new one built from the cached mix state. */
+      rebuild() {
+        disconnectChain();
+        assemble();
       }
     };
-    muteGain.gain.value = effectiveMuted() ? 0 : 1;
-    muteState.last = muteGain.gain.value;
+    assemble();
     return Object.freeze(strip);
   }
 
@@ -322,6 +367,7 @@ FLM.Core.define('Audio', function (FLM) {
     const onChange = typeof given.onChange === 'function' ? given.onChange : () => {};
     const clockNow = typeof given.now === 'function' ? given.now : () => 0;
     const stealLogKey = 'audio.steal.' + Core.uid();
+    let stealLogged = false;                 // the log line (and its data object) is made once, not at every steal
     const slots = [];
     const counters = { started: 0, stolen: 0, dropped: 0, peakActive: 0 };
     let slotSerial = 0;
@@ -336,12 +382,18 @@ FLM.Core.define('Audio', function (FLM) {
       slots.push(createSlot(slots.length, slotSerial));
     }
 
+    function noteStealingStarted() {
+      if (stealLogged) return;
+      stealLogged = true;
+      Log.once(stealLogKey, 'info', 'audio', 'voice stealing started: the quietest released voice goes first, then ' +
+        'the oldest', { capacity: slots.length });
+    }
+
     function steal(time) {
       const victim = pickVictim(slots, time);
       callVoice(victim, 'stop', time, STEAL_FADE_S);
       counters.stolen += 1;
-      Log.once(stealLogKey, 'info', 'audio', 'voice stealing started: the quietest released voice goes first, then ' +
-        'the oldest', { capacity: slots.length });
+      noteStealingStarted();
       // A fresh slot object: a late free() or markReleased() of the old handle must not touch the new owner.
       slotSerial += 1;
       const fresh = createSlot(victim.index, slotSerial);
@@ -378,9 +430,13 @@ FLM.Core.define('Audio', function (FLM) {
       return true;
     }
 
+    // The slot object is replaced, as steal() does: every handle kept by a caller (a booked note, a held live key) is
+    // stale from now on and cannot release or free the next voice that takes this place.
     function free(slot) {
       if (!isLive(slot) || slot.state === 'free') return false;
       clearSlot(slot);
+      slotSerial += 1;
+      slots[slot.index] = createSlot(slot.index, slotSerial);
       onChange();
       return true;
     }
@@ -390,6 +446,7 @@ FLM.Core.define('Audio', function (FLM) {
       if (!isLive(slot) || slot.state === 'free') return false;
       const time = requireFinite(atAudio, 'release time');
       callVoice(slot, 'release', time, rampS);
+      if (slot.state === 'free') return true;     // the voice ended at once and freed its own slot
       slot.state = 'released';
       slot.releasedAt = time;
       slot.releaseEndAt = time + (typeof rampS === 'number' ? rampS : 0);
@@ -457,6 +514,17 @@ FLM.Core.define('Audio', function (FLM) {
       onChange();
     }
 
+    /**
+     * A note of a same-instant chord that the later notes of that chord would steal at once (more notes than voices) is
+     * counted as started and stolen without a voice ever being built (E 2.2: a dense chord never makes unbounded nodes).
+     */
+    function noteSkipped() {
+      counters.started += 1;
+      counters.stolen += 1;
+      noteStealingStarted();
+      onChange();
+    }
+
     /** A note that could not get a voice (the instrument call failed) is counted here: started + dropped = notes. */
     function noteDropped() {
       counters.dropped += 1;
@@ -470,7 +538,7 @@ FLM.Core.define('Audio', function (FLM) {
     return Object.freeze({
       get capacity() { return slots.length; },
       activeCount: busyCount, releasedCount, acquire, markReleased, release: markReleased, free, releaseSlot,
-      releaseAll, stopAll, setCapacity, list: () => slots.slice(), stats, resetStats, noteDropped
+      releaseAll, stopAll, setCapacity, list: () => slots.slice(), stats, resetStats, noteDropped, noteSkipped
     });
   }
 
@@ -509,10 +577,17 @@ FLM.Core.define('Audio', function (FLM) {
     const allocator = env.allocator;
     const pending = new Map();               // sequence -> a scheduled note whose release is still to come
     const programs = new Map();              // trackId -> the program in force
+    const sounding = new Map();              // trackId -> Map(channel * 128 + pitch -> the latest booked note), retrigger
+    const liveHeld = new Map();              // trackId -> Map(channel * 128 + pitch -> a live note waiting for liveNoteOff)
+    let endQueue = [];                       // {entry, end} sorted by end time: the notes that will be over soon
+    let endHead = 0;
+    const costs = new Map();                 // item type -> running estimate of its booking cost in ms
+    const slowItems = [];                   // [end time on the performance clock, ms, type] of the first items over 3 ms (diagnosis of load spikes)
+    let starved = false;                     // the last tick booked nothing although items were waiting
     const ownedStrips = new Set();           // strips this binding made: disposed at unbind
     const subscriptions = [];                // off() functions while the timer runs
     const stats = { ticks: 0, stalls: 0, maxLateMs: 0, scheduled: 0, clamped: 0, skipped: 0, errors: 0,
-      lookaheadMaxMs: 0, tickWorkMaxMs: 0, tickWorkSumMs: 0, notesScheduled: 0 };
+      lookaheadMaxMs: 0, tickWorkMaxMs: 0, tickWorkSumMs: 0, notesScheduled: 0, pullMaxMs: 0, arrangeMaxMs: 0, itemMaxMs: 0, itemMaxWhat: '' };
     const intervalBuckets = new Uint32Array(INTERVAL_BUCKETS + 1);
     const bodyBuckets = new Uint32Array(BODY_BUCKETS + 1);
     let backlog = [];                        // pulled items not yet booked (the remainder of the 4 ms budget)
@@ -562,11 +637,20 @@ FLM.Core.define('Audio', function (FLM) {
     }
 
     /** stop() and every strip this binding made. Safe when nothing is bound. */
+    // The cost estimates belong to one binding: a new song starts with none, and the next tick may book an item at once.
+    function resetCostModel() {
+      costs.clear();
+      starved = false;
+      slowItems.length = 0;
+    }
+
     function unbind() {
       stop();
+      resetCostModel();
       Array.from(ownedStrips).forEach((trackId) => env.disposeStrip(trackId));
       ownedStrips.clear();
       programs.clear();
+      sounding.clear();
       transport = null;
       song = null;
     }
@@ -575,6 +659,7 @@ FLM.Core.define('Audio', function (FLM) {
       requireTransport(boundTransport);
       if (timer !== null) return;
       transport = boundTransport;
+      resetCostModel();
       resetCursor();
       subscriptions.push(bus.on('transport.seek', onSeek, env.owner), bus.on('transport.state', onState, env.owner),
         Core.dom.on(window.document, 'visibilitychange', onVisibility, undefined, env.owner));
@@ -606,36 +691,128 @@ FLM.Core.define('Audio', function (FLM) {
       bodyBuckets.fill(0);
     }
 
-    // ---- soft panic (6.5.4.4) --------------------------------------------------------------------
+    // ---- panic (6.5.4.4) -------------------------------------------------------------------------
     function noteOffPayload(entry, at, reason) {
       return { trackId: entry.trackId, channel: entry.channel, eventId: entry.eventId, pitch: entry.pitch, at, reason };
     }
 
+    function panicPayload(hard, reason, count, at) {
+      return { hard, reason, voicesStopped: count, releasedCount: count, audioTime: at };
+    }
+
     /**
-     * Every sounding or booked voice is released with the 30 ms ramp, the booked notes are forgotten, and each note
-     * still due to sound gets a sched.noteOff with the reason now. Wired to seek, pause and stop; T04.05 adds the
-     * public panic and the hard variant. @returns {number} voices released
+     * Every booked and live note is forgotten; each one still due to sound gets a sched.noteOff with the panic as the
+     * reason ('seek' for a seek, else 'stop'), and the unbooked backlog is dropped.
+     */
+    function forgetAllNotes(at, reason) {
+      const why = NOTE_OFF_REASON[reason] || 'stop';
+      pending.forEach((entry) => {
+        if (entry.endAudio > at) bus.emit('sched.noteOff', noteOffPayload(entry, at, why));
+      });
+      liveHeld.forEach((table) => table.forEach((entry) => bus.emit('sched.noteOff', noteOffPayload(entry, at, why))));
+      pending.clear();
+      sounding.clear();
+      liveHeld.clear();
+      endQueue = [];
+      endHead = 0;
+      backlog = [];
+      backlogHead = 0;
+    }
+
+    // CC 64 goes to 0 on every channel and the instruments forget held live notes (E 2.3). A failing instrument is logged.
+    function resetInstruments(at) {
+      if (!instruments || typeof instruments.allNotesOff !== 'function') return;
+      try {
+        instruments.allNotesOff(at);
+      } catch (error) {
+        Log.warn('audio', 'instruments.allNotesOff failed: ' + messageOf(error));
+      }
+    }
+
+    /**
+     * Soft panic: every sounding or booked voice is released with the 30 ms ramp, booked notes and clicks are
+     * forgotten, the sustain pedal goes up. Wired to seek, pause, stop, the panic key and the mode leave.
+     * @returns {number} voices released
      */
     function softPanic(reason) {
       const at = env.now();
-      pending.forEach((entry) => {
-        if (entry.endAudio > at) bus.emit('sched.noteOff', noteOffPayload(entry, at, reason));
-      });
-      pending.clear();
-      backlog = [];
-      backlogHead = 0;
+      forgetAllNotes(at, reason);
+      env.cancelClicks(at);
       const released = allocator.releaseAll(at, SOFT_PANIC_S);
-      bus.emit('audio.panic', { hard: false, releasedCount: released, reason });
+      resetInstruments(at);
+      bus.emit('audio.panic', panicPayload(false, reason, released, at));
       return released;
+    }
+
+    /**
+     * Hard panic: every voice is stopped and disposed, the graph is rebuilt on the same context from the cached mix
+     * state, and the instruments drop their node references (Instruments.onGraphRebuilt). @returns {number} voices stopped
+     */
+    function hardPanic(reason) {
+      const at = env.now();
+      forgetAllNotes(at, reason);
+      const stopped = allocator.stopAll(at);
+      resetInstruments(at);
+      try {
+        env.rebuildGraph();
+        if (instruments && typeof instruments.onGraphRebuilt === 'function') instruments.onGraphRebuilt(env.engine());
+      } finally {
+        bus.emit('audio.panic', panicPayload(true, reason, stopped, at));
+      }
+      if (reason === 'rebuild') resyncTransport(at);
+      return stopped;
+    }
+
+    // After a recovery rebuild the notes that were booked ahead are gone: the cursor restarts at the position now.
+    /** The tick a playing transport is at now, or null: taken before a context is replaced, while the old clock still answers. */
+    function heldPosition() {
+      const playing = transport !== null && typeof transport.state === 'function' && transport.state() === 'playing';
+      if (!playing || typeof transport.positionAt !== 'function') return null;
+      return Math.round(transport.positionAt(env.now()));
+    }
+
+    /** Puts the playing transport at `tick` on the clock of the new context (a 'resync' seek: no panic, no restart of the song). */
+    function reanchor(tick) {
+      if (tick === null || transport === null || typeof transport.seek !== 'function') return;
+      try {
+        transport.seek(tick, 'resync');
+      } catch (error) {
+        Log.warn('audio', 'anchoring the transport on the new context failed: ' + messageOf(error));
+      }
+    }
+
+    function resyncTransport(at) {
+      const playing = transport !== null && typeof transport.state === 'function' && transport.state() === 'playing';
+      if (!playing || typeof transport.positionAt !== 'function' || typeof transport.seek !== 'function') return;
+      try {
+        transport.seek(Math.round(transport.positionAt(at)), 'resync');
+      } catch (error) {
+        Log.warn('audio', 'resync after the rebuild failed: ' + messageOf(error));
+      }
     }
 
     // A loop wrap re-emits transport.seek with reason 'loop' from inside pullDue; the loopWrap item handles that one.
     function onSeek(event) {
-      if (event && event.reason !== 'loop') softPanic('seek');
+      if (event && event.reason !== 'loop' && event.reason !== 'resync') softPanic('seek');
+    }
+
+    // Playing starts (or resumes) 50 ms ahead (Transport lead-in): the notes at the start are booked at once, in the call that
+    // started the transport. Waiting for the next 25 ms tick lets a busy main thread (the mode set-up that follows) delay it past
+    // the first notes, and they are late.
+    function bookAtStart() {
+      if (timer === null || transport === null) return;
+      try {
+        pullAndBook(env.now(), env.perfNow());     // not a tick: the stall detection and the interval histogram do not see it
+      } catch (error) {
+        stats.errors += 1;
+        env.reportError(error);
+      }
     }
 
     function onState(event) {
-      if (event && (event.state === 'paused' || event.state === 'stopped')) softPanic('stop');
+      if (!event) return;
+      if (event.state === 'paused' || event.state === 'stopped') softPanic('stop');
+      else if (event.state === 'playing') bookAtStart();
     }
 
     function onVisibility() {
@@ -693,6 +870,7 @@ FLM.Core.define('Audio', function (FLM) {
       const started = env.perfNow();
       noteInterval(started);
       try {
+        env.pollFaults();
         if (fromTimer) throwInjectedFault();
         scheduleDue(audioNow, started);
       } catch (error) {
@@ -709,40 +887,240 @@ FLM.Core.define('Audio', function (FLM) {
       if (transport === null) return;
       const reading = env.readTick(audioNow);
       if (reading.repeated) return;          // a frozen clock: nothing new is due (stall detection counts these)
+      pullAndBook(audioNow, tickStart);
+    }
+
+    // Pulls what is due within the lookahead and books what the budget allows (one tick of the Scheduler, without the clock reading).
+    function pullAndBook(audioNow, tickStart) {
       const gapSeconds = lastTickAt === null ? 0 : audioNow - lastTickAt;
       lastTickAt = audioNow;
       // A stand-in transport without update() or pullDue() (a module-presence stub in tests) schedules nothing.
       if (typeof transport.update === 'function') transport.update(audioNow);
       if (typeof transport.pullDue === 'function') {
-        transport.pullDue(audioNow + LOOKAHEAD_S).forEach((item) => backlog.push(item));
+        const pullStart = env.perfNow();
+        const due = transport.pullDue(audioNow + LOOKAHEAD_S);
+        const arrangeStart = env.perfNow();
+        const pulled = arrangeChords(due);
+        const pullEnd = env.perfNow();
+        if (backlogHead >= backlog.length) {
+          backlog = pulled.slice();          // a copy: the booking loop clears the entries it has used
+          backlogHead = 0;
+        } else {
+          for (let index = 0; index < pulled.length; index += 1) backlog.push(pulled[index]);
+        }
+        stats.pullMaxMs = Math.max(stats.pullMaxMs, pullEnd - pullStart);
+        stats.arrangeMaxMs = Math.max(stats.arrangeMaxMs, pullEnd - arrangeStart);
       }
       bookBacklog(audioNow, gapSeconds, tickStart);
       forgetEnded(audioNow);
     }
 
+    // The priority of a note for the choice of survivors (D84): drums and bass 2, melody 1, pads and effects 0. Asked once
+    // per track and channel in a call, not once per note.
+    function priorityOf(item, known) {
+      const key = (item.trackIndex || 0) * SUB_CHANNEL_SPAN + item.event.channel;
+      let priority = known.get(key);
+      if (priority === undefined) {
+        priority = instruments && typeof instruments.priorityOf === 'function' ?
+          instruments.priorityOf(item.track, item.event, item.atAudio) : 1;
+        priority = Core.clamp(priority, 0, 2);
+        known.set(key, priority);
+      }
+      return priority;
+    }
+
+    /** The runs of notes that start within 1 ms of each other (the pulled items are sorted by time): {first, last, count}. */
+    function chordRuns(items) {
+      const runs = [];
+      let run = null;
+      let start = 0;
+      for (let index = 0; index < items.length; index += 1) {
+        const item = items[index];
+        if (item.kind !== 'note') continue;
+        if (run === null || item.atAudio - start > CHORD_WINDOW_S) {
+          start = item.atAudio;
+          run = { first: index, last: index, count: 1 };
+          runs.push(run);
+        } else {
+          run.last = index;
+          run.count += 1;
+        }
+      }
+      return runs;
+    }
+
+    // The key of a note on one track and channel: a second note on it at the same instant would only cut the first.
+    const noteKeyOf = (item) => (item.trackIndex || 0) * SUB_CHANNEL_SPAN * SUB_CHANNEL_SPAN +
+      item.event.channel * SUB_CHANNEL_SPAN + item.event.pitch;
+
+    // The notes of the chord by priority and track, in one pass: {items, velocity (of the first), mixed (velocities differ)}.
+    function bucketNotes(notes, known) {
+      const tiers = [new Map(), new Map(), new Map()];
+      let bucket = null;
+      let lastTrack = -1;
+      let lastChannel = -1;
+      let tier = 1;
+      for (let index = 0; index < notes.length; index += 1) {
+        const item = notes[index];
+        const trackIndex = item.trackIndex || 0;
+        if (bucket === null || trackIndex !== lastTrack || item.event.channel !== lastChannel) {
+          lastTrack = trackIndex;
+          lastChannel = item.event.channel;
+          tier = priorityOf(item, known);
+          bucket = tiers[tier].get(trackIndex);
+          if (bucket === undefined) {
+            bucket = { items: [], velocity: item.event.velocity, mixed: false };
+            tiers[tier].set(trackIndex, bucket);
+          }
+        }
+        bucket.items.push(item);
+        if (item.event.velocity !== bucket.velocity) bucket.mixed = true;
+      }
+      return tiers;
+    }
+
+    // The loudest note of a track first; equal velocities keep their order.
+    function loudestFirst(bucket) {
+      if (!bucket.mixed) return bucket.items;
+      return bucket.items.map((item, index) => ({ item, index })).sort((first, second) => second.item.event.velocity -
+        first.item.event.velocity || first.index - second.index).map((entry) => entry.item);
+    }
+
+    // Round-robin over the tracks of one priority: the loudest note of each track in turn. A note whose key is already
+    // taken is a duplicate of a louder (or earlier) one and is skipped. @returns {number} the room that is left
+    function takeRoundRobin(table, room, survivors, taken) {
+      const lists = Array.from(table.keys()).sort((first, second) => first - second).map((key) => loudestFirst(table.get(key)));
+      const next = lists.map(() => 0);
+      let left = room;
+      let progress = true;
+      while (left > 0 && progress) {
+        progress = false;
+        for (let at = 0; at < lists.length && left > 0; at += 1) {
+          const list = lists[at];
+          while (next[at] < list.length && taken.has(noteKeyOf(list[next[at]]))) next[at] += 1;
+          if (next[at] >= list.length) continue;
+          const item = list[next[at]];
+          next[at] += 1;
+          taken.add(noteKeyOf(item));
+          survivors.add(item);
+          left -= 1;
+          progress = true;
+        }
+      }
+      return left;
+    }
+
+    // Same track, channel and pitch twice at one instant: only the louder one sounds (the other would only cut it). @returns {Set}
+    function loudestPerKey(notes) {
+      const best = new Map();
+      for (let index = 0; index < notes.length; index += 1) {
+        const key = noteKeyOf(notes[index]);
+        const held = best.get(key);
+        if (held === undefined || notes[index].event.velocity > held.event.velocity) best.set(key, notes[index]);
+      }
+      return new Set(best.values());
+    }
+
+    // Survivors of a chord with more notes than voices: by priority, then round-robin over the tracks (D81, D84).
+    function chooseSurvivors(notes, capacity, known) {
+      const tiers = bucketNotes(notes, known);
+      const survivors = new Set();
+      const taken = new Set();
+      let room = capacity;
+      for (let tier = 2; tier >= 0 && room > 0; tier -= 1) {
+        if (tiers[tier].size > 0) room = takeRoundRobin(tiers[tier], room, survivors, taken);
+      }
+      return survivors;
+    }
+
+    /**
+     * A chord of the same instant (1 ms), whatever its size (E 2.2): duplicates of one key lose to the loudest, and with more notes
+     * than voices the others lose by priority, then round-robin over the tracks; the notes that lose are marked and never get a voice. The survivors are booked first (in their original order), the voiceless notes are announced after them
+     * (D81); a control item inside the 1 ms of the chord goes before the notes. @returns {Array} the items in booking order
+     */
+    function arrangeChords(items) {
+      const capacity = allocator.capacity;
+      if (items.length < 2) return items;
+      const runs = chordRuns(items).filter((run) => run.count > 1);
+      if (runs.length === 0) return items;
+      let arranged = [];
+      let copied = 0;
+      runs.forEach((run) => {
+        const span = items.slice(run.first, run.last + 1);
+        const notes = span.length === run.count ? span : span.filter((item) => item.kind === 'note');
+        const survivors = run.count > capacity ? chooseSurvivors(notes, capacity, new Map()) : loudestPerKey(notes);
+        if (survivors.size === run.count) return;                                   // nothing is cut: the order stays as it is
+        arranged = arranged.concat(items.slice(copied, run.first));
+        const controls = [];
+        const front = [];
+        const voiceless = [];
+        for (let index = 0; index < span.length; index += 1) {
+          const item = span[index];
+          if (item.kind !== 'note') controls.push(item);
+          else if (survivors.has(item)) front.push(item);
+          else {
+            item.overflow = true;
+            voiceless.push(item);
+          }
+        }
+        arranged = arranged.concat(controls, front, voiceless);
+        copied = run.last + 1;
+      });
+      return copied === 0 ? items : arranged.concat(items.slice(copied));
+    }
+
     /**
      * Books items in order until the 4 ms of the whole tick are spent (the pull counts); the rest waits in the
-     * backlog for the next tick (S-10). One item is always booked, so the backlog always shrinks.
+     * backlog for the next tick (S-10). A tick whose pull already used the budget books nothing, but the tick after it
+     * always books at least one item, so the backlog always shrinks.
      */
     function bookBacklog(audioNow, gapSeconds, tickStart) {
-      const round = { lateMs: 0, clamped: 0, error: null, loopEnd: loopEndOf() };
-      const budgetEnd = tickStart + TICK_BUDGET_MS;
+      const round = { lateMs: 0, clamped: 0, error: null, loopEnd: loopEndOf(), songEnd: songEndAudio() };
+      const budgetEnd = tickStart + TICK_BUDGET_MS - TICK_TAIL_RESERVE_MS;
+      const hardEnd = tickStart + TICK_BUDGET_MS;
+      const worst = new Map();             // the most expensive item of each type in this tick
       let handled = 0;
+      let heavy = 0;
       while (backlogHead < backlog.length) {
-        if (handled > 0 && env.perfNow() >= budgetEnd) break;
-        const item = backlog[backlogHead];
+        const before = env.perfNow();
+        const next = backlog[backlogHead];
+        const type = costType(next);
+        // Stop when the 3.5 ms are spent, when the next item (at its estimated cost) would pass the 4 ms, or after six
+        // voice builds (S-10, OI-37). After a tick that booked nothing one item is always booked.
+        // A note due within about two ticks goes by the clock alone (the 4 ms), never by the estimate or the build cap.
+        const predicted = Math.max(costs.get(type) || 0, worst.get(type) || 0);
+        const urgent = next.atAudio - audioNow < URGENT_S;
+        const holdBack = urgent ? before >= hardEnd : before >= budgetEnd || before + predicted > hardEnd ||
+          heavy >= MAX_HEAVY_PER_TICK;
+        if ((handled > 0 || !starved) && holdBack) break;
         backlog[backlogHead] = undefined;
         backlogHead += 1;
         handled += 1;
-        bookItem(item, audioNow, round);
+        bookItem(next, audioNow, round);
+        const cost = env.perfNow() - before;
+        if (cost > HEAVY_ITEM_MS) heavy += 1;
+        if (cost > SLOW_ITEM_MS && slowItems.length < SLOW_ITEM_KEEP) slowItems.push([Math.round((before + cost) * 10) / 10, Math.round(cost * 10) / 10, type]);
+        if (cost > stats.itemMaxMs) {
+          stats.itemMaxMs = cost;
+          stats.itemMaxWhat = type + (next.track ? ' ' + next.track.id + ' program ' + next.track.program : '') + ' at tick ' +
+            (next.event ? next.event.tick : '-') + ' of tick ' + stats.ticks;
+        }
+        const sample = Math.min(cost, COST_SAMPLE_CAP_MS);
+        worst.set(type, Math.max(worst.get(type) || 0, sample));
+        const known = costs.get(type);
+        costs.set(type, known === undefined ? sample : known + (sample - known) * COST_SMOOTHING);
       }
       if (backlogHead >= backlog.length) {
         backlog = [];
         backlogHead = 0;
       }
       stats.scheduled += handled;
+      starved = handled === 0 && backlogHead < backlog.length;
       finishRound(round, audioNow, gapSeconds);
     }
+
+    // Notes without a voice cost next to nothing; every other kind of item has its own running estimate.
+    const costType = (item) => (item.overflow === true ? 'voiceless' : item.kind);
 
     function bookItem(item, audioNow, round) {
       const earliest = audioNow + LATE_CLAMP_S;
@@ -758,6 +1136,7 @@ FLM.Core.define('Audio', function (FLM) {
         at = earliest;
       }
       try {
+        injectScheduleFault(item);
         dispatchItem(item, at, audioNow, round);
       } catch (error) {
         round.error = round.error || error;
@@ -765,8 +1144,17 @@ FLM.Core.define('Audio', function (FLM) {
       }
     }
 
+    // Fault audio.fail {phase:'schedule'} (Part 10.9.2): the next `count` note bookings throw, as a failing start() would.
+    function injectScheduleFault(item) {
+      if (item.kind !== 'note') return;
+      const fault = Core.Faults.active('audio.fail');
+      if (!fault || fault.phase !== 'schedule') return;
+      Core.Faults.take('audio.fail');
+      throw new Error('injected scheduling failure (audio.fail)');
+    }
+
     function dispatchItem(item, at, audioNow, round) {
-      if (item.kind === 'note') bookNote(item, at, audioNow, round.loopEnd);
+      if (item.kind === 'note') bookNote(item, at, audioNow, round);
       else if (CONTROL_TOPICS[item.kind]) bookControl(item, at);
       else if (item.kind === 'click') bookClick(item, at);
       else if (item.kind === 'marker') bookMarker(item, at);
@@ -787,6 +1175,7 @@ FLM.Core.define('Audio', function (FLM) {
       if (round.error) {
         stats.errors += 1;
         env.reportError(round.error);
+        env.recover();                       // E-AUD-004: hard panic, then scheduling goes on from the position now
       }
     }
 
@@ -810,24 +1199,64 @@ FLM.Core.define('Audio', function (FLM) {
       return crossesEnd ? 'loop' : 'end';
     }
 
-    function bookNote(item, at, audioNow, loopEnd) {
+    const subKeyOf = (channel, pitch) => channel * SUB_CHANNEL_SPAN + pitch;
+
+    function tableOf(map, trackId) {
+      let table = map.get(trackId);
+      if (table === undefined) {
+        table = new Map();
+        map.set(trackId, table);
+      }
+      return table;
+    }
+
+    // The audio time at which the song ends, or null: a note still held then is closed there (the end item stops the run).
+    function songEndAudio() {
+      const boundSong = typeof transport.song === 'function' ? transport.song() : song;
+      const total = boundSong ? boundSong.durationTicks : 0;
+      const looping = typeof transport.loopEnabled === 'function' && transport.loopEnabled();
+      if (looping || !(total > 0) || typeof transport.audioTimeAt !== 'function') return null;
+      return transport.audioTimeAt(total);
+    }
+
+    // A new note on a key that still sounds releases the earlier voice first (retrigger, sched.noteOff 'overlap').
+    function releaseEarlier(table, sub, at) {
+      const earlier = table.get(sub);
+      if (!earlier || earlier.endAudio <= at + WRAP_EPSILON_S) return;
+      if (earlier.slot) allocator.releaseSlot(earlier.slot, at);
+      earlier.endAudio = at;
+      queueEnd(earlier);
+      bus.emit('sched.noteOff', noteOffPayload(earlier, at, 'overlap'));
+    }
+
+    function bookNote(item, at, audioNow, round) {
       const track = item.track;
       const event = item.event;
-      const end = Math.min(Math.max(item.endAudio, at + MIN_NOTE_S), at + VOICE_MAX_S);
+      const wanted = round.songEnd === null ? item.endAudio : Math.min(item.endAudio, round.songEnd);
+      const end = Math.min(Math.max(wanted, at + MIN_NOTE_S), at + VOICE_MAX_S);
       ensureStrip(track.id);                 // a muted strip still schedules: mute is audibility only (6.5.4.3)
-      const slot = instruments && typeof instruments.noteOn === 'function' ? instruments.noteOn(track, event, at, end)
-        : null;
+      const table = tableOf(sounding, track.id);
+      const sub = subKeyOf(event.channel, event.pitch);
+      const voiceless = item.overflow === true;     // a note cut by the chord rule never touches the sounding notes
+      if (!voiceless) releaseEarlier(table, sub, at);
+      let slot = null;
+      const canPlay = instruments && typeof instruments.noteOn === 'function';
+      if (canPlay && voiceless) allocator.noteSkipped();
+      else if (canPlay) slot = instruments.noteOn(track, event, at, end);
       const entry = { trackId: track.id, channel: event.channel, eventId: noteIdOf(track, event), pitch: event.pitch,
-        endAudio: end, slot };
+        endAudio: end, slot, table, sub, seq: 0, done: false };
       noteSeq += 1;
+      entry.seq = noteSeq;
       pending.set(noteSeq, entry);
+      if (!voiceless) table.set(sub, entry);
+      queueEnd(entry);
       stats.notesScheduled += 1;
       stats.lookaheadMaxMs = Math.max(stats.lookaheadMaxMs, (at - audioNow) * MS_PER_SECOND);
       const program = programs.has(track.id) ? programs.get(track.id) : track.program;
       bus.emit('sched.noteOn', { trackId: track.id, channel: event.channel, eventId: entry.eventId, pitch: event.pitch,
         velocity: event.velocity, program, isDrums: track.isDrums === true, at, atOff: end, durTicks: event.durTicks,
-        tick: event.tick, live: false });
-      bus.emit('sched.noteOff', noteOffPayload(entry, end, releaseReason(event, loopEnd)));
+        tick: event.tick, live: false, voiced: slot !== null && slot !== undefined, late: at - item.atAudio > LATE_EPSILON_S });
+      bus.emit('sched.noteOff', noteOffPayload(entry, end, releaseReason(event, round.loopEnd)));
     }
 
     function controlPayload(item, at) {
@@ -862,14 +1291,137 @@ FLM.Core.define('Audio', function (FLM) {
         if (entry.endAudio <= at + WRAP_EPSILON_S) return;
         if (entry.slot) allocator.releaseSlot(entry.slot, at);
         entry.endAudio = at;
+        queueEnd(entry);
         bus.emit('sched.noteOff', noteOffPayload(entry, at, 'loop'));
       });
     }
 
+    // The notes sorted by the time they end: forgetting the finished ones looks at the front of the queue only.
+    function queueEnd(entry) {
+      const record = { entry, end: entry.endAudio };
+      let low = endHead;
+      let high = endQueue.length;
+      while (low < high) {
+        const middle = (low + high) >> 1;
+        if (endQueue[middle].end <= record.end) low = middle + 1;
+        else high = middle;
+      }
+      endQueue.splice(low, 0, record);
+    }
+
     function forgetEnded(audioNow) {
-      pending.forEach((entry, sequence) => {
-        if (entry.endAudio <= audioNow) pending.delete(sequence);
-      });
+      while (endHead < endQueue.length && endQueue[endHead].end <= audioNow) {
+        const entry = endQueue[endHead].entry;
+        endQueue[endHead] = undefined;
+        endHead += 1;
+        if (entry.done) continue;           // an earlier record of the same note already ended it
+        entry.done = true;
+        pending.delete(entry.seq);
+        if (entry.table.get(entry.sub) === entry) entry.table.delete(entry.sub);
+      }
+      if (endHead > COMPACT_AFTER && endHead * 2 > endQueue.length) {
+        endQueue = endQueue.slice(endHead);
+        endHead = 0;
+      }
+    }
+
+    // ---- live input: Free Play and Studio recording (6.5.4.3) ------------------------------------
+    function liveInfo(trackId, options) {
+      const given = options || {};
+      const found = song && Array.isArray(song.tracks) ? song.tracks.find((candidate) => candidate.id === trackId) : null;
+      let program = found ? found.program : 0;
+      if (programs.has(trackId)) program = programs.get(trackId);
+      if (given.program !== undefined) program = given.program;
+      const isDrums = given.isDrums !== undefined ? given.isDrums === true : Boolean(found && found.isDrums);
+      return { program: finiteOr(program, 0), isDrums };
+    }
+
+    // A live event never starts in the past: at least 2 ms after "now" (UT-05-30).
+    const liveStart = (atAudio) => Math.max(finiteOr(atAudio, env.now()), env.now() + LIVE_LEAD_S);
+
+    function liveTick(at) {
+      try {
+        return transport && typeof transport.tickAt === 'function' ? finiteOr(transport.tickAt(at), 0) : 0;
+      } catch (error) {
+        return 0;
+      }
+    }
+
+    function releaseLiveEarlier(table, sub, at) {
+      const earlier = table.get(sub);
+      if (!earlier) return;
+      if (earlier.slot) allocator.releaseSlot(earlier.slot, at);
+      table.delete(sub);
+      bus.emit('sched.noteOff', noteOffPayload(earlier, at, 'overlap'));
+    }
+
+    function startLiveVoice(trackId, info, channel, pitch, velocity, at) {
+      if (!instruments || typeof instruments.startLive !== 'function') return null;
+      try {
+        return instruments.startLive(trackId, info.program, info.isDrums, channel, pitch, velocity, at);
+      } catch (error) {
+        allocator.noteDropped();
+        stats.errors += 1;
+        env.reportError(error);
+        return null;
+      }
+    }
+
+    /**
+     * A key goes down on a track: the instrument voice starts at max(atAudio, now + 2 ms) and is held until
+     * liveNoteOff (or a panic). options: {program?, isDrums?} when the track is not in the bound song.
+     * @returns {(object|null)} the voice slot, or null when no voice was made
+     */
+    function liveNoteOn(trackId, pitch, velocity, channel, atAudio, options) {
+      requireTrackId(trackId);
+      requireFinite(pitch, 'pitch');
+      const lane = finiteOr(channel, 0);
+      const at = liveStart(atAudio);
+      const table = tableOf(liveHeld, trackId);
+      const sub = subKeyOf(lane, pitch);
+      releaseLiveEarlier(table, sub, at);
+      const info = liveInfo(trackId, options);
+      ensureStrip(trackId);
+      const slot = startLiveVoice(trackId, info, lane, pitch, velocity, at);
+      noteSeq += 1;
+      const entry = { trackId, channel: lane, eventId: 'live:' + noteSeq, pitch, endAudio: Infinity, slot };
+      table.set(sub, entry);
+      bus.emit('sched.noteOn', { trackId, channel: lane, eventId: entry.eventId, pitch, velocity, program: info.program,
+        isDrums: info.isDrums, at, atOff: null, durTicks: 0, tick: liveTick(at), live: true });
+      return slot;
+    }
+
+    /** The key comes up: the instrument releases the live voice (a held sustain pedal may keep it sounding). */
+    function liveNoteOff(trackId, pitch, channel, atAudio) {
+      requireTrackId(trackId);
+      const lane = finiteOr(channel, 0);
+      const at = liveStart(atAudio);
+      const table = tableOf(liveHeld, trackId);
+      const sub = subKeyOf(lane, pitch);
+      const entry = table.get(sub);
+      if (!entry) return false;
+      table.delete(sub);
+      if (instruments && typeof instruments.stopLive === 'function') instruments.stopLive(trackId, lane, pitch, at);
+      else if (entry.slot) allocator.releaseSlot(entry.slot, at);
+      bus.emit('sched.noteOff', noteOffPayload(entry, at, 'live'));
+      return true;
+    }
+
+    /** A controller, bend or program change from a live source: {channel, controller?, value?, program?, bank*?}. */
+    function liveControl(trackId, kind, event, atAudio) {
+      requireTrackId(trackId);
+      if (!CONTROL_TOPICS[kind]) throw codedError('E-GEN-004', 'liveControl kind must be cc, program or bend');
+      const given = event || {};
+      const at = liveStart(atAudio);
+      const lane = finiteOr(given.channel, 0);
+      if (instruments && typeof instruments.applyLive === 'function') {
+        const first = kind === 'cc' ? given.controller : (kind === 'bend' ? given.value : given.program);
+        const second = kind === 'cc' ? given.value : given.bankMsb;
+        instruments.applyLive(trackId, lane, kind, first, second, at);
+      }
+      if (kind === 'program') programs.set(trackId, given.program);
+      bus.emit(CONTROL_TOPICS[kind], controlPayload({ kind, track: { id: trackId },
+        event: Object.assign({}, given, { channel: lane }) }, at));
     }
 
     // ---- public surface --------------------------------------------------------------------------
@@ -888,20 +1440,21 @@ FLM.Core.define('Audio', function (FLM) {
 
     const publicStats = () => ({ ticks: stats.ticks, stalls: stats.stalls, maxLateMs: stats.maxLateMs,
       scheduled: stats.scheduled, clamped: stats.clamped, skipped: stats.skipped, errors: stats.errors,
-      notesScheduled: stats.notesScheduled, lookaheadMaxMs: stats.lookaheadMaxMs, tickWorkMaxMs: stats.tickWorkMaxMs,
-      backlog: backlog.length - backlogHead });
+      notesScheduled: stats.notesScheduled, lookaheadMaxMs: stats.lookaheadMaxMs, tickWorkMaxMs: stats.tickWorkMaxMs, pullMaxMs: stats.pullMaxMs,
+      arrangeMaxMs: stats.arrangeMaxMs, itemMaxMs: stats.itemMaxMs, itemMaxWhat: stats.itemMaxWhat, backlog: backlog.length - backlogHead });
 
     /** Counts only, nothing to redact: the `scheduler` provider of SCR-Diagnostics and the perf harness (9.7.2). */
     function diagnostics() {
       const voices = allocator.stats();
       return Object.assign(publicStats(), { running: running(), bound: transport !== null,
         lookaheadMs: LOOKAHEAD_S * 1000, tickMs: TICK_MS, voicesStarted: voices.started,
-        tickWorkSumMs: stats.tickWorkSumMs, intervalHistogram: Array.from(intervalBuckets),
+        tickWorkSumMs: stats.tickWorkSumMs, slowItems: slowItems.slice(), intervalHistogram: Array.from(intervalBuckets),
         bodyHistogram: Array.from(bodyBuckets) });
     }
 
     return Object.freeze({ bind, unbind, start, stop, running, pending: pendingCount, tickOnce, stats: publicStats,
-      diagnostics, setInstruments, softPanic, bound: () => transport !== null, song: () => song });
+      diagnostics, setInstruments, softPanic, hardPanic, heldPosition, reanchor, liveNoteOn, liveNoteOff, liveControl,
+      bound: () => transport !== null, song: () => song });
   }
 
   // ---------------------------------------------------------------------------------------------
@@ -936,6 +1489,9 @@ FLM.Core.define('Audio', function (FLM) {
     let fadeHeld = false;                    // master is faded out by a pause and waits for fadeIn
     let peakTimer = null;
     let engine = null;
+    let externalNodes = 0;                   // nodes M-06 reports through countNodes (voices)
+    const recovery = { blockedUntil: 0, lastAt: -Infinity, closedReported: false, expectClosed: false };
+    const liveClicks = new Set();            // metronome clicks that have not ended: {oscillator, envelope}
 
     // ---- clock and facts ----------------------------------------------------------------------
     const clock = Object.freeze({ now: () => now() });
@@ -1058,8 +1614,8 @@ FLM.Core.define('Audio', function (FLM) {
 
     function buildGraph() {
       const master = ctx.createGain();
-      master.gain.value = levels.master;
-      masterState.last = levels.master;
+      master.gain.value = fadeHeld ? 0 : levels.master;      // a rebuild during a pause stays silent
+      masterState.last = master.gain.value;
       const limiter = ctx.createDynamicsCompressor();
       Object.keys(LIMITER).forEach((name) => { limiter[name].value = LIMITER[name]; });
       master.connect(limiter);
@@ -1074,9 +1630,33 @@ FLM.Core.define('Audio', function (FLM) {
       graph = { master, limiter, analyser, metronomeBus };
     }
 
+    // A context closed behind the engine's back is E-AUD-008 (return to the menu, the project stays in memory). An
+    // offline context closes itself when its rendering ends: that is not a failure.
+    function onContextState() {
+      publishState('statechange');
+      if (stateNow() !== 'closed' || isClosed || recovery.closedReported) return;
+      if (typeof ctx.startRendering === 'function' && !recovery.expectClosed) return;
+      recovery.closedReported = true;
+      Core.ErrorReporter.report('E-AUD-008', null, { module: 'Audio' });
+    }
+
+    // The output device changed: latency may differ, so audio.sink tells M-07 to sample its input anchor again. The audio
+    // is not unlocked a second time, so nobody that waits for the first unlock runs twice.
+    function publishSink() {
+      const info = latency();
+      bus.emit('audio.sink', { audioTime: now(), sampleRate: sampleRate(), latencyMs: info.seconds * MS_PER_SECOND,
+        baseLatency: info.base, outputLatency: info.output });
+    }
+
+    function onSinkChange() {
+      Core.ErrorReporter.report('E-AUD-011', null, { module: 'Audio' });
+      if (unlocked) publishSink();
+    }
+
     function adoptContext(context) {
       ctx = context;
-      ctx.onstatechange = () => { publishState('statechange'); };
+      ctx.onstatechange = onContextState;
+      if (typeof ctx.addEventListener === 'function') ctx.addEventListener('sinkchange', onSinkChange);
       levels.master = settingOr(SETTING_MASTER, DEFAULT_MASTER_VOLUME);
       levels.metronome = settingOr(SETTING_METRONOME, DEFAULT_METRONOME_VOLUME);
       buildGraph();
@@ -1173,6 +1753,10 @@ FLM.Core.define('Audio', function (FLM) {
 
     async function runUnlock() {
       requestPlaybackSession();
+      if (ctx && Core.now() < recovery.blockedUntil) {      // fault audio.suspend {blockResumeMs}: resume() is refused
+        Log.info('audio', 'E-AUD-002: sound is blocked by an injected fault', { state: ctx.state });
+        return blocked('E-AUD-002');
+      }
       if (!ctx) {
         try {
           createContext();
@@ -1196,6 +1780,34 @@ FLM.Core.define('Audio', function (FLM) {
       return blocked('E-AUD-002');
     }
 
+    /** What SCR-Diagnostics shows about the engine: plain data, latency labeled as an estimate (I 3.5). */
+    function info() {
+      return { state: stateNow(), unlocked: isUnlocked(), attempts, sampleRate: sampleRate(), latency: latency(),
+        contexts: ctx ? 1 : 0 };
+    }
+
+    /** A short sine through the master chain (SCR-Diagnostics "Test tone"); the nodes end by themselves. */
+    function testTone(hz, seconds) {
+      requireGraph();
+      const length = Core.clamp(finiteOr(seconds, TEST_TONE_S), 0.05, 2);
+      const at = now() + LIVE_LEAD_S;
+      const source = ctx.createOscillator();
+      source.frequency.value = finiteOr(hz, TEST_TONE_HZ);
+      const level = ctx.createGain();
+      level.gain.setValueAtTime(0, at);
+      level.gain.linearRampToValueAtTime(TEST_TONE_LEVEL, at + RAMP_S);
+      level.gain.setValueAtTime(TEST_TONE_LEVEL, at + length - STOP_FADE_S);
+      level.gain.linearRampToValueAtTime(0, at + length);
+      source.connect(level);
+      level.connect(graph.master);
+      source.onended = () => {
+        source.disconnect();
+        level.disconnect();
+      };
+      source.start(at);
+      source.stop(at + length + RAMP_S);
+    }
+
     /** Must run inside a user gesture handler. Concurrent calls share one promise; never creates a second context. */
     function unlock() {
       if (unlocking) return unlocking;
@@ -1208,6 +1820,36 @@ FLM.Core.define('Audio', function (FLM) {
     /** DLG-ResumeAudio: resumes a suspended or interrupted context inside the click. */
     const resume = () => unlock().then((result) => result.ok);
     const isUnlocked = () => unlocked && !isClosed && stateNow() !== 'closed';
+
+    /**
+     * "Restart audio" (R-P19-04), called inside the click: a context closed behind the engine is replaced by a new one, the
+     * graph and the strips are rebuilt, then the context is resumed. @returns {Promise<boolean>} whether sound runs now
+     */
+    function restart() {
+      if (isClosed) return Promise.resolve(false);
+      if (ctx && ctx.state === 'closed') {
+        const held = scheduler.heldPosition();      // the position on the old clock, before the new context has another time base
+        const dead = ctx;
+        dead.onstatechange = null;
+        strips.forEach((strip) => strip.release());
+        try {
+          createContext();
+        } catch (error) {
+          Log.warn('audio', 'restart could not create a context: ' + messageOf(error));
+          return Promise.resolve(false);
+        }
+        recovery.closedReported = false;
+        recovery.expectClosed = false;
+        strips.forEach((strip) => strip.rebuild());
+        lastPublished = null;
+        publishState('init');
+        scheduler.reanchor(held);                   // the song goes on from where it was, on the clock of the new context
+        publishSink();                              // M-07 samples its input anchor on the new context (07-input listens)
+      }
+      const resumed = unlock();                 // resume() is called before anything is awaited
+      if (ctx && stateNow() !== 'closed') panic(true, 'rebuild');
+      return resumed.then((result) => result.ok);
+    }
 
     // ---- volumes and fades (6.5.4.8) ----------------------------------------------------------
     function setMasterGain(value) {
@@ -1317,7 +1959,7 @@ FLM.Core.define('Audio', function (FLM) {
     }
 
     // ---- metronome (6.5.4.6) ------------------------------------------------------------------
-    function click(atAudio, accent) {
+    function click(atAudio, accent, booked) {
       requireGraph();
       const shape = accent ? CLICKS.accent : CLICKS.normal;
       const at = requireFinite(atAudio, 'click time');
@@ -1330,12 +1972,57 @@ FLM.Core.define('Audio', function (FLM) {
       envelope.gain.exponentialRampToValueAtTime(CLICK_FLOOR, at + shape.decayS);
       oscillator.connect(envelope);
       envelope.connect(graph.metronomeBus);
+      const live = { oscillator, envelope, booked: booked === true, at, cancelled: false };
+      liveClicks.add(live);
       oscillator.onended = () => {
         oscillator.disconnect();
         envelope.disconnect();
+        liveClicks.delete(live);
       };
       oscillator.start(at);
       oscillator.stop(at + CLICK_STOP_S);
+    }
+
+    /**
+     * The clicks the Scheduler booked ahead (a seek or a stop makes them wrong): one that has not started never sounds,
+     * one that is sounding fades over RAMP_S and stops. Clicks played by hand (calibration) are left alone.
+     */
+    // everything: also the clicks that a caller of Metronome.click booked itself (the calibration wizard cancels its own).
+    function cancelClicks(atAudio, everything) {
+      const at = atAudio === undefined ? now() : atAudio;
+      liveClicks.forEach((live) => {
+        if (!live.booked && everything !== true) return;
+        live.cancelled = true;
+        try {
+          live.envelope.gain.cancelScheduledValues(at);
+          live.envelope.gain.setValueAtTime(live.envelope.gain.value, at);
+          live.envelope.gain.linearRampToValueAtTime(0, at + RAMP_S);
+          live.oscillator.stop(at + RAMP_S);
+        } catch (error) {
+          Log.warn('audio', 'cancelling a click failed: ' + messageOf(error));
+        }
+      });
+    }
+
+    /** The audio times of the clicks that are booked and neither cancelled nor played yet, in order. */
+    function scheduledClicks() {
+      const pending = [];
+      liveClicks.forEach((live) => { if (!live.cancelled && live.at >= now()) pending.push(live.at); });
+      return pending.sort((first, second) => first - second);
+    }
+
+    function dropClicks() {
+      liveClicks.forEach((live) => {
+        try {
+          live.oscillator.onended = null;
+          live.oscillator.stop(now());
+        } catch (error) {
+          // a click that never started cannot be stopped twice; it is disconnected below either way
+        }
+        live.oscillator.disconnect();
+        live.envelope.disconnect();
+      });
+      liveClicks.clear();
     }
 
     /** M-28 enter step 6: the metronome settings of the mode, `{accent?:boolean, volume?:0..1}`. */
@@ -1395,11 +2082,99 @@ FLM.Core.define('Audio', function (FLM) {
       };
     }
 
+    // ---- nodes and panic (6.5.4.4) ------------------------------------------------------------
+    /**
+     * The audio nodes that stay: the four of the master graph, four per channel strip, and the nodes M-06 reports with
+     * countNodes (voices). Metronome clicks live at most 80 ms and end by themselves: see transientNodeCount.
+     */
+    function nodeCount() {
+      return (graph ? GRAPH_NODES : 0) + strips.size * STRIP_NODES + externalNodes;
+    }
+
+    /** M-06 reports the nodes of a voice it builds (+n) and disposes (-n); the count never goes below 0. */
+    function countNodes(change) {
+      externalNodes = Math.max(0, externalNodes + Math.round(requireFinite(change, 'node change')));
+      return externalNodes;
+    }
+
+    const transientNodeCount = () => liveClicks.size * CLICK_NODES;
+
+    /**
+     * Hard panic, graph part: master, limiter, analyser, metronome bus and every strip get new nodes on the same context
+     * with the cached mix state (identical settings, same strip objects). Strips and the soloSet are kept.
+     */
+    function rebuildGraph() {
+      if (!ctx || isClosed || !graph) return;
+      dropClicks();
+      strips.forEach((strip) => strip.release());
+      const old = graph;
+      [old.master, old.limiter, old.analyser, old.metronomeBus].forEach((node) => node.disconnect());
+      buildGraph();
+      strips.forEach((strip) => strip.rebuild());
+    }
+
+    /**
+     * Soft (hard = false): every voice is released with a 30 ms ramp. Hard: every node stopped and the graph rebuilt.
+     * reason: 'user' (default), 'stop', 'seek', 'mode', 'fatal' or 'rebuild'. Never throws: a failure is reported E-AUD-004.
+     * @returns {number} voices released or stopped
+     */
+    function panic(hard, reason) {
+      const why = PANIC_REASONS.includes(reason) ? reason : 'user';
+      try {
+        return hard === true ? scheduler.hardPanic(why) : scheduler.softPanic(why);
+      } catch (error) {
+        Core.ErrorReporter.report('E-AUD-004', error, { module: 'Audio', origin: 'panic', hard: hard === true });
+        return 0;
+      }
+    }
+
+    // ---- faults and recovery (Part 10.7.1, 10.9.2) ---------------------------------------------
+    /** Fault audio.suspend: the live context is suspended as an OS interruption would; resume may be blocked a while. */
+    function simulateSuspend(fault) {
+      Core.Faults.clear('audio.suspend');
+      recovery.blockedUntil = Core.now() + finiteOr(fault.blockResumeMs, 0);
+      try {
+        Promise.resolve(ctx.suspend()).catch((error) => Log.warn('audio', 'suspend failed: ' + messageOf(error)));
+      } catch (error) {
+        Log.warn('audio', 'suspend failed: ' + messageOf(error));
+      }
+    }
+
+    /** Fault audio.fail {phase:'closed'}: the context is closed behind the engine (E-AUD-008 follows from statechange). */
+    function closeBehind() {
+      Core.Faults.take('audio.fail');
+      recovery.expectClosed = true;
+      try {
+        Promise.resolve(ctx.close()).catch((error) => Log.warn('audio', 'closing behind failed: ' + messageOf(error)));
+      } catch (error) {
+        Log.warn('audio', 'closing behind failed: ' + messageOf(error));
+      }
+    }
+
+    /** Polled at every Scheduler tick (the check points of audio.suspend and audio.fail closed). */
+    function pollFaults() {
+      if (!ctx || isClosed) return;
+      const suspend = Core.Faults.active('audio.suspend');
+      if (suspend) simulateSuspend(suspend);
+      const fail = Core.Faults.active('audio.fail');
+      if (fail && fail.phase === 'closed') closeBehind();
+    }
+
+    /** E-AUD-004 recovery: a hard panic rebuilds the graph; two recoveries are at least 250 ms apart. */
+    function recover() {
+      const at = now();
+      if (at - recovery.lastAt < RECOVERY_GAP_S) return false;
+      recovery.lastAt = at;
+      panic(true, 'rebuild');
+      return true;
+    }
+
     // ---- close --------------------------------------------------------------------------------
     function close() {
       if (isClosed) return;
       stopPeakFeed();
       scheduler.unbind();
+      dropClicks();
       bus.removeOwner(owner);
       Array.from(strips.keys()).forEach(disposeStrip);
       const closing = ctx;
@@ -1412,7 +2187,8 @@ FLM.Core.define('Audio', function (FLM) {
 
     // ---- assembly -----------------------------------------------------------------------------
     const scheduler = createScheduler({ bus, owner, allocator, now, perfNow: Core.now, readTick,
-      hasStrip: (trackId) => strips.has(trackId), createStrip, disposeStrip, click,
+      hasStrip: (trackId) => strips.has(trackId), createStrip, disposeStrip, click: (at, accent) => click(at, accent, true), cancelClicks, rebuildGraph,
+      engine: () => engine, pollFaults, recover,
       accentOn: () => metronomeLook.accent, fadeIn, fadeOut, setMasterGain, publishVoices,
       reportError: (error) => Core.ErrorReporter.report('E-AUD-004', error,
         { module: 'Audio', origin: 'scheduler' }) });
@@ -1430,7 +2206,9 @@ FLM.Core.define('Audio', function (FLM) {
       setMasterGain, masterGain: () => levels.master, setMetronomeGain, metronomeGain: () => levels.metronome,
       createStrip, disposeStrip, strips: () => Array.from(strips.values()), stripCount: () => strips.size,
       setSolo, setMute, soloSet: () => new Set(soloSet),
-      Metronome: Object.freeze({ click, configure: configureMetronome }), peak, subscribePeak, fadeOut, fadeIn,
+      Metronome: Object.freeze({ click, configure: configureMetronome, cancel: () => cancelClicks(now(), true),
+        scheduled: scheduledClicks }), peak, subscribePeak, fadeOut, fadeIn,
+      panic, nodeCount, countNodes, transientNodeCount, recover, restart, info, testTone,
       VoiceAllocator: allocator, Scheduler: scheduler
     });
     return engine;
@@ -1469,6 +2247,7 @@ FLM.Core.define('Audio', function (FLM) {
     createEngine, createVoiceAllocator, polyphonyFor, init, LIMITER, RAMP_S, START_FADE_S, STOP_FADE_S, LOOKAHEAD_S,
     TICK_MS, SOFT_PANIC_S, VOICE_MAX_S, STEAL_FADE_S,
     unlock, resume: () => unlock().then((result) => result.ok),
+    restart: () => (appEngine ? appEngine.restart() : Promise.resolve(false)),
     ctx: forward('ctx', null), isUnlocked: forward('isUnlocked', false),
     clock: () => (appEngine ? appEngine.clock() : NO_CLOCK), state: forward('state', 'none'),
     now: forward('now', 0), latency: forward('latency', NO_LATENCY), sampleRate: forward('sampleRate', 0),
@@ -1485,7 +2264,10 @@ FLM.Core.define('Audio', function (FLM) {
     get VoiceAllocator() { return nodeOf('VoiceAllocator'); },
     get Scheduler() { return nodeOf('Scheduler'); },
     peak: forward('peak'), subscribePeak: forward('subscribePeak'), fadeOut: forward('fadeOut'),
-    fadeIn: forward('fadeIn')
+    fadeIn: forward('fadeIn'), panic: forward('panic', 0), nodeCount: forward('nodeCount', 0),
+    countNodes: forward('countNodes', 0), transientNodeCount: forward('transientNodeCount', 0),
+    info: forward('info', { state: 'none', unlocked: false, attempts: 0, sampleRate: 0, latency: NO_LATENCY, contexts: 0 }),
+    testTone: forward('testTone')
   });
 });
 })();

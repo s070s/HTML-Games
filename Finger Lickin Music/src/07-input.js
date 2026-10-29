@@ -173,6 +173,8 @@ FLM.Core.define('Input', function (FLM) {
     anchor.median = null;
     anchor.source = null;
     anchor.spreadWarned = false;
+    anchor.emittedOffset = null;          // a new time base is announced at its first sample, whatever was sent a moment ago
+    anchor.emittedAtMs = -Infinity;
   }
 
   function sortedSamples() {
@@ -1233,6 +1235,7 @@ FLM.Core.define('Input', function (FLM) {
     if (state.attached.surface) installSurfaceListeners(state.attached.surface);
     bus.on('audio.state', onAudioState, INPUT_OWNER);
     bus.on('audio.unlocked', onAudioUnlocked, INPUT_OWNER);
+    bus.on('audio.sink', onAudioUnlocked, INPUT_OWNER);
     bus.on('ui.layout', onLayout, INPUT_OWNER);
     bus.on('settings.changed', onSettingsChanged, INPUT_OWNER);
     state.pads.dirty = true;

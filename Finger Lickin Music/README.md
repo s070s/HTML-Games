@@ -18,6 +18,9 @@ docs/plan-work/OPEN-ISSUES-stage1.md list them. There is no game yet. Nothing in
 - Computer: double-click FingerLickinMusic.html, or open it from any web server.
 - Phone or tablet: put the one HTML file on a web server and open it; landscape is recommended.
 - Sound starts after the first tap or key press (browser rule). All instruments are synthesized.
+- Sound coverage: all 128 General MIDI programs and the percussion keys 35 to 81 are played by synthesized
+  sounds (no recordings, no sound bank). All instruments are synthesized in real time. Loading SoundFont (.sf2)
+  sound banks is not supported in this version.
 
 ## Develop (once the source exists)
 - Source: src/shell.html and src/*.js, joined in file-name order by node tools/build.mjs into

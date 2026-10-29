@@ -706,6 +706,37 @@ FLM.SelfTest.group('ui', (t) => {
     t.eq(UI.text('E-GEN-001'), Core.Text.get('E-GEN-001'), 'Core.Text entries are found too');
   });
 
+  // T04.07: sound honesty. Only the two disclosure sentences of Part 1.5 may name a sampled bank or a SoundFont.
+  const SOUNDFONT_SENTENCE = 'All instruments are synthesized in real time. Loading SoundFont (.sf2) sound banks is not ' +
+    'supported in this version.';
+  const SAMPLED_SENTENCE = 'Instrument sounds are synthesized by this file; no sampled sound bank is included, so ' +
+    'timbres approximate General MIDI instruments rather than reproduce recordings.';
+
+  t.test('UT-26-23c fidelity scan: no catalog text says sampled, SoundFont loaded or authentic outside the disclosures',
+    () => {
+      const forbidden = [/sampled/i, /SoundFont loaded/i, /authentic/i, /realistic/i, /full General MIDI/i];
+      const catalogs = [Core.Text.all(), UI.TEXT];
+      catalogs.forEach((catalog) => Object.keys(catalog).forEach((id) => {
+        if (id === 'S-AUD-02') return;
+        forbidden.forEach((pattern) => t.ok(!pattern.test(catalog[id]), id + ' must not match ' + pattern));
+      }));
+      t.eq(Core.Text.get('S-AUD-01'), SOUNDFONT_SENTENCE, 'the Settings sentence of Part 1.5');
+      t.eq(Core.Text.get('S-AUD-02'), SAMPLED_SENTENCE, 'the About sentence of Part 1.5');
+      t.eq(Core.Text.get('S-AUD-03'), 'Instruments are synthesized; timbres approximate General MIDI programs.');
+      t.ok(/^[\x20-\x7e]*$/.test(Core.Text.get('S-AUD-05')) && Core.Text.get('S-AUD-05').includes('35 to 81'));
+    });
+
+  t.test('UT-26-23d the fidelity label widget shows the label of Instruments.fidelity', () => {
+    const widget = UI.Widgets.fidelityLabel({ id: 'fid-test', program: 0 });
+    attach(widget.root);
+    t.eq(widget.get(), 'Synthesized, velocity-sensitive');
+    widget.set(16);
+    t.eq(widget.get(), 'Synthesized');
+    widget.set('drums');
+    t.eq(widget.root.textContent, FLM.Instruments.fidelity('drums').label);
+    widget.destroy();
+  });
+
   t.test('UT-26-24 text entry restriction', () => {
     const widget = UI.Widgets.field({ id: 'name', label: 'Name', value: 'abc', maxLength: 24, onCommit: () => {} });
     attach(widget.root);

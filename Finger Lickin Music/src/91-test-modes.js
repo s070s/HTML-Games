@@ -760,5 +760,152 @@ FLM.SelfTest.group('modes', (t) => {
     change('calibration.audioLatencyMs');
     t.ok(toasts().some((text) => text.includes('Calibration changed; results not comparable.')), toasts().join('|'));
   });
+  // ------------------------------------------------------------------------------------------ T04.05: panic
+  // UT-28-03 and the panic keys. The real Scheduler and allocator run on a stand-in engine (detachAudio) and fake
+  // timers; the instruments are a stand-in whose voices free their slot when the soft-panic ramp is over (a voice
+  // that "survives" never does, so the 350 ms check finds it and the hard panic follows).
+  const PANIC_RAMP_MS = 30;
+  const LEAVE_TURNS = 40;
+  const LEAVE_TURN_MS = 20;
+
+  /** Voices that end by themselves: `stubborn` voices ignore release and only a stop (hard panic) frees them. */
+  function endingInstruments(stubborn) {
+    const startVoice = (trackId, channel, pitch, at) => {
+      const pool = FLM.Audio.VoiceAllocator;
+      const slot = pool.acquire({ trackId, channel, pitch }, at);
+      const finish = () => { pool.free(slot); };
+      slot.voice = {
+        release() { if (!stubborn) Core.timers.setTimeout(finish, PANIC_RAMP_MS, t.owner); },
+        stop: finish, dispose() {}, levelAt: () => 1
+      };
+      return slot;
+    };
+    return { noteOn: (track, event, at) => startVoice(track.id, event.channel, event.pitch, at),
+      startLive: (trackId, program, isDrums, channel, pitch, velocity, at) => startVoice(trackId, channel, pitch, at),
+      stopLive() { return true; }, control() {}, allNotesOff() {} };
+  }
+
+  /** Starts a fixture song with the stand-in engine, a hit sound for lane 0 held down (a live voice). */
+  async function playUntilVoices(stubborn, panics, keep) {
+    bus.on('audio.panic', (event) => { if (!keep || keep(event)) panics.push([event.hard, event.reason]); }, t.owner);
+    Modes._teardownForTests();               // the panic listener belongs to the baseline of this test
+    t.eq((await Modes.enter('menu')).ok, true);
+    useGameplayScreens();
+    const timers = t.fakes.timers();
+    timers.install();
+    t.fakes.detachAudio();
+    const entered = await Modes.enter('instrument', gameplayParams());
+    t.eq(entered.ok, true);
+    FLM.Audio.Scheduler.setInstruments(endingInstruments(stubborn));
+    timers.advance(100);
+    FLM.Input.synthesize.key('KeyA', true, Core.now());
+    t.deepEq(FLM.Input.held(), ['lane0'], 'lane 0 is held');
+    FLM.Audio.Scheduler.liveNoteOn('hit', 60, 100, 0);       // the hit sound of the held lane (Phase 06 wires it)
+    FLM.Audio.Scheduler.liveNoteOn('hit', 64, 100, 0);
+    t.eq(FLM.Audio.VoiceAllocator.activeCount(), 2, 'two voices are sounding');
+    return timers;
+  }
+
+  async function leaveAdvancing(timers) {
+    const leaving = Modes.leave('user');
+    for (let turn = 0; turn < LEAVE_TURNS; turn += 1) {
+      await flush();
+      timers.advance(LEAVE_TURN_MS);
+    }
+    return leaving;
+  }
+
+  t.test('UT-28-03 leave with a held note: the soft panic empties the voices within 350 ms; no hard panic', async () => {
+    const panics = [];
+    const timers = await playUntilVoices(false, panics);
+    const left = await leaveAdvancing(timers);
+    t.eq(left.leaks, null, 'the leave is clean');
+    t.eq(FLM.Audio.VoiceAllocator.activeCount(), 0, 'no voice remains');
+    t.deepEq(panics, [[false, 'stop'], [false, 'mode'], [false, 'stop']], 'transport stop, soft panic of step 4, unbind');
+    t.deepEq(FLM.Input.held(), []);
+    t.eq(Core.ErrorReporter.records().filter((item) => item.code === 'E-AUD-006').length, 0);
+  });
+
+  t.test('UT-28-03b a voice that survives the soft panic makes the hard panic (E-AUD-006), and the leave is clean',
+    async () => {
+      const panics = [];
+      const timers = await playUntilVoices(true, panics);
+      const left = await leaveAdvancing(timers);
+      t.eq(left.leaks, null);
+      t.eq(FLM.Audio.VoiceAllocator.activeCount(), 0, 'the hard panic stopped the stuck voices');
+      t.deepEq(panics, [[false, 'stop'], [false, 'mode'], [true, 'mode'], [false, 'stop']]);
+      t.eq(Core.ErrorReporter.records().filter((item) => item.code === 'E-AUD-006').length, 1,
+        'the stuck voice is reported as a defect');
+    });
+
+  t.test('T04.05 KeyP pauses and stops all sound; a second press within 2 s is a hard panic, a later one soft again',
+    async () => {
+      const panics = [];
+      const timers = await playUntilVoices(false, panics, (event) => event.reason === 'user');
+      const press = (code) => {
+        FLM.Input.synthesize.key(code, true, Core.now());
+        FLM.Input.synthesize.key(code, false, Core.now() + 1);
+      };
+      press('KeyP');
+      await flush();
+      t.eq(FLM.Transport.main.state(), 'paused', 'the panic key pauses first');
+      timers.advance(500);
+      press('KeyP');
+      await flush();
+      timers.advance(2500);
+      press('KeyP');
+      await flush();
+      t.deepEq(panics.map((entry) => entry[0]), [false, true, false], 'soft, hard within 2 s, soft again after 2 s');
+      await leaveAdvancing(timers);
+    });
+
+  t.test('T04.05 Space panics while the song is paused and does nothing while it plays', async () => {
+    const panics = [];
+    const timers = await playUntilVoices(false, panics, (event) => event.reason === 'user');
+    FLM.Input.synthesize.key('Space', true, Core.now());
+    FLM.Input.synthesize.key('Space', false, Core.now() + 1);
+    await flush();
+    t.deepEq(panics, [], 'Space is not a panic key while playing');
+    await Modes.pause('user');
+    FLM.Input.synthesize.key('Space', true, Core.now());
+    FLM.Input.synthesize.key('Space', false, Core.now() + 1);
+    await flush();
+    t.deepEq(panics.map((entry) => entry[0]), [false], 'a soft panic while paused');
+    await leaveAdvancing(timers);
+  });
+
+  // ------------------------------------------------------------------------------------------ T04.08: audio interruption
+  t.test('FI-001 audio suspended during gameplay: pause, DLG-ResumeAudio, Resume continues from the frozen tick',
+    async () => {
+      useGameplayScreens();
+      const timers = t.fakes.timers();
+      timers.install();
+      t.fakes.detachAudio();
+      t.eq((await Modes.enter('instrument', gameplayParams())).ok, true);
+      timers.advance(600);
+      const main = FLM.Transport.main;
+      const interruptions = [];
+      bus.on('mode.interrupted', (event) => interruptions.push(event), t.owner);
+      t.eq(Modes.onInterrupt('audio'), 'paused', 'the audio.state subscription calls this for a state other than running');
+      const frozen = main.position();
+      for (let turn = 0; turn < 6; turn += 1) {
+        await flush();
+        timers.advance(50);
+      }
+      t.eq(main.state(), 'paused', 'the transport is paused');
+      t.deepEq(interruptions.map((event) => [event.cause, event.action]), [['audio', 'paused']]);
+      t.eq(UI.dialogCount(), 1, 'DLG-ResumeAudio is open');
+      timers.advance(2000);
+      t.ok(Math.abs(main.position() - frozen) <= 1, 'the position stays frozen while paused');
+      doc.getElementById('w-dlg-resume').click();
+      for (let turn = 0; turn < 5; turn += 1) await flush();
+      t.eq(UI.dialogCount(), 0, 'the dialog closed');
+      t.eq(main.state(), 'playing', 'the song goes on');
+      timers.advance(500);                  // Transport.resume re-anchors at the frozen tick, a short lead after now
+      const moved = main.position() - frozen;
+      t.ok(moved >= 0 && moved <= 960 + 1, 'the song went on from the frozen tick, not from where the clock was: ' + moved + ' ticks in 500 ms');
+      await Modes.leave('user');
+    });
+
 });
 })();

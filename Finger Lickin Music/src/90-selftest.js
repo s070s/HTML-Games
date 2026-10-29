@@ -1155,7 +1155,7 @@ FLM.Core.define('SelfTest', function (FLM) {
     const engine = real.createEngine({ context: fakeAudioContext({ state: 'running' }).context, clock, mobile: false });
     const facade = Object.freeze({ clock: engine.clock, now: engine.now, isUnlocked: () => true,
       stripCount: engine.stripCount, Scheduler: engine.Scheduler, VoiceAllocator: engine.VoiceAllocator,
-      Metronome: engine.Metronome });
+      Metronome: engine.Metronome, panic: engine.panic, state: engine.state, resume: engine.resume });
     return { engine, facade };
   }
 

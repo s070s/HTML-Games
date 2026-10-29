@@ -708,6 +708,7 @@ FLM.Core.define('Screens', function (FLM) {
     'dlg.resume.title': 'Sound was interrupted',
     'dlg.resume.body': 'Another app, a call or the lock screen interrupted the sound.',
     'dlg.resume.enable': 'Resume sound',
+    'dlg.resume.restart': 'Restart audio',
     'dlg.resume.cancel': 'Stay paused',
     'dlg.unsupported.title': '{feature} is not available',
     'dlg.returned.title': '{operation} stopped',
@@ -750,6 +751,9 @@ FLM.Core.define('Screens', function (FLM) {
     'cal.watch.body': 'Now there is no sound. Tap when the circle flashes on the line.',
     'cal.watch.ready': 'Press Start. The first flash comes after a short pause. Escape stops this step.',
     'cal.watch.counter': 'Flash {count} of 12',
+    'cal.listen.counter': 'Click {count} of 12',
+    'cal.listen.ready': 'Press Start. The first click comes after a short pause. Escape stops this step.',
+    'cal.listen.pad': 'Tap here, or press any lane key',
     'cal.watch.pad': 'Tap here, or press any lane key',
     'cal.speed.title': '3. Note speed',
     'cal.speed.body': 'Notes should reach the line exactly when you hear them. Choose a speed that is comfortable ' +
@@ -898,6 +902,13 @@ FLM.Core.define('Screens', function (FLM) {
   }
 
   const yesNo = (value) => (value ? 'yes' : 'no');
+  const TEST_CHORD = Object.freeze([60, 64, 67]);   // C major (Part 7.6.12 set-test)
+  const TEST_TRACK = 'test-sound';
+  const TEST_VELOCITY = 100;
+  const TEST_SOUND_MS = 1000;
+  const TEST_CLEANUP_MS = 1500;
+  const TEST_OWNER = Symbol('screens.testsound');
+  const MS_PER_SECOND = 1000;
   const editionName = () => (FLM.RELAY_URL ? 'Online' : 'Standalone');
   const buildDate = () => String(FLM.BUILD).slice(0, 10);
   const isTestBuild = () => Boolean(FLM.SelfTest);
@@ -1449,10 +1460,34 @@ FLM.Core.define('Screens', function (FLM) {
       return keep(actionButton({ id, label, disabledReason: LATER_BUILD }));
     }
 
+    function fidelityRow() {
+      const labels = [[0, 'Piano'], [16, 'Organ'], ['drums', 'Drum kit']].map((pair) => {
+        const widget = keep(UI.Widgets.fidelityLabel({ id: 'set-fid-' + pair[0], program: pair[0] }));
+        return el('li', null, [pair[1] + ': ', widget.root]);
+      });
+      return el('ul', { id: 'set-quality', class: 'set-note', 'aria-label': 'Instrument quality' }, labels);
+    }
+
+    // A C major chord on the piano for one second, through the live path (the track is removed afterwards).
+    async function playTestSound() {
+      const audio = FLM.Audio;
+      const attempt = audio.unlock();                 // first: this press is the gesture
+      const unlocked = await attempt;
+      if (!unlocked.ok) {
+        UI.toast(Core.Text.get('E-AUD-002'), { kind: 'error' });
+        return;
+      }
+      TEST_CHORD.forEach((pitch) => audio.Scheduler.liveNoteOn(TEST_TRACK, pitch, TEST_VELOCITY, 0, undefined,
+        { program: 0, isDrums: false }));
+      Core.timers.setTimeout(() => {
+        TEST_CHORD.forEach((pitch) => audio.Scheduler.liveNoteOff(TEST_TRACK, pitch, 0));
+        Core.timers.setTimeout(() => audio.disposeStrip(TEST_TRACK), TEST_CLEANUP_MS, TEST_OWNER);
+      }, TEST_SOUND_MS, TEST_OWNER);
+    }
+
     function audioExtras() {
-      return [paragraph('All instruments are synthesized in real time. Loading SoundFont (.sf2) sound banks is ' +
-        'not supported in this version.', { id: 'set-fidelity', class: 'set-note' }),
-      laterButton('set-test', 'Play test sound')];
+      return [fidelityRow(), paragraph(say('S-AUD-01'), { id: 'set-fidelity', class: 'set-note' }),
+        keep(actionButton({ id: 'set-test', label: 'Play test sound', onPress: playTestSound }))];
     }
 
     // ---- remapping (Part 6.27.4.14, 7.6.12): key chips per control, "Add key" capture, conflict dialog, reset
@@ -1864,8 +1899,8 @@ FLM.Core.define('Screens', function (FLM) {
       'without it.'
   });
   const LIMITS_TEXT = Object.freeze([
-    'Instrument sounds are synthesized by this file; no sampled sound bank is included, so timbres approximate ' +
-      'General MIDI instruments rather than reproduce recordings.',
+    'S-AUD-02',
+    'S-AUD-05',
     'Import: MIDI (.mid, .midi) format 0, 1 and 2; MusicXML (.xml, .musicxml, .mxl); Guitar Pro 3, 4 and 5 ' +
       '(.gp3, .gp4, .gp5). Guitar Pro 6 and 7 files (.gpx, .gp) cannot be imported. Audio files (.wav, .mp3, ' +
       '.ogg, .flac, where this browser can decode them) are imported as backing audio only; notes are never ' +
@@ -1881,7 +1916,7 @@ FLM.Core.define('Screens', function (FLM) {
     'Sound: up to 64 voices at once on desktop and 32 on mobile; at the limit, the quietest released notes stop ' +
       'first, then the oldest. Projects: up to 32 tracks, 100,000 notes per track and 1,000,000 events.'
   ]);
-  const FIDELITY_TEXT = 'Instruments are synthesized; timbres approximate General MIDI programs.';
+  const FIDELITY_TEXT = 'S-AUD-03';
   const CREDITS_TEXT = Object.freeze([
     'Finger Lickin Music is a single file. All code, sounds, music, characters and graphics in it were made for ' +
       'this game. It contains no third-party libraries, fonts, sound banks, samples or 3D models, so there are no ' +
@@ -1946,7 +1981,7 @@ FLM.Core.define('Screens', function (FLM) {
       'Built-in songs are original compositions for this game.', Core.LICENSE_NOTICE];
     return panel('ab-licenses', 'Credits and licenses', lines.map((line) => paragraph(line))
       .concat(CREDITS_TEXT.map((line) => paragraph(line)), DEPENDENCY_TEXT.map((line) => paragraph(line)),
-        [paragraph(CONTENT_TEXT, { id: 'ab-content' }), paragraph(FIDELITY_TEXT, { id: 'ab-fidelity' }),
+        [paragraph(CONTENT_TEXT, { id: 'ab-content' }), paragraph(say(FIDELITY_TEXT), { id: 'ab-fidelity' }),
           paragraph('Finger Lickin Music is part of the HTML-Games collection.', { id: 'ab-credits' })]));
   }
 
@@ -1975,7 +2010,7 @@ FLM.Core.define('Screens', function (FLM) {
         const frame = UI.Frame.create(root, { prefix: 'ab', title: say('screen.SCR-About'), subtitle: '' });
         addAll(frame.body, [indexNav(), aboutVersionPanel(),
           panel('ab-limits', 'Limits of this version',
-            [el('ul', null, LIMITS_TEXT.map((line) => el('li', null, line)))]),
+            [el('ul', null, LIMITS_TEXT.map((line) => el('li', null, /^S-[A-Z]+-\d+$/.test(line) ? say(line) : line)))]),
           panel('ab-compat', 'Supported formats', [paragraph('The format table is added with the import step.')]),
           panel('ab-browsers', 'Browsers', [dataTable('ab-browser-table', 'Browser claims', ['Browser', 'Status'],
             BROWSER_ROWS)]),
@@ -2029,6 +2064,30 @@ FLM.Core.define('Screens', function (FLM) {
     } };
   }
 
+  // Counts and estimates only (T04.09): the latency is base plus output latency, or a default, and says so (I 3.5).
+  function audioSection() {
+    return { headers: ['Item', 'Value'], rows: () => {
+      const audio = FLM.Audio;
+      if (!audio || typeof audio.info !== 'function') return [['Audio', 'not available']];
+      const info = audio.info();
+      const voices = audio.VoiceAllocator ? audio.VoiceAllocator.stats() : null;
+      const scheduler = audio.Scheduler ? audio.Scheduler.stats() : null;
+      const anchor = FLM.Input && typeof FLM.Input.anchor === 'function' ? FLM.Input.anchor() : null;
+      const latencyMs = Math.round(info.latency.seconds * MS_PER_SECOND);
+      return [['Context state', info.state], ['Sample rate', info.sampleRate > 0 ? info.sampleRate + ' Hz' : 'none'],
+        ['Unlocked', yesNo(info.unlocked) + ' after ' + info.attempts + ' attempt(s)'],
+        ['Output latency (estimate)', latencyMs + ' ms, ' + (info.latency.estimated ? 'a default; the browser reports none'
+          : 'reported by the browser')],
+        ['Voices', voices ? voices.active + ' active, ' + voices.capacity + ' maximum, ' + voices.stolen + ' stolen, ' +
+          voices.dropped + ' dropped' : 'none'],
+        ['Scheduler', scheduler ? scheduler.ticks + ' ticks, ' + scheduler.stalls + ' stalls, ' + scheduler.clamped +
+          ' late events' : 'not bound'],
+        ['Input anchor jitter', anchor && typeof anchor.spreadMs === 'number' ? anchor.spreadMs.toFixed(2) + ' ms'
+          : 'not available'],
+        ['Sound bank', say('S-AUD-04')]];
+    } };
+  }
+
   function errorsSection() {
     return { headers: ['Code', 'Class', 'Count', 'Message'], rows: () => Core.ErrorReporter.records().slice(-ERROR_TAIL)
       .map((record) => [record.code, record.class, record.count, record.userMessage || record.message || '']) };
@@ -2043,7 +2102,7 @@ FLM.Core.define('Screens', function (FLM) {
   }
 
   const DIAG_SECTIONS = Object.freeze([['dg-build', 'Build', buildSection], ['dg-caps', 'Capabilities', capsSection],
-    ['dg-timing', 'Timing', laterSection], ['dg-audio', 'Audio', laterSection],
+    ['dg-timing', 'Timing', laterSection], ['dg-audio', 'Audio', audioSection],
     ['dg-render', 'Rendering', laterSection],
     ['dg-storage', 'Storage', storageSection], ['dg-input', 'Input', laterSection], ['dg-net', 'Network', laterSection],
     ['dg-errors', 'Errors', errorsSection], ['dg-log', 'Log', logSection]]);
@@ -2113,10 +2172,22 @@ FLM.Core.define('Screens', function (FLM) {
         onPress: exportDiagnostics });
       const copy = actionButton({ id: 'dg-copy', label: say('dlg.copy'),
         onPress: () => copyDiagnostics(view.includeContent) });
-      const tone = actionButton({ id: 'dg-tone', label: 'Test tone', disabledReason: LATER_BUILD });
+      const tone = actionButton({ id: 'dg-tone', label: 'Test tone', onPress: async () => {
+        const unlocked = await FLM.Audio.unlock();
+        if (unlocked.ok) FLM.Audio.testTone();
+        else UI.toast(Core.Text.get('E-AUD-002'), { kind: 'error' });
+        refreshAll();
+      } });
+      const audioAction = (id, label, method) => actionButton({ id, label, onPress: async () => {
+        const ok = await FLM.Audio[method]();
+        if (!ok) UI.toast(Core.Text.get('E-AUD-002'), { kind: 'error' });
+        refreshAll();
+      } });
+      const resumeAudio = audioAction('dg-resume', 'Resume audio', 'resume');
+      const restartAudio = audioAction('dg-restart', 'Restart audio', 'restart');
       return panel('dg-actions', 'Actions', [paragraph(say('S-GEN-05'), { id: 'dg-include-note' }),
         includeToggle().root, overlayToggle().root, logLevelSelect().root,
-        el('div', { class: 'btn-row' }, [exportButton.root, copy.root, tone.root])]);
+        el('div', { class: 'btn-row' }, [exportButton.root, copy.root, tone.root, resumeAudio.root, restartAudio.root])]);
     }
 
     async function runSelfTest() {
@@ -2232,20 +2303,27 @@ FLM.Core.define('Screens', function (FLM) {
     });
   }
 
-  // DLG-ResumeAudio: Audio.resume() runs inside the click, then the dialog closes with 'resume'.
+  // DLG-ResumeAudio: Resume sound or Restart audio runs inside the click; the dialog closes with 'resume' only when the
+  // sound runs again, otherwise it says so and stays open.
   function openResumeAudio(params) {
     const detail = params.detail ? ' ' + params.detail : '';
-    const view = { resume: null };
+    const view = { resume: null, restart: null, status: null };
     const spec = { id: 'DLG-ResumeAudio', title: say('dlg.resume.title'), body: say('dlg.resume.body') + detail,
       buttons: [{ id: 'cancel', label: say('dlg.resume.cancel'), kind: 'secondary', isCancel: true }],
       build(container, finish) {
-        const resume = () => {
-          const attempt = FLM.Audio && typeof FLM.Audio.resume === 'function' ? FLM.Audio.resume() : undefined;
-          return Promise.resolve(attempt).then(() => finish('resume'));
+        const attemptWith = (method) => {
+          const attempt = FLM.Audio && typeof FLM.Audio[method] === 'function' ? FLM.Audio[method]() : undefined;
+          return Promise.resolve(attempt).then((ok) => {
+            if (ok === true) finish('resume');
+            else view.status.textContent = say('dlg.audio.blocked');
+          }, () => { view.status.textContent = say('dlg.audio.blocked'); });
         };
         view.resume = actionButton({ id: 'dlg-resume', label: say('dlg.resume.enable'), kind: 'primary',
-          onPress: resume });
-        container.appendChild(el('div', { class: 'btn-row' }, view.resume.root));
+          onPress: () => attemptWith('resume') });
+        view.restart = actionButton({ id: 'dlg-restart', label: say('dlg.resume.restart'),
+          onPress: () => attemptWith('restart') });
+        view.status = paragraph('', { id: 'dlg-resume-status', role: 'status' });
+        addAll(container, [el('div', { class: 'btn-row' }, [view.resume.root, view.restart.root]), view.status]);
       } };
     const shown = UI.dialog(spec);
     view.resume.focus();
@@ -2303,310 +2381,23 @@ FLM.Core.define('Screens', function (FLM) {
   }
 
   // ---------------------------------------------------------------- DLG-Calibration (Part 6.27.4.22 and 7.7.1)
-  // T03.09 delivers the "Watch and tap" step (input offset), the note speed preview and the summary. The "Listen
-  // and tap" step needs the audio clicks of M-05 and is completed in T04.09; until then it can only be skipped.
-  const CAL_TAP_COUNT = 12;            // flashes (or clicks) per step
-  const CAL_IGNORED = 4;               // the first four are for getting into the rhythm
-  const CAL_INTERVAL_MS = 667;         // 90 BPM
-  const CAL_START_DELAY_MS = 1000;
-  const CAL_MATCH_MS = 300;            // a tap counts for the nearest flash within this distance
-  const CAL_MATCH_SHARE = 0.45;        // ... and never for more than this share of the beat (300 ms at 90 BPM)
-  const CAL_END_MARGIN_MS = 100;       // the step ends this long after the last tap could still match
-  const CAL_MIN_MATCHED = 6;
-  const CAL_UNEVEN_MS = 40;            // an interquartile range above this shows S-CAL-02
-  const CAL_FLASH_MS = 120;
-  const CAL_PREVIEW_NOTES = 8;
-  const CAL_PREVIEW_LANES = 4;
-  const CAL_SPEED_STEP_MS = 50;
-  const CAL_TAP_CONTROL = /^(lane|dance)[0-3]$/;
-  const CAL_LIMITS = Object.freeze({ inputOffsetMs: [-200, 200], audioLatencyMs: [0, 500] });
-  const QUARTILE = Object.freeze({ low: 0.25, middle: 0.5, high: 0.75 });
+  // The wizard lives in 27a-screens-calibration.js (a part of this module, RISK-60: no module above 150 KB). It gets the
+  // helpers of this file through the kit below and is made the first time it is needed.
+  let calibrationPart = null;
 
-  function quantile(sorted, fraction) {
-    const position = (sorted.length - 1) * fraction;
-    const below = Math.floor(position);
-    const above = Math.ceil(position);
-    return sorted[below] + (sorted[above] - sorted[below]) * (position - below);
+  function screensKit() {
+    return Object.freeze({ Core, UI, bus, Settings, el, say, paragraph, actionButton, addAll, MS_PER_SECOND,
+      noteSpeedFormat });
   }
 
-  /** Tap minus flash (ms) for the flashes after the first four that have a tap within the match window. */
-  function matchedDeltas(taps, targets, matchMs) {
-    const deltas = [];
-    targets.forEach((target, index) => {
-      if (index < CAL_IGNORED) return;
-      const near = taps.map((tap) => tap - target).filter((delta) => Math.abs(delta) <= matchMs);
-      if (near.length === 0) return;
-      deltas.push(near.reduce((best, delta) => (Math.abs(delta) < Math.abs(best) ? delta : best)));
-    });
-    return deltas;
+  function calibration() {
+    if (calibrationPart === null) calibrationPart = Core.usePart('Screens', 'calibration', screensKit());
+    return calibrationPart;
   }
 
-  /**
-   * One tap step (Part 7.7.1): taps and targets in ms on one clock; matchMs is the distance a tap may be from
-   * its flash (default 300 ms).
-   * @returns {{status:'ok'|'few'|'uneven', medianMs:(number|null), iqrMs:(number|null), matched:number}}
-   */
-  function analyzeTaps(taps, targets, matchMs) {
-    const distanceMs = matchMs === undefined ? CAL_MATCH_MS : matchMs;
-    const sorted = matchedDeltas(taps, targets, distanceMs).sort((a, b) => a - b);
-    if (sorted.length === 0) return { status: 'few', medianMs: null, iqrMs: null, matched: 0 };
-    const iqrMs = quantile(sorted, QUARTILE.high) - quantile(sorted, QUARTILE.low);
-    let status = 'ok';
-    if (sorted.length < CAL_MIN_MATCHED) status = 'few';
-    else if (iqrMs > CAL_UNEVEN_MS) status = 'uneven';
-    return { status, medianMs: quantile(sorted, QUARTILE.middle), iqrMs, matched: sorted.length };
-  }
-
-  const clampRound = (value, limits) => Math.min(limits[1], Math.max(limits[0], Math.round(value)));
-
-  /**
-   * The wizard result (Part 7.7.1). measured: {audioMs, visualMs} step medians, null when the step was skipped. The
-   * flash step holds only input and display delay (V); the click step adds the sound delay (A), so the sound delay is
-   * A - V and the Judge offset (input offset + sound delay) equals A.
-   */
-  function calibrationFromMedians(measured, current) {
-    const next = Object.assign({}, current);
-    if (measured.visualMs === null) return next;
-    next.inputOffsetMs = clampRound(measured.visualMs, CAL_LIMITS.inputOffsetMs);
-    if (measured.audioMs !== null) {
-      next.audioLatencyMs = clampRound(measured.audioMs - measured.visualMs, CAL_LIMITS.audioLatencyMs);
-    }
-    return next;
-  }
-
-  const signed = (value) => (value > 0 ? '+' + value : String(value));
-
-  // params: {intervalMs, startDelayMs, onRunStart(targetsMs)} are test hooks; the player never sets them.
-  function openCalibration(params) {
-    const token = Symbol('dlg-calibration');
-    const intervalMs = params.intervalMs || CAL_INTERVAL_MS;
-    const startDelayMs = params.startDelayMs === undefined ? CAL_START_DELAY_MS : params.startDelayMs;
-    const matchMs = Math.min(CAL_MATCH_MS, intervalMs * CAL_MATCH_SHARE);
-    const view = { page: 'listen', values: Settings.calibration(), measured: { audioMs: null, visualMs: null },
-      host: null, finish: null, handles: [], run: null, result: null, pad: null, status: null, notes: [],
-      previewFrame: null, runFrame: null, runTimer: null, summaryLine: null };
-
-    function keepHandle(handle) {
-      view.handles.push(handle);
-      return handle;
-    }
-
-    const stepButton = (id, label, onPress, kind, disabledReason) => keepHandle(actionButton({ id: 'cal-' + id,
-      label: say(label), kind: kind || 'secondary', onPress, disabledReason })).root;
-
-    function stopRun() {
-      view.run = null;
-      Core.raf.cancel(view.runFrame);
-      Core.timers.clearTimeout(view.runTimer);
-    }
-
-    function disposePage() {
-      stopRun();
-      Core.raf.cancel(view.previewFrame);
-      view.handles.forEach((handle) => handle.destroy());
-      view.handles = [];
-      view.host.textContent = '';
-    }
-
-    function goTo(page) {
-      disposePage();
-      view.page = page;
-      PAGES[page]();
-    }
-
-    function showPage(title, body, nodes) {
-      addAll(view.host, [el('h3', null, title), paragraph(body)].concat(nodes));
-    }
-
-    // ---- the tap run: flashes on a fixed beat, taps collected until the last tap could still match
-    function addTap(tPerf) {
-      if (view.run) view.run.taps.push(tPerf);
-    }
-
-    function onInputEvent(evt) {
-      if (evt && evt.type === 'press' && CAL_TAP_CONTROL.test(evt.control)) addTap(evt.tPerf);
-    }
-
-    function onFrame() {
-      const run = view.run;
-      if (!run) return;
-      const nowMs = Core.now();
-      while (run.shown < run.targets.length && nowMs >= run.targets[run.shown]) run.shown += 1;
-      const lastFlash = run.shown > 0 ? run.targets[run.shown - 1] : -Infinity;
-      view.pad.classList.toggle('on', nowMs - lastFlash < CAL_FLASH_MS);
-      if (run.shown > 0) view.status.textContent = say('cal.watch.counter', { count: run.shown });
-      view.runFrame = Core.raf.request(onFrame, token);
-    }
-
-    function endRun() {
-      const run = view.run;
-      if (!run) return;
-      view.result = analyzeTaps(run.taps, run.targets, matchMs);
-      stopRun();
-      renderWatch(view.result.status);
-    }
-
-    function startRun() {
-      renderWatch('running');
-      const first = Core.now() + startDelayMs;
-      const targets = Array.from({ length: CAL_TAP_COUNT }, (item, index) => first + index * intervalMs);
-      view.run = { targets, taps: [], shown: 0 };
-      view.runFrame = Core.raf.request(onFrame, token);
-      const wait = targets[targets.length - 1] + matchMs + CAL_END_MARGIN_MS - Core.now();
-      view.runTimer = Core.timers.setTimeout(endRun, wait, token);
-      if (typeof params.onRunStart === 'function') params.onRunStart(targets.slice());
-    }
-
-    function acceptWatch() {
-      view.measured.visualMs = view.result.medianMs;
-      view.values = calibrationFromMedians(view.measured, view.values);
-      goTo('speed');
-    }
-
-    // ---- pages
-    function renderListen() {
-      showPage(say('cal.listen.title'), say('cal.listen.body'), [el('div', { class: 'btn-row' }, [
-        stepButton('listen-start', 'cal.start', () => {}, 'primary', LATER_BUILD),
-        stepButton('listen-skip', 'cal.skip', () => goTo('watch'))])]);
-    }
-
-    function watchButtons(outcome) {
-      const again = () => stepButton('again', 'cal.again', startRun);
-      const back = () => stepButton('back', 'cal.back', () => goTo('listen'));
-      const skip = () => stepButton('skip', 'cal.skip', () => goTo('speed'));
-      if (outcome === 'running') return [];
-      if (outcome === 'ok') return [stepButton('next', 'cal.next', acceptWatch, 'primary'), again(), back()];
-      if (outcome === 'few') return [again(), skip(), back()];
-      if (outcome === 'uneven') return [again(), stepButton('anyway', 'cal.anyway', acceptWatch), back()];
-      return [stepButton('start', 'cal.start', startRun, 'primary'), skip(), back()];
-    }
-
-    function watchMessage(outcome) {
-      if (outcome === 'few') return say('S-CAL-01');
-      if (outcome === 'uneven') return say('S-CAL-02');
-      if (outcome === 'ok') return say('cal.result', { tap: signed(Math.round(view.result.medianMs)) });
-      return say('cal.watch.ready');
-    }
-
-    function renderWatch(outcome) {
-      disposePage();
-      view.page = 'watch';
-      view.pad = el('div', { id: 'cal-pad', class: 'cal-pad', role: 'button', tabindex: '0', owner: token,
-        'aria-label': say('cal.watch.pad'), on: { pointerdown: (evt) => addTap(evt.timeStamp) } });
-      view.status = paragraph(watchMessage(outcome), { id: 'cal-status', role: 'status' });
-      showPage(say('cal.watch.title'), say('cal.watch.body'), [view.pad, view.status,
-        el('div', { class: 'btn-row' }, watchButtons(outcome))]);
-    }
-
-    function buildPreview() {
-      const lanes = Array.from({ length: CAL_PREVIEW_LANES }, () => el('div', { class: 'cal-lane' }));
-      view.notes = Array.from({ length: CAL_PREVIEW_NOTES }, (item, index) => {
-        const node = el('span', { class: 'cal-note', 'aria-hidden': 'true' });
-        lanes[index % CAL_PREVIEW_LANES].appendChild(node);
-        return { node, timeMs: index * intervalMs };
-      });
-      return el('div', { id: 'cal-preview', class: 'cal-preview', 'aria-hidden': 'true' }, lanes);
-    }
-
-    // A note crosses the line when its sound is heard: the sound delay shifts the display (Part 5.12), the note
-    // speed sets how long it is visible before that.
-    function onPreviewFrame() {
-      const loopMs = CAL_PREVIEW_NOTES * intervalMs;
-      const { audioLatencyMs, visualLeadMs } = view.values;
-      view.notes.forEach((note) => {
-        const remaining = (((note.timeMs + audioLatencyMs - Core.now()) % loopMs) + loopMs) % loopMs;
-        const visible = remaining <= visualLeadMs;
-        note.node.hidden = !visible;
-        if (visible) note.node.style.top = (1 - remaining / visualLeadMs) * 100 + '%';
-      });
-      view.previewFrame = Core.raf.request(onPreviewFrame, token);
-    }
-
-    function renderSpeed() {
-      const change = (value) => { view.values.visualLeadMs = value; };
-      const speed = keepHandle(UI.Widgets.slider({ id: 'cal-speed', label: say('cal.noteSpeed'), min: 600, max: 3000,
-        step: CAL_SPEED_STEP_MS, value: view.values.visualLeadMs, format: noteSpeedFormat, onInput: change,
-        onChange: change }));
-      showPage(say('cal.speed.title'), say('cal.speed.body'), [buildPreview(), speed.root,
-        el('div', { class: 'btn-row' }, [stepButton('next', 'cal.next', () => goTo('summary'), 'primary'),
-          stepButton('back', 'cal.back', () => goTo('watch'))])]);
-      view.previewFrame = Core.raf.request(onPreviewFrame, token);
-    }
-
-    function refreshSummary() {
-      view.summaryLine.textContent = say('cal.summary.line', { sound: view.values.audioLatencyMs,
-        tap: signed(view.values.inputOffsetMs), speed: (1500 / view.values.visualLeadMs).toFixed(1) });
-    }
-
-    function offsetField(id, label, key) {
-      const limits = CAL_LIMITS[key];
-      return keepHandle(UI.Widgets.number({ id, label: say(label), min: limits[0], max: limits[1], step: 1,
-        unit: 'ms', value: view.values[key], onChange: (value) => { view.values[key] = value; refreshSummary(); } }));
-    }
-
-    function resetOffsets() {
-      view.values.inputOffsetMs = 0;
-      view.values.audioLatencyMs = 0;
-      goTo('summary');
-    }
-
-    function renderSummary() {
-      view.summaryLine = paragraph('', { id: 'cal-summary', role: 'status' });
-      showPage(say('cal.summary.title'), say('cal.summary.honest'), [view.summaryLine,
-        offsetField('cal-input-offset', 'cal.tapTiming', 'inputOffsetMs').root,
-        offsetField('cal-sound-delay', 'cal.soundDelay', 'audioLatencyMs').root,
-        el('div', { class: 'btn-row' }, [stepButton('save', 'cal.save', save, 'primary'),
-          stepButton('reset', 'cal.reset', resetOffsets), stepButton('back', 'cal.back', () => goTo('speed'))])]);
-      refreshSummary();
-    }
-
-    function save() {
-      const values = { 'calibration.inputOffsetMs': view.values.inputOffsetMs,
-        'calibration.audioLatencyMs': view.values.audioLatencyMs,
-        'calibration.visualLeadMs': view.values.visualLeadMs };
-      Settings.setMany(values, 'wizard');
-      view.finish('save');
-    }
-
-    const PAGES = { listen: renderListen, watch: renderWatch, speed: renderSpeed, summary: renderSummary };
-
-    // Escape ends a running step only; with no step running the dialog's own Escape closes it.
-    function onEscape(evt) {
-      if (evt.key !== 'Escape' || !view.run) return;
-      evt.preventDefault();
-      evt.stopImmediatePropagation();
-      renderWatch();
-    }
-
-    function bindInput() {
-      if (FLM.Input && typeof FLM.Input.bind === 'function') FLM.Input.bind({ owner: token, context: 'instrument' });
-      bus.on('input.event', onInputEvent, token);
-      Core.dom.on(window, 'keydown', onEscape, { capture: true }, token);
-    }
-
-    function release() {
-      stopRun();
-      Core.raf.cancel(view.previewFrame);
-      bus.removeOwner(token);
-      Core.dom.offOwner(token);
-      Core.timers.clearOwner(token);
-      Core.raf.cancelOwner(token);
-      if (FLM.Input && typeof FLM.Input.unbind === 'function') FLM.Input.unbind(token);
-    }
-
-    const shown = UI.dialog({ id: 'DLG-Calibration', title: say('cal.title'),
-      buttons: [{ id: 'cancel', label: say('dlg.cancel'), kind: 'secondary', isCancel: true }],
-      build(container, finish) {
-        view.host = container;
-        view.finish = finish;
-        bindInput();
-        renderListen();
-      } });
-    return shown.then((result) => {
-      release();
-      return result;
-    });
-  }
+  const analyzeTaps = (taps, targets, matchMs) => calibration().analyzeTaps(taps, targets, matchMs);
+  const calibrationFromMedians = (measured, current) => calibration().calibrationFromMedians(measured, current);
+  const openCalibration = (params) => calibration().openCalibration(params);
 
   // Dialogs of the list that later steps build; asking for one now is a clear error, never a silent no-op.
   const dialogBuilders = new Map([['DLG-AudioBlocked', openAudioBlocked], ['DLG-ResumeAudio', openResumeAudio],
