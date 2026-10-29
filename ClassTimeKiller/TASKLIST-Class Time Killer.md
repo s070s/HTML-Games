@@ -83,12 +83,15 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 3 - Weapons, equipment and abilities: access and distinct roster
 
-- [ ] P3-01 - DECIDE: weapon / equipment / ability access across rulesets. Current: each ruleset locks one weapon set of about 8-12 weapons (the "gating by themes"; the owner can use about 3 weapons at a time). Options to evaluate: loadout from the full set in any ruleset; wider sets plus unlocks; per-mode restriction only where the mode needs it.
+- [x] P3-01 - DECIDE: weapon / equipment / ability access across rulesets. Current: each ruleset locks one weapon set of about 8-12 weapons (the "gating by themes"; the owner can use about 3 weapons at a time). Options to evaluate: loadout from the full set in any ruleset; wider sets plus unlocks; per-mode restriction only where the mode needs it.
   Done when: Appendix C has the decision and the reason.
-- [ ] P3-02 - Audit the 46 weapons for reskins: compare class, damage, rate, range, projectile, fire modes, recoil, ammo. Mark each as distinct, near-duplicate (merge candidate) or redundant.
+  Status (2026-10-29): decided, Appendix C "P3-01": loadout from the full roster in every ruleset; rulesets keep their feel through movement, health, economy and meter; weapons restricted only where the mode is the restriction (Gun Game, One Shot, Rocket Pit, melee-only, heroes, puzzle tools).
+- [x] P3-02 - Audit the 46 weapons for reskins: compare class, damage, rate, range, projectile, fire modes, recoil, ammo. Mark each as distinct, near-duplicate (merge candidate) or redundant.
   Done when: Appendix C has the comparison table.
-- [ ] P3-03 - DECIDE: final weapon roster - which weapons merge, which are cut, which new ones fill missing roles. Each weapon gets one clear role and a unique mechanic (fire mode, projectile behaviour or alt fire).
+  Status (2026-10-29): Appendix C "P3-02" comparison table: 46 weapons marked distinct, near-duplicate or redundant.
+- [x] P3-03 - DECIDE: final weapon roster - which weapons merge, which are cut, which new ones fill missing roles. Each weapon gets one clear role and a unique mechanic (fire mode, projectile behaviour or alt fire).
   Done when: Appendix C has the final roster with role, benefits, drawbacks and uses per weapon, and no two weapons share the same profile.
+  Status (2026-10-29): decided, Appendix C "P3-03": 46 -> 38 weapons (8 merged into a stronger twin, old-id -> new-id map), Hush and Stakedriver alt reprofiled so no two share a profile.
 - [ ] P3-04 - Implement the roster from P3-03 (data rows, models, sounds, effects, bot use). Migrate saves, unlocks, cards and challenges that reference removed weapons.
   Done when: every weapon fires primary and alt correctly (P1-02 check repeated), and old saves load without errors.
 - [ ] P3-05 - Implement access from P3-01: loadout / set rules, menus, pickups, bots.
@@ -294,6 +297,250 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - Build OK (160 files, `ClassTimeKiller.html` 2178.8 KB). Self-test **6258 / 6258** passed, 0 skipped, 37 groups, 157 s (HEAD before this batch: 6089 / 6089 in 35 groups; +169 checks: `spectate` 118, `muzzle` 51; after the review fixes). Shipped file: `__CTK.log.errors().length` = 0.
 - Perf: `--scenes tdm,horde,royale,generated --presets potato,low --throttle 4 --seconds 8 --bench`, HEAD test build and the new one back to back, the machine shared with another agent. Back-to-back bench sim per step summed over the 8 cells: HEAD 8.51 ms, now 7.86 ms (-8 %); in-frame sim per step means summed: 17.41 -> 16.33; draw calls equal within 2 (25-43); render and HUD means equal or lower; boot at 4x 682 -> 688 ms, at 6x 992 -> 1052 ms (noise of that size is normal here). The `tdm` scene (16 bots shooting through the new muzzle code) moved -9 % and +45 % in the two presets' bench cells, with no pattern between runs. No regression beyond noise.
 - A trap found on the way (now in `docs/ARCHITECTURE.md`): the first version of the new code handed `Vec.set` / `Vec.copy` objects of other shapes (a record with extra fields, `Render.camera`); the shared helpers then stored polymorphically and the PvE laser tell (`Pve.drawEnemy`, 14i `laser.drawTell`) allocated a number per frame, failing the `pve` allocation probe only in a full run. The new files write such fields directly.
+
+### P3-02 - Weapon reskin audit (2026-10-29)
+
+- Source: the rows of `src/03c-data-weapons.js` (read by a script, not estimated). Body TTK = time from the first shot to the killing shot on a 100 HP body, every shot hits, no armor, no falloff (`(shots - 1) / rate`). Range = falloff start-end where the row has one, else the `botPref` range. Ammo = mag / reserve (+ alt pool). Sets = weapon sets that hold the weapon (fullSet left out).
+- Verdicts: **distinct**; **near-duplicate** (merge candidate, the twin named); **redundant** (its role is covered by others).
+
+| Code | Weapon | Class | Primary (type, trigger, damage, rate/s) | Body TTK | Range m | Projectile | Alt | Recoil | Ammo | Sets | Verdict and reason |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| W01 | Breaker Maul | melee | melee auto 50, 2.5 | 0.40 | 1.6 | - | charge 1.2 s 30-120, self-launch 4.5 m | - | - | arena, ravager | distinct: only melee with a launch |
+| W02 | Edge Tanto | melee | melee auto 35, 2.5 | 0.80 | 1.2 | - | stab 65, 150 from behind | - | - | tactical, military, sandbox, loot | distinct: silent (noise 0), backstab |
+| W03 | Bulwark Shield-Saw | melee | melee 40 + stun 0.3 s, 1.5 | 1.33 | 1.8 | - | block 150 pool 120 deg, 0.2 s parry | - | - | knight | distinct: only block / parry |
+| W04 | Warden Pistol | sidearm | hitscan semi 25, 4 | 0.75 | 20-40 | - | 3-round burst 25, 1.5 bursts/s | pistol | 12/48 | arena, tactical, military, loot | distinct: free default sidearm, dual wield |
+| W05 | Verdict Magnum | sidearm | hitscan semi 55, 2.2, pen med | 0.45 | 25-50 | - | zoom 2x | pistolHeavy | 6/24 | tactical, military, sandbox, loot | distinct: 2-shot hand cannon |
+| W06 | Hush Pistol | sidearm | hitscan semi 22, 5 | 0.80 | 15-30 | - | sleep dart 8 s | pistol | 10/40+6 | tactical, loot | near-duplicate of W04: primary within 12 % damage, same recoil row, TTK 0.80 vs 0.75; only noise 6 and the dart differ |
+| W07 | Sparklock Pistol | sidearm | lock-on auto 12, 8, 3 targets, 12 deg, 20 m | 1.00 | 20 | - | hip fire 12, 8 | energy | 24/72 | exotic | distinct: only lock-on gun |
+| W08 | Twin Stinger | sidearm | hitscan auto 14, 15 | 0.47 | 8-20 | - | flare: reveal r6 5 s | smg | 20/100+4 | none | redundant: an SMG in the sidearm slot (210 dps against W09 234, W11 224, same smg recoil row); the flare repeats G19 / A13 reveals; in no set |
+| W09 | Wasp SMG | smg | hitscan auto 18, 13 | 0.38 | 10-25 | - | zoom 1.5x | smg | 30/120 | tactical, military, loot | near-duplicate of W11: same recoil row and falloff, TTK 0.38 vs 0.43 |
+| W10 | Hornet Carbine | smg | hitscan auto 15, 12 | 0.50 | 12-28 | - | contact grenade 80 r3.5, arm 6 m | smg | 45/180+3 | military, loot | distinct by its alt (primary close to W09 / W11) |
+| W11 | Riptide PDW | smg | hitscan auto 16, 14 | 0.43 | 10-25 | - | toggle: -15 % damage, hits slow 1 s | smg | 50/150 | tactical, military, loot | near-duplicate of W09; the toggle is a small modifier |
+| W12 | Needlethorn | smg | projectile auto 9, 10, homing 35 deg/s; 9 stuck = 40 r2 | 1.10 | 12-28 | P09 needle | 5-needle volley | - | 30/90 | sandbox, exotic | distinct: homing + stick burst |
+| W13 | Vanguard Rifle | rifle | hitscan auto 34, 10, pen med | 0.20 | 35-60 | - | zoom 1.3x | rifleHeavy | 25/75 | tactical, military, loot | near-duplicate of W14: both full-auto rifles, 3 vs 4 shots, same alt |
+| W14 | Tempest Rifle | rifle | hitscan auto 30, 11, pen med | 0.27 | 30-50 | - | zoom 1.3x | rifle | 30/90 | tactical, military, loot | near-duplicate of W13 (its data comment calls them duel rivals) |
+| W15 | Ratchet Burst | rifle | hitscan burst 3 x 32, 3 bursts/s | ~0.45 (2 bursts) | no falloff | - | zoom 1.8x | burst | 24/96 | military, sandbox, loot | distinct: only burst rifle |
+| W16 | Longshot Scout | rifle | hitscan semi 50, 3.5, pen med | 0.29 | 15-70 | - | zoom 2.5x | marksman | 15/60 | military, sandbox, loot | near-duplicate of W25: semi 2-shot hitscan, same recoil row, 3.5 vs 3 /s (data comment: "rival of the Kestrel") |
+| W17 | Coilcaster | energy | hitscan semi 45, 1.4 | 1.43 | 8-60 | - | orb 55 r1.5; primary on orb = 200 r4 combo | energy | 20/50 | sandbox | distinct: combo |
+| W18 | Pulse Carbine | rifle | hitscan auto 20, 10 | 0.40 | 5-40 | - | dark orb 100, bounces, fodder kill | rifle | 30/60+2 | sandbox | near-duplicate: primary a weaker W13 / W10 (200 dps), alt a 2-round special like W10's grenade |
+| W19 | Scattergun | shotgun | hitscan semi 10 x 12, 1.1 | 1 shot <= 8 m | 8-20 | - | slug 55, 1.2x | shotgun | 6/30 | arena, tactical, military, ravager, knight, loot | distinct: pump + slug |
+| W20 | Hookjaw | shotgun | hitscan semi 8 x 20 (2 shells), 0.9 | 1 shot <= 8 m | 8-18 | - | hook pull <= 25 m, cooldown 6 s | shotgun | 2/24 | ravager, knight | distinct: gap closer |
+| W21 | Shardcaster | shotgun | projectile semi 12 x 9 shards, 1.2, bounce 2 | 1 shot close | spread | P05 shard | shell 100 + 6 shards, arm 6 m | shotgun | 10/40 | arena | distinct: bouncing projectiles |
+| W22 | Frostbore | shotgun | hitscan semi 13 x 8, 1.2 | 1 shot <= 8 m | 8-18 | - | freeze blast: 3 chill stacks | shotgun | 8/32+20 | ravager | near-duplicate of W19: 104 vs 120 point blank, same rate band and falloff; freeze also on G08 and A31 |
+| W23 | Lancet Rail | marksman | hitscan semi 100, 0.67, pierce 4, no move spread | 1 shot | no falloff | - | zoom 2.5x | marksman | 10/30 | arena, sandbox | distinct from W24 by exact hip fire and pierce (closest pair kept: both one-shot at 0.67/s) |
+| W24 | Heron Sniper | sniper | hitscan semi 115, 0.67, head x2.5, 8 deg unscoped | 1 shot scoped | 25-140 | - | zoom 4x / 8x, hold breath 4 s | sniper | 5/20 | tactical, military, sandbox, loot | distinct: only scoped sniper |
+| W25 | Kestrel DMR | marksman | hitscan semi 60, 3, pen med | 0.33 | 10-80 | - | zoom 3x | marksman | 10/40 | tactical, military, loot | near-duplicate of W16 |
+| W26 | Stakedriver | marksman | projectile semi stake 90, 1.2, pins; burn past 25 m | 0.83 | 10-60 | P07 stake | lob grenade 80 r4 | marksman | 12/36+6 | ravager, knight | distinct primary (pin); its alt repeats W10's grenade role |
+| W27 | Talon Bow | marksman | projectile charge 0.7 s, 50-110, silent | 1 full draw | drop | P08 arrow | explosive arrow 80 r2.5 | - | 1/18+6 | exotic | distinct: draw, silent, drop |
+| W28 | Hailstorm | heavy | hitscan auto 15, 18 after 0.2 s spin-up | 0.33 + spin | 3-35 | - | toggle: root, rate x1.5, 30 % front resist | minigun | 150/300 | military, ravager | near-duplicate of W29: both heavy autos (270 / 225 dps) whose alt plants the user |
+| W29 | Anvil LMG | heavy | hitscan auto 25, 9, pen high | 0.33 | 5-50 | - | toggle: mount on ledge, recoil x0.3 | lmg | 100/200 | tactical, military, loot | near-duplicate of W28 |
+| W30 | Linker | energy | projectile auto plasma 22, 6 | 0.67 | 3-30 | P04 plasma | beam 100 dps 30 m, ally link, repair 60/s | energy | 70/140 | arena | distinct by its alt (only gun that heals devices); primary close to W36 |
+| W31 | Ramjet Launcher | explosive | projectile semi rocket 90 + 80 r3.5, 1 | 2 hits, 1.0 | 4-40 | P01 rocket | charge 1 s: up to 3 rockets 70 + 70 | launcher | 4/20 | arena, sandbox, ravager | near-duplicate of W33 (W33's 2-rocket primary = W31's charged volley) |
+| W32 | Pitcher Launcher | explosive | projectile semi grenade 100 r4.5, 1.5, fuse 2.5 s | 1 hit | 5-30 | P02 grenade | sticky mines 100 r4, max 4, hold detonates | launcher | 6/24 | arena, sandbox | distinct: bounce + remote mines |
+| W33 | Kingfisher Pod | explosive | projectile semi 2 rockets 60 + 20 r2, 1.2 | 1 volley | 10-70 | P01 rocket | lock 1.2 s, 4 homing missiles 35 | launcher | 8/24 | military | near-duplicate of W31; its lock-on alt is unique among launchers |
+| W34 | Gloop Gun | explosive | projectile auto goo 20 + puddle 5/tick 3 s, 4 | 1.00 | 2-18 | P10 goo | charge 2 s glob 20-150, splits in 3 | - | 25/75 | knight, exotic | distinct: puddle zoning |
+| W35 | Kindler | heavy | cone 9 m 30 deg, 10 x 10/s + burn 4 s | 0.90 | 9 | - | napalm puddle 6 s / airblast | - | 100/200 | sandbox | distinct: only flamethrower |
+| W36 | Ember Repeater | energy | projectile auto plasma 16 + 10 r0.6, 10, heat | ~0.6 | 3-30 | P04 plasma | heat blast cone 6 m, up to 120 | energy | 50/200 | arena, ravager, knight | distinct by its alt (heat); primary close to W30 |
+| W37 | Stormlash | energy | beam 8 x 20/s (160 dps) | 0.60 | 24 cap | - | chain arc 30 to 3 targets r6 | - | 100/200 | arena, exotic | distinct: only primary beam |
+| W38 | Starthrower | energy | projectile auto disc 18, 8, ricochet 2 | 0.63 | 3-30 | P11 disc | explosive disc 50 r1.8 | energy | 50/150 | knight, exotic | distinct: bank shots |
+| W39 | Accelerator | energy | hitscan charge 40 / 90 / 160 (2 / 4 / 8 cells) | 1.5 s charge | 5-50 | - | 360 deg shockwave 60 r6 + knockback | energy | 20/60 | ravager, exotic | distinct: charge levels |
+| W40 | Fusion Mortar | explosive | rolling orb 300 r6, fuse 2 s, owner-safe | 1 hit | 8-30 | P12 fusion | detonate early | - | 1/1 | knight | distinct: rolling room wipe |
+| W41 | Graviton Lifter | tool | punt a prop (damage from mass x speed) | - | 6 | - | pull / hold a prop | - | - | none | distinct: tool (A35, puzzles) |
+| W42 | Twin-Gate Projector | tool | gate A | - | 60 | - | gate B | - | - | none | distinct: tool (A36, Test Chambers) |
+| W43 | Skull Auger | exotic | homing drill 90, 0.8, fodder kill | 2 hits, 1.25 | 3-20 | P17 drill | detonate | - | 3/9 | exotic | distinct |
+| W44 | Razorwind | exotic | returning blade 45, 1.5, no ammo | 1.33 | 2-18 | P18 blade | lodged blade laser 15/tick | - | none needed | ravager, exotic | distinct |
+| W45 | Daybreak Projector | power | sun orb 150 + 150 r6 + arc aura, 0.5 | 1 hit | 6-60 | P20 sunorb | charge 2 s x1.5 | - | 4 | arena, ravager | distinct: map power weapon |
+| W46 | Halcyon Warhead | power | warhead 300 r12, 0.3 | 1 hit | 20-120 | P13 warhead | guided warhead | - | 1 | none | distinct: map power weapon, guided |
+
+- Result: **32 distinct, 13 near-duplicate (7 pairs: W04/W06, W09/W11, W13/W14, W16/W25, W19/W22, W28/W29, W31/W33, plus W18), 1 redundant (W08).**
+- Also found: 9 weapons have only a zoom as their alt (W05, W09, W13, W14, W15, W16, W23, W24, W25), and 5 alts are an explosive lob (W10, W21, W26, W27, W38). Twin Stinger and Halcyon sit in no themed set, so today they appear only through the full arsenal or a custom list.
+
+### P3-01 - Weapon, equipment and ability access (decided 2026-10-29 by the coordinator; the owner can change any row)
+
+- **Fact**: no weapon, gadget or ability is locked by progression (the unlock catalogue holds only colours, titles, finishes, challenge-room tiers and cards: `src/03p-data-progress.js`, PRG-011). What limits a player is the ruleset: each RS row locks one `weaponSet` of 8-16 guns (`src/03e-data-rules.js`), Arena spawns with 2 and picks up the rest, classes may only use Military-set guns (`CLASS_WEAPON_SET`, 13d), heroes are fixed, and abilities exist only in Weave Suit, Frame Runner, Hero Squad, the class field upgrade (Echo Pulse) and mutator X46.
+
+| Option | For | Against |
+|---|---|---|
+| A. Loadout from the full roster in every ruleset; restrictions only where a mode needs them | ends the "gating by themes" the owner named; one roster to learn; rulesets keep their feel through movement, health, economy, precision and meter (as Halo / UT custom games, CoD create-a-class, Apex / Fortnite full loot pools: `research/*.md`) | weapon x ruleset balance space grows (P8-03 pairwise plan covers it); themed sets lose their default role |
+| B. Wider sets plus unlocks | keeps themed sets | adds the acquisition gating the owner complained about; stat-gated unlocks break PRG-011 and VIS-006 (no grind walls) |
+| C. Keep sets, restrict per mode only | smallest change | every ruleset still offers 8-16 guns by default, so the complaint stays |
+
+- **Decision: A, with C's rule for exceptions.**
+  - **Pool**: every combat weapon of the P3-03 roster (36), of which 34 can be picked for a loadout: power weapons W45 / W46 only on power pads; tools W41 / W42 only where their mode or ability gives them. Every RS row's `weaponSet` becomes `fullSet` (shown as "Full roster"). The themed sets (Arena, Tactical, Military, Sandbox, Ravager, Knight, Loot, Exotic) stay as presets of X10 Weapon Set in Advanced / Custom (P4), not as ruleset locks.
+  - **Loadout** (per player, saved; edited before the match and on the death screen, applied at the next spawn): melee, primary (any combat gun that is not a sidearm), secondary (a sidearm), lethal, tactical and device (P3-06 gadget slots), one ability and an ultimate where the ruleset allows abilities.
+  - **How each economy hands it out**: pickups (RS01, RS02, RS06, RS07, RS08, RS11): spawn with the full loadout; weapon pads keep the map's own weapon and add to an unlimited arsenal (carry 0). Round buy (RS03): spawn with melee and secondary; the buy menu lists every combat weapon (P3-04 gives the 20 unpriced weapons a price); the loadout primary is the one-tap "quick buy". Classes (RS04, RS05, RS12): class primary and secondary from the full roster (`CLASS_WEAPON_SET` = full roster, `CLASS_SET_SWAPS` removed). Loot (RS10): spawn with melee only (royale identity), the loot pool is the full roster with rarity. Hero kits (RS09): the hero's weapons stay fixed (the hero is the loadout).
+  - **Abilities by ruleset** (new ruleset field, P3-05): loadout (ability + ultimate) in RS04, RS05, RS06, RS07, RS08, RS10, RS12; kit in RS09 (heroes) and RS11 (the A01-A04 weaves are the Weave Suit itself); none in RS01, RS02, RS03 (pure gunplay identity; RS02 keeps its adrenaline combos; X46 Powers for All switches the loadout on).
+  - **Mode restrictions kept** (the mode's rules are the weapon): M16 Gun Game ladder; X08 One Shot (W23) and X09 Rocket Pit (W31); X10 / custom weapon lists; melee-only party rules (13f attack lock); modes that arm everyone themselves (`MODE_ARMING_PARAMS`: ladder, rotateEvery); Hero Squad; Test Chambers and puzzle maps (tools). A restricted weapon stays visible in the loadout screen with the reason ("Gun Game sets the weapons").
+  - **Pickups**: `Items.spotWeapon` swaps a pad's gun only when a restriction (match list) is active; otherwise the map's gun stays. Removed ids on maps follow the P3-03 migration map.
+  - **Bots**: each bot builds a loadout from the full roster: its profile `favorite` when valid, else a gun whose `botPref` range fits the map size (drawn from `Rng.rules`, so seeded matches repeat), a sidearm, gadgets and an ability by their `botUse` rules; pad pickup behaviour unchanged.
+- **Reason**: the owner's complaint is the theme gating and about 3 usable weapons; A removes both without any grind and keeps every ruleset recognisable. Costs: a loadout screen (menus P4, layout P5), bot loadout choice and buy prices (P3-05 / P3-04), help text (18n "Weapons: <set>"), wider balance testing (P8).
+
+### P3-03 - Final weapon roster (decided 2026-10-29 by the coordinator; the owner can change any row)
+
+- **Merges (8 ids removed; the kept id is the stronger identity)**:
+  1. W08 Twin Stinger -> W09 Wasp (an SMG in the sidearm slot; reveal stays on A13).
+  2. W11 Riptide -> W09 Wasp: Wasp keeps its 18 x 13 primary and full move speed and takes Riptide's hollow-point toggle as its alt (replaces the plain zoom).
+  3. W14 Tempest -> W13 Vanguard (the 3-shot auto rifle).
+  4. W16 Longshot -> W25 Kestrel (headshot one-shot DMR); Kestrel takes Longshot's 15-round magazine.
+  5. W18 Pulse Carbine -> W10 Hornet (auto gun with a scarce special alt; the grenade stays; fodder kill stays on W43).
+  6. W22 Frostbore -> W19 Scattergun (freeze stays on G08 Rime Bomb).
+  7. W29 Anvil -> W28 Hailstorm: Hailstorm keeps spin-up and the turret root, gains Anvil's high penetration.
+  8. W33 Kingfisher -> W31 Ramjet: Ramjet's alt becomes the lock-on homing volley (1.2 s lock, 4 missiles); the charged volley it replaces duplicated Kingfisher's primary.
+- **Kept but re-profiled** so no two share a profile (numbers are proposals for P8): W06 Hush primary becomes a subsonic precision pistol (about 40 damage, 2.5/s, head x2.5, no tracer) so it no longer shadows W04; W26 Stakedriver alt becomes an incendiary stake (burns on hit at any range, 6 alt rounds) instead of a second lob grenade.
+- **Cut without a merge**: none. **New weapons**: none. Role check after the merges: close (3 melee, 3 shotguns, 2 SMG-class, flamethrower), mid (assault, burst, carbine, homing, beam, plasma, discs, support), long (DMR, rail, sniper, crossbow, bow, combo rifle, charge cannon), area (rocket, grenade, goo, mortar), special (lock-on pistol, drill, blade, 2 power, 2 tools): no role is empty, so the rule "add only for missing roles" adds nothing.
+- **Final count: 38 weapons** (36 combat + 2 tools). Kept ids and codes do not change; removed codes are retired, never reused (spec "IDs are stable and never reused"); a new weapon would start at W47.
+
+| Code | Name | Class | Role | Unique mechanic | Benefits | Drawbacks | Uses |
+|---|---|---|---|---|---|---|---|
+| W01 | Breaker Maul | melee | mobile finisher | charged slam launches the user 4.5 m | 2-hit kill, mobility, no ammo | 1.6 m reach, launch self damage | finish weakened foes, reach ledges |
+| W02 | Edge Tanto | melee | stealth knife | backstab 150, silent | silent, full speed | 1.2 m reach | flanks, stealth levels |
+| W03 | Bulwark Shield-Saw | melee | defensive melee | block + 0.2 s parry reflects projectiles | stops frontal fire, stuns | move x0.9, slow swing | hold doors, counter projectiles |
+| W04 | Warden Pistol | sidearm | default sidearm | semi or 3-round burst; dual on a 2nd pickup | accurate, plenty of ammo | 4-shot kill | backup, Last Stand |
+| W05 | Verdict Magnum | sidearm | hand cannon | 55 damage, 2-shot, penetration | burst damage at range | 6 rounds, heavy kick | pick-offs, finishing |
+| W06 | Hush Pistol | sidearm | stealth pistol | silent shots + non-lethal sleep dart | unheard, disables a guard 8 s | low rate, 6 darts | Silent Contract, ambushes |
+| W07 | Sparklock Pistol | sidearm | assisted aim | locks up to 3 targets | hits without precise aim | 0.4 s lock, 20 m, weak vs cover | fodder crowds, touch players |
+| W09 | Wasp SMG | smg | close-range rusher | full move speed + hollow-point toggle (slows targets) | fastest close TTK (0.38 s) | falloff from 10 m | rushing, room clearing |
+| W10 | Hornet Carbine | smg | all-round carbine | underbarrel contact grenade (3) | 45 rounds, mid reach, flushes cover | lower dps, few grenades | default primary |
+| W12 | Needlethorn | smg | forgiving homing SMG | homing needles, 9 stuck burst | no precise aim needed | slow needles, 1.1 s TTK | strafing targets, touch |
+| W13 | Vanguard Rifle | rifle | assault rifle | 3-shot auto, zigzag spray | best mid-range TTK (0.20 s) | heaviest rifle recoil | mid / long lanes |
+| W15 | Ratchet Burst | rifle | burst rifle | 3-round burst per pull | accurate, no falloff | missed burst wastes time | mid-range duels |
+| W17 | Coilcaster | energy | combo skill rifle | shoot own orb for a 200 r4 combo | huge combo damage, long range | 1.4/s, slow orb | arena skill play, chokes |
+| W19 | Scattergun | shotgun | pump shotgun | spread or slug per trigger | one-shot <= 8 m, slug for range | slow pump, shell reload | corners |
+| W20 | Hookjaw | shotgun | gap closer | hook pulls the user to an enemy (25 m) | 160 point blank | 2 shells, cooldown 6 s | aggressive engage |
+| W21 | Shardcaster | shotgun | ricochet flak | bouncing shards + splitting shell | hits round corners | slow projectiles | rooms, corridors |
+| W23 | Lancet Rail | marksman | hip-fire rail | exact hip fire, pierces 4 | one-shot body without a scope | 0.67/s, trail shows the shooter | long lanes, lined-up foes |
+| W24 | Heron Sniper | sniper | scoped sniper | 4x / 8x scope, hold breath | longest range, one-shot | 8 deg hip spread, slow scoped | overwatch, large maps |
+| W25 | Kestrel DMR | marksman | marksman rifle | head one-shot (60 x 2), 2-shot body | fast follow-ups | needs precision | mid-long picks |
+| W26 | Stakedriver | marksman | pinning crossbow | stake pins to walls, burns | high projectile damage | 60 m/s travel, 1.2/s | punish near walls |
+| W27 | Talon Bow | marksman | silent bow | draw 50-110, drop | silent kills, underwater | draw time, 1-arrow mag | stealth, long range |
+| W28 | Hailstorm | heavy | suppression | spin-up; root as turret (x1.5 rate, front resist) | 270 dps, 150 mag | move x0.75, spin-up | hold a lane, PvE waves |
+| W30 | Linker | energy | team support | ally link beam, repairs devices 60/s | only gun that heals friendly devices | lower solo dps | team modes, core defence |
+| W31 | Ramjet Launcher | explosive | rocket launcher | rocket jump; lock-on homing alt | splash, mobility, anti-heavy | self damage, 4 mag | arena, groups, heavies |
+| W32 | Pitcher Launcher | explosive | grenade launcher | bouncing grenades + remote mines | indirect fire, traps | lob, fuse | chokes, objectives |
+| W34 | Gloop Gun | explosive | area denial | goo puddles burn 3 s | zones floors | short arc, low direct damage | chokes, flag rooms |
+| W35 | Kindler | heavy | flamethrower | 9 m cone + burn; airblast deflects | hits everything in the cone | 9 m range | close quarters, PvE crowds |
+| W36 | Ember Repeater | energy | plasma pressure | stored heat released as a cone blast | high dps, splash | projectile travel | mid-close pressure |
+| W37 | Stormlash | energy | tracking beam | continuous beam + chain arc | rewards tracking | 24 m cap | close-mid tracking |
+| W38 | Starthrower | energy | ricochet discs | discs bounce twice | bank shots round cover | predictable travel | corridors |
+| W39 | Accelerator | energy | charge cannon | 3 charge levels; 360 deg shockwave | flexible burst, get-off-me ring | charge time | duel opener, crowds |
+| W40 | Fusion Mortar | explosive | room wipe | rolling orb 300 r6, owner-safe | clears a room | 1 round, slow | objectives, stairwells |
+| W43 | Skull Auger | exotic | sure kill | drill seeks the head, detonate | guaranteed damage, fodder kill | 3 / 9 ammo, slow | PvE elites, campers |
+| W44 | Razorwind | exotic | ammo-free blade | returning blade; lodged laser tripwire | no ammo, trap lines | short range, one blade | PvE, traps |
+| W45 | Daybreak Projector | power | map power weapon | slow orb with arc aura | room wipe | one per map | power pad fights |
+| W46 | Halcyon Warhead | power | map super weapon | camera-guided warhead r12 | area denial | user stands still | power pad fights |
+| W41 | Graviton Lifter | tool | physics tool | punt / hold props | props as ammo and shield | needs props | puzzles, A35 |
+| W42 | Twin-Gate Projector | tool | portal tool | two linked gates | puzzles | no damage | Test Chambers, A36 |
+
+- **No shared profile**: within each class the pair that was closest now differs in trigger or mechanic: W04 semi / burst vs W06 silent precision + dart; W09 hitscan rush vs W10 grenade carbine vs W12 homing; W13 auto vs W15 burst; W23 hip-fire pierce vs W24 scoped vs W25 semi DMR; W19 pump vs W20 hook vs W21 ricochet; W28 minigun vs W35 cone; W30 support beam vs W36 heat vs W37 beam vs W38 discs; W31 rocket vs W32 grenade vs W34 goo vs W40 rolling orb.
+- **Migration map (P3-04)**:
+
+| Removed | New | Removed | New |
+|---|---|---|---|
+| W08 `twinsting` | W09 `wasp` | W18 `pulsecarbine` | W10 `hornet` |
+| W11 `riptide` | W09 `wasp` | W22 `frostbore` | W19 `scattergun` |
+| W14 `tempest` | W13 `vanguard` | W29 `anvil` | W28 `hailstorm` |
+| W16 `longshot` | W25 `kestrel` | W33 `kingfisher` | W31 `ramjet` |
+
+  - Saves: per-weapon stats `progress.stats.weapons[key]` (kills and headshots added into the new key; a mastery tier already reached is never lost), per-weapon crosshair overrides (moved when the new key has none), custom classes (primary / secondary), custom match `weaponList` (keys or codes: map, then remove duplicates), saved editor maps (pad item keys).
+  - Data: preset classes (Assault tempest -> vanguard, Rifleman vanguard -> ratchet so the two stay different, Marksman longshot -> kestrel, Support anvil -> hailstorm); heroes (H03 Quill tempest -> vanguard, H08 Tamsin longshot -> kestrel); bot B16 Okoro favourite tempest -> vanguard; `GUNGAME_LADDER` (12 steps: vanguard, ratchet, wasp, hornet, needlethorn, scattergun, hookjaw, shardcaster, kestrel, lancet, heron, maul); `ISLE_LOOT` (16e) tempest -> vanguard; map item keys (16a) and pads in 16b-16e; themed set presets; weapon models, sounds and muzzles of removed ids.
+  - Cards, challenge rooms, medals, ladder, operations: none names a removed weapon (medal Precise names W23, X08 W23, X09 W31, all kept): no change.
+  - Tests and spec: the count checks of 46 (`20b-test-weapons`, `-muzzle`, `-render`) and VIS-004 ("at least 46 weapons, 24 gadgets, 40 abilities") change to the decided counts.
+
+### P3-06 - Equipment and ability roster (decided 2026-10-29 by the coordinator; the owner can change any row)
+
+- **Real counts**: gadgets file 31 rows = 24 gadgets (G01-G24) + 7 gadget kits; 14 gadgets are handed out by a kit, class, buy list or hero (G01-G04, G06, G08-G10, G13, G15, G19, G22-G24), 10 by nothing (G05, G07, G11, G12, G14, G16-G18, G20, G21). Items file 37 rows = 17 pickups (I01-I17) + 20 powerups (PU01-PU20). Abilities file 59 rows = 47 abilities (A01-A40 + AX1-AX7) + 8 heroes + 4 ability kits; every one of the 47 is reached by some kit, hero, meter or mutator.
+- **Rule**: a thing thrown or placed is a gadget, a power of the body or suit is an ability; where both catalogues hold the same effect, the one already in use keeps it.
+
+**Gadgets** (lethal = thrown damage, tactical = thrown utility, device = placed / deployed; the P3-01 loadout slots)
+
+| Code | Name | Effect (data) | Verdict | Slot and role (kept rows) |
+|---|---|---|---|---|
+| G01 | Frag Charge | 100 r5, cook 2.5 s | distinct | lethal: area kill |
+| G02 | Veil Canister | smoke sphere r5 18 s | distinct (A17 is a wall) | tactical: block sight |
+| G03 | Glare Shell | blind 3.5 s r20 | distinct | tactical: blind before a push |
+| G04 | Cinder Jar | fire area r3 7 s, 40 HP/s | distinct | lethal: deny an area with burn |
+| G05 | Mimic Shell | fake weapon sound 15 s | near-duplicate of A33 Holo Double -> merged into A33 (the double also plays the owner's weapon sound) | - |
+| G06 | Leech Charge | sticks to actors 110 r3.5 | distinct | lethal: sure kill on a target |
+| G07 | Kick Charge | knockback 18 m/s r4, self-launch | distinct (A20 pushes from the user, no launch) | tactical: displace foes, launch self |
+| G08 | Rime Bomb | freeze 3 s r4 | distinct (now the only freeze) | tactical: freeze, then shatter |
+| G09 | Sink Charge | pull 14 r6 + 60 | distinct | tactical: pull a group together |
+| G10 | Tripjaw Mine | directional proximity 150, crouch-safe | distinct | device: guard a flank |
+| G11 | Burr Mine | sticky proximity 100 r3 | near-duplicate of G10 -> merged into G10 | - |
+| G12 | Dome Projector | dome blocks projectiles 12 s | near-duplicate of A26 Aegis Dome -> cut (A26 keeps it) | - |
+| G13 | Barrier Deploy | 300 HP cover 30 s | distinct | device: instant cover |
+| G14 | Lift Pad | launch 12 m, 20 s | near-duplicate of A10 Updraft -> cut | - |
+| G15 | Picket Turret | turret 12 x 5/s, 25 m | distinct | device: automated guard |
+| G16 | Mend Field | heal r4 15/s 10 s | near-duplicate of A25 Mender Drone -> cut | - |
+| G17 | Sap Field | drains shields / energy r5 | near-duplicate of G20 -> merged into G20 (Null Pulse also drains energy) | - |
+| G18 | Static Jammer | scrambles radar r20 30 s | distinct | device: counter recon |
+| G19 | Echo Dart | 3 reveal pulses r12 | near-duplicate of A13 Echo Pulse (same 3-pulse reveal) -> merged into A13 | - |
+| G20 | Null Pulse | disables devices, abilities, regen 4 s r6 | distinct | tactical: shut down abilities |
+| G21 | Scuttler | 2 seeking drones 80 | distinct | device: hunt a target out of cover |
+| G22 | Snatcher | stops 3 projectiles r6 | distinct | device: anti-explosive |
+| G23 | Supply Crate | team ammo r3 | distinct | device: team ammo |
+| G24 | Rally Beacon | team spawn point | distinct | device: team respawn (1 per team) |
+
+- Final **17 gadgets** (3 lethal, 6 tactical, 8 devices); 7 removed. Migration: `decoy` -> A33, `prox` -> `claymore`, `bubble` -> A26, `liftpad` -> A10, `regen` -> A25, `drain` -> `emp`, `dart` -> A13 (H08 Tamsin's gadget slot gets G20 Null Pulse). No save holds any of the 7 today (custom class slots accept only the preset values frag, sticky, claymore, flash, smoke, cryo); the map is for data rows and future loadouts.
+
+**Items** (pickups I01-I17, powerups PU01-PU20)
+
+| Code | Name | Effect (data) | Verdict |
+|---|---|---|---|
+| I01 / I05 | Health Vial / Armor Shard | +5, to 200 | distinct: trickle route rewards |
+| I02 / I03 | Health Pack / Health Crate | +25 / +50, to 100 | size steps of one pickup (kept: map placement tiers, not a reskin of a mechanic) |
+| I04 | Mega Cell | +100 health to 200 | distinct top item; absorbs PU07 |
+| I06 / I07 | Light Plate / Heavy Plate | +50 / +100 armor | size steps; I07 is a top item and absorbs PU08 |
+| I08 / I09 | Ammo Box / Ammo Cache | held weapon type / all weapons 50 % | distinct |
+| I10 | Weapon Pad | weapon spot rules | distinct (system row) |
+| I11 / I12 | Helmet / Vest | bought protection | distinct |
+| I13-I17 | Patch, Med Kit, Cell, Battery, Fizz Can | loot heals / shields / overflow, fast-small vs slow-full | distinct (speed vs amount trade) |
+| PU01 | Fury Core | damage x3 30 s | distinct |
+| PU02 | Warding Shell | damage taken x0.5, splash immune 30 s | distinct (nearest PU10, longer and weaker) |
+| PU03 | Quickening | speed and rate x1.3 | distinct; absorbs PU16 |
+| PU04 | Ghostveil | invisible | distinct |
+| PU05 | Renewal | regen | distinct |
+| PU06 | Skyward | flight | distinct |
+| PU07 | Surplus Orb | +100 decaying shield over max | near-duplicate of I04 (+100 over max) -> merged into I04 (the surplus pool stays as A40 Rally Cry's effect) |
+| PU08 | Aegis Belt | +100 absorbing armor to 200 | near-duplicate of I07 -> merged into I07 |
+| PU09 | Berserk Fist | melee x4, heal to 100 | distinct |
+| PU10 | Invulnerability Sigil | invulnerable 10 s | distinct |
+| PU11 | Bottomless | free ammo 30 s | distinct; absorbs PU17 |
+| PU12 | Vampire Fang | lifesteal 0.3 | distinct |
+| PU13 | Seer Orb | reveal 15 s | distinct |
+| PU14 | Spring Boots | 3 double-height jumps | distinct |
+| PU15 | Guardian Rune | pools x2, speed x0.9, until death | distinct (tank rune) |
+| PU16 | Scout Rune | speed 1.25, rate 1.2, no armor, until death | near-duplicate of PU03 (same two mods) -> merged into PU03 |
+| PU17 | Ammo Rune | ammo regen until death | near-duplicate of PU11 -> merged into PU11 |
+| PU18 / PU19 / PU20 | Soul Shard / Bearer Flame / Vital Shard | PvE souls / Flame Bearer object / campaign shard | distinct (mode resources) |
+
+- Final **33 items** (17 pickups + 16 powerups); 4 removed. Migration (map item keys, 16a `itemKeys.power`, map files, saved editor maps): `surplus` -> `megacell`, `aegisbelt` -> `heavyplate`, `scoutrune` -> `quickening`, `ammorune` -> `bottomless` (the two runes are placed on no map today).
+
+**Abilities** (47 rows; heroes and kits are loadouts, not abilities)
+
+| Codes | Rows | Verdict |
+|---|---|---|
+| A01-A04 | Bulwark, Overdrive, Colossus, Phantasm Weaves | distinct: the Weave Suit (armor, speed, strength, cloak) |
+| A05 / A08 | Shadow Step / Surge Dash | distinct: same `blink` effect but A05 goes to the aimed point (ledge grab, vertical), A08 is a 3-charge input-direction dodge |
+| A06, A07, A09, A10, A11, A12 | Phase Slip, Grapnel, Rewind Anchor, Updraft (absorbs G14), Glidepack, Relocator | distinct mobility: invulnerable step, pull, rewind, team lift, glide, teleport beacon |
+| A13, A14, A15, A16 | Echo Pulse (absorbs G19), Hunter Sight, Scout Drone, Tracker Sense | distinct recon: burst pulse, energy toggle, remote drone, passive trails |
+| A17-A24 | Veil Curtain, Static Fence, Time Bend, Gale Push, Binding Link, Mesmer Lure, Puppet Jump (PvE), Frenzy Hex | distinct control (A17 is a 12 m wall, G02 a sphere) |
+| A25-A28 | Mender Drone (absorbs G16), Aegis Dome (absorbs G12), Second Wind, Amp Wall | distinct sustain |
+| A29 | Arc Bolt | distinct: the one bolt (30 + shock) |
+| A30 | Ignite | near-duplicate of A29: same `bolt` effect, cost and range, only element and status differ (a reskin) -> merged into A29; burn stays on G04 and W35 |
+| A31 | Frost Lance | near-duplicate of A29 -> merged into A29; freeze stays on G08 |
+| A32, A33 | Swarm Cloud, Holo Double (absorbs G05) | distinct offense |
+| A34-A40 | Wrath Form (PvE), Graviton Grip, Gate Pair (tools), Overcore, Orbital Lance, Rift Gate, Rally Cry | distinct ultimates / tool powers |
+| AX1-AX7 | Seer Pulse, Picket Swarm, Speed Rush, Booster, Veil, Berserk, Amped Rounds | distinct within their meter (streak, boost, adrenaline rewards; not loadout picks) |
+
+- Final **45 abilities** (38 A-rows + 7 AX); 2 removed. Migration: `ignite` -> `arcbolt`, `frostlance` -> `arcbolt` (saved kit choices `Save.data.loadouts.kits`; the Frame Runner kit's ability2 choices become arcbolt, gale; the X46 list loses the two).
+
+### P3-07 - Starting set and unlocks (decision part; decided 2026-10-29 by the coordinator; the owner can change any row)
+
+- **Fact**: nothing of the weapon, gadget or ability rosters is locked by progression today; unlocks are colours, titles, finishes, mastery colours, Challenge Room tiers (levels 4 / 9 / 16) and cards (PvE play-style conditions); the "Unlock everything" setting exists (`progress.unlockAll`). The "hard to acquire" feeling comes from the ruleset gating that P3-01 removes.
+- **Starting set**: a new save can use the whole P3-03 / P3-06 roster in its first match: 36 combat weapons (power weapons on power pads, tools in their modes), 17 gadgets and every loadout ability, under the P3-01 ruleset rules. A new save starts with a ready default loadout so Play -> Start needs no loadout screen: Breaker Maul, Hornet Carbine, Warden Pistol, Frag Charge, Glare Shell, Barrier Deploy, Surge Dash, Rally Cry (the six preset classes stay the classes default).
+- **Earned (unchanged, never a stat)**: level colours, titles and finishes (levels 1-30, about 10 hours), weapon mastery colours (25 / 75 / 150 / 300 kills), Challenge Room tiers, Expert rooms (2 stars), ladder tiers (win the previous tier), cards. Fast: each is one stated condition earned by normal play.
+- **Locked items in menus**: every locked row stays visible with a lock mark, its requirement and the player's progress, for example "Level 9 - you are level 4 (2150 / 3300 XP)", "Gold mastery: 150 kills, 40 headshots - 37 / 150, 12 / 40", the card's own unlock text, "Earn 2 stars (1 / 2)", "Win Rookie Circuit first". A new unlock shows a toast and a "New" badge until first viewed. In the loadout screen a weapon, gadget or ability a mode restricts stays visible with the reason instead of being hidden.
+- **Reason**: the owner asked for fast and clear acquisition; the spec forbids grind walls and stat unlocks (VIS-006, PRG-010, PRG-011); gating weapons behind XP would bring back the complaint.
 
 ## Appendix D - Audit findings
 
