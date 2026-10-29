@@ -1553,6 +1553,7 @@ function buildShard() {
   return { v: new Float32Array(v), i: new Uint16Array(idx) };
 }
 
+const FACE_GRID = 8, FACE_CELL = 64;   // the face atlas (P6-07): 8 x 8 cells of 64 px
 /* uMode: 0 = lit objects, 1 = planar shadow, 2 = floor (procedural pattern, drawn once per arena).
    Point lights are evaluated per vertex for objects (small meshes) and per pixel only on the floor. */
 const VERT_SRC = `#version 300 es
@@ -1570,7 +1571,7 @@ uniform vec3 uLightFrom;
 uniform float uMode;
 uniform vec4 uPL0, uPL1;
 uniform vec3 uPC0, uPC1;
-out vec3 vN; out vec3 vW; out vec4 vCol; out vec4 vPar; out vec3 vPL;
+out vec3 vN; out vec3 vW; out vec4 vCol; out vec4 vPar; out vec3 vPL; out vec3 vFN;
 vec3 plight(vec4 pl, vec3 pc, vec3 P, vec3 N){
   vec3 L = pl.xyz - P; float d = length(L);
   float a = clamp(1.0 - d/pl.w, 0.0, 1.0); a *= a;
@@ -1581,7 +1582,7 @@ void main(){
   vec4 wp = M*vec4(aPos,1.0);
   vec3 s = max(vec3(length(M[0].xyz),length(M[1].xyz),length(M[2].xyz)),vec3(1e-4));
   vN = mat3(M)*(aNor/(s*s));
-  vCol = aCol; vPar = aPar; vPL = vec3(0.0);
+  vCol = aCol; vPar = aPar; vPL = vec3(0.0); vFN = aNor;
   if(uMode>0.5 && uMode<1.5){
     if(aPar.w<0.5){ gl_Position=vec4(2.0,2.0,2.0,1.0); vW=wp.xyz; return; }
     float t = (0.012-wp.y)/uLightFrom.y;
@@ -1595,7 +1596,8 @@ void main(){
 }`;
 const FRAG_SRC = `#version 300 es
 precision mediump float;
-in vec3 vN; in highp vec3 vW; in vec4 vCol; in vec4 vPar; in vec3 vPL;
+in vec3 vN; in highp vec3 vW; in vec4 vCol; in vec4 vPar; in vec3 vPL; in vec3 vFN;
+uniform mediump sampler2D uFace;
 uniform highp vec3 uCam;
 uniform vec3 uLightTo, uLightCol, uSky, uGround, uFogCol, uRim;
 // uniforms shared with the vertex shader must use the same (highp) precision
@@ -1661,7 +1663,14 @@ void main(){
   }
   vec3 N = normalize(vN);
   vec3 V = normalize(uCam - vW);
-  vec3 alb = vCol.rgb*vCol.rgb;
+  vec3 bc = vCol.rgb;
+  if(vPar.w < -0.5){   // face shell (P6-07, opaque, solid layer): the cast slot holds -1 - atlas cell; the front of the head (vFN, orthographic) reads the premultiplied atlas; where it is clear the shell is the head's own skin
+    highp float cell = floor(-vPar.w - 0.5);
+    highp vec2 uv = clamp(vec2(vFN.x, -vFN.y)/1.6 + 0.5, 0.008, 0.992);
+    vec4 t = texture(uFace, (vec2(mod(cell, ${FACE_GRID}.0), floor(cell/${FACE_GRID}.0)) + uv)/${FACE_GRID}.0);
+    bc = mix(bc, t.rgb/max(t.a, 0.001), t.a*step(0.1, vFN.z));
+  }
+  vec3 alb = bc*bc;
   float rough = vPar.y;
   float ndl = dot(N, uLightTo);
   float diff = clamp((ndl+0.25)/1.25, 0.0, 1.0);
@@ -1740,7 +1749,7 @@ const GPU = {
 
 const R = {
   canvas: null, gl: null, ok: false, lost: false, error: '',
-  prog: null, u: {}, meshes: [], batches: [],
+  prog: null, u: {}, meshes: [], batches: [], faceTex: null, faceOk: false,
   vp: M4.create(), proj: M4.create(), view: M4.create(),
   camPos: [0, 3, 8], projScale: 1,
   env: DEFAULT_ENV, lightFrom: [-0.4, -0.8, -0.45],
@@ -1800,7 +1809,8 @@ const R = {
     gl.deleteShader(vs); gl.deleteShader(fs);
     this.prog = prog;
     this.u = {};
-    for (const n of ['uVP', 'uLightFrom', 'uMode', 'uFloor', 'uCam', 'uLightTo', 'uLightCol', 'uSky', 'uGround', 'uFogCol', 'uRim', 'uFog', 'uPL0', 'uPL1', 'uPC0', 'uPC1', 'uShadowCol']) this.u[n] = gl.getUniformLocation(prog, n);
+    for (const n of ['uVP', 'uLightFrom', 'uMode', 'uFloor', 'uCam', 'uLightTo', 'uLightCol', 'uSky', 'uGround', 'uFogCol', 'uRim', 'uFog', 'uPL0', 'uPL1', 'uPC0', 'uPC1', 'uShadowCol', 'uFace']) this.u[n] = gl.getUniformLocation(prog, n);
+    this.faceTex = FaceTex.upload(gl); this.faceOk = !!this.faceTex;   // no texture (no 2D canvas, a failed upload): fighters keep their procedural faces
     // static meshes
     const defs = [buildCube(), buildSphere(10, 14), buildCylinder(16), buildShard()];
     this.meshes = defs.map((d) => {
@@ -1897,7 +1907,7 @@ const R = {
     const d = b.data, o = b.count * INST_FLOATS;
     for (let i = 0; i < 16; i++) d[o + i] = m[i];
     d[o + 16] = col[0]; d[o + 17] = col[1]; d[o + 18] = col[2]; d[o + 19] = a;
-    d[o + 20] = em; d[o + 21] = rough; d[o + 22] = flash; d[o + 23] = cast ? 1 : 0;
+    d[o + 20] = em; d[o + 21] = rough; d[o + 22] = flash; d[o + 23] = typeof cast === 'number' ? cast : cast ? 1 : 0;   // a negative number is a face shell (no shadow): -1 - atlas cell
     b.count++;
   },
 
@@ -1945,6 +1955,11 @@ const R = {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
     gl.useProgram(this.prog);
     const u = this.u;
+    if (this.faceOk) {   // the face atlas on unit 0; a repainted cell is sent here
+      gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.faceTex);
+      if (FaceTex.dirty && !FaceTex.upload(gl, this.faceTex)) this.faceOk = false;   // a failed refill turns the faces off: no retry every frame
+      gl.uniform1i(u.uFace, 0);
+    }
     gl.uniformMatrix4fv(u.uVP, false, this.vp);
     gl.uniform3fv(u.uCam, this.camPos);
     gl.uniform3fv(u.uLightFrom, this.lightFrom);
@@ -2015,6 +2030,87 @@ const R = {
     out[1] = (0.5 - ny * 0.5) * this.cssH;
     return true;
   },
+};
+
+/* ---------- face textures (P6-07, P6-08) ----------
+   One atlas of FACE_GRID x FACE_GRID cells painted on a 2D canvas and uploaded as one texture: cells 0 to 23 are the pre-drawn faces (FACE_ROWS), the rest are free for photo faces (P6-06) and
+   expression swaps (P6-09; put() repaints a cell, a fighter changes face by drawing its shell with another cell number). A face is a shell, the head sphere 0.6 % larger, whose cast slot holds -1 - cell;
+   the fragment shader mixes the atlas (read by the front of the head) into the head's skin colour, opaque and without discard, so one part replaces the eyes and brows. No texture (R.faceOk false): the procedural face. */
+const FACE_RANGE = [[0.34, 0.5], [0.06, 0.18], [0.11, 0.2], [0.04, 0.09], [-0.22, 0.28], [0, 9], [0.11, 0.2], [0.022, 0.06], [-0.25, 0.3], [0.13, 0.23],
+  [0, 1], [0.04, 0.13], [0.1, 0.22], [0.12, 0.27], [-0.56, -0.42], [0.025, 0.075], [-0.035, 0.05], [0.15, 0.5], [0, 24], [0, 9]];   // [low, high] of each digit of a face row, in the order FaceTex.paint names them
+const FACE_IRIS = '3a2314 5b3a1e 7a5a2a 4d6b3a 3c6a9a 6f7f8a 1a1411 8a5a1a 2f4a3a 4a5a78'.split(' ').map((hex) => '#' + hex);
+const FACE_ROWS = '76532414546661755372 33627765152643305603 33456638688064552400 25876224343546261561 84345147425736377505 68140370726585317444 64567862372457757470 12325355316552742106 72455534532510424300 93553467457355526741 66464246562282484716 44645481695742497780 41454678732553237374 88694662425853462806 55124363157432307470 48913335654727478675 51584756026434642486 29641574514336645468 22771153647843326600 23495644427374146617 35715361386535573335 12515333565587267200 13334634682427823663 25158755257453557268'.split(' ');
+const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
+const FaceTex = {
+  canvas: null, ctx: null, dirty: false,
+  build() {
+    if (this.canvas) return this.canvas;
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = FACE_GRID * FACE_CELL;
+    this.ctx = canvas.getContext('2d');
+    if (!this.ctx) return null;
+    this.paintAll();
+    return (this.canvas = canvas);
+  },
+  paintAll() { FACE_ROWS.forEach((row, cell) => this.paint(cell, row)); },
+  decode(row) { return FACE_RANGE.map(([lo, hi], i) => lo + (hi - lo) * row[i] / 9); },
+  /* One face in its cell: head-front units (x right, y up), neutral light, only the features are painted (skin stays clear so the head's own skin tone shows). */
+  paint(cell, row) {
+    const c = this.ctx, S = FACE_CELL, ox = (cell % FACE_GRID) * S, oy = Math.floor(cell / FACE_GRID) * S;
+    const [spread, eyeY, ew, eh, tilt, iris, gap, thick, browTilt, browLen, shade, nw, nl, mw, my, lt, curve, lip, freckles, bags] = this.decode(row);
+    const blob = (x, y, rx, ry, turn, style) => { c.fillStyle = style; c.beginPath(); c.ellipse(x, y, rx, ry, turn, 0, TAU); c.fill(); };
+    const line = (style, width, x0, y0, x1, y1) => { c.strokeStyle = style; c.lineWidth = width; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); };
+    const tone = Math.round(22 + shade * 70), browStyle = 'rgba(' + tone + ',' + Math.round(tone * 0.75) + ',' + Math.round(tone * 0.55) + ',0.9)';
+    c.save();
+    c.beginPath(); c.rect(ox, oy, S, S); c.clip(); c.clearRect(ox, oy, S, S);
+    c.setTransform(S / 1.6, 0, 0, -S / 1.6, ox + S / 2, oy + S / 2);
+    c.lineCap = 'round';
+    for (const s of [-1, 1]) {
+      blob(s * spread, eyeY - eh * 1.7, ew, eh * 0.7, 0, 'rgba(70,40,40,' + bags * 0.05 + ')');   // eye bag
+      blob(s * spread, eyeY, ew, eh, s * tilt, '#e8e3da');                                         // eye white, outer corner up for a positive tilt
+      blob(s * spread, eyeY, eh * 0.92, eh * 0.92, 0, FACE_IRIS[Math.round(iris)]);
+      blob(s * spread, eyeY, eh * 0.42, eh * 0.42, 0, '#0c0a09');
+      c.strokeStyle = 'rgba(25,16,12,0.85)'; c.lineWidth = 0.03; c.beginPath(); c.ellipse(s * spread, eyeY, ew, eh, s * tilt, 0, Math.PI); c.stroke();   // upper lid
+      const dx = Math.cos(browTilt) * browLen / 2, dy = Math.sin(browTilt) * browLen / 2;   // outer end higher for a positive tilt (angry), lower for a negative one (worried)
+      line(browStyle, thick, s * (spread - dx), eyeY + gap - dy, s * (spread + dx), eyeY + gap + dy);
+      line('rgba(80,45,35,0.28)', 0.022, s * 0.04, eyeY - 0.04, s * nw, eyeY - nl * 0.9);     // side of the nose
+      blob(s * nw * 0.6, eyeY - nl - 0.015, 0.025, 0.014, 0, 'rgba(60,30,25,0.5)');                  // nostril
+      for (let n = 0; n < freckles; n++) blob(s * (0.15 + 0.4 * ((n * 0.7549 + cell * 0.37) % 1)), eyeY - 0.12 - 0.22 * ((n * 0.5698 + cell * 0.51 + s * 0.2 + 1) % 1), 0.012, 0.012, 0, 'rgba(120,70,40,0.4)');
+    }
+    const lips = 'rgba(150,50,55,' + lip + ')';
+    blob(0, my - lt * 0.45, mw * 0.78, lt, 0, lips); blob(0, my + lt * 0.35, mw * 0.9, lt * 0.6, 0, lips);
+    c.strokeStyle = 'rgba(40,18,16,0.75)'; c.lineWidth = 0.022; c.beginPath(); c.moveTo(-mw, my + curve); c.quadraticCurveTo(0, my - curve, mw, my + curve); c.stroke();   // the mouth line, corners up for a positive curve
+    c.restore();
+    this.dirty = true;
+  },
+  /* A photo or expression image of any size over a cell (P6-06, P6-09); clear parts show the head. Returns false without a 2D canvas. */
+  put(cell, source) {
+    if (!Number.isInteger(cell) || cell < 0 || cell >= FACE_GRID * FACE_GRID || !this.build()) return false;
+    const x = (cell % FACE_GRID) * FACE_CELL, y = Math.floor(cell / FACE_GRID) * FACE_CELL;
+    this.ctx.clearRect(x, y, FACE_CELL, FACE_CELL); this.ctx.drawImage(source, x, y, FACE_CELL, FACE_CELL);
+    this.dirty = true;
+    return true;
+  },
+  /* Creates the texture (or refills the given one) from the atlas; null when anything fails, so the caller falls back to procedural faces. */
+  upload(gl, texture) {
+    try {
+      const fresh = !this.canvas;
+      if (!this.build()) return null;
+      if (!texture && !fresh) this.paintAll();   // a new texture after a lost context: repaint the faces too (the canvas may have been cleared)
+      this.dirty = false;
+      const tex = texture || gl.createTexture();
+      gl.getError();
+      gl.bindTexture(gl.TEXTURE_2D, tex);
+      const size = FACE_GRID * FACE_CELL, texels = this.ctx.getImageData(0, 0, size, size).data;   // premultiplied by hand (no canvas upload, no unpack flag): filtering leaves no dark fringe, the shader divides the alpha out
+      for (let i = 0; i < texels.length; i += 4) { const alpha = texels[i + 3] / 255; texels[i] *= alpha; texels[i + 1] *= alpha; texels[i + 2] *= alpha; }
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, texels);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+      return gl.getError() === gl.NO_ERROR ? tex : null;
+    } catch (e) { return null; }
+  },
+  /* The atlas cell a look draws, or -1 for the procedural face (classic, or no texture). The one place a photo face or an expression will pick another cell. */
+  cellOf(id) { return R.faceOk && id && id !== 'none' ? +id.slice(1) : -1; },
 };
 
 /* ---------- adaptive quality ---------- */
@@ -4020,12 +4116,12 @@ const FSCRATCH = M4.create();
 const FBASE = M4.create();
 const FMS = new MatStack(14);
 let DRAW_NOW = false;
-function part(mesh, cx, cy, cz, sx, sy, sz, col, em, rough, flash) {
+function part(mesh, cx, cy, cz, sx, sy, sz, col, em, rough, flash, cast = true) {
   if (!DRAW_NOW) return;
   FSCRATCH.set(FMS.m);
   M4.translate(FSCRATCH, cx, cy, cz);
   M4.scale(FSCRATCH, sx, sy, sz);
-  R.push(LAYER.SOLID, mesh, FSCRATCH, col, 1, em, rough, flash, true);
+  R.push(LAYER.SOLID, mesh, FSCRATCH, col, 1, em, rough, flash, cast);
 }
 const isBlockState = (s) => s === S.BLOCK_H || s === S.BLOCK_L;
 const AIM_DEADZONE = 0.35;
@@ -4049,6 +4145,7 @@ const BROW_HEIGHT = { thin: 0.012, thick: 0.024 };
 /* The bare body's sizes (diameters and lengths in metres, before height): the draw code and the clipping self-test both read these. */
 const BODY = { head: [0.23, 0.25, 0.24], headY: 0.2, neck: 0.1, neckY: 0.04, neckBase: 0.56, torso: [0.35, 0.5, 0.21], torsoY: 0.26, chest: [0.4, 0.28, 0.25], chestY: 0.4, chestZ: 0.02,
   ball: 0.17, upper: 0.1, upperLen: 0.3, fore: 0.085, foreLen: 0.27, thigh: 0.14, shin: 0.11, knee: 0.12, hand: 0.12, handY: 0.02 };
+const FACE_SHELL = BODY.head.map((v) => v * 1.006);   // the face shell (P6-07) sits just outside the head sphere
 const [CB, SP, CY] = [MESH.CUBE, MESH.SPHERE, MESH.CYL];
 const HAIR_CAP = ['h', SP, 0, 0.265, -0.015, 0.25, 0.17, 0.25, 'hair', 0.9];
 const ITEMS = {
@@ -5135,13 +5232,17 @@ class Fighter {
     part(MESH.CYL, 0, BODY.neckY, 0, BODY.neck, BODY.neck, BODY.neck, skin, 0, 0.7, fl);
     if (fullMask) part(MESH.SPHERE, 0, BODY.headY, 0, ...BODY.head, col.mask, Math.max(0.25, this.accentGlow), 0.3, fl);
     else part(MESH.SPHERE, 0, BODY.headY, 0, ...BODY.head, wrap ? col.accent : skin, 0, wrap ? 0.9 : 0.7, fl);
-    const eye = EYE_SIZE[lk.eyes] || EYE_SIZE.normal, eyeCol = fullMask ? EYE_MASK_COL : EYE_COL;
-    part(MESH.CUBE, -0.05, 0.22, 0.112, eye[0], eye[1], 0.03, eyeCol, 0, 1, fl);
-    part(MESH.CUBE, 0.05, 0.22, 0.112, eye[0], eye[1], 0.03, eyeCol, 0, 1, fl);
-    if (lk.brows !== 'none' && !fullMask && !wrap) {
-      const h = BROW_HEIGHT[lk.brows] || BROW_HEIGHT.thin;
-      part(MESH.CUBE, -0.05, 0.252, 0.108, 0.055, h, 0.025, col.hair, 0, 0.9, fl);
-      part(MESH.CUBE, 0.05, 0.252, 0.108, 0.055, h, 0.025, col.hair, 0, 0.9, fl);
+    const cell = fullMask || wrap ? -1 : FaceTex.cellOf(lk.face);   // a pre-drawn face is one shell that replaces the eyes and brows; a full mask and a balaclava keep their own eyes
+    if (cell >= 0) part(MESH.SPHERE, 0, BODY.headY, 0, ...FACE_SHELL, skin, 0, 0.7, fl, -1 - cell);
+    else {
+      const eye = EYE_SIZE[lk.eyes] || EYE_SIZE.normal, eyeCol = fullMask ? EYE_MASK_COL : EYE_COL;
+      part(MESH.CUBE, -0.05, 0.22, 0.112, eye[0], eye[1], 0.03, eyeCol, 0, 1, fl);
+      part(MESH.CUBE, 0.05, 0.22, 0.112, eye[0], eye[1], 0.03, eyeCol, 0, 1, fl);
+      if (lk.brows !== 'none' && !fullMask && !wrap) {
+        const h = BROW_HEIGHT[lk.brows] || BROW_HEIGHT.thin;
+        part(MESH.CUBE, -0.05, 0.252, 0.108, 0.055, h, 0.025, col.hair, 0, 0.9, fl);
+        part(MESH.CUBE, 0.05, 0.252, 0.108, 0.055, h, 0.025, col.hair, 0, 0.9, fl);
+      }
     }
     if (!fullMask && !wrap) this.drawLowerFace(fl);
     this.drawHair(fl);
@@ -5778,7 +5879,9 @@ const LOOK_CLASSIC = {};
 for (const key of LOOK_CHOICE_KEYS) LOOK_CLASSIC[key] = LOOK_CHOICES[key].options.slice();
 LOOK_CHOICES.acc = { label: 'Accessory', options: ['none'], labels: { none: 'None' } };
 LOOK_CHOICES.mark = { label: 'Tattoo / mark', options: ['none'], labels: { none: 'None' } };
-const LOOK_ITEM_KEYS = ['acc', 'mark'];
+LOOK_CHOICES.face = { label: 'Face', options: ['none'], labels: { none: 'Classic' } };   // P6-07 / P6-08: Classic keeps the procedural eyes and brows; f0 to f23 are the pre-drawn faces (FACE_ROWS)
+FACE_ROWS.forEach((row, n) => { LOOK_CHOICES.face.options.push('f' + n); LOOK_CHOICES.face.labels['f' + n] = 'Face ' + (n + 1); });
+const LOOK_ITEM_KEYS = ['acc', 'mark', 'face'];
 const NEW_ITEMS = {
   hairStyle: 'cornrows Cornrows|locs Locs|curly Curly top|bob Bob|undercut Undercut|fade Fade',
   beard: 'mustache Mustache|soulpatch Soul patch|chinstrap Chinstrap',
@@ -5945,7 +6048,7 @@ function resolveLook(look) {
     eyes: look.eyes || 'normal', brows: look.brows || 'none', beard: look.beard || 'none',
     mask: legacyMask ? 'full' : look.mask || 'none',
     headband: look.headband === 'band', topStyle, legs: look.legs || 'shorts', hands: look.hands || 'gloves',
-    belt: look.belt || 'none', feet: look.feet || 'shoes', glow: look.glow === 'on', legacyMask, lines: look.age >= AGE_LINES_FROM, acc: look.acc || 'none', mark: look.mark || 'none',
+    belt: look.belt || 'none', feet: look.feet || 'shoes', glow: look.glow === 'on', legacyMask, lines: look.age >= AGE_LINES_FROM, acc: look.acc || 'none', mark: look.mark || 'none', face: look.face || 'none',
     colors: {
       skin, hair, top: topStyle === 'bare' ? skin : look.top || skin, shorts: look.shorts || '#18274d',
       glove: look.glove || '#f1f1f5', shoe: look.shoe || '#202228', accent, mask: legacyMask ? hair : accent,
@@ -6002,7 +6105,7 @@ function defaultCustom(slot) {
     attrs: Object.assign({}, ARCHETYPES.balanced.attrs),
     look: { skin: '#d9a27c', hair: '#2a1a12', hairStyle: 'short', eyes: 'normal', brows: 'thin', beard: 'none', headband: 'none', mask: 'none',
       topStyle: 'tee', top: '#34dcff', legs: 'shorts', shorts: '#18274d', hands: 'gloves', glove: '#f1f1f5', belt: 'belt', feet: 'shoes', shoe: '#16161c',
-      accent: '#ff5c93', glow: 'off', scale: 1, build: 1, muscle: FIT_DEFAULT_MUSCLE, weight: 0.5, age: AGE_DEFAULT, gender: 'M', acc: 'none', mark: 'none' },
+      accent: '#ff5c93', glow: 'off', scale: 1, build: 1, muscle: FIT_DEFAULT_MUSCLE, weight: 0.5, age: AGE_DEFAULT, gender: 'M', acc: 'none', mark: 'none', face: 'none' },
   };
 }
 function cloneCustom(c) { return { name: c.name, title: c.title, arch: c.arch, tier: c.tier, moveStyle: c.moveStyle, defense: c.defense, attrs: Object.assign({}, c.attrs), look: Object.assign({}, c.look) }; }
@@ -6117,7 +6220,7 @@ function randomBody(seed) {
 
 /* The creator's Randomize takes a new item in about three slots in ten, from a stream of its own (randomCustom keeps every seed's fighter). */
 function randomItems(seed) {
-  const rng = makeRng((seed ^ 0x51ed270b) >>> 0), look = { acc: 'none', mark: 'none' };
+  const rng = makeRng((seed ^ 0x51ed270b) >>> 0), look = { acc: 'none', mark: 'none', face: 'none' };
   for (const key of Object.keys(NEW_ITEMS)) {
     const fresh = LOOK_CHOICES[key].options.slice((LOOK_CLASSIC[key] || ['none']).length), roll = rng(), index = Math.floor(rng() * fresh.length) % fresh.length;
     if (roll < 0.3) look[key] = fresh[index];
@@ -6145,7 +6248,8 @@ const SHARE_FIELD_COUNT = 5 + ATTR_KEYS.length + SHARE_LOOK_KEYS.length + 2 + LO
 const SHARE_FIELD_COUNT_STYLE = SHARE_FIELD_COUNT + 1;                                                     // + movement style index
 const SHARE_FIELD_COUNT_DEFENSE = SHARE_FIELD_COUNT_STYLE + 1;                                             // + defense type index (DEFENSE_TYPES)
 const SHARE_FIELD_COUNT_BODY = SHARE_FIELD_COUNT_DEFENSE + 4;                                              // + muscle and weight (x100), age, gender index (GENDERS)
-const SHARE_FIELD_COUNT_ITEMS = SHARE_FIELD_COUNT_BODY + LOOK_ITEM_KEYS.length;                             // + accessory and tattoo / mark index (P6-02)
+const SHARE_FIELD_COUNT_ITEMS = SHARE_FIELD_COUNT_BODY + 2;                                                // + accessory and tattoo / mark index (P6-02)
+const SHARE_FIELD_COUNT_FACE = SHARE_FIELD_COUNT_ITEMS + 1;                                                // + face index (P6-07; 0 = Classic)
 function fnv1a(text) {
   let h = 0x811c9dc5;
   for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
@@ -6182,7 +6286,7 @@ function decodeCustom(text, allowVeteran) {
   if (shareChecksum(match[1]) !== match[2]) return fail('Code is damaged or was edited (checksum mismatch)');
   let fields;
   try { fields = JSON.parse(fromBase64Url(match[1])); } catch (e) { return fail('Code could not be read'); }
-  if (!Array.isArray(fields) || ![SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_STYLE, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_ITEMS].includes(fields.length)) return fail('Code has the wrong number of fields');
+  if (!Array.isArray(fields) || ![SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_STYLE, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_ITEMS, SHARE_FIELD_COUNT_FACE].includes(fields.length)) return fail('Code has the wrong number of fields');
   if (fields[0] !== SHARE_VERSION) return fail('Code is from an unsupported version');
   let i = 1;
   const record = { name: fields[i++], title: fields[i++], arch: ARCHETYPE_IDS[fields[i++]], tier: TIERS[fields[i++]], attrs: {}, look: {} };
@@ -6197,7 +6301,7 @@ function decodeCustom(text, allowVeteran) {
   if (fields.length >= SHARE_FIELD_COUNT_BODY) {   // older codes have no body fields: validateCustom gives them the defaults; a bad value stays NaN / null and is rejected there
     const at = i + 2, whole = (v) => (Number.isInteger(v) ? v / 100 : NaN);
     record.look.muscle = whole(fields[at]); record.look.weight = whole(fields[at + 1]); record.look.age = fields[at + 2]; record.look.gender = Number.isInteger(fields[at + 3]) ? GENDERS[fields[at + 3]] || null : null;
-    if (fields.length === SHARE_FIELD_COUNT_ITEMS) LOOK_ITEM_KEYS.forEach((key, n) => { record.look[key] = LOOK_CHOICES[key].options[fields[at + 4 + n]] || null; });
+    LOOK_ITEM_KEYS.forEach((key, n) => { if (at + 4 + n < fields.length) record.look[key] = LOOK_CHOICES[key].options[fields[at + 4 + n]] || null; });   // codes with fewer item fields leave the rest unset (none / Classic)
   }
   const checked = validateCustom(record);
   if (!checked.ok) return checked;
@@ -10715,7 +10819,8 @@ const CreatorUI = {
   },
   tab_head() {
     const look = this.draft.look;
-    let h = this.choiceRow('hairStyle') + this.swatchRow('hair') + this.choiceRow('eyes') + this.choiceRow('brows') + this.choiceRow('beard') + (ITEMS.mask[look.mask] ? this.row('Headband', LOOK_CHOICES.headband.labels[look.headband] + ' (hidden by hat)', 'choice:headband') : this.choiceRow('headband')) + this.choiceRow('mask') + this.choiceRow('mark');
+    const own = (key) => (FaceTex.cellOf(look.face) >= 0 ? this.row(LOOK_CHOICES[key].label, 'From the face', 'choice:' + key) : this.choiceRow(key));   // a pre-drawn face that can be drawn has its own eyes and brows
+    let h = (R.faceOk ? this.choiceRow('face') : this.row('Face', LOOK_CHOICES.face.labels[look.face || 'none'] + ' (not supported here)', 'choice:face')) + this.choiceRow('hairStyle') + this.swatchRow('hair') + own('eyes') + own('brows') + this.choiceRow('beard') + (ITEMS.mask[look.mask] ? this.row('Headband', LOOK_CHOICES.headband.labels[look.headband] + ' (hidden by hat)', 'choice:headband') : this.choiceRow('headband')) + this.choiceRow('mask') + this.choiceRow('mark');
     if (look.headband !== 'none' || look.mask !== 'none') h += this.swatchRow('accent');
     return h + '<h3>Fine hair colour</h3>' + this.fineRows('hair');
   },
@@ -13443,7 +13548,7 @@ const SelfTest = {
       if (base.look.acc !== 'none' || base.look.mark !== 'none' || 'acc' in randomCustom(4321).look) bad.push('defaults');
       for (let seed = 1; seed <= 40; seed++) if (LOOK_CHOICE_KEYS.some((key) => !LOOK_CLASSIC[key].includes(randomCustom(seed, true).look[key]))) bad.push('seed ' + seed);
       const set = Object.assign({}, base, { look: Object.assign({}, base.look, items) }), code = encodeCustom(set), fields = JSON.parse(fromBase64Url(code.split('-')[1])), back = decodeCustom(code, true);
-      if (!back.ok || JSON.stringify(back.value) !== JSON.stringify(validateCustom(set).value) || fields.length !== SHARE_FIELD_COUNT_ITEMS || code.length > SHARE_MAX_LENGTH) bad.push('round trip');
+      if (!back.ok || JSON.stringify(back.value) !== JSON.stringify(validateCustom(set).value) || fields.length !== SHARE_FIELD_COUNT_FACE || code.length > SHARE_MAX_LENGTH) bad.push('round trip');
       const recode = (list) => { const payload = toBase64Url(JSON.stringify(list)); return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true); };
       const older = recode(fields.slice(0, SHARE_FIELD_COUNT_BODY));   // 40 fields: the new slots read none, the new options of the old slots stay
       if (!older.ok || older.value.look.acc !== 'none' || older.value.look.mark !== 'none' || older.value.look.hairStyle !== 'locs') bad.push('40-field code');
@@ -13468,6 +13573,86 @@ const SelfTest = {
         for (let n = 0; n < LOOK_CHOICES.acc.options.length; n++) CreatorUI.cycleChoice('acc', 1);
         if (d.look.acc !== 'none') bad.push('cycle');
       } catch (e) { bad.push(e.message); } finally { CreatorUI.draft = keep.draft; UI.say = keep.say; UI.rerender = keep.rerender; Showcase.endPreview(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    /* ---------- pre-drawn faces and the face texture (P6-07, P6-08) ---------- */
+    const faceParts = (look, ready) => {   // one skeleton pass with the face texture forced on / off: [emissive, cast slot, layer, matrix finite]
+      const push = R.push, ok = R.faceOk, list = [];
+      R.faceOk = ready;
+      R.push = function (layer, mesh, m, col, a, em, rough, flash, cast) { list.push({ em, cast, layer, finite: Array.from(m).every(Number.isFinite) }); };
+      try { itemFighter({}, look).skeleton(0, 0, 0, 0.4, true); } finally { R.push = push; R.faceOk = ok; }
+      return list;
+    };
+    const fakeGl = (fail) => new Proxy({}, { get: (_, key) => (key === 'getError' ? () => 0 : key === 'NO_ERROR' ? 0 : key === 'texImage2D' && fail ? () => { throw new Error('no texture'); } : () => ({})) });
+    test('Faces: 24 pre-drawn faces draw one matte shell; with no texture, or a mask over the eyes, the procedural face stays', () => {
+      const bad = [], ids = LOOK_CHOICES.face.options.slice(1), size = (look) => faceParts(look, true).length, shells = (look, ready = true) => faceParts(look, ready).filter((p) => p.cast < 0).length;
+      if (ids.length !== 24 || new Set(FACE_ROWS).size !== 24 || FACE_ROWS.some((row) => !/^\d{20}$/.test(row))) bad.push('rows');
+      if (!FaceTex.upload(fakeGl(false)) || FaceTex.upload(fakeGl(true)) !== null) bad.push('upload');
+      if (!FaceTex.put(FACE_GRID * FACE_GRID - 1, document.createElement('canvas')) || !FaceTex.dirty || (FaceTex.upload(fakeGl(false)) && FaceTex.dirty) || FaceTex.put(FACE_GRID * FACE_GRID, {}) || FaceTex.put(-1, {})) bad.push('put');
+      for (const brows of ['thin', 'none']) ids.forEach((face, n) => {
+        const list = faceParts({ brows, face }, true);
+        if (list.filter((p) => p.cast === -1 - n && p.layer === LAYER.SOLID).length !== 1 || list.length >= size({ brows }) || list.some((p) => p.em !== 0 || !p.finite)) bad.push(face);
+      });
+      if (shells({ face: 'f5' }, false) || shells({ face: 'f5' }, !!FaceTex.upload(fakeGl(true)))) bad.push('fallback');
+      for (const [mask, shown] of [['full', 0], ['balaclava', 0], ['half', 1], ['cap', 1], ['headgear', 1]]) if (shells({ face: 'f5', mask }) !== shown || (!shown && size({ face: 'f5', mask }) !== size({ mask }))) bad.push(mask);
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Faces: every face is painted into the atlas and, on a real GL context, into the uploaded texture (not blank)', () => {
+      const size = FACE_GRID * FACE_CELL, sources = [], bad = [];
+      if (FaceTex.build()) { const texels = FaceTex.ctx.getImageData(0, 0, size, size).data; if (texels.length) sources.push(['canvas', texels]); }   // headless: no real canvas, nothing to read
+      const gl = R.gl;
+      if (gl && R.ok && R.faceOk && R.faceTex) {   // read the uploaded texture back through a framebuffer
+        const fbo = gl.createFramebuffer(), texels = new Uint8Array(size * size * 4);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, fbo); gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, R.faceTex, 0);
+        gl.readPixels(0, 0, size, size, gl.RGBA, gl.UNSIGNED_BYTE, texels);
+        gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.deleteFramebuffer(fbo);
+        sources.push(['texture', texels]);
+      }
+      for (const [name, texels] of sources) for (let cell = 0; cell < FACE_ROWS.length; cell++) {
+        let drawn = 0;
+        for (let y = 0; y < FACE_CELL; y++) for (let x = 0; x < FACE_CELL; x++) if (texels[((Math.floor(cell / FACE_GRID) * FACE_CELL + y) * size + (cell % FACE_GRID) * FACE_CELL + x) * 4 + 3] > 16) drawn++;
+        if (drawn < FACE_MIN_TEXELS) bad.push(name + ' f' + cell + ' ' + drawn);
+      }
+      return bad.length ? 'blank faces: ' + bad.slice(0, 4).join('; ') : true;
+    });
+    test('Faces: R.faceOk follows the upload (a texture that cannot be made turns the faces off, a rebuild brings them back)', () => {
+      const keys = ['gl', 'prog', 'u', 'meshes', 'batches', 'faceTex', 'faceOk'], saved = keys.map((key) => R[key]), got = [];
+      try { for (const fail of [false, true, false]) { R.gl = fakeGl(fail); R.buildGL(); got.push(R.faceOk); } } finally { keys.forEach((key, n) => { R[key] = saved[n]; }); }
+      return got.join() === 'true,false,true' ? true : 'faceOk ' + got.join();
+    });
+    test('Faces: no brow of the 24 faces reaches under the hair cap', () => {
+      const [, , , capY, capZ, capW, capH, capD] = HAIR_CAP, under = (nx, ny) => {   // is this head-front point (face units) covered by the cap
+        const v = 1 - (nx * 0.115 / (capW / 2)) ** 2 - ((0.2 + ny * 0.125 - capY) / (capH / 2)) ** 2;
+        return v > 0 && capZ + capD / 2 * Math.sqrt(v) > 0.12 * Math.sqrt(Math.max(0, 1 - nx * nx - ny * ny));
+      };
+      const bad = FACE_ROWS.map((row, n) => {
+        const [spread, eyeY, , , , , gap, thick, tilt, length] = FaceTex.decode(row), dx = Math.cos(tilt) * length / 2, dy = Math.sin(tilt) * length / 2, top = eyeY + gap + thick / 2;
+        return [[spread - dx, top - dy], [spread, top], [spread + dx, top + dy]].some(([x, y]) => under(x, y)) ? 'f' + n : '';
+      }).filter(Boolean);
+      return bad.length ? 'under the hair: ' + bad.join() : true;
+    });
+    test('Faces: the face choice shares and saves; older codes, saves and seeds read Classic; the creator row cycles and shows the fallback', () => {
+      const bad = [], base = validateCustom(randomCustom(4321)).value, set = Object.assign({}, base, { look: Object.assign({}, base.look, { face: 'f17' }) });
+      if (base.look.face !== 'none' || 'face' in randomCustom(4321).look) bad.push('defaults');
+      const code = encodeCustom(set), fields = JSON.parse(fromBase64Url(code.split('-')[1])), back = decodeCustom(code, true);
+      if (!back.ok || back.value.look.face !== 'f17' || JSON.stringify(back.value) !== JSON.stringify(validateCustom(set).value) || fields.length !== SHARE_FIELD_COUNT_FACE || code.length > SHARE_MAX_LENGTH) bad.push('round trip');
+      const recode = (list) => { const payload = toBase64Url(JSON.stringify(list)); return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true); };
+      for (const count of [SHARE_FIELD_COUNT_ITEMS, SHARE_FIELD_COUNT_BODY]) { const older = recode(fields.slice(0, count)); if (!older.ok || older.value.look.face !== 'none') bad.push('older code ' + count); }
+      const wrong = fields.slice(), noFace = JSON.parse(JSON.stringify(set)); wrong[SHARE_FIELD_COUNT_ITEMS] = 25; delete noFace.look.face;   // a bad index; a save from before the slot
+      if (recode(wrong).ok || validateCustom(noFace).value.look.face !== 'none') bad.push('bad index or old save');
+      const keep = { draft: CreatorUI.draft, say: UI.say, rerender: UI.rerender, ok: R.faceOk };
+      UI.say = () => {}; UI.rerender = () => {};
+      try {
+        const d = CreatorUI.draft = defaultCustom(0);
+        R.faceOk = false;
+        if (!CreatorUI.tab_head().includes('data-cr="choice:face"') || !CreatorUI.tab_head().includes('not supported')) bad.push('unsupported row');
+        R.faceOk = true;
+        if (CreatorUI.tab_head().includes('not supported') || CreatorUI.tab_head().includes('From the face')) bad.push('row');
+        CreatorUI.cycleChoice('face', 1);
+        if (d.look.face !== 'f0' || !CreatorUI.tab_head().includes('From the face')) bad.push('eyes and brows rows');
+        for (let n = 1; n < LOOK_CHOICES.face.options.length; n++) CreatorUI.cycleChoice('face', 1);
+        if (d.look.face !== 'none') bad.push('cycle');
+      } catch (e) { bad.push(e.message); } finally { CreatorUI.draft = keep.draft; UI.say = keep.say; UI.rerender = keep.rerender; R.faceOk = keep.ok; Showcase.endPreview(); }
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     test('Creator: cosmetics never change the simulation', () => {
@@ -13548,7 +13733,7 @@ const SelfTest = {
       for (let step = 0; step <= 10; step++) { const build = Math.round((BUILD_MIN + step * BUILD_STEP) * 100) / 100; if (presetBuild([0.5, weightFromBuild(build)]) !== build) problems.push('build ' + build); }
       const set = Object.assign({}, base, { look: Object.assign({}, b0, { muscle: 0.85, weight: 0.3, age: 63, gender: 'F' }) });
       const code = encodeCustom(set), back = decodeCustom(code, true), fields = JSON.parse(fromBase64Url(code.split('-')[1]));
-      if (!back.ok || JSON.stringify(back.value) !== JSON.stringify(validateCustom(set).value) || fields.length !== SHARE_FIELD_COUNT_ITEMS) problems.push('round trip');
+      if (!back.ok || JSON.stringify(back.value) !== JSON.stringify(validateCustom(set).value) || fields.length !== SHARE_FIELD_COUNT_FACE) problems.push('round trip');
       const recode = (list) => { const payload = toBase64Url(JSON.stringify(list)); return decodeCustom(SHARE_PREFIX + '-' + payload + '-' + shareChecksum(payload), true); };
       for (const count of [SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_STYLE, SHARE_FIELD_COUNT_DEFENSE]) {   // codes written before the body fields
         const r = recode(fields.slice(0, count));
