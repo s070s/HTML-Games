@@ -212,6 +212,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Status (2026-10-29): implemented, decisions in Appendix C ("Photo faces and expressions (P6-06, P6-09)"). Seven looks (rested / neutral, hurt, tired, panting, angry, win, shocked) chosen at draw time from fighter state; pre-drawn faces repaint from their own row with changed brow tilt, eye height, mouth curve and opening; photo faces get overlays (dark lids, brows, eye bags, open mouth) on the photo. Classic faces keep their procedural eyes and brows (no expression). Self-tests "Expressions: ..." and "Photo faces: ..." cover the state machine, the pool cells, and an identical fight with faces on and off; the seven looks of one pre-drawn face and of a synthetic photo looked at on a GPU. Not seen in a real fight on screen; the seeded fight test proves the looks change with game state (hurt appears, the sim is unchanged), so ticked.
 - [ ] P6-10 - Story settings in the creator: Country, Origin (social status / upbringing), Goal (examples from the ideas file: lose weight, make friends, revenge, psychopath). Lists from P10-01.
   Done when: all three are selectable, saved and included in the share code.
+  Note (2026-10-29, from P10-01 / P10-05; the owner can change it): no new picker UI. Four rows in the Identity tab, cycled like every creator row (Left / Right one step, Up / Down next row): Country (64, in list order; the hint line shows city and region), Origin and Goal (24 each; the hint shows the one line, and the goal's motive), Intro (the intro emote, unlocked ones only). Saved as ids in the custom store; share code appends 4 fields after the face (country 0-63, origin 0-23, goal 0-23, intro emote 0-11; `SHARE_FIELD_COUNT_STORY` = 47); older codes and saves get CA, gymkid, title and the tone's intro emote. Lists, ids and defaults: Appendix C "Story lists (P10-01)"; emotes: "Arcade story structure (P10-02)".
 - [ ] P6-11 - Bump share code version and custom store version; migrate old custom fighters and share codes.
   Done when: 1.0.0 custom fighters and share codes load correctly with defaults for new fields.
 
@@ -229,16 +230,18 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P7-04 - Weapon combat: weapon move sets per class, durability and breaking, disarm on heavy hit, block / sway interaction.
   Done when: each weapon class has its move set and breaks or drops as defined.
   Status (2026-10-29): implemented: class strings (Kali stick 4 steps), durability and breaking, disarm on a strong step, knockdown, down state and throws, 1.5x block cost, specials; thrown items can be blocked (Appendix C). Poses and hand placement checked on screen only in the Warehouse brawl.
-- [ ] P7-05 - Hazards: environment dangers (DECIDE list, example types: electric panel, hot surface, open drop, breaking glass, falling objects) that players and AI can use.
+- [x] P7-05 - Hazards: environment dangers (DECIDE list, example types: electric panel, hot surface, open drop, breaking glass, falling objects) that players and AI can use.
   Done when: each hazard damages any character, can be triggered on purpose, and the AI uses at least one hazard per level that has them.
+  Status (2026-10-29): 7 hazards (wet floor removed by the owner) from one shared handler; placed in the 3 current arenas, drop and train ready for P8; CPUs strike posts from safe spots, lure targets in and leave active zones; an unscripted seeded match per arena shows a CPU-triggered hazard. Self-test 312 / 312.
 - [x] P7-06 - Pick up hazards and objects where approved in P7-01 (the ideas file says "pickup weapons and other Hazards").
   Done when: pickable hazards follow the P7-02 / P7-03 rules.
   Status (2026-10-29): the extinguisher, crate, bottle and brick follow the pick-up and Use rules; CPUs pick up floor items and throw.
 
 ## Phase 8 - Levels
 
-- [ ] P8-01 - DECIDE: new level list (Modern Urban only), count from P1-05, each with layout, verticality, destructibles, weapon placements, hazards, unstable surfaces, mode use (brawler, 1v1, tournament).
+- [x] P8-01 - DECIDE: new level list (Modern Urban only), count from P1-05, each with layout, verticality, destructibles, weapon placements, hazards, unstable surfaces, mode use (brawler, 1v1, tournament).
   Done when: Appendix C has a sheet per level.
+  Status (2026-10-29): decided, Appendix C "Levels (P8-01, ...)": 8 level sheets (3 reworked, 5 new), shared deck / stair / scaffold data shape.
 - [ ] P8-02 - Rework the 3 existing arenas (Warehouse, Dojo, Pit): bigger, more destructibles, realistic weapon placement (on tables, racks, walls, not only on the floor), hazards, verticality.
   Done when: each matches its P8-01 sheet.
 - [ ] P8-03 - Build the new levels from P8-01.
@@ -252,8 +255,9 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 9 - Interactivity and emergence (immersive-sim style)
 
-- [ ] P9-01 - DECIDE: system rules matrix - which materials, objects, hazards, characters and states interact (examples: thrown object breaks glass, broken floor drops characters, electric panel + water, crowd / bystander reactions). Keep rules generic so combinations emerge without special cases.
+- [x] P9-01 - DECIDE: system rules matrix - which materials, objects, hazards, characters and states interact (examples: thrown object breaks glass, broken floor drops characters, electric panel + water, crowd / bystander reactions). Keep rules generic so combinations emerge without special cases.
   Done when: Appendix C has the matrix and each rule has one implementation function, not per-level scripts.
+  Status (2026-10-29): decided, Appendix C "System rules matrix (P9-01, ...)": 9 materials x 6 damage types, 5 states, 9 rules each mapped to one function (built in P9-02).
 - [ ] P9-02 - Implement the matrix as shared systems (material, physics impulse, damage type, state flags).
   Done when: every matrix rule can be triggered in at least one level and AI can cause it.
 - [ ] P9-03 - Persistent state within a level (broken objects stay broken, dropped items stay, damage marks remain) within the performance budget.
@@ -263,10 +267,12 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 10 - Arcade story, progression and unlocks
 
-- [ ] P10-01 - DECIDE: lists of Countries, Origins, Goals (counts from P1-05, varied), each with story effect.
+- [x] P10-01 - DECIDE: lists of Countries, Origins, Goals (counts from P1-05, varied), each with story effect.
   Done when: Appendix C has all three lists.
-- [ ] P10-02 - DECIDE: Arcade story structure: shared stages plus beats / events that change by Country, Origin and Goal; mini cutscenes made with in-engine animations, emotes and poses (not attack animations). List every needed non-combat animation for P5-05.
+  Status (2026-10-29): decided, Appendix C "Story lists (P10-01)".
+- [x] P10-02 - DECIDE: Arcade story structure: shared stages plus beats / events that change by Country, Origin and Goal; mini cutscenes made with in-engine animations, emotes and poses (not attack animations). List every needed non-combat animation for P5-05.
   Done when: Appendix C has the beat table (setting -> beats) and the animation list.
+  Status (2026-10-29): decided, Appendix C "Arcade story structure (P10-02, ...)" with the beat table and the 34-entry pose list for P5-05.
 - [ ] P10-03 - Implement the story system (data-driven beats, conditions on the three settings and on player choices / results).
   Done when: two characters with different settings get different beats in the same Arcade run.
 - [ ] P10-04 - Mini cutscenes: in-engine, skippable, short, mobile readable text.
@@ -306,8 +312,9 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 13 - Audiovisual feedback
 
-- [ ] P13-01 - DECIDE: feedback list, strong and diegetic (on the characters and the world), keeping only obvious UI (health, stamina, timer). Examples to evaluate: bruises and swelling, sweat, torn clothes, breathing / panting, expression faces (P6-09), impact sound layers, camera shake / zoom, hitstop, slow-motion finishers, crowd / bystander reactions, debris, controller rumble.
+- [x] P13-01 - DECIDE: feedback list, strong and diegetic (on the characters and the world), keeping only obvious UI (health, stamina, timer). Examples to evaluate: bruises and swelling, sweat, torn clothes, breathing / panting, expression faces (P6-09), impact sound layers, camera shake / zoom, hitstop, slow-motion finishers, crowd / bystander reactions, debris, controller rumble.
   Done when: Appendix C lists accepted feedback with its trigger and cost.
+  Status (2026-10-29): decided, Appendix C "Feedback list (P13-01) ...".
 - [ ] P13-02 - Implement P13-01 within the performance budget.
   Done when: each accepted item works and P0-04 check passes on low preset.
 - [ ] P13-03 - Settings to reduce intense effects (shake, flashes) for accessibility.
@@ -315,8 +322,9 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 14 - Game design and balance
 
-- [ ] P14-01 - Define the balance targets (example: win rate range between equal-skill AI per matchup, time-to-KO range).
+- [x] P14-01 - Define the balance targets (example: win rate range between equal-skill AI per matchup, time-to-KO range).
   Done when: targets are in Appendix C.
+  Status (2026-10-29): decided, Appendix C "Balance targets (P14-01)".
 - [ ] P14-02 - For every option that affects gameplay, write benefits, drawbacks and explicit use: each stat, each style, defense type (block / sway), height, fitness triangle (muscle, weight), age, gender, each weapon class, each pickup, each story setting if it affects gameplay.
   Done when: Appendix C has a table where every option has at least one benefit, one drawback and one explicit use, and no two options have the same profile.
 - [ ] P14-03 - Smart testing plan (not every configuration): test extremes and corners (fitness triangle corners, age ends, height ends, stat extremes), one-factor-at-a-time sensitivity around a baseline, pairwise (orthogonal array) combinations for interactions, all style pairs once with seeded AI vs AI.
@@ -1584,21 +1592,446 @@ Implemented. Not ticked: the all-pairs win-rate target waits for P14-01 (win rat
   - Where items appear: placed per arena (P7 puts 4-7 in each of the 3 current arenas; P8 adds the level placements). Dropped and thrown items stay where they land (P9-03), at most 12 loose items per scene (the oldest broken-off piece goes first). Setting "Items": on by default in Arcade, brawls, Training, Free Fight and Versus; off in Tournament (P11 rules may turn it on).
   - AI (fills the P4-02 stubs): `considerPickup` = an empty-handed AI without an attack token takes an item within 2.5 m that is closer than its target; with a throwable or carry item and the target 3-8 m away it throws. `considerHazard` = an AI with its target within 1.5 m of an active hazard moves so its next hit drives the target into it, or strikes the hazard's trigger when the target is in its zone.
 - Pick-up rule (P7-02, decided): one press of Use, no crouch. The item must be within 1.0 m of the fighter's front (within 70 degrees of facing); several in reach = the one nearest the facing line. The fighter plays one of three grab poses by the item's height: floor (below 0.4 m) = crouch-and-grab, waist (0.4-1.1 m, tables) = lean grab, high (1.1-1.8 m, racks and walls) = reach grab. 14 ticks; a hit during the grab cancels it and the item stays. The owner's ideas-file wording "crouch to pick up" is replaced by this because the owner disliked "crouch to take a hammer from a table". USE input is as the Phase 3 decision: tap Use while holding = throw (lock-on target, else facing); Crouch + Use = drop.
-- Hazards (P7-05, decided; the 8 of P1-05). Each one damages any fighter of any team, has a visible trigger, and runs through one shared handler (type row + zone + effect), so P9 can route interactions through its matrix.
+- Hazards (P7-05, decided; 7 of the 8 in P1-05, the wet floor was removed by the owner). Each one damages any fighter of any team, has a visible trigger, and runs through one shared handler (type row + zone + effect), so P9 can route interactions through its matrix.
 
     | Id | Hazard | Trigger on purpose | Effect | Placed in |
     |---|---|---|---|---|
-    | panel | Electric panel | Strike it or a metal item hits it; a fighter knocked into it | 2 s arc, 1.2 m: 14 dmg + 40-tick shock stun; reaches the whole wet floor it touches; 6 s cooldown | Warehouse (P7), levels (P8) |
+    | panel | Electric panel | Strike it or a metal item hits it; a fighter knocked into it | 2 s arc, 1.2 m: 14 dmg + 40-tick shock stun; 6 s cooldown | Warehouse (P7), levels (P8) |
     | steam | Steam pipe | Strike the valve | 3 s jet, 2 m cone: 3 dmg every 15 ticks, push back | Warehouse, Pit (P7) |
     | drop | Open drop | A fighter knocked over the edge | 25 dmg and down; in a brawl the enemy is out | Rooftop, Construction (P8) |
     | glass | Glass wall | A fighter thrown or knocked into it, or a thrown item | Breaks: 10 dmg; shards on the floor (2 dmg to anyone knocked down on them) | Dojo (P7), levels (P8) |
     | load | Falling load | Strike its support | 0.6 s warning shake, then a 1.5 m circle: 30 dmg + knockdown | Warehouse (P7), Construction (P8) |
     | train | Passing train | Timed, with 2 s warning lights | 40 dmg + thrown down the track | Subway (P8) |
     | fire | Fire barrel | Strike it: it tips and spills fire 2 m for 4 s | Touch: 4 dmg + flinch, every 20 ticks | Pit (P7), levels (P8) |
-    | wet | Wet floor | Always on (a bucket can be kicked over to make one in P9) | No running; a strong hit taken there knocks down | Dojo (P7), levels (P8) |
 
+  - Wet floor: removed (owner, 2026-10-29 08:21, verbatim: "Remove the wet floor thing in breakpoint its a bad idea"). No wet floor hazard, no panel-plus-wet interaction, no bucket in P9; this replaces the P1-05 "Hazards 8" count with 7.
   - Open drop and train are built with the shared handler in P7-05 and placed and checked in P8 (the current arenas have no edge and no track).
 - Pickable hazards (P7-06, decided): the fire extinguisher (its spray is the hazard), the crate, the bottle (glass shards) and the brick. Panels, pipes, barrels, loads and glass walls are fixed hazards: they are triggered by hits, not carried.
+- Levels (P8-01, decided 2026-10-29 by the coordinator under the owner's standing go "complete the tasklist"; the owner can change any row). Modern Urban only; the 8 levels of P1-05 (3 reworked + 5 new). P8-02 / P8-03 build them, P8-04 the decks, stairs and collapses, P8-05 the 1v1 areas, P9 the rules (next entry).
+  - Conventions: metres; x across the screen, z in depth (back wall at -z, the camera on the +z side); bounds are half sizes as in `ARENAS` (11.5, 6.5 = a 23 x 13 m floor; the 3 current arenas are 14-17 x 9-10 m). Positions below are guides: P8-02 / P8-03 may move a piece up to 1 m to fit, keeping the zones. Item heights use the P7-02 bands (floor, table 0.4-1.1, wall / rack 1.1-1.8). Deck tops are 1.0, 1.5, 2.0, 2.5 or 3.0 m, never higher (the P4-06 camera was checked with a 3 m height difference). At most 10 placed items per level (`ITEM_MAX` 12 leaves room for brick drops and thrown pieces). Hazards always stand on the floor, never on a deck. A fall off a deck is the P3-07 rule (2.5 m: knockdown, 16 HP). No wet floor anywhere (owner removal).
+  - Mode use: every level works in the 1v1 modes (Versus, Free Fight, Training, Tournament). 6 are brawler levels (P1-05); the Gym and the Pit are 1v1 levels only (Arcade rival and boss bouts, the Tournament's home). "Vertical" marks the levels P8-04 must give climbable and breakable surfaces.
+
+    | Id | Level | Floor m (bounds) | Brawl waves | 1v1 ring x, z, hx, hz | Ring-out | Vertical (P8-04) | Hazards | Items | Bytes est. |
+    |---|---|---|---|---|---|---|---|---|---|
+    | warehouse | Industrial Warehouse (rework) | 23 x 13 (11.5, 6.5) | 4: 3, 4, 5, 6 | 0, 0, 6, 4 | no (walls) | yes: mezzanine 2.5 + stair; loading dock 1.0 collapses | panel, steam, load, glass | 10 | 6,800 |
+    | dojo | City Fight Gym (rework of Traditional Dojo, id kept) | 20 x 12 (10, 6) | none | 1, 0.5, 4, 3.5 | yes (mat tape) | no: sparring ring 1.0 + mezzanine 2.5, no collapse (a glass balustrade breaks) | glass, panel | 6 | 5,700 |
+    | pit | Underground Pit (rework) | 20 x 13 (10, 6.5) | none | 0, 0, 4.5, 3.5 | no (cage) | yes: street landing 2.5 + stair; rusty catwalk 2.5 collapses | fire x2, steam, glass | 10 | 6,300 |
+    | rooftop | City Rooftop | 22 x 14 (11, 7) | 4: 3, 4, 5, 6 | 1, 0, 4, 4 | yes (helipad paint) | yes: water-tank deck 2.0 + stair; billboard catwalk 2.0 collapses | drop x2, panel, fire | 10 | 7,000 |
+    | subway | Subway Station | 24 x 13 (12, 6.5) | 5: 3, 4, 5, 6, 6 | 0, -1.3, 6, 4.6 | no | yes: ticket-hall mezzanine 2.5 + escalator; repair scaffold 1.5 collapses | train, panel, glass | 8 | 6,600 |
+    | garage | Parking Garage | 23 x 14 (11.5, 7) | 4: 3, 4, 5, 6 | 1, 1.5, 6, 4 | no | no: upper split deck 2.0 + ramp, no collapse | panel (EV charger), fire, glass | 10 | 6,200 |
+    | construction | Construction Site | 24 x 14 (12, 7) | 5: 3, 4, 5, 6, 6 | -1, 1, 5.5, 4 | yes (slab edge) | yes: scaffold 3 bays x 2 tiers (1.5, 3.0), collapses by bay | drop, load, panel, fire | 10 | 6,100 |
+    | club | Night Club | 22 x 14 (11, 7) | 5: 3, 4, 5, 6, 6 | 0, 1.2, 4.5, 3.5 | yes (dance-floor edge) | yes: DJ stage 1.0 breaks; VIP balcony 2.5 + stair | panel, glass, steam (CO2 jet) | 9 | 7,200 |
+
+  - Bytes: about 51,900 for the 8 levels against the P1-05 gross 68,000 (the 3 reworked rows replace 7,812), so about 16,000 stay in reserve. Estimate per level = header, env and audio 700 + objects x 110 + prop lines x 100 + generator rows x 100 + items x 40 + hazards x 112 + waves x 70 + ring 60 (P1-05 unit costs). The 3 shared generators (deck look, stair, scaffold) are about 2,500 inside the P8 system-code estimate (10,000); the 14 new looks and 4 new materials are their own P1-05 rows (+6,300, +684). Every one of the 14 looks is used: dumpster, parked car, vending machine, market stall (newspaper kiosk), speaker stack, table, chair, shipping container, scaffold section, sofa, lockers, ATM, bus-stop glass, fire door.
+  - Waves (brawler levels): rows `[count, x, z, rival]`. The first wave stands in the level at the start; the next walks in from its entry when at most 1 enemy of the previous wave is still up (the level is won when the last wave is down). Never more than 6 enemies up (`BRAWL_MAX_ENEMIES`); co-op adds 1 per extra player to each wave, capped at 6 (as P4-07). `rival` = a P1-06 preset id that leads the last wave (Arcade fills it; 0 elsewhere). Entries are doors, stairs and tunnel mouths outside the 1v1 ring.
+  - 1v1 areas (P8-05): the ring rectangle is the fighting area. Ring-out off: the fighters are held inside it (the bounds become the ring). Ring-out on (Tournament with its ring-out setting; Versus and Free Fight as an option): bounds = ring + 1.5 m apron, and a fighter whose feet touch the floor outside the ring loses the round (the canon rule in P1-08; Budokai 3's Cell Games ring had no ring-outs, so the cage and walled levels have none). Items and hazards outside the ring are not placed in a 1v1; spawns are the ring centre +- `spawn` on x.
+  - Warehouse (rework; was 17 x 10 m, 9 objects, 7 items):
+    - Layout: loading floor in the centre (x -5..5); west racking aisle (x -11.5..-7) with 2 steel pallet racks along z; east office block under a steel mezzanine (x 7..11.5, z -6.5..-3); loading-bay door front-west, fire door on the east wall, crane hoist over the centre-west.
+    - Verticality: mezzanine `grate` deck 2.5 m (fixed) with an open front edge at z -3 (yellow stripe: a knock-off point) and a metal rail (y 2.5) on its west edge above the office window; steel stair 1.0 m wide, foot near (3.5, -4.2), climbing +x. Unstable: timber loading dock, `boards` deck 1.0 m at x -10..-7, z 2..5.5, wood, weak 3 (jump up; collapses to 0.22 m rubble).
+    - Destructibles (19): 6 crates (wood), 2 cardboard stacks (paper, crate look), 2 pillars (concrete), shipping container (sheet metal, 2.6 m), dumpster (sheet metal), 2 pallet racks (metal, hpMul 2), office window (glass), mezzanine rail (metal), loading dock (wood deck), fire door (metal), workbench (table look, wood).
+    - Items (10): pipe and chain on rack brackets (1.4); wrench and hammer on the workbench (0.9); bottle on a crate (0.95); extinguisher on a bracket by the fire door (1.3); crate, brick, skateboard and bin lid on the floor.
+    - Hazards (4): panel on the east wall by the stair foot (chains to the steel stair, P9 rule R3); steam on the west wall blowing +x; load on the crane hoist (support post 1.7 m toward the front); glass = the office window.
+    - Modes: brawler, 4 waves (entries: loading-bay door, fire door, down the mezzanine stair); 1v1 / Tournament ring in the centre, no ring-out.
+    - Look: warm sodium high-bay lights, dust in the air; audio as today.
+  - City Fight Gym (rework of the Dojo per P1-07: a modern martial-arts gym; id stays `dojo`):
+    - Layout: competition mat in the centre (taped 8 x 7 m square = the ring); west a raised sparring ring; east weights corner, 3 lockers and a mirror wall; back a rice-paper partition pair in front of the office corner (the kept paper look) and 2 makiwara posts; front-east the entrance with a vending machine.
+    - Verticality: sparring ring = `stage` deck 1.0 m (fixed) at x -9.6..-5.2, z -2.2..2.2, ropes = 3 metal rails (y 1.0, fixed), 4 steps at the front-east corner. Mezzanine office / viewing deck `slab` 2.5 m (fixed) at x 4..10, z -6..-3.6 with a stair on its west side and 2 glass balustrade panels (y 2.5) on the front edge: breaking one opens the edge (a fall). Not "vertical" for P8-04: nothing collapses.
+    - Destructibles (15): 3 lockers (sheet metal), mirror wall (glass), 2 balustrade panels (glass), 2 paper partitions (paper, shoji look), 2 benches (wood), 2 makiwara posts (wood, hpMul 1.6), vending machine (plastic), shower-block pillar (tile), fire door (metal).
+    - Items (6): 2 escrima sticks on a wall rack (1.4); broom on a bracket by the lockers (1.3); bottle on a bench (0.5); folding chair on the floor by the ring; extinguisher on a bracket by the door.
+    - Hazards (2): glass = the mirror wall; panel = the fuse box beside the lockers (chains to the lockers, R3).
+    - Modes: 1v1 only (no waves); Tournament ring-out yes (mat tape).
+    - Look: cool fluorescent strip lights, mirrors, bright mats; the orange paper lanterns go (P1-07); dry, close sound (reverb 0.5).
+  - Underground Pit (rework; an old boiler-room fight club):
+    - Layout: the pit in the centre inside chain-link cage rails with 2 gaps; back the boiler wall with steam pipes; west a makeshift bar (counter 1.05 m, standable); east the street stair down from a landing; the silhouette crowd behind the back line and along the west (cosmetic, P9 R8).
+    - Verticality: street landing `grate` deck 2.5 m (fixed) at x 7..10, z -6.5..-3.5 with a stair climbing +x from x 4.5. Unstable: rusty catwalk, `grate` deck 2.5 m, sheet metal, weak 2, along the back (x -6..4, z -6.5..-5.3), joined to the landing (collapses: 2.5 m fall plus crush below).
+    - Destructibles (16): 3 barriers (concrete), 2 pillars (one concrete, one brick), 3 cage rails (metal), observation glass (glass), bar counter (wood), sofa (wood), speaker stack (wood), catwalk (sheet-metal deck), 2 crates (wood), bin (plastic).
+    - Items (10): bin lid (floor); chain and brick on barriers (0.85); pipe and wrench on pillar brackets (1.4, 1.3); crate and extinguisher (floor); 2 bottles on the bar (1.05); bat on a bracket behind the bar (1.3).
+    - Hazards (4): 2 fire barrels (west and east of the cage), steam on the boiler wall, glass = the observation glass.
+    - Modes: 1v1 only (no waves); Tournament ring inside the cage, no ring-out.
+    - Look: dark, warm barrel fire, one cold lamp cluster over the cage (as today, P1-07 keep).
+  - City Rooftop (new):
+    - Layout: open roof with a painted helipad square in the centre (the ring); brick parapet (barriers 0.85 m, standable) round the back and east edges with 2 gaps; the stair housing block (east-centre) with a fire door; lounge corner front-east (sofa, table, 2 chairs); 3 AC units and an electrical box west-centre; a lit billboard on posts at the back-west; chimney stack.
+    - Verticality: water-tank deck `grate` 2.0 m (fixed) at x -11..-7, z -7..-3.5, stair on its east side. Unstable: billboard catwalk, `grate` deck 2.0 m, sheet metal, weak 2, at x -7..-3.5, z -7..-6, joined to the tank deck. AC units (1.0 m) are jump-up stepping stones.
+    - Destructibles (21): 5 parapet barriers (brick), 3 AC units (sheet metal, plain box), chimney (brick column), stair housing (concrete, hpMul 3), fire door (metal), sofa (wood), table and 2 chairs (plastic), 2 bins (plastic), stairwell glass door (glass), catwalk (sheet-metal deck), 2 billboard posts (metal).
+    - Items (10): 2 bricks by the broken parapet (floor); bottle on the lounge table (0.75); skateboard and folding chair (floor); pipe on a billboard-post bracket (1.4); bin lid by the bins; wrench on an AC unit (1.0); extinguisher and broom on brackets on the stair housing (1.3).
+    - Hazards (4): drop 1 in the back parapet gap (x -3..1, z about -6.4, a 1.2 m strip); drop 2 in the east gap (x about 10.4, z 2..5); panel = the electrical box (chains to the AC units, R3); fire = an oil-drum brazier by the lounge.
+    - Modes: brawler, 4 waves (all from the stair-housing door, the last also from the tank deck); Tournament ring-out yes (helipad paint; both drops lie outside the ring).
+    - Look: night, deep blue sky, city-glow fog, warm billboard light; wind and distant traffic.
+  - Subway Station (new):
+    - Layout: a long platform; the track bed along the back (z -6.5..-4.1) with rails and warning lamps; yellow edge line; the west end is the ticket-hall mezzanine; the east end is a tunnel mouth with a repair scaffold; tiled pillars in two rows; benches, vending machines, an ATM, a newspaper kiosk and an advertising shelter on the platform.
+    - Track: the engine has no floor below 0, so the track bed is at platform level (drawn as ballast and rails; the platform kerb is a drawn 0.25 m strip). The train is the P7-05 `train` row along x (yaw pi/2, hx 1.2 across, hz 12 along), every 1500 ticks (25 s) with the 2 s lamps.
+    - Verticality: mezzanine `slab` 2.5 m (fixed) at x -12..-8, z -1..6.5, reached by a stopped escalator (stair 1.2 m wide, 10 steps, metal). Unstable: repair scaffold at the tunnel mouth (scaffold generator, 1 bay x 1 tier at 1.5 m, east end in front of the track).
+    - Destructibles (17): 4 pillars (tile), 2 benches (metal, bench look), 2 vending machines (plastic), ATM (metal), advertising shelter (glass, bus-stop look), kiosk (wood, market-stall look), cardboard boxes (paper), 2 bins (plastic), service fire door (metal), scaffold section (metal) and its tier deck (wood).
+    - Items (8): bin lid by a bin; bottle on a bench (0.5); broom and extinguisher on pillar brackets (1.3); skateboard (floor); pipe on the scaffold tier (1.5, host = the tier deck); wrench on the kiosk counter (0.9); chain by the escalator foot (floor).
+    - Hazards (3): train; panel = the signal box at the tunnel mouth (chains to the scaffold section and the escalator, R3); glass = the advertising shelter.
+    - Modes: brawler, 5 waves (entries: down the escalator, out of the tunnel along the track, the service door); 1v1 ring includes the platform edge and the near track (the train is the level's identity), no ring-out.
+    - Look: cold fluorescent tubes, white tiles, red warning lamps; long reverb, low rumble.
+  - Parking Garage (new):
+    - Layout: lower deck with 2 rows of bays and 3 parked cars; 4 concrete pillars on a grid; ramp up the west side to an upper split deck at the back; lift lobby (glass) and stairwell fire door back-east; ticket booth (glass) with a barrier arm front-east; EV charging posts in the east bays; a dumpster corner.
+    - Verticality: upper split deck `slab` 2.0 m (fixed) at x -11.5..2, z -7..-4.5, with 2 concrete kerb barriers (y 2.0) on its front edge and gaps between them; ramp = stair generator with the `ramp` look (0.2 m rise, 0.6 m run) along the west wall. Not "vertical" for P8-04: nothing collapses (the open edge gaps give 2 m falls).
+    - Destructibles (18): 3 parked cars (sheet metal), 4 pillars (concrete), dumpster (sheet metal), pay machine (metal, ATM look), lift-lobby glass (glass, bus-stop look), ticket-booth glass (glass panel), barrier arm (metal rail), 2 kerb barriers (concrete, y 2.0), stairwell fire door (metal), 2 bins (plastic), cardboard boxes (paper).
+    - Items (10): bat and wrench on car bonnets (0.9, host = the car); chain on the barrier arm (1.0); pipe, brick, crate and bin lid (floor); extinguisher on a pillar bracket (1.3); skateboard on the upper deck (2.0, host = the deck); bottle (floor by the booth).
+    - Hazards (3): panel = an EV charging post (chains to the parked car beside it, R3); fire = an oil-drum brazier in the dumpster corner; glass = the ticket booth.
+    - Modes: brawler, 4 waves (entries: down the ramp, the stairwell door); 1v1 ring on the lower deck, no ring-out.
+    - Look: green-white fluorescent tubes, grey concrete, low ceiling beams; strong echo; a hit car blinks its lights and sounds its alarm (cosmetic, P9 R8).
+  - Construction Site (new):
+    - Layout: poured slab in the centre (the ring); a scaffold against the unfinished building along the back; the open slab edge / lift-shaft opening on the east with barrier tape; site office container front-west with a window; crane hanging a pallet of bricks centre-left; brick stacks, cement bags, a sawhorse table, a portable toilet, mesh-fence rails front and west; the generator board beside the scaffold; a brazier.
+    - Verticality: scaffold generator, 3 bays x 2 tiers (tier 1 at 1.5 m, tier 2 at 3.0 m, stepped back 1.2 m), along x -6..0 at the back, stair at the west end. Unstable: each tier deck is wood, weak 3; striking a bay's steel standard down (metal, hpMul 0.5) collapses that bay's tiers (falls plus crush below, P9 R6).
+    - Destructibles (20): 3 scaffold sections (metal) and their 6 tier decks (wood), container (sheet metal) and its window (glass), 2 brick stacks (brick, 0.9 m, standable), 2 cement-bag piles (paper), sawhorse table (wood, table look), portable toilet (plastic), 2 fence rails (metal), crate (wood).
+    - Items (10): hammer on the sawhorse table (0.9); wrench and a brick on a brick stack (0.9); a brick on the floor; pipe on tier 1 (1.5, host = the tier); chain on a fence rail (1.05); broom and extinguisher on container brackets (1.3); crate (floor); bottle on the table.
+    - Hazards (4): drop = the east slab edge (x about 11, z -2..2); load = the crane pallet (support post toward the front); panel = the generator board (chains along the 3 scaffold sections, R3: anyone touching the frame is shocked); fire = the brazier.
+    - Modes: brawler, 5 waves (entries: site gate front-west, down the scaffold stair, the boss on tier 2); Tournament ring-out yes (slab edge).
+    - Look: dusk, orange sky, white floodlights on the scaffold; wind, distant traffic, a radio.
+  - Night Club (new):
+    - Layout: the dance floor in the centre (lit squares by the floor shader; the ring); DJ stage across the back; VIP balcony on the east; bar counter along the west with 3 stools; 2 tables with chairs front-west; 2 mirrored tile pillars; fire-door exit east-front; front door west-front; the crowd silhouettes along the walls and the balcony (cosmetic, P9 R8).
+    - Verticality: the stage that breaks: `stage` deck 1.0 m at x -5..5, z -7..-4.6, wood, hpMul 3, weak 4, 4 steps at each end; 2 speaker stacks and the DJ table stand on it (`on` = the stage: they topple when it breaks). VIP balcony `slab` 2.5 m (fixed) at x 7..11, z -7..-1, stair along the east wall from the front, 2 VIP sofas on it (y 2.5), 2 glass balustrade panels (y 2.5) on its west edge (break = an open edge).
+    - Destructibles (20): stage (wood deck), 2 speaker stacks (wood), DJ table (table look, wood), bar counter (wood), 3 stools (plastic, chair look), 2 tables and 2 chairs (plastic), 2 VIP sofas (wood), 2 balustrade panels (glass), 2 pillars (tile), fire door (metal), beer crate (wood).
+    - Items (9): 3 bottles (bar counter 1.05, two tables 0.75); folding chair by the stage (floor); bat on a bracket behind the bar (1.3); chain and bin lid by the fire door (floor); extinguisher on a bracket by the fire door (1.3); crate (beer crate, floor).
+    - Hazards (3): panel = the stage power box at the stage's east end; glass = a VIP balustrade panel; steam = a CO2 jet cannon at the stage front blowing +z (a real club effect; the `steam` row with the CO2 look and sound).
+    - Modes: brawler, 5 waves (bouncers first; entries: front door, fire door, down the VIP stair; the boss waits on the stage); Tournament ring-out yes (dance-floor edge).
+    - Look: dark room, coloured moving spotlights (magenta, blue, amber: real club lights, never on the fighters), strobe only through the P13-03 reduce-flashes setting; thumping bass, 124 bpm, short muffled reverb.
+  - Data shape (P8-03 / P8-04 implement it; every field is optional, so the current rows keep working):
+    - `objects` rows gain: `type: 'deck'` (a standable block: the collider runs from the floor to `h` like every collider, and is standable at any height, unlike `box`, which is standable only at 0.8-1.05 m; looks `slab`, `grate`, `boards`, `stage`, `ramp`, drawn by the shared deck generator: top, edge stripe, side face by look); `y` (an object standing on a deck: drawn from `y`, collider top `y + h`; only inside or on the edge of a deck footprint, because the collider still runs from the floor and the deck below is solid anyway); `on` (the id of what it rests on: it falls when that breaks, P9 rule R6); `weak` (the fighter-weight that breaks it, R7); `fixed: 1` (takes no damage: sturdy decks, their stairs, ropes).
+    - Decks are solid down to the floor (their side is drawn as a wall, an office front, a cross-braced frame or mesh sheeting), so nobody walks under a deck. This keeps collision, `supportAt`, the camera line test and the CPU edge checks unchanged.
+    - `builds` rows, expanded by `Arena.build` into plain `objects` rows before `makeObject` (ids `<id>.<n>`), so damage, breaking, debris and the self-tests see ordinary objects:
+      - `['stair', id, x, z, dir, width, from, top, mat, look, on]`: steps from height `from` (0 = the floor, or a deck top) to `top`, the foot at (x, z), climbing toward `dir` (0 = +z, 1 = +x, 2 = -z, 3 = -x); each step a `deck` of 0.25 m rise (exactly the 0.25 m step-up tolerance of `resolveFighter`) and 0.35 m run, or 0.2 / 0.6 for the `ramp` look; fixed unless it belongs to a weak structure (then `on` it). It stores a `foot` and a `head` waypoint for the CPU.
+      - `['scaffold', id, x, z, bays, tiers, stairSide]`: bays of 2.0 m (x) by 1.2 m (z) side by side from (x, z) toward +x. Per bay one `scaffold` look metal object (the collider is one 0.2 x 0.2 m standard at the bay's front middle, h = tiers x 1.5 + 1.0; the look draws the whole bay frame and sheeting), hpMul 0.5; per tier one wood `boards` deck `on` that standard, weak 3, tier k at k x 1.5 m and stepped back 1.2 m per tier (a collider is a column from the floor, so tiers are terraced); a stair at the `stairSide` end (-1 west, 1 east) to each tier, its steps `on` the tier below.
+    - Level fields: `ring: [x, z, hx, hz, ringOut]` (P8-05), `waves: [[count, x, z, rival]]` (brawler levels only), `crowd: 1` (P9 R8 layer). Items keep `[id, x, z, height, host]` with a deck allowed as host. Hazards keep their rows.
+    - CPU (P8-04): a CPU whose target stands more than 0.4 m above or below it walks to the nearest stair `foot` (or `head`), then along the stair; the P3-07 edge rule still stops it walking off. Item heights for the pick-up bands and the CPU's floor-item rule are measured from the picker's footing (today they use the absolute `y`), so items on decks work.
+    - Limits per level: at most 24 authored objects, 40 generated step and deck objects, 60 colliders in all (hazard posts included), 10 placed items, deck tops at most 3.0 m.
+- System rules matrix (P9-01, decided 2026-10-29 by the coordinator under the owner's standing go "complete the tasklist"; the owner can change any row). Generic rules: every source has a damage type, every object a material, every fighter a few states; the effect comes from the table, never from a per-level or per-object script. No wet / water rule (owner removal). P9-02 implements it.
+  - Sources -> damage type: fists, feet and blunt weapons = blunt; the bottle and glass shards = sharp; a panel arc = electric; a fire barrel's spill and a burning object = fire; a thrown item, a thrown or knocked fighter, a landing = impact (for objects the existing `throw` / `impact` categories); a falling load, a falling piece and a collapsing deck's boards = crush; the train = impact x3 (breaks every object and item in its zone); steam and the CO2 jet = push only (no damage to objects).
+  - Matrix (9 materials x 6 damage types; "x" = multiplier on `MATERIALS.mult`, a missing one is 1; blunt and impact keep today's punch / kick / heavy / throw / impact values; HP as in `MATERIALS`, the 4 new rows below):
+
+    | Material | HP | Blunt | Sharp | Electric | Fire | Impact (thrown / fighter) | Crush | Breaks into |
+    |---|---|---|---|---|---|---|---|---|
+    | wood | 60 | breaks | x0.3 | - | ignites, burns 8 s | breaks (x1.8 / x1.3) | breaks x1.5 | planks, 0.22 m rubble |
+    | concrete | 170 | breaks slowly | x0.1 | - | - | x1.5 / x1.0 | x1.2 | chunks, 0.55 m rubble |
+    | metal | 110 | dents | x0.1 | conducts | - | x1.5 / x1.1 | x1.0 | rods |
+    | glass | 16 | shatters | x1.0 | - | - | shatters (x2.4 / x2.2) | shatters x2.2 | shards (a glass-wall hazard leaves its shard strip) |
+    | paper | 10 | tears | x1.6 | ignites (arc sparks) | ignites, burns 3 s | x2.4 / x2.2 | x2.2 | scraps |
+    | brick | 140 | breaks | x0.1 | - | - | x1.6 / x1.2 | x1.3 | chunks in brick colour, 0.4 m rubble, plus 1 brick item |
+    | plastic | 40 | breaks | x0.6 | ignites (arc sparks) | ignites, burns 5 s, black smoke | x1.6 / x1.4 | x1.6 | coloured shards |
+    | tile | 50 | shatters | x0.3 | - | - | x1.8 / x1.6 | x1.6 | tile shards, 0.55 m core rubble |
+    | sheet metal | 80 | dents | x0.4 | conducts | - | x1.4 / x1.2 | x1.4 | panels (a car: lights and alarm, cosmetic) |
+
+  - New `MATERIALS` rows (P1-05's 4; resist, then punch / kick / heavy / throw / impact): brick 5, 0.4 / 0.75 / 1.2 / 1.6 / 1.2; plastic 1, 1.2 / 1.4 / 1.8 / 1.6 / 1.4; tile 2, 0.8 / 1.0 / 1.5 / 1.8 / 1.6; sheet metal 3, 0.6 / 0.9 / 1.2 / 1.4 / 1.2. Each row also gets `burn` (ticks, 0 = never), `cond` (1 = conducts) and `debris` (which of the 4 existing break recipes it uses: brick -> concrete, plastic -> wood, tile -> glass, sheet metal -> metal), so `breakObject` picks the recipe by data. Sheet metal and metal use the metal stage names (Dented, Bent).
+  - Fighter states (one flag or timer each; they stack by plain rules, no pair needs special code):
+
+    | State | Comes from | Effect | Ends | Combines |
+    |---|---|---|---|---|
+    | burning | 1 tick in a fire zone | 2 dmg every 20 ticks, no control change | 40 ticks after the last touch, a knockdown (stop, drop and roll) or an extinguisher cone | a burning fighter never ignites objects (keeps the fire cap) |
+    | shocked | an arc, or a chained metal object it touches | the P7-05 shock: 14 dmg + 40-tick stun; drops a held metal item (pipe, hammer, wrench, chain, bin lid, extinguisher) | the stun ends | passes to a clinch or hold partner; a shocked fighter is stunned |
+    | stunned | heavy hits, bottle shatter, guard break, shock | as today | as today | in a hazard zone it takes the full effect (it cannot block) |
+    | airborne | jump, throw flight, fall | floor zones (fire, shards, steam, arc) skip a fighter whose feet are above 1.0 m over its footing (`HAZARD_HEIGHT`) | landing | a thrown fighter is an impact on what it hits; landing on a weak deck is a load hit (R7) |
+    | downed | knockdown | shards (2 dmg), fire and crush still hit; only ground strikes | get-up | puts out burning |
+
+  - Rules (one implementation function each):
+    - R1 Damage routing: every object hit names its damage type and goes through `Arena.damageObject` (existing; new categories `sharp`, `crush`, `fire`); electric does no HP damage. Fighters take the same sources through the existing damage path (`hitObjects` for strikes on scenery, the HAZARDS handler `MatchSim.stepHazards` for zones).
+    - R2 Breaks, shatters, dents: HP 0 -> `Arena.breakObject` (existing) with the material's `debris` recipe and rubble; hosted items fall (existing host rule); a broken brick object leaves 1 brick item; tile and glass leave a shard patch (the bottle-shard patch of `stepHazards`).
+    - R3 Conducts: at `Arena.build`, `Arena.linkConductors` chains metal and sheet-metal objects whose footprints are within 0.3 m of each other or inside a panel's arc circle (at most 6 per chain; this reuses the hazard `links` field the wet floor used). When the panel arcs, every fighter within 0.4 m of a chained object is shocked once per activation. A thrown metal item sets a panel off (existing `metalOnly`).
+    - R4 Fire: `Arena.stepFire`. A flammable object (`burn` > 0) ignites after 30 ticks in a fire zone or at once inside an arc circle (paper, plastic). A burning object loses its HP evenly over its `burn` time, breaks charred (dark colour) at 0, and is itself a fire zone of its half size + 0.5 m (a transient `fire` hazard with `life`, like the bottle shards). Spread: every 60 ticks each burning object ignites the nearest unburnt flammable object within 1.0 m (neighbour lists built once at `Arena.build`, ties to the lower index). A burning deck loses HP like any object, so a fire can drop a stage. The extinguisher cone (item special `spray`) puts out objects, fighters and a spilled fire barrel (its active phase ends).
+    - R5 Thrown things: a thrown item hits objects with the `throw` category (glass shatters at x2.4) and hazards (metal sets off a panel); a thrown or knocked fighter is an `impact` (existing paths in `hitObjects` and the thrown-item hit).
+    - R6 Supports and falls: `Arena.dropSupported`, called from `breakObject`. Everything `on` the broken object falls (decks, speakers, steps of a higher tier); a broken deck drops the fighters on it (P3-07 fall) and its hosted items. Each falling piece lands as crush on fighters and objects under its footprint + 0.3 m: fighters take 10 + 6 per metre fallen (at most 30) and are knocked down from 20; objects take crush damage, so a collapse can chain. Crush uses the falling-load branch of `stepHazards` (a one-shot zone, first-tick damage).
+    - R7 Load: `Arena.stepLoad`, every 6 ticks. A `weak` deck counts the fighters standing on it (weight class 3-4 counts 2). At or over `weak` for 60 ticks: a 36-tick creak (shake and sound; the CPU steps off), then it breaks (R6). A knockdown landing or a thrown fighter landing on it is an impact of raw 20.
+    - R8 Crowd and bystanders (Night Club, Pit; car alarms in the Garage): a renderer-only layer, `Crowd.react`, listening to `Events` (object break, knockdown, KO, hazard): bystanders within 3 m lean away or scatter for 2 s, cheer on a KO. Never colliders, never damaged, no simulation state, no random numbers (`hash01`), so seeded tests and online play are unaffected.
+    - R9 CPU use (P9-02 "AI can cause it"): `considerHazard` grows into one trigger rule for all of the above: strike a trigger (panel, fire barrel, load support, scaffold standard, a weak deck's support) or knock the target toward its zone when the target stands in the zone it would make (hazard zone, conductor chain, crush footprint, weak deck).
+  - Performance caps (P8-06 sets the per-preset debris values): at most 4 burning objects (further ignitions wait); spread every 60 ticks and ignition checks every 10 ticks over the prebuilt neighbour lists (no all-pairs per tick); conductor chains built once per level, at most 6 objects; at most 8 falling pieces at once and 4 crush landings per tick (the rest the next tick); at most 8 transient zones (burning objects) besides the 6 shard patches (`HAZARD_SHARD_MAX`); load checks every 6 ticks; debris stays under `DEBRIS_MAX` 220. The new rules draw no random numbers except the debris recipes (`simRng`, as today), so P12 determinism holds. Code estimate: the P1-05 P9 line (9,000 bytes).
+- Story lists (P10-01, decided 2026-10-29 by the coordinator under the owner's standing go "complete the tasklist"; the owner can change any row). The P1-05 counts: 64 countries in 10 regions, 24 origins, 24 goals. Every country, origin and goal of the 32 presets (P1-06) is in the lists with the same spelling, so the `ROSTER` story fields map by name.
+  - Rules: each list is an append-only array (the share code stores the index, P6-10; a row is never moved or deleted). Saves store stable ids: country = ISO 3166-1 alpha-2 code, origin and goal = the short ids below. Plain ASCII only (Sao Paulo, Malmo). No national stereotypes: a country gives the text its city and the beats its region, nothing else; the style never follows the country (P1-06). Story settings change text, cutscene poses, rivals, the boss order, the stage order and rewards; they never change stats or a fight rule, so P14-02 has nothing to balance for them. The whole Arcade run takes place in the fighter's city (`{city}`); "the title" is that city's belt.
+  - Defaults (a fighter without story fields: old customs and codes, `randomCustom`): CA, gymkid, title (KAI's settings). The creator's Randomize draws all three from its own stream, as `randomBody` does.
+  - Countries (list order = this table, row by row, left to right; index 0 = Canada; region index = row 0 to 9). Region effects: the region line is the first box of B1 (`{city}` = the country's city); the home level is Arcade stage 1 and leaves the stage 3 / 5 pool (P10-02); the sign hue tints posters, billboard and kiosk faces in every level of the run (a matte colour only); the region index turns the boss order.
+
+    | Region (tag) | Home level | Sign hue | Region line (B1) | Countries (id, city) |
+    |---|---|---|---|---|
+    | North America and Caribbean (nam) | garage | #f2a33a amber | "{city}: big lights, small gyms and a fight on every block." | Canada (CA, Toronto); USA (US, Detroit); Mexico (MX, Mexico City); Jamaica (JM, Kingston); Cuba (CU, Havana); Dominican Republic (DO, Santo Domingo) |
+    | South America (sam) | construction | #3ec46d green | "{city} builds fast and hits hard. You grew up in the noise." | Brazil (BR, Sao Paulo); Argentina (AR, Buenos Aires); Colombia (CO, Medellin); Chile (CL, Santiago); Peru (PE, Lima); Venezuela (VE, Caracas) |
+    | Western Europe (weu) | subway | #4a8fe0 blue | "In {city} the real fights start after the last train." | UK (GB, London); Ireland (IE, Dublin); France (FR, Marseille); Netherlands (NL, Rotterdam); Belgium (BE, Antwerp); Germany (DE, Hamburg) |
+    | Southern Europe (seu) | warehouse | #e8573c red | "{city} by the sea: hot nights, old docks, loud crowds." | Spain (ES, Barcelona); Portugal (PT, Lisbon); Italy (IT, Naples); Greece (GR, Athens); Croatia (HR, Split); Serbia (RS, Belgrade) |
+    | Nordic and Eastern Europe (neu) | warehouse | #9fb4c8 steel | "Long winters in {city}. The gym was the warmest room in town." | Sweden (SE, Malmo); Norway (NO, Oslo); Finland (FI, Helsinki); Poland (PL, Gdansk); Ukraine (UA, Odesa); Romania (RO, Bucharest); Czechia (CZ, Prague) |
+    | Caucasus and Central Asia (cau) | construction | #c9a24a ochre | "In {city} old wrestling halls stand between new towers." | Georgia (GE, Tbilisi); Armenia (AM, Yerevan); Azerbaijan (AZ, Baku); Kazakhstan (KZ, Almaty); Uzbekistan (UZ, Tashkent); Kyrgyzstan (KG, Bishkek) |
+    | Middle East and North Africa (mea) | garage | #e0c35a sand | "{city} never sleeps, and neither do its street fights." | Israel (IL, Tel Aviv); Turkey (TR, Istanbul); Lebanon (LB, Beirut); Egypt (EG, Cairo); Morocco (MA, Casablanca); Tunisia (TN, Tunis) |
+    | Sub-Saharan Africa (afr) | warehouse | #f07d2a orange | "{city} is crowded, quick and proud. So are its fighters." | Nigeria (NG, Lagos); South Africa (ZA, Durban); Ghana (GH, Accra); Kenya (KE, Nairobi); Senegal (SN, Dakar); Ethiopia (ET, Addis Ababa); Cameroon (CM, Douala) |
+    | South and Southeast Asia (sas) | subway | #e04a8f magenta | "In {city} the crowds never end, and neither does the competition." | India (IN, Mumbai); Pakistan (PK, Karachi); Thailand (TH, Bangkok); Vietnam (VN, Ho Chi Minh City); Philippines (PH, Manila); Indonesia (ID, Jakarta); Malaysia (MY, Kuala Lumpur) |
+    | East Asia and Oceania (eao) | subway | #39c6d6 teal | "{city}: neon, night trains and fight clubs nobody talks about." | Japan (JP, Osaka); China (CN, Shanghai); South Korea (KR, Busan); Mongolia (MN, Ulaanbaatar); Australia (AU, Sydney); New Zealand (NZ, Auckland); Samoa (WS, Apia) |
+
+  - Origins (list order = the P1-06 proposed order). Origin effect: its line is the fighter's box in B1 (first person, at most 64 characters); its tone picks the variant of every tone-keyed beat, rival B, the B1 pose and a preset's intro emote (tone table below).
+
+    | # | Id | Origin | Line (B1) | Tone |
+    |---|---|---|---|---|
+    | 0 | gymkid | Gym kid | "I grew up sweeping the floor of a boxing gym." | ordinary |
+    | 1 | working | Working class | "Two jobs in my family. Nobody ever took a day off." | ordinary |
+    | 2 | wealthy | Wealthy family | "Private tutors, a big house, and something to prove." | strict |
+    | 3 | immigrant | Immigrant family | "New country, new language. I learned to stand up early." | rough |
+    | 4 | military | Military family | "Base to base, and drills before breakfast." | strict |
+    | 5 | foster | Foster care | "Six homes by sixteen. I don't trust easily." | rough |
+    | 6 | smalltown | Small town | "Everyone back home knows my name. Nobody thought I'd leave." | ordinary |
+    | 7 | street | Big-city street | "Raised on corners and rooftops. Quick hands, quicker eyes." | rough |
+    | 8 | sports | Sports family | "Medals on every wall. Second place counts as losing." | strict |
+    | 9 | dropout | College dropout | "I left the lecture hall for the mat." | ordinary |
+    | 10 | office | Office worker | "Desk by day, gym by night." | ordinary |
+    | 11 | police | Police family | "My parents wore the badge. I know the rules and where they bend." | strict |
+    | 12 | martial | Martial arts family | "The family school comes first. Always." | strict |
+    | 13 | singleparent | Single parent | "One tired, stubborn parent raised me. I got the stubborn part." | rough |
+    | 14 | nightshift | Night-shift worker | "I work while the city sleeps." | rough |
+    | 15 | delivery | Delivery rider | "I know every street and every shortcut in town." | rough |
+    | 16 | farm | Farm family | "Up at five. Real work made me strong." | ordinary |
+    | 17 | restaurant | Restaurant family | "I grew up in a busy kitchen. I feed everyone." | ordinary |
+    | 18 | bouncer | Bouncer family | "Door work runs in my family." | ordinary |
+    | 19 | boarding | Boarding school | "Raised by rules, bells and dormitories." | strict |
+    | 20 | orphanage | Orphanage | "No family name to carry, so I'm making one." | rough |
+    | 21 | port | Port town | "Docks, cranes and rough bars. That was my school." | rough |
+    | 22 | teacher | Teacher's child | "Homework first, fights never. Until now." | strict |
+    | 23 | famous | Famous parents | "I grew up in the papers. I want a name of my own." | strict |
+
+    | Tone (8 origins each) | Voice of the tone-keyed beats | Rival B (first that is neither rival A nor the player) | B1 pose | Preset intro emote |
+    |---|---|---|---|---|
+    | rough | blunt, short sentences, street words, no swearing | ROXY, DIEGO, KELSEY, GIORGI, FEMKE, DEACON | crossed_arms | crossed_arms |
+    | ordinary | warm and plain | DIEGO, KELSEY, ROXY, GIORGI, FEMKE, DEACON | idle_relaxed | glove_tap |
+    | strict | formal and disciplined | KELSEY, FEMKE, GIORGI, ROXY, DIEGO, DEACON | nod | nod |
+
+  - Goals (list order = the P1-06 proposed order). Goal effect: the motive picks rival A, rival A's lines and the ending pose; the arc gives three boxes, B2 (set-up), B10 (midpoint) and B14 (ending), each one box written from the hint (at most 90 characters, spoken by the fighter); the first Arcade clear with that goal (any fighter carrying it, presets included) gives the reward (P10-05). The line is the creator hint (at most 60 characters). Thrill seeking is the ideas file's "psychopath", kept non-gory: the rush of a fair fight, nobody harmed outside it.
+
+    | # | Id | Goal | Line (creator hint) | Motive | Arc hint: set-up / midpoint / ending | Clear reward |
+    |---|---|---|---|---|---|---|
+    | 0 | loseweight | Lose weight | The doctor said lose weight. The gym said fight. | body | winded on the gym stairs, signs up anyway / a belt notch tighter, takes the Pit stairs two at a time / the scale at home says down again, and still unbeaten | track jacket |
+    | 1 | friends | Make friends | New in town, and nobody to call. | bond | eats alone after the first fight / rival A says hello in the street / the rivals take a group photo on the rooftop (rival A stands in the ending shot) | board shorts |
+    | 2 | revenge | Revenge | Someone hurt a person I love. I want a reckoning. | past | names the crew that did it / learns it was ZERO's crew / wins, then turns and walks away: no violence after the bell | leather gloves |
+    | 3 | title | Win the title | The city belt. Nothing else matters. | title | wants the belt / the champion knows the name now / holds the belt up over the city lights | leather jacket |
+    | 4 | worth | Prove worth | Everyone said I wasn't good enough. | body | turned away by every gym / the doubters go quiet / signs a sponsor deal with their own name on it | chest_pound (emote) |
+    | 5 | protect | Protect family | Threats at home. I end them in the ring. | family | a threat left at the family's door / the family moves somewhere safe / everyone safe at one table | boxing headgear |
+    | 6 | debt | Pay a debt | I owe the wrong people. Prize money pays. | past | a deadline from the lenders / half paid after the Pit / tears up the note | work boots |
+    | 7 | mentor | Honor a mentor | My coach's last wish: win the city title. | bond | a promise at the coach's photo / wears the coach's old wraps / leaves the belt by the photo | bag gloves |
+    | 8 | redemption | Redemption | I made mistakes. Time to make them right. | past | an old wrong to fix / the person they hurt watches from the crowd / shakes that person's hand | wave (emote) |
+    | 9 | fame | Fame | A million followers, one fight at a time. | fame | counts followers / the clips go viral / turns the buzzing phone off and enjoys the view | chain |
+    | 10 | escape | Escape the past | New city, new name, new start. | past | arrives with one bag / the past catches up at the Pit / drops the old jacket from the roof and walks away free | balaclava |
+    | 11 | thrill | Thrill seeking | I live for the rush of a real fight. | fame | bored of easy fights / every fight bigger, still not enough / shrugs at the belt and asks where the next fight is | laugh (emote) |
+    | 12 | undefeated | Stay undefeated | Never lost. Not starting now. | title | a perfect record / a close call at the Pit, the record holds / record intact, walks off without looking back | sunglasses |
+    | 13 | neighborhood | Defend the neighborhood | A gang pushes my street around. Not anymore. | bond | the gang's tags on the walls / the gang's boss is seen at the Pit / a street party, the tags painted over | bomber |
+    | 14 | champion | Beat the champion | Only one opponent matters: ZERO. | title | ZERO on a poster / ZERO's crew starts to worry / stands over the champion, then asks for a rematch | point (emote) |
+    | 15 | kids | Teach the kids | My free class needs money to stay open. | bond | the class may close / the kids watch the fights on a phone / teaches the kids the winning move | neck_crack (emote) |
+    | 16 | lasttitle | One last title | Old knees, one more run. | title | the last run / the body aches, the heart doesn't / hangs the gloves on the rooftop rail, smiling | towel |
+    | 17 | fit | Get fit | I want a body that can go twelve rounds. | body | out of breath after one round / breathing easier each night / runs up the rooftop stairs after the final, not winded | high-tops |
+    | 18 | provide | Provide for family | The rent is due. The prize money isn't. | family | the rent is late / the first prize goes home / buys the family a proper dinner | cargo pants |
+    | 19 | proud | Make family proud | My family has never seen me fight. | family | the family won't watch / the family calls after the Pit / the family in the front row on the rooftop | jersey |
+    | 20 | wrong | Prove them wrong | An old coach said I'd never make it. | body | the coach said never / sends the coach a photo from the Pit / the coach claps in the crowd | shrug (emote) |
+    | 21 | respect | Earn respect | Nobody in this city takes me seriously. | fame | laughed out of a gym / rivals nod in the street / ZERO bows first | fist_bump (emote) |
+    | 22 | sibling | Find a lost sibling | My sibling vanished into the fight scene. | family | a missing sibling somewhere in the city's fight clubs / a photo turns up at the Pit / the sibling is in the rooftop crowd, they hug | beckon (emote) |
+    | 23 | legacy | Leave a legacy | I want a name that outlives me. | fame | a name to build / kids copy the stance / opens a gym with the prize money | chest piece |
+
+    | Motive (4 goals each) | Rival A (stages 2 and 6) | B4 pose | B4 challenge (rival A) | B5 when beaten (rival A, pose kneel) | B10 pose (P) | B14 ending pose (P) |
+    |---|---|---|---|---|---|---|
+    | title | DEACON | point | "The title's mine one last time. Go home, kid." | "Fair. Hit like that up top and you might just do it." | glove_tap | arms (victory) |
+    | body | FEMKE | crossed_arms | "This isn't a fitness class. Leave the ring to athletes." | "Okay. You trained. I'll give you that." | idle_tired | flex (victory) |
+    | fame | DIEGO | phone | "Smile, you're live on my channel. This one gets views." | "Stop the stream. Stop it!" | phone | fist (victory) |
+    | past | KELSEY | think | "I know that look. Running from something? So was I." | "Whatever you carry, put it down. It's lighter that way." | head_down | shake_out |
+    | family | GIORGI | argue | "Everyone fights for family. Show me yours is enough." | "Go. They're waiting for you." | plead | wave |
+    | bond | ROXY | laugh | "Friends, kids, mentors. Cute. I'm here for the fun part." | "Ha! Finally someone worth the bus fare." | shake_out | fist_bump (rival A in the shot) |
+
+    When the player is rival A, the rival of the next motive in this table's order is used (bond wraps to title).
+- Arcade story structure (P10-02, with the P10-06 hybrid; decided 2026-10-29 by the coordinator under the owner's standing go "complete the tasklist"; the owner can change any row). Replaces the 5-bout ladder of "Preset roster (P5-04)" (`Game.ladderFor`). Single player only; Co-op Brawl stays its own mode.
+  - Stages (7 per run, 4 brawls and 3 1v1 bouts; every one of the 8 levels can appear):
+
+    | Stage | Fight | Level | Opponents | Beats before | Beats after |
+    |---|---|---|---|---|---|
+    | 1 | brawl, the level's first 3 wave rows | home level (region) | grunts | B1 Prologue, B2 Goal | B3 Word spreads |
+    | 2 | 1v1 | dojo (City Fight Gym) | rival A (motive) | B4 Challenge | B5 Beaten + choice |
+    | 3 | brawl, all waves | brawl pool, first | grunts; rival B leads the last wave | B6 Into the city; B7 when the last wave enters (the fight pauses) | - |
+    | 4 | 1v1 | pit | boss | B8 Setback, B9 Boss | B10 Midpoint |
+    | 5 | brawl, all waves | brawl pool, second | grunts | B11 Invitation | - |
+    | 6 | brawl, all 5 waves | club | grunts; after "Walk away" rival A leads the last wave; after "Offer a hand" the first wave has 1 enemy less and rival A is not there | B12 Club | - |
+    | 7 | 1v1 | rooftop | ZERO | B13 Champion | B14 Ending + reward toast, B16 Epilogue |
+
+  - Pool and boss: warehouse, subway, garage, construction minus the home level leaves 3 (`left`); stage 3 = left[c mod 3], stage 5 = left[(c + 1) mod 3], c = Arcade clears before the run (`run.clears`), so later runs show the third one. Boss = [HAO, MARLON, YOAV][(region index + c) mod 3], the next one when it is the player's fighter. Rivals, boss and levels are fixed when the run starts.
+  - Fight rules: 1v1 bouts are 2 wins, 60 s, never ring-out in Arcade; items and hazards follow the settings (inside the ring only, P8-05). Brawls use the level's waves (P8-01; the `rival` field gets rival B in stage 3, rival A in stage 6 after "Walk away"). CPU strength: the Arcade difficulty for every stage; the boss and ZERO keep the 1.0 boss tuning (`bossAttrs` for ZERO only). A rival or boss knocked out as a wave leader counts as beaten (P10-05). A lost stage plays B15, then Continue (retry the stage; counted as today for `arcadeFewestContinues`) or Quit.
+  - Saving: after each won stage the run is saved in Progress (`arcadeRun`, P10-05) and the main menu offers "Continue Arcade"; starting a new run replaces it. Reason: a full run takes about 20 minutes, too long for one phone session.
+  - Beats (16). Speakers: N = narrator (no body, box at the top, wide shot), P = the player's fighter, R = rival A, R2 = rival B, B = boss, Z = ZERO. Poses are ids of the P5-05 list below.
+
+    | Beat | When | Variant key | Boxes (speaker: source) | Camera; poses |
+    |---|---|---|---|---|
+    | B1 Prologue | before stage 1 | region, origin | N: region line; P: origin line | wide, then close on P; P by tone (crossed_arms / idle_relaxed / nod) |
+    | B2 Goal | before stage 1 | goal | P: goal set-up | close; think |
+    | B3 Word spreads | after stage 1 | tone | N: tone text | wide; P phone |
+    | B4 Challenge | before stage 2 | motive | R: challenge | two; R by motive, P crossed_arms |
+    | B5 Beaten | after stage 2 | motive, result | R: beaten line; with result flawless (no round lost) R: "Not even one round. Who trained you?"; then the choice | two; R kneel; "Offer a hand": P help_up, R handshake; "Walk away": P defeat_turn |
+    | B6 Into the city | before stage 3 | tone | P: tone text | wide; P by tone |
+    | B7 Rival B | stage 3, last wave entry | tone | R2: tone text | close on R2; by tone |
+    | B8 Setback | before stage 4 | tone | N: tone text | wide; P by tone |
+    | B9 Boss | before stage 4 | boss | B: boss line | two; B by boss, P crossed_arms |
+    | B10 Midpoint | after stage 4 | goal, motive | P: goal midpoint | close; P by motive |
+    | B11 Invitation | before stage 5 | tone | N: tone text | wide; P by tone |
+    | B12 Club | before stage 6 | choice | R: hand or walk line | two; hand: R fist_bump; walk: R angry |
+    | B13 Champion | before stage 7 | tone | Z: tone text | two; Z by tone, P glove_tap |
+    | B14 Ending | after stage 7 | goal, motive | P: goal ending; then the reward toast (first clear with that goal) | close, then wide; P motive ending pose, Z defeat_slump |
+    | B15 Get up | after a lost stage | tone | P: tone text | close; P by tone |
+    | B16 Epilogue | after B14 | tone, continues | N: tone text; with 1 or more continues N: "It took {continues} tries. Nobody remembers that part." | wide of the home level; P by tone |
+
+    | Beat | rough | ordinary | strict |
+    |---|---|---|---|
+    | B3 (N) | "Word gets round fast. Someone filmed it. Now the street knows your face." | "Next morning the whole block is talking. Your phone won't stop buzzing." | "A message: an invitation to the City Fight Gym. Proper rules. Proper rivals." |
+    | B6 (P) | "New part of town, same rules. Keep moving, keep swinging." (neck_crack) | "Never been this far across {city}. Let's see what they've got." (idle_stretch) | "Stay calm. Breathe. Do it the way you trained." (nod) |
+    | B7 (R2) | "These are my streets. You're just visiting." (beckon) | "Heard you were coming. Didn't think you'd get this far." (laugh) | "No referee here. Let's see what your training is worth." (crossed_arms) |
+    | B8 (N) | "Bruised and broke, you sleep on a friend's sofa. At dawn, a note: 'The Pit. Tonight.'" (sit_floor) | "One night at home: hot food, ice on the ribs, and a flyer for the Pit under the door." (idle_tired) | "Your old coach calls: 'The Pit is no gym. Keep your guard up.'" (phone) |
+    | B11 (N) | "A car waits outside the Pit: 'The champion wants you. Get past the crew first.'" (shocked) | "A ticket to the champion's club night, and a crowd paid to stop you on the way." (phone) | "A formal reply: the champion accepts. The champion's crew does not." (think) |
+    | B13 (Z) | "Street fighter. I've beaten a hundred like you. You're a hundred and one." (laugh) | "You came all this way. Shame it ends on a rooftop." (shrug) | "Discipline against discipline. Only one of us stays undefeated." (bow) |
+    | B15 (P) | "Been knocked down my whole life. Getting up is the easy part." (kneel) | "Okay. Deep breath. Again." (head_down) | "Find the mistake. Fix it. Again." (idle_tired) |
+    | B16 (N) | "Next day the kids on the corner know your name. Not bad for a nobody from {city}." (idle_relaxed) | "The whole street throws a party. You fall asleep before the cake." (laugh) | "A new photo goes on the wall in {city}. This one is yours." (nod) |
+
+    - B12: hand: "You gave me a hand. Here's mine: the back door's open. Go."; walk: "You walked away from me. Big mistake. Round two."
+    - B9: HAO "Fifty years of training. You have one night. Begin." (bow); MARLON "Down here nobody bows. We just finish." (beckon); YOAV "No rules, no referee. Just the next ten seconds." (glove_tap).
+  - Story rules (data, `STORY_RULES` rows `[condition, effect]`; P10-03 evaluates them, no per-character code): region -> stage 1 level, sign hue, boss order, B1 first box; tone -> rival B, the tone-keyed beats, B1 pose; motive -> rival A, B4 / B5 lines and poses, B10 and B14 poses; goal -> B2, B10, B14 text and the reward; `goal:friends` -> rival A stands in the B14 shot; `goal:revenge` -> B14 ends with P turning away; `choice:hand` -> stage 6 first wave -1 and no rival A, B12 hand line; `choice:walk` -> rival A leads stage 6's last wave, B12 walk line; `result:flawless` -> the extra B5 box; `continues:>=1` -> the extra B16 box. Condition grammar: `region:<tag>`, `tone:<tag>`, `motive:<tag>`, `goal:<id>`, `origin:<id>`, `choice:hand|walk`, `result:flawless`, `continues:>=1`. When two rows fill the same slot the more specific wins (goal and origin over motive and region over tone, choice and result), ties to the first row. Tokens: {name} {city} {rival} {rival2} {boss} {continues}.
+  - Endings: one per goal (B14 from the goal's ending hint, the motive's ending pose, the reward), then B16 by tone. A run that used continues adds the B16 box; there is no bad ending (a lost run just ends with Quit).
+  - Mini cutscenes (P10-04):
+    - In-engine: the stage's level is loaded and the cast stands in its 1v1 ring (P at x -1.2, the other at +1.2, facing each other). No sim ticks, no `simRng` draws, nothing written into a match; normal renderer, and each box may force one of the P6-09 looks (rested, hurt, tired, panting, angry, win, shocked) on its speaker.
+    - Data: a `CUTSCENES` row per beat `[beat, cam, cast]`, boxes `[speaker, pose, look, textKey]`; text keys look up the story tables (about 120 bytes a beat, P1-05).
+    - Camera: three presets, `wide` (the level's 1v1 framing pulled back x1.5), `two` (two-shot at chest height, 3.5 m), `close` (the speaker's head and shoulders, 1.6 m, 20 degrees off axis); a cut on a speaker change, a 0.5 s ease, no camera paths. Poses blend in over 0.3 s and loop their small motion while the box shows.
+    - Skip: Punch, Kick, A, Enter, Space or a tap on the box = next box; Pause, Start, Esc or the Skip chip (top right, where the pause button sits) = end the beat (a pending choice still asks). Setting "Story scenes": Full (default) / Short (only the first box of each beat; choices still asked) / Off (no scenes; the choice is "Offer a hand"; rewards still given). Setting "Auto-advance": off by default; on = a box stays 2.5 s + 0.04 s per character, at most 6 s.
+    - Choice (B5): two full-width buttons, "Offer a hand" and "Walk away", at least 44 px tall; Left / Right or Up / Down plus confirm on keys and pad; no timer.
+    - Mobile text: the box is at the bottom (top for N), at most 30 percent of the height; at most 2 lines; at most 90 characters once tokens hold their longest value (city 16, name 10, rival and boss 6); speaker name in its colour; font at least 16 CSS px at 640 x 360; white on 80 percent black. At most 3 boxes a beat. A self-test checks every text row against the limit and every pose id against the list. Full scenes take about 2.5 minutes a run at a normal reading speed.
+  - Non-combat pose list (the list P5-05 waits for): 28 new poses (`STORY_POSES`, `makePose` rows of joint targets plus at most one looping joint wave, about 350 bytes each, P1-05) + the 6 existing `VICTORY_POSES` = 34. Where they play: cutscenes; the round intro (each fighter its intro emote for 1.2 s during the countdown); the round end (winner = its style's victory pose as today; a loser by time-out or ring-out plays defeat_slump; a KO loser stays down); character select, creator preview and results (idles and emotes). Never during play: no input plays them and no CPU taunts mid-fight, so the simulation, the seeded fingerprints and online play are untouched. Intro emotes (creator Intro row, P6-10): nod, glove_tap, shake_out, crossed_arms open; wave, point, fist_bump, beckon, chest_pound, neck_crack, shrug, laugh are goal rewards (P10-05). Props: only `phone` holds one small matte box (1 part). Cutscenes use any pose whatever is unlocked.
+
+    | Id | Group | Description | Used in |
+    |---|---|---|---|
+    | nod | greeting | small head nod, hands low | B1 / B6 / B16 strict, intro |
+    | wave | greeting | one hand raised, waving | B14 family, intro (reward) |
+    | point | greeting | arm straight, finger at the other fighter | B4 DEACON, intro (reward) |
+    | fist_bump | greeting | fist held forward at chest height | B12 hand, B14 bond, intro (reward) |
+    | handshake | greeting | open hand held out, slight lean | B5 hand (rival) |
+    | help_up | greeting | leans down, arm reaching to a downed fighter | B5 hand (player) |
+    | beckon | taunt | palm up, fingers curl twice: "come on" | B7 rough, B9 MARLON, intro (reward) |
+    | chest_pound | taunt | fist taps the chest twice | intro (reward) |
+    | neck_crack | taunt | head tilts left then right, shoulders roll | B6 rough, intro (reward) |
+    | glove_tap | taunt | fists tap together twice in front of the chest | B9 YOAV, B10 title, B13 (P), intro |
+    | shake_out | taunt | shakes arms and shoulders loose, small hop | B10 bond, B14 past, intro |
+    | crossed_arms | taunt | arms folded, weight on one leg | B1 rough, B4 FEMKE, B7 strict, intro |
+    | idle_relaxed | idle | loose stance, hands low, slow weight shift | B1 ordinary, B16 rough, menus |
+    | idle_stretch | idle | pulls one arm across the chest, then the other | B6 ordinary, menus |
+    | idle_tired | idle | hands on knees, deep slow breaths | B8 ordinary, B10 body, B15 strict, results after a loss |
+    | shocked | reaction | steps back, open hands up | B11 rough |
+    | laugh | reaction | head back, shoulders bounce | B4 ROXY, B7 ordinary, B13 rough, B16 ordinary, intro (reward) |
+    | angry | reaction | fists clenched at the sides, leaning forward | B12 walk |
+    | head_down | reaction | head down, shoulders slumped | B10 past, B15 ordinary |
+    | think | reaction | hand on chin, head tilted | B2, B4 KELSEY, B11 strict |
+    | argue | reaction | one hand chops the air while talking | B4 GIORGI |
+    | plead | reaction | both palms up, a slight bow | B10 family |
+    | shrug | reaction | palms up, shoulders raised | B13 ordinary, intro (reward) |
+    | phone | reaction | looks at a phone held at chest height | B3, B4 DIEGO, B8 strict, B10 fame, B11 ordinary |
+    | kneel | rest | one knee down, forearm on the other knee | B5 (rival), B15 rough |
+    | sit_floor | rest | sits on the floor, arms on the knees | B8 rough |
+    | defeat_slump | defeat | both knees down, hands on the floor, head low | round end (time-out / ring-out loser), B14 (ZERO) |
+    | defeat_turn | defeat | turns away and waves the other off | B5 walk (player), Tournament elimination |
+    | hips, arms, fist, bow, flex, ginga | victory (exist) | the 6 `VICTORY_POSES` | round end, B9 HAO and B13 strict (bow), B14 motive poses |
+
+- Unlocks (P10-05 plan, decided 2026-10-29 by the coordinator under the owner's standing go "complete the tasklist"; the owner can change any row). One table `UNLOCKS`, rows `[kind, id, rule, need]`, replaces `UNLOCK_RULES` (the fighter rows keep their P5-04 rules and texts, so nothing already earned changes); `Progress.checkUnlocks` reads it after every Arcade stage, Survival fight and Tournament match.
+
+    | Kind | Open at the start | Locked, and how it opens | Locked count |
+    |---|---|---|---|
+    | Fighters | the 10 starters (`DEFAULT_UNLOCKED`) | as P5-04: ZERO = clear Arcade once; DMITRI = win Arcade stage 3; LARS / TIAGO / VIKRAM / LUCIA / KASIA = 3 / 6 / 10 / 15 / 20 Arcade wins (a won stage counts 1); ARMINE / NARAN / TESSA = 2 / 3 / 4 clears; REID / CAMILA / NIA = Survival streak 3 / 5 / 8; the 6 rivals and 3 bosses = beat them in Arcade (who appears follows the story settings, P10-02) or in a Tournament match | 22 |
+    | Styles (creator Movement row) | the 7 classic styles + Wing Chun, Muay Thai, Taekwondo, MMA (each has a starter) | Sambo, Brazilian Jiu-Jitsu, Hapkido, Kali / Eskrima, Krav Maga: open when any preset of that style is unlocked | 5 |
+    | Customization items | 75 of 91 | the 16 goal-reward items (Story lists): clear Arcade once with that goal | 16 |
+    | Intro emotes | nod, glove_tap, shake_out, crossed_arms | the 8 goal-reward emotes | 8 |
+    | Faces | Classic, Face 1-12 | Face 13-15: 1 Arcade clear; 16-18: 2 clears; 19-21: win a Novice Tournament; 22-24: win an Adept Tournament | 12 |
+    | Levels (Free Fight, Versus, Training, Co-op Brawl, Tournament stage pickers) | warehouse, dojo, pit | rooftop, subway, garage, construction, club: reach it in Arcade (play its stage, won or lost); all five after 2 Arcade clears | 5 |
+    | Modes | Arcade, Survival, Training, Free Fight, Versus, Co-op Brawl, Online, Tournament Novice | Tournament Adept: win Novice; Advanced: win Adept | 2 |
+    | Titles (a line on the results and the Unlocks screen) | - | "Champion" per Tournament tier won; "Stories n / 24" (goals cleared) | info only |
+
+  - Never take away: a style, item, face or emote a saved custom fighter already uses stays usable on that fighter and in its share code; an imported code is never refused for a locked part (only picking it anew in the creator is locked). Presets, CPUs and cutscenes use everything.
+  - Single human only: a Tournament with 2-4 humans opens nothing (the Budokai 3 rule, P1-08); the bracket says so before the draw.
+  - Screen: Main menu > Unlocks (before About & Help). Tabs Fighters, Styles, Items, Emotes, Faces, Levels, Modes (a row of chips that scrolls sideways on a phone). Each entry: name, OPEN or LOCKED, the rule text and progress ("Arcade wins 4 / 6"); 2 columns up to 480 px wide, 3 above; Back pinned; keys and pad step by entry. The results screen keeps its toast of what a fight opened.
+  - Progress save (same key `breakpoint.v1.progress`) gains: `revision` 2; `goalsCleared` (goal ids); `levelsReached` (level ids); `tourneyWins` ({ novice, adept, advanced }); `grades` ({ arcade, survival, free, coop, tournament }: best letter, P10-07); `arcadeRun` (null or { fighter id, stage 1-7, clears, choice, continues, seed, rivalA, rivalB, boss }); `opened` (non-fighter unlocks as "item:bomber", "emote:wave", "face:f14", "style:sambo", "level:club", "mode:adept", kept once earned).
+  - Migration (a 1.0.0 save and the current one have no `revision`): every existing field is read as `Progress.init` reads it today; the new fields start empty or zero; then every style, item, face and emote used by a fighter in the custom store (`breakpoint.v1.custom`) is opened, and `checkUnlocks(false)` runs, so old clears open their faces and levels (a 1.0 save with 2 clears gets Face 13-18 and all levels); saved once. A bad or unknown value in a new field is dropped. `arcadeBest` keeps its meaning (highest stage won) on the 7-stage run; a 1.0 value up to 5 stays. Self-test: a 1.0.0 progress JSON, a current one and a corrupt one.
+- Fight grade (P10-07, decided 2026-10-29 by the coordinator under the owner's standing go "complete the tasklist"; the owner can change any row). One pure function `fightGrade({ won, seconds, par, taken, takenMax, distinct })`, no state and no random numbers.
+  - Parts, each 0 to 1: Time T = clamp(1 - (seconds - par) / (2 x par), 0, 1) (par or faster = 1, three times par = 0). Damage D = 1 - clamp(taken / takenMax, 0, 1). Variety V = min(1, distinct / 8).
+  - Score = 40 T + 35 D + 25 V (0 to 100). Letter: S >= 90, A >= 75, B >= 60, C >= 45, D below. A lost fight has no grade ("-") and saves nothing.
+  - Inputs: par = 30 s per round won in a 1v1 (2-0 = 60 s), 20 s per enemy in a brawl stage (all waves), 30 s per Survival fight; seconds = fight time without pauses, intros, cutscenes and the KO slow motion; taken = HP the human lost; takenMax = its max HP x rounds played in a 1v1 (health refills each round), its max HP in a brawl; distinct = different moves that landed at least once (each attack id, string steps by their attack; each throw, clinch strike, hold, ground hit; each item's strike); jumps, blocks, sways and pick-ups do not count.
+  - Shown on RESULTS: the letter large, the three parts under it as "Time 100 . Damage 95 . Variety 100". Arcade results add the run grade (mean of the stage scores). Co-op: a grade per player column; the best is saved. Versus and Training show none. Saved: `grades[mode]` keeps the best letter (arcade = run grade, survival, free, coop, tournament = mean of the human's matches).
+  - Self-test vectors: (a) 1v1 won 2-0 in 50 s, 10 of 2 x 100 HP taken, 9 moves: T 1, D 0.95, V 1 = 98.25, S. (b) 1v1 won 2-1 in 120 s, 180 of 3 x 100 taken, 5 moves: T 0.5, D 0.4, V 0.625 = 49.6, C. (c) brawl of 10 enemies in 400 s, 70 of 100 taken, 3 moves: T 0.5, D 0.3, V 0.375 = 39.9, D. (d) a lost fight: no grade.
+- Tournament (P11-01 plan, with the P11-02 and P11-03 parts; decided 2026-10-29 by the coordinator under the owner's standing go "complete the tasklist"; the owner can change any row). Model: the Budokai World Tournament (P1-08): single elimination, tiers opened in order, ring-outs, rewards for a single human.
+
+    | Tier | Entrants | Bracket rounds | CPU difficulty | Default match rule | Fixed CPU entrants | Opens |
+    |---|---|---|---|---|---|---|
+    | Novice | 8 | 3 | Normal | 1 round | none (no ZERO, no boss) | at the start |
+    | Adept | 16 | 4 | Hard | 2 wins | HAO, MARLON, YOAV (slots 1, 6, 11) | win Novice |
+    | Advanced | 16 | 4 | Expert | 2 wins | ZERO and the 3 bosses (slots 1, 5, 9, 13) | win Adept |
+
+  - Entrants: 1-4 humans join on the Co-op seat screen (P4-07 devices: keyboard layouts take seats 1-2, pads any seat) and each picks an unlocked preset or a custom fighter; two humans may not pick the same fighter. AI fill: the fixed CPU entrants first, then the other presets (all 32, locked ones too; custom fighters only with "Include my custom fighters" on), in a seeded shuffle (`tourneySeed`, drawn once at the draw and saved), never a fighter a human took. Human k sits in slot k x (entrants / humans) (slots from 0, the fixed CPU slots move aside), so humans meet as late as possible.
+  - Rules screen before the draw (defaults per tier): Rounds 1 / 2 wins / 3 wins; Timer 30 / 60 / 99 s (60); Ring-out on / off (on); Stage: Tournament ring (default: City Fight Gym, ring-out) / Rotate (bracket round r uses [dojo, rooftop, construction, club][r mod 4], the final always the rooftop) / any one unlocked level; Items off and Hazards off (P7 decision; both can be turned on); AI matches: Simulate (default) / Watch / Ask.
+  - Winning a match: KO; ring-out (feet on the floor outside the level's `ring`, only where its `ringOut` is yes and the setting is on; other levels fight inside the ring bounds, P8-05); time-out = the higher health share; a tie = the existing tied-decider rule (stamina share, then a replay). No continues: a human who loses is out.
+  - AI vs AI: Simulate = `SimRunner.run` with the match's fighters, level, rounds, timer and ring-out, both at the tier's difficulty, seed = `tourneySeed` + match index, so a draw always replays to the same results; the score shows on the bracket at once. Watch = the same seeded match rendered; any press finishes it headless from the current tick (same result). "Simulate all AI" finishes every AI match up to the next human match.
+  - Human vs human: local = Versus rules with the two seats (the others wait); online = P12 (P11-02).
+  - When every human is out: Simulate to the end (default) / Watch the rest / Quit. The champion screen shows the winner in its victory pose (a human champion gets the title and the rewards).
+  - Rewards (a single human only): Novice win = Face 19-21 and Adept opens; Adept = Face 22-24 and Advanced opens; Advanced = the "Champion" title; a rival or boss beaten in a match unlocks it; the tournament grade (P10-07). Prize money and shop: none (P1-03 rejected the economy).
+  - Saving: the bracket is saved after every match under a new key `breakpoint.v1.tournament` (deleted when the tournament ends or is quit; added to `SELFTEST_STORE_KEYS`); the Tournament menu offers "Continue tournament".
+  - Bracket screen (P11-03), landscape first, smallest 640 x 360: columns left to right = rounds (8: quarter-finals, semi-finals, final, champion; 16: round 1 first). A match card = two rows (name up to 10 characters, wins), 18 px rows, 6 px gaps; humans in their seat colour, the next match with a gold border, winners bold, losers dimmed. 8 entrants fit with no scroll (4 cards x 42 px + 32 px header + 48 px button bar = 248 of 360 px). 16 entrants: the round 1 column (8 cards) scrolls vertically inside the panel, scrolled to the next match; later columns stay centred on their pairs. Portrait: the same, scrolling sideways by column. Buttons pinned at the bottom: Fight (a human match) or Watch / Simulate (an AI match), Simulate all AI, Quit; arrows and the pad move between buttons only (cards are not focus stops).
+  - Size: about 9,000 bytes (P1-05); the bracket is a formula (slot pairs), so 8 and 16 cost the same.
+- Online signaling (P12-01) and netcode choice (P12-02), decided 2026-10-29 by the coordinator under the owner's standing go "complete the tasklist"; the owner can change any row.
+  - Flow: Online > Host or Join. The host picks the mode (1v1, a brawl level, a tournament), then makes one offer per open seat (seats 2-4): "Code for seat 2" shows the code text, Copy, Show QR, and a Paste / Scan field for that guest's answer. A guest pastes or scans the host's code and gets its answer code (text, Copy, Show QR) for the host. One peer connection per guest (star, P12-03); the lobby (P12-06) lists the seats.
+  - ICE: `iceServers: []`: no STUN, no TURN, nothing outside the local network (owner: no server). The code is made when ICE gathering is complete or after 3 s, whichever comes first, with the candidates found by then (no trickle). UDP host candidates only (mDNS `.local` names or plain addresses); TCP candidates are dropped.
+  - Code format: packed binary as base64url text with a prefix, `BPO-` (offer) or `BPA-` (answer); whitespace and line breaks are stripped on paste. Bytes: header (format version, kind, mode) 1; seat and net protocol version 1; ICE ufrag (length + 4-32 characters); ICE pwd (length + 22-32 characters); DTLS fingerprint 32 (sha-256 only); candidate count 1, and per candidate a type byte (mDNS name, IPv4, IPv6) + address (an mDNS name is a UUID: 16 bytes; IPv4 4; IPv6 16) + port 2; CRC-16 2 (a bad paste says "Code damaged or incomplete"). The receiver rebuilds a minimal data-channel SDP from a template: v=0, one `m=application 9 UDP/DTLS/SCTP webrtc-datachannel`, ice-ufrag, ice-pwd, fingerprint, setup actpass (offer) or active (answer), mid 0, sctp-port 5000, max-message-size 262144, the candidate lines with computed priorities, end-of-candidates. Estimated size: Chrome with 2 mDNS candidates 105 bytes = 140 characters; Firefox and Safari with 2-4 candidates 115-180 bytes = 155-240 characters. Fallback (mode raw): when the SDP has anything the packer cannot express (another hash, an unknown candidate type, over 6 candidates) or the template fails `setRemoteDescription` in testing, the whole SDP is deflated with `CompressionStream('deflate-raw')` where it exists (else sent as is) and base64url-coded (about 500-900 characters). P12-01 must prove the packed form between Chrome, Firefox and Safari (Android, iPhone, desktop) before it is the default.
+  - QR display: yes. An inline encoder: byte mode, error correction L, versions 1-13, the 8 masks with the standard penalty score, Reed-Solomon over GF(256); about 4,500 bytes (first in the P1-05 cut order). A packed code (up to 240 characters) needs version 9 or 10 (53-57 modules); with a 4-module quiet zone and 4 px modules that is 260 px, drawn on a canvas in a full-screen "Show QR" overlay that fits a 360 px tall phone. A code over 425 characters (version 13) shows text only: "Too long for a QR: use Copy".
+  - QR scan: only where `BarcodeDetector` exists and lists `qr_code` in `getSupportedFormats()`, `navigator.mediaDevices.getUserMedia` exists and `isSecureContext` is true (in practice Chrome on Android, ChromeOS and macOS; not Safari, Firefox or Chrome on Windows). There a Scan button opens the back camera (`facingMode: 'environment'`) in a `<video>`, detects every 200 ms, takes the first value with the expected prefix, and stops the camera on success, Cancel or leaving the screen. Elsewhere there is no Scan button and the player pastes. The stream uses `srcObject` (no URL), so no CSP change is expected; P12-04 verifies it under the real CSP. An iPhone may read the QR with the system Camera and copy the text (to verify on a device); otherwise the code travels by any messenger.
+  - Copy: `navigator.clipboard.writeText` where it works, else the code's text box is selected for a manual copy. Paste is a plain text box (no clipboard-read permission).
+  - Netcode for P12-02 (the P1-09 recommendation, confirmed): delay-based lockstep on the fixed 60 Hz sim, relayed by the host (star). Input delay 2 frames on a LAN; in the lobby and between rounds the host sets it to clamp(ceil(RTT / 2 / 16.7 ms) + 1, 2, 6) from 20 ping samples. Each peer sends its input for frame n + delay; the host relays the full set; a peer steps frame n only with every input of frame n. A missing input stalls the sim; "Waiting for P3..." after 0.5 s; the peer is dropped after 10 s (a 1v1 ends, a brawl seats it out like a knocked-out co-op player, a tournament match is lost). Inputs go on an unordered, no-resend channel (`ordered: false, maxRetransmits: 0`) with the last 8 frames in every packet; the lobby, the match config, pings and checksums go on a second, reliable ordered channel. A state checksum (FNV-1a 32 over positions, velocities, hp, stamina, states, timers and the `simRng` state) every 60 frames; a mismatch stops the match with "Out of sync" and offers a rematch (no state transfer in P12-02). Rollback only later, if saving and restoring the sim becomes cheap. Viewer settings must never change the sim: see P13-03 (Reduced motion now shortens hitstop; that must go before online play).
+- Feedback list (P13-01) and reduce-effects settings (P13-03), decided 2026-10-29 by the coordinator under the owner's standing go "complete the tasklist"; the owner can change any row. Rule: strong feedback lives on the fighters and in the world; the screen keeps only health, stamina and the timer, plus what earlier phases made for lock-on and brawls (the thin boost bar, the lock tag marker, off-screen arrows, brawl name tags) and the round / KO / wave announcements. Everything below is drawn or played outside the simulation (no sim state, no `simRng` draw), so seeded tests and online play are unchanged; hitstop is sim timing and stays as it is.
+
+    | # | Feedback | Trigger | On | New bytes; per-frame cost | Status | Reduce setting |
+    |---|---|---|---|---|---|---|
+    | 1 | Hitstop | a landed hit, longer by tier | sim timing | 0; 0 | exists (no setting may change it) | none |
+    | 2 | Impact flash, sparks and dust at the contact point (white, P1-07 / P9-04) | hit, block, guard break, KO | world, pooled FX | 0; exists | exists | Flashes |
+    | 3 | Camera shake and FOV pulse | tier 2+ hit, knockdown, wall or object impact, KO, collapse, train | camera | 0; 0 | exists (`Camera.impact`) | Camera shake |
+    | 4 | KO finisher | the hit that ends a match (last round, a brawl stage's last enemy, a boss): 40 ticks shown at 0.35 speed by the render clock, a 15 % punch-in from a low angle; the sim has already decided the result | camera | 1,200; 0 | new | Slow-motion finisher, Camera cuts |
+    | 5 | Bruise tint | damage taken per body zone (head, torso, arms, legs, by hit height): that zone's skin parts mix toward #6b3b4a, up to 30 % at 60 % of max HP taken; a 1v1 resets it each round, a brawl keeps it | fighter | 600; a colour mix per part at draw, 0 parts | new | Wear marks |
+    | 6 | Sweat sheen | 40 s of fighting or stamina under 35 %: skin roughness 0.7 -> 0.35 | fighter | 300; 0 | new | none |
+    | 7 | Dust and scuffs | each knockdown, throw landing or fall: clothing parts mix 6 % toward the floor colour, at most 30 % | fighter | 300; 0 | new | Wear marks |
+    | 8 | Breathing and panting | stamina under 35 %, exhaustion; the boost (exists) | fighter, draw-only pose offset | 400; 0 | partly exists | none |
+    | 9 | Hurt posture | HP under 25 %: idle and walk lean 0.1 rad and a hand holds the most-hit zone (draw-only; the sim skeleton and hit tests unchanged) | fighter | 400; 0 | new | none |
+    | 10 | Expression faces | P6-09 states | fighter | 0 | exists | none |
+    | 11 | Weapon wear | item durability: colour darkens up to 25 %; on the last point a bend (bat, pipe: 0.1 rad) or a crack line (bottle, chair, crate: inside the item's mesh budget) | item | 400; 0 | new | none |
+    | 12 | Layered impact sound | every hit: a body thud pitched by weight class, a slap or crack by tier, a material layer for a weapon or object; a crowd swell on a KO where a crowd exists | audio | 1,500; at most 12 voices, the oldest stops | partly exists | volumes |
+    | 13 | Low-health heartbeat | a single human under 20 % HP: ambience low-passed to 1.2 kHz and a 70 bpm heartbeat | audio | 500; 1 filter | new | Heartbeat |
+    | 14 | Crowd and bystanders | P9 rule R8 | world | in P9 | P9 | none |
+    | 15 | Debris, rubble, persistent marks | breaks (exist), P9-03 marks | world | exists / P9 | exists | Effects (quality) |
+    | 16 | Lamp sway and prop jolt | a wall or object impact, collapse or knockdown within 4 m of a hanging light or loose prop: sways 0.15 rad, damped over 1.5 s (draw-only) | world | 500; at most 8 swaying | new | Camera shake (0 stops it) |
+    | 17 | Rumble and vibration | hits taken, throws, KO; pads per seat (exists); touch phones `navigator.vibrate` 20-60 ms on hits taken and KO where it exists (Android) | device | 200; 0 | pads exist, touch new | Rumble and vibration |
+    | 18 | Strike trails | heavy strikes only, faint grey smear (P1-07) | fighter | 0 | exists | Strike trails |
+    | 19 | Club lights and strobe | Night Club wave start and KO | world | in P8 | P8 | Flashes |
+
+  - Rejected: blood and gore (P1-03 non-gory rule), torn clothes (a tear state per garment needs extra geometry; the 40-part limit), swelling (more face cells than the 40-cell pool; the bruise tint carries it), damage numbers and hit-count pop-ups (non-diegetic), low-health screen desaturation (a post pass the renderer does not have; the heartbeat carries it).
+  - UI change: the combo counter becomes the setting "Combo counter", off by default outside Training (it is UI beyond health, stamina and timer).
+  - Cost: about 7,000 bytes of new code (the P1-05 P13 line is 10,000); no new parts and no new draw calls; P13-02 runs the P0-04 check on low.
+  - Reduce-effects settings (P13-03), in Settings, all saved like the others, none read by the sim:
+    - Reduced motion (exists; follows the OS `prefers-reduced-motion` on first start): the master switch; turning it on sets the rows below to their reduced value once (each can still be changed). It must stop shortening hitstop (today `if (Settings.v.reducedMotion) hs = Math.ceil(hs * 0.5)` in the hit code): sim timing may not depend on a viewer setting (two online peers with different settings would desync; `SimRunner` already forces it off for the same reason).
+    - Camera shake (exists, 0 to 1): also scales the lamp sway.
+    - Flashes (new): Full / Reduced (impact flash alpha at most 0.3, no full-screen flash, no club strobe, slower club lights) / Off (no flash, steady club lights).
+    - Slow-motion finisher (new): On / Off.
+    - Camera cuts (new; the KO punch-in and low angle): On / Off.
+    - Rumble and vibration (new; today rumble is off under Reduced motion and scaled by Camera shake): Full / Reduced (half strength, 20 ms) / Off.
+    - Strike trails (new): On / Off.
+    - Wear marks (new; bruise tint, dust): On / Off.
+    - Low-health heartbeat (new): On / Off.
+- Balance targets (P14-01, decided 2026-10-29 by the coordinator under the owner's standing go "complete the tasklist"; the owner can change any row). All measured headless with `BREAKPOINT.simulate` (P0-06) over fixed seed ranges (seeds 1 to n), so a re-run gives the same numbers. Noise: a 50 % rate measured over n matches wobbles about +-1.96 x sqrt(0.25 / n) (n 200: +-7; n 600: +-4); a result outside its band but within that noise is re-run once with 3 x n before it counts as a fail.
+
+    | Target | Measured how | Band | n |
+    |---|---|---|---|
+    | Style pairs (all 136, mirrors included) | AI vs AI, same difficulty, `evenDamage`, KAI's body and attributes with the style swapped | each pair 40-60 % at Hard and Expert; 35-65 % at Easy and Normal | 200 per pair per difficulty |
+    | Presets | each preset against all 31 others at Hard | starters, unlocks, rivals 42-58 % overall; bosses 50-62 %; ZERO measured apart with its Arcade scaling | 20 per pair (620 per preset) |
+    | Block vs Sway | same fighter, only the defense differs | 45-55 % at every difficulty, momentum boost on and off | 600 |
+    | Strings | damage share per string (P3-10) | no string above 35 % of a fighter's damage | the style-pair runs |
+    | Time to KO, 1v1 | Hard vs Hard, 60 s timer, 2 wins | median round 20-40 s; time-outs at most 15 % of rounds; under 2 % of rounds end before 8 s; median match 50-110 s | the style-pair runs |
+    | Time to KO, Tournament | 1 round, 60 s, ring-out on, the 4 ring-out levels | median round 20-40 s; ring-outs end 10-30 % of rounds | 200 per level |
+    | Brawl stage | AI player at Hard vs Normal grunts, a full level with waves (needs a waves option, `simulate({ level, waves: true })`, from P8) | cleared in 50-80 % of seeds; median clear 2.5-5 min; one enemy down every 6-15 s | 50 per level |
+    | Survival | AI player at Normal vs Normal | median fight 25-45 s | 200 |
+    | Momentum boost | the style-pair runs with the boost on | every pair inside its band; 0.5 to 2 boosts per fighter per round on average | the style-pair runs |
+    | Items | brawls with items on and off; 1v1 the same fighter armed vs unarmed (the item kept until it breaks or drops) | clear rate differs by at most 15 points; armed win rate 55-70 % per weapon, none above 72 %; no single item above 20 % of all damage in item-on brawls | 200 per weapon; 50 per level |
+    | Hazards | brawls with hazards on; 1v1 Free Fight with hazards, spawn sides swapped | hazards at most 20 % of all damage in a brawl; the fighter starting nearer a hazard wins 45-55 % | 50 per level (brawl); 200 per level (1v1) |
+    | Body options (P14-02 / P14-03) | one factor at a time against baseline KAI: height ends, fitness corners, age ends, each gender | each 40-60 % against the baseline | 200 each |
+    | Weight classes | class 4 vs class 0, tackle included | 40-60 % | 200 |
+    | Difficulty ladder, 1v1 (P14-05) | the CPU at each difficulty with its damage bonus vs the reference player = the Normal AI without a bonus (needs a one-sided bonus option on `simulate`; P14-05 adds it) | the CPU wins: Easy 20-30 %, Normal 45-55 %, Hard 65-75 %, Expert 80-90 % | 400 each |
+    | Difficulty ladder, groups | the reference player vs 3 CPU enemies | the player wins: Easy 85 % or more, Normal 50-70 %, Hard 25-45 %, Expert 10-25 % | 100 each |
+    | Grades (P10-07) | the Hard AI player in Arcade-like fights at Normal | S at most 10 %, D at most 25 %, median B or C | 200 fights |
+    | Arcade length | the 7 stages at Normal, scenes Short | 15-25 min (simulated fight time + 1 min of scenes) | 20 runs |
+
+  - Reporting: P14-04 records each row (band, result, n, seed range) in Appendix C and fixes outliers by data (attributes, frame data, AI weights), never with a special case per matchup; a change re-runs only the rows it can touch (P14-03).
 
 ## Appendix D - Audit findings
 
