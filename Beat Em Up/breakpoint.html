@@ -114,6 +114,7 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .card.create b{color:var(--a1)}
 .cr-modal{margin:auto 0;padding:1em;border:2px solid var(--warn);border-radius:.5em;background:#0f1830}
 .cr-modal p{font-size:1.1em;margin:.2em 0 .8em}
+.cropbox{display:block;width:min(16em,72vw);aspect-ratio:1;margin:.4em auto;border:2px solid #2a3b66;border-radius:.4em;background:#000;touch-action:none;cursor:grab;user-select:none}
 .hc .sw{border:3px solid #fff}
 .hc .tab[aria-selected=true]{background:#000;border-width:3px}
 .hc .crin,.hc .cr-modal,.hc .pts{background:#000;border-width:3px}
@@ -1957,7 +1958,7 @@ const R = {
     const u = this.u;
     if (this.faceOk) {   // the face atlas on unit 0; a repainted cell is sent here
       gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, this.faceTex);
-      if (FaceTex.dirty && !FaceTex.upload(gl, this.faceTex)) this.faceOk = false;   // a failed refill turns the faces off: no retry every frame
+      if ((FaceTex.dirty || FaceTex.cells.size) && !FaceTex.upload(gl, this.faceTex)) this.faceOk = false;   // a failed refill turns the faces off: no retry every frame
       gl.uniform1i(u.uFace, 0);
     }
     gl.uniformMatrix4fv(u.uVP, false, this.vp);
@@ -2033,16 +2034,19 @@ const R = {
 };
 
 /* ---------- face textures (P6-07, P6-08) ----------
-   One atlas of FACE_GRID x FACE_GRID cells painted on a 2D canvas and uploaded as one texture: cells 0 to 23 are the pre-drawn faces (FACE_ROWS), the rest are free for photo faces (P6-06) and
-   expression swaps (P6-09; put() repaints a cell, a fighter changes face by drawing its shell with another cell number). A face is a shell, the head sphere 0.6 % larger, whose cast slot holds -1 - cell;
+   One atlas of FACE_GRID x FACE_GRID cells painted on a 2D canvas and uploaded as one texture: cells 0 to 23 are the pre-drawn faces (FACE_ROWS), cells 24 to 63 are a pool painted on demand
+   for expressions (P6-09) and photo faces (P6-06), see slot(); a fighter changes face by drawing its shell with another cell number. A face is a shell, the head sphere 0.6 % larger, whose cast slot holds -1 - cell;
    the fragment shader mixes the atlas (read by the front of the head) into the head's skin colour, opaque and without discard, so one part replaces the eyes and brows. No texture (R.faceOk false): the procedural face. */
 const FACE_RANGE = [[0.34, 0.5], [0.06, 0.18], [0.11, 0.2], [0.04, 0.09], [-0.22, 0.28], [0, 9], [0.11, 0.2], [0.022, 0.06], [-0.25, 0.3], [0.13, 0.23],
   [0, 1], [0.04, 0.13], [0.1, 0.22], [0.12, 0.27], [-0.56, -0.42], [0.025, 0.075], [-0.035, 0.05], [0.15, 0.5], [0, 24], [0, 9]];   // [low, high] of each digit of a face row, in the order FaceTex.paint names them
 const FACE_IRIS = '3a2314 5b3a1e 7a5a2a 4d6b3a 3c6a9a 6f7f8a 1a1411 8a5a1a 2f4a3a 4a5a78'.split(' ').map((hex) => '#' + hex);
 const FACE_ROWS = '76532414546661755372 33627765152643305603 33456638688064552400 25876224343546261561 84345147425736377505 68140370726585317444 64567862372457757470 12325355316552742106 72455534532510424300 93553467457355526741 66464246562282484716 44645481695742497780 41454678732553237374 88694662425853462806 55124363157432307470 48913335654727478675 51584756026434642486 29641574514336645468 22771153647843326600 23495644427374146617 35715361386535573335 12515333565587267200 13334634682427823663 25158755257453557268'.split(' ');
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
+const FACE_POOL_FIRST = FACE_ROWS.length;   // from this cell on, a pool painted on demand (the least recently drawn goes first)
+const FACE_EXPR = [[1, 0, 0, 0, 0, 0], [0.5, -0.4, 0.03, -0.06, 0.04, 3], [0.55, -0.12, -0.02, -0.04, 0, 6], [0.8, -0.2, 0.02, 0, 0.08, 4], [0.75, 0.5, -0.04, -0.08, 0.03, 0], [1.05, 0, 0.03, 0.16, 0.05, 0], [1.4, 0, 0.06, 0, 0.1, 0]];   // P6-09: rested (= neutral), hurt, tired, panting, angry, win, shocked; each: eye height x, brow tilt +, brow lift +, mouth curve +, mouth opening, eye bags +
+const PHOTO_MAX_CHARS = 6000, PHOTO_URL = /^data:image\/jpeg;base64,[A-Za-z0-9+\/]+=*$/, PHOTO_OVAL = [0.36, 0.46], PHOTO_ROW = '55555555555555555550', CROP_ZOOM_MAX = 4, PHOTO_MAX_FILE = 25e6, PHOTO_DECODE = 1024;   // P6-06: a stored photo is a JPEG data URL; PHOTO_OVAL: the kept part (half width, half height in cells); PHOTO_ROW: where the expression overlays go
 const FaceTex = {
-  canvas: null, ctx: null, dirty: false,
+  canvas: null, ctx: null, dirty: false, owners: [], stamps: new Array(FACE_GRID * FACE_GRID).fill(0), clock: 0, sources: [], photos: new Map(), cells: new Set(),   // pool: who holds each cell, when it was last drawn; cells: pool cells painted since the last upload
   build() {
     if (this.canvas) return this.canvas;
     const canvas = document.createElement('canvas');
@@ -2052,36 +2056,47 @@ const FaceTex = {
     this.paintAll();
     return (this.canvas = canvas);
   },
-  paintAll() { FACE_ROWS.forEach((row, cell) => this.paint(cell, row)); },
+  paintAll() { FACE_ROWS.forEach((row, cell) => this.paint(cell, row)); this.owners.forEach((owner) => { owner.src.cells = []; }); this.owners = []; },
   decode(row) { return FACE_RANGE.map(([lo, hi], i) => lo + (hi - lo) * row[i] / 9); },
   /* One face in its cell: head-front units (x right, y up), neutral light, only the features are painted (skin stays clear so the head's own skin tone shows). */
-  paint(cell, row) {
+  paint(cell, row, expr = 0, photo = null) {
     const c = this.ctx, S = FACE_CELL, ox = (cell % FACE_GRID) * S, oy = Math.floor(cell / FACE_GRID) * S;
-    const [spread, eyeY, ew, eh, tilt, iris, gap, thick, browTilt, browLen, shade, nw, nl, mw, my, lt, curve, lip, freckles, bags] = this.decode(row);
+    const [spread, eyeY, ew, eyeH, tilt, iris, browGap, thick, browTurn, browLen, shade, nw, nl, mw, my, lt, smile, lip, freckles, tired] = this.decode(row);
+    const [shut, turn, lift, grin, jaw, rings] = FACE_EXPR[expr], eh = eyeH * shut, gap = browGap + lift, browTilt = browTurn + turn, curve = smile + grin, bags = tired + rings, seed = FACE_ROWS.indexOf(row);
     const blob = (x, y, rx, ry, turn, style) => { c.fillStyle = style; c.beginPath(); c.ellipse(x, y, rx, ry, turn, 0, TAU); c.fill(); };
     const line = (style, width, x0, y0, x1, y1) => { c.strokeStyle = style; c.lineWidth = width; c.beginPath(); c.moveTo(x0, y0); c.lineTo(x1, y1); c.stroke(); };
     const tone = Math.round(22 + shade * 70), browStyle = 'rgba(' + tone + ',' + Math.round(tone * 0.75) + ',' + Math.round(tone * 0.55) + ',0.9)';
     c.save();
     c.beginPath(); c.rect(ox, oy, S, S); c.clip(); c.clearRect(ox, oy, S, S);
+    if (photo) {
+      c.save(); c.beginPath(); c.ellipse(ox + S / 2, oy + S / 2, PHOTO_OVAL[0] * S, PHOTO_OVAL[1] * S, 0, 0, TAU); c.clip(); c.drawImage(photo, ox, oy, S, S); c.restore();   // only the oval is kept
+      if (!expr) { c.restore(); this.cells.add(cell); return; }
+    }
     c.setTransform(S / 1.6, 0, 0, -S / 1.6, ox + S / 2, oy + S / 2);
     c.lineCap = 'round';
     for (const s of [-1, 1]) {
       blob(s * spread, eyeY - eh * 1.7, ew, eh * 0.7, 0, 'rgba(70,40,40,' + bags * 0.05 + ')');   // eye bag
-      blob(s * spread, eyeY, ew, eh, s * tilt, '#e8e3da');                                         // eye white, outer corner up for a positive tilt
-      blob(s * spread, eyeY, eh * 0.92, eh * 0.92, 0, FACE_IRIS[Math.round(iris)]);
-      blob(s * spread, eyeY, eh * 0.42, eh * 0.42, 0, '#0c0a09');
-      c.strokeStyle = 'rgba(25,16,12,0.85)'; c.lineWidth = 0.03; c.beginPath(); c.ellipse(s * spread, eyeY, ew, eh, s * tilt, 0, Math.PI); c.stroke();   // upper lid
+      if (photo) {
+        if (shut < 1) { c.fillStyle = 'rgba(35,22,18,0.55)'; c.beginPath(); c.ellipse(s * spread, eyeY + 0.02, ew * 1.1, 0.13 * (1 - shut), 0, 0, Math.PI); c.fill(); }
+      } else {
+        blob(s * spread, eyeY, ew, eh, s * tilt, '#e8e3da');                                         // eye white, outer corner up for a positive tilt
+        blob(s * spread, eyeY, eh * 0.92, eh * 0.92, 0, FACE_IRIS[Math.round(iris)]);
+        blob(s * spread, eyeY, eh * 0.42, eh * 0.42, 0, '#0c0a09');
+        c.strokeStyle = 'rgba(25,16,12,0.85)'; c.lineWidth = 0.03; c.beginPath(); c.ellipse(s * spread, eyeY, ew, eh, s * tilt, 0, Math.PI); c.stroke();   // upper lid
+      }
       const dx = Math.cos(browTilt) * browLen / 2, dy = Math.sin(browTilt) * browLen / 2;   // outer end higher for a positive tilt (angry), lower for a negative one (worried)
       line(browStyle, thick, s * (spread - dx), eyeY + gap - dy, s * (spread + dx), eyeY + gap + dy);
+      if (photo) continue;
       line('rgba(80,45,35,0.28)', 0.022, s * 0.04, eyeY - 0.04, s * nw, eyeY - nl * 0.9);     // side of the nose
       blob(s * nw * 0.6, eyeY - nl - 0.015, 0.025, 0.014, 0, 'rgba(60,30,25,0.5)');                  // nostril
-      for (let n = 0; n < freckles; n++) blob(s * (0.15 + 0.4 * ((n * 0.7549 + cell * 0.37) % 1)), eyeY - 0.12 - 0.22 * ((n * 0.5698 + cell * 0.51 + s * 0.2 + 1) % 1), 0.012, 0.012, 0, 'rgba(120,70,40,0.4)');
+      for (let n = 0; n < freckles; n++) blob(s * (0.15 + 0.4 * ((n * 0.7549 + seed * 0.37) % 1)), eyeY - 0.12 - 0.22 * ((n * 0.5698 + seed * 0.51 + s * 0.2 + 1) % 1), 0.012, 0.012, 0, 'rgba(120,70,40,0.4)');   // seed, not cell: an expression keeps its freckles
     }
     const lips = 'rgba(150,50,55,' + lip + ')';
-    blob(0, my - lt * 0.45, mw * 0.78, lt, 0, lips); blob(0, my + lt * 0.35, mw * 0.9, lt * 0.6, 0, lips);
+    if (jaw) blob(0, my - jaw * 0.3, mw * 0.8, jaw, 0, '#2a0e10');
+    if (!photo) { blob(0, my - lt * 0.45, mw * 0.78, lt, 0, lips); blob(0, my + lt * 0.35, mw * 0.9, lt * 0.6, 0, lips); }
     c.strokeStyle = 'rgba(40,18,16,0.75)'; c.lineWidth = 0.022; c.beginPath(); c.moveTo(-mw, my + curve); c.quadraticCurveTo(0, my - curve, mw, my + curve); c.stroke();   // the mouth line, corners up for a positive curve
     c.restore();
-    this.dirty = true;
+    this.cells.add(cell);
   },
   /* A photo or expression image of any size over a cell (P6-06, P6-09); clear parts show the head. Returns false without a 2D canvas. */
   put(cell, source) {
@@ -2091,27 +2106,98 @@ const FaceTex = {
     this.dirty = true;
     return true;
   },
+  /* The premultiplied pixels of a window of the atlas (by hand: no canvas upload, no unpack flag): filtering leaves no dark fringe, the shader divides the alpha out. */
+  texels(x, y, w, h) {
+    const texels = this.ctx.getImageData(x, y, w, h).data;
+    for (let i = 0; i < texels.length; i += 4) { const alpha = texels[i + 3] / 255; texels[i] *= alpha; texels[i + 1] *= alpha; texels[i + 2] *= alpha; }
+    return texels;
+  },
   /* Creates the texture (or refills the given one) from the atlas; null when anything fails, so the caller falls back to procedural faces. */
   upload(gl, texture) {
     try {
       const fresh = !this.canvas;
       if (!this.build()) return null;
       if (!texture && !fresh) this.paintAll();   // a new texture after a lost context: repaint the faces too (the canvas may have been cleared)
-      this.dirty = false;
-      const tex = texture || gl.createTexture();
       gl.getError();
+      if (texture && !this.dirty) {   // only some cells were painted: each goes up alone (16 KB), not the whole atlas
+        gl.bindTexture(gl.TEXTURE_2D, texture);
+        for (const cell of this.cells) { const x = (cell % FACE_GRID) * FACE_CELL, y = Math.floor(cell / FACE_GRID) * FACE_CELL; gl.texSubImage2D(gl.TEXTURE_2D, 0, x, y, FACE_CELL, FACE_CELL, gl.RGBA, gl.UNSIGNED_BYTE, this.texels(x, y, FACE_CELL, FACE_CELL)); }
+        this.cells.clear();
+        return gl.getError() === gl.NO_ERROR ? texture : null;
+      }
+      this.dirty = false; this.cells.clear();
+      const tex = texture || gl.createTexture(), size = FACE_GRID * FACE_CELL;
       gl.bindTexture(gl.TEXTURE_2D, tex);
-      const size = FACE_GRID * FACE_CELL, texels = this.ctx.getImageData(0, 0, size, size).data;   // premultiplied by hand (no canvas upload, no unpack flag): filtering leaves no dark fringe, the shader divides the alpha out
-      for (let i = 0; i < texels.length; i += 4) { const alpha = texels[i + 3] / 255; texels[i] *= alpha; texels[i + 1] *= alpha; texels[i + 2] *= alpha; }
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, texels);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, size, size, 0, gl.RGBA, gl.UNSIGNED_BYTE, this.texels(0, 0, size, size));
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
       return gl.getError() === gl.NO_ERROR ? tex : null;
     } catch (e) { return null; }
   },
-  /* The atlas cell a look draws, or -1 for the procedural face (classic, or no texture). The one place a photo face or an expression will pick another cell. */
-  cellOf(id) { return R.faceOk && id && id !== 'none' ? +id.slice(1) : -1; },
+  /* The pool cell of a source (face row or photo) in an expression, painted if absent; the least recently drawn cell makes room. */
+  slot(src, expr) {
+    if (!this.build()) return -1;
+    let cell = src.cells[expr];
+    if (cell === undefined) {
+      cell = FACE_POOL_FIRST;
+      for (let n = cell; n < this.stamps.length; n++) if (this.stamps[n] < this.stamps[cell]) cell = n;
+      const old = this.owners[cell];
+      if (old) old.src.cells[old.expr] = undefined;
+      this.owners[cell] = { src, expr }; src.cells[expr] = cell;
+      this.paint(cell, src.row, expr, src.photo);
+    }
+    this.stamps[cell] = ++this.clock;
+    return cell;
+  },
+  /* A stored photo's source, or null while it decodes (or if it cannot): the chosen face shows meanwhile. */
+  photoOf(url) {
+    let src = this.photos.get(url);
+    if (!src) {
+      if (this.photos.size > 12) this.photos.delete(this.photos.keys().next().value);
+      src = { cells: [], row: PHOTO_ROW, photo: null };
+      this.photos.set(url, src);
+      const img = new Image();
+      img.onload = () => { src.photo = img; };
+      img.src = url;
+    }
+    return src.photo && src;
+  },
+  /* A JPEG data URL of at most PHOTO_MAX_CHARS (quality steps down until it fits), or ''. */
+  encode(canvas) {
+    for (const quality of [0.8, 0.6, 0.4, 0.25]) {
+      const url = canvas.toDataURL('image/jpeg', quality);
+      if (typeof url === 'string' && url.length <= PHOTO_MAX_CHARS && PHOTO_URL.test(url)) return url;
+    }
+    return '';
+  },
+  cropToPhoto(img, sx, sy, side) {
+    const canvas = document.createElement('canvas'), c = canvas.getContext('2d');
+    canvas.width = canvas.height = FACE_CELL;
+    if (!c) return '';
+    c.drawImage(img, sx, sy, side, side, 0, 0, FACE_CELL, FACE_CELL);
+    return this.encode(canvas);
+  },
+  /* The atlas cell a look draws in an expression; -1: the procedural face. */
+  cellOf(look, expr = 0) {
+    if (!R.faceOk) return -1;
+    const photo = look.photo && this.photoOf(look.photo), id = look.face;
+    if (photo) return this.slot(photo, expr);
+    if (!id || id === 'none') return -1;
+    const face = +id.slice(1);
+    return expr ? this.slot(this.sources[face] || (this.sources[face] = { cells: [], row: FACE_ROWS[face] }), expr) : face;
+  },
 };
+/* P6-09: the expression (index into FACE_EXPR) read from fighter state at draw time; look only. */
+function faceExpression(f) {
+  const state = f.state, rest = f.stam / f.maxStam;
+  if (state === S.VICTORY) return 5;
+  if (state === S.DEFEAT) return 4;
+  if (state === S.KO || state === S.THROWN || state === S.FALL) return 6;
+  if (REACTION_STATES.includes(state) || f.gotHits > 0) return 1;
+  if (f.exhaust > 0 || rest < 0.12) return 3;
+  if (rest < 0.35) return 2;
+  return f.comboShow > 0 && f.comboHits >= 2 ? 4 : 0;
+}
 
 /* ---------- adaptive quality ---------- */
 const QUALITY_PRESETS = {
@@ -5232,7 +5318,7 @@ class Fighter {
     part(MESH.CYL, 0, BODY.neckY, 0, BODY.neck, BODY.neck, BODY.neck, skin, 0, 0.7, fl);
     if (fullMask) part(MESH.SPHERE, 0, BODY.headY, 0, ...BODY.head, col.mask, Math.max(0.25, this.accentGlow), 0.3, fl);
     else part(MESH.SPHERE, 0, BODY.headY, 0, ...BODY.head, wrap ? col.accent : skin, 0, wrap ? 0.9 : 0.7, fl);
-    const cell = fullMask || wrap ? -1 : FaceTex.cellOf(lk.face);   // a pre-drawn face is one shell that replaces the eyes and brows; a full mask and a balaclava keep their own eyes
+    const cell = fullMask || wrap || !DRAW_NOW ? -1 : FaceTex.cellOf(lk, faceExpression(this));   // a pre-drawn or photo face is one shell that replaces the eyes and brows; a full mask and a balaclava keep their own eyes
     if (cell >= 0) part(MESH.SPHERE, 0, BODY.headY, 0, ...FACE_SHELL, skin, 0, 0.7, fl, -1 - cell);
     else {
       const eye = EYE_SIZE[lk.eyes] || EYE_SIZE.normal, eyeCol = fullMask ? EYE_MASK_COL : EYE_COL;
@@ -6048,7 +6134,7 @@ function resolveLook(look) {
     eyes: look.eyes || 'normal', brows: look.brows || 'none', beard: look.beard || 'none',
     mask: legacyMask ? 'full' : look.mask || 'none',
     headband: look.headband === 'band', topStyle, legs: look.legs || 'shorts', hands: look.hands || 'gloves',
-    belt: look.belt || 'none', feet: look.feet || 'shoes', glow: look.glow === 'on', legacyMask, lines: look.age >= AGE_LINES_FROM, acc: look.acc || 'none', mark: look.mark || 'none', face: look.face || 'none',
+    belt: look.belt || 'none', feet: look.feet || 'shoes', glow: look.glow === 'on', legacyMask, lines: look.age >= AGE_LINES_FROM, acc: look.acc || 'none', mark: look.mark || 'none', face: look.face || 'none', photo: look.photo,
     colors: {
       skin, hair, top: topStyle === 'bare' ? skin : look.top || skin, shorts: look.shorts || '#18274d',
       glove: look.glove || '#f1f1f5', shoe: look.shoe || '#202228', accent, mask: legacyMask ? hair : accent,
@@ -6172,6 +6258,7 @@ function validateCustom(raw) {
     if (!LOOK_CHOICES[key].options.includes(value)) return fail('Invalid ' + LOOK_CHOICES[key].label.toLowerCase());
     look[key] = value;
   }
+  if (typeof lookIn.photo === 'string' && lookIn.photo.length <= PHOTO_MAX_CHARS && PHOTO_URL.test(lookIn.photo)) look.photo = lookIn.photo;   // P6-06: stays on this device (never in a share code); a bad one is dropped
   return { ok: true, value: { name: raw.name, title: raw.title, arch: raw.arch, tier: raw.tier, moveStyle, defense, attrs, look }, error: '' };
 }
 
@@ -6343,6 +6430,10 @@ const CustomRoster = {
     const checked = validateCustom(custom);
     if (!checked.ok) return checked;
     this.slots[slot] = checked.value;
+    if (JSON.stringify({ version: CUSTOM_STORE_VERSION, slots: this.slots }).length > STORE_MAX_LENGTH) {   // a store the next load would ignore: the newest photo goes
+      delete checked.value.look.photo;
+      UI.toast('No room to keep the photo: the fighter is saved without it', 'warn');
+    }
     this.save();
     this.register();
     return checked;
@@ -9261,7 +9352,7 @@ const UI = {
       if (isOpt) { e.preventDefault(); this.adjust(el, dir); } else if (el && el.classList.contains('card')) { e.preventDefault(); this.moveFocus(dir); }
     } else if (k === 'Enter' || k === 'Space') {
       if (performance.now() < this.guardUntil) { e.preventDefault(); return; }
-      if (isOpt) { e.preventDefault(); this.adjust(el, 1); } else if (el && el.tagName === 'BUTTON') { e.preventDefault(); el.click(); }
+      if (isOpt) { e.preventDefault(); this.adjust(el, 1, true); } else if (el && el.tagName === 'BUTTON') { e.preventDefault(); el.click(); }
     } else if (k === 'Escape' || k === 'Backspace') {
       if (e.repeat) return;
       e.preventDefault();
@@ -9275,11 +9366,11 @@ const UI = {
     if (t) { this.act(t.getAttribute('data-act'), t); return; }
     if (e.target.closest('input,textarea')) return;           // text fields and sliders handle themselves
     const opt = e.target.closest('.opt');
-    if (opt) this.adjust(opt, 1);
+    if (opt) this.adjust(opt, 1, true);
   },
-  adjust(el, dir) {
+  adjust(el, dir, press) {   // press: OK, Enter or a click, as against a direction
     const creatorKey = el.getAttribute('data-cr');
-    if (creatorKey) { CreatorUI.adjust(creatorKey, dir); return; }
+    if (creatorKey) { CreatorUI.adjust(creatorKey, dir, press); return; }
     const key = el.getAttribute('data-set');
     if (key) { this.changeSetting(key, dir); return; }
     const local = el.getAttribute('data-local');
@@ -9803,7 +9894,7 @@ const UI = {
     const el = document.activeElement;
     if (pd.right && !p.right) { if (el && el.classList.contains('opt')) this.adjust(el, 1); else if (el && el.classList.contains('card')) this.moveFocus(1); }
     if (pd.left && !p.left) { if (el && el.classList.contains('opt')) this.adjust(el, -1); else if (el && el.classList.contains('card')) this.moveFocus(-1); }
-    if (ok && !p.ok && performance.now() > this.guardUntil) { if (el && el.classList.contains('opt')) this.adjust(el, 1); else if (el && el.tagName === 'BUTTON') el.click(); }
+    if (ok && !p.ok && performance.now() > this.guardUntil) { if (el && el.classList.contains('opt')) this.adjust(el, 1, true); else if (el && el.tagName === 'BUTTON') el.click(); }
     if (back && !p.back && performance.now() > this.guardUntil) this.back();
     if (this.current === 'creator') this.creatorPad(ph, pd, p);
     p.up = pd.up; p.down = pd.down; p.left = pd.left; p.right = pd.right; p.ok = ok; p.back = back;
@@ -10246,7 +10337,7 @@ const FINE_RANGES = { skin: { hueMin: 5, hueMax: 50, lightMin: 0.15, lightMax: 0
 
 const CreatorUI = {
   draft: null, slot: 0, savedJson: '', tab: 'body', origin: 'main', confirm: null, fineKey: 'top', harmony: 0, randomCount: 0,
-  exportCode: '', returnState: null, drag: null,
+  exportCode: '', returnState: null, drag: null, crop: null, fileInput: null,   // crop: the picture being cut to a face (P6-06)
 
   init() {
     const root = UI.dom.screens;
@@ -10262,6 +10353,7 @@ const CreatorUI = {
   open(origin) {
     this.origin = origin;
     this.confirm = null;
+    if (this.crop) this.cancelCrop(true);
     this.exportCode = '';
     const free = CustomRoster.firstFree();
     if (free >= 0) this.startNew(free, 'body');
@@ -10272,6 +10364,7 @@ const CreatorUI = {
   openSlot(origin, slot) {
     this.origin = origin;
     this.confirm = null;
+    if (this.crop) this.cancelCrop(true);
     this.load(slot);
     this.tab = 'body';
     UI.push('creator');
@@ -10301,6 +10394,7 @@ const CreatorUI = {
     ]);
   },
   back() {
+    if (this.crop) { Sound.ui('back'); this.cancelCrop(); return; }
     if (this.confirm) { Sound.ui('back'); this.closeConfirm(); return; }
     Sound.ui('back');
     this.guardUnsaved(() => this.exit());
@@ -10337,6 +10431,10 @@ const CreatorUI = {
   },
   onPointerDown(e) {
     if (UI.current !== 'creator' || !e.target.closest) return;
+    if (this.crop) {
+      if (e.target.closest('.cropbox')) { this.drag = { id: e.pointerId, x: e.clientX, y: e.clientY, crop: e.target }; try { e.target.setPointerCapture(e.pointerId); } catch (err) { /* capture is optional */ } }
+      return;
+    }
     const pad = e.target.closest('.fitpad');   // the fitness picker: press or drag to set weight (across) and muscle (up)
     if (pad) {
       if (e.pointerType === 'mouse' && e.button !== 0) return;   // only the main button drags
@@ -10350,6 +10448,7 @@ const CreatorUI = {
   onPointerMove(e) {
     if (!this.drag || e.pointerId !== this.drag.id) return;
     if (this.drag.pad) { this.dragFit(e); return; }
+    if (this.drag.crop) { this.dragCrop(e); return; }
     Showcase.turnPreview((e.clientX - this.drag.x) * 0.012);
     this.drag.x = e.clientX;
   },
@@ -10633,6 +10732,8 @@ const CreatorUI = {
       crpaste: () => this.pasteCode(),
       crcancel: () => this.closeConfirm(),
       crconfirm: () => this.runConfirm(Number(arg)),
+      crcrop: () => this.useCrop(),
+      crcropx: () => this.cancelCrop(),
     };
     const fn = handlers[name];
     if (fn) fn();
@@ -10642,7 +10743,7 @@ const CreatorUI = {
     if (!button) return;
     if (button.run) button.run(); else this.act(button.act, '');
   },
-  adjust(key, dir) {
+  adjust(key, dir, press) {
     Sound.ui('move');
     const [kind, name, part] = key.split(':');
     if (kind === 'choice') this.cycleChoice(name, dir);
@@ -10661,6 +10762,8 @@ const CreatorUI = {
     else if (kind === 'nameidea') this.cycleNameIdea(dir);
     else if (kind === 'turn') { Showcase.turnPreview(dir * TURN_STEP); UI.say('Preview turned ' + (dir > 0 ? 'right' : 'left')); }
     else if (kind === 'pose') this.cyclePose();
+    else if (kind === 'photo' && press) { if (name === 'pick') this.pickPhoto(); else this.dropPhoto(); }
+    else if (kind === 'crop') this.moveCrop(name, dir);
   },
   cycleFineKey(dir) {
     const keys = LOOK_COLOR_KEYS.filter((k) => k !== 'skin');
@@ -10688,7 +10791,7 @@ const CreatorUI = {
     const el = document.activeElement;
     const typing = el && (el.tagName === 'TEXTAREA' || (el.tagName === 'INPUT' && el.type === 'text'));
     if (typing) return this.onTypingKey(e, el);
-    if (this.confirm) return false;
+    if (this.confirm || this.crop) return false;
     const k = e.code;
     const onTab = el && el.classList && el.classList.contains('tab');
     if (onTab && (k === 'ArrowLeft' || k === 'KeyA')) { e.preventDefault(); this.stepTab(-1); return true; }
@@ -10711,10 +10814,10 @@ const CreatorUI = {
     if (UI.current !== 'creator' || !el.getAttribute) return;
     if (el.id === 'crName') { this.onNameInput(el); return; }
     const range = el.getAttribute('data-crrange');
-    if (range) this.onRange(range, Number(el.value), el);
+    if (range === 'crop:z') { this.crop.z = Number(el.value) / 100; this.fitCrop(); } else if (range) this.onRange(range, Number(el.value), el);
   },
   onChange(e) {
-    if (UI.current !== 'creator' || !e.target.getAttribute || !e.target.getAttribute('data-crrange')) return;
+    if (UI.current !== 'creator' || this.crop || !e.target.getAttribute || !e.target.getAttribute('data-crrange')) return;
     UI.rerender(true);
   },
   onNameInput(el) {
@@ -10760,6 +10863,7 @@ const CreatorUI = {
     let h = '<section class="screen on creator" aria-label="Create fighter"><div class="panel cr">';
     h += '<div class="cr-head"><h2 id="crTitle">' + esc(d.name || 'UNNAMED') + '</h2><span class="cr-status' + (this.isDirty() ? ' dirty' : '') + '" id="crStatus" role="status">' + esc(this.statusText()) + '</span></div>';
     if (this.confirm) return h + this.renderConfirm() + '</div></section>';
+    if (this.crop) return h + this.renderCrop() + '</div></section>';
     h += '<div class="tabs" role="tablist" aria-label="Creator sections">';
     // Only the active tab is in the focus order (tablist pattern): left / right on it switches tabs.
     for (const t of CREATOR_TABS) {
@@ -10773,6 +10877,77 @@ const CreatorUI = {
     return h + '</div></section>';
   },
   footButton(act, label) { return '<button class="mi" data-nav data-act="' + act + '">' + esc(label) + '</button>'; },
+  renderCrop() {
+    return '<div class="cr-modal" role="dialog" aria-label="Crop photo"><p>Put your eyes on the two dots and your face in the oval. Drag to move, slide to zoom, or use the rows (keys, pad). The photo stays on this device.</p>' +
+      '<canvas class="cropbox" width="256" height="256" aria-label="Photo crop"></canvas>' +
+      this.row('Zoom', '', 'crop:z', this.rangeInput('crop:z', 100, CROP_ZOOM_MAX * 100, 5, Math.round(this.crop.z * 100), 'Zoom')) + this.row('Left / right', 'Move', 'crop:x') + this.row('Up / down', 'Move', 'crop:y') +
+      '<div class="row"><button class="mi" style="width:auto" data-nav data-default data-act="crcrop">Use photo</button><button class="mi" style="width:auto" data-nav data-act="crcropx">Cancel</button></div></div>';
+  },
+  /* ----- photo face (P6-06) ----- */
+  photoRows(look) {
+    if (!R.faceOk) return '';
+    return this.row('Photo', look.photo ? 'On · this device only' : 'None · choose a picture', 'photo:pick') + (look.photo ? this.row('Remove photo', 'Back to the chosen face', 'photo:drop') : '');
+  },
+  pickPhoto() {
+    if (navigator.userActivation && !navigator.userActivation.isActive) UI.toast('Tap or click to choose a picture', 'warn');   // a pad button is no user activation: the picker may not open
+    const input = this.fileInput || (this.fileInput = document.body.appendChild(Object.assign(document.createElement('input'), { type: 'file', accept: 'image/*', hidden: true })));
+    input.onchange = () => { const file = input.files && input.files[0]; input.value = ''; if (file) this.openCrop(file); };
+    input.click();
+  },
+  async openCrop(file) {
+    if (file.size > PHOTO_MAX_FILE) { UI.toast('That picture is too big (25 MB at most)', 'warn'); return; }
+    try {
+      const options = { resizeWidth: PHOTO_DECODE, resizeQuality: 'high', imageOrientation: 'from-image' };   // decoded no wider than this (a 48 MP photo would take about 190 MB); straight from the file, so no blob: URL and the CSP stays
+      const img = await createImageBitmap(file, options).catch(() => createImageBitmap(file));   // an older browser may refuse the options
+      if (UI.current !== 'creator') { img.close(); return; }
+      if (this.crop) this.cancelCrop(true);
+      this.crop = { img, w: img.width, h: img.height, x: 0.5, y: 0.5, z: 1 };
+      UI.rerender(false); this.drawCrop();
+    } catch (e) { UI.toast('That picture could not be opened', 'warn'); }
+  },
+  cropRect() {   // [left, top, side] of the square cut, inside the picture
+    const c = this.crop, side = Math.min(c.w, c.h) / c.z;
+    return [clamp(c.x * c.w - side / 2, 0, c.w - side), clamp(c.y * c.h - side / 2, 0, c.h - side), side];
+  },
+  drawCrop() {
+    const box = document.querySelector('.cropbox'), g = box && box.getContext('2d'), c = this.crop;
+    if (!g) return;
+    const S = box.width, [sx, sy, side] = this.cropRect(), oval = () => { g.beginPath(); g.ellipse(S / 2, S / 2, PHOTO_OVAL[0] * S, PHOTO_OVAL[1] * S, 0, 0, TAU); };
+    g.drawImage(c.img, sx, sy, side, side, 0, 0, S, S);
+    g.fillStyle = 'rgba(0,0,0,0.6)'; oval(); g.rect(0, 0, S, S); g.fill('evenodd');
+    g.strokeStyle = g.fillStyle = '#fff'; g.lineWidth = 2; oval(); g.stroke();
+    for (const [x, y] of [[0.2375, 0.425], [0.7625, 0.425], [0.5, 0.806]]) { g.beginPath(); g.arc(x * S, y * S, 4, 0, TAU); g.fill(); }
+  },
+  moveCrop(name, dir) {
+    const c = this.crop;
+    if (name === 'z') { c.z = clamp(c.z + dir * 0.25, 1, CROP_ZOOM_MAX); UI.rerender(true); } else c[name] += dir * 0.04 / c.z;
+    this.fitCrop();
+  },
+  dragCrop(e) {
+    if (!this.crop) return;
+    const c = this.crop, d = this.drag, per = this.cropRect()[2] / (d.crop.getBoundingClientRect().width || 256);
+    c.x -= (e.clientX - d.x) * per / c.w; c.y -= (e.clientY - d.y) * per / c.h;
+    d.x = e.clientX; d.y = e.clientY;
+    this.fitCrop();
+  },
+  fitCrop() {   // the centre stays where the square can reach, so no travel is lost at the edges
+    const c = this.crop, half = Math.min(c.w, c.h) / c.z / 2;
+    c.x = clamp(c.x, half / c.w, 1 - half / c.w); c.y = clamp(c.y, half / c.h, 1 - half / c.h);
+    this.drawCrop();
+  },
+  useCrop() {
+    const [sx, sy, side] = this.cropRect(), url = FaceTex.cropToPhoto(this.crop.img, sx, sy, side);
+    if (!url) { UI.toast('That picture could not be stored small enough. Try another one', 'warn'); return; }
+    this.cancelCrop(true);
+    this.draft.look.photo = url;
+    this.changed('Photo face set. It stays on this device');
+  },
+  cancelCrop(keepPage) {
+    if (this.crop.img.close) this.crop.img.close();
+    this.crop = null; this.drag = null;
+    if (!keepPage) UI.rerender(false);
+  },
+  dropPhoto() { delete this.draft.look.photo; this.changed('Photo removed'); },
   renderConfirm() {
     let h = '<div class="cr-modal" role="alertdialog" aria-label="Confirm"><p>' + esc(this.confirm.text) + '</p><div class="row">';
     this.confirm.buttons.forEach((b, i) => { h += '<button class="mi" style="width:auto" data-nav ' + (i === 0 ? 'data-default ' : '') + 'data-act="crconfirm:' + i + '">' + esc(b.label) + '</button>'; });
@@ -10819,8 +10994,8 @@ const CreatorUI = {
   },
   tab_head() {
     const look = this.draft.look;
-    const own = (key) => (FaceTex.cellOf(look.face) >= 0 ? this.row(LOOK_CHOICES[key].label, 'From the face', 'choice:' + key) : this.choiceRow(key));   // a pre-drawn face that can be drawn has its own eyes and brows
-    let h = (R.faceOk ? this.choiceRow('face') : this.row('Face', LOOK_CHOICES.face.labels[look.face || 'none'] + ' (not supported here)', 'choice:face')) + this.choiceRow('hairStyle') + this.swatchRow('hair') + own('eyes') + own('brows') + this.choiceRow('beard') + (ITEMS.mask[look.mask] ? this.row('Headband', LOOK_CHOICES.headband.labels[look.headband] + ' (hidden by hat)', 'choice:headband') : this.choiceRow('headband')) + this.choiceRow('mask') + this.choiceRow('mark');
+    const own = (key) => (FaceTex.cellOf(look) >= 0 ? this.row(LOOK_CHOICES[key].label, 'From the face', 'choice:' + key) : this.choiceRow(key));   // a pre-drawn face that can be drawn has its own eyes and brows
+    let h = (R.faceOk ? this.choiceRow('face') : this.row('Face', LOOK_CHOICES.face.labels[look.face || 'none'] + ' (not supported here)', 'choice:face')) + this.photoRows(look) + this.choiceRow('hairStyle') + this.swatchRow('hair') + own('eyes') + own('brows') + this.choiceRow('beard') + (ITEMS.mask[look.mask] ? this.row('Headband', LOOK_CHOICES.headband.labels[look.headband] + ' (hidden by hat)', 'choice:headband') : this.choiceRow('headband')) + this.choiceRow('mask') + this.choiceRow('mark');
     if (look.headband !== 'none' || look.mask !== 'none') h += this.swatchRow('accent');
     return h + '<h3>Fine hair colour</h3>' + this.fineRows('hair');
   },
@@ -13653,6 +13828,64 @@ const SelfTest = {
         for (let n = 1; n < LOOK_CHOICES.face.options.length; n++) CreatorUI.cycleChoice('face', 1);
         if (d.look.face !== 'none') bad.push('cycle');
       } catch (e) { bad.push(e.message); } finally { CreatorUI.draft = keep.draft; UI.say = keep.say; UI.rerender = keep.rerender; R.faceOk = keep.ok; Showcase.endPreview(); }
+      return bad.length ? bad.slice(0, 5).join('; ') : true;
+    });
+    test('Photo faces: a crop is stored small, only here (no share code), reloads from the save and takes a pool cell', () => {
+      const bad = [], jpeg = (n) => 'data:image/jpeg;base64,' + 'A'.repeat(n), canvas = document.createElement('canvas'), slots = CustomRoster.slots;
+      const url = FaceTex.encode({ toDataURL: (type, quality) => jpeg(quality > 0.5 ? 9000 : 800) }), stored = (canvas.width = canvas.height = 200, FaceTex.cropToPhoto(canvas, 20, 20, 100));   // the quality steps down; a JPEG in a browser, '' with the headless stub canvas
+      if (!url || FaceTex.encode({ toDataURL: () => jpeg(9000) }) || (stored && !PHOTO_URL.test(stored))) bad.push('cap');
+      const set = validateCustom(randomCustom(77)).value;
+      set.look.face = 'f4'; set.look.photo = url;
+      const code = encodeCustom(set), copy = decodeCustom(code, true), over = Object.assign({}, set, { look: Object.assign({}, set.look, { photo: jpeg(PHOTO_MAX_CHARS) }) });
+      if (!copy.ok || copy.value.look.face !== 'f4' || 'photo' in copy.value.look || fromBase64Url(code.split('-')[1]).includes('data:image')) bad.push('share code');
+      try { CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null); CustomRoster.loadFrom(JSON.parse(JSON.stringify({ slots: [set, over] }))); if (CustomRoster.slots[0].look.photo !== url || 'photo' in CustomRoster.slots[1].look) bad.push('reload'); } finally { CustomRoster.slots = slots; }
+      const keep = { ok: R.faceOk, photos: FaceTex.photos, draft: CreatorUI.draft, say: UI.say, rerender: UI.rerender }, look = { face: 'f4', photo: url };
+      UI.say = UI.rerender = () => {};
+      try {
+        R.faceOk = true; FaceTex.photos = new Map();
+        if (FaceTex.cellOf(look) !== 4) bad.push('while decoding');   // not ready: the chosen face
+        FaceTex.photos.set(url, { cells: [], row: PHOTO_ROW, photo: canvas });
+        const cell = FaceTex.cellOf(look), shells = faceParts(look, true).filter((p) => p.cast < 0);
+        if (cell < FACE_POOL_FIRST || cell >= FACE_GRID * FACE_GRID || shells.length !== 1 || shells[0].cast !== -1 - cell) bad.push('cell ' + cell);
+        CreatorUI.draft = defaultCustom(0); CreatorUI.crop = { w: 300, h: 200, x: 0, y: 1, z: 1 }; CreatorUI.moveCrop('z', 3);
+        const [x, y, side] = CreatorUI.cropRect();
+        if (x < 0 || y < 0 || x + side > 300 + 1e-9 || y + side > 200 + 1e-9) bad.push('square');   // the cut stays inside the picture
+        R.faceOk = false;
+        if (FaceTex.cellOf(look) !== -1 || CreatorUI.tab_head().includes('photo:')) bad.push('no faces');
+      } finally { R.faceOk = keep.ok; FaceTex.photos = keep.photos; CreatorUI.crop = null; CreatorUI.draft = keep.draft; UI.say = keep.say; UI.rerender = keep.rerender; Showcase.endPreview(); }
+      return bad.length ? bad.join('; ') : true;
+    });
+    test('Expressions: the face follows fighter state (hurt after a hit, tired, panting, then rested), pool cells stay in range, and a fight is the same with faces on or off', () => {
+      const bad = [], f = itemFighter({}, {}), full = f.maxStam, ok = R.faceOk;
+      const express = (state, patch) => faceExpression(Object.assign(f, { state, stam: full, exhaust: 0, gotHits: 0, comboShow: 0, comboHits: 0 }, patch));
+      [[S.IDLE, {}, 0], [S.HIT, {}, 1], [S.IDLE, { gotHits: 2 }, 1], [S.IDLE, { stam: full * 0.3 }, 2], [S.IDLE, { stam: full * 0.05 }, 3], [S.IDLE, { exhaust: 20 }, 3], [S.IDLE, { comboShow: 5, comboHits: 3 }, 4],
+        [S.VICTORY, {}, 5], [S.DEFEAT, {}, 4], [S.KO, {}, 6], [S.IDLE, {}, 0]].forEach(([state, patch, want], n) => { if (express(state, patch) !== want) bad.push('state ' + n); });
+      R.faceOk = true;
+      const photos = FaceTex.photos, sources = FaceTex.sources, photo = { cells: [], row: PHOTO_ROW, photo: document.createElement('canvas') };
+      FaceTex.photos = new Map([['p', photo]]); FaceTex.sources = [];
+      try {
+        FaceTex.cells.clear(); FaceTex.dirty = false;
+        const one = FaceTex.cellOf({ face: 'f7' }, 3);   // a pool paint marks its own cell dirty, nothing else
+        if (FaceTex.dirty || FaceTex.cells.size !== 1 || !FaceTex.cells.has(one)) bad.push('dirty cells');
+        for (let face = 0; face < FACE_ROWS.length; face++) for (let e = 0; e < FACE_EXPR.length; e++) {   // 24 x 7 requests, and a photo, against 40 pool cells
+          const cell = FaceTex.cellOf({ face: 'f' + face }, e);
+          if (e ? cell < FACE_POOL_FIRST || cell >= FACE_GRID * FACE_GRID : cell !== face) bad.push('cell f' + face + ' ' + e);
+          if (e) FaceTex.slot(photo, e);
+        }
+        FaceTex.owners.forEach((owner, cell) => { if (cell < FACE_POOL_FIRST || owner.src.cells[owner.expr] !== cell) bad.push('owner ' + cell); });
+        for (const src of FaceTex.sources.concat(photo)) (src ? src.cells : []).forEach((cell, expr) => { const owner = FaceTex.owners[cell]; if (cell !== undefined && (!owner || owner.src !== src || owner.expr !== expr)) bad.push('source ' + cell); });   // and the other way round
+      } finally { R.faceOk = ok; FaceTex.photos = photos; FaceTex.sources = sources; FaceTex.dirty = true; }
+      const play = (faces) => {
+        const m = mk({ seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse' }), push = R.push, seen = new Set();
+        m.fighters.forEach((x, i) => { m.controllers[i] = new AIController(x.profile, 'hard'); if (faces) x.applyLook(Object.assign({}, x.look, { face: 'f' + (3 + i) })); });
+        if (faces) { R.faceOk = true; R.push = () => {}; }
+        try { for (let i = 0; i < 1500; i++) { m.step(); if (faces) m.fighters.forEach((x) => { x.skeleton(x.x, x.y, x.z, x.yaw, true); seen.add(faceExpression(x)); }); } } finally { R.push = push; R.faceOk = ok; }
+        const result = m.fighters.map((x) => [x.hp, x.stam, x.x, x.z, x.state]).join('|') + m.tick;
+        m.dispose();
+        return [result, seen];
+      };
+      const [off] = play(false), [on, seen] = play(true);
+      if (off !== on || !seen.has(0) || !seen.has(1)) bad.push('fight differs or no hurt face ' + [...seen]);
       return bad.length ? bad.slice(0, 5).join('; ') : true;
     });
     test('Creator: cosmetics never change the simulation', () => {
