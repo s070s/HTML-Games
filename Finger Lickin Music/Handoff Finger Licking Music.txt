@@ -1,0 +1,10 @@
+Resume the Finger Lickin Music build.
+Repo: s070s/HTML-Games, folder "Finger Lickin Music". Work is on branch flm-implementation (origin, tip 1d8e0af, 19 commits). main is untouched by this program.
+Start: git fetch; git checkout flm-implementation (do not touch main's local "Idea docs" commit).
+Read in order: docs/IMPLEMENTATION-PLAN.md Part 0 (esp. 0.4-0.7), the top entry of docs/LEDGER.md (ends with RESUME: T04.05), docs/STATUS.md. Do the Part 0.3 reading for each T section as you reach it.
+State: Phases 01, 02, 03 gated and committed; Phase 04 done through T04.04 (audio context, voices, scheduler). Last verified: node tools/build.mjs exit 0; node tools/selftest.mjs --all 664/664 over 23 groups; --smoke OK.
+Verify first: node tools/build.mjs; node tools/selftest.mjs --all --timeout 240 (needs Chrome at C:/Program Files/Google/Chrome/Application/chrome.exe or env FLM_CHROMIUM; Node playwright is not installed, tools/lib-cdp.mjs drives Chrome directly, decision D1).
+Next: T04.05 (panic, nodeCount, audio.panic API), T04.06, T04.07. Independent T sections can run in parallel agents on disjoint files; verify each with your own --all run; commit by path.
+Standing rules (LEDGER top): new files UTF-8 BOM + LF + ASCII only; commit messages "Finger Lickin Music: ..." (docs-only: "Finger Lickin Music docs: ..."); never weaken or skip a test; usage is per account, so add a new row to the LEDGER usage log with the new account's first reading; the owner's old stop rule (before 15% of weekly) was for the previous account: ask the owner for this account's limit.
+Push: NOT authorized for this session. The owner authorized one push at the end of the previous session only.
+Open owner items: delete %TEMP%\claude\flm-profile-* (locked); confirm settings row input.keys.more (D38); approve Part 7.11 patch for S-INP-09 (D52); device/other-browser tests (XT, LT) are owner-run. Known issues list is in the LEDGER (OI-27 touch-layout perf scenario missing; TT-023 and UT-07-04 occasional flakes: use flake-triage).
