@@ -8,6 +8,8 @@ const MODE_PRIMARY = 0;
 const MODE_ALT = 1;
 const MODE_QUICK_MELEE = 2;             // weapon.fire mode index of the MELEE button bash
 const FIRE_MODE_LABELS = MODE_NAMES.concat(['melee']);
+const MELEE_KIND = { NONE: 0, PRIMARY: 1, ALT: 2, QUICK: 3 };   // Weapons.meleeKind (visual only): which strike the melee animation plays
+const ACTION_KIND = { NONE: 0, RELOAD: 1, MELEE: 2, SWAP: 3 };   // Render.actorAction: what an actor's body is doing with its weapon
 const ADS_SECONDS = 0.2;                 // time to aim down sights fully
 const KICK_SECONDS = 0.12;               // view model kick decay after a shot
 const SCOPE_SWAY_DEG = 0.35;             // W24 scope sway (FireMode.breath): drift size in degrees at full scope
@@ -67,7 +69,7 @@ const RayHits = {
 };
 
 // ---- Reused event payloads (ARC-015: listeners copy what they keep) ----
-const FIRE_EVENT = { id: 0, weapon: '', weaponClass: '', mode: 'primary', x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0 };
+const FIRE_EVENT = { id: 0, weapon: '', weaponClass: '', mode: 'primary', x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0, magShare: -1 };   // magShare: the magazine's share left after the shot (0..1), -1 = no magazine
 const SWITCH_EVENT = { id: 0, weapon: '' };
 const RELOAD_EVENT = { id: 0, weapon: '' };
 const EMPTY_EVENT = { id: 0, weapon: '', pool: 'mag', dry: false };   // pool: 'mag' or 'alt' (the separate alt rounds ran out); dry: nothing left to reload either
@@ -78,13 +80,23 @@ function emitWeaponEvent(type, payload, id, weapon) {
   payload.id = id; payload.weapon = weapon.id;
   Bus.emit(type, payload);
 }
-function emitImpact(hit, weaponKey, owner) {
+function announceImpact(hit, weaponKey, owner) {
   IMPACT_EVENT.x = hit.x; IMPACT_EVENT.y = hit.y; IMPACT_EVENT.z = hit.z; IMPACT_EVENT.nx = hit.nx; IMPACT_EVENT.ny = hit.ny; IMPACT_EVENT.nz = hit.nz;
   IMPACT_EVENT.material = hit.brush ? hit.brush.material : ''; IMPACT_EVENT.weapon = weaponKey; IMPACT_EVENT.owner = owner;
   Bus.emit('impact', IMPACT_EVENT);
+}
+function emitImpact(hit, weaponKey, owner) {
+  announceImpact(hit, weaponKey, owner);
   if (Game.headless) return;
   Fx.burst('spark', hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 6, IMPACT_SPARK_COLOR);
   Fx.decal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 'bullet');
+}
+// P6-03: a melee swing that meets a wall or the floor within reach: the impact event (the audio row plays the material's sound) and a puff of dust, no sparks or
+// decal. Nothing in the sim listens to 'impact'; only the sound and the effect do.
+const MELEE_DUST_COUNT = 5;
+function meleeSurfaceHit(hit, weapon, owner) {
+  announceImpact(hit, weapon.id, owner);
+  if (!Game.headless) Fx.burst('dust', hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, MELEE_DUST_COUNT);
 }
 // A shot or bolt that stopped at a destructible prop damages it (S08 Props; the breaker is reported on 'world.break').
 function damagePropAt(hit, amount, owner) {
@@ -154,6 +166,15 @@ const Weapons = {
   startKeys: (id) => currentWeaponSet().start,        // fn(id) -> the weapon keys an actor spawns with (13d: the pickup loadout of the player and the bots)
   botTakes: (id, weapon) => true,                   // fn(id, weapon) -> true: a bot at the carry limit swaps this gun in (14e: only an upgrade)
   useClaimed: new Uint8Array(MAX_ACTORS),           // 1 = Use served another action during this hold (claimUse): no carry-limit swap until a release
+  // P6 animation state, VISUAL ONLY: written by the steps below, read by Render.viewModel / Render.actorAction and by nothing in the sim.
+  reloadEmpty: new Uint8Array(MAX_ACTORS),          // 1 = the reload in progress began with an empty magazine (the empty reload profile)
+  reloadChained: new Uint8Array(MAX_ACTORS),        // 1 = this shell reload began in the same step the previous one ended (not the first shell)
+  meleeAt: new Float64Array(MAX_ACTORS).fill(-1e9), // Sim.time of the last melee hit tick (a strike is decided in the step of the trigger, there is no wind-up)
+  meleeCycle: new Float32Array(MAX_ACTORS),         // the cooldown that strike added to nextShot: the weapon may act again this long after meleeAt
+  meleeKind: new Uint8Array(MAX_ACTORS), meleeWeapon: new Int16Array(MAX_ACTORS).fill(-1),   // MELEE_KIND, and the striker's weapon index
+  meleeHit: new Uint8Array(MAX_ACTORS), meleeCount: new Uint16Array(MAX_ACTORS),             // 1 = it hit a body; strikes so far (forehand / backhand)
+  swapFrom: new Int16Array(MAX_ACTORS).fill(-1), swapLevel0: new Float32Array(MAX_ACTORS),   // the weapon drawn, and how far lowered (1 = fully), when the swap began
+  joltAt: new Float64Array(MAX_ACTORS).fill(-1e9),  // Sim.time of the last detonate press during a reload (the thumb jolt of the view model)
   rodeBoard: new Uint8Array(MAX_ACTORS),            // 1 = on the skimmer at the last weapons step (the Use press that steps off is the board's)
   useTakers: [],                                    // fn(id) -> true where holding Use serves another action (11c revive, 13b objectives, 13g beacon)
 
@@ -230,6 +251,12 @@ const Weapons = {
     this.breathUsed[id] = this.swayPitch[id] = this.swayYaw[id] = 0; this.swayScale[id] = 1;
     this.lastShot[id] = -1e9;
     this.lastSlot[id] = 0; this.speedScale[id] = 1;
+    this.resetAnimation(id);
+  },
+  resetAnimation(id) {
+    this.reloadEmpty[id] = this.reloadChained[id] = 0;
+    this.meleeAt[id] = -1e9; this.meleeCycle[id] = 0; this.meleeKind[id] = MELEE_KIND.NONE; this.meleeWeapon[id] = -1; this.meleeHit[id] = 0;
+    this.swapFrom[id] = -1; this.swapLevel0[id] = 0; this.joltAt[id] = -1e9;
   },
   resetFiring(id) {
     this.nextShot[id] = this.nextAlt[id] = 0; this.burstLeft[id] = 0; this.charge[id] = 0; this.chargeMode[id] = -1; this.spin[id] = 0;
@@ -371,6 +398,8 @@ const Weapons = {
     if (index < 0 || !this.owned[this.slotIndex(id, index)]) return false;
     const target = this.state[id] === WEAPON_STATE.SWAP ? this.pending[id] : this.current[id];
     if (index === target) return false;
+    const look = this.swapLook(id);   // the picture the swap starts from: a swap changed mid-way carries on from the weapon and level drawn now
+    this.swapFrom[id] = look.shown; this.swapLevel0[id] = look.level;
     this.resetFiring(id);
     this.state[id] = WEAPON_STATE.SWAP;
     this.pending[id] = index;
@@ -431,6 +460,7 @@ const Weapons = {
     this.stateTime[id] = 0;
     this.stateDuration[id] = weapon.reload * this.modifier(id, weapon, STAT.RELOAD);
     this.charge[id] = 0; this.chargeMode[id] = -1; this.burstLeft[id] = 0;
+    this.reloadEmpty[id] = this.magazine[this.slotIndex(id, weapon.index)] === 0 ? 1 : 0; this.reloadChained[id] = 0;   // visual only (P6-02)
     emitWeaponEvent('weapon.reload', RELOAD_EVENT, id, weapon);
     return true;
   },
@@ -441,7 +471,7 @@ const Weapons = {
     if (this.stateTime[id] < this.stateDuration[id]) return;
     this.loadRounds(id, weapon, weapon.reloadShell ? 1 : this.magSize(id, weapon));
     this.state[id] = WEAPON_STATE.IDLE;
-    if (weapon.reloadShell) this.beginReload(id, weapon);
+    if (weapon.reloadShell && this.beginReload(id, weapon)) this.reloadChained[id] = 1;
   },
   loadRounds(id, weapon, wanted) {
     const slot = this.slotIndex(id, weapon.index);
@@ -543,7 +573,7 @@ const Weapons = {
     this.updateSway(id, weapon, dt);
     if (this.state[id] === WEAPON_STATE.RELOAD) {
       this.stepReload(id, weapon, dt);
-      if (weapon.alt.type === 'detonate' && !altTaken) this.stepAltMode(id, weapon, dt);   // D-F01: detonating costs no round, so a reload never blocks it (W40's single round reloads at once)
+      if (weapon.alt.type === 'detonate' && !altTaken) { if (Actors.pressed[id] & BTN.ALT) this.joltAt[id] = Sim.time; this.stepAltMode(id, weapon, dt); }   // D-F01: detonating costs no round, so a reload never blocks it (W40's single round reloads at once)
       return;
     }
     if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
@@ -739,7 +769,9 @@ const Weapons = {
   // One trigger pull: timing, then the shot (a burst's later rounds call fireShot directly).
   fire(id, weapon, mode, modeIndex, fraction) {
     if (mode.cooldown > 0) this.nextAlt[id] = mode.cooldown;
-    this.nextShot[id] += this.shotInterval(id, weapon, mode);
+    const interval = this.shotInterval(id, weapon, mode);
+    this.nextShot[id] += interval;
+    if (mode.type === 'melee') this.markMelee(id, weapon, modeIndex === MODE_ALT ? MELEE_KIND.ALT : MELEE_KIND.PRIMARY, interval);
     if (mode.special && this.specials[mode.special](id, weapon, mode)) return;
     this.fireShot(id, weapon, mode, modeIndex, fraction);
   },
@@ -759,6 +791,8 @@ const Weapons = {
     FIRE_EVENT.id = id; FIRE_EVENT.weapon = weapon.id; FIRE_EVENT.weaponClass = weapon.class; FIRE_EVENT.mode = FIRE_MODE_LABELS[modeIndex];
     FIRE_EVENT.x = Actors.x[id]; FIRE_EVENT.y = eyeY; FIRE_EVENT.z = Actors.z[id];
     FIRE_EVENT.dx = aimScratch.x; FIRE_EVENT.dy = aimScratch.y; FIRE_EVENT.dz = aimScratch.z;
+    FIRE_EVENT.magShare = -1;
+    if (weapon.mag > 0) FIRE_EVENT.magShare = this.magazine[this.slotIndex(id, weapon.index)] / this.magSize(id, weapon);
     Bus.emit('weapon.fire', FIRE_EVENT);
     emitSound(Actors.x[id], eyeY, Actors.z[id], mode.noise >= 0 ? mode.noise : weapon.noise, 'shot', id);
     this.kick[id] = 1;
@@ -774,6 +808,7 @@ const Weapons = {
     const melee = this.ownedMelee(id);
     const mode = melee ? melee.primary : QUICK_MELEE, striker = melee || weapon || CAT.weapons[0];
     this.nextShot[id] += 1 / mode.rate;
+    this.markMelee(id, striker, MELEE_KIND.QUICK, 1 / mode.rate);
     deliverMelee(id, striker, mode, MODE_PRIMARY, 0);
     this.announceShot(id, striker, mode, MODE_QUICK_MELEE);
   },
@@ -843,24 +878,107 @@ const Weapons = {
     }
     return found;
   },
+  // P6-03: a melee strike was decided this step (its hit tick); the animation plays the strike from here to the moment the weapon may act again.
+  markMelee(id, striker, kind, interval) {
+    this.meleeAt[id] = Sim.time; this.meleeCycle[id] = interval; this.meleeKind[id] = kind; this.meleeWeapon[id] = striker.index;
+    this.meleeHit[id] = 0; this.meleeCount[id]++;
+  },
+  // P6-04 swap split, both views: the weapon drawn and how far it is lowered (1 = fully). The first SWAP_LOWER_SHARE of the swap time
+  // lowers the weapon drawn when it began (from the level it was at), the rest raises the pending one. Timing, equip time and the
+  // moment the switch happens are the sim's and unchanged.
+  swapLook(id) {
+    const look = SWAP_LOOK, from = this.current[id];
+    if (this.state[id] !== WEAPON_STATE.SWAP) { look.shown = from; look.level = 0; return look; }
+    const t = clamp(this.stateTime[id] / this.stateDuration[id], 0, 1);
+    if (t < SWAP_LOWER_SHARE) { look.shown = this.swapFrom[id] >= 0 ? this.swapFrom[id] : from; look.level = lerp(this.swapLevel0[id], 1, t / SWAP_LOWER_SHARE); return look; }
+    look.shown = this.pending[id]; look.level = 1 - (t - SWAP_LOWER_SHARE) / (1 - SWAP_LOWER_SHARE);
+    return look;
+  },
+  // The shell reload in progress loads the last round this magazine takes (nothing more to chain after it).
+  lastShellRound(id, weapon) {
+    const slot = this.slotIndex(id, weapon.index);
+    return this.magazine[slot] + 1 >= this.magSize(id, weapon) || (!this.infiniteReserve(weapon) && this.reserve[slot] <= 1);
+  },
+  // The melee animation row of the strike in progress (the striker's primary or alt row), -1 = none.
+  meleeAnimOf(id) {
+    const striker = this.meleeWeapon[id] >= 0 ? CAT.weapons[this.meleeWeapon[id]] : null;
+    if (!striker) return -1;
+    return this.meleeKind[id] === MELEE_KIND.ALT ? striker.meleeAltIndex : striker.meleeAnimIndex;
+  },
+  // True while a strike is in progress: it ends exactly when the weapon may act again (the age is Sim.time - meleeAt, in seconds).
+  meleeActive(id) {
+    const age = Sim.time - this.meleeAt[id];
+    return age >= 0 && age < this.meleeCycle[id] - 1e-9;
+  },
+  // The action cycle between shots (W19 pump, W24 bolt) into out.cycle: the share of the shot interval gone since the shot, -1 when not cycling.
+  // (The fields below are set by statements, not by ternaries or by a returned float: a float mixed with an integer, or returned, is boxed on the heap on every call, PERF-006.)
+  actionCycle(id, weapon, out) {
+    out.cycle = -1;
+    if (weapon.reloadAnimIndex < 0 || !CAT.reloadAnims[weapon.reloadAnimIndex].cycle || this.state[id] !== WEAPON_STATE.IDLE || this.nextShot[id] <= 0) return;
+    out.cycle = clamp(1 - this.nextShot[id] / this.shotInterval(id, weapon, weapon.primary), 0, 1);
+  },
+  // The animation fields of Render.viewModel (docs/api/render.md); everything is read from the sim state above, nothing is written.
+  animationView(id, weapon, out) {
+    const reloading = this.state[id] === WEAPON_STATE.RELOAD && weapon.reloadAnimIndex >= 0;
+    out.reloadSet = reloading ? weapon.reloadAnimIndex : -1;
+    out.reloadEmpty = this.reloadEmpty[id]; out.reloadFirst = this.reloadChained[id] ? 0 : 1; out.reloadLast = reloading && this.lastShellRound(id, weapon) ? 1 : 0;
+    out.swapping = this.state[id] === WEAPON_STATE.SWAP ? 1 : 0;
+    out.meleeAge = -1;
+    if (this.meleeActive(id)) out.meleeAge = Sim.time - this.meleeAt[id];
+    out.meleeCycle = this.meleeCycle[id]; out.meleeKind = this.meleeKind[id]; out.meleeStriker = this.meleeWeapon[id];
+    out.meleeAnim = this.meleeAnimOf(id); out.meleeHit = this.meleeHit[id]; out.meleeCount = this.meleeCount[id]; out.meleeAt = this.meleeAt[id];
+    out.weaponIndex = weapon.index;
+    out.fireHeld = (Actors.buttons[id] & BTN.FIRE) !== 0 ? 1 : 0;
+    out.chargeFraction = 0;
+    if (this.chargeMode[id] >= 0) {
+      const chargeMode = this.chargeMode[id] === MODE_ALT ? weapon.alt : weapon.primary;
+      if (chargeMode.charge) out.chargeFraction = clamp(this.charge[id] / chargeMode.charge.time, 0, 1);
+    }
+    out.blocking = WeaponSpecialState.blocking[id]; out.parry = Sim.time <= WeaponSpecialState.parryUntil[id] ? 1 : 0;
+    out.blockPool = 1;
+    if (weapon.alt.block) out.blockPool = clamp(WeaponSpecialState.blockPool[id] / weapon.alt.block.pool, 0, 1);
+    out.reflectAge = Sim.time - WeaponSpecialState.reflectAt[id];
+    out.joltAge = Sim.time - this.joltAt[id];
+    out.sprinting = (Actors.flags[id] & ACTOR_FLAG.SPRINTING) !== 0 ? 1 : 0;
+    this.actionCycle(id, weapon, out);
+  },
+  // Render.actorAction: what the body of any actor does with its weapon (third-person action layer, 07c). Cheap: a few array reads.
+  actorAction(id, out) {
+    out.kind = ACTION_KIND.NONE; out.blocking = 0;
+    const weapon = this.currentWeapon(id);
+    if (!weapon) return out;
+    if (this.state[id] === WEAPON_STATE.SWAP) { out.kind = ACTION_KIND.SWAP; out.swap = this.swapLook(id).level; return out; }
+    out.blocking = WeaponSpecialState.blocking[id];
+    if (this.state[id] === WEAPON_STATE.RELOAD && weapon.reloadAnimIndex >= 0) {
+      out.kind = ACTION_KIND.RELOAD; out.reloadSet = weapon.reloadAnimIndex; out.reload = clamp(this.stateTime[id] / this.stateDuration[id], 0, 1);
+      out.reloadEmpty = this.reloadEmpty[id]; out.reloadFirst = this.reloadChained[id] ? 0 : 1; out.reloadLast = this.lastShellRound(id, weapon) ? 1 : 0;
+      return out;
+    }
+    if (!this.meleeActive(id)) return out;
+    out.kind = ACTION_KIND.MELEE; out.meleeAnim = this.meleeAnimOf(id); out.meleeAge = Sim.time - this.meleeAt[id]; out.meleeCycle = this.meleeCycle[id]; out.meleeCount = this.meleeCount[id];
+    out.fireHeld = (Actors.buttons[id] & BTN.FIRE) !== 0 ? 1 : 0; out.meleeStriker = this.meleeWeapon[id]; out.weaponIndex = weapon.index;
+    return out;
+  },
   // Render.viewModel: what the renderer needs to draw the held weapon of the local player.
   viewModel(out) {
     const id = Game.playerId, weapon = id >= 0 && Actors.alive[id] ? this.currentWeapon(id) : null;
     out.visible = !!weapon;
     if (!weapon) return out;
-    const shown = this.state[id] === WEAPON_STATE.SWAP ? CAT.weapons[this.pending[id]] : weapon;
+    const look = this.swapLook(id), shown = look.shown >= 0 ? CAT.weapons[look.shown] : weapon;
     out.shape = shown.class; out.model = shown.id; out.color = shown.family.color; out.kick = this.kick[id]; out.ads = this.ads[id];
     out.reload = this.state[id] === WEAPON_STATE.RELOAD ? this.stateTime[id] / this.stateDuration[id] : 0;
-    out.swap = this.state[id] === WEAPON_STATE.SWAP ? 1 - this.stateTime[id] / this.stateDuration[id] : 0;   // 1 = fully lowered (07e poseWeapon)
+    out.swap = look.level;   // 1 = fully lowered (07e poseWeapon); a swap lowers the old weapon first, then raises the new one (P6-04)
     out.zoom = lerp(1, this.zoomed[id] && shown.alt.zoomMax > shown.alt.zoom ? shown.alt.zoomMax : shown.alt.zoom, this.ads[id]);
     out.charge = this.chargeMode[id] >= 0 ? this.charge[id] : 0;
     out.recoilPitch = this.recoilPitch[id] + this.swayPitch[id]; out.recoilYaw = this.recoilYaw[id] + this.swayYaw[id];   // degrees the spray and sway move the view
     out.dual = this.dual[this.slotIndex(id, shown.index)] === 1;
+    this.animationView(id, weapon, out);
     return out;
   },
 };
 
 const AMMO_VIEW = { magazine: 0, reserve: 0, alt: 0, infinite: false };
+const SWAP_LOOK = { shown: -1, level: 0 };   // Weapons.swapLook's answer (reused)
 const QUICK_MELEE = CAT.fireModes.byId('quick.melee');
 const WEAPON_HEAT_CAP = 120;             // W36 heat blast: stored heat is capped here
 const HEAT_VENT_DELAY = 1;               // R-186: after a second without a shot the stored heat vents...
@@ -986,7 +1104,12 @@ function deliverMelee(id, weapon, mode, modeIndex, fraction) {
   Vec.fromAngles(aimScratch, Actors.yaw[id], Actors.pitch[id]);
   const wall = World.raycast(originScratch.x, originScratch.y, originScratch.z, aimScratch.x, aimScratch.y, aimScratch.z, mode.reach, shotHit) ? shotHit.distance : mode.reach;
   const count = RayHits.collect(id, originScratch.x, originScratch.y, originScratch.z, aimScratch.x, aimScratch.y, aimScratch.z, wall, 1, MELEE_RADIUS, false);
-  if (count === 0) { meleeMiss(id, mode, wall < mode.reach); return; }
+  if (count === 0) {
+    if (wall < mode.reach) meleeSurfaceHit(shotHit, weapon, id);
+    meleeMiss(id, mode, wall < mode.reach);
+    return;
+  }
+  Weapons.meleeHit[id] = 1;
   const target = RayHits.ids[0], distance = RayHits.distances[0];
   const amount = mode.backstab && isBehind(id, target) ? mode.backstab : damage;
   applyShotDamage(id, target, weapon, mode, amount, RayHits.zones[0], 0, originScratch.x + aimScratch.x * distance, originScratch.y + aimScratch.y * distance, originScratch.z + aimScratch.z * distance, aimScratch.x, aimScratch.y, aimScratch.z, distance);
@@ -1161,4 +1284,5 @@ Input.aimAssistOverride = () => {
 };
 Render.viewModel = (out) => Weapons.viewModel(out);
 // Third person: the weapon an actor holds, the one being raised while it swaps (07c draws its model).
-Render.heldWeapon = (id) => (Weapons.state[id] === WEAPON_STATE.SWAP && Weapons.pending[id] >= 0 ? Weapons.pending[id] : Weapons.current[id]);
+Render.heldWeapon = (id) => (Weapons.state[id] === WEAPON_STATE.SWAP ? Weapons.swapLook(id).shown : Weapons.current[id]);   // the swap split (P6-04): the old weapon while it lowers, the new one after
+Render.actorAction = (id, out) => Weapons.actorAction(id, out);

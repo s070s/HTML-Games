@@ -143,12 +143,18 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P6-01 - DECIDE: reload animation set per weapon class (magazine out / in, shell insert, cell swap, bolt / charge, launcher load), first-person and third-person, with timing that matches each weapon's reload time.
   Done when: Appendix C lists the animation per class and per special weapon.
   Status (2026-10-29): decided, Appendix C "P6-01": 14 reload sets mapped to all 38 weapons (6 never reload), phases as fractions of the live reload time ending on the refill step, partial / empty / shell-by-shell / cancel rules; first- and third-person layers.
-- [ ] P6-02 - Implement the reload animations from P6-01, including partial reload, empty reload and reload cancel.
+- [x] P6-02 - Implement the reload animations from P6-01, including partial reload, empty reload and reload cancel.
   Done when: every weapon shows its reload animation and the animation end matches the ammo refill time.
-- [ ] P6-03 - DECIDE + implement better melee animations: per melee weapon and for the quick melee of guns (wind-up, strike, follow-through, hit reaction on the target), first-person and third-person.
+  Status (2026-10-29): 14 reload sets on all 38 weapons, partial / empty / shell-by-shell / cancel, first and third person; anims tests check the animation end equals the refill step for every weapon; reload poses tilt about the magazine well and stay under 30 % of the screen and 0.12 m from the eye on every frame (review sheet checked by the coordinator). Self-test 6663 / 6663.
+  Status (2026-10-29): implemented, not ticked; Appendix C "P6-02 to P6-04 - Implementation": 14 sets on all 32 weapons with a magazine, a self-test per weapon (partial and empty) proves the animation ends on the refill step; sim values unchanged.
+- [x] P6-03 - DECIDE + implement better melee animations: per melee weapon and for the quick melee of guns (wind-up, strike, follow-through, hit reaction on the target), first-person and third-person.
   Done when: each melee weapon and the quick melee has a distinct animation that matches its hit timing.
-- [ ] P6-04 - Swap, ADS / alt, sprint and inspect motions reviewed so they do not conflict with the new reload and melee motions.
+  Status (2026-10-29): per-weapon melee and quick melee with wind-up, contact on the first frame after damage, follow-through ending when the weapon can act again, hit reaction on the target; strikes land toward the crosshair (tested per frame).
+  Status (2026-10-29): implemented, not ticked; Appendix C "P6-02 to P6-04 - Implementation": 8 strike rows, contact pose on the first frame after the hit tick, end on the step the weapon may act again (self-tested for every melee weapon and the quick melee), hit reaction, stagger, hit-stop, surface impact.
+- [x] P6-04 - Swap, ADS / alt, sprint and inspect motions reviewed so they do not conflict with the new reload and melee motions.
   Done when: no animation pops or overlaps in a live test of every weapon.
+  Status (2026-10-29): priority swap > reload > melee > block > charge > aim > sprint > kick with blends; swap split 35 / 65 with equip time unchanged; pop test over every weapon and transition passes. Live device check LT-M-074 to LT-M-076 still to run; pose values are data rows the owner can retune.
+  Status (2026-10-29): implemented, not ticked; Appendix C "P6-02 to P6-04 - Implementation": one layer rule with blends, swap split 35 / 65, a self-test that samples pose continuity across swap, reload, melee, ADS and sprint for all 38 weapons; the live test (LT-M-074 to LT-M-076) is written and not run.
 
 ## Phase 7 - Audiovisual feedback
 
@@ -961,6 +967,50 @@ No weapon held: no view model, so no motion (unchanged).
 - Muzzle (P2-03) and the self-test probe: every action, sprint and kick offset is 0 in the idle hold pose, so the muzzle arithmetic and the 2 mm view-model probe tests stay valid; tracers are drawn only from poses where the sim allows a shot.
 - Inspect: not added. Reason: no free button on touch after P5-01 and no gameplay use; if the owner wants it later it is the lowest layer and any input ends it in 0.1 s.
 - Live test (P6-04 "Done when"): every weapon cycles swap -> reload (partial, empty, cancel by swap and by melee) -> melee -> sprint -> ADS on keyboard, controller and touch; record in `docs/LIVE-TESTS.md`.
+
+### P6-02 to P6-04 - Implementation (2026-10-29)
+
+Built to the P6-01, P6-03 and P6-04 decisions above, with the coordinator's answers: sprint does not cancel a reload, no inspect action, the procedural off-hand is accepted, Shardcaster reload data untouched (Phase 8). Visual only: no reload time, damage time, recoil, equip time or any other gameplay value changed (the existing gameplay tests pass unchanged; the sim only gained write-only visual state). Files: `src/03b-data-animations.js` (new: `reloadAnims` R1 to R14, `meleeAnims`), `03c` (`reloadAnim` / `meleeAnim` on classes and rows, `linkWeaponAnims`), `03b-data-render` / `03q` (part `role`s, the `action` slot of the body parts), `07c-render-models` (roles, roll, glow, `drawLoose`), `07c-render-actors` (roll in the shape shader, action slots in `placeActorPart`), `07e` (layers into `fillViewModel`, swap split), `07g-render-weapon-anim.js` (new: samplers, `ViewAction`, `ActorAction`), `11a` / `11d` (visual state, `Render.viewModel` fields, `Render.actorAction`, `swapLook`, melee surface impact, `magShare`), `18k` (slam trauma), `20b-test-anims.js` (group `anims`, 92 checks), docs (ARCHITECTURE, api/render, api/weapons-damage, SPECIFICATION WPN-014 to WPN-016, LIVE-TESTS LT-M-074 to LT-M-076).
+
+| Part | Result |
+|---|---|
+| Reload sets | 14 sets mapped to all 38 weapons (self-test against the Appendix C table; the six that never reload have none); phases, partial and empty variants and the five shell cycles with the exact fractions of P6-01; moving part roles added to the models (mag, slide, bolt, pump, cyl, barrel, lid, cell, string, arrow; new small parts on the heron, the energy guns' side cell, the hailstorm lid, the ramjet pod and lid, the auger cartridge) |
+| End = refill | for all 32 weapons with a magazine, partial and empty, and with quickMag / extendedMag: the animation is still playing on the step before the rounds are added and ends on that step (fraction reaches 1.0) |
+| Partial / empty / shells / cancel | an empty reload chambers inside the same total time (R1, R3, R9 and the W19 port and pump); W19 plays first, middle, last, only and empty-first cycles and chains without a pop; FIRE ends a shell reload with a 0.06 s blend; a swap (0.1 s) or a quick melee (0.05 s) cancels a reload and the part is back in its seat; sprint and FIRE do not cancel a magazine reload |
+| Melee | 8 strike rows; the contact pose is drawn on the first frame after the hit tick, follow-through and recovery end on the step the weapon may act again (tested for the maul, maul alt, tanto, tanto alt, shield bash and the quick melee of a pistol, a rifle and a heavy gun, with and without a target), hit-stop 0.03 s, wind-up from a held trigger, forehand / backhand, off-hand striker for a quick melee by another melee weapon, block and parry flash, hit knock |
+| Third person | arm, gun, torso and head layer for reload, strike and swap; the model's moving part detaches at the near LOD on presets with model detail; stagger of a stunned body; flinch of a hit body; no layer for killcam replay bodies or distant ones |
+| Priority and blends | swap > reload > melee > block > charge or cycle > sprint, every layer blends from the pose last drawn; reload offsets weighted by 1 - ADS; swap 35 % lowering and 65 % raising with the equip time unchanged, a swap changed mid-way carries on from the weapon and level drawn; W19 pump, W24 bolt, W27 string and cant, W39 / W34 / W45 glow swell, W40 / W43 detonate jolt |
+| Pop test | pose continuity sampled at 60 fps across swap, reload (partial, empty, cancelled by swap and by melee, sprint during it), melee, ADS and sprint for all 38 weapons: no frame moves the pivot more than 0.1 m or turns it more than 0.35 rad (the contact frame of a strike is a smear by design) |
+| Muzzle | every offset is 0 in the idle hold pose for all 38 weapons in both views (self-tested); the muzzle and 2 mm probe tests pass unchanged |
+| `charge` | `Render.viewModel` `charge` stays in seconds (it was documented as 0..1); `chargeFraction` = it over `charge.time`; docs corrected |
+| Allocation | the layers, a whole view-model frame and the third-person layer allocate nothing per frame (self-tests with the heap counter). Found while doing it: a float passed to or returned from a function V8 does not inline, or a ternary of a float and an integer, boxes on the heap; ARCHITECTURE code rules say so now |
+
+**Performance (P0-02 gate), `node tools/perf.mjs --scenes tdm --presets potato,low --throttle 4 --seconds 10 --no-boot`, the HEAD test build (A) against this build (B), alternating A / B and B / A, 6 runs each, medians (the machine was shared and noisy: single runs swung 2 to 10 times, so the median is what counts):**
+
+| Cell (4x) | Metric | A (HEAD) | B (P6) | Difference |
+|---|---|---|---|---|
+| tdm Potato | render ms | 1.33 | 1.32 | -0.01 |
+| tdm Potato | frame CPU @120 ms | 5.83 | 5.46 | -0.37 |
+| tdm Potato | draw calls | 30.5 | 32 | +1.5 (cap 50) |
+| tdm Low | render ms | 1.46 | 1.35 | -0.11 |
+| tdm Low | frame CPU @120 ms | 5.63 | 5.73 | +0.10 |
+| tdm Low | draw calls | 32 | 32 | 0 (cap 80) |
+
+Both cells are inside the gate (no cell worse than +10 % and +0.3 ms) and the allocation rate is unchanged (about 2.9 MB/s Potato, 0.9 MB/s Low). An earlier balanced round with the first version (before the per-body fast path and the roll write skip) had Low render +0.47 ms and frame CPU +0.88 ms, over the gate: the third-person layer cleared its slots for every body every frame; a body with nothing to show now costs one hook call. The scene is the existing one: the followed bot reloads and the bots reload and fight naturally; a forced worst case (every body reloading in the near LOD) was not added to the scene and has not been measured. HEAD build for `--file`: `C:\Users\GS\AppData\Local\Temp\claude\ctk\head-ClassTimeKiller.test.html` (temp, not in the repo). Self-test: full suite 6660 / 6661; the one miss is the `nav` big-map build time (a timing check, 52 ms against 50 ms; HEAD misses the same kind of check on this machine) in code this work did not touch. Shipped file: `__CTK.log.errors().length` is 0.
+
+**Deviations from Appendix C and what is left open.**
+- Sound cues (reloadOut, reloadIn, reloadRack, shellIn, cellCharge) are not played: they belong to P7-02 (F11); the mark fractions are in the `reloadAnims` rows.
+- Particles are not drawn: the spent casings of R2, the live round ejected by the R4 bolt, the W36 vent puffs, the W35 pilot flare (shared with the P7 `casing` kind, F06).
+- Reload work poses are tuned per set (review round 2, after the first version swung the back end of long guns to the eye): each set says where its magazine well goes (a few cm toward the middle and up) and the gun tilts ABOUT the well with the muzzle rising and turning in (pitch + 5 to 25, yaw + 5 to 10, small roll), not about the grip as the P6-01 table's pitch, roll and drop numbers imply (P6-01 had the muzzle going down). A self-test bounds every frame of every reload and strike of all 38 weapons: at most 30 % of a 16:9 screen (worst now 25 %, the idle shield) and the nearest corner at least 0.12 m from the eye (worst now 0.14 m). Hand points, part moves, strike poses and third-person angles are still values read off screenshots: the owner's review will change numbers, which are all data rows. Contact sheets: `C:\Users\GS\AppData\Local\Temp\claude\ctk-p6tools\sheet-after.png`.
+- A backhand (every second chop) mirrors yaw and roll only, not the position, so it starts from the same place on the screen (the first version mirrored the position into the bottom-right corner).
+- The R1 slide stays back only through an empty reload, not while the gun is dry outside a reload.
+- A part with its own pitch past 45 degrees (a forward barrel) ignores the weapon roll: it is round about that axis.
+- A swap changed during the raise lowers the weapon drawn from its level again (no jump) instead of switching the model in mid-air.
+- "Blocked hit jolts 2 cm" uses the general hit knock (2 to 4 cm by damage, down and pitched down).
+- The P7-03 weapon motion setting does not exist yet: the offsets are not scaled by it (the charge tremble already honours reduce motion; `ViewAction.update` is the one place to scale).
+- Two existing tests described the old swap and were changed to the swap split: `weapons` "a swap raises the new weapon..." and `render` "a swap starts lowered and rises".
+- `weapon.fire` gained `magShare` (P7 F09) because the brief asked for the event table; no listener uses it yet.
+- The live tests LT-M-074 to LT-M-076 are written and not run (they need devices). The tasks are not ticked.
 
 ### P7-01 - Feedback list (decided 2026-10-29 by the coordinator; the owner can change any row)
 

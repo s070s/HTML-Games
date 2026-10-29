@@ -604,6 +604,123 @@ Data.define('quality', {
 ]);
 const QUALITY_BOTS_MAX = Math.max(...CAT.quality.map((row) => row.bots));
 
+// ==== 03b-data-animations.js ====
+const RELOAD_PHASE_KINDS = ['lower', 'open', 'out', 'fetch', 'in', 'rack', 'close', 'prime', 'raise', 'reach', 'enter', 'insert', 'hold', 'exit', 'port'];
+const RELOAD_PART_MODES = ['mag', 'latch', 'pulse'];
+const MODEL_ROLES = ['', 'mag', 'slide', 'bolt', 'pump', 'cyl', 'barrel', 'lid', 'cell', 'string', 'arrow'];
+const RELOAD_FADE_SWAP = 0.1, RELOAD_FADE_MELEE = 0.05, RELOAD_FADE_FIRE = 0.06;
+const SWAP_LOWER_SHARE = 0.35;
+const NO_POSE = [0, 0, 0, 0, 0, 0];
+Data.define('reloadAnims', {
+	id: REQUIRED, name: REQUIRED, partial: REQUIRED, empty: null, work: NO_POSE, keys: {}, about: null, part: null, second: null, spare: [0.035, 0.09, 0.05],
+	seat: [-0.04, -0.07, 0.0], belt: [-0.18, -0.4, -0.05], rack: [-0.03, 0.03, -0.1], glow: false, jolt: [0, 0], tp: {}, marks: {}, shell: null, cycle: null, bow: null, index: 0,
+}, [
+	{ id: 'R1', name: 'Pistol magazine',
+		partial: [['lower', 0.12], ['out', 0.28], ['fetch', 0.50], ['in', 0.68], ['raise', 1]],
+		empty: [['lower', 0.10], ['out', 0.24], ['fetch', 0.44], ['in', 0.60], ['rack', 0.78], ['raise', 1]],
+		work: [-0.04, 0.05, 0, 14, 10, -20], part: { role: 'mag', mode: 'mag', out: 0.2 }, second: { role: 'slide', mode: 'pulse', move: [0, 0, -0.07], holdBack: true },
+		seat: [-0.03, -0.07, -0.01], belt: [-0.15, -0.4, -0.1], rack: [-0.03, 0.04, -0.12],
+		tp: { gun: -20, armLFetch: -45 }, marks: { out: [0.14, 0.12], in: [0.66, 0.58], rack: [0, 0.76] } },
+	{ id: 'R2', name: 'Revolver',
+		partial: [['lower', 0.10], ['out', 0.30], ['fetch', 0.50], ['in', 0.70], ['rack', 0.82], ['raise', 1]],
+		work: [-0.04, 0.05, 0, 12, 10, -15], keys: { out: [-0.04, 0.05, 0, 32, 10, -15], in: [-0.04, 0.05, 0, 0, 10, -10] },
+		part: { role: 'cyl', mode: 'latch', move: [-0.07, 0, 0], turn: [0, 0, -25] }, spare: [0.045, 0.05, 0.045],
+		seat: [-0.04, -0.02, 0.03], belt: [-0.15, -0.4, -0.1], rack: [-0.04, 0.02, 0.02],
+		tp: { gun: 30, armLFetch: -45 }, marks: { out: [0.12, 0.12], in: [0.68, 0.68], rack: [0.80, 0.80] } },
+	{ id: 'R3', name: 'Long-gun magazine',
+		partial: [['lower', 0.12], ['out', 0.30], ['fetch', 0.50], ['in', 0.68], ['raise', 1]],
+		empty: [['lower', 0.10], ['out', 0.25], ['fetch', 0.42], ['in', 0.58], ['rack', 0.80], ['raise', 1]],
+		work: [-0.05, 0.045, 0, 12, 8, 10], part: { role: 'mag', mode: 'mag', out: 0.22 }, second: { role: 'bolt', mode: 'pulse', move: [0, 0, -0.09] },
+		seat: [-0.04, -0.1, 0.06], belt: [-0.18, -0.42, -0.05], rack: [-0.04, 0.03, -0.1], jolt: [0.008, -0.03],
+		tp: { gun: -15, gunDrop: -0.05, armLFetch: -40, armRJerk: -15 }, marks: { out: [0.14, 0.12], in: [0.66, 0.56], rack: [0, 0.72] } },
+	{ id: 'R4', name: 'Bolt and magazine',
+		partial: [['lower', 0.10], ['open', 0.20], ['out', 0.34], ['fetch', 0.52], ['in', 0.66], ['close', 0.78], ['raise', 1]],
+		work: [-0.05, 0.04, 0, 10, 8, 10], part: { role: 'mag', mode: 'mag', out: 0.2 }, second: { role: 'bolt', mode: 'latch', move: [0, 0.02, -0.1], turn: [0, 0, 60] },
+		cycle: { role: 'bolt', keys: [[0, 0, 0], [0.20, 0, 0], [0.35, 0, 1], [0.50, 1, 1], [0.62, 0, 1], [0.72, 0, 0], [1, 0, 0]] },
+		seat: [-0.03, -0.07, 0.0], belt: [-0.16, -0.4, -0.05], rack: [0.03, 0.03, -0.08],
+		tp: { gun: -15, armLFetch: -40, armRJerk: -12 }, marks: { open: [0.12, 0.12], out: [0.22, 0.22], in: [0.64, 0.64], close: [0.76, 0.76] } },
+	{ id: 'R5', name: 'Shell by shell',
+		partial: [['enter', 0.25], ['insert', 0.85], ['hold', 1]], work: [-0.05, 0.04, 0, 10, 8, -20],
+		shell: { first: [['enter', 0.25], ['insert', 0.85], ['hold', 1]], middle: [['fetch', 0.35], ['insert', 0.85], ['hold', 1]], last: [['fetch', 0.30], ['insert', 0.65], ['exit', 1]],
+			only: [['enter', 0.20], ['insert', 0.60], ['exit', 1]], emptyFirst: [['enter', 0.20], ['port', 0.60], ['rack', 0.85], ['hold', 1]],
+			emptyLast: [['enter', 0.20], ['port', 0.60], ['rack', 0.80], ['exit', 1]], click: { first: 0.70, middle: 0.70, last: 0.60, only: 0.55, emptyFirst: 0.55, emptyLast: 0.55 } },
+		part: { role: 'pump', mode: 'pulse', move: [0, 0, -0.1] }, spare: [0.02, 0.02, 0.06], cycle: { role: 'pump', keys: [[0, 0, 0], [0.25, 0, 0], [0.45, 1, 0], [0.60, 0, 0], [1, 0, 0]] },
+		seat: [-0.02, 0.02, 0.05], belt: [-0.15, -0.3, 0.0], rack: [-0.03, -0.02, 0.1],
+		tp: { gun: -20, armLFetch: -30 }, marks: { shellIn: [0.70, 0.70] } },
+	{ id: 'R6', name: 'Break action',
+		partial: [['lower', 0.15], ['out', 0.30], ['fetch', 0.45], ['in', 0.70], ['close', 0.82], ['raise', 1]],
+		work: [-0.05, 0.04, 0, 10, 8, 0], part: { role: 'barrel', mode: 'latch', move: [0, -0.098, -0.031], turn: [-35, 0, 0] }, spare: [0.04, 0.04, 0.08],
+		seat: [-0.03, -0.03, 0.04], belt: [-0.15, -0.35, 0.0], rack: [-0.03, 0.0, 0.1], jolt: [0.012, -0.03],
+		tp: { gun: -25, armLFetch: -35 }, marks: { out: [0.18, 0.18], in: [0.62, 0.62], close: [0.76, 0.76] } },
+	{ id: 'R7', name: 'Drum or canister',
+		partial: [['lower', 0.15], ['out', 0.32], ['fetch', 0.50], ['in', 0.70], ['rack', 0.82], ['raise', 1]],
+		work: [-0.05, 0.04, 0, 10, 8, -15], part: { role: 'mag', mode: 'mag', move: [-0.18, -0.12, 0], lock: 60 }, spare: [0.1, 0.06, 0.1],
+		seat: [-0.04, -0.06, 0.05], belt: [-0.22, -0.3, 0.0], rack: [-0.05, -0.05, 0.05],
+		tp: { gun: -15, armLWork: -20, armLFetch: -35 }, marks: { out: [0.18, 0.18], in: [0.68, 0.68], rack: [0.80, 0.80] } },
+	{ id: 'R8', name: 'Cell swap',
+		partial: [['lower', 0.12], ['out', 0.35], ['fetch', 0.50], ['in', 0.66], ['rack', 0.86], ['raise', 1]], work: [-0.05, 0.045, 0, 12, 8, -10],
+		part: { role: 'cell', mode: 'mag', out: 0.22 }, spare: [0.02, 0.06, 0.04], glow: true,
+		seat: [-0.05, -0.02, 0.03], belt: [-0.2, -0.2, 0.0], rack: [-0.04, 0.03, 0.0],
+		tp: { gun: -15, armLFetch: -30 }, marks: { out: [0.14, 0.14], in: [0.64, 0.64], cellCharge: [0.68, 0.68] } },
+	{ id: 'R9', name: 'Top clip and crank',
+		partial: [['lower', 0.12], ['out', 0.28], ['fetch', 0.46], ['in', 0.64], ['raise', 1]],
+		empty: [['lower', 0.10], ['out', 0.24], ['fetch', 0.40], ['in', 0.56], ['rack', 0.80], ['raise', 1]],
+		work: [-0.05, 0.04, 0, 10, 8, 0], part: { role: 'mag', mode: 'mag', out: 0.12 }, second: { role: 'string', mode: 'pulse', move: [0, 0, -0.07] }, spare: [0.03, 0.03, 0.3],
+		seat: [-0.03, 0.08, 0.05], belt: [-0.16, 0.05, -0.05], rack: [-0.04, 0.03, -0.05],
+		tp: { gun: -10, armLFetch: 10 }, marks: { out: [0.14, 0.12], in: [0.62, 0.54], rack: [0, 0.70] } },
+	{ id: 'R10', name: 'Nock',
+		partial: [['reach', 0.35], ['in', 0.75], ['raise', 1]], work: [-0.04, 0.04, 0, 5, 5, 0],
+		part: { role: 'arrow', mode: 'mag', out: 0, hidden: true }, spare: [0.012, 0.5, 0.012], bow: { role: 'string', move: [0, 0, -0.12], cant: 5 },
+		seat: [-0.02, 0.0, 0.1], belt: [-0.18, -0.05, -0.1], rack: [-0.02, 0.0, 0.1],
+		tp: { gun: -10, armRFetch: 150 }, marks: { in: [0.70, 0.70] } },
+	{ id: 'R11', name: 'Belt box',
+		partial: [['lower', 0.10], ['open', 0.20], ['out', 0.35], ['fetch', 0.55], ['in', 0.70], ['rack', 0.80], ['close', 0.88], ['raise', 1]],
+		work: [-0.05, 0.04, 0, 8, 6, 15], part: { role: 'mag', mode: 'mag', out: 0.25 }, second: { role: 'lid', mode: 'latch', move: [0, 0.05, 0], turn: [-70, 0, 0] }, spare: [0.1, 0.08, 0.1],
+		seat: [-0.04, -0.12, 0.0], belt: [-0.25, -0.4, 0.1], rack: [-0.05, 0.05, 0.05], jolt: [-0.012, 0],
+		tp: { gun: 0, gunDrop: -0.12, torso: 8, armLFetch: -50 }, marks: { out: [0.22, 0.22], in: [0.68, 0.68], rack: [0.86, 0.86] } },
+	{ id: 'R12', name: 'Tank',
+		partial: [['lower', 0.10], ['open', 0.20], ['out', 0.35], ['fetch', 0.55], ['in', 0.72], ['rack', 0.82], ['prime', 0.92], ['raise', 1]],
+		work: [-0.05, 0.04, 0, 8, 6, 0], part: { role: 'cell', mode: 'mag', out: 0.2 }, spare: [0.05, 0.2, 0.05], glow: true,
+		seat: [-0.04, -0.06, 0.02], belt: [-0.2, -0.35, 0.0], rack: [-0.04, 0.0, 0.1],
+		tp: { gun: 0, gunDrop: -0.10, torso: 8, armLFetch: -40 }, marks: { out: [0.12, 0.12], in: [0.70, 0.70], rack: [0.80, 0.80] } },
+	{ id: 'R13', name: 'Tube',
+		partial: [['lower', 0.12], ['open', 0.22], ['out', 0.32], ['fetch', 0.52], ['in', 0.72], ['close', 0.82], ['raise', 1]],
+		work: [-0.05, 0.0, 0, 20, 6, 0], about: [-0.04, -0.09, 0.05], part: { role: 'mag', mode: 'mag', move: [0, 0, -0.25] }, second: { role: 'lid', mode: 'latch', move: [0, 0.06, 0], turn: [-60, 0, 0] }, spare: [0.07, 0.07, 0.25],
+		seat: [-0.04, -0.02, -0.12], belt: [-0.12, -0.12, -0.25], rack: [-0.04, -0.02, -0.12],
+		tp: { gun: 25, armLFetch: 30 }, marks: { out: [0.24, 0.24], in: [0.70, 0.70], rack: [0.80, 0.80] } },
+	{ id: 'R14', name: 'Breech',
+		partial: [['lower', 0.12], ['open', 0.24], ['fetch', 0.46], ['in', 0.66], ['close', 0.78], ['prime', 0.92], ['raise', 1]],
+		work: [-0.05, 0.04, 0, 15, 8, 0], part: { role: 'mag', mode: 'mag', move: [0, 0.05, 0] }, second: { role: 'lid', mode: 'latch', move: [0, 0.05, -0.02], turn: [-50, 0, 0] }, spare: [0.07, 0.07, 0.07], glow: true,
+		seat: [-0.03, 0.02, 0.15], belt: [-0.2, -0.3, 0.0], rack: [-0.03, 0.0, 0.0],
+		tp: { gun: -20, armLFetch: -35 }, marks: { out: [0.14, 0.14], in: [0.64, 0.64], cellCharge: [0.80, 0.80] } },
+]);
+CAT.reloadAnims.forEach((row, index) => { row.index = index; });
+const MELEE_FADE_RELOAD = 0.08;
+const MELEE_HIT_STOP = 0.03;
+Data.define('meleeAnims', {
+	id: REQUIRED, name: REQUIRED, strike: REQUIRED, through: REQUIRED, cocked: NO_POSE, follow: 0.3, recover: 1, wind: 0.8, alternate: false, charge: false,
+	twoHand: false, block: null, tp: {}, classes: [], index: 0,
+}, [
+	{ id: 'maul', name: 'Maul chop', strike: [-0.13, 0.05, 0.02, -65, 20, -20], through: [-0.18, -0.02, 0.06, -85, 28, -28], cocked: [0.02, 0.1, -0.05, 50, -10, 20],
+		follow: 0.30, recover: 0.80, wind: 0.80, alternate: true, twoHand: true, tp: { arms: [100, -20, -35], torso: 10, gun: [-30, 0.1] } },
+	{ id: 'maulAlt', name: 'Maul slam', strike: [-0.13, 0.02, 0.05, -80, 0, 0], through: [-0.13, -0.05, 0.08, -95, 0, 0], cocked: [-0.05, 0.16, -0.08, 55, 0, 0],
+		follow: 0.35, recover: 1, charge: true, twoHand: true, tp: { arms: [130, -20, -40], torso: 12, gun: [-40, 0.1] } },
+	{ id: 'tanto', name: 'Tanto slash', strike: [-0.15, 0.1, 0.12, -30, 30, -60], through: [-0.2, 0.08, 0.14, -30, 45, -75], cocked: [-0.02, 0.08, 0, -10, -30, 30],
+		follow: 0.25, recover: 1, wind: 0.8, alternate: true, tp: { arms: [60, -10, -30], torso: 6, gun: [0, 0.1], oneHand: true } },
+	{ id: 'tantoAlt', name: 'Tanto thrust', strike: [-0.13, 0.1, 0.1, -85, 0, 0], through: [-0.13, 0.1, 0.14, -85, 0, 20],
+		follow: 0.15, recover: 0.60, tp: { arms: [30, 0, 0], torso: 4, gun: [0, 0.25], oneHand: true } },
+	{ id: 'bulwark', name: 'Shield shove', strike: [-0.1, 0.02, 0.15, 0, 0, 0], through: [-0.1, 0.02, 0.18, 0, 0, 0], cocked: [0.01, 0, -0.04, 0, 0, 0],
+		follow: 0.30, recover: 1, wind: 0.85, twoHand: false, block: [-0.13, 0.03, 0.06, 0, 0, 0], tp: { arms: [20, 0, 0], torso: 6, gun: [0, 0.2] } },
+	{ id: 'bashSidearm', name: 'Pistol whip', strike: [-0.12, 0.05, 0.08, 0, 25, -40], through: [-0.17, 0.05, 0.06, 0, 35, -45], follow: 0.25, recover: 1, classes: ['sidearm'],
+		tp: { arms: [0, 0, 0], torso: 6, gun: [30, 0.2] } },
+	{ id: 'bashLong', name: 'Butt-stroke', strike: [-0.1, 0.05, 0.12, 0, 30, 0], through: [-0.13, 0.04, 0.14, 0, 40, 0], follow: 0.25, recover: 1,
+		classes: ['smg', 'rifle', 'marksman', 'sniper', 'shotgun', 'energy'], tp: { arms: [0, 0, 0], torso: 6, gun: [30, 0.2] } },
+	{ id: 'bashHeavy', name: 'Shoulder shove', strike: [-0.12, 0.05, 0.1, -10, 12, 0], through: [-0.14, 0.05, 0.13, -12, 14, 0], follow: 0.25, recover: 1,
+		classes: ['heavy', 'explosive', 'power', 'exotic', 'tool'], tp: { arms: [0, 0, 0], torso: 8, gun: [30, 0.2] } },
+]);
+CAT.meleeAnims.forEach((row, index) => { row.index = index; });
+const QUICK_MELEE_HELD_DIP = [0, -0.06, 0, 0, 0, 15];
+
 // ==== 03b-data-movement.js ====
 Data.define('movement', {
 	id: REQUIRED, code: REQUIRED, name: REQUIRED,
@@ -741,40 +858,40 @@ Data.define('decalKinds', { id: REQUIRED, size: 0.1, life: 30, color: '#1b1b1b',
 	{ id: 'frost', size: 0.5, life: 12, color: '#d8f2ff', alpha: 0.6 },
 	{ id: 'paint', size: 0.3, color: '#ff4fa0', alpha: 0.9 },
 ]);
-const ACTOR_PART_SCHEMA = { id: '', shape: 'box', pivot: [0, 0, 0], offset: [0, 0, 0], size: [0.2, 0.2, 0.2], hold: 0, tilt: 0, aim: 0, swing: 0, tint: 'team', far: false, distant: false, head: false, detail: false };
+const ACTOR_PART_SCHEMA = { id: '', shape: 'box', pivot: [0, 0, 0], offset: [0, 0, 0], size: [0.2, 0.2, 0.2], hold: 0, tilt: 0, aim: 0, swing: 0, tint: 'team', far: false, distant: false, head: false, detail: false, action: 0 };
 Data.define('actorParts', Object.assign({}, ACTOR_PART_SCHEMA, { id: REQUIRED }), [
-	{ id: 'torso', shape: 'box', pivot: [0, 1.16, 0], size: [0.52, 0.62, 0.3], aim: 0.25, tint: 'team', far: true, distant: true },
-	{ id: 'head', shape: 'sphere', pivot: [0, 1.62, 0], size: [0.28, 0.3, 0.28], aim: 1, tint: 'skin', far: true, distant: true, head: true },
+	{ id: 'torso', shape: 'box', pivot: [0, 1.16, 0], size: [0.52, 0.62, 0.3], aim: 0.25, tint: 'team', far: true, distant: true, action: 4 },
+	{ id: 'head', shape: 'sphere', pivot: [0, 1.62, 0], size: [0.28, 0.3, 0.28], aim: 1, tint: 'skin', far: true, distant: true, head: true, action: 5 },
 	{ id: 'legL', shape: 'capsule', pivot: [0.13, 0.86, 0], offset: [0, -0.42, 0], size: [0.19, 0.88, 0.19], swing: 1, tint: 'teamDark', far: true, distant: true },
 	{ id: 'legR', shape: 'capsule', pivot: [-0.13, 0.86, 0], offset: [0, -0.42, 0], size: [0.19, 0.88, 0.19], swing: -1, tint: 'teamDark', far: true, distant: true },
-	{ id: 'armL', shape: 'capsule', pivot: [0.32, 1.4, 0], offset: [0, -0.28, 0], size: [0.14, 0.6, 0.14], hold: 62, aim: 1, swing: 0.15, tint: 'team', far: true },
-	{ id: 'armR', shape: 'capsule', pivot: [-0.32, 1.4, 0], offset: [0, -0.28, 0], size: [0.14, 0.6, 0.14], hold: 80, aim: 1, swing: -0.1, tint: 'team', far: true },
+	{ id: 'armL', shape: 'capsule', pivot: [0.32, 1.4, 0], offset: [0, -0.28, 0], size: [0.14, 0.6, 0.14], hold: 62, aim: 1, swing: 0.15, tint: 'team', far: true, action: 1 },
+	{ id: 'armR', shape: 'capsule', pivot: [-0.32, 1.4, 0], offset: [0, -0.28, 0], size: [0.14, 0.6, 0.14], hold: 80, aim: 1, swing: -0.1, tint: 'team', far: true, action: 2 },
 	{ id: 'hips', shape: 'box', pivot: [0, 0.88, 0], size: [0.46, 0.2, 0.28], tint: 'teamDark' },
 	{ id: 'visor', shape: 'box', pivot: [0, 1.62, 0], offset: [0, 0.02, 0.12], size: [0.22, 0.08, 0.07], aim: 1, tint: 'visor', head: true },
 	{ id: 'pack', shape: 'box', pivot: [0, 1.2, 0], offset: [0, 0, -0.2], size: [0.36, 0.42, 0.14], aim: 0.25, tint: 'teamDark' },
-	{ id: 'gun', shape: 'box', pivot: [-0.16, 1.32, 0], offset: [0, 0, 0.42], size: [0.08, 0.12, 0.62], aim: 1, tint: 'dark' },
+	{ id: 'gun', shape: 'box', pivot: [-0.16, 1.32, 0], offset: [0, 0, 0.42], size: [0.08, 0.12, 0.62], aim: 1, tint: 'dark', action: 3 },
 ]);
 const MODEL_SCHEMA = { id: REQUIRED, from: '', drop: [], scale: null, recolor: {}, parts: [], color: -1, accent: '', glow: '', pose: '', spin: 0, tumble: 0, muzzle: null };
 Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.11, -0.1, 0.3], ads: [0, -0.11, 0.26], accent: '#c9a03a', glow: '#6fd8ff', kick: 1, parts: REQUIRED }), [
 	{ id: 'sidearm', ads: [0, -0.09, 0.26], kick: 1.3, parts: [
-		{ shape: 'box', offset: [0, 0.02, 0.05], size: [0.04, 0.05, 0.18], tint: 'body', lod: 2 },
-		{ shape: 'box', offset: [0, -0.04, -0.01], size: [0.035, 0.09, 0.05], tint: 'dark', lod: 2 },
+		{ shape: 'box', offset: [0, 0.02, 0.05], size: [0.04, 0.05, 0.18], tint: 'body', lod: 2, role: 'slide' },
+		{ shape: 'box', offset: [0, -0.04, -0.01], size: [0.035, 0.09, 0.05], tint: 'dark', lod: 2, role: 'mag' },
 		{ shape: 'cylinder', offset: [0, 0.025, 0.15], size: [0.02, 0.04, 0.02], rotation: [0, -90], tint: 'dark' }] },
 	{ id: 'smg', kick: 0.6, parts: [
 		{ shape: 'box', offset: [0, 0, 0.06], size: [0.05, 0.07, 0.26], tint: 'body', lod: 2 },
-		{ shape: 'box', offset: [0, -0.07, 0.08], size: [0.03, 0.1, 0.04], tint: 'dark', lod: 2 },
+		{ shape: 'box', offset: [0, -0.07, 0.08], size: [0.03, 0.1, 0.04], tint: 'dark', lod: 2, role: 'mag' },
 		{ shape: 'box', offset: [0, -0.05, -0.03], size: [0.03, 0.08, 0.05], tint: 'dark' },
 		{ shape: 'cylinder', offset: [0, 0.01, 0.24], size: [0.025, 0.1, 0.025], rotation: [0, -90], tint: 'dark' }] },
 	{ id: 'rifle', parts: [
 		{ shape: 'box', offset: [0, 0, 0.04], size: [0.055, 0.08, 0.34], tint: 'body', lod: 2 },
 		{ shape: 'box', offset: [0, -0.01, -0.17], size: [0.045, 0.07, 0.14], tint: 'dark', lod: 2 },
-		{ shape: 'box', offset: [0, -0.08, 0.07], size: [0.035, 0.11, 0.05], tint: 'dark' },
+		{ shape: 'box', offset: [0, -0.08, 0.07], size: [0.035, 0.11, 0.05], tint: 'dark', role: 'mag' },
 		{ shape: 'cylinder', offset: [0, 0.01, 0.3], size: [0.022, 0.2, 0.022], rotation: [0, -90], tint: 'dark' },
 		{ shape: 'box', offset: [0, 0.055, 0.04], size: [0.03, 0.03, 0.1], tint: 'accent' }] },
 	{ id: 'shotgun', kick: 1.6, parts: [
 		{ shape: 'box', offset: [0, 0, 0], size: [0.06, 0.08, 0.3], tint: 'body', lod: 2 },
 		{ shape: 'cylinder', offset: [0, 0.02, 0.27], size: [0.04, 0.3, 0.04], rotation: [0, -90], tint: 'dark', lod: 2 },
-		{ shape: 'cylinder', offset: [0, -0.025, 0.22], size: [0.045, 0.16, 0.045], rotation: [0, -90], tint: 'accent' },
+		{ shape: 'cylinder', offset: [0, -0.025, 0.22], size: [0.045, 0.16, 0.045], rotation: [0, -90], tint: 'accent', role: 'pump' },
 		{ shape: 'box', offset: [0, -0.02, -0.2], size: [0.05, 0.08, 0.16], tint: 'dark' }] },
 	{ id: 'lmg', hold: [0.12, -0.12, 0.32], kick: 0.8, parts: [
 		{ shape: 'box', offset: [0, 0, 0.04], size: [0.07, 0.1, 0.38], tint: 'body', lod: 2 },
@@ -836,21 +953,21 @@ Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.11, -0.1, 0
 // ==== 03c-data-weapons.js ====
 Data.define('weaponClasses', {
 	id: REQUIRED, name: REQUIRED, slot: REQUIRED, tier: 'special', precision: false, pistol: false, firstShotExact: false,
-	ttk: null, equipTime: 0.4, reload: 2, ammoType: '', color: 0x888888,
+	ttk: null, equipTime: 0.4, reload: 2, ammoType: '', color: 0x888888, reloadAnim: '', meleeAnim: '',
 }, [
 	{ id: 'melee', name: 'Melee', slot: 1, tier: 'none', ttk: [0.3, 1.5], reload: 0, color: 0x9aa3ad },
-	{ id: 'sidearm', name: 'Sidearm', slot: 2, tier: 'primary', precision: true, pistol: true, firstShotExact: true, ttk: [0.3, 1.5], equipTime: 0.3, reload: 1.4, ammoType: 'light', color: 0x6b7c8f },
-	{ id: 'smg', name: 'SMG', slot: 3, tier: 'primary', ttk: [0.3, 1.2], equipTime: 0.35, reload: 1.8, ammoType: 'light', color: 0x56708a },
-	{ id: 'shotgun', name: 'Shotgun', slot: 4, tier: 'special', ttk: [0, 1], equipTime: 0.5, reload: 0.5, ammoType: 'shells', color: 0x8a6a4a },
-	{ id: 'rifle', name: 'Rifle', slot: 5, tier: 'primary', precision: true, firstShotExact: true, ttk: [0.15, 0.8], equipTime: 0.45, reload: 2.2, ammoType: 'heavy', color: 0x5d6b4f },
-	{ id: 'marksman', name: 'Marksman', slot: 6, tier: 'special', precision: true, firstShotExact: true, ttk: [0, 1.2], equipTime: 0.5, reload: 2.4, ammoType: 'heavy', color: 0x6f6450 },
-	{ id: 'sniper', name: 'Sniper', slot: 6, tier: 'special', precision: true, ttk: [0, 0.5], equipTime: 0.6, reload: 3, ammoType: 'heavy', color: 0x4f5a66 },
-	{ id: 'energy', name: 'Energy', slot: 7, tier: 'special', ttk: [0.15, 1.6], equipTime: 0.45, reload: 2, ammoType: 'cells', color: 0x3fa7c9 },
-	{ id: 'heavy', name: 'Heavy', slot: 8, tier: 'heavy', ttk: [0.3, 1.8], equipTime: 0.7, reload: 4, ammoType: 'heavy', color: 0x7a5040 },
-	{ id: 'explosive', name: 'Explosive', slot: 8, tier: 'heavy', ttk: [0, 1.2], equipTime: 0.6, reload: 2.5, ammoType: 'rockets', color: 0x9b4b34 },
-	{ id: 'exotic', name: 'Exotic', slot: 9, tier: 'heavy', ttk: [0, 2.5], equipTime: 0.5, reload: 2.5, ammoType: 'special', color: 0x8d5bb0 },
-	{ id: 'power', name: 'Power', slot: 9, tier: 'heavy', ttk: [0, 0.5], equipTime: 0.8, reload: 3, ammoType: 'special', color: 0xe0b84a },
-	{ id: 'tool', name: 'Tool', slot: 9, tier: 'none', reload: 0, color: 0x4ab08d },
+	{ id: 'sidearm', name: 'Sidearm', slot: 2, tier: 'primary', precision: true, pistol: true, firstShotExact: true, ttk: [0.3, 1.5], equipTime: 0.3, reload: 1.4, ammoType: 'light', color: 0x6b7c8f, reloadAnim: 'R1', meleeAnim: 'bashSidearm' },
+	{ id: 'smg', name: 'SMG', slot: 3, tier: 'primary', ttk: [0.3, 1.2], equipTime: 0.35, reload: 1.8, ammoType: 'light', color: 0x56708a, reloadAnim: 'R3', meleeAnim: 'bashLong' },
+	{ id: 'shotgun', name: 'Shotgun', slot: 4, tier: 'special', ttk: [0, 1], equipTime: 0.5, reload: 0.5, ammoType: 'shells', color: 0x8a6a4a, reloadAnim: 'R5', meleeAnim: 'bashLong' },
+	{ id: 'rifle', name: 'Rifle', slot: 5, tier: 'primary', precision: true, firstShotExact: true, ttk: [0.15, 0.8], equipTime: 0.45, reload: 2.2, ammoType: 'heavy', color: 0x5d6b4f, reloadAnim: 'R3', meleeAnim: 'bashLong' },
+	{ id: 'marksman', name: 'Marksman', slot: 6, tier: 'special', precision: true, firstShotExact: true, ttk: [0, 1.2], equipTime: 0.5, reload: 2.4, ammoType: 'heavy', color: 0x6f6450, reloadAnim: 'R3', meleeAnim: 'bashLong' },
+	{ id: 'sniper', name: 'Sniper', slot: 6, tier: 'special', precision: true, ttk: [0, 0.5], equipTime: 0.6, reload: 3, ammoType: 'heavy', color: 0x4f5a66, reloadAnim: 'R4', meleeAnim: 'bashLong' },
+	{ id: 'energy', name: 'Energy', slot: 7, tier: 'special', ttk: [0.15, 1.6], equipTime: 0.45, reload: 2, ammoType: 'cells', color: 0x3fa7c9, reloadAnim: 'R8', meleeAnim: 'bashLong' },
+	{ id: 'heavy', name: 'Heavy', slot: 8, tier: 'heavy', ttk: [0.3, 1.8], equipTime: 0.7, reload: 4, ammoType: 'heavy', color: 0x7a5040, reloadAnim: 'R11', meleeAnim: 'bashHeavy' },
+	{ id: 'explosive', name: 'Explosive', slot: 8, tier: 'heavy', ttk: [0, 1.2], equipTime: 0.6, reload: 2.5, ammoType: 'rockets', color: 0x9b4b34, reloadAnim: 'R13', meleeAnim: 'bashHeavy' },
+	{ id: 'exotic', name: 'Exotic', slot: 9, tier: 'heavy', ttk: [0, 2.5], equipTime: 0.5, reload: 2.5, ammoType: 'special', color: 0x8d5bb0, reloadAnim: 'R14', meleeAnim: 'bashHeavy' },
+	{ id: 'power', name: 'Power', slot: 9, tier: 'heavy', ttk: [0, 0.5], equipTime: 0.8, reload: 3, ammoType: 'special', color: 0xe0b84a, reloadAnim: 'R8', meleeAnim: 'bashHeavy' },
+	{ id: 'tool', name: 'Tool', slot: 9, tier: 'none', reload: 0, color: 0x4ab08d, meleeAnim: 'bashHeavy' },
 ]);
 Data.define('recoil', {
 	id: REQUIRED, pitch: 0, yaw: 0, shape: 'climb', climbShots: 8, jitter: 0, bloom: 0, bloomMax: 0, recover: 8, recoverDelay: 0.25, pattern: null,
@@ -925,29 +1042,29 @@ const FIRE_MODE_SCHEMA = {
 };
 const WEAPON_SCHEMA = {
 	id: REQUIRED, code: REQUIRED, name: REQUIRED, class: REQUIRED, slot: 0, moveMult: 1, adsMoveMult: 0.7, equipTime: 0, readyTime: 0.15,
-	reload: 0, reloadShell: false, primary: REQUIRED, alt: REQUIRED, ammoType: '', mag: 0, reserve: 0, maxAmmo: 0, pickupAmmo: 0, altAmmo: 0,
+	reload: 0, reloadShell: false, reloadAnim: '', meleeAnim: '', meleeAnimAlt: '', reloadAnimIndex: -1, meleeAnimIndex: -1, meleeAltIndex: -1, primary: REQUIRED, alt: REQUIRED, ammoType: '', mag: 0, reserve: 0, maxAmmo: 0, pickupAmmo: 0, altAmmo: 0,
 	price: 0, killReward: 300, rarityScale: true, dualWield: false, noise: 60, botPref: { range: [5, 30], value: 0.5 }, index: 0, family: null,
 };
 const WEAPON_ROWS = [
-	{ id: 'maul', code: 'W01', name: 'Breaker Maul', class: 'melee', price: 0, killReward: 1500, noise: 25, botPref: { range: [0, 2], value: 0.1 },
+	{ id: 'maul', code: 'W01', name: 'Breaker Maul', class: 'melee', meleeAnim: 'maul', meleeAnimAlt: 'maulAlt', price: 0, killReward: 1500, noise: 25, botPref: { range: [0, 2], value: 0.1 },
 		primary: { type: 'melee', damage: 50, rate: 2.5, reach: 1.6 },
 		alt: { type: 'melee', trigger: 'charge', rate: 1.5, reach: 1.8, charge: { time: 1.2, min: 30, max: 120 }, launch: { height: 4.5, selfDamage: 10 } } },
-	{ id: 'tanto', code: 'W02', name: 'Edge Tanto', class: 'melee', killReward: 1500, noise: 0, botPref: { range: [0, 2], value: 0.25 },
+	{ id: 'tanto', code: 'W02', name: 'Edge Tanto', class: 'melee', meleeAnim: 'tanto', meleeAnimAlt: 'tantoAlt', killReward: 1500, noise: 0, botPref: { range: [0, 2], value: 0.25 },
 		primary: { type: 'melee', damage: 35, rate: 2.5, reach: 1.2 },
 		alt: { type: 'melee', trigger: 'semi', damage: 65, rate: 1, reach: 1.2, backstab: 150 } },
-	{ id: 'bulwark', code: 'W03', name: 'Bulwark Shield-Saw', class: 'melee', moveMult: 0.9, killReward: 1500, noise: 30, botPref: { range: [0, 3], value: 0.4 },
+	{ id: 'bulwark', code: 'W03', name: 'Bulwark Shield-Saw', class: 'melee', meleeAnim: 'bulwark', moveMult: 0.9, killReward: 1500, noise: 30, botPref: { range: [0, 3], value: 0.4 },
 		primary: { type: 'melee', damage: 40, rate: 1.5, reach: 1.8, status: { id: 'stun', seconds: 0.3 } },
 		alt: { type: 'block', block: { pool: 150, regen: 25, parryWindow: 0.2, arcDeg: 120 } } },
 	{ id: 'warden', code: 'W04', name: 'Warden Pistol', class: 'sidearm', mag: 12, reserve: 48, price: 0, dualWield: true, noise: 45, botPref: { range: [2, 25], value: 0.35 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 25, rate: 4, spreadDeg: 0.5, recoil: 'pistol', falloff: [20, 40, 0.7] },
 		alt: { type: 'hitscan', trigger: 'burst', damage: 25, rate: 1.5, burst: 3, spreadDeg: 1.4, recoil: 'burst', falloff: [10, 25, 0.6] } },
-	{ id: 'verdict', code: 'W05', name: 'Verdict Magnum', class: 'sidearm', mag: 6, reserve: 24, price: 700, noise: 70, botPref: { range: [5, 40], value: 0.55 },
+	{ id: 'verdict', code: 'W05', name: 'Verdict Magnum', class: 'sidearm', reloadAnim: 'R2', mag: 6, reserve: 24, price: 700, noise: 70, botPref: { range: [5, 40], value: 0.55 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 55, rate: 2.2, spreadDeg: 0.3, recoil: 'pistolHeavy', falloff: [25, 50, 0.75], penetration: 'med' },
 		alt: { type: 'zoom', zoom: 2 } },
 	{ id: 'hush', code: 'W06', name: 'Hush Pistol', class: 'sidearm', mag: 10, reserve: 40, altAmmo: 6, price: 500, noise: 6, botPref: { range: [8, 35], value: 0.4 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 40, rate: 2.5, spreadDeg: 0.15, headMult: 2.5, tracer: false, recoil: 'pistol', falloff: [25, 55, 0.7] },
 		alt: { type: 'hitscan', trigger: 'semi', damage: 0, rate: 1, ammo: 'alt', status: { id: 'sleep', seconds: 8 } } },
-	{ id: 'sparklock', code: 'W07', name: 'Sparklock Pistol', class: 'sidearm', price: 600, mag: 24, reserve: 72, noise: 40, botPref: { range: [2, 20], value: 0.45 },
+	{ id: 'sparklock', code: 'W07', name: 'Sparklock Pistol', class: 'sidearm', reloadAnim: 'R8', price: 600, mag: 24, reserve: 72, noise: 40, botPref: { range: [2, 20], value: 0.45 },
 		primary: { type: 'lock', damage: 12, rate: 8, lock: { time: 0.4, targets: 3, coneDeg: 12, range: 20 }, recoil: 'energy' },
 		alt: { type: 'hitscan', damage: 12, rate: 8, spreadDeg: 1.5, recoil: 'pistol' } },
 	{ id: 'wasp', code: 'W09', name: 'Wasp SMG', class: 'smg', mag: 30, reserve: 120, price: 1200, killReward: 600, botPref: { range: [0, 15], value: 0.55 },
@@ -956,7 +1073,7 @@ const WEAPON_ROWS = [
 	{ id: 'hornet', code: 'W10', name: 'Hornet Carbine', class: 'smg', moveMult: 0.97, mag: 45, reserve: 180, altAmmo: 3, price: 1400, killReward: 600, botPref: { range: [0, 20], value: 0.55 },
 		primary: { type: 'hitscan', damage: 15, rate: 12, spreadDeg: 0.9, recoil: 'smg', falloff: [12, 28, 0.6] },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'contact', damage: 0, rate: 1, ammo: 'alt', splash: { r: 3.5, dmg: 80 }, recoil: 'launcher' } },
-	{ id: 'needlethorn', code: 'W12', name: 'Needlethorn', class: 'smg', price: 1500, mag: 30, reserve: 90, noise: 40, botPref: { range: [3, 22], value: 0.5 },
+	{ id: 'needlethorn', code: 'W12', name: 'Needlethorn', class: 'smg', reloadAnim: 'R8', price: 1500, mag: 30, reserve: 90, noise: 40, botPref: { range: [3, 22], value: 0.5 },
 		primary: { type: 'projectile', projectile: 'needle', damage: 9, rate: 10, spreadDeg: 1.5, falloff: [12, 28, 0.6], stickCombo: { count: 9, damage: 40, radius: 2 }, element: 'void' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'needle', damage: 9, rate: 1.25, pellets: 5, spreadDeg: 5, ammoPerShot: 5, falloff: [12, 28, 0.6], stickCombo: { count: 9, damage: 40, radius: 2 }, element: 'void' } },
 	{ id: 'vanguard', code: 'W13', name: 'Vanguard Rifle', class: 'rifle', moveMult: 0.92, mag: 25, reserve: 75, price: 2700, botPref: { range: [5, 60], value: 0.75 },
@@ -971,13 +1088,13 @@ const WEAPON_ROWS = [
 	{ id: 'scattergun', code: 'W19', name: 'Scattergun', class: 'shotgun', moveMult: 0.95, reloadShell: true, mag: 6, reserve: 30, price: 1100, killReward: 900, noise: 80, botPref: { range: [0, 10], value: 0.7 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 10, pellets: 12, rate: 1.1, spreadDeg: 5, moveSpread: 0.3, adsSpreadMult: 1, recoil: 'shotgun', falloff: [8, 20, 0.4] },
 		alt: { type: 'hitscan', trigger: 'semi', damage: 55, rate: 1.1, spreadDeg: 0.3, recoil: 'shotgun', falloff: [20, 45, 0.6], zoom: 1.2 } },
-	{ id: 'hookjaw', code: 'W20', name: 'Hookjaw', class: 'shotgun', reload: 1.1, mag: 2, reserve: 24, price: 1800, killReward: 900, noise: 85, botPref: { range: [0, 8], value: 0.8 },
+	{ id: 'hookjaw', code: 'W20', name: 'Hookjaw', class: 'shotgun', reloadAnim: 'R6', reload: 1.1, mag: 2, reserve: 24, price: 1800, killReward: 900, noise: 85, botPref: { range: [0, 8], value: 0.8 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 8, pellets: 20, rate: 0.9, spreadDeg: 7, moveSpread: 0.3, recoil: 'shotgun', falloff: [8, 18, 0.3], ammoPerShot: 2 },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'hook', rate: 2, ammo: 'none', cooldown: 6, range: 25 } },
-	{ id: 'shardcaster', code: 'W21', name: 'Shardcaster', class: 'shotgun', moveMult: 0.92, mag: 10, reserve: 40, price: 1600, killReward: 900, noise: 75, botPref: { range: [0, 15], value: 0.75 },
+	{ id: 'shardcaster', code: 'W21', name: 'Shardcaster', class: 'shotgun', reloadAnim: 'R7', moveMult: 0.92, mag: 10, reserve: 40, price: 1600, killReward: 900, noise: 75, botPref: { range: [0, 15], value: 0.75 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'shard', damage: 12, pellets: 9, rate: 1.2, spreadDeg: 6, moveSpread: 0.3, recoil: 'shotgun' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', speed: 20, bounces: 0, damage: 100, rate: 0.9, split: { projectile: 'shard', count: 6, damage: 12 }, arm: EXPLOSIVE_ALT_ARM, recoil: 'launcher' } },
-	{ id: 'lancet', code: 'W23', name: 'Lancet Rail', class: 'marksman', price: 3500, moveMult: 0.92, mag: 10, reserve: 30, noise: 90, botPref: { range: [10, 90], value: 0.85 },
+	{ id: 'lancet', code: 'W23', name: 'Lancet Rail', class: 'marksman', reloadAnim: 'R8', price: 3500, moveMult: 0.92, mag: 10, reserve: 30, noise: 90, botPref: { range: [10, 90], value: 0.85 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 100, rate: 0.67, moveSpread: 0, pierce: 4, recoil: 'marksman', element: 'arc' },
 		alt: { type: 'zoom', zoom: 2.5 } },
 	{ id: 'heron', code: 'W24', name: 'Heron Sniper', class: 'sniper', moveMult: 0.85, adsMoveMult: 0.5, reload: 3.6, mag: 5, reserve: 20, price: 4700, killReward: 100, noise: 110, botPref: { range: [25, 140], value: 0.85 },
@@ -986,10 +1103,10 @@ const WEAPON_ROWS = [
 	{ id: 'kestrel', code: 'W25', name: 'Kestrel DMR', class: 'marksman', moveMult: 0.9, mag: 15, reserve: 45, price: 1800, botPref: { range: [10, 80], value: 0.7 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 60, rate: 3, spreadDeg: 0.2, recoil: 'marksman', penetration: 'med' },
 		alt: { type: 'zoom', zoom: 3 } },
-	{ id: 'stakedriver', code: 'W26', name: 'Stakedriver', class: 'marksman', price: 2000, moveMult: 0.9, mag: 12, reserve: 36, altAmmo: 6, botPref: { range: [10, 60], value: 0.7 },
+	{ id: 'stakedriver', code: 'W26', name: 'Stakedriver', class: 'marksman', reloadAnim: 'R9', price: 2000, moveMult: 0.9, mag: 12, reserve: 36, altAmmo: 6, botPref: { range: [10, 60], value: 0.7 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 90, rate: 1.2, recoil: 'marksman', statusRange: 25, status: { id: 'burn', seconds: 3 } },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 70, rate: 1, ammo: 'alt', recoil: 'marksman', status: { id: 'burn', seconds: 4 }, element: 'thermal' } },
-	{ id: 'talonbow', code: 'W27', name: 'Talon Bow', class: 'marksman', price: 1500, mag: 1, reserve: 18, altAmmo: 6, noise: 0, reload: 0.5, botPref: { range: [8, 60], value: 0.6 },
+	{ id: 'talonbow', code: 'W27', name: 'Talon Bow', class: 'marksman', reloadAnim: 'R10', price: 1500, mag: 1, reserve: 18, altAmmo: 6, noise: 0, reload: 0.5, botPref: { range: [8, 60], value: 0.6 },
 		primary: { type: 'projectile', trigger: 'charge', projectile: 'arrow', rate: 1.5, charge: { time: 0.7, min: 50, max: 110, speed: [40, 70] } },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'arrow', speed: 55, damage: 0, rate: 1, ammo: 'alt', splash: { r: 2.5, dmg: 80 }, arm: EXPLOSIVE_ALT_ARM, noise: 60 } },
 	{ id: 'hailstorm', code: 'W28', name: 'Hailstorm', class: 'heavy', price: 4000, moveMult: 0.75, mag: 150, reserve: 300, noise: 90, botPref: { range: [3, 35], value: 0.75 },
@@ -1001,13 +1118,13 @@ const WEAPON_ROWS = [
 	{ id: 'ramjet', code: 'W31', name: 'Ramjet Launcher', class: 'explosive', price: 3200, moveMult: 0.88, mag: 4, reserve: 20, noise: 90, botPref: { range: [4, 40], value: 0.85 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'rocket', damage: 90, rate: 1, splash: { r: 3.5, dmg: 80 }, recoil: 'launcher', element: 'thermal' },
 		alt: { type: 'lock', trigger: 'release', projectile: 'missile', damage: 35, pellets: 4, rate: 1, spreadDeg: 6, ammoPerShot: 2, splash: { r: 1.5, dmg: 10 }, lock: { time: 1.2, targets: 1, coneDeg: 10, range: 80 }, element: 'thermal' } },
-	{ id: 'pitcher', code: 'W32', name: 'Pitcher Launcher', class: 'explosive', price: 2600, moveMult: 0.9, mag: 6, reserve: 24, noise: 70, botPref: { range: [5, 30], value: 0.65 },
+	{ id: 'pitcher', code: 'W32', name: 'Pitcher Launcher', class: 'explosive', reloadAnim: 'R7', price: 2600, moveMult: 0.9, mag: 6, reserve: 24, noise: 70, botPref: { range: [5, 30], value: 0.65 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'grenade', damage: 0, rate: 1.5, splash: { r: 4.5, dmg: 100 }, recoil: 'launcher' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'mine', damage: 0, rate: 2, splash: { r: 4, dmg: 100 }, maxActive: 4, detonateOnRelease: true, recoil: 'launcher' } },
-	{ id: 'gloop', code: 'W34', name: 'Gloop Gun', class: 'explosive', price: 2000, mag: 25, reserve: 75, noise: 35, botPref: { range: [2, 18], value: 0.55 },
+	{ id: 'gloop', code: 'W34', name: 'Gloop Gun', class: 'explosive', reloadAnim: 'R12', price: 2000, mag: 25, reserve: 75, noise: 35, botPref: { range: [2, 18], value: 0.55 },
 		primary: { type: 'projectile', projectile: 'goo', damage: 20, rate: 4, spreadDeg: 1.5, puddle: { radius: 1.5, damage: 5, seconds: 3 }, element: 'toxin' },
 		alt: { type: 'projectile', trigger: 'charge', projectile: 'goo', rate: 0.8, ammoPerShot: 5, charge: { time: 2, min: 20, max: 150 }, split: { projectile: 'goo', count: 3, damage: 20 }, puddle: { radius: 2, damage: 2.5, seconds: 3 }, element: 'toxin' } },
-	{ id: 'kindler', code: 'W35', name: 'Kindler', class: 'heavy', price: 2400, moveMult: 0.85, mag: 100, reserve: 200, noise: 40, botPref: { range: [0, 9], value: 0.6 },
+	{ id: 'kindler', code: 'W35', name: 'Kindler', class: 'heavy', reloadAnim: 'R12', price: 2400, moveMult: 0.85, mag: 100, reserve: 200, noise: 40, botPref: { range: [0, 9], value: 0.6 },
 		primary: { type: 'cone', damage: 10, rate: 10, cone: { range: 9, angle: 30 }, status: { id: 'burn', seconds: 4 }, element: 'thermal' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'goo', damage: 10, rate: 1, ammoPerShot: 10, puddle: { radius: 2.5, damage: 5, seconds: 6, status: { id: 'burn', seconds: 4 } }, element: 'thermal', special: 'airblast' } },
 	{ id: 'ember', code: 'W36', name: 'Ember Repeater', class: 'energy', price: 2400, moveMult: 0.92, mag: 50, reserve: 200, noise: 55, botPref: { range: [3, 30], value: 0.75 },
@@ -1022,7 +1139,7 @@ const WEAPON_ROWS = [
 	{ id: 'accelerator', code: 'W39', name: 'Accelerator', class: 'energy', price: 2600, mag: 20, reserve: 60, noise: 70, botPref: { range: [5, 50], value: 0.65 },
 		primary: { type: 'hitscan', trigger: 'charge', rate: 1.2, charge: { time: 1.5, levels: [40, 90, 160], ammo: [2, 4, 8] }, recoil: 'energy', element: 'void' },
 		alt: { type: 'cone', trigger: 'semi', damage: 60, rate: 0.7, ammoPerShot: 4, cone: { range: 6, angle: 360 }, knockback: 4, element: 'void' } },
-	{ id: 'fusionmortar', code: 'W40', name: 'Fusion Mortar', class: 'explosive', price: 4500, moveMult: 0.85, mag: 1, reserve: 1, maxAmmo: 1, noise: 90, botPref: { range: [8, 30], value: 0.6 },
+	{ id: 'fusionmortar', code: 'W40', name: 'Fusion Mortar', class: 'explosive', reloadAnim: 'R14', price: 4500, moveMult: 0.85, mag: 1, reserve: 1, maxAmmo: 1, noise: 90, botPref: { range: [8, 30], value: 0.6 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'fusion', damage: 0, rate: 0.5, splash: { r: 6, dmg: 300 }, element: 'void' },
 		alt: { type: 'detonate', projectile: 'fusion' } },
 	{ id: 'lifter', code: 'W41', name: 'Graviton Lifter', class: 'tool', noise: 20, botPref: { range: [0, 6], value: 0.2 },
@@ -1040,7 +1157,7 @@ const WEAPON_ROWS = [
 	{ id: 'daybreak', code: 'W45', name: 'Daybreak Projector', class: 'power', moveMult: 0.85, mag: 4, reserve: 0, rarityScale: false, noise: 120, botPref: { range: [6, 60], value: 1 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'sunorb', speed: 18, damage: 150, rate: 0.5, splash: { r: 6, dmg: 150 }, aura: { radius: 8, damage: 7.5, interval: 0.25 }, element: 'void' },
 		alt: { type: 'projectile', trigger: 'charge', projectile: 'sunorb', speed: 18, damage: 150, rate: 0.5, splash: { r: 6, dmg: 150 }, aura: { radius: 8, damage: 7.5, interval: 0.25 }, charge: { time: 2, levels: [1, 1.5], target: 'multiplier' }, element: 'void' } },
-	{ id: 'halcyon', code: 'W46', name: 'Halcyon Warhead', class: 'power', moveMult: 0.8, mag: 1, reserve: 0, rarityScale: false, noise: 130, botPref: { range: [20, 120], value: 1 },
+	{ id: 'halcyon', code: 'W46', name: 'Halcyon Warhead', class: 'power', reloadAnim: 'R14', moveMult: 0.8, mag: 1, reserve: 0, rarityScale: false, noise: 130, botPref: { range: [20, 120], value: 1 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'warhead', damage: 0, rate: 0.3, splash: { r: 12, dmg: 300, minFactor: 0.1 }, element: 'thermal' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'warhead', damage: 0, rate: 0.3, guided: true, splash: { r: 12, dmg: 300, minFactor: 0.1 }, element: 'thermal' } },
 ];
@@ -1057,6 +1174,7 @@ function linkWeapon(weapon, index) {
 	weapon.slot = weapon.slot || family.slot;
 	weapon.equipTime = weapon.equipTime || family.equipTime;
 	weapon.reload = weapon.reload || family.reload;
+	linkWeaponAnims(weapon, family);
 	weapon.ammoType = weapon.ammoType || family.ammoType;
 	weapon.maxAmmo = weapon.maxAmmo || weapon.reserve * 2;
 	weapon.pickupAmmo = weapon.pickupAmmo || weapon.mag;
@@ -1064,6 +1182,13 @@ function linkWeapon(weapon, index) {
 	weapon.alt = CAT.fireModes.byId(weapon.id + '.alt');
 	weapon.primary.weapon = weapon.alt.weapon = weapon.id;
 	weapon.primary.family = weapon.alt.family = family;
+}
+function linkWeaponAnims(weapon, family) {
+	const reloadId = weapon.mag > 0 ? weapon.reloadAnim || family.reloadAnim : '';
+	const strike = CAT.meleeAnims.byId(weapon.meleeAnim || family.meleeAnim), alt = CAT.meleeAnims.byId(weapon.meleeAnimAlt);
+	weapon.reloadAnimIndex = reloadId ? CAT.reloadAnims.byId(reloadId).index : -1;
+	weapon.meleeAnimIndex = strike ? strike.index : -1;
+	weapon.meleeAltIndex = alt ? alt.index : weapon.meleeAnimIndex;
 }
 const WEAPON_RARITY_DAMAGE = [1, 1.05, 1.1, 1.16, 1.22];
 const WEAPON_RARITY_MAG = [0, 0, 0.1, 0.2, 0.3];
@@ -2341,6 +2466,8 @@ const DAILY_RULES = {
 
 // ==== 03q-data-models-weapons.js ====
 const MODEL_GRIP = { offset: [0, -0.08, -0.01], size: [0.035, 0.09, 0.045], rotation: [0, -10], tint: 'dark' };
+const MODEL_CELL_SIDE = { offset: [-0.04, -0.005, 0.02], size: [0.018, 0.06, 0.05], tint: 'glow', role: 'cell' };
+const MODEL_CELL_TOP = { offset: [0, 0.06, 0.05], size: [0.05, 0.03, 0.1], tint: 'accent', role: 'cell' };
 Data.define('weaponModels', MODEL_SCHEMA, [
 	{ id: 'maul', pose: 'melee', parts: [
 		{ shape: 'cylinder', offset: [0, 0.06, 0], size: [0.035, 0.46, 0.035], tint: 'wood', lod: 2 },
@@ -2365,7 +2492,7 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 	{ id: 'verdict', pose: 'sidearm', parts: [
 		{ offset: [0, 0.02, 0.01], size: [0.04, 0.06, 0.1], lod: 2 },
 		{ shape: 'cylinder', offset: [0, 0.04, 0.17], size: [0.032, 0.22, 0.032], rotation: [0, -90], tint: 'steel', lod: 2 },
-		{ shape: 'cylinder', offset: [0, 0.025, 0.03], size: [0.07, 0.07, 0.07], rotation: [0, -90], tint: 'steel' },
+		{ shape: 'cylinder', offset: [0, 0.025, 0.03], size: [0.07, 0.07, 0.07], rotation: [0, -90], tint: 'steel', role: 'cyl' },
 		{ offset: [0, -0.05, -0.04], size: [0.036, 0.1, 0.045], rotation: [0, -15], tint: 'wood' },
 		{ offset: [0, 0.06, 0.16], size: [0.014, 0.012, 0.22] },
 		{ offset: [0, 0.06, -0.035], size: [0.012, 0.03, 0.02], tint: 'dark', lod: 0 }] },
@@ -2376,7 +2503,8 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 		{ ...MODEL_GRIP, lod: 2 },
 		{ shape: 'cylinder', offset: [0, -0.005, 0.17], size: [0.024, 0.06, 0.024], rotation: [0, -90], tint: 'steel' },
 		{ shape: 'ring', offset: [0, -0.005, 0.1], size: [0.075, 0.015, 0.075], rotation: [0, -90], tint: 'glow' },
-		{ shape: 'ring', offset: [0, -0.005, 0.14], size: [0.065, 0.015, 0.065], rotation: [0, -90], tint: 'glow' }] },
+		{ shape: 'ring', offset: [0, -0.005, 0.14], size: [0.065, 0.015, 0.065], rotation: [0, -90], tint: 'glow' },
+		MODEL_CELL_SIDE] },
 	{ id: 'wasp', from: 'smg', accent: '#e8c02a', parts: [
 		{ offset: [0, 0.04, 0.06], size: [0.02, 0.012, 0.18], tint: 'accent' },
 		{ offset: [0, -0.01, -0.21], size: [0.045, 0.06, 0.012], tint: 'steel' }] },
@@ -2390,52 +2518,56 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 		MODEL_GRIP,
 		{ shape: 'sphere', offset: [0, -0.05, 0.1], size: [0.05, 0.06, 0.07], tint: 'accent' },
 		{ shape: 'cone', offset: [0, 0.05, 0], size: [0.025, 0.05, 0.025], tint: 'glow' },
-		{ shape: 'cone', offset: [0, 0.05, 0.07], size: [0.025, 0.05, 0.025], tint: 'glow' }] },
+		{ shape: 'cone', offset: [0, 0.05, 0.07], size: [0.025, 0.05, 0.025], tint: 'glow' },
+		MODEL_CELL_TOP] },
 	{ id: 'vanguard', from: 'rifle', drop: [1, 2, 4], parts: [
 		{ offset: [0, -0.02, -0.17], size: [0.045, 0.075, 0.15], rotation: [0, -6], tint: 'wood', lod: 2 },
-		{ offset: [0, -0.1, 0.09], size: [0.035, 0.13, 0.05], rotation: [0, 18], tint: 'dark' },
+		{ offset: [0, -0.1, 0.09], size: [0.035, 0.13, 0.05], rotation: [0, 18], tint: 'dark', role: 'mag' },
 		{ offset: [0, -0.005, 0.2], size: [0.05, 0.05, 0.1], tint: 'wood' },
 		{ shape: 'cylinder', offset: [0, 0.035, 0.22], size: [0.018, 0.14, 0.018], rotation: [0, -90], tint: 'steel' },
 		{ offset: [0, 0.04, 0.36], size: [0.01, 0.03, 0.01], tint: 'dark', lod: 0 }] },
 	{ id: 'ratchet', from: 'rifle', drop: [2, 4], parts: [
 		{ offset: [0, 0.09, 0.05], size: [0.02, 0.025, 0.26], lod: 2 },
 		{ offset: [0, -0.08, -0.1], size: [0.035, 0.11, 0.05], tint: 'dark' },
-		{ offset: [0, -0.07, 0.06], size: [0.03, 0.08, 0.04], rotation: [0, -10], tint: 'dark' }] },
+		{ offset: [0, -0.07, 0.06], size: [0.03, 0.08, 0.04], rotation: [0, -10], tint: 'dark', role: 'mag' }] },
 	{ id: 'scattergun', from: 'shotgun', drop: [3], parts: [
 		{ offset: [0, -0.03, -0.2], size: [0.05, 0.085, 0.17], rotation: [0, -6], tint: 'wood' },
 		{ shape: 'cylinder', offset: [0, -0.025, 0.36], size: [0.03, 0.12, 0.03], rotation: [0, -90], tint: 'steel' }] },
 	{ id: 'hookjaw', pose: 'shotgun', accent: '#c06030', parts: [
 		{ offset: [0, 0, 0], size: [0.07, 0.07, 0.16], lod: 2 },
-		{ shape: 'cylinder', offset: [0.019, 0.02, 0.24], size: [0.036, 0.34, 0.036], rotation: [0, -90], tint: 'steel', mirror: true, lod: 2 },
+		{ shape: 'cylinder', offset: [0.019, 0.02, 0.24], size: [0.036, 0.34, 0.036], rotation: [0, -90], tint: 'steel', mirror: true, lod: 2, role: 'barrel' },
 		{ offset: [0, -0.03, -0.17], size: [0.05, 0.085, 0.2], rotation: [0, -8], tint: 'wood' },
 		{ offset: [0, -0.015, 0.12], size: [0.06, 0.03, 0.12], tint: 'wood' },
 		{ shape: 'cone', offset: [0, -0.05, 0.34], size: [0.05, 0.08, 0.05], rotation: [0, -90], tint: 'accent' }] },
 	{ id: 'shardcaster', pose: 'shotgun', glow: '#ffd27a', parts: [
 		{ offset: [0, 0, 0.02], size: [0.065, 0.085, 0.26], lod: 2 },
 		{ shape: 'cylinder', offset: [0, 0.02, 0.24], size: [0.05, 0.18, 0.05], rotation: [0, -90], tint: 'dark', lod: 2 },
-		{ shape: 'cylinder', offset: [0, -0.07, 0.05], size: [0.11, 0.06, 0.11], rotation: [0, -90], tint: 'accent' },
+		{ shape: 'cylinder', offset: [0, -0.07, 0.05], size: [0.11, 0.06, 0.11], rotation: [0, -90], tint: 'accent', role: 'mag' },
 		{ offset: [0, -0.02, -0.18], size: [0.05, 0.08, 0.14], tint: 'dark' },
 		{ shape: 'cone', offset: [0, 0.07, 0], size: [0.03, 0.06, 0.03], tint: 'glow' },
 		{ shape: 'cone', offset: [0, 0.065, 0.06], size: [0.025, 0.05, 0.025], rotation: [0, 20], tint: 'glow' }] },
 	{ id: 'lancet', from: 'rail', parts: [
 		{ shape: 'cylinder', offset: [0, 0.08, 0.02], size: [0.035, 0.16, 0.035], rotation: [0, -90], tint: 'dark' },
 		{ offset: [0, -0.01, -0.2], size: [0.045, 0.08, 0.14], tint: 'dark' },
-		{ offset: [0.022, 0, 0.33], size: [0.012, 0.05, 0.12], tint: 'steel', mirror: true }] },
+		{ offset: [0.022, 0, 0.33], size: [0.012, 0.05, 0.12], tint: 'steel', mirror: true },
+		MODEL_CELL_SIDE] },
 	{ id: 'heron', from: 'sniper', parts: [
 		{ shape: 'cylinder', offset: [0, 0.08, 0.19], size: [0.06, 0.04, 0.06], rotation: [0, -90], tint: 'dark' },
 		{ offset: [0.025, -0.08, 0.38], size: [0.01, 0.13, 0.01], rotation: [0, 25], tint: 'steel', mirror: true },
 		{ shape: 'cylinder', offset: [0, 0.01, 0.6], size: [0.035, 0.05, 0.035], rotation: [0, -90], tint: 'steel' },
 		{ offset: [0.04, 0.02, -0.04], size: [0.045, 0.012, 0.012], tint: 'steel', lod: 0 },
-		{ offset: [0, 0.045, -0.18], size: [0.04, 0.02, 0.1], tint: 'dark', lod: 0 }] },
+		{ offset: [0, 0.045, -0.18], size: [0.04, 0.02, 0.1], tint: 'dark', lod: 0 },
+		{ offset: [0, -0.06, 0.04], size: [0.03, 0.07, 0.05], tint: 'dark', role: 'mag' },
+		{ shape: 'cylinder', offset: [0.04, 0.03, -0.02], size: [0.012, 0.05, 0.012], tint: 'steel', lod: 0, role: 'bolt' }] },
 	{ id: 'kestrel', from: 'dmr', accent: '#5a6a4a', parts: [
-		{ offset: [0, -0.08, 0.06], size: [0.035, 0.1, 0.06], tint: 'dark' },
+		{ offset: [0, -0.08, 0.06], size: [0.035, 0.1, 0.06], tint: 'dark', role: 'mag' },
 		{ offset: [0, 0, 0.24], size: [0.058, 0.062, 0.12], tint: 'accent' },
 		{ shape: 'cylinder', offset: [0, 0.01, 0.46], size: [0.032, 0.05, 0.032], rotation: [0, -90], tint: 'steel' },
 		{ shape: 'ring', offset: [0, 0.075, 0.14], size: [0.04, 0.01, 0.04], rotation: [0, -90], tint: 'glow', lod: 0 }] },
 	{ id: 'stakedriver', pose: 'dmr', accent: '#a04a2a', glow: '#ff8a3d', parts: [
 		{ offset: [0, 0, 0.03], size: [0.06, 0.08, 0.3], lod: 2 },
-		{ offset: [0, 0.03, 0.2], size: [0.34, 0.03, 0.04], tint: 'dark', lod: 2 },
-		{ shape: 'cylinder', offset: [0, 0.06, 0.12], size: [0.025, 0.4, 0.025], rotation: [0, -90], tint: 'wood' },
+		{ offset: [0, 0.03, 0.2], size: [0.34, 0.03, 0.04], tint: 'dark', lod: 2, role: 'string' },
+		{ shape: 'cylinder', offset: [0, 0.06, 0.12], size: [0.025, 0.4, 0.025], rotation: [0, -90], tint: 'wood', role: 'mag' },
 		{ shape: 'cone', offset: [0, 0.06, 0.34], size: [0.035, 0.06, 0.035], rotation: [0, -90], tint: 'steel' },
 		{ shape: 'capsule', offset: [0, -0.055, 0.08], size: [0.05, 0.18, 0.05], rotation: [0, -90], tint: 'accent' },
 		{ offset: [0, -0.015, -0.18], size: [0.045, 0.07, 0.14], tint: 'dark' }] },
@@ -2443,9 +2575,9 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 		{ offset: [0, 0, 0.12], size: [0.03, 0.16, 0.04], lod: 2 },
 		{ offset: [0, 0.17, 0.1], size: [0.02, 0.2, 0.03], rotation: [0, 20], tint: 'dark', lod: 2 },
 		{ offset: [0, -0.17, 0.1], size: [0.02, 0.2, 0.03], rotation: [0, -20], tint: 'dark' },
-		{ offset: [0, 0, 0.065], size: [0.004, 0.5, 0.004], tint: 'steel' },
-		{ shape: 'cylinder', offset: [0, 0, 0.12], size: [0.012, 0.34, 0.012], rotation: [0, -90], tint: 'wood' },
-		{ shape: 'cone', offset: [0, 0, 0.3], size: [0.025, 0.05, 0.025], rotation: [0, -90], tint: 'steel' }] },
+		{ offset: [0, 0, 0.065], size: [0.004, 0.5, 0.004], tint: 'steel', role: 'string' },
+		{ shape: 'cylinder', offset: [0, 0, 0.12], size: [0.012, 0.34, 0.012], rotation: [0, -90], tint: 'wood', role: 'arrow' },
+		{ shape: 'cone', offset: [0, 0, 0.3], size: [0.025, 0.05, 0.025], rotation: [0, -90], tint: 'steel', role: 'arrow' }] },
 	{ id: 'coilcaster', pose: 'energy', accent: '#c87533', glow: '#7fd8ff', parts: [
 		{ offset: [0, 0, 0.02], size: [0.06, 0.085, 0.28], lod: 2 },
 		{ shape: 'cylinder', offset: [0, 0.01, 0.24], size: [0.03, 0.26, 0.03], rotation: [0, -90], tint: 'steel', lod: 2 },
@@ -2453,30 +2585,34 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 		{ shape: 'ring', offset: [0, 0.01, 0.23], size: [0.08, 0.03, 0.08], rotation: [0, -90], tint: 'accent' },
 		{ shape: 'ring', offset: [0, 0.01, 0.3], size: [0.075, 0.03, 0.075], rotation: [0, -90], tint: 'accent' },
 		MODEL_GRIP,
-		{ shape: 'sphere', offset: [0, 0.055, 0.02], size: [0.05, 0.04, 0.08], tint: 'glow' }] },
+		{ shape: 'sphere', offset: [0, 0.055, 0.02], size: [0.05, 0.04, 0.08], tint: 'glow' },
+		MODEL_CELL_SIDE] },
 	{ id: 'linker', pose: 'energy', accent: '#3a6a8a', parts: [
 		{ offset: [0, 0, 0.04], size: [0.07, 0.09, 0.3], lod: 2 },
 		{ offset: [0.025, 0, 0.27], size: [0.015, 0.04, 0.14], tint: 'steel', mirror: true, lod: 2 },
 		{ shape: 'sphere', offset: [0, 0, 0.25], size: [0.035, 0.035, 0.035], tint: 'glow' },
 		MODEL_GRIP,
-		{ shape: 'cylinder', offset: [0, 0.07, -0.02], size: [0.05, 0.16, 0.05], rotation: [0, -90], tint: 'accent' }] },
+		{ shape: 'cylinder', offset: [0, 0.07, -0.02], size: [0.05, 0.16, 0.05], rotation: [0, -90], tint: 'accent' },
+		MODEL_CELL_SIDE] },
 	{ id: 'ember', pose: 'energy', accent: '#5a3a2a', glow: '#ff7a2a', parts: [
 		{ offset: [0, 0, 0.04], size: [0.065, 0.09, 0.32], lod: 2 },
 		{ shape: 'cylinder', offset: [0, 0, 0.27], size: [0.04, 0.16, 0.04], rotation: [0, -90], tint: 'dark', lod: 2 },
 		{ offset: [0, 0.065, 0.02], size: [0.006, 0.04, 0.16], tint: 'accent' },
 		{ offset: [0.022, 0.065, 0.02], size: [0.006, 0.04, 0.16], tint: 'accent', mirror: true },
 		MODEL_GRIP,
-		{ offset: [0, -0.02, 0.16], size: [0.07, 0.02, 0.06], tint: 'glow' }] },
+		{ offset: [0, -0.02, 0.16], size: [0.07, 0.02, 0.06], tint: 'glow' },
+		MODEL_CELL_SIDE] },
 	{ id: 'stormlash', pose: 'energy', glow: '#9fd8ff', parts: [
 		{ offset: [0, 0, 0.02], size: [0.065, 0.085, 0.26], lod: 2 },
 		{ shape: 'sphere', offset: [0, 0.02, 0.22], size: [0.09, 0.09, 0.09], tint: 'glow', lod: 2 },
 		{ offset: [0.03, 0.02, 0.3], size: [0.012, 0.012, 0.12], tint: 'steel', mirror: true },
 		{ shape: 'ring', offset: [0, 0.02, 0.15], size: [0.08, 0.02, 0.08], rotation: [0, -90], tint: 'accent' },
 		MODEL_GRIP,
-		{ shape: 'cylinder', offset: [0, -0.06, 0.06], size: [0.04, 0.16, 0.04], rotation: [0, -90], tint: 'dark' }] },
+		{ shape: 'cylinder', offset: [0, -0.06, 0.06], size: [0.04, 0.16, 0.04], rotation: [0, -90], tint: 'dark' },
+		MODEL_CELL_SIDE] },
 	{ id: 'starthrower', pose: 'energy', accent: '#8090a8', glow: '#c8f0ff', parts: [
 		{ offset: [0, 0, 0.04], size: [0.08, 0.07, 0.3], lod: 2 },
-		{ shape: 'cylinder', offset: [0, 0.06, 0.02], size: [0.16, 0.025, 0.16], tint: 'accent', lod: 2 },
+		{ shape: 'cylinder', offset: [0, 0.06, 0.02], size: [0.16, 0.025, 0.16], tint: 'accent', lod: 2, role: 'cell' },
 		{ shape: 'ring', offset: [0, 0.06, 0.02], size: [0.17, 0.02, 0.17], tint: 'glow' },
 		MODEL_GRIP,
 		{ offset: [0, 0, 0.21], size: [0.1, 0.025, 0.04], tint: 'dark' }] },
@@ -2486,17 +2622,19 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 		{ offset: [0, -0.03, 0.25], size: [0.02, 0.02, 0.3], tint: 'steel' },
 		{ shape: 'sphere', offset: [0, 0.07, -0.04], size: [0.04, 0.04, 0.04], tint: 'glow' },
 		MODEL_GRIP,
-		{ shape: 'sphere', offset: [0, 0.07, 0.04], size: [0.04, 0.04, 0.04], tint: 'glow' }] },
+		{ shape: 'sphere', offset: [0, 0.07, 0.04], size: [0.04, 0.04, 0.04], tint: 'glow' },
+		MODEL_CELL_SIDE] },
 	{ id: 'hailstorm', pose: 'heavy', accent: '#6a6a3a', parts: [
 		{ shape: 'cylinder', offset: [0, 0, 0], size: [0.13, 0.16, 0.13], rotation: [0, -90], lod: 2 },
 		{ shape: 'cylinder', offset: [0.028, 0.028, 0.2], size: [0.022, 0.3, 0.022], rotation: [0, -90], tint: 'steel', mirror: true, lod: 2 },
 		{ shape: 'cylinder', offset: [0.028, -0.028, 0.2], size: [0.022, 0.3, 0.022], rotation: [0, -90], tint: 'steel', mirror: true },
 		{ shape: 'cylinder', offset: [0, 0, 0.33], size: [0.1, 0.025, 0.1], rotation: [0, -90], tint: 'dark' },
-		{ offset: [0, -0.11, -0.02], size: [0.1, 0.08, 0.1], tint: 'accent' },
-		{ offset: [0, 0.1, 0], size: [0.03, 0.04, 0.12], tint: 'dark' }] },
+		{ offset: [0, -0.11, -0.02], size: [0.1, 0.08, 0.1], tint: 'accent', role: 'mag' },
+		{ offset: [0, 0.1, 0], size: [0.03, 0.04, 0.12], tint: 'dark' },
+		{ offset: [0, 0.075, 0], size: [0.1, 0.012, 0.12], tint: 'steel', role: 'lid' }] },
 	{ id: 'kindler', pose: 'heavy', accent: '#a33a2a', glow: '#ff8a3d', parts: [
 		{ offset: [0, 0, 0.02], size: [0.07, 0.08, 0.26], lod: 2 },
-		{ shape: 'capsule', offset: [0, -0.075, 0.02], size: [0.08, 0.26, 0.08], rotation: [0, -90], tint: 'accent', lod: 2 },
+		{ shape: 'capsule', offset: [0, -0.075, 0.02], size: [0.08, 0.26, 0.08], rotation: [0, -90], tint: 'accent', lod: 2, role: 'cell' },
 		{ shape: 'cylinder', offset: [0, 0.01, 0.24], size: [0.04, 0.18, 0.04], rotation: [0, -90], tint: 'steel' },
 		{ shape: 'cone', offset: [0, 0.01, 0.35], size: [0.075, 0.05, 0.075], rotation: [0, 90], tint: 'dark' },
 		{ shape: 'sphere', offset: [0, -0.03, 0.34], size: [0.022, 0.022, 0.022], tint: 'glow' },
@@ -2504,26 +2642,27 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 	{ id: 'ramjet', from: 'launcher', drop: [1], accent: '#ff8a3d', parts: [
 		{ shape: 'cylinder', offset: [0, 0.01, 0.37], size: [0.13, 0.03, 0.13], rotation: [0, -90], tint: 'dark' },
 		{ shape: 'cone', offset: [0, 0.01, 0.39], size: [0.07, 0.07, 0.07], rotation: [0, -90], tint: 'accent' },
-		{ shape: 'cone', offset: [0, 0.01, -0.15], size: [0.14, 0.08, 0.14], rotation: [0, -90], tint: 'dark' },
+		{ shape: 'cone', offset: [0, 0.01, -0.15], size: [0.14, 0.08, 0.14], rotation: [0, -90], tint: 'dark', role: 'lid' },
+		{ shape: 'cylinder', offset: [0, 0.01, -0.02], size: [0.085, 0.2, 0.085], rotation: [0, -90], tint: 'steel', role: 'mag' },
 		{ offset: [0, -0.08, 0.2], size: [0.03, 0.07, 0.04], tint: 'dark' }] },
 	{ id: 'pitcher', pose: 'launcher', accent: '#6a8f3a', parts: [
 		{ shape: 'cylinder', offset: [0, 0.02, 0.2], size: [0.07, 0.22, 0.07], rotation: [0, -90], lod: 2 },
-		{ shape: 'cylinder', offset: [0, 0, 0.04], size: [0.14, 0.1, 0.14], rotation: [0, -90], tint: 'dark', lod: 2 },
+		{ shape: 'cylinder', offset: [0, 0, 0.04], size: [0.14, 0.1, 0.14], rotation: [0, -90], tint: 'dark', lod: 2, role: 'mag' },
 		{ shape: 'ring', offset: [0, 0, 0.04], size: [0.15, 0.04, 0.15], rotation: [0, -90], tint: 'accent' },
 		{ offset: [0, 0.055, 0.08], size: [0.03, 0.025, 0.3], tint: 'steel' },
 		{ offset: [0, -0.03, -0.14], size: [0.045, 0.08, 0.14], tint: 'dark' },
 		{ offset: [0, -0.08, -0.04], size: [0.035, 0.09, 0.045], rotation: [0, -10], tint: 'dark' }] },
 	{ id: 'gloop', pose: 'launcher', glow: '#7fe04a', parts: [
 		{ offset: [0, 0, 0.04], size: [0.06, 0.08, 0.26], lod: 2 },
-		{ shape: 'sphere', offset: [0, 0.085, 0], size: [0.1, 0.1, 0.1], tint: 'glow', lod: 2 },
+		{ shape: 'sphere', offset: [0, 0.085, 0], size: [0.1, 0.1, 0.1], tint: 'glow', lod: 2, role: 'cell' },
 		{ shape: 'cylinder', offset: [0, 0, 0.22], size: [0.05, 0.12, 0.05], rotation: [0, -90], tint: 'dark' },
 		MODEL_GRIP,
 		{ shape: 'cone', offset: [0, 0, 0.3], size: [0.08, 0.05, 0.08], rotation: [0, 90], tint: 'dark' }] },
 	{ id: 'fusionmortar', pose: 'launcher', glow: '#ffee88', parts: [
 		{ shape: 'cylinder', offset: [0, 0.02, 0.12], size: [0.15, 0.34, 0.15], rotation: [0, -90], lod: 2 },
 		{ shape: 'cylinder', offset: [0, 0.02, 0.29], size: [0.17, 0.04, 0.17], rotation: [0, -90], tint: 'dark', lod: 2 },
-		{ shape: 'sphere', offset: [0, 0.02, 0.27], size: [0.1, 0.1, 0.1], tint: 'glow' },
-		{ shape: 'cylinder', offset: [0, 0.02, -0.06], size: [0.17, 0.03, 0.17], rotation: [0, -90], tint: 'dark' },
+		{ shape: 'sphere', offset: [0, 0.02, 0.27], size: [0.1, 0.1, 0.1], tint: 'glow', role: 'mag' },
+		{ shape: 'cylinder', offset: [0, 0.02, -0.06], size: [0.17, 0.03, 0.17], rotation: [0, -90], tint: 'dark', role: 'lid' },
 		{ offset: [0, -0.1, 0.06], size: [0.035, 0.09, 0.045], rotation: [0, -10], tint: 'dark' }] },
 	{ id: 'lifter', pose: 'tool', parts: [
 		{ offset: [0, 0, 0], size: [0.09, 0.1, 0.2], lod: 2 },
@@ -2542,7 +2681,8 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 		{ shape: 'cone', offset: [0, 0, 0.24], size: [0.08, 0.16, 0.08], rotation: [0, -90], tint: 'steel', lod: 2 },
 		{ shape: 'sphere', offset: [0, 0.07, -0.02], size: [0.07, 0.07, 0.08], tint: 'bone' },
 		MODEL_GRIP,
-		{ shape: 'ring', offset: [0, 0, 0.2], size: [0.085, 0.02, 0.085], rotation: [0, -90], tint: 'dark' }] },
+		{ shape: 'ring', offset: [0, 0, 0.2], size: [0.085, 0.02, 0.085], rotation: [0, -90], tint: 'dark', role: 'lid' },
+		{ shape: 'cone', offset: [0, 0.045, 0.02], size: [0.05, 0.1, 0.05], rotation: [0, -90], tint: 'steel', role: 'mag' }] },
 	{ id: 'razorwind', pose: 'exotic', glow: '#bfe6ff', parts: [
 		{ shape: 'capsule', offset: [0, 0, 0.06], size: [0.07, 0.3, 0.07], rotation: [0, -90], lod: 2 },
 		{ shape: 'ring', offset: [0, 0.06, 0.08], size: [0.2, 0.012, 0.2], tint: 'steel', lod: 2 },
@@ -2550,11 +2690,12 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 		{ shape: 'cylinder', offset: [0, 0.06, 0.08], size: [0.05, 0.015, 0.05], tint: 'glow' }] },
 	{ id: 'daybreak', from: 'power', glow: '#ffd98a', parts: [
 		{ shape: 'sphere', offset: [0, 0.02, 0.48], size: [0.08, 0.08, 0.08], tint: 'glow' },
-		{ shape: 'ring', offset: [0, 0.02, 0.48], size: [0.13, 0.015, 0.13], rotation: [0, -90], tint: 'accent' }] },
+		{ shape: 'ring', offset: [0, 0.02, 0.48], size: [0.13, 0.015, 0.13], rotation: [0, -90], tint: 'accent' },
+		MODEL_CELL_SIDE] },
 	{ id: 'halcyon', pose: 'power', accent: '#d03a2a', parts: [
 		{ shape: 'cylinder', offset: [0, 0.02, 0.1], size: [0.13, 0.5, 0.13], rotation: [0, -90], tint: 'dark', lod: 2 },
-		{ shape: 'capsule', offset: [0, 0.02, 0.4], size: [0.11, 0.18, 0.11], rotation: [0, -90], tint: 'bone', lod: 2 },
-		{ shape: 'cone', offset: [0, 0.02, 0.5], size: [0.1, 0.08, 0.1], rotation: [0, -90], tint: 'accent' },
+		{ shape: 'capsule', offset: [0, 0.02, 0.4], size: [0.11, 0.18, 0.11], rotation: [0, -90], tint: 'bone', lod: 2, role: 'mag' },
+		{ shape: 'cone', offset: [0, 0.02, 0.5], size: [0.1, 0.08, 0.1], rotation: [0, -90], tint: 'accent', role: 'mag' },
 		{ shape: 'ring', offset: [0, 0.02, 0.36], size: [0.12, 0.03, 0.12], rotation: [0, -90] },
 		{ offset: [0, 0.02, -0.12], size: [0.22, 0.014, 0.08] },
 		{ offset: [0, 0.02, -0.12], size: [0.014, 0.22, 0.08] },
@@ -7286,6 +7427,7 @@ const SHADOW_PROBE_METERS = 20;
 const STRENGTH_SLOT = 13;
 const HIGHLIGHT_SLOT = 14;
 const HIGHLIGHT_THICKNESS = 2;
+const ROLL_SLOT = 15;
 const HIGHLIGHT_COLOR = [1, 0.85, 0.1];
 function latheShape(rings, sides, vertices, indices) {
 	const base = vertices.length / 6;
@@ -7405,7 +7547,7 @@ function makeShapeBatch(name, capacity) {
 				return -1;
 			}
 			const o = (shapeIndex * this.capacity + count) * INSTANCE_FLOATS, d = this.data;
-			d[o + STRENGTH_SLOT] = 1; d[o + HIGHLIGHT_SLOT] = 0;
+			d[o + STRENGTH_SLOT] = 1; d[o + HIGHLIGHT_SLOT] = 0; d[o + ROLL_SLOT] = 0;
 			this.counts[shapeIndex] = count + 1;
 			return o;
 		},
@@ -7501,12 +7643,16 @@ out vec2 vExtra;
 out vec2 vLocal;
 out float vHighlight;
 ${GLSL_ROTATION}
+vec3 rollZ(vec3 v, float roll) {
+  float c = cos(roll), s = sin(roll);
+  return vec3(v.x * c - v.y * s, v.x * s + v.y * c, v.z);
+}
 void main() {
   vec3 local = aPosition * aScale.xyz;
   vHighlight = aExtra.z;
   if (uMode == 2) local += aNormal * uOutline * (uBaseOutline + vHighlight * (${HIGHLIGHT_THICKNESS}.0 - uBaseOutline));
-  vPosition = aOffset.xyz + rotateYawPitch(local, aOffset.w, aScale.w);
-  vNormal = rotateYawPitch(aNormal / max(aScale.xyz, vec3(0.001)), aOffset.w, aScale.w);
+  vPosition = aOffset.xyz + rotateYawPitch(rollZ(local, aExtra.w), aOffset.w, aScale.w);
+  vNormal = rotateYawPitch(rollZ(aNormal / max(aScale.xyz, vec3(0.001)), aExtra.w), aOffset.w, aScale.w);
   vColor = aColor;
   vExtra = aExtra.xy;
   vLocal = aPosition.xz;
@@ -7646,6 +7792,7 @@ function animateActor(id, pose, seconds, lod) {
 	pose.lift = grounded ? Math.abs(Math.cos(actorPhase[id])) * amount * 0.05 : 0;
 	pose.drop = (1 - clamp((recorded ? pose.height : Actors.height[id]) / STAND_HEIGHT, 0.3, 1)) * STAND_HEIGHT * CROUCH_UPPER_SHARE;
 	pose.legSquash = clamp((LEG_LENGTH - pose.drop) / LEG_LENGTH, 0.2, 1);
+	computeActorAction(id, pose, seconds, lod);
 }
 function partColor(part, style) {
 	const tint = part.tint;
@@ -7667,10 +7814,11 @@ function modelPartColor(tint) {
 }
 function placeActorPart(part, pose, style) {
 	const scale = style.scale, lower = part.pivot[1] < HIP_HEIGHT, squash = lower ? pose.legSquash : 1;
-	const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing, head = part.head ? style.headScale : 1;
+	const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing + ActorAction.pitch[part.action], head = part.head ? style.headScale : 1;
 	const point = rotated;
 	point.squash = squash; point.grow = head;
-	point.x = part.offset[0] * head; point.y = part.offset[1] * squash * head; point.z = part.offset[2] * head; point.yaw = 0; point.pitch = pitch;
+	point.x = part.offset[0] * head; point.y = part.offset[1] * squash * head + ActorAction.y[part.action]; point.z = part.offset[2] * head + ActorAction.z[part.action];
+	point.yaw = 0; point.pitch = pitch;
 	rotateInPlace(point);
 	const localY = (lower ? part.pivot[1] * squash : part.pivot[1] - pose.drop) + point.y + pose.lift;
 	const localX = part.pivot[0] + point.x, localZ = part.pivot[2] + point.z;
@@ -7883,18 +8031,21 @@ const MODEL_MAX_FROM_DEPTH = 4;
 const MODEL_MUZZLE_TIE = 0.004;
 const MODEL_SHAPES = new Set(SHAPES);
 const MODEL_NO_LOOK = { color: -1, accent: '', glow: '', pose: null };
+const MODEL_ROLE_MOVE_FLOATS = 6;
+const NO_ROLE_MOVE = new Float32Array(MODEL_ROLES.length * MODEL_ROLE_MOVE_FLOATS);
 function ModelPose() {
 	this.x = 0; this.y = 0; this.z = 0; this.yaw = 0; this.pitch = 0; this.scale = 1; this.mirror = -1; this.originY = 0; this.originZ = 0;
-	this.r = 1; this.g = 1; this.b = 1; this.emissive = 0; this.highlight = 0;
+	this.r = 1; this.g = 1; this.b = 1; this.emissive = 0; this.highlight = 0; this.roll = 0; this.glow = 1; this.only = 0; this.roleMove = NO_ROLE_MOVE;
 }
 const makeModelPose = () => new ModelPose();
 const modelInstance = makeShapeInstance();
-const modelTurn = new Float64Array(4);
+const modelTurn = new Float64Array(6);
+const modelPoint = new Float64Array(3);
 const modelScaled = (values, scale, axis) => values.map((value, index) => value * (typeof scale === 'number' ? scale : scale[axis[index]]));
 const MODEL_AXES = [0, 1, 2], MODEL_AXES_TURNED = [0, 2, 1];
 function normalizeModelPart(part) {
 	return { shape: part.shape || 'box', offset: part.offset || [0, 0, 0], size: part.size, rotation: part.rotation || [0, 0],
-		tint: part.tint || 'body', lod: part.lod === undefined ? LOD.far : part.lod, mirror: part.mirror === true };
+		tint: part.tint || 'body', lod: part.lod === undefined ? LOD.far : part.lod, mirror: part.mirror === true, role: part.role || '' };
 }
 function copyModelPart(part, scale, recolor) {
 	const turned = Math.abs(part.rotation[1]) > 45 && Math.abs(part.rotation[1]) < 135;
@@ -7917,12 +8068,12 @@ const mirrorModelPart = (part) => Object.assign({}, part, { offset: [-part.offse
 function compileModel(row, source, look) {
 	const parts = modelParts(row, source, 0).flatMap((part) => (part.mirror ? [part, mirrorModelPart(part)] : [part]))
 		.sort((a, b) => b.lod - a.lod);
-	const tints = new Int8Array(parts.length);
-	for (let index = 0; index < parts.length; index++) tints[index] = modelTintCode(row.id, parts[index]);
+	const tints = new Int8Array(parts.length), roles = new Uint8Array(parts.length);
+	for (let index = 0; index < parts.length; index++) { tints[index] = modelTintCode(row.id, parts[index]); roles[index] = modelRoleCode(row.id, parts[index]); }
 	const data = modelPartData(parts);
 	const lodCounts = Uint8Array.of(parts.length, parts.filter((part) => part.lod >= LOD.far).length, parts.filter((part) => part.lod >= LOD.distant).length);
 	const colors = new Float32Array(9), own = writeModelColors(colors, row, source, look), size = measureModel(data, lodCounts[LOD.far] || parts.length);
-	return { id: row.id, parts, count: parts.length, shapes: parts.map((part) => part.shape), tints, data, lodCounts, colors,
+	return { id: row.id, parts, count: parts.length, shapes: parts.map((part) => part.shape), tints, roles, data, lodCounts, colors,
 		ownColor: own.color, ownAccent: own.accent, ownGlow: own.glow, pose: look.pose, spin: row.spin || 0, tumble: row.tumble || 0,
 		centerZ: size.centerZ, top: size.top, muzzle: measureMuzzle(row, data, lodCounts[LOD.far] || parts.length) };
 }
@@ -7947,6 +8098,11 @@ function modelTintCode(id, part) {
 	const tint = MODEL_TINT[part.tint] !== undefined ? MODEL_TINT[part.tint] : MODEL_PALETTE_NAMES.indexOf(part.tint);
 	if (tint === -1 && part.tint !== 'body') throw new Error('model ' + id + ': unknown tint ' + part.tint);
 	return tint;
+}
+function modelRoleCode(id, part) {
+	const code = MODEL_ROLES.indexOf(part.role);
+	if (code < 0) throw new Error('model ' + id + ': unknown role ' + part.role);
+	return code;
 }
 function modelPartData(parts) {
 	const data = new Float32Array(parts.length * MODEL_PART_FLOATS);
@@ -7997,20 +8153,39 @@ const Models = {
 	},
 	drawLevel(batch, model, pose, level) {
 		const count = model.lodCounts[level];
-		modelTurn[0] = Math.cos(pose.yaw); modelTurn[1] = Math.sin(pose.yaw); modelTurn[2] = Math.cos(pose.pitch); modelTurn[3] = Math.sin(pose.pitch);
+		this.turnFor(pose);
 		for (let part = 0; part < count; part++) this.drawPart(batch, model, part, pose);
+	},
+	turnFor(pose) {
+		modelTurn[0] = Math.cos(pose.yaw); modelTurn[1] = Math.sin(pose.yaw); modelTurn[2] = Math.cos(pose.pitch); modelTurn[3] = Math.sin(pose.pitch);
+		modelTurn[4] = Math.cos(pose.roll); modelTurn[5] = Math.sin(pose.roll);
 	},
 	drawPart(batch, model, part, pose) {
 		const d = model.data, o = part * MODEL_PART_FLOATS, scale = pose.scale, mirror = pose.mirror, instance = modelInstance;
-		const cy = modelTurn[0], sy = modelTurn[1], cp = modelTurn[2], sp = modelTurn[3];
-		const x = d[o] * scale * mirror, y = (d[o + 1] - pose.originY) * scale, z = (d[o + 2] - pose.originZ) * scale;
-		const turnedY = y * cp + z * sp, turnedZ = -y * sp + z * cp;
-		instance.x = pose.x + x * cy + turnedZ * sy; instance.y = pose.y + turnedY; instance.z = pose.z - x * sy + turnedZ * cy;
+		const role = model.roles[part], moves = pose.roleMove, m = role * MODEL_ROLE_MOVE_FLOATS;
+		if (pose.only !== 0 && role !== pose.only) return;
+		if (moves[m + 5] !== 0) return;
+		modelPoint[0] = d[o] + moves[m]; modelPoint[1] = d[o + 1] + moves[m + 1] - pose.originY; modelPoint[2] = d[o + 2] + moves[m + 2] - pose.originZ;
+		placeModelPoint(pose);
 		instance.sx = d[o + 3] * scale; instance.sy = d[o + 4] * scale; instance.sz = d[o + 5] * scale;
-		instance.yaw = pose.yaw + d[o + 6] * mirror; instance.pitch = pose.pitch + d[o + 7];
+		instance.yaw = pose.yaw + d[o + 6] * mirror; instance.pitch = pose.pitch + d[o + 7] + moves[m + 3];
 		this.tintPart(model, part, pose);
 		const offset = batch.meshFrom(model.shapes[part], instance);
-		if (offset >= 0 && pose.highlight) batch.data[offset + HIGHLIGHT_SLOT] = pose.highlight;
+		if (!(offset >= 0)) return;
+		if (pose.highlight) batch.data[offset + HIGHLIGHT_SLOT] = pose.highlight;
+		if (role === 0 && pose.roll === 0) return;
+		if (Math.abs(d[o + 7]) > Math.PI / 4) batch.data[offset + ROLL_SLOT] = moves[m + 4];
+		else batch.data[offset + ROLL_SLOT] = pose.roll + moves[m + 4];
+	},
+	drawLoose(batch, pose, loose) {
+		const instance = modelInstance, scale = pose.scale;
+		modelPoint[0] = loose.x; modelPoint[1] = loose.y - pose.originY; modelPoint[2] = loose.z - pose.originZ;
+		placeModelPoint(pose);
+		instance.sx = loose.sx * scale; instance.sy = loose.sy * scale; instance.sz = loose.sz * scale;
+		instance.yaw = pose.yaw + loose.yaw * pose.mirror; instance.pitch = pose.pitch + loose.pitch;
+		instance.r = loose.r; instance.g = loose.g; instance.b = loose.b; instance.emissive = loose.emissive;
+		const offset = batch.meshFrom(loose.shape, instance);
+		if (offset >= 0) batch.data[offset + ROLL_SLOT] = loose.roll;
 	},
 	tintPart(model, part, pose) {
 		const instance = modelInstance, tint = model.tints[part];
@@ -8024,9 +8199,21 @@ const Models = {
 		const source = modelColorSource(model, tint), colors = model.colors;
 		if (source < 0) { instance.r = pose.r * share; instance.g = pose.g * share; instance.b = pose.b * share; }
 		else { instance.r = colors[source] * share; instance.g = colors[source + 1] * share; instance.b = colors[source + 2] * share; }
-		instance.emissive = lit ? Math.max(MODEL_GLOW, pose.emissive) : pose.emissive;
+		instance.emissive = lit ? Math.max(MODEL_GLOW * pose.glow, pose.emissive) : pose.emissive;
 	},
 };
+function placeModelPoint(pose) {
+	const scale = pose.scale, cy = modelTurn[0], sy = modelTurn[1], cp = modelTurn[2], sp = modelTurn[3], cr = modelTurn[4], sr = modelTurn[5];
+	const sideways = modelPoint[0] * scale * pose.mirror, upward = modelPoint[1] * scale, z = modelPoint[2] * scale;
+	const x = sideways * cr - upward * sr, y = sideways * sr + upward * cr;
+	const turnedY = y * cp + z * sp, turnedZ = -y * sp + z * cp;
+	modelInstance.x = pose.x + x * cy + turnedZ * sy; modelInstance.y = pose.y + turnedY; modelInstance.z = pose.z - x * sy + turnedZ * cy;
+}
+function LooseShape() {
+	this.shape = 'box'; this.x = 0; this.y = 0; this.z = 0; this.sx = 0.1; this.sy = 0.1; this.sz = 0.1; this.yaw = 0; this.pitch = 0; this.roll = 0;
+	this.r = 1; this.g = 1; this.b = 1; this.emissive = 0;
+}
+const makeLooseShape = () => new LooseShape();
 function modelColorSource(model, tint) {
 	if (tint === MODEL_TINT.glow && model.ownGlow) return MODEL_COLOR.glow;
 	if ((tint === MODEL_TINT.accent || tint === MODEL_TINT.shine) && model.ownAccent) return MODEL_COLOR.accent;
@@ -8078,6 +8265,7 @@ function drawHeldWeapon(model, pose, style, lod) {
 	held.scale = style.scale * HELD_MODEL_SCALE; held.originY = HELD_GRIP_Y; held.originZ = HELD_GRIP_Z;
 	Models.paint(held, model);
 	held.emissive = style.emissive; held.highlight = actorHighlight;
+	held.roleMove = ActorAction.moving ? ActorAction.roleMove : NO_ROLE_MOVE;
 	Models.drawLevel(actorBatch, model, held, lod + 1);
 }
 function drawWeaponPickup(batch, weaponIndex, instance, power) {
@@ -8406,7 +8594,9 @@ const ViewState = {
 };
 Render.view = ViewState;
 const viewModelState = { visible: false, shape: 'rifle', model: '', kick: 0, reload: 0, swap: 0, ads: 0, color: '#4a5058', zoom: ADS_ZOOM_DEFAULT,
-	recoilPitch: 0, recoilYaw: 0, dual: false };
+	recoilPitch: 0, recoilYaw: 0, dual: false, charge: 0, chargeFraction: 0,
+	reloadSet: -1, reloadEmpty: 0, reloadFirst: 1, reloadLast: 0, swapping: 0, meleeAge: -1, meleeCycle: 0, meleeKind: 0, meleeStriker: -1, meleeAnim: -1, meleeHit: 0, meleeCount: 0, meleeAt: -1e9,
+	weaponIndex: -1, fireHeld: 0, blocking: 0, parry: 0, blockPool: 1, reflectAge: 1e9, sprinting: 0, cycle: -1, joltAge: 99 };
 function verticalFov(horizontalDegrees) {
 	const fixed = 2 * Math.atan(Math.tan(horizontalDegrees * DEG / 2) / (16 / 9));
 	const aspect = Render.size.width / Render.size.height;
@@ -8417,6 +8607,7 @@ function readViewModel() {
 	const state = viewModelState;
 	state.visible = false; state.shape = 'rifle'; state.model = ''; state.kick = 0; state.reload = 0; state.swap = 0; state.ads = 0;
 	state.color = '#4a5058'; state.zoom = ADS_ZOOM_DEFAULT; state.recoilPitch = 0; state.recoilYaw = 0; state.dual = false;
+	resetViewModelAnimation(state);
 	if (!Render.viewModel || Game.playerId < 0 || ViewState.overridden || !Actors.alive[Game.playerId]) return;
 	Render.viewModel(state);
 }
@@ -8500,40 +8691,86 @@ function boundsVisible(box) {
 	}
 	return true;
 }
-const viewModelBatch = makeShapeBatch('viewmodel', 24);
+const viewModelBatch = makeShapeBatch('viewmodel', 32);
 const weaponPose = makeModelPose();
 const viewPivot = makeModelPose();
 const viewPose = makeModelPose();
 const viewTint = new Float32Array(3);
 function poseWeapon(row, state) {
 	const ads = clamp(state.ads, 0, 1), kick = clamp(state.kick, 0, 1) * row.kick;
-	const reload = Math.sin(clamp(state.reload, 0, 1) * Math.PI), swap = clamp(state.swap, 0, 1);
+	const swap = clamp(state.swap, 0, 1);
 	const sway = (1 - ads * 0.8) * Render.motion.bob, phase = ViewState.bobPhase, offset = Render.config.viewmodelOffset;
 	weaponPose.x = lerp(row.hold[0], row.ads[0], ads) + Math.sin(phase) * 0.006 * sway - offset[0] * (1 - ads);
-	weaponPose.y = lerp(row.hold[1], row.ads[1], ads) + kick * 0.012 - reload * 0.1 - swap * 0.25 + Math.abs(Math.cos(phase)) * 0.005 * sway + offset[1] * (1 - ads);
+	weaponPose.y = lerp(row.hold[1], row.ads[1], ads) + kick * 0.012 - swap * 0.25 + Math.abs(Math.cos(phase)) * 0.005 * sway + offset[1] * (1 - ads);
 	weaponPose.z = lerp(row.hold[2], row.ads[2], ads) - kick * 0.05 + offset[2] * (1 - ads);
-	weaponPose.pitch = kick * 6 * DEG - reload * 0.5 - swap * 0.6;
+	weaponPose.pitch = kick * 6 * DEG - swap * 0.6;
+	weaponPose.yaw = 0; weaponPose.roll = 0; weaponPose.glow = 1; weaponPose.emissive = 0; weaponPose.roleMove = NO_ROLE_MOVE;
 	return weaponPose;
 }
 function viewWeaponModel(state) {
 	return WeaponModels.byId[state.model] || WeaponModels.byId[state.shape] || WeaponModels.byId[MODEL_FALLBACK_POSE];
 }
-function fillViewModel() {
+function fillViewModel(seconds) {
 	viewModelBatch.clear();
 	const state = viewModelState;
-	if (!state.visible) return;
+	if (!state.visible) { ViewAction.clear(); return; }
 	const model = viewWeaponModel(state), pose = poseWeapon(model.pose, state);
 	writeColor(viewTint, 0, state.color);
+	ViewAction.update(state, model, seconds);
+	applyViewAction(pose);
 	addWeaponModel(model, pose, HAND_RIGHT);
-	if (state.dual) addWeaponModel(model, pose, HAND_LEFT);
+	drawReloadExtras(model, pose, HAND_RIGHT, state);
+	if (state.dual) { addWeaponModel(model, pose, HAND_LEFT); drawReloadExtras(model, pose, HAND_LEFT, state); }
+	drawStriker(state);
 }
+function applyViewAction(pose) {
+	const action = ViewAction, layers = action.pose;
+	pose.x += layers[0]; pose.y += layers[1]; pose.z += layers[2]; pose.pitch += layers[3]; pose.yaw = layers[4]; pose.roll = layers[5];
+	pose.glow = action.values[VA.GLOW]; pose.emissive = action.values[VA.EMISSIVE]; pose.roleMove = action.main;
+}
+function drawReloadExtras(model, pose, hand, state) {
+	const action = ViewAction, frame = viewPose;
+	if (action.spareOn && action.reloadSet >= 0) {
+		const runtime = RELOAD_RUNTIME[action.reloadSet];
+		if (action.spareRole > 0 && modelHasRole(model, action.spareRole)) {
+			const o = action.spareRole * MODEL_ROLE_MOVE_FLOATS;
+			action.spare.fill(0);
+			action.spare[o] = reloadSample.spareD[0]; action.spare[o + 1] = reloadSample.spareD[1]; action.spare[o + 2] = reloadSample.spareD[2]; action.spare[o + 4] = reloadSample.scalars[S_SPARE_ROLL];
+			frame.only = action.spareRole; frame.roleMove = action.spare;
+			Models.drawLevel(viewModelBatch, model, frame, Models.detailLevel(LOD.near, Render.quality));
+			frame.only = 0; frame.roleMove = pose.roleMove;
+		} else drawProceduralSpare(viewModelBatch, frame, runtime, reloadSample);
+	}
+	const handWeight = action.values[VA.HAND];
+	if (action.handKind === HAND_KIND.NONE || handWeight < HAND_MIN_WEIGHT || (state.dual && action.handKind === HAND_KIND.RELOAD) || hand === HAND_LEFT) return;
+	drawOffHand(viewModelBatch, frame, action.hand, offHandTint(state), action.handKind === HAND_KIND.RELOAD);
+}
+const HAND_MIN_WEIGHT = 0.02;
+const handTint = new Float32Array(3);
+function modelHasRole(model, role) { return model.roles.includes(role); }
+function offHandTint(state) {
+	const weapon = CAT.weapons[state.weaponIndex], worn = !weapon || state.color !== weapon.family.color;
+	if (worn) { handTint[0] = viewTint[0]; handTint[1] = viewTint[1]; handTint[2] = viewTint[2]; return handTint; }
+	const cloth = MODEL_PALETTE_INDEX.cloth * 4;
+	handTint[0] = MODEL_PALETTE_RGB[cloth]; handTint[1] = MODEL_PALETTE_RGB[cloth + 1]; handTint[2] = MODEL_PALETTE_RGB[cloth + 2];
+	return handTint;
+}
+function drawStriker(state) {
+	const action = ViewAction, weight = action.values[VA.STRIKER];
+	if (action.strikerWeapon < 0 || weight <= 0) return;
+	const model = WeaponModels.weapon[action.strikerWeapon], pose = poseWeapon(model.pose, STRIKER_STATE), striker = action.striker;
+	pose.x += striker[0]; pose.y += striker[1]; pose.z += striker[2]; pose.pitch += striker[3]; pose.yaw = striker[4]; pose.roll = striker[5];
+	addWeaponModel(model, pose, HAND_LEFT);
+}
+const STRIKER_STATE = { ads: 0, kick: 0, swap: 0, reload: 0 };
 function addWeaponModel(model, pose, hand) {
 	const camera = Render.camera, pivot = viewPivot, frame = viewPose;
 	pivot.x = -pose.x * hand; pivot.y = pose.y; pivot.z = pose.z; pivot.yaw = camera.yaw; pivot.pitch = camera.pitch;
 	rotateInPlace(pivot);
 	frame.x = camera.x + pivot.x; frame.y = camera.y + pivot.y; frame.z = camera.z + pivot.z;
-	frame.yaw = camera.yaw; frame.pitch = camera.pitch + pose.pitch; frame.scale = VIEWMODEL_SCALE; frame.mirror = -hand;
+	frame.yaw = camera.yaw + pose.yaw * hand; frame.pitch = camera.pitch + pose.pitch; frame.roll = pose.roll * hand; frame.scale = VIEWMODEL_SCALE; frame.mirror = -hand;
 	frame.r = viewTint[0]; frame.g = viewTint[1]; frame.b = viewTint[2];
+	frame.emissive = pose.emissive; frame.glow = pose.glow; frame.roleMove = pose.roleMove; frame.only = 0;
 	Models.drawLevel(viewModelBatch, model, frame, Models.detailLevel(LOD.near, Render.quality));
 }
 Render.addUpdate(60, fillViewModel);
@@ -9003,6 +9240,624 @@ Render.gpuMemoryBytes = () => {
 	if (!target.direct) bytes += target.width * target.height * 8 * (1 + target.samples);
 	return bytes;
 };
+
+// ==== 07g-render-weapon-anim.js ====
+const POSE_FLOATS = 6;
+const KEY_FLOATS = 7;
+const ROLE_FLOATS_TOTAL = MODEL_ROLES.length * MODEL_ROLE_MOVE_FLOATS;
+const REACH_RAMP = 0.4;
+const TP_KEYS = ['gun', 'gunDrop', 'torso', 'armLWork', 'armLFetch', 'armRJerk', 'armRFetch'];
+const HAND_AWAY_OFFSET = [-0.1, -0.35, -0.2];
+const SHELL_NAMES = ['first', 'middle', 'last', 'only', 'emptyFirst', 'emptyLast'];
+const SHELL_FIRST = 0, SHELL_MIDDLE = 1, SHELL_LAST = 2, SHELL_ONLY = 3, SHELL_EMPTY_FIRST = 4, SHELL_EMPTY_LAST = 5;
+const RELOAD_KIND = {};
+RELOAD_PHASE_KINDS.forEach((name, index) => { RELOAD_KIND[name] = index; });
+const PART_MODE = {};
+RELOAD_PART_MODES.forEach((name, index) => { PART_MODE[name] = index; });
+const NO_CLICK = 2;
+const isRampUp = (kind) => kind === RELOAD_KIND.lower || kind === RELOAD_KIND.enter || kind === RELOAD_KIND.reach;
+const isRampDown = (kind) => kind === RELOAD_KIND.raise || kind === RELOAD_KIND.exit;
+const isFetchKind = (kind) => kind === RELOAD_KIND.fetch || kind === RELOAD_KIND.reach;
+const isSeatKind = (kind) => kind === RELOAD_KIND.in || kind === RELOAD_KIND.insert || kind === RELOAD_KIND.port;
+const isRackKind = (kind) => kind === RELOAD_KIND.rack || kind === RELOAD_KIND.close || kind === RELOAD_KIND.prime;
+const NO_POSE_RADIANS = new Float32Array(POSE_FLOATS);
+const ZERO = new Float32Array(1);
+const poseFromDegrees = (vector) => Float32Array.of(vector[0], vector[1], vector[2], vector[3] * DEG, vector[4] * DEG, vector[5] * DEG);
+const lastIndexOfKind = (kinds, wanted) => { for (let i = kinds.length - 1; i >= 0; i--) if (wanted.includes(kinds[i])) return i; return -1; };
+const firstIndexOfKind = (kinds, wanted) => kinds.findIndex((kind) => wanted.includes(kind));
+function compilePhases(list, row) {
+	const count = list.length, ends = new Float32Array(count), kinds = new Uint8Array(count), keys = new Float32Array(count * KEY_FLOATS);
+	list.forEach(([name, end], index) => {
+		ends[index] = end; kinds[index] = RELOAD_KIND[name];
+		const down = isRampDown(kinds[index]);
+		keys.set(down ? NO_POSE_RADIANS : poseFromDegrees(row.keys[name] || row.work), index * KEY_FLOATS);
+		keys[index * KEY_FLOATS + POSE_FLOATS] = down ? 0 : 1;
+	});
+	const names = list.map(([name]) => RELOAD_KIND[name]);
+	const rack = [RELOAD_KIND.rack], close = [RELOAD_KIND.close], prime = [RELOAD_KIND.prime];
+	const closeIndex = [lastIndexOfKind(names, close), lastIndexOfKind(names, rack), lastIndexOfKind(names, prime)].find((index) => index >= 0);
+	const inIndex = lastIndexOfKind(names, [RELOAD_KIND.in, RELOAD_KIND.insert, RELOAD_KIND.port]);
+	return { count, ends, kinds, keys, raisedStart: !isRampUp(kinds[0]),
+		outIndex: firstIndexOfKind(names, [RELOAD_KIND.out]), fetchIndex: firstIndexOfKind(names, [RELOAD_KIND.fetch, RELOAD_KIND.reach]), inIndex,
+		openIndex: Math.max(0, firstIndexOfKind(names, [RELOAD_KIND.open])), closeIndex: closeIndex === undefined ? count - 2 : closeIndex,
+		rackIndex: firstIndexOfKind(names, rack), glowUpIndex: Math.max(lastIndexOfKind(names, prime), lastIndexOfKind(names, rack)),
+		glowDownIndex: Math.max(0, firstIndexOfKind(names, [RELOAD_KIND.out, RELOAD_KIND.open])),
+		joltIndex: closeIndex !== undefined && names[closeIndex] !== RELOAD_KIND.prime ? closeIndex : inIndex };
+}
+function compilePart(part) {
+	if (!part) return null;
+	const turn = part.turn || [0, 0, 0];
+	return { role: MODEL_ROLES.indexOf(part.role), mode: PART_MODE[part.mode], move: Float32Array.from(part.move || [0, 0, 0]), out: Float32Array.of(part.out || 0),
+		turn: Float32Array.of(turn[0] * DEG, turn[1] * DEG, turn[2] * DEG), lock: Float32Array.of((part.lock || 0) * DEG), holdBack: part.holdBack === true, hidden: part.hidden === true };
+}
+function compileReload(row) {
+	const runtime = { row, work: poseFromDegrees(row.work), well: Float32Array.from(row.about || row.seat, (value) => value * VIEWMODEL_SCALE), seat: Float32Array.from(row.seat), belt: Float32Array.from(row.belt), rack: Float32Array.from(row.rack),
+		spare: Float32Array.from(row.spare), jolt: Float32Array.from(row.jolt), part: compilePart(row.part), second: compilePart(row.second), glow: row.glow,
+		tp: Float32Array.from(TP_KEYS, (key) => (row.tp[key] || 0) * (key === 'gunDrop' ? 1 : DEG)), cycle: row.cycle, bow: row.bow ? compilePart({ role: row.bow.role, mode: 'pulse', move: row.bow.move, turn: [0, 0, row.bow.cant] }) : null, partial: null, empty: null, shell: false,
+		shellPhases: null, clicks: null };
+	if (row.shell) {
+		runtime.shell = true;
+		runtime.shellPhases = SHELL_NAMES.map((name) => compilePhases(row.shell[name], row));
+		runtime.clicks = Float32Array.from(SHELL_NAMES, (name) => row.shell.click[name]);
+	} else {
+		runtime.partial = compilePhases(row.partial, row);
+		runtime.empty = row.empty ? compilePhases(row.empty, row) : runtime.partial;
+	}
+	return runtime;
+}
+const RELOAD_RUNTIME = CAT.reloadAnims.map(compileReload);
+const MELEE_RUNTIME = CAT.meleeAnims.map((row) => ({ row, strike: poseFromDegrees(row.strike), through: poseFromDegrees(row.through), cocked: poseFromDegrees(row.cocked),
+	block: row.block ? poseFromDegrees(row.block) : null, arms: Float32Array.from(row.tp.arms || [0, 0, 0], (value) => value * DEG), torso: Float32Array.of((row.tp.torso || 0) * DEG),
+	gunPitch: Float32Array.of(((row.tp.gun || [0, 0])[0]) * DEG), gunForward: Float32Array.of((row.tp.gun || [0, 0])[1]), oneHand: row.tp.oneHand === true,
+	follow: Float32Array.of(row.follow, row.recover, row.wind) }));
+const MELEE_FOLLOW = 0, MELEE_RECOVER = 1, MELEE_WIND = 2;
+function ReloadSample() {
+	this.empty = 0; this.first = 1; this.last = 0;
+	this.key = new Float32Array(KEY_FLOATS);
+	this.hand = new Float32Array(3);
+	this.partVector = new Float32Array(3);
+	this.spareD = new Float32Array(3);
+	this.amount = new Float32Array(2);
+	this.hidden = new Uint8Array(2);
+	this.roll = new Float32Array(2);
+	this.scalars = new Float32Array(SCALARS);
+	this.scalars[S_CLICK] = NO_CLICK;
+	this.index = 0; this.kind = 0; this.spareOn = 0;
+}
+const SCALARS = 7, S_U = 0, S_SPARE_ROLL = 1, S_GLOW = 2, S_FETCH = 3, S_JERK = 4, S_FRACTION = 5, S_CLICK = 6;
+const phaseState = { index: 0, u: new Float32Array(1) };
+function locatePhase(phases, sample) {
+	let index = 0;
+	const fraction = sample.scalars[S_FRACTION];
+	while (index < phases.count - 1 && fraction >= phases.ends[index]) index++;
+	const start = index > 0 ? phases.ends[index - 1] : 0, span = phases.ends[index] - start;
+	phaseState.u[0] = 1;
+	if (span > 0) phaseState.u[0] = clamp((fraction - start) / span, 0, 1);
+	phaseState.index = index;
+}
+function sampleReload(runtime, phases, out) {
+	locatePhase(phases, out);
+	const index = phaseState.index, kind = phases.kinds[index], scalars = out.scalars;
+	out.index = index; out.kind = kind; scalars[S_U] = phaseState.u[0];
+	sampleWeaponPose(runtime, phases, out);
+	sampleHand(runtime, out);
+	out.amount[0] = out.amount[1] = 0; out.hidden[0] = out.hidden[1] = 0; out.roll[0] = out.roll[1] = 0;
+	if (runtime.part) samplePart(runtime.part, phases, out, 0);
+	if (runtime.second) samplePart(runtime.second, phases, out, 1);
+	out.spareOn = ((isFetchKind(kind) && scalars[S_U] >= 0.5) || isSeatKind(kind)) && scalars[S_FRACTION] < scalars[S_CLICK] ? 1 : 0;
+	scalars[S_SPARE_ROLL] = runtime.part && runtime.part.mode === PART_MODE.mag && isSeatKind(kind) ? runtime.part.lock[0] : 0;
+	for (let k = 0; k < 3; k++) out.spareD[k] = out.hand[k] - runtime.seat[k];
+	scalars[S_GLOW] = 1;
+	if (runtime.glow) sampleGlow(phases, out);
+}
+function sampleWeaponPose(runtime, phases, out) {
+	const index = out.index, keys = phases.keys, to = index * KEY_FLOATS, key = out.key, u = out.scalars[S_U];
+	let along = u;
+	if (out.kind === RELOAD_KIND.reach) along = Math.min(1, u / REACH_RAMP);
+	const amount = along * along * (3 - 2 * along);
+	for (let k = 0; k < KEY_FLOATS; k++) {
+		const start = index > 0 ? keys[to - KEY_FLOATS + k] : phases.raisedStart ? keys[to + k] : NO_POSE_RADIANS[k % POSE_FLOATS];
+		key[k] = start + (keys[to + k] - start) * amount;
+	}
+	if (index !== phases.joltIndex) return;
+	const bump = Math.sin(Math.PI * u);
+	key[1] += runtime.jolt[0] * bump; key[2] += runtime.jolt[1] * bump;
+}
+function tiltAboutWell(well, key) {
+	const x = well[0], y = well[1], z = well[2], cr = Math.cos(key[5]), sr = Math.sin(key[5]), cp = Math.cos(key[3]), sp = Math.sin(key[3]), cy = Math.cos(key[4]), sy = Math.sin(key[4]);
+	const x1 = x * cr + y * sr, y1 = -x * sr + y * cr, y2 = y1 * cp + z * sp, z2 = -y1 * sp + z * cp;
+	key[0] += x - (x1 * cy - z2 * sy); key[1] += y - y2; key[2] += z - (x1 * sy + z2 * cy);
+}
+function sampleHand(runtime, out) {
+	const seat = runtime.seat, belt = runtime.belt, rack = runtime.rack, hand = out.hand, move = out.partVector, kind = out.kind, scalars = out.scalars, u = scalars[S_U];
+	const whole = u * u * (3 - 2 * u), outward = u < 0.5, half = outward ? u * 2 : u * 2 - 1, eased = half * half * (3 - 2 * half), there = outward ? eased : 1 - eased;
+	for (let k = 0; k < 3; k++) {
+		const away = seat[k] + HAND_AWAY_OFFSET[k], moved = seat[k] + move[k];
+		if (kind === RELOAD_KIND.lower || kind === RELOAD_KIND.enter) hand[k] = away + (seat[k] - away) * whole;
+		else if (kind === RELOAD_KIND.reach) hand[k] = outward ? away + (belt[k] - away) * eased : belt[k] + (moved - belt[k]) * eased;
+		else if (kind === RELOAD_KIND.fetch) hand[k] = outward ? moved + (belt[k] - moved) * eased : belt[k] + (moved - belt[k]) * eased;
+		else if (kind === RELOAD_KIND.out) hand[k] = seat[k] + move[k] * whole;
+		else if (isSeatKind(kind)) hand[k] = seat[k] + move[k] * (1 - whole);
+		else if (isRackKind(kind)) hand[k] = outward ? seat[k] + (rack[k] - seat[k]) * eased : rack[k] + (seat[k] - rack[k]) * eased;
+		else if (isRampDown(kind)) hand[k] = seat[k] + (away - seat[k]) * whole;
+		else hand[k] = seat[k];
+	}
+	scalars[S_FETCH] = ZERO[0]; scalars[S_JERK] = ZERO[0];
+	if (isFetchKind(kind)) scalars[S_FETCH] = there;
+	if (isRackKind(kind)) scalars[S_JERK] = there;
+}
+function samplePart(part, phases, sample, slot) {
+	const index = sample.index, u = sample.scalars[S_U], eased = u * u * (3 - 2 * u), amounts = sample.amount, lock = part.lock[0];
+	if (part.mode === PART_MODE.mag) {
+		if (index === phases.outIndex) amounts[slot] = eased;
+		const gone = (phases.fetchIndex >= 0 && index >= phases.fetchIndex && index <= phases.inIndex) || (part.hidden && index <= phases.inIndex);
+		sample.hidden[slot] = gone ? 1 : 0;
+		if (lock !== 0 && !gone && index > phases.inIndex) {
+			if (index === phases.rackIndex) sample.roll[slot] = lock * (1 - eased);
+			else if (index < phases.rackIndex) sample.roll[slot] = lock;
+		}
+	} else if (part.mode === PART_MODE.latch) {
+		if (index < phases.openIndex || index > phases.closeIndex) return;
+		if (index === phases.openIndex && index !== phases.closeIndex) amounts[slot] = eased;
+		else if (index === phases.closeIndex) amounts[slot] = 1 - eased;
+		else amounts[slot] = 1;
+	} else if (part.holdBack && sample.empty === 1) {
+		if (phases.rackIndex < 0 || index < phases.rackIndex) amounts[slot] = 1;
+		else if (index === phases.rackIndex) { const back = Math.min(1, u / 0.6); amounts[slot] = 1 - back * back * (3 - 2 * back); }
+	} else if (index === phases.rackIndex) {
+		if (u < 0.55) amounts[slot] = u / 0.55;
+		else amounts[slot] = 1 - (u - 0.55) / 0.45;
+	}
+}
+function sampleGlow(phases, sample) {
+	const down = phases.glowDownIndex, up = phases.glowUpIndex, index = sample.index, u = sample.scalars[S_U], scalars = sample.scalars, eased = u * u * (3 - 2 * u);
+	let base = 0.2;
+	if (sample.empty === 1) base = ZERO[0];
+	if (index < down) scalars[S_GLOW] = 1;
+	else if (index === down) scalars[S_GLOW] = 1 - (1 - base) * eased;
+	else if (index < up) scalars[S_GLOW] = base;
+	else if (index === up) scalars[S_GLOW] = base + (1 - base) * eased;
+	else scalars[S_GLOW] = 1;
+}
+function shellVariant(first, last, empty) {
+	if (empty && first) return last ? SHELL_EMPTY_LAST : SHELL_EMPTY_FIRST;
+	if (first) return last ? SHELL_ONLY : SHELL_FIRST;
+	return last ? SHELL_LAST : SHELL_MIDDLE;
+}
+function sampleShell(runtime, sample) {
+	const variant = shellVariant(sample.first === 1, sample.last === 1, sample.empty === 1);
+	sample.scalars[S_CLICK] = runtime.clicks[variant];
+	sampleReload(runtime, runtime.shellPhases[variant], sample);
+}
+function sampleReloadOf(runtime, record, sample) {
+	sample.scalars[S_FRACTION] = record.reload; sample.scalars[S_CLICK] = NO_CLICK; sample.empty = record.reloadEmpty; sample.first = record.reloadFirst; sample.last = record.reloadLast;
+	if (runtime.shell) sampleShell(runtime, sample);
+	else sampleReload(runtime, record.reloadEmpty === 1 ? runtime.empty : runtime.partial, sample);
+}
+const cycleAmounts = new Float32Array(2);
+function sampleCycle(cycle, record) {
+	const keys = cycle.keys;
+	cycleAmounts[0] = cycleAmounts[1] = 0;
+	for (let i = 1; i < keys.length; i++) {
+		if (record.cycle > keys[i][0]) continue;
+		const before = keys[i - 1], after = keys[i], t = (record.cycle - before[0]) / (after[0] - before[0]);
+		cycleAmounts[0] = before[1] + (after[1] - before[1]) * t; cycleAmounts[1] = before[2] + (after[2] - before[2]) * t;
+		return;
+	}
+}
+function MeleeSample() {
+	this.values = new Float32Array(MELEE_VALUES);
+	this.pose = new Float32Array(POSE_FLOATS);
+}
+const MELEE_VALUES = 9, M_AGE = 0, M_CYCLE = 1, M_STOP = 2, M_WIND = 3, M_SIGN = 4, M_CONTACT = 5, M_THROUGH = 6, M_COCKED = 7, M_FRACTION = 8;
+const MELEE_STAGES = new Float32Array(3);
+function sampleMelee(runtime, out) {
+	const row = runtime.follow, values = out.values, stages = MELEE_STAGES;
+	let fraction = 0;
+	if (values[M_AGE] > values[M_STOP]) fraction = Math.min(1, (values[M_AGE] - values[M_STOP]) / Math.max(values[M_CYCLE] - values[M_STOP], 1e-6));
+	stages[0] = stages[1] = 0;
+	if (fraction < row[MELEE_FOLLOW]) {
+		const along = fraction / row[MELEE_FOLLOW], eased = along * along * (3 - 2 * along);
+		stages[0] = 1 - eased; stages[1] = eased;
+	} else if (fraction < row[MELEE_RECOVER]) {
+		const along = (fraction - row[MELEE_FOLLOW]) / (row[MELEE_RECOVER] - row[MELEE_FOLLOW]);
+		stages[1] = 1 - along * along * (3 - 2 * along);
+	}
+	const open = 1 - values[M_WIND];
+	values[M_FRACTION] = fraction; values[M_CONTACT] = stages[0] * open; values[M_THROUGH] = stages[1] * open; values[M_COCKED] = values[M_WIND];
+	for (let k = 0; k < POSE_FLOATS; k++) {
+		let pose = runtime.strike[k] * values[M_CONTACT] + runtime.through[k] * values[M_THROUGH] + runtime.cocked[k] * values[M_COCKED];
+		if (k === 4 || k === 5) pose *= values[M_SIGN];
+		out.pose[k] = pose;
+	}
+}
+const windTarget = new Float32Array(1);
+function aimWind(runtime, record) {
+	const fraction = clamp(record.meleeAge / record.meleeCycle, 0, 1), start = runtime.follow[MELEE_WIND];
+	windTarget[0] = ZERO[0];
+	if (record.fireHeld !== 1 || fraction < start) return;
+	const along = (fraction - start) / (1 - start);
+	windTarget[0] = along * along * (3 - 2 * along);
+}
+const LAYER = { RELOAD: 0, MELEE: 1, BLOCK: 2, CHARGE: 3, CYCLE: 4, SPRINT: 5, COUNT: 6 };
+const LAYER_RISE = Float32Array.of(0, 0, 0.1, 0, 0, 0.15);
+const LAYER_FALL = Float32Array.of(RELOAD_FADE_FIRE, 0.05, 0.15, 0, 0, 0.12);
+const SPRINT_POSE = Float32Array.of(0, -0.04, 0, -15 * DEG, 0, -25 * DEG);
+const DIP_POSE = poseFromDegrees(QUICK_MELEE_HELD_DIP);
+const WIND_SECONDS = 0.08;
+const CHARGE_RAISE_END = 0.6;
+const CHARGE_TREMBLE = 0.002;
+const CHARGE_TREMBLE_HZ = 60;
+const REFLECT_FLASH_SECONDS = 0.15;
+const BLOCK_PARRY_GLOW = 0.45, BLOCK_REFLECT_GLOW = 0.9;
+const KNOCK_RISE_SECONDS = 0.05, KNOCK_RECOVER_SECONDS = 0.2;
+const KNOCK_METRES_MIN = 0.02, KNOCK_METRES_MAX = 0.04, KNOCK_PITCH = 4 * DEG, KNOCK_FULL_DAMAGE = 50;
+const KNOCK_KINDS = new Set(['hit', 'melee', 'beam', 'splash']);
+const SCOPE_BOB_METRES = 0.003;
+const SPARE_PALETTE = MODEL_PALETTE_INDEX.steel;
+const HAFT_HAND = Float32Array.of(-0.05, -0.06, 0);
+const L_SECONDS = 0, L_WIND = 1, L_CLOCK = 2, L_KNOCK_AGE = 3, L_KNOCK_METRES = 4, L_KNOCK_PITCH = 5, L_CHARGE = 6, L_COUNT = 7;
+const DETONATE_JOLT_SECONDS = 0.1, DETONATE_JOLT_METRES = 0.01;
+const CHARGE_SHOWN_SECONDS = 0.08;
+const CHARGE_GLOW_FLOOR = 0.3;
+const ViewLayers = {
+	weight: new Float32Array(LAYER.COUNT),
+	value: new Float32Array(LAYER.COUNT * POSE_FLOATS),
+	reloadMoves: new Float32Array(ROLE_FLOATS_TOTAL),
+	cycleMoves: new Float32Array(ROLE_FLOATS_TOTAL),
+	scalars: new Float32Array(L_COUNT),
+};
+const meleeStamp = new Float64Array(2);
+const ViewAction = {
+	pose: new Float32Array(POSE_FLOATS),
+	striker: new Float32Array(POSE_FLOATS),
+	main: new Float32Array(ROLE_FLOATS_TOTAL),
+	spare: new Float32Array(ROLE_FLOATS_TOTAL),
+	values: new Float32Array(4),
+	hand: new Float32Array(3),
+	lastHand: new Float32Array(3),
+	spareOn: 0, spareRole: 0, handKind: 0, strikerAnim: -1, strikerWeapon: -1, reloadSet: -1,
+};
+const VA = { GLOW: 0, EMISSIVE: 1, HAND: 2, STRIKER: 3 };
+const HAND_KIND = { NONE: 0, RELOAD: 1, HAFT: 2 };
+const reloadSample = new ReloadSample(), meleeSample = new MeleeSample();
+meleeStamp[0] = -1; meleeStamp[1] = -1e9;
+function resetViewModelAnimation(state) {
+	state.reloadSet = -1; state.reloadEmpty = 0; state.reloadFirst = 1; state.reloadLast = 0; state.swapping = 0;
+	state.meleeAge = -1; state.meleeCycle = 0; state.meleeKind = 0; state.meleeStriker = -1; state.meleeAnim = -1; state.meleeHit = 0; state.meleeCount = 0; state.meleeAt = -1e9;
+	state.weaponIndex = -1; state.fireHeld = 0; state.chargeFraction = 0; state.blocking = 0; state.parry = 0; state.blockPool = 1; state.reflectAge = 1e9;
+	state.sprinting = 0; state.cycle = -1; state.joltAge = 99;
+}
+function stepLayerWeight(layer, on) {
+	const weight = ViewLayers.weight, step = ViewLayers.scalars[L_SECONDS], rise = LAYER_RISE[layer], fall = LAYER_FALL[layer];
+	const current = weight[layer];
+	if (on) {
+		if (rise > 0) weight[layer] = Math.min(1, current + step / rise);
+		else weight[layer] = 1;
+	} else if (fall > 0) weight[layer] = Math.max(0, current - step / fall);
+	else weight[layer] = 0;
+}
+function partDirection(model, part, vector) {
+	vector[0] = part.move[0]; vector[1] = part.move[1]; vector[2] = part.move[2];
+	if (vector[0] !== 0 || vector[1] !== 0 || vector[2] !== 0 || part.out[0] === 0) return;
+	let x = 0, y = 0, found = 0;
+	for (let i = 0; i < model.count; i++) if (model.roles[i] === part.role) { x += model.data[i * MODEL_PART_FLOATS]; y += model.data[i * MODEL_PART_FLOATS + 1]; found++; }
+	const length = found ? length2(x, y) : 0;
+	if (length < 0.01) { vector[1] = -part.out[0]; return; }
+	vector[0] = x / length * part.out[0]; vector[1] = y / length * part.out[0];
+}
+function writeReloadPart(moves, part, sample, slot) {
+	const o = part.role * MODEL_ROLE_MOVE_FLOATS, amount = sample.amount[slot];
+	if (part.mode === PART_MODE.mag) {
+		moves[o] += sample.partVector[0] * amount; moves[o + 1] += sample.partVector[1] * amount; moves[o + 2] += sample.partVector[2] * amount;
+	} else {
+		moves[o] += part.move[0] * amount; moves[o + 1] += part.move[1] * amount; moves[o + 2] += part.move[2] * amount;
+		moves[o + 3] += part.turn[0] * amount; moves[o + 4] += part.turn[2] * amount;
+	}
+	moves[o + 4] += sample.roll[slot];
+	if (sample.hidden[slot]) moves[o + 5] = 1;
+}
+function writeReloadMoves(moves, runtime, sample) {
+	moves.fill(0);
+	if (runtime.part) writeReloadPart(moves, runtime.part, sample, 0);
+	if (runtime.second) writeReloadPart(moves, runtime.second, sample, 1);
+}
+ViewAction.clear = function () {
+	this.pose.fill(0); this.striker.fill(0); this.main.fill(0); this.spare.fill(0); this.values.fill(0);
+	this.values[VA.GLOW] = 1;
+	this.spareOn = 0; this.handKind = HAND_KIND.NONE; this.strikerAnim = -1; this.strikerWeapon = -1; this.reloadSet = -1;
+};
+ViewAction.update = function (state, model, seconds) {
+	const layers = ViewLayers, weight = layers.weight, value = layers.value, scalars = layers.scalars;
+	this.clear();
+	scalars[L_SECONDS] = seconds;
+	if (!(scalars[L_SECONDS] > 0)) scalars[L_SECONDS] = 0;
+	scalars[L_CLOCK] += scalars[L_SECONDS]; scalars[L_KNOCK_AGE] += scalars[L_SECONDS];
+	const adsScale = 1 - clamp(state.ads, 0, 1), swapping = state.swapping === 1, reloadOn = state.reloadSet >= 0 && !swapping;
+	const striking = state.meleeAge >= 0 && state.meleeAnim >= 0;
+	if (striking && (reloadOn || swapping)) meleeStamp[1] = state.meleeAt;
+	const meleeOn = striking && !reloadOn && !swapping && meleeStamp[1] !== state.meleeAt;
+	const weaponRow = CAT.weapons[state.weaponIndex] || null;
+	const blockRow = weaponRow && weaponRow.meleeAnimIndex >= 0 ? MELEE_RUNTIME[weaponRow.meleeAnimIndex] : null;
+	const chargeRow = weaponRow && weaponRow.meleeAltIndex >= 0 ? MELEE_RUNTIME[weaponRow.meleeAltIndex] : null;
+	const blockOn = state.blocking === 1 && !!blockRow && !!blockRow.block && !reloadOn && !swapping && !meleeOn;
+	const chargeOn = state.chargeFraction > 0 && !!chargeRow && chargeRow.row.charge && !reloadOn && !swapping && !meleeOn;
+	const cycleRow = weaponRow && weaponRow.reloadAnimIndex >= 0 ? RELOAD_RUNTIME[weaponRow.reloadAnimIndex] : null;
+	const cycleOn = state.cycle >= 0 && !!cycleRow && !!cycleRow.cycle && !reloadOn && !swapping && !meleeOn;
+	const sprintOn = state.sprinting === 1 && !reloadOn && !swapping && !meleeOn && !blockOn && !chargeOn && state.cycle < 0;
+	this.reloadLayer(state, model, reloadOn, swapping, meleeOn);
+	this.meleeLayer(state, meleeOn, reloadOn, swapping);
+	stepLayerWeight(LAYER.BLOCK, blockOn);
+	stepLayerWeight(LAYER.CHARGE, chargeOn);
+	stepLayerWeight(LAYER.CYCLE, cycleOn);
+	stepLayerWeight(LAYER.SPRINT, sprintOn);
+	if (blockOn) this.blockLayer(state, blockRow);
+	if (chargeOn) this.chargeLayer(state, chargeRow);
+	if (cycleOn) this.cycleLayer(state, cycleRow);
+	if (sprintOn) value.set(SPRINT_POSE, LAYER.SPRINT * POSE_FLOATS);
+	for (let layer = 0; layer < LAYER.COUNT; layer++) {
+		const share = weight[layer] * (layer === LAYER.CYCLE ? 1 : adsScale);
+		if (share === 0) continue;
+		for (let k = 0; k < POSE_FLOATS; k++) this.pose[k] += value[layer * POSE_FLOATS + k] * share;
+	}
+	const reloadShare = weight[LAYER.RELOAD] * adsScale, cycleShare = weight[LAYER.CYCLE];
+	for (let i = 0; i < ROLE_FLOATS_TOTAL; i++) {
+		const hideSlot = i % MODEL_ROLE_MOVE_FLOATS === 5;
+		this.main[i] = hideSlot ? (reloadOn ? layers.reloadMoves[i] : 0) : layers.reloadMoves[i] * reloadShare + layers.cycleMoves[i] * cycleShare;
+	}
+	if (this.handKind === HAND_KIND.RELOAD) this.values[VA.HAND] = weight[LAYER.RELOAD] * adsScale;
+	this.chargeEffects(state, weaponRow, adsScale);
+	if (state.joltAge < DETONATE_JOLT_SECONDS) this.pose[2] -= DETONATE_JOLT_METRES * Math.sin(Math.PI * state.joltAge / DETONATE_JOLT_SECONDS);
+	if (scalars[L_KNOCK_AGE] < KNOCK_RISE_SECONDS + KNOCK_RECOVER_SECONDS) this.applyKnock();
+};
+ViewAction.reloadLayer = function (state, model, reloadOn, swapping, meleeOn) {
+	const layers = ViewLayers;
+	LAYER_FALL[LAYER.RELOAD] = swapping ? RELOAD_FADE_SWAP : meleeOn ? RELOAD_FADE_MELEE : RELOAD_FADE_FIRE;
+	stepLayerWeight(LAYER.RELOAD, reloadOn);
+	if (!reloadOn) {
+		if (layers.weight[LAYER.RELOAD] > 0) { this.handKind = HAND_KIND.RELOAD; this.hand.set(this.lastHand); }
+		return;
+	}
+	const runtime = RELOAD_RUNTIME[state.reloadSet], sample = reloadSample, part = runtime.part;
+	sample.partVector.fill(0);
+	if (part && part.mode === PART_MODE.mag) partDirection(model, part, sample.partVector);
+	sampleReloadOf(runtime, state, sample);
+	tiltAboutWell(runtime.well, sample.key);
+	for (let k = 0; k < POSE_FLOATS; k++) layers.value[LAYER.RELOAD * POSE_FLOATS + k] = sample.key[k];
+	writeReloadMoves(layers.reloadMoves, runtime, sample);
+	this.reloadSet = state.reloadSet;
+	this.handKind = HAND_KIND.RELOAD;
+	this.hand.set(sample.hand); this.lastHand.set(sample.hand);
+	this.values[VA.GLOW] = sample.scalars[S_GLOW];
+	this.spareOn = sample.spareOn;
+	this.spareRole = part && part.mode === PART_MODE.mag ? part.role : 0;
+};
+ViewAction.meleeLayer = function (state, meleeOn, reloadOn, swapping) {
+	const layers = ViewLayers, runtime = meleeOn ? MELEE_RUNTIME[state.meleeAnim] : null, scalars = layers.scalars;
+	LAYER_FALL[LAYER.MELEE] = reloadOn ? MELEE_FADE_RELOAD : swapping ? RELOAD_FADE_SWAP : 0.05;
+	stepLayerWeight(LAYER.MELEE, meleeOn);
+	if (!meleeOn) return;
+	if (meleeStamp[0] !== state.meleeAt) { meleeStamp[0] = state.meleeAt; scalars[L_WIND] = 0; }
+	const rate = scalars[L_SECONDS] / WIND_SECONDS, sample = meleeSample, values = sample.values;
+	aimWind(runtime, state);
+	scalars[L_WIND] += clamp(windTarget[0] - scalars[L_WIND], -rate, rate);
+	values[M_AGE] = state.meleeAge; values[M_CYCLE] = state.meleeCycle; values[M_STOP] = state.meleeHit === 1 ? MELEE_HIT_STOP : 0; values[M_WIND] = scalars[L_WIND];
+	values[M_SIGN] = runtime.row.alternate && (state.meleeCount & 1) === 0 ? -1 : 1;
+	sampleMelee(runtime, sample);
+	const fromOffHand = state.meleeKind === MELEE_KIND.QUICK && state.meleeStriker !== state.weaponIndex;
+	if (fromOffHand) {
+		const rise = Math.min(1, values[M_FRACTION] / 0.15), settle = clamp((values[M_FRACTION] - 0.8) / 0.2, 0, 1);
+		const dip = rise * rise * (3 - 2 * rise) * (1 - settle * settle * (3 - 2 * settle));
+		for (let k = 0; k < POSE_FLOATS; k++) { layers.value[LAYER.MELEE * POSE_FLOATS + k] = DIP_POSE[k] * dip; this.striker[k] = sample.pose[k]; }
+		this.strikerAnim = state.meleeAnim; this.strikerWeapon = state.meleeStriker;
+		this.values[VA.STRIKER] = layers.weight[LAYER.MELEE];
+		return;
+	}
+	for (let k = 0; k < POSE_FLOATS; k++) layers.value[LAYER.MELEE * POSE_FLOATS + k] = sample.pose[k];
+	if (runtime.row.twoHand) { this.handKind = HAND_KIND.HAFT; this.hand.set(HAFT_HAND); this.values[VA.HAND] = layers.weight[LAYER.MELEE]; }
+};
+ViewAction.blockLayer = function (state, runtime) {
+	const o = LAYER.BLOCK * POSE_FLOATS, value = ViewLayers.value;
+	value.set(runtime.block, o);
+	const flash = state.reflectAge >= 0 && state.reflectAge < REFLECT_FLASH_SECONDS;
+	this.values[VA.EMISSIVE] = flash ? BLOCK_REFLECT_GLOW : state.parry === 1 ? BLOCK_PARRY_GLOW : 0;
+	if (flash) value[o + 2] -= 0.01;
+	if (state.blockPool <= 0) value[o + 1] -= 0.04;
+};
+ViewAction.chargeLayer = function (state, runtime) {
+	const fraction = state.chargeFraction, along = Math.min(1, fraction / CHARGE_RAISE_END), raise = along * along * (3 - 2 * along), tighten = clamp((fraction - CHARGE_RAISE_END) / (1 - CHARGE_RAISE_END), 0, 1);
+	const o = LAYER.CHARGE * POSE_FLOATS, value = ViewLayers.value;
+	for (let k = 0; k < POSE_FLOATS; k++) value[o + k] = runtime.cocked[k] * raise;
+	value[o + 1] += 0.02 * tighten;
+	if (fraction >= 0.999 && Render.motion.shake > 0) value[o] += Math.sin(ViewLayers.scalars[L_CLOCK] * CHARGE_TREMBLE_HZ) * CHARGE_TREMBLE;
+};
+ViewAction.cycleLayer = function (state, runtime) {
+	const moves = ViewLayers.cycleMoves, cycle = runtime.cycle, part = runtime.second && runtime.second.role === MODEL_ROLES.indexOf(cycle.role) ? runtime.second : runtime.part;
+	const o = LAYER.CYCLE * POSE_FLOATS, value = ViewLayers.value;
+	moves.fill(0);
+	value.fill(0, o, o + POSE_FLOATS);
+	if (state.ads > 0.5) { value[o + 1] = Math.sin(Math.PI * state.cycle) * SCOPE_BOB_METRES; return; }
+	sampleCycle(cycle, state);
+	const m = part.role * MODEL_ROLE_MOVE_FLOATS;
+	moves[m] += part.move[0] * cycleAmounts[0]; moves[m + 1] += part.move[1] * cycleAmounts[0]; moves[m + 2] += part.move[2] * cycleAmounts[0];
+	moves[m + 3] += part.turn[0] * cycleAmounts[1]; moves[m + 4] += part.turn[2] * cycleAmounts[1];
+};
+const chargeShownTarget = new Float32Array(1);
+ViewAction.chargeEffects = function (state, weaponRow, adsScale) {
+	const scalars = ViewLayers.scalars, rate = scalars[L_SECONDS] / CHARGE_SHOWN_SECONDS, charging = state.chargeFraction > 0 && !!weaponRow && weaponRow.class !== 'melee';
+	chargeShownTarget[0] = ZERO[0];
+	if (charging) chargeShownTarget[0] = state.chargeFraction;
+	scalars[L_CHARGE] += clamp(chargeShownTarget[0] - scalars[L_CHARGE], -rate, rate);
+	const shown = scalars[L_CHARGE];
+	if (shown <= 0 || !weaponRow) return;
+	if (this.reloadSet < 0) this.values[VA.GLOW] = CHARGE_GLOW_FLOOR + (1 - CHARGE_GLOW_FLOOR) * shown;
+	const bow = weaponRow.reloadAnimIndex >= 0 ? RELOAD_RUNTIME[weaponRow.reloadAnimIndex].bow : null;
+	if (!bow) return;
+	const o = bow.role * MODEL_ROLE_MOVE_FLOATS;
+	this.main[o] += bow.move[0] * shown; this.main[o + 1] += bow.move[1] * shown; this.main[o + 2] += bow.move[2] * shown;
+	this.pose[5] += bow.turn[2] * shown * adsScale;
+};
+ViewAction.applyKnock = function () {
+	const scalars = ViewLayers.scalars, age = scalars[L_KNOCK_AGE];
+	const amount = age < KNOCK_RISE_SECONDS ? age / KNOCK_RISE_SECONDS : Math.max(0, 1 - (age - KNOCK_RISE_SECONDS) / KNOCK_RECOVER_SECONDS);
+	this.pose[1] -= scalars[L_KNOCK_METRES] * amount; this.pose[3] -= scalars[L_KNOCK_PITCH] * amount;
+};
+Bus.on('damage', (event) => {
+	if (event.target !== Game.playerId || !(event.amount > 0) || !KNOCK_KINDS.has(event.kind)) return;
+	const share = Math.min(1, event.amount / KNOCK_FULL_DAMAGE), scalars = ViewLayers.scalars;
+	scalars[L_KNOCK_AGE] = 0; scalars[L_KNOCK_METRES] = lerp(KNOCK_METRES_MIN, KNOCK_METRES_MAX, share); scalars[L_KNOCK_PITCH] = KNOCK_PITCH * lerp(0.5, 1, share);
+});
+Bus.on('match.start', () => ViewAction.restart());
+Bus.on('match.stop', () => ViewAction.restart());
+Bus.on('actor.spawn', (event) => { if (event.id === Game.playerId) ViewAction.restart(); });
+ViewAction.restart = function () {
+	ViewLayers.weight.fill(0); ViewLayers.value.fill(0); ViewLayers.reloadMoves.fill(0); ViewLayers.cycleMoves.fill(0); ViewLayers.scalars.fill(0);
+	ViewLayers.scalars[L_KNOCK_AGE] = 99;
+	meleeStamp[0] = -1; meleeStamp[1] = -1e9;
+};
+const spareShape = makeLooseShape(), handShape = makeLooseShape(), forearmShape = makeLooseShape();
+const FOREARM_LENGTH_FROM_HAND = 0.4, FOREARM_WIDTH = 0.05, HAND_SIZE = [0.06, 0.05, 0.085];
+const forearmDirection = new Float32Array(3);
+function drawProceduralSpare(batch, pose, runtime, sample) {
+	const loose = spareShape, size = runtime.spare;
+	loose.shape = 'box'; loose.x = sample.hand[0]; loose.y = sample.hand[1]; loose.z = sample.hand[2];
+	loose.sx = size[0]; loose.sy = size[1]; loose.sz = size[2]; loose.yaw = 0; loose.pitch = 0; loose.roll = pose.roll;
+	loose.r = MODEL_PALETTE_RGB[SPARE_PALETTE * 4]; loose.g = MODEL_PALETTE_RGB[SPARE_PALETTE * 4 + 1]; loose.b = MODEL_PALETTE_RGB[SPARE_PALETTE * 4 + 2]; loose.emissive = 0;
+	Models.drawLoose(batch, pose, loose);
+}
+function drawOffHand(batch, pose, hand, tint, withForearm) {
+	const forearm = forearmShape, box = handShape, direction = forearmDirection;
+	box.shape = 'box'; box.x = hand[0]; box.y = hand[1]; box.z = hand[2]; box.sx = HAND_SIZE[0]; box.sy = HAND_SIZE[1]; box.sz = HAND_SIZE[2];
+	box.yaw = 0; box.pitch = 0; box.roll = pose.roll; box.r = tint[0]; box.g = tint[1]; box.b = tint[2]; box.emissive = 0;
+	Models.drawLoose(batch, pose, box);
+	if (!withForearm) return;
+	direction[0] = -0.35; direction[1] = -0.9; direction[2] = -0.1;
+	const length = length3(direction[0], direction[1], direction[2]);
+	const reach = FOREARM_LENGTH_FROM_HAND / length;
+	forearm.shape = 'capsule'; forearm.x = hand[0] + direction[0] * reach / 2; forearm.y = hand[1] + direction[1] * reach / 2; forearm.z = hand[2] + direction[2] * reach / 2;
+	forearm.sx = FOREARM_WIDTH; forearm.sy = FOREARM_LENGTH_FROM_HAND; forearm.sz = FOREARM_WIDTH;
+	const dx = -direction[0] * pose.mirror / length, dy = -direction[1] / length, dz = -direction[2] / length, cr = Math.cos(pose.roll), sr = Math.sin(pose.roll);
+	const rolledX = dx * cr - dy * sr, rolledY = dx * sr + dy * cr;
+	forearm.pitch = Math.asin(clamp(rolledY, -1, 1)) - Math.PI / 2; forearm.yaw = Math.atan2(rolledX, dz) * pose.mirror; forearm.roll = 0;
+	forearm.r = tint[0]; forearm.g = tint[1]; forearm.b = tint[2]; forearm.emissive = 0;
+	Models.drawLoose(batch, pose, forearm);
+}
+const ACTION_SLOTS = 6;
+const ACTION_FLOATS = ACTION_SLOTS * 3;
+const ACTION_FADE_SECONDS = 0.1;
+const STAGGER_ARMS = -30 * DEG, STAGGER_GUN = -20 * DEG, STAGGER_SECONDS = 0.1;
+const SWAP_GUN_DROP = -0.18, SWAP_GUN_PITCH = -35 * DEG, SWAP_ARM = -20 * DEG;
+const FLINCH_RISE = 0.05, FLINCH_RECOVER = 0.25, FLINCH_RECOVER_HEAVY = 0.35;
+const FLINCH_MELEE = 12 * DEG, FLINCH_HEAVY = 18 * DEG, FLINCH_SPLASH = 10 * DEG, FLINCH_BULLET_MAX = 6 * DEG, FLINCH_BULLET_DAMAGE = 40, FLINCH_HEAVY_DAMAGE = 84;
+const FLINCH_KINDS = new Set(['hit', 'melee', 'beam', 'splash']);
+const ActorAction = {
+	pitch: new Float32Array(ACTION_SLOTS), y: new Float32Array(ACTION_SLOTS), z: new Float32Array(ACTION_SLOTS),
+	roleMove: new Float32Array(ROLE_FLOATS_TOTAL), moving: false,
+	dirty: false,
+	weight: new Float32Array(MAX_ACTORS), frozen: new Float32Array(MAX_ACTORS * ACTION_FLOATS),
+	stagger: new Float32Array(MAX_ACTORS),
+	flinchAge: new Float32Array(MAX_ACTORS).fill(99), flinchAmount: new Float32Array(MAX_ACTORS), flinchRecover: new Float32Array(MAX_ACTORS),
+};
+const actionState = { kind: 0, swap: 0, reloadSet: -1, reload: 0, reloadEmpty: 0, reloadFirst: 1, reloadLast: 0, meleeAnim: -1, meleeAge: 0, meleeCycle: 0, meleeCount: 0, fireHeld: 0, meleeStriker: -1, weaponIndex: -1, blocking: 0 };
+const tpReload = new ReloadSample(), tpMelee = new MeleeSample();
+const TP_ACTION = { NONE: 0, RELOAD: 1, MELEE: 2, SWAP: 3 };
+ActorAction.clear = function () {
+	this.pitch.fill(0); this.y.fill(0); this.z.fill(0);
+	if (this.moving) { this.roleMove.fill(0); this.moving = false; }
+	this.dirty = false;
+};
+function saveActorAction(id) {
+	const frozen = ActorAction.frozen, o = id * ACTION_FLOATS;
+	frozen.set(ActorAction.pitch, o); frozen.set(ActorAction.y, o + ACTION_SLOTS); frozen.set(ActorAction.z, o + ACTION_SLOTS * 2);
+}
+function loadActorAction(id) {
+	const frozen = ActorAction.frozen, o = id * ACTION_FLOATS, weight = ActorAction.weight;
+	for (let slot = 1; slot < ACTION_SLOTS; slot++) {
+		ActorAction.pitch[slot] = frozen[o + slot] * weight[id]; ActorAction.y[slot] = frozen[o + ACTION_SLOTS + slot] * weight[id]; ActorAction.z[slot] = frozen[o + ACTION_SLOTS * 2 + slot] * weight[id];
+	}
+}
+function computeActorAction(id, pose, seconds, lod) {
+	const action = ActorAction, state = actionState;
+	if (pose.recorded || lod === LOD.distant) {
+		if (action.dirty) action.clear();
+		action.weight[id] = 0; action.stagger[id] = 0;
+		return;
+	}
+	state.kind = TP_ACTION.NONE;
+	if (Render.actorAction) Render.actorAction(id, state);
+	const stunned = (Actors.flags[id] & ACTOR_FLAG.FROZEN) !== 0;
+	if (state.kind === TP_ACTION.NONE && !stunned && action.weight[id] === 0 && action.stagger[id] === 0 && action.flinchAge[id] >= FLINCH_RISE + action.flinchRecover[id]) {
+		if (action.dirty) action.clear();
+		return;
+	}
+	action.clear();
+	action.dirty = true;
+	if (state.kind !== TP_ACTION.NONE) {
+		playActorAction(id, state, lod);
+		action.weight[id] = 1;
+		saveActorAction(id);
+	} else if (action.weight[id] > 0) {
+		action.weight[id] = Math.max(0, action.weight[id] - seconds / ACTION_FADE_SECONDS);
+		loadActorAction(id);
+	}
+	const direction = stunned ? 1 : -1;
+	action.stagger[id] = clamp(action.stagger[id] + seconds * direction / STAGGER_SECONDS, 0, 1);
+	if (action.stagger[id] > 0) {
+		action.pitch[1] += STAGGER_ARMS * action.stagger[id]; action.pitch[2] += STAGGER_ARMS * action.stagger[id]; action.pitch[3] += STAGGER_GUN * action.stagger[id];
+	}
+	action.flinchAge[id] += seconds;
+	const age = action.flinchAge[id], recover = action.flinchRecover[id];
+	if (age < FLINCH_RISE + recover) {
+		const amount = action.flinchAmount[id] * (age < FLINCH_RISE ? age / FLINCH_RISE : 1 - (age - FLINCH_RISE) / recover);
+		action.pitch[4] += amount; action.pitch[5] += amount;
+	}
+}
+function playActorAction(id, state, lod) {
+	const action = ActorAction;
+	if (state.kind === TP_ACTION.SWAP) {
+		action.y[3] += SWAP_GUN_DROP * state.swap; action.pitch[3] += SWAP_GUN_PITCH * state.swap; action.pitch[1] += SWAP_ARM * state.swap;
+		return;
+	}
+	if (state.kind === TP_ACTION.RELOAD) playReloadAction(id, state, lod);
+	else playMeleeAction(state);
+}
+function playReloadAction(id, state, lod) {
+	const runtime = RELOAD_RUNTIME[state.reloadSet], sample = tpReload, tp = runtime.tp, action = ActorAction;
+	sample.partVector.fill(0);
+	const model = lod === LOD.near && Render.quality.modelDetail ? heldWeaponModel(id) : null, part = runtime.part;
+	if (model && part && part.mode === PART_MODE.mag) partDirection(model, part, sample.partVector);
+	sampleReloadOf(runtime, state, sample);
+	const work = sample.key[POSE_FLOATS], fetch = sample.scalars[S_FETCH], jerk = sample.scalars[S_JERK];
+	action.pitch[3] += tp[0] * work; action.y[3] += tp[1] * work; action.pitch[4] += tp[2] * work;
+	action.pitch[1] += tp[3] * work + tp[4] * fetch; action.pitch[2] += tp[5] * jerk + tp[6] * fetch;
+	if (!model || !part) return;
+	writeReloadMoves(action.roleMove, runtime, sample);
+	action.moving = true;
+}
+function playMeleeAction(state) {
+	const runtime = MELEE_RUNTIME[state.meleeAnim], sample = tpMelee, action = ActorAction, values = sample.values;
+	if (!runtime) return;
+	aimWind(runtime, state);
+	values[M_AGE] = state.meleeAge; values[M_CYCLE] = state.meleeCycle; values[M_STOP] = 0; values[M_WIND] = windTarget[0]; values[M_SIGN] = 1;
+	sampleMelee(runtime, sample);
+	const arms = runtime.arms, contact = values[M_CONTACT], through = values[M_THROUGH], armAmount = arms[1] * contact + arms[2] * through + arms[0] * values[M_COCKED];
+	action.pitch[2] += armAmount;
+	if (!runtime.oneHand) action.pitch[1] += armAmount;
+	action.pitch[4] += runtime.torso[0] * (contact + through * 0.5);
+	action.pitch[3] += runtime.gunPitch[0] * (contact + through) - runtime.gunPitch[0] * values[M_COCKED] * 0.5;
+	action.z[3] += runtime.gunForward[0] * (contact + through * 0.5);
+}
+Bus.on('damage', (event) => {
+	const target = event.target;
+	if (target < 0 || !(event.amount > 0) || !FLINCH_KINDS.has(event.kind)) return;
+	const action = ActorAction, heavy = event.kind === 'melee' && (event.amount >= FLINCH_HEAVY_DAMAGE || event.weapon === 'bulwark');
+	let size = FLINCH_BULLET_MAX * Math.min(1, event.amount / FLINCH_BULLET_DAMAGE);
+	if (event.kind === 'melee') size = heavy ? FLINCH_HEAVY : FLINCH_MELEE;
+	else if (event.kind === 'splash') size = FLINCH_SPLASH;
+	const facing = Actors.yaw[target], fromFront = event.dx * Math.sin(facing) + event.dz * Math.cos(facing) < 0;
+	action.flinchAge[target] = 0; action.flinchAmount[target] = fromFront ? size : -size; action.flinchRecover[target] = heavy ? FLINCH_RECOVER_HEAVY : FLINCH_RECOVER;
+});
+Bus.on('actor.create', (id) => { ActorAction.weight[id] = 0; ActorAction.stagger[id] = 0; ActorAction.flinchAge[id] = 99; });
 
 // ==== 08a-world.js ====
 const BVH_LEAF_SIZE = 2;
@@ -12409,6 +13264,8 @@ const MODE_PRIMARY = 0;
 const MODE_ALT = 1;
 const MODE_QUICK_MELEE = 2;
 const FIRE_MODE_LABELS = MODE_NAMES.concat(['melee']);
+const MELEE_KIND = { NONE: 0, PRIMARY: 1, ALT: 2, QUICK: 3 };
+const ACTION_KIND = { NONE: 0, RELOAD: 1, MELEE: 2, SWAP: 3 };
 const ADS_SECONDS = 0.2;
 const KICK_SECONDS = 0.12;
 const SCOPE_SWAY_DEG = 0.35;
@@ -12462,7 +13319,7 @@ const RayHits = {
 		this.ids[to] = this.ids[from]; this.distances[to] = this.distances[from]; this.zones[to] = this.zones[from]; this.stomach[to] = this.stomach[from];
 	},
 };
-const FIRE_EVENT = { id: 0, weapon: '', weaponClass: '', mode: 'primary', x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0 };
+const FIRE_EVENT = { id: 0, weapon: '', weaponClass: '', mode: 'primary', x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0, magShare: -1 };
 const SWITCH_EVENT = { id: 0, weapon: '' };
 const RELOAD_EVENT = { id: 0, weapon: '' };
 const EMPTY_EVENT = { id: 0, weapon: '', pool: 'mag', dry: false };
@@ -12472,13 +13329,21 @@ function emitWeaponEvent(type, payload, id, weapon) {
 	payload.id = id; payload.weapon = weapon.id;
 	Bus.emit(type, payload);
 }
-function emitImpact(hit, weaponKey, owner) {
+function announceImpact(hit, weaponKey, owner) {
 	IMPACT_EVENT.x = hit.x; IMPACT_EVENT.y = hit.y; IMPACT_EVENT.z = hit.z; IMPACT_EVENT.nx = hit.nx; IMPACT_EVENT.ny = hit.ny; IMPACT_EVENT.nz = hit.nz;
 	IMPACT_EVENT.material = hit.brush ? hit.brush.material : ''; IMPACT_EVENT.weapon = weaponKey; IMPACT_EVENT.owner = owner;
 	Bus.emit('impact', IMPACT_EVENT);
+}
+function emitImpact(hit, weaponKey, owner) {
+	announceImpact(hit, weaponKey, owner);
 	if (Game.headless) return;
 	Fx.burst('spark', hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 6, IMPACT_SPARK_COLOR);
 	Fx.decal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 'bullet');
+}
+const MELEE_DUST_COUNT = 5;
+function meleeSurfaceHit(hit, weapon, owner) {
+	announceImpact(hit, weapon.id, owner);
+	if (!Game.headless) Fx.burst('dust', hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, MELEE_DUST_COUNT);
 }
 function damagePropAt(hit, amount, owner) {
 	if (hit.brush && hit.brush.prop >= 0) Props.damage(hit.brush.prop, amount, owner);
@@ -12544,6 +13409,14 @@ const Weapons = {
 	startKeys: (id) => currentWeaponSet().start,
 	botTakes: (id, weapon) => true,
 	useClaimed: new Uint8Array(MAX_ACTORS),
+	reloadEmpty: new Uint8Array(MAX_ACTORS),
+	reloadChained: new Uint8Array(MAX_ACTORS),
+	meleeAt: new Float64Array(MAX_ACTORS).fill(-1e9),
+	meleeCycle: new Float32Array(MAX_ACTORS),
+	meleeKind: new Uint8Array(MAX_ACTORS), meleeWeapon: new Int16Array(MAX_ACTORS).fill(-1),
+	meleeHit: new Uint8Array(MAX_ACTORS), meleeCount: new Uint16Array(MAX_ACTORS),
+	swapFrom: new Int16Array(MAX_ACTORS).fill(-1), swapLevel0: new Float32Array(MAX_ACTORS),
+	joltAt: new Float64Array(MAX_ACTORS).fill(-1e9),
 	rodeBoard: new Uint8Array(MAX_ACTORS),
 	useTakers: [],
 	blockDistance(ox, oy, oz, dx, dy, dz, maxDistance) {
@@ -12610,6 +13483,12 @@ const Weapons = {
 		this.breathUsed[id] = this.swayPitch[id] = this.swayYaw[id] = 0; this.swayScale[id] = 1;
 		this.lastShot[id] = -1e9;
 		this.lastSlot[id] = 0; this.speedScale[id] = 1;
+		this.resetAnimation(id);
+	},
+	resetAnimation(id) {
+		this.reloadEmpty[id] = this.reloadChained[id] = 0;
+		this.meleeAt[id] = -1e9; this.meleeCycle[id] = 0; this.meleeKind[id] = MELEE_KIND.NONE; this.meleeWeapon[id] = -1; this.meleeHit[id] = 0;
+		this.swapFrom[id] = -1; this.swapLevel0[id] = 0; this.joltAt[id] = -1e9;
 	},
 	resetFiring(id) {
 		this.nextShot[id] = this.nextAlt[id] = 0; this.burstLeft[id] = 0; this.charge[id] = 0; this.chargeMode[id] = -1; this.spin[id] = 0;
@@ -12728,6 +13607,8 @@ const Weapons = {
 		if (index < 0 || !this.owned[this.slotIndex(id, index)]) return false;
 		const target = this.state[id] === WEAPON_STATE.SWAP ? this.pending[id] : this.current[id];
 		if (index === target) return false;
+		const look = this.swapLook(id);
+		this.swapFrom[id] = look.shown; this.swapLevel0[id] = look.level;
 		this.resetFiring(id);
 		this.state[id] = WEAPON_STATE.SWAP;
 		this.pending[id] = index;
@@ -12783,6 +13664,7 @@ const Weapons = {
 		this.stateTime[id] = 0;
 		this.stateDuration[id] = weapon.reload * this.modifier(id, weapon, STAT.RELOAD);
 		this.charge[id] = 0; this.chargeMode[id] = -1; this.burstLeft[id] = 0;
+		this.reloadEmpty[id] = this.magazine[this.slotIndex(id, weapon.index)] === 0 ? 1 : 0; this.reloadChained[id] = 0;
 		emitWeaponEvent('weapon.reload', RELOAD_EVENT, id, weapon);
 		return true;
 	},
@@ -12793,7 +13675,7 @@ const Weapons = {
 		if (this.stateTime[id] < this.stateDuration[id]) return;
 		this.loadRounds(id, weapon, weapon.reloadShell ? 1 : this.magSize(id, weapon));
 		this.state[id] = WEAPON_STATE.IDLE;
-		if (weapon.reloadShell) this.beginReload(id, weapon);
+		if (weapon.reloadShell && this.beginReload(id, weapon)) this.reloadChained[id] = 1;
 	},
 	loadRounds(id, weapon, wanted) {
 		const slot = this.slotIndex(id, weapon.index);
@@ -12881,7 +13763,7 @@ const Weapons = {
 		this.updateSway(id, weapon, dt);
 		if (this.state[id] === WEAPON_STATE.RELOAD) {
 			this.stepReload(id, weapon, dt);
-			if (weapon.alt.type === 'detonate' && !altTaken) this.stepAltMode(id, weapon, dt);
+			if (weapon.alt.type === 'detonate' && !altTaken) { if (Actors.pressed[id] & BTN.ALT) this.joltAt[id] = Sim.time; this.stepAltMode(id, weapon, dt); }
 			return;
 		}
 		if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
@@ -13054,7 +13936,9 @@ const Weapons = {
 	shotInterval(id, weapon, mode) { return 1 / (mode.rate * this.rateFactor(id, weapon)); },
 	fire(id, weapon, mode, modeIndex, fraction) {
 		if (mode.cooldown > 0) this.nextAlt[id] = mode.cooldown;
-		this.nextShot[id] += this.shotInterval(id, weapon, mode);
+		const interval = this.shotInterval(id, weapon, mode);
+		this.nextShot[id] += interval;
+		if (mode.type === 'melee') this.markMelee(id, weapon, modeIndex === MODE_ALT ? MELEE_KIND.ALT : MELEE_KIND.PRIMARY, interval);
 		if (mode.special && this.specials[mode.special](id, weapon, mode)) return;
 		this.fireShot(id, weapon, mode, modeIndex, fraction);
 	},
@@ -13074,6 +13958,8 @@ const Weapons = {
 		FIRE_EVENT.id = id; FIRE_EVENT.weapon = weapon.id; FIRE_EVENT.weaponClass = weapon.class; FIRE_EVENT.mode = FIRE_MODE_LABELS[modeIndex];
 		FIRE_EVENT.x = Actors.x[id]; FIRE_EVENT.y = eyeY; FIRE_EVENT.z = Actors.z[id];
 		FIRE_EVENT.dx = aimScratch.x; FIRE_EVENT.dy = aimScratch.y; FIRE_EVENT.dz = aimScratch.z;
+		FIRE_EVENT.magShare = -1;
+		if (weapon.mag > 0) FIRE_EVENT.magShare = this.magazine[this.slotIndex(id, weapon.index)] / this.magSize(id, weapon);
 		Bus.emit('weapon.fire', FIRE_EVENT);
 		emitSound(Actors.x[id], eyeY, Actors.z[id], mode.noise >= 0 ? mode.noise : weapon.noise, 'shot', id);
 		this.kick[id] = 1;
@@ -13089,6 +13975,7 @@ const Weapons = {
 		const melee = this.ownedMelee(id);
 		const mode = melee ? melee.primary : QUICK_MELEE, striker = melee || weapon || CAT.weapons[0];
 		this.nextShot[id] += 1 / mode.rate;
+		this.markMelee(id, striker, MELEE_KIND.QUICK, 1 / mode.rate);
 		deliverMelee(id, striker, mode, MODE_PRIMARY, 0);
 		this.announceShot(id, striker, mode, MODE_QUICK_MELEE);
 	},
@@ -13150,22 +14037,94 @@ const Weapons = {
 		}
 		return found;
 	},
+	markMelee(id, striker, kind, interval) {
+		this.meleeAt[id] = Sim.time; this.meleeCycle[id] = interval; this.meleeKind[id] = kind; this.meleeWeapon[id] = striker.index;
+		this.meleeHit[id] = 0; this.meleeCount[id]++;
+	},
+	swapLook(id) {
+		const look = SWAP_LOOK, from = this.current[id];
+		if (this.state[id] !== WEAPON_STATE.SWAP) { look.shown = from; look.level = 0; return look; }
+		const t = clamp(this.stateTime[id] / this.stateDuration[id], 0, 1);
+		if (t < SWAP_LOWER_SHARE) { look.shown = this.swapFrom[id] >= 0 ? this.swapFrom[id] : from; look.level = lerp(this.swapLevel0[id], 1, t / SWAP_LOWER_SHARE); return look; }
+		look.shown = this.pending[id]; look.level = 1 - (t - SWAP_LOWER_SHARE) / (1 - SWAP_LOWER_SHARE);
+		return look;
+	},
+	lastShellRound(id, weapon) {
+		const slot = this.slotIndex(id, weapon.index);
+		return this.magazine[slot] + 1 >= this.magSize(id, weapon) || (!this.infiniteReserve(weapon) && this.reserve[slot] <= 1);
+	},
+	meleeAnimOf(id) {
+		const striker = this.meleeWeapon[id] >= 0 ? CAT.weapons[this.meleeWeapon[id]] : null;
+		if (!striker) return -1;
+		return this.meleeKind[id] === MELEE_KIND.ALT ? striker.meleeAltIndex : striker.meleeAnimIndex;
+	},
+	meleeActive(id) {
+		const age = Sim.time - this.meleeAt[id];
+		return age >= 0 && age < this.meleeCycle[id] - 1e-9;
+	},
+	actionCycle(id, weapon, out) {
+		out.cycle = -1;
+		if (weapon.reloadAnimIndex < 0 || !CAT.reloadAnims[weapon.reloadAnimIndex].cycle || this.state[id] !== WEAPON_STATE.IDLE || this.nextShot[id] <= 0) return;
+		out.cycle = clamp(1 - this.nextShot[id] / this.shotInterval(id, weapon, weapon.primary), 0, 1);
+	},
+	animationView(id, weapon, out) {
+		const reloading = this.state[id] === WEAPON_STATE.RELOAD && weapon.reloadAnimIndex >= 0;
+		out.reloadSet = reloading ? weapon.reloadAnimIndex : -1;
+		out.reloadEmpty = this.reloadEmpty[id]; out.reloadFirst = this.reloadChained[id] ? 0 : 1; out.reloadLast = reloading && this.lastShellRound(id, weapon) ? 1 : 0;
+		out.swapping = this.state[id] === WEAPON_STATE.SWAP ? 1 : 0;
+		out.meleeAge = -1;
+		if (this.meleeActive(id)) out.meleeAge = Sim.time - this.meleeAt[id];
+		out.meleeCycle = this.meleeCycle[id]; out.meleeKind = this.meleeKind[id]; out.meleeStriker = this.meleeWeapon[id];
+		out.meleeAnim = this.meleeAnimOf(id); out.meleeHit = this.meleeHit[id]; out.meleeCount = this.meleeCount[id]; out.meleeAt = this.meleeAt[id];
+		out.weaponIndex = weapon.index;
+		out.fireHeld = (Actors.buttons[id] & BTN.FIRE) !== 0 ? 1 : 0;
+		out.chargeFraction = 0;
+		if (this.chargeMode[id] >= 0) {
+			const chargeMode = this.chargeMode[id] === MODE_ALT ? weapon.alt : weapon.primary;
+			if (chargeMode.charge) out.chargeFraction = clamp(this.charge[id] / chargeMode.charge.time, 0, 1);
+		}
+		out.blocking = WeaponSpecialState.blocking[id]; out.parry = Sim.time <= WeaponSpecialState.parryUntil[id] ? 1 : 0;
+		out.blockPool = 1;
+		if (weapon.alt.block) out.blockPool = clamp(WeaponSpecialState.blockPool[id] / weapon.alt.block.pool, 0, 1);
+		out.reflectAge = Sim.time - WeaponSpecialState.reflectAt[id];
+		out.joltAge = Sim.time - this.joltAt[id];
+		out.sprinting = (Actors.flags[id] & ACTOR_FLAG.SPRINTING) !== 0 ? 1 : 0;
+		this.actionCycle(id, weapon, out);
+	},
+	actorAction(id, out) {
+		out.kind = ACTION_KIND.NONE; out.blocking = 0;
+		const weapon = this.currentWeapon(id);
+		if (!weapon) return out;
+		if (this.state[id] === WEAPON_STATE.SWAP) { out.kind = ACTION_KIND.SWAP; out.swap = this.swapLook(id).level; return out; }
+		out.blocking = WeaponSpecialState.blocking[id];
+		if (this.state[id] === WEAPON_STATE.RELOAD && weapon.reloadAnimIndex >= 0) {
+			out.kind = ACTION_KIND.RELOAD; out.reloadSet = weapon.reloadAnimIndex; out.reload = clamp(this.stateTime[id] / this.stateDuration[id], 0, 1);
+			out.reloadEmpty = this.reloadEmpty[id]; out.reloadFirst = this.reloadChained[id] ? 0 : 1; out.reloadLast = this.lastShellRound(id, weapon) ? 1 : 0;
+			return out;
+		}
+		if (!this.meleeActive(id)) return out;
+		out.kind = ACTION_KIND.MELEE; out.meleeAnim = this.meleeAnimOf(id); out.meleeAge = Sim.time - this.meleeAt[id]; out.meleeCycle = this.meleeCycle[id]; out.meleeCount = this.meleeCount[id];
+		out.fireHeld = (Actors.buttons[id] & BTN.FIRE) !== 0 ? 1 : 0; out.meleeStriker = this.meleeWeapon[id]; out.weaponIndex = weapon.index;
+		return out;
+	},
 	viewModel(out) {
 		const id = Game.playerId, weapon = id >= 0 && Actors.alive[id] ? this.currentWeapon(id) : null;
 		out.visible = !!weapon;
 		if (!weapon) return out;
-		const shown = this.state[id] === WEAPON_STATE.SWAP ? CAT.weapons[this.pending[id]] : weapon;
+		const look = this.swapLook(id), shown = look.shown >= 0 ? CAT.weapons[look.shown] : weapon;
 		out.shape = shown.class; out.model = shown.id; out.color = shown.family.color; out.kick = this.kick[id]; out.ads = this.ads[id];
 		out.reload = this.state[id] === WEAPON_STATE.RELOAD ? this.stateTime[id] / this.stateDuration[id] : 0;
-		out.swap = this.state[id] === WEAPON_STATE.SWAP ? 1 - this.stateTime[id] / this.stateDuration[id] : 0;
+		out.swap = look.level;
 		out.zoom = lerp(1, this.zoomed[id] && shown.alt.zoomMax > shown.alt.zoom ? shown.alt.zoomMax : shown.alt.zoom, this.ads[id]);
 		out.charge = this.chargeMode[id] >= 0 ? this.charge[id] : 0;
 		out.recoilPitch = this.recoilPitch[id] + this.swayPitch[id]; out.recoilYaw = this.recoilYaw[id] + this.swayYaw[id];
 		out.dual = this.dual[this.slotIndex(id, shown.index)] === 1;
+		this.animationView(id, weapon, out);
 		return out;
 	},
 };
 const AMMO_VIEW = { magazine: 0, reserve: 0, alt: 0, infinite: false };
+const SWAP_LOOK = { shown: -1, level: 0 };
 const QUICK_MELEE = CAT.fireModes.byId('quick.melee');
 const WEAPON_HEAT_CAP = 120;
 const HEAT_VENT_DELAY = 1;
@@ -13270,7 +14229,12 @@ function deliverMelee(id, weapon, mode, modeIndex, fraction) {
 	Vec.fromAngles(aimScratch, Actors.yaw[id], Actors.pitch[id]);
 	const wall = World.raycast(originScratch.x, originScratch.y, originScratch.z, aimScratch.x, aimScratch.y, aimScratch.z, mode.reach, shotHit) ? shotHit.distance : mode.reach;
 	const count = RayHits.collect(id, originScratch.x, originScratch.y, originScratch.z, aimScratch.x, aimScratch.y, aimScratch.z, wall, 1, MELEE_RADIUS, false);
-	if (count === 0) { meleeMiss(id, mode, wall < mode.reach); return; }
+	if (count === 0) {
+		if (wall < mode.reach) meleeSurfaceHit(shotHit, weapon, id);
+		meleeMiss(id, mode, wall < mode.reach);
+		return;
+	}
+	Weapons.meleeHit[id] = 1;
 	const target = RayHits.ids[0], distance = RayHits.distances[0];
 	const amount = mode.backstab && isBehind(id, target) ? mode.backstab : damage;
 	applyShotDamage(id, target, weapon, mode, amount, RayHits.zones[0], 0, originScratch.x + aimScratch.x * distance, originScratch.y + aimScratch.y * distance, originScratch.z + aimScratch.z * distance, aimScratch.x, aimScratch.y, aimScratch.z, distance);
@@ -13424,7 +14388,8 @@ Input.aimAssistOverride = () => {
 	return skill && skill.aimAssist >= 0 ? skill.aimAssist : -1;
 };
 Render.viewModel = (out) => Weapons.viewModel(out);
-Render.heldWeapon = (id) => (Weapons.state[id] === WEAPON_STATE.SWAP && Weapons.pending[id] >= 0 ? Weapons.pending[id] : Weapons.current[id]);
+Render.heldWeapon = (id) => (Weapons.state[id] === WEAPON_STATE.SWAP ? Weapons.swapLook(id).shown : Weapons.current[id]);
+Render.actorAction = (id, out) => Weapons.actorAction(id, out);
 
 // ==== 11b-projectiles.js ====
 const PROJECTILE_CAP = 256;
@@ -14563,6 +15528,7 @@ const specialScratch = Vec.make();
 const specialHit = makeHit();
 const WeaponSpecialState = {
 	blockPool: new Float32Array(MAX_ACTORS).fill(Infinity), blocking: new Uint8Array(MAX_ACTORS), parryUntil: new Float32Array(MAX_ACTORS),
+	reflectAt: new Float64Array(MAX_ACTORS).fill(-1e9),
 	linkUntil: new Float32Array(MAX_ACTORS), linkFactor: new Float32Array(MAX_ACTORS).fill(1),
 	heldProjectile: new Int16Array(MAX_ACTORS).fill(-1), heldProp: new Int32Array(MAX_ACTORS).fill(-1), heldGrenade: new Int16Array(MAX_ACTORS).fill(-1),
 	gateOpen: new Uint8Array(MAX_ACTORS * 2), gateCooldown: new Float32Array(MAX_ACTORS),
@@ -14598,10 +15564,11 @@ const WeaponSpecialState = {
 	},
 	parryHooks: [],
 	tryParry(target, projectile) {
-		for (let k = 0; k < this.parryHooks.length; k++) if (this.parryHooks[k](target, projectile)) { Projectiles.reflect(projectile, target); return true; }
+		for (let k = 0; k < this.parryHooks.length; k++) if (this.parryHooks[k](target, projectile)) { Projectiles.reflect(projectile, target); this.reflectAt[target] = Sim.time; return true; }
 		if (Sim.time > this.parryUntil[target] || !this.blockDrawn(target)) return false;
 		if (!comesFromFront(target, Projectiles.vx[projectile], Projectiles.vz[projectile], PARRY_ARC_COS)) return false;
 		Projectiles.reflect(projectile, target);
+		this.reflectAt[target] = Sim.time;
 		return true;
 	},
 	stanceReducer(source, target, amount, info) {
@@ -39840,6 +40807,8 @@ const VIEW_EXPLOSION_TRAUMA = 0.8;
 const VIEW_DAMAGE_TRAUMA = 0.12, VIEW_DAMAGE_TRAUMA_PER_HP = 0.003, VIEW_DAMAGE_TRAUMA_MAX = 0.4;
 const VIEW_LAND_MIN_SPEED = 6, VIEW_LAND_TRAUMA_PER_SPEED = 0.04, VIEW_LAND_TRAUMA_MAX = 0.35;
 const VIEW_DASH_KICK = 6;
+const VIEW_SLAM_TRAUMA = 0.15;
+const VIEW_FLOOR_NORMAL_Y = 0.6;
 const VIEW_IMPULSE_KICK_PER_SPEED = 0.4;
 const VIEW_OFFSET_CM = 10;
 const VIEW_SETTINGS = [
@@ -39904,6 +40873,9 @@ Bus.on('move.land', (event) => {
 	if (event.id === Game.playerId && event.speed > VIEW_LAND_MIN_SPEED) ViewFx.addTrauma(Math.min(VIEW_LAND_TRAUMA_MAX, (event.speed - VIEW_LAND_MIN_SPEED) * VIEW_LAND_TRAUMA_PER_SPEED));
 });
 Bus.on('move.dash', (event) => { if (event.id === Game.playerId) ViewFx.addKick(VIEW_DASH_KICK); });
+Bus.on('impact', (event) => {
+	if (event.owner === Game.playerId && event.weapon === 'maul' && event.ny > VIEW_FLOOR_NORMAL_Y && Weapons.meleeKind[event.owner] === MELEE_KIND.ALT) ViewFx.addTrauma(VIEW_SLAM_TRAUMA);
+});
 Bus.on('impulse', (event) => { if (event.id === Game.playerId) ViewFx.addKick(Math.hypot(event.x, event.y, event.z) * VIEW_IMPULSE_KICK_PER_SPEED); });
 const CROSSHAIR_PREVIEW = { x: 0.74, y: 0.5, width: 300, height: 220, spreadMax: 30 };
 const CROSSHAIR_STRIPES = [0xdfe5ec, 0x6f7782, 0x2a2f37, 0xa63d3d];

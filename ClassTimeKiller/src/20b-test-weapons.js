@@ -584,10 +584,13 @@ Test.add('weapons', (check) => {
   Weapons.give(id, 'warden', 0);
   Weapons.requestSwitch(id, CAT.weapons.byId('warden').index);
   Render.viewModel(model);
-  const lowered = poseWeapon(row, model).pitch;
+  const raised = poseWeapon(row, model).pitch;
+  Sim.run(Math.ceil(Weapons.stateDuration[id] * SWAP_LOWER_SHARE * TICK_RATE));   // P6-04: the old weapon lowers first, then the new one rises
+  Render.viewModel(model);
+  const lowered = poseWeapon(viewWeaponModel(model).pose, model).pitch;
   Sim.run(Math.ceil(Weapons.stateDuration[id] * TICK_RATE) + 1);
   Render.viewModel(model);
-  check('a swap raises the new weapon from lowered to the hold pose', lowered < -0.5 && Math.abs(poseWeapon(row, model).pitch) < 1e-6, lowered);
+  check('a swap lowers the old weapon, raises the new one and ends at the hold pose', Math.abs(raised) < 1e-6 && lowered < -0.5 && Math.abs(poseWeapon(row, model).pitch) < 1e-6, [raised, lowered]);
   Game.playerId = -1;
   TestArena.finish();
 });

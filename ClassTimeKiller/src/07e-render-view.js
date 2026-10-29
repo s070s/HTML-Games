@@ -20,8 +20,11 @@ const ViewState = {
   roll: Mat4.create(), rolledView: Mat4.create(), viewmodelProjection: Mat4.create(), viewmodelViewProjection: Mat4.create(),
 };
 Render.view = ViewState;
+// Every field is declared here (also the ones 07g resetViewModelAnimation and S11 set each frame) so the record keeps one shape from the start.
 const viewModelState = { visible: false, shape: 'rifle', model: '', kick: 0, reload: 0, swap: 0, ads: 0, color: '#4a5058', zoom: ADS_ZOOM_DEFAULT,
-  recoilPitch: 0, recoilYaw: 0, dual: false };
+  recoilPitch: 0, recoilYaw: 0, dual: false, charge: 0, chargeFraction: 0,
+  reloadSet: -1, reloadEmpty: 0, reloadFirst: 1, reloadLast: 0, swapping: 0, meleeAge: -1, meleeCycle: 0, meleeKind: 0, meleeStriker: -1, meleeAnim: -1, meleeHit: 0, meleeCount: 0, meleeAt: -1e9,
+  weaponIndex: -1, fireHeld: 0, blocking: 0, parry: 0, blockPool: 1, reflectAge: 1e9, sprinting: 0, cycle: -1, joltAge: 99 };
 
 // video.fov is the horizontal FOV at 16:9 (Hor+): the vertical angle stays fixed, wider screens see more. Below 4:3 (a
 // portrait phone) the horizontal view of 4:3 is kept instead (Vert-), so the view never narrows to a slit. One source
@@ -37,6 +40,7 @@ function readViewModel() {
   const state = viewModelState;
   state.visible = false; state.shape = 'rifle'; state.model = ''; state.kick = 0; state.reload = 0; state.swap = 0; state.ads = 0;
   state.color = '#4a5058'; state.zoom = ADS_ZOOM_DEFAULT; state.recoilPitch = 0; state.recoilYaw = 0; state.dual = false;
+  resetViewModelAnimation(state);
   if (!Render.viewModel || Game.playerId < 0 || ViewState.overridden || !Actors.alive[Game.playerId]) return;
   Render.viewModel(state);
 }
@@ -136,21 +140,23 @@ function boundsVisible(box) {
 }
 
 // ---- View model: the weapon's model (07c-render-models, by weapon id, else by class) at the pose of its viewModels row ----
-const viewModelBatch = makeShapeBatch('viewmodel', 24);
+const viewModelBatch = makeShapeBatch('viewmodel', 32);   // a model of up to 12 parts, a second pistol, a spare, the off-hand and a striker
 const weaponPose = makeModelPose();   // the pivot: x, y, z, pitch (a constructor record: its fields stay unboxed, PERF-006)
 const viewPivot = makeModelPose();   // the weapon pivot rotated in place (no float arguments, PERF-006)
 const viewPose = makeModelPose();
 const viewTint = new Float32Array(3);
 
-// Weapon pivot in view space (x right, y up, z forward) after ADS, kick, reload, swap and walk sway.
+// Weapon pivot in view space (x right, y up, z forward) after ADS, kick, swap and walk sway. The reload, melee, block, sprint and
+// hit-knock offsets are the layers of 07g (ViewAction), added by fillViewModel; this base pose is the idle hold pose with all of them 0.
 function poseWeapon(row, state) {
   const ads = clamp(state.ads, 0, 1), kick = clamp(state.kick, 0, 1) * row.kick;
-  const reload = Math.sin(clamp(state.reload, 0, 1) * Math.PI), swap = clamp(state.swap, 0, 1);
+  const swap = clamp(state.swap, 0, 1);
   const sway = (1 - ads * 0.8) * Render.motion.bob, phase = ViewState.bobPhase, offset = Render.config.viewmodelOffset;
   weaponPose.x = lerp(row.hold[0], row.ads[0], ads) + Math.sin(phase) * 0.006 * sway - offset[0] * (1 - ads);
-  weaponPose.y = lerp(row.hold[1], row.ads[1], ads) + kick * 0.012 - reload * 0.1 - swap * 0.25 + Math.abs(Math.cos(phase)) * 0.005 * sway + offset[1] * (1 - ads);
+  weaponPose.y = lerp(row.hold[1], row.ads[1], ads) + kick * 0.012 - swap * 0.25 + Math.abs(Math.cos(phase)) * 0.005 * sway + offset[1] * (1 - ads);
   weaponPose.z = lerp(row.hold[2], row.ads[2], ads) - kick * 0.05 + offset[2] * (1 - ads);
-  weaponPose.pitch = kick * 6 * DEG - reload * 0.5 - swap * 0.6;
+  weaponPose.pitch = kick * 6 * DEG - swap * 0.6;
+  weaponPose.yaw = 0; weaponPose.roll = 0; weaponPose.glow = 1; weaponPose.emissive = 0; weaponPose.roleMove = NO_ROLE_MOVE;
   return weaponPose;
 }
 
@@ -158,15 +164,67 @@ function viewWeaponModel(state) {
   return WeaponModels.byId[state.model] || WeaponModels.byId[state.shape] || WeaponModels.byId[MODEL_FALLBACK_POSE];
 }
 
-function fillViewModel() {
+function fillViewModel(seconds) {
   viewModelBatch.clear();
   const state = viewModelState;
-  if (!state.visible) return;
+  if (!state.visible) { ViewAction.clear(); return; }
   const model = viewWeaponModel(state), pose = poseWeapon(model.pose, state);
   writeColor(viewTint, 0, state.color);
+  ViewAction.update(state, model, seconds);
+  applyViewAction(pose);
   addWeaponModel(model, pose, HAND_RIGHT);
-  if (state.dual) addWeaponModel(model, pose, HAND_LEFT);   // W04 second pistol
+  drawReloadExtras(model, pose, HAND_RIGHT, state);
+  if (state.dual) { addWeaponModel(model, pose, HAND_LEFT); drawReloadExtras(model, pose, HAND_LEFT, state); }   // W04 second pistol
+  drawStriker(state);
 }
+
+// The layers (07g ViewAction) on top of the base pose: offsets, angles, the glow share and the moves of the role parts.
+function applyViewAction(pose) {
+  const action = ViewAction, layers = action.pose;
+  pose.x += layers[0]; pose.y += layers[1]; pose.z += layers[2]; pose.pitch += layers[3]; pose.yaw = layers[4]; pose.roll = layers[5];
+  pose.glow = action.values[VA.GLOW]; pose.emissive = action.values[VA.EMISSIVE]; pose.roleMove = action.main;
+}
+
+// The off-hand of a reload or a two-handed melee, and the spare drawn a second time (the part of the weapon's model with the set's role,
+// else a plain box of the set's size). Drawn with the frame addWeaponModel just placed (viewPose). Not for a pair of pistols: both hands are full.
+function drawReloadExtras(model, pose, hand, state) {
+  const action = ViewAction, frame = viewPose;
+  if (action.spareOn && action.reloadSet >= 0) {
+    const runtime = RELOAD_RUNTIME[action.reloadSet];
+    if (action.spareRole > 0 && modelHasRole(model, action.spareRole)) {
+      const o = action.spareRole * MODEL_ROLE_MOVE_FLOATS;
+      action.spare.fill(0);
+      action.spare[o] = reloadSample.spareD[0]; action.spare[o + 1] = reloadSample.spareD[1]; action.spare[o + 2] = reloadSample.spareD[2]; action.spare[o + 4] = reloadSample.scalars[S_SPARE_ROLL];
+      frame.only = action.spareRole; frame.roleMove = action.spare;
+      Models.drawLevel(viewModelBatch, model, frame, Models.detailLevel(LOD.near, Render.quality));
+      frame.only = 0; frame.roleMove = pose.roleMove;
+    } else drawProceduralSpare(viewModelBatch, frame, runtime, reloadSample);
+  }
+  const handWeight = action.values[VA.HAND];
+  if (action.handKind === HAND_KIND.NONE || handWeight < HAND_MIN_WEIGHT || (state.dual && action.handKind === HAND_KIND.RELOAD) || hand === HAND_LEFT) return;
+  drawOffHand(viewModelBatch, frame, action.hand, offHandTint(state), action.handKind === HAND_KIND.RELOAD);
+}
+const HAND_MIN_WEIGHT = 0.02;   // below this share the off-hand has left the screen
+const handTint = new Float32Array(3);
+function modelHasRole(model, role) { return model.roles.includes(role); }
+// The worn colour (a chosen body colour, else the clothing of the palette).
+function offHandTint(state) {
+  const weapon = CAT.weapons[state.weaponIndex], worn = !weapon || state.color !== weapon.family.color;
+  if (worn) { handTint[0] = viewTint[0]; handTint[1] = viewTint[1]; handTint[2] = viewTint[2]; return handTint; }
+  const cloth = MODEL_PALETTE_INDEX.cloth * 4;
+  handTint[0] = MODEL_PALETTE_RGB[cloth]; handTint[1] = MODEL_PALETTE_RGB[cloth + 1]; handTint[2] = MODEL_PALETTE_RGB[cloth + 2];
+  return handTint;
+}
+
+// A quick melee by another owned melee weapon: that weapon drawn in the off-hand (the left, mirrored) with its own strike.
+function drawStriker(state) {
+  const action = ViewAction, weight = action.values[VA.STRIKER];
+  if (action.strikerWeapon < 0 || weight <= 0) return;
+  const model = WeaponModels.weapon[action.strikerWeapon], pose = poseWeapon(model.pose, STRIKER_STATE), striker = action.striker;
+  pose.x += striker[0]; pose.y += striker[1]; pose.z += striker[2]; pose.pitch += striker[3]; pose.yaw = striker[4]; pose.roll = striker[5];
+  addWeaponModel(model, pose, HAND_LEFT);
+}
+const STRIKER_STATE = { ads: 0, kick: 0, swap: 0, reload: 0 };
 
 // View x is "right"; actor/shape local +X is left (DATA-002), hence the mirror. The pivot turns with the camera, the parts
 // with the camera pitch plus the weapon's own pitch (Models.drawLevel). Every part close up, without lod-0 details on Potato.
@@ -175,8 +233,9 @@ function addWeaponModel(model, pose, hand) {
   pivot.x = -pose.x * hand; pivot.y = pose.y; pivot.z = pose.z; pivot.yaw = camera.yaw; pivot.pitch = camera.pitch;
   rotateInPlace(pivot);
   frame.x = camera.x + pivot.x; frame.y = camera.y + pivot.y; frame.z = camera.z + pivot.z;
-  frame.yaw = camera.yaw; frame.pitch = camera.pitch + pose.pitch; frame.scale = VIEWMODEL_SCALE; frame.mirror = -hand;
+  frame.yaw = camera.yaw + pose.yaw * hand; frame.pitch = camera.pitch + pose.pitch; frame.roll = pose.roll * hand; frame.scale = VIEWMODEL_SCALE; frame.mirror = -hand;
   frame.r = viewTint[0]; frame.g = viewTint[1]; frame.b = viewTint[2];
+  frame.emissive = pose.emissive; frame.glow = pose.glow; frame.roleMove = pose.roleMove; frame.only = 0;
   Models.drawLevel(viewModelBatch, model, frame, Models.detailLevel(LOD.near, Render.quality));
 }
 Render.addUpdate(60, fillViewModel);

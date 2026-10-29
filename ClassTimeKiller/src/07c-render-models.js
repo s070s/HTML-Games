@@ -6,7 +6,7 @@
 // (07c-render-actors ActorModels); they share the LOD rule (LOD, lodFor there) and the palette and glow constants here.
 //
 // Part: { shape (default box), offset [x, y, z] centre, size [x, y, z] full size, rotation [yaw, pitch] degrees (+ pitch tips
-// the front up), tint, lod, mirror: true (a second copy at -x) }. Model space in metres: x = right, y = up, z = forward; the
+// the front up), tint, lod, mirror: true (a second copy at -x), role (MODEL_ROLES, 03b-data-animations: the part a reload moves) }. Model space in metres: x = right, y = up, z = forward; the
 // pose's mirror -1 turns it into shape space, where local +X is left (DATA-002).
 // tint: body (the caller's colour, or the row's own color) | shade (body darkened) | accent (the row's accent colour, else
 // body) | glow (the row's glow colour, else body; self-lit) | shine (accent, self-lit) | a MODEL_PALETTE name.
@@ -37,16 +37,22 @@ const MODEL_MAX_FROM_DEPTH = 4;
 const MODEL_MUZZLE_TIE = 0.004;           // parts whose front end is this close to the foremost one share the muzzle (twin barrels): its x and y are their mean
 const MODEL_SHAPES = new Set(SHAPES);
 const MODEL_NO_LOOK = { color: -1, accent: '', glow: '', pose: null };
+const MODEL_ROLE_MOVE_FLOATS = 6;         // per role in ModelPose.roleMove: x y z (model units), pitch, roll (radians), hide (1 = not drawn)
+const NO_ROLE_MOVE = new Float32Array(MODEL_ROLES.length * MODEL_ROLE_MOVE_FLOATS);   // all zero (the slot of role 0 stays zero for good): no part moves
 
 // Where and how one model is drawn: built by a constructor (see ShapeInstance), one record per caller, reused. originY /
-// originZ = the model point placed at (x, y, z); r g b = the body colour; emissive = a glow floor; highlight = ACC-006.
+// originZ = the model point placed at (x, y, z); r g b = the body colour; emissive = a glow floor; highlight = ACC-006; roll = the
+// whole model turned about its forward axis (radians, + = top to the right seen from behind); glow = the share of the glow
+// tints' self-light (P6 cell charge); roleMove = the moves of the parts with a role (see NO_ROLE_MOVE); only = a role: draw
+// just the parts of that role (the spare magazine of a reload), 0 = all.
 function ModelPose() {
   this.x = 0; this.y = 0; this.z = 0; this.yaw = 0; this.pitch = 0; this.scale = 1; this.mirror = -1; this.originY = 0; this.originZ = 0;
-  this.r = 1; this.g = 1; this.b = 1; this.emissive = 0; this.highlight = 0;
+  this.r = 1; this.g = 1; this.b = 1; this.emissive = 0; this.highlight = 0; this.roll = 0; this.glow = 1; this.only = 0; this.roleMove = NO_ROLE_MOVE;
 }
 const makeModelPose = () => new ModelPose();
 const modelInstance = makeShapeInstance();
-const modelTurn = new Float64Array(4);   // cos / sin of the pose yaw and pitch, once per model (a typed array: no boxed floats)
+const modelTurn = new Float64Array(6);   // cos / sin of the pose yaw, pitch and roll, once per model (a typed array: no boxed floats)
+const modelPoint = new Float64Array(3);  // placeModelPoint's input: the point in model units, the pose's origin already taken off
 
 // ---- Load-time compile ----
 const modelScaled = (values, scale, axis) => values.map((value, index) => value * (typeof scale === 'number' ? scale : scale[axis[index]]));
@@ -54,7 +60,7 @@ const MODEL_AXES = [0, 1, 2], MODEL_AXES_TURNED = [0, 2, 1];   // a part pitched
 
 function normalizeModelPart(part) {
   return { shape: part.shape || 'box', offset: part.offset || [0, 0, 0], size: part.size, rotation: part.rotation || [0, 0],
-    tint: part.tint || 'body', lod: part.lod === undefined ? LOD.far : part.lod, mirror: part.mirror === true };
+    tint: part.tint || 'body', lod: part.lod === undefined ? LOD.far : part.lod, mirror: part.mirror === true, role: part.role || '' };
 }
 
 // A copied part times the row's scale (a number or [x, y, z]) and with its tint swapped by recolor.
@@ -87,12 +93,12 @@ const mirrorModelPart = (part) => Object.assign({}, part, { offset: [-part.offse
 function compileModel(row, source, look) {
   const parts = modelParts(row, source, 0).flatMap((part) => (part.mirror ? [part, mirrorModelPart(part)] : [part]))
     .sort((a, b) => b.lod - a.lod);   // silhouette first: each LOD draws a prefix
-  const tints = new Int8Array(parts.length);
-  for (let index = 0; index < parts.length; index++) tints[index] = modelTintCode(row.id, parts[index]);
+  const tints = new Int8Array(parts.length), roles = new Uint8Array(parts.length);
+  for (let index = 0; index < parts.length; index++) { tints[index] = modelTintCode(row.id, parts[index]); roles[index] = modelRoleCode(row.id, parts[index]); }
   const data = modelPartData(parts);
   const lodCounts = Uint8Array.of(parts.length, parts.filter((part) => part.lod >= LOD.far).length, parts.filter((part) => part.lod >= LOD.distant).length);
   const colors = new Float32Array(9), own = writeModelColors(colors, row, source, look), size = measureModel(data, lodCounts[LOD.far] || parts.length);
-  return { id: row.id, parts, count: parts.length, shapes: parts.map((part) => part.shape), tints, data, lodCounts, colors,
+  return { id: row.id, parts, count: parts.length, shapes: parts.map((part) => part.shape), tints, roles, data, lodCounts, colors,
     ownColor: own.color, ownAccent: own.accent, ownGlow: own.glow, pose: look.pose, spin: row.spin || 0, tumble: row.tumble || 0,
     centerZ: size.centerZ, top: size.top, muzzle: measureMuzzle(row, data, lodCounts[LOD.far] || parts.length) };
 }
@@ -122,6 +128,13 @@ function modelTintCode(id, part) {
   const tint = MODEL_TINT[part.tint] !== undefined ? MODEL_TINT[part.tint] : MODEL_PALETTE_NAMES.indexOf(part.tint);
   if (tint === -1 && part.tint !== 'body') throw new Error('model ' + id + ': unknown tint ' + part.tint);
   return tint;
+}
+
+// A part's role code (its index in MODEL_ROLES); an unknown role throws.
+function modelRoleCode(id, part) {
+  const code = MODEL_ROLES.indexOf(part.role);
+  if (code < 0) throw new Error('model ' + id + ': unknown role ' + part.role);
+  return code;
 }
 
 function modelPartData(parts) {
@@ -189,20 +202,42 @@ const Models = {
   // because both turn about the same local X axis (exact for parts without a yaw of their own, which no pitched pose has).
   drawLevel(batch, model, pose, level) {
     const count = model.lodCounts[level];
-    modelTurn[0] = Math.cos(pose.yaw); modelTurn[1] = Math.sin(pose.yaw); modelTurn[2] = Math.cos(pose.pitch); modelTurn[3] = Math.sin(pose.pitch);
+    this.turnFor(pose);
     for (let part = 0; part < count; part++) this.drawPart(batch, model, part, pose);
   },
+  turnFor(pose) {
+    modelTurn[0] = Math.cos(pose.yaw); modelTurn[1] = Math.sin(pose.yaw); modelTurn[2] = Math.cos(pose.pitch); modelTurn[3] = Math.sin(pose.pitch);
+    modelTurn[4] = Math.cos(pose.roll); modelTurn[5] = Math.sin(pose.roll);
+  },
+  // A part with a role also takes the pose's move of that role (a magazine dropping out, a slide going back, or hidden).
   drawPart(batch, model, part, pose) {
     const d = model.data, o = part * MODEL_PART_FLOATS, scale = pose.scale, mirror = pose.mirror, instance = modelInstance;
-    const cy = modelTurn[0], sy = modelTurn[1], cp = modelTurn[2], sp = modelTurn[3];
-    const x = d[o] * scale * mirror, y = (d[o + 1] - pose.originY) * scale, z = (d[o + 2] - pose.originZ) * scale;
-    const turnedY = y * cp + z * sp, turnedZ = -y * sp + z * cp;   // pitch about local X, then yaw (rotateInPlace)
-    instance.x = pose.x + x * cy + turnedZ * sy; instance.y = pose.y + turnedY; instance.z = pose.z - x * sy + turnedZ * cy;
+    const role = model.roles[part], moves = pose.roleMove, m = role * MODEL_ROLE_MOVE_FLOATS;
+    if (pose.only !== 0 && role !== pose.only) return;
+    if (moves[m + 5] !== 0) return;
+    modelPoint[0] = d[o] + moves[m]; modelPoint[1] = d[o + 1] + moves[m + 1] - pose.originY; modelPoint[2] = d[o + 2] + moves[m + 2] - pose.originZ;
+    placeModelPoint(pose);
     instance.sx = d[o + 3] * scale; instance.sy = d[o + 4] * scale; instance.sz = d[o + 5] * scale;
-    instance.yaw = pose.yaw + d[o + 6] * mirror; instance.pitch = pose.pitch + d[o + 7];
+    instance.yaw = pose.yaw + d[o + 6] * mirror; instance.pitch = pose.pitch + d[o + 7] + moves[m + 3];
     this.tintPart(model, part, pose);
     const offset = batch.meshFrom(model.shapes[part], instance);
-    if (offset >= 0 && pose.highlight) batch.data[offset + HIGHLIGHT_SLOT] = pose.highlight;
+    if (!(offset >= 0)) return;   // -1 = refused (a test's stub batch returns nothing)
+    if (pose.highlight) batch.data[offset + HIGHLIGHT_SLOT] = pose.highlight;
+    if (role === 0 && pose.roll === 0) return;   // nothing rolls or moves: the slot is 0 already
+    if (Math.abs(d[o + 7]) > Math.PI / 4) batch.data[offset + ROLL_SLOT] = moves[m + 4];   // a part turned to point forward is round about that axis: only its own roll (a spin) counts
+    else batch.data[offset + ROLL_SLOT] = pose.roll + moves[m + 4];
+  },
+  // A shape that belongs to no model row (the off-hand, a spare with no part to copy): `loose` is a LooseShape (x y z in model units,
+  // sizes in model units, yaw / pitch / roll radians in the model's frame, colour). turnFor(pose) ran for this pose already.
+  drawLoose(batch, pose, loose) {
+    const instance = modelInstance, scale = pose.scale;
+    modelPoint[0] = loose.x; modelPoint[1] = loose.y - pose.originY; modelPoint[2] = loose.z - pose.originZ;
+    placeModelPoint(pose);
+    instance.sx = loose.sx * scale; instance.sy = loose.sy * scale; instance.sz = loose.sz * scale;
+    instance.yaw = pose.yaw + loose.yaw * pose.mirror; instance.pitch = pose.pitch + loose.pitch;
+    instance.r = loose.r; instance.g = loose.g; instance.b = loose.b; instance.emissive = loose.emissive;
+    const offset = batch.meshFrom(loose.shape, instance);
+    if (offset >= 0) batch.data[offset + ROLL_SLOT] = loose.roll;
   },
   tintPart(model, part, pose) {
     const instance = modelInstance, tint = model.tints[part];
@@ -216,9 +251,26 @@ const Models = {
     const source = modelColorSource(model, tint), colors = model.colors;
     if (source < 0) { instance.r = pose.r * share; instance.g = pose.g * share; instance.b = pose.b * share; }
     else { instance.r = colors[source] * share; instance.g = colors[source + 1] * share; instance.b = colors[source + 2] * share; }
-    instance.emissive = lit ? Math.max(MODEL_GLOW, pose.emissive) : pose.emissive;
+    instance.emissive = lit ? Math.max(MODEL_GLOW * pose.glow, pose.emissive) : pose.emissive;
   },
 };
+
+// The point in modelPoint (model units) as it lands in the world at the pose: scale, mirror, roll about the model's forward axis, then pitch about local X and yaw
+// (rotateInPlace) into modelInstance.x y z.
+function placeModelPoint(pose) {
+  const scale = pose.scale, cy = modelTurn[0], sy = modelTurn[1], cp = modelTurn[2], sp = modelTurn[3], cr = modelTurn[4], sr = modelTurn[5];
+  const sideways = modelPoint[0] * scale * pose.mirror, upward = modelPoint[1] * scale, z = modelPoint[2] * scale;
+  const x = sideways * cr - upward * sr, y = sideways * sr + upward * cr;
+  const turnedY = y * cp + z * sp, turnedZ = -y * sp + z * cp;
+  modelInstance.x = pose.x + x * cy + turnedZ * sy; modelInstance.y = pose.y + turnedY; modelInstance.z = pose.z - x * sy + turnedZ * cy;
+}
+
+// One loose shape for Models.drawLoose, built by a constructor like ShapeInstance (its float fields stay unboxed).
+function LooseShape() {
+  this.shape = 'box'; this.x = 0; this.y = 0; this.z = 0; this.sx = 0.1; this.sy = 0.1; this.sz = 0.1; this.yaw = 0; this.pitch = 0; this.roll = 0;
+  this.r = 1; this.g = 1; this.b = 1; this.emissive = 0;
+}
+const makeLooseShape = () => new LooseShape();
 
 // The model colour a tint reads (a MODEL_COLOR offset), -1 = the pose's colour.
 function modelColorSource(model, tint) {
@@ -286,6 +338,7 @@ function drawHeldWeapon(model, pose, style, lod) {
   held.scale = style.scale * HELD_MODEL_SCALE; held.originY = HELD_GRIP_Y; held.originZ = HELD_GRIP_Z;
   Models.paint(held, model);
   held.emissive = style.emissive; held.highlight = actorHighlight;
+  held.roleMove = ActorAction.moving ? ActorAction.roleMove : NO_ROLE_MOVE;   // a reload moves the weapon's magazine on near bodies (07g)
   Models.drawLevel(actorBatch, model, held, lod + 1);
 }
 

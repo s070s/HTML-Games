@@ -99,21 +99,21 @@ Data.define('decalKinds', { id: REQUIRED, size: 0.1, life: 30, color: '#1b1b1b',
 // about its joint, tilt = extra pitch (deg) of the shape alone (its centre stays put: a cylinder with tilt 90 points forward),
 // aim = how much the part follows the actor's pitch, swing = walk-cycle amplitude and side (+/-), far = kept in the far LOD,
 // distant = kept past the preset's lodFar (a still silhouette), head = grows with the X14 head scale about its pivot,
-// detail = a small part presets without `modelDetail` (Potato) skip. tint: team | teamDark (the team colour darkened) |
+// detail = a small part presets without `modelDetail` (Potato) skip, action = the slot the P6 action layer moves (1 armL, 2 armR, 3 gun, 4 torso, 5 head; 0 none). tint: team | teamDark (the team colour darkened) |
 // model | modelDark | modelGlow (the body model row colour, 03s) | a MODEL_PALETTE name (07c-render-models.js).
 // The far LOD keeps exactly the 6 parts marked far (REN-002). Body models (03s actorModels) use the same part format.
-const ACTOR_PART_SCHEMA = { id: '', shape: 'box', pivot: [0, 0, 0], offset: [0, 0, 0], size: [0.2, 0.2, 0.2], hold: 0, tilt: 0, aim: 0, swing: 0, tint: 'team', far: false, distant: false, head: false, detail: false };
+const ACTOR_PART_SCHEMA = { id: '', shape: 'box', pivot: [0, 0, 0], offset: [0, 0, 0], size: [0.2, 0.2, 0.2], hold: 0, tilt: 0, aim: 0, swing: 0, tint: 'team', far: false, distant: false, head: false, detail: false, action: 0 };
 Data.define('actorParts', Object.assign({}, ACTOR_PART_SCHEMA, { id: REQUIRED }), [
-  { id: 'torso', shape: 'box', pivot: [0, 1.16, 0], size: [0.52, 0.62, 0.3], aim: 0.25, tint: 'team', far: true, distant: true },
-  { id: 'head', shape: 'sphere', pivot: [0, 1.62, 0], size: [0.28, 0.3, 0.28], aim: 1, tint: 'skin', far: true, distant: true, head: true },
+  { id: 'torso', shape: 'box', pivot: [0, 1.16, 0], size: [0.52, 0.62, 0.3], aim: 0.25, tint: 'team', far: true, distant: true, action: 4 },
+  { id: 'head', shape: 'sphere', pivot: [0, 1.62, 0], size: [0.28, 0.3, 0.28], aim: 1, tint: 'skin', far: true, distant: true, head: true, action: 5 },
   { id: 'legL', shape: 'capsule', pivot: [0.13, 0.86, 0], offset: [0, -0.42, 0], size: [0.19, 0.88, 0.19], swing: 1, tint: 'teamDark', far: true, distant: true },
   { id: 'legR', shape: 'capsule', pivot: [-0.13, 0.86, 0], offset: [0, -0.42, 0], size: [0.19, 0.88, 0.19], swing: -1, tint: 'teamDark', far: true, distant: true },
-  { id: 'armL', shape: 'capsule', pivot: [0.32, 1.4, 0], offset: [0, -0.28, 0], size: [0.14, 0.6, 0.14], hold: 62, aim: 1, swing: 0.15, tint: 'team', far: true },
-  { id: 'armR', shape: 'capsule', pivot: [-0.32, 1.4, 0], offset: [0, -0.28, 0], size: [0.14, 0.6, 0.14], hold: 80, aim: 1, swing: -0.1, tint: 'team', far: true },
+  { id: 'armL', shape: 'capsule', pivot: [0.32, 1.4, 0], offset: [0, -0.28, 0], size: [0.14, 0.6, 0.14], hold: 62, aim: 1, swing: 0.15, tint: 'team', far: true, action: 1 },
+  { id: 'armR', shape: 'capsule', pivot: [-0.32, 1.4, 0], offset: [0, -0.28, 0], size: [0.14, 0.6, 0.14], hold: 80, aim: 1, swing: -0.1, tint: 'team', far: true, action: 2 },
   { id: 'hips', shape: 'box', pivot: [0, 0.88, 0], size: [0.46, 0.2, 0.28], tint: 'teamDark' },
   { id: 'visor', shape: 'box', pivot: [0, 1.62, 0], offset: [0, 0.02, 0.12], size: [0.22, 0.08, 0.07], aim: 1, tint: 'visor', head: true },
   { id: 'pack', shape: 'box', pivot: [0, 1.2, 0], offset: [0, 0, -0.2], size: [0.36, 0.42, 0.14], aim: 0.25, tint: 'teamDark' },
-  { id: 'gun', shape: 'box', pivot: [-0.16, 1.32, 0], offset: [0, 0, 0.42], size: [0.08, 0.12, 0.62], aim: 1, tint: 'dark' },
+  { id: 'gun', shape: 'box', pivot: [-0.16, 1.32, 0], offset: [0, 0, 0.42], size: [0.08, 0.12, 0.62], aim: 1, tint: 'dark', action: 3 },
 ]);
 
 // One row format for every code-drawn static model (03b viewModels, 03q weaponModels and projectileModels, 03r gearModels;
@@ -129,24 +129,24 @@ const MODEL_SCHEMA = { id: REQUIRED, from: '', drop: [], scale: null, recolor: {
 // tint: body (the weapon colour from Render.viewModel) | dark | accent | glow (self-lit).
 Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.11, -0.1, 0.3], ads: [0, -0.11, 0.26], accent: '#c9a03a', glow: '#6fd8ff', kick: 1, parts: REQUIRED }), [
   { id: 'sidearm', ads: [0, -0.09, 0.26], kick: 1.3, parts: [
-    { shape: 'box', offset: [0, 0.02, 0.05], size: [0.04, 0.05, 0.18], tint: 'body', lod: 2 },
-    { shape: 'box', offset: [0, -0.04, -0.01], size: [0.035, 0.09, 0.05], tint: 'dark', lod: 2 },
+    { shape: 'box', offset: [0, 0.02, 0.05], size: [0.04, 0.05, 0.18], tint: 'body', lod: 2, role: 'slide' },
+    { shape: 'box', offset: [0, -0.04, -0.01], size: [0.035, 0.09, 0.05], tint: 'dark', lod: 2, role: 'mag' },
     { shape: 'cylinder', offset: [0, 0.025, 0.15], size: [0.02, 0.04, 0.02], rotation: [0, -90], tint: 'dark' }] },
   { id: 'smg', kick: 0.6, parts: [
     { shape: 'box', offset: [0, 0, 0.06], size: [0.05, 0.07, 0.26], tint: 'body', lod: 2 },
-    { shape: 'box', offset: [0, -0.07, 0.08], size: [0.03, 0.1, 0.04], tint: 'dark', lod: 2 },
+    { shape: 'box', offset: [0, -0.07, 0.08], size: [0.03, 0.1, 0.04], tint: 'dark', lod: 2, role: 'mag' },
     { shape: 'box', offset: [0, -0.05, -0.03], size: [0.03, 0.08, 0.05], tint: 'dark' },
     { shape: 'cylinder', offset: [0, 0.01, 0.24], size: [0.025, 0.1, 0.025], rotation: [0, -90], tint: 'dark' }] },
   { id: 'rifle', parts: [
     { shape: 'box', offset: [0, 0, 0.04], size: [0.055, 0.08, 0.34], tint: 'body', lod: 2 },
     { shape: 'box', offset: [0, -0.01, -0.17], size: [0.045, 0.07, 0.14], tint: 'dark', lod: 2 },
-    { shape: 'box', offset: [0, -0.08, 0.07], size: [0.035, 0.11, 0.05], tint: 'dark' },
+    { shape: 'box', offset: [0, -0.08, 0.07], size: [0.035, 0.11, 0.05], tint: 'dark', role: 'mag' },
     { shape: 'cylinder', offset: [0, 0.01, 0.3], size: [0.022, 0.2, 0.022], rotation: [0, -90], tint: 'dark' },
     { shape: 'box', offset: [0, 0.055, 0.04], size: [0.03, 0.03, 0.1], tint: 'accent' }] },
   { id: 'shotgun', kick: 1.6, parts: [
     { shape: 'box', offset: [0, 0, 0], size: [0.06, 0.08, 0.3], tint: 'body', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.02, 0.27], size: [0.04, 0.3, 0.04], rotation: [0, -90], tint: 'dark', lod: 2 },
-    { shape: 'cylinder', offset: [0, -0.025, 0.22], size: [0.045, 0.16, 0.045], rotation: [0, -90], tint: 'accent' },
+    { shape: 'cylinder', offset: [0, -0.025, 0.22], size: [0.045, 0.16, 0.045], rotation: [0, -90], tint: 'accent', role: 'pump' },
     { shape: 'box', offset: [0, -0.02, -0.2], size: [0.05, 0.08, 0.16], tint: 'dark' }] },
   { id: 'lmg', hold: [0.12, -0.12, 0.32], kick: 0.8, parts: [
     { shape: 'box', offset: [0, 0, 0.04], size: [0.07, 0.1, 0.38], tint: 'body', lod: 2 },

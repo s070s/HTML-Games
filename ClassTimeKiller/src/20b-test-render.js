@@ -698,7 +698,12 @@ Test.add('render', (check) => withRenderer(() => {
   Actors.buttons[id] = BTN.NEXT_WEAPON; Sim.step(); Actors.buttons[id] = 0;
   Game.playerId = id;
   updateCamera(1 / 60, 1);
-  check('a swap starts lowered and rises', Weapons.state[id] === WEAPON_STATE.SWAP && viewModelState.swap > 0.5, viewModelState.swap);
+  check('a swap starts at the hold pose', Weapons.state[id] === WEAPON_STATE.SWAP && viewModelState.swap < 0.1, viewModelState.swap);   // P6-04: the old weapon lowers first
+  Game.playerId = -1;
+  Sim.run(Math.ceil(Weapons.stateDuration[id] * SWAP_LOWER_SHARE * TICK_RATE));
+  Game.playerId = id;
+  updateCamera(1 / 60, 1);
+  check('a swap lowers the old weapon, then rises', viewModelState.swap > 0.9, viewModelState.swap);
   Game.playerId = -1;
   TestArena.finish();
 }));

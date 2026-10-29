@@ -37,6 +37,7 @@ const specialHit = makeHit();
 
 const WeaponSpecialState = {
   blockPool: new Float32Array(MAX_ACTORS).fill(Infinity), blocking: new Uint8Array(MAX_ACTORS), parryUntil: new Float32Array(MAX_ACTORS),
+  reflectAt: new Float64Array(MAX_ACTORS).fill(-1e9),   // Sim.time of the last parry reflect: the shield flash of the view model (P6-03), read by nothing in the sim
   linkUntil: new Float32Array(MAX_ACTORS), linkFactor: new Float32Array(MAX_ACTORS).fill(1),
   heldProjectile: new Int16Array(MAX_ACTORS).fill(-1), heldProp: new Int32Array(MAX_ACTORS).fill(-1), heldGrenade: new Int16Array(MAX_ACTORS).fill(-1),
   gateOpen: new Uint8Array(MAX_ACTORS * 2), gateCooldown: new Float32Array(MAX_ACTORS),
@@ -81,10 +82,11 @@ const WeaponSpecialState = {
   },
   parryHooks: [],     // fn(target, projectile) -> true when another rule parries it (S14: PvE green projectiles)
   tryParry(target, projectile) {
-    for (let k = 0; k < this.parryHooks.length; k++) if (this.parryHooks[k](target, projectile)) { Projectiles.reflect(projectile, target); return true; }
+    for (let k = 0; k < this.parryHooks.length; k++) if (this.parryHooks[k](target, projectile)) { Projectiles.reflect(projectile, target); this.reflectAt[target] = Sim.time; return true; }
     if (Sim.time > this.parryUntil[target] || !this.blockDrawn(target)) return false;
     if (!comesFromFront(target, Projectiles.vx[projectile], Projectiles.vz[projectile], PARRY_ARC_COS)) return false;
     Projectiles.reflect(projectile, target);
+    this.reflectAt[target] = Sim.time;
     return true;
   },
   // W28 rooted stance: frontal damage resist while toggled.

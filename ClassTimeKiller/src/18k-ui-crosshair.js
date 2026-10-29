@@ -16,6 +16,8 @@ const VIEW_EXPLOSION_TRAUMA = 0.8;
 const VIEW_DAMAGE_TRAUMA = 0.12, VIEW_DAMAGE_TRAUMA_PER_HP = 0.003, VIEW_DAMAGE_TRAUMA_MAX = 0.4;
 const VIEW_LAND_MIN_SPEED = 6, VIEW_LAND_TRAUMA_PER_SPEED = 0.04, VIEW_LAND_TRAUMA_MAX = 0.35;
 const VIEW_DASH_KICK = 6;
+const VIEW_SLAM_TRAUMA = 0.15;                // the W01 alt slam on a floor (P6-03)
+const VIEW_FLOOR_NORMAL_Y = 0.6;              // a surface this level is a floor
 const VIEW_IMPULSE_KICK_PER_SPEED = 0.4;
 const VIEW_OFFSET_CM = 10;                    // weapon offset sliders: +- this many centimetres
 
@@ -86,6 +88,10 @@ Bus.on('move.land', (event) => {
   if (event.id === Game.playerId && event.speed > VIEW_LAND_MIN_SPEED) ViewFx.addTrauma(Math.min(VIEW_LAND_TRAUMA_MAX, (event.speed - VIEW_LAND_MIN_SPEED) * VIEW_LAND_TRAUMA_PER_SPEED));
 });
 Bus.on('move.dash', (event) => { if (event.id === Game.playerId) ViewFx.addKick(VIEW_DASH_KICK); });
+// The maul's charged slam on a floor shakes the camera a little (P6-03); the impact event is the melee hit on a surface (11a meleeSurfaceHit).
+Bus.on('impact', (event) => {
+  if (event.owner === Game.playerId && event.weapon === 'maul' && event.ny > VIEW_FLOOR_NORMAL_Y && Weapons.meleeKind[event.owner] === MELEE_KIND.ALT) ViewFx.addTrauma(VIEW_SLAM_TRAUMA);
+});
 Bus.on('impulse', (event) => { if (event.id === Game.playerId) ViewFx.addKick(Math.hypot(event.x, event.y, event.z) * VIEW_IMPULSE_KICK_PER_SPEED); });
 
 // ---- Crosshair editor ----

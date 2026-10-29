@@ -9,7 +9,7 @@ const SHAPE_INDEX = {};
 SHAPES.forEach((name, index) => { SHAPE_INDEX[name] = index; });
 const ROUND_SIDES = 12;
 const SPHERE_RINGS = 7;
-const INSTANCE_FLOATS = 16;              // offset.xyz yaw | size.xyz pitch | rgb emissive | sun strength - -
+const INSTANCE_FLOATS = 16;              // offset.xyz yaw | size.xyz pitch | rgb emissive | sun strength highlight roll
 const SHAPE_ATTRIBUTES = { aPosition: 0, aNormal: 1, aOffset: 2, aScale: 3, aColor: 4, aExtra: 5 };
 const SHAPE_MODE = { lit: 0, shadow: 1, outline: 2 };
 const OUTLINE_METERS = 0.025;
@@ -20,6 +20,7 @@ const SHADOW_PROBE_METERS = 20;
 const STRENGTH_SLOT = 13;                // instance float the blob-shadow pass reads its strength from
 const HIGHLIGHT_SLOT = 14;               // instance float: 1 = thick bright outline (high-contrast enemies, ACC-006)
 const HIGHLIGHT_THICKNESS = 2;           // extra outline thickness factor of a highlighted instance
+const ROLL_SLOT = 15;                    // instance float: roll about the shape's own Z axis in radians, before pitch and yaw (the P6 view model); written after meshFrom by the model builder, 0 otherwise
 const HIGHLIGHT_COLOR = [1, 0.85, 0.1];
 
 // ---- Shape geometry (unit size, centred on the origin; sizes passed to batch.mesh are full sizes) ----
@@ -166,7 +167,7 @@ function makeShapeBatch(name, capacity) {
         return -1;
       }
       const o = (shapeIndex * this.capacity + count) * INSTANCE_FLOATS, d = this.data;
-      d[o + STRENGTH_SLOT] = 1; d[o + HIGHLIGHT_SLOT] = 0;
+      d[o + STRENGTH_SLOT] = 1; d[o + HIGHLIGHT_SLOT] = 0; d[o + ROLL_SLOT] = 0;
       this.counts[shapeIndex] = count + 1;
       return o;
     },
@@ -277,12 +278,16 @@ out vec2 vExtra;
 out vec2 vLocal;
 out float vHighlight;
 ${GLSL_ROTATION}
+vec3 rollZ(vec3 v, float roll) {
+  float c = cos(roll), s = sin(roll);
+  return vec3(v.x * c - v.y * s, v.x * s + v.y * c, v.z);
+}
 void main() {
   vec3 local = aPosition * aScale.xyz;
   vHighlight = aExtra.z;
   if (uMode == 2) local += aNormal * uOutline * (uBaseOutline + vHighlight * (${HIGHLIGHT_THICKNESS}.0 - uBaseOutline));
-  vPosition = aOffset.xyz + rotateYawPitch(local, aOffset.w, aScale.w);
-  vNormal = rotateYawPitch(aNormal / max(aScale.xyz, vec3(0.001)), aOffset.w, aScale.w);
+  vPosition = aOffset.xyz + rotateYawPitch(rollZ(local, aExtra.w), aOffset.w, aScale.w);
+  vNormal = rotateYawPitch(rollZ(aNormal / max(aScale.xyz, vec3(0.001)), aExtra.w), aOffset.w, aScale.w);
   vColor = aColor;
   vExtra = aExtra.xy;
   vLocal = aPosition.xz;
@@ -442,6 +447,7 @@ function animateActor(id, pose, seconds, lod) {
   pose.lift = grounded ? Math.abs(Math.cos(actorPhase[id])) * amount * 0.05 : 0;
   pose.drop = (1 - clamp((recorded ? pose.height : Actors.height[id]) / STAND_HEIGHT, 0.3, 1)) * STAND_HEIGHT * CROUCH_UPPER_SHARE;
   pose.legSquash = clamp((LEG_LENGTH - pose.drop) / LEG_LENGTH, 0.2, 1);
+  computeActorAction(id, pose, seconds, lod);   // 07g: the arms, gun, torso and head take the reload, strike, swap, stagger and flinch of this body
 }
 
 // The part colour and self-lit share into tintColor (stored, not returned: a returned float would be boxed, PERF-006).
@@ -469,10 +475,11 @@ function modelPartColor(tint) {
 // body sinks by the same amount the hips drop. 07c-render-models places the held weapon at the 'gun' part this way.
 function placeActorPart(part, pose, style) {
   const scale = style.scale, lower = part.pivot[1] < HIP_HEIGHT, squash = lower ? pose.legSquash : 1;
-  const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing, head = part.head ? style.headScale : 1;
+  const pitch = part.hold * DEG + pose.pitch * part.aim + pose.swing * part.swing + ActorAction.pitch[part.action], head = part.head ? style.headScale : 1;
   const point = rotated;
   point.squash = squash; point.grow = head;
-  point.x = part.offset[0] * head; point.y = part.offset[1] * squash * head; point.z = part.offset[2] * head; point.yaw = 0; point.pitch = pitch;
+  point.x = part.offset[0] * head; point.y = part.offset[1] * squash * head + ActorAction.y[part.action]; point.z = part.offset[2] * head + ActorAction.z[part.action];
+  point.yaw = 0; point.pitch = pitch;
   rotateInPlace(point);
   const localY = (lower ? part.pivot[1] * squash : part.pivot[1] - pose.drop) + point.y + pose.lift;
   const localX = part.pivot[0] + point.x, localZ = part.pivot[2] + point.z;
