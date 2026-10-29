@@ -79,7 +79,7 @@ const MapGenMenu = {
     const retried = report.seed === report.requestedSeed ? '' : ' (seed ' + report.requestedSeed + ' failed the checks; seed ' + report.seed + ' passed)';
     const repaired = report.repairs ? ', ' + report.repairs + ' sightline repair' + (report.repairs === 1 ? '' : 's') : '';
     return notice + map.name + retried + '\n' + map.size[0] + ' x ' + map.size[2] + ' m, ' + map.spawns.length + ' spawns, ' + map.items.length + ' items, '
-      + map.objectives.length + ' objectives' + repaired + '\nMade in ' + Math.round(report.ms.total) + ' ms. Modes: ' + map.modes.map((id) => CAT.modes.byId(id).name).join(', ');
+      + map.objectives.length + ' objectives' + repaired + '\nMade in ' + Math.round(report.ms.total) + ' ms. Modes: ' + map.modes.map(modeLabel).join(', ');
   },
 };
 
@@ -92,8 +92,8 @@ function mapgenMenuChoices() {
   const generator = MapGen.generator(MapGenMenu.state.generator);
   return {
     generator: CAT.generators.map((row) => ({ value: row.code, name: row.code + '  ' + row.name })),
-    mode: [{ value: MAPGEN_MENU_ANY_MODE, name: 'Any: ' + generator.defaultModes.map((id) => CAT.modes.byId(id).name).join(', ') }]
-      .concat(generator.modes.map((id) => ({ value: id, name: CAT.modes.byId(id).name }))),
+    mode: [{ value: MAPGEN_MENU_ANY_MODE, name: 'Any: ' + generator.defaultModes.map(modeLabel).join(', ') }]
+      .concat(generator.modes.map((id) => ({ value: id, name: modeLabel(id) }))),
     size: MapGenMenu.sizes().map((row) => ({ value: row.id, name: row.name })),
     theme: [{ value: MAPGEN_MENU_RANDOM_THEME, name: 'Random' }].concat(CAT.mapTilesets.map((row) => ({ value: row.id, name: row.name }))),
     density: CAT.mapDensities.map((row) => ({ value: row.id, name: row.name })),
@@ -144,9 +144,7 @@ Ui.register('mapgen', {
   build(root) {
     injectStyle('ui-mapgen-style', MAPGEN_MENU_CSS);
     if (MapGenMenu.clampSize()) MapGenMenu.state.map = null;
-    const head = makeElement('div', 'ui-head');
-    head.appendChild(Ui.button('Back', () => Ui.back()));
-    head.appendChild(makeElement('h1', 'ui-title', 'Generated Map'));
+    screenHeader(root, 'Generated Map');
     const list = makeElement('div', 'ui-scroll'), status = makeElement('p', 'ui-note mg-status'), foot = makeElement('div', 'ui-foot');
     const buttons = [];
     // Generating can take a second on a phone: say so, hold both buttons and let the screen repaint before the work starts (the map check does the same).
@@ -170,7 +168,7 @@ Ui.register('mapgen', {
     play.dataset.autofocus = '1';
     foot.appendChild(play);
     foot.appendChild(generate);
-    [head, list, status, foot].forEach((part) => root.appendChild(part));
+    [list, status, foot].forEach((part) => root.appendChild(part));
     mapgenMenuRender(list, status);
   },
 });

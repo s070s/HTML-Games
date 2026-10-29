@@ -116,10 +116,12 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P4-03 - DECIDE: menu flow. Proposal: Play -> curated mode cards -> Start (defaults); "Advanced / Custom" for ruleset, mutators, map, bots, limits. Breadcrumb or step indicator so the player always sees where they are.
   Done when: Appendix C has the screen flow, and every setting from the current menus has a place in it.
   Status (2026-10-29): decided, Appendix C "P4-03": Play -> mode cards (plus All modes, Shuffle) -> Match setup -> Start; Advanced opens the Custom editor prefilled; breadcrumb under each title; back returns focus to the card; LB / RB switch tabs.
-- [ ] P4-04 - Implement the merged modes and the new menu flow on touch, gamepad and keyboard / mouse.
+- [x] P4-04 - Implement the merged modes and the new menu flow on touch, gamepad and keyboard / mouse.
   Done when: a new player can start any curated mode in 3 taps or fewer from the main menu, and custom matches still reach every option.
-- [ ] P4-05 - Migrate saved custom matches, ladder progress and challenges referencing merged modes.
+  Status (2026-10-29): 15 mode entries (7 with variants) over the 31 modes, 8 curated cards plus All modes and Shuffle, Match setup (variant, map, bots, difficulty, length where the mode has limits, team), Advanced opens a prefilled Custom editor without touching the player's own draft, Quick Match replays the last real start, breadcrumb, back focus, LB / RB tabs on touch, gamepad and keyboard; Detonate card first to 5, Uplink 240 s and Ravager vs Fiends 180 s rounds (A-07 fixed). Self-test 6448 / 6448.
+- [x] P4-05 - Migrate saved custom matches, ladder progress and challenges referencing merged modes.
   Done when: old saves load and old references map to the new modes.
+  Status (2026-10-29): merged modes keep their old ids as variants, so saved custom matches, presets, share codes, ladder, challenges, operations, medals and daily seeds load and show under the new layout (tested with an old save).
 
 ## Phase 5 - Controls and button layout (mobile first)
 
@@ -612,7 +614,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - **Reason for keeping the rows**: the behaviours are separate code (`13c`-`14j`); maps, generators and editor templates list mode ids (`src/16a-maps.js:37-49`, `src/16b-maps-arena.js:6`, `src/03n-data-mapgen.js:89-98`); the Daily Seed picks from the mode list by hash (`src/15c-ladder.js:281-283`). With the ids kept, every save, share code, map and past daily stays valid with no rewrite.
 - **Counts**: 31 modes -> 15 modes in the menus (7 with variants, 8 single). 31 playable rows -> 31 variants: nothing is removed.
 
-**Merge list and id migration map** (default variant first in each group)
+**Merge list and id migration map** (default variant first in each group; the Variant choice lists the rows in data row order, parent first, so for example Team Clash shows Classic, One-life rounds, Minions and Frenzy shows Classic, Duel 1v1, Lives, Arms Ladder, Roulette)
 
 | Old id (code, name) | New mode (card) | Variant setting | Stored id after migration |
 |---|---|---|---|
@@ -693,7 +695,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 | 0 | Main menu (`main`, `src/18b-ui-menus.js:7-18`, list changed) | none | Quick Match, Play, Career, Custom, Range, Map editor, Settings, Help | Quick Match (1 tap, PRG-001) |
 | 1 | Play (`play`, rebuilt as a card grid with `ui-menu`) | Play | 8 curated cards, then "All modes" and "Shuffle" tiles; each card: name, goal line, players and limit, variant if not the default | tap a card |
 | 1b | All modes (new small screen, `ui-menu` grid) | Play > All modes | the 15 modes in 3 groups: Versus, Party, Co-op and solo | tap a mode |
-| 2 | Match setup (the current Play form, `src/18d-ui-play.js:201-228`, moved) | Play > Holdfast | Variant (families only), Map, Bots, Difficulty, Match length, Your team; summary line | Start |
+| 2 | Match setup (the current Play form, `src/18d-ui-play.js:201-228`, moved) | Play > Holdfast | Variant (families only), Map, Bots, Difficulty, Match length (modes with score or time limits), Your team (team modes); summary line | Start |
 | 3 | Advanced / Custom (`custom` editor, `src/18g-ui-custom.js:591-622`, reused) | Play > Holdfast > Advanced | tabs Mode (now with Variant), Rules, Weapons, Bots, Mutators, Map; Presets, Share code, Reset all | Start match |
 
 - **Tap count**: Play, card, Start = 3 taps to any curated mode (P4-04 target). Quick Match = 1 tap. From the main menu, Custom opens step 3 alone (breadcrumb "Custom").
@@ -748,7 +750,7 @@ Method: read every mode behaviour, rules build, save, abilities, gadgets, items,
 | A-04 | Low | A save from a newer version is silently downgraded | `src/04-save.js` `load()` l.61-74, `migrate()` l.76-84 | A stored save with version above SAVE_VERSION loads and is re-stamped on the next write; `importText` refuses the same data. | P1-05 (back it up and tell the player) | fixed (core: newer version is told, backed up, never overwritten) |
 | A-05 | Low | A corrupt save overwrites the import backup | `src/04-save.js` `load()` l.68 | Two failures in a row lose the older good copy. | P1-05 (keep a parseable backup) | fixed (core: unreadable save keeps a readable backup; backup: shown) |
 | A-06 | Informational | Multi-tab save adopts the other tab's save | `src/04-save.js` `saveNow()` / `adoptNewer()` l.91-115 | By design (R-001); progress from the other tab is lost with a toast. | none (by design) | open |
-| A-07 | Informational | M12 Uplink, M26 Ravager vs Fiends rounds have no clock | `src/03f-data-modes.js` rows control / fiends, `src/13b-modes.js` `stepRounds()` l.562-566 | A hiding side can stall a round; the player is never stuck. | P4-02 (mode defaults) | open |
+| A-07 | Informational | M12 Uplink, M26 Ravager vs Fiends rounds have no clock | `src/03f-data-modes.js` rows control / fiends, `src/13b-modes.js` `stepRounds()` l.562-566 | A hiding side can stall a round; the player is never stuck. | P4-02 (mode defaults) | fixed (Phase 4: `rounds.live` 240 s for control and 180 s for fiends in `src/03f-data-modes.js`; menuflow tests) |
 | A-08 | Low | Gamepad defaults lack previous weapon and buy menu | `src/05a-input.js` ACTION_ROWS l.70-84 | Only Y cycles forward; buy menu only from pause. Every action can be bound to a View chord. | P5-03 | open |
 | A-09 | Informational | Target ability pressed with no target gives no feedback | `src/12e-abilities.js` `tryActivate()` l.268-281 | bolt, link, swarm, frenzy: nothing happens, resource kept. | P7-01 | open |
 

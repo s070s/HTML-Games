@@ -126,7 +126,7 @@ const Modes = {
     this.competitorsAtStart = this.countStanding();
     this.skipWarnings();
     this.behaviour.start();
-    if (this.mode.goal) this.announce(this.mode.name + ': ' + this.mode.goal, 'mode', MODE_GOAL_PRIORITY);
+    if (this.mode.goal) this.announce(modeLabel(this.mode.id) + ': ' + this.mode.goal, 'mode', MODE_GOAL_PRIORITY);
     if (this.rules.rounds) this.startRound(Sim.time);
     else this.beginOpenPlay();
   },

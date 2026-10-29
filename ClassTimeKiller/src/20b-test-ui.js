@@ -181,7 +181,7 @@ Test.add('ui', (check) => uiWith(() => {
     // an in-match overlay (the scoreboard) leaves the focus alone: the keys stay with the game
     check('screen ' + name + ': has focusable controls and one has focus', items.length > 0 && (Ui.top().screen.inGame || Ui.top().element.contains(document.activeElement)));
     const reached = new Set();
-    for (let i = 0; i < items.length; i++) { reached.add(document.activeElement); uiMenuCommand('next'); }
+    for (let i = 0; i < items.length; i++) { reached.add(document.activeElement); Ui.navigate('next'); }   // Tab: LB / RB (the 'next' menu command) switch tabs on a screen with tabs
     check('screen ' + name + ': every control is reachable with next/prev alone', reached.size === items.length || items.length <= 1 || !!Ui.top().screen.onCommand, reached.size + ' of ' + items.length);
     check('screen ' + name + ': can be left (back, or a top-level screen)', Ui.top().screen.noBack === true || !!Ui.top().screen.onBack || Ui.back());
     Ui.closeAll();
@@ -280,7 +280,7 @@ Test.add('ui', (check) => uiWith(() => {
   Ui.open('main');
   const root = Ui.top().element;
   const buttons = Array.from(root.querySelectorAll('.ui-menu button'));
-  check('main menu: lists the UI-001 entries in order', buttons.map((button) => button.firstChild.textContent).join() === 'Quick Match,Career,Play,Solo,Custom,Range,Generated map,Map editor,Settings,Help');
+  check('main menu: lists the UI-001 entries in order', buttons.map((button) => button.firstChild.textContent).join() === 'Quick Match,Play,Career,Custom,Range,Map editor,Settings,Help');
   check('main menu: Quick Match is first, focused and primary', buttons[0].classList.contains('primary') && document.activeElement === buttons[0]);
   check('main menu: screens that do not exist yet are disabled, not broken', MAIN_MENU_ENTRIES.every((entry, index) => buttons[index].disabled === (!!entry.screen && !Ui.screens.has(entry.screen))) && buttons.every((button) => !button.disabled));
   let quick = 0;
@@ -301,10 +301,10 @@ Test.add('ui', (check) => uiWith(() => {
   const realCareer = Ui.screens.get('career');
   Ui.screens.delete('career');
   Ui.closeAll(); Ui.open('main');
-  check('main menu: an entry without its screen is disabled', Array.from(Ui.top().element.querySelectorAll('.ui-menu button'))[1].disabled);
+  check('main menu: an entry without its screen is disabled', Array.from(Ui.top().element.querySelectorAll('.ui-menu button'))[2].disabled);
   Ui.register('career', { build(root2) { root2.appendChild(Ui.button('Later', () => {})); } });
   Ui.closeAll(); Ui.open('main');
-  check('main menu: a screen registered later turns its entry on', !Array.from(Ui.top().element.querySelectorAll('.ui-menu button'))[1].disabled);
+  check('main menu: a screen registered later turns its entry on', !Array.from(Ui.top().element.querySelectorAll('.ui-menu button'))[2].disabled);
   uiClickButton(Ui.top().element, 'Career');
   check('main menu: the entry opens its screen', Ui.current() === 'career');
   Ui.register('career', realCareer);

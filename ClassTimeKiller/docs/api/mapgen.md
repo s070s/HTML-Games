@@ -171,5 +171,5 @@ and accepted, size, counts, repairs, time, or the fallback); Generate and Play f
 
 
 - Ziplines (S08) do not exist yet, so GN4 links roofs with bridges, ladders and jump pads only.
-- Main menu (UI-001): done, the "Generated map" entry opens `mapgen`.
+- Menus (UI-001): done, Custom > Map tab > "Generate a map from a seed" opens `mapgen` (breadcrumb Custom > Generated Map; it was a main menu entry before P4-04).
 

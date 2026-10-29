@@ -1,7 +1,8 @@
 // ==== S18 UI: MATCH FLOW (PRG-001, PRG-005, UI-001, MODE-003) ====
-// Quick Match starts a match in one tap with the last used setup (or the defaults), the Play screen picks mode, map, rules, bots and
-// difficulty (with Shuffle), and the results screen opens when a match ends (play again, next map, main menu).
-// The last setup is kept in Save.data.play. Contracts: docs/api/hud-play.md.
+// Quick Match starts a match in one tap with the last used setup (or the defaults), the Play screens (18r) pick a mode card, then
+// variant, map, bots and difficulty, and the results screen opens when a match ends (play again, next map, change mode, main menu).
+// The last setup is kept in Save.data.play (mode may be a variant row; advanced: the last start came from the Custom editor, so Quick
+// Match replays its draft). Contracts: docs/api/hud-play.md.
 
 const PLAY_DEFAULT_MODE = 'ffa';
 const PLAY_DEFAULT_BOTS = 7;
@@ -15,6 +16,8 @@ const PLAY_DEFAULT_LENGTH = 'standard';
 const PLAY_SCORE_STEP = 5;
 const PLAY_TIME_STEP = 30;
 const PLAY_AUTO_TEAM = -1;
+const PLAY_DEFAULT_ROUNDS = -1;    // rounds to win: -1 = the mode's own
+const PLAY_MAX_ROUND_WINS = 7;     // the most rounds to win any mode or the Custom editor offers
 const PLAY_RESULT_TITLES = { win: 'Victory', loss: 'Defeat', draw: 'Draw', over: 'Match over' };
 const PLAY_REASON_TEXT = { score: 'Score limit reached', time: 'Time is up', overtime: 'Decided in overtime', draw: 'Nobody could break the tie', eliminated: 'Last one standing', rounds: 'Rounds decided', tickets: 'Tickets ran out',
   victory: 'Mission complete', defeat: 'The run is over', extracted: 'Extracted in time', objective: 'Objective complete' };
@@ -42,7 +45,8 @@ const PlayFlow = {
   },
   defaults() {
     const map = this.smallestMap(PLAY_DEFAULT_MODE);
-    return { mode: PLAY_DEFAULT_MODE, map: map ? map.id : '', ruleset: '', bots: Math.min(PLAY_DEFAULT_BOTS, this.maxBots()), difficulty: PLAY_DEFAULT_DIFFICULTY, team: PLAY_AUTO_TEAM, length: PLAY_DEFAULT_LENGTH };
+    return { mode: PLAY_DEFAULT_MODE, map: map ? map.id : '', ruleset: '', bots: Math.min(PLAY_DEFAULT_BOTS, this.maxBots()), difficulty: PLAY_DEFAULT_DIFFICULTY, team: PLAY_AUTO_TEAM, length: PLAY_DEFAULT_LENGTH,
+      roundWins: PLAY_DEFAULT_ROUNDS };
   },
   // A complete valid setup choice from any partial or outdated one (a removed mode, a map that no longer lists the mode ...).
   normalize(choice) {
@@ -59,12 +63,22 @@ const PlayFlow = {
       difficulty: difficulty.id,
       team: source.team === 0 || source.team === 1 ? source.team : PLAY_AUTO_TEAM,
       length: PLAY_LENGTHS[source.length] ? source.length : PLAY_DEFAULT_LENGTH,
+      roundWins: mode.rounds && Number.isInteger(source.roundWins) && source.roundWins >= 1 && source.roundWins <= PLAY_MAX_ROUND_WINS ? source.roundWins : PLAY_DEFAULT_ROUNDS,
     };
   },
   remembered() { return this.normalize(Save.data && Save.data.play); },
-  remember(choice) {
-    Save.data.play = { mode: choice.mode, map: choice.map, ruleset: choice.ruleset, bots: choice.bots, difficulty: choice.difficulty, team: choice.team, length: choice.length };
+  // roundWins is saved only when the choice sets it, and advanced ({ draft, team }) only after a Custom editor start, so a plain save keeps its old shape.
+  remember(choice, advanced) {
+    const play = { mode: choice.mode, map: choice.map, ruleset: choice.ruleset, bots: choice.bots, difficulty: choice.difficulty, team: choice.team, length: choice.length };
+    if (choice.roundWins >= 1) play.roundWins = choice.roundWins;
+    if (advanced) play.advanced = advanced;
+    Save.data.play = play;
     Save.scheduleSave();
+  },
+  // A start from the Custom editor: Quick Match replays a copy of that draft and team (its mode, map and difficulty also fill the Play screen's last card).
+  rememberAdvanced(draft, team) {
+    const side = team === 0 || team === 1 ? team : PLAY_AUTO_TEAM;
+    this.remember(this.normalize({ mode: draft.mode, map: draft.map, difficulty: draft.difficulty, team: side }), { draft: CustomMatch.copy(draft), team: side });
   },
   // The Game.start setup for a choice. `random` is injectable so tests get a fixed seed.
   buildSetup(choice, random) {
@@ -73,7 +87,8 @@ const PlayFlow = {
       seed, difficulty: choice.difficulty, player: { team: choice.team, name: PLAY_PLAYER_NAME } };
     if (choice.ruleset) setup.ruleset = choice.ruleset;
     const limits = this.lengthLimits(choice.mode, choice.length, choice.ruleset);
-    if (limits) setup.modeOptions = limits;
+    const rounds = choice.roundWins >= 1 ? modeRoundOptions(CAT.modes.byId(choice.mode), choice.roundWins) : null;
+    if (limits || rounds) setup.modeOptions = Object.assign({}, limits, rounds);
     return setup;
   },
   // Named roster bots (their own names and traits) picked by the seed: first those whose tier the difficulty allows, then the others held
@@ -114,7 +129,41 @@ const PlayFlow = {
     this.remember(valid);
     return Game.start(this.buildSetup(valid, random));
   },
-  quickMatch() { return this.start(this.remembered()); },
+  // After an Advanced start the save holds a copy of the draft that was started and its team: Quick Match replays that copy, whatever
+  // the editor holds by now.
+  quickMatch() {
+    const play = Save.data && Save.data.play, advanced = play && play.advanced;
+    if (isPlainObject(advanced) && isPlainObject(advanced.draft)) return this.startAdvanced(CustomMatch.validate(advanced.draft).draft, advanced.team);
+    return this.start(this.remembered());
+  },
+  // Starts a match from a Custom editor draft (a copy is remembered for Quick Match). team: the Match setup's side choice, for a team mode.
+  startAdvanced(draft, team) {
+    const setup = CustomMatch.setup(draft);
+    if (!setup.map) { Ui.toast('No map is available for that mode'); return null; }
+    if (CAT.modes.byId(draft.mode).teams === TEAM_COUNT && (team === 0 || team === 1)) setup.player = { team };
+    this.rememberAdvanced(draft, team);
+    return CustomMatch.start(setup);
+  },
+  // ---- Mode cards (P4-02): the curated first list, each with its default setup ----
+  cardFor(modeId) { return MODE_CARDS.find((card) => card.mode === modeId) || null; },
+  // The card that holds the focus on Play: the last started mode's own, else its parent's, else another card of its family, else the first.
+  lastCard() {
+    const mode = this.remembered().mode, parent = modeParentId(mode);
+    return this.cardFor(mode) || this.cardFor(parent) || MODE_CARDS.find((card) => modeParentId(card.mode) === parent) || MODE_CARDS[0];
+  },
+  // The remembered setup when it is a variant (with no card of its own) of this card's mode: Play opens its parent card with that variant chosen.
+  variantChoice(card) {
+    const last = this.remembered();
+    const reopen = last.mode !== card.mode && modeParentId(last.mode) === card.mode && !this.cardFor(last.mode);
+    return reopen ? Object.assign({}, last, { ruleset: '' }) : undefined;   // a rule bundle chosen long ago under Advanced does not come back unseen
+  },
+  // What Match setup starts with for a mode: its card's defaults, else its row's own (smallest map, its bot count). The difficulty is the
+  // remembered one; keep ({ difficulty, team, length }) carries the player's choices over a variant switch.
+  modeChoice(modeId, keep) {
+    const card = this.cardFor(modeId), kept = keep || {};
+    return this.normalize({ mode: modeId, map: card ? card.map : undefined, roundWins: card ? card.roundWins : undefined,
+      difficulty: kept.difficulty || this.remembered().difficulty, team: kept.team, length: kept.length });
+  },
   // A random valid mode / map / bot count / difficulty (PRG-001). The ruleset stays the mode's own.
   shuffle(random) {
     const pick = (list) => list[Math.floor(random() * list.length) % list.length];
@@ -175,57 +224,29 @@ const PlayFlow = {
 Bus.on('ui.quickMatch', () => PlayFlow.quickMatch());
 Bus.on('ui.shuffleMatch', () => PlayFlow.start(PlayFlow.shuffle(Math.random)));   // for a menu entry or key that wants a random valid match in one action
 
-// ---- Play screen: every choice on one page, Start and Shuffle ----
-function playModeOptions() {
-  const modes = PlayFlow.playableModes();
-  return { values: modes.map((mode) => mode.id), labels: modes.map((mode) => mode.name) };
-}
-function playRulesetOptions() {
-  return { values: [''].concat(CAT.rulesets.map((row) => row.id)), labels: ['Mode default'].concat(CAT.rulesets.map((row) => row.name)) };
-}
-function playTeamOptions() {
-  return { values: [PLAY_AUTO_TEAM, 0, 1], labels: ['Automatic', TEAM_NAMES[0], TEAM_NAMES[1]] };
-}
-
+// ---- Mode facts for the Play screens (the screens themselves are in 18r) ----
 // The standard-length score limit the match will use (Rules.build applies the ruleset's own rules, such as the hero kill limit).
 function playScoreLimit(modeId, ruleset) { return Rules.build(ruleset ? { mode: modeId, ruleset } : { mode: modeId }).scoreLimit; }
 
-function playModeSummary(modeId, ruleset) {
+// Players and limits in a few words: "8 players, first to 25, 10 min". roundWins (>= 1): rounds to win when it differs from the mode's.
+function playModeFacts(modeId, ruleset, roundWins) {
   const mode = CAT.modes.byId(modeId), scoreLimit = playScoreLimit(modeId, ruleset);
   const parts = [mode.sizeDefault + ' players'];
+  if (mode.params.squadSize) parts.push('squads of ' + mode.params.squadSize);
   if (scoreLimit > 0) parts.push('first to ' + scoreLimit);
+  if (mode.rounds) parts.push('first to ' + (roundWins >= 1 ? roundWins : mode.rounds.winsNeeded) + ' rounds');
+  if (mode.params.ladder) parts.push(mode.params.ladder.length + ' guns');
   if (mode.timeLimit > 0) parts.push(Math.round(mode.timeLimit / 60) + ' min');
-  return (mode.goal + ' ' + parts.join(', ') + '.').trim();
+  return parts.join(', ');
 }
-
-Ui.register('play', {
-  build(root) {
-    screenHeader(root, 'Play');
-    const choice = PlayFlow.remembered(), form = makeElement('div', 'ui-scroll pl-form'), summary = makeElement('p', 'ui-note');
-    const render = () => Ui.rebuild(form, () => {
-      form.replaceChildren();
-      const modes = playModeOptions(), maps = PlayFlow.mapsFor(choice.mode), rulesets = playRulesetOptions(), difficulties = PlayFlow.difficulties(), teams = playTeamOptions();
-      form.appendChild(Ui.row('Mode', Ui.cycle(modes.values, modes.labels, choice.mode, (value) => { choice.mode = value; Object.assign(choice, PlayFlow.normalize({ mode: value, ruleset: choice.ruleset, difficulty: choice.difficulty, team: choice.team, length: choice.length })); render(); })));
-      form.appendChild(Ui.row('Map', Ui.cycle(maps.map((map) => map.id), maps.map((map) => map.name), choice.map, (value) => { choice.map = value; })));
-      form.appendChild(Ui.row('Rules', Ui.cycle(rulesets.values, rulesets.labels, choice.ruleset, (value) => { choice.ruleset = value; render(); })));
-      form.appendChild(Ui.row('Bots', Ui.slider({ min: 0, max: PlayFlow.maxBots(), step: 1, value: choice.bots, format: (value) => String(value) }, (value) => { choice.bots = value; })));
-      form.appendChild(Ui.row('Difficulty', Ui.cycle(difficulties.map((row) => row.id), difficulties.map((row) => row.name), choice.difficulty, (value) => { choice.difficulty = value; })));
-      if (PlayFlow.hasLength(choice.mode)) form.appendChild(Ui.row('Match length', Ui.cycle(PLAY_LENGTH_IDS, PLAY_LENGTH_LABELS, choice.length, (value) => { choice.length = value; })));
-      if (PlayFlow.hasTeamChoice(choice.mode)) form.appendChild(Ui.row('Your team', Ui.cycle(teams.values, teams.labels, choice.team, (value) => { choice.team = value; })));
-      summary.textContent = playModeSummary(choice.mode, choice.ruleset);
-    });
-    root.appendChild(form);
-    root.appendChild(summary);
-    const foot = makeElement('div', 'ui-foot');
-    const start = Ui.button('Start', () => PlayFlow.start(choice), 'primary');
-    start.dataset.autofocus = '1';
-    foot.appendChild(start);
-    foot.appendChild(Ui.button('Shuffle', () => { Object.assign(choice, PlayFlow.shuffle(Math.random), { length: choice.length }); render(); }));
-    foot.appendChild(Ui.button('Loadout', () => Ui.open('loadout')));   // the abilities section registers the screen
-    root.appendChild(foot);
-    render();
-  },
-});
+function playModeSummary(modeId, ruleset, roundWins) {
+  return (CAT.modes.byId(modeId).goal + ' ' + playModeFacts(modeId, ruleset, roundWins) + '.').trim();
+}
+// The mode options for "first to N rounds" (Custom editor and Match setup): at most 2N - 1 rounds; a mode with a side switch
+// (bomb, ghostops) switches after N - 1 of them, so both sides attack.
+function modeRoundOptions(mode, wins) {
+  return { rounds: { winsNeeded: wins, limit: wins * 2 - 1, switchAt: mode.rounds.switchAt > 0 ? wins - 1 : 0 } };
+}
 
 // ---- Results screen: opened by the match.end listener of 18b ----
 function playResultsStats(results) {
@@ -259,7 +280,10 @@ Ui.register('results', {
     main.dataset.autofocus = '1';
     if (step) foot.appendChild(main);
     if (again) foot.appendChild(again);
-    if (Game.match && !Game.match.setup.progress) foot.appendChild(Ui.button('Next map', () => PlayFlow.nextMap()));
+    if (Game.match && !Game.match.setup.progress) {
+      foot.appendChild(Ui.button('Next map', () => PlayFlow.nextMap()));
+      foot.appendChild(Ui.button('Change mode', () => Ui.open('playSetup', { mode: Game.match.setup.mode })));   // Match setup of the same card (18r)
+    }
     foot.appendChild(Ui.button('Main menu', () => Game.stop()));
     root.appendChild(foot);
   },

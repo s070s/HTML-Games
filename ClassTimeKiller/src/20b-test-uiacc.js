@@ -497,8 +497,8 @@ Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
 
 Test.add('uiacc', (check) => hudTestWith(() => uiWith(() => {
   // ---- UI-002, ECO-001, VIS-006 rules panel, economy panel, loadout button, tips ----
-  Ui.open('play');
-  check('play screen: it has a Loadout button that opens the loadout screen', uiClickButton(Ui.top().element, 'Loadout') && Ui.current() === 'loadout');
+  Ui.open('playSetup', { mode: 'ffa' });
+  check('setup screen: it has a Loadout button that opens the loadout screen', uiClickButton(Ui.top().element, 'Loadout') && Ui.current() === 'loadout');
   Ui.closeAll();
   Game.start({ mode: 'ffa', seed: 1, mutators: ['radar'], bots: [{ dummy: true, team: -1 }], player: { name: 'Me', team: -1 } });
   const rules = Game.match.rules, lines = rulesPanelLines(rules);

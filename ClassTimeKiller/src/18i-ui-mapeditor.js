@@ -557,7 +557,7 @@ Ui.register('mapEditorPlay', {
     const modes = MapEditorTools.playableModes();
     body.appendChild(makeElement('p', 'ui-note', modes.length ? 'Pick a mode. You play against bots on this map and come back here when you quit.'
       : 'This map needs spawns first (and the objectives of the mode: flags, points, bomb sites...).'));
-    for (const mode of modes) body.appendChild(Ui.button(CAT.modes.byId(mode).name, () => MapEditorPlay.testPlay(mode)));
+    for (const mode of modes) body.appendChild(Ui.button(modeLabel(mode), () => MapEditorPlay.testPlay(mode)));
   },
 });
 
@@ -594,7 +594,7 @@ Ui.register('mapEditorModes', {
     const map = MapEditor.toMap();
     for (const mode of Object.keys(MapRules.modes)) {
       if (!CAT.modes.byId(mode)) continue;
-      const needs = MapEditor.modeNeeds(map, mode), label = CAT.modes.byId(mode).name + (needs ? ' - needs ' + needs : '');
+      const needs = MapEditor.modeNeeds(map, mode), label = modeLabel(mode) + (needs ? ' - needs ' + needs : '');
       body.appendChild(Ui.row(label, Ui.toggle(MapEditor.map.modes.includes(mode), (on) => {
         const modes = MapEditor.map.modes.filter((id) => id !== mode);
         MapEditor.setModes(on ? modes.concat(mode) : modes);

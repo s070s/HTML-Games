@@ -31,7 +31,7 @@ Binding for all code. Companion to `SPECIFICATION.md` (what) and `IMPLEMENTATION
 | S15 | progression | `15a` progress and run log, `15b` medals, `15c` ladder, challenges, operations, daily, `15d` cards | `Progress`, `RunLog`, `Medals`, `Ladder`, `Challenges`, `Operations`, `OperationRun`, `Daily`, `Cards`, `CardRun` (docs/api/progression.md) |
 | S16 | maps, map gen, map editor | `16*` | `Maps`, `MapKit`, `MapScan`, `MapCheck`, `MapGen`, `MapEditor` (docs/api/maps.md, mapgen.md, mapeditor.md) |
 | S17 | HUD | `17*` | `Hud`, `CommWheel` (17g, comm / ping wheel) |
-| S18 | UI | `18*` (`18p-ui-device.js`: `Device`, persistent storage, iPhone Home Screen tip, Full screen, back-swipe guard, version label; `18q-ui-rotate.js`: `RotateGuard`, with the `#rotate` CSS in `shell.html`) | `Ui`, `Device`, `RotateGuard`, `MapEditorShare` |
+| S18 | UI | `18*` (`18r-ui-playmenu.js`: Play cards, All modes, Match setup, `PlaySetup`; `18p-ui-device.js`: `Device`, persistent storage, iPhone Home Screen tip, Full screen, back-swipe guard, version label; `18q-ui-rotate.js`: `RotateGuard`, with the `#rotate` CSS in `shell.html`) | `Ui`, `Device`, `RotateGuard`, `MapEditorShare` |
 | S19 | game loop | `19-loop.js` | `Loop` (frame cap pacing), `Perf` (`Perf.bootMs`) |
 | S20 | self-test | `20a-selftest.js`, `20b…` | `Test`, `DebugApi` (= `window.__CTK`) |
 | S21 | bootstrap | `21-boot.js` | `Boot` |

@@ -173,7 +173,7 @@ const Scoreboard = {
   title() {
     const mode = Game.match && Game.match.rules ? CAT.modes.byId(Game.match.rules.mode) : null;
     const map = Game.match && Game.match.map ? Game.match.map.name : '';
-    return (mode ? mode.name : 'Match') + (map ? ' - ' + map : '');
+    return (mode ? modeLabel(mode.id) : 'Match') + (map ? ' - ' + map : '');
   },
 
   // Tab / View button / a finger on the touch score panel: held to look. With the "toggle" setting on (ACC-004) Input

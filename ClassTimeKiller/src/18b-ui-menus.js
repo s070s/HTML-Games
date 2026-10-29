@@ -3,15 +3,13 @@
 // touch layout editor (INP-005) and Help with the self-test button (ARC-030). Later sections register their own screens by name
 // ('ladder', 'play', 'custom', 'range', 'results', ...): the main menu lists them as soon as they exist.
 
-// UI-001 / PRG-005. The PvE modes (Siege Waves, Endless Hold, Test Chambers) sit under Solo so the list stays short on a phone.
+// UI-001 / PRG-005 / P4-03. Solo (the PvE modes, 18o) is a Career entry and the generated map a Custom > Map tab entry, so the list stays short.
 const MAIN_MENU_ENTRIES = [
   { label: 'Quick Match', primary: true, event: 'ui.quickMatch' },
-  { label: 'Career', screen: 'career' },   // ladder, challenges, operations, daily, cards, profile (18j)
-  { label: 'Play', screen: 'play' },
-  { label: 'Solo', screen: 'solo' },       // horde, endless, puzzle chambers (18o)
+  { label: 'Play', screen: 'play' },         // mode cards, All modes, Shuffle, Match setup (18r)
+  { label: 'Career', screen: 'career' },     // ladder, challenges, operations, daily, cards, profile, solo (18j)
   { label: 'Custom', screen: 'custom' },
-  { label: 'Range', event: 'ui.range' },   // starts the Firing Range (18j careerOpenRange)
-  { label: 'Generated map', screen: 'mapgen' },
+  { label: 'Range', event: 'ui.range' },     // starts the Firing Range (18j careerOpenRange)
   { label: 'Map editor', screen: 'mapEditor' },
   { label: 'Settings', screen: 'settings' },
   { label: 'Help', screen: 'help' },
@@ -33,12 +31,32 @@ const MENUS_CSS = '.ui-editor { width: min(360px, 48vw); max-height: 100%; overf
   + '.ui-touchLayout[data-dock="left"] .ui-panel { margin: auto auto auto 0; } .ui-touchLayout[data-dock="right"] .ui-panel { margin: auto 0 auto auto; }'
   + '@media (max-height: 520px) { .ui-main .ui-menu, .ui-solo .ui-menu { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; } .ui-main .ui-menu .ui-button { font-size: 1em; } }';
 
-function screenHeader(root, title, onBack) {
+// The title row (Back + title) and, under it, the breadcrumb of the screens open (P4-03). crumb: the screen's name in the breadcrumb
+// when it differs from its title.
+function screenHeader(root, title, onBack, crumb) {
   const head = makeElement('div', 'ui-head');
   head.appendChild(Ui.button('Back', onBack || (() => Ui.back())));
   head.appendChild(makeElement('h1', 'ui-title', title));
   root.appendChild(head);
+  const entry = Ui.stack.find((item) => item.element === root);
+  if (entry) {
+    entry.crumb = crumb || title;
+    root.appendChild(Ui.crumbBar(entry));
+  }
   return head;
+}
+
+// LB / RB (the pad's 'prev' / 'next' menu commands) switch tabs on a screen with tabs. tabButtons: id -> button, the active one has
+// the 'active' class; select(id) makes a tab active. The focus follows to the new tab's button, so repeated presses keep going.
+function screenTabs(root, tabButtons, select) {
+  const ids = Array.from(tabButtons.keys());
+  root.tabStep = (direction) => {
+    const current = ids.findIndex((id) => tabButtons.get(id).classList.contains('active'));
+    const next = ids[(current + direction + ids.length) % ids.length];
+    select(next);
+    tabButtons.get(next).focus();
+    Ui.emitClick('move');
+  };
 }
 
 // ---- Main menu ----
@@ -145,6 +163,7 @@ Ui.register('settings', {
       tabButtons.set(id, button);
       tabs.appendChild(button);
     }
+    screenTabs(root, tabButtons, (id) => { active = id; render(); });
     const reset = Ui.button('Reset this tab', () => Ui.confirm({
       title: 'Reset this tab?', text: 'All settings on this tab return to their defaults.', yes: 'Reset',
       onYes: () => { Settings.resetKeys(settingKeys(active)); render(); },

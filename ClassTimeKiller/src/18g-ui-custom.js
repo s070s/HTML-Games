@@ -1,6 +1,6 @@
 // ==== S18 UI: CUSTOM MATCH EDITOR ====
 // Custom match (MUT-001): one screen with tabs Mode, Rules, Weapons, Bots, Mutators, Map; every field has a reset and the last
-// settings are remembered. Saved presets live in Save.data.rulesets through Rules.custom (MOV-002, max 50); a preset can be shared
+// settings are remembered. Game mode lists the 15 menu modes and a Variant row picks the mode row (P4-04); Match setup's Advanced opens it filled (18r). Saved presets live in Save.data.rulesets through Rules.custom (MOV-002, max 50); a preset can be shared
 // as a text code (MUT-004: version + checksum + compressed JSON, copy and paste only). The 12 rule bundles RS01..RS12 start with one click.
 // The pure model (CustomCodec, CustomMatch) has no DOM and is what the self-test drives; the screens below it only call the model.
 // Contract: docs/api/mutators-custom.md.
@@ -311,11 +311,7 @@ const CustomMatch = {
     const options = {};
     if (draft.scoreLimit >= 0) options.scoreLimit = draft.scoreLimit;
     if (draft.timeLimit >= 0) options.timeLimit = draft.timeLimit;
-    // At most 2w - 1 rounds; a mode with a side switch (bomb, ghostops) switches after w - 1 of them, so both sides attack.
-    if (draft.roundWins >= 0 && mode.rounds) {
-      const wins = draft.roundWins;
-      options.rounds = { winsNeeded: wins, limit: wins * 2 - 1, switchAt: mode.rounds.switchAt > 0 ? wins - 1 : 0 };
-    }
+    if (draft.roundWins >= 0 && mode.rounds) Object.assign(options, modeRoundOptions(mode, draft.roundWins));
     return options;
   },
   // draft -> Game.start setup. seed picks a random map when none is chosen; withPlayer false starts a spectator match.
@@ -334,11 +330,12 @@ const CustomMatch = {
     return Object.assign({ preset: draft.difficulty }, draft.difficultySliders);
   },
   // One-click start of a rule bundle (RS01..RS12): the draft's mode, map, bots and limits with the bundle's own presets.
-  bundleStart(draft, bundleId, seed, withPlayer) {
+  bundleStart(draft, bundleId, seed, withPlayer) { return this.setup(this.bundleDraft(draft, bundleId), seed, withPlayer); },
+  // The draft of that start: the bundle with none of the draft's own rule overrides, weapons or mutators (Quick Match replays it).
+  bundleDraft(draft, bundleId) {
     const plain = this.copy(draft);
-    Object.assign(plain, { bundle: bundleId, move: '', health: '', economy: '', weaponSet: '', weaponList: null, items: true, friendlyFire: EDITOR_DEFAULT,
+    return Object.assign(plain, { bundle: bundleId, move: '', health: '', economy: '', weaponSet: '', weaponList: null, items: true, friendlyFire: EDITOR_DEFAULT,
       lives: EDITOR_DEFAULT, respawnDelay: EDITOR_DEFAULT, name: '', mutators: [] });
-    return this.setup(plain, seed, withPlayer);
   },
   start(setup) {
     Ui.closeAll();
@@ -376,9 +373,15 @@ const editorList = (values, format) => ({ values, labels: values.map(format) });
 const editorCatalogue = (rows, blankLabel) => ({ values: [''].concat(rows.map((row) => row.id)), labels: [blankLabel].concat(rows.map((row) => row.name)) });
 const editorOptionalCatalogue = (name, blankLabel) => editorCatalogue(CAT[name] ? CAT[name].filter((row) => row.id !== MATCH_SET_ID) : [], blankLabel);
 
+// Game mode lists the menu modes (P4-02); a Variant choice picks one of their rows. Both are the draft's mode id.
 function editorModeOptions() {
-  const rows = CAT.modes.filter((mode) => Modes.isPlayable(mode.id));
+  const rows = modeMenuRows().filter((mode) => modeVariantIds(mode.id).some((id) => Modes.isPlayable(id)));
   return { values: rows.map((mode) => mode.id), labels: rows.map((mode) => mode.name) };
+}
+function editorVariantIds(draft) { return modeVariantIds(modeParentId(draft.mode)).filter((id) => Modes.isPlayable(id)); }
+function editorVariantOptions(draft) {
+  const ids = editorVariantIds(draft);
+  return { values: ids, labels: ids.map((id) => CAT.modes.byId(id).variant) };
 }
 function editorMapOptions(draft) {
   const maps = Maps.savedForMode(draft.mode);
@@ -402,8 +405,12 @@ function editorPersonalityOptions() {
 }
 
 // One row per simple field: which tab, the draft key, how to list its values, when to show it, what else changes with it.
+// read(draft): the shown value when it is not draft[key] (Game mode shows the parent of the draft's mode row); reset: a value, or
+// a function of the draft, when the field's reset is not the draft default.
 const EDITOR_FIELDS = [
-  { tab: 'mode', key: 'mode', label: 'Game mode', options: editorModeOptions, changed: 'modeChanged' },
+  { tab: 'mode', key: 'mode', label: 'Game mode', options: editorModeOptions, read: (draft) => modeParentId(draft.mode), changed: 'modeChanged' },
+  { tab: 'mode', key: 'mode', label: 'Variant', options: editorVariantOptions, show: (draft) => editorVariantIds(draft).length > 1,
+    reset: (draft) => modeParentId(draft.mode), changed: 'modeChanged' },
   { tab: 'mode', key: 'scoreLimit', label: 'Score limit', options: () => editorList(EDITOR_SCORE_LIMITS, editorLimitLabel('None', editorPlain)), show: (draft) => Modes.honoursLimit(draft.mode, 'score') },
   { tab: 'mode', key: 'timeLimit', label: 'Time limit', options: () => editorList(EDITOR_TIME_LIMITS, editorLimitLabel('None', editorMinutes)), show: (draft) => Modes.honoursLimit(draft.mode, 'time') },
   { tab: 'mode', key: 'roundWins', label: 'Rounds to win', options: () => editorList(EDITOR_ROUND_WINS, editorLimitLabel('None', editorPlain)), show: (draft) => !!CAT.modes.byId(draft.mode).rounds },
@@ -442,6 +449,7 @@ function editorChanged() {
 }
 function editorResetValue(field) {
   const defaults = customDefaults();
+  if (typeof field.reset === 'function') return field.reset(EDITOR_STATE.draft);
   return field.reset !== undefined && field.reset !== true ? field.reset : defaults[field.key];
 }
 
@@ -449,7 +457,7 @@ function editorResetValue(field) {
 function editorFieldRow(field) {
   const draft = EDITOR_STATE.draft, options = field.options(draft);
   const wrap = makeElement('div', 'cm-controls');
-  const cycle = Ui.cycle(options.values, options.labels, draft[field.key], (value) => {
+  const cycle = Ui.cycle(options.values, options.labels, field.read ? field.read(draft) : draft[field.key], (value) => {
     draft[field.key] = value;
     if (field.changed) EDITOR_CHANGED[field.changed](draft);
     editorChanged();
@@ -539,7 +547,7 @@ function editorQuickStarts(list) {
   list.appendChild(makeElement('p', 'ui-note', 'Starts at once with the mode, map, bots and limits chosen here and the presets of the bundle.'));
   const grid = makeElement('div', 'cm-quick');
   for (const row of RULESET_ROWS) {
-    grid.appendChild(Ui.button(row.code + '  ' + row.name, () => CustomMatch.start(CustomMatch.bundleStart(EDITOR_STATE.draft, row.id))));
+    grid.appendChild(Ui.button(row.code + '  ' + row.name, () => PlayFlow.startAdvanced(CustomMatch.bundleDraft(EDITOR_STATE.draft, row.id))));
   }
   list.appendChild(grid);
 }
@@ -574,7 +582,7 @@ function editorSummary(draft) {
   const mode = CAT.modes.byId(draft.mode), setup = CustomMatch.setup(draft, 0);
   const map = draft.map && Maps.get(draft.map) ? Maps.get(draft.map).name : 'random map';
   const mutators = draft.mutators.length ? ', ' + draft.mutators.length + ' mutator' + (draft.mutators.length === 1 ? '' : 's') : '';
-  return mode.name + ' on ' + map + ', ' + setup.bots.length + ' bots' + mutators;
+  return modeLabel(mode.id) + ' on ' + map + ', ' + setup.bots.length + ' bots' + mutators;
 }
 
 function editorRenderTab(list, summary) {
@@ -588,13 +596,12 @@ function editorRenderTab(list, summary) {
   });
 }
 
+// params.crumb: the breadcrumb name ('Advanced' when Match setup opened the editor, else 'Custom').
 Ui.register('custom', {
-  build(root) {
+  build(root, params) {
     injectStyle('ui-custom-style', EDITOR_CSS);
     EDITOR_STATE.draft = CustomMatch.load();
-    const head = makeElement('div', 'ui-head');
-    head.appendChild(Ui.button('Back', () => Ui.back()));
-    head.appendChild(makeElement('h1', 'ui-title', 'Custom Match'));
+    screenHeader(root, 'Custom Match', undefined, params && params.crumb || 'Custom');
     const summary = makeElement('p', 'ui-sub');
     const tabs = makeElement('div', 'ui-tabs'), list = makeElement('div', 'ui-scroll cm-list'), foot = makeElement('div', 'ui-foot');
     const tabButtons = new Map();
@@ -607,14 +614,15 @@ Ui.register('custom', {
       tabButtons.set(id, button);
       tabs.appendChild(button);
     }
-    const start = Ui.button('Start match', () => CustomMatch.start(CustomMatch.setup(EDITOR_STATE.draft)), 'primary');
+    screenTabs(root, tabButtons, (id) => { EDITOR_STATE.tab = id; render(); });
+    const start = Ui.button('Start match', () => PlayFlow.startAdvanced(EDITOR_STATE.draft), 'primary');
     start.dataset.autofocus = '1';
     foot.appendChild(start);
     foot.appendChild(Ui.button('Presets', () => Ui.open('customPresets')));
     foot.appendChild(Ui.button('Share code', () => Ui.open('customShare')));
     foot.appendChild(Ui.button('Reset all', () => Ui.confirm({ title: 'Reset everything?', text: 'All custom match settings return to their defaults.', yes: 'Reset',
       onYes: () => { EDITOR_STATE.draft = customDefaults(); editorChanged(); } })));
-    [head, summary, tabs, list, foot].forEach((part) => root.appendChild(part));
+    [summary, tabs, list, foot].forEach((part) => root.appendChild(part));
     EDITOR_STATE.refresh = render;
     render();
   },
@@ -639,9 +647,7 @@ function presetRow(preset, nameInput, renderList) {
 Ui.register('customPresets', {
   build(root) {
     injectStyle('ui-custom-style', EDITOR_CSS);
-    const head = makeElement('div', 'ui-head');
-    head.appendChild(Ui.button('Back', () => Ui.back()));
-    head.appendChild(makeElement('h1', 'ui-title', 'Saved Presets'));
+    screenHeader(root, 'Saved Presets', undefined, 'Presets');
     const nameInput = makeElement('input', 'cm-name');
     nameInput.type = 'text'; nameInput.maxLength = LABEL_MAX; nameInput.placeholder = 'Preset name';
     nameInput.value = editorDraft().name;
@@ -659,7 +665,7 @@ Ui.register('customPresets', {
     const form = makeElement('div', 'cm-controls');
     form.appendChild(nameInput);
     form.appendChild(save);
-    [head, form, count, list].forEach((part) => root.appendChild(part));
+    [form, count, list].forEach((part) => root.appendChild(part));
     renderList();
   },
 });
@@ -685,9 +691,7 @@ function copyText(text, field) {
 Ui.register('customShare', {
   build(root) {
     injectStyle('ui-custom-style', EDITOR_CSS);
-    const head = makeElement('div', 'ui-head');
-    head.appendChild(Ui.button('Back', () => Ui.back()));
-    head.appendChild(makeElement('h1', 'ui-title', 'Share Code'));
+    screenHeader(root, 'Share Code');
     const scroll = makeElement('div', 'ui-scroll');
     const mine = makeElement('textarea', 'ui-code'), paste = makeElement('textarea', 'ui-code');
     mine.readOnly = true; mine.tabIndex = 0; paste.tabIndex = 0;
@@ -713,7 +717,6 @@ Ui.register('customShare', {
     scroll.appendChild(paste);
     scroll.appendChild(importButton);
     scroll.appendChild(message);
-    root.appendChild(head);
     root.appendChild(scroll);
   },
 });

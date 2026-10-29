@@ -109,7 +109,7 @@ Test.add('play', (check) => {
 Test.add('play', (check) => uiWith(() => {
   Ui.open('main');
   const buttons = Array.from(Ui.top().element.querySelectorAll('.ui-menu button'));
-  check('main menu: the Play entry is switched on by the play screen', !buttons[2].disabled && buttons[2].firstChild.textContent === 'Play');
+  check('main menu: the Play entry is switched on by the play screen', !buttons[1].disabled && buttons[1].firstChild.textContent === 'Play');
   buttons[0].click();
   check('quick match: one click on the main menu starts a match (UI-001, at most 2 actions)', Game.state === 'playing' && Ui.stack.length === 0);
   Game.pause('menu');
@@ -120,27 +120,31 @@ Test.add('play', (check) => uiWith(() => {
   Ui.open('main');
   uiClickButton(Ui.top().element, 'Play');
   check('play screen: opens from the main menu', Ui.current() === 'play');
+  check('play screen: the mode cards, All modes and Shuffle, with the last started card focused', Ui.top().element.querySelectorAll('.pm-card').length === MODE_CARDS.length + 2 && document.activeElement.dataset.card === 'frenzy');
+  uiClickButton(Ui.top().element, 'Team Clash');
+  check('setup screen: a card opens Match setup', Ui.current() === 'playSetup');
   const root = Ui.top().element, label = (name) => Array.from(root.querySelectorAll('.ui-row')).find((row) => row.firstChild.textContent === name);
-  check('play screen: shows mode, map, rules, bots and difficulty from the remembered setup', ['Mode', 'Map', 'Rules', 'Bots', 'Difficulty'].every((name) => label(name))
-    && label('Mode').lastChild.textContent === 'Frenzy' && label('Map').lastChild.textContent === 'Foundry Spire' && label('Your team') === undefined);
-  check('play screen: the bot slider ends at the quality cap', Number(label('Bots').querySelector('input').max) === PlayFlow.maxBots() && Number(label('Bots').querySelector('input').value) === 7);
-  check('play screen: the summary tells the mode limits', root.querySelector('.ui-note').textContent.includes('25'));
-  label('Mode').lastChild.click();
-  check('play screen: changing the mode updates maps, bots and the team row', label('Mode').lastChild.textContent !== 'Frenzy' && label('Map').lastChild.textContent.length > 0);
-  while (label('Mode').lastChild.textContent !== 'Team Clash') label('Mode').lastChild.click();
-  check('play screen: a team mode offers the team choice and only its own maps', label('Your team') !== undefined && label('Map').lastChild.textContent === 'Skyward Yard' && Number(label('Bots').querySelector('input').value) === 7);
-  const savedRandom = Math.random;
-  Math.random = makeRandom(5).next;
-  const before = root.textContent;
-  uiClickButton(root, 'Shuffle');
-  Math.random = savedRandom;
-  check('play screen: Shuffle picks another valid setup', root.textContent !== before || label('Mode') !== undefined);
-  while (label('Mode').lastChild.textContent !== 'Team Clash') label('Mode').lastChild.click();
+  check('setup screen: shows variant, map, bots, difficulty and team from the card; the rules moved to Advanced', ['Variant', 'Map', 'Bots', 'Difficulty', 'Your team'].every((name) => label(name))
+    && label('Mode') === undefined && label('Rules') === undefined && label('Variant').lastChild.textContent === 'Classic' && label('Map').lastChild.textContent === 'Skyward Yard');
+  check('setup screen: the bot slider ends at the quality cap', Number(label('Bots').querySelector('input').max) === PlayFlow.maxBots() && Number(label('Bots').querySelector('input').value) === 7);
+  check('setup screen: the summary tells the mode limits', root.querySelector('.pm-summary').textContent.includes('50'));
+  label('Variant').lastChild.click();
+  const variant = PlaySetup.state.choice;
+  check('setup screen: a variant loads its own defaults and maps', label('Variant').lastChild.textContent === 'One-life rounds (Last Squad)' && variant.mode === 'elim'
+    && CAT.maps.byId(variant.map).modes.includes('elim') && label('Map').lastChild.textContent === CAT.maps.byId(variant.map).name);
+  while (label('Variant').lastChild.textContent !== 'Classic') label('Variant').lastChild.click();
+  check('setup screen: the first variant is the card again, with its own maps and 7 bots', label('Map').lastChild.textContent === 'Skyward Yard' && Number(label('Bots').querySelector('input').value) === 7);
   label('Bots').querySelector('input').value = 4;
   label('Bots').querySelector('input').dispatchEvent(new Event('input'));
   uiClickButton(root, 'Start');
-  check('play screen: Start runs the chosen setup and remembers it', Game.state === 'playing' && Game.match.rules.mode === 'tdm' && playTestCount(ACTOR_KIND.BOT) === 4 && Save.data.play.bots === 4 && Save.data.play.mode === 'tdm');
+  check('setup screen: Start runs the chosen setup and remembers it', Game.state === 'playing' && Game.match.rules.mode === 'tdm' && playTestCount(ACTOR_KIND.BOT) === 4 && Save.data.play.bots === 4 && Save.data.play.mode === 'tdm');
   Game.stop();
+  Ui.closeAll(); Ui.open('main'); uiClickButton(Ui.top().element, 'Play');
+  const savedRandom = Math.random;
+  Math.random = makeRandom(5).next;
+  uiClickButton(Ui.top().element, 'Shuffle');
+  Math.random = savedRandom;
+  check('play screen: Shuffle opens Match setup with a valid random setup', Ui.current() === 'playSetup' && Modes.isPlayable(PlaySetup.state.choice.mode) && CAT.maps.byId(PlaySetup.state.choice.map).modes.includes(PlaySetup.state.choice.mode));
 }));
 
 Test.add('play', (check) => uiWith(() => {
@@ -150,7 +154,7 @@ Test.add('play', (check) => uiWith(() => {
   check('results: the screen opens by itself when the match ends', Game.state === 'results' && Ui.current() === 'results');
   const root = Ui.top().element, text = root.textContent;
   check('results: title, winner, your stats and the scoreboard with all 8 players', text.includes('Victory') && text.includes('You win.') && text.includes('kills') && root.querySelectorAll('.sb-table tr').length === 9);
-  check('results: the three buttons are there and Esc does not close it', ['Play again', 'Next map', 'Main menu'].every((name) => Array.from(root.querySelectorAll('button')).some((button) => button.textContent === name)) && !Ui.back());
+  check('results: the four buttons are there and Esc does not close it', ['Play again', 'Next map', 'Change mode', 'Main menu'].every((name) => Array.from(root.querySelectorAll('button')).some((button) => button.textContent === name)) && !Ui.back());
   uiClickButton(root, 'Play again');
   check('results: Play again starts a new match and closes the screen', Game.state === 'playing' && Ui.stack.length === 0 && Game.match.setup.seed !== seed);
   playTestFinish();
@@ -357,13 +361,9 @@ Test.add('play', (check) => uiWith(() => {
     // balance-04: Hero Squad Team Clash plays to the built hero limit, and the screen says so for every length.
     check('play screen: hero Team Clash shows and scales the hero kill limit', playModeSummary('tdm', 'heroes').includes('first to ' + Math.ceil(CAT.modes.byId('tdm').scoreLimit * HERO_KILL_LIMIT_SCALE))
       && PlayFlow.lengthLimits('tdm', 'short', 'heroes').scoreLimit < PlayFlow.lengthLimits('tdm', 'short').scoreLimit, playModeSummary('tdm', 'heroes'));
-    const saved = Save.data.play, rows = (mode) => { Save.data.play = { mode }; Ui.closeAll(); Ui.open('play'); return Ui.top().element.textContent; };
-    try {
-      check('play screen: Match length and Your team show only where they change something', rows('ffa').includes('Match length') && !rows('bomb').includes('Match length')
-        && rows('tdm').includes('Your team') && !rows('infection').includes('Your team'));
-    } finally {
-      Save.data.play = saved;
-    }
+    const rows = (mode) => { Ui.closeAll(); Ui.open('playSetup', { mode }); return Ui.top().element.textContent; };
+    check('setup screen: Match length and Your team show only where they change something', rows('ffa').includes('Match length') && !rows('bomb').includes('Match length')
+      && rows('tdm').includes('Your team') && !rows('infection').includes('Your team'));
     Game.stop(); Ui.closeAll();
     Game.start({ mode: 'ffa', map: 'spire', seed: PLAY_TEST_SEED, player: { name: PLAY_PLAYER_NAME }, bots: [{}] });
     Modes.finish(Modes.over(DRAW, 'draw'));

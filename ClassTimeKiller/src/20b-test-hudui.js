@@ -108,7 +108,9 @@ Test.add('hudui', (check) => {
 Test.add('hudui', (check) => uiWith(() => {
   Ui.open('main');
   let root = Ui.top().element;
-  check('main menu: Solo opens the PvE list', uiClickButton(root, 'Solo') && Ui.top().name === 'solo');
+  check('main menu: Solo and Generated map are no main entries (P4-03)', !MAIN_MENU_ENTRIES.some((entry) => entry.label === 'Solo' || entry.label === 'Generated map'));
+  uiClickButton(root, 'Career');
+  check('career: Solo opens the PvE list', uiClickButton(Ui.top().element, 'Solo') && Ui.top().name === 'solo');
   root = Ui.top().element;
   const labels = Array.from(root.querySelectorAll('.ui-menu button')).map((button) => button.textContent);
   check('solo: one button per PvE mode entry', labels.length === CAREER_MODE_ENTRIES.length && labels[0] === careerModeName('horde'), labels.join());
@@ -130,7 +132,9 @@ Test.add('hudui', (check) => uiWith(() => {
   check('main menu: Range emits ui.range and starts the Firing Range', opened.join() === 'range,' + CAREER_RANGE_MODE || opened.join() === 'range', opened.join());
   Ui.closeAll();
   Ui.open('main');
-  check('main menu: Generated map opens the seed screen', uiClickButton(Ui.top().element, 'Generated map') && Ui.top().name === 'mapgen');
+  uiClickButton(Ui.top().element, 'Custom');
+  uiClickButton(Ui.top().element, 'Map');
+  check('custom: the Map tab opens the generated map seed screen', uiClickButton(Ui.top().element, 'Generate a map') && Ui.top().name === 'mapgen');
 }));
 
 Test.add('hudui', (check) => uiWith(() => {

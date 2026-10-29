@@ -54,7 +54,7 @@ function careerRedraw(rowKey) {
   if (newList) newList.scrollTop = scroll;
   if (same) same.focus();
 }
-function careerModeName(modeId) { const row = CAT.modes.byId(modeId); return row ? row.name : modeId; }
+function careerModeName(modeId) { return modeLabel(modeId); }   // "Frenzy - Duel 1v1" for a variant row (P4-02)
 function careerMapName(mapId) { const row = CAT.maps.byId(mapId); return row ? row.name : STAT_MAP_GROUP_NAMES[mapId] || mapId; }
 function careerLevelText() {
   const level = Progress.level(), title = Progress.title();

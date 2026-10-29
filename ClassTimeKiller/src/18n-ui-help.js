@@ -98,7 +98,7 @@ function modeGoalLines(rules) {
 // The running match as plain lines for the rules panel (also used by the self-test).
 function rulesPanelLines(rules) {
   const mode = CAT.modes.byId(rules.mode), setup = [];
-  const goal = ['Mode: ' + (mode ? mode.name : rules.mode)].concat(modeGoalLines(rules), ['Limits: ' + limitsText(rules) + '.']);
+  const goal = ['Mode: ' + modeLabel(rules.mode)].concat(modeGoalLines(rules), ['Limits: ' + limitsText(rules) + '.']);
   setup.push('Rule set: ' + rules.name + (rules.code ? ' (' + rules.code + ')' : '') + '.');
   setup.push('Health: ' + nameOf(CAT.health, rules.health) + '. Movement: ' + nameOf(CAT.movement, rules.move) + '. Weapons: ' + nameOf(CAT.weaponSets, rules.weaponSet) + '.');
   setup.push(respawnText(rules));

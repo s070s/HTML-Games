@@ -31,7 +31,7 @@ Ruleset schema (spec section 4) with defaults:
 | `id`, `code`, `name` | required | `ffa`, `M01`, `Frenzy` |
 | `teams` | 0 | 0 free-for-all, 1 one side (PvE), 2 two teams |
 | `sizeDefault` | 8 | total participants (player + bots) |
-| `goal` | `''` | one-line goal text (Play screen, match start banner, pause > Rules; announced at match start with kind `mode`) |
+| `goal` | `''` | one-line goal text (Play cards, Match setup, match start banner, pause > Rules; announced at match start with kind `mode`) |
 | `goalDetail` | `''` | the rules the goal line leaves out, shown under it in pause > Rules; `{key}` = that mode param of the match (no literal numbers) |
 | `scoreLimit`, `timeLimit` | 0, 600 | 0 = none; seconds |
 | `scoreBy` | `kills` | `kills` / `objective` / `tickets` / `rounds` / `survival` / `pve` |
@@ -45,6 +45,7 @@ Ruleset schema (spec section 4) with defaults:
 | `ruleset` | `classic` | default bundle |
 | `family` | `versus` | `versus` / `pve` / `solo` |
 | `useButton` | false | the mode needs Use held (plant, defuse, arm, loot swap, chamber buttons): the touch USE button shows (INP-004) |
+| `variantOf`, `variant` | `''`, `''` | P4-02: `variantOf` = the parent mode id of a row that plays as a variant of it (the menus list parents only); `variant` = the short choice label ("Duel 1v1", a parent's own default is "Classic"); `modeLabel(id)` = "<parent> - <variant>". The row keeps its id and code, so saves, share codes, maps, ladder and daily seeds need no migration. Round clocks: `control` 240 s and `fiends` 180 s (A-07) |
 
 ## Rules (`src/13a-rules.js`)
 

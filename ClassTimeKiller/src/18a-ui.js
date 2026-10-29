@@ -1,6 +1,7 @@
 // ==== S18 UI ====
 // DOM menu framework: screen stack, focus navigation for keyboard, gamepad and touch (INP-010), toasts, confirm dialog, control builders.
-// Screens register by name: Ui.register(name, { build(root, params), onOpen, onClose, onBack, noBack, passthrough, overlay, inGame }).
+// Screens register by name: Ui.register(name, { build(root, params), onOpen, onClose, onResume, onBack, noBack, passthrough, overlay, inGame }).
+// onResume: the screen above closed and this one is on top again (it refreshes what the closed screen may have changed).
 // inGame: an overlay on a running match (the scoreboard): game input keeps working, it takes no focus, and any other screen replaces it.
 // 18b holds the screens, 18c the performance overlay. Contracts: docs/api/input-ui.md.
 
@@ -40,6 +41,9 @@ const UI_CSS = 'html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   + '.ui-value { min-width: 4.8em; text-align: right; color: var(--ui-dim); font-variant-numeric: tabular-nums; }'
   + '.ui-cycle { min-width: 9em; text-align: center; } .ui-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }'
   + '.ui-tab.active { background: var(--ui-accent); color: #1a1205; font-weight: 700; } .ui-note { color: var(--ui-dim); margin: 0 0 10px; line-height: 1.45; }'
+  + '.ui-crumbs { display: flex; flex-wrap: wrap; align-items: center; color: var(--ui-dim); font-size: 0.875em; margin: -4px 0 10px; }'
+  + '.ui-crumb { cursor: pointer; text-decoration: underline; padding: 8px 2px; margin: -8px 0; } .ui-crumb:hover, .ui-crumb-here { color: var(--ui-text); }'
+  + '.ui-crumb-sep, .ui-crumb-more { white-space: pre; } .ui-crumb-more { display: none; }'
   + '.ui-foot { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; } .ui-slot { min-width: 8em; text-align: center; padding: 0.4em 0.7em; min-height: 40px; }'
   + '.ui-panel { background: var(--ui-bg); border: 1px solid var(--ui-line); border-radius: 12px; padding: 14px; margin: auto; width: min(560px, 100%); }'
   + '.ui-dialog { justify-content: center; align-items: center; background: rgba(5, 8, 12, 0.7); } .ui-result { white-space: pre-wrap; font: 14px/1.45 ui-monospace, Consolas, monospace; color: var(--ui-dim); }'
@@ -49,7 +53,8 @@ const UI_CSS = 'html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
   + '#overlay > .ui-toasts.ui-toasts-play { top: 58%; }'   // in a match: below the crosshair, clear of the header and the top touch buttons
   + '.ui-toast { background: var(--ui-bg); border: 1px solid var(--ui-line); padding: 8px 14px; border-radius: 8px; animation: ui-toast-in 0.18s ease-out; }'
   + '@keyframes ui-toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }'
-  + '@media (max-height: 520px) { .ui-screen { padding-top: calc(8px + var(--safe-top)); padding-bottom: calc(8px + var(--safe-bottom)); } .ui-title { font-size: 1.5em; } .ui-sub { margin-bottom: 8px; } .ui-row { min-height: 40px; margin-bottom: 4px; } }'
+  + '@media (max-height: 520px) { .ui-screen { padding-top: calc(8px + var(--safe-top)); padding-bottom: calc(8px + var(--safe-bottom)); } .ui-title { font-size: 1.5em; } .ui-sub { margin-bottom: 8px; } .ui-row { min-height: 40px; margin-bottom: 4px; }'
+  + ' .ui-crumbs { margin-bottom: 6px; } .ui-crumb-far { display: none; } .ui-crumb-more { display: inline; } }'
   + '@media (prefers-reduced-motion: reduce) { .ui-toast { animation: none; } }';
 
 const Ui = {
@@ -74,12 +79,14 @@ const Ui = {
   top() { return this.stack.length ? this.stack[this.stack.length - 1] : null; },
   current() { return this.stack.length ? this.top().name : ''; },
   isOpen(name) { return this.stack.some((entry) => entry.name === name); },
-  open(name, params) {
+  // returnTo (optional): the control that gets the focus back when this screen closes. A tap does not focus a button on every browser
+  // (Safari), so a card or tile passes itself.
+  open(name, params, returnTo) {
     const screen = this.screens.get(name);
     if (!screen) { this.toast('Coming soon'); return false; }
     while (!screen.inGame && this.top() && this.top().screen.inGame) this.pop();
     const previous = this.top();
-    if (previous) { previous.returnFocus = document.activeElement; if (!screen.overlay) previous.element.classList.add('behind'); }
+    if (previous) { previous.returnFocus = returnTo || document.activeElement; if (!screen.overlay) previous.element.classList.add('behind'); }
     const element = makeElement('div', 'ui-screen ui-' + name + (screen.passthrough ? ' passthrough' : '') + (screen.inGame ? ' in-game' : ''));
     const entry = { name, screen, element, params, returnFocus: null };
     this.root.appendChild(element);
@@ -122,11 +129,44 @@ const Ui = {
     const below = this.top();
     if (!below) return;
     below.element.classList.remove('behind');
+    if (below.screen.onResume) below.screen.onResume(below.element);   // the screen above may have changed what this one shows
     const target = below.returnFocus && below.element.contains(below.returnFocus) ? below.returnFocus : null;
     if (target) target.focus(); else this.focusFirst(below);
   },
   replace(name, params) { this.pop(); return this.open(name, params); },
   closeAll() { while (this.stack.length) this.pop(); },
+  // Closes screens down to the given stack entry (a breadcrumb tap): the focus returns the way a Back does.
+  backTo(target) {
+    if (!this.stack.includes(target)) return;
+    this.emitClick('back');
+    while (this.top() && this.top() !== target) this.pop();
+  },
+
+  // ---- Breadcrumb (P4-03): one line under a menu screen's title, built from the screens open below it ----
+  // A screen takes part by calling screenHeader (18b), which sets entry.crumb (and entry.crumbBase: crumbs of screens that are not open,
+  // such as Play above a Match setup opened from the results). Every crumb except the last is a tap / click target that goes back to
+  // that screen. The crumbs are not focusable, so keyboard and gamepad focus stays on the screen's own controls. On a short screen only
+  // the last two show, after "...".
+  crumbBar(entry) {
+    const items = (entry.crumbBase || []).map((text) => ({ text, target: null }));
+    for (const item of this.stack.slice(0, this.stack.indexOf(entry) + 1)) if (item.crumb) items.push({ text: item.crumb, target: item === entry ? null : item });
+    const bar = makeElement('div', 'ui-crumbs');
+    if (items.length > 2) bar.appendChild(makeElement('span', 'ui-crumb-more', '...'));
+    items.forEach((item, index) => {
+      const far = index < items.length - 2 ? ' ui-crumb-far' : '';
+      if (index > 0) bar.appendChild(makeElement('span', 'ui-crumb-sep' + far, ' > '));
+      const last = index === items.length - 1;
+      const part = makeElement('span', (item.target ? 'ui-crumb' : last ? 'ui-crumb-here' : 'ui-crumb-text') + far, item.text);
+      if (item.target) { part.setAttribute('role', 'link'); part.addEventListener('click', () => this.backTo(item.target)); }
+      bar.appendChild(part);
+    });
+    return bar;
+  },
+  setCrumb(entry, text) {
+    entry.crumb = text;
+    const old = entry.element.querySelector('.ui-crumbs');
+    if (old) old.replaceWith(this.crumbBar(entry));
+  },
 
   // ---- Focus navigation (keyboard arrows, gamepad d-pad / stick, touch taps) ----
   focusables(element) { return Array.from(element.querySelectorAll(UI_FOCUSABLE)).filter((item) => item.offsetParent !== null); },
@@ -181,6 +221,8 @@ const Ui = {
     if (!this.stack.length || this.top().screen.inGame) return;
     const screen = this.top().screen;
     if (screen.onCommand && screen.onCommand(command)) return;     // a screen that reads the pad itself (the map editor) takes the command
+    const element = this.top().element;
+    if ((command === 'prev' || command === 'next') && element.tabStep) { element.tabStep(command === 'next' ? 1 : -1); return; }   // LB / RB switch tabs
     if (command === 'accept') this.activate(); else if (command === 'back') this.back(); else this.navigate(command);
   },
   onKeyDown(event) {

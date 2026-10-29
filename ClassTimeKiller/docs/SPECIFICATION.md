@@ -457,6 +457,8 @@ Perks (ECP04): Tier 1 Scavenger (ammo from bodies), Bandolier (+50% ammo), Hardl
 | MODE-002 | All modes playable solo with bots filling every slot; team size default 4v4 unless stated, max by PERF-009. |
 | MODE-003 | Scoreboard always available (UI-010). |
 | MODE-004 | Objective logic is finite-state (capture meters 0-100, payload spline position, timers); bots read the same objective state (BOT-080). |
+| MODE-005 | The menus list 15 modes: 31 rows stay (ids and codes never change), 16 of them are variants of a parent mode (`variantOf`, short `variant` label; table "Menu modes and variants" below). A variant plays with its own row defaults; every menu shows it as "<mode> - <variant>" (for example "Frenzy - Duel 1v1"). Saves, share codes, maps, the ladder and the daily seed keep the old ids: no migration. |
+| MODE-006 | Eight curated cards are shown first (Frenzy, Team Clash, Holdfast, Flag Raid, Detonate, Arms Ladder, Last Ring, Siege Waves), each with a fixed map and the row's own defaults; Detonate's card plays first to 5 rounds (max 9, sides switch after 4) instead of 7. Every other mode is under Play > All modes. |
 
 | Code | Key | Name | Rules and defaults (**T**) | Ref |
 |---|---|---|---|---|
@@ -471,8 +473,8 @@ Perks (ECP04): Tier 1 Scavenger (ammo from bodies), Bandolier (+50% ammo), Hardl
 | M09 | `hardpoint` | Hotpoint | one zone, moves every 60 s in fixed order, 1 pt/s uncontested, 150 to win | CoD HQ/Hardpoint, Halo KotH |
 | M10 | `oddball` | Relic Run | hold relic: 1 pt/s; carrier melee only; first to 100 | Halo Oddball |
 | M11 | `payload` | Convoy | attack/defend; cart moves 1.2 m/s with attackers near (more = faster to 1.8), rolls back after 10 s; 3 checkpoints; 4:00 + 2:00 per checkpoint; overtime while contested | Overwatch Escort |
-| M12 | `control` | Uplink | single point, first to 100% wins round, best of 3, overtime at 99% contested | Overwatch Control |
-| M13 | `bomb` | Detonate | 5v5, rounds: buy 15 s, live 100 s, plant 4 s, fuse 40 s, defuse 7 s (half-progress kept at 3.5 s); first to 7 rounds, swap at 6; one life | CS, Valorant |
+| M12 | `control` | Uplink | single point, first to 100% wins round, best of 3, 240 s per round (the higher meter wins at the clock), overtime at 99% contested | Overwatch Control |
+| M13 | `bomb` | Detonate | 5v5, rounds: buy 15 s, live 100 s, plant 4 s, fuse 40 s, defuse 7 s (half-progress kept at 3.5 s); first to 7 rounds, swap at 6 (the Play card: first to 5, swap at 4); one life | CS, Valorant |
 | M14 | `elim` | Last Squad | team rounds, one life, first to 5 rounds, 90 s + shrinking safe area last 30 s | CrossFire Elimination, Gunfight |
 | M15 | `lms` | Last Standing | FFA, 3 lives, all weapons max ammo, 100 armor, no pickups except boots | UT LMS, Painkiller |
 | M16 | `gungame` | Arms Ladder | 12 tiers (11 guns + the maul; `params.tiers` only shortens it), kill to advance, melee kill demotes victim, final melee kill wins | CS Arms Race, Apex Gun Run |
@@ -485,11 +487,26 @@ Perks (ECP04): Tier 1 Scavenger (ammo from bodies), Bandolier (+50% ammo), Hardl
 | M23 | `bank` | Mote Rush | 2 teams of 4 vs separate PvE; kills drop motes; bank 5/10/15 sends blocker; 75 banked opens invasion; 250 summons boss; first boss kill wins | Destiny Gambit |
 | M24 | `bearer` | Flame Bearer | one PU19; holder scores 1/s + kills; first to 120 | Painkiller Light Bearer |
 | M25 | `roulette` | Roulette Arms | everyone same infinite-ammo weapon, rotates every 30 s, no pickups | Painkiller Voosh |
-| M26 | `fiends` | Ravager vs Fiends | player (or bot) Ravager 175 HP/125 armor vs 2 fiend bots that summon fodder; fiend partner 20 s to revive; best of 5 | Doom BATTLEMODE |
+| M26 | `fiends` | Ravager vs Fiends | player (or bot) Ravager 175 HP/125 armor vs 2 fiend bots that summon fodder; fiend partner 20 s to revive; best of 5, 180 s per round (the side with more alive wins at the clock) | Doom BATTLEMODE |
 | M27 | `ghostops` | Ghost Ops | bomb rounds; attackers cloaked when still, melee + pistol only; footsteps audible | CrossFire Ghost |
 | M28 | `contract` | Silent Contract | stealth vs PvE guards; eliminate/steal target; score = time, alarms, kills; ghost/no-kill bonuses | Dishonored, Deus Ex |
 | M29 | `attrition` | Attrition | team, AI fodder minions + bots; points fodder 1, heavy 3, bot 5; 300 to win | Titanfall Attrition |
 | M30 | `range` | Firing Range | dummies (stand/strafe/shoot back, shield level, distance), strafe-jump lane, aim drills | Apex Range, Overwatch |
+
+Menu modes and variants (MODE-005). The Variant choice lists the rows in data row order, the parent row first; Play lists the parents, Match setup and the Custom editor (Mode tab: Game mode + Variant) pick the row.
+
+| Menu mode (parent) | Variants (row, label) | Play card |
+|---|---|---|
+| Frenzy `ffa` | `ffa` Classic, `duel` Duel 1v1, `lms` Lives (Last Standing), `gungame` Arms Ladder, `roulette` Roulette | Frenzy; Arms Ladder (variant `gungame`) |
+| Team Clash `tdm` | `tdm` Classic, `elim` One-life rounds (Last Squad), `attrition` Minions (Attrition) | Team Clash |
+| Flag Raid `ctf` | `ctf` Two flags, `oneflag` One flag (Lone Flag) | Flag Raid |
+| Holdfast `dom` | `dom` Three points, `conquest` Tickets (Frontline), `hardpoint` Moving hill (Hotpoint), `control` Uplink rounds | Holdfast |
+| Detonate `bomb` | `bomb` Classic, `rush` Stages and tickets (Breach Assault), `ghostops` Ghost attackers (Ghost Ops) | Detonate |
+| Relic Run `oddball` | `oddball` Relic, `juggernaut` Colossus, `cursetag` Curse (Curse Tag), `bearer` Flame (Flame Bearer) | none |
+| Siege Waves `horde` | `horde` Ten waves, `endless` Endless (Endless Hold) | Siege Waves |
+| Convoy `payload`, Blight `infection`, Last Ring `royale`, Mote Rush `bank`, Ravager vs Fiends `fiends`, Silent Contract `contract`, Firing Range `range`, Test Chambers `puzzle` | none | Last Ring |
+
+All modes groups the 15 menu modes: Versus (Frenzy, Team Clash, Flag Raid, Holdfast, Detonate, Convoy), Party (Relic Run, Blight, Last Ring, Mote Rush, Ravager vs Fiends), Co-op and solo (Siege Waves, Silent Contract, Firing Range, Test Chambers). The progress card `endless` (C21) is a card, not the mode `endless`.
 
 ## 14. Mutators and custom match (MUT)
 
@@ -753,11 +770,11 @@ Named roster (tier / signature traits / favourite): B01 Pell (0, timid, W04), B0
 
 | ID | Requirement |
 |---|---|
-| PRG-001 | Quick Match: one tap from main menu; uses last ruleset bundle, mode, map, bot count, difficulty; "Shuffle" button picks random valid combo. |
+| PRG-001 | Quick Match: one tap from main menu; repeats the last start from Match setup or from the Custom editor (mode or variant, map, bot count, difficulty, match length; an editor start replays the editor draft); a new save starts the Frenzy card. The "Shuffle" tile on Play opens Match setup with a random valid mode (any of the 31 rows), map, bot count and difficulty. |
 | PRG-002 | Custom Match: editor of MUT-001. |
 | PRG-003 | Tournament Ladder: 8 tiers (BT0-BT7) of 3-4 matches each mixing FFA, Duel, TDM, CTF, Holdfast, Detonate; named bots B01-B24; win (top 3 in FFA, win in team) to advance; final duel vs B24; difficulty chosen per match. |
 | PRG-004 | Challenge Rooms: 20 trials (time trial, kill chain, wave survival, drop kill, ghost run, accuracy course) with 1-3 stars (10,000 points per star) and Expert versions unlocked at 2 stars. |
-| PRG-005 | Horde (M21/M22) and Puzzle Chambers (MP11) as menu entries. |
+| PRG-005 | Horde (M21/M22) and Puzzle Chambers (MP11) as menu entries: Career > Solo (with its own difficulty row and the chamber records) and Play > All modes (Siege Waves with its Endless variant, Test Chambers). |
 | PRG-006 | Daily Seed: date-based seed picks generator, mode, ruleset and 2 mutators; local best score history only; replayable any time (no streak penalties). |
 | PRG-007 | Operations: chain of 3 maps with tickets carried over and a comeback bonus (losing side gets a heavy bot unit). |
 | PRG-008 | Firing Range is the first scene offered to new players (skippable). |
@@ -771,7 +788,7 @@ Named roster (tier / signature traits / favourite): B01 Pell (0, timid, W04), B0
 
 | ID | Requirement |
 |---|---|
-| UI-001 | Menus: main menu = Quick Match, Ladder, Play (all structures), Custom, Range, Settings, Help; start a match in <= 2 actions; no screen takes > 1 s to open; last mode/settings remembered (UT3 console-UI mistake). |
+| UI-001 | Menus: main menu = Quick Match, Play, Career (ladder, rooms, operations, daily, cards, profile, statistics, Solo), Custom, Range, Map editor, Settings, Help (no Solo or Generated map entry: the generated map is on Custom > Map). Quick Match starts in 1 action; Play (8 mode cards, All modes, Shuffle) -> Match setup (variant for a family, map, bots, difficulty, match length (modes with score or time limits), your team (team modes); Loadout; Advanced; Reset to card defaults) -> Start takes 3 taps for a card; Advanced opens the Custom editor filled with the setup and Back keeps its changes; every menu screen but the main menu, pause and results shows a tappable breadcrumb under its title that keyboard and gamepad focus skip; Back goes up one level and returns the focus to the control opened from; LB / RB switch tabs (Settings, Custom editor); results add Change mode; no screen takes > 1 s to open; last mode/settings remembered (UT3 console-UI mistake). |
 | UI-002 | Pause any time (Esc/Start/touch button): resume, restart, rules panel, settings, quit. Sim fully stops. |
 | UI-003 | HUD elements: health/armor/shield bars + numbers, ammo (mag/reserve), weapon bar, ability icons with cooldown rings, ultimate %, meter, minimap/compass, objective bar, timer, score, kill feed, hit markers, damage direction arcs, item timers (optional), medal banners. |
 | UI-004 | Crosshair editor: style (cross, dot, circle, T, chevron), size, gap, thickness, outline, colour, dot, dynamic spread on/off, per-weapon override, scope overlay options. |

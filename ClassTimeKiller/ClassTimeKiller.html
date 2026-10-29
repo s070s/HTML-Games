@@ -1204,42 +1204,70 @@ const BLIGHT_PARAMS = { fixedSides: true, infectedPerPlayers: 6, infectedArea: 3
 Data.define('modes', {
 	id: REQUIRED, code: REQUIRED, name: REQUIRED, goal: '', goalDetail: '', teams: 0, sizeDefault: 8, scoreLimit: 0, timeLimit: 600, scoreBy: 'kills',
 	rounds: null, respawn: 'normal', rules: {}, objective: 'none', params: {}, scoring: {}, tiebreak: 'suddenDeath', ruleset: 'classic',
-	family: 'versus', useButton: false,
+	family: 'versus', useButton: false, variantOf: '', variant: '',
 }, [
-	{ id: 'ffa', code: 'M01', name: 'Frenzy', goal: 'Every kill scores. Reach the limit first.', scoreLimit: 25, rules: { respawn: { delay: 2, forced: 10 } } },
-	{ id: 'tdm', code: 'M02', name: 'Team Clash', goal: 'Kills score for your team.', teams: 2, scoreLimit: 50, rules: { friendlyFire: 0 } },
-	{ id: 'duel', code: 'M03', name: 'Duel', goal: 'One on one; the winner stays on.', sizeDefault: 2, params: { activePlayers: 2, queue: 'winnerStays' } },
-	{ id: 'ctf', code: 'M04', name: 'Flag Raid', goal: 'Take the enemy flag home while yours is there.', teams: 2, sizeDefault: 10, scoreLimit: 3, timeLimit: 900, scoreBy: 'objective', objective: 'flag', params: { returnTime: 20, homeRequired: true, neutral: false } },
-	{ id: 'oneflag', code: 'M05', name: 'Lone Flag', goal: 'Carry the flag into the enemy base.', teams: 2, scoreLimit: 5, timeLimit: 900, scoreBy: 'objective', objective: 'flag', params: { returnTime: 20, homeRequired: false, neutral: true } },
-	{ id: 'dom', code: 'M06', name: 'Holdfast', goal: 'Hold points: each one held scores.', teams: 2, scoreLimit: 200, scoreBy: 'objective', objective: 'point', params: Object.assign({ tickInterval: 2, tickPoints: 1 }, CAPTURE_PARAMS), ruleset: 'modern' },
-	{ id: 'conquest', code: 'M07', name: 'Frontline', goal: 'Hold points and stay alive to drain enemy tickets.', teams: 2, sizeDefault: 16, timeLimit: 1200, scoreBy: 'tickets', objective: 'point', params: Object.assign({ tickets: 150, deathCost: 1, bleedHeld: 2, bleedInterval: 3, spawnAtOwned: true }, CAPTURE_PARAMS), ruleset: 'modern' },
-	{ id: 'rush', code: 'M08', name: 'Breach Assault', goal: 'Attackers arm relays with Use; defenders stop them.', useButton: true, teams: 2, sizeDefault: 16, timeLimit: 0, scoreBy: 'tickets', objective: 'bombsite', params: Object.assign({}, BOMB_PARAMS, { tickets: 75, deathCost: 1, stages: 3, perStage: 2, fuse: 30, defuseTime: 5, defuseCheckpoint: 0 }), ruleset: 'modern' },
-	{ id: 'hardpoint', code: 'M09', name: 'Hotpoint', goal: 'Hold the moving hill to score.', teams: 2, scoreLimit: 150, scoreBy: 'objective', objective: 'hill', params: { moveInterval: 60, holdRate: 1 }, ruleset: 'modern' },
-	{ id: 'oddball', code: 'M10', name: 'Relic Run', goal: 'Hold the relic to score; its carrier uses melee.', scoreLimit: 100, scoreBy: 'objective', objective: 'relic', params: { holdRate: 1, carrierMeleeOnly: true, returnTime: 30 }, scoring: NO_KILL_SCORING },
+	{ id: 'ffa', code: 'M01', name: 'Frenzy', variant: 'Classic', goal: 'Every kill scores. Reach the limit first.', scoreLimit: 25, rules: { respawn: { delay: 2, forced: 10 } } },
+	{ id: 'tdm', code: 'M02', name: 'Team Clash', variant: 'Classic', goal: 'Kills score for your team.', teams: 2, scoreLimit: 50, rules: { friendlyFire: 0 } },
+	{ id: 'duel', code: 'M03', name: 'Duel', variantOf: 'ffa', variant: 'Duel 1v1', goal: 'One on one; the winner stays on.', sizeDefault: 2, params: { activePlayers: 2, queue: 'winnerStays' } },
+	{ id: 'ctf', code: 'M04', name: 'Flag Raid', variant: 'Two flags', goal: 'Take the enemy flag home while yours is there.', teams: 2, sizeDefault: 10, scoreLimit: 3, timeLimit: 900, scoreBy: 'objective', objective: 'flag', params: { returnTime: 20, homeRequired: true, neutral: false } },
+	{ id: 'oneflag', code: 'M05', name: 'Lone Flag', variantOf: 'ctf', variant: 'One flag (Lone Flag)', goal: 'Carry the flag into the enemy base.', teams: 2, scoreLimit: 5, timeLimit: 900, scoreBy: 'objective', objective: 'flag', params: { returnTime: 20, homeRequired: false, neutral: true } },
+	{ id: 'dom', code: 'M06', name: 'Holdfast', variant: 'Three points', goal: 'Hold points: each one held scores.', teams: 2, scoreLimit: 200, scoreBy: 'objective', objective: 'point', params: Object.assign({ tickInterval: 2, tickPoints: 1 }, CAPTURE_PARAMS), ruleset: 'modern' },
+	{ id: 'conquest', code: 'M07', name: 'Frontline', variantOf: 'dom', variant: 'Tickets (Frontline)', goal: 'Hold points and stay alive to drain enemy tickets.', teams: 2, sizeDefault: 16, timeLimit: 1200, scoreBy: 'tickets', objective: 'point', params: Object.assign({ tickets: 150, deathCost: 1, bleedHeld: 2, bleedInterval: 3, spawnAtOwned: true }, CAPTURE_PARAMS), ruleset: 'modern' },
+	{ id: 'rush', code: 'M08', name: 'Breach Assault', variantOf: 'bomb', variant: 'Stages and tickets (Breach Assault)', goal: 'Attackers arm relays with Use; defenders stop them.', useButton: true, teams: 2, sizeDefault: 16, timeLimit: 0, scoreBy: 'tickets', objective: 'bombsite', params: Object.assign({}, BOMB_PARAMS, { tickets: 75, deathCost: 1, stages: 3, perStage: 2, fuse: 30, defuseTime: 5, defuseCheckpoint: 0 }), ruleset: 'modern' },
+	{ id: 'hardpoint', code: 'M09', name: 'Hotpoint', variantOf: 'dom', variant: 'Moving hill (Hotpoint)', goal: 'Hold the moving hill to score.', teams: 2, scoreLimit: 150, scoreBy: 'objective', objective: 'hill', params: { moveInterval: 60, holdRate: 1 }, ruleset: 'modern' },
+	{ id: 'oddball', code: 'M10', name: 'Relic Run', variant: 'Relic', goal: 'Hold the relic to score; its carrier uses melee.', scoreLimit: 100, scoreBy: 'objective', objective: 'relic', params: { holdRate: 1, carrierMeleeOnly: true, returnTime: 30 }, scoring: NO_KILL_SCORING },
 	{ id: 'payload', code: 'M11', name: 'Convoy', goal: 'Attackers push the convoy; defenders hold it.', teams: 2, sizeDefault: 10, timeLimit: 240, scoreBy: 'objective', objective: 'payloadPath', params: { speed: 1.2, maxSpeed: 1.8, pushStack: 0.25, rollbackAfter: 10, rollbackSpeed: 0.5, checkpoints: 3, checkpointTime: 120 }, ruleset: 'heroes' },
-	{ id: 'control', code: 'M12', name: 'Uplink', goal: 'Capture the uplink to win the round.', teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'point', rounds: { winsNeeded: 2, limit: 3, live: 0, freeze: 5, switchAt: 0, endDelay: 5 }, params: Object.assign({}, CAPTURE_PARAMS, { captureTime: 10, progressTime: 100, overtimeAt: 0.99 }), ruleset: 'heroes' },
-	{ id: 'bomb', code: 'M13', name: 'Detonate', goal: 'Attackers plant with Use; defenders defuse.', useButton: true, teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: BOMB_PARAMS, tiebreak: 'draw', ruleset: 'tactical' },
-	{ id: 'elim', code: 'M14', name: 'Last Squad', goal: 'One life per round. Wipe out the other team.', teams: 2, timeLimit: 0, scoreBy: 'rounds', rounds: { winsNeeded: 5, limit: 9, live: 90, freeze: 5, switchAt: 0, endDelay: 4 }, respawn: 'round', params: { shrinkTime: 30, shrinkMinRadius: 5, zoneDamage: 5 }, tiebreak: 'draw', ruleset: 'modern' },
-	{ id: 'lms', code: 'M15', name: 'Last Standing', goal: 'Limited lives. Be the last one standing.', scoreBy: 'survival', rules: { lives: 3 }, params: { startArmor: 100, allWeapons: true, maxAmmo: true, pickups: 'springboots' } },
-	{ id: 'gungame', code: 'M16', name: 'Arms Ladder', goal: 'Each kill gives the next gun; win with melee.', goalDetail: 'A melee kill also sets the victim one gun back on the ladder.', scoreBy: 'objective', params: { economy: 'ladder', meleeDemotes: true, ladder: GUNGAME_LADDER }, scoring: NO_KILL_SCORING },
+	{ id: 'control', code: 'M12', name: 'Uplink', variantOf: 'dom', variant: 'Uplink rounds', goal: 'Capture the uplink to win the round.', teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'point', rounds: { winsNeeded: 2, limit: 3, live: 240, freeze: 5, switchAt: 0, endDelay: 5 }, params: Object.assign({}, CAPTURE_PARAMS, { captureTime: 10, progressTime: 100, overtimeAt: 0.99 }), ruleset: 'heroes' },
+	{ id: 'bomb', code: 'M13', name: 'Detonate', variant: 'Classic', goal: 'Attackers plant with Use; defenders defuse.', useButton: true, teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: BOMB_PARAMS, tiebreak: 'draw', ruleset: 'tactical' },
+	{ id: 'elim', code: 'M14', name: 'Last Squad', variantOf: 'tdm', variant: 'One-life rounds (Last Squad)', goal: 'One life per round. Wipe out the other team.', teams: 2, timeLimit: 0, scoreBy: 'rounds', rounds: { winsNeeded: 5, limit: 9, live: 90, freeze: 5, switchAt: 0, endDelay: 4 }, respawn: 'round', params: { shrinkTime: 30, shrinkMinRadius: 5, zoneDamage: 5 }, tiebreak: 'draw', ruleset: 'modern' },
+	{ id: 'lms', code: 'M15', name: 'Last Standing', variantOf: 'ffa', variant: 'Lives (Last Standing)', goal: 'Limited lives. Be the last one standing.', scoreBy: 'survival', rules: { lives: 3 }, params: { startArmor: 100, allWeapons: true, maxAmmo: true, pickups: 'springboots' } },
+	{ id: 'gungame', code: 'M16', name: 'Arms Ladder', variantOf: 'ffa', variant: 'Arms Ladder', goal: 'Each kill gives the next gun; win with melee.', goalDetail: 'A melee kill also sets the victim one gun back on the ladder.', scoreBy: 'objective', params: { economy: 'ladder', meleeDemotes: true, ladder: GUNGAME_LADDER }, scoring: NO_KILL_SCORING },
 	{ id: 'infection', code: 'M17', name: 'Blight', goal: 'Humans outlast the clock; a human who dies joins the Blight.',
 		goalDetail: 'The Blight breaks out after {infectAfter} s: its members are tough, melee only and leap when they jump.', teams: 2, sizeDefault: 12, timeLimit: 300, scoreBy: 'survival', params: BLIGHT_PARAMS },
-	{ id: 'juggernaut', code: 'M18', name: 'Colossus', goal: 'Kill the Colossus to become it; only it scores.', goalDetail: 'The first kill makes the first Colossus: it is tougher and hits harder.', scoreLimit: 15, scoreBy: 'objective', params: { healthMult: 3, damageMult: 1.5 }, scoring: NO_KILL_SCORING },
-	{ id: 'cursetag', code: 'M19', name: 'Curse Tag', goal: 'Kill the cursed; the cursed passes the curse on at the beacon.', goalDetail: 'The cursed is weak and fights with melee only.', scoreLimit: 20, params: { cursedHealth: 50, meleeOnly: true, passOnTag: false, beaconRadius: 2 }, scoring: NO_KILL_SCORING },
+	{ id: 'juggernaut', code: 'M18', name: 'Colossus', variantOf: 'oddball', variant: 'Colossus', goal: 'Kill the Colossus to become it; only it scores.', goalDetail: 'The first kill makes the first Colossus: it is tougher and hits harder.', scoreLimit: 15, scoreBy: 'objective', params: { healthMult: 3, damageMult: 1.5 }, scoring: NO_KILL_SCORING },
+	{ id: 'cursetag', code: 'M19', name: 'Curse Tag', variantOf: 'oddball', variant: 'Curse (Curse Tag)', goal: 'Kill the cursed; the cursed passes the curse on at the beacon.', goalDetail: 'The cursed is weak and fights with melee only.', scoreLimit: 20, params: { cursedHealth: 50, meleeOnly: true, passOnTag: false, beaconRadius: 2 }, scoring: NO_KILL_SCORING },
 	{ id: 'royale', code: 'M20', name: 'Last Ring', goal: 'Loot, stay in the ring, be the last standing.', goalDetail: 'The last squad standing wins. Hold Use to swap a gun for the one on the ground.', useButton: true, sizeDefault: 18, timeLimit: 0, scoreBy: 'survival', respawn: 'none', params: { squadSize: 3, ringWait: [30, 25, 25, 20, 15, 10], ringShrink: [30, 25, 20, 20, 15, 15], ringDamage: [2, 4, 8, 12, 16, 20], squadBeacons: 1,
 		ringScale: [0.65, 0.45, 0.3, 0.18, 0.08, 0], rarityWeights: [45, 28, 15, 9, 3], pickups: false, shieldByRarity: [50, 75, 100, 125, 125] }, ruleset: 'royale' },
-	{ id: 'horde', code: 'M21', name: 'Siege Waves', goal: 'Defend the core; shop between waves.', teams: 1, sizeDefault: 4, timeLimit: 0, scoreBy: 'pve', params: { economy: 'waveShop', coreHealth: 5000, retries: 2, souls: true }, family: 'pve', ruleset: 'modern' },
-	{ id: 'endless', code: 'M22', name: 'Endless Hold', goal: 'Survive harder waves; extract to keep your score.', goalDetail: 'Defend the core; reach the extract zone when it opens.', teams: 1, sizeDefault: 4, timeLimit: 0, scoreBy: 'pve', params: { economy: 'waveShop', coreHealth: 5000, scalePerWave: 0.08, scaleCap: 4, extractEvery: 5, souls: true }, family: 'pve', ruleset: 'modern' },
+	{ id: 'horde', code: 'M21', name: 'Siege Waves', variant: 'Ten waves', goal: 'Defend the core; shop between waves.', teams: 1, sizeDefault: 4, timeLimit: 0, scoreBy: 'pve', params: { economy: 'waveShop', coreHealth: 5000, retries: 2, souls: true }, family: 'pve', ruleset: 'modern' },
+	{ id: 'endless', code: 'M22', name: 'Endless Hold', variantOf: 'horde', variant: 'Endless (Endless Hold)', goal: 'Survive harder waves; extract to keep your score.', goalDetail: 'Defend the core; reach the extract zone when it opens.', teams: 1, sizeDefault: 4, timeLimit: 0, scoreBy: 'pve', params: { economy: 'waveShop', coreHealth: 5000, scalePerWave: 0.08, scaleCap: 4, extractEvery: 5, souls: true }, family: 'pve', ruleset: 'modern' },
 	{ id: 'bank', code: 'M23', name: 'Mote Rush', goal: 'Bank the motes of fallen foes; invade the rivals.', teams: 2, timeLimit: 0, scoreBy: 'objective', objective: 'bank', params: { blockerAt: [5, 10, 15], invasionAt: 75, bossAt: 250 }, family: 'pve', ruleset: 'modern' },
-	{ id: 'bearer', code: 'M24', name: 'Flame Bearer', goal: 'Hold the flame to score and hit harder.', goalDetail: 'Kill the bearer to take the flame.', scoreLimit: 120, scoreBy: 'objective', params: { holdRate: 1, damageMult: 3, returnTime: 30 } },
-	{ id: 'roulette', code: 'M25', name: 'Roulette Arms', goal: 'Everyone shares one random, changing gun.', goalDetail: 'The gun changes every {rotateEvery} s. Every kill scores.', scoreLimit: 25, params: { rotateEvery: 30, infiniteAmmo: true, pickups: false } },
-	{ id: 'fiends', code: 'M26', name: 'Ravager vs Fiends', goal: 'One Ravager against the Fiends.', goalDetail: 'Wipe the other side out to win a round. A downed Fiend stands up while a partner lives.', teams: 2, sizeDefault: 3, timeLimit: 0, scoreBy: 'rounds', respawn: 'round', rounds: { winsNeeded: 3, limit: 5, live: 0, freeze: 5, switchAt: 0, endDelay: 5 }, params: { fixedSides: true, ravagerHealth: 175, ravagerArmor: 125, reviveTime: 20 }, ruleset: 'ravager' },
-	{ id: 'ghostops', code: 'M27', name: 'Ghost Ops', goal: 'Cloaked attackers plant; defenders stop them.', useButton: true, teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: Object.assign({ cloakWhenStill: true, attackerLoadout: ['tanto', 'warden'], attackerBuys: ['armor', 'helmet', 'gadget'], stillSpeed: 0.5, revealTime: 1 }, BOMB_PARAMS), tiebreak: 'draw', ruleset: 'tactical' },
+	{ id: 'bearer', code: 'M24', name: 'Flame Bearer', variantOf: 'oddball', variant: 'Flame (Flame Bearer)', goal: 'Hold the flame to score and hit harder.', goalDetail: 'Kill the bearer to take the flame.', scoreLimit: 120, scoreBy: 'objective', params: { holdRate: 1, damageMult: 3, returnTime: 30 } },
+	{ id: 'roulette', code: 'M25', name: 'Roulette Arms', variantOf: 'ffa', variant: 'Roulette', goal: 'Everyone shares one random, changing gun.', goalDetail: 'The gun changes every {rotateEvery} s. Every kill scores.', scoreLimit: 25, params: { rotateEvery: 30, infiniteAmmo: true, pickups: false } },
+	{ id: 'fiends', code: 'M26', name: 'Ravager vs Fiends', goal: 'One Ravager against the Fiends.', goalDetail: 'Wipe the other side out to win a round. A downed Fiend stands up while a partner lives.', teams: 2, sizeDefault: 3, timeLimit: 0, scoreBy: 'rounds', respawn: 'round', rounds: { winsNeeded: 3, limit: 5, live: 180, freeze: 5, switchAt: 0, endDelay: 5 }, params: { fixedSides: true, ravagerHealth: 175, ravagerArmor: 125, reviveTime: 20 }, ruleset: 'ravager' },
+	{ id: 'ghostops', code: 'M27', name: 'Ghost Ops', variantOf: 'bomb', variant: 'Ghost attackers (Ghost Ops)', goal: 'Cloaked attackers plant; defenders stop them.', useButton: true, teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: Object.assign({ cloakWhenStill: true, attackerLoadout: ['tanto', 'warden'], attackerBuys: ['armor', 'helmet', 'gadget'], stillSpeed: 0.5, revealTime: 1 }, BOMB_PARAMS), tiebreak: 'draw', ruleset: 'tactical' },
 	{ id: 'contract', code: 'M28', name: 'Silent Contract', goal: 'Reach the target unseen; fewer kills pay more.', goalDetail: 'Take the relic and reach the extract. Alarms and kills cost points.', teams: 1, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', params: { stealth: true, ghostBonus: true, noKillBonus: true }, family: 'solo', ruleset: 'modern' },
-	{ id: 'attrition', code: 'M29', name: 'Attrition', goal: 'Kill the rival squad and the fodder.', goalDetail: 'Minions march on each base: kills of minions and players count toward the limit.', teams: 2, scoreLimit: 300, timeLimit: 900, params: { fodderPoints: 1, heavyPoints: 3, botPoints: 5 }, scoring: { kill: 5 }, family: 'pve', ruleset: 'pilot' },
+	{ id: 'attrition', code: 'M29', name: 'Attrition', variantOf: 'tdm', variant: 'Minions (Attrition)', goal: 'Kill the rival squad and the fodder.', goalDetail: 'Minions march on each base: kills of minions and players count toward the limit.', teams: 2, scoreLimit: 300, timeLimit: 900, params: { fodderPoints: 1, heavyPoints: 3, botPoints: 5 }, scoring: { kill: 5 }, family: 'pve', ruleset: 'pilot' },
 	{ id: 'range', code: 'M30', name: 'Firing Range', goal: 'Free practice: shoot targets for timed drills.', goalDetail: 'Your first shot starts the drill clock, and the next shot after a drill starts a new one. Pause > Quit to menu leaves.', sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', family: 'solo' },
 	{ id: 'puzzle', code: 'M31', name: 'Test Chambers', goal: 'Press buttons with Use to open each chamber.', goalDetail: 'Plates and the cube open doors too: solve a chamber to reach the next.', useButton: true, sizeDefault: 1, timeLimit: 0, scoreBy: 'pve', family: 'solo', ruleset: 'modern' },
 ]);
+function modeParentId(modeId) {
+	const row = CAT.modes.byId(modeId);
+	return row && row.variantOf ? row.variantOf : modeId;
+}
+function modeVariantIds(parentId) {
+	return [parentId].concat(CAT.modes.filter((row) => row.variantOf === parentId).map((row) => row.id));
+}
+function modeMenuRows() { return CAT.modes.filter((row) => !row.variantOf); }
+function modeLabel(modeId) {
+	const row = CAT.modes.byId(modeId);
+	if (!row) return modeId;
+	return row.variantOf ? CAT.modes.byId(row.variantOf).name + ' - ' + row.variant : row.name;
+}
+const MODE_CARDS = [
+	{ id: 'frenzy', name: 'Frenzy', mode: 'ffa', map: 'spire' },
+	{ id: 'teamclash', name: 'Team Clash', mode: 'tdm', map: 'skyyard' },
+	{ id: 'holdfast', name: 'Holdfast', mode: 'dom', map: 'twinkeeps' },
+	{ id: 'flagraid', name: 'Flag Raid', mode: 'ctf', map: 'twinkeeps' },
+	{ id: 'detonate', name: 'Detonate', mode: 'bomb', map: 'dustline', roundWins: 5 },
+	{ id: 'armsladder', name: 'Arms Ladder', mode: 'gungame', map: 'gantry' },
+	{ id: 'lastring', name: 'Last Ring', mode: 'royale', map: 'isle' },
+	{ id: 'siegewaves', name: 'Siege Waves', mode: 'horde', map: 'cistern' },
+];
+const MODE_GROUPS = [
+	{ name: 'Versus', modes: ['ffa', 'tdm', 'ctf', 'dom', 'bomb', 'payload'] },
+	{ name: 'Party', modes: ['oddball', 'infection', 'royale', 'bank', 'fiends'] },
+	{ name: 'Co-op and solo', modes: ['horde', 'contract', 'range', 'puzzle'] },
+];
 
 // ==== 03g-data-bots.js ====
 Data.define('botTiers', {
@@ -18999,7 +19027,7 @@ const Modes = {
 		this.competitorsAtStart = this.countStanding();
 		this.skipWarnings();
 		this.behaviour.start();
-		if (this.mode.goal) this.announce(this.mode.name + ': ' + this.mode.goal, 'mode', MODE_GOAL_PRIORITY);
+		if (this.mode.goal) this.announce(modeLabel(this.mode.id) + ': ' + this.mode.goal, 'mode', MODE_GOAL_PRIORITY);
 		if (this.rules.rounds) this.startRound(Sim.time);
 		else this.beginOpenPlay();
 	},
@@ -36553,6 +36581,9 @@ const UI_CSS = 'html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 	+ '.ui-value { min-width: 4.8em; text-align: right; color: var(--ui-dim); font-variant-numeric: tabular-nums; }'
 	+ '.ui-cycle { min-width: 9em; text-align: center; } .ui-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }'
 	+ '.ui-tab.active { background: var(--ui-accent); color: #1a1205; font-weight: 700; } .ui-note { color: var(--ui-dim); margin: 0 0 10px; line-height: 1.45; }'
+	+ '.ui-crumbs { display: flex; flex-wrap: wrap; align-items: center; color: var(--ui-dim); font-size: 0.875em; margin: -4px 0 10px; }'
+	+ '.ui-crumb { cursor: pointer; text-decoration: underline; padding: 8px 2px; margin: -8px 0; } .ui-crumb:hover, .ui-crumb-here { color: var(--ui-text); }'
+	+ '.ui-crumb-sep, .ui-crumb-more { white-space: pre; } .ui-crumb-more { display: none; }'
 	+ '.ui-foot { display: flex; gap: 10px; margin-top: 10px; flex-wrap: wrap; } .ui-slot { min-width: 8em; text-align: center; padding: 0.4em 0.7em; min-height: 40px; }'
 	+ '.ui-panel { background: var(--ui-bg); border: 1px solid var(--ui-line); border-radius: 12px; padding: 14px; margin: auto; width: min(560px, 100%); }'
 	+ '.ui-dialog { justify-content: center; align-items: center; background: rgba(5, 8, 12, 0.7); } .ui-result { white-space: pre-wrap; font: 14px/1.45 ui-monospace, Consolas, monospace; color: var(--ui-dim); }'
@@ -36562,7 +36593,8 @@ const UI_CSS = 'html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 	+ '#overlay > .ui-toasts.ui-toasts-play { top: 58%; }'
 	+ '.ui-toast { background: var(--ui-bg); border: 1px solid var(--ui-line); padding: 8px 14px; border-radius: 8px; animation: ui-toast-in 0.18s ease-out; }'
 	+ '@keyframes ui-toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }'
-	+ '@media (max-height: 520px) { .ui-screen { padding-top: calc(8px + var(--safe-top)); padding-bottom: calc(8px + var(--safe-bottom)); } .ui-title { font-size: 1.5em; } .ui-sub { margin-bottom: 8px; } .ui-row { min-height: 40px; margin-bottom: 4px; } }'
+	+ '@media (max-height: 520px) { .ui-screen { padding-top: calc(8px + var(--safe-top)); padding-bottom: calc(8px + var(--safe-bottom)); } .ui-title { font-size: 1.5em; } .ui-sub { margin-bottom: 8px; } .ui-row { min-height: 40px; margin-bottom: 4px; }'
+	+ ' .ui-crumbs { margin-bottom: 6px; } .ui-crumb-far { display: none; } .ui-crumb-more { display: inline; } }'
 	+ '@media (prefers-reduced-motion: reduce) { .ui-toast { animation: none; } }';
 const Ui = {
 	screens: new Map(),
@@ -36585,12 +36617,12 @@ const Ui = {
 	top() { return this.stack.length ? this.stack[this.stack.length - 1] : null; },
 	current() { return this.stack.length ? this.top().name : ''; },
 	isOpen(name) { return this.stack.some((entry) => entry.name === name); },
-	open(name, params) {
+	open(name, params, returnTo) {
 		const screen = this.screens.get(name);
 		if (!screen) { this.toast('Coming soon'); return false; }
 		while (!screen.inGame && this.top() && this.top().screen.inGame) this.pop();
 		const previous = this.top();
-		if (previous) { previous.returnFocus = document.activeElement; if (!screen.overlay) previous.element.classList.add('behind'); }
+		if (previous) { previous.returnFocus = returnTo || document.activeElement; if (!screen.overlay) previous.element.classList.add('behind'); }
 		const element = makeElement('div', 'ui-screen ui-' + name + (screen.passthrough ? ' passthrough' : '') + (screen.inGame ? ' in-game' : ''));
 		const entry = { name, screen, element, params, returnFocus: null };
 		this.root.appendChild(element);
@@ -36631,11 +36663,37 @@ const Ui = {
 		const below = this.top();
 		if (!below) return;
 		below.element.classList.remove('behind');
+		if (below.screen.onResume) below.screen.onResume(below.element);
 		const target = below.returnFocus && below.element.contains(below.returnFocus) ? below.returnFocus : null;
 		if (target) target.focus(); else this.focusFirst(below);
 	},
 	replace(name, params) { this.pop(); return this.open(name, params); },
 	closeAll() { while (this.stack.length) this.pop(); },
+	backTo(target) {
+		if (!this.stack.includes(target)) return;
+		this.emitClick('back');
+		while (this.top() && this.top() !== target) this.pop();
+	},
+	crumbBar(entry) {
+		const items = (entry.crumbBase || []).map((text) => ({ text, target: null }));
+		for (const item of this.stack.slice(0, this.stack.indexOf(entry) + 1)) if (item.crumb) items.push({ text: item.crumb, target: item === entry ? null : item });
+		const bar = makeElement('div', 'ui-crumbs');
+		if (items.length > 2) bar.appendChild(makeElement('span', 'ui-crumb-more', '...'));
+		items.forEach((item, index) => {
+			const far = index < items.length - 2 ? ' ui-crumb-far' : '';
+			if (index > 0) bar.appendChild(makeElement('span', 'ui-crumb-sep' + far, ' > '));
+			const last = index === items.length - 1;
+			const part = makeElement('span', (item.target ? 'ui-crumb' : last ? 'ui-crumb-here' : 'ui-crumb-text') + far, item.text);
+			if (item.target) { part.setAttribute('role', 'link'); part.addEventListener('click', () => this.backTo(item.target)); }
+			bar.appendChild(part);
+		});
+		return bar;
+	},
+	setCrumb(entry, text) {
+		entry.crumb = text;
+		const old = entry.element.querySelector('.ui-crumbs');
+		if (old) old.replaceWith(this.crumbBar(entry));
+	},
 	focusables(element) { return Array.from(element.querySelectorAll(UI_FOCUSABLE)).filter((item) => item.offsetParent !== null); },
 	focusFirst(entry) {
 		const target = entry.element.querySelector('[data-autofocus]') || this.focusables(entry.element)[0];
@@ -36685,6 +36743,8 @@ const Ui = {
 		if (!this.stack.length || this.top().screen.inGame) return;
 		const screen = this.top().screen;
 		if (screen.onCommand && screen.onCommand(command)) return;
+		const element = this.top().element;
+		if ((command === 'prev' || command === 'next') && element.tabStep) { element.tabStep(command === 'next' ? 1 : -1); return; }
 		if (command === 'accept') this.activate(); else if (command === 'back') this.back(); else this.navigate(command);
 	},
 	onKeyDown(event) {
@@ -36794,12 +36854,10 @@ Bus.on('input.menu', (payload) => Ui.onMenuCommand(payload.command));
 // ==== 18b-ui-menus.js ====
 const MAIN_MENU_ENTRIES = [
 	{ label: 'Quick Match', primary: true, event: 'ui.quickMatch' },
-	{ label: 'Career', screen: 'career' },
 	{ label: 'Play', screen: 'play' },
-	{ label: 'Solo', screen: 'solo' },
+	{ label: 'Career', screen: 'career' },
 	{ label: 'Custom', screen: 'custom' },
 	{ label: 'Range', event: 'ui.range' },
-	{ label: 'Generated map', screen: 'mapgen' },
 	{ label: 'Map editor', screen: 'mapEditor' },
 	{ label: 'Settings', screen: 'settings' },
 	{ label: 'Help', screen: 'help' },
@@ -36819,12 +36877,27 @@ const MENUS_CSS = '.ui-editor { width: min(360px, 48vw); max-height: 100%; overf
 	+ '.ui-editor .ui-button { min-height: 36px; } .ui-editor .ui-note { margin-bottom: 6px; } .ui-editor .ui-slider { width: 58%; } .ui-editor .ui-cycle { min-width: 7em; } .ui-editor .ui-label { min-width: 0; } .ui-editor .ui-value { min-width: 3em; }'
 	+ '.ui-touchLayout[data-dock="left"] .ui-panel { margin: auto auto auto 0; } .ui-touchLayout[data-dock="right"] .ui-panel { margin: auto 0 auto auto; }'
 	+ '@media (max-height: 520px) { .ui-main .ui-menu, .ui-solo .ui-menu { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; } .ui-main .ui-menu .ui-button { font-size: 1em; } }';
-function screenHeader(root, title, onBack) {
+function screenHeader(root, title, onBack, crumb) {
 	const head = makeElement('div', 'ui-head');
 	head.appendChild(Ui.button('Back', onBack || (() => Ui.back())));
 	head.appendChild(makeElement('h1', 'ui-title', title));
 	root.appendChild(head);
+	const entry = Ui.stack.find((item) => item.element === root);
+	if (entry) {
+		entry.crumb = crumb || title;
+		root.appendChild(Ui.crumbBar(entry));
+	}
 	return head;
+}
+function screenTabs(root, tabButtons, select) {
+	const ids = Array.from(tabButtons.keys());
+	root.tabStep = (direction) => {
+		const current = ids.findIndex((id) => tabButtons.get(id).classList.contains('active'));
+		const next = ids[(current + direction + ids.length) % ids.length];
+		select(next);
+		tabButtons.get(next).focus();
+		Ui.emitClick('move');
+	};
 }
 Ui.register('main', {
 	noBack: true,
@@ -36920,6 +36993,7 @@ Ui.register('settings', {
 			tabButtons.set(id, button);
 			tabs.appendChild(button);
 		}
+		screenTabs(root, tabButtons, (id) => { active = id; render(); });
 		const reset = Ui.button('Reset this tab', () => Ui.confirm({
 			title: 'Reset this tab?', text: 'All settings on this tab return to their defaults.', yes: 'Reset',
 			onYes: () => { Settings.resetKeys(settingKeys(active)); render(); },
@@ -37198,6 +37272,8 @@ const PLAY_DEFAULT_LENGTH = 'standard';
 const PLAY_SCORE_STEP = 5;
 const PLAY_TIME_STEP = 30;
 const PLAY_AUTO_TEAM = -1;
+const PLAY_DEFAULT_ROUNDS = -1;
+const PLAY_MAX_ROUND_WINS = 7;
 const PLAY_RESULT_TITLES = { win: 'Victory', loss: 'Defeat', draw: 'Draw', over: 'Match over' };
 const PLAY_REASON_TEXT = { score: 'Score limit reached', time: 'Time is up', overtime: 'Decided in overtime', draw: 'Nobody could break the tie', eliminated: 'Last one standing', rounds: 'Rounds decided', tickets: 'Tickets ran out',
 	victory: 'Mission complete', defeat: 'The run is over', extracted: 'Extracted in time', objective: 'Objective complete' };
@@ -37222,7 +37298,8 @@ const PlayFlow = {
 	},
 	defaults() {
 		const map = this.smallestMap(PLAY_DEFAULT_MODE);
-		return { mode: PLAY_DEFAULT_MODE, map: map ? map.id : '', ruleset: '', bots: Math.min(PLAY_DEFAULT_BOTS, this.maxBots()), difficulty: PLAY_DEFAULT_DIFFICULTY, team: PLAY_AUTO_TEAM, length: PLAY_DEFAULT_LENGTH };
+		return { mode: PLAY_DEFAULT_MODE, map: map ? map.id : '', ruleset: '', bots: Math.min(PLAY_DEFAULT_BOTS, this.maxBots()), difficulty: PLAY_DEFAULT_DIFFICULTY, team: PLAY_AUTO_TEAM, length: PLAY_DEFAULT_LENGTH,
+			roundWins: PLAY_DEFAULT_ROUNDS };
 	},
 	normalize(choice) {
 		const base = this.defaults(), source = choice || {};
@@ -37238,12 +37315,20 @@ const PlayFlow = {
 			difficulty: difficulty.id,
 			team: source.team === 0 || source.team === 1 ? source.team : PLAY_AUTO_TEAM,
 			length: PLAY_LENGTHS[source.length] ? source.length : PLAY_DEFAULT_LENGTH,
+			roundWins: mode.rounds && Number.isInteger(source.roundWins) && source.roundWins >= 1 && source.roundWins <= PLAY_MAX_ROUND_WINS ? source.roundWins : PLAY_DEFAULT_ROUNDS,
 		};
 	},
 	remembered() { return this.normalize(Save.data && Save.data.play); },
-	remember(choice) {
-		Save.data.play = { mode: choice.mode, map: choice.map, ruleset: choice.ruleset, bots: choice.bots, difficulty: choice.difficulty, team: choice.team, length: choice.length };
+	remember(choice, advanced) {
+		const play = { mode: choice.mode, map: choice.map, ruleset: choice.ruleset, bots: choice.bots, difficulty: choice.difficulty, team: choice.team, length: choice.length };
+		if (choice.roundWins >= 1) play.roundWins = choice.roundWins;
+		if (advanced) play.advanced = advanced;
+		Save.data.play = play;
 		Save.scheduleSave();
+	},
+	rememberAdvanced(draft, team) {
+		const side = team === 0 || team === 1 ? team : PLAY_AUTO_TEAM;
+		this.remember(this.normalize({ mode: draft.mode, map: draft.map, difficulty: draft.difficulty, team: side }), { draft: CustomMatch.copy(draft), team: side });
 	},
 	buildSetup(choice, random) {
 		const seed = newSeed(random);
@@ -37251,7 +37336,8 @@ const PlayFlow = {
 			seed, difficulty: choice.difficulty, player: { team: choice.team, name: PLAY_PLAYER_NAME } };
 		if (choice.ruleset) setup.ruleset = choice.ruleset;
 		const limits = this.lengthLimits(choice.mode, choice.length, choice.ruleset);
-		if (limits) setup.modeOptions = limits;
+		const rounds = choice.roundWins >= 1 ? modeRoundOptions(CAT.modes.byId(choice.mode), choice.roundWins) : null;
+		if (limits || rounds) setup.modeOptions = Object.assign({}, limits, rounds);
 		return setup;
 	},
 	rosterBots(count, difficultyId, seed) {
@@ -37284,7 +37370,33 @@ const PlayFlow = {
 		this.remember(valid);
 		return Game.start(this.buildSetup(valid, random));
 	},
-	quickMatch() { return this.start(this.remembered()); },
+	quickMatch() {
+		const play = Save.data && Save.data.play, advanced = play && play.advanced;
+		if (isPlainObject(advanced) && isPlainObject(advanced.draft)) return this.startAdvanced(CustomMatch.validate(advanced.draft).draft, advanced.team);
+		return this.start(this.remembered());
+	},
+	startAdvanced(draft, team) {
+		const setup = CustomMatch.setup(draft);
+		if (!setup.map) { Ui.toast('No map is available for that mode'); return null; }
+		if (CAT.modes.byId(draft.mode).teams === TEAM_COUNT && (team === 0 || team === 1)) setup.player = { team };
+		this.rememberAdvanced(draft, team);
+		return CustomMatch.start(setup);
+	},
+	cardFor(modeId) { return MODE_CARDS.find((card) => card.mode === modeId) || null; },
+	lastCard() {
+		const mode = this.remembered().mode, parent = modeParentId(mode);
+		return this.cardFor(mode) || this.cardFor(parent) || MODE_CARDS.find((card) => modeParentId(card.mode) === parent) || MODE_CARDS[0];
+	},
+	variantChoice(card) {
+		const last = this.remembered();
+		const reopen = last.mode !== card.mode && modeParentId(last.mode) === card.mode && !this.cardFor(last.mode);
+		return reopen ? Object.assign({}, last, { ruleset: '' }) : undefined;
+	},
+	modeChoice(modeId, keep) {
+		const card = this.cardFor(modeId), kept = keep || {};
+		return this.normalize({ mode: modeId, map: card ? card.map : undefined, roundWins: card ? card.roundWins : undefined,
+			difficulty: kept.difficulty || this.remembered().difficulty, team: kept.team, length: kept.length });
+	},
 	shuffle(random) {
 		const pick = (list) => list[Math.floor(random() * list.length) % list.length];
 		const mode = pick(this.playableModes()), map = pick(this.mapsFor(mode.id));
@@ -37336,52 +37448,23 @@ const PlayFlow = {
 };
 Bus.on('ui.quickMatch', () => PlayFlow.quickMatch());
 Bus.on('ui.shuffleMatch', () => PlayFlow.start(PlayFlow.shuffle(Math.random)));
-function playModeOptions() {
-	const modes = PlayFlow.playableModes();
-	return { values: modes.map((mode) => mode.id), labels: modes.map((mode) => mode.name) };
-}
-function playRulesetOptions() {
-	return { values: [''].concat(CAT.rulesets.map((row) => row.id)), labels: ['Mode default'].concat(CAT.rulesets.map((row) => row.name)) };
-}
-function playTeamOptions() {
-	return { values: [PLAY_AUTO_TEAM, 0, 1], labels: ['Automatic', TEAM_NAMES[0], TEAM_NAMES[1]] };
-}
 function playScoreLimit(modeId, ruleset) { return Rules.build(ruleset ? { mode: modeId, ruleset } : { mode: modeId }).scoreLimit; }
-function playModeSummary(modeId, ruleset) {
+function playModeFacts(modeId, ruleset, roundWins) {
 	const mode = CAT.modes.byId(modeId), scoreLimit = playScoreLimit(modeId, ruleset);
 	const parts = [mode.sizeDefault + ' players'];
+	if (mode.params.squadSize) parts.push('squads of ' + mode.params.squadSize);
 	if (scoreLimit > 0) parts.push('first to ' + scoreLimit);
+	if (mode.rounds) parts.push('first to ' + (roundWins >= 1 ? roundWins : mode.rounds.winsNeeded) + ' rounds');
+	if (mode.params.ladder) parts.push(mode.params.ladder.length + ' guns');
 	if (mode.timeLimit > 0) parts.push(Math.round(mode.timeLimit / 60) + ' min');
-	return (mode.goal + ' ' + parts.join(', ') + '.').trim();
+	return parts.join(', ');
 }
-Ui.register('play', {
-	build(root) {
-		screenHeader(root, 'Play');
-		const choice = PlayFlow.remembered(), form = makeElement('div', 'ui-scroll pl-form'), summary = makeElement('p', 'ui-note');
-		const render = () => Ui.rebuild(form, () => {
-			form.replaceChildren();
-			const modes = playModeOptions(), maps = PlayFlow.mapsFor(choice.mode), rulesets = playRulesetOptions(), difficulties = PlayFlow.difficulties(), teams = playTeamOptions();
-			form.appendChild(Ui.row('Mode', Ui.cycle(modes.values, modes.labels, choice.mode, (value) => { choice.mode = value; Object.assign(choice, PlayFlow.normalize({ mode: value, ruleset: choice.ruleset, difficulty: choice.difficulty, team: choice.team, length: choice.length })); render(); })));
-			form.appendChild(Ui.row('Map', Ui.cycle(maps.map((map) => map.id), maps.map((map) => map.name), choice.map, (value) => { choice.map = value; })));
-			form.appendChild(Ui.row('Rules', Ui.cycle(rulesets.values, rulesets.labels, choice.ruleset, (value) => { choice.ruleset = value; render(); })));
-			form.appendChild(Ui.row('Bots', Ui.slider({ min: 0, max: PlayFlow.maxBots(), step: 1, value: choice.bots, format: (value) => String(value) }, (value) => { choice.bots = value; })));
-			form.appendChild(Ui.row('Difficulty', Ui.cycle(difficulties.map((row) => row.id), difficulties.map((row) => row.name), choice.difficulty, (value) => { choice.difficulty = value; })));
-			if (PlayFlow.hasLength(choice.mode)) form.appendChild(Ui.row('Match length', Ui.cycle(PLAY_LENGTH_IDS, PLAY_LENGTH_LABELS, choice.length, (value) => { choice.length = value; })));
-			if (PlayFlow.hasTeamChoice(choice.mode)) form.appendChild(Ui.row('Your team', Ui.cycle(teams.values, teams.labels, choice.team, (value) => { choice.team = value; })));
-			summary.textContent = playModeSummary(choice.mode, choice.ruleset);
-		});
-		root.appendChild(form);
-		root.appendChild(summary);
-		const foot = makeElement('div', 'ui-foot');
-		const start = Ui.button('Start', () => PlayFlow.start(choice), 'primary');
-		start.dataset.autofocus = '1';
-		foot.appendChild(start);
-		foot.appendChild(Ui.button('Shuffle', () => { Object.assign(choice, PlayFlow.shuffle(Math.random), { length: choice.length }); render(); }));
-		foot.appendChild(Ui.button('Loadout', () => Ui.open('loadout')));
-		root.appendChild(foot);
-		render();
-	},
-});
+function playModeSummary(modeId, ruleset, roundWins) {
+	return (CAT.modes.byId(modeId).goal + ' ' + playModeFacts(modeId, ruleset, roundWins) + '.').trim();
+}
+function modeRoundOptions(mode, wins) {
+	return { rounds: { winsNeeded: wins, limit: wins * 2 - 1, switchAt: mode.rounds.switchAt > 0 ? wins - 1 : 0 } };
+}
 function playResultsStats(results) {
 	const mine = results.players.find((player) => player.id === Game.playerId);
 	if (!mine) return Math.round(results.duration) + ' s';
@@ -37410,7 +37493,10 @@ Ui.register('results', {
 		main.dataset.autofocus = '1';
 		if (step) foot.appendChild(main);
 		if (again) foot.appendChild(again);
-		if (Game.match && !Game.match.setup.progress) foot.appendChild(Ui.button('Next map', () => PlayFlow.nextMap()));
+		if (Game.match && !Game.match.setup.progress) {
+			foot.appendChild(Ui.button('Next map', () => PlayFlow.nextMap()));
+			foot.appendChild(Ui.button('Change mode', () => Ui.open('playSetup', { mode: Game.match.setup.mode })));
+		}
 		foot.appendChild(Ui.button('Main menu', () => Game.stop()));
 		root.appendChild(foot);
 	},
@@ -37576,7 +37662,7 @@ const Scoreboard = {
 	title() {
 		const mode = Game.match && Game.match.rules ? CAT.modes.byId(Game.match.rules.mode) : null;
 		const map = Game.match && Game.match.map ? Game.match.map.name : '';
-		return (mode ? mode.name : 'Match') + (map ? ' - ' + map : '');
+		return (mode ? modeLabel(mode.id) : 'Match') + (map ? ' - ' + map : '');
 	},
 	onAction(down) {
 		if (Game.headless || Game.state !== 'playing') return;
@@ -38207,10 +38293,7 @@ const CustomMatch = {
 		const options = {};
 		if (draft.scoreLimit >= 0) options.scoreLimit = draft.scoreLimit;
 		if (draft.timeLimit >= 0) options.timeLimit = draft.timeLimit;
-		if (draft.roundWins >= 0 && mode.rounds) {
-			const wins = draft.roundWins;
-			options.rounds = { winsNeeded: wins, limit: wins * 2 - 1, switchAt: mode.rounds.switchAt > 0 ? wins - 1 : 0 };
-		}
+		if (draft.roundWins >= 0 && mode.rounds) Object.assign(options, modeRoundOptions(mode, draft.roundWins));
 		return options;
 	},
 	setup(draft, seed, withPlayer) {
@@ -38226,11 +38309,11 @@ const CustomMatch = {
 		if (Object.keys(draft.difficultySliders).length === 0) return draft.difficulty;
 		return Object.assign({ preset: draft.difficulty }, draft.difficultySliders);
 	},
-	bundleStart(draft, bundleId, seed, withPlayer) {
+	bundleStart(draft, bundleId, seed, withPlayer) { return this.setup(this.bundleDraft(draft, bundleId), seed, withPlayer); },
+	bundleDraft(draft, bundleId) {
 		const plain = this.copy(draft);
-		Object.assign(plain, { bundle: bundleId, move: '', health: '', economy: '', weaponSet: '', weaponList: null, items: true, friendlyFire: EDITOR_DEFAULT,
+		return Object.assign(plain, { bundle: bundleId, move: '', health: '', economy: '', weaponSet: '', weaponList: null, items: true, friendlyFire: EDITOR_DEFAULT,
 			lives: EDITOR_DEFAULT, respawnDelay: EDITOR_DEFAULT, name: '', mutators: [] });
-		return this.setup(plain, seed, withPlayer);
 	},
 	start(setup) {
 		Ui.closeAll();
@@ -38262,8 +38345,13 @@ const editorList = (values, format) => ({ values, labels: values.map(format) });
 const editorCatalogue = (rows, blankLabel) => ({ values: [''].concat(rows.map((row) => row.id)), labels: [blankLabel].concat(rows.map((row) => row.name)) });
 const editorOptionalCatalogue = (name, blankLabel) => editorCatalogue(CAT[name] ? CAT[name].filter((row) => row.id !== MATCH_SET_ID) : [], blankLabel);
 function editorModeOptions() {
-	const rows = CAT.modes.filter((mode) => Modes.isPlayable(mode.id));
+	const rows = modeMenuRows().filter((mode) => modeVariantIds(mode.id).some((id) => Modes.isPlayable(id)));
 	return { values: rows.map((mode) => mode.id), labels: rows.map((mode) => mode.name) };
+}
+function editorVariantIds(draft) { return modeVariantIds(modeParentId(draft.mode)).filter((id) => Modes.isPlayable(id)); }
+function editorVariantOptions(draft) {
+	const ids = editorVariantIds(draft);
+	return { values: ids, labels: ids.map((id) => CAT.modes.byId(id).variant) };
 }
 function editorMapOptions(draft) {
 	const maps = Maps.savedForMode(draft.mode);
@@ -38285,7 +38373,9 @@ function editorPersonalityOptions() {
 	return { values: [EDITOR_PERSONALITY_MIXED].concat(rows.map((row) => row.id)), labels: ['Mixed'].concat(rows.map((row) => row.name)) };
 }
 const EDITOR_FIELDS = [
-	{ tab: 'mode', key: 'mode', label: 'Game mode', options: editorModeOptions, changed: 'modeChanged' },
+	{ tab: 'mode', key: 'mode', label: 'Game mode', options: editorModeOptions, read: (draft) => modeParentId(draft.mode), changed: 'modeChanged' },
+	{ tab: 'mode', key: 'mode', label: 'Variant', options: editorVariantOptions, show: (draft) => editorVariantIds(draft).length > 1,
+		reset: (draft) => modeParentId(draft.mode), changed: 'modeChanged' },
 	{ tab: 'mode', key: 'scoreLimit', label: 'Score limit', options: () => editorList(EDITOR_SCORE_LIMITS, editorLimitLabel('None', editorPlain)), show: (draft) => Modes.honoursLimit(draft.mode, 'score') },
 	{ tab: 'mode', key: 'timeLimit', label: 'Time limit', options: () => editorList(EDITOR_TIME_LIMITS, editorLimitLabel('None', editorMinutes)), show: (draft) => Modes.honoursLimit(draft.mode, 'time') },
 	{ tab: 'mode', key: 'roundWins', label: 'Rounds to win', options: () => editorList(EDITOR_ROUND_WINS, editorLimitLabel('None', editorPlain)), show: (draft) => !!CAT.modes.byId(draft.mode).rounds },
@@ -38321,12 +38411,13 @@ function editorChanged() {
 }
 function editorResetValue(field) {
 	const defaults = customDefaults();
+	if (typeof field.reset === 'function') return field.reset(EDITOR_STATE.draft);
 	return field.reset !== undefined && field.reset !== true ? field.reset : defaults[field.key];
 }
 function editorFieldRow(field) {
 	const draft = EDITOR_STATE.draft, options = field.options(draft);
 	const wrap = makeElement('div', 'cm-controls');
-	const cycle = Ui.cycle(options.values, options.labels, draft[field.key], (value) => {
+	const cycle = Ui.cycle(options.values, options.labels, field.read ? field.read(draft) : draft[field.key], (value) => {
 		draft[field.key] = value;
 		if (field.changed) EDITOR_CHANGED[field.changed](draft);
 		editorChanged();
@@ -38409,7 +38500,7 @@ function editorQuickStarts(list) {
 	list.appendChild(makeElement('p', 'ui-note', 'Starts at once with the mode, map, bots and limits chosen here and the presets of the bundle.'));
 	const grid = makeElement('div', 'cm-quick');
 	for (const row of RULESET_ROWS) {
-		grid.appendChild(Ui.button(row.code + '  ' + row.name, () => CustomMatch.start(CustomMatch.bundleStart(EDITOR_STATE.draft, row.id))));
+		grid.appendChild(Ui.button(row.code + '  ' + row.name, () => PlayFlow.startAdvanced(CustomMatch.bundleDraft(EDITOR_STATE.draft, row.id))));
 	}
 	list.appendChild(grid);
 }
@@ -38438,7 +38529,7 @@ function editorSummary(draft) {
 	const mode = CAT.modes.byId(draft.mode), setup = CustomMatch.setup(draft, 0);
 	const map = draft.map && Maps.get(draft.map) ? Maps.get(draft.map).name : 'random map';
 	const mutators = draft.mutators.length ? ', ' + draft.mutators.length + ' mutator' + (draft.mutators.length === 1 ? '' : 's') : '';
-	return mode.name + ' on ' + map + ', ' + setup.bots.length + ' bots' + mutators;
+	return modeLabel(mode.id) + ' on ' + map + ', ' + setup.bots.length + ' bots' + mutators;
 }
 function editorRenderTab(list, summary) {
 	const draft = EDITOR_STATE.draft;
@@ -38451,12 +38542,10 @@ function editorRenderTab(list, summary) {
 	});
 }
 Ui.register('custom', {
-	build(root) {
+	build(root, params) {
 		injectStyle('ui-custom-style', EDITOR_CSS);
 		EDITOR_STATE.draft = CustomMatch.load();
-		const head = makeElement('div', 'ui-head');
-		head.appendChild(Ui.button('Back', () => Ui.back()));
-		head.appendChild(makeElement('h1', 'ui-title', 'Custom Match'));
+		screenHeader(root, 'Custom Match', undefined, params && params.crumb || 'Custom');
 		const summary = makeElement('p', 'ui-sub');
 		const tabs = makeElement('div', 'ui-tabs'), list = makeElement('div', 'ui-scroll cm-list'), foot = makeElement('div', 'ui-foot');
 		const tabButtons = new Map();
@@ -38469,14 +38558,15 @@ Ui.register('custom', {
 			tabButtons.set(id, button);
 			tabs.appendChild(button);
 		}
-		const start = Ui.button('Start match', () => CustomMatch.start(CustomMatch.setup(EDITOR_STATE.draft)), 'primary');
+		screenTabs(root, tabButtons, (id) => { EDITOR_STATE.tab = id; render(); });
+		const start = Ui.button('Start match', () => PlayFlow.startAdvanced(EDITOR_STATE.draft), 'primary');
 		start.dataset.autofocus = '1';
 		foot.appendChild(start);
 		foot.appendChild(Ui.button('Presets', () => Ui.open('customPresets')));
 		foot.appendChild(Ui.button('Share code', () => Ui.open('customShare')));
 		foot.appendChild(Ui.button('Reset all', () => Ui.confirm({ title: 'Reset everything?', text: 'All custom match settings return to their defaults.', yes: 'Reset',
 			onYes: () => { EDITOR_STATE.draft = customDefaults(); editorChanged(); } })));
-		[head, summary, tabs, list, foot].forEach((part) => root.appendChild(part));
+		[summary, tabs, list, foot].forEach((part) => root.appendChild(part));
 		EDITOR_STATE.refresh = render;
 		render();
 	},
@@ -38499,9 +38589,7 @@ function presetRow(preset, nameInput, renderList) {
 Ui.register('customPresets', {
 	build(root) {
 		injectStyle('ui-custom-style', EDITOR_CSS);
-		const head = makeElement('div', 'ui-head');
-		head.appendChild(Ui.button('Back', () => Ui.back()));
-		head.appendChild(makeElement('h1', 'ui-title', 'Saved Presets'));
+		screenHeader(root, 'Saved Presets', undefined, 'Presets');
 		const nameInput = makeElement('input', 'cm-name');
 		nameInput.type = 'text'; nameInput.maxLength = LABEL_MAX; nameInput.placeholder = 'Preset name';
 		nameInput.value = editorDraft().name;
@@ -38519,7 +38607,7 @@ Ui.register('customPresets', {
 		const form = makeElement('div', 'cm-controls');
 		form.appendChild(nameInput);
 		form.appendChild(save);
-		[head, form, count, list].forEach((part) => root.appendChild(part));
+		[form, count, list].forEach((part) => root.appendChild(part));
 		renderList();
 	},
 });
@@ -38542,9 +38630,7 @@ function copyText(text, field) {
 Ui.register('customShare', {
 	build(root) {
 		injectStyle('ui-custom-style', EDITOR_CSS);
-		const head = makeElement('div', 'ui-head');
-		head.appendChild(Ui.button('Back', () => Ui.back()));
-		head.appendChild(makeElement('h1', 'ui-title', 'Share Code'));
+		screenHeader(root, 'Share Code');
 		const scroll = makeElement('div', 'ui-scroll');
 		const mine = makeElement('textarea', 'ui-code'), paste = makeElement('textarea', 'ui-code');
 		mine.readOnly = true; mine.tabIndex = 0; paste.tabIndex = 0;
@@ -38570,7 +38656,6 @@ Ui.register('customShare', {
 		scroll.appendChild(paste);
 		scroll.appendChild(importButton);
 		scroll.appendChild(message);
-		root.appendChild(head);
 		root.appendChild(scroll);
 	},
 });
@@ -38644,7 +38729,7 @@ const MapGenMenu = {
 		const retried = report.seed === report.requestedSeed ? '' : ' (seed ' + report.requestedSeed + ' failed the checks; seed ' + report.seed + ' passed)';
 		const repaired = report.repairs ? ', ' + report.repairs + ' sightline repair' + (report.repairs === 1 ? '' : 's') : '';
 		return notice + map.name + retried + '\n' + map.size[0] + ' x ' + map.size[2] + ' m, ' + map.spawns.length + ' spawns, ' + map.items.length + ' items, '
-			+ map.objectives.length + ' objectives' + repaired + '\nMade in ' + Math.round(report.ms.total) + ' ms. Modes: ' + map.modes.map((id) => CAT.modes.byId(id).name).join(', ');
+			+ map.objectives.length + ' objectives' + repaired + '\nMade in ' + Math.round(report.ms.total) + ' ms. Modes: ' + map.modes.map(modeLabel).join(', ');
 	},
 };
 function mapgenMenuCycle(label, rows, key, labelOf, render) {
@@ -38655,8 +38740,8 @@ function mapgenMenuChoices() {
 	const generator = MapGen.generator(MapGenMenu.state.generator);
 	return {
 		generator: CAT.generators.map((row) => ({ value: row.code, name: row.code + '  ' + row.name })),
-		mode: [{ value: MAPGEN_MENU_ANY_MODE, name: 'Any: ' + generator.defaultModes.map((id) => CAT.modes.byId(id).name).join(', ') }]
-			.concat(generator.modes.map((id) => ({ value: id, name: CAT.modes.byId(id).name }))),
+		mode: [{ value: MAPGEN_MENU_ANY_MODE, name: 'Any: ' + generator.defaultModes.map(modeLabel).join(', ') }]
+			.concat(generator.modes.map((id) => ({ value: id, name: modeLabel(id) }))),
 		size: MapGenMenu.sizes().map((row) => ({ value: row.id, name: row.name })),
 		theme: [{ value: MAPGEN_MENU_RANDOM_THEME, name: 'Random' }].concat(CAT.mapTilesets.map((row) => ({ value: row.id, name: row.name }))),
 		density: CAT.mapDensities.map((row) => ({ value: row.id, name: row.name })),
@@ -38706,9 +38791,7 @@ Ui.register('mapgen', {
 	build(root) {
 		injectStyle('ui-mapgen-style', MAPGEN_MENU_CSS);
 		if (MapGenMenu.clampSize()) MapGenMenu.state.map = null;
-		const head = makeElement('div', 'ui-head');
-		head.appendChild(Ui.button('Back', () => Ui.back()));
-		head.appendChild(makeElement('h1', 'ui-title', 'Generated Map'));
+		screenHeader(root, 'Generated Map');
 		const list = makeElement('div', 'ui-scroll'), status = makeElement('p', 'ui-note mg-status'), foot = makeElement('div', 'ui-foot');
 		const buttons = [];
 		const whenGenerated = (work) => () => {
@@ -38731,7 +38814,7 @@ Ui.register('mapgen', {
 		play.dataset.autofocus = '1';
 		foot.appendChild(play);
 		foot.appendChild(generate);
-		[head, list, status, foot].forEach((part) => root.appendChild(part));
+		[list, status, foot].forEach((part) => root.appendChild(part));
 		mapgenMenuRender(list, status);
 	},
 });
@@ -39240,7 +39323,7 @@ Ui.register('mapEditorPlay', {
 		const modes = MapEditorTools.playableModes();
 		body.appendChild(makeElement('p', 'ui-note', modes.length ? 'Pick a mode. You play against bots on this map and come back here when you quit.'
 			: 'This map needs spawns first (and the objectives of the mode: flags, points, bomb sites...).'));
-		for (const mode of modes) body.appendChild(Ui.button(CAT.modes.byId(mode).name, () => MapEditorPlay.testPlay(mode)));
+		for (const mode of modes) body.appendChild(Ui.button(modeLabel(mode), () => MapEditorPlay.testPlay(mode)));
 	},
 });
 const mapEditChoices = (list, current) => (list.includes(current) ? list : list.concat(current).sort((a, b) => a - b));
@@ -39273,7 +39356,7 @@ Ui.register('mapEditorModes', {
 		const map = MapEditor.toMap();
 		for (const mode of Object.keys(MapRules.modes)) {
 			if (!CAT.modes.byId(mode)) continue;
-			const needs = MapEditor.modeNeeds(map, mode), label = CAT.modes.byId(mode).name + (needs ? ' - needs ' + needs : '');
+			const needs = MapEditor.modeNeeds(map, mode), label = modeLabel(mode) + (needs ? ' - needs ' + needs : '');
 			body.appendChild(Ui.row(label, Ui.toggle(MapEditor.map.modes.includes(mode), (on) => {
 				const modes = MapEditor.map.modes.filter((id) => id !== mode);
 				MapEditor.setModes(on ? modes.concat(mode) : modes);
@@ -39325,7 +39408,7 @@ function careerRedraw(rowKey) {
 	if (newList) newList.scrollTop = scroll;
 	if (same) same.focus();
 }
-function careerModeName(modeId) { const row = CAT.modes.byId(modeId); return row ? row.name : modeId; }
+function careerModeName(modeId) { return modeLabel(modeId); }
 function careerMapName(mapId) { const row = CAT.maps.byId(mapId); return row ? row.name : STAT_MAP_GROUP_NAMES[mapId] || mapId; }
 function careerLevelText() {
 	const level = Progress.level(), title = Progress.title();
@@ -40048,7 +40131,7 @@ function modeGoalLines(rules) {
 }
 function rulesPanelLines(rules) {
 	const mode = CAT.modes.byId(rules.mode), setup = [];
-	const goal = ['Mode: ' + (mode ? mode.name : rules.mode)].concat(modeGoalLines(rules), ['Limits: ' + limitsText(rules) + '.']);
+	const goal = ['Mode: ' + modeLabel(rules.mode)].concat(modeGoalLines(rules), ['Limits: ' + limitsText(rules) + '.']);
 	setup.push('Rule set: ' + rules.name + (rules.code ? ' (' + rules.code + ')' : '') + '.');
 	setup.push('Health: ' + nameOf(CAT.health, rules.health) + '. Movement: ' + nameOf(CAT.movement, rules.move) + '. Weapons: ' + nameOf(CAT.weaponSets, rules.weaponSet) + '.');
 	setup.push(respawnText(rules));
@@ -40332,6 +40415,220 @@ const RotateGuard = {
 	},
 };
 Bus.on('boot', () => Loop.onFrame('ui', () => RotateGuard.update()));
+
+// ==== 18r-ui-playmenu.js ====
+const PLAY_MENU_CSS = '.pm-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); max-width: 980px; }'
+	+ '.pm-card { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; min-height: 96px; } .pm-tile { min-height: 64px; justify-content: center; }'
+	+ '.pm-card-name { font-weight: 700; } .pm-card-variant { color: var(--ui-accent); font-size: 0.875em; }'
+	+ '.pm-card-goal, .pm-card-facts { color: var(--ui-dim); font-size: 0.875em; font-weight: 400; line-height: 1.3; } .pm-changes { color: var(--ui-accent); }'
+	+ '@media (max-height: 520px) { .pm-grid { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 8px; } .pm-card { min-height: 80px; } }';
+const PLAY_ADVANCED_CRUMB = 'Advanced';
+const PLAY_ROOT_CRUMB = 'Play';
+const PlaySetup = {
+	state: null,
+	begin(modeId, choice) {
+		this.state = { origin: modeId, choice: choice || PlayFlow.modeChoice(modeId), advanced: false };
+		return this.state;
+	},
+	end() {
+		if (this.state && this.state.stash !== undefined) Settings.set('custom.draft', this.state.stash);
+		this.state = null;
+	},
+	variantIds() {
+		return modeVariantIds(modeParentId(this.state.choice.mode)).filter((id) => Modes.isPlayable(id) && PlayFlow.mapsFor(id).length > 0);
+	},
+	crumbName() {
+		const card = PlayFlow.cardFor(this.state.origin), mode = this.state.choice.mode;
+		return card && modeParentId(card.mode) === modeParentId(mode) ? card.name : CAT.modes.byId(modeParentId(mode)).name;
+	},
+	hasCard() { return !!PlayFlow.cardFor(this.state.origin); },
+	setMode(modeId) {
+		const choice = this.state.choice;
+		this.state.choice = PlayFlow.modeChoice(modeId, { difficulty: choice.difficulty, team: choice.team, length: choice.length });
+		if (!this.state.advanced) return;
+		const draft = CustomMatch.load(), next = this.state.choice;
+		draft.mode = modeId;
+		EDITOR_CHANGED.modeChanged(draft);
+		Object.assign(draft, { map: next.map, botCount: next.bots, difficulty: next.difficulty, roundWins: next.roundWins >= 1 ? next.roundWins : EDITOR_DEFAULT }, this.limitFields(next));
+		CustomMatch.save(draft);
+	},
+	setMap(map) { this.state.choice.map = map; this.draftSet({ map }); },
+	setBots(bots) { this.state.choice.bots = bots; this.draftSet({ botCount: bots }); },
+	setDifficulty(difficulty) { this.state.choice.difficulty = difficulty; this.draftSet({ difficulty }); },
+	setLength(length) { this.state.choice.length = length; this.draftSet(this.limitFields(this.state.choice)); },
+	setTeam(team) { this.state.choice.team = team; },
+	draftSet(fields) {
+		if (!this.state.advanced) return;
+		CustomMatch.save(Object.assign(CustomMatch.load(), fields));
+	},
+	limitFields(choice) {
+		const limits = PlayFlow.lengthLimits(choice.mode, choice.length, choice.ruleset) || {};
+		const nearest = (list, wanted) => (wanted > 0 ? list.filter((value) => value > 0).reduce((best, value) => (Math.abs(value - wanted) < Math.abs(best - wanted) ? value : best)) : EDITOR_DEFAULT);
+		return { scoreLimit: nearest(EDITOR_SCORE_LIMITS, limits.scoreLimit), timeLimit: nearest(EDITOR_TIME_LIMITS, limits.timeLimit) };
+	},
+	toDraft(choice) {
+		const draft = customDefaults();
+		Object.assign(draft, { mode: choice.mode, map: choice.map, bundle: choice.ruleset, botCount: choice.bots, difficulty: choice.difficulty,
+			roundWins: choice.roundWins >= 1 ? choice.roundWins : EDITOR_DEFAULT }, this.limitFields(choice));
+		return CustomMatch.validate(draft).draft;
+	},
+	prepareAdvanced() {
+		EDITOR_STATE.tab = 'mode';
+		if (this.state.advanced) return;
+		if (this.state.stash === undefined) this.state.stash = Settings.get('custom.draft');
+		CustomMatch.save(this.toDraft(this.state.choice));
+		this.state.advanced = true;
+	},
+	readDraft() {
+		const draft = CustomMatch.load(), previous = this.state.choice;
+		const choice = PlayFlow.normalize({ mode: draft.mode, map: draft.map, ruleset: draft.bundle, difficulty: draft.difficulty, team: previous.team, length: previous.length,
+			bots: draft.botCount >= 0 ? draft.botCount : PlayFlow.defaultBots(draft.mode), roundWins: draft.roundWins });
+		if (!draft.map) choice.map = '';
+		this.state.choice = choice;
+	},
+	changes() {
+		if (!this.state.advanced) return [];
+		const draft = CustomMatch.load(), choice = this.state.choice, list = [];
+		const bundle = CAT.rulesets.byId(draft.bundle), weaponSet = CAT.weaponSets.byId(draft.weaponSet);
+		if (draft.bundle) list.push(bundle ? bundle.name : draft.bundle);
+		if (draft.mutators.length) list.push(draft.mutators.length + (draft.mutators.length === 1 ? ' mutator' : ' mutators'));
+		if (draft.weaponList) list.push('weapon list');
+		else if (draft.weaponSet) list.push(weaponSet ? weaponSet.name : draft.weaponSet);
+		if (draft.move || draft.health || draft.economy || !draft.items || draft.friendlyFire >= 0 || draft.lives >= 0 || draft.respawnDelay >= 0) list.push('own rules');
+		if (draft.personality !== EDITOR_PERSONALITY_MIXED || Object.keys(draft.difficultySliders).length) list.push('own bot settings');
+		if (draft.allies >= 0) list.push('own team split');
+		if ((draft.scoreLimit >= 0 || draft.timeLimit >= 0) && choice.length === PLAY_DEFAULT_LENGTH) list.push('own limits');
+		if (draft.roundWins >= 0 && draft.roundWins !== PlayFlow.modeChoice(draft.mode).roundWins) list.push('rounds to win');
+		return list;
+	},
+	start() {
+		const state = this.state;
+		return state.advanced ? PlayFlow.startAdvanced(CustomMatch.load(), state.choice.team) : PlayFlow.start(state.choice);
+	},
+	reset() {
+		this.state.choice = PlayFlow.modeChoice(this.state.origin);
+		this.state.advanced = false;
+	},
+};
+function playCardLines(button, name, variant, goal, facts) {
+	button.appendChild(makeElement('span', 'pm-card-name', name));
+	if (variant) button.appendChild(makeElement('span', 'pm-card-variant', variant));
+	button.appendChild(makeElement('span', 'pm-card-goal', goal));
+	if (facts) button.appendChild(makeElement('span', 'pm-card-facts', facts));
+}
+function playOpenSetup(button, modeId, choice) {
+	button.focus();
+	return Ui.open('playSetup', { mode: modeId, choice }, button);
+}
+function playCardButton(card) {
+	const mode = CAT.modes.byId(card.mode), button = Ui.button('', () => playOpenSetup(button, card.mode, PlayFlow.variantChoice(card)), 'pm-card');
+	button.dataset.card = card.id;
+	playCardLines(button, card.name, mode.variantOf ? modeLabel(card.mode) : '', mode.goal, playModeFacts(card.mode, '', card.roundWins));
+	return button;
+}
+function playTileButton(label, detail, onClick) {
+	const button = Ui.button('', onClick, 'pm-card pm-tile');
+	playCardLines(button, label, '', detail, '');
+	return button;
+}
+Ui.register('play', {
+	build(root) {
+		screenHeader(root, 'Play');
+		const grid = makeElement('div', 'ui-menu pm-grid'), last = PlayFlow.lastCard();
+		for (const card of MODE_CARDS) {
+			const button = playCardButton(card);
+			if (card.id === last.id) button.dataset.autofocus = '1';
+			grid.appendChild(button);
+		}
+		const all = playTileButton('All modes', 'Every mode and variant, in groups.', () => Ui.open('playModes', null, all));
+		const shuffle = playTileButton('Shuffle', 'A random mode, map and bot count.', () => {
+			const choice = PlayFlow.shuffle(Math.random);
+			playOpenSetup(shuffle, choice.mode, choice);
+		});
+		grid.appendChild(all);
+		grid.appendChild(shuffle);
+		root.appendChild(grid);
+	},
+});
+Ui.register('playModes', {
+	build(root) {
+		screenHeader(root, 'All modes');
+		const list = makeElement('div', 'ui-scroll'), lastParent = modeParentId(PlayFlow.remembered().mode);
+		let focusGroup = MODE_GROUPS.findIndex((group) => group.modes.includes(lastParent));
+		if (focusGroup < 0) focusGroup = 0;
+		MODE_GROUPS.forEach((group, index) => {
+			list.appendChild(makeElement('div', 'ui-group', group.name));
+			const grid = makeElement('div', 'ui-menu pm-grid');
+			group.modes.forEach((id, position) => {
+				const row = CAT.modes.byId(id), variants = modeVariantIds(id).length;
+				const tile = playTileButton(row.name, row.goal, () => playOpenSetup(tile, id));
+				tile.dataset.mode = id;
+				if (variants > 1) tile.appendChild(makeElement('span', 'pm-card-variant', variants + ' variants'));
+				if (index === focusGroup && position === 0) tile.dataset.autofocus = '1';
+				grid.appendChild(tile);
+			});
+			list.appendChild(grid);
+		});
+		root.appendChild(list);
+	},
+});
+function playMapOptions(choice) {
+	const maps = PlayFlow.mapsFor(choice.mode);
+	return { values: (choice.map === '' ? [''] : []).concat(maps.map((map) => map.id)), labels: (choice.map === '' ? ['Random'] : []).concat(maps.map((map) => map.name)) };
+}
+function playTeamOptions() {
+	return { values: [PLAY_AUTO_TEAM, 0, 1], labels: ['Automatic', TEAM_NAMES[0], TEAM_NAMES[1]] };
+}
+function playSetupRows(form) {
+	const choice = PlaySetup.state.choice, variants = PlaySetup.variantIds(), maps = playMapOptions(choice), difficulties = PlayFlow.difficulties(), teams = playTeamOptions();
+	const refill = () => playSetupRefresh(form.closest('.ui-playSetup'));
+	if (variants.length > 1) {
+		form.appendChild(Ui.row('Variant', Ui.cycle(variants, variants.map((id) => CAT.modes.byId(id).variant), choice.mode, (value) => { PlaySetup.setMode(value); refill(); })));
+	}
+	form.appendChild(Ui.row('Map', Ui.cycle(maps.values, maps.labels, choice.map, (value) => PlaySetup.setMap(value))));
+	form.appendChild(Ui.row('Bots', Ui.slider({ min: 0, max: PlayFlow.maxBots(), step: 1, value: choice.bots, format: (value) => String(value) }, (value) => PlaySetup.setBots(value))));
+	form.appendChild(Ui.row('Difficulty', Ui.cycle(difficulties.map((row) => row.id), difficulties.map((row) => row.name), choice.difficulty, (value) => PlaySetup.setDifficulty(value))));
+	if (PlayFlow.hasLength(choice.mode)) form.appendChild(Ui.row('Match length', Ui.cycle(PLAY_LENGTH_IDS, PLAY_LENGTH_LABELS, choice.length, (value) => { PlaySetup.setLength(value); refill(); })));
+	if (PlayFlow.hasTeamChoice(choice.mode)) form.appendChild(Ui.row('Your team', Ui.cycle(teams.values, teams.labels, choice.team, (value) => PlaySetup.setTeam(value))));
+}
+function playSetupRefresh(root) {
+	const choice = PlaySetup.state.choice, changes = PlaySetup.changes(), note = root.querySelector('.pm-changes');
+	const form = root.querySelector('.pl-form');
+	Ui.rebuild(form, () => { form.replaceChildren(); playSetupRows(form); });
+	root.querySelector('.pm-summary').textContent = playModeSummary(choice.mode, choice.ruleset, choice.roundWins);
+	note.textContent = changes.length ? 'Advanced changes: ' + changes.join(', ') + '.' : '';
+	note.hidden = !changes.length;
+	Ui.setCrumb(Ui.stack.find((entry) => entry.element === root), PlaySetup.crumbName());
+	root.querySelector('.pm-reset').textContent = PlaySetup.hasCard() ? 'Reset to card defaults' : 'Reset to mode defaults';
+}
+Ui.register('playSetup', {
+	build(root, params) {
+		const request = params || {};
+		PlaySetup.begin(request.mode || PlayFlow.lastCard().mode, request.choice);
+		Ui.top().crumbBase = Ui.isOpen('play') ? [] : [PLAY_ROOT_CRUMB];
+		screenHeader(root, 'Match setup', undefined, PlaySetup.crumbName());
+		root.appendChild(makeElement('div', 'ui-scroll pl-form'));
+		root.appendChild(makeElement('p', 'ui-note pm-summary'));
+		root.appendChild(makeElement('p', 'ui-note pm-changes'));
+		const foot = makeElement('div', 'ui-foot');
+		const start = Ui.button('Start', () => PlaySetup.start(), 'primary');
+		start.dataset.autofocus = '1';
+		foot.appendChild(start);
+		foot.appendChild(Ui.button('Loadout', () => Ui.open('loadout')));
+		const advanced = Ui.button('Advanced', () => { PlaySetup.prepareAdvanced(); Ui.open('custom', { crumb: PLAY_ADVANCED_CRUMB }, advanced); });
+		foot.appendChild(advanced);
+		foot.appendChild(Ui.button('Reset', () => { PlaySetup.reset(); playSetupRefresh(root); }, 'pm-reset'));
+		root.appendChild(foot);
+		playSetupRefresh(root);
+	},
+	onResume(root) {
+		if (!PlaySetup.state) return;
+		if (PlaySetup.state.advanced) PlaySetup.readDraft();
+		playSetupRefresh(root);
+	},
+	onClose() { PlaySetup.end(); },
+});
+Bus.on('boot', () => injectStyle('play-menu-style', PLAY_MENU_CSS));
 
 // ==== 19-loop.js ====
 const FRAME_PHASES = ['input', 'render', 'hud', 'audio', 'ui'];
