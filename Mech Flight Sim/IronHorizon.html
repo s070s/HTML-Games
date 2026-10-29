@@ -361,9 +361,10 @@ const WEAPONS = {
   smoke: { name: 'Smoke Launcher', slot: 'utility', kind: 'defense', def: 'smoke', charges: 3, cd: 6, dur: 12, radius: 16, ai: 'threat', weight: 3, role: 'Pro: cloud blocks locks and spoils enemy aim for 12 s; con: blocks your own locks too, stays where it lands' },
   cloak: { name: 'Optical Camo', slot: 'utility', kind: 'defense', def: 'cloak', charges: 2, cd: 15, dur: 6, ai: 'hurt', weight: 4, role: 'Pro: enemies cannot target you for 6 s; con: firing breaks it, two uses' },
   overdrive: { name: 'Coolant Overdrive', slot: 'utility', kind: 'defense', def: 'overdrive', charges: 2, cd: 15, dur: 5, energy: 40, ai: 'hot', weight: 4, role: 'Pro: dumps all heat, then 5 s without heat build-up; con: costs 40 energy, two uses' },
-  reactive: { name: 'Reactive Armor', slot: 'utility', kind: 'defense', def: 'reactive', charges: 3, minDmg: 45, weight: 8, role: 'Pro: each charge cancels one hit of 45+ damage, automatically; con: heavy, small hits pass, no recharge in battle' },
+  reactive: { name: 'Reactive Armor', slot: 'utility', kind: 'defense', def: 'reactive', passive: true, charges: 3, minDmg: 45, weight: 8, role: 'Pro: each charge cancels one hit of 45+ damage, automatically; con: heavy, small hits pass, no recharge in battle' },
   holo: { name: 'Holo Decoy', slot: 'utility', kind: 'defense', def: 'holo', charges: 2, cd: 12, dur: 9, ai: 'fight', weight: 4, role: 'Pro: a hologram enemies prefer to shoot for 9 s; con: ground platforms only, two uses' },
   drone: { name: 'Repair Drone', slot: 'utility', kind: 'defense', def: 'drone', charges: 2, cd: 14, dur: 12, heal: 18, radius: 25, ai: 'hurt', tracer: [0.4, 1, 0.5], weight: 5, role: 'Pro: heals you and allies within 25 m for 12 s; con: slow healing, two uses' },
+  sensor: { name: 'Sensor Array', slot: 'utility', kind: 'defense', def: 'sensor', passive: true, weight: 3, role: 'Pro: always on, your radar detects 1.6 to 2 times farther (infantry 2x), a spotter or AI unit with it sees 25% farther; con: no button and no charges, and it takes the only utility slot (no shield, ECM or repair)' },
   barrier: { name: 'Deployable Barrier', slot: 'utility', kind: 'defense', def: 'barrier', charges: 2, cd: 10, dur: 15, ai: 'fight', weight: 6, role: 'Pro: tough wall ahead of you stops enemy fire for 15 s; con: ground platforms only, it does not move with you' },
   /* naval weapons (P5.2, D24); torpedo: runs just under the surface and only in water (Naval.torpedoRun) */
   navalGun: { name: 'Naval Gun', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 85, dtype: 'explosive', speed: 300, life: 3.4, cd: 0.9, spread: 0.006, grav: 6, clip: 10, reserve: 80, reload: 4, heat: 8, range: 950, blast: 5, weight: 14, structMult: 1.6, tracer: [1, 0.75, 0.35], size: 1.1, sound: 'cannon', recoil: 0.9, role: 'Pro: heavy shells with a blast at long range; con: slow to fire, heavy, shells drop with range' },
@@ -439,7 +440,7 @@ const PLATFORMS = {
     radius: 2.2, height: 8, speed: 26, sensor: 650, stability: 0.6,
     mech: { accel: 70, decel: 90, turn: 7, torsoRate: 6.5, boostMult: 1.65, boostCost: 22, jetThrust: 74, jetMax: 17, jetCost: 19, meleeDmg: 55 },
     mounts: { primaryA: [2.2, 5.6, 1.5], primaryB: [-2.2, 5.6, 1.5], secondary: [0, 8.2, 0.6] },
-    allow: { primary: ['mg', 'laser', 'shotgun', 'acannon', 'flamer', 'tesla', 'needler', 'slug', 'ion'], secondary: ['rockets', 'missile', 'mortar', 'swarm', 'cluster', 'atgm', 'mines', 'empGren'], utility: ['shield', 'nano', 'cloak', 'smoke', 'overdrive', 'holo', 'ecm'] },
+    allow: { primary: ['mg', 'laser', 'shotgun', 'acannon', 'flamer', 'tesla', 'needler', 'slug', 'ion'], secondary: ['rockets', 'missile', 'mortar', 'swarm', 'cluster', 'atgm', 'mines', 'empGren'], utility: ['shield', 'nano', 'cloak', 'smoke', 'overdrive', 'holo', 'ecm', 'sensor'] },
     loadout: { primaryA: 'laser', primaryB: 'shotgun', secondary: 'rockets', utility: 'shield' },
     col: { main: [0.42, 0.46, 0.5], dark: [0.2, 0.22, 0.25] },
   },
@@ -451,7 +452,7 @@ const PLATFORMS = {
     radius: 2.8, height: 10, speed: 18, sensor: 600, stability: 1,
     mech: { accel: 50, decel: 70, turn: 5, torsoRate: 5, boostMult: 1.55, boostCost: 24, jetThrust: 64, jetMax: 14, jetCost: 22, meleeDmg: 80 },
     mounts: { primaryA: [3.2, 6.4, 1.8], primaryB: [-3.2, 6.4, 1.8], secondary: [0, 9.8, 0.4] },
-    allow: { primary: ['mg', 'acannon', 'laser', 'plasma', 'rail', 'gatling', 'flamer', 'tesla', 'gauss', 'lance', 'needler', 'slug', 'ion'], secondary: ['rockets', 'missile', 'mortar', 'swarm', 'cluster', 'atgm', 'mines', 'empGren'], utility: ['shield', 'aps', 'nano', 'ecm', 'smoke', 'overdrive', 'reactive', 'holo', 'drone', 'barrier'] },
+    allow: { primary: ['mg', 'acannon', 'laser', 'plasma', 'rail', 'gatling', 'flamer', 'tesla', 'gauss', 'lance', 'needler', 'slug', 'ion'], secondary: ['rockets', 'missile', 'mortar', 'swarm', 'cluster', 'atgm', 'mines', 'empGren'], utility: ['shield', 'aps', 'nano', 'ecm', 'smoke', 'overdrive', 'reactive', 'holo', 'drone', 'barrier', 'sensor'] },
     loadout: { primaryA: 'acannon', primaryB: 'laser', secondary: 'missile', utility: 'shield' },
     col: { main: [0.36, 0.42, 0.34], dark: [0.18, 0.21, 0.17] },
   },
@@ -463,7 +464,7 @@ const PLATFORMS = {
     radius: 3.7, height: 13, speed: 12.5, sensor: 560, stability: 2,
     mech: { accel: 34, decel: 50, turn: 3.2, torsoRate: 3.6, boostMult: 1.4, boostCost: 26, jetThrust: 54, jetMax: 11, jetCost: 25, meleeDmg: 130 },
     mounts: { primaryA: [4.2, 8, 2.2], primaryB: [-4.2, 8, 2.2], secondary: [0, 12.6, 0.3] },
-    allow: { primary: ['acannon', 'gatling', 'plasma', 'rail', 'laser', 'flak', 'gauss', 'lance', 'slug', 'howitzer', 'ion', 'flamer'], secondary: ['missile', 'rockets', 'mortar', 'aam', 'cruise', 'cluster', 'swarm', 'atgm', 'mines'], utility: ['shield', 'aps', 'nano', 'reactive', 'barrier', 'drone', 'overdrive', 'ecm', 'smoke'] },
+    allow: { primary: ['acannon', 'gatling', 'plasma', 'rail', 'laser', 'flak', 'gauss', 'lance', 'slug', 'howitzer', 'ion', 'flamer'], secondary: ['missile', 'rockets', 'mortar', 'aam', 'cruise', 'cluster', 'swarm', 'atgm', 'mines'], utility: ['shield', 'aps', 'nano', 'reactive', 'barrier', 'drone', 'overdrive', 'ecm', 'smoke', 'sensor'] },
     loadout: { primaryA: 'gatling', primaryB: 'plasma', secondary: 'missile', utility: 'aps' },
     col: { main: [0.5, 0.42, 0.28], dark: [0.24, 0.2, 0.14] },
   },
@@ -475,7 +476,7 @@ const PLATFORMS = {
     radius: 0.7, height: 1.8, speed: 10, sensor: 450, stability: 0.4,
     mech: { accel: 40, decel: 60, turn: 9, torsoRate: 9, boostMult: 1.7, boostCost: 18, jetThrust: 56, jetMax: 10, jetCost: 11, meleeDmg: 35 },
     mounts: { primaryA: [0.2, 1.4, 0.5], primaryB: [-0.2, 1.4, 0.5], secondary: [-0.3, 1.65, 0.2] },
-    allow: { primary: ['rifle', 'smg', 'sniper', 'mg', 'lmg', 'dmr', 'arcPistol', 'flamer'], secondary: ['rpg', 'grenade', 'satchel', 'empGren', 'javelin', 'mines'], utility: ['nano', 'smoke', 'cloak', 'drone'] },
+    allow: { primary: ['rifle', 'smg', 'sniper', 'mg', 'lmg', 'dmr', 'arcPistol', 'flamer'], secondary: ['rpg', 'grenade', 'satchel', 'empGren', 'javelin', 'mines'], utility: ['nano', 'smoke', 'cloak', 'drone', 'sensor'] },
     loadout: { primaryA: 'rifle', primaryB: 'smg', secondary: 'grenade', utility: 'nano' },
     col: { main: [0.34, 0.4, 0.3], dark: [0.17, 0.2, 0.14] },
   },
@@ -497,7 +498,7 @@ const PLATFORMS = {
     radius: 2.6, height: 2.8, speed: 44, sensor: 600, stability: 0.5,
     ground: { type: 'wheeled', accel: 30, brake: 60, drag: 8, reverse: 0.4, steerRate: 1.9, steerMin: 6, grip: 7, turretRate: 6, boostMult: 1.45, climb: 0.55, ride: 0.9, pitchLim: [-0.15, 0.55] },
     mounts: { primaryA: [0.9, 1.5, 1.2], primaryB: [-0.9, 1.5, 1.2], secondary: [0, 2.2, -0.2] },
-    allow: { primary: ['mg', 'acannon', 'laser', 'shotgun', 'flamer', 'tesla', 'needler', 'slug'], secondary: ['rockets', 'missile', 'mines', 'swarm', 'cluster', 'atgm'], utility: ['nano', 'smoke', 'ecm', 'overdrive', 'cloak'] },
+    allow: { primary: ['mg', 'acannon', 'laser', 'shotgun', 'flamer', 'tesla', 'needler', 'slug'], secondary: ['rockets', 'missile', 'mines', 'swarm', 'cluster', 'atgm'], utility: ['nano', 'smoke', 'ecm', 'overdrive', 'cloak', 'sensor'] },
     loadout: { primaryA: 'mg', primaryB: 'shotgun', secondary: 'rockets', utility: 'nano' },
     col: { main: [0.55, 0.5, 0.36], dark: [0.2, 0.18, 0.14] },
   },
@@ -509,7 +510,7 @@ const PLATFORMS = {
     radius: 3.6, height: 3.8, speed: 17, sensor: 580, stability: 2,
     ground: { type: 'tracked', accel: 14, brake: 40, drag: 10, reverse: 0.5, steerRate: 1.1, steerMin: 0, grip: 14, turretRate: 3.6, boostMult: 1.25, climb: 0.8, ride: 1.3, pitchLim: [-0.12, 0.5] },
     mounts: { primaryA: [0, 2.8, 4], primaryB: [1.3, 3.1, 3], secondary: [-1.4, 4.3, 0.5] },
-    allow: { primary: ['acannon', 'plasma', 'rail', 'gatling', 'mg', 'flak', 'gauss', 'slug', 'howitzer', 'ion', 'lance'], secondary: ['missile', 'rockets', 'mortar', 'aam', 'atgm', 'cruise', 'cluster', 'mines', 'swarm'], utility: ['aps', 'nano', 'reactive', 'smoke', 'ecm', 'barrier', 'drone'] },
+    allow: { primary: ['acannon', 'plasma', 'rail', 'gatling', 'mg', 'flak', 'gauss', 'slug', 'howitzer', 'ion', 'lance'], secondary: ['missile', 'rockets', 'mortar', 'aam', 'atgm', 'cruise', 'cluster', 'mines', 'swarm'], utility: ['aps', 'nano', 'reactive', 'smoke', 'ecm', 'barrier', 'drone', 'sensor'] },
     loadout: { primaryA: 'acannon', primaryB: 'plasma', secondary: 'missile', utility: 'aps' },
     col: { main: [0.34, 0.4, 0.3], dark: [0.15, 0.18, 0.13] },
   },
@@ -521,7 +522,7 @@ const PLATFORMS = {
     radius: 2.8, height: 2.4, speed: 38, sensor: 620, stability: 0.6,
     ground: { type: 'hover', accel: 26, brake: 24, drag: 3, reverse: 0.45, steerRate: 1.7, steerMin: 0, grip: 1.3, turretRate: 6, boostMult: 1.6, climb: 1.4, ride: 2.2, pitchLim: [-0.15, 0.55] },
     mounts: { primaryA: [1.1, 1.6, 1.8], primaryB: [-1.1, 1.6, 1.8], secondary: [0, 2.4, 0] },
-    allow: { primary: ['laser', 'mg', 'shotgun', 'acannon', 'tesla', 'needler', 'ion', 'flamer'], secondary: ['missile', 'rockets', 'swarm', 'atgm', 'empGren', 'mines'], utility: ['shield', 'nano', 'cloak', 'smoke', 'ecm', 'overdrive', 'holo'] },
+    allow: { primary: ['laser', 'mg', 'shotgun', 'acannon', 'tesla', 'needler', 'ion', 'flamer'], secondary: ['missile', 'rockets', 'swarm', 'atgm', 'empGren', 'mines'], utility: ['shield', 'nano', 'cloak', 'smoke', 'ecm', 'overdrive', 'holo', 'sensor'] },
     loadout: { primaryA: 'laser', primaryB: 'mg', secondary: 'missile', utility: 'shield' },
     col: { main: [0.38, 0.46, 0.55], dark: [0.15, 0.2, 0.26] },
   },
@@ -533,7 +534,7 @@ const PLATFORMS = {
     radius: 4.5, height: 3, speed: 150, sensor: 1500, stability: 0.5,
     air: { min: 78, cruise: 150, max: 205, ab: 295, accel: 55, decel: 40, yawMax: 1.55, pitchMax: 1.6, yawGain: 3, pitchGain: 3, maxBank: 1.25, rollResp: 4, rollMax: 3.2, clearance: 2.8, landMax: 95, takeoff: 80, groundTurn: 0.8, gearH: 1.6 },
     mounts: { primaryA: [1.5, -0.2, 3], primaryB: [-1.5, -0.2, 3], secondary: [0, -1, 1] },
-    allow: { primary: ['mg', 'acannon', 'laser', 'vulcan'], secondary: ['aam', 'missile', 'rockets', 'swarm'], utility: ['flares', 'ecm', 'overdrive'] },
+    allow: { primary: ['mg', 'acannon', 'laser', 'vulcan'], secondary: ['aam', 'missile', 'rockets', 'swarm'], utility: ['flares', 'ecm', 'overdrive', 'sensor'] },
     loadout: { primaryA: 'mg', primaryB: 'acannon', secondary: 'aam', utility: 'flares' },
     col: { main: [0.55, 0.58, 0.62], dark: [0.22, 0.24, 0.28] },
   },
@@ -545,7 +546,7 @@ const PLATFORMS = {
     radius: 5, height: 3.4, speed: 125, sensor: 1400, stability: 0.8,
     air: { min: 70, cruise: 125, max: 175, ab: 245, accel: 45, decel: 36, yawMax: 1.25, pitchMax: 1.3, yawGain: 2.6, pitchGain: 2.6, maxBank: 1.15, rollResp: 3.4, rollMax: 2.6, clearance: 3, landMax: 90, takeoff: 74, groundTurn: 0.7, gearH: 1.8 },
     mounts: { primaryA: [1.8, -0.3, 3.4], primaryB: [-1.8, -0.3, 3.4], secondary: [0, -1.2, 1] },
-    allow: { primary: ['acannon', 'mg', 'gatling', 'laser', 'vulcan', 'ion'], secondary: ['aam', 'missile', 'rockets', 'bombs', 'swarm', 'cluster', 'napalm', 'buster', 'atgm'], utility: ['flares', 'ecm', 'overdrive', 'reactive'] },
+    allow: { primary: ['acannon', 'mg', 'gatling', 'laser', 'vulcan', 'ion'], secondary: ['aam', 'missile', 'rockets', 'bombs', 'swarm', 'cluster', 'napalm', 'buster', 'atgm'], utility: ['flares', 'ecm', 'overdrive', 'reactive', 'sensor'] },
     loadout: { primaryA: 'acannon', primaryB: 'mg', secondary: 'bombs', utility: 'flares' },
     col: { main: [0.42, 0.48, 0.4], dark: [0.17, 0.2, 0.16] },
   },
@@ -558,7 +559,7 @@ const PLATFORMS = {
     air: { min: 42, cruise: 85, max: 125, ab: 165, accel: 28, decel: 26, yawMax: 0.85, pitchMax: 0.8, yawGain: 2, pitchGain: 2, maxBank: 0.8, rollResp: 2.2, rollMax: 1.6, clearance: 4, landMax: 70, takeoff: 46, groundTurn: 0.5, gearH: 2.4 },
     mounts: { primaryA: [3, -1.8, 4], primaryB: [-3, -1.8, 4], secondary: [0, -2.2, 1.5] },
     turreted: true,
-    allow: { primary: ['gatling', 'acannon', 'plasma', 'flak', 'laser', 'vulcan', 'lance', 'ion'], secondary: ['rockets', 'missile', 'bombs', 'aam', 'mortar', 'swarm', 'cluster', 'napalm', 'buster', 'cruise', 'atgm'], utility: ['flares', 'nano', 'ecm', 'reactive', 'drone', 'overdrive'] },
+    allow: { primary: ['gatling', 'acannon', 'plasma', 'flak', 'laser', 'vulcan', 'lance', 'ion'], secondary: ['rockets', 'missile', 'bombs', 'aam', 'mortar', 'swarm', 'cluster', 'napalm', 'buster', 'cruise', 'atgm'], utility: ['flares', 'nano', 'ecm', 'reactive', 'drone', 'overdrive', 'sensor'] },
     loadout: { primaryA: 'gatling', primaryB: 'acannon', secondary: 'rockets', utility: 'flares' },
     col: { main: [0.34, 0.38, 0.32], dark: [0.14, 0.17, 0.13] },
   },
@@ -571,7 +572,7 @@ const PLATFORMS = {
     radius: 4.5, height: 3.4, speed: 30, sensor: 900, stability: 1,
     naval: { accel: 9, brake: 7, drag: 2.5, reverse: 0.35, steerRate: 0.8, steerSpeed: 12, steerMin: 0.2, grip: 2.4, turretRate: 3.4, boostMult: 1.3, pitchLim: [-0.15, 0.6], draft: 1.2, ride: 0, climb: 0, amphibious: false, hull: [-6, 9, 1.9] },
     mounts: { primaryA: [0, 2.6, 3.6], primaryB: [0, 2.4, -3], secondary: [0, 1.4, 0.5] },
-    allow: { primary: ['acannon', 'navalGun', 'mg', 'flak', 'gatling'], secondary: ['torpedo', 'missile', 'rockets', 'shipSam'], utility: ['smoke', 'flares', 'ecm', 'nano', 'aps'] },
+    allow: { primary: ['acannon', 'navalGun', 'mg', 'flak', 'gatling'], secondary: ['torpedo', 'missile', 'rockets', 'shipSam'], utility: ['smoke', 'flares', 'ecm', 'nano', 'aps', 'sensor'] },
     loadout: { primaryA: 'acannon', primaryB: 'mg', secondary: 'torpedo', utility: 'smoke' },
     col: { main: [0.52, 0.56, 0.6], dark: [0.2, 0.22, 0.25] },
   },
@@ -583,7 +584,7 @@ const PLATFORMS = {
     radius: 10, height: 8, speed: 16, sensor: 1400, stability: 3,
     naval: { accel: 3.5, brake: 3, drag: 1.2, reverse: 0.3, steerRate: 0.34, steerSpeed: 8, steerMin: 0.25, grip: 2, turretRate: 2.4, boostMult: 1.2, pitchLim: [-0.1, 0.9], draft: 3, ride: 0, climb: 0, amphibious: false, hull: [-14, 17, 3.5] },
     mounts: { primaryA: [0, 5.2, 9], primaryB: [0, 6.2, -7], secondary: [0, 6.6, 2] },
-    allow: { primary: ['navalGun', 'flak', 'acannon', 'gatling', 'howitzer', 'rail'], secondary: ['shipSam', 'missile', 'torpedo', 'cruise', 'swarm', 'aam'], utility: ['aps', 'flares', 'ecm', 'smoke', 'nano', 'reactive', 'drone'] },
+    allow: { primary: ['navalGun', 'flak', 'acannon', 'gatling', 'howitzer', 'rail'], secondary: ['shipSam', 'missile', 'torpedo', 'cruise', 'swarm', 'aam'], utility: ['aps', 'flares', 'ecm', 'smoke', 'nano', 'reactive', 'drone', 'sensor'] },
     loadout: { primaryA: 'navalGun', primaryB: 'flak', secondary: 'shipSam', utility: 'aps' },
     col: { main: [0.46, 0.5, 0.54], dark: [0.2, 0.22, 0.25] },
   },
@@ -595,7 +596,7 @@ const PLATFORMS = {
     radius: 5, height: 3.6, speed: 26, sensor: 800, stability: 1.2,
     naval: { accel: 10, brake: 8, drag: 2, reverse: 0.4, steerRate: 1.0, steerSpeed: 8, steerMin: 0.4, grip: 1.2, turretRate: 4, boostMult: 1.35, pitchLim: [-0.15, 0.6], draft: 0, ride: 1.6, climb: 0.7, amphibious: true, hull: [-5.7, 7, 3.6] },
     mounts: { primaryA: [0.8, 3, 2.4], primaryB: [-0.8, 3, 2.4], secondary: [0, 3.4, -1] },
-    allow: { primary: ['gatling', 'acannon', 'mg', 'flak', 'flamer'], secondary: ['rockets', 'missile', 'mortar', 'atgm', 'shipSam'], utility: ['smoke', 'nano', 'aps', 'flares', 'ecm'] },
+    allow: { primary: ['gatling', 'acannon', 'mg', 'flak', 'flamer'], secondary: ['rockets', 'missile', 'mortar', 'atgm', 'shipSam'], utility: ['smoke', 'nano', 'aps', 'flares', 'ecm', 'sensor'] },
     loadout: { primaryA: 'gatling', primaryB: 'mg', secondary: 'rockets', utility: 'smoke' },
     col: { main: [0.44, 0.5, 0.42], dark: [0.18, 0.21, 0.17] },
   },
@@ -610,7 +611,7 @@ const PLATFORMS = {
     ground: { type: 'tracked', accel: 12, brake: 36, drag: 10, reverse: 0.5, steerRate: 1.0, steerMin: 0, grip: 14, turretRate: 1.6, boostMult: 1.2, climb: 0.75, ride: 1.3, pitchLim: [-0.1, 1.35] },
     arty: { deploy: 3, undeploy: 2.2 },
     mounts: { primaryA: [0, 3.6, 3.4], primaryB: [1.2, 4, 0.4], secondary: [-1.3, 4, 0] },
-    allow: { primary: ['artyGun', 'mg', 'acannon', 'gatling'], secondary: ['atgm', 'missile', 'rockets', 'mines'], utility: ['smoke', 'aps', 'nano', 'reactive', 'ecm', 'drone'] },
+    allow: { primary: ['artyGun', 'mg', 'acannon', 'gatling'], secondary: ['atgm', 'missile', 'rockets', 'mines'], utility: ['smoke', 'aps', 'nano', 'reactive', 'ecm', 'drone', 'sensor'] },
     loadout: { primaryA: 'artyGun', primaryB: 'mg', secondary: 'atgm', utility: 'smoke' },
     col: { main: [0.42, 0.44, 0.33], dark: [0.18, 0.19, 0.14] },
   },
@@ -623,7 +624,7 @@ const PLATFORMS = {
     ground: { type: 'wheeled', accel: 20, brake: 50, drag: 7, reverse: 0.4, steerRate: 1.4, steerMin: 5, grip: 8, turretRate: 2.2, boostMult: 1.3, climb: 0.55, ride: 1.1, pitchLim: [-0.05, 1.0] },
     arty: { deploy: 2, undeploy: 1.5 },
     mounts: { primaryA: [0, 3.4, -0.6], primaryB: [0.8, 3.2, 3.2], secondary: [-0.8, 3.2, 3] },
-    allow: { primary: ['artyRockets', 'mg', 'gatling'], secondary: ['rockets', 'missile', 'mines'], utility: ['smoke', 'nano', 'ecm', 'aps', 'overdrive'] },
+    allow: { primary: ['artyRockets', 'mg', 'gatling'], secondary: ['rockets', 'missile', 'mines'], utility: ['smoke', 'nano', 'ecm', 'aps', 'overdrive', 'sensor'] },
     loadout: { primaryA: 'artyRockets', primaryB: 'mg', secondary: 'rockets', utility: 'smoke' },
     col: { main: [0.5, 0.47, 0.36], dark: [0.2, 0.19, 0.14] },
   },
@@ -636,7 +637,7 @@ const PLATFORMS = {
     ground: { type: 'tracked', accel: 18, brake: 44, drag: 10, reverse: 0.5, steerRate: 1.4, steerMin: 0, grip: 13, turretRate: 2.6, boostMult: 1.3, climb: 0.8, ride: 1.1, pitchLim: [-0.1, 1.5] },
     arty: { deploy: 1.2, undeploy: 1 },
     mounts: { primaryA: [0, 3.6, -0.4], primaryB: [0.9, 3, 1.6], secondary: [-0.9, 3, 1.4] },
-    allow: { primary: ['artyMortar', 'mg', 'lmg'], secondary: ['atgm', 'grenade', 'mines', 'rockets'], utility: ['smoke', 'nano', 'aps', 'ecm', 'drone'] },
+    allow: { primary: ['artyMortar', 'mg', 'lmg'], secondary: ['atgm', 'grenade', 'mines', 'rockets'], utility: ['smoke', 'nano', 'aps', 'ecm', 'drone', 'sensor'] },
     loadout: { primaryA: 'artyMortar', primaryB: 'mg', secondary: 'atgm', utility: 'smoke' },
     col: { main: [0.4, 0.45, 0.36], dark: [0.17, 0.2, 0.15] },
   },
@@ -660,7 +661,7 @@ const CIVILIAN_WATCH = 0.5;      // seconds between those checks
 const ARCH = {
   infantry: { def: 'ranger', ai: 'skirmisher', label: 'Infantry', loadout: { primaryA: 'rifle', secondary: 'grenade' }, score: 60, speedBoost: 1.2 },
   rpgTrooper: { def: 'ranger', ai: 'soldier', label: 'Rocket Trooper', loadout: { primaryA: 'smg', secondary: 'javelin' }, score: 90 },
-  sniper: { def: 'ranger', ai: 'sniper', label: 'Sniper', loadout: { primaryA: 'sniper' }, score: 90 },
+  sniper: { def: 'ranger', ai: 'sniper', label: 'Sniper', loadout: { primaryA: 'sniper', utility: 'sensor' }, score: 90 },
   buggy: { def: 'jackal', ai: 'skirmisher', label: 'Raider', loadout: { primaryA: 'flamer', secondary: 'rockets' }, hpMult: 0.85, score: 100 },
   tank: { def: 'bastion', ai: 'bruiser', label: 'Tank', loadout: { primaryA: 'acannon', secondary: 'atgm' }, score: 200 },
   lightMech: { def: 'wraith', ai: 'flanker', label: 'Light Mech', loadout: { primaryA: 'laser', primaryB: 'tesla', secondary: 'rockets', utility: 'shield' }, score: 180 },
@@ -719,8 +720,8 @@ const DIFFICULTY = {
    shipDraw m; society (Society): responders most responder vehicles out at once, socCars most civilians' kerb cars that
    commute */
 const QUALITY = {
-  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraVerts: 75000, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, fauna: 0.5, faunaDraw: 260, faunaLod: 70, faunaCap: 32, faunaSim: 48, maxPx: 800000, fxFar: 260, fleet: 1, traffic: 16, trafficDraw: 260, trafficLod: 60, flights: 1, ships: 3, shipDraw: 560, responders: 2, socCars: 3 },
-  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraVerts: 115000, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, fauna: 0.75, faunaDraw: 380, faunaLod: 110, faunaCap: 64, faunaSim: 96, maxPx: 1600000, fxFar: 380, fleet: 2, traffic: 32, trafficDraw: 380, trafficLod: 100, flights: 2, ships: 5, shipDraw: 780, responders: 3, socCars: 6 },
+  low: { scale: 0.6, particles: 260, lights: 0, dist: 560, debris: 90, shadows: false, waves: false, precip: 500, floraNear: 160, floraVerts: 75000, floraBush: 60, coverR: 60, coverCell: 24, coverCap: 1500, fauna: 0.5, faunaDraw: 300, faunaLod: 70, faunaCap: 32, faunaSim: 48, maxPx: 800000, fxFar: 260, fleet: 1, traffic: 16, trafficDraw: 260, trafficLod: 60, flights: 1, ships: 3, shipDraw: 560, responders: 2, socCars: 3 },
+  medium: { scale: 0.8, particles: 460, lights: 2, dist: 780, debris: 150, shadows: true, waves: true, precip: 1200, floraNear: 240, floraVerts: 115000, floraBush: 140, coverR: 90, coverCell: 40, coverCap: 3500, fauna: 0.75, faunaDraw: 420, faunaLod: 110, faunaCap: 64, faunaSim: 96, maxPx: 1600000, fxFar: 380, fleet: 2, traffic: 32, trafficDraw: 380, trafficLod: 100, flights: 2, ships: 5, shipDraw: 780, responders: 3, socCars: 6 },
   high: { scale: 1.0, particles: 700, lights: 4, dist: 980, debris: 220, shadows: true, waves: true, precip: 2000, floraNear: 300, floraVerts: 140000, floraBush: 240, coverR: 120, coverCell: 60, coverCap: 6000, fauna: 1, faunaDraw: 520, faunaLod: 150, faunaCap: 100, faunaSim: 150, fxFar: 500, fleet: 3, traffic: 48, trafficDraw: 500, trafficLod: 140, flights: 3, ships: 8, shipDraw: 980, responders: 4, socCars: 10 },
 };
 
@@ -910,7 +911,7 @@ const MAPS = {
     ],
     weather: { weights: { clear: 4, overcast: 3, rain: 2, fog: 2, storm: 1 }, time: 'day' },
     flora: { species: { oak: 2, birch: 1, cypress: 1, pine: 1, shrub: 2, grass: 3, flowers: 1, reeds: 1 }, forest: 0.06, groves: 6, meadow: 0.25, scrub: 0.12 },
-    fauna: { species: { pigeon: 4, crow: 2, seagull: 1, duck: 2, fox: 1, rabbit: 1, fishschool: 2 }, herds: 3, flocks: 8, schools: 3 },
+    fauna: { species: { pigeon: 4, crow: 2, seagull: 1, duck: 2, deer: 3, fox: 1, rabbit: 1, fishschool: 2 }, herds: 5, flocks: 8, schools: 3 },
     hazards: ['earthquake', 'gas'], airport: { required: true, maxTownCost: 3 },   // its big airport is part of it (D23)
   },
   farmland: {
@@ -1473,7 +1474,7 @@ const TOUCH_BUTTONS = [
   { name: 'fire2', label: 'ALT', at: 'r', x: 1.54, y: 0, look: true, show: (p) => !!(p && p.wslots.secondary) },
   { name: 'reload', label: 'RLD', at: 'r', x: 2.72, y: 0, show: (p) => !!p && (touchReloads(p.wslots.primaryA) || touchReloads(p.wslots.primaryB) || touchReloads(p.wslots.secondary)) },
   { name: 'jump', label: TOUCH_LABELS.jump, at: 'r', x: 0.18, y: 1.54, show: (p) => !!p && (p.kind !== 'mech' || p.def.mech.jetThrust > 0) && !touchAnchored(p) },
-  { name: 'defense', label: 'DEF', at: 'r', x: 1.54, y: 1.18, show: (p) => !!(p && p.util && p.util.def.def !== 'reactive') },
+  { name: 'defense', label: 'DEF', at: 'r', x: 1.54, y: 1.18, show: (p) => !!(p && p.util && !p.util.def.passive) },
   { name: 'boost', label: 'BOOST', at: 'r', x: 2.72, y: 1.18, latch: true, show: (p) => !!p && !touchAnchored(p) },
   { name: 'next', label: 'WPN', at: 'r', x: 0.18, y: 2.72, show: (p) => !!(p && p.wslots.primaryA && p.wslots.primaryB) },
   { name: 'cycle', label: 'TGT', at: 'r', x: 1.54, y: 2.36, show: touchArmed },
@@ -8874,6 +8875,14 @@ const FAUNA_SCATTER = 2.5;          // seconds a scared flock flies spread out, 
 const FAUNA_WATER_PAD = 0.3;        // swimmers keep this far inside the surface and the bed (m)
 const FAUNA_FAR = 600, FAUNA_FAR_EVERY = 4;   // groups farther from the camera than this think every 4th tick
 const FAUNA_SHADOW_DIST = 100;      // contact shadows of ground animals up to (m)
+/* P3-01 and P3-02: where the player plays, and how big far animals draw (P1-04: too few animals within draw range, 1 to 3 px tall) */
+const FAUNA_ANCHOR_HERDS = 5;       // the first herds of a battle are placed where the player plays (Fauna.anchors); the rest anywhere
+const FAUNA_ANCHOR_STAGE = 8, FAUNA_ANCHOR_STAGES = 5, FAUNA_ANCHOR_GROW = 60;   // spots tried per stage, stages, and how much farther (m) and wider (rad / 2) each stage looks: sites cover the start of many missions
+const FAUNA_ANCHOR_GAP = 8;         // an anchored herd's home keeps this far (plus its spread) from every site (m; others FAUNA_SITE_GAP)
+const FAUNA_BIG = 0.6;              // anchored herds are of animals at least this tall (m) when the battlefield has any
+const FAUNA_ANCHOR_SHARE = 1;       // and keep this share of their size at least on every preset (the quality's share thins the herds far away)
+const FAUNA_FADE = 0.15;            // an animal grows in over the last 15 percent of the draw range, so a boosted one does not pop in
+const FAUNA_BOOST_DIST = 110, FAUNA_BOOST_MAX = 3;   // an animal draws larger from the distance (m) per metre of its height where it would be under 5 px on an 800 px screen, up to this many times: it stays a few pixels tall at the draw limit
 const FAUNA_NIGHT = 0.5;            // Clock.look.night above this is night
 const FAUNA_SCHOOL = [];            // spots of the fish in a school (in units of its radius), from a fixed hash
 for (let i = 0; i < 12; i++) FAUNA_SCHOOL.push([latticeHash(i, 1, 77) * 2 - 1, latticeHash(i, 2, 77) * 2 - 1, latticeHash(i, 3, 77) * 2 - 1]);
@@ -9182,8 +9191,8 @@ const FAUNA_PARTS = {
   },
 };
 /* an animal in its pose at the stack; lod: the simple model (body, head and wings) */
-function drawAnimal(a, lod) {
-  const st = R.stack, d = a.def, G = Fauna.g, k = a.scale;
+function drawAnimal(a, lod, boost) {
+  const st = R.stack, d = a.def, G = Fauna.g, k = a.scale * (boost || 1);
   Fauna.cur = a; Fauna.lod = lod;
   Fauna.pose(a);
   st.push().t(a.x, a.y, a.z).ry(a.yaw + G.wig).rx(a.pitch + G.rock).rz(a.roll + G.sway).s(k, k, k);
@@ -9255,13 +9264,82 @@ const Fauna = {
     const rng = makeRng((Math.imul((seed || 7) >>> 0, 2654435761) ^ FAUNA_SEED) >>> 0);
     W.fauna = { groups: [], tick: 0, night: false, drawn: 0, kills: 0, count: 0 };
     if (!W.flora) return;   // a world built without populateWorld has no free-ground test
-    const pools = this.pools(fa, m.biome), counts = { ground: fa.herds, air: fa.flocks, water: fa.schools };
+    const pools = this.pools(fa, m.biome), counts = { ground: fa.herds, air: fa.flocks, water: fa.schools }, anchors = this.anchors();
     for (const type of ['ground', 'air', 'water']) for (let i = 0; i < counts[type]; i++) {
       const grng = makeRng((rng() * 4294967296) >>> 0);   // a stream per group: the quality's share changes no other group
-      const sp = Flora.pick(pools[type], grng()), home = sp >= 0 ? this.findHome(FAUNA[sp], grng) : null;
-      if (home) this.spawnGroup(sp, home, grng, fa.density * share);
+      // the first herds and the first flock stand where the player plays; they come first, so the cap below keeps them
+      const anchor = anchors.length && ((type === 'ground' && i < FAUNA_ANCHOR_HERDS) || (type === 'air' && i === 0)) ? anchors[type === 'air' ? 0 : i % anchors.length] : null;
+      const sp = anchor && type === 'ground' ? this.pickBig(pools[type], grng) : Flora.pick(pools[type], grng());
+      let home = sp >= 0 ? this.findHome(FAUNA[sp], grng, anchor) : null;
+      if (!home && anchor && sp >= 0) home = this.findHome(FAUNA[sp], grng);
+      if (home) this.spawnGroup(sp, home, grng, fa.density * (anchor ? Math.max(share, FAUNA_ANCHOR_SHARE) : share));
     }
     this.cap(this.quality().faunaSim);
+  },
+  /* An aircraft's start is final only after settleAir (D58 may turn it from the hostiles that would see it): the first herds and
+     the first flock move to where it flies, one ring beyond another along its heading, so the approach has animals (P3-01). */
+  attend(p) {
+    const F = W.fauna;
+    if (!F || !p || p.dead || p.kind !== 'air') return;
+    const rings = [[100, 240], [220, 380], [350, 550]];
+    let herds = 0, flock = false;
+    for (const g of F.groups) {
+      if (g.type === 'ground' && herds < rings.length) { this.rehome(g, { x: p.x, z: p.z, yaw: p.yaw, cone: 0.7, near: rings[herds][0], far: rings[herds][1] }); herds++; }
+      else if (g.type === 'air' && !flock) { this.rehome(g, { x: p.x, z: p.z, yaw: p.yaw, cone: 0.4, near: 100, far: 240, loose: true }); flock = true; }
+    }
+  },
+  /* group g gets a new home within the anchor and its animals new places there (those that find none are dropped); no home found: unchanged */
+  rehome(g, anchor) {
+    const d = g.def, rng = makeRng((Math.imul(g.slot + 1, 2654435761) ^ FAUNA_SEED ^ 0xa17) >>> 0);
+    const home = this.findHome(d, rng, anchor);
+    if (!home) return;
+    const was = { hx: g.hx, hz: g.hz, gx: g.gx, gz: g.gz, tx: g.tx, tz: g.tz, lx: g.lx, lz: g.lz, gy: g.gy };
+    g.hx = g.gx = g.tx = g.lx = home.x; g.hz = g.gz = g.tz = g.lz = home.z;
+    if (d.type === 'air') { g.gy = Water.top(home.x, home.z) + g.alt; this.skyGoal(g, false, rng); }
+    const ms = g.members, keep = [];
+    for (const a of ms) {
+      let ok = false;
+      for (let k = 0; k < FAUNA_MEMBER_TRIES && !ok; k++) ok = this.place(a, rng);
+      if (ok) keep.push(a);
+    }
+    if (!keep.length) { Object.assign(g, was); return; }   // nothing fits there: the group stays where it was
+    W.fauna.count -= ms.length - keep.length;
+    ms.length = 0; ms.push(...keep);
+    this.bounds(g);
+  },
+  /* A species of pool at least FAUNA_BIG tall when it has one (an animal to see from afar), else any. */
+  pickBig(pool, rng) {
+    let sp = Flora.pick(pool, rng());
+    for (let k = 0; k < 6 && sp >= 0 && FAUNA[sp].top < FAUNA_BIG; k++) sp = Flora.pick(pool, rng());
+    return sp;
+  },
+  /* The places the player plays, from the battle's start (P3-02): the ground just ahead of the start (in view from the
+     first frame), all round it a little farther, the way to the first goal and the goal. Each is { x, z, yaw, cone,
+     near, far }: a home is looked for between near and far m of (x, z), within cone rad of yaw (PI: all round). The goal
+     is the enemy base of a skirmish, else the primary objective marker nearest the start (not the live enemies a hunt
+     marks, as forwardSpawn). */
+  anchors() {
+    const m = W.mission, out = [];
+    let st = m && m.def && m.def.start;
+    if (!st) return out;
+    const pick = Game.cfg && PLATFORMS[Game.cfg.platformId];
+    if (pick && pick.kind === 'air') st = airSpawn(st.x, st.z, st.yaw, 0, null);   // an aircraft starts where and as airSpawn puts it
+    const yaw = st.yaw || 0;
+    out.push({ x: st.x, z: st.z, yaw, cone: 0.9, near: 70, far: 170 });
+    out.push({ x: st.x, z: st.z, yaw, cone: PI, near: 150, far: 260 });
+    const inward = Math.atan2(-st.x, -st.z);   // an aircraft is turned toward the middle of the map (airSpawn): the ground it flies over first
+    if (Math.abs(angleDiff(inward, yaw)) > 0.8 && Math.hypot(st.x, st.z) > 300) out.push({ x: st.x, z: st.z, yaw: inward, cone: 0.6, near: 100, far: 300 });
+    let goal = W.bases ? W.bases.enemy : null, best = Infinity;
+    if (!goal) for (const o of m.objectives) {
+      if (!o.primary || (o.units && o.units.some((u) => u.team === 1))) continue;
+      for (const k of o.markers()) { const d = Math.hypot(k.x - st.x, k.z - st.z); if (d < best) { best = d; goal = k; } }
+    }
+    if (goal) {
+      const len = Math.hypot(goal.x - st.x, goal.z - st.z), way = Math.atan2(goal.x - st.x, goal.z - st.z);
+      if (len > 500) out.push({ x: st.x + (goal.x - st.x) * 0.45, z: st.z + (goal.z - st.z) * 0.45, yaw: way, cone: PI, near: 30, far: 140 });
+      out.push({ x: goal.x, z: goal.z, yaw: way + PI, cone: PI, near: 110, far: 220 });
+    }
+    return out;
   },
   /* at most `most` animals in all: every group keeps the same share of its first members (at least one, so no group
      moves), then the last groups go while there are still too many */
@@ -9278,12 +9356,20 @@ const Fauna = {
     while (F.count > most) F.count -= gs.pop().members.length;
   },
   /* a home for a group of species d: clear of sites, and where it lives (half the tries insist on its habitat) */
-  findHome(d, rng) {
-    for (let t = 0; t < FAUNA_HOME_TRIES; t++) {
-      const x = (rng() * 2 - 1) * FAUNA_EDGE * 0.92, z = (rng() * 2 - 1) * FAUNA_EDGE * 0.92, picky = t < FAUNA_HOME_TRIES / 2;
-      if (!Flora.clearOfSites(x, z, d.spread + FAUNA_SITE_GAP)) continue;
+  findHome(d, rng, anchor) {
+    const tries = anchor ? FAUNA_ANCHOR_STAGE * FAUNA_ANCHOR_STAGES : FAUNA_HOME_TRIES;
+    for (let t = 0; t < tries; t++) {
+      let x, z;
+      if (anchor) {   // within the anchor's ring and cone; each stage looks farther and wider, so the home is as near as the sites allow
+        const stage = Math.floor(t / FAUNA_ANCHOR_STAGE), grow = stage * FAUNA_ANCHOR_GROW;
+        const ang = anchor.yaw + (rng() * 2 - 1) * Math.min(PI, anchor.cone + stage * 0.5), r = lerp(anchor.near + grow, anchor.far + grow, rng());
+        x = anchor.x + Math.sin(ang) * r; z = anchor.z + Math.cos(ang) * r;
+        if (Math.abs(x) > FAUNA_EDGE * 0.92 || Math.abs(z) > FAUNA_EDGE * 0.92) continue;
+      } else { x = (rng() * 2 - 1) * FAUNA_EDGE * 0.92; z = (rng() * 2 - 1) * FAUNA_EDGE * 0.92; }
+      const picky = anchor ? t % FAUNA_ANCHOR_STAGE < FAUNA_ANCHOR_STAGE / 2 : t < tries / 2;   // an anchored home is picky in the first half of each stage, so a near spot of any ground beats a far meadow
+      if (!Flora.clearOfSites(x, z, d.spread + (anchor ? FAUNA_ANCHOR_GAP : FAUNA_SITE_GAP))) continue;   // an anchored group keeps close to the sites but never on one
       if (d.type === 'water') { if (Water.depth(x, z) >= d.deep * 1.5) return { x, z }; continue; }
-      if (d.type === 'air') { if (d.home !== 'coast' || this.byWater(x, z)) return { x, z }; continue; }
+      if (d.type === 'air') { if (d.home !== 'coast' || (anchor && anchor.loose) || this.byWater(x, z)) return { x, z }; continue; }   // a loose anchor (an aircraft's flock) takes the sea birds inland too
       if (this.standOk(d, x, z, 2) && this.habitat(d, x, z, picky)) return { x, z };
     }
     return null;
@@ -9775,24 +9861,33 @@ const Fauna = {
   },
 
   /* ---------- drawing ---------- */
+  /* how many times larger than life an animal of species d and size scale draws at dist m: 1 up to the distance where it
+     would be under 5 px tall on an 800 px screen, then larger with the distance, at most FAUNA_BOOST_MAX times */
+  boost(d, scale, dist) { return clamp(dist / (FAUNA_BOOST_DIST * d.top * scale), 1, FAUNA_BOOST_MAX); },
+  /* the size share of an animal dist m from the player when the draw range is far m: 1 up to 85 percent of it, then down to 0 at the limit */
+  fade(dist, far) { const k = clamp((far - dist) / (far * FAUNA_FADE), 0, 1); return k * k * (3 - 2 * k); },
   /* the animals within faunaDraw of the camera (simple models past faunaLod), at most faunaCap of them */
   draw() {
     const F = W.fauna;
     if (!F) return;
-    const q = this.quality(), st = R.stack, cam = R.cam, far2 = q.faunaDraw * q.faunaDraw, lod2 = q.faunaLod * q.faunaLod, gs = F.groups;
+    // the range is measured from the player (a trailing camera would lose a herd at the edge), else from the camera
+    const q = this.quality(), st = R.stack, cam = R.cam, ref = W.player && !W.player.dead ? W.player : cam, far = q.faunaDraw, far2 = far * far, lod2 = q.faunaLod * q.faunaLod, gs = F.groups;
     let n = 0;
     for (let i = 0; i < gs.length && n < q.faunaCap; i++) {
-      const g = gs[i], gx = g.cx - cam.x, gz = g.cz - cam.z, reach = q.faunaDraw + g.rad;
+      const g = gs[i], gx = g.cx - ref.x, gz = g.cz - ref.z, reach = far + g.rad;
       if (gx * gx + gz * gz > reach * reach || !R.visible(g.cx, g.cy, g.cz, g.rad)) continue;
       const ms = g.members;
       for (let k = 0; k < ms.length && n < q.faunaCap; k++) {
         const a = ms[k];
         if (a.dead) continue;
         const d = a.def, dx = a.x - cam.x, dy = a.y - cam.y, dz = a.z - cam.z, d2 = dx * dx + dy * dy + dz * dz;
-        if (d2 > far2 || !R.visible(a.x, a.y + d.cy * a.scale, a.z, (d.rad + d.ry) * a.scale + 0.5)) continue;
+        const rx = a.x - ref.x, rz = a.z - ref.z, hd2 = rx * rx + rz * rz;
+        if (hd2 > far2 || !R.visible(a.x, a.y + d.cy * a.scale, a.z, (d.rad + d.ry) * a.scale * FAUNA_BOOST_MAX + 0.5)) continue;   // the draw range is on the ground plane, so a flier sees as far as a walker
+        const fade = this.fade(Math.sqrt(hd2), far);
+        if (fade < 0.05) continue;
         n++;
         st.top = 0; st.ident();
-        drawAnimal(a, d2 > lod2);
+        drawAnimal(a, d2 > lod2, this.boost(d, a.scale, Math.sqrt(d2)) * fade);
       }
     }
     F.drawn = n;
@@ -13138,6 +13233,145 @@ const RADAR_FOCUS_CONE = 0.7;    // rad off the nose where the focused radar rea
 const RADAR_FOCUS_COS = Math.cos(RADAR_FOCUS_CONE);
 const RADAR_FOCUS_MULT = 1.6;    // focused radar range share
 const RADAR_TP = { x: 0, y: 0, z: 0 };
+/* ---------------------------------------------------------------------
+   Radar detection (P5-05; decided 2026-10-29 by the coordinator, the owner can change any row)
+   The HUD radar shows a hostile or a neutral contact (animal, civilian on foot, civilian vehicle) only while it is
+   detected: inside the detection range of the player's platform, or of an ally that shares what it sees (DETECT_SHARE of
+   its own range). The range follows the platform's class (DETECT_RANGE: infantry shortest, aircraft longest) and grows
+   with the Sensor Array utility; a sensor damaged by EMP or hits halves it, as it halves the targeting range. What the
+   player has targeted or locked always shows. Allies show on the disc without being detected (they are linked).
+   Every game works this out for its own player from the platforms it holds (co-op peers see their own contacts and
+   nothing is sent); the AI keeps its own sight (AIController.sightRange), which the Sensor Array lengthens by
+   DETECT_AI_SIGHT.
+   --------------------------------------------------------------------- */
+const DETECT_RANGE = {   // class: [range without the Sensor Array, with it] (m); the radar disc spans the second
+  foot: [180, 360],        // infantry: shortest
+  mech: [280, 450],        // light, medium and heavy mechs
+  vehicle: [320, 500],     // wheeled, tracked and hover vehicles
+  artillery: [260, 480],   // howitzer, rocket truck and mortar carrier
+  naval: [450, 800],       // fast attack craft, destroyer and hovercraft
+  air: [700, 1100],        // interceptor, strike fighter and gunship: longest
+};
+const DETECT_SHARE = 0.6;        // an ally's detection reaches this share of its own range on your radar
+const DETECT_AI_SIGHT = 1.25;    // an AI unit with the Sensor Array spots this much farther
+const DETECT_NODES = 24;         // the player and the nearest allies, this many sensors at most, make one radar picture
+const DETECT_KEEP = 1.15;        // a held target stays until it is this much beyond every sensor's range (and out of view): the grace margin
+const TARGET_VIEW_CONE = 0.6;    // rad off the aim: a unit this near the reticle with a clear line is seen by eye, detected or not
+const TARGET_VIEW_COS = Math.cos(TARGET_VIEW_CONE);
+const TARGET_EYE_RANGE = 800;    // m: the farthest a unit counts as seen by eye (in view, clear line) for cycling and holding a target; R.drawDist if that is shorter, since nothing is drawn beyond it
+const KNOW_TP = { x: 0, y: 0, z: 0 }, KNOW_DIR = { x: 0, y: 0, z: 0 };   // Platform.knows scratch
+const Detect = {
+  x: new Float64Array(DETECT_NODES), z: new Float64Array(DETECT_NODES), r2: new Float64Array(DETECT_NODES), away: new Float64Array(DETECT_NODES), n: 0,
+  /* the class of platform def: foot, mech, vehicle, artillery, naval or air (worked out once per def) */
+  classOf(def) {
+    if (def.detectClass) return def.detectClass;
+    const cls = def.kind === 'air' ? 'air' : def.kind === 'naval' ? 'naval' : def.arty ? 'artillery' : def.kind === 'mech' ? (def.style === 'infantry' ? 'foot' : 'mech') : 'vehicle';
+    def.detectClass = cls;
+    return cls;
+  },
+  hasModule(p) { return !!p.util && p.util.def.def === 'sensor'; },
+  /* platform p's own detection range now (m) */
+  rangeOf(p) { return DETECT_RANGE[this.classOf(p.def)][this.hasModule(p) ? 1 : 0] * (p.sub.sensors > 0 ? 0.5 : 1); },
+  /* the span of p's radar disc: the longest range its class reaches (m) */
+  discRange(p) { return DETECT_RANGE[this.classOf(p.def)][1]; },
+  /* how much farther an AI unit or spotter p sees for carrying the Sensor Array */
+  sightMult(p) { return this.hasModule(p) ? DETECT_AI_SIGHT : 1; },
+  /* the sensors of one radar picture: p itself and the armed allies that could reach the disc, each with a range */
+  begin(p) {
+    const pl = W.platforms, disc = this.discRange(p);
+    let n = 1;
+    this.x[0] = p.x; this.z[0] = p.z; this.r2[0] = this.rangeOf(p) ** 2; this.away[0] = 0;
+    for (let i = 0; i < pl.length; i++) {
+      const q = pl[i];
+      if (q === p || q.dead || q.team !== p.team || !(q.def.sensor > 0)) continue;
+      const r = this.rangeOf(q) * DETECT_SHARE, dx = q.x - p.x, dz = q.z - p.z, reach = disc + r, away = dx * dx + dz * dz;
+      if (away > reach * reach) continue;
+      let at = n;
+      if (n >= DETECT_NODES) {   // full: the nearest allies stay, the farthest one held makes room for a nearer
+        at = 1;
+        for (let k = 2; k < n; k++) if (this.away[k] > this.away[at]) at = k;
+        if (this.away[at] <= away) continue;
+      } else n++;
+      this.x[at] = q.x; this.z[at] = q.z; this.r2[at] = r * r; this.away[at] = away;
+    }
+    this.n = n;
+  },
+  /* true when (x, z) is inside some sensor's range (times grow, default 1) of the picture begin() made */
+  sees(x, z, grow) {
+    const g2 = grow ? grow * grow : 1;
+    for (let i = 0; i < this.n; i++) {
+      const dx = x - this.x[i], dz = z - this.z[i];
+      if (dx * dx + dz * dz <= this.r2[i] * g2) return true;
+    }
+    return false;
+  },
+  list: [], count: 0, iFauna: 0, iCiv: 0, iVeh: 0,   // the contacts of the last scan: platforms first, then animals, civilians, vehicles
+  put(n, kind, x, z, big, marked) {
+    const c = this.list[n] || (this.list[n] = { kind: '', x: 0, z: 0, big: false, marked: false });
+    c.kind = kind; c.x = x; c.z = z; c.big = big; c.marked = marked;
+    return n + 1;
+  },
+  /* The contacts of player p's radar disc (P5-05, P3-03), written into Detect.list[0 .. count): allies in the disc
+     ('friend'); hostiles that are detected, or targeted or locked ('hostile', marked when targeted or locked, wherever they
+     are); a neutral platform someone took ('civilian' on foot, 'vehicle'); a targeted objective structure ('objective');
+     then the detected neutrals of the scenery: animals (one per herd, flock or school: 'animal'), civilians on foot
+     ('civilian') and civilian vehicles under way ('vehicle'). The scenery is local to every game (D6) and never a target:
+     only this list holds it. */
+  scan(p) {
+    this.begin(p);
+    const range = this.discRange(p), lim = range * range, tgt = p.target, lock = p.lock.target, pl = W.platforms;
+    let n = 0;
+    for (let i = 0; i < pl.length; i++) {
+      const e = pl[i];
+      if (e === p || e.dead) continue;
+      const dx = e.x - p.x, dz = e.z - p.z, inDisc = dx * dx + dz * dz <= lim;
+      if (e.team === p.team) { if (inDisc) n = this.put(n, 'friend', e.x, e.z, false, false); continue; }
+      const marked = e === tgt || e === lock;
+      if (!marked && (!inDisc || e.noTarget || !this.sees(e.x, e.z))) continue;
+      if (e.team === 2) n = this.put(n, e.kind === 'mech' ? 'civilian' : 'vehicle', e.x, e.z, false, false);   // a civilian vehicle someone took: neutral, never a target
+      else n = this.put(n, 'hostile', e.x, e.z, e.kind === 'air', marked);
+    }
+    if (tgt && tgt.isStruct && talive(tgt)) n = this.put(n, 'objective', tgt.x, tgt.z, true, true);   // a targeted objective structure
+    this.iFauna = n;
+    const F = W.fauna, zones = W.civZones, T = W.traffic;
+    if (F) {   // a school only for the sea mammals, which break the surface
+      let k = 0;
+      for (let i = 0; i < F.groups.length && k < RADAR_NEUTRAL_MAX; i++) {
+        const g = F.groups[i], dx = g.cx - p.x, dz = g.cz - p.z;
+        if (dx * dx + dz * dz > lim || (g.type === 'water' && !g.def.blood) || !this.sees(g.cx, g.cz)) continue;
+        n = this.put(n, 'animal', g.cx, g.cz, false, false); k++;
+      }
+    }
+    this.iCiv = n;
+    if (zones) {   // civilians on foot, not those indoors
+      let k = 0;
+      for (let i = 0; i < zones.length; i++) {
+        const z = zones[i], zx = z.cx - p.x, zz = z.cz - p.z, reach = z.rad + range;
+        if (zx * zx + zz * zz > reach * reach) continue;
+        const cs = z.civs;
+        for (let j = 0; j < cs.length && k < RADAR_NEUTRAL_MAX; j++) {
+          const c = cs[j], dx = c.x - p.x, dz = c.z - p.z;
+          if (c.dead || c.state === 'inside' || dx * dx + dz * dz > lim || !this.sees(c.x, c.z)) continue;
+          n = this.put(n, 'civilian', c.x, c.z, false, false); k++;
+        }
+      }
+    }
+    this.iVeh = n;
+    if (T) {   // civilian vehicles under way: cars, boats and aircraft of the scenery (not the parked or the wrecked)
+      let k = 0;
+      for (let list = 0; list < 3; list++) {
+        const vs = list === 0 ? T.cars : list === 1 ? T.ships : T.flights;
+        for (let j = 0; j < vs.length && k < RADAR_NEUTRAL_MAX; j++) {
+          const v = vs[j], dx = v.x - p.x, dz = v.z - p.z;
+          if (v.state === 'wreck' || v.state === 'park' || (list === 2 && !v.aloft) || dx * dx + dz * dz > lim || !this.sees(v.x, v.z)) continue;
+          n = this.put(n, 'vehicle', v.x, v.z, false, false); k++;
+        }
+      }
+    }
+    this.count = n;
+    return n;
+  },
+};
 // ships (P5.1, D16): kind 'naval' floats on Water.level (waves and floods) with its keel `draft` m under the surface
 const NAVAL_MAP_DEPTH = 4.5;     // a battlefield takes ships when it has a sea, an open sea, or a lake or river this deep (m)
 const NAVAL_KEEL_CLEAR = 0.6;    // water a ship keeps under its keel: where it is shallower ahead, the ship stops (m)
@@ -13864,7 +14098,7 @@ const Arty = {
       if (q === p || q.dead || q.team !== p.team || q.parked || q.isDecoy || q.def.style === 'artillery' || q.def.unarmed || q.hideFromAI) continue;
       if (p.spotters && p.spotters.indexOf(q) < 0) continue;   // a battery told whose eyes it fires by (a mission's observers)
       // an observer with a spotting scope (spotRange) spots that far whatever the difficulty, weather and storms still cut it
-      const own = q.spotRange ? q.spotRange * Weather.sightK * Hazards.sightAt(q.x, q.z) : q.ai ? q.ai.sightRange() : q.def.sensor * 0.8;
+      const own = q.spotRange ? q.spotRange * Weather.sightK * Hazards.sightAt(q.x, q.z) : q.ai ? q.ai.sightRange() : q.def.sensor * 0.8 * Detect.sightMult(q);
       const sight = Math.min(ARTY_SPOT_MAX, own), dx = x - q.x, dz = z - q.z;
       if (dx * dx + dz * dz > sight * sight) continue;
       if (q.kind === 'air' || hasLOS(q.x, q.y + q.height * 0.8, q.z, x, y + 1, z)) return true;
@@ -14657,9 +14891,26 @@ class Platform {
     if (!hasLOS(this.x, this.y + this.height * 0.6, this.z, tp.x, tp.y, tp.z)) s += TARGET_HIDDEN_PENALTY;
     return s;
   }
+  /* P5-05: whether the radar or the eye has unit t at tp: inside a sensor's range (times grow) of the picture Detect.begin made
+     for this platform, or in view: within TARGET_VIEW_CONE of the aim dir, no farther than the shorter of TARGET_EYE_RANGE and
+     R.drawDist (what is drawn), with a clear line (cached: the held target's look; else a fresh test). Objective structures
+     are always known: their markers show. */
+  senses(t, tp, grow, dir, cached) {
+    if (t.isStruct || Detect.sees(tp.x, tp.z, grow)) return true;
+    const dx = tp.x - this.x, dy = tp.y - this.y, dz = tp.z - this.z, d = Math.hypot(dx, dy, dz);
+    if (d < 1) return true;
+    if (d > Math.min(TARGET_EYE_RANGE, R.drawDist) || dx * dir.x + dy * dir.y + dz * dir.z < d * TARGET_VIEW_COS) return false;
+    return cached ? this.lockSight(t, tp) : hasLOS(this.x, this.y + this.height * 0.6, this.z, tp.x, tp.y, tp.z);
+  }
+  /* senses() for unit t from scratch: the host checking a guest's pick against that guest's platform (its sensors, its aim) */
+  knows(t, grow) {
+    Detect.begin(this);
+    return this.senses(t, tpos(t, KNOW_TP), grow, this.aimDir(KNOW_DIR), false);
+  }
   cycleTarget() {
     const cands = [], dir = { x: 0, y: 0, z: 0 }, tp = { x: 0, y: 0, z: 0 };
     this.aimDir(dir);
+    Detect.begin(this);
     const range = this.wideRange(), air = this.kind === 'air';
     const consider = (t) => {
       if (!this.validTarget(t)) return;
@@ -14668,6 +14919,7 @@ class Platform {
       if (d < 1) return;
       const ang = Math.acos(clamp((dx * dir.x + dy * dir.y + dz * dir.z) / d, -1, 1));
       if (d > (air && ang <= RADAR_FOCUS_CONE ? range * RADAR_FOCUS_MULT : range)) return;   // an aircraft's radar reaches farther ahead
+      if (!this.senses(t, tp, 1, dir, false)) return;   // P5-05: only what the radar has detected (own or shared) or the eye has in view
       cands.push({ t, ang: this.targetScore(t, ang, d, tp) });
     };
     W.platforms.forEach(consider); W.structs.forEach((s) => { if (s.objective) consider(s); });
@@ -14700,6 +14952,12 @@ class Platform {
     if (this.target) { // lose target beyond sensors
       tpos(this.target, TMP_V);
       if (Math.hypot(TMP_V.x - this.x, TMP_V.y - this.y, TMP_V.z - this.z) > this.sensorRange() * 1.25) this.target = null;
+      else if ((this.isPlayer || this.netPeer) && !this.target.isStruct && this.lock.state !== 'locked') {
+        // P5-05: a held target that has left every sensor's range by DETECT_KEEP and is not in view with a clear line is let go;
+        // a hard lock (state locked) keeps only the rules above and the lock's own (cone, line of sight, grace, jamming)
+        Detect.begin(this);
+        if (!this.senses(this.target, TMP_V, DETECT_KEEP, this.aimDir(LOCK_DIR), true)) this.target = null;
+      }
     }
     const w = this.wslots.secondary;
     const gd = w && w.def.guide;
@@ -14998,7 +15256,7 @@ class Platform {
       case 'flares':
         if (c.defenseEdge && u.charges > 0 && u.cd <= 0) this.deployFlares(u);
         break;
-      case 'reactive': break;   // passive: takeDamage spends the charges
+      case 'reactive': case 'sensor': break;   // passive: takeDamage spends the charges; Detect reads the Sensor Array
       default:   // activated gadgets: ECM, smoke, camo, overdrive, holo decoy, repair drone, barrier
         if (c.defenseEdge && u.charges > 0 && u.cd <= 0) this.useGadget(u);
         break;
@@ -22828,7 +23086,7 @@ class AIController {
   /* ---------- perception ---------- */
   /* How far this unit spots targets right now: base sight, difficulty, weather, alert and sensor damage. */
   sightRange() {
-    return this.sight * this.d.sight * Weather.sightK * Hazards.sightAt(this.p.x, this.p.z) * (this.alertT > 0 ? 1.4 : 1) * (this.p.sub.sensors > 0 ? 0.5 : 1);
+    return this.sight * this.d.sight * Weather.sightK * Hazards.sightAt(this.p.x, this.p.z) * (this.alertT > 0 ? 1.4 : 1) * (this.p.sub.sensors > 0 ? 0.5 : 1) * Detect.sightMult(this.p);
   }
   perceive() {
     const p = this.p;
@@ -25360,6 +25618,7 @@ const Game = {
       this.mission.later.forEach((fn) => fn());
       settleAir(W.player);   // the units of the battle stand now: an aircraft turns from the ones that would see it
       if (cfg.coop && Net.host) for (const peer of Net.peers) settleAir(peer.p);
+      Fauna.attend(W.player);   // an aircraft pick: the first herds go where it flies (its heading is final now)
       Nav.prewarm();   // every class of unit in the battle has its route grid now, before the first frame (built later, a grid took a few ms of a tick in the first seconds)
     }
     W.stats.score = 0;
@@ -25759,6 +26018,7 @@ Cam.menuUpdate = function (dt) {
    HUD (2D canvas drawn over the WebGL view)
    ===================================================================== */
 const ALLY_ROWS = 5;   // rows in the HUD ally list
+const RADAR_NEUTRAL_MAX = 400;   // most neutral marks of one icon on the radar (a dense city has a few hundred people)
 const HUD_RADAR_R = 76, HUD_RADAR_EDGE = 20, HUD_RADAR_TOP = 38;   // HUD units: radar radius, gap to the right edge, top of the disc
 const PULL_UP_AGL = 70, PULL_UP_SINK = 6;   // warn below this height (m) while sinking faster than this (m/s)
 const PULL_UP_LOOK = 3, PULL_UP_CLEAR = 25;   // or when rising ground this many seconds ahead would come closer than this (m)
@@ -25775,7 +26035,7 @@ const HUD_CTX = {};          // the Use context of the prompt (Seats.context)
 const USE_SHOW_HOLD = 0.08;  // seconds Use is held before the hold progress bar shows
 const HUD = {
   cv: null, g: null, w: 800, h: 600, dpr: 1, u: 1, tmp: { sx: 0, sy: 0, w: 0, vis: false }, targetPos: { x: 0, y: 0, z: 0 },
-  C: { main: '#7dffd0', dim: 'rgba(125,255,208,0.45)', warn: '#ffb000', bad: '#ff5a4d', friend: '#5ac8ff', obj: '#ffd84d', bg: 'rgba(5,12,16,0.55)', text: '#e9fff6' },
+  C: { main: '#7dffd0', dim: 'rgba(125,255,208,0.45)', warn: '#ffb000', bad: '#ff5a4d', friend: '#5ac8ff', neutral: '#cdd6e0', fauna: '#9fd47a', obj: '#ffd84d', bg: 'rgba(5,12,16,0.55)', text: '#e9fff6' },
   init(cv) { this.cv = cv; this.g = cv.getContext('2d'); },
   resize(w, h, dpr) {
     this.w = w; this.h = h; this.dpr = dpr;
@@ -25801,6 +26061,12 @@ const HUD = {
   },
   shape(kind, x, y, r, color, lw) {
     const g = this.g;
+    if (kind === 'civilian' || kind === 'vehicle') {   // neutral contacts (P3-03): a filled dot for a person, a filled square for a vehicle
+      g.fillStyle = color; g.beginPath();
+      if (kind === 'civilian') g.arc(x, y, r * 0.55, 0, TAU); else g.rect(x - r * 0.55, y - r * 0.55, r * 1.1, r * 1.1);
+      g.fill();
+      return;
+    }
     g.strokeStyle = color; g.lineWidth = (lw || 2) * (S.highContrast ? 1.5 : 1);
     g.beginPath();
     if (kind === 'hostile') { g.moveTo(x, y - r); g.lineTo(x + r, y); g.lineTo(x, y + r); g.lineTo(x - r, y); g.closePath(); }
@@ -26133,9 +26399,10 @@ const HUD = {
       if (ud.def === 'shield') st = p.shieldOn ? 'ACTIVE' : p.shieldBroken > 0 ? 'BROKEN' : 'READY';
       else if (ud.def === 'aps') st = (p.util.auto ? 'ARMED ' : 'OFF ') + p.util.charges + ' CH' + (p.util.cd > 0 ? ' ' + p.util.cd.toFixed(1) + 's' : '');
       else if (ud.def === 'reactive') st = p.util.charges + ' CH PASSIVE';
+      else if (ud.def === 'sensor') st = 'DETECT ' + Math.round(Detect.rangeOf(p)) + 'm';
       else if (p.gadgetTime() > 0) st = 'ACTIVE ' + p.gadgetTime().toFixed(1) + 's';
       else st = p.util.charges + ' CH' + (p.util.cd > 0 ? ' ' + p.util.cd.toFixed(1) + 's' : '');
-      this.txt('[' + actionLabel('defense') + '] ' + ud.name, x + 6 * u, y + 13 * u, 12, C.text);
+      this.txt((ud.passive ? '' : '[' + actionLabel('defense') + '] ') + ud.name, x + 6 * u, y + 13 * u, 12, C.text);
       this.txt(st, x + w - 6 * u, y + 13 * u, 12, C.main, 'right');
       y -= 30 * u;
     }
@@ -26206,27 +26473,34 @@ const HUD = {
   },
   drawRadar(p, u) {
     const g = this.g, r = HUD_RADAR_R * u, cx = this.w - HUD_RADAR_EDGE * u - r - SafeArea.r, cy = HUD_RADAR_TOP * u + r + SafeArea.t, C = this.C;
-    const range = p.kind === 'air' ? 1400 : 500, sc = r / range;
+    const range = Detect.discRange(p), sc = r / range;
     const h = Math.atan2(Cam.dx, Cam.dz), sh = Math.sin(h), ch = Math.cos(h);
     g.fillStyle = 'rgba(4,14,12,0.6)'; g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.fill();
     g.strokeStyle = C.dim; g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.stroke();
     g.beginPath(); g.arc(cx, cy, r * 0.5, 0, TAU); g.stroke();
     g.beginPath(); g.moveTo(cx, cy - r); g.lineTo(cx, cy + r); g.moveTo(cx - r, cy); g.lineTo(cx + r, cy); g.stroke();
     const toR = (x, z) => { const dx = x - p.x, dz = z - p.z; return { x: dx * -ch + dz * sh, y: dx * sh + dz * ch }; };
-    const sensor = p.sensorRange();
+    // P5-05 and P3-03: the contacts Detect.scan lists, drawn: the platforms one by one, the scenery's three icons as one path each
+    Detect.scan(p);
+    const own = Detect.rangeOf(p);
+    if (own < range * 0.98) {   // the ring the platform's own sensors reach; the Sensor Array pushes it out to the rim
+      g.save(); g.setLineDash([3 * u, 3 * u]); g.strokeStyle = C.dim; g.lineWidth = 1; g.beginPath(); g.arc(cx, cy, own * sc, 0, TAU); g.stroke(); g.restore();
+    }
+    let markX = 0, markY = 0;   // where the last plotted mark stands (a targeted or locked contact is ringed there)
     const plot = (x, z, kind, col, big) => {
       const v = toR(x, z); let px = v.x * sc, py = v.y * sc;
       const d = Math.hypot(px, py);
       if (d > r - 4 * u) { px *= (r - 4 * u) / d; py *= (r - 4 * u) / d; }
-      this.shape(kind, cx + px, cy - py, (big ? 5 : 3.5) * u, col, 1.6);
+      markX = cx + px; markY = cy - py;
+      this.shape(kind, markX, markY, (big ? 5 : 3.5) * u, col, 1.6);
     };
-    for (const e of W.platforms) {
-      if (e === p || e.dead) continue;
-      const d = Math.hypot(e.x - p.x, e.z - p.z);
-      if (e.team !== p.team && d > sensor) continue;
-      if (e.team === p.team) plot(e.x, e.z, 'friend', C.friend);
-      else plot(e.x, e.z, e.kind === 'air' ? 'hostile' : 'hostile', C.bad, e.kind === 'air');
+    const L = Detect.list;
+    for (let i = 0; i < Detect.iFauna; i++) {
+      const c = L[i];
+      plot(c.x, c.z, c.kind, c.kind === 'friend' ? C.friend : c.kind === 'hostile' ? C.bad : c.kind === 'objective' ? C.obj : C.neutral, c.big);
+      if (c.marked) { g.strokeStyle = C.text; g.lineWidth = 1.5 * u; g.beginPath(); g.arc(markX, markY, 7.5 * u, 0, TAU); g.stroke(); }
     }
+    this.radarNeutrals(Detect.iFauna, Detect.count, cx, cy, sc, ch, sh, u, p);
     for (const k of W.pickups) plot(k.x, k.z, 'neutral', C.warn);
     if (Hazards.n) {   // hazard zones: rings clipped to the radar
       g.save(); g.beginPath(); g.arc(cx, cy, r, 0, TAU); g.clip();
@@ -26245,6 +26519,26 @@ const HUD = {
     // self
     g.fillStyle = C.main; g.beginPath(); g.moveTo(cx, cy - 6 * u); g.lineTo(cx - 4 * u, cy + 4 * u); g.lineTo(cx + 4 * u, cy + 4 * u); g.closePath(); g.fill();
     this.txt('RADAR ' + Math.round(range) + 'm', cx, cy - r - 9 * u, 10, C.dim, 'center');
+  },
+  /* The scenery's contacts in Detect.list[from .. to) (P3-03), each icon its own path: animals (one mark per herd, flock or
+     school: a cross), civilians on foot (a dot) and civilian vehicles (a square). (cx, cy, sc) place the disc and (ch, sh)
+     turn the world to the camera heading. */
+  radarNeutrals(from, to, cx, cy, sc, ch, sh, u, p) {
+    const g = this.g, C = this.C, L = Detect.list, a = 2.6 * u;
+    for (let icon = 0; icon < 3; icon++) {
+      const kind = icon === 0 ? 'animal' : icon === 1 ? 'civilian' : 'vehicle';
+      if (icon === 0) { g.strokeStyle = C.fauna; g.lineWidth = 1.5 * u * (S.highContrast ? 1.5 : 1); } else g.fillStyle = C.neutral;
+      g.beginPath();
+      for (let i = from; i < to; i++) {
+        const c = L[i];
+        if (c.kind !== kind) continue;
+        const dx = c.x - p.x, dz = c.z - p.z, x = cx + (dx * -ch + dz * sh) * sc, y = cy - (dx * sh + dz * ch) * sc;
+        if (icon === 0) { g.moveTo(x - a, y - a); g.lineTo(x + a, y + a); g.moveTo(x + a, y - a); g.lineTo(x - a, y + a); }
+        else if (icon === 1) { g.moveTo(x + a * 0.6, y); g.arc(x, y, a * 0.6, 0, TAU); }
+        else g.rect(x - a * 0.7, y - a * 0.7, a * 1.4, a * 1.4);
+      }
+      if (icon === 0) g.stroke(); else g.fill();
+    }
   },
   /* a lava flow on the radar: a band along the cells it has reached (toR: world to radar offset, sc px per m) */
   radarLava(h, toR, cx, cy, sc, u) {
@@ -27021,7 +27315,7 @@ const UI = {
     return '<h2>Controls</h2>' + (this.rebind ? '<div class="panel warn" role="status">' + esc(this.rebind.msg) + '</div>' : '<div class="hint" style="margin:0 0 .6em">Click a binding, then press the new key or mouse button. Esc and F-keys are reserved.</div>') +
       '<div class="grid2"><div class="panel"><table><tr><th>Action</th><th>Binding</th></tr>' + rows + '</table></div>' +
       '<div class="panel"><h3 style="margin-top:0">Per-platform behaviour</h3><table><tr><th></th><th>Mech</th><th>Ground</th><th>Aircraft</th></tr>' + per.map((r) => '<tr><td>' + r.map(esc).join('</td><td>') + '</td></tr>').join('') + '</table>' +
-      '<h3>Fixed keys</h3><div class="dim">Esc pause &middot; F10 diagnostics &middot; Training: F1 help, F2 infinite ammo, F3 friendly fire, F4 reset destructibles, F6 reset targets &middot; 1 and 2 pick Primary A and B, the mouse wheel switches primary weapon &middot; Aircraft: the landing gear and the radar range work by themselves. Gamepad: sticks move/aim, RT primary, LT secondary, RB superweapon, LB crouch / landing gear, A jump, B defense, X melee, Y target, L3 boost, R3 reload, d-pad left switch weapon, Back Use (tap: enter or resupply, hold: exit or eject), Start pause. Menus: d-pad or stick to move, A select, B back.</div></div></div>' +
+      '<h3>Fixed keys</h3><div class="dim">Esc pause &middot; F10 diagnostics &middot; Training: F1 help, F2 infinite ammo, F3 friendly fire, F4 reset destructibles, F6 reset targets &middot; 1 and 2 pick Primary A and B, the mouse wheel switches primary weapon &middot; Aircraft: the landing gear and the radar range work by themselves. The radar shows what your sensors detect (the range depends on your platform; the Sensor Array utility extends it), your allies and whatever you have locked; animals, civilians and civilian vehicles show as green crosses, grey dots and grey squares and are never targets. Gamepad: sticks move/aim, RT primary, LT secondary, RB superweapon, LB crouch / landing gear, A jump, B defense, X melee, Y target, L3 boost, R3 reload, d-pad left switch weapon, Back Use (tap: enter or resupply, hold: exit or eject), Start pause. Menus: d-pad or stick to move, A select, B back.</div></div></div>' +
       '<div class="row"><button class="btn" data-act="rebindAll">Reset to defaults</button><button class="btn" data-act="back" data-focus>Back</button></div>';
   },
   scr_settings() {
@@ -28236,7 +28530,7 @@ const SelfTest = {
       const NEW_IDS = ['flamer', 'tesla', 'gauss', 'lance', 'needler', 'slug', 'ion', 'howitzer', 'vulcan', 'lmg', 'dmr', 'arcPistol', 'swarm', 'cruise', 'mines', 'cluster', 'atgm', 'napalm', 'buster', 'satchel', 'empGren', 'javelin',
         'ecm', 'smoke', 'cloak', 'overdrive', 'reactive', 'holo', 'drone', 'barrier'];
       const mountable = Object.keys(WEAPONS).filter((id) => !WEAPONS[id].hidden && !WEAPONS[id].sub);
-      this.check('58 mountable weapons and utilities', mountable.length === 58, mountable.length);
+      this.check('59 mountable weapons and utilities (58 and the Sensor Array)', mountable.length === 59, mountable.length);
       this.check('all 30 new items exist', NEW_IDS.every((id) => WEAPONS[id] && mountable.indexOf(id) >= 0), NEW_IDS.filter((id) => !WEAPONS[id]).join(','));
       for (const id of mountable) {
         const w = WEAPONS[id], on = PLAYABLE.filter((pid) => PLATFORMS[pid].allow[w.slot].indexOf(id) >= 0);
@@ -29567,7 +29861,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 11 (reposition)', NET_VERSION === 11);
+      this.check('the net version is 12 (the Sensor Array utility)', NET_VERSION === 12);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave }, keepPid = Save.data.platformId;
@@ -29778,12 +30072,25 @@ const SelfTest = {
         for (let i = 0; i < 60; i++) { W.time += STEP; Fauna.update(STEP); }
         this.check('a herd flees from a blast', ran && away() > d0 + 3, d0.toFixed(1) + ' to ' + away().toFixed(1));
         // a kill: gibs in the animal's colours, blood, and no score
-        const victim = herd.members[0], col = victim.col, keepStats = JSON.stringify(W.stats), kills = F.kills;
+        const victim = herd.members[0], col = victim.col, kills = F.kills;
+        let keepStats = '';
         W.debris.length = 0; W.scorches.length = 0;
+        // nothing but the animal may stand in this blast: since P3-02 the first herds stand by the player's start and the enemy base, and a unit or a structure the blast hurt would score (the one flaky full run)
+        const near = (o) => Math.hypot(o.x - victim.x, o.z - victim.z) < 40, me = W.player, back = { x: me.x, z: me.z };
+        for (let i = W.platforms.length - 1; i >= 0; i--) if (W.platforms[i] !== me && near(W.platforms[i])) W.platforms.splice(i, 1);
+        for (let i = W.structs.length - 1; i >= 0; i--) if (near(W.structs[i])) W.structs.splice(i, 1);
+        if (near(me)) { me.x += 200; me.z += 200; }
+        // and no tree, building or other structure within the blast (those are in the hash, not in W.structs, and a destroyed one scores): the victim stands on clear ground
+        for (let r = 0; r < 120 && !W.flora.free(victim.x, victim.z, 10); r += 4) {
+          for (let a = 0; a < 12; a++) { const x = victim.x + Math.cos(a * 0.52) * r, z = victim.z + Math.sin(a * 0.52) * r; if (W.flora.free(x, z, 10)) { victim.x = x; victim.z = z; victim.y = Terrain.h(x, z); r = 999; break; } }
+        }
+        keepStats = JSON.stringify(W.stats);
         explode(victim.x, victim.y + 0.5, victim.z, 4, 300, 'explosive', W.player, { noNet: true });
         const ownColour = W.debris.some((d) => Math.abs(d.r * col[1] - d.g * col[0]) < 1e-5 && d.r >= col[0] * 0.79 && d.r <= col[0] * 1.06);
         this.check('a blast kills an animal, which gibs in its own colours and bleeds', victim.dead && F.kills > kills && ownColour && W.debris.some((d) => d.trail === GIB_BLOOD) && W.scorches.some((s) => s.col === GIB_BLOOD_DECAL));
-        this.check('killing animals scores nothing', JSON.stringify(W.stats) === keepStats);
+        const keepObj = JSON.parse(keepStats);
+        me.x = back.x; me.z = back.z;
+        this.check('killing animals scores nothing', JSON.stringify(W.stats) === keepStats, Object.keys(keepObj).filter((k) => keepObj[k] !== W.stats[k]).map((k) => k + ' ' + keepObj[k] + ' -> ' + W.stats[k]).join(', ') + '; near: ' + W.platforms.filter((q) => Math.hypot(q.x - victim.x, q.z - victim.z) < 40).map((q) => q.def.id + ' ' + Math.round(Math.hypot(q.x - victim.x, q.z - victim.z)) + ' m').join(', '));
         const fish = all().find((a) => a.def.id === 'fishschool');
         W.debris.length = 0;
         if (fish) Fauna.hurt(fish, 1e6, 0, 0, 0);
@@ -30488,7 +30795,9 @@ const SelfTest = {
         foe.z = gs.z + wide * 1.4; back.z = gs.z - wide * 1.4; foe.x = back.x = gs.x;
         foe.y = Terrain.h(foe.x, foe.z); back.y = Terrain.h(back.x, back.z);
         gs.target = null; gs.cycleTarget();
-        this.check('the radar reaches farther ahead than behind', gs.target === foe, gs.target ? gs.target.id : 'none');
+        // P5-05: the targeting reach (x1.6 in the forward cone) is a ceiling now, not a radar: a unit 1.4 times the wide range away, ahead or behind,
+        // is inside that ceiling ahead but neither detected (700 m, 1100 m with the Sensor Array) nor drawn, so cycling picks neither
+        this.check('cycling no longer reaches past the radar: a tank 1.4 x the targeting range ahead (inside its forward-cone reach) and one behind are both left alone', gs.target === null && wide * RADAR_FOCUS_MULT > Math.hypot(foe.z - gs.z, foe.x - gs.x), gs.target ? gs.target.id : 'none');
       } finally { Input.pad = keep.pad; Input.setBindings(keep.bindings); TouchControls.enabled = keep.touch; S.autoTarget = keep.auto; PC.resetUse(); Input.endFrame(); }
     });
     t('on foot', () => {
@@ -31896,6 +32205,328 @@ const SelfTest = {
         for (let i = 0; i < 12; i++) { const s = respawnSite(PLATFORMS.bastion); if (!Nav.linked(g, st.x, st.z, s.x, s.z)) off++; }
         this.check('12 respawns of a tank on archipelago all come back on the start\'s ground', off === 0, off + ' off');
       } finally { Game.quitToMenu(); }
+    });
+    // ---- Phase 3 (fauna in view, radar detection, neutral radar contacts); run alone with selfTest('p3 ') ----
+    t('p3 detection table', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const classes = { ranger: 'foot', civilian: 'foot', wraith: 'mech', bulwark: 'mech', colossus: 'mech', jackal: 'vehicle', bastion: 'vehicle', specter: 'vehicle', thunder: 'artillery', hailstorm: 'artillery', pestle: 'artillery', lancer: 'naval', trident: 'naval', skua: 'naval', kestrel: 'air', shrike: 'air', behemoth: 'air' };
+      const ids = Object.keys(classes), wrong = ids.filter((id) => Detect.classOf(PLATFORMS[id]) !== classes[id]);
+      this.check('every playable platform falls in the detection class the table names', wrong.length === 0 && PLAYABLE.every((id) => classes[id]), wrong.join(','));
+      const cls = Object.keys(DETECT_RANGE), base = cls.map((c) => DETECT_RANGE[c][0]), mod = cls.map((c) => DETECT_RANGE[c][1]);
+      this.check('infantry detect the shortest range and aircraft the longest, with the Sensor Array and without', DETECT_RANGE.foot[0] === Math.min(...base) && DETECT_RANGE.air[0] === Math.max(...base) && DETECT_RANGE.foot[1] === Math.min(...mod) && DETECT_RANGE.air[1] === Math.max(...mod), base.join() + ' / ' + mod.join());
+      this.check('the Sensor Array lengthens every class at least 1.5 times, infantry 2 times', cls.every((c) => DETECT_RANGE[c][1] >= DETECT_RANGE[c][0] * 1.5) && DETECT_RANGE.foot[1] === DETECT_RANGE.foot[0] * 2);
+      this.check('the Sensor Array is a passive utility of 3 weight with a benefit and a drawback', WEAPONS.sensor && WEAPONS.sensor.slot === 'utility' && WEAPONS.sensor.passive === true && WEAPONS.sensor.weight === 3 && /Pro: .+; con: .+/.test(WEAPONS.sensor.role), WEAPONS.sensor && WEAPONS.sensor.role);
+      const bad = [];
+      for (const id of ids) {
+        const def = PLATFORMS[id], row = DETECT_RANGE[classes[id]], mk = (lo) => new Platform(def, { team: 0, x: 0, z: 0, yaw: 0, loadout: lo });
+        const q = mk(def.loadout);
+        if (Detect.rangeOf(q) !== row[0] || Detect.discRange(q) !== row[1]) bad.push(id + ' base ' + Detect.rangeOf(q));
+        q.sub.sensors = 5;
+        if (Detect.rangeOf(q) !== row[0] * 0.5) bad.push(id + ' damaged');
+        if (def.unarmed) continue;
+        const lo = Object.assign({}, def.loadout, { utility: 'sensor' }), v = Loadout.validate(def, lo);
+        if (!v.ok || def.allow.utility.indexOf('sensor') < 0) { bad.push(id + ' cannot mount it: ' + v.errors.join(';')); continue; }
+        const qm = mk(lo);
+        if (Detect.rangeOf(qm) !== row[1] || !qm.util || qm.util.def.def !== 'sensor') bad.push(id + ' module ' + Detect.rangeOf(qm));
+      }
+      this.check('every armed platform detects its class range, half of it with damaged sensors, the full module range with the Sensor Array, and can mount it within its weight limit', bad.length === 0, bad.join('; '));
+      const hold = (id, over) => { const q = new Platform(PLATFORMS[id], { team: 0, x: 0, z: 0, yaw: 0, loadout: Object.assign({}, PLATFORMS[id].loadout, { utility: 'sensor' }) }); return q.util.def.passive; };
+      this.check('a passive utility has no button and no charges: the defense edge does nothing', hold('bulwark') && !TOUCH_BUTTONS.find((b) => b.name === 'defense').show({ util: { def: WEAPONS.sensor } }) && TOUCH_BUTTONS.find((b) => b.name === 'defense').show({ util: { def: WEAPONS.ecm } }));
+    });
+    t('p3 radar contacts', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const add = (id, team, x, z, lo) => { const q = new Platform(PLATFORMS[id], { team, x, z, yaw: 0, loadout: lo || PLATFORMS[id].loadout }); W.platforms.push(q); return q; };
+      const find = (viewer, q, kind) => { Detect.scan(viewer); for (let i = 0; i < Detect.count; i++) { const c = Detect.list[i]; if (c.x === q.x && c.z === q.z && c.kind === kind) return c; } return null; };
+      const me = add('bulwark', 0, 0, 0);   // a medium mech: 280 m, 450 m with the Sensor Array
+      const near = add('bastion', 1, 200, 0), mid = add('bastion', 1, 360, 0), far = add('bastion', 1, 520, 0);
+      this.check('a hostile inside the platform\'s own range shows; one beyond it does not, though inside the disc', !!find(me, near, 'hostile') && !find(me, mid, 'hostile') && !find(me, far, 'hostile'));
+      const withModule = add('bulwark', 0, 0, 1000, Object.assign({}, PLATFORMS.bulwark.loadout, { utility: 'sensor' })), m1 = add('bastion', 1, 360, 1000), m2 = add('bastion', 1, 520, 1000);
+      this.check('with the Sensor Array the hostile out to 450 m shows, and one beyond the disc still does not', !!find(withModule, m1, 'hostile') && !find(withModule, m2, 'hostile'));
+      const foot = add('ranger', 0, 0, -1000, { primaryA: 'rifle' }), f1 = add('bastion', 1, 150, -1000), f2 = add('bastion', 1, 300, -1000);
+      this.check('infantry detect 180 m: a tank at 150 m shows, at 300 m does not', !!find(foot, f1, 'hostile') && !find(foot, f2, 'hostile'));
+      const jet = add('kestrel', 0, 1000, 1000), j1 = add('bastion', 1, 1650, 1000), j2 = add('bastion', 1, 1800, 1000);
+      this.check('an aircraft sees farthest: a tank at 650 m shows, at 800 m does not, and its disc spans 1100 m', !!find(jet, j1, 'hostile') && !find(jet, j2, 'hostile') && Detect.discRange(jet) === 1100);
+      // allies share what they see, at a share of their range
+      const ally = add('bulwark', 0, 2300, 0), h3 = add('bastion', 1, 2420, 0), viewer = add('bulwark', 0, 2000, 0);
+      this.check('an ally within reach shares its sensors: a hostile 120 m from it shows on a radar that cannot reach it', !!find(viewer, h3, 'hostile') && Detect.rangeOf(viewer) < 420 && Math.hypot(h3.x - ally.x, h3.z - ally.z) <= Detect.rangeOf(ally) * DETECT_SHARE);
+      ally.dead = true;
+      this.check('a dead ally shares nothing', !find(viewer, h3, 'hostile'));
+      ally.dead = false; ally.x = 2900;
+      this.check('an ally beyond the disc shares nothing, and allies show only inside the disc', !find(viewer, h3, 'hostile') && !find(viewer, ally, 'friend'));
+      ally.x = 2300;
+      this.check('allies inside the disc show without being detected', !!find(viewer, ally, 'friend') && !find(me, ally, 'friend'));
+      // the locked or targeted unit always shows
+      this.check('a hostile far beyond the disc is not on the radar', !find(me, far, 'hostile'));
+      me.target = far;
+      const t1 = find(me, far, 'hostile');
+      this.check('the targeted unit always shows, ringed (marked), wherever it is', !!t1 && t1.marked === true);
+      me.target = null; me.lock.target = far;
+      const t2 = find(me, far, 'hostile');
+      this.check('the locked unit always shows too', !!t2 && t2.marked === true);
+      me.lock.target = null;
+      this.check('and is gone again when the lock is dropped', !find(me, far, 'hostile'));
+      near.noTarget = true;
+      this.check('a hidden (camouflaged) unit is not detected, and shows only while it is targeted', !find(me, near, 'hostile') && (me.target = near, !!find(me, near, 'hostile')));
+      me.target = null; near.noTarget = false;
+      near.dead = true;
+      this.check('a dead unit leaves the radar', !find(me, near, 'hostile'));
+      // the nearest allies make the picture, not the first in the list
+      const crowdViewer = add('bulwark', 0, 8000, 0);
+      for (let i = 0; i < 30; i++) add('bulwark', 0, 8600, i * 3);   // 30 allies 600 m away, first in the list
+      add('bulwark', 0, 7700, 0);                                       // the nearest ally, last in the list
+      const seenByNear = add('bastion', 1, 7580, 0);                    // 420 m from the viewer, 120 m from the near ally
+      this.check('with more allies than DETECT_NODES the nearest are kept: the last ally in the list, the nearest, still shares', !!find(crowdViewer, seenByNear, 'hostile') && Detect.n === DETECT_NODES, Detect.n);
+      // co-op: every peer works out its own picture from the platforms its game holds
+      const peerA = add('bulwark', 0, 5000, 0), peerB = add('bulwark', 0, 5700, 0), hp = add('bastion', 1, 5750, 0);
+      this.check('co-op peers see their own contacts: the hostile by peer B shows on B\'s radar and not on A\'s (700 m away, outside its disc)', !!find(peerB, hp, 'hostile') && !find(peerA, hp, 'hostile'));
+      this.check('nothing is sent: the net version is 12 and the save version stays 1', NET_VERSION === 12 && SAVE_VERSION === 1);
+      W.platforms.length = 0;
+    });
+    t('p3 target cycling follows the radar', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const add = (id, team, x, z, lo) => { const q = new Platform(PLATFORMS[id], { team, x, z, yaw: 0, loadout: lo || PLATFORMS[id].loadout }); W.platforms.push(q); return q; };
+      const viewer = (x, z, lo) => { const q = add('bulwark', 0, x, z, lo || PLATFORMS.bulwark.loadout); q.isPlayer = true; q.cmd.aimYaw = 0; q.cmd.aimPitch = 0; return q; };   // faces +z, detects 280 m, targets to 600 m
+      const cycle = (q) => { q.target = null; q.cycleTarget(); return q.target; };
+      const me = viewer(0, 0), back = add('bastion', 1, 0, -400);
+      this.check('cycling skips a hostile the radar has not detected and the eye cannot see (400 m behind: inside the old 600 m reach)', cycle(me) === null && me.wideRange() >= 600 && !!back);
+      const front = add('bastion', 1, 0, 450);
+      this.check('cycling picks an undetected hostile that is in view with a clear line (450 m dead ahead), and still not the one behind', hasLOS(me.x, me.y + me.height * 0.6, me.z, front.x, front.y + front.height * 0.5, front.z) && cycle(me) === front);
+      W.platforms.splice(W.platforms.indexOf(front), 1);
+      const fitted = viewer(3000, 0, Object.assign({}, PLATFORMS.bulwark.loadout, { utility: 'sensor' })), back2 = add('bastion', 1, 3000, -400);
+      this.check('cycling picks that hostile once the Sensor Array reaches it (450 m instead of 280 m)', cycle(fitted) === back2);
+      const mate = add('bulwark', 0, 6000, -300), viewer3 = viewer(6000, 0), back3 = add('bastion', 1, 6000, -400);
+      this.check('cycling picks a hostile an ally detects (100 m from the ally, which shares 168 m), though the player\'s own radar has not', Detect.rangeOf(viewer3) < 400 && cycle(viewer3) === back3 && !!mate);
+      // a held target is let go when it leaves detection, plus the 15 percent margin; a hard lock keeps its own rules
+      const hold = viewer(12000, 0), foe = add('bastion', 1, 12000, -250);
+      this.check('a hostile inside the radar range is picked (250 m behind)', cycle(hold) === foe);
+      foe.z = -300; hold.updateLock(STEP);
+      this.check('and is kept just beyond the range, inside the ' + DETECT_KEEP + ' margin (300 m of 280 m)', hold.target === foe);
+      foe.z = -340; hold.updateLock(STEP);
+      this.check('and is dropped beyond the margin (340 m, over 322 m) when it is not in view', hold.target === null);
+      foe.z = -740; hold.target = foe; hold.lock.state = 'locked'; hold.lock.target = foe; hold.lock.grace = 0.4; hold.updateLock(STEP);
+      this.check('a hard lock (state locked) is not dropped by the radar rule: it keeps its own rules (sensor range x1.25 = 750 m, cone, line of sight, grace)', hold.target === foe);
+      foe.z = -800; hold.updateLock(STEP);
+      this.check('and past those rules (800 m) it is dropped as before', hold.target === null);
+      // the eye has a range: TARGET_EYE_RANGE or R.drawDist, whichever is shorter (the review: a jet cycled to a tank 1360 m ahead on Low)
+      W.platforms.length = 0;
+      const keepDraw = R.drawDist;
+      try {
+        const jet = add('kestrel', 0, -600, -1000); jet.y = 250; jet.isPlayer = true; jet.radarFocus = false;   // heads +z, detects 700 m, targets to 1500 m (2400 m in its forward cone)
+        const tank = add('bastion', 1, -600, 1000);   // 2000 m ahead
+        R.drawDist = 980;
+        this.check('a jet with a tank 2 km ahead in clear view does not pick it (beyond the eye range of ' + TARGET_EYE_RANGE + ' m, though inside its targeting reach)', hasLOS(jet.x, jet.y + jet.height * 0.6, jet.z, tank.x, tank.y + 1, tank.z) && jet.wideRange() * RADAR_FOCUS_MULT > 2000 && cycle(jet) === null);
+        tank.z = -250;   // 750 m ahead: past the radar's 700 m, inside the eye range
+        this.check('the same tank at 750 m, inside the eye range and the draw distance, is picked by eye', Detect.rangeOf(jet) === 700 && cycle(jet) === tank);
+        R.drawDist = 560;
+        this.check('where only 560 m is drawn (Low) the tank at 750 m is not picked: the eye range is the draw distance when that is shorter', cycle(jet) === null);
+        R.drawDist = 980; tank.z = -250; cycle(jet);
+        tank.z = 500; jet.updateLock(STEP);   // 1500 m ahead: inside the old 1875 m rule, past the eye range
+        this.check('a held tank is dropped once it is past the eye range (1500 m ahead, not detected)', jet.target === null);
+      } finally { R.drawDist = keepDraw; }
+      W.platforms.length = 0;
+    });
+    t('p3 co-op sensor state', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const lo = Object.assign({}, PLATFORMS.bulwark.loadout, { utility: 'sensor' }), mk = (x, z) => new Platform(PLATFORMS.bulwark, { team: 0, x, z, yaw: 0, loadout: lo });
+      const hostSide = mk(0, 0), guestSide = mk(0, 0), watcher = new Platform(PLATFORMS.bulwark, { team: 0, x: 0, z: -180, yaw: 0, loadout: PLATFORMS.bulwark.loadout });   // the host's copy of the guest, the guest's own platform, a third player (280 m, no Sensor Array)
+      guestSide.id = hostSide.id; W.platforms.push(guestSide, watcher); W.player = guestSide;
+      const peer = Object.assign(Net.newPeer(), { p: hostSide, stats: newStats() });
+      const foe = new Platform(PLATFORMS.bastion, { team: 1, x: 0, z: 250, yaw: 0, loadout: PLATFORMS.bastion.loadout }); W.platforms.push(foe);
+      const shows = (viewer) => { Detect.scan(viewer); for (let i = 0; i < Detect.count; i++) if (Detect.list[i].kind === 'hostile' && Detect.list[i].x === foe.x && Detect.list[i].z === foe.z) return true; return false; };
+      Net.applySelf(Net.selfState(peer));
+      this.check('the guest\'s radar with a sound sensor: the Sensor Array reaches 450 m, so a hostile at 250 m shows', Detect.rangeOf(guestSide) === 450 && shows(guestSide) && shows(watcher) && Detect.rangeOf(watcher) === 280);
+      hostSide.sub.sensors = 5; Net.applySelf(Net.selfState(peer));
+      this.check('the host damages the guest\'s sensors: the snapshot reaches the guest, its range halves (225 m) and the hostile drops off its radar', guestSide.sub.sensors > 0 && Detect.rangeOf(guestSide) === 225 && !shows(guestSide));
+      this.check('and the damaged sensor shares less: the third player (430 m from the hostile) saw it through the sound sensor of the guest and no longer does', Detect.rangeOf(guestSide) * DETECT_SHARE < 250 && !shows(watcher));
+      hostSide.sub.sensors = 0; Net.applySelf(Net.selfState(peer));
+      this.check('repaired sensors come back with the next snapshot', Detect.rangeOf(guestSide) === 450 && shows(guestSide));
+      hostSide.dead = true; Net.applySelf(Net.selfState(peer));
+      this.check('a destroyed carrier is dead on the guest and shares nothing (the module has no hit points of its own: it dies with the platform; a hit sensor is the sub.sensors above)', guestSide.dead === true && !shows(watcher));
+      // the host takes a guest's pick only if that guest's sensors or eyes have the unit (review)
+      W.platforms.length = 0;
+      const gp = new Platform(PLATFORMS.bulwark, { team: 0, x: 0, z: 0, yaw: 0, loadout: PLATFORMS.bulwark.loadout }), behind = new Platform(PLATFORMS.bastion, { team: 1, x: 0, z: -400, yaw: 0, loadout: PLATFORMS.bastion.loadout }), close = new Platform(PLATFORMS.bastion, { team: 1, x: 0, z: -200, yaw: 0, loadout: PLATFORMS.bastion.loadout });
+      W.platforms.push(gp, behind, close);
+      const peer2 = Object.assign(Net.newPeer(), { p: gp, hello: true, stats: newStats() });
+      gp.netPeer = peer2;
+      const pick = (id) => { peer2.inp = { mf: 0, ms: 0, tn: 0, ti: 0, ay: 0, ap: 0, b: 0, tg: id }; peer2.inpT = Net.t; Net.applyCmd(peer2); return gp.target; };
+      this.check('the host refuses a guest\'s pick of a hostile the guest has not detected and cannot see (400 m behind)', pick(behind.id) === null);
+      this.check('and accepts one inside the guest\'s radar range (200 m behind)', pick(close.id) === close);
+      close.z = -400; gp.updateLock(STEP);
+      this.check('and drops the held pick on the host when it leaves detection, as for the local player', gp.target === null && pick(close.id) === null);
+      gp.netPeer = null; W.player = null; W.platforms.length = 0;
+    });
+    t('p3 radar neutrals', () => {
+      const keepQ = S.quality, keepRep = Game.reportError, errs = [];
+      Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
+      try {
+        S.quality = 'medium';
+        Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'metro', size: 'medium', seed: 11, random: false, platformId: 'bulwark' }) });
+        W.platforms.length = 0; W.structs = [];   // no objective structure in reach of the target cycling below
+        const view = (id, x, z, lo) => { const q = new Platform(PLATFORMS[id], { team: 0, x, z, yaw: 0, loadout: lo || PLATFORMS[id].loadout }); W.platforms.push(q); return q; };
+        const find = (viewer, x, z, kind) => {   // the viewer alone: the other platforms of the test would share their sensors
+          const was = W.platforms.map((q) => q.dead);
+          for (const q of W.platforms) if (q !== viewer) q.dead = true;
+          Detect.scan(viewer);
+          W.platforms.forEach((q, i) => { q.dead = was[i]; });
+          for (let i = 0; i < Detect.count; i++) { const c = Detect.list[i]; if (c.x === x && c.z === z && c.kind === kind) return c; }
+          return null;
+        };
+        const zone = W.civZones.reduce((a, b) => (b.rad > a.rad ? b : a)), civ = zone.civs.find((c) => !c.dead && c.state !== 'inside');
+        const car = W.traffic.cars.find((c) => c.state === 'drive'), herd = W.fauna.groups.find((g) => g.type === 'ground') || W.fauna.groups[0];
+        this.check('the metro has civilians on foot, cars under way and animals to find', !!civ && !!car && !!herd);
+        const tank = view('bastion', civ.x + 150, civ.z), tankFar = view('bastion', civ.x + 380, civ.z);
+        this.check('a civilian on foot within a tank\'s 320 m shows as a civilian, one beyond does not', !!find(tank, civ.x, civ.z, 'civilian') && !find(tankFar, civ.x, civ.z, 'civilian'));
+        const grunt = view('ranger', civ.x + 100, civ.z, { primaryA: 'rifle' }), gruntFar = view('ranger', civ.x + 260, civ.z, { primaryA: 'rifle' }), gruntMod = view('ranger', civ.x + 260, civ.z, { primaryA: 'rifle', utility: 'sensor' });
+        this.check('infantry find a civilian at 100 m, not at 260 m, and at 260 m with the Sensor Array', !!find(grunt, civ.x, civ.z, 'civilian') && !find(gruntFar, civ.x, civ.z, 'civilian') && !!find(gruntMod, civ.x, civ.z, 'civilian'));
+        const driver = view('bastion', car.x - 120, car.z);
+        this.check('a car under way shows as a vehicle', !!find(driver, car.x, car.z, 'vehicle'));
+        const park = W.traffic.parked.find((c) => c.state === 'park'), watcher = view('bastion', park.x - 100, park.z);
+        this.check('a parked car does not show', !find(watcher, park.x, park.z, 'vehicle'));
+        const ranger = view('bastion', herd.cx - 100, herd.cz);
+        this.check('a herd, flock or school within range shows as an animal', !!find(ranger, herd.cx, herd.cz, 'animal'));
+        this.check('animals, people and vehicles each have their own icon, none the friend, hostile or objective one', new Set(['animal', 'civilian', 'vehicle']).size === 3 && ['animal', 'civilian', 'vehicle'].every((k) => ['friend', 'hostile', 'objective'].indexOf(k) < 0));
+        const shown = (viewer) => { Detect.scan(viewer); const kinds = {}; for (let i = 0; i < Detect.count; i++) kinds[Detect.list[i].kind] = (kinds[Detect.list[i].kind] || 0) + 1; return kinds; };
+        // they are scenery, never targets: nothing in W.platforms, no cycling lands on them, a civilian vehicle someone took is no target
+        const cab = view('bastion', civ.x + 20, civ.z + 20), taxi = new Platform(PLATFORMS.cv_taxi, { team: 2, x: civ.x + 10, z: civ.z, yaw: 0, loadout: {} }); W.platforms.push(taxi);
+        const before = W.platforms.length;
+        for (let i = 0; i < 6; i++) cab.cycleTarget();
+        this.check('cycling the target never picks an animal, a civilian or a civilian vehicle', cab.target === null && !cab.validTarget(taxi) && W.platforms.length === before);
+        const marks = (kind) => { Detect.scan(cab); const out = []; for (let i = 0; i < Detect.count; i++) if (Detect.list[i].kind === kind) out.push(Detect.list[i]); return out; };
+        this.check('a civilian vehicle someone took shows as a neutral vehicle, not a hostile', marks('vehicle').some((c) => c.x === taxi.x && c.z === taxi.z) && marks('hostile').length === 0);
+        this.check('the radar list holds marks, not platforms (no animal or civilian becomes a target through it)', Detect.list.every((c) => !c.id && !c.def && !c.team));
+        // pixels: the green animal crosses show on the HUD disc only while an animal is detected
+        const u = Math.min(HUD.w, HUD.h) / 800 * S.uiScale, box = HUD.radarBox(HUD.w, HUD.h, SafeArea, { x: 0, y: 0, s: 0 });
+        const hex = (s) => [parseInt(s.slice(1, 3), 16), parseInt(s.slice(3, 5), 16), parseInt(s.slice(5, 7), 16)];
+        const count = (viewer, col) => {
+          const g = HUD.g; g.setTransform(HUD.dpr, 0, 0, HUD.dpr, 0, 0); g.clearRect(0, 0, HUD.cv.width, HUD.cv.height);
+          HUD.drawRadar(viewer, u);
+          const x0 = Math.floor(box.x * HUD.dpr), y0 = Math.floor(box.y * HUD.dpr), s = Math.ceil(box.s * HUD.dpr), d = g.getImageData(x0, y0, s, s).data, c = hex(col);
+          let n = 0;
+          for (let i = 0; i < d.length; i += 4) if (d[i + 3] > 60 && Math.abs(d[i] - c[0]) < 14 && Math.abs(d[i + 1] - c[1]) < 14 && Math.abs(d[i + 2] - c[2]) < 14) n++;
+          return n;
+        };
+        const seer = view('bastion', herd.cx - 100, herd.cz), keepGroups = W.fauna.groups.slice();
+        const withAnimals = count(seer, HUD.C.fauna), civPx = count(seer, HUD.C.neutral);
+        W.fauna.groups.length = 0;
+        const without = count(seer, HUD.C.fauna);
+        W.fauna.groups.push(...keepGroups);
+        this.check('the radar draws the animal marks in their own colour only while an animal is detected', withAnimals > 10 && without < 4, withAnimals + ' / ' + without);
+        this.check('the radar draws the neutral grey marks of people and vehicles, and drawing it raises no error', civPx > 0 && errs.length === 0, civPx + ' ' + errs.join(';'));
+      } finally { S.quality = keepQ; Game.reportError = keepRep; Game.quitToMenu(); }
+    });
+    t('p3 radar on every battlefield', () => {
+      const keepQ = S.quality, bad = [];
+      try {
+        S.quality = 'low';
+        for (const map of menuMapIds()) {
+          Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map, size: 'medium', seed: 11, random: false, platformId: 'bulwark' }) });
+          W.platforms.length = 0;
+          const view = (x, z) => { const q = new Platform(PLATFORMS.bastion, { team: 0, x, z, yaw: 0, loadout: PLATFORMS.bastion.loadout }); W.platforms.push(q); return q; };
+          const has = (viewer, x, z, kind) => { Detect.scan(viewer); for (let i = 0; i < Detect.count; i++) { const c = Detect.list[i]; if (c.x === x && c.z === z && c.kind === kind) return true; } return false; };
+          const herd = W.fauna.groups.find((g) => g.type !== 'water') || W.fauna.groups[0];
+          if (!herd || !has(view(herd.cx - 100, herd.cz), herd.cx, herd.cz, 'animal')) bad.push(map + ': no animal mark');
+          W.platforms.length = 0;
+          const civ = W.civZones.length ? W.civZones[0].civs.find((c) => !c.dead && c.state !== 'inside') : null;
+          if (civ && !has(view(civ.x - 100, civ.z), civ.x, civ.z, 'civilian')) bad.push(map + ': no civilian mark');
+          W.platforms.length = 0;
+          const car = W.traffic.cars.find((c) => c.state === 'drive');
+          if (car && !has(view(car.x - 100, car.z), car.x, car.z, 'vehicle')) bad.push(map + ': no vehicle mark');
+        }
+        this.check('on every battlefield the animals, civilians on foot and cars under way within detection range have their marks', bad.length === 0, bad.join('; '));
+      } finally { S.quality = keepQ; Game.quitToMenu(); }
+    });
+    t('p3 fauna in view', () => {
+      const keepQ = S.quality, bad = [], blind = [];
+      const px = 800 / (2 * Math.tan(36 * DEG));
+      try {
+        for (const q of ['low', 'medium', 'high']) for (const map of menuMapIds()) for (const pid of ['bulwark', 'kestrel']) {
+          S.quality = q;
+          Game.startSession({ mode: 'skirmish', platformId: pid, loadout: Loadout.forPlatform(pid), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map, size: 'medium', seed: 11, random: false, platformId: pid }) });
+          const pl = W.player, draw = QUALITY[q].faunaDraw, tag = q + ' ' + map + ' ' + pid;
+          let inRange = 0, ground = 0;
+          for (const g of W.fauna.groups) for (const a of g.members) if (Math.hypot(a.x - pl.x, a.z - pl.z) <= draw) { inRange++; if (g.type === 'ground') ground++; }
+          if (inRange === 0) bad.push(tag + ': no animal within ' + draw + ' m of the start');
+          let seen = 0;   // best of eight headings: animals in view and drawn at least 3 px tall on an 800 px screen
+          for (let k = 0; k < 8; k++) {
+            pl.yaw = k * PI / 4; pl.cmd.aimYaw = pl.yaw; Cam.reset(pl); for (let j = 0; j < 40; j++) Cam.update(STEP); R.beginFrame(Cam, Cam.fov);   // an aircraft's camera turns slowly
+            let n = 0;
+            for (const g of W.fauna.groups) for (const a of g.members) {
+              const d = a.def, dx = a.x - R.cam.x, dy = a.y - R.cam.y, dz = a.z - R.cam.z, d3 = Math.hypot(dx, dy, dz), hd = Math.hypot(a.x - pl.x, a.z - pl.z);   // the range is from the player
+              if (hd > draw || !R.visible(a.x, a.y + d.cy * a.scale, a.z, (d.rad + d.ry) * a.scale * FAUNA_BOOST_MAX + 0.5)) continue;
+              if (px * d.top * a.scale * Fauna.boost(d, a.scale, d3) * Fauna.fade(hd, draw) / Math.max(1, d3) >= 3) n++;
+            }
+            seen = Math.max(seen, n);
+          }
+          if (seen === 0) blind.push(tag);
+        }
+        this.check('on every battlefield and preset an animal stands within draw range of the start (P1-04 found none on 8 of 13 at Low)', bad.length === 0, bad.join('; '));
+        this.check('and some animal is in view and drawn 3 px or more at the start, turning round, on every battlefield and preset, for a ground pick (Bulwark) and an air pick (Kestrel)', blind.length === 0, blind.join(', '));
+      } finally { S.quality = keepQ; Game.quitToMenu(); }
+    });
+    t('p3 fauna size and placement', () => {
+      const keepQ = S.quality;
+      try {
+        const deer = FAUNA.find((d) => d.id === 'deer'), rabbit = FAUNA.find((d) => d.id === 'rabbit');
+        this.check('an animal is never smaller than life, larger only from the distance where it would be under 5 px, and by at most 3 times', Fauna.boost(deer, 1, 50) === 1 && Fauna.boost(deer, 1, 1e5) === FAUNA_BOOST_MAX && Fauna.boost(deer, 1, 300) > 1 && Fauna.boost(rabbit, 1, 300) === FAUNA_BOOST_MAX && Fauna.boost(deer, 1, 200) < Fauna.boost(deer, 1, 300));
+        const lowRadius = QUALITY.low.faunaDraw, fullTo = lowRadius * (1 - FAUNA_FADE), onScreen = 800 / (2 * Math.tan(36 * DEG)) * deer.top * Fauna.boost(deer, 1, fullTo) / fullTo;
+        this.check('a deer where the fade starts (85 percent of the Low draw range) stands 4.5 px or more tall (it was 2.4 px at the limit)', onScreen >= 4.5, onScreen.toFixed(1));
+        this.check('animals grow in over the last 15 percent of the range: full size to 85 percent, none at the limit, smoothly between', Fauna.fade(0, 300) === 1 && Fauna.fade(255, 300) === 1 && Fauna.fade(300, 300) === 0 && Fauna.fade(400, 300) === 0 && Fauna.fade(270, 300) < 1 && Fauna.fade(270, 300) > Fauna.fade(285, 300) && Fauna.fade(285, 300) > 0);
+        S.quality = 'low';
+        Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'medium', seed: 11, random: false, platformId: 'bulwark' }) });
+        const pl = W.player, gs = W.fauna.groups, herds = gs.filter((g) => g.type === 'ground').slice(0, FAUNA_ANCHOR_HERDS);
+        this.check('the first herds stand where the player plays (within 330 m of the start) and keep most of their size on Low (8 animals or more between them)', herds.length === FAUNA_ANCHOR_HERDS && herds.filter((g) => Math.hypot(g.cx - pl.x, g.cz - pl.z) < 330).length >= 3 && herds.reduce((n, g) => n + g.members.length, 0) >= 8, herds.map((g) => Math.round(Math.hypot(g.cx - pl.x, g.cz - pl.z)) + 'x' + g.members.length).join(' '));
+        const goal = W.bases.enemy, route = gs.filter((g) => g.type === 'ground' && Math.hypot(g.cx - goal.x, g.cz - goal.z) < 330);
+        this.check('and one is by the enemy base, the goal', route.length >= 1, route.length);
+        this.check('the first group of the list is anchored, so the cap keeps it and the draw order starts with it', gs.length > 0 && Math.hypot(gs[0].cx - pl.x, gs[0].cz - pl.z) < 330 + 60);
+        // a flier sees as far as a walker: an aircraft 160 m up draws a herd 280 m away on the ground plane
+        const g0 = herds[0], a0 = g0.members[0];
+        const jet = new Platform(PLATFORMS.kestrel, { team: 0, x: a0.x + 190, z: a0.z, yaw: -PI / 2, y: Terrain.h(a0.x + 190, a0.z) + 160, loadout: PLATFORMS.kestrel.loadout });
+        W.player = jet; W.platforms.push(jet); jet.cmd.aimYaw = jet.yaw; Cam.reset(jet);
+        for (let i = 0; i < 3; i++) { Cam.update(STEP); Game.render(STEP); }
+        this.check('the draw range is on the ground plane: an aircraft 160 m up, its camera 280 m from a herd on the ground plane (310 m in 3D), draws it', W.fauna.drawn > 0, W.fauna.drawn);
+        // the range is from the player: a herd 281 m from a mech still draws though its trailing camera stands 303 m away
+        Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'medium', seed: 11, random: false, platformId: 'bulwark' }) });
+        const me = W.player, h1 = W.fauna.groups.find((g) => g.type === 'ground'), b1 = h1.members[0];
+        W.fauna.groups = [h1]; h1.members.length = 1;
+        me.x = b1.x - 281; me.z = b1.z; me.y = Terrain.h(me.x, me.z); me.yaw = PI / 2; me.cmd.aimYaw = PI / 2; me.cmd.aimPitch = 0; Cam.reset(me);
+        for (let i = 0; i < 40; i++) Cam.update(STEP);
+        Game.render(STEP);
+        this.check('on Low a herd 281 m from the mech still draws, though the trailing camera is farther than the 300 m range', Math.hypot(b1.x - R.cam.x, b1.z - R.cam.z) > QUALITY.low.faunaDraw && W.fauna.drawn === 1, W.fauna.drawn + ' drawn, camera ' + Math.round(Math.hypot(b1.x - R.cam.x, b1.z - R.cam.z)) + ' m');
+      } finally { S.quality = keepQ; Game.quitToMenu(); }
+    });
+    t('p3 guest aircraft herds', () => {
+      const keepQ = S.quality, keepNet = { host: Net.host, guest: Net.guest };
+      try {
+        S.quality = 'medium';
+        Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'medium', seed: 11, random: false, platformId: 'bulwark' }) });
+        const herds = () => W.fauna.groups.filter((g) => g.type === 'ground').slice(0, 3);
+        const ahead = (jet) => herds().filter((g) => { const d = Math.hypot(g.cx - jet.x, g.cz - jet.z); return d < 560 && Math.abs(angleDiff(Math.atan2(g.cx - jet.x, g.cz - jet.z), jet.yaw)) < 0.9; }).length;
+        // a guest's own aircraft arrives (its first body in this game) far from the herds that were placed for the start
+        W.player = null;
+        const x = -700, z = -700, jet = new Platform(PLATFORMS.kestrel, { team: 0, x, z, yaw: PI / 4, y: Terrain.h(x, z) + 160, loadout: PLATFORMS.kestrel.loadout });
+        W.platforms.push(jet);
+        const before = ahead(jet);
+        Net.bindLocal(jet);
+        this.check('a guest\'s aircraft gets herds along its path when its body arrives: the first three herds move to 560 m ahead of it', before < 2 && ahead(jet) >= 2, before + ' -> ' + ahead(jet));
+        const second = herds().map((g) => g.hx + ',' + g.hz).join(' ');
+        Net.bindLocal(jet);
+        this.check('and only once: binding the same body again moves nothing', herds().map((g) => g.hx + ',' + g.hz).join(' ') === second);
+      } finally { S.quality = keepQ; Object.assign(Net, keepNet); Game.quitToMenu(); }
+    });
+    t('p3 sensor array and the AI', () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null;
+      const mk = (lo) => { const q = new Platform(PLATFORMS.ranger, { team: 1, x: 0, z: 0, yaw: 0, loadout: lo }); q.ai = new AIController(q, 'sniper', W.diff); return q; };
+      const plain = mk({ primaryA: 'sniper' }), fitted = mk({ primaryA: 'sniper', utility: 'sensor' });
+      this.check('an AI unit with the Sensor Array spots ' + DETECT_AI_SIGHT + ' times as far', Math.abs(fitted.ai.sightRange() / plain.ai.sightRange() - DETECT_AI_SIGHT) < 1e-9 && plain.ai.sightRange() > 0);
+      this.check('the AI sniper (the spotter) carries it, and its loadout is valid', ARCH.sniper.loadout.utility === 'sensor' && Loadout.validate(PLATFORMS.ranger, ARCH.sniper.loadout).ok);
+      this.check('no default player loadout carries it (the balance of the old loadouts is unchanged)', PLAYABLE.every((id) => PLATFORMS[id].loadout.utility !== 'sensor'));
+      fitted.sub.sensors = 5;
+      this.check('damaged sensors halve the AI sight as before, with the module too', Math.abs(fitted.ai.sightRange() / plain.ai.sightRange() - DETECT_AI_SIGHT * 0.5) < 1e-9);
     });
     t('artillery solver', () => {
       const keepRep = Game.reportError, errs = [], hits = [];
@@ -34362,7 +34993,7 @@ const SNAP_PROJS = 70;    // projectiles per snapshot
 var NET_UNSPOT_OFF = false;   // self-test switch: the guest ignores the sent unspotted share
 var NET_SNAP_TURN_OFF = false;   // self-test switch: platforms past SNAP_PLATS take no turns in the snapshots
 var NET_SHELLS_FIRST_OFF = false;   // self-test switch: shells take no precedence in the snapshots
-const NET_VERSION = 11;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION)
+const NET_VERSION = 12;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -34717,7 +35348,10 @@ const Net = {
       else c.aimPoint = null;
       c.aimHit = c.aimPoint && (m.ph === 0 || m.ph === 1) ? m.ph : -1;   // whether the guest's own reticle ray hit (-1: not sent)
       const tg = m.tg | 0;
-      p.target = tg > 0 ? (W.platforms.find((q) => q.id === tg && q.team !== p.team && !q.dead) || null) : (tg < 0 && W.structs[-tg - 1] && W.structs[-tg - 1].objective ? W.structs[-tg - 1] : null);
+      const want = tg > 0 ? (W.platforms.find((q) => q.id === tg && q.team !== p.team && !q.dead) || null) : (tg < 0 && W.structs[-tg - 1] && W.structs[-tg - 1].objective ? W.structs[-tg - 1] : null);
+      // P5-05: a new pick must be one the guest's own sensors or eyes have (the host works it out from that platform; the margin allows for the
+      // guest's picture being a moment older); the one already held is kept or dropped by Platform.updateLock
+      p.target = want && !want.isStruct && p.target !== want && !p.knows(want, DETECT_KEEP) ? null : want;
     }
     const e = peer.edges; peer.edges = 0;
     if (e & 1) c.fire1Edge = true; if (e & 2) c.fire2Edge = true; if (e & 4) c.defenseEdge = true; if (e & 8) c.meleeEdge = true;
@@ -34920,7 +35554,7 @@ const Net = {
     } else p.cmd.aimYaw = p.yaw;
     p.name = 'YOU'; p.controller = PC; p.flightMode = S.flightMode; p.parked = false;
     W.player = p; PC.hadTarget = false;
-    if (!old) Cam.reset(p);
+    if (!old) { Cam.reset(p); Fauna.attend(p); }   // the first body of this game: an aircraft gets herds along its path (the host did the same at the start)
   },
   /* the host went back to the lobby: drop the mirrored world, keep the connection */
   guestLobby() {
@@ -35340,7 +35974,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, airSpawn, rayToSquare };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, airSpawn, rayToSquare, Detect, DETECT_RANGE, DETECT_SHARE, DETECT_AI_SIGHT, ARCH, talive };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
