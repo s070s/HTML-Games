@@ -11,7 +11,7 @@ Files: `src/03i-data-items.js`, `src/03j-data-gadgets.js` (data), `src/12a-items
 | 59 | `deployables` | `Devices.step`: arming, lifetimes and the behaviour of every placed and deployed device |
 | 60 | `items` | `Items.step`: respawn timers, despawn of drops, soul homing, touch pickups, loot consumables in use |
 
-Render sources: `pickups` (each item and powerup as its own spinning gear model, docs/api/render.md Models; faint bases on empty spots), `thrown` (grenade models in flight and in the local player's first-person hand, plus the throw arc while BTN.GRENADE is held, setting `gameplay.grenadePreview`), `smoke` (blob lattice, at most 480 per frame, plus `Fx.burst('smoke')` puffs), `deployables` (device models, area rings, red glint on enemy placed gadgets). All harm goes through `Damage.apply` / `Damage.explode`.
+Render sources: `pickups` (each item and powerup as its own spinning gear model, docs/api/render.md Models; a picked spot shows a dark empty pad and a fill disc that grows from its centre to the pad's edge as the respawn time passes: `Items.waitShare(slot)` 0..1 of `waitTicks`, `drawEmptyPad` / `drawFill`; the lit base and the item return on the respawn tick; a unique powerup that waits for its holder stays empty), `thrown` (grenade models in flight and in the local player's first-person hand, plus the throw arc while BTN.GRENADE is held, setting `gameplay.grenadePreview`), `smoke` (blob lattice, at most 480 per frame, plus `Fx.burst('smoke')` puffs), `deployables` (device models, area rings, red glint on enemy placed gadgets). All harm goes through `Damage.apply` / `Damage.explode`.
 
 ## Ruleset fields read (`Game.match.rules`, via `currentRules()`)
 

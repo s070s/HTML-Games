@@ -3118,12 +3118,14 @@ CAT.actorModels.forEach((row, index) => { row.index = index; });
 // ==== 04-save.js ====
 const SAVE_KEY = 'ctk.save.v1';
 const BACKUP_KEY = 'ctk.save.bak';
+const SPARE_KEY = 'ctk.save.spare';
 const SAVE_VERSION = 1;
 const SAVE_MAX_BYTES = 1024 * 1024;
 const SAVE_DEBOUNCE_MS = 500;
 const SAVE_TOO_BIG = 'Save is over 1 MB and was not written.';
 const SAVE_BLOCKED = 'Storage is blocked or full: settings and progress will not be kept.';
 const SAVE_NEWER_ELSEWHERE = 'Another tab saved: this tab now uses its save.';
+const SAVE_FROM_NEWER_GAME = 'Your save is from a newer version of the game. A copy was kept and the stored save will not be overwritten, so progress now is not kept.';
 const SAVE_REVISION_HEAD = /^\{"version":\d+,"revision":(\d+)[,}]/;
 function saveFieldKind(value) { return value === null ? 'null' : Array.isArray(value) ? 'array' : typeof value; }
 function saveFieldFits(freshValue, value) {
@@ -3143,6 +3145,9 @@ function saveLooksReal(loaded, fresh) {
 	return Object.keys(fresh).some((field) => field !== 'version' && field !== 'revision' && !!loaded[field] && saveFieldFits(fresh[field], loaded[field])
 		&& Object.keys(loaded[field]).length > 0);
 }
+function saveParses(text) {
+	try { const value = JSON.parse(text); return !!value && typeof value === 'object' && !Array.isArray(value); } catch (error) { return false; }
+}
 function saveRevisionOf(raw) {
 	const head = SAVE_REVISION_HEAD.exec(raw || '');
 	return head ? Number(head[1]) : 0;
@@ -3154,6 +3159,7 @@ const Save = {
 	lastFailure: '',
 	timer: 0,
 	dirty: false,
+	keepStored: false,
 	storage: null,
 	emptySave() {
 		return { version: SAVE_VERSION, revision: 0, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [],
@@ -3163,16 +3169,29 @@ const Save = {
 	load() {
 		const raw = this.read(SAVE_KEY);
 		this.dirty = false;
+		this.keepStored = false;
 		if (raw === null) { this.data = this.emptySave(); return this.data; }
 		try {
-			this.data = this.migrate(JSON.parse(raw));
+			const stored = JSON.parse(raw);
+			this.data = this.migrate(stored);
+			if (Number.isInteger(stored.version) && stored.version > SAVE_VERSION) this.keepNewerSave(raw);
 		} catch (error) {
-			this.write(BACKUP_KEY, raw);
+			this.backUpRecord(raw);
 			this.data = this.emptySave();
 			this.notice = 'Your save could not be read. It was backed up and reset.';
 			ErrorLog.add('save.load', error);
 		}
 		return this.data;
+	},
+	keepNewerSave(raw) {
+		this.backUpRecord(raw);
+		this.keepStored = true;
+		this.notice = SAVE_FROM_NEWER_GAME;
+	},
+	backUpRecord(raw) {
+		const kept = this.read(BACKUP_KEY);
+		if (kept === raw || this.read(SPARE_KEY) === raw) return;
+		this.write(kept !== null && saveParses(kept) ? SPARE_KEY : BACKUP_KEY, raw);
 	},
 	migrate(loaded) {
 		if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) throw new Error('save is not an object');
@@ -3189,7 +3208,8 @@ const Save = {
 	},
 	saveNow() {
 		clearTimeout(this.timer);
-		if (this.adoptNewer()) return this.fail(SAVE_NEWER_ELSEWHERE);
+		if (this.keepStored) return false;
+		if (this.adoptNewer()) return this.keepStored ? false : this.fail(SAVE_NEWER_ELSEWHERE);
 		this.data.revision++;
 		const text = JSON.stringify(this.data);
 		const written = text.length > SAVE_MAX_BYTES ? this.fail(SAVE_TOO_BIG) : this.write(SAVE_KEY, text);
@@ -3200,12 +3220,15 @@ const Save = {
 	adoptNewer() {
 		const raw = this.read(SAVE_KEY);
 		if (saveRevisionOf(raw) <= this.data.revision) return false;
+		let stored;
 		try {
-			this.data = this.migrate(JSON.parse(raw));
+			stored = JSON.parse(raw);
+			this.data = this.migrate(stored);
 		} catch (error) {
 			return false;
 		}
 		this.dirty = false;
+		if (Number.isInteger(stored.version) && stored.version > SAVE_VERSION) this.keepNewerSave(raw);
 		Settings.applyAll();
 		return true;
 	},
@@ -3222,15 +3245,17 @@ const Save = {
 		if (!saveLooksReal(loaded, this.emptySave())) throw new Error('no save version or progress in it');
 		const parsed = this.migrate(loaded);
 		parsed.revision = Math.max(parsed.revision, saveRevisionOf(this.read(SAVE_KEY)));
-		const previous = this.data;
-		this.write(BACKUP_KEY, this.exportText());
+		const previous = this.data, wasKept = this.keepStored;
+		this.write(BACKUP_KEY, wasKept ? this.read(SAVE_KEY) : this.exportText());
 		this.data = parsed;
+		this.keepStored = false;
 		const written = this.saveNow();
-		if (!written && this.data === parsed) this.data = previous;
+		if (!written && this.data === parsed) { this.data = previous; this.keepStored = wasKept; }
 		Settings.applyAll();
 		return written;
 	},
 	backupText() { return this.read(BACKUP_KEY); },
+	spareText() { return this.read(SPARE_KEY); },
 	read(key) {
 		try { return (this.storage || window.localStorage).getItem(key); } catch (error) { this.markBroken(); return null; }
 	},
@@ -3354,7 +3379,7 @@ const ACTION_ROWS = [
 	{ id: 'walk', label: 'Walk', group: 'Movement', button: BTN.WALK, toggle: true, kbm: ['Key:AltLeft'], pad: 'Pad:8+1' },
 	{ id: 'prone', label: 'Prone', group: 'Movement', button: BTN.PRONE, toggle: true, kbm: ['Key:KeyP'], pad: 'Pad:8+10' },
 	{ id: 'fire', label: 'Fire', group: 'Combat', button: BTN.FIRE, buffered: true, toggle: true, kbm: ['Mouse:0'], pad: 'Pad:7' },
-	{ id: 'alt', label: 'Aim / alt fire', group: 'Combat', button: BTN.ALT, toggle: true, kbm: ['Mouse:2'], pad: 'Pad:6' },
+	{ id: 'alt', label: 'Alt', group: 'Combat', button: BTN.ALT, toggle: true, kbm: ['Mouse:2'], pad: 'Pad:6' },
 	{ id: 'reload', label: 'Reload', group: 'Combat', button: BTN.RELOAD, kbm: ['Key:KeyR'], pad: 'Pad:2' },
 	{ id: 'use', label: 'Use / interact', group: 'Combat', button: BTN.USE, toggle: true, kbm: ['Key:KeyE'], pad: 'Pad:13' },
 	{ id: 'melee', label: 'Melee', group: 'Combat', button: BTN.MELEE, kbm: ['Key:KeyV'], pad: 'Pad:11' },
@@ -3953,6 +3978,9 @@ const TOUCH_STICK_RADIUS = 56;
 const TOUCH_STICK_DEADZONE = 0.12;
 const TOUCH_SPRINT_ON = 0.9;
 const TOUCH_SPRINT_OFF = 0.8;
+const TOUCH_SPRINT_REARM = 0.6;
+const TOUCH_DOUBLE_PUSH_ANGLE = 45 * DEG;
+const TOUCH_DOUBLE_PUSH_MS = 400;
 const TOUCH_MOVE_ZONE = 0.42;
 const TOUCH_RADIANS_PER_PIXEL = 0.003;
 const TOUCH_ACCEL_SPEED = 2;
@@ -3991,7 +4019,7 @@ const TOUCH_PRESETS = [
 const TOUCH_CONTROLS = [
 	{ id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.56, size: 120 },
 	{ id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
-	{ id: 'aim', label: 'Aim', face: 'AIM', action: 'alt', x: 0.80, y: 0.40, size: 60 },
+	{ id: 'aim', label: 'Alt', face: 'ALT', action: 'alt', x: 0.80, y: 0.40, size: 60 },
 	{ id: 'jump', label: 'Jump', face: 'JUMP', action: 'jump', x: 0.82, y: 0.82, size: 64, mirrorAt: [0.20, 0.72] },
 	{ id: 'crouch', label: 'Crouch (swipe: lie prone or get up)', face: 'DUCK', action: 'crouch', swipeAction: 'prone', swipeNow: true, x: 0.70, y: 0.88, size: 50 },
 	{ id: 'reload', label: 'Reload', face: 'LOAD', action: 'reload', x: 0.94, y: 0.34, size: 50 },
@@ -4017,7 +4045,9 @@ const TOUCH_SETTINGS = [
 	{ key: 'controls.touch.tapToFire', field: 'touchTapFire', fallback: false, label: 'Tap the look area to fire' },
 	{ key: 'controls.touch.leftFire', field: 'touchLeftFire', fallback: false, label: 'Second fire button on the left' },
 	{ key: 'controls.touch.aimAssist', field: 'touchAimAssist', fallback: 70, label: 'Touch aim assist', min: 0, max: 100, step: 5 },
-	{ key: TOUCH_GYRO_KEY, field: 'touchGyro', fallback: 'off', label: 'Gyro aim', options: ['off', 'aiming', 'always'], optionLabels: ['Off', 'While aiming', 'Always'] },
+	{ key: 'controls.touch.sprint', field: 'touchSprint', fallback: 'double', label: 'Touch sprint', options: ['double', 'instant', 'off'],
+		optionLabels: ['Push the stick to its edge twice', 'One push to the edge', 'Never from the stick'] },
+	{ key: TOUCH_GYRO_KEY, field: 'touchGyro', fallback: 'off', label: 'Gyro aim', options: ['off', 'aiming', 'always'], optionLabels: ['Off', 'While Alt is held', 'Always'] },
 	{ key: 'controls.touch.gyroSensitivity', field: 'touchGyroSens', fallback: 1, label: 'Gyro sensitivity', min: 0.2, max: 3, step: 0.05 },
 	{ key: 'controls.touch.layout', field: 'touchLayout', fallback: 'standard', label: 'Touch layout preset', options: TOUCH_PRESETS.map((preset) => preset.id), optionLabels: TOUCH_PRESETS.map((preset) => preset.label) },
 	{ key: 'controls.touch.show', field: 'touchShow', fallback: 'auto', label: 'Touch controls', options: ['auto', 'on', 'off'], optionLabels: ['When touching', 'Always', 'Never'] },
@@ -4042,7 +4072,7 @@ const TouchInput = {
 	controlById: {},
 	slots: [],
 	activeCount: 0, gestureStart: 0, gestureFired: false,
-	stick: { slot: null, originX: 0, originY: 0, x: 0, y: 0, sprinting: false },
+	stick: { slot: null, originX: 0, originY: 0, x: 0, y: 0, sprinting: false, armed: true, lastEdgePushMs: -1e9, lastEdgeAngle: 0 },
 	editing: false, selected: null, onSelect: null,
 	flags: {},
 	shown: false,
@@ -4226,16 +4256,30 @@ const TouchInput = {
 		stick.x = dx / length * scaled;
 		stick.y = dy / length * scaled;
 		this.knob.style.transform = 'translate(' + (dx / length * Math.min(length, radius)) + 'px,' + (dy / length * Math.min(length, radius)) + 'px)';
-		this.updateSprint(push);
+		this.updateSprint(push, event.timeStamp, Math.atan2(dx, -dy));
 	},
-	updateSprint(push) {
-		const stick = this.stick, index = Input.actionIndex.sprint;
-		if (!stick.sprinting && push > TOUCH_SPRINT_ON && (!this.stickSprints || this.stickSprints())) { stick.sprinting = true; Input.holdAction(index, true); }
-		else if (stick.sprinting && push < TOUCH_SPRINT_OFF) { stick.sprinting = false; Input.holdAction(index, false); }
+	updateSprint(push, nowMs, angle = 0) {
+		const stick = this.stick, mode = Input.config.touchSprint;
+		if (stick.sprinting) {
+			if (push < TOUCH_SPRINT_OFF || mode === 'off') this.setStickSprint(false);
+			return;
+		}
+		if (push < TOUCH_SPRINT_REARM) stick.armed = true;
+		if (push < TOUCH_SPRINT_ON || mode === 'off' || (this.stickSprints && !this.stickSprints())) return;
+		if (mode === 'instant') { this.setStickSprint(true); return; }
+		if (!stick.armed) return;
+		stick.armed = false;
+		const doubled = nowMs - stick.lastEdgePushMs <= TOUCH_DOUBLE_PUSH_MS && Math.abs(wrapAngle(angle - stick.lastEdgeAngle)) <= TOUCH_DOUBLE_PUSH_ANGLE;
+		stick.lastEdgePushMs = nowMs; stick.lastEdgeAngle = angle;
+		if (doubled) this.setStickSprint(true);
+	},
+	setStickSprint(on) {
+		this.stick.sprinting = on;
+		Input.holdAction(Input.actionIndex.sprint, on);
 	},
 	endStick() {
 		const stick = this.stick;
-		this.updateSprint(0);
+		this.updateSprint(0, performance.now());
 		stick.slot = null; stick.x = stick.y = 0;
 		this.live.classList.remove('show');
 		this.knob.style.transform = '';
@@ -4315,7 +4359,7 @@ const TouchInput = {
 	reset() {
 		for (const slot of this.slots) { slot.pointerId = -1; slot.role = ROLE_NONE; slot.control = null; }
 		this.activeCount = 0;
-		this.stick.slot = null; this.stick.x = this.stick.y = 0; this.stick.sprinting = false;
+		this.stick.slot = null; this.stick.x = this.stick.y = 0; this.stick.sprinting = false; this.stick.armed = true;
 		if (!this.layer) return;
 		this.live.classList.remove('show');
 		for (const element of Object.values(this.elements)) element.classList.remove('down');
@@ -5691,6 +5735,7 @@ const SOUND_EVENTS = [
 	{ event: 'weapon.reload', recipe: 'reload', source: 'id', pos: 'actor' },
 	{ event: 'weapon.switch', recipe: 'switch', source: 'id', pos: 'actor' },
 	{ event: 'weapon.empty', recipe: 'empty', source: 'id', pos: 'actor' },
+	{ event: 'weapon.nolock', recipe: 'empty', source: 'id', pos: 'actor' },
 	{ event: 'impact', lookup: [['material', 'material']], source: 'owner', pos: 'payload' },
 	{ event: 'explosion', lookup: [['element', 'element']], source: 'owner', pos: 'payload', gainScale: { field: 'radius', from: 2, to: 10, min: 0.7, max: 1.3 }, pitchScale: { field: 'radius', from: 2, to: 12, min: 1.25, max: 0.7 } },
 	{ event: 'move.step', lookup: [['surface', 'surface']], source: 'id', pos: 'actor', when: 'audible', ownGain: 0.45, gainScale: { field: 'speed', from: 0, to: 8, min: 0.45, max: 1 } },
@@ -11375,6 +11420,7 @@ const Move = {
 	presetOverride: new Array(MAX_ACTORS).fill(null),
 	weaponSpeedScale: new Float32Array(MAX_ACTORS).fill(1),
 	weaponReadyTime: new Float32Array(MAX_ACTORS),
+	firePending: new Uint8Array(MAX_ACTORS),
 	statusSpeedScale: new Float32Array(MAX_ACTORS).fill(1),
 	gravityScale: new Float32Array(MAX_ACTORS).fill(1),
 	staminaScale: new Float32Array(MAX_ACTORS).fill(1),
@@ -11399,6 +11445,7 @@ const Move = {
 		if (getClock(id, CLOCK.FIRE_DELAY) > 0 || Motion.sprinting[id] || Motion.board[id]) return false;
 		return Motion.state[id] !== MOVE_STATE.MANTLE && Motion.state[id] !== MOVE_STATE.CHARGE;
 	},
+	fireWait(id) { return getClock(id, CLOCK.FIRE_DELAY); },
 	damageScale(id) { return getClock(id, CLOCK.ROLL) > 0 ? this.preset(id).rollDamageScale : 1; },
 	stamina: Motion.stamina,
 	staminaFraction(id) { const full = this.preset(id).sprintStamina; return full > 0 ? Motion.stamina[id] / full : 1; },
@@ -11684,7 +11731,7 @@ function crouchJumpLift(id, preset) {
 }
 function updateSprint(id, preset, dt) {
 	const wasSprinting = Motion.sprinting[id] === 1;
-	const held = (Actors.buttons[id] & BTN.SPRINT) !== 0, shooting = (Actors.buttons[id] & (BTN.FIRE | BTN.ALT)) !== 0;
+	const held = (Actors.buttons[id] & BTN.SPRINT) !== 0, shooting = (Actors.buttons[id] & (BTN.FIRE | BTN.ALT)) !== 0 || Move.firePending[id] === 1;
 	const canStart = Motion.grounded[id] || wasSprinting;
 	const hasStamina = preset.sprintStamina <= 0 || Motion.stamina[id] > 0;
 	const sprinting = preset.sprintSpeed > 0 && held && !shooting && canStart && hasStamina && Motion.inputZ[id] >= SPRINT_INPUT
@@ -12265,6 +12312,7 @@ const DETONATE_HOLD_SECONDS = 0.35;
 const THIN_COVER_METRES = 0.3;
 const THIN_MATERIALS = ['wood', 'metal', 'glass', 'sheet'];
 const PENETRATION_FACTOR = { low: 0.5, med: 0.7, high: 0.85 };
+const PRESS_BUFFER_GRACE = 0.15;
 const MUZZLE_FORWARD = 0.45;
 const AIM_ASSIST_CONE_DEG = 6;
 const AIM_ASSIST_RANGE = 60;
@@ -12305,7 +12353,8 @@ const RayHits = {
 const FIRE_EVENT = { id: 0, weapon: '', weaponClass: '', mode: 'primary', x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0 };
 const SWITCH_EVENT = { id: 0, weapon: '' };
 const RELOAD_EVENT = { id: 0, weapon: '' };
-const EMPTY_EVENT = { id: 0, weapon: '', pool: 'mag' };
+const EMPTY_EVENT = { id: 0, weapon: '', pool: 'mag', dry: false };
+const NO_LOCK_EVENT = { id: 0, weapon: '' };
 const IMPACT_EVENT = { x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, material: '', weapon: '', owner: -1 };
 function emitWeaponEvent(type, payload, id, weapon) {
 	payload.id = id; payload.weapon = weapon.id;
@@ -12356,6 +12405,10 @@ const Weapons = {
 	toggled: new Uint8Array(MAX_ACTORS),
 	heat: new Float32Array(MAX_ACTORS),
 	latch: new Uint8Array(MAX_ACTORS),
+	pressBuffer: new Uint8Array(MAX_ACTORS),
+	pressBufferLeft: new Float32Array(MAX_ACTORS),
+	lockHold: new Float32Array(MAX_ACTORS),
+	lockCued: new Uint8Array(MAX_ACTORS),
 	altHeld: new Float32Array(MAX_ACTORS),
 	recoilShot: new Uint16Array(MAX_ACTORS), recoilPitch: new Float32Array(MAX_ACTORS), recoilYaw: new Float32Array(MAX_ACTORS),
 	bloom: new Float32Array(MAX_ACTORS), lastShot: new Float32Array(MAX_ACTORS).fill(-1e9), kick: new Float32Array(MAX_ACTORS),
@@ -12448,6 +12501,7 @@ const Weapons = {
 	resetFiring(id) {
 		this.nextShot[id] = this.nextAlt[id] = 0; this.burstLeft[id] = 0; this.charge[id] = 0; this.chargeMode[id] = -1; this.spin[id] = 0;
 		this.ads[id] = 0; this.zoomed[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.altClaimed[id] = 0; this.recoilShot[id] = 0;
+		this.setPressBuffer(id, 0); this.pressBufferLeft[id] = 0; this.lockHold[id] = 0; this.lockCued[id] = 0;
 		this.swayPitch[id] = this.swayYaw[id] = 0;
 		this.lockIds.fill(-1, id * MAX_LOCKS, (id + 1) * MAX_LOCKS);
 		WeaponSpecialState.stopBlock(id);
@@ -12663,9 +12717,26 @@ const Weapons = {
 	},
 	paidPellets(pellets) { return Math.max(1, Math.round(pellets * this.paidShare)); },
 	reportEmpty(id, weapon, mode) {
+		const dry = mode.ammo === 'alt' || (this.reserve[this.slotIndex(id, weapon.index)] <= 0 && !this.infiniteReserve(weapon));
 		EMPTY_EVENT.pool = mode.ammo === 'alt' ? 'alt' : 'mag';
+		EMPTY_EVENT.dry = dry;
 		emitWeaponEvent('weapon.empty', EMPTY_EVENT, id, weapon);
 		if (mode.ammo !== 'alt') this.beginReload(id, weapon);
+		if (!dry || id !== Game.playerId) return;
+		if (mode === weapon.primary && !(Actors.flags[id] & ACTOR_FLAG.DOWNED) && this.switchFromDry(id, weapon)) return;
+		emitToast(mode.ammo === 'alt' ? 'Alt: no ammo' : 'Out of ammo');
+	},
+	switchFromDry(id, dryWeapon) {
+		for (let step = 1; step < WEAPON_COUNT; step++) {
+			const weapon = CAT.weapons[(dryWeapon.index + step) % WEAPON_COUNT];
+			if (!this.owned[this.slotIndex(id, weapon.index)] || !this.canShoot(id, weapon) || !this.requestSwitch(id, weapon.index)) continue;
+			emitToast('Out of ammo: ' + weapon.name);
+			return true;
+		}
+		return false;
+	},
+	canShoot(id, weapon) {
+		return this.hasAmmo(id, weapon, weapon.primary, 0) || this.reserve[this.slotIndex(id, weapon.index)] > 0 || this.infiniteReserve(weapon);
 	},
 	reloadIfEmpty(id, weapon, mode) {
 		if (mode.ammo === 'mag' && this.magazine[this.slotIndex(id, weapon.index)] === 0) this.beginReload(id, weapon);
@@ -12695,7 +12766,11 @@ const Weapons = {
 		const altTaken = this.altTaken(id);
 		this.updateAds(id, weapon, altTaken, dt);
 		this.updateSway(id, weapon, dt);
-		if (this.state[id] === WEAPON_STATE.RELOAD) { this.stepReload(id, weapon, dt); return; }
+		if (this.state[id] === WEAPON_STATE.RELOAD) {
+			this.stepReload(id, weapon, dt);
+			if (weapon.alt.type === 'detonate' && !altTaken) this.stepAltMode(id, weapon, dt);
+			return;
+		}
 		if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
 		this.stepBurst(id, weapon, dt);
 		this.stepMode(id, weapon, weapon.primary, MODE_PRIMARY, BTN.FIRE, dt);
@@ -12728,6 +12803,8 @@ const Weapons = {
 	coolDown(id, dt) {
 		this.nextShot[id] = Math.max(this.nextShot[id] - dt, -dt);
 		this.nextAlt[id] = Math.max(this.nextAlt[id] - dt, 0);
+		this.pressBufferLeft[id] = Math.max(this.pressBufferLeft[id] - dt, 0);
+		if (this.pressBuffer[id] && this.pressBufferLeft[id] === 0) this.setPressBuffer(id, 0);
 		this.kick[id] = Math.max(0, this.kick[id] - dt / KICK_SECONDS);
 		if (Sim.time - this.lastShot[id] > HEAT_VENT_DELAY) this.heat[id] = Math.max(0, this.heat[id] - HEAT_VENT_RATE * dt);
 	},
@@ -12764,9 +12841,11 @@ const Weapons = {
 		this.toggled[id] = this.toggled[id] ? 0 : 1;
 	},
 	stepMode(id, weapon, mode, modeIndex, button, dt) {
-		const held = (Actors.buttons[id] & button) !== 0, bit = 1 << modeIndex;
+		const bit = 1 << modeIndex;
+		this.bufferPress(id, button, bit);
+		const held = (Actors.buttons[id] & button) !== 0 || this.takeBufferedPress(id, weapon, mode, modeIndex, bit);
 		if (!held) this.latch[id] &= ~bit;
-		if (mode.type === 'lock') LockOn.update(id, mode, held, dt);
+		if (mode.type === 'lock') LockOn.update(id, weapon, mode, held, dt);
 		if (mode.trigger === 'charge') { this.stepCharge(id, weapon, mode, modeIndex, held, dt); return; }
 		if (mode.trigger === 'release') { this.stepRelease(id, weapon, mode, modeIndex, held); return; }
 		if (!held) { this.spin[id] = Math.max(0, this.spin[id] - dt); return; }
@@ -12778,6 +12857,27 @@ const Weapons = {
 			if (mode.trigger === 'burst') this.startBurst(id, weapon, mode, modeIndex);
 			this.fire(id, weapon, mode, modeIndex, 0);
 		}
+	},
+	bufferPress(id, button, bit) {
+		const waiting = Move.fireWait(id) > 0;
+		if (Actors.pressed[id] & button) {
+			if (waiting) { this.setPressBuffer(id, this.pressBuffer[id] | bit); this.pressBufferLeft[id] = Move.fireWait(id) + PRESS_BUFFER_GRACE; } else this.setPressBuffer(id, this.pressBuffer[id] & ~bit);
+		} else if (!waiting && (Actors.buttons[id] & button)) this.setPressBuffer(id, this.pressBuffer[id] & ~bit);
+	},
+	takeBufferedPress(id, weapon, mode, modeIndex, bit) {
+		if (!(this.pressBuffer[id] & bit) || Move.fireWait(id) > 0) return false;
+		if (this.state[id] === WEAPON_STATE.IDLE && Move.canFire(id) && !this.hasAmmo(id, weapon, mode, 0)) {
+			this.setPressBuffer(id, this.pressBuffer[id] & ~bit);
+			this.reportEmpty(id, weapon, mode);
+			return false;
+		}
+		if (!this.ready(id, weapon, mode, modeIndex, 0, 0)) return false;
+		this.setPressBuffer(id, this.pressBuffer[id] & ~bit);
+		return true;
+	},
+	setPressBuffer(id, bits) {
+		this.pressBuffer[id] = bits;
+		Move.firePending[id] = bits !== 0 ? 1 : 0;
 	},
 	stepCharge(id, weapon, mode, modeIndex, held, dt) {
 		if (held) {
@@ -12805,6 +12905,8 @@ const Weapons = {
 		if (!(this.latch[id] & RELEASE_LATCH)) return;
 		this.latch[id] &= ~RELEASE_LATCH;
 		if (LockOn.lockedCount(id, mode)) this.releaseShot(id, weapon, mode, modeIndex, 0);
+		else if (!this.lockCued[id]) LockOn.noTarget(id, weapon);
+		this.lockHold[id] = 0; this.lockCued[id] = 0;
 		LockOn.clear(id);
 	},
 	releaseShot(id, weapon, mode, modeIndex, fraction) {
@@ -13107,9 +13209,13 @@ function deliverProjectile(id, weapon, mode, modeIndex, fraction) {
 	}
 }
 const LockOn = {
-	update(id, mode, held, dt) {
-		if (!held) { if (mode.trigger !== 'release') this.clear(id); return; }
+	update(id, weapon, mode, held, dt) {
+		if (!held) {
+			if (mode.trigger !== 'release') { this.clear(id); Weapons.lockHold[id] = 0; Weapons.lockCued[id] = 0; }
+			return;
+		}
 		this.dropStale(id);
+		this.watchForTarget(id, weapon, mode, dt);
 		const eyeY = Actors.eyeY(id);
 		Vec.fromAngles(lockScratch, Actors.yaw[id], Actors.pitch[id]);
 		for (let target = 0; target < Actors.count; target++) {
@@ -13119,6 +13225,22 @@ const LockOn = {
 			if (angle < 0) { if (slot >= 0) Weapons.lockIds[slot] = -1; continue; }
 			this.progress(id, target, slot, mode, dt);
 		}
+	},
+	watchForTarget(id, weapon, mode, dt) {
+		if (this.tracking(id)) { Weapons.lockHold[id] = 0; Weapons.lockCued[id] = 0; return; }
+		Weapons.lockHold[id] += dt;
+		if (Weapons.lockCued[id] || Weapons.lockHold[id] < mode.lock.time) return;
+		this.noTarget(id, weapon);
+	},
+	noTarget(id, weapon) {
+		Weapons.lockCued[id] = 1;
+		if (id !== Game.playerId) return;
+		emitWeaponEvent('weapon.nolock', NO_LOCK_EVENT, id, weapon);
+		emitToast('No target');
+	},
+	tracking(id) {
+		for (let k = 0; k < MAX_LOCKS; k++) if (Weapons.lockIds[id * MAX_LOCKS + k] >= 0) return true;
+		return false;
 	},
 	progress(id, target, slot, mode, dt) {
 		const index = slot >= 0 ? slot : this.freeSlot(id, mode.lock.targets);
@@ -14670,6 +14792,7 @@ const Items = {
 	x: new Float32Array(PICKUP_CAP), y: new Float32Array(PICKUP_CAP), z: new Float32Array(PICKUP_CAP),
 	spot: new Uint8Array(PICKUP_CAP),
 	readyTick: new Int32Array(PICKUP_CAP),
+	waitTicks: new Int32Array(PICKUP_CAP),
 	despawnTick: new Int32Array(PICKUP_CAP),
 	timeLeft: new Int32Array(PICKUP_CAP),
 	warned: new Uint8Array(PICKUP_CAP),
@@ -14758,7 +14881,12 @@ const Items = {
 	wait(slot, ticks) {
 		this.state[slot] = PICKUP_STATE.WAITING;
 		this.readyTick[slot] = Sim.tick + ticks;
+		this.waitTicks[slot] = ticks;
 		this.warned[slot] = 0;
+	},
+	waitShare(slot) {
+		if (this.state[slot] !== PICKUP_STATE.WAITING || this.waitTicks[slot] <= 0) return 0;
+		return clamp(1 - (this.readyTick[slot] - Sim.tick) / this.waitTicks[slot], 0, 1);
 	},
 	respawnTicks(slot) {
 		const row = this.rowOf(slot), pad = CAT.items.byId('weaponpad');
@@ -14838,7 +14966,7 @@ const Items = {
 	},
 	stepWaiting(slot) {
 		const row = this.rowOf(slot);
-		if (this.uniqueWaits(slot, row)) { this.readyTick[slot] = Sim.tick + this.respawnTicks(slot); return; }
+		if (this.uniqueWaits(slot, row)) { this.waitTicks[slot] = this.respawnTicks(slot); this.readyTick[slot] = Sim.tick + this.waitTicks[slot]; return; }
 		const warningDue = this.readyTick[slot] - Sim.tick <= itemTicks(ITEM_TIMING.powerWarning);
 		if (this.isPower(slot) && !this.warned[slot] && warningDue) this.warnPower(slot);
 		if (Sim.tick < this.readyTick[slot]) return;
@@ -15089,8 +15217,22 @@ const Items = {
 		for (let slot = 0; slot < this.usedEnd; slot++) {
 			const state = this.state[slot];
 			if (state === PICKUP_STATE.READY) this.drawPickup(batch, slot, bob);
-			else if (state === PICKUP_STATE.WAITING) this.drawBase(batch, slot, PICKUP_GLOW_WAITING);
+			else if (state === PICKUP_STATE.WAITING) this.drawEmptyPad(batch, slot);
 		}
+	},
+	drawEmptyPad(batch, slot) {
+		this.drawBase(batch, slot, PICKUP_GLOW_EMPTY);
+		const share = this.waitShare(slot);
+		if (share >= PICKUP_FILL_MIN) this.drawFill(batch, slot, share);
+	},
+	drawFill(batch, slot, share) {
+		const instance = pickupBaseInstance;
+		instance.x = this.x[slot]; instance.y = this.y[slot] + PICKUP_FILL_LIFT; instance.z = this.z[slot];
+		instance.sx = share; instance.sz = share;
+		pickupHexColor(pickupBaseColor, 0, PICKUP_GROUP_COLORS[this.group[slot]]);
+		instance.r = pickupBaseColor[0]; instance.g = pickupBaseColor[1]; instance.b = pickupBaseColor[2]; instance.emissive = PICKUP_GLOW_FILL;
+		batch.meshFrom('cylinder', instance);
+		instance.sx = 1; instance.sz = 1;
 	},
 	drawPickup(batch, slot, bob) {
 		const kind = this.kind[slot], index = this.row[slot], row = this.rowOf(slot), rgb = PICKUP_RGB[kind], offset = index * 3;
@@ -15126,7 +15268,9 @@ function ammoModelFor(id) {
 }
 let pickupAmmoModel = null;
 const pickupPose = makeModelPose();
-const PICKUP_GLOW_WAITING = 0.25, PICKUP_GLOW_BASE = 0.5, PICKUP_GLOW_POWER_BASE = 0.9;
+const PICKUP_GLOW_EMPTY = 0.06, PICKUP_GLOW_FILL = 0.55, PICKUP_GLOW_BASE = 0.5, PICKUP_GLOW_POWER_BASE = 0.9;
+const PICKUP_FILL_LIFT = 0.04;
+const PICKUP_FILL_MIN = 0.02;
 const volatileHit = makeHit();
 Items.takers[PICKUP_KIND.ITEM] = (id, slot) => Items.takeItem(id, slot);
 Items.takers[PICKUP_KIND.POWERUP] = () => false;
@@ -20743,7 +20887,8 @@ function ladderLoadouts(ladder, melee) {
 function outbreakSize(players, params) {
 	const area = walkableArea();
 	const areaScale = area > 0 ? Math.sqrt(area / params.infectedArea) : 1;
-	return Math.max(1, Math.floor(players / params.infectedPerPlayers * areaScale));
+	const wanted = Math.max(1, Math.floor(players / params.infectedPerPlayers * areaScale));
+	return Math.min(wanted, Math.max(0, players - 1));
 }
 function walkableArea() {
 	if (Nav.nodeCount > 0) return Nav.walkableArea();
@@ -27026,7 +27171,7 @@ Modes.register('attrition', {
 		const participant = Modes.participant[killer] === 1;
 		const extra = attritionPoints(victim) - (participant ? Modes.rules.scoring.kill : 0);
 		if (extra === 0) return;
-		Modes.awardTeam(killerTeam, extra);
+		Modes.awardTeam(killerTeam, extra, 'kill');
 		if (participant) Modes.awardPlayer(killer, extra, 'kill');
 	},
 });
@@ -27037,6 +27182,7 @@ function attritionPoints(victim) {
 }
 const ContractRun = { relic: null, extract: null, holder: -1, alarms: 0, kills: 0, startedAt: 0, result: NOT_OVER };
 Modes.register('contract', {
+	needsMap: true,
 	start() {
 		pveStart({ stealth: Modes.rules.params.stealth, lives: true });
 		Object.assign(ContractRun, { relic: null, extract: null, holder: -1, alarms: 0, kills: 0, startedAt: Sim.time, result: NOT_OVER });
@@ -29607,6 +29753,10 @@ Data.define('maps', {
 Bus.on('match.setup', (match) => {
 	const requested = match.setup.map;
 	match.map = requested && typeof requested === 'object' ? requested : Maps.get(requested);
+	const behaviour = Modes.behaviours.get(match.setup.mode);
+	if (match.map || !behaviour || !behaviour.needsMap) return;
+	match.map = Maps.forMode(match.setup.mode)[0] || null;
+	if (requested && match.map) emitToast('Map "' + requested + '" was not found: playing ' + match.map.name);
 });
 
 // ==== 16s-maps-scan.js ====
@@ -32997,6 +33147,7 @@ const MapEditor = {
 	},
 	store(entry, index) {
 		const list = this.saved(), previous = index >= 0 ? list[index] : null;
+		if (Save.keepStored) { this.refuse(SAVE_FROM_NEWER_GAME); return false; }
 		if (previous) list[index] = entry; else list.push(entry);
 		if (!Save.saveNow()) {
 			if (previous) list[index] = previous; else list.pop();
@@ -33021,6 +33172,7 @@ const MapEditor = {
 	deleteSaved(id) {
 		const index = this.savedIndex(id);
 		if (index < 0) return false;
+		if (Save.keepStored) { this.refuse(SAVE_FROM_NEWER_GAME); return false; }
 		this.saved().splice(index, 1);
 		Save.saveNow();
 		if (this.slotId === id) { this.slotId = ''; this.dirty = true; }
@@ -33031,6 +33183,7 @@ const MapEditor = {
 	renameSaved(id, name) {
 		const index = this.savedIndex(id), clean = mapEditNameOf(name);
 		if (index < 0 || !clean) return false;
+		if (Save.keepStored) { this.refuse(SAVE_FROM_NEWER_GAME); return false; }
 		this.saved()[index].name = clean;
 		this.saved()[index].data.name = clean;
 		Save.saveNow();
@@ -34055,6 +34208,27 @@ function hudDrawCrosshair(pen, layout, seconds) {
 	HudCombat.spread += (target - HudCombat.spread) * Math.min(1, seconds * rate);
 	hudDrawCrosshairShape(pen, layout, cross, HudCombat.spread);
 }
+const HUD_LOCK_RADIUS = 20, HUD_LOCK_THICKNESS = 3, HUD_LOCK_BODY_SHARE = 0.6;
+function hudDrawLockOn(pen, layout) {
+	const id = Game.playerId;
+	if (!hudLocalAlive()) return;
+	const weapon = Weapons.currentWeapon(id);
+	if (!weapon) return;
+	const mode = weapon.primary.type === 'lock' ? weapon.primary : weapon.alt.type === 'lock' ? weapon.alt : null;
+	if (!mode) return;
+	const unit = layout.unit, ring = hudRingAt, shape = hudShapeAt;
+	for (let k = 0; k < MAX_LOCKS; k++) {
+		const slot = id * MAX_LOCKS + k, target = Weapons.lockIds[slot];
+		if (target < 0 || !Actors.alive[target] || !Hud.project(Actors.x[target], Actors.y[target] + Actors.height[target] * HUD_LOCK_BODY_SHARE, Actors.z[target])) continue;
+		const share = Math.min(1, Weapons.lockTime[slot] / mode.lock.time);
+		ring[0] = hudProjection.x; ring[1] = hudProjection.y; ring[2] = HUD_LOCK_RADIUS * unit; ring[3] = HUD_LOCK_THICKNESS * unit;
+		ring[4] = -Math.PI / 2; ring[5] = ring[4] + Math.PI * 2 * share;
+		pen.ringAt(share >= 1 ? Hud.colors.bad : HUD_COLOR.warn, 0.95);
+		if (share < 1) continue;
+		shape[0] = hudProjection.x; shape[1] = hudProjection.y; shape[2] = 5 * unit;
+		pen.shapeAt('diamond', Hud.colors.bad, 0.95);
+	}
+}
 function hudDrawScope(pen, layout) {
 	const id = Game.playerId;
 	if (!hudLocalAlive()) return;
@@ -34168,6 +34342,7 @@ Hud.register('back', 'vignette', 'vignette', hudDrawVignette);
 Hud.register('back', 'damageArcs', 'damageArcs', hudDrawDamageArcs);
 Hud.register('world', 'damageNumbers', 'damageNumbers', hudDrawDamageNumbers);
 Hud.register('main', 'crosshair', 'crosshair', hudDrawCrosshair);
+Hud.register('world', 'lockOn', 'crosshair', hudDrawLockOn);
 Hud.register('main', 'hitMarkers', 'hitMarkers', hudDrawHitMarkers);
 
 // ==== 17c-hud-match.js ====
@@ -39331,8 +39506,9 @@ const TIP_ACTIONS = [
 	{ text: 'Jump with {0}, crouch with {1}, sprint with {2}. Reload with {3}.', actions: ['jump', 'crouch', 'sprint', 'reload'] },
 	{ text: 'Hold {0} for the scoreboard. {1} pings a place for your team.', soloText: 'Hold {0} for the scoreboard. {1} marks a place.', actions: ['scoreboard', 'ping'] },
 ];
-const TIP_TOUCH_TEXT = '{touch}. The buttons on the {buttons} fire, jump and reload.';
-const TIP_PAD = { text: 'Left stick moves, right stick looks. {0} fires, {1} aims, {2} jumps.', actions: ['fire', 'alt', 'jump'] };
+const TIP_TOUCH_TEXT = '{touch}. The buttons on the {buttons} fire, jump and reload.{sprint}';
+const TIP_TOUCH_SPRINT = { double: ' Push the stick to its edge twice to sprint.', instant: ' Push the stick to its edge to sprint.', off: '' };
+const TIP_PAD = { text: 'Left stick moves, right stick looks. {0} fires, {1} is Alt (aim or alternate fire), {2} jumps.', actions: ['fire', 'alt', 'jump'] };
 const FRIENDLY_FIRE_TEXT = ['Friendly fire is off.', 'Friendly fire is on.'];
 const ECONOMY_LINES = [
 	[(row) => row.money && row.buy === 'round', (row) => 'You start with $' + row.startMoney + ' (at most $' + row.maxMoney + '). Buy in the buy zone for ' + row.buyTime + ' s after each round starts.'],
@@ -39469,7 +39645,7 @@ const Tips = {
 	},
 	touchText() {
 		const sides = touchSidesText();
-		return TIP_TOUCH_TEXT.replace('{touch}', sides[0].toUpperCase() + sides.slice(1)).replace('{buttons}', TouchInput.preset().mirror ? 'left' : 'right');
+		return TIP_TOUCH_TEXT.replace('{touch}', sides[0].toUpperCase() + sides.slice(1)).replace('{buttons}', TouchInput.preset().mirror ? 'left' : 'right').replace('{sprint}', TIP_TOUCH_SPRINT[Input.config.touchSprint] || '');
 	},
 	matchesSeen() { return Save.data && Save.data.tips ? Save.data.tips.matches : 0; },
 	show() {

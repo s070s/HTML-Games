@@ -25,6 +25,7 @@ const DETONATE_HOLD_SECONDS = 0.35;      // holding a detonate-on-release alt th
 const THIN_COVER_METRES = 0.3;           // WPN-005: brushes this thin (smallest side) can be shot through
 const THIN_MATERIALS = ['wood', 'metal', 'glass', 'sheet'];
 const PENETRATION_FACTOR = { low: 0.5, med: 0.7, high: 0.85 };
+const PRESS_BUFFER_GRACE = 0.15;         // D-F02: a trigger pressed during the sprint-to-fire wait is answered up to this long after the wait ends
 const MUZZLE_FORWARD = 0.45;             // projectiles start this far in front of the eye
 const AIM_ASSIST_CONE_DEG = 6;           // INP-008: Input applies its 3 deg slowdown cone inside this search cone
 const AIM_ASSIST_RANGE = 60;
@@ -71,7 +72,8 @@ const RayHits = {
 const FIRE_EVENT = { id: 0, weapon: '', weaponClass: '', mode: 'primary', x: 0, y: 0, z: 0, dx: 0, dy: 0, dz: 0 };
 const SWITCH_EVENT = { id: 0, weapon: '' };
 const RELOAD_EVENT = { id: 0, weapon: '' };
-const EMPTY_EVENT = { id: 0, weapon: '', pool: 'mag' };   // pool: 'mag' or 'alt' (the separate alt rounds ran out)
+const EMPTY_EVENT = { id: 0, weapon: '', pool: 'mag', dry: false };   // pool: 'mag' or 'alt' (the separate alt rounds ran out); dry: nothing left to reload either
+const NO_LOCK_EVENT = { id: 0, weapon: '' };                // a lock-on trigger held (or tapped) with no enemy in the cone (D-F04)
 const IMPACT_EVENT = { x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, material: '', weapon: '', owner: -1 };
 
 function emitWeaponEvent(type, payload, id, weapon) {
@@ -127,6 +129,10 @@ const Weapons = {
   toggled: new Uint8Array(MAX_ACTORS),
   heat: new Float32Array(MAX_ACTORS),
   latch: new Uint8Array(MAX_ACTORS),                // bit per mode: a semi/burst trigger already fired during this hold
+  pressBuffer: new Uint8Array(MAX_ACTORS),          // bit per mode: a trigger pressed during the sprint-to-fire wait, not answered yet (D-F02)
+  pressBufferLeft: new Float32Array(MAX_ACTORS),    // seconds the buffered press stays valid
+  lockHold: new Float32Array(MAX_ACTORS),           // seconds a lock-on trigger has been held (D-F04)
+  lockCued: new Uint8Array(MAX_ACTORS),             // 1 = the no-target cue already played for this hold
   altHeld: new Float32Array(MAX_ACTORS),
   recoilShot: new Uint16Array(MAX_ACTORS), recoilPitch: new Float32Array(MAX_ACTORS), recoilYaw: new Float32Array(MAX_ACTORS),
   bloom: new Float32Array(MAX_ACTORS), lastShot: new Float32Array(MAX_ACTORS).fill(-1e9), kick: new Float32Array(MAX_ACTORS),
@@ -229,6 +235,7 @@ const Weapons = {
   resetFiring(id) {
     this.nextShot[id] = this.nextAlt[id] = 0; this.burstLeft[id] = 0; this.charge[id] = 0; this.chargeMode[id] = -1; this.spin[id] = 0;
     this.ads[id] = 0; this.zoomed[id] = 0; this.toggled[id] = 0; this.latch[id] = 0; this.altHeld[id] = 0; this.altClaimed[id] = 0; this.recoilShot[id] = 0;
+    this.setPressBuffer(id, 0); this.pressBufferLeft[id] = 0; this.lockHold[id] = 0; this.lockCued[id] = 0;
     this.swayPitch[id] = this.swayYaw[id] = 0;
     this.lockIds.fill(-1, id * MAX_LOCKS, (id + 1) * MAX_LOCKS);
     WeaponSpecialState.stopBlock(id);
@@ -477,11 +484,31 @@ const Weapons = {
   // Pellets of a shot that was only partly paid for (paidShare), at least one.
   paidPellets(pellets) { return Math.max(1, Math.round(pellets * this.paidShare)); },
   // Fire on empty: one 'weapon.empty' (with the pool that ran out); an empty magazine also reloads when there is reserve.
-  // An empty alt pool only clicks (R-081): a magazine reload would not refill it.
+  // An empty alt pool only clicks (R-081): a magazine reload would not refill it. When nothing is left to reload either, the
+  // local player gets a toast next to the click, and a primary press moves on to the next weapon that can shoot (D-F03).
   reportEmpty(id, weapon, mode) {
+    const dry = mode.ammo === 'alt' || (this.reserve[this.slotIndex(id, weapon.index)] <= 0 && !this.infiniteReserve(weapon));
     EMPTY_EVENT.pool = mode.ammo === 'alt' ? 'alt' : 'mag';
+    EMPTY_EVENT.dry = dry;
     emitWeaponEvent('weapon.empty', EMPTY_EVENT, id, weapon);
     if (mode.ammo !== 'alt') this.beginReload(id, weapon);
+    if (!dry || id !== Game.playerId) return;
+    if (mode === weapon.primary && !(Actors.flags[id] & ACTOR_FLAG.DOWNED) && this.switchFromDry(id, weapon)) return;   // a downed actor never switches (Last Stand pistol)
+    emitToast(mode.ammo === 'alt' ? 'Alt: no ammo' : 'Out of ammo');
+  },
+  // Equips the next carried weapon (catalogue order, as cycling) whose primary can still shoot; false when there is none.
+  switchFromDry(id, dryWeapon) {
+    for (let step = 1; step < WEAPON_COUNT; step++) {
+      const weapon = CAT.weapons[(dryWeapon.index + step) % WEAPON_COUNT];
+      if (!this.owned[this.slotIndex(id, weapon.index)] || !this.canShoot(id, weapon) || !this.requestSwitch(id, weapon.index)) continue;
+      emitToast('Out of ammo: ' + weapon.name);
+      return true;
+    }
+    return false;
+  },
+  // The primary has a round loaded or something to reload from.
+  canShoot(id, weapon) {
+    return this.hasAmmo(id, weapon, weapon.primary, 0) || this.reserve[this.slotIndex(id, weapon.index)] > 0 || this.infiniteReserve(weapon);
   },
   // R-084: the shot that empties the magazine starts the reload, so a held trigger (touch fire) never sits on empty.
   reloadIfEmpty(id, weapon, mode) {
@@ -515,7 +542,11 @@ const Weapons = {
     const altTaken = this.altTaken(id);
     this.updateAds(id, weapon, altTaken, dt);
     this.updateSway(id, weapon, dt);
-    if (this.state[id] === WEAPON_STATE.RELOAD) { this.stepReload(id, weapon, dt); return; }
+    if (this.state[id] === WEAPON_STATE.RELOAD) {
+      this.stepReload(id, weapon, dt);
+      if (weapon.alt.type === 'detonate' && !altTaken) this.stepAltMode(id, weapon, dt);   // D-F01: detonating costs no round, so a reload never blocks it (W40's single round reloads at once)
+      return;
+    }
     if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
     this.stepBurst(id, weapon, dt);
     this.stepMode(id, weapon, weapon.primary, MODE_PRIMARY, BTN.FIRE, dt);
@@ -554,6 +585,8 @@ const Weapons = {
     // One step of debt is kept so continuous fire hits the exact rate at 120 Hz; idle time never banks extra shots.
     this.nextShot[id] = Math.max(this.nextShot[id] - dt, -dt);
     this.nextAlt[id] = Math.max(this.nextAlt[id] - dt, 0);
+    this.pressBufferLeft[id] = Math.max(this.pressBufferLeft[id] - dt, 0);
+    if (this.pressBuffer[id] && this.pressBufferLeft[id] === 0) this.setPressBuffer(id, 0);
     this.kick[id] = Math.max(0, this.kick[id] - dt / KICK_SECONDS);
     if (Sim.time - this.lastShot[id] > HEAT_VENT_DELAY) this.heat[id] = Math.max(0, this.heat[id] - HEAT_VENT_RATE * dt);
   },
@@ -595,9 +628,11 @@ const Weapons = {
 
   // ---- Triggers: auto, semi, burst, charge (fires on release), release (lock-on fires on release) ----
   stepMode(id, weapon, mode, modeIndex, button, dt) {
-    const held = (Actors.buttons[id] & button) !== 0, bit = 1 << modeIndex;
+    const bit = 1 << modeIndex;
+    this.bufferPress(id, button, bit);
+    const held = (Actors.buttons[id] & button) !== 0 || this.takeBufferedPress(id, weapon, mode, modeIndex, bit);
     if (!held) this.latch[id] &= ~bit;
-    if (mode.type === 'lock') LockOn.update(id, mode, held, dt);
+    if (mode.type === 'lock') LockOn.update(id, weapon, mode, held, dt);
     if (mode.trigger === 'charge') { this.stepCharge(id, weapon, mode, modeIndex, held, dt); return; }
     if (mode.trigger === 'release') { this.stepRelease(id, weapon, mode, modeIndex, held); return; }
     if (!held) { this.spin[id] = Math.max(0, this.spin[id] - dt); return; }
@@ -609,6 +644,32 @@ const Weapons = {
       if (mode.trigger === 'burst') this.startBurst(id, weapon, mode, modeIndex);
       this.fire(id, weapon, mode, modeIndex, 0);
     }
+  },
+  // MOV-021 / D-F02: a trigger pressed while the sprint-to-fire wait runs is kept (for the wait plus PRESS_BUFFER_GRACE) and
+  // answered by one pull the moment the weapon may fire, so a tap right after a sprint is never lost. A trigger still held
+  // when the wait ends needs no help: the normal path fires and the buffer is dropped.
+  bufferPress(id, button, bit) {
+    const waiting = Move.fireWait(id) > 0;
+    if (Actors.pressed[id] & button) {
+      if (waiting) { this.setPressBuffer(id, this.pressBuffer[id] | bit); this.pressBufferLeft[id] = Move.fireWait(id) + PRESS_BUFFER_GRACE; } else this.setPressBuffer(id, this.pressBuffer[id] & ~bit);
+    } else if (!waiting && (Actors.buttons[id] & button)) this.setPressBuffer(id, this.pressBuffer[id] & ~bit);
+  },
+  // True for the step that makes the buffered pull (the trigger itself is up by then); coolDown drops an expired buffer.
+  takeBufferedPress(id, weapon, mode, modeIndex, bit) {
+    if (!(this.pressBuffer[id] & bit) || Move.fireWait(id) > 0) return false;
+    if (this.state[id] === WEAPON_STATE.IDLE && Move.canFire(id) && !this.hasAmmo(id, weapon, mode, 0)) {   // the tap only failed for ammo: it clicks, once
+      this.setPressBuffer(id, this.pressBuffer[id] & ~bit);
+      this.reportEmpty(id, weapon, mode);
+      return false;
+    }
+    if (!this.ready(id, weapon, mode, modeIndex, 0, 0)) return false;   // a reload, a cooldown or a burst keeps it until it expires
+    this.setPressBuffer(id, this.pressBuffer[id] & ~bit);
+    return true;
+  },
+  // Move keeps the sprint off while a buffered press waits: with the sprint key still held, a tap would otherwise send the actor straight back into the sprint.
+  setPressBuffer(id, bits) {
+    this.pressBuffer[id] = bits;
+    Move.firePending[id] = bits !== 0 ? 1 : 0;
   },
   // R-018: the charge stops at the highest level the loaded ammo pays for, so the release always fires (or clicks empty).
   stepCharge(id, weapon, mode, modeIndex, held, dt) {
@@ -638,6 +699,8 @@ const Weapons = {
     if (!(this.latch[id] & RELEASE_LATCH)) return;
     this.latch[id] &= ~RELEASE_LATCH;
     if (LockOn.lockedCount(id, mode)) this.releaseShot(id, weapon, mode, modeIndex, 0);
+    else if (!this.lockCued[id]) LockOn.noTarget(id, weapon);   // D-F04: let go with nothing locked
+    this.lockHold[id] = 0; this.lockCued[id] = 0;
     LockOn.clear(id);
   },
   // A shot fired by letting go of the trigger (charge, lock-on, W32 mine tap): short of ammo it clicks empty instead.
@@ -984,9 +1047,13 @@ function deliverProjectile(id, weapon, mode, modeIndex, fraction) {
 
 // ---- Lock-on (W07 auto-aim, W33 homing volley) ----
 const LockOn = {
-  update(id, mode, held, dt) {
-    if (!held) { if (mode.trigger !== 'release') this.clear(id); return; }
+  update(id, weapon, mode, held, dt) {
+    if (!held) {
+      if (mode.trigger !== 'release') { this.clear(id); Weapons.lockHold[id] = 0; Weapons.lockCued[id] = 0; }   // a release trigger resets in stepRelease
+      return;
+    }
     this.dropStale(id);
+    this.watchForTarget(id, weapon, mode, dt);
     const eyeY = Actors.eyeY(id);
     Vec.fromAngles(lockScratch, Actors.yaw[id], Actors.pitch[id]);
     for (let target = 0; target < Actors.count; target++) {
@@ -996,6 +1063,25 @@ const LockOn = {
       if (angle < 0) { if (slot >= 0) Weapons.lockIds[slot] = -1; continue; }
       this.progress(id, target, slot, mode, dt);
     }
+  },
+  // D-F04: a lock-on trigger held for the whole lock time with no enemy in the cone plays the no-target cue once per hold.
+  watchForTarget(id, weapon, mode, dt) {
+    if (this.tracking(id)) { Weapons.lockHold[id] = 0; Weapons.lockCued[id] = 0; return; }   // a lock (or a kill that freed it) restarts the wait for the next gap
+    Weapons.lockHold[id] += dt;
+    if (Weapons.lockCued[id] || Weapons.lockHold[id] < mode.lock.time) return;
+    this.noTarget(id, weapon);
+  },
+  // The cue is the local player's: a bot holding a lock-on trigger on nothing stays silent.
+  noTarget(id, weapon) {
+    Weapons.lockCued[id] = 1;
+    if (id !== Game.playerId) return;
+    emitWeaponEvent('weapon.nolock', NO_LOCK_EVENT, id, weapon);
+    emitToast('No target');
+  },
+  // True while any enemy is being locked (a lock in progress or complete).
+  tracking(id) {
+    for (let k = 0; k < MAX_LOCKS; k++) if (Weapons.lockIds[id * MAX_LOCKS + k] >= 0) return true;
+    return false;
   },
   progress(id, target, slot, mode, dt) {
     const index = slot >= 0 ? slot : this.freeSlot(id, mode.lock.targets);

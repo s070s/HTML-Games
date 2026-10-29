@@ -90,6 +90,47 @@ Test.add('core', (check) => {
   Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';
 });
 
+// A-04 / A-05: a save from a newer game is backed up, told to the player and never overwritten; a record that cannot be read
+// never replaces a readable backup (it goes to the spare slot).
+Test.add('core', (check) => {
+  const saved = Save.data;
+  Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = '';
+  const record = Save.emptySave();
+  record.version = SAVE_VERSION + 1; record.revision = 7; record.stats.future = 1;
+  const newer = JSON.stringify(record);
+  Save.write(SAVE_KEY, newer);
+  Save.load();
+  check('save: a newer version is told and backed up', Save.notice === SAVE_FROM_NEWER_GAME && Save.read(BACKUP_KEY) === newer && Save.keepStored);
+  Save.load();
+  check('save: a kept newer save met again on the next boot is not copied again (no spare copy)', Save.read(SPARE_KEY) === null && Save.read(BACKUP_KEY) === newer);
+  // another tab (an old cached page) adopting the newer game's save must not downgrade it either
+  const old = Save.emptySave();
+  Save.keepStored = false; Save.data = old; old.revision = 1;
+  Save.saveNow();
+  check('save: a tab that finds a newer-version save in storage keeps it and stops writing (adoptNewer)', Save.keepStored && Save.read(SAVE_KEY) === newer && Save.notice === SAVE_FROM_NEWER_GAME);
+  Save.load();
+  Settings.set('video.fov', 100);
+  check('save: and never overwritten (no write, the stored text is unchanged)', Save.saveNow() === false && Save.read(SAVE_KEY) === newer && Save.data.version === SAVE_VERSION);
+  const fresh = Save.emptySave();
+  fresh.stats.mine = 3;
+  Save.importText(JSON.stringify(fresh));
+  check('save: an import replaces it on purpose and keeps the newer one as the backup', !Save.keepStored && JSON.parse(Save.read(SAVE_KEY)).stats.mine === 3 && Save.read(BACKUP_KEY) === newer);
+  const good = JSON.stringify(Save.emptySave());
+  Save.write(BACKUP_KEY, good);
+  Save.write(SAVE_KEY, '{"version":1,"settings":');
+  Test.expectErrors(() => Save.load());
+  check('save: an unreadable save leaves a readable backup alone and goes to the spare slot', Save.read(BACKUP_KEY) === good && Save.read(SPARE_KEY) === '{"version":1,"settings":' && Save.notice.length > 0);
+  Save.write(SAVE_KEY, '{"broken');
+  Test.expectErrors(() => Save.load());
+  check('save: a second unreadable save keeps the good backup too', Save.read(BACKUP_KEY) === good && Save.read(SPARE_KEY) === '{"broken');
+  Save.write(BACKUP_KEY, 'not json');
+  Save.write(SAVE_KEY, '{"again');
+  Test.expectErrors(() => Save.load());
+  check('save: an unreadable backup is replaced by the newest unreadable save', Save.read(BACKUP_KEY) === '{"again');
+  Save.storage = makeMemoryStorage(false); Save.storageWorks = true; Save.notice = ''; Save.keepStored = false;
+  Save.data = saved;
+});
+
 // Teams (one rule, FFA -1 has no allies); body sizes and the step live in S01 (DATA-003); a failed match start goes back to
 // the menu (ARC-041); a repeated save failure stays quiet only until a write works again (PLT-003).
 Test.add('core', (check) => {
@@ -150,10 +191,12 @@ Test.add('core', (check) => uiWith(() => {
     uiClickButton(Ui.top().element, 'Restore backup');
     uiClickButton(Ui.top().element, 'Restore');
     check('backup: restored', Save.data.stats.mark === 'A' && reloads === 2);
+    const readableBackup = Save.backupText();
     Test.expectErrors(() => DebugApi.save.corrupt('trunc'));
     Ui.open('saveTransfer');
     const screen = Ui.top().element;
-    check('backup: shown', uiClickButton(screen, 'Export backup') && screen.querySelector('textarea').value === '{"version":1,"settings":');
+    check('backup: shown (A-05: the readable backup stays, the unreadable save waits in the spare slot)', uiClickButton(screen, 'Export backup')
+      && screen.querySelector('textarea').value === readableBackup && Save.spareText() === '{"version":1,"settings":');
   } finally { SaveTransfer.reload = reload; Save.notice = ''; }
 }));
 

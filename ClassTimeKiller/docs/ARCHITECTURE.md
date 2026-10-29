@@ -94,7 +94,7 @@ Map loading: S16 puts the map row on `Game.match.map` at `match.setup`; S08 load
 | `actor.spawn` | `{ id }` | S13 |
 | `move.jump` `move.land` `move.step` `move.slide` `move.dash` `move.mantle` `move.wallrun` | `{ id, speed, surface, loudness }` (`loudness` on `move.step` = stance (1 standing, 0.5 crouched) x walk (0.5 walking, 1 running) x `Move.footstepScale[id]`, 0 = silent; 1 otherwise) | S10 |
 | `weapon.fire` | `{ id, weapon, weaponClass, mode: 'primary'|'alt'|'melee' (MELEE button bash), x, y, z, dx, dy, dz }` | S11 |
-| `weapon.reload` `weapon.switch` `weapon.empty` | `{ id, weapon }` | S11 |
+| `weapon.reload` `weapon.switch` `weapon.empty` `weapon.nolock` | `{ id, weapon }` (`weapon.empty` adds `pool` and `dry`) | S11 |
 | `impact` | `{ x, y, z, nx, ny, nz, material, weapon, owner }` | S11 |
 | `explosion` | `{ x, y, z, radius, owner, source, element }` | S11/S12 |
 | `damage` | `{ target, source, amount, absorbed, shieldDamage, armorDamage, healthDamage, kind (the damage kind row id), zone: 'head'|'body'|'legs'|'none', weapon, element, x, y, z, dx, dy, dz }` | S11 `Damage.apply` only |

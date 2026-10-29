@@ -348,6 +348,13 @@ Test.add('mapEditor', (check) => {
   Save.data.editorMaps = 'broken';
   check('a save whose list is not a list is repaired', MapEditor.saved().length === 0 && Array.isArray(Save.data.editorMaps));
   check('with room again the same map saves', MapEditor.saveCurrent('Fits') && MapEditor.usedBytes() < MAPEDIT_SAFE_SAVE_BYTES);
+  // A-04: while a newer game's save is kept nothing is written, so the editor refuses to save, rename or delete and says why.
+  Save.keepStored = true;
+  MapEditor.dirty = true;
+  const kept = MapEditor.saved().length, keptName = MapEditor.saved()[0].name, keptId = MapEditor.saved()[0].id;
+  check('a kept newer-version save: saving refuses with the newer-version text', !MapEditor.saveCurrent('Kept') && MapEditor.message === SAVE_FROM_NEWER_GAME && MapEditor.saved().length === kept, MapEditor.message);
+  check('a kept newer-version save: delete and rename refuse and change nothing', !MapEditor.deleteSaved(keptId) && !MapEditor.renameSaved(keptId, 'Renamed') && MapEditor.saved().length === kept && MapEditor.saved()[0].name === keptName);
+  Save.keepStored = false;
   Save.storage = makeMemoryStorage(true);
   MapEditor.dirty = true;
   const before = MapEditor.saved().length;

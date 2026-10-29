@@ -109,6 +109,8 @@ Yaw/pitch are copied from aimYaw/aimPitch every step (turn-rate limits belong to
 | `Move.gravity(id)` | effective gravity m/s^2 (jump arcs, nav, bots) |
 | `Move.inaccuracy(id, tableOnly?)` | MOV-025 degrees of extra spread (tactical: still 0, walk/slow 1.1, crouch-move 0.8, run 5, air 10, landing +3 fading over 0.3 s); other presets (WPN-003): 1 deg x speed fraction f (capped at 1, 0 standing) + 1.5 deg in the air, or 0 with `tableOnly` (S11 passes it for non-hitscan modes) |
 | `Move.canFire(id)` | false while sprinting, during `sprintToFire` after a sprint, mantling, shield charging or on the board (S11 adds weapon readyTime) |
+| `Move.fireWait(id)` | seconds left of the sprint-to-fire wait (0 = none); S11 buffers a trigger pressed during it (D-F02) |
+| `Move.firePending[id]` | written by S11: 1 while a buffered trigger press waits; the sprint stays off so a held sprint key does not undo the tap |
 | `Move.damageScale(id)` | 0.25 while rolling (MV08), else 1 - S11 multiplies incoming damage |
 | `Move.weaponSpeedScale[id]` | written by S11 every step: weapon `moveMult` x `adsMoveMult` when aiming (default 1) |
 | `Move.statusSpeedScale[id]` | written only by S12 `Buffs.applyScales`: statuses x powerup speed (default 1) |

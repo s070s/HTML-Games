@@ -200,6 +200,44 @@ Test.add('items', (check) => {
   TestArena.finish();
 });
 
+// P2-02: a picked pad shows nothing of the item. It is a dark empty disc with a fill that grows from the centre as the respawn time
+// passes; the item (and its lit base) is back exactly when the spot is ready. Weapon, health, armor, ammo and power spots alike.
+Test.add('items', (check) => {
+  const plain = ItemArena.plainWeapon(), power = ItemArena.powerWeapon();
+  ItemArena.start({}, [ItemArena.spot('healthpack', 3, 0), ItemArena.spot('lightplate', 6, 0), ItemArena.spot('ammobox', 9, 0), ItemArena.spot(plain.id, 12, 0), ItemArena.spot(power.id, 15, 0)]);
+  const camera = Render.camera, saved = { x: camera.x, y: camera.y, z: camera.z };
+  camera.x = 0; camera.y = 1.6; camera.z = 0;
+  const frame = () => { const recorder = meshRecorder(); Items.draw(recorder); return recorder.meshes; };
+  const pads = (meshes) => meshes.filter((mesh) => mesh.shape === 'cylinder' && mesh.y < PICKUP_FLOAT / 2);   // the flat discs; item models float higher
+  try {
+    Items.state[4] = PICKUP_STATE.READY;
+    const full = frame(), readyDiscs = pads(full).length;
+    check('P2-02 five ready spots: each shows its lit base disc and its item', readyDiscs === 5 && full.length > 5, readyDiscs + ' / ' + full.length);
+    const taker = ItemArena.actor(1, 3, 0);
+    Sim.step();
+    check('P2-02 the picked spot is waiting and its item model is gone', Items.state[0] === PICKUP_STATE.WAITING && Items.state[1] === PICKUP_STATE.READY);
+    const afterPickup = frame(), items = full.length - afterPickup.length;
+    check('P2-02 right after the pickup the pad draws one dark disc and no fill', pads(afterPickup).length === readyDiscs && items > 0 && Items.waitShare(0) < 0.01, pads(afterPickup).length + ' / ' + items);
+    TestArena.place(taker, 40, 0);
+    const wait = Items.readyTick[0] - Sim.tick;
+    Sim.run(Math.round(wait / 2));
+    const half = Items.waitShare(0);
+    const midway = frame();
+    check('P2-02 half way through the respawn the fill is half grown', Test.near(half, 0.5, 0.02) && pads(midway).length === readyDiscs + 1, half + ' / ' + pads(midway).length);
+    const fill = pads(midway).find((mesh) => Test.near(mesh.sz, half, 1e-3));
+    check('P2-02 the fill disc is scaled by the share and sits above the base', !!fill && fill.y > pads(afterPickup)[0].y, fill && fill.y);
+    Sim.run(Items.readyTick[0] - Sim.tick - 1);
+    check('P2-02 one tick before the respawn the item is still not drawn', Items.state[0] === PICKUP_STATE.WAITING && frame().length < full.length && Items.waitShare(0) > 0.99);
+    Sim.run(2);
+    check('P2-02 on the respawn tick the item and the lit base are back, the fill is gone', Items.state[0] === PICKUP_STATE.READY && frame().length === full.length && Items.waitShare(0) === 0);
+    const waitingAt = Sim.tick;
+    Items.wait(4, 600);
+    Sim.run(300);
+    check('P2-02 a power spot fills over its own, longer wait', Test.near(Items.waitShare(4), 0.5, 0.01) && Items.waitTicks[4] === 600 && Sim.tick - waitingAt === 300, Items.waitShare(4));
+  } finally { camera.x = saved.x; camera.y = saved.y; camera.z = saved.z; }
+  TestArena.finish();
+});
+
 Test.add('items', (check) => {
   const plain = ItemArena.plainWeapon(), power = ItemArena.powerWeapon(), pad = CAT.items.byId('weaponpad');
   ItemArena.start({}, [ItemArena.spot(plain.id, 3, 0), ItemArena.spot(power.id, 6, 0)]);

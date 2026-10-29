@@ -381,6 +381,10 @@ Test.add('modes2', (check) => {
   let counts = [];
   try { counts = [params.infectedArea, 4 * params.infectedArea, params.infectedArea / 4].map(startsOn); } finally { Nav.nodeCount = nodes; }
   check('infection: 2 of 12 start infected on infectedArea of floor, 4 on four times it, 1 on a quarter', counts.join() === '2,4,1', counts.join());
+  // A-01: a huge floor never infects everyone: at most players - 1 start infected, so a human always remains.
+  let capped = [];
+  try { Nav.nodeCount = nodesFor(400 * params.infectedArea); capped = [12, 2, 1].map((players) => outbreakSize(players, params)); } finally { Nav.nodeCount = nodes; }
+  check('infection: on a huge floor the outbreak keeps one human (11 of 12, 1 of 2, none of 1)', capped.join() === '11,1,0', capped.join());
   // Balance probe (modes-02): with one hit converting, the infected wiped 12 bots in 51-133 s on every seed. Now the humans hold well into the match.
   const soak = DebugApi.soak('infection', 'spire', 5.5, 11, 2, {});
   check('infection balance: a bot match on spire lasts past 3 minutes', soak.seconds > 180, soak.seconds);

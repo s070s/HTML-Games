@@ -550,20 +550,22 @@ Test.add('input', (check) => {
   const id = startInputMatch();
   Input.setDevice('touch');
   const zone = TouchInput.zone;
+  TouchInput.stick.lastEdgePushMs = -1e9; TouchInput.stick.armed = true;   // an edge push of an earlier test is not the first of this gesture
   inputTouchPointer('pointerdown', zone, 1, INPUT_TEST_LEFT_X, 500);
   inputTouchPointer('pointermove', zone, 1, INPUT_TEST_LEFT_X + TOUCH_STICK_RADIUS, 500);
   Input.frame(INPUT_TEST_FRAME);
   check('touch: the layer shows while a match runs on touch', TouchInput.shown && TouchInput.layer.classList.contains('show'));
   check('touch: a full push right strafes right', Test.near(Actors.moveX[id], 1, 1e-6) && Actors.moveZ[id] === 0, Actors.moveX[id]);
+  check('touch: one push to the stick edge only walks (P2-05)', (Actors.buttons[id] & BTN.SPRINT) === 0);
   inputTouchPointer('pointermove', zone, 1, INPUT_TEST_LEFT_X, 500 - TOUCH_STICK_RADIUS * 0.5);
   Input.frame(INPUT_TEST_FRAME);
   check('touch: pushing up walks forward, scaled past the deadzone', Actors.moveZ[id] > 0.3 && Actors.moveZ[id] < 0.5 && Test.near(Actors.moveX[id], 0, 1e-6), Actors.moveZ[id]);
   inputTouchPointer('pointermove', zone, 1, INPUT_TEST_LEFT_X, 500 - TOUCH_STICK_RADIUS * 0.85);
   inputStepAndFrame(); inputStepAndFrame();
   check('touch: 85% push does not sprint', (Actors.buttons[id] & BTN.SPRINT) === 0);
-  inputTouchPointer('pointermove', zone, 1, INPUT_TEST_LEFT_X, 500 - TOUCH_STICK_RADIUS * 0.95);
+  inputTouchPointer('pointermove', zone, 1, INPUT_TEST_LEFT_X + TOUCH_STICK_RADIUS * 0.95, 500);   // to the same side as the first push (a push the other way is no double push)
   Input.frame(INPUT_TEST_FRAME);
-  check('touch: pushing past 90% sprints (INP-004)', (Actors.buttons[id] & BTN.SPRINT) !== 0);
+  check('touch: a second push to the edge within 0.4 s sprints (INP-004, P2-05)', (Actors.buttons[id] & BTN.SPRINT) !== 0);
   inputTouchPointer('pointermove', zone, 1, INPUT_TEST_LEFT_X, 500 - TOUCH_STICK_RADIUS * 0.85);
   Input.frame(INPUT_TEST_FRAME);
   check('touch: sprint holds until the push falls under 80%', (Actors.buttons[id] & BTN.SPRINT) !== 0);
@@ -711,25 +713,87 @@ Test.add('input', (check) => {
   inputTouchPointer('pointerup', TouchInput.elements.use, 7, 300, 200); inputStepAndFrame(); inputStepAndFrame();
   check('touch: releasing USE lets go', (Actors.buttons[id] & BTN.USE) === 0);
   const stickSprints = TouchInput.stickSprints;
-  TouchInput.stickSprints = () => false; TouchInput.updateSprint(1);
+  setInputSetting('controls.touch.sprint', 'instant');   // the old one-push rule; the default gesture has its own test below
+  TouchInput.stickSprints = () => false; TouchInput.updateSprint(1, 0);
   check('touch: a full stick push does not sprint where sprint walks (Tactical)', !TouchInput.stick.sprinting);
-  TouchInput.stickSprints = () => true; TouchInput.updateSprint(1);
+  TouchInput.stickSprints = () => true; TouchInput.updateSprint(1, 0);
   check('touch: a full stick push sprints elsewhere', TouchInput.stick.sprinting);
-  TouchInput.updateSprint(0);
+  TouchInput.updateSprint(0, 0);
   // The stick's sprint is a hold: the keyboard's Sprint Toggle setting must not latch it on.
   setInputSetting('controls.toggle.sprint', 'toggle');
-  TouchInput.updateSprint(1);
+  TouchInput.updateSprint(1, 0);
   const pushed = Input.effective[Input.actionIndex.sprint];
-  TouchInput.updateSprint(0);
+  TouchInput.updateSprint(0, 0);
   check('touch: the stick sprint stops on release with Sprint set to Toggle', pushed === 1 && Input.effective[Input.actionIndex.sprint] === 0);
   // Sprint toggled on by a key, then the stick pushed and let go: the sprint is off, and the next key press turns it on again.
   const sprintRow = Input.actionIndex.sprint;
   Input.pressAction(sprintRow); Input.releaseAction(sprintRow);
-  TouchInput.updateSprint(1); TouchInput.updateSprint(0);
+  TouchInput.updateSprint(1, 0); TouchInput.updateSprint(0, 0);
   Input.pressAction(sprintRow); Input.releaseAction(sprintRow);
   check('touch: after the stick ends a toggled sprint, one key press sprints again', Input.effective[sprintRow] === 1);
   Input.pressAction(sprintRow); Input.releaseAction(sprintRow);
   setInputSetting('controls.toggle.sprint', 'hold');
+  setInputSetting('controls.touch.sprint', 'double');
+  TouchInput.stickSprints = stickSprints;
+});
+
+// P2-05: the stick sprints only on the gesture of the setting. 'double' (default): two pushes to the edge within 0.4 s, a dip under 60% between
+// them (or a lift); a push held at the edge, however long, only walks. 'instant' is the old one-push rule; 'off' never sprints from the stick.
+Test.add('input', (check) => {
+  startInputMatch();
+  Input.setDevice('touch');
+  const stick = TouchInput.stick, stickSprints = TouchInput.stickSprints, sprintRow = Input.actionIndex.sprint;
+  TouchInput.stickSprints = () => true;
+  const reset = () => { TouchInput.updateSprint(0, 0); stick.armed = true; stick.lastEdgePushMs = -1e9; };
+  const push = (amount, at) => { TouchInput.updateSprint(amount, at); return stick.sprinting; };
+  check('P2-05 the default is the double push', Input.config.touchSprint === 'double' && Settings.definitions.get('controls.touch.sprint').fallback === 'double');
+  reset();
+  push(1, 1000); push(1, 1100); push(0.95, 6000);
+  check('P2-05 a push held at the edge, 5 s long, only walks', !stick.sprinting && Input.effective[sprintRow] === 0);
+  push(0.5, 6100);
+  check('P2-05 a second edge push 5 s later is a new first push', !push(1, 6200) && !stick.sprinting);
+  push(0.5, 6300);
+  check('P2-05 two edge pushes 150 ms apart sprint', push(1, 6350) && Input.effective[sprintRow] === 1);
+  check('P2-05 the sprint holds above 80% and ends under it', push(0.85, 6400) && !push(0.7, 6500) && Input.effective[sprintRow] === 0);
+  reset();
+  push(1, 2000); push(0.85, 2100);
+  check('P2-05 a wobble that never falls under 60% is not a second push', !push(1, 2200));
+  reset();
+  push(1, 3000); TouchInput.updateSprint(0, 3050);
+  check('P2-05 lifting the finger and pushing again at once counts as the second push', push(1, 3200));
+  reset();
+  const pushAt = (amount, at, angle) => { TouchInput.updateSprint(amount, at, angle); return stick.sprinting; };
+  pushAt(1, 3500, 0); pushAt(0.5, 3550, 0);
+  check('P2-05 a second push through the centre to the opposite side is a strafe jiggle, not a double push', !pushAt(1, 3600, Math.PI));
+  reset();
+  pushAt(1, 3700, 0); pushAt(0.5, 3750, 0);
+  check('P2-05 a second push within 45 degrees of the first sprints', pushAt(1, 3800, 0.5));
+  reset();
+  push(1, 4000); push(0.5, 4300);
+  check('P2-05 a second push after 450 ms is too late', !push(1, 4450));
+  reset();
+  TouchInput.stickSprints = () => false;
+  push(1, 7000); push(0.5, 7050);
+  check('P2-05 where sprint walks (Tactical) no gesture sprints', !push(1, 7100));
+  TouchInput.stickSprints = () => true;
+  setInputSetting('controls.touch.sprint', 'instant');
+  reset();
+  check('P2-05 instant: one push past 90% sprints', push(0.95, 8000));
+  push(0, 8100);
+  setInputSetting('controls.touch.sprint', 'off');
+  reset();
+  push(1, 9000); push(0.5, 9050);
+  check('P2-05 off: the stick never sprints', !push(1, 9100));
+  const tipFor = (mode) => { Input.config.touchSprint = mode; return Tips.touchText(); };
+  const tips = [tipFor('double'), tipFor('instant'), tipFor('off')];
+  Input.config.touchSprint = 'off';
+  check('P2-05 the first-match tip follows the setting (twice, once, nothing)', tips[0].includes('edge twice') && tips[1].includes('edge to sprint') && !tips[2].includes('sprint'), tips.join(' | '));
+  setInputSetting('controls.touch.sprint', 'instant');
+  push(1, 9200);
+  setInputSetting('controls.touch.sprint', 'off');
+  check('P2-05 switching to off ends a running sprint at the next push', !push(1, 9300) && Input.effective[sprintRow] === 0);
+  setInputSetting('controls.touch.sprint', 'double');
+  reset();
   TouchInput.stickSprints = stickSprints;
 });
 

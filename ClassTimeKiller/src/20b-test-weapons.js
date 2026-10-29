@@ -1095,6 +1095,196 @@ Test.add('weapons', (check) => {
   check('H01 Bastide (slow, short-range kit) holds out against the Quill Tempest for over 1.9 s', (bastide.health + bastide.armor) / quillDps > 1.9);
 });
 
+// D-F01: the W40 Detonate alt works while the single round reloads (default loadout: 1 round, 1 in reserve).
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0);
+  Weapons.setLoadout(shooter, ['fusionmortar']);
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0.3;
+  TestArena.hold(shooter, BTN.FIRE, 0.05);
+  Sim.run(TICK_RATE / 4);
+  check('W40 the single round starts the reload at once', Weapons.state[shooter] === WEAPON_STATE.RELOAD);
+  const blasts = TestArena.count('explosion', () => { TestArena.hold(shooter, BTN.ALT, 0.05); Sim.run(TICK_RATE * 2); });
+  check('W40 Alt detonates the orb during the reload, once (the fuse finds nothing left)', blasts === 1, blasts);
+  Weapons.setLoadout(shooter, ['fusionmortar']);
+  TestArena.hold(shooter, BTN.FIRE, 0.05);
+  Sim.run(TICK_RATE / 4);
+  const fuse = TestArena.count('explosion', () => Sim.run(TICK_RATE * 3));
+  check('W40 without Alt the orb still blows by its fuse', fuse === 1, fuse);
+  TestArena.finish();
+});
+
+// D-F02 (MOV-021): a trigger pressed during the sprint-to-fire wait is kept and answered the moment the wait ends. A one-step
+// tap is never lost, the sprint key held down does not put the actor back into the sprint before that shot, and a trigger that
+// is still held needs no buffer. Primary and alt shots both buffer.
+Test.add('weapons', (check) => {
+  loadTestWorld();
+  useTestRules({ move: 'modern', weaponSet: 'fullSet' });
+  const id = groundedTester(-55, -55), wait = Move.preset(id).sprintToFire + CAT.weapons.byId('warden').readyTime;
+  giveFull(id, 'warden');
+  holdInput(id, 0, 1, BTN.SPRINT, 45);
+  stepSeconds(1);
+  check('D-F02 the actor sprints before the tap', Motion.sprinting[id] === 1);
+  let shots = 0;
+  const handler = Bus.on('weapon.fire', () => { shots++; });
+  holdInput(id, 0, 1, BTN.SPRINT | BTN.FIRE);
+  Sim.step();
+  holdInput(id, 0, 1, BTN.SPRINT);
+  stepSeconds(wait - 0.1);
+  check('D-F02 a one-step tap makes no shot inside the wait, and the held sprint key does not restart the sprint', shots === 0 && Motion.sprinting[id] === 0 && Move.fireWait(id) > 0, shots + ' / ' + Motion.sprinting[id]);
+  stepSeconds(0.2);
+  check('D-F02 the buffered tap fires the moment the wait ends (one shot)', shots === 1, shots);
+  stepSeconds(0.5);
+  check('D-F02 the sprint resumes after the shot, no second shot', shots === 1 && Motion.sprinting[id] === 1, shots + ' / ' + Motion.sprinting[id]);
+  holdInput(id, 0, 1, BTN.SPRINT | BTN.FIRE);
+  Sim.step();
+  holdInput(id, 0, 1, BTN.SPRINT);
+  stepSeconds(wait + PRESS_BUFFER_GRACE + 0.2);
+  check('D-F02 a second tap is answered by one more shot, no stray shot long after', shots === 2, shots);
+  Bus.off('weapon.fire', handler);
+  const dull = giveFull(id, 'tempest');
+  const heldShots = TestArena.count('weapon.fire', () => {
+    holdInput(id, 0, 1, BTN.SPRINT | BTN.FIRE);
+    stepSeconds(0.05);
+    holdInput(id, 0, 1, BTN.SPRINT | BTN.FIRE);
+    stepSeconds(wait + 0.1);
+    holdInput(id, 0, 0, 0);
+  });
+  check('D-F02 a trigger held through the wait still fires by itself (auto)', heldShots >= 1 && Weapons.magazine[Weapons.slotIndex(id, dull.index)] === 30000 - heldShots * dull.primary.ammoPerShot, heldShots);
+});
+
+// D-F02: the buffer also holds for an alt that shoots, and a weapon swap drops it.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 10);
+  giveFull(shooter, 'hornet');
+  TestArena.aimAt(shooter, target);
+  setClock(shooter, CLOCK.FIRE_DELAY, 0.3);
+  let shots = 0;
+  const handler = Bus.on('weapon.fire', (event) => { if (event.mode === 'alt') shots++; });
+  Actors.buttons[shooter] = BTN.ALT; Sim.step(); Actors.buttons[shooter] = 0;
+  Sim.run(TICK_RATE * 0.5);
+  check('D-F02 an alt shot pressed in the wait fires when it ends', shots === 1, shots);
+  setClock(shooter, CLOCK.FIRE_DELAY, 0.3);
+  Weapons.nextShot[shooter] = 0; Weapons.nextAlt[shooter] = 0;
+  Actors.buttons[shooter] = BTN.FIRE; Sim.step(); Actors.buttons[shooter] = 0;
+  check('D-F02 the press is pending and holds the sprint off', Weapons.pressBuffer[shooter] !== 0 && Move.firePending[shooter] === 1);
+  Weapons.give(shooter, 'tempest');
+  Weapons.requestSwitch(shooter, CAT.weapons.byId('tempest').index);
+  check('D-F02 a weapon switch drops the pending press', Weapons.pressBuffer[shooter] === 0 && Move.firePending[shooter] === 0);
+  Bus.off('weapon.fire', handler);
+  TestArena.finish();
+});
+
+// D-F03: a primary with no round and nothing to reload clicks, tells the local player, and moves on to the next weapon that can
+// shoot; the Alt keeps its own pool. A weapon alone only clicks and toasts.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 8);
+  Game.playerId = shooter;
+  Weapons.setLoadout(shooter, ['warden', 'hush']);
+  const hush = CAT.weapons.byId('hush'), warden = CAT.weapons.byId('warden'), slot = Weapons.slotIndex(shooter, hush.index);
+  Weapons.magazine[slot] = 0; Weapons.reserve[slot] = 0;
+  TestArena.aimAt(shooter, target);
+  let empty = null;
+  const handler = Bus.on('weapon.empty', (event) => { empty = { pool: event.pool, dry: event.dry }; });
+  const clicks = TestArena.count('weapon.empty', () => TestArena.hold(shooter, BTN.FIRE, 0.05));
+  check('D-F03 W06 with nothing left clicks once and reports it dry', clicks === 1 && empty && empty.pool === 'mag' && empty.dry === true, clicks + ' ' + JSON.stringify(empty));
+  check('D-F03 the press moves on to the next weapon with ammo', Weapons.state[shooter] === WEAPON_STATE.SWAP && Weapons.pending[shooter] === warden.index && Ui.lastToast === 'Out of ammo: ' + warden.name, Ui.lastToast);
+  Sim.run(TICK_RATE);
+  check('D-F03 and holds it when the swap is done', Weapons.current[shooter] === warden.index && Weapons.state[shooter] === WEAPON_STATE.IDLE);
+  Weapons.requestSwitch(shooter, hush.index);
+  Sim.run(TICK_RATE);
+  check('D-F03 the empty weapon stays selectable; its Alt keeps its own pool and still fires', Weapons.current[shooter] === hush.index && countShots(shooter, BTN.ALT, 0.3) > 0);
+  Weapons.setLoadout(shooter, ['hush']);
+  Weapons.magazine[slot] = 0; Weapons.reserve[slot] = 0;
+  Ui.lastToast = '';
+  TestArena.hold(shooter, BTN.FIRE, 0.05);
+  Sim.run(TICK_RATE / 4);
+  check('D-F03 a lone empty weapon stays in hand and says so', Weapons.current[shooter] === hush.index && Weapons.state[shooter] === WEAPON_STATE.IDLE && Ui.lastToast === 'Out of ammo', Ui.lastToast);
+  Weapons.altAmmo[slot] = 0;
+  TestArena.hold(shooter, BTN.ALT, 0.05);
+  check('D-F03 an empty Alt pool says so too', Ui.lastToast === 'Alt: no ammo', Ui.lastToast);
+  Weapons.setLoadout(shooter, ['warden', 'hush']);
+  Weapons.reserve[slot] = 5; Weapons.magazine[slot] = 0;
+  TestArena.hold(shooter, BTN.FIRE, 0.05);
+  check('D-F03 with reserve left the weapon reloads instead of switching', Weapons.state[shooter] === WEAPON_STATE.RELOAD, Weapons.state[shooter]);
+  Bus.off('weapon.empty', handler);
+  TestArena.finish();
+});
+
+// Review fixes: a dry tap buffered during the sprint-to-fire wait clicks once; a downed Last Stand pistol never auto-switches;
+// W07 held through kills says "No target" only after a real gap, and a bot stays silent.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 8);
+  Game.playerId = shooter;
+  Weapons.setLoadout(shooter, ['warden', 'hush']);
+  const hush = CAT.weapons.byId('hush'), slot = Weapons.slotIndex(shooter, hush.index);
+  Weapons.magazine[slot] = 0; Weapons.reserve[slot] = 0;
+  TestArena.aimAt(shooter, target);
+  setClock(shooter, CLOCK.FIRE_DELAY, 0.2);
+  const clicks = TestArena.count('weapon.empty', () => { Actors.buttons[shooter] = BTN.FIRE; Sim.step(); Actors.buttons[shooter] = 0; Sim.run(TICK_RATE); });
+  check('a dry tap buffered during the sprint-to-fire wait clicks once when the wait ends', clicks === 1, clicks);
+  Weapons.setLoadout(shooter, ['warden', 'hush']);
+  Weapons.magazine[slot] = 0; Weapons.reserve[slot] = 0;
+  Actors.flags[shooter] |= ACTOR_FLAG.DOWNED;
+  Damage.lastStand[shooter] = 1;
+  TestArena.hold(shooter, BTN.FIRE, 0.05);
+  Sim.step();
+  check('a downed actor with a dry Last Stand pistol does not switch weapons', Weapons.state[shooter] !== WEAPON_STATE.SWAP && Weapons.current[shooter] === hush.index);
+  Actors.flags[shooter] &= ~ACTOR_FLAG.DOWNED; Damage.lastStand[shooter] = 0;
+  TestArena.finish();
+
+  TestArena.start({});
+  const me = TestArena.actor(1, 0, 0), bot = TestArena.actor(1, 3, 0);
+  Game.playerId = me;
+  const sparklock = CAT.weapons.byId('sparklock'), lockTime = sparklock.primary.lock.time;
+  giveFull(bot, 'sparklock'); giveFull(me, 'sparklock');
+  Actors.pitch[bot] = Actors.aimPitch[bot] = 0; Actors.pitch[me] = Actors.aimPitch[me] = 0;
+  const cues = TestArena.count('weapon.nolock', () => { Actors.buttons[bot] = BTN.FIRE; TestArena.hold(me, BTN.FIRE, lockTime + 0.3); Actors.buttons[bot] = 0; Sim.step(); });
+  check('a bot holding a lock-on trigger on nothing makes no cue; the local player does', cues === 1, cues);
+  const foe = TestArena.sponge(2, 0, 10);
+  TestArena.aimAt(me, foe);
+  const afterKill = TestArena.count('weapon.nolock', () => {
+    Actors.buttons[me] = BTN.FIRE;
+    Sim.run(Math.round(TICK_RATE * (lockTime + 0.3)));
+    TestArena.hit(-1, foe, 1e6, { kind: 'telefrag' });
+    Sim.run(Math.round(TICK_RATE * 0.2));
+    Actors.buttons[me] = 0; Sim.step();
+  });
+  check('W07 held through a kill says nothing in the first moments after it (the wait restarts)', afterKill === 0, afterKill);
+  TestArena.finish();
+});
+
+// D-F04: lock-on weapons say so when nothing can be locked: a 'weapon.nolock' event (the empty click) and a "No target" toast
+// once per hold; W33 (lock on release) also cues a tap. With a target in the cone there is no cue.
+Test.add('weapons', (check) => {
+  TestArena.start({});
+  const shooter = TestArena.actor(1, 0, 0);
+  Game.playerId = shooter;
+  const sparklock = giveFull(shooter, 'sparklock');
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0;
+  Ui.lastToast = '';
+  const cues = TestArena.count('weapon.nolock', () => TestArena.hold(shooter, BTN.FIRE, sparklock.primary.lock.time + 0.5));
+  check('D-F04 W07 held with no target cues once (event and toast)', cues === 1 && Ui.lastToast === 'No target', cues + ' / ' + Ui.lastToast);
+  const tapped = TestArena.count('weapon.nolock', () => TestArena.hold(shooter, BTN.FIRE, 0.1));
+  check('D-F04 a short tap on W07 stays quiet (no lock time elapsed)', tapped === 0, tapped);
+  const target = TestArena.sponge(2, 0, 10);
+  TestArena.aimAt(shooter, target);
+  const withTarget = TestArena.count('weapon.nolock', () => TestArena.hold(shooter, BTN.FIRE, sparklock.primary.lock.time + 0.5));
+  check('D-F04 W07 with an enemy in the cone gives no cue', withTarget === 0, withTarget);
+  Actors.y[target] = -20;
+  giveFull(shooter, 'kingfisher');
+  Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0;
+  Ui.lastToast = '';
+  const volley = TestArena.count('weapon.nolock', () => { TestArena.hold(shooter, BTN.ALT, 0.1); Sim.step(); });
+  check('D-F04 W33 tapped with nothing to lock cues on release', volley === 1 && Ui.lastToast === 'No target', volley + ' / ' + Ui.lastToast);
+  const long = TestArena.count('weapon.nolock', () => { TestArena.hold(shooter, BTN.ALT, CAT.weapons.byId('kingfisher').alt.lock.time + 0.3); Sim.step(); });
+  check('D-F04 W33 held long enough cues once, not again on release', long === 1, long);
+  TestArena.finish();
+});
+
 DebugApi.giveWeapon =(id, key) => Weapons.give(id, key, 0);
 DebugApi.weapons = Weapons;
 DebugApi.damage = Damage;

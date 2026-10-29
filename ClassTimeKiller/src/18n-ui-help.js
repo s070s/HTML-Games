@@ -23,8 +23,9 @@ const TIP_ACTIONS = [                    // per tip: the actions whose keys fill
   { text: 'Hold {0} for the scoreboard. {1} pings a place for your team.', soloText: 'Hold {0} for the scoreboard. {1} marks a place.', actions: ['scoreboard', 'ping'] },
 ];
 // The touch and pad tips name the sides of the touch preset in use and the pad's own glyphs (a PlayStation pad says Cross, not A).
-const TIP_TOUCH_TEXT = '{touch}. The buttons on the {buttons} fire, jump and reload.';
-const TIP_PAD = { text: 'Left stick moves, right stick looks. {0} fires, {1} aims, {2} jumps.', actions: ['fire', 'alt', 'jump'] };
+const TIP_TOUCH_TEXT = '{touch}. The buttons on the {buttons} fire, jump and reload.{sprint}';
+const TIP_TOUCH_SPRINT = { double: ' Push the stick to its edge twice to sprint.', instant: ' Push the stick to its edge to sprint.', off: '' };   // by the setting controls.touch.sprint
+const TIP_PAD = { text: 'Left stick moves, right stick looks. {0} fires, {1} is Alt (aim or alternate fire), {2} jumps.', actions: ['fire', 'alt', 'jump'] };
 
 const FRIENDLY_FIRE_TEXT = ['Friendly fire is off.', 'Friendly fire is on.'];
 const ECONOMY_LINES = [   // [applies, text] per economy preset field; money amounts come from the row
@@ -179,7 +180,7 @@ const Tips = {
   },
   touchText() {
     const sides = touchSidesText();
-    return TIP_TOUCH_TEXT.replace('{touch}', sides[0].toUpperCase() + sides.slice(1)).replace('{buttons}', TouchInput.preset().mirror ? 'left' : 'right');
+    return TIP_TOUCH_TEXT.replace('{touch}', sides[0].toUpperCase() + sides.slice(1)).replace('{buttons}', TouchInput.preset().mirror ? 'left' : 'right').replace('{sprint}', TIP_TOUCH_SPRINT[Input.config.touchSprint] || '');
   },
   matchesSeen() { return Save.data && Save.data.tips ? Save.data.tips.matches : 0; },
   // Called at match start: one tip per match for the first TIPS_MATCHES matches. Returns the text shown ('' = none).

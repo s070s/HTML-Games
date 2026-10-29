@@ -11,8 +11,13 @@ Data.define('maps', {
 }, Maps.rows);
 
 // The match record gets its map row as soon as the setup is announced, so every match.load / match.start listener can read Game.match.map.
-// setup.map is a catalogue id / code, or a map object (generated or custom). An unknown id leaves match.map null: the mode layer decides.
+// setup.map is a catalogue id / code, or a map object (generated or custom). An unknown id leaves match.map null: the mode layer
+// decides, except for a mode that cannot run without a map (behaviour.needsMap, M28 Silent Contract): it gets its first map (A-02).
 Bus.on('match.setup', (match) => {
   const requested = match.setup.map;
   match.map = requested && typeof requested === 'object' ? requested : Maps.get(requested);
+  const behaviour = Modes.behaviours.get(match.setup.mode);
+  if (match.map || !behaviour || !behaviour.needsMap) return;
+  match.map = Maps.forMode(match.setup.mode)[0] || null;
+  if (requested && match.map) emitToast('Map "' + requested + '" was not found: playing ' + match.map.name);   // a typo or a deleted map is not silent
 });

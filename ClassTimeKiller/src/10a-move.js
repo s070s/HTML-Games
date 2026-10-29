@@ -58,6 +58,7 @@ const Move = {
   presetOverride: new Array(MAX_ACTORS).fill(null),   // per-actor preset rows (hero kits); null = the match preset
   weaponSpeedScale: new Float32Array(MAX_ACTORS).fill(1), // written by S11: weapon moveMult x adsMoveMult (MOV-021)
   weaponReadyTime: new Float32Array(MAX_ACTORS),          // written by S11: the held weapon's readyTime, added to sprintToFire (MOV-021)
+  firePending: new Uint8Array(MAX_ACTORS),                // written by S11: 1 while a trigger pressed in the sprint-to-fire wait is unanswered (sprint does not resume yet)
   statusSpeedScale: new Float32Array(MAX_ACTORS).fill(1), // written by S12 (Buffs only): slows and hastes
   gravityScale: new Float32Array(MAX_ACTORS).fill(1),     // per-actor gravity factor on top of the ruleset's (S12 Buffs: A11 glide)
   staminaScale: new Float32Array(MAX_ACTORS).fill(1),     // sprint stamina lasts this many times longer (S13: Marathon perk)
@@ -87,6 +88,8 @@ const Move = {
     if (getClock(id, CLOCK.FIRE_DELAY) > 0 || Motion.sprinting[id] || Motion.board[id]) return false;
     return Motion.state[id] !== MOVE_STATE.MANTLE && Motion.state[id] !== MOVE_STATE.CHARGE;
   },
+  // Seconds left of the sprint-to-fire wait (MOV-021); 0 when none runs. S11 keeps a trigger pressed during it (D-F02).
+  fireWait(id) { return getClock(id, CLOCK.FIRE_DELAY); },
   damageScale(id) { return getClock(id, CLOCK.ROLL) > 0 ? this.preset(id).rollDamageScale : 1; },
   stamina: Motion.stamina,  // seconds of sprint left per actor (read-only)
   staminaFraction(id) { const full = this.preset(id).sprintStamina; return full > 0 ? Motion.stamina[id] / full : 1; },
@@ -444,7 +447,7 @@ function crouchJumpLift(id, preset) {
 // ---- Sprint, stamina, tactical sprint (MOV-021, MV03) ----
 function updateSprint(id, preset, dt) {
   const wasSprinting = Motion.sprinting[id] === 1;
-  const held = (Actors.buttons[id] & BTN.SPRINT) !== 0, shooting = (Actors.buttons[id] & (BTN.FIRE | BTN.ALT)) !== 0;
+  const held = (Actors.buttons[id] & BTN.SPRINT) !== 0, shooting = (Actors.buttons[id] & (BTN.FIRE | BTN.ALT)) !== 0 || Move.firePending[id] === 1;
   const canStart = Motion.grounded[id] || wasSprinting;
   const hasStamina = preset.sprintStamina <= 0 || Motion.stamina[id] > 0;
   const sprinting = preset.sprintSpeed > 0 && held && !shooting && canStart && hasStamina && Motion.inputZ[id] >= SPRINT_INPUT

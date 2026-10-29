@@ -207,6 +207,7 @@ const SOUND_EVENTS = [
   { event: 'weapon.reload', recipe: 'reload', source: 'id', pos: 'actor' },
   { event: 'weapon.switch', recipe: 'switch', source: 'id', pos: 'actor' },
   { event: 'weapon.empty', recipe: 'empty', source: 'id', pos: 'actor' },
+  { event: 'weapon.nolock', recipe: 'empty', source: 'id', pos: 'actor' },
   { event: 'impact', lookup: [['material', 'material']], source: 'owner', pos: 'payload' },
   { event: 'explosion', lookup: [['element', 'element']], source: 'owner', pos: 'payload', gainScale: { field: 'radius', from: 2, to: 10, min: 0.7, max: 1.3 }, pitchScale: { field: 'radius', from: 2, to: 12, min: 1.25, max: 0.7 } },
   { event: 'move.step', lookup: [['surface', 'surface']], source: 'id', pos: 'actor', when: 'audible', ownGain: 0.45, gainScale: { field: 'speed', from: 0, to: 8, min: 0.45, max: 1 } },

@@ -123,9 +123,11 @@ const PVE_HOME = [{ x: 0, y: 0, z: 0, yaw: 0, team: 0 }, { x: 2, y: 0, z: 0, yaw
 
 // Starts a PvE mode on the open test floor with dummies (teams), immortal and unprotected.
 function startPveMode(mode, teams, extra, setup) {
-  World.load(pveTestMap(Object.assign({ spawns: PVE_HOME.concat(PVE_ENEMY_GATES) }, extra)));
+  const map = pveTestMap(Object.assign({ spawns: PVE_HOME.concat(PVE_ENEMY_GATES) }, extra));
+  World.load(map);
   const bots = teams.map((team) => ({ dummy: true, team }));
-  Game.start(Object.assign({ mode, seed: 1, bots, difficulty: 'regular' }, setup));
+  const ownMap = Modes.behaviours.get(mode).needsMap ? { map } : {};   // a mode that needs a map would otherwise fall back to its catalogue map (A-02)
+  Game.start(Object.assign({ mode, seed: 1, bots, difficulty: 'regular' }, ownMap, setup));
   const ids = [];
   for (let id = 0; id < Actors.count; id++) if (Modes.participant[id]) { ids.push(id); Modes.endProtection(id); }
   return ids;
@@ -414,6 +416,39 @@ Test.add('pve', (check) => {
   killAllEnemies(blue, (id) => Pve.side[id] === 1);
   runSeconds(0.1);
   check('the score limit wins', !Modes.active && Game.match.results.winnerTeam === 0);
+  endModeTest();
+});
+
+// A-03: Attrition's bonus for a minion kill is a team score with the 'kill' reason, like every other kill score.
+Test.add('pve', (check) => {
+  const [blue] = startPveMode('attrition', [0, 1], { spawns: PVE_HOME.concat([{ x: 40, y: 0, z: 40, team: 1 }]) });
+  runSeconds(1);
+  const scores = [], handler = Bus.on('score', (event) => { if (event.id < 0) scores.push({ points: event.points, reason: event.reason }); });
+  let fodder = -1;
+  for (let id = 0; id < Actors.count; id++) if (Pve.isEnemy(id) && Pve.side[id] === 1 && !Pve.rowOf(id).heavy && Actors.alive[id]) fodder = id;
+  killAllEnemies(blue, (id) => id === fodder);
+  Bus.off('score', handler);
+  const difference = Modes.rules.params.fodderPoints - Modes.rules.scoring.kill;
+  check('attrition: the minion bonus team score carries the kill reason', scores.some((score) => score.points === difference && score.reason === 'kill'), JSON.stringify(scores));
+  endModeTest();
+});
+
+// A-02: a Silent Contract started with no (or an unknown) map falls back to the mode's first map instead of putting the relic
+// and the exit on the same spot, which won on the first tick.
+Test.add('pve', (check) => {
+  const contractMaps = Maps.forMode('contract');
+  Game.start({ mode: 'contract', seed: 7, player: {}, bots: [] });
+  const map = Game.match.map;
+  check('contract: no map in the setup picks the first contract map', contractMaps.length > 0 && map === contractMaps[0], map && map.id);
+  Sim.run(TICK_RATE);
+  check('contract: the match is not won on the first tick (relic and exit apart)', !Game.match.ended && ContractRun.relic && ContractRun.extract
+    && length2(ContractRun.relic.x - ContractRun.extract.x, ContractRun.relic.z - ContractRun.extract.z) > ContractRun.extract.radius);
+  endModeTest();
+  Game.start({ mode: 'contract', map: 'no-such-map', seed: 7, player: {}, bots: [] });
+  check('contract: an unknown map id falls back too, and says so', Game.match.map === contractMaps[0] && Ui.lastToast.includes('no-such-map'), Ui.lastToast);
+  endModeTest();
+  Game.start({ mode: 'ffa', map: 'no-such-map', seed: 7, player: {}, bots: [] });
+  check('other modes keep a null map for an unknown id', Game.match.map === null);
   endModeTest();
 });
 

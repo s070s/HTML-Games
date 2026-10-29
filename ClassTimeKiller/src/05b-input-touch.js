@@ -1,5 +1,5 @@
 // ==== S05 INPUT: TOUCH (INP-004, INP-005, INP-006) ====
-// DOM overlay: floating left stick (push > 90% sprints), look drag on the rest of the screen, one round button per control row.
+// DOM overlay: floating left stick (two pushes to its edge within 0.4 s sprint, setting controls.touch.sprint), look drag on the rest of the screen, one round button per control row.
 // Every finger is tracked by pointer id in a fixed slot pool, so any number of simultaneous touches stay separate.
 // Layouts live in Save.data.touchLayouts[presetId][controlId] = { x, y, scale, opacity, hidden } (only changed keys are stored).
 
@@ -7,8 +7,11 @@ const TOUCH_SLOT_COUNT = 10;
 const TOUCH_NO_LAYOUT = Object.freeze({});   // a control the player never moved: read per frame while the comm wheel is open, so no new {}
 const TOUCH_STICK_RADIUS = 56;          // css px of finger travel for a full push, at control scale 1
 const TOUCH_STICK_DEADZONE = 0.12;
-const TOUCH_SPRINT_ON = 0.9;            // INP-004
+const TOUCH_SPRINT_ON = 0.9;            // INP-004: a push this far counts as reaching the stick's edge
 const TOUCH_SPRINT_OFF = 0.8;           // hysteresis so the sprint does not flicker at the edge
+const TOUCH_SPRINT_REARM = 0.6;         // P2-05: the push must fall under this before the next edge push counts again
+const TOUCH_DOUBLE_PUSH_ANGLE = 45 * DEG;   // P2-05: ...and in about the same direction (a strafe jiggle through the centre is not a double push)
+const TOUCH_DOUBLE_PUSH_MS = 400;       // P2-05: two edge pushes this close together start the sprint (one push held at the edge only walks)
 const TOUCH_MOVE_ZONE = 0.42;           // a touch starting left of this share of the screen width begins the stick
 const TOUCH_RADIANS_PER_PIXEL = 0.003;  // look at sensitivity 1.0
 const TOUCH_ACCEL_SPEED = 2;            // px per ms that earns the full acceleration gain
@@ -62,7 +65,7 @@ const TOUCH_PRESETS = [
 const TOUCH_CONTROLS = [
   { id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.56, size: 120 },
   { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
-  { id: 'aim', label: 'Aim', face: 'AIM', action: 'alt', x: 0.80, y: 0.40, size: 60 },
+  { id: 'aim', label: 'Alt', face: 'ALT', action: 'alt', x: 0.80, y: 0.40, size: 60 },
   { id: 'jump', label: 'Jump', face: 'JUMP', action: 'jump', x: 0.82, y: 0.82, size: 64, mirrorAt: [0.20, 0.72] },
   { id: 'crouch', label: 'Crouch (swipe: lie prone or get up)', face: 'DUCK', action: 'crouch', swipeAction: 'prone', swipeNow: true, x: 0.70, y: 0.88, size: 50 },
   { id: 'reload', label: 'Reload', face: 'LOAD', action: 'reload', x: 0.94, y: 0.34, size: 50 },
@@ -88,7 +91,9 @@ const TOUCH_SETTINGS = [
   { key: 'controls.touch.tapToFire', field: 'touchTapFire', fallback: false, label: 'Tap the look area to fire' },
   { key: 'controls.touch.leftFire', field: 'touchLeftFire', fallback: false, label: 'Second fire button on the left' },
   { key: 'controls.touch.aimAssist', field: 'touchAimAssist', fallback: 70, label: 'Touch aim assist', min: 0, max: 100, step: 5 },
-  { key: TOUCH_GYRO_KEY, field: 'touchGyro', fallback: 'off', label: 'Gyro aim', options: ['off', 'aiming', 'always'], optionLabels: ['Off', 'While aiming', 'Always'] },
+  { key: 'controls.touch.sprint', field: 'touchSprint', fallback: 'double', label: 'Touch sprint', options: ['double', 'instant', 'off'],
+    optionLabels: ['Push the stick to its edge twice', 'One push to the edge', 'Never from the stick'] },
+  { key: TOUCH_GYRO_KEY, field: 'touchGyro', fallback: 'off', label: 'Gyro aim', options: ['off', 'aiming', 'always'], optionLabels: ['Off', 'While Alt is held', 'Always'] },
   { key: 'controls.touch.gyroSensitivity', field: 'touchGyroSens', fallback: 1, label: 'Gyro sensitivity', min: 0.2, max: 3, step: 0.05 },
   { key: 'controls.touch.layout', field: 'touchLayout', fallback: 'standard', label: 'Touch layout preset', options: TOUCH_PRESETS.map((preset) => preset.id), optionLabels: TOUCH_PRESETS.map((preset) => preset.label) },
   { key: 'controls.touch.show', field: 'touchShow', fallback: 'auto', label: 'Touch controls', options: ['auto', 'on', 'off'], optionLabels: ['When touching', 'Always', 'Never'] },
@@ -121,7 +126,7 @@ const TouchInput = {
   controlById: {},
   slots: [],                       // fixed pool of finger records
   activeCount: 0, gestureStart: 0, gestureFired: false,
-  stick: { slot: null, originX: 0, originY: 0, x: 0, y: 0, sprinting: false },
+  stick: { slot: null, originX: 0, originY: 0, x: 0, y: 0, sprinting: false, armed: true, lastEdgePushMs: -1e9, lastEdgeAngle: 0 },
   editing: false, selected: null, onSelect: null,
   flags: {},                       // match flags read by the TOUCH_CONTROLS 'need' rows that have no needs fn (setFlag)
   shown: false,
@@ -322,16 +327,33 @@ const TouchInput = {
     stick.x = dx / length * scaled;
     stick.y = dy / length * scaled;
     this.knob.style.transform = 'translate(' + (dx / length * Math.min(length, radius)) + 'px,' + (dy / length * Math.min(length, radius)) + 'px)';
-    this.updateSprint(push);
+    this.updateSprint(push, event.timeStamp, Math.atan2(dx, -dy));
   },
-  updateSprint(push) {
-    const stick = this.stick, index = Input.actionIndex.sprint;
-    if (!stick.sprinting && push > TOUCH_SPRINT_ON && (!this.stickSprints || this.stickSprints())) { stick.sprinting = true; Input.holdAction(index, true); }
-    else if (stick.sprinting && push < TOUCH_SPRINT_OFF) { stick.sprinting = false; Input.holdAction(index, false); }
+  // The stick's sprint (P2-05), by the setting controls.touch.sprint: 'double' (default) = two pushes to the edge within
+  // TOUCH_DOUBLE_PUSH_MS (a lift in between counts), so walking at full push never sprints; 'instant' = one push past TOUCH_SPRINT_ON
+  // (the old rule); 'off' = never. A sprint ends when the push falls under TOUCH_SPRINT_OFF or the finger lifts. nowMs: the event clock.
+  updateSprint(push, nowMs, angle = 0) {
+    const stick = this.stick, mode = Input.config.touchSprint;
+    if (stick.sprinting) {
+      if (push < TOUCH_SPRINT_OFF || mode === 'off') this.setStickSprint(false);
+      return;
+    }
+    if (push < TOUCH_SPRINT_REARM) stick.armed = true;
+    if (push < TOUCH_SPRINT_ON || mode === 'off' || (this.stickSprints && !this.stickSprints())) return;
+    if (mode === 'instant') { this.setStickSprint(true); return; }
+    if (!stick.armed) return;
+    stick.armed = false;
+    const doubled = nowMs - stick.lastEdgePushMs <= TOUCH_DOUBLE_PUSH_MS && Math.abs(wrapAngle(angle - stick.lastEdgeAngle)) <= TOUCH_DOUBLE_PUSH_ANGLE;
+    stick.lastEdgePushMs = nowMs; stick.lastEdgeAngle = angle;
+    if (doubled) this.setStickSprint(true);
+  },
+  setStickSprint(on) {
+    this.stick.sprinting = on;
+    Input.holdAction(Input.actionIndex.sprint, on);
   },
   endStick() {
     const stick = this.stick;
-    this.updateSprint(0);
+    this.updateSprint(0, performance.now());
     stick.slot = null; stick.x = stick.y = 0;
     this.live.classList.remove('show');
     this.knob.style.transform = '';
@@ -417,7 +439,7 @@ const TouchInput = {
   reset() {
     for (const slot of this.slots) { slot.pointerId = -1; slot.role = ROLE_NONE; slot.control = null; }
     this.activeCount = 0;
-    this.stick.slot = null; this.stick.x = this.stick.y = 0; this.stick.sprinting = false;
+    this.stick.slot = null; this.stick.x = this.stick.y = 0; this.stick.sprinting = false; this.stick.armed = true;
     if (!this.layer) return;
     this.live.classList.remove('show');
     for (const element of Object.values(this.elements)) element.classList.remove('down');

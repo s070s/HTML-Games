@@ -661,6 +661,25 @@ Test.add('hud', (check) => hudTestWith(() => {
     HudPings.reply.includes('Dibs') && answered >= 0 && HudPings.source[answered] === scene.mate && HudPings.kind[answered] === 'go');
 }));
 
+// D-F04: the lock-on cue draws a ring on a tracked enemy (arc while locking, ring and diamond when locked), only with a lock-on weapon in hand.
+Test.add('hud', (check) => hudTestWith(() => {
+  const scene = hudTestMatch(), id = scene.id, slot = id * MAX_LOCKS;
+  hudTestArm(id, 'sparklock');
+  hudTestFrame();
+  check('lock-on cue: nothing draws while no enemy is tracked', hudTestDrawer('world', 'lockOn').quads === 0);
+  Weapons.lockIds[slot] = scene.enemy; Weapons.lockTime[slot] = 0.1;
+  hudTestFrame();
+  const locking = hudTestDrawer('world', 'lockOn').quads;
+  Weapons.lockTime[slot] = CAT.weapons.byId('sparklock').primary.lock.time;
+  hudTestFrame();
+  const locked = hudTestDrawer('world', 'lockOn').quads;
+  check('lock-on cue: a lock in progress draws an arc, a full lock adds the diamond', locking > 0 && locked > locking, locking + ' / ' + locked);
+  hudTestArm(id, 'warden');
+  hudTestFrame();
+  check('lock-on cue: a weapon without a lock-on mode draws none', hudTestDrawer('world', 'lockOn').quads === 0);
+  Weapons.lockIds[slot] = -1;
+}));
+
 Test.add('hud', (check) => hudTestWith(() => {
   const scene = hudTestMatch(), id = scene.id, layout = Hud.layout;
   Killcam.enabled = false;

@@ -57,6 +57,7 @@ Payload fields as in `docs/ARCHITECTURE.md`. "Own" = the actor is `Game.playerId
 |---|---|
 | `weapon.fire` | `mode: 'melee'` (quick melee) plays the `melee` swing; else recipe by `weapon` override, else `weaponClass` (see classes below); `mode: 'alt'` plays 15% lower |
 | `weapon.reload` `weapon.switch` `weapon.empty` | `reload` `switch` `empty` at the actor |
+| `weapon.nolock` | `empty` (the dry click) at the actor: a lock-on trigger with no target (D-F04) |
 | `impact` | `impact.<material>` at the point |
 | `explosion` | `explosion` / `explosionFire` / `explosionFrost` / `explosionShock` by `element`; level and pitch by `radius` |
 | `move.step` | `step.<surface>` at the actor, level by `speed`, own steps 45% |

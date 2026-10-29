@@ -55,7 +55,7 @@ const ACTION_ROWS = [
   { id: 'walk', label: 'Walk', group: 'Movement', button: BTN.WALK, toggle: true, kbm: ['Key:AltLeft'], pad: 'Pad:8+1' },
   { id: 'prone', label: 'Prone', group: 'Movement', button: BTN.PRONE, toggle: true, kbm: ['Key:KeyP'], pad: 'Pad:8+10' },
   { id: 'fire', label: 'Fire', group: 'Combat', button: BTN.FIRE, buffered: true, toggle: true, kbm: ['Mouse:0'], pad: 'Pad:7' },
-  { id: 'alt', label: 'Aim / alt fire', group: 'Combat', button: BTN.ALT, toggle: true, kbm: ['Mouse:2'], pad: 'Pad:6' },
+  { id: 'alt', label: 'Alt', group: 'Combat', button: BTN.ALT, toggle: true, kbm: ['Mouse:2'], pad: 'Pad:6' },
   { id: 'reload', label: 'Reload', group: 'Combat', button: BTN.RELOAD, kbm: ['Key:KeyR'], pad: 'Pad:2' },
   { id: 'use', label: 'Use / interact', group: 'Combat', button: BTN.USE, toggle: true, kbm: ['Key:KeyE'], pad: 'Pad:13' },
   { id: 'melee', label: 'Melee', group: 'Combat', button: BTN.MELEE, kbm: ['Key:KeyV'], pad: 'Pad:11' },

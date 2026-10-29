@@ -111,6 +111,7 @@ const Items = {
   x: new Float32Array(PICKUP_CAP), y: new Float32Array(PICKUP_CAP), z: new Float32Array(PICKUP_CAP),
   spot: new Uint8Array(PICKUP_CAP),                 // 1 = a map spot (respawns), 0 = a dropped pickup (vanishes)
   readyTick: new Int32Array(PICKUP_CAP),            // WAITING: Sim.tick it becomes READY
+  waitTicks: new Int32Array(PICKUP_CAP),            // WAITING: length of this wait in ticks (the pad's respawn fill)
   despawnTick: new Int32Array(PICKUP_CAP),          // dropped pickups: Sim.tick they vanish
   timeLeft: new Int32Array(PICKUP_CAP),             // dropped powerups: ticks of effect left (0 = the full duration)
   warned: new Uint8Array(PICKUP_CAP),               // PWR-002: the 10 s warning of this wait was announced
@@ -211,7 +212,13 @@ const Items = {
   wait(slot, ticks) {
     this.state[slot] = PICKUP_STATE.WAITING;
     this.readyTick[slot] = Sim.tick + ticks;
+    this.waitTicks[slot] = ticks;
     this.warned[slot] = 0;
+  },
+  // 0..1 share of the current wait that has passed (the pad's respawn fill); 0 for a spot that is not waiting.
+  waitShare(slot) {
+    if (this.state[slot] !== PICKUP_STATE.WAITING || this.waitTicks[slot] <= 0) return 0;
+    return clamp(1 - (this.readyTick[slot] - Sim.tick) / this.waitTicks[slot], 0, 1);
   },
   // Respawn time of a spot in ticks (PWR-001, WPN-009) x rules.itemRespawnScale / the difficulty's resourceYield (DIF-002).
   respawnTicks(slot) {
@@ -305,7 +312,7 @@ const Items = {
   },
   stepWaiting(slot) {
     const row = this.rowOf(slot);
-    if (this.uniqueWaits(slot, row)) { this.readyTick[slot] = Sim.tick + this.respawnTicks(slot); return; }
+    if (this.uniqueWaits(slot, row)) { this.waitTicks[slot] = this.respawnTicks(slot); this.readyTick[slot] = Sim.tick + this.waitTicks[slot]; return; }
     const warningDue = this.readyTick[slot] - Sim.tick <= itemTicks(ITEM_TIMING.powerWarning);
     if (this.isPower(slot) && !this.warned[slot] && warningDue) this.warnPower(slot);
     if (Sim.tick < this.readyTick[slot]) return;
@@ -576,7 +583,7 @@ const Items = {
   // Fills out (array of { id, name, remaining, duration, color }) with the actor's active powerups; returns the count (12b).
   activePowerups(id, out) { out.length = 0; return 0; },
 
-  // ---- Render source: spinning procedural shapes in group colours; empty spots show a faint base ----
+  // ---- Render source: spinning procedural shapes in group colours; a picked spot shows an empty dark pad that fills as the item comes back ----
   // Shapes go through one reused instance record (batch.meshFrom): 13 float arguments per batch.mesh call are boxed (PERF-006).
   draw(batch) {
     pickupAmmoModel = ammoModelFor(Game.playerId);
@@ -586,8 +593,24 @@ const Items = {
     for (let slot = 0; slot < this.usedEnd; slot++) {
       const state = this.state[slot];
       if (state === PICKUP_STATE.READY) this.drawPickup(batch, slot, bob);
-      else if (state === PICKUP_STATE.WAITING) this.drawBase(batch, slot, PICKUP_GLOW_WAITING);
+      else if (state === PICKUP_STATE.WAITING) this.drawEmptyPad(batch, slot);
     }
+  },
+  // P2-02: after a pickup the pad shows nothing of the item: a dark disc, and a brighter disc growing from its centre to the pad's edge
+  // as the respawn time passes (a unique powerup that waits for its holder stays empty).
+  drawEmptyPad(batch, slot) {
+    this.drawBase(batch, slot, PICKUP_GLOW_EMPTY);
+    const share = this.waitShare(slot);
+    if (share >= PICKUP_FILL_MIN) this.drawFill(batch, slot, share);
+  },
+  drawFill(batch, slot, share) {
+    const instance = pickupBaseInstance;
+    instance.x = this.x[slot]; instance.y = this.y[slot] + PICKUP_FILL_LIFT; instance.z = this.z[slot];
+    instance.sx = share; instance.sz = share;
+    pickupHexColor(pickupBaseColor, 0, PICKUP_GROUP_COLORS[this.group[slot]]);
+    instance.r = pickupBaseColor[0]; instance.g = pickupBaseColor[1]; instance.b = pickupBaseColor[2]; instance.emissive = PICKUP_GLOW_FILL;
+    batch.meshFrom('cylinder', instance);
+    instance.sx = 1; instance.sz = 1;
   },
   drawPickup(batch, slot, bob) {
     const kind = this.kind[slot], index = this.row[slot], row = this.rowOf(slot), rgb = PICKUP_RGB[kind], offset = index * 3;
@@ -626,7 +649,9 @@ function ammoModelFor(id) {
 }
 let pickupAmmoModel = null;
 const pickupPose = makeModelPose();
-const PICKUP_GLOW_WAITING = 0.25, PICKUP_GLOW_BASE = 0.5, PICKUP_GLOW_POWER_BASE = 0.9;   // base disc glow: respawning, item, powerup
+const PICKUP_GLOW_EMPTY = 0.06, PICKUP_GLOW_FILL = 0.55, PICKUP_GLOW_BASE = 0.5, PICKUP_GLOW_POWER_BASE = 0.9;   // pad disc glow: empty, respawn fill, item, powerup
+const PICKUP_FILL_LIFT = 0.04;   // the fill disc sits just above the base disc (no z-fighting)
+const PICKUP_FILL_MIN = 0.02;    // a fill under this share of the pad is too small to see: not drawn
 const volatileHit = makeHit();
 
 Items.takers[PICKUP_KIND.ITEM] = (id, slot) => Items.takeItem(id, slot);

@@ -559,7 +559,7 @@ Modes.register('attrition', {
     const participant = Modes.participant[killer] === 1;
     const extra = attritionPoints(victim) - (participant ? Modes.rules.scoring.kill : 0);
     if (extra === 0) return;
-    Modes.awardTeam(killerTeam, extra);
+    Modes.awardTeam(killerTeam, extra, 'kill');
     if (participant) Modes.awardPlayer(killer, extra, 'kill');
   },
 });
@@ -572,6 +572,7 @@ function attritionPoints(victim) {
 // ---- M28 Silent Contract: stealth guards (BOT-005 meters), take the relic, leave by the extract ----
 const ContractRun = { relic: null, extract: null, holder: -1, alarms: 0, kills: 0, startedAt: 0, result: NOT_OVER };
 Modes.register('contract', {
+  needsMap: true,   // the relic and the exit need a real map: a setup without a valid one gets the mode's first map (16f)
   start() {
     pveStart({ stealth: Modes.rules.params.stealth, lives: true });
     Object.assign(ContractRun, { relic: null, extract: null, holder: -1, alarms: 0, kills: 0, startedAt: Sim.time, result: NOT_OVER });

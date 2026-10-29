@@ -189,6 +189,30 @@ function hudDrawCrosshair(pen, layout, seconds) {
   hudDrawCrosshairShape(pen, layout, cross, HudCombat.spread);
 }
 
+// D-F04 lock-on cue: a ring on each enemy a held lock-on trigger (W07 primary, W33 alt) is tracking. The arc fills while the lock
+// builds; a full red ring with a diamond means locked. Nothing draws while no enemy is in the cone (the weapon plays 'No target').
+const HUD_LOCK_RADIUS = 20, HUD_LOCK_THICKNESS = 3, HUD_LOCK_BODY_SHARE = 0.6;
+function hudDrawLockOn(pen, layout) {
+  const id = Game.playerId;
+  if (!hudLocalAlive()) return;
+  const weapon = Weapons.currentWeapon(id);
+  if (!weapon) return;
+  const mode = weapon.primary.type === 'lock' ? weapon.primary : weapon.alt.type === 'lock' ? weapon.alt : null;
+  if (!mode) return;
+  const unit = layout.unit, ring = hudRingAt, shape = hudShapeAt;
+  for (let k = 0; k < MAX_LOCKS; k++) {
+    const slot = id * MAX_LOCKS + k, target = Weapons.lockIds[slot];
+    if (target < 0 || !Actors.alive[target] || !Hud.project(Actors.x[target], Actors.y[target] + Actors.height[target] * HUD_LOCK_BODY_SHARE, Actors.z[target])) continue;
+    const share = Math.min(1, Weapons.lockTime[slot] / mode.lock.time);
+    ring[0] = hudProjection.x; ring[1] = hudProjection.y; ring[2] = HUD_LOCK_RADIUS * unit; ring[3] = HUD_LOCK_THICKNESS * unit;
+    ring[4] = -Math.PI / 2; ring[5] = ring[4] + Math.PI * 2 * share;
+    pen.ringAt(share >= 1 ? Hud.colors.bad : HUD_COLOR.warn, 0.95);
+    if (share < 1) continue;
+    shape[0] = hudProjection.x; shape[1] = hudProjection.y; shape[2] = 5 * unit;
+    pen.shapeAt('diamond', Hud.colors.bad, 0.95);
+  }
+}
+
 // Scope overlay: everything outside a circle goes dark (one thick ring), thin lines through the centre.
 function hudDrawScope(pen, layout) {
   const id = Game.playerId;
@@ -315,4 +339,5 @@ Hud.register('back', 'vignette', 'vignette', hudDrawVignette);
 Hud.register('back', 'damageArcs', 'damageArcs', hudDrawDamageArcs);
 Hud.register('world', 'damageNumbers', 'damageNumbers', hudDrawDamageNumbers);
 Hud.register('main', 'crosshair', 'crosshair', hudDrawCrosshair);
+Hud.register('world', 'lockOn', 'crosshair', hudDrawLockOn);
 Hud.register('main', 'hitMarkers', 'hitMarkers', hudDrawHitMarkers);

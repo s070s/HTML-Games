@@ -581,6 +581,7 @@ const MapEditor = {
   },
   store(entry, index) {
     const list = this.saved(), previous = index >= 0 ? list[index] : null;
+    if (Save.keepStored) { this.refuse(SAVE_FROM_NEWER_GAME); return false; }   // the stored save is from a newer game and is not written (A-04)
     if (previous) list[index] = entry; else list.push(entry);
     if (!Save.saveNow()) {
       if (previous) list[index] = previous; else list.pop();
@@ -605,6 +606,7 @@ const MapEditor = {
   deleteSaved(id) {
     const index = this.savedIndex(id);
     if (index < 0) return false;
+    if (Save.keepStored) { this.refuse(SAVE_FROM_NEWER_GAME); return false; }
     this.saved().splice(index, 1);
     Save.saveNow();
     if (this.slotId === id) { this.slotId = ''; this.dirty = true; }
@@ -615,6 +617,7 @@ const MapEditor = {
   renameSaved(id, name) {
     const index = this.savedIndex(id), clean = mapEditNameOf(name);
     if (index < 0 || !clean) return false;
+    if (Save.keepStored) { this.refuse(SAVE_FROM_NEWER_GAME); return false; }
     this.saved()[index].name = clean;
     this.saved()[index].data.name = clean;
     Save.saveNow();

@@ -20,7 +20,10 @@ import { openChrome, sleep } from './cdp.mjs';
 function checkArguments() {
   if (args.includes('--help')) { console.log(USAGE); process.exit(0); }
   for (let i = 0; i < args.length; i++) {
-    if (VALUE_OPTIONS.includes(args[i])) { i++; continue; }
+    if (VALUE_OPTIONS.includes(args[i])) {
+      if (i + 1 >= args.length || args[i + 1].startsWith('--')) { console.error('perf: ' + args[i] + ' needs a value'); process.exit(3); }
+      i++; continue;
+    }
     if (FLAG_OPTIONS.includes(args[i])) continue;
     console.error('perf: unknown option ' + args[i]);
     console.error(USAGE);
@@ -30,17 +33,17 @@ function checkArguments() {
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
-const VALUE_OPTIONS = ['--scenes', '--presets', '--throttle', '--seconds', '--warmup', '--boot-runs', '--json', '--file', '--timeout', '--soak'];
+const VALUE_OPTIONS = ['--scenes', '--presets', '--throttle', '--seconds', '--warmup', '--boot-runs', '--json', '--file', '--timeout', '--soak', '--view'];
 const FLAG_OPTIONS = ['--no-boot', '--no-scenes', '--alloc', '--retained', '--promoted', '--profile', '--reaction', '--bench'];
 const USAGE = [
   'Usage: node tools/perf.mjs [--scenes tdm,horde,royale,generated,editor] [--presets potato,low,medium] [--throttle 4,6]',
   '       [--seconds 10] [--warmup 3] [--boot-runs 3] [--no-boot] [--no-scenes] [--alloc | --retained | --promoted] [--profile] [--reaction] [--bench]',
-  '       [--soak <minutes>] [--json <file>] [--file <html>] [--timeout 1800]   (docs/PERFORMANCE.md)',
+  '       [--soak <minutes>] [--json <file>] [--file <html>] [--timeout 1800] [--view WxHxDPR, e.g. 640x360x2]   (docs/PERFORMANCE.md)',
 ].join('\n');
 checkArguments();
 const option = (name, fallback) => { const i = args.indexOf(name); return i >= 0 ? args[i + 1] : fallback; };
 const list = (name, fallback) => option(name, fallback).split(',').map((value) => value.trim()).filter(Boolean);
-const file = resolve(option('--file', join(ROOT, 'ClassTimeKiller.test.html'))   // the scenes (__CTK.perf.scene ...) live in the test build);
+const file = resolve(option('--file', join(ROOT, 'ClassTimeKiller.test.html')));   // the scenes (__CTK.perf.scene ...) live in the test build
 const scenes = list('--scenes', 'tdm,horde,royale,generated,editor');
 const presets = list('--presets', 'potato,low,medium');
 const throttles = list('--throttle', '4,6').map(Number);
@@ -56,6 +59,7 @@ const timeoutSeconds = Number(option('--timeout', '1800'));
 const reactionRun = args.includes('--reaction');   // also check that dynamic resolution and the quality step-down react and recover
 const soakMinutes = Number(option('--soak', '0'));
 const benchRun = args.includes('--bench');
+const viewOption = option('--view', '');   // e.g. 640x360x2: width x height x device pixel ratio of a phone (default: the headless window)
 const BENCH_STEPS = 480, BENCH_ROUNDS = 4;   // rounds of 4 s game time: long enough that every round meets its share of throttle slices
 const SOAK_SAMPLE_MS = 60000;   // one heap sample (after a forced GC) per minute
 const REACTION_PHASES = [{ rate: 1, seconds: 6 }, { rate: 6, seconds: 14 }, { rate: 1, seconds: 12 }];   // fast, slow, fast again
@@ -292,9 +296,17 @@ async function measureSoak() {
   return samples;
 }
 
+// '640x360x2' -> a mobile device metrics override; a malformed value stops before the sweep starts.
+function parseView(text) {
+  const [width, height, deviceScaleFactor = 1] = text.split('x').map(Number);
+  if (!(width > 0 && height > 0 && deviceScaleFactor > 0)) { console.error('perf: --view needs WxHxDPR, e.g. 640x360x2'); process.exit(3); }
+  return { width, height, deviceScaleFactor, mobile: true };
+}
+
 async function main() {
   session = await openChrome({ flags: ['--enable-precise-memory-info'] });
-  const output = { file, date: new Date().toISOString(), seconds, warmupSeconds, boot: null, runs: [] };
+  if (viewOption) await session.send('Emulation.setDeviceMetricsOverride', parseView(viewOption));
+  const output = { file, view: viewOption, date: new Date().toISOString(), seconds, warmupSeconds, boot: null, runs: [] };
   if (!args.includes('--no-boot')) output.boot = await measureBoot();
   else await session.open(file);
   if (reactionRun) output.reaction = await measureReaction();

@@ -4,12 +4,14 @@
 
 const SAVE_KEY = 'ctk.save.v1';
 const BACKUP_KEY = 'ctk.save.bak';
+const SPARE_KEY = 'ctk.save.spare';     // an unreadable or newer-version record, when BACKUP_KEY already holds a readable save (A-04, A-05)
 const SAVE_VERSION = 1;
 const SAVE_MAX_BYTES = 1024 * 1024;
 const SAVE_DEBOUNCE_MS = 500;           // ARC-021
 const SAVE_TOO_BIG = 'Save is over 1 MB and was not written.';
 const SAVE_BLOCKED = 'Storage is blocked or full: settings and progress will not be kept.';
 const SAVE_NEWER_ELSEWHERE = 'Another tab saved: this tab now uses its save.';
+const SAVE_FROM_NEWER_GAME = 'Your save is from a newer version of the game. A copy was kept and the stored save will not be overwritten, so progress now is not kept.';
 // A record starts with version and revision: another tab's revision is read without parsing.
 const SAVE_REVISION_HEAD = /^\{"version":\d+,"revision":(\d+)[,}]/;
 
@@ -35,6 +37,10 @@ function saveLooksReal(loaded, fresh) {
   return Object.keys(fresh).some((field) => field !== 'version' && field !== 'revision' && !!loaded[field] && saveFieldFits(fresh[field], loaded[field])
     && Object.keys(loaded[field]).length > 0);
 }
+// True when the text parses to a JSON object (a readable save record, whatever its version).
+function saveParses(text) {
+  try { const value = JSON.parse(text); return !!value && typeof value === 'object' && !Array.isArray(value); } catch (error) { return false; }
+}
 // A stored record's revision (0: none, or unreadable).
 function saveRevisionOf(raw) {
   const head = SAVE_REVISION_HEAD.exec(raw || '');
@@ -49,6 +55,7 @@ const Save = {
   timer: 0,
   // An unwritten change: a flush writes only then (R-163)
   dirty: false,
+  keepStored: false,      // true while the stored save is from a newer game: saveNow writes nothing until an import replaces it (A-04)
   storage: null,          // replaced by a memory stub in headless tests
 
   emptySave() {
@@ -61,16 +68,34 @@ const Save = {
   load() {
     const raw = this.read(SAVE_KEY);
     this.dirty = false;
+    this.keepStored = false;
     if (raw === null) { this.data = this.emptySave(); return this.data; }
     try {
-      this.data = this.migrate(JSON.parse(raw));
+      const stored = JSON.parse(raw);
+      this.data = this.migrate(stored);
+      if (Number.isInteger(stored.version) && stored.version > SAVE_VERSION) this.keepNewerSave(raw);
     } catch (error) {
-      this.write(BACKUP_KEY, raw);
+      this.backUpRecord(raw);
       this.data = this.emptySave();
       this.notice = 'Your save could not be read. It was backed up and reset.';
       ErrorLog.add('save.load', error);
     }
     return this.data;
+  },
+  // A save written by a newer game is played on from a migrated copy but never overwritten: it is backed up, the player is told,
+  // and saveNow writes nothing (an import or a new game version replaces it) - downgrading it would lose what the newer game stored (A-04).
+  keepNewerSave(raw) {
+    this.backUpRecord(raw);
+    this.keepStored = true;
+    this.notice = SAVE_FROM_NEWER_GAME;
+  },
+  // Keeps a record the game cannot use as is. The backup slot takes it unless it already holds a readable save (an import's
+  // backup): that one stays, and the record goes to the spare slot instead, so no readable copy is ever lost (A-05).
+  // The same text already in either slot is not copied again (a kept newer save is met on every boot: up to 1 MB each time otherwise).
+  backUpRecord(raw) {
+    const kept = this.read(BACKUP_KEY);
+    if (kept === raw || this.read(SPARE_KEY) === raw) return;
+    this.write(kept !== null && saveParses(kept) ? SPARE_KEY : BACKUP_KEY, raw);
   },
   // Brings a save up to SAVE_VERSION: fills missing or wrong-kind fields ("settings": null, nested ones too), checks every setting (load and import).
   migrate(loaded) {
@@ -90,7 +115,8 @@ const Save = {
   // Writes at once; when another tab wrote a newer save, takes it instead of writing over it (R-001).
   saveNow() {
     clearTimeout(this.timer);
-    if (this.adoptNewer()) return this.fail(SAVE_NEWER_ELSEWHERE);
+    if (this.keepStored) return false;
+    if (this.adoptNewer()) return this.keepStored ? false : this.fail(SAVE_NEWER_ELSEWHERE);
     this.data.revision++;
     const text = JSON.stringify(this.data);
     const written = text.length > SAVE_MAX_BYTES ? this.fail(SAVE_TOO_BIG) : this.write(SAVE_KEY, text);
@@ -103,13 +129,16 @@ const Save = {
   adoptNewer() {
     const raw = this.read(SAVE_KEY);
     if (saveRevisionOf(raw) <= this.data.revision) return false;
+    let stored;
     try {
-      this.data = this.migrate(JSON.parse(raw));
+      stored = JSON.parse(raw);
+      this.data = this.migrate(stored);
     } catch (error) {
       // Unreadable: this tab's save stays.
       return false;
     }
     this.dirty = false;
+    if (Number.isInteger(stored.version) && stored.version > SAVE_VERSION) this.keepNewerSave(raw);   // another tab saved with a newer game: never write it back downgraded (A-04)
     Settings.applyAll();
     return true;
   },
@@ -131,17 +160,20 @@ const Save = {
     const parsed = this.migrate(loaded);
     // An older export still replaces the stored save.
     parsed.revision = Math.max(parsed.revision, saveRevisionOf(this.read(SAVE_KEY)));
-    const previous = this.data;
-    this.write(BACKUP_KEY, this.exportText());
+    const previous = this.data, wasKept = this.keepStored;
+    this.write(BACKUP_KEY, wasKept ? this.read(SAVE_KEY) : this.exportText());   // a kept newer save is backed up as it was stored
     this.data = parsed;
+    this.keepStored = false;   // the player replaced the newer game's save on purpose
     const written = this.saveNow();
     // Unless saveNow took another tab's save.
-    if (!written && this.data === parsed) this.data = previous;
+    if (!written && this.data === parsed) { this.data = previous; this.keepStored = wasKept; }
     Settings.applyAll();
     return written;
   },
   // The save an import replaced, or an unreadable one (null = none)
   backupText() { return this.read(BACKUP_KEY); },
+  // The unreadable or newer-version record kept next to a readable backup (null = none)
+  spareText() { return this.read(SPARE_KEY); },
   read(key) {
     try { return (this.storage || window.localStorage).getItem(key); } catch (error) { this.markBroken(); return null; }
   },
