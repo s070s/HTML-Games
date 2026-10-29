@@ -221,7 +221,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Done when: Appendix C has the table and each weapon has a distinct use.
 - [ ] P7-02 - Pick-up rule: crouch near an item to pick it up (as in the ideas file). DECIDE how items placed above the floor (tables, racks, walls) are picked up, because the owner dislikes "crouch to take a hammer from a table" (proposal: the same input plays a reach / grab animation matched to the item height).
   Done when: decision recorded; items at floor, table and wall height can be picked up with one input and a fitting animation.
-- [ ] P7-03 - Use input: tap `use` = drop the held item; hold `use` = throw it (aim from lock-on target or facing).
+- [ ] P7-03 - Use input (owner decision, Phase 3: no hold): Use near an item while empty-handed = pick up; tap `use` while holding = throw it (aim from lock-on target or facing); Crouch + `use` = drop it.
   Done when: works on touch, gamepad and keyboard; throw hits the locked target in the P4-03 scenarios.
 - [ ] P7-04 - Weapon combat: weapon move sets per class, durability and breaking, disarm on heavy hit, block / sway interaction.
   Done when: each weapon class has its move set and breaks or drops as defined.
@@ -1555,6 +1555,45 @@ Implemented. Not ticked: the all-pairs win-rate target waits for P14-01 (win rat
   - Loading: `UI.runSelfTest` (menu action `selftest`, `BREAKPOINT.selfTest()`) adds a `<script src="breakpoint-tests.js">` the first time, relative to the page, then keeps the tests object for later runs (no second request). It now returns a promise of the same array of `{ name, pass, detail }`, so `await BREAKPOINT.selfTest()` works; outside the main menu it still shows "available from the main menu only" and resolves to undefined. If the file is missing or blocked, the player gets a toast, the on-screen line and one failed result named "Self-test file loads" saying "Self-test file breakpoint-tests.js not found next to the game (or the browser blocked it)"; nothing crashes and a later try loads it. Normal play never requests the file.
   - CSP: `script-src 'unsafe-inline'` became `script-src 'self' 'unsafe-inline'`. Everything else is unchanged (`default-src 'none'`, no `unsafe-eval`). No self-test pins the CSP text. In Chrome, `'self'` matches a `file://` page and the script next to it (275 / 275 from `file://`), and with the old policy the same page refuses the script, so the change is needed and enough.
   - Running the tests: in a browser over http, start the `games` server, open `http://127.0.0.1:8765/Beat%20Em%20Up/breakpoint.html`, and from the main menu run `await BREAKPOINT.selfTest()` (or Menu > About & Help > Run self-test). From `file://`, open `breakpoint.html` from its folder and do the same (the tests file must sit next to it). Headless in Node: `extract.js` pulls the inline script as before; `harness.js` answers the game's `<script>` element by running `breakpoint-tests.js` in the same context, then runs `selfTests.run_all()`. Measured: headless 260 of 275 (the same 15 browser-only failures), browser 275 / 275 from `file://` and from an http address answered by a CDP script (the real `games` server was not running), balance 47 / 54.
+- Weapons, items and hazards (P7-01, P7-02, P7-05, P7-06; decided 2026-10-29 by the coordinator under the owner's standing go "complete the tasklist"; the owner can change any row).
+  - Classes: **light** (one hand, fast, Punch = a 3-step weapon string), **heavy** (one hand, slow, Punch = a 2-step string whose last step is strong), **two-handed** (both hands, long reach, Punch = a 2-step string, no clinch while held), **throwable** (best thrown; a held strike is weak), **carry** (both hands, no strikes, walk at 70%, only throw or drop). Kicks stay the fighter's own kick strings with any one-hand item; with two-handed or carry items Kick still works. Damage values are base damage before the fighter's strength; speed = startup ticks; durability = hits (landed or blocked) and throw impacts before it breaks into debris of its material and vanishes.
+
+    | Id | Item | Class | Dur. | Dmg | Reach m | Startup | Thrown dmg | Distinct use |
+    |---|---|---|---|---|---|---|---|---|
+    | bottle | Bottle | throwable | 1 | 9 | 0.35 | 5 | 10 | Shatters on the first hit: +10 ticks stun and glass shards on the floor |
+    | brick | Brick | throwable | 3 | 8 | 0.25 | 6 | 16 | Hardest throw; a head hit knocks down |
+    | binlid | Bin lid | light | 6 | 6 | 0.40 | 6 | 8 | Shield: while held, Block takes no stamina from strikes in front and a Sway fighter blocks instead of dodging |
+    | stick | Escrima stick | light | 8 | 7 | 0.70 | 4 | 6 | Fastest weapon; Kali fighters get a 4-step string |
+    | bat | Baseball bat | heavy | 6 | 16 | 0.90 | 10 | 12 | Full swing (last step) knocks down |
+    | pipe | Steel pipe | heavy | 12 | 14 | 0.85 | 9 | 12 | Most durable; metal (arcs an electric panel) |
+    | hammer | Hammer | heavy | 8 | 15 | 0.45 | 8 | 14 | Short reach, long stun; breaks any destructible in one hit |
+    | wrench | Pipe wrench | heavy | 10 | 13 | 0.60 | 8 | 12 | Hook: the last step pulls the foe in and opens a free clinch |
+    | chain | Bike chain | light | 10 | 9 | 1.00 | 7 | 8 | Wraps the guard: a blocked hit still deals half damage |
+    | chair | Folding chair | two-handed | 3 | 18 | 0.80 | 13 | 14 | Wide arc hits every foe in front; breaks fast |
+    | skateboard | Skateboard | two-handed | 5 | 12 | 0.80 | 9 | 10 | Thrown, it slides along the floor and trips (low knockdown) |
+    | broom | Broom | two-handed | 6 | 7 | 1.30 | 7 | 6 | Longest reach; the second step is a low sweep that trips |
+    | crate | Crate | carry | 2 | - | - | - | 20 | Thrown: knockdown on everyone it hits, breaks into wood debris |
+    | extinguisher | Fire extinguisher | heavy | 4 | 12 | 0.50 | 10 | 12 | 3 sprays: a strike also sprays a 2 m cone that blinds (30 ticks, no damage); thrown, it bursts into a cloud |
+
+  - Combat rules (P7-04 uses them): a weapon hit costs 1 durability (landed or blocked). Disarm: a strong string step that lands, any knockdown and any throw make the victim drop the item at their feet. Block: weapon hits cost the blocker 1.5x stamina; heavy and two-handed last steps count as strong (they break a non-perfect block). Sway dodges weapon swings like any strike. Grapple with a one-hand item works as normal (the item stays in hand); with a two-handed or carry item Grapple drops it first. Items never hurt their own team unless friendly fire is on.
+  - Where items appear: placed per arena (P7 puts 4-7 in each of the 3 current arenas; P8 adds the level placements). Dropped and thrown items stay where they land (P9-03), at most 12 loose items per scene (the oldest broken-off piece goes first). Setting "Items": on by default in Arcade, brawls, Training, Free Fight and Versus; off in Tournament (P11 rules may turn it on).
+  - AI (fills the P4-02 stubs): `considerPickup` = an empty-handed AI without an attack token takes an item within 2.5 m that is closer than its target; with a throwable or carry item and the target 3-8 m away it throws. `considerHazard` = an AI with its target within 1.5 m of an active hazard moves so its next hit drives the target into it, or strikes the hazard's trigger when the target is in its zone.
+- Pick-up rule (P7-02, decided): one press of Use, no crouch. The item must be within 1.0 m of the fighter's front (within 70 degrees of facing); several in reach = the one nearest the facing line. The fighter plays one of three grab poses by the item's height: floor (below 0.4 m) = crouch-and-grab, waist (0.4-1.1 m, tables) = lean grab, high (1.1-1.8 m, racks and walls) = reach grab. 14 ticks; a hit during the grab cancels it and the item stays. The owner's ideas-file wording "crouch to pick up" is replaced by this because the owner disliked "crouch to take a hammer from a table". USE input is as the Phase 3 decision: tap Use while holding = throw (lock-on target, else facing); Crouch + Use = drop.
+- Hazards (P7-05, decided; the 8 of P1-05). Each one damages any fighter of any team, has a visible trigger, and runs through one shared handler (type row + zone + effect), so P9 can route interactions through its matrix.
+
+    | Id | Hazard | Trigger on purpose | Effect | Placed in |
+    |---|---|---|---|---|
+    | panel | Electric panel | Strike it or a metal item hits it; a fighter knocked into it | 2 s arc, 1.2 m: 14 dmg + 40-tick shock stun; reaches the whole wet floor it touches; 6 s cooldown | Warehouse (P7), levels (P8) |
+    | steam | Steam pipe | Strike the valve | 3 s jet, 2 m cone: 3 dmg every 15 ticks, push back | Warehouse, Pit (P7) |
+    | drop | Open drop | A fighter knocked over the edge | 25 dmg and down; in a brawl the enemy is out | Rooftop, Construction (P8) |
+    | glass | Glass wall | A fighter thrown or knocked into it, or a thrown item | Breaks: 10 dmg; shards on the floor (2 dmg to anyone knocked down on them) | Dojo (P7), levels (P8) |
+    | load | Falling load | Strike its support | 0.6 s warning shake, then a 1.5 m circle: 30 dmg + knockdown | Warehouse (P7), Construction (P8) |
+    | train | Passing train | Timed, with 2 s warning lights | 40 dmg + thrown down the track | Subway (P8) |
+    | fire | Fire barrel | Strike it: it tips and spills fire 2 m for 4 s | Touch: 4 dmg + flinch, every 20 ticks | Pit (P7), levels (P8) |
+    | wet | Wet floor | Always on (a bucket can be kicked over to make one in P9) | No running; a strong hit taken there knocks down | Dojo (P7), levels (P8) |
+
+  - Open drop and train are built with the shared handler in P7-05 and placed and checked in P8 (the current arenas have no edge and no track).
+- Pickable hazards (P7-06, decided): the fire extinguisher (its spray is the hazard), the crate, the bottle (glass shards) and the brick. Panels, pipes, barrels, loads and glass walls are fixed hazards: they are triggered by hits, not carried.
 
 ## Appendix D - Audit findings
 

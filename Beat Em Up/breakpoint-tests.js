@@ -95,11 +95,13 @@ const SelfTest = {
     return {
       raw: SELFTEST_STORE_KEYS.map((key) => Store.get(key)), settings: Object.assign({}, Settings.v), progress: JSON.parse(JSON.stringify(Progress.d)),
       keys: KEYMAPS.map((keymap) => JSON.stringify(keymap.bindings)), selection: Object.assign({}, Game.selection), devices: Inputs.players.map((p) => p.lastDevice),
-      controlsChanged: api.get.controlsChanged(),
+      controlsChanged: api.get.controlsChanged(), customs: JSON.parse(JSON.stringify(CustomRoster.slots)),
     };
   },
   restore(saved) {
     SELFTEST_STORE_KEYS.forEach((key, i) => { if (saved.raw[i] === null) Store.remove(key); else Store.set(key, saved.raw[i]); });
+    CustomRoster.slots = saved.customs;   // a test that threw halfway must not leave its fighters in memory for the next save to write
+    CustomRoster.register();
     Settings.v = saved.settings;
     Settings.apply();
     Progress.d = saved.progress;
@@ -109,16 +111,19 @@ const SelfTest = {
     Inputs.players.forEach((p, i) => { p.lastDevice = saved.devices[i]; });   // Versus tests switch pads between players
     api.set.controlsChanged(saved.controlsChanged);   // the migration tests set it
   },
+  made: [],   // every match make / makeBrawl built since the last test ended: the test wrapper disposes them all
   make(opts, s1, s2) {
     const m = new MatchSim(Object.assign({ mode: 'free', countdown: false, timer: 0, seed: 11, winsNeeded: 2 }, opts));
     m.controllers[0] = this.scripted(s1 || (() => {}));
     m.controllers[1] = this.scripted(s2 || (() => {}));
+    this.made.push(m);
     return m;
   },
   /* A brawl (P4-01) with scripted controllers: scripts[i] drives fighter i (default: stands still). */
   makeBrawl(opts, ...scripts) {
     const m = new MatchSim(Object.assign({ mode: 'brawl', enemies: 2, countdown: false, timer: 0, seed: 11 }, opts));
     m.fighters.forEach((f, i) => { m.controllers[i] = this.scripted(scripts[i] || (() => {})); });
+    this.made.push(m);
     return m;
   },
   /* Puts fighter f at (x, z) facing (lookX, lookZ), at rest. */
@@ -212,10 +217,12 @@ const SelfTest = {
     const test = (name, fn) => {
       let m = null;
       try { const r = fn(); results.push({ name, pass: r === true, detail: r === true ? '' : String(r) }); } catch (e) { results.push({ name, pass: false, detail: 'exception: ' + e.message }); }
+      self.made.splice(0).forEach((made) => made.dispose());
       if (Match.current) Match.current.dispose();
       void m;
     };
     const mk = (...a) => self.make(...a);
+    const track = (m) => { self.made.push(m); return m; };   // a match built with `new MatchSim` directly: the wrapper disposes it even if the test throws
     /* A match whose second fighter (MARA, a Sway fighter by default) holds Defend as a Block fighter: for the block tests. */
     const mkBlock = (...a) => { const m = self.make(...a); m.fighters[1].defense = 'block'; return m; };
     const once = (tick, key, extra) => (it, f, o, m) => { if (m.tick === tick) { it[key] = true; if (extra) Object.assign(it, extra); } };
@@ -1495,6 +1502,22 @@ const SelfTest = {
       self.place(m, 3.2); self.run(m, 60 + (spacing + 40) * letters.length); log.stop(); m.dispose();
       return log.attackStart.filter((e) => e.f.index === 0).map((e) => e.mv.id);
     };
+    test('Touch: when the pad hides (pause, round end) every held button and the stick are let go', () => {
+      const keep = { touch: Settings.v.touch, state: Game.state, device: Input.lastDevice }, hadDom = !!UI.dom.touch;
+      if (!hadDom) UI.dom.touch = { hidden: true };   // no page behind a headless run
+      try {
+        Settings.v.touch = 'on'; Game.state = GS.FIGHT; UI.applyTouchVisibility();
+        const shown = !UI.dom.touch.hidden;
+        Input.touchSet('defend', true); Input.touchSet('punch', true); Input.touchStickSet(1, 0, true);
+        const held = Input.touchHeld.defend && Input.touchStick.active;
+        Game.state = GS.PAUSED; UI.applyTouchVisibility();
+        const free = UI.dom.touch.hidden && !Input.touchHeld.defend && !Input.touchHeld.punch && !Input.touchStick.active;
+        return shown && held && free ? true : JSON.stringify({ shown, held, free });
+      } finally {
+        Settings.v.touch = keep.touch; Game.state = keep.state; Input.lastDevice = keep.device; Input.releaseAll();
+        if (hadDom) UI.applyTouchVisibility(); else delete UI.dom.touch;
+      }
+    });
     test('Touch layout: no button overlaps another, the stick or the HUD bars at 640x360 and 844x390, and every action is in thumb reach', () => {
       const none = { sat: 0, sar: 0, sab: 0, sal: 0 }, notch = { sat: 0, sar: 47, sab: 21, sal: 47 };
       const views = [['landscape', 640, 360, none], ['landscape', 844, 390, none], ['landscape', 844, 390, notch], ['landscape', 568, 320, none], ['portrait', 360, 640, none], ['portrait', 390, 844, { sat: 47, sar: 0, sab: 34, sal: 0 }]];
@@ -1675,6 +1698,20 @@ const SelfTest = {
         Input.lastDevice = device; Input.padIndex = index; Settings.v.reducedMotion = reduced;
       }
       return r;
+    });
+    test('Gamepads: a browser that refuses getGamepads (it throws, as in an embed without the permission) counts as no pads and nothing errors', () => {
+      const keepPads = Object.getOwnPropertyDescriptor(navigator, 'getGamepads'), device = Input.lastDevice, index = Input.padIndex;
+      Object.defineProperty(navigator, 'getGamepads', { value: () => { throw new Error('SecurityError'); }, configurable: true });
+      try {
+        Input.lastDevice = 'gamepad'; Input.padIndex = 0;
+        Inputs.players.forEach((p) => p.pollPad());
+        Inputs.pollLobby(); Input.rumble(1, 100);
+        const none = Inputs.padId('pad0') === null && !Inputs.anyPadMenu().ok;
+        return none ? true : 'a pad was found';
+      } finally {
+        if (keepPads) Object.defineProperty(navigator, 'getGamepads', keepPads); else delete navigator.getGamepads;
+        Input.lastDevice = device; Input.padIndex = index;
+      }
     });
     test('Gamepads: P1 keeps a lone pad outside Versus; in Versus it plays P2, two pads split, and rumble reaches only the hurt player', () => {
       const calls = [];
@@ -1980,6 +2017,24 @@ const SelfTest = {
       Store.remove('breakpoint.test');
       Store.ok = keep;
       return v === 'x' ? true : 'memory fallback failed';
+    });
+    test('Full storage (writes throw, reads work): saved data is still read, play goes on in memory and one warning toast says saving failed', () => {
+      const keep = { storage: Store.storage, ok: Store.ok, failure: Store.failure, warned: Store.warned, mem: Store.mem };
+      const log = self.capture(['toast']);
+      try {
+        const data = { 'bp.test.saved': 'old' };
+        const full = { getItem: (key) => (key in data ? data[key] : null), setItem() { throw new Error('QuotaExceededError'); }, removeItem() {} };
+        Store.mem = {}; Store.warned = false;
+        Store.init(full);
+        const read = Store.get('bp.test.saved');
+        Store.set('bp.test.new', 'x'); Store.set('bp.test.new', 'y'); Store.set('bp.test.saved', 'newer');
+        Store.reportFailure();
+        const toasts = log.toast.filter((t) => t.kind === 'warn' && /could not be saved/.test(t.msg)).length;
+        const state = { read, ok: Store.ok, failure: !!Store.failure, mem: Store.get('bp.test.new') + Store.get('bp.test.saved'), toasts };
+        Store.init({ getItem() { throw new Error('denied'); }, setItem() { throw new Error('denied'); }, removeItem() {} });
+        const unreadable = !Store.ok && !!Store.failure && Store.get('bp.test.none') === null;
+        return state.read === 'old' && state.ok && state.failure && state.mem === 'ynewer' && state.toasts === 1 && unreadable ? true : JSON.stringify({ state, unreadable });
+      } finally { log.stop(); Object.assign(Store, keep); }
     });
     test('Matches do not leak event listeners', () => {
       const before = Events.count();
@@ -2472,16 +2527,17 @@ const SelfTest = {
     const tempProfile = (custom) => { ROSTER_BY_ID.ctest = Object.assign(customProfile(custom, 0), { id: 'ctest' }); return ROSTER_BY_ID.ctest; };
     test('Creator: share code and storage round-trip', () => {
       const saved = keepCustoms();
-      const original = validateCustom(randomCustom(12345)).value;
-      const code = encodeCustom(original);
-      const decoded = decodeCustom(code, true);
-      const sameCode = decoded.ok && JSON.stringify(decoded.value) === JSON.stringify(original) && code.length <= SHARE_MAX_LENGTH;
-      CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null);
-      CustomRoster.put(3, original);
-      CustomRoster.init();
-      const stored = !!CustomRoster.slots[3] && JSON.stringify(CustomRoster.slots[3]) === JSON.stringify(original) && !!ROSTER_BY_ID.c4 && ROSTER_BY_ID.c4.name === original.name;
-      restoreCustoms(saved);
-      return sameCode && stored ? true : 'code ' + sameCode + ' stored ' + stored + ' ' + (decoded.error || '');
+      try {
+        const original = validateCustom(randomCustom(12345)).value;
+        const code = encodeCustom(original);
+        const decoded = decodeCustom(code, true);
+        const sameCode = decoded.ok && JSON.stringify(decoded.value) === JSON.stringify(original) && code.length <= SHARE_MAX_LENGTH;
+        CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null);
+        CustomRoster.put(3, original);
+        CustomRoster.init();
+        const stored = !!CustomRoster.slots[3] && JSON.stringify(CustomRoster.slots[3]) === JSON.stringify(original) && !!ROSTER_BY_ID.c4 && ROSTER_BY_ID.c4.name === original.name;
+        return sameCode && stored ? true : 'code ' + sameCode + ' stored ' + stored + ' ' + (decoded.error || '');
+      } finally { restoreCustoms(saved); }
     });
     test('Creator: import rejects malformed, oversized, tampered and out-of-range codes', () => {
       const good = encodeCustom(defaultCustom(0));
@@ -2546,7 +2602,7 @@ const SelfTest = {
       const stage = ARCADE_STAGES - 1, firstSeed = 1000, matches = 16, maxTicks = 40000;
       let wins = 0;
       for (let seed = firstSeed; seed < firstSeed + matches; seed++) {
-        const m = new MatchSim({ mode: 'arcade', countdown: false, playerId: 'kai', opponentId: 'zero', arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, 'normal'), arcadeLevel: 'normal', seed });
+        const m = track(new MatchSim({ mode: 'arcade', countdown: false, playerId: 'kai', opponentId: 'zero', arenaId: ARCADE_ARENAS[stage], difficulty: arcadeDifficulty(stage, 'normal'), arcadeLevel: 'normal', seed }));
         m.controllers[0] = new AIController(ROSTER_BY_ID.kai, 'hard');
         for (let i = 0; i < maxTicks && m.phase !== 'matchEnd'; i++) { m.step(); if (m.phase === 'waiting') m.startRound(); }
         if (m.matchWinner === 0) wins++;
@@ -3031,36 +3087,40 @@ const SelfTest = {
     });
     test('Creator: corrupted or tampered storage falls back safely', () => {
       const saved = keepCustoms();
-      const valid = defaultCustom(0), cheat = defaultCustom(1);
-      cheat.attrs = { health: 9, stamina: 9, strength: 9, speed: 9, reach: 9, defense: 9, balance: 9, recovery: 9 };
-      const cases = ['{not json', '[]', '{"slots":"x"}', 'null', JSON.stringify({ version: 1, slots: [cheat] }), 'x'.repeat(STORE_MAX_LENGTH + 10)];
-      let problem = '';
-      for (const c of cases) {
-        Store.set(KEY_CUSTOM, c);
-        try { CustomRoster.init(); } catch (e) { problem = 'threw on ' + c.slice(0, 12); }
-        if (CustomRoster.slots.some(Boolean)) problem = 'accepted ' + c.slice(0, 20);
-      }
-      Store.set(KEY_CUSTOM, JSON.stringify({ version: 1, slots: [valid, cheat, 5, 'x'] }));
-      CustomRoster.init();
-      const kept = !!CustomRoster.slots[0] && !CustomRoster.slots[1] && !CustomRoster.slots[2] && !!ROSTER_BY_ID.c1 && !ROSTER_BY_ID.c2;
-      restoreCustoms(saved);
-      return !problem && kept ? true : problem || 'valid slot not kept';
+      try {
+        const valid = defaultCustom(0), cheat = defaultCustom(1);
+        cheat.attrs = { health: 9, stamina: 9, strength: 9, speed: 9, reach: 9, defense: 9, balance: 9, recovery: 9 };
+        const cases = ['{not json', '[]', '{"slots":"x"}', 'null', JSON.stringify({ version: 1, slots: [cheat] }), 'x'.repeat(STORE_MAX_LENGTH + 10)];
+        let problem = '';
+        for (const c of cases) {
+          Store.set(KEY_CUSTOM, c);
+          try { CustomRoster.init(); } catch (e) { problem = 'threw on ' + c.slice(0, 12); }
+          if (CustomRoster.slots.some(Boolean)) problem = 'accepted ' + c.slice(0, 20);
+        }
+        Store.set(KEY_CUSTOM, JSON.stringify({ version: 1, slots: [valid, cheat, 5, 'x'] }));
+        CustomRoster.init();
+        const kept = !!CustomRoster.slots[0] && !CustomRoster.slots[1] && !CustomRoster.slots[2] && !!ROSTER_BY_ID.c1 && !ROSTER_BY_ID.c2;
+        return !problem && kept ? true : problem || 'valid slot not kept';
+      } finally { restoreCustoms(saved); }
     });
     test('Creator: deleted fighter selection and ladders stay valid', () => {
       const saved = keepCustoms(), keepSel = Object.assign({}, Game.selection);
-      CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null);
-      CustomRoster.put(0, defaultCustom(0));
-      const ladder = Game.opponentsFor('c1').slice(-ARCADE_STAGES);
-      const ladderOk = ladder.length === ARCADE_STAGES && ladder[ladder.length - 1].id === 'zero' && ladder.every((r) => !r.custom);
-      const builtinLadder = Game.opponentsFor('kai').map((r) => r.id).join() === 'yuki,brutus,dmitri,mara,zero';
-      const choices = Game.opponentChoices('kai').some((r) => r.id === 'c1');
-      const unlocked = Progress.isUnlocked('c1');
-      Game.selection.player = 'c1'; Game.selection.opponent = 'c1';
-      CustomRoster.remove(0);
-      const fallback = Game.selection.player === 'kai' && !!ROSTER_BY_ID[Game.selection.opponent] && !ROSTER_BY_ID.c1 && !Progress.isUnlocked('c1');
-      Object.assign(Game.selection, keepSel);
-      restoreCustoms(saved);
-      return ladderOk && builtinLadder && choices && unlocked && fallback ? true : JSON.stringify({ ladderOk, builtinLadder, choices, unlocked, fallback });
+      try {
+        CustomRoster.slots = new Array(CUSTOM_SLOTS).fill(null);
+        CustomRoster.put(0, defaultCustom(0));
+        const ladder = Game.opponentsFor('c1').slice(-ARCADE_STAGES);
+        const ladderOk = ladder.length === ARCADE_STAGES && ladder[ladder.length - 1].id === 'zero' && ladder.every((r) => !r.custom);
+        const builtinLadder = Game.opponentsFor('kai').map((r) => r.id).join() === 'yuki,brutus,dmitri,mara,zero';
+        const choices = Game.opponentChoices('kai').some((r) => r.id === 'c1');
+        const unlocked = Progress.isUnlocked('c1');
+        Game.selection.player = 'c1'; Game.selection.opponent = 'c1';
+        CustomRoster.remove(0);
+        const fallback = Game.selection.player === 'kai' && !!ROSTER_BY_ID[Game.selection.opponent] && !ROSTER_BY_ID.c1 && !Progress.isUnlocked('c1');
+        return ladderOk && builtinLadder && choices && unlocked && fallback ? true : JSON.stringify({ ladderOk, builtinLadder, choices, unlocked, fallback });
+      } finally {
+        Object.assign(Game.selection, keepSel);
+        restoreCustoms(saved);
+      }
     });
     /* ----- directional throws ----- */
     const THROW_AXES = { fwd: [1, 0], back: [-1, 0], left: [0, -1], right: [0, 1] };
@@ -4303,7 +4363,7 @@ const SelfTest = {
     });
     test('N fighters: a 1v6 brawl runs to a winner with no illegal transition or NaN, bodies stay apart, and every enemy is on team 1', () => {
       const illegal = Diag.illegalTransitions;
-      const m = new MatchSim({ mode: 'brawl', enemies: BRAWL_MAX_ENEMIES, countdown: false, timer: 0, seed: 5, difficulty: 'normal', evenDamage: true });
+      const m = track(new MatchSim({ mode: 'brawl', enemies: BRAWL_MAX_ENEMIES, countdown: false, timer: 0, seed: 5, difficulty: 'normal', evenDamage: true }));
       m.controllers[0] = new AIController(m.fighters[0].profile, 'expert');
       let minGap = 9, bad = '', ticks = 0;
       while (m.phase !== 'matchEnd' && ticks < 20000 && !bad) {
@@ -4357,7 +4417,7 @@ const SelfTest = {
       const off = run(false), on = run(true);
       const friendly = (r) => r.hits.filter((h) => h === '1>2').length;
       const duo = (friendlyFire) => {   // two players on the same row: the first punches, the second stands in reach
-        const m = new MatchSim({ mode: 'brawl', coop: [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], enemies: 1, friendlyFire, countdown: false, timer: 0, seed: 7, difficulty: 'normal', evenDamage: true });
+        const m = track(new MatchSim({ mode: 'brawl', coop: [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], enemies: 1, friendlyFire, countdown: false, timer: 0, seed: 7, difficulty: 'normal', evenDamage: true }));
         try {
           m.controllers[0] = self.scripted((it, f, o, mm) => { it.punch = mm.tick % 30 === 2; }); m.controllers[1] = self.scripted(() => {}); m.controllers[2] = self.scripted(() => {});
           self.stand(m.fighters[0], 0, 0, 1.9, 0); self.stand(m.fighters[1], 0.8, 0, 1.9, 0); self.stand(m.fighters[2], 3, 0, 0, 0);
@@ -4474,7 +4534,7 @@ const SelfTest = {
       const limitTicks = Math.round((CAMERA_OCCLUSION_GRACE + 0.6) * 60);   // the grace before the camera moves plus 0.6 s to swing clear
       const problems = [];
       for (const id of ARENA_ORDER) {
-        const m = new MatchSim({ mode: 'brawl', enemies: 3, difficulty: 'normal', arenaId: id, countdown: false, timer: 0, seed: 5, evenDamage: true });
+        const m = track(new MatchSim({ mode: 'brawl', enemies: 3, difficulty: 'normal', arenaId: id, countdown: false, timer: 0, seed: 5, evenDamage: true }));
         try {
           const p = m.fighters[0], b = m.def.bounds;
           m.controllers[0] = self.scripted(() => {});
@@ -4616,7 +4676,7 @@ const SelfTest = {
     }));
     test('Brawl camera: the 1v1 / Versus follow camera gives exactly the output it gave before P4-06 (fixed input, values recorded from the old code)', () => withCamera(() => {
       const want = [[4.399824513,3.76750504,6.305148317,2.056297643,1,1.234678994,0.4329458457,6.233848048,0.46],[4.246652143,3.684648811,6.526843154,2.450772662,1,1.414479317,0.3378161231,6.047213107,0.46],[2.833292408,3.667920427,6.670450388,2.153959277,1,1.328617005,0.1264932798,6.009532162,0.46],[0.7051743468,3.890785698,6.312001161,1.176524068,1.226242674,0.9546568807,-0.08775600399,6.00192451,0.46],[-0.8671083798,3.734882239,5.683746558,-0.1974761537,1.071021101,0.3489457845,-0.1248684442,6.000388552,0.46],[-1.802165668,3.673335129,4.999321368,-1.517787721,1.009611661,-0.3695377138,-0.0529185881,6.000078447,0.46]];
-      const m = new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 11, arenaId: 'dojo' });
+      const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 11, arenaId: 'dojo' }));
       try {
         const a = m.fighters[0], b = m.fighters[1], got = [];
         Camera.snapNext = true; Camera.az = 0.2; Camera.dist = 8; Camera.elev = 0.46; Camera.aspect = 1.78; Camera.fovPulse = 0;   // the camera as it is at boot, which is where the recorded run started
@@ -4636,7 +4696,7 @@ const SelfTest = {
     /* A brawl whose player is a body that cannot lose: idle, at the arena centre, health and position restored every tick, so the CPU enemies attack and wait for as long as the
        test runs. direct = the control run: the director switched off, which is what a brawl was before P4-02. onTick(m, t) runs after every step. */
     const crowdRun = (enemies, difficulty, seed, ticks, onTick, direct) => {
-      const m = new MatchSim({ mode: 'brawl', enemies, difficulty, countdown: false, timer: 0, seed, evenDamage: true });
+      const m = track(new MatchSim({ mode: 'brawl', enemies, difficulty, countdown: false, timer: 0, seed, evenDamage: true }));
       const p = m.fighters[0];
       m.controllers[0] = self.scripted(() => {});
       if (direct) m.crowd.update = () => {};
@@ -4800,11 +4860,11 @@ const SelfTest = {
       return ok ? true : JSON.stringify({ fresh1, fresh2, hits, afterA, afterB, afterA2, natural, duelOk });
     });
     test('Group AI: a 1v1 and the last enemy of a brawl never use tokens or the ring (the seeded 1v1 fingerprints above cover the exact play); hooks for weapons and hazards (P7) exist and do nothing', () => {
-      const duel = new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 9, difficulty: 'hard' });
+      const duel = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 9, difficulty: 'hard' }));
       let usedDuel = false;
       for (let t = 0; t < 900; t++) { duel.step(); if (duel.crowd.engaged.some(Boolean) || duel.crowd.token.some(Boolean)) usedDuel = true; }
       duel.dispose();
-      const lone = new MatchSim({ mode: 'brawl', enemies: 1, countdown: false, timer: 0, seed: 9, difficulty: 'hard', evenDamage: true });
+      const lone = track(new MatchSim({ mode: 'brawl', enemies: 1, countdown: false, timer: 0, seed: 9, difficulty: 'hard', evenDamage: true }));
       let usedLone = false, attacked = false;
       for (let t = 0; t < 900; t++) { lone.step(); if (lone.crowd.engaged.some(Boolean) || lone.crowd.token.some(Boolean)) usedLone = true; if (attacking(lone.fighters[1])) attacked = true; }
       lone.dispose();
@@ -5024,7 +5084,7 @@ const SelfTest = {
         Combat.knockOut(foe, null, null, duel);
         lockWait(duel, ctl, 20);
         const afterKo = p.lockOn === null && p.target === foe;   // a finished round still faces the knocked-out opponent
-        ai = new MatchSim({ mode: 'brawl', enemies: 3, countdown: false, timer: 0, seed: 3, difficulty: 'hard', evenDamage: true });
+        ai = track(new MatchSim({ mode: 'brawl', enemies: 3, countdown: false, timer: 0, seed: 3, difficulty: 'hard', evenDamage: true }));
         ai.controllers[0] = self.scripted(() => {});   // an idle, non-human player: the live keyboard or pad cannot reach this match
         for (let t = 0; t < 600; t++) { ai.step(); }
         const noAiLock = ai.fighters.every((f) => f.lockOn === null && f.aim === null);   // the enemies are AIs and never lock or aim
@@ -5151,7 +5211,7 @@ const SelfTest = {
     };
     const FOUR = [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }, { slot: 2, id: 'brutus' }, { slot: 3, id: 'yuki' }];
     const THREE = FOUR.slice(0, 3);
-    const coopMatch = (party, extra) => new MatchSim(Object.assign({ mode: 'brawl', coop: party, enemies: coopEnemyCount(party.length), countdown: false, timer: 0, seed: 7, difficulty: 'normal', evenDamage: true }, extra));
+    const coopMatch = (party, extra) => track(new MatchSim(Object.assign({ mode: 'brawl', coop: party, enemies: coopEnemyCount(party.length), countdown: false, timer: 0, seed: 7, difficulty: 'normal', evenDamage: true }, extra)));
     const idleEnemies = (m) => { for (let k = m.partySize; k < m.fighters.length; k++) m.controllers[k] = self.scripted(() => {}); };
     test('Co-op seats: devices take P1 to P4 in order, a keyboard layout only seats 1 or 2, each pad belongs to one seat, leaving frees the seat, a fifth device cannot join', () => {
       const pads = [fakePad('a'), fakePad('b'), fakePad('c')];
@@ -5442,6 +5502,37 @@ const SelfTest = {
       const duel = mk({});
       if (duel.reviveTeam() !== 0) problems.push('a 1v1 has no party to revive');
       return problems.length ? problems.join('; ') : true;
+    });
+    test('Co-op revive hook: refused during the knock-out delay of a wiped party (locked), so the brawl still ends', () => {
+      const m = coopMatch([{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], { enemies: 2, seed: 5 });
+      try {
+        idleEnemies(m);
+        self.run(m, 1);
+        Combat.knockOut(m.fighters[0], null, null, m); Combat.knockOut(m.fighters[1], null, null, m);
+        for (let guard = 0; !m.locked && guard < 200; guard++) m.step();
+        self.run(m, 5);
+        const locked = m.locked, revived = m.reviveTeam();
+        self.run(m, KO_DELAY_TICKS + 20);
+        return locked && revived === 0 && m.matchOver && !m.fighters[0].alive ? true : JSON.stringify({ locked, revived, over: m.matchOver });
+      } finally { m.dispose(); }
+    });
+    test('Decider round: equal health goes to the larger stamina share (not the larger raw stamina), a tie in that too is a draw and the round is played again', () => {
+      const decide = (staminaA, staminaB) => {
+        const m = mk({});
+        const [a, b] = m.fighters;
+        a.maxStam = 100; b.maxStam = 200; a.stam = staminaA; b.stam = staminaB;
+        m.decider = true;
+        m.endRound('time');
+        return m.roundWinner;
+      };
+      const got = [decide(60, 100), decide(40, 120), decide(50, 100)];   // shares 0.6 / 0.5, 0.4 / 0.6, 0.5 / 0.5
+      return got.join() === '0,1,-1' ? true : 'winners ' + got.join();
+    });
+    test('Simulation options are validated: a non-numeric or zero winsNeeded and a bad timer fall back to numbers, so a run neither hits the time cap nor changes length', () => {
+      const r = SimRunner.run({ winsNeeded: 0, timer: NaN, seed: 2, difficulty: 'expert' });
+      const same = r.config && r.config.winsNeeded === 1 && r.config.timer === 60;
+      const done = !r.error && r.ticks < 60 * 60 * 15;
+      return same && done ? true : JSON.stringify({ config: r.config && { w: r.config.winsNeeded, t: r.config.timer }, ticks: r.ticks, err: r.error });
     });
     test('Co-op camera: the frame holds the living players, not a knocked-out lead that lies far off, and keeps the lead in view only when every player is out', () => withCamera(() => {
       const problems = [];

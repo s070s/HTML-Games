@@ -478,20 +478,23 @@ const Store = {
   ok: false,
   mem: {},
   warned: false,   // a failed write is reported once per session
-  init() {
-    try {
-      localStorage.setItem('__bp_probe', '1');
-      localStorage.removeItem('__bp_probe');
-      this.ok = true;
-    } catch (e) { this.ok = false; }
+  storage: null,   // the Web Storage object (a test passes its own to init)
+  failure: null,   // why saving does not work (full, read-only or missing storage); reading can still work
+  init(storage) {
+    this.ok = false; this.failure = null;
+    try { this.storage = storage || localStorage; this.storage.getItem('__bp_probe'); this.ok = true; } catch (e) { this.failure = e; return; }   // unreadable: memory only
+    try { this.storage.setItem('__bp_probe', '1'); this.storage.removeItem('__bp_probe'); } catch (e) { this.failure = e; }   // readable but not writable (full): saved data is still read
   },
+  reportFailure() { if (this.failure) this.warnWrite(this.failure); },   // after the UI exists: the startup warning
   get(key) {
-    try { if (this.ok) { const v = localStorage.getItem(key); if (v !== null) return v; } } catch (e) { this.ok = false; }
-    return Object.prototype.hasOwnProperty.call(this.mem, key) ? this.mem[key] : null;
+    const written = Object.prototype.hasOwnProperty.call(this.mem, key);
+    if (written && (this.failure || this.warned)) return this.mem[key];   // writes are failing: what this session saved is newer than what the storage still holds
+    try { if (this.ok) { const v = this.storage.getItem(key); if (v !== null) return v; } } catch (e) { this.ok = false; }
+    return written ? this.mem[key] : null;
   },
   set(key, value) {
     this.mem[key] = value;
-    try { if (this.ok) localStorage.setItem(key, value); } catch (e) { this.warnWrite(e); }   // reads keep using localStorage; the next write retries
+    try { if (this.ok) this.storage.setItem(key, value); } catch (e) { this.warnWrite(e); }   // reads keep using the storage; the next write retries
   },
   warnWrite(e) {
     if (this.warned) return;
@@ -501,7 +504,7 @@ const Store = {
   },
   remove(key) {
     delete this.mem[key];
-    try { if (this.ok) localStorage.removeItem(key); } catch (e) { this.ok = false; }
+    try { if (this.ok) this.storage.removeItem(key); } catch (e) { this.ok = false; }
   },
 };
 const KEY_SETTINGS = 'breakpoint.v1.settings';
@@ -891,6 +894,11 @@ function clearIntent(it) {
   return it;
 }
 
+/* The gamepad list; empty where the browser refuses it (an embed without the gamepad permission throws), so polling never errors every frame. */
+function readPads() {
+  try { return navigator.getGamepads ? navigator.getGamepads() : []; } catch (err) { return []; }
+}
+
 /* One human player's input state: keyboard keys from that player's bindings, one gamepad, touch (P1 only).
    P1 is `Input` (every singleplayer mode); P2 (`Input2`) only reads devices in Versus and co-op; P3 and P4 (`Input3`, `Input4`) only in co-op, on gamepads. */
 class PlayerInput {
@@ -944,12 +952,15 @@ class PlayerInput {
     const action = this.codeMap.get(e.code);
     if (action) this.press(action);
   }
-  releaseAll() {
-    this.kb.clear();
+  releaseTouch() {
     this.touchHeld = {};
     this.touchStick.x = this.touchStick.y = 0;
     this.touchStick.active = false;
     this.touchDir.up = this.touchDir.down = this.touchDir.left = this.touchDir.right = false;
+  }
+  releaseAll() {
+    this.kb.clear();
+    this.releaseTouch();
     this.latch = {};
     this.attackQueue.length = 0;
     this.runDir = null;
@@ -1011,14 +1022,14 @@ class PlayerInput {
     const magnitude = clamp(strength * Settings.v.shake, 0, 1);
     if (magnitude <= 0) return;
     try {
-      const pad = navigator.getGamepads()[this.padIndex];
+      const pad = readPads()[this.padIndex];
       const motor = pad && pad.vibrationActuator;
       if (motor && motor.playEffect) Promise.resolve(motor.playEffect('dual-rumble', { duration: ms, strongMagnitude: magnitude, weakMagnitude: magnitude * 0.6 })).catch(() => {});
     } catch (err) { /* vibration is optional */ }
   }
   pollPad() {
     if (!navigator.getGamepads) return;
-    const pads = navigator.getGamepads();
+    const pads = readPads();
     const index = Inputs.padFor(this.slot, pads);
     const pad = index >= 0 ? pads[index] : null;
     if (this.padInfo.connected && (!pad || index !== this.padIndex)) this.releasePad();   // pad gone or handed to the other player
@@ -1277,7 +1288,7 @@ const Inputs = {
   seatOf(device) { return this.seats.indexOf(device); },
   /* The id string of the gamepad behind a 'pad<index>' device, or null. */
   padId(device) {
-    const pad = navigator.getGamepads ? navigator.getGamepads()[Number(device.slice(3))] : null;
+    const pad = readPads()[Number(device.slice(3))];
     return pad ? pad.id : null;
   },
   /* The first open seat a device may take, or -1. */
@@ -1344,7 +1355,7 @@ const Inputs = {
      were unplugged are freed. A button still held when the screen opened is not a press. */
   pollLobby() {
     if (!navigator.getGamepads) return;
-    const pads = navigator.getGamepads();
+    const pads = readPads();
     const live = (i) => !!pads[i] && pads[i].connected;
     for (const device of this.seats.slice()) if (device && device.startsWith('pad') && !live(Number(device.slice(3)))) this.leave(device);
     for (let i = 0; i < pads.length; i++) {
@@ -1425,7 +1436,7 @@ const Inputs = {
     const out = this.anyPad;
     out.up = out.down = out.left = out.right = out.ok = out.back = false;
     if (!navigator.getGamepads) return out;
-    for (const pad of navigator.getGamepads()) {
+    for (const pad of readPads()) {
       if (!pad || !pad.connected) continue;
       const down = (b) => !!(pad.buttons[b] && (pad.buttons[b].pressed || pad.buttons[b].value > 0.5));
       const x = finite(pad.axes[0], 0), y = finite(pad.axes[1], 0);
@@ -7639,7 +7650,7 @@ class MatchSim {
   /* Stage-start hook (P4-07). In a co-op a knocked-out player sits out the rest of the brawl (they take no part, enemies ignore them, the camera leaves them out). A stage system, which does not
      exist yet, calls this when a stage starts to bring them back where they fell, on their feet with COOP_REVIVE_HP of their health. Nothing in play calls it today. Returns how many came back. */
   reviveTeam(hpFraction = COOP_REVIVE_HP) {
-    if (!this.brawl || this.matchOver) return 0;
+    if (!this.brawl || this.matchOver || this.locked) return 0;   // locked: the whole party is down and the knock-out delay is running, the brawl must end
     let revived = 0;
     for (let k = 0; k < this.partySize; k++) {
       const member = this.fighters[k];
@@ -7856,7 +7867,10 @@ class MatchSim {
     else if (a.alive && b.alive) {
       const ha = a.hp / a.maxHp, hb = b.hp / b.maxHp;
       if (Math.abs(ha - hb) > 0.0005) winner = ha > hb ? 0 : 1;
-      else if (this.decider) winner = a.stam >= b.stam ? 0 : 1;
+      else if (this.decider) {   // the same health share: the one with more stamina (as a share of its own maximum) wins; a tie there is a draw and the round is played again
+        const sa = a.stam / a.maxStam, sb = b.stam / b.maxStam;
+        if (Math.abs(sa - sb) > 0.0005) winner = sa > sb ? 0 : 1;
+      }
     }
     this.roundWinner = winner;
     if (winner >= 0) this.wins[winner]++; else { this.wins[0]++; this.wins[1]++; }
@@ -7939,6 +7953,8 @@ const SimRunner = {
   run(opts) {
     const cfg = Object.assign({ playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard', seed: 1, winsNeeded: 2, timer: 60 }, opts);
     if (!ARENAS[cfg.arenaId] || !ROSTER_BY_ID[cfg.playerId] || !ROSTER_BY_ID[cfg.opponentId]) return { error: 'Unknown arena or fighter id' };
+    cfg.winsNeeded = Math.max(1, Math.floor(finite(cfg.winsNeeded, 2)));   // a bad value must not run to the time cap (NaN) or turn into best-of-3 (0)
+    cfg.timer = Math.max(0, finite(cfg.timer, 60));
     const savedHandlers = Events.handlers, savedReduced = Settings.v.reducedMotion;
     Events.handlers = {};   // only this run's listeners: the menu scene, sound and HUD never see the simulated match
     Settings.v.reducedMotion = false;   // reduced motion shortens hitstop; balance numbers must not depend on a viewer setting
@@ -7951,7 +7967,7 @@ const SimRunner = {
       for (const name in cfg.listeners || {}) Events.on(name, cfg.listeners[name]);
       // cfg.enemies (a count or a list of fighter ids) makes it a brawl: the player against that many CPU enemies, ended by one side being wiped out
       m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
-        cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: opts.timer === undefined ? 0 : opts.timer } : null));   // a brawl has no clock unless asked for one (time up = the players lose)
+        cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null));   // a brawl has no clock unless asked for one (time up = the players lose)
       const count = m.fighters.length;
       if (count !== 2) damage = m.fighters.map(() => ({}));
       m.controllers[0] = new AIController(m.fighters[0].profile, cfg.difficulty1 || cfg.difficulty);
@@ -9163,7 +9179,7 @@ const UI = {
         this.hideScreen();
         if (![GS.PAUSED, GS.COUNTDOWN, GS.FIGHT, GS.ROUND_END].includes(e.from)) this.startMatchMusic();
         break;
-      case GS.PAUSED: this.stack = []; this.go('pause'); this.guardUntil = performance.now() + 350; break;
+      case GS.PAUSED: this.stack = []; this.go('pause'); this.guardUntil = performance.now() + 350; this.syncPadPrev(); break;   // a pad button still down from the fight must be released before it can press Resume
       case GS.ROUND_END: break;
       case GS.VICTORY: this.victoryBanner(); Music.stop(); break;
       case GS.DEFEAT: this.banner('DEFEAT', '', 3000); Music.stop(); break;
@@ -9265,11 +9281,11 @@ const UI = {
     const fn = this['screen_' + this.current];
     root.innerHTML = fn ? fn.call(this) : '';
     const items = this.navItems();
-    const def = root.querySelector('[data-default]');
+    const def = root.querySelector('[data-default]:not([disabled])');   // a disabled default (Choose arena before anyone joined) cannot take focus
     const target = keepFocus ? items[Math.min(idx, items.length - 1)] : (def || items[0]);
     if (target) target.focus({ preventScroll: false });
   },
-  navItems() { return Array.from(this.dom.screens.querySelectorAll('[data-nav]')); },
+  navItems() { return Array.from(this.dom.screens.querySelectorAll('[data-nav]')).filter((el) => !el.disabled); },   // a disabled button cannot take focus: the arrows would stick on the one before it
   fatalShown() { return !this.dom.fatal.hidden; },
   moveFocus(dir) {
     const items = this.navItems();
@@ -9306,7 +9322,7 @@ const UI = {
       const dir = (k === 'ArrowRight' || k === 'KeyD') ? 1 : -1;
       if (isOpt) { e.preventDefault(); this.adjust(el, dir); } else if (el && el.classList.contains('card')) { e.preventDefault(); this.moveFocus(dir); }
     } else if (k === 'Enter' || k === 'Space') {
-      if (performance.now() < this.guardUntil) { e.preventDefault(); return; }
+      if (e.repeat || performance.now() < this.guardUntil) { e.preventDefault(); return; }   // a held Enter must not walk through menus
       if (isOpt) { e.preventDefault(); this.adjust(el, 1, true); } else if (el && el.tagName === 'BUTTON') { e.preventDefault(); el.click(); }
     } else if (k === 'Escape' || k === 'Backspace') {
       if (e.repeat) return;
@@ -9748,7 +9764,7 @@ const UI = {
       h += this.optRow(def.label, text, 'data-set="' + key + '"', '<button class="mi" style="display:inline;width:auto;margin:0 .4em;padding:.1em .5em;min-height:0" tabindex="-1" aria-label="decrease" data-act="dec:' + key + '">&#9664;</button>').replace('</span></div>', '<button class="mi" style="display:inline;width:auto;margin:0 0 0 .4em;padding:.1em .5em;min-height:0" tabindex="-1" aria-label="increase" data-act="inc:' + key + '">&#9654;</button></span></div>');
       if (def.hint) h += '<p class="hint" style="margin:.1em 0 .6em">' + esc(def.hint) + '</p>';
     }
-    if (!Store.ok) h += '<p class="hint">Browser storage is unavailable: settings and progress will not be kept after closing the page.</p>';
+    if (!Store.ok || Store.failure) h += '<p class="hint">Browser storage is unavailable: settings and progress will not be kept after closing the page.</p>';
     const fullscreen = Device.canFullscreen();
     if (!fullscreen && !Device.standalone()) h += '<p class="hint">' + esc(Device.fullscreenHint()) + '.</p>';
     h += '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button>' + (fullscreen ? '<button class="mi" style="width:auto" data-nav data-act="fullscreen">Fullscreen</button>' : '') + '<button class="mi" style="width:auto" data-nav data-act="resetSettings">Reset to defaults</button></div></div></section>';
@@ -10243,7 +10259,9 @@ const UI = {
   applyTouchVisibility() {
     const want = this.touchWanted() && !Inputs.coop;   // a co-op has keyboards and gamepads only (P4-07)
     const inMatch = [GS.COUNTDOWN, GS.FIGHT].includes(Game.state);
-    this.dom.touch.hidden = !(want && inMatch);
+    const hide = !(want && inMatch);
+    if (hide && !this.dom.touch.hidden) { Input.releaseTouch(); Events.emit('inputReleased'); }   // pause or round end: a finger still down on a button or the stick never sends its release
+    this.dom.touch.hidden = hide;
     if (this.dom.pauseBtn) this.dom.pauseBtn.hidden = want;
     if (this.dom.training) this.dom.training.classList.toggle('touch', want && inMatch);
     if (want && inMatch && Input.lastDevice === 'keyboard' && !Input.kb.size) Input.lastDevice = 'touch';   // hints name the on-screen buttons from the first fight
@@ -10265,7 +10283,7 @@ const UI = {
       'fps ' + (1000 / Math.max(1, Diag.frameMs)).toFixed(0) + ' frame ' + Diag.frameMs.toFixed(1) + 'ms p50 ' + Diag.framePercentile(0.5).toFixed(1) + ' p95 ' + Diag.framePercentile(0.95).toFixed(1) + ' sim ' + Diag.simMs.toFixed(2) + 'ms capped ' + Diag.cappedSteps + mem + '\n' +
       'draws ' + st.draws + ' inst ' + st.instances + ' culled ' + st.culled + ' res ' + R.width + 'x' + R.height + ' q ' + Quality.level + ' s' + R.scale.toFixed(2) + ' gpu ' + GPU.tier + ' msaa ' + (R.antialias ? 'on' : 'off') + '\n' +
       'particles ' + FX.active + ' debris ' + Debris.active + ' voices ' + Sound.voices + ' audio ' + (Sound.ctx ? Sound.ctx.state : 'none') + '\n' +
-      'illegal transitions ' + Diag.illegalTransitions + ' errors ' + Diag.errors + ' listeners ' + Events.count() + ' storage ' + (Store.ok ? 'ok' : 'memory') + '\n' +
+      'illegal transitions ' + Diag.illegalTransitions + ' errors ' + Diag.errors + ' listeners ' + Events.count() + ' storage ' + (Store.ok && !Store.failure ? 'ok' : 'memory') + '\n' +
       'pad ' + Inputs.players.map((p) => (p.padInfo.connected ? p.padInfo.name.slice(0, 30) : 'none')).join(' / ') + ' startup ' + Diag.startupMs.toFixed(0) + 'ms\n' +
       (m ? 'tick ' + m.tick + ' hitstop ' + m.hitStop + ' P1 ' + m.fighters[0].state + ' P2 ' + m.fighters[1].state + '\n' : '') +
       Diag.logs.slice(-5).join('\n');
@@ -11251,8 +11269,10 @@ function installGlobalHandlers() {
   const onRotate = () => { setTimeout(queueResize, 150); setTimeout(queueResize, 500); };
   window.addEventListener('orientationchange', onRotate);
   if (screen.orientation && screen.orientation.addEventListener) screen.orientation.addEventListener('change', onRotate);
-  document.addEventListener('fullscreenchange', queueResize);
-  document.addEventListener('webkitfullscreenchange', queueResize);
+  // Esc in fullscreen only leaves fullscreen (the page never sees the key): in a match that opens the pause screen
+  const onFullscreenChange = () => { queueResize(); if (!Device.fullscreenElement()) Game.pause(); };
+  document.addEventListener('fullscreenchange', onFullscreenChange);
+  document.addEventListener('webkitfullscreenchange', onFullscreenChange);
   if (window.visualViewport) window.visualViewport.addEventListener('resize', queueResize);
   document.addEventListener('focusout', (e) => { if (/^(INPUT|TEXTAREA)$/.test(e.target.tagName)) queueResize(); });
   document.addEventListener('visibilitychange', () => {
@@ -11281,7 +11301,7 @@ async function boot() {
     status('Preparing effects and physics pools...', 0.6); await nextFrame();
     Debris.init(); FX.init();
     status('Initialising input and audio...', 0.8); await nextFrame();
-    Inputs.init(); Sound.wire(); Effects.init(); UI.init(); installGlobalHandlers();
+    Inputs.init(); Sound.wire(); Effects.init(); UI.init(); installGlobalHandlers(); Store.reportFailure();
     status('Ready', 1); await nextFrame();
     Showcase.set('warehouse', 'kai', 'mara', false);
     Diag.startupMs = performance.now() - t0;
