@@ -1,0 +1,228 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; media-src data: blob:; connect-src 'self'">
+<meta name="theme-color" content="#0e1116">
+<meta name="color-scheme" content="dark">
+<meta name="description" content="Finger Lickin Music: a single-file four-button music game with free play, a multitrack studio, MIDI import, a 3D band, dance mode and optional multiplayer.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Finger Lickin Music">
+<meta name="format-detection" content="telephone=no">
+<link rel="icon" href="data:,">
+<title>Finger Lickin Music</title>
+<style>
+/* ==== S00 tokens ==== */
+:root {
+  /* palette: surfaces */
+  --c-bg: #0e1116;          /* page and stage void */
+  --c-bg-2: #151a21;        /* menu backdrop, list backgrounds */
+  --c-panel: #1c232d;       /* panels, cards, dialogs */
+  --c-panel-2: #242d39;     /* nested panels, hovered rows, inputs */
+  --c-line: #33404f;        /* borders, dividers, slider tracks */
+  /* palette: text */
+  --c-text: #eef2f7;        /* primary text */
+  --c-text-muted: #9aa8b8;  /* labels, secondary text, units */
+  --c-text-dim: #68768a;    /* disabled text and icons */
+  /* palette: semantic */
+  --c-accent: #ff9f43;      /* primary action, selection, "spotlight" amber */
+  --c-accent-ink: #1a1000;  /* text on accent */
+  --c-accent-2: #4cc3e6;    /* secondary emphasis, links, informational badges */
+  --c-ok: #46d17a;          /* success, saved, connected */
+  --c-warn: #f5c84a;        /* warnings, Partial compatibility, unsaved */
+  --c-error: #ff5c5c;       /* errors, Unsupported, destructive actions */
+  --c-focus: #7fd4ff;       /* keyboard focus ring */
+  --c-overlay: rgba(8, 10, 14, 0.72); /* dialog backdrop */
+  /* gameplay: lanes (color plus glyph; glyph ids in 3.2.5) */
+  --lane-0: #4da3ff;        /* circle   (lane 0, dance left)  */
+  --lane-1: #5bd672;        /* triangle (lane 1, dance down)  */
+  --lane-2: #ffd24a;        /* square   (lane 2, dance up)    */
+  --lane-3: #ff6b6b;        /* diamond  (lane 3, dance right) */
+  --lane-outline: rgba(255, 255, 255, 0.0); /* 0 alpha normally; 1 in high contrast */
+  /* gameplay: judgments */
+  --j-perfect: #ffe066;
+  --j-great: #4cc3e6;
+  --j-good: #46d17a;
+  --j-miss: #ff5c5c;
+  /* typography */
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, Menlo, Consolas, monospace; /* codes, diagnostics, invite codes */
+  --fs-1: 0.75rem;          /* 12 px at --ui 1: captions, diagnostics */
+  --fs-2: 0.875rem;         /* 14 px: labels, secondary text, table cells */
+  --fs-3: 1rem;             /* 16 px: body, buttons, inputs */
+  --fs-4: 1.25rem;          /* 20 px: section titles, HUD labels */
+  --fs-5: 1.75rem;          /* 28 px: screen titles, score */
+  --fs-6: 2.5rem;           /* 40 px: game title, judgment text, combo */
+  --lh-tight: 1.2;
+  --lh-body: 1.45;
+  --fw-regular: 400;
+  --fw-medium: 600;
+  --fw-bold: 700;
+  /* spacing (rem so it follows --ui) */
+  --sp-1: 0.25rem;          /* 4 px */
+  --sp-2: 0.5rem;           /* 8 px: minimum gap between touch targets */
+  --sp-3: 0.75rem;          /* 12 px */
+  --sp-4: 1rem;             /* 16 px */
+  --sp-5: 1.5rem;          /* 24 px */
+  --sp-6: 2rem;             /* 32 px */
+  --sp-7: 3rem;             /* 48 px */
+  --touch-min: max(56px, 3.5rem); /* minimum touch target side */
+  /* radii, borders, shadows */
+  --r-1: 4px;
+  --r-2: 8px;
+  --r-3: 14px;
+  --r-pill: 999px;
+  --bw: 1px;
+  --border: var(--bw) solid var(--c-line);
+  --sh-1: 0 1px 2px rgba(0, 0, 0, 0.45);
+  --sh-2: 0 8px 28px rgba(0, 0, 0, 0.5);
+  /* motion */
+  --t-fast: 90ms;
+  --t-base: 160ms;
+  --t-slow: 280ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  /* safe areas */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  /* UI scale: set by M-26 from the setting video.uiScale (0.8 .. 1.5, step 0.05) */
+  --ui: 1;
+  /* layering */
+  --z-view: 0;
+  --z-overlay: 10;
+  --z-hud: 20;
+  --z-touch: 30;
+  --z-toast: 40;
+  --z-rotate: 50;
+  --z-fatal: 100;
+}
+html { font-size: calc(16px * var(--ui)); }
+/* reduced motion: media query (before JS runs) and the class M-26 applies; motion-full forces full motion */
+@media (prefers-reduced-motion: reduce) {
+  html:not(.motion-full) { --t-fast: 0ms; --t-base: 0ms; --t-slow: 0ms; }
+}
+html.reduced-motion { --t-fast: 0ms; --t-base: 0ms; --t-slow: 0ms; }
+/* high contrast: pure surfaces, white outlines on lanes, stronger borders */
+html.high-contrast {
+  --c-bg: #000000; --c-bg-2: #000000; --c-panel: #0a0a0a; --c-panel-2: #161616; --c-line: #d0d0d0;
+  --c-text: #ffffff; --c-text-muted: #e0e0e0; --c-text-dim: #a0a0a0;
+  --c-accent: #ffb13b; --c-accent-2: #5fd3ff; --c-ok: #4dff8a; --c-warn: #ffe14a; --c-error: #ff6a6a;
+  --c-focus: #ffffff; --lane-outline: rgba(255, 255, 255, 1); --bw: 2px;
+  --sh-1: none; --sh-2: none;
+}
+/* ==== S01 base ==== */
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--c-bg); color: var(--c-text);
+  font-family: var(--font); font-size: var(--fs-3); line-height: var(--lh-body);
+  -webkit-tap-highlight-color: transparent; overscroll-behavior: none; }
+body { touch-action: none; }
+body.in-game, body.in-game * { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+input, textarea, .code { user-select: text; -webkit-user-select: text; -webkit-touch-callout: default; touch-action: auto; }
+#app { position: fixed; inset: 0; }
+#view, #flat { position: absolute; inset: 0; width: 100%; height: 100%; display: block; z-index: var(--z-view); touch-action: none; }
+#flat { display: none; }
+body.has-flat #flat { display: block; }
+body.has-flat #view { display: none; }
+#overlay { position: absolute; inset: 0; z-index: var(--z-overlay); pointer-events: none;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left); }
+#overlay > * { pointer-events: auto; }
+#hud { position: absolute; inset: 0; z-index: var(--z-hud); pointer-events: none;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left); }
+#hud > .hud-button { pointer-events: auto; }
+#touch { position: absolute; inset: 0; z-index: var(--z-touch); pointer-events: none; touch-action: none; }
+#touch > .pad { pointer-events: auto; touch-action: none; }
+#toast { position: absolute; left: 50%; bottom: calc(var(--safe-bottom) + var(--sp-5)); transform: translateX(-50%);
+  z-index: var(--z-toast); display: flex; flex-direction: column; gap: var(--sp-2); pointer-events: none; max-width: min(92vw, 36rem); }
+#rotate, #fatal { position: absolute; inset: 0; display: none; align-items: center; justify-content: center; text-align: center;
+  background: var(--c-bg); padding: calc(var(--sp-5) + var(--safe-top)) calc(var(--sp-5) + var(--safe-right))
+  calc(var(--sp-5) + var(--safe-bottom)) calc(var(--sp-5) + var(--safe-left)); }
+#rotate { z-index: var(--z-rotate); }
+#fatal { z-index: var(--z-fatal); }
+#rotate.show, #fatal.show { display: flex; }
+[hidden] { display: none !important; }
+:focus { outline: none; }
+:focus-visible, .focus-ring { outline: 2px solid var(--c-focus); outline-offset: 2px; border-radius: var(--r-1); }
+.visually-hidden { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.glyph { width: 1em; height: 1em; fill: currentColor; stroke: var(--lane-outline); stroke-width: 1.5; vertical-align: -0.125em; }
+.code { font-family: var(--font-mono); font-size: var(--fs-2); }
+.num { font-variant-numeric: tabular-nums; }
+.noscript-fatal { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; padding: var(--sp-6);
+  background: var(--c-bg); color: var(--c-text); font: var(--fs-4) var(--font); text-align: center; z-index: var(--z-fatal); }
+body.touch .hover-only { display: none; }
+/* ==== S02 widgets ==== */
+/* ==== S03 screens ==== */
+/* ==== S04 hud-touch ==== */
+/* ==== S05 responsive ==== */
+</style>
+</head>
+<body class="landscape">
+<noscript><div class="noscript-fatal">Finger Lickin Music needs JavaScript. Enable it and reload the page.</div></noscript>
+<div id="app">
+  <canvas id="view" aria-hidden="true"></canvas>
+  <canvas id="flat" aria-hidden="true"></canvas>
+  <div id="overlay" role="main" aria-label="Finger Lickin Music"></div>
+  <div id="hud" aria-live="off" hidden></div>
+  <div id="touch" hidden></div>
+  <div id="toast" role="status" aria-live="polite" aria-atomic="false"></div>
+  <div id="rotate" role="dialog" aria-labelledby="rotate-title">
+    <div>
+      <h2 id="rotate-title">Landscape recommended</h2>
+      <p>This mode works best with the device sideways. You can keep playing in portrait.</p>
+      <button type="button" id="rotate-dismiss">Continue in portrait</button>
+    </div>
+  </div>
+  <div id="fatal" role="alertdialog" aria-modal="true" aria-labelledby="fatal-title" aria-describedby="fatal-text">
+    <div>
+      <h2 id="fatal-title">Finger Lickin Music could not start</h2>
+      <p id="fatal-text" class="code"></p>
+      <p id="fatal-hint">Reload the page to try again. If this keeps happening, use "Copy diagnostics" and report it.</p>
+      <p><button type="button" id="fatal-reload">Reload</button> <button type="button" id="fatal-copy">Copy diagnostics</button></p>
+    </div>
+  </div>
+</div>
+<svg id="glyphs" width="0" height="0" aria-hidden="true" focusable="false" style="position:absolute">
+  <symbol id="g-lane0" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></symbol>
+  <symbol id="g-lane1" viewBox="0 0 24 24"><path d="M12 3.5 L21 20.5 L3 20.5 Z"/></symbol>
+  <symbol id="g-lane2" viewBox="0 0 24 24"><rect x="4.5" y="4.5" width="15" height="15"/></symbol>
+  <symbol id="g-lane3" viewBox="0 0 24 24"><path d="M12 2.5 L21.5 12 L12 21.5 L2.5 12 Z"/></symbol>
+  <symbol id="g-left" viewBox="0 0 24 24"><path d="M14 4 L6 12 L14 20 L14 15 L20 15 L20 9 L14 9 Z"/></symbol>
+  <symbol id="g-down" viewBox="0 0 24 24"><path d="M4 10 L12 18 L20 10 L15 10 L15 4 L9 4 L9 10 Z"/></symbol>
+  <symbol id="g-up" viewBox="0 0 24 24"><path d="M4 14 L12 6 L20 14 L15 14 L15 20 L9 20 L9 14 Z"/></symbol>
+  <symbol id="g-right" viewBox="0 0 24 24"><path d="M10 4 L18 12 L10 20 L10 15 L4 15 L4 9 L10 9 Z"/></symbol>
+</svg>
+<script>
+'use strict';
+(function () {
+  var early = window.__flmEarlyErrors = [];
+  var TOO_OLD_TEXT = 'This browser is too old to run Finger Lickin Music.';   /* E-CAP-004 (Part 10.6) */
+  function show(message) {
+    var fatal = document.getElementById('fatal'), text = document.getElementById('fatal-text');
+    if (!fatal || !text) return;
+    text.style.whiteSpace = 'pre-line';                   /* the second line comes from the newline below */
+    text.textContent = TOO_OLD_TEXT + '\n' + String(message);
+    fatal.className = 'show';
+  }
+  window.addEventListener('error', function (e) {
+    if (window.FLM && window.FLM.Core) return;           /* M-01 has taken over */
+    if (early.length < 20) early.push(String(e && e.message || 'error'));
+    show(e && e.message || 'Script error');
+  });
+  window.addEventListener('unhandledrejection', function (e) {
+    if (window.FLM && window.FLM.Core) return;
+    var reason = e && e.reason;
+    if (early.length < 20) early.push(String(reason && reason.message || reason || 'rejection'));
+  });
+  var reload = document.getElementById('fatal-reload');
+  if (reload) reload.addEventListener('click', function () { location.reload(); });
+})();
+</script>
+<script>
+/*@@SCRIPT@@*/
+</script>
+</body>
+</html>
