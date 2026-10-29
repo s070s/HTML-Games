@@ -549,7 +549,8 @@ const SETTING_DEFS = {
   autoAssist: { type: 'bool', def: false, label: 'Auto-assist', hint: 'Easier attack strings for you (not the CPU): the next move plays even after a miss, and you get twice as long to press it.' },
   friendlyFire: { type: 'bool', def: false, label: 'Friendly fire (co-op)', hint: 'Co-op brawls only, from the next brawl: with it on, the players (teammates) can hurt each other. CPU enemies never hurt each other.' },
   items: { type: 'bool', def: true, label: 'Items', hint: 'Weapons and objects lying around the arena that you can pick up, use and throw. From the next match; off keeps every fight bare-handed.' },
-  hazards: { type: 'bool', def: true, label: 'Hazards', hint: 'Dangers built into the arena (electric panel, steam pipe, falling load, glass wall, fire barrel) that hurt anyone near them, you included. From the next match; off keeps the arenas safe.' },
+  hazards: { type: 'bool', def: true, label: 'Hazards', hint: 'Dangers built into the arena (electric panel, steam pipe, falling load, glass wall, fire barrel, open drop, passing train) that hurt anyone near them, you included. From the next match; off keeps the arenas safe.' },
+  ringOut: { type: 'bool', def: false, label: 'Ring-out', hint: '1v1 fights on levels with a ring edge (City Fight Gym, City Rooftop, Construction Site, Night Club): a fighter who stands anywhere outside the ring (on the floor or on anything) loses the round. Off keeps both fighters inside it. Versus and Free Fight only; from the next match.' },
   showStats: { type: 'bool', def: false, label: 'Performance overlay' },
 };
 const Settings = {
@@ -1647,6 +1648,49 @@ vec3 floorPattern(highp vec2 p){
     c = mix(c, srgb(46.0,86.0,146.0), rectMask(m, vec2(3.95, 3.45), w));
     return mix(c, srgb(226.0,228.0,232.0), rectMask(m, vec2(0.05, 3.45), w));
   }
+  if(uFloor > 3.5){
+    vec3 c;
+    highp vec2 m;
+    if(uFloor < 4.5){   // rooftop: tar, and the painted helipad (1, 0) with its H
+      c = mix(srgb(52.0,55.0,60.0), srgb(70.0,73.0,78.0), rectMask(p, vec2(10.8, 6.8), w));
+      m = p - vec2(1.0, 0.0);
+      c = mix(c, srgb(236.0,236.0,226.0), rectMask(m, vec2(4.1, 4.1), w));
+      c = mix(c, srgb(60.0,63.0,68.0), rectMask(m, vec2(3.9, 3.9), w));
+      return mix(c, srgb(236.0,206.0,60.0), max(rectMask(m - vec2(-1.0, 0.0), vec2(0.18, 1.6), w), max(rectMask(m - vec2(1.0, 0.0), vec2(0.18, 1.6), w), rectMask(m, vec2(1.0, 0.18), w))));
+    }
+    if(uFloor < 5.5){   // subway: white tiles, the yellow edge line, the track bed with sleepers and two rails
+      float seam = max(edgeMask(abs(fract(p.x + 0.5) - 0.5) - 0.02, w), edgeMask(abs(fract(p.y + 0.5) - 0.5) - 0.02, w));
+      c = mix(srgb(176.0,181.0,185.0), srgb(122.0,127.0,133.0), seam);
+      m = p - vec2(0.0, -5.3);
+      c = mix(c, srgb(38.0,36.0,36.0), rectMask(m, vec2(13.0, 1.2), w));
+      c = mix(c, srgb(88.0,66.0,46.0), edgeMask(abs(fract(p.x / 0.7) - 0.5) * 0.7 - 0.12, w) * rectMask(m, vec2(13.0, 0.95), w));
+      c = mix(c, srgb(150.0,153.0,159.0), max(rectMask(m - vec2(0.0, -0.7), vec2(13.0, 0.06), w), rectMask(m - vec2(0.0, 0.7), vec2(13.0, 0.06), w)));
+      return mix(c, srgb(224.0,192.0,42.0), rectMask(p - vec2(0.0, -3.95), vec2(13.0, 0.17), w));
+    }
+    if(uFloor < 6.5){   // garage: grey concrete, white bay lines in two bands, oil stains
+      c = mix(srgb(74.0,77.0,76.0), srgb(98.0,101.0,99.0), rectMask(p, vec2(11.25, 6.75), w));
+      c = mix(c, srgb(58.0,59.0,60.0), discMask(p, vec2(-1.5, 0.8), 0.9, w));
+      c = mix(c, srgb(58.0,59.0,60.0), discMask(p, vec2(5.5, -1.0), 0.6, w));
+      float bay = edgeMask(abs(fract((p.x + 1.4) / 2.8 + 0.5) - 0.5) * 2.8 - 0.05, w) * max(rectMask(p - vec2(0.0, 5.3), vec2(11.5, 1.7), w), rectMask(p - vec2(7.0, -5.3), vec2(4.5, 1.7), w));
+      bay = max(bay, max(rectMask(p - vec2(0.0, 3.6), vec2(11.5, 0.05), w), rectMask(p - vec2(7.0, -3.6), vec2(4.5, 0.05), w)));
+      return mix(c, srgb(214.0,214.0,204.0), bay);
+    }
+    if(uFloor < 7.5){   // construction: mud, the poured slab with its joints, the open lift shaft in the east
+      c = mix(srgb(88.0,72.0,56.0), srgb(112.0,92.0,70.0), discMask(p, vec2(-8.0, -3.0), 2.6, w));
+      m = p - vec2(-1.0, 1.0);   // the slab is the ring (-1, 1, 5.5, 4), its edge taped yellow
+      c = mix(c, srgb(224.0,178.0,24.0), rectMask(m, vec2(5.66, 4.16), w));
+      c = mix(c, mix(srgb(150.0,148.0,142.0), srgb(118.0,116.0,110.0), edgeMask(abs(fract(m.x / 3.0 + 0.5) - 0.5) * 3.0 - 0.03, w)), rectMask(m, vec2(5.5, 4.0), w));
+      return mix(c, srgb(14.0,14.0,16.0), rectMask(p - vec2(10.7, 0.0), vec2(1.3, 2.0), w));
+    }
+    // club: a dark floor and the dance floor (0, 1.2) of lit squares in three colours
+    c = mix(srgb(18.0,12.0,26.0), srgb(28.0,19.0,38.0), rectMask(p, vec2(10.8, 6.8), w));
+    m = p - vec2(0.0, 1.2) + vec2(4.5, 3.5);
+    highp vec2 q = floor(m), f = abs(fract(m) - 0.5);
+    float t = mod(q.x + q.y * 2.0, 3.0);
+    vec3 sq = t < 0.5 ? srgb(214.0,40.0,150.0) : (t < 1.5 ? srgb(40.0,100.0,230.0) : srgb(235.0,160.0,40.0));
+    c = mix(c, srgb(10.0,8.0,16.0), rectMask(m - vec2(4.5, 3.5), vec2(4.6, 3.6), w));
+    return mix(c, sq * 0.8, edgeMask(max(f.x, f.y) - 0.44, w) * rectMask(m - vec2(4.5, 3.5), vec2(4.5, 3.5), w));
+  }
   vec3 c = mix(srgb(23.0,23.0,26.0), srgb(45.0,46.0,51.0), rectMask(p, vec2(9.8, 6.3), w));
   c = mix(c, srgb(38.0,38.0,43.0), discMask(p, vec2(-2.2, 1.4), 0.8, w));
   c = mix(c, srgb(61.0,22.0,22.0), discMask(p, vec2(3.1, -1.2), 0.6, w));
@@ -2301,6 +2345,9 @@ const CAMERA_EYE_SPREAD = 0.3;        // m: a view only counts as clear when it 
 const CAMERA_OCCLUSION_TRIES = [[0.25, 0, 0], [-0.25, 0, 0], [0.5, 0, 0], [-0.5, 0, 0], [0, 0.3, 0], [0.25, 0.3, 0], [-0.25, 0.3, 0], [0, 0.7, 0],
   [0.25, 0, 1], [-0.25, 0, 1], [0.5, 0, 1], [-0.5, 0, 1], [0, 0.7, 1], [0.25, 0.7, 1], [-0.25, 0.7, 1]];
 const CAMERA_SWING_ELEV_RATE = 8, CAMERA_SWING_TARGET_RATE = 10;   // 1/s: how fast pitch and aim follow a swing (a normal drift uses 2 and 6)
+const CAMERA_PROP_FADE = 1.0, CAMERA_CEILING_FROM = 3.0;   // m: a ceiling prop (its underside this high) fades out when the eye passes within this of it, so a light tube never fills the picture (P4-09)
+const CAMERA_AIM_REACH = 0.95;       // share of the half size of the room the camera may aim out to (the fighters at a wall are in the middle of the picture, the eye is kept inside the room)
+const CAMERA_WALL_MARGIN = 0.6;       // m: the eye stays this far inside the side and back walls of the room (P4-09); the front is open, as the camera looks in through the missing wall
 const CAMERA_EDGE_PAD = 30;           // px: how far inside the screen edge the arrow for an off-screen attacker sits
 const Camera = {
   pos: [0, 4, 9], target: [0, 1, 0], baseFov: 0.8, fov: 0.8, az: 0.2, dist: 8, elev: 0.46,
@@ -2404,9 +2451,9 @@ const Camera = {
     const axis = Math.hypot(dx, dz), sep = spread === undefined ? axis : spread;
     let tx = mx, tz = mz;
     const ty = group ? (box.minY + box.maxY + CAMERA_FIGHTER_HEIGHT) * 0.5 : 1.0 + Math.max(0, maxY) * 0.35;
-    tx = clamp(tx, -bx * 0.8, bx * 0.8); tz = clamp(tz, -bz * 0.8, bz * 0.8);
+    tx = clamp(tx, -bx * CAMERA_AIM_REACH, bx * CAMERA_AIM_REACH); tz = clamp(tz, -bz * CAMERA_AIM_REACH, bz * CAMERA_AIM_REACH);
     const normalX = tx, normalZ = tz, swing = group && (this.occAz !== 0 || this.occElev !== 0 || this.occFocus !== 0);   // swing: the camera is away from its normal view because scenery hid a player
-    if (swing && this.occFocus) { tx = clamp(box.playerX / this.playerCount, -bx * 0.8, bx * 0.8); tz = clamp(box.playerZ / this.playerCount, -bz * 0.8, bz * 0.8); }
+    if (swing && this.occFocus) { tx = clamp(box.playerX / this.playerCount, -bx * CAMERA_AIM_REACH, bx * CAMERA_AIM_REACH); tz = clamp(box.playerZ / this.playerCount, -bz * CAMERA_AIM_REACH, bz * CAMERA_AIM_REACH); }
     // azimuth: stay on the +z side, follow the fighter axis softly
     let azWanted = CAMERA_AZ_BIAS;
     if (axis > 0.3) {
@@ -2437,12 +2484,18 @@ const Camera = {
     this.finish(dt, bx, bz);
   },
 
-  /* Where the eye sits for a pose around the aim point (tx, ty, tz): the clamps keep it inside a box around the arena and above the floor. */
+  /* Where the eye sits for a pose around the aim point (tx, ty, tz), above the floor. It never leaves the room (P4-09): where the pose would put it through a side wall it stays CAMERA_WALL_MARGIN inside it and
+     the rest of the distance is taken in depth (the camera swings in toward straight on, same distance), and it stays inside the back wall. The front of the room is open: the camera looks in over it (up to bz + 12). */
   eyeAt(tx, ty, tz, az, elev, dist, bx, bz, out) {
-    const ce = Math.cos(elev);
-    out[0] = clamp(tx + Math.sin(az) * ce * dist, -(bx + 5), bx + 5);
+    const ce = Math.cos(elev), reach = Math.max(1, bx - CAMERA_WALL_MARGIN), run = ce * dist;
+    let x = tx + Math.sin(az) * run, z = tz + Math.cos(az) * run;
+    if (Math.abs(x) > reach) {   // through a side wall: keep the distance, turn toward straight on
+      x = clamp(x, -reach, reach);
+      z = tz + (Math.cos(az) >= 0 ? 1 : -1) * Math.sqrt(Math.max(0, run * run - (x - tx) * (x - tx)));
+    }
+    out[0] = x;
     out[1] = Math.max(ty + Math.sin(elev) * dist, 1.8);
-    out[2] = clamp(tz + Math.cos(az) * ce * dist, -(bz + 3), bz + 12);
+    out[2] = clamp(z, -(bz - CAMERA_WALL_MARGIN), bz + 12);
     return out;
   },
 
@@ -2506,7 +2559,7 @@ const Camera = {
   /* Whether the pose "normal view (this.base) plus this swing" shows every player clearly (see hidden). */
   poseClear(swingAz, swingElev, focus) {
     const base = this.base, bx = base[4], bz = base[5];
-    const tx = focus ? clamp(this.box.playerX / this.playerCount, -bx * 0.8, bx * 0.8) : base[2], tz = focus ? clamp(this.box.playerZ / this.playerCount, -bz * 0.8, bz * 0.8) : base[3];
+    const tx = focus ? clamp(this.box.playerX / this.playerCount, -bx * CAMERA_AIM_REACH, bx * CAMERA_AIM_REACH) : base[2], tz = focus ? clamp(this.box.playerZ / this.playerCount, -bz * CAMERA_AIM_REACH, bz * CAMERA_AIM_REACH) : base[3];
     const az = clamp(base[0] + swingAz, CAMERA_AZ_BIAS - CAMERA_AZ_LIMIT, CAMERA_AZ_BIAS + CAMERA_AZ_LIMIT), elev = Math.min(base[1] + swingElev, CAMERA_ELEV_MAX);
     const eye = this.eyeAt(tx, this.target[1], tz, az, elev, this.dist, bx, bz, this.eye);
     return !this.hidden(eye[0], eye[1], eye[2], CAMERA_EYE_SPREAD, tx, tz);
@@ -2610,11 +2663,12 @@ const DEBRIS_REPLACE_FRAME = 4; // stage index at which the intact collider is s
 /* ---------- arenas (pristine definitions; live state is built from them) ----------
    items (P7-02): where weapons lie, [item id, x, z, surface height, host object id]: on the floor (0), on a table-high top (crate, bench, barrier) or mounted high on a pillar or post (1.3 to 1.4); an item with a host falls when the host breaks.
    objects (P8): plain rows, and `builds` rows (stairs, scaffolds) that builtOf() expands; a row may also have y (it stands on a deck), on (the id it rests on), weak (the weight that breaks it), fixed (takes no damage), type 'deck' (see builtOf, Appendix C "Levels").
+   ring (P8-05): [x, z, hx, hz, ringOut] the 1v1 fighting area (centre and half sizes), ringOut = 1 where leaving it can lose the round (the Ring-out setting); waves (P8-03, brawler levels): [count, x, z, rival, second entry [x, z]] rows, the first stands in the level at the start.
    hazards (P7-05): the stage dangers, [hazard type (HAZARDS), x, z, options]: yaw (the way a steam jet blows), tx / tz (where the trigger post stands when it is not at x, z), hx / hz (half sizes of a floor area), obj (the glass wall's scenery id). */
 const ARENAS = {
   warehouse: {
     id: 'warehouse', name: 'Industrial Warehouse', blurb: 'A big hall: crates, racks and a shipping container, a steel mezzanine office up a stair, a timber loading dock that gives way. Echoing.',
-    bounds: { x: 11.5, z: 6.5 }, spawn: 2.6, camera: { minDist: 6.4, maxDist: 14.5, elev: 0.5 },
+    bounds: { x: 11.5, z: 6.5 }, spawn: 2.6, ring: [0, 0, 6, 4, 0], camera: { minDist: 6.4, maxDist: 14.5, elev: 0.5 },
     env: { clear: [0.05, 0.06, 0.08], sky: [0.5, 0.55, 0.64], ground: [0.24, 0.23, 0.22], lightTo: [0.35, 0.85, 0.5], lightCol: [1.0, 0.92, 0.78], fogCol: [0.09, 0.1, 0.13], fog: 0.022, rim: [0.25, 0.35, 0.55], floor: 1,
       pl: [{ pos: [-5, 5.2, -1], r: 15, col: [0.7, 0.55, 0.3] }, { pos: [5, 5.2, -1], r: 15, col: [0.7, 0.55, 0.3] }] },
     audio: { reverb: 1.7, wet: 0.3, bpm: 118, root: 55, mode: 'minor', hum: 60 },
@@ -2644,10 +2698,11 @@ const ARENAS = {
     items: [['pipe', -10.23, -4.2, 1.4, 'rackA'], ['chain', -10.23, -3.8, 1.4, 'rackA'], ['wrench', 0.0, -6.1, 0.9, 'bench'], ['hammer', 0.8, -6.1, 0.9, 'bench'], ['bottle', -5.3, -2.6, 0.95, 'crateA'],
       ['extinguisher', 3.2, -3.28, 1.3, 'pillarR'], ['crate', -1.8, 4.2, 0], ['brick', 2.2, -3.0, 0], ['skateboard', 0.4, 4.1, 0], ['binlid', 6.6, 4.5, 0]],
     hazards: [['panel', 6.0, -1.6], ['steam', -9.8, 0.9, { yaw: Math.PI / 2 }], ['load', -3.8, -3.4, { tx: -3.8, tz: -1.7 }], ['glass', 0, 0, { obj: 'window' }]],
+    waves: [[3, 2.6, 0.4, 0], [4, -6.4, 5.2, 0], [5, 10.0, 1.0, 0], [6, 9.0, -5.2, 1]],
   },
   dojo: {
     id: 'dojo', name: 'City Fight Gym', blurb: 'A martial-arts gym: a taped competition mat, a raised sparring ring, lockers, a mirror wall, glass-block windows and a glass-railed mezzanine. Dry, close sound.',
-    bounds: { x: 10, z: 6 }, spawn: 2.4, camera: { minDist: 6.2, maxDist: 13, elev: 0.46 },
+    bounds: { x: 10, z: 6 }, spawn: 2.4, ring: [1, 0.5, 4, 3.5, 1], camera: { minDist: 6.2, maxDist: 13, elev: 0.46 },
     env: { clear: [0.06, 0.07, 0.1], sky: [0.6, 0.66, 0.76], ground: [0.3, 0.32, 0.36], lightTo: [0.25, 0.9, 0.4], lightCol: [0.94, 0.97, 1.0], fogCol: [0.16, 0.18, 0.22], fog: 0.018, rim: [0.35, 0.45, 0.6], floor: 2,
       pl: [{ pos: [-5, 4.2, -2], r: 14, col: [0.55, 0.68, 0.9] }, { pos: [5, 4.2, -2], r: 14, col: [0.55, 0.68, 0.9] }] },
     audio: { reverb: 0.5, wet: 0.12, bpm: 96, root: 73.4, mode: 'pentatonic', hum: 0 },
@@ -2679,7 +2734,7 @@ const ARENAS = {
   },
   pit: {
     id: 'pit', name: 'Underground Pit', blurb: 'An old boiler-room fight club: a chain-link cage, a bar, a street stair to a landing and a rusty catwalk that will not hold a crowd. Heavy, rumbling sound.',
-    bounds: { x: 10, z: 6.5 }, spawn: 2.4, camera: { minDist: 6.2, maxDist: 13.5, elev: 0.55 },
+    bounds: { x: 10, z: 6.5 }, spawn: 2.4, ring: [0, 0, 4.5, 3.5, 0], camera: { minDist: 6.2, maxDist: 13.5, elev: 0.55 },
     env: { clear: [0.02, 0.02, 0.03], sky: [0.26, 0.28, 0.38], ground: [0.12, 0.1, 0.1], lightTo: [0.2, 0.95, 0.3], lightCol: [0.9, 0.9, 1.0], fogCol: [0.03, 0.03, 0.05], fog: 0.032, rim: [0.8, 0.35, 0.15], floor: 3,
       pl: [{ pos: [-8, 1.6, -4], r: 12, col: [1.0, 0.45, 0.15] }, { pos: [8, 1.6, -4], r: 12, col: [1.0, 0.45, 0.15] }] },
     audio: { reverb: 1.1, wet: 0.24, bpm: 104, root: 49, mode: 'phrygian', hum: 40 },
@@ -2707,8 +2762,169 @@ const ARENAS = {
       ['crate', 5.6, 4.6, 0], ['extinguisher', -5.4, 0.4, 0], ['bottle', -8.8, 2.6, 1.05, 'bar'], ['bottle', -8.8, 4.4, 1.05, 'bar'], ['bat', -9.35, 3.6, 1.3, 'bar']],
     hazards: [['fire', -7.9, -0.6], ['fire', 8.0, 3.2], ['steam', -8.5, -5.6, { yaw: Math.PI / 2 }], ['glass', 0, 0, { obj: 'obsGlass' }]],
   },
+  rooftop: {
+    id: 'rooftop', name: 'City Rooftop', blurb: 'A night roof above the city: a painted helipad, a brick parapet with two broken gaps, a water-tank deck up a stair, a billboard catwalk that will not hold a crowd, a lounge corner. Wind.',
+    bounds: { x: 11, z: 7 }, spawn: 2.4, ring: [1, 0, 4, 4, 1], camera: { minDist: 6.4, maxDist: 14.5, elev: 0.5 },
+    env: { clear: [0.02, 0.03, 0.07], sky: [0.3, 0.38, 0.6], ground: [0.16, 0.17, 0.22], lightTo: [0.3, 0.9, 0.45], lightCol: [0.78, 0.84, 1.0], fogCol: [0.06, 0.09, 0.18], fog: 0.016, rim: [0.2, 0.45, 0.9], floor: 4,
+      pl: [{ pos: [-6, 4.5, -5], r: 13, col: [1.0, 0.8, 0.45] }, { pos: [8, 2.4, 4], r: 11, col: [1.0, 0.7, 0.4] }] },
+    audio: { reverb: 0.4, wet: 0.1, bpm: 110, root: 61.7, mode: 'minor', hum: 0 },
+    objects: [
+      { id: 'tank', type: 'deck', look: 'grate', mat: 'metal', fixed: 1, x: -9, z: -5.25, hx: 2, hz: 1.75, h: 2.0 },
+      { id: 'catwalk', type: 'deck', look: 'grate', mat: 'sheet', weak: 2, x: -5.25, z: -6.45, hx: 1.75, hz: 0.55, h: 2.0 },
+      { id: 'postA', type: 'column', mat: 'metal', y: 2.0, x: -10.6, z: -6.6, hx: 0.14, hz: 0.14, h: 2.6 },
+      { id: 'postB', type: 'column', mat: 'metal', y: 2.0, x: -7.4, z: -6.6, hx: 0.14, hz: 0.14, h: 2.6 },
+      { id: 'parA', type: 'box', look: 'barrier', mat: 'brick', x: -2.75, z: -6.7, hx: 0.75, hz: 0.3, h: 0.85 },
+      { id: 'parB', type: 'box', look: 'barrier', mat: 'brick', x: 4.5, z: -6.7, hx: 2.5, hz: 0.3, h: 0.85 },
+      { id: 'parC', type: 'box', look: 'barrier', mat: 'brick', x: 9.0, z: -6.7, hx: 2.0, hz: 0.3, h: 0.85 },
+      { id: 'parD', type: 'box', look: 'barrier', mat: 'brick', x: 10.7, z: -5.0, hx: 0.3, hz: 2.0, h: 0.85 },
+      { id: 'parE', type: 'box', look: 'barrier', mat: 'brick', x: 10.7, z: 6.0, hx: 0.3, hz: 1.0, h: 0.85 },
+      { id: 'acA', type: 'box', mat: 'sheet', color: '#8d9aa5', x: -8.6, z: -0.5, hx: 0.7, hz: 0.5, h: 1.0 },
+      { id: 'acB', type: 'box', mat: 'sheet', color: '#8d9aa5', x: -8.6, z: 1.4, hx: 0.7, hz: 0.5, h: 1.0 },
+      { id: 'acC', type: 'box', mat: 'sheet', color: '#8d9aa5', x: -6.0, z: 3.0, hx: 0.7, hz: 0.5, h: 1.0 },
+      { id: 'chimney', type: 'column', mat: 'brick', x: 5.8, z: -4.8, hx: 0.45, hz: 0.45, h: 3.4 },
+      { id: 'housing', type: 'box', mat: 'concrete', hpMul: 3, x: 9.2, z: -1.0, hx: 1.8, hz: 2.0, h: 3.2 },
+      { id: 'fireDoor', type: 'panel', look: 'firedoor', mat: 'metal', axis: 'z', x: 7.32, z: -1.0, hx: 0.08, hz: 0.6, h: 2.1 },
+      { id: 'glassDoor', type: 'panel', mat: 'glass', axis: 'x', x: 9.2, z: 1.08, hx: 0.8, hz: 0.08, h: 2.0 },
+      { id: 'sofa', type: 'box', look: 'sofa', mat: 'wood', x: 7.0, z: 3.1, hx: 0.9, hz: 0.45, h: 0.9 },
+      { id: 'table', type: 'box', look: 'table', mat: 'plastic', color: '#d8d8d8', x: 7.0, z: 4.8, hx: 0.6, hz: 0.4, h: 0.75 },
+      { id: 'chairA', type: 'box', look: 'chair', mat: 'plastic', color: '#3a6ea5', x: 5.4, z: 4.8, hx: 0.25, hz: 0.25, h: 0.5 },
+      { id: 'chairB', type: 'box', look: 'chair', mat: 'plastic', color: '#3a6ea5', x: 8.6, z: 4.8, hx: 0.25, hz: 0.25, h: 0.5 },
+      { id: 'binA', type: 'column', mat: 'plastic', color: '#3f4a52', x: -10.7, z: 6.7, hx: 0.3, hz: 0.3, h: 0.8 },
+      { id: 'binB', type: 'column', mat: 'plastic', color: '#3f4a52', x: -9.4, z: 6.7, hx: 0.3, hz: 0.3, h: 0.8 },
+    ],
+    builds: [['stair', 'tankStair', -4.2, -5.4, 3, 1.0, 0, 2.0, 'metal', 'grate', '']],
+    items: [['brick', -2.6, -5.2, 0], ['brick', 2.6, -5.2, 0], ['bottle', 7.0, 4.8, 0.75, 'table'], ['skateboard', 1.5, 2.8, 0], ['chair', -1.0, -2.6, 0], ['pipe', -7.19, -6.6, 3.4, 'postB'],
+      ['binlid', -9.9, 5.4, 0], ['wrench', -8.6, 1.4, 1.0, 'acB'], ['extinguisher', 7.33, 0.45, 1.3, 'housing'], ['broom', 7.33, -2.4, 1.3, 'housing']],
+    hazards: [['drop', 0, -6.4, { hx: 2, hz: 0.6 }], ['drop', 10.4, 3.5, { hx: 0.6, hz: 1.5 }], ['panel', -10.65, -1.0], ['fire', 4.2, -2.6]],
+    waves: [[3, 3.0, 0, 0], [4, 5.9, -1.0, 0], [5, 5.9, -1.0, 0], [6, 5.9, -1.0, 1, [-9.4, -5.2]]],
+  },
+  subway: {
+    id: 'subway', name: 'Subway Station', blurb: 'A long tiled platform above the track: a ticket-hall mezzanine up a stopped escalator, a repair scaffold at the tunnel mouth, a train every 25 seconds. Echoing, low rumble.',
+    bounds: { x: 12, z: 6.5 }, spawn: 2.6, ring: [0, -1.3, 6, 4.6, 0], camera: { minDist: 6.6, maxDist: 15.5, elev: 0.48 },
+    env: { clear: [0.04, 0.05, 0.07], sky: [0.62, 0.68, 0.74], ground: [0.35, 0.36, 0.38], lightTo: [0.2, 0.95, 0.3], lightCol: [0.92, 0.97, 1.0], fogCol: [0.14, 0.16, 0.19], fog: 0.02, rim: [0.5, 0.6, 0.7], floor: 5,
+      pl: [{ pos: [-6, 4.6, 0], r: 15, col: [0.75, 0.88, 1.0] }, { pos: [6, 4.6, 0], r: 15, col: [0.75, 0.88, 1.0] }] },
+    audio: { reverb: 2.1, wet: 0.34, bpm: 98, root: 49, mode: 'minor', hum: 55 },
+    objects: [
+      { id: 'mezz', type: 'deck', look: 'slab', mat: 'concrete', fixed: 1, x: -10, z: 2.75, hx: 2, hz: 3.75, h: 2.5 },
+      { id: 'pillarA', type: 'column', mat: 'tile', x: -5, z: -2.6, hx: 0.4, hz: 0.4, h: 3.2 },
+      { id: 'pillarB', type: 'column', mat: 'tile', x: 5, z: -2.6, hx: 0.4, hz: 0.4, h: 3.2 },
+      { id: 'pillarC', type: 'column', mat: 'tile', x: -5, z: 2.4, hx: 0.4, hz: 0.4, h: 3.2 },
+      { id: 'pillarD', type: 'column', mat: 'tile', x: 5, z: 2.4, hx: 0.4, hz: 0.4, h: 3.2 },
+      { id: 'benchA', type: 'box', look: 'bench', mat: 'metal', x: -2.4, z: -3.5, hx: 0.75, hz: 0.25, h: 0.5 },
+      { id: 'benchB', type: 'box', look: 'bench', mat: 'metal', x: 2.4, z: -3.5, hx: 0.75, hz: 0.25, h: 0.5 },
+      { id: 'vendA', type: 'box', look: 'vending', mat: 'plastic', color: '#2d5ea8', x: -2.4, z: 6.1, hx: 0.45, hz: 0.4, h: 1.8 },
+      { id: 'vendB', type: 'box', look: 'vending', mat: 'plastic', color: '#c0392b', x: -0.4, z: 6.1, hx: 0.45, hz: 0.4, h: 1.8 },
+      { id: 'atm', type: 'box', look: 'atm', mat: 'metal', color: '#4a5560', x: 2.0, z: 6.2, hx: 0.35, hz: 0.3, h: 1.4 },
+      { id: 'shelter', type: 'panel', look: 'busstop', mat: 'glass', axis: 'x', x: 8.0, z: 4.4, hx: 1.3, hz: 0.08, h: 2.2 },
+      { id: 'kiosk', type: 'box', look: 'kiosk', mat: 'wood', x: 5.0, z: 6.0, hx: 1.0, hz: 0.5, h: 0.9 },
+      { id: 'cartons', type: 'box', look: 'crate', mat: 'paper', x: 10.3, z: 3.0, hx: 0.45, hz: 0.45, h: 0.8 },
+      { id: 'binA', type: 'column', mat: 'plastic', color: '#3f4a52', x: -6.2, z: 6.2, hx: 0.3, hz: 0.3, h: 0.8 },
+      { id: 'binB', type: 'column', mat: 'plastic', color: '#3f4a52', x: 7.6, z: 6.2, hx: 0.3, hz: 0.3, h: 0.8 },
+      { id: 'serviceDoor', type: 'panel', look: 'firedoor', mat: 'metal', axis: 'x', x: 10.0, z: 6.42, hx: 0.6, hz: 0.08, h: 2.1 },
+    ],
+    builds: [['stair', 'escalator', -4.5, 4.6, 3, 1.2, 0, 2.5, 'metal', 'grate', ''], ['scaffold', 'repair', 8, -2.4, 1, 1, 1]],
+    items: [['binlid', -5.4, 5.5, 0], ['bottle', -2.4, -3.5, 0.5, 'benchA'], ['broom', 5.0, -2.13, 1.3, 'pillarB'], ['extinguisher', -5.0, 1.93, 1.3, 'pillarC'], ['skateboard', 1.0, 0.8, 0],
+      ['pipe', 9.0, -3.0, 1.5, 'repair.t0.1'], ['wrench', 5.0, 6.0, 0.9, 'kiosk'], ['chain', -3.9, 4.6, 0]],
+    hazards: [['train', 0, -5.3, { yaw: Math.PI / 2, hx: 1.2, hz: 12 }], ['panel', 11.65, -3.9], ['glass', 0, 0, { obj: 'shelter' }]],
+    waves: [[3, 2.6, 1.0, 0], [4, -9.8, 4.6, 0], [5, 9.6, -5.6, 0], [6, 10.6, 5.0, 0], [6, 9.6, -5.6, 1, [-9.8, 4.6]]],
+  },
+  garage: {
+    id: 'garage', name: 'Parking Garage', blurb: 'A concrete garage under green tube lights: parked cars, pillars, a ramp up to a split deck with a broken kerb, a ticket booth and a charging post. Strong echo.',
+    bounds: { x: 11.5, z: 7 }, spawn: 2.6, ring: [1, 1.5, 6, 4, 0], camera: { minDist: 6.2, maxDist: 14, elev: 0.5 },
+    env: { clear: [0.04, 0.05, 0.05], sky: [0.55, 0.62, 0.58], ground: [0.3, 0.32, 0.3], lightTo: [0.2, 0.95, 0.3], lightCol: [0.88, 1.0, 0.92], fogCol: [0.1, 0.13, 0.11], fog: 0.022, rim: [0.35, 0.55, 0.45], floor: 6,
+      pl: [{ pos: [-4, 3.6, 0], r: 14, col: [0.7, 1.0, 0.8] }, { pos: [6, 3.6, 2], r: 14, col: [0.7, 1.0, 0.8] }] },
+    audio: { reverb: 2.4, wet: 0.36, bpm: 100, root: 55, mode: 'phrygian', hum: 50 },
+    objects: [
+      { id: 'upper', type: 'deck', look: 'slab', mat: 'concrete', fixed: 1, x: -4.75, z: -5.75, hx: 6.75, hz: 1.25, h: 2.0 },
+      { id: 'rampRail', type: 'rail', mat: 'metal', fixed: 1, axis: 'z', x: -9.85, z: -1.5, hx: 0.05, hz: 3.0, h: 1.05 },
+      { id: 'kerbA', type: 'box', look: 'barrier', mat: 'concrete', y: 2.0, x: -8.2, z: -4.75, hx: 1.0, hz: 0.25, h: 0.85 },
+      { id: 'kerbB', type: 'box', look: 'barrier', mat: 'concrete', y: 2.0, x: -2.0, z: -4.75, hx: 1.0, hz: 0.25, h: 0.85 },
+      { id: 'carA', type: 'box', look: 'car', mat: 'sheet', color: '#b9302a', x: -6.5, z: 6.45, hx: 1.25, hz: 0.55, h: 1.15 },
+      { id: 'carB', type: 'box', look: 'car', mat: 'sheet', color: '#2f5d9a', x: 1.0, z: 5.0, hx: 1.25, hz: 0.55, h: 1.15 },
+      { id: 'carC', type: 'box', look: 'car', mat: 'sheet', color: '#d0d2d6', x: 9.3, z: 0.4, hx: 1.25, hz: 0.55, h: 1.15 },
+      { id: 'pillA', type: 'column', mat: 'concrete', x: -4.6, z: -1.8, hx: 0.4, hz: 0.4, h: 3.0 },
+      { id: 'pillB', type: 'column', mat: 'concrete', x: 5.4, z: -1.8, hx: 0.4, hz: 0.4, h: 3.0 },
+      { id: 'pillC', type: 'column', mat: 'concrete', x: -4.6, z: 3.4, hx: 0.4, hz: 0.4, h: 3.0 },
+      { id: 'pillD', type: 'column', mat: 'concrete', x: 5.4, z: 3.4, hx: 0.4, hz: 0.4, h: 3.0 },
+      { id: 'dumpster', type: 'box', look: 'dumpster', mat: 'sheet', color: '#3c5a43', x: -10.6, z: 6.5, hx: 0.9, hz: 0.5, h: 1.2 },
+      { id: 'payMachine', type: 'box', look: 'atm', mat: 'metal', color: '#4a5560', x: 11.15, z: 5.0, hx: 0.35, hz: 0.3, h: 1.4 },
+      { id: 'lobbyGlass', type: 'panel', look: 'busstop', mat: 'glass', axis: 'x', x: 6.0, z: -6.92, hx: 1.3, hz: 0.08, h: 2.2 },
+      { id: 'boothGlass', type: 'panel', mat: 'glass', axis: 'z', x: 8.4, z: 4.4, hx: 0.08, hz: 1.0, h: 1.8 },
+      { id: 'arm', type: 'rail', mat: 'metal', color: '#e0b100', axis: 'x', x: 9.75, z: 2.4, hx: 1.75, hz: 0.06, h: 1.05 },
+      { id: 'fireDoor', type: 'panel', look: 'firedoor', mat: 'metal', axis: 'x', x: 9.8, z: -6.92, hx: 0.6, hz: 0.08, h: 2.1 },
+      { id: 'binA', type: 'column', mat: 'plastic', color: '#3f4a52', x: 4.0, z: 6.7, hx: 0.3, hz: 0.3, h: 0.8 },
+      { id: 'binB', type: 'column', mat: 'plastic', color: '#3f4a52', x: 5.3, z: 6.7, hx: 0.3, hz: 0.3, h: 0.8 },
+      { id: 'cartons', type: 'box', look: 'crate', mat: 'paper', x: -7.2, z: 2.4, hx: 0.45, hz: 0.45, h: 0.8 },
+    ],
+    builds: [['stair', 'ramp', -10.7, 1.5, 2, 1.6, 0, 2.0, 'concrete', 'ramp', '']],
+    items: [['bat', 2.0, 5.0, 0.9, 'carB'], ['wrench', -5.5, 6.45, 0.9, 'carA'], ['chain', 9.0, 2.4, 1.0, 'arm'], ['pipe', -3.6, 3.8, 0], ['brick', 3.8, -1.6, 0], ['crate', 0.6, 3.4, 0], ['binlid', 3.0, 5.6, 0],
+      ['extinguisher', 5.4, -1.33, 1.3, 'pillB'], ['skateboard', -5.0, -5.8, 2.0, 'upper'], ['bottle', 7.6, 5.4, 0]],
+    hazards: [['panel', 11.15, -1.4], ['fire', 5.6, 0.8], ['glass', 0, 0, { obj: 'boothGlass' }]],
+    waves: [[3, 2.6, 0.5, 0], [4, -9.9, -5.8, 0], [5, 9.8, -5.5, 0], [6, 9.8, -5.5, 1, [-9.9, -5.8]]],
+  },
+  construction: {
+    id: 'construction', name: 'Construction Site', blurb: 'A poured slab at dusk: a three-bay scaffold up a stair whose bays fall when their standard is struck, a crane load, a lift shaft open in the east, a site office and a brazier.',
+    bounds: { x: 12, z: 7 }, spawn: 2.8, ring: [-1, 1, 5.5, 4, 1], camera: { minDist: 6.6, maxDist: 15, elev: 0.5 },
+    env: { clear: [0.1, 0.06, 0.07], sky: [0.78, 0.52, 0.4], ground: [0.34, 0.3, 0.28], lightTo: [0.6, 0.45, 0.35], lightCol: [1.0, 0.78, 0.55], fogCol: [0.3, 0.22, 0.2], fog: 0.014, rim: [0.9, 0.5, 0.3], floor: 7,
+      pl: [{ pos: [-3, 5.5, -5.5], r: 13, col: [1.0, 1.0, 0.9] }, { pos: [5, 4.8, -3], r: 12, col: [1.0, 0.7, 0.4] }] },
+    audio: { reverb: 0.7, wet: 0.16, bpm: 108, root: 55, mode: 'pentatonic', hum: 0 },
+    objects: [
+      { id: 'container', type: 'box', look: 'container', mat: 'sheet', color: '#2d5a8c', x: -10.4, z: -6.3, hx: 1.6, hz: 0.7, h: 2.6 },
+      { id: 'cwindow', type: 'panel', mat: 'glass', axis: 'x', y: 1.1, x: -10.4, z: -5.54, hx: 0.7, hz: 0.06, h: 0.9 },
+      { id: 'stackA', type: 'box', mat: 'brick', x: 7.6, z: -2.4, hx: 0.6, hz: 0.45, h: 0.9 },
+      { id: 'stackB', type: 'box', mat: 'brick', x: 2.0, z: 4.5, hx: 0.6, hz: 0.45, h: 0.9 },
+      { id: 'cementA', type: 'box', look: 'crate', mat: 'paper', x: -4.4, z: 6.55, hx: 0.45, hz: 0.45, h: 0.8 },
+      { id: 'cementB', type: 'box', look: 'crate', mat: 'paper', x: 8.2, z: 5.5, hx: 0.45, hz: 0.45, h: 0.8 },
+      { id: 'sawhorse', type: 'box', look: 'table', mat: 'wood', x: -5.6, z: 3.3, hx: 0.9, hz: 0.4, h: 0.9 },
+      { id: 'toilet', type: 'column', mat: 'plastic', color: '#2f8f5b', x: 10.8, z: 6.55, hx: 0.45, hz: 0.45, h: 2.2 },
+      { id: 'fenceF', type: 'rail', mat: 'metal', axis: 'x', x: 4.0, z: 6.94, hx: 2.0, hz: 0.06, h: 1.05 },
+      { id: 'fenceW', type: 'rail', mat: 'metal', axis: 'z', x: -11.94, z: -1.0, hx: 0.06, hz: 2.0, h: 1.05 },
+      { id: 'crate', type: 'box', look: 'crate', mat: 'wood', x: 7.0, z: 1.2, hx: 0.5, hz: 0.5, h: 0.95 },
+    ],
+    builds: [['scaffold', 'scaf', -6, -4.2, 3, 2, -1]],
+    items: [['hammer', -6.0, 3.3, 0.9, 'sawhorse'], ['bottle', -5.2, 3.3, 0.9, 'sawhorse'], ['wrench', 1.8, 4.5, 0.9, 'stackB'], ['brick', 2.2, 4.5, 0.9, 'stackB'], ['brick', -1.0, 4.0, 0],
+      ['crate', 3.4, 3.2, 0], ['pipe', -5.0, -4.8, 1.5, 'scaf.t0.1'], ['chain', 4.0, 6.94, 1.05, 'fenceF'], ['broom', -8.73, -6.6, 1.3, 'container'], ['extinguisher', -8.73, -6.0, 1.3, 'container']],
+    hazards: [['drop', 10.7, 0, { hx: 1.3, hz: 2.0 }], ['load', -3.5, 1.5, { tx: -3.5, tz: 3.2 }], ['panel', 1.2, -6.8], ['fire', 7.0, -4.8]],
+    waves: [[3, 2.8, 0.5, 0], [4, -10.4, 3.0, 0], [5, -7.8, -2.6, 0], [6, -10.4, 3.0, 0], [6, -3.0, -6.0, 1, [-10.4, 3.0]]],
+  },
+  club: {
+    id: 'club', name: 'Night Club', blurb: 'A dark club with a lit dance floor: a wooden DJ stage that gives way, a VIP balcony up a stair behind glass rails, a bar, a CO2 jet. Bass, short echo.',
+    bounds: { x: 11, z: 7 }, spawn: 2.4, ring: [0, 1.2, 4.5, 3.5, 1], camera: { minDist: 6.2, maxDist: 14, elev: 0.5 },
+    env: { clear: [0.02, 0.01, 0.04], sky: [0.2, 0.12, 0.3], ground: [0.1, 0.08, 0.14], lightTo: [0.2, 0.9, 0.3], lightCol: [0.7, 0.55, 0.9], fogCol: [0.05, 0.03, 0.09], fog: 0.026, rim: [0.8, 0.2, 0.8], floor: 8,
+      pl: [{ pos: [-4, 4.6, 0], r: 14, col: [1.0, 0.2, 0.7] }, { pos: [4, 4.6, 2], r: 14, col: [0.2, 0.5, 1.0] }] },
+    audio: { reverb: 0.8, wet: 0.2, bpm: 124, root: 55, mode: 'minor', hum: 0 },
+    objects: [
+      { id: 'stage', type: 'deck', look: 'stage', mat: 'wood', hpMul: 3, weak: 4, x: 0, z: -5.8, hx: 5, hz: 1.2, h: 1.0 },
+      { id: 'speakerA', type: 'box', look: 'speaker', mat: 'wood', y: 1.0, on: 'stage', x: -4.0, z: -5.9, hx: 0.45, hz: 0.45, h: 1.6 },
+      { id: 'speakerB', type: 'box', look: 'speaker', mat: 'wood', y: 1.0, on: 'stage', x: 4.0, z: -5.9, hx: 0.45, hz: 0.45, h: 1.6 },
+      { id: 'dj', type: 'box', look: 'table', mat: 'wood', y: 1.0, on: 'stage', x: 0, z: -5.8, hx: 1.0, hz: 0.4, h: 0.9 },
+      { id: 'balcony', type: 'deck', look: 'slab', mat: 'concrete', fixed: 1, x: 9.45, z: -4, hx: 1.55, hz: 3, h: 2.5 },
+      { id: 'vipA', type: 'box', look: 'sofa', mat: 'wood', y: 2.5, x: 10.0, z: -6.55, hx: 0.9, hz: 0.45, h: 0.9 },
+      { id: 'vipB', type: 'box', look: 'sofa', mat: 'wood', y: 2.5, x: 10.0, z: -4.2, hx: 0.9, hz: 0.45, h: 0.9 },
+      { id: 'balA', type: 'panel', mat: 'glass', axis: 'z', y: 2.5, x: 7.96, z: -5.4, hx: 0.06, hz: 1.4, h: 1.1 },
+      { id: 'balB', type: 'panel', mat: 'glass', axis: 'z', y: 2.5, x: 7.96, z: -2.2, hx: 0.06, hz: 1.2, h: 1.1 },
+      { id: 'vipRail', type: 'rail', mat: 'metal', fixed: 1, axis: 'z', x: 9.75, z: 0.75, hx: 0.05, hz: 1.75, h: 1.05 },
+      { id: 'bar', type: 'box', look: 'table', mat: 'wood', x: -10.6, z: 1.5, hx: 0.4, hz: 2.2, h: 1.05 },
+      { id: 'stoolA', type: 'box', look: 'chair', mat: 'plastic', color: '#c0392b', x: -9.0, z: -0.2, hx: 0.22, hz: 0.22, h: 0.7 },
+      { id: 'stoolB', type: 'box', look: 'chair', mat: 'plastic', color: '#c0392b', x: -9.0, z: 1.5, hx: 0.22, hz: 0.22, h: 0.7 },
+      { id: 'stoolC', type: 'box', look: 'chair', mat: 'plastic', color: '#c0392b', x: -9.0, z: 3.2, hx: 0.22, hz: 0.22, h: 0.7 },
+      { id: 'tableA', type: 'box', look: 'table', mat: 'plastic', color: '#d8d8d8', x: -7.0, z: 5.0, hx: 0.6, hz: 0.45, h: 0.75 },
+      { id: 'tableB', type: 'box', look: 'table', mat: 'plastic', color: '#d8d8d8', x: -3.8, z: 5.6, hx: 0.6, hz: 0.45, h: 0.75 },
+      { id: 'chairA', type: 'box', look: 'chair', mat: 'plastic', color: '#3a6ea5', x: -8.6, z: 5.0, hx: 0.25, hz: 0.25, h: 0.5 },
+      { id: 'chairB', type: 'box', look: 'chair', mat: 'plastic', color: '#3a6ea5', x: -5.4, z: 5.6, hx: 0.25, hz: 0.25, h: 0.5 },
+      { id: 'pillarL', type: 'column', mat: 'tile', x: -4.6, z: -0.6, hx: 0.4, hz: 0.4, h: 3.0 },
+      { id: 'pillarR', type: 'column', mat: 'tile', x: 4.6, z: -0.6, hx: 0.4, hz: 0.4, h: 3.0 },
+      { id: 'fireDoor', type: 'panel', look: 'firedoor', mat: 'metal', axis: 'z', x: 10.92, z: 4.6, hx: 0.08, hz: 0.6, h: 2.1 },
+      { id: 'beerCrate', type: 'box', look: 'crate', mat: 'wood', x: 10.5, z: 6.5, hx: 0.5, hz: 0.5, h: 0.9 },
+    ],
+    builds: [['stair', 'stepW', -6.4, -5.8, 1, 1.2, 0, 1.0, 'wood', 'stage', 'stage'], ['stair', 'stepE', 4.0, -3.2, 2, 1.2, 0, 1.0, 'wood', 'stage', 'stage'], ['stair', 'vipStair', 10.4, 2.5, 2, 1.2, 0, 2.5, 'metal', 'grate', '']],
+    items: [['bottle', -10.6, 2.6, 1.05, 'bar'], ['bottle', -7.0, 5.0, 0.75, 'tableA'], ['bottle', -3.8, 5.6, 0.75, 'tableB'], ['chair', -2.0, -1.6, 0], ['bat', -10.13, 1.7, 1.3, 'bar'],
+      ['chain', 9.0, 3.9, 0], ['binlid', 9.3, 5.6, 0], ['extinguisher', 10.78, 4.55, 1.3, 'fireDoor'], ['crate', 9.4, 6.2, 0]],
+    hazards: [['panel', 6.1, -6.8], ['glass', 0, 0, { obj: 'balB' }], ['steam', -1.5, -2.6, { yaw: 0 }]],
+    waves: [[3, 0.0, 1.5, 0], [4, -10.0, 4.8, 0], [5, 9.2, 4.6, 0], [6, 9.4, -2.2, 0], [6, 2.3, -5.8, 1, [-10.0, 4.8]]],
+  },
 };
-const ARENA_ORDER = ['warehouse', 'dojo', 'pit'];
+const ARENA_ORDER = ['warehouse', 'dojo', 'pit', 'rooftop', 'subway', 'garage', 'construction', 'club'];
 
 /* ---------- static decoration builders (non-destructible set dressing) ---------- */
 function propBox(list, x, y, z, sx, sy, sz, color, opts) { list.push(Object.assign({ m: MESH.CUBE, x, y, z, sx, sy, sz, c: C(color), l: LAYER.SOLID, e: 0, q: 0.75, cast: false, a: 1, ry: 0 }, opts || {})); }
@@ -2738,7 +2954,53 @@ function buildProps(id) {
     propBox(p, 0, 3.2, -6.5, 1.6, 2.6, 0.06, '#a3182a'); propBox(p, 0, 3.7, -6.45, 0.7, 0.14, 0.04, '#f4f0e6'); propBox(p, 0, 3.2, -6.45, 0.14, 1.2, 0.04, '#f4f0e6');
     for (const x of [-6, -2, 2, 6]) { propBox(p, x, 4.7, -1, 3.0, 0.08, 0.3, '#f4faff', { e: 1.7 }); propCyl(p, x - 1.2, 5.3, -1, 0.03, 1.2, '#222'); propCyl(p, x + 1.2, 5.3, -1, 0.03, 1.2, '#222'); }   // fluorescent strips
     for (const z of [-5.6, 4.8]) propBox(p, -10.3, 2.5, z, 0.45, 5, 0.45, '#9aa3ad');
-  } else {
+  } else if (id === 'rooftop') {
+    for (let i = 0; i < 16; i++) {   // the city beyond the roof edge: dark towers with a few lit windows
+      const h = 6 + (i * 7) % 9, x = -24 + i * 3.2, z = -13 - (i % 3) * 3.5;
+      propBox(p, x, h / 2 - 3, z, 2.6, h + 6, 2.4, i % 2 ? '#10141f' : '#161b29');
+      for (let k = 0; k < 3; k++) propBox(p, x + (k - 1) * 0.7, h - 4 - k * 1.3, z + 1.22, 0.32, 0.42, 0.05, k % 2 ? '#ffd98a' : '#8fd0ff', { e: 1.2 });
+    }
+    propBox(p, 0, -0.6, -7.5, 28, 1.6, 0.5, '#2a2e38');   // the roof edge below the parapet line
+    propBox(p, -9.0, 4.55, -7.05, 3.8, 1.9, 0.12, '#ffb347', { e: 1.0 }); propBox(p, -9.0, 4.55, -7.14, 4.0, 2.1, 0.06, '#26262b');   // the lit billboard behind its two posts
+    propCyl(p, -9.4, 3.4, -7.45, 1.7, 2.8, '#7d838c');   // the water tank behind the back line, nobody can reach it
+    for (const x of [-10.2, -8.6]) propBox(p, x, 1.6, -7.45, 0.12, 3.2, 0.12, '#3a3d44');
+    propBox(p, 9.2, 3.3, -1.0, 3.9, 0.2, 4.1, '#3b3f46');   // the stair housing's roof lip
+    propBox(p, 5.8, 3.5, -4.8, 1.0, 0.16, 1.0, '#4a2f28');   // the chimney's cap
+    for (let i = 0; i < 5; i++) propSph(p, 5.6 + i * 0.8, 3.2, 4.8, 0.09, '#ffe3a0', { e: 2 });   // string lights over the lounge
+  } else if (id === 'subway') {
+    propBox(p, 0, 3.2, -7.5, 30, 6.4, 0.4, '#dfe4e7'); propBox(p, 0, 1.2, -7.26, 30, 0.9, 0.06, '#1f5f8f');   // the tiled wall behind the track and the blue station band
+    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.2, -7.28, 0.05, 6.4, 0.05, '#aab2b8');
+    propBox(p, 12.4, 3.0, 0, 0.4, 6, 17, '#cfd6da'); propBox(p, -12.4, 3.0, 0, 0.4, 6, 17, '#cfd6da');
+    propBox(p, 12.2, 1.7, -5.3, 0.3, 3.4, 3.4, '#050507');   // the tunnel mouth in the east wall
+    propBox(p, 3.0, 3.8, -7.2, 4.2, 0.8, 0.06, '#1f5f8f', { e: 0.5 }); propBox(p, 3.0, 3.8, -7.17, 3.4, 0.14, 0.04, '#f4f4f4', { e: 0.8 });   // the station name board
+    for (const x of [-8, -4, 0, 4, 8]) { propBox(p, x, 4.7, -1, 2.4, 0.1, 0.3, '#f4faff', { e: 1.8 }); propCyl(p, x - 1.0, 5.3, -1, 0.03, 1.2, '#222'); propCyl(p, x + 1.0, 5.3, -1, 0.03, 1.2, '#222'); }   // fluorescent tubes
+    for (let x = -10; x <= 10; x += 5) propBox(p, x, 0.14, -4.22, 0.16, 0.26, 0.16, '#ff3a2a', { e: 1.6 });   // red warning lamps along the platform edge
+    propBox(p, -12.1, 1.3, 2.75, 0.2, 2.4, 7.5, '#c9d0d4'); propBox(p, -12.0, 3.4, 2.75, 0.1, 1.0, 5.5, '#1f5f8f', { e: 0.4 });   // the ticket hall's wall under the sign
+  } else if (id === 'garage') {
+    propBox(p, 0, 2.2, -7.5, 30, 4.4, 0.5, '#6e716f'); propBox(p, -12.0, 2.2, 0, 0.5, 4.4, 17, '#6e716f'); propBox(p, 12.0, 2.2, 0, 0.5, 4.4, 17, '#6e716f');
+    for (let i = -5; i <= 5; i++) propBox(p, i * 2.2, 0.5, -7.2, 0.9, 1.0, 0.08, i % 2 ? '#d6b32a' : '#2a2a2a');   // hazard stripes on the wall foot
+    for (const x of [-7, -2, 3, 8]) { propBox(p, x, 4.2, -1, 2.4, 0.1, 0.3, '#eaffee', { e: 1.7 }); propCyl(p, x - 1.0, 4.8, -1, 0.03, 1.2, '#222'); propCyl(p, x + 1.0, 4.8, -1, 0.03, 1.2, '#222'); }   // green-white tubes
+    propBox(p, 4.0, 3.0, -7.2, 1.6, 0.9, 0.06, '#1f7f4f', { e: 0.5 }); propBox(p, 4.0, 3.0, -7.16, 0.8, 0.5, 0.04, '#f4f4f4', { e: 0.7 });   // the level sign
+    propBox(p, 9.8, 2.4, -7.2, 1.6, 0.2, 0.08, '#f4f4f4', { e: 0.8 });   // EXIT over the stairwell door
+    propBox(p, 8.4, 0.2, 4.4, 0.9, 0.4, 0.5, '#d6b32a');   // the ticket booth's counter
+  } else if (id === 'construction') {
+    propBox(p, 0, 3.5, -7.6, 30, 7, 0.5, '#6b6a66');   // the unfinished building behind the scaffold
+    for (let i = -6; i <= 6; i++) propBox(p, i * 2.4, 3.5, -7.25, 0.5, 7, 0.4, '#8a8984');
+    for (const y of [3.2, 6.4]) propBox(p, 0, y, -7.2, 30, 0.35, 0.8, '#8a8984');
+    for (let i = 0; i < 12; i++) propCyl(p, -13 + i * 2.4, 7.2, -7.2, 0.05, 1.4, '#7a4a2a');   // rebar sticking out of the top
+    propBox(p, -3.5, 4.0, -8.3, 0.6, 8, 0.6, '#e0a000'); propBox(p, -2.2, 8.2, -8.3, 8, 0.4, 0.4, '#e0a000');   // the crane's mast and jib behind the wall
+    for (const x of [2.5, 7]) { propCyl(p, x, 3.0, -6.6, 0.08, 6, '#3a3d44'); propBox(p, x, 6.1, -6.6, 1.2, 0.5, 0.3, '#fff6dc', { e: 1.8 }); }   // floodlight poles
+    for (let i = 0; i < 6; i++) propBox(p, 9.4, 0.5, -1.5 + i * 0.7, 0.04, 0.9, 0.5, i % 2 ? '#d6b32a' : '#2a2a2a');   // the tape round the lift shaft
+    propBox(p, -11.4, 1.5, 3.0, 0.2, 3, 3.6, '#7a7d82', { l: LAYER.ALPHA, a: 0.35 });   // the site gate in the mesh fence
+  } else if (id === 'club') {
+    propBox(p, 0, 3.0, -7.5, 24, 6, 0.4, '#0c0a12'); propBox(p, -11.4, 3.0, 0, 0.4, 6, 16, '#0c0a12'); propBox(p, 11.4, 3.0, 0, 0.4, 6, 16, '#0c0a12');
+    propBox(p, 0, 4.0, -7.2, 8, 3.0, 0.1, '#6a2bd6', { e: 1.2 }); propBox(p, 0, 4.0, -7.14, 7.4, 2.4, 0.06, '#1b0f3a', { e: 0.5 });   // the DJ screen
+    for (let i = 0; i < 8; i++) propBox(p, -10 + i * 2.9, 5.4, -7.2, 0.12, 0.12, 0.12, i % 3 ? '#ff3fae' : '#3f8cff', { e: 2.2 });   // moving lights, never aimed at the fighters
+    propBox(p, 0, 5.6, -2, 16, 0.08, 0.08, '#ff3fae', { e: 1.6 }); propBox(p, 0, 5.2, 2, 16, 0.08, 0.08, '#3f8cff', { e: 1.6 });   // LED strips
+    propSph(p, 0, 4.4, 1.2, 0.35, '#e8e8f4', { e: 0.8 });   // the mirror ball
+    propBox(p, -10.92, 2.0, 5.4, 0.12, 4, 1.4, '#6a2bd6', { e: 0.6 });   // the front door
+    for (let i = 0; i < 5; i++) propCyl(p, -10.6 + i * 0.9, 0.55, -7.2, 0.42, 1.1, '#07060c', { bob: 0.04 + (i % 4) * 0.012, ph: i * 1.3 });   // the crowd behind the back line, silhouettes
+  } else if (id === 'pit') {
     propBox(p, 0, 2.0, -7.5, 30, 4, 0.5, '#26272c'); propBox(p, -11.0, 2.0, -0.5, 0.5, 4, 17, '#26272c'); propBox(p, 11.0, 2.0, -0.5, 0.5, 4, 17, '#26272c');
     propBox(p, 0, 3.2, -7.1, 22, 0.28, 0.28, '#5a5f66'); propBox(p, 0, 2.6, -7.1, 22, 0.2, 0.2, '#4a4f56');   // the boiler wall's pipes
     for (const x of [-9, -4, 3, 9]) propCyl(p, x, 1.6, -7.05, 0.3, 3.2, '#4a4f56');
@@ -2802,6 +3064,7 @@ const NAV_CELL = STAIR_RUN, NAV_BODY = 0.34, NAV_STEP = 0.3, NAV_JUMP = 1.05, NA
 const NAV_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const STAIR_UP = 0.5;                 // m: a step may be stood on from this far below its top (one step of slack, so a fast climb never snags on the step after next)
 const STAIR_APPROACH = 0.45;          // m: the CPU's first waypoint lies this far before the foot
+const RING_APRON = 1.5;               // m: with ring-out on, a 1v1's walls stand this far beyond the ring (P8-05); a fighter on the floor out there has lost
 /* Box looks (P8; the sheet's new looks): [share of the height the plain block is drawn at (0 = bare), parts...]; a part is [shape (0 cube, 1 cylinder), x, y, z, width, height, depth, colour, glow]
    with x and z as shares of the half size (-1 to 1), y as a share of the height, and the size as shares of the full width, height and depth. */
 const LOOKS = {
@@ -2812,6 +3075,12 @@ const LOOKS = {
   sofa: [0.55, [0, 0, 0.62, 0, 0.9, 0.12, 0.85, '#7a4a3a'], [0, 0, 0.82, -0.8, 1, 0.5, 0.25, '#66392c'], [0, -0.92, 0.7, 0, 0.1, 0.45, 1, '#66392c'], [0, 0.92, 0.7, 0, 0.1, 0.45, 1, '#66392c']],
   container: [1, [0, -0.8, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, -0.4, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0.4, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0.8, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0, 1, 0, 1.02, 0.03, 1.02, '#5a1f14']],
   lockers: [1, [0, -1.01, 0.5, -0.33, 0.04, 0.94, 0.012, '#2a323a'], [0, -1.01, 0.5, 0.33, 0.04, 0.94, 0.012, '#2a323a'], [0, -1.01, 0.62, -0.18, 0.06, 0.05, 0.03, '#d8d8d8'], [0, -1.01, 0.62, 0.48, 0.06, 0.05, 0.03, '#d8d8d8'], [0, -1.01, 0.9, 0, 0.03, 0.04, 0.9, '#20272e']],
+  car: [0.55, [0, -0.1, 0.8, 0, 0.5, 0.42, 0.92, '#25323f'], [0, -0.1, 1, 0, 0.52, 0.05, 0.94, '#b9bec6'], [0, -0.62, 0.14, -1.01, 0.17, 0.24, 0.03, '#111111'], [0, 0.62, 0.14, -1.01, 0.17, 0.24, 0.03, '#111111'], [0, -0.62, 0.14, 1.01, 0.17, 0.24, 0.03, '#111111'], [0, 0.62, 0.14, 1.01, 0.17, 0.24, 0.03, '#111111'],
+    [0, 1.01, 0.38, -0.7, 0.03, 0.1, 0.2, '#fff2b8', 0.7], [0, 1.01, 0.38, 0.7, 0.03, 0.1, 0.2, '#fff2b8', 0.7], [0, -1.01, 0.38, -0.7, 0.03, 0.1, 0.2, '#d62828', 0.5], [0, -1.01, 0.38, 0.7, 0.03, 0.1, 0.2, '#d62828', 0.5]],
+  kiosk: [1, [0, 0, 1.02, 0, 1.04, 0.06, 1.08, '#8d6a3f'], [1, -0.92, 1.2, -0.84, 0.05, 2.4, 0.1, '#44484d'], [1, 0.92, 1.2, -0.84, 0.05, 2.4, 0.1, '#44484d'], [1, -0.92, 1.2, 0.84, 0.05, 2.4, 0.1, '#44484d'], [1, 0.92, 1.2, 0.84, 0.05, 2.4, 0.1, '#44484d'],
+    [0, 0, 2.42, 0, 1.12, 0.06, 1.2, '#c0392b'], [0, -0.4, 1.12, 0.3, 0.3, 0.12, 0.4, '#e8d9a8'], [0, 0.35, 1.12, 0.3, 0.3, 0.12, 0.4, '#d0b070']],
+  chair: [0, [0, -0.8, 0.25, -0.8, 0.14, 0.5, 0.14, '#3a3d42'], [0, 0.8, 0.25, -0.8, 0.14, 0.5, 0.14, '#3a3d42'], [0, -0.8, 0.25, 0.8, 0.14, 0.5, 0.14, '#3a3d42'], [0, 0.8, 0.25, 0.8, 0.14, 0.5, 0.14, '#3a3d42'], [0, 0, 0.55, 0, 1.15, 0.1, 1.15, '#4a7fb5'], [0, 0, 0.88, -0.92, 1.1, 0.5, 0.1, '#4a7fb5']],
+  atm: [1, [0, 0, 0.74, 1.01, 0.72, 0.2, 0.03, '#9ee7ff', 0.8], [0, 0, 0.55, 1.01, 0.5, 0.1, 0.03, '#202428'], [0, 0, 0.4, 1.01, 0.5, 0.04, 0.03, '#0b0b0d'], [0, 0, 1.01, 0, 1.04, 0.08, 1.06, '#1a6fd6', 0.5]],
   rack: [0, [0, -0.93, 0.5, -0.96, 0.08, 1, 0.03, '#d1721f'], [0, 0.93, 0.5, -0.96, 0.08, 1, 0.03, '#d1721f'], [0, -0.93, 0.5, 0.96, 0.08, 1, 0.03, '#d1721f'], [0, 0.93, 0.5, 0.96, 0.08, 1, 0.03, '#d1721f'], [0, 0, 0.26, 0, 0.96, 0.03, 0.98, '#3d4650'], [0, 0, 0.58, 0, 0.96, 0.03, 0.98, '#3d4650'], [0, 0, 0.9, 0, 0.96, 0.03, 0.98, '#3d4650'], [0, -0.1, 0.34, -0.4, 0.6, 0.12, 0.2, '#8a5f30'], [0, 0.1, 0.66, 0.35, 0.6, 0.12, 0.2, '#6f7a85']],
 };
 const RUBBLE_MARGIN = 0.2;            // m: a pile of concrete or brick rubble reaches this far beyond the footprint of what broke
@@ -2845,8 +3114,10 @@ function builtOf(def) {
 
 const Arena = {
   def: null, objects: [], colliders: [], props: [], time: 0, rng: makeRng(7), propCache: {}, stairs: [], collapses: [], dy: 0, lodTick: 0, nav: null, navVersion: 0,
-  build(def) {
+  ring: null, ringRow: null, ringOut: false, ax0: -9, ax1: 9, az0: -6, az1: 6, sx0: -9, sx1: 9, sz0: -6, sz1: 6,
+  build(def, ring, ringOut) {
     this.def = def;
+    this.setArea(ring, ringOut);
     this.rng = makeRng(0x9e3779b1 ^ def.id.length * 977);
     const built = builtOf(def);
     this.objects = built.objects.map((d) => makeObject(d, this.rng));
@@ -2860,7 +3131,19 @@ const Arena = {
     FX.clear();
     this.navMap();   // the CPU's walking map is made with the level, not in the middle of a fight
   },
-  reset() { this.build(this.def); },
+  reset() { this.build(this.def, this.ringRow, this.ringOut); },
+  /* A 1v1's fighting area (P8-05). ring = the level's [x, z, hx, hz] rectangle, null = the whole floor (a brawl, a menu scene). Ring-out off: the walls stand at the ring. On: RING_APRON beyond it, and a fighter on
+     the floor out there has lost (MatchSim.stepRingOut). ax / az = where a body can stand (the walls); sx / sz = what the CPU keeps to (the ring, else the walls). */
+  setArea(ring, ringOut) {
+    const b = this.def.bounds, apron = ring && ringOut ? RING_APRON : 0, r = ring ? { x0: ring[0] - ring[2], x1: ring[0] + ring[2], z0: ring[1] - ring[3], z1: ring[1] + ring[3] } : null;
+    this.ringRow = ring || null; this.ringOut = !!(ring && ringOut); this.ring = r;
+    this.sx0 = r ? Math.max(-b.x, r.x0) : -b.x; this.sx1 = r ? Math.min(b.x, r.x1) : b.x; this.sz0 = r ? Math.max(-b.z, r.z0) : -b.z; this.sz1 = r ? Math.min(b.z, r.z1) : b.z;
+    this.ax0 = r ? Math.max(-b.x, r.x0 - apron) : -b.x; this.ax1 = r ? Math.min(b.x, r.x1 + apron) : b.x; this.az0 = r ? Math.max(-b.z, r.z0 - apron) : -b.z; this.az1 = r ? Math.min(b.z, r.z1 + apron) : b.z;
+    this.navVersion++;
+  },
+  /* Whether a body of radius m at (x, z) pokes out of the fighting area; whether (x, z) lies inside the ring (always, with no ring). */
+  outside(x, z, m) { return x < this.ax0 + m || x > this.ax1 - m || z < this.az0 + m || z > this.az1 - m; },
+  inRing(x, z) { const r = this.ring; return !r || (x >= r.x0 && x <= r.x1 && z >= r.z0 && z <= r.z1); },
   statusCounts() {
     let intact = 0, damaged = 0, destroyed = 0;
     for (const o of this.objects) { if (o.fixed) continue; if (o.destroyed) destroyed++; else if (o.stage > 0) damaged++; else intact++; }
@@ -2911,6 +3194,8 @@ const Arena = {
     o.collider.active = false;
     this.navVersion++;
     Debris.wake(o.collider);
+    const collapse = Debris.budget === null && (o.type === 'deck' || o.type === 'scaffold') && !o.step;   // the first piece of a collapse owns its piece budget; what falls with it shares it
+    if (collapse) Debris.budget = Quality.limits.pieces;
     const mat = o.mat, kind = kindOf(mat);
     const rng = simRng;
     const cx = o.x, cz = o.z, base = o.base;
@@ -2956,6 +3241,7 @@ const Arena = {
     Camera.impact(0.9, 0.8);
     Events.emit('objBreak', { obj: o, mat, x: cx, y: base + o.h * 0.5, z: cz, by });
     this.dropSupported(o, dirx, dirz, by);
+    if (collapse) Debris.budget = null;
   },
 
   /* A deck, step or tier breaks (P8-04): its boards, plates or chunks fall over the whole footprint and it leaves a low heap of rubble the size of the deck; the preset's piece budget
@@ -3052,7 +3338,7 @@ const Arena = {
         const x = -b.x + (i + 0.5) * nav.cw, z = -b.z + (j + 0.5) * nav.ch;
         let h = 0;
         for (const c of this.colliders) if (c.active && (c.standable || c.top <= STEP_HEIGHT) && Math.abs(x - c.x) <= c.hx + 0.1 && Math.abs(z - c.z) <= c.hz + 0.1 && c.top > h) h = c.top;
-        let fits = Math.abs(x) <= b.x - r && Math.abs(z) <= b.z - r;
+        let fits = x >= this.ax0 + r && x <= this.ax1 - r && z >= this.az0 + r && z <= this.az1 - r;
         for (let k = 0; fits && k < this.colliders.length; k++) {
           const c = this.colliders[k];
           if (!c.active || c.top <= STEP_HEIGHT || c.base > h + SUPPORT_BASE_SLACK || (c.standable && c.top <= h + NAV_JUMP)) continue;   // a ledge it can step or jump onto is no wall: a body may stand against it
@@ -3195,7 +3481,7 @@ const Arena = {
 
   /* Fighter (vertical cylinder) vs bounds and obstacles. Sets f.groundY and wall/obstacle contact info. */
   resolveFighter(f) {
-    const b = this.def.bounds, r = f.radius, mx = b.x - r, mz = b.z - r;
+    const r = f.radius, x0 = this.ax0 + r, x1 = this.ax1 - r, z0 = this.az0 + r, z1 = this.az1 - r;
     f.wallHit = false; f.obstacleHit = null; f.hazardTouch = null;
     let groundY = 0, stair = false;
     for (let pass = 0; pass < 3; pass++) {
@@ -3210,25 +3496,25 @@ const Arena = {
         if (d2 >= r * r) continue;
         if (c.top <= STEP_HEIGHT || (f.y >= c.top - (c.up || 0.25) && c.standable)) { if (c.top > groundY) { groundY = c.top; stair = c.up > 0.25; } continue; }
         if (f.y >= c.top - (c.up || 0.25)) continue;
-        this.pushOut(f, c, dx, dz, d2, mx, mz);
+        this.pushOut(f, c, dx, dz, d2, x0, x1, z0, z1);
         moved = true;
         f.obstacleHit = c.obj || f.obstacleHit;
         if (c.haz) f.hazardTouch = c.haz;   // a hazard's post (P7-05)
       }
       if (!moved) break;
     }
-    if (f.x > mx) { f.x = mx; f.wallHit = true; } else if (f.x < -mx) { f.x = -mx; f.wallHit = true; }
-    if (f.z > mz) { f.z = mz; f.wallHit = true; } else if (f.z < -mz) { f.z = -mz; f.wallHit = true; }
+    if (f.x > x1) { f.x = x1; f.wallHit = true; } else if (f.x < x0) { f.x = x0; f.wallHit = true; }
+    if (f.z > z1) { f.z = z1; f.wallHit = true; } else if (f.z < z0) { f.z = z0; f.wallHit = true; }
     f.groundY = groundY; f.onStair = stair;
   },
 
-  /* Moves a fighter out of an obstacle the shortest way that stays inside the arena (mx / mz: the fighter's limits).
+  /* Moves a fighter out of an obstacle the shortest way that stays inside the arena (x0 to x1, z0 to z1: the fighter's limits).
      An obstacle by a wall must never push a fighter toward the wall: the wall would put it straight back inside. */
-  pushOut(f, c, dx, dz, d2, mx, mz) {
+  pushOut(f, c, dx, dz, d2, x0, x1, z0, z1) {
     const r = f.radius;
     // the fighter may still be past a wall here (the wall clamp runs last): judge each spot as the clamp will leave it
     const clears = (x, z) => {
-      const wx = clamp(x, -mx, mx), wz = clamp(z, -mz, mz);
+      const wx = clamp(x, x0, x1), wz = clamp(z, z0, z1);
       const ex = wx - clamp(wx, c.x - c.hx, c.x + c.hx), ez = wz - clamp(wz, c.z - c.hz, c.z + c.hz);
       if (ex * ex + ez * ez < r * r - 1e-6) return false;
       for (let i = 0; i < this.colliders.length; i++) {   // and not into the next obstacle (objects that touch each other, a deck and the rail on it)
@@ -3251,7 +3537,7 @@ const Arena = {
       const exit = exits[i];
       const cost = Math.abs(exit[0] - f.x) + Math.abs(exit[1] - f.z);
       if (cost < nearestCost) { nearestCost = cost; nearest = exit; }
-      const fits = i < 2 ? Math.abs(exit[0]) <= mx : Math.abs(exit[1]) <= mz;   // only the moved coordinate must have room
+      const fits = i < 2 ? exit[0] >= x0 && exit[0] <= x1 : exit[1] >= z0 && exit[1] <= z1;   // only the moved coordinate must have room
       if (fits && cost < bestCost && clears(exit[0], exit[1])) { bestCost = cost; best = exit; }
     }
     const to = best || nearest;
@@ -3266,7 +3552,16 @@ const Arena = {
       let y = p.y, e = p.e;
       if (p.bob) y += Math.sin(t * 2.2 + p.ph) * p.bob;
       if (p.flicker) e = 1.6 + Math.sin(t * 17) * 0.5 + Math.sin(t * 31) * 0.3;
-      R.put(p.l, p.m, p.x, y, p.z, p.sx, p.sy, p.sz, 0, p.ry, 0, p.c, p.a, e, p.q, p.cast, 0);
+      let layer = p.l, alpha = p.a;
+      if (y - p.sy * 0.5 >= CAMERA_CEILING_FROM) {   // overhead: it fades as the eye comes near it (the hanging load does the same), and is gone before the near clip
+        const eye = Camera.pos, near = Math.hypot(Math.max(Math.abs(eye[0] - p.x) - p.sx * 0.5, 0), Math.max(Math.abs(eye[1] - y) - p.sy * 0.5, 0), Math.max(Math.abs(eye[2] - p.z) - p.sz * 0.5, 0));
+        if (near < CAMERA_PROP_FADE) {
+          alpha = p.a * clamp((near - 0.3) / (CAMERA_PROP_FADE - 0.3), 0, 1) * 0.8;
+          if (alpha < 0.02) continue;
+          layer = LAYER.ALPHA;
+        }
+      }
+      R.put(layer, p.m, p.x, y, p.z, p.sx, p.sy, p.sz, 0, p.ry, 0, p.c, alpha, e, p.q, p.cast, 0);
     }
     if (this.lodTick++ % 20 === 0) this.updateLod();
     for (const o of this.objects) this.drawObject(o);
@@ -3401,6 +3696,10 @@ const Arena = {
     const dx = alongZ ? 0 : 1, dz = alongZ ? 1 : 0;
     if (o.look === 'firedoor') { this.drawFireDoor(o, x, z, alongZ, len); return; }
     if (o.far) { this.put(LAYER.ALPHA, MESH.CUBE, x, o.h / 2, z, alongZ ? 0.04 : len, o.h - 0.08, alongZ ? len : 0.04, 0, 0, 0, C(paper ? '#f6ecd0' : '#a8dcff'), paper ? 0.95 : 0.3, paper ? 0.45 : 0.1, 0.1, false, 0); return; }
+    if (o.look === 'busstop') {   // a shelter: a roof and a lit advert panel at one end
+      this.put(LAYER.SOLID, MESH.CUBE, x, o.h + 0.1, z, alongZ ? 0.9 : len + 0.3, 0.12, alongZ ? len + 0.3 : 0.9, 0, 0, 0, C('#2b3036'), 1, 0, 0.8, true, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x + (alongZ ? 0 : len * 0.5 - 0.35), 1.1, z + (alongZ ? len * 0.5 - 0.35 : 0), alongZ ? 0.12 : 0.7, 1.4, alongZ ? 0.7 : 0.12, 0, 0, 0, C('#e8f4ff'), 1, 0.9, 0.5, false, 0);
+    }
     // frame
     this.put(LAYER.SOLID, MESH.CUBE, x, 0.05, z, alongZ ? 0.1 : len + 0.1, 0.1, alongZ ? len + 0.1 : 0.1, 0, 0, 0, frame, 1, 0, 0.8, true, 0);
     this.put(LAYER.SOLID, MESH.CUBE, x, o.h, z, alongZ ? 0.1 : len + 0.1, 0.1, alongZ ? len + 0.1 : 0.1, 0, 0, 0, frame, 1, 0, 0.8, true, 0);
@@ -3535,11 +3834,13 @@ const DEBRIS_PROFILE = {
 const Debris = {
   pool: [],
   active: 0,
+  budget: null,   // a collapse (a deck or a scaffold bay and everything resting on it) throws at most Quality.limits.pieces pieces in all: null = no collapse running
   init() {
     for (let i = 0; i < DEBRIS_MAX; i++) this.pool.push({ on: false, kind: 'wood', x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, rx: 0, ry: 0, rz: 0, wx: 0, wy: 0, wz: 0, sx: 0.2, sy: 0.2, sz: 0.2, col: [1, 1, 1], alpha: 1, life: 0, maxLife: 1, still: 0, asleep: false, born: 0 });
   },
   clear() { for (const d of this.pool) d.on = false; this.active = 0; },
   spawn(kind, x, y, z, vx, vy, vz, sx, sy, sz, hex, alpha) {
+    if (this.budget !== null) { if (this.budget <= 0) return null; this.budget--; }
     const limit = Math.min(DEBRIS_MAX, Quality.limits.debris);
     let slot = null, oldest = null;
     this.active = 0;
@@ -4769,7 +5070,7 @@ const PICKUP_TICKS = 14, PICKUP_TAKE_TICK = 9;   // the grab lasts 14 ticks and 
 const PICKUP_LOW_BELOW = 0.4, PICKUP_HIGH_FROM = 1.1;   // item heights (m): floor grab below 0.4, waist grab to 1.1, high reach above
 const ITEM_MAX = 12;                  // loose items in a scene; the oldest goes first
 const ITEM_RADIUS = 0.18;             // m: a thrown item hits a fighter this close to its body
-const THROW_SPEED = 11, THROW_SPEED_SLOW = 8, THROW_HAND = 1.3;   // m/s (a crate and a skateboard are slower), release height (m, before the fighter's scale)
+const THROW_SPEED = 11, THROW_SPEED_SLOW = 8, THROW_HAND = 1.3;   // m/s (a crate and a skateboard are slower), release height (m; the same for every body: size is cosmetic)
 const THROW_LOCK_TICKS = 10, THROW_ANIM_TICKS = 14;
 const BLIND_TICKS = 30, SPRAY_CHARGES = 3, SPRAY_RANGE = 2.0, SPRAY_CONE_COS = Math.cos(40 * Math.PI / 180), CLOUD_RADIUS = 1.6, CRATE_BURST_RADIUS = 1.1;
 const CARRY_WALK = 0.7;               // walk speed share with a crate in the arms (no running)
@@ -4778,7 +5079,7 @@ const SHATTER_STUN = 10;              // extra hit-stun ticks of a bottle that s
 const WEAPON_BLOCK_COST = 1.5;        // a weapon hit costs the blocker this much more stamina
 const HAMMER_SMASH = 1000;            // raw damage of a hammer swing on scenery: more than any material holds
 const HEAD_STAND = 1.2, HEAD_CROUCH = 0.85, THROWN_HIT_STUN = 16;   // a thrown brick is a head hit at this height above the foe's feet (m, before scale), standing or crouched; hit-stun of a thrown item
-const CHEST_AIM = 1.05, HEAD_AIM = 1.5, THROW_BLIND_RANGE = 5;   // where a throw is aimed on the target (m, before scale; a brick goes for the head), and how far a throw with no target is aimed
+const CHEST_AIM = 1.05, HEAD_AIM = 1.5, THROW_BLIND_RANGE = 5;   // where a throw is aimed on the target (m, the standard body; a brick goes for the head), and how far a throw with no target is aimed
 const ITEM_SLIDE_DRAG = 1.6, ITEM_SLIDE_STOP = 0.8, ITEM_BOUNCE_MIN = 1.5, ITEM_SPIN = 14, ITEM_DEBRIS = 5;   // loose item physics: a sliding skateboard slows by this share per second, a bounce needs this fall speed, tumble rate, pieces of a broken item
 const ITEM_SRC_BASE = -1000000000;   // scenery damage source ids of thrown items: a range of their own (fighter impacts count down from IMPACT_SRC_BASE)
 const ITEM_MARK_RGB = [1.0, 0.85, 0.4];   // the glow disc under a loose item
@@ -4863,9 +5164,11 @@ const CRUSH_SRC_BASE = -1500000000;   // scenery damage source ids of crush: a r
 const DECK_LAND_RAW = 20, DECK_LAND_SPEED = 3;   // R7: a knockdown landing on a weak deck hits it with this raw damage (landing speed over this, m/s)
 const HAZARD_LAND_TICKS = 10;          // the falling load drops during the last ticks of its warning
 const HAZARD_TIMER_EDGE = 2;           // m: a timed hazard (the train) is drawn this far beyond the zone at the start and the end of its pass
+const AI_RING_LOOK = 0.7, AI_RING_LOOK_RUN = 1.8, AI_RING_LOOK_SIDESTEP = 1.4, AI_RING_LOOK_JUMP = 1.8, AI_RING_LOOK_BLOW = 0.9;   // m: with ring-out on, how far ahead the CPU checks that a step, a run, a sidestep, a jump or the lunge of a blow stays inside the ring
 const AI_HAZARD_PASS = 0.8;            // m: the CPU walks to its strike spot only along a path that keeps this far from the target
 const AI_HAZARD_RANGE = 1.5, AI_HAZARD_STAND = 0.7, AI_HAZARD_PAD = 0.15, AI_LURE_STAND = 0.8, AI_HAZARD_SPOT = 0.2;   // m: the target is "near" a hazard within this; the least distance from the post a strike spot has; the margin kept from an effect zone; how far from the target the CPU grabs; arrival radius
 const AI_HAZARD_WAIT = 240, AI_HAZARD_ASK = 60, AI_HAZARD_PLAN = 240, AI_HAZARD_LOOK = 8, AI_HAZARD_LURE_TICKS = 90, AI_HAZARD_AHEAD = 0.6, AI_HAZARD_POST_NEAR = 1.4;   // ticks: between hazard plans; before a CPU that declined a lure asks again; a plan may last; between looks at where the target went; a grab may be followed by its chosen throw
+const AI_HAZARD_BAIT = { easy: 0, normal: 0.4, hard: 1, expert: 1 }, AI_HAZARD_BAIT_RANGE = 16, AI_HAZARD_BAIT_GAP = 1800, AI_BAIT_BLOW_MARGIN = 0.3, AI_BAIT_GUARD = 4.5, AI_HAZARD_BAIT_TICKS = 150;   // P8 bait: the chance a CPU baits its target toward a strike hazard (not a panel), how near that hazard must be (m), the least gap between two baits (ticks), the margin to blow range that ends a bait on the way (m), the range it guards at the spot (m), the longest bait (ticks)
 const AI_HAZARD_LURE = { easy: 0.3, normal: 0.55, hard: 0.85, expert: 1 };   // the chance a CPU commits to a lure when one is on offer
 const HAZARD_LOAD_HANG = 4.4, HAZARD_LOAD_REST = 0.45, HAZARD_LOAD_BEAM = 5.6, HAZARD_LOAD_FADE = 1.1;   // m: the height of the hanging load's centre, of the landed one's, of the crane beam; the load fades when the camera's line to a fighter passes this near it
 
@@ -6171,7 +6474,7 @@ const Combat = {
      (feet only) knock down; a bottle adds SHATTER_STUN. The caller handles the item itself (durability, bursting, where it lands). */
   itemHit(it, def, match) {
     const w = WEAPONS[it.id], att = it.owner, speed = Math.hypot(it.vx, it.vz) || 1, dirx = it.vx / speed, dirz = it.vz / speed;
-    const head = w.sp === 'head' && it.y - def.y >= (def.state === S.CROUCH || def.state === S.BLOCK_L ? HEAD_CROUCH : HEAD_STAND) * def.scale;
+    const head = w.sp === 'head' && it.y - def.y >= (def.state === S.CROUCH || def.state === S.BLOCK_L ? HEAD_CROUCH : HEAD_STAND);
     const kind = w.sp === 'crate' || w.sp === 'trip' || head ? 'knockdown' : 'hit';
     const mv = { id: 'throw_' + w.id, name: w.name + ' (thrown)', tier: kind === 'knockdown' ? 3 : 2, cat: w.cls === 'carry' || w.sp === 'head' ? 'heavy' : 'punch', h: w.sp === 'trip' ? 'L' : 'M', kind, hitStop: kind === 'knockdown' ? 9 : 6 };
     if (def.partner) { if (def.partner.partner === def) def.partner.partner = null; def.partner = null; }   // never a clinch partner of anybody after this (the caller does not hit a clinched fighter)
@@ -7224,7 +7527,7 @@ class AIController {
     this.readThrow = null; this.willEscape = false; this.escapeAt = 0;
     this.threatId = -1; this.threatResp = null; this.earlyRoll = null; this.edgeWait = 0; this.breakGrabId = -1; this.punishId = -1; this.punishYes = false; this.steerSide = 1;
     this.oppRecent = []; this.lastOppMoveId = 0; this.counterTried = false; this.clinchPlan = null; this.tickNo = 0;
-    this.hazardWait = 0; this.exit = null; this.exitHazard = null; this.lureDir = ''; this.lureUntil = 0;   // P7-05: the tick before which no new hazard plan is made; the spot out of a hazard's zone; the throw a lure chose
+    this.hazardWait = 0; this.baitWait = 0; this.exit = null; this.exitHazard = null; this.lureDir = ''; this.lureUntil = 0;   // P7-05: the tick before which no new hazard plan is made; the spot out of a hazard's zone; the throw a lure chose
     this.crowd = null;   // the match's CrowdDirector, set every tick by think()
     this.match = null;   // and the match (P7: the items on its floor)
   }
@@ -7276,10 +7579,42 @@ class AIController {
     }
     if (f.stam <= f.maxStam * AI_GRAB_STAMINA) return null;
     const lure = this.hazardLure(f, opp);
-    if (!lure) return null;
+    if (!lure) return this.hazardBait(f, opp);
     if (simRng() >= AI_HAZARD_LURE[this.d.id]) { this.hazardWait = this.tickNo + AI_HAZARD_ASK; return null; }
     this.hazardWait = this.tickNo + AI_HAZARD_WAIT;
     return { kind: 'hazard', mode: 'lure', stage: 'go', h: lure.h, x: lure.x, z: lure.z, pick: null, dir: lure.dir, look: AI_HAZARD_LOOK, ticks: AI_HAZARD_PLAN };
+  }
+  /* (3) BAIT (P8): nothing is at hand, so with a chance by difficulty (AI_HAZARD_BAIT) the CPU walks to the far side of the nearest idle strike hazard (not a panel; within AI_HAZARD_BAIT_RANGE) and waits there on guard: a target that follows comes through
+     the zone, and STRIKE (above) sets the hazard off. The bait ends when the target catches the CPU on its way (within blow range) or hits it, and a CPU baits at most once in AI_HAZARD_BAIT_GAP ticks, so a relentless chaser costs it next to nothing. */
+  hazardBait(f, opp) {
+    const match = this.match, chance = AI_HAZARD_BAIT[this.d.id];
+    if (!chance || this.tickNo < this.baitWait || !this.pressedBy(f, opp)) return null;   // only a target that is coming for the CPU follows a bait; a CPU that baits stands about for a while, not again at once
+    let best = null, spot = null, bestGap = AI_HAZARD_BAIT_RANGE;
+    for (const h of match.hazards) {   // the nearest idle strike hazard that has a spot to wait at
+      const gap = Math.hypot(h.x - f.x, h.z - f.z);
+      if (h.state !== 'idle' || !h.post || h.def.trig !== 'strike' || h.type === 'panel' || gap >= bestGap) continue;   // (a panel is not baited toward: a fight in its arc shocks both fighters)
+      const at = this.baitSpot(f, opp, h);
+      if (at) { bestGap = gap; best = h; spot = at; }
+    }
+    if (!best) return null;
+    if (!this.baitRng) this.baitRng = makeRng((match.cfg.seed ^ 0x6a09e667 ^ Math.imul(f.index + 1, 0x9e3779b1)) >>> 0);   // its own stream (as the placing of items has): a CPU that never baits plays exactly as one without the feature
+    if (this.baitRng() >= chance) { this.baitWait = this.tickNo + AI_HAZARD_ASK; return null; }
+    this.hazardWait = this.tickNo + AI_HAZARD_WAIT; this.baitWait = this.tickNo + AI_HAZARD_BAIT_GAP;
+    return { kind: 'hazard', mode: 'bait', stage: 'go', h: best, x: spot.x, z: spot.z, pick: null, dir: '', look: AI_HAZARD_LOOK, ticks: AI_HAZARD_BAIT_TICKS };
+  }
+  /* The bait spot: just beyond the zone of hazard h as seen from the target (turned aside when a wall or scenery is there), outside every hazard zone and, with ring-out on, inside the ring. */
+  baitSpot(f, opp, h) {
+    const def = h.def, away = (def.r || def.len / 2) + AI_HAZARD_PAD + 0.2, cx = h.x + (def.shape === 'cone' ? h.fx * def.len / 2 : 0), cz = h.z + (def.shape === 'cone' ? h.fz * def.len / 2 : 0);
+    let ux = cx - opp.x, uz = cz - opp.z;
+    const len = Math.hypot(ux, uz) || 1;
+    ux /= len; uz /= len;
+    for (let k = 0; k < 8; k++) {
+      const turn = (k & 1 ? 1 : -1) * Math.ceil(k / 2) * 0.785, cos = Math.cos(turn), sin = Math.sin(turn);
+      const x = cx + (ux * cos - uz * sin) * away, z = cz + (ux * sin + uz * cos) * away;
+      if (Arena.outside(x, z, f.radius) || (Arena.ringOut && !Arena.inRing(x, z)) || Arena.blockedAt(x, z, f.radius, f.groundY) || this.hazardWouldReach(h, x, z)) continue;
+      if (!this.match.hazards.some((other) => other.def.dmg > 0 && !other.def.shard && this.match.hazardCoversPad(other, x, z, AI_HAZARD_PAD))) return { x, z };   // and not in the zone of any hazard (the track, a drop, a fire)
+    }
+    return null;
   }
   /* The CPU does not walk or lunge into the zone of a hazard that is warning or going off (P7-05): a step, or a punch, kick, grab or jump whose forward step would take it from outside to inside is cancelled, so it waits at the edge while the target burns or is steamed. */
   holdAtHazard(f, it) {
@@ -7288,14 +7623,17 @@ class AIController {
     const fx = f.fwdX, fz = f.fwdZ, free = moving && FREE_SET.includes(f.state);
     let dx = free ? fx * it.fwd - fz * it.side : fx, dz = free ? fz * it.fwd + fx * it.side : fz;
     const len = Math.hypot(dx, dz) || 1;
-    const b = Arena.def.bounds, mx = b.x - f.radius, mz = b.z - f.radius;
-    dx = clamp(f.x + dx / len * AI_HAZARD_AHEAD, -mx, mx); dz = clamp(f.z + dz / len * AI_HAZARD_AHEAD, -mz, mz);   // a step into a wall is a creep along it: look at where the body will really be
+    dx = clamp(f.x + dx / len * AI_HAZARD_AHEAD, Arena.ax0 + f.radius, Arena.ax1 - f.radius); dz = clamp(f.z + dz / len * AI_HAZARD_AHEAD, Arena.az0 + f.radius, Arena.az1 - f.radius);   // a step into a wall is a creep along it: look at where the body will really be
     if (pressing) {   // no blows beside an electric panel from inside its arc (1.2 m, farther than any blow reaches): a hit on it would shock the CPU itself; the other posts can be struck from outside their zones
       for (const h of match.hazards) {
         if (h.post && h.type === 'panel' && h.state === 'idle' && match.hazardCovers(h, f.x, f.z) && Math.hypot(h.tx - f.x, h.tz - f.z) < AI_HAZARD_POST_NEAR) { it.punch = it.kick = it.grapple = false; break; }
       }
     }
     for (const h of match.hazards) {
+      if (h.def.trig === 'edge') {   // an open drop: no step or jump into it, but a CPU beside it may still walk along it or away, and strike
+        if ((free || it.jump) && !match.hazardCovers(h, f.x, f.z) && match.hazardCovers(h, dx, dz)) { it.fwd = 0; it.side = 0; it.run = false; it.jump = false; }
+        continue;
+      }
       if ((h.state === 'warn' || h.state === 'active') && h.def.dmg > 0 && !h.def.shard && (match.hazardCoversPad(h, dx, dz, AI_HAZARD_PAD) || match.hazardCoversPad(h, f.x, f.z, AI_HAZARD_PAD)) && !match.hazardCovers(h, f.x, f.z)) {   // at the edge of a zone that is on: no step, no lunge toward it
         it.fwd = 0; it.side = 0; it.run = false; it.punch = it.kick = it.grapple = it.jump = false;
         return;
@@ -7316,7 +7654,7 @@ class AIController {
   }
   /* A spot a step outside the zone of hazard h, nearest to f, with room to stand (null: none within 3 m). */
   hazardExit(f, h) {
-    const match = this.match, b = Arena.def.bounds;
+    const match = this.match;
     let ax = f.x - h.x, az = f.z - h.z;
     const len = Math.hypot(ax, az);
     if (len < 0.05) { ax = h.fx; az = h.fz; } else { ax /= len; az /= len; }
@@ -7324,7 +7662,7 @@ class AIController {
       for (let k = 0; k < 8; k++) {   // straight away from the centre first, then round the circle
         const turn = (k & 1 ? 1 : -1) * Math.ceil(k / 2) * 0.785, cos = Math.cos(turn), sin = Math.sin(turn);
         const x = f.x + (ax * cos - az * sin) * r, z = f.z + (ax * sin + az * cos) * r;
-        if (Math.abs(x) > b.x - f.radius || Math.abs(z) > b.z - f.radius || Arena.blockedAt(x, z, f.radius, f.groundY) || match.hazardCoversPad(h, x, z, AI_HAZARD_PAD)) continue;
+        if (Arena.outside(x, z, f.radius) || Arena.blockedAt(x, z, f.radius, f.groundY) || match.hazardCoversPad(h, x, z, AI_HAZARD_PAD)) continue;
         return { x, z };
       }
     }
@@ -7348,7 +7686,7 @@ class AIController {
   /* Where f can stand so that its next strike lands on h's post with the target in front of it, outside the effect zone, and with which move (null: nowhere). A move's hit sphere is centred 0.8 of its reach in front of the fighter, so the CPU stands
      that far from the post on the line target - post (behind the post, seen from the target) when it can, else on spots round the post. */
   hazardSpot(f, opp, h) {
-    const c = h.post, b = Arena.def.bounds;
+    const c = h.post;
     let ux = c.x - opp.x, uz = c.z - opp.z;
     const len = Math.hypot(ux, uz) || 1;
     ux /= len; uz /= len;
@@ -7358,7 +7696,7 @@ class AIController {
       for (const pick of this.reachable(f)) {
         const stand = Math.max(pick.mv.reach * f.stats.reach * 0.8, AI_HAZARD_STAND);
         const sx = c.x + (ux * cos - uz * sin) * stand, sz = c.z + (ux * sin + uz * cos) * stand;
-        if (Math.abs(sx) > b.x - f.radius || Math.abs(sz) > b.z - f.radius || Arena.blockedAt(sx, sz, f.radius, f.groundY) || this.hazardWouldReach(h, sx, sz)) continue;
+        if (Arena.outside(sx, sz, f.radius) || Arena.blockedAt(sx, sz, f.radius, f.groundY) || this.hazardWouldReach(h, sx, sz)) continue;
         const walkX = sx - f.x, walkZ = sz - f.z, along = clamp(((opp.x - f.x) * walkX + (opp.z - f.z) * walkZ) / (walkX * walkX + walkZ * walkZ || 1), 0, 1);
         if (Math.hypot(f.x + walkX * along - opp.x, f.z + walkZ * along - opp.z) < AI_HAZARD_PASS || !this.strikeOnPost(f, sx, sz, opp, pick.mv, c)) continue;   // the walk to the spot would run into the target, or the strike would miss
         if (!Arena.pathBlocked(f.x, f.z, sx, sz, 0.3, f.groundY)) return { x: sx, z: sz, pick };
@@ -7387,7 +7725,7 @@ class AIController {
   /* Where f stands, and which throw it uses, to send the target through hazard h: the target is within AI_HAZARD_RANGE of the hazard, and for each of the four throws the spot on the line that makes that throw's direction point at the hazard (the throw vectors
      of Combat.throwVector, with f facing the target) is tried; the nearest spot that has room and is outside every effect zone wins. */
   hazardLureSpot(f, opp, h) {
-    const c = this.hazardObstacle(h), b = Arena.def.bounds;
+    const c = this.hazardObstacle(h);
     if (!c) return null;
     let wx = clamp(opp.x, c.x - c.hx, c.x + c.hx) - opp.x, wz = clamp(opp.z, c.z - c.hz, c.z + c.hz) - opp.z;
     const gap = Math.hypot(wx, wz);
@@ -7400,7 +7738,7 @@ class AIController {
     for (const dir of THROW_DIRS) {
       const px = dir === 'fwd' ? wx : dir === 'back' ? -wx : dir === 'left' ? -wz : wz, pz = dir === 'fwd' ? wz : dir === 'back' ? -wz : dir === 'left' ? wx : -wx;   // f's facing: the throw vector then equals w
       const sx = opp.x - px * AI_LURE_STAND, sz = opp.z - pz * AI_LURE_STAND, dist = Math.hypot(sx - f.x, sz - f.z);
-      if (dist >= bestDist || Math.abs(sx) > b.x - f.radius || Math.abs(sz) > b.z - f.radius || Arena.blockedAt(sx, sz, f.radius, f.groundY) || this.hazardWouldReach(h, sx, sz)) continue;
+      if (dist >= bestDist || Arena.outside(sx, sz, f.radius) || Arena.blockedAt(sx, sz, f.radius, f.groundY) || this.hazardWouldReach(h, sx, sz)) continue;
       bestDist = dist; best = { x: sx, z: sz, dir };
     }
     return best;
@@ -7426,15 +7764,27 @@ class AIController {
   runHazard(f, opp, it, p) {
     const h = p.h;
     if (h.state !== 'idle' || !opp.alive || opp.y > 0.3) { this.plan = null; return; }
+    if (p.mode === 'bait') {   // the CPU waits only while the target is on its way
+      if (this.match.hazardAimIn(h, opp)) {   // the target followed: strike the post
+        p.mode = 'strike'; p.look = 0;
+      } else if (!p.arrived && Math.hypot(opp.x - f.x, opp.z - f.z) < MAX_STAND_REACH * opp.stats.reach + f.radius + AI_BAIT_BLOW_MARGIN) { this.hazardWait = 0; this.plan = null; return; }   // the target catches the CPU on its way, within blow range: no bait, fight (strike and lure may start at once; a hit also ends a plan, see chooseIntent)
+    }
     if (p.stage === 'go') {
       if (--p.look <= 0) {
         p.look = AI_HAZARD_LOOK;
-        const next = p.mode === 'lure' ? this.hazardLureSpot(f, opp, h) : this.match.hazardAimIn(h, opp) ? this.hazardSpot(f, opp, h) : null;
+        const next = p.mode === 'lure' ? this.hazardLureSpot(f, opp, h) : p.mode === 'bait' ? this.baitSpot(f, opp, h) : this.match.hazardAimIn(h, opp) ? this.hazardSpot(f, opp, h) : null;
         if (!next) { this.plan = null; return; }
         p.x = next.x; p.z = next.z; p.pick = next.pick || null; p.dir = next.dir || '';
       }
       const dx = p.x - f.x, dz = p.z - f.z;
       if (Math.hypot(dx, dz) > AI_HAZARD_SPOT) { this.moveToward(f, it, dx, dz, false); return; }
+      if (p.mode === 'bait') {   // waits at the bait spot for the target to come through the zone, on guard while it is near
+        p.arrived = true;
+        const near = Math.hypot(opp.x - f.x, opp.z - f.z) < AI_BAIT_GUARD;
+        if (near && f.defense === 'sway') { this.hazardWait = 0; this.plan = null; }   // no hold-guard for a sway fighter: it fights from here (strike and lure may start at once)
+        else it.defend = near;
+        return;
+      }
       p.stage = 'press';
     }
     if (p.mode === 'lure') {
@@ -7551,9 +7901,8 @@ class AIController {
     const len = Math.hypot(dx, dz);
     if (len < 1e-6) return 0;
     let deepest = 0;
-    const b = Arena.def.bounds, mx = b.x - f.radius, mz = b.z - f.radius;
     for (let i = 1; i <= 3; i++) {
-      const d = look * i / 3, x = clamp(f.x + dx / len * d, -mx, mx), z = clamp(f.z + dz / len * d, -mz, mz);
+      const d = look * i / 3, x = clamp(f.x + dx / len * d, Arena.ax0 + f.radius, Arena.ax1 - f.radius), z = clamp(f.z + dz / len * d, Arena.az0 + f.radius, Arena.az1 - f.radius);
       const drop = f.groundY - Arena.supportAt(x, z, f.y, f.radius);
       if (drop > FALL_STATE_DROP) deepest = Math.max(deepest, drop);
     }
@@ -7576,6 +7925,18 @@ class AIController {
     if (it.sidestep && stop(this.dropAhead(f, rx * it.sidestep, rz * it.sidestep, AI_EDGE_LOOK_SIDESTEP))) it.sidestep = 0;
     if (it.jump && moving && stop(this.dropAhead(f, dx, dz, AI_EDGE_LOOK_JUMP))) it.jump = false;
     this.edgeWait = held ? this.edgeWait + 1 : 0;
+  }
+
+  /* With ring-out on a CPU does not step, run, sidestep or jump out of the ring by itself, and does not start a blow that faces the edge from close to it (a push or a throw can still carry it out). */
+  holdAtRing(f, it) {
+    if (!Arena.ringOut || !f.alive || f.airborne || !FREE_SET.includes(f.state)) return;
+    const fx = f.fwdX, fz = f.fwdZ, rx = -fz, rz = fx;
+    const leaves = (ax, az, look) => { const len = Math.hypot(ax, az); return len > 1e-6 && !Arena.inRing(f.x + ax / len * look, f.z + az / len * look); };
+    const dx = fx * it.fwd + rx * it.side, dz = fz * it.fwd + rz * it.side;
+    if ((it.fwd !== 0 || it.side !== 0) && leaves(dx, dz, it.run ? AI_RING_LOOK_RUN : AI_RING_LOOK)) { it.fwd = 0; it.side = 0; it.run = false; }
+    if (it.sidestep && leaves(rx * it.sidestep, rz * it.sidestep, AI_RING_LOOK_SIDESTEP)) it.sidestep = 0;
+    if (it.jump && leaves(dx, dz, AI_RING_LOOK_JUMP)) it.jump = false;
+    if ((it.punch || it.kick || it.grapple) && leaves(fx, fz, AI_RING_LOOK_BLOW)) { it.punch = it.kick = it.grapple = false; }
   }
 
   /* Levels (P8-04): a CPU whose footing or whose target's is raised (a deck, a stair, a ledge) follows the cheapest walk of the level's map (Arena.navMap) to its target instead of the straight line: along stairs, over
@@ -7617,8 +7978,8 @@ class AIController {
     let bx = 0, bz = 0, bestGap = Infinity;
     for (let a = 0; a < 8; a++) {
       for (const reach of [1.2, 2.4, 3.6]) {
-        const x = f.x + Math.cos(a * Math.PI / 4) * reach, z = f.z + Math.sin(a * Math.PI / 4) * reach, b = Arena.def.bounds;
-        if (Math.abs(x) > b.x - f.radius || Math.abs(z) > b.z - f.radius || (Math.abs(x - deck.x) < deck.hx + f.radius && Math.abs(z - deck.z) < deck.hz + f.radius)) continue;
+        const x = f.x + Math.cos(a * Math.PI / 4) * reach, z = f.z + Math.sin(a * Math.PI / 4) * reach;
+        if (Arena.outside(x, z, f.radius) || (Math.abs(x - deck.x) < deck.hx + f.radius && Math.abs(z - deck.z) < deck.hz + f.radius)) continue;
         const gap = f.groundY - Arena.supportAt(x, z, f.y, f.radius);
         if (gap > AI_CREAK_DROP || gap < -0.3 || Arena.blockedAt(x, z, f.radius, f.groundY)) continue;
         if (reach < bestGap) { bestGap = reach; bx = x; bz = z; }
@@ -7637,6 +7998,7 @@ class AIController {
     this.chooseIntent(f, opp, match, it);
     if (!this.leaveCreaking(f, it)) this.navigate(f, opp, it);
     this.holdAtEdge(f, it);
+    this.holdAtRing(f, it);
     this.holdAtHazard(f, it);
     if (it.run && this.waitsOnRing(f) && Math.hypot(opp.x - f.x, opp.z - f.z) < RING_NO_RUN_DIST) it.run = false;   // no charge at the target without a token
     return it;
@@ -7854,8 +8216,7 @@ class AIController {
     const add = (score, plan) => { options.push({ score: score * (1 + (simRng() - 0.5) * (0.25 + d.mistakes * 3)), plan }); };
     const low = f.lowStamina;
     const aggr = st.aggr * d.aggression;
-    const b = Arena.def.bounds;
-    const cornered = Math.abs(f.x) > b.x - 1.2 || Math.abs(f.z) > b.z - 1.0;
+    const cornered = f.x < Arena.sx0 + 1.2 || f.x > Arena.sx1 - 1.2 || f.z < Arena.sz0 + 1.0 || f.z > Arena.sz1 - 1.0;   // the CPU's walls are the ring in a 1v1
     const interval = d.interval;
     // spacing
     if (dist > pref + AI_APPROACH_SLACK) add(0.5 + clamp((dist - pref - AI_APPROACH_SLACK) * 0.9, 0, 3) * aggr * (low ? 0.3 : 1), { kind: 'walk', ticks: interval, away: false, run: dist > 3.6 && f.stam > f.maxStam * 0.45 && d.id !== 'easy' });
@@ -7907,18 +8268,17 @@ class AIController {
       if (obj) { const dd = Math.hypot(obj.x - tx, obj.z - tz); if (dd < bd) { bd = dd; best = { dir, kind: 'object' }; } }
     }
     if (best) return best;
-    const b = Arena.def.bounds;
     for (const dir of THROW_DIRS) {
       const v = Combat.throwVector(f, dir), dx = v[0], dz = v[1];
       const tx = opp.x + dx * 2.6, tz = opp.z + dz * 2.6;
-      if (Math.abs(tx) > b.x - 0.4 || Math.abs(tz) > b.z - 0.4) return { dir, kind: 'wall' };
+      if (tx < Arena.sx0 + 0.4 || tx > Arena.sx1 - 0.4 || tz < Arena.sz0 + 0.4 || tz > Arena.sz1 - 0.4) return { dir, kind: 'wall' };   // with ring-out on, a throw over the ring edge wins the round
     }
     return null;
   }
   /* True when the thrower's own back is near a wall. */
   cornered(f) {
-    const b = Arena.def.bounds, bx = f.x - f.fwdX * 1.4, bz = f.z - f.fwdZ * 1.4;
-    return Math.abs(bx) > b.x - 0.5 || Math.abs(bz) > b.z - 0.5;
+    const bx = f.x - f.fwdX * 1.4, bz = f.z - f.fwdZ * 1.4;
+    return bx < Arena.sx0 + 0.5 || bx > Arena.sx1 - 0.5 || bz < Arena.sz0 + 0.5 || bz > Arena.sz1 - 0.5;
   }
   /* Deliberate throw choice: scenery or walls first (smarter CPUs), escape a corner by throwing past us, else by style. */
   chooseThrowDir(f, opp) {
@@ -8102,6 +8462,10 @@ const COOP_ENEMIES_BASE = 2;          // P4-07: a co-op brawl faces this many en
 const COOP_REVIVE_HP = 0.5;           // the share of its health a knocked-out player comes back with at a stage start (MatchSim.reviveTeam)
 function coopEnemyCount(players) { return Math.min(BRAWL_MAX_ENEMIES, COOP_ENEMIES_BASE + players); }
 const BRAWL_SPAWN_SPACING = 0.8;      // metres between neighbouring enemy start points along z (a body is 0.68 m wide)
+const WAVE_SPREAD = 0.85;             // m: a wave's enemies stand on a ring of this radius round their entry (a body is 0.68 m wide)
+const WAVE_BODY = 0.34;               // m: a fighter's radius, for working out where a called enemy would stand
+const WAVE_WAIT_MAX = 300;            // ticks a called enemy waits at its door for a live hazard zone to clear before it takes the other door (or comes in anyway)
+const WAVE_NEXT_AT = 1;               // the next wave comes when at most this many enemies are still up (P8-01)
 const BRAWL_SPAWN_STAGGER = 0.5;      // every second enemy starts this much farther from the player, so the line is not a wall
 const CROWD_SEPARATION_PASSES = 3;    // body push-apart passes per tick with more than two fighters (two fighters need one)
 /* Whether a knock-out ends the fight (the whole team is out): in a brawl a single enemy going down gets no K.O. banner, bell or rumble. */
@@ -8159,7 +8523,7 @@ const MAX_STAND_REACH = Math.max(...Object.values(ATTACKS).filter((mv) => mv.typ
 class CrowdDirector {
   constructor(match) {
     this.match = match;
-    const n = match.fighters.length, fill = (v) => new Array(n).fill(v);
+    const n = match.waveRows ? match.partySize + BRAWL_MAX_ENEMIES : match.fighters.length, fill = (v) => new Array(n).fill(v);   // waves bring enemies in later: room for all six slots
     this.engaged = fill(false); this.token = fill(false); this.tokenTarget = fill(-1); this.grantTick = fill(0); this.usedToken = fill(false);
     this.waitSince = fill(0); this.restUntil = fill(0);
     this.retreat = fill(false); this.retreatSince = fill(0); this.retreatReady = fill(0);
@@ -8172,6 +8536,12 @@ class CrowdDirector {
     for (const list of [this.engaged, this.token, this.usedToken, this.retreat]) list.fill(false);
     for (const list of [this.grantTick, this.waitSince, this.restUntil, this.retreatSince, this.retreatReady, this.slotAngle, this.slotX, this.slotZ, this.share, this.nextGrant, this.ringTick, this.ord, this.ang]) list.fill(0);
     this.tokenTarget.fill(-1); this.ringSig.fill(-1);
+  }
+  /* A new enemy took slot i (a wave): nothing of the one before it is left. */
+  forget(i) {
+    for (const list of [this.engaged, this.token, this.usedToken, this.retreat]) list[i] = false;
+    for (const list of [this.grantTick, this.waitSince, this.restUntil, this.retreatSince, this.retreatReady, this.slotAngle, this.slotX, this.slotZ, this.share, this.nextGrant, this.ringTick, this.ord, this.ang]) list[i] = 0;
+    this.tokenTarget[i] = -1; this.ringSig[i] = -1;
   }
   isAi(i) { return this.match.controllers[i] instanceof AIController; }
   /* True while the fighter is in the middle of an attack on its target: a strike, a grab and the clinch it holds, a hold, or a pressed attack still waiting in the
@@ -8290,19 +8660,24 @@ class MatchSim {
     this.cfg = Object.assign({ mode: 'free', playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'normal', arcadeLevel: 'normal', winsNeeded: 2, timer: 60, seed: 1, playerHp: 1, countdown: true, dummy: 'stand', items: true, hazards: true }, cfg);
     simRng = makeRng(this.cfg.seed);
     this.def = ARENAS[this.cfg.arenaId];
-    Arena.build(this.def);
+    const ring = this.cfg.mode !== 'brawl' && this.cfg.ring && this.def.ring ? this.def.ring : null;   // a 1v1 fights inside its level's ring (P8-05); ring-out only where the level has it and the setting is on
+    Arena.build(this.def, ring, !!(ring && this.cfg.ringOut && ring[4]));
     const p1 = ROSTER_BY_ID[this.cfg.playerId] || ROSTER_BY_ID.kai;
     let p2 = ROSTER_BY_ID[this.cfg.opponentId] || ROSTER_BY_ID.mara;
     if (this.cfg.mode === 'arcade' && p2.bossAttrs) p2 = Object.assign({}, p2, { attrs: p2.bossAttrs[this.cfg.arcadeLevel] || p2.bossAttrs.normal });   // the Arcade final boss, scaled by the difficulty option
     this.training = this.cfg.mode === 'training';
     this.versus = this.cfg.mode === 'versus';
     this.brawl = this.cfg.mode === 'brawl';
+    this.waveRows = this.brawl && this.cfg.waves && this.def.waves ? this.def.waves : null;   // the level's waves (P8-03); wave = how many have entered, waveQueue = enemies of an entered wave still waiting for a free slot
+    this.wave = 0; this.waveCursor = 0; this.waveQueue = []; this.waveEntered = 0; this.waveDoors = [];
+    this.ringedOut = null;   // the fighter that left the ring this round (P8-05)
     this.friendlyFire = !!this.cfg.friendlyFire;   // damage between teammates (the co-op setting of P4-07)
     /* A co-op brawl: cfg.coop is the party, [{ slot, id }] in seat order (slot = the input seat 0 to 3, id = the roster fighter); fighter k is the k-th of them. Otherwise the party is the one player. */
     this.coop = this.brawl && Array.isArray(this.cfg.coop) && this.cfg.coop.length > 0 ? this.cfg.coop.slice(0, COOP_MAX_PLAYERS) : null;
     const party = this.coop ? this.coop.map((seat) => ROSTER_BY_ID[seat.id] || ROSTER_BY_ID.kai) : [p1];
     this.partySize = party.length;
-    const foes = this.brawl ? this.brawlEnemies(party.map((profile) => profile.id)) : [p2];
+    const foes = this.waveRows ? this.waveProfiles(0, party.map((profile) => profile.id)) : this.brawl ? this.brawlEnemies(party.map((profile) => profile.id)) : [p2];
+    if (this.waveRows) { this.wave = 1; this.waveEntered = foes.length; }
     this.fighters = party.map((profile, k) => {
       const member = new Fighter(profile, k, TEAM_PLAYERS);
       if (party.findIndex((other) => other.id === profile.id) < k) member.applyLook(alternateLook(profile.look));   // a second pick of the same fighter wears the alternate colours
@@ -8632,6 +9007,7 @@ class MatchSim {
     if (!this.itemsOn) return;
     const rng = makeRng((this.cfg.seed ^ 0x2545f491) >>> 0);   // its own generator: placing items never moves the match's random sequence
     for (const [id, x, z, y, hostId] of this.def.items || []) {
+      if (!Arena.inRing(x, z)) continue;   // a 1v1 in a ring: nothing lies outside it (P8-05)
       const host = hostId ? Arena.objects.find((o) => o.id === hostId) || null : null;
       const loose = this.newItem(id, x, y, z, rng() * TAU);
       if (host && host.destroyed) loose.mode = 'fall';
@@ -8682,7 +9058,7 @@ class MatchSim {
     const held = f.item;
     if (!held) return null;
     f.item = null;
-    const loose = this.newItem(held.id, f.x + f.fwdX * 0.3, f.y + 0.9 * f.scale, f.z + f.fwdZ * 0.3, f.yaw);
+    const loose = this.newItem(held.id, f.x + f.fwdX * 0.3, f.y + 0.9, f.z + f.fwdZ * 0.3, f.yaw);
     loose.dur = held.dur; loose.sprays = held.sprays; loose.mode = 'fall'; loose.vx = f.fwdX * 0.8; loose.vz = f.fwdZ * 0.8; loose.vy = 1;
     Events.emit('itemDrop', { f, id: held.id, x: loose.x, y: loose.y, z: loose.z });
     return this.addItem(loose);
@@ -8695,9 +9071,9 @@ class MatchSim {
   /* Use while holding: the item leaves the hand on an arc that reaches the target's chest (a brick: its head) in about dist / THROW_SPEED seconds; a skateboard goes along the floor. */
   throwItem(f) {
     const held = f.item, w = WEAPONS[held.id], target = this.throwTargetFor(f);
-    let tx = f.x + f.fwdX * THROW_BLIND_RANGE, tz = f.z + f.fwdZ * THROW_BLIND_RANGE, ty = f.y + CHEST_AIM * f.scale;
-    if (target) { tx = target.x; tz = target.z; ty = target.y + (w.sp === 'head' ? HEAD_AIM : CHEST_AIM) * target.scale; }
-    const loose = this.newItem(held.id, f.x + f.fwdX * 0.45, f.y + (w.cls === 'carry' ? 1.0 : THROW_HAND) * f.scale, f.z + f.fwdZ * 0.45, f.yaw);
+    let tx = f.x + f.fwdX * THROW_BLIND_RANGE, tz = f.z + f.fwdZ * THROW_BLIND_RANGE, ty = f.y + CHEST_AIM;
+    if (target) { tx = target.x; tz = target.z; ty = target.y + (w.sp === 'head' ? HEAD_AIM : CHEST_AIM); }
+    const loose = this.newItem(held.id, f.x + f.fwdX * 0.45, f.y + (w.cls === 'carry' ? 1.0 : THROW_HAND), f.z + f.fwdZ * 0.45, f.yaw);
     loose.dur = held.dur; loose.sprays = held.sprays; loose.owner = f;
     const dx = tx - loose.x, dz = tz - loose.z, dist = Math.max(0.5, Math.hypot(dx, dz));
     const slide = w.sp === 'trip', speed = slide || w.cls === 'carry' ? THROW_SPEED_SLOW : THROW_SPEED, flight = dist / speed;
@@ -8765,7 +9141,7 @@ class MatchSim {
       if (!def.alive || !this.canHurt(it.owner, def) || def.state === S.DOWN || !Combat.strikable(it.owner, def)) continue;   // the same fighters a strike can touch
       if (def.state === S.SWAY && def.stateTicks < SWAY_IFRAME_TICKS) continue;   // dodged
       if (Math.hypot(def.x - it.x, def.z - it.z) > def.radius + ITEM_RADIUS) continue;
-      const top = def.y + (def.state === S.CROUCH || def.state === S.BLOCK_L ? 1.25 : 1.85) * def.scale;
+      const top = def.y + (def.state === S.CROUCH || def.state === S.BLOCK_L ? 1.25 : 1.85);   // the standard body: size is cosmetic
       if (sliding ? def.y > it.y + 0.35 : it.y < def.y - 0.05 || it.y > top) continue;   // a board takes the feet of a grounded fighter; anything else must be at body height
       const stopped = Combat.itemBlock(it, def, this);
       if (!stopped) Combat.itemHit(it, def, this);
@@ -8777,12 +9153,12 @@ class MatchSim {
   }
   /* One tick of a moving item; true when it is gone. */
   moveItem(it) {
-    const w = WEAPONS[it.id], b = this.def.bounds, thrown = !!it.owner && (it.mode === 'fly' || it.mode === 'slide');
+    const w = WEAPONS[it.id], thrown = !!it.owner && (it.mode === 'fly' || it.mode === 'slide');
     if (it.mode === 'slide') { const keep = Math.max(0, 1 - ITEM_SLIDE_DRAG * DT); it.vx *= keep; it.vz *= keep; } else it.vy -= GRAVITY * DT;
     it.x += it.vx * DT; it.y += it.vy * DT; it.z += it.vz * DT;
     if (it.mode === 'fly') it.spin += ITEM_SPIN * DT;
-    if (Math.abs(it.x) > b.x - 0.1) { it.x = clamp(it.x, -b.x + 0.1, b.x - 0.1); it.vx *= -0.3; }
-    if (Math.abs(it.z) > b.z - 0.1) { it.z = clamp(it.z, -b.z + 0.1, b.z - 0.1); it.vz *= -0.3; }
+    if (it.x < Arena.ax0 + 0.1 || it.x > Arena.ax1 - 0.1) { it.x = clamp(it.x, Arena.ax0 + 0.1, Arena.ax1 - 0.1); it.vx *= -0.3; }
+    if (it.z < Arena.az0 + 0.1 || it.z > Arena.az1 - 0.1) { it.z = clamp(it.z, Arena.az0 + 0.1, Arena.az1 - 0.1); it.vz *= -0.3; }
     for (const c of Arena.colliders) {   // scenery taller than the item
       if (!c.active || it.y >= c.top - 0.05 || Math.abs(it.x - c.x) > c.hx + 0.1 || Math.abs(it.z - c.z) > c.hz + 0.1) continue;
       if (!thrown) {   // a dropped item that came down inside a footprint is moved out to the nearest side
@@ -8868,7 +9244,10 @@ class MatchSim {
     this.hazards.length = 0;
     Arena.navVersion++;
     if (!this.hazardsOn) { Arena.navMap(); return; }
-    for (const [type, x, z, o] of this.def.hazards || []) this.hazards.push(this.newHazard(type, x, z, o || {}));
+    for (const [type, x, z, o] of this.def.hazards || []) {
+      const wall = o && o.obj ? Arena.objects.find((q) => q.id === o.obj) : null;   // a glass wall counts where it stands
+      if (Arena.inRing(wall ? wall.x : x, wall ? wall.z : z)) this.hazards.push(this.newHazard(type, x, z, o || {}));
+    }
     Arena.navVersion++;
     Arena.navMap();   // built here, not on the first replan in the middle of a fight
   }
@@ -9224,15 +9603,98 @@ class MatchSim {
   }
 
   placeFighters(hpFrac) {
-    const s = this.def.spawn, party = this.partySize;
-    for (let k = 0; k < party; k++) this.fighters[k].reset(-s, (k - (party - 1) / 2) * BRAWL_SPAWN_SPACING, Math.PI / 2, hpFrac, 1);   // the party stands in a line, centred on z = 0
-    if (this.brawl) {   // the enemies start in a loose line facing the players, centred on z = 0
+    const s = this.def.spawn, party = this.partySize, cx = Arena.ring ? this.def.ring[0] : 0, cz = Arena.ring ? this.def.ring[1] : 0;   // a 1v1 in a ring starts around its centre
+    for (let k = 0; k < party; k++) this.fighters[k].reset(cx - s, cz + (k - (party - 1) / 2) * BRAWL_SPAWN_SPACING, Math.PI / 2, hpFrac, 1);   // the party stands in a line, centred on the ring (z = 0 with no ring)
+    if (this.brawl) {   // the enemies start in a loose line facing the players, centred on z = 0; with waves the first wave stands at its entry
       const foes = this.fighters.length - party;
-      for (let j = 0; j < foes; j++) this.fighters[party + j].reset(s + (j & 1) * BRAWL_SPAWN_STAGGER, (j - (foes - 1) / 2) * BRAWL_SPAWN_SPACING, -Math.PI / 2, 1, 1);
-    } else this.fighters[1].reset(s, 0, -Math.PI / 2, 1, 1);
+      if (this.waveRows) for (let j = 0; j < foes; j++) this.putWaveFighter(this.fighters[party + j], 0, j, foes);
+      else for (let j = 0; j < foes; j++) this.fighters[party + j].reset(s + (j & 1) * BRAWL_SPAWN_STAGGER, (j - (foes - 1) / 2) * BRAWL_SPAWN_SPACING, -Math.PI / 2, 1, 1);
+    } else this.fighters[1].reset(cx + s, cz, -Math.PI / 2, 1, 1);
     for (const c of this.controllers) c.reset();
     this.intents.forEach(clearIntent);
     this.crowd.reset();
+  }
+  /* Ring-out (P8-05): with it on, a fighter standing outside the ring, on the floor or on anything (a deck, a sofa, a stair), has lost the round (one in the air has not landed out there yet). It is a knock-out for the round, credited to
+     whoever sent it flying (checkRoundEnd ends the round with the reason 'ringout'). */
+  stepRingOut() {
+    if (!Arena.ringOut || this.locked) return;
+    const ring = Arena.ring;
+    for (const f of this.fighters) {
+      if (!f.alive || f.airborne || (f.x >= ring.x0 && f.x <= ring.x1 && f.z >= ring.z0 && f.z <= ring.z1)) continue;
+      this.ringedOut = this.ringedOut || f;
+      f.hp = 0;
+      Events.emit('ringOut', { f, x: f.x, y: f.y + 1.0, z: f.z });
+      Combat.knockOut(f, f.lastFoe && this.canHurt(f.lastFoe, f) ? f.lastFoe : null, null, this);
+    }
+  }
+  /* Brawl waves (P8-03). The enemies of wave k: the roster in ladder order from where the last wave stopped, skipping the party; a co-op adds one enemy per extra player; the lead of a row with a rival is cfg.rival. */
+  waveProfiles(k, partyIds) {
+    const row = this.waveRows[k], count = Math.min(BRAWL_MAX_ENEMIES, row[0] + this.partySize - 1);
+    let pool = ROSTER.filter((r) => !partyIds.includes(r.id));
+    if (!pool.length) pool = ROSTER;
+    const list = [];
+    for (let j = 0; j < count; j++) list.push(pool[this.waveCursor++ % pool.length]);
+    if (row[3] && ROSTER_BY_ID[this.cfg.rival]) list[0] = ROSTER_BY_ID[this.cfg.rival];
+    return list;
+  }
+  /* Stands enemy f, the j-th of n in wave k, at its entry (alternate enemies take the row's second entry), spread round it, facing the party and on whatever is there (a deck). */
+  /* The door (0 = the row's entry, 1 = its second entry) of each of the n enemies of wave k: alternate enemies take alternate doors; stepWaves moves held ones to the other door. */
+  doorsOf(k, n) {
+    const doors = this.waveDoors[k] || (this.waveDoors[k] = []), entries = this.waveRows[k][4] ? 2 : 1;
+    for (let j = doors.length; j < n; j++) doors.push(j % entries);
+    return doors;
+  }
+  waveSpot(k, j, n, radius = WAVE_BODY) {
+    const row = this.waveRows[k], doors = this.doorsOf(k, n), door = doors[j], ex = door ? row[4][0] : row[1], ez = door ? row[4][1] : row[2];
+    let size = 0, before = 0;   // the enemies of the wave at the same door share the ring round it, so no two stand on one spot
+    for (let q = 0; q < n; q++) if (doors[q] === door) { size++; if (q < j) before++; }
+    const angle = size > 1 ? TAU * before / size : 0, spread = size > 1 ? WAVE_SPREAD : 0;
+    const x = clamp(ex + Math.cos(angle) * spread, Arena.ax0 + radius, Arena.ax1 - radius), z = clamp(ez + Math.sin(angle) * spread, Arena.az0 + radius, Arena.az1 - radius);
+    return { x, z, top: Arena.supportAt(x, z, 99, radius) };
+  }
+  putWaveFighter(f, k, j, n) {
+    const { x, z, top } = this.waveSpot(k, j, n, f.radius);
+    f.reset(x, z, Math.atan2(this.fighters[0].x - x, this.fighters[0].z - z), 1, 1);
+    f.y = f.prevY = top; f.groundY = f.supportY = top;
+  }
+  /* Whether the entry of called enemy e lies in a hazard that is warning or going off (the train on the track, a fire pool): it waits at the door until the zone is clear. */
+  waveBlocked(e) {
+    const { x, z } = this.waveSpot(e.k, e.j, e.n);
+    return this.hazards.some((h) => (h.state === 'warn' || h.state === 'active') && h.def.dmg > 0 && !h.def.shard && this.hazardCoversPad(h, x, z, WAVE_BODY));
+  }
+  /* Every tick of a brawl with waves: the next wave is called when at most WAVE_NEXT_AT enemies are still up, and its enemies enter one by one while fewer than BRAWL_MAX_ENEMIES are up and their spot is clear of a live hazard. */
+  waveTotal() { return this.waveRows.reduce((sum, row) => sum + Math.min(BRAWL_MAX_ENEMIES, row[0] + this.partySize - 1), 0); }
+  stepWaves() {
+    if (!this.waveRows || this.locked) return;
+    let up = 0;
+    for (const f of this.fighters) if (f.team === TEAM_ENEMIES && f.alive) up++;
+    if (!this.waveQueue.length && this.wave < this.waveRows.length && up <= WAVE_NEXT_AT) {
+      const k = this.wave++, profiles = this.waveProfiles(k, this.fighters.slice(0, this.partySize).map((f) => f.id));
+      profiles.forEach((profile, j) => this.waveQueue.push({ k, j, n: profiles.length, profile, wait: 0, moved: 0 }));
+      Events.emit('waveStart', { wave: this.wave, of: this.waveRows.length, count: profiles.length, match: this });
+    }
+    while (this.waveQueue.length && up < BRAWL_MAX_ENEMIES) {
+      const e = this.waveQueue[0];
+      if (!e.force && this.waveBlocked(e)) {
+        if (++e.wait <= WAVE_WAIT_MAX) break;   // held at the door while its spot is in a live hazard zone ...
+        const other = this.waveRows[e.k][4] && !e.moved, doors = this.doorsOf(e.k, e.n);   // ... for at most WAVE_WAIT_MAX ticks: then the held enemies of the wave take the row's other door (the ring there is spread over all who stand at it), or come in anyway when there is none
+        for (const q of this.waveQueue.filter((held) => held.k === e.k && this.waveBlocked(held))) { if (other) { doors[q.j] = 1 - doors[q.j]; q.moved = 1; q.wait = 0; } else q.force = true; }
+        continue;
+      }
+      this.enterEnemy(this.waveQueue.shift()); up++;
+    }
+  }
+  /* A called enemy enters: a new slot, or (all BRAWL_MAX_ENEMIES slots used) the slot of a knocked-out enemy. */
+  enterEnemy(e) {
+    let slot = this.fighters.length;
+    if (slot - this.partySize >= BRAWL_MAX_ENEMIES) slot = this.fighters.findIndex((f, i) => i >= this.partySize && !f.alive);
+    const foe = new Fighter(e.profile, slot, TEAM_ENEMIES), controller = new AIController(e.profile, this.cfg.difficulty);
+    if (this.fighters.some((other, i) => i < this.partySize && other.id === e.profile.id)) foe.applyLook(alternateLook(e.profile.look));   // a rival who is also a player's fighter wears the alternate colours
+    this.waveEntered++;
+    if (!this.cfg.evenDamage) foe.stats.damage *= (DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg;
+    if (slot === this.fighters.length) { this.fighters.push(foe); this.controllers.push(controller); this.intents.push(makeIntent()); this.stats.push(this.newStats()); }
+    else { this.fighters[slot] = foe; this.controllers[slot] = controller; clearIntent(this.intents[slot]); this.crowd.forget(slot); }
+    this.putWaveFighter(foe, e.k, e.j, e.n);
   }
   /* Stage-start hook (P4-07). In a co-op a knocked-out player sits out the rest of the brawl (they take no part, enemies ignore them, the camera leaves them out). A stage system, which does not
      exist yet, calls this when a stage starts to bring them back where they fell, on their feet with COOP_REVIVE_HP of their health. Nothing in play calls it today. Returns how many came back. */
@@ -9253,6 +9715,7 @@ class MatchSim {
   }
   startRound() {
     this.round++;
+    this.ringedOut = null;
     this.placeFighters(this.round === 1 || this.cfg.mode === 'survival' ? this.cfg.playerHp : 1);   // survival health carries into a drawn round's replay
     this.spawnItems();
     this.spawnHazards();
@@ -9335,6 +9798,8 @@ class MatchSim {
     this.stepHazards();
     this.stepLoad();
     this.stepCollapse();
+    this.stepRingOut();
+    this.stepWaves();
     Combat.tickCombos(this.fighters);
     for (const f of this.fighters) f.animate(DT);
     if (this.training) this.trainingMaintenance();
@@ -9423,9 +9888,9 @@ class MatchSim {
   scenario(n) {
     const [a, b] = this.fighters;
     this.placeFighters(1);
-    const bx = this.def.bounds.x;
+    const bx = Arena.sx1;
     if (n === 2) { a.x = -0.55; b.x = 0.55; } else if (n === 3) { b.x = bx - 0.7; a.x = b.x - 1.4; } else if (n === 4) {
-      const o = Arena.objects.find((q) => !q.destroyed && q.type !== 'panel') || Arena.objects[0];
+      const o = Arena.objects.find((q) => !q.destroyed && q.type !== 'panel' && Arena.inRing(q.x, q.z)) || Arena.objects[0];
       if (o) { b.x = o.x - (o.hx + 1.0); b.z = o.z; a.x = b.x - 1.2; a.z = o.z; }
     } else if (n === 5) { b.stam = b.maxStam * 0.12; this.infiniteStam = false; }   // infinite stamina would refill it at once
     for (const f of this.fighters) { f.prevX = f.x; f.prevZ = f.z; }
@@ -9437,13 +9902,13 @@ class MatchSim {
   /* ----- round rules ----- */
   checkRoundEnd() {
     const [a, b] = this.fighters;
-    const down = this.brawl ? !this.teamAlive(TEAM_PLAYERS) || !this.teamAlive(TEAM_ENEMIES) : !a.alive || !b.alive;   // a brawl ends when one whole side is out
+    const down = this.brawl ? !this.teamAlive(TEAM_PLAYERS) || (!this.teamAlive(TEAM_ENEMIES) && !this.waveQueue.length) : !a.alive || !b.alive;   // a brawl ends when one whole side is out (enemies of a called wave still waiting at their door count as up)
     if (down) {
       if (!this.locked) this.slowTicks = KO_SLOW_TICKS;
       this.locked = true;
       this.endTimer++;
       if (this.slowTicks > 0) this.slowTicks--;
-      if (this.endTimer >= KO_DELAY_TICKS) this.endRound('ko');
+      if (this.endTimer >= KO_DELAY_TICKS) this.endRound(this.ringedOut ? 'ringout' : 'ko');
       return;
     }
     if (this.cfg.timer > 0) {
@@ -9542,7 +10007,7 @@ class MatchSim {
 const SIM_MAX_TICKS = 60 * 60 * 15;   // safety cap: 15 minutes of game time
 const SimRunner = {
   /* opts: playerId, opponentId, arenaId, difficulty (both sides) or difficulty1 / difficulty2, seed, winsNeeded, timer, listeners
-     ({ eventName: handler }, added after the run's own handlers so a measurement can watch the match, e.g. 'hit').
+     ({ eventName: handler }, added after the run's own handlers so a measurement can watch the match, e.g. 'hit'); ring (fight inside the level's ring), ringOut (leaving it loses the round, where the level has it), waves (a brawl uses the level's waves).
      Returns the winner (0 / 1, -1 if the cap was reached), duration and damage dealt per move type for each side.
      'other' is damage not carried by a hit or throw: walls, objects and chip damage. */
   run(opts) {
@@ -9554,14 +10019,14 @@ const SimRunner = {
     Events.handlers = {};   // only this run's listeners: the menu scene, sound and HUD never see the simulated match
     Settings.v.reducedMotion = false;   // reduced motion shortens hitstop; balance numbers must not depend on a viewer setting
     let damage = [{}, {}];   // per fighter (a brawl has more than two)
-    const add = (side, type, dmg) => { damage[side][type] = (damage[side][type] || 0) + dmg; };
+    const add = (side, type, dmg) => { const row = damage[side] || (damage[side] = {}); row[type] = (row[type] || 0) + dmg; };   // a wave brings new fighters: the lists grow with them
     let m = null;
     try {
       Events.on('hit', (e) => add(e.att.index, e.kind === 'ground' ? 'ground' : e.mv.cat || 'other', e.dmg));
       Events.on('throw', (e) => add(e.att.index, 'throw', e.dmg));
       for (const name in cfg.listeners || {}) Events.on(name, cfg.listeners[name]);
       // cfg.enemies (a count or a list of fighter ids) makes it a brawl: the player against that many CPU enemies, ended by one side being wiped out
-      m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, hazards: cfg.hazards === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
+      m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, hazards: cfg.hazards === true, ring: cfg.ring === true, ringOut: cfg.ringOut === true, waves: cfg.waves === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
         cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null));   // a brawl has no clock unless asked for one (time up = the players lose)
       const count = m.fighters.length;
       if (count !== 2) damage = m.fighters.map(() => ({}));
@@ -9569,17 +10034,20 @@ const SimRunner = {
       for (let i = 1; i < count; i++) m.controllers[i] = new AIController(m.fighters[i].profile, cfg.difficulty2 || cfg.difficulty);
       const lost = m.fighters.map(() => 0), before = m.fighters.map(() => 0);
       while (m.phase !== 'matchEnd' && m.tick < SIM_MAX_TICKS) {
-        for (let i = 0; i < count; i++) before[i] = m.fighters[i].hp;
+        const n = m.fighters.length;   // waves add fighters (and replace knocked-out ones) while the match runs
+        for (let i = 0; i < n; i++) before[i] = m.fighters[i].hp;
         m.step();
         if (m.phase === 'waiting') { m.startRound(); continue; }
-        for (let i = 0; i < count; i++) lost[i] += Math.max(0, before[i] - m.fighters[i].hp);
+        for (let i = 0; i < n; i++) lost[i] = (lost[i] || 0) + Math.max(0, before[i] - m.fighters[i].hp);
       }
-      for (let i = 0; i < count; i++) {
+      const total = m.fighters.length;
+      for (let i = 0; i < total; i++) {
+        if (!damage[i]) damage[i] = {};
         let credited = 0, hostileLost = 0;
         for (const k in damage[i]) credited += damage[i][k];
-        for (let j = 0; j < count; j++) if (m.fighters[j].team !== m.fighters[i].team) hostileLost += lost[j];   // a 1v1: just the other fighter's loss
+        for (let j = 0; j < total; j++) if (m.fighters[j].team !== m.fighters[i].team) hostileLost += lost[j] || 0;   // a 1v1: just the other fighter's loss
         const other = hostileLost - credited;
-        if (count === 2 && other > 0.05) add(i, 'other', other);   // with several fighters a loss cannot be told apart per attacker: no 'other' row
+        if (total === 2 && other > 0.05) add(i, 'other', other);   // with several fighters a loss cannot be told apart per attacker: no 'other' row
         for (const k in damage[i]) damage[i][k] = Math.round(damage[i][k] * 10) / 10;
       }
       return {
@@ -9860,17 +10328,18 @@ const Game = {
     const party = Inputs.seatedSlots().map((slot) => ({ slot, id: sel.party[slot] }));
     if (!party.length) return false;
     this.run = { mode: 'coop', player: party[0].id };
-    this.beginMatch({ mode: 'brawl', coop: party, playerId: party[0].id, enemies: coopEnemyCount(party.length), arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: 0 });
+    this.beginMatch({ mode: 'brawl', coop: party, playerId: party[0].id, enemies: coopEnemyCount(party.length), arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: 0, waves: !!ARENAS[sel.arena].waves });
     return true;
   },
 
   /* P4-01 debug entry (URL flag ?brawl=N, BREAKPOINT.brawl(N)): the selected fighter against N CPU enemies (a count or a list of fighter ids, at most
      BRAWL_MAX_ENEMIES) in the selected arena. No level, menu or waves yet. */
-  startBrawl(enemies, arenaId, difficulty) {
+  startBrawl(enemies, arenaId, difficulty, waves) {
     const sel = this.selection;
     if (this.state === GS.MENU) this.go(GS.CHARSEL);   // a match starts from a menu screen that may go on to the countdown
     this.run = { mode: 'brawl', player: sel.player };
-    this.beginMatch({ mode: 'brawl', playerId: sel.player, enemies, arenaId: ARENAS[arenaId] ? arenaId : sel.arena, difficulty: DIFFICULTY[difficulty] ? difficulty : sel.difficulty, winsNeeded: 1, timer: 0 });
+    const level = ARENAS[arenaId] ? arenaId : sel.arena;
+    this.beginMatch({ mode: 'brawl', playerId: sel.player, enemies, arenaId: level, difficulty: DIFFICULTY[difficulty] ? difficulty : sel.difficulty, winsNeeded: 1, timer: 0, waves: waves === true && !!ARENAS[level].waves });
   },
 
   beginMatch(cfg) {
@@ -9878,6 +10347,10 @@ const Game = {
     cfg.seed = (Date.now() ^ (this.errorCount * 7919)) >>> 0;
     if (cfg.items === undefined) cfg.items = Settings.v.items !== false;   // read at every start, so a rematch follows the Options toggle
     if (cfg.hazards === undefined) cfg.hazards = Settings.v.hazards !== false;   // the same for the Hazards setting (P7-05)
+    if (cfg.mode !== 'brawl') {   // a 1v1 fights inside its level's ring (P8-05); the Ring-out setting adds the loss by leaving it, in Versus and Free Fight only
+      if (cfg.ring === undefined) cfg.ring = true;
+      if (cfg.ringOut === undefined) cfg.ringOut = Settings.v.ringOut === true && (cfg.mode === 'versus' || cfg.mode === 'free');
+    }
     if (cfg.coop) cfg.friendlyFire = Settings.v.friendlyFire;   // read at every start, so a rematch follows the Options toggle
     this.config = cfg;
     this.match = new MatchSim(cfg);
@@ -9910,6 +10383,7 @@ const Game = {
     const again = Object.assign({}, this.config);
     delete again.items;   // read the Items setting again, like friendly fire
     delete again.hazards;
+    delete again.ringOut;
     this.beginMatch(again);
   },
   /* Best streak and time are saved after every win and whenever a run ends, so quitting never loses them. */
@@ -10886,7 +11360,7 @@ const UI = {
   /* Round 1 introduces the fight: Arcade stage or Survival opponent number, then who you face. */
   roundSub(m) {
     if (m.round !== 1) return '';
-    if (m.brawl) { const foes = m.fighters.length - m.partySize; return foes + (foes === 1 ? ' ENEMY' : ' ENEMIES'); }
+    if (m.brawl) { const foes = m.waveRows ? m.waveTotal() : m.fighters.length - m.partySize; return foes + (foes === 1 ? ' ENEMY' : ' ENEMIES'); }   // with waves: all the waves together
     if (m.versus) return this.fighterName(m, 0) + ' VS ' + this.fighterName(m, 1);
     const run = Game.run, vs = 'VS ' + m.fighters[1].name;
     if (m.cfg.mode === 'arcade' && run) return 'STAGE ' + (run.stage + 1) + ' / ' + run.ladder.length + ' · ' + vs;
@@ -10895,7 +11369,7 @@ const UI = {
   },
   onRoundEnd(e) {
     const m = e.match;
-    let t = e.reason === 'time' ? 'TIME UP' : 'K.O.';
+    let t = e.reason === 'time' ? 'TIME UP' : e.reason === 'ringout' ? 'RING OUT' : 'K.O.';
     let sub = e.winner < 0 ? 'DRAW' : this.fighterName(m, e.winner) + ' WINS THE ROUND';
     if (m.brawl) sub = e.winner === TEAM_PLAYERS ? 'ALL ENEMIES DOWN' : e.reason === 'time' ? 'THE ENEMIES HOLD OUT' : m.coop ? 'THE PARTY IS DOWN' : 'THE PLAYER IS DOWN';
     if (e.reason === 'time' && e.winner < 0) t = 'DRAW';
@@ -11625,7 +12099,7 @@ const UI = {
     if (cfg.mode === 'arcade' && run) info = 'ARCADE · STAGE ' + (run.stage + 1) + ' / ' + run.ladder.length + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (cfg.mode === 'survival' && run) info = 'SURVIVAL · DEFEATED ' + run.kills + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (cfg.mode === 'free') info = m.def.name.toUpperCase() + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
-    else if (m.brawl) info = (m.coop ? 'CO-OP BRAWL' : 'BRAWL') + ' · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase() + (m.coop && m.friendlyFire ? ' · FRIENDLY FIRE' : '');
+    else if (m.brawl) info = (m.coop ? 'CO-OP BRAWL' : 'BRAWL') + ' · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase() + (m.coop && m.friendlyFire ? ' · FRIENDLY FIRE' : '') + (m.waveRows ? ' · WAVE ' + m.wave + ' / ' + m.waveRows.length : '');
     else if (m.versus) info = 'VERSUS · ' + m.def.name.toUpperCase() + (Game.versus ? ' · SESSION ' + Game.versus.score[0] + ' - ' + Game.versus.score[1] : '');
     else info = m.def.name.toUpperCase() + (Input.lastDevice === 'gamepad' ? ' · hold Select: reset · Start: training menu' : ' · Tab reset · F2 reset arena · 1-5 scenarios');
     this.setText('modeinfo', this.dom.modeinfo, info);
@@ -11719,6 +12193,7 @@ const UI = {
   enemyBar(m) {
     let hp = 0, maxHp = 0, up = 0, total = 0;
     for (const f of m.fighters) if (f.team === TEAM_ENEMIES) { hp += f.hp; maxHp += f.maxHp; total++; if (f.alive) up++; }
+    if (m.waveRows) { total = m.waveTotal(); up += total - m.waveEntered; }   // the enemies still to come count as up
     const frac = clamp(hp / maxHp, 0, 1);
     this.ghost[1] = frac >= this.ghost[1] ? frac : Math.max(frac, this.ghost[1] - (1 / 60) * 0.35);
     this.setTransform('hp1', this.dom.hp2, 'scaleX(' + frac.toFixed(3) + ')');
@@ -12736,7 +13211,7 @@ function testApi() {
     touchLayoutCss, touchLockVisible, touchUseVisible, trimToBudget, unlockRuleText, validateCustom, weightClass, weightFromBuild,
     wrapAngle,
     BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, heldLabel, moveById, weaponTable,
-    AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS,
+    AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
     CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },

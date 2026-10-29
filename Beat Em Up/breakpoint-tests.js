@@ -40,7 +40,7 @@ const {
   wrapAngle,
   CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
   BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, heldLabel, moveById, weaponTable,
-  AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS,
+  AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
 } = api;
 
 const FACE_MIN_TEXELS = 100;   // a painted face has at least this many visible texels of its 64 x 64 (the self-test reads them back)
@@ -1125,6 +1125,7 @@ const SelfTest = {
             for (let gz = -1.4; gz <= 1.4; gz += 0.2) {
               f.x = c.x + gx * (c.hx + f.radius); f.z = c.z + gz * (c.hz + f.radius); f.y = 0;
               if (c.deck && Math.abs(f.x - c.x) < c.hx && Math.abs(f.z - c.z) < c.hz) continue;   // a deck is too big to be entered: it is probed from outside only
+              if (Arena.colliders.some((q) => q !== c && q.active && q.top > STEP_HEIGHT && !q.base && Math.abs(f.x - q.x) < q.hx && Math.abs(f.z - q.z) < q.hz)) continue;   // a start point inside another obstacle is no place a body can be
               if (Math.abs(f.x) > b.x - f.radius || Math.abs(f.z) > b.z - f.radius) continue;   // objects now stand flush against a wall: a fighter is never past it (the wall case is the last check below)
               for (let i = 0; i < 4; i++) Arena.resolveFighter(f);
               const nx = clamp(f.x, c.x - c.hx, c.x + c.hx), nz = clamp(f.z, c.z - c.hz, c.z + c.hz);
@@ -6018,14 +6019,14 @@ const SelfTest = {
     const walkTo = (x, z, run) => (it, f) => { f.blind = 3; if (Math.hypot(x - f.x, z - f.z) > 0.2) { f.yaw = f.prevYaw = Math.atan2(x - f.x, z - f.z); it.fwd = 1; it.run = !!run; } };   // blind: it does not turn to its foe, it walks the way it was told
     const onDeck = (f, deck) => { f.x = f.prevX = deck.x; f.z = f.prevZ = deck.z; f.y = f.prevY = deck.collider.top; f.groundY = f.supportY = deck.collider.top; f.vy = 0; };
     test('Levels: every arena builds from its rows inside the sheet limits, with unique ids and valid links, clear spawns, and no gap that can trap a body', () => {
-      const problems = [], want = { warehouse: [19, 10, 4], dojo: [15, 6, 2], pit: [16, 10, 4] }, body = 0.68;   // destructibles, placed items, hazards (the P8-01 sheets); 0.68 = two body radii
+      const problems = [], want = { warehouse: [19, 10, 4], dojo: [15, 6, 2], pit: [16, 10, 4], rooftop: [21, 10, 4], subway: [17, 8, 3], garage: [18, 10, 3], construction: [20, 10, 4], club: [20, 9, 3] }, body = 0.68;   // destructibles, placed items, hazards (the P8-01 sheets); 0.68 = two body radii
       for (const id of ARENA_ORDER) {
         const def = ARENAS[id], built = builtOf(def);
         Arena.build(def);
         const ids = new Set(Arena.objects.map((o) => o.id)), posts = (def.hazards || []).filter((h) => HAZARDS[h[0]].post).length, b = def.bounds;
         if (ids.size !== Arena.objects.length) problems.push(id + ' ids repeat');
         if (def.objects.length > 24 || built.objects.length - def.objects.length > 40 || Arena.colliders.length + posts > 60 || (def.items || []).length > 10) problems.push(id + ' over a level limit');
-        const destructible = def.objects.filter((o) => !o.fixed).length;
+        const destructible = built.objects.filter((o) => !o.fixed).length;   // the scaffold generator's standards and tier decks count
         if (destructible !== want[id][0] || def.items.length !== want[id][1] || def.hazards.length !== want[id][2]) problems.push(id + ' counts ' + [destructible, def.items.length, def.hazards.length]);
         for (const o of Arena.objects) {
           if (o.on && !ids.has(o.on)) problems.push(id + ' ' + o.id + ' rests on a missing ' + o.on);
@@ -6033,13 +6034,13 @@ const SelfTest = {
         }
         for (const [item, , , , host] of def.items) if (!WEAPONS[item] || (host && !ids.has(host))) problems.push(id + ' item ' + item + ' / ' + host);
         for (const [type, , , row] of def.hazards) if (!HAZARDS[type] || (row && row.obj && !ids.has(row.obj))) problems.push(id + ' hazard ' + type);
-        const rects = Arena.colliders.filter((c) => c.active && c.top > STEP_HEIGHT && !c.base).map((c) => ({ x: c.x, z: c.z, hx: c.hx, hz: c.hz, step: c.up > 0.25 }));
-        for (const [type, x, z, row] of def.hazards) if (HAZARDS[type].post) { const [hx, hz] = HAZARDS[type].post; rects.push({ x: row && row.tx !== undefined ? row.tx : x, z: row && row.tz !== undefined ? row.tz : z, hx, hz }); }
+        const rects = Arena.colliders.filter((c) => c.active && c.top > STEP_HEIGHT && !c.base).map((c) => ({ name: c.obj ? c.obj.id : '', on: c.obj ? c.obj.on : '', x: c.x, z: c.z, hx: c.hx, hz: c.hz, step: c.up > 0.25 }));
+        for (const [type, x, z, row] of def.hazards) if (HAZARDS[type].post) { const [hx, hz] = HAZARDS[type].post; rects.push({ name: '', on: '', x: row && row.tx !== undefined ? row.tx : x, z: row && row.tz !== undefined ? row.tz : z, hx, hz }); }
         rects.forEach((r, i) => {
-          for (const g of [b.x - Math.abs(r.x) - r.hx, b.z - Math.abs(r.z) - r.hz]) if (g < -0.001 || (g > 0.001 && g < body && !r.step)) problems.push(id + ' wall gap ' + g.toFixed(2));
+          for (const g of [b.x - Math.abs(r.x) - r.hx, b.z - Math.abs(r.z) - r.hz]) if (g < -0.001 || (g > 0.001 && g < body && !r.step && !/\.t\d+\.\d+$/.test(r.name))) problems.push(id + ' wall gap ' + g.toFixed(2) + ' ' + r.name);   // a scaffold tier deck stands where the generator puts it (stepped back from the wall), a step is a stair
           for (const q of rects.slice(i + 1)) {
             const gx = Math.abs(r.x - q.x) - r.hx - q.hx, gz = Math.abs(r.z - q.z) - r.hz - q.hz, gap = Math.hypot(Math.max(gx, 0), Math.max(gz, 0));
-            if ((gx > 0.001 || gz > 0.001) && gap < body && !(r.step || q.step)) problems.push(id + ' gap ' + gap.toFixed(2));
+            if ((gx > 0.001 || gz > 0.001) && gap < body && !(r.step || q.step) && r.on !== q.name && q.on !== r.name) problems.push(id + ' gap ' + gap.toFixed(2) + ' ' + r.name + ' / ' + q.name);   // a tier deck rests on its standard, a hair away
           }
         });
         for (const sx of [-def.spawn, def.spawn, def.spawn + 0.6]) for (let k = -3; k <= 3; k++) {   // the party line and the enemy line of a brawl
@@ -6069,6 +6070,7 @@ const SelfTest = {
       const problems = [];
       for (const id of ARENA_ORDER) {
         for (const s of builtOf(ARENAS[id]).stairs) {
+          if (s.id.includes('.u')) continue;   // a scaffold stair ends beside its tier deck, not in front of it: the CPU leg test climbs those
           const m = mk({ arenaId: id }, walkTo(s.bx + s.dx * 1.2, s.bz + s.dz * 1.2), () => {}), [a, b] = m.fighters;
           self.stand(a, s.ax, s.az, s.bx + s.dx * 3, s.bz + s.dz * 3); self.stand(b, s.bx + s.dx * 2.2, s.bz + s.dz * 2.2, s.ax, s.az);
           b.y = b.prevY = s.top;
@@ -6247,13 +6249,13 @@ const SelfTest = {
           last = Object.assign({}, lim);
           for (const id of ARENA_ORDER) {   // the worst case: every deck, then everything else, breaks at once
             Arena.build(ARENAS[id]); Debris.clear();
-            let most = 0;
             for (const o of Arena.objects) {
               if (o.type !== 'deck' || o.step || o.fixed) continue;
+              const allowed = lim.pieces + (id === 'pit' ? 0 : 1);   // one collapse, with everything that rests on it (steps, props, tiers), throws no more than the preset's budget in all
               Debris.clear(); Arena.breakObject(o, 0, 0, 0);
-              most = Math.max(most, Debris.pool.filter((d) => d.on).length);
+              const thrown = Debris.pool.filter((d) => d.on).length;
+              if (thrown > allowed) problems.push(q + ' ' + id + ' a collapse threw ' + thrown + ' pieces, budget ' + allowed);
             }
-            if (most > lim.pieces + (id === 'pit' ? 0 : 1)) problems.push(q + ' ' + id + ' a collapse threw ' + most + ' pieces, budget ' + lim.pieces);
             for (const o of Arena.objects) if (!o.fixed) Arena.breakObject(o, 0, 0, 0);
             Debris.update(0.016);
             const live = Debris.pool.filter((d) => d.on).length;
@@ -6403,7 +6405,7 @@ const SelfTest = {
       const want = 'panel strike 1.2 24 120 360 14 0 stun|steam strike 2 24 180 300 3 15 push|drop edge 0 0 0 0 25 0 out|glass break 0 0 0 0 10 0 flinch|load strike 1.5 36 90 600 30 0 down|train timer 0 120 60 0 40 0 throw|fire strike 1.2 15 240 0 4 20 flinch';
       const got = Object.keys(HAZARDS).map((id) => { const d = HAZARDS[id]; return [id, d.trig, d.r || d.len || 0, d.warn || 0, d.dur || 0, d.cool || 0, d.dmg, d.gap || 0, d.fx].join(' '); }).join('|');
       if (got !== want) problems.push('table ' + got);
-      const plan = { warehouse: 'panel,steam,load,glass', dojo: 'glass,panel', pit: 'fire,fire,steam,glass' }, keys = Object.keys(SETTING_DEFS);
+      const plan = { warehouse: 'panel,steam,load,glass', dojo: 'glass,panel', pit: 'fire,fire,steam,glass', rooftop: 'drop,drop,panel,fire', subway: 'train,panel,glass', garage: 'panel,fire,glass', construction: 'drop,load,panel,fire', club: 'panel,glass,steam' }, keys = Object.keys(SETTING_DEFS);
       for (const id of ARENA_ORDER) {
         const on = track(new MatchSim({ arenaId: id, countdown: false, seed: 2 }));
         if (on.hazards.map((h) => h.type).join() !== plan[id] || !on.hazardsOn) problems.push(id + ' places ' + on.hazards.map((h) => h.type));
@@ -6707,6 +6709,11 @@ const SelfTest = {
         warehouse: [['mezz', 9.25, -4.75, 2.5], ['dock', -8.5, 3.75, 1.0], ['mezz', 9.25, -4.75, 2.5], ['floor', -2, 2, 0]],
         dojo: [['mezz', 7, -4.8, 2.5], ['ring', -7.8, 0, 1.0], ['mezz', 7, -4.8, 2.5], ['floor', 0, 1, 0]],
         pit: [['landing', 8.5, -4.85, 2.5], ['catwalk', -3, -5.9, 2.5], ['bar', -8.8, 3.6, 1.05], ['landing', 8.5, -4.85, 2.5], ['floor', 0, 1, 0]],
+        rooftop: [['tank', -9, -5.25, 2.0], ['catwalk', -5.25, -6.45, 2.0], ['acA', -8.6, -0.5, 1.0], ['floor', 0, 1, 0]],
+        subway: [['mezz', -10, 2.75, 2.5], ['floor', 0, 1, 0], ['repair.t0.1', 9.6, -3.0, 1.5], ['floor', 0, 1, 0]],
+        garage: [['upper', -4.75, -5.75, 2.0], ['floor', 0, 1, 0]],
+        construction: [['scaf.t0.1', -5, -4.8, 1.5], ['scaf.t0.2', -5, -6.0, 3.0], ['floor', 0, 1, 0]],
+        club: [['stage', 2.2, -5.8, 1.0], ['balcony', 8.5, -4.5, 2.5], ['floor', 0, 1, 0]],
       };
       for (const id of ARENA_ORDER) {
         const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId: id, items: false, hazards: false, difficulty: 'hard' })), [a, b] = m.fighters;
@@ -6738,19 +6745,21 @@ const SelfTest = {
       off();
       return dealt > 10 ? true : 'the CPU dealt ' + dealt.toFixed(1) + ' to a target on the dock';
     });
-    test('Hazards: in an ordinary seeded CPU against CPU match (nobody placed anywhere) a CPU sets a hazard off in every arena, and the match runs on without a hazard breaking a rule', () => {
+    test('Hazards: in ordinary seeded CPU against CPU matches (nobody placed anywhere) a CPU sets a hazard off in at least 3 of 12 seeds on every level with a reachable strike hazard (the Club: 15 percent of 24 seeds) (the Gym and the Subway are exempt: a panel only), and the matches run on without a hazard breaking a rule', () => {
       const problems = [];
       for (const arenaId of ARENA_ORDER) {
-        let found = null;
-        for (let seed = 1; seed <= 12 && !found; seed++) {
+        let seeds = 0;
+        const tries = arenaId === 'club' ? 24 : 12;   // the Club is the level with the fewest uses (25 percent over 60 seeds): twice the seeds, a floor of 15 percent
+        for (let seed = 1; seed <= tries; seed++) {
           const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 60, seed, arenaId, difficulty: 'hard', items: true, hazards: true, winsNeeded: 2 })), log = cpuLog(m);
           m.controllers[0] = new AIController(m.fighters[0].profile, 'hard'); m.controllers[1] = new AIController(m.fighters[1].profile, 'hard');
           for (let t = 0; t < 7200 && m.phase !== 'matchEnd' && !log.some((e) => e.by >= 0); t++) { m.step(); if (m.phase === 'waiting') m.startRound(); }
           log.stop();
-          found = log.find((e) => e.by >= 0) || null;
+          if (log.some((e) => e.by >= 0)) seeds++;
           m.dispose();
         }
-        if (!found) problems.push(arenaId + ': no CPU used a hazard in 12 seeded matches');
+        const strikes = ARENAS[arenaId].hazards.some(([type]) => HAZARDS[type].trig === 'strike' && type !== 'panel');   // a CPU cannot strike a panel (it is out of reach of a blow from outside its arc): the Gym, with a fuse box and a mirror, only gets what comes by chance
+        if (seeds < (strikes ? (arenaId === 'club' ? Math.ceil(tries * 0.15) : 3) : 0)) problems.push(arenaId + ': a CPU used a hazard in ' + seeds + ' of ' + tries + ' seeded matches');
       }
       return problems.length ? problems.join('; ') : true;
     });
@@ -6793,6 +6802,398 @@ const SelfTest = {
       if (puts.length < 100) problems.push('few pieces drawn ' + puts.length);
       return problems.length ? problems.join('; ') : true;
     });
+    /* ----- P8-03 (the five new levels, the waves) and P8-05 (the 1v1 ring, the optional ring-out) ----- */
+    const NEW_LEVELS = ['rooftop', 'subway', 'garage', 'construction', 'club'];
+    const SHEET_RINGS = { warehouse: [0, 0, 6, 4, 0], dojo: [1, 0.5, 4, 3.5, 1], pit: [0, 0, 4.5, 3.5, 0], rooftop: [1, 0, 4, 4, 1], subway: [0, -1.3, 6, 4.6, 0], garage: [1, 1.5, 6, 4, 0], construction: [-1, 1, 5.5, 4, 1], club: [0, 1.2, 4.5, 3.5, 1] };   // the P8-01 table: ring x, z, hx, hz, ring-out
+    const SHEET_WAVES = { warehouse: [3, 4, 5, 6], rooftop: [3, 4, 5, 6], subway: [3, 4, 5, 6, 6], garage: [3, 4, 5, 6], construction: [3, 4, 5, 6, 6], club: [3, 4, 5, 6, 6] };   // enemies per wave
+    const RING_OUT_LEVELS = ARENA_ORDER.filter((id) => SHEET_RINGS[id][4]);
+    const WAVE_LEVELS = ARENA_ORDER.filter((id) => SHEET_WAVES[id]);
+    test('Levels (P8-03): the arena list has the eight levels in the sheet order, the select screen names each, every level has its sheet ring and (the new ones) its waves with entries inside the walls and a rival on the last wave only', () => {
+      const problems = [], html = UI.screen_arena();
+      if (ARENA_ORDER.join() !== 'warehouse,dojo,pit,rooftop,subway,garage,construction,club') problems.push('order ' + ARENA_ORDER);
+      const floors = new Set();
+      for (const id of ARENA_ORDER) {
+        const def = ARENAS[id], b = def.bounds;
+        if (!html.includes('data-act="arena:' + id + '"') || !html.includes(def.name)) problems.push(id + ' missing from the select screen');
+        if (JSON.stringify(def.ring) !== JSON.stringify(SHEET_RINGS[id])) problems.push(id + ' ring ' + JSON.stringify(def.ring));
+        const [rx, rz, rhx, rhz] = def.ring;
+        if (Math.abs(rx) + rhx > b.x || Math.abs(rz) + rhz > b.z || rhx < def.spawn + 0.5) problems.push(id + ' ring does not fit the floor');
+        floors.add(def.env.floor);
+        const rows = def.waves;
+        if (!SHEET_WAVES[id]) { if (rows) problems.push(id + ' has waves'); continue; }
+        if (!rows || rows.map((r) => r[0]).join() !== SHEET_WAVES[id].join()) problems.push(id + ' waves ' + JSON.stringify(rows));
+        rows.forEach((row, k) => {
+          for (const [x, z] of [row.slice(1, 3), row[4]].filter(Boolean)) if (Math.abs(x) > b.x - 0.3 || Math.abs(z) > b.z - 0.3) problems.push(id + ' wave ' + k + ' entry outside');
+          if (!!row[3] !== (k === rows.length - 1)) problems.push(id + ' wave ' + k + ' rival flag');
+        });
+        if (rows.length !== 4 && rows.length !== 5) problems.push(id + ' wave count');
+      }
+      if (floors.size !== 8) problems.push('floor patterns ' + [...floors]);
+      if (!html.includes('Breakable:')) problems.push('no materials line');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels (P8-03): a brawl with waves stands the first wave at its entry, calls the next when at most one enemy is up, brings each wave in at its entries with its own count, keeps at most six up, and ends when the last wave is down', () => {
+      const problems = [];
+      for (const id of WAVE_LEVELS) {
+        const rows = ARENAS[id].waves, m = track(new MatchSim({ mode: 'brawl', waves: true, enemies: 1, countdown: false, timer: 0, seed: 5, arenaId: id, items: false, hazards: false, evenDamage: true, difficulty: 'normal', rival: 'hao' }));
+        const party = m.fighters[0], enemies = () => m.fighters.slice(1), up = () => enemies().filter((f) => f.alive).length;
+        const entryOf = (k) => [rows[k].slice(1, 3), rows[k][4]].filter(Boolean);
+        const near = (f, k) => entryOf(k).some(([x, z]) => Math.hypot(f.x - x, f.z - z) < WAVE_SPREAD + 0.55) && Math.abs(f.y - Arena.supportAt(f.x, f.z, 99, f.radius)) < 0.01;
+        const calls = [], off = Events.on('waveStart', (e) => calls.push({ wave: e.wave, up: up(), count: e.count }));
+        if (enemies().length !== rows[0][0] || m.wave !== 1 || !enemies().every((f) => near(f, 0))) problems.push(id + ' first wave ' + enemies().length);
+        const entered = rows.map(() => 0);
+        entered[0] = enemies().length;
+        let most = 0, rival = false;
+        for (let t = 0; t < 30000 && m.phase !== 'matchEnd'; t++) {
+          party.hp = party.maxHp;
+          const seen = new Set(m.fighters);
+          m.step();
+          for (const f of m.fighters) if (!seen.has(f)) { entered[m.wave - 1]++; if (f.id === 'hao' && m.wave === rows.length) rival = true; if (!near(f, m.wave - 1)) problems.push(id + ' wave ' + m.wave + ' enemy entered at ' + f.x.toFixed(1) + ',' + f.z.toFixed(1)); }
+          most = Math.max(most, up());
+          if (t % 25 === 0) { const next = enemies().find((f) => f.alive); if (next) { next.hp = 0; Combat.knockOut(next, party, null, m); } }
+        }
+        off();
+        if (entered.join() !== rows.map((r) => r[0]).join()) problems.push(id + ' entered ' + entered);
+        if (calls.length !== rows.length - 1 || calls.some((c, i) => c.wave !== i + 2 || c.up > 1 || c.count !== rows[i + 1][0])) problems.push(id + ' calls ' + JSON.stringify(calls));
+        if (most > BRAWL_MAX_ENEMIES || m.fighters.length - 1 > BRAWL_MAX_ENEMIES) problems.push(id + ' ' + most + ' up');
+        if (m.phase !== 'matchEnd' || m.matchWinner !== TEAM_PLAYERS || up() !== 0) problems.push(id + ' did not end with the last wave down: ' + m.phase);
+        if (!rival) problems.push(id + ' no rival in the last wave');
+      }
+      const cap = new MatchSim({ mode: 'brawl', waves: true, enemies: 1, countdown: false, seed: 5, arenaId: 'garage', coop: [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }, { slot: 2, id: 'yuki' }, { slot: 3, id: 'brutus' }] });
+      track(cap);
+      if (cap.fighters.length - 4 !== 6) problems.push('a four player co-op first wave ' + (cap.fighters.length - 4));
+      const plain = track(new MatchSim({ mode: 'brawl', enemies: 3, countdown: false, seed: 5, arenaId: 'rooftop' }));
+      if (plain.waveRows || plain.fighters.length !== 4) problems.push('waves came without being asked for');
+      return problems.length ? problems.join('; ') : true;
+    });
+    const ringMatch = (id, ringOut, extra) => track(new MatchSim(Object.assign({ mode: 'free', ring: true, ringOut, countdown: false, timer: 0, seed: 3, arenaId: id, difficulty: 'hard', winsNeeded: 1 }, extra)));
+    test('Levels (P8-03): every new level draws whole, damaged and broken (decks, looks, props, hazards) with no error and a plausible number of pieces, and its floor pattern is the one of its sheet', () => {
+      const problems = [], puts = [], put = R.put;
+      R.put = (...args) => { puts.push(args[1]); };
+      try {
+        NEW_LEVELS.forEach((id, k) => {
+          Arena.build(ARENAS[id]);
+          if (ARENAS[id].env.floor !== k + 4) problems.push(id + ' floor ' + ARENAS[id].env.floor);
+          Arena.draw();
+          const whole = puts.length;
+          puts.length = 0;
+          for (const o of Arena.objects) if (!o.fixed) Arena.damageObject(o, 30, 'kick', 5, 1, 0, o.x, 0.5, o.z, 0);
+          Arena.draw();
+          const hurt = puts.length;
+          for (const o of Arena.objects) if (!o.fixed) Arena.breakObject(o, 1, 0);
+          puts.length = 0;
+          Arena.draw(); Debris.update(0.016);
+          if (whole < 100 || hurt < 50 || puts.length < 20) problems.push(id + ' draws ' + whole + ' / ' + hurt + ' / ' + puts.length);
+          puts.length = 0;
+        });
+      } catch (e) { problems.push('draw: ' + e.message); } finally { R.put = put; Arena.build(ARENAS.warehouse); Debris.clear(); FX.clear(); }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('1v1 areas (P8-05): in a 1v1 the walls stand at the ring (ring-out off) or one apron beyond it (ring-out on, only on a level that has it), the fighters start at the ring centre, nothing lies outside the ring, and a 1v1 without the option keeps the whole floor', () => {
+      const problems = [];
+      for (const id of ARENA_ORDER) {
+        const def = ARENAS[id], [rx, rz, rhx, rhz, flag] = def.ring, b = def.bounds;
+        for (const want of [false, true]) {
+          const m = ringMatch(id, want), apron = want && flag ? RING_APRON : 0, [a, c] = m.fighters;
+          const exp = [Math.max(-b.x, rx - rhx - apron), Math.min(b.x, rx + rhx + apron), Math.max(-b.z, rz - rhz - apron), Math.min(b.z, rz + rhz + apron)];
+          if ([Arena.ax0, Arena.ax1, Arena.az0, Arena.az1].some((v, i) => Math.abs(v - exp[i]) > 1e-9) || Arena.ringOut !== !!(want && flag)) problems.push(id + ' ' + want + ' area ' + [Arena.ax0, Arena.ax1, Arena.az0, Arena.az1] + ' want ' + exp);
+          if (Math.abs(a.x - (rx - def.spawn)) > 1e-9 || Math.abs(c.x - (rx + def.spawn)) > 1e-9 || a.z !== rz || c.z !== rz) problems.push(id + ' start ' + a.x + ',' + a.z + ' ' + c.x);
+          if (m.items.some((it) => !Arena.inRing(it.x, it.z)) || m.hazards.some((h) => !Arena.inRing(h.obj ? h.obj.x : h.x, h.obj ? h.obj.z : h.z))) problems.push(id + ' item or hazard outside the ring');
+          for (const [x, z] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {   // pushed hard against each wall, a body stops at the wall of the area
+            a.x = rx + x * 40; a.z = rz + z * 40; a.y = a.groundY = 0;
+            Arena.resolveFighter(a);
+            const wantX = x ? (x > 0 ? exp[1] - a.radius : exp[0] + a.radius) : null, wantZ = z ? (z > 0 ? exp[3] - a.radius : exp[2] + a.radius) : null;
+            if ((wantX !== null && Math.abs(a.x - wantX) > 1e-9) || (wantZ !== null && Math.abs(a.z - wantZ) > 1e-9) || !a.wallHit) problems.push(id + ' wall ' + x + ',' + z);
+          }
+        }
+        const whole = track(new MatchSim({ mode: 'free', countdown: false, seed: 3, arenaId: id }));
+        if (Arena.ring || Arena.ax1 !== b.x || Arena.az0 !== -b.z || whole.fighters[0].x !== -def.spawn || whole.fighters[1].x !== def.spawn) problems.push(id + ' whole floor');
+        const brawl = track(new MatchSim({ mode: 'brawl', ring: true, ringOut: true, enemies: 2, countdown: false, seed: 3, arenaId: id }));
+        if (Arena.ring) problems.push(id + ' a brawl got a ring');
+      }
+      if (SETTING_DEFS.ringOut.def !== false || Settings.validate('ringOut', 'x') !== false) problems.push('setting');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('1v1 areas (P8-05): with ring-out a fighter whose feet touch the floor outside the ring loses the round with the reason ringout, one in the air is safe until it lands, and nothing happens with the option off or on a level without it', () => {
+      const problems = [];
+      for (const id of ARENA_ORDER) {
+        for (const want of [false, true]) {
+          const flag = ARENAS[id].ring[4], [rx, rz, rhx] = ARENAS[id].ring, m = ringMatch(id, want, { winsNeeded: 1 }), [a, b] = m.fighters, rows = [];
+          m.controllers[0] = self.scripted(() => {}); m.controllers[1] = self.scripted(() => {});
+          const offs = [Events.on('ringOut', (e) => rows.push({ name: 'ringOut', f: e.f.index, tick: m.tick })), Events.on('roundEnd', (e) => rows.push({ name: 'roundEnd', winner: e.winner, reason: e.reason, tick: m.tick }))];
+          self.run(m, 5);
+          b.lastFoe = a;
+          b.x = b.prevX = rx + rhx + 0.8; b.z = b.prevZ = rz; b.y = b.prevY = 1.6; b.vy = 0;
+          self.run(m, 2);
+          const early = rows.length;
+          self.run(m, 60 + KO_DELAY_TICKS + 20);
+          offs.forEach((off) => off());
+          const out = rows.find((r) => r.name === 'ringOut'), end = rows.find((r) => r.name === 'roundEnd');
+          if (want && flag) {
+            if (early || !out || out.f !== 1 || !end || end.reason !== 'ringout' || end.winner !== 0 || b.alive || !a.alive || m.ringedOut !== b) problems.push(id + ' ring-out ' + JSON.stringify(rows));
+          } else if (rows.length || !b.alive || b.x > rx + rhx + (want && flag ? RING_APRON : 0) + 0.01) problems.push(id + ' ' + want + ' nothing should happen ' + JSON.stringify(rows));
+        }
+      }
+      for (const [id, x, z, top] of [['construction', -4.5, -4.4, 1.5], ['rooftop', 7.0, 3.1, 0.9], ['club', 4.0, -3.4, 0.25]]) {   // a scaffold tier, the sofa, a stage step: standing on anything outside the ring is out
+        const raised = ringMatch(id, true), foe = raised.fighters[1], rows = [];
+        const off = Events.on('ringOut', (e) => rows.push(e.f.index));
+        foe.x = foe.prevX = x; foe.z = foe.prevZ = z; foe.y = foe.prevY = foe.groundY = foe.supportY = top;
+        self.run(raised, 10);
+        off();
+        const inside = Arena.inRing(x, z);
+        if (inside ? rows.length : rows.join() !== '1' || foe.alive) problems.push(id + ' ' + x + ',' + z + ' on ' + top + ' m: ' + (inside ? 'lost inside the ring' : 'did not lose outside it'));
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('1v1 areas (P8-05): a CPU does not walk, run or lunge out of the ring by itself (with ring-out on, against a target standing at the edge and in each corner), and a throw or a blow that puts the target out ends the round', () => {
+      const problems = [];
+      let outs = 0;
+      for (const id of RING_OUT_LEVELS) {
+        const [rx, rz, rhx, rhz] = ARENAS[id].ring;
+        for (const [sx, sz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]]) {
+          const m = ringMatch(id, true, { seed: 4 + (sx + 2 * sz + 6) % 5, items: false, hazards: false }), [a, b] = m.fighters, rows = [];
+          m.controllers[0] = new AIController(a.profile, 'hard'); m.controllers[1] = self.scripted(() => {});
+          self.stand(a, rx, rz, rx + sx, rz + sz); self.stand(b, rx + sx * (rhx - 0.7), rz + sz * (rhz - 0.7), rx, rz);
+          const off = Events.on('ringOut', (e) => rows.push(e.f.index));
+          for (let t = 0; t < 1200 && m.phase === 'fight'; t++) m.step();
+          off();
+          if (rows.includes(0)) problems.push(id + ' ' + sx + ',' + sz + ' the CPU left the ring');
+          outs += rows.filter((i) => i === 1).length;
+        }
+      }
+      if (!outs) problems.push('no CPU ever put its target out, so the ring edge is not used');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Hazards (P8-03): a CPU that baits toward a hazard takes the same damage from a plain chaser as one that never baits (same seeds: all levels together no more than 10 percent worse, no level worse by more than two standard errors of the paired difference), takes no hazard damage it caused itself, and every bait spot is outside all hazard zones (and inside the ring with ring-out on)', () => {
+      const problems = [], saved = AI_HAZARD_BAIT.hard, BAIT_SEEDS = 12, BAIT_TICKS = 1200;
+      let sumOff = 0, sumOn = 0, selfHarm = 0;
+      try {
+        for (const id of ARENA_ORDER) {
+          const took = [0, 0], each = [[], []];
+          [0, saved].forEach((chance, k) => {
+            AI_HAZARD_BAIT.hard = chance;
+            for (let seed = 1; seed <= BAIT_SEEDS; seed++) {
+              const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed, arenaId: id, difficulty: 'hard', items: false, hazards: true, winsNeeded: 99, evenDamage: true })), [a, b] = m.fighters;
+              m.controllers[0] = self.scripted((it, f, opp, mm) => { const d = Math.hypot(opp.x - f.x, opp.z - f.z); if (d > 1.0) it.fwd = 1; else if (mm.tick % 18 === 0) it.punch = true; });   // walks up and punches, nothing else
+              m.controllers[1] = new AIController(b.profile, 'hard');
+              let before = took[k];
+              const offs = [Events.on('hit', (e) => { if (e.def === b) took[k] += e.dmg; }), Events.on('hazardHit', (e) => { if (k && e.f === b && e.by === b && e.dmg > 0) selfHarm += e.dmg; })];
+              for (let t = 0; t < BAIT_TICKS; t++) { a.hp = a.maxHp; b.hp = b.maxHp; m.step(); if (m.phase === 'waiting') m.startRound(); }
+              offs.forEach((off) => off());
+              each[k].push(took[k] - before);
+              m.dispose();
+            }
+          });
+          sumOff += took[0]; sumOn += took[1];
+          const diffs = each[1].map((v, i) => v - each[0][i]), mean = diffs.reduce((s, v) => s + v, 0) / diffs.length, se = Math.sqrt(diffs.reduce((s, v) => s + (v - mean) * (v - mean), 0) / (diffs.length - 1) / diffs.length);   // paired seed by seed
+          if (mean - 2 * se > 0) problems.push(id + ' took ' + took[0].toFixed(0) + ' without bait, ' + took[1].toFixed(0) + ' with (mean difference per match ' + mean.toFixed(1) + ' +- ' + se.toFixed(1) + ')');
+        }
+      } finally { AI_HAZARD_BAIT.hard = saved; }
+      if (sumOn > sumOff * 1.1) problems.push('all levels together ' + sumOff.toFixed(0) + ' without bait, ' + sumOn.toFixed(0) + ' with');
+      if (selfHarm) problems.push('the CPU hurt itself with a hazard it set off: ' + selfHarm.toFixed(0));
+      for (const [id, ringOut] of ARENA_ORDER.flatMap((level) => [[level, false], [level, true]])) {   // the spots
+        const m = ringMatch(id, ringOut), ai = new AIController(m.fighters[0].profile, 'hard'), [a, b] = m.fighters;
+        ai.match = m;
+        for (const h of m.hazards) {
+          if (!h.post || h.def.trig !== 'strike' || h.type === 'panel') continue;
+          for (const [ox, oz] of [[-4, 0], [4, 0], [0, -3], [0, 3], [h.x + 2, h.z], [h.x, h.z + 2]]) {
+            b.x = ox; b.z = oz;
+            const s = ai.baitSpot(a, b, h);
+            if (s && (m.hazards.some((q) => q.def.dmg > 0 && !q.def.shard && m.hazardCoversPad(q, s.x, s.z, 0.15)) || (Arena.ringOut && !Arena.inRing(s.x, s.z)))) problems.push(id + ' ' + h.type + ' bait spot ' + s.x.toFixed(1) + ',' + s.z.toFixed(1) + ' is in a hazard zone or out of the ring');
+          }
+        }
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Levels (P8-03): a called enemy whose entry stays in a live hazard zone waits at most WAVE_WAIT_MAX ticks, then uses the row\'s other entry, or comes in anyway when there is none', () => {
+      const problems = [];
+      const run = (wave) => {
+        const m = track(new MatchSim({ mode: 'brawl', waves: true, enemies: 1, countdown: false, seed: 5, arenaId: 'subway', items: false, hazards: true, evenDamage: true })), train = hazardOf(m, 'train'), entered = [];
+        m.fighters[0].hp = m.fighters[0].maxHp;
+        for (const f of m.fighters.slice(1)) { f.hp = 0; Combat.knockOut(f, m.fighters[0], null, m); }
+        m.wave = wave;
+        const first = m.fighters.length;
+        for (let t = 0; t < WAVE_WAIT_MAX + 90; t++) {
+          train.state = 'active'; train.t = 0;   // the track stays live
+          m.fighters[0].hp = m.fighters[0].maxHp;
+          const seen = new Set(m.fighters);
+          m.step();
+          for (const f of m.fighters) if (!seen.has(f)) entered.push({ tick: t, x: f.x, z: f.z });
+        }
+        return { m, entered, first, train };
+      };
+      const one = run(2), count = ARENAS.subway.waves[2][0];   // one door, out of the tunnel: in anyway after the wait
+      if (one.m.waveQueue.length || one.entered.length !== count || one.entered.some((e) => e.tick < WAVE_WAIT_MAX)) problems.push('single door: entered ' + one.entered.length + ' of ' + count + ' at ' + one.entered.map((e) => e.tick).join());
+      const two = run(4), rowCount = ARENAS.subway.waves[4][0];   // two doors: the tunnel one is held, then everybody comes down the escalator
+      if (two.m.waveQueue.length || two.entered.length !== rowCount || two.entered.some((e) => Math.hypot(e.x + 9.8, e.z - 4.6) > 1.4)) problems.push('two doors: ' + JSON.stringify(two.entered.map((e) => [e.tick, +e.x.toFixed(1), +e.z.toFixed(1)])));
+      let closest = 9;   // the held enemies of the tunnel door joined those at the escalator: the ring there is spread over all six
+      for (let i = 0; i < two.entered.length; i++) for (let j = i + 1; j < two.entered.length; j++) closest = Math.min(closest, Math.hypot(two.entered[i].x - two.entered[j].x, two.entered[i].z - two.entered[j].z));
+      if (closest < 0.6) problems.push('two enemies entered ' + closest.toFixed(2) + ' m apart');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Hazards (P8-03): a CPU beside an open drop is not frozen by it (Construction at 9.3, 0 and the Rooftop at 0, -5.7): it walks off and attacks within 120 ticks, and never goes over', () => {
+      const problems = [];
+      for (const [id, x, z, tx, tz] of [['construction', 9.3, 0, 6.8, 0], ['rooftop', 0, -5.7, 0, -3.2]]) {
+        let moved = 0, attacked = 0;
+        const hurts = [];
+        withRows(id, ARENAS[id].hazards.filter((row) => row[0] === 'drop'), () => {   // only the drop: the other dangers of the level would give the CPU other plans
+          const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId: id, items: false, hazards: true, difficulty: 'hard' })), [a, b] = m.fighters;
+          m.controllers[0] = new AIController(a.profile, 'hard'); m.controllers[1] = self.scripted(() => {});
+          self.stand(a, x, z, tx, tz); self.stand(b, tx, tz, x, z);
+          const off = Events.on('hazardHit', (e) => { if (e.f === a && e.dmg > 0) hurts.push(m.tick); });
+          for (let t = 0; t < 120; t++) { m.step(); b.hp = b.maxHp; moved = Math.max(moved, Math.hypot(a.x - x, a.z - z)); if (a.state === S.ATTACK) attacked++; }
+          off();
+        });
+        if (moved < 0.5 || !attacked || hurts.length) problems.push(id + ' moved ' + moved.toFixed(2) + ' attacked ' + attacked + ' hurt ' + hurts.length);
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels (P8-03): a SimRunner brawl with waves counts the fighters of the later waves (their hits and their totals) and repeats exactly', () => {
+      const opts = { arenaId: 'rooftop', enemies: 1, waves: true, seed: 6, difficulty1: 'expert', difficulty2: 'easy', timer: 0 }, a = SimRunner.run(opts), b = SimRunner.run(opts), first = ARENAS.rooftop.waves[0][0], problems = [];
+      if (a.hpLeft.length <= 1 + first) problems.push('no later wave joined: ' + a.hpLeft.length + ' fighters');
+      if (a.damage.length !== a.hpLeft.length) problems.push('damage rows ' + a.damage.length + ' for ' + a.hpLeft.length + ' fighters');
+      if (!a.damage.slice(1 + first).some((row) => row && Object.keys(row).length)) problems.push('the hits of the later waves were not counted');
+      if (JSON.stringify(a) !== JSON.stringify(b)) problems.push('not repeatable');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels (P8-03): no wave entry stands in scenery or an open drop, and an entry inside a train zone that is warning waits (the round does not end meanwhile) until the zone is clear', () => {
+      const problems = [];
+      for (const id of WAVE_LEVELS) {
+        const m = track(new MatchSim({ mode: 'brawl', waves: true, enemies: 1, countdown: false, seed: 5, arenaId: id, items: false, hazards: true }));
+        ARENAS[id].waves.forEach((row, k) => {
+          for (let j = 0; j < row[0]; j++) {
+            const s = m.waveSpot(k, j, row[0]);
+            if (Arena.blockedAt(s.x, s.z, 0.3, s.top) || m.hazards.some((h) => h.def.trig === 'edge' && m.hazardCoversPad(h, s.x, s.z, 0.34))) problems.push(id + ' wave ' + k + ' #' + j + ' at ' + s.x.toFixed(2) + ',' + s.z.toFixed(2));
+          }
+        });
+      }
+      const m = track(new MatchSim({ mode: 'brawl', waves: true, enemies: 1, countdown: false, seed: 5, arenaId: 'subway', items: false, hazards: true, evenDamage: true })), train = hazardOf(m, 'train');
+      m.fighters[0].hp = m.fighters[0].maxHp;
+      train.state = 'warn'; train.t = 0;
+      m.wave = 2;   // the next wave called is the one that comes out of the tunnel, along the track
+      for (const f of m.fighters.slice(1)) { f.hp = 0; Combat.knockOut(f, m.fighters[0], null, m); }
+      self.run(m, 30);   // the knock-outs freeze the fight for a moment
+      if (m.wave !== 3 || m.waveQueue.length !== ARENAS.subway.waves[2][0] || m.fighters.length !== 1 + ARENAS.subway.waves[0][0] || m.locked) problems.push('the entry did not wait: wave ' + m.wave + ' queued ' + m.waveQueue.length + ' locked ' + m.locked);
+      train.state = 'idle'; train.t = 0;
+      self.run(m, 4);
+      if (m.waveQueue.length || m.fighters.length <= 1 + ARENAS.subway.waves[0][0]) problems.push('the wave did not enter once the zone was clear');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('1v1 areas (P8-05): a seeded CPU against CPU 1v1 on every level ring completes with a winner, with ring-out off and on, and repeats exactly; an ordinary 1v1 (no ring option) is untouched', () => {
+      const problems = [];
+      for (const id of ARENA_ORDER) {
+        for (const ringOut of [false, true]) {
+          const opts = { arenaId: id, ring: true, ringOut, seed: 7, winsNeeded: 1, timer: 30, difficulty: 'hard', items: true, hazards: true }, a = SimRunner.run(opts), b = SimRunner.run(opts);
+          if ((a.winner !== 0 && a.winner !== 1) || a.ticks >= 60 * 60 * 15) problems.push(id + ' ' + ringOut + ' no winner ' + a.ticks);
+          if (JSON.stringify(a) !== JSON.stringify(b)) problems.push(id + ' ' + ringOut + ' not repeatable');
+        }
+      }
+      const plain = SimRunner.run({ arenaId: 'warehouse', seed: 1, playerId: 'kai', opponentId: 'mara', difficulty: 'hard' });
+      if (plain.config.ring || plain.config.ringOut) problems.push('ring options leaked into a plain run');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels (P8-03): on the new levels the open drops, the train and the glass trigger and hurt who they catch, and a CPU standing away from them is not hurt in the next 60 ticks', () => {
+      const problems = [];
+      for (const id of NEW_LEVELS) {
+        ARENAS[id].hazards.forEach(([type], index) => {
+          if (HAZARDS[type].trig === 'strike') return;
+          const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId: id, items: false, hazards: true, difficulty: 'hard' })), [a, b] = m.fighters, h = m.hazards[index], log = cpuLog(m);
+          m.controllers[0] = new AIController(a.profile, 'hard'); m.controllers[1] = self.scripted(() => {});
+          const far = [[-2.4, 0], [2.4, 0], [0, 2], [0, -2], [-2.4, 2], [2.4, 2]].filter(([x, z]) => !m.hazardCovers(h, x, z) && Math.hypot(x - h.x, z - h.z) > 3.5 && !Arena.blockedAt(x, z, 0.45, 0)).pop() || [0, 2];
+          self.stand(a, far[0], far[1], h.x, h.z); standOn(b, h.x, h.z, 0);
+          const hits = [], offHit = Events.on('hazardHit', (e) => { if (e.h === h) hits.push({ tick: m.tick, f: e.f.index, dmg: e.dmg }); }), triggers = [], offTrig = Events.on('hazardTrigger', (e) => triggers.push(m.tick));
+          if (type === 'train') h.t = HAZARDS.train.period - 2;
+          if (type === 'glass') Arena.damageObject(h.obj, 999, 'throw', 1, 0, 1, h.obj.x, 1, h.obj.z, 1);
+          const hurt = [], offHurt = Events.on('hazardHit', (e) => { if (e.f.index === 0 && e.dmg > 0) hurt.push(m.tick); });
+          const start = m.tick;
+          for (let t = 0; t < (type === 'train' ? HAZARDS.train.warn + 130 : 130); t++) { m.step(); b.hp = b.maxHp; }
+          log.stop(); offHit(); offTrig(); offHurt();
+          const first = hits.find((r) => r.f === 1 && r.dmg > 0);
+          if (!first || (type !== 'drop' && !triggers.length) || (type === 'drop' && (first.dmg < 24 || Math.hypot(b.x - h.x, b.z - h.z) < 0.5))) problems.push(id + ' ' + type + ' did not work: ' + JSON.stringify({ triggers, hits: hits.slice(0, 2) }));
+          if (first && hurt.some((t) => t >= first.tick && t <= first.tick + 60) || a.hp < a.maxHp * 0.99 && hurt.length) problems.push(id + ' ' + type + ' hurt the CPU');
+          void start;
+        });
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    /* ----- P4-09: the camera never leaves the room ----- */
+    test('Camera (P4-09): with the fighters along every wall and in every corner of every level, in a 1v1, a brawl and a co-op, on a wide, a phone-landscape and a portrait screen, the eye stays inside the room, every fighter is on screen and no wall lies between the eye and a fighter', () => withCamera(() => {
+      const problems = [], out = [0, 0, 0], r = 0.34, margin = 0.6;
+      const screens = [[1280, 720], [800, 360], [390, 844]];
+      for (const id of ARENA_ORDER) {
+        const def = ARENAS[id], b = def.bounds;
+        const spots = [];   // along the four walls, the corners included, the pair standing along the wall and then in from it
+        for (let k = 0; k <= 4; k++) {
+          const u = -1 + k / 2;
+          spots.push([-(b.x - r), u * (b.z - r), 1, 0], [b.x - r, u * (b.z - r), -1, 0], [u * (b.x - r), -(b.z - r), 0, 1], [u * (b.x - r), b.z - r, 0, -1]);
+        }
+        const matches = {
+          duel: track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, arenaId: id })),
+          brawl: track(new MatchSim({ mode: 'brawl', enemies: 3, countdown: false, timer: 0, seed: 3, arenaId: id })),
+          coop: track(new MatchSim({ mode: 'brawl', enemies: 3, coop: [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }], countdown: false, timer: 0, seed: 3, arenaId: id })),
+        };
+        for (const mode in matches) {
+          const m = matches[mode], f = m.fighters;
+          for (const [w, h] of screens) {
+            R.cssW = w; R.cssH = h;
+            for (const [x, z, inX, inZ] of spots) {
+              for (const along of [false, true]) {   // the others stand beside the first along the wall, or in from the wall
+                f.forEach((fighter, i) => {
+                  const step = i * 1.1, ax = along ? -inZ : inX, az = along ? inX : inZ;   // along: the wall direction
+                  fighter.x = fighter.prevX = clamp(x + ax * step, -(b.x - r), b.x - r); fighter.z = fighter.prevZ = clamp(z + az * step, -(b.z - r), b.z - r); fighter.y = fighter.prevY = 0;
+                });
+                Camera.snapNext = true; Camera.resetGroup();
+                for (let i = 0; i < 60; i++) { if (mode === 'duel') Camera.follow(1 / 60, f[0], f[1], def); else Camera.followGroup(1 / 60, f, def); }
+                const ex = Camera.pos[0], ey = Camera.pos[1], ez = Camera.pos[2], tag = id + ' ' + mode + ' ' + w + 'x' + h + ' at ' + x.toFixed(1) + ',' + z.toFixed(1) + (along ? ' along' : ' in');
+                if (Math.abs(ex) > b.x - margin + 1e-6 || ez < -b.z + margin - 1e-6 || ey < 1.79) problems.push(tag + ': the eye is at ' + ex.toFixed(1) + ', ' + ey.toFixed(1) + ', ' + ez.toFixed(1));
+                for (const fighter of f) {
+                  const inRoom = Math.abs(fighter.x) <= b.x && fighter.z >= -b.z;   // eye and fighter inside the side walls and the back wall: the line between them cannot cross one
+                  if (!inRoom || fighter.index >= m.partySize + (mode === 'duel' ? 1 : 0)) continue;   // the fighters the camera answers for: both of a 1v1, the party of a brawl (an enemy behind a prop may fall off the edge when the camera steepens to see the player)
+                  if ((Camera.offscreenMark(fighter.x, fighter.y + 1.0, fighter.z, w, h, 0, out) || Camera.offscreenMark(fighter.x, fighter.y + 0.1, fighter.z, w, h, 0, out))) problems.push(tag + ': fighter ' + fighter.index + ' is off screen');
+                }
+              }
+              if (problems.length > 8) break;
+            }
+          }
+        }
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    }));
+    test('Camera (P4-09): with the pair walked round the walls of every level, no ceiling prop (a light tube) is drawn opaque within 0.45 m of the eye (the near clip is 0.3): it fades before the eye reaches it', () => withCamera(() => {
+      const problems = [], put = R.put, r = 0.34, puts = [];
+      let garageClose = 0;
+      R.cssW = 1280; R.cssH = 720;
+      R.put = (...args) => { puts.push(args); };
+      try {
+        for (const id of ARENA_ORDER) {
+          const def = ARENAS[id], b = def.bounds, m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, arenaId: id })), f = m.fighters;
+          const ceiling = Arena.props.filter((p) => p.y - p.sy * 0.5 >= 3.0);
+          const pts = [[-(b.x - r), b.z - r], [-(b.x - r), -(b.z - r)], [b.x - r, -(b.z - r)], [b.x - r, b.z - r], [-(b.x - r), b.z - r]];
+          Camera.snapNext = true;
+          for (let s = 0; s + 1 < pts.length; s++) {
+            const [x0, z0] = pts[s], [x1, z1] = pts[s + 1], n = Math.ceil(Math.hypot(x1 - x0, z1 - z0) / 0.1);
+            for (let i = 0; i < n; i++) {
+              const x = x0 + (x1 - x0) * i / n, z = z0 + (z1 - z0) * i / n;
+              f.forEach((q, k) => { q.x = q.prevX = clamp(x + (k ? 0.6 : -0.6) * (Math.abs(x) < b.x - 2 ? 1 : 0), -(b.x - r), b.x - r); q.z = q.prevZ = clamp(z + (Math.abs(x) < b.x - 2 ? 0 : (k ? 0.6 : -0.6)), -(b.z - r), b.z - r); q.y = q.prevY = 0; });
+              Camera.follow(1 / 60, f[0], f[1], def);
+              const eye = Camera.pos, near = ceiling.filter((p) => Math.hypot(Math.max(Math.abs(eye[0] - p.x) - p.sx * 0.5, 0), Math.max(Math.abs(eye[1] - p.y) - p.sy * 0.5, 0), Math.max(Math.abs(eye[2] - p.z) - p.sz * 0.5, 0)) < 0.45);   // the near clip is 0.3 m
+              if (!near.length) continue;
+              if (id === 'garage') garageClose++;
+              puts.length = 0;
+              Arena.draw();
+              for (const p of near) {
+                const drawn = puts.find((a) => a[2] === p.x && a[4] === p.z && a[5] === p.sx && a[6] === p.sy && a[7] === p.sz);
+                if (drawn && drawn[0] !== LAYER.ALPHA) { problems.push(id + ' prop ' + p.x + ',' + p.y + ',' + p.z + ' is opaque with the eye at ' + eye.map((v) => v.toFixed(1))); break; }
+                if (drawn && drawn[12] > 0.3) { problems.push(id + ' prop ' + p.x + ',' + p.y + ',' + p.z + ' is drawn at alpha ' + drawn[12].toFixed(2) + ' with the eye within 0.45 m'); break; }
+              }
+              if (problems.length > 6) break;
+            }
+          }
+        }
+      } finally { R.put = put; Arena.build(ARENAS.warehouse); Debris.clear(); FX.clear(); }
+      if (!garageClose) problems.push('the walk never came near a Garage tube, so the test proved nothing');
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    }));
     for (const id in OLD_ARENAS) delete ARENAS[id];
     return results;
   },
