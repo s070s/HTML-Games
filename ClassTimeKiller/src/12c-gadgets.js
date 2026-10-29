@@ -743,6 +743,7 @@ const Gadgets = {
     if (Actors.pressed[id] & BTN.GADGET) this.useGadget(id);
   },
   grenadeReady(id) { return this.grenade[id] >= 0 && this.count[id * GADGET_COUNT + this.grenade[id]] > 0; },
+  gadgetReady(id) { return this.gadget[id] >= 0 && this.count[id * GADGET_COUNT + this.gadget[id]] > 0; },
   startHold(id) {
     if (!this.grenadeReady(id)) return;
     this.holdStart[id] = Sim.tick;
@@ -899,5 +900,6 @@ Bus.on('match.start', () => Gadgets.clear());
 Bus.on('round', (event) => { if (event.phase === 'start') Gadgets.clear(); });
 Bus.on('match.end', () => Gadgets.clear());
 Bus.on('match.stop', () => Gadgets.clear());
-TouchInput.needs.gadget = () => Game.playerId >= 0 && Gadgets.gadget[Game.playerId] >= 0;
+TouchInput.needs.gadget = () => Game.playerId >= 0 && Gadgets.gadget[Game.playerId] >= 0;   // P5-01: TOOL stays while the kit has a gadget ...
+TouchInput.ready.gadget = () => Gadgets.gadgetReady(Game.playerId) && !Gadgets.blocked(Game.playerId);   // ... and is dimmed while no use is left (a field upgrade recharging) or it is blocked (stun, attack lock)
 TouchInput.needs.grenade = () => Game.playerId >= 0 && Gadgets.thrownTotal(Game.playerId) > 0;

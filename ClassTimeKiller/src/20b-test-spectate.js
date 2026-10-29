@@ -321,7 +321,7 @@ Test.add('spectate', (check) => {
     const shown = (id) => TouchInput.places[id].shown, face = (id) => TouchInput.elements[id].textContent;
     check('touch: while spectating only the spectator buttons show, with their own text', TouchInput.flags.spectate === true && shown('fire') && shown('aim') && shown('reload') && shown('pause') && shown('stick')
       && face('fire') === 'NEXT' && face('aim') === 'PREV' && face('reload') === 'VIEW');
-    check('touch: the combat and utility buttons give way', !shown('jump') && !shown('crouch') && !shown('swap') && !shown('melee') && !shown('ping') && !shown('fireLeft'));
+    check('touch: the combat and utility buttons give way', !shown('jump') && !shown('crouch') && !shown('swap') && !shown('use') && !shown('ping') && !shown('fireLeft'));
     spectateTestPress('reload');
     spectateTestFrame();
     check('touch: the free camera also shows UP and DOWN', Spectate.free && shown('jump') && shown('crouch') && face('jump') === 'UP' && face('crouch') === 'DOWN');

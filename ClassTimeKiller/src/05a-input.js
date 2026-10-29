@@ -15,7 +15,10 @@ const MAX_QUEUED_PULSES = 8;
 const NO_BINDING = '';
 const CAPTURE_CANCEL = 'Key:Escape';          // rebinding, any device: cancels the capture
 const CAPTURE_CLEAR = 'Key:Backspace';
-const NEVER_PRESSED = -1000000;               // lastPressTick value far outside the buffer window
+const MENU_CONFLICT = 'menu';                 // conflictsOf answer for a menu-only action bound to an input the menus read (L1)
+const MENU_RESERVED_KEYS = ['Key:Escape', 'Key:Enter', 'Key:NumpadEnter', 'Key:Tab', 'Key:ArrowUp', 'Key:ArrowDown', 'Key:ArrowLeft', 'Key:ArrowRight', 'Key:KeyB', 'Key:Space'];   // Space clicks the focused menu button
+const MENU_RESERVED_PAD = [0, 1, 4, 5, 9];     // A, B, LB, RB, Start: accept, back, tab left and right, back (PAD_MENU_ACTIONS in 05c)
+const NEVER_PRESSED = -1000000;              // lastPressTick value far outside the buffer window
 const BINDING_SLOTS = ['kbm', 'kbm', 'pad'];   // per action: two keyboard/mouse slots and one gamepad slot
 const AIM_ASSIST = { coneRadians: 3 * DEG, slowdown: 0.40, magnetismRadiansPerSecond: 1.5 * DEG };   // INP-008
 // INP-007 vibration: damage strength = amount / damageFull; blasts reach blastReach x their radius (fading with distance);
@@ -43,7 +46,9 @@ function injectStyle(id, css) {
 
 // ---- The action table (ARC: one table only). Bindings are strings: 'Key:KeyW', 'Mouse:0', 'Wheel:up', 'Pad:7'. ----
 // button = BTN bit written to Actors.buttons; axis/sign = digital move axis; slot = weapon slot request; event = no sim effect, emits 'input.action'.
-// toggle = hold/toggle setting exists (INP-002); padToggle = own controller setting; buffered = press buffered 0.10 s (INP-009); always = also works while a menu is open.
+// toggle = hold/toggle setting exists (INP-002); padToggle = own controller setting; buffered = press buffered 0.10 s (INP-009); always = also works while a menu is open;
+// menuOnly = works only while a menu is open (P5-03: quick buy in the buy menu), so it may share its key with a game action without a conflict.
+// A new row also needs a touch path (TOUCH_ACTION_PATHS in 05b names the ones that have no button of their own).
 const ACTION_ROWS = [
   { id: 'forward', label: 'Move forward', group: 'Movement', axis: 'moveZ', sign: 1, kbm: ['Key:KeyW'] },
   { id: 'back', label: 'Move back', group: 'Movement', axis: 'moveZ', sign: -1, kbm: ['Key:KeyS'] },
@@ -52,7 +57,7 @@ const ACTION_ROWS = [
   { id: 'jump', label: 'Jump', group: 'Movement', button: BTN.JUMP, buffered: true, kbm: ['Key:Space'], pad: 'Pad:0' },
   { id: 'crouch', label: 'Crouch / slide', group: 'Movement', button: BTN.CROUCH, toggle: true, kbm: ['Key:KeyC'], pad: 'Pad:1' },   // not Ctrl: Ctrl+W/N/T close or open tabs
   { id: 'sprint', label: 'Sprint', group: 'Movement', button: BTN.SPRINT, toggle: true, padToggle: true, kbm: ['Key:ShiftLeft'], pad: 'Pad:10' },
-  { id: 'walk', label: 'Walk', group: 'Movement', button: BTN.WALK, toggle: true, kbm: ['Key:AltLeft'], pad: 'Pad:8+1' },
+  { id: 'walk', label: 'Walk / hold breath', group: 'Movement', button: BTN.WALK, toggle: true, kbm: ['Key:AltLeft'], pad: 'Pad:8+1' },
   { id: 'prone', label: 'Prone', group: 'Movement', button: BTN.PRONE, toggle: true, kbm: ['Key:KeyP'], pad: 'Pad:8+10' },
   { id: 'fire', label: 'Fire', group: 'Combat', button: BTN.FIRE, buffered: true, toggle: true, kbm: ['Mouse:0'], pad: 'Pad:7' },
   { id: 'alt', label: 'Alt', group: 'Combat', button: BTN.ALT, toggle: true, kbm: ['Mouse:2'], pad: 'Pad:6' },
@@ -68,7 +73,7 @@ const ACTION_ROWS = [
   { id: 'ultimate', label: 'Ultimate', group: 'Abilities', button: BTN.ULTIMATE, kbm: ['Key:KeyX'], pad: 'Pad:12' },
   { id: 'ping', label: 'Ping (hold = wheel)', group: 'Abilities', button: BTN.PING, kbm: ['Key:KeyZ'], pad: 'Pad:15' },
   { id: 'nextWeapon', label: 'Next weapon', group: 'Weapons', button: BTN.NEXT_WEAPON, kbm: ['Wheel:down'], pad: 'Pad:3' },
-  { id: 'prevWeapon', label: 'Previous weapon', group: 'Weapons', button: BTN.PREV_WEAPON, kbm: ['Wheel:up'] },
+  { id: 'prevWeapon', label: 'Previous weapon', group: 'Weapons', button: BTN.PREV_WEAPON, kbm: ['Wheel:up'], pad: 'Pad:8+14' },
   { id: 'slot1', label: 'Weapon slot 1', group: 'Weapons', slot: 1, kbm: ['Key:Digit1'] },
   { id: 'slot2', label: 'Weapon slot 2', group: 'Weapons', slot: 2, kbm: ['Key:Digit2'] },
   { id: 'slot3', label: 'Weapon slot 3', group: 'Weapons', slot: 3, kbm: ['Key:Digit3'] },
@@ -81,7 +86,8 @@ const ACTION_ROWS = [
   { id: 'scoreboard', label: 'Scoreboard', group: 'Interface', event: true, toggle: true, kbm: ['Key:Tab'], pad: 'Pad:8' },
   { id: 'pause', label: 'Pause', group: 'Interface', event: true, kbm: ['Key:Escape'], pad: 'Pad:9' },
   { id: 'comm', label: 'Comm wheel', group: 'Interface', event: true, kbm: ['Key:KeyT'], pad: 'Pad:8+3' },
-  { id: 'buyMenu', label: 'Buy menu / loadout', group: 'Interface', event: true, kbm: ['Key:KeyB'] },
+  { id: 'buyMenu', label: 'Buy menu / loadout', group: 'Interface', event: true, kbm: ['Key:KeyB'], pad: 'Pad:8+12' },
+  { id: 'quickBuy', label: 'Quick buy (in the buy menu)', group: 'Interface', event: true, menuOnly: true, kbm: ['Key:KeyQ'], pad: 'Pad:2' },
   { id: 'cards', label: 'Use a card', group: 'Interface', event: true, kbm: ['Key:KeyY'], pad: 'Pad:8+5' },
   { id: 'perfHud', label: 'Performance HUD', group: 'Interface', event: true, always: true, kbm: ['Key:F8'] },
   { id: 'botDebug', label: 'Bot debug view', group: 'Interface', event: true, always: true, kbm: ['Key:F9'] },
@@ -250,11 +256,23 @@ const Input = {
     }
     this.rebuildMap();
   },
+  // The inputs the menus and the buy screen read themselves (menu navigation, the buy screen's B and digits; a controller's A, B, bumpers
+  // and Start, alone or as a View chord): a menu-only action on one of them would fire together with the menu.
+  menuReserved(binding) {
+    if (MENU_RESERVED_KEYS.includes(binding) || /^Key:Digit[1-9]$/.test(binding)) return true;
+    const pad = /^Pad:(?:8\+)?(\d+)$/.exec(binding);
+    return !!pad && MENU_RESERVED_PAD.includes(+pad[1]);
+  },
+  // A menu-only action and a game action never meet (one works in menus, the other in the match), so they may share a key; a menu-only
+  // action on a menu-reserved input is flagged with MENU_CONFLICT.
   conflictsOf(actionId) {
     const index = this.actionIndex[actionId], others = [];
     for (const binding of this.bound[index]) {
       if (binding === NO_BINDING) continue;
-      for (const other of this.bindingMap.get(binding)) if (other !== index && !others.includes(ACTION_ROWS[other].id)) others.push(ACTION_ROWS[other].id);
+      if (ACTION_ROWS[index].menuOnly && this.menuReserved(binding) && !others.includes(MENU_CONFLICT)) others.push(MENU_CONFLICT);
+      for (const other of this.bindingMap.get(binding)) {
+        if (other !== index && !!ACTION_ROWS[other].menuOnly === !!ACTION_ROWS[index].menuOnly && !others.includes(ACTION_ROWS[other].id)) others.push(ACTION_ROWS[other].id);
+      }
     }
     return others;
   },
@@ -345,9 +363,10 @@ const Input = {
     let handled = false;
     this.padPress = binding.startsWith('Pad:');
     for (let i = 0; i < list.length; i++) {
-      if (this.uiOpen && !ACTION_ROWS[list[i]].always && !this.releasesToggle(list[i])) continue;
+      const row = ACTION_ROWS[list[i]];
+      if (row.menuOnly ? !this.uiOpen : this.uiOpen && !row.always && !this.releasesToggle(list[i])) continue;
       this.pressAction(list[i]);
-      handled = true;
+      if (!row.menuOnly) handled = true;   // a menu-only key (Q in the buy menu) never stops the browser's default: the menus and editors use their own keys
     }
     this.padPress = false;
     return handled;
@@ -696,6 +715,35 @@ const Input = {
     on(document, 'pointerlockerror', () => this.onLockRefused());
   },
 };
+
+// P5-03: slots that gained a default after the first release ([action, slot]). A saved action keeps its three slots as they were, so
+// without this an old save would never get them. An empty slot takes the new default unless a menu-or-game peer already uses that binding.
+const BINDING_NEW_DEFAULTS = [['prevWeapon', 2], ['buyMenu', 2]];
+function bindingTaken(bindings, row, binding) {
+  for (const other of ACTION_ROWS) {
+    if (other === row || !!other.menuOnly !== !!row.menuOnly) continue;
+    const slots = Array.isArray(bindings[other.id]) ? bindings[other.id] : Input.defaultsOf(other);
+    if (slots.includes(binding)) return true;
+  }
+  return false;
+}
+// Called by Save.migrate with the repaired save's bindings: drops entries of actions that no longer exist, then fills the new defaults
+// (an action the player never rebound whose new default is taken gets its entry written with that slot empty, so no binding fires two actions).
+function migrateBindings(bindings) {
+  const known = new Set(ACTION_ROWS.map((row) => row.id));
+  for (const id of Object.keys(bindings)) if (!known.has(id) || !Array.isArray(bindings[id])) delete bindings[id];
+  for (const [id, slot] of BINDING_NEW_DEFAULTS) {
+    const stored = bindings[id], row = ACTION_ROWS.find((item) => item.id === id), wanted = Input.defaultsOf(row)[slot];
+    if (!wanted) continue;
+    if (!stored) {   // never rebound: the default applies by itself, unless the player gave the binding to another action (then it would fire both)
+      if (bindingTaken(bindings, row, wanted)) { bindings[id] = Input.defaultsOf(row); bindings[id][slot] = NO_BINDING; }
+      continue;
+    }
+    while (stored.length < BINDING_SLOTS.length) stored.push(NO_BINDING);
+    if (stored[slot] !== NO_BINDING || bindingTaken(bindings, row, wanted)) continue;
+    stored[slot] = wanted;
+  }
+}
 
 ACTION_ROWS.forEach((row, index) => {
   Input.actionIndex[row.id] = index;

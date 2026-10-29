@@ -79,10 +79,11 @@ const BuyMenu = {
     this.entries.push({ button, item, priceLabel, price: -1 });   // refresh() fills the price this player pays
     return button;
   },
-  // P3-01: one tap buys the loadout primary (key Q).
+  // P3-01: one tap buys the loadout primary. P5-03: the key or button comes from the quickBuy binding of the device in use (none on touch: the tap is the way).
   quickBuyButton() {
-    const key = Loadouts.pickedKey('primary');
-    return Ui.button('Quick buy: ' + weaponName(key) + ' (' + formatCredits(CAT.weapons.byId(key).price) + ', key Q)', () => this.quickBuy(), 'primary');
+    const key = Loadouts.pickedKey('primary'), bound = Input.device === 'touch' ? '' : hudBoundLabel('quickBuy', Input.device);
+    const how = bound ? (Input.device === 'gamepad' ? ', ' : ', key ') + bound : '';
+    return Ui.button('Quick buy: ' + weaponName(key) + ' (' + formatCredits(CAT.weapons.byId(key).price) + how + ')', () => this.quickBuy(), 'primary');
   },
   quickBuy() {
     const result = Economy.quickBuy(Game.playerId);
@@ -314,7 +315,12 @@ function loadoutAvailable() {
   if (Economy.usesLoadouts() || (playerInMatch() && Loadouts.usesPickupLoadout())) return true;
   return playerInMatch() && !Economy.modeArmsEveryone() && Abilities.kitOf(Game.playerId) !== null;
 }
+// P5-03: Quick buy is the quickBuy action (a menu-only row: Q and the controller's X by default), no longer a key this file reads itself.
+function onQuickBuyAction(event) {
+  if (event.action === 'quickBuy' && event.down && Ui.current() === 'buy' && Economy.preset().buy === 'round') BuyMenu.quickBuy();
+}
 function onBuyMenuAction(event) {
+  onQuickBuyAction(event);
   if (event.action !== 'buyMenu' || !event.down || Game.state !== 'playing' || Game.paused || Ui.stack.length) return;
   if (buyMenuAvailable()) Ui.open('buy');
   else if (loadoutAvailable()) Ui.open('loadout');
@@ -325,7 +331,6 @@ function onBuyScreenKey(event) {
   const screen = Ui.current();
   if (screen !== 'buy' && screen !== 'loadout') return;
   if (event.code === 'KeyB') { Ui.back(); event.preventDefault(); return; }
-  if (screen === 'buy' && event.code === 'KeyQ' && Economy.preset().buy === 'round') { BuyMenu.quickBuy(); event.preventDefault(); return; }
   const digit = screen === 'buy' && /^Digit[1-9]$/.test(event.code) ? Number(event.code.slice(5)) : 0;
   if (digit) { BuyMenu.buyByHotkey(digit - 1); event.preventDefault(); }
 }

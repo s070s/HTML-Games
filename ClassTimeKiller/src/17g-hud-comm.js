@@ -104,6 +104,7 @@ const CommWheel = {
 Input.sources.push(CommWheel);
 Sim.addSystem('commPing', 5, () => CommWheel.stepPing());
 TouchInput.buttonLook = (control) => CommWheel.open && control.action === 'ping';   // the finger holding PING picks the callout
+TouchInput.needs.ping = () => Game.playerId >= 0 && currentRules().teams > 0;   // P5-01: PING shows in team matches, where a ping reaches somebody (a held one opens the wheel)
 Bus.on('input.action', (event) => { if (event.action === 'comm') CommWheel.onComm(event.down); });
 Bus.on('match.stop', () => CommWheel.reset());
 

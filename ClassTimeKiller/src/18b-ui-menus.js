@@ -191,6 +191,7 @@ Ui.settingsExtras.controls = [
     const foot = makeElement('div', 'ui-foot');
     foot.appendChild(Ui.button('Key and button bindings', () => Ui.open('bindings')));
     foot.appendChild(Ui.button('Edit touch layout', () => Ui.open('touchLayout')));
+    foot.appendChild(Ui.button('Controls card', () => Ui.open('controlsCard', { device: Input.device })));   // P5-04: the core actions of each input type (18s)
     container.appendChild(foot);
     refreshCentimetres();
   },
@@ -199,7 +200,7 @@ Bus.on('setting', refreshCentimetres);
 
 // ---- Key and button rebinding ----
 function bindingRowLabel(row, conflicts) {
-  return row.label + (conflicts.length ? ' - shares a key with ' + conflicts.map((id) => ACTION_ROWS[Input.actionIndex[id]].label).join(', ') : '');
+  return row.label + (conflicts.length ? ' - shares a key with ' + conflicts.map((id) => (id === MENU_CONFLICT ? 'the menus' : ACTION_ROWS[Input.actionIndex[id]].label)).join(', ') : '');
 }
 function renderBindings(list, focusKey) {
   list.replaceChildren();
@@ -233,7 +234,7 @@ function bindingRow(row, list) {
 Ui.register('bindings', {
   build(root) {
     screenHeader(root, 'Key and button bindings');
-    root.appendChild(makeElement('p', 'ui-note', 'Click a slot, then press a key, mouse button, scroll the wheel or press a controller button. Esc cancels, Backspace clears. On a controller, View + a button binds a chord, holding Start cancels and View + Start clears. A red row shares a binding with another action.'));
+    root.appendChild(makeElement('p', 'ui-note', 'Click a slot, then press a key, mouse button, scroll the wheel or press a controller button. Esc cancels, Backspace clears. On a controller, View + a button binds a chord, holding Start cancels and View + Start clears. A red row shares a binding with another action (Quick buy acts only inside the buy menu, so it may share a key with a game action).'));
     const list = makeElement('div', 'ui-scroll');
     root.appendChild(list);
     const foot = makeElement('div', 'ui-foot');
@@ -309,7 +310,8 @@ function touchControlsSummary() {
   for (const control of TOUCH_CONTROLS) if (control.face) lines.push(control.face + ': ' + control.label);
   lines.push('Hold the score panel at the top: Scoreboard');
   lines.push('Tap a weapon box above the ammo panel to take that slot.');
-  lines.push('Buttons you cannot use stay hidden. Settings > Controls > Edit touch layout moves them.');
+  lines.push('Only the move stick, FIRE, ALT, JUMP, DUCK, LOAD, SWAP and II are always there; every other button shows only while it can act, and A1, A2 and TOOL stay dimmed while they cannot.');
+  lines.push('Settings > Controls > Edit touch layout moves the buttons.');
   return lines.join('\n');
 }
 function controlsSummary() {

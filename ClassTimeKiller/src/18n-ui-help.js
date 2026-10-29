@@ -51,6 +51,7 @@ Ui.register('help', {
     for (const line of HELP_LINES) body.appendChild(makeElement('p', 'ui-note', line.replace('{touch}', touchSidesText())));
     body.appendChild(makeElement('div', 'ui-group', 'Current controls'));
     body.appendChild(makeElement('div', 'ui-result', controlsSummary()));
+    body.appendChild(Ui.button('Show the controls card', () => Ui.open('controlsCard', { device: Input.device })));   // P5-04 (18s)
     if (Ui.selfTestRunner) appendSelfTest(body);   // only the test build carries the tests
     body.appendChild(makeElement('p', 'ui-note', 'ClassTimeKiller v' + VERSION));
     root.appendChild(body);

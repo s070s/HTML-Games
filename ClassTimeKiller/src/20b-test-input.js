@@ -694,9 +694,10 @@ Test.add('input', (check) => {
 
 Test.add('input', (check) => {
   startInputMatch();
-  check('touch: USE, MELEE, GADGET and PING buttons exist (INP-004)', ['use', 'melee', 'gadget', 'ping'].every((name) => TouchInput.controlById[name] && TouchInput.controlById[name].action === name));
+  check('touch: USE, GADGET and PING buttons exist, MELEE is a flick on LOAD (INP-004, P5-01)', ['use', 'gadget', 'ping'].every((name) => TouchInput.controlById[name] && TouchInput.controlById[name].action === name)
+    && !TouchInput.controlById.melee && TouchInput.controlById.reload.swipeAction === 'melee');
   Game.match.rules = { mode: 'ffa' }; TouchInput.applyAll();
-  check('touch: USE is hidden in a mode that never needs Use held', TouchInput.elements.use.classList.contains('off') && !TouchInput.elements.melee.classList.contains('off'));
+  check('touch: USE is hidden in a mode that never needs Use held', TouchInput.elements.use.classList.contains('off') && !TouchInput.elements.reload.classList.contains('off'));
   check('touch: modes with plant, arm, loot swap or chamber buttons need USE', ['rush', 'bomb', 'ghostops', 'royale', 'puzzle'].every((mode) => CAT.modes.byId(mode).useButton));
   Game.match.rules = { mode: 'tdm', teams: 2, downed: true }; TouchInput.applyAll();
   check('touch: USE shows in a team match with downed and revive (HP-007)', !TouchInput.elements.use.classList.contains('off'));
@@ -948,7 +949,7 @@ Test.add('input', (check) => {
   Save.data = JSON.parse(JSON.stringify(Save.data));
   check('layout: identical after a reload of the save', TouchInput.getProperty('fire', 'scale') === 2 && Test.near(TouchInput.getProperty('fire', 'x'), 1 - edge, 1e-9));
   setInputSetting('controls.touch.layout', 'compact');
-  check('layout: another preset has its own layout', TouchInput.getProperty('fire', 'scale') === 0.8 && TouchInput.getProperty('fire', 'x') === TouchInput.controlById.fire.x);
+  check('layout: another preset has its own layout', TouchInput.getProperty('fire', 'scale') === TOUCH_PRESETS[1].scale && TouchInput.getProperty('fire', 'x') === TouchInput.controlById.fire.x);
   setInputSetting('controls.touch.layout', 'mirrored');
   check('layout: the left-handed preset mirrors the controls', Test.near(TouchInput.getProperty('fire', 'x'), 1 - TouchInput.controlById.fire.x, 1e-9));
   setInputSetting('controls.touch.layout', 'standard');
@@ -1045,9 +1046,10 @@ Test.add('input', (check) => {
 Test.add('input', (check) => {
   startInputMatch();
   // Every action has a keyboard, a controller and a touch path, or is listed here: sticks, the weapon bar and menus have their own.
-  const free = ['forward', 'back', 'left', 'right', 'prevWeapon', 'buyMenu', 'perfHud', 'botDebug'].concat(ACTION_ROWS.filter((row) => row.slot).map((row) => row.id));
-  const touchActions = TOUCH_CONTROLS.flatMap((control) => [control.action, control.longAction, control.swipeAction]);
-  const touchFree = free.concat('sprint', 'scoreboard', 'comm');   // a full stick push sprints; the score panel holds the scoreboard; a held PING opens the wheel
+  // P5-03: previous weapon, buy menu and quick buy have controller defaults now; only the dev views and the weapon slots stay listed.
+  const free = ['forward', 'back', 'left', 'right', 'perfHud', 'botDebug'].concat(ACTION_ROWS.filter((row) => row.slot).map((row) => row.id));
+  const touchActions = TOUCH_CONTROLS.flatMap((control) => [control.action, control.holdAction, control.swipeAction]);
+  const touchFree = free.concat(Object.keys(TOUCH_ACTION_PATHS));   // the actions with a path of their own (stick, score panel, wheel, pause menu, weapon bar)
   const reserved = ['Key:ControlLeft', 'Key:ControlRight', 'Key:F10', 'Key:F11', 'Key:F12', 'Pad:16'];   // browser or system keys
   const gaps = (has) => ACTION_ROWS.filter((row) => !has(row)).map((row) => row.id).join();
   for (const [name, has] of [['a key', (row) => Input.defaultsOf(row)[0]], ['a pad button or is listed', (row) => Input.defaultsOf(row)[2] || free.includes(row.id)],

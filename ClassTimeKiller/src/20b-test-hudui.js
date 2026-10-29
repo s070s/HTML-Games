@@ -333,8 +333,8 @@ function hudUiWheelProblem(layout) {
   }
   return '';
 }
-// The default places, every button at layout scale 2, the left FIRE on, every need met (there a callout may stay under a button
-// rather than shrink the ring under its floor).
+// The default places, every button at layout scale 2 (P5-01: with the 44 px floor a callout may stay under a button on the smallest
+// phone, like below), the left FIRE on, every need met (there a callout may stay under a button rather than shrink the ring under its floor).
 const HUD_UI_WHEEL_CASES = ['', ', buttons at scale 2', ', left FIRE on', ', every need met'];
 Test.add('hudui', (check) => {
   const layout = {}, savedDevice = Input.device, savedPreset = TouchInput.currentPreset, savedLayouts = Save.data.touchLayouts, needs = TouchInput.needs, leftFire = Input.config.touchLeftFire;
@@ -348,8 +348,9 @@ Test.add('hudui', (check) => {
         updateHudLayout(layout, phone[0], phone[1]);
         Input.device = savedDevice;
         const problem = hudUiWheelProblem(layout), share = commWheelRing.radius / (COMM_WHEEL_RADIUS * layout.unit);
-        check('comm wheel on a phone (' + preset.id + ' ' + phone.join('x') + name + '): every callout on screen, ' + (kind === 3 ? 'the ring at its floor or more' : 'none under a touch button'),
-          share >= (kind ? COMM_WHEEL_MIN_SHARE : HUD_UI_WHEEL_MIN_SHARE) - 1e-9 && (kind === 3 ? !problem.endsWith('off screen') : problem === ''), problem + ' ' + share);
+        const crowded = kind === 3 || (kind === 1 && phone[0] === 568);   // P5-01: the 44 px floor makes buttons at the editor's 200% crowd the smallest phone (568x320): a callout may stay under one at the ring's floor
+        check('comm wheel on a phone (' + preset.id + ' ' + phone.join('x') + name + '): every callout on screen, ' + (crowded ? 'the ring at its floor or more' : 'none under a touch button'),
+          share >= (kind ? COMM_WHEEL_MIN_SHARE : HUD_UI_WHEEL_MIN_SHARE) - 1e-9 && (crowded ? !problem.endsWith('off screen') : problem === ''), problem + ' ' + share);
       });
     }
   } finally {
@@ -447,7 +448,7 @@ function hudUiDrawnBoxes(first) {
 // A box meets a circle (the nearest point of the box is inside it).
 function hudUiBoxMeetsCircle(box, x, y, radius) { return length2(clamp(x, box[0], box[2]) - x, clamp(y, box[1], box[3]) - y) < radius; }
 // The core buttons a thumb finds by feel: never on the other half, whatever keepsHalf allows (a DUCK beside the stick is a miss).
-const HUD_UI_CORE_BUTTONS = ['stick', 'fire', 'jump', 'aim', 'use', 'crouch', 'reload', 'grenade', 'melee', 'swap'];
+const HUD_UI_CORE_BUTTONS = ['stick', 'fire', 'jump', 'aim', 'use', 'crouch', 'reload', 'grenade', 'swap'];
 // What breaks rules 1, 2 and 4 for the shown buttons and rule 3's clear stack, or ''. Touching (half a pixel) is allowed.
 function hudUiTouchBreak(fixed, banners, width, height, layout) {
   const places = TouchInput.places, shown = TOUCH_CONTROLS.filter((control) => places[control.id].shown), aimRadius = TOUCH_AIM_ZONE * Math.min(width, height);
@@ -579,6 +580,7 @@ Test.add('input', (check) => {
     Abilities.setSlot(id, SLOT.ABILITY1, CAT.abilities[0]);
     Gadgets.give(id, CAT.gadgets.find((row) => row.kind === 'thrown').id, 1);
     Items.carried[id * ITEM_COUNT + CONSUMABLE_ROWS[0].index] = 1;
+    Actors.health[id] = 10;   // P5-01: HEAL shows only while a carried item would restore something
     Move.setPreset(id, 'modern');
   };
   const empty = (id) => {

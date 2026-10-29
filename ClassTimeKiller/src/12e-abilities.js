@@ -399,6 +399,16 @@ const Abilities = {
     const row = this.row(id, slot);
     return !!row && !this.active[this.index(id, slot)] && this.usable(id, row) && this.canAfford(id, slot, row);
   },
+  // A press now does something: the slot is ready, or it is running (a toggle, hold or channel the press ends). The touch buttons show on this.
+  hasButton(id, slot) {
+    const row = this.row(id, slot);
+    return !!row && row.activation !== 'passive' && row.activation !== 'ult';
+  },
+  pressable(id, slot) {
+    const row = this.row(id, slot);
+    if (!this.hasButton(id, slot)) return false;
+    return (this.active[this.index(id, slot)] === 1 && (isCancellable(row) || row.activation === 'hold')) || this.ready(id, slot);
+  },
   // Fills out { slots: [{ id, name, key, ready, cooldown 0..1, charges, active, remaining, color }], meter: { kind, value 0..1, ready } }.
   // The slots array is filled in place (no per-frame allocation); its length changes only with the slot count.
   hudState(id, out) {
@@ -475,7 +485,11 @@ Bus.on('match.end', () => Abilities.clearMatch());
 Bus.on('match.stop', () => Abilities.clearMatch());
 Bus.on('match.start', () => AbilityZones.clear());
 Bus.on('round', (event) => { if (event.phase === 'start') AbilityZones.clear(); });
-// The touch ability buttons show while the player's kit has that slot.
-for (const [need, slot] of [['ability1', SLOT.ABILITY1], ['ability2', SLOT.ABILITY2], ['ultimate', SLOT.ULTIMATE]]) {
-  TouchInput.needs[need] = () => Game.playerId >= 0 && Abilities.row(Game.playerId, slot) !== null;
+// The touch ability buttons (P5-01): A1 and A2 stay on screen while the kit has a pressable ability in the slot and are dimmed
+// (TouchInput.ready: a tap does nothing) while it cannot be used now (cooldown, stun, suppression, no energy, carrying the flag); ULT shows
+// only once it is ready. The HUD rings keep showing the cooldowns; a passive or automatic ('ult': Wrath Form casts itself) row has nothing to press.
+for (const [need, slot] of [['ability1', SLOT.ABILITY1], ['ability2', SLOT.ABILITY2]]) {
+  TouchInput.needs[need] = () => Game.playerId >= 0 && Abilities.hasButton(Game.playerId, slot);
+  TouchInput.ready[need] = () => Abilities.pressable(Game.playerId, slot);
 }
+TouchInput.needs.ultimate = () => Game.playerId >= 0 && Abilities.pressable(Game.playerId, SLOT.ULTIMATE);

@@ -6,6 +6,9 @@ const SAVE_KEY = 'ctk.save.v1';
 const BACKUP_KEY = 'ctk.save.bak';
 const SPARE_KEY = 'ctk.save.spare';     // an unreadable or newer-version record, when BACKUP_KEY already holds a readable save (A-04, A-05)
 const SAVE_VERSION = 1;
+// P5-02 / P5-03: the generation of the touch layouts and key bindings in a save. 1 = the first release (a save without the field),
+// 2 = the Phase 5 redesign: migrateTouchLayouts (05b) and migrateBindings (05a) bring an older save over once.
+const CONTROLS_VERSION = 2;
 const SAVE_MAX_BYTES = 1024 * 1024;
 const SAVE_DEBOUNCE_MS = 500;           // ARC-021
 const SAVE_TOO_BIG = 'Save is over 1 MB and was not written.';
@@ -151,9 +154,9 @@ const Save = {
 
   emptySave() {
     // Every field is declared here, so migrate repairs it (ARC-020). revision: write count (R-001); play: last setup (18d, null = none);
-    // crosshairs: per-weapon overrides (17b); loadouts: 13d (pickup: the weapons, gear and abilities of the pickup rulesets, P3-05); tips: 18n, 18p, 06 (silentSwitch).
-    return { version: SAVE_VERSION, revision: 0, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [],
-      ladder: {}, play: null, crosshairs: {}, tips: { matches: 0, homeScreen: false, silentSwitch: false },
+    // crosshairs: per-weapon overrides (17b); loadouts: 13d (pickup: the weapons, gear and abilities of the pickup rulesets, P3-05); tips: 18n, 18p, 06 (silentSwitch), 18s (controlCards: the controls card, shown once per input type).
+    return { version: SAVE_VERSION, revision: 0, settings: {}, bindings: {}, touchLayouts: {}, controlsVersion: CONTROLS_VERSION, progression: {}, stats: {}, rulesets: [], editorMaps: [],
+      ladder: {}, play: null, crosshairs: {}, tips: { matches: 0, homeScreen: false, silentSwitch: false, controlCards: { touch: false, gamepad: false, kbm: false } },
       loadouts: { classes: { selected: CAT.classes[0].id, custom: [] }, heroes: { hero: CAT.heroes[0].id }, kits: {}, pickup: Object.assign({}, DEFAULT_PICKUP_LOADOUT) } };
   },
   load() {
@@ -191,8 +194,14 @@ const Save = {
   // Brings a save up to SAVE_VERSION: fills missing or wrong-kind fields ("settings": null, nested ones too), checks every setting (load and import).
   migrate(loaded) {
     if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) throw new Error('save is not an object');
+    const controlsFrom = Number.isInteger(loaded.controlsVersion) ? loaded.controlsVersion : 1;   // read before the repair fills the field in
     repairSaveFields(this.emptySave(), loaded);
     migrateRetiredIds(loaded);
+    if (controlsFrom < CONTROLS_VERSION) {
+      migrateTouchLayouts(loaded.touchLayouts);
+      migrateBindings(loaded.bindings);
+      loaded.controlsVersion = CONTROLS_VERSION;
+    }
     Settings.sanitize(loaded.settings);
     // Version and revision first (SAVE_REVISION_HEAD).
     const ordered = Object.assign({ version: SAVE_VERSION, revision: 0 }, loaded);

@@ -125,14 +125,18 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 5 - Controls and button layout (mobile first)
 
-- [ ] P5-01 - DECIDE: touch layout. Reduce the about 20 buttons to the essential set; context buttons only when usable (example: use, heal, ultimate when ready); group the rest (example: hold or swipe menus). Respect safe areas and thumb reach on phones in landscape.
+- [x] P5-01 - DECIDE: touch layout. Reduce the about 20 buttons to the essential set; context buttons only when usable (example: use, heal, ultimate when ready); group the rest (example: hold or swipe menus). Respect safe areas and thumb reach on phones in landscape.
   Done when: Appendix C has the layout for phone and tablet with the button list and sizes.
-- [ ] P5-02 - Implement the new touch layout and keep Standard / Compact / Left-handed variants (or replace them per P5-01). Migrate saved custom layouts.
+  Status (2026-10-29): decided, Appendix C "P5-01": essential set (stick, FIRE, ALT, JUMP, DUCK, LOAD, SWAP, look) plus context buttons that show only while usable; A1, A2 and TOOL stay dimmed while unusable (a tap is swallowed), ULT hidden until ready, BUY only in buy time; melee is a flick on LOAD; safe areas, 44 px floor and thumb reach checked on four phone sizes.
+- [x] P5-02 - Implement the new touch layout and keep Standard / Compact / Left-handed variants (or replace them per P5-01). Migrate saved custom layouts.
   Done when: layout fits a 360x640 CSS px landscape screen without overlap and all actions are reachable.
-- [ ] P5-03 - Review gamepad and keyboard / mouse layouts for the renamed and merged actions.
+  Status (2026-10-29): Standard / Compact / Left-handed presets on the new layout, saved custom layouts and bindings migrated once (controlsVersion; old chords no longer fire two actions); every preset passes no-overlap, 44 px and safe-area checks with and without a notch.
+- [x] P5-03 - Review gamepad and keyboard / mouse layouts for the renamed and merged actions.
   Done when: every action is mapped without conflicts and the Controls screen matches.
-- [ ] P5-04 - Onboarding card per input type with the core actions only.
+  Status (2026-10-29): every action has a controller and keyboard / mouse path; previous weapon View + D-Left, buy menu View + D-Up (A-08 fixed); Quick buy on a key or button the menus read is flagged red.
+- [x] P5-04 - Onboarding card per input type with the core actions only.
   Done when: shown on first play and available from the pause menu.
+  Status (2026-10-29): a controls card per input type with the core actions, shown once per type in the first real match (never in spectate, killcam or a match without a player), reopenable from Help. Self-test 6565 / 6568: the 3 misses are timing checks (audio, nav big map) under machine load in code this phase did not touch; the implementer's full run before the last two small fixes passed 6567 / 6567; re-measure on a quiet machine in P9.
 
 ## Phase 6 - Animations
 
@@ -734,6 +738,60 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 - **Docs to update with P4-04**: `docs/SPECIFICATION.md` UI-001 (main menu list), PRG-005 (Horde and Chambers entries), the mode table (variant column, the A-07 clocks); `docs/api/hud-play.md`; `docs/api/mutators-custom.md`; `docs/LIVE-TESTS.md`.
 
+### P5-01 - Touch layout (decided 2026-10-29 by the coordinator; the owner can change any row)
+
+**Inventory before (fact, `src/05b-input-touch.js` `TOUCH_CONTROLS`, 20 rows).** Always on (10): move stick, FIRE, ALT, JUMP, DUCK, LOAD, SWAP, PING, pause, MELEE. Shown only when usable (10): USE (the mode needs Use held, a revive, a skimmer board), HOLD breath (the scope sways), NADE (a grenade is carried), HEAL (a consumable is carried, or any loot ruleset, even at full health), A1, A2, ULT (the slot is filled, also while it cools down or is not paid for), TOOL (the gadget slot is filled), CARD (the match has cards), the second FIRE on the left (setting). Gestures that already existed: DUCK slide = prone, NADE slide = next grenade type, SWAP hold = previous weapon, PING hold = comm wheel, score panel hold = scoreboard, weapon box tap = slot. Faults found: 4 buttons under 44 css px (PING, pause and CARD 40, HEAL 42) and 10 more at 44-50; the floor for a crowded screen was 30 px; ability buttons showed on cooldown; HEAL showed with nothing to heal (any loot ruleset); PING showed in a free-for-all where nobody sees it; the Compact preset shrank every button to 80% (the small ones to 32-36 px).
+
+**Decision.**
+
+| Part | Decision |
+|---|---|
+| Essential set (always on, 8 incl. the stick) | stick, FIRE 88, ALT 56, JUMP 64, DUCK 52 (slide: prone), LOAD 52 (flick: melee), SWAP 52 (hold: previous weapon), pause 48 |
+| Context buttons (12, each only while it can act) | USE 56, HOLD 48, HEAL 48 (an item would restore something), NADE 52 (a grenade; slide: next type), A1 and A2 52 (the kit has a pressable ability there: shown, and dimmed while it cannot be used; never a passive or the automatic Wrath Form), ULT 56 (hidden until ready), TOOL 52 (the kit has a gadget: shown, dimmed while no use is left or it is blocked), PING 48 (a match with teams; hold: comm wheel), CARD 48, BUY 48 (the buy time of a round-buy ruleset, in the buy zone), second FIRE 70 (setting) |
+| Grouped (no button of their own) | MELEE = flick of 30 px on LOAD (a shorter slide, a thumb that slips, still reloads); previous weapon = hold SWAP; prone = slide DUCK; next grenade type = slide NADE; comm wheel = hold PING; scoreboard = hold the score panel; weapon slots = tap the weapon box; sprint = push the stick to its edge twice (P2-05); buy menu and loadout = pause menu; Quick buy = the button in the buy menu; developer views = four fingers |
+| Count | 20 rows before, 20 now (MELEE gone, BUY added); always on 10 before, 8 now; at most 12 more on screen and only while usable, A1, A2 and TOOL dimmed instead of gone (a match with no kit shows exactly the 8) |
+| Size floor | 44 css px: `TOUCH_MIN_DIAMETER` 30 -> 44 for the preset, the editor (`layoutOf` never returns a scale under 44 / size) and a crowded screen; every default size is 48 or more |
+| Variants | keep three. Standard = the table. Compact = scale 0.85 (was 0.8): the stick, FIRE, ALT and JUMP shrink most (120 to 102, 88 to 75, 56 to 47.6, 64 to 54.4), the 52 px buttons go to 44.2 and the 48 px ones are held at the floor. Left-handed = x mirrored, the stick starts on the right, JUMP and SWAP have their own spot because the minimap and the vitals sit at the left. No new presets: they answer two different needs (phone size, hand) |
+| Saved layouts | migrated once (`controlsVersion`, see P5-02 below) |
+
+**Reach zones** (share of the safe area, the phone in two hands; px at 640x360 / 932x430, standard preset):
+
+| Zone | Share (x, y) | px at 640x360 | px at 932x430 | Holds |
+|---|---|---|---|---|
+| Right thumb at rest, no lift | 0.78-1.0, 0.42-0.95 | 500-640, 150-340 | 727-932, 180-408 | FIRE (580,214 / 844,256), ALT (506,158 / 736,189), JUMP (525,299 / 764,357), BUY (605,320 / 881,383) |
+| Right thumb stretch (one roll of the thumb) | 0.60-1.0, 0.20-1.0 | 384-640, 72-360 | 559-932, 86-430 | DUCK (451,319), LOAD (605,128), SWAP (541,92), USE (448,238), HOLD (448,151), HEAL (392,270), NADE (394,326) |
+| Left thumb on the floating stick | 0-0.42, 0.40-0.85 | 0-269, 144-306 | 0-391, 172-366 | the stick (90,202 / 130,241), where the thumb lands inside the move zone |
+| Left thumb above the stick | 0.06-0.40, 0.328 | 38-256, 118 | 56-373, 141 | A1 (56), A2 (122), ULT (186), TOOL (246) at 640 |
+| Top centre (occasional, a hand shift) | 0.50-0.70, 0.233 | 320-448, 84 | 466-652, 100 | pause (320), PING (384), CARD (448) |
+| Keep-out (never a button) | - | the aim zone (circle of 0.18 x the short side around the centre: 65 px / 77 px), the minimap (13,13 to 90,90), the vitals bottom left, the ammo panel and weapon bar bottom centre, the score header on top, the notch (47 px each side) and the home bar (inset bottom) | same, scaled | `placeAll` moves a button out of them; nothing needed to move on the three sizes |
+
+Check on the three sizes (`controls` self-tests, standard, Compact and Left-handed, with a 47 px notch and without, essential set and all 20 buttons): no button under 44 px, none outside the safe area, none on another, and in the standard preset without a notch every button sits exactly on its layout spot. Left-handed puts every control but pause and BUY on the other half of the screen (the plain ones on the exact mirror spot); BUY has the same corner in both hands.
+
+**Owner calls (decided 2026-10-29 by the coordinator; the owner can change any row).** (a) An ability that is cooling down, or unusable for any other reason (stun, suppression, no energy, carrying the flag), stays on screen dimmed instead of going away: A1, A2 and TOOL (the first version hid them; the HUD rings show why). A tap on a dimmed button does nothing and is swallowed, so it never reaches the stick or the look. ULT stays hidden until it is ready. (b) MELEE stays a flick on LOAD, not a button: the flick must be made inside the 150 ms window from the touch-down (a still finger has pressed the reload by then), a tap reloads on release so the reload lags the touch by up to 150 ms, and while spectating LOAD is VIEW and never melees; Help, the card and the docs call it a flick. (c) A context BUY button on touch (48 px, bottom right corner, the same place in both hands because the left bottom is the vitals): it shows only during the buy time of a round-buy ruleset, in the buy zone, and opens the buy menu; the pause menu entry stays for the loadout and the shop rulesets. Not tried on a device (P9-03); the screenshots of this phase are headless Chrome at 640x360 and 932x430.
+
+### P5-02 - Touch layout implemented (2026-10-29)
+
+- `TOUCH_CONTROLS` is the table above; `needs` read the game: `Abilities.pressable`, `Gadgets.gadgetReady`, `Items.healUsable`, ping needs teams (17g). A button under a finger stays until the finger lifts (`fingerOn`), so a press is never cut off by the cooldown it starts.
+- Saved layouts: `Save.data.controlsVersion` (new, `CONTROLS_VERSION` 2; a save without it is generation 1). `migrateTouchLayouts` (05b) removes entries of controls that no longer exist (MELEE) and the values the old editor stored only because they were the defaults (it wrote every key on any edit): a spot within 2% of the first release's default (`TOUCH_LEGACY_SPOTS`), the old preset scale, opacity 0.7, `hidden: false`. A moved button keeps its spot and size; `placeAll` moves it only when it meets another. Idempotent; an import takes the same path.
+- Tests: new group `controls` (`src/20b-test-controls.js`); changed: `input` (the MELEE button gone, Compact scale, the touch path list), `hudui` (the heal fixture needs a hurt player, MELEE out of the core buttons, the comm-wheel case with every button at 200% on the smallest phone may keep a callout under a button at the ring's floor, as the every-need case already did), `spectate` (MELEE out of the list).
+- Result (after the review fixes): build OK (165 files, `ClassTimeKiller.html` 2210.1 KB); full self-test 6567 / 6567 in 40 groups, 188 s (HEAD before this phase: 6448 / 6448; the new `controls` group has 114 checks; the first Phase 5 run had one load-sensitive timing miss in `bots`, which passed alone); `controls` 114 / 114, `hudui` 117 / 117, `input` 330 / 330. Shipped file: `__CTK.log.errors().length` = 0. Not run: `tools/perf.mjs` (the touch layer adds a few reads per frame: `needBitsNow` calls `Abilities.pressable`, `Gadgets.gadgetReady`, `Items.healUsable` and a rules read, all plain array reads; the `perf` self-test group passes).
+
+### P5-03 - Controller and keyboard / mouse review (2026-10-29)
+
+| Item | Finding | Change |
+|---|---|---|
+| Alt | label and touch button already say Alt (P2-04) | a self-test fails an "Aim" label; Walk (default Left Alt, also the HOLD breath button) is now "Walk / hold breath" so it is not read as the Alt action |
+| Quick buy (P3) | a key read by the buy screen itself (`KeyQ`), not an action: absent from the Controls screen, no controller or touch path, the button said "key Q" on every device | new action `quickBuy` (`menuOnly`: works only while a menu is open; Q and controller X by default; Q is ability 1 and X is reload in the match, no conflict is flagged for a menu-only row); the button names the key or button of the device in use, none on touch; a menu-only row on an input the menus read themselves (Esc, Enter, Space, Tab, arrows, B, 1-9; controller A, B, LB, RB, Start, alone or with View) is flagged red ("shares a key with the menus") |
+| Tabs (P4) | LB / RB switch tabs in menus (`prev` / `next` commands), in a match they are grenade and ability 1 | unchanged, documented; no binding involved |
+| Previous weapon, buy menu (A-08) | no controller default | View + D-Left, View + D-Up (free chords) |
+| Abilities and gadgets after the Phase 3 roster | the actions `ability1`, `ability2`, `ultimate`, `gadget`, `grenade`, `grenadeNext`, `heal` are slot based, so the roster change needed no rebinding | none |
+| Conflicts | none by default (self-test); the old touch reachability test read a field that does not exist (`longAction`, it is `holdAction`) | fixed; every action now has a touch path (`TOUCH_ACTION_PATHS`, `touchPathOf`) and a controller button or chord, or is listed as exempt (sticks, weapon slots, developer views) |
+| Saved bindings | a saved action keeps its three slots, so an old save would never get a new default | `migrateBindings` (05a): an empty slot that gained a default is filled unless the player already uses that binding (an action never rebound whose default is taken gets an entry written with that slot empty, so no binding fires two actions); entries of unknown actions are dropped; idempotent |
+
+### P5-04 - Controls card (2026-10-29)
+
+One card per input type (touch, controller, keyboard and mouse), 8 or 9 core rows (move, look, fire, Alt, jump, reload, next weapon or sprint and crouch, pause; touch adds DUCK) and a one-to-two line note (touch: the three gestures and the context-button rule; controller: the View layer; keyboard: click to lock the mouse). Names come from the live bindings and from `touchPathOf`. Shown once per input type (`Save.data.tips.controlCards`), at the first match of that type or when the player picks up another type mid-match, only while the setting "Show short tips" is on, never while spectating, in a killcam or in a match with no local player (it stays due for the next real match); a type the card's switch shows counts as seen too; it pauses the match and "Got it", Esc or B resume. Open again from Help ("Show the controls card"), Settings > Controls ("Controls card") and the pause menu ("Controls card"); the card has a switch for the other types. An old save shows each card once. Headless runs never show it.
+
 ## Appendix D - Audit findings
 
 (Filled by P1-01 and P9-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
@@ -751,7 +809,7 @@ Method: read every mode behaviour, rules build, save, abilities, gadgets, items,
 | A-05 | Low | A corrupt save overwrites the import backup | `src/04-save.js` `load()` l.68 | Two failures in a row lose the older good copy. | P1-05 (keep a parseable backup) | fixed (core: unreadable save keeps a readable backup; backup: shown) |
 | A-06 | Informational | Multi-tab save adopts the other tab's save | `src/04-save.js` `saveNow()` / `adoptNewer()` l.91-115 | By design (R-001); progress from the other tab is lost with a toast. | none (by design) | open |
 | A-07 | Informational | M12 Uplink, M26 Ravager vs Fiends rounds have no clock | `src/03f-data-modes.js` rows control / fiends, `src/13b-modes.js` `stepRounds()` l.562-566 | A hiding side can stall a round; the player is never stuck. | P4-02 (mode defaults) | fixed (Phase 4: `rounds.live` 240 s for control and 180 s for fiends in `src/03f-data-modes.js`; menuflow tests) |
-| A-08 | Low | Gamepad defaults lack previous weapon and buy menu | `src/05a-input.js` ACTION_ROWS l.70-84 | Only Y cycles forward; buy menu only from pause. Every action can be bound to a View chord. | P5-03 | open |
+| A-08 | Low | Gamepad defaults lack previous weapon and buy menu | `src/05a-input.js` ACTION_ROWS l.70-84 | Only Y cycles forward; buy menu only from pause. Every action can be bound to a View chord. | P5-03 | fixed (Phase 5: previous weapon View + D-Left, buy menu View + D-Up in `src/05a-input.js`; controls tests) |
 | A-09 | Informational | Target ability pressed with no target gives no feedback | `src/12e-abilities.js` `tryActivate()` l.268-281 | bolt, link, swarm, frenzy: nothing happens, resource kept. | P7-01 | open |
 
 ### Findings from P1-02 / P1-03 / P1-04 and the baseline (2026-10-29)

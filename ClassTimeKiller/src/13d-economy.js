@@ -665,3 +665,4 @@ Bus.on('actor.spawn', (event) => Economy.onSpawn(event.id));
 Bus.on('kill', (event) => Economy.onKill(event));
 Bus.on('score', (event) => Economy.onScore(event));
 Bus.on('ability.teleport', (event) => Modes.dropCarried(event.id));   // A12 (balance.dropsObjective): a carried flag drops on use
+TouchInput.needs.buy = () => Game.playerId >= 0 && Economy.preset().buy === 'round' && Economy.canBuy(Game.playerId);   // P5-01: the touch BUY button, only while the round's buy time runs and the player is in the buy zone

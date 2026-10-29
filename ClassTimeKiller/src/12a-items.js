@@ -537,6 +537,13 @@ const Items = {
     for (let i = 0; i < CONSUMABLE_ROWS.length; i++) total += this.carried[id * ITEM_COUNT + CONSUMABLE_ROWS[i].index];
     return total;
   },
+  // A press of the heal button does something now: an item is in use, or a carried one would restore something (the touch HEAL button shows on this).
+  healUsable(id) {
+    if (!Actors.alive[id]) return false;
+    if (this.usingItem[id] >= 0) return true;
+    for (let i = 0; i < CONSUMABLE_ROWS.length; i++) if (this.carried[id * ITEM_COUNT + CONSUMABLE_ROWS[i].index] && this.wouldRestore(id, CONSUMABLE_ROWS[i])) return true;
+    return false;
+  },
   // 0..1 progress of the consumable in use, -1 when none (HUD).
   useProgress(id) {
     if (this.usingItem[id] < 0) return -1;
@@ -686,8 +693,5 @@ Bus.on('actor.spawn', (event) => Items.resetActor(event.id));
 Bus.on('actor.create', (id) => Items.resetActor(id));
 Input.usePrompts.push((id) => Items.swapPrompt(id));                         // a carry-limit swap needs Use held (Weapons.mayTake)
 TouchInput.useNeeds.push(() => Items.swapOffer(Game.playerId) >= 0);
-// The touch heal button: a carried consumable, or a loot ruleset (it carries consumables).
-TouchInput.needs.heal = () => {
-  const economy = CAT.economy.byId(currentRules().economy);
-  return Game.playerId >= 0 && (Items.consumableCount(Game.playerId) > 0 || (!!economy && economy.slots > 0));
-};
+// The touch heal button (P5-01): only while a carried consumable would restore something (or one is in use), not just because the ruleset carries them.
+TouchInput.needs.heal = () => Game.playerId >= 0 && Items.healUsable(Game.playerId);
