@@ -140,8 +140,9 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 6 - Animations
 
-- [ ] P6-01 - DECIDE: reload animation set per weapon class (magazine out / in, shell insert, cell swap, bolt / charge, launcher load), first-person and third-person, with timing that matches each weapon's reload time.
+- [x] P6-01 - DECIDE: reload animation set per weapon class (magazine out / in, shell insert, cell swap, bolt / charge, launcher load), first-person and third-person, with timing that matches each weapon's reload time.
   Done when: Appendix C lists the animation per class and per special weapon.
+  Status (2026-10-29): decided, Appendix C "P6-01": 14 reload sets mapped to all 38 weapons (6 never reload), phases as fractions of the live reload time ending on the refill step, partial / empty / shell-by-shell / cancel rules; first- and third-person layers.
 - [ ] P6-02 - Implement the reload animations from P6-01, including partial reload, empty reload and reload cancel.
   Done when: every weapon shows its reload animation and the animation end matches the ammo refill time.
 - [ ] P6-03 - DECIDE + implement better melee animations: per melee weapon and for the quick melee of guns (wind-up, strike, follow-through, hit reaction on the target), first-person and third-person.
@@ -151,8 +152,9 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 7 - Audiovisual feedback
 
-- [ ] P7-01 - DECIDE: feedback list. Examples to evaluate: hit markers and kill confirm, damage direction, per-surface impact effects and sounds, stronger muzzle flash and recoil kick, shell ejection, tail sounds by distance, low-health and low-ammo cues, ability ready cues, controller rumble, camera shake (with accessibility setting).
+- [x] P7-01 - DECIDE: feedback list. Examples to evaluate: hit markers and kill confirm, damage direction, per-surface impact effects and sounds, stronger muzzle flash and recoil kick, shell ejection, tail sounds by distance, low-health and low-ammo cues, ability ready cues, controller rumble, camera shake (with accessibility setting).
   Done when: Appendix C lists accepted items with trigger and performance cost.
+  Status (2026-10-29): decided, Appendix C "P7-01": 15 items accepted (with trigger and cost; several are tuning of existing feedback), 7 rejected with reasons; new reduce settings for P7-03 (weapon motion, muzzle flash, vibration, heartbeat).
 - [ ] P7-02 - Implement P7-01 within the performance budget.
   Done when: each accepted item works and `node tools/perf.mjs` meets the P0-02 target.
 - [ ] P7-03 - Settings to reduce intense effects (shake, flashes).
@@ -612,7 +614,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 - **Result**: 7 overlap groups hold 23 modes: free-for-all kills (ffa, duel, lms, roulette, gungame), team kills (tdm, attrition, elim), flags (ctf, oneflag), zones (dom, hardpoint, conquest, control), plant and defend (bomb, ghostops, rush), one marked player or prize (oddball, bearer, juggernaut, cursetag), waves (horde, endless). 8 modes overlap with none in goal: payload, infection, royale, bank, fiends, contract, range, puzzle. Rulesets: 3 close pairs and 3 name clashes; no ruleset has a goal.
 
-### P4-02 - Merged modes, curated list and defaults (decided 2026-10-29 by the coordinator; the owner can change any row)
+### P4-02 - Merged modes, curated list and defaults (decided 2026-10-29 by the coordinator; confirmed by the owner 2026-10-29)
 
 - **Rule**: a merged mode becomes a variant of its parent mode. Its data row stays, with the same id and code (spec: ids are stable and never reused). It gains `variantOf: '<parent id>'` and a short `variant` label; the parent row gets a `variant` label too. Menus list the parents only; a Variant choice picks the row.
 - **Reason for keeping the rows**: the behaviours are separate code (`13c`-`14j`); maps, generators and editor templates list mode ids (`src/16a-maps.js:37-49`, `src/16b-maps-arena.js:6`, `src/03n-data-mapgen.js:89-98`); the Daily Seed picks from the mode list by hash (`src/15c-ladder.js:281-283`). With the ids kept, every save, share code, map and past daily stays valid with no rewrite.
@@ -690,7 +692,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - **Stays reachable under Advanced / Custom**: every mode and variant; rule bundle (12) and the one-click bundle starts; movement, health, economy; friendly fire, respawn delay, items on the map; weapon set and weapon list; all 50 mutators; bot count, bots on your team, difficulty, personality, difficulty sliders; map, including a generated map; score, time, round and lives limits; saved presets; share codes.
 - **Nothing becomes impossible**: the 31 rows are 7 parents, 16 variants and 8 single modes. All 15 modes are in All modes (8 are also cards); each of the 16 variants is a Variant choice on its parent's Setup (Arms Ladder is also a card). Custom reaches every row through Game mode + Variant. Career routes (ladder, rooms, operations, daily, Solo) start the same ids as before. Shuffle draws from all 31 rows.
 
-### P4-03 - Menu flow (decided 2026-10-29 by the coordinator; the owner can change any row)
+### P4-03 - Menu flow (decided 2026-10-29 by the coordinator; confirmed by the owner 2026-10-29)
 
 **Screens and steps**
 
@@ -738,7 +740,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 - **Docs to update with P4-04**: `docs/SPECIFICATION.md` UI-001 (main menu list), PRG-005 (Horde and Chambers entries), the mode table (variant column, the A-07 clocks); `docs/api/hud-play.md`; `docs/api/mutators-custom.md`; `docs/LIVE-TESTS.md`.
 
-### P5-01 - Touch layout (decided 2026-10-29 by the coordinator; the owner can change any row)
+### P5-01 - Touch layout (decided 2026-10-29 by the coordinator; confirmed by the owner 2026-10-29: dimmed abilities, BUY button, melee flick)
 
 **Inventory before (fact, `src/05b-input-touch.js` `TOUCH_CONTROLS`, 20 rows).** Always on (10): move stick, FIRE, ALT, JUMP, DUCK, LOAD, SWAP, PING, pause, MELEE. Shown only when usable (10): USE (the mode needs Use held, a revive, a skimmer board), HOLD breath (the scope sways), NADE (a grenade is carried), HEAL (a consumable is carried, or any loot ruleset, even at full health), A1, A2, ULT (the slot is filled, also while it cools down or is not paid for), TOOL (the gadget slot is filled), CARD (the match has cards), the second FIRE on the left (setting). Gestures that already existed: DUCK slide = prone, NADE slide = next grenade type, SWAP hold = previous weapon, PING hold = comm wheel, score panel hold = scoreboard, weapon box tap = slot. Faults found: 4 buttons under 44 css px (PING, pause and CARD 40, HEAL 42) and 10 more at 44-50; the floor for a crowded screen was 30 px; ability buttons showed on cooldown; HEAL showed with nothing to heal (any loot ruleset); PING showed in a free-for-all where nobody sees it; the Compact preset shrank every button to 80% (the small ones to 32-36 px).
 
@@ -791,6 +793,212 @@ Check on the three sizes (`controls` self-tests, standard, Compact and Left-hand
 ### P5-04 - Controls card (2026-10-29)
 
 One card per input type (touch, controller, keyboard and mouse), 8 or 9 core rows (move, look, fire, Alt, jump, reload, next weapon or sprint and crouch, pause; touch adds DUCK) and a one-to-two line note (touch: the three gestures and the context-button rule; controller: the View layer; keyboard: click to lock the mouse). Names come from the live bindings and from `touchPathOf`. Shown once per input type (`Save.data.tips.controlCards`), at the first match of that type or when the player picks up another type mid-match, only while the setting "Show short tips" is on, never while spectating, in a killcam or in a match with no local player (it stays due for the next real match); a type the card's switch shows counts as seen too; it pauses the match and "Got it", Esc or B resume. Open again from Help ("Show the controls card"), Settings > Controls ("Controls card") and the pause menu ("Controls card"); the card has a switch for the other types. An old save shows each card once. Headless runs never show it.
+
+### P6-01 - Reload animation set (decided 2026-10-29 by the coordinator; the owner can change any row)
+
+**Facts (read from `src/`).**
+- Reload rules (`src/11a-weapons.js` `beginReload` / `stepReload`): the duration is `weapon.reload` x the RELOAD modifier (attachments `quickMag` 0.75, `extendedMag` 1.15, perks), kept in `Weapons.stateDuration`; a magazine is refilled in one step when `stateTime` reaches it. A partial and an empty reload take the same time; the sim has no chamber step. Class times: sidearm 1.4 s, SMG 1.8, shotgun 0.5, rifle 2.2, marksman 2.4, sniper 3.0, energy 2.0, heavy 4.0, explosive 2.5, exotic 2.5, power 3.0; row overrides W20 1.1, W24 3.6, W27 0.5.
+- Shell by shell (`reloadShell`, W19 only): each shell is its own 0.5 s reload and the next starts in the same step; a FIRE press with at least one round loaded ends it (state IDLE, the shot comes on the next step).
+- Cancels: a swap (`requestSwitch`) replaces the reload (a magazine gets nothing, shells already loaded stay); a quick melee (`quickMelee`) ends it the same way; FIRE does not cancel a magazine reload (the press is ignored); sprint does not cancel it (the reload runs on while sprinting); a stunned (FROZEN) or downed actor (`lowered`) stops `stateTime`, so the reload pauses. ADS falls to 0 in 0.2 s during a reload (`updateAds`). W40 / W43 detonate works during the reload (D-F01).
+- Never reloads: mag 0 (W01, W02, W03, W41, W42, W44); no reserve (W45 4 / 0, W46 1 / 0) unless a ruleset makes the reserve infinite. Alt pools (W06 darts, W10 grenades, W26 incendiary stakes, W27 explosive arrows) are never reloaded.
+- What exists: `Render.viewModel` gives `reload` 0..1 and `src/07e-render-view.js` `poseWeapon` dips the weapon 0.1 m and pitches it 0.5 rad on a sine; the first-person view draws the weapon model only (no hands); third person (`src/07c-render-actors.js`) has no reload motion; one `reload` sound at the start (pulses at 0 and 0.28 s, `src/06b-audio-recipes.js`); the HUD shows RELOADING and a progress bar (`src/17a-hud.js` `hudReadReload`).
+
+**Decision.**
+
+| Part | Decision |
+|---|---|
+| Timing | Every phase is a fraction f of the reload in progress (`stateTime / stateDuration`), so attachments and perks scale it. The last phase (RAISE or EXIT) ends at f = 1.0, the step the rounds are added, so the animation end matches the refill. The animation reads sim state only; it never changes `weapon.reload`, `stateDuration`, damage timing or recoil values. |
+| Partial or empty | Decided once at the reload start (`magazine == 0`) and kept in a visual-only per-actor flag (`Weapons.reloadEmpty`, written in `beginReload`, read by nothing in the sim). The empty profile fits its extra chamber step into the same total by shortening the earlier phases. The HUD count still changes at f = 1.0. |
+| First-person parts | (a) The moving part of the weapon model, tagged with a part `role` in the model rows (`mag`, `slide`, `bolt`, `pump`, `cyl`, `barrel`, `lid`, `cell`, `string`); a model without that role draws a spare procedural box of the set's size instead. (b) A procedural off-hand: one capsule forearm + one box hand in the worn colour (`Render.viewModel` `color`, else palette `cloth`), drawn only during a reload, a two-handed melee and a block. (c) The spare (new magazine, cell, shell, box) carried by the off-hand: the same part drawn a second time. At most 3 extra instances in the view-model batch. |
+| Third-person parts | An action layer adds pitch and a small offset to `armL`, `armR`, `gun` and `torso` (actor parts can only pitch). The model's moving part detaches only at the near LOD on presets with `modelDetail` (not Potato); the far LOD keeps the arm and gun pitch; the distant LOD and killcam replay bodies (`pose.recorded`) get no action layer. |
+| Weighting | Reload offsets are applied in the hip pose and weighted by (1 - ads), so the 0.2 s ADS fall at the start never shows a reload through the sights. |
+| Sound | The local player hears phase cues at the marks below (new synthesized recipes `reloadOut`, `reloadIn`, `reloadRack`, `shellIn`, `cellCharge`; own priority, sfx bus) instead of the start sound. Other actors keep the one start sound (it tells the player an enemy reloads). |
+
+Phase names: LOWER (tilt into the work pose), OUT (old ammo leaves), FETCH (off-hand to the belt and back with the spare), IN (spare seats), RACK (slide, handle, bolt, pump or crank; empty only unless the set says always), RAISE (back to the hold pose, ends at 1.0).
+
+| Set | Partial: phases (f) | Empty: phases (f) | First person | Third person | Sound marks (f) |
+|---|---|---|---|---|---|
+| R1 Pistol magazine | LOWER 0-0.12, OUT 0.12-0.28, FETCH 0.28-0.50, IN 0.50-0.68, RAISE 0.68-1.0 | LOWER 0-0.10, OUT 0.10-0.24, FETCH 0.24-0.44, IN 0.44-0.60, RACK 0.60-0.78 (slide release), RAISE 0.78-1.0 | roll 20 deg inward, pitch -10 deg; mag drops 0.15 m and fades; the slide stays back while the magazine is 0 (from the last shot) and snaps forward in RACK. Dual W04: both pistols tilt inward, both mags drop at OUT, both spares rise from below at IN (no off-hand: both hands are full), both slides in RACK | gun pitch -20 deg; armL down to the belt (+45 deg) in FETCH, back to the gun at IN | out 0.14 / 0.12, in 0.66 / 0.58, rack - / 0.76 |
+| R2 Revolver | LOWER 0-0.10 (cylinder swings out left), OUT 0.10-0.30 (muzzle up, spent casings fall: one per spent round), FETCH 0.30-0.50 (speed loader), IN 0.50-0.70, RACK 0.70-0.82 (cylinder flicks shut), RAISE 0.82-1.0 | same (a revolver has no chamber step) | cylinder part (`cyl`) swings 0.04 m left and back; 6 casings at most | gun pitch +30 deg in OUT (muzzle up), -15 deg in IN | out 0.12, in 0.68, rack 0.80 |
+| R3 Long-gun magazine | LOWER 0-0.12, OUT 0.12-0.30, FETCH 0.30-0.50, IN 0.50-0.68, RAISE 0.68-1.0 | LOWER 0-0.10, OUT 0.10-0.25, FETCH 0.25-0.42, IN 0.42-0.58, RACK 0.58-0.80 (charging handle back 0.58-0.70, released 0.70-0.74, gun jolts), RAISE 0.80-1.0 | roll 15 deg right, pitch -10 deg, drop 3 cm; magazine out downward; a small upward bump at the seat | gun pitch -15 deg, drop 0.05 m; armL to the belt in FETCH; RACK: armL jerks back 15 deg | out 0.14 / 0.12, in 0.66 / 0.56, rack - / 0.72 |
+| R4 Bolt + magazine | LOWER 0-0.10, RACK-open 0.10-0.20 (bolt up and back; a live round ejects), OUT 0.20-0.34, FETCH 0.34-0.52, IN 0.52-0.66, RACK-close 0.66-0.78, RAISE 0.78-1.0 | same phases, no live round at bolt open (the last shot already ejected its casing) | `bolt` part rotates 60 deg and slides 4 cm back; scope overlay drops with ADS | gun pitch -15 deg; armR jerks back at both bolt marks | bolt 0.12, out 0.22, in 0.64, bolt 0.76 |
+| R5 Shell by shell | per-shell cycle, see "Shell by shell" below | first shell through the port + pump, see below | roll 30 deg, loading port up; shell from below into the port; `pump` part 6 cm back and forward | gun pitch -20 deg for the whole chain; armL pumps between gun and belt each shell | shellIn per shell at 0.70 of its cycle; rack (pump) on the empty first shell |
+| R6 Break action | LOWER/OPEN 0-0.15 (barrels pivot down 35 deg), OUT 0.15-0.30 (spent shells pop up and back: 2 minus loaded), FETCH 0.30-0.45, IN 0.45-0.70, RACK-close 0.70-0.82 (snap shut, jolt), RAISE 0.82-1.0 | same | `barrel` part pivots at its rear | gun pitch -25 deg, then +10 deg at the snap | out 0.18, in 0.62, rack 0.76 |
+| R7 Drum / canister | LOWER 0-0.15 (roll left 20 deg), OUT 0.15-0.32 (drum drops sideways), FETCH 0.32-0.50, IN 0.50-0.70, RACK 0.70-0.82 (drum twists 60 deg to lock), RAISE 0.82-1.0 | same | `mag` part (the drum); W21 plays the same fractions in 0.5 s (a snap) | gun pitch -15 deg; armL to the side in FETCH | out 0.18, in 0.68, rack 0.80 |
+| R8 Cell swap | LOWER 0-0.12, OUT 0.12-0.35 (cell pops out 0.12-0.25, falls 0.25-0.35), FETCH 0.35-0.50, IN 0.50-0.66, RACK 0.66-0.86 (charge: glow parts ramp 20 % -> 100 %), RAISE 0.86-1.0 | same phases; the glow parts start at 0 % (the gun shows dark while its magazine is 0) and ramp 0 -> 100 % | `cell` part at the side (W07, W17, W23, W30, W36, W37, W39, W45) or on top (W12 needle pod, W38 disc stack); W36 vents 2 smoke particles at OUT (its heat value is untouched) | gun pitch -15 deg; armL to the side or top in FETCH | out 0.14, in 0.64, cellCharge 0.68 |
+| R9 Top clip + crank | LOWER 0-0.12, OUT 0.12-0.28 (stake clip lifts off), FETCH 0.28-0.46, IN 0.46-0.64, RAISE 0.64-1.0 | LOWER 0-0.10, OUT 0.10-0.24, FETCH 0.24-0.40, IN 0.40-0.56, RACK 0.56-0.80 (crank lever turns once, string cocks), RAISE 0.80-1.0 | `mag` part on top, `string` part back in RACK | gun pitch -10 deg; armL over the top | out 0.14 / 0.12, in 0.62 / 0.54, rack - / 0.70 |
+| R10 Nock | always empty (mag 1): reach 0-0.35 (off-hand to the quiver at the right shoulder), IN 0.35-0.75 (arrow on the rest, nocked), RAISE 0.75-1.0 | same | arrow model drawn in the off-hand, then on the bow; the string straight | armR over the shoulder (pitch -150 deg) 0-0.35, forward to the bow in IN | in 0.70 |
+| R11 Belt box | LOWER 0-0.10 (roll 20 deg, drop 5 cm), OPEN 0.10-0.20 (`lid` up), OUT 0.20-0.35 (box drops), FETCH 0.35-0.55 (slower, heavy), IN 0.55-0.70, RACK 0.70-0.80 (belt laid in), close 0.80-0.88 (lid slam, jolt), RAISE 0.88-1.0 | same (belt fed: no chamber step) | `lid` and `mag` (box) parts | gun drop 0.12 m, torso pitch +8 deg; armL to the hip | out 0.22, in 0.68, rack 0.86 |
+| R12 Tank | LOWER 0-0.10, OPEN 0.10-0.20 (valve turns 90 deg, hiss), OUT 0.20-0.35 (tank slides out), FETCH 0.35-0.55, IN 0.55-0.72, RACK 0.72-0.82 (valve back), prime 0.82-0.92 (W35: 1 fire particle at the pilot; W34: glow pulse), RAISE 0.92-1.0 | same | `cell` part (the tank) under or behind the gun | gun drop 0.10 m, torso pitch +8 deg | out 0.12, in 0.70, rack 0.80 |
+| R13 Tube | LOWER 0-0.12 (muzzle up 25 deg, rear toward the off-hand), OPEN 0.12-0.22 (rear cap), OUT 0.22-0.32 (pod out the back), FETCH 0.32-0.52, IN 0.52-0.72 (4-rocket pod pushed in), close 0.72-0.82, RAISE 0.82-1.0 | same | `lid` (rear cap) and `mag` (pod) parts | gun pitch +25 deg, armL behind the shoulder | out 0.24, in 0.70, rack 0.80 |
+| R14 Breech | LOWER 0-0.12, OPEN 0.12-0.24 (breech or side gate; glow off), FETCH 0.24-0.46, IN 0.46-0.66, close 0.66-0.78, charge 0.78-0.92 (glow ramps), RAISE 0.92-1.0 | same | the spare is the round itself: W40 a glowing orb, W43 a 3-drill cartridge, W46 the warhead | gun pitch -20 deg; armL to the hip | out 0.14, in 0.64, cellCharge 0.80 |
+
+**Shell by shell (R5, W19).** Each shell is one sim reload of 0.5 s (x modifier); the cycle index and "last shell" are read at render time (last = `magazine + 1 >= magSize` or `reserve <= 1`, infinite reserve excluded); "first" = a visual-only flag set when the reload did not chain from the previous shell (`Weapons.reloadChained`, written in `stepReload`).
+
+| Cycle | Phases (f of that shell) |
+|---|---|
+| First of several | ENTER 0-0.25 (roll to the port), INSERT 0.25-0.85 (shell click at 0.70), HOLD 0.85-1.0 |
+| Middle | FETCH 0-0.35, INSERT 0.35-0.85 (click 0.70), HOLD 0.85-1.0 |
+| Last of several | FETCH 0-0.30, INSERT 0.30-0.65 (click 0.60), EXIT 0.65-1.0 (hold pose at 1.0) |
+| Only one shell | ENTER 0-0.20, INSERT 0.20-0.60 (click 0.55), EXIT 0.60-1.0 |
+| Empty first shell (magazine 0) | ENTER 0-0.20, PORT-LOAD 0.20-0.60 (the shell goes in through the ejection port), RACK 0.60-0.85 (pump back and forward), HOLD 0.85-1.0; if it is also the last: RACK 0.60-0.80, EXIT 0.80-1.0 |
+| Interrupted by FIRE (magazine > 0) | the pose blends to hold in 0.06 s of render time, the shell in the hand vanishes, the shot's kick plays on top; no pump (the rounds are already chambered) |
+
+**Weapon map (every catalogue id).**
+
+| Code | Weapon | Class | Mag | Reload (s) | Set | Note |
+|---|---|---|---|---|---|---|
+| W01 | Breaker Maul | melee | - | - | none | mag 0 (melee: P6-03) |
+| W02 | Edge Tanto | melee | - | - | none | mag 0 |
+| W03 | Bulwark Shield-Saw | melee | - | - | none | mag 0 |
+| W04 | Warden Pistol | sidearm | 12 | 1.4 | R1 | dual variant on a second pickup |
+| W05 | Verdict Magnum | sidearm | 6 | 1.4 | R2 | |
+| W06 | Hush Pistol | sidearm | 10 | 1.4 | R1 | dart pool never reloads |
+| W07 | Sparklock Pistol | sidearm | 24 | 1.4 | R8 | cell at the side |
+| W09 | Wasp SMG | smg | 30 | 1.8 | R3 | |
+| W10 | Hornet Carbine | smg | 45 | 1.8 | R3 | grenade pool never reloads |
+| W12 | Needlethorn | smg | 30 | 1.8 | R8 | needle pod on top |
+| W13 | Vanguard Rifle | rifle | 25 | 2.2 | R3 | |
+| W15 | Ratchet Burst | rifle | 24 | 2.2 | R3 | |
+| W17 | Coilcaster | energy | 20 | 2.0 | R8 | |
+| W19 | Scattergun | shotgun | 6 | 0.5 per shell | R5 | pump between shots, see "Action cycles" |
+| W20 | Hookjaw | shotgun | 2 | 1.1 | R6 | |
+| W21 | Shardcaster | shotgun | 10 | 0.5 | R7 | full magazine in 0.5 s (data fact; P8 question) |
+| W23 | Lancet Rail | marksman | 10 | 2.4 | R8 | capacitor whine in RACK |
+| W24 | Heron Sniper | sniper | 5 | 3.6 | R4 | bolt between shots, see "Action cycles" |
+| W25 | Kestrel DMR | marksman | 15 | 2.4 | R3 | |
+| W26 | Stakedriver | marksman | 12 | 2.4 | R9 | incendiary pool never reloads |
+| W27 | Talon Bow | marksman | 1 | 0.5 | R10 | explosive arrows never reload |
+| W28 | Hailstorm | heavy | 150 | 4.0 | R11 | |
+| W30 | Linker | energy | 70 | 2.0 | R8 | |
+| W31 | Ramjet Launcher | explosive | 4 | 2.5 | R13 | |
+| W32 | Pitcher Launcher | explosive | 6 | 2.5 | R7 | |
+| W34 | Gloop Gun | explosive | 25 | 2.5 | R12 | goo canister |
+| W35 | Kindler | heavy | 100 | 4.0 | R12 | fuel tank, pilot flare |
+| W36 | Ember Repeater | energy | 50 | 2.0 | R8 | vent puff at OUT |
+| W37 | Stormlash | energy | 100 | 2.0 | R8 | |
+| W38 | Starthrower | energy | 50 | 2.0 | R8 | disc stack on top |
+| W39 | Accelerator | energy | 20 | 2.0 | R8 | |
+| W40 | Fusion Mortar | explosive | 1 | 2.5 | R14 | orb; detonate press during the reload = a 1 cm thumb jolt, the reload motion goes on |
+| W41 | Graviton Lifter | tool | - | - | none | mag 0 |
+| W42 | Twin-Gate Projector | tool | - | - | none | mag 0 |
+| W43 | Skull Auger | exotic | 3 | 2.5 | R14 | 3-drill cartridge; detonate as W40 |
+| W44 | Razorwind | exotic | - | - | none | mag 0 (ammo-free blade) |
+| W45 | Daybreak Projector | power | 4 | 3.0 | R8 | reserve 0: only if a ruleset makes the reserve infinite |
+| W46 | Halcyon Warhead | power | 1 | 3.0 | R14 | reserve 0: as W45 |
+
+Data home: a `reloadAnims` catalogue (03b, one row per set: phases for partial and empty, first- and third-person key offsets, sound marks) and a `reloadAnim` field on `weaponClasses` with per-weapon overrides in the weapon rows (class defaults: sidearm R1, smg R3, rifle R3, marksman R3, sniper R4, shotgun R5, energy R8, heavy R11, explosive R13, exotic R14, power R8); the overrides are the rows above that differ from their class.
+
+**Cancel and interruption.**
+
+| Cause | Sim (unchanged) | Animation |
+|---|---|---|
+| Swap | the reload ends; a magazine gets nothing, loaded shells stay | the action pose blends into the swap lowering over 0.1 s of render time; the off-hand and the spare go down with the weapon; the moving part is back in its seat (the old magazine is still in) |
+| Quick melee | the reload ends the same way | the action pose blends out in 0.05 s under the strike (P6-03) |
+| FIRE, magazine reload | ignored | the reload motion goes on |
+| FIRE, shell reload with a round loaded | ends at once, the shot fires next step | see the shell table (0.06 s blend, no pump) |
+| Sprint | the reload goes on | the reload motion goes on at the hip; the sprint pose (P6-04) waits for the reload end |
+| Stun, frozen, downed (`lowered`) | `stateTime` stops | the pose holds at its f and resumes with it |
+| Death, match stop | - | nothing drawn |
+
+**Action cycles between shots (bolt / pump) and charge motions.** Visual only, timed as fractions of the shot interval (`1 - nextShot / interval`), no fire-rate change. W19 pump: back 0.25-0.45, forward 0.45-0.60, red shell casing ejects at 0.42. W24 bolt: up 0.20-0.35, back 0.35-0.50 (casing at 0.45), forward 0.50-0.62, down 0.62-0.72; while scoped only a small scope bob. Charges read the charge fraction (`charge / mode.charge.time`; note: `Render.viewModel` `charge` is in seconds today): W27 string drawn back by the fraction and the bow cants 5 deg; W39 coils glow by level; W34 alt and W45 alt glow swell; W01 alt in P6-03.
+
+### P6-03 - Melee animations (decided 2026-10-29 by the coordinator; the owner can change any row)
+
+**Facts (hit timing, read from `src/11a-weapons.js`; not changed).**
+- Every melee hit is decided in the sim step of the trigger: `fire` -> `fireShot` -> `deliverMelee` (a fat ray of `reach`, `MELEE_RADIUS` 0.25) for a melee weapon's primary (auto trigger: each swing at the step the cooldown allows), at the release step for a charge (W01 alt, `stepCharge` -> `releaseShot`), and in `quickMelee` at the MELEE press. There is no wind-up delay before damage: the hit tick is t = 0.
+- The cycle T after the hit is the cooldown added to `nextShot`: `shotInterval` (1 / (rate x rateFactor)) for a melee weapon's own modes; exactly 1 / rate for the quick melee. Values: W01 primary 0.4 s, W01 alt 0.667 s, W02 primary 0.4 s, W02 alt 1.0 s, W03 bash 0.667 s, quick melee 0.833 s (30 damage, reach 1.4 m) or the owned melee weapon's primary.
+- The quick melee uses the first melee weapon owned in catalogue order (`ownedMelee`) and its primary mode; without one, `QUICK_MELEE`. It ends a reload, is not blocked by sprint (`quickMelee` does not ask `Move.canFire`) and blocks gun fire until T (shared `nextShot`).
+- A miss into a floor with W01's charged alt launches the user (`meleeMiss`); a melee miss emits no `impact` (no sound or dust on a wall).
+- What exists: the view model only kicks (`kick`) on a melee swing; third person has no swing; the target shows a blood burst (`src/11c-damage.js`) and no body reaction; W03 stun 0.3 s is a status with no pose.
+
+**Decision: timing rule.** The contact pose is drawn on the first rendered frame at or after the hit tick: the strike arc from the guard (or cocked) pose to contact is compressed into that one frame (a smear: at most one frame of 16.7 ms at 60 fps). Follow-through and recovery fill T and the last phase ends exactly at T, the moment the weapon may act again. A wind-up is shown only where the next hit is predictable: during a charge hold, and at the end of a cycle while the trigger of an auto melee stays held (the cocked pose the next contact starts from). All fractions below are of T as read at the hit (`Weapons.meleeCycle`, visual-only, written with `Weapons.meleeAt`, `meleeWeapon` (the striker) and `meleeKind` (primary, alt, quick) in `fire` and `quickMelee`).
+
+| Weapon / mode | Trigger, damage, T | Wind-up | Contact (t = 0) | Follow-through | Recovery | First person | Third person |
+|---|---|---|---|---|---|---|---|
+| W01 Maul primary | auto, 50, 0.4 s | 0.80-1.0 T while FIRE held (head over the right shoulder) | diagonal chop, right to left; repeats alternate forehand / backhand | 0-0.30 T, head 12 deg past centre | 0.30-0.80 T to guard (or cocked when held) | two-handed: off-hand on the haft | armR and armL from -100 deg to +15 deg at contact, torso +10 deg |
+| W01 Maul alt | charge 0-1.2 s, 30-120, T 0.667 s after release | the hold: head raised overhead by the charge fraction (0-0.6), then tightens; at full charge a 2 mm tremble (off with reduce motion) | vertical slam | 0-0.35 T (head to ground level; a floor hit shows dust and the launch keeps its existing FOV kick) | 0.35-1.0 T | two-handed | both arms raised -130 deg by the charge, slam to +20 deg |
+| W02 Tanto primary | auto, 35, 0.4 s | 0.80-1.0 T while held | horizontal slash; repeats alternate direction | 0-0.25 T | 0.25-1.0 T | one hand, blade edge leads, roll 25 deg | armR sweeps 60 deg across (gun part offset sideways) |
+| W02 Tanto alt | semi, 65 (150 from behind), 1.0 s | none | forward thrust, blade fully out at contact | 0-0.15 T (push 2 cm, twist 20 deg) | 0.15-0.60 T pull back, guard 0.60-1.0 T | the blade drives 0.18 m forward | armR to aim level, gun part +0.25 m forward |
+| W03 bash | auto, 40 + stun 0.3 s, 0.667 s | 0.85-1.0 T while held (shield back 4 cm) | shield shove 0.12 m forward, saw spins up | 0-0.30 T | 0.30-1.0 T | shield centre screen | armL (shield arm) shoves forward 0.2 m |
+| W03 block (alt hold) | sim `blocking` / `parryUntil` | - | - | - | - | shield to centre over 0.1 s while blocking; rim glows during the parry window; a reflect flashes the rim + 8 sparks + 1 cm jolt; each blocked hit jolts 2 cm; an empty pool sags the shield over 0.15 s | armL raised to chest height while blocking |
+| Quick melee, no melee weapon owned | press, 30, 0.833 s | none | gun bash by class: sidearm pistol whip (sweep left 0.1 m, roll 40 deg); smg, rifle, marksman, sniper, shotgun, energy butt-stroke (yaw 35 deg, stock 0.15 m forward); heavy, explosive, power, exotic, tool shoulder shove (forward-left 0.1 m, pitch -10 deg) | 0-0.25 T | 0.25-1.0 T (the gun reaches its hold pose at T, when it may fire) | the held gun | gun part pitch +30 deg and 0.2 m forward |
+| Quick melee, a melee weapon owned (striker not the held weapon) | press, the striker's primary damage and T | none | the striker's primary strike, compressed, from the off-hand side (its model mirrored left); the held gun dips 6 cm and rolls 15 deg out of the way | as the striker's primary | as the striker's primary; the striker model vanishes at T | striker model + held gun | armL does the striker's arm motion; no second held model in third person |
+| Quick melee with the striker in hand | press | none | the held melee weapon's primary strike | as its primary | as its primary | - | as its primary |
+
+No weapon held: no view model, so no motion (unchanged).
+
+**Target hit reaction (every `damage` event with amount > 0, third person, in 07c).** A per-actor flinch (typed arrays, set by a render-side `damage` listener): torso and head pitch away from the hit direction relative to the victim's facing (from the front: lean back; from behind: lean forward), rise 0.05 s, recover 0.25 s. Amplitude: melee 12 deg (backstab 150, charged maul over 0.6 charge, W03 bash: 18 deg, recover 0.35 s); bullets and beams 0-6 deg by amount / 40; splash 10 deg. A stun (`ACTOR_FLAG.FROZEN`, set by the `stun` status: W03 bash 0.3 s, EMP, chargers) shows a stagger while the flag lasts: arms drop 30 deg, gun pitches down 20 deg. PvE bodies drawn through `drawActorPose` get the same layer (their tell glow, `src/14h-pve.js`, is unchanged). The local player as the target: the view model is knocked 2-4 cm down and pitched -4 deg (0.05 s in, 0.2 s out), scaled by the P7-03 weapon motion setting; the existing camera trauma stays (with the P7-01 F13 tuning).
+
+**Contact feedback.** A melee hit the local player lands holds the view-model contact pose 0.03 s (hit-stop, visual only; the follow-through then runs faster so the cycle still ends at T); a melee hit or miss into a wall or floor within reach emits an `impact` at the ray's hit point (only the audio row and the effect code listen to `impact`: sound and dust, no sim effect); the maul slam on a floor adds 0.15 camera trauma. Sounds stay the existing `melee` / `stab` recipes at the hit tick; rumble in P7-01 F12.
+
+### P6-04 - Motion priority and blend rules (decided 2026-10-29 by the coordinator; the owner can change any row)
+
+**Facts.** Swap today: during a swap `Render.viewModel` shows the pending weapon and `swap` runs 1 -> 0, so the old weapon disappears at once and the new one rises (a pop); `Render.heldWeapon` does the same in third person. No sprint pose exists in the view model. No inspect action exists (no binding, no touch path). ADS needs IDLE (`updateAds`).
+
+**Priority (highest first; a higher layer sets the weight of every lower one to 0 with the blend below).**
+
+| # | Layer | Source (sim state, read only) | Blend in | Blend out |
+|---|---|---|---|---|
+| 1 | Swap | `state == SWAP` | from whatever pose is shown, 0.1 s (render time) | the raise ends at the swap end |
+| 2 | Reload | `state == RELOAD` | from the shown pose over LOWER | RAISE ends at f = 1.0; a cancel blends out 0.05-0.1 s (P6-01) |
+| 3 | Melee | `Sim.time - meleeAt < meleeCycle` | one-frame smear to contact | ends at T |
+| 4 | Block (W03) | `blocking` | 0.1 s | 0.15 s |
+| 5 | Charge / action cycle | `chargeMode >= 0`, pump / bolt interval | with the charge / cycle fraction | with it |
+| 6 | ADS | `ads` 0..1 (0.2 s in the sim) | as the sim | as the sim |
+| 7 | Sprint | `ACTOR_FLAG.SPRINTING` and IDLE and no melee cycle | 0.15 s (weapon lowered 4 cm, canted 25 deg, pitched -15 deg) | 0.12 s, inside the shortest sprint-to-fire wait (`sprintToFire` + `readyTime` = 0.15 s at least) |
+| 8 | Kick, bob, sway, hit knock | always (additive on top, scaled by settings) | - | - |
+| 9 | Inspect | not added | - | - |
+
+**Rules.**
+- Swap split (visual only, both views): the swap time `stateDuration` is split: 0-0.35 the current weapon lowers (`swap` 0 -> 1), 0.35-1.0 the pending weapon rises (1 -> 0). `Render.viewModel` and `Render.heldWeapon` show the current weapon in the first part and the pending one after; the sim switch at the end and every equip time are unchanged. A swap that changes target mid-way keeps the lowered state (no second lowering).
+- Every layer exit blends in render time from the pose last drawn (07e keeps one pose record for the local player, 07c one blend timer per actor); no layer ever snaps.
+- The reload layer runs at the hip: its offsets are weighted by (1 - ads); with ALT held through a reload, ADS rises after the refill (0.2 s, sim).
+- Melee during a reload: the sim ends the reload; the reload pose blends out in 0.05 s under the strike, the moving part is back in its seat, the spare vanishes. Reload during a melee recovery (allowed: the state is IDLE): the reload takes over, the melee offsets blend out in 0.08 s.
+- Quick melee while sprinting (allowed by the sim): the melee layer overrides the sprint pose; the sprint pose returns 0.15 s after T if still sprinting.
+- Fire right after a reload, swap or melee: impossible before the layer ends (the sim gates it), so the shot's kick never lands on a half pose; the only overlap is the shell-reload interrupt (0.06 s blend, the kick added on top).
+- W40 / W43 detonate during a reload: a 1 cm jolt added on top; the reload motion goes on.
+- Muzzle (P2-03) and the self-test probe: every action, sprint and kick offset is 0 in the idle hold pose, so the muzzle arithmetic and the 2 mm view-model probe tests stay valid; tracers are drawn only from poses where the sim allows a shot.
+- Inspect: not added. Reason: no free button on touch after P5-01 and no gameplay use; if the owner wants it later it is the lowest layer and any input ends it in 0.1 s.
+- Live test (P6-04 "Done when"): every weapon cycles swap -> reload (partial, empty, cancel by swap and by melee) -> melee -> sprint -> ADS on keyboard, controller and touch; record in `docs/LIVE-TESTS.md`.
+
+### P7-01 - Feedback list (decided 2026-10-29 by the coordinator; the owner can change any row)
+
+Budget: the P0-02 gate (no perf cell worse than +10 % and +0.3 ms against the baseline build, draw calls Potato 50 / Low 80, zero steady-state allocation, PERF-006). The Low and Potato presets have `lights: 0` and Potato `decals: 0`, so light and decal items cost nothing at the low-spec target. Estimated total for Phase 6 + 7 at 4x throttle, `tdm` Potato: render +0.05 to +0.10 ms (baseline 2.15), HUD +0.01 ms, sim +0 (a few visual-only stores per event), draw calls +0 to +2 (the off-hand capsule; casings share the particle pass), voices +0 per shot. P7-02 measures it back to back with the baseline build.
+
+| ID | Item | Exists now (do not duplicate) | Decision | Trigger | Shows / plays | Cost (4x, Potato) | P7-03 setting |
+|---|---|---|---|---|---|---|---|
+| F01 | Hit markers, kill confirm | `src/17b-hud-combat.js` hit ticks 0.22 s (head gold), kill marker 0.5 s, damage numbers; sounds `hitTick`, `headshot`, `killConfirm` (`src/06b-audio-recipes.js`); melee counts (`ACCURACY_HIT_KINDS`) | accepted, small tuning | `kill` by the player with zone head | the kill marker in gold and `killConfirm` pitched x1.2 | 0 | HUD element `hitMarkers` (exists) |
+| F02 | Damage direction | arcs (6 slots, 1.4 s), red hit tint 0.35 s (photosensitivity and reduce motion aware) | accepted as is | - | - | 0 | HUD element `damageArcs` (exists) |
+| F03 | Per-surface impacts | sound per material (8 rows + aliases); visuals always 6 sparks + a `bullet` decal (`emitImpact`) | accepted | `impact` (11a `emitImpact`) and melee wall / floor hits (P6-03) | material -> effect, two fields on the `materials` rows: metal, plate, oil, hazard, trim, grip -> sparks + bullet decal; concrete, brick, rock, tile -> grey dust 5 + bullet; wood, crate -> brown dust 5 + bullet; sand, grass, moss, snow -> dust in the material colour 5 + bullet; glass, ice, light -> 6 white sparks + bullet; water -> 8 water particles, no decal. Sound aliases added: plate, oil, hazard, trim, grip -> metal; ice, light -> glass; moss -> dirt (today they fall back to concrete) | 0 (same particle count, no new decal) | particle intensity (exists) |
+| F04 | Muzzle flash | `Fx.burst('muzzle', 3, family colour)` at the muzzle per shot; no light | accepted | `announceShot` | flash size and count per class (`weaponClasses.flash`: sidearm 1, smg 0.8, rifle 1, marksman 1.1, sniper 1.4, shotgun 1.5, heavy 1.3, explosive 1.2, energy 0.8 glow-coloured); W06 primary, W27, melee and tools flash 0. A 0.05 s dynamic light (radius 3 m x flash) on presets with 2 or more lights: own shots always, others within 25 m, one live muzzle light per actor (an automatic gun refreshes it), never taking a slot an explosion or a flashlight holds | < 0.01 ms; Low / Potato no light | new "Muzzle flash: full / reduced / off" (reduced = no light, half burst); photosensitivity forces reduced |
+| F05 | Recoil kick (visual) | `kick` 1 -> 0 in 0.12 s: +1.2 cm up, -5 cm back, 6 deg pitch x the class `kick` | accepted | own shot | per-class profile on the `viewModels` rows (`kickBack`, `kickRoll` alternating +-2 deg from `Rng.fx`, `kickTime` 0.08-0.2 s, a spring with at most 5 % overshoot); third person: the held gun pitches up 2-6 deg by class for 0.1 s. Visual only: the camera recoil (`recoilPitch` / `recoilYaw`, WPN-004) stays the gameplay value | < 0.01 ms | new "Weapon motion (%)" (kick, reload roll, sprint cant, hit knock); reduce motion caps it at 40 % |
+| F06 | Shell ejection | none | accepted | own shot of a kinetic gun; others' shots at the near LOD | new fx kind `casing` (brass, 1 particle, gravity 9.8, life 0.6-0.9 s, 2 cm), from the right side 40 % back from the muzzle (or a `port` part role); at most 10 per second per actor (fast guns eject every 2nd or 3rd shot); red shells from the W19 pump and the W20 break, 6 at most from the W05 cylinder (P6-01); energy guns none (W36 vents in its reload); launchers, bows, crossbow, melee none. Potato: own shots only | 1 particle per shot, pool-capped | particle intensity (exists) |
+| F07 | Distance tail | distance low-pass (cutoff halves per 30 m), level roll-off, occlusion, rear shading (`src/06-audio.js`) | accepted | `weapon.fire` heard beyond 35 m | the same voice plays a far variant: decay x1 -> x2 from 35 to 120 m and the noise crack dropped, so distant fire reads as a boom; a `tail` factor per class (sniper, heavy, explosive, power longer) on the event row | 0 voices, a few multiplies per far shot | SFX volume (exists) |
+| F08 | Low-health cues | vignette with pulse below 35 %, heart glyph pulse, `heartbeat` 1.0 -> 0.5 s (`Sound` heartbeat clock), red hit tint | accepted as is | - | - | 0 | new "Low-health heartbeat: on / off"; pulses already stop with reduce motion |
+| F09 | Low-ammo cues | HUD LOW AMMO (<= 25 %), RELOAD, NO AMMO with blink; dry click `empty`, toast, auto switch (D-F03) | accepted, audio added | own shot with the magazine at or below 25 % | own shots rise in pitch x1.0 -> x1.08 as the magazine empties; the shot that empties the magazine adds a short `lastRound` ping. `weapon.fire` gains `magShare` (0..1, -1 for no magazine): a field added to a reused payload, listeners unchanged; ARCHITECTURE event table updated | 0 voices; 1 voice per emptied magazine | SFX volume (exists) |
+| F10 | Ability ready cues | cooldown rings, ULT button shows when ready, gold meter; no sound; A-09: a target ability pressed with no target does nothing | accepted | a pressable slot (A1, A2, TOOL charges, ULT) of the local player turns ready after a cooldown of 3 s or more; at most one chime per 0.5 s | `abilityReady` two-note chime (UI bus), `ultReady` three notes; the slot's ring flashes 0.4 s (reduce motion: a static highlight). A-09: a target ability with no target plays the `empty` click and toasts "No target" once per press, the resource kept (same recipe as D-F04) | one HUD comparison per slot per frame; 1 UI voice per event | UI volume (exists) |
+| F11 | Reload and action sound cues | one `reload` sound at the start | accepted | the P6-01 sound marks and the W19 pump / W24 bolt cycles, local player only | `reloadOut`, `reloadIn`, `reloadRack`, `shellIn`, `cellCharge` | +2 or 3 voices per own reload | SFX volume (exists) |
+| F12 | Controller rumble | `Input.rumble`: damage (amount / 100, 160 ms), blasts in reach (240 ms), own heavy-class fire (0.35, 70 ms); controller dual-rumble and phone `navigator.vibrate`; switch `controls.vibration` | accepted, 3 sources added | own melee contact (0.4, 60 ms), a W03 parry (0.6, 90 ms), a charge reaching full (W01 alt, W27, W39, W34 alt, W45 alt: 0.2, 40 ms, controller only) | rumble | 0 | new "Vibration strength (%)" next to the switch |
+| F13 | Camera shake | `ViewFx` (`src/18k-ui-crosshair.js`): explosions, damage, hard landings; FOV kick on dashes and impulses; sliders `video.shake`, `video.fovKick`; reduce motion silences them | accepted with tuning | damage to the local player | damage trauma becomes mostly roll: its yaw / pitch part is capped at 0.3 deg, because shots follow the aim, not the shaken camera, and the crosshair would leave the aim point by up to 2.6 deg; explosions keep their values; the maul slam adds 0.15 (P6-03) | 0 | shake slider and reduce motion (exist) |
+| F14 | Target hit reaction | blood burst only | accepted (P6-03) | `damage` | body flinch and stun stagger; the local player's view-model knock | < 0.02 ms for 16 bots | weapon motion (F05) for the own knock |
+| F15 | Melee hit-stop | none | accepted (P6-03) | own melee hit | 0.03 s view-model hold | 0 | - |
+
+**Not accepted.**
+
+| Item | Reason |
+|---|---|
+| Camera shake or FOV punch on own fire | moves the picture away from the aim point; the gameplay recoil already moves the view |
+| Casing sounds and casing decals | voice budget (Potato 12 voices, AUD-002) and decal pool (Potato 0) |
+| Muffled world audio at low health | hides footsteps the player needs (AUD-004) |
+| Blood decals on walls behind a target, impact lights | decal pool and light caps; the existing blood burst stays |
+| Damage blur, chromatic or desaturation post effects | shader program cap (REN-003: 7 of 8 used) and post is off on Low and Potato |
+| White screen flashes on kills or hits | photosensitivity (ACC-005); the kill marker and sound are enough |
+| Directional rumble | the Gamepad API drives a weak and a strong motor, not a left and a right one; the damage arcs give direction |
+
+**Intense effects and their P7-03 setting.** Camera shake (slider, exists), FOV kick (slider, exists), screen flashes and the red hit tint (photosensitivity and reduce motion, exist), low-health pulse (reduce motion, exists), particles (slider, exists: covers casings and impacts), muzzle light flicker (new muzzle flash setting; photosensitivity forces reduced), view-model kick, reload roll, sprint cant and hit knock (new weapon motion slider; reduce motion caps it at 40 %), heartbeat (new on / off), vibration (new strength slider). New settings are defined with `Settings.define` and each is read (the settings self-test fails on a setting nobody reads).
+
+**Where the implementer works (P6-02, P6-03, P6-04, P7-02, P7-03).** `src/11a-weapons.js` (`beginReload`, `stepReload`, `fire`, `quickMelee`, `announceShot`, `emitImpact`, `deliverMelee` / `meleeMiss`, `viewModel`, `Render.heldWeapon`, a new `Render.actorAction` hook for third person); `src/03c-data-weapons.js` (`reloadAnim` on classes and rows, `flash`); `src/03b-data-render.js` (`reloadAnims`, `meleeAnims`, `viewModels` kick fields, fx kind `casing`, `materials` impact fields, part `role` in `MODEL_SCHEMA` parts); `src/03q-data-models-weapons.js` (part roles); `src/07c-render-models.js` (roles compiled, `drawPart` offsets, `drawHeldWeapon`); `src/07e-render-view.js` (`readViewModel`, `poseWeapon`, `fillViewModel`: layers, off-hand, spare, blends, sprint pose, swap split); `src/07c-render-actors.js` (`animateActor`, `placeActorPart`: action layer, flinch); `src/07d-render-fx.js` (muzzle light slot rule); `src/06-audio.js` and `src/06b-audio-recipes.js` (new recipes, far variant, aliases, heartbeat setting); `src/05a-input.js` (`RUMBLE`, strength); `src/12e-abilities.js` (`tryActivate` no-target, A-09); `src/17a-hud.js`, `src/17b-hud-combat.js` (ready flash, gold kill marker); `src/18k-ui-crosshair.js` (`ViewFx` damage tuning, weapon motion and muzzle flash settings). Docs: `docs/ARCHITECTURE.md` (`Render.viewModel` fields, `Render.actorAction`, `weapon.fire` `magShare`), `docs/api/*.md`, `docs/SPECIFICATION.md` (WPN, UI-005, ACC-005, AUD-005, INP-007 rows), `docs/LIVE-TESTS.md`.
 
 ## Appendix D - Audit findings
 
