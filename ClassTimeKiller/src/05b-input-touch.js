@@ -62,13 +62,15 @@ const TOUCH_PRESETS = [
 // a plain mirror would cover the minimap or the vitals. Default places keep clear of the phone HUD (hudui test).
 // edge = a small utility button that placeAll keeps in the top and side bands when it moves (never mid-screen, where the look
 // thumb sweeps); face = the button text: 14 px (ACC-008) and no wider than the button, so long words are short ones (DUCK, LOAD, TOOL).
+// While the player spectates (17h sets the flags 'spectate' and 'spectateFree') only the rows with `spectate` show: 'always', or
+// 'free' while the free camera is on; spectateFace is the text then (FIRE is NEXT target, ALT is PREV, LOAD is VIEW: follow or free camera).
 const TOUCH_CONTROLS = [
-  { id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.56, size: 120 },
-  { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84 },
-  { id: 'aim', label: 'Alt', face: 'ALT', action: 'alt', x: 0.80, y: 0.40, size: 60 },
-  { id: 'jump', label: 'Jump', face: 'JUMP', action: 'jump', x: 0.82, y: 0.82, size: 64, mirrorAt: [0.20, 0.72] },
-  { id: 'crouch', label: 'Crouch (swipe: lie prone or get up)', face: 'DUCK', action: 'crouch', swipeAction: 'prone', swipeNow: true, x: 0.70, y: 0.88, size: 50 },
-  { id: 'reload', label: 'Reload', face: 'LOAD', action: 'reload', x: 0.94, y: 0.34, size: 50 },
+  { id: 'stick', label: 'Move stick', face: '', x: 0.14, y: 0.56, size: 120, spectate: 'always' },
+  { id: 'fire', label: 'Fire', face: 'FIRE', action: 'fire', x: 0.91, y: 0.58, size: 84, spectate: 'always', spectateFace: 'NEXT' },
+  { id: 'aim', label: 'Alt', face: 'ALT', action: 'alt', x: 0.80, y: 0.40, size: 60, spectate: 'always', spectateFace: 'PREV' },
+  { id: 'jump', label: 'Jump', face: 'JUMP', action: 'jump', x: 0.82, y: 0.82, size: 64, mirrorAt: [0.20, 0.72], spectate: 'free', spectateFace: 'UP' },
+  { id: 'crouch', label: 'Crouch (swipe: lie prone or get up)', face: 'DUCK', action: 'crouch', swipeAction: 'prone', swipeNow: true, x: 0.70, y: 0.88, size: 50, spectate: 'free', spectateFace: 'DOWN' },
+  { id: 'reload', label: 'Reload', face: 'LOAD', action: 'reload', x: 0.94, y: 0.34, size: 50, spectate: 'always', spectateFace: 'VIEW' },
   { id: 'breath', label: 'Hold breath', face: 'HOLD', action: 'walk', x: 0.70, y: 0.42, size: 46, need: 'breath' },
   { id: 'swap', label: 'Swap weapon (hold: previous)', face: 'SWAP', action: 'nextWeapon', holdAction: 'prevWeapon', x: 0.76, y: 0.21, size: 46, mirrorAt: [0.28, 0.30] },
   { id: 'grenade', label: 'Grenade (swipe: next type)', face: 'NADE', action: 'grenade', swipeAction: 'grenadeNext', x: 0.60, y: 0.88, size: 46, need: 'grenade' },
@@ -77,7 +79,7 @@ const TOUCH_CONTROLS = [
   { id: 'ability2', label: 'Ability 2', face: 'A2', action: 'ability2', x: 0.17, y: 0.32, size: 44, need: 'ability2' },
   { id: 'ultimate', label: 'Ultimate', face: 'ULT', action: 'ultimate', x: 0.26, y: 0.32, size: 44, need: 'ultimate' },
   { id: 'ping', label: 'Ping (hold: comm wheel)', face: 'PING', action: 'ping', x: 0.58, y: 0.20, size: 40, edge: true },
-  { id: 'pause', label: 'Pause', face: 'II', action: 'pause', x: 0.50, y: 0.20, size: 40, edge: true },
+  { id: 'pause', label: 'Pause', face: 'II', action: 'pause', x: 0.50, y: 0.20, size: 40, edge: true, spectate: 'always' },
   { id: 'cards', label: 'Use a card', face: 'CARD', action: 'cards', x: 0.34, y: 0.20, size: 40, need: 'cards' },
   { id: 'fireLeft', label: 'Fire (left side)', face: 'FIRE', action: 'fire', x: 0.30, y: 0.62, size: 70, setting: 'touchLeftFire' },
   { id: 'use', label: 'Use / interact', face: 'USE', action: 'use', x: 0.70, y: 0.64, size: 54, need: 'use' },
@@ -262,7 +264,7 @@ const TouchInput = {
     else if (slot.role === ROLE_DRAG) this.flushDrag();   // the button lands where the finger left it
     else if (slot.role === ROLE_PANEL) Input.releaseAction(Input.actionIndex.scoreboard);
     if (tap && slot.weaponSlot) Input.pulseAction(Input.actionIndex['slot' + slot.weaponSlot]);   // a still tap on the weapon bar picks that slot
-    else if (tap && slot.role === ROLE_LOOK && Input.config.touchTapFire) Input.pulseAction(Input.actionIndex.fire);
+    else if (tap && slot.role === ROLE_LOOK && Input.config.touchTapFire && !this.flags.spectate) Input.pulseAction(Input.actionIndex.fire);   // spectating, Fire is NEXT: a tap on the view is not a press
     this.freeSlot(slot);
     if (Input.config.touchGyro !== 'off') this.requestGyro();
   },
@@ -557,7 +559,12 @@ const TouchInput = {
     place.startX = clamp(layoutX, insets.left + radius, width - insets.right - radius);
     place.startY = clamp(insets.top + layout.y * (height - insets.top - insets.bottom), insets.top + radius, height - insets.bottom - radius);
     place.x = place.startX; place.y = place.startY; place.radius = place.fullRadius = radius; place.order = order; place.placed = place.overlaps = false;
-    place.shown = !layout.hidden && !(control.setting && !Input.config[control.setting]) && !(control.need && !this.needMet(control.need));
+    place.shown = !layout.hidden && !(control.setting && !Input.config[control.setting]) && !(control.need && !this.needMet(control.need)) && this.spectateShows(control);
+  },
+  // Outside spectating every control passes; while spectating only the marked ones: 'always', or 'free' with the free camera on.
+  spectateShows(control) {
+    if (!this.flags.spectate) return true;
+    return control.spectate === 'always' || (control.spectate === 'free' && !!this.flags.spectateFree);
   },
   // The layout spot when it is free, else the nearest free spot on rings around it (spots half a radius apart), within
   // TOUCH_NEAR radii and on the button's own half of the screen (a thumb finds it where it was). A button with no such spot
@@ -656,6 +663,10 @@ const TouchInput = {
     element.style.left = place.x - this.insets.left + 'px';
     element.style.top = place.y - this.insets.top + 'px';
     element.style.width = element.style.height = place.radius * 2 + 'px';
+    if (control.spectateFace) {
+      const face = this.flags.spectate ? control.spectateFace : control.face;
+      if (element.textContent !== face) element.textContent = face;
+    }
     element.style.opacity = place.shown ? layout.opacity : '';
     element.classList.toggle('off', !place.shown && !this.editing);
     element.classList.toggle('ghost', !place.shown && this.editing);

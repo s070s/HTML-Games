@@ -120,8 +120,9 @@ Data.define('actorParts', Object.assign({}, ACTOR_PART_SCHEMA, { id: REQUIRED })
 // built by 07c-render-models.js, whose header documents parts, tints and LODs): from = a row whose parts come first (minus
 // its part indexes in drop, times scale: a number or [x, y, z], tints swapped by recolor { from: to }), parts = the row's own;
 // color = the row's own body colour (-1 = the caller's); accent / glow = its accent and glow colours ('' = inherited, else the
-// default); pose = the viewModels row for hold / ADS / kick (weapons); spin / tumble = rad/s in flight (projectiles).
-const MODEL_SCHEMA = { id: REQUIRED, from: '', drop: [], scale: null, recolor: {}, parts: [], color: -1, accent: '', glow: '', pose: '', spin: 0, tumble: 0 };
+// default); pose = the viewModels row for hold / ADS / kick (weapons); spin / tumble = rad/s in flight (projectiles);
+// muzzle = [x, y, z] where a weapon's shots leave (null = the front end of its foremost parts, 07c measureMuzzle).
+const MODEL_SCHEMA = { id: REQUIRED, from: '', drop: [], scale: null, recolor: {}, parts: [], color: -1, accent: '', glow: '', pose: '', spin: 0, tumble: 0, muzzle: null };
 
 // View pose and base parts per weapon class (Render.viewModel shape): the bases and poses of the per-weapon models (03q).
 // View space in metres: x = right, y = up, z = forward. hold / ads = weapon pivot when hip-firing / aiming down sights.

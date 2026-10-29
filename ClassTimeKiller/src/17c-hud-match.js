@@ -395,7 +395,7 @@ function hudDrawHeader(pen, layout) {
 // ---- Respawn countdown, elimination and spectate text ----
 function hudDrawRespawnText(pen, layout) {
   const unit = layout.unit, id = Game.playerId, x = layout.centerX, y = layout.height * 0.68;
-  if (id < 0) { pen.label('SPECTATING', x, layout.height * 0.82, 22 * unit, HUD_COLOR.text, 'center'); return; }
+  if (id < 0) return;   // no local player: 17h draws SPECTATING, the player watched and the keys
   if (Actors.alive[id] || Killcam.playing) return;
   const wait = Modes.hudState().respawnIn;
   if (wait > 0) {

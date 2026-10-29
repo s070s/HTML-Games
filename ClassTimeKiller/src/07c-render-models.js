@@ -34,6 +34,7 @@ const MODEL_PALETTE_GLOW_SHARE = 0.5;     // palette parts take this share of th
 const MODEL_PART_FLOATS = 8;              // ox oy oz sx sy sz yaw pitch
 const MODEL_COLOR = { body: 0, accent: 3, glow: 6 };   // offsets in a model's colors
 const MODEL_MAX_FROM_DEPTH = 4;
+const MODEL_MUZZLE_TIE = 0.004;           // parts whose front end is this close to the foremost one share the muzzle (twin barrels): its x and y are their mean
 const MODEL_SHAPES = new Set(SHAPES);
 const MODEL_NO_LOOK = { color: -1, accent: '', glow: '', pose: null };
 
@@ -93,7 +94,26 @@ function compileModel(row, source, look) {
   const colors = new Float32Array(9), own = writeModelColors(colors, row, source, look), size = measureModel(data, lodCounts[LOD.far] || parts.length);
   return { id: row.id, parts, count: parts.length, shapes: parts.map((part) => part.shape), tints, data, lodCounts, colors,
     ownColor: own.color, ownAccent: own.accent, ownGlow: own.glow, pose: look.pose, spin: row.spin || 0, tumble: row.tumble || 0,
-    centerZ: size.centerZ, top: size.top };
+    centerZ: size.centerZ, top: size.top, muzzle: measureMuzzle(row, data, lodCounts[LOD.far] || parts.length) };
+}
+
+// The muzzle (P2-03) in model space [x, y, z]: the row's own `muzzle`, else the front end of the foremost silhouette and far
+// parts (the barrel tip; details with lod 0 such as sights stay out), twin barrels averaged. Only weapon rows read it.
+function measureMuzzle(row, data, count) {
+  if (row.muzzle) return Float32Array.from(row.muzzle);
+  const fronts = new Float32Array(count);
+  let front = -Infinity;
+  for (let part = 0; part < count; part++) {
+    const o = part * MODEL_PART_FLOATS, turned = Math.abs(data[o + 7]) > Math.PI / 4;
+    fronts[part] = data[o + 2] + (turned ? data[o + 4] : data[o + 5]) / 2;
+    front = Math.max(front, fronts[part]);
+  }
+  let x = 0, y = 0, tied = 0;
+  for (let part = 0; part < count; part++) {
+    if (fronts[part] < front - MODEL_MUZZLE_TIE) continue;
+    x += data[part * MODEL_PART_FLOATS]; y += data[part * MODEL_PART_FLOATS + 1]; tied++;
+  }
+  return tied ? Float32Array.of(x / tied, y / tied, front) : new Float32Array(3);
 }
 
 // A part's tint code (MODEL_TINT, else its palette index); an unknown shape or tint throws.

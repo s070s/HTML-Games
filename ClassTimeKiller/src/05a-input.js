@@ -162,6 +162,10 @@ const Input = {
   pressToggled: new Uint8Array(ACTION_COUNT),   // the held press toggled, so its release leaves the action as it is
   queued: new Uint8Array(ACTION_COUNT),
   lastPressTick: new Int32Array(ACTION_COUNT).fill(NEVER_PRESSED),
+  presses: new Uint32Array(ACTION_COUNT),       // how many times each action was pressed since boot (a tap shorter than a frame counts; a toggle does not matter): the spectator reads the difference
+  spectate: null,          // fn(seconds): the spectator's frame (S17 17h), called while the local player is dead for good or there is none
+  spectating: false,       // set by 17h: the look turns the spectator's free camera, aim assist stays out
+  move: { x: 0, z: 0 },    // moveAxes() result
   buttonActions: [], axisActions: [], buttonBits: new Uint32Array(ACTION_COUNT),
   queuedTotal: 0,
   pendingButtons: 0, pendingSlot: 0, pendingAge: 0, latchedButtons: 0, latchedSlot: 0,
@@ -291,7 +295,7 @@ const Input = {
   markPressed(index) { if (ACTION_ROWS[index].buffered) this.lastPressTick[index] = Sim.tick; },
   pressAction(index) {
     this.holdCount[index]++;
-    if (this.holdCount[index] === 1) this.risingEdge(index);
+    if (this.holdCount[index] === 1) { this.presses[index]++; this.risingEdge(index); }
   },
   releaseAction(index) {
     if (this.holdCount[index] === 0) return;
@@ -363,6 +367,7 @@ const Input = {
       const index = list[i];
       if (!ACTION_ROWS[index].button) { this.pulseAction(index); continue; }
       this.markPressed(index);
+      this.presses[index]++;
       if (this.queued[index] < MAX_QUEUED_PULSES) { this.queued[index]++; this.queuedTotal++; }
     }
   },
@@ -534,10 +539,12 @@ const Input = {
     for (let i = 0; i < this.sources.length; i++) this.sources[i].frame(seconds);
     this.syncPrompt();
     const id = Game.playerId;
+    if (id < 0 && Game.isRunning() && this.spectate) { this.applyLook(id, seconds); this.spectate(seconds); }   // no player: the spectator turns its own view
     if (id < 0 || !Game.isRunning()) { this.discardFrame(); return; }
     this.syncAim(id);
     this.applyLook(id, seconds);
     this.writeActor(id, seconds);
+    if (this.spectate) this.spectate(seconds);
   },
   discardFrame() {
     this.look.mouseX = this.look.mouseY = this.look.assistedX = this.look.assistedY = 0;
@@ -555,8 +562,9 @@ const Input = {
   },
   applyLook(id, seconds) {
     const look = this.look, aim = this.aim;
-    const scale = this.effective[this.actionIndex.alt] ? this.config.adsMultiplier : 1;
-    const slowdown = this.updateAssist(id, seconds);
+    const scale = this.effective[this.actionIndex.alt] && !this.spectating ? this.config.adsMultiplier : 1;   // a spectator's Alt is PREV, not aiming
+    let slowdown = 1;
+    if (id >= 0 && !this.spectating) slowdown = this.updateAssist(id, seconds); else this.autoFireTarget = false;   // a spectator's camera is not pulled toward enemies
     const yaw = (look.mouseX + look.assistedX * slowdown) * scale;
     const pitch = (look.mouseY + look.assistedY * slowdown) * scale;
     aim.yaw = wrapAngle(aim.yaw - yaw);
@@ -600,8 +608,9 @@ const Input = {
     aim.pitch = clamp(aim.pitch + errorPitch * pull, -MAX_LOOK_PITCH, MAX_LOOK_PITCH);
     return assist.slowdown;
   },
-  writeActor(id, seconds) {
-    this.advanceLatch(seconds);
+  // This frame's move axes into this.move (x strafe right, z forward): the stick and the keys, at most 1 long.
+  moveAxes() {
+    const move = this.move;
     let x = this.analog.moveX, z = this.analog.moveZ;
     for (let i = 0; i < this.axisActions.length; i++) {
       const row = ACTION_ROWS[this.axisActions[i]];
@@ -610,6 +619,12 @@ const Input = {
     }
     const length = length2(x, z);
     if (length > 1) { x /= length; z /= length; }
+    move.x = x; move.z = z;
+    return move;
+  },
+  writeActor(id, seconds) {
+    this.advanceLatch(seconds);
+    const x = this.moveAxes().x, z = this.move.z;
     let buttons = this.latchedButtons;
     for (let i = 0; i < this.buttonActions.length; i++) { const index = this.buttonActions[i]; if (this.effective[index]) buttons |= this.buttonBits[index]; }
     buttons &= ~this.repressButtons;

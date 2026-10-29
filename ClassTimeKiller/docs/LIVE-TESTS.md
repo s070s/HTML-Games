@@ -306,6 +306,8 @@ Columns: ID, Area (spec section and ID prefix), Device(s), Setup, Steps, Expecte
 | LT-M-066 | §28 PWR-001, §8 WPN-009 | All | Any map with item pads, free-for-all and a team mode | Pick up a health pack, an armor, an ammo box, a weapon and wait; watch the pad | The item vanishes the moment it is taken; the pad turns dark with a disc growing from its centre; the item and the lit pad are back exactly at the respawn time (health 35 s, weapon 5 s FFA / 30 s teams) | The pad is never lit while empty; the fill reaches the edge when the item returns |
 | LT-M-067 | §5 INP-004 | Phones | Modern Ops (RS04) on touch, Settings > Controls > Touch sprint = Push the stick to its edge twice | Walk at full push for 5 s; ease off and push to the edge again 2 s later; then push to the edge twice quickly | The first two only walk; the quick double push sprints, and it ends when the push falls under 80% or the finger lifts. "One push to the edge" sprints at once; "Never from the stick" never sprints | No accidental sprint in 10 minutes of normal play |
 | LT-M-068 | §5 INP-002, INP-004 | All | Settings > Controls, the pause menu help and the touch layout editor | Look for the alternate-fire control | It is called Alt everywhere (control list, "Alt: hold or toggle", touch button ALT); an older save with a moved button keeps its place | No screen still says Aim for this button |
+| LT-M-069 | §20 UI-017, §13 MODE | All (touch, gamepad, keyboard / mouse) | Last Squad (M14), Detonate (M13), Last Ring (M20), Ghost Ops (M27), Ravager vs Fiends (M26), Last Standing (M15) with one life, and a custom match started without a player | Get killed (or start the spectator match); after the killcam press Fire, Alt, Reload; fly with the move control, look around, Jump / Crouch; wait for the round or match to end | A chase camera follows a living teammate (an enemy once no teammate lives) with the weapon in hand; Fire / Alt (touch NEXT / PREV) cycle, Reload (touch VIEW) switches to a free camera that flies and looks (touch: UP / DOWN appear) and back; gunfire and footsteps are heard from the camera; the HUD names the player watched; the camera and the buttons are normal again at the next round, the next life or the results | Both views reachable and a target cycle on every input device in all listed modes; no stuck camera; no spectator buttons after the respawn |
+| LT-M-070 | §8 WPN-013 | All | Any map, every weapon class (include a launcher, a shotgun, a sniper rifle and a bot with each) | Fire at a far wall and at a bot, then stand with your back to a wall facing it close (hip and ADS) and fire; watch a bot fire at you | Tracers, muzzle flashes and rockets start at the barrel tip of the view model (yours) or the held model (bots'), and meet at the crosshair point; hits land where the crosshair is; against the wall in front nothing passes and the effect starts at the eye | Barrel tip and tracer start look the same on 10 of 10 weapons; no shot through the wall in 3 of 3 close-wall tries |
 
 ### 6.4 Low (LT-L)
 
@@ -472,19 +474,19 @@ Every section of SPECIFICATION.md has at least one live test. Sections 25 (Out o
 | §5 Input and controls (INP) | LT-C-008 to LT-C-012, LT-C-039, LT-H-063 to LT-H-067, LT-M-006, LT-M-007, LT-M-048, LT-M-053, LT-L-026, LT-L-027 |
 | §6 Movement and rule presets (MOV) | LT-C-035, LT-H-001 to LT-H-005, LT-H-008, LT-M-005, section 10.1, 10.3 |
 | §7 Health, armor, shields, damage (HP) | LT-C-036, LT-H-006 to LT-H-009, LT-M-008, LT-M-009, section 10.2 |
-| §8 Weapons (WPN) | LT-C-037, LT-H-010 to LT-H-015, LT-M-010 to LT-M-013, LT-L-008 to LT-L-010, section 10.4 |
+| §8 Weapons (WPN) | LT-C-037, LT-H-010 to LT-H-015, LT-M-010 to LT-M-013, LT-M-070, LT-L-008 to LT-L-010, section 10.4 |
 | §9 Grenades and gadgets (GAD) | LT-H-016, LT-H-017, LT-M-014, LT-M-015 |
 | §10 Abilities and powers (ABL) | LT-H-018, LT-H-019, LT-M-016, LT-M-017 |
 | §11 Powerups and pickups (PWR) | LT-H-020, LT-H-021, LT-M-018, LT-M-019, LT-L-020 |
 | §12 Economy and loadouts (ECO) | LT-H-022, LT-H-023, LT-H-059, LT-M-020 |
-| §13 Game modes (MODE) | LT-C-024, LT-C-025, LT-H-024 to LT-H-030, LT-H-060, LT-M-021 to LT-M-024 |
+| §13 Game modes (MODE) | LT-C-024, LT-C-025, LT-H-024 to LT-H-030, LT-H-060, LT-M-021 to LT-M-024, LT-M-069 |
 | §14 Mutators and custom match (MUT) | LT-H-031 to LT-H-034, LT-M-025 to LT-M-028 |
 | §15 Difficulty (DIF) | LT-H-035, LT-H-036, LT-H-049, LT-M-029, LT-M-030 |
 | §16 Bot AI (BOT) | LT-C-029, LT-H-037 to LT-H-050, LT-M-031 to LT-M-035, LT-L-023 |
 | §17 PvE enemies (NPC) | LT-H-028, LT-H-051 to LT-H-053, LT-M-036, LT-M-037, LT-L-018 |
 | §18 Maps and procedural generator (MAP) | LT-C-026 to LT-C-028, LT-H-029, LT-H-030, LT-H-042, LT-H-043, LT-H-054 to LT-H-056, LT-M-038 to LT-M-040, LT-L-019 |
 | §19 Single-player structures and progression (PRG) | LT-H-057 to LT-H-059, LT-M-041 to LT-M-043, LT-L-021, LT-L-022 |
-| §20 HUD, UI, menus (UI) | LT-C-020, LT-C-034, LT-H-060 to LT-H-064, LT-M-044 to LT-M-048, LT-L-002 to LT-L-007, LT-L-028, LT-L-030 |
+| §20 HUD, UI, menus (UI) | LT-C-020, LT-C-034, LT-H-060 to LT-H-064, LT-M-044 to LT-M-048, LT-M-069, LT-L-002 to LT-L-007, LT-L-028, LT-L-030 |
 | §21 Accessibility (ACC) | LT-C-038, LT-H-068, LT-M-049 to LT-M-053, LT-L-024, LT-L-025 |
 | §22 Audio (AUD) | LT-C-032, LT-C-033, LT-H-069, LT-H-070, LT-M-054 to LT-M-056, LT-L-010 to LT-L-013 |
 | §23 Rendering (REN) | LT-C-003, LT-C-007, LT-C-023, LT-M-057, LT-M-058, LT-L-009, LT-L-014 to LT-L-017 |

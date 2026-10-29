@@ -70,12 +70,12 @@ const Projectiles = {
   clear() { this.state.fill(0); this.guiding.fill(0); this.active = 0; },
 
   // ---- Spawning ----
-  // From a weapon: starts in front of the eye along `direction`; speed 0 = mode or row speed.
+  // From a weapon: starts at its muzzle (the eye when a wall is in between) and flies to the point under the crosshair, which
+  // `direction` (the eye ray) hits; a lobbed projectile (gravity) keeps that direction. Speed 0 = mode or row speed.
   spawnFromWeapon(owner, weapon, mode, modeIndex, direction, damage, multiplier, speed, target) {
     const row = CAT.projectiles.byId(mode.projectile);
-    const launch = speed || mode.speed || row.speed, eyeY = Actors.eyeY(owner);
-    const i = this.spawn(row, owner, weapon.index, modeIndex, Actors.x[owner] + direction.x * MUZZLE_FORWARD, eyeY + direction.y * MUZZLE_FORWARD,
-      Actors.z[owner] + direction.z * MUZZLE_FORWARD, direction.x * launch, direction.y * launch, direction.z * launch, damage * multiplier);
+    const launch = speed || mode.speed || row.speed, start = Muzzle.launch(owner, weapon, direction, !row.gravity);
+    const i = this.spawn(row, owner, weapon.index, modeIndex, start.x, start.y, start.z, start.dx * launch, start.dy * launch, start.dz * launch, damage * multiplier);
     if (mode.life) this.life[i] = mode.life;
     if (mode.bounces > -2) this.bounces[i] = mode.bounces;
     this.multiplier[i] = multiplier;
@@ -87,9 +87,8 @@ const Projectiles = {
   // X41 Ballistics (rules.fx.ballistics { gravity, drag }): one hitscan pellet as a bullet that keeps its firing mode (damage,
   // falloff by distance flown, headshots) and flies at most the mode's range.
   spawnBallistic(owner, weapon, mode, modeIndex, direction, damage, ballistics) {
-    const row = BALLISTIC_ROW, eyeY = Actors.eyeY(owner), speed = row.speed;
-    const i = this.spawn(row, owner, weapon.index, modeIndex, Actors.x[owner] + direction.x * MUZZLE_FORWARD, eyeY + direction.y * MUZZLE_FORWARD,
-      Actors.z[owner] + direction.z * MUZZLE_FORWARD, direction.x * speed, direction.y * speed, direction.z * speed, damage);
+    const row = BALLISTIC_ROW, speed = row.speed, start = Muzzle.launch(owner, weapon, direction, true);   // a bullet (320 m/s) drops little: it converges on the crosshair point like a hitscan shot hits it
+    const i = this.spawn(row, owner, weapon.index, modeIndex, start.x, start.y, start.z, start.dx * speed, start.dy * speed, start.dz * speed, damage);
     this.life[i] = mode.range / speed;
     this.gravity[i] = ballistics.gravity || 0;
     this.drag[i] = ballistics.drag || 0;

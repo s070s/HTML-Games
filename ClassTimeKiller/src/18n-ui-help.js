@@ -81,8 +81,8 @@ function limitsText(rules) {
   return parts.length ? parts.join(', ') : 'no limit';
 }
 function respawnText(rules) {
-  if (rules.respawnMode === 'none') return 'No respawns.';
-  if (rules.respawnMode === 'round') return 'You come back at the start of the next round.';
+  if (rules.respawnMode === 'none') return 'No respawns. Once out, you can watch the others or fly a free camera.';
+  if (rules.respawnMode === 'round') return 'You come back at the start of the next round. Until then you can watch the others or fly a free camera.';
   return 'Respawn after ' + rules.respawn.delay + ' s, with ' + rules.respawn.protect + ' s of protection.' + (rules.lives > 0 ? ' You have ' + rules.lives + ' lives.' : '');
 }
 function percentText(label, value) { return label + ' ' + Math.round(value * 100) + '%'; }

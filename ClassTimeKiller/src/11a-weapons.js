@@ -26,7 +26,6 @@ const THIN_COVER_METRES = 0.3;           // WPN-005: brushes this thin (smallest
 const THIN_MATERIALS = ['wood', 'metal', 'glass', 'sheet'];
 const PENETRATION_FACTOR = { low: 0.5, med: 0.7, high: 0.85 };
 const PRESS_BUFFER_GRACE = 0.15;         // D-F02: a trigger pressed during the sprint-to-fire wait is answered up to this long after the wait ends
-const MUZZLE_FORWARD = 0.45;             // projectiles start this far in front of the eye
 const AIM_ASSIST_CONE_DEG = 6;           // INP-008: Input applies its 3 deg slowdown cone inside this search cone
 const AIM_ASSIST_RANGE = 60;
 const IMPACT_SPARK_COLOR = 0xffe0a0;
@@ -748,6 +747,7 @@ const Weapons = {
     this.fireShot(id, weapon, mode, modeIndex, fraction);
   },
   fireShot(id, weapon, mode, modeIndex, fraction) {
+    Muzzle.newShot();
     this.spendAmmo(id, weapon, mode, fraction);
     const deliver = this.deliveries[mode.type];
     deliver(id, weapon, mode, modeIndex, fraction);
@@ -766,7 +766,9 @@ const Weapons = {
     emitSound(Actors.x[id], eyeY, Actors.z[id], mode.noise >= 0 ? mode.noise : weapon.noise, 'shot', id);
     this.kick[id] = 1;
     this.lastShot[id] = Sim.time;
-    if (!Game.headless && mode.type !== 'melee') Fx.burst('muzzle', Actors.x[id] + aimScratch.x * MUZZLE_FORWARD, eyeY + aimScratch.y * MUZZLE_FORWARD, Actors.z[id] + aimScratch.z * MUZZLE_FORWARD, aimScratch.x, aimScratch.y, aimScratch.z, 3, weapon.family.color);
+    if (Game.headless || mode.type === 'melee') return;
+    const muzzle = Muzzle.visual(id, weapon);
+    Fx.burst('muzzle', muzzle.x, muzzle.y, muzzle.z, aimScratch.x, aimScratch.y, aimScratch.z, 3, weapon.family.color);
   },
   quickMelee(id) {
     const weapon = this.currentWeapon(id);
@@ -962,10 +964,11 @@ function applyShotDamage(id, target, weapon, mode, damage, zone, stomach, x, y, 
 function eyeOrigin(id, out) { return Vec.set(out, Actors.x[id], Actors.eyeY(id), Actors.z[id]); }
 const originScratch = Vec.make();
 
+// A tracer from the muzzle (the eye when the muzzle is not reachable) to where the shot stopped on the eye ray.
 function drawTracer(id, direction, distance, weapon) {
   if (Game.headless) return;
-  const eyeY = Actors.eyeY(id);
-  Fx.tracer(Actors.x[id], eyeY - 0.1, Actors.z[id], Actors.x[id] + direction.x * distance, eyeY + direction.y * distance, Actors.z[id] + direction.z * distance, weapon.family.color | 0x404040);
+  const eyeY = Actors.eyeY(id), start = Muzzle.visual(id, weapon, distance);
+  Fx.tracer(start.x, start.y, start.z, Actors.x[id] + direction.x * distance, eyeY + direction.y * distance, Actors.z[id] + direction.z * distance, weapon.family.color | 0x404040);
 }
 
 // ---- Deliveries per fire mode type ----
@@ -1029,7 +1032,9 @@ function deliverCone(id, weapon, mode, modeIndex, fraction) {
     const dirX = (pointScratch.x - Actors.x[id]) / distance, dirY = (pointScratch.y - eyeY) / distance, dirZ = (pointScratch.z - Actors.z[id]) / distance;
     applyShotDamage(id, target, weapon, mode, damage, ZONE.NONE, 0, pointScratch.x, pointScratch.y, pointScratch.z, dirX, dirY, dirZ, distance);
   }
-  if (!Game.headless) Fx.burst(mode.element === 'thermal' ? 'fire' : 'energy', Actors.x[id] + aimScratch.x, eyeY + aimScratch.y, Actors.z[id] + aimScratch.z, aimScratch.x, aimScratch.y, aimScratch.z, 8, weapon.family.color);
+  if (Game.headless) return;
+  const muzzle = Muzzle.visual(id, weapon);
+  Fx.burst(mode.element === 'thermal' ? 'fire' : 'energy', muzzle.x, muzzle.y, muzzle.z, aimScratch.x, aimScratch.y, aimScratch.z, 8, weapon.family.color);
 }
 
 // Projectile modes: pellets (or charge levels) spawn pooled projectiles with spread.

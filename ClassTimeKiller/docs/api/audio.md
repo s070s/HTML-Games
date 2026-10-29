@@ -24,7 +24,7 @@ Cost: `Sound.updateMs` (last frame), `Sound.peakUpdateMs`; the loop (S19) copies
 | `Sound.speak(text)` | Reads text with `speechSynthesis` when `audio.speech` is on (Q3). Called automatically for `announce`. |
 | `Sound.unlock()` | Create/resume the context. Called on `pointerdown`, `pointerup`, `keydown`, `touchend`, `click` and on a gamepad button press. |
 | `Sound.lineOfSight = fn(ax, ay, az, bx, by, bz) -> bool` | Hook filled by S08 at load (`08a-world.js`): true when nothing solid lies between the points (`World.lineClear`). `null` means nothing is occluded. |
-| `Sound.listenerSource = fn(out) -> bool` | Hook for spectate / killcam: fill `out.x, y, z, yaw, pitch` (eye position, radians) to move the listener. Default: the eye of `Game.playerId`; with neither, positional sounds play centred. |
+| `Sound.listenerSource = fn(out) -> bool` | Hook for spectate / killcam: fill `out.x, y, z, yaw, pitch` (eye position, radians) to move the listener. Default: the eye of `Game.playerId`; with neither, positional sounds play centred. Owner: the spectator (17h) answers with its camera while it is active and the killcam is not playing, else the previous hook (chain it, as 17h does). |
 | `Sound.frameHooks.push(fn(seconds))` | Called each audio frame before the queue is processed (music uses it). |
 | `Sound.stats()` | `{ voices, voiceLimit, started, stolen, rejected, queueDropped, updateMs, peakUpdateMs, maxStartedPerFrame, enabled }`. |
 | `Sound.triggerCounts[recipeIndex]` | How many times each recipe was triggered (debug / tests). |
