@@ -606,6 +606,7 @@ Test.add('bots', (check) => {
   BotCombat.aimThrow(bot, BotCombat.cookUntil[bot]);
   check('once the view is on it the grenade is held for its cook, then released', pressed && cooking && (Bots.buttonsWanted[bot] & BTN.GRENADE) === 0 && BotCombat.throwUntil[bot] === 0);
   Bots.buttonsWanted[bot] = 0;
+  Weapons.setLoadout(bot, ['maul', 'warden', 'accelerator']);   // a charge is only held with a charge weapon in hand
   const heldSince = now - 0.2;
   BotCombat.holdSince[bot] = heldSince; BotCombat.keptSince[bot] = -1;
   BotCombat.keepCharge(bot, now, false);
@@ -738,15 +739,13 @@ Test.add('bots', (check) => {
 });
 
 // ---- Data cross-checks: every trigger word, objective goal and hunted role the bot data names exists ----
-const BOT_GADGET_UNUSED = ['launchpad'];   // a launch pad needs a planned route through the air: bots leave it alone
-
 Test.add('bots', (check) => {
   const badAbilities = CAT.abilities.filter((row) => row.botUse && !BOT_USE_TRIGGERS[row.botUse.when]).map((row) => row.id);
   check('every ability botUse.when is a BOT_USE_TRIGGERS word', badAbilities.length === 0, badAbilities.join());
   const badGadgets = Object.keys(BOT_GADGET_USE).filter((effect) => !BOT_USE_TRIGGERS[BOT_GADGET_USE[effect].when]);
   check('every BOT_GADGET_USE trigger exists', badGadgets.length === 0, badGadgets.join());
-  const unplanned = CAT.gadgets.filter((row) => !BOT_GADGET_USE[row.effect] && !BOT_GADGET_UNUSED.includes(row.effect)).map((row) => row.id);
-  check('every gadget effect has a bot use (or is listed as unused)', unplanned.length === 0, unplanned.join());
+  const unplanned = CAT.gadgets.filter((row) => !BOT_GADGET_USE[row.effect]).map((row) => row.id);
+  check('every gadget effect has a bot use', unplanned.length === 0, unplanned.join());
   const goalWords = Object.values(OBJECTIVE_GOALS).flat().filter(Boolean), badGoals = goalWords.filter((word) => !BOT_OBJECTIVE_VERBS[word]);
   check('every objective goal word has a bot verb', badGoals.length === 0, badGoals.join());
   const badRoles = BOT_HUNTED_ROLES.filter((name) => !ACTOR_ROLE_NAMES.includes(name));
@@ -754,9 +753,9 @@ Test.add('bots', (check) => {
 });
 
 // ---- Perception: smoke blocks sight, a cloak shrinks it, an enemy mine is seen and passed crouched (or walked around),
-// a frag heard landing close is run from (a smoke canister is not), a decoy's shot is remembered as its owner ----
-const SMOKE_ROW = 'smoke', CLOAK_POWERUP = 'ghostveil', CROUCH_MINE = 'claymore', STEER_MINE = 'prox', DECOY_ROW = 'decoy';
-const CLOAK_DISTANCE = 20, MINE_AHEAD = 3, GRENADE_HEARD_AT = 3, DECOY_X = 15, DECOY_ERROR = 5;
+// a frag heard landing close is run from (a smoke canister is not), the shot noise of an A33 double is remembered as its owner ----
+const SMOKE_ROW = 'smoke', CLOAK_POWERUP = 'ghostveil', CROUCH_MINE = 'claymore', STEER_MINE = 'claymore';
+const CLOAK_DISTANCE = 20, MINE_AHEAD = 3, GRENADE_HEARD_AT = 3, DECOY_X = 15, DECOY_ERROR = 5, DECOY_NOISE = 60;
 const DROP_HEIGHT = 1.5, DROP_SPEED = -4, DROP_FUSE = 5, HEAR_SECONDS = 1;   // a throwable dropped next to the bot bounces at once
 const MINE_WALK_FROM = -10, MINE_WALK_TO = 12, MINE_WALK_SECONDS = 8, MINE_WALK_ARRIVED = 2, FAR_DUMMY = -50;
 
@@ -819,32 +818,37 @@ Test.add('bots', (check) => {
   Thrown.clear();
   endBotTest();
 
-  // A real decoy (the row's effect, as when the thrown shell goes off) behind the wall, owned by the dummy.
+  // The shot noise a Holo Double (A33) makes in its owner's name, behind the wall, owned by the dummy.
   [bot, dummy] = startBotTest(botTestMap(true));
   placeFacing(bot, 0, -10, 0);
   holdActor(dummy, 0, 10);
   Sim.run(1);
-  const decoy = CAT.gadgets.byId(DECOY_ROW), pair = BotSense.pair(bot, dummy);
-  GadgetEffects[decoy.effect](decoy, dummy, DECOY_X, 0.1, 10);
-  const heard = runHeld(1 / decoy.rate + 1, () => holdActor(dummy, 0, 10), () => BotSense.knows(bot, dummy, Sim.time));
+  const pair = BotSense.pair(bot, dummy);
+  emitSound(DECOY_X, 0.1, 10, DECOY_NOISE, 'shot', dummy);
+  const heard = runHeld(1, () => holdActor(dummy, 0, 10), () => BotSense.knows(bot, dummy, Sim.time));
   check('a decoy shot is remembered as its owner, where the decoy is', heard && Math.abs(BotSense.knownX[pair] - DECOY_X) < DECOY_ERROR, BotSense.knownX[pair]);
   endBotTest();
 });
 
-// A prox mine does not spare a crouched body: the bot walks around it (its path runs straight through it).
+// A mine that does not spare a crouched body is walked around by the bot (its path runs straight through it). The Tripjaw Mine
+// is crouch-safe, so the row is switched for this test.
 Test.add('bots', (check) => {
   const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 6 }, { dummy: true }] });
   placeFacing(bot, 0, MINE_WALK_FROM, 0);
-  const mine = Devices.spawn(CAT.gadgets.byId(STEER_MINE), dummy, 0, 0, (MINE_WALK_FROM + MINE_WALK_TO) / 2);
-  Devices.armTick[mine] = Sim.tick;    // armed at once
-  Bots.nextDecide[bot] = Infinity;     // the test gives the destination
-  BotMove.goTo(bot, 0, 0, MINE_WALK_TO, 1);
-  let noticed = false;
-  const passed = runHeld(MINE_WALK_SECONDS, () => holdActor(dummy, FAR_DUMMY, FAR_DUMMY), () => {
-    noticed = noticed || BotSense.mine[bot] === mine;
-    return Actors.z[bot] > MINE_WALK_TO - MINE_WALK_ARRIVED;
-  });
-  check('a prox mine on the path is noticed', noticed);
+  const mineRow = CAT.gadgets.byId(STEER_MINE);
+  let mine = -1, noticed = false, passed = false;
+  mineRow.crouchSafe = false;
+  try {
+    mine = Devices.spawn(mineRow, dummy, 0, 0, (MINE_WALK_FROM + MINE_WALK_TO) / 2);
+    Devices.armTick[mine] = Sim.tick;    // armed at once
+    Bots.nextDecide[bot] = Infinity;     // the test gives the destination
+    BotMove.goTo(bot, 0, 0, MINE_WALK_TO, 1);
+    passed = runHeld(MINE_WALK_SECONDS, () => holdActor(dummy, FAR_DUMMY, FAR_DUMMY), () => {
+      noticed = noticed || BotSense.mine[bot] === mine;
+      return Actors.z[bot] > MINE_WALK_TO - MINE_WALK_ARRIVED;
+    });
+  } finally { mineRow.crouchSafe = true; }
+  check('a mine on the path is noticed', noticed);
   check('and walked around: the bot gets past without setting it off', passed && Devices.active[mine] === 1 && Actors.alive[bot],
     Actors.x[bot].toFixed(2) + ',' + Actors.z[bot].toFixed(2) + ' mine ' + Devices.active[mine]);
   endBotTest();
@@ -915,6 +919,7 @@ Test.add('bots', (check) => {
 // is thrown only from tier 3. uses counts this match only.
 Test.add('bots', (check) => {
   const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 6 }, { dummy: true }] });
+  Weapons.setLoadout(bot, ['maul', 'vanguard']);   // an ordinary rifle: a bot's loadout gun may be a sniper, whose scope narrows what it sees
   placeFacing(bot, 0, -THROW_DISTANCE / 2, 0);
   Gadgets.give(bot, THROW_ROW, 2);
   check('kit use counts start at 0 every match', BotCombat.uses.grenades === 0 && BotCombat.uses.gadgets === 0 && BotCombat.uses.abilities === 0);
@@ -1174,6 +1179,7 @@ const SQUAD_DROP_SECONDS = 3, SQUAD_FAR = 30, SQUAD_MIDDLE = 18, SQUAD_NEAR = 5,
 Test.add('bots', (check) => {
   const [leader, enemy, bot, enemy2, mate, enemy3] = startBotTest(botTestMap(true), 'royale', { bots: SQUAD_ENTRIES });
   const squads = Modes.squads, plan = { score: 0, x: 0, y: 0, z: 0, radius: 1, action: ACTION.MOVE, target: -1 };
+  for (const slot of [SLOT.ABILITY1, SLOT.ABILITY2, SLOT.ULTIMATE]) Abilities.setSlot(bot, slot, null);   // this test is about the beacon: no ability of the bot's loadout draw takes part
   runSeconds(SQUAD_DROP_SECONDS);   // the drop-in lands
   check('six actors make two squads of three', squads.count === 2 && Actors.team[bot] === 0 && Actors.team[leader] === 0 && Actors.team[mate] === 0);
   BotTeam.assignRoles();

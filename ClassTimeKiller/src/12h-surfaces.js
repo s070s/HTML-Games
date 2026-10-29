@@ -4,7 +4,7 @@
 // meltIce: the ice turns into a wet patch). Reactions (a Damage.statusHooks entry that runs after the 12f combos): a
 // status the patch `spreads` landing on someone in it lands on everyone in it (wet floor + Shock), and its igniteStatus
 // on someone in it or an igniteElement explosion over it lights it (oil + Burn = a 6 s fire area that lights touching
-// oil too, also oil spilled against it later; smoke puts it out like a G04 fire area). A29 / A30 with no enemy in the aim
+// oil too, also oil spilled against it later; smoke puts it out like a G04 fire area). A29 with no enemy in the aim
 // cone reach the patch at the aimed floor point (FloorSurfaces.boltFloor).
 
 const SURFACE_CAP = 16;                  // a full pool replaces the patch that ends first
@@ -100,7 +100,7 @@ const FloorSurfaces = {
     const row = SPILL_BY_MATERIAL.get(event.material);
     if (row) this.spill(row, event.source, event.x, event.y, event.z);
   },
-  // A29 / A30 with no enemy in the aim cone: the bolt's status reaches the patches at the aimed floor point.
+  // A29 with no enemy in the aim cone: the bolt's status reaches the patches at the aimed floor point.
   boltFloor(id, row) {
     const at = aimedFloor(id, row.range, surfacePoint);
     let reacted = false;

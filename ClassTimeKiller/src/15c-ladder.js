@@ -27,6 +27,12 @@ const Ladder = {
     if (state.done || Progress.unlockAll()) return true;
     return tier < state.tier || (tier === state.tier && match <= state.match);
   },
+  // P3-07: what a closed match asks for ('' once it is open): the match before it, in the ladder's own words.
+  requirementText(tier, match) {
+    if (this.isOpen(tier, match)) return '';
+    if (match > 0) return 'Clear the match before it first';
+    return tier > 0 ? 'Win ' + CAT.ladder[tier - 1].name + ' first' : 'Locked';
+  },
   difficultyFor(tier, match) { return this.state().difficulty[this.key(tier, match)] || CAT.ladder[tier].difficulty; },
   setDifficulty(tier, match, difficultyId) {
     if (!CAT.difficulty.byId(difficultyId)) return false;
@@ -95,6 +101,14 @@ const Challenges = {
   },
   isOpen(row) { return row.group <= Progress.roomGroup(); },
   expertOpen(id) { return Progress.unlockAll() || this.record(id).stars >= CHALLENGE_EXPERT_STARS; },
+  // P3-07: what a closed room or its Expert run asks for, with the player's own progress ('' when open).
+  requirementText(row) {
+    if (!this.isOpen(row)) {
+      const unlock = CAT.unlocks.find((entry) => entry.kind === 'challenge' && entry.value === row.group);
+      return unlock ? Progress.levelRequirement(unlock.level) : 'Locked';
+    }
+    return this.expertOpen(row.id) ? '' : 'Expert: earn ' + CHALLENGE_EXPERT_STARS + ' stars (' + this.record(row.id).stars + ' / ' + CHALLENGE_EXPERT_STARS + ')';
+  },
   starsFor(row, points) { return row.stars.filter((threshold) => points >= threshold).length; },
   totalStars() {
     let total = 0;

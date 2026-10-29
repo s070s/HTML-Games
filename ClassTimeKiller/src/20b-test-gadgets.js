@@ -209,16 +209,6 @@ Test.add('gadgets', (check) => {
   TestArena.place(near, 0, 2);
   GadgetEffects.impulse(CAT.gadgets.byId('impulse'), owner, 0, 0.5, 0);
   check('G07 knocks enemies away', Actors.vz[near] > 1, Actors.vz[near]);
-  GadgetEffects.dart(CAT.gadgets.byId('dart'), owner, 0, 1, 0);
-  Sim.run(itemTicks(1.1));
-  check('G19 pulses reveal enemies in reach', Damage.hasStatus(far, 'reveal') === false && Damage.hasStatus(near, 'reveal'));
-  const decoy = CAT.gadgets.byId('decoy');
-  let shots = 0;
-  const handler = Bus.on('sound', (event) => { if (event.kind === 'shot') shots++; });
-  GadgetEffects.decoy(decoy, owner, 5, 0, 5);
-  Sim.run(itemTicks(decoy.duration) + 1);
-  Bus.off('sound', handler);
-  check('G05 fake shots for 15 s', Math.abs(shots - decoy.duration * decoy.rate) <= 1, shots);
   TestArena.finish();
 });
 
@@ -231,8 +221,10 @@ Test.add('gadgets', (check) => {
   const blast = GadgetArena.ticksToBlast('singularity', sink.duration + 1);
   check('G09 goes off after 4 s', Math.abs(blast - itemTicks(sink.duration) + 10) <= 2, blast);
   const emp = CAT.gadgets.byId('emp'), victim = GadgetArena.actor(2, 2, 2, 'frag', 1), turret = GadgetArena.device('sentry', victim, 3, 3);
+  Meters.energy[victim] = 60;
   GadgetEffects.emp(emp, owner, 2, 1, 2);
   check('G20 suppresses enemies and disables their devices', Gadgets.suppressed(victim) && !Devices.working(turret));
+  check('G20 also empties the suit energy of those it reaches (the merged Sap Field)', Meters.energy[victim] === 0, Meters.energy[victim]);
   GadgetArena.throwAfter(victim, 0);
   check('G20 no grenades while suppressed', GadgetArena.firstThrown() < 0 && Gadgets.countOf(victim, 'frag') === 1);
   Sim.run(itemTicks(emp.duration));
@@ -289,12 +281,7 @@ Test.add('gadgets', (check) => {
   TestArena.place(enemy, 0, 2);
   Sim.run(2);
   check('G10 an enemy in front sets it off', Devices.active[mine] === 0 && Actors.health[enemy] < 100000);
-  const prox = GadgetArena.device('prox', owner, 10, 10), passer = TestArena.sponge(2, 10, 11);
-  Sim.run(itemTicks(1));
-  check('G11 waits 2 s to arm', Devices.active[prox] === 1);
-  Sim.run(itemTicks(1.1));
-  check('G11 goes off once armed', Devices.active[prox] === 0 && Actors.health[passer] < 100000);
-  const shotMine = GadgetArena.device('prox', owner, 20, 20);
+  const shotMine = GadgetArena.device('claymore', owner, 20, 20);
   const shooter = GadgetArena.actor(2, 20, 15);
   const gun = CAT.weapons.find((weapon) => weapon.primary.type === 'hitscan' && weapon.primary.damage >= 30);
   Bus.emit('weapon.fire', { id: shooter, weapon: gun.id, weaponClass: '', mode: 'primary', x: 20, y: 0.09, z: 15, dx: 0, dy: 0, dz: 1 });
@@ -321,17 +308,6 @@ Test.add('gadgets', (check) => {
   GadgetArena.start();
   const owner = GadgetArena.actor(1, 0, 0), friend = GadgetArena.actor(1, 1, 0), enemy = GadgetArena.actor(2, -1, 0);
   Actors.health[friend] = 50; Actors.health[enemy] = 50;
-  GadgetArena.device('regen', owner, 0, 0);
-  Sim.run(TICK_RATE);
-  const healed = Test.near(Actors.health[friend], 65, 0.5) && Test.near(Actors.health[enemy], 65, 0.5);
-  check('G16 heals everyone inside, enemies too', healed, Actors.health[friend] + ' / ' + Actors.health[enemy]);
-  Devices.clear();
-  Actors.maxShield[enemy] = Actors.shield[enemy] = 100; Actors.maxShield[friend] = Actors.shield[friend] = 100;
-  const healthBefore = Actors.health[enemy];
-  GadgetArena.device('drain', owner, 0, 0);
-  Sim.run(TICK_RATE);
-  check('G17 drains enemy shields only', Actors.shield[enemy] < 100 && Actors.health[enemy] === healthBefore && Actors.shield[friend] === 100, Actors.shield[enemy]);
-  Devices.clear();
   GadgetArena.device('jammer', owner, 0, 0);
   check('G18 jams enemies nearby, not friends', Gadgets.jammed(enemy) && !Gadgets.jammed(friend));
   Devices.clear();
@@ -353,16 +329,6 @@ Test.add('gadgets', (check) => {
   Sim.run(TICK_RATE);
   check('G22 removes an enemy grenade in flight', GadgetArena.firstThrown() < 0 && Devices.charges[snatcher] === 2, Devices.charges[snatcher]);
   Devices.clear();
-  GadgetArena.device('bubble', owner, 0, 10);
-  GadgetArena.throwAfter(enemy, 0);
-  Sim.run(TICK_RATE);
-  check('G12 the dome stops grenades coming in', GadgetArena.firstThrown() < 0);
-  Devices.clear();
-  const pad = GadgetArena.device('liftpad', owner, 5, 5), jumper = GadgetArena.actor(1, 5, 5);
-  Actors.y[jumper] = CAT.gadgets.byId('liftpad').size[1];
-  Sim.run(1);
-  const expected = Math.sqrt(2 * Move.gravity(jumper) * CAT.gadgets.byId('liftpad').launch);
-  check('G14 the lift pad throws up to its height', Devices.active[pad] === 1 && Actors.vy[jumper] > expected * 0.8, Actors.vy[jumper] + ' / ' + expected);
   TestArena.finish();
 });
 
@@ -374,7 +340,7 @@ Test.add('gadgets', (check) => {
   Bus.emit('actor.spawn', { id: friend });
   check('G24 teammates spawn at the beacon', Math.hypot(Actors.x[friend] - 10, Actors.z[friend] - 10) <= 1.5, Actors.x[friend] + ',' + Actors.z[friend]);
   check('G24 the beacon spawn sets the previous position too (no interpolation smear)', Actors.prevX[friend] === Actors.x[friend] && Actors.prevZ[friend] === Actors.z[friend]);
-  const mine = GadgetArena.device('prox', owner, 0, 5);
+  const mine = GadgetArena.device('claymore', owner, 0, 5);
   check('GAD-003 enemy mines glint only within 8 m', !Devices.visibleTo(mine, enemy) && Devices.visibleTo(mine, friend));
   TestArena.place(enemy, 0, 10);
   check('GAD-003 visible to the enemy within 8 m', Devices.visibleTo(mine, enemy));
@@ -484,23 +450,6 @@ Test.add('gadgets', (check) => {
   try { Sim.run(TICK_RATE); } finally { World.lineClear = lineClear; }
   const most = Math.ceil(1 / AREA_TICK_SECONDS) * 3;
   check('G21 an idle drone looks for enemies 4 times a second, not every step', rays <= most, rays + ' sight rays in 1 s');
-  TestArena.finish();
-});
-
-Test.add('gadgets', (check) => {
-  GadgetArena.start();
-  const owner = GadgetArena.actor(1, 0, 0), frag = CAT.gadgets.byId('frag');
-  GadgetArena.device('bubble', owner, 0, 10);
-  const friendly = Thrown.spawn(frag, owner, 0, 1, 10, 0, 0, 18, itemTicks(10));
-  Sim.run(TICK_RATE / 2);
-  check('G12 a friendly grenade thrown out of the dome is stopped', Thrown.state[friendly] === THROWN_STATE.FREE);
-  const enemy = GadgetArena.actor(2, 20, 20);
-  const outgoing = Thrown.spawn(frag, enemy, 1, 1, 10, 18, 0, 0, itemTicks(10));
-  Sim.run(TICK_RATE / 2);
-  check('G12 an enemy grenade leaving the dome is stopped', Thrown.state[outgoing] === THROWN_STATE.FREE);
-  const passing = Thrown.spawn(frag, enemy, -10, 1, 20, 18, 0, 0, itemTicks(10));
-  Sim.run(TICK_RATE / 2);
-  check('G12 grenades that never cross the dome fly on', Thrown.state[passing] !== THROWN_STATE.FREE);
   TestArena.finish();
 });
 

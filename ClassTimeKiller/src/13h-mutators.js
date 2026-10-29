@@ -243,7 +243,10 @@ const MUTATOR_OPERATIONS = {
   weaponSet(rules, operation, value) {
     const choice = paramValue(operation, value);
     if (Array.isArray(choice)) armMatchSet(rules, choice.slice());
-    else rules.weaponSet = choice === 'random' ? randomWeaponSet() : choice;
+    else {
+      rules.weaponSet = choice === 'random' ? randomWeaponSet() : choice;
+      rules.carry = null; rules.ammoTiers = null; rules.melee = '';   // the chosen set keeps its own carry limit, ammo tiers and start melee
+    }
   },
 };
 

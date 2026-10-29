@@ -1,6 +1,6 @@
 // S12 grenades and throwables (step 10.3, GAD-001, GAD-002, REN-007): carried counts per economy kit, BTN.GRENADE hold to
 // cook and release to throw (ALT = underhand), pooled thrown bodies with bounce / stick / impact, effects per data row
-// (frag, smoke, flash scaled by view angle, fire, decoy, impulse, freeze, pull, EMP, sonar dart), timed areas, and smoke
+// (frag, smoke, flash scaled by view angle, fire, impulse, freeze, pull, EMP), timed areas, and smoke
 // volumes as an occupancy grid that blocks Smoke.lineBlocked (bots, aim assist) and loses cells to bullets and blasts.
 // Placed and deployed devices are 12d (Gadgets.deployers). Every hit goes through Damage.apply / Damage.explode.
 
@@ -36,7 +36,6 @@ const CURTAIN_PUFF_SPACING = 0.75;       // Smoke.add: puffs along a curtain ove
 const PREVIEW_SECONDS = 0.05;
 const THROWN_LONGEST_FUSE = CAT.gadgets.reduce((most, row) => row.kind === 'thrown' ? Math.max(most, row.fuse) : most, 0);
 const PREVIEW_POINTS = Math.ceil(THROWN_LONGEST_FUSE / PREVIEW_SECONDS);   // the arc preview follows the flight up to the fuse
-const DECOY_DEFAULT_NOISE = 60;
 const HERO_EXTRA_GRENADES = 1;           // H05 passive 'extraGrenade': one more of the hero's gadget (above its carry limit)
 
 const GADGET_USE_EVENT = { id: 0, gadget: '', kind: '' };
@@ -312,18 +311,18 @@ const spanScratch = { from: 0, to: 0 };
 const cellGrid = Vec.make();
 const cellPoint = Vec.make();
 
-// ---- Timed areas left by grenades: fire, decoy, pull, sonar pulses ----
+// ---- Timed areas left by grenades: fire, pull ----
 const GadgetAreas = {
   active: new Uint8Array(AREA_CAP), row: new Int16Array(AREA_CAP), owner: new Int8Array(AREA_CAP),
   x: new Float32Array(AREA_CAP), y: new Float32Array(AREA_CAP), z: new Float32Array(AREA_CAP),
-  startTick: new Int32Array(AREA_CAP), endTick: new Int32Array(AREA_CAP), clock: new Float32Array(AREA_CAP), pulses: new Uint8Array(AREA_CAP),
+  startTick: new Int32Array(AREA_CAP), endTick: new Int32Array(AREA_CAP), clock: new Float32Array(AREA_CAP),
   steps: {},                                       // row effect -> fn(area, row, dt)
 
   clear() { this.active.fill(0); },
   spawn(row, owner, x, y, z, seconds) {
     const slot = oldestFreeSlot(this.active, this.endTick, AREA_CAP);   // full: the area that ends first gives way
     this.active[slot] = 1; this.row[slot] = row.index; this.owner[slot] = owner; this.x[slot] = x; this.y[slot] = y; this.z[slot] = z;
-    this.startTick[slot] = Sim.tick; this.endTick[slot] = Sim.tick + itemTicks(seconds); this.clock[slot] = 0; this.pulses[slot] = row.pulses;
+    this.startTick[slot] = Sim.tick; this.endTick[slot] = Sim.tick + itemTicks(seconds); this.clock[slot] = 0;
     return slot;
   },
   step(dt) {
@@ -353,13 +352,6 @@ const GadgetAreas = {
     if (!Actors.alive[id] || Math.abs(Actors.y[id] - this.y[area]) > FIRE_AREA_HEIGHT) return false;
     return (Actors.x[id] - this.x[area]) ** 2 + (Actors.z[id] - this.z[area]) ** 2 <= row.radius * row.radius;
   },
-  // G05: fake shots in the owner's weapon noise that bots hear as the owner (BOT-005).
-  stepDecoy(area, row, dt) {
-    if (!this.due(area, dt, 1 / row.rate)) return;
-    const owner = this.owner[area], weapon = owner >= 0 ? Weapons.currentWeapon(owner) : null;
-    emitSound(this.x[area], this.y[area] + 0.2, this.z[area], weapon ? weapon.noise : DECOY_DEFAULT_NOISE, 'shot', owner);
-    if (!Game.headless) Fx.burst('muzzle', this.x[area], this.y[area] + 0.2, this.z[area], 0, 1, 0, 3, null);
-  },
   // G09: everyone in reach is pulled to the centre (m/s^2), then the blast.
   stepPull(area, row, dt) {
     for (let id = 0; id < Actors.count; id++) {
@@ -369,23 +361,9 @@ const GadgetAreas = {
     }
     if (!Game.headless && this.due(area, dt, AREA_TICK_SECONDS)) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 6, row.color);
   },
-  // G19: pulses reveal enemies within reach (line of sight) every interval.
-  stepPulse(area, row, dt) {
-    if (!this.due(area, dt, row.interval)) return;
-    const owner = this.owner[area];
-    for (let id = 0; id < Actors.count; id++) {
-      if (id === owner || !gadgetReaches(owner, id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
-      Damage.addStatus(id, row.status, owner, row.statusSeconds, 1);
-    }
-    emitSound(this.x[area], this.y[area], this.z[area], POP_NOISE, 'pulse', this.owner[area]);
-    if (!Game.headless) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 12, row.color);
-    if (--this.pulses[area] <= 0) this.active[area] = 0;
-  },
 };
 GadgetAreas.steps.fire = (area, row, dt) => GadgetAreas.stepFire(area, row, dt);
-GadgetAreas.steps.decoy = (area, row, dt) => GadgetAreas.stepDecoy(area, row, dt);
 GadgetAreas.steps.singularity = (area, row, dt) => GadgetAreas.stepPull(area, row, dt);
-GadgetAreas.steps.dart = (area, row, dt) => GadgetAreas.stepPulse(area, row, dt);
 
 // A blast of a gadget row through the single damage path.
 function gadgetBlast(row, owner, x, y, z) {
@@ -413,9 +391,7 @@ const GadgetEffects = {
   explode: (row, owner, x, y, z) => gadgetBlast(row, owner, x, y, z),
   smoke: (row, owner, x, y, z) => { Smoke.spawn(row, owner, x, y, z); emitGadgetPop(row, owner, x, y, z); },
   fire: (row, owner, x, y, z) => { GadgetAreas.spawn(row, owner, x, fireFloorY(x, y, z) + 0.05, z, row.duration); emitGadgetPop(row, owner, x, y, z); },
-  decoy: (row, owner, x, y, z) => { GadgetAreas.spawn(row, owner, x, y, z, row.duration); },
   singularity: (row, owner, x, y, z) => { GadgetAreas.spawn(row, owner, x, y, z, row.duration); emitGadgetPop(row, owner, x, y, z); },
-  dart: (row, owner, x, y, z) => { GadgetAreas.spawn(row, owner, x, y, z, row.pulses * row.interval + 0.5); },
   flash: (row, owner, x, y, z) => {
     for (let id = 0; id < Actors.count; id++) gadgetFlash(row, owner, id, x, y, z);
     emitGadgetPop(row, owner, x, y, z);
@@ -426,8 +402,13 @@ const GadgetEffects = {
     emitGadgetPop(row, owner, x, y, z);
     if (!Game.headless) Fx.burst('frost', x, y, z, 0, 1, 0, 30, null);
   },
+  // G20 (also the merged Sap Field, P3-06): abilities, devices and regeneration are shut down and the suit energy bar is emptied.
   emp: (row, owner, x, y, z) => {
-    for (let id = 0; id < Actors.count; id++) if (gadgetReaches(owner, id, x, y, z, row.radius)) Gadgets.suppress(id, row.duration);
+    for (let id = 0; id < Actors.count; id++) {
+      if (!gadgetReaches(owner, id, x, y, z, row.radius)) continue;
+      Gadgets.suppress(id, row.duration);
+      if (id !== owner) Meters.energy[id] = 0;
+    }
     Gadgets.empDevices(owner, x, y, z, row.radius, row.duration);
     emitGadgetPop(row, owner, x, y, z);
     if (!Game.headless) Fx.burst('shock', x, y, z, 0, 1, 0, 30, null);
@@ -575,7 +556,7 @@ const Thrown = {
     Bus.emit('projectile.bounce', BOUNCE_EVENT);
     emitSound(this.x[slot], this.y[slot], this.z[slot], GRENADE_NOISE, 'grenade', this.owner[slot], CAT.gadgets[this.row[slot]].effect);
   },
-  // G22 and G12 remove enemy throwables in flight.
+  // G22 removes enemy throwables in flight.
   removeAt(slot) { this.remove(slot); if (!Game.headless) Fx.burst('spark', this.x[slot], this.y[slot], this.z[slot], 0, 1, 0, 8, null); },
   // W41 Graviton Lifter (WeaponSpecialState.grenadeHook): the nearest flying or resting grenade in the aim cone within range.
   grab(id, ox, oy, oz, dx, dy, dz, range, minCos) {
@@ -624,6 +605,7 @@ const Gadgets = {
   deployers: [],                                     // fn(id, row) -> true when 12d placed the gadget
   empHooks: [],                                      // fn(owner, x, y, z, radius, seconds): 12d disables devices
   cycleShown: -1,                                    // the grenade row the touch NADE face names, -1 none (syncCycleButton)
+  loadoutGear: null,                                 // fn(id) -> { lethal, tactical, device } gadget keys, or null: the saved pickup loadout of the actor (13d)
 
   kit() { return CAT.gadgetKits.byId(itemRule('economy', 'pickups')) || CAT.gadgetKits.byId('pickups'); },
   countOf(id, key) { const row = CAT.gadgets.byId(key); return row ? this.count[id * GADGET_COUNT + row.index] : 0; },
@@ -700,7 +682,11 @@ const Gadgets = {
   // A new life: the kit of the match economy (S12 resets cooldowns on actor.spawn).
   equip(id) {
     this.resetActor(id);
-    const kit = this.kit();
+    const kit = this.kit(), gear = kit.loadout && this.loadoutGear ? this.loadoutGear(id) : null;
+    if (gear) {
+      for (const key of [gear.lethal, gear.tactical, gear.device]) this.give(id, key, CAT.gadgets.byId(key).carry);
+      return;
+    }
     for (const key in kit.grenades) this.give(id, key, kit.grenades[key]);
     if (kit.gadget) this.give(id, kit.gadget, 1);
   },
@@ -709,18 +695,19 @@ const Gadgets = {
     for (let rowIndex = 0; rowIndex < GADGET_COUNT; rowIndex++) if (CAT.gadgets[rowIndex].kind === 'thrown') this.count[id * GADGET_COUNT + rowIndex] = 0;
     this.grenade[id] = -1;
   },
-  // Hero kits (12e on spawn): the hero's gadget (G09, G19), plus one with the 'extraGrenade' passive (H05).
+  // Hero kits (12e on spawn): the hero's gadget (G09, G20), plus one with the 'extraGrenade' passive (H05).
   equipHero(id, hero) {
     const row = CAT.gadgets.byId(hero.gadget);
     if (!row || !this.give(id, row.id, 1)) return;
     if (Abilities.passiveFlag(id, 'extraGrenade')) this.count[id * GADGET_COUNT + row.index] += HERO_EXTRA_GRENADES;
   },
-  // Ammo caches give back one of each kit grenade (economies with refill).
+  // Ammo caches give back one of each kit grenade (economies with refill), or of the loadout's lethal and tactical.
   refill(id) {
     const kit = this.kit();
     if (!kit.refill) return false;
+    const gear = kit.loadout && this.loadoutGear ? this.loadoutGear(id) : null;
     let added = 0;
-    for (const key in kit.grenades) added += this.give(id, key, 1);
+    for (const key of gear ? [gear.lethal, gear.tactical] : Object.keys(kit.grenades)) added += this.give(id, key, 1);
     return added > 0;
   },
 

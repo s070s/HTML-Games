@@ -85,7 +85,7 @@ Data.define('bots', {
   { id: 'halloran', code: 'B13', name: 'Halloran', tier: 4, style: 'accurate', favorite: 'heron', color: 0x3f6f8f, chat: 'quiet' },
   { id: 'quarry', code: 'B14', name: 'Quarry', tier: 4, style: 'weaponJumper', favorite: 'ramjet', color: 0x8c8c5a },
   { id: 'jessamy', code: 'B15', name: 'Jessamy', tier: 4, style: 'itemFocus', favorite: 'stormlash', color: 0x58b7d8 },
-  { id: 'okoro', code: 'B16', name: 'Okoro', tier: 4, style: 'teamwork', favorite: 'tempest', color: 0x3e9d63 },
+  { id: 'okoro', code: 'B16', name: 'Okoro', tier: 4, style: 'teamwork', favorite: 'vanguard', color: 0x3e9d63 },
   { id: 'vantablue', code: 'B17', name: 'Vantablue', tier: 5, style: 'flanker', favorite: 'ember', color: 0x2b3fae },
   { id: 'marrow', code: 'B18', name: 'Marrow', tier: 5, style: 'aggressive', favorite: 'shardcaster', color: 0xb8a48c, chat: 'loud' },
   { id: 'isoldecrane', code: 'B19', name: 'Isolde Crane', tier: 5, style: 'accurate', favorite: 'lancet', color: 0xd9d2e9 },
@@ -184,21 +184,16 @@ const BOT_GADGET_USE = {
   flash: { when: 'cover', range: [6, 20], chance: 0.7, aim: 'enemy', tierFlag: 'flashPeek' },   // BOT-034: flash before a peek (tier 3+)
   freeze: { when: 'enemyClose', range: [4, 14], chance: 0.6, aim: 'enemy' },
   impulse: { when: 'enemyClose', range: [3, 12], chance: 0.5, aim: 'enemy' },
-  dart: { when: 'enemyVisible', range: [5, 20], chance: 0.5, aim: 'enemy' },
   emp: { when: 'enemyVisible', range: [8, 25], chance: 0.4, aim: 'enemy' },
-  decoy: { when: 'cover', range: [8, 25], chance: 0.4, aim: 'between' },
   smoke: { when: 'underFire', range: [8, 25], chance: 0.6, aim: 'between' },
   mine: { when: 'holding', range: [0, 0], chance: 1 },
   turret: { when: 'holding', range: [0, 0], chance: 1 },
   beacon: { when: 'holding', range: [0, 0], chance: 0.5 },
   jammer: { when: 'objective', range: [0, 0], chance: 1 },
-  dome: { when: 'underFire', range: [0, 40], chance: 0.7 },
   barrier: { when: 'holding', range: [0, 0], chance: 0.5 },   // a wall the nav graph does not know: only where the bot stays
   trophy: { when: 'underFire', range: [0, 40], chance: 0.6 },
-  heal: { when: 'lowHealth', range: [0, 0], chance: 0.8 },
-  drain: { when: 'enemyClose', range: [0, 8], chance: 0.6 },
   drones: { when: 'enemyVisible', range: [10, 40], chance: 0.6 },
   supply: { when: 'lowAmmo', range: [0, 0], chance: 1 },
 };
-// Thrown effects a bot runs from when it hears one bounce close (smoke, flash, decoys and darts do no harm where they land).
+// Thrown effects a bot runs from when it hears one bounce close (smoke and flash do no harm where they land).
 const BOT_FLEE_EFFECTS = ['explode', 'fire', 'singularity', 'impulse', 'freeze'];

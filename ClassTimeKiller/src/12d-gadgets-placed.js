@@ -1,7 +1,7 @@
 // S12 placed and deployed gadgets (step 10.4, GAD-003): BTN.GADGET sets the gadget-slot row in front of the owner as a
-// pooled device with health, owner, team, an arming delay and a lifetime. Behaviour per row.effect: mines, dome, barrier
-// (a dynamic brush), lift pad, turret, heal and drain fields, jammer, scuttler drones, projectile snatcher, supply crate and
-// rally beacon. Per-owner caps (row.max, perTeam), visible tells (enemy placed gadgets only glint within 8 m), destroyed
+// pooled device with health, owner, team, an arming delay and a lifetime. Behaviour per row.effect: mines, barrier
+// (a dynamic brush), turret, jammer, scuttler drones, projectile snatcher, supply crate and rally beacon (P3-06 retired the dome,
+// lift pad, heal and drain fields). Per-owner caps (row.max, perTeam), visible tells (enemy placed gadgets only glint within 8 m), destroyed
 // by shots and blasts, disabled by EMP, removed on the owner's death and at match end. All harm goes through Damage.
 
 const DEVICE_CAP = 64;
@@ -12,10 +12,9 @@ const DEVICE_ROW_GAP = 0.6;             // several devices of one use (G21) stan
 const QUARTER_TURN = Math.PI / 2;
 const DEVICE_HIT_MINIMUM = 0.3;         // smallest hit sphere radius of a device (shots and blasts)
 const DEVICE_SHOT_SLACK = 0.05;         // a shot that meets a wall still hits a device sitting on it
-const DEVICE_SPHERE_LIFT = 0.5;         // area spheres (heal, drain, jam, mines) are centred this high above the base
+const DEVICE_SPHERE_LIFT = 0.5;         // area spheres (jam, supply, mines) are centred this high above the base
 const DEVICE_BLAST_DAMAGE = 100;        // blast damage to devices at the centre, falling to 0 at the radius
 const DEVICE_DEFAULT_SHOT = 10;         // shot damage when a fire mode lists none
-const LAUNCH_FOOT_HEIGHT = 0.5;         // the lift pad pushes actors whose feet are this close to its top
 const DRONE_HOVER = 0.3;
 const DRONE_BLAST_SHARE = 0.5;          // a drone goes off when its target is within this share of its blast radius
 const DRONE_WALL_GAP = 0.2;             // a drone stops this far short of a wall in its way
@@ -186,7 +185,7 @@ const Devices = {
     return distanceSquared3(this.x[device], centreY, this.z[device], devicePoint.x, devicePoint.y, devicePoint.z) <= radius * radius;
   },
 
-  // G10 / G11: armed mines go off when an enemy body is within trigger range (and the cone); crouching passes crouchSafe rows.
+  // G10: armed mines go off when an enemy body is within trigger range (and the cone); crouching passes crouchSafe rows.
   stepMine(device, row) {
     for (let id = 0; id < Actors.count; id++) {
       if (!this.enemyOf(device, id) || !this.mineSees(device, row, id)) continue;
@@ -205,38 +204,27 @@ const Devices = {
     const dx = x - this.x[device], dz = z - this.z[device], length = length2(dx, dz) || 1;
     return (dx * Math.sin(this.yaw[device]) + dz * Math.cos(this.yaw[device])) / length >= Math.cos(row.coneDeg / 2 * DEG);
   },
-  // G12: projectiles and grenades that cross the dome wall are stopped both ways, whoever fired them; friends inside regain
-  // health and shield.
-  stepDome(device, row, dt) {
-    this.blockProjectiles(device, row, dt, false);
-    for (let id = 0; id < Actors.count; id++) {
-      if (this.friendOf(device, id) && this.inSphere(device, id, row.radius)) deviceHeal(id, row.heal * dt, true);
-    }
-  },
-  // Removes projectiles and thrown grenades: the dome those that crossed its wall this step, the snatcher (G22) enemy ones
-  // anywhere inside its radius, up to its charges. Returns how many it removed.
-  blockProjectiles(device, row, dt, snatch) {
+  // Removes the enemy projectiles and thrown grenades anywhere inside the snatcher's (G22) radius, up to its charges.
+  // Returns how many it removed.
+  blockProjectiles(device, row) {
     let removed = 0;
     for (let i = 0; i < PROJECTILE_CAP; i++) {
-      if (Projectiles.state[i] !== PROJECTILE_STATE.FLYING || !this.stops(device, row, dt, snatch, Projectiles, i)) continue;
+      if (Projectiles.state[i] !== PROJECTILE_STATE.FLYING || !this.stops(device, row, Projectiles, i)) continue;
       Projectiles.remove(i);
       this.blockFx(Projectiles.x[i], Projectiles.y[i], Projectiles.z[i]);
-      if (++removed >= this.charges[device] && snatch) return removed;
+      if (++removed >= this.charges[device]) return removed;
     }
     for (let slot = 0; slot < THROWN_CAP; slot++) {
-      if (!Thrown.state[slot] || !this.stops(device, row, dt, snatch, Thrown, slot)) continue;
+      if (!Thrown.state[slot] || !this.stops(device, row, Thrown, slot)) continue;
       Thrown.removeAt(slot);
-      if (++removed >= this.charges[device] && snatch) return removed;
+      if (++removed >= this.charges[device]) return removed;
     }
     return removed;
   },
-  // store: Projectiles or Thrown (both keep owner, x/y/z and vx/vy/vz arrays); the step before is position - velocity x dt.
-  stops(device, row, dt, snatch, store, index) {
-    const x = store.x[index], y = store.y[index], z = store.z[index];
-    const inside = this.insideRadius(device, row, x, y, z);
-    if (snatch) return inside && (store.owner[index] < 0 || this.enemyOf(device, store.owner[index]));
-    const wasInside = this.insideRadius(device, row, x - store.vx[index] * dt, y - store.vy[index] * dt, z - store.vz[index] * dt);
-    return inside !== wasInside;
+  // store: Projectiles or Thrown (both keep owner and x/y/z arrays): an enemy (or ownerless) one inside the radius.
+  stops(device, row, store, index) {
+    const inside = this.insideRadius(device, row, store.x[index], store.y[index], store.z[index]);
+    return inside && (store.owner[index] < 0 || this.enemyOf(device, store.owner[index]));
   },
   insideRadius(device, row, x, y, z) {
     return distanceSquared3(x, y, z, this.x[device], this.y[device], this.z[device]) <= row.radius * row.radius;
@@ -245,23 +233,9 @@ const Devices = {
     if (!Game.headless) Fx.burst('energy', x, y, z, 0, 1, 0, 8, null);
   },
   // G22: removes the first `amount` enemy projectiles or grenades within its radius, then is spent.
-  stepTrophy(device, row, dt) {
-    this.charges[device] -= this.blockProjectiles(device, row, dt, true);
+  stepTrophy(device, row) {
+    this.charges[device] -= this.blockProjectiles(device, row);
     if (this.charges[device] <= 0) this.remove(device, false);
-  },
-  // G14: anyone standing on the pad is thrown up to `launch` metres (the impulse makes up for the match knockback scale).
-  stepLaunch(device, row) {
-    const knockback = MatchMove.knockback || 1;
-    for (let id = 0; id < Actors.count; id++) {
-      if (!Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.ON_GROUND) || !this.onPad(device, row, id)) continue;
-      const speed = Math.sqrt(2 * Move.gravity(id) * row.launch);
-      emitImpulse(id, 0, (speed - Actors.vy[id]) / knockback, 0);
-      emitSound(this.x[device], this.y[device], this.z[device], GRENADE_NOISE, 'jump', id);
-    }
-  },
-  onPad(device, row, id) {
-    if (Math.abs(Actors.y[id] - this.y[device] - row.size[1]) > LAUNCH_FOOT_HEIGHT) return false;
-    return (Actors.x[id] - this.x[device]) ** 2 + (Actors.z[id] - this.z[device]) ** 2 <= row.radius * row.radius;
   },
   // G15: shoots the nearest seen enemy in range `rate` times a second (hitscan with a small spread).
   stepTurret(device, row, dt) {
@@ -288,21 +262,6 @@ const Devices = {
     if (hit >= 0 && this.enemyOf(device, hit)) deviceDamage(this.owner[device], hit, row, row.damage, 'hit', deviceActorHit);
     if (!Game.headless) Fx.tracer(x, y, z, x + direction.x * reach, y + direction.y * reach, z + direction.z * reach, null);
     emitSound(x, y, z, TURRET_NOISE, 'shot', this.owner[device]);
-  },
-  // G16: everyone inside (enemies too) regains health.
-  stepHeal(device, row, dt) {
-    for (let id = 0; id < Actors.count; id++) {
-      if (Actors.alive[id] && this.inSphere(device, id, row.radius)) deviceHeal(id, row.heal * dt, false);
-    }
-  },
-  // G17: enemy shields inside drain (through Damage.apply, never more than the shield left).
-  stepDrain(device, row, dt) {
-    if (!this.due(device, dt, AREA_TICK_SECONDS)) return;
-    for (let id = 0; id < Actors.count; id++) {
-      const amount = Math.min(row.drain * AREA_TICK_SECONDS, Actors.shield[id]);
-      if (amount <= 0 || !this.enemyOf(device, id) || !this.inSphere(device, id, row.radius)) continue;
-      deviceDamage(this.owner[device], id, row, amount, 'dot', null);
-    }
   },
   // G21: each drone picks the nearest seen enemy in range on the AREA_TICK_SECONDS clock (between picks it only checks that the
   // target still lives), rolls to it and goes off next to it.
@@ -505,12 +464,6 @@ function barrierFits(row, x, z) {
   }
   return true;
 }
-// Healing devices: health up to the maximum; the dome also tops up shields once health is full.
-function deviceHeal(id, amount, shields) {
-  const room = Math.max(0, Actors.maxHealth[id] - Actors.health[id]);
-  Actors.health[id] += Math.min(room, amount);
-  if (shields && amount > room) Actors.shield[id] = Math.min(Actors.maxShield[id], Actors.shield[id] + amount - room);
-}
 // Device harm through the single damage path (hit = the actor hit of a shot, or null for fields).
 function deviceDamage(owner, target, row, amount, kind, hit) {
   const info = Damage.info();
@@ -521,15 +474,11 @@ function deviceDamage(owner, target, row, amount, kind, hit) {
 }
 
 Devices.steps.mine = (device, row) => Devices.stepMine(device, row);
-Devices.steps.dome = (device, row, dt) => Devices.stepDome(device, row, dt);
 Devices.steps.barrier = () => {};
-Devices.steps.launchpad = (device, row) => Devices.stepLaunch(device, row);
 Devices.steps.turret = (device, row, dt) => Devices.stepTurret(device, row, dt);
-Devices.steps.heal = (device, row, dt) => Devices.stepHeal(device, row, dt);
-Devices.steps.drain = (device, row, dt) => Devices.stepDrain(device, row, dt);
 Devices.steps.jammer = () => {};
 Devices.steps.drones = (device, row, dt) => Devices.stepDrone(device, row, dt);
-Devices.steps.trophy = (device, row, dt) => Devices.stepTrophy(device, row, dt);
+Devices.steps.trophy = (device, row) => Devices.stepTrophy(device, row);
 Devices.steps.supply = (device, row, dt) => Devices.stepSupply(device, row, dt);
 Devices.steps.beacon = () => {};
 

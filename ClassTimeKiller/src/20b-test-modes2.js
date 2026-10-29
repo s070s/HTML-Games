@@ -50,7 +50,7 @@ Test.add('modes2', (check) => {
   check('cursetag: 50 HP, melee only, the beacon passes the curse (M19)', rows('cursetag').params.cursedHealth === 50 && rows('cursetag').params.meleeOnly
     && rows('cursetag').params.passOnTag === false);
   const shortLadder = ladderTiers({ ladder: GUNGAME_LADDER, tiers: 3 });
-  check('gungame: params.tiers shortens the ladder, keeping the melee tier last', shortLadder.join() === 'tempest,vanguard,maul'
+  check('gungame: params.tiers shortens the ladder, keeping the melee tier last', shortLadder.join() === 'vanguard,ratchet,maul'
     && ladderTiers({ ladder: GUNGAME_LADDER, tiers: 99 }).length === 12 && ladderTiers({ ladder: GUNGAME_LADDER }).length === 12
     && ladderTiers({ ladder: GUNGAME_LADDER, tiers: 1 }).join() === 'maul');
   const area = worldSafeArea({});

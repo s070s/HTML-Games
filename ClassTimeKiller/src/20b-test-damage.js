@@ -151,7 +151,7 @@ Test.add('damage', (check) => {
   Actors.shield[target] = 50;
   TestArena.hit(shooter, target, 70);
   check('HPP06 shield first, then health', Actors.shield[target] === 0 && Actors.health[target] === 80);
-  const kills = TestArena.count('kill', () => TestArena.hit(shooter, target, 100, { weapon: 'tempest' }));
+  const kills = TestArena.count('kill', () => TestArena.hit(shooter, target, 100, { weapon: 'vanguard' }));
   check('HPP06 squad: 0 HP goes down, not dead', kills === 0 && Actors.alive[target] === 1 && (Actors.flags[target] & ACTOR_FLAG.DOWNED) !== 0 && Actors.health[target] === DOWNED_HEALTH);
   check('HP-007 downed crawl speed', Damage.statusSpeed(target) === DOWNED_SPEED);
   let bledWeapon = '';
@@ -160,7 +160,7 @@ Test.add('damage', (check) => {
   const bled = TestArena.count('kill', () => Sim.run(DOWNED_BLEED_SECONDS * TICK_RATE + 2));
   Bus.off('kill', onKill);
   check('HP-007 bleed-out after 30 s', bled === 1 && Actors.alive[target] === 0);
-  check('HP-007 the bleed-out kill keeps the weapon that downed the target', bledWeapon === 'tempest', bledWeapon);
+  check('HP-007 the bleed-out kill keeps the weapon that downed the target', bledWeapon === 'vanguard', bledWeapon);
   TestArena.hit(shooter, mate, 100);
   check('HP-007 last standing squad member dies outright', Actors.alive[mate] === 0);
   TestArena.finish();
@@ -172,7 +172,7 @@ Test.add('damage', (check) => {
     && Rules.build({ mode: 'payload', ruleset: 'heroes' }).downed === true && Rules.build({ mode: 'tdm', ruleset: 'classic' }).downed === false);
   TestArena.start({ health: 'regen', downed: true });
   const shooter = TestArena.actor(1, 0, 0), target = TestArena.actor(2, 0, 5), medic = TestArena.actor(2, 1, 5), far = TestArena.actor(2, 20, 5);
-  Weapons.setLoadout(target, ['tempest']);
+  Weapons.setLoadout(target, ['vanguard']);
   Economy.perkKeys[target].add('lastStand');
   TestArena.hit(shooter, target, 150);
   const pistol = CAT.weapons.byId(CAT.perks.byId('laststand').weapon);
@@ -187,7 +187,7 @@ Test.add('damage', (check) => {
   check('HP-007 letting go of Use starts the revive over', (Actors.flags[target] & ACTOR_FLAG.DOWNED) !== 0 && Damage.reviveProgress[medic] === 0);
   TestArena.hold(medic, BTN.USE, REVIVE_SECONDS + 0.05);
   check('HP-007 Use held 5 s within 1.5 m revives the ally', !(Actors.flags[target] & ACTOR_FLAG.DOWNED) && Actors.health[target] === REVIVE_HEALTH, Actors.health[target]);
-  check('ECP04 Last Stand: the old weapon comes back on revive', Weapons.current[target] === CAT.weapons.byId('tempest').index && !Damage.lastStand[target]);
+  check('ECP04 Last Stand: the old weapon comes back on revive', Weapons.current[target] === CAT.weapons.byId('vanguard').index && !Damage.lastStand[target]);
   TestArena.hit(shooter, target, 150);
   TestArena.hit(shooter, far, 200);
   TestArena.hit(shooter, medic, 200);
@@ -200,14 +200,14 @@ Test.add('damage', (check) => {
 Test.add('damage', (check) => {
   TestArena.start({ health: 'regen', downed: true, carry: 2 });
   const shooter = TestArena.actor(1, 0, 0), target = TestArena.actor(2, 0, 5), medic = TestArena.actor(2, 1, 5);
-  Weapons.setLoadout(target, ['lancet', 'tempest']);
+  Weapons.setLoadout(target, ['lancet', 'vanguard']);
   Economy.perkKeys[target].add('lastStand');
-  const pistol = CAT.weapons.byId(CAT.perks.byId('laststand').weapon), lancet = CAT.weapons.byId('lancet'), tempest = CAT.weapons.byId('tempest');
+  const pistol = CAT.weapons.byId(CAT.perks.byId('laststand').weapon), lancet = CAT.weapons.byId('lancet'), vanguard = CAT.weapons.byId('vanguard');
   const owns = (weapon) => Weapons.owned[Weapons.slotIndex(target, weapon.index)] === 1;
   TestArena.hit(shooter, target, 150);
-  check('ECP04 Last Stand at the carry limit keeps both carried weapons', Weapons.current[target] === pistol.index && owns(lancet) && owns(tempest) && Weapons.dropped === '');
+  check('ECP04 Last Stand at the carry limit keeps both carried weapons', Weapons.current[target] === pistol.index && owns(lancet) && owns(vanguard) && Weapons.dropped === '');
   TestArena.hold(medic, BTN.USE, REVIVE_SECONDS + 0.05);
-  check('ECP04 Last Stand: revive gives the held weapon back and takes the lent pistol', Weapons.current[target] === tempest.index && owns(lancet) && !owns(pistol), Weapons.current[target]);
+  check('ECP04 Last Stand: revive gives the held weapon back and takes the lent pistol', Weapons.current[target] === vanguard.index && owns(lancet) && !owns(pistol), Weapons.current[target]);
   TestArena.hit(shooter, target, 150);
   TestArena.hold(medic, BTN.USE, 2);
   TestArena.hit(shooter, target, 500);
@@ -244,11 +244,11 @@ Test.add('damage', (check) => {
   TestArena.hit(shooter, target, 10, { zone: 'head', mode: CAT.weapons.byId('heron').primary });
   check('HP-002 arena alwaysHead weapons keep their head multiplier', before - Actors.health[target] === 25);
   before = Actors.health[target];
-  TestArena.hit(shooter, target, 10, { distance: 40, mode: CAT.weapons.byId('tempest').primary, zone: 'body' });
-  check('WPN-005 falloff halfway from 30 to 50 m = 0.9', Test.near(before - Actors.health[target], 9, 1e-4), before - Actors.health[target]);
+  TestArena.hit(shooter, target, 10, { distance: 17.5, mode: CAT.weapons.byId('wasp').primary, zone: 'body' });
+  check('WPN-005 falloff halfway from 10 to 25 m = 0.8', Test.near(before - Actors.health[target], 8, 1e-4), before - Actors.health[target]);
   before = Actors.health[target];
-  TestArena.hit(shooter, target, 10, { distance: 80, mode: CAT.weapons.byId('tempest').primary, zone: 'body' });
-  check('WPN-005 falloff floor at minFactor', Test.near(before - Actors.health[target], 8, 1e-4));
+  TestArena.hit(shooter, target, 10, { distance: 80, mode: CAT.weapons.byId('wasp').primary, zone: 'body' });
+  check('WPN-005 falloff floor at minFactor', Test.near(before - Actors.health[target], 6, 1e-4));
   before = Actors.health[target];
   TestArena.hit(shooter, target, 0.3);
   check('HP-003 a passing hit deals at least 1', before - Actors.health[target] === 1);
@@ -298,9 +298,9 @@ Test.add('damage', (check) => {
   const handler = Bus.on('kill', (event) => { kill = Object.assign({}, event); });
   TestArena.hit(a, victim, 50, { weapon: 'wasp' });
   Sim.run(TICK_RATE);
-  TestArena.hit(b, victim, 60, { weapon: 'tempest', zone: 'body' });
+  TestArena.hit(b, victim, 60, { weapon: 'vanguard', zone: 'body' });
   Bus.off('kill', handler);
-  check('kill event with killer and assister', kill && kill.victim === victim && kill.killer === b && kill.assister === a && kill.weapon === 'tempest', JSON.stringify(kill));
+  check('kill event with killer and assister', kill && kill.victim === victim && kill.killer === b && kill.assister === a && kill.weapon === 'vanguard', JSON.stringify(kill));
   check('death sets alive = 0', Actors.alive[victim] === 0);
   check('dead actors take no damage', TestArena.hit(a, victim, 10) === 0);
   const late = TestArena.actor(2, 0, 9);

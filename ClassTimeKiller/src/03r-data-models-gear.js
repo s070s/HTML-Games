@@ -1,9 +1,9 @@
 // ==== S03 DATA: GEAR MODELS ====
 // Built-in 3D models of the gear (07c-render-models.js Models; part format, tints and LODs there; MODEL_SCHEMA in 03b):
 // items I01..I17 and powerups PU01..PU20 as world pickups (origin = the floating centre; 12a spins and bobs them), grenades
-// G01..G09, G19, G20 (origin = the body's centre, also in the hand), placed and deployed devices G10..G18, G21..G24 (origin = the floor point under the device; the
+// G01..G04, G06..G09, G20 (origin = the body's centre, also in the hand), placed and deployed devices G10, G13, G15, G18, G21..G24 (origin = the floor point under the device; the
 // barrier panel matches its row size) and one ammo box per weapon ammo type (`ammo-<type>`, own colour: the I08 box shows
-// the local player's held weapon's type). Row ids are the catalogue codes. `rune` is a shared base row (PU15..PU17).
+// the local player's held weapon's type). Row ids are the catalogue codes. `rune` is the shared base row of the rune powerups (PU15).
 // Flat emblems (bolt, wings, fangs) are built in the YZ plane: the pickup spin shows them from every side.
 Data.define('gearModels', MODEL_SCHEMA, [
   // ---- Items ----
@@ -135,15 +135,6 @@ Data.define('gearModels', MODEL_SCHEMA, [
     { offset: [0, 0.08, -0.2], size: [0.04, 0.16, 0.34], rotation: [0, 25] },
     { offset: [0, -0.02, 0.18], size: [0.04, 0.08, 0.24], rotation: [0, -10], tint: 'shade', lod: 0 },
     { offset: [0, -0.02, -0.18], size: [0.04, 0.08, 0.24], rotation: [0, 10], tint: 'shade', lod: 0 }] },
-  { id: 'PU07', parts: [
-    { shape: 'sphere', size: [0.38, 0.38, 0.38], tint: 'glow', lod: 2 },
-    { shape: 'ring', size: [0.66, 0.06, 0.66], rotation: [0, 20], tint: 'white' },
-    { shape: 'sphere', offset: [-0.3, 0.06, 0], size: [0.1, 0.1, 0.1], tint: 'white', lod: 0 },
-    { shape: 'sphere', offset: [0.3, -0.06, 0], size: [0.1, 0.1, 0.1], tint: 'white', lod: 0 }] },
-  { id: 'PU08', parts: [
-    { shape: 'ring', size: [0.6, 0.14, 0.6], lod: 2 },
-    { offset: [0, 0, 0.27], size: [0.16, 0.14, 0.06], tint: 'brass' },
-    { offset: [0, 0, 0.3], size: [0.06, 0.06, 0.02], tint: 'light', lod: 0 }] },
   { id: 'PU09', parts: [
     { size: [0.28, 0.24, 0.22], lod: 2 },
     { shape: 'cylinder', offset: [0, -0.18, 0], size: [0.2, 0.14, 0.18], tint: 'dark' },
@@ -178,10 +169,6 @@ Data.define('gearModels', MODEL_SCHEMA, [
     { shape: 'cone', offset: [0, 0.31, 0], size: [0.3, 0.12, 0.12], tint: 'shade' }] },
   { id: 'PU15', from: 'rune', parts: [
     { offset: [0, 0.04, 0.065], size: [0.16, 0.2, 0.02], tint: 'glow' }, { shape: 'cone', offset: [0, -0.1, 0.065], size: [0.16, 0.1, 0.02], rotation: [0, 180], tint: 'glow' }] },
-  { id: 'PU16', from: 'rune', parts: [
-    { shape: 'cone', offset: [0, 0.08, 0.065], size: [0.18, 0.14, 0.02], tint: 'glow' }, { offset: [0, -0.06, 0.065], size: [0.05, 0.18, 0.02], tint: 'glow' }] },
-  { id: 'PU17', from: 'rune', parts: [
-    { shape: 'cylinder', offset: [0, -0.04, 0.07], size: [0.07, 0.18, 0.03], tint: 'glow' }, { shape: 'cone', offset: [0, 0.1, 0.07], size: [0.07, 0.1, 0.03], tint: 'glow' }] },
   { id: 'PU18', parts: [
     { shape: 'sphere', size: [0.2, 0.2, 0.2], tint: 'glow', lod: 2 },
     { shape: 'cone', offset: [0, 0.16, 0], size: [0.14, 0.2, 0.14], tint: 'glow' },
@@ -217,11 +204,6 @@ Data.define('gearModels', MODEL_SCHEMA, [
     { shape: 'sphere', offset: [0, -0.03, 0], size: [0.17, 0.18, 0.17], lod: 2 },
     { shape: 'cylinder', offset: [0, 0.09, 0], size: [0.06, 0.1, 0.06], tint: 'shade' },
     { shape: 'cone', offset: [0, 0.17, 0], size: [0.07, 0.1, 0.07], tint: 'flame' }] },
-  { id: 'G05', parts: [
-    { shape: 'cylinder', size: [0.12, 0.2, 0.12], lod: 2 },
-    { shape: 'cylinder', offset: [0, 0, 0.061], size: [0.08, 0.08, 0.01], rotation: [0, -90], tint: 'dark' },
-    { shape: 'cylinder', offset: [-0.03, 0.17, 0], size: [0.01, 0.14, 0.01], tint: 'metal', lod: 0 },
-    { shape: 'sphere', offset: [-0.03, 0.24, 0], size: [0.025, 0.025, 0.025], tint: 'lamp', lod: 0 }] },
   { id: 'G06', parts: [
     { shape: 'sphere', offset: [0, 0.02, 0], size: [0.2, 0.14, 0.2], lod: 2 },
     { shape: 'cylinder', offset: [0, -0.04, 0], size: [0.22, 0.04, 0.22], tint: 'dark' },
@@ -240,11 +222,6 @@ Data.define('gearModels', MODEL_SCHEMA, [
     { shape: 'sphere', size: [0.18, 0.18, 0.18], tint: 'black', lod: 2 },
     { shape: 'ring', size: [0.34, 0.05, 0.34], rotation: [0, 15], tint: 'glow' },
     { shape: 'ring', size: [0.24, 0.04, 0.24], rotation: [0, -30], tint: 'glow', lod: 0 }] },
-  { id: 'G19', parts: [
-    { shape: 'cylinder', size: [0.03, 0.22, 0.03], rotation: [0, -90], tint: 'dark', lod: 2 },
-    { shape: 'cone', offset: [0, 0, 0.15], size: [0.05, 0.1, 0.05], rotation: [0, -90] },
-    { offset: [0, 0, -0.1], size: [0.1, 0.01, 0.06] }, { offset: [0, 0, -0.1], size: [0.01, 0.1, 0.06] },
-    { shape: 'sphere', offset: [0, 0, 0.05], size: [0.04, 0.04, 0.04], tint: 'lamp', lod: 0 }] },
   { id: 'G20', parts: [
     { shape: 'sphere', size: [0.2, 0.2, 0.2], tint: 'shade', lod: 2 },
     { shape: 'ring', offset: [0, 0.04, 0], size: [0.24, 0.04, 0.24], tint: 'glow' },
@@ -257,30 +234,12 @@ Data.define('gearModels', MODEL_SCHEMA, [
     { offset: [0.1, 0.03, 0], size: [0.02, 0.08, 0.02], rotation: [0, 20], tint: 'dark' },
     { offset: [0, 0.13, 0.036], size: [0.24, 0.1, 0.01], tint: 'shade', lod: 0 },
     { shape: 'sphere', offset: [0, 0.23, 0], size: [0.03, 0.03, 0.03], tint: 'lamp', lod: 0 }] },
-  { id: 'G11', parts: [
-    { shape: 'cylinder', offset: [0, 0.03, 0], size: [0.22, 0.06, 0.22], tint: 'dark', lod: 2 },
-    { shape: 'sphere', offset: [0, 0.07, 0], size: [0.16, 0.1, 0.16], lod: 2 },
-    { shape: 'cone', offset: [0, 0.14, 0], size: [0.03, 0.05, 0.03], tint: 'metal' },
-    { shape: 'cone', offset: [-0.07, 0.11, 0], size: [0.03, 0.05, 0.03], rotation: [-90, -50], tint: 'metal', lod: 0 },
-    { shape: 'cone', offset: [0.07, 0.11, 0], size: [0.03, 0.05, 0.03], rotation: [90, -50], tint: 'metal', lod: 0 },
-    { shape: 'cone', offset: [0, 0.11, 0.07], size: [0.03, 0.05, 0.03], rotation: [0, -50], tint: 'metal', lod: 0 },
-    { shape: 'cone', offset: [0, 0.11, -0.07], size: [0.03, 0.05, 0.03], rotation: [0, 50], tint: 'metal', lod: 0 },
-    { shape: 'sphere', offset: [-0.05, 0.1, 0.05], size: [0.03, 0.03, 0.03], tint: 'lamp', lod: 0 }] },
-  { id: 'G12', parts: [
-    { shape: 'cylinder', offset: [0, 0.05, 0], size: [0.3, 0.1, 0.3], tint: 'dark', lod: 2 },
-    { shape: 'cylinder', offset: [0, 0.15, 0], size: [0.12, 0.12, 0.12], tint: 'metal' },
-    { shape: 'sphere', offset: [0, 0.24, 0], size: [0.2, 0.16, 0.2], tint: 'glow', lod: 2 }] },
   { id: 'G13', parts: [
     { offset: [0, 0.62, 0], size: [1.9, 1.08, 0.22], lod: 2 },
     { offset: [-0.97, 0.6, 0], size: [0.1, 1.2, 0.3], tint: 'metal' }, { offset: [0.97, 0.6, 0], size: [0.1, 1.2, 0.3], tint: 'metal' },
     { offset: [0, 1.17, 0], size: [1.9, 0.06, 0.26], tint: 'metal' },
     { offset: [0, 0.04, 0], size: [1.9, 0.08, 0.3], tint: 'dark', lod: 0 },
     { offset: [0, 0.62, 0.115], size: [1.6, 0.08, 0.01], tint: 'light', lod: 0 }] },
-  { id: 'G14', parts: [
-    { shape: 'cylinder', offset: [0, 0.04, 0], size: [1.8, 0.08, 1.8], tint: 'dark', lod: 2 },
-    { shape: 'ring', offset: [0, 0.09, 0], size: [1.5, 0.06, 1.5], tint: 'glow', lod: 2 },
-    { shape: 'cylinder', offset: [0, 0.085, 0], size: [0.9, 0.02, 0.9], tint: 'shade' },
-    { shape: 'cone', offset: [0, 0.2, 0], size: [0.4, 0.18, 0.4], tint: 'glow', lod: 0 }] },
   { id: 'G15', parts: [
     { offset: [0, 0.62, 0], size: [0.32, 0.22, 0.36], lod: 2 },
     { shape: 'cylinder', offset: [0, 0.64, 0.34], size: [0.06, 0.36, 0.06], rotation: [0, -90], tint: 'dark', lod: 2 },
@@ -290,15 +249,6 @@ Data.define('gearModels', MODEL_SCHEMA, [
     { offset: [0, 0.15, -0.14], size: [0.04, 0.34, 0.04], rotation: [0, -35], tint: 'dark' },
     { offset: [-0.2, 0.6, -0.04], size: [0.08, 0.14, 0.18], tint: 'shade', lod: 0 },
     { offset: [0, 0.66, 0.185], size: [0.12, 0.05, 0.01], tint: 'lamp', lod: 0 }] },
-  { id: 'G16', parts: [
-    { shape: 'cylinder', offset: [0, 0.04, 0], size: [0.3, 0.08, 0.3], tint: 'dark', lod: 2 },
-    { shape: 'cylinder', offset: [0, 0.16, 0], size: [0.08, 0.18, 0.08], tint: 'metal' },
-    { offset: [0, 0.34, 0], size: [0.22, 0.07, 0.07], tint: 'glow', lod: 2 }, { offset: [0, 0.34, 0], size: [0.07, 0.22, 0.07], tint: 'glow', lod: 2 }] },
-  { id: 'G17', parts: [
-    { shape: 'cylinder', offset: [0, 0.04, 0], size: [0.3, 0.08, 0.3], tint: 'dark', lod: 2 },
-    { shape: 'cylinder', offset: [0, 0.14, 0], size: [0.08, 0.14, 0.08], tint: 'metal' },
-    { shape: 'cone', offset: [0, 0.3, 0], size: [0.3, 0.22, 0.3], rotation: [0, 180], tint: 'glow', lod: 2 },
-    { shape: 'ring', offset: [0, 0.42, 0], size: [0.34, 0.04, 0.34], tint: 'shade', lod: 0 }] },
   { id: 'G18', parts: [
     { offset: [0, 0.06, 0], size: [0.26, 0.12, 0.26], tint: 'dark', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.34, 0], size: [0.03, 0.5, 0.03], tint: 'metal', lod: 2 },

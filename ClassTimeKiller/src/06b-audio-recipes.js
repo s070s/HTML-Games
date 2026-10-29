@@ -165,7 +165,7 @@ const SOUND_TABLES = {
   fireMode: { melee: 'melee' },   // a quick melee swings whatever gun is held (no default: the weapon tables decide)
   weaponClass: { sidearm: 'sidearm', shotgun: 'shotgun', rifle: 'rifle', smg: 'smg', lmg: 'lmg', dmr: 'dmr', marksman: 'dmr', sniper: 'sniper', rail: 'rail',
     launcher: 'launcher', explosive: 'launcher', energy: 'energy', heavy: 'heavy', melee: 'melee', tool: 'tool', exotic: 'exotic', power: 'power', default: 'rifle' },
-  weaponOverride: { lancet: 'rail', heron: 'sniper', kestrel: 'dmr', longshot: 'dmr', anvil: 'lmg', twinsting: 'smg', kindler: 'flame',
+  weaponOverride: { lancet: 'rail', heron: 'sniper', kestrel: 'dmr', kindler: 'flame',
     hush: 'suppressed', tanto: 'stab', talonbow: 'bowshot' },
   material: expandAliasTable('impact.'),
   surface: expandAliasTable('step.'),

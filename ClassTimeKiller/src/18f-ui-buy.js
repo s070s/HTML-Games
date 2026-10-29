@@ -1,7 +1,8 @@
 // ==== S18 UI: BUY MENU AND LOADOUT EDITOR ====
 // 'buy' (ECP02 round buy, ECP07 wave shop): credits, buy time, the items with hotkeys 1-9 and the loss ladder panel
 // (ECO-001). It opens with the buyMenu action (B) or from the pause menu and closes itself when buy time ends.
-// 'loadout': classes and custom classes (ECP04), the hero (ECP05) and ability kit choices, stored by S13 Loadouts.
+// 'loadout': weapons and gear of the pickup rulesets (P3-05), classes and custom classes (ECP04), the hero (ECP05) and ability kit
+// choices, stored by S13 Loadouts.
 // Every control is a Ui button or cycle, so mouse, keyboard, gamepad (focus navigation) and touch all work.
 
 const BUY_HOTKEY_COUNT = 9;
@@ -15,7 +16,8 @@ const BUY_HUD = { money: 0, nextRoundMoney: 0, canBuy: false, buyTimeLeft: 0 };
 // The pause rows show only in matches that buy or pick loadouts (when(), read as the pause menu opens).
 const BUY_PAUSE_ENTRY = { label: 'Buy menu', screen: 'buy', when: () => buyMenuAvailable() };
 const LOADOUT_PAUSE_ENTRY = { label: 'Loadout', screen: 'loadout', when: () => loadoutAvailable() };
-const LOADOUT_TABS = [['classes', 'Classes'], ['heroes', 'Hero'], ['kits', 'Ability kits']];
+const LOADOUT_TABS = [['weapons', 'Weapons and gear'], ['classes', 'Classes'], ['heroes', 'Hero'], ['kits', 'Ability kits']];
+const PICKUP_WEAPON_SLOTS = ['melee', 'primary', 'secondary'];
 const KIT_SLOT_LABELS = { ability1: 'Ability 1', ability2: 'Ability 2', ultimate: 'Ultimate' };
 const HERO_PASSIVE_TEXT = {
   knockbackResist: 'Takes less knockback', killHaste: 'Speed burst after each kill', regen: 'Heals itself out of combat',
@@ -27,6 +29,7 @@ function readableKey(key) { return key ? key.charAt(0).toUpperCase() + key.slice
 function weaponName(key) { const weapon = CAT.weapons.byId(key); return weapon ? weapon.name : readableKey(key); }
 function abilityName(key) { const row = CAT.abilities.byId(key); return row ? row.name : 'None'; }
 function fieldUpgradeName(key) { return CAT.abilities.byId(key) ? abilityName(key) : readableKey(key); }
+function gadgetName(key) { const row = CAT.gadgets.byId(key); return row ? row.name : readableKey(key); }
 function perkName(key) { const perk = CAT.perks.byId(key); return perk ? perk.name : readableKey(key); }
 function playerInMatch() { return !!Game.match && Game.playerId >= 0; }
 function appendLines(element, lines) {
@@ -53,6 +56,7 @@ const BuyMenu = {
     this.ladder = makeElement('div', 'buy-ladder');
     this.ladderKey = '';
     panel.appendChild(head); panel.appendChild(this.status); panel.appendChild(this.ladder);
+    if (Economy.preset().buy === 'round') panel.appendChild(this.quickBuyButton());
     panel.appendChild(this.buildItems());
     root.appendChild(panel);
     this.refresh();
@@ -74,6 +78,16 @@ const BuyMenu = {
     button.appendChild(priceLabel);
     this.entries.push({ button, item, priceLabel, price: -1 });   // refresh() fills the price this player pays
     return button;
+  },
+  // P3-01: one tap buys the loadout primary (key Q).
+  quickBuyButton() {
+    const key = Loadouts.pickedKey('primary');
+    return Ui.button('Quick buy: ' + weaponName(key) + ' (' + formatCredits(CAT.weapons.byId(key).price) + ', key Q)', () => this.quickBuy(), 'primary');
+  },
+  quickBuy() {
+    const result = Economy.quickBuy(Game.playerId);
+    Ui.toast(result.ok ? 'Bought ' + weaponName(result.item) : BUY_REASON_TEXT[result.reason]);
+    this.refresh();
   },
   buy(item) {
     const result = Economy.buy(Game.playerId, item.id);
@@ -156,11 +170,26 @@ const LoadoutMenu = {
 function defaultLoadoutTab() {
   if (!playerInMatch()) return 'classes';
   if (Abilities.usesHeroes()) return 'heroes';
+  if (Loadouts.usesPickupLoadout()) return 'weapons';
   const kit = Abilities.kitOf(Game.playerId);
   if (kit && kit.id !== 'classes') return 'kits';
   return Economy.usesClasses() ? 'classes' : 'kits';
 }
 
+// The pickup loadout (P3-05): one cycle per slot over the whole roster. A weapon this match restricts stays in the list with the reason.
+function renderWeaponsTab(body) {
+  if (playerInMatch() && !Loadouts.usesPickupLoadout()) body.appendChild(makeElement('p', 'ui-note', 'This match arms you itself; the picks below apply in matches with map pickups.'));
+  for (const slot of PICKUP_SLOTS) body.appendChild(pickupSlotRow(slot));
+  const foot = makeElement('div', 'ui-foot');
+  foot.appendChild(Ui.button('Reset to the default loadout', () => { Loadouts.resetPickup(); LoadoutMenu.show('weapons'); }));
+  body.appendChild(foot);
+  if (playerInMatch()) body.appendChild(makeElement('p', 'ui-note', 'Loadout changes apply at your next spawn.'));
+}
+function pickupSlotRow(slot) {
+  const options = Loadouts.pickupOptions(slot), weapon = PICKUP_WEAPON_SLOTS.includes(slot);
+  const names = options.map((key) => (weapon ? weaponName(key) + (playerInMatch() && Loadouts.restriction(key) ? ' (' + Loadouts.restriction(key) + ')' : '') : gadgetName(key)));
+  return Ui.row(PICKUP_SLOT_LABELS[slot], Ui.cycle(options, names, Loadouts.pickedKey(slot), (key) => Loadouts.setPickup(slot, key)));
+}
 function renderClassesTab(body) {
   const classes = Loadouts.classes(), details = makeElement('div', 'ui-note');
   const pick = (id) => { Loadouts.selectClass(id); describeClass(details, Loadouts.selectedClass()); };
@@ -176,7 +205,7 @@ function renderClassesTab(body) {
 }
 function describeClass(element, row) {
   appendLines(element, [
-    'Primary: ' + weaponName(Economy.classWeapon(row.primary)) + '  ·  Secondary: ' + weaponName(Economy.classWeapon(row.secondary)),
+    'Primary: ' + weaponName(row.primary) + '  ·  Secondary: ' + weaponName(row.secondary),
     'Lethal: ' + readableKey(row.lethal) + '  ·  Tactical: ' + readableKey(row.tactical),
     'Perks: ' + row.perks.map(perkName).join(', '),
     'Field upgrade: ' + fieldUpgradeName(row.fieldUpgrade),
@@ -203,12 +232,7 @@ const CLASS_FIELD_OPTIONS = {
   fieldUpgrade: () => CAT.economy.byId('classes').fieldUpgrades,
 };
 const CLASS_FIELD_LABELS = { primary: 'Primary', secondary: 'Secondary', lethal: 'Lethal', tactical: 'Tactical', fieldUpgrade: 'Field upgrade' };
-const CLASS_FIELD_NAMES = { primary: classWeaponLabel, secondary: classWeaponLabel, lethal: readableKey, tactical: readableKey, fieldUpgrade: fieldUpgradeName };
-// A class weapon's name, plus the weapon it spawns as when this match's set swaps it (RS12 Frame Runner: Hornet as Needlethorn).
-function classWeaponLabel(key) {
-  const armed = Economy.classWeapon(key);
-  return armed === key ? weaponName(key) : weaponName(key) + ' (here: ' + weaponName(armed) + ')';
-}
+const CLASS_FIELD_NAMES = { primary: weaponName, secondary: weaponName, lethal: readableKey, tactical: readableKey, fieldUpgrade: fieldUpgradeName };
 function uniqueClassValues(field) { return Array.from(new Set(CAT.classes.map((row) => row[field]).filter(Boolean))); }
 
 // params: { row, isNew }; without params it starts a new class from the selected one.
@@ -280,14 +304,14 @@ function kitSlotRow(kit, slotName) {
   return Ui.row(KIT_SLOT_LABELS[slotName], Ui.cycle(options, options.map(abilityName), current, (abilityId) => Loadouts.setKitChoice(kit.id, slotName, abilityId)));
 }
 
-const LOADOUT_RENDERERS = { classes: renderClassesTab, heroes: renderHeroesTab, kits: renderKitsTab };
+const LOADOUT_RENDERERS = { weapons: renderWeaponsTab, classes: renderClassesTab, heroes: renderHeroesTab, kits: renderKitsTab };
 
 // ---- Opening: the buyMenu action (B), the pause menu rows, B again or Esc closes ----
 function buyMenuAvailable() { return Economy.usesMoney() && Economy.preset().buy !== 'none'; }
 // Classes only where the economy hands them out (Economy.usesLoadouts: not in Gun Game or Roulette, whose mode arms everyone);
 // an ability kit can still be picked in a match without classes, unless the mode arms everyone.
 function loadoutAvailable() {
-  if (Economy.usesLoadouts()) return true;
+  if (Economy.usesLoadouts() || (playerInMatch() && Loadouts.usesPickupLoadout())) return true;
   return playerInMatch() && !Economy.modeArmsEveryone() && Abilities.kitOf(Game.playerId) !== null;
 }
 function onBuyMenuAction(event) {
@@ -301,6 +325,7 @@ function onBuyScreenKey(event) {
   const screen = Ui.current();
   if (screen !== 'buy' && screen !== 'loadout') return;
   if (event.code === 'KeyB') { Ui.back(); event.preventDefault(); return; }
+  if (screen === 'buy' && event.code === 'KeyQ' && Economy.preset().buy === 'round') { BuyMenu.quickBuy(); event.preventDefault(); return; }
   const digit = screen === 'buy' && /^Digit[1-9]$/.test(event.code) ? Number(event.code.slice(5)) : 0;
   if (digit) { BuyMenu.buyByHotkey(digit - 1); event.preventDefault(); }
 }

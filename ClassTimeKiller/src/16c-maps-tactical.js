@@ -93,7 +93,7 @@ const harborCenter = {
     ['concrete', -3, 0, -5, 3, 2.6, -1.5], ['metal', 8, 0, 3, 11, 2.6, 6], ['metal', -11, 0, -6, -8, 2.6, -3],  // yard cover around the middle
     ['concrete', -48, -1, -48, 48, 12, -45], ['concrete', -48, -1, 45, 48, 12, 48], ['concrete', -48, -1, -45, -45, 12, 45], ['concrete', 45, -1, -45, 48, 12, 45], // perimeter
   ],
-  items: [['fury', 0, 0, 0], ['surplus', 0, 0, 33], ['surplus', 0, 0, -33], ['heavyplate', 0, 0, 16], ['megacell', 0, 0, -16]],
+  items: [['fury', 0, 0, 0], ['megacell', 0, 0, 33], ['megacell', 0, 0, -33], ['heavyplate', 0, 0, 16], ['megacell', 0, 0, -16]],
   zones: [['North Bridge', -3, 10, 3, 22, -1, 3], ['South Bridge', -3, -22, 3, -10, -1, 3], ['Cargo Heart', -3, -5, 3, 5, -1, 8]],
   hints: [['cover', 0, 0, 6], ['cover', 0, 0, -6], ['sniper', 0, 0, 20]],
   objectives: [

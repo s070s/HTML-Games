@@ -254,7 +254,7 @@ Maps.rows.push(MapKit.make(Object.assign({
 // MP09 Ring Isle - PLACEHOLDER (placeholder: true) for the royale mode until generator GN5 (step 13.1) replaces it: a flat 300 m island with
 // six points of interest, a centre hill and a lattice of low ridges that keeps every sightline under 150 m. Loot spots are the map items.
 const ISLE_POIS = [['Quarry', 85, 0], ['Lighthouse', 42, 74], ['Old Mill', -42, 74], ['Harbor Town', -85, 0], ['Radar Hill', -42, -74], ['Ruined Fort', 42, -74]];
-const ISLE_LOOT = ['warden', 'wasp', 'tempest', 'vanguard', 'scattergun', 'kestrel', 'ratchet', 'pitcher', 'healthpack', 'lightplate', 'ammobox', 'healthvial'];
+const ISLE_LOOT = ['warden', 'wasp', 'vanguard', 'vanguard', 'scattergun', 'kestrel', 'ratchet', 'pitcher', 'healthpack', 'lightplate', 'ammobox', 'healthvial'];
 const ISLE_RIDGE_SPACING = 30, ISLE_RIDGE_COUNT = 10;
 const isleNearAnything = (x, z) => Math.hypot(x, z) < 18 || ISLE_POIS.some(([, px, pz]) => Math.hypot(x - px, z - pz) < 26);
 const isleRidges = Array.from({ length: ISLE_RIDGE_COUNT * ISLE_RIDGE_COUNT }, (unused, index) => {

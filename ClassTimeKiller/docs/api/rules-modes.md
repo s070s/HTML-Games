@@ -104,7 +104,7 @@ Emitted: `actor.spawn`, `score`, `announce`, `round` (new), `explosion` (bomb), 
 
 - S10 movement: hold actors with `ACTOR_FLAG.FROZEN` still; apply `rules.moveOverrides` over the movement preset.
 - S11 damage: ignore damage to `ACTOR_FLAG.PROTECTED` actors; read `Game.match.handicap[id]`; set `alive = 0` before emitting `kill`.
-- S12 economy (later): listen to `round` and `score` (`plant`, `kill`); use `rules.params.economy` when set. A class card and a class spawn name the same weapon through `Economy.classWeapon(key)`, which applies `CLASS_SET_SWAPS` (03l) of the ruleset's weapon set (Frame Runner swaps the Military guns).
+- S12 economy (later): listen to `round` and `score` (`plant`, `kill`); use `rules.params.economy` when set. A class card and a class spawn name the class's own weapons from the whole roster (P3-01 removed the Military-only class weapons and the Frame Runner swap table).
 
 ## Add-on versus modes (`src/13e-modes-objective.js`, `src/13f-modes-party.js`, `src/13g-modes-royale.js`, tests: group `modes2`)
 

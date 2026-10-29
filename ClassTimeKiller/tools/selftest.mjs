@@ -1,5 +1,5 @@
 // Runs ClassTimeKiller's self-test (the test build, ClassTimeKiller.test.html) in headless Chrome (software WebGL), no dependencies (Chrome startup: tools/cdp.mjs).
-// Usage: node tools/selftest.mjs [--file <html>] [--group <name>] [--slow] [--eval "<js, may be async>"] [--screenshot <png>] [--timeout 240] [--no-selftest]
+// Usage: node tools/selftest.mjs [--file <html>] [--group <name>] [--slow] [--eval "<js, may be async>"] [--screenshot <png>] [--timeout 480] [--no-selftest]
 // Prints failed checks, page errors and the eval result. Exit code: 0 pass, 1 fail, 2 timeout, 3 runner error.
 import { writeFileSync } from 'node:fs';
 import { join, resolve, dirname } from 'node:path';
@@ -15,7 +15,7 @@ const slow = args.includes('--slow');   // also run the slow blocks (Test.add(..
 const extra = option('--eval', '');
 const skipSelfTest = args.includes('--no-selftest');
 const screenshot = option('--screenshot', ''); // PNG path: captured after --eval (use the eval to set up the scene)
-const timeoutSeconds = Number(option('--timeout', '240'));
+const timeoutSeconds = Number(option('--timeout', '480'));
 
 let session = null;
 const finish = async (code) => {

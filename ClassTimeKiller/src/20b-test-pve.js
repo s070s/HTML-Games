@@ -501,7 +501,7 @@ Test.add('pve', (check) => {
   const hit = runUntilHit(fireback, shooter, 6);
   check('the fire-back dummy shoots back', !!hit);
   const target = RangeRun.stations[0].id, shotsBefore = RangeRun.shots;
-  Bus.emit('weapon.fire', { id: shooter, weapon: 'tempest', weaponClass: 'rifle', mode: 'primary', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
+  Bus.emit('weapon.fire', { id: shooter, weapon: 'vanguard', weaponClass: 'rifle', mode: 'primary', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
   hitEnemy(shooter, target, 30, 'hit', 'head');
   check('shots, hits and headshots are counted', RangeRun.shots === shotsBefore + 1 && RangeRun.hits === 1 && RangeRun.headshots === 1 && RangeRun.damage > 0, RangeRun.shots + ' ' + RangeRun.hits);
   Bus.emit('weapon.fire', { id: shooter, weapon: 'scattergun', weaponClass: 'shotgun', mode: 'primary', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
@@ -623,7 +623,7 @@ function shootAt(id, point) {
   const x = point.x + towardX / flat * 5, z = point.z + towardZ / flat * 5, y = 1.6;
   const dx = point.x - x, dy = point.y - y, dz = point.z - z, length = Math.hypot(dx, dy, dz);
   relocateActor(id, x, 0, z, 0);
-  Bus.emit('weapon.fire', { id, weapon: 'tempest', weaponClass: 'rifle', mode: 'primary', x, y, z, dx: dx / length, dy: dy / length, dz: dz / length });
+  Bus.emit('weapon.fire', { id, weapon: 'vanguard', weaponClass: 'rifle', mode: 'primary', x, y, z, dx: dx / length, dy: dy / length, dz: dz / length });
 }
 
 // ---- Review fixes: game speed, readability, hit volumes, parries, champions, chambers, director ----
@@ -1408,7 +1408,7 @@ Test.add('pve', (check) => withQuality('potato', () => {
   runSeconds(0.5);
   check('all 20 stations are filled on Potato', RangeRun.stations.length === 20 && RangeRun.stations.every((station) => station.id >= 0), RangeRun.stations.filter((station) => station.id >= 0).length);
   check('the drill clock is idle before a shot', RangeRun.drillStart < 0);
-  Bus.emit('weapon.fire', { id: 0, weapon: 'tempest', weaponClass: 'rifle', mode: 'primary', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
+  Bus.emit('weapon.fire', { id: 0, weapon: 'vanguard', weaponClass: 'rifle', mode: 'primary', x: 0, y: 1.6, z: 0, dx: 0, dy: 0, dz: 1 });
   check('the drill clock starts at the first shot', RangeRun.drillStart === Sim.time);
   endModeTest();
 }));

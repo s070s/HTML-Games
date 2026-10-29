@@ -1,5 +1,5 @@
 // ==== S03 DATA: ABILITIES, HERO KITS, ABILITY KITS ====
-// Abilities A01..A40 (spec section 10) plus the meter rewards (AX rows), hero kits H01..H08 and the ability kits that
+// Abilities A01..A40 (spec section 10; P3-06 retired A30 and A31, codes never reused: 38 rows) plus the meter rewards (AX rows), hero kits H01..H08 and the ability kits that
 // rulesets, classes and the X46 mutator hand out. Each row names one generic effect kind (S12 12f) and its params;
 // numbers are the spec's tunables. Times in seconds, distances in metres, energy on the 0..100 bar.
 // activation: instant | toggle (on/off, drains costPerSecond) | hold (active while held) | channel (runs `duration`,
@@ -87,10 +87,6 @@ const ABILITY_ROWS = [
   // ---- Offense ----
   { id: 'arcbolt', code: 'A29', name: 'Arc Bolt', category: 'offense', activation: 'instant', resource: 'energy', cost: 25, range: 30, effect: 'bolt',
     params: { damage: 30, element: 'arc', status: 'shock', seconds: 1, stacks: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0xfff27a },
-  { id: 'ignite', code: 'A30', name: 'Ignite', category: 'offense', activation: 'instant', resource: 'energy', cost: 25, range: 30, effect: 'bolt',
-    params: { damage: 10, element: 'thermal', status: 'burn', seconds: 0, stacks: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0xff7a2a },
-  { id: 'frostlance', code: 'A31', name: 'Frost Lance', category: 'offense', activation: 'instant', resource: 'energy', cost: 30, range: 30, effect: 'bolt',
-    params: { damage: 10, element: 'cryo', status: 'chill', seconds: 0, stacks: 3 }, botUse: { when: 'enemyClose', range: [0, 20], chance: 0.5 }, color: 0x9fd8ff },
   { id: 'swarm', code: 'A32', name: 'Swarm Cloud', category: 'offense', activation: 'instant', cooldown: 25, duration: 6, range: 30, effect: 'swarm',
     params: { dps: 8, targets: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0x90a040 },
   { id: 'holodouble', code: 'A33', name: 'Holo Double', category: 'offense', activation: 'instant', cooldown: 15, duration: 8, effect: 'decoy',
@@ -133,7 +129,7 @@ CAT.abilities.forEach((row, index) => { row.index = index; });
 // Hero kits (RS09). health/armor/shield are the hero pools (HPP05); weapons: the loadout (the last key is drawn);
 // move: the hero's movement preset; passive: { kind, ... } handled by S12 (knockbackResist, killHaste, shieldRegen, ability,
 // flag: read by other sections through Abilities.passiveFlag); regen: the HPP05 support role regen S11 gives the support role;
-// gadget: the gadget slot the items section fills (G09, G19); slots: ability ids per slot ('' = none).
+// gadget: the gadget slot the items section fills (G09, G20); slots: ability ids per slot ('' = none).
 Data.define('heroes', {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, role: REQUIRED, health: REQUIRED, armor: 0, shield: 0, weapons: REQUIRED, move: 'modern',
   passive: { kind: 'none' }, gadget: '', ability1: '', ability2: '', ultimate: '', color: 0xffffff,
@@ -142,7 +138,7 @@ Data.define('heroes', {
     passive: { kind: 'knockbackResist', value: 0.3 }, ability1: 'aegisdome', ultimate: 'orbital', color: 0x5a7fbf },
   { id: 'moraine', code: 'H02', name: 'Moraine', role: 'tank', health: 250, shield: 100, weapons: ['hailstorm'], move: 'vanguard',
     passive: { kind: 'shieldRegen', delay: 2, rate: 30 }, ability1: 'grapnel', ability2: 'ampwall', ultimate: 'rally', color: 0x4fa08a },
-  { id: 'quill', code: 'H03', name: 'Quill', role: 'damage', health: 200, weapons: ['tempest'], move: 'agile',
+  { id: 'quill', code: 'H03', name: 'Quill', role: 'damage', health: 200, weapons: ['vanguard'], move: 'agile',
     passive: { kind: 'killHaste', speed: 1.25, seconds: 2.5 }, ability1: 'surge', ability2: 'rewind', ultimate: 'overcore', color: 0xe0a030 },
   { id: 'tessaly', code: 'H04', name: 'Tessaly', role: 'damage', health: 200, weapons: ['heron'], move: 'agile',
     passive: { kind: 'flag', flag: 'scopeInfo' }, ability1: 'glidepack', ability2: 'echopulse', ultimate: 'rift', color: 0x9a5fd0 },
@@ -152,8 +148,8 @@ Data.define('heroes', {
     passive: { kind: 'regen' }, ability1: 'mender', ability2: 'secondwind', ultimate: 'rally', color: 0x60d080 },
   { id: 'mirelle', code: 'H07', name: 'Mirelle', role: 'support', health: 225, weapons: ['needlethorn'], move: 'modern',
     passive: { kind: 'flag', flag: 'smokeVision' }, ability1: 'veil', ability2: 'mesmer', ultimate: 'timebend', color: 0x8080e0 },
-  { id: 'tamsin', code: 'H08', name: 'Tamsin', role: 'initiator', health: 200, weapons: ['longshot'], move: 'agile',
-    passive: { kind: 'ability', ability: 'tracker' }, gadget: 'dart', ability1: 'scoutdrone', ultimate: 'seerpulse', color: 0xc0c040 },
+  { id: 'tamsin', code: 'H08', name: 'Tamsin', role: 'initiator', health: 200, weapons: ['kestrel'], move: 'agile',
+    passive: { kind: 'ability', ability: 'tracker' }, gadget: 'emp', ability1: 'scoutdrone', ultimate: 'seerpulse', color: 0xc0c040 },
 ]);
 
 // balance-04: hero pools, heals, barriers and downs make team kills a fifth as frequent (Harbor, 10 bots, 3 min: 10-14
@@ -164,19 +160,25 @@ const HERO_KILL_LIMIT_SCALE = 0.3, HERO_KILL_LIMIT_MODES = ['tdm'];
 // Ability kits outside hero rulesets (ABL-001): which ruleset, economy or mutator hands them out, the default slots and
 // the abilities a loadout may pick per slot (choices; [] = fixed). A kit applies when its `match` test passes, first row first.
 // cooldowns: { slotName: seconds } replaces the row cooldown in this kit (ECP04 field upgrades recharge in 60-120 s).
-// match: { ruleset } bundle id | { mutator } mutator id | { economy } economy key.
+// match: { ruleset } bundle id | { mutator } mutator id | { economy } economy key | { abilities } the ruleset's `abilities` field (P3-01).
+// The abilities a loadout may carry (X46 Powers for All, the 'loadout' kit): everything usable in a versus match, 26 of the 38 A-rows (X46 adds Puppet Jump).
+const LOADOUT_ABILITY_IDS = ['shadowstep', 'phaseslip', 'grapnel', 'surge', 'rewind', 'updraft', 'glidepack', 'relocator', 'echopulse', 'huntersight', 'scoutdrone',
+  'tracker', 'veil', 'fence', 'timebend', 'gale', 'binding', 'mesmer', 'frenzy', 'mender', 'aegisdome', 'secondwind', 'ampwall', 'arcbolt', 'swarm', 'holodouble'];
+const LOADOUT_ULTIMATE_IDS = ['overcore', 'orbital', 'rift', 'rally'];
 Data.define('abilityKits', {
   id: REQUIRED, name: REQUIRED, match: REQUIRED, ability1: '', ability2: '', ultimate: '', passive: '', choices: {}, cooldowns: {},
 }, [
   { id: 'powers', name: 'Powers for All', match: { mutator: 'powers' }, ability1: 'shadowstep',
-    choices: { ability1: ['shadowstep', 'phaseslip', 'grapnel', 'surge', 'rewind', 'updraft', 'glidepack', 'relocator', 'echopulse', 'huntersight', 'scoutdrone',
-      'tracker', 'veil', 'fence', 'timebend', 'gale', 'binding', 'mesmer', 'puppet', 'frenzy', 'mender', 'aegisdome', 'secondwind', 'ampwall', 'arcbolt',
-      'ignite', 'frostlance', 'swarm', 'holodouble'] } },
+    choices: { ability1: LOADOUT_ABILITY_IDS.concat('puppet') } },
   { id: 'suit', name: 'Weave Suit', match: { ruleset: 'suit' }, ability1: 'bulwark', ability2: 'phantasm', ultimate: 'overdrive',
     choices: { ability1: ['bulwark', 'colossusweave'], ability2: ['phantasm', 'colossusweave'], ultimate: ['overdrive', 'colossusweave'] } },
   { id: 'frame', name: 'Frame Runner', match: { ruleset: 'frame' }, ability1: 'shadowstep', ability2: 'arcbolt', ultimate: 'timebend',
-    choices: { ability1: ['shadowstep', 'surge', 'glidepack', 'phaseslip'], ability2: ['arcbolt', 'ignite', 'frostlance', 'gale'], ultimate: ['timebend', 'huntersight', 'lifterpower'] } },
+    choices: { ability1: ['shadowstep', 'surge', 'glidepack', 'phaseslip'], ability2: ['arcbolt', 'gale'], ultimate: ['timebend', 'huntersight', 'lifterpower'] } },
   // ECP04 field upgrade slot: Echo Pulse is the one ability field upgrade (G13, G22, G23, G24 come from the items section;
   // a class with a gadget field upgrade leaves this slot empty).
   { id: 'classes', name: 'Class Loadout', match: { economy: 'classes' }, ability1: 'echopulse', choices: { ability1: ['echopulse'] }, cooldowns: { ability1: 90 } },
+  // P3-01 / P3-07: the pick-your-own kit of the loadout rulesets (RS06, RS07, RS08, RS10): Surge Dash and Rally Cry until the player picks.
+  // An ultimate needs a meter that pays it (ultimate, adrenaline): the rulesets that use this kit run the 'ultimate' meter.
+  { id: 'loadout', name: 'Ability Loadout', match: { abilities: 'loadout' }, ability1: 'surge', ultimate: 'rally',
+    choices: { ability1: LOADOUT_ABILITY_IDS, ultimate: LOADOUT_ULTIMATE_IDS } },
 ]);

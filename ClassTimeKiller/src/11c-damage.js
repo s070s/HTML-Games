@@ -52,7 +52,7 @@ const Damage = {
   shieldRegenBlockedUntil: new Int32Array(MAX_ACTORS), // shields do not recharge before this Sim.tick (write it only through pauseShieldRegen)
   lastAttacker: new Int8Array(MAX_ACTORS).fill(-1), lastAttackTime: new Float32Array(MAX_ACTORS),
   previousAttacker: new Int8Array(MAX_ACTORS).fill(-1), previousAttackTime: new Float32Array(MAX_ACTORS),
-  surplus: new Float32Array(MAX_ACTORS),            // surplus shield, filled by powerups (S12); spent before the shield
+  surplus: new Float32Array(MAX_ACTORS),            // surplus shield, filled by A40 Rally Cry (S12); spent before the shield
   shieldElement: new Uint8Array(MAX_ACTORS),        // PvE coloured shield: CAT.elements index + 1 (0 = plain)
   noRegen: new Uint8Array(MAX_ACTORS),              // 1 = no preset regeneration (PvE enemies: S14 runs their own)
   helmet: new Uint8Array(MAX_ACTORS),               // HPP04: armor also protects the head
@@ -96,7 +96,7 @@ const Damage = {
     const relation = this.relationScale(source, target, kind, rules);
     if (relation <= 0) return 0;
     let amount = info.amount * attackerScale * relation;
-    // A status-only hit (sleep dart, flare) lands on others only: an own 0-damage blast never reveals or sleeps its source (R-079).
+    // A status-only hit (sleep dart) lands on others only: an own 0-damage blast never reveals or sleeps its source (R-079).
     if (amount <= 0) { if (source !== target) this.applyHitStatus(source, target, info); return 0; }
     // HP-001: zone x precision first; HPP03 applies the head multiplier only to what reaches health (see takeLayers).
     const zoneFactor = zoneMultiplier(rules, info), lateZone = this.preset().shieldIgnoresZone ? zoneFactor : 1;
@@ -131,7 +131,7 @@ const Damage = {
     return amount;
   },
   // HP-005: a frozen target takes x3 from the next hit and fodder shatters outright. Hits in the step that froze the
-  // target (the other pellets of the W22 freeze blast) do not count: the shatter needs a follow-up hit.
+  // target (the other pellets of one freezing blast) do not count: the shatter needs a follow-up hit.
   shatter(target, amount, kind) {
     const freeze = CAT.statusEffects.byId('freeze'), slot = target * STATUS_COUNT + freeze.index;
     if (kind.id === 'dot' || this.statusTime[slot] <= 0 || this.frozenTick[target] === Sim.tick) return amount;
@@ -555,7 +555,7 @@ function limbFor(target, info) {
   if (info.zone !== 'body' || Math.abs(side) < LIMB_ARM_OFFSET) return LIMB.TORSO;
   return side > 0 ? LIMB.ARM_RIGHT : LIMB.ARM_LEFT;
 }
-// The status a hit carries: its mode's own, or the toggled stance's (W11 hollow rounds) for the weapon's primary.
+// The status a hit carries: its mode's own, or the toggled stance's (W09 hollow rounds) for the weapon's primary.
 function hitStatus(source, info) {
   const mode = info.mode;
   if (!mode) return null;

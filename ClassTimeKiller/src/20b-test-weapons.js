@@ -1,10 +1,12 @@
 // Self-tests for S11 weapons: catalogue rows, time-to-kill bands, exact fire rates, reload/swap timing, spread and
-// recoil determinism, projectile sweeps, every W01..W46 row firing, carry limits, ammo, aim assist and the view model.
+// recoil determinism, projectile sweeps, every weapon row firing (38 rows, P3-04), carry limits, ammo, aim assist and the view model.
 
+// P3-03 retired codes (never reused): merged into the weapon named in the migration map (WEAPON_MIGRATION, 04-save).
+const RETIRED_WEAPON_CODES = ['W08', 'W11', 'W14', 'W16', 'W18', 'W22', 'W29', 'W33'];
 const SPEC_WEAPON_SETS = {
-  arenaSet: 'W01 W04 W19 W21 W23 W30 W31 W32 W36 W37 W45', tacticalSet: 'W02 W04 W05 W06 W09 W11 W13 W14 W19 W24 W25 W29',
-  militarySet: 'W02 W04 W05 W09 W10 W11 W13 W14 W15 W16 W19 W24 W25 W28 W29 W33', sandboxSet: 'W02 W05 W12 W15 W16 W17 W18 W23 W24 W31 W32 W35',
-  ravagerSet: 'W01 W19 W20 W22 W26 W28 W31 W36 W39 W44 W45', knightSet: 'W03 W19 W20 W26 W34 W36 W38 W40', exoticSet: 'W07 W12 W27 W34 W37 W38 W39 W43 W44',
+  arenaSet: 'W01 W04 W19 W21 W23 W30 W31 W32 W36 W37 W45', tacticalSet: 'W02 W04 W05 W06 W09 W13 W19 W24 W25 W28',
+  militarySet: 'W02 W04 W05 W09 W10 W13 W15 W19 W24 W25 W28 W31', sandboxSet: 'W02 W05 W12 W15 W25 W17 W10 W23 W24 W31 W32 W35',
+  ravagerSet: 'W01 W19 W20 W26 W28 W31 W36 W39 W44 W45', knightSet: 'W03 W19 W20 W26 W34 W36 W38 W40', exoticSet: 'W07 W12 W27 W34 W37 W38 W39 W43 W44',
 };
 const FIRE_TYPES = ['hitscan', 'projectile', 'beam', 'melee', 'cone', 'lock', 'zoom', 'toggle', 'block', 'detonate', 'tool'];
 const TRIGGERS = ['auto', 'semi', 'burst', 'charge', 'release'];
@@ -28,8 +30,8 @@ function countTapped(id, seconds) {
 
 Test.add('weapons', (check) => {
   const codes = CAT.weapons.map((weapon) => weapon.code).join(' ');
-  const expected = Array.from({ length: 46 }, (unused, index) => 'W' + String(index + 1).padStart(2, '0')).join(' ');
-  check('W01..W46 all present in order', CAT.weapons.length === 46 && codes === expected, codes);
+  const expected = Array.from({ length: 46 }, (unused, index) => 'W' + String(index + 1).padStart(2, '0')).filter((code) => !RETIRED_WEAPON_CODES.includes(code)).join(' ');
+  check('W01..W46 without the 8 retired codes are present in order (38 weapons)', CAT.weapons.length === 38 && codes === expected, codes);
   check('P01..P16 projectiles present', CAT.projectiles.length >= 16 && CAT.projectiles.slice(0, 16).every((row, index) => row.code === 'P' + String(index + 1).padStart(2, '0')));
   const problems = [];
   for (const weapon of CAT.weapons) {
@@ -58,8 +60,8 @@ Test.add('weapons', (check) => {
   const unknown = CAT.weaponSets.flatMap((set) => set.weapons.concat(set.start)).filter((key) => !CAT.weapons.byId(key));
   check('weapon sets only name existing weapons', unknown.length === 0, unknown.join(', '));
   check('WPN-011 explosive alt fires arm at >= 6 m', CAT.projectiles.byId('contact').arm >= 6);
-  const unarmedAlts = ['shardcaster', 'stakedriver', 'talonbow', 'starthrower'].filter((key) => !(CAT.weapons.byId(key).alt.arm >= 6));
-  check('WPN-011 the W21, W26, W27 and W38 explosive alts arm at >= 6 m', unarmedAlts.length === 0, unarmedAlts.join());
+  const unarmedAlts = ['shardcaster', 'talonbow', 'starthrower'].filter((key) => !(CAT.weapons.byId(key).alt.arm >= 6));
+  check('WPN-011 the W21, W27 and W38 explosive alts arm at >= 6 m', unarmedAlts.length === 0, unarmedAlts.join());
 });
 
 // WPN-011: an explosive alt that hits closer than its arm distance is a dud.
@@ -90,7 +92,7 @@ Test.add('weapons', (check) => {
   TestArena.start({});
   const shooter = TestArena.actor(1, 0, 0);
   TestArena.sponge(2, 0, 20);
-  const cases = [['wasp', 13], ['tempest', 11], ['twinsting', 15], ['stormlash', 20], ['anvil', 9]];
+  const cases = [['wasp', 13], ['vanguard', 10], ['hornet', 12], ['stormlash', 20], ['linker', 6]];
   for (const [key, rate] of cases) {
     giveFull(shooter, key);
     const shots = countShots(shooter, BTN.FIRE, 10);
@@ -159,12 +161,12 @@ Test.add('weapons', (check) => {
   const directions = () => {
     TestArena.start({});
     const shooter = TestArena.actor(1, 0, 0);
-    giveFull(shooter, 'tempest');
+    giveFull(shooter, 'vanguard');
     const points = [];
     const handler = Bus.on('impact', (event) => points.push(event.x.toFixed(5) + ',' + event.y.toFixed(5)));
     World.load({ id: 'wall', brushes: [{ shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] }, { shape: 'box', min: [-20, 0, 30], max: [20, 20, 31] }] });
     Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0.05;
-    TestArena.hold(shooter, BTN.FIRE, 30 / 11);
+    TestArena.hold(shooter, BTN.FIRE, 30 / 10);
     Bus.off('impact', handler);
     TestArena.finish();
     return points;
@@ -183,8 +185,8 @@ Test.add('weapons', (check) => {
 Test.add('weapons', (check) => {
   // MOV-025 itself (every row of the tactical table) is tested in the move group: weapons only add Move.inaccuracy.
   TestArena.start({ precision: 'tactical', move: 'tactical' });
-  const shooter = TestArena.actor(1, 0, 0), tempest = giveFull(shooter, 'tempest');
-  const spread = () => Weapons.spreadDegrees(shooter, tempest, tempest.primary);
+  const shooter = TestArena.actor(1, 0, 0), vanguard = giveFull(shooter, 'vanguard');
+  const spread = () => Weapons.spreadDegrees(shooter, vanguard, vanguard.primary);
   check('WPN-003 first shot standing is exact for rifles', spread() === 0);
   Actors.y[shooter] = 1; Motion.grounded[shooter] = 0;   // a real short fall
   Sim.step();
@@ -208,8 +210,8 @@ Test.add('weapons', (check) => {
 // WPN-003 in presets without a MOV-025 table: + moveSpread x speed fraction f, + an air term; standing first shots stay exact.
 Test.add('weapons', (check) => {
   TestArena.start({ move: 'arena' });
-  const shooter = TestArena.actor(1, 0, 0), tempest = giveFull(shooter, 'tempest'), mode = tempest.primary;
-  const spread = () => Weapons.spreadDegrees(shooter, tempest, mode);
+  const shooter = TestArena.actor(1, 0, 0), vanguard = giveFull(shooter, 'vanguard'), mode = vanguard.primary;
+  const spread = () => Weapons.spreadDegrees(shooter, vanguard, mode);
   check('WPN-003 standing first shot exact without a table', Move.preset(shooter).inaccuracy === null && spread() === 0);
   Actors.vx[shooter] = Move.preset(shooter).groundSpeed;
   const running = spread();
@@ -227,7 +229,7 @@ Test.add('weapons', (check) => {
 Test.add('weapons', (check) => {
   TestArena.start();
   const shooter = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 5);
-  giveFull(shooter, 'tempest');
+  giveFull(shooter, 'vanguard');
   setClock(shooter, CLOCK.FIRE_DELAY, 1);
   check('no shot while S10 says the actor cannot fire (Move.canFire)', !Move.canFire(shooter) && countShots(shooter, BTN.FIRE, 0.3) === 0);
   setClock(shooter, CLOCK.FIRE_DELAY, 0);
@@ -355,7 +357,7 @@ Test.add('weapons', (check) => {
     if (altProblem) failures.push(weapon.code + ' alt: ' + altProblem);
     TestArena.finish();
   }
-  check('every W01..W46 row fires and its primary and alt behave', failures.length === 0, failures.join('; '));
+  check('every weapon row (38) fires and its primary and alt behave', failures.length === 0, failures.join('; '));
 });
 
 function checkAlt(shooter, target, weapon) {
@@ -369,12 +371,10 @@ function checkAlt(shooter, target, weapon) {
   if (modeDealsDamage(mode) && result.damage <= 0) return 'no damage';
   return '';
 }
-// Stances toggle on ALT; a mount (needsLedge) must be refused on open ground (the ledge case has its own test).
+// Stances toggle on ALT.
 function checkToggle(shooter, mode) {
   TestArena.hold(shooter, BTN.ALT, 0.05);
-  const toggled = Weapons.toggled[shooter] === 1;
-  if (mode.toggle.needsLedge) return toggled ? 'mounted without a ledge' : '';
-  return toggled ? '' : 'not toggled';
+  return Weapons.toggled[shooter] === 1 ? '' : 'not toggled';
 }
 // Explosives are lobbed and detonated; a drill (W43) is fired into the target and its damage must land on detonation.
 function checkDetonate(shooter, target, weapon) {
@@ -416,12 +416,6 @@ Test.add('weapons', (check) => {
   TestArena.hold(shooter, BTN.FIRE, 0.05);
   Bus.off('explosion', onCombo);
   check('W17 hitting the orb with the primary is a 4 m combo', comboRadius === 4, comboRadius);
-  giveFull(shooter, 'frostbore');
-  Actors.z[target] = 4;
-  TestArena.aimAt(shooter, target);
-  Weapons.nextShot[shooter] = 0;
-  TestArena.hold(shooter, BTN.ALT, 0.05);
-  check('W22 freeze blast freezes the target', Damage.hasStatus(target, 'freeze'));
   TestArena.finish();
 });
 
@@ -537,7 +531,7 @@ Test.add('weapons', (check) => {
   Actors.buttons[user] = 0;
   check('W41 catches a hand grenade and throws it back as its own', caught && Thrown.owner[grenade] === user && Thrown.vz[grenade] > 20, caught);
   Thrown.clear();
-  giveFull(user, 'tempest');
+  giveFull(user, 'vanguard');
   TestArena.hold(user, BTN.FIRE, 0.05);
   check('MAP-013 a hitscan shot damages the prop it hits', Props.health[1] < 50, Props.health[1]);
   TestArena.finish();
@@ -547,7 +541,7 @@ Test.add('weapons', (check) => {
   TestArena.start({ weaponSet: 'tacticalSet' });
   const id = TestArena.actor(1, 0, 0);
   Weapons.setLoadout(id, ['tanto', 'warden']);
-  Weapons.give(id, 'tempest');
+  Weapons.give(id, 'vanguard');
   const dropped = Weapons.give(id, 'heron') && Weapons.dropped;
   const carried = CAT.weapons.filter((weapon) => Weapons.has(id, weapon.id) && Weapons.countsTowardCarry(weapon)).length;
   check('WPN-009 carry limit 2 in tactical (melee does not count)', carried === 2 && Weapons.has(id, 'tanto') && dropped !== '', carried + ' ' + dropped);
@@ -580,7 +574,7 @@ Test.add('weapons', (check) => {
   check('INP-008 aim assist finds the enemy inside the cone', Input.aimAssistTarget(id, out) && out.target === enemy && out.angle < AIM_ASSIST_CONE_DEG);
   Actors.alive[enemy] = 0;
   check('INP-008 no assist through walls', !Input.aimAssistTarget(id, out) && hidden >= 0);
-  Weapons.setLoadout(id, ['tempest']);
+  Weapons.setLoadout(id, ['vanguard']);
   Game.playerId = id;
   const model = Render.viewModel({});
   check('Render.viewModel describes the held weapon', model.visible && model.shape === 'rifle' && model.swap === 0 && model.reload === 0 && model.ads === 0);
@@ -635,30 +629,30 @@ Test.add('weapons', (check) => {
     ATTACHMENT_SLOTS.includes(row.slot) && WEAPON_STATS.every((stat) => row[stat] >= 0.5 && row[stat] <= 2)));
   TestArena.start({});
   const id = TestArena.actor(1, 0, 0);
-  const sidearm = giveFull(id, 'warden'), rifle = CAT.weapons.byId('tempest');
-  Weapons.give(id, 'tempest', 0);
+  const sidearm = giveFull(id, 'warden'), rifle = CAT.weapons.byId('vanguard');
+  Weapons.give(id, 'vanguard', 0);
   Weapons.current[id] = rifle.index;
-  check('attachments: unknown keys and melee weapons are refused', !Weapons.attach(id, 'tempest', 'nothing') && !Weapons.attach(id, 'tanto', 'longBarrel'));
+  check('attachments: unknown keys and melee weapons are refused', !Weapons.attach(id, 'vanguard', 'nothing') && !Weapons.attach(id, 'tanto', 'longBarrel'));
   const base = attachmentStats(id, rifle, sidearm);
   const wrong = CAT.attachments.filter((row) => {
     Weapons.detachAll(id, rifle);
-    Weapons.attach(id, 'tempest', row.id);
+    Weapons.attach(id, 'vanguard', row.id);
     return !statsMatch(attachmentStats(id, rifle, sidearm), base, rifle, row);
   }).map((row) => row.id);
   check('every attachment: stat = base x modifier table', wrong.length === 0, wrong.join(' '));
   Weapons.detachAll(id, rifle);
-  ['longBarrel', 'shortBarrel', 'laserSight'].forEach((key) => Weapons.attach(id, 'tempest', key));
+  ['longBarrel', 'shortBarrel', 'laserSight'].forEach((key) => Weapons.attach(id, 'vanguard', key));
   const stacked = attachmentStats(id, rifle, sidearm).spread;
   check('attachments stack multiplicatively and replace their own slot', Test.near(stacked, base.spread * 1.15 * 0.8, 1e-4), stacked + ' vs ' + base.spread);
   Weapons.detachAll(id, rifle);
   Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.RELOAD] = 0.5;
   check('per-actor stat scale (perks) multiplies too', Test.near(attachmentStats(id, rifle, sidearm).reload, base.reload * 0.5, 1e-4));
   Weapons.statScale[id * WEAPON_STAT_COUNT + STAT.RELOAD] = 1;
-  Weapons.attach(id, 'tempest', 'quickMag');
+  Weapons.attach(id, 'vanguard', 'quickMag');
   Weapons.magazine[Weapons.slotIndex(id, rifle.index)] = rifle.mag;
-  Weapons.attach(id, 'tempest', 'quickMag');
+  Weapons.attach(id, 'vanguard', 'quickMag');
   check('fitting a smaller magazine trims the loaded rounds', Weapons.magazine[Weapons.slotIndex(id, rifle.index)] === Weapons.magSize(id, rifle));
-  Weapons.give(id, 'tempest', 0);
+  Weapons.give(id, 'vanguard', 0);
   check('picking up an owned weapon again keeps its attachments', Weapons.modifier(id, rifle, STAT.MAG) === CAT.attachments.byId('quickMag').mag);
   TestArena.finish();
 });
@@ -692,15 +686,10 @@ Test.add('weapons', (check) => {
   TestArena.start({});
   const shooter = TestArena.actor(1, 0, 0), fodder = TestArena.actor(2, 0, 2, Math.PI);
   Actors.kind[fodder] = ACTOR_KIND.ENEMY; Actors.profile[fodder] = { fodder: true };
-  giveFull(shooter, 'frostbore');
-  TestArena.aimAt(shooter, fodder);
-  const hits = [];
-  const onDamage = Bus.on('damage', (event) => { if (event.target === fodder) hits.push(event.amount); });
-  TestArena.hold(shooter, BTN.ALT, 1 / TICK_RATE);
-  Bus.off('damage', onDamage);
-  const mode = CAT.weapons.byId('frostbore').alt;
-  check('W22 freeze blast deals pellets x damage, no self-shatter', hits.length === mode.pellets && hits.every((amount) => amount === mode.damage), hits.join(' '));
-  check('W22 freeze blast leaves fodder alive and frozen', Actors.alive[fodder] === 1 && Damage.hasStatus(fodder, 'freeze'));
+  for (let stack = 0; stack < CAT.statusEffects.byId('chill').maxStacks; stack++) Damage.addStatus(fodder, 'chill', shooter, 0, 1);   // the 3 chill stacks of G08 / A-rows
+  check('three chill stacks freeze fodder without killing it (no self-shatter)', Actors.alive[fodder] === 1 && Damage.hasStatus(fodder, 'freeze'));
+  TestArena.hit(shooter, fodder, 10);
+  check('a hit in the same step as the freeze does not shatter (the other pellets of one blast)', Actors.alive[fodder] === 1 && Damage.hasStatus(fodder, 'freeze'));
   Sim.step();
   TestArena.hit(shooter, fodder, 10);
   check('HP-005 a follow-up hit shatters frozen fodder', !Actors.alive[fodder]);
@@ -751,29 +740,17 @@ Test.add('weapons', (check) => {
   Actors.buttons[id] = 0;
   Sim.step();   // the release must be seen before the next press
   check('ADS drops during a reload even with ALT held', scoped && Weapons.ads[id] === 0, Weapons.ads[id]);
-  giveFull(id, 'anvil');
-  TestArena.hold(id, BTN.ALT, 0.05);
-  const mounted = Weapons.toggled[id] === 1;
-  Actors.vx[id] = 3;
-  Sim.step();
-  Actors.vx[id] = 0;
-  check('W29 mounts on a ledge and unmounts when the actor moves', mounted && Weapons.toggled[id] === 0, mounted + ' ' + Weapons.toggled[id] + ' ' + hasLedgeInFront(id));
-  TestArena.hold(id, BTN.ALT, 0.05);
-  const remounted = Weapons.toggled[id] === 1;
-  Actors.z[id] = -10;
-  Sim.step();
-  check('W29 mount drops when the ledge is gone', remounted && Weapons.toggled[id] === 0);
   TestArena.finish();
 });
 
 Test.add('weapons', (check) => {
   TestArena.start({});
   const id = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 10);
-  const mode = CAT.weapons.byId('kingfisher').alt;
+  const mode = CAT.weapons.byId('ramjet').alt;
   Weapons.lockIds[id * MAX_LOCKS + 1] = target; Weapons.lockTime[id * MAX_LOCKS + 1] = mode.lock.time;
   check('lock-on hands missiles a lock held in any slot', LockOn.targetFor(id, mode) === target);
   LockOn.clear(id);
-  Weapons.setLoadout(id, ['tempest']);
+  Weapons.setLoadout(id, ['vanguard']);
   let fire = null, sounds = 0;
   const onFire = Bus.on('weapon.fire', (event) => { fire = Object.assign({}, event); });
   const onSound = Bus.on('sound', (event) => { if (event.source === id) sounds++; });
@@ -951,12 +928,12 @@ Test.add('weapons', (check) => {
   TestArena.aimAt(shooter, target);
   const charged = TestArena.count('weapon.fire', () => { TestArena.hold(shooter, BTN.FIRE, accelerator.primary.charge.time + 0.5); Sim.step(); });
   check('W39 full charge with 5 cells fires the 4-cell level', charged === 1 && Weapons.magazine[cells] === 1 && Actors.health[target] === 100000 - 90, charged + ' / ' + Weapons.magazine[cells] + ' / ' + (100000 - Actors.health[target]));
-  const kingfisher = giveFull(shooter, 'kingfisher'), rockets = Weapons.slotIndex(shooter, kingfisher.index);
+  const ramjet = giveFull(shooter, 'ramjet'), rockets = Weapons.slotIndex(shooter, ramjet.index);
   Weapons.magazine[rockets] = 1;
   TestArena.aimAt(shooter, target);
   let shots = 0;
-  const empties = TestArena.count('weapon.empty', () => { shots = countShots(shooter, BTN.ALT, kingfisher.alt.lock.time + 0.2); Sim.step(); });
-  check('W33 lock release with 1 rocket clicks empty and reloads', shots === 0 && empties === 1 && Weapons.state[shooter] === WEAPON_STATE.RELOAD, shots + ' / ' + empties + ' / ' + Weapons.state[shooter]);
+  const empties = TestArena.count('weapon.empty', () => { shots = countShots(shooter, BTN.ALT, ramjet.alt.lock.time + 0.2); Sim.step(); });
+  check('W31 lock release with 1 rocket clicks empty and reloads', shots === 0 && empties === 1 && Weapons.state[shooter] === WEAPON_STATE.RELOAD, shots + ' / ' + empties + ' / ' + Weapons.state[shooter]);
   const hookjaw = giveFull(shooter, 'hookjaw'), shells = Weapons.slotIndex(shooter, hookjaw.index);
   Weapons.magazine[shells] = 1; Weapons.reserve[shells] = 0;
   Actors.z[target] = 3;
@@ -1031,12 +1008,6 @@ Test.add('weapons', (check) => {
   check('W17 primary hits the enemy in front of the orb, the orb stays', Actors.health[front] < 100000 && combos === 0 && Projectiles.state[orb] === PROJECTILE_STATE.FLYING, (100000 - Actors.health[front]) + ' / ' + combos);
   Projectiles.clear();
   Actors.alive[front] = 0;
-  const lit = TestArena.actor(2, 0, 3);
-  giveFull(shooter, 'twinsting');
-  Actors.pitch[shooter] = Actors.aimPitch[shooter] = -1.2;
-  TestArena.hold(shooter, BTN.ALT, 0.05);
-  check('W08 flare at the feet reveals the enemy but not the shooter', Damage.hasStatus(lit, 'reveal') && !Damage.hasStatus(shooter, 'reveal'));
-  Actors.alive[lit] = 0;
   const pitcher = giveFull(shooter, 'pitcher'), mines = Weapons.slotIndex(shooter, pitcher.index);
   Actors.pitch[shooter] = Actors.aimPitch[shooter] = -0.3;
   Weapons.magazine[mines] = 6;
@@ -1057,13 +1028,13 @@ Test.add('weapons', (check) => {
   const angle = 65 * DEG, side = { dx: -Math.sin(angle), dy: 0, dz: -Math.cos(angle) };
   check('W03 a hit 65 deg off the 120 deg guard is not blocked', TestArena.hit(attacker, guard, 40, side) === 40);
   Actors.buttons[guard] = 0;
-  Weapons.setLoadout(guard, ['maul', 'tempest']);
-  Weapons.attach(guard, 'tempest', 'shortBarrel');
-  Weapons.attach(guard, 'tempest', 'lightStock');
+  Weapons.setLoadout(guard, ['maul', 'vanguard']);
+  Weapons.attach(guard, 'vanguard', 'shortBarrel');
+  Weapons.attach(guard, 'vanguard', 'lightStock');
   Weapons.current[guard] = CAT.weapons.byId('maul').index;
-  const tempest = CAT.weapons.byId('tempest');
-  Weapons.requestSwitch(guard, tempest.index);
-  check('WPN-010 stacked equip attachments stop at the floor', Weapons.stateDuration[guard] >= tempest.equipTime * EQUIP_SCALE_FLOOR - 1e-6, Weapons.stateDuration[guard]);
+  const vanguard = CAT.weapons.byId('vanguard');
+  Weapons.requestSwitch(guard, vanguard.index);
+  check('WPN-010 stacked equip attachments stop at the floor', Weapons.stateDuration[guard] >= vanguard.equipTime * EQUIP_SCALE_FLOOR - 1e-6, Weapons.stateDuration[guard]);
   TestArena.finish();
 });
 
@@ -1083,16 +1054,16 @@ Test.add('weapons', (check) => {
 // Balance pass: each gun keeps a reason to pick it (the R-086, R-091 and R-095 notes hold, and prices follow strength).
 Test.add('weapons', (check) => {
   const weapon = (key) => CAT.weapons.byId(key);
-  const hailstorm = weapon('hailstorm').primary, anvil = weapon('anvil').primary, warden = weapon('warden'), ramjet = weapon('ramjet').primary;
-  check('R-091 the Hailstorm out-damages the Anvil per second', hailstorm.damage * hailstorm.rate > anvil.damage * anvil.rate);
+  const hailstorm = weapon('hailstorm').primary, warden = weapon('warden'), ramjet = weapon('ramjet').primary;
+  check('R-091 the Hailstorm keeps the heavy penetration of the merged Anvil (P3-03)', hailstorm.penetration === 'high' && hailstorm.damage * hailstorm.rate >= 250);
   check('R-095 the Warden burst kills faster up close than the semi', timeToKill(warden.alt) < timeToKill(warden.primary), timeToKill(warden.alt) + ' / ' + timeToKill(warden.primary));
   check('R-086 one rocket never kills 100 HP, two kill 100 HP + 50 armor', ramjet.damage < BASE_HEALTH && ramjet.damage + ramjet.splash.dmg >= BASE_HEALTH * 1.5);
   check('the Vanguard needs a fourth shot at 60 m (falloff), three up close', shotsToKill(weapon('vanguard').primary, 0) === 3 && shotsToKill(weapon('vanguard').primary, 60) === 4);
-  check('the Riptide (wider spread) costs no more than the Wasp', weapon('riptide').price <= weapon('wasp').price);
+  check('P3-03 the Wasp takes the hollow-point toggle of the merged Riptide, the Kestrel the 15-round magazine of the Longshot', weapon('wasp').alt.type === 'toggle' && weapon('wasp').alt.toggle.status.id === 'slow' && weapon('kestrel').mag === 15);
   const moraine = CAT.heroes.byId('moraine'), quillGun = weapon(CAT.heroes.byId('quill').weapons[0]).primary;
   const bastide = CAT.heroes.byId('bastide'), quillDps = quillGun.damage * quillGun.rate;
-  check('H02 Moraine (the Hailstorm carries her) falls to the Quill Tempest in under 1.2 s', (moraine.health + moraine.shield) / quillDps < 1.2);
-  check('H01 Bastide (slow, short-range kit) holds out against the Quill Tempest for over 1.9 s', (bastide.health + bastide.armor) / quillDps > 1.9);
+  check('H02 Moraine (the Hailstorm carries her) falls to the Quill Vanguard in under 1.2 s', (moraine.health + moraine.shield) / quillDps < 1.2);
+  check('H01 Bastide (slow, short-range kit) holds out against the Quill Vanguard for over 1.9 s', (bastide.health + bastide.armor) / quillDps > 1.9);
 });
 
 // D-F01: the W40 Detonate alt works while the single round reloads (default loadout: 1 round, 1 in reserve).
@@ -1142,7 +1113,7 @@ Test.add('weapons', (check) => {
   stepSeconds(wait + PRESS_BUFFER_GRACE + 0.2);
   check('D-F02 a second tap is answered by one more shot, no stray shot long after', shots === 2, shots);
   Bus.off('weapon.fire', handler);
-  const dull = giveFull(id, 'tempest');
+  const dull = giveFull(id, 'vanguard');
   const heldShots = TestArena.count('weapon.fire', () => {
     holdInput(id, 0, 1, BTN.SPRINT | BTN.FIRE);
     stepSeconds(0.05);
@@ -1169,8 +1140,8 @@ Test.add('weapons', (check) => {
   Weapons.nextShot[shooter] = 0; Weapons.nextAlt[shooter] = 0;
   Actors.buttons[shooter] = BTN.FIRE; Sim.step(); Actors.buttons[shooter] = 0;
   check('D-F02 the press is pending and holds the sprint off', Weapons.pressBuffer[shooter] !== 0 && Move.firePending[shooter] === 1);
-  Weapons.give(shooter, 'tempest');
-  Weapons.requestSwitch(shooter, CAT.weapons.byId('tempest').index);
+  Weapons.give(shooter, 'vanguard');
+  Weapons.requestSwitch(shooter, CAT.weapons.byId('vanguard').index);
   check('D-F02 a weapon switch drops the pending press', Weapons.pressBuffer[shooter] === 0 && Move.firePending[shooter] === 0);
   Bus.off('weapon.fire', handler);
   TestArena.finish();
@@ -1258,7 +1229,7 @@ Test.add('weapons', (check) => {
 });
 
 // D-F04: lock-on weapons say so when nothing can be locked: a 'weapon.nolock' event (the empty click) and a "No target" toast
-// once per hold; W33 (lock on release) also cues a tap. With a target in the cone there is no cue.
+// once per hold; W31 (lock on release, the alt) also cues a tap. With a target in the cone there is no cue.
 Test.add('weapons', (check) => {
   TestArena.start({});
   const shooter = TestArena.actor(1, 0, 0);
@@ -1275,13 +1246,13 @@ Test.add('weapons', (check) => {
   const withTarget = TestArena.count('weapon.nolock', () => TestArena.hold(shooter, BTN.FIRE, sparklock.primary.lock.time + 0.5));
   check('D-F04 W07 with an enemy in the cone gives no cue', withTarget === 0, withTarget);
   Actors.y[target] = -20;
-  giveFull(shooter, 'kingfisher');
+  giveFull(shooter, 'ramjet');
   Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0;
   Ui.lastToast = '';
   const volley = TestArena.count('weapon.nolock', () => { TestArena.hold(shooter, BTN.ALT, 0.1); Sim.step(); });
-  check('D-F04 W33 tapped with nothing to lock cues on release', volley === 1 && Ui.lastToast === 'No target', volley + ' / ' + Ui.lastToast);
-  const long = TestArena.count('weapon.nolock', () => { TestArena.hold(shooter, BTN.ALT, CAT.weapons.byId('kingfisher').alt.lock.time + 0.3); Sim.step(); });
-  check('D-F04 W33 held long enough cues once, not again on release', long === 1, long);
+  check('D-F04 W31 tapped with nothing to lock cues on release', volley === 1 && Ui.lastToast === 'No target', volley + ' / ' + Ui.lastToast);
+  const long = TestArena.count('weapon.nolock', () => { TestArena.hold(shooter, BTN.ALT, CAT.weapons.byId('ramjet').alt.lock.time + 0.3); Sim.step(); });
+  check('D-F04 W31 held long enough cues once, not again on release', long === 1, long);
   TestArena.finish();
 });
 

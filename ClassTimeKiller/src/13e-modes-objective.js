@@ -59,7 +59,7 @@ function callBehaviour(hook, argument) {
 
 // The melee weapon of the match's weapon set (from its start loadout), for melee-only roles.
 function meleeWeaponKey() {
-  const start = currentWeaponSet().start;
+  const start = Loadouts.setStart(-1);
   for (let i = 0; i < start.length; i++) {
     const weapon = CAT.weapons.byId(start[i]);
     if (weapon && weapon.class === 'melee') return weapon.id;

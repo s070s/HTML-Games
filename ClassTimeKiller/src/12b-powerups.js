@@ -11,9 +11,8 @@ const POWERUP_TINT = 0.45;                    // share of the powerup colour in 
 const POWERUP_GLOW = 0.5;
 const SEER_REVEAL_SECONDS = 1.5;              // PU13 refreshes 'reveal' on enemies every second for this long
 const SEER_INTERVAL = 1;
-const AMMO_REGEN_INTERVAL = 1;                // PU17 hands out its 5 % once per second
 const FLIGHT_VERTICAL = 1;                    // PU06: JUMP climbs, CROUCH sinks at the flight speed
-const POWERUP_FLAG = { INVULNERABLE: 1, FREE_AMMO: 2, INVISIBLE: 4, FODDER_MELEE: 8, REVEAL: 16, NO_ARMOR: 32 };
+const POWERUP_FLAG = { INVULNERABLE: 1, FREE_AMMO: 2, INVISIBLE: 4, FODDER_MELEE: 8, REVEAL: 16 };
 const DAMAGE_KIND_BIT = {};
 CAT.damageKinds.forEach((row, index) => { DAMAGE_KIND_BIT[row.id] = 1 << index; });
 const FREEZE_INDEX = CAT.statusEffects.byId('freeze').index;   // G08: frozen actors cannot stay cloaked
@@ -27,18 +26,18 @@ const flightScratch = Vec.make();
 const Powerups = {
   active: new Uint8Array(MAX_ACTORS * POWERUP_COUNT),
   endTick: new Int32Array(MAX_ACTORS * POWERUP_COUNT),
-  charges: new Float32Array(MAX_ACTORS * POWERUP_COUNT),     // pool powerups: belt armor or boot jumps left
+  charges: new Float32Array(MAX_ACTORS * POWERUP_COUNT),     // pool powerups: boot jumps left
   activeCount: new Uint8Array(MAX_ACTORS),
   // Aggregates rebuilt by refresh(id) whenever the set changes.
   damageScale: new Float32Array(MAX_ACTORS).fill(1), meleeScale: new Float32Array(MAX_ACTORS).fill(1),
   takenScale: new Float32Array(MAX_ACTORS).fill(1), speedScale: new Float32Array(MAX_ACTORS).fill(1),
   rateScale: new Float32Array(MAX_ACTORS).fill(1), lifesteal: new Float32Array(MAX_ACTORS), flight: new Float32Array(MAX_ACTORS),
-  perception: new Float32Array(MAX_ACTORS).fill(1), surplusDecay: new Float32Array(MAX_ACTORS), ammoRegen: new Float32Array(MAX_ACTORS),
+  perception: new Float32Array(MAX_ACTORS).fill(1),
   jumpScale: new Float32Array(MAX_ACTORS).fill(1), flags: new Uint32Array(MAX_ACTORS), immune: new Uint32Array(MAX_ACTORS),
   regenRow: new Int8Array(MAX_ACTORS).fill(-1), glowRow: new Int8Array(MAX_ACTORS).fill(-1),
   healthScale: new Float32Array(MAX_ACTORS).fill(1), armorScale: new Float32Array(MAX_ACTORS).fill(1),   // applied max HP / armor factors
   setInvisible: new Uint8Array(MAX_ACTORS),                  // INVISIBLE was set here (so only then is it cleared here)
-  seerClock: new Float32Array(MAX_ACTORS), ammoClock: new Float32Array(MAX_ACTORS),
+  seerClock: new Float32Array(MAX_ACTORS),
   souls: new Uint16Array(MAX_ACTORS),
 
   has(id, key) { const row = CAT.powerups.byId(key); return !!row && this.active[id * POWERUP_COUNT + row.index] === 1; },
@@ -77,10 +76,8 @@ const Powerups = {
     this.charges[slot] = row.charges;
     this.emit('powerup.start', id, row);
   },
-  // A pool powerup that would add nothing stays on its spot (full surplus, full belt, unused boots).
+  // A pool powerup that would add nothing stays on its spot (unused boots).
   poolFull(id, row, slot) {
-    if (row.pool === 'surplus') return Damage.surplus[id] >= row.instant.surplusCap;
-    if (row.pool === 'belt') return Items.noArmor[id] === 1 || Actors.armor[id] + this.charges[slot] >= row.instant.beltTotal;
     return row.pool === 'jumps' && this.active[slot] === 1 && this.charges[slot] >= row.charges;
   },
   stack(id, row, slot) {
@@ -92,21 +89,13 @@ const Powerups = {
   },
   // One-off effects on pickup; returns true when one did something (instant-only rows are refused otherwise).
   applyInstant(id, row) {
-    const instant = row.instant, slot = id * POWERUP_COUNT + row.index;
+    const instant = row.instant;
     let changed = false;
-    if (instant.surplus) { Damage.surplus[id] = Math.min(instant.surplusCap, Damage.surplus[id] + instant.surplus); changed = true; }
-    if (instant.belt) changed = this.addBelt(id, slot, instant) || changed;
     if (instant.healTo && Actors.health[id] < instant.healTo) { Actors.health[id] = instant.healTo; changed = true; }
     if (instant.heal) changed = Damage.regenerate(id, instant.heal * this.healScale(id, instant), Damage.overhealCap(id)) || changed;
     if (instant.soul) { this.addSoul(id, instant.soul); changed = true; }
     if (instant.vital) changed = this.addVital(id, instant) || changed;
     return changed;
-  },
-  // PU08: belt armor that absorbs 100 % (the reducer spends it before every layer), up to beltTotal with the armor worn.
-  addBelt(id, slot, instant) {
-    const added = Math.max(0, Math.min(instant.belt, instant.beltTotal - Actors.armor[id] - this.charges[slot]));
-    this.charges[slot] += added;
-    return added > 0;
   },
   // C20 Soul Feast multiplies the heal of a soul (rows with instant.soul) for its holder.
   healScale(id, instant) { return instant.soul ? soulCardFx(id, 'soulHeal', 1) : 1; },
@@ -130,7 +119,7 @@ const Powerups = {
   // ---- Aggregates ----
   resetAggregates(id) {
     this.damageScale[id] = this.meleeScale[id] = this.takenScale[id] = this.speedScale[id] = this.rateScale[id] = 1;
-    this.lifesteal[id] = this.flight[id] = this.surplusDecay[id] = this.ammoRegen[id] = 0;
+    this.lifesteal[id] = this.flight[id] = 0;
     this.perception[id] = this.jumpScale[id] = 1;
     this.flags[id] = this.immune[id] = 0;
     this.regenRow[id] = this.glowRow[id] = -1;
@@ -151,15 +140,15 @@ const Powerups = {
   addMods(id, powerup, mods) {
     this.damageScale[id] *= mods.damage || 1; this.meleeScale[id] *= mods.melee || 1; this.takenScale[id] *= mods.taken || 1;
     this.speedScale[id] *= mods.speed || 1; this.rateScale[id] *= mods.rate || 1;
-    this.lifesteal[id] += mods.lifesteal || 0; this.ammoRegen[id] += mods.ammoRegen || 0;
-    this.flight[id] = Math.max(this.flight[id], mods.flight || 0); this.surplusDecay[id] = Math.max(this.surplusDecay[id], mods.surplusDecay || 0);
+    this.lifesteal[id] += mods.lifesteal || 0;
+    this.flight[id] = Math.max(this.flight[id], mods.flight || 0);
     this.jumpScale[id] = Math.max(this.jumpScale[id], mods.jumpScale || 1);
     if (mods.invisible) this.perception[id] = Math.min(this.perception[id], mods.perception);
     if (mods.regen) this.regenRow[id] = powerup;
     if (this.glowRow[id] < 0) this.glowRow[id] = powerup;
     this.flags[id] |= (mods.invulnerable ? POWERUP_FLAG.INVULNERABLE : 0) | (mods.freeAmmo ? POWERUP_FLAG.FREE_AMMO : 0)
       | (mods.invisible ? POWERUP_FLAG.INVISIBLE : 0) | (mods.fodderMelee ? POWERUP_FLAG.FODDER_MELEE : 0)
-      | (mods.reveal ? POWERUP_FLAG.REVEAL : 0) | (mods.noArmor ? POWERUP_FLAG.NO_ARMOR : 0);
+      | (mods.reveal ? POWERUP_FLAG.REVEAL : 0);
     if (mods.noFall) this.immune[id] |= DAMAGE_KIND_BIT.fall;
     if (mods.immune) for (let k = 0; k < mods.immune.length; k++) this.immune[id] |= DAMAGE_KIND_BIT[mods.immune[k]] || 0;
   },
@@ -179,8 +168,6 @@ const Powerups = {
   writeHooks(id) {
     Buffs.applyScales(id);   // Buffs (12f) is the single writer of the speed and fire rate hooks; it multiplies these factors in
     Weapons.freeAmmo[id] = this.flags[id] & POWERUP_FLAG.FREE_AMMO ? 1 : 0;
-    Items.noArmor[id] = this.flags[id] & POWERUP_FLAG.NO_ARMOR ? 1 : 0;
-    if (Items.noArmor[id]) Actors.armor[id] = 0;
     this.setCloak(id, this.cloaked(id));
   },
   // PU04 hides its holder unless a Rime Bomb freeze holds them (G08 stops cloak; it comes back when the freeze ends).
@@ -215,7 +202,7 @@ const Powerups = {
   clearActor(id, dropThem) {
     if (dropThem) this.dropAll(id);
     for (let powerup = 0; powerup < POWERUP_COUNT; powerup++) if (this.active[id * POWERUP_COUNT + powerup]) this.end(id, CAT.powerups[powerup], false);
-    this.seerClock[id] = this.ammoClock[id] = 0;
+    this.seerClock[id] = 0;
   },
   dropAll(id) {
     let count = 0, k = 0;
@@ -256,14 +243,11 @@ const Powerups = {
   },
   spent(id, row, slot) {
     if (this.endTick[slot] !== POWERUP_FOREVER) return Sim.tick >= this.endTick[slot];
-    if (row.pool === 'surplus') return Damage.surplus[id] <= 0;
-    return (row.pool === 'belt' || row.pool === 'jumps') && this.charges[slot] <= 0;
+    return row.pool === 'jumps' && this.charges[slot] <= 0;
   },
   stepEffects(id, dt) {
-    if (this.surplusDecay[id] > 0) Damage.surplus[id] = Math.max(0, Damage.surplus[id] - this.surplusDecay[id] * dt);
     if (this.regenRow[id] >= 0) this.regenerate(id, CAT.powerups[this.regenRow[id]].mods.regen, dt);
     if (this.flight[id] > 0) this.fly(id, dt);
-    if (this.ammoRegen[id] > 0) this.regenerateAmmo(id, dt);
     if (this.flags[id] & POWERUP_FLAG.REVEAL) this.reveal(id, dt);
     if (this.flags[id] & POWERUP_FLAG.INVISIBLE) this.setCloak(id, this.cloaked(id));
   },
@@ -288,10 +272,6 @@ const Powerups = {
     Actors.vx[id] = x * speed; Actors.vz[id] = z * speed;
     Actors.vy[id] = y * speed + Move.gravity(id) * dt;
   },
-  // PU17: 5 % of each owned weapon's max ammo every second.
-  regenerateAmmo(id, dt) {
-    if (intervalDue(this.ammoClock, id, dt, AMMO_REGEN_INTERVAL)) addAmmoShare(id, this.ammoRegen[id]);
-  },
   // PU13: the holder's enemies stay revealed (minimap, bots) while it lasts; the Ghost perk (Abilities.hiddenFromPulse) hides.
   reveal(id, dt) {
     this.seerClock[id] -= dt;
@@ -314,14 +294,7 @@ const Powerups = {
     if (!this.activeCount[target]) return amount;
     if (this.flags[target] & POWERUP_FLAG.INVULNERABLE) return 0;
     if (this.immune[target] & (DAMAGE_KIND_BIT[info.kind] || 0)) return 0;
-    return this.absorbBelt(target, amount * this.takenScale[target], info);
-  },
-  absorbBelt(target, amount, info) {
-    const belt = CAT.powerups.byId('aegisbelt'), slot = target * POWERUP_COUNT + belt.index, kind = CAT.damageKinds.byId(info.kind);
-    if (!this.active[slot] || info.bypassArmor || (kind && kind.bypassArmor)) return amount;
-    const absorbed = Math.min(this.charges[slot], amount);
-    this.charges[slot] -= absorbed;
-    return amount - absorbed;
+    return amount * this.takenScale[target];
   },
   // PU12: a share of damage dealt to others heals the dealer (up to the normal maximum).
   onDamage(event) { if (event.source >= 0) Damage.lifesteal(event, this.lifesteal[event.source]); },
@@ -345,13 +318,12 @@ const Powerups = {
       const row = CAT.powerups[powerup], view = powerupViews.items[out.length], left = this.ticksLeft(id, row);
       view.id = row.id; view.name = row.name; view.color = row.color; view.persistent = left === POWERUP_FOREVER;
       view.remaining = left === POWERUP_FOREVER ? this.poolLeft(id, row) : left / TICK_RATE;
-      view.duration = row.duration || row.charges || row.instant.surplus || row.instant.belt || 0;
+      view.duration = row.duration || row.charges || 0;
       out.push(view);
     }
     return out.length;
   },
   poolLeft(id, row) {
-    if (row.pool === 'surplus') return Damage.surplus[id];
     return row.pool ? this.charges[id * POWERUP_COUNT + row.index] : 0;
   },
   // Render.actorStyle: holders glow in their powerup colour; Ghostveil hides the body except for a short shimmer.

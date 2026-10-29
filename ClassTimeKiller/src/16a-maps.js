@@ -24,11 +24,11 @@ const MapRules = {
     health: ['healthvial', 'healthpack', 'healthcrate', 'megacell', 'vitalshard'],   // vitalshard (PU20): spots only appear in Ravager health matches (12a)
     armor: ['armorshard', 'lightplate', 'heavyplate'],
     ammo: ['ammobox', 'ammocache'],
-    power: ['fury', 'warding', 'quickening', 'ghostveil', 'renewal', 'skyward', 'surplus', 'aegisbelt', 'berserk', 'sigil', 'bottomless', 'vampfang',
-      'seer', 'springboots', 'guardianrune', 'scoutrune', 'ammorune', 'lightbearer', 'daybreak', 'halcyon'],
-    weapon: ['maul', 'tanto', 'bulwark', 'warden', 'verdict', 'hush', 'sparklock', 'twinsting', 'wasp', 'hornet', 'riptide', 'needlethorn', 'vanguard', 'tempest',
-      'ratchet', 'longshot', 'coilcaster', 'pulsecarbine', 'scattergun', 'hookjaw', 'shardcaster', 'frostbore', 'lancet', 'heron', 'kestrel', 'stakedriver',
-      'talonbow', 'hailstorm', 'anvil', 'linker', 'ramjet', 'pitcher', 'kingfisher', 'gloop', 'kindler', 'ember', 'stormlash', 'starthrower', 'accelerator',
+    power: ['fury', 'warding', 'quickening', 'ghostveil', 'renewal', 'skyward', 'berserk', 'sigil', 'bottomless', 'vampfang',
+      'seer', 'springboots', 'guardianrune', 'lightbearer', 'daybreak', 'halcyon'],
+    weapon: ['maul', 'tanto', 'bulwark', 'warden', 'verdict', 'hush', 'sparklock', 'wasp', 'hornet', 'needlethorn', 'vanguard',
+      'ratchet', 'coilcaster', 'scattergun', 'hookjaw', 'shardcaster', 'lancet', 'heron', 'kestrel', 'stakedriver',
+      'talonbow', 'hailstorm', 'linker', 'ramjet', 'pitcher', 'gloop', 'kindler', 'ember', 'stormlash', 'starthrower', 'accelerator',
       'fusionmortar', 'lifter', 'twingate', 'auger', 'razorwind'],
   },
   topItemKeys: ['megacell', 'heavyplate'],        // with every 'power' item: the "top items" of MAP-005 (never two in one zone)
@@ -151,7 +151,8 @@ const MapKit = {
     return out;
   },
   item(row) {
-    return { x: row[1], y: row[2], z: row[3], item: row[0], group: MapRules.groupOf(row[0]), modes: row[4] || [] };
+    const key = migratedId(MAP_ITEM_MIGRATION, row[0]);   // a map or a shared code from before P3-04 / P3-06 may name a retired pad item
+    return { x: row[1], y: row[2], z: row[3], item: key, group: MapRules.groupOf(key), modes: row[4] || [] };
   },
   zone(row) {
     return { name: row[0], min: [row[1], row.length > 6 ? row[5] : MAP_ZONE_FLOOR, row[2]], max: [row[3], row.length > 6 ? row[6] : MAP_ZONE_CEILING, row[4]] };

@@ -162,8 +162,8 @@ const BotCombat = {
     const target = this.target[id];
     this.manageWeapon(id, now);
     this.useKit(id, now);
-    if (now < this.throwUntil[id]) { this.aimThrow(id, now); return; }
-    if (target < 0 && this.weaponJump(id, now)) return;
+    if (now < this.throwUntil[id]) { this.aimThrow(id, now); this.keepCharge(id, now, false); return; }   // a charge in hand stays held: letting go would fire it unlicensed
+    if (target < 0 && this.weaponJump(id, now)) { this.keepCharge(id, now, false); return; }
     if (target < 0) { this.lookAtThreat(id, now); this.keepCharge(id, now, false); return; }
     if (BotSense.sees(id, target)) this.engage(id, target, now);
     else this.watch(id, target, now);
@@ -360,21 +360,25 @@ const BotCombat = {
     this.license(id, target, mode, now);
   },
   holdThenRelease(id, target, mode, now) {
+    const hold = mode.charge ? mode.charge.time : mode.lock ? mode.lock.time : FIRE_HOLD_DEFAULT;
     if (this.holdSince[id] < 0) this.holdSince[id] = now;
     this.keptSince[id] = -1;
-    const hold = mode.charge ? mode.charge.time : mode.lock ? mode.lock.time : FIRE_HOLD_DEFAULT;
     if (now - this.holdSince[id] < hold) { Bots.press(id, BTN.FIRE); return; }
     this.holdSince[id] = -1;   // released this tick: the shot goes
     this.license(id, target, mode, now);
   },
   license(id, target, mode, now) {
     this.licenseTarget[id] = target;
-    this.licenseUntil[id] = now + (mode.trigger === 'burst' ? mode.burst * mode.burstGap : 0);
+    // The release of a charge or lock is licensed for one tick (the shot goes on the step the trigger comes up).
+    const window = mode.trigger === 'burst' ? mode.burst * mode.burstGap : mode.trigger === 'charge' || mode.trigger === 'release' ? TICK_SECONDS : 0;
+    this.licenseUntil[id] = now + window;
   },
   // A charge or lock that cannot go now (aim off, target hidden) stays held: letting go would fire it at nothing. After
   // CHARGE_KEEP_SECONDS out of sight a weapon-switch tap drops it, like a player giving up; a bot with one weapon keeps it.
   keepCharge(id, now, seen) {
     if (this.holdSince[id] < 0) return;
+    const weapon = Weapons.currentWeapon(id);
+    if (!weapon || (weapon.primary.trigger !== 'charge' && weapon.primary.trigger !== 'release')) { this.holdSince[id] = -1; return; }   // the charge weapon was swapped away: nothing to hold
     Bots.press(id, BTN.FIRE);
     if (seen) { this.keptSince[id] = -1; return; }
     if (this.keptSince[id] < 0) this.keptSince[id] = now;

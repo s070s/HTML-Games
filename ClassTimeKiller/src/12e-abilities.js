@@ -118,10 +118,11 @@ const Abilities = {
     for (const kit of CAT.abilityKits) if (kitMatches(kit, rules)) return kit;
     return null;
   },
+  botChoice: null,   // fn(id, kit, slotName) -> the ability a bot takes for a kit slot, or '' (13d: by botUse rules)
   setChoice(id, choice) { this.choices[id] = choice ? Object.assign({}, choice) : null; },
   // The ability id for one slot: an allowed loadout choice, nothing for KIT_SLOT_EMPTY, else the kit default.
   kitAbility(id, kit, slotName) {
-    const choice = this.choices[id], wanted = choice ? choice[slotName] : '';
+    const choice = this.choices[id], wanted = choice ? choice[slotName] : this.botChoice ? this.botChoice(id, kit, slotName) : '';
     if (wanted === KIT_SLOT_EMPTY) return '';
     const allowed = kit.choices && kit.choices[slotName];
     if (wanted && allowed && allowed.includes(wanted)) return wanted;
@@ -434,6 +435,7 @@ function kitMatches(kit, rules) {
   if (match.ruleset) return rules.id === match.ruleset;
   if (match.economy) return Abilities.economyKey() === match.economy;
   if (match.mutator) return !!rules.mutators && rules.mutators.some((entry) => entry.id === match.mutator);
+  if (match.abilities) return rules.abilities === match.abilities;
   return false;
 }
 // rules.family of the match: versus / pve / solo (no match = versus).

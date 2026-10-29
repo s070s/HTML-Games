@@ -71,7 +71,7 @@ Data.define('mapDensities', { id: REQUIRED, name: REQUIRED, moduleShare: 0.7, sc
 // on mirrored maps); 'power' lists the power-up keys the generator puts on the centre line (the ones that fit any arena: no
 // mode-specific or long-lasting powers).
 Data.define('mapItemSets', { id: REQUIRED, list: REQUIRED }, [
-  { id: 'power', list: ['fury', 'warding', 'quickening', 'surplus', 'renewal', 'skyward'] },
+  { id: 'power', list: ['fury', 'warding', 'quickening', 'renewal', 'skyward'] },
   { id: 'pickups', list: ['weapon', 'weapon', 'weapon', 'armor', 'armor', 'health', 'health', 'health', 'ammo', 'ammo'] },   // modes that use pickups
   { id: 'supply', list: ['health', 'health', 'ammo', 'armor'] },                                                              // other modes
   { id: 'loot', list: ['weapon', 'weapon', 'weapon', 'armor', 'armor', 'health', 'health', 'ammo'] },   // per royale loot site (6 sites: the 48 spots of MP09)

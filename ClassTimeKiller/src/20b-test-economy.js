@@ -232,7 +232,7 @@ Test.add('economy', (check) => {
   Economy.applyClass(rifleman, CAT.classes.byId('rifleman'));
   Economy.applyClass(rifleman, CAT.classes.byId('rifleman'));
   const base = rifleman * WEAPON_STAT_COUNT;
-  check('ECP04 class weapons', Weapons.has(rifleman, 'vanguard') && Weapons.has(rifleman, 'verdict'));
+  check('ECP04 class weapons', Weapons.has(rifleman, 'ratchet') && Weapons.has(rifleman, 'verdict'));
   check('ECP04 perk stats once (Bandolier, Steady)', Test.near(Weapons.statScale[base + STAT.RESERVE], 1.5, 1e-6) && Test.near(Weapons.statScale[base + STAT.SPREAD], 0.7, 1e-6),
     Weapons.statScale[base + STAT.RESERVE]);
   const bullet = { kind: 'hit', mode: CAT.weapons.byId('vanguard').primary };
@@ -261,43 +261,42 @@ Test.add('economy', (check) => {
   check('every number in a perk text follows from its stats or value', stale.length === 0, stale.map((perk) => perk.id).join());
 });
 
-// RS12 Frame Runner arms the classes from its Exotic set, so its weapons are used at all (balance-01).
+// P3-01: every ruleset with classes arms them from the whole roster (RS12 Frame Runner included): no swap table, no themed set.
 Test.add('economy', (check) => {
-  const exotic = CAT.weaponSets.byId('exoticSet').weapons;
-  const unswapped = CAT.weaponSets.byId('militarySet').weapons.filter((key) => CAT.weapons.byId(key).class !== 'melee' && !exotic.includes(CLASS_SET_SWAPS.exoticSet[key]));
   World.load(modesTestMap({ spawns: TEAM_SPAWNS }));
   Game.start({ mode: 'tdm', ruleset: 'frame', seed: 1, bots: CAT.classes.map((row, index) => ({ dummy: true, team: index % 2 })) });
   Economy.applyClass(0, CAT.classes.byId('marksman'));
-  check('frame: classes carry Exotic weapons (Marksman: Talon Bow, Sparklock)', unswapped.length === 0 && Weapons.has(0, 'talonbow') && Weapons.has(0, 'sparklock')
-    && !Weapons.has(0, 'longshot') && Weapons.has(1, CLASS_SET_SWAPS.exoticSet[Loadouts.classFor(1).primary]), unswapped.join());
+  check('frame: classes carry their own weapons (Marksman: Kestrel DMR, Verdict Magnum)', Weapons.has(0, 'kestrel') && Weapons.has(0, 'verdict') && Weapons.has(1, Loadouts.classFor(1).primary), '');
   const card = makeElement('div');
   describeClass(card, CAT.classes.byId('marksman'));
-  check('frame: the class card names the weapons the class spawns with', card.textContent.includes(weaponName('talonbow')) && !card.textContent.includes(weaponName('longshot')), card.textContent);
-  // The class editor offers Military keys only, each labelled with the weapon this match arms (modes-02).
-  const offered = CLASS_FIELD_OPTIONS.primary().concat(CLASS_FIELD_OPTIONS.secondary()), military = CAT.weaponSets.byId(CLASS_WEAPON_SET).weapons;
-  const outside = offered.filter((key) => !military.includes(key) || (CLASS_SET_SWAPS.exoticSet[key] || key) === key);
-  check('frame: the class editor offers only Military weapons, each one swapped here', outside.length === 0 && CLASS_FIELD_OPTIONS.secondary().every((key) => CAT.weapons.byId(key).class === 'sidearm'), outside.join());
-  const label = CLASS_FIELD_NAMES.primary('hornet');
-  check('frame: the class editor names the weapon a pick spawns with', label.includes(weaponName('hornet')) && label.includes(weaponName('needlethorn')), label);
+  check('frame: the class card names the weapons the class spawns with', card.textContent.includes(weaponName('kestrel')) && card.textContent.includes(weaponName('verdict')), card.textContent);
+  // The class editor offers the whole roster: every gun that is not a sidearm as a primary, every sidearm as a secondary.
+  const guns = CAT.weapons.filter((row) => !['melee', 'sidearm', 'tool', 'power'].includes(row.class)).map((row) => row.id);
+  check('classes: the editor offers every gun and every sidearm of the roster', CLASS_FIELD_OPTIONS.primary().join() === guns.join() && guns.length === 27
+    && CLASS_FIELD_OPTIONS.secondary().join() === 'warden,verdict,hush,sparklock', CLASS_FIELD_OPTIONS.primary().length + ' ' + CLASS_FIELD_OPTIONS.secondary().join());
   endModeTest();
-  check('classes: outside a swapping set the editor shows the plain name', CLASS_FIELD_NAMES.primary('hornet') === weaponName('hornet'), CLASS_FIELD_NAMES.primary('hornet'));
   const perks = ['bandolier', 'ghost', 'steady'];
-  check('classes: a weapon outside the Military set or a power primary is refused', Loadouts.saveClass({ primary: 'tempest', secondary: 'hush', perks }) === null
-    && Loadouts.saveClass({ primary: 'shardcaster', secondary: 'warden', perks }) === null && Loadouts.saveClass({ primary: 'warden', secondary: 'verdict', perks }) === null, Loadouts.lastError);});
+  check('classes: a power weapon, a tool, a melee weapon or a sidearm as the primary is refused', Loadouts.saveClass({ primary: 'daybreak', secondary: 'hush', perks }) === null
+    && Loadouts.saveClass({ primary: 'lifter', secondary: 'warden', perks }) === null && Loadouts.saveClass({ primary: 'maul', secondary: 'warden', perks }) === null
+    && Loadouts.saveClass({ primary: 'warden', secondary: 'verdict', perks }) === null, Loadouts.lastError);
+  const wide = Loadouts.saveClass({ name: 'Wide', primary: 'shardcaster', secondary: 'hush', perks });
+  check('classes: a gun outside the old Military set is accepted now', !!wide);
+  if (wide) Loadouts.removeClass(wide.id);
+});
 
 Test.add('economy', (check) => {
   check('loadouts: created on first use', Loadouts.selectedClass().id === CAT.classes[0].id && !!Save.data.loadouts);
-  check('loadouts: the secondary must be a sidearm', Loadouts.saveClass({ primary: 'tempest', secondary: 'vanguard', perks: ['bandolier', 'ghost', 'steady'] }) === null && !!Loadouts.lastError);
-  check('loadouts: the field upgrade comes from the ECP04 list', Loadouts.saveClass({ primary: 'tempest', secondary: 'warden', perks: ['bandolier', 'ghost', 'steady'], fieldUpgrade: 'orbital' }) === null);
-  check('loadouts: one perk per tier', Loadouts.saveClass({ primary: 'tempest', secondary: 'warden', perks: ['bandolier', 'scavenger', 'steady'] }) === null);
-  const stored = Loadouts.saveClass({ name: 'Mine', primary: 'tempest', secondary: 'warden', perks: ['bandolier', 'ghost', 'steady'] });
+  check('loadouts: the secondary must be a sidearm', Loadouts.saveClass({ primary: 'vanguard', secondary: 'ratchet', perks: ['bandolier', 'ghost', 'steady'] }) === null && !!Loadouts.lastError);
+  check('loadouts: the field upgrade comes from the ECP04 list', Loadouts.saveClass({ primary: 'vanguard', secondary: 'warden', perks: ['bandolier', 'ghost', 'steady'], fieldUpgrade: 'orbital' }) === null);
+  check('loadouts: one perk per tier', Loadouts.saveClass({ primary: 'vanguard', secondary: 'warden', perks: ['bandolier', 'scavenger', 'steady'] }) === null);
+  const stored = Loadouts.saveClass({ name: 'Mine', primary: 'vanguard', secondary: 'warden', perks: ['bandolier', 'ghost', 'steady'] });
   check('loadouts: custom class saved', !!stored && stored.id === 'class-1' && Loadouts.selectClass('class-1'));
   check('loadouts: hero and kit choice', Loadouts.setHero('quill') && Loadouts.setKitChoice('suit', 'ability2', 'colossusweave') && !Loadouts.setKitChoice('suit', 'ability2', 'orbital'));
   Save.saveNow();
   Save.data = null;
   Save.load();
   check('loadouts: restored from storage', Loadouts.selectedClass().name === 'Mine' && Loadouts.hero().id === 'quill' && Loadouts.kitChoice('suit').ability2 === 'colossusweave');
-  for (let i = 0; i < 10; i++) Loadouts.saveClass({ name: 'Extra', primary: 'tempest', secondary: 'warden', perks: ['bandolier', 'ghost', 'steady'] });
+  for (let i = 0; i < 10; i++) Loadouts.saveClass({ name: 'Extra', primary: 'vanguard', secondary: 'warden', perks: ['bandolier', 'ghost', 'steady'] });
   check('loadouts: at most 10 custom classes', Save.data.loadouts.classes.custom.length === 10 && !!Loadouts.lastError);
   check('loadouts: removing the selected class selects a preset', Loadouts.removeClass('class-1') && Loadouts.selectedClass().id === CAT.classes[0].id);
   TestArena.start({ economy: 'heroKits', health: 'hero', meter: 'ultimate' });

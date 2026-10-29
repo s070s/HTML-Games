@@ -53,7 +53,7 @@ function pickupHexColor(out, offset, color) {
   out[offset] = (value >> 16 & 255) / 255; out[offset + 1] = (value >> 8 & 255) / 255; out[offset + 2] = (value & 255) / 255;
 }
 const itemTicks = (seconds) => Math.round(seconds * TICK_RATE);
-// Every owned weapon with a magazine gains `share` x its max reserve, at least one round (I09, PU17, G23). Returns rounds added.
+// Every owned weapon with a magazine gains `share` x its max reserve, at least one round (I09, G23). Returns rounds added.
 function addAmmoShare(id, share) {
   let added = 0;
   for (let w = 0; w < WEAPON_COUNT; w++) {
@@ -124,7 +124,6 @@ const Items = {
   usingItem: new Int16Array(MAX_ACTORS).fill(-1), useStart: new Int32Array(MAX_ACTORS), useEnd: new Int32Array(MAX_ACTORS),
   swapReadyTick: new Int32Array(MAX_ACTORS),        // Sim.tick from which this actor may swap weapons again
   swapPrompts: [],                                  // 'HOLD TO SWAP <held> FOR <floor gun>' per weapon pair, built on first use (swapPrompt)
-  noArmor: new Uint8Array(MAX_ACTORS),              // written by 12b (scout rune): armor pickups refused
   takers: [],                                       // PICKUP_KIND -> fn(id, slot) -> true when taken (12b fills POWERUP)
   givers: [],                                       // PICKUP_KIND -> fn(id, key) -> true when given without a pickup (item.grant; 12b fills POWERUP)
   grantEffects: {},                                 // Economy 'grant' buy keys -> fn(id, item) -> true when delivered (unregistered = not on sale)
@@ -490,7 +489,7 @@ const Items = {
   },
   addArmor(id, amount, cap) {
     const limit = Math.min(cap, Actors.maxArmor[id]);
-    if (this.noArmor[id] || Actors.armor[id] >= limit) return false;
+    if (Actors.armor[id] >= limit) return false;
     Actors.armor[id] = Math.min(limit, Actors.armor[id] + amount);
     return true;
   },
@@ -564,7 +563,7 @@ const Items = {
   },
   resetActor(id) {
     this.carried.fill(0, id * ITEM_COUNT, (id + 1) * ITEM_COUNT);
-    this.usingItem[id] = -1; this.noArmor[id] = 0; this.swapReadyTick[id] = 0;
+    this.usingItem[id] = -1; this.swapReadyTick[id] = 0;
   },
 
   // ---- HUD hooks ----

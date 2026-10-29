@@ -509,9 +509,10 @@ const BotEconomy = {
   },
 };
 
-// A gun (not a melee weapon) worth BOT_BUY.upgrade more than the best one the bot owns, by botPref and the favourite.
+// A gun (not a melee weapon) worth BOT_BUY.upgrade more than the best one the bot owns, by botPref and the favourite, among the guns
+// whose range band holds the distance the bot fights at (the map's size and the bot's style): no launcher or rail on a small map.
 function gunWorth(id, item) {
-  if (item.kind !== 'weapon' || item.weaponClass === 'melee') return 0;
+  if (item.kind !== 'weapon' || item.weaponClass === 'melee' || !botGunFits(id, CAT.weapons.byId(item.key))) return 0;
   const value = BotCombat.weaponValue(id, CAT.weapons.byId(item.key), 1);
   return value >= BotCombat.bestOwnedGun(id) + BOT_BUY.upgrade ? value : 0;
 }

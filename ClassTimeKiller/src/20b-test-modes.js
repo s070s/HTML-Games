@@ -323,10 +323,10 @@ Test.add('modes', (check) => {
   const lmsItems = [{ x: 5, y: 0, z: 5, item: 'healthpack' }, { x: 9, y: 0, z: 5, item: 'springboots' }];
   startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1]);
   Items.load(lmsItems, 'lms');
-  const set = currentWeaponSet().weapons, lastWeapon = CAT.weapons.byId(set[set.length - 1]);
+  const set = currentWeaponSet().weapons.filter((key) => !WHOLE_SET_EXCLUDED_CLASSES.includes(CAT.weapons.byId(key).class)), lastWeapon = CAT.weapons.byId(set[set.length - 1]);
   const armed = set.every((key) => Weapons.owned[Weapons.slotIndex(0, CAT.weapons.byId(key).index)]);
   const fullReserve = Weapons.reserve[Weapons.slotIndex(0, lastWeapon.index)] === Weapons.maxReserve(0, lastWeapon);
-  check('lms: every weapon of the set at full reserve and 100 armor on spawn (M15)', armed && fullReserve && Actors.armor[0] >= 100, set.length + ' ' + Actors.armor[0]);
+  check('lms: every weapon of the set but the power weapons and tools at full reserve and 100 armor on spawn (M15)', armed && fullReserve && Actors.armor[0] >= 100, set.length + ' ' + Actors.armor[0]);
   check('lms: no map pickups except the boots', Items.spotCount === 1 && Items.keyOf(0) === 'springboots', Items.spotCount);
   endModeTest();
   startModeTest('lms', modesTestMap({ spawns: FFA_SPAWNS }), [-1, -1], { ruleset: 'pilot' });
@@ -600,13 +600,13 @@ Test.add('modes', (check) => {
   const guns = ['vanguard', 'verdict', 'hush', 'hornet'];   // more than the carry limit: setLoadout ends at it
   Weapons.setLoadout(0, guns); Weapons.setLoadout(1, guns);
   placeActor(0, 20, 0); placeActor(1, 20, 1.2);
-  Items.drop('tempest', 20, 0, 0); Items.drop('wasp', 20, 0, 1.2);
+  Items.drop('kestrel', 20, 0, 0); Items.drop('wasp', 20, 0, 1.2);
   holdUseFor(0, 5);
-  check('bomb: no swap for the planter', Modes.objectives[1].state === 'planted' && Weapons.atCarryLimit(0) && !Weapons.has(0, 'tempest'));
+  check('bomb: no swap for the planter', Modes.objectives[1].state === 'planted' && Weapons.atCarryLimit(0) && !Weapons.has(0, 'kestrel'));
   Sim.step();   // Use let go
   holdUseFor(0, 0.1);
   holdUseFor(1, 7.5);
-  check('bomb: a fresh Use swaps; none for the defuser', Weapons.has(0, 'tempest') && Modes.objectives[1].state === 'defused' && Weapons.atCarryLimit(1) && !Weapons.has(1, 'wasp'));
+  check('bomb: a fresh Use swaps; none for the defuser', Weapons.has(0, 'kestrel') && Modes.objectives[1].state === 'defused' && Weapons.atCarryLimit(1) && !Weapons.has(1, 'wasp'));
   endModeTest();
 });
 

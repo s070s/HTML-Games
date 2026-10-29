@@ -14,9 +14,9 @@ Test.add('rules', (check) => { check('Rules carries no test-only method (normali
 const EXPECTED_BUNDLES = [
   'RS01 classic arena stack pickups arena none', 'RS02 tourney arena stack pickups arena adrenaline',
   'RS03 tactical tactical tactical roundBuy tactical none', 'RS04 modern modern regen classes standard streak',
-  'RS05 pilot agile regen classes standard boost', 'RS06 vanguard vanguard shield pickups standard none',
-  'RS07 ravager ravager ravager pickups standard none', 'RS08 knight knight ravager pickups standard none',
-  'RS09 heroes modern hero heroKits hero ultimate', 'RS10 royale agile loot loot standard none',
+  'RS05 pilot agile regen classes standard boost', 'RS06 vanguard vanguard shield pickups standard ultimate',
+  'RS07 ravager ravager ravager pickups standard ultimate', 'RS08 knight knight ravager pickups standard ultimate',
+  'RS09 heroes modern hero heroKits hero ultimate', 'RS10 royale agile loot loot standard ultimate',
   'RS11 suit modern suit pickups standard energy', 'RS12 frame parkour shield classes standard energy',
 ];
 

@@ -92,14 +92,18 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P3-03 - DECIDE: final weapon roster - which weapons merge, which are cut, which new ones fill missing roles. Each weapon gets one clear role and a unique mechanic (fire mode, projectile behaviour or alt fire).
   Done when: Appendix C has the final roster with role, benefits, drawbacks and uses per weapon, and no two weapons share the same profile.
   Status (2026-10-29): decided, Appendix C "P3-03": 46 -> 38 weapons (8 merged into a stronger twin, old-id -> new-id map), Hush and Stakedriver alt reprofiled so no two share a profile.
-- [ ] P3-04 - Implement the roster from P3-03 (data rows, models, sounds, effects, bot use). Migrate saves, unlocks, cards and challenges that reference removed weapons.
+- [x] P3-04 - Implement the roster from P3-03 (data rows, models, sounds, effects, bot use). Migrate saves, unlocks, cards and challenges that reference removed weapons.
   Done when: every weapon fires primary and alt correctly (P1-02 check repeated), and old saves load without errors.
-- [ ] P3-05 - Implement access from P3-01: loadout / set rules, menus, pickups, bots.
+  Status (2026-10-29): 38 weapons per P3-03 (8 merged, Hush and Stakedriver alt reprofiled), models, sounds and bot use updated; every retired id migrates on load (stats, crosshairs, classes, kit picks, presets, editor draft, maps, map and match share codes); roster tests: every weapon fires primary and alt, no shared profile. Self-test 6337 / 6337 (a timing check under machine load passes alone). Open for P8: on Harbor soak seeds 2-4 a few bot Warden / Maul shots count as unperceived (seed 1 tested at 0).
+- [x] P3-05 - Implement access from P3-01: loadout / set rules, menus, pickups, bots.
   Done when: in every ruleset the player can reach the weapons the decision allows.
-- [ ] P3-06 - Same distinctness audit and decision for equipment (gadgets, items) and abilities: merge or cut duplicates, each with a clear role.
+  Status (2026-10-29): every ruleset builds loadouts from the full roster; only mode-defined restrictions remain (Gun Game, One Shot, Rocket Pit, melee-only, heroes, puzzle tools, Last Standing without power and tool weapons); ruleset fields carry / ammoTiers / melee / abilities; bots pick guns that fit the map distance, and gadgets and abilities by botUse from their own hash stream; Tactical quick buy (Q).
+- [x] P3-06 - Same distinctness audit and decision for equipment (gadgets, items) and abilities: merge or cut duplicates, each with a clear role.
   Done when: Appendix C has the final lists and they are implemented.
-- [ ] P3-07 - Acquisition and unlocks: make acquiring weapons, equipment and abilities clear and fast. DECIDE what is unlocked from the start and what is earned, and show the requirement for locked items in menus.
+  Status (2026-10-29): Appendix C "P3-06" lists implemented: gadgets 24 -> 17, items 37 -> 33, abilities 47 -> 45, each with an id migration; changes recorded in Appendix C (four rulesets on the ultimate meter; Modern Ops / Pilot Rush keep the class field upgrade).
+- [x] P3-07 - Acquisition and unlocks: make acquiring weapons, equipment and abilities clear and fast. DECIDE what is unlocked from the start and what is earned, and show the requirement for locked items in menus.
   Done when: a new save can use the decided starting set in its first match, and every locked item shows how to unlock it.
+  Status (2026-10-29): a new save uses the full roster and a ready default loadout in its first match; locked cosmetics, challenge tiers, ladder matches and cards show their requirement and progress; unlock toast and New badge (earned unlocks only).
 
 ## Phase 4 - Game modes and configuration redesign
 
@@ -374,6 +378,9 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   - **Pickups**: `Items.spotWeapon` swaps a pad's gun only when a restriction (match list) is active; otherwise the map's gun stays. Removed ids on maps follow the P3-03 migration map.
   - **Bots**: each bot builds a loadout from the full roster: its profile `favorite` when valid, else a gun whose `botPref` range fits the map size (drawn from `Rng.rules`, so seeded matches repeat), a sidearm, gadgets and an ability by their `botUse` rules; pad pickup behaviour unchanged.
 - **Reason**: the owner's complaint is the theme gating and about 3 usable weapons; A removes both without any grind and keeps every ruleset recognisable. Costs: a loadout screen (menus P4, layout P5), bot loadout choice and buy prices (P3-05 / P3-04), help text (18n "Weapons: <set>"), wider balance testing (P8).
+- **Change (2026-10-29, implementer, accepted by the coordinator): RS04 Modern Ops and RS05 Pilot Rush keep `abilities: 'kit'`** instead of an ability + ultimate loadout. Reason: their ability slot is the class field upgrade (Echo Pulse, a gadget or an ability chosen with the class), the identity of the class economy, and their meters (streak, boost) load rewards instead of paying an ultimate. All other loadout rulesets (RS06, RS07, RS08, RS10, and RS12 through its own Frame Runner kit) use the ability kit `loadout`.
+- **Change (2026-10-29, implementer, accepted by the coordinator after the review): RS06, RS07, RS08 and RS10 run the `ultimate` meter** instead of `none`. Reason: with meter `none` an ultimate-slot ability costs nothing and could be cast without limit, and the decision gives these rulesets an ultimate. Revert this only together with removing the ultimate pick from the ability kit `loadout`.
+- **Change (2026-10-29, implementer): the buy and class rulesets (RS03, RS04, RS05) keep a carry limit of 2** (`carry` ruleset field) and Frame Runner keeps ammo tiers (`ammoTiers`); pickup rulesets carry 0. The melee a ruleset spawns with is its `melee` field (its former set's start melee) unless the player picked another in the loadout.
 
 ### P3-03 - Final weapon roster (decided 2026-10-29 by the coordinator; the owner can change any row)
 

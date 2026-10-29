@@ -46,7 +46,7 @@ const keepsCenter = {
     ['concrete', -63, -1, -30, -60, 14, 30], ['concrete', 60, -1, -30, 63, 14, 30],
     ['concrete', -10, 0, -10, 10, 3, 10], ['concrete', -1.5, 3, -1.5, 1.5, 3.4, 1.5],                // middle platform and its pedestal
   ],
-  items: [['fury', 0, 3, 6], ['surplus', 0, 0, 26], ['surplus', 0, 0, -26], ['heavyplate', 0, 3, -6], ['megacell', 0, 0, 13]],
+  items: [['fury', 0, 3, 6], ['megacell', 0, 0, 26], ['megacell', 0, 0, -26], ['heavyplate', 0, 3, -6], ['megacell', 0, 0, 13]],
   objectives: [
     { id: 'flagMid', kind: 'flag', team: -1, x: 0, y: 3.4, z: 0, radius: 2, modes: ['oneflag'] },
     { id: 'pointMid', kind: 'point', x: 0, y: 3.4, z: 0, radius: 6, modes: ['dom'] },

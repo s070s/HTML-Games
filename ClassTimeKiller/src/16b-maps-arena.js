@@ -41,7 +41,7 @@ Maps.rows.push(MapKit.make({
       [-14, 4, 23.2, 180], [14, 4, 23.2, 180], [-14, 4, -23.2, 0], [14, 4, -23.2, 0]]],
   ],
   items: [
-    ['fury', 0, 4, 16.5], ['surplus', 0, 4, -16.5], ['heavyplate', 0, 8, 2.8], ['megacell', -18, 0, -6], ['vitalshard', 5, 4, 23], ['vitalshard', -5, 4, -23],
+    ['fury', 0, 4, 16.5], ['megacell', 0, 4, -16.5], ['heavyplate', 0, 8, 2.8], ['megacell', -18, 0, -6], ['vitalshard', 5, 4, 23], ['vitalshard', -5, 4, -23],
     ['lightplate', 23.2, 4, 10], ['lightplate', -23.2, 4, -10],
     ['armorshard', 9, 0, 9], ['armorshard', -9, 0, 9], ['armorshard', 9, 0, -9], ['armorshard', -9, 0, -9],
     ['healthpack', 0, 0, 9], ['healthpack', 0, 0, -9], ['healthvial', 23, 4, 22.5], ['healthvial', -23, 4, 22.5],
@@ -93,7 +93,7 @@ const skySpan = {                                                               
 const skyNorth = {                                                                                   // north island and the pads that serve it, mirrored to the south
   brushes: [['ice', -12, 0, 22, 12, 4, 34], ['ice', -3, 4, 26.8, 3, 5, 27.2], ['metal', -9, 4, 29, -7, 8, 31], ['metal', 7, 4, 29, 9, 8, 31]],
   spawns: [[-1, ['ffa'].concat(SKY_PARTY_MODES), [[-10.5, 4, 32.5, 180], [10.5, 4, 32.5, 180], [-10.5, 4, 24, 180], [10.5, 4, 24, 180]]]],
-  items: [['surplus', 0, 4, 31], ['armorshard', -10, 4, 32], ['armorshard', 10, 4, 32], ['healthpack', -10, 4, 24], ['healthpack', 10, 4, 24]],
+  items: [['megacell', 0, 4, 31], ['armorshard', -10, 4, 32], ['armorshard', 10, 4, 32], ['healthpack', -10, 4, 24], ['healthpack', 10, 4, 24]],
   zones: [['North Isle', -12, 22, 12, 34, -1, 10]],
   lights: [[0, 9, 28, 0xcfe8ff, 18]],
   hints: [['sniper', 0, 4, 33], ['cover', 0, 4, 25.5]],
@@ -173,7 +173,7 @@ const gantryCenter = {
     ['grip', -5, 0, 8, 5, 4, 8.2], ['grip', -5, 0, -8.2, 5, 4, -8],                                 // grip panels: MV05 Ravagers climb the hub
     ['metal', -7, 4, -7, -6, 6, -6], ['metal', 6, 4, -7, 7, 6, -6], ['metal', -7, 4, 6, -6, 6, 7], ['metal', 6, 4, 6, 7, 6, 7], // hub corner posts
   ],
-  items: [['fury', 0, 4, 5], ['surplus', 0, 0, 26], ['surplus', 0, 0, -26], ['megacell', 0, 8, 19], ['heavyplate', 0, 8, -19], ['vitalshard', 5, 4, -5], ['vitalshard', -5, 4, 5]],
+  items: [['fury', 0, 4, 5], ['megacell', 0, 0, 26], ['megacell', 0, 0, -26], ['megacell', 0, 8, 19], ['heavyplate', 0, 8, -19], ['vitalshard', 5, 4, -5], ['vitalshard', -5, 4, 5]],
   zones: [
     ['Hub', -8, -8, 8, 8, 2, 8],
     ['Center North', -16, 8, 16, 14, -1, 6], ['Center South', -16, -14, 16, -8, -1, 6], ['North Roof Mid', -6, 14, 6, 24, 6, 12],

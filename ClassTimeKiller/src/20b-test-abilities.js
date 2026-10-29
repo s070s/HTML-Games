@@ -139,11 +139,6 @@ const ABILITY_CASES = {
   secondwind: { setup: (t) => { Actors.flags[t.ally] |= ACTOR_FLAG.DOWNED; }, seconds: 0, expect: (t) => !(Actors.flags[t.ally] & ACTOR_FLAG.DOWNED) },
   ampwall: { seconds: 0.1, expect: (t) => { const wall = AbilityTest.zoneOf(t, ZONE_KIND.WALL); return wall >= 0 && Test.near(AbilityZones.z[wall], 1.5, 0.01); } },
   arcbolt: { setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 0, expect: (t) => Actors.health[t.enemy] === 70 && Damage.hasStatus(t.enemy, 'shock') },
-  ignite: { setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 0, expect: (t) => Actors.health[t.enemy] === 90 && Damage.hasStatus(t.enemy, 'burn') },
-  frostlance: {
-    setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 0,
-    expect: (t) => Actors.health[t.enemy] === 90 && (Damage.hasStatus(t.enemy, 'chill') || Damage.hasStatus(t.enemy, 'freeze')),
-  },
   // Swarm ticks every 0.5 s from the step after the cast: two ticks of 4 by 1.05 s.
   swarm: { setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 1.05, expect: (t) => Test.near(Actors.health[t.enemy], 92, 0.5) },
   holodouble: {
@@ -579,12 +574,11 @@ Test.add('abilities', (check) => {
   check('A29 on a wet target: everyone wading in that water is stunned, the caster on dry floor is not (HP-005 wet floor)',
     Damage.hasStatus(t.second, 'shock') && Damage.hasStatus(t.ally, 'shock') && !Damage.hasStatus(t.caster, 'shock'));
   for (const id of [t.enemy, t.second, t.ally]) { Motion.medium[id] = 0; Damage.clearAllStatuses(id); }
-  Damage.resetHealth(t.enemy);   // three bolts took 90: the shattering ignite hit (x3) must not kill
+  Damage.resetHealth(t.enemy);
   Damage.addStatus(t.enemy, 'freeze', t.caster);
-  AbilityTest.give(t, 'ignite');
-  const cast = AbilityTest.cast(t);
-  check('A30 Ignite melts ice: the frozen target thaws and burns', !Damage.hasStatus(t.enemy, 'freeze') && Damage.hasStatus(t.enemy, 'burn'),
-    cast + ' ' + Damage.hasStatus(t.enemy, 'freeze') + ' ' + Damage.hasStatus(t.enemy, 'burn'));
+  Damage.addStatus(t.enemy, 'burn', t.caster);
+  check('Burn melts ice: the frozen target thaws and burns', !Damage.hasStatus(t.enemy, 'freeze') && Damage.hasStatus(t.enemy, 'burn'),
+    Damage.hasStatus(t.enemy, 'freeze') + ' ' + Damage.hasStatus(t.enemy, 'burn'));
   for (const id of [t.caster, t.ally]) Motion.medium[id] = TRIGGER_MEDIUM.WADING;
   chargeHit(t.enemy, t.caster, CAT.enemies.byId('charger').attacks[0]);   // a non-electric stun: no chain, no wet spread
   check('E10 charger knockdown stuns only its target, even in water (no HP-005 Shock combo)',
@@ -639,14 +633,14 @@ Test.add('abilities', (check) => {
   check('a world load or clear removes every patch', surfaceSlots('wet').length === 0);
 });
 
-// HP-005 oil: an oil drum prop spills a slick; Burn on someone in it (A30) lights a 6 s fire area that burns whoever stands
+// HP-005 oil: an oil drum prop spills a slick; Burn on someone in it lights a 6 s fire area that burns whoever stands
 // in it and lights touching oil; a thermal explosion over oil lights it, a kinetic one does not.
 Test.add('abilities', (check) => {
   const badRows = CAT.surfaces.filter((row) => [row.spreads, row.igniteStatus, row.status].some((key) => key && !CAT.statusEffects.byId(key))
     || (row.becomes && !CAT.surfaces.byId(row.becomes)) || (row.spillFrom && !CAT.materials.byId(row.spillFrom)) || (row.fx && !CAT.fxKinds.byId(row.fx))
     || !CAT.elements.byId(row.element) || (row.igniteElement && !CAT.elements.byId(row.igniteElement)));
   check('surface rows name real statuses, surfaces, materials, elements and fx kinds', badRows.length === 0, badRows.map((row) => row.id).join());
-  const t = AbilityTest.give(AbilityTest.start(), 'ignite');
+  const t = AbilityTest.start();
   Props.load({ props: [{ min: [-0.4, 0, 2.6], max: [0.4, 1.2, 3.4], health: 10, material: 'oil' }, { min: [3, 0, 3], max: [4, 1, 4], health: 10, material: 'wood' }] });
   Props.damage(1, 50, t.caster);
   check('a wooden prop spills nothing', surfaceSlots('oil').length === 0);
@@ -658,9 +652,8 @@ Test.add('abilities', (check) => {
   TestArena.place(t.enemy, 0, 3.5);
   TestArena.place(t.second, 1, 7);
   TestArena.place(t.ally, -1, 7);
-  TestArena.aimAt(t.caster, t.enemy);
-  AbilityTest.cast(t);
-  check('A30 Ignite on a target standing in oil lights it: a 6 s fire area (HP-005 oil floor + Burn)',
+  Damage.addStatus(t.enemy, 'burn', t.caster, 2, 1);
+  check('Burn on a target standing in oil lights it: a 6 s fire area (HP-005 oil floor + Burn)',
     surfaceSlots('oil').length === 0 && surfaceSlots('fire').length === 2 && Test.near(FloorSurfaces.endTick[slick[0]] - Sim.tick, fireRow.seconds * TICK_RATE, 1));
   runSeconds(0.3);
   check('burning oil hurts and burns an enemy standing in it, not an ally (friendly fire off)',
@@ -838,7 +831,7 @@ Test.add('abilities', (check) => {
   Damage.surplus[t.ally] = 80;
   AbilityTest.cast(t);
   runSeconds(0.1);
-  const cap = CAT.powerups.byId('surplus').instant.surplusCap;
+  const cap = RALLY_SURPLUS_CAP;
   check('F44 rally shield stops at the surplus cap', Damage.surplus[t.ally] === cap && Damage.surplus[t.caster] === 50, Damage.surplus[t.ally]);
   runSeconds(CAT.abilities.byId('rally').duration + 0.2);
   check('F44 rally shield is gone after its 8 s (earlier surplus stays)', Damage.surplus[t.ally] === 80 && Damage.surplus[t.caster] === 0, Damage.surplus[t.ally]);

@@ -50,10 +50,6 @@ Data.define('weaponModels', MODEL_SCHEMA, [
     { shape: 'cylinder', offset: [0, -0.005, 0.17], size: [0.024, 0.06, 0.024], rotation: [0, -90], tint: 'steel' },
     { shape: 'ring', offset: [0, -0.005, 0.1], size: [0.075, 0.015, 0.075], rotation: [0, -90], tint: 'glow' },
     { shape: 'ring', offset: [0, -0.005, 0.14], size: [0.065, 0.015, 0.065], rotation: [0, -90], tint: 'glow' }] },
-  { id: 'twinsting', from: 'sidearm', drop: [2], accent: '#e05a2a', parts: [
-    { offset: [0, -0.125, -0.005], size: [0.03, 0.09, 0.04], tint: 'dark' },
-    { shape: 'cylinder', offset: [0.011, 0.025, 0.16], size: [0.016, 0.06, 0.016], rotation: [0, -90], tint: 'steel', mirror: true },
-    { offset: [0, -0.04, 0.11], size: [0.025, 0.06, 0.03], tint: 'dark' }] },
   // ---- SMGs ----
   { id: 'wasp', from: 'smg', accent: '#e8c02a', parts: [
     { offset: [0, 0.04, 0.06], size: [0.02, 0.012, 0.18], tint: 'accent' },
@@ -62,12 +58,6 @@ Data.define('weaponModels', MODEL_SCHEMA, [
     { shape: 'cylinder', offset: [0, -0.045, 0.22], size: [0.045, 0.14, 0.045], rotation: [0, -90], tint: 'steel' },
     { offset: [0, -0.005, -0.16], size: [0.04, 0.06, 0.12], tint: 'dark' },
     { offset: [0, 0.05, 0.04], size: [0.025, 0.025, 0.05], tint: 'dark' }] },
-  { id: 'riptide', pose: 'smg', accent: '#3ac8c8', parts: [
-    { shape: 'capsule', offset: [0, 0, 0.04], size: [0.07, 0.3, 0.07], rotation: [0, -90], lod: 2 },
-    { offset: [0, 0.05, 0.05], size: [0.045, 0.025, 0.22], tint: 'accent', lod: 2 },
-    { offset: [0, -0.06, 0.03], size: [0.03, 0.07, 0.04], rotation: [0, -10], tint: 'dark' },
-    { offset: [0, -0.04, -0.08], size: [0.04, 0.05, 0.07], tint: 'dark' },
-    { shape: 'cylinder', offset: [0, 0, 0.21], size: [0.022, 0.06, 0.022], rotation: [0, -90], tint: 'steel' }] },
   { id: 'needlethorn', pose: 'smg', accent: '#5b2d6e', glow: '#ff6ad5', parts: [
     { shape: 'capsule', offset: [0, 0, 0.06], size: [0.065, 0.3, 0.065], rotation: [0, -90], tint: 'accent', lod: 2 },
     { shape: 'cone', offset: [0, 0, 0.24], size: [0.02, 0.07, 0.02], rotation: [0, -90], tint: 'glow', lod: 2 },
@@ -82,23 +72,10 @@ Data.define('weaponModels', MODEL_SCHEMA, [
     { offset: [0, -0.005, 0.2], size: [0.05, 0.05, 0.1], tint: 'wood' },
     { shape: 'cylinder', offset: [0, 0.035, 0.22], size: [0.018, 0.14, 0.018], rotation: [0, -90], tint: 'steel' },
     { offset: [0, 0.04, 0.36], size: [0.01, 0.03, 0.01], tint: 'dark', lod: 0 }] },
-  { id: 'tempest', from: 'rifle', drop: [4], glow: '#ff4040', parts: [
-    { offset: [0, 0.065, 0.03], size: [0.03, 0.035, 0.05], tint: 'dark' },
-    { offset: [0, 0, 0.2], size: [0.06, 0.065, 0.12], tint: 'dark', lod: 2 },
-    { offset: [0, -0.07, 0.2], size: [0.025, 0.07, 0.03], tint: 'dark' },
-    { shape: 'ring', offset: [0, 0.075, 0.056], size: [0.035, 0.01, 0.035], rotation: [0, -90], tint: 'glow', lod: 0 }] },
   { id: 'ratchet', from: 'rifle', drop: [2, 4], parts: [
     { offset: [0, 0.09, 0.05], size: [0.02, 0.025, 0.26], lod: 2 },
     { offset: [0, -0.08, -0.1], size: [0.035, 0.11, 0.05], tint: 'dark' },
     { offset: [0, -0.07, 0.06], size: [0.03, 0.08, 0.04], rotation: [0, -10], tint: 'dark' }] },
-  { id: 'longshot', from: 'rifle', scale: [1, 1, 1.15], drop: [4], parts: [
-    { shape: 'cylinder', offset: [0, 0.08, 0.05], size: [0.04, 0.2, 0.04], rotation: [0, -90], tint: 'dark', lod: 2 },
-    { shape: 'cylinder', offset: [0, 0.08, 0.17], size: [0.052, 0.05, 0.052], rotation: [0, -90], tint: 'dark' },
-    { offset: [0.04, 0.02, -0.02], size: [0.04, 0.012, 0.012], tint: 'steel' }] },
-  { id: 'pulsecarbine', from: 'rifle', drop: [4], accent: '#3a2a5a', glow: '#a06bff', parts: [
-    { shape: 'sphere', offset: [0, 0.05, 0.12], size: [0.06, 0.05, 0.08], tint: 'glow' },
-    { offset: [0.03, 0.01, 0.08], size: [0.006, 0.02, 0.24], tint: 'glow', mirror: true },
-    { shape: 'cylinder', offset: [0, -0.05, 0.24], size: [0.04, 0.1, 0.04], rotation: [0, -90], tint: 'accent' }] },
   // ---- Shotguns ----
   { id: 'scattergun', from: 'shotgun', drop: [3], parts: [
     { offset: [0, -0.03, -0.2], size: [0.05, 0.085, 0.17], rotation: [0, -6], tint: 'wood' },
@@ -116,13 +93,6 @@ Data.define('weaponModels', MODEL_SCHEMA, [
     { offset: [0, -0.02, -0.18], size: [0.05, 0.08, 0.14], tint: 'dark' },
     { shape: 'cone', offset: [0, 0.07, 0], size: [0.03, 0.06, 0.03], tint: 'glow' },
     { shape: 'cone', offset: [0, 0.065, 0.06], size: [0.025, 0.05, 0.025], rotation: [0, 20], tint: 'glow' }] },
-  { id: 'frostbore', pose: 'shotgun', glow: '#9be8ff', parts: [
-    { offset: [0, 0, 0], size: [0.065, 0.085, 0.28], lod: 2 },
-    { shape: 'cylinder', offset: [0, 0.015, 0.26], size: [0.06, 0.24, 0.06], rotation: [0, -90], tint: 'steel', lod: 2 },
-    { shape: 'ring', offset: [0, 0.015, 0.2], size: [0.085, 0.025, 0.085], rotation: [0, -90], tint: 'glow' },
-    { shape: 'ring', offset: [0, 0.015, 0.31], size: [0.08, 0.025, 0.08], rotation: [0, -90], tint: 'glow' },
-    { shape: 'capsule', offset: [0.05, -0.02, 0.02], size: [0.045, 0.2, 0.045], rotation: [0, -90], tint: 'glow' },
-    { offset: [0, -0.02, -0.2], size: [0.05, 0.08, 0.15], tint: 'dark' }] },
   // ---- Marksman and sniper ----
   { id: 'lancet', from: 'rail', parts: [
     { shape: 'cylinder', offset: [0, 0.08, 0.02], size: [0.035, 0.16, 0.035], rotation: [0, -90], tint: 'dark' },
@@ -203,10 +173,6 @@ Data.define('weaponModels', MODEL_SCHEMA, [
     { shape: 'cylinder', offset: [0, 0, 0.33], size: [0.1, 0.025, 0.1], rotation: [0, -90], tint: 'dark' },
     { offset: [0, -0.11, -0.02], size: [0.1, 0.08, 0.1], tint: 'accent' },
     { offset: [0, 0.1, 0], size: [0.03, 0.04, 0.12], tint: 'dark' }] },
-  { id: 'anvil', from: 'lmg', parts: [
-    { shape: 'cylinder', offset: [0, 0.015, 0.3], size: [0.05, 0.14, 0.05], rotation: [0, -90], tint: 'dark' },
-    { offset: [0, 0.08, 0.12], size: [0.015, 0.03, 0.1], tint: 'steel' },
-    { offset: [0.025, -0.07, 0.44], size: [0.01, 0.12, 0.01], rotation: [0, 25], tint: 'steel', mirror: true }] },
   { id: 'kindler', pose: 'heavy', accent: '#a33a2a', glow: '#ff8a3d', parts: [
     { offset: [0, 0, 0.02], size: [0.07, 0.08, 0.26], lod: 2 },
     { shape: 'capsule', offset: [0, -0.075, 0.02], size: [0.08, 0.26, 0.08], rotation: [0, -90], tint: 'accent', lod: 2 },
@@ -227,12 +193,6 @@ Data.define('weaponModels', MODEL_SCHEMA, [
     { offset: [0, 0.055, 0.08], size: [0.03, 0.025, 0.3], tint: 'steel' },
     { offset: [0, -0.03, -0.14], size: [0.045, 0.08, 0.14], tint: 'dark' },
     { offset: [0, -0.08, -0.04], size: [0.035, 0.09, 0.045], rotation: [0, -10], tint: 'dark' }] },
-  { id: 'kingfisher', pose: 'launcher', glow: '#ff5050', parts: [
-    { offset: [0, 0.01, 0.1], size: [0.14, 0.12, 0.36], lod: 2 },
-    { shape: 'cylinder', offset: [0.035, 0.04, 0.285], size: [0.045, 0.02, 0.045], rotation: [0, -90], tint: 'dark', mirror: true, lod: 2 },
-    { shape: 'cylinder', offset: [0.035, -0.02, 0.285], size: [0.045, 0.02, 0.045], rotation: [0, -90], tint: 'dark', mirror: true },
-    { offset: [0, -0.09, 0.02], size: [0.035, 0.09, 0.045], rotation: [0, -10], tint: 'dark' },
-    { offset: [0, 0.09, 0.06], size: [0.02, 0.03, 0.12], tint: 'dark' }] },
   { id: 'gloop', pose: 'launcher', glow: '#7fe04a', parts: [
     { offset: [0, 0, 0.04], size: [0.06, 0.08, 0.26], lod: 2 },
     { shape: 'sphere', offset: [0, 0.085, 0], size: [0.1, 0.1, 0.1], tint: 'glow', lod: 2 },

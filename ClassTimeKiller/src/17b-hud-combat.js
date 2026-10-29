@@ -189,7 +189,7 @@ function hudDrawCrosshair(pen, layout, seconds) {
   hudDrawCrosshairShape(pen, layout, cross, HudCombat.spread);
 }
 
-// D-F04 lock-on cue: a ring on each enemy a held lock-on trigger (W07 primary, W33 alt) is tracking. The arc fills while the lock
+// D-F04 lock-on cue: a ring on each enemy a held lock-on trigger (W07 primary, W31 alt) is tracking. The arc fills while the lock
 // builds; a full red ring with a diamond means locked. Nothing draws while no enemy is in the cone (the weapon plays 'No target').
 const HUD_LOCK_RADIUS = 20, HUD_LOCK_THICKNESS = 3, HUD_LOCK_BODY_SHARE = 0.6;
 function hudDrawLockOn(pen, layout) {

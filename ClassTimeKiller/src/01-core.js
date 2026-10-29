@@ -162,7 +162,7 @@ const Bus = {
   },
 };
 
-// Accumulates clock[index]; true once per interval (gadget areas, placed devices, mode timers, PU17 ammo regen).
+// Accumulates clock[index]; true once per interval (gadget areas, placed devices, mode timers).
 function intervalDue(clock, index, dt, interval) {
   clock[index] += dt;
   if (clock[index] < interval - 1e-6) return false;

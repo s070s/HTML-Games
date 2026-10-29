@@ -13,8 +13,9 @@ const HANDICAP_MAX = 1;
 const PRECISIONS = ['arena', 'standard', 'tactical', 'hero'];
 const METERS = ['none', 'streak', 'boost', 'adrenaline', 'ultimate', 'energy'];
 const DROP_RULES = ['none', 'held', 'all'];
+const ABILITY_ACCESS = ['none', 'kit', 'loadout'];   // rules.abilities (P3-01)
 // Ruleset fields naming a row of another catalogue: checked whenever that catalogue exists at build time.
-const RULE_REFERENCES = { move: 'movement', health: 'health', economy: 'economy', weaponSet: 'weaponSets' };
+const RULE_REFERENCES = { move: 'movement', health: 'health', economy: 'economy', weaponSet: 'weaponSets', melee: 'weapons' };
 // Mode row fields copied into the built ruleset; a custom match may change them through setup.modeOptions.
 // The mode's respawn kind lands in rules.respawnMode (rules.respawn holds the ruleset timers).
 const MODE_RULE_FIELDS = ['teams', 'sizeDefault', 'scoreLimit', 'timeLimit', 'scoreBy', 'rounds', 'objective', 'params', 'tiebreak', 'family'];
@@ -63,6 +64,7 @@ const Rules = {
     if (!PRECISIONS.includes(rules.precision)) this.report('ruleset ' + rules.id + ': unknown precision ' + rules.precision);
     if (!METERS.includes(rules.meter)) this.report('ruleset ' + rules.id + ': unknown meter ' + rules.meter);
     if (!DROP_RULES.includes(rules.dropOnDeath)) this.report('ruleset ' + rules.id + ': unknown dropOnDeath ' + rules.dropOnDeath);
+    if (!ABILITY_ACCESS.includes(rules.abilities)) this.report('ruleset ' + rules.id + ': unknown abilities ' + rules.abilities);
   },
   report(text) {
     this.problems.push(text);

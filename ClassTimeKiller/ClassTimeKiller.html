@@ -911,7 +911,6 @@ Data.define('projectiles', {
 	{ id: 'hook', code: 'P16', name: 'Hook', speed: 60, life: 0.4, radius: 0.2, onHit: 'pull', poolSize: 8, color: 0x909090 },
 	{ id: 'drill', code: 'P17', name: 'Drill', speed: 20, life: 6, radius: 0.08, homing: 90, onHit: 'drill', poolSize: 8, color: 0xc0c0c0 },
 	{ id: 'blade', code: 'P18', name: 'Blade', speed: 30, life: 1.2, radius: 0.25, pierce: true, returning: true, onHit: 'damage', poolSize: 8, color: 0xe8e8ff },
-	{ id: 'darkorb', code: 'P19', name: 'Dark orb', speed: 25, life: 1.5, radius: 0.3, bounce: 1, bounces: -1, pierce: true, onHit: 'damage', poolSize: 4, color: 0x30204a },
 	{ id: 'sunorb', code: 'P20', name: 'Daybreak orb', speed: 18, life: 6, radius: 0.5, onHit: 'explode', poolSize: 4, color: 0xffd98a, scale: 0.7 },
 	{ id: 'bullet', code: 'P21', name: 'Bullet', speed: 320, life: 1, radius: 0.02, onHit: 'damage', poolSize: 128, color: 0xfff0b0, scale: 0.3 },
 ]);
@@ -922,7 +921,7 @@ const FIRE_MODE_SCHEMA = {
 	element: 'kinetic', status: null, statusRange: 0, burst: 0, burstGap: 0.06, spinUp: 0, reach: 0, backstab: 0, cone: null, chain: null,
 	lock: null, toggle: null, block: null, launch: null, combo: null, stickCombo: null, split: null, puddle: null, aura: null, laser: null,
 	cooldown: 0, maxActive: 0, activeRule: 'recycle', detonateOnRelease: false, guided: false, alwaysHead: false, knockback: 1,
-	fodderKill: false, allyLink: 0, repair: 0, special: '', tool: '', zoom: 1, zoomMax: 0, breath: 0, noise: -1, arm: 0, weapon: '', family: null,
+	fodderKill: false, allyLink: 0, repair: 0, special: '', tool: '', zoom: 1, zoomMax: 0, breath: 0, noise: -1, arm: 0, weapon: '', family: null, tracer: true,
 };
 const WEAPON_SCHEMA = {
 	id: REQUIRED, code: REQUIRED, name: REQUIRED, class: REQUIRED, slot: 0, moveMult: 1, adsMoveMult: 0.7, equipTime: 0, readyTime: 0.15,
@@ -945,45 +944,30 @@ const WEAPON_ROWS = [
 	{ id: 'verdict', code: 'W05', name: 'Verdict Magnum', class: 'sidearm', mag: 6, reserve: 24, price: 700, noise: 70, botPref: { range: [5, 40], value: 0.55 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 55, rate: 2.2, spreadDeg: 0.3, recoil: 'pistolHeavy', falloff: [25, 50, 0.75], penetration: 'med' },
 		alt: { type: 'zoom', zoom: 2 } },
-	{ id: 'hush', code: 'W06', name: 'Hush Pistol', class: 'sidearm', mag: 10, reserve: 40, altAmmo: 6, price: 300, noise: 6, botPref: { range: [2, 20], value: 0.3 },
-		primary: { type: 'hitscan', trigger: 'semi', damage: 22, rate: 5, spreadDeg: 0.6, recoil: 'pistol', falloff: [15, 30, 0.6] },
+	{ id: 'hush', code: 'W06', name: 'Hush Pistol', class: 'sidearm', mag: 10, reserve: 40, altAmmo: 6, price: 500, noise: 6, botPref: { range: [8, 35], value: 0.4 },
+		primary: { type: 'hitscan', trigger: 'semi', damage: 40, rate: 2.5, spreadDeg: 0.15, headMult: 2.5, tracer: false, recoil: 'pistol', falloff: [25, 55, 0.7] },
 		alt: { type: 'hitscan', trigger: 'semi', damage: 0, rate: 1, ammo: 'alt', status: { id: 'sleep', seconds: 8 } } },
-	{ id: 'sparklock', code: 'W07', name: 'Sparklock Pistol', class: 'sidearm', mag: 24, reserve: 72, noise: 40, botPref: { range: [2, 20], value: 0.45 },
+	{ id: 'sparklock', code: 'W07', name: 'Sparklock Pistol', class: 'sidearm', price: 600, mag: 24, reserve: 72, noise: 40, botPref: { range: [2, 20], value: 0.45 },
 		primary: { type: 'lock', damage: 12, rate: 8, lock: { time: 0.4, targets: 3, coneDeg: 12, range: 20 }, recoil: 'energy' },
 		alt: { type: 'hitscan', damage: 12, rate: 8, spreadDeg: 1.5, recoil: 'pistol' } },
-	{ id: 'twinsting', code: 'W08', name: 'Twin Stinger', class: 'sidearm', mag: 20, reserve: 100, altAmmo: 4, price: 500, noise: 50, botPref: { range: [0, 12], value: 0.45 },
-		primary: { type: 'hitscan', damage: 14, rate: 15, spreadDeg: 1.2, recoil: 'smg', falloff: [8, 20, 0.5] },
-		alt: { type: 'hitscan', trigger: 'semi', damage: 10, rate: 1, ammo: 'alt', splash: { r: 6, dmg: 0 }, status: { id: 'reveal', seconds: 5 }, element: 'thermal' } },
 	{ id: 'wasp', code: 'W09', name: 'Wasp SMG', class: 'smg', mag: 30, reserve: 120, price: 1200, killReward: 600, botPref: { range: [0, 15], value: 0.55 },
 		primary: { type: 'hitscan', damage: 18, rate: 13, spreadDeg: 0.8, recoil: 'smg', falloff: [10, 25, 0.6] },
-		alt: { type: 'zoom', zoom: 1.5 } },
+		alt: { type: 'toggle', toggle: { damageMult: 0.85, status: { id: 'slow', seconds: 1 } } } },
 	{ id: 'hornet', code: 'W10', name: 'Hornet Carbine', class: 'smg', moveMult: 0.97, mag: 45, reserve: 180, altAmmo: 3, price: 1400, killReward: 600, botPref: { range: [0, 20], value: 0.55 },
 		primary: { type: 'hitscan', damage: 15, rate: 12, spreadDeg: 0.9, recoil: 'smg', falloff: [12, 28, 0.6] },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'contact', damage: 0, rate: 1, ammo: 'alt', splash: { r: 3.5, dmg: 80 }, recoil: 'launcher' } },
-	{ id: 'riptide', code: 'W11', name: 'Riptide PDW', class: 'smg', moveMult: 0.97, mag: 50, reserve: 150, price: 1100, killReward: 600, botPref: { range: [0, 18], value: 0.55 },
-		primary: { type: 'hitscan', damage: 16, rate: 14, spreadDeg: 1.4, recoil: 'smg', falloff: [10, 25, 0.6] },
-		alt: { type: 'toggle', toggle: { damageMult: 0.85, status: { id: 'slow', seconds: 1 } } } },
-	{ id: 'needlethorn', code: 'W12', name: 'Needlethorn', class: 'smg', mag: 30, reserve: 90, noise: 40, botPref: { range: [3, 22], value: 0.5 },
+	{ id: 'needlethorn', code: 'W12', name: 'Needlethorn', class: 'smg', price: 1500, mag: 30, reserve: 90, noise: 40, botPref: { range: [3, 22], value: 0.5 },
 		primary: { type: 'projectile', projectile: 'needle', damage: 9, rate: 10, spreadDeg: 1.5, falloff: [12, 28, 0.6], stickCombo: { count: 9, damage: 40, radius: 2 }, element: 'void' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'needle', damage: 9, rate: 1.25, pellets: 5, spreadDeg: 5, ammoPerShot: 5, falloff: [12, 28, 0.6], stickCombo: { count: 9, damage: 40, radius: 2 }, element: 'void' } },
 	{ id: 'vanguard', code: 'W13', name: 'Vanguard Rifle', class: 'rifle', moveMult: 0.92, mag: 25, reserve: 75, price: 2700, botPref: { range: [5, 60], value: 0.75 },
 		primary: { type: 'hitscan', damage: 34, rate: 10, spreadDeg: 0.25, recoil: 'rifleHeavy', falloff: [35, 60, 0.75], penetration: 'med' },
 		alt: { type: 'zoom', zoom: 1.3 } },
-	{ id: 'tempest', code: 'W14', name: 'Tempest Rifle', class: 'rifle', moveMult: 0.93, mag: 30, reserve: 90, price: 2900, noise: 50, botPref: { range: [5, 45], value: 0.7 },
-		primary: { type: 'hitscan', damage: 30, rate: 11, spreadDeg: 0.25, recoil: 'rifle', falloff: [30, 50, 0.8], penetration: 'med' },
-		alt: { type: 'zoom', zoom: 1.3 } },
 	{ id: 'ratchet', code: 'W15', name: 'Ratchet Burst', class: 'rifle', moveMult: 0.93, mag: 24, reserve: 96, price: 2400, botPref: { range: [8, 50], value: 0.65 },
 		primary: { type: 'hitscan', trigger: 'burst', damage: 32, rate: 3, burst: 3, spreadDeg: 0.3, recoil: 'burst', penetration: 'med' },
 		alt: { type: 'zoom', zoom: 1.8 } },
-	{ id: 'longshot', code: 'W16', name: 'Longshot Scout', class: 'rifle', moveMult: 0.92, mag: 15, reserve: 60, price: 2300, botPref: { range: [15, 70], value: 0.65 },
-		primary: { type: 'hitscan', trigger: 'semi', damage: 50, rate: 3.5, spreadDeg: 0.15, recoil: 'marksman', penetration: 'med' },
-		alt: { type: 'zoom', zoom: 2.5 } },
-	{ id: 'coilcaster', code: 'W17', name: 'Coilcaster', class: 'energy', moveMult: 0.93, mag: 20, reserve: 50, botPref: { range: [8, 60], value: 0.7 },
+	{ id: 'coilcaster', code: 'W17', name: 'Coilcaster', class: 'energy', price: 2200, moveMult: 0.93, mag: 20, reserve: 50, botPref: { range: [8, 60], value: 0.7 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 45, rate: 1.4, recoil: 'energy', element: 'arc', combo: { damage: 200, radius: 4, ammo: 3 } },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'orb', damage: 0, rate: 1.4, splash: { r: 1.5, dmg: 55 }, element: 'arc' } },
-	{ id: 'pulsecarbine', code: 'W18', name: 'Pulse Carbine', class: 'rifle', moveMult: 0.92, mag: 30, reserve: 60, altAmmo: 2, botPref: { range: [5, 40], value: 0.65 },
-		primary: { type: 'hitscan', damage: 20, rate: 10, spreadDeg: 0.5, recoil: 'rifle', element: 'void' },
-		alt: { type: 'projectile', trigger: 'semi', projectile: 'darkorb', damage: 100, rate: 0.5, ammo: 'alt', fodderKill: true, element: 'void' } },
 	{ id: 'scattergun', code: 'W19', name: 'Scattergun', class: 'shotgun', moveMult: 0.95, reloadShell: true, mag: 6, reserve: 30, price: 1100, killReward: 900, noise: 80, botPref: { range: [0, 10], value: 0.7 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 10, pellets: 12, rate: 1.1, spreadDeg: 5, moveSpread: 0.3, adsSpreadMult: 1, recoil: 'shotgun', falloff: [8, 20, 0.4] },
 		alt: { type: 'hitscan', trigger: 'semi', damage: 55, rate: 1.1, spreadDeg: 0.3, recoil: 'shotgun', falloff: [20, 45, 0.6], zoom: 1.2 } },
@@ -993,61 +977,52 @@ const WEAPON_ROWS = [
 	{ id: 'shardcaster', code: 'W21', name: 'Shardcaster', class: 'shotgun', moveMult: 0.92, mag: 10, reserve: 40, price: 1600, killReward: 900, noise: 75, botPref: { range: [0, 15], value: 0.75 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'shard', damage: 12, pellets: 9, rate: 1.2, spreadDeg: 6, moveSpread: 0.3, recoil: 'shotgun' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', speed: 20, bounces: 0, damage: 100, rate: 0.9, split: { projectile: 'shard', count: 6, damage: 12 }, arm: EXPLOSIVE_ALT_ARM, recoil: 'launcher' } },
-	{ id: 'frostbore', code: 'W22', name: 'Frostbore', class: 'shotgun', moveMult: 0.93, mag: 8, reserve: 32, altAmmo: 20, price: 1500, killReward: 900, botPref: { range: [0, 10], value: 0.7 },
-		primary: { type: 'hitscan', trigger: 'semi', damage: 13, pellets: 8, rate: 1.2, spreadDeg: 5, moveSpread: 0.3, recoil: 'shotgun', falloff: [8, 18, 0.4] },
-		alt: { type: 'hitscan', trigger: 'semi', damage: 4, pellets: 6, rate: 1, spreadDeg: 7, ammo: 'alt', ammoPerShot: 5, range: 12, status: { id: 'chill', stacks: 3 }, element: 'cryo' } },
-	{ id: 'lancet', code: 'W23', name: 'Lancet Rail', class: 'marksman', moveMult: 0.92, mag: 10, reserve: 30, noise: 90, botPref: { range: [10, 90], value: 0.85 },
+	{ id: 'lancet', code: 'W23', name: 'Lancet Rail', class: 'marksman', price: 3500, moveMult: 0.92, mag: 10, reserve: 30, noise: 90, botPref: { range: [10, 90], value: 0.85 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 100, rate: 0.67, moveSpread: 0, pierce: 4, recoil: 'marksman', element: 'arc' },
 		alt: { type: 'zoom', zoom: 2.5 } },
 	{ id: 'heron', code: 'W24', name: 'Heron Sniper', class: 'sniper', moveMult: 0.85, adsMoveMult: 0.5, reload: 3.6, mag: 5, reserve: 20, price: 4700, killReward: 100, noise: 110, botPref: { range: [25, 140], value: 0.85 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 115, rate: 0.67, spreadDeg: 8, adsSpreadMult: 0, headMult: 2.5, alwaysHead: true, recoil: 'sniper', penetration: 'high' },
 		alt: { type: 'zoom', zoom: 4, zoomMax: 8, breath: 4 } },
-	{ id: 'kestrel', code: 'W25', name: 'Kestrel DMR', class: 'marksman', moveMult: 0.9, mag: 10, reserve: 40, price: 1800, botPref: { range: [10, 80], value: 0.7 },
+	{ id: 'kestrel', code: 'W25', name: 'Kestrel DMR', class: 'marksman', moveMult: 0.9, mag: 15, reserve: 45, price: 1800, botPref: { range: [10, 80], value: 0.7 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 60, rate: 3, spreadDeg: 0.2, recoil: 'marksman', penetration: 'med' },
 		alt: { type: 'zoom', zoom: 3 } },
-	{ id: 'stakedriver', code: 'W26', name: 'Stakedriver', class: 'marksman', moveMult: 0.9, mag: 12, reserve: 36, altAmmo: 6, botPref: { range: [10, 60], value: 0.7 },
+	{ id: 'stakedriver', code: 'W26', name: 'Stakedriver', class: 'marksman', price: 2000, moveMult: 0.9, mag: 12, reserve: 36, altAmmo: 6, botPref: { range: [10, 60], value: 0.7 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 90, rate: 1.2, recoil: 'marksman', statusRange: 25, status: { id: 'burn', seconds: 3 } },
-		alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', bounces: 3, damage: 0, rate: 1, ammo: 'alt', splash: { r: 4, dmg: 80 }, arm: EXPLOSIVE_ALT_ARM, recoil: 'launcher' } },
-	{ id: 'talonbow', code: 'W27', name: 'Talon Bow', class: 'marksman', mag: 1, reserve: 18, altAmmo: 6, noise: 0, reload: 0.5, botPref: { range: [8, 60], value: 0.6 },
+		alt: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 70, rate: 1, ammo: 'alt', recoil: 'marksman', status: { id: 'burn', seconds: 4 }, element: 'thermal' } },
+	{ id: 'talonbow', code: 'W27', name: 'Talon Bow', class: 'marksman', price: 1500, mag: 1, reserve: 18, altAmmo: 6, noise: 0, reload: 0.5, botPref: { range: [8, 60], value: 0.6 },
 		primary: { type: 'projectile', trigger: 'charge', projectile: 'arrow', rate: 1.5, charge: { time: 0.7, min: 50, max: 110, speed: [40, 70] } },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'arrow', speed: 55, damage: 0, rate: 1, ammo: 'alt', splash: { r: 2.5, dmg: 80 }, arm: EXPLOSIVE_ALT_ARM, noise: 60 } },
-	{ id: 'hailstorm', code: 'W28', name: 'Hailstorm', class: 'heavy', moveMult: 0.75, mag: 150, reserve: 300, noise: 90, botPref: { range: [3, 35], value: 0.75 },
-		primary: { type: 'hitscan', damage: 15, rate: 18, spinUp: 0.2, spreadDeg: 1.1, moveSpread: 1.5, recoil: 'minigun' },
+	{ id: 'hailstorm', code: 'W28', name: 'Hailstorm', class: 'heavy', price: 4000, moveMult: 0.75, mag: 150, reserve: 300, noise: 90, botPref: { range: [3, 35], value: 0.75 },
+		primary: { type: 'hitscan', damage: 15, rate: 18, spinUp: 0.2, spreadDeg: 1.1, moveSpread: 1.5, recoil: 'minigun', penetration: 'high' },
 		alt: { type: 'toggle', toggle: { rateMult: 1.5, frontResist: 0.3, speedMult: 0 } } },
-	{ id: 'anvil', code: 'W29', name: 'Anvil LMG', class: 'heavy', moveMult: 0.82, reload: 6, mag: 100, reserve: 200, price: 4000, noise: 85, botPref: { range: [5, 50], value: 0.7 },
-		primary: { type: 'hitscan', damage: 25, rate: 9, spreadDeg: 0.6, moveSpread: 1.4, recoil: 'lmg', penetration: 'high' },
-		alt: { type: 'toggle', toggle: { recoilMult: 0.3, needsLedge: true } } },
-	{ id: 'linker', code: 'W30', name: 'Linker', class: 'energy', mag: 70, reserve: 140, noise: 50, botPref: { range: [3, 30], value: 0.6 },
+	{ id: 'linker', code: 'W30', name: 'Linker', class: 'energy', price: 1800, mag: 70, reserve: 140, noise: 50, botPref: { range: [3, 30], value: 0.6 },
 		primary: { type: 'projectile', projectile: 'plasma', speed: 40, damage: 22, rate: 6, recoil: 'energy', element: 'arc' },
 		alt: { type: 'beam', damage: 5, rate: 20, range: 30, allyLink: 1.5, repair: 60, element: 'arc' } },
-	{ id: 'ramjet', code: 'W31', name: 'Ramjet Launcher', class: 'explosive', moveMult: 0.88, mag: 4, reserve: 20, noise: 90, botPref: { range: [4, 40], value: 0.85 },
+	{ id: 'ramjet', code: 'W31', name: 'Ramjet Launcher', class: 'explosive', price: 3200, moveMult: 0.88, mag: 4, reserve: 20, noise: 90, botPref: { range: [4, 40], value: 0.85 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'rocket', damage: 90, rate: 1, splash: { r: 3.5, dmg: 80 }, recoil: 'launcher', element: 'thermal' },
-		alt: { type: 'projectile', trigger: 'charge', projectile: 'rocket', damage: 70, rate: 0.8, spreadDeg: 1.5, splash: { r: 3.5, dmg: 70 }, charge: { time: 1, levels: [1, 2, 3], target: 'pellets' }, recoil: 'launcher', element: 'thermal' } },
-	{ id: 'pitcher', code: 'W32', name: 'Pitcher Launcher', class: 'explosive', moveMult: 0.9, mag: 6, reserve: 24, noise: 70, botPref: { range: [5, 30], value: 0.65 },
+		alt: { type: 'lock', trigger: 'release', projectile: 'missile', damage: 35, pellets: 4, rate: 1, spreadDeg: 6, ammoPerShot: 2, splash: { r: 1.5, dmg: 10 }, lock: { time: 1.2, targets: 1, coneDeg: 10, range: 80 }, element: 'thermal' } },
+	{ id: 'pitcher', code: 'W32', name: 'Pitcher Launcher', class: 'explosive', price: 2600, moveMult: 0.9, mag: 6, reserve: 24, noise: 70, botPref: { range: [5, 30], value: 0.65 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'grenade', damage: 0, rate: 1.5, splash: { r: 4.5, dmg: 100 }, recoil: 'launcher' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'mine', damage: 0, rate: 2, splash: { r: 4, dmg: 100 }, maxActive: 4, detonateOnRelease: true, recoil: 'launcher' } },
-	{ id: 'kingfisher', code: 'W33', name: 'Kingfisher Pod', class: 'explosive', moveMult: 0.88, mag: 8, reserve: 24, noise: 85, botPref: { range: [10, 70], value: 0.7 },
-		primary: { type: 'projectile', trigger: 'semi', projectile: 'rocket', damage: 60, pellets: 2, rate: 1.2, spreadDeg: 2, splash: { r: 2, dmg: 20 }, recoil: 'launcher', element: 'thermal' },
-		alt: { type: 'lock', trigger: 'release', projectile: 'missile', damage: 35, pellets: 4, rate: 1, spreadDeg: 6, ammoPerShot: 2, splash: { r: 1.5, dmg: 10 }, lock: { time: 1.2, targets: 1, coneDeg: 10, range: 80 }, element: 'thermal' } },
-	{ id: 'gloop', code: 'W34', name: 'Gloop Gun', class: 'explosive', mag: 25, reserve: 75, noise: 35, botPref: { range: [2, 18], value: 0.55 },
+	{ id: 'gloop', code: 'W34', name: 'Gloop Gun', class: 'explosive', price: 2000, mag: 25, reserve: 75, noise: 35, botPref: { range: [2, 18], value: 0.55 },
 		primary: { type: 'projectile', projectile: 'goo', damage: 20, rate: 4, spreadDeg: 1.5, puddle: { radius: 1.5, damage: 5, seconds: 3 }, element: 'toxin' },
 		alt: { type: 'projectile', trigger: 'charge', projectile: 'goo', rate: 0.8, ammoPerShot: 5, charge: { time: 2, min: 20, max: 150 }, split: { projectile: 'goo', count: 3, damage: 20 }, puddle: { radius: 2, damage: 2.5, seconds: 3 }, element: 'toxin' } },
-	{ id: 'kindler', code: 'W35', name: 'Kindler', class: 'heavy', moveMult: 0.85, mag: 100, reserve: 200, noise: 40, botPref: { range: [0, 9], value: 0.6 },
+	{ id: 'kindler', code: 'W35', name: 'Kindler', class: 'heavy', price: 2400, moveMult: 0.85, mag: 100, reserve: 200, noise: 40, botPref: { range: [0, 9], value: 0.6 },
 		primary: { type: 'cone', damage: 10, rate: 10, cone: { range: 9, angle: 30 }, status: { id: 'burn', seconds: 4 }, element: 'thermal' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'goo', damage: 10, rate: 1, ammoPerShot: 10, puddle: { radius: 2.5, damage: 5, seconds: 6, status: { id: 'burn', seconds: 4 } }, element: 'thermal', special: 'airblast' } },
-	{ id: 'ember', code: 'W36', name: 'Ember Repeater', class: 'energy', moveMult: 0.92, mag: 50, reserve: 200, noise: 55, botPref: { range: [3, 30], value: 0.75 },
+	{ id: 'ember', code: 'W36', name: 'Ember Repeater', class: 'energy', price: 2400, moveMult: 0.92, mag: 50, reserve: 200, noise: 55, botPref: { range: [3, 30], value: 0.75 },
 		primary: { type: 'projectile', projectile: 'plasma', damage: 16, rate: 10, splash: { r: 0.6, dmg: 10 }, heat: 4, recoil: 'energy', element: 'thermal' },
 		alt: { type: 'cone', trigger: 'semi', rate: 1, ammoPerShot: 0, heatDamage: 120, cone: { range: 6, angle: 50 }, element: 'thermal' } },
-	{ id: 'stormlash', code: 'W37', name: 'Stormlash', class: 'energy', mag: 100, reserve: 200, noise: 50, botPref: { range: [2, 24], value: 0.75 },
+	{ id: 'stormlash', code: 'W37', name: 'Stormlash', class: 'energy', price: 2800, mag: 100, reserve: 200, noise: 50, botPref: { range: [2, 24], value: 0.75 },
 		primary: { type: 'beam', damage: 8, rate: 20, range: 24, element: 'arc' },
 		alt: { type: 'hitscan', trigger: 'semi', damage: 30, rate: 1.5, ammoPerShot: 5, range: 30, chain: { targets: 3, radius: 6 }, element: 'arc' } },
-	{ id: 'starthrower', code: 'W38', name: 'Starthrower', class: 'energy', mag: 50, reserve: 150, noise: 45, botPref: { range: [3, 30], value: 0.6 },
+	{ id: 'starthrower', code: 'W38', name: 'Starthrower', class: 'energy', price: 2200, mag: 50, reserve: 150, noise: 45, botPref: { range: [3, 30], value: 0.6 },
 		primary: { type: 'projectile', projectile: 'disc', damage: 18, rate: 8, spreadDeg: 0.6, recoil: 'energy' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'disc', bounces: 0, damage: 0, rate: 2, ammoPerShot: 3, splash: { r: 1.8, dmg: 50 }, arm: EXPLOSIVE_ALT_ARM } },
-	{ id: 'accelerator', code: 'W39', name: 'Accelerator', class: 'energy', mag: 20, reserve: 60, noise: 70, botPref: { range: [5, 50], value: 0.65 },
+	{ id: 'accelerator', code: 'W39', name: 'Accelerator', class: 'energy', price: 2600, mag: 20, reserve: 60, noise: 70, botPref: { range: [5, 50], value: 0.65 },
 		primary: { type: 'hitscan', trigger: 'charge', rate: 1.2, charge: { time: 1.5, levels: [40, 90, 160], ammo: [2, 4, 8] }, recoil: 'energy', element: 'void' },
 		alt: { type: 'cone', trigger: 'semi', damage: 60, rate: 0.7, ammoPerShot: 4, cone: { range: 6, angle: 360 }, knockback: 4, element: 'void' } },
-	{ id: 'fusionmortar', code: 'W40', name: 'Fusion Mortar', class: 'explosive', moveMult: 0.85, mag: 1, reserve: 1, maxAmmo: 1, noise: 90, botPref: { range: [8, 30], value: 0.6 },
+	{ id: 'fusionmortar', code: 'W40', name: 'Fusion Mortar', class: 'explosive', price: 4500, moveMult: 0.85, mag: 1, reserve: 1, maxAmmo: 1, noise: 90, botPref: { range: [8, 30], value: 0.6 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'fusion', damage: 0, rate: 0.5, splash: { r: 6, dmg: 300 }, element: 'void' },
 		alt: { type: 'detonate', projectile: 'fusion' } },
 	{ id: 'lifter', code: 'W41', name: 'Graviton Lifter', class: 'tool', noise: 20, botPref: { range: [0, 6], value: 0.2 },
@@ -1056,10 +1031,10 @@ const WEAPON_ROWS = [
 	{ id: 'twingate', code: 'W42', name: 'Twin-Gate Projector', class: 'tool', noise: 10, botPref: { range: [0, 0], value: 0 },
 		primary: { type: 'tool', trigger: 'semi', tool: 'gateDawn', rate: 2, range: 60 },
 		alt: { type: 'tool', trigger: 'semi', tool: 'gateDusk', rate: 2, range: 60 } },
-	{ id: 'auger', code: 'W43', name: 'Skull Auger', class: 'exotic', mag: 3, reserve: 9, noise: 60, botPref: { range: [3, 20], value: 0.7 },
+	{ id: 'auger', code: 'W43', name: 'Skull Auger', class: 'exotic', price: 3500, mag: 3, reserve: 9, noise: 60, botPref: { range: [3, 20], value: 0.7 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'drill', damage: 90, rate: 0.8, fodderKill: true },
 		alt: { type: 'detonate', projectile: 'drill' } },
-	{ id: 'razorwind', code: 'W44', name: 'Razorwind', class: 'exotic', noise: 30, botPref: { range: [2, 18], value: 0.55 },
+	{ id: 'razorwind', code: 'W44', name: 'Razorwind', class: 'exotic', price: 2000, noise: 30, botPref: { range: [2, 18], value: 0.55 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'blade', damage: 45, rate: 1.5, ammo: 'none', maxActive: 1, activeRule: 'block' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'blade', damage: 45, rate: 2, ammo: 'none', maxActive: 1, activeRule: 'block', special: 'lodgeBlade', laser: { damage: 15, interval: 0.25 } } },
 	{ id: 'daybreak', code: 'W45', name: 'Daybreak Projector', class: 'power', moveMult: 0.85, mag: 4, reserve: 0, rarityScale: false, noise: 120, botPref: { range: [6, 60], value: 1 },
@@ -1107,18 +1082,19 @@ Data.define('attachments', {
 	{ id: 'heavyStock', name: 'Heavy Stock', slot: 'stock', recoil: 0.85, spread: 0.9, move: 0.95 },
 	{ id: 'lightStock', name: 'Light Stock', slot: 'stock', equip: 0.8, move: 1.04, recoil: 1.1 },
 ]);
+const LOOT_GUN_IDS = WEAPON_ROWS.filter((row) => row.class !== 'melee' && row.class !== 'power' && row.class !== 'tool').map((row) => row.id);
 Data.define('weaponSets', {
 	id: REQUIRED, name: REQUIRED, weapons: REQUIRED, start: REQUIRED, carry: 0, ammoTiers: false, rarity: false, power: [],
 }, [
 	{ id: 'arenaSet', name: 'Arena', weapons: ['maul', 'warden', 'scattergun', 'shardcaster', 'lancet', 'linker', 'ramjet', 'pitcher', 'ember', 'stormlash', 'daybreak'], start: ['maul', 'warden'], power: ['daybreak'] },
-	{ id: 'tacticalSet', name: 'Tactical', weapons: ['tanto', 'warden', 'verdict', 'hush', 'wasp', 'riptide', 'vanguard', 'tempest', 'scattergun', 'heron', 'kestrel', 'anvil'], start: ['tanto', 'warden'], carry: 2 },
-	{ id: 'militarySet', name: 'Military', weapons: ['tanto', 'warden', 'verdict', 'wasp', 'hornet', 'riptide', 'vanguard', 'tempest', 'ratchet', 'longshot', 'scattergun', 'heron', 'kestrel', 'hailstorm', 'anvil', 'kingfisher'], start: ['tanto', 'warden', 'hornet'], carry: 2 },
-	{ id: 'sandboxSet', name: 'Sandbox', weapons: ['tanto', 'verdict', 'needlethorn', 'ratchet', 'longshot', 'coilcaster', 'pulsecarbine', 'lancet', 'heron', 'ramjet', 'pitcher', 'kindler'], start: ['tanto', 'ratchet', 'verdict'], carry: 2 },
-	{ id: 'ravagerSet', name: 'Ravager', weapons: ['maul', 'scattergun', 'hookjaw', 'frostbore', 'stakedriver', 'hailstorm', 'ramjet', 'ember', 'accelerator', 'razorwind', 'daybreak'], start: ['maul', 'scattergun'], power: ['daybreak'] },
+	{ id: 'tacticalSet', name: 'Tactical', weapons: ['tanto', 'warden', 'verdict', 'hush', 'wasp', 'vanguard', 'scattergun', 'heron', 'kestrel', 'hailstorm'], start: ['tanto', 'warden'], carry: 2 },
+	{ id: 'militarySet', name: 'Military', weapons: ['tanto', 'warden', 'verdict', 'wasp', 'hornet', 'vanguard', 'ratchet', 'scattergun', 'heron', 'kestrel', 'hailstorm', 'ramjet'], start: ['tanto', 'warden', 'hornet'], carry: 2 },
+	{ id: 'sandboxSet', name: 'Sandbox', weapons: ['tanto', 'verdict', 'needlethorn', 'ratchet', 'kestrel', 'coilcaster', 'hornet', 'lancet', 'heron', 'ramjet', 'pitcher', 'kindler'], start: ['tanto', 'ratchet', 'verdict'], carry: 2 },
+	{ id: 'ravagerSet', name: 'Ravager', weapons: ['maul', 'scattergun', 'hookjaw', 'stakedriver', 'hailstorm', 'ramjet', 'ember', 'accelerator', 'razorwind', 'daybreak'], start: ['maul', 'scattergun'], power: ['daybreak'] },
 	{ id: 'knightSet', name: 'Knight', weapons: ['bulwark', 'scattergun', 'hookjaw', 'stakedriver', 'gloop', 'ember', 'starthrower', 'fusionmortar'], start: ['bulwark', 'scattergun'] },
-	{ id: 'lootSet', name: 'Loot', weapons: ['tanto', 'warden', 'verdict', 'hush', 'wasp', 'hornet', 'riptide', 'vanguard', 'tempest', 'ratchet', 'longshot', 'scattergun', 'heron', 'kestrel', 'anvil'], start: ['tanto'], carry: 5, rarity: true },
+	{ id: 'lootSet', name: 'Loot', weapons: ['tanto'].concat(LOOT_GUN_IDS), start: ['tanto'], carry: 5, rarity: true },
 	{ id: 'exoticSet', name: 'Exotic', weapons: ['sparklock', 'needlethorn', 'talonbow', 'gloop', 'stormlash', 'starthrower', 'accelerator', 'auger', 'razorwind'], start: ['tanto', 'sparklock'], ammoTiers: true },
-	{ id: 'fullSet', name: 'Full arsenal', weapons: WEAPON_ROWS.map((row) => row.id), start: ['maul', 'warden'], power: ['daybreak', 'halcyon'] },
+	{ id: 'fullSet', name: 'Full roster', weapons: WEAPON_ROWS.map((row) => row.id), start: ['maul', 'warden'], power: ['daybreak', 'halcyon'] },
 	{ id: 'matchSet', name: 'Match list', weapons: ['maul'], start: ['maul'] },
 ]);
 
@@ -1198,22 +1174,22 @@ Data.define('damageKinds', {
 const HITSCAN_KNOCKBACK = 0.25;
 const HERO_KNOCKBACK = 0.5;
 const RULESET_ROWS = [
-	{ id: 'classic', code: 'RS01', name: 'Arena Classic', move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'arenaSet', meter: 'none' },
-	{ id: 'tourney', code: 'RS02', name: 'Arena Tournament', move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'arenaSet', meter: 'adrenaline', moveOverrides: { extraJumps: 1, wallDodge: true } },
-	{ id: 'tactical', code: 'RS03', name: 'Tactical Breach', move: 'tactical', health: 'tactical', economy: 'roundBuy', precision: 'tactical', weaponSet: 'tacticalSet', meter: 'none', knockback: HITSCAN_KNOCKBACK },
-	{ id: 'modern', code: 'RS04', name: 'Modern Ops', move: 'modern', health: 'regen', economy: 'classes', precision: 'standard', weaponSet: 'militarySet', meter: 'streak', knockback: HITSCAN_KNOCKBACK, downed: true },
-	{ id: 'pilot', code: 'RS05', name: 'Pilot Rush', move: 'agile', health: 'regen', economy: 'classes', precision: 'standard', weaponSet: 'militarySet', meter: 'boost', knockback: HITSCAN_KNOCKBACK, downed: true },
-	{ id: 'vanguard', code: 'RS06', name: 'Shield Wars', move: 'vanguard', health: 'shield', economy: 'pickups', precision: 'standard', weaponSet: 'sandboxSet', meter: 'none' },
-	{ id: 'ravager', code: 'RS07', name: 'Ravager', move: 'ravager', health: 'ravager', economy: 'pickups', precision: 'standard', weaponSet: 'ravagerSet', meter: 'none' },
-	{ id: 'knight', code: 'RS08', name: 'Iron Bulwark', move: 'knight', health: 'ravager', economy: 'pickups', precision: 'standard', weaponSet: 'knightSet', meter: 'none' },
-	{ id: 'heroes', code: 'RS09', name: 'Hero Squad', move: 'modern', health: 'hero', economy: 'heroKits', precision: 'hero', weaponSet: '', meter: 'ultimate', downed: true, hitKnockback: HERO_KNOCKBACK },
-	{ id: 'royale', code: 'RS10', name: 'Last Ring', move: 'agile', health: 'loot', economy: 'loot', precision: 'standard', weaponSet: 'lootSet', meter: 'none', knockback: HITSCAN_KNOCKBACK },
-	{ id: 'suit', code: 'RS11', name: 'Weave Suit', move: 'modern', health: 'suit', economy: 'pickups', precision: 'standard', weaponSet: 'militarySet', meter: 'energy', knockback: HITSCAN_KNOCKBACK },
-	{ id: 'frame', code: 'RS12', name: 'Frame Runner', move: 'parkour', health: 'shield', economy: 'classes', precision: 'standard', weaponSet: 'exoticSet', meter: 'energy', downed: true },
+	{ id: 'classic', code: 'RS01', name: 'Arena Classic', move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'fullSet', melee: 'maul', meter: 'none', abilities: 'none' },
+	{ id: 'tourney', code: 'RS02', name: 'Arena Tournament', move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'fullSet', melee: 'maul', meter: 'adrenaline', abilities: 'none', moveOverrides: { extraJumps: 1, wallDodge: true } },
+	{ id: 'tactical', code: 'RS03', name: 'Tactical Breach', move: 'tactical', health: 'tactical', economy: 'roundBuy', precision: 'tactical', weaponSet: 'fullSet', melee: 'tanto', carry: 2, meter: 'none', abilities: 'none', knockback: HITSCAN_KNOCKBACK },
+	{ id: 'modern', code: 'RS04', name: 'Modern Ops', move: 'modern', health: 'regen', economy: 'classes', precision: 'standard', weaponSet: 'fullSet', melee: 'tanto', carry: 2, meter: 'streak', abilities: 'kit', knockback: HITSCAN_KNOCKBACK, downed: true },
+	{ id: 'pilot', code: 'RS05', name: 'Pilot Rush', move: 'agile', health: 'regen', economy: 'classes', precision: 'standard', weaponSet: 'fullSet', melee: 'tanto', carry: 2, meter: 'boost', abilities: 'kit', knockback: HITSCAN_KNOCKBACK, downed: true },
+	{ id: 'vanguard', code: 'RS06', name: 'Shield Wars', move: 'vanguard', health: 'shield', economy: 'pickups', precision: 'standard', weaponSet: 'fullSet', melee: 'tanto', meter: 'ultimate', abilities: 'loadout' },
+	{ id: 'ravager', code: 'RS07', name: 'Ravager', move: 'ravager', health: 'ravager', economy: 'pickups', precision: 'standard', weaponSet: 'fullSet', melee: 'maul', meter: 'ultimate', abilities: 'loadout' },
+	{ id: 'knight', code: 'RS08', name: 'Iron Bulwark', move: 'knight', health: 'ravager', economy: 'pickups', precision: 'standard', weaponSet: 'fullSet', melee: 'bulwark', meter: 'ultimate', abilities: 'loadout' },
+	{ id: 'heroes', code: 'RS09', name: 'Hero Squad', move: 'modern', health: 'hero', economy: 'heroKits', precision: 'hero', weaponSet: '', meter: 'ultimate', abilities: 'kit', downed: true, hitKnockback: HERO_KNOCKBACK },
+	{ id: 'royale', code: 'RS10', name: 'Last Ring', move: 'agile', health: 'loot', economy: 'loot', precision: 'standard', weaponSet: 'lootSet', meter: 'ultimate', abilities: 'loadout', knockback: HITSCAN_KNOCKBACK },
+	{ id: 'suit', code: 'RS11', name: 'Weave Suit', move: 'modern', health: 'suit', economy: 'pickups', precision: 'standard', weaponSet: 'fullSet', melee: 'tanto', meter: 'energy', abilities: 'kit', knockback: HITSCAN_KNOCKBACK },
+	{ id: 'frame', code: 'RS12', name: 'Frame Runner', move: 'parkour', health: 'shield', economy: 'classes', precision: 'standard', weaponSet: 'fullSet', melee: 'tanto', ammoTiers: true, meter: 'energy', abilities: 'loadout', downed: true },
 ];
 Data.define('rulesets', {
-	id: REQUIRED, code: '', name: REQUIRED, move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'arenaSet',
-	meter: 'none', friendlyFire: 0, selfDamage: 0.5, knockback: 1, hitKnockback: 1, gravityScale: 1, respawn: { delay: 2, forced: 10, protect: 2, wave: 0 },
+	id: REQUIRED, code: '', name: REQUIRED, move: 'arena', health: 'stack', economy: 'pickups', precision: 'arena', weaponSet: 'fullSet',
+	melee: '', carry: null, ammoTiers: null, abilities: 'none', meter: 'none', friendlyFire: 0, selfDamage: 0.5, knockback: 1, hitKnockback: 1, gravityScale: 1, respawn: { delay: 2, forced: 10, protect: 2, wave: 0 },
 	lives: 0, itemRespawnScale: 1, weaponStay: false, dropOnDeath: 'held', mutators: [], moveOverrides: {}, items: true, downed: false, editor: null,
 }, RULESET_ROWS);
 
@@ -1223,7 +1199,7 @@ const BOMB_ROUNDS = { winsNeeded: 7, limit: 13, live: 100, freeze: 15, switchAt:
 const BOMB_PARAMS = { plantTime: 4, fuse: 40, defuseTime: 7, defuseCheckpoint: 3.5, defuseRange: 1.5, blastRadius: 15 };
 const CAPTURE_PARAMS = { captureTime: 8, captureStack: 0.5, captureMax: 2 };
 const NO_KILL_SCORING = { kill: 0, suicide: 0, teamKill: 0 };
-const GUNGAME_LADDER = ['tempest', 'vanguard', 'ratchet', 'wasp', 'hornet', 'riptide', 'scattergun', 'hookjaw', 'kestrel', 'lancet', 'heron', 'maul'];
+const GUNGAME_LADDER = ['vanguard', 'ratchet', 'wasp', 'hornet', 'needlethorn', 'scattergun', 'hookjaw', 'shardcaster', 'kestrel', 'lancet', 'heron', 'maul'];
 const BLIGHT_PARAMS = { fixedSides: true, infectedPerPlayers: 6, infectedArea: 3000, infectAfter: 20, infectedHealth: 320, leapSpeed: 8, leapLift: 3 };
 Data.define('modes', {
 	id: REQUIRED, code: REQUIRED, name: REQUIRED, goal: '', goalDetail: '', teams: 0, sizeDefault: 8, scoreLimit: 0, timeLimit: 600, scoreBy: 'kills',
@@ -1341,7 +1317,7 @@ Data.define('bots', {
 	{ id: 'halloran', code: 'B13', name: 'Halloran', tier: 4, style: 'accurate', favorite: 'heron', color: 0x3f6f8f, chat: 'quiet' },
 	{ id: 'quarry', code: 'B14', name: 'Quarry', tier: 4, style: 'weaponJumper', favorite: 'ramjet', color: 0x8c8c5a },
 	{ id: 'jessamy', code: 'B15', name: 'Jessamy', tier: 4, style: 'itemFocus', favorite: 'stormlash', color: 0x58b7d8 },
-	{ id: 'okoro', code: 'B16', name: 'Okoro', tier: 4, style: 'teamwork', favorite: 'tempest', color: 0x3e9d63 },
+	{ id: 'okoro', code: 'B16', name: 'Okoro', tier: 4, style: 'teamwork', favorite: 'vanguard', color: 0x3e9d63 },
 	{ id: 'vantablue', code: 'B17', name: 'Vantablue', tier: 5, style: 'flanker', favorite: 'ember', color: 0x2b3fae },
 	{ id: 'marrow', code: 'B18', name: 'Marrow', tier: 5, style: 'aggressive', favorite: 'shardcaster', color: 0xb8a48c, chat: 'loud' },
 	{ id: 'isoldecrane', code: 'B19', name: 'Isolde Crane', tier: 5, style: 'accurate', favorite: 'lancet', color: 0xd9d2e9 },
@@ -1400,19 +1376,14 @@ const BOT_GADGET_USE = {
 	flash: { when: 'cover', range: [6, 20], chance: 0.7, aim: 'enemy', tierFlag: 'flashPeek' },
 	freeze: { when: 'enemyClose', range: [4, 14], chance: 0.6, aim: 'enemy' },
 	impulse: { when: 'enemyClose', range: [3, 12], chance: 0.5, aim: 'enemy' },
-	dart: { when: 'enemyVisible', range: [5, 20], chance: 0.5, aim: 'enemy' },
 	emp: { when: 'enemyVisible', range: [8, 25], chance: 0.4, aim: 'enemy' },
-	decoy: { when: 'cover', range: [8, 25], chance: 0.4, aim: 'between' },
 	smoke: { when: 'underFire', range: [8, 25], chance: 0.6, aim: 'between' },
 	mine: { when: 'holding', range: [0, 0], chance: 1 },
 	turret: { when: 'holding', range: [0, 0], chance: 1 },
 	beacon: { when: 'holding', range: [0, 0], chance: 0.5 },
 	jammer: { when: 'objective', range: [0, 0], chance: 1 },
-	dome: { when: 'underFire', range: [0, 40], chance: 0.7 },
 	barrier: { when: 'holding', range: [0, 0], chance: 0.5 },
 	trophy: { when: 'underFire', range: [0, 40], chance: 0.6 },
-	heal: { when: 'lowHealth', range: [0, 0], chance: 0.8 },
-	drain: { when: 'enemyClose', range: [0, 8], chance: 0.6 },
 	drones: { when: 'enemyVisible', range: [10, 40], chance: 0.6 },
 	supply: { when: 'lowAmmo', range: [0, 0], chance: 1 },
 };
@@ -1486,8 +1457,6 @@ Data.define('powerups', {
 	{ id: 'ghostveil', code: 'PU04', name: 'Ghostveil', duration: 30, maxDuration: 60, mods: { invisible: true, perception: 0.25 }, color: 0xc0e8ff },
 	{ id: 'renewal', code: 'PU05', name: 'Renewal', duration: 30, maxDuration: 60, mods: { regen: [15, 110, 5, 200] }, color: 0xff4060 },
 	{ id: 'skyward', code: 'PU06', name: 'Skyward', duration: 30, maxDuration: 60, mods: { flight: 8, noFall: true }, color: 0x80ffe0 },
-	{ id: 'surplus', code: 'PU07', name: 'Surplus Orb', respawn: 90, stacking: 'refresh', pool: 'surplus', instant: { surplus: 100, surplusCap: 100 }, mods: { surplusDecay: 2 }, drops: false, color: 0x40e0ff },
-	{ id: 'aegisbelt', code: 'PU08', name: 'Aegis Belt', respawn: 55, stacking: 'refresh', pool: 'belt', instant: { belt: 100, beltTotal: 200 }, drops: false, color: 0xffe080 },
 	{ id: 'berserk', code: 'PU09', name: 'Berserk Fist', duration: 20, maxDuration: 40, mods: { melee: 4, fodderMelee: true }, instant: { healTo: 100 }, color: 0xff2020 },
 	{ id: 'sigil', code: 'PU10', name: 'Invulnerability Sigil', duration: 10, maxDuration: 20, respawn: 180, mods: { invulnerable: true }, color: 0xffffff },
 	{ id: 'bottomless', code: 'PU11', name: 'Bottomless', duration: 30, maxDuration: 60, mods: { freeAmmo: true }, color: 0xffa020 },
@@ -1495,8 +1464,6 @@ Data.define('powerups', {
 	{ id: 'seer', code: 'PU13', name: 'Seer Orb', duration: 15, maxDuration: 30, respawn: 90, mods: { reveal: true }, color: 0x40ff80 },
 	{ id: 'springboots', code: 'PU14', name: 'Spring Boots', respawn: 60, stacking: 'refresh', pool: 'jumps', charges: 3, mods: { jumpScale: 2, noFall: true }, drops: false, color: 0x60ff60 },
 	{ id: 'guardianrune', code: 'PU15', name: 'Guardian Rune', persistent: true, respawn: 60, stacking: 'rune', mods: { maxHealthScale: 2, maxArmorScale: 2, speed: 0.9 }, drops: false, color: 0x4060ff },
-	{ id: 'scoutrune', code: 'PU16', name: 'Scout Rune', persistent: true, respawn: 60, stacking: 'rune', mods: { speed: 1.25, rate: 1.2, noArmor: true }, drops: false, color: 0x40ffff },
-	{ id: 'ammorune', code: 'PU17', name: 'Ammo Rune', persistent: true, respawn: 60, stacking: 'rune', mods: { ammoRegen: 0.05 }, drops: false, color: 0xffc040 },
 	{ id: 'soul', code: 'PU18', name: 'Soul Shard', respawn: 0, instant: { heal: 1, soul: 1 }, drops: false, mapItem: false, announce: false, color: 0xa0ffd0 },
 	{ id: 'lightbearer', code: 'PU19', name: 'Bearer Flame', persistent: true, respawn: 30, mods: { damage: 3 }, unique: true, color: 0xfff0a0 },
 	{ id: 'vitalshard', code: 'PU20', name: 'Vital Shard', respawn: 60, instant: { vital: 25, vitalHealthCap: 200, vitalArmorCap: 150 }, drops: false, campaign: true, healthPreset: 'ravager', color: 0xff60c0 },
@@ -1511,65 +1478,51 @@ const ITEM_TIMING = {
 
 // ==== 03j-data-gadgets.js ====
 Data.define('gadgets', {
-	id: REQUIRED, code: REQUIRED, name: REQUIRED, kind: REQUIRED, effect: REQUIRED, carry: 1, cooldown: 0, fuse: 0, cook: false,
+	id: REQUIRED, code: REQUIRED, name: REQUIRED, kind: REQUIRED, slot: '', effect: REQUIRED, carry: 1, cooldown: 0, fuse: 0, cook: false,
 	impact: false, stick: false, stickActors: false, bounce: 0.45, radius: 0, duration: 0, damage: 0, element: 'kinetic',
 	status: '', statusSeconds: 0, ownerSafe: false, health: 0, arm: 0, trigger: 0, coneDeg: 360, range: 0, rate: 0, max: 1,
-	perTeam: false, count: 1, charges: 0, speed: 0, launch: 0, heal: 0, drain: 0, amount: 0, pulses: 0, interval: 0, knockback: 0, pull: 0,
+	perTeam: false, count: 1, charges: 0, speed: 0, amount: 0, knockback: 0, pull: 0,
 	crouchSafe: false, size: [0.3, 0.3, 0.3], color: 0x808080, index: 0,
 }, [
-	{ id: 'frag', code: 'G01', name: 'Frag Charge', kind: 'thrown', effect: 'explode', carry: 2, fuse: 2.5, cook: true, radius: 5, damage: 100,
+	{ id: 'frag', code: 'G01', name: 'Frag Charge', kind: 'thrown', slot: 'lethal', effect: 'explode', carry: 2, fuse: 2.5, cook: true, radius: 5, damage: 100,
 		size: [0.22, 0.22, 0.22], color: 0x4a5a3a },
-	{ id: 'smoke', code: 'G02', name: 'Veil Canister', kind: 'thrown', effect: 'smoke', fuse: 1.5, radius: 5, duration: 18,
+	{ id: 'smoke', code: 'G02', name: 'Veil Canister', kind: 'thrown', slot: 'tactical', effect: 'smoke', fuse: 1.5, radius: 5, duration: 18,
 		size: [0.14, 0.26, 0.14], color: 0x9a9a9a },
-	{ id: 'flash', code: 'G03', name: 'Glare Shell', kind: 'thrown', effect: 'flash', carry: 2, fuse: 1.5, radius: 20, duration: 3.5, status: 'blind',
+	{ id: 'flash', code: 'G03', name: 'Glare Shell', kind: 'thrown', slot: 'tactical', effect: 'flash', carry: 2, fuse: 1.5, radius: 20, duration: 3.5, status: 'blind',
 		size: [0.12, 0.24, 0.12], color: 0xdadada },
-	{ id: 'incendiary', code: 'G04', name: 'Cinder Jar', kind: 'thrown', effect: 'fire', impact: true, fuse: 4, radius: 3, duration: 7, damage: 40,
+	{ id: 'incendiary', code: 'G04', name: 'Cinder Jar', kind: 'thrown', slot: 'lethal', effect: 'fire', impact: true, fuse: 4, radius: 3, duration: 7, damage: 40,
 		element: 'thermal', status: 'burn', statusSeconds: 2, size: [0.18, 0.24, 0.18], color: 0xb05a20 },
-	{ id: 'decoy', code: 'G05', name: 'Mimic Shell', kind: 'thrown', effect: 'decoy', fuse: 1, duration: 15, rate: 2,
-		size: [0.12, 0.22, 0.12], color: 0x6a6a8a },
-	{ id: 'sticky', code: 'G06', name: 'Leech Charge', kind: 'thrown', effect: 'explode', fuse: 1.5, stick: true, stickActors: true, radius: 3.5, damage: 110,
+	{ id: 'sticky', code: 'G06', name: 'Leech Charge', kind: 'thrown', slot: 'lethal', effect: 'explode', fuse: 1.5, stick: true, stickActors: true, radius: 3.5, damage: 110,
 		size: [0.2, 0.2, 0.2], color: 0x40a0ff },
-	{ id: 'impulse', code: 'G07', name: 'Kick Charge', kind: 'thrown', effect: 'impulse', impact: true, fuse: 2, radius: 4, damage: 10, knockback: 18, ownerSafe: true,
+	{ id: 'impulse', code: 'G07', name: 'Kick Charge', kind: 'thrown', slot: 'tactical', effect: 'impulse', impact: true, fuse: 2, radius: 4, damage: 10, knockback: 18, ownerSafe: true,
 		size: [0.2, 0.2, 0.2], color: 0x60e0ff },
-	{ id: 'cryo', code: 'G08', name: 'Rime Bomb', kind: 'thrown', effect: 'freeze', fuse: 1.5, radius: 4, status: 'freeze', statusSeconds: 3, element: 'cryo',
+	{ id: 'cryo', code: 'G08', name: 'Rime Bomb', kind: 'thrown', slot: 'tactical', effect: 'freeze', fuse: 1.5, radius: 4, status: 'freeze', statusSeconds: 3, element: 'cryo',
 		size: [0.22, 0.22, 0.22], color: 0xb0e8ff },
-	{ id: 'singularity', code: 'G09', name: 'Sink Charge', kind: 'thrown', effect: 'singularity', fuse: 1, radius: 6, duration: 4, damage: 60, pull: 14, element: 'void',
+	{ id: 'singularity', code: 'G09', name: 'Sink Charge', kind: 'thrown', slot: 'tactical', effect: 'singularity', fuse: 1, radius: 6, duration: 4, damage: 60, pull: 14, element: 'void',
 		size: [0.24, 0.24, 0.24], color: 0x7a40ff },
-	{ id: 'claymore', code: 'G10', name: 'Tripjaw Mine', kind: 'placed', effect: 'mine', arm: 1.5, trigger: 2.5, coneDeg: 60, crouchSafe: true, radius: 3, damage: 150, health: 30,
+	{ id: 'claymore', code: 'G10', name: 'Tripjaw Mine', kind: 'placed', slot: 'device', effect: 'mine', arm: 1.5, trigger: 2.5, coneDeg: 60, crouchSafe: true, radius: 3, damage: 150, health: 30,
 		size: [0.3, 0.2, 0.12], color: 0x3a4a2a },
-	{ id: 'prox', code: 'G11', name: 'Burr Mine', kind: 'placed', effect: 'mine', stick: true, arm: 2, trigger: 2, radius: 3, damage: 100, health: 30,
-		size: [0.18, 0.18, 0.18], color: 0x5a3a3a },
-	{ id: 'bubble', code: 'G12', name: 'Dome Projector', kind: 'deployed', effect: 'dome', radius: 4, duration: 12, heal: 25, cooldown: 60,
-		size: [0.3, 0.3, 0.3], color: 0x80c0ff },
-	{ id: 'cover', code: 'G13', name: 'Barrier Deploy', kind: 'deployed', effect: 'barrier', health: 300, duration: 30, cooldown: 60,
+	{ id: 'cover', code: 'G13', name: 'Barrier Deploy', kind: 'deployed', slot: 'device', effect: 'barrier', health: 300, duration: 30, cooldown: 60,
 		size: [2, 1.2, 0.3], color: 0x7a8088 },
-	{ id: 'liftpad', code: 'G14', name: 'Lift Pad', kind: 'deployed', effect: 'launchpad', launch: 12, radius: 0.9, duration: 20, cooldown: 60,
-		size: [1.8, 0.12, 1.8], color: 0x40ff90 },
-	{ id: 'sentry', code: 'G15', name: 'Picket Turret', kind: 'deployed', effect: 'turret', health: 150, damage: 12, rate: 5, range: 25, duration: 40, cooldown: 120,
+	{ id: 'sentry', code: 'G15', name: 'Picket Turret', kind: 'deployed', slot: 'device', effect: 'turret', health: 150, damage: 12, rate: 5, range: 25, duration: 40, cooldown: 120,
 		size: [0.5, 0.8, 0.5], color: 0x8a6a3a },
-	{ id: 'regen', code: 'G16', name: 'Mend Field', kind: 'deployed', effect: 'heal', radius: 4, heal: 15, duration: 10, cooldown: 60,
-		size: [0.3, 0.4, 0.3], color: 0x60ff80 },
-	{ id: 'drain', code: 'G17', name: 'Sap Field', kind: 'deployed', effect: 'drain', radius: 5, drain: 40, duration: 6, cooldown: 60,
-		size: [0.3, 0.4, 0.3], color: 0xa040ff },
-	{ id: 'jammer', code: 'G18', name: 'Static Jammer', kind: 'deployed', effect: 'jammer', radius: 20, duration: 30, health: 50, cooldown: 60,
+	{ id: 'jammer', code: 'G18', name: 'Static Jammer', kind: 'deployed', slot: 'device', effect: 'jammer', radius: 20, duration: 30, health: 50, cooldown: 60,
 		size: [0.3, 0.6, 0.3], color: 0xd0d040 },
-	{ id: 'dart', code: 'G19', name: 'Echo Dart', kind: 'thrown', effect: 'dart', impact: true, stick: true, fuse: 3, radius: 12, pulses: 3, interval: 1,
-		status: 'reveal', statusSeconds: 2, size: [0.08, 0.3, 0.08], color: 0xffd040 },
-	{ id: 'emp', code: 'G20', name: 'Null Pulse', kind: 'thrown', effect: 'emp', fuse: 1.5, radius: 6, duration: 4, element: 'arc',
+	{ id: 'emp', code: 'G20', name: 'Null Pulse', kind: 'thrown', slot: 'tactical', effect: 'emp', fuse: 1.5, radius: 6, duration: 4, element: 'arc',
 		size: [0.22, 0.22, 0.22], color: 0xfff27a },
-	{ id: 'ticks', code: 'G21', name: 'Scuttler', kind: 'deployed', effect: 'drones', count: 2, range: 30, damage: 80, radius: 2.5, health: 20, speed: 6, duration: 30,
+	{ id: 'ticks', code: 'G21', name: 'Scuttler', kind: 'deployed', slot: 'device', effect: 'drones', count: 2, range: 30, damage: 80, radius: 2.5, health: 20, speed: 6, duration: 30,
 		cooldown: 90, max: 2, size: [0.3, 0.2, 0.3], color: 0xff6040 },
-	{ id: 'trophy', code: 'G22', name: 'Snatcher', kind: 'deployed', effect: 'trophy', radius: 6, count: 1, charges: 3, duration: 30, health: 40, cooldown: 90,
+	{ id: 'trophy', code: 'G22', name: 'Snatcher', kind: 'deployed', slot: 'device', effect: 'trophy', radius: 6, count: 1, charges: 3, duration: 30, health: 40, cooldown: 90,
 		size: [0.3, 0.5, 0.3], color: 0x50a0a0 },
-	{ id: 'ammobox', code: 'G23', name: 'Supply Crate', kind: 'deployed', effect: 'supply', radius: 3, duration: 20, amount: 0.2, cooldown: 60,
+	{ id: 'ammobox', code: 'G23', name: 'Supply Crate', kind: 'deployed', slot: 'device', effect: 'supply', radius: 3, duration: 20, amount: 0.2, cooldown: 60,
 		size: [0.6, 0.4, 0.4], color: 0xa89050 },
-	{ id: 'beacon', code: 'G24', name: 'Rally Beacon', kind: 'deployed', effect: 'beacon', perTeam: true, duration: 60, health: 100, cooldown: 120,
+	{ id: 'beacon', code: 'G24', name: 'Rally Beacon', kind: 'deployed', slot: 'device', effect: 'beacon', perTeam: true, duration: 60, health: 100, cooldown: 120,
 		size: [0.3, 0.9, 0.3], color: 0x40ff40 },
 ]);
 Data.define('gadgetKits', {
-	id: REQUIRED, grenades: {}, gadget: '', total: 0, perType: 0, limits: {}, refill: false,
+	id: REQUIRED, grenades: {}, gadget: '', total: 0, perType: 0, limits: {}, refill: false, loadout: false,
 }, [
-	{ id: 'pickups', grenades: { frag: 2 }, refill: true },
+	{ id: 'pickups', grenades: { frag: 2 }, refill: true, loadout: true },
 	{ id: 'roundBuy', total: 4, perType: 1, limits: { flash: 2 } },
 	{ id: 'loot', total: 4 },
 	{ id: 'classes', grenades: { frag: 1, flash: 1 }, gadget: 'cover' },
@@ -1658,10 +1611,6 @@ const ABILITY_ROWS = [
 		params: { zone: 'wall', width: 4, height: 2, distance: 1.5, amp: 1.25, persist: true }, botUse: { when: 'underFire', range: [0, 60], chance: 0.6 }, color: 0x60c0ff },
 	{ id: 'arcbolt', code: 'A29', name: 'Arc Bolt', category: 'offense', activation: 'instant', resource: 'energy', cost: 25, range: 30, effect: 'bolt',
 		params: { damage: 30, element: 'arc', status: 'shock', seconds: 1, stacks: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0xfff27a },
-	{ id: 'ignite', code: 'A30', name: 'Ignite', category: 'offense', activation: 'instant', resource: 'energy', cost: 25, range: 30, effect: 'bolt',
-		params: { damage: 10, element: 'thermal', status: 'burn', seconds: 0, stacks: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0xff7a2a },
-	{ id: 'frostlance', code: 'A31', name: 'Frost Lance', category: 'offense', activation: 'instant', resource: 'energy', cost: 30, range: 30, effect: 'bolt',
-		params: { damage: 10, element: 'cryo', status: 'chill', seconds: 0, stacks: 3 }, botUse: { when: 'enemyClose', range: [0, 20], chance: 0.5 }, color: 0x9fd8ff },
 	{ id: 'swarm', code: 'A32', name: 'Swarm Cloud', category: 'offense', activation: 'instant', cooldown: 25, duration: 6, range: 30, effect: 'swarm',
 		params: { dps: 8, targets: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0x90a040 },
 	{ id: 'holodouble', code: 'A33', name: 'Holo Double', category: 'offense', activation: 'instant', cooldown: 15, duration: 8, effect: 'decoy',
@@ -1705,7 +1654,7 @@ Data.define('heroes', {
 		passive: { kind: 'knockbackResist', value: 0.3 }, ability1: 'aegisdome', ultimate: 'orbital', color: 0x5a7fbf },
 	{ id: 'moraine', code: 'H02', name: 'Moraine', role: 'tank', health: 250, shield: 100, weapons: ['hailstorm'], move: 'vanguard',
 		passive: { kind: 'shieldRegen', delay: 2, rate: 30 }, ability1: 'grapnel', ability2: 'ampwall', ultimate: 'rally', color: 0x4fa08a },
-	{ id: 'quill', code: 'H03', name: 'Quill', role: 'damage', health: 200, weapons: ['tempest'], move: 'agile',
+	{ id: 'quill', code: 'H03', name: 'Quill', role: 'damage', health: 200, weapons: ['vanguard'], move: 'agile',
 		passive: { kind: 'killHaste', speed: 1.25, seconds: 2.5 }, ability1: 'surge', ability2: 'rewind', ultimate: 'overcore', color: 0xe0a030 },
 	{ id: 'tessaly', code: 'H04', name: 'Tessaly', role: 'damage', health: 200, weapons: ['heron'], move: 'agile',
 		passive: { kind: 'flag', flag: 'scopeInfo' }, ability1: 'glidepack', ability2: 'echopulse', ultimate: 'rift', color: 0x9a5fd0 },
@@ -1715,22 +1664,25 @@ Data.define('heroes', {
 		passive: { kind: 'regen' }, ability1: 'mender', ability2: 'secondwind', ultimate: 'rally', color: 0x60d080 },
 	{ id: 'mirelle', code: 'H07', name: 'Mirelle', role: 'support', health: 225, weapons: ['needlethorn'], move: 'modern',
 		passive: { kind: 'flag', flag: 'smokeVision' }, ability1: 'veil', ability2: 'mesmer', ultimate: 'timebend', color: 0x8080e0 },
-	{ id: 'tamsin', code: 'H08', name: 'Tamsin', role: 'initiator', health: 200, weapons: ['longshot'], move: 'agile',
-		passive: { kind: 'ability', ability: 'tracker' }, gadget: 'dart', ability1: 'scoutdrone', ultimate: 'seerpulse', color: 0xc0c040 },
+	{ id: 'tamsin', code: 'H08', name: 'Tamsin', role: 'initiator', health: 200, weapons: ['kestrel'], move: 'agile',
+		passive: { kind: 'ability', ability: 'tracker' }, gadget: 'emp', ability1: 'scoutdrone', ultimate: 'seerpulse', color: 0xc0c040 },
 ]);
 const HERO_KILL_LIMIT_SCALE = 0.3, HERO_KILL_LIMIT_MODES = ['tdm'];
+const LOADOUT_ABILITY_IDS = ['shadowstep', 'phaseslip', 'grapnel', 'surge', 'rewind', 'updraft', 'glidepack', 'relocator', 'echopulse', 'huntersight', 'scoutdrone',
+	'tracker', 'veil', 'fence', 'timebend', 'gale', 'binding', 'mesmer', 'frenzy', 'mender', 'aegisdome', 'secondwind', 'ampwall', 'arcbolt', 'swarm', 'holodouble'];
+const LOADOUT_ULTIMATE_IDS = ['overcore', 'orbital', 'rift', 'rally'];
 Data.define('abilityKits', {
 	id: REQUIRED, name: REQUIRED, match: REQUIRED, ability1: '', ability2: '', ultimate: '', passive: '', choices: {}, cooldowns: {},
 }, [
 	{ id: 'powers', name: 'Powers for All', match: { mutator: 'powers' }, ability1: 'shadowstep',
-		choices: { ability1: ['shadowstep', 'phaseslip', 'grapnel', 'surge', 'rewind', 'updraft', 'glidepack', 'relocator', 'echopulse', 'huntersight', 'scoutdrone',
-			'tracker', 'veil', 'fence', 'timebend', 'gale', 'binding', 'mesmer', 'puppet', 'frenzy', 'mender', 'aegisdome', 'secondwind', 'ampwall', 'arcbolt',
-			'ignite', 'frostlance', 'swarm', 'holodouble'] } },
+		choices: { ability1: LOADOUT_ABILITY_IDS.concat('puppet') } },
 	{ id: 'suit', name: 'Weave Suit', match: { ruleset: 'suit' }, ability1: 'bulwark', ability2: 'phantasm', ultimate: 'overdrive',
 		choices: { ability1: ['bulwark', 'colossusweave'], ability2: ['phantasm', 'colossusweave'], ultimate: ['overdrive', 'colossusweave'] } },
 	{ id: 'frame', name: 'Frame Runner', match: { ruleset: 'frame' }, ability1: 'shadowstep', ability2: 'arcbolt', ultimate: 'timebend',
-		choices: { ability1: ['shadowstep', 'surge', 'glidepack', 'phaseslip'], ability2: ['arcbolt', 'ignite', 'frostlance', 'gale'], ultimate: ['timebend', 'huntersight', 'lifterpower'] } },
+		choices: { ability1: ['shadowstep', 'surge', 'glidepack', 'phaseslip'], ability2: ['arcbolt', 'gale'], ultimate: ['timebend', 'huntersight', 'lifterpower'] } },
 	{ id: 'classes', name: 'Class Loadout', match: { economy: 'classes' }, ability1: 'echopulse', choices: { ability1: ['echopulse'] }, cooldowns: { ability1: 90 } },
+	{ id: 'loadout', name: 'Ability Loadout', match: { abilities: 'loadout' }, ability1: 'surge', ultimate: 'rally',
+		choices: { ability1: LOADOUT_ABILITY_IDS, ultimate: LOADOUT_ULTIMATE_IDS } },
 ]);
 
 // ==== 03l-data-economy.js ====
@@ -1780,19 +1732,14 @@ Data.define('perks', {
 Data.define('classes', {
 	id: REQUIRED, name: REQUIRED, primary: REQUIRED, secondary: REQUIRED, lethal: '', tactical: '', perks: REQUIRED, fieldUpgrade: 'echopulse',
 }, [
-	{ id: 'assault', name: 'Assault', primary: 'tempest', secondary: 'warden', lethal: 'frag', tactical: 'flash', perks: ['scavenger', 'stopping', 'marathon'] },
-	{ id: 'rifleman', name: 'Rifleman', primary: 'vanguard', secondary: 'verdict', lethal: 'frag', tactical: 'smoke', perks: ['bandolier', 'hardened', 'steady'] },
+	{ id: 'assault', name: 'Assault', primary: 'vanguard', secondary: 'warden', lethal: 'frag', tactical: 'flash', perks: ['scavenger', 'stopping', 'marathon'] },
+	{ id: 'rifleman', name: 'Rifleman', primary: 'ratchet', secondary: 'verdict', lethal: 'frag', tactical: 'smoke', perks: ['bandolier', 'hardened', 'steady'] },
 	{ id: 'scout', name: 'Scout', primary: 'wasp', secondary: 'warden', lethal: 'sticky', tactical: 'flash', perks: ['hardline', 'ghost', 'quietstep'] },
 	{ id: 'breacher', name: 'Breacher', primary: 'scattergun', secondary: 'warden', lethal: 'frag', tactical: 'cryo', perks: ['scavenger', 'quickhands', 'marathon'] },
-	{ id: 'marksman', name: 'Marksman', primary: 'longshot', secondary: 'verdict', lethal: 'claymore', tactical: 'smoke', perks: ['bandolier', 'ghost', 'steady'] },
-	{ id: 'support', name: 'Support', primary: 'anvil', secondary: 'warden', lethal: 'frag', tactical: 'smoke', perks: ['tuneup', 'hardened', 'laststand'] },
+	{ id: 'marksman', name: 'Marksman', primary: 'kestrel', secondary: 'verdict', lethal: 'claymore', tactical: 'smoke', perks: ['bandolier', 'ghost', 'steady'] },
+	{ id: 'support', name: 'Support', primary: 'hailstorm', secondary: 'warden', lethal: 'frag', tactical: 'smoke', perks: ['tuneup', 'hardened', 'laststand'] },
 ]);
-const CLASS_WEAPON_SET = 'militarySet';
-const CLASS_SET_SWAPS = {
-	exoticSet: { warden: 'sparklock', verdict: 'sparklock', wasp: 'needlethorn', hornet: 'needlethorn', riptide: 'needlethorn', tempest: 'stormlash',
-		vanguard: 'accelerator', ratchet: 'stormlash', longshot: 'talonbow', kestrel: 'talonbow', heron: 'talonbow', scattergun: 'gloop', hailstorm: 'starthrower',
-		anvil: 'starthrower', kingfisher: 'auger' },
-};
+const DEFAULT_PICKUP_LOADOUT = { melee: 'maul', primary: 'hornet', secondary: 'warden', lethal: 'frag', tactical: 'flash', device: 'cover' };
 Data.define('buyItems', {
 	id: REQUIRED, name: REQUIRED, kind: REQUIRED, key: '', price: REQUIRED, amount: 0, limit: 1, group: '', groupLimit: 0, buy: 'round', index: -1,
 }, [
@@ -1897,7 +1844,7 @@ Data.define('mutators', {
 	{ id: 'cards', code: 'X48', name: 'Cards Allowed', effect: 'Enables cards in versus matches.', set: [mutatorFlagOp('fx.cards')] },
 	{ id: 'limbs', code: 'X49', name: 'Locational Damage', effect: 'Each limb has its own health pool.', set: [{ field: 'health', op: 'set', value: 'limb' }],
 		conflicts: ['health', 'hardcore', 'vampire', 'regen', 'colossal', 'triangle'] },
-	{ id: 'wildlife', code: 'X50', name: 'Wildlife', effect: 'Four neutral beasts attack the nearest actor; flares lure them.', set: [{ field: 'fx.wildlife', op: 'set', value: 4 }] },
+	{ id: 'wildlife', code: 'X50', name: 'Wildlife', effect: 'Four neutral beasts attack the nearest actor; a Glare Shell or Cinder Jar lures them.', set: [{ field: 'fx.wildlife', op: 'set', value: 4 }] },
 ]);
 
 // ==== 03n-data-mapgen.js ====
@@ -1953,7 +1900,7 @@ Data.define('mapDensities', { id: REQUIRED, name: REQUIRED, moduleShare: 0.7, sc
 	{ id: 'dense', name: 'Dense', moduleShare: 0.95, scatter: 2 },
 ]);
 Data.define('mapItemSets', { id: REQUIRED, list: REQUIRED }, [
-	{ id: 'power', list: ['fury', 'warding', 'quickening', 'surplus', 'renewal', 'skyward'] },
+	{ id: 'power', list: ['fury', 'warding', 'quickening', 'renewal', 'skyward'] },
 	{ id: 'pickups', list: ['weapon', 'weapon', 'weapon', 'armor', 'armor', 'health', 'health', 'health', 'ammo', 'ammo'] },
 	{ id: 'supply', list: ['health', 'health', 'ammo', 'armor'] },
 	{ id: 'loot', list: ['weapon', 'weapon', 'weapon', 'armor', 'armor', 'health', 'health', 'ammo'] },
@@ -2073,7 +2020,7 @@ Data.define('enemies', {
 	{ id: 'beast', code: 'E14', name: 'Wild Strider', role: 'neutral beast', brain: 'beast', health: 300, speed: 8, beast: true, size: 1.3, headScale: 1.3, massFactor: 3, cash: 50,
 		cost: 6, sight: 40, endlessFrom: 999, drop: 'healthpack', dropChance: 0.4, color: 0x6a7a3a, glow: 0xffd040,
 		attacks: [{ id: 'bite', kind: 'melee', damage: 40, range: [0, 2.2], tell: 0.5, cooldown: 1.6, parry: true }],
-		answers: ['lure it with a flare', 'any weapon (300 HP)', 'let it hunt your enemies'],
+		answers: ['lure it with a Glare Shell or Cinder Jar', 'any weapon (300 HP)', 'let it hunt your enemies'],
 		parts: [['sphere', 0, 1.12, 0, 0.7, 0.6, 1.0, 'body'], ['cylinder', 0.12, 0.45, 0, 0.12, 0.85, 0.12, 'dark'], ['cylinder', -0.12, 0.45, 0, 0.12, 0.85, 0.12, 'dark'],
 			['box', 0, 1.45, 0.22, 0.15, 0.5, 0.15, 'dark'], ['box', 0, 1.66, 0.1, 0.3, 0.25, 0.42, 'dark', 1], ['box', 0, 1.2, -0.55, 0.12, 0.12, 0.5, 'dark'],
 			['sphere', 0, 1.72, 0.26, 0.18, 0.08, 0.08, 'eye', 1]] },
@@ -2402,10 +2349,6 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 		{ shape: 'cylinder', offset: [0, -0.005, 0.17], size: [0.024, 0.06, 0.024], rotation: [0, -90], tint: 'steel' },
 		{ shape: 'ring', offset: [0, -0.005, 0.1], size: [0.075, 0.015, 0.075], rotation: [0, -90], tint: 'glow' },
 		{ shape: 'ring', offset: [0, -0.005, 0.14], size: [0.065, 0.015, 0.065], rotation: [0, -90], tint: 'glow' }] },
-	{ id: 'twinsting', from: 'sidearm', drop: [2], accent: '#e05a2a', parts: [
-		{ offset: [0, -0.125, -0.005], size: [0.03, 0.09, 0.04], tint: 'dark' },
-		{ shape: 'cylinder', offset: [0.011, 0.025, 0.16], size: [0.016, 0.06, 0.016], rotation: [0, -90], tint: 'steel', mirror: true },
-		{ offset: [0, -0.04, 0.11], size: [0.025, 0.06, 0.03], tint: 'dark' }] },
 	{ id: 'wasp', from: 'smg', accent: '#e8c02a', parts: [
 		{ offset: [0, 0.04, 0.06], size: [0.02, 0.012, 0.18], tint: 'accent' },
 		{ offset: [0, -0.01, -0.21], size: [0.045, 0.06, 0.012], tint: 'steel' }] },
@@ -2413,12 +2356,6 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 		{ shape: 'cylinder', offset: [0, -0.045, 0.22], size: [0.045, 0.14, 0.045], rotation: [0, -90], tint: 'steel' },
 		{ offset: [0, -0.005, -0.16], size: [0.04, 0.06, 0.12], tint: 'dark' },
 		{ offset: [0, 0.05, 0.04], size: [0.025, 0.025, 0.05], tint: 'dark' }] },
-	{ id: 'riptide', pose: 'smg', accent: '#3ac8c8', parts: [
-		{ shape: 'capsule', offset: [0, 0, 0.04], size: [0.07, 0.3, 0.07], rotation: [0, -90], lod: 2 },
-		{ offset: [0, 0.05, 0.05], size: [0.045, 0.025, 0.22], tint: 'accent', lod: 2 },
-		{ offset: [0, -0.06, 0.03], size: [0.03, 0.07, 0.04], rotation: [0, -10], tint: 'dark' },
-		{ offset: [0, -0.04, -0.08], size: [0.04, 0.05, 0.07], tint: 'dark' },
-		{ shape: 'cylinder', offset: [0, 0, 0.21], size: [0.022, 0.06, 0.022], rotation: [0, -90], tint: 'steel' }] },
 	{ id: 'needlethorn', pose: 'smg', accent: '#5b2d6e', glow: '#ff6ad5', parts: [
 		{ shape: 'capsule', offset: [0, 0, 0.06], size: [0.065, 0.3, 0.065], rotation: [0, -90], tint: 'accent', lod: 2 },
 		{ shape: 'cone', offset: [0, 0, 0.24], size: [0.02, 0.07, 0.02], rotation: [0, -90], tint: 'glow', lod: 2 },
@@ -2432,23 +2369,10 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 		{ offset: [0, -0.005, 0.2], size: [0.05, 0.05, 0.1], tint: 'wood' },
 		{ shape: 'cylinder', offset: [0, 0.035, 0.22], size: [0.018, 0.14, 0.018], rotation: [0, -90], tint: 'steel' },
 		{ offset: [0, 0.04, 0.36], size: [0.01, 0.03, 0.01], tint: 'dark', lod: 0 }] },
-	{ id: 'tempest', from: 'rifle', drop: [4], glow: '#ff4040', parts: [
-		{ offset: [0, 0.065, 0.03], size: [0.03, 0.035, 0.05], tint: 'dark' },
-		{ offset: [0, 0, 0.2], size: [0.06, 0.065, 0.12], tint: 'dark', lod: 2 },
-		{ offset: [0, -0.07, 0.2], size: [0.025, 0.07, 0.03], tint: 'dark' },
-		{ shape: 'ring', offset: [0, 0.075, 0.056], size: [0.035, 0.01, 0.035], rotation: [0, -90], tint: 'glow', lod: 0 }] },
 	{ id: 'ratchet', from: 'rifle', drop: [2, 4], parts: [
 		{ offset: [0, 0.09, 0.05], size: [0.02, 0.025, 0.26], lod: 2 },
 		{ offset: [0, -0.08, -0.1], size: [0.035, 0.11, 0.05], tint: 'dark' },
 		{ offset: [0, -0.07, 0.06], size: [0.03, 0.08, 0.04], rotation: [0, -10], tint: 'dark' }] },
-	{ id: 'longshot', from: 'rifle', scale: [1, 1, 1.15], drop: [4], parts: [
-		{ shape: 'cylinder', offset: [0, 0.08, 0.05], size: [0.04, 0.2, 0.04], rotation: [0, -90], tint: 'dark', lod: 2 },
-		{ shape: 'cylinder', offset: [0, 0.08, 0.17], size: [0.052, 0.05, 0.052], rotation: [0, -90], tint: 'dark' },
-		{ offset: [0.04, 0.02, -0.02], size: [0.04, 0.012, 0.012], tint: 'steel' }] },
-	{ id: 'pulsecarbine', from: 'rifle', drop: [4], accent: '#3a2a5a', glow: '#a06bff', parts: [
-		{ shape: 'sphere', offset: [0, 0.05, 0.12], size: [0.06, 0.05, 0.08], tint: 'glow' },
-		{ offset: [0.03, 0.01, 0.08], size: [0.006, 0.02, 0.24], tint: 'glow', mirror: true },
-		{ shape: 'cylinder', offset: [0, -0.05, 0.24], size: [0.04, 0.1, 0.04], rotation: [0, -90], tint: 'accent' }] },
 	{ id: 'scattergun', from: 'shotgun', drop: [3], parts: [
 		{ offset: [0, -0.03, -0.2], size: [0.05, 0.085, 0.17], rotation: [0, -6], tint: 'wood' },
 		{ shape: 'cylinder', offset: [0, -0.025, 0.36], size: [0.03, 0.12, 0.03], rotation: [0, -90], tint: 'steel' }] },
@@ -2465,13 +2389,6 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 		{ offset: [0, -0.02, -0.18], size: [0.05, 0.08, 0.14], tint: 'dark' },
 		{ shape: 'cone', offset: [0, 0.07, 0], size: [0.03, 0.06, 0.03], tint: 'glow' },
 		{ shape: 'cone', offset: [0, 0.065, 0.06], size: [0.025, 0.05, 0.025], rotation: [0, 20], tint: 'glow' }] },
-	{ id: 'frostbore', pose: 'shotgun', glow: '#9be8ff', parts: [
-		{ offset: [0, 0, 0], size: [0.065, 0.085, 0.28], lod: 2 },
-		{ shape: 'cylinder', offset: [0, 0.015, 0.26], size: [0.06, 0.24, 0.06], rotation: [0, -90], tint: 'steel', lod: 2 },
-		{ shape: 'ring', offset: [0, 0.015, 0.2], size: [0.085, 0.025, 0.085], rotation: [0, -90], tint: 'glow' },
-		{ shape: 'ring', offset: [0, 0.015, 0.31], size: [0.08, 0.025, 0.08], rotation: [0, -90], tint: 'glow' },
-		{ shape: 'capsule', offset: [0.05, -0.02, 0.02], size: [0.045, 0.2, 0.045], rotation: [0, -90], tint: 'glow' },
-		{ offset: [0, -0.02, -0.2], size: [0.05, 0.08, 0.15], tint: 'dark' }] },
 	{ id: 'lancet', from: 'rail', parts: [
 		{ shape: 'cylinder', offset: [0, 0.08, 0.02], size: [0.035, 0.16, 0.035], rotation: [0, -90], tint: 'dark' },
 		{ offset: [0, -0.01, -0.2], size: [0.045, 0.08, 0.14], tint: 'dark' },
@@ -2549,10 +2466,6 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 		{ shape: 'cylinder', offset: [0, 0, 0.33], size: [0.1, 0.025, 0.1], rotation: [0, -90], tint: 'dark' },
 		{ offset: [0, -0.11, -0.02], size: [0.1, 0.08, 0.1], tint: 'accent' },
 		{ offset: [0, 0.1, 0], size: [0.03, 0.04, 0.12], tint: 'dark' }] },
-	{ id: 'anvil', from: 'lmg', parts: [
-		{ shape: 'cylinder', offset: [0, 0.015, 0.3], size: [0.05, 0.14, 0.05], rotation: [0, -90], tint: 'dark' },
-		{ offset: [0, 0.08, 0.12], size: [0.015, 0.03, 0.1], tint: 'steel' },
-		{ offset: [0.025, -0.07, 0.44], size: [0.01, 0.12, 0.01], rotation: [0, 25], tint: 'steel', mirror: true }] },
 	{ id: 'kindler', pose: 'heavy', accent: '#a33a2a', glow: '#ff8a3d', parts: [
 		{ offset: [0, 0, 0.02], size: [0.07, 0.08, 0.26], lod: 2 },
 		{ shape: 'capsule', offset: [0, -0.075, 0.02], size: [0.08, 0.26, 0.08], rotation: [0, -90], tint: 'accent', lod: 2 },
@@ -2572,12 +2485,6 @@ Data.define('weaponModels', MODEL_SCHEMA, [
 		{ offset: [0, 0.055, 0.08], size: [0.03, 0.025, 0.3], tint: 'steel' },
 		{ offset: [0, -0.03, -0.14], size: [0.045, 0.08, 0.14], tint: 'dark' },
 		{ offset: [0, -0.08, -0.04], size: [0.035, 0.09, 0.045], rotation: [0, -10], tint: 'dark' }] },
-	{ id: 'kingfisher', pose: 'launcher', glow: '#ff5050', parts: [
-		{ offset: [0, 0.01, 0.1], size: [0.14, 0.12, 0.36], lod: 2 },
-		{ shape: 'cylinder', offset: [0.035, 0.04, 0.285], size: [0.045, 0.02, 0.045], rotation: [0, -90], tint: 'dark', mirror: true, lod: 2 },
-		{ shape: 'cylinder', offset: [0.035, -0.02, 0.285], size: [0.045, 0.02, 0.045], rotation: [0, -90], tint: 'dark', mirror: true },
-		{ offset: [0, -0.09, 0.02], size: [0.035, 0.09, 0.045], rotation: [0, -10], tint: 'dark' },
-		{ offset: [0, 0.09, 0.06], size: [0.02, 0.03, 0.12], tint: 'dark' }] },
 	{ id: 'gloop', pose: 'launcher', glow: '#7fe04a', parts: [
 		{ offset: [0, 0, 0.04], size: [0.06, 0.08, 0.26], lod: 2 },
 		{ shape: 'sphere', offset: [0, 0.085, 0], size: [0.1, 0.1, 0.1], tint: 'glow', lod: 2 },
@@ -2806,15 +2713,6 @@ Data.define('gearModels', MODEL_SCHEMA, [
 		{ offset: [0, 0.08, -0.2], size: [0.04, 0.16, 0.34], rotation: [0, 25] },
 		{ offset: [0, -0.02, 0.18], size: [0.04, 0.08, 0.24], rotation: [0, -10], tint: 'shade', lod: 0 },
 		{ offset: [0, -0.02, -0.18], size: [0.04, 0.08, 0.24], rotation: [0, 10], tint: 'shade', lod: 0 }] },
-	{ id: 'PU07', parts: [
-		{ shape: 'sphere', size: [0.38, 0.38, 0.38], tint: 'glow', lod: 2 },
-		{ shape: 'ring', size: [0.66, 0.06, 0.66], rotation: [0, 20], tint: 'white' },
-		{ shape: 'sphere', offset: [-0.3, 0.06, 0], size: [0.1, 0.1, 0.1], tint: 'white', lod: 0 },
-		{ shape: 'sphere', offset: [0.3, -0.06, 0], size: [0.1, 0.1, 0.1], tint: 'white', lod: 0 }] },
-	{ id: 'PU08', parts: [
-		{ shape: 'ring', size: [0.6, 0.14, 0.6], lod: 2 },
-		{ offset: [0, 0, 0.27], size: [0.16, 0.14, 0.06], tint: 'brass' },
-		{ offset: [0, 0, 0.3], size: [0.06, 0.06, 0.02], tint: 'light', lod: 0 }] },
 	{ id: 'PU09', parts: [
 		{ size: [0.28, 0.24, 0.22], lod: 2 },
 		{ shape: 'cylinder', offset: [0, -0.18, 0], size: [0.2, 0.14, 0.18], tint: 'dark' },
@@ -2849,10 +2747,6 @@ Data.define('gearModels', MODEL_SCHEMA, [
 		{ shape: 'cone', offset: [0, 0.31, 0], size: [0.3, 0.12, 0.12], tint: 'shade' }] },
 	{ id: 'PU15', from: 'rune', parts: [
 		{ offset: [0, 0.04, 0.065], size: [0.16, 0.2, 0.02], tint: 'glow' }, { shape: 'cone', offset: [0, -0.1, 0.065], size: [0.16, 0.1, 0.02], rotation: [0, 180], tint: 'glow' }] },
-	{ id: 'PU16', from: 'rune', parts: [
-		{ shape: 'cone', offset: [0, 0.08, 0.065], size: [0.18, 0.14, 0.02], tint: 'glow' }, { offset: [0, -0.06, 0.065], size: [0.05, 0.18, 0.02], tint: 'glow' }] },
-	{ id: 'PU17', from: 'rune', parts: [
-		{ shape: 'cylinder', offset: [0, -0.04, 0.07], size: [0.07, 0.18, 0.03], tint: 'glow' }, { shape: 'cone', offset: [0, 0.1, 0.07], size: [0.07, 0.1, 0.03], tint: 'glow' }] },
 	{ id: 'PU18', parts: [
 		{ shape: 'sphere', size: [0.2, 0.2, 0.2], tint: 'glow', lod: 2 },
 		{ shape: 'cone', offset: [0, 0.16, 0], size: [0.14, 0.2, 0.14], tint: 'glow' },
@@ -2887,11 +2781,6 @@ Data.define('gearModels', MODEL_SCHEMA, [
 		{ shape: 'sphere', offset: [0, -0.03, 0], size: [0.17, 0.18, 0.17], lod: 2 },
 		{ shape: 'cylinder', offset: [0, 0.09, 0], size: [0.06, 0.1, 0.06], tint: 'shade' },
 		{ shape: 'cone', offset: [0, 0.17, 0], size: [0.07, 0.1, 0.07], tint: 'flame' }] },
-	{ id: 'G05', parts: [
-		{ shape: 'cylinder', size: [0.12, 0.2, 0.12], lod: 2 },
-		{ shape: 'cylinder', offset: [0, 0, 0.061], size: [0.08, 0.08, 0.01], rotation: [0, -90], tint: 'dark' },
-		{ shape: 'cylinder', offset: [-0.03, 0.17, 0], size: [0.01, 0.14, 0.01], tint: 'metal', lod: 0 },
-		{ shape: 'sphere', offset: [-0.03, 0.24, 0], size: [0.025, 0.025, 0.025], tint: 'lamp', lod: 0 }] },
 	{ id: 'G06', parts: [
 		{ shape: 'sphere', offset: [0, 0.02, 0], size: [0.2, 0.14, 0.2], lod: 2 },
 		{ shape: 'cylinder', offset: [0, -0.04, 0], size: [0.22, 0.04, 0.22], tint: 'dark' },
@@ -2910,11 +2799,6 @@ Data.define('gearModels', MODEL_SCHEMA, [
 		{ shape: 'sphere', size: [0.18, 0.18, 0.18], tint: 'black', lod: 2 },
 		{ shape: 'ring', size: [0.34, 0.05, 0.34], rotation: [0, 15], tint: 'glow' },
 		{ shape: 'ring', size: [0.24, 0.04, 0.24], rotation: [0, -30], tint: 'glow', lod: 0 }] },
-	{ id: 'G19', parts: [
-		{ shape: 'cylinder', size: [0.03, 0.22, 0.03], rotation: [0, -90], tint: 'dark', lod: 2 },
-		{ shape: 'cone', offset: [0, 0, 0.15], size: [0.05, 0.1, 0.05], rotation: [0, -90] },
-		{ offset: [0, 0, -0.1], size: [0.1, 0.01, 0.06] }, { offset: [0, 0, -0.1], size: [0.01, 0.1, 0.06] },
-		{ shape: 'sphere', offset: [0, 0, 0.05], size: [0.04, 0.04, 0.04], tint: 'lamp', lod: 0 }] },
 	{ id: 'G20', parts: [
 		{ shape: 'sphere', size: [0.2, 0.2, 0.2], tint: 'shade', lod: 2 },
 		{ shape: 'ring', offset: [0, 0.04, 0], size: [0.24, 0.04, 0.24], tint: 'glow' },
@@ -2926,30 +2810,12 @@ Data.define('gearModels', MODEL_SCHEMA, [
 		{ offset: [0.1, 0.03, 0], size: [0.02, 0.08, 0.02], rotation: [0, 20], tint: 'dark' },
 		{ offset: [0, 0.13, 0.036], size: [0.24, 0.1, 0.01], tint: 'shade', lod: 0 },
 		{ shape: 'sphere', offset: [0, 0.23, 0], size: [0.03, 0.03, 0.03], tint: 'lamp', lod: 0 }] },
-	{ id: 'G11', parts: [
-		{ shape: 'cylinder', offset: [0, 0.03, 0], size: [0.22, 0.06, 0.22], tint: 'dark', lod: 2 },
-		{ shape: 'sphere', offset: [0, 0.07, 0], size: [0.16, 0.1, 0.16], lod: 2 },
-		{ shape: 'cone', offset: [0, 0.14, 0], size: [0.03, 0.05, 0.03], tint: 'metal' },
-		{ shape: 'cone', offset: [-0.07, 0.11, 0], size: [0.03, 0.05, 0.03], rotation: [-90, -50], tint: 'metal', lod: 0 },
-		{ shape: 'cone', offset: [0.07, 0.11, 0], size: [0.03, 0.05, 0.03], rotation: [90, -50], tint: 'metal', lod: 0 },
-		{ shape: 'cone', offset: [0, 0.11, 0.07], size: [0.03, 0.05, 0.03], rotation: [0, -50], tint: 'metal', lod: 0 },
-		{ shape: 'cone', offset: [0, 0.11, -0.07], size: [0.03, 0.05, 0.03], rotation: [0, 50], tint: 'metal', lod: 0 },
-		{ shape: 'sphere', offset: [-0.05, 0.1, 0.05], size: [0.03, 0.03, 0.03], tint: 'lamp', lod: 0 }] },
-	{ id: 'G12', parts: [
-		{ shape: 'cylinder', offset: [0, 0.05, 0], size: [0.3, 0.1, 0.3], tint: 'dark', lod: 2 },
-		{ shape: 'cylinder', offset: [0, 0.15, 0], size: [0.12, 0.12, 0.12], tint: 'metal' },
-		{ shape: 'sphere', offset: [0, 0.24, 0], size: [0.2, 0.16, 0.2], tint: 'glow', lod: 2 }] },
 	{ id: 'G13', parts: [
 		{ offset: [0, 0.62, 0], size: [1.9, 1.08, 0.22], lod: 2 },
 		{ offset: [-0.97, 0.6, 0], size: [0.1, 1.2, 0.3], tint: 'metal' }, { offset: [0.97, 0.6, 0], size: [0.1, 1.2, 0.3], tint: 'metal' },
 		{ offset: [0, 1.17, 0], size: [1.9, 0.06, 0.26], tint: 'metal' },
 		{ offset: [0, 0.04, 0], size: [1.9, 0.08, 0.3], tint: 'dark', lod: 0 },
 		{ offset: [0, 0.62, 0.115], size: [1.6, 0.08, 0.01], tint: 'light', lod: 0 }] },
-	{ id: 'G14', parts: [
-		{ shape: 'cylinder', offset: [0, 0.04, 0], size: [1.8, 0.08, 1.8], tint: 'dark', lod: 2 },
-		{ shape: 'ring', offset: [0, 0.09, 0], size: [1.5, 0.06, 1.5], tint: 'glow', lod: 2 },
-		{ shape: 'cylinder', offset: [0, 0.085, 0], size: [0.9, 0.02, 0.9], tint: 'shade' },
-		{ shape: 'cone', offset: [0, 0.2, 0], size: [0.4, 0.18, 0.4], tint: 'glow', lod: 0 }] },
 	{ id: 'G15', parts: [
 		{ offset: [0, 0.62, 0], size: [0.32, 0.22, 0.36], lod: 2 },
 		{ shape: 'cylinder', offset: [0, 0.64, 0.34], size: [0.06, 0.36, 0.06], rotation: [0, -90], tint: 'dark', lod: 2 },
@@ -2959,15 +2825,6 @@ Data.define('gearModels', MODEL_SCHEMA, [
 		{ offset: [0, 0.15, -0.14], size: [0.04, 0.34, 0.04], rotation: [0, -35], tint: 'dark' },
 		{ offset: [-0.2, 0.6, -0.04], size: [0.08, 0.14, 0.18], tint: 'shade', lod: 0 },
 		{ offset: [0, 0.66, 0.185], size: [0.12, 0.05, 0.01], tint: 'lamp', lod: 0 }] },
-	{ id: 'G16', parts: [
-		{ shape: 'cylinder', offset: [0, 0.04, 0], size: [0.3, 0.08, 0.3], tint: 'dark', lod: 2 },
-		{ shape: 'cylinder', offset: [0, 0.16, 0], size: [0.08, 0.18, 0.08], tint: 'metal' },
-		{ offset: [0, 0.34, 0], size: [0.22, 0.07, 0.07], tint: 'glow', lod: 2 }, { offset: [0, 0.34, 0], size: [0.07, 0.22, 0.07], tint: 'glow', lod: 2 }] },
-	{ id: 'G17', parts: [
-		{ shape: 'cylinder', offset: [0, 0.04, 0], size: [0.3, 0.08, 0.3], tint: 'dark', lod: 2 },
-		{ shape: 'cylinder', offset: [0, 0.14, 0], size: [0.08, 0.14, 0.08], tint: 'metal' },
-		{ shape: 'cone', offset: [0, 0.3, 0], size: [0.3, 0.22, 0.3], rotation: [0, 180], tint: 'glow', lod: 2 },
-		{ shape: 'ring', offset: [0, 0.42, 0], size: [0.34, 0.04, 0.34], tint: 'shade', lod: 0 }] },
 	{ id: 'G18', parts: [
 		{ offset: [0, 0.06, 0], size: [0.26, 0.12, 0.26], tint: 'dark', lod: 2 },
 		{ shape: 'cylinder', offset: [0, 0.34, 0], size: [0.03, 0.5, 0.03], tint: 'metal', lod: 2 },
@@ -3152,6 +3009,82 @@ function saveRevisionOf(raw) {
 	const head = SAVE_REVISION_HEAD.exec(raw || '');
 	return head ? Number(head[1]) : 0;
 }
+const WEAPON_MIGRATION = {
+	twinsting: 'wasp', riptide: 'wasp', tempest: 'vanguard', longshot: 'kestrel', pulsecarbine: 'hornet', frostbore: 'scattergun', anvil: 'hailstorm', kingfisher: 'ramjet',
+	W08: 'wasp', W11: 'wasp', W14: 'vanguard', W16: 'kestrel', W18: 'hornet', W22: 'scattergun', W29: 'hailstorm', W33: 'ramjet',
+};
+const GADGET_MIGRATION = { decoy: 'holodouble', prox: 'claymore', bubble: 'aegisdome', liftpad: 'updraft', regen: 'mender', drain: 'emp', dart: 'echopulse' };
+const ITEM_MIGRATION = { surplus: 'megacell', aegisbelt: 'heavyplate', scoutrune: 'quickening', ammorune: 'bottomless' };
+const ABILITY_MIGRATION = { ignite: 'arcbolt', frostlance: 'arcbolt' };
+const MAP_ITEM_MIGRATION = Object.assign({}, WEAPON_MIGRATION, ITEM_MIGRATION);
+const WEAPON_STAT_SUM_FIELDS = ['shots', 'hits', 'kills', 'headshots'];
+const CUSTOM_DRAFT_SETTING = 'custom.draft';
+function migratedId(table, key) {
+	return typeof key === 'string' && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : key;
+}
+function migratedWeaponList(list) {
+	return Array.from(new Set(list.map((key) => migratedId(WEAPON_MIGRATION, key))));
+}
+function savePlainObject(value) { return !!value && typeof value === 'object' && !Array.isArray(value); }
+function migrateWeaponStats(weapons) {
+	for (const key of Object.keys(weapons)) {
+		const target = migratedId(WEAPON_MIGRATION, key);
+		if (target === key) continue;
+		const old = weapons[key];
+		delete weapons[key];
+		if (!savePlainObject(old)) continue;
+		if (!savePlainObject(weapons[target])) weapons[target] = {};
+		for (const field of WEAPON_STAT_SUM_FIELDS) weapons[target][field] = (Number(weapons[target][field]) || 0) + (Number(old[field]) || 0);
+	}
+}
+function migrateCrosshairs(crosshairs) {
+	for (const key of Object.keys(crosshairs)) {
+		const target = migratedId(WEAPON_MIGRATION, key);
+		if (target === key) continue;
+		if (!(target in crosshairs)) crosshairs[target] = crosshairs[key];
+		delete crosshairs[key];
+	}
+}
+function migrateWeaponLists(draft) {
+	if (!savePlainObject(draft)) return;
+	if (Array.isArray(draft.weaponList)) draft.weaponList = migratedWeaponList(draft.weaponList);
+	if (!Array.isArray(draft.mutators)) return;
+	for (const entry of draft.mutators) if (savePlainObject(entry) && Array.isArray(entry.value)) entry.value = migratedWeaponList(entry.value);
+}
+function migrateCustomDraft(settings) {
+	if (typeof settings[CUSTOM_DRAFT_SETTING] !== 'string') return;
+	try {
+		const draft = JSON.parse(settings[CUSTOM_DRAFT_SETTING]);
+		if (!savePlainObject(draft)) return;
+		migrateWeaponLists(draft);
+		settings[CUSTOM_DRAFT_SETTING] = JSON.stringify(draft);
+	} catch (error) {
+	}
+}
+function migrateLoadouts(loadouts) {
+	for (const row of loadouts.classes.custom) {
+		row.primary = migratedId(WEAPON_MIGRATION, row.primary);
+		row.secondary = migratedId(WEAPON_MIGRATION, row.secondary);
+	}
+	for (const kit of Object.values(loadouts.kits)) {
+		if (!savePlainObject(kit)) continue;
+		for (const slot of Object.keys(kit)) kit[slot] = migratedId(ABILITY_MIGRATION, kit[slot]);
+	}
+}
+function migrateSavedMaps(maps) {
+	for (const entry of maps) {
+		if (!savePlainObject(entry.data) || !Array.isArray(entry.data.items)) continue;
+		for (const row of entry.data.items) if (Array.isArray(row)) row[0] = migratedId(MAP_ITEM_MIGRATION, row[0]);
+	}
+}
+function migrateRetiredIds(data) {
+	if (savePlainObject(data.stats) && savePlainObject(data.stats.weapons)) migrateWeaponStats(data.stats.weapons);
+	migrateCrosshairs(data.crosshairs);
+	migrateLoadouts(data.loadouts);
+	for (const ruleset of data.rulesets) { migrateWeaponLists(ruleset); migrateWeaponLists(ruleset.editor); }
+	migrateSavedMaps(data.editorMaps);
+	migrateCustomDraft(data.settings);
+}
 const Save = {
 	data: null,
 	storageWorks: true,
@@ -3164,7 +3097,7 @@ const Save = {
 	emptySave() {
 		return { version: SAVE_VERSION, revision: 0, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [],
 			ladder: {}, play: null, crosshairs: {}, tips: { matches: 0, homeScreen: false, silentSwitch: false },
-			loadouts: { classes: { selected: CAT.classes[0].id, custom: [] }, heroes: { hero: CAT.heroes[0].id }, kits: {} } };
+			loadouts: { classes: { selected: CAT.classes[0].id, custom: [] }, heroes: { hero: CAT.heroes[0].id }, kits: {}, pickup: Object.assign({}, DEFAULT_PICKUP_LOADOUT) } };
 	},
 	load() {
 		const raw = this.read(SAVE_KEY);
@@ -3196,6 +3129,7 @@ const Save = {
 	migrate(loaded) {
 		if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) throw new Error('save is not an object');
 		repairSaveFields(this.emptySave(), loaded);
+		migrateRetiredIds(loaded);
 		Settings.sanitize(loaded.settings);
 		const ordered = Object.assign({ version: SAVE_VERSION, revision: 0 }, loaded);
 		ordered.version = SAVE_VERSION;
@@ -5723,7 +5657,7 @@ const SOUND_TABLES = {
 	fireMode: { melee: 'melee' },
 	weaponClass: { sidearm: 'sidearm', shotgun: 'shotgun', rifle: 'rifle', smg: 'smg', lmg: 'lmg', dmr: 'dmr', marksman: 'dmr', sniper: 'sniper', rail: 'rail',
 		launcher: 'launcher', explosive: 'launcher', energy: 'energy', heavy: 'heavy', melee: 'melee', tool: 'tool', exotic: 'exotic', power: 'power', default: 'rifle' },
-	weaponOverride: { lancet: 'rail', heron: 'sniper', kestrel: 'dmr', longshot: 'dmr', anvil: 'lmg', twinsting: 'smg', kindler: 'flame',
+	weaponOverride: { lancet: 'rail', heron: 'sniper', kestrel: 'dmr', kindler: 'flame',
 		hush: 'suppressed', tanto: 'stab', talonbow: 'bowshot' },
 	material: expandAliasTable('impact.'),
 	surface: expandAliasTable('step.'),
@@ -12342,7 +12276,6 @@ const SWAY_STEADY_SCALE = 0.1;
 const SWAY_WINDED_SCALE = 2.5;
 const SWAY_SETTLE_RATE = 6;
 const BREATH_REFILL_RATE = 1;
-const STILL_SPEED = 0.2;
 const MAX_SHOTS_PER_STEP = 4;
 const MELEE_RADIUS = 0.25;
 const MAX_LOCKS = 3;
@@ -12467,6 +12400,7 @@ const Weapons = {
 	rayBlockers: [],
 	altClaim: null,
 	altClaimed: new Uint8Array(MAX_ACTORS),
+	startKeys: (id) => currentWeaponSet().start,
 	botTakes: (id, weapon) => true,
 	useClaimed: new Uint8Array(MAX_ACTORS),
 	rodeBoard: new Uint8Array(MAX_ACTORS),
@@ -12517,7 +12451,7 @@ const Weapons = {
 	infiniteReserve(weapon) {
 		const set = currentWeaponSet(), rules = currentRules();
 		if (rules.fx && rules.fx.infiniteAmmo) return true;
-		const tiers = rules.ammoTiers === undefined ? set.ammoTiers : rules.ammoTiers;
+		const tiers = typeof rules.ammoTiers === 'boolean' ? rules.ammoTiers : set.ammoTiers;
 		return tiers && weapon.family.tier === 'primary';
 	},
 	carryLimit() {
@@ -12626,7 +12560,7 @@ const Weapons = {
 		const first = keys.length ? CAT.weapons.byId(keys[keys.length - 1]) : null;
 		if (first && this.owned[this.slotIndex(id, first.index)]) this.current[id] = first.index;
 	},
-	giveStartLoadout(id) { this.setLoadout(id, currentWeaponSet().start); },
+	giveStartLoadout(id) { this.setLoadout(id, this.startKeys(id)); },
 	addAmmo(id, ammoType, amount) {
 		let added = 0;
 		for (let w = 0; w < WEAPON_COUNT; w++) {
@@ -12872,10 +12806,7 @@ const Weapons = {
 		else this.releaseShot(id, weapon, mode, MODE_ALT, 0);
 	},
 	stepStance(id, mode) {
-		const mounted = this.toggled[id] && mode.toggle.needsLedge;
-		if (mounted && !canStayMounted(id)) this.toggled[id] = 0;
 		if (!(Actors.pressed[id] & BTN.ALT)) return;
-		if (!this.toggled[id] && mode.toggle.needsLedge && !hasLedgeInFront(id)) return;
 		this.toggled[id] = this.toggled[id] ? 0 : 1;
 	},
 	stepMode(id, weapon, mode, modeIndex, button, dt) {
@@ -13110,15 +13041,6 @@ function angleToZone(id, eyeY, other, zone, aim, range, maxAngle) {
 	if (angle > maxAngle) return -1;
 	return World.lineClear(Actors.x[id], eyeY, Actors.z[id], pointScratch.x, pointScratch.y, pointScratch.z) ? angle : -1;
 }
-function hasLedgeInFront(id) {
-	Vec.fromAngles(aimScratch, Actors.yaw[id], 0);
-	const probeX = Actors.x[id] + aimScratch.x * 0.7, probeZ = Actors.z[id] + aimScratch.z * 0.7;
-	return World.raycast(probeX, Actors.eyeY(id), probeZ, 0, -1, 0, 0.8, exitHit) && exitHit.ny > 0.7;
-}
-function canStayMounted(id) {
-	if (length2(Actors.vx[id], Actors.vz[id]) > STILL_SPEED) return false;
-	return hasLedgeInFront(id);
-}
 const Shot = {
 	trace(id, weapon, mode, damage, ox, oy, oz, dx, dy, dz) {
 		let factor = 1, travelled = 0, startX = ox, startY = oy, startZ = oz;
@@ -13177,8 +13099,8 @@ function applyShotDamage(id, target, weapon, mode, damage, zone, stomach, x, y, 
 }
 function eyeOrigin(id, out) { return Vec.set(out, Actors.x[id], Actors.eyeY(id), Actors.z[id]); }
 const originScratch = Vec.make();
-function drawTracer(id, direction, distance, weapon) {
-	if (Game.headless) return;
+function drawTracer(id, direction, distance, weapon, mode) {
+	if (Game.headless || !mode.tracer) return;
 	const eyeY = Actors.eyeY(id), start = Muzzle.visual(id, weapon, distance);
 	Fx.tracer(start.x, start.y, start.z, Actors.x[id] + direction.x * distance, eyeY + direction.y * distance, Actors.z[id] + direction.z * distance, weapon.family.color | 0x404040);
 }
@@ -13191,7 +13113,7 @@ function deliverHitscan(id, weapon, mode, modeIndex, fraction) {
 		Weapons.aimDirection(id, spread, aimScratch);
 		if (ballistics) { Projectiles.spawnBallistic(id, weapon, mode, modeIndex, aimScratch, damage, ballistics); continue; }
 		const distance = Shot.trace(id, weapon, mode, damage, originScratch.x, originScratch.y, originScratch.z, aimScratch.x, aimScratch.y, aimScratch.z);
-		if (pellet === 0 || mode.pellets < 4) drawTracer(id, aimScratch, distance, weapon);
+		if (pellet === 0 || mode.pellets < 4) drawTracer(id, aimScratch, distance, weapon, mode);
 		if (mode.splash) splashAtShotEnd(id, mode, distance);
 	}
 }
@@ -13337,7 +13259,7 @@ function deliverLock(id, weapon, mode, modeIndex, fraction) {
 	Vec.set(aimScratch, pointScratch.x - originScratch.x, pointScratch.y - originScratch.y, pointScratch.z - originScratch.z);
 	Vec.normalize(aimScratch, aimScratch);
 	const distance = Shot.trace(id, weapon, mode, Weapons.shotDamage(id, weapon, mode, fraction), originScratch.x, originScratch.y, originScratch.z, aimScratch.x, aimScratch.y, aimScratch.z);
-	drawTracer(id, aimScratch, distance, weapon);
+	drawTracer(id, aimScratch, distance, weapon, mode);
 }
 function deliverTool(id, weapon, mode) { Weapons.tools[mode.tool](id, weapon, mode); }
 Weapons.deliveries.hitscan = deliverHitscan;
@@ -14981,7 +14903,6 @@ const Items = {
 	usingItem: new Int16Array(MAX_ACTORS).fill(-1), useStart: new Int32Array(MAX_ACTORS), useEnd: new Int32Array(MAX_ACTORS),
 	swapReadyTick: new Int32Array(MAX_ACTORS),
 	swapPrompts: [],
-	noArmor: new Uint8Array(MAX_ACTORS),
 	takers: [],
 	givers: [],
 	grantEffects: {},
@@ -15305,7 +15226,7 @@ const Items = {
 	},
 	addArmor(id, amount, cap) {
 		const limit = Math.min(cap, Actors.maxArmor[id]);
-		if (this.noArmor[id] || Actors.armor[id] >= limit) return false;
+		if (Actors.armor[id] >= limit) return false;
 		Actors.armor[id] = Math.min(limit, Actors.armor[id] + amount);
 		return true;
 	},
@@ -15371,7 +15292,7 @@ const Items = {
 	},
 	resetActor(id) {
 		this.carried.fill(0, id * ITEM_COUNT, (id + 1) * ITEM_COUNT);
-		this.usingItem[id] = -1; this.noArmor[id] = 0; this.swapReadyTick[id] = 0;
+		this.usingItem[id] = -1; this.swapReadyTick[id] = 0;
 	},
 	timers(out) {
 		out.length = 0;
@@ -15495,9 +15416,8 @@ const POWERUP_TINT = 0.45;
 const POWERUP_GLOW = 0.5;
 const SEER_REVEAL_SECONDS = 1.5;
 const SEER_INTERVAL = 1;
-const AMMO_REGEN_INTERVAL = 1;
 const FLIGHT_VERTICAL = 1;
-const POWERUP_FLAG = { INVULNERABLE: 1, FREE_AMMO: 2, INVISIBLE: 4, FODDER_MELEE: 8, REVEAL: 16, NO_ARMOR: 32 };
+const POWERUP_FLAG = { INVULNERABLE: 1, FREE_AMMO: 2, INVISIBLE: 4, FODDER_MELEE: 8, REVEAL: 16 };
 const DAMAGE_KIND_BIT = {};
 CAT.damageKinds.forEach((row, index) => { DAMAGE_KIND_BIT[row.id] = 1 << index; });
 const FREEZE_INDEX = CAT.statusEffects.byId('freeze').index;
@@ -15514,12 +15434,12 @@ const Powerups = {
 	damageScale: new Float32Array(MAX_ACTORS).fill(1), meleeScale: new Float32Array(MAX_ACTORS).fill(1),
 	takenScale: new Float32Array(MAX_ACTORS).fill(1), speedScale: new Float32Array(MAX_ACTORS).fill(1),
 	rateScale: new Float32Array(MAX_ACTORS).fill(1), lifesteal: new Float32Array(MAX_ACTORS), flight: new Float32Array(MAX_ACTORS),
-	perception: new Float32Array(MAX_ACTORS).fill(1), surplusDecay: new Float32Array(MAX_ACTORS), ammoRegen: new Float32Array(MAX_ACTORS),
+	perception: new Float32Array(MAX_ACTORS).fill(1),
 	jumpScale: new Float32Array(MAX_ACTORS).fill(1), flags: new Uint32Array(MAX_ACTORS), immune: new Uint32Array(MAX_ACTORS),
 	regenRow: new Int8Array(MAX_ACTORS).fill(-1), glowRow: new Int8Array(MAX_ACTORS).fill(-1),
 	healthScale: new Float32Array(MAX_ACTORS).fill(1), armorScale: new Float32Array(MAX_ACTORS).fill(1),
 	setInvisible: new Uint8Array(MAX_ACTORS),
-	seerClock: new Float32Array(MAX_ACTORS), ammoClock: new Float32Array(MAX_ACTORS),
+	seerClock: new Float32Array(MAX_ACTORS),
 	souls: new Uint16Array(MAX_ACTORS),
 	has(id, key) { const row = CAT.powerups.byId(key); return !!row && this.active[id * POWERUP_COUNT + row.index] === 1; },
 	isTimed(row) { return row.duration > 0; },
@@ -15554,8 +15474,6 @@ const Powerups = {
 		this.emit('powerup.start', id, row);
 	},
 	poolFull(id, row, slot) {
-		if (row.pool === 'surplus') return Damage.surplus[id] >= row.instant.surplusCap;
-		if (row.pool === 'belt') return Items.noArmor[id] === 1 || Actors.armor[id] + this.charges[slot] >= row.instant.beltTotal;
 		return row.pool === 'jumps' && this.active[slot] === 1 && this.charges[slot] >= row.charges;
 	},
 	stack(id, row, slot) {
@@ -15566,20 +15484,13 @@ const Powerups = {
 		this.endTick[slot] = Math.min(limit, this.endTick[slot] + itemTicks(row.duration));
 	},
 	applyInstant(id, row) {
-		const instant = row.instant, slot = id * POWERUP_COUNT + row.index;
+		const instant = row.instant;
 		let changed = false;
-		if (instant.surplus) { Damage.surplus[id] = Math.min(instant.surplusCap, Damage.surplus[id] + instant.surplus); changed = true; }
-		if (instant.belt) changed = this.addBelt(id, slot, instant) || changed;
 		if (instant.healTo && Actors.health[id] < instant.healTo) { Actors.health[id] = instant.healTo; changed = true; }
 		if (instant.heal) changed = Damage.regenerate(id, instant.heal * this.healScale(id, instant), Damage.overhealCap(id)) || changed;
 		if (instant.soul) { this.addSoul(id, instant.soul); changed = true; }
 		if (instant.vital) changed = this.addVital(id, instant) || changed;
 		return changed;
-	},
-	addBelt(id, slot, instant) {
-		const added = Math.max(0, Math.min(instant.belt, instant.beltTotal - Actors.armor[id] - this.charges[slot]));
-		this.charges[slot] += added;
-		return added > 0;
 	},
 	healScale(id, instant) { return instant.soul ? soulCardFx(id, 'soulHeal', 1) : 1; },
 	addSoul(id, count) {
@@ -15599,7 +15510,7 @@ const Powerups = {
 	},
 	resetAggregates(id) {
 		this.damageScale[id] = this.meleeScale[id] = this.takenScale[id] = this.speedScale[id] = this.rateScale[id] = 1;
-		this.lifesteal[id] = this.flight[id] = this.surplusDecay[id] = this.ammoRegen[id] = 0;
+		this.lifesteal[id] = this.flight[id] = 0;
 		this.perception[id] = this.jumpScale[id] = 1;
 		this.flags[id] = this.immune[id] = 0;
 		this.regenRow[id] = this.glowRow[id] = -1;
@@ -15620,15 +15531,15 @@ const Powerups = {
 	addMods(id, powerup, mods) {
 		this.damageScale[id] *= mods.damage || 1; this.meleeScale[id] *= mods.melee || 1; this.takenScale[id] *= mods.taken || 1;
 		this.speedScale[id] *= mods.speed || 1; this.rateScale[id] *= mods.rate || 1;
-		this.lifesteal[id] += mods.lifesteal || 0; this.ammoRegen[id] += mods.ammoRegen || 0;
-		this.flight[id] = Math.max(this.flight[id], mods.flight || 0); this.surplusDecay[id] = Math.max(this.surplusDecay[id], mods.surplusDecay || 0);
+		this.lifesteal[id] += mods.lifesteal || 0;
+		this.flight[id] = Math.max(this.flight[id], mods.flight || 0);
 		this.jumpScale[id] = Math.max(this.jumpScale[id], mods.jumpScale || 1);
 		if (mods.invisible) this.perception[id] = Math.min(this.perception[id], mods.perception);
 		if (mods.regen) this.regenRow[id] = powerup;
 		if (this.glowRow[id] < 0) this.glowRow[id] = powerup;
 		this.flags[id] |= (mods.invulnerable ? POWERUP_FLAG.INVULNERABLE : 0) | (mods.freeAmmo ? POWERUP_FLAG.FREE_AMMO : 0)
 			| (mods.invisible ? POWERUP_FLAG.INVISIBLE : 0) | (mods.fodderMelee ? POWERUP_FLAG.FODDER_MELEE : 0)
-			| (mods.reveal ? POWERUP_FLAG.REVEAL : 0) | (mods.noArmor ? POWERUP_FLAG.NO_ARMOR : 0);
+			| (mods.reveal ? POWERUP_FLAG.REVEAL : 0);
 		if (mods.noFall) this.immune[id] |= DAMAGE_KIND_BIT.fall;
 		if (mods.immune) for (let k = 0; k < mods.immune.length; k++) this.immune[id] |= DAMAGE_KIND_BIT[mods.immune[k]] || 0;
 	},
@@ -15646,8 +15557,6 @@ const Powerups = {
 	writeHooks(id) {
 		Buffs.applyScales(id);
 		Weapons.freeAmmo[id] = this.flags[id] & POWERUP_FLAG.FREE_AMMO ? 1 : 0;
-		Items.noArmor[id] = this.flags[id] & POWERUP_FLAG.NO_ARMOR ? 1 : 0;
-		if (Items.noArmor[id]) Actors.armor[id] = 0;
 		this.setCloak(id, this.cloaked(id));
 	},
 	cloaked(id) {
@@ -15677,7 +15586,7 @@ const Powerups = {
 	clearActor(id, dropThem) {
 		if (dropThem) this.dropAll(id);
 		for (let powerup = 0; powerup < POWERUP_COUNT; powerup++) if (this.active[id * POWERUP_COUNT + powerup]) this.end(id, CAT.powerups[powerup], false);
-		this.seerClock[id] = this.ammoClock[id] = 0;
+		this.seerClock[id] = 0;
 	},
 	dropAll(id) {
 		let count = 0, k = 0;
@@ -15715,14 +15624,11 @@ const Powerups = {
 	},
 	spent(id, row, slot) {
 		if (this.endTick[slot] !== POWERUP_FOREVER) return Sim.tick >= this.endTick[slot];
-		if (row.pool === 'surplus') return Damage.surplus[id] <= 0;
-		return (row.pool === 'belt' || row.pool === 'jumps') && this.charges[slot] <= 0;
+		return row.pool === 'jumps' && this.charges[slot] <= 0;
 	},
 	stepEffects(id, dt) {
-		if (this.surplusDecay[id] > 0) Damage.surplus[id] = Math.max(0, Damage.surplus[id] - this.surplusDecay[id] * dt);
 		if (this.regenRow[id] >= 0) this.regenerate(id, CAT.powerups[this.regenRow[id]].mods.regen, dt);
 		if (this.flight[id] > 0) this.fly(id, dt);
-		if (this.ammoRegen[id] > 0) this.regenerateAmmo(id, dt);
 		if (this.flags[id] & POWERUP_FLAG.REVEAL) this.reveal(id, dt);
 		if (this.flags[id] & POWERUP_FLAG.INVISIBLE) this.setCloak(id, this.cloaked(id));
 	},
@@ -15745,9 +15651,6 @@ const Powerups = {
 		Actors.vx[id] = x * speed; Actors.vz[id] = z * speed;
 		Actors.vy[id] = y * speed + Move.gravity(id) * dt;
 	},
-	regenerateAmmo(id, dt) {
-		if (intervalDue(this.ammoClock, id, dt, AMMO_REGEN_INTERVAL)) addAmmoShare(id, this.ammoRegen[id]);
-	},
 	reveal(id, dt) {
 		this.seerClock[id] -= dt;
 		if (this.seerClock[id] > 0) return;
@@ -15767,14 +15670,7 @@ const Powerups = {
 		if (!this.activeCount[target]) return amount;
 		if (this.flags[target] & POWERUP_FLAG.INVULNERABLE) return 0;
 		if (this.immune[target] & (DAMAGE_KIND_BIT[info.kind] || 0)) return 0;
-		return this.absorbBelt(target, amount * this.takenScale[target], info);
-	},
-	absorbBelt(target, amount, info) {
-		const belt = CAT.powerups.byId('aegisbelt'), slot = target * POWERUP_COUNT + belt.index, kind = CAT.damageKinds.byId(info.kind);
-		if (!this.active[slot] || info.bypassArmor || (kind && kind.bypassArmor)) return amount;
-		const absorbed = Math.min(this.charges[slot], amount);
-		this.charges[slot] -= absorbed;
-		return amount - absorbed;
+		return amount * this.takenScale[target];
 	},
 	onDamage(event) { if (event.source >= 0) Damage.lifesteal(event, this.lifesteal[event.source]); },
 	onJump(event) {
@@ -15794,13 +15690,12 @@ const Powerups = {
 			const row = CAT.powerups[powerup], view = powerupViews.items[out.length], left = this.ticksLeft(id, row);
 			view.id = row.id; view.name = row.name; view.color = row.color; view.persistent = left === POWERUP_FOREVER;
 			view.remaining = left === POWERUP_FOREVER ? this.poolLeft(id, row) : left / TICK_RATE;
-			view.duration = row.duration || row.charges || row.instant.surplus || row.instant.belt || 0;
+			view.duration = row.duration || row.charges || 0;
 			out.push(view);
 		}
 		return out.length;
 	},
 	poolLeft(id, row) {
-		if (row.pool === 'surplus') return Damage.surplus[id];
 		return row.pool ? this.charges[id * POWERUP_COUNT + row.index] : 0;
 	},
 	style(id, out) {
@@ -15868,7 +15763,6 @@ const CURTAIN_PUFF_SPACING = 0.75;
 const PREVIEW_SECONDS = 0.05;
 const THROWN_LONGEST_FUSE = CAT.gadgets.reduce((most, row) => row.kind === 'thrown' ? Math.max(most, row.fuse) : most, 0);
 const PREVIEW_POINTS = Math.ceil(THROWN_LONGEST_FUSE / PREVIEW_SECONDS);
-const DECOY_DEFAULT_NOISE = 60;
 const HERO_EXTRA_GRENADES = 1;
 const GADGET_USE_EVENT = { id: 0, gadget: '', kind: '' };
 const BOUNCE_EVENT = { x: 0, y: 0, z: 0, kind: 'grenade', source: -1 };
@@ -16114,13 +16008,13 @@ const cellPoint = Vec.make();
 const GadgetAreas = {
 	active: new Uint8Array(AREA_CAP), row: new Int16Array(AREA_CAP), owner: new Int8Array(AREA_CAP),
 	x: new Float32Array(AREA_CAP), y: new Float32Array(AREA_CAP), z: new Float32Array(AREA_CAP),
-	startTick: new Int32Array(AREA_CAP), endTick: new Int32Array(AREA_CAP), clock: new Float32Array(AREA_CAP), pulses: new Uint8Array(AREA_CAP),
+	startTick: new Int32Array(AREA_CAP), endTick: new Int32Array(AREA_CAP), clock: new Float32Array(AREA_CAP),
 	steps: {},
 	clear() { this.active.fill(0); },
 	spawn(row, owner, x, y, z, seconds) {
 		const slot = oldestFreeSlot(this.active, this.endTick, AREA_CAP);
 		this.active[slot] = 1; this.row[slot] = row.index; this.owner[slot] = owner; this.x[slot] = x; this.y[slot] = y; this.z[slot] = z;
-		this.startTick[slot] = Sim.tick; this.endTick[slot] = Sim.tick + itemTicks(seconds); this.clock[slot] = 0; this.pulses[slot] = row.pulses;
+		this.startTick[slot] = Sim.tick; this.endTick[slot] = Sim.tick + itemTicks(seconds); this.clock[slot] = 0;
 		return slot;
 	},
 	step(dt) {
@@ -16148,12 +16042,6 @@ const GadgetAreas = {
 		if (!Actors.alive[id] || Math.abs(Actors.y[id] - this.y[area]) > FIRE_AREA_HEIGHT) return false;
 		return (Actors.x[id] - this.x[area]) ** 2 + (Actors.z[id] - this.z[area]) ** 2 <= row.radius * row.radius;
 	},
-	stepDecoy(area, row, dt) {
-		if (!this.due(area, dt, 1 / row.rate)) return;
-		const owner = this.owner[area], weapon = owner >= 0 ? Weapons.currentWeapon(owner) : null;
-		emitSound(this.x[area], this.y[area] + 0.2, this.z[area], weapon ? weapon.noise : DECOY_DEFAULT_NOISE, 'shot', owner);
-		if (!Game.headless) Fx.burst('muzzle', this.x[area], this.y[area] + 0.2, this.z[area], 0, 1, 0, 3, null);
-	},
 	stepPull(area, row, dt) {
 		for (let id = 0; id < Actors.count; id++) {
 			if (!gadgetReaches(this.owner[area], id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
@@ -16162,22 +16050,9 @@ const GadgetAreas = {
 		}
 		if (!Game.headless && this.due(area, dt, AREA_TICK_SECONDS)) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 6, row.color);
 	},
-	stepPulse(area, row, dt) {
-		if (!this.due(area, dt, row.interval)) return;
-		const owner = this.owner[area];
-		for (let id = 0; id < Actors.count; id++) {
-			if (id === owner || !gadgetReaches(owner, id, this.x[area], this.y[area], this.z[area], row.radius)) continue;
-			Damage.addStatus(id, row.status, owner, row.statusSeconds, 1);
-		}
-		emitSound(this.x[area], this.y[area], this.z[area], POP_NOISE, 'pulse', this.owner[area]);
-		if (!Game.headless) Fx.burst('energy', this.x[area], this.y[area], this.z[area], 0, 1, 0, 12, row.color);
-		if (--this.pulses[area] <= 0) this.active[area] = 0;
-	},
 };
 GadgetAreas.steps.fire = (area, row, dt) => GadgetAreas.stepFire(area, row, dt);
-GadgetAreas.steps.decoy = (area, row, dt) => GadgetAreas.stepDecoy(area, row, dt);
 GadgetAreas.steps.singularity = (area, row, dt) => GadgetAreas.stepPull(area, row, dt);
-GadgetAreas.steps.dart = (area, row, dt) => GadgetAreas.stepPulse(area, row, dt);
 function gadgetBlast(row, owner, x, y, z) {
 	const blast = Damage.blast();
 	blast.x = x; blast.y = y; blast.z = z; blast.owner = owner; blast.mode = GADGET_MODES[row.index]; blast.radius = row.radius;
@@ -16198,9 +16073,7 @@ const GadgetEffects = {
 	explode: (row, owner, x, y, z) => gadgetBlast(row, owner, x, y, z),
 	smoke: (row, owner, x, y, z) => { Smoke.spawn(row, owner, x, y, z); emitGadgetPop(row, owner, x, y, z); },
 	fire: (row, owner, x, y, z) => { GadgetAreas.spawn(row, owner, x, fireFloorY(x, y, z) + 0.05, z, row.duration); emitGadgetPop(row, owner, x, y, z); },
-	decoy: (row, owner, x, y, z) => { GadgetAreas.spawn(row, owner, x, y, z, row.duration); },
 	singularity: (row, owner, x, y, z) => { GadgetAreas.spawn(row, owner, x, y, z, row.duration); emitGadgetPop(row, owner, x, y, z); },
-	dart: (row, owner, x, y, z) => { GadgetAreas.spawn(row, owner, x, y, z, row.pulses * row.interval + 0.5); },
 	flash: (row, owner, x, y, z) => {
 		for (let id = 0; id < Actors.count; id++) gadgetFlash(row, owner, id, x, y, z);
 		emitGadgetPop(row, owner, x, y, z);
@@ -16212,7 +16085,11 @@ const GadgetEffects = {
 		if (!Game.headless) Fx.burst('frost', x, y, z, 0, 1, 0, 30, null);
 	},
 	emp: (row, owner, x, y, z) => {
-		for (let id = 0; id < Actors.count; id++) if (gadgetReaches(owner, id, x, y, z, row.radius)) Gadgets.suppress(id, row.duration);
+		for (let id = 0; id < Actors.count; id++) {
+			if (!gadgetReaches(owner, id, x, y, z, row.radius)) continue;
+			Gadgets.suppress(id, row.duration);
+			if (id !== owner) Meters.energy[id] = 0;
+		}
 		Gadgets.empDevices(owner, x, y, z, row.radius, row.duration);
 		emitGadgetPop(row, owner, x, y, z);
 		if (!Game.headless) Fx.burst('shock', x, y, z, 0, 1, 0, 30, null);
@@ -16395,6 +16272,7 @@ const Gadgets = {
 	deployers: [],
 	empHooks: [],
 	cycleShown: -1,
+	loadoutGear: null,
 	kit() { return CAT.gadgetKits.byId(itemRule('economy', 'pickups')) || CAT.gadgetKits.byId('pickups'); },
 	countOf(id, key) { const row = CAT.gadgets.byId(key); return row ? this.count[id * GADGET_COUNT + row.index] : 0; },
 	suppressed(id) { return Sim.tick < this.suppressedUntil[id]; },
@@ -16460,7 +16338,11 @@ const Gadgets = {
 	},
 	equip(id) {
 		this.resetActor(id);
-		const kit = this.kit();
+		const kit = this.kit(), gear = kit.loadout && this.loadoutGear ? this.loadoutGear(id) : null;
+		if (gear) {
+			for (const key of [gear.lethal, gear.tactical, gear.device]) this.give(id, key, CAT.gadgets.byId(key).carry);
+			return;
+		}
 		for (const key in kit.grenades) this.give(id, key, kit.grenades[key]);
 		if (kit.gadget) this.give(id, kit.gadget, 1);
 	},
@@ -16476,8 +16358,9 @@ const Gadgets = {
 	refill(id) {
 		const kit = this.kit();
 		if (!kit.refill) return false;
+		const gear = kit.loadout && this.loadoutGear ? this.loadoutGear(id) : null;
 		let added = 0;
-		for (const key in kit.grenades) added += this.give(id, key, 1);
+		for (const key of gear ? [gear.lethal, gear.tactical] : Object.keys(kit.grenades)) added += this.give(id, key, 1);
 		return added > 0;
 	},
 	step(dt) {
@@ -16665,7 +16548,6 @@ const DEVICE_SHOT_SLACK = 0.05;
 const DEVICE_SPHERE_LIFT = 0.5;
 const DEVICE_BLAST_DAMAGE = 100;
 const DEVICE_DEFAULT_SHOT = 10;
-const LAUNCH_FOOT_HEIGHT = 0.5;
 const DRONE_HOVER = 0.3;
 const DRONE_BLAST_SHARE = 0.5;
 const DRONE_WALL_GAP = 0.2;
@@ -16839,33 +16721,24 @@ const Devices = {
 		const dx = x - this.x[device], dz = z - this.z[device], length = length2(dx, dz) || 1;
 		return (dx * Math.sin(this.yaw[device]) + dz * Math.cos(this.yaw[device])) / length >= Math.cos(row.coneDeg / 2 * DEG);
 	},
-	stepDome(device, row, dt) {
-		this.blockProjectiles(device, row, dt, false);
-		for (let id = 0; id < Actors.count; id++) {
-			if (this.friendOf(device, id) && this.inSphere(device, id, row.radius)) deviceHeal(id, row.heal * dt, true);
-		}
-	},
-	blockProjectiles(device, row, dt, snatch) {
+	blockProjectiles(device, row) {
 		let removed = 0;
 		for (let i = 0; i < PROJECTILE_CAP; i++) {
-			if (Projectiles.state[i] !== PROJECTILE_STATE.FLYING || !this.stops(device, row, dt, snatch, Projectiles, i)) continue;
+			if (Projectiles.state[i] !== PROJECTILE_STATE.FLYING || !this.stops(device, row, Projectiles, i)) continue;
 			Projectiles.remove(i);
 			this.blockFx(Projectiles.x[i], Projectiles.y[i], Projectiles.z[i]);
-			if (++removed >= this.charges[device] && snatch) return removed;
+			if (++removed >= this.charges[device]) return removed;
 		}
 		for (let slot = 0; slot < THROWN_CAP; slot++) {
-			if (!Thrown.state[slot] || !this.stops(device, row, dt, snatch, Thrown, slot)) continue;
+			if (!Thrown.state[slot] || !this.stops(device, row, Thrown, slot)) continue;
 			Thrown.removeAt(slot);
-			if (++removed >= this.charges[device] && snatch) return removed;
+			if (++removed >= this.charges[device]) return removed;
 		}
 		return removed;
 	},
-	stops(device, row, dt, snatch, store, index) {
-		const x = store.x[index], y = store.y[index], z = store.z[index];
-		const inside = this.insideRadius(device, row, x, y, z);
-		if (snatch) return inside && (store.owner[index] < 0 || this.enemyOf(device, store.owner[index]));
-		const wasInside = this.insideRadius(device, row, x - store.vx[index] * dt, y - store.vy[index] * dt, z - store.vz[index] * dt);
-		return inside !== wasInside;
+	stops(device, row, store, index) {
+		const inside = this.insideRadius(device, row, store.x[index], store.y[index], store.z[index]);
+		return inside && (store.owner[index] < 0 || this.enemyOf(device, store.owner[index]));
 	},
 	insideRadius(device, row, x, y, z) {
 		return distanceSquared3(x, y, z, this.x[device], this.y[device], this.z[device]) <= row.radius * row.radius;
@@ -16873,22 +16746,9 @@ const Devices = {
 	blockFx(x, y, z) {
 		if (!Game.headless) Fx.burst('energy', x, y, z, 0, 1, 0, 8, null);
 	},
-	stepTrophy(device, row, dt) {
-		this.charges[device] -= this.blockProjectiles(device, row, dt, true);
+	stepTrophy(device, row) {
+		this.charges[device] -= this.blockProjectiles(device, row);
 		if (this.charges[device] <= 0) this.remove(device, false);
-	},
-	stepLaunch(device, row) {
-		const knockback = MatchMove.knockback || 1;
-		for (let id = 0; id < Actors.count; id++) {
-			if (!Actors.alive[id] || !(Actors.flags[id] & ACTOR_FLAG.ON_GROUND) || !this.onPad(device, row, id)) continue;
-			const speed = Math.sqrt(2 * Move.gravity(id) * row.launch);
-			emitImpulse(id, 0, (speed - Actors.vy[id]) / knockback, 0);
-			emitSound(this.x[device], this.y[device], this.z[device], GRENADE_NOISE, 'jump', id);
-		}
-	},
-	onPad(device, row, id) {
-		if (Math.abs(Actors.y[id] - this.y[device] - row.size[1]) > LAUNCH_FOOT_HEIGHT) return false;
-		return (Actors.x[id] - this.x[device]) ** 2 + (Actors.z[id] - this.z[device]) ** 2 <= row.radius * row.radius;
 	},
 	stepTurret(device, row, dt) {
 		if (!this.due(device, dt, 1 / row.rate)) return;
@@ -16913,19 +16773,6 @@ const Devices = {
 		if (hit >= 0 && this.enemyOf(device, hit)) deviceDamage(this.owner[device], hit, row, row.damage, 'hit', deviceActorHit);
 		if (!Game.headless) Fx.tracer(x, y, z, x + direction.x * reach, y + direction.y * reach, z + direction.z * reach, null);
 		emitSound(x, y, z, TURRET_NOISE, 'shot', this.owner[device]);
-	},
-	stepHeal(device, row, dt) {
-		for (let id = 0; id < Actors.count; id++) {
-			if (Actors.alive[id] && this.inSphere(device, id, row.radius)) deviceHeal(id, row.heal * dt, false);
-		}
-	},
-	stepDrain(device, row, dt) {
-		if (!this.due(device, dt, AREA_TICK_SECONDS)) return;
-		for (let id = 0; id < Actors.count; id++) {
-			const amount = Math.min(row.drain * AREA_TICK_SECONDS, Actors.shield[id]);
-			if (amount <= 0 || !this.enemyOf(device, id) || !this.inSphere(device, id, row.radius)) continue;
-			deviceDamage(this.owner[device], id, row, amount, 'dot', null);
-		}
 	},
 	stepDrone(device, row, dt) {
 		if (!this.enemyOf(device, this.target[device])) this.target[device] = -1;
@@ -17103,11 +16950,6 @@ function barrierFits(row, x, z) {
 	}
 	return true;
 }
-function deviceHeal(id, amount, shields) {
-	const room = Math.max(0, Actors.maxHealth[id] - Actors.health[id]);
-	Actors.health[id] += Math.min(room, amount);
-	if (shields && amount > room) Actors.shield[id] = Math.min(Actors.maxShield[id], Actors.shield[id] + amount - room);
-}
 function deviceDamage(owner, target, row, amount, kind, hit) {
 	const info = Damage.info();
 	info.amount = amount; info.kind = kind; info.mode = GADGET_MODES[row.index]; info.weapon = row.id; info.element = row.element;
@@ -17116,15 +16958,11 @@ function deviceDamage(owner, target, row, amount, kind, hit) {
 	return Damage.apply(owner, target, info);
 }
 Devices.steps.mine = (device, row) => Devices.stepMine(device, row);
-Devices.steps.dome = (device, row, dt) => Devices.stepDome(device, row, dt);
 Devices.steps.barrier = () => {};
-Devices.steps.launchpad = (device, row) => Devices.stepLaunch(device, row);
 Devices.steps.turret = (device, row, dt) => Devices.stepTurret(device, row, dt);
-Devices.steps.heal = (device, row, dt) => Devices.stepHeal(device, row, dt);
-Devices.steps.drain = (device, row, dt) => Devices.stepDrain(device, row, dt);
 Devices.steps.jammer = () => {};
 Devices.steps.drones = (device, row, dt) => Devices.stepDrone(device, row, dt);
-Devices.steps.trophy = (device, row, dt) => Devices.stepTrophy(device, row, dt);
+Devices.steps.trophy = (device, row) => Devices.stepTrophy(device, row);
 Devices.steps.supply = (device, row, dt) => Devices.stepSupply(device, row, dt);
 Devices.steps.beacon = () => {};
 Gadgets.deployers.push((id, row) => Devices.deploy(id, row));
@@ -17249,9 +17087,10 @@ const Abilities = {
 		for (const kit of CAT.abilityKits) if (kitMatches(kit, rules)) return kit;
 		return null;
 	},
+	botChoice: null,
 	setChoice(id, choice) { this.choices[id] = choice ? Object.assign({}, choice) : null; },
 	kitAbility(id, kit, slotName) {
-		const choice = this.choices[id], wanted = choice ? choice[slotName] : '';
+		const choice = this.choices[id], wanted = choice ? choice[slotName] : this.botChoice ? this.botChoice(id, kit, slotName) : '';
 		if (wanted === KIT_SLOT_EMPTY) return '';
 		const allowed = kit.choices && kit.choices[slotName];
 		if (wanted && allowed && allowed.includes(wanted)) return wanted;
@@ -17536,6 +17375,7 @@ function kitMatches(kit, rules) {
 	if (match.ruleset) return rules.id === match.ruleset;
 	if (match.economy) return Abilities.economyKey() === match.economy;
 	if (match.mutator) return !!rules.mutators && rules.mutators.some((entry) => entry.id === match.mutator);
+	if (match.abilities) return rules.abilities === match.abilities;
 	return false;
 }
 function matchFamily() { return currentRules().family || 'versus'; }
@@ -17601,6 +17441,9 @@ const FENCE_REACH = 0.6;
 const FENCE_HEIGHT = 2;
 const SIGHT_INTERVAL = 0.25;
 const DECOY_HEALTH = 1;
+const RALLY_SURPLUS_CAP = 100;
+const DECOY_SHOT_TICKS = TICK_RATE / 2;
+const DECOY_DEFAULT_NOISE = 60;
 const UNLIMITED_RANGE = 1e9;
 const HOSTILE_TO_ALL = -1;
 const PUPPET_DRIVE_ORDER = 19;
@@ -17912,6 +17755,10 @@ function decoyStep(zone) {
 	const decoy = AbilityZones.target[zone];
 	if (decoy < 0 || !Actors.alive[decoy]) return false;
 	Actors.moveX[decoy] = AbilityZones.x2[zone]; Actors.moveZ[decoy] = AbilityZones.z2[zone]; Actors.aimYaw[decoy] = AbilityZones.yaw[zone];
+	if (Sim.tick % DECOY_SHOT_TICKS === 0) {
+		const owner = AbilityZones.owner[zone], weapon = owner >= 0 ? Weapons.currentWeapon(owner) : null;
+		emitSound(Actors.x[decoy], Actors.y[decoy] + 1, Actors.z[decoy], weapon ? weapon.noise : DECOY_DEFAULT_NOISE, 'shot', owner);
+	}
 	return true;
 }
 function removeDecoy(zone) {
@@ -18334,7 +18181,7 @@ function castRift(id, row) {
 	return true;
 }
 function castRally(id, row) {
-	const cap = CAT.powerups.byId('surplus').instant.surplusCap;
+	const cap = RALLY_SURPLUS_CAP;
 	for (let other = 0; other < Actors.count; other++) {
 		if (!Actors.alive[other] || !alliesOf(id, other)) continue;
 		const granted = Math.min(row.params.surplus, Math.max(0, cap - Damage.surplus[other]));
@@ -18890,7 +18737,8 @@ const HANDICAP_MAX = 1;
 const PRECISIONS = ['arena', 'standard', 'tactical', 'hero'];
 const METERS = ['none', 'streak', 'boost', 'adrenaline', 'ultimate', 'energy'];
 const DROP_RULES = ['none', 'held', 'all'];
-const RULE_REFERENCES = { move: 'movement', health: 'health', economy: 'economy', weaponSet: 'weaponSets' };
+const ABILITY_ACCESS = ['none', 'kit', 'loadout'];
+const RULE_REFERENCES = { move: 'movement', health: 'health', economy: 'economy', weaponSet: 'weaponSets', melee: 'weapons' };
 const MODE_RULE_FIELDS = ['teams', 'sizeDefault', 'scoreLimit', 'timeLimit', 'scoreBy', 'rounds', 'objective', 'params', 'tiebreak', 'family'];
 const MODE_OPTION_FIELDS = MODE_RULE_FIELDS.concat(['respawnMode']);
 const RULE_IDENTITY_FIELDS = ['id', 'code', 'name', 'editor'];
@@ -18933,6 +18781,7 @@ const Rules = {
 		if (!PRECISIONS.includes(rules.precision)) this.report('ruleset ' + rules.id + ': unknown precision ' + rules.precision);
 		if (!METERS.includes(rules.meter)) this.report('ruleset ' + rules.id + ': unknown meter ' + rules.meter);
 		if (!DROP_RULES.includes(rules.dropOnDeath)) this.report('ruleset ' + rules.id + ': unknown dropOnDeath ' + rules.dropOnDeath);
+		if (!ABILITY_ACCESS.includes(rules.abilities)) this.report('ruleset ' + rules.id + ': unknown abilities ' + rules.abilities);
 	},
 	report(text) {
 		this.problems.push(text);
@@ -19919,8 +19768,9 @@ Modes.register('lms', {
 		if (params.startArmor) Items.addArmor(id, params.startArmor, params.startArmor);
 	},
 });
+const WHOLE_SET_EXCLUDED_CLASSES = ['tool', 'power'];
 function giveWholeSet(id, fullReserve) {
-	Weapons.setLoadout(id, currentWeaponSet().weapons);
+	Weapons.setLoadout(id, currentWeaponSet().weapons.filter((key) => !WHOLE_SET_EXCLUDED_CLASSES.includes(CAT.weapons.byId(key).class)));
 	if (fullReserve) addAmmoShare(id, 1);
 }
 const FLAG_BEHAVIOUR = {
@@ -20284,11 +20134,10 @@ const Economy = {
 		if (this.keptArmor[id] > 0) Actors.armor[id] = Math.max(Actors.armor[id], this.keptArmor[id]);
 		if (this.keptHelmet[id]) Damage.helmet[id] = 1;
 	},
-	classWeapon(key) { return (CLASS_SET_SWAPS[currentWeaponSet().id] || {})[key] || key; },
 	applyClass(id, row) {
 		this.applyPerks(id, row.perks);
-		const melee = currentWeaponSet().start.filter((key) => CAT.weapons.byId(key).class === 'melee');
-		Weapons.setLoadout(id, melee.concat([this.classWeapon(row.secondary), this.classWeapon(row.primary)]));
+		const melee = Loadouts.setStart(id).filter((key) => CAT.weapons.byId(key).class === 'melee');
+		Weapons.setLoadout(id, melee.concat([row.secondary, row.primary]));
 		Gadgets.clearGrenades(id);
 		this.grant(id, 'gadget', row.lethal);
 		this.grant(id, 'gadget', row.tactical);
@@ -20400,6 +20249,7 @@ const Economy = {
 		if (item.kind !== 'helmet' || Actors.armor[id] < item.amount) return item.price;
 		return item.price - VEST_ITEM.price;
 	},
+	quickBuy(id) { return this.buy(id, Loadouts.pickedKey('primary')); },
 	buy(id, itemId) {
 		const result = BUY_RESULT;
 		result.ok = false; result.price = 0; result.item = itemId;
@@ -20485,12 +20335,124 @@ function scavengeAmmo(id) {
 	const weapon = Weapons.currentWeapon(id);
 	if (weapon && weapon.ammoType) Weapons.addAmmo(id, weapon.ammoType, Math.ceil(weapon.pickupAmmo * CAT.perks.byId('scavenger').value));
 }
+const PICKUP_GUN_EXCLUDED = ['melee', 'sidearm', 'tool', 'power'];
+const PICKUP_SLOTS = ['melee', 'primary', 'secondary', 'lethal', 'tactical', 'device'];
+const PICKUP_SLOT_LABELS = { melee: 'Melee', primary: 'Primary', secondary: 'Secondary', lethal: 'Lethal', tactical: 'Tactical', device: 'Device' };
+const FULL_SET_ID = 'fullSet';
+const BOT_PRIMARY_MIN_MAG = 4;
+const BOT_MAP_FIGHT_SHARE = 0.25;
+const BOT_MAP_FIGHT_RANGE = [8, 60];
+const BOT_STYLE_FIGHT_SCALE = { camper: 1.6, accurate: 1.4, aggressive: 0.6, jumpy: 0.7, flanker: 0.7, vengeful: 0.8 };
+function pickupSlotOptions(slot) {
+	if (slot === 'melee') return CAT.weapons.filter((row) => row.class === 'melee').map((row) => row.id);
+	if (slot === 'secondary') return CAT.weapons.filter((row) => row.class === 'sidearm').map((row) => row.id);
+	if (slot === 'primary') return CAT.weapons.filter((row) => !PICKUP_GUN_EXCLUDED.includes(row.class)).map((row) => row.id);
+	return CAT.gadgets.filter((row) => row.slot === slot).map((row) => row.id);
+}
+function botSpawnKeys(id) {
+	const favorite = CAT.weapons.byId(BotDecide.favoriteWeapon(id)), keys = [Loadouts.meleeFor(id), DEFAULT_PICKUP_LOADOUT.secondary, ''];
+	if (favorite && pickupSlotOptions('primary').includes(favorite.id)) keys[2] = favorite.id;
+	else if (favorite && favorite.class === 'sidearm') keys[1] = favorite.id;
+	if (!keys[2]) keys[2] = botPrimaryForMap(id);
+	return keys;
+}
+function botWeightedPick(id, label, keys, weightOf) {
+	let total = 0;
+	for (const key of keys) total += weightOf(key);
+	if (total <= 0) return keys[0];
+	let roll = makeRandom(hashString(label + ':' + Rng.seed + ':' + id)).next() * total;
+	for (const key of keys) {
+		roll -= weightOf(key);
+		if (roll < 0) return key;
+	}
+	return keys[keys.length - 1];
+}
+function botGadgetWeight(id, key) {
+	const effect = CAT.gadgets.byId(key).effect, use = BOT_GADGET_USE[effect];
+	if (effect === 'barrier') return 0;
+	return !use || (use.tierFlag && !Bots.tier(id)[use.tierFlag]) ? 0 : use.chance;
+}
+function botAbilityWeight(key) {
+	const use = CAT.abilities.byId(key).botUse;
+	return use && use.chance > 0 ? use.chance : 0;
+}
+function botFightDistance(id) {
+	const side = Math.max(World.boundsMax.x - World.boundsMin.x, World.boundsMax.z - World.boundsMin.z);
+	const profile = Bots.profile[id];
+	return clamp(side * BOT_MAP_FIGHT_SHARE * ((profile && BOT_STYLE_FIGHT_SCALE[profile.style]) || 1), BOT_MAP_FIGHT_RANGE[0], BOT_MAP_FIGHT_RANGE[1]);
+}
+function botGunFits(id, weapon) {
+	const distance = botFightDistance(id);
+	return weapon.class !== 'exotic' && weapon.mag >= BOT_PRIMARY_MIN_MAG && weapon.botPref.range[0] <= distance && distance <= weapon.botPref.range[1];
+}
+function botPrimaryForMap(id) {
+	const guns = pickupSlotOptions('primary').map((key) => CAT.weapons.byId(key)).filter((weapon) => weapon.class !== 'exotic' && weapon.mag >= BOT_PRIMARY_MIN_MAG);
+	const fitting = guns.filter((weapon) => botGunFits(id, weapon));
+	const pool = fitting.length ? fitting : guns;
+	return makeRandom(hashString('spawn:' + Rng.seed + ':' + id)).pick(pool).id;
+}
 const Loadouts = {
 	store() { return Save.data.loadouts; },
 	lastError: '',
 	classes() { return CAT.classes.concat(this.store().classes.custom); },
 	classById(id) { return this.classes().find((row) => row.id === id) || null; },
 	selectedClass() { return this.classById(this.store().classes.selected) || CAT.classes[0]; },
+	pickup() { return this.store().pickup; },
+	usesPickupLoadout() {
+		return currentRules().weaponSet === FULL_SET_ID && Abilities.economyKey() === 'pickups' && !Economy.modeArmsEveryone();
+	},
+	pickupOptions(slot) { return pickupSlotOptions(slot); },
+	pickedKey(slot) {
+		const key = this.pickup()[slot];
+		return pickupSlotOptions(slot).includes(key) ? key : DEFAULT_PICKUP_LOADOUT[slot];
+	},
+	setPickup(slot, key) {
+		if (!PICKUP_SLOTS.includes(slot) || !pickupSlotOptions(slot).includes(key)) return false;
+		this.pickup()[slot] = key;
+		Save.scheduleSave();
+		return true;
+	},
+	resetPickup() {
+		Object.assign(this.pickup(), DEFAULT_PICKUP_LOADOUT);
+		Save.scheduleSave();
+	},
+	meleeFor(id) {
+		const rules = currentRules();
+		if (id >= 0 && Actors.kind[id] === ACTOR_KIND.PLAYER && (this.usesPickupLoadout() || this.pickup().melee !== DEFAULT_PICKUP_LOADOUT.melee)) return this.pickedKey('melee');
+		return rules.melee || DEFAULT_PICKUP_LOADOUT.melee;
+	},
+	setStart(id) {
+		const set = currentWeaponSet();
+		if (set.id !== FULL_SET_ID) return set.start;
+		const melee = this.meleeFor(id);
+		return set.start.map((key) => (CAT.weapons.byId(key).class === 'melee' ? melee : key));
+	},
+	startKeys(id) {
+		const kind = Actors.kind[id];
+		if ((kind !== ACTOR_KIND.PLAYER && kind !== ACTOR_KIND.BOT) || !this.usesPickupLoadout()) return this.setStart(id);
+		if (kind === ACTOR_KIND.BOT) return botSpawnKeys(id);
+		return [this.pickedKey('melee'), this.pickedKey('secondary'), this.pickedKey('primary')];
+	},
+	gear(id) {
+		const kind = Actors.kind[id];
+		if ((kind !== ACTOR_KIND.PLAYER && kind !== ACTOR_KIND.BOT) || !this.usesPickupLoadout()) return null;
+		if (kind === ACTOR_KIND.PLAYER) return { lethal: this.pickedKey('lethal'), tactical: this.pickedKey('tactical'), device: this.pickedKey('device') };
+		const pick = (slot) => botWeightedPick(id, slot, pickupSlotOptions(slot), (key) => botGadgetWeight(id, key));
+		return { lethal: pick('lethal'), tactical: pick('tactical'), device: pick('device') };
+	},
+	botAbility(id, kit, slotName) {
+		if (Actors.kind[id] !== ACTOR_KIND.BOT || kit.id !== 'loadout' || !kit.choices[slotName]) return '';
+		return botWeightedPick(id, slotName, kit.choices[slotName], botAbilityWeight);
+	},
+	restriction(key) {
+		const weapon = CAT.weapons.byId(key);
+		if (!weapon) return '';
+		if (Economy.modeArmsEveryone()) return 'This mode hands out every weapon itself';
+		if (Abilities.usesHeroes()) return 'Heroes carry their own weapons';
+		if (!currentWeaponSet().weapons.includes(weapon.id)) return 'Not in this match\'s weapon list';
+		if (weapon.class === 'power') return 'Power weapons come from map pads';
+		return weapon.class === 'tool' ? 'Tools come with their mode or ability' : '';
+	},
 	classFor(id) { return Actors.kind[id] === ACTOR_KIND.PLAYER ? this.selectedClass() : CAT.classes[id % CAT.classes.length]; },
 	selectClass(id) {
 		if (!this.classById(id)) return false;
@@ -20561,15 +20523,10 @@ function classModelId(row) {
 	const preset = CAT.classes.find((entry) => CAT.weapons.byId(entry.primary).class === primary.class);
 	return preset ? preset.id : '';
 }
-function classWeaponOptions(slot) {
-	return CAT.weaponSets.byId(CLASS_WEAPON_SET).weapons.filter((key) => {
-		const weaponClass = CAT.weapons.byId(key).class;
-		return slot === 'secondary' ? weaponClass === 'sidearm' : weaponClass !== 'sidearm' && weaponClass !== 'melee';
-	});
-}
+function classWeaponOptions(slot) { return pickupSlotOptions(slot); }
 function classProblem(row) {
-	if (!row || !classWeaponOptions('primary').includes(row.primary)) return 'Pick a primary weapon of the ' + CAT.weaponSets.byId(CLASS_WEAPON_SET).name + ' set.';
-	if (!classWeaponOptions('secondary').includes(row.secondary)) return 'The secondary must be a ' + CAT.weaponSets.byId(CLASS_WEAPON_SET).name + ' sidearm.';
+	if (!row || !classWeaponOptions('primary').includes(row.primary)) return 'Pick a primary gun that is not a sidearm.';
+	if (!classWeaponOptions('secondary').includes(row.secondary)) return 'The secondary must be a sidearm.';
 	if (row.fieldUpgrade && !CAT.economy.byId('classes').fieldUpgrades.includes(row.fieldUpgrade)) return 'Pick a field upgrade from the list.';
 	if (!Array.isArray(row.perks) || row.perks.length !== 3) return 'Pick three perks.';
 	for (let tier = 1; tier <= 3; tier++) {
@@ -20610,6 +20567,9 @@ Damage.downedWeapon = (id) => (Economy.hasPerk(id, 'lastStand') ? CAT.perks.byId
 Damage.downHooks.push((id) => Modes.dropCarried(id));
 Economy.grants.gadget = (id, item) => Gadgets.give(id, item.key, item.amount || 1) > 0;
 Economy.grants.grant = (id, item) => Items.grantBuy(id, item);
+Weapons.startKeys = (id) => Loadouts.startKeys(id);
+Gadgets.loadoutGear = (id) => Loadouts.gear(id);
+Abilities.botChoice = (id, kit, slotName) => Loadouts.botAbility(id, kit, slotName);
 Bus.on('match.start', () => Economy.ensureMatch());
 Bus.on('match.stop', () => { Economy.match = null; Economy.credits.fill(0); });
 Bus.on('round', (event) => Economy.onRound(event));
@@ -20665,7 +20625,7 @@ function callBehaviour(hook, argument) {
 	if (Modes.active && behaviour[hook]) behaviour[hook](argument);
 }
 function meleeWeaponKey() {
-	const start = currentWeaponSet().start;
+	const start = Loadouts.setStart(-1);
 	for (let i = 0; i < start.length; i++) {
 		const weapon = CAT.weapons.byId(start[i]);
 		if (weapon && weapon.class === 'melee') return weapon.id;
@@ -21848,7 +21808,10 @@ const MUTATOR_OPERATIONS = {
 	weaponSet(rules, operation, value) {
 		const choice = paramValue(operation, value);
 		if (Array.isArray(choice)) armMatchSet(rules, choice.slice());
-		else rules.weaponSet = choice === 'random' ? randomWeaponSet() : choice;
+		else {
+			rules.weaponSet = choice === 'random' ? randomWeaponSet() : choice;
+			rules.carry = null; rules.ammoTiers = null; rules.melee = '';
+		}
 	},
 };
 function applyMutator(rules, entry) {
@@ -23519,8 +23482,8 @@ const BotCombat = {
 		const target = this.target[id];
 		this.manageWeapon(id, now);
 		this.useKit(id, now);
-		if (now < this.throwUntil[id]) { this.aimThrow(id, now); return; }
-		if (target < 0 && this.weaponJump(id, now)) return;
+		if (now < this.throwUntil[id]) { this.aimThrow(id, now); this.keepCharge(id, now, false); return; }
+		if (target < 0 && this.weaponJump(id, now)) { this.keepCharge(id, now, false); return; }
 		if (target < 0) { this.lookAtThreat(id, now); this.keepCharge(id, now, false); return; }
 		if (BotSense.sees(id, target)) this.engage(id, target, now);
 		else this.watch(id, target, now);
@@ -23699,19 +23662,22 @@ const BotCombat = {
 		this.license(id, target, mode, now);
 	},
 	holdThenRelease(id, target, mode, now) {
+		const hold = mode.charge ? mode.charge.time : mode.lock ? mode.lock.time : FIRE_HOLD_DEFAULT;
 		if (this.holdSince[id] < 0) this.holdSince[id] = now;
 		this.keptSince[id] = -1;
-		const hold = mode.charge ? mode.charge.time : mode.lock ? mode.lock.time : FIRE_HOLD_DEFAULT;
 		if (now - this.holdSince[id] < hold) { Bots.press(id, BTN.FIRE); return; }
 		this.holdSince[id] = -1;
 		this.license(id, target, mode, now);
 	},
 	license(id, target, mode, now) {
 		this.licenseTarget[id] = target;
-		this.licenseUntil[id] = now + (mode.trigger === 'burst' ? mode.burst * mode.burstGap : 0);
+		const window = mode.trigger === 'burst' ? mode.burst * mode.burstGap : mode.trigger === 'charge' || mode.trigger === 'release' ? TICK_SECONDS : 0;
+		this.licenseUntil[id] = now + window;
 	},
 	keepCharge(id, now, seen) {
 		if (this.holdSince[id] < 0) return;
+		const weapon = Weapons.currentWeapon(id);
+		if (!weapon || (weapon.primary.trigger !== 'charge' && weapon.primary.trigger !== 'release')) { this.holdSince[id] = -1; return; }
 		Bots.press(id, BTN.FIRE);
 		if (seen) { this.keptSince[id] = -1; return; }
 		if (this.keptSince[id] < 0) this.keptSince[id] = now;
@@ -25347,7 +25313,7 @@ const BotEconomy = {
 	},
 };
 function gunWorth(id, item) {
-	if (item.kind !== 'weapon' || item.weaponClass === 'melee') return 0;
+	if (item.kind !== 'weapon' || item.weaponClass === 'melee' || !botGunFits(id, CAT.weapons.byId(item.key))) return 0;
 	const value = BotCombat.weaponValue(id, CAT.weapons.byId(item.key), 1);
 	return value >= BotCombat.bestOwnedGun(id) + BOT_BUY.upgrade ? value : 0;
 }
@@ -27969,7 +27935,7 @@ const Progress = {
 	tally() { return this.links.playerStats; },
 	emptyProfile() {
 		return { version: PROGRESS_VERSION, xp: 0, matches: 0, medals: {}, unlocked: {}, cosmetics: { color: '', finish: '', title: '' }, rangeOffered: false,
-			cards: { unlocked: {}, active: [], passive: [], marks: 0 }, challenges: {}, operations: {}, daily: {}, chambers: {} };
+			cards: { unlocked: {}, active: [], passive: [], marks: 0 }, challenges: {}, operations: {}, daily: {}, chambers: {}, seen: null };
 	},
 	emptyStats() { return { version: PROGRESS_VERSION, weapons: {}, modes: {}, maps: {}, totals: { matches: 0, wins: 0, kills: 0, deaths: 0, seconds: 0 } }; },
 	emptyLadder() { return { version: PROGRESS_VERSION, tier: 0, match: 0, done: false, cleared: {}, difficulty: {} }; },
@@ -28083,14 +28049,52 @@ const Progress = {
 		return Math.max(0, Math.round(total));
 	},
 	unlockAll() { return Settings.get('progress.unlockAll') === true; },
-	isUnlocked(row) {
+	isUnlocked(row) { return !!row && (this.unlockAll() || this.isEarned(row)); },
+	isEarned(row) {
 		if (!row) return false;
-		if (this.unlockAll()) return true;
 		if (row.card) return this.profile().cards.unlocked[row.card] === true;
 		if (row.mastery) return this.masteryReached(row.mastery);
 		return this.level() >= row.level;
 	},
 	unlocked(kind) { return CAT.unlocks.filter((row) => row.kind === kind && this.isUnlocked(row)); },
+	seenIds() {
+		const profile = this.profile();
+		if (!isPlainObject(profile.seen)) {
+			profile.seen = {};
+			for (const id of this.unlockedIds(true)) profile.seen[id] = true;
+		}
+		return profile.seen;
+	},
+	isNew(row) { return !this.unlockAll() && this.isEarned(row) && !this.seenIds()[row.id]; },
+	markSeen() {
+		const seen = this.seenIds();
+		let changed = false;
+		for (const id of this.unlockedIds(true)) if (!seen[id]) { seen[id] = true; changed = true; }
+		if (changed) Save.scheduleSave();
+	},
+	requirementText(row) {
+		if (!row || this.isUnlocked(row)) return '';
+		if (row.card) {
+			const card = CAT.cards.byId(row.card);
+			return card ? 'Card unlock: ' + card.unlock.text : 'Locked';
+		}
+		if (row.mastery) return this.masteryRequirement(MASTERY_TIERS[masteryTierIndex(row.mastery)]);
+		return this.levelRequirement(row.level);
+	},
+	levelRequirement(level) {
+		return 'Level ' + level + ' - you are level ' + this.level() + ' (' + this.profile().xp + ' / ' + this.xpForLevel(level) + ' XP)';
+	},
+	masteryRequirement(tier) {
+		let kills = 0, headshots = 0, share = -1;
+		const weapons = this.stats().weapons;
+		for (const key in weapons) {
+			const record = weapons[key], have = Math.min(Number(record.kills) || 0, tier.kills), heads = Math.min(Number(record.headshots) || 0, tier.headshots);
+			const reached = Math.min(have / tier.kills, tier.headshots ? heads / tier.headshots : 1);
+			if (reached > share) { share = reached; kills = have; headshots = heads; }
+		}
+		const heads = tier.headshots ? ', ' + headshots + ' / ' + tier.headshots + ' headshots' : '';
+		return tier.name + ' mastery with one weapon: ' + kills + ' / ' + tier.kills + ' kills' + heads;
+	},
 	roomGroup() {
 		let group = 1;
 		for (const row of this.unlocked('challenge')) group = Math.max(group, row.value);
@@ -28170,6 +28174,7 @@ const Progress = {
 		if (!this.playerResult(match.results)) return null;
 		this.awardedMatch = match;
 		for (const finisher of this.preFinishers) finisher(match);
+		this.seenIds();
 		const profile = this.profile(), levelBefore = this.level(), unlockedBefore = this.unlockedIds();
 		const metrics = RunLog.measure(match);
 		const award = { xp: 0, levelBefore, levelAfter: levelBefore, lines: [], unlocks: [], breakdown: null, medals: [] };
@@ -28187,6 +28192,7 @@ const Progress = {
 		award.levelAfter = this.level();
 		award.unlocks = this.unlockedIds().filter((id) => !unlockedBefore.includes(id)).map((id) => CAT.unlocks.byId(id).name);
 		if (award.levelAfter > levelBefore) emitToast('Level ' + award.levelAfter + ' reached');
+		if (award.unlocks.length) emitToast('Unlocked: ' + award.unlocks.join(', '));
 		this.lastAward = award;
 		this.refreshLook();
 		Save.scheduleSave();
@@ -28221,9 +28227,9 @@ const Progress = {
 		for (const key in this.profile().chambers) { const record = this.chamberRecord(key); if (record) stars += record.stars; }
 		return stars;
 	},
-	unlockedIds() {
+	unlockedIds(earnedOnly) {
 		const ids = [];
-		for (const row of CAT.unlocks) if (this.isUnlocked(row)) ids.push(row.id);
+		for (const row of CAT.unlocks) if (earnedOnly ? this.isEarned(row) : this.isUnlocked(row)) ids.push(row.id);
 		return ids;
 	},
 };
@@ -28479,6 +28485,11 @@ const Ladder = {
 		if (state.done || Progress.unlockAll()) return true;
 		return tier < state.tier || (tier === state.tier && match <= state.match);
 	},
+	requirementText(tier, match) {
+		if (this.isOpen(tier, match)) return '';
+		if (match > 0) return 'Clear the match before it first';
+		return tier > 0 ? 'Win ' + CAT.ladder[tier - 1].name + ' first' : 'Locked';
+	},
 	difficultyFor(tier, match) { return this.state().difficulty[this.key(tier, match)] || CAT.ladder[tier].difficulty; },
 	setDifficulty(tier, match, difficultyId) {
 		if (!CAT.difficulty.byId(difficultyId)) return false;
@@ -28540,6 +28551,13 @@ const Challenges = {
 	},
 	isOpen(row) { return row.group <= Progress.roomGroup(); },
 	expertOpen(id) { return Progress.unlockAll() || this.record(id).stars >= CHALLENGE_EXPERT_STARS; },
+	requirementText(row) {
+		if (!this.isOpen(row)) {
+			const unlock = CAT.unlocks.find((entry) => entry.kind === 'challenge' && entry.value === row.group);
+			return unlock ? Progress.levelRequirement(unlock.level) : 'Locked';
+		}
+		return this.expertOpen(row.id) ? '' : 'Expert: earn ' + CHALLENGE_EXPERT_STARS + ' stars (' + this.record(row.id).stars + ' / ' + CHALLENGE_EXPERT_STARS + ')';
+	},
 	starsFor(row, points) { return row.stars.filter((threshold) => points >= threshold).length; },
 	totalStars() {
 		let total = 0;
@@ -29011,11 +29029,11 @@ const MapRules = {
 		health: ['healthvial', 'healthpack', 'healthcrate', 'megacell', 'vitalshard'],
 		armor: ['armorshard', 'lightplate', 'heavyplate'],
 		ammo: ['ammobox', 'ammocache'],
-		power: ['fury', 'warding', 'quickening', 'ghostveil', 'renewal', 'skyward', 'surplus', 'aegisbelt', 'berserk', 'sigil', 'bottomless', 'vampfang',
-			'seer', 'springboots', 'guardianrune', 'scoutrune', 'ammorune', 'lightbearer', 'daybreak', 'halcyon'],
-		weapon: ['maul', 'tanto', 'bulwark', 'warden', 'verdict', 'hush', 'sparklock', 'twinsting', 'wasp', 'hornet', 'riptide', 'needlethorn', 'vanguard', 'tempest',
-			'ratchet', 'longshot', 'coilcaster', 'pulsecarbine', 'scattergun', 'hookjaw', 'shardcaster', 'frostbore', 'lancet', 'heron', 'kestrel', 'stakedriver',
-			'talonbow', 'hailstorm', 'anvil', 'linker', 'ramjet', 'pitcher', 'kingfisher', 'gloop', 'kindler', 'ember', 'stormlash', 'starthrower', 'accelerator',
+		power: ['fury', 'warding', 'quickening', 'ghostveil', 'renewal', 'skyward', 'berserk', 'sigil', 'bottomless', 'vampfang',
+			'seer', 'springboots', 'guardianrune', 'lightbearer', 'daybreak', 'halcyon'],
+		weapon: ['maul', 'tanto', 'bulwark', 'warden', 'verdict', 'hush', 'sparklock', 'wasp', 'hornet', 'needlethorn', 'vanguard',
+			'ratchet', 'coilcaster', 'scattergun', 'hookjaw', 'shardcaster', 'lancet', 'heron', 'kestrel', 'stakedriver',
+			'talonbow', 'hailstorm', 'linker', 'ramjet', 'pitcher', 'gloop', 'kindler', 'ember', 'stormlash', 'starthrower', 'accelerator',
 			'fusionmortar', 'lifter', 'twingate', 'auger', 'razorwind'],
 	},
 	topItemKeys: ['megacell', 'heavyplate'],
@@ -29118,7 +29136,8 @@ const MapKit = {
 		return out;
 	},
 	item(row) {
-		return { x: row[1], y: row[2], z: row[3], item: row[0], group: MapRules.groupOf(row[0]), modes: row[4] || [] };
+		const key = migratedId(MAP_ITEM_MIGRATION, row[0]);
+		return { x: row[1], y: row[2], z: row[3], item: key, group: MapRules.groupOf(key), modes: row[4] || [] };
 	},
 	zone(row) {
 		return { name: row[0], min: [row[1], row.length > 6 ? row[5] : MAP_ZONE_FLOOR, row[2]], max: [row[3], row.length > 6 ? row[6] : MAP_ZONE_CEILING, row[4]] };
@@ -29267,7 +29286,7 @@ Maps.rows.push(MapKit.make({
 			[-14, 4, 23.2, 180], [14, 4, 23.2, 180], [-14, 4, -23.2, 0], [14, 4, -23.2, 0]]],
 	],
 	items: [
-		['fury', 0, 4, 16.5], ['surplus', 0, 4, -16.5], ['heavyplate', 0, 8, 2.8], ['megacell', -18, 0, -6], ['vitalshard', 5, 4, 23], ['vitalshard', -5, 4, -23],
+		['fury', 0, 4, 16.5], ['megacell', 0, 4, -16.5], ['heavyplate', 0, 8, 2.8], ['megacell', -18, 0, -6], ['vitalshard', 5, 4, 23], ['vitalshard', -5, 4, -23],
 		['lightplate', 23.2, 4, 10], ['lightplate', -23.2, 4, -10],
 		['armorshard', 9, 0, 9], ['armorshard', -9, 0, 9], ['armorshard', 9, 0, -9], ['armorshard', -9, 0, -9],
 		['healthpack', 0, 0, 9], ['healthpack', 0, 0, -9], ['healthvial', 23, 4, 22.5], ['healthvial', -23, 4, 22.5],
@@ -29315,7 +29334,7 @@ const skySpan = {
 const skyNorth = {
 	brushes: [['ice', -12, 0, 22, 12, 4, 34], ['ice', -3, 4, 26.8, 3, 5, 27.2], ['metal', -9, 4, 29, -7, 8, 31], ['metal', 7, 4, 29, 9, 8, 31]],
 	spawns: [[-1, ['ffa'].concat(SKY_PARTY_MODES), [[-10.5, 4, 32.5, 180], [10.5, 4, 32.5, 180], [-10.5, 4, 24, 180], [10.5, 4, 24, 180]]]],
-	items: [['surplus', 0, 4, 31], ['armorshard', -10, 4, 32], ['armorshard', 10, 4, 32], ['healthpack', -10, 4, 24], ['healthpack', 10, 4, 24]],
+	items: [['megacell', 0, 4, 31], ['armorshard', -10, 4, 32], ['armorshard', 10, 4, 32], ['healthpack', -10, 4, 24], ['healthpack', 10, 4, 24]],
 	zones: [['North Isle', -12, 22, 12, 34, -1, 10]],
 	lights: [[0, 9, 28, 0xcfe8ff, 18]],
 	hints: [['sniper', 0, 4, 33], ['cover', 0, 4, 25.5]],
@@ -29393,7 +29412,7 @@ const gantryCenter = {
 		['grip', -5, 0, 8, 5, 4, 8.2], ['grip', -5, 0, -8.2, 5, 4, -8],
 		['metal', -7, 4, -7, -6, 6, -6], ['metal', 6, 4, -7, 7, 6, -6], ['metal', -7, 4, 6, -6, 6, 7], ['metal', 6, 4, 6, 7, 6, 7],
 	],
-	items: [['fury', 0, 4, 5], ['surplus', 0, 0, 26], ['surplus', 0, 0, -26], ['megacell', 0, 8, 19], ['heavyplate', 0, 8, -19], ['vitalshard', 5, 4, -5], ['vitalshard', -5, 4, 5]],
+	items: [['fury', 0, 4, 5], ['megacell', 0, 0, 26], ['megacell', 0, 0, -26], ['megacell', 0, 8, 19], ['heavyplate', 0, 8, -19], ['vitalshard', 5, 4, -5], ['vitalshard', -5, 4, 5]],
 	zones: [
 		['Hub', -8, -8, 8, 8, 2, 8],
 		['Center North', -16, 8, 16, 14, -1, 6], ['Center South', -16, -14, 16, -8, -1, 6], ['North Roof Mid', -6, 14, 6, 24, 6, 12],
@@ -29505,7 +29524,7 @@ const harborCenter = {
 		['concrete', -3, 0, -5, 3, 2.6, -1.5], ['metal', 8, 0, 3, 11, 2.6, 6], ['metal', -11, 0, -6, -8, 2.6, -3],
 		['concrete', -48, -1, -48, 48, 12, -45], ['concrete', -48, -1, 45, 48, 12, 48], ['concrete', -48, -1, -45, -45, 12, 45], ['concrete', 45, -1, -45, 48, 12, 45],
 	],
-	items: [['fury', 0, 0, 0], ['surplus', 0, 0, 33], ['surplus', 0, 0, -33], ['heavyplate', 0, 0, 16], ['megacell', 0, 0, -16]],
+	items: [['fury', 0, 0, 0], ['megacell', 0, 0, 33], ['megacell', 0, 0, -33], ['heavyplate', 0, 0, 16], ['megacell', 0, 0, -16]],
 	zones: [['North Bridge', -3, 10, 3, 22, -1, 3], ['South Bridge', -3, -22, 3, -10, -1, 3], ['Cargo Heart', -3, -5, 3, 5, -1, 8]],
 	hints: [['cover', 0, 0, 6], ['cover', 0, 0, -6], ['sniper', 0, 0, 20]],
 	objectives: [
@@ -29566,7 +29585,7 @@ const keepsCenter = {
 		['concrete', -63, -1, -30, -60, 14, 30], ['concrete', 60, -1, -30, 63, 14, 30],
 		['concrete', -10, 0, -10, 10, 3, 10], ['concrete', -1.5, 3, -1.5, 1.5, 3.4, 1.5],
 	],
-	items: [['fury', 0, 3, 6], ['surplus', 0, 0, 26], ['surplus', 0, 0, -26], ['heavyplate', 0, 3, -6], ['megacell', 0, 0, 13]],
+	items: [['fury', 0, 3, 6], ['megacell', 0, 0, 26], ['megacell', 0, 0, -26], ['heavyplate', 0, 3, -6], ['megacell', 0, 0, 13]],
 	objectives: [
 		{ id: 'flagMid', kind: 'flag', team: -1, x: 0, y: 3.4, z: 0, radius: 2, modes: ['oneflag'] },
 		{ id: 'pointMid', kind: 'point', x: 0, y: 3.4, z: 0, radius: 6, modes: ['dom'] },
@@ -29874,7 +29893,7 @@ Maps.rows.push(MapKit.make(Object.assign({
 	sky: { top: 0xc8d8e8, horizon: 0xf2f6fa, fog: 0xdce6f0, fogFar: 120, sun: [0.1, 0.9, 0.2] },
 }, chamberCenter)));
 const ISLE_POIS = [['Quarry', 85, 0], ['Lighthouse', 42, 74], ['Old Mill', -42, 74], ['Harbor Town', -85, 0], ['Radar Hill', -42, -74], ['Ruined Fort', 42, -74]];
-const ISLE_LOOT = ['warden', 'wasp', 'tempest', 'vanguard', 'scattergun', 'kestrel', 'ratchet', 'pitcher', 'healthpack', 'lightplate', 'ammobox', 'healthvial'];
+const ISLE_LOOT = ['warden', 'wasp', 'vanguard', 'vanguard', 'scattergun', 'kestrel', 'ratchet', 'pitcher', 'healthpack', 'lightplate', 'ammobox', 'healthvial'];
 const ISLE_RIDGE_SPACING = 30, ISLE_RIDGE_COUNT = 10;
 const isleNearAnything = (x, z) => Math.hypot(x, z) < 18 || ISLE_POIS.some(([, px, pz]) => Math.hypot(x - px, z - pz) < 26);
 const isleRidges = Array.from({ length: ISLE_RIDGE_COUNT * ISLE_RIDGE_COUNT }, (unused, index) => {
@@ -37612,7 +37631,8 @@ const BUY_CSS = '.ui-buy .ui-panel { width: min(680px, 100%); max-height: 100%; 
 const BUY_HUD = { money: 0, nextRoundMoney: 0, canBuy: false, buyTimeLeft: 0 };
 const BUY_PAUSE_ENTRY = { label: 'Buy menu', screen: 'buy', when: () => buyMenuAvailable() };
 const LOADOUT_PAUSE_ENTRY = { label: 'Loadout', screen: 'loadout', when: () => loadoutAvailable() };
-const LOADOUT_TABS = [['classes', 'Classes'], ['heroes', 'Hero'], ['kits', 'Ability kits']];
+const LOADOUT_TABS = [['weapons', 'Weapons and gear'], ['classes', 'Classes'], ['heroes', 'Hero'], ['kits', 'Ability kits']];
+const PICKUP_WEAPON_SLOTS = ['melee', 'primary', 'secondary'];
 const KIT_SLOT_LABELS = { ability1: 'Ability 1', ability2: 'Ability 2', ultimate: 'Ultimate' };
 const HERO_PASSIVE_TEXT = {
 	knockbackResist: 'Takes less knockback', killHaste: 'Speed burst after each kill', regen: 'Heals itself out of combat',
@@ -37623,6 +37643,7 @@ function readableKey(key) { return key ? key.charAt(0).toUpperCase() + key.slice
 function weaponName(key) { const weapon = CAT.weapons.byId(key); return weapon ? weapon.name : readableKey(key); }
 function abilityName(key) { const row = CAT.abilities.byId(key); return row ? row.name : 'None'; }
 function fieldUpgradeName(key) { return CAT.abilities.byId(key) ? abilityName(key) : readableKey(key); }
+function gadgetName(key) { const row = CAT.gadgets.byId(key); return row ? row.name : readableKey(key); }
 function perkName(key) { const perk = CAT.perks.byId(key); return perk ? perk.name : readableKey(key); }
 function playerInMatch() { return !!Game.match && Game.playerId >= 0; }
 function appendLines(element, lines) {
@@ -37646,6 +37667,7 @@ const BuyMenu = {
 		this.ladder = makeElement('div', 'buy-ladder');
 		this.ladderKey = '';
 		panel.appendChild(head); panel.appendChild(this.status); panel.appendChild(this.ladder);
+		if (Economy.preset().buy === 'round') panel.appendChild(this.quickBuyButton());
 		panel.appendChild(this.buildItems());
 		root.appendChild(panel);
 		this.refresh();
@@ -37667,6 +37689,15 @@ const BuyMenu = {
 		button.appendChild(priceLabel);
 		this.entries.push({ button, item, priceLabel, price: -1 });
 		return button;
+	},
+	quickBuyButton() {
+		const key = Loadouts.pickedKey('primary');
+		return Ui.button('Quick buy: ' + weaponName(key) + ' (' + formatCredits(CAT.weapons.byId(key).price) + ', key Q)', () => this.quickBuy(), 'primary');
+	},
+	quickBuy() {
+		const result = Economy.quickBuy(Game.playerId);
+		Ui.toast(result.ok ? 'Bought ' + weaponName(result.item) : BUY_REASON_TEXT[result.reason]);
+		this.refresh();
 	},
 	buy(item) {
 		const result = Economy.buy(Game.playerId, item.id);
@@ -37742,9 +37773,23 @@ const LoadoutMenu = {
 function defaultLoadoutTab() {
 	if (!playerInMatch()) return 'classes';
 	if (Abilities.usesHeroes()) return 'heroes';
+	if (Loadouts.usesPickupLoadout()) return 'weapons';
 	const kit = Abilities.kitOf(Game.playerId);
 	if (kit && kit.id !== 'classes') return 'kits';
 	return Economy.usesClasses() ? 'classes' : 'kits';
+}
+function renderWeaponsTab(body) {
+	if (playerInMatch() && !Loadouts.usesPickupLoadout()) body.appendChild(makeElement('p', 'ui-note', 'This match arms you itself; the picks below apply in matches with map pickups.'));
+	for (const slot of PICKUP_SLOTS) body.appendChild(pickupSlotRow(slot));
+	const foot = makeElement('div', 'ui-foot');
+	foot.appendChild(Ui.button('Reset to the default loadout', () => { Loadouts.resetPickup(); LoadoutMenu.show('weapons'); }));
+	body.appendChild(foot);
+	if (playerInMatch()) body.appendChild(makeElement('p', 'ui-note', 'Loadout changes apply at your next spawn.'));
+}
+function pickupSlotRow(slot) {
+	const options = Loadouts.pickupOptions(slot), weapon = PICKUP_WEAPON_SLOTS.includes(slot);
+	const names = options.map((key) => (weapon ? weaponName(key) + (playerInMatch() && Loadouts.restriction(key) ? ' (' + Loadouts.restriction(key) + ')' : '') : gadgetName(key)));
+	return Ui.row(PICKUP_SLOT_LABELS[slot], Ui.cycle(options, names, Loadouts.pickedKey(slot), (key) => Loadouts.setPickup(slot, key)));
 }
 function renderClassesTab(body) {
 	const classes = Loadouts.classes(), details = makeElement('div', 'ui-note');
@@ -37761,7 +37806,7 @@ function renderClassesTab(body) {
 }
 function describeClass(element, row) {
 	appendLines(element, [
-		'Primary: ' + weaponName(Economy.classWeapon(row.primary)) + '  ·  Secondary: ' + weaponName(Economy.classWeapon(row.secondary)),
+		'Primary: ' + weaponName(row.primary) + '  ·  Secondary: ' + weaponName(row.secondary),
 		'Lethal: ' + readableKey(row.lethal) + '  ·  Tactical: ' + readableKey(row.tactical),
 		'Perks: ' + row.perks.map(perkName).join(', '),
 		'Field upgrade: ' + fieldUpgradeName(row.fieldUpgrade),
@@ -37786,11 +37831,7 @@ const CLASS_FIELD_OPTIONS = {
 	fieldUpgrade: () => CAT.economy.byId('classes').fieldUpgrades,
 };
 const CLASS_FIELD_LABELS = { primary: 'Primary', secondary: 'Secondary', lethal: 'Lethal', tactical: 'Tactical', fieldUpgrade: 'Field upgrade' };
-const CLASS_FIELD_NAMES = { primary: classWeaponLabel, secondary: classWeaponLabel, lethal: readableKey, tactical: readableKey, fieldUpgrade: fieldUpgradeName };
-function classWeaponLabel(key) {
-	const armed = Economy.classWeapon(key);
-	return armed === key ? weaponName(key) : weaponName(key) + ' (here: ' + weaponName(armed) + ')';
-}
+const CLASS_FIELD_NAMES = { primary: weaponName, secondary: weaponName, lethal: readableKey, tactical: readableKey, fieldUpgrade: fieldUpgradeName };
 function uniqueClassValues(field) { return Array.from(new Set(CAT.classes.map((row) => row[field]).filter(Boolean))); }
 function buildClassEditor(root, params) {
 	const options = params || { row: Loadouts.selectedClass(), isNew: true };
@@ -37856,10 +37897,10 @@ function kitSlotRow(kit, slotName) {
 	const options = kit.choices[slotName], current = Loadouts.kitChoice(kit.id)[slotName] || kit[slotName];
 	return Ui.row(KIT_SLOT_LABELS[slotName], Ui.cycle(options, options.map(abilityName), current, (abilityId) => Loadouts.setKitChoice(kit.id, slotName, abilityId)));
 }
-const LOADOUT_RENDERERS = { classes: renderClassesTab, heroes: renderHeroesTab, kits: renderKitsTab };
+const LOADOUT_RENDERERS = { weapons: renderWeaponsTab, classes: renderClassesTab, heroes: renderHeroesTab, kits: renderKitsTab };
 function buyMenuAvailable() { return Economy.usesMoney() && Economy.preset().buy !== 'none'; }
 function loadoutAvailable() {
-	if (Economy.usesLoadouts()) return true;
+	if (Economy.usesLoadouts() || (playerInMatch() && Loadouts.usesPickupLoadout())) return true;
 	return playerInMatch() && !Economy.modeArmsEveryone() && Abilities.kitOf(Game.playerId) !== null;
 }
 function onBuyMenuAction(event) {
@@ -37872,6 +37913,7 @@ function onBuyScreenKey(event) {
 	const screen = Ui.current();
 	if (screen !== 'buy' && screen !== 'loadout') return;
 	if (event.code === 'KeyB') { Ui.back(); event.preventDefault(); return; }
+	if (screen === 'buy' && event.code === 'KeyQ' && Economy.preset().buy === 'round') { BuyMenu.quickBuy(); event.preventDefault(); return; }
 	const digit = screen === 'buy' && /^Digit[1-9]$/.test(event.code) ? Number(event.code.slice(5)) : 0;
 	if (digit) { BuyMenu.buyByHotkey(digit - 1); event.preventDefault(); }
 }
@@ -38101,6 +38143,7 @@ const CustomMatch = {
 		const object = unpacked.object;
 		let note = '';
 		if (isPlainObject(object) && object.map && !isSharedMap(object.map)) { delete object.map; note = SHARE_LOCAL_MAP_NOTE; }
+		migrateWeaponLists(object);
 		const checked = this.validate(object);
 		if (checked.errors.length) return { error: 'The code holds settings this version cannot use: ' + checked.errors.slice(0, 3).join(', ') + '.' };
 		return { draft: checked.draft, note };
@@ -38116,6 +38159,7 @@ const CustomMatch = {
 		const fields = copyRuleValue(this.bundleOf(draft));
 		delete fields.id; delete fields.code;
 		for (const key of ['move', 'health', 'economy', 'weaponSet']) if (draft[key]) fields[key] = draft[key];
+		if (draft.weaponSet) { fields.carry = null; fields.ammoTiers = null; fields.melee = ''; }
 		if (draft.friendlyFire >= 0) fields.friendlyFire = draft.friendlyFire;
 		if (draft.lives >= 0) fields.lives = draft.lives;
 		if (draft.respawnDelay >= 0) fields.respawn = { delay: draft.respawnDelay };
@@ -39315,7 +39359,8 @@ Ui.register('career', {
 		root.appendChild(makeElement('p', 'ui-sub', careerLevelText()));
 		root.appendChild(careerBar(Progress.levelProgress()));
 		const menu = makeElement('div', 'ui-menu');
-		for (const entry of CAREER_SCREENS) menu.appendChild(Ui.button(entry.label, () => Ui.open(entry.screen), entry.screen === 'ladder' ? 'primary' : ''));
+		const anyNew = CAT.unlocks.some((row) => Progress.isNew(row));
+		for (const entry of CAREER_SCREENS) menu.appendChild(Ui.button(entry.label + (anyNew && entry.screen === 'profile' ? ' (New)' : ''), () => Ui.open(entry.screen), entry.screen === 'ladder' ? 'primary' : ''));
 		menu.appendChild(Ui.button('Solo', () => Ui.open('solo')));
 		menu.firstChild.dataset.autofocus = '1';
 		root.appendChild(menu);
@@ -39323,7 +39368,7 @@ Ui.register('career', {
 });
 function careerLookCycle(kind, label, onChange) {
 	const rows = Progress.unlocked(kind);
-	const values = [CAREER_DEFAULT_LOOK].concat(rows.map((row) => row.id)), labels = ['Default'].concat(rows.map((row) => row.name));
+	const values = [CAREER_DEFAULT_LOOK].concat(rows.map((row) => row.id)), labels = ['Default'].concat(rows.map((row) => row.name + (Progress.isNew(row) ? ' (New)' : '')));
 	return Ui.row(label, Ui.cycle(values, labels, Progress.profile().cosmetics[kind] || CAREER_DEFAULT_LOOK, (value) => {
 		Progress.setCosmetic(kind, value);
 		if (onChange) onChange();
@@ -39345,6 +39390,11 @@ Ui.register('profile', {
 		root.appendChild(makeElement('p', 'ui-sub', careerLevelText() + ', ' + Progress.profile().xp + ' XP, ' + Progress.profile().matches + ' matches'));
 		root.appendChild(careerBar(Progress.levelProgress()));
 		const list = careerList(root);
+		const fresh = CAT.unlocks.filter((row) => Progress.isNew(row));
+		if (fresh.length) {
+			list.appendChild(makeElement('div', 'ui-group', 'New'));
+			for (const row of fresh) list.appendChild(careerRow(row.name + ' (' + row.kind + ')', 'New', []));
+		}
 		list.appendChild(makeElement('div', 'ui-group', 'Look (cosmetic only)'));
 		const swatch = makeElement('span', 'pg-swatch'), paint = () => careerPaintSwatch(swatch);
 		const colorRow = careerLookCycle('color', 'Body colour', paint);
@@ -39354,10 +39404,12 @@ Ui.register('profile', {
 		list.appendChild(careerLookCycle('finish', 'Finish', paint));
 		list.appendChild(careerLookCycle('title', 'Title'));
 		list.appendChild(makeElement('div', 'ui-group', 'Next unlocks'));
-		for (const row of careerNextUnlocks()) list.appendChild(careerRow(row.name, 'Level ' + row.level + ' - ' + row.kind, []));
+		for (const row of careerNextUnlocks()) list.appendChild(careerRow(row.name + ' (' + row.kind + ')', Progress.requirementText(row), []));
+		for (const row of CAT.unlocks.filter((entry) => entry.mastery && !Progress.isUnlocked(entry))) list.appendChild(careerRow(row.name + ' (' + row.kind + ')', Progress.requirementText(row), []));
 		list.appendChild(makeElement('p', 'ui-note', 'Mastery colours unlock by weapon mastery (Statistics); cards by their own challenge. Settings > Gameplay > Unlock everything opens all of it.'));
 		list.appendChild(makeElement('div', 'ui-group', 'Medals'));
 		for (const row of CAT.medals) list.appendChild(careerRow(row.code + ' ' + row.name + ': ' + (Progress.profile().medals[row.id] || 0), row.text, []));
+		Progress.markSeen();
 	},
 });
 function careerLadderStatus(tier, match) {
@@ -39374,7 +39426,7 @@ function careerLadderRow(tier, match) {
 	const play = status === 'locked' ? careerDisabled('Locked') : Ui.button(status === 'next' ? 'Play' : 'Replay', () => Ladder.start(tier, match), status === 'next' ? 'primary' : '');
 	if (status === 'next') play.dataset.autofocus = '1';
 	const label = (match + 1) + '. ' + careerModeName(entry.mode) + ' on ' + careerMapName(entry.map) + (entry.final ? ' - FINAL' : '');
-	return careerRow(label, 'vs ' + opponents + ' - ' + status, status === 'locked' ? [play] : [difficulty, play]);
+	return careerRow(label, 'vs ' + opponents + ' - ' + (status === 'locked' ? Ladder.requirementText(tier, match) : status), status === 'locked' ? [play] : [difficulty, play]);
 }
 Ui.register('ladder', {
 	build(root) {
@@ -39398,15 +39450,11 @@ function careerPointsText(row) {
 	});
 	return 'Points: ' + parts.join(', ') + '.';
 }
-function careerRoomUnlockText(group) {
-	const row = CAT.unlocks.find((unlock) => unlock.kind === 'challenge' && unlock.value === group);
-	return row ? 'Opens at level ' + row.level : 'Locked';
-}
 function careerRoomRow(row) {
-	if (!Challenges.isOpen(row)) return careerRow(row.code + ' ' + row.name, careerRoomUnlockText(row.group), [careerDisabled('Locked')]);
+	if (!Challenges.isOpen(row)) return careerRow(row.code + ' ' + row.name, Challenges.requirementText(row), [careerDisabled('Locked')]);
 	const record = Challenges.record(row.id);
 	const buttons = [Ui.button('Play', () => Challenges.start(row.id, false))];
-	buttons.push(Challenges.expertOpen(row.id) ? Ui.button('Expert', () => Challenges.start(row.id, true)) : careerDisabled('Expert at ' + CHALLENGE_EXPERT_STARS + ' stars'));
+	buttons.push(Challenges.expertOpen(row.id) ? Ui.button('Expert', () => Challenges.start(row.id, true)) : careerDisabled(Challenges.requirementText(row)));
 	const label = makeElement('span');
 	label.textContent = row.code + ' ' + row.name;
 	label.appendChild(makeElement('span', 'pg-stars', careerStars(record.stars)));

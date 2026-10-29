@@ -47,6 +47,97 @@ function saveRevisionOf(raw) {
   return head ? Number(head[1]) : 0;
 }
 
+// P3-04 / P3-06: ids that no longer exist, each mapped to the row that took its place (Appendix C of the task list, "P3-03" and
+// "P3-06"). A save, a saved map or a shared code that names an old id loads with the new one. Retired codes are never reused.
+const WEAPON_MIGRATION = {
+  twinsting: 'wasp', riptide: 'wasp', tempest: 'vanguard', longshot: 'kestrel', pulsecarbine: 'hornet', frostbore: 'scattergun', anvil: 'hailstorm', kingfisher: 'ramjet',
+  W08: 'wasp', W11: 'wasp', W14: 'vanguard', W16: 'kestrel', W18: 'hornet', W22: 'scattergun', W29: 'hailstorm', W33: 'ramjet',
+};
+// Gadgets that moved into an ability (decoy, dome, lift pad, mender, dart) or another gadget (mine, drain). No save holds a gadget
+// key today (custom class slots accept only the preset values); the map is for data rows and future loadouts.
+const GADGET_MIGRATION = { decoy: 'holodouble', prox: 'claymore', bubble: 'aegisdome', liftpad: 'updraft', regen: 'mender', drain: 'emp', dart: 'echopulse' };
+const ITEM_MIGRATION = { surplus: 'megacell', aegisbelt: 'heavyplate', scoutrune: 'quickening', ammorune: 'bottomless' };
+const ABILITY_MIGRATION = { ignite: 'arcbolt', frostlance: 'arcbolt' };
+const MAP_ITEM_MIGRATION = Object.assign({}, WEAPON_MIGRATION, ITEM_MIGRATION);   // the item keys of a map pad
+const WEAPON_STAT_SUM_FIELDS = ['shots', 'hits', 'kills', 'headshots'];
+const CUSTOM_DRAFT_SETTING = 'custom.draft';   // 18g keeps the match editor's draft as JSON text in this setting
+
+// The row a retired key was merged into (a key still in use comes back unchanged).
+function migratedId(table, key) {
+  return typeof key === 'string' && Object.prototype.hasOwnProperty.call(table, key) ? table[key] : key;
+}
+// A list of weapon keys with every retired key replaced and the repeats removed (two merged weapons in one list).
+function migratedWeaponList(list) {
+  return Array.from(new Set(list.map((key) => migratedId(WEAPON_MIGRATION, key))));
+}
+function savePlainObject(value) { return !!value && typeof value === 'object' && !Array.isArray(value); }
+// Kills, headshots and shots of a retired weapon move into its successor, so a mastery tier already reached is never lost.
+function migrateWeaponStats(weapons) {
+  for (const key of Object.keys(weapons)) {
+    const target = migratedId(WEAPON_MIGRATION, key);
+    if (target === key) continue;
+    const old = weapons[key];
+    delete weapons[key];
+    if (!savePlainObject(old)) continue;
+    if (!savePlainObject(weapons[target])) weapons[target] = {};
+    for (const field of WEAPON_STAT_SUM_FIELDS) weapons[target][field] = (Number(weapons[target][field]) || 0) + (Number(old[field]) || 0);
+  }
+}
+// A crosshair override of a retired weapon moves to its successor when that has none of its own.
+function migrateCrosshairs(crosshairs) {
+  for (const key of Object.keys(crosshairs)) {
+    const target = migratedId(WEAPON_MIGRATION, key);
+    if (target === key) continue;
+    if (!(target in crosshairs)) crosshairs[target] = crosshairs[key];
+    delete crosshairs[key];
+  }
+}
+// A match draft (a saved preset, its editor settings, the editor's current draft): the weapon list and the weapon lists of its mutators.
+function migrateWeaponLists(draft) {
+  if (!savePlainObject(draft)) return;
+  if (Array.isArray(draft.weaponList)) draft.weaponList = migratedWeaponList(draft.weaponList);
+  if (!Array.isArray(draft.mutators)) return;
+  for (const entry of draft.mutators) if (savePlainObject(entry) && Array.isArray(entry.value)) entry.value = migratedWeaponList(entry.value);
+}
+// The editor's draft is JSON text inside the settings: its weapon list and mutator lists are mapped like a preset's.
+function migrateCustomDraft(settings) {
+  if (typeof settings[CUSTOM_DRAFT_SETTING] !== 'string') return;
+  try {
+    const draft = JSON.parse(settings[CUSTOM_DRAFT_SETTING]);
+    if (!savePlainObject(draft)) return;
+    migrateWeaponLists(draft);
+    settings[CUSTOM_DRAFT_SETTING] = JSON.stringify(draft);
+  } catch (error) {
+    // Unreadable text stays as it is: the editor falls back to its defaults.
+  }
+}
+function migrateLoadouts(loadouts) {
+  for (const row of loadouts.classes.custom) {
+    row.primary = migratedId(WEAPON_MIGRATION, row.primary);
+    row.secondary = migratedId(WEAPON_MIGRATION, row.secondary);
+  }
+  for (const kit of Object.values(loadouts.kits)) {
+    if (!savePlainObject(kit)) continue;
+    for (const slot of Object.keys(kit)) kit[slot] = migratedId(ABILITY_MIGRATION, kit[slot]);
+  }
+}
+// The pads of the map editor's saved maps: rows [key, x, y, z, modes?].
+function migrateSavedMaps(maps) {
+  for (const entry of maps) {
+    if (!savePlainObject(entry.data) || !Array.isArray(entry.data.items)) continue;
+    for (const row of entry.data.items) if (Array.isArray(row)) row[0] = migratedId(MAP_ITEM_MIGRATION, row[0]);
+  }
+}
+// Maps every retired id in a loaded save to its successor (called by Save.migrate after the fields are repaired).
+function migrateRetiredIds(data) {
+  if (savePlainObject(data.stats) && savePlainObject(data.stats.weapons)) migrateWeaponStats(data.stats.weapons);
+  migrateCrosshairs(data.crosshairs);
+  migrateLoadouts(data.loadouts);
+  for (const ruleset of data.rulesets) { migrateWeaponLists(ruleset); migrateWeaponLists(ruleset.editor); }
+  migrateSavedMaps(data.editorMaps);
+  migrateCustomDraft(data.settings);
+}
+
 const Save = {
   data: null,             // the live save object
   storageWorks: true,     // false from a failed access until a save is written again
@@ -60,10 +151,10 @@ const Save = {
 
   emptySave() {
     // Every field is declared here, so migrate repairs it (ARC-020). revision: write count (R-001); play: last setup (18d, null = none);
-    // crosshairs: per-weapon overrides (17b); loadouts: 13d; tips: 18n, 18p, 06 (silentSwitch).
+    // crosshairs: per-weapon overrides (17b); loadouts: 13d (pickup: the weapons, gear and abilities of the pickup rulesets, P3-05); tips: 18n, 18p, 06 (silentSwitch).
     return { version: SAVE_VERSION, revision: 0, settings: {}, bindings: {}, touchLayouts: {}, progression: {}, stats: {}, rulesets: [], editorMaps: [],
       ladder: {}, play: null, crosshairs: {}, tips: { matches: 0, homeScreen: false, silentSwitch: false },
-      loadouts: { classes: { selected: CAT.classes[0].id, custom: [] }, heroes: { hero: CAT.heroes[0].id }, kits: {} } };
+      loadouts: { classes: { selected: CAT.classes[0].id, custom: [] }, heroes: { hero: CAT.heroes[0].id }, kits: {}, pickup: Object.assign({}, DEFAULT_PICKUP_LOADOUT) } };
   },
   load() {
     const raw = this.read(SAVE_KEY);
@@ -101,6 +192,7 @@ const Save = {
   migrate(loaded) {
     if (!loaded || typeof loaded !== 'object' || Array.isArray(loaded)) throw new Error('save is not an object');
     repairSaveFields(this.emptySave(), loaded);
+    migrateRetiredIds(loaded);
     Settings.sanitize(loaded.settings);
     // Version and revision first (SAVE_REVISION_HEAD).
     const ordered = Object.assign({ version: SAVE_VERSION, revision: 0 }, loaded);

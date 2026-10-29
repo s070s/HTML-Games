@@ -107,5 +107,5 @@ Data.define('mutators', {
   { id: 'cards', code: 'X48', name: 'Cards Allowed', effect: 'Enables cards in versus matches.', set: [mutatorFlagOp('fx.cards')] },
   { id: 'limbs', code: 'X49', name: 'Locational Damage', effect: 'Each limb has its own health pool.', set: [{ field: 'health', op: 'set', value: 'limb' }],
     conflicts: ['health', 'hardcore', 'vampire', 'regen', 'colossal', 'triangle'] },
-  { id: 'wildlife', code: 'X50', name: 'Wildlife', effect: 'Four neutral beasts attack the nearest actor; flares lure them.', set: [{ field: 'fx.wildlife', op: 'set', value: 4 }] },
+  { id: 'wildlife', code: 'X50', name: 'Wildlife', effect: 'Four neutral beasts attack the nearest actor; a Glare Shell or Cinder Jar lures them.', set: [{ field: 'fx.wildlife', op: 'set', value: 4 }] },
 ]);

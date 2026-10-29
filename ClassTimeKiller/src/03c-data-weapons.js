@@ -1,5 +1,5 @@
 // ==== S03 DATA: WEAPONS ====
-// Weapon classes, recoil patterns, projectiles P01..P19, fire modes, weapons W01..W46 and weapon sets (spec §8, WPN-006).
+// Weapon classes, recoil patterns, projectiles P01..P20, fire modes, weapons W01..W46 (38 rows: W08, W11, W14, W16, W18, W22, W29 and W33 are retired, P3-03) and weapon sets (spec §8, WPN-006).
 // Fire modes are written inline in each weapon row and normalized into their own catalogue `fireModes` (id '<weapon>.primary').
 // Beams are continuous hitscan: `damage` is per tick and `rate` is ticks per second (8 x 20 = 160 dps).
 
@@ -62,7 +62,7 @@ function recoilYawShape(shape, shot, climbing) {
 }
 CAT.recoil.forEach((row) => { row.pattern = buildRecoilPattern(row); });
 
-// Projectiles (spec §8 table P01..P16; P17..P20 added for the drill, blade, dark orb and Daybreak orb exotics).
+// Projectiles (spec §8 table P01..P16; P17..P20 added for the drill, blade and Daybreak orb exotics; P19, the dark orb of the retired W18, is not reused).
 // onHit: 'explode' (direct + splash), 'damage', 'pin' (damage; a wall within 1.5 m behind the victim pins it: status 'pinned'), 'puddle' (damage area), 'pull' (hook), 'drill'.
 // bounces: -1 = bounce until the fuse ends, 0 = act on first contact. bounce = speed kept per bounce.
 // incoming: the local player hears a whistle and sees a caption when one closes in (AUD-005, S11 Projectiles.warnIncoming).
@@ -91,7 +91,6 @@ Data.define('projectiles', {
   { id: 'hook', code: 'P16', name: 'Hook', speed: 60, life: 0.4, radius: 0.2, onHit: 'pull', poolSize: 8, color: 0x909090 },
   { id: 'drill', code: 'P17', name: 'Drill', speed: 20, life: 6, radius: 0.08, homing: 90, onHit: 'drill', poolSize: 8, color: 0xc0c0c0 },
   { id: 'blade', code: 'P18', name: 'Blade', speed: 30, life: 1.2, radius: 0.25, pierce: true, returning: true, onHit: 'damage', poolSize: 8, color: 0xe8e8ff },
-  { id: 'darkorb', code: 'P19', name: 'Dark orb', speed: 25, life: 1.5, radius: 0.3, bounce: 1, bounces: -1, pierce: true, onHit: 'damage', poolSize: 4, color: 0x30204a },
   { id: 'sunorb', code: 'P20', name: 'Daybreak orb', speed: 18, life: 6, radius: 0.5, onHit: 'explode', poolSize: 4, color: 0xffd98a, scale: 0.7 },
   // X41 Ballistics: a hitscan pellet flown as a projectile; gravity and drag come from rules.fx.ballistics, the life from the mode's range.
   { id: 'bullet', code: 'P21', name: 'Bullet', speed: 320, life: 1, radius: 0.02, onHit: 'damage', poolSize: 128, color: 0xfff0b0, scale: 0.3 },
@@ -101,11 +100,12 @@ Data.define('projectiles', {
 // trigger: auto | semi | burst | charge | release. Optional objects: falloff [startM, endM, minFactor], splash {r, dmg, minFactor},
 // charge {time, min, max, levels, target 'damage'|'pellets'|'multiplier', speed [min,max], ammo [..]}, status {id, seconds, stacks},
 // cone {range, angle}, chain {targets, radius}, lock {time, targets, coneDeg, range}, toggle {damageMult, rateMult, recoilMult,
-// speedMult, frontResist, status, needsLedge}, block {pool, regen, parryWindow, arcDeg}, launch {height, selfDamage},
+// speedMult, frontResist, status}, block {pool, regen, parryWindow, arcDeg}, launch {height, selfDamage},
 // combo {damage, radius, ammo}, stickCombo {count, damage, radius}, split {projectile, count, damage}, puddle {radius, damage, seconds, status},
 // aura {radius, damage, interval}, laser {damage, interval}. repair: HP/s a shot gives a friendly device instead of damage (W30 beam).
 // zoomMax: a second scope step; next/previous weapon flips to it while fully scoped (W24 4x/8x).
 // breath: seconds a held breath (the Walk action) steadies a swaying scope; above 0 the scope sways while aimed (W24 4 s).
+// tracer: false draws no tracer line for a hitscan shot (W06 Hush, the silent pistol).
 const FIRE_MODE_SCHEMA = {
   id: REQUIRED, type: REQUIRED, trigger: 'auto', damage: 0, rate: 1, pellets: 1, spreadDeg: 0, moveSpread: 1, adsSpreadMult: 0.4,
   recoil: 'none', falloff: null, headMult: 2, legMult: 0.75, armorPen: 0.75, pierce: 0, penetration: '', range: 200,
@@ -113,7 +113,7 @@ const FIRE_MODE_SCHEMA = {
   element: 'kinetic', status: null, statusRange: 0, burst: 0, burstGap: 0.06, spinUp: 0, reach: 0, backstab: 0, cone: null, chain: null,
   lock: null, toggle: null, block: null, launch: null, combo: null, stickCombo: null, split: null, puddle: null, aura: null, laser: null,
   cooldown: 0, maxActive: 0, activeRule: 'recycle', detonateOnRelease: false, guided: false, alwaysHead: false, knockback: 1,
-  fodderKill: false, allyLink: 0, repair: 0, special: '', tool: '', zoom: 1, zoomMax: 0, breath: 0, noise: -1, arm: 0, weapon: '', family: null,
+  fodderKill: false, allyLink: 0, repair: 0, special: '', tool: '', zoom: 1, zoomMax: 0, breath: 0, noise: -1, arm: 0, weapon: '', family: null, tracer: true,
 };
 
 const WEAPON_SCHEMA = {
@@ -139,49 +139,33 @@ const WEAPON_ROWS = [
   { id: 'verdict', code: 'W05', name: 'Verdict Magnum', class: 'sidearm', mag: 6, reserve: 24, price: 700, noise: 70, botPref: { range: [5, 40], value: 0.55 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 55, rate: 2.2, spreadDeg: 0.3, recoil: 'pistolHeavy', falloff: [25, 50, 0.75], penetration: 'med' },
     alt: { type: 'zoom', zoom: 2 } },
-  // R-096: 22 damage (five hits, 0.8 s) and a cheaper 300, so the silent pistol can win a duel; noise 6 and the sleep dart stay its niche.
-  { id: 'hush', code: 'W06', name: 'Hush Pistol', class: 'sidearm', mag: 10, reserve: 40, altAmmo: 6, price: 300, noise: 6, botPref: { range: [2, 20], value: 0.3 },
-    primary: { type: 'hitscan', trigger: 'semi', damage: 22, rate: 5, spreadDeg: 0.6, recoil: 'pistol', falloff: [15, 30, 0.6] },
+  // P3-03 (numbers are proposals for P8): the silent precision pistol. 40 damage at 2.5 a second (three hits, 0.8 s), head x2.5 so a
+  // headshot kills, a long falloff and no tracer; noise 6 and the sleep dart stay its niche. It no longer shadows the Warden's rapid fire.
+  { id: 'hush', code: 'W06', name: 'Hush Pistol', class: 'sidearm', mag: 10, reserve: 40, altAmmo: 6, price: 500, noise: 6, botPref: { range: [8, 35], value: 0.4 },
+    primary: { type: 'hitscan', trigger: 'semi', damage: 40, rate: 2.5, spreadDeg: 0.15, headMult: 2.5, tracer: false, recoil: 'pistol', falloff: [25, 55, 0.7] },
     alt: { type: 'hitscan', trigger: 'semi', damage: 0, rate: 1, ammo: 'alt', status: { id: 'sleep', seconds: 8 } } },
-  { id: 'sparklock', code: 'W07', name: 'Sparklock Pistol', class: 'sidearm', mag: 24, reserve: 72, noise: 40, botPref: { range: [2, 20], value: 0.45 },
+  { id: 'sparklock', code: 'W07', name: 'Sparklock Pistol', class: 'sidearm', price: 600, mag: 24, reserve: 72, noise: 40, botPref: { range: [2, 20], value: 0.45 },
     primary: { type: 'lock', damage: 12, rate: 8, lock: { time: 0.4, targets: 3, coneDeg: 12, range: 20 }, recoil: 'energy' },
     alt: { type: 'hitscan', damage: 12, rate: 8, spreadDeg: 1.5, recoil: 'pistol' } },
-  { id: 'twinsting', code: 'W08', name: 'Twin Stinger', class: 'sidearm', mag: 20, reserve: 100, altAmmo: 4, price: 500, noise: 50, botPref: { range: [0, 12], value: 0.45 },
-    primary: { type: 'hitscan', damage: 14, rate: 15, spreadDeg: 1.2, recoil: 'smg', falloff: [8, 20, 0.5] },
-    alt: { type: 'hitscan', trigger: 'semi', damage: 10, rate: 1, ammo: 'alt', splash: { r: 6, dmg: 0 }, status: { id: 'reveal', seconds: 5 }, element: 'thermal' } },
   { id: 'wasp', code: 'W09', name: 'Wasp SMG', class: 'smg', mag: 30, reserve: 120, price: 1200, killReward: 600, botPref: { range: [0, 15], value: 0.55 },
     primary: { type: 'hitscan', damage: 18, rate: 13, spreadDeg: 0.8, recoil: 'smg', falloff: [10, 25, 0.6] },
-    alt: { type: 'zoom', zoom: 1.5 } },
+    alt: { type: 'toggle', toggle: { damageMult: 0.85, status: { id: 'slow', seconds: 1 } } } },   // P3-04: the hollow-point toggle of the retired Riptide PDW (W11) replaces the plain zoom
   { id: 'hornet', code: 'W10', name: 'Hornet Carbine', class: 'smg', moveMult: 0.97, mag: 45, reserve: 180, altAmmo: 3, price: 1400, killReward: 600, botPref: { range: [0, 20], value: 0.55 },
     primary: { type: 'hitscan', damage: 15, rate: 12, spreadDeg: 0.9, recoil: 'smg', falloff: [12, 28, 0.6] },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'contact', damage: 0, rate: 1, ammo: 'alt', splash: { r: 3.5, dmg: 80 }, recoil: 'launcher' } },
-  { id: 'riptide', code: 'W11', name: 'Riptide PDW', class: 'smg', moveMult: 0.97, mag: 50, reserve: 150, price: 1100, killReward: 600, botPref: { range: [0, 18], value: 0.55 },
-    primary: { type: 'hitscan', damage: 16, rate: 14, spreadDeg: 1.4, recoil: 'smg', falloff: [10, 25, 0.6] },
-    alt: { type: 'toggle', toggle: { damageMult: 0.85, status: { id: 'slow', seconds: 1 } } } },
   // R-088: needles home at 35 deg/s (P09), burst at 9 for 40, spread 1.5 deg and fall off past 12 m: a close and mid-range harasser, not a 35 m laser.
-  { id: 'needlethorn', code: 'W12', name: 'Needlethorn', class: 'smg', mag: 30, reserve: 90, noise: 40, botPref: { range: [3, 22], value: 0.5 },
+  { id: 'needlethorn', code: 'W12', name: 'Needlethorn', class: 'smg', price: 1500, mag: 30, reserve: 90, noise: 40, botPref: { range: [3, 22], value: 0.5 },
     primary: { type: 'projectile', projectile: 'needle', damage: 9, rate: 10, spreadDeg: 1.5, falloff: [12, 28, 0.6], stickCombo: { count: 9, damage: 40, radius: 2 }, element: 'void' },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'needle', damage: 9, rate: 1.25, pellets: 5, spreadDeg: 5, ammoPerShot: 5, falloff: [12, 28, 0.6], stickCombo: { count: 9, damage: 40, radius: 2 }, element: 'void' } },
   { id: 'vanguard', code: 'W13', name: 'Vanguard Rifle', class: 'rifle', moveMult: 0.92, mag: 25, reserve: 75, price: 2700, botPref: { range: [5, 60], value: 0.75 },
     primary: { type: 'hitscan', damage: 34, rate: 10, spreadDeg: 0.25, recoil: 'rifleHeavy', falloff: [35, 60, 0.75], penetration: 'med' },
     alt: { type: 'zoom', zoom: 1.3 } },
-  // 30 damage under the light 'rifle' recoil row and a 30 round magazine out-duel the Vanguard's 3-shot kick (bot duels 62% vs 55%), so it costs more.
-  { id: 'tempest', code: 'W14', name: 'Tempest Rifle', class: 'rifle', moveMult: 0.93, mag: 30, reserve: 90, price: 2900, noise: 50, botPref: { range: [5, 45], value: 0.7 },
-    primary: { type: 'hitscan', damage: 30, rate: 11, spreadDeg: 0.25, recoil: 'rifle', falloff: [30, 50, 0.8], penetration: 'med' },
-    alt: { type: 'zoom', zoom: 1.3 } },
   { id: 'ratchet', code: 'W15', name: 'Ratchet Burst', class: 'rifle', moveMult: 0.93, mag: 24, reserve: 96, price: 2400, botPref: { range: [8, 50], value: 0.65 },
     primary: { type: 'hitscan', trigger: 'burst', damage: 32, rate: 3, burst: 3, spreadDeg: 0.3, recoil: 'burst', penetration: 'med' },
     alt: { type: 'zoom', zoom: 1.8 } },
-  // R-090: two 50s kill 100 HP for 2300: the faster-firing, bigger-magazine rival of the cheaper Kestrel DMR (its 120 headshot one-shots).
-  { id: 'longshot', code: 'W16', name: 'Longshot Scout', class: 'rifle', moveMult: 0.92, mag: 15, reserve: 60, price: 2300, botPref: { range: [15, 70], value: 0.65 },
-    primary: { type: 'hitscan', trigger: 'semi', damage: 50, rate: 3.5, spreadDeg: 0.15, recoil: 'marksman', penetration: 'med' },
-    alt: { type: 'zoom', zoom: 2.5 } },
-  { id: 'coilcaster', code: 'W17', name: 'Coilcaster', class: 'energy', moveMult: 0.93, mag: 20, reserve: 50, botPref: { range: [8, 60], value: 0.7 },
+  { id: 'coilcaster', code: 'W17', name: 'Coilcaster', class: 'energy', price: 2200, moveMult: 0.93, mag: 20, reserve: 50, botPref: { range: [8, 60], value: 0.7 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 45, rate: 1.4, recoil: 'energy', element: 'arc', combo: { damage: 200, radius: 4, ammo: 3 } },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'orb', damage: 0, rate: 1.4, splash: { r: 1.5, dmg: 55 }, element: 'arc' } },
-  { id: 'pulsecarbine', code: 'W18', name: 'Pulse Carbine', class: 'rifle', moveMult: 0.92, mag: 30, reserve: 60, altAmmo: 2, botPref: { range: [5, 40], value: 0.65 },
-    primary: { type: 'hitscan', damage: 20, rate: 10, spreadDeg: 0.5, recoil: 'rifle', element: 'void' },
-    alt: { type: 'projectile', trigger: 'semi', projectile: 'darkorb', damage: 100, rate: 0.5, ammo: 'alt', fodderKill: true, element: 'void' } },
   // R-087: 12 x 10 = 120 one-shots inside about 8 m (falloff takes it below 100 past that); the 55 slug is the range option.
   { id: 'scattergun', code: 'W19', name: 'Scattergun', class: 'shotgun', moveMult: 0.95, reloadShell: true, mag: 6, reserve: 30, price: 1100, killReward: 900, noise: 80, botPref: { range: [0, 10], value: 0.7 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 10, pellets: 12, rate: 1.1, spreadDeg: 5, moveSpread: 0.3, adsSpreadMult: 1, recoil: 'shotgun', falloff: [8, 20, 0.4] },
@@ -193,69 +177,60 @@ const WEAPON_ROWS = [
   { id: 'shardcaster', code: 'W21', name: 'Shardcaster', class: 'shotgun', moveMult: 0.92, mag: 10, reserve: 40, price: 1600, killReward: 900, noise: 75, botPref: { range: [0, 15], value: 0.75 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'shard', damage: 12, pellets: 9, rate: 1.2, spreadDeg: 6, moveSpread: 0.3, recoil: 'shotgun' },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', speed: 20, bounces: 0, damage: 100, rate: 0.9, split: { projectile: 'shard', count: 6, damage: 12 }, arm: EXPLOSIVE_ALT_ARM, recoil: 'launcher' } },
-  // A point-blank one-shot like every shotgun (8 x 13 = 104, under 100 past 8 m); the freeze blast stays its niche.
-  { id: 'frostbore', code: 'W22', name: 'Frostbore', class: 'shotgun', moveMult: 0.93, mag: 8, reserve: 32, altAmmo: 20, price: 1500, killReward: 900, botPref: { range: [0, 10], value: 0.7 },
-    primary: { type: 'hitscan', trigger: 'semi', damage: 13, pellets: 8, rate: 1.2, spreadDeg: 5, moveSpread: 0.3, recoil: 'shotgun', falloff: [8, 18, 0.4] },
-    alt: { type: 'hitscan', trigger: 'semi', damage: 4, pellets: 6, rate: 1, spreadDeg: 7, ammo: 'alt', ammoPerShot: 5, range: 12, status: { id: 'chill', stacks: 3 }, element: 'cryo' } },
-  { id: 'lancet', code: 'W23', name: 'Lancet Rail', class: 'marksman', moveMult: 0.92, mag: 10, reserve: 30, noise: 90, botPref: { range: [10, 90], value: 0.85 },
+  { id: 'lancet', code: 'W23', name: 'Lancet Rail', class: 'marksman', price: 3500, moveMult: 0.92, mag: 10, reserve: 30, noise: 90, botPref: { range: [10, 90], value: 0.85 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 100, rate: 0.67, moveSpread: 0, pierce: 4, recoil: 'marksman', element: 'arc' },
     alt: { type: 'zoom', zoom: 2.5 } },
   { id: 'heron', code: 'W24', name: 'Heron Sniper', class: 'sniper', moveMult: 0.85, adsMoveMult: 0.5, reload: 3.6, mag: 5, reserve: 20, price: 4700, killReward: 100, noise: 110, botPref: { range: [25, 140], value: 0.85 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 115, rate: 0.67, spreadDeg: 8, adsSpreadMult: 0, headMult: 2.5, alwaysHead: true, recoil: 'sniper', penetration: 'high' },
     alt: { type: 'zoom', zoom: 4, zoomMax: 8, breath: 4 } },
-  { id: 'kestrel', code: 'W25', name: 'Kestrel DMR', class: 'marksman', moveMult: 0.9, mag: 10, reserve: 40, price: 1800, botPref: { range: [10, 80], value: 0.7 },
+  { id: 'kestrel', code: 'W25', name: 'Kestrel DMR', class: 'marksman', moveMult: 0.9, mag: 15, reserve: 45, price: 1800, botPref: { range: [10, 80], value: 0.7 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 60, rate: 3, spreadDeg: 0.2, recoil: 'marksman', penetration: 'med' },
     alt: { type: 'zoom', zoom: 3 } },
-  { id: 'stakedriver', code: 'W26', name: 'Stakedriver', class: 'marksman', moveMult: 0.9, mag: 12, reserve: 36, altAmmo: 6, botPref: { range: [10, 60], value: 0.7 },
+  { id: 'stakedriver', code: 'W26', name: 'Stakedriver', class: 'marksman', price: 2000, moveMult: 0.9, mag: 12, reserve: 36, altAmmo: 6, botPref: { range: [10, 60], value: 0.7 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 90, rate: 1.2, recoil: 'marksman', statusRange: 25, status: { id: 'burn', seconds: 3 } },
-    alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', bounces: 3, damage: 0, rate: 1, ammo: 'alt', splash: { r: 4, dmg: 80 }, arm: EXPLOSIVE_ALT_ARM, recoil: 'launcher' } },
+    alt: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 70, rate: 1, ammo: 'alt', recoil: 'marksman', status: { id: 'burn', seconds: 4 }, element: 'thermal' } },   // P3-03: the incendiary stake (burns on any hit, any range; 6 alt rounds; numbers for P8) replaces the lob grenade
   // A 0.7 s draw from 50 to 110: a quick shot still hurts, a full draw one-shots a 100 HP body (noise 0 is the stealth niche).
-  { id: 'talonbow', code: 'W27', name: 'Talon Bow', class: 'marksman', mag: 1, reserve: 18, altAmmo: 6, noise: 0, reload: 0.5, botPref: { range: [8, 60], value: 0.6 },
+  { id: 'talonbow', code: 'W27', name: 'Talon Bow', class: 'marksman', price: 1500, mag: 1, reserve: 18, altAmmo: 6, noise: 0, reload: 0.5, botPref: { range: [8, 60], value: 0.6 },
     primary: { type: 'projectile', trigger: 'charge', projectile: 'arrow', rate: 1.5, charge: { time: 0.7, min: 50, max: 110, speed: [40, 70] } },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'arrow', speed: 55, damage: 0, rate: 1, ammo: 'alt', splash: { r: 2.5, dmg: 80 }, arm: EXPLOSIVE_ALT_ARM, noise: 60 } },
-  // R-091: 0.2 s spin-up, 1.1 deg spread and 15 damage: the 18 rps hose out-damages the Anvil inside 15 m (270 vs 225 dps, 405 rooted); the spin-up and 0.75 move speed are the cost.
-  { id: 'hailstorm', code: 'W28', name: 'Hailstorm', class: 'heavy', moveMult: 0.75, mag: 150, reserve: 300, noise: 90, botPref: { range: [3, 35], value: 0.75 },
-    primary: { type: 'hitscan', damage: 15, rate: 18, spinUp: 0.2, spreadDeg: 1.1, moveSpread: 1.5, recoil: 'minigun' },
+  // R-091: 0.2 s spin-up, 1.1 deg spread and 15 damage: the 18 rps hose (270 dps, 405 rooted); the spin-up and 0.75 move speed are the cost.
+  // P3-03: high penetration from the retired Anvil LMG (W29).
+  { id: 'hailstorm', code: 'W28', name: 'Hailstorm', class: 'heavy', price: 4000, moveMult: 0.75, mag: 150, reserve: 300, noise: 90, botPref: { range: [3, 35], value: 0.75 },
+    primary: { type: 'hitscan', damage: 15, rate: 18, spinUp: 0.2, spreadDeg: 1.1, moveSpread: 1.5, recoil: 'minigun', penetration: 'high' },
     alt: { type: 'toggle', toggle: { rateMult: 1.5, frontResist: 0.3, speedMult: 0 } } },
-  { id: 'anvil', code: 'W29', name: 'Anvil LMG', class: 'heavy', moveMult: 0.82, reload: 6, mag: 100, reserve: 200, price: 4000, noise: 85, botPref: { range: [5, 50], value: 0.7 },
-    primary: { type: 'hitscan', damage: 25, rate: 9, spreadDeg: 0.6, moveSpread: 1.4, recoil: 'lmg', penetration: 'high' },
-    alt: { type: 'toggle', toggle: { recoilMult: 0.3, needsLedge: true } } },
-  { id: 'linker', code: 'W30', name: 'Linker', class: 'energy', mag: 70, reserve: 140, noise: 50, botPref: { range: [3, 30], value: 0.6 },
+  { id: 'linker', code: 'W30', name: 'Linker', class: 'energy', price: 1800, mag: 70, reserve: 140, noise: 50, botPref: { range: [3, 30], value: 0.6 },
     primary: { type: 'projectile', projectile: 'plasma', speed: 40, damage: 22, rate: 6, recoil: 'energy', element: 'arc' },
     alt: { type: 'beam', damage: 5, rate: 20, range: 30, allyLink: 1.5, repair: 60, element: 'arc' } },
-  // R-086: direct 90 and splash 80 never kill 100 HP alone (two hits do), rate 1.0 and mag 4; the alt volley charges in 1 s with a tighter 1.5 deg fan (R-095).
-  { id: 'ramjet', code: 'W31', name: 'Ramjet Launcher', class: 'explosive', moveMult: 0.88, mag: 4, reserve: 20, noise: 90, botPref: { range: [4, 40], value: 0.85 },
+  // R-086: direct 90 and splash 80 never kill 100 HP alone (two hits do), rate 1.0 and mag 4; the alt locks on for 1.2 s and sends 4 homing missiles.
+  { id: 'ramjet', code: 'W31', name: 'Ramjet Launcher', class: 'explosive', price: 3200, moveMult: 0.88, mag: 4, reserve: 20, noise: 90, botPref: { range: [4, 40], value: 0.85 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'rocket', damage: 90, rate: 1, splash: { r: 3.5, dmg: 80 }, recoil: 'launcher', element: 'thermal' },
-    alt: { type: 'projectile', trigger: 'charge', projectile: 'rocket', damage: 70, rate: 0.8, spreadDeg: 1.5, splash: { r: 3.5, dmg: 70 }, charge: { time: 1, levels: [1, 2, 3], target: 'pellets' }, recoil: 'launcher', element: 'thermal' } },
+    alt: { type: 'lock', trigger: 'release', projectile: 'missile', damage: 35, pellets: 4, rate: 1, spreadDeg: 6, ammoPerShot: 2, splash: { r: 1.5, dmg: 10 }, lock: { time: 1.2, targets: 1, coneDeg: 10, range: 80 }, element: 'thermal' } },   // P3-03: the lock-on homing volley of the retired Kingfisher Pod (W33); 2 of the 4 rockets per volley (P8: magazine size)
   // A 4.5 m grenade blast forgives a near miss on fast movers; the 2.5 s fuse and the lob stay its drawback.
-  { id: 'pitcher', code: 'W32', name: 'Pitcher Launcher', class: 'explosive', moveMult: 0.9, mag: 6, reserve: 24, noise: 70, botPref: { range: [5, 30], value: 0.65 },
+  { id: 'pitcher', code: 'W32', name: 'Pitcher Launcher', class: 'explosive', price: 2600, moveMult: 0.9, mag: 6, reserve: 24, noise: 70, botPref: { range: [5, 30], value: 0.65 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'grenade', damage: 0, rate: 1.5, splash: { r: 4.5, dmg: 100 }, recoil: 'launcher' },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'mine', damage: 0, rate: 2, splash: { r: 4, dmg: 100 }, maxActive: 4, detonateOnRelease: true, recoil: 'launcher' } },
-  { id: 'kingfisher', code: 'W33', name: 'Kingfisher Pod', class: 'explosive', moveMult: 0.88, mag: 8, reserve: 24, noise: 85, botPref: { range: [10, 70], value: 0.7 },
-    primary: { type: 'projectile', trigger: 'semi', projectile: 'rocket', damage: 60, pellets: 2, rate: 1.2, spreadDeg: 2, splash: { r: 2, dmg: 20 }, recoil: 'launcher', element: 'thermal' },
-    alt: { type: 'lock', trigger: 'release', projectile: 'missile', damage: 35, pellets: 4, rate: 1, spreadDeg: 6, ammoPerShot: 2, splash: { r: 1.5, dmg: 10 }, lock: { time: 1.2, targets: 1, coneDeg: 10, range: 80 }, element: 'thermal' } },
   // R-092: the goo flies at 28 m/s (P10) and its puddle burns 5 per tick: a zoning gun that can finish what stands in it.
-  { id: 'gloop', code: 'W34', name: 'Gloop Gun', class: 'explosive', mag: 25, reserve: 75, noise: 35, botPref: { range: [2, 18], value: 0.55 },
+  { id: 'gloop', code: 'W34', name: 'Gloop Gun', class: 'explosive', price: 2000, mag: 25, reserve: 75, noise: 35, botPref: { range: [2, 18], value: 0.55 },
     primary: { type: 'projectile', projectile: 'goo', damage: 20, rate: 4, spreadDeg: 1.5, puddle: { radius: 1.5, damage: 5, seconds: 3 }, element: 'toxin' },
     alt: { type: 'projectile', trigger: 'charge', projectile: 'goo', rate: 0.8, ammoPerShot: 5, charge: { time: 2, min: 20, max: 150 }, split: { projectile: 'goo', count: 3, damage: 20 }, puddle: { radius: 2, damage: 2.5, seconds: 3 }, element: 'toxin' } },
   // R-092: 10 per tick (100 dps plus burn) beats an SMG inside its 9 m cone and nowhere else.
-  { id: 'kindler', code: 'W35', name: 'Kindler', class: 'heavy', moveMult: 0.85, mag: 100, reserve: 200, noise: 40, botPref: { range: [0, 9], value: 0.6 },
+  { id: 'kindler', code: 'W35', name: 'Kindler', class: 'heavy', price: 2400, moveMult: 0.85, mag: 100, reserve: 200, noise: 40, botPref: { range: [0, 9], value: 0.6 },
     primary: { type: 'cone', damage: 10, rate: 10, cone: { range: 9, angle: 30 }, status: { id: 'burn', seconds: 4 }, element: 'thermal' },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'goo', damage: 10, rate: 1, ammoPerShot: 10, puddle: { radius: 2.5, damage: 5, seconds: 6, status: { id: 'burn', seconds: 4 } }, element: 'thermal', special: 'airblast' } },
   // R-093: 16 + 10 splash at 10 rps; the stored heat vents when it stops firing (R-186), so the heat blast is earned right before use.
-  { id: 'ember', code: 'W36', name: 'Ember Repeater', class: 'energy', moveMult: 0.92, mag: 50, reserve: 200, noise: 55, botPref: { range: [3, 30], value: 0.75 },
+  { id: 'ember', code: 'W36', name: 'Ember Repeater', class: 'energy', price: 2400, moveMult: 0.92, mag: 50, reserve: 200, noise: 55, botPref: { range: [3, 30], value: 0.75 },
     primary: { type: 'projectile', projectile: 'plasma', damage: 16, rate: 10, splash: { r: 0.6, dmg: 10 }, heat: 4, recoil: 'energy', element: 'thermal' },
     alt: { type: 'cone', trigger: 'semi', rate: 1, ammoPerShot: 0, heatDamage: 120, cone: { range: 6, angle: 50 }, element: 'thermal' } },
-  { id: 'stormlash', code: 'W37', name: 'Stormlash', class: 'energy', mag: 100, reserve: 200, noise: 50, botPref: { range: [2, 24], value: 0.75 },
+  { id: 'stormlash', code: 'W37', name: 'Stormlash', class: 'energy', price: 2800, mag: 100, reserve: 200, noise: 50, botPref: { range: [2, 24], value: 0.75 },
     primary: { type: 'beam', damage: 8, rate: 20, range: 24, element: 'arc' },
     alt: { type: 'hitscan', trigger: 'semi', damage: 30, rate: 1.5, ammoPerShot: 5, range: 30, chain: { targets: 3, radius: 6 }, element: 'arc' } },
-  { id: 'starthrower', code: 'W38', name: 'Starthrower', class: 'energy', mag: 50, reserve: 150, noise: 45, botPref: { range: [3, 30], value: 0.6 },
+  { id: 'starthrower', code: 'W38', name: 'Starthrower', class: 'energy', price: 2200, mag: 50, reserve: 150, noise: 45, botPref: { range: [3, 30], value: 0.6 },
     primary: { type: 'projectile', projectile: 'disc', damage: 18, rate: 8, spreadDeg: 0.6, recoil: 'energy' },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'disc', bounces: 0, damage: 0, rate: 2, ammoPerShot: 3, splash: { r: 1.8, dmg: 50 }, arm: EXPLOSIVE_ALT_ARM } },
-  { id: 'accelerator', code: 'W39', name: 'Accelerator', class: 'energy', mag: 20, reserve: 60, noise: 70, botPref: { range: [5, 50], value: 0.65 },
+  { id: 'accelerator', code: 'W39', name: 'Accelerator', class: 'energy', price: 2600, mag: 20, reserve: 60, noise: 70, botPref: { range: [5, 50], value: 0.65 },
     primary: { type: 'hitscan', trigger: 'charge', rate: 1.2, charge: { time: 1.5, levels: [40, 90, 160], ammo: [2, 4, 8] }, recoil: 'energy', element: 'void' },
     alt: { type: 'cone', trigger: 'semi', damage: 60, rate: 0.7, ammoPerShot: 4, cone: { range: 6, angle: 360 }, knockback: 4, element: 'void' } },   // R-095: a real get-off-me ring
-  { id: 'fusionmortar', code: 'W40', name: 'Fusion Mortar', class: 'explosive', moveMult: 0.85, mag: 1, reserve: 1, maxAmmo: 1, noise: 90, botPref: { range: [8, 30], value: 0.6 },
+  { id: 'fusionmortar', code: 'W40', name: 'Fusion Mortar', class: 'explosive', price: 4500, moveMult: 0.85, mag: 1, reserve: 1, maxAmmo: 1, noise: 90, botPref: { range: [8, 30], value: 0.6 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'fusion', damage: 0, rate: 0.5, splash: { r: 6, dmg: 300 }, element: 'void' },
     alt: { type: 'detonate', projectile: 'fusion' } },
   { id: 'lifter', code: 'W41', name: 'Graviton Lifter', class: 'tool', noise: 20, botPref: { range: [0, 6], value: 0.2 },
@@ -265,10 +240,10 @@ const WEAPON_ROWS = [
     primary: { type: 'tool', trigger: 'semi', tool: 'gateDawn', rate: 2, range: 60 },
     alt: { type: 'tool', trigger: 'semi', tool: 'gateDusk', rate: 2, range: 60 } },
   // R-089: two 90 drills per kill (no single drill empties a 120 shield pool) homing at 90 deg/s (P17); fodderKill stays the PvE niche.
-  { id: 'auger', code: 'W43', name: 'Skull Auger', class: 'exotic', mag: 3, reserve: 9, noise: 60, botPref: { range: [3, 20], value: 0.7 },
+  { id: 'auger', code: 'W43', name: 'Skull Auger', class: 'exotic', price: 3500, mag: 3, reserve: 9, noise: 60, botPref: { range: [3, 20], value: 0.7 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'drill', damage: 90, rate: 0.8, fodderKill: true },
     alt: { type: 'detonate', projectile: 'drill' } },
-  { id: 'razorwind', code: 'W44', name: 'Razorwind', class: 'exotic', noise: 30, botPref: { range: [2, 18], value: 0.55 },
+  { id: 'razorwind', code: 'W44', name: 'Razorwind', class: 'exotic', price: 2000, noise: 30, botPref: { range: [2, 18], value: 0.55 },
     primary: { type: 'projectile', trigger: 'semi', projectile: 'blade', damage: 45, rate: 1.5, ammo: 'none', maxActive: 1, activeRule: 'block' },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'blade', damage: 45, rate: 2, ammo: 'none', maxActive: 1, activeRule: 'block', special: 'lodgeBlade', laser: { damage: 15, interval: 0.25 } } },
   { id: 'daybreak', code: 'W45', name: 'Daybreak Projector', class: 'power', moveMult: 0.85, mag: 4, reserve: 0, rarityScale: false, noise: 120, botPref: { range: [6, 60], value: 1 },
@@ -329,18 +304,21 @@ Data.define('attachments', {
 
 // WPN-006 weapon sets. carry = max weapons held besides melee and tools (0 = full arsenal, one of each);
 // start = spawn loadout; ammoTiers (WPN-007): primary-tier reserves are infinite.
+// P3-01: the rulesets use fullSet (the whole roster); the themed sets below stay as presets of the weapon-set mutator X10 and the custom editor.
+// Loot (RS10) uses lootSet, the same pool with rarity: every gun except the melee weapons, the map power weapons and the tools.
+const LOOT_GUN_IDS = WEAPON_ROWS.filter((row) => row.class !== 'melee' && row.class !== 'power' && row.class !== 'tool').map((row) => row.id);
 Data.define('weaponSets', {
   id: REQUIRED, name: REQUIRED, weapons: REQUIRED, start: REQUIRED, carry: 0, ammoTiers: false, rarity: false, power: [],
 }, [
   { id: 'arenaSet', name: 'Arena', weapons: ['maul', 'warden', 'scattergun', 'shardcaster', 'lancet', 'linker', 'ramjet', 'pitcher', 'ember', 'stormlash', 'daybreak'], start: ['maul', 'warden'], power: ['daybreak'] },
-  { id: 'tacticalSet', name: 'Tactical', weapons: ['tanto', 'warden', 'verdict', 'hush', 'wasp', 'riptide', 'vanguard', 'tempest', 'scattergun', 'heron', 'kestrel', 'anvil'], start: ['tanto', 'warden'], carry: 2 },
-  { id: 'militarySet', name: 'Military', weapons: ['tanto', 'warden', 'verdict', 'wasp', 'hornet', 'riptide', 'vanguard', 'tempest', 'ratchet', 'longshot', 'scattergun', 'heron', 'kestrel', 'hailstorm', 'anvil', 'kingfisher'], start: ['tanto', 'warden', 'hornet'], carry: 2 },   // R-094: a mid-pack spawn gun, so Tempest and the other pickups are upgrades
-  { id: 'sandboxSet', name: 'Sandbox', weapons: ['tanto', 'verdict', 'needlethorn', 'ratchet', 'longshot', 'coilcaster', 'pulsecarbine', 'lancet', 'heron', 'ramjet', 'pitcher', 'kindler'], start: ['tanto', 'ratchet', 'verdict'], carry: 2 },
-  { id: 'ravagerSet', name: 'Ravager', weapons: ['maul', 'scattergun', 'hookjaw', 'frostbore', 'stakedriver', 'hailstorm', 'ramjet', 'ember', 'accelerator', 'razorwind', 'daybreak'], start: ['maul', 'scattergun'], power: ['daybreak'] },
+  { id: 'tacticalSet', name: 'Tactical', weapons: ['tanto', 'warden', 'verdict', 'hush', 'wasp', 'vanguard', 'scattergun', 'heron', 'kestrel', 'hailstorm'], start: ['tanto', 'warden'], carry: 2 },
+  { id: 'militarySet', name: 'Military', weapons: ['tanto', 'warden', 'verdict', 'wasp', 'hornet', 'vanguard', 'ratchet', 'scattergun', 'heron', 'kestrel', 'hailstorm', 'ramjet'], start: ['tanto', 'warden', 'hornet'], carry: 2 },   // R-094: a mid-pack spawn gun, so the Vanguard and the other pickups are upgrades
+  { id: 'sandboxSet', name: 'Sandbox', weapons: ['tanto', 'verdict', 'needlethorn', 'ratchet', 'kestrel', 'coilcaster', 'hornet', 'lancet', 'heron', 'ramjet', 'pitcher', 'kindler'], start: ['tanto', 'ratchet', 'verdict'], carry: 2 },
+  { id: 'ravagerSet', name: 'Ravager', weapons: ['maul', 'scattergun', 'hookjaw', 'stakedriver', 'hailstorm', 'ramjet', 'ember', 'accelerator', 'razorwind', 'daybreak'], start: ['maul', 'scattergun'], power: ['daybreak'] },
   { id: 'knightSet', name: 'Knight', weapons: ['bulwark', 'scattergun', 'hookjaw', 'stakedriver', 'gloop', 'ember', 'starthrower', 'fusionmortar'], start: ['bulwark', 'scattergun'] },
-  { id: 'lootSet', name: 'Loot', weapons: ['tanto', 'warden', 'verdict', 'hush', 'wasp', 'hornet', 'riptide', 'vanguard', 'tempest', 'ratchet', 'longshot', 'scattergun', 'heron', 'kestrel', 'anvil'], start: ['tanto'], carry: 5, rarity: true },
+  { id: 'lootSet', name: 'Loot', weapons: ['tanto'].concat(LOOT_GUN_IDS), start: ['tanto'], carry: 5, rarity: true },
   { id: 'exoticSet', name: 'Exotic', weapons: ['sparklock', 'needlethorn', 'talonbow', 'gloop', 'stormlash', 'starthrower', 'accelerator', 'auger', 'razorwind'], start: ['tanto', 'sparklock'], ammoTiers: true },
-  { id: 'fullSet', name: 'Full arsenal', weapons: WEAPON_ROWS.map((row) => row.id), start: ['maul', 'warden'], power: ['daybreak', 'halcyon'] },
+  { id: 'fullSet', name: 'Full roster', weapons: WEAPON_ROWS.map((row) => row.id), start: ['maul', 'warden'], power: ['daybreak', 'halcyon'] },
   // Reserved row: S13 (13h) fills it for a match that uses a weapon list (mutators X08/X09/X10, custom match); empty outside such a match.
   { id: 'matchSet', name: 'Match list', weapons: ['maul'], start: ['maul'] },
 ]);

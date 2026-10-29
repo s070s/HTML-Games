@@ -31,7 +31,6 @@ const ItemArena = {
     if (Move.statusSpeedScale[id] !== 1) problems.push('speed');
     if (Weapons.rateScale[id] !== 1) problems.push('rate');
     if (Weapons.freeAmmo[id]) problems.push('free ammo');
-    if (Items.noArmor[id]) problems.push('no armor');
     if (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) problems.push('invisible');
     if (Actors.maxHealth[id] !== baseHealth) problems.push('max health ' + Actors.maxHealth[id]);
     if (Powerups.activeCount[id]) problems.push('still active');
@@ -82,7 +81,7 @@ Test.add('items', (check) => {
   ItemArena.start({ weaponSet: 'sandboxSet' }, [ItemArena.spot('vanguard', 6, 0), ItemArena.spot('warden', 9, 0)]);
   const sandbox = CAT.weaponSets.byId('sandboxSet'), sandboxKeys = [Items.keyOf(0), Items.keyOf(1)];
   const pickupGun = (key) => sandbox.weapons.includes(key) && !sandbox.start.includes(key);
-  check('Shield Wars: a converted pad never hands out a spawn gun (the Vanguard pad stays a rifle)', sandboxKeys.every(pickupGun) && CAT.weapons.byId(Items.keyOf(0)).class === 'rifle', sandboxKeys.join());
+  check('the Sandbox preset: a converted pad never hands out a spawn gun', sandboxKeys.every(pickupGun), sandboxKeys.join());
   ItemArena.start({ economy: 'heroKits' }, spots);
   check('hero kits: no weapon pads, other pickups stay', Items.spotCount === 1 && Items.keyOf(0) === 'healthpack', Items.spotCount);
   TestArena.finish();
@@ -94,7 +93,7 @@ Test.add('items', (check) => {
   ItemArena.start({ carry: 1 }, []);
   const id = ItemArena.actor(1, 20, 0), player = Game.playerId;
   Weapons.setLoadout(id, ['vanguard']);
-  ['tempest', 'wasp', 'anvil'].forEach((key) => Items.drop(key, 20, 0, 0));
+  ['kestrel', 'wasp', 'hailstorm'].forEach((key) => Items.drop(key, 20, 0, 0));
   let swaps = 0;
   const onPickup = (event) => { if (event.id === id && event.group === 'weapon') swaps++; };
   Bus.on('pickup', onPickup);
@@ -105,7 +104,7 @@ Test.add('items', (check) => {
   Game.playerId = id;
   const touchUse = TouchInput.needs.use();
   Game.playerId = player;
-  check('the Use prompt names the held gun and the floor gun, and touch shows USE', prompt === 'HOLD TO SWAP VANGUARD RIFLE FOR TEMPEST RIFLE' && touchUse, prompt + ' / ' + touchUse);
+  check('the Use prompt names the held gun and the floor gun, and touch shows USE', prompt === 'HOLD TO SWAP VANGUARD RIFLE FOR KESTREL DMR' && touchUse, prompt + ' / ' + touchUse);
   TestArena.hold(id, BTN.USE, 3);
   check('one swap while holding Use on the pile', swaps === 1 && !Weapons.has(id, 'vanguard'), swaps);
   Actors.x[id] = 30;
@@ -124,7 +123,7 @@ Test.add('items', (check) => {
   ItemArena.start({ carry: 1, downed: true, health: 'regen', teams: 2 }, []);
   const shooter = ItemArena.actor(1, 0, 0), medic = ItemArena.actor(2, 20, 0), mate = ItemArena.actor(2, 23, 0);
   Weapons.setLoadout(medic, ['vanguard']);
-  Items.drop('tempest', 20, 0, 0);
+  Items.drop('kestrel', 20, 0, 0);
   TestArena.hit(shooter, mate, 150);
   Sim.step();   // Damage.downedCount is counted in the step
   TestArena.hold(medic, BTN.USE, 1);
@@ -134,7 +133,7 @@ Test.add('items', (check) => {
   TestArena.hold(medic, BTN.USE, REVIVE_SECONDS + 1);
   check('Use held to revive and on swaps nothing', Weapons.has(medic, 'vanguard') && !(Actors.flags[mate] & ACTOR_FLAG.DOWNED));
   Sim.step();
-  check('then the swap is offered again', royaleUsePrompt(medic) === 'HOLD TO SWAP VANGUARD RIFLE FOR TEMPEST RIFLE');
+  check('then the swap is offered again', royaleUsePrompt(medic) === 'HOLD TO SWAP VANGUARD RIFLE FOR KESTREL DMR');
   TestArena.finish();
 });
 
@@ -149,7 +148,7 @@ Test.add('items', (check) => {
   Sim.run(TICK_RATE / 2);
   holdInput(id, 0, 1, BTN.USE);
   Sim.step();
-  for (let metre = 1; metre <= 10; metre++) Items.drop('tempest', 0, 0, Actors.z[id] + metre);
+  for (let metre = 1; metre <= 10; metre++) Items.drop('kestrel', 0, 0, Actors.z[id] + metre);
   Sim.run(TICK_RATE);
   check('skimmer: riding over guns swaps nothing', Move.onBoard(id) && Weapons.has(id, 'vanguard'));
   holdInput(id, 0, 1, 0);
@@ -162,8 +161,8 @@ Test.add('items', (check) => {
 });
 
 // Bots at the carry limit still upgrade at the pads with no Use, and only upgrade: a pad gun they cross is swapped in
-// only when the bot values it more (14e weaponItemValue; swap-01). Weave Suit carries two guns and spawns with two,
-// so every pad gun is a swap; the gun pushed out is still in Weapons.dropped when 'pickup' fires.
+// only when the bot values it more (14e weaponItemValue; swap-01). Weave Suit with a carry limit of 2 (the rows carry 0 since P3-01)
+// spawns bots with two guns, so every pad gun is a swap; the gun pushed out is still in Weapons.dropped when 'pickup' fires.
 Test.add('items', (check) => {
   let upgrades = 0, downgrades = 0;
   const worth = (id, key) => BotCombat.weaponValue(id, CAT.weapons.byId(key), 1);
@@ -174,7 +173,7 @@ Test.add('items', (check) => {
     if (gain < 0) downgrades++;
   };
   Bus.on('pickup', onPickup);
-  try { playMatch({ mode: 'tdm', map: 'harbor', ruleset: 'suit', minutes: 3, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH }); } finally { Bus.off('pickup', onPickup); }
+  try { playMatch({ mode: 'tdm', map: 'harbor', ruleset: Object.assign({}, RULESET_ROWS.find((row) => row.id === 'suit'), { carry: 2 }), minutes: 3, botCount: 10, seed: 1, modeOptions: SOAK_OPEN_MATCH }); } finally { Bus.off('pickup', onPickup); }
   check('Weave Suit: full bots swap guns at the pads, upgrades only', upgrades >= 8 && downgrades === 0, upgrades + ' / ' + downgrades);
 });
 
@@ -410,14 +409,9 @@ Test.add('items', (check) => {
   Sim.run(TICK_RATE);
   check('PU05 regenerates 15 HP/s below 110', Test.near(Actors.health[id], 65, 0.2), Actors.health[id]);
   Powerups.clearActor(id, false);
-  Powerups.give(id, CAT.powerups.byId('surplus'), 0);
-  check('PU07 +100 surplus shield', Damage.surplus[id] === 100);
-  check('PU07 refused while the surplus is full', !Powerups.give(id, CAT.powerups.byId('surplus'), 0));
-  Sim.run(5 * TICK_RATE);
-  check('PU07 surplus decays 2/s', Test.near(Damage.surplus[id], 90, 0.1), Damage.surplus[id]);
   Powerups.give(id, CAT.powerups.byId('guardianrune'), 0);
   check('PU15 doubles max health', Actors.maxHealth[id] === 200, Actors.maxHealth[id]);
-  check('runes: one at a time', !Powerups.give(id, CAT.powerups.byId('scoutrune'), 0));
+  check('runes: a rune holder takes no second rune', !Powerups.give(id, CAT.powerups.byId('guardianrune'), 0));
   TestArena.finish();
 });
 
@@ -494,13 +488,6 @@ Test.add('items', (check) => {
   Powerups.clearActor(id, false);
   Damage.resetHealth(id);
   TestArena.place(id, 0, 0);
-  Powerups.give(id, CAT.powerups.byId('aegisbelt'), 0);
-  const belt = id * POWERUP_COUNT + CAT.powerups.byId('aegisbelt').index;
-  TestArena.hit(-1, id, 30);
-  check('PU08 the belt absorbs damage first', Actors.health[id] === 100 && Powerups.charges[belt] === 70, Actors.health[id] + ' / ' + Powerups.charges[belt]);
-  TestArena.hit(-1, id, 80);
-  Sim.run(1);
-  check('PU08 damage past the belt hurts and the spent belt ends', Actors.health[id] === 90 && !Powerups.has(id, 'aegisbelt'), Actors.health[id]);
   const plainMelee = powerupLoss(id, target, 10, { kind: 'melee' });
   Actors.health[id] = 40;
   Powerups.give(id, CAT.powerups.byId('berserk'), 0);
@@ -530,23 +517,12 @@ Test.add('items', (check) => {
   for (let jump = 1; jump < boots.charges; jump++) Bus.emit('move.jump', { id, speed: 5, surface: '' });
   Sim.run(1);
   check('PU14 ends after its 3 boosted jumps', !Powerups.has(id, 'springboots'));
-  Actors.armor[id] = 50;
-  Powerups.give(id, CAT.powerups.byId('scoutrune'), 0);
-  check('PU16 removes armor and refuses armor pickups', Actors.armor[id] === 0 && !Items.effects.armor(id, CAT.items.byId('lightplate')));
-  check('PU16 speed x1.25', Test.near(Move.statusSpeedScale[id], 1.25, 1e-6));
   TestArena.finish();
 });
 
 Test.add('items', (check) => {
   ItemArena.start({});
-  const id = ItemArena.actor(1, 0, 0), weapon = ItemArena.plainWeapon(), slot = Weapons.slotIndex(id, weapon.index);
-  Weapons.give(id, weapon.id, 0);
-  Weapons.reserve[slot] = 0;
-  Powerups.give(id, CAT.powerups.byId('ammorune'), 0);
-  Sim.run(TICK_RATE + 1);
-  const share = Math.max(1, Math.round(Weapons.maxReserve(id, weapon) * 0.05));
-  check('PU17 5 % of max ammo every second', Weapons.reserve[slot] === share, Weapons.reserve[slot] + ' / ' + share);
-  Powerups.clearActor(id, false);
+  const id = ItemArena.actor(1, 0, 0);
   Actors.health[id] = 50;
   const souls = Powerups.souls[id];
   check('PU18 a soul shard adds a soul and 1 HP', Powerups.give(id, CAT.powerups.byId('soul'), 0) && Powerups.souls[id] === souls + 1 && Actors.health[id] === 51);

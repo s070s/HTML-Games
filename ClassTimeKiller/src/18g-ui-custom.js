@@ -238,6 +238,7 @@ const CustomMatch = {
     const object = unpacked.object;
     let note = '';
     if (isPlainObject(object) && object.map && !isSharedMap(object.map)) { delete object.map; note = SHARE_LOCAL_MAP_NOTE; }
+    migrateWeaponLists(object);   // a code made before P3-04 may name a retired weapon
     const checked = this.validate(object);
     if (checked.errors.length) return { error: 'The code holds settings this version cannot use: ' + checked.errors.slice(0, 3).join(', ') + '.' };
     return { draft: checked.draft, note };
@@ -256,6 +257,7 @@ const CustomMatch = {
     const fields = copyRuleValue(this.bundleOf(draft));
     delete fields.id; delete fields.code;
     for (const key of ['move', 'health', 'economy', 'weaponSet']) if (draft[key]) fields[key] = draft[key];
+    if (draft.weaponSet) { fields.carry = null; fields.ammoTiers = null; fields.melee = ''; }   // a chosen set keeps its own carry limit, ammo tiers and start melee
     if (draft.friendlyFire >= 0) fields.friendlyFire = draft.friendlyFire;
     if (draft.lives >= 0) fields.lives = draft.lives;
     if (draft.respawnDelay >= 0) fields.respawn = { delay: draft.respawnDelay };

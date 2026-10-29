@@ -33,6 +33,9 @@ const FENCE_REACH = 0.6;                 // an actor this close to a fence segme
 const FENCE_HEIGHT = 2;
 const SIGHT_INTERVAL = 0.25;
 const DECOY_HEALTH = 1;
+const RALLY_SURPLUS_CAP = 100;           // A40: the most surplus shield a rally leaves on one actor
+const DECOY_SHOT_TICKS = TICK_RATE / 2;   // A33: the double makes the noise of its owner's weapon twice a second (the merged Mimic Shell, P3-06)
+const DECOY_DEFAULT_NOISE = 60;          // ...in this radius when the owner holds no weapon
 const UNLIMITED_RANGE = 1e9;
 const HOSTILE_TO_ALL = -1;             // A24: a team of -1 is everyone's enemy (Actors.isEnemy)
 const PUPPET_DRIVE_ORDER = 19;         // A23: after every brain (10, 11) and nav (15), before abilities (20) and movement (30)
@@ -380,6 +383,10 @@ function decoyStep(zone) {
   const decoy = AbilityZones.target[zone];
   if (decoy < 0 || !Actors.alive[decoy]) return false;
   Actors.moveX[decoy] = AbilityZones.x2[zone]; Actors.moveZ[decoy] = AbilityZones.z2[zone]; Actors.aimYaw[decoy] = AbilityZones.yaw[zone];
+  if (Sim.tick % DECOY_SHOT_TICKS === 0) {
+    const owner = AbilityZones.owner[zone], weapon = owner >= 0 ? Weapons.currentWeapon(owner) : null;
+    emitSound(Actors.x[decoy], Actors.y[decoy] + 1, Actors.z[decoy], weapon ? weapon.noise : DECOY_DEFAULT_NOISE, 'shot', owner);
+  }
   return true;
 }
 function removeDecoy(zone) {
@@ -778,7 +785,7 @@ function castRevive(id, row) {
   return ally >= 0 && Damage.revive(ally);
 }
 // bolt: the aimed enemy takes params.damage of params.element and the status (stacks; seconds 0 = the status default).
-// With no enemy in the cone the status reaches the floor patch aimed at (12h: A29 shocks a wet patch, A30 lights oil).
+// With no enemy in the cone the status reaches the floor patch aimed at (12h: A29 shocks a wet patch).
 function castBolt(id, row) {
   const target = aimTarget(id, row.range);
   if (target < 0) return FloorSurfaces.boltFloor(id, row);
@@ -843,10 +850,10 @@ function castRift(id, row) {
   AbilityZones.rearm[id] = Sim.time + row.params.rearm;
   return true;
 }
-// rally: every living ally (the user alone without a team) gains surplus shield (inside the PU07 cap, lost again with the speed)
+// rally: every living ally (the user alone without a team) gains surplus shield (inside the RALLY_SURPLUS_CAP, lost again with the speed)
 // and speed for the duration.
 function castRally(id, row) {
-  const cap = CAT.powerups.byId('surplus').instant.surplusCap;
+  const cap = RALLY_SURPLUS_CAP;
   for (let other = 0; other < Actors.count; other++) {
     if (!Actors.alive[other] || !alliesOf(id, other)) continue;
     const granted = Math.min(row.params.surplus, Math.max(0, cap - Damage.surplus[other]));
@@ -924,7 +931,7 @@ function chainShock(id, source, seconds) {
   const next = nearestChainTarget(source, id, SHOCK_CHAIN_RADIUS, id < 32 ? 1 << id : 0, id >= 32 ? 1 << (id - 32) : 0);
   if (next >= 0) Damage.addStatus(next, 'shock', source, seconds, 1);
 }
-// A30 Ignite (and any Burn) thaws a chilled or frozen target; a thawed Freeze leaves its ice as a wet patch (12h).
+// Any Burn (G04 Cinder Jar, W35 Kindler, burning oil) thaws a chilled or frozen target; a thawed Freeze leaves its ice as a wet patch (12h).
 const THAW_SURFACE = 'wet';
 function meltIce(id, source) {
   if (Damage.hasStatus(id, 'freeze')) { Damage.clearStatus(id, ComboState.freeze); FloorSurfaces.spillUnder(id, THAW_SURFACE, source); }

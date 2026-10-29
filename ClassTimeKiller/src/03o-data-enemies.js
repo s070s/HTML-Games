@@ -111,7 +111,7 @@ Data.define('enemies', {
   { id: 'beast', code: 'E14', name: 'Wild Strider', role: 'neutral beast', brain: 'beast', health: 300, speed: 8, beast: true, size: 1.3, headScale: 1.3, massFactor: 3, cash: 50,
     cost: 6, sight: 40, endlessFrom: 999, drop: 'healthpack', dropChance: 0.4, color: 0x6a7a3a, glow: 0xffd040,
     attacks: [{ id: 'bite', kind: 'melee', damage: 40, range: [0, 2.2], tell: 0.5, cooldown: 1.6, parry: true }],
-    answers: ['lure it with a flare', 'any weapon (300 HP)', 'let it hunt your enemies'],
+    answers: ['lure it with a Glare Shell or Cinder Jar', 'any weapon (300 HP)', 'let it hunt your enemies'],
     parts: [['sphere', 0, 1.12, 0, 0.7, 0.6, 1.0, 'body'], ['cylinder', 0.12, 0.45, 0, 0.12, 0.85, 0.12, 'dark'], ['cylinder', -0.12, 0.45, 0, 0.12, 0.85, 0.12, 'dark'],
       ['box', 0, 1.45, 0.22, 0.15, 0.5, 0.15, 'dark'], ['box', 0, 1.66, 0.1, 0.3, 0.25, 0.42, 'dark', 1], ['box', 0, 1.2, -0.55, 0.12, 0.12, 0.5, 'dark'],
       ['sphere', 0, 1.72, 0.26, 0.18, 0.08, 0.08, 'eye', 1]] },

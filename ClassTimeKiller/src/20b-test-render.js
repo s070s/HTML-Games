@@ -558,7 +558,7 @@ const modelValid = (model) => model.shapes.every((shape) => SHAPE_INDEX[shape] !
   && model.parts.every((part) => part.size.every((size) => size > 0 && size < 2)) && Array.from(model.colors).every((value) => value >= 0 && value <= 1);
 Test.add('render', (check) => {
   const own = CAT.weapons.filter((weapon) => CAT.weaponModels.byId(weapon.id) && WeaponModels.weapon[weapon.index].id === weapon.id);
-  check('every weapon W01..W46 has its own model row (no class fallback)', own.length === CAT.weapons.length && CAT.weapons.length === 46, own.length);
+  check('every weapon has its own model row (no class fallback; 38 weapons)', own.length === CAT.weapons.length && CAT.weapons.length === 38, own.length);
   check('every model row names a weapon or a projectile', CAT.weaponModels.every((row) => CAT.weapons.byId(row.id))
     && CAT.projectileModels.every((row) => CAT.projectiles.byId(row.id)));
   check('the visible launcher projectiles have models', ['rocket', 'grenade', 'mine', 'stake', 'disc', 'arrow', 'missile', 'warhead'].every((id) => WeaponModels.projectile[CAT.projectiles.byId(id).index]));
@@ -570,10 +570,10 @@ Test.add('render', (check) => {
     && model.lodCounts[LOD.distant] < model.lodCounts[LOD.far] && model.lodCounts[LOD.far] <= model.lodCounts[LOD.near]));
   check('weapon models take the view pose of their class row', WeaponModels.byId.heron.pose === CAT.viewModels.byId('sniper') && WeaponModels.byId.ramjet.pose === CAT.viewModels.byId('launcher'));
   const silhouette = (id) => { const model = WeaponModels.byId[id]; return Array.from(model.data.slice(0, model.lodCounts[LOD.distant] * MODEL_PART_FLOATS)).join(','); };
-  const rifles = ['vanguard', 'tempest', 'ratchet', 'longshot'].map(silhouette);
-  check('the four assault rifles keep distinct distant silhouettes (render-04)', new Set(rifles).size === rifles.length);
-  const twin = WeaponModels.byId.twinsting.parts, mirrored = twin.filter((part) => part.shape === 'cylinder' && part.size[0] < 0.02);
-  check('a mirrored part draws twice, on both sides', mirrored.length === 2 && Test.near(mirrored[0].offset[0], -mirrored[1].offset[0], 1e-9), mirrored.length);
+  const rifles = ['vanguard', 'ratchet', 'kestrel', 'wasp'].map(silhouette);
+  check('the rifles and the SMG keep distinct distant silhouettes (render-04)', new Set(rifles).size === rifles.length);
+  const twin = WeaponModels.byId.hailstorm.parts, mirrored = twin.filter((part) => part.shape === 'cylinder' && part.size[0] < 0.03);
+  check('a mirrored part draws twice, on both sides', mirrored.length === 4 && Test.near(mirrored[0].offset[0], -mirrored[1].offset[0], 1e-9), mirrored.length);
   const projectileModel = (id) => WeaponModels.projectile[CAT.projectiles.byId(id).index], scaled = projectileModel('missile').parts[0];
   check('a scaled from row scales offsets and sizes (missile = 0.75 rocket)', Test.near(scaled.size[1], projectileModel('rocket').parts[0].size[1] * 0.75, 1e-6));
   check('the weapon and gear rows are valid data', ['viewModels', 'weaponModels', 'projectileModels'].every((name) => Data.validate(name).length === 0),
@@ -688,7 +688,7 @@ Test.add('render', (check) => withRenderer(() => {
   TestArena.start({});
   Game.headless = false;
   const id = TestArena.actor(1, 0, 0);
-  Weapons.setLoadout(id, ['tempest', 'warden']);
+  Weapons.setLoadout(id, ['vanguard', 'warden']);
   Game.playerId = id;
   Render.viewModel = MATCH_VIEW_MODEL;
   updateCamera(1 / 60, 1);

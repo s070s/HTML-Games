@@ -151,13 +151,11 @@ const Economy = {
     if (this.keptArmor[id] > 0) Actors.armor[id] = Math.max(Actors.armor[id], this.keptArmor[id]);
     if (this.keptHelmet[id]) Damage.helmet[id] = 1;
   },
-  // A class weapon (a Military key) as the ruleset's set arms it (CLASS_SET_SWAPS); the class card names the same weapon.
-  classWeapon(key) { return (CLASS_SET_SWAPS[currentWeaponSet().id] || {})[key] || key; },
   // ECP04: the class weapons (melee of the set kept), perk stats before the weapons so reserves include Bandolier.
   applyClass(id, row) {
     this.applyPerks(id, row.perks);
-    const melee = currentWeaponSet().start.filter((key) => CAT.weapons.byId(key).class === 'melee');
-    Weapons.setLoadout(id, melee.concat([this.classWeapon(row.secondary), this.classWeapon(row.primary)]));
+    const melee = Loadouts.setStart(id).filter((key) => CAT.weapons.byId(key).class === 'melee');
+    Weapons.setLoadout(id, melee.concat([row.secondary, row.primary]));
     Gadgets.clearGrenades(id);
     this.grant(id, 'gadget', row.lethal);
     this.grant(id, 'gadget', row.tactical);
@@ -285,6 +283,8 @@ const Economy = {
     if (item.kind !== 'helmet' || Actors.armor[id] < item.amount) return item.price;
     return item.price - VEST_ITEM.price;
   },
+  // P3-01: the one-tap quick buy of the round-buy rulesets is the loadout primary.
+  quickBuy(id) { return this.buy(id, Loadouts.pickedKey('primary')); },
   // Economy.buy(id, itemId) -> shared { ok, reason, price, item }: time, zone, item, carry limits and money are checked in that order.
   buy(id, itemId) {
     const result = BUY_RESULT;
@@ -379,7 +379,73 @@ function scavengeAmmo(id) {
   if (weapon && weapon.ammoType) Weapons.addAmmo(id, weapon.ammoType, Math.ceil(weapon.pickupAmmo * CAT.perks.byId('scavenger').value));
 }
 
-// ---- Loadouts (Save.data.loadouts): classes, the hero, ability kit choices; applied to the local player ----
+// ---- Loadouts (Save.data.loadouts): classes, the hero, ability kit choices, the pickup loadout; applied to the local player ----
+// P3-01: the weapon slots draw from the whole roster. A primary is any gun that is not a sidearm; the map power weapons (pads only)
+// and the tools (their modes and abilities) are never picked.
+const PICKUP_GUN_EXCLUDED = ['melee', 'sidearm', 'tool', 'power'];
+const PICKUP_SLOTS = ['melee', 'primary', 'secondary', 'lethal', 'tactical', 'device'];
+const PICKUP_SLOT_LABELS = { melee: 'Melee', primary: 'Primary', secondary: 'Secondary', lethal: 'Lethal', tactical: 'Tactical', device: 'Device' };
+const FULL_SET_ID = 'fullSet';
+const BOT_PRIMARY_MIN_MAG = 4;           // a bot does not spawn with a one-round launcher as its only gun
+const BOT_MAP_FIGHT_SHARE = 0.25;        // a typical fight is this share of the map's long side...
+const BOT_MAP_FIGHT_RANGE = [8, 60];     // ...within these metres
+const BOT_STYLE_FIGHT_SCALE = { camper: 1.6, accurate: 1.4, aggressive: 0.6, jumpy: 0.7, flanker: 0.7, vengeful: 0.8 };   // the bot's role moves the distance it likes to fight at
+// The keys that may fill a loadout slot: guns by class, gadgets by their row slot.
+function pickupSlotOptions(slot) {
+  if (slot === 'melee') return CAT.weapons.filter((row) => row.class === 'melee').map((row) => row.id);
+  if (slot === 'secondary') return CAT.weapons.filter((row) => row.class === 'sidearm').map((row) => row.id);
+  if (slot === 'primary') return CAT.weapons.filter((row) => !PICKUP_GUN_EXCLUDED.includes(row.class)).map((row) => row.id);
+  return CAT.gadgets.filter((row) => row.slot === slot).map((row) => row.id);
+}
+// A bot's spawn guns [melee, secondary, primary]: its profile favourite when it fits a slot, else a gun whose range suits the map,
+// drawn from a stream of its own (the shared streams stay as they were, and a seeded match repeats).
+function botSpawnKeys(id) {
+  const favorite = CAT.weapons.byId(BotDecide.favoriteWeapon(id)), keys = [Loadouts.meleeFor(id), DEFAULT_PICKUP_LOADOUT.secondary, ''];
+  if (favorite && pickupSlotOptions('primary').includes(favorite.id)) keys[2] = favorite.id;
+  else if (favorite && favorite.class === 'sidearm') keys[1] = favorite.id;
+  if (!keys[2]) keys[2] = botPrimaryForMap(id);
+  return keys;
+}
+// A bot's lethal, tactical and device (and its ability and ultimate) by their botUse rules: each option weighs its chance of use (an
+// effect no rule covers, or a tier flag the bot lacks, weighs nothing), and the pick comes from a hash stream of the actor's own.
+function botWeightedPick(id, label, keys, weightOf) {
+  let total = 0;
+  for (const key of keys) total += weightOf(key);
+  if (total <= 0) return keys[0];
+  let roll = makeRandom(hashString(label + ':' + Rng.seed + ':' + id)).next() * total;
+  for (const key of keys) {
+    roll -= weightOf(key);
+    if (roll < 0) return key;
+  }
+  return keys[keys.length - 1];
+}
+function botGadgetWeight(id, key) {
+  const effect = CAT.gadgets.byId(key).effect, use = BOT_GADGET_USE[effect];
+  if (effect === 'barrier') return 0;   // a wall the nav graph does not know: a bot's own barrier would block its paths
+  return !use || (use.tierFlag && !Bots.tier(id)[use.tierFlag]) ? 0 : use.chance;
+}
+function botAbilityWeight(key) {
+  const use = CAT.abilities.byId(key).botUse;
+  return use && use.chance > 0 ? use.chance : 0;
+}
+// The distance a bot expects to fight at: a share of the map's long side, scaled by the bot's style.
+function botFightDistance(id) {
+  const side = Math.max(World.boundsMax.x - World.boundsMin.x, World.boundsMax.z - World.boundsMin.z);
+  const profile = Bots.profile[id];
+  return clamp(side * BOT_MAP_FIGHT_SHARE * ((profile && BOT_STYLE_FIGHT_SCALE[profile.style]) || 1), BOT_MAP_FIGHT_RANGE[0], BOT_MAP_FIGHT_RANGE[1]);
+}
+// A gun a bot may carry or buy as its main gun: not an exotic or a one-round launcher, and its range band holds the bot's fight distance.
+function botGunFits(id, weapon) {
+  const distance = botFightDistance(id);
+  return weapon.class !== 'exotic' && weapon.mag >= BOT_PRIMARY_MIN_MAG && weapon.botPref.range[0] <= distance && distance <= weapon.botPref.range[1];
+}
+function botPrimaryForMap(id) {
+  const guns = pickupSlotOptions('primary').map((key) => CAT.weapons.byId(key)).filter((weapon) => weapon.class !== 'exotic' && weapon.mag >= BOT_PRIMARY_MIN_MAG);
+  const fitting = guns.filter((weapon) => botGunFits(id, weapon));
+  const pool = fitting.length ? fitting : guns;
+  return makeRandom(hashString('spawn:' + Rng.seed + ':' + id)).pick(pool).id;
+}
+
 const Loadouts = {
   // Declared in Save.emptySave, so migrate repairs a field of the wrong kind.
   store() { return Save.data.loadouts; },
@@ -387,6 +453,73 @@ const Loadouts = {
   classes() { return CAT.classes.concat(this.store().classes.custom); },
   classById(id) { return this.classes().find((row) => row.id === id) || null; },
   selectedClass() { return this.classById(this.store().classes.selected) || CAT.classes[0]; },
+  // ---- The pickup loadout (P3-05, P3-07): what the player spawns with where the map hands out guns on the whole roster ----
+  pickup() { return this.store().pickup; },
+  // The match arms from the saved loadout: the whole roster, map pickups, and no mode that hands out every gun itself.
+  usesPickupLoadout() {
+    return currentRules().weaponSet === FULL_SET_ID && Abilities.economyKey() === 'pickups' && !Economy.modeArmsEveryone();
+  },
+  pickupOptions(slot) { return pickupSlotOptions(slot); },
+  // The saved key of a slot; a key that no longer fits (an edited save) gives the default.
+  pickedKey(slot) {
+    const key = this.pickup()[slot];
+    return pickupSlotOptions(slot).includes(key) ? key : DEFAULT_PICKUP_LOADOUT[slot];
+  },
+  setPickup(slot, key) {
+    if (!PICKUP_SLOTS.includes(slot) || !pickupSlotOptions(slot).includes(key)) return false;
+    this.pickup()[slot] = key;
+    Save.scheduleSave();
+    return true;
+  },
+  resetPickup() {
+    Object.assign(this.pickup(), DEFAULT_PICKUP_LOADOUT);
+    Save.scheduleSave();
+  },
+  // The melee weapon an actor spawns with: the player's loadout pick where the pickup loadout is used or the player changed it from
+  // the factory default, else the ruleset's own default melee (its former set's start melee), else the full roster's.
+  meleeFor(id) {
+    const rules = currentRules();
+    if (id >= 0 && Actors.kind[id] === ACTOR_KIND.PLAYER && (this.usesPickupLoadout() || this.pickup().melee !== DEFAULT_PICKUP_LOADOUT.melee)) return this.pickedKey('melee');
+    return rules.melee || DEFAULT_PICKUP_LOADOUT.melee;
+  },
+  // The start guns of the weapon set with the melee of meleeFor in place of the full roster's (id -1: the ruleset's default).
+  setStart(id) {
+    const set = currentWeaponSet();
+    if (set.id !== FULL_SET_ID) return set.start;
+    const melee = this.meleeFor(id);
+    return set.start.map((key) => (CAT.weapons.byId(key).class === 'melee' ? melee : key));
+  },
+  // The weapon keys an actor spawns with, the drawn one last: the saved loadout for the player and a built one for each bot where
+  // the match uses the pickup loadout, else the weapon set's own start guns.
+  startKeys(id) {
+    const kind = Actors.kind[id];
+    if ((kind !== ACTOR_KIND.PLAYER && kind !== ACTOR_KIND.BOT) || !this.usesPickupLoadout()) return this.setStart(id);
+    if (kind === ACTOR_KIND.BOT) return botSpawnKeys(id);
+    return [this.pickedKey('melee'), this.pickedKey('secondary'), this.pickedKey('primary')];
+  },
+  // The gadgets of the pickup loadout (the saved picks for the player, picks by botUse rules for a bot), or null.
+  gear(id) {
+    const kind = Actors.kind[id];
+    if ((kind !== ACTOR_KIND.PLAYER && kind !== ACTOR_KIND.BOT) || !this.usesPickupLoadout()) return null;
+    if (kind === ACTOR_KIND.PLAYER) return { lethal: this.pickedKey('lethal'), tactical: this.pickedKey('tactical'), device: this.pickedKey('device') };
+    const pick = (slot) => botWeightedPick(id, slot, pickupSlotOptions(slot), (key) => botGadgetWeight(id, key));
+    return { lethal: pick('lethal'), tactical: pick('tactical'), device: pick('device') };
+  },
+  // The ability a bot takes for a slot of the 'loadout' kit ('' = the kit default): by botUse chance, from the bot's own hash stream.
+  botAbility(id, kit, slotName) {
+    if (Actors.kind[id] !== ACTOR_KIND.BOT || kit.id !== 'loadout' || !kit.choices[slotName]) return '';
+    return botWeightedPick(id, slotName, kit.choices[slotName], botAbilityWeight);
+  },
+  // Why this match does not hand out a weapon from the loadout ('' = it does). The loadout screen shows the reason instead of hiding the row.
+  restriction(key) {
+    const weapon = CAT.weapons.byId(key);
+    if (!weapon) return '';
+    if (Economy.modeArmsEveryone()) return 'This mode hands out every weapon itself';
+    if (Abilities.usesHeroes()) return 'Heroes carry their own weapons';
+    if (!currentWeaponSet().weapons.includes(weapon.id)) return 'Not in this match\'s weapon list';
+    if (weapon.class === 'power') return 'Power weapons come from map pads';
+    return weapon.class === 'tool' ? 'Tools come with their mode or ability' : '';
+  },
   // Players use their selected class, bots a preset class spread by actor id.
   classFor(id) { return Actors.kind[id] === ACTOR_KIND.PLAYER ? this.selectedClass() : CAT.classes[id % CAT.classes.length]; },
   selectClass(id) {
@@ -466,18 +599,12 @@ function classModelId(row) {
   const preset = CAT.classes.find((entry) => CAT.weapons.byId(entry.primary).class === primary.class);
   return preset ? preset.id : '';
 }
-// The class weapons a slot may hold: CLASS_WEAPON_SET keys, a sidearm as the secondary and any other gun as the primary
-// (the custom class editor's choices; the swap table CLASS_SET_SWAPS covers each of them).
-function classWeaponOptions(slot) {
-  return CAT.weaponSets.byId(CLASS_WEAPON_SET).weapons.filter((key) => {
-    const weaponClass = CAT.weapons.byId(key).class;
-    return slot === 'secondary' ? weaponClass === 'sidearm' : weaponClass !== 'sidearm' && weaponClass !== 'melee';
-  });
-}
+// The class weapons a slot may hold (the custom class editor's choices): a sidearm as the secondary, any other gun as the primary.
+function classWeaponOptions(slot) { return pickupSlotOptions(slot); }
 // The ECP04 rules for a custom class: class weapons (classWeaponOptions), one perk of each tier, a field upgrade of the preset list.
 function classProblem(row) {
-  if (!row || !classWeaponOptions('primary').includes(row.primary)) return 'Pick a primary weapon of the ' + CAT.weaponSets.byId(CLASS_WEAPON_SET).name + ' set.';
-  if (!classWeaponOptions('secondary').includes(row.secondary)) return 'The secondary must be a ' + CAT.weaponSets.byId(CLASS_WEAPON_SET).name + ' sidearm.';
+  if (!row || !classWeaponOptions('primary').includes(row.primary)) return 'Pick a primary gun that is not a sidearm.';
+  if (!classWeaponOptions('secondary').includes(row.secondary)) return 'The secondary must be a sidearm.';
   if (row.fieldUpgrade && !CAT.economy.byId('classes').fieldUpgrades.includes(row.fieldUpgrade)) return 'Pick a field upgrade from the list.';
   if (!Array.isArray(row.perks) || row.perks.length !== 3) return 'Pick three perks.';
   for (let tier = 1; tier <= 3; tier++) {
@@ -525,6 +652,10 @@ Damage.downHooks.push((id) => Modes.dropCarried(id));   // HP-007: a downed carr
 // 60-120 s recharge) and 'grant' (wave shop extras such as the core shield: Items.grantEffects) are delivered by S12.
 Economy.grants.gadget = (id, item) => Gadgets.give(id, item.key, item.amount || 1) > 0;
 Economy.grants.grant = (id, item) => Items.grantBuy(id, item);
+
+Weapons.startKeys = (id) => Loadouts.startKeys(id);        // S11 <- S13: the spawn guns follow the loadout
+Gadgets.loadoutGear = (id) => Loadouts.gear(id);
+Abilities.botChoice = (id, kit, slotName) => Loadouts.botAbility(id, kit, slotName);
 
 Bus.on('match.start', () => Economy.ensureMatch());
 Bus.on('match.stop', () => { Economy.match = null; Economy.credits.fill(0); });

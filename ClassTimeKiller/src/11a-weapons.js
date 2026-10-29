@@ -16,7 +16,6 @@ const SWAY_STEADY_SCALE = 0.1;           // a held breath shrinks the sway to th
 const SWAY_WINDED_SCALE = 2.5;           // ...until the breath runs out: then it grows to this
 const SWAY_SETTLE_RATE = 6;              // the sway size eases toward its target at this rate per second
 const BREATH_REFILL_RATE = 1;            // seconds of breath back per second of breathing normally
-const STILL_SPEED = 0.2;                 // below this horizontal speed an actor counts as standing still
 const MAX_SHOTS_PER_STEP = 4;
 const MELEE_RADIUS = 0.25;               // melee traces are fat rays: hit volumes grow by this much
 const MAX_LOCKS = 3;
@@ -152,6 +151,7 @@ const Weapons = {
   rayBlockers: [],                                  // fn(ox, oy, oz, dx, dy, dz, maxDistance) -> hit distance or -1: things that stop hitscan (S12 devices, domes)
   altClaim: null,                                   // fn(id) -> true while ALT belongs to something else (S12: the GAD-002 underhand throw)
   altClaimed: new Uint8Array(MAX_ACTORS),           // 1 = ALT was claimed during this hold: the weapon's alt waits for a release
+  startKeys: (id) => currentWeaponSet().start,        // fn(id) -> the weapon keys an actor spawns with (13d: the pickup loadout of the player and the bots)
   botTakes: (id, weapon) => true,                   // fn(id, weapon) -> true: a bot at the carry limit swaps this gun in (14e: only an upgrade)
   useClaimed: new Uint8Array(MAX_ACTORS),           // 1 = Use served another action during this hold (claimUse): no carry-limit swap until a release
   rodeBoard: new Uint8Array(MAX_ACTORS),            // 1 = on the skimmer at the last weapons step (the Use press that steps off is the board's)
@@ -210,7 +210,7 @@ const Weapons = {
   infiniteReserve(weapon) {
     const set = currentWeaponSet(), rules = currentRules();
     if (rules.fx && rules.fx.infiniteAmmo) return true;   // mutators X08, X09, X15
-    const tiers = rules.ammoTiers === undefined ? set.ammoTiers : rules.ammoTiers;
+    const tiers = typeof rules.ammoTiers === 'boolean' ? rules.ammoTiers : set.ammoTiers;
     return tiers && weapon.family.tier === 'primary';
   },
   carryLimit() {
@@ -340,7 +340,7 @@ const Weapons = {
     const first = keys.length ? CAT.weapons.byId(keys[keys.length - 1]) : null;
     if (first && this.owned[this.slotIndex(id, first.index)]) this.current[id] = first.index;
   },
-  giveStartLoadout(id) { this.setLoadout(id, currentWeaponSet().start); },
+  giveStartLoadout(id) { this.setLoadout(id, this.startKeys(id)); },
   // Ammo pickup for every owned weapon using that ammo type; returns rounds added.
   addAmmo(id, ammoType, amount) {
     let added = 0;
@@ -616,12 +616,9 @@ const Weapons = {
     if (heldFor >= DETONATE_HOLD_SECONDS) Projectiles.detonateOwned(id, weapon.index, mode.projectile);
     else this.releaseShot(id, weapon, mode, MODE_ALT, 0);
   },
-  // ALT flips the stance; a mount (W29) needs a ledge and drops as soon as the actor moves or the ledge is gone.
+  // ALT flips the stance (W09 hollow points, W28 turret root).
   stepStance(id, mode) {
-    const mounted = this.toggled[id] && mode.toggle.needsLedge;
-    if (mounted && !canStayMounted(id)) this.toggled[id] = 0;
     if (!(Actors.pressed[id] & BTN.ALT)) return;
-    if (!this.toggled[id] && mode.toggle.needsLedge && !hasLedgeInFront(id)) return;
     this.toggled[id] = this.toggled[id] ? 0 : 1;
   },
 
@@ -885,17 +882,6 @@ function angleToZone(id, eyeY, other, zone, aim, range, maxAngle) {
   return World.lineClear(Actors.x[id], eyeY, Actors.z[id], pointScratch.x, pointScratch.y, pointScratch.z) ? angle : -1;
 }
 
-// Mounting (W29): a surface at about chest height right in front of the actor.
-function hasLedgeInFront(id) {
-  Vec.fromAngles(aimScratch, Actors.yaw[id], 0);
-  const probeX = Actors.x[id] + aimScratch.x * 0.7, probeZ = Actors.z[id] + aimScratch.z * 0.7;
-  return World.raycast(probeX, Actors.eyeY(id), probeZ, 0, -1, 0, 0.8, exitHit) && exitHit.ny > 0.7;
-}
-function canStayMounted(id) {
-  if (length2(Actors.vx[id], Actors.vz[id]) > STILL_SPEED) return false;
-  return hasLedgeInFront(id);
-}
-
 // ---- Shot tracing (ARC-014): world first, then actors along the ray, pierce, thin-cover penetration (WPN-005) ----
 const Shot = {
   // Traces one ray from an origin; returns the distance where it stopped.
@@ -965,8 +951,8 @@ function eyeOrigin(id, out) { return Vec.set(out, Actors.x[id], Actors.eyeY(id),
 const originScratch = Vec.make();
 
 // A tracer from the muzzle (the eye when the muzzle is not reachable) to where the shot stopped on the eye ray.
-function drawTracer(id, direction, distance, weapon) {
-  if (Game.headless) return;
+function drawTracer(id, direction, distance, weapon, mode) {
+  if (Game.headless || !mode.tracer) return;
   const eyeY = Actors.eyeY(id), start = Muzzle.visual(id, weapon, distance);
   Fx.tracer(start.x, start.y, start.z, Actors.x[id] + direction.x * distance, eyeY + direction.y * distance, Actors.z[id] + direction.z * distance, weapon.family.color | 0x404040);
 }
@@ -981,7 +967,7 @@ function deliverHitscan(id, weapon, mode, modeIndex, fraction) {
     Weapons.aimDirection(id, spread, aimScratch);
     if (ballistics) { Projectiles.spawnBallistic(id, weapon, mode, modeIndex, aimScratch, damage, ballistics); continue; }
     const distance = Shot.trace(id, weapon, mode, damage, originScratch.x, originScratch.y, originScratch.z, aimScratch.x, aimScratch.y, aimScratch.z);
-    if (pellet === 0 || mode.pellets < 4) drawTracer(id, aimScratch, distance, weapon);
+    if (pellet === 0 || mode.pellets < 4) drawTracer(id, aimScratch, distance, weapon, mode);
     if (mode.splash) splashAtShotEnd(id, mode, distance);
   }
 }
@@ -1050,7 +1036,7 @@ function deliverProjectile(id, weapon, mode, modeIndex, fraction) {
   }
 }
 
-// ---- Lock-on (W07 auto-aim, W33 homing volley) ----
+// ---- Lock-on (W07 auto-aim, W31 homing volley) ----
 const LockOn = {
   update(id, weapon, mode, held, dt) {
     if (!held) {
@@ -1146,7 +1132,7 @@ function deliverLock(id, weapon, mode, modeIndex, fraction) {
   Vec.set(aimScratch, pointScratch.x - originScratch.x, pointScratch.y - originScratch.y, pointScratch.z - originScratch.z);
   Vec.normalize(aimScratch, aimScratch);
   const distance = Shot.trace(id, weapon, mode, Weapons.shotDamage(id, weapon, mode, fraction), originScratch.x, originScratch.y, originScratch.z, aimScratch.x, aimScratch.y, aimScratch.z);
-  drawTracer(id, aimScratch, distance, weapon);
+  drawTracer(id, aimScratch, distance, weapon, mode);
 }
 
 function deliverTool(id, weapon, mode) { Weapons.tools[mode.tool](id, weapon, mode); }

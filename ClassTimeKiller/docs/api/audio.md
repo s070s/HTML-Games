@@ -91,7 +91,7 @@ Derived without events (frame update): low-health heartbeat (`Actors.health / ma
 
 ### Weapon classes
 
-`sidearm shotgun rifle smg lmg dmr sniper rail launcher energy heavy melee tool exotic power` plus the catalogue names `marksman` (= `dmr`) and `explosive` (= `launcher`). Unknown classes play `rifle`. Weapon keys with their own sound (`SOUND_TABLES.weaponOverride`; the self-test checks every key exists in `CAT.weapons`; the long-term home for this is an optional `sound` field on the weapon row): `lancet` (rail), `heron` (sniper), `kestrel` and `longshot` (dmr), `anvil` (lmg), `twinsting` (smg), `kindler` (flame), `hush` (suppressed), `tanto` (stab), `talonbow` (bowshot).
+`sidearm shotgun rifle smg lmg dmr sniper rail launcher energy heavy melee tool exotic power` plus the catalogue names `marksman` (= `dmr`) and `explosive` (= `launcher`). Unknown classes play `rifle`. Weapon keys with their own sound (`SOUND_TABLES.weaponOverride`; the self-test checks every key exists in `CAT.weapons`; the long-term home for this is an optional `sound` field on the weapon row): `lancet` (rail), `heron` (sniper), `kestrel` (dmr), `kindler` (flame), `hush` (suppressed), `tanto` (stab), `talonbow` (bowshot).
 
 ### Surfaces
 

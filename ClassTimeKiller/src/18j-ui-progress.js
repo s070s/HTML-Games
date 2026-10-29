@@ -93,7 +93,8 @@ Ui.register('career', {
     root.appendChild(makeElement('p', 'ui-sub', careerLevelText()));
     root.appendChild(careerBar(Progress.levelProgress()));
     const menu = makeElement('div', 'ui-menu');
-    for (const entry of CAREER_SCREENS) menu.appendChild(Ui.button(entry.label, () => Ui.open(entry.screen), entry.screen === 'ladder' ? 'primary' : ''));
+    const anyNew = CAT.unlocks.some((row) => Progress.isNew(row));
+    for (const entry of CAREER_SCREENS) menu.appendChild(Ui.button(entry.label + (anyNew && entry.screen === 'profile' ? ' (New)' : ''), () => Ui.open(entry.screen), entry.screen === 'ladder' ? 'primary' : ''));
     menu.appendChild(Ui.button('Solo', () => Ui.open('solo')));   // the PvE modes (with a difficulty choice) live there; the Firing Range is on the main menu
     menu.firstChild.dataset.autofocus = '1';
     root.appendChild(menu);
@@ -103,7 +104,7 @@ Ui.register('career', {
 // ---- Profile: level, cosmetics, the next unlocks, medals ----
 function careerLookCycle(kind, label, onChange) {
   const rows = Progress.unlocked(kind);
-  const values = [CAREER_DEFAULT_LOOK].concat(rows.map((row) => row.id)), labels = ['Default'].concat(rows.map((row) => row.name));
+  const values = [CAREER_DEFAULT_LOOK].concat(rows.map((row) => row.id)), labels = ['Default'].concat(rows.map((row) => row.name + (Progress.isNew(row) ? ' (New)' : '')));
   return Ui.row(label, Ui.cycle(values, labels, Progress.profile().cosmetics[kind] || CAREER_DEFAULT_LOOK, (value) => {
     Progress.setCosmetic(kind, value);
     if (onChange) onChange();
@@ -126,6 +127,11 @@ Ui.register('profile', {
     root.appendChild(makeElement('p', 'ui-sub', careerLevelText() + ', ' + Progress.profile().xp + ' XP, ' + Progress.profile().matches + ' matches'));
     root.appendChild(careerBar(Progress.levelProgress()));
     const list = careerList(root);
+    const fresh = CAT.unlocks.filter((row) => Progress.isNew(row));
+    if (fresh.length) {
+      list.appendChild(makeElement('div', 'ui-group', 'New'));
+      for (const row of fresh) list.appendChild(careerRow(row.name + ' (' + row.kind + ')', 'New', []));
+    }
     list.appendChild(makeElement('div', 'ui-group', 'Look (cosmetic only)'));
     const swatch = makeElement('span', 'pg-swatch'), paint = () => careerPaintSwatch(swatch);
     const colorRow = careerLookCycle('color', 'Body colour', paint);
@@ -135,10 +141,12 @@ Ui.register('profile', {
     list.appendChild(careerLookCycle('finish', 'Finish', paint));
     list.appendChild(careerLookCycle('title', 'Title'));
     list.appendChild(makeElement('div', 'ui-group', 'Next unlocks'));
-    for (const row of careerNextUnlocks()) list.appendChild(careerRow(row.name, 'Level ' + row.level + ' - ' + row.kind, []));
+    for (const row of careerNextUnlocks()) list.appendChild(careerRow(row.name + ' (' + row.kind + ')', Progress.requirementText(row), []));
+    for (const row of CAT.unlocks.filter((entry) => entry.mastery && !Progress.isUnlocked(entry))) list.appendChild(careerRow(row.name + ' (' + row.kind + ')', Progress.requirementText(row), []));
     list.appendChild(makeElement('p', 'ui-note', 'Mastery colours unlock by weapon mastery (Statistics); cards by their own challenge. Settings > Gameplay > Unlock everything opens all of it.'));
     list.appendChild(makeElement('div', 'ui-group', 'Medals'));
     for (const row of CAT.medals) list.appendChild(careerRow(row.code + ' ' + row.name + ': ' + (Progress.profile().medals[row.id] || 0), row.text, []));
+    Progress.markSeen();   // looked at: the badge goes
   },
 });
 
@@ -157,7 +165,7 @@ function careerLadderRow(tier, match) {
   const play = status === 'locked' ? careerDisabled('Locked') : Ui.button(status === 'next' ? 'Play' : 'Replay', () => Ladder.start(tier, match), status === 'next' ? 'primary' : '');
   if (status === 'next') play.dataset.autofocus = '1';
   const label = (match + 1) + '. ' + careerModeName(entry.mode) + ' on ' + careerMapName(entry.map) + (entry.final ? ' - FINAL' : '');
-  return careerRow(label, 'vs ' + opponents + ' - ' + status, status === 'locked' ? [play] : [difficulty, play]);
+  return careerRow(label, 'vs ' + opponents + ' - ' + (status === 'locked' ? Ladder.requirementText(tier, match) : status), status === 'locked' ? [play] : [difficulty, play]);
 }
 Ui.register('ladder', {
   build(root) {
@@ -184,15 +192,11 @@ function careerPointsText(row) {
   });
   return 'Points: ' + parts.join(', ') + '.';
 }
-function careerRoomUnlockText(group) {
-  const row = CAT.unlocks.find((unlock) => unlock.kind === 'challenge' && unlock.value === group);
-  return row ? 'Opens at level ' + row.level : 'Locked';
-}
 function careerRoomRow(row) {
-  if (!Challenges.isOpen(row)) return careerRow(row.code + ' ' + row.name, careerRoomUnlockText(row.group), [careerDisabled('Locked')]);
+  if (!Challenges.isOpen(row)) return careerRow(row.code + ' ' + row.name, Challenges.requirementText(row), [careerDisabled('Locked')]);
   const record = Challenges.record(row.id);
   const buttons = [Ui.button('Play', () => Challenges.start(row.id, false))];
-  buttons.push(Challenges.expertOpen(row.id) ? Ui.button('Expert', () => Challenges.start(row.id, true)) : careerDisabled('Expert at ' + CHALLENGE_EXPERT_STARS + ' stars'));
+  buttons.push(Challenges.expertOpen(row.id) ? Ui.button('Expert', () => Challenges.start(row.id, true)) : careerDisabled(Challenges.requirementText(row)));
   const label = makeElement('span');
   label.textContent = row.code + ' ' + row.name;
   label.appendChild(makeElement('span', 'pg-stars', careerStars(record.stars)));

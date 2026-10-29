@@ -23,8 +23,10 @@ Modes.register('lms', {
     if (params.startArmor) Items.addArmor(id, params.startArmor, params.startArmor);   // within maxArmor, none without armor
   },
 });
+// Power weapons (map pads only) and tools (their mode or ability) are never part of a spawn kit, as in roulette (13f).
+const WHOLE_SET_EXCLUDED_CLASSES = ['tool', 'power'];
 function giveWholeSet(id, fullReserve) {
-  Weapons.setLoadout(id, currentWeaponSet().weapons);
+  Weapons.setLoadout(id, currentWeaponSet().weapons.filter((key) => !WHOLE_SET_EXCLUDED_CLASSES.includes(CAT.weapons.byId(key).class)));
   if (fullReserve) addAmmoShare(id, 1);
 }
 

@@ -12,7 +12,7 @@ Files:
 
 Tests: groups `abilities` and `economy`. Debug: `__CTK.abilities` `{ abilities, meters, zones }` and `__CTK.economy` `{ economy, loadouts }`.
 
-## Catalogue `abilities` (A01..A40, AX1..AX7)
+## Catalogue `abilities` (A01..A40 without the retired A30 and A31, AX1..AX7: 45 rows; the retired keys map to `arcbolt` through `ABILITY_MIGRATION`, 04-save)
 
 | Field | Default | Meaning |
 |---|---|---|
@@ -86,7 +86,7 @@ Slots per actor: `SLOT.ABILITY1` / `ABILITY2` / `ULTIMATE` / `PASSIVE`. They are
   - Each kind keeps 3 overlapping entries with their own value and end time. The same value extends its entry; `get` returns the strongest live entry (the lowest for slows). A strong short buff never lasts as long as a weak long one.
   - Kinds: SPEED, SLOW (lowest wins), DAMAGE, RATE, INVULNERABLE, INVISIBLE, REGEN (HP/s), TOUCH_KILL, NO_FIRE, ENERGY_REGEN, MELEE (GRAVITY and RATE_SLOW are described below). INVISIBLE sets `ACTOR_FLAG.INVISIBLE` only while the actor is not frozen (G08: a freeze stops a cloak; it comes back when the freeze ends).
   - **Buffs is the single writer of `Move.statusSpeedScale` and `Weapons.rateScale`** (`Buffs.applyScales(id)`, every step and whenever the powerup set changes): speed = SPEED x SLOW x `Powerups.speedScale`, fire rate = RATE x `Powerups.rateScale`. Other sections that need a speed or fire-rate change use `Buffs.add` (or, like powerups, keep their own factor that `applyScales` multiplies in).
-  - RATE works through `Weapons.rateScale` (S11 divides every shot interval by it); NO_FIRE holds `Weapons.nextShot`, and (A06 Phase Slip, through `Gadgets.attackLocks`) also stops grenades, gadgets and `offense` / `control` abilities (`ATTACK_CATEGORIES`); a grenade being cooked when it starts is put away (kept). Rally (A40 Rally Cry) gives every living ally surplus shield inside the PU07 surplus cap, and that surplus is lost again after 8 s (`RallyShield`; one pool, a later rally moves the end) together with the speed buff.
+  - RATE works through `Weapons.rateScale` (S11 divides every shot interval by it); NO_FIRE holds `Weapons.nextShot`, and (A06 Phase Slip, through `Gadgets.attackLocks`) also stops grenades, gadgets and `offense` / `control` abilities (`ATTACK_CATEGORIES`); a grenade being cooked when it starts is put away (kept). Rally (A40 Rally Cry) gives every living ally surplus shield inside `RALLY_SURPLUS_CAP` (100), and that surplus is lost again after 8 s (`RallyShield`; one pool, a later rally moves the end) together with the speed buff.
 - `AbilityZones`: a pool of 48 placed effects, stored as a struct of arrays.
   - Fields: `alive`, `kind` (`ZONE_KIND`), `owner`, `team`, `ability`, `x/y/z`, `radius`, `height`, `timeLeft`, `target`, `other`, `value`, `persist`.
   - Methods: `add(kind, owner, row, x, y, z, seconds)` returns the zone index, `find(kind, owner)`, `remove(zone)`, `removeOwned(id, keepPersistent)`, `clear()`, `inside(zone, id)`.
@@ -164,7 +164,7 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
 
 - `Loadouts.classes()`, `selectedClass()`, `selectClass(id)`, `classFor(actorId)`.
 - Body model (`Economy.applyBodyModel(id)`, on every spawn and an in-room hero switch): the hero's row of 03s `actorModels`, else the class's (`classModelId`: a custom class wears the first preset class with the same primary weapon class), else the ruleset's own row (RS03, RS08, RS11), else the default body; it calls 07c `ActorModels.set` (docs/api/render.md).
-- `saveClass(row)` stores up to 10 custom classes as `class-N`. It returns `null` with `lastError` when the primary or the secondary is not one of `classWeaponOptions(slot)` (keys of `CLASS_WEAPON_SET`, Military, in 03l: a sidearm as the secondary, any other non-melee gun as the primary), the perks are not one per tier, or the field upgrade is not in the ECP04 list.
+- `saveClass(row)` stores up to 10 custom classes as `class-N`. It returns `null` with `lastError` when the primary or the secondary is not one of `classWeaponOptions(slot)` (the whole roster, `pickupSlotOptions` in 13d: a sidearm as the secondary, any gun that is not a sidearm, melee, tool or map power weapon as the primary), the perks are not one per tier, or the field upgrade is not in the ECP04 list.
 - `removeClass(id)`, `hero()`, `setHero(id)`, `kitChoice(kitId)`, `setKitChoice(kitId, slot, abilityId)` (only allowed choices).
 - `applyTo(actorId)` runs on `actor.create` for the player. Changes apply at the next spawn; heroes can switch instantly in the spawn room.
 
@@ -174,7 +174,8 @@ Presets `CAT.economy` (ECP01..ECP07): `pickups`, `roundBuy`, `loot`, `classes`, 
   - Shows credits, buy time, next-round money and the loss ladder panel (ECO-001).
   - Items have hotkeys 1-9. Unaffordable items are dimmed and a press shows the reason.
   - B or Esc closes it. It closes itself when buy time ends.
-- `loadout` has three tabs: Classes, Hero and Ability kits. `classEditor` uses one cycle per field. Weapon options are `classWeaponOptions(slot)`; while the match set swaps a class weapon (`CLASS_SET_SWAPS`) the option reads "Name (here: Swapped name)".
+- `loadout` has four tabs: Weapons and gear (the pickup loadout, below), Classes, Hero and Ability kits. `classEditor` uses one cycle per field. Weapon options are `classWeaponOptions(slot)`.
+- Pickup loadout (P3-05, P3-07): `Save.data.loadouts.pickup` = `{ melee, primary, secondary, lethal, tactical, device }` (default `DEFAULT_PICKUP_LOADOUT` in 03l: Breaker Maul, Hornet Carbine, Warden Pistol, Frag Charge, Glare Shell, Barrier Deploy; the ability kit `loadout` holds Surge Dash and Rally Cry). `Loadouts.usesPickupLoadout()` is true where the ruleset arms from `fullSet`, the economy is `pickups` and no mode arms everyone; `pickupOptions(slot)`, `setPickup(slot, key)` (checks the slot), `pickedKey(slot)` (falls back to the default), `resetPickup()`, `startKeys(id)` (melee, secondary, primary: the saved loadout for the player, `botSpawnKeys` for a bot: its favourite when it fits a slot, else a gun whose `botPref.range` suits the map, drawn from its own hash stream), `gear(id)` and `restriction(key)` (the reason a weapon is not handed out here, shown in the loadout screen). `Weapons.startKeys` and `Gadgets.loadoutGear` are the hooks 13d fills. Ruleset field `abilities` (`none` | `kit` | `loadout`) decides the ability kit: kit `loadout` matches `{ abilities: 'loadout' }` (RS06, RS07, RS08, RS10); an ultimate needs a meter that pays it, so those four rulesets run the `ultimate` meter.
 - Opening:
   - The `buyMenu` action (KeyB, Interface group) opens `buy` in buying matches, else `loadout` when the match has loadouts.
   - Gamepad and touch players use the pause menu rows `Buy menu` and `Loadout`. These rows exist only during matches that use them.

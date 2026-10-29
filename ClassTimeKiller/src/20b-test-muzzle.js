@@ -41,7 +41,7 @@ Test.add('muzzle', (check) => {
     if (weapon.class === 'melee') continue;
     if (muzzle[2] < 0.15 || muzzle[2] > 0.7 || Math.abs(muzzle[0]) > 0.1 || Math.abs(muzzle[1]) > 0.15) problems.push(weapon.id + ': muzzle ' + Array.from(muzzle).join(','));
   }
-  check('every weapon model has a muzzle in front of its grip (45 + melee)', CAT.weapons.length === 46 && problems.length === 0, problems.join('; '));
+  check('every weapon model has a muzzle in front of its grip (the 38 weapons, melee included)', CAT.weapons.length === 38 && problems.length === 0, problems.join('; '));
   const rifleMuzzle = WeaponModels.byId.vanguard.muzzle;
   check('the muzzle is the front end of the barrel (a rifle: its barrel part, centre 0.3 and 0.2 long, ends at 0.4)', rifleMuzzle[0] === 0 && Math.abs(rifleMuzzle[1] - 0.01) < 1e-6 && Math.abs(rifleMuzzle[2] - 0.4) < 1e-6, Array.from(rifleMuzzle).join());
   const own = Models.compile([{ id: 'own', parts: [MUZZLE_TEST_PROBE_PART], muzzle: [0.1, -0.05, 0.9] }], null).byId.own;
@@ -258,6 +258,7 @@ Test.add('muzzle', (check) => {
           if (muzzleTestDistance(start, muzzle) > MUZZLE_TEST_TOLERANCE || muzzleTestDistance(start, eye) < 0.25) startProblems.push(name + ' starts ' + JSON.stringify(start));
           continue;
         }
+        if (mode.tracer === false) { if (tracers.length) problems.push(name + ': a tracer for a silent shot'); continue; }   // W06 Hush draws none
         if (!tracers.length) { problems.push(name + ': no tracer'); continue; }
         tracerShots++;
         const tracer = tracers[0], reach = muzzleTestDistance(tracer.b, eye);
@@ -266,7 +267,7 @@ Test.add('muzzle', (check) => {
       }
     }
   } finally { Game.headless = saved.headless; Fx.tracer = saved.tracer; Fx.burst = saved.burst; }
-  check('every hitscan, beam and projectile mode fires (' + shots + ' modes)', shots >= 60 && tracerShots >= 25 && projectileShots >= 20, shots + ' ' + tracerShots + ' ' + projectileShots);
+  check('every hitscan, beam and projectile mode fires (' + shots + ' modes)', shots >= 45 && tracerShots >= 20 && projectileShots >= 20, shots + ' ' + tracerShots + ' ' + projectileShots);
   check('every tracer starts at the weapon\'s muzzle, away from the eye, and ends where the eye ray stopped (the wall at 30 m)', problems.length === 0, problems.slice(0, 4).join('; '));
   check('every projectile starts at the muzzle, away from the eye', startProblems.length === 0, startProblems.slice(0, 4).join('; '));
   check('every shot\'s muzzle flash is at the muzzle', flashProblems.length === 0, flashProblems.slice(0, 4).join('; '));

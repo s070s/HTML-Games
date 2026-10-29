@@ -124,7 +124,7 @@ const Progress = {
   // ---- Save layout (ARC-020): fills every missing progress field of any older save ----
   emptyProfile() {
     return { version: PROGRESS_VERSION, xp: 0, matches: 0, medals: {}, unlocked: {}, cosmetics: { color: '', finish: '', title: '' }, rangeOffered: false,
-      cards: { unlocked: {}, active: [], passive: [], marks: 0 }, challenges: {}, operations: {}, daily: {}, chambers: {} };
+      cards: { unlocked: {}, active: [], passive: [], marks: 0 }, challenges: {}, operations: {}, daily: {}, chambers: {}, seen: null };
   },
   emptyStats() { return { version: PROGRESS_VERSION, weapons: {}, modes: {}, maps: {}, totals: { matches: 0, wins: 0, kills: 0, deaths: 0, seconds: 0 } }; },
   emptyLadder() { return { version: PROGRESS_VERSION, tier: 0, match: 0, done: false, cleared: {}, difficulty: {} }; },
@@ -255,14 +255,57 @@ const Progress = {
 
   // ---- Unlocks (PRG-010, PRG-011): by level (<= 30), weapon mastery tier or the card's own condition ----
   unlockAll() { return Settings.get('progress.unlockAll') === true; },
-  isUnlocked(row) {
+  isUnlocked(row) { return !!row && (this.unlockAll() || this.isEarned(row)); },
+  // Unlocked by play, ignoring the "Unlock everything" setting (the "New" badge only counts these).
+  isEarned(row) {
     if (!row) return false;
-    if (this.unlockAll()) return true;
     if (row.card) return this.profile().cards.unlocked[row.card] === true;
     if (row.mastery) return this.masteryReached(row.mastery);
     return this.level() >= row.level;
   },
   unlocked(kind) { return CAT.unlocks.filter((row) => row.kind === kind && this.isUnlocked(row)); },
+  // P3-07: unlocks the player has not looked at yet (the "New" badge). The first call, for a new or an older save, counts what is
+  // unlocked by then as seen; the profile screen marks the rest seen when it opens.
+  seenIds() {
+    const profile = this.profile();
+    if (!isPlainObject(profile.seen)) {
+      profile.seen = {};
+      for (const id of this.unlockedIds(true)) profile.seen[id] = true;
+    }
+    return profile.seen;
+  },
+  isNew(row) { return !this.unlockAll() && this.isEarned(row) && !this.seenIds()[row.id]; },
+  markSeen() {
+    const seen = this.seenIds();
+    let changed = false;
+    for (const id of this.unlockedIds(true)) if (!seen[id]) { seen[id] = true; changed = true; }
+    if (changed) Save.scheduleSave();
+  },
+  // P3-07: what a locked unlock asks for and where the player stands ('' once it is unlocked): the menus show it on every locked row.
+  requirementText(row) {
+    if (!row || this.isUnlocked(row)) return '';
+    if (row.card) {
+      const card = CAT.cards.byId(row.card);
+      return card ? 'Card unlock: ' + card.unlock.text : 'Locked';
+    }
+    if (row.mastery) return this.masteryRequirement(MASTERY_TIERS[masteryTierIndex(row.mastery)]);
+    return this.levelRequirement(row.level);
+  },
+  levelRequirement(level) {
+    return 'Level ' + level + ' - you are level ' + this.level() + ' (' + this.profile().xp + ' / ' + this.xpForLevel(level) + ' XP)';
+  },
+  // The weapon closest to a mastery tier is the one the progress is told for ("37 / 150 kills, 12 / 40 headshots").
+  masteryRequirement(tier) {
+    let kills = 0, headshots = 0, share = -1;
+    const weapons = this.stats().weapons;
+    for (const key in weapons) {
+      const record = weapons[key], have = Math.min(Number(record.kills) || 0, tier.kills), heads = Math.min(Number(record.headshots) || 0, tier.headshots);
+      const reached = Math.min(have / tier.kills, tier.headshots ? heads / tier.headshots : 1);
+      if (reached > share) { share = reached; kills = have; headshots = heads; }
+    }
+    const heads = tier.headshots ? ', ' + headshots + ' / ' + tier.headshots + ' headshots' : '';
+    return tier.name + ' mastery with one weapon: ' + kills + ' / ' + tier.kills + ' kills' + heads;
+  },
   // Highest challenge room group open (1 = from the start).
   roomGroup() {
     let group = 1;
@@ -357,6 +400,7 @@ const Progress = {
     if (!this.playerResult(match.results)) return null;
     this.awardedMatch = match;
     for (const finisher of this.preFinishers) finisher(match);
+    this.seenIds();   // before anything new unlocks: an older save does not flag what it already had
     const profile = this.profile(), levelBefore = this.level(), unlockedBefore = this.unlockedIds();
     const metrics = RunLog.measure(match);
     const award = { xp: 0, levelBefore, levelAfter: levelBefore, lines: [], unlocks: [], breakdown: null, medals: [] };
@@ -374,6 +418,7 @@ const Progress = {
     award.levelAfter = this.level();
     award.unlocks = this.unlockedIds().filter((id) => !unlockedBefore.includes(id)).map((id) => CAT.unlocks.byId(id).name);
     if (award.levelAfter > levelBefore) emitToast('Level ' + award.levelAfter + ' reached');
+    if (award.unlocks.length) emitToast('Unlocked: ' + award.unlocks.join(', '));
     this.lastAward = award;
     this.refreshLook();
     Save.scheduleSave();
@@ -412,9 +457,9 @@ const Progress = {
     for (const key in this.profile().chambers) { const record = this.chamberRecord(key); if (record) stars += record.stars; }
     return stars;
   },
-  unlockedIds() {
+  unlockedIds(earnedOnly) {
     const ids = [];
-    for (const row of CAT.unlocks) if (this.isUnlocked(row)) ids.push(row.id);
+    for (const row of CAT.unlocks) if (earnedOnly ? this.isEarned(row) : this.isUnlocked(row)) ids.push(row.id);
     return ids;
   },
 };

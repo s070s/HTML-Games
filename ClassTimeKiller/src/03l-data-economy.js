@@ -69,21 +69,20 @@ Data.define('perks', {
 Data.define('classes', {
   id: REQUIRED, name: REQUIRED, primary: REQUIRED, secondary: REQUIRED, lethal: '', tactical: '', perks: REQUIRED, fieldUpgrade: 'echopulse',
 }, [
-  { id: 'assault', name: 'Assault', primary: 'tempest', secondary: 'warden', lethal: 'frag', tactical: 'flash', perks: ['scavenger', 'stopping', 'marathon'] },
-  { id: 'rifleman', name: 'Rifleman', primary: 'vanguard', secondary: 'verdict', lethal: 'frag', tactical: 'smoke', perks: ['bandolier', 'hardened', 'steady'] },
+  { id: 'assault', name: 'Assault', primary: 'vanguard', secondary: 'warden', lethal: 'frag', tactical: 'flash', perks: ['scavenger', 'stopping', 'marathon'] },
+  { id: 'rifleman', name: 'Rifleman', primary: 'ratchet', secondary: 'verdict', lethal: 'frag', tactical: 'smoke', perks: ['bandolier', 'hardened', 'steady'] },
   { id: 'scout', name: 'Scout', primary: 'wasp', secondary: 'warden', lethal: 'sticky', tactical: 'flash', perks: ['hardline', 'ghost', 'quietstep'] },
   { id: 'breacher', name: 'Breacher', primary: 'scattergun', secondary: 'warden', lethal: 'frag', tactical: 'cryo', perks: ['scavenger', 'quickhands', 'marathon'] },
-  { id: 'marksman', name: 'Marksman', primary: 'longshot', secondary: 'verdict', lethal: 'claymore', tactical: 'smoke', perks: ['bandolier', 'ghost', 'steady'] },
-  { id: 'support', name: 'Support', primary: 'anvil', secondary: 'warden', lethal: 'frag', tactical: 'smoke', perks: ['tuneup', 'hardened', 'laststand'] },
+  { id: 'marksman', name: 'Marksman', primary: 'kestrel', secondary: 'verdict', lethal: 'claymore', tactical: 'smoke', perks: ['bandolier', 'ghost', 'steady'] },
+  { id: 'support', name: 'Support', primary: 'hailstorm', secondary: 'warden', lethal: 'frag', tactical: 'smoke', perks: ['tuneup', 'hardened', 'laststand'] },
 ]);
-// Class weapons are Military set keys (presets and the custom class screen). A ruleset with another set swaps each one for the
-// weapon of the same role in its own set (13d Economy.applyClass): RS12 Frame Runner arms its classes from the Exotic set.
-const CLASS_WEAPON_SET = 'militarySet';   // ECP04 is the Modern Ops economy: class weapons come from its weapon set
-const CLASS_SET_SWAPS = {
-  exoticSet: { warden: 'sparklock', verdict: 'sparklock', wasp: 'needlethorn', hornet: 'needlethorn', riptide: 'needlethorn', tempest: 'stormlash',
-    vanguard: 'accelerator', ratchet: 'stormlash', longshot: 'talonbow', kestrel: 'talonbow', heron: 'talonbow', scattergun: 'gloop', hailstorm: 'starthrower',
-    anvil: 'starthrower', kingfisher: 'auger' },
-};
+// Class weapons come from the whole roster (P3-01): a custom class takes any gun that is not a sidearm as the primary and any sidearm
+// as the secondary, in every ruleset that hands out classes.
+
+// P3-07: the loadout a new save starts with (and what a reset gives back), so Play -> Start needs no loadout screen: Breaker Maul,
+// Hornet Carbine, Warden Pistol, Frag Charge, Glare Shell and Barrier Deploy; the ability kit 'loadout' (03k) holds the last two,
+// Surge Dash and Rally Cry. Used by the pickup rulesets (13d Loadouts.pickup); the six preset classes stay the classes default.
+const DEFAULT_PICKUP_LOADOUT = { melee: 'maul', primary: 'hornet', secondary: 'warden', lethal: 'frag', tactical: 'flash', device: 'cover' };
 
 // Buy menu (roundBuy) equipment and wave shop items. Weapons of the match weapon set with a price are listed by 13d itself.
 // kind: armor | helmet (HPP04 vest / vest + helmet) | gadget (granted by the items section) | ammo (refill every weapon) | grant

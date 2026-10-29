@@ -398,12 +398,12 @@ Test.add('move', (check) => {
   check('sprintToFire 0.20 s blocks firing', !Move.canFire(id));
   stepSeconds(0.06);
   check('can fire after sprintToFire', Move.canFire(id));
-  Weapons.setLoadout(id, ['tempest']);
+  Weapons.setLoadout(id, ['vanguard']);
   holdInput(id, 0, 1, BTN.SPRINT);
   stepSeconds(0.5);
   holdInput(id, 0, 1, BTN.SPRINT | BTN.FIRE);
   Sim.step();
-  const ready = CAT.weapons.byId('tempest').readyTime;
+  const ready = CAT.weapons.byId('vanguard').readyTime;
   stepSeconds(0.21);
   check('MOV-021 the held weapon adds its readyTime to sprintToFire', ready > 0 && !Move.canFire(id), ready);
   stepSeconds(ready);
