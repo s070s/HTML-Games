@@ -16,7 +16,7 @@ docs/IMPLEMENTATION-PLAN.md, the top entry below and docs/STATUS.md, then contin
   "push the commits in the end". Interpretation: at the clean stop of this session, push branch
   flm-implementation to origin once (fetch first, report the commit count); not main; no force; no later
   pushes without a new go.
-- Commit on branch flm-implementation.
+- Commit on branch flm-implementation. Superseded 2026-10-29: at the owner's word the branch was merged into main and deleted; commit on main from now on, only files of the "Finger Lickin Music" folder, by path (main carries other games too).
 - Regression policy (Part 12.1.7) and foundation guard (Part 3.9 item 3) apply from T01.05.
 - New files: UTF-8 with BOM, LF, ASCII content.
 - Regression policy (Part 12.1.7, in force from T01.05): (1) every defect found after its

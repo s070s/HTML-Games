@@ -1,6 +1,6 @@
 Resume the Finger Lickin Music build.
-Repo: s070s/HTML-Games, folder "Finger Lickin Music". Work is on branch flm-implementation (origin, tip 1d8e0af, 19 commits). main is untouched by this program.
-Start: git fetch; git checkout flm-implementation (do not touch main's local "Idea docs" commit).
+Repo: s070s/HTML-Games, folder "Finger Lickin Music". Work is on main: branch flm-implementation (tip 1d8e0af, 19 commits) was merged into main and deleted on 2026-10-29 at the owner's word.
+Start: git fetch; git checkout main; git pull. Main also carries other games (Breakpoint and others): touch only the "Finger Lickin Music" folder and commit by path.
 Read in order: docs/IMPLEMENTATION-PLAN.md Part 0 (esp. 0.4-0.7), the top entry of docs/LEDGER.md (ends with RESUME: T04.05), docs/STATUS.md. Do the Part 0.3 reading for each T section as you reach it.
 State: Phases 01, 02, 03 gated and committed; Phase 04 done through T04.04 (audio context, voices, scheduler). Last verified: node tools/build.mjs exit 0; node tools/selftest.mjs --all 664/664 over 23 groups; --smoke OK.
 Verify first: node tools/build.mjs; node tools/selftest.mjs --all --timeout 240 (needs Chrome at C:/Program Files/Google/Chrome/Application/chrome.exe or env FLM_CHROMIUM; Node playwright is not installed, tools/lib-cdp.mjs drives Chrome directly, decision D1).
