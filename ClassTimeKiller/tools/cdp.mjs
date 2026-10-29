@@ -10,8 +10,7 @@ import { pathToFileURL } from 'node:url';
 
 const CHROME_PATHS = ['C:/Program Files/Google/Chrome/Application/chrome.exe', 'C:/Program Files (x86)/Google/Chrome/Application/chrome.exe', '/usr/bin/google-chrome'];
 const BASE_FLAGS = ['--headless=new', '--remote-debugging-port=0', '--use-angle=swiftshader', '--enable-unsafe-swiftshader',
-  '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--window-size=1280,800', '--autoplay-policy=no-user-gesture-required',
-  '--mute-audio'];                    // headless still plays to the speakers unless muted; audio still renders for the tests
+  '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--window-size=1280,800', '--autoplay-policy=no-user-gesture-required'];
 const START_TRIES = 240;              // x 250 ms: up to 60 s, Chrome starts slowly while antivirus scans or other runs share the CPU
 const BOOT_TRIES = 80;                // x 250 ms for window.__CTK after navigation
 const PROFILE_CLEANUP_DELAY_MS = 800; // Chrome keeps the profile locked for a moment after it exits
