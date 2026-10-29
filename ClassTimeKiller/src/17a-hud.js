@@ -749,6 +749,11 @@ function hudDrawConsumables(pen, layout, slot) {
 }
 
 const hudAbilityState = { slots: [], meter: { kind: 'none', value: 0, ready: false } };
+// P7 F10: when each slot of the player last turned ready ('ability.ready'): its ring flashes for HUD_READY_FLASH_SECONDS (reduce motion: a steady highlight, no growing ring).
+const HUD_READY_FLASH_SECONDS = 0.4, HUD_READY_FLASH_GROWTH = 0.5;
+const hudReadyAt = { ability1: -1000, ability2: -1000, ultimate: -1000 };
+Bus.on('ability.ready', (event) => { if (event.id === Game.playerId) hudReadyAt[event.slot] = Hud.time; });
+Bus.on('match.start', () => { hudReadyAt.ability1 = hudReadyAt.ability2 = hudReadyAt.ultimate = -1000; });
 function hudDrawAbilities(pen, layout) {
   if (!hudLocalAlive()) return;
   const state = Abilities.hudState(Game.playerId, hudAbilityState), unit = layout.unit, radius = 17 * unit;
@@ -758,6 +763,12 @@ function hudDrawAbilities(pen, layout) {
     const slot = state.slots[i], x = layout.left + radius + i * (radius * 2 + 16 * unit), y = layout.abilityY;
     ring[0] = x; ring[1] = y; ring[2] = radius; ring[3] = 4 * unit;
     hudDrawCooldownRingAt(pen, slot.ready ? 0 : slot.cooldown, slot.active ? HUD_COLOR.gold : Hud.colors.good);
+    const readyAge = Hud.time - hudReadyAt[slot.key];
+    if (readyAge < HUD_READY_FLASH_SECONDS) {
+      ring[2] = radius * (Hud.reduceMotion() ? 1 : 1 + HUD_READY_FLASH_GROWTH * readyAge / HUD_READY_FLASH_SECONDS);
+      ring[4] = 0; ring[5] = Math.PI * 2;
+      pen.ringAt(HUD_COLOR.gold, 1 - readyAge / HUD_READY_FLASH_SECONDS);
+    }
     text[0] = x; text[1] = y; text[2] = HUD_TEXT_SMALL * unit;
     if (!layout.phone) pen.textAt(slot.name, slot.ready ? HUD_COLOR.text : HUD_COLOR.dim, 'center');
     text[1] = y + radius + 10 * unit;

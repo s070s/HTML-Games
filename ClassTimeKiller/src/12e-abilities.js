@@ -18,6 +18,10 @@ const ATTACK_CATEGORIES = ['offense', 'control'];   // refused while Gadgets.att
 const HUD_SLOT_COUNT = 3;                  // the passive slot is not drawn as a button
 const ABILITY_CAST_EVENT = { id: 0, ability: '', slot: '' };
 const ABILITY_END_EVENT = { id: 0, ability: '', slot: '', reason: '' };
+const ABILITY_READY_EVENT = { id: 0, ability: '', slot: '' };       // 'ability.ready' (P7 F10): a slot of the local player turned ready after a cooldown of READY_CUE_MIN_COOLDOWN or more
+const ABILITY_NO_TARGET_EVENT = { id: 0, ability: '', slot: '' };   // 'ability.notarget' (A-09)
+const READY_CUE_MIN_COOLDOWN = 3;       // seconds: a shorter cooldown does not chime
+const READY_UNKNOWN = 2;                // readySeen: nothing seen yet (a slot was just set), so the first look chimes nothing
 
 function makeHudSlot() { return { id: '', name: '', key: '', ready: false, cooldown: 0, charges: 0, active: false, remaining: 0, color: 0xffffff }; }
 
@@ -36,6 +40,7 @@ const Abilities = {
   rewardsWaiting: new Uint8Array(MAX_ACTORS),
   suppressedUntil: new Float64Array(MAX_ACTORS),                   // G20 null pulse: no abilities until this Sim.time
   rechargeScale: new Float32Array(MAX_ACTORS).fill(1),             // cooldown speed (Tune Up perk writes it)
+  readySeen: new Uint8Array(MAX_ACTORS * ABILITY_SLOT_COUNT).fill(READY_UNKNOWN),   // 0 not ready, 1 ready, READY_UNKNOWN: what watchReady last saw
   hero: new Array(MAX_ACTORS).fill(null),                          // hero row of this life (hero rulesets)
   choices: new Array(MAX_ACTORS).fill(null),                       // loadout choice { hero, ability1, ability2, ultimate } or null
   drawn: new Array(MAX_ACTORS).fill(null),                         // hero drawn for an actor without a choice, kept for the match
@@ -149,6 +154,7 @@ const Abilities = {
     this.slotCooldown[i] = row ? row.cooldown : 0;
     this.cooldown[i] = 0; this.active[i] = 0; this.activeTime[i] = 0; this.elapsed[i] = 0;
     this.charges[i] = row ? Math.max(1, row.charges) : 0;
+    this.readySeen[i] = READY_UNKNOWN;
     this.fuel[i] = row ? row.duration : 0;
     if (row && row.activation === 'passive') this.active[i] = 1;
   },
@@ -213,12 +219,24 @@ const Abilities = {
       const row = this.row(id, slot);
       if (!row) continue;
       this.recharge(id, slot, row, dt);
+      if (id === Game.playerId) this.watchReady(id, slot, row);
       const i = this.index(id, slot);
       if (this.active[i] && stunned && row.activation !== 'passive' && this.interruptRule(row).stun) { this.end(id, slot, 'stun'); continue; }
       if (this.active[i] && this.pressedAgain(id, slot, row)) { this.tryActivate(id, slot); continue; }   // the same press must not recast
       if (this.active[i]) this.stepActive(id, slot, row, dt);
       else if (!stunned) this.readInput(id, slot, row);
     }
+  },
+  // P7 F10: the local player's slot turned ready (it was not, a moment ago) after a cooldown of 3 s or more, or the ultimate became affordable: 'ability.ready'.
+  // The sound is 06b (one chime per half second at most), the slot ring's flash is 17a. Reads only; the sim does not care.
+  watchReady(id, slot, row) {
+    const i = this.index(id, slot), before = this.readySeen[i];
+    let ready = 0;
+    if (row.activation !== 'passive' && this.ready(id, slot)) ready = 1;
+    this.readySeen[i] = ready;
+    if (before !== 0 || ready !== 1) return;
+    if (slot !== SLOT.ULTIMATE && this.slotCooldown[i] < READY_CUE_MIN_COOLDOWN) return;
+    emitAbilityEvent('ability.ready', ABILITY_READY_EVENT, id, row, slot, '');
   },
   // A second press of the slot button while a toggle runs turns it off, while a channel runs cancels it.
   pressedAgain(id, slot, row) {
@@ -275,10 +293,17 @@ const Abilities = {
     }
     if (!this.usable(id, row) || !this.canAfford(id, slot, row)) return false;
     const effect = this.effects[row.effect];
-    if (!effect || !effect.cast(id, row, slot)) return false;   // no valid target: nothing is spent
+    if (!effect || !effect.cast(id, row, slot)) { this.noTarget(id, slot, row); return false; }   // no valid target: nothing is spent
     this.pay(id, slot, row);
     this.begin(id, slot, row);
     return true;
+  },
+  // A-09 (P7 F10): a press of a target ability (row.needsTarget) that found no target clicks like an empty gun and says "No target", once per press. The local
+  // player's own press only: a bot, and an ultimate that tries again every step, stay silent.
+  noTarget(id, slot, row) {
+    if (!row.needsTarget || id !== Game.playerId || !(Actors.pressed[id] & SLOT_BUTTONS[slot])) return;
+    emitAbilityEvent('ability.notarget', ABILITY_NO_TARGET_EVENT, id, row, slot, '');
+    emitToast('No target');
   },
   // Casts a row from the ultimate slot without a press (adrenaline combos): the meter already paid.
   forceCast(id, abilityId) {

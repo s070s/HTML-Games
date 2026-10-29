@@ -48,7 +48,7 @@ const HUD_HIT_FLASH = { seconds: 0.35, alpha: 0.16 };
 
 // ---- State (rings of typed arrays) ----
 const HudCombat = {
-  hitAt: -1000, hitHead: false, killAt: -1000, flashAt: -1000,
+  hitAt: -1000, hitHead: false, killAt: -1000, killHead: false, flashAt: -1000,
   numberTarget: new Int16Array(HUD_NUMBER_SLOTS).fill(-1), numberAmount: new Float32Array(HUD_NUMBER_SLOTS), numberAt: new Float64Array(HUD_NUMBER_SLOTS).fill(-1000),
   numberX: new Float32Array(HUD_NUMBER_SLOTS), numberY: new Float32Array(HUD_NUMBER_SLOTS), numberZ: new Float32Array(HUD_NUMBER_SLOTS),
   numberHead: new Uint8Array(HUD_NUMBER_SLOTS), numberNext: 0,
@@ -241,7 +241,7 @@ function hudDrawHitMarkers(pen, layout) {
     const head = HudCombat.hitHead;
     hudDrawMarkerTicks(pen, cx, cy, HUD_HIT_GAP * unit, (head ? 1.4 : 1) * HUD_HIT_LENGTH * unit, 2 * unit, head ? HUD_COLOR.gold : HUD_COLOR.text, 1 - age / HUD_HIT_SECONDS);
   }
-  if (killAge < HUD_KILL_SECONDS) hudDrawMarkerTicks(pen, cx, cy, HUD_KILL_GAP * unit, HUD_KILL_LENGTH * unit, 3 * unit, Hud.colors.bad, 1 - killAge / HUD_KILL_SECONDS);
+  if (killAge < HUD_KILL_SECONDS) hudDrawMarkerTicks(pen, cx, cy, HUD_KILL_GAP * unit, HUD_KILL_LENGTH * unit, 3 * unit, HudCombat.killHead ? HUD_COLOR.gold : Hud.colors.bad, 1 - killAge / HUD_KILL_SECONDS);   // P7 F01: a head kill is gold
 }
 
 // ---- Damage numbers: one number per target that keeps adding while the hits keep coming ----
@@ -327,7 +327,7 @@ function hudOnPlayerDamaged(event) {
   else if (event.dx !== 0 || event.dz !== 0) hudNoteIncomingDamage(-1, event.x - event.dx * 10, event.z - event.dz * 10);
 }
 Bus.on('kill', (event) => {
-  if (event.killer === Game.playerId && event.victim !== event.killer && Game.playerId >= 0) HudCombat.killAt = Hud.time;
+  if (event.killer === Game.playerId && event.victim !== event.killer && Game.playerId >= 0) { HudCombat.killAt = Hud.time; HudCombat.killHead = event.zone === 'head'; }
 });
 Bus.on('match.start', () => { HudCombat.reset(); HudCombat.readSettings(); });
 Bus.on('actor.spawn', (event) => { if (event.id === Game.playerId) HudCombat.spread = 0; });

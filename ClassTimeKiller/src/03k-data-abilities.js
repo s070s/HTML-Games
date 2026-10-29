@@ -17,6 +17,7 @@ const ABILITY_SCHEMA = {
   id: REQUIRED, code: REQUIRED, name: REQUIRED, category: REQUIRED, activation: REQUIRED, resource: 'cooldown',
   cost: 0, costPerSecond: 0, cooldown: 0, charges: 0, duration: 0, range: 0, ultCost: 0,
   effect: REQUIRED, params: {}, group: '', modes: 'any', interrupt: null, botUse: REQUIRED, balance: {}, color: 0xffffff, index: 0,
+  needsTarget: false,   // P7 A-09: a press with no target clicks and toasts "No target" (bolt, link, swarm, frenzy)
 };
 
 const ABILITY_ROWS = [
@@ -67,13 +68,13 @@ const ABILITY_ROWS = [
     params: { scale: 0.25, radius: 8 }, botUse: { when: 'groupedEnemies', range: [0, 8], chance: 0.6 }, color: 0xc0a0ff },
   { id: 'gale', code: 'A20', name: 'Gale Push', category: 'control', activation: 'instant', cooldown: 8, range: 8, effect: 'push',
     params: { angle: 30, speed: 20, deflect: true }, botUse: { when: 'enemyClose', range: [0, 8], chance: 0.6 }, color: 0xe0f0ff },
-  { id: 'binding', code: 'A21', name: 'Binding Link', category: 'control', activation: 'instant', cooldown: 20, duration: 8, range: 30, effect: 'link',
+  { id: 'binding', needsTarget: true, code: 'A21', name: 'Binding Link', category: 'control', activation: 'instant', cooldown: 20, duration: 8, range: 30, effect: 'link',
     params: { radius: 8 }, botUse: { when: 'groupedEnemies', range: [0, 30], chance: 0.5 }, color: 0xff60c0 },
   { id: 'mesmer', code: 'A22', name: 'Mesmer Lure', category: 'control', activation: 'instant', cooldown: 25, duration: 6, range: 15, effect: 'mesmer',
     params: { targets: 2 }, botUse: { when: 'groupedEnemies', range: [0, 15], chance: 0.5 }, color: 0xff80ff },
   { id: 'puppet', code: 'A23', name: 'Puppet Jump', category: 'control', activation: 'instant', cooldown: 40, duration: 10, range: 20, effect: 'possess', modes: 'pve',
     params: {}, interrupt: { damage: true, stun: true, fire: false }, botUse: { when: 'enemyVisible', range: [0, 20], chance: 0.3 }, color: 0xa040ff },
-  { id: 'frenzy', code: 'A24', name: 'Frenzy Hex', category: 'control', activation: 'instant', cooldown: 30, duration: 8, range: 30, effect: 'frenzy',
+  { id: 'frenzy', needsTarget: true, code: 'A24', name: 'Frenzy Hex', category: 'control', activation: 'instant', cooldown: 30, duration: 8, range: 30, effect: 'frenzy',
     params: {}, botUse: { when: 'groupedEnemies', range: [0, 30], chance: 0.5 }, color: 0xff4040 },
   // ---- Sustain ----
   { id: 'mender', code: 'A25', name: 'Mender Drone', category: 'sustain', activation: 'instant', cooldown: 30, duration: 8, effect: 'zone',
@@ -85,9 +86,9 @@ const ABILITY_ROWS = [
   { id: 'ampwall', code: 'A28', name: 'Amp Wall', category: 'sustain', activation: 'instant', cooldown: 20, duration: 15, effect: 'zone',
     params: { zone: 'wall', width: 4, height: 2, distance: 1.5, amp: 1.25, persist: true }, botUse: { when: 'underFire', range: [0, 60], chance: 0.6 }, color: 0x60c0ff },
   // ---- Offense ----
-  { id: 'arcbolt', code: 'A29', name: 'Arc Bolt', category: 'offense', activation: 'instant', resource: 'energy', cost: 25, range: 30, effect: 'bolt',
+  { id: 'arcbolt', needsTarget: true, code: 'A29', name: 'Arc Bolt', category: 'offense', activation: 'instant', resource: 'energy', cost: 25, range: 30, effect: 'bolt',
     params: { damage: 30, element: 'arc', status: 'shock', seconds: 1, stacks: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0xfff27a },
-  { id: 'swarm', code: 'A32', name: 'Swarm Cloud', category: 'offense', activation: 'instant', cooldown: 25, duration: 6, range: 30, effect: 'swarm',
+  { id: 'swarm', needsTarget: true, code: 'A32', name: 'Swarm Cloud', category: 'offense', activation: 'instant', cooldown: 25, duration: 6, range: 30, effect: 'swarm',
     params: { dps: 8, targets: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0x90a040 },
   { id: 'holodouble', code: 'A33', name: 'Holo Double', category: 'offense', activation: 'instant', cooldown: 15, duration: 8, effect: 'decoy',
     params: {}, botUse: { when: 'enemyVisible', range: [10, 60], chance: 0.3 }, color: 0x80e0ff },

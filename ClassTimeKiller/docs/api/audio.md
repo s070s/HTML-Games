@@ -37,7 +37,7 @@ Pure functions (testable without a context): `makeVoiceAllocator(capacity)` (`ac
 
 ## Settings (all `category: 'audio'` unless noted)
 
-`audio.master` 0.8, `audio.sfx` 1, `audio.music` 0.5 (music volume), `audio.ui` 0.8, `audio.announcer` 0.9 (sliders 0..1, step 0.05; the bus gain is the square of the slider), `audio.musicMode` `auto` (`auto | on | off`: Auto follows the quality preset and is off on Potato, On plays on every preset, Off never plays), `audio.mix` false (iPhone: the page lets other audio, such as the music app, keep playing), `audio.mono` false (category `accessibility`; folds the master bus to one channel), `audio.hrtf` true (HRTF panning only on High and Ultra; ignored with mono), `audio.speech` false (spoken announcer, Q3). Toggles are declared with `options: [false, true]` and `optionLabels: ['Off', 'On']`.
+`audio.master` 0.8, `audio.sfx` 1, `audio.music` 0.5 (music volume), `audio.heartbeat` true (the low-health heartbeat on or off), `audio.ui` 0.8, `audio.announcer` 0.9 (sliders 0..1, step 0.05; the bus gain is the square of the slider), `audio.musicMode` `auto` (`auto | on | off`: Auto follows the quality preset and is off on Potato, On plays on every preset, Off never plays), `audio.mix` false (iPhone: the page lets other audio, such as the music app, keep playing), `audio.mono` false (category `accessibility`; folds the master bus to one channel), `audio.hrtf` true (HRTF panning only on High and Ultra; ignored with mono), `audio.speech` false (spoken announcer, Q3). Toggles are declared with `options: [false, true]` and `optionLabels: ['Off', 'On']`.
 
 Quality: `Quality.current().voices` (voice limit) and `.music` (what `audio.musicMode` Auto follows; false on Potato).
 
@@ -57,6 +57,10 @@ Payload fields as in `docs/ARCHITECTURE.md`. "Own" = the actor is `Game.playerId
 |---|---|
 | `weapon.fire` | `mode: 'melee'` (quick melee) plays the `melee` swing; else recipe by `weapon` override, else `weaponClass` (see classes below); `mode: 'alt'` plays 15% lower |
 | `weapon.reload` `weapon.switch` `weapon.empty` | `reload` `switch` `empty` at the actor |
+| `weapon.fire` (second row) | `lastRound` (own, a short ping) when the local player's shot emptied the magazine (`magShare` 0). The first row also: own shots rise to x1.08 in pitch from a quarter of the magazine to empty (P7 F09); a shot heard beyond 35 m rings longer and loses its crack (below, F07) |
+| `weapon.cue` | the local player's reload and cycle moments (P7 F11): `reloadOut reloadIn reloadRack shellIn cellCharge`, own and non-positional; the particle cues have no recipe |
+| `ability.ready` | `abilityReady` (two notes) or `ultReady` (three), UI bus, for the local player, at most one per 0.5 s |
+| `ability.notarget` | `empty` (the dry click) for the local player: a target ability pressed with no target (A-09) |
 | `weapon.nolock` | `empty` (the dry click) at the actor: a lock-on trigger with no target (D-F04) |
 | `impact` | `impact.<material>` at the point |
 | `explosion` | `explosion` / `explosionFire` / `explosionFrost` / `explosionShock` by `element`; level and pitch by `radius` |
@@ -87,7 +91,7 @@ Requested events nobody emits yet (the audio rows exist, the emitters are in oth
 | `item.respawn` | `{ x, y, z, item, group }` | `powerChime` for `group: 'power'`, else `itemRespawn` |
 | `bark` | `{ id, text, kind }` bot radio line | `radioBlip` + voice caption |
 
-Derived without events (frame update): low-health heartbeat (`Actors.health / maxHealth` of the player below `LOW_HEALTH_FRACTION` (35%, S03 03d), 1.0 s down to 0.5 s between beats), shield break for any actor whose `Actors.shield` drops to 0 while alive.
+Derived without events (frame update): low-health heartbeat (switch `audio.heartbeat`, on by default; P7-03) (`Actors.health / maxHealth` of the player below `LOW_HEALTH_FRACTION` (35%, S03 03d), 1.0 s down to 0.5 s between beats), shield break for any actor whose `Actors.shield` drops to 0 while alive.
 
 ### Weapon classes
 
@@ -95,7 +99,10 @@ Derived without events (frame update): low-health heartbeat (`Actors.health / ma
 
 ### Surfaces
 
-Materials `concrete metal wood glass dirt water flesh sparks`; many aliases (`steel`, `grass`, `plank`, ...) map to them in `SOUND_MATERIAL_ALIASES`; unknown names play concrete.
+Materials `concrete metal wood glass dirt water flesh sparks`; many aliases (`steel`, `grass`, `plank`, ...) map to them in `SOUND_MATERIAL_ALIASES` (P7 F03 added `plate oil hazard trim grip` to metal, `ice light` to glass, `moss` to dirt); unknown names play concrete.
+
+### Distant gunfire (P7 F07)
+A recipe with `gun: true` (every weapon-class recipe but melee, tool, flame, suppressed, stab and bowshot) heard beyond 35 m (`AUDIO_TAIL_START`) plays the same voice with its last pulse ringing longer: decay x1 at 35 m up to x(1 + the class's `tail`) at 120 m (`AUDIO_TAIL_END`; `weaponClasses.tail`: sniper 1.6, power 1.5, explosive 1.4, heavy 1.3, the rest 1) and the noise crack fading to nothing. No extra voice. The kill confirm of a head kill is pitched x1.2 (`pitchIf` on the event row, F01).
 
 ## Events emitted
 

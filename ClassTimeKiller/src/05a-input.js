@@ -24,6 +24,7 @@ const AIM_ASSIST = { coneRadians: 3 * DEG, slowdown: 0.40, magnetismRadiansPerSe
 // INP-007 vibration: damage strength = amount / damageFull; blasts reach blastReach x their radius (fading with distance);
 // own fire with a weapon of a heavy class gives a short fixed buzz.
 const RUMBLE = { damageFull: 100, damageMs: 160, blastReach: 2, blastMs: 240, fireStrength: 0.35, fireMs: 70,
+  meleeStrength: 0.4, meleeMs: 60, parryStrength: 0.6, parryMs: 90, chargeStrength: 0.2, chargeMs: 40,   // P7 F12: own melee contact, a parry, a charge reaching full (controller only)
   heavyClasses: ['heavy', 'explosive', 'power', 'shotgun', 'sniper'] };
 
 // ---- DOM helpers (S05 is the earliest section that builds DOM; touch controls and the UI share them) ----
@@ -116,6 +117,7 @@ const KBM_SETTINGS = [
   { key: 'controls.adsMultiplier', field: 'adsMultiplier', fallback: 0.8, label: 'Aim sensitivity multiplier', min: 0.1, max: 2, step: 0.05 },
   // iOS Safari has no phone vibration (navigator.vibrate): the row names only what it can drive there.
   { key: 'controls.vibration', field: 'vibration', fallback: true, label: 'vibrate' in navigator ? 'Vibration (controller and phone)' : 'Vibration (controller)' },
+  { key: 'controls.vibrationStrength', field: 'vibrationStrength', fallback: 100, label: 'vibrate' in navigator ? 'Vibration strength (%, controller and phone)' : 'Vibration strength (%, controller only)', min: 0, max: 100, step: 5 },   // P7-03: scales every rumble above
 ];
 // INP-002 hold/toggle: one setting per action row that has toggle: true.
 const TOGGLE_SETTINGS = ACTION_ROWS.filter((row) => row.toggle).map((row) => ({
@@ -530,7 +532,7 @@ const Input = {
   // strength 0..1 (clamped), milliseconds >= 0. The phone motor has no strength, so a weaker rumble is a shorter buzz.
   rumble(strength, milliseconds) {
     if (!this.config.vibration) return;
-    const level = clamp(+strength || 0, 0, 1), duration = Math.max(+milliseconds || 0, 0);
+    const level = clamp(+strength || 0, 0, 1) * clamp(this.config.vibrationStrength / 100, 0, 1), duration = Math.max(+milliseconds || 0, 0);
     if (level === 0 || duration === 0) return;
     if (this.device === 'gamepad') PadInput.rumble(level, duration);
     else if (this.device === 'touch' && navigator.vibrate) navigator.vibrate(Math.max(1, Math.round(duration * level)));
@@ -546,6 +548,12 @@ const Input = {
     const distance = length3(event.x - Actors.x[id], event.y - Actors.eyeY(id), event.z - Actors.z[id]);
     if (distance < reach) this.rumble(1 - distance / reach, RUMBLE.blastMs);
   },
+  // P7 F12: the local player's own melee blow landing, a guard reflecting a shot, and a charge reaching full (the controller's pulse; a phone stays quiet).
+  rumbleMelee(event) {
+    if (event.source === Game.playerId && event.target !== event.source && event.kind === 'melee' && event.amount > 0) this.rumble(RUMBLE.meleeStrength, RUMBLE.meleeMs);
+  },
+  rumbleParry(event) { if (event.id === Game.playerId) this.rumble(RUMBLE.parryStrength, RUMBLE.parryMs); },
+  rumbleCharge(event) { if (event.id === Game.playerId && this.device === 'gamepad') this.rumble(RUMBLE.chargeStrength, RUMBLE.chargeMs); },
   rumbleFire(event) {
     if (event.id === Game.playerId && event.mode !== 'melee' && RUMBLE.heavyClasses.includes(event.weaponClass)) this.rumble(RUMBLE.fireStrength, RUMBLE.fireMs);
   },
@@ -756,7 +764,9 @@ Input.addSettings(PAD_TOGGLE_SETTINGS);
 
 Bus.on('boot', () => Input.init());
 Bus.on('setting', () => { Input.settingsDirty = true; });
-Bus.on('damage', (event) => Input.rumbleDamage(event));
+Bus.on('damage', (event) => { Input.rumbleDamage(event); Input.rumbleMelee(event); });
+Bus.on('weapon.parry', (event) => Input.rumbleParry(event));
+Bus.on('weapon.chargeFull', (event) => Input.rumbleCharge(event));
 Bus.on('explosion', (event) => Input.rumbleBlast(event));
 Bus.on('weapon.fire', (event) => Input.rumbleFire(event));
 Bus.on('game.pause', () => { Input.clearAll(); Input.exitLock(); });

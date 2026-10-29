@@ -29,6 +29,7 @@ function makeRandom(seed) {
   return {
     next,
     range: (low, high) => low + (high - low) * next(),
+    fill: (array, count) => { for (let i = 0; i < count; i++) array[i] = next(); },   // count draws into array[0..count): no number is returned, so none is boxed (PERF-006)
     int: (low, highInclusive) => low + Math.floor(next() * (highInclusive - low + 1)),
     chance: (probability) => next() < probability,
     pick: (list) => list[Math.floor(next() * list.length)],

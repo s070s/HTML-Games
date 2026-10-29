@@ -227,11 +227,12 @@ Test.add('muzzle', (check) => {
 // Tracers and muzzle flashes leave the barrel: every weapon, both modes, from the muzzle to where the eye ray stopped.
 Test.add('muzzle', (check) => {
   TestArena.start({}, [{ shape: 'box', min: [-8, 0, 30], max: [8, 8, 31] }]);
-  const shooter = TestArena.actor(1, 0, 0), saved = { headless: Game.headless, tracer: Fx.tracer, burst: Fx.burst };
+  const shooter = TestArena.actor(1, 0, 0), saved = { headless: Game.headless, tracer: Fx.tracer, burstAt: Fx.burstAt };
   const tracers = [], bursts = [];
   Fx.tracer = (ax, ay, az, bx, by, bz) => { tracers.push({ a: Vec.set(Vec.make(), ax, ay, az), b: Vec.set(Vec.make(), bx, by, bz) }); };
-  Fx.burst = (kind, x, y, z) => { if (kind === 'muzzle') bursts.push(Vec.set(Vec.make(), x, y, z)); };
+  Fx.burstAt = (kind, point) => { if (kind === 'muzzle') bursts.push(Vec.set(Vec.make(), point[FP_X], point[FP_Y], point[FP_Z])); };   // the flash is Fx.burstAt since P7 (11f ShotFx.flash)
   Game.headless = false;
+  Settings.set('video.muzzleFlash', 'full');   // an earlier test may have left it reduced or off
   const problems = [], flashProblems = [], startProblems = [];
   let shots = 0, tracerShots = 0, projectileShots = 0;
   try {
@@ -249,7 +250,10 @@ Test.add('muzzle', (check) => {
         const eye = muzzleTestEye(shooter), name = mode.id;
         Muzzle.locate(shooter, weapon);
         const muzzle = Vec.copy(Vec.make(), Muzzle.point);
-        if (bursts.length !== 1 || muzzleTestDistance(bursts[0], muzzle) > MUZZLE_TEST_TOLERANCE) flashProblems.push(name);
+        const ahead = Vec.copy(Vec.make(), bursts.length ? bursts[0] : muzzle), aim = Vec.make();
+        Vec.fromAngles(aim, Actors.yaw[shooter], Actors.pitch[shooter]);
+        ahead.x -= aim.x * MUZZLE_FORWARD; ahead.y -= aim.y * MUZZLE_FORWARD; ahead.z -= aim.z * MUZZLE_FORWARD;   // the flash starts MUZZLE_FORWARD past the muzzle (11f)
+        if (bursts.length !== (weapon.muzzleFlash > 0 ? 1 : 0) || (bursts.length && muzzleTestDistance(ahead, muzzle) > MUZZLE_TEST_TOLERANCE)) flashProblems.push(name);   // a gun with flash 0 (W06, W27, tools) has none
         if (mode.type === 'projectile') {
           const slot = Array.from(Projectiles.serial).findIndex((serial, p) => serial === before && Projectiles.state[p] !== PROJECTILE_STATE.FREE);
           if (slot < 0) { startProblems.push(name + ': no projectile'); continue; }
@@ -266,7 +270,7 @@ Test.add('muzzle', (check) => {
         if (reach < 1 || tracer.b.z - eye.z < reach * 0.95) problems.push(name + ' ends ' + JSON.stringify(tracer.b));   // on the eye ray: ahead, within the spread
       }
     }
-  } finally { Game.headless = saved.headless; Fx.tracer = saved.tracer; Fx.burst = saved.burst; }
+  } finally { Game.headless = saved.headless; Fx.tracer = saved.tracer; Fx.burstAt = saved.burstAt; Settings.resetKeys(['video.muzzleFlash']); }
   check('every hitscan, beam and projectile mode fires (' + shots + ' modes)', shots >= 45 && tracerShots >= 20 && projectileShots >= 20, shots + ' ' + tracerShots + ' ' + projectileShots);
   check('every tracer starts at the weapon\'s muzzle, away from the eye, and ends where the eye ray stopped (the wall at 30 m)', problems.length === 0, problems.slice(0, 4).join('; '));
   check('every projectile starts at the muzzle, away from the eye', startProblems.length === 0, startProblems.slice(0, 4).join('; '));

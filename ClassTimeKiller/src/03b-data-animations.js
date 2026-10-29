@@ -18,11 +18,16 @@
 //   second: another moving part, same fields. seat / belt / rack: where the off-hand works, fetches from and racks.
 //   glow: the weapon's glow parts ramp (20 % partial, 0 % empty) to 100 % in rack / prime. jolt: [y, z] weapon kick at the last
 //     rack / close. tp: third person [gun pitch, gun drop m, torso pitch, armL work, armL fetch, armR jerk, armR fetch] degrees.
-//   marks: sound cue fractions [partial, empty] (0 = none) for the P7 reload cues.
+//   marks: cue fractions [partial, empty] of the reload (0 = none) for the P7 reload cues (11a emits 'weapon.cue' when the reload passes one): out, in, rack, open,
+//     close, shellIn, cellCharge are sounds (06b); fx is the particle moment of the set (fxKind, or the weapon's own `reloadFx`): casings (R2: one per spent round),
+//     shells (R6: red), eject (R4: the live round at the bolt), vent (W36), flare (W35).
+//   fxKind: what the fx mark makes for every weapon of the set ('' = nothing unless the weapon names its own `reloadFx`).
 //   shell (R5 only): cycles [[kind, end], ...] and the click fraction, instead of partial / empty.
 //   cycle: the motion between shots (W19 pump, W24 bolt), a role and keyframes [fraction of the shot interval, move, turn] (0..1 of the
-//     moving part's own `move` and `turn`); only while the weapon is idle and not scoped.
+//     moving part's own `move` and `turn`); only while the weapon is idle and not scoped. `eject` = the fraction of the shot interval at which the cycle
+//     ejects (a rack sound and the particle `particle`: 'shells' = a red shell, 'eject' = a live round).
 //   bow: a charged draw (W27): the part of `role` moves by `move` (model units) with the charge fraction and the weapon cants `cant` degrees.
+const RELOAD_FX_CUE = '@fx';   // the cue name of a set's particle mark in cueMarks
 const RELOAD_PHASE_KINDS = ['lower', 'open', 'out', 'fetch', 'in', 'rack', 'close', 'prime', 'raise', 'reach', 'enter', 'insert', 'hold', 'exit', 'port'];
 const RELOAD_PART_MODES = ['mag', 'latch', 'pulse'];
 const MODEL_ROLES = ['', 'mag', 'slide', 'bolt', 'pump', 'cyl', 'barrel', 'lid', 'cell', 'string', 'arrow'];   // part `role` values (03b MODEL_SCHEMA parts), code = index
@@ -32,7 +37,7 @@ const SWAP_LOWER_SHARE = 0.35;                    // the swap time's share the c
 const NO_POSE = [0, 0, 0, 0, 0, 0];
 Data.define('reloadAnims', {
   id: REQUIRED, name: REQUIRED, partial: REQUIRED, empty: null, work: NO_POSE, keys: {}, about: null, part: null, second: null, spare: [0.035, 0.09, 0.05],
-  seat: [-0.04, -0.07, 0.0], belt: [-0.18, -0.4, -0.05], rack: [-0.03, 0.03, -0.1], glow: false, jolt: [0, 0], tp: {}, marks: {}, shell: null, cycle: null, bow: null, index: 0,
+  seat: [-0.04, -0.07, 0.0], belt: [-0.18, -0.4, -0.05], rack: [-0.03, 0.03, -0.1], glow: false, jolt: [0, 0], tp: {}, marks: {}, fxKind: '', cueMarks: null, shell: null, cycle: null, bow: null, index: 0,
 }, [
   { id: 'R1', name: 'Pistol magazine',
     partial: [['lower', 0.12], ['out', 0.28], ['fetch', 0.50], ['in', 0.68], ['raise', 1]],
@@ -45,7 +50,7 @@ Data.define('reloadAnims', {
     work: [-0.04, 0.05, 0, 12, 10, -15], keys: { out: [-0.04, 0.05, 0, 32, 10, -15], in: [-0.04, 0.05, 0, 0, 10, -10] },
     part: { role: 'cyl', mode: 'latch', move: [-0.07, 0, 0], turn: [0, 0, -25] }, spare: [0.045, 0.05, 0.045],
     seat: [-0.04, -0.02, 0.03], belt: [-0.15, -0.4, -0.1], rack: [-0.04, 0.02, 0.02],
-    tp: { gun: 30, armLFetch: -45 }, marks: { out: [0.12, 0.12], in: [0.68, 0.68], rack: [0.80, 0.80] } },
+    tp: { gun: 30, armLFetch: -45 }, marks: { out: [0.12, 0.12], in: [0.68, 0.68], rack: [0.80, 0.80], fx: [0.20, 0.20] }, fxKind: 'casings' },
   { id: 'R3', name: 'Long-gun magazine',
     partial: [['lower', 0.12], ['out', 0.30], ['fetch', 0.50], ['in', 0.68], ['raise', 1]],
     empty: [['lower', 0.10], ['out', 0.25], ['fetch', 0.42], ['in', 0.58], ['rack', 0.80], ['raise', 1]],
@@ -55,22 +60,22 @@ Data.define('reloadAnims', {
   { id: 'R4', name: 'Bolt and magazine',
     partial: [['lower', 0.10], ['open', 0.20], ['out', 0.34], ['fetch', 0.52], ['in', 0.66], ['close', 0.78], ['raise', 1]],
     work: [-0.05, 0.04, 0, 10, 8, 10], part: { role: 'mag', mode: 'mag', out: 0.2 }, second: { role: 'bolt', mode: 'latch', move: [0, 0.02, -0.1], turn: [0, 0, 60] },
-    cycle: { role: 'bolt', keys: [[0, 0, 0], [0.20, 0, 0], [0.35, 0, 1], [0.50, 1, 1], [0.62, 0, 1], [0.72, 0, 0], [1, 0, 0]] },
+    cycle: { role: 'bolt', keys: [[0, 0, 0], [0.20, 0, 0], [0.35, 0, 1], [0.50, 1, 1], [0.62, 0, 1], [0.72, 0, 0], [1, 0, 0]], eject: 0.45, particle: 'eject' },
     seat: [-0.03, -0.07, 0.0], belt: [-0.16, -0.4, -0.05], rack: [0.03, 0.03, -0.08],
-    tp: { gun: -15, armLFetch: -40, armRJerk: -12 }, marks: { open: [0.12, 0.12], out: [0.22, 0.22], in: [0.64, 0.64], close: [0.76, 0.76] } },
+    tp: { gun: -15, armLFetch: -40, armRJerk: -12 }, marks: { open: [0.12, 0.12], out: [0.22, 0.22], in: [0.64, 0.64], close: [0.76, 0.76], fx: [0.15, 0] }, fxKind: 'eject' },
   { id: 'R5', name: 'Shell by shell',
     partial: [['enter', 0.25], ['insert', 0.85], ['hold', 1]], work: [-0.05, 0.04, 0, 10, 8, -20],
     shell: { first: [['enter', 0.25], ['insert', 0.85], ['hold', 1]], middle: [['fetch', 0.35], ['insert', 0.85], ['hold', 1]], last: [['fetch', 0.30], ['insert', 0.65], ['exit', 1]],
       only: [['enter', 0.20], ['insert', 0.60], ['exit', 1]], emptyFirst: [['enter', 0.20], ['port', 0.60], ['rack', 0.85], ['hold', 1]],
       emptyLast: [['enter', 0.20], ['port', 0.60], ['rack', 0.80], ['exit', 1]], click: { first: 0.70, middle: 0.70, last: 0.60, only: 0.55, emptyFirst: 0.55, emptyLast: 0.55 } },
-    part: { role: 'pump', mode: 'pulse', move: [0, 0, -0.1] }, spare: [0.02, 0.02, 0.06], cycle: { role: 'pump', keys: [[0, 0, 0], [0.25, 0, 0], [0.45, 1, 0], [0.60, 0, 0], [1, 0, 0]] },
+    part: { role: 'pump', mode: 'pulse', move: [0, 0, -0.1] }, spare: [0.02, 0.02, 0.06], cycle: { role: 'pump', keys: [[0, 0, 0], [0.25, 0, 0], [0.45, 1, 0], [0.60, 0, 0], [1, 0, 0]], eject: 0.42, particle: 'shells' },
     seat: [-0.02, 0.02, 0.05], belt: [-0.15, -0.3, 0.0], rack: [-0.03, -0.02, 0.1],
     tp: { gun: -20, armLFetch: -30 }, marks: { shellIn: [0.70, 0.70] } },
   { id: 'R6', name: 'Break action',
     partial: [['lower', 0.15], ['out', 0.30], ['fetch', 0.45], ['in', 0.70], ['close', 0.82], ['raise', 1]],
     work: [-0.05, 0.04, 0, 10, 8, 0], part: { role: 'barrel', mode: 'latch', move: [0, -0.098, -0.031], turn: [-35, 0, 0] }, spare: [0.04, 0.04, 0.08],
     seat: [-0.03, -0.03, 0.04], belt: [-0.15, -0.35, 0.0], rack: [-0.03, 0.0, 0.1], jolt: [0.012, -0.03],
-    tp: { gun: -25, armLFetch: -35 }, marks: { out: [0.18, 0.18], in: [0.62, 0.62], close: [0.76, 0.76] } },
+    tp: { gun: -25, armLFetch: -35 }, marks: { out: [0.18, 0.18], in: [0.62, 0.62], close: [0.76, 0.76], fx: [0.20, 0.20] }, fxKind: 'shells' },
   { id: 'R7', name: 'Drum or canister',
     partial: [['lower', 0.15], ['out', 0.32], ['fetch', 0.50], ['in', 0.70], ['rack', 0.82], ['raise', 1]],
     work: [-0.05, 0.04, 0, 10, 8, -15], part: { role: 'mag', mode: 'mag', move: [-0.18, -0.12, 0], lock: 60 }, spare: [0.1, 0.06, 0.1],
@@ -80,7 +85,7 @@ Data.define('reloadAnims', {
     partial: [['lower', 0.12], ['out', 0.35], ['fetch', 0.50], ['in', 0.66], ['rack', 0.86], ['raise', 1]], work: [-0.05, 0.045, 0, 12, 8, -10],
     part: { role: 'cell', mode: 'mag', out: 0.22 }, spare: [0.02, 0.06, 0.04], glow: true,
     seat: [-0.05, -0.02, 0.03], belt: [-0.2, -0.2, 0.0], rack: [-0.04, 0.03, 0.0],
-    tp: { gun: -15, armLFetch: -30 }, marks: { out: [0.14, 0.14], in: [0.64, 0.64], cellCharge: [0.68, 0.68] } },
+    tp: { gun: -15, armLFetch: -30 }, marks: { out: [0.14, 0.14], in: [0.64, 0.64], cellCharge: [0.68, 0.68], fx: [0.20, 0.20] } },
   { id: 'R9', name: 'Top clip and crank',
     partial: [['lower', 0.12], ['out', 0.28], ['fetch', 0.46], ['in', 0.64], ['raise', 1]],
     empty: [['lower', 0.10], ['out', 0.24], ['fetch', 0.40], ['in', 0.56], ['rack', 0.80], ['raise', 1]],
@@ -101,7 +106,7 @@ Data.define('reloadAnims', {
     partial: [['lower', 0.10], ['open', 0.20], ['out', 0.35], ['fetch', 0.55], ['in', 0.72], ['rack', 0.82], ['prime', 0.92], ['raise', 1]],
     work: [-0.05, 0.04, 0, 8, 6, 0], part: { role: 'cell', mode: 'mag', out: 0.2 }, spare: [0.05, 0.2, 0.05], glow: true,
     seat: [-0.04, -0.06, 0.02], belt: [-0.2, -0.35, 0.0], rack: [-0.04, 0.0, 0.1],
-    tp: { gun: 0, gunDrop: -0.10, torso: 8, armLFetch: -40 }, marks: { out: [0.12, 0.12], in: [0.70, 0.70], rack: [0.80, 0.80] } },
+    tp: { gun: 0, gunDrop: -0.10, torso: 8, armLFetch: -40 }, marks: { out: [0.12, 0.12], in: [0.70, 0.70], rack: [0.80, 0.80], fx: [0.87, 0.87] } },
   { id: 'R13', name: 'Tube',
     partial: [['lower', 0.12], ['open', 0.22], ['out', 0.32], ['fetch', 0.52], ['in', 0.72], ['close', 0.82], ['raise', 1]],
     work: [-0.05, 0.0, 0, 20, 6, 0], about: [-0.04, -0.09, 0.05], part: { role: 'mag', mode: 'mag', move: [0, 0, -0.25] }, second: { role: 'lid', mode: 'latch', move: [0, 0.06, 0], turn: [-60, 0, 0] }, spare: [0.07, 0.07, 0.25],
@@ -114,6 +119,12 @@ Data.define('reloadAnims', {
     tp: { gun: -20, armLFetch: -35 }, marks: { out: [0.14, 0.14], in: [0.64, 0.64], cellCharge: [0.80, 0.80] } },
 ]);
 CAT.reloadAnims.forEach((row, index) => { row.index = index; });
+
+// The cue of each sound mark of a reload set; 'fx' (the particle moment) is resolved per weapon (11a emitCue).
+const RELOAD_MARK_CUES = { open: 'reloadRack', out: 'reloadOut', in: 'reloadIn', rack: 'reloadRack', close: 'reloadRack', shellIn: 'shellIn', cellCharge: 'cellCharge', fx: RELOAD_FX_CUE };
+CAT.reloadAnims.forEach((row) => {
+  row.cueMarks = Object.keys(row.marks).map((name) => ({ cue: RELOAD_MARK_CUES[name], partial: row.marks[name][0], empty: row.marks[name][1] }));
+});
 
 // Melee strike row. A strike is the contact pose (drawn on the first frame at or after the hit tick, so the swing arc is one
 // frame: a smear), then the follow-through to `through` (0..follow of the cycle T), then the recovery to the guard pose (the hold)

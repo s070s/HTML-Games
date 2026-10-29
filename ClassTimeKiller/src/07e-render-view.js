@@ -146,16 +146,15 @@ const viewPivot = makeModelPose();   // the weapon pivot rotated in place (no fl
 const viewPose = makeModelPose();
 const viewTint = new Float32Array(3);
 
-// Weapon pivot in view space (x right, y up, z forward) after ADS, kick, swap and walk sway. The reload, melee, block, sprint and
-// hit-knock offsets are the layers of 07g (ViewAction), added by fillViewModel; this base pose is the idle hold pose with all of them 0.
+// Weapon pivot in view space (x right, y up, z forward) after ADS, swap and walk sway. The reload, melee, block, sprint, hit-knock and
+// shot-kick offsets are the layers of 07g (ViewAction), added by fillViewModel; this base pose is the idle hold pose with all of them 0.
 function poseWeapon(row, state) {
-  const ads = clamp(state.ads, 0, 1), kick = clamp(state.kick, 0, 1) * row.kick;
-  const swap = clamp(state.swap, 0, 1);
+  const ads = clamp(state.ads, 0, 1), swap = clamp(state.swap, 0, 1);
   const sway = (1 - ads * 0.8) * Render.motion.bob, phase = ViewState.bobPhase, offset = Render.config.viewmodelOffset;
   weaponPose.x = lerp(row.hold[0], row.ads[0], ads) + Math.sin(phase) * 0.006 * sway - offset[0] * (1 - ads);
-  weaponPose.y = lerp(row.hold[1], row.ads[1], ads) + kick * 0.012 - swap * 0.25 + Math.abs(Math.cos(phase)) * 0.005 * sway + offset[1] * (1 - ads);
-  weaponPose.z = lerp(row.hold[2], row.ads[2], ads) - kick * 0.05 + offset[2] * (1 - ads);
-  weaponPose.pitch = kick * 6 * DEG - swap * 0.6;
+  weaponPose.y = lerp(row.hold[1], row.ads[1], ads) - swap * 0.25 + Math.abs(Math.cos(phase)) * 0.005 * sway + offset[1] * (1 - ads);
+  weaponPose.z = lerp(row.hold[2], row.ads[2], ads) + offset[2] * (1 - ads);
+  weaponPose.pitch = -swap * 0.6;
   weaponPose.yaw = 0; weaponPose.roll = 0; weaponPose.glow = 1; weaponPose.emissive = 0; weaponPose.roleMove = NO_ROLE_MOVE;
   return weaponPose;
 }

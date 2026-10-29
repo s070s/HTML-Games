@@ -318,7 +318,14 @@ const SCOPE_BOB_METRES = 0.003;      // W24 scoped: the bolt cycle shows only th
 const SPARE_PALETTE = MODEL_PALETTE_INDEX.steel;
 const HAFT_HAND = Float32Array.of(-0.05, -0.06, 0);   // the off-hand on the haft of a two-handed melee weapon (model units)
 
-const L_SECONDS = 0, L_WIND = 1, L_CLOCK = 2, L_KNOCK_AGE = 3, L_KNOCK_METRES = 4, L_KNOCK_PITCH = 5, L_CHARGE = 6, L_COUNT = 7;   // ViewLayers.scalars: frame seconds, melee wind-up, clock, hit knock age, size and pitch, the charge shown by a gun
+const L_SECONDS = 0, L_WIND = 1, L_CLOCK = 2, L_KNOCK_AGE = 3, L_KNOCK_METRES = 4, L_KNOCK_PITCH = 5, L_CHARGE = 6, L_KICK_AGE = 7, L_KICK_PREV = 8, L_KICK_ROLL = 9, L_MOTION = 10, L_COUNT = 11;
+// ViewLayers.scalars: frame seconds, melee wind-up, clock, hit knock age, size and pitch, the charge shown by a gun, seconds since the last shot's kick began, the
+// sim kick of the last frame (a rise is a new shot), the roll of that kick (signed, it alternates), this frame's weapon motion share (P7-03)
+const KICK_NEW_SHOT = 0.3;           // the sim kick rising by this much in a frame is a new shot
+const KICK_DAMPING = 3, KICK_FREQUENCY = 2.3;   // the kick spring exp(-3 u) cos(2.3 u) over the class's kickTime: it crosses zero at u = 0.68 and overshoots by 3.3 % (5 % is the limit)
+const KICK_RAISE = 0.012, KICK_PITCH = 6 * DEG;   // metres up and radians of muzzle-up pitch at a kick of 1 x the class's `kick` (the P2 values)
+const LAYER_MOTION = Uint8Array.of(1, 1, 0, 0, 1, 1);   // the layers the weapon motion setting scales: reload, melee, cycle, sprint (not the block and the charge: they show what the weapon is doing)
+const layerScale = new Float32Array(LAYER.COUNT);
 const DETONATE_JOLT_SECONDS = 0.1, DETONATE_JOLT_METRES = 0.01;   // the thumb jolt of a detonate press during a reload (W40, W43)
 const CHARGE_SHOWN_SECONDS = 0.08;   // render seconds the drawn bow string and glow follow the charge by (a release snaps them back over this)
 const CHARGE_GLOW_FLOOR = 0.3;       // a charging gun's glow parts start this bright and swell to full
@@ -409,6 +416,9 @@ ViewAction.update = function (state, model, seconds) {
   scalars[L_SECONDS] = seconds;
   if (!(scalars[L_SECONDS] > 0)) scalars[L_SECONDS] = 0;   // no frame time (a test fills the view model without one): the layers hold
   scalars[L_CLOCK] += scalars[L_SECONDS]; scalars[L_KNOCK_AGE] += scalars[L_SECONDS];
+  scalars[L_MOTION] = 1;
+  if (Render.motion.weapon !== undefined) scalars[L_MOTION] = Render.motion.weapon;   // the weapon motion setting (P7-03; reduce motion caps it at 40 %)
+  for (let layer = 0; layer < LAYER.COUNT; layer++) { if (LAYER_MOTION[layer] === 1) layerScale[layer] = scalars[L_MOTION]; else layerScale[layer] = 1; }
   const adsScale = 1 - clamp(state.ads, 0, 1), swapping = state.swapping === 1, reloadOn = state.reloadSet >= 0 && !swapping;
   const striking = state.meleeAge >= 0 && state.meleeAnim >= 0;
   if (striking && (reloadOn || swapping)) meleeStamp[1] = state.meleeAt;
@@ -432,7 +442,7 @@ ViewAction.update = function (state, model, seconds) {
   if (cycleOn) this.cycleLayer(state, cycleRow);
   if (sprintOn) value.set(SPRINT_POSE, LAYER.SPRINT * POSE_FLOATS);
   for (let layer = 0; layer < LAYER.COUNT; layer++) {
-    const share = weight[layer] * (layer === LAYER.CYCLE ? 1 : adsScale);
+    const share = weight[layer] * (layer === LAYER.CYCLE ? 1 : adsScale) * layerScale[layer];
     if (share === 0) continue;
     for (let k = 0; k < POSE_FLOATS; k++) this.pose[k] += value[layer * POSE_FLOATS + k] * share;
   }
@@ -444,8 +454,26 @@ ViewAction.update = function (state, model, seconds) {
   }
   if (this.handKind === HAND_KIND.RELOAD) this.values[VA.HAND] = weight[LAYER.RELOAD] * adsScale;
   this.chargeEffects(state, weaponRow, adsScale);
-  if (state.joltAge < DETONATE_JOLT_SECONDS) this.pose[2] -= DETONATE_JOLT_METRES * Math.sin(Math.PI * state.joltAge / DETONATE_JOLT_SECONDS);
+  if (state.joltAge < DETONATE_JOLT_SECONDS) this.pose[2] -= DETONATE_JOLT_METRES * Math.sin(Math.PI * state.joltAge / DETONATE_JOLT_SECONDS) * scalars[L_MOTION];
   if (scalars[L_KNOCK_AGE] < KNOCK_RISE_SECONDS + KNOCK_RECOVER_SECONDS) this.applyKnock();
+  this.kickLayer(state, model);
+};
+
+// P7 F05: the recoil of the view model. A shot (the sim kick rising) starts a spring that lasts the class's `kickTime`: the gun goes back, up and pitches up, with a
+// little roll that alternates from shot to shot. Visual only: the camera recoil (WPN-004) is the sim's. Scaled by the weapon motion setting.
+ViewAction.kickLayer = function (state, model) {
+  const scalars = ViewLayers.scalars, row = model.pose;
+  if (state.kick > scalars[L_KICK_PREV] + KICK_NEW_SHOT) {
+    scalars[L_KICK_AGE] = 0;
+    const roll = 0.5 + 0.5 * Rng.fx.next();
+    if (scalars[L_KICK_ROLL] > 0) scalars[L_KICK_ROLL] = -roll; else scalars[L_KICK_ROLL] = roll;
+  }
+  scalars[L_KICK_PREV] = state.kick;
+  scalars[L_KICK_AGE] += scalars[L_SECONDS];
+  const along = scalars[L_KICK_AGE] / row.kickTime;
+  if (!(along < 1)) return;
+  const amount = Math.exp(-KICK_DAMPING * along) * Math.cos(KICK_FREQUENCY * along) * row.kick * scalars[L_MOTION], pose = this.pose;
+  pose[1] += amount * KICK_RAISE; pose[2] -= amount * row.kickBack; pose[3] += amount * KICK_PITCH; pose[5] += amount * row.kickRoll * DEG * scalars[L_KICK_ROLL];
 };
 
 ViewAction.reloadLayer = function (state, model, reloadOn, swapping, meleeOn) {
@@ -553,7 +581,7 @@ ViewAction.chargeEffects = function (state, weaponRow, adsScale) {
 ViewAction.applyKnock = function () {
   const scalars = ViewLayers.scalars, age = scalars[L_KNOCK_AGE];
   const amount = age < KNOCK_RISE_SECONDS ? age / KNOCK_RISE_SECONDS : Math.max(0, 1 - (age - KNOCK_RISE_SECONDS) / KNOCK_RECOVER_SECONDS);
-  this.pose[1] -= scalars[L_KNOCK_METRES] * amount; this.pose[3] -= scalars[L_KNOCK_PITCH] * amount;
+  this.pose[1] -= scalars[L_KNOCK_METRES] * amount * scalars[L_MOTION]; this.pose[3] -= scalars[L_KNOCK_PITCH] * amount * scalars[L_MOTION];
 };
 Bus.on('damage', (event) => {
   if (event.target !== Game.playerId || !(event.amount > 0) || !KNOCK_KINDS.has(event.kind)) return;
@@ -565,7 +593,7 @@ Bus.on('match.stop', () => ViewAction.restart());
 Bus.on('actor.spawn', (event) => { if (event.id === Game.playerId) ViewAction.restart(); });
 ViewAction.restart = function () {
   ViewLayers.weight.fill(0); ViewLayers.value.fill(0); ViewLayers.reloadMoves.fill(0); ViewLayers.cycleMoves.fill(0); ViewLayers.scalars.fill(0);
-  ViewLayers.scalars[L_KNOCK_AGE] = 99;
+  ViewLayers.scalars[L_KNOCK_AGE] = 99; ViewLayers.scalars[L_KICK_AGE] = 99; ViewLayers.scalars[L_MOTION] = 1;
   meleeStamp[0] = -1; meleeStamp[1] = -1e9;
 };
 
@@ -611,6 +639,7 @@ const ACTION_FLOATS = ACTION_SLOTS * 3;
 const ACTION_FADE_SECONDS = 0.1;       // a cancelled reload or strike lets go of the body this long
 const STAGGER_ARMS = -30 * DEG, STAGGER_GUN = -20 * DEG, STAGGER_SECONDS = 0.1;
 const SWAP_GUN_DROP = -0.18, SWAP_GUN_PITCH = -35 * DEG, SWAP_ARM = -20 * DEG;
+const KICK_VISIBLE = 0.2;   // degrees of gun pitch a body's shot kick must still have to be worked out (an early exit for the rest of its 0.12 s)
 const FLINCH_RISE = 0.05, FLINCH_RECOVER = 0.25, FLINCH_RECOVER_HEAVY = 0.35;
 const FLINCH_MELEE = 12 * DEG, FLINCH_HEAVY = 18 * DEG, FLINCH_SPLASH = 10 * DEG, FLINCH_BULLET_MAX = 6 * DEG, FLINCH_BULLET_DAMAGE = 40, FLINCH_HEAVY_DAMAGE = 84;
 const FLINCH_KINDS = new Set(['hit', 'melee', 'beam', 'splash']);
@@ -623,7 +652,7 @@ const ActorAction = {
   flinchAge: new Float32Array(MAX_ACTORS).fill(99), flinchAmount: new Float32Array(MAX_ACTORS), flinchRecover: new Float32Array(MAX_ACTORS),
 };
 // The Render.actorAction record (11a Weapons.actorAction fills it): the fields share their names with the Render.viewModel record.
-const actionState = { kind: 0, swap: 0, reloadSet: -1, reload: 0, reloadEmpty: 0, reloadFirst: 1, reloadLast: 0, meleeAnim: -1, meleeAge: 0, meleeCycle: 0, meleeCount: 0, fireHeld: 0, meleeStriker: -1, weaponIndex: -1, blocking: 0 };
+const actionState = { kind: 0, kick: 0, kickDeg: 0, swap: 0, reloadSet: -1, reload: 0, reloadEmpty: 0, reloadFirst: 1, reloadLast: 0, meleeAnim: -1, meleeAge: 0, meleeCycle: 0, meleeCount: 0, fireHeld: 0, meleeStriker: -1, weaponIndex: -1, blocking: 0 };
 const tpReload = new ReloadSample(), tpMelee = new MeleeSample();
 const TP_ACTION = { NONE: 0, RELOAD: 1, MELEE: 2, SWAP: 3 };
 
@@ -656,12 +685,14 @@ function computeActorAction(id, pose, seconds, lod) {
   state.kind = TP_ACTION.NONE;
   if (Render.actorAction) Render.actorAction(id, state);
   const stunned = (Actors.flags[id] & ACTOR_FLAG.FROZEN) !== 0;
-  if (state.kind === TP_ACTION.NONE && !stunned && action.weight[id] === 0 && action.stagger[id] === 0 && action.flinchAge[id] >= FLINCH_RISE + action.flinchRecover[id]) {
+  const kicking = lod === LOD.near && state.kick * state.kickDeg > KICK_VISIBLE;   // only a near body's kick is seen, and only while it is big enough to be
+  if (state.kind === TP_ACTION.NONE && !stunned && !kicking && action.weight[id] === 0 && action.stagger[id] === 0 && action.flinchAge[id] >= FLINCH_RISE + action.flinchRecover[id]) {
     if (action.dirty) action.clear();   // most bodies most frames: nothing to do
     return;
   }
   action.clear();
   action.dirty = true;
+  if (kicking) action.pitch[3] = state.kickDeg * DEG * state.kick;   // P7 F05: the held gun pitches up for the length of the shot's kick (the sim's 0.12 s)
   if (state.kind !== TP_ACTION.NONE) {
     playActorAction(id, state, lod);
     action.weight[id] = 1;

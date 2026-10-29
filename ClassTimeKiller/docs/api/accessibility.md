@@ -14,6 +14,10 @@ One source per setting. Settings the earlier sections read are filled through ho
 | `accessibility.photosensitive` | off | 18m | 17a `Hud.flashColor/flashAlpha`: every full-screen flash is a dark overlay at most 50% strong, never white |
 | `accessibility.particles` | 100 | 18m | 18m -> `Render.config.particleScale` (07d `Fx.burst` multiplies the particle count, still capped by the quality tier) |
 | `video.shake` `video.fovKick` | 100 | 18k | `ViewFx` through `Render.motion.shake/fovKick` (x0 under reduce motion) |
+| `video.weaponMotion` | 100 | 18k | `Render.motion.weapon`: the view model's kick, reload tilt, sprint cant and hit knock (40 % at most under reduce motion) |
+| `video.muzzleFlash` | `full` | 18k | `Render.config.muzzleFlash`: full, reduced (one particle at half the size and half the alpha, no light), off; photosensitivity mode (`Render.config.flashSafe`) lowers it: off for a gun above 3 shots a second, reduced for a slower one |
+| `controls.vibrationStrength` | 100 | 05a | `Input.rumble` multiplies its strength (0 = off); the label says "controller only" where the phone cannot vibrate (iPhone), like the switch above it |
+| `audio.heartbeat` | on | 06 | the low-health heartbeat |
 | `video.headBob` | 0 | 07a | slider 0-100; 07e multiplies by `Render.motion.bob` (0 under reduce motion) |
 | `video.viewmodelX/Y/Z` | 0 | 18k | cm, +-10 -> `Render.config.viewmodelOffset` (metres); 07e `poseWeapon` adds it, fading out while aiming so sights stay centred |
 | `hud.element.minimap` `compass` `awareness` `barks` `movement` | on, off, on, on, on | 17f via `hudAddElement` | one toggle per element, like every HUD element. `barks` is in the Accessibility tab |
@@ -61,7 +65,7 @@ All draw through the pen into the existing layers; hideable elements go through 
 
 ## View effects (18k)
 
-`Render.viewEffect(camera, seconds)` (07e calls it after the camera followed the player; not during killcam or spectate) is filled with `ViewFx.apply`: trauma shake (yaw, pitch and roll of at most 2.6 / 2 degrees, decays in 0.6 s) from nearby explosions (up to 3 blast radii), hits on you, landings above 6 m/s; FOV kick (decays at 24 deg/s, max 12) from dashes and impulses. `Render.motion = { bob, shake, fovKick }` (0..1) carries reduce motion and the sliders to 07e. `ViewFx.addTrauma(amount)` / `addKick(degrees)` are the public triggers.
+`Render.viewEffect(camera, seconds)` (07e calls it after the camera followed the player; not during killcam or spectate) is filled with `ViewFx.apply`: trauma shake (yaw, pitch and roll of at most 2.6 / 2 degrees, decays in 0.6 s) from nearby explosions (up to 3 blast radii) and landings above 6 m/s; hits on you have their own damage shake (`ViewFx.addDamageTrauma`, P7 F13): mostly roll, with the yaw and pitch part capped at 0.3 degrees because shots follow the aim and not the shaken camera; FOV kick (decays at 24 deg/s, max 12) from dashes and impulses. `Render.motion = { bob, shake, fovKick, weapon }` (0..1) carries reduce motion and the sliders to 07e. `ViewFx.addTrauma(amount)` / `addKick(degrees)` are the public triggers.
 
 ## Crosshair editor (18k, UI-004)
 

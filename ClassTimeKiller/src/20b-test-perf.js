@@ -18,7 +18,9 @@ const PERF_SCENES = {
   royale: { label: 'Royale, 18 actors on Ring Isle', mode: 'royale', map: 'isle', bots: 18 },
   generated: { label: 'GN5 large generated island with bots', mode: 'royale', map: () => perfGeneratedMap(), bots: 16 },
   editor: { label: 'Map editor, 400 objects', editor: true },
+  storm: { label: 'TDM plus a forced storm every frame: 12 shots (flash, light, casing), 12 hits on surfaces, 12 blood bursts (P7 worst case)', mode: 'tdm', map: 'harbor', bots: 16, kits: true, storm: true },
 };
+const PERF_STORM_SHOTS = 12, PERF_STORM_HITS = 12, PERF_STORM_SPREAD = 6;   // per frame: shots from the player's gun slot and bots' places, hits and blood bursts around the camera
 
 const PerfScene = {
   name: '', row: null, follow: -1, kits: null, upkeep: 0, sincePowerup: 0, setupMs: 0, quality: '',
@@ -116,6 +118,7 @@ function perfStartEditor() {
 // Scene upkeep once a second from the Loop 'input' phase (cheap: nothing runs between upkeeps).
 function perfSceneFrame(seconds) {
   if (!PerfScene.row) return;
+  if (PerfScene.row.storm) perfStorm();
   PerfScene.upkeep += seconds;
   if (PerfScene.upkeep < PERF_KIT_SECONDS) return;
   PerfScene.upkeep = 0;
@@ -128,6 +131,31 @@ function perfSceneFrame(seconds) {
   if (PerfScene.sincePowerup < PERF_POWERUP_EVERY) return;
   PerfScene.sincePowerup = 0;
   perfGivePowerups();
+}
+
+// The forced worst case of P7 (scene 'storm'): every frame many shots (muzzle flash and light per shooter, a casing each), hits on every material and blood bursts, all in the
+// real pooled effects, on top of the TDM scene. The rate limits of the shots are bypassed (the casing clock is reset): this is the most the effects can be asked for.
+const perfStormHit = { x: 0, y: 1, z: 0, nx: 0, ny: 1, nz: 0, brush: { material: 'concrete' } };
+let perfStormTick = 0;
+function perfStorm() {
+  const player = Game.playerId, camera = Render.camera;
+  if (player < 0 || Game.headless) return;
+  perfStormTick++;
+  for (let i = 0; i < PERF_STORM_SHOTS; i++) {
+    const weapon = CAT.weapons[3 + (perfStormTick + i) % 10], shooter = i === 0 ? player : (player + i) % Actors.count;
+    if (!Actors.alive[shooter] || weapon.primary.type === 'melee') continue;
+    ShotFx.casingAt[shooter] = -1e9;
+    Vec.fromAngles(aimScratch, Actors.yaw[shooter], Actors.pitch[shooter]);
+    ShotFx.shot(shooter, weapon, weapon.primary, Muzzle.visual(shooter, weapon));
+  }
+  for (let i = 0; i < PERF_STORM_HITS; i++) {
+    const angle = (perfStormTick + i) * 0.7;
+    perfStormHit.x = camera.x + Math.sin(angle) * PERF_STORM_SPREAD; perfStormHit.z = camera.z + Math.cos(angle) * PERF_STORM_SPREAD; perfStormHit.y = 0.2 + (i % 3);
+    perfStormHit.nx = -Math.sin(angle); perfStormHit.nz = -Math.cos(angle); perfStormHit.ny = 0;
+    perfStormHit.brush.material = CAT.materials[(perfStormTick + i) % CAT.materials.length].id;
+    ShotFx.surface(perfStormHit, true);
+    Fx.burst('blood', perfStormHit.x, perfStormHit.y, perfStormHit.z, perfStormHit.nx, 0, perfStormHit.nz, 8, 0xa01818);
+  }
 }
 
 function perfStopScene() {

@@ -14,6 +14,10 @@ const VIEW_FOV_MAX = 130;
 const VIEW_EXPLOSION_REACH = 3;               // trauma reaches this many blast radii from the centre
 const VIEW_EXPLOSION_TRAUMA = 0.8;
 const VIEW_DAMAGE_TRAUMA = 0.12, VIEW_DAMAGE_TRAUMA_PER_HP = 0.003, VIEW_DAMAGE_TRAUMA_MAX = 0.4;
+// P7 F13: damage shakes the view mostly in roll. Shots follow the aim, not the shaken camera, so its yaw and pitch part stays under this many
+// degrees (the crosshair would otherwise leave the aim point by up to 2.6 degrees); explosions and landings keep their full three-axis shake.
+const VIEW_DAMAGE_AIM_DEGREES = 0.3, VIEW_DAMAGE_ROLL = 0.2;   // roll in radians at full damage trauma (a 1.8 degree swing at the largest hit)
+const WEAPON_MOTION_CALM_CAP = 0.4;           // reduce motion limits the weapon motion to this share (P7-03)
 const VIEW_LAND_MIN_SPEED = 6, VIEW_LAND_TRAUMA_PER_SPEED = 0.04, VIEW_LAND_TRAUMA_MAX = 0.35;
 const VIEW_DASH_KICK = 6;
 const VIEW_SLAM_TRAUMA = 0.15;                // the W01 alt slam on a floor (P6-03)
@@ -23,20 +27,29 @@ const VIEW_OFFSET_CM = 10;                    // weapon offset sliders: +- this 
 
 const VIEW_SETTINGS = [
   { key: 'video.shake', fallback: 100, label: 'Camera shake (%)', min: 0, max: 100, step: 5 },
+  { key: 'video.weaponMotion', fallback: 100, label: 'Weapon motion: kick, reload tilt, sprint cant, hit knock (%)', min: 0, max: 100, step: 5 },
   { key: 'video.fovKick', fallback: 100, label: 'FOV kick on dashes and launches (%)', min: 0, max: 100, step: 5 },
   { key: 'video.viewmodelX', fallback: 0, label: 'Weapon position: sideways (cm)', min: -VIEW_OFFSET_CM, max: VIEW_OFFSET_CM, step: 1 },
   { key: 'video.viewmodelY', fallback: 0, label: 'Weapon position: height (cm)', min: -VIEW_OFFSET_CM, max: VIEW_OFFSET_CM, step: 1 },
   { key: 'video.viewmodelZ', fallback: 0, label: 'Weapon position: distance (cm)', min: -VIEW_OFFSET_CM, max: VIEW_OFFSET_CM, step: 1 },
 ];
 for (const row of VIEW_SETTINGS) Settings.define(row.key, row.fallback, { label: row.label, category: 'video', min: row.min, max: row.max, step: row.step });
+// P7-03: the muzzle flash of every gun (full, reduced = half the size, one particle at half the alpha and no light, off); photosensitivity mode (ACC-005) lowers it: off for a gun above 3 shots a second, reduced for the rest.
+const MUZZLE_FLASH_LEVELS = ['off', 'reduced', 'full'];
+Settings.define('video.muzzleFlash', 'full', { label: 'Muzzle flash', category: 'video', options: MUZZLE_FLASH_LEVELS, optionLabels: ['Off', 'Reduced (smaller, no light)', 'Full'] });
 
 const ViewFx = {
   trauma: 0, kick: 0, clock: 0,
-  shakeSlider: 1, kickSlider: 1,
+  damageTrauma: 0,                            // P7 F13: the damage shake, kept apart so its aim part can be capped
+  shakeSlider: 1, kickSlider: 1, weaponSlider: 1,
 
   readSettings() {
     this.shakeSlider = Settings.get('video.shake') / 100;
     this.kickSlider = Settings.get('video.fovKick') / 100;
+    this.weaponSlider = Settings.get('video.weaponMotion') / 100;
+    const flash = MUZZLE_FLASH_LEVELS.indexOf(Settings.get('video.muzzleFlash'));
+    Render.config.muzzleFlash = flash;
+    Render.config.flashSafe = Settings.get('accessibility.photosensitive');   // 11f ShotFx.flash lowers the flash of a fast gun to off and of a slow one to reduced
     const offset = Render.config.viewmodelOffset;
     offset[0] = Settings.get('video.viewmodelX') / 100; offset[1] = Settings.get('video.viewmodelY') / 100; offset[2] = Settings.get('video.viewmodelZ') / 100;
     this.applyMotion();
@@ -47,15 +60,24 @@ const ViewFx = {
     Render.motion.bob = calm ? 0 : 1;
     Render.motion.shake = calm ? 0 : this.shakeSlider;
     Render.motion.fovKick = calm ? 0 : this.kickSlider;
+    Render.motion.weapon = calm ? Math.min(this.weaponSlider, WEAPON_MOTION_CALM_CAP) : this.weaponSlider;
   },
   addTrauma(amount) { this.trauma = Math.min(1, this.trauma + amount); },
+  addDamageTrauma(amount) { this.damageTrauma = Math.min(1, this.damageTrauma + amount); },
   addKick(degrees) { this.kick = Math.min(VIEW_KICK_MAX, this.kick + degrees); },
-  reset() { this.trauma = 0; this.kick = 0; },
+  reset() { this.trauma = 0; this.damageTrauma = 0; this.kick = 0; },
   // Runs inside the camera update (Render.viewEffect) after the camera followed the player.
   apply(camera, seconds) {
-    if (this.trauma <= 0 && this.kick <= 0) return;
+    if (this.trauma <= 0 && this.damageTrauma <= 0 && this.kick <= 0) return;
     this.clock += seconds;
     const motion = Render.motion;
+    if (this.damageTrauma > 0) {
+      this.damageTrauma = Math.max(0, this.damageTrauma - seconds * VIEW_SHAKE_DECAY);
+      const strength = this.damageTrauma * this.damageTrauma * motion.shake, aimLimit = VIEW_DAMAGE_AIM_DEGREES * DEG, hz = VIEW_SHAKE_HZ;
+      camera.yaw += Math.sin(this.clock * hz[0]) * Math.min(aimLimit, strength * VIEW_SHAKE_ANGLE);
+      camera.pitch = clamp(camera.pitch + Math.sin(this.clock * hz[1] + 1) * Math.min(aimLimit, strength * VIEW_SHAKE_ANGLE), -MAX_LOOK_PITCH, MAX_LOOK_PITCH);
+      camera.roll += Math.sin(this.clock * hz[2] + 2) * strength * VIEW_DAMAGE_ROLL;
+    }
     if (this.trauma > 0) {
       this.trauma = Math.max(0, this.trauma - seconds * VIEW_SHAKE_DECAY);
       const strength = this.trauma * this.trauma * motion.shake, hz = VIEW_SHAKE_HZ;
@@ -82,7 +104,7 @@ Bus.on('explosion', (event) => {
 });
 Bus.on('damage', (event) => {
   if (event.target !== Game.playerId || event.amount <= 0) return;
-  ViewFx.addTrauma(Math.min(VIEW_DAMAGE_TRAUMA_MAX, VIEW_DAMAGE_TRAUMA + event.amount * VIEW_DAMAGE_TRAUMA_PER_HP));
+  ViewFx.addDamageTrauma(Math.min(VIEW_DAMAGE_TRAUMA_MAX, VIEW_DAMAGE_TRAUMA + event.amount * VIEW_DAMAGE_TRAUMA_PER_HP));
 });
 Bus.on('move.land', (event) => {
   if (event.id === Game.playerId && event.speed > VIEW_LAND_MIN_SPEED) ViewFx.addTrauma(Math.min(VIEW_LAND_TRAUMA_MAX, (event.speed - VIEW_LAND_MIN_SPEED) * VIEW_LAND_TRAUMA_PER_SPEED));

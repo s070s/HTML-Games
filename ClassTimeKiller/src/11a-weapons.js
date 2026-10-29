@@ -29,7 +29,6 @@ const PENETRATION_FACTOR = { low: 0.5, med: 0.7, high: 0.85 };
 const PRESS_BUFFER_GRACE = 0.15;         // D-F02: a trigger pressed during the sprint-to-fire wait is answered up to this long after the wait ends
 const AIM_ASSIST_CONE_DEG = 6;           // INP-008: Input applies its 3 deg slowdown cone inside this search cone
 const AIM_ASSIST_RANGE = 60;
-const IMPACT_SPARK_COLOR = 0xffe0a0;
 const DUAL_FACTOR = 2;                   // W04 dual pistols: magazine and fire rate multiplier
 const EQUIP_SCALE_FLOOR = 0.8;           // WPN-010: stacked equip modifiers never make a swap shorter than 0.8 x equipTime
 const ATTACHMENT_SLOT_COUNT = ATTACHMENT_SLOTS.length;
@@ -75,28 +74,33 @@ const RELOAD_EVENT = { id: 0, weapon: '' };
 const EMPTY_EVENT = { id: 0, weapon: '', pool: 'mag', dry: false };   // pool: 'mag' or 'alt' (the separate alt rounds ran out); dry: nothing left to reload either
 const NO_LOCK_EVENT = { id: 0, weapon: '' };                // a lock-on trigger held (or tapped) with no enemy in the cone (D-F04)
 const IMPACT_EVENT = { x: 0, y: 0, z: 0, nx: 0, ny: 0, nz: 0, material: '', weapon: '', owner: -1 };
+const CUE_EVENT = { id: 0, weapon: '', cue: '', count: 1 };      // 'weapon.cue' (P7 F11): a moment of the local player's reload or action cycle: reloadOut, reloadIn, reloadRack, shellIn, cellCharge, pump, bolt (sounds) and casings, shells, eject, vent, flare (particles); count = how many particles
+const PARRY_EVENT = { id: 0 };                                  // 'weapon.parry': the guard of body id reflected a projectile (P7 F12)
+const CHARGE_FULL_EVENT = { id: 0, weapon: '', mode: 'primary' };   // 'weapon.chargeFull': a held charge of body id reached its full time (P7 F12)
+const cueSpan = new Float64Array(2);                            // the reload fractions a step passed: [from, to] (no float arguments, PERF-006)
 
 function emitWeaponEvent(type, payload, id, weapon) {
   payload.id = id; payload.weapon = weapon.id;
   Bus.emit(type, payload);
 }
+function announceParry(id) { PARRY_EVENT.id = id; Bus.emit('weapon.parry', PARRY_EVENT); }
 function announceImpact(hit, weaponKey, owner) {
   IMPACT_EVENT.x = hit.x; IMPACT_EVENT.y = hit.y; IMPACT_EVENT.z = hit.z; IMPACT_EVENT.nx = hit.nx; IMPACT_EVENT.ny = hit.ny; IMPACT_EVENT.nz = hit.nz;
   IMPACT_EVENT.material = hit.brush ? hit.brush.material : ''; IMPACT_EVENT.weapon = weaponKey; IMPACT_EVENT.owner = owner;
   Bus.emit('impact', IMPACT_EVENT);
 }
+// P7 F03: a bullet on a surface makes the particles of the material (sparks on metal, dust on concrete, brown dust on wood, a splash on water, ...) and the bullet
+// decal (none on water): 11f ShotFx.surface, from the material's `impact` row (03b IMPACT_EFFECTS).
 function emitImpact(hit, weaponKey, owner) {
   announceImpact(hit, weaponKey, owner);
   if (Game.headless) return;
-  Fx.burst('spark', hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 6, IMPACT_SPARK_COLOR);
-  Fx.decal(hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, 'bullet');
+  ShotFx.surface(hit, true);
 }
-// P6-03: a melee swing that meets a wall or the floor within reach: the impact event (the audio row plays the material's sound) and a puff of dust, no sparks or
-// decal. Nothing in the sim listens to 'impact'; only the sound and the effect do.
-const MELEE_DUST_COUNT = 5;
+// P6-03: a melee swing that meets a wall or the floor within reach: the impact event (the audio row plays the material's sound) and the material's particles, no decal.
+// Nothing in the sim listens to 'impact'; only the sound and the effect do.
 function meleeSurfaceHit(hit, weapon, owner) {
   announceImpact(hit, weapon.id, owner);
-  if (!Game.headless) Fx.burst('dust', hit.x, hit.y, hit.z, hit.nx, hit.ny, hit.nz, MELEE_DUST_COUNT);
+  if (!Game.headless) ShotFx.surface(hit, false);
 }
 // A shot or bolt that stopped at a destructible prop damages it (S08 Props; the breaker is reported on 'world.break').
 function damagePropAt(hit, amount, owner) {
@@ -137,6 +141,7 @@ const Weapons = {
   breathUsed: new Float32Array(MAX_ACTORS),         // seconds of the held breath (FireMode.breath) spent; 0 = full lungs
   swayScale: new Float32Array(MAX_ACTORS).fill(1), swayPitch: new Float32Array(MAX_ACTORS), swayYaw: new Float32Array(MAX_ACTORS),   // scope sway in degrees
   toggled: new Uint8Array(MAX_ACTORS),
+  cycleSeen: new Float32Array(MAX_ACTORS).fill(1),   // the share of the shot interval the local player's last cycle check saw (cueCycle)
   heat: new Float32Array(MAX_ACTORS),
   latch: new Uint8Array(MAX_ACTORS),                // bit per mode: a semi/burst trigger already fired during this hold
   pressBuffer: new Uint8Array(MAX_ACTORS),          // bit per mode: a trigger pressed during the sprint-to-fire wait, not answered yet (D-F02)
@@ -467,11 +472,42 @@ const Weapons = {
   stepReload(id, weapon, dt) {
     const firePressed = (Actors.pressed[id] & BTN.FIRE) !== 0;
     if (weapon.reloadShell && firePressed && this.magazine[this.slotIndex(id, weapon.index)] > 0) { this.state[id] = WEAPON_STATE.IDLE; return; }
+    cueSpan[0] = this.stateTime[id] / this.stateDuration[id];
     this.stateTime[id] += dt;
+    cueSpan[1] = Math.min(1, this.stateTime[id] / this.stateDuration[id]);
+    if (id === Game.playerId) this.cueReload(id, weapon);
     if (this.stateTime[id] < this.stateDuration[id]) return;
     this.loadRounds(id, weapon, weapon.reloadShell ? 1 : this.magSize(id, weapon));
     this.state[id] = WEAPON_STATE.IDLE;
     if (weapon.reloadShell && this.beginReload(id, weapon)) this.reloadChained[id] = 1;
+  },
+  // P7 F11: the local player's reload passed a mark of its set (cueSpan holds the fractions of this step): 'weapon.cue' says which. The marks are data
+  // (03b reloadAnims `marks`: [partial, empty], 0 = none); the sound is 06b, the particles are 11f. Visual and audible only, nothing reads it back.
+  cueReload(id, weapon) {
+    if (weapon.reloadAnimIndex < 0) return;
+    const row = CAT.reloadAnims[weapon.reloadAnimIndex], marks = row.cueMarks, empty = this.reloadEmpty[id] === 1;
+    for (let i = 0; i < marks.length; i++) {
+      const mark = marks[i], at = empty ? mark.empty : mark.partial;
+      if (at > 0 && cueSpan[0] < at && at <= cueSpan[1]) this.emitCue(id, weapon, mark.cue === RELOAD_FX_CUE ? weapon.reloadFx || row.fxKind : mark.cue);
+    }
+  },
+  emitCue(id, weapon, cue) {
+    if (!cue) return;
+    CUE_EVENT.cue = cue; CUE_EVENT.count = 1;
+    if (cue === 'casings' || cue === 'shells') CUE_EVENT.count = Math.max(1, this.magSize(id, weapon) - this.magazine[this.slotIndex(id, weapon.index)]);   // one per spent round
+    emitWeaponEvent('weapon.cue', CUE_EVENT, id, weapon);
+  },
+  // The action cycle between shots (W19 pump, W24 bolt) of the local player passed its eject mark: a rack sound and the particle of the cycle.
+  cueCycle(id) {
+    const weapon = this.currentWeapon(id), last = this.cycleSeen[id];
+    let now = 1;
+    if (weapon && weapon.reloadAnimIndex >= 0 && this.state[id] === WEAPON_STATE.IDLE && this.nextShot[id] > 0) now = clamp(1 - this.nextShot[id] / this.shotInterval(id, weapon, weapon.primary), 0, 1);
+    this.cycleSeen[id] = now;
+    if (!weapon || weapon.reloadAnimIndex < 0) return;
+    const cycle = CAT.reloadAnims[weapon.reloadAnimIndex].cycle;
+    if (!cycle || !cycle.eject || !(last < cycle.eject && cycle.eject <= now)) return;
+    this.emitCue(id, weapon, 'reloadRack');
+    this.emitCue(id, weapon, cycle.particle);
   },
   loadRounds(id, weapon, wanted) {
     const slot = this.slotIndex(id, weapon.index);
@@ -613,6 +649,7 @@ const Weapons = {
   coolDown(id, dt) {
     // One step of debt is kept so continuous fire hits the exact rate at 120 Hz; idle time never banks extra shots.
     this.nextShot[id] = Math.max(this.nextShot[id] - dt, -dt);
+    if (id === Game.playerId) this.cueCycle(id);
     this.nextAlt[id] = Math.max(this.nextAlt[id] - dt, 0);
     this.pressBufferLeft[id] = Math.max(this.pressBufferLeft[id] - dt, 0);
     if (this.pressBuffer[id] && this.pressBufferLeft[id] === 0) this.setPressBuffer(id, 0);
@@ -703,7 +740,12 @@ const Weapons = {
       if (this.chargeMode[id] < 0 && !this.ready(id, weapon, mode, modeIndex, modeIndex ? BTN.ALT : BTN.FIRE, 0)) return;
       this.chargeMode[id] = modeIndex;
       const paid = Math.max(0, this.payableCharge(id, weapon, mode));
-      this.charge[id] = Math.min(mode.charge.time * paid, this.charge[id] + dt);
+      const before = this.charge[id];
+      this.charge[id] = Math.min(mode.charge.time * paid, before + dt);
+      if (before < mode.charge.time && this.charge[id] >= mode.charge.time) {   // P7 F12: a full charge ticks the controller (Input.rumbleCharge)
+        CHARGE_FULL_EVENT.mode = MODE_NAMES[modeIndex];
+        emitWeaponEvent('weapon.chargeFull', CHARGE_FULL_EVENT, id, weapon);
+      }
       return;
     }
     if (this.chargeMode[id] !== modeIndex) return;
@@ -798,8 +840,7 @@ const Weapons = {
     this.kick[id] = 1;
     this.lastShot[id] = Sim.time;
     if (Game.headless || mode.type === 'melee') return;
-    const muzzle = Muzzle.visual(id, weapon);
-    Fx.burst('muzzle', muzzle.x, muzzle.y, muzzle.z, aimScratch.x, aimScratch.y, aimScratch.z, 3, weapon.family.color);
+    ShotFx.shot(id, weapon, mode, Muzzle.visual(id, weapon));   // P7: the muzzle flash and light by class, a casing for a kinetic gun
   },
   quickMelee(id) {
     const weapon = this.currentWeapon(id);
@@ -944,9 +985,10 @@ const Weapons = {
   },
   // Render.actorAction: what the body of any actor does with its weapon (third-person action layer, 07c). Cheap: a few array reads.
   actorAction(id, out) {
-    out.kind = ACTION_KIND.NONE; out.blocking = 0;
+    out.kind = ACTION_KIND.NONE; out.blocking = 0; out.kick = 0; out.kickDeg = 0;
     const weapon = this.currentWeapon(id);
     if (!weapon) return out;
+    out.kick = this.kick[id]; out.kickDeg = weapon.family.thirdKick;   // the held gun pitches up for the length of the kick (07g, P7 F05)
     if (this.state[id] === WEAPON_STATE.SWAP) { out.kind = ACTION_KIND.SWAP; out.swap = this.swapLook(id).level; return out; }
     out.blocking = WeaponSpecialState.blocking[id];
     if (this.state[id] === WEAPON_STATE.RELOAD && weapon.reloadAnimIndex >= 0) {

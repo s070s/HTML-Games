@@ -161,10 +161,14 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P7-01 - DECIDE: feedback list. Examples to evaluate: hit markers and kill confirm, damage direction, per-surface impact effects and sounds, stronger muzzle flash and recoil kick, shell ejection, tail sounds by distance, low-health and low-ammo cues, ability ready cues, controller rumble, camera shake (with accessibility setting).
   Done when: Appendix C lists accepted items with trigger and performance cost.
   Status (2026-10-29): decided, Appendix C "P7-01": 15 items accepted (with trigger and cost; several are tuning of existing feedback), 7 rejected with reasons; new reduce settings for P7-03 (weapon motion, muzzle flash, vibration, heartbeat).
-- [ ] P7-02 - Implement P7-01 within the performance budget.
+- [x] P7-02 - Implement P7-01 within the performance budget.
   Done when: each accepted item works and `node tools/perf.mjs` meets the P0-02 target.
-- [ ] P7-03 - Settings to reduce intense effects (shake, flashes).
+  Status (2026-10-29): every accepted P7-01 item works (hit marker, kill confirm, damage direction, per-surface impacts and water splash, own-gun flash about 40 px with light, brass casing streaks, reload sound cues and particles, low-health and low-ammo cues, ability-ready cues, rumble, roll-only damage shake), A-09 fixed; gameplay values unchanged; perf.mjs A/B medians inside the P0-02 gate (Low render 3.23 to 2.77 ms) and the storm worst case adds no draw call; coordinator checked the review sheet. Self-test 6791 / 6793 (2 timing checks under load in untouched world / nav code).
+  Status (2026-10-29): implemented, not ticked; Appendix C "P7-02 to P7-03 - Implementation": F01 to F13 work (F14 and F15 were P6-03), the P6 sound cues and the four P6 particles (R2 casings, the R4 round, the W36 vent, the W35 flare) are in, A-09 is fixed; 6793 self-tests run, all pass except two timing checks that flake under load on this host (nav big map, world ray query; untouched code, both pass on a rerun), the P0-02 gate: see the performance table there.
+- [x] P7-03 - Settings to reduce intense effects (shake, flashes).
   Done when: each intense effect has an off / reduced option.
+  Status (2026-10-29): weapon motion %, muzzle flash full / reduced (1 particle, half size, half alpha, no light) / off, vibration strength %, heartbeat on / off, camera shake %; photosensitivity turns the flash off above 3 shots / s; additive save keys with migration and clamping; reachable on touch, gamepad and keyboard.
+  Status (2026-10-29): implemented, not ticked; Appendix C "P7-02 to P7-03 - Implementation": weapon motion %, muzzle flash full / reduced / off, vibration strength %, heartbeat on / off, and the camera shake slider that was there; each is a saved additive setting (an older save gets the defaults), each has a settings row reached by keyboard, touch and gamepad, each is self-tested (reduced really reduces, off really turns off).
 
 ## Phase 8 - Rebalance
 
@@ -1050,6 +1054,78 @@ Budget: the P0-02 gate (no perf cell worse than +10 % and +0.3 ms against the ba
 
 **Where the implementer works (P6-02, P6-03, P6-04, P7-02, P7-03).** `src/11a-weapons.js` (`beginReload`, `stepReload`, `fire`, `quickMelee`, `announceShot`, `emitImpact`, `deliverMelee` / `meleeMiss`, `viewModel`, `Render.heldWeapon`, a new `Render.actorAction` hook for third person); `src/03c-data-weapons.js` (`reloadAnim` on classes and rows, `flash`); `src/03b-data-render.js` (`reloadAnims`, `meleeAnims`, `viewModels` kick fields, fx kind `casing`, `materials` impact fields, part `role` in `MODEL_SCHEMA` parts); `src/03q-data-models-weapons.js` (part roles); `src/07c-render-models.js` (roles compiled, `drawPart` offsets, `drawHeldWeapon`); `src/07e-render-view.js` (`readViewModel`, `poseWeapon`, `fillViewModel`: layers, off-hand, spare, blends, sprint pose, swap split); `src/07c-render-actors.js` (`animateActor`, `placeActorPart`: action layer, flinch); `src/07d-render-fx.js` (muzzle light slot rule); `src/06-audio.js` and `src/06b-audio-recipes.js` (new recipes, far variant, aliases, heartbeat setting); `src/05a-input.js` (`RUMBLE`, strength); `src/12e-abilities.js` (`tryActivate` no-target, A-09); `src/17a-hud.js`, `src/17b-hud-combat.js` (ready flash, gold kill marker); `src/18k-ui-crosshair.js` (`ViewFx` damage tuning, weapon motion and muzzle flash settings). Docs: `docs/ARCHITECTURE.md` (`Render.viewModel` fields, `Render.actorAction`, `weapon.fire` `magShare`), `docs/api/*.md`, `docs/SPECIFICATION.md` (WPN, UI-005, ACC-005, AUD-005, INP-007 rows), `docs/LIVE-TESTS.md`.
 
+### P7-02 to P7-03 - Implementation (2026-10-29)
+
+Nothing was ticked. The gameplay numbers are unchanged (the weapon, damage, ability and movement tests pass as they were; the only changes to old tests are the three listed under "Changed tests"). New code: `src/11f-weapons-feedback.js` (`ShotFx`), new self-tests `src/20b-test-feedback.js` (group `feedback`, 127 checks), the perf scene `storm` in `src/20b-test-perf.js`.
+
+**The 15 items.**
+
+| ID | Done in | Notes |
+|---|---|---|
+| F01 | 17b (`HudCombat.killHead`, gold kill marker), 06b (`pitchIf`: x1.2) | trigger: `kill` by the player with zone head |
+| F02, F08 | - | as decided (F08 only gets its setting) |
+| F03 | 03b (`materials.impact`, `IMPACT_EFFECTS`), 11f `ShotFx.surface`, 06b aliases | 20 materials, one field `impact` on the row (the effect row holds kind, count, colour and decal, which the P7-01 text called a second field); water makes a 14-drop `splash` in pale blue; wood throws pale chips (brown dust on a brown plank was invisible); a melee blow on a wall makes the same particles without the decal (metal now throws sparks, it threw dust) |
+| F04 | 03c (`flash`), 11f `ShotFx.flash`, 07d `Fx.muzzleLight`, 18k setting | the burst starts 10 cm past the muzzle and is warm (it was the class body colour, near black on a rifle: invisible); the player's own flash is 0.4 of the kind's 14 cm (about 5 cm, 40 px at 1280 x 800), another body's keeps 14 cm; the particles of one flash share an alpha of 1.2 (none above 0.6) so they never burn to white; W06 and W27 flash 0 on both modes of the row, not on the primary only |
+| F05 | 03b (`kickTime`, `kickBack`, `kickRoll` on the viewModels rows), 07g `kickLayer`, third person `thirdKick` | the spring replaced the linear kick of 07e; the sim `kick` and the camera recoil are untouched |
+| F06 | 03b (`casing`), 03c (`casing`, `otherCasings` on quality), 11f | 8 guns eject at the shot; R2, R6 and the pump and bolt cycles eject at their marks; a casing is a hard-edged brass streak (2.5 cm x 0.8 cm, the fourth particle mode, 1.2 to 2 m/s) |
+| F07 | 06 (`audioTail`), 06b (`gun` recipes, `SOUND_CLASS_TAIL`) | decay x1 to x(1 + tail) from 35 to 120 m, crack fades out; no extra voice |
+| F09 | 06b (`soundPitch` low ammo, `lastRound`) | `magShare` was added in P6 |
+| F10 | 12e (`watchReady`, `needsTarget`, `noTarget`), 17a (ring flash), 06b | events `ability.ready`, `ability.notarget`; A-09 fixed |
+| F11 | 11a (`cueReload`, `cueCycle`, `emitCue`), 03b (`marks`, `fxKind`, `cueMarks`), 06b | event `weapon.cue`, local player only |
+| F12 | 05a (three sources and the strength), 11a / 11d events `weapon.parry`, `weapon.chargeFull` | the charge pulse is the controller's only |
+| F13 | 18k (`addDamageTrauma`) | yaw and pitch at most 0.3 degrees, roll up to 0.2 rad x strength |
+| F14, F15 | P6-03 | - |
+
+**P7-03 settings (all additive: an older save lacks the key and gets the default; SAVE_VERSION stays 1).**
+
+| Setting | Key | Default | Reduced / off | Self-tested |
+|---|---|---|---|---|
+| Weapon motion (%) | `video.weaponMotion` (View group) | 100 | scales the reload, melee, cycle and sprint layers, the kick, the hit knock and the detonate jolt; reduce motion caps it at 40 %; the block pose, the maul's charge pose and the parts of a reload that move (a magazine leaving) are not scaled | 50 % is half, 0 % is none, for each of the five |
+| Muzzle flash | `video.muzzleFlash` | full | reduced: ONE particle at half the size and half the alpha, no light; off: none; photosensitivity mode: off for a gun above 3 shots a second, reduced for a slower one | per class, per level, per preset, the drawn size and alpha, the photosensitivity rule for fast and slow guns |
+| Vibration strength (%) | `controls.vibrationStrength` | 100 | multiplies every rumble, phone buzz length included; 0 = none | sources, 50 %, 0 %, the switch |
+| Low-health heartbeat | `audio.heartbeat` | on | off = silent below 35 % | on / off |
+| Camera shake (%) | `video.shake` | 100 | (was there) | 0 shakes nothing, 50 is half the roll |
+
+Each key is checked to round trip, to load clean from an older save, to be sanitized when its stored value is wrong, to survive an export and import and a reload, and to have a settings row that the d-pad reaches and changes, the arrow keys change and a tap or drag changes (touch).
+
+**Review round 2 (2026-10-30, the visual review of the first version).** (1) The own first-person flash is 5 cm instead of 14 cm and the particles share an alpha; (2) reduced is one particle at half the size and half the alpha, photosensitivity mode is off for a gun above 3 shots a second and reduced for a slower one, and the test checks the drawn size and alpha; (3) casings are hard-edged brass streaks (a fourth particle mode in the particle shader); (4) per-event allocation removed (below); (5) the third-person kick is only worked out for a near body while it is at least 0.2 degrees (the early exit is back for the rest of the 0.12 s and for far bodies); (6) wood dust is pale chips, water a 14-drop splash; (7) the vibration strength label. Sheet: `C:\Users\GS\AppData\Local\Temp\claude\ctk-p7tools\sheet-after.png`.
+
+**Changed tests (3).** `uiacc` "a hit on you shakes the view a little" now reads the damage shake (`ViewFx.damageTrauma`); `muzzle` "every shot's muzzle flash is at the muzzle" now sees the flash as `Fx.burstAt`, 10 cm past the muzzle, and none for a flash-0 gun, with the setting at full; `anims` and `core` needed no change of text (the sniper's kick was tuned so that no frame moves the gun more than 10 cm).
+
+**Allocation.** The per-frame layers (the kick spring, the weapon motion scale, the ready watch, the damage shake, the rumble sources) allocate nothing (heap counter). Spawning particles was measured at the real call sites (round 2: 60 to 130 bytes a shot, 85 to 120 a hit): the cause was numbers computed into the fields of the effect records, which V8 boxes (24 to 36 bytes a call, in every tier). The point, the spawn and the direction scratch are now Float64Arrays (`makeFxPoint`, `fxSpawn`, `fxDirection`), the random draws come from one call (`Rng.fx.fill`), the muzzle aim is the one `announceShot` already worked out, and `Math.sqrt(x) || 1` (a float or an integer: boxed) is `+ 1e-9`. The self-tests measure the same call with the feedback off (a gun without flash or casing, a headless hit) and require the difference to be under 16 bytes: a whole shot (`Weapons.announceShot`), a hit on a surface (`emitImpact`) and the flash alone all pass.
+
+**Performance (P0-02 gate), `node tools/perf.mjs --scenes tdm --presets potato,low --throttle 4 --seconds 8 --no-boot`, HEAD 504e3f9 (A) against this build (B), alternating A / B and B / A, medians (the machine was shared and noisy: single runs of the same build differ by 30 %); first measured before the review round, re-measured after it:**
+
+Round 2 (after the review fixes): 9 runs each, A and B alternating, the order swapped every run, medians; `tdm`, 4x throttle. Round 1 (11 runs each) was within noise as well (Potato frame CPU -1.25 ms, Low -1.85 ms). HEAD build for `--file`: `C:\Users\GS\AppData\Local\Temp\claude\ctk\head7-ClassTimeKiller.test.html`.
+
+| Cell (4x) | Metric | A (HEAD 504e3f9) | B (P7, round 2) | Difference |
+|---|---|---|---|---|
+| tdm Potato | render ms | 3.25 | 3.23 | -0.02 |
+| tdm Potato | frame CPU @120 ms | 11.91 | 11.43 | -0.48 |
+| tdm Potato | sim ms per step | 4.36 | 4.35 | -0.01 |
+| tdm Potato | HUD ms | 1.79 | 1.86 | +0.07 |
+| tdm Potato | draw calls | 30 | 30 | 0 (cap 50) |
+| tdm Potato | allocation KB/s | 3237 | 3369 | +132 |
+| tdm Low | render ms | 3.23 | 2.77 | -0.46 |
+| tdm Low | frame CPU @120 ms | 11.84 | 10.17 | -1.67 |
+| tdm Low | sim ms per step | 4.83 | 4.02 | -0.81 |
+| tdm Low | HUD ms | 1.61 | 1.74 | +0.13 |
+| tdm Low | draw calls | 31 | 29 | -2 (cap 80) |
+| tdm Low | allocation KB/s | 1021 | 912 | -109 |
+
+No cell is worse than +10 % and +0.3 ms: the gate holds (the machine was shared, single runs of one build swung 8 to 23 ms, only the medians mean anything; the allocation rate difference is inside the run-to-run spread of 2200 to 4900 KB/s).
+
+**Forced worst case, scene `storm` (the tdm scene plus 12 shots, 12 hits on surfaces and 12 blood bursts every frame, casing rate limit bypassed: about 40 times what the 16 bots fire), 3 runs, medians:** Potato render 2.52 ms (tdm B 3.23), frame CPU @120 15.3 ms, draw calls 30, allocation 3432 KB/s; Low render 2.21 ms (tdm B 2.77), frame CPU @120 14.2 ms, draw calls 32, allocation 1038 KB/s. The storm is over every per-system budget by design (an upper bound: the pools are capped by the quality rows, so it cannot grow), and in this run it is not measurably slower than tdm itself in render time, adds no draw call and no allocation growth; its frame CPU is dominated by the 36 effects' CPU writes and by noise (3 runs).
+
+**Deviations and open items.**
+- Reload particles (R2, R4, W36, W35) and the cycle casings are the local player's only (the sound cues are too, as decided); another body's reload shows its P6 body animation without particles. Other bodies' shots do eject casings (near LOD, not on Potato).
+- A casing is a 2.5 cm streak as the review asked; its size is one number (`casing` in `fxKinds`).
+- The vibration strength row says "controller only" where the phone cannot vibrate (iPhone), like the switch above it.
+- The flash colour of a kinetic gun changed from the class body colour to warm (see F04). If the owner wants the old look: one line in `ShotFx.flash`.
+- The weapon motion setting does not scale another body's gun kick (that is not the player's own motion).
+- The live tests LT-M-077 to LT-M-079 are written and not run (they need devices and ears). The tasks are not ticked.
+- Contact sheet of the visual effects (hit marker, kill confirm, damage direction, impacts on four surfaces and water, muzzle flash full and reduced and off, casings, low health): `C:\Users\GS\AppData\Local\Temp\claude\ctk-p6tools\sheet-p7.png`; `__CTK.feedbackDemo(scene)` makes each still.
+
 ## Appendix D - Audit findings
 
 (Filled by P1-01 and P9-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
@@ -1068,7 +1144,7 @@ Method: read every mode behaviour, rules build, save, abilities, gadgets, items,
 | A-06 | Informational | Multi-tab save adopts the other tab's save | `src/04-save.js` `saveNow()` / `adoptNewer()` l.91-115 | By design (R-001); progress from the other tab is lost with a toast. | none (by design) | open |
 | A-07 | Informational | M12 Uplink, M26 Ravager vs Fiends rounds have no clock | `src/03f-data-modes.js` rows control / fiends, `src/13b-modes.js` `stepRounds()` l.562-566 | A hiding side can stall a round; the player is never stuck. | P4-02 (mode defaults) | fixed (Phase 4: `rounds.live` 240 s for control and 180 s for fiends in `src/03f-data-modes.js`; menuflow tests) |
 | A-08 | Low | Gamepad defaults lack previous weapon and buy menu | `src/05a-input.js` ACTION_ROWS l.70-84 | Only Y cycles forward; buy menu only from pause. Every action can be bound to a View chord. | P5-03 | fixed (Phase 5: previous weapon View + D-Left, buy menu View + D-Up in `src/05a-input.js`; controls tests) |
-| A-09 | Informational | Target ability pressed with no target gives no feedback | `src/12e-abilities.js` `tryActivate()` l.268-281 | bolt, link, swarm, frenzy: nothing happens, resource kept. | P7-01 | open |
+| A-09 | Informational | Target ability pressed with no target gives no feedback | `src/12e-abilities.js` `tryActivate()` l.268-281 | bolt, link, swarm, frenzy: nothing happens, resource kept. | P7-02 | fixed (P7-02: rows with `needsTarget` click like a dry gun and toast "No target" once per press, nothing spent; `feedback` tests) |
 
 ### Findings from P1-02 / P1-03 / P1-04 and the baseline (2026-10-29)
 

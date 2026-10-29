@@ -5,9 +5,9 @@
 
 // [heading, key prefixes...]: the first match wins, so specific keys come before their family. '' = no heading.
 const SETTING_GROUPS = [
-  ['View', 'video.fov', 'video.viewmodel', 'video.headBob', 'video.shake'], ['Picture and speed', 'video.'],
+  ['View', 'video.fov', 'video.viewmodel', 'video.headBob', 'video.shake', 'video.weaponMotion', 'video.muzzleFlash'], ['Picture and speed', 'video.'],
   ['Mouse', 'controls.mouse', 'controls.rawMouse', 'controls.invertY', 'controls.adsMultiplier'], ['Gamepad', 'controls.pad.'], ['Touch', 'controls.touch.'],
-  ['Hold or toggle', 'controls.toggle.'], ['Feedback', 'controls.'], ['Sound', 'audio.mono', 'audio.hrtf', 'audio.speech'], ['Volume', 'audio.'],
+  ['Hold or toggle', 'controls.toggle.'], ['Feedback', 'controls.'], ['Sound', 'audio.mono', 'audio.hrtf', 'audio.speech', 'audio.heartbeat'], ['Volume', 'audio.'],
   ['Assist sliders (used when switched on)', 'assist.'], ['Bots', 'difficulty.', 'gameplay.chatter', 'gameplay.taunts'], ['Movement and aiming aids', 'gameplay.'],
   ['Captions and sound cues', 'hud.element.captions', 'hud.element.soundRing', 'hud.element.barks', 'hud.caption'], ['Crosshair', 'hud.crosshair.', 'hud.scopeOverlay'],
   ['Show or hide parts of the HUD', 'hud.element.'], ['Vision and interface', 'hud.teamShapes', 'accessibility.colorBlind', 'accessibility.highContrast', 'ui.scale'],

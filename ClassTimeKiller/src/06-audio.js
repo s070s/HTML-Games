@@ -36,6 +36,7 @@ const AUDIO_BLOCKED_CHECK_MS = 1500;          // still not running this long aft
 const AUDIO_HRTF_QUALITY = ['high', 'ultra']; // AUD-004: head-related panning only where the CPU can afford it
 const AUDIO_HEARTBEAT_SLOW = 1.0;             // seconds between beats at the threshold (LOW_HEALTH_FRACTION, S03)
 const AUDIO_HEARTBEAT_FAST = 0.5;             // seconds between beats at 0 health
+const AUDIO_TAIL_START = 35, AUDIO_TAIL_END = 120;   // metres: from here a gun shot rings longer (decay x1 up to x(1 + the class tail) at AUDIO_TAIL_END) and loses its crack (P7 F07)
 const AUDIO_GAMEPAD_POLL_SECONDS = 0.1;
 const AUDIO_GESTURES = ['pointerdown', 'pointerup', 'keydown', 'touchend', 'click'];
 const AUDIO_DIRECTIONS = ['ahead', 'right', 'behind', 'left'];
@@ -49,6 +50,7 @@ const AUDIO_VOLUME_SETTINGS = [
 const AUDIO_BUS_LEVEL = { master: 'master', sfx: 'sfx', music: 'music', ui: 'ui', voice: 'announcer' };   // bus -> volume setting it follows
 const AUDIO_TOGGLE_OPTIONS = { options: [false, true], optionLabels: ['Off', 'On'] };
 for (const [name, fallback, label] of AUDIO_VOLUME_SETTINGS) Settings.define('audio.' + name, fallback, { label, category: 'audio', min: 0, max: 1, step: 0.05 });
+Settings.define('audio.heartbeat', true, Object.assign({ label: 'Low-health heartbeat', category: 'audio' }, AUDIO_TOGGLE_OPTIONS));   // P7-03
 Settings.define('audio.mono', false, Object.assign({ label: 'Mono audio', category: 'accessibility' }, AUDIO_TOGGLE_OPTIONS));
 Settings.define('audio.hrtf', true, Object.assign({ label: '3D headphone sound (High quality and up)', category: 'audio' }, AUDIO_TOGGLE_OPTIONS));
 Settings.define('audio.musicMode', 'auto', { label: 'Music', category: 'audio', options: ['auto', 'on', 'off'], optionLabels: ['Auto (off on Potato)', 'On', 'Off'] });
@@ -186,16 +188,16 @@ const audioCaptionPayload = { text: '', x: 0, y: 0, z: 0, kind: '' };
 const SoundQueue = {
   recipe: new Int16Array(AUDIO_QUEUE_SIZE), positional: new Uint8Array(AUDIO_QUEUE_SIZE),
   x: new Float32Array(AUDIO_QUEUE_SIZE), y: new Float32Array(AUDIO_QUEUE_SIZE), z: new Float32Array(AUDIO_QUEUE_SIZE),
-  source: new Int16Array(AUDIO_QUEUE_SIZE), gain: new Float32Array(AUDIO_QUEUE_SIZE), pitch: new Float32Array(AUDIO_QUEUE_SIZE),
+  source: new Int16Array(AUDIO_QUEUE_SIZE), gain: new Float32Array(AUDIO_QUEUE_SIZE), pitch: new Float32Array(AUDIO_QUEUE_SIZE), tail: new Float32Array(AUDIO_QUEUE_SIZE),
   priority: new Int8Array(AUDIO_QUEUE_SIZE), distance: new Float32Array(AUDIO_QUEUE_SIZE), taken: new Uint8Array(AUDIO_QUEUE_SIZE),
   count: 0, dropped: 0,
-  push(recipeIndex, positional, x, y, z, source, gain, pitch) {
+  push(recipeIndex, positional, x, y, z, source, gain, pitch, tail) {
     if (this.isDuplicate(recipeIndex, positional, x, y, z, source)) return false;
     if (this.count >= AUDIO_QUEUE_SIZE) { this.dropped++; return false; }
     const row = this.count++;
     this.recipe[row] = recipeIndex; this.positional[row] = positional ? 1 : 0;
     this.x[row] = x; this.y[row] = y; this.z[row] = z;
-    this.source[row] = source; this.gain[row] = gain; this.pitch[row] = pitch; this.taken[row] = 0;
+    this.source[row] = source; this.gain[row] = gain; this.pitch[row] = pitch; this.taken[row] = 0; this.tail[row] = tail > 0 ? tail : 0;
     return true;
   },
   isDuplicate(recipeIndex, positional, x, y, z, source) {
@@ -293,15 +295,19 @@ function scheduleEnvelope(param, time, peak, attack, decay) {
   param.exponentialRampToValueAtTime(AUDIO_FLOOR_GAIN, time + attack + decay);
 }
 
+// The distant-gun variant of the voice being started (P7 F07, set by playRow): the last pulse rings `decay` times longer and the noise crack keeps `noise` of its level.
+const audioTail = { decay: 1, noise: 1 };
+
 // Noise burst: the slot's looping noise through a sweeping filter, once per pulse.
 function startNoiseLayer(slot, recipe, layer, pitch, start) {
   slot.noiseFilter.type = layer.filter;
   slot.noiseFilter.Q.setValueAtTime(layer.q, start);
+  const last = recipe.pulses.length - 1;
   for (let pulse = 0; pulse < recipe.pulses.length; pulse++) {
-    const time = start + recipe.pulses[pulse];
+    const time = start + recipe.pulses[pulse], decay = pulse === last ? layer.decays[pulse] * audioTail.decay : layer.decays[pulse];
     slot.noiseFilter.frequency.setValueAtTime(layer.from * pitch, time);
-    slot.noiseFilter.frequency.exponentialRampToValueAtTime(layer.to * pitch, time + layer.attack + layer.decays[pulse]);
-    scheduleEnvelope(slot.noiseGain.gain, time, layer.gain, layer.attack, layer.decays[pulse]);
+    slot.noiseFilter.frequency.exponentialRampToValueAtTime(layer.to * pitch, time + layer.attack + decay);
+    scheduleEnvelope(slot.noiseGain.gain, time, layer.gain * audioTail.noise, layer.attack, decay);
   }
 }
 
@@ -316,11 +322,11 @@ function startToneLayer(slot, recipe, layer, pitch, start) {
       const time = start + recipe.pulses[pulse];
       const scale = pitch * recipe.pitchSteps[pulse] * (k === 0 ? 1 : layer.partial);
       oscillator.frequency.setValueAtTime(layer.from * scale, time);
-      oscillator.frequency.exponentialRampToValueAtTime(layer.to * scale, time + layer.attack + layer.decays[pulse]);
+      oscillator.frequency.exponentialRampToValueAtTime(layer.to * scale, time + layer.attack + (pulse === recipe.pulses.length - 1 ? layer.decays[pulse] * audioTail.decay : layer.decays[pulse]));
     }
   }
   for (let pulse = 0; pulse < recipe.pulses.length; pulse++) {
-    scheduleEnvelope(slot.toneGain.gain, start + recipe.pulses[pulse], layer.gain, layer.attack, layer.decays[pulse]);
+    scheduleEnvelope(slot.toneGain.gain, start + recipe.pulses[pulse], layer.gain, layer.attack, pulse === recipe.pulses.length - 1 ? layer.decays[pulse] * audioTail.decay : layer.decays[pulse]);
   }
 }
 
@@ -373,7 +379,7 @@ const Sound = {
   mono: false, hrtf: false, mix: false, voiceLimit: 0, musicAllowed: true, hrtfAllowed: false,   // voiceLimit, musicAllowed, hrtfAllowed follow the quality preset (refreshQuality)
   paused: false, hidden: false, pauseSuspended: false, suspendTimer: 0, blockedTimer: 0, blockedShown: false, gestureHandler: null, speechPrimed: false,
   clock: 0, frameStart: 0, occlusionRays: 0, startedThisFrame: 0, maxStartedPerFrame: 0, updateMs: 0, peakUpdateMs: 0, started: 0,
-  heartbeatClock: 0, gamepadClock: 0,
+  heartbeatClock: 0, gamepadClock: 0, heartbeatOn: true,
   lastShield: new Float32Array(MAX_ACTORS),
   captionClock: new Float64Array((MAX_ACTORS + 1) * AUDIO_CAPTION_KINDS.length),
 
@@ -385,6 +391,7 @@ const Sound = {
   // ---- Settings, quality ----
   onSetting(key) {
     if (key === 'audio.speech') this.primeSpeech();   // inside the toggle tap (iOS)
+    if (key === 'audio.heartbeat') this.heartbeatOn = Settings.get('audio.heartbeat');
     if (key.startsWith('audio.')) this.applyVolumes();
     else if (key.startsWith('video.')) this.refreshQuality();
   },
@@ -546,12 +553,12 @@ const Sound = {
 
   // ---- Requests ----
   // The one entry point for sounds: recipe index, optional world position, the actor that makes it, level and pitch factors.
-  enqueue(recipeIndex, positional, x, y, z, source, gain, pitch) {
+  enqueue(recipeIndex, positional, x, y, z, source, gain, pitch, tail) {
     if (recipeIndex < 0 || !this.live()) return false;
     const retrigger = this.recipes[recipeIndex].retrigger;
     const key = retrigger > 0 ? this.retriggerKey(recipeIndex, source) : -1;
     if (key >= 0 && this.clock - this.retriggerClock[key] < retrigger) return false;
-    const queued = SoundQueue.push(recipeIndex, positional, x, y, z, source, gain, pitch);
+    const queued = SoundQueue.push(recipeIndex, positional, x, y, z, source, gain, pitch, tail);
     if (queued && key >= 0) this.retriggerClock[key] = this.clock;
     return queued;
   },
@@ -628,7 +635,7 @@ const Sound = {
     const id = Game.playerId;
     if (id < 0 || !Actors.alive[id] || Actors.maxHealth[id] <= 0) { this.heartbeatClock = 0; return; }
     const fraction = Actors.health[id] / Actors.maxHealth[id];
-    if (fraction >= LOW_HEALTH_FRACTION) { this.heartbeatClock = 0; return; }
+    if (fraction >= LOW_HEALTH_FRACTION || !this.heartbeatOn) { this.heartbeatClock = 0; return; }   // P7-03: the heartbeat can be switched off
     this.heartbeatClock += seconds;
     const period = lerp(AUDIO_HEARTBEAT_FAST, AUDIO_HEARTBEAT_SLOW, fraction / LOW_HEALTH_FRACTION);
     if (this.heartbeatClock < period) return;
@@ -689,6 +696,11 @@ const Sound = {
     this.triggerCounts[recipe.index]++;
     this.captionRow(row);
     if (!this.canPlay()) return false;
+    audioTail.decay = 1; audioTail.noise = 1;
+    if (recipe.gun === true && queue.tail[row] > 0 && spatial.distance > AUDIO_TAIL_START) {   // F07: a shot heard from far away booms and rings on
+      const far = clamp((spatial.distance - AUDIO_TAIL_START) / (AUDIO_TAIL_END - AUDIO_TAIL_START), 0, 1);
+      audioTail.decay = 1 + far * queue.tail[row]; audioTail.noise = 1 - far;
+    }
     return this.startVoice(recipe, spatial, spatial.gain * recipe.gain * queue.gain[row], queue.pitch[row], queue.priority[row]);
   },
   // Sounds that got no voice (voice cap, start cap) still get their caption: a deaf player must not lose the warning (ACC-003).
@@ -725,7 +737,7 @@ const Sound = {
   // ---- Voices ----
   startVoice(recipe, spatial, level, pitch, priority) {
     const context = this.context, now = context.currentTime;
-    const slotIndex = this.allocator.acquire(priority, spatial.distance, now, recipe.duration + AUDIO_STEAL_FADE + AUDIO_START_DELAY);
+    const slotIndex = this.allocator.acquire(priority, spatial.distance, now, recipe.duration * audioTail.decay + AUDIO_STEAL_FADE + AUDIO_START_DELAY);
     if (slotIndex < 0) return false;
     const slot = this.ensureSlot(slotIndex);
     const stolen = this.allocator.lastWasSteal;
@@ -796,6 +808,7 @@ Bus.on('game.resume', () => Sound.setPaused(false, ''));
 Bus.on('match.start', () => { Sound.setPaused(false, ''); Sound.resetState(); Sound.refreshQuality(); });
 Bus.on('match.stop', () => { Sound.setPaused(false, ''); Sound.resetState(); });
 Bus.on('boot', () => {
+  Sound.heartbeatOn = Settings.get('audio.heartbeat');
   Loop.onFrame('audio', (seconds) => Sound.update(seconds));
   Sound.refreshQuality();
   Sound.installGestureListeners();

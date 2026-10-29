@@ -4,28 +4,42 @@
 
 // pattern: noise | panels | tiles | planks | bricks | stripes | glow | grid | flat (drawn by the world shader, 07b).
 // scale = pattern repeats per metre, shine = extra sun highlight 0..1, emissive = self-lit 0..1.
-Data.define('materials', { id: REQUIRED, name: REQUIRED, pattern: 'noise', scale: 1, colorA: '#8c8c88', colorB: '#72726e', emissive: 0, shine: 0 }, [
-  { id: 'concrete', name: 'Concrete', pattern: 'noise', scale: 0.6, colorA: '#9a9a95', colorB: '#7c7c78' },
-  { id: 'metal', name: 'Metal panels', pattern: 'panels', scale: 0.5, colorA: '#8d949c', colorB: '#6b7279', shine: 0.5 },
-  { id: 'plate', name: 'Floor plate', pattern: 'grid', scale: 1, colorA: '#62676d', colorB: '#45494e', shine: 0.3 },
-  { id: 'tile', name: 'Tiles', pattern: 'tiles', scale: 1, colorA: '#c4c8cc', colorB: '#8f9499', shine: 0.2 },
-  { id: 'wood', name: 'Wood planks', pattern: 'planks', scale: 0.8, colorA: '#8a6642', colorB: '#6a4c30' },
-  { id: 'crate', name: 'Crate', pattern: 'planks', scale: 1.5, colorA: '#9a7a4c', colorB: '#6e5434' },
-  { id: 'brick', name: 'Brick', pattern: 'bricks', scale: 1, colorA: '#9b5a44', colorB: '#6d3f30' },
-  { id: 'rock', name: 'Rock', pattern: 'noise', scale: 0.35, colorA: '#857f76', colorB: '#625d56' },
-  { id: 'sand', name: 'Sand', pattern: 'noise', scale: 1.6, colorA: '#d2bd92', colorB: '#bba57a' },
-  { id: 'grass', name: 'Grass', pattern: 'noise', scale: 1.2, colorA: '#5f8f3a', colorB: '#47712c' },
-  { id: 'moss', name: 'Moss', pattern: 'noise', scale: 0.8, colorA: '#5c7a3a', colorB: '#3f5a2a' },
-  { id: 'snow', name: 'Snow', pattern: 'noise', scale: 0.7, colorA: '#eef3f7', colorB: '#d6e0e8', shine: 0.2 },
-  { id: 'ice', name: 'Ice', pattern: 'noise', scale: 0.4, colorA: '#a9d6ec', colorB: '#80b6d3', shine: 0.8 },
-  { id: 'glass', name: 'Glass', pattern: 'panels', scale: 0.4, colorA: '#7fa9c4', colorB: '#5c86a3', shine: 1 },
-  { id: 'water', name: 'Water', pattern: 'noise', scale: 0.3, colorA: '#2f5d70', colorB: '#3f7890', shine: 1 },
-  { id: 'oil', name: 'Oil drum', pattern: 'stripes', scale: 1, colorA: '#3b4a2c', colorB: '#c89a2a', shine: 0.4 },   // a breakable prop of it spills oil (CAT.surfaces)
-  { id: 'hazard', name: 'Hazard stripes', pattern: 'stripes', scale: 2, colorA: '#e8b02a', colorB: '#26231f' },
-  { id: 'grip', name: 'Grip wall', pattern: 'grid', scale: 2, colorA: '#4f7a5a', colorB: '#2e4a36' },   // MV05 climbs only this (climbGripOnly)
-  { id: 'trim', name: 'Trim', pattern: 'flat', scale: 1, colorA: '#c0602a', colorB: '#8a4420' },
-  { id: 'light', name: 'Light panel', pattern: 'glow', scale: 1, colorA: '#3a3a3a', colorB: '#fff1cc', emissive: 1 },
+// impact = what a bullet or a melee hit on the surface makes (P7 F03, IMPACT_EFFECTS below; effect and effectColor are filled from it by the link below); the sound rows of 06b map the material names to a sound.
+Data.define('materials', { id: REQUIRED, impact: 'spark', effect: null, effectColor: 0, name: REQUIRED, pattern: 'noise', scale: 1, colorA: '#8c8c88', colorB: '#72726e', emissive: 0, shine: 0 }, [
+  { id: 'concrete', impact: 'greyDust', name: 'Concrete', pattern: 'noise', scale: 0.6, colorA: '#9a9a95', colorB: '#7c7c78' },
+  { id: 'metal', impact: 'spark', name: 'Metal panels', pattern: 'panels', scale: 0.5, colorA: '#8d949c', colorB: '#6b7279', shine: 0.5 },
+  { id: 'plate', impact: 'spark', name: 'Floor plate', pattern: 'grid', scale: 1, colorA: '#62676d', colorB: '#45494e', shine: 0.3 },
+  { id: 'tile', impact: 'greyDust', name: 'Tiles', pattern: 'tiles', scale: 1, colorA: '#c4c8cc', colorB: '#8f9499', shine: 0.2 },
+  { id: 'wood', impact: 'brownDust', name: 'Wood planks', pattern: 'planks', scale: 0.8, colorA: '#8a6642', colorB: '#6a4c30' },
+  { id: 'crate', impact: 'brownDust', name: 'Crate', pattern: 'planks', scale: 1.5, colorA: '#9a7a4c', colorB: '#6e5434' },
+  { id: 'brick', impact: 'greyDust', name: 'Brick', pattern: 'bricks', scale: 1, colorA: '#9b5a44', colorB: '#6d3f30' },
+  { id: 'rock', impact: 'greyDust', name: 'Rock', pattern: 'noise', scale: 0.35, colorA: '#857f76', colorB: '#625d56' },
+  { id: 'sand', impact: 'tintDust', name: 'Sand', pattern: 'noise', scale: 1.6, colorA: '#d2bd92', colorB: '#bba57a' },
+  { id: 'grass', impact: 'tintDust', name: 'Grass', pattern: 'noise', scale: 1.2, colorA: '#5f8f3a', colorB: '#47712c' },
+  { id: 'moss', impact: 'tintDust', name: 'Moss', pattern: 'noise', scale: 0.8, colorA: '#5c7a3a', colorB: '#3f5a2a' },
+  { id: 'snow', impact: 'tintDust', name: 'Snow', pattern: 'noise', scale: 0.7, colorA: '#eef3f7', colorB: '#d6e0e8', shine: 0.2 },
+  { id: 'ice', impact: 'glass', name: 'Ice', pattern: 'noise', scale: 0.4, colorA: '#a9d6ec', colorB: '#80b6d3', shine: 0.8 },
+  { id: 'glass', impact: 'glass', name: 'Glass', pattern: 'panels', scale: 0.4, colorA: '#7fa9c4', colorB: '#5c86a3', shine: 1 },
+  { id: 'water', impact: 'splash', name: 'Water', pattern: 'noise', scale: 0.3, colorA: '#2f5d70', colorB: '#3f7890', shine: 1 },
+  { id: 'oil', impact: 'spark', name: 'Oil drum', pattern: 'stripes', scale: 1, colorA: '#3b4a2c', colorB: '#c89a2a', shine: 0.4 },   // a breakable prop of it spills oil (CAT.surfaces)
+  { id: 'hazard', impact: 'spark', name: 'Hazard stripes', pattern: 'stripes', scale: 2, colorA: '#e8b02a', colorB: '#26231f' },
+  { id: 'grip', impact: 'spark', name: 'Grip wall', pattern: 'grid', scale: 2, colorA: '#4f7a5a', colorB: '#2e4a36' },   // MV05 climbs only this (climbGripOnly)
+  { id: 'trim', impact: 'spark', name: 'Trim', pattern: 'flat', scale: 1, colorA: '#c0602a', colorB: '#8a4420' },
+  { id: 'light', impact: 'glass', name: 'Light panel', pattern: 'glow', scale: 1, colorA: '#3a3a3a', colorB: '#fff1cc', emissive: 1 },
 ]);
+
+// P7 F03: the particles a hit on a surface makes. kind = an fxKinds id; count before the particle intensity setting; color = a 0xrrggbb value, or null for the
+// material's own colour (sand, grass, moss and snow throw dust of their colour; water splashes in its own light blue, not the dark colour of its surface); decal = the bullet decal is stamped too (a melee hit never stamps one).
+const IMPACT_EFFECTS = {
+  spark: { kind: 'spark', count: 6, color: 0xffe0a0, decal: true },
+  greyDust: { kind: 'dust', count: 5, color: 0x9a9a95, decal: true },
+  brownDust: { kind: 'dust', count: 6, color: 0xe6cc96, decal: true },   // pale wood chips: brown dust on a brown plank could not be seen
+  tintDust: { kind: 'dust', count: 5, color: null, decal: true },
+  glass: { kind: 'spark', count: 6, color: 0xffffff, decal: true },
+  splash: { kind: 'splash', count: 14, color: 0xd6ecff, decal: false },
+};
+const IMPACT_DEFAULT = IMPACT_EFFECTS.spark;
+CAT.materials.forEach((row) => { row.effect = IMPACT_EFFECTS[row.impact]; row.effectColor = row.effect.color === null ? parseInt(row.colorA.slice(1), 16) : row.effect.color; });
 
 // Map themes / tilesets (MAP-022). Map rows pick one with `theme`. palette overrides material colours [A, B].
 // sunElevation / sunAzimuth in degrees (azimuth 0 = toward +Z). fogDensity 1 = fog reaches full at the view distance.
@@ -68,7 +82,7 @@ Data.define('teamColors', { id: REQUIRED, name: REQUIRED, color: REQUIRED }, [
 // Particle kinds for Fx.burst (ARCHITECTURE Fx kinds). life/speed = [min, max] seconds / m/s, size = [start, end] metres,
 // gravity m/s^2 (negative rises), drag 1/s, spread 0 = along the normal .. 1 = full sphere, alpha 0..1, additive = glow blend.
 Data.define('fxKinds', {
-  id: REQUIRED, count: 8, life: [0.3, 0.6], speed: [1, 3], size: [0.1, 0.05], gravity: 0, drag: 0, spread: 0.5, color: '#ffffff', alpha: 1, additive: false,
+  id: REQUIRED, count: 8, life: [0.3, 0.6], speed: [1, 3], size: [0.1, 0.05], gravity: 0, drag: 0, spread: 0.5, color: '#ffffff', alpha: 1, additive: false, streak: false,
 }, [
   { id: 'spark', count: 10, life: [0.15, 0.4], speed: [4, 9], size: [0.05, 0.015], gravity: 12, drag: 2, spread: 0.6, color: '#ffd27a', additive: true },
   { id: 'smoke', count: 6, life: [0.8, 1.6], speed: [0.3, 1.2], size: [0.25, 0.9], gravity: -0.6, drag: 1.5, spread: 1, color: '#8a8a8a', alpha: 0.45 },
@@ -81,6 +95,11 @@ Data.define('fxKinds', {
   { id: 'fire', count: 10, life: [0.4, 0.9], speed: [0.5, 2], size: [0.3, 0.05], gravity: -3, drag: 2, spread: 0.7, color: '#ff6a1a', additive: true },
   { id: 'frost', count: 10, life: [0.5, 1], speed: [0.5, 2.5], size: [0.1, 0.02], gravity: 1, drag: 2, spread: 0.9, color: '#cfefff', additive: true },
   { id: 'shock', count: 12, life: [0.1, 0.3], speed: [3, 8], size: [0.06, 0.02], drag: 4, spread: 1, color: '#b48cff', additive: true },
+  // P7 F06: a spent brass casing (a red shell for the W19 pump and the W20 break, a bigger live round for the R4 bolt): one particle that falls.
+  // A hard-edged brass streak (streak: a quad stretched along the way it moves, 2.5 cm long and 0.8 cm wide at size 0.0125 = its half length), solid, fading only at the end of its life.
+  { id: 'casing', count: 1, life: [0.6, 0.9], speed: [1.2, 2], size: [0.0125, 0.0125], gravity: 9.8, drag: 0.3, spread: 0.3, color: '#d9a441', streak: true },
+  // A splash of water: bigger and longer than the light-blue drops of `water`.
+  { id: 'splash', count: 14, life: [0.35, 0.7], speed: [1.5, 3.5], size: [0.13, 0.05], gravity: 9, drag: 1, spread: 0.5, color: '#d6ecff', alpha: 0.85 },
   { id: 'heal', count: 10, life: [0.6, 1.2], speed: [0.3, 1], size: [0.1, 0.02], gravity: -1.5, drag: 1, spread: 1, color: '#6dff9a', additive: true },
 ]);
 
@@ -127,12 +146,12 @@ const MODEL_SCHEMA = { id: REQUIRED, from: '', drop: [], scale: null, recolor: {
 // View pose and base parts per weapon class (Render.viewModel shape): the bases and poses of the per-weapon models (03q).
 // View space in metres: x = right, y = up, z = forward. hold / ads = weapon pivot when hip-firing / aiming down sights.
 // tint: body (the weapon colour from Render.viewModel) | dark | accent | glow (self-lit).
-Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.11, -0.1, 0.3], ads: [0, -0.11, 0.26], accent: '#c9a03a', glow: '#6fd8ff', kick: 1, parts: REQUIRED }), [
-  { id: 'sidearm', ads: [0, -0.09, 0.26], kick: 1.3, parts: [
+Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.11, -0.1, 0.3], ads: [0, -0.11, 0.26], accent: '#c9a03a', glow: '#6fd8ff', kick: 1, kickBack: 0.05, kickRoll: 2, kickTime: 0.12, parts: REQUIRED }), [
+  { id: 'sidearm', ads: [0, -0.09, 0.26], kick: 1.3, kickTime: 0.08, kickBack: 0.045, kickRoll: 2.5, parts: [
     { shape: 'box', offset: [0, 0.02, 0.05], size: [0.04, 0.05, 0.18], tint: 'body', lod: 2, role: 'slide' },
     { shape: 'box', offset: [0, -0.04, -0.01], size: [0.035, 0.09, 0.05], tint: 'dark', lod: 2, role: 'mag' },
     { shape: 'cylinder', offset: [0, 0.025, 0.15], size: [0.02, 0.04, 0.02], rotation: [0, -90], tint: 'dark' }] },
-  { id: 'smg', kick: 0.6, parts: [
+  { id: 'smg', kick: 0.6, kickTime: 0.08, kickBack: 0.035, kickRoll: 1.5, parts: [
     { shape: 'box', offset: [0, 0, 0.06], size: [0.05, 0.07, 0.26], tint: 'body', lod: 2 },
     { shape: 'box', offset: [0, -0.07, 0.08], size: [0.03, 0.1, 0.04], tint: 'dark', lod: 2, role: 'mag' },
     { shape: 'box', offset: [0, -0.05, -0.03], size: [0.03, 0.08, 0.05], tint: 'dark' },
@@ -143,42 +162,42 @@ Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.11, -0.1, 0
     { shape: 'box', offset: [0, -0.08, 0.07], size: [0.035, 0.11, 0.05], tint: 'dark', role: 'mag' },
     { shape: 'cylinder', offset: [0, 0.01, 0.3], size: [0.022, 0.2, 0.022], rotation: [0, -90], tint: 'dark' },
     { shape: 'box', offset: [0, 0.055, 0.04], size: [0.03, 0.03, 0.1], tint: 'accent' }] },
-  { id: 'shotgun', kick: 1.6, parts: [
+  { id: 'shotgun', kick: 1.6, kickTime: 0.18, kickBack: 0.07, kickRoll: 3, parts: [
     { shape: 'box', offset: [0, 0, 0], size: [0.06, 0.08, 0.3], tint: 'body', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.02, 0.27], size: [0.04, 0.3, 0.04], rotation: [0, -90], tint: 'dark', lod: 2 },
     { shape: 'cylinder', offset: [0, -0.025, 0.22], size: [0.045, 0.16, 0.045], rotation: [0, -90], tint: 'accent', role: 'pump' },
     { shape: 'box', offset: [0, -0.02, -0.2], size: [0.05, 0.08, 0.16], tint: 'dark' }] },
-  { id: 'lmg', hold: [0.12, -0.12, 0.32], kick: 0.8, parts: [
+  { id: 'lmg', hold: [0.12, -0.12, 0.32], kick: 0.8, kickTime: 0.09, kickBack: 0.035, kickRoll: 1.5, parts: [
     { shape: 'box', offset: [0, 0, 0.04], size: [0.07, 0.1, 0.38], tint: 'body', lod: 2 },
     { shape: 'box', offset: [0, -0.08, 0.06], size: [0.09, 0.08, 0.1], tint: 'accent', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.01, 0.34], size: [0.03, 0.26, 0.03], rotation: [0, -90], tint: 'dark' },
     { shape: 'box', offset: [0, -0.01, -0.2], size: [0.05, 0.08, 0.14], tint: 'dark' }] },
-  { id: 'dmr', kick: 1.2, parts: [
+  { id: 'dmr', kick: 1.2, kickTime: 0.14, kickBack: 0.055, kickRoll: 2, parts: [
     { shape: 'box', offset: [0, 0, 0.05], size: [0.05, 0.075, 0.36], tint: 'body', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.075, 0.06], size: [0.035, 0.16, 0.035], rotation: [0, -90], tint: 'dark', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.01, 0.33], size: [0.02, 0.24, 0.02], rotation: [0, -90], tint: 'dark' },
     { shape: 'box', offset: [0, -0.01, -0.18], size: [0.045, 0.07, 0.14], tint: 'dark' }] },
-  { id: 'sniper', hold: [0.11, -0.11, 0.32], ads: [0, -0.13, 0.22], kick: 1.8, parts: [
+  { id: 'sniper', hold: [0.11, -0.11, 0.32], ads: [0, -0.13, 0.22], kick: 1.8, kickTime: 0.2, kickBack: 0.05, kickRoll: 2.5, parts: [
     { shape: 'box', offset: [0, 0, 0.05], size: [0.05, 0.075, 0.4], tint: 'body', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.08, 0.06], size: [0.045, 0.24, 0.045], rotation: [0, -90], tint: 'dark', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.01, 0.4], size: [0.022, 0.36, 0.022], rotation: [0, -90], tint: 'dark' },
     { shape: 'box', offset: [0, -0.02, -0.2], size: [0.045, 0.09, 0.16], tint: 'accent' }] },
-  { id: 'rail', kick: 1.5, glow: '#7dff8a', parts: [
+  { id: 'rail', kick: 1.5, kickTime: 0.16, kickBack: 0.06, kickRoll: 2, glow: '#7dff8a', parts: [
     { shape: 'box', offset: [0, 0, 0.06], size: [0.06, 0.08, 0.4], tint: 'body', lod: 2 },
     { shape: 'ring', offset: [0, 0.005, 0.16], size: [0.09, 0.03, 0.09], rotation: [0, -90], tint: 'glow', lod: 2 },
     { shape: 'ring', offset: [0, 0.005, 0.26], size: [0.08, 0.03, 0.08], rotation: [0, -90], tint: 'glow' },
     { shape: 'box', offset: [0, 0.03, 0.3], size: [0.02, 0.02, 0.24], tint: 'glow' }] },
-  { id: 'launcher', hold: [0.13, -0.11, 0.3], ads: [0.05, -0.12, 0.24], kick: 1.4, parts: [
+  { id: 'launcher', hold: [0.13, -0.11, 0.3], ads: [0.05, -0.12, 0.24], kick: 1.4, kickTime: 0.2, kickBack: 0.08, kickRoll: 3, parts: [
     { shape: 'cylinder', offset: [0, 0.01, 0.12], size: [0.11, 0.5, 0.11], rotation: [0, -90], tint: 'body', lod: 2 },
     { shape: 'cone', offset: [0, 0.01, 0.4], size: [0.13, 0.08, 0.13], rotation: [0, -90], tint: 'dark', lod: 2 },
     { shape: 'box', offset: [0, -0.09, 0.05], size: [0.04, 0.1, 0.05], tint: 'dark' },
     { shape: 'box', offset: [0.06, 0.04, 0.05], size: [0.03, 0.05, 0.08], tint: 'accent' }] },
-  { id: 'energy', glow: '#6fd8ff', kick: 0.7, parts: [
+  { id: 'energy', glow: '#6fd8ff', kick: 0.7, kickTime: 0.09, kickBack: 0.03, kickRoll: 1.5, parts: [
     { shape: 'box', offset: [0, 0, 0.04], size: [0.065, 0.09, 0.3], tint: 'body', lod: 2 },
     { shape: 'sphere', offset: [0, 0.01, 0.22], size: [0.07, 0.07, 0.07], tint: 'glow', lod: 2 },
     { shape: 'ring', offset: [0, 0.01, 0.22], size: [0.1, 0.025, 0.1], rotation: [0, -90], tint: 'accent' },
     { shape: 'box', offset: [0, -0.08, 0.02], size: [0.035, 0.1, 0.05], tint: 'dark' }] },
-  { id: 'heavy', hold: [0.13, -0.13, 0.32], ads: [0.08, -0.15, 0.28], kick: 0.9, parts: [
+  { id: 'heavy', hold: [0.13, -0.13, 0.32], ads: [0.08, -0.15, 0.28], kick: 0.9, kickTime: 0.1, kickBack: 0.04, kickRoll: 1.5, parts: [
     { shape: 'box', offset: [0, 0, 0], size: [0.12, 0.14, 0.3], tint: 'body', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.02, 0.28], size: [0.09, 0.3, 0.09], rotation: [0, -90], tint: 'dark', lod: 2 },
     { shape: 'ring', offset: [0, 0.02, 0.4], size: [0.1, 0.03, 0.1], rotation: [0, -90], tint: 'accent' },
@@ -197,7 +216,7 @@ Data.define('viewModels', Object.assign({}, MODEL_SCHEMA, { hold: [0.11, -0.1, 0
     { shape: 'ring', offset: [0, 0, 0.12], size: [0.12, 0.03, 0.12], rotation: [0, -90], tint: 'glow', lod: 2 },
     { shape: 'sphere', offset: [0, 0, 0.3], size: [0.05, 0.05, 0.05], tint: 'glow' },
     { shape: 'box', offset: [0, -0.08, -0.02], size: [0.035, 0.1, 0.05], tint: 'dark' }] },
-  { id: 'power', hold: [0.12, -0.12, 0.32], kick: 1.4, glow: '#ff5d3a', parts: [
+  { id: 'power', hold: [0.12, -0.12, 0.32], kick: 1.4, kickTime: 0.18, kickBack: 0.07, kickRoll: 3, glow: '#ff5d3a', parts: [
     { shape: 'box', offset: [0, 0, 0.04], size: [0.09, 0.11, 0.36], tint: 'body', lod: 2 },
     { shape: 'cylinder', offset: [0, 0.02, 0.3], size: [0.06, 0.18, 0.06], rotation: [0, -90], tint: 'glow', lod: 2 },
     { shape: 'cone', offset: [0, 0.02, 0.42], size: [0.08, 0.06, 0.08], rotation: [0, -90], tint: 'dark' },

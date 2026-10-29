@@ -24,6 +24,7 @@ Per run `perf.mjs` prints: frame interval p50/p95/p99; frame CPU mean, `@120` (s
 | `royale` | Ring Isle, 18 actors. |
 | `generated` | GN5 large dense island (seed 4242, generated in full), 16 bots (GN5 large is medium+ only in menus; the scene passes `uncapped`). |
 | `editor` | Arena template filled to 400 boxes (MAP-014), map editor open, camera turning. |
+| `storm` | P7 worst case: the `tdm` scene plus, every frame, 12 shots (muzzle flash, muzzle light, a casing; the casing rate limit is bypassed), 12 hits on every material (particles and decal) and 12 blood bursts, all in the real pooled effects (`perfStorm` in `src/20b-test-perf.js`). The most the P7 feedback can be asked for at once. |
 
 Match scenes start at Ultra and then switch to the measured preset, so the requested bot count survives the PERF-009 cap (Potato 7, Low 11). The camera and HUD follow a living bot, so the full view, view model and HUD are drawn. `video.autoLower` is off in budget runs (on in the reaction run).
 

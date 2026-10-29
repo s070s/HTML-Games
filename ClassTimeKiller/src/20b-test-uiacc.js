@@ -245,7 +245,7 @@ Test.add('uiacc', (check) => hudTestWith(() => {
   Bus.emit('explosion', far);
   check('motion: a close explosion shakes the view, a far one does not', nearTrauma > 0.3 && ViewFx.trauma === 0, nearTrauma);
   hudTestDamage(scene.enemy, id, { amount: 30 });
-  check('motion: a hit on you shakes the view a little', ViewFx.trauma > 0 && ViewFx.trauma <= VIEW_DAMAGE_TRAUMA_MAX);
+  check('motion: a hit on you shakes the view a little (its own damage shake, P7 F13)', ViewFx.damageTrauma > 0 && ViewFx.damageTrauma <= VIEW_DAMAGE_TRAUMA_MAX && ViewFx.trauma === 0);
   ViewFx.reset();
   Bus.emit('move.dash', { id, speed: 8, surface: 'concrete' });
   check('motion: a dash kicks the field of view', ViewFx.kick === VIEW_DASH_KICK);

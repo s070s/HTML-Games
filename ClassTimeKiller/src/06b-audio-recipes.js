@@ -10,7 +10,7 @@
 // Pulses must be in rising order; a pulse's decay is shortened to the room left before the next pulse (see finishSoundLayer).
 
 const SOUND_RECIPE_DEFAULTS = {
-  bus: 'sfx', priority: 'near', ref: 6, rolloff: 0.5, nearRange: 20, range: 150, gain: 1, occludes: true, noise: null, tone: null,
+  bus: 'sfx', priority: 'near', ref: 6, rolloff: 0.5, nearRange: 20, range: 150, gain: 1, occludes: true, noise: null, tone: null, gun: false,
   pulses: [0], caption: null, captionKind: '', captionGap: 0.6, retrigger: 0,
 };
 const SOUND_PULSE_GAP = 0.002;                 // seconds between the end of one pulse and the start of the next
@@ -21,7 +21,7 @@ const SOUND_TONE_DEFAULTS = { wave: 'sine', from: 440, to: 440, attack: 0.002, d
 
 // Groups share defaults; each row is one sound. Weapon classes differ in crack, body and tail so guns can be told apart by ear (AUD-003).
 const SOUND_RECIPE_GROUPS = [
-  { defaults: { ref: 8, rolloff: 0.45, nearRange: 35, gain: 2.1, caption: 'Gunfire', captionKind: 'gunfire', captionGap: 0.7, retrigger: SOUND_GUN_RETRIGGER }, rows: [
+  { defaults: { ref: 8, rolloff: 0.45, nearRange: 35, gain: 2.1, caption: 'Gunfire', captionKind: 'gunfire', captionGap: 0.7, retrigger: SOUND_GUN_RETRIGGER, gun: true }, rows: [   // gun: a shot heard far away rings on (P7 F07)
     { id: 'sidearm', gain: 2.8, noise: { from: 3200, to: 1400, q: 0.9, decay: 0.07, gain: 0.9 }, tone: { wave: 'triangle', from: 420, to: 140, decay: 0.09, gain: 0.5 } },
     { id: 'shotgun', noise: { filter: 'lowpass', from: 5000, to: 500, q: 0.7, decay: 0.32 }, tone: { from: 110, to: 45, decay: 0.26 } },
     { id: 'rifle', noise: { from: 2400, to: 800, q: 0.8, decay: 0.11 }, tone: { wave: 'triangle', from: 190, to: 75, decay: 0.13, gain: 0.7 } },
@@ -33,14 +33,14 @@ const SOUND_RECIPE_GROUPS = [
     { id: 'launcher', ref: 10, noise: { filter: 'lowpass', from: 1800, to: 250, q: 0.7, decay: 0.45, gain: 0.9 }, tone: { from: 85, to: 30, decay: 0.4, gain: 1.1 } },
     { id: 'energy', gain: 2.6, noise: { from: 4500, to: 2500, q: 3, decay: 0.08, gain: 0.35 }, tone: { wave: 'sawtooth', from: 1100, to: 300, decay: 0.14, gain: 0.8 } },
     { id: 'heavy', noise: { from: 1500, to: 500, q: 0.6, decay: 0.09 }, tone: { wave: 'square', from: 95, to: 55, gain: 0.8 } },
-    { id: 'melee', ref: 4, nearRange: 14, caption: null, noise: { from: 1100, to: 300, q: 0.5, attack: 0.03, decay: 0.18, gain: 0.8 }, tone: { from: 160, to: 90, attack: 0.02, decay: 0.12, gain: 0.3 } },
-    { id: 'tool', caption: null, noise: { from: 2000, q: 4, decay: 0.12, gain: 0.5 }, tone: { from: 520, to: 780, decay: 0.2, gain: 0.6, partial: 1.5 } },
+    { id: 'melee', gun: false, ref: 4, nearRange: 14, caption: null, noise: { from: 1100, to: 300, q: 0.5, attack: 0.03, decay: 0.18, gain: 0.8 }, tone: { from: 160, to: 90, attack: 0.02, decay: 0.12, gain: 0.3 } },
+    { id: 'tool', gun: false, caption: null, noise: { from: 2000, q: 4, decay: 0.12, gain: 0.5 }, tone: { from: 520, to: 780, decay: 0.2, gain: 0.6, partial: 1.5 } },
     { id: 'exotic', noise: { from: 900, to: 3000, q: 4, decay: 0.3, gain: 0.5 }, tone: { from: 300, to: 900, decay: 0.35, gain: 0.7, partial: 1.41 } },
     { id: 'power', gain: 2.0, ref: 14, rolloff: 0.3, nearRange: 60, noise: { filter: 'lowpass', from: 3500, to: 200, q: 0.7, decay: 1 }, tone: { wave: 'sawtooth', from: 70, to: 28, decay: 1, gain: 0.8, partial: 1.5 } },
-    { id: 'flame', noise: { filter: 'lowpass', from: 2500, to: 900, q: 0.5, attack: 0.04, decay: 0.25 } },
-    { id: 'suppressed', gain: 1.0, ref: 4, nearRange: 14, caption: 'Faint shots', noise: { filter: 'lowpass', from: 2500, to: 900, q: 0.6, decay: 0.06, gain: 0.5 }, tone: { from: 260, to: 120, decay: 0.05, gain: 0.3 } },
-    { id: 'stab', gain: 1.0, ref: 3, nearRange: 10, caption: null, noise: { from: 1200, to: 400, q: 0.6, attack: 0.02, decay: 0.12, gain: 0.5 } },
-    { id: 'bowshot', gain: 1.2, ref: 4, nearRange: 14, caption: null, noise: { from: 900, to: 300, q: 1.5, decay: 0.12, gain: 0.5 }, tone: { wave: 'triangle', from: 520, to: 180, decay: 0.15, gain: 0.5 } },
+    { id: 'flame', gun: false, noise: { filter: 'lowpass', from: 2500, to: 900, q: 0.5, attack: 0.04, decay: 0.25 } },
+    { id: 'suppressed', gun: false, gain: 1.0, ref: 4, nearRange: 14, caption: 'Faint shots', noise: { filter: 'lowpass', from: 2500, to: 900, q: 0.6, decay: 0.06, gain: 0.5 }, tone: { from: 260, to: 120, decay: 0.05, gain: 0.3 } },
+    { id: 'stab', gun: false, gain: 1.0, ref: 3, nearRange: 10, caption: null, noise: { from: 1200, to: 400, q: 0.6, attack: 0.02, decay: 0.12, gain: 0.5 } },
+    { id: 'bowshot', gun: false, gain: 1.2, ref: 4, nearRange: 14, caption: null, noise: { from: 900, to: 300, q: 1.5, decay: 0.12, gain: 0.5 }, tone: { wave: 'triangle', from: 520, to: 180, decay: 0.15, gain: 0.5 } },
   ] },
   { defaults: { ref: 4, rolloff: 0.6, nearRange: 15, range: 30, gain: 1.4 }, rows: [   // movement
     { id: 'jump', gain: 1.6, noise: { from: 600, to: 1500, q: 0.8, attack: 0.03, decay: 0.12, gain: 0.5 } },
@@ -54,6 +54,12 @@ const SOUND_RECIPE_GROUPS = [
     { id: 'reload', pulses: [0, 0.28], pitchSteps: [1, 0.8], gain: 1.0, noise: { from: 3500, to: 2500, q: 3, decay: 0.03, gain: 0.8 }, tone: { wave: 'square', from: 900, to: 700, decay: 0.03, gain: 0.3 } },
     { id: 'switch', pulses: [0, 0.07], pitchSteps: [1, 0.85], noise: { from: 3000, to: 2000, q: 3, decay: 0.025, gain: 0.8 }, tone: { wave: 'square', from: 700, to: 500, decay: 0.03, gain: 0.25 } },
     { id: 'empty', gain: 1.2, noise: { from: 4000, to: 3000, q: 2, decay: 0.02, gain: 0.6 }, tone: { wave: 'square', from: 1400, to: 1000, decay: 0.03, gain: 0.4 } },
+    // The reload moments (P7 F11), local player only: a magazine out, in, a slide or bolt rack, a shell in, an energy cell charging.
+    { id: 'reloadOut', gain: 1.1, noise: { from: 2500, to: 1400, q: 3, decay: 0.035, gain: 0.7 }, tone: { wave: 'square', from: 600, to: 380, decay: 0.045, gain: 0.25 } },
+    { id: 'reloadIn', gain: 1.2, pulses: [0, 0.05], pitchSteps: [1, 1.2], noise: { from: 3600, to: 2600, q: 3, decay: 0.03, gain: 0.8 }, tone: { wave: 'square', from: 900, to: 700, decay: 0.035, gain: 0.3 } },
+    { id: 'reloadRack', gain: 1.2, pulses: [0, 0.09], pitchSteps: [1, 0.8], noise: { from: 3000, to: 1800, q: 2.5, decay: 0.04, gain: 0.8 }, tone: { wave: 'square', from: 520, to: 300, decay: 0.05, gain: 0.3 } },
+    { id: 'shellIn', gain: 1.1, noise: { from: 1800, to: 900, q: 1.5, decay: 0.05, gain: 0.6 }, tone: { wave: 'triangle', from: 480, to: 300, decay: 0.07, gain: 0.4 } },
+    { id: 'cellCharge', gain: 1.0, noise: { from: 800, to: 3000, q: 2, attack: 0.05, decay: 0.25, gain: 0.25 }, tone: { from: 300, to: 1200, attack: 0.05, decay: 0.3, gain: 0.4, partial: 2 } },
   ] },
   { defaults: { priority: 'explosion', ref: 14, rolloff: 0.3, nearRange: 45, gain: 1.9, caption: 'Explosion', captionKind: 'explosion', captionGap: 0.4 }, rows: [
     { id: 'explosion', gain: 2.0, noise: { filter: 'lowpass', from: 3000, to: 120, q: 0.7, attack: 0.005, decay: 1.2 }, tone: { from: 70, to: 25, decay: 1, gain: 1.1 } },
@@ -65,6 +71,7 @@ const SOUND_RECIPE_GROUPS = [
     { id: 'hitTick', gain: 2.5, tone: { from: 1800, to: 1700, attack: 0.001, decay: 0.05, gain: 0.6 } },
     { id: 'headshot', pulses: [0, 0.06], pitchSteps: [1, 1.5], tone: { from: 2400, to: 2300, attack: 0.001, decay: 0.08, gain: 0.7, partial: 2 } },
     { id: 'damageTaken', gain: 1.5, noise: { filter: 'lowpass', from: 900, to: 200, q: 0.7, decay: 0.12, gain: 0.8 }, tone: { from: 90, to: 50, decay: 0.18, gain: 1.2 } },
+    { id: 'lastRound', gain: 1.1, pulses: [0, 0.05], pitchSteps: [1, 0.8], tone: { from: 1700, to: 1600, attack: 0.001, decay: 0.06, gain: 0.45 } },   // P7 F09: the shot that empties the magazine
     { id: 'killConfirm', pulses: [0, 0.09], pitchSteps: [1, 1.33], tone: { wave: 'triangle', from: 880, to: 860, decay: 0.12, gain: 0.7, partial: 2 } },
     { id: 'heartbeat', gain: 1, pulses: [0, 0.19], noise: { filter: 'lowpass', from: 180, to: 120, q: 0.7, decay: 0.12, gain: 0.3 }, tone: { from: 62, to: 42, attack: 0.01, decay: 0.16, gain: 1.4 } },
   ] },
@@ -106,6 +113,9 @@ const SOUND_RECIPE_GROUPS = [
     { id: 'uiConfirm', pulses: [0, 0.06], pitchSteps: [1, 1.5], tone: { from: 700, to: 700, decay: 0.07, gain: 0.5 } },
     { id: 'uiHover', gain: 1.0, tone: { from: 1200, to: 1200, decay: 0.02, gain: 0.25 } },
     { id: 'uiError', pulses: [0, 0.12], tone: { wave: 'square', from: 200, to: 150, gain: 0.3 } },
+    // P7 F10: a slot of the player's turns ready (two notes), the ultimate (three); at most one chime every half second (the retrigger and soundReadyChime).
+    { id: 'abilityReady', gain: 0.8, retrigger: 0.5, pulses: [0, 0.09], pitchSteps: [1, 1.5], tone: { from: 880, to: 880, decay: 0.12, gain: 0.5, partial: 2 } },
+    { id: 'ultReady', gain: 0.9, retrigger: 0.5, pulses: [0, 0.09, 0.18], pitchSteps: [1, 1.26, 1.5], tone: { wave: 'triangle', from: 660, to: 660, decay: 0.2, gain: 0.6, partial: 2 } },
   ] },
   { defaults: { bus: 'voice', priority: 'ui', ref: 1, occludes: false, gain: 0.8 }, rows: [   // announcer and medal stings (UI-012)
     { id: 'announce', pulses: [0, 0.12, 0.24], pitchSteps: [1, 1.25, 1.5], tone: { wave: 'triangle', decay: 0.22, gain: 0.8, partial: 2 } },
@@ -132,10 +142,10 @@ const SOUND_MATERIALS = [
 // Names the world data may use for a surface, mapped to the rows above (unknown names fall back to concrete).
 const SOUND_MATERIAL_ALIASES = {
   concrete: ['stone', 'brick', 'tile', 'plaster', 'rock', 'asphalt', 'marble', 'cement', 'floor'],
-  metal: ['steel', 'iron', 'grate', 'vent', 'pipe', 'armor'],
+  metal: ['steel', 'iron', 'grate', 'vent', 'pipe', 'armor', 'plate', 'oil', 'hazard', 'trim', 'grip'],   // P7 F03: the floor plate, oil drum, hazard, trim and grip walls ring like metal
   wood: ['plank', 'crate', 'parquet', 'timber'],
-  glass: ['window', 'glasspane'],
-  dirt: ['sand', 'grass', 'mud', 'gravel', 'snow', 'carpet', 'soil'],
+  glass: ['window', 'glasspane', 'ice', 'light'],
+  dirt: ['sand', 'grass', 'mud', 'gravel', 'snow', 'carpet', 'soil', 'moss'],
   water: ['liquid', 'puddle'],
   flesh: ['body', 'blood', 'actor'],
   sparks: ['energy', 'shield'],
@@ -171,6 +181,8 @@ const SOUND_TABLES = {
   surface: expandAliasTable('step.'),
   element: { thermal: 'explosionFire', cryo: 'explosionFrost', arc: 'explosionShock', default: 'explosion' },   // HP-006 element ids
   hitZone: { head: 'headshot', default: 'hitTick' },
+  weaponCue: { reloadOut: 'reloadOut', reloadIn: 'reloadIn', reloadRack: 'reloadRack', shellIn: 'shellIn', cellCharge: 'cellCharge' },   // the particle cues of 'weapon.cue' have no recipe: silent
+  abilityReady: { ultimate: 'ultReady', default: 'abilityReady' },
   itemGroup: { power: 'powerChime', health: 'pickupHealth', armor: 'pickupArmor', weapon: 'pickupWeapon', ammo: 'pickupAmmo', default: 'pickup' },
   itemRespawn: { power: 'powerChime', default: 'itemRespawn' },
   bounce: { default: 'grenadeTick' },
@@ -195,6 +207,8 @@ const SOUND_CONDITIONS = {
   playerHurt: (payload) => isLocalPlayer(payload.target) && (payload.amount > 0 || payload.absorbed > 0),
   playerKilled: (payload) => isLocalPlayer(payload.killer) && payload.victim !== payload.killer,
   idIsPlayer: (payload) => isLocalPlayer(payload.id),
+  ownLastRound: (payload) => isLocalPlayer(payload.id) && payload.magShare === 0 && payload.mode !== 'melee',   // the shot that emptied the magazine
+  readyChime: (payload) => isLocalPlayer(payload.id) && soundReadyChimeDue(),
   audible: (payload) => payload.loudness !== 0,   // move.step: Move.footstepScale 0 (Quietstep) is silent; no field = audible
 };
 
@@ -203,7 +217,11 @@ const SOUND_CONDITIONS = {
 // pos = 'payload' (x, y, z) | 'actor' (the source actor) | 'none' (not positional); when = condition name; gain / ownGain (own sounds are
 // quieter so enemies stay audible), gainScale / pitchScale {field, from, to, min, max}, altPitch (alt fire), pitchBy (payload field hashed to a pitch), speak.
 const SOUND_EVENTS = [
-  { event: 'weapon.fire', lookup: [['mode', 'fireMode'], ['weapon', 'weaponOverride'], ['weaponClass', 'weaponClass']], source: 'id', pos: 'payload', altPitch: 0.85 },
+  { event: 'weapon.fire', lookup: [['mode', 'fireMode'], ['weapon', 'weaponOverride'], ['weaponClass', 'weaponClass']], source: 'id', pos: 'payload', altPitch: 0.85, lowAmmo: true, tail: true },
+  { event: 'weapon.fire', when: 'ownLastRound', recipe: 'lastRound', source: 'id', pos: 'none' },
+  { event: 'weapon.cue', when: 'idIsPlayer', lookup: [['cue', 'weaponCue']], source: 'id', pos: 'none' },
+  { event: 'ability.ready', when: 'readyChime', lookup: [['slot', 'abilityReady']], source: 'id', pos: 'none' },
+  { event: 'ability.notarget', when: 'idIsPlayer', recipe: 'empty', source: 'id', pos: 'none' },   // A-09: a target ability pressed with no target clicks like a dry gun
   { event: 'weapon.reload', recipe: 'reload', source: 'id', pos: 'actor' },
   { event: 'weapon.switch', recipe: 'switch', source: 'id', pos: 'actor' },
   { event: 'weapon.empty', recipe: 'empty', source: 'id', pos: 'actor' },
@@ -219,7 +237,7 @@ const SOUND_EVENTS = [
   { event: 'move.wallrun', recipe: 'wallrun', source: 'id', pos: 'actor', ownGain: 0.6 },
   { event: 'damage', when: 'playerHitsOther', lookup: [['zone', 'hitZone']], source: 'source', pos: 'none' },
   { event: 'damage', when: 'playerHurt', recipe: 'damageTaken', source: 'target', pos: 'none', gainScale: { field: 'amount', from: 5, to: 60, min: 0.5, max: 1.2 } },
-  { event: 'kill', when: 'playerKilled', recipe: 'killConfirm', source: 'killer', pos: 'none' },
+  { event: 'kill', when: 'playerKilled', recipe: 'killConfirm', source: 'killer', pos: 'none', pitchIf: { field: 'zone', value: 'head', scale: 1.2 } },   // a head kill rings higher (F01)
   { event: 'kill', recipe: 'death', source: 'victim', pos: 'payload' },
   { event: 'pickup', lookup: [['group', 'itemGroup']], source: 'id', pos: 'payload', ownGain: 0.8 },
   { event: 'item.respawn', lookup: [['group', 'itemRespawn']], pos: 'payload' },
@@ -323,9 +341,22 @@ function setSoundPoint(x, y, z) {
   return true;
 }
 
+const SOUND_LOW_AMMO_SHARE = 0.25, SOUND_LOW_AMMO_PITCH = 1.08;   // P7 F09: the local player's shots rise to x1.08 as the magazine goes from a quarter to empty
+const SOUND_READY_CHIME_GAP = 0.5;                                 // P7 F10: seconds between two ready chimes
+let soundReadyChimeAt = -1e9;
+function soundReadyChimeDue() {
+  if (Sound.clock - soundReadyChimeAt < SOUND_READY_CHIME_GAP) return false;
+  soundReadyChimeAt = Sound.clock;
+  return true;
+}
+// A weapon class's `tail` (03c): 1 = the default; a sniper, heavy, explosive or power shot rings longer when it is heard far away.
+const SOUND_CLASS_TAIL = new Map(CAT.weaponClasses.map((row) => [row.id, row.tail]));
+
 function soundPitch(row, payload) {
   let pitch = row.pitchScale ? scaleByField(row.pitchScale, payload) : 1;
   if (row.altPitch && payload.mode === 'alt') pitch *= row.altPitch;
+  if (row.pitchIf && payload[row.pitchIf.field] === row.pitchIf.value) pitch *= row.pitchIf.scale;
+  if (row.lowAmmo && isLocalPlayer(payload.id) && payload.magShare >= 0) pitch *= lerp(1, SOUND_LOW_AMMO_PITCH, clamp(1 - payload.magShare / SOUND_LOW_AMMO_SHARE, 0, 1));
   if (row.pitchBy) pitch *= 0.85 + (hashString(String(payload[row.pitchBy])) % 7) * 0.05;   // each medal gets its own pitch
   return pitch;
 }
@@ -340,7 +371,7 @@ function handleSoundEvent(row, payload) {
   if (positional && !fillSoundPoint(row, payload, source)) return;
   let gain = row.gainScale ? scaleByField(row.gainScale, payload) : 1;
   if (row.ownGain && isLocalPlayer(source)) gain *= row.ownGain;
-  Sound.enqueue(recipeIndex, positional, soundPoint.x, soundPoint.y, soundPoint.z, source, gain, soundPitch(row, payload));
+  Sound.enqueue(recipeIndex, positional, soundPoint.x, soundPoint.y, soundPoint.z, source, gain, soundPitch(row, payload), row.tail ? SOUND_CLASS_TAIL.get(payload.weaponClass) : 0);
   if (row.speak) Sound.speak(payload.text);
 }
 

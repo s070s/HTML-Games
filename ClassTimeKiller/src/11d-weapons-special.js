@@ -82,11 +82,12 @@ const WeaponSpecialState = {
   },
   parryHooks: [],     // fn(target, projectile) -> true when another rule parries it (S14: PvE green projectiles)
   tryParry(target, projectile) {
-    for (let k = 0; k < this.parryHooks.length; k++) if (this.parryHooks[k](target, projectile)) { Projectiles.reflect(projectile, target); this.reflectAt[target] = Sim.time; return true; }
+    for (let k = 0; k < this.parryHooks.length; k++) if (this.parryHooks[k](target, projectile)) { Projectiles.reflect(projectile, target); this.reflectAt[target] = Sim.time; announceParry(target); return true; }
     if (Sim.time > this.parryUntil[target] || !this.blockDrawn(target)) return false;
     if (!comesFromFront(target, Projectiles.vx[projectile], Projectiles.vz[projectile], PARRY_ARC_COS)) return false;
     Projectiles.reflect(projectile, target);
     this.reflectAt[target] = Sim.time;
+    announceParry(target);
     return true;
   },
   // W28 rooted stance: frontal damage resist while toggled.

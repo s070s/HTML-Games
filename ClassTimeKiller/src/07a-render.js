@@ -44,7 +44,7 @@ const Render = {
   teamPalette: null,       // colour-blind team colours (array of 0xRRGGBB by team) instead of CAT.teamColors; null = the normal ones (18m)
   teamSlot: null,          // fn(team) -> the team colour a team's bodies wear (S17 Hud.colorSlot: M20 squads); null = its own
   viewEffect: null,        // fn(camera, seconds) adds camera shake and FOV kick after the camera followed the player (18k)
-  motion: { bob: 1, shake: 1, fovKick: 1 },   // 0..1 scales of view bob, shake and FOV kick: reduce motion and the sliders (ACC-005, 18k)
+  motion: { bob: 1, shake: 1, fovKick: 1, weapon: 1 },   // 0..1 scales of view bob, shake, FOV kick and the weapon motion of the view model (07g ViewAction): reduce motion and the sliders (ACC-005, P7-03, 18k)
   actorStyle: null,        // fn(id, out) may change { r, g, b, emissive, scale, headScale, visible }; runs after the addActorStyle list
   actorStyles: [],         // fn(id, out) per section (powerups, abilities, mutators), run in load order
   addActorStyle(style) { this.actorStyles.push(style); },
@@ -68,7 +68,7 @@ const Render = {
   restoreWaitMs: CONTEXT_RESTORE_WAIT_MS,
   quality: null,           // the active CAT.quality row
   config: { renderScale: 'auto', fov: FOV_DEFAULT, viewmodelFov: 70, fxaa: true, outlines: true, headBob: 0, maxDpr: 1.5, autoLower: true, autoQuality: '',
-    highContrast: false, particleScale: 1, viewmodelOffset: [0, 0, 0],   // these three are filled by the accessibility and view settings (18k, 18m)
+    highContrast: false, particleScale: 1, viewmodelOffset: [0, 0, 0], muzzleFlash: 2, flashSafe: false,   // these four are filled by the accessibility and view settings (18k, 18m); muzzleFlash 0 off, 1 reduced, 2 full; flashSafe = photosensitivity mode (a flash is then off for a fast gun, reduced for a slow one)
     frameCapMs: 0 },   // the frame cap interval (0 = off), filled by S19 from video.frameCap
   stats: { drawCalls: 0, triangles: 0, renderMs: 0, gpuMs: 0, renderScale: 1, particles: 0, instances: 0, droppedInstances: 0 },
   size: { cssWidth: 1, cssHeight: 1, pixelRatio: 1, width: 1, height: 1, sceneWidth: 1, sceneHeight: 1, scale: 1, dirty: true },
