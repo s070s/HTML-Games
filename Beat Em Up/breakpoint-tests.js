@@ -38,6 +38,7 @@ const {
   randomCustom, randomItems, resolveLook, shareChecksum, stringsFor, styleFor, submissionStyleText, throwFor, toBase64Url,
   touchLayoutCss, touchLockVisible, touchUseVisible, trimToBudget, unlockRuleText, validateCustom, weightClass, weightFromBuild,
   wrapAngle,
+  CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
   BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, heldLabel, moveById, weaponTable,
   AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS,
 } = api;
@@ -601,6 +602,7 @@ const SelfTest = {
       };
       const guarded = alone(true), control = alone(false), crate = alone(true, 0.95);   // 0.95 m costs 3.6 hp (cheap), 3 m costs 20
       const m = mk({}), ai = new AIController(ROSTER_BY_ID.kai, 'hard');
+      ai.navigate = () => false;   // this scene watches the fall, not the way back up (the CPU would now jump back onto the ledge to its foe)
       m.controllers[1] = ai;
       const a = m.fighters[0], d = m.fighters[1], log = self.capture(['fallDamage']);
       const hit = withLedge(0.95, 0.6, () => {
@@ -1118,10 +1120,12 @@ const SelfTest = {
       const probe = (label) => {
         const b = Arena.def.bounds;
         for (const c of Arena.colliders) {
-          if (!c.active || c.top <= STEP_HEIGHT) continue;
+          if (!c.active || c.top <= STEP_HEIGHT || c.top - (c.up || 0.25) <= 0) continue;   // a step that can be stood on from the floor is no obstacle
           for (let gx = -1.4; gx <= 1.4; gx += 0.2) {
             for (let gz = -1.4; gz <= 1.4; gz += 0.2) {
               f.x = c.x + gx * (c.hx + f.radius); f.z = c.z + gz * (c.hz + f.radius); f.y = 0;
+              if (c.deck && Math.abs(f.x - c.x) < c.hx && Math.abs(f.z - c.z) < c.hz) continue;   // a deck is too big to be entered: it is probed from outside only
+              if (Math.abs(f.x) > b.x - f.radius || Math.abs(f.z) > b.z - f.radius) continue;   // objects now stand flush against a wall: a fighter is never past it (the wall case is the last check below)
               for (let i = 0; i < 4; i++) Arena.resolveFighter(f);
               const nx = clamp(f.x, c.x - c.hx, c.x + c.hx), nz = clamp(f.z, c.z - c.hz, c.z + c.hz);
               const inside = Math.abs(f.x - c.x) < c.hx && Math.abs(f.z - c.z) < c.hz;
@@ -1172,7 +1176,7 @@ const SelfTest = {
     test('Arena reset restores every object, collider and clears debris', () => {
       mk({ arenaId: 'pit' });
       for (const o of Arena.objects) Arena.damageObject(o, 999, 'heavy', 77, 1, 0, o.x, 0.5, o.z);
-      const wrecked = Arena.objects.every((o) => o.destroyed);
+      const wrecked = Arena.objects.every((o) => o.destroyed || o.fixed) && Arena.objects.some((o) => o.destroyed);   // fixed decks, stairs and ropes take no damage
       Arena.reset();
       const clean = Arena.objects.every((o) => !o.destroyed && o.hp === o.maxHp && o.stage === 0 && o.collider.active && !o.rubble) && Debris.pool.every((d) => !d.on) && Arena.colliders.length === Arena.objects.length;
       return wrecked && clean ? true : 'wrecked ' + wrecked + ' clean ' + clean;
@@ -1288,7 +1292,7 @@ const SelfTest = {
       return clinches === 30 && breaks >= 3 && breaks <= 12 ? true : 'clinches ' + clinches + ' breaks ' + breaks;
     });
     test('AI routes around an obstacle', () => {
-      const m = mk({ arenaId: 'warehouse' });
+      const m = mk({ arenaId: 'warehouse', hazards: false, items: false });   // the load hazard now hangs near here; this checks the path around a crate, not a hazard
       m.controllers[1] = new AIController(ROSTER_BY_ID.kai, 'hard');
       const o = Arena.objects.find((q) => q.id === 'crateA');
       const a = m.fighters[0], b = m.fighters[1]; a.x = o.x - 2.0; a.z = o.z; b.x = o.x + 2.0; b.z = o.z;
@@ -4345,11 +4349,13 @@ const SelfTest = {
     /* ----- N fighters in one scene (P4-01) ----- */
     /* The 1v1 path must not change: event log + result of three seeded matches, hashed, recorded from the code before P4-01 (kai-mara hard, zero-mara easy, the kai
        mirror on expert). A task that changes 1v1 behaviour on purpose (balance, AI, moves) has to record new values here. */
+    /* Re-recorded 2026-10-29 for the P8-02 arenas; the old values live in the engine-neutrality test ("Levels: the engine of P8 changes no 1v1 result"). */
     const ONE_V_ONE_FINGERPRINTS = [
-      { opts: { seed: 1, playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard' }, hash: '64:shp12u' },
-      { opts: { seed: 7, playerId: 'zero', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'easy' }, hash: '64:1563zst' },
-      { opts: { seed: 3, playerId: 'kai', opponentId: 'kai', arenaId: 'pit', difficulty: 'expert' }, hash: '81:g3xni6' },
+      { opts: { seed: 1, playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard' }, hash: '72:1phwk8i' },
+      { opts: { seed: 7, playerId: 'zero', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'easy' }, hash: '103:mtun1h' },
+      { opts: { seed: 3, playerId: 'kai', opponentId: 'kai', arenaId: 'pit', difficulty: 'expert' }, hash: '80:1dpzzwv' },
     ];
+    const ONE_V_ONE_OLD_HASHES = ['64:shp12u', '64:1563zst', '81:g3xni6'];   // the values recorded before P8-02, for the same three matches on the pre-P8 layouts (the engine-neutrality test)
     const FINGERPRINT_EVENTS = ['hit', 'block', 'throw', 'throwStart', 'knockdown', 'clinch', 'tackle', 'sway', 'sidestep', 'escape', 'submission', 'submissionEnd', 'fall', 'ko', 'roundStart', 'roundEnd', 'matchEnd'];
     const fingerprint = (opts) => {
       const lines = [];
@@ -4547,16 +4553,26 @@ const SelfTest = {
             put(px, pz); m.step(); put(px, pz);
             Camera.shakeAmp = 0; Camera.followGroup(1 / 60, m.fighters, m.def);
             // the same line test the camera uses: from the eye as drawn to the player's chest
-            if (Arena.rayBlocked(Camera.pos[0], Camera.pos[1], Camera.pos[2], p.x, p.y + CAMERA_CHEST * p.scale, p.z)) { hiddenTicks++; streak++; worst = Math.max(worst, streak); } else streak = 0;
+            if (!Arena.blockedAt(p.x, p.z, 0.2, 0) && Arena.rayBlocked(Camera.pos[0], Camera.pos[1], Camera.pos[2], p.x, p.y + CAMERA_CHEST * p.scale, p.z)) { hiddenTicks++;   // (the walk between two spots may cross a prop: nobody stands inside one)
+             streak++; worst = Math.max(worst, streak); } else streak = 0;
           };
           for (let i = 0; i < 90; i++) tick(0, 0);
-          const props = Arena.colliders.filter((c) => c.obj && c.obj.mat !== 'glass' && c.top >= 1.5);   // columns, posts, screens
+          const props = Arena.colliders.filter((c) => c.obj && c.obj.mat !== 'glass' && c.top >= 1.5 && !c.deck && !c.base);   // columns, posts, screens, racks (a deck is solid to the floor: nobody stands behind it inside it)
           for (const c of props) {
             // the spot: on the line from the eye through the prop's centre, just behind the prop; walked to at 3 m/s, then held
             let dx = c.x - Camera.pos[0], dz = c.z - Camera.pos[2];
             const len = Math.hypot(dx, dz); dx /= len; dz /= len;
             const reach = Math.min((c.hx + 0.34) / (Math.abs(dx) || 1e-9), (c.hz + 0.34) / (Math.abs(dz) || 1e-9)) + 0.05;   // as close behind the prop as a body (radius 0.34) can stand
-            const gx = clamp(c.x + dx * reach, -(b.x - 0.4), b.x - 0.4), gz = clamp(c.z + dz * reach, -(b.z - 0.4), b.z - 0.4);
+            let gx = clamp(c.x + dx * reach, -(b.x - 0.4), b.x - 0.4), gz = clamp(c.z + dz * reach, -(b.z - 0.4), b.z - 0.4);
+            if (Math.abs(gx - c.x) < c.hx + 0.34 && Math.abs(gz - c.z) < c.hz + 0.34) {   // a prop flush against a wall has no space behind it: the player stands 0.9 m off its free side farthest from the camera
+              let far = null, farD = -1;
+              for (const [ox, oz] of [[c.hx + 0.9, 0], [-(c.hx + 0.9), 0], [0, c.hz + 0.9], [0, -(c.hz + 0.9)]]) {
+                const sx = c.x + ox, sz = c.z + oz, d = Math.hypot(sx - Camera.pos[0], sz - Camera.pos[2]);
+                if (Math.abs(sx) <= b.x - 0.4 && Math.abs(sz) <= b.z - 0.4 && !Arena.blockedAt(sx, sz, 0.34, 0) && d > farD) { farD = d; far = [sx, sz]; }
+              }
+              if (!far) continue;
+              gx = far[0]; gz = far[1];
+            }
             const steps = Math.max(1, Math.ceil(Math.hypot(gx - x, gz - z) / 3 * 60));
             for (let s = 1; s <= steps; s++) tick(x + (gx - x) * s / steps, z + (gz - z) * s / steps);
             for (let s = 0; s < 120; s++) tick(gx, gz);
@@ -4681,13 +4697,14 @@ const SelfTest = {
       const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 11, arenaId: 'dojo' }));
       try {
         const a = m.fighters[0], b = m.fighters[1], got = [];
+        const oldDojo = { bounds: { x: 7.5, z: 4.6 }, camera: { minDist: 6.0, maxDist: 11.5, elev: 0.46 } };   // the camera-relevant fields of the arena the values were recorded in (the Dojo before P8-02 made it the City Fight Gym)
         Camera.snapNext = true; Camera.az = 0.2; Camera.dist = 8; Camera.elev = 0.46; Camera.aspect = 1.78; Camera.fovPulse = 0;   // the camera as it is at boot, which is where the recorded run started
         Camera.target[0] = 0; Camera.target[1] = 1; Camera.target[2] = 0;
         for (let i = 0; i < 180; i++) {
           const t = i / 60;
           a.x = -2 + Math.sin(t * 1.3) * 3; a.z = Math.cos(t * 0.7) * 2; a.y = i > 100 && i < 130 ? 0.9 : 0;
           b.x = 2.5 + Math.cos(t * 0.9) * 2.5; b.z = Math.sin(t * 1.1) * 1.5; b.y = 0;
-          Camera.follow(1 / 60, a, b, m.def);
+          Camera.follow(1 / 60, a, b, oldDojo);
           if (i % 30 === 29) got.push([Camera.pos[0], Camera.pos[1], Camera.pos[2], Camera.target[0], Camera.target[1], Camera.target[2], Camera.az, Camera.dist, Camera.elev]);
         }
         const worst = Math.max(...got.map((row, r) => Math.max(...row.map((v, c) => Math.abs(v - want[r][c])))));
@@ -5178,7 +5195,7 @@ const SelfTest = {
         if (before !== '2' || atOnce !== '' || draw() !== '') problems.push('knock-out: ' + before + ' then ' + atOnce + ' then ' + draw());
         // the render-quality presets only hold render budgets; the marker is HUD, so none of them (or any style rule) can hide it
         for (const quality in QUALITY_PRESETS) {
-          const odd = Object.keys(QUALITY_PRESETS[quality]).filter((key) => !['scale', 'dprCap', 'shadow', 'particles', 'debris'].includes(key));
+          const odd = Object.keys(QUALITY_PRESETS[quality]).filter((key) => !['scale', 'dprCap', 'shadow', 'particles', 'debris', 'pieces', 'live', 'heaps'].includes(key));
           if (odd.length) problems.push('preset ' + quality + ' has the setting ' + odd.join());
         }
         const sheets = Array.from(document.querySelectorAll('style')).map((el) => (typeof el.textContent === 'string' ? el.textContent : ''));
@@ -5698,6 +5715,7 @@ const SelfTest = {
       const problems = [];
       [[0, 'reachLow'], [0.9, 'reachMid'], [1.4, 'reachHigh']].forEach(([y, anim]) => {
         const m = itemDuel(5, once(2, 'use')), f = m.fighters[0], loose = m.placeItem('bat', 0, 0.7, y);
+        if (y) loose.host = { destroyed: false };   // it lies on a table or hangs on a bracket (a loose item with nothing under it falls)
         let n = 0;
         for (let t = 1; t <= 40; t++) {
           m.step();
@@ -5913,13 +5931,13 @@ const SelfTest = {
       const ok = events.includes('itemTake0') && events.includes('itemThrow0') && events.includes('hit0throw_bottle') && events.indexOf('itemTake0') < events.indexOf('itemThrow0');
       return ok ? true : events.join(',');
     });
-    test('Items: the Items setting is on by default and off spawns nothing; each arena places 4 to 7 items at floor, table and rack heights; at most 12 stay loose; a seeded run with items repeats exactly and the default CPU run uses none', () => {
+    test('Items: the Items setting is on by default and off spawns nothing; each arena places 4 to 10 items at floor, table and rack heights; at most 12 stay loose; a seeded run with items repeats exactly and the default CPU run uses none', () => {
       const problems = [];
       if (SETTING_DEFS.items.def !== true || Settings.validate('items', 'x') !== true || track(new MatchSim({ countdown: false })).items.length === 0) problems.push('defaults');
       for (const id of ARENA_ORDER) {
         const on = track(new MatchSim({ arenaId: id, countdown: false, seed: 2 })), off = track(new MatchSim({ arenaId: id, countdown: false, seed: 2, items: false }));
         const kinds = new Set(on.items.map((i) => (i.y < 0.4 ? 'floor' : i.y < 1.1 ? 'table' : 'rack')));
-        if (on.items.length < 4 || on.items.length > 7 || kinds.size !== 3 || off.items.length) problems.push(id + ' ' + on.items.length + ' ' + [...kinds].join('/') + ' off ' + off.items.length);
+        if (on.items.length < 4 || on.items.length > 10 || kinds.size !== 3 || off.items.length) problems.push(id + ' ' + on.items.length + ' ' + [...kinds].join('/') + ' off ' + off.items.length);
       }
       const crowded = itemDuel(5); for (let k = 0; k < 15; k++) crowded.placeItem('brick', -3 + k * 0.4, 3, 0);
       if (crowded.items.length !== ITEM_MAX || crowded.items[0].x < -3 + 3 * 0.4 - 1e-9) problems.push('loose item maximum ' + crowded.items.length);
@@ -5987,8 +6005,8 @@ const SelfTest = {
       const problems = [];
       const m = track(new MatchSim({ arenaId: 'warehouse', countdown: false, seed: 3 }));
       const wrench = m.items.find((i) => i.id === 'wrench'), pipe = m.items.find((i) => i.id === 'pipe'), bottle = m.items.find((i) => i.id === 'bottle');
-      if (!pipe.mount || pipe.mount[1] !== -1 || Math.abs(Math.sin(pipe.yaw)) !== 1 || wrench.mount || bottle.mount) problems.push('mounts');
-      Arena.breakObject(Arena.objects.find((o) => o.id === 'crateA'), 0, 0, 0);
+      if (!pipe.mount || Math.abs(pipe.mount[0]) + Math.abs(pipe.mount[1]) !== 1 || Math.abs(Math.sin(pipe.yaw)) !== (pipe.mount[0] ? 0 : 1) || wrench.mount || bottle.mount) problems.push('mounts');   // the pipe hangs on a rack's face
+      Arena.breakObject(Arena.objects.find((o) => o.id === 'bench'), 0, 0, 0);
       m.spawnItems();
       const again = m.items.find((i) => i.id === 'wrench');
       if (again.mode !== 'fall' || again.host) problems.push('not falling');
@@ -5996,7 +6014,354 @@ const SelfTest = {
       if (again.mode !== 'rest' || !m.items.includes(again) || again.y < 0 || again.y > 1) problems.push('did not land: ' + again.mode + ' ' + again.y);
       return problems.length ? problems.join('; ') : true;
     });
+    /* ----- Levels (P8-02, P8-04, P8-06): the rebuilt arenas, decks, stairs, falls, collapses, CPU on stairs, the camera at height, the preset budget ----- */
+    const walkTo = (x, z, run) => (it, f) => { f.blind = 3; if (Math.hypot(x - f.x, z - f.z) > 0.2) { f.yaw = f.prevYaw = Math.atan2(x - f.x, z - f.z); it.fwd = 1; it.run = !!run; } };   // blind: it does not turn to its foe, it walks the way it was told
+    const onDeck = (f, deck) => { f.x = f.prevX = deck.x; f.z = f.prevZ = deck.z; f.y = f.prevY = deck.collider.top; f.groundY = f.supportY = deck.collider.top; f.vy = 0; };
+    test('Levels: every arena builds from its rows inside the sheet limits, with unique ids and valid links, clear spawns, and no gap that can trap a body', () => {
+      const problems = [], want = { warehouse: [19, 10, 4], dojo: [15, 6, 2], pit: [16, 10, 4] }, body = 0.68;   // destructibles, placed items, hazards (the P8-01 sheets); 0.68 = two body radii
+      for (const id of ARENA_ORDER) {
+        const def = ARENAS[id], built = builtOf(def);
+        Arena.build(def);
+        const ids = new Set(Arena.objects.map((o) => o.id)), posts = (def.hazards || []).filter((h) => HAZARDS[h[0]].post).length, b = def.bounds;
+        if (ids.size !== Arena.objects.length) problems.push(id + ' ids repeat');
+        if (def.objects.length > 24 || built.objects.length - def.objects.length > 40 || Arena.colliders.length + posts > 60 || (def.items || []).length > 10) problems.push(id + ' over a level limit');
+        const destructible = def.objects.filter((o) => !o.fixed).length;
+        if (destructible !== want[id][0] || def.items.length !== want[id][1] || def.hazards.length !== want[id][2]) problems.push(id + ' counts ' + [destructible, def.items.length, def.hazards.length]);
+        for (const o of Arena.objects) {
+          if (o.on && !ids.has(o.on)) problems.push(id + ' ' + o.id + ' rests on a missing ' + o.on);
+          if (o.type === 'deck' && o.h > 3.0) problems.push(id + ' ' + o.id + ' deck too high');
+        }
+        for (const [item, , , , host] of def.items) if (!WEAPONS[item] || (host && !ids.has(host))) problems.push(id + ' item ' + item + ' / ' + host);
+        for (const [type, , , row] of def.hazards) if (!HAZARDS[type] || (row && row.obj && !ids.has(row.obj))) problems.push(id + ' hazard ' + type);
+        const rects = Arena.colliders.filter((c) => c.active && c.top > STEP_HEIGHT && !c.base).map((c) => ({ x: c.x, z: c.z, hx: c.hx, hz: c.hz, step: c.up > 0.25 }));
+        for (const [type, x, z, row] of def.hazards) if (HAZARDS[type].post) { const [hx, hz] = HAZARDS[type].post; rects.push({ x: row && row.tx !== undefined ? row.tx : x, z: row && row.tz !== undefined ? row.tz : z, hx, hz }); }
+        rects.forEach((r, i) => {
+          for (const g of [b.x - Math.abs(r.x) - r.hx, b.z - Math.abs(r.z) - r.hz]) if (g < -0.001 || (g > 0.001 && g < body && !r.step)) problems.push(id + ' wall gap ' + g.toFixed(2));
+          for (const q of rects.slice(i + 1)) {
+            const gx = Math.abs(r.x - q.x) - r.hx - q.hx, gz = Math.abs(r.z - q.z) - r.hz - q.hz, gap = Math.hypot(Math.max(gx, 0), Math.max(gz, 0));
+            if ((gx > 0.001 || gz > 0.001) && gap < body && !(r.step || q.step)) problems.push(id + ' gap ' + gap.toFixed(2));
+          }
+        });
+        for (const sx of [-def.spawn, def.spawn, def.spawn + 0.6]) for (let k = -3; k <= 3; k++) {   // the party line and the enemy line of a brawl
+          for (const r of rects) if (Math.hypot(Math.max(Math.abs(sx - r.x) - r.hx, 0), Math.max(Math.abs(k * 0.9 - r.z) - r.hz, 0)) < 0.34 + 0.1) problems.push(id + ' spawn ' + sx + ',' + k * 0.9 + ' blocked');
+        }
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Levels: the generators - a stair is steps of 0.25 m rise and 0.35 m run (0.2 / 0.6 for the ramp look) with a foot and a head, a scaffold bay is a standard with weak tiers resting on it and a stair per tier', () => {
+      const problems = [];
+      const def = { id: 'testGen', objects: [], builds: [['stair', 's', 0, 0, 1, 1.0, 0, 1.5, 'metal', 'grate', ''], ['stair', 'r', 0, 3, 1, 1.0, 0, 1.0, 'concrete', 'ramp', ''], ['scaffold', 'sc', -3, -1, 2, 2, -1]] };
+      const built = builtOf(def), steps = built.objects.filter((o) => o.id.startsWith('s.')), ramp = built.objects.filter((o) => o.id.startsWith('r.'));
+      if (steps.length !== 6 || Math.abs(steps[5].h - 1.5) > 1e-9 || Math.abs(steps[1].x - 0.525) > 1e-9 || steps[0].hx !== STAIR_RUN / 2 || steps[0].hz !== 0.5 || STAIR_RISE !== 0.25) problems.push('stair steps ' + steps.length);
+      if (ramp.length !== 5 || ramp[0].hx !== 0.3 || Math.abs(ramp[4].h - 1.0) > 1e-9 || RAMP_RISE !== 0.2) problems.push('ramp ' + ramp.length);
+      if (steps.some((o) => !o.fixed || o.type !== 'deck')) problems.push('steps are not fixed decks');
+      Arena.build({ id: 'testGen2', objects: [], builds: [['stair', 's', 3.5, -2, 1, 1.0, 0, 2.5, 'metal', 'grate', '']], bounds: { x: 9, z: 6 }, items: [], hazards: [] });
+      if (!Arena.pathBlocked(3.0, -2, 7.0, -2, 0.3, 0) || Arena.pathBlocked(5.0, -2, 5.7, -2, 0.3, 1.5) || !Arena.pathBlocked(6.0, -4, 6.0, -1, 0.3, 0)) problems.push('a stair is no obstacle for a walker on the floor beside its high end, or blocks one climbing it');
+      const standards = built.objects.filter((o) => o.type === 'scaffold'), tiers = built.objects.filter((o) => o.id.startsWith('sc.t'));
+      if (standards.length !== 2 || tiers.length !== 4 || standards[0].h !== 2 * SCAFFOLD_TIER + 1 || tiers.some((o) => !o.weak || o.mat !== 'wood' || !standards.some((s) => s.id === o.on))) problems.push('scaffold ' + standards.length + ' ' + tiers.length);
+      const tier2 = tiers.find((o) => o.id === 'sc.t0.2'), tier1 = tiers.find((o) => o.id === 'sc.t0.1');
+      if (!tier2 || tier2.h !== 3.0 || tier1.h !== 1.5 || Math.abs(tier1.z - tier2.z - 1.2) > 1e-9) problems.push('tiers');
+      const upper = built.objects.filter((o) => o.id.startsWith('sc.u2.'));
+      if (upper.length !== 6 || upper.some((o) => o.on !== 'sc.t0.1') || built.stairs.length !== 4 || built.stairs.some((s) => !Number.isFinite(s.ax + s.az + s.bx + s.bz))) problems.push('tier stairs ' + upper.length + ' ' + built.stairs.length);
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels: a fighter climbs the stair of every arena step by step to the deck and stands on it, and walks back down', () => {
+      const problems = [];
+      for (const id of ARENA_ORDER) {
+        for (const s of builtOf(ARENAS[id]).stairs) {
+          const m = mk({ arenaId: id }, walkTo(s.bx + s.dx * 1.2, s.bz + s.dz * 1.2), () => {}), [a, b] = m.fighters;
+          self.stand(a, s.ax, s.az, s.bx + s.dx * 3, s.bz + s.dz * 3); self.stand(b, s.bx + s.dx * 2.2, s.bz + s.dz * 2.2, s.ax, s.az);
+          b.y = b.prevY = s.top;
+          let top = 0, jerk = 0, last = 0;
+          for (let t = 0; t < 420; t++) { m.step(); top = Math.max(top, a.y); jerk = Math.max(jerk, a.y - last); last = a.y; }
+          if (top < s.top - 0.01 || Math.abs(a.y - s.top) > 0.01 || a.state === S.FALL || a.hp < a.maxHp) problems.push(id + ' ' + s.id + ' reached ' + top.toFixed(2) + ' of ' + s.top + ', now ' + a.y.toFixed(2) + ' ' + a.state);
+          if (jerk > STAIR_RISE + 0.01) problems.push(id + ' ' + s.id + ' a step of ' + jerk.toFixed(2));
+          const back = mk({ arenaId: id }, walkTo(s.ax - s.dx * 0.6, s.az - s.dz * 0.6)), [c, d] = back.fighters;
+          self.stand(d, s.ax - s.dx * 2.2, s.az - s.dz * 2.2, s.bx, s.bz); self.stand(c, s.bx + s.dx * 0.4, s.bz + s.dz * 0.4, s.ax - s.dx * 2, s.az - s.dz * 2);
+          c.y = c.prevY = s.top; c.supportY = s.top;
+          self.run(back, 420);
+          if (c.y > STEP_HEIGHT || c.hp < c.maxHp || Math.hypot(c.x - (s.ax - s.dx * 0.6), c.z - (s.az - s.dz * 0.6)) > 0.5) problems.push(id + ' ' + s.id + ' down ' + c.y.toFixed(2) + ' hp ' + (c.maxHp - c.hp));
+        }
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Levels: a fighter who walks off a deck edge falls with the P3-07 rule (2.5 m = 16 HP and a knockdown), a knock-back over the edge falls too, and the ring ropes hold a walker', () => {
+      const problems = [];
+      const m = mk({ arenaId: 'warehouse' }, walkTo(9.25, 0)), [a, b] = m.fighters, falls = [];
+      const off = Events.on('fall', (e) => falls.push(e.drop));
+      self.stand(a, 9.25, -3.5, 9.25, 0); self.stand(b, 9.25, 2, 9.25, -3.5);
+      a.y = a.prevY = a.groundY = a.supportY = 2.5;
+      self.run(m, 12);
+      if (a.y < 2.4) problems.push('fell too early');
+      self.run(m, 150);
+      off();
+      const lost = a.maxHp - a.hp, expect = Combat.fallDamageFor(2.5) * a.stats.taken * a.stats.impact;
+      if (falls.length !== 1 || Math.abs(falls[0] - 2.5) > 0.01 || Math.abs(lost - expect) > 1.5 || a.y > 0.01) problems.push('walk off: ' + falls.join() + ' lost ' + lost.toFixed(1) + ' want ' + expect.toFixed(1) + ' y ' + a.y.toFixed(2));
+      const k = mk({ arenaId: 'warehouse' }), [c] = k.fighters, kf = [];
+      const off2 = Events.on('fall', (e) => kf.push(e.drop));
+      self.stand(c, 9.25, -3.2, 9.25, 0); c.y = c.prevY = c.groundY = c.supportY = 2.5;
+      self.run(k, 2); c.kz = 6;
+      self.run(k, 120);
+      off2();
+      if (kf.length !== 1 || c.hp >= c.maxHp || c.y > 0.01) problems.push('knock-back: ' + kf.join() + ' hp ' + c.hp);
+      const g = mk({ arenaId: 'dojo' }, walkTo(-7.8, 5)), [d] = g.fighters;
+      self.stand(d, -7.8, 1.5, -7.8, 5); d.y = d.prevY = d.groundY = d.supportY = 1.0;
+      self.run(g, 40);
+      if (d.y < 0.99) problems.push('the ring ropes did not hold a walker (y ' + d.y.toFixed(2) + ')');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels: a weak deck breaks under weight (the dock holds one fighter, not three), under damage, and under a thrown fighter; what stood on it falls with fall damage and its items drop', () => {
+      const problems = [];
+      const dockOf = () => Arena.objects.find((o) => o.id === 'dock');
+      const solo = mk({ arenaId: 'warehouse' }, () => {}), dock = dockOf();
+      onDeck(solo.fighters[0], dock); solo.fighters[0].x -= 0.5; self.stand(solo.fighters[1], 3, 0, 0, 0);
+      self.run(solo, 240);
+      if (dock.destroyed || dock.creak > 0) problems.push('one fighter broke it');
+      const m = self.makeBrawl({ arenaId: 'warehouse', enemies: 2 }), d = dockOf(), [a, b, c] = m.fighters;
+      [a, b, c].forEach((f, i) => { onDeck(f, d); f.x = f.prevX = d.x - 0.8 + i * 0.8; });
+      const loose = m.placeItem('bat', d.x, d.z + 1, 1.0);   // lying on the dock: nothing under it once the dock is gone
+      let creakAt = 0, breakAt = 0;
+      for (let t = 1; t <= 200 && !breakAt; t++) {
+        m.step();
+        if (!creakAt && d.creak > 0) creakAt = t;
+        if (d.destroyed) breakAt = t;
+      }
+      if (!creakAt || creakAt > LOAD_HOLD_TICKS + 12 || !breakAt || breakAt - creakAt < LOAD_CREAK_TICKS - 12 || breakAt - creakAt > LOAD_CREAK_TICKS + 12) problems.push('timing: creak ' + creakAt + ' break ' + breakAt);
+      self.run(m, 90);
+      const fallLoss = Combat.fallDamageFor(1.0) * a.stats.taken * a.stats.impact;
+      if ([a, b, c].some((f) => f.maxHp - f.hp > fallLoss * 1.6 + 0.5)) problems.push('the fighters who stood on the dock took crush on top of the fall: ' + [a, b, c].map((f) => (f.maxHp - f.hp).toFixed(1)).join(' '));
+      if ([a, b, c].some((f) => f.y > 0.3 || f.groundY > 0.3 || f.hp >= f.maxHp) || loose.mode !== 'rest' || loose.y > 0.3 || loose.host) problems.push('fall: ' + [a, b, c].map((f) => f.y.toFixed(2) + '/' + (f.maxHp - f.hp).toFixed(1)).join(' ') + ' item ' + loose.mode + ' ' + loose.y.toFixed(2));
+      const dmg = mk({ arenaId: 'warehouse' }, () => {}), dk = dockOf(), f = dmg.fighters[0];
+      onDeck(f, dk); self.stand(dmg.fighters[1], 3, 0, 0, 0);
+      Arena.damageObject(dk, 999, 'heavy', 901, 1, 0, dk.x, 0.5, dk.z, 1);
+      self.run(dmg, 90);
+      if (!dk.destroyed || f.y > 0.3 || f.hp >= f.maxHp) problems.push('damage did not drop it: ' + dk.destroyed + ' ' + f.y.toFixed(2));
+      const th = mk({ arenaId: 'warehouse' }, () => {}), tk = dockOf(), t1 = th.fighters[0];
+      self.stand(t1, tk.x, tk.z + 1.3, tk.x, tk.z); t1.y = t1.prevY = 1.5;
+      t1.setState(S.THROWN); t1.flightId = 91; t1.vy = -9; t1.kx = t1.kz = 0; t1.supportY = 1.5;
+      for (let t = 0; t < 40 && tk.hp === tk.maxHp; t++) th.step();
+      if (tk.hp === tk.maxHp) problems.push('a hard landing did not hit the deck');
+      const fixedMezz = Arena.objects.find((o) => o.id === 'mezz');
+      if (Arena.damageObject(fixedMezz, 999, 'heavy', 77, 1, 0, fixedMezz.x, 0.5, fixedMezz.z) || fixedMezz.destroyed) problems.push('a fixed deck took damage');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels: breaking a scaffold standard drops its tiers and the stair on them (one bay only), and the fallen piece crushes whoever stands beside it', () => {
+      const problems = [];
+      ARENAS.testScaffold = { id: 'testScaffold', name: 'Test', blurb: '', bounds: { x: 9, z: 6 }, spawn: 2.4, camera: ARENAS.warehouse.camera, env: ARENAS.warehouse.env, audio: ARENAS.warehouse.audio, objects: [{ id: 'box', type: 'box', look: 'crate', mat: 'wood', x: -2.8, z: -0.55, hx: 0.3, hz: 0.3, h: 0.9 }], builds: [['scaffold', 'sc', -3, -1, 2, 2, -1]], items: [], hazards: [] };
+      try {
+        const m = mk({ arenaId: 'testScaffold' }, () => {}), [a, b] = m.fighters, std = Arena.objects.find((o) => o.id === 'sc.s0'), t1 = Arena.objects.find((o) => o.id === 'sc.t0.1'), t2 = Arena.objects.find((o) => o.id === 'sc.t0.2'), other = Arena.objects.find((o) => o.id === 'sc.t1.2');
+        onDeck(a, t2); self.stand(b, std.x, std.z + 0.4, a.x, a.z);   // b stands on the floor in front of the standard, within the reach of the fallen tiers
+        const before = [a.hp, b.hp];
+        Arena.damageObject(std, 999, 'heavy', 31, 0, 1, std.x, 1, std.z, 1);
+        self.run(m, 90);
+        const stairOn = Arena.objects.filter((o) => o.id.startsWith('sc.u2.'));
+        if (!std.destroyed || !t1.destroyed || !t2.destroyed || other.destroyed || !stairOn.every((o) => o.destroyed)) problems.push('cascade: ' + [std, t1, t2, other].map((o) => o.destroyed).join());
+        const fell = Combat.fallDamageFor(3.0) * a.stats.taken * a.stats.impact;
+        if (a.y > 0.3 || before[0] - a.hp < fell * 0.8) problems.push('the fighter on tier 2 lost ' + (before[0] - a.hp).toFixed(1) + ' of about ' + fell.toFixed(1));
+        const crush = Math.min(CRUSH_MAX, CRUSH_BASE + CRUSH_PER_METER * 1.5) * b.stats.taken;
+        const box = Arena.objects.find((o) => o.id === 'box');
+        if (box.hp >= box.maxHp) problems.push('a crate beside the fallen tiers took no crush damage');
+        if (before[1] - b.hp < crush * 0.9) problems.push('the crush hurt ' + (before[1] - b.hp).toFixed(1) + ' of ' + crush.toFixed(1));
+      } finally { delete ARENAS.testScaffold; }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels: items on a deck are picked from the deck footing (floor grab), not from far below, and a CPU walks to a floor item on its own level only', () => {
+      const problems = [];
+      const m = mk({ arenaId: 'warehouse', items: true }, () => {}), [a] = m.fighters, mezz = Arena.objects.find((o) => o.id === 'mezz');
+      m.items.length = 0;
+      const onTop = m.placeItem('pipe', 9.0, -4.0, 2.5);
+      onTop.host = mezz;
+      self.stand(a, 8.3, -4.0, 9.0, -4.0); a.y = a.prevY = a.groundY = a.supportY = 2.5;
+      if (m.itemInReach(a) !== onTop || onTop.y - a.y >= PICKUP_LOW_BELOW) problems.push('not reachable from the deck as a floor grab');
+      const below = mk({ arenaId: 'warehouse', items: true }, () => {}), p = below.fighters[0];
+      below.items.length = 0; const aloft = below.placeItem('pipe', 9.0, -2.6, 2.5); aloft.host = Arena.objects.find((o) => o.id === 'mezz');
+      self.stand(p, 9.0, -2.4, 9, -4);
+      if (below.itemInReach(p)) problems.push('an item 2.5 m up was within reach of the floor');
+      below.items.length = 0; const floorItem = below.placeItem('brick', 9.0, -2.0, 0); self.stand(p, 9.0, -2.4, 9, -2);
+      if (below.itemInReach(p) !== floorItem) problems.push('a floor item was lost');
+      const cpu = mk({ arenaId: 'warehouse', items: true }), c = cpu.fighters[0], ai = new AIController(c.profile, 'hard');
+      cpu.controllers[0] = ai; cpu.items.length = 0; ai.match = cpu;
+      const deckBrick = cpu.placeItem('brick', 9.0, -4.0, 2.5); deckBrick.host = Arena.objects.find((o) => o.id === 'mezz');
+      const floorBrick = cpu.placeItem('brick', 4.0, 0.0, 0);
+      self.stand(c, 8.0, -4.0, 0, 3); c.y = c.prevY = c.groundY = c.supportY = 2.5;
+      const plan = ai.considerPickup(c, cpu.fighters[1], 10);
+      if (!plan || plan.item !== deckBrick) problems.push('the CPU on the deck did not choose the deck item');
+      self.stand(c, 4.4, 0.0, 0, 3); c.y = c.prevY = c.groundY = c.supportY = 0;
+      const plan2 = ai.considerPickup(c, cpu.fighters[1], 10);
+      if (!plan2 || plan2.item !== floorBrick) problems.push('the CPU on the floor skipped its own level item');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels: a CPU reaches a target standing on a deck by the stair (waypoints), comes down for a target on the floor, and leaves a deck that creaks', () => {
+      const problems = [];
+      const cases = [['warehouse', 'mezz', 9.25, -4.75, 2.5, 0, 0], ['dojo', 'mezz', 7, -4.8, 2.5, -1, 0], ['pit', 'landing', 8.5, -4.85, 2.5, 0, 1], ['dojo', 'ring', -7.8, 0, 1.0, -3, 3]];
+      for (const [arenaId, deckId, tx, tz, top, sx, sz] of cases) {
+        const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId, items: false, hazards: false, difficulty: 'hard' })), [a, b] = m.fighters, deck = Arena.objects.find((o) => o.id === deckId);
+        m.controllers[0] = new AIController(a.profile, 'hard'); m.controllers[1] = self.scripted(() => {});
+        self.stand(a, sx, sz, tx, tz); onDeck(b, deck); b.x = b.prevX = tx; b.z = b.prevZ = tz;
+        let reached = 0;
+        for (let t = 0; t < 1500 && !reached; t++) { m.step(); if (Math.abs(a.y - top) < 0.02 && Math.abs(a.x - deck.x) <= deck.hx + 0.3 && Math.abs(a.z - deck.z) <= deck.hz + 0.3) reached = t; }
+        if (!reached) problems.push(arenaId + ' ' + deckId + ': the CPU never reached the deck (y ' + a.y.toFixed(2) + ' at ' + a.x.toFixed(1) + ',' + a.z.toFixed(1) + ')');
+        else {
+          self.stand(b, a.x > 0 ? 1 : -1, 1.5, a.x, a.z); b.y = b.prevY = b.groundY = b.supportY = 0; b.hp = b.maxHp;
+          let down = 0;
+          for (let t = 0; t < 1500 && !down; t++) { m.step(); if (a.y < STEP_HEIGHT + 0.01 && Math.hypot(a.x - b.x, a.z - b.z) < 3) down = t; }
+          if (!down) problems.push(arenaId + ' ' + deckId + ': the CPU did not come down (y ' + a.y.toFixed(2) + ')');
+        }
+        m.dispose();
+      }
+      const w = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId: 'warehouse', items: false, hazards: false })), [c, d] = w.fighters, dock = Arena.objects.find((o) => o.id === 'dock');
+      w.controllers[0] = new AIController(c.profile, 'hard'); w.controllers[1] = self.scripted(() => {});
+      onDeck(c, dock); self.stand(d, -3, 3, -8, 3); dock.creak = LOAD_CREAK_TICKS;
+      self.run(w, 20);
+      if (Math.abs(c.x - dock.x) < dock.hx && Math.abs(c.z - dock.z) < dock.hz) problems.push('the CPU stayed on a creaking deck');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels: the camera keeps two fighters on different heights in frame, in a 1v1 and in a brawl', () => withCamera(() => {
+      const problems = [];
+      for (const [arenaId, deckId, x, z] of [['warehouse', 'mezz', 9.25, -4.75], ['dojo', 'mezz', 7, -4.8], ['pit', 'landing', 8.5, -4.85]]) {
+        const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 3, arenaId })), [a, b] = m.fighters, deck = Arena.objects.find((o) => o.id === deckId);
+        onDeck(b, deck); b.x = b.prevX = x; b.z = b.prevZ = z;
+        self.stand(a, x - 2.5, z + 3.5, x, z);
+        Camera.snapNext = true;
+        for (let i = 0; i < 240; i++) { Camera.shakeAmp = 0; Camera.follow(1 / 60, a, b, m.def); }
+        Camera.apply();
+        if (!fighterOnScreen(a) || !fighterOnScreen(b)) problems.push(arenaId + ' 1v1: floor ' + fighterOnScreen(a) + ' deck ' + fighterOnScreen(b));
+        const br = track(new MatchSim({ mode: 'brawl', enemies: 2, countdown: false, timer: 0, seed: 3, arenaId })), [p, e1, e2] = br.fighters, deckB = Arena.objects.find((o) => o.id === deckId);
+        onDeck(e1, deckB); e1.x = e1.prevX = x; e1.z = e1.prevZ = z; self.stand(p, x - 2, z + 3.5, x, z); self.stand(e2, x - 3, z + 4, x, z);
+        Camera.snapNext = true;
+        cameraFrames(br, 240); Camera.apply();
+        if (!fighterOnScreen(p) || !fighterOnScreen(e1)) problems.push(arenaId + ' brawl: floor ' + fighterOnScreen(p) + ' deck ' + fighterOnScreen(e1));
+      }
+      return problems.length ? problems.join('; ') : true;
+    }));
+    test('Levels: per quality preset the budget (debris, pieces, drawn detail, heaps) grows from low to high, is set in Quality.limits only, and a collapse never exceeds it', () => {
+      const problems = [], saved = Settings.v.quality, savedEffects = Settings.v.effects;
+      try {
+        let last = null;
+        for (const q of ['low', 'medium', 'high']) {
+          Settings.v.quality = q; Settings.v.effects = 'high'; Quality.apply();
+          const lim = Quality.limits;
+          if (lim.debris !== QUALITY_PRESETS[q].debris || lim.pieces !== QUALITY_PRESETS[q].pieces || lim.live !== QUALITY_PRESETS[q].live || lim.heaps !== QUALITY_PRESETS[q].heaps) problems.push(q + ' limits are not the preset');
+          if (last && (lim.debris <= last.debris || lim.pieces <= last.pieces || lim.live <= last.live || lim.heaps <= last.heaps)) problems.push(q + ' not above the lower preset');
+          if (lim.pieces > DECK_PIECES_MAX || lim.debris > DEBRIS_MAX) problems.push(q + ' over a hard cap');
+          last = Object.assign({}, lim);
+          for (const id of ARENA_ORDER) {   // the worst case: every deck, then everything else, breaks at once
+            Arena.build(ARENAS[id]); Debris.clear();
+            let most = 0;
+            for (const o of Arena.objects) {
+              if (o.type !== 'deck' || o.step || o.fixed) continue;
+              Debris.clear(); Arena.breakObject(o, 0, 0, 0);
+              most = Math.max(most, Debris.pool.filter((d) => d.on).length);
+            }
+            if (most > lim.pieces + (id === 'pit' ? 0 : 1)) problems.push(q + ' ' + id + ' a collapse threw ' + most + ' pieces, budget ' + lim.pieces);
+            for (const o of Arena.objects) if (!o.fixed) Arena.breakObject(o, 0, 0, 0);
+            Debris.update(0.016);
+            const live = Debris.pool.filter((d) => d.on).length;
+            if (live > lim.debris) problems.push(q + ' ' + id + ' live debris ' + live);
+          }
+          Arena.build(ARENAS.warehouse);
+          Arena.updateLod();
+          const intact = Arena.objects.filter((o) => !o.fixed && !o.destroyed), far = intact.filter((o) => o.far).length;
+          if (far !== Math.max(0, intact.length - lim.live)) problems.push(q + ' detail ' + far + ' far of ' + intact.length);
+          for (const o of Arena.objects) if (!o.fixed) Arena.breakObject(o, 0, 0, 0);
+          Arena.updateLod();
+          const heaps = Arena.objects.filter((o) => o.destroyed && o.rubble && !o.hide).length;
+          if (heaps > lim.heaps) problems.push(q + ' heaps ' + heaps);
+          const puts = [], realPut = R.put;
+          R.put = (...args) => { puts.push(args); };
+          try { Arena.draw(); } finally { R.put = realPut; }
+          for (const o of Arena.objects) if (o.destroyed && o.rubble && o.hide && !puts.some((a) => Math.abs(a[2] - o.rubble.x) < 1e-6 && Math.abs(a[4] - o.rubble.z) < 1e-6 && Math.abs(a[5] - o.rubble.hx * 2) < 1e-6)) problems.push(q + ' ' + o.id + ': a heap over the budget is not drawn, its collider stays');
+        }
+      } finally { Settings.v.quality = saved; Settings.v.effects = savedEffects; Quality.apply(); Arena.build(ARENAS.warehouse); Debris.clear(); }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels: the simulation does not depend on the quality preset or the draw budget, and a CPU match with stairs, collapses and falls repeats exactly', () => {
+      const problems = [], saved = Settings.v.quality;
+      const play = (q, arenaId, seed) => {
+        Settings.v.quality = q; Quality.apply();
+        const m = track(new MatchSim({ mode: 'brawl', enemies: 3, countdown: false, timer: 0, seed, arenaId, difficulty: 'hard', evenDamage: true, items: true, hazards: true }));
+        m.controllers[0] = new AIController(m.fighters[0].profile, 'hard');
+        const weak = Arena.objects.find((o) => o.weak);
+        if (weak) weak.creak = LOAD_CREAK_TICKS;
+        for (let t = 0; t < 1500 && m.phase !== 'matchEnd'; t++) m.step();
+        const hash = fnv1a(m.fighters.map((f) => [f.x.toFixed(3), f.y.toFixed(3), f.z.toFixed(3), f.hp.toFixed(2), f.state].join()).join('|') + Arena.objects.map((o) => (o.destroyed ? 1 : 0) + o.hp.toFixed(1)).join());
+        m.dispose();
+        return hash;
+      };
+      try {
+        for (const id of ARENA_ORDER) {
+          const a = play('low', id, 7), b = play('high', id, 7), c = play('low', id, 7);
+          if (a !== b) problems.push(id + ': low and high presets differ');
+          if (a !== c) problems.push(id + ': not repeatable');
+        }
+      } finally { Settings.v.quality = saved; Quality.apply(); }
+      return problems.length ? problems.join('; ') : true;
+    });
     /* ----- Hazards (P7-05) ----- */
+    /* The three arenas as they were before P8-02 rebuilt them (P7 layouts): the hazard tests below place fighters at exact spots by the old posts, glass wall and objects, so they run on these copies
+       (registered in ARENAS for the run only, never in ARENA_ORDER). What the real arenas place and what a CPU does in them is checked on the real arenas by the tests that loop ARENA_ORDER. */
+    const OLD_ARENAS = {
+      oldWarehouse: {
+        id: 'oldWarehouse', name: 'Industrial Warehouse', blurb: 'Crates, concrete pillars, steel railings and an office window. Big echoing hall.',
+        bounds: { x: 8.5, z: 5.0 }, spawn: 2.6, camera: { minDist: 6.2, maxDist: 12.5, elev: 0.5 },
+        env: { clear: [0.05, 0.06, 0.08], sky: [0.5, 0.55, 0.64], ground: [0.24, 0.23, 0.22], lightTo: [0.35, 0.85, 0.5], lightCol: [1.0, 0.92, 0.78], fogCol: [0.09, 0.1, 0.13], fog: 0.026, rim: [0.25, 0.35, 0.55], floor: 1,
+          pl: [{ pos: [-4, 5.2, -1], r: 13, col: [0.7, 0.55, 0.3] }, { pos: [4, 5.2, -1], r: 13, col: [0.7, 0.55, 0.3] }] },
+        audio: { reverb: 1.7, wet: 0.3, bpm: 118, root: 55, mode: 'minor', hum: 60 },
+        objects: [
+          { id: 'crateA', type: 'box', look: 'crate', mat: 'wood', x: -5.4, z: -2.6, hx: 0.55, hz: 0.55, h: 0.95 },
+          { id: 'crateB', type: 'box', look: 'crate', mat: 'wood', x: 5.6, z: 2.3, hx: 0.55, hz: 0.55, h: 0.95 },
+          { id: 'crateC', type: 'box', look: 'crate', mat: 'wood', x: -6.2, z: 3.0, hx: 0.5, hz: 0.5, h: 0.9 },
+          { id: 'crateD', type: 'box', look: 'crate', mat: 'wood', x: 6.4, z: -3.4, hx: 0.55, hz: 0.55, h: 0.95 },
+          { id: 'pillarL', type: 'column', mat: 'concrete', x: -3.2, z: -4.2, hx: 0.42, hz: 0.42, h: 3.4 },
+          { id: 'pillarR', type: 'column', mat: 'concrete', x: 3.6, z: -4.2, hx: 0.42, hz: 0.42, h: 3.4 },
+          { id: 'railL', type: 'rail', mat: 'metal', axis: 'z', x: -7.6, z: -0.25, hx: 0.12, hz: 2.25, h: 1.05 },
+          { id: 'railR', type: 'rail', mat: 'metal', axis: 'z', x: 7.6, z: -0.25, hx: 0.12, hz: 2.25, h: 1.05 },
+          { id: 'window', type: 'panel', mat: 'glass', axis: 'x', x: 0, z: -4.85, hx: 1.6, hz: 0.08, h: 2.2 },
+        ],
+        items: [['bottle', -1.6, 3.7, 0], ['brick', 2.2, -3.0, 0], ['skateboard', 0.4, 4.1, 0], ['wrench', -5.4, -2.6, 0.95, 'crateA'], ['pipe', -3.2, -3.7, 1.4, 'pillarL'], ['hammer', 3.6, -3.7, 1.3, 'pillarR'], ['extinguisher', 7.0, 3.9, 0]],
+        hazards: [['panel', 5.4, -0.2], ['steam', -6.4, -3.9, { yaw: Math.PI / 2 }], ['load', 1.9, -2.0, { tx: 4.1, tz: -2.0 }]],
+      },
+      oldDojo: {
+        id: 'oldDojo', name: 'Traditional Dojo', blurb: 'Open wooden floor with paper screens, benches and training posts. Dry, close sound.',
+        bounds: { x: 7.5, z: 4.6 }, spawn: 2.4, camera: { minDist: 6.0, maxDist: 11.5, elev: 0.46 },
+        env: { clear: [0.08, 0.05, 0.04], sky: [0.6, 0.5, 0.42], ground: [0.3, 0.22, 0.15], lightTo: [0.25, 0.9, 0.4], lightCol: [1.0, 0.9, 0.72], fogCol: [0.2, 0.13, 0.1], fog: 0.02, rim: [0.55, 0.32, 0.2], floor: 2,
+          pl: [{ pos: [-6, 3, -4.2], r: 11, col: [0.9, 0.5, 0.2] }, { pos: [6, 3, -4.2], r: 11, col: [0.9, 0.5, 0.2] }] },
+        audio: { reverb: 0.5, wet: 0.12, bpm: 96, root: 73.4, mode: 'pentatonic', hum: 0 },
+        objects: [
+          { id: 'screenL', type: 'panel', look: 'shoji', mat: 'paper', axis: 'x', x: -3.5, z: -3.3, hx: 1.0, hz: 0.06, h: 1.9 },
+          { id: 'screenR', type: 'panel', look: 'shoji', mat: 'paper', axis: 'x', x: 3.5, z: -3.3, hx: 1.0, hz: 0.06, h: 1.9 },
+          { id: 'screenW', type: 'panel', look: 'shoji', mat: 'paper', axis: 'z', x: -6.7, z: 0.2, hx: 0.06, hz: 1.3, h: 1.9 },
+          { id: 'screenE', type: 'panel', look: 'shoji', mat: 'paper', axis: 'z', x: 6.7, z: 0.2, hx: 0.06, hz: 1.3, h: 1.9 },
+          { id: 'benchL', type: 'box', look: 'bench', mat: 'wood', x: -4.6, z: 3.3, hx: 0.75, hz: 0.25, h: 0.5 },
+          { id: 'benchR', type: 'box', look: 'bench', mat: 'wood', x: 4.6, z: 3.3, hx: 0.75, hz: 0.25, h: 0.5 },
+          { id: 'postL', type: 'column', mat: 'wood', hpMul: 1.6, x: -1.2, z: -3.9, hx: 0.24, hz: 0.24, h: 1.7 },
+          { id: 'postR', type: 'column', mat: 'wood', hpMul: 1.6, x: 1.2, z: -3.9, hx: 0.24, hz: 0.24, h: 1.7 },
+          { id: 'glassWall', type: 'panel', mat: 'glass', axis: 'z', x: -4.6, z: 0, hx: 0.08, hz: 1.4, h: 2.0 },
+        ],
+        items: [['stick', -4.6, 3.3, 0.5, 'benchL'], ['bottle', 4.6, 3.3, 0.5, 'benchR'], ['bat', -1.2, -3.55, 1.3, 'postL'], ['broom', 1.2, -3.55, 1.35, 'postR'], ['chair', -3.6, -2.6, 0]],
+        hazards: [['glass', 0, 0, { obj: 'glassWall' }]],
+      },
+      oldPit: {
+        id: 'oldPit', name: 'Underground Pit', blurb: 'Dark concrete cage, barriers, pillars and a cracked observation glass. Heavy, rumbling sound.',
+        bounds: { x: 7.0, z: 5.0 }, spawn: 2.4, camera: { minDist: 6.0, maxDist: 12, elev: 0.55 },
+        env: { clear: [0.02, 0.02, 0.03], sky: [0.26, 0.28, 0.38], ground: [0.12, 0.1, 0.1], lightTo: [0.2, 0.95, 0.3], lightCol: [0.9, 0.9, 1.0], fogCol: [0.03, 0.03, 0.05], fog: 0.036, rim: [0.8, 0.35, 0.15], floor: 3,
+          pl: [{ pos: [-8, 1.6, -4], r: 12, col: [1.0, 0.45, 0.15] }, { pos: [8, 1.6, -4], r: 12, col: [1.0, 0.45, 0.15] }] },
+        audio: { reverb: 1.1, wet: 0.24, bpm: 104, root: 49, mode: 'phrygian', hum: 40 },
+        objects: [
+          { id: 'barrierA', type: 'box', look: 'barrier', mat: 'concrete', x: -2.6, z: -4.2, hx: 1.0, hz: 0.3, h: 0.85 },
+          { id: 'barrierB', type: 'box', look: 'barrier', mat: 'concrete', x: -3.4, z: 3.3, hx: 0.9, hz: 0.3, h: 0.85 },
+          { id: 'barrierC', type: 'box', look: 'barrier', mat: 'concrete', x: 4.4, z: 2.9, hx: 0.9, hz: 0.3, h: 0.85 },
+          { id: 'pillarA', type: 'column', mat: 'concrete', x: -5.6, z: -3.7, hx: 0.45, hz: 0.45, h: 3.2 },
+          { id: 'pillarB', type: 'column', mat: 'concrete', x: 3.2, z: -4.1, hx: 0.45, hz: 0.45, h: 3.2 },
+          { id: 'cageL', type: 'rail', mat: 'metal', axis: 'z', x: -6.5, z: 2.4, hx: 0.12, hz: 1.6, h: 1.05 },
+          { id: 'cageR', type: 'rail', mat: 'metal', axis: 'z', x: 6.5, z: -0.8, hx: 0.12, hz: 2.0, h: 1.05 },
+          { id: 'obsGlass', type: 'panel', mat: 'glass', axis: 'x', x: 0.2, z: -4.85, hx: 1.3, hz: 0.08, h: 2.0 },
+        ],
+        items: [['binlid', -1.2, 3.8, 0], ['chain', -3.4, 3.3, 0.85, 'barrierB'], ['brick', 4.4, 2.9, 0.85, 'barrierC'], ['pipe', 3.2, -3.55, 1.4, 'pillarB'], ['wrench', -5.6, -3.15, 1.3, 'pillarA'], ['crate', 5.6, -2.4, 0], ['extinguisher', -6.0, -1.0, 0]],
+        hazards: [['fire', -5.2, -1.8], ['fire', 4.9, 0.9], ['steam', 5.3, -3.9, { yaw: -Math.PI / 2 }]],
+      },
+    };
+    Object.assign(ARENAS, OLD_ARENAS);
     const hz = (arenaId, opts, s1, s2) => mk(Object.assign({ arenaId, items: false, hazards: true }, opts), s1, s2);
     const hazardOf = (m, type, n) => m.hazards.filter((h) => h.type === type)[n || 0];
     /* The hazard events of a run as plain rows; log.stop() unhooks it. */
@@ -6008,12 +6373,37 @@ const SelfTest = {
     /* Runs fn with the given hazard rows in the arena's definition (a synthetic placement for the types no arena has yet, or a layout of the test's own); the real rows come back afterwards. */
     const withRows = (arenaId, rows, fn) => { const saved = ARENAS[arenaId].hazards; ARENAS[arenaId].hazards = rows; try { return fn(); } finally { ARENAS[arenaId].hazards = saved; } };
     const faceEach = (a, ax, az, b, bx, bz) => { self.stand(a, ax, az, bx, bz); self.stand(b, bx, bz, ax, az); };
+    test('Levels: the four new materials (brick, plastic, tile, sheet metal) break by the recipe they name, every look in the table is used by a level, and every object material exists', () => {
+      const problems = [], recipe = { brick: 'concrete', plastic: 'wood', tile: 'glass', sheet: 'metal' };
+      for (const mat in recipe) {
+        if (kindOf(mat) !== recipe[mat] || ['punch', 'kick', 'heavy', 'throw', 'impact'].some((cat) => !(MATERIALS[mat].mult[cat] > 0))) problems.push(mat + ' row');
+        Arena.build(ARENAS.pit); Debris.clear();
+        const o = Arena.objects.find((q) => q.id === 'crateP');
+        o.mat = mat; o.hp = o.maxHp = MATERIALS[mat].hp;
+        Arena.breakObject(o, 1, 0, 0);
+        const kinds = new Set(Debris.pool.filter((d) => d.on).map((d) => d.kind));
+        if (kinds.size !== 1 || !kinds.has(recipe[mat])) problems.push(mat + ' threw ' + [...kinds].join());
+      }
+      Arena.build(ARENAS.pit);
+      const barrier = Arena.objects.find((q) => q.id === 'barrierA');
+      Arena.breakObject(barrier, 0, 0, 0);
+      if (barrier.rubble.hx > barrier.hx + 0.3 || barrier.rubble.hz > barrier.hz + 0.3) problems.push('a barrier leaves a pile ' + (barrier.rubble.hx * 2).toFixed(1) + ' x ' + (barrier.rubble.hz * 2).toFixed(1) + ' m (audit D17)');
+      const used = new Set();
+      for (const id of ARENA_ORDER) for (const o of builtOf(ARENAS[id]).objects) { used.add(o.look); if (!MATERIALS[o.mat]) problems.push(id + ' ' + o.id + ' has no material ' + o.mat); }
+      for (const look in LOOKS) if (!used.has(look)) problems.push('look ' + look + ' is used by no level');
+      Arena.build(ARENAS.warehouse); Debris.clear();
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels: the engine of P8 changes no 1v1 result - the three recorded seeded matches replay to the same hashes on the pre-P8 arena layouts (the real arenas differ on purpose)', () => {
+      const got = ONE_V_ONE_FINGERPRINTS.map((f) => fingerprint(Object.assign({}, f.opts, { arenaId: f.opts.arenaId === 'pit' ? 'oldPit' : 'oldWarehouse' }))), want = ONE_V_ONE_OLD_HASHES;
+      return got.every((h, i) => h === want[i]) ? true : 'got ' + got.join(' ') + ' want ' + want.join(' ');
+    });
     test('Hazards: the table has the 8 hazards of the spec, each arena places the planned ones, the Hazards setting is on by default (after Items) and off places nothing, not even posts', () => {
       const problems = [];
       const want = 'panel strike 1.2 24 120 360 14 0 stun|steam strike 2 24 180 300 3 15 push|drop edge 0 0 0 0 25 0 out|glass break 0 0 0 0 10 0 flinch|load strike 1.5 36 90 600 30 0 down|train timer 0 120 60 0 40 0 throw|fire strike 1.2 15 240 0 4 20 flinch';
       const got = Object.keys(HAZARDS).map((id) => { const d = HAZARDS[id]; return [id, d.trig, d.r || d.len || 0, d.warn || 0, d.dur || 0, d.cool || 0, d.dmg, d.gap || 0, d.fx].join(' '); }).join('|');
       if (got !== want) problems.push('table ' + got);
-      const plan = { warehouse: 'panel,steam,load', dojo: 'glass', pit: 'fire,fire,steam' }, keys = Object.keys(SETTING_DEFS);
+      const plan = { warehouse: 'panel,steam,load,glass', dojo: 'glass,panel', pit: 'fire,fire,steam,glass' }, keys = Object.keys(SETTING_DEFS);
       for (const id of ARENA_ORDER) {
         const on = track(new MatchSim({ arenaId: id, countdown: false, seed: 2 }));
         if (on.hazards.map((h) => h.type).join() !== plan[id] || !on.hazardsOn) problems.push(id + ' places ' + on.hazards.map((h) => h.type));
@@ -6029,7 +6419,7 @@ const SelfTest = {
     });
     test('Hazards: a panel, a steam jet, a falling load and a fire barrel each hurt every fighter in their zone, of either team, and two co-op teammates too', () => {
       const problems = [];
-      const cases = [['warehouse', 'panel', [4.6, -0.2], [6.2, -0.2]], ['warehouse', 'steam', [-5.7, -3.9], [-5.1, -3.9]], ['warehouse', 'load', [1.3, -2.0], [2.5, -2.0]], ['pit', 'fire', [4.4, 1.9], [5.4, 1.9]]];
+      const cases = [['oldWarehouse', 'panel', [4.6, -0.2], [6.2, -0.2]], ['oldWarehouse', 'steam', [-5.7, -3.9], [-5.1, -3.9]], ['oldWarehouse', 'load', [1.3, -2.0], [2.5, -2.0]], ['oldPit', 'fire', [4.4, 1.9], [5.4, 1.9]]];
       for (const [arenaId, type, p, q] of cases) {
         const m = hz(arenaId, {}), h = hazardOf(m, type, type === 'fire' ? 1 : 0), [a, b] = m.fighters, before = [a.hp, b.hp];
         faceEach(a, p[0], p[1], b, q[0], q[1]);
@@ -6038,7 +6428,7 @@ const SelfTest = {
         self.run(m, 130);
         if (a.hp >= before[0] || b.hp >= before[1]) problems.push(type + ' hurt ' + (before[0] - a.hp) + ' / ' + (before[1] - b.hp));
       }
-      const party = self.makeBrawl({ arenaId: 'warehouse', items: false, hazards: true, enemies: 1, coop: [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }] }), [k, r] = party.fighters, pre = [k.hp, r.hp];
+      const party = self.makeBrawl({ arenaId: 'oldWarehouse', items: false, hazards: true, enemies: 1, coop: [{ slot: 0, id: 'kai' }, { slot: 1, id: 'mara' }] }), [k, r] = party.fighters, pre = [k.hp, r.hp];
       faceEach(k, 4.6, -0.2, r, 6.2, -0.2);
       if (party.canHurt(k, r) || k.team !== r.team) problems.push('teammates can hurt each other');
       party.hazardArm(hazardOf(party, 'panel'), k, 'strike');
@@ -6048,7 +6438,7 @@ const SelfTest = {
     });
     test('Hazards: a real strike on the post sets off a panel, a steam valve, a falling load and a fire barrel (and a strike that falls short does not); the cue comes first', () => {
       const problems = [];
-      const cases = [['warehouse', 'panel', 0, [4.5, -0.2], [6.3, -0.2]], ['warehouse', 'steam', 0, [-7.5, -3.9], [-5.3, -3.9]], ['warehouse', 'load', 0, [5.2, -2.0], [3.0, -2.0]], ['pit', 'fire', 1, [3.8, 0.9], [6.0, 0.9]]];
+      const cases = [['oldWarehouse', 'panel', 0, [4.5, -0.2], [6.3, -0.2]], ['oldWarehouse', 'steam', 0, [-7.5, -3.9], [-5.3, -3.9]], ['oldWarehouse', 'load', 0, [5.2, -2.0], [3.0, -2.0]], ['oldPit', 'fire', 1, [3.8, 0.9], [6.0, 0.9]]];
       for (const [arenaId, type, n, p, q] of cases) {
         for (const near of [true, false]) {
           const m = hz(arenaId, {}, once(3, 'punch')), h = hazardOf(m, type, n), log = hazardLog(m);
@@ -6064,7 +6454,7 @@ const SelfTest = {
     });
     test('Hazards: warn, active and cooldown last as the table says, a panel hurts each fighter once per activation, cannot be set off again until it has cooled, and steam hurts every 15 ticks', () => {
       const problems = [];
-      const m = hz('warehouse', {}), h = hazardOf(m, 'panel'), [a, b] = m.fighters, log = hazardLog(m);
+      const m = hz('oldWarehouse', {}), h = hazardOf(m, 'panel'), [a, b] = m.fighters, log = hazardLog(m);
       faceEach(a, 4.6, -0.2, b, 6.2, -0.2);
       const D = HAZARDS.panel;
       if (!m.hazardArm(h, a, 'strike')) problems.push('arm');
@@ -6080,7 +6470,7 @@ const SelfTest = {
       const at = (name) => log.filter((e) => e.name === name).map((e) => e.tick), hits = log.filter((e) => e.name === 'hazardHit');
       if (at('hazardWarn')[0] !== armed || at('hazardStart')[0] - armed !== D.warn || at('hazardEnd')[0] - at('hazardStart')[0] !== D.dur) problems.push('timing ' + [armed, at('hazardStart')[0], at('hazardEnd')[0]]);
       if (hits.length !== 4 || hits.filter((e) => e.f === 0).length !== 2 || hits.some((e) => e.dmg < 1 || e.state !== 'STUN')) problems.push('hits ' + JSON.stringify(hits.map((e) => e.f + ':' + e.tick)));
-      const s = hz('warehouse', {}), jet = hazardOf(s, 'steam'), steamLog = hazardLog(s);
+      const s = hz('oldWarehouse', {}), jet = hazardOf(s, 'steam'), steamLog = hazardLog(s);
       faceEach(s.fighters[0], -7.6, 1, s.fighters[1], -5.7, -3.9);
       s.hazardArm(jet, null, 'timer');
       self.run(s, HAZARDS.steam.warn + 60);
@@ -6094,19 +6484,19 @@ const SelfTest = {
       const problems = [];
       const fly = (m, id, x, z, vx, owner) => { const it = m.newItem(id, x, 1.0, z, 0); it.mode = 'fly'; it.owner = owner; it.vx = vx; it.vy = 0; return m.addItem(it); };
       for (const [id, metal] of [['pipe', true], ['bottle', false], ['brick', false]]) {
-        const m = hz('warehouse', {}), h = hazardOf(m, 'panel');
+        const m = hz('oldWarehouse', {}), h = hazardOf(m, 'panel');
         faceEach(m.fighters[0], 0, 3, m.fighters[1], -3, 3);
         fly(m, id, 4.0, -0.2, 9, m.fighters[0]);
         self.run(m, 30);
         if ((h.state !== 'idle') !== metal) problems.push(id + ' on the panel: ' + h.state);
         if (metal && h.by !== m.fighters[0]) problems.push('credit');
       }
-      const brick = hz('pit', {}), barrel = hazardOf(brick, 'fire', 1);
+      const brick = hz('oldPit', {}), barrel = hazardOf(brick, 'fire', 1);
       faceEach(brick.fighters[0], 0, 3, brick.fighters[1], -3, 3);
       fly(brick, 'brick', 3.8, 0.9, 9, brick.fighters[0]);
       self.run(brick, 30);
       if (barrel.state === 'idle') problems.push('a brick did not tip the barrel');
-      const k = hz('pit', {}), [a, b] = k.fighters, post = hazardOf(k, 'fire', 1), log = hazardLog(k);
+      const k = hz('oldPit', {}), [a, b] = k.fighters, post = hazardOf(k, 'fire', 1), log = hazardLog(k);
       faceEach(a, 2, 3, b, 3.9, 0.9);
       b.lastFoe = a; b.setState(S.THROWN); b.flightId = 77; b.vy = 2.6; b.y = 0.02; b.kx = 6; b.kz = 0;
       self.run(k, 30);
@@ -6118,7 +6508,7 @@ const SelfTest = {
     });
     test('Hazards: a glass wall breaks under a thrown fighter (10 damage), its shards cut a fighter knocked down on them (2, once per knockdown), a thrown item breaks it without cutting anyone, a bottle leaves a patch of glass', () => {
       const problems = [];
-      const m = hz('dojo', {}), [a, b] = m.fighters, glass = hazardOf(m, 'glass'), log = hazardLog(m);
+      const m = hz('oldDojo', {}), [a, b] = m.fighters, glass = hazardOf(m, 'glass'), log = hazardLog(m);
       faceEach(a, -1, 0, b, -3.6, 0);
       b.setState(S.THROWN); b.flightId = 88; b.vy = 2.6; b.y = 0.02; b.kx = -6; b.lastFoe = a;
       self.run(m, 120);
@@ -6128,13 +6518,13 @@ const SelfTest = {
       const lying = [b.state, b.hp];
       self.run(m, 30);
       if (b.state === S.DOWN && b.hp !== lying[1]) problems.push('cut twice for one knockdown');
-      const c = hz('dojo', {}), w = hazardOf(c, 'glass'), cl = hazardLog(c);
+      const c = hz('oldDojo', {}), w = hazardOf(c, 'glass'), cl = hazardLog(c);
       faceEach(c.fighters[0], 3, 3, c.fighters[1], -2, 3);
       const brick = c.newItem('brick', -3.0, 1.2, 0, 0); brick.mode = 'fly'; brick.owner = c.fighters[0]; brick.vx = -9; brick.vy = 0; c.addItem(brick);
       self.run(c, 30);
       cl.stop();
       if (w.state !== 'active' || cl.some((e) => e.name === 'hazardHit')) problems.push('item break ' + w.state + ' ' + cl.length);
-      const p = hz('dojo', {}), [x, y] = p.fighters;
+      const p = hz('oldDojo', {}), [x, y] = p.fighters;
       faceEach(x, 3, 3, y, 3, 1);
       for (let n = 0; n < HAZARD_SHARD_MAX + 3; n++) p.itemDebris('bottle', -3 + n * 0.1, 0.2, 2);
       const patches = p.hazards.filter((h) => h.life > 0);
@@ -6146,15 +6536,15 @@ const SelfTest = {
       if (y.hp >= hp) problems.push('a bottle patch did not cut');
       self.run(p, HAZARD_SHARD_TICKS);
       if (p.hazards.some((h) => h.life > 0)) problems.push('patches stay');
-      const off = mk({ arenaId: 'dojo', items: true, hazards: false });
+      const off = mk({ arenaId: 'oldDojo', items: true, hazards: false });
       off.itemDebris('bottle', 0, 0.2, 0);
       if (off.hazards.length) problems.push('a patch with hazards off');
       return problems.length ? problems.join('; ') : true;
     });
     test('Hazards: the open drop hurts a fighter once for each flight even when it was thrown toward the edge, a fighter getting up takes nothing from any hazard, and whoever set a hazard off gets the knock-out', () => {
       const problems = [];
-      withRows('warehouse', [['drop', 0, 0, { hx: 1, hz: 1 }]], () => {
-        const m = hz('warehouse', {}), [a, b] = m.fighters, log = hazardLog(m);
+      withRows('oldWarehouse', [['drop', 0, 0, { hx: 1, hz: 1 }]], () => {
+        const m = hz('oldWarehouse', {}), [a, b] = m.fighters, log = hazardLog(m);
         faceEach(a, -4, 0, b, 5, 3);
         a.setState(S.THROWN); a.flightId = 41; a.vy = 2.6; a.y = 0.02; a.kx = 7; a.kz = 0;   // thrown straight at the drop
         self.run(m, 150);
@@ -6162,17 +6552,17 @@ const SelfTest = {
         const hits = log.filter((e) => e.name === 'hazardHit' && e.f === 0);
         if (hits.length !== 1 || a.x > -1) problems.push('drop hit ' + hits.length + ' times, x ' + a.x.toFixed(2));
       });
-      const m = hz('warehouse', {}), panel = hazardOf(m, 'panel'), [a, b] = m.fighters;
+      const m = hz('oldWarehouse', {}), panel = hazardOf(m, 'panel'), [a, b] = m.fighters;
       faceEach(a, 4.6, -0.2, b, 6.2, -0.2);
       a.invuln = 400;
       m.hazardArm(panel, b, 'strike');
       self.run(m, 130);
       if (a.hp !== a.maxHp || b.hp === b.maxHp) problems.push('invulnerable ' + (a.maxHp - a.hp) + ' / ' + (b.maxHp - b.hp));
-      const d = hz('dojo', {}), glass = hazardOf(d, 'glass'), hp = d.fighters[1].hp;
+      const d = hz('oldDojo', {}), glass = hazardOf(d, 'glass'), hp = d.fighters[1].hp;
       d.fighters[1].invuln = 20;
       d.hazardHit(glass, d.fighters[1]);
       if (d.fighters[1].hp !== hp) problems.push('glass cut an invulnerable fighter');
-      const k = hz('warehouse', {}), ko = [];
+      const k = hz('oldWarehouse', {}), ko = [];
       faceEach(k.fighters[0], 4.6, -0.2, k.fighters[1], 6.2, -0.2);
       k.fighters[1].hp = 1;
       const off = Events.on('ko', (e) => ko.push(e.att && e.att.index));
@@ -6184,7 +6574,7 @@ const SelfTest = {
     });
     test('Hazards: an electric hit shocks for 40 ticks and then lets go', () => {
       const problems = [];
-      const m = hz('warehouse', {}), panel = hazardOf(m, 'panel'), [a, b] = m.fighters;
+      const m = hz('oldWarehouse', {}), panel = hazardOf(m, 'panel'), [a, b] = m.fighters;
       faceEach(a, 4.6, -0.2, b, -2.6, 0);
       m.hazardArm(panel, null, 'timer');
       self.run(m, HAZARDS.panel.warn + 3);
@@ -6229,7 +6619,7 @@ const SelfTest = {
     };
     test('Hazards: a CPU whose target stands by a steam valve, a falling load or a fire barrel goes to a spot outside the effect zone, strikes the post and is not hurt by it', () => {
       const problems = [];
-      const cases = [['warehouse', 'steam', [-2.5, -1.5], [-5.2, -3.9]], ['warehouse', 'load', [6.0, -0.5], [2.6, -2.0]], ['pit', 'fire', [2.0, 0.9], [5.6, 0.2]], ['pit', 'steam', [2.0, -1.5], [4.3, -3.9]]];
+      const cases = [['oldWarehouse', 'steam', [-2.5, -1.5], [-5.2, -3.9]], ['oldWarehouse', 'load', [6.0, -0.5], [2.6, -2.0]], ['oldPit', 'fire', [2.0, 0.9], [5.6, 0.2]], ['oldPit', 'steam', [2.0, -1.5], [4.3, -3.9]]];
       for (const [arenaId, type, ap, bp] of cases) {
         for (const diff of ['normal', 'hard']) {
           const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId, items: false, hazards: true, difficulty: diff })), [a, b] = m.fighters, log = cpuLog(m);
@@ -6250,7 +6640,7 @@ const SelfTest = {
       for (const diff of ['easy', 'normal', 'hard', 'expert']) {
         breaks[diff] = 0;
         for (let seed = 1; seed <= 12; seed++) {
-          const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed, arenaId: 'dojo', items: false, hazards: true, difficulty: diff })), [a, b] = m.fighters, log = cpuLog(m);
+          const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed, arenaId: 'oldDojo', items: false, hazards: true, difficulty: diff })), [a, b] = m.fighters, log = cpuLog(m);
           m.controllers[0] = new AIController(a.profile, diff); m.controllers[1] = self.scripted(() => {});
           self.stand(a, -2.0, 0, -3.9, 0.3); self.stand(b, -3.9, 0.3, -2.0, 0);
           for (let t = 0; t < 120 && !log.some((e) => e.via === 'break'); t++) m.step();
@@ -6259,7 +6649,7 @@ const SelfTest = {
         }
       }
       if (breaks.easy < 1 || breaks.easy >= breaks.normal || breaks.normal >= breaks.hard || breaks.hard > breaks.expert || breaks.expert < 11) problems.push('glass breaks of 12 in 2 s by level ' + JSON.stringify(breaks));
-      const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId: 'warehouse', items: false, hazards: true, difficulty: 'hard' })), [a, b] = m.fighters, panel = hazardOf(m, 'panel');
+      const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId: 'oldWarehouse', items: false, hazards: true, difficulty: 'hard' })), [a, b] = m.fighters, panel = hazardOf(m, 'panel');
       m.controllers[0] = new AIController(a.profile, 'hard'); m.controllers[1] = self.scripted(() => {});
       self.stand(a, 4.7, -0.2, 0, 0); self.stand(b, -3, 3, 0, 0);
       m.controllers[0].plan = { kind: 'walk', ticks: 99, away: false, run: false };   // a plan under way is dropped at once
@@ -6269,6 +6659,84 @@ const SelfTest = {
       self.run(m, HAZARDS.panel.warn - 3);
       if (m.hazardReaches(panel, a)) problems.push('the CPU stays in the zone ' + a.x.toFixed(2));
       return problems.length ? problems.join('; ') : true;
+    });
+    /* The real arenas (the tests above ran on the pre-P8 copies): what a CPU does with the strike hazards, the decks and the ledges that are really there. */
+    const standOn = (f, x, z, top) => { f.x = f.prevX = x; f.z = f.prevZ = z; f.y = f.prevY = top; f.groundY = f.supportY = top; f.vy = 0; f.kx = f.kz = 0; };
+    const freeSpotNear = (px, pz, radius, tries) => {   // a spot on the floor round (px, pz), inside the walls and clear of every obstacle, nearest the arena's centre
+      const b = Arena.def.bounds;
+      for (const r of tries || [radius]) {   // the first ring that has a free spot; on it the one nearest the centre
+        let best = null, bestD = Infinity;
+        for (let a = 0; a < 16; a++) {
+          const x = px + Math.cos(a * Math.PI / 8) * r, z = pz + Math.sin(a * Math.PI / 8) * r;
+          if (Math.abs(x) > b.x - 0.5 || Math.abs(z) > b.z - 0.5 || Arena.blockedAt(x, z, 0.45, 0)) continue;
+          const d = Math.hypot(x, z);
+          if (d < bestD) { bestD = d; best = [x, z]; }
+        }
+        if (best) return best;
+      }
+      return null;
+    };
+    test('Levels: on every real arena a CPU sets the steam, load and fire hazards off (by a strike from outside the zone or by a knock), and on every strike hazard, the panel too, is not hurt by it in the first 60 ticks after it is set off', () => {
+      const problems = [];
+      for (const id of ARENA_ORDER) {
+        ARENAS[id].hazards.forEach(([type], index) => {
+          if (HAZARDS[type].trig !== 'strike') return;
+          for (const diff of ['normal', 'hard']) {
+            const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId: id, items: false, hazards: true, difficulty: diff })), [a, b] = m.fighters, h = m.hazards[index], log = cpuLog(m);
+            const inside = HAZARDS[type].shape === 'cone' ? [h.tx + h.fx * 1.0, h.tz + h.fz * 1.0] : type === 'load' ? [h.x, h.z] : [h.tx, h.tz];
+            const spot = freeSpotNear(inside[0], inside[1], 0, type === 'fire' || type === 'panel' ? [0.9, 1.1] : [0, 0.3, 0.6]) || [inside[0], inside[1]];
+            const ax = h.tx - spot[0], az = h.tz - spot[1], al = Math.hypot(ax, az) || 1, wide = Arena.def.bounds;   // the CPU starts to the side of the line between the target and the post, as it would from a crowd: not behind the target
+            const far = [[-az / al, ax / al], [az / al, -ax / al]].map(([qx, qz]) => [spot[0] + qx * 3.2 + ax / al, spot[1] + qz * 3.2 + az / al]).find(([x, z]) => Math.abs(x) < wide.x - 0.6 && Math.abs(z) < wide.z - 0.6 && !Arena.blockedAt(x, z, 0.45, 0) && !Arena.pathBlocked(x, z, h.tx - ax / al * 0.8, h.tz - az / al * 0.8, 0.3, 0)) || freeSpotNear(spot[0], spot[1], 3.2, [3.2, 3.6, 4.0]);
+            m.controllers[0] = new AIController(a.profile, diff); m.controllers[1] = self.scripted(() => {});
+            self.stand(a, far[0], far[1], spot[0], spot[1]); self.stand(b, spot[0], spot[1], far[0], far[1]);
+            const hurts = [], offHurt = Events.on('hazardHit', (e) => { if (e.f.index === 0 && e.dmg > 0) hurts.push(m.tick); });
+            for (let t = 0; t < 900 && !log.some((e) => e.type === type); t++) m.step();
+            self.run(m, 200);
+            log.stop(); offHurt();
+            const trig = log.find((e) => e.type === type);
+            if (type !== 'panel' && (!trig || trig.by !== 0 || (trig.via !== 'strike' && trig.via !== 'knock'))) problems.push(id + ' ' + type + ' ' + diff + ' not set off by the CPU: ' + JSON.stringify(trig));
+            else if (trig && hurts.some((t) => t >= trig.tick && t <= trig.tick + 60)) problems.push(id + ' ' + type + ' ' + diff + ' hurt the CPU at +' + (hurts.find((t) => t >= trig.tick) - trig.tick) + ' ticks');
+          }
+        });
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels: on every real arena a CPU goes up to a target on each deck and ledge, comes down for a target on the floor or on another raised footing, each change of level inside the tick limit', () => {
+      const problems = [], LEG_LIMIT = 700;   // a walk of up to 20 m (18 m of floor is 500 ticks) and a stair; a stop on every step would add 900 ticks
+      const legs = {
+        warehouse: [['mezz', 9.25, -4.75, 2.5], ['dock', -8.5, 3.75, 1.0], ['mezz', 9.25, -4.75, 2.5], ['floor', -2, 2, 0]],
+        dojo: [['mezz', 7, -4.8, 2.5], ['ring', -7.8, 0, 1.0], ['mezz', 7, -4.8, 2.5], ['floor', 0, 1, 0]],
+        pit: [['landing', 8.5, -4.85, 2.5], ['catwalk', -3, -5.9, 2.5], ['bar', -8.8, 3.6, 1.05], ['landing', 8.5, -4.85, 2.5], ['floor', 0, 1, 0]],
+      };
+      for (const id of ARENA_ORDER) {
+        const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId: id, items: false, hazards: false, difficulty: 'hard' })), [a, b] = m.fighters;
+        m.controllers[0] = new AIController(a.profile, 'hard'); m.controllers[1] = self.scripted(() => {});
+        self.stand(a, 0.5, 1.5, 0, 0);
+        for (const [name, x, z, top] of legs[id]) {
+          standOn(b, x, z, top); b.hp = b.maxHp;
+          let arrived = 0;
+          for (let t = 1; t <= LEG_LIMIT && !arrived; t++) {
+            m.step();
+            b.hp = b.maxHp;
+            const deck = Arena.objects.find((o) => o.id === name);   // on the deck itself, or within reach of the target for the floor and a counter
+            if (Math.abs(a.groundY - top) < 0.06 && (deck && deck.type === 'deck' ? Math.abs(a.x - deck.x) <= deck.hx + 0.3 && Math.abs(a.z - deck.z) <= deck.hz + 0.3 : Math.hypot(a.x - x, a.z - z) < 2.2)) arrived = t;
+          }
+          if (!arrived) problems.push(id + ' ' + name + ': no arrival in ' + LEG_LIMIT + ' ticks (y ' + a.y.toFixed(2) + ' at ' + a.x.toFixed(1) + ',' + a.z.toFixed(1) + ')');
+          if (a.hp < a.maxHp * 0.5) problems.push(id + ' ' + name + ': the CPU lost half its health on the way');
+        }
+        m.dispose();
+      }
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Levels: a target that stands safe on a ledge with no stair (the loading dock) is not safe: the CPU jumps up to it and hurts it', () => {
+      const m = track(new MatchSim({ mode: 'free', countdown: false, timer: 0, seed: 5, arenaId: 'warehouse', items: false, hazards: false, difficulty: 'hard' })), [a, b] = m.fighters, dock = Arena.objects.find((o) => o.id === 'dock');
+      m.controllers[0] = new AIController(a.profile, 'hard'); m.controllers[1] = self.scripted(() => {});
+      self.stand(a, -4, 1, -8.5, 3.75); standOn(b, -8.7, 3.75, 1.0);
+      let dealt = 0;
+      const off = Events.on('hit', (e) => { if (e.att === a && e.def === b) dealt += e.dmg; });
+      for (let t = 0; t < 1500 && !dock.destroyed && b.alive; t++) { m.step(); }
+      off();
+      return dealt > 10 ? true : 'the CPU dealt ' + dealt.toFixed(1) + ' to a target on the dock';
     });
     test('Hazards: in an ordinary seeded CPU against CPU match (nobody placed anywhere) a CPU sets a hazard off in every arena, and the match runs on without a hazard breaking a rule', () => {
       const problems = [];
@@ -6289,8 +6757,8 @@ const SelfTest = {
     test('Hazards: with the setting off nothing is placed or triggered, a seeded brawl with hazards and items repeats exactly, no hazard run breaks a state rule or makes a number invalid, and every hazard draws in every phase', () => {
       const problems = [];
       const illegal = Diag.illegalTransitions;
-      const run = (arenaId, hazards) => {
-        const m = track(new MatchSim({ mode: 'brawl', enemies: 3, countdown: false, timer: 0, seed: 4, arenaId, difficulty: 'hard', evenDamage: true, items: true, hazards })), rows = [];
+      const run = (arenaId, hazards, seed = 4) => {
+        const m = track(new MatchSim({ mode: 'brawl', enemies: 3, countdown: false, timer: 0, seed, arenaId, difficulty: 'hard', evenDamage: true, items: true, hazards })), rows = [];
         m.controllers[0] = new AIController(m.fighters[0].profile, 'hard');
         const offs = ['hazardTrigger', 'hazardStart', 'hazardHit'].map((name) => Events.on(name, (e) => rows.push([name, m.tick, e.h.type, e.f ? e.f.index : '', e.dmg || ''].join())));
         for (let t = 0; t < 2400 && m.phase !== 'matchEnd'; t++) {
@@ -6307,6 +6775,7 @@ const SelfTest = {
         if (off.rows.length || off.m.hazards.length) problems.push(id + ' hazards off still act');
         used += a.rows.length;
       }
+      for (let seed = 1; !used && seed <= 10; seed++) used += run('warehouse', true, seed).rows.length;   // the levels are big: a brawl on one seed may never come near a post
       if (!used) problems.push('no hazard ran in any brawl');
       if (Diag.illegalTransitions !== illegal) problems.push('illegal transitions');
       const puts = [], put = R.put;
@@ -6324,6 +6793,7 @@ const SelfTest = {
       if (puts.length < 100) problems.push('few pieces drawn ' + puts.length);
       return problems.length ? problems.join('; ') : true;
     });
+    for (const id in OLD_ARENAS) delete ARENAS[id];
     return results;
   },
 };

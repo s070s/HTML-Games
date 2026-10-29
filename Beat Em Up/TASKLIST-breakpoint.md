@@ -242,16 +242,19 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P8-01 - DECIDE: new level list (Modern Urban only), count from P1-05, each with layout, verticality, destructibles, weapon placements, hazards, unstable surfaces, mode use (brawler, 1v1, tournament).
   Done when: Appendix C has a sheet per level.
   Status (2026-10-29): decided, Appendix C "Levels (P8-01, ...)": 8 level sheets (3 reworked, 5 new), shared deck / stair / scaffold data shape.
-- [ ] P8-02 - Rework the 3 existing arenas (Warehouse, Dojo, Pit): bigger, more destructibles, realistic weapon placement (on tables, racks, walls, not only on the floor), hazards, verticality.
+- [x] P8-02 - Rework the 3 existing arenas (Warehouse, Dojo, Pit): bigger, more destructibles, realistic weapon placement (on tables, racks, walls, not only on the floor), hazards, verticality.
   Done when: each matches its P8-01 sheet.
+  Status (2026-10-29): Warehouse, City Fight Gym (id dojo, glass-block windows instead of shoji, sheet updated) and Pit rebuilt to their P8-01 sheets: larger, decks / stairs / scaffolds, items on tables, racks and wall brackets, hazards placed; CPUs route up and down every deck by a walking map; 4 new materials. Self-test 328 / 328 (browser). 1v1 fingerprints re-recorded for the new layouts (72:1phwk8i, 103:mtun1h, 80:1dpzzwv), old values kept in an engine-neutrality test on old-layout fixtures. Block / Sway 284 / 316 (47.3 percent). Follow-up for P14-05: a CPU can still be caught by a Pit steam jet's second activation (500+ ticks after the first) and by the Warehouse load at hard from one start position.
 - [ ] P8-03 - Build the new levels from P8-01.
   Done when: each matches its sheet and passes the P0-04 performance check.
-- [ ] P8-04 - Verticality: scaffolds, stages, balconies, stairs; breakable floors / stages that collapse under weight or damage.
+- [x] P8-04 - Verticality: scaffolds, stages, balconies, stairs; breakable floors / stages that collapse under weight or damage.
   Done when: at least the levels marked "vertical" in P8-01 have climbable and breakable elements, and P3-07 falling works on them.
+  Status (2026-10-29): decks, stairs and scaffolds climbable in all 3 reworked arenas; decks collapse under damage or weight with fall damage for riders, crush for those below (up to 4 objects, deterministic); P3-07 falling and edge holds work on them; CPUs climb ledges up to 1.05 m.
 - [ ] P8-05 - 1v1 variants of levels (bounded area, optional ring-out per Tournament rules from P1-08).
   Done when: every 1v1 mode can use every level marked "1v1" in P8-01.
-- [ ] P8-06 - Debris and destructible budget per quality preset.
+- [x] P8-06 - Debris and destructible budget per quality preset.
   Done when: the worst-case scene stays within the P0-04 target on the low preset.
+  Status (2026-10-29): per-preset debris and rubble caps (hidden heaps over budget drawn as one block). Low-spec benchmark (640x360, CPU throttle 4, quality low, Warehouse): 1v1 frame p95 18.3 ms, work p95 5.9 ms (rule 8 ms). 1 + 6 enemies, A/B against the previous build on the same busy machine: work p95 9.1-9.6 ms vs 7.7-8.8 ms (about +0.5 ms p50 from the larger levels and the walking map); re-measure on a quiet machine after P8-03.
 
 ## Phase 9 - Interactivity and emergence (immersive-sim style)
 
@@ -1634,9 +1637,9 @@ Implemented. Not ticked: the all-pairs win-rate target waits for P14-01 (win rat
     - Modes: brawler, 4 waves (entries: loading-bay door, fire door, down the mezzanine stair); 1v1 / Tournament ring in the centre, no ring-out.
     - Look: warm sodium high-bay lights, dust in the air; audio as today.
   - City Fight Gym (rework of the Dojo per P1-07: a modern martial-arts gym; id stays `dojo`):
-    - Layout: competition mat in the centre (taped 8 x 7 m square = the ring); west a raised sparring ring; east weights corner, 3 lockers and a mirror wall; back a rice-paper partition pair in front of the office corner (the kept paper look) and 2 makiwara posts; front-east the entrance with a vending machine.
+    - Layout: competition mat in the centre (taped 8 x 7 m square = the ring); west a raised sparring ring; east weights corner, 3 lockers and a mirror wall; back a glass-block window partition pair in front of the office corner and 2 makiwara posts (changed 2026-10-29 by the coordinator after the visual check: the rice-paper screens read as Japanese, not Modern Urban); front-east the entrance with a vending machine.
     - Verticality: sparring ring = `stage` deck 1.0 m (fixed) at x -9.6..-5.2, z -2.2..2.2, ropes = 3 metal rails (y 1.0, fixed), 4 steps at the front-east corner. Mezzanine office / viewing deck `slab` 2.5 m (fixed) at x 4..10, z -6..-3.6 with a stair on its west side and 2 glass balustrade panels (y 2.5) on the front edge: breaking one opens the edge (a fall). Not "vertical" for P8-04: nothing collapses.
-    - Destructibles (15): 3 lockers (sheet metal), mirror wall (glass), 2 balustrade panels (glass), 2 paper partitions (paper, shoji look), 2 benches (wood), 2 makiwara posts (wood, hpMul 1.6), vending machine (plastic), shower-block pillar (tile), fire door (metal).
+    - Destructibles (15): 3 lockers (sheet metal), mirror wall (glass), 2 balustrade panels (glass), 2 glass-block partitions (tile, blocks look; changed 2026-10-29 by the coordinator after the visual check), 2 benches (wood), 2 makiwara posts (wood, hpMul 1.6), vending machine (plastic), shower-block pillar (tile), fire door (metal).
     - Items (6): 2 escrima sticks on a wall rack (1.4); broom on a bracket by the lockers (1.3); bottle on a bench (0.5); folding chair on the floor by the ring; extinguisher on a bracket by the door.
     - Hazards (2): glass = the mirror wall; panel = the fuse box beside the lockers (chains to the lockers, R3).
     - Modes: 1v1 only (no waves); Tournament ring-out yes (mat tape).

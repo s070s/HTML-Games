@@ -1630,27 +1630,28 @@ vec3 srgb(float r, float g, float b){ return vec3(r, g, b) / 255.0; }
 vec3 floorPattern(highp vec2 p){
   highp float w = max(fwidth(p.x), fwidth(p.y)) * 0.75;
   if(uFloor < 1.5){
-    vec3 c = mix(srgb(63.0,66.0,71.0), srgb(98.0,102.0,109.0), rectMask(p, vec2(9.75, 5.75), w));
+    vec3 c = mix(srgb(63.0,66.0,71.0), srgb(98.0,102.0,109.0), rectMask(p, vec2(11.25, 6.25), w));
     highp float k = abs(fract(p.x / 2.1 + 0.5) - 0.5) * 2.1;
-    float seam = edgeMask(k - 0.025, w) * rectMask(p, vec2(8.5, 5.1), w);
+    float seam = edgeMask(k - 0.025, w) * rectMask(p, vec2(10.2, 5.7), w);
     c = mix(c, srgb(87.0,91.0,97.0), seam);
-    float stripes = max(rectMask(vec2(p.x, abs(p.y) - 5.45), vec2(9.75, 0.09), w), rectMask(vec2(abs(p.x) - 9.65, p.y), vec2(0.09, 5.75), w));
+    float stripes = max(rectMask(vec2(p.x, abs(p.y) - 5.95), vec2(11.25, 0.09), w), rectMask(vec2(abs(p.x) - 11.15, p.y), vec2(0.09, 6.25), w));
     return mix(c, srgb(217.0,184.0,42.0), stripes);
   }
   if(uFloor < 2.5){
     highp float i = floor(p.x + 0.5);
-    float plank = edgeMask(abs(p.x - i) - 0.48, w) * rectMask(p, vec2(9.48, 6.0), w);
+    float plank = edgeMask(abs(p.x - i) - 0.48, w) * rectMask(p, vec2(9.8, 5.8), w);
     vec3 pc = mod(abs(i), 2.0) > 0.5 ? srgb(138.0,96.0,56.0) : srgb(124.0,85.0,50.0);
     vec3 c = mix(srgb(42.0,29.0,20.0), pc, plank);
-    c = mix(c, srgb(91.0,74.0,34.0), rectMask(p, vec2(5.85, 2.9), w));
-    c = mix(c, srgb(199.0,186.0,134.0), rectMask(p, vec2(5.65, 2.7), w));
-    return mix(c, srgb(168.0,153.0,106.0), rectMask(p, vec2(0.05, 2.7), w));
+    highp vec2 m = p - vec2(1.0, 0.5);
+    c = mix(c, srgb(226.0,228.0,232.0), rectMask(m, vec2(4.1, 3.6), w));
+    c = mix(c, srgb(46.0,86.0,146.0), rectMask(m, vec2(3.95, 3.45), w));
+    return mix(c, srgb(226.0,228.0,232.0), rectMask(m, vec2(0.05, 3.45), w));
   }
-  vec3 c = mix(srgb(23.0,23.0,26.0), srgb(45.0,46.0,51.0), rectMask(p, vec2(8.75, 6.0), w));
+  vec3 c = mix(srgb(23.0,23.0,26.0), srgb(45.0,46.0,51.0), rectMask(p, vec2(9.8, 6.3), w));
   c = mix(c, srgb(38.0,38.0,43.0), discMask(p, vec2(-2.2, 1.4), 0.8, w));
   c = mix(c, srgb(61.0,22.0,22.0), discMask(p, vec2(3.1, -1.2), 0.6, w));
   c = mix(c, srgb(38.0,38.0,43.0), discMask(p, vec2(-4.4, -2.2), 0.5, w));
-  c = mix(c, srgb(85.0,86.0,92.0), rectMask(p, vec2(0.05, 4.8), w));
+  c = mix(c, srgb(85.0,86.0,92.0), rectMask(p, vec2(0.05, 5.0), w));
   return mix(c, srgb(53.0,54.0,60.0), discMask(p, vec2(0.0), 1.5, w));
 }
 vec3 floorLight(vec4 pl, vec3 pc){
@@ -2213,10 +2214,13 @@ function faceExpression(f) {
 }
 
 /* ---------- adaptive quality ---------- */
+/* debris = loose pieces alive at once; pieces = debris pieces one collapsing deck or fallen support may throw; live = intact destructibles drawn in full detail (the nearest to the camera; the rest as plain
+   shapes, so the simulation is the same on every preset); heaps = piles of rubble drawn (the oldest are left out, colliders unchanged). Particles and debris are cut again by Quality.apply (effects setting). The one place
+   that sets the budget of Appendix C "Levels": Debris.spawn, Arena.breakObject and Arena.draw read it from Quality.limits. */
 const QUALITY_PRESETS = {
-  low: { scale: 0.6, dprCap: 1, shadow: 1, particles: 140, debris: 60 },
-  medium: { scale: 0.85, dprCap: 1.5, shadow: 2, particles: 300, debris: 110 },
-  high: { scale: 1, dprCap: 2, shadow: 2, particles: 520, debris: 170 },
+  low: { scale: 0.6, dprCap: 1, shadow: 1, particles: 140, debris: 60, pieces: 6, live: 14, heaps: 8 },
+  medium: { scale: 0.85, dprCap: 1.5, shadow: 2, particles: 300, debris: 110, pieces: 10, live: 28, heaps: 16 },
+  high: { scale: 1, dprCap: 2, shadow: 2, particles: 520, debris: 170, pieces: 16, live: 64, heaps: 40 },
 };
 /* Auto quality starts from a pixel budget for the detected GPU class, then adapts in small steps.
    Frames while the page is hidden or throttled are ignored. */
@@ -2251,7 +2255,7 @@ const Quality = {
     if (pick === 'off') shadow = 0; else if (pick === 'blob') shadow = 1; else if (pick === 'full' && p.shadow === 1) shadow = 1;
     const fx = Settings.v.effects;
     const fxMul = fx === 'low' ? 0.4 : fx === 'medium' ? 0.7 : 1;
-    this.limits = { particles: Math.floor(p.particles * fxMul), debris: p.debris };
+    this.limits = { particles: Math.floor(p.particles * fxMul), debris: p.debris, pieces: p.pieces, live: p.live, heaps: p.heaps };
     R.setQuality(scale * (auto ? this.autoScale : 1), p.dprCap, shadow);
   },
   /* Called once per frame with the smoothed frame interval (ms) and this frame's dt (s). */
@@ -2303,7 +2307,7 @@ const Camera = {
   shakeAmp: 0, fovPulse: 0, dirRight: [1, 0], dirFwd: [0, -1], aspect: 1.78,
   view: M4.create(), proj: M4.create(),
   snapNext: true,
-  jx: 0, jy: 0, jz: 0,
+  jx: 0, jy: 0, jz: 0, pairDy: 0,   // pairDy: the height difference of the two fighters of a 1v1 (P8-04)
   // brawl framing state (P4-06); all of it is scratch or smoothing memory, allocated once
   players: [], playerCount: 0,             // the player team's fighters in the frame (the lead is first)
   keys: [], keyCount: 0,                   // x, y, z triples: feet and head of every player and locked enemy, which must stay in the safe zone (the lead's first)
@@ -2319,6 +2323,7 @@ const Camera = {
 
   /* Follow two fighters: keep both visible, clamp to the arena, ease toward the new framing. */
   follow(dt, a, b, def) {
+    this.pairDy = Math.abs(a.y - b.y);
     this.frame(dt, def, (a.x + b.x) / 2, (a.z + b.z) / 2, Math.max(a.y, b.y), b.x - a.x, b.z - a.z);
   },
 
@@ -2417,7 +2422,7 @@ const Camera = {
     const fovy = this.baseFov;
     const fovx = 2 * Math.atan(Math.tan(fovy / 2) * this.aspect);
     const needW = (sep * 0.92 + 3.4) * 0.5 / Math.tan(fovx / 2);
-    const needH = (group ? 2.4 + Math.max(0, box.maxY - box.minY - CAMERA_VERT_SLACK) : 2.4) / Math.tan(fovy / 2);
+    const needH = (2.4 + Math.max(0, (group ? box.maxY - box.minY : this.pairDy) - CAMERA_VERT_SLACK)) / Math.tan(fovy / 2);
     const maxDist = cam.maxDist * clamp(1.15 / this.aspect, 1, 2.2);
     const distWanted = clamp(Math.max(needW, needH, cam.minDist), cam.minDist, maxDist);
     const k = this.snapNext ? 1 : 1 - Math.exp(-dt * 3.2);
@@ -2592,72 +2597,115 @@ const MATERIALS = {
   concrete: { label: 'Concrete', hp: 170, resist: 6, mult: { punch: 0.45, kick: 0.8, heavy: 1.25, throw: 1.5, impact: 1.0 }, color: '#8d9096', dark: '#4d5056', life: 20 },
   metal: { label: 'Metal', hp: 110, resist: 5, mult: { punch: 0.5, kick: 0.8, heavy: 1.1, throw: 1.5, impact: 1.1 }, color: '#8b95a3', dark: '#4a525e', life: 18 },
   glass: { label: 'Glass', hp: 16, resist: 0, mult: { punch: 1.6, kick: 1.6, heavy: 2.2, throw: 2.4, impact: 2.2 }, color: '#a8dcff', dark: '#ffffff', life: 3.2 },
-  paper: { label: 'Paper screen', hp: 10, resist: 0, mult: { punch: 1.6, kick: 1.6, heavy: 2.2, throw: 2.4, impact: 2.2 }, color: '#f1e6c4', dark: '#6b4a2f', life: 4 },
+  paper: { label: 'Cardboard', hp: 10, resist: 0, mult: { punch: 1.6, kick: 1.6, heavy: 2.2, throw: 2.4, impact: 2.2 }, color: '#f1e6c4', dark: '#6b4a2f', life: 4 },
+  /* P8: debris = which of the five break recipes (and sounds) the material uses; metal-like rows also use the metal stage names */
+  brick: { label: 'Brick', hp: 140, resist: 5, mult: { punch: 0.4, kick: 0.75, heavy: 1.2, throw: 1.6, impact: 1.2 }, color: '#9a4b3a', dark: '#5a2c22', life: 20, debris: 'concrete' },
+  plastic: { label: 'Plastic', hp: 40, resist: 1, mult: { punch: 1.2, kick: 1.4, heavy: 1.8, throw: 1.6, impact: 1.4 }, color: '#4f6f8f', dark: '#2a3a4c', life: 14, debris: 'wood' },
+  tile: { label: 'Tile', hp: 50, resist: 2, mult: { punch: 0.8, kick: 1.0, heavy: 1.5, throw: 1.8, impact: 1.6 }, color: '#c9d2d6', dark: '#7d8a90', life: 6, debris: 'glass' },
+  sheet: { label: 'Sheet metal', hp: 80, resist: 3, mult: { punch: 0.6, kick: 0.9, heavy: 1.2, throw: 1.4, impact: 1.2 }, color: '#7f8d99', dark: '#46515c', life: 18, debris: 'metal' },
 };
+const kindOf = (mat) => MATERIALS[mat].debris || mat;
 const DEBRIS_REPLACE_FRAME = 4; // stage index at which the intact collider is swapped out
 
 /* ---------- arenas (pristine definitions; live state is built from them) ----------
    items (P7-02): where weapons lie, [item id, x, z, surface height, host object id]: on the floor (0), on a table-high top (crate, bench, barrier) or mounted high on a pillar or post (1.3 to 1.4); an item with a host falls when the host breaks.
+   objects (P8): plain rows, and `builds` rows (stairs, scaffolds) that builtOf() expands; a row may also have y (it stands on a deck), on (the id it rests on), weak (the weight that breaks it), fixed (takes no damage), type 'deck' (see builtOf, Appendix C "Levels").
    hazards (P7-05): the stage dangers, [hazard type (HAZARDS), x, z, options]: yaw (the way a steam jet blows), tx / tz (where the trigger post stands when it is not at x, z), hx / hz (half sizes of a floor area), obj (the glass wall's scenery id). */
 const ARENAS = {
   warehouse: {
-    id: 'warehouse', name: 'Industrial Warehouse', blurb: 'Crates, concrete pillars, steel railings and an office window. Big echoing hall.',
-    bounds: { x: 8.5, z: 5.0 }, spawn: 2.6, camera: { minDist: 6.2, maxDist: 12.5, elev: 0.5 },
-    env: { clear: [0.05, 0.06, 0.08], sky: [0.5, 0.55, 0.64], ground: [0.24, 0.23, 0.22], lightTo: [0.35, 0.85, 0.5], lightCol: [1.0, 0.92, 0.78], fogCol: [0.09, 0.1, 0.13], fog: 0.026, rim: [0.25, 0.35, 0.55], floor: 1,
-      pl: [{ pos: [-4, 5.2, -1], r: 13, col: [0.7, 0.55, 0.3] }, { pos: [4, 5.2, -1], r: 13, col: [0.7, 0.55, 0.3] }] },
+    id: 'warehouse', name: 'Industrial Warehouse', blurb: 'A big hall: crates, racks and a shipping container, a steel mezzanine office up a stair, a timber loading dock that gives way. Echoing.',
+    bounds: { x: 11.5, z: 6.5 }, spawn: 2.6, camera: { minDist: 6.4, maxDist: 14.5, elev: 0.5 },
+    env: { clear: [0.05, 0.06, 0.08], sky: [0.5, 0.55, 0.64], ground: [0.24, 0.23, 0.22], lightTo: [0.35, 0.85, 0.5], lightCol: [1.0, 0.92, 0.78], fogCol: [0.09, 0.1, 0.13], fog: 0.022, rim: [0.25, 0.35, 0.55], floor: 1,
+      pl: [{ pos: [-5, 5.2, -1], r: 15, col: [0.7, 0.55, 0.3] }, { pos: [5, 5.2, -1], r: 15, col: [0.7, 0.55, 0.3] }] },
     audio: { reverb: 1.7, wet: 0.3, bpm: 118, root: 55, mode: 'minor', hum: 60 },
     objects: [
       { id: 'crateA', type: 'box', look: 'crate', mat: 'wood', x: -5.4, z: -2.6, hx: 0.55, hz: 0.55, h: 0.95 },
       { id: 'crateB', type: 'box', look: 'crate', mat: 'wood', x: 5.6, z: 2.3, hx: 0.55, hz: 0.55, h: 0.95 },
-      { id: 'crateC', type: 'box', look: 'crate', mat: 'wood', x: -6.2, z: 3.0, hx: 0.5, hz: 0.5, h: 0.9 },
-      { id: 'crateD', type: 'box', look: 'crate', mat: 'wood', x: 6.4, z: -3.4, hx: 0.55, hz: 0.55, h: 0.95 },
+      { id: 'crateC', type: 'box', look: 'crate', mat: 'wood', x: -5.6, z: 3.2, hx: 0.5, hz: 0.5, h: 0.9 },
+      { id: 'crateD', type: 'box', look: 'crate', mat: 'wood', x: 5.7, z: -3.4, hx: 0.55, hz: 0.55, h: 0.95 },
+      { id: 'crateE', type: 'box', look: 'crate', mat: 'wood', x: -2.0, z: -6.0, hx: 0.5, hz: 0.5, h: 0.9 },
+      { id: 'crateF', type: 'box', look: 'crate', mat: 'wood', x: 11.0, z: 6.0, hx: 0.5, hz: 0.5, h: 0.9 },
+      { id: 'cardboardA', type: 'box', look: 'crate', mat: 'paper', x: -1.4, z: 6.05, hx: 0.45, hz: 0.45, h: 0.8 },
+      { id: 'cardboardB', type: 'box', look: 'crate', mat: 'paper', x: 8.4, z: 1.4, hx: 0.45, hz: 0.45, h: 0.8 },
       { id: 'pillarL', type: 'column', mat: 'concrete', x: -3.2, z: -4.2, hx: 0.42, hz: 0.42, h: 3.4 },
-      { id: 'pillarR', type: 'column', mat: 'concrete', x: 3.6, z: -4.2, hx: 0.42, hz: 0.42, h: 3.4 },
-      { id: 'railL', type: 'rail', mat: 'metal', axis: 'z', x: -7.6, z: -0.25, hx: 0.12, hz: 2.25, h: 1.05 },
-      { id: 'railR', type: 'rail', mat: 'metal', axis: 'z', x: 7.6, z: -0.25, hx: 0.12, hz: 2.25, h: 1.05 },
-      { id: 'window', type: 'panel', mat: 'glass', axis: 'x', x: 0, z: -4.85, hx: 1.6, hz: 0.08, h: 2.2 },
+      { id: 'pillarR', type: 'column', mat: 'concrete', x: 3.2, z: -3.8, hx: 0.42, hz: 0.42, h: 3.4 },
+      { id: 'container', type: 'box', look: 'container', mat: 'sheet', color: '#a3361f', x: -6.0, z: -5.8, hx: 1.6, hz: 0.7, h: 2.6 },
+      { id: 'dumpster', type: 'box', look: 'dumpster', mat: 'sheet', color: '#3c5a43', x: 8.6, z: 4.3, hx: 0.9, hz: 0.5, h: 1.2 },
+      { id: 'rackA', type: 'box', look: 'rack', mat: 'metal', hpMul: 2, x: -10.9, z: -4.0, hx: 0.6, hz: 1.3, h: 2.4 },
+      { id: 'rackB', type: 'box', look: 'rack', mat: 'metal', hpMul: 2, x: -10.9, z: -1.4, hx: 0.6, hz: 1.3, h: 2.4 },
+      { id: 'bench', type: 'box', look: 'table', mat: 'wood', x: 0.4, z: -6.1, hx: 0.9, hz: 0.4, h: 0.9 },
+      { id: 'window', type: 'panel', mat: 'glass', axis: 'x', x: 9.25, z: -2.92, hx: 1.2, hz: 0.08, h: 1.8 },
+      { id: 'fireDoor', type: 'panel', look: 'firedoor', mat: 'metal', axis: 'z', x: 11.42, z: 1.0, hx: 0.08, hz: 0.6, h: 2.1 },
+      { id: 'mezz', type: 'deck', look: 'grate', mat: 'metal', fixed: 1, x: 9.25, z: -4.75, hx: 2.25, hz: 1.75, h: 2.5 },
+      { id: 'mezzRail', type: 'rail', mat: 'metal', axis: 'z', y: 2.5, x: 7.12, z: -3.95, hx: 0.12, hz: 0.85, h: 1.05 },
+      { id: 'dock', type: 'deck', look: 'boards', mat: 'wood', weak: 3, x: -8.5, z: 3.75, hx: 1.5, hz: 1.75, h: 1.0 },
     ],
-    items: [['bottle', -1.6, 3.7, 0], ['brick', 2.2, -3.0, 0], ['skateboard', 0.4, 4.1, 0], ['wrench', -5.4, -2.6, 0.95, 'crateA'], ['pipe', -3.2, -3.7, 1.4, 'pillarL'], ['hammer', 3.6, -3.7, 1.3, 'pillarR'], ['extinguisher', 7.0, 3.9, 0]],
-    hazards: [['panel', 5.4, -0.2], ['steam', -6.4, -3.9, { yaw: Math.PI / 2 }], ['load', 1.9, -2.0, { tx: 4.1, tz: -2.0 }]],
+    builds: [['stair', 'stair', 3.5, -6.0, 1, 1.0, 0, 2.5, 'metal', 'grate', '']],
+    items: [['pipe', -10.23, -4.2, 1.4, 'rackA'], ['chain', -10.23, -3.8, 1.4, 'rackA'], ['wrench', 0.0, -6.1, 0.9, 'bench'], ['hammer', 0.8, -6.1, 0.9, 'bench'], ['bottle', -5.3, -2.6, 0.95, 'crateA'],
+      ['extinguisher', 3.2, -3.28, 1.3, 'pillarR'], ['crate', -1.8, 4.2, 0], ['brick', 2.2, -3.0, 0], ['skateboard', 0.4, 4.1, 0], ['binlid', 6.6, 4.5, 0]],
+    hazards: [['panel', 6.0, -1.6], ['steam', -9.8, 0.9, { yaw: Math.PI / 2 }], ['load', -3.8, -3.4, { tx: -3.8, tz: -1.7 }], ['glass', 0, 0, { obj: 'window' }]],
   },
   dojo: {
-    id: 'dojo', name: 'Traditional Dojo', blurb: 'Open wooden floor with paper screens, benches and training posts. Dry, close sound.',
-    bounds: { x: 7.5, z: 4.6 }, spawn: 2.4, camera: { minDist: 6.0, maxDist: 11.5, elev: 0.46 },
-    env: { clear: [0.08, 0.05, 0.04], sky: [0.6, 0.5, 0.42], ground: [0.3, 0.22, 0.15], lightTo: [0.25, 0.9, 0.4], lightCol: [1.0, 0.9, 0.72], fogCol: [0.2, 0.13, 0.1], fog: 0.02, rim: [0.55, 0.32, 0.2], floor: 2,
-      pl: [{ pos: [-6, 3, -4.2], r: 11, col: [0.9, 0.5, 0.2] }, { pos: [6, 3, -4.2], r: 11, col: [0.9, 0.5, 0.2] }] },
+    id: 'dojo', name: 'City Fight Gym', blurb: 'A martial-arts gym: a taped competition mat, a raised sparring ring, lockers, a mirror wall, glass-block windows and a glass-railed mezzanine. Dry, close sound.',
+    bounds: { x: 10, z: 6 }, spawn: 2.4, camera: { minDist: 6.2, maxDist: 13, elev: 0.46 },
+    env: { clear: [0.06, 0.07, 0.1], sky: [0.6, 0.66, 0.76], ground: [0.3, 0.32, 0.36], lightTo: [0.25, 0.9, 0.4], lightCol: [0.94, 0.97, 1.0], fogCol: [0.16, 0.18, 0.22], fog: 0.018, rim: [0.35, 0.45, 0.6], floor: 2,
+      pl: [{ pos: [-5, 4.2, -2], r: 14, col: [0.55, 0.68, 0.9] }, { pos: [5, 4.2, -2], r: 14, col: [0.55, 0.68, 0.9] }] },
     audio: { reverb: 0.5, wet: 0.12, bpm: 96, root: 73.4, mode: 'pentatonic', hum: 0 },
     objects: [
-      { id: 'screenL', type: 'panel', look: 'shoji', mat: 'paper', axis: 'x', x: -3.5, z: -3.3, hx: 1.0, hz: 0.06, h: 1.9 },
-      { id: 'screenR', type: 'panel', look: 'shoji', mat: 'paper', axis: 'x', x: 3.5, z: -3.3, hx: 1.0, hz: 0.06, h: 1.9 },
-      { id: 'screenW', type: 'panel', look: 'shoji', mat: 'paper', axis: 'z', x: -6.7, z: 0.2, hx: 0.06, hz: 1.3, h: 1.9 },
-      { id: 'screenE', type: 'panel', look: 'shoji', mat: 'paper', axis: 'z', x: 6.7, z: 0.2, hx: 0.06, hz: 1.3, h: 1.9 },
-      { id: 'benchL', type: 'box', look: 'bench', mat: 'wood', x: -4.6, z: 3.3, hx: 0.75, hz: 0.25, h: 0.5 },
-      { id: 'benchR', type: 'box', look: 'bench', mat: 'wood', x: 4.6, z: 3.3, hx: 0.75, hz: 0.25, h: 0.5 },
-      { id: 'postL', type: 'column', mat: 'wood', hpMul: 1.6, x: -1.2, z: -3.9, hx: 0.24, hz: 0.24, h: 1.7 },
-      { id: 'postR', type: 'column', mat: 'wood', hpMul: 1.6, x: 1.2, z: -3.9, hx: 0.24, hz: 0.24, h: 1.7 },
-      { id: 'glassWall', type: 'panel', mat: 'glass', axis: 'z', x: -4.6, z: 0, hx: 0.08, hz: 1.4, h: 2.0 },
+      { id: 'benchL', type: 'box', look: 'bench', mat: 'wood', x: -1.5, z: 5.75, hx: 0.75, hz: 0.25, h: 0.5 },
+      { id: 'benchR', type: 'box', look: 'bench', mat: 'wood', x: 3.2, z: 5.75, hx: 0.75, hz: 0.25, h: 0.5 },
+      { id: 'blocksL', type: 'panel', look: 'blocks', mat: 'tile', axis: 'x', x: -3.9, z: -5.2, hx: 1.0, hz: 0.06, h: 1.9 },
+      { id: 'blocksR', type: 'panel', look: 'blocks', mat: 'tile', axis: 'x', x: -1.9, z: -5.2, hx: 1.0, hz: 0.06, h: 1.9 },
+      { id: 'postL', type: 'column', mat: 'wood', hpMul: 1.6, x: -8.0, z: -5.0, hx: 0.24, hz: 0.24, h: 1.7 },
+      { id: 'postR', type: 'column', mat: 'wood', hpMul: 1.6, x: -6.6, z: -5.0, hx: 0.24, hz: 0.24, h: 1.7 },
+      { id: 'mirror', type: 'panel', mat: 'glass', axis: 'z', x: 6.2, z: 0.5, hx: 0.08, hz: 1.6, h: 2.0 },
+      { id: 'lockerA', type: 'box', look: 'lockers', mat: 'sheet', color: '#3d6b8c', x: 9.65, z: 2.5, hx: 0.35, hz: 0.7, h: 1.9 },
+      { id: 'lockerB', type: 'box', look: 'lockers', mat: 'sheet', color: '#3d6b8c', x: 9.65, z: 3.9, hx: 0.35, hz: 0.7, h: 1.9 },
+      { id: 'lockerC', type: 'box', look: 'lockers', mat: 'sheet', color: '#3d6b8c', x: 9.65, z: 5.3, hx: 0.35, hz: 0.7, h: 1.9 },
+      { id: 'vending', type: 'box', look: 'vending', mat: 'plastic', color: '#c0392b', x: 7.8, z: 5.6, hx: 0.45, hz: 0.4, h: 1.8 },
+      { id: 'fireDoor', type: 'panel', look: 'firedoor', mat: 'metal', axis: 'z', x: -9.92, z: -4.0, hx: 0.08, hz: 0.5, h: 2.0 },
+      { id: 'pillar', type: 'column', mat: 'tile', x: -9.6, z: 4.5, hx: 0.4, hz: 0.4, h: 3.0 },
+      { id: 'ring', type: 'deck', look: 'stage', mat: 'wood', fixed: 1, x: -7.8, z: 0, hx: 2.2, hz: 2.2, h: 1.0 },
+      { id: 'ropeN', type: 'rail', mat: 'metal', color: '#c0392b', fixed: 1, axis: 'x', y: 1.0, x: -7.8, z: -2.1, hx: 2.2, hz: 0.06, h: 1.05 },
+      { id: 'ropeS', type: 'rail', mat: 'metal', color: '#c0392b', fixed: 1, axis: 'x', y: 1.0, x: -7.8, z: 2.1, hx: 2.2, hz: 0.06, h: 1.05 },
+      { id: 'ropeE', type: 'rail', mat: 'metal', color: '#c0392b', fixed: 1, axis: 'z', y: 1.0, x: -5.7, z: -0.9, hx: 0.06, hz: 1.3, h: 1.05 },
+      { id: 'mezz', type: 'deck', look: 'slab', mat: 'concrete', fixed: 1, x: 7, z: -4.8, hx: 3, hz: 1.2, h: 2.5 },
+      { id: 'balA', type: 'panel', mat: 'glass', axis: 'x', y: 2.5, x: 5.5, z: -3.64, hx: 1.5, hz: 0.06, h: 1.1 },
+      { id: 'balB', type: 'panel', mat: 'glass', axis: 'x', y: 2.5, x: 8.5, z: -3.64, hx: 1.5, hz: 0.06, h: 1.1 },
     ],
-    items: [['stick', -4.6, 3.3, 0.5, 'benchL'], ['bottle', 4.6, 3.3, 0.5, 'benchR'], ['bat', -1.2, -3.55, 1.3, 'postL'], ['broom', 1.2, -3.55, 1.35, 'postR'], ['chair', -3.6, -2.6, 0]],
-    hazards: [['glass', 0, 0, { obj: 'glassWall' }]],
+    builds: [['stair', 'ringStep', -4.2, 1.4, 3, 1.2, 0, 1.0, 'wood', 'stage', ''], ['stair', 'mezzStair', 0.5, -5.4, 1, 1.2, 0, 2.5, 'metal', 'grate', '']],
+    items: [['stick', -9.78, -4.12, 1.4, 'fireDoor'], ['stick', -9.78, -3.88, 1.4, 'fireDoor'], ['broom', 9.2, 2.5, 1.3, 'lockerA'], ['bottle', -1.5, 5.75, 0.5, 'benchL'], ['chair', -4.3, -1.0, 0], ['extinguisher', -9.6, 4.0, 1.3, 'pillar']],
+    hazards: [['glass', 0, 0, { obj: 'mirror' }], ['panel', 9.65, 0.8]],
   },
   pit: {
-    id: 'pit', name: 'Underground Pit', blurb: 'Dark concrete cage, barriers, pillars and a cracked observation glass. Heavy, rumbling sound.',
-    bounds: { x: 7.0, z: 5.0 }, spawn: 2.4, camera: { minDist: 6.0, maxDist: 12, elev: 0.55 },
-    env: { clear: [0.02, 0.02, 0.03], sky: [0.26, 0.28, 0.38], ground: [0.12, 0.1, 0.1], lightTo: [0.2, 0.95, 0.3], lightCol: [0.9, 0.9, 1.0], fogCol: [0.03, 0.03, 0.05], fog: 0.036, rim: [0.8, 0.35, 0.15], floor: 3,
+    id: 'pit', name: 'Underground Pit', blurb: 'An old boiler-room fight club: a chain-link cage, a bar, a street stair to a landing and a rusty catwalk that will not hold a crowd. Heavy, rumbling sound.',
+    bounds: { x: 10, z: 6.5 }, spawn: 2.4, camera: { minDist: 6.2, maxDist: 13.5, elev: 0.55 },
+    env: { clear: [0.02, 0.02, 0.03], sky: [0.26, 0.28, 0.38], ground: [0.12, 0.1, 0.1], lightTo: [0.2, 0.95, 0.3], lightCol: [0.9, 0.9, 1.0], fogCol: [0.03, 0.03, 0.05], fog: 0.032, rim: [0.8, 0.35, 0.15], floor: 3,
       pl: [{ pos: [-8, 1.6, -4], r: 12, col: [1.0, 0.45, 0.15] }, { pos: [8, 1.6, -4], r: 12, col: [1.0, 0.45, 0.15] }] },
     audio: { reverb: 1.1, wet: 0.24, bpm: 104, root: 49, mode: 'phrygian', hum: 40 },
     objects: [
-      { id: 'barrierA', type: 'box', look: 'barrier', mat: 'concrete', x: -2.6, z: -4.2, hx: 1.0, hz: 0.3, h: 0.85 },
-      { id: 'barrierB', type: 'box', look: 'barrier', mat: 'concrete', x: -3.4, z: 3.3, hx: 0.9, hz: 0.3, h: 0.85 },
-      { id: 'barrierC', type: 'box', look: 'barrier', mat: 'concrete', x: 4.4, z: 2.9, hx: 0.9, hz: 0.3, h: 0.85 },
-      { id: 'pillarA', type: 'column', mat: 'concrete', x: -5.6, z: -3.7, hx: 0.45, hz: 0.45, h: 3.2 },
-      { id: 'pillarB', type: 'column', mat: 'concrete', x: 3.2, z: -4.1, hx: 0.45, hz: 0.45, h: 3.2 },
-      { id: 'cageL', type: 'rail', mat: 'metal', axis: 'z', x: -6.5, z: 2.4, hx: 0.12, hz: 1.6, h: 1.05 },
-      { id: 'cageR', type: 'rail', mat: 'metal', axis: 'z', x: 6.5, z: -0.8, hx: 0.12, hz: 2.0, h: 1.05 },
-      { id: 'obsGlass', type: 'panel', mat: 'glass', axis: 'x', x: 0.2, z: -4.85, hx: 1.3, hz: 0.08, h: 2.0 },
+      { id: 'barrierA', type: 'box', look: 'barrier', mat: 'concrete', x: -2.4, z: -4.0, hx: 1.0, hz: 0.3, h: 0.85 },
+      { id: 'barrierB', type: 'box', look: 'barrier', mat: 'concrete', x: -3.4, z: 3.7, hx: 0.9, hz: 0.3, h: 0.85 },
+      { id: 'barrierC', type: 'box', look: 'barrier', mat: 'concrete', x: 3.8, z: 3.9, hx: 0.9, hz: 0.3, h: 0.85 },
+      { id: 'pillarA', type: 'column', mat: 'concrete', x: 8.4, z: 0.2, hx: 0.45, hz: 0.45, h: 3.2 },
+      { id: 'pillarB', type: 'column', mat: 'brick', x: 0.8, z: -4.0, hx: 0.45, hz: 0.45, h: 3.2 },
+      { id: 'cageL', type: 'rail', mat: 'metal', axis: 'z', x: -6.5, z: -2.2, hx: 0.12, hz: 1.5, h: 1.05 },
+      { id: 'cageB', type: 'rail', mat: 'metal', axis: 'z', x: -6.5, z: 3.0, hx: 0.12, hz: 1.6, h: 1.05 },
+      { id: 'cageR', type: 'rail', mat: 'metal', axis: 'z', x: 6.5, z: -0.4, hx: 0.12, hz: 1.8, h: 1.05 },
+      { id: 'obsGlass', type: 'panel', mat: 'glass', axis: 'x', x: -2.3, z: -5.22, hx: 1.3, hz: 0.08, h: 2.0 },
+      { id: 'bar', type: 'box', look: 'table', mat: 'wood', x: -8.8, z: 3.6, hx: 0.4, hz: 1.8, h: 1.05 },
+      { id: 'sofa', type: 'box', look: 'sofa', mat: 'wood', x: -9.1, z: -3.3, hx: 0.9, hz: 0.45, h: 0.9 },
+      { id: 'speaker', type: 'box', look: 'speaker', mat: 'wood', x: -9.55, z: 0.4, hx: 0.45, hz: 0.45, h: 1.6 },
+      { id: 'crateP', type: 'box', look: 'crate', mat: 'wood', x: 5.0, z: -1.5, hx: 0.5, hz: 0.5, h: 0.95 },
+      { id: 'crateQ', type: 'box', look: 'crate', mat: 'wood', x: -5.2, z: 6.0, hx: 0.5, hz: 0.5, h: 0.95 },
+      { id: 'bin', type: 'column', mat: 'plastic', color: '#3f4a52', x: 9.7, z: 6.2, hx: 0.3, hz: 0.3, h: 0.8 },
+      { id: 'catwalk', type: 'deck', look: 'grate', mat: 'sheet', weak: 2, x: 0.5, z: -5.9, hx: 6.5, hz: 0.6, h: 2.5 },
+      { id: 'landing', type: 'deck', look: 'grate', mat: 'metal', fixed: 1, x: 8.5, z: -4.85, hx: 1.5, hz: 1.65, h: 2.5 },
     ],
-    items: [['binlid', -1.2, 3.8, 0], ['chain', -3.4, 3.3, 0.85, 'barrierB'], ['brick', 4.4, 2.9, 0.85, 'barrierC'], ['pipe', 3.2, -3.55, 1.4, 'pillarB'], ['wrench', -5.6, -3.15, 1.3, 'pillarA'], ['crate', 5.6, -2.4, 0], ['extinguisher', -6.0, -1.0, 0]],
-    hazards: [['fire', -5.2, -1.8], ['fire', 4.9, 0.9], ['steam', 5.3, -3.9, { yaw: -Math.PI / 2 }]],
+    builds: [['stair', 'street', 3.5, -3.9, 1, 1.2, 0, 2.5, 'metal', 'grate', '']],
+    items: [['binlid', -1.2, 4.4, 0], ['chain', -3.4, 3.7, 0.85, 'barrierB'], ['brick', 3.8, 3.9, 0.85, 'barrierC'], ['pipe', 0.8, -3.45, 1.4, 'pillarB'], ['wrench', 8.4, -0.35, 1.3, 'pillarA'],
+      ['crate', 5.6, 4.6, 0], ['extinguisher', -5.4, 0.4, 0], ['bottle', -8.8, 2.6, 1.05, 'bar'], ['bottle', -8.8, 4.4, 1.05, 'bar'], ['bat', -9.35, 3.6, 1.3, 'bar']],
+    hazards: [['fire', -7.9, -0.6], ['fire', 8.0, 3.2], ['steam', -8.5, -5.6, { yaw: Math.PI / 2 }], ['glass', 0, 0, { obj: 'obsGlass' }]],
   },
 };
 const ARENA_ORDER = ['warehouse', 'dojo', 'pit'];
@@ -2669,39 +2717,41 @@ function propCyl(list, x, y, z, d, h, color, opts) { list.push(Object.assign({ m
 
 function buildProps(id) {
   const p = [];
-  // The floor is a single quad; its pattern (lines, planks, tatami, stains) is drawn by the floor shader (uFloor).
+  // The floor is a single quad; its pattern (lines, planks, mat, stains) is drawn by the floor shader (uFloor).
   propBox(p, 0, -0.1, 0, 60, 0.2, 40, '#555555', { l: LAYER.GROUND });
   if (id === 'warehouse') {
-    propBox(p, 0, 3.5, -7.2, 28, 7, 0.4, '#454a52');
-    for (let i = -6; i <= 6; i++) propBox(p, i * 2, 3.5, -6.95, 0.26, 7, 0.22, '#363a41');
-    propBox(p, 0, 1.7, -6.9, 5, 3.4, 0.16, '#6b727c');
-    for (let i = 0; i < 9; i++) propBox(p, 0, 0.2 + i * 0.38, -6.78, 5, 0.04, 0.06, '#4b5159');
-    propBox(p, -11.2, 3.5, -1, 0.4, 7, 17, '#3e434a'); propBox(p, 11.2, 3.5, -1, 0.4, 7, 17, '#3e434a');
-    for (const x of [-4, 0, 4]) { propCyl(p, x, 6.2, -1, 0.04, 1.6, '#222'); propBox(p, x, 5.4, -1, 1.3, 0.16, 0.5, '#fff1c4', { e: 1.4 }); }
-    propCyl(p, -9.3, 0.5, -6.0, 0.8, 1.0, '#a3361f'); propCyl(p, -8.4, 0.5, -6.3, 0.8, 1.0, '#2d5a8c'); propCyl(p, 9.4, 0.5, -6.0, 0.8, 1.0, '#a3361f'); propCyl(p, 8.5, 0.5, -6.3, 0.8, 1.0, '#6b6f78');
-    propBox(p, -10.3, 1.3, -4.5, 0.12, 2.6, 0.12, '#59606b'); propBox(p, -10.3, 1.3, -1.5, 0.12, 2.6, 0.12, '#59606b');
-    for (let i = 0; i < 3; i++) propBox(p, -10.3, 0.5 + i * 0.9, -3, 0.5, 0.08, 3.4, '#6f7782');
-    propBox(p, -10.2, 0.85, -3.8, 0.45, 0.55, 0.7, '#8a5f30'); propBox(p, -10.2, 1.75, -2.2, 0.45, 0.55, 0.7, '#8a5f30');
+    propBox(p, 0, 3.5, -7.4, 30, 7, 0.4, '#454a52');
+    for (let i = -7; i <= 7; i++) propBox(p, i * 2, 3.5, -7.15, 0.26, 7, 0.22, '#363a41');
+    propBox(p, 1.5, 1.7, -7.08, 5, 3.4, 0.16, '#6b727c');
+    for (let i = 0; i < 9; i++) propBox(p, 1.5, 0.2 + i * 0.38, -6.96, 5, 0.04, 0.06, '#4b5159');
+    propBox(p, -12.4, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a'); propBox(p, 12.4, 3.5, -0.4, 0.4, 7, 15.2, '#3e434a');
+    for (const x of [-8, -4, 0, 4, 8]) { propCyl(p, x, 6.2, -1, 0.04, 1.6, '#222'); propBox(p, x, 5.4, -1, 1.3, 0.16, 0.5, '#fff1c4', { e: 1.4 }); }
+    propBox(p, -12.1, 1.9, 3.75, 0.12, 3.8, 3.6, '#6b727c');   // the loading-bay door above the dock
+    for (let i = 0; i < 9; i++) propBox(p, -12.0, 0.2 + i * 0.4, 3.75, 0.05, 0.04, 3.6, '#4b5159');
+    propCyl(p, -11.0, 0.5, -6.95, 0.8, 1.0, '#a3361f'); propCyl(p, -8.8, 0.5, -6.95, 0.8, 1.0, '#2d5a8c'); propCyl(p, 2.5, 0.5, -6.95, 0.8, 1.0, '#6b6f78');   // barrels and pallets stand behind the back line (no collider): nobody can reach them
+    for (let i = 0; i < 3; i++) propBox(p, 4.2 + i * 0.9, 0.12, -6.95, 0.7, 0.24, 0.9, '#8a5f30');
   } else if (id === 'dojo') {
-    propBox(p, 0, 3.0, -7.0, 24, 6, 0.4, '#5d4129');
-    for (let i = 0; i < 6; i++) { propBox(p, -7.5 + i * 3, 2.4, -6.75, 2.0, 2.4, 0.08, '#fff0c8', { e: 0.55 }); propBox(p, -7.5 + i * 3, 2.4, -6.7, 0.07, 2.4, 0.1, '#3a2616'); propBox(p, -7.5 + i * 3, 2.4, -6.7, 2.0, 0.07, 0.1, '#3a2616'); }
-    propBox(p, 0, 5.0, -6.7, 24, 0.3, 0.5, '#2f2014'); propBox(p, 0, 0.5, -6.75, 24, 1.0, 0.3, '#47301d');
-    propBox(p, -10.6, 3.0, -1, 0.4, 6, 16, '#4c3523'); propBox(p, 10.6, 3.0, -1, 0.4, 6, 16, '#4c3523');
-    propBox(p, 0, 3.2, -6.5, 1.3, 3.1, 0.06, '#a3182a'); propBox(p, 0, 3.7, -6.45, 0.7, 0.14, 0.04, '#f4f0e6'); propBox(p, 0, 3.2, -6.45, 0.14, 1.2, 0.04, '#f4f0e6');
-    for (const sx of [-1, 1]) { for (const z of [-5.6, 4.8]) propBox(p, sx * 8.6, 2.5, z, 0.45, 5, 0.45, '#2b1b10'); propCyl(p, sx * 6, 3.55, -4.2, 0.03, 0.9, '#222'); propSph(p, sx * 6, 2.9, -4.2, 0.38, '#ff9a3c', { e: 1.2 }); }
-    propBox(p, -9, 1.0, -4, 0.1, 1.6, 2.6, '#3a2616'); for (let i = 0; i < 3; i++) propCyl(p, -8.8, 1.1, -4.9 + i * 0.9, 0.08, 1.6, '#c9a46a');
+    propBox(p, 0, 3.0, -6.8, 24, 6, 0.4, '#d5dae0');
+    propBox(p, 0, 0.5, -6.55, 24, 1.0, 0.3, '#2b3a4a');
+    for (const x of [-9.2, -6.4]) propBox(p, x, 2.4, -6.57, 2.4, 2.2, 0.05, '#b9ccdc', { e: 0.3 });   // mirror strips
+    propBox(p, -10.6, 3.0, -0.4, 0.4, 6, 14, '#cfd4da'); propBox(p, 10.6, 3.0, -0.4, 0.4, 6, 14, '#cfd4da');
+    propBox(p, 0, 3.2, -6.5, 1.6, 2.6, 0.06, '#a3182a'); propBox(p, 0, 3.7, -6.45, 0.7, 0.14, 0.04, '#f4f0e6'); propBox(p, 0, 3.2, -6.45, 0.14, 1.2, 0.04, '#f4f0e6');
+    for (const x of [-6, -2, 2, 6]) { propBox(p, x, 4.7, -1, 3.0, 0.08, 0.3, '#f4faff', { e: 1.7 }); propCyl(p, x - 1.2, 5.3, -1, 0.03, 1.2, '#222'); propCyl(p, x + 1.2, 5.3, -1, 0.03, 1.2, '#222'); }   // fluorescent strips
+    for (const z of [-5.6, 4.8]) propBox(p, -10.3, 2.5, z, 0.45, 5, 0.45, '#9aa3ad');
   } else {
-    propBox(p, 0, 2.0, -7.2, 26, 4, 0.5, '#26272c'); propBox(p, -10.5, 2.0, -1, 0.5, 4, 17, '#26272c'); propBox(p, 10.5, 2.0, -1, 0.5, 4, 17, '#26272c');
-    for (let i = -10; i <= 10; i++) propCyl(p, i * 1.2, 4.55, -6.8, 0.06, 1.1, '#1a1a1e');
-    propBox(p, 0, 5.1, -6.8, 26, 0.08, 0.08, '#1a1a1e');
-    propBox(p, 0, 4.0, -8.6, 26, 0.5, 3, '#1b1b1f');
-    for (let i = 0; i < 26; i++) {
-      const x = -11 + i * 0.9;
-      propCyl(p, x, 5.0, -8.3 - (i % 2) * 0.5, 0.42, 0.9, i % 3 ? '#0f0f12' : '#17141a', { bob: 0.05 + (i % 5) * 0.012, ph: i * 1.7 });
-      propSph(p, x, 5.65, -8.3 - (i % 2) * 0.5, 0.13, '#0d0d10', { bob: 0.05 + (i % 5) * 0.012, ph: i * 1.7 });
+    propBox(p, 0, 2.0, -7.5, 30, 4, 0.5, '#26272c'); propBox(p, -11.0, 2.0, -0.5, 0.5, 4, 17, '#26272c'); propBox(p, 11.0, 2.0, -0.5, 0.5, 4, 17, '#26272c');
+    propBox(p, 0, 3.2, -7.1, 22, 0.28, 0.28, '#5a5f66'); propBox(p, 0, 2.6, -7.1, 22, 0.2, 0.2, '#4a4f56');   // the boiler wall's pipes
+    for (const x of [-9, -4, 3, 9]) propCyl(p, x, 1.6, -7.05, 0.3, 3.2, '#4a4f56');
+    for (let i = -12; i <= 12; i++) propCyl(p, i * 1.2, 4.55, -7.0, 0.06, 1.1, '#1a1a1e');
+    propBox(p, 0, 5.1, -7.0, 30, 0.08, 0.08, '#1a1a1e');
+    propBox(p, 0, 4.0, -8.9, 30, 0.5, 3, '#1b1b1f');
+    for (let i = 0; i < 30; i++) {
+      const x = -13 + i * 0.9;
+      propCyl(p, x, 5.0, -8.6 - (i % 2) * 0.5, 0.42, 0.9, i % 3 ? '#0f0f12' : '#17141a', { bob: 0.05 + (i % 5) * 0.012, ph: i * 1.7 });
+      propSph(p, x, 5.65, -8.6 - (i % 2) * 0.5, 0.13, '#0d0d10', { bob: 0.05 + (i % 5) * 0.012, ph: i * 1.7 });
     }
     for (const x of [-6, 0, 6]) { propBox(p, x, 6.5, -2, 0.7, 0.3, 0.7, '#e8f0ff', { e: 2.0 }); propCyl(p, x, 7.3, -2, 0.04, 1.4, '#111'); }
-    for (const sx of [-1, 1]) { propCyl(p, sx * 8.4, 0.5, -4.2, 0.8, 1.0, '#3a2a22'); propSph(p, sx * 8.4, 1.05, -4.2, 0.3, '#ff7a1a', { e: 2.2, flicker: true }); }
+    propBox(p, 10.8, 3.7, -5.0, 0.1, 2.2, 1.4, '#c7b98a', { e: 0.5 });   // the street door above the landing
   }
   return p;
 }
@@ -2718,7 +2768,7 @@ function stageFor(o) {
 function makeObject(def, rng) {
   const mat = MATERIALS[def.mat];
   const cracks = [];
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < (def.fixed ? 0 : 16); i++) {
     cracks.push({ face: Math.floor(rng() * 4), u: (rng() - 0.5) * 1.5, v: 0.1 + rng() * 0.8, len: 0.18 + rng() * 0.32, ang: (rng() - 0.5) * 2.4, minStage: 1 + Math.floor(i / 6) });
   }
   const o = {
@@ -2728,32 +2778,93 @@ function makeObject(def, rng) {
     stage: 0, destroyed: false, phase: 'intact', phaseTimer: 0,
     wob: 0, wobPhase: 0, lastSrc: -1, lastImpactTick: -99,
     cracks, collider: null, rubble: null,
+    base: def.y || 0, on: def.on || '', weak: def.weak || 0, fixed: !!def.fixed, step: !!def.step, span: def.span || null, tiers: def.tiers || 0, load: 0, creak: 0, brokeAt: 0, d2: 0, far: false, hide: false,   // P8: standing height, rests on, weight that breaks it, takes no damage
   };
   const thin = def.type === 'panel' || def.type === 'rail';
+  const deck = def.type === 'deck';
   o.collider = {
-    x: def.x, z: def.z, hx: def.hx, hz: def.hz, top: def.h,
-    standable: def.type === 'box' && def.h <= 1.05 && def.h >= 0.8, active: true, obj: o, temp: false, timer: 0, thin,
+    x: def.x, z: def.z, hx: def.hx, hz: def.hz, top: o.base + def.h, base: o.base,
+    standable: deck || (def.type === 'box' && !o.base && def.h <= 1.05 && def.h >= 0.8), up: def.step ? STAIR_UP : 0.25, deck, active: true, obj: o, temp: false, timer: 0, thin,
   };
   return o;
 }
 
+/* ---------- shared level generators (P8-04; Appendix C "Levels", data shape) ----------
+   A level lists plain `objects` and `builds` rows that builtOf() expands once into more objects (ids "<id>.<n>") and the stair records the CPU walks:
+   ['stair', id, x, z, dir, width, from, top, mat, look, on]: steps from height `from` to `top`, the foot at (x, z), climbing toward dir (0 = +z, 1 = +x, 2 = -z, 3 = -x); a step is a deck of STAIR_RISE
+     (exactly the step-up tolerance of resolveFighter) and STAIR_RUN, or RAMP_RISE / RAMP_RUN for the `ramp` look; `on` = the id of what the stair rests on (it falls with it);
+   ['scaffold', id, x, z, bays, tiers, side]: bays of SCAFFOLD_BAY side by side from the front edge (x, z) toward +x, each with one steel standard in front (strike it down and the bay's tiers fall: they rest `on` it)
+     and one weak wood deck per tier (tier k at k x SCAFFOLD_TIER, stepped back one bay depth each, so the tiers are terraced); a stair on the `side` end (-1 west, 1 east) leads up to each tier. */
+const STAIR_RISE = 0.25, STAIR_RUN = 0.35, RAMP_RISE = 0.2, RAMP_RUN = 0.6;
+const STAIR_DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+const SUPPORT_BASE_SLACK = 1.2;      // m: an object whose base is higher than this above a fighter's feet (a rail on the deck over its head) does not collide with it
+const NAV_CELL = STAIR_RUN, NAV_BODY = 0.34, NAV_STEP = 0.3, NAV_JUMP = 1.05, NAV_JUMP_COST = 40;   // CPU walking map: a cell is one stair step wide; a step up or down of NAV_STEP is a walk, a ledge up to NAV_JUMP a jump
+const NAV_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
+const STAIR_UP = 0.5;                 // m: a step may be stood on from this far below its top (one step of slack, so a fast climb never snags on the step after next)
+const STAIR_APPROACH = 0.45;          // m: the CPU's first waypoint lies this far before the foot
+/* Box looks (P8; the sheet's new looks): [share of the height the plain block is drawn at (0 = bare), parts...]; a part is [shape (0 cube, 1 cylinder), x, y, z, width, height, depth, colour, glow]
+   with x and z as shares of the half size (-1 to 1), y as a share of the height, and the size as shares of the full width, height and depth. */
+const LOOKS = {
+  dumpster: [1, [0, 0, 1, 0, 1.06, 0.07, 1.08, '#1d2a21'], [0, 0, 0.5, 1.02, 0.92, 0.1, 0.03, '#d6b32a'], [0, -1.02, 0.5, 0, 0.03, 0.8, 0.9, '#2c3b30']],
+  vending: [1, [0, 0, 0.62, 1.01, 0.8, 0.55, 0.03, '#d8ecff', 0.8], [0, 0, 0.14, 1.01, 0.8, 0.14, 0.03, '#15181c'], [0, 0, 0.96, 1.01, 1.02, 0.08, 0.04, '#b32a2a']],
+  speaker: [1, [0, 0, 0.3, 1.01, 0.72, 0.32, 0.03, '#151515'], [0, 0, 0.72, 1.01, 0.72, 0.32, 0.03, '#151515'], [0, 0, 1, 0, 1.04, 0.04, 1.04, '#202020']],
+  table: [0, [0, 0, 1, 0, 1.12, 0.08, 1.2, '#a87846'], [0, -0.85, 0.46, -0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, 0.85, 0.46, -0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, -0.85, 0.46, 0.7, 0.1, 0.92, 0.28, '#5b3b1c'], [0, 0.85, 0.46, 0.7, 0.1, 0.92, 0.28, '#5b3b1c']],
+  sofa: [0.55, [0, 0, 0.62, 0, 0.9, 0.12, 0.85, '#7a4a3a'], [0, 0, 0.82, -0.8, 1, 0.5, 0.25, '#66392c'], [0, -0.92, 0.7, 0, 0.1, 0.45, 1, '#66392c'], [0, 0.92, 0.7, 0, 0.1, 0.45, 1, '#66392c']],
+  container: [1, [0, -0.8, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, -0.4, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0.4, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0.8, 0.5, 1.01, 0.04, 0.96, 0.02, '#74281a'], [0, 0, 1, 0, 1.02, 0.03, 1.02, '#5a1f14']],
+  lockers: [1, [0, -1.01, 0.5, -0.33, 0.04, 0.94, 0.012, '#2a323a'], [0, -1.01, 0.5, 0.33, 0.04, 0.94, 0.012, '#2a323a'], [0, -1.01, 0.62, -0.18, 0.06, 0.05, 0.03, '#d8d8d8'], [0, -1.01, 0.62, 0.48, 0.06, 0.05, 0.03, '#d8d8d8'], [0, -1.01, 0.9, 0, 0.03, 0.04, 0.9, '#20272e']],
+  rack: [0, [0, -0.93, 0.5, -0.96, 0.08, 1, 0.03, '#d1721f'], [0, 0.93, 0.5, -0.96, 0.08, 1, 0.03, '#d1721f'], [0, -0.93, 0.5, 0.96, 0.08, 1, 0.03, '#d1721f'], [0, 0.93, 0.5, 0.96, 0.08, 1, 0.03, '#d1721f'], [0, 0, 0.26, 0, 0.96, 0.03, 0.98, '#3d4650'], [0, 0, 0.58, 0, 0.96, 0.03, 0.98, '#3d4650'], [0, 0, 0.9, 0, 0.96, 0.03, 0.98, '#3d4650'], [0, -0.1, 0.34, -0.4, 0.6, 0.12, 0.2, '#8a5f30'], [0, 0.1, 0.66, 0.35, 0.6, 0.12, 0.2, '#6f7a85']],
+};
+const RUBBLE_MARGIN = 0.2;            // m: a pile of concrete or brick rubble reaches this far beyond the footprint of what broke
+const DECK_PIECES_MAX = 16;           // pieces a collapsing deck can throw at most (the preset's Quality.limits.pieces cuts it further)
+const SCAFFOLD_BAY = [2.0, 1.2], SCAFFOLD_TIER = 1.5, SCAFFOLD_WEAK = 3, SCAFFOLD_STANDARD_HP = 0.5, SCAFFOLD_STAIR_WIDTH = 1.0;
+const BUILT = {};
+function builtOf(def) {
+  if (BUILT[def.id]) return BUILT[def.id];
+  const objects = def.objects.slice(), stairs = [];
+  const addStair = (id, x, z, dir, width, from, top, mat, look, on) => {
+    const ramp = look === 'ramp', rise = ramp ? RAMP_RISE : STAIR_RISE, run = ramp ? RAMP_RUN : STAIR_RUN, count = Math.round((top - from) / rise), [dx, dz] = STAIR_DIRS[dir];
+    for (let i = 1; i <= count; i++) {
+      const along = (i - 0.5) * run;
+      objects.push({ id: id + '.' + i, type: 'deck', look, mat, step: 1, fixed: 1, on, x: x + dx * along, z: z + dz * along, hx: dx ? run / 2 : width / 2, hz: dx ? width / 2 : run / 2, h: from + i * rise });
+    }
+    const len = count * run;
+    stairs.push({ id, dir, dx, dz, width, from, top, len, x, z, ax: x - dx * STAIR_APPROACH, az: z - dz * STAIR_APPROACH, bx: x + dx * (len - run / 2), bz: z + dz * (len - run / 2) });
+  };
+  for (const [kind, id, x, z, a, b, c, d, e, f, g] of def.builds || []) {
+    if (kind === 'stair') { addStair(id, x, z, a, b, c, d, e, f, g); continue; }
+    const bays = a, tiers = b, side = c, [bayW, bayD] = SCAFFOLD_BAY, sx = side < 0 ? x - 0.5 : x + bays * bayW + 0.5, sideDeck = (t) => id + '.t' + (side < 0 ? 0 : bays - 1) + '.' + t;
+    for (let n = 0; n < bays; n++) {
+      const bx = x + n * bayW, standard = id + '.s' + n;
+      objects.push({ id: standard, type: 'scaffold', mat: 'metal', hpMul: SCAFFOLD_STANDARD_HP, x: bx + bayW / 2, z: z + 0.15, hx: 0.1, hz: 0.1, h: tiers * SCAFFOLD_TIER + 1, span: [bx, z, bayW, bayD], tiers });
+      for (let t = 1; t <= tiers; t++) objects.push({ id: id + '.t' + n + '.' + t, type: 'deck', look: 'boards', mat: 'wood', weak: SCAFFOLD_WEAK, on: standard, x: bx + bayW / 2, z: z - (t - 1) * bayD - bayD / 2, hx: bayW / 2, hz: bayD / 2, h: t * SCAFFOLD_TIER });
+    }
+    for (let t = 1; t <= tiers; t++) addStair(id + '.u' + t, sx, z + 1.75 - 2.1 * (t - 1), 2, SCAFFOLD_STAIR_WIDTH, (t - 1) * SCAFFOLD_TIER, t * SCAFFOLD_TIER, 'metal', 'grate', t > 1 ? sideDeck(t - 1) : '');
+  }
+  return (BUILT[def.id] = { objects, stairs });
+}
+
 const Arena = {
-  def: null, objects: [], colliders: [], props: [], time: 0, rng: makeRng(7), propCache: {},
+  def: null, objects: [], colliders: [], props: [], time: 0, rng: makeRng(7), propCache: {}, stairs: [], collapses: [], dy: 0, lodTick: 0, nav: null, navVersion: 0,
   build(def) {
     this.def = def;
     this.rng = makeRng(0x9e3779b1 ^ def.id.length * 977);
-    this.objects = def.objects.map((d) => makeObject(d, this.rng));
+    const built = builtOf(def);
+    this.objects = built.objects.map((d) => makeObject(d, this.rng));
+    this.stairs = built.stairs;
+    this.collapses.length = 0;
+    this.navVersion++;
     this.colliders = this.objects.map((o) => o.collider);
     this.props = this.propCache[def.id] || (this.propCache[def.id] = buildProps(def.id));
     this.time = 0;
     Debris.clear();
     FX.clear();
+    this.navMap();   // the CPU's walking map is made with the level, not in the middle of a fight
   },
   reset() { this.build(this.def); },
   statusCounts() {
     let intact = 0, damaged = 0, destroyed = 0;
-    for (const o of this.objects) { if (o.destroyed) destroyed++; else if (o.stage > 0) damaged++; else intact++; }
-    return { intact, damaged, destroyed, total: this.objects.length };
+    for (const o of this.objects) { if (o.fixed) continue; if (o.destroyed) destroyed++; else if (o.stage > 0) damaged++; else intact++; }
+    return { intact, damaged, destroyed, total: intact + damaged + destroyed };
   },
 
   update(dt) {
@@ -2766,14 +2877,14 @@ const Arena = {
         if (o.phase === 'settling' && o.phaseTimer > 4) { o.phase = 'cleanup'; Events.emit('objPhase', { obj: o, phase: 'cleanup' }); }
       }
       const c = o.rubble;
-      if (c && c.timer > 0) { c.timer -= dt; if (c.timer <= 0) { c.top = Math.min(c.top, 0.2); c.temp = false; } }
+      if (c && c.timer > 0) { c.timer -= dt; if (c.timer <= 0) { c.top = Math.min(c.top, 0.2); c.temp = false; this.navVersion++; } }   // the pile sinks: the walking map changes
     }
   },
 
   /* ----- damage ----- */
   /* by: index of the fighter credited with the damage (undefined = nobody). */
   damageObject(o, raw, cat, srcId, dirx, dirz, px, py, pz, by) {
-    if (o.destroyed) return false;
+    if (o.destroyed || o.fixed) return false;
     if (srcId !== undefined && o.lastSrc === srcId) return false;
     o.lastSrc = srcId;
     const mat = MATERIALS[o.mat];
@@ -2796,54 +2907,99 @@ const Arena = {
     o.hp = 0;
     o.phase = 'destroyed';
     o.phaseTimer = 0;
+    o.brokeAt = this.time;
     o.collider.active = false;
+    this.navVersion++;
     Debris.wake(o.collider);
-    const mat = o.mat;
+    const mat = o.mat, kind = kindOf(mat);
     const rng = simRng;
-    const cx = o.x, cz = o.z;
-    if (mat === 'wood') {
+    const cx = o.x, cz = o.z, base = o.base;
+    const shade = mat === 'concrete' ? ['#8d9096', '#6f7279'] : [o.color, MATERIALS[mat].dark];
+    if (o.type === 'deck') this.breakDeck(o, dirx, dirz);
+    else if (kind === 'wood') {
       for (let i = 0; i < 9; i++) {
         const plank = i < 6;
         const sx = plank ? 0.55 + rng() * 0.35 : 0.16 + rng() * 0.1;
-        Debris.spawn('wood', cx + (rng() - 0.5) * o.hx * 1.4, 0.15 + rng() * o.h * 0.8, cz + (rng() - 0.5) * o.hz * 1.4,
+        Debris.spawn('wood', cx + (rng() - 0.5) * o.hx * 1.4, base + 0.15 + rng() * o.h * 0.8, cz + (rng() - 0.5) * o.hz * 1.4,
           (rng() - 0.5) * 4 + dirx * 2.2, 2 + rng() * 3.2, (rng() - 0.5) * 4 + dirz * 2.2, sx, plank ? 0.08 : 0.16, plank ? 0.17 : 0.16, o.color, 1);
       }
       this.addRubble(o, 0.22, 0.6, 0);
-    } else if (mat === 'concrete') {
+    } else if (kind === 'concrete') {
       for (let i = 0; i < 8; i++) {
         const s = 0.18 + rng() * 0.26;
-        Debris.spawn('concrete', cx + (rng() - 0.5) * o.hx * 1.6, 0.2 + rng() * Math.min(o.h, 2) * 0.6, cz + (rng() - 0.5) * o.hz * 1.6,
-          (rng() - 0.5) * 4.5 + dirx * 2, 1.5 + rng() * 3, (rng() - 0.5) * 4.5 + dirz * 2, s, s * 0.8, s * 0.9, i % 2 ? '#8d9096' : '#6f7279', 1);
+        Debris.spawn('concrete', cx + (rng() - 0.5) * o.hx * 1.6, base + 0.2 + rng() * Math.min(o.h, 2) * 0.6, cz + (rng() - 0.5) * o.hz * 1.6,
+          (rng() - 0.5) * 4.5 + dirx * 2, 1.5 + rng() * 3, (rng() - 0.5) * 4.5 + dirz * 2, s, s * 0.8, s * 0.9, i % 2 ? shade[0] : shade[1], 1);
       }
-      this.addRubble(o, 0.55, Math.max(o.hx, 0.5) * 1.5, 14);
-    } else if (mat === 'metal') {
+      this.addRubble(o, 0.55, o.hx + RUBBLE_MARGIN, 14, o.hz + RUBBLE_MARGIN);   // the pile is as wide as the object was, not a 3 m square (audit D17)
+    } else if (kind === 'metal') {
       const len = o.axis === 'z' ? o.hz : o.hx;
       for (let i = 0; i < 5; i++) {
         const t = (rng() - 0.5) * len * 1.6;
         const px = o.axis === 'z' ? cx : cx + t, pz = o.axis === 'z' ? cz + t : cz;
         const rod = i < 3;
-        Debris.spawn('metal', px, 0.5 + rng() * 0.7, pz, (rng() - 0.5) * 3 + dirx * 1.5, 1.5 + rng() * 2, (rng() - 0.5) * 3 + dirz * 1.5,
+        Debris.spawn('metal', px, base + 0.5 + rng() * 0.7, pz, (rng() - 0.5) * 3 + dirx * 1.5, 1.5 + rng() * 2, (rng() - 0.5) * 3 + dirz * 1.5,
           rod ? 0.05 : 0.07, rod ? 0.9 + rng() * 0.5 : 0.7, rod ? 0.05 : 0.07, '#8b95a3', 1);
       }
     } else {
-      const glass = mat === 'glass';
+      const glass = kind === 'glass';
       const n = glass ? 26 : 16;
       const len = o.axis === 'z' ? o.hz : o.hx;
       for (let i = 0; i < n; i++) {
-        const t = (rng() - 0.5) * len * 2, y = 0.1 + rng() * o.h;
+        const t = (rng() - 0.5) * len * 2, y = base + 0.1 + rng() * o.h;
         const px = o.axis === 'z' ? cx : cx + t, pz = o.axis === 'z' ? cz + t : cz;
         const s = glass ? 0.05 + rng() * 0.1 : 0.12 + rng() * 0.1;
-        Debris.spawn(mat, px, y, pz, (rng() - 0.5) * 2.5 + dirx * 1.6, 0.5 + rng() * 2.2, (rng() - 0.5) * 2.5 + dirz * 1.6, s, glass ? s : 0.012, glass ? s * 1.3 : s * 1.4, glass ? '#bfe6ff' : '#f1e6c4', glass ? 0.6 : 1);
+        Debris.spawn(kind, px, y, pz, (rng() - 0.5) * 2.5 + dirx * 1.6, 0.5 + rng() * 2.2, (rng() - 0.5) * 2.5 + dirz * 1.6, s, glass ? s : 0.012, glass ? s * 1.3 : s * 1.4, mat === 'glass' ? '#bfe6ff' : mat === 'paper' ? '#f1e6c4' : o.color, mat === 'glass' ? 0.6 : 1);
       }
     }
-    FX.dust(cx, 0.4, cz, mat === 'concrete' ? 14 : 8, o.hx + 0.3, mat === 'glass' || mat === 'metal' ? '#c9d3e0' : '#a89a86');
-    FX.sparks(cx, o.h * 0.5, cz, 10, 4, mat === 'metal' ? '#ffd78a' : '#ffffff');
+    FX.dust(cx, base + 0.4, cz, kind === 'concrete' ? 14 : 8, o.hx + 0.3, kind === 'glass' || kind === 'metal' ? '#c9d3e0' : '#a89a86');
+    FX.sparks(cx, base + o.h * 0.5, cz, 10, 4, kind === 'metal' ? '#ffd78a' : '#ffffff');
     Camera.impact(0.9, 0.8);
-    Events.emit('objBreak', { obj: o, mat, x: cx, y: o.h * 0.5, z: cz, by });
+    Events.emit('objBreak', { obj: o, mat, x: cx, y: base + o.h * 0.5, z: cz, by });
+    this.dropSupported(o, dirx, dirz, by);
   },
 
-  addRubble(o, top, half, timer) {
-    const c = { x: o.x, z: o.z, hx: half, hz: half, top, standable: true, active: true, obj: null, temp: timer > 0, timer, thin: false };
+  /* A deck, step or tier breaks (P8-04): its boards, plates or chunks fall over the whole footprint and it leaves a low heap of rubble the size of the deck; the preset's piece budget
+     (Quality.limits.pieces) limits how many are thrown, the random numbers are drawn for all of them so every preset plays the same. The fighters on it fall through the normal fall path (the collider is gone),
+     and what lies beside it takes the crush of the falling piece (MatchSim.stepCollapse reads the record). */
+  breakDeck(o, dirx, dirz) {
+    const kind = kindOf(o.mat), rng = simRng, cap = Quality.limits.pieces, count = clamp(Math.round(o.hx * o.hz * 4.8), 3, DECK_PIECES_MAX);
+    const plank = kind === 'wood', color = o.mat === 'concrete' ? '#8d9096' : o.color;
+    for (let i = 0; i < count; i++) {
+      const px = o.x + (rng() - 0.5) * o.hx * 1.8, pz = o.z + (rng() - 0.5) * o.hz * 1.8, py = o.h - 0.1 - rng() * 0.2;
+      const vx = (rng() - 0.5) * 3 + dirx * 1.5, vy = rng() * 2, vz = (rng() - 0.5) * 3 + dirz * 1.5, size = plank ? 0.5 + rng() * 0.5 : 0.2 + rng() * 0.3;
+      if (i >= cap) continue;
+      if (plank) Debris.spawn('wood', px, py, pz, vx, vy, vz, size, 0.08, 0.17, color, 1);
+      else if (kind === 'metal') Debris.spawn('metal', px, py, pz, vx, vy, vz, 0.07, size * 1.4, 0.07, color, 1);
+      else Debris.spawn(kind, px, py, pz, vx, vy, vz, size, size * 0.7, size * 0.8, color, 1);
+    }
+    this.addRubble(o, kind === 'concrete' ? 0.55 : 0.22, o.hx, 0, o.hz);
+    if (!o.step && this.collapses.length < COLLAPSE_QUEUE_MAX) this.collapses.push({ x: o.x, z: o.z, hx: o.hx, hz: o.hz, drop: o.h });
+  },
+
+  /* The weak deck f stands on (or null): its top is f's footing and f is over its footprint. */
+  weakDeckUnder(f) {
+    for (let i = 0; i < this.objects.length; i++) {
+      const o = this.objects[i], c = o.collider;
+      if (o.weak && !o.destroyed && Math.abs(c.top - f.groundY) < 0.01 && Math.abs(f.x - c.x) <= c.hx + 0.1 && Math.abs(f.z - c.z) <= c.hz + 0.1) return o;
+    }
+    return null;
+  },
+  /* A thrown or knocked-down fighter lands hard on a weak deck: an impact on the deck (P9 rule R7). */
+  landOn(f, match) {
+    const o = this.weakDeckUnder(f);
+    if (o) this.damageObject(o, DECK_LAND_RAW, 'impact', IMPACT_SRC_BASE - f.flightId * 8 - 9, 0, 0, f.x, f.y, f.z, match.foeIndex(f));
+  },
+
+  /* Everything that rests on o falls with it (P9 rule R6, shared with the decks): speakers on a stage, the tiers of a scaffold bay, the steps of a stair on a tier. */
+  dropSupported(o, dirx, dirz, by) {
+    for (let i = 0; i < this.objects.length; i++) {
+      const q = this.objects[i];
+      if (q.on === o.id && !q.destroyed) this.breakObject(q, dirx, dirz, by);
+    }
+  },
+
+  addRubble(o, top, half, timer, halfZ) {
+    const c = { x: o.x, z: o.z, hx: half, hz: halfZ === undefined ? half : halfZ, top, standable: true, active: true, obj: null, temp: timer > 0, timer, thin: false };
     this.colliders.push(c);
     o.rubble = c;
   },
@@ -2855,7 +3011,7 @@ const Arena = {
     for (const o of this.objects) {
       if (o.destroyed) continue;
       const c = o.collider;
-      if (y - r > c.top + 0.1) continue;
+      if (y - r > c.top + 0.1 || y + r < c.base - 0.1 || (c.deck && y > c.top - 0.05)) continue;   // a deck is hit from its side or below, never by a strike thrown from on top of it
       const nx = clamp(x, c.x - c.hx, c.x + c.hx), nz = clamp(z, c.z - c.hz, c.z + c.hz);
       const dx = x - nx, dz = z - nz;
       if (dx * dx + dz * dz > r * r) continue;
@@ -2873,20 +3029,113 @@ const Arena = {
     return best;
   },
   /* True when a straight walk from (x1,z1) to (x2,z2) is blocked by a solid obstacle (used by AI routing). */
-  pathBlocked(x1, z1, x2, z2, radius) {
+  pathBlocked(x1, z1, x2, z2, radius, y) {
     const steps = 8;
     for (let i = 1; i <= steps; i++) {
       const t = i / steps, x = lerp(x1, x2, t), z = lerp(z1, z2, t);
       for (const c of this.colliders) {
-        if (!c.active || c.top <= STEP_HEIGHT) continue;
+        if (!c.active || c.top <= STEP_HEIGHT || this.walkable(c, y)) continue;
         if (Math.abs(x - c.x) < c.hx + radius && Math.abs(z - c.z) < c.hz + radius) return true;
       }
     }
     return false;
   },
-  blockedAt(x, z, radius) {
+  /* The CPU's walking map (P8-04): the level on a grid of NAV cells as wide as a stair step. foot = the highest standable surface under a cell's centre, ok = a body fits there at that height (no obstacle taller than
+     it can step over within a body radius). Rebuilt when something breaks or the hazard posts change (navVersion). */
+  navMap() {
+    if (this.nav && this.nav.version === this.navVersion) return this.nav;
+    const b = this.def.bounds, nx = Math.ceil(2 * b.x / NAV_CELL), nz = Math.ceil(2 * b.z / NAV_CELL), n = nx * nz, r = NAV_BODY;
+    const nav = this.nav && this.nav.n === n ? this.nav : { n, nx, nz, foot: new Float32Array(n), ok: new Uint8Array(n), dist: new Float32Array(n), prev: new Int32Array(n), heapKey: new Float32Array(n * 9), heapNode: new Int32Array(n * 9) };
+    nav.version = this.navVersion; nav.cw = 2 * b.x / nx; nav.ch = 2 * b.z / nz; nav.bx = b.x; nav.bz = b.z;
+    for (let j = 0; j < nz; j++) {
+      for (let i = 0; i < nx; i++) {
+        const x = -b.x + (i + 0.5) * nav.cw, z = -b.z + (j + 0.5) * nav.ch;
+        let h = 0;
+        for (const c of this.colliders) if (c.active && (c.standable || c.top <= STEP_HEIGHT) && Math.abs(x - c.x) <= c.hx + 0.1 && Math.abs(z - c.z) <= c.hz + 0.1 && c.top > h) h = c.top;
+        let fits = Math.abs(x) <= b.x - r && Math.abs(z) <= b.z - r;
+        for (let k = 0; fits && k < this.colliders.length; k++) {
+          const c = this.colliders[k];
+          if (!c.active || c.top <= STEP_HEIGHT || c.base > h + SUPPORT_BASE_SLACK || (c.standable && c.top <= h + NAV_JUMP)) continue;   // a ledge it can step or jump onto is no wall: a body may stand against it
+          const dx = x - clamp(x, c.x - c.hx, c.x + c.hx), dz = z - clamp(z, c.z - c.hz, c.z + c.hz);
+          if (dx * dx + dz * dz < r * r) fits = false;
+        }
+        nav.foot[j * nx + i] = h; nav.ok[j * nx + i] = fits ? 1 : 0;
+      }
+    }
+    return (this.nav = nav);
+  },
+  navCell(nav, x, z) { return clamp(Math.floor((z + nav.bz) / nav.ch), 0, nav.nz - 1) * nav.nx + clamp(Math.floor((x + nav.bx) / nav.cw), 0, nav.nx - 1); },
+  /* The free cell nearest (x, z) within two cells whose surface is within a step of foot; -1 when there is none. */
+  navNear(nav, x, z, foot) {
+    const ci = clamp(Math.floor((x + nav.bx) / nav.cw), 0, nav.nx - 1), cj = clamp(Math.floor((z + nav.bz) / nav.ch), 0, nav.nz - 1);
+    let best = -1, bestD = Infinity;
+    for (let j = Math.max(0, cj - 2); j <= Math.min(nav.nz - 1, cj + 2); j++) {
+      for (let i = Math.max(0, ci - 2); i <= Math.min(nav.nx - 1, ci + 2); i++) {
+        const c = j * nav.nx + i;
+        if (!nav.ok[c] || Math.abs(nav.foot[c] - foot) > NAV_STEP) continue;
+        const d = (i - ci) * (i - ci) + (j - cj) * (j - cj);
+        if (d < bestD) { bestD = d; best = c; }
+      }
+    }
+    return best;
+  },
+  /* Cost of a move between neighbouring cells, 0 when there is none: a walk (a step of up to NAV_STEP), a jump up a ledge (to NAV_JUMP). Diagonals only between plain walks. */
+  navEdge(nav, a, b, diag, c1, c2) {
+    if (!nav.ok[b]) return 0;
+    const dh = nav.foot[b] - nav.foot[a];
+    if (Math.abs(dh) <= NAV_STEP) {
+      if (diag && (!nav.ok[c1] || !nav.ok[c2] || Math.abs(nav.foot[c1] - nav.foot[a]) > NAV_STEP || Math.abs(nav.foot[c2] - nav.foot[a]) > NAV_STEP)) return 0;
+      return diag ? 14 : 10;
+    }
+    if (diag) return 0;
+    return dh > 0 && dh <= NAV_JUMP ? NAV_JUMP_COST : 0;   // a drop is not on the map: stepping off a ledge on purpose is the edge rule's (it waits AI_EDGE_PATIENCE, then climbs down where it is cheap)
+  },
+  /* The cheapest walk between two cells (Dijkstra with a binary heap in preallocated arrays) as the list of cells from the start to the goal, or null. */
+  navPath(nav, start, goal) {
+    const { dist, prev, heapKey, heapNode, nx, nz } = nav;
+    dist.fill(Infinity); dist[start] = 0; prev[start] = -1;
+    let size = 0;
+    const push = (key, node) => {
+      let i = size++;
+      while (i > 0) { const up = (i - 1) >> 1; if (heapKey[up] <= key) break; heapKey[i] = heapKey[up]; heapNode[i] = heapNode[up]; i = up; }
+      heapKey[i] = key; heapNode[i] = node;
+    };
+    push(0, start);
+    while (size > 0) {
+      const key = heapKey[0], node = heapNode[0], lastKey = heapKey[--size], lastNode = heapNode[size];
+      let i = 0;
+      while (true) {
+        let child = i * 2 + 1;
+        if (child >= size) break;
+        if (child + 1 < size && heapKey[child + 1] < heapKey[child]) child++;
+        if (heapKey[child] >= lastKey) break;
+        heapKey[i] = heapKey[child]; heapNode[i] = heapNode[child]; i = child;
+      }
+      if (size > 0) { heapKey[i] = lastKey; heapNode[i] = lastNode; }
+      if (key > dist[node]) continue;
+      if (node === goal) break;
+      const ci = node % nx, cj = (node - ci) / nx;
+      for (const [di, dj] of NAV_DIRS) {
+        const ni = ci + di, nj = cj + dj;
+        if (ni < 0 || nj < 0 || ni >= nx || nj >= nz) continue;
+        const next = nj * nx + ni, cost = this.navEdge(nav, node, next, di !== 0 && dj !== 0, cj * nx + ni, nj * nx + ci);
+        if (!cost || key + cost >= dist[next]) continue;
+        dist[next] = key + cost; prev[next] = node;
+        push(key + cost, next);
+      }
+    }
+    if (dist[goal] === Infinity) return null;
+    const path = [];
+    for (let c = goal; c !== -1; c = prev[c]) path.push(c);
+    return path.reverse();
+  },
+  /* Whether a walker whose footing is at height y can stand on collider c or step onto it: a deck at its own level, a step of a stair within its reach (c.up), anything it can step up; with no height given (undefined) nothing counts as walkable, so a caller that knows no footing sees every obstacle. */
+  walkable(c, y) {
+    return y !== undefined && c.standable && y >= c.top - (c.up || 0.25);
+  },
+  blockedAt(x, z, radius, y) {
     for (const c of this.colliders) {
-      if (!c.active || c.top <= STEP_HEIGHT) continue;
+      if (!c.active || c.top <= STEP_HEIGHT || this.walkable(c, y)) continue;
       if (Math.abs(x - c.x) < c.hx + radius && Math.abs(z - c.z) < c.hz + radius) return true;
     }
     return false;
@@ -2915,7 +3164,7 @@ const Arena = {
     const dx = x2 - x1, dz = z2 - z1;
     for (let i = 0; i < this.colliders.length; i++) {
       const c = this.colliders[i];
-      if (!c.active || c.haz || c.top <= eyeTop || (c.obj && c.obj.mat === 'glass')) continue;   // a hazard's post is a small thing in front of a wall or a corner: it hides nobody
+      if (!c.active || c.haz || c.deck || c.top <= eyeTop || (c.obj && c.obj.mat === 'glass')) continue;   // decks do not hide a fighter from a lock-on (it only looks across the height)   // a hazard's post is a small thing in front of a wall or a corner: it hides nobody
       if (this.crossesFootprint(c, x1, z1, dx, dz)) return true;
     }
     return false;
@@ -2939,7 +3188,7 @@ const Arena = {
       if (!c.active) continue;
       const dx = x - clamp(x, c.x - c.hx, c.x + c.hx), dz = z - clamp(z, c.z - c.hz, c.z + c.hz);
       if (dx * dx + dz * dz >= r * r) continue;
-      if (c.top <= STEP_HEIGHT || (y >= c.top - 0.25 && c.standable)) top = Math.max(top, c.top);
+      if (c.top <= STEP_HEIGHT || (y >= c.top - (c.up || 0.25) && c.standable)) top = Math.max(top, c.top);
     }
     return top;
   },
@@ -2948,19 +3197,19 @@ const Arena = {
   resolveFighter(f) {
     const b = this.def.bounds, r = f.radius, mx = b.x - r, mz = b.z - r;
     f.wallHit = false; f.obstacleHit = null; f.hazardTouch = null;
-    let groundY = 0;
+    let groundY = 0, stair = false;
     for (let pass = 0; pass < 3; pass++) {
-      groundY = 0;
+      groundY = 0; stair = false;
       let moved = false;
       for (let i = 0; i < this.colliders.length; i++) {
         const c = this.colliders[i];
-        if (!c.active) continue;
+        if (!c.active || c.base > f.y + SUPPORT_BASE_SLACK) continue;   // something that stands on a deck, far above a fighter on the floor, is no obstacle to it
         const nx = clamp(f.x, c.x - c.hx, c.x + c.hx), nz = clamp(f.z, c.z - c.hz, c.z + c.hz);
         let dx = f.x - nx, dz = f.z - nz;
         const d2 = dx * dx + dz * dz;
         if (d2 >= r * r) continue;
-        if (c.top <= STEP_HEIGHT) { groundY = Math.max(groundY, c.top); continue; }
-        if (f.y >= c.top - 0.25) { if (c.standable) groundY = Math.max(groundY, c.top); continue; }
+        if (c.top <= STEP_HEIGHT || (f.y >= c.top - (c.up || 0.25) && c.standable)) { if (c.top > groundY) { groundY = c.top; stair = c.up > 0.25; } continue; }
+        if (f.y >= c.top - (c.up || 0.25)) continue;
         this.pushOut(f, c, dx, dz, d2, mx, mz);
         moved = true;
         f.obstacleHit = c.obj || f.obstacleHit;
@@ -2970,7 +3219,7 @@ const Arena = {
     }
     if (f.x > mx) { f.x = mx; f.wallHit = true; } else if (f.x < -mx) { f.x = -mx; f.wallHit = true; }
     if (f.z > mz) { f.z = mz; f.wallHit = true; } else if (f.z < -mz) { f.z = -mz; f.wallHit = true; }
-    f.groundY = groundY;
+    f.groundY = groundY; f.onStair = stair;
   },
 
   /* Moves a fighter out of an obstacle the shortest way that stays inside the arena (mx / mz: the fighter's limits).
@@ -2981,7 +3230,14 @@ const Arena = {
     const clears = (x, z) => {
       const wx = clamp(x, -mx, mx), wz = clamp(z, -mz, mz);
       const ex = wx - clamp(wx, c.x - c.hx, c.x + c.hx), ez = wz - clamp(wz, c.z - c.hz, c.z + c.hz);
-      return ex * ex + ez * ez >= r * r - 1e-6;
+      if (ex * ex + ez * ez < r * r - 1e-6) return false;
+      for (let i = 0; i < this.colliders.length; i++) {   // and not into the next obstacle (objects that touch each other, a deck and the rail on it)
+        const q = this.colliders[i];
+        if (q === c || !q.active || q.top <= STEP_HEIGHT || f.y >= q.top - (q.up || 0.25) || q.base > f.y + SUPPORT_BASE_SLACK) continue;
+        const qx = wx - clamp(wx, q.x - q.hx, q.x + q.hx), qz = wz - clamp(wz, q.z - q.hz, q.z + q.hz);
+        if (qx * qx + qz * qz < r * r - 1e-6) return false;
+      }
+      return true;
     };
     if (d2 > 1e-8) {
       const dist = Math.sqrt(d2), push = r - dist;
@@ -2996,7 +3252,7 @@ const Arena = {
       const cost = Math.abs(exit[0] - f.x) + Math.abs(exit[1] - f.z);
       if (cost < nearestCost) { nearestCost = cost; nearest = exit; }
       const fits = i < 2 ? Math.abs(exit[0]) <= mx : Math.abs(exit[1]) <= mz;   // only the moved coordinate must have room
-      if (fits && cost < bestCost) { bestCost = cost; best = exit; }
+      if (fits && cost < bestCost && clears(exit[0], exit[1])) { bestCost = cost; best = exit; }
     }
     const to = best || nearest;
     f.x = to[0]; f.z = to[1];
@@ -3012,6 +3268,7 @@ const Arena = {
       if (p.flicker) e = 1.6 + Math.sin(t * 17) * 0.5 + Math.sin(t * 31) * 0.3;
       R.put(p.l, p.m, p.x, y, p.z, p.sx, p.sy, p.sz, 0, p.ry, 0, p.c, p.a, e, p.q, p.cast, 0);
     }
+    if (this.lodTick++ % 20 === 0) this.updateLod();
     for (const o of this.objects) this.drawObject(o);
     this.drawPointLightFlicker();
   },
@@ -3023,15 +3280,22 @@ const Arena = {
   },
 
   drawObject(o) {
-    const wob = o.wob > 0 ? Math.sin(o.wobPhase) * o.wob * 0.025 : 0;
+    const wob = o.wob > 0 ? Math.sin(o.wobPhase) * o.wob * (o.creak > 0 ? 0.05 : 0.025) : 0;
     const x = o.x + wob, z = o.z + wob * 0.6;
+    this.dy = o.base;   // an object standing on a deck is drawn from its height
     if (!o.destroyed) {
       if (o.type === 'box') this.drawBox(o, x, z);
       else if (o.type === 'column') this.drawColumn(o, x, z);
       else if (o.type === 'rail') this.drawRail(o, x, z);
+      else if (o.type === 'deck') this.drawDeck(o, x, z);
+      else if (o.type === 'scaffold') this.drawScaffold(o, x, z);
       else this.drawPanel(o, x, z);
-    } else if (o.rubble) this.drawRubble(o);
-    if (R.shadowMode === 1 && !o.destroyed && o.type !== 'panel') {
+    } else if (o.rubble) {
+      if (!o.hide) this.drawRubble(o);
+      else R.put(LAYER.SOLID, MESH.CUBE, o.rubble.x, o.rubble.top * 0.5, o.rubble.z, o.rubble.hx * 2, o.rubble.top, o.rubble.hz * 2, 0, 0, 0, C('#74777d'), 1, 0, 0.9, false, 0);   // over the preset's heap budget: the same footprint, one block, so nobody floats on an invisible pile
+    }
+    this.dy = 0;
+    if (R.shadowMode === 1 && !o.destroyed && !o.base && o.type !== 'panel' && o.type !== 'deck') {
       R.put(LAYER.ALPHA, MESH.CYL, o.x, 0.02, o.z, o.hx * 2.6, 0.01, o.hz * 2.6, 0, 0, 0, [0, 0, 0], 0.35, 0, 1, false, 0);
     }
   },
@@ -3051,7 +3315,7 @@ const Arena = {
       else if (k.face === 1) { px = x + k.u * hx; pz = z - hz - 0.012; yaw = Math.PI; }
       else if (k.face === 2) { px = x + hx + 0.012; pz = z + k.u * hz; yaw = Math.PI / 2; }
       else { px = x - hx - 0.012; pz = z + k.u * hz; yaw = -Math.PI / 2; }
-      R.put(layer, MESH.CUBE, px, k.v * o.h, pz, k.len, 0.025, 0.02, 0, yaw, k.ang, dark, o.mat === 'glass' ? 0.8 : 1, 0, 0.9, false, 0);
+      this.put(layer, MESH.CUBE, px, k.v * o.h, pz, k.len, 0.025, 0.02, 0, yaw, k.ang, dark, o.mat === 'glass' ? 0.8 : 1, 0, 0.9, false, 0);
     }
   },
   drawBox(o, x, z) {
@@ -3059,20 +3323,23 @@ const Arena = {
     const st = o.stage;
     const lean = st >= 3 ? 0.05 : st >= 2 ? 0.025 : 0;
     const hScale = st >= 3 ? 0.94 : 1;
-    R.put(LAYER.SOLID, MESH.CUBE, x, o.h * hScale * 0.5, z, o.hx * 2, o.h * hScale, o.hz * 2, 0, 0, lean, col, 1, 0, 0.8, true, 0);
+    const look = LOOKS[o.look], bf = look ? look[0] : 1;
+    const shown = o.far ? 1 : bf;   // a far object is its plain block, whatever its look
+    if (shown > 0) this.put(LAYER.SOLID, MESH.CUBE, x, o.h * hScale * shown * 0.5, z, o.hx * 2, o.h * hScale * shown, o.hz * 2, 0, 0, lean, col, 1, 0, 0.8, true, 0);
+    if (o.far) return;
     const dark = C(MATERIALS[o.mat].dark);
     if (o.look === 'crate') {
-      for (const sx of [-1, 1]) for (const sz of [-1, 1]) R.put(LAYER.SOLID, MESH.CUBE, x + sx * (o.hx - 0.04), o.h * 0.5, z + sz * (o.hz - 0.04), 0.1, o.h * 1.01, 0.1, 0, 0, lean, dark, 1, 0, 0.9, false, 0);
-      R.put(LAYER.SOLID, MESH.CUBE, x, o.h * 0.5, z + o.hz + 0.01, 0.1, o.h * 1.25, 0.02, 0, 0, 0.75, dark, 1, 0, 0.9, false, 0);
-      R.put(LAYER.SOLID, MESH.CUBE, x + o.hx + 0.01, o.h * 0.5, z, 0.02, o.h * 1.25, 0.1, 0, 0, 0.75, dark, 1, 0, 0.9, false, 0);
-      if (st >= 2) R.put(LAYER.SOLID, MESH.CUBE, x + 0.1, o.h * 0.8, z + o.hz + 0.05, o.hx * 1.5, 0.14, 0.05, 0, 0, 0.12, col, 1, 0, 0.9, false, 0);
+      for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CUBE, x + sx * (o.hx - 0.04), o.h * 0.5, z + sz * (o.hz - 0.04), 0.1, o.h * 1.01, 0.1, 0, 0, lean, dark, 1, 0, 0.9, false, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x, o.h * 0.5, z + o.hz + 0.01, 0.1, o.h * 1.25, 0.02, 0, 0, 0.75, dark, 1, 0, 0.9, false, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x + o.hx + 0.01, o.h * 0.5, z, 0.02, o.h * 1.25, 0.1, 0, 0, 0.75, dark, 1, 0, 0.9, false, 0);
+      if (st >= 2) this.put(LAYER.SOLID, MESH.CUBE, x + 0.1, o.h * 0.8, z + o.hz + 0.05, o.hx * 1.5, 0.14, 0.05, 0, 0, 0.12, col, 1, 0, 0.9, false, 0);
     } else if (o.look === 'bench') {
-      R.put(LAYER.SOLID, MESH.CUBE, x, o.h, z, o.hx * 2.1, 0.08, o.hz * 2.2, 0, 0, lean, C('#a87846'), 1, 0, 0.8, true, 0);
-      for (const sx of [-1, 1]) R.put(LAYER.SOLID, MESH.CUBE, x + sx * (o.hx - 0.1), o.h * 0.5, z, 0.12, o.h, o.hz * 1.8, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x, o.h, z, o.hx * 2.1, 0.08, o.hz * 2.2, 0, 0, lean, C('#a87846'), 1, 0, 0.8, true, 0);
+      for (const sx of [-1, 1]) this.put(LAYER.SOLID, MESH.CUBE, x + sx * (o.hx - 0.1), o.h * 0.5, z, 0.12, o.h, o.hz * 1.8, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
     } else if (o.look === 'barrier') {
-      R.put(LAYER.SOLID, MESH.CUBE, x, o.h + 0.02, z, o.hx * 2.02, 0.05, o.hz * 2.02, 0, 0, 0, C('#d6b32a'), 1, 0, 0.7, false, 0);
-      R.put(LAYER.SOLID, MESH.CUBE, x, 0.12, z, o.hx * 2.12, 0.24, o.hz * 2.5, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
-    }
+      this.put(LAYER.SOLID, MESH.CUBE, x, o.h + 0.02, z, o.hx * 2.02, 0.05, o.hz * 2.02, 0, 0, 0, C('#d6b32a'), 1, 0, 0.7, false, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x, 0.12, z, o.hx * 2.12, 0.24, o.hz * 2.5, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
+    } else if (look) this.drawLook(o, x, z, look);
     this.drawCracks(o, x, z, o.hx, o.hz);
   },
   drawColumn(o, x, z) {
@@ -3080,23 +3347,25 @@ const Arena = {
     const st = o.stage;
     const hh = st >= 3 ? o.h * 0.9 : o.h;
     const d = o.hx * 2;
-    R.put(LAYER.SOLID, MESH.CYL, x, hh * 0.5, z, d, hh, d, 0, 0, st >= 3 ? 0.03 : 0, col, 1, 0, 0.85, true, 0);
+    this.put(LAYER.SOLID, MESH.CYL, x, hh * 0.5, z, d, hh, d, 0, 0, st >= 3 ? 0.03 : 0, col, 1, 0, 0.85, true, 0);
+    if (o.far) return;
     const dark = C(MATERIALS[o.mat].dark);
-    R.put(LAYER.SOLID, MESH.CYL, x, 0.12, z, d * 1.25, 0.24, d * 1.25, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
-    if (o.mat === 'concrete') R.put(LAYER.SOLID, MESH.CYL, x, hh - 0.1, z, d * 1.2, 0.2, d * 1.2, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
-    if (st >= 3 && o.mat === 'concrete') for (let i = 0; i < 3; i++) R.put(LAYER.SOLID, MESH.CYL, x + (i - 1) * 0.12, hh + 0.12, z + (i % 2 ? 0.1 : -0.1), 0.04, 0.5, 0.04, 0.2 * (i - 1), 0, 0.15 * (i - 1), C('#7a4a2a'), 1, 0, 0.9, false, 0);
+    this.put(LAYER.SOLID, MESH.CYL, x, 0.12, z, d * 1.25, 0.24, d * 1.25, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
+    if (o.mat === 'concrete') this.put(LAYER.SOLID, MESH.CYL, x, hh - 0.1, z, d * 1.2, 0.2, d * 1.2, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
+    if (st >= 3 && o.mat === 'concrete') for (let i = 0; i < 3; i++) this.put(LAYER.SOLID, MESH.CYL, x + (i - 1) * 0.12, hh + 0.12, z + (i % 2 ? 0.1 : -0.1), 0.04, 0.5, 0.04, 0.2 * (i - 1), 0, 0.15 * (i - 1), C('#7a4a2a'), 1, 0, 0.9, false, 0);
     const r = o.hx;
     for (let i = 0; i < o.cracks.length; i++) {
       const k = o.cracks[i];
       if (k.minStage > st) continue;
       const th = k.face * 1.57 + k.u * 0.8;
-      R.put(LAYER.SOLID, MESH.CUBE, x + Math.cos(th) * (r + 0.01), Math.min(k.v * hh, hh - 0.2), z + Math.sin(th) * (r + 0.01), k.len, 0.03, 0.02, 0, -th + Math.PI / 2, k.ang, dark, 1, 0, 0.9, false, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x + Math.cos(th) * (r + 0.01), Math.min(k.v * hh, hh - 0.2), z + Math.sin(th) * (r + 0.01), k.len, 0.03, 0.02, 0, -th + Math.PI / 2, k.ang, dark, 1, 0, 0.9, false, 0);
     }
   },
   drawRail(o, x, z) {
     const col = this.tone(o);
     const alongZ = o.axis === 'z';
     const len = (alongZ ? o.hz : o.hx) * 2;
+    if (o.far) { this.put(LAYER.SOLID, MESH.CUBE, x, 0.98, z, alongZ ? 0.06 : len, 0.06, alongZ ? len : 0.06, 0, 0, 0, col, 1, 0, 0.4, false, 0); return; }
     const n = Math.max(2, Math.round(len / 1.2) + 1);
     const bend = [0, 0.05, 0.16, 0.38][Math.min(3, o.stage)];
     const dark = C(MATERIALS[o.mat].dark);
@@ -3106,7 +3375,7 @@ const Arena = {
       const along = (t - 0.5) * len;
       const sag = Math.sin(Math.PI * t) * bend;
       const px = alongZ ? x : x + along, pz = alongZ ? z + along : z;
-      R.put(LAYER.SOLID, MESH.CYL, px, 0.52 - sag * 0.1, pz, 0.08, 1.05, 0.08, alongZ ? 0 : sag * 1.4, 0, alongZ ? sag * 1.4 : 0, dark, 1, 0, 0.5, true, 0);
+      this.put(LAYER.SOLID, MESH.CYL, px, 0.52 - sag * 0.1, pz, 0.08, 1.05, 0.08, alongZ ? 0 : sag * 1.4, 0, alongZ ? sag * 1.4 : 0, dark, 1, 0, 0.5, true, 0);
       const ys = [0.98 - sag * 0.55, 0.55 - sag * 0.35];
       if (i > 0) {
         const mid = along - len / (n - 1) / 2;
@@ -3115,8 +3384,8 @@ const Arena = {
           const dy = ys[k] - prevY[k];
           const ang = Math.atan2(dy, segLen);
           const mx = alongZ ? x : x + mid, mz = alongZ ? z + mid : z;
-          if (alongZ) R.put(LAYER.SOLID, MESH.CYL, mx, (ys[k] + prevY[k]) / 2, mz, 0.06, segLen * 1.02, 0.06, Math.PI / 2 - ang, 0, 0, col, 1, 0, 0.35, true, 0);
-          else R.put(LAYER.SOLID, MESH.CYL, mx, (ys[k] + prevY[k]) / 2, mz, 0.06, segLen * 1.02, 0.06, 0, 0, ang - Math.PI / 2, col, 1, 0, 0.35, true, 0);
+          if (alongZ) this.put(LAYER.SOLID, MESH.CYL, mx, (ys[k] + prevY[k]) / 2, mz, 0.06, segLen * 1.02, 0.06, Math.PI / 2 - ang, 0, 0, col, 1, 0, 0.35, true, 0);
+          else this.put(LAYER.SOLID, MESH.CYL, mx, (ys[k] + prevY[k]) / 2, mz, 0.06, segLen * 1.02, 0.06, 0, 0, ang - Math.PI / 2, col, 1, 0, 0.35, true, 0);
         }
       }
       prevY[0] = ys[0]; prevY[1] = ys[1];
@@ -3126,44 +3395,135 @@ const Arena = {
     const alongZ = o.axis === 'z';
     const len = (alongZ ? o.hz : o.hx) * 2;
     const yaw = alongZ ? Math.PI / 2 : 0;
-    const paper = o.mat === 'paper';
+    const paper = o.mat === 'paper', blocks = o.look === 'blocks';   // glass blocks: a grid of pale cyan squares in a steel frame
     const frame = C(paper ? '#4a3220' : '#58606b');
     const st = o.stage;
     const dx = alongZ ? 0 : 1, dz = alongZ ? 1 : 0;
+    if (o.look === 'firedoor') { this.drawFireDoor(o, x, z, alongZ, len); return; }
+    if (o.far) { this.put(LAYER.ALPHA, MESH.CUBE, x, o.h / 2, z, alongZ ? 0.04 : len, o.h - 0.08, alongZ ? len : 0.04, 0, 0, 0, C(paper ? '#f6ecd0' : '#a8dcff'), paper ? 0.95 : 0.3, paper ? 0.45 : 0.1, 0.1, false, 0); return; }
     // frame
-    R.put(LAYER.SOLID, MESH.CUBE, x, 0.05, z, alongZ ? 0.1 : len + 0.1, 0.1, alongZ ? len + 0.1 : 0.1, 0, 0, 0, frame, 1, 0, 0.8, true, 0);
-    R.put(LAYER.SOLID, MESH.CUBE, x, o.h, z, alongZ ? 0.1 : len + 0.1, 0.1, alongZ ? len + 0.1 : 0.1, 0, 0, 0, frame, 1, 0, 0.8, true, 0);
-    for (const s of [-1, 1]) R.put(LAYER.SOLID, MESH.CUBE, x + dx * s * len / 2, o.h / 2, z + dz * s * len / 2, 0.1, o.h, 0.1, 0, 0, 0, frame, 1, 0, 0.8, true, 0);
-    if (paper) {
-      for (let i = 1; i < 4; i++) R.put(LAYER.SOLID, MESH.CUBE, x + dx * (-len / 2 + len * i / 4), o.h / 2, z + dz * (-len / 2 + len * i / 4), 0.05, o.h, 0.05, 0, 0, 0, frame, 1, 0, 0.8, false, 0);
-      for (let i = 1; i < 3; i++) R.put(LAYER.SOLID, MESH.CUBE, x, o.h * i / 3, z, alongZ ? 0.05 : len, 0.04, alongZ ? len : 0.05, 0, 0, 0, frame, 1, 0, 0.8, false, 0);
+    this.put(LAYER.SOLID, MESH.CUBE, x, 0.05, z, alongZ ? 0.1 : len + 0.1, 0.1, alongZ ? len + 0.1 : 0.1, 0, 0, 0, frame, 1, 0, 0.8, true, 0);
+    this.put(LAYER.SOLID, MESH.CUBE, x, o.h, z, alongZ ? 0.1 : len + 0.1, 0.1, alongZ ? len + 0.1 : 0.1, 0, 0, 0, frame, 1, 0, 0.8, true, 0);
+    for (const s of [-1, 1]) this.put(LAYER.SOLID, MESH.CUBE, x + dx * s * len / 2, o.h / 2, z + dz * s * len / 2, 0.1, o.h, 0.1, 0, 0, 0, frame, 1, 0, 0.8, true, 0);
+    if (paper || blocks) {
+      for (let i = 1; i < (blocks ? 8 : 4); i++) this.put(LAYER.SOLID, MESH.CUBE, x + dx * (-len / 2 + len * i / (blocks ? 8 : 4)), o.h / 2, z + dz * (-len / 2 + len * i / (blocks ? 8 : 4)), 0.05, o.h, 0.05, 0, 0, 0, frame, 1, 0, 0.8, false, 0);
+      for (let i = 1; i < (blocks ? 7 : 3); i++) this.put(LAYER.SOLID, MESH.CUBE, x, o.h * i / (blocks ? 7 : 3), z, alongZ ? 0.05 : len, 0.04, alongZ ? len : 0.05, 0, 0, 0, frame, 1, 0, 0.8, false, 0);
     }
     const holes = st >= 2 ? (st >= 3 ? 3 : 1) : 0;
-    R.put(LAYER.ALPHA, MESH.CUBE, x, o.h / 2, z, alongZ ? 0.04 : len, o.h - 0.08, alongZ ? len : 0.04, 0, 0, 0, C(paper ? '#f6ecd0' : '#a8dcff'), paper ? 0.95 : 0.3, paper ? 0.45 : 0.1, 0.1, false, 0);
+    this.put(LAYER.ALPHA, MESH.CUBE, x, o.h / 2, z, alongZ ? 0.04 : len, o.h - 0.08, alongZ ? len : 0.04, 0, 0, 0, C(paper ? '#f6ecd0' : blocks ? '#c4e8ef' : '#a8dcff'), paper ? 0.95 : blocks ? 0.55 : 0.3, paper ? 0.45 : 0.1, 0.1, false, 0);
     // cracks / tears
     const cc = paper ? C('#3a2616') : C('#ffffff');
     for (let i = 0; i < o.cracks.length; i++) {
       const k = o.cracks[i];
       if (k.minStage > st) continue;
       const u = k.u * len * 0.45;
-      R.put(LAYER.ALPHA, MESH.CUBE, x + dx * u, k.v * o.h, z + dz * u, alongZ ? 0.03 : k.len * 1.6, 0.03, alongZ ? k.len * 1.6 : 0.03, 0, 0, alongZ ? 0 : k.ang * 1.3, cc, 0.85, 0, 0.9, false, 0);
-      if (alongZ) R.put(LAYER.ALPHA, MESH.CUBE, x + 0.02, k.v * o.h, z + u, 0.02, 0.03, k.len * 1.6, k.ang * 1.3, 0, 0, cc, 0.85, 0, 0.9, false, 0);
+      this.put(LAYER.ALPHA, MESH.CUBE, x + dx * u, k.v * o.h, z + dz * u, alongZ ? 0.03 : k.len * 1.6, 0.03, alongZ ? k.len * 1.6 : 0.03, 0, 0, alongZ ? 0 : k.ang * 1.3, cc, 0.85, 0, 0.9, false, 0);
+      if (alongZ) this.put(LAYER.ALPHA, MESH.CUBE, x + 0.02, k.v * o.h, z + u, 0.02, 0.03, k.len * 1.6, k.ang * 1.3, 0, 0, cc, 0.85, 0, 0.9, false, 0);
     }
-    for (let i = 0; i < holes; i++) R.put(LAYER.SOLID, MESH.CUBE, x + dx * (i - 1) * len * 0.3, o.h * (0.35 + 0.25 * i), z + dz * (i - 1) * len * 0.3, alongZ ? 0.05 : len * 0.16, o.h * 0.2, alongZ ? len * 0.16 : 0.05, 0, 0, 0, C('#15110e'), 0.9, 0, 1, false, 0);
+    for (let i = 0; i < holes; i++) this.put(LAYER.SOLID, MESH.CUBE, x + dx * (i - 1) * len * 0.3, o.h * (0.35 + 0.25 * i), z + dz * (i - 1) * len * 0.3, alongZ ? 0.05 : len * 0.16, o.h * 0.2, alongZ ? len * 0.16 : 0.05, 0, 0, 0, C('#15110e'), 0.9, 0, 1, false, 0);
+  },
+  /* A box look from the LOOKS table (parts only; the plain block was drawn by drawBox). */
+  drawLook(o, x, z, look) {
+    for (let i = 1; i < look.length; i++) {
+      const [shape, px, py, pz, w, h, d, hex, glow] = look[i];
+      this.put(LAYER.SOLID, shape ? MESH.CYL : MESH.CUBE, x + px * o.hx, py * o.h, z + pz * o.hz, w * o.hx * 2, h * o.h, d * o.hz * 2, 0, 0, 0, C(hex), 1, glow || 0, 0.8, false, 0);
+    }
+  },
+  /* A deck (P8-04): a standable block from the floor to its top. The top, an edge lip, and a side by look: slab = a concrete block with an office front, grate = a steel frame with mesh sheeting and bracing,
+     boards = a timber frame, stage = a skirted stage; a step (stair) is just its block and tread. */
+  drawDeck(o, x, z) {
+    const h = o.h, hx = o.hx, hz = o.hz, col = this.tone(o), dark = C(MATERIALS[o.mat].dark), look = o.look;
+    if (o.step) {
+      this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.5, z, hx * 2, h, hz * 2, 0, 0, 0, look === 'ramp' ? C('#7d8087') : dark, 1, 0, 0.85, false, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.03, z, hx * 2.02, 0.07, hz * 2.02, 0, 0, 0, col, 1, 0, 0.7, true, 0);
+      return;
+    }
+    const lip = C('#d6b32a');
+    if (look === 'grate') {
+      this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.04, z, hx * 2, 0.08, hz * 2, 0, 0, 0, col, 1, 0, 0.5, true, 0);
+      if (!o.far) {
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CYL, x + sx * (hx - 0.08), h * 0.5, z + sz * (hz - 0.08), 0.12, h, 0.12, 0, 0, 0, dark, 1, 0, 0.5, false, 0);
+        this.put(LAYER.ALPHA, MESH.CUBE, x, h * 0.5, z + hz - 0.02, hx * 2, h - 0.1, 0.03, 0, 0, 0, dark, 0.45, 0, 0.5, false, 0);
+        this.put(LAYER.ALPHA, MESH.CUBE, x, h * 0.5, z - hz + 0.02, hx * 2, h - 0.1, 0.03, 0, 0, 0, dark, 0.45, 0, 0.5, false, 0);
+        const slope = Math.atan2(h - 0.2, hx * 2), len = Math.hypot(h - 0.2, hx * 2);
+        this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.5, z + hz + 0.01, len, 0.05, 0.04, 0, 0, slope, dark, 1, 0, 0.5, false, 0);
+        this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.5, z + hz + 0.01, len, 0.05, 0.04, 0, 0, -slope, dark, 1, 0, 0.5, false, 0);
+      }
+    } else if (look === 'boards') {
+      this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.05, z, hx * 2, 0.1, hz * 2, 0, 0, 0, col, 1, 0, 0.85, true, 0);
+      if (!o.far) {
+        for (const sx of [-1, 1]) for (const sz of [-1, 1]) this.put(LAYER.SOLID, MESH.CUBE, x + sx * (hx - 0.06), h * 0.5, z + sz * (hz - 0.06), 0.12, h, 0.12, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
+        this.put(LAYER.SOLID, MESH.CUBE, x, h * 0.62, z + hz - 0.02, hx * 2, h * 0.3, 0.04, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
+        for (let i = 1; i < 4; i++) this.put(LAYER.SOLID, MESH.CUBE, x - hx + hx * 2 * i / 4, h + 0.001, z, 0.03, 0.01, hz * 2, 0, 0, 0, dark, 1, 0, 0.9, false, 0);
+      }
+    } else {   // slab, stage
+      const stage = look === 'stage';
+      this.put(LAYER.SOLID, MESH.CUBE, x, (h - 0.1) * 0.5, z, hx * 2, h - 0.1, hz * 2, 0, 0, 0, stage ? dark : col, 1, 0, 0.85, true, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, x, h - 0.05, z, hx * 2.02, 0.1, hz * 2.02, 0, 0, 0, stage ? col : C('#9a9da3'), 1, 0, 0.7, true, 0);
+      if (!o.far && !stage) for (let i = 0; i < 3; i++) this.put(LAYER.ALPHA, MESH.CUBE, x - hx * 0.6 + i * hx * 0.6, h * 0.6, z + hz + 0.01, hx * 0.4, 0.7, 0.02, 0, 0, 0, C('#a8dcff'), 0.6, 0.1, 0.1, false, 0);   // the windows of the office front
+    }
+    if (o.far) return;
+    this.put(LAYER.SOLID, MESH.CUBE, x, h + 0.005, z + hz - 0.05, hx * 2, 0.012, 0.1, 0, 0, 0, lip, 1, 0, 0.6, false, 0);
+    if (o.stage > 0) this.drawCracks(o, x, z, hx, hz);
+  },
+  /* One scaffold bay (P8-04): four standards, a ledger and a brace per tier; the boards of each tier are decks of their own, and the collider is the front standard. */
+  drawScaffold(o, x, z) {
+    const [bx, bz, w, d] = o.span, top = o.h, dark = C(MATERIALS[o.mat].dark), col = this.tone(o);
+    this.put(LAYER.SOLID, MESH.CYL, x, top * 0.5, z, 0.16, top, 0.16, 0, 0, 0, col, 1, 0, 0.4, true, 0);
+    if (o.far) return;
+    for (const px of [bx + 0.05, bx + w - 0.05]) this.put(LAYER.SOLID, MESH.CYL, px, top * 0.5, bz - d + 0.05, 0.1, top, 0.1, 0, 0, 0, dark, 1, 0, 0.4, false, 0);
+    this.put(LAYER.SOLID, MESH.CYL, bx + 0.05, top * 0.5, bz + 0.05, 0.1, top, 0.1, 0, 0, 0, dark, 1, 0, 0.4, false, 0);
+    this.put(LAYER.SOLID, MESH.CYL, bx + w - 0.05, top * 0.5, bz + 0.05, 0.1, top, 0.1, 0, 0, 0, dark, 1, 0, 0.4, false, 0);
+    const slope = Math.atan2(SCAFFOLD_TIER, w), len = Math.hypot(SCAFFOLD_TIER, w);
+    for (let t = 1; t <= o.tiers; t++) {
+      this.put(LAYER.SOLID, MESH.CUBE, bx + w / 2, t * SCAFFOLD_TIER + 0.5, bz + 0.05, w, 0.05, 0.05, 0, 0, 0, col, 1, 0, 0.4, false, 0);
+      this.put(LAYER.SOLID, MESH.CUBE, bx + w / 2, t * SCAFFOLD_TIER - SCAFFOLD_TIER * 0.5, bz + 0.07, len, 0.04, 0.04, 0, 0, t % 2 ? slope : -slope, dark, 1, 0, 0.4, false, 0);
+    }
+  },
+  /* A steel fire door in a wall: the slab, a frame, a push bar and a lit exit sign. */
+  drawFireDoor(o, x, z, alongZ, len) {
+    const col = this.tone(o), dark = C(MATERIALS[o.mat].dark), face = alongZ ? (o.x > 0 ? -1 : 1) : (o.z > 0 ? -1 : 1), fx = alongZ ? face * 0.09 : 0, fz = alongZ ? 0 : face * 0.09;
+    this.put(LAYER.SOLID, MESH.CUBE, x, o.h / 2, z, alongZ ? 0.12 : len, o.h, alongZ ? len : 0.12, 0, 0, 0, col, 1, 0, 0.6, true, 0);
+    if (o.far) return;
+    this.put(LAYER.SOLID, MESH.CUBE, x, o.h + 0.05, z, alongZ ? 0.16 : len + 0.2, 0.1, alongZ ? len + 0.2 : 0.16, 0, 0, 0, dark, 1, 0, 0.8, false, 0);
+    for (const s of [-1, 1]) this.put(LAYER.SOLID, MESH.CUBE, x + (alongZ ? 0 : s * (len / 2 + 0.05)), o.h / 2, z + (alongZ ? s * (len / 2 + 0.05) : 0), alongZ ? 0.16 : 0.1, o.h, alongZ ? 0.1 : 0.16, 0, 0, 0, dark, 1, 0, 0.8, false, 0);
+    this.put(LAYER.SOLID, MESH.CUBE, x + fx, 1.0, z + fz, alongZ ? 0.05 : len * 0.7, 0.06, alongZ ? len * 0.7 : 0.05, 0, 0, 0, C('#c9ccd1'), 1, 0, 0.3, false, 0);
+    this.put(LAYER.SOLID, MESH.CUBE, x + fx, o.h + 0.28, z + fz, alongZ ? 0.04 : 0.5, 0.2, alongZ ? 0.5 : 0.04, 0, 0, 0, C('#35d27a'), 1, 1.4, 0.5, false, 0);
+    this.drawCracks(o, x, z, o.hx, o.hz);
   },
   drawRubble(o) {
     const c = o.rubble;
-    const mat = MATERIALS[o.mat];
-    const col = C(o.mat === 'wood' ? '#7a5428' : '#74777d');
-    const k = c.top / (o.mat === 'concrete' ? 0.55 : 0.22);
-    const n = o.mat === 'concrete' ? 6 : 5;
-    for (let i = 0; i < n; i++) {
-      const a = i * 2.1, rad = (0.15 + (i % 3) * 0.14) * (o.mat === 'concrete' ? 1.1 : 0.9);
-      const s = (0.24 + (i % 2) * 0.12) * Math.min(1.2, k + 0.35);
-      R.put(LAYER.SOLID, MESH.CUBE, o.x + Math.cos(a) * rad, s * 0.4, o.z + Math.sin(a) * rad, s * (o.mat === 'wood' ? 1.8 : 1), s * 0.8, s, 0, a, 0.2 * i, col, 1, 0, 0.9, true, 0);
+    const kind = kindOf(o.mat);
+    const col = C(kind === 'wood' ? '#7a5428' : '#74777d');
+    if (o.type === 'deck') {   // a collapsed deck: pieces strewn over its whole footprint
+      const n = clamp(Math.round(o.hx * o.hz * 3), 3, 14);
+      for (let i = 0; i < n; i++) {
+        const s = 0.2 + hash01(i + o.x) * 0.2;
+        R.put(LAYER.SOLID, MESH.CUBE, o.x + (hash01(i * 1.7 + o.x * 5.1) - 0.5) * o.hx * 1.9, s * 0.4, o.z + (hash01(i * 2.9 + o.z * 3.7 + 1) - 0.5) * o.hz * 1.9, s * (kind === 'wood' ? 2.2 : 1.2), s * 0.7, s, 0, i * 2.1, 0.2 * i, col, 1, 0, 0.9, true, 0);
+      }
+      return;
     }
-    void mat;
+    const k = c.top / (kind === 'concrete' ? 0.55 : 0.22);
+    const n = kind === 'concrete' ? clamp(Math.round(c.hx * c.hz * 7), 6, 12) : 5, spread = kind === 'concrete' && (c.hx > 0.8 || c.hz > 0.8);
+    for (let i = 0; i < n; i++) {
+      const a = i * 2.1, rad = (0.15 + (i % 3) * 0.14) * (kind === 'concrete' ? 1.1 : 0.9);
+      const s = (0.24 + (i % 2) * 0.12) * Math.min(1.2, k + 0.35);
+      R.put(LAYER.SOLID, MESH.CUBE, spread ? o.x + (hash01(i * 1.7 + o.x) - 0.5) * c.hx * 1.7 : o.x + Math.cos(a) * rad, s * 0.4, spread ? o.z + (hash01(i * 2.9 + o.z) - 0.5) * c.hz * 1.7 : o.z + Math.sin(a) * rad, s * (kind === 'wood' ? 1.8 : 1), s * 0.8, s, 0, a, 0.2 * i, col, 1, 0, 0.9, true, 0);
+    }
   },
+  /* The preset's detail budget (Quality.limits, every 20th draw): the `live` intact destructibles nearest the camera's aim are drawn in full, the others as plain shapes; of the rubble piles the newest `heaps` are drawn. Looks only. */
+  updateLod() {
+    const limits = Quality.limits, tx = Camera.target[0], tz = Camera.target[2], near = [], gone = [];
+    for (const o of this.objects) {
+      if (o.fixed) continue;
+      if (!o.destroyed) { o.d2 = (o.x - tx) * (o.x - tx) + (o.z - tz) * (o.z - tz); near.push(o); } else if (o.rubble) gone.push(o);
+    }
+    near.sort((p, q) => p.d2 - q.d2);
+    for (let i = 0; i < near.length; i++) near[i].far = i >= limits.live;
+    gone.sort((p, q) => q.brokeAt - p.brokeAt);
+    for (let i = 0; i < gone.length; i++) gone[i].hide = i >= limits.heaps;
+  },
+  put(layer, mesh, x, y, z, sx, sy, sz, rx, ry, rz, c, a, e, q, cast, flag) { R.put(layer, mesh, x, y + this.dy, z, sx, sy, sz, rx, ry, rz, c, a, e, q, cast, flag); },
 };
 
 /* ---------- debris pool (bounded, recycled) ---------- */
@@ -3804,10 +4164,14 @@ const FALL_KNOCKDOWN_DROP = 1.6;      // a landing from this height knocks the f
 const FALL_LAND_BASE_TICKS = 14, FALL_LAND_TICKS_PER_METER = 10, FALL_LAND_MAX_TICKS = 40;   // length of the landing stagger: grows with the drop
 const FALL_DRIFT_DAMP = 0.97;         // per tick: the walk speed a fighter carries off an edge fades; nothing steers in the air
 const FALL_MAX_TICKS = 180;           // safety net: a fall lasts under a second, so past this the fighter is landed where it is
+const STEP_SNAP = 0.3;                // m: a drop this shallow under a fighter who stands on a stair step is stepped down at once (no fall state)
 const SUPPORT_EPS = 0.002;            // closer than this to the footing counts as standing on it
 const FALL_FROM_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.BLOCK_H, S.BLOCK_L, S.SIDESTEP, S.SWAY, S.ATTACK, S.GETUP, S.GRAPPLE, S.CLINCH, S.SUBMIT];   // grounded-only states that give way to FALL (an air attack, JUMP and the reactions already fly)
 const AI_EDGE_LOOK = 0.5, AI_EDGE_LOOK_RUN = 0.9, AI_EDGE_LOOK_SIDESTEP = 1.2, AI_EDGE_LOOK_JUMP = 1.4;   // metres ahead the CPU checks for footing before a walk / run / sidestep / jump
 const AI_EDGE_PATIENCE = 90;        // ticks the CPU holds at an edge before it climbs down on purpose: a CPU left on a crate must not stall the fight
+const AI_NAV_DIFF = 0.5, AI_NAV_NEAR = 2.0, AI_NAV_RAISED = 0.3, AI_NAV_LEDGE = 0.6;   // m: the CPU follows the level map when its target stands this much higher or lower, or either stands above AI_NAV_RAISED and they are farther apart than AI_NAV_NEAR; it jumps a ledge this close ahead
+const AI_NAV_REPLAN = 30, AI_NAV_MOVED = 0.8, AI_NAV_STAGGER = 4, AI_NAV_STAGGER_MOD = 5;   // ticks between plans; m the target may move before a new plan
+const AI_CREAK_DROP = 1.1;          // m: the deepest step down a CPU takes to leave a creaking deck (the fall costs at most AI_EDGE_SAFE_DAMAGE)
 const AI_EDGE_SAFE_DAMAGE = 5;      // ... and only where the drop costs at most this much fall damage (crate and rubble tops yes, a balcony never)
 const THROWN_MAX_TICKS = 150, THROWN_HARD_CAP_TICKS = 300;   // throw flights end by landing; past these the fighter is landed anyway (rubble softlock net)
 const GUARD_WALK_SPEED = 0.15;       // m/s: above this a crouching or guarding fighter steps its legs instead of sliding
@@ -4484,6 +4848,7 @@ const HAZARDS = {
 const hash01 = (n) => { const s = Math.sin(n * 12.9898) * 43758.5453; return s - Math.floor(s); };   // a fixed pseudo-random 0..1 for looks (flames, shards, arcs): the same tick always draws the same, and the match's random numbers are never touched
 /* One piece of a hazard in the world: layer, mesh, centre, size, turn about y, colour, alpha, glow, roughness; rx / rz tip it about x / z. */
 function hput(layer, mesh, x, y, z, sx, sy, sz, ry, hex, a, em, rough, rx, rz) { R.put(layer, mesh, x, y, z, sx, sy, sz, rx || 0, ry, rz || 0, C(hex), a, em, rough, false, 0); }
+const HAZARD_FLOOR_TOP = 1.05;         // m: a fighter whose footing is higher than this (a deck) is above the floor zones of the hazards (they all stand on the floor)
 const HAZARD_HEIGHT = 1.0;            // m: a fighter whose feet are higher than this (a jump) is clear of a hazard
 const HAZARD_STRIKE_R = 0.4;          // m: the radius of a strike's hit sphere on a hazard's post (as on scenery)
 const HAZARD_CUT_REACH = 0.25;        // m beyond a fighter's body: breaking glass cuts the fighter this close to the wall (the one thrown or knocked into it)
@@ -4491,11 +4856,16 @@ const HAZARD_SHARD_SPREAD = 0.7;      // m: a broken glass wall's shards lie thi
 const BOTTLE_SHARD_R = 0.5, HAZARD_SHARD_MAX = 6, HAZARD_SHARD_TICKS = 1500;   // a shattered bottle leaves a patch of this radius, for this long (the oldest of at most this many patches goes first)
 const HAZARD_NO_REACT = [S.THROWN, S.DOWN, S.FALL, S.SUBMIT, S.GETUP];   // states a shock, a flinch or a flight cannot be forced on: the damage still counts
 const HAZARD_FLINK_TICKS = 10, HAZARD_FLINK_PUSH = 5;   // a flinch (fire, glass): hit-stun ticks, and the knock away from the source (m/s)
+const LOAD_CHECK_TICKS = 6, LOAD_HOLD_TICKS = 60, LOAD_CREAK_TICKS = 36, LOAD_HEAVY = 3;   // P8-04 / P9 R7: weight is counted every 6 ticks; held 60 ticks the deck creaks for 36 and breaks; a weight class of 3 or 4 counts twice
+const CRUSH_BASE = 10, CRUSH_PER_METER = 6, CRUSH_MAX = 30, CRUSH_DOWN = 20, CRUSH_REACH = 0.3, CRUSH_FLOOR_TOP = 1.0, CRUSH_LANDINGS_PER_TICK = 4, CRUSH_OBJECTS = 4, COLLAPSE_QUEUE_MAX = 32;   // R6: crush of a fallen piece beside it
+const CRUSH_DEF = { push: 3, snd: 'crash' };
+const CRUSH_SRC_BASE = -1500000000;   // scenery damage source ids of crush: a range of its own (a counter per match makes each landing's id unique), below the fighters' impact ids and above the thrown items'
+const DECK_LAND_RAW = 20, DECK_LAND_SPEED = 3;   // R7: a knockdown landing on a weak deck hits it with this raw damage (landing speed over this, m/s)
 const HAZARD_LAND_TICKS = 10;          // the falling load drops during the last ticks of its warning
 const HAZARD_TIMER_EDGE = 2;           // m: a timed hazard (the train) is drawn this far beyond the zone at the start and the end of its pass
 const AI_HAZARD_PASS = 0.8;            // m: the CPU walks to its strike spot only along a path that keeps this far from the target
 const AI_HAZARD_RANGE = 1.5, AI_HAZARD_STAND = 0.7, AI_HAZARD_PAD = 0.15, AI_LURE_STAND = 0.8, AI_HAZARD_SPOT = 0.2;   // m: the target is "near" a hazard within this; the least distance from the post a strike spot has; the margin kept from an effect zone; how far from the target the CPU grabs; arrival radius
-const AI_HAZARD_WAIT = 240, AI_HAZARD_ASK = 60, AI_HAZARD_PLAN = 240, AI_HAZARD_LOOK = 8, AI_HAZARD_LURE_TICKS = 90, AI_HAZARD_AHEAD = 0.6;   // ticks: between hazard plans; before a CPU that declined a lure asks again; a plan may last; between looks at where the target went; a grab may be followed by its chosen throw
+const AI_HAZARD_WAIT = 240, AI_HAZARD_ASK = 60, AI_HAZARD_PLAN = 240, AI_HAZARD_LOOK = 8, AI_HAZARD_LURE_TICKS = 90, AI_HAZARD_AHEAD = 0.6, AI_HAZARD_POST_NEAR = 1.4;   // ticks: between hazard plans; before a CPU that declined a lure asks again; a plan may last; between looks at where the target went; a grab may be followed by its chosen throw
 const AI_HAZARD_LURE = { easy: 0.3, normal: 0.55, hard: 0.85, expert: 1 };   // the chance a CPU commits to a lure when one is on offer
 const HAZARD_LOAD_HANG = 4.4, HAZARD_LOAD_REST = 0.45, HAZARD_LOAD_BEAM = 5.6, HAZARD_LOAD_FADE = 1.1;   // m: the height of the hanging load's centre, of the landed one's, of the crane beam; the load fades when the camera's line to a fighter passes this near it
 
@@ -4520,7 +4890,7 @@ class Fighter {
   reset(x, z, yaw, hpFrac, stamFrac) {
     this.x = x; this.y = 0; this.z = z; this.prevX = x; this.prevY = 0; this.prevZ = z; this.prevYaw = yaw;
     this.vx = 0; this.vy = 0; this.vz = 0; this.kx = 0; this.kz = 0; this.yaw = yaw;
-    this.groundY = 0; this.supportY = 0; this.wallHit = false; this.obstacleHit = null;   // supportY: the height of the footing this fighter last stood on (the start of a drop)
+    this.groundY = 0; this.supportY = 0; this.onStair = false; this.leftOnStair = false; this.wallHit = false; this.obstacleHit = null;   // supportY: the height of the footing this fighter last stood on (the start of a drop)
     this.hazardTouch = null;   // P7-05: the hazard post this fighter was pushed out of this tick
     this.maxHp = this.stats.maxHp; this.maxStam = this.stats.maxStam;
     this.hp = this.maxHp * (hpFrac === undefined ? 1 : hpFrac);
@@ -5121,6 +5491,10 @@ class Fighter {
     return airborne;
   }
   afterCollision(wasAirborne, match) {
+    // a step down off a stair is taken in one go while the fighter is still at its footing: walking down a stair must not turn into a fall (P8-04)
+    const fromStair = this.leftOnStair;
+    this.leftOnStair = this.onStair;
+    if (fromStair && this.y > this.groundY + SUPPORT_EPS && this.y - this.groundY <= STEP_SNAP && this.y >= this.supportY - SUPPORT_EPS && this.vy <= 0 && FALL_FROM_STATES.includes(this.state) && !(this.state === S.ATTACK && this.move && this.move.ctx === 'air')) { this.y = this.groundY; this.vy = 0; }
     if (this.y <= this.groundY && this.vy <= 0) {
       const impact = -this.vy, drop = Math.max(0, this.supportY - this.groundY);   // drop: the height lost since the last footing (a jump from the floor back onto the floor loses none)
       this.y = this.groundY;
@@ -5128,6 +5502,7 @@ class Fighter {
       // rubble can lift a rising fighter onto its top without an airborne tick: a flight state still has to land
       if (wasAirborne || impact > 0.5 || this.awaitsLanding()) {
         if (match) Combat.fallDamage(this, drop, match);   // before the landing reaction: a knock-out by the fall skips it
+        if (match && impact > DECK_LAND_SPEED && this.state === S.THROWN) Arena.landOn(this, match);
         this.onLand(impact, drop);
       }
     }
@@ -6871,7 +7246,7 @@ class AIController {
     if (near && this.wantsItem(f, near)) return { kind: 'pickup', ticks: 12, item: near };
     let best = null, bestDist = AI_PICKUP_RANGE;
     for (const loose of match.items) {
-      if (loose.mode !== 'rest' || loose.y >= PICKUP_LOW_BELOW || !this.wantsItem(f, loose)) continue;   // the CPU walks to floor items only: it turns toward its target, not toward a rack
+      if (loose.mode !== 'rest' || Math.abs(loose.y - f.groundY) >= PICKUP_LOW_BELOW || !this.wantsItem(f, loose)) continue;   // the CPU walks to floor items only: it turns toward its target, not toward a rack
       const gap = Math.hypot(loose.x - f.x, loose.z - f.z);
       if (gap < bestDist && gap < dist) { bestDist = gap; best = loose; }
     }
@@ -6913,9 +7288,15 @@ class AIController {
     const fx = f.fwdX, fz = f.fwdZ, free = moving && FREE_SET.includes(f.state);
     let dx = free ? fx * it.fwd - fz * it.side : fx, dz = free ? fz * it.fwd + fx * it.side : fz;
     const len = Math.hypot(dx, dz) || 1;
-    dx = f.x + dx / len * AI_HAZARD_AHEAD; dz = f.z + dz / len * AI_HAZARD_AHEAD;
+    const b = Arena.def.bounds, mx = b.x - f.radius, mz = b.z - f.radius;
+    dx = clamp(f.x + dx / len * AI_HAZARD_AHEAD, -mx, mx); dz = clamp(f.z + dz / len * AI_HAZARD_AHEAD, -mz, mz);   // a step into a wall is a creep along it: look at where the body will really be
+    if (pressing) {   // no blows beside an electric panel from inside its arc (1.2 m, farther than any blow reaches): a hit on it would shock the CPU itself; the other posts can be struck from outside their zones
+      for (const h of match.hazards) {
+        if (h.post && h.type === 'panel' && h.state === 'idle' && match.hazardCovers(h, f.x, f.z) && Math.hypot(h.tx - f.x, h.tz - f.z) < AI_HAZARD_POST_NEAR) { it.punch = it.kick = it.grapple = false; break; }
+      }
+    }
     for (const h of match.hazards) {
-      if ((h.state === 'warn' || h.state === 'active') && h.def.dmg > 0 && !h.def.shard && match.hazardCovers(h, dx, dz) && !match.hazardCovers(h, f.x, f.z)) {
+      if ((h.state === 'warn' || h.state === 'active') && h.def.dmg > 0 && !h.def.shard && (match.hazardCoversPad(h, dx, dz, AI_HAZARD_PAD) || match.hazardCoversPad(h, f.x, f.z, AI_HAZARD_PAD)) && !match.hazardCovers(h, f.x, f.z)) {   // at the edge of a zone that is on: no step, no lunge toward it
         it.fwd = 0; it.side = 0; it.run = false; it.punch = it.kick = it.grapple = it.jump = false;
         return;
       }
@@ -6943,7 +7324,7 @@ class AIController {
       for (let k = 0; k < 8; k++) {   // straight away from the centre first, then round the circle
         const turn = (k & 1 ? 1 : -1) * Math.ceil(k / 2) * 0.785, cos = Math.cos(turn), sin = Math.sin(turn);
         const x = f.x + (ax * cos - az * sin) * r, z = f.z + (ax * sin + az * cos) * r;
-        if (Math.abs(x) > b.x - f.radius || Math.abs(z) > b.z - f.radius || Arena.blockedAt(x, z, f.radius) || match.hazardCoversPad(h, x, z, AI_HAZARD_PAD)) continue;
+        if (Math.abs(x) > b.x - f.radius || Math.abs(z) > b.z - f.radius || Arena.blockedAt(x, z, f.radius, f.groundY) || match.hazardCoversPad(h, x, z, AI_HAZARD_PAD)) continue;
         return { x, z };
       }
     }
@@ -6977,10 +7358,10 @@ class AIController {
       for (const pick of this.reachable(f)) {
         const stand = Math.max(pick.mv.reach * f.stats.reach * 0.8, AI_HAZARD_STAND);
         const sx = c.x + (ux * cos - uz * sin) * stand, sz = c.z + (ux * sin + uz * cos) * stand;
-        if (Math.abs(sx) > b.x - f.radius || Math.abs(sz) > b.z - f.radius || Arena.blockedAt(sx, sz, f.radius) || this.hazardWouldReach(h, sx, sz)) continue;
+        if (Math.abs(sx) > b.x - f.radius || Math.abs(sz) > b.z - f.radius || Arena.blockedAt(sx, sz, f.radius, f.groundY) || this.hazardWouldReach(h, sx, sz)) continue;
         const walkX = sx - f.x, walkZ = sz - f.z, along = clamp(((opp.x - f.x) * walkX + (opp.z - f.z) * walkZ) / (walkX * walkX + walkZ * walkZ || 1), 0, 1);
         if (Math.hypot(f.x + walkX * along - opp.x, f.z + walkZ * along - opp.z) < AI_HAZARD_PASS || !this.strikeOnPost(f, sx, sz, opp, pick.mv, c)) continue;   // the walk to the spot would run into the target, or the strike would miss
-        if (!Arena.pathBlocked(f.x, f.z, sx, sz, 0.3)) return { x: sx, z: sz, pick };
+        if (!Arena.pathBlocked(f.x, f.z, sx, sz, 0.3, f.groundY)) return { x: sx, z: sz, pick };
         if (!detour) detour = { x: sx, z: sz, pick };
       }
     }
@@ -7019,7 +7400,7 @@ class AIController {
     for (const dir of THROW_DIRS) {
       const px = dir === 'fwd' ? wx : dir === 'back' ? -wx : dir === 'left' ? -wz : wz, pz = dir === 'fwd' ? wz : dir === 'back' ? -wz : dir === 'left' ? wx : -wx;   // f's facing: the throw vector then equals w
       const sx = opp.x - px * AI_LURE_STAND, sz = opp.z - pz * AI_LURE_STAND, dist = Math.hypot(sx - f.x, sz - f.z);
-      if (dist >= bestDist || Math.abs(sx) > b.x - f.radius || Math.abs(sz) > b.z - f.radius || Arena.blockedAt(sx, sz, f.radius) || this.hazardWouldReach(h, sx, sz)) continue;
+      if (dist >= bestDist || Math.abs(sx) > b.x - f.radius || Math.abs(sz) > b.z - f.radius || Arena.blockedAt(sx, sz, f.radius, f.groundY) || this.hazardWouldReach(h, sx, sz)) continue;
       bestDist = dist; best = { x: sx, z: sz, dir };
     }
     return best;
@@ -7132,17 +7513,27 @@ class AIController {
     return this.hist[(this.head - 1 - Math.max(0, k) + AI_HISTORY * 2) % AI_HISTORY];
   }
 
-  /* Steer around solid obstacles: rotate the desired heading until the short path ahead is clear. */
+  /* Whether the walk from f to (x, z) crosses the zone of a hazard that is warning or going off (one f is not already in): the steering goes round it, like round a wall. */
+  zoneOnTheWay(f, x, z) {
+    const match = this.match;
+    if (!match || !match.hazards.length) return false;
+    for (const h of match.hazards) {
+      if ((h.state !== 'warn' && h.state !== 'active') || !(h.def.dmg > 0) || h.def.shard || match.hazardCovers(h, f.x, f.z)) continue;
+      for (let i = 1; i <= 4; i++) if (match.hazardCoversPad(h, f.x + (x - f.x) * i / 4, f.z + (z - f.z) * i / 4, AI_HAZARD_PAD)) return true;
+    }
+    return false;
+  }
+  /* Steer around solid obstacles and hazard zones that are on: rotate the desired heading until the short path ahead is clear. */
   steer(f, dx, dz) {
     const len = Math.hypot(dx, dz) || 1;
     dx /= len; dz /= len;
-    const r = 0.3, look = 1.7;
-    if (!Arena.pathBlocked(f.x, f.z, f.x + dx * look, f.z + dz * look, r)) return [dx, dz];
+    const r = 0.3, look = 1.7, blocked = (x, z) => Arena.pathBlocked(f.x, f.z, x, z, r, f.groundY) || this.zoneOnTheWay(f, x, z);
+    if (!blocked(f.x + dx * look, f.z + dz * look)) return [dx, dz];
     for (const a of [0.7, 1.4, 2.1]) {
       for (const sgn of [this.steerSide, -this.steerSide]) {
         const c = Math.cos(a * sgn), s = Math.sin(a * sgn);
         const nx = dx * c - dz * s, nz = dx * s + dz * c;
-        if (!Arena.pathBlocked(f.x, f.z, f.x + nx * look, f.z + nz * look, r)) { this.steerSide = sgn; return [nx, nz]; }
+        if (!blocked(f.x + nx * look, f.z + nz * look)) { this.steerSide = sgn; return [nx, nz]; }
       }
     }
     return [dx, dz];
@@ -7171,7 +7562,7 @@ class AIController {
   /* The CPU does not walk, run, sidestep or jump off an elevated surface by accident (P3-07); knockback and throws still carry it off.
      After AI_EDGE_PATIENCE ticks held at an edge it climbs down on purpose where the drop is cheap (AI_EDGE_SAFE_DAMAGE). */
   holdAtEdge(f, it) {
-    if (!f.alive || f.airborne || f.groundY <= FALL_STATE_DROP) { this.edgeWait = 0; return; }   // on the floor or a low step there is no drop worth a fall
+    if (!f.alive || f.airborne || f.groundY <= FALL_STATE_DROP || f.onStair || this.navTick === this.tickNo) { this.edgeWait = 0; return; }   // on the floor or a low step there is no drop worth a fall; a CPU that follows the level map keeps to it
     if (!FREE_SET.includes(f.state)) return;   // only free movement: in a grapple it.fwd / it.side aim the throw
     let held = false;
     const stop = (drop) => {   // true: cancel this move
@@ -7187,10 +7578,64 @@ class AIController {
     this.edgeWait = held ? this.edgeWait + 1 : 0;
   }
 
+  /* Levels (P8-04): a CPU whose footing or whose target's is raised (a deck, a stair, a ledge) follows the cheapest walk of the level's map (Arena.navMap) to its target instead of the straight line: along stairs, over
+     the joins of decks, down again, and up a ledge of up to NAV_JUMP by jumping. It re-plans every AI_NAV_REPLAN ticks or when the target moved; it leaves the plain walk to the normal logic when both stand on the floor,
+     when they are close on one level, and when no walk exists. Only where its intent is plain movement. While it drives, the edge rule stands down: the walk keeps to the map. */
+  navigate(f, opp, it) {
+    if (!opp || !opp.alive || f.airborne || !FREE_SET.includes(f.state) || it.punch || it.kick || it.grapple || it.defend || it.use || it.jump) { this.navPlan = null; return false; }
+    const dy = opp.groundY - f.groundY, dist = Math.hypot(opp.x - f.x, opp.z - f.z);
+    if ((f.groundY <= AI_NAV_RAISED && opp.groundY <= AI_NAV_RAISED && !f.onStair) || (!f.onStair && Math.abs(dy) < AI_NAV_DIFF && dist < AI_NAV_NEAR)) { this.navPlan = null; return false; }
+    const nav = Arena.navMap();
+    let plan = this.navPlan;
+    if (!plan || plan.version !== Arena.navVersion || this.tickNo - plan.tick >= AI_NAV_REPLAN + (f.index % AI_NAV_STAGGER_MOD) * AI_NAV_STAGGER || Math.hypot(opp.x - plan.tx, opp.z - plan.tz) > AI_NAV_MOVED) {
+      const start = Arena.navNear(nav, f.x, f.z, f.groundY), goal = Arena.navNear(nav, opp.x, opp.z, opp.groundY);
+      plan = this.navPlan = { path: start >= 0 && goal >= 0 ? Arena.navPath(nav, start, goal) : null, idx: 0, tick: this.tickNo, tx: opp.x, tz: opp.z, version: Arena.navVersion };
+    }
+    const path = plan.path;
+    if (!path || path.length < 3) return false;
+    let nearest = plan.idx, nearestD = Infinity;
+    for (let i = plan.idx; i < path.length && i < plan.idx + 6; i++) {
+      const d = Math.hypot(-nav.bx + ((path[i] % nav.nx) + 0.5) * nav.cw - f.x, -nav.bz + (Math.floor(path[i] / nav.nx) + 0.5) * nav.ch - f.z);
+      if (d < nearestD) { nearestD = d; nearest = i; }
+    }
+    plan.idx = nearest;
+    if (path.length - nearest <= 3 && Math.abs(dy) < AI_NAV_DIFF) return false;   // there: the normal logic fights
+    const at = path[Math.min(nearest + 2, path.length - 1)], wx = -nav.bx + ((at % nav.nx) + 0.5) * nav.cw, wz = -nav.bz + (Math.floor(at / nav.nx) + 0.5) * nav.ch;
+    const dx = wx - f.x, dz = wz - f.z, len = Math.hypot(dx, dz) || 1;
+    it.fwd = (dx * f.fwdX + dz * f.fwdZ) / len; it.side = (dx * -f.fwdZ + dz * f.fwdX) / len; it.run = false;
+    for (let i = nearest; i < Math.min(nearest + 3, path.length - 1); i++) {   // a ledge on the walk (a step up of more than a stair step): jump it when close
+      if (nav.foot[path[i + 1]] - nav.foot[path[i]] > NAV_STEP && Math.hypot(-nav.bx + ((path[i] % nav.nx) + 0.5) * nav.cw - f.x, -nav.bz + (Math.floor(path[i] / nav.nx) + 0.5) * nav.ch - f.z) < AI_NAV_LEDGE && f.stam > JUMP_COST) { it.jump = true; break; }
+    }
+    this.navTick = this.tickNo;
+    return true;
+  }
+  /* A weak deck under f is creaking (it breaks in a moment): the CPU walks to the nearest spot that is not on that deck and not far below it; true when it took over the movement. */
+  leaveCreaking(f, it) {
+    if (f.airborne || f.groundY < 0.3 || !FREE_SET.includes(f.state)) return false;
+    const deck = Arena.weakDeckUnder(f);
+    if (!deck || deck.creak <= 0) return false;
+    let bx = 0, bz = 0, bestGap = Infinity;
+    for (let a = 0; a < 8; a++) {
+      for (const reach of [1.2, 2.4, 3.6]) {
+        const x = f.x + Math.cos(a * Math.PI / 4) * reach, z = f.z + Math.sin(a * Math.PI / 4) * reach, b = Arena.def.bounds;
+        if (Math.abs(x) > b.x - f.radius || Math.abs(z) > b.z - f.radius || (Math.abs(x - deck.x) < deck.hx + f.radius && Math.abs(z - deck.z) < deck.hz + f.radius)) continue;
+        const gap = f.groundY - Arena.supportAt(x, z, f.y, f.radius);
+        if (gap > AI_CREAK_DROP || gap < -0.3 || Arena.blockedAt(x, z, f.radius, f.groundY)) continue;
+        if (reach < bestGap) { bestGap = reach; bx = x; bz = z; }
+      }
+    }
+    if (bestGap === Infinity) return false;
+    const dx = bx - f.x, dz = bz - f.z, len = Math.hypot(dx, dz) || 1;
+    it.fwd = (dx * f.fwdX + dz * f.fwdZ) / len; it.side = (dx * -f.fwdZ + dz * f.fwdX) / len; it.run = true; it.punch = it.kick = it.grapple = false;
+    this.edgeWait = AI_EDGE_PATIENCE;   // the edge rule would hold it back for a while: a creaking deck is the reason to step down
+    return true;
+  }
+
   think(f, opp, match, it) {
     this.crowd = match && match.crowd ? match.crowd : null;
     this.match = match || null;
     this.chooseIntent(f, opp, match, it);
+    if (!this.leaveCreaking(f, it)) this.navigate(f, opp, it);
     this.holdAtEdge(f, it);
     this.holdAtHazard(f, it);
     if (it.run && this.waitsOnRing(f) && Math.hypot(opp.x - f.x, opp.z - f.z) < RING_NO_RUN_DIST) it.run = false;   // no charge at the target without a token
@@ -7882,6 +8327,7 @@ class MatchSim {
     this.hazardsOn = this.cfg.hazards !== false;   // the Hazards setting (P7-05): off = the arena is safe, nothing is placed
     this.hazards = [];                         // the hazards of the scene (see newHazard)
     this.hazardSeq = 0;
+    this.crushSeq = 0;   // numbers the crush damage to scenery (CRUSH_SRC_BASE)
     this.tick = 0;
     this.matchTicks = 0;
     this.round = 0;
@@ -8191,7 +8637,7 @@ class MatchSim {
       if (host && host.destroyed) loose.mode = 'fall';
       else if (host) {
         loose.host = host;
-        if (y >= PICKUP_HIGH_FROM) { const dx = x - host.x, dz = z - host.z; loose.mount = Math.abs(dz) >= Math.abs(dx) ? [0, -Math.sign(dz)] : [-Math.sign(dx), 0]; loose.yaw = loose.mount[0] ? 0 : Math.PI / 2; }
+        if (y >= PICKUP_HIGH_FROM && host.type !== 'deck') { const dx = x - host.x, dz = z - host.z; loose.mount = Math.abs(dz) >= Math.abs(dx) ? [0, -Math.sign(dz)] : [-Math.sign(dx), 0]; loose.yaw = loose.mount[0] ? 0 : Math.PI / 2; }
       }
       this.items.push(loose);
     }
@@ -8212,7 +8658,7 @@ class MatchSim {
     if (!f.alive || f.item || f.airborne) return null;
     let best = null, bestCos = -2, raised = null, raisedGap = Infinity;
     for (const loose of this.items) {
-      if (loose.mode !== 'rest' || Math.abs(loose.y - f.y) > 2) continue;
+      if (loose.mode !== 'rest' || loose.y - f.y > 2 || loose.y - f.y < -PICKUP_LOW_BELOW) continue;   // heights are measured from the fighter's footing: nothing from far below or above
       const dx = loose.x - f.x, dz = loose.z - f.z, dist = Math.hypot(dx, dz);
       const cos = dist < 1e-3 ? 1 : (dx * f.fwdX + dz * f.fwdZ) / dist;
       if (loose.y - f.y >= PICKUP_LOW_BELOW && dist <= PICKUP_REACH + f.radius && dist < raisedGap) { raisedGap = dist; raised = loose; }
@@ -8366,7 +8812,10 @@ class MatchSim {
   stepItems() {
     for (const it of this.items.slice()) {   // a copy: a hit can drop another item into the list mid-loop
       if (!this.items.includes(it)) continue;
-      if (it.mode === 'rest') { if (it.host && it.host.destroyed) { it.host = null; it.mode = 'fall'; } continue; }   // the table broke under it
+      if (it.mode === 'rest') {   // the table broke under it, or the deck it lay on
+        if (it.host && it.host.destroyed) { it.host = null; it.mode = 'fall'; } else if (!it.host && Arena.supportAt(it.x, it.z, it.y, ITEM_RADIUS) < it.y - 0.05) it.mode = 'fall';
+        continue;
+      }
       if (this.moveItem(it) && this.items.includes(it)) this.items.splice(this.items.indexOf(it), 1);
     }
   }
@@ -8417,8 +8866,11 @@ class MatchSim {
   spawnHazards() {
     for (const h of this.hazards) if (h.post) { const at = Arena.colliders.indexOf(h.post); if (at >= 0) Arena.colliders.splice(at, 1); }
     this.hazards.length = 0;
-    if (!this.hazardsOn) return;
+    Arena.navVersion++;
+    if (!this.hazardsOn) { Arena.navMap(); return; }
     for (const [type, x, z, o] of this.def.hazards || []) this.hazards.push(this.newHazard(type, x, z, o || {}));
+    Arena.navVersion++;
+    Arena.navMap();   // built here, not on the first replan in the middle of a fight
   }
   /* A shattered bottle leaves a patch of glass on the floor (same rules as the broken wall's shards). */
   glassPatch(x, z) {
@@ -8442,7 +8894,7 @@ class MatchSim {
     return this.hazardCovers(h, x, z) || this.hazardCovers(h, x + pad, z) || this.hazardCovers(h, x - pad, z) || this.hazardCovers(h, x, z + pad) || this.hazardCovers(h, x, z - pad);
   }
   /* Whether fighter f is in the zone and not clear of the floor (a jump). */
-  hazardReaches(h, f) { return f.y - f.groundY <= HAZARD_HEIGHT && this.hazardCovers(h, f.x, f.z); }
+  hazardReaches(h, f) { return f.y - f.groundY <= HAZARD_HEIGHT && f.groundY <= HAZARD_FLOOR_TOP && this.hazardCovers(h, f.x, f.z); }
   /* Whether f is within the reach of a hazard a strike sets off: its zone, or for a barrel, where its pool can lie (the pool lies beyond the barrel as seen from the striker). */
   hazardAimIn(h, f) { return h.def.spill ? Math.hypot(f.x - h.tx, f.z - h.tz) <= h.def.spill + h.def.r : this.hazardCovers(h, f.x, f.z); }
   /* Sets an idle hazard off; by = the fighter credited (null = nobody), via = how ('strike', 'item', 'knock', 'timer'). With a cue (warn) the hazard warns first; without, it goes off at once. */
@@ -8452,7 +8904,7 @@ class MatchSim {
     const dx = by ? h.tx - by.x : h.fx, dz = by ? h.tz - by.z : h.fz, len = Math.hypot(dx, dz) || 1;
     h.dirx = dx / len; h.dirz = dz / len;   // away from whoever struck it: the way a barrel tips
     if (h.def.spill) { h.x = h.tx + h.dirx * h.def.spill; h.z = h.tz + h.dirz * h.def.spill; }   // and where its fire pool lies
-    if (h.post && h.def.spent) h.post.active = false;   // a tipped barrel is no obstacle
+    if (h.post && h.def.spent) { h.post.active = false; Arena.navVersion++; }   // a tipped barrel is no obstacle (and the CPU map changes)
     Events.emit('hazardTrigger', { h, by: h.by, via });
     if (h.def.warn > 0) { h.state = 'warn'; Events.emit('hazardWarn', { h }); } else this.hazardStart(h);
     return true;
@@ -8519,6 +8971,45 @@ class MatchSim {
       if (h.state === 'active' || h.state === 'warn' || (h.type === 'fire' && h.state === 'idle')) this.hazardParticles(h);
     }
     if (expired) this.hazards = this.hazards.filter((h) => !h.dead);
+  }
+  /* Weak decks (P8-04, P9 rule R7): every LOAD_CHECK_TICKS a deck counts the weight standing on it (a heavy build counts 2); at its `weak` weight or more for LOAD_HOLD_TICKS it creaks (it shakes, the CPU steps off),
+     LOAD_CREAK_TICKS later it breaks, and whoever is still on it falls. */
+  stepLoad() {
+    if (this.tick % LOAD_CHECK_TICKS !== 0) return;
+    for (const o of Arena.objects) {
+      if (!o.weak || o.destroyed) continue;
+      if (o.creak > 0) {
+        o.creak -= LOAD_CHECK_TICKS; o.wob = 1;
+        if (o.creak <= 0) { o.creak = 0; Arena.breakObject(o, 0, 0, undefined); }
+        continue;
+      }
+      const c = o.collider;
+      let weight = 0;
+      for (const f of this.fighters) {
+        if (f.alive && Math.abs(f.y - c.top) < 0.02 && Math.abs(f.x - c.x) <= c.hx + 0.1 && Math.abs(f.z - c.z) <= c.hz + 0.1) weight += f.weight >= LOAD_HEAVY ? 2 : 1;
+      }
+      o.load = weight >= o.weak ? o.load + LOAD_CHECK_TICKS : 0;
+      if (o.load >= LOAD_HOLD_TICKS) { o.load = 0; o.creak = LOAD_CREAK_TICKS; Events.emit('deckCreak', { obj: o, x: o.x, y: c.top, z: o.z }); }
+    }
+  }
+  /* The pieces of collapsed decks land (P9 rule R6): a fighter on the floor beside where one stood (its footprint plus CRUSH_REACH) takes CRUSH_BASE + CRUSH_PER_METER per metre it fell, at most CRUSH_MAX, and is knocked down
+     from CRUSH_DOWN. At most CRUSH_LANDINGS_PER_TICK pieces land in a tick, the rest the next. */
+  stepCollapse() {
+    const list = Arena.collapses;
+    if (!list.length) return;
+    for (const c of list.splice(0, CRUSH_LANDINGS_PER_TICK)) {
+      const dmg = clamp(CRUSH_BASE + CRUSH_PER_METER * c.drop, 0, CRUSH_MAX), source = { type: 'crush', def: CRUSH_DEF, by: null, x: c.x, z: c.z, fx: 0, fz: 1 };
+      for (const f of this.fighters) {
+        if (!f.alive || f.y > CRUSH_FLOOR_TOP || f.y >= c.drop - 0.05 || Math.abs(f.x - c.x) > c.hx + CRUSH_REACH + f.radius || Math.abs(f.z - c.z) > c.hz + CRUSH_REACH + f.radius) continue;   // whoever stood on the deck falls with it: the fall is their damage
+        this.hazardHit(source, f, dmg, dmg >= CRUSH_DOWN ? 'down' : 'flinch');
+      }
+      let struck = 0;   // and the objects beside it, nearest in list order, a few at most (so a collapse can chain, deterministically)
+      for (const o of Arena.objects) {
+        if (struck >= CRUSH_OBJECTS || o.destroyed || o.fixed || o.base || o.on || Math.abs(o.x - c.x) > c.hx + CRUSH_REACH + o.hx || Math.abs(o.z - c.z) > c.hz + CRUSH_REACH + o.hz) continue;
+        struck++;
+        Arena.damageObject(o, dmg, 'crush', CRUSH_SRC_BASE - this.crushSeq++, 0, 0, o.x, 0.5, o.z, undefined);
+      }
+    }
   }
   /* The active tick of a hazard: every fighter in the zone that is due is hurt (the same fighter again only after `gap` ticks, or never within one activation when gap is 0). */
   hazardEffects(h) {
@@ -8842,6 +9333,8 @@ class MatchSim {
     this.physics();
     this.stepItems();
     this.stepHazards();
+    this.stepLoad();
+    this.stepCollapse();
     Combat.tickCombos(this.fighters);
     for (const f of this.fighters) f.animate(DT);
     if (this.training) this.trainingMaintenance();
@@ -9673,7 +10166,7 @@ const Effects = {
     on('ko', (e) => { FX.flash(e.x, e.y, e.z, 0.7, '#ffffff'); FX.sparks(e.x, e.y, e.z, 20, 5, '#ffd27a'); if (koEndsFight(e.def)) for (const p of Inputs.active()) p.rumble(RUMBLE_KO, RUMBLE_KO_MS); });
     on('wallSlam', (e) => { FX.dust(e.x, 0.6, e.z, 8, 0.5, '#b5ada0'); FX.sparks(e.x, 1.0, e.z, 8, 3, '#ffffff'); Camera.impact(0.7, 0.5); });
     on('envImpact', (e) => { FX.dust(e.x, 0.6, e.z, 8, 0.5, '#b5ada0'); Camera.impact(0.6, 0.4); });
-    on('objHit', (e) => { const m = MATERIALS[e.obj.mat]; FX.sparks(e.x, e.y, e.z, e.dmg > 0 ? 6 : 2, 2.5, m ? m.color : '#ffffff'); if (e.dmg > 0 && e.obj.mat === 'concrete') FX.dust(e.x, e.y, e.z, 2, 0.3, '#a8a49b'); });
+    on('objHit', (e) => { const m = MATERIALS[e.obj.mat]; FX.sparks(e.x, e.y, e.z, e.dmg > 0 ? 6 : 2, 2.5, m ? m.color : '#ffffff'); if (e.dmg > 0 && kindOf(e.obj.mat) === 'concrete') FX.dust(e.x, e.y, e.z, 2, 0.3, '#a8a49b'); });
     on('objStage', (e) => FX.dust(e.x, e.y, e.z, 4, 0.5, '#a89a86'));
     on('hazardStart', (e) => {   // the burst of each hazard that goes off (steam and fire keep going from MatchSim.hazardParticles)
       const h = e.h;
@@ -9956,15 +10449,16 @@ const Sound = {
     on('ko', (e) => { this.slam(e.x); if (koEndsFight(e.def)) this.bell(); });
     on('wallSlam', (e) => this.slam(e.x));
     on('envImpact', (e) => this.slam(e.x));
-    on('objHit', (e) => this.material(MATERIALS[e.obj.mat] ? e.obj.mat : 'wood', false, e.x));
-    on('objStage', (e) => this.material(e.obj.mat, false, e.x));
-    on('objBreak', (e) => this.material(e.mat, true, e.x));
+    on('objHit', (e) => this.material(MATERIALS[e.obj.mat] ? kindOf(e.obj.mat) : 'wood', false, e.x));
+    on('objStage', (e) => this.material(kindOf(e.obj.mat), false, e.x));
+    on('objBreak', (e) => this.material(kindOf(e.mat), true, e.x));
     on('itemTake', (e) => { if (this.allow('itemTake', 0.1)) { const p = this.panFor(e.x); this.noise('bandpass', 500, 1100, 0.9, 0.09, 0.22, 0, p); this.tone('triangle', 300, 420, 0.06, 0.14, 0.02, p); } });   // a rustle and a light grip
     on('itemDrop', (e) => this.material(WEAPONS[e.id].mat, false, e.x));
     on('itemThrow', (e) => this.whoosh(0.8, e.x));
     on('itemBreak', (e) => this.material(WEAPONS[e.id].mat, true, e.x));   // the debris sound of the item's material
     on('itemSpray', (e) => { if (this.allow('itemSpray', 0.15)) this.noise('highpass', 3000, 1800, 0.7, 0.35, 0.3, 0, this.panFor(e.x)); });   // a hiss
     on('hazardWarn', (e) => this.hazard(e.h.def.snd, 'warn', e.h.tx));
+    on('deckCreak', (e) => { if (this.allow('creak', 0.5)) { this.tone('sawtooth', 85, 55, 0.5, 0.14, 0, this.panFor(e.x)); this.noise('bandpass', 400, 200, 1.0, 0.45, 0.2, 0, this.panFor(e.x)); } });   // the groan of a deck about to give way
     on('hazardStart', (e) => { if (e.h.def.snd !== 'glass') this.hazard(e.h.def.snd, 'start', e.h.x); });   // the wall's own break sound is the object's
     on('hazardHit', (e) => { if (e.dmg > 0) this.hazardHurt(e.h.def.snd, e.x); });
     on('debrisImpact', (e) => this.debris(e.kind, e.power, e.x));
@@ -10133,7 +10627,7 @@ const RESULTS_GUARD_MS = 600;   // presses still mashed from the fight cannot sk
 const ONBOARD_MS = 8000;   // the first-match controls card closes itself after this long (it lists seven actions)
 const VERSUS_CARD_MS = 9000;   // the Versus controls card holds both players' keys: a little longer
 const SCENARIOS = ['1: Neutral distance', '2: Close range', '3: Opponent cornered', '4: Throw into scenery', '5: Opponent low stamina'];
-const KIND_NAME = { wood: 'WOOD', concrete: 'CONCRETE', metal: 'METAL', glass: 'GLASS', paper: 'SCREEN' };
+const KIND_NAME = { wood: 'WOOD', concrete: 'CONCRETE', metal: 'METAL', glass: 'GLASS', paper: 'CARDBOARD', brick: 'BRICK', plastic: 'PLASTIC', tile: 'TILE', sheet: 'METAL' };
 
 const UI = {
   screen_creator() { return CreatorUI.render(); },
@@ -10184,7 +10678,7 @@ const UI = {
     Events.on('tackle', (e) => this.popAt(e.x, e.y + 0.5, e.z, e.result === 'hit' ? 'TACKLE!' : e.result === 'blocked' ? 'STOPPED' : 'MISSED', e.result === 'hit' ? '#ffd24a' : '#9cf4ff'));
     Events.on('clinch', (e) => { this.popAt(e.x, 1.6, e.z, 'CLINCH', '#ffffff'); this.firstClinchTip(e); });
     Events.on('objBreak', (e) => { this.popAt(e.x, 1.3, e.z, (KIND_NAME[e.mat] || 'OBJECT') + ' SMASHED!', '#ffe9a6'); this.say('Object destroyed'); });
-    Events.on('objStage', (e) => this.popAt(e.x, e.obj.h + 0.2, e.z, (e.obj.mat === 'metal' ? STAGE_NAMES_METAL : STAGE_NAMES)[e.stage].toUpperCase(), '#d0d8e8'));
+    Events.on('objStage', (e) => this.popAt(e.x, e.obj.h + 0.2, e.z, (kindOf(e.obj.mat) === 'metal' ? STAGE_NAMES_METAL : STAGE_NAMES)[e.stage].toUpperCase(), '#d0d8e8'));
     Events.on('wallSlam', (e) => this.popAt(e.x, 1.5, e.z, 'WALL SLAM', '#ffb27a'));
     Events.on('envImpact', (e) => this.popAt(e.x, 1.5, e.z, 'CRASH', '#ffb27a'));
     Events.on('hazardWarn', (e) => this.popAt(e.h.x, 2.0, e.h.z, e.h.def.name.toUpperCase() + '!', '#ffb000'));
@@ -10800,7 +11294,7 @@ const UI = {
     let h = '<section class="screen on" style="justify-content:flex-end" aria-label="Arena selection"><div class="panel" style="max-width:min(34em,60vw)"><h2>Choose an arena</h2><div>';
     for (const id of ARENA_ORDER) {
       const a = ARENAS[id];
-      const mats = Array.from(new Set(a.objects.map((o) => MATERIALS[o.mat].label))).join(', ');
+      const mats = Array.from(new Set(builtOf(a).objects.filter((o) => !o.fixed).map((o) => MATERIALS[o.mat].label))).join(', ');
       h += '<button class="mi' + (sel.arena === id ? ' sel' : '') + '" data-nav ' + (sel.arena === id ? 'data-default ' : '') + 'data-act="arena:' + id + '">' + a.name + (sel.arena === id ? ' &#10003;' : '') + '<small>' + a.blurb + ' Breakable: ' + mats + '.</small></button>';
     }
     h += '</div><div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="start">Start fight</button></div></div></section>';
@@ -12243,6 +12737,7 @@ function testApi() {
     wrapAngle,
     BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, heldLabel, moveById, weaponTable,
     AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS,
+    CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };
@@ -12294,7 +12789,8 @@ UI.runBenchmark = function runBenchmark(seconds, opts) {
   if (Game.state !== GS.MENU || Game.match) return Promise.resolve({ error: 'Benchmark is available from the main menu only.' });
   const duration = Number.isFinite(seconds) && seconds > 0 ? seconds : BENCH_SECONDS;
   const enemies = opts && Number.isFinite(opts.enemies) ? clamp(Math.floor(opts.enemies), 1, BRAWL_MAX_ENEMIES) : 0;   // P4-01: opts.enemies = N runs the brawl scene (1 player + N enemies)
-  const arenaId = ARENA_ORDER.reduce((best, id) => (ARENAS[id].objects.length > ARENAS[best].objects.length ? id : best));
+  const destructibles = (def) => builtOf(def).objects.filter((o) => !o.fixed).length;   // stairs, ropes and fixed decks cannot be smashed
+  const arenaId = ARENA_ORDER.reduce((best, id) => (destructibles(ARENAS[id]) > destructibles(ARENAS[best]) ? id : best));
   const smashAll = () => {
     Arena.reset();
     if (Game.match) Game.match.spawnHazards();   // the reset took the hazards' posts out of the colliders
