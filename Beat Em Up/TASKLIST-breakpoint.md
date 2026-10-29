@@ -50,6 +50,7 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - No external dependencies. Output stays one HTML file.
 - Keep file size as small as possible: prefer data tables and shared generators over hand-written duplicates.
 - Every phase ends with: self-test passes, no console errors, low-spec performance check (P0-04 method) not worse than the baseline unless a decision accepts it.
+- Owner (2026-10-29): "Keep things balanced". Every new or changed option, move, weapon or mode is measured with the P0-06 runner against the P14-01 targets before its task is ticked.
 
 ---
 
@@ -139,6 +140,8 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [ ] P3-10 - Combo audit and redesign for balance: for every attack string and buffered chain measure damage, stamina, frame advantage on hit and on block, guard break, knockdown / launch and juggle follow-ups; give each style family (P1-04) its own strings where the style needs them; make strong string enders punishable on block and keep any one string from dominating. Runs after P3-08.
   Done when: Appendix C has the final string table per style family with frame data and damage per string; the P0-06 runner (AI vs AI, every style pair) shows every string in use, no single string above 35% of a fighter's damage (threshold may be revised in Appendix C with a reason), no unintended infinite or guaranteed loop, and win rates inside the P14-01 target.
   Status (2026-10-28): implemented, measurements and the final tables are in Appendix C ("P3-10 combo audit"). Worst string 25% (limit 35%), punch share 38-40%, strong enders -7 or less on block, per-style rows for 5 move styles, no loop. Open: the all-pairs win-rate check waits for P14-01 (Hard 37-63%, Expert 42-60%; Normal was already lopsided and is unchanged).
+- [ ] P3-11 - Sway that looks right (owner, 2026-10-29: the character looks hit because it did not sway far enough out of the way): the sway pose moves the head and body clearly out of the strike line for the whole avoid window, the window matches what is drawn, and a swayed strike visibly passes by (no hit flash, no reaction).
+  Done when: Training captures of a sway against each attack height and style family show the strike missing the body by a visible gap; a self-test checks the drawn head / torso stays outside the attack hit volume during the avoid window; Block / Sway balance stays inside the P14-01 targets.
 
 ## Phase 4 - Multiple opponents and lock-on
 
@@ -163,6 +166,8 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P4-07 - Local co-op (up to 4 players) in brawler levels: shared camera, friendly-fire rule (DECIDE), revive rule (DECIDE).
   Done when: 4 local players (keyboard + gamepads) can play a level together.
   Status (2026-10-28): implemented, rules in Appendix C ("Local co-op (P4-07)"). Self-tests "Co-op ..." (13) cover the seats (also a pad returning in another slot) and join screen devices (also a button held when the screen reopens), the match set-up, four devices each driving only their own fighter, friendly fire off / on, the sit-out rule (lost when all are out, won when every enemy is out), the stage-start revive hook (unit level, no stages exist), the camera with a knocked-out lead, the setting and its save, the menu flow and the HUD / results strings. Not yet tried by hand: the join screen and the co-op HUD have not been seen on screen (360 x 640 and 1280 x 720 were designed from the CSS only) and nothing was played with real gamepads. Not ticked.
+- [ ] P4-08 - Match setup (owner, 2026-10-29): choose the number of opponents, whether each slot is AI or human (local device now, online peer after Phase 12) and which team each slot is on (free-for-all or teams), in Versus, Free Fight and Brawl, within the P1-05 maximum. DECIDE how uneven teams stay fair (for example a handicap or a team-size cap) and record it in Appendix C.
+  Done when: any allowed mix of AI and human slots and teams can be set and played on touch, gamepad and keyboard, and the P0-06 runner shows the uneven-team rule keeps win rates inside the P14-01 targets.
 
 ## Phase 5 - Martial arts styles and animations
 
@@ -180,6 +185,12 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
   Status (2026-10-29): implemented, data and rules in Appendix C ("Preset roster (P5-04)"). 32 presets (6 kept unchanged + 26 new rows), unlock rule per non-starter, 5-bout Arcade ladder with rivals and bosses after the first clear, save migration. Self-tests "Presets: ..." (7) cover the fields and counts (2 per style, 16 F / 16 M, 16 Block / 16 Sway, roles 10 / 12 / 6 / 3 / 1), the kept six pinned to hard-coded values, costs / bodies / looks / theme words, the unlock simulation (all 32 reachable in 4 clears plus a streak of 8), the old-save migration, the picker markup and an AI match for each new preset against KAI. Seen on screen at 1280 x 720 and 360 x 640: the 33 cards scroll in the panel with Back / Confirm pinned; the hint line and the Arcade difficulty row now sit below the grid (scroll), and arrow / pad navigation steps one card at a time (a later UI task), no face art (P6-06), no per-fighter balance check beyond the AI smoke (P14-01), the bosses have no `bossAttrs`. Not ticked.
 - [ ] P5-05 - Non-combat animations: emotes, poses, idle, taunts, victory / defeat, reactions for story beats (Phase 10).
   Done when: the list from P10-02 is implemented.
+- [ ] P5-06 - Attack animation audit and rework (owner, 2026-10-29: attacks look generic and similar for all styles): for every style, compare each attack's key poses (chamber, strike, recovery), hip and shoulder turn, footwork and timing against the real technique; give each style family its own look per P5-02, and fix moves that share one animation without reason.
+  Done when: Appendix C lists the reworked moves per style; side-by-side Training captures show each style's attacks are distinct; frame data and hit boxes match the new poses, and the P3-10 / P14 balance runs still pass.
+- [ ] P5-07 - Weapon attack animations (owner, 2026-10-29: weapon attack animations are wrong): per weapon class (one-hand swing, two-hand swing, thrust, overhead, chain / flexible, carried crate), a grip-correct swing arc from the hand, the weapon's own reach and a hit box that follows the drawn weapon; throws use the item's real release point.
+  Done when: every weapon from P7-01 has a matching animation, its hit box follows the drawn weapon in a self-test, and Training captures show no weapon clipping through the body or swinging from the wrong hand.
+- [ ] P5-08 - Submissions made clear (owner, 2026-10-29, asked how submissions work): a prompt near a knocked-down opponent when the fighter's style can submit, a visible hold / escape contest meter, a Move list and Help entry per style, and a Training scenario. DECIDE whether styles without submissions get a basic hold.
+  Done when: a new player can find, start, hold and escape a submission from the on-screen prompts alone (scripted check of the prompts and the Training scenario), and submission win rates stay inside the P14-01 targets.
 
 ## Phase 6 - Character customization
 
@@ -236,6 +247,8 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P7-06 - Pick up hazards and objects where approved in P7-01 (the ideas file says "pickup weapons and other Hazards").
   Done when: pickable hazards follow the P7-02 / P7-03 rules.
   Status (2026-10-29): the extinguisher, crate, bottle and brick follow the pick-up and Use rules; CPUs pick up floor items and throw.
+- [ ] P7-07 - Weapon models rework (owner, 2026-10-29: weapon models look bad): real proportions, recognisable silhouettes, material colours, and a grip point that lines up with the hand, for every item from P7-01, in the hand, on the floor and on tables / racks.
+  Done when: a capture sheet of every item (floor, held, rack) shows recognisable shapes with the grip in the hand, within the P0-04 draw-call budget.
 
 ## Phase 8 - Levels
 
@@ -393,6 +406,12 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 | Optional: heavy characters tackle smaller ones by moving through them (analog only) | P3-06 |
 | Tournament mode like Budokai / Budokai Tenkaichi, playable multiplayer | P1-08, P11-01 to P11-03 |
 | Overall audit Critical / High / Medium / Low / Informational | P0-02, P0-03, P16-01 |
+| Added 2026-10-29: select number of opponents, AI or human, and team | P4-08 |
+| Added 2026-10-29: weapon models look bad | P7-07 |
+| Added 2026-10-29: attacks look generic and similar for all styles; weapon attack animations wrong | P5-06, P5-07 |
+| Added 2026-10-29: how do submissions work (make them clear) | P5-08 |
+| Added 2026-10-29: keep things balanced | Section 3 rule, P14-01 to P14-05 |
+| Added 2026-10-29: sway looks implausible (the character still looks hit) | P3-11 |
 
 ### Original text of Ideas-breakpoint.txt (verbatim)
 
