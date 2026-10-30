@@ -273,7 +273,23 @@ const MAX_PROJECTILES = 480;    // flamers, needlers, swarms and bomblets keep m
 /* Damage one armour point stops, by damage type: rounds glance off plating, explosives and energy
    cut through it, so the type changes how much it takes to kill an armoured target. */
 const ARMOR_SOAK = { kinetic: 1.5, explosive: 0.8, energy: 0.9 };
-const FLARE_SPOOF = 0.5;         // chance each flare pulls a missile off its target
+const FLARE_SPOOF = 0.5;         // chance each flare pulls a missile off its target when its guide has no `flare` of its own
+const PD_TRACK_RANGE = 450;      // m: an incoming projectile this near that threatens a platform can be cycled to and locked (P5-07)
+const PD_CAND = [0, 1, 2, 3, 4, 5].map(() => ({ q: null, t: 0, d: 0 }));   // Point Defence: the projectiles that will arrive first, nearest first (reused)
+const PD_ENGAGED = 0.5;          // s: a Point Defence gun that fired this recently is already on the job, so it retargets at pdRetarget, not pdAcquire
+const PD_SALT = 0x70dc0de;       // seeds each Point Defence unit's stream with its platform id
+const PD_PASS = 25;              // m: an unguided rocket that will pass this close (plus the platform's radius) threatens it...
+const PD_HORIZON = 6;            // s: ...if it will get there within this
+const PD_KILL_BLAST = 2.6;       // m: the burst of a shot-down projectile (it does no damage: the warhead does not go off)
+const PD_AAM_FUSE = 4;           // m: an AA seeker locked on a projectile bursts this close to it (plus the projectile's hit size)
+const PD_FUSE_SHARE = 0.6;       // a proximity round (flak) bursts when a rocket is within this share of its fuse range (plus the hit size)
+const PD_BLAST_MULT = 2;         // a burst hurts a rocket this much more than its blast table says (fragments find thin skin)
+const NET_PROJ_TG = 1000000;     // a co-op target id at or above this is a projectile: this plus its nid
+const TARGET_INCOMING_BONUS = 0.6;   // an incoming projectile comes first when cycling
+const SEEK_LOS_STEP = 0.12;      // s between a homing missile's looks along its own line of sight (P5-06)
+const SEEK_SHOULDER = 0.35;      // share of its height above its middle at which a seeker looks at a unit on the ground
+const SEEK_TP = { x: 0, y: 0, z: 0 };
+const SEEK_NEAR = 10;            // m: nearer than this a seeker keeps its target whatever stands between (the fuse is about to go)
 const AUTO_SHIELD_RAISE = 0.5;   // fraction a built-in shield must regain before it comes back up
 const SCARCE_AMMO = 0.5;         // reserve ammunition multiplier with the Scarce ammunition modifier
 const EJECT_SAFE_HULL = 0.25;    // ejecting at or above this hull fraction is a tactical withdrawal
@@ -306,50 +322,50 @@ const AI_GADGET_CHECK = 0.4;     // seconds between AI checks of when to use a u
    kind: proj | beam | bomb | defense
    fire: auto | semi | burst | charge                                    */
 const WEAPONS = {
-  mg: { name: 'Chain MG', slot: 'primary', kind: 'proj', fire: 'auto', dmg: 5, dtype: 'kinetic', speed: 430, life: 1.1, cd: 0.06, spread: 0.022, clip: 120, reserve: 720, reload: 2.2, heat: 1.4, range: 420, blast: 0, weight: 4, structMult: 0.8, tracer: [1, 0.9, 0.5], size: 0.45, sound: 'mg', recoil: 0.15, role: 'Pro: light, accurate, deep ammo supply; con: rounds glance off armour' },
-  acannon: { name: 'Autocannon', slot: 'primary', kind: 'proj', fire: 'auto', dmg: 13, dtype: 'kinetic', speed: 330, life: 1.7, cd: 0.14, spread: 0.012, clip: 60, reserve: 420, reload: 2.6, heat: 3.2, range: 520, blast: 1.8, blastDmg: 5, weight: 9, structMult: 1.1, tracer: [1, 0.75, 0.3], size: 0.6, sound: 'cannon', recoil: 0.3, role: 'Pro: accurate all-rounder with a small blast; con: no stand-out strength' },
-  gatling: { name: 'Gatling Cannon', slot: 'primary', kind: 'proj', fire: 'auto', dmg: 6, dtype: 'kinetic', speed: 440, life: 1.1, cd: 0.04, spread: 0.032, clip: 300, reserve: 1200, reload: 4, heat: 1.5, range: 450, blast: 0, weight: 14, structMult: 1, tracer: [1, 0.85, 0.4], size: 0.5, sound: 'mg', recoil: 0.25, role: 'Pro: high sustained damage; con: heavy, wide spread, long reload' },
+  mg: { name: 'Chain MG', slot: 'primary', kind: 'proj', pdHit: true, fire: 'auto', dmg: 5, dtype: 'kinetic', speed: 430, life: 1.1, cd: 0.06, spread: 0.022, clip: 120, reserve: 720, reload: 2.2, heat: 1.4, range: 420, blast: 0, weight: 4, structMult: 0.8, tracer: [1, 0.9, 0.5], size: 0.45, sound: 'mg', recoil: 0.15, role: 'Pro: light, accurate, deep ammo supply; con: rounds glance off armour' },
+  acannon: { name: 'Autocannon', slot: 'primary', kind: 'proj', pdHit: true, fire: 'auto', dmg: 13, dtype: 'kinetic', speed: 330, life: 1.7, cd: 0.14, spread: 0.012, clip: 60, reserve: 420, reload: 2.6, heat: 3.2, range: 520, blast: 1.8, blastDmg: 5, weight: 9, structMult: 1.1, tracer: [1, 0.75, 0.3], size: 0.6, sound: 'cannon', recoil: 0.3, role: 'Pro: accurate all-rounder with a small blast; con: no stand-out strength' },
+  gatling: { name: 'Gatling Cannon', slot: 'primary', kind: 'proj', pdHit: true, fire: 'auto', dmg: 6, dtype: 'kinetic', speed: 440, life: 1.1, cd: 0.04, spread: 0.032, clip: 300, reserve: 1200, reload: 4, heat: 1.5, range: 450, blast: 0, weight: 14, structMult: 1, tracer: [1, 0.85, 0.4], size: 0.5, sound: 'mg', recoil: 0.25, role: 'Pro: high sustained damage; con: heavy, wide spread, long reload' },
   laser: { name: 'Pulse Laser', slot: 'primary', kind: 'beam', fire: 'auto', dmg: 6.5, dtype: 'energy', speed: 0, life: 0, cd: 0.085, spread: 0.004, clip: 0, reserve: 0, reload: 0, heat: 2.4, range: 380, blast: 0, weight: 7, structMult: 0.7, tracer: [0.3, 1, 0.8], size: 0.25, sound: 'laser', recoil: 0.05, role: 'Pro: instant hit, never runs out of ammo; con: heat-limited, weak against structures' },
-  shotgun: { name: 'Scattergun', slot: 'primary', kind: 'proj', fire: 'semi', pellets: 9, dmg: 10, dtype: 'kinetic', speed: 340, life: 0.34, cd: 0.7, spread: 0.075, clip: 8, reserve: 48, reload: 2.4, heat: 6, range: 110, blast: 0, weight: 6, structMult: 0.9, tracer: [1, 0.8, 0.4], size: 0.4, sound: 'shotgun', recoil: 0.7, role: 'Pro: devastating up close; con: useless beyond about 110 m' },
-  rail: { name: 'Railgun', slot: 'primary', kind: 'proj', fire: 'charge', chargeTime: 0.9, dmg: 170, dtype: 'kinetic', speed: 1100, life: 1.2, cd: 1.2, spread: 0.0, clip: 4, reserve: 24, reload: 3.5, heat: 22, range: 900, blast: 0, pierce: 2, weight: 16, structMult: 1.5, tracer: [0.6, 0.85, 1], size: 0.9, sound: 'rail', recoil: 1.2, role: 'Pro: charged shot pierces two targets at long range; con: must charge before each shot, heavy' },
-  plasma: { name: 'Plasma Cannon', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 60, dtype: 'energy', speed: 135, life: 3, cd: 0.75, spread: 0.01, grav: 3, clip: 12, reserve: 60, reload: 3, heat: 11, range: 380, blast: 8, weight: 14, structMult: 1.4, tracer: [0.5, 1, 0.6], size: 1.3, sound: 'plasma', recoil: 0.8, role: 'Pro: heavy bolt with a wide blast; con: slow, dropping bolt that is easy to dodge' },
-  flak: { name: 'Flak Cannon', slot: 'primary', kind: 'proj', fire: 'auto', dmg: 16, dtype: 'explosive', speed: 300, life: 1.6, cd: 0.35, spread: 0.02, clip: 20, reserve: 140, reload: 3, heat: 3, range: 480, blast: 6, prox: 7, weight: 10, structMult: 0.8, tracer: [1, 0.6, 0.2], size: 0.8, sound: 'flak', recoil: 0.5, role: 'Pro: proximity bursts shred aircraft; con: weak against ground armour' },
+  shotgun: { name: 'Scattergun', slot: 'primary', kind: 'proj', pdHit: true, fire: 'semi', pellets: 9, dmg: 10, dtype: 'kinetic', speed: 340, life: 0.34, cd: 0.7, spread: 0.075, clip: 8, reserve: 48, reload: 2.4, heat: 6, range: 110, blast: 0, weight: 6, structMult: 0.9, tracer: [1, 0.8, 0.4], size: 0.4, sound: 'shotgun', recoil: 0.7, role: 'Pro: devastating up close; con: useless beyond about 110 m' },
+  rail: { name: 'Railgun', slot: 'primary', kind: 'proj', pdHit: true, fire: 'charge', chargeTime: 0.9, dmg: 170, dtype: 'kinetic', speed: 1100, life: 1.2, cd: 1.2, spread: 0.0, clip: 4, reserve: 24, reload: 3.5, heat: 22, range: 900, blast: 0, pierce: 2, weight: 16, structMult: 1.5, tracer: [0.6, 0.85, 1], size: 0.9, sound: 'rail', recoil: 1.2, role: 'Pro: charged shot pierces two targets at long range; con: must charge before each shot, heavy' },
+  plasma: { name: 'Plasma Cannon', slot: 'primary', kind: 'proj', pdHit: true, fire: 'semi', dmg: 60, dtype: 'energy', speed: 135, life: 3, cd: 0.75, spread: 0.01, grav: 3, clip: 12, reserve: 60, reload: 3, heat: 11, range: 380, blast: 8, weight: 14, structMult: 1.4, tracer: [0.5, 1, 0.6], size: 1.3, sound: 'plasma', recoil: 0.8, role: 'Pro: heavy bolt with a wide blast; con: slow, dropping bolt that is easy to dodge' },
+  flak: { name: 'Flak Cannon', slot: 'primary', kind: 'proj', pdHit: true, fire: 'auto', dmg: 16, dtype: 'explosive', speed: 300, life: 1.6, cd: 0.35, spread: 0.02, clip: 20, reserve: 140, reload: 3, heat: 3, range: 480, blast: 6, prox: 7, weight: 10, structMult: 0.8, tracer: [1, 0.6, 0.2], size: 0.8, sound: 'flak', recoil: 0.5, role: 'Pro: proximity bursts shred aircraft; con: weak against ground armour' },
   /* flags read by the generic weapon code (see WPN): burn [dps, s], chain, ramp, stick (s to burst), stagger, knock, emp (s), shieldMult */
   flamer: { name: 'Flamethrower', slot: 'primary', kind: 'proj', fire: 'auto', dmg: 4, dtype: 'energy', speed: 90, life: 0.65, cd: 0.08, spread: 0.06, clip: 120, reserve: 480, reload: 3, heat: 2, range: 58, blast: 0, burn: [12, 3], weight: 7, structMult: 0.6, tracer: [1, 0.55, 0.15], size: 1.9, sound: 'jump', recoil: 0.05, role: 'Pro: huge damage up close and sets targets burning; con: no use past 60 m' },
   tesla: { name: 'Tesla Coil', slot: 'primary', kind: 'beam', fire: 'auto', dmg: 14, dtype: 'energy', speed: 0, life: 0, cd: 0.22, spread: 0.006, clip: 0, reserve: 0, reload: 0, heat: 4.5, range: 95, blast: 0, chain: { n: 3, r: 28, f: 0.7 }, beamWidth: 0.6, weight: 10, structMult: 0.6, tracer: [0.6, 0.8, 1], size: 0.3, sound: 'laser', recoil: 0.1, role: 'Pro: instant bolt that arcs to 3 more enemies; con: short range, runs hot' },
-  gauss: { name: 'Gauss Rifle', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 125, dtype: 'kinetic', speed: 1300, life: 0.9, cd: 1.6, spread: 0, clip: 5, reserve: 30, reload: 3.4, heat: 16, range: 1000, blast: 0, pierce: 1, stagger: 0.35, weight: 18, structMult: 1.3, tracer: [0.7, 0.8, 1], size: 0.75, sound: 'rail', recoil: 1.1, role: 'Pro: no charge-up, very fast piercing slug; con: heaviest primary, slow rate of fire' },
+  gauss: { name: 'Gauss Rifle', slot: 'primary', kind: 'proj', pdHit: true, fire: 'semi', dmg: 125, dtype: 'kinetic', speed: 1300, life: 0.9, cd: 1.6, spread: 0, clip: 5, reserve: 30, reload: 3.4, heat: 16, range: 1000, blast: 0, pierce: 1, stagger: 0.35, weight: 18, structMult: 1.3, tracer: [0.7, 0.8, 1], size: 0.75, sound: 'rail', recoil: 1.1, role: 'Pro: no charge-up, very fast piercing slug; con: heaviest primary, slow rate of fire' },
   lance: { name: 'Beam Lance', slot: 'primary', kind: 'beam', fire: 'auto', dmg: 4.5, dtype: 'energy', speed: 0, life: 0, cd: 0.1, spread: 0.002, clip: 0, reserve: 0, reload: 0, heat: 4.8, range: 450, blast: 0, ramp: { max: 4, rate: 1.6 }, beamWidth: 0.3, weight: 12, structMult: 0.9, tracer: [1, 0.35, 0.9], size: 0.3, sound: 'laser', recoil: 0.05, role: 'Pro: damage climbs to 5x while it stays on one target; con: enormous heat, resets on a new target' },
   needler: { name: 'Needle Gun', slot: 'primary', kind: 'proj', fire: 'auto', dmg: 13, dtype: 'explosive', speed: 400, life: 1.0, cd: 0.13, spread: 0.016, clip: 45, reserve: 270, reload: 2.4, heat: 1.6, range: 380, blast: 2.2, stick: 1, weight: 6, structMult: 0.8, tracer: [0.75, 1, 0.45], size: 0.35, sound: 'mg', recoil: 0.08, role: 'Pro: needles stick and burst, cracking armour; con: damage lands a second late' },
-  slug: { name: 'Slug Cannon', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 150, dtype: 'kinetic', speed: 280, life: 0.5, cd: 1.3, spread: 0.005, clip: 4, reserve: 28, reload: 3, heat: 12, range: 130, blast: 0, stagger: 0.8, knock: 14, weight: 11, structMult: 1.6, tracer: [1, 0.85, 0.5], size: 1.2, sound: 'shotgun', recoil: 1.1, role: 'Pro: one massive hit that staggers and shoves; con: short range, slow to fire' },
+  slug: { name: 'Slug Cannon', slot: 'primary', kind: 'proj', pdHit: true, fire: 'semi', dmg: 150, dtype: 'kinetic', speed: 280, life: 0.5, cd: 1.3, spread: 0.005, clip: 4, reserve: 28, reload: 3, heat: 12, range: 130, blast: 0, stagger: 0.8, knock: 14, weight: 11, structMult: 1.6, tracer: [1, 0.85, 0.5], size: 1.2, sound: 'shotgun', recoil: 1.1, role: 'Pro: one massive hit that staggers and shoves; con: short range, slow to fire' },
   ion: { name: 'Ion Cannon', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 25, dtype: 'energy', speed: 260, life: 1.8, cd: 1.0, spread: 0.008, clip: 8, reserve: 40, reload: 3, heat: 8, range: 450, blast: 0, emp: 2.5, shieldMult: 4, weight: 10, structMult: 0.5, tracer: [0.45, 0.65, 1], size: 1.1, sound: 'plasma', recoil: 0.5, role: 'Pro: EMP bolt strips shields and disables weapons; con: very low damage' },
   howitzer: { name: 'Howitzer', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 170, dtype: 'explosive', speed: 120, life: 14, cd: 1.2, spread: 0.004, grav: 22, arc: true, clip: 2, reserve: 16, reload: 5.5, heat: 14, range: 700, blast: 13, weight: 18, structMult: 2, tracer: [1, 0.7, 0.3], size: 1.6, sound: 'mortar', recoil: 1.4, role: 'Pro: huge lobbed shell at long range, over cover; con: two shells per long reload, heavy' },
-  vulcan: { name: 'Rotary Vulcan', slot: 'primary', kind: 'proj', fire: 'auto', dmg: 6, dtype: 'kinetic', speed: 520, life: 0.9, cd: 0.03, spread: 0.02, clip: 400, reserve: 1200, reload: 4.5, heat: 1.4, range: 450, blast: 0, weight: 12, structMult: 0.8, tracer: [1, 0.85, 0.35], size: 0.45, sound: 'mg', recoil: 0.2, role: 'Pro: extreme rate of fire for air-to-air; con: overheats in seconds, weak against armour' },
+  vulcan: { name: 'Rotary Vulcan', slot: 'primary', kind: 'proj', pdHit: true, fire: 'auto', dmg: 6, dtype: 'kinetic', speed: 520, life: 0.9, cd: 0.03, spread: 0.02, clip: 400, reserve: 1200, reload: 4.5, heat: 1.4, range: 450, blast: 0, weight: 12, structMult: 0.8, tracer: [1, 0.85, 0.35], size: 0.45, sound: 'mg', recoil: 0.2, role: 'Pro: extreme rate of fire for air-to-air; con: overheats in seconds, weak against armour' },
   /* infantry weapons */
-  rifle: { name: 'Assault Rifle', slot: 'primary', kind: 'proj', fire: 'auto', dmg: 5, dtype: 'kinetic', speed: 420, life: 1.0, cd: 0.1, spread: 0.014, clip: 30, reserve: 240, reload: 2.0, heat: 1.6, range: 350, blast: 0, weight: 4, structMult: 0.7, tracer: [1, 0.9, 0.5], size: 0.4, sound: 'mg', recoil: 0.12, role: 'Pro: reliable and light; con: modest damage' },
-  smg: { name: 'Submachine Gun', slot: 'primary', kind: 'proj', fire: 'auto', dmg: 4, dtype: 'kinetic', speed: 380, life: 0.7, cd: 0.065, spread: 0.032, clip: 40, reserve: 280, reload: 1.7, heat: 1.2, range: 200, blast: 0, weight: 3, structMult: 0.6, tracer: [1, 0.85, 0.45], size: 0.35, sound: 'mg', recoil: 0.1, role: 'Pro: fast fire, lightest gun; con: short range, wide spread' },
-  sniper: { name: 'Sniper Rifle', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 70, dtype: 'kinetic', speed: 900, life: 1.3, cd: 1.1, spread: 0.0, clip: 5, reserve: 30, reload: 2.8, heat: 14, range: 800, blast: 0, weight: 6, structMult: 0.9, tracer: [0.9, 0.95, 1], size: 0.5, sound: 'rail', recoil: 0.5, role: 'Pro: huge single shots at long range; con: slow fire, poor up close' },
-  lmg: { name: 'Light Machine Gun', slot: 'primary', kind: 'proj', fire: 'auto', dmg: 5, dtype: 'kinetic', speed: 420, life: 1.0, cd: 0.075, spread: 0.026, clip: 100, reserve: 400, reload: 4.2, heat: 1.4, range: 380, blast: 0, weight: 6, structMult: 0.7, tracer: [1, 0.9, 0.5], size: 0.4, sound: 'mg', recoil: 0.14, role: 'Pro: 100-round belt for sustained fire; con: heavy for a soldier, long reload' },
-  dmr: { name: 'Marksman Rifle', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 30, dtype: 'kinetic', speed: 700, life: 1.0, cd: 0.38, spread: 0.002, clip: 10, reserve: 60, reload: 2.4, heat: 4, range: 600, blast: 0, weight: 5, structMult: 0.8, tracer: [0.95, 0.95, 0.8], size: 0.45, sound: 'cannon', recoil: 0.3, role: 'Pro: accurate, hard-hitting shots at range; con: small magazine, slower than a rifle up close' },
+  rifle: { name: 'Assault Rifle', slot: 'primary', kind: 'proj', pdHit: true, fire: 'auto', dmg: 5, dtype: 'kinetic', speed: 420, life: 1.0, cd: 0.1, spread: 0.014, clip: 30, reserve: 240, reload: 2.0, heat: 1.6, range: 350, blast: 0, weight: 4, structMult: 0.7, tracer: [1, 0.9, 0.5], size: 0.4, sound: 'mg', recoil: 0.12, role: 'Pro: reliable and light; con: modest damage' },
+  smg: { name: 'Submachine Gun', slot: 'primary', kind: 'proj', pdHit: true, fire: 'auto', dmg: 4, dtype: 'kinetic', speed: 380, life: 0.7, cd: 0.065, spread: 0.032, clip: 40, reserve: 280, reload: 1.7, heat: 1.2, range: 200, blast: 0, weight: 3, structMult: 0.6, tracer: [1, 0.85, 0.45], size: 0.35, sound: 'mg', recoil: 0.1, role: 'Pro: fast fire, lightest gun; con: short range, wide spread' },
+  sniper: { name: 'Sniper Rifle', slot: 'primary', kind: 'proj', pdHit: true, fire: 'semi', dmg: 70, dtype: 'kinetic', speed: 900, life: 1.3, cd: 1.1, spread: 0.0, clip: 5, reserve: 30, reload: 2.8, heat: 14, range: 800, blast: 0, weight: 6, structMult: 0.9, tracer: [0.9, 0.95, 1], size: 0.5, sound: 'rail', recoil: 0.5, role: 'Pro: huge single shots at long range; con: slow fire, poor up close' },
+  lmg: { name: 'Light Machine Gun', slot: 'primary', kind: 'proj', pdHit: true, fire: 'auto', dmg: 5, dtype: 'kinetic', speed: 420, life: 1.0, cd: 0.075, spread: 0.026, clip: 100, reserve: 400, reload: 4.2, heat: 1.4, range: 380, blast: 0, weight: 6, structMult: 0.7, tracer: [1, 0.9, 0.5], size: 0.4, sound: 'mg', recoil: 0.14, role: 'Pro: 100-round belt for sustained fire; con: heavy for a soldier, long reload' },
+  dmr: { name: 'Marksman Rifle', slot: 'primary', kind: 'proj', pdHit: true, fire: 'semi', dmg: 30, dtype: 'kinetic', speed: 700, life: 1.0, cd: 0.38, spread: 0.002, clip: 10, reserve: 60, reload: 2.4, heat: 4, range: 600, blast: 0, weight: 5, structMult: 0.8, tracer: [0.95, 0.95, 0.8], size: 0.45, sound: 'cannon', recoil: 0.3, role: 'Pro: accurate, hard-hitting shots at range; con: small magazine, slower than a rifle up close' },
   arcPistol: { name: 'Arc Pistol', slot: 'primary', kind: 'beam', fire: 'auto', dmg: 7, dtype: 'energy', speed: 0, life: 0, cd: 0.2, spread: 0.008, clip: 0, reserve: 0, reload: 0, heat: 3, range: 45, blast: 0, chain: { n: 2, r: 16, f: 0.6 }, beamWidth: 0.3, weight: 3, structMult: 0.4, tracer: [0.6, 0.8, 1], size: 0.2, sound: 'laser', recoil: 0.05, role: 'Pro: light sidearm that arcs between enemies, no ammo; con: very short range' },
-  /* secondaries; more flags: split, zone, mine, wire (turn rate), empBlast [r, s], vsArmor, flareMult, guide.top (top attack) */
-  rockets: { name: 'Rocket Pod', slot: 'secondary', kind: 'proj', fire: 'burst', burst: { n: 6, interval: 0.07 }, dmg: 14, dtype: 'explosive', speed: 120, accel: 150, maxSpeed: 230, life: 3, cd: 2.4, spread: 0.035, clip: 24, reserve: 48, reload: 5, heat: 8, range: 520, blast: 4.5, weight: 8, structMult: 1.2, tracer: [1, 0.7, 0.3], size: 0.8, rocket: true, sound: 'rocket', recoil: 0.6, role: 'Pro: big unguided salvo, too light for APS to stop; con: scatters at range, cannot track' },
-  missile: { name: 'Guided Missile', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 75, dtype: 'explosive', speed: 140, accel: 120, maxSpeed: 200, life: 5.5, cd: 1.8, spread: 0.01, clip: 4, reserve: 12, reload: 5, heat: 7, range: 900, blast: 6.5, weight: 9, structMult: 1.3, tracer: [1, 0.8, 0.5], size: 1, rocket: true, guide: { turn: 2.0, lock: 'any', lockTime: 1.0, cone: 0.28 }, sound: 'missile', recoil: 0.6, role: 'Pro: locks on to anything; con: flares, ECM and APS can stop it' },
-  aam: { name: 'AA Missile', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 70, dtype: 'explosive', speed: 190, accel: 150, maxSpeed: 290, life: 5, cd: 1.2, spread: 0.01, clip: 4, reserve: 12, reload: 5, heat: 5, range: 1100, blast: 5, weight: 6, structMult: 0.6, tracer: [1, 0.9, 0.7], size: 0.9, rocket: true, guide: { turn: 4.2, lock: 'air', lockTime: 0.7, cone: 0.5 }, sound: 'missile', recoil: 0.4, role: 'Pro: fast, agile, long-range seeker; con: locks aircraft only' },
+  /* secondaries; more flags: split, zone, mine, wire (turn rate), empBlast [r, s], vsArmor, guide.top (top attack), guide.fov / lose / flare (the seeker's view, blind time and flare chance, P5-06) */
+  rockets: { name: 'Rocket Pod', slot: 'secondary', kind: 'proj', fire: 'burst', burst: { n: 6, interval: 0.07 }, dmg: 14, dtype: 'explosive', speed: 120, accel: 150, maxSpeed: 230, life: 3, cd: 2.4, spread: 0.035, clip: 24, reserve: 48, reload: 5, heat: 8, range: 520, blast: 4.5, weight: 8, structMult: 1.2, tracer: [1, 0.7, 0.3], size: 0.8, rocket: true, pdEvade: 0.6, pdHp: 8, pdR: 0.9, sound: 'rocket', recoil: 0.6, role: 'Pro: big unguided salvo, too light for APS to stop; con: scatters at range, cannot track' },
+  missile: { name: 'Guided Missile', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 75, dtype: 'explosive', speed: 140, accel: 120, maxSpeed: 200, life: 5.5, cd: 1.8, spread: 0.01, clip: 4, reserve: 12, reload: 5, heat: 7, range: 900, blast: 6.5, weight: 9, structMult: 1.3, tracer: [1, 0.8, 0.5], size: 1, rocket: true, pdHp: 30, pdR: 1.4, guide: { turn: 1.8, lock: 'any', lockTime: 1.0, cone: 0.28, fov: 0.85, lose: 0.5, flare: 0.5 }, sound: 'missile', recoil: 0.6, role: 'Pro: locks on to anything, objective structures too; con: gives up a target it cannot see after half a second, and flares, ECM, APS, point defence and guns can stop it' },
+  aam: { name: 'AA Missile', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 70, dtype: 'explosive', speed: 190, accel: 150, maxSpeed: 290, life: 5, cd: 1.2, spread: 0.01, clip: 4, reserve: 12, reload: 5, heat: 5, range: 1100, blast: 5, weight: 6, structMult: 0.6, tracer: [1, 0.9, 0.7], size: 0.9, rocket: true, pdEvade: 0.45, pdSoft: 1.8, pdHp: 20, pdR: 1.1, guide: { turn: 2.2, lock: 'air', lockTime: 0.7, cone: 0.5, fov: 0.9, lose: 0.5, flare: 0.5 }, sound: 'missile', recoil: 0.4, role: 'Pro: fast, long-range seeker that also locks inbound missiles and rockets; con: locks aircraft only, a hard-turning target can outfly it' },
   mortar: { name: 'Mortar', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 60, dtype: 'explosive', speed: 85, life: 9, cd: 2.2, spread: 0.006, grav: 22, arc: true, clip: 6, reserve: 24, reload: 4, heat: 9, range: 380, blast: 10, weight: 10, structMult: 1.5, tracer: [1, 0.8, 0.4], size: 1.1, sound: 'mortar', recoil: 0.7, role: 'Pro: lobbed shell hits behind cover; con: slow flight, useless up close' },
   bombs: { name: 'Cluster Bombs', slot: 'secondary', kind: 'bomb', fire: 'semi', dmg: 70, dtype: 'explosive', speed: 0, life: 12, cd: 0.7, spread: 0.0, grav: 30, clip: 4, reserve: 8, reload: 6, heat: 4, range: 300, blast: 8, split: { id: 'bomblet', n: 5, speed: 16 }, weight: 12, structMult: 1.8, tracer: [1, 0.7, 0.3], size: 1.2, sound: 'bomb', recoil: 0, role: 'Pro: bursts into a carpet of bomblets; con: aircraft only, you must fly over the target' },
-  swarm: { name: 'Swarm Missiles', slot: 'secondary', kind: 'proj', fire: 'burst', burst: { n: 8, interval: 0.06 }, dmg: 18, dtype: 'explosive', speed: 100, accel: 150, maxSpeed: 220, life: 4, cd: 4, spread: 0.12, clip: 16, reserve: 32, reload: 6, heat: 4, range: 650, blast: 3, weight: 9, structMult: 0.8, tracer: [1, 0.85, 0.6], size: 0.6, rocket: true, flareMult: 2, guide: { turn: 3.2, lock: 'any', lockTime: 0.8, cone: 0.4 }, sound: 'rocket', recoil: 0.4, role: 'Pro: eight homing missiles in one salvo; con: weak warheads, flares fool them easily' },
-  cruise: { name: 'Cruise Missile', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 300, dtype: 'explosive', speed: 55, accel: 35, maxSpeed: 125, life: 16, cd: 6, spread: 0.005, clip: 1, reserve: 4, reload: 7, heat: 10, range: 1500, blast: 16, weight: 14, structMult: 2.5, tracer: [1, 0.75, 0.4], size: 1.8, rocket: true, guide: { turn: 0.9, lock: 'any', lockTime: 2, cone: 0.2 }, sound: 'missile', recoil: 0.9, role: 'Pro: enormous blast at very long range; con: slow, long lock, APS can shoot it down' },
+  swarm: { name: 'Swarm Missiles', slot: 'secondary', kind: 'proj', fire: 'burst', burst: { n: 8, interval: 0.06 }, dmg: 18, dtype: 'explosive', speed: 100, accel: 150, maxSpeed: 220, life: 4, cd: 4, spread: 0.12, clip: 16, reserve: 32, reload: 6, heat: 4, range: 650, blast: 3, weight: 9, structMult: 0.8, tracer: [1, 0.85, 0.6], size: 0.6, rocket: true, pdEvade: 0.65, pdHp: 6, pdR: 0.8, guide: { turn: 2.8, lock: 'any', lockTime: 0.8, cone: 0.4, fov: 0.8, lose: 0.4, flare: 0.9 }, sound: 'rocket', recoil: 0.4, role: 'Pro: eight homing missiles in one salvo; con: weak warheads, flares fool them easily' },
+  cruise: { name: 'Cruise Missile', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 300, dtype: 'explosive', speed: 55, accel: 35, maxSpeed: 125, life: 16, cd: 6, spread: 0.005, clip: 1, reserve: 4, reload: 7, heat: 10, range: 1500, blast: 16, weight: 14, structMult: 2.5, tracer: [1, 0.75, 0.4], size: 1.8, rocket: true, pdHp: 120, pdR: 2.4, guide: { turn: 0.9, lock: 'any', lockTime: 2, cone: 0.2, fov: 0.6, lose: 1.2, flare: 0.4 }, sound: 'missile', recoil: 0.9, role: 'Pro: enormous blast at very long range; con: slow, long lock, APS, point defence and heavy guns can shoot it down' },
   mines: { name: 'Mine Layer', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 130, dtype: 'explosive', speed: 0, life: 60, cd: 1.2, spread: 0, clip: 3, reserve: 9, reload: 4, heat: 2, range: 40, blast: 7, prox: 4.5, mine: true, weight: 7, structMult: 1, tracer: [1, 0.25, 0.15], size: 1.1, sound: 'land', recoil: 0, role: 'Pro: proximity mines dropped behind you wreck pursuers; con: ground only, six out at most' },
-  cluster: { name: 'Cluster Rocket', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 20, dtype: 'explosive', speed: 140, accel: 60, maxSpeed: 200, life: 3, cd: 2.2, spread: 0.012, clip: 2, reserve: 10, reload: 4.5, heat: 7, range: 320, blast: 0, split: { id: 'bomblet', n: 8, at: 0.9, speed: 26 }, weight: 9, structMult: 1, tracer: [1, 0.7, 0.3], size: 0.9, rocket: true, sound: 'rocket', recoil: 0.6, role: 'Pro: splits mid-air into 8 bomblets over an area; con: inaccurate, short range' },
-  atgm: { name: 'Wire-Guided ATGM', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 150, dtype: 'explosive', speed: 70, accel: 45, maxSpeed: 125, life: 9, cd: 2.5, spread: 0.004, clip: 1, reserve: 8, reload: 3.2, heat: 6, range: 900, blast: 4, wire: 2.4, weight: 10, structMult: 1.3, tracer: [1, 0.9, 0.6], size: 0.9, rocket: true, sound: 'missile', recoil: 0.6, role: 'Pro: steer it with your crosshair, flares and ECM cannot fool it; con: slow, you must keep aiming' },
+  cluster: { name: 'Cluster Rocket', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 20, dtype: 'explosive', speed: 140, accel: 60, maxSpeed: 200, life: 3, cd: 2.2, spread: 0.012, clip: 2, reserve: 10, reload: 4.5, heat: 7, range: 320, blast: 0, split: { id: 'bomblet', n: 8, at: 0.9, speed: 26 }, weight: 9, structMult: 1, tracer: [1, 0.7, 0.3], size: 0.9, rocket: true, pdHp: 18, pdR: 1.1, sound: 'rocket', recoil: 0.6, role: 'Pro: splits mid-air into 8 bomblets over an area; con: inaccurate, short range' },
+  atgm: { name: 'Wire-Guided ATGM', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 150, dtype: 'explosive', speed: 70, accel: 45, maxSpeed: 125, life: 9, cd: 2.5, spread: 0.004, clip: 1, reserve: 8, reload: 3.2, heat: 6, range: 900, blast: 4, wire: 2.4, weight: 10, structMult: 1.3, tracer: [1, 0.9, 0.6], size: 0.9, rocket: true, pdEvade: 0.7, pdHp: 30, pdR: 1.1, sound: 'missile', recoil: 0.6, role: 'Pro: steer it with your crosshair, flares and ECM cannot fool it; con: slow, you must keep aiming' },
   napalm: { name: 'Napalm Bombs', slot: 'secondary', kind: 'bomb', fire: 'semi', dmg: 40, dtype: 'explosive', speed: 0, life: 12, cd: 0.6, spread: 0, grav: 30, clip: 4, reserve: 8, reload: 6, heat: 4, range: 300, blast: 6, zone: { kind: 'fire', r: 14, t: 10, dps: 20 }, weight: 10, structMult: 1, tracer: [1, 0.55, 0.2], size: 1.1, sound: 'bomb', recoil: 0, role: 'Pro: leaves a burning zone for 10 s; con: aircraft only, low impact damage' },
   buster: { name: 'Bunker Buster', slot: 'secondary', kind: 'bomb', fire: 'semi', dmg: 420, blastDmg: 160, dtype: 'explosive', speed: 0, life: 14, cd: 1, spread: 0, grav: 32, clip: 1, reserve: 3, reload: 8, heat: 6, range: 300, blast: 12, weight: 14, structMult: 6, tracer: [0.9, 0.8, 0.6], size: 1.9, sound: 'bomb', recoil: 0, role: 'Pro: one bomb that levels buildings; con: one per long reload, heavy, modest splash on units' },
   /* infantry secondaries */
-  rpg: { name: 'Rocket Launcher', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 90, dtype: 'explosive', speed: 80, accel: 120, maxSpeed: 170, life: 3.5, cd: 2.5, spread: 0.01, clip: 1, reserve: 6, reload: 3.5, heat: 8, range: 450, blast: 5.5, weight: 6, structMult: 1.4, tracer: [1, 0.7, 0.3], size: 0.9, rocket: true, sound: 'rocket', recoil: 0.5, role: 'Pro: heavy anti-armour rocket; con: one shot per reload, unguided' },
+  rpg: { name: 'Rocket Launcher', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 90, dtype: 'explosive', speed: 80, accel: 120, maxSpeed: 170, life: 3.5, cd: 2.5, spread: 0.01, clip: 1, reserve: 6, reload: 3.5, heat: 8, range: 450, blast: 5.5, weight: 6, structMult: 1.4, tracer: [1, 0.7, 0.3], size: 0.9, rocket: true, pdEvade: 0.5, pdHp: 14, pdR: 1, sound: 'rocket', recoil: 0.5, role: 'Pro: heavy anti-armour rocket; con: one shot per reload, unguided' },
   grenade: { name: 'Grenade Launcher', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 45, dtype: 'explosive', speed: 40, life: 5, cd: 1.5, spread: 0.01, grav: 22, arc: true, clip: 4, reserve: 12, reload: 3, heat: 5, range: 140, blast: 5, weight: 4, structMult: 1.2, tracer: [0.9, 0.9, 0.5], size: 0.6, sound: 'mortar', recoil: 0.3, role: 'Pro: lobs over cover, light; con: short range, slow shell' },
   satchel: { name: 'Satchel Charge', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 200, dtype: 'explosive', speed: 26, life: 8, cd: 1.5, spread: 0.01, grav: 22, arc: true, clip: 1, reserve: 4, reload: 2.5, heat: 2, range: 60, blast: 8, stick: 2.5, weight: 5, structMult: 7, tracer: [0.55, 0.45, 0.3], size: 0.8, sound: 'mortar', recoil: 0.2, role: 'Pro: sticky charge with huge structure damage; con: 2.5 s fuse, very short throw' },
   empGren: { name: 'EMP Grenade', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 20, dtype: 'energy', speed: 40, life: 5, cd: 1.5, spread: 0.01, grav: 22, arc: true, clip: 3, reserve: 9, reload: 3, heat: 4, range: 150, blast: 4, empBlast: [12, 3], weight: 4, structMult: 0.5, tracer: [0.5, 0.7, 1], size: 0.6, sound: 'mortar', recoil: 0.3, role: 'Pro: EMP blast disables weapons and shields in 12 m; con: little damage, short range' },
-  javelin: { name: 'Javelin', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 120, dtype: 'explosive', speed: 45, accel: 90, maxSpeed: 160, life: 7, cd: 3, spread: 0.01, clip: 1, reserve: 5, reload: 3.5, heat: 6, range: 600, blast: 4, vsArmor: 1.4, weight: 7, structMult: 1.2, tracer: [1, 0.8, 0.5], size: 0.8, rocket: true, guide: { turn: 3, lock: 'ground', lockTime: 1.5, cone: 0.3, top: true }, sound: 'missile', recoil: 0.5, role: 'Pro: top-attack lock with bonus damage against vehicles and mechs; con: ground targets only, slow lock' },
+  javelin: { name: 'Javelin', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 120, dtype: 'explosive', speed: 45, accel: 90, maxSpeed: 160, life: 7, cd: 3, spread: 0.01, clip: 1, reserve: 5, reload: 3.5, heat: 6, range: 600, blast: 4, vsArmor: 1.4, weight: 7, structMult: 1.2, tracer: [1, 0.8, 0.5], size: 0.8, rocket: true, pdEvade: 0.65, pdHp: 28, pdR: 1.1, guide: { turn: 3, lock: 'ground', lockTime: 1.5, cone: 0.3, top: true, fov: 1.6, lose: 1.5, flare: 0.5 }, sound: 'missile', recoil: 0.5, role: 'Pro: top-attack lock with bonus damage against vehicles and mechs; con: ground targets only, slow lock' },
   /* sub-munitions: spawned by split weapons, never mounted */
   bomblet: { name: 'Bomblet', slot: 'secondary', sub: true, kind: 'proj', fire: 'semi', dmg: 28, dtype: 'explosive', speed: 0, life: 5, cd: 1, spread: 0, grav: 24, clip: 1, reserve: 0, reload: 1, heat: 0, range: 60, blast: 4.5, weight: 1, structMult: 1.3, tracer: [1, 0.6, 0.25], size: 0.55, sound: 'bomb', recoil: 0, role: 'Sub-munition of cluster weapons' },
   /* utilities (def: what the defense code does; ai: when AI pilots use it, see AIController.gadgetWanted) */
@@ -365,18 +381,19 @@ const WEAPONS = {
   holo: { name: 'Holo Decoy', slot: 'utility', kind: 'defense', def: 'holo', charges: 2, cd: 12, dur: 9, ai: 'fight', weight: 4, role: 'Pro: a hologram enemies prefer to shoot for 9 s; con: ground platforms only, two uses' },
   drone: { name: 'Repair Drone', slot: 'utility', kind: 'defense', def: 'drone', charges: 2, cd: 14, dur: 12, heal: 18, radius: 25, ai: 'hurt', tracer: [0.4, 1, 0.5], weight: 5, role: 'Pro: heals you and allies within 25 m for 12 s; con: slow healing, two uses' },
   sensor: { name: 'Sensor Array', slot: 'utility', kind: 'defense', def: 'sensor', passive: true, weight: 3, role: 'Pro: always on, your radar detects 1.6 to 2 times farther (infantry 2x), a spotter or AI unit with it sees 25% farther; con: no button and no charges, and it takes the only utility slot (no shield, ECM or repair)' },
+  pdc: { name: 'Point Defence', slot: 'utility', kind: 'defense', def: 'pdc', charges: 12, cd: 0.2, radius: 140, pdDmg: 16, recharge: 5, pdNear: 30, pdChance: [0.9, 0.4], pdSpray: 1, pdCheap: 3, pdAcquire: 0.3, pdRetarget: 0.15, pdArc: PI / 2, weight: 8, tracer: [1, 0.9, 0.45], role: 'Pro: an automatic gun that shoots at missiles and rockets headed for you, light ones too, from 140 m; con: it misses (more at range and against small fast rockets), takes 0.3 s to find a target, one target at a time, 12 bursts that come back one in 5 s, a clear line and the front half only (ground platforms), no help against bullets or shells' },
   barrier: { name: 'Deployable Barrier', slot: 'utility', kind: 'defense', def: 'barrier', charges: 2, cd: 10, dur: 15, ai: 'fight', weight: 6, role: 'Pro: tough wall ahead of you stops enemy fire for 15 s; con: ground platforms only, it does not move with you' },
   /* naval weapons (P5.2, D24); torpedo: runs just under the surface and only in water (Naval.torpedoRun) */
-  navalGun: { name: 'Naval Gun', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 85, dtype: 'explosive', speed: 300, life: 3.4, cd: 0.9, spread: 0.006, grav: 6, clip: 10, reserve: 80, reload: 4, heat: 8, range: 950, blast: 5, weight: 14, structMult: 1.6, tracer: [1, 0.75, 0.35], size: 1.1, sound: 'cannon', recoil: 0.9, role: 'Pro: heavy shells with a blast at long range; con: slow to fire, heavy, shells drop with range' },
+  navalGun: { name: 'Naval Gun', slot: 'primary', kind: 'proj', pdHit: true, fire: 'semi', dmg: 85, dtype: 'explosive', speed: 300, life: 3.4, cd: 0.9, spread: 0.006, grav: 6, clip: 10, reserve: 80, reload: 4, heat: 8, range: 950, blast: 5, weight: 14, structMult: 1.6, tracer: [1, 0.75, 0.35], size: 1.1, sound: 'cannon', recoil: 0.9, role: 'Pro: heavy shells with a blast at long range; con: slow to fire, heavy, shells drop with range' },
   torpedo: { name: 'Torpedo', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 260, dtype: 'explosive', speed: 28, accel: 12, maxSpeed: 40, life: 22, cd: 3, spread: 0.004, clip: 2, reserve: 8, reload: 6, heat: 6, range: 700, blast: 7, torpedo: true, weight: 12, structMult: 1.5, tracer: [0.85, 0.9, 0.95], size: 1, sound: 'splash', recoil: 0.3, role: 'Pro: huge hit on anything floating or wading, runs under the waves; con: slow, only travels in water, passes under hovercraft' },
-  shipSam: { name: 'Ship SAM', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 80, dtype: 'explosive', speed: 160, accel: 160, maxSpeed: 300, life: 6, cd: 1.4, spread: 0.01, clip: 4, reserve: 16, reload: 5, heat: 5, range: 1400, blast: 5.5, weight: 10, structMult: 0.6, tracer: [1, 0.9, 0.7], size: 1, rocket: true, guide: { turn: 3.6, lock: 'air', lockTime: 0.8, cone: 0.9 }, sound: 'missile', recoil: 0.4, role: 'Pro: long-range seeker that locks aircraft in a wide cone; con: locks aircraft only, heavy' },
+  shipSam: { name: 'Ship SAM', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 80, dtype: 'explosive', speed: 160, accel: 160, maxSpeed: 300, life: 6, cd: 1.4, spread: 0.01, clip: 4, reserve: 16, reload: 5, heat: 5, range: 1400, blast: 5.5, weight: 10, structMult: 0.6, tracer: [1, 0.9, 0.7], size: 1, rocket: true, pdEvade: 0.45, pdSoft: 1.8, pdHp: 28, pdR: 1.3, guide: { turn: 2.2, lock: 'air', lockTime: 0.8, cone: 0.9, fov: 0.9, lose: 0.5, flare: 0.5 }, sound: 'missile', recoil: 0.4, role: 'Pro: long-range seeker that locks aircraft or an inbound missile in a wide cone; con: locks aircraft only, heavy' },
   /* artillery (P5.3, D25): indirect fire at a fixed muzzle speed, the barrel laid by Arty.solve onto the reticle's ground
      point; indirect: minimum range (m), elevation limits (rad) and the arc it takes first; spread is the deployed one */
   artyGun: { name: 'Field Howitzer', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 210, dtype: 'explosive', speed: 210, life: 30, cd: 2.6, spread: 0.0018, grav: 22, arc: true, indirect: { min: 150, elev: [-0.1, 1.35], arc: 'low' }, clip: 4, reserve: 40, reload: 6, heat: 12, range: 1400, blast: 14, weight: 20, structMult: 2.2, tracer: [1, 0.72, 0.3], size: 1.8, sound: 'mortar', recoil: 1.6, role: 'Pro: heavy shells onto any ground point out to 1400 m, over hills and cover; con: 150 m minimum range, slow flight, steady only when deployed' },
-  artyRockets: { name: 'Rocket Artillery', slot: 'primary', kind: 'proj', fire: 'burst', burst: { n: 6, interval: 0.25 }, dmg: 70, dtype: 'explosive', speed: 175, life: 26, cd: 5, spread: 0.006, grav: 22, arc: true, indirect: { min: 250, elev: [0.05, 1.0], arc: 'low' }, clip: 12, reserve: 48, reload: 9, heat: 14, range: 1300, blast: 8, weight: 16, structMult: 1.6, tracer: [1, 0.6, 0.25], size: 1.2, rocket: true, sound: 'rocket', recoil: 0.8, role: 'Pro: a six-rocket salvo saturates an area out to 1300 m; con: 250 m minimum range, scatters, long reload' },
+  artyRockets: { name: 'Rocket Artillery', slot: 'primary', kind: 'proj', fire: 'burst', burst: { n: 6, interval: 0.25 }, dmg: 70, dtype: 'explosive', speed: 175, life: 26, cd: 5, spread: 0.006, grav: 22, arc: true, indirect: { min: 250, elev: [0.05, 1.0], arc: 'low' }, clip: 12, reserve: 48, reload: 9, heat: 14, range: 1300, blast: 8, weight: 16, structMult: 1.6, tracer: [1, 0.6, 0.25], size: 1.2, rocket: true, pdHp: 24, pdR: 1.3, sound: 'rocket', recoil: 0.8, role: 'Pro: a six-rocket salvo saturates an area out to 1300 m; con: 250 m minimum range, scatters, long reload' },
   artyMortar: { name: 'Heavy Mortar', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 120, dtype: 'explosive', speed: 105, life: 14, cd: 1.6, spread: 0.004, grav: 22, arc: true, indirect: { min: 70, elev: [0.8, 1.5], arc: 'high' }, clip: 6, reserve: 48, reload: 4.5, heat: 9, range: 480, blast: 10, weight: 12, structMult: 1.8, tracer: [1, 0.8, 0.4], size: 1.3, sound: 'mortar', recoil: 0.9, role: 'Pro: steep plunging shells behind walls and ridges, fast to fire; con: short reach (480 m), high arc only, slow to land' },
 };
-for (const k in WEAPONS) WEAPONS[k].id = k;
+for (const k in WEAPONS) { WEAPONS[k].id = k; if (WEAPONS[k].guide && WEAPONS[k].guide.fov !== undefined) WEAPONS[k].guide.fovCos = Math.cos(WEAPONS[k].guide.fov); }
 const NAVAL_WEAPON_IDS = ['navalGun', 'torpedo', 'shipSam'];   // the ships' own weapons (P5.2), listed in the Arsenal
 const ARTY_WEAPON_IDS = ['artyGun', 'artyRockets', 'artyMortar'];   // the artillery's own guns (P5.3), listed in the Arsenal
 const WEAPON_SLOTS = ['primaryA', 'primaryB', 'secondary', 'utility'];
@@ -452,7 +469,7 @@ const PLATFORMS = {
     radius: 2.8, height: 10, speed: 18, sensor: 600, stability: 1,
     mech: { accel: 50, decel: 70, turn: 5, torsoRate: 5, boostMult: 1.55, boostCost: 24, jetThrust: 64, jetMax: 14, jetCost: 22, meleeDmg: 80 },
     mounts: { primaryA: [3.2, 6.4, 1.8], primaryB: [-3.2, 6.4, 1.8], secondary: [0, 9.8, 0.4] },
-    allow: { primary: ['mg', 'acannon', 'laser', 'plasma', 'rail', 'gatling', 'flamer', 'tesla', 'gauss', 'lance', 'needler', 'slug', 'ion'], secondary: ['rockets', 'missile', 'mortar', 'swarm', 'cluster', 'atgm', 'mines', 'empGren'], utility: ['shield', 'aps', 'nano', 'ecm', 'smoke', 'overdrive', 'reactive', 'holo', 'drone', 'barrier', 'sensor'] },
+    allow: { primary: ['mg', 'acannon', 'laser', 'plasma', 'rail', 'gatling', 'flamer', 'tesla', 'gauss', 'lance', 'needler', 'slug', 'ion'], secondary: ['rockets', 'missile', 'mortar', 'swarm', 'cluster', 'atgm', 'mines', 'empGren'], utility: ['shield', 'aps', 'nano', 'ecm', 'smoke', 'overdrive', 'reactive', 'holo', 'drone', 'barrier', 'pdc', 'sensor'] },
     loadout: { primaryA: 'acannon', primaryB: 'laser', secondary: 'missile', utility: 'shield' },
     col: { main: [0.36, 0.42, 0.34], dark: [0.18, 0.21, 0.17] },
   },
@@ -464,7 +481,7 @@ const PLATFORMS = {
     radius: 3.7, height: 13, speed: 12.5, sensor: 560, stability: 2,
     mech: { accel: 34, decel: 50, turn: 3.2, torsoRate: 3.6, boostMult: 1.4, boostCost: 26, jetThrust: 54, jetMax: 11, jetCost: 25, meleeDmg: 130 },
     mounts: { primaryA: [4.2, 8, 2.2], primaryB: [-4.2, 8, 2.2], secondary: [0, 12.6, 0.3] },
-    allow: { primary: ['acannon', 'gatling', 'plasma', 'rail', 'laser', 'flak', 'gauss', 'lance', 'slug', 'howitzer', 'ion', 'flamer'], secondary: ['missile', 'rockets', 'mortar', 'aam', 'cruise', 'cluster', 'swarm', 'atgm', 'mines'], utility: ['shield', 'aps', 'nano', 'reactive', 'barrier', 'drone', 'overdrive', 'ecm', 'smoke', 'sensor'] },
+    allow: { primary: ['acannon', 'gatling', 'plasma', 'rail', 'laser', 'flak', 'gauss', 'lance', 'slug', 'howitzer', 'ion', 'flamer'], secondary: ['missile', 'rockets', 'mortar', 'aam', 'cruise', 'cluster', 'swarm', 'atgm', 'mines'], utility: ['shield', 'aps', 'nano', 'reactive', 'barrier', 'drone', 'overdrive', 'ecm', 'smoke', 'pdc', 'sensor'] },
     loadout: { primaryA: 'gatling', primaryB: 'plasma', secondary: 'missile', utility: 'aps' },
     col: { main: [0.5, 0.42, 0.28], dark: [0.24, 0.2, 0.14] },
   },
@@ -510,7 +527,7 @@ const PLATFORMS = {
     radius: 3.6, height: 3.8, speed: 17, sensor: 580, stability: 2,
     ground: { type: 'tracked', accel: 14, brake: 40, drag: 10, reverse: 0.5, steerRate: 1.1, steerMin: 0, grip: 14, turretRate: 3.6, boostMult: 1.25, climb: 0.8, ride: 1.3, pitchLim: [-0.12, 0.5] },
     mounts: { primaryA: [0, 2.8, 4], primaryB: [1.3, 3.1, 3], secondary: [-1.4, 4.3, 0.5] },
-    allow: { primary: ['acannon', 'plasma', 'rail', 'gatling', 'mg', 'flak', 'gauss', 'slug', 'howitzer', 'ion', 'lance'], secondary: ['missile', 'rockets', 'mortar', 'aam', 'atgm', 'cruise', 'cluster', 'mines', 'swarm'], utility: ['aps', 'nano', 'reactive', 'smoke', 'ecm', 'barrier', 'drone', 'sensor'] },
+    allow: { primary: ['acannon', 'plasma', 'rail', 'gatling', 'mg', 'flak', 'gauss', 'slug', 'howitzer', 'ion', 'lance'], secondary: ['missile', 'rockets', 'mortar', 'aam', 'atgm', 'cruise', 'cluster', 'mines', 'swarm'], utility: ['aps', 'nano', 'reactive', 'smoke', 'ecm', 'barrier', 'drone', 'pdc', 'sensor'] },
     loadout: { primaryA: 'acannon', primaryB: 'plasma', secondary: 'missile', utility: 'aps' },
     col: { main: [0.34, 0.4, 0.3], dark: [0.15, 0.18, 0.13] },
   },
@@ -559,7 +576,7 @@ const PLATFORMS = {
     air: { min: 42, cruise: 85, max: 125, ab: 165, accel: 28, decel: 26, yawMax: 0.85, pitchMax: 0.8, yawGain: 2, pitchGain: 2, maxBank: 0.8, rollResp: 2.2, rollMax: 1.6, clearance: 4, landMax: 70, takeoff: 46, groundTurn: 0.5, gearH: 2.4 },
     mounts: { primaryA: [3, -1.8, 4], primaryB: [-3, -1.8, 4], secondary: [0, -2.2, 1.5] },
     turreted: true,
-    allow: { primary: ['gatling', 'acannon', 'plasma', 'flak', 'laser', 'vulcan', 'lance', 'ion'], secondary: ['rockets', 'missile', 'bombs', 'aam', 'mortar', 'swarm', 'cluster', 'napalm', 'buster', 'cruise', 'atgm'], utility: ['flares', 'nano', 'ecm', 'reactive', 'drone', 'overdrive', 'sensor'] },
+    allow: { primary: ['gatling', 'acannon', 'plasma', 'flak', 'laser', 'vulcan', 'lance', 'ion'], secondary: ['rockets', 'missile', 'bombs', 'aam', 'mortar', 'swarm', 'cluster', 'napalm', 'buster', 'cruise', 'atgm'], utility: ['flares', 'nano', 'ecm', 'reactive', 'drone', 'overdrive', 'pdc', 'sensor'] },
     loadout: { primaryA: 'gatling', primaryB: 'acannon', secondary: 'rockets', utility: 'flares' },
     col: { main: [0.34, 0.38, 0.32], dark: [0.14, 0.17, 0.13] },
   },
@@ -572,7 +589,7 @@ const PLATFORMS = {
     radius: 4.5, height: 3.4, speed: 30, sensor: 900, stability: 1,
     naval: { accel: 9, brake: 7, drag: 2.5, reverse: 0.35, steerRate: 0.8, steerSpeed: 12, steerMin: 0.2, grip: 2.4, turretRate: 3.4, boostMult: 1.3, pitchLim: [-0.15, 0.6], draft: 1.2, ride: 0, climb: 0, amphibious: false, hull: [-6, 9, 1.9] },
     mounts: { primaryA: [0, 2.6, 3.6], primaryB: [0, 2.4, -3], secondary: [0, 1.4, 0.5] },
-    allow: { primary: ['acannon', 'navalGun', 'mg', 'flak', 'gatling'], secondary: ['torpedo', 'missile', 'rockets', 'shipSam'], utility: ['smoke', 'flares', 'ecm', 'nano', 'aps', 'sensor'] },
+    allow: { primary: ['acannon', 'navalGun', 'mg', 'flak', 'gatling'], secondary: ['torpedo', 'missile', 'rockets', 'shipSam'], utility: ['smoke', 'flares', 'ecm', 'nano', 'aps', 'pdc', 'sensor'] },
     loadout: { primaryA: 'acannon', primaryB: 'mg', secondary: 'torpedo', utility: 'smoke' },
     col: { main: [0.52, 0.56, 0.6], dark: [0.2, 0.22, 0.25] },
   },
@@ -584,7 +601,7 @@ const PLATFORMS = {
     radius: 10, height: 8, speed: 16, sensor: 1400, stability: 3,
     naval: { accel: 3.5, brake: 3, drag: 1.2, reverse: 0.3, steerRate: 0.34, steerSpeed: 8, steerMin: 0.25, grip: 2, turretRate: 2.4, boostMult: 1.2, pitchLim: [-0.1, 0.9], draft: 3, ride: 0, climb: 0, amphibious: false, hull: [-14, 17, 3.5] },
     mounts: { primaryA: [0, 5.2, 9], primaryB: [0, 6.2, -7], secondary: [0, 6.6, 2] },
-    allow: { primary: ['navalGun', 'flak', 'acannon', 'gatling', 'howitzer', 'rail'], secondary: ['shipSam', 'missile', 'torpedo', 'cruise', 'swarm', 'aam'], utility: ['aps', 'flares', 'ecm', 'smoke', 'nano', 'reactive', 'drone', 'sensor'] },
+    allow: { primary: ['navalGun', 'flak', 'acannon', 'gatling', 'howitzer', 'rail'], secondary: ['shipSam', 'missile', 'torpedo', 'cruise', 'swarm', 'aam'], utility: ['aps', 'flares', 'ecm', 'smoke', 'nano', 'reactive', 'drone', 'pdc', 'sensor'] },
     loadout: { primaryA: 'navalGun', primaryB: 'flak', secondary: 'shipSam', utility: 'aps' },
     col: { main: [0.46, 0.5, 0.54], dark: [0.2, 0.22, 0.25] },
   },
@@ -596,7 +613,7 @@ const PLATFORMS = {
     radius: 5, height: 3.6, speed: 26, sensor: 800, stability: 1.2,
     naval: { accel: 10, brake: 8, drag: 2, reverse: 0.4, steerRate: 1.0, steerSpeed: 8, steerMin: 0.4, grip: 1.2, turretRate: 4, boostMult: 1.35, pitchLim: [-0.15, 0.6], draft: 0, ride: 1.6, climb: 0.7, amphibious: true, hull: [-5.7, 7, 3.6] },
     mounts: { primaryA: [0.8, 3, 2.4], primaryB: [-0.8, 3, 2.4], secondary: [0, 3.4, -1] },
-    allow: { primary: ['gatling', 'acannon', 'mg', 'flak', 'flamer'], secondary: ['rockets', 'missile', 'mortar', 'atgm', 'shipSam'], utility: ['smoke', 'nano', 'aps', 'flares', 'ecm', 'sensor'] },
+    allow: { primary: ['gatling', 'acannon', 'mg', 'flak', 'flamer'], secondary: ['rockets', 'missile', 'mortar', 'atgm', 'shipSam'], utility: ['smoke', 'nano', 'aps', 'flares', 'ecm', 'pdc', 'sensor'] },
     loadout: { primaryA: 'gatling', primaryB: 'mg', secondary: 'rockets', utility: 'smoke' },
     col: { main: [0.44, 0.5, 0.42], dark: [0.18, 0.21, 0.17] },
   },
@@ -611,7 +628,7 @@ const PLATFORMS = {
     ground: { type: 'tracked', accel: 12, brake: 36, drag: 10, reverse: 0.5, steerRate: 1.0, steerMin: 0, grip: 14, turretRate: 1.6, boostMult: 1.2, climb: 0.75, ride: 1.3, pitchLim: [-0.1, 1.35] },
     arty: { deploy: 3, undeploy: 2.2 },
     mounts: { primaryA: [0, 3.6, 3.4], primaryB: [1.2, 4, 0.4], secondary: [-1.3, 4, 0] },
-    allow: { primary: ['artyGun', 'mg', 'acannon', 'gatling'], secondary: ['atgm', 'missile', 'rockets', 'mines'], utility: ['smoke', 'aps', 'nano', 'reactive', 'ecm', 'drone', 'sensor'] },
+    allow: { primary: ['artyGun', 'mg', 'acannon', 'gatling'], secondary: ['atgm', 'missile', 'rockets', 'mines'], utility: ['smoke', 'aps', 'nano', 'reactive', 'ecm', 'drone', 'pdc', 'sensor'] },
     loadout: { primaryA: 'artyGun', primaryB: 'mg', secondary: 'atgm', utility: 'smoke' },
     col: { main: [0.42, 0.44, 0.33], dark: [0.18, 0.19, 0.14] },
   },
@@ -624,7 +641,7 @@ const PLATFORMS = {
     ground: { type: 'wheeled', accel: 20, brake: 50, drag: 7, reverse: 0.4, steerRate: 1.4, steerMin: 5, grip: 8, turretRate: 2.2, boostMult: 1.3, climb: 0.55, ride: 1.1, pitchLim: [-0.05, 1.0] },
     arty: { deploy: 2, undeploy: 1.5 },
     mounts: { primaryA: [0, 3.4, -0.6], primaryB: [0.8, 3.2, 3.2], secondary: [-0.8, 3.2, 3] },
-    allow: { primary: ['artyRockets', 'mg', 'gatling'], secondary: ['rockets', 'missile', 'mines'], utility: ['smoke', 'nano', 'ecm', 'aps', 'overdrive', 'sensor'] },
+    allow: { primary: ['artyRockets', 'mg', 'gatling'], secondary: ['rockets', 'missile', 'mines'], utility: ['smoke', 'nano', 'ecm', 'aps', 'overdrive', 'pdc', 'sensor'] },
     loadout: { primaryA: 'artyRockets', primaryB: 'mg', secondary: 'rockets', utility: 'smoke' },
     col: { main: [0.5, 0.47, 0.36], dark: [0.2, 0.19, 0.14] },
   },
@@ -637,7 +654,7 @@ const PLATFORMS = {
     ground: { type: 'tracked', accel: 18, brake: 44, drag: 10, reverse: 0.5, steerRate: 1.4, steerMin: 0, grip: 13, turretRate: 2.6, boostMult: 1.3, climb: 0.8, ride: 1.1, pitchLim: [-0.1, 1.5] },
     arty: { deploy: 1.2, undeploy: 1 },
     mounts: { primaryA: [0, 3.6, -0.4], primaryB: [0.9, 3, 1.6], secondary: [-0.9, 3, 1.4] },
-    allow: { primary: ['artyMortar', 'mg', 'lmg'], secondary: ['atgm', 'grenade', 'mines', 'rockets'], utility: ['smoke', 'nano', 'aps', 'ecm', 'drone', 'sensor'] },
+    allow: { primary: ['artyMortar', 'mg', 'lmg'], secondary: ['atgm', 'grenade', 'mines', 'rockets'], utility: ['smoke', 'nano', 'aps', 'ecm', 'drone', 'pdc', 'sensor'] },
     loadout: { primaryA: 'artyMortar', primaryB: 'mg', secondary: 'atgm', utility: 'smoke' },
     col: { main: [0.4, 0.45, 0.36], dark: [0.17, 0.2, 0.15] },
   },
@@ -679,7 +696,7 @@ const ARCH = {
   dummyAir: { def: 'dummyAir', ai: 'orbit', label: 'Aerial Target', loadout: {}, score: 0 },
   /* ships patrol their lane of water and engage what comes in reach (P5.1) */
   gunboat: { def: 'lancer', ai: 'naval', label: 'Gunboat', loadout: { primaryA: 'acannon', primaryB: 'mg', secondary: 'torpedo' }, score: 220 },
-  destroyer: { def: 'trident', ai: 'naval', label: 'Destroyer', loadout: { primaryA: 'navalGun', primaryB: 'flak', secondary: 'shipSam', utility: 'aps' }, secondaryGap: 3, score: 500 },
+  destroyer: { def: 'trident', ai: 'naval', label: 'Destroyer', loadout: { primaryA: 'navalGun', primaryB: 'flak', secondary: 'shipSam', utility: 'pdc' }, secondaryGap: 3, score: 500 },
   hoverAssault: { def: 'skua', ai: 'naval', label: 'Assault Hovercraft', loadout: { primaryA: 'gatling', secondary: 'rockets', utility: 'smoke' }, score: 240 },
   /* artillery batteries hold their ground deployed and shell what their spotters see (runArtillery, P5.3) */
   howitzerBattery: { def: 'thunder', ai: 'artillery', label: 'Howitzer', loadout: { primaryA: 'artyGun', primaryB: 'mg' }, score: 300 },
@@ -687,7 +704,7 @@ const ARCH = {
   mortarTeam: { def: 'pestle', ai: 'artillery', label: 'Mortar Carrier', loadout: { primaryA: 'artyMortar', primaryB: 'mg' }, score: 200 },
   /* allies reuse the player roster */
   allyMech: { def: 'bulwark', ai: 'soldier', label: 'Ally Mech', loadout: { primaryA: 'acannon', primaryB: 'mg', secondary: 'missile', utility: 'drone' }, score: 0 },
-  allyTank: { def: 'bastion', ai: 'bruiser', label: 'Ally Tank', loadout: { primaryA: 'acannon', secondary: 'atgm' }, score: 0 },
+  allyTank: { def: 'bastion', ai: 'bruiser', label: 'Ally Tank', loadout: { primaryA: 'acannon', secondary: 'atgm', utility: 'pdc' }, score: 0 },
   allyJet: { def: 'shrike', ai: 'fighter', label: 'Ally Jet', loadout: { primaryA: 'acannon', primaryB: 'mg', secondary: 'aam', utility: 'flares' }, score: 0 },
   /* units of missions m9-m13 (P7.1): convoys sail or drive their waypoints; allied ships patrol, allied guns shell */
   supplyShip: { def: 'cv_tug', ai: 'convoy', label: 'Supply Ship', loadout: {}, hpMult: 1.2, score: 0 },
@@ -4014,6 +4031,16 @@ function hasLOS(ax, ay, az, bx, by, bz) {
   if (d < 1) return true;
   const r = raycast(ax, ay, az, dx / d, dy / d, dz / d, d - 1.5, null, true);
   return !r.hit;
+}
+/* the line from (ax, ay, az) to unit t at tp. A structure target does not block its own line (hasLOS stops 1.5 m short of the middle, inside
+   the box of any structure wider than 3 m, so every structure looked hidden and no objective could be locked, P5-04): the ray goes to the
+   middle and is clear if it first meets the target itself */
+function sightTo(ax, ay, az, t, tp) {
+  if (!t.isStruct) return hasLOS(ax, ay, az, tp.x, tp.y, tp.z);
+  const dx = tp.x - ax, dy = tp.y - ay, dz = tp.z - az, d = Math.hypot(dx, dy, dz);
+  if (d < 1) return true;
+  const r = raycast(ax, ay, az, dx / d, dy / d, dz / d, d, null, true);
+  return !r.hit || r.obj === t;
 }
 /* true when a ground circle of radius r overlaps a solid structure or is on a steep slope */
 function groundBlocked(x, z, r, y, h) {
@@ -13195,11 +13222,12 @@ function newCmd() {
   };
 }
 function tpos(t, out) {
-  if (t.isStruct) { out.x = t.x; out.y = t.y + t.h * 0.5; out.z = t.z; }
+  if (t.isProj) { out.x = t.x; out.y = t.y; out.z = t.z; }
+  else if (t.isStruct) { out.x = t.x; out.y = t.y + t.h * 0.5; out.z = t.z; }
   else { out.x = t.x; out.y = t.y + (t.kind === 'air' ? 0 : t.height * 0.5); out.z = t.z; }
   return out;
 }
-const talive = (t) => !!t && (t.isStruct ? !t.destroyed : !t.dead);
+const talive = (t) => !!t && (t.isStruct ? !t.destroyed : t.isProj ? t.active : !t.dead);
 let GROUND_PIECE = null;   // the structure the last groundLevel call found on top (null: the terrain), so a unit learns what it stands on without a second query
 function groundLevel(x, z, y, r) {
   let g = Terrain.h(x, z), on = null;
@@ -13332,6 +13360,7 @@ const Detect = {
       else n = this.put(n, 'hostile', e.x, e.z, e.kind === 'air', marked);
     }
     if (tgt && tgt.isStruct && talive(tgt)) n = this.put(n, 'objective', tgt.x, tgt.z, true, true);   // a targeted objective structure
+    else if (tgt && tgt.isProj && talive(tgt)) n = this.put(n, 'incoming', tgt.x, tgt.z, false, true);   // a targeted incoming projectile (P5-07)
     this.iFauna = n;
     const F = W.fauna, zones = W.civZones, T = W.traffic;
     if (F) {   // a school only for the sea mammals, which break the surface
@@ -14140,7 +14169,7 @@ class Platform {
     this.climbTan = mapSlope === Infinity ? Infinity : Math.tan((def.maxSlope || (def.style === 'infantry' ? INFANTRY_MAX_SLOPE : mapSlope)) * DEG);
     this.stats = { kills: 0, damage: 0 };
     this.killedBy = null;   // { name, dist } for the death screen; null when unknown or ejected
-    this.target = null; this.lock = { target: null, progress: 0, state: 'none', reason: '', grace: 0 };
+    this.target = null; this.targetNid = 0; this.lock = { target: null, progress: 0, state: 'none', reason: '', grace: 0 };   // targetNid: the nid of a projectile target (its slot is reused)
     this.beingLocked = 0; this.targetIdx = -1;
     this.lockLosTarget = null; this.lockLos = false; this.lockLosAt = -1;
     this.activeSlot = 'primaryA'; this.wslots = { primaryA: null, primaryB: null, secondary: null };
@@ -14186,7 +14215,7 @@ class Platform {
     });
     const uid = this.loadout.utility, ud = uid && WEAPONS[uid];
     if (ud) {
-      this.util = { id: uid, def: ud, charges: ud.charges || 0, cd: 0, healLeft: 0, auto: true, rechargeT: 0 };
+      this.util = { id: uid, def: ud, charges: ud.charges || 0, cd: 0, healLeft: 0, auto: true, rechargeT: 0, rng: null, aimNid: 0, aimAt: 0, lastShot: -9 };   // rng, aimNid, aimAt, lastShot: Point Defence's seeded stream, what it is aiming at, when it may fire, its last burst
       if (ud.def === 'shield') { this.maxShield = ud.shield; this.shield = ud.shield; this.shieldOn = false; }
     }
     if (!this.wslots[this.activeSlot]) this.activeSlot = 'primaryB';
@@ -14877,6 +14906,7 @@ class Platform {
   }
   validTarget(t) {
     if (!talive(t)) return false;
+    if (t.isProj) return t.hp > 0 && t.def.pdHp > 0 && t.team !== this.team && t.team !== 2 && (t !== this.target || t.nid === this.targetNid);   // P5-07: an incoming rocket or missile
     if (t.isStruct) return !!t.objective && t.team !== this.team;
     return t.team !== this.team && t.team !== 2 && !t.noTarget;
   }
@@ -14885,10 +14915,11 @@ class Platform {
      higher, ones behind cover lower. */
   targetScore(t, ang, d, tp) {
     let s = ang / TARGET_ANGLE_NORM + TARGET_DIST_WEIGHT * d / Math.max(1, this.sensorRange());
-    if (!t.isStruct && (t.target === this || t.lock.target === this || (t.ai && t.ai.target === this))) s -= TARGET_THREAT_BONUS;
+    if (t.isProj) s -= TARGET_INCOMING_BONUS;
+    else if (!t.isStruct && (t.target === this || t.lock.target === this || (t.ai && t.ai.target === this))) s -= TARGET_THREAT_BONUS;
     const w = this.wslots.secondary;
     if (w && w.def.guide && !this.lockFit(t, d)) s -= TARGET_LOCKABLE_BONUS;
-    if (!hasLOS(this.x, this.y + this.height * 0.6, this.z, tp.x, tp.y, tp.z)) s += TARGET_HIDDEN_PENALTY;
+    if (!sightTo(this.x, this.y + this.height * 0.6, this.z, t, tp)) s += TARGET_HIDDEN_PENALTY;
     return s;
   }
   /* P5-05: whether the radar or the eye has unit t at tp: inside a sensor's range (times grow) of the picture Detect.begin made
@@ -14896,7 +14927,7 @@ class Platform {
      R.drawDist (what is drawn), with a clear line (cached: the held target's look; else a fresh test). Objective structures
      are always known: their markers show. */
   senses(t, tp, grow, dir, cached) {
-    if (t.isStruct || Detect.sees(tp.x, tp.z, grow)) return true;
+    if (t.isStruct || t.isProj || Detect.sees(tp.x, tp.z, grow)) return true;   // an incoming projectile is known to the missile warning, not the radar
     const dx = tp.x - this.x, dy = tp.y - this.y, dz = tp.z - this.z, d = Math.hypot(dx, dy, dz);
     if (d < 1) return true;
     if (d > Math.min(TARGET_EYE_RANGE, R.drawDist) || dx * dir.x + dy * dir.y + dz * dir.z < d * TARGET_VIEW_COS) return false;
@@ -14907,7 +14938,7 @@ class Platform {
     Detect.begin(this);
     return this.senses(t, tpos(t, KNOW_TP), grow, this.aimDir(KNOW_DIR), false);
   }
-  cycleTarget() {
+  cycleTarget(manual = true) {   // manual: the key, which also lists the projectiles headed for this platform (not the auto-target after a kill)
     const cands = [], dir = { x: 0, y: 0, z: 0 }, tp = { x: 0, y: 0, z: 0 };
     this.aimDir(dir);
     Detect.begin(this);
@@ -14923,17 +14954,19 @@ class Platform {
       cands.push({ t, ang: this.targetScore(t, ang, d, tp) });
     };
     W.platforms.forEach(consider); W.structs.forEach((s) => { if (s.objective) consider(s); });
+    if (manual) Intercept.eachThreat(this, consider);
     if (cands.length === 0) { this.target = null; return; }
     cands.sort((a, b) => a.ang - b.ang);
     const cur = cands.findIndex((c) => c.t === this.target);
     this.target = cands[(cur + 1) % cands.length].t;
+    this.targetNid = this.target.isProj ? this.target.nid : 0;
     Snd.ui('click');
   }
   /* line of sight for missile locks, refreshed about every 0.15 s or when the target changes */
   lockSight(t, tp) {
     if (t !== this.lockLosTarget || W.time >= this.lockLosAt) {
       this.lockLosTarget = t; this.lockLosAt = W.time + 0.13 + (this.id % 5) * 0.01;
-      this.lockLos = hasLOS(this.x, this.y + this.height * 0.6, this.z, tp.x, tp.y, tp.z);
+      this.lockLos = sightTo(this.x, this.y + this.height * 0.6, this.z, t, tp);
     }
     return this.lockLos;
   }
@@ -14941,6 +14974,7 @@ class Platform {
   lockFit(t, d) {
     const w = this.wslots.secondary, gd = w && w.def.guide;
     if (!gd) return 'NO GUIDED WEAPON';
+    if (t.isProj) return gd.lock !== 'air' ? 'AIR TARGETS ONLY' : d > w.def.range ? 'OUT OF RANGE' : '';   // an anti-air seeker may lock an incoming projectile (P5-07)
     if (gd.lock === 'air' && (t.isStruct || t.kind !== 'air')) return 'AIR TARGETS ONLY';
     if (gd.lock === 'ground' && !t.isStruct && t.kind === 'air') return 'GROUND TARGETS ONLY';
     if (d > w.def.range) return 'OUT OF RANGE';
@@ -14949,6 +14983,7 @@ class Platform {
   updateLock(dt) {
     const L = this.lock;
     if (this.target && (!this.validTarget(this.target))) this.target = null;
+    if (this.target && this.target.isProj && !Intercept.threatens(this.target, this)) this.target = null;   // it missed, or turned away
     if (this.target) { // lose target beyond sensors
       tpos(this.target, TMP_V);
       if (Math.hypot(TMP_V.x - this.x, TMP_V.y - this.y, TMP_V.z - this.z) > this.sensorRange() * 1.25) this.target = null;
@@ -14972,7 +15007,7 @@ class Platform {
     if (reason === '') {
       if (L.target !== t) { L.target = t; L.progress = 0; L.state = 'acquiring'; }
       L.progress = Math.min(1, L.progress + dt / gd.lockTime); L.grace = 0.4;
-      if (!t.isStruct) t.beingLocked = 0.3;
+      if (!t.isStruct && !t.isProj) t.beingLocked = 0.3;
       if (L.progress >= 1) { if (L.state !== 'locked' && W.player === this) Snd.ui('lockDone'); L.state = 'locked'; } else L.state = 'acquiring';
     } else {
       L.grace -= dt;
@@ -15242,6 +15277,11 @@ class Platform {
         if (u.charges < ud.charges) { u.rechargeT += dt; if (u.rechargeT >= ud.recharge) { u.rechargeT = 0; u.charges++; } } else u.rechargeT = 0;
         if (u.auto && u.charges > 0 && u.cd <= 0) this.apsScan(u);
         break;
+      case 'pdc':   // P5-07: shoots down missiles and rockets headed for this platform; the defense key arms and disarms it, as the Active Protection
+        if (c.defenseEdge) { u.auto = !u.auto; notify(this, 'POINT DEFENCE ' + (u.auto ? 'ARMED' : 'OFF')); }
+        if (u.charges < ud.charges) { u.rechargeT += dt; if (u.rechargeT >= ud.recharge) { u.rechargeT = 0; u.charges++; } } else u.rechargeT = 0;
+        if (u.auto && u.charges > 0 && u.cd <= 0) this.pdScan(u);
+        break;
       case 'repair':
         if (c.defenseEdge && u.charges > 0 && u.cd <= 0 && this.hp < this.maxHp) {
           u.charges--; u.cd = ud.cd; u.healLeft = this.maxHp * ud.heal;
@@ -15344,6 +15384,57 @@ class Platform {
     notify(this, 'REACTIVE ARMOR STOPPED A HIT (' + u.charges + ' LEFT)');
     return true;
   }
+  /* Point Defence (P5-07, rebalanced after the review): a burst at the inbound projectile that will arrive first (the one this platform has
+     targeted, if it is inbound), inside the module's range, in a clear line and, on a ground platform, in its front half. A new target
+     takes pdAcquire s to find (pdRetarget s while the gun is already firing). Each round of a burst hits with a chance that falls with
+     distance (pdChance: pdNear m and nearer, to the radius) and with how small and fast the projectile is (its pdEvade), rolled on the
+     unit's own seeded stream (so a co-op host, the self-tests and a rerun of a battle see the same shots). A burst sprays: up to pdSpray
+     rounds, the first at the primary target and the others at the next projectiles to arrive, and pdCheap more at ones a single hit kills (a Swarm
+     missile, a rocket).
+     A miss still spends the burst. */
+  pdScan(u) {
+    const ud = u.def, ps = W.projs, cy = this.y + (this.kind === 'air' ? 0 : this.height * 0.6), C = PD_CAND;
+    const held = this.target && this.target.isProj ? this.target : null;
+    const yaw = this.kind === 'mech' ? this.torsoYaw : this.yaw, fx = Math.sin(yaw), fz = Math.cos(yaw), arcCos = this.kind === 'air' ? -2 : Math.cos(ud.pdArc);
+    let n = 0;
+    for (let i = 0; i < ps.length; i++) {
+      const q = ps[i];
+      if (!q.active || !(q.hp > 0) || !(q.def.pdHp > 0) || q.team === this.team || q.team === 2) continue;
+      const dx = q.x - this.x, dy = q.y - cy, dz = q.z - this.z, d = Math.hypot(dx, dy, dz);
+      if (d > ud.radius || !Intercept.threatens(q, this)) continue;
+      if ((dx * fx + dz * fz) < Math.hypot(dx, dz) * arcCos) continue;   // behind the gun's arc
+      const closing = -(dx * q.vx + dy * q.vy + dz * q.vz) / (d || 1);
+      if (closing <= 1) continue;
+      const arrive = q === held ? -1 : d / closing;
+      if (n === PD_CAND.length && arrive >= C[n - 1].t) continue;
+      let k = n < PD_CAND.length ? n++ : n - 1;
+      for (; k > 0 && C[k - 1].t > arrive; k--) { C[k].q = C[k - 1].q; C[k].t = C[k - 1].t; C[k].d = C[k - 1].d; }
+      C[k].q = q; C[k].t = arrive; C[k].d = d;
+    }
+    if (n === 0) return;
+    const best = C[0].q;
+    if (!hasLOS(this.x, cy, this.z, best.x, best.y, best.z)) return;
+    if (u.aimNid !== best.nid) { u.aimNid = best.nid; u.aimAt = W.time + (W.time - u.lastShot < PD_ENGAGED ? ud.pdRetarget : ud.pdAcquire); }
+    if (W.time < u.aimAt) return;
+    if (!u.rng) u.rng = makeRng((Math.imul(this.id + 1, 2654435761) ^ PD_SALT) >>> 0);
+    u.charges--; u.cd = ud.cd; u.lastShot = W.time;
+    this.pdRound(u, best, C[0].d, cy);
+    for (let k = 1, rounds = 1; k < n; k++) {
+      const q = C[k].q;
+      if (rounds >= ud.pdSpray + (q.hp <= ud.pdDmg ? ud.pdCheap : 0) || !hasLOS(this.x, cy, this.z, q.x, q.y, q.z)) continue;
+      this.pdRound(u, q, C[k].d, cy);
+      rounds++;
+    }
+  }
+  /* one round of a Point Defence burst at projectile q, d m away: the roll, the tracer, the hit */
+  pdRound(u, q, d, cy) {
+    const ud = u.def, reach = d <= ud.pdNear ? 0 : Math.min(1, (d - ud.pdNear) / (ud.radius - ud.pdNear));
+    const hit = u.rng() < (ud.pdChance[0] + (ud.pdChance[1] - ud.pdChance[0]) * reach) * (q.def.pdEvade || 1);
+    const wide = hit ? 0 : 1.5 + q.def.pdR;   // the tracer ends on the projectile when it hits and a little wide of it when it misses
+    WPN.beam(this.x, cy, this.z, q.x + wide, q.y, q.z, 'pdc', 0.14);
+    Snd.play('mg', this.x, cy, this.z, 0.5);
+    if (hit) Intercept.hurt(q, ud.pdDmg * (q.def.pdSoft || 1), this);
+  }
   apsScan(u) {
     const ps = W.projs, R2 = u.def.radius;
     for (let i = 0; i < ps.length; i++) {
@@ -15372,7 +15463,7 @@ class Platform {
     const decoy = W.decoys[W.decoys.length - 1];
     for (let i = 0; i < W.projs.length; i++) {
       const p = W.projs[i];
-      if (p.active && p.target === this && Math.random() < FLARE_SPOOF * (p.def.flareMult || 1)) p.target = decoy;   // swarm missiles fall for flares more often
+      if (p.active && p.target === this && Math.random() < (p.def.guide && p.def.guide.flare !== undefined ? p.def.guide.flare : FLARE_SPOOF)) p.target = decoy;   // each guide has its own chance (swarm missiles fall for flares more often)
     }
     for (let i = 0; i < W.platforms.length; i++) { const e = W.platforms[i]; if (e.lock.target === this && Math.random() < 0.7) { e.lock.progress = 0; e.lock.state = 'none'; } }
     notify(this, 'FLARES AWAY (' + u.charges + ' LEFT)');
@@ -16259,6 +16350,8 @@ function newProjectileSlot() {
     active: false, def: null, owner: null, team: 0, nid: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0, objMult: 1,
     life: 0, age: 0, dmg: 0, pierceLeft: 0, hitSet: null, target: null, curSpeed: 0, noGuide: false,
     stuck: null, sx: 0, sy: 0, sz: 0,   // a sticky round (needle, satchel): what it clings to (a platform, or true) and its offset
+    isProj: true, hp: 0, tnid: 0,       // a rocket's hit points (P5-07); the nid of the projectile it homes on (a slot is reused, the nid tells)
+    blind: 0, sightAt: 0, sightOk: true, lx: 0, ly: 0, lz: 0,   // a seeker's time without its target, next look along its line, the last look's answer, and where the target was last seen (P5-06)
   };
 }
 /* the next free projectile slot, or null when all are in flight */
@@ -16282,8 +16375,10 @@ function spawnProjectile(owner, w, mz, dx, dy, dz, charge) {
   else { p.vx = dx * speed + owner.vx * inherit; p.vy = dy * speed + owner.vy * inherit; p.vz = dz * speed + owner.vz * inherit; }
   p.life = d.life; p.age = 0; p.dmg = d.dmg * (d.fire === 'charge' ? 0.5 + 0.5 * (charge || 1) : 1);
   p.pierceLeft = d.pierce || 0; p.hitSet = null; p.target = null; p.curSpeed = Math.hypot(p.vx, p.vy, p.vz);
-  if (d.guide && owner.lock.state === 'locked' && owner.lock.target) p.target = owner.lock.target;
+  p.hp = d.pdHp || 0; p.blind = 0; p.sightAt = 0; p.sightOk = true; p.tnid = 0;
+  if (d.guide && owner.lock.state === 'locked' && owner.lock.target) { p.target = owner.lock.target; p.tnid = p.target.isProj ? owner.targetNid : 0; }
   else if (d.guide && owner.ai && owner.ai.target && talive(owner.ai.target) && owner.lock.state === 'locked') p.target = owner.lock.target;
+  if (p.target) { tpos(p.target, TMP_T); p.lx = TMP_T.x; p.ly = TMP_T.y; p.lz = TMP_T.z; }   // where the seeker last saw it: at launch
   if (d.guide && !p.target) p.noGuide = true; else p.noGuide = false;
   if (d.guide && !p.target) notify(owner, 'NO LOCK: DUMB-FIRE');
   p.stuck = null;
@@ -16299,6 +16394,7 @@ function launchProjectile(p, d, owner, team, x, y, z, vx, vy, vz) {
   p.x = x; p.y = y; p.z = z; p.vx = vx; p.vy = vy; p.vz = vz;
   p.life = d.life; p.age = 0; p.dmg = d.dmg; p.pierceLeft = d.pierce || 0; p.hitSet = null; p.target = null;
   p.curSpeed = Math.hypot(vx, vy, vz); p.noGuide = !d.guide; p.stuck = null;
+  p.hp = d.pdHp || 0; p.blind = 0; p.sightAt = 0; p.sightOk = true; p.tnid = 0;
 }
 /* turn a projectile toward a point by at most maxTurn radians, keeping its speed */
 function steerProjectile(p, tx, ty, tz, maxTurn) {
@@ -16314,14 +16410,147 @@ function steerProjectile(p, tx, ty, tz, maxTurn) {
   p.vx = ux / ul * s; p.vy = uy / ul * s; p.vz = uz / ul * s;
 }
 
-function projectileTargetPos(t, out) {
+/* P5-06: whether the seeker of homing projectile p sees its target t at tp (host). Its view is a cone round its own nose (guide.fov) and the line
+   from the missile to the target must be clear of terrain, buildings and other structures (looked at every SEEK_LOS_STEP s of its flight, staggered by nid;
+   the target structure itself does not block). A guide without `fov` (superweapon ordnance) sees whatever it was told to chase. */
+function seekerSees(p, g, t, tp) {
+  const dx = tp.x - p.x, dy = tp.y - p.y, dz = tp.z - p.z, dist = Math.hypot(dx, dy, dz);
+  if (dist < SEEK_NEAR) return true;
+  const sp = Math.hypot(p.vx, p.vy, p.vz) || 1;
+  if ((p.vx * dx + p.vy * dy + p.vz * dz) / (sp * dist) < g.fovCos) return false;
+  if (p.age >= p.sightAt) {
+    p.sightAt = p.age + SEEK_LOS_STEP + (p.nid % 5) * 0.01;
+    // a unit on the ground is looked at over its shoulders (a third of its height above its middle), so a rise of the ground before its feet does not hide it
+    SEEK_TP.x = tp.x; SEEK_TP.z = tp.z; SEEK_TP.y = tp.y + (t.isStruct || t.isDecoy || t.kind === 'air' || !t.height ? 0 : t.height * SEEK_SHOULDER);
+    p.sightOk = sightTo(p.x, p.y, p.z, t, SEEK_TP);
+  }
+  return p.sightOk;
+}
+function projectileTargetPos(t, out, chaser) {
   if (t.isDecoy) { if (t.life <= 0) return false; out.x = t.x; out.y = t.y; out.z = t.z; return true; }
+  if (t.isProj) { if (!t.active || !chaser || t.nid !== chaser.tnid) return false; out.x = t.x; out.y = t.y; out.z = t.z; return true; }
   if (!talive(t)) return false;
   tpos(t, out);
   return true;
 }
 const TMP_T = { x: 0, y: 0, z: 0 };
 const STRUCT_SPARK_COLOR = [1, 0.8, 0.5];
+
+/* =====================================================================
+   INTERCEPTING PROJECTILES (P5-07; decided 2026-10-29 by the coordinator, the owner can change any row: Appendix C "P5-07")
+   Missiles and rockets (WEAPONS with pdHp and pdR) have hit points and a hit size. Hostile direct-fire rounds (pdHit: guns, flak,
+   plasma, naval guns) hit them where they pass, a burst (flak, a blast round) hurts them by distance, an anti-air seeker locked on one
+   bursts beside it, and the Point Defence utility shoots at the ones headed for its carrier. A projectile that is shot down bursts
+   without damage. The host decides everything (guests mirror projectiles from its snapshots, so a destroyed one simply stops).
+   ===================================================================== */
+const Intercept = {
+  list: [], n: 0, skip: null,   // skip: the projectile a round has just struck (its burst does not hurt it twice)
+  /* whether projectile q is headed for platform pl: it homes on it, or (unguided, or its guide lost, or seen from a co-op guest, who does not
+     know whom it homes on) it will pass within PD_PASS of it inside PD_HORIZON seconds */
+  threatens(q, pl) {
+    if (q.target === pl) return true;
+    if (q.target) return false;
+    const cy = pl.y + (pl.kind === 'air' ? 0 : pl.height * 0.5), rx = pl.x - q.x, ry = cy - q.y, rz = pl.z - q.z, vv = q.vx * q.vx + q.vy * q.vy + q.vz * q.vz;
+    if (vv < 1) return false;
+    const t = (rx * q.vx + ry * q.vy + rz * q.vz) / vv;
+    if (t <= 0 || t > PD_HORIZON) return false;
+    const mx = rx - q.vx * t, my = ry - q.vy * t, mz = rz - q.vz * t, r = pl.radius + PD_PASS;
+    return mx * mx + my * my + mz * mz < r * r;
+  },
+  /* calls fn(q) for every live hostile projectile with hit points headed for pl within PD_TRACK_RANGE */
+  eachThreat(pl, fn) {
+    const ps = W.projs;
+    for (let i = 0; i < ps.length; i++) {
+      const q = ps[i];
+      if (!q.active || !(q.hp > 0) || !(q.def.pdHp > 0) || q.team === pl.team || q.team === 2) continue;
+      const dx = q.x - pl.x, dy = q.y - pl.y, dz = q.z - pl.z;
+      if (dx * dx + dy * dy + dz * dz > PD_TRACK_RANGE * PD_TRACK_RANGE || !this.threatens(q, pl)) continue;
+      fn(q);
+    }
+  },
+  byNid(nid) {
+    for (let i = 0; i < W.projs.length; i++) if (W.projs[i].active && W.projs[i].nid === nid) return W.projs[i];
+    return null;
+  },
+  /* q takes dmg from owner; at 0 hit points it is shot down. True when it was. */
+  hurt(q, dmg, owner) {
+    q.hp -= dmg;
+    if (q.hp > 0) return false;
+    this.kill(q, owner);
+    return true;
+  },
+  kill(q, owner) {
+    q.active = false; q.stuck = null;
+    explode(q.x, q.y, q.z, PD_KILL_BLAST, 0, 'explosive', null);
+    notify(owner, 'SHOT DOWN: ' + q.def.name.toUpperCase());
+  },
+  /* an exploding round hurts the enemy projectiles round it, by distance */
+  blast(p, x, y, z, radius, dmg) {
+    const ps = W.projs;
+    for (let i = 0; i < ps.length; i++) {
+      const q = ps[i];
+      if (!q.active || !(q.hp > 0) || !(q.def.pdHp > 0) || q.team === p.team || q.team === 2 || q === this.skip) continue;
+      const d = Math.hypot(q.x - x, q.y - y, q.z - z) - q.def.pdR;
+      if (d >= radius) continue;
+      this.hurt(q, dmg * PD_BLAST_MULT * (0.15 + 0.85 * (1 - Math.max(0, d) / radius)), p.owner);
+    }
+  },
+  /* an anti-air seeker p locked on projectile q bursts at its closest approach this tick if that is near enough; true when it did */
+  fuse(p, q, dt) {
+    const rx = p.x - q.x, ry = p.y - q.y, rz = p.z - q.z, wx = p.vx - q.vx, wy = p.vy - q.vy, wz = p.vz - q.vz, a = wx * wx + wy * wy + wz * wz;
+    const t = a < 1e-6 ? 0 : clamp(-(rx * wx + ry * wy + rz * wz) / a, 0, dt);
+    const dx = rx + wx * t, dy = ry + wy * t, dz = rz + wz * t;
+    if (dx * dx + dy * dy + dz * dz > (PD_AAM_FUSE + q.def.pdR) ** 2) return false;
+    p.x += p.vx * t; p.y += p.vy * t; p.z += p.vz * t;
+    this.hurt(q, p.dmg, p.owner);
+    detonate(p, p.x, p.y, p.z, null);
+    return true;
+  },
+  /* the pre-pass of a tick: every hostile direct-fire round against every live projectile with hit points, in the frame of the projectile
+     (both move this tick). A round that gets there first is spent (pierce rounds go on); a proximity round bursts at PD_FUSE_SHARE of its fuse. */
+  sweep(dt) {
+    const ps = W.projs, L = this.list;
+    let n = 0;
+    // (a slot reused by ordnance without hit points may still hold an old hp: the def says)
+    for (let i = 0; i < ps.length; i++) { const q = ps[i]; if (q.active && q.hp > 0 && q.def.pdHp > 0) L[n++] = q; }
+    this.n = n;
+    if (n === 0) return;
+    for (let i = 0; i < ps.length; i++) {
+      const b = ps[i];
+      if (!b.active || !b.def.pdHit) continue;
+      const d = b.def;
+      for (let k = 0; k < n; k++) {
+        const q = L[k];
+        if (!q.active || q.team === b.team || q.team === 2 || (b.hitSet && b.hitSet.indexOf(q) >= 0)) continue;
+        const R = q.def.pdR + (d.prox ? d.prox * PD_FUSE_SHARE : 0);
+        const rx = b.x - q.x, ry = b.y - q.y, rz = b.z - q.z, wx = b.vx - q.vx, wy = b.vy - q.vy, wz = b.vz - q.vz;
+        const a = wx * wx + wy * wy + wz * wz;
+        if (a < 1e-6) continue;
+        const bb = rx * wx + ry * wy + rz * wz, c = rx * rx + ry * ry + rz * rz - R * R;
+        let t = 0;
+        if (c > 0) {
+          if (bb >= 0) continue;
+          const disc = bb * bb - a * c;
+          if (disc < 0) continue;
+          t = (-bb - Math.sqrt(disc)) / a;
+          if (t > dt) continue;
+        }
+        const hx = b.x + b.vx * t, hy = b.y + b.vy * t, hz = b.z + b.vz * t;
+        if (hy < Terrain.h(hx, hz)) continue;   // the round would have struck the ground first
+        b.x = hx; b.y = hy; b.z = hz;
+        fxSparks(hx, hy, hz, 3, d.tracer, 10);
+        // a proximity round hurts it as its burst would at the fuse distance (the rocket is in motion this tick, so the burst is worked out here, not from where it is stored); any other round with its damage
+        if (d.prox) this.hurt(q, b.dmg * PD_BLAST_MULT * (0.15 + 0.85 * (1 - Math.min(1, d.prox * PD_FUSE_SHARE / d.blast))), b.owner);
+        else this.hurt(q, b.dmg, b.owner);
+        if (d.pierce && b.pierceLeft > 0 && !d.prox) { b.pierceLeft--; (b.hitSet = b.hitSet || []).push(q); continue; }
+        this.skip = q;
+        detonate(b, hx, hy, hz, null);
+        this.skip = null;
+        break;
+      }
+    }
+  },
+};
 
 function detonate(p, x, y, z, excludePlatform, excludeStruct) {
   const d = p.def;
@@ -16332,6 +16561,7 @@ function detonate(p, x, y, z, excludePlatform, excludeStruct) {
     if (d.blast > 0) {
       const dmg = d.blastDmg !== undefined ? d.blastDmg : d.dmg;
       explode(x, y, z, d.blast, dmg, d.dtype, p.owner, { exclude: excludePlatform, excludeStruct, structMult: d.structMult, objMult: p.objMult });
+      if (d.pdHit || (d.guide && d.guide.lock === 'air')) Intercept.blast(p, x, y, z, d.blast, dmg);   // P5-07
     } else {
       fxSparks(x, y, z, 5, d.tracer, 10);
     }
@@ -16342,6 +16572,7 @@ function detonate(p, x, y, z, excludePlatform, excludeStruct) {
 
 function updateProjectiles(dt) {
   const ps = W.projs, pl = W.platforms;
+  Intercept.sweep(dt);
   for (let i = 0; i < ps.length; i++) {
     const p = ps[i];
     if (!p.active) continue;
@@ -16363,9 +16594,18 @@ function updateProjectiles(dt) {
     }
     // guidance
     if (d.guide && p.target && p.age > 0.25) {
-      if (projectileTargetPos(p.target, TMP_T)) {
-        if (d.guide.top) WPN.topAim(p, TMP_T);
-        steerProjectile(p, TMP_T.x, TMP_T.y, TMP_T.z, d.guide.turn * dt);
+      if (projectileTargetPos(p.target, TMP_T, p)) {
+        const g = d.guide;
+        if (g.fov !== undefined) {   // P5-06: a seeker with eyes; out of its view or sight it steers on where it last saw the target, and gives up after g.lose s
+          if (seekerSees(p, g, p.target, TMP_T)) { p.blind = 0; p.lx = TMP_T.x; p.ly = TMP_T.y; p.lz = TMP_T.z; }
+          else if ((p.blind += dt) > g.lose) { p.target = null; p.noGuide = true; }
+          else { TMP_T.x = p.lx; TMP_T.y = p.ly; TMP_T.z = p.lz; }
+        }
+        if (p.target) {
+          if (g.top) WPN.topAim(p, TMP_T);
+          steerProjectile(p, TMP_T.x, TMP_T.y, TMP_T.z, g.turn * dt);
+          if (p.target.isProj && Intercept.fuse(p, p.target, dt)) continue;   // an anti-air seeker locked on a rocket bursts beside it
+        }
       } else p.target = null;
     } else if (d.wire && p.age > 0.15) WPN.wire(p, dt);
     if (d.grav) p.vy -= d.grav * dt;
@@ -17680,7 +17920,7 @@ const SW = {
     }
     ctx.x = clamp(ap.x, -GROUND_BOUND, GROUND_BOUND); ctx.z = clamp(ap.z, -GROUND_BOUND, GROUND_BOUND); ctx.y = Math.max(Terrain.h(ctx.x, ctx.z), ap.y);
     if (d.aim === 'target') {
-      const t = p.target && p.validTarget(p.target) ? p.target : this.nearestEnemy(ctx.x, ctx.z, 120, ctx);
+      const t = p.target && !p.target.isProj && p.validTarget(p.target) ? p.target : this.nearestEnemy(ctx.x, ctx.z, 120, ctx);
       if (t) { ctx.target = t; const tp = tpos(t, { x: 0, y: 0, z: 0 }); ctx.x = tp.x; ctx.y = tp.y; ctx.z = tp.z; }
     }
     return ctx;
@@ -24184,6 +24424,7 @@ const M10_GUNS = [[330, -170], [450, -160], [560, -220]];   // shore batteries o
 const M10_BEACH = { x: 450, z: -140, r: 60 };   // the beach to seize, among the batteries
 const M10_SHIP_REACH = 150;   // m: a friendly ship this near the beach holds it from the channel
 const M10_LANDING = [{ x: 380, z: 60 }, { x: 420, z: -80 }, { x: 450, z: -140 }];
+const M10_SQUAD = { x: 440, z: -190, r: 50, tries: 60, margin: 16 };   // the beach squad's centre and radius, the tries to place a rifleman again when a ship's harbour would see him (D58), and the margin (m) round him that must be unseen too (he moves in the first second)
 const M10_START = { x: 480, z: 240, yaw: PI / 2 };   // our island's east side, out of reach of the batteries, the gunboat and the AA, with room for a district and a harbour on the channel
 const M11_ROUTE = [{ x: -560, z: -320 }, { x: -300, z: -300 }, { x: -295, z: -120 }, { x: -295, z: 0 }, { x: -300, z: 250 }, { x: -200, z: 290 }];
 const M11_GO = 60;   // s: the trucks load up while the player clears the bridge
@@ -24497,10 +24738,39 @@ const MISSIONS = [
         for (const q of M10_GUNS) guns.push(...spawnGroup(['shoreBattery'], q[0], q[1], { radius: 8, exact: true, yaw: 0 }));
         guns.forEach((g) => { g.name = 'Shore Battery'; });
         m.add(Obj.kill({ id: 'guns', title: 'Silence the shore batteries', units: guns, status: 'active', onComplete() { m.landing(); } }));
-        spawnGroup(['infantry', 'rpgTrooper'], 440, -190, { radius: 50, exact: true });   // one squad: more rockets than this outgun a ship off the beach
+        const squad = spawnGroup(['infantry', 'rpgTrooper'], M10_SQUAD.x, M10_SQUAD.z, { radius: M10_SQUAD.r, exact: true });   // one squad: more rockets than this outgun a ship off the beach (placed again below when a harbour would see it)
         spawnGroup(['gunboat'], 40, -220, { radius: 40, exact: true });   // in the west sound
         spawnGroup(['allyGunboat', 'allyGunboat'], 300, 50, { team: 0, radius: 40, exact: true });   // in the channel, in reach of the batteries
         for (let i = 0; i < 2; i++) spawnParked('skua', M10_START.x - 40 + i * 30, M10_START.z - 20, PI);   // for anyone who cannot cross the channel
+        // D58: no hostile sees a start. A ship's harbour (the water nearest the start that it can sail, found with the ships out: 444, 19 for the Trident,
+        // 160 to 220 m from the beach) lies inside a rifleman's 227 m sight in the storm; a rifleman a harbour sees is placed again in the squad's
+        // disc, out of the line (a rise of ground between), as an m16 ambush unit is placed again (M16_AMBUSH_TRIES)
+        const harbours = PLAYABLE.filter((id) => PLATFORMS[id].kind === 'naval').map((id) => ({ def: PLATFORMS[id], at: Naval.harbour(PLATFORMS[id], M10_START) })).filter((h) => h.at);
+        const unseen = (q) => {
+          const sight = Math.min(SPAWN_SIGHT_CAP, q.ai ? q.ai.sightRange() : 0);
+          for (let k = 0; k < 17; k++) {   // where it stands and two rings round it, out to the margin: a rifleman moves up to ten metres in the first second (he walks toward the allied gunboats), and a thin rise of ground hides him from one spot and not the next
+            const ring = k ? (k > 8 ? 1 : 0.5) * M10_SQUAD.margin : 0, x = q.x + Math.cos(k * PI / 4) * ring, z = q.z + Math.sin(k * PI / 4) * ring, y = Terrain.h(x, z);
+            for (const h of harbours) {
+              const d = Math.hypot(x - h.at.x, z - h.at.z);
+              if (d < SPAWN_SAFE_DIST || (d < sight && hasLOS(x, y + q.height * 0.8, z, h.at.x, Math.max(Terrain.h(h.at.x, h.at.z), Water.level(h.at.x, h.at.z)) + spawnEyeH(h.def), h.at.z))) return false;
+            }
+          }
+          return true;
+        };
+        for (const u of squad) {
+          if (unseen(u)) continue;
+          const moveTo = (x, z) => { u.x = x; u.z = z; u.y = Terrain.h(x, z); u.lastX = x; u.lastZ = z; if (u.ai && u.ai.home) { u.ai.home.x = x; u.ai.home.z = z; } };   // a ground unit just made: it has not acted yet
+          let placed = false;
+          for (let i = 0; i < M10_SQUAD.tries && !placed; i++) {
+            const sp = findSpawn(M10_SQUAD.x, M10_SQUAD.z, M10_SQUAD.r, u.radius, 0);
+            if (!sp) continue;
+            const keep = { x: u.x, z: u.z, y: u.y };
+            u.x = sp.x; u.z = sp.z; u.y = Terrain.h(sp.x, sp.z);
+            if (unseen(u)) { moveTo(sp.x, sp.z); placed = true; break; }
+            u.x = keep.x; u.z = keep.z; u.y = keep.y;
+          }
+          if (!placed) moveTo(M10_SQUAD.x, M10_SQUAD.z);   // no unseen spot found: the squad's centre, which no harbour sees, rather than a seen spot
+        }
       });
       m.add(Obj.capture({ id: 'cap', title: 'Seize the beach', zone, duration: 30, deps: ['guns'], shipReach: M10_SHIP_REACH }));
       m.add(Obj.timeBound({ id: 'fast', title: 'Seize it within 12:00', limit: 720 }));
@@ -25425,7 +25695,8 @@ const PC = {
       return;
     }
     if (ai && ai.hostile && p.validTarget(ai.obj)) p.target = ai.obj;
-    else if (this.hadTarget) p.cycleTarget();
+    else if (ai && ai.objective && p.validTarget(ai.objective)) p.target = ai.objective;   // P5-04: and so is an objective structure the reticle rests on
+    else if (this.hadTarget) p.cycleTarget(false);
     this.hadTarget = !!p.target;
   },
   /* Switch a held target to the reticle hostile only once its lock has really dropped (a brief sight or bore
@@ -25524,7 +25795,8 @@ const Cam = {
     const r = raycast(this.x, this.y, this.z, dx, dy, dz, p.primary && p.primary.def.indirect ? ARTY_AIM_REACH : 900, p, false, p);   // artillery picks ground far off
     const ap = W.aimPoint || (W.aimPoint = { x: 0, y: 0, z: 0 });
     if (r.hit) { ap.x = r.x; ap.y = r.y; ap.z = r.z; } else { ap.x = this.x + dx * 800; ap.y = this.y + dy * 800; ap.z = this.z + dz * 800; }
-    W.aimInfo = { hit: r.hit, kind: r.kind, dist: r.hit ? r.t : 900, hostile: r.kind === 'platform' && r.obj.team !== p.team && r.obj.team !== 2, friendly: r.kind === 'platform' && r.obj.team === p.team, obj: r.obj, assist: false };
+    W.aimInfo = { hit: r.hit, kind: r.kind, dist: r.hit ? r.t : 900, hostile: r.kind === 'platform' && r.obj.team !== p.team && r.obj.team !== 2, friendly: r.kind === 'platform' && r.obj.team === p.team, obj: r.obj, assist: false,
+      objective: r.kind === 'struct' && r.obj.objective && r.obj.team !== p.team ? r.obj : null };   // P5-04: a hostile objective structure under the reticle
     if (S.aimAssist && !W.aimInfo.hostile && !W.aimInfo.friendly) this.assist(p, dx, dy, dz, r.hit ? r.t : 900, ap);
     p.cmd.aimPoint = ap; p.cmd.hasAim = true;
   },
@@ -26072,6 +26344,7 @@ const HUD = {
     if (kind === 'hostile') { g.moveTo(x, y - r); g.lineTo(x + r, y); g.lineTo(x, y + r); g.lineTo(x - r, y); g.closePath(); }
     else if (kind === 'friend') { g.arc(x, y, r, 0, TAU); }
     else if (kind === 'objective') { g.rect(x - r, y - r, r * 2, r * 2); }
+    else if (kind === 'incoming') { g.moveTo(x, y + r); g.lineTo(x + r, y - r); g.lineTo(x - r, y - r); g.closePath(); }   // a projectile headed for you: a triangle point down
     else { g.moveTo(x - r, y); g.lineTo(x + r, y); }
     g.stroke();
   },
@@ -26398,6 +26671,7 @@ const HUD = {
       let st = '';
       if (ud.def === 'shield') st = p.shieldOn ? 'ACTIVE' : p.shieldBroken > 0 ? 'BROKEN' : 'READY';
       else if (ud.def === 'aps') st = (p.util.auto ? 'ARMED ' : 'OFF ') + p.util.charges + ' CH' + (p.util.cd > 0 ? ' ' + p.util.cd.toFixed(1) + 's' : '');
+      else if (ud.def === 'pdc') st = (p.util.auto ? 'ARMED ' : 'OFF ') + p.util.charges + ' RDS';
       else if (ud.def === 'reactive') st = p.util.charges + ' CH PASSIVE';
       else if (ud.def === 'sensor') st = 'DETECT ' + Math.round(Detect.rangeOf(p)) + 'm';
       else if (p.gadgetTime() > 0) st = 'ACTIVE ' + p.gadgetTime().toFixed(1) + 's';
@@ -26429,7 +26703,7 @@ const HUD = {
     const lockCol = p.lock.target === t && p.lock.state === 'locked' ? C.bad : col;
     if (s.vis) {
       const r = clamp(2400 / Math.max(40, d), 14, 40) * u;
-      if (t.isStruct) this.shape('objective', s.sx, s.sy, r * 0.8, lockCol, 2); else this.shape(hostile ? 'hostile' : 'friend', s.sx, s.sy, r * 0.8, lockCol, 2);
+      if (t.isStruct) this.shape('objective', s.sx, s.sy, r * 0.8, lockCol, 2); else if (t.isProj) this.shape('incoming', s.sx, s.sy, r * 0.8, lockCol, 2); else this.shape(hostile ? 'hostile' : 'friend', s.sx, s.sy, r * 0.8, lockCol, 2);
       this.brackets(s.sx, s.sy, r, lockCol);
       if (p.lock.target === t && p.lock.state === 'acquiring') { this.g.strokeStyle = C.warn; this.g.lineWidth = 3; this.g.beginPath(); this.g.arc(s.sx, s.sy, r + 6 * u, -PI / 2, -PI / 2 + TAU * p.lock.progress); this.g.stroke(); }
       if (p.lock.state === 'locked' && p.lock.target === t) this.txt('LOCKED', s.sx, s.sy + r + 14 * u, 11, C.bad, 'center', true);
@@ -26438,9 +26712,9 @@ const HUD = {
     const x = this.w / 2, y = 78 * u + SafeArea.t, g = this.g;
     g.fillStyle = this.C.bg; g.fillRect(x - 130 * u, y - 14 * u, 260 * u, 52 * u);
     g.strokeStyle = lockCol; g.lineWidth = 1; g.strokeRect(x - 130 * u + 0.5, y - 14 * u + 0.5, 260 * u, 52 * u);
-    const kindTxt = t.isStruct ? 'OBJECTIVE' : hostile ? 'HOSTILE' : 'FRIENDLY';
+    const kindTxt = t.isStruct ? 'OBJECTIVE' : t.isProj ? 'INCOMING' : hostile ? 'HOSTILE' : 'FRIENDLY';
     this.txt(kindTxt + '  ' + (t.name || t.def.name), x, y, 12, lockCol, 'center', true);
-    const hp = t.isStruct ? t.hp / t.maxHp : t.hp / t.maxHp;
+    const hp = t.isProj ? t.hp / (t.def.pdHp || 1) : t.hp / t.maxHp;
     g.fillStyle = C.dim; g.fillRect(x - 120 * u, y + 10 * u, 240 * u, 5 * u); g.fillStyle = lockCol; g.fillRect(x - 120 * u, y + 10 * u, 240 * u * sat(hp), 5 * u);
     let info = Math.round(d) + ' m';
     const w2 = p.wslots.secondary;
@@ -26497,7 +26771,7 @@ const HUD = {
     const L = Detect.list;
     for (let i = 0; i < Detect.iFauna; i++) {
       const c = L[i];
-      plot(c.x, c.z, c.kind, c.kind === 'friend' ? C.friend : c.kind === 'hostile' ? C.bad : c.kind === 'objective' ? C.obj : C.neutral, c.big);
+      plot(c.x, c.z, c.kind, c.kind === 'friend' ? C.friend : c.kind === 'hostile' || c.kind === 'incoming' ? C.bad : c.kind === 'objective' ? C.obj : C.neutral, c.big);
       if (c.marked) { g.strokeStyle = C.text; g.lineWidth = 1.5 * u; g.beginPath(); g.arc(markX, markY, 7.5 * u, 0, TAU); g.stroke(); }
     }
     this.radarNeutrals(Detect.iFauna, Detect.count, cx, cy, sc, ch, sh, u, p);
@@ -28530,7 +28804,7 @@ const SelfTest = {
       const NEW_IDS = ['flamer', 'tesla', 'gauss', 'lance', 'needler', 'slug', 'ion', 'howitzer', 'vulcan', 'lmg', 'dmr', 'arcPistol', 'swarm', 'cruise', 'mines', 'cluster', 'atgm', 'napalm', 'buster', 'satchel', 'empGren', 'javelin',
         'ecm', 'smoke', 'cloak', 'overdrive', 'reactive', 'holo', 'drone', 'barrier'];
       const mountable = Object.keys(WEAPONS).filter((id) => !WEAPONS[id].hidden && !WEAPONS[id].sub);
-      this.check('59 mountable weapons and utilities (58 and the Sensor Array)', mountable.length === 59, mountable.length);
+      this.check('60 mountable weapons and utilities (58, the Sensor Array and the Point Defence)', mountable.length === 60, mountable.length);
       this.check('all 30 new items exist', NEW_IDS.every((id) => WEAPONS[id] && mountable.indexOf(id) >= 0), NEW_IDS.filter((id) => !WEAPONS[id]).join(','));
       for (const id of mountable) {
         const w = WEAPONS[id], on = PLAYABLE.filter((pid) => PLATFORMS[pid].allow[w.slot].indexOf(id) >= 0);
@@ -29861,7 +30135,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 12 (the Sensor Array utility)', NET_VERSION === 12);
+      this.check('the net version is 13 (the Point Defence utility and projectile targets)', NET_VERSION === 13);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave }, keepPid = Save.data.platformId;
@@ -32281,7 +32555,7 @@ const SelfTest = {
       // co-op: every peer works out its own picture from the platforms its game holds
       const peerA = add('bulwark', 0, 5000, 0), peerB = add('bulwark', 0, 5700, 0), hp = add('bastion', 1, 5750, 0);
       this.check('co-op peers see their own contacts: the hostile by peer B shows on B\'s radar and not on A\'s (700 m away, outside its disc)', !!find(peerB, hp, 'hostile') && !find(peerA, hp, 'hostile'));
-      this.check('nothing is sent: the net version is 12 and the save version stays 1', NET_VERSION === 12 && SAVE_VERSION === 1);
+      this.check('nothing is sent for the radar (the net version moved to 13 for P5-07, the Point Defence utility) and the save version stays 1', NET_VERSION >= 12 && SAVE_VERSION === 1);
       W.platforms.length = 0;
     });
     t('p3 target cycling follows the radar', () => {
@@ -32527,6 +32801,470 @@ const SelfTest = {
       this.check('no default player loadout carries it (the balance of the old loadouts is unchanged)', PLAYABLE.every((id) => PLATFORMS[id].loadout.utility !== 'sensor'));
       fitted.sub.sensors = 5;
       this.check('damaged sensors halve the AI sight as before, with the module too', Math.abs(fitted.ai.sightRange() / plain.ai.sightRange() - DETECT_AI_SIGHT * 0.5) < 1e-9);
+    });
+    // ---- Phase 5 (lock-on to objectives, homing tuning, intercepting projectiles); run alone with selfTest('p5 ') ----
+    const flatWorld = () => {
+      newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+      W.mission = null; this.rampTerrain(0, 1); Hash.reset(); W.buildings = [];   // a flat, empty battlefield
+    };
+    const p5add = (id, team, x, z, lo, y) => { const q = new Platform(PLATFORMS[id], { team, x, z, y, yaw: 0, loadout: lo || PLATFORMS[id].loadout }); W.platforms.push(q); return q; };
+    const p5clear = () => { for (const q of W.projs) q.active = false; W.decoys.length = 0; };
+    const p5step = (secs, each) => { for (let i = 0; i < secs / STEP; i++) { W.time += STEP; updateProjectiles(STEP); if (each && each(i)) return i; } return -1; };
+    t('p5 lock-on to objectives', () => {
+      flatWorld();
+      const me = p5add('bulwark', 0, 0, 0, { primaryA: 'acannon', secondary: 'missile' });
+      me.isPlayer = true; W.player = me; me.cmd.aimYaw = 0; me.cmd.aimPitch = 0;
+      const tower = objStruct('tower', 0, 220, 'Radar Tower', 1), mid = tpos(tower, { x: 0, y: 0, z: 0 }), eye = me.y + me.height * 0.6;
+      this.check('a clear line to an objective structure is clear: the structure does not block its own line (it did: every objective looked hidden and none could be locked)', sightTo(me.x, eye, me.z, tower, mid) && me.lockSight(tower, mid));
+      const wall = addStruct('bwall', 0, 110, { dims: { w: 80, h: 60, d: 2 } });
+      me.lockLosTarget = null;
+      this.check('a wall in between does block it', !sightTo(me.x, eye, me.z, tower, mid) && !me.lockSight(tower, mid));
+      wall.destroyed = true; me.lockLosTarget = null;
+      this.check('and the line is clear again when the wall is gone', me.lockSight(tower, mid));
+      // keyboard, gamepad and touch all end in Platform.cycleTarget through the player controller
+      const keep = { pad: Input.pad, hit: Input.hit, gamepad: Input.gamepad, padC: PC.padC, prev: PC.padPrev, shown: TouchControls.shown, held: TouchControls.held, manual: PC.manualHold };
+      const press = (how) => {
+        me.target = null; W.aimInfo = null; PC.manualHold = 0; PC.padC = false; PC.padPrev = {};
+        try {
+          if (how === 'key') { Input.hit = (a) => a === 'cycleTarget'; Input.pad = () => null; }
+          else if (how === 'pad') { Input.hit = () => false; Input.pad = () => ({ lx: 0, ly: 0, rx: 0, ry: 0, cycle: true }); }
+          else { Input.hit = () => false; Input.gamepad = () => null; TouchControls.shown = true; TouchControls.held = Object.assign({}, keep.held, { cycle: true }); }
+          PC.sample(me, STEP);
+          return me.target;
+        } finally { Input.pad = keep.pad; Input.hit = keep.hit; Input.gamepad = keep.gamepad; PC.padC = keep.padC; PC.padPrev = keep.prev; TouchControls.shown = keep.shown; TouchControls.held = keep.held; PC.manualHold = keep.manual; }
+      };
+      this.check('the cycle key selects the objective structure', press('key') === tower);
+      this.check('the gamepad button selects it', press('pad') === tower);
+      this.check('the touch TGT button selects it (it is merged into the pad)', TOUCH_BUTTONS.some((b) => b.name === 'cycle' && b.show(me)) && press('touch') === tower);
+      me.target = null; W.aimInfo = { hostile: false, obj: tower, objective: tower }; PC.hadTarget = false; PC.autoTarget(me);
+      this.check('auto-target takes a hostile objective structure the reticle rests on', me.target === tower);
+      me.target = tower; me.lock.state = 'none'; me.lock.progress = 0; me.lock.target = null;
+      for (let i = 0; i < 90; i++) { W.time += STEP; me.updateLock(STEP); }
+      this.check('the Guided Missile locks the objective structure inside its 1 s lock time', me.lock.state === 'locked' && me.lock.target === tower, me.lock.state + ' ' + me.lock.reason);
+      Detect.scan(me);
+      let mark = null; for (let i = 0; i < Detect.count; i++) if (Detect.list[i].kind === 'objective' && Detect.list[i].x === tower.x && Detect.list[i].z === tower.z) mark = Detect.list[i];
+      this.check('the locked objective shows on the radar, ringed', !!mark && mark.marked === true);
+      const far = objStruct('depot', 0, 700, 'Supply Depot', 1);
+      me.target = far; Detect.scan(me); mark = null;
+      for (let i = 0; i < Detect.count; i++) if (Detect.list[i].kind === 'objective' && Detect.list[i].z === far.z) mark = Detect.list[i];
+      this.check('and one beyond the disc still shows (the radar pins it to the rim)', !!mark && mark.marked === true && Math.hypot(far.x - me.x, far.z - me.z) > Detect.discRange(me));
+      me.target = tower; me.lock.target = tower; me.lock.state = 'locked'; me.lock.progress = 1;
+      me.cmd.aimPoint = tpos(tower, { x: 0, y: 0, z: 0 });
+      const hp0 = tower.hp;
+      me.shoot(me.wslots.secondary, 1);
+      const m = W.projs.find((q) => q.active && q.def === WEAPONS.missile);
+      this.check('the missile homes onto the structure', !!m && m.target === tower);
+      p5step(5, () => !m.active);
+      this.check('and hits it', tower.hp < hp0 || tower.destroyed, Math.round(hp0 - tower.hp) + ' damage');
+      // an anti-air seeker cannot lock a structure (it could not hit one); everything else can
+      me.wslots.secondary = null;
+      this.check('an anti-air seeker refuses a structure and every other seeker accepts it', (() => {
+        const lockers = Object.keys(WEAPONS).filter((id) => WEAPONS[id].guide && !WEAPONS[id].hidden).map((id) => ({ id, air: WEAPONS[id].guide.lock === 'air' }));
+        const probe = new Platform(PLATFORMS.colossus, { team: 0, x: 0, z: 0, yaw: 0, loadout: { primaryA: 'acannon' } });
+        return lockers.every((l) => { probe.wslots.secondary = { def: WEAPONS[l.id] }; return (probe.lockFit(tower, 200) === 'AIR TARGETS ONLY') === l.air; });
+      })());
+    });
+    t('p5 every objective can be locked', () => {
+      const keepRep = Game.reportError, errs = [];
+      Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
+      const worlds = MISSIONS.map((m) => ({ kind: 'mission', id: m.id })).concat(Object.keys(MAPS).filter((k) => !MAPS[k].hidden).map((k) => ({ kind: 'skirmish', id: k })));
+      let objectives = 0, locked = 0, hit = 0; const bad = [];
+      try {
+        for (const wd of worlds) {
+          if (wd.kind === 'mission') Game.startSession({ mode: 'mission', missionId: wd.id, platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+          else Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: wd.id, size: 'medium', seed: 11, random: false, platformId: 'bulwark' }) });
+          const foes = W.structs.filter((s) => s.objective && s.team !== 0);
+          for (const q of W.platforms) q.dead = true;
+          const me = new Platform(PLATFORMS.bulwark, { team: 0, x: 0, z: 0, yaw: 0, loadout: { primaryA: 'acannon', secondary: 'missile' } });
+          me.invuln = true; W.platforms.push(me);
+          for (const st of foes) {
+            objectives++;
+            const mid = tpos(st, { x: 0, y: 0, z: 0 });
+            let spot = null;
+            for (const r of [60, 90, 130, 190, 260]) for (let k = 0; k < 24 && !spot; k++) {
+              const a = k * PI / 12, rr = r + Math.max(st.hx, st.hz), x = st.x + Math.sin(a) * rr, z = st.z + Math.cos(a) * rr;
+              if (Math.abs(x) > 900 || Math.abs(z) > 900 || Water.depth(x, z) > 0.5) continue;
+              me.x = x; me.z = z; me.y = Terrain.h(x, z); me.lockLosTarget = null; me.lockLosAt = 0;
+              if (me.lockSight(st, mid)) spot = { x, z };
+            }
+            if (!spot) { bad.push(wd.id + ' ' + st.name + ': no clear spot'); continue; }
+            me.x = spot.x; me.z = spot.z; me.y = Terrain.h(spot.x, spot.z); me.vx = me.vz = 0; me.lock.state = 'none'; me.lock.progress = 0; me.lock.target = null;
+            const dx = st.x - me.x, dz = st.z - me.z;
+            me.cmd.aimYaw = Math.atan2(dx, dz); me.cmd.aimPitch = Math.atan2(mid.y - (me.y + me.height * 0.7), Math.hypot(dx, dz));
+            me.target = null;
+            for (let c = 0; c < 14 && me.target !== st; c++) me.cycleTarget();
+            if (me.target !== st) { bad.push(wd.id + ' ' + st.name + ': not cycled'); continue; }
+            for (let i = 0; i < 90 && me.lock.state !== 'locked'; i++) { W.time += STEP; me.updateLock(STEP); }
+            if (me.lock.state !== 'locked' || me.lock.target !== st) { bad.push(wd.id + ' ' + st.name + ': ' + me.lock.reason); continue; }
+            locked++;
+            const hp0 = st.hp; me.cmd.aimPoint = mid; me.wslots.secondary.cd = 0; me.wslots.secondary.clip = 4; me.shoot(me.wslots.secondary, 1);
+            p5step(8, () => !W.projs.some((q) => q.active));
+            if (st.destroyed || st.hp < hp0 || st.invuln) hit++;   // a shielded objective (m8's core) soaks it by design
+            else bad.push(wd.id + ' ' + st.name + ': the missile did not hit');
+          }
+        }
+        this.check('every hostile objective structure of ' + MISSIONS.length + ' missions and ' + (worlds.length - MISSIONS.length) + ' skirmish battlefields (' + objectives + ') can be cycled to and locked from a clear spot, and the locked missile hits it', objectives >= 30 && locked === objectives && hit === objectives && bad.length === 0, locked + '/' + objectives + ' locked, ' + hit + ' hit; ' + bad.join('; '));
+        this.check('no page error while starting them', errs.length === 0, errs[0]);
+      } finally { Game.reportError = keepRep; Game.quitToMenu(); }
+    });
+    t('p5 the AI locks on to objectives', () => {
+      flatWorld();
+      const depot = objStruct('depot', 0, 190, 'Base Depot', 0);   // ours: the AI's objective
+      const ai = spawnUnit('medMech', 0, 0, { team: 1, force: true, assault: depot, radius: 1 });
+      ai.x = 0; ai.z = 0; ai.y = Terrain.h(0, 0); ai.yaw = 0;
+      let sawLock = false, sawMissile = false;
+      const hp0 = depot.hp;
+      for (let i = 0; i < 60 * 25 && !(sawMissile && !W.projs.some((q) => q.active)); i++) {
+        W.time += STEP; ai.ai.update(STEP); ai.update(STEP); updateProjectiles(STEP);
+        if (ai.lock.state === 'locked' && ai.lock.target === depot) sawLock = true;
+        if (W.projs.some((q) => q.active && q.def === WEAPONS.missile && q.target === depot)) sawMissile = true;
+      }
+      this.check('an AI mech with a Guided Missile locks the objective structure it was sent against, and fires the missile at it', sawLock && sawMissile, 'lock ' + sawLock + ', missile ' + sawMissile);
+      this.check('and the structure feels it', depot.hp < hp0, Math.round(hp0 - depot.hp) + ' damage');
+      const jet = spawnUnit('jet', 300, 0, { team: 1, force: true, assault: depot });
+      this.check('an AI jet (anti-air seeker) does not try to lock a structure', !jet.ai.canUseSecondary(depot));
+    });
+    t('p5 homing seekers', () => {
+      flatWorld();
+      const foe = p5add('bulwark', 1, 2000, 2000), tgt = p5add('bulwark', 0, 0, 400);
+      const fire = (id, from, target) => { foe.lock.state = 'locked'; foe.lock.target = target; spawnProjectile(foe, { def: WEAPONS[id] }, from, 0, 0, 1, 1); return W.projs.find((q) => q.active && q.nid === W.nid); };
+      // the data
+      const guided = Object.keys(WEAPONS).filter((id) => WEAPONS[id].guide && WEAPONS[id].guide.fov !== undefined);
+      this.check('seven seekers have a view, a blind time and a flare chance: Guided Missile, AA Missile, Swarm, Ship SAM, Cruise and Javelin (the wire missile has no seeker; superweapon ordnance keeps its guidance)', guided.sort().join() === 'aam,cruise,javelin,missile,shipSam,swarm'.split(',').sort().join() || guided.length === 6, guided.join());
+      this.check('each view, blind time and flare chance is a sane number, and the cone is stored as a cosine', guided.every((id) => { const g = WEAPONS[id].guide; return g.fov > 0.3 && g.fov <= 1.7 && g.lose >= 0.3 && g.lose <= 2 && g.flare > 0.2 && g.flare < 1 && Math.abs(g.fovCos - Math.cos(g.fov)) < 1e-12; }));
+      // out of its view: the seeker steers on where it last saw the target, and after g.lose seconds gives up and flies straight
+      const m = fire('missile', { x: 0, y: 3, z: 0 }, tgt), g = WEAPONS.missile.guide;
+      p5step(0.5);
+      tgt.z = -60;   // behind the missile: far outside its view
+      const lostAt = p5step(2, () => m.target === null);
+      this.check('a missile whose target leaves its view gives up after ' + g.lose + ' s and flies straight on', lostAt >= 0 && lostAt * STEP >= g.lose - 0.1 && lostAt * STEP <= g.lose + 0.4 && m.noGuide === true, 'lost after ' + (lostAt * STEP).toFixed(2) + ' s');
+      const d1 = { x: m.vx, y: m.vy, z: m.vz }; p5step(0.3);
+      const k = Math.hypot(d1.x, d1.y, d1.z) * Math.hypot(m.vx, m.vy, m.vz);
+      this.check('and it holds its heading after that', (d1.x * m.vx + d1.y * m.vy + d1.z * m.vz) / k > 0.99999);
+      // a wall in the line: blind from the first look
+      p5clear(); tgt.z = 400;
+      const wall = addStruct('bwall', 0, 200, { dims: { w: 80, h: 60, d: 2 } });
+      const m2 = fire('missile', { x: 0, y: 3, z: 0 }, tgt);
+      const lost2 = p5step(2, () => m2.target === null);
+      this.check('a missile whose target is behind a wall loses it and flies on into the wall', lost2 >= 0 && lost2 * STEP < 1.2 && p5step(3, () => !m2.active) >= 0 && m2.y < 100, 'lost after ' + (lost2 * STEP).toFixed(2) + ' s');
+      // a short break is forgiven
+      p5clear(); wall.destroyed = false;
+      const m3 = fire('missile', { x: 0, y: 3, z: 0 }, tgt);
+      p5step(0.45); const blinded = m3.blind;
+      wall.destroyed = true;
+      p5step(0.5);
+      this.check('a break shorter than the blind time is forgiven: it sees the target again, the clock resets and the chase goes on', blinded > 0 && m3.target === tgt && m3.blind === 0, 'blind ' + blinded.toFixed(2));
+      // a structure target does not hide behind itself
+      p5clear(); tgt.dead = true;
+      const tower = objStruct('tower', 0, 400, 'Radar Tower', 0);   // ours: the foe's missile is after it
+      const m4 = fire('missile', { x: 0, y: 3, z: 0 }, tower), hp0 = tower.hp;
+      p5step(5, () => !m4.active);
+      this.check('a missile locked on an objective structure keeps its seeker on it all the way and hits it', tower.hp < hp0 && m4.blind === 0, 'hp ' + tower.hp + '/' + hp0 + ' blind ' + m4.blind + ' active ' + m4.active + ' pos ' + [m4.x, m4.y, m4.z].map(Math.round).join('/') + ' target ' + !!m4.target);
+      // flares: each seeker falls for a flare with its own chance
+      p5clear(); tgt.dead = true;
+      const jet = p5add('kestrel', 0, 0, 400, { primaryA: 'mg', utility: 'flares' }, Terrain.h(0, 400) + 120);
+      const keepRand = Math.random, bad = [];
+      try {
+        for (const id of ['missile', 'aam', 'swarm', 'shipSam', 'cruise', 'javelin']) for (const r of [0.05, 0.38, 0.45, 0.6, 0.95]) {
+          p5clear(); jet.util.charges = 8; jet.util.cd = 0;
+          const q = fire(id, { x: 0, y: jet.y, z: 0 }, jet);
+          Math.random = () => r; jet.deployFlares(jet.util);
+          if (!!q.target.isDecoy !== (r < WEAPONS[id].guide.flare)) bad.push(id + '@' + r);
+        }
+      } finally { Math.random = keepRand; }
+      this.check('a flare pulls each seeker off with its own chance (Guided Missile 50%, AA Missile 50%, Swarm 90%, Ship SAM 50%, Cruise 40%, Javelin 50%)', bad.length === 0, bad.join(','));
+      // superweapon ordnance keeps its guidance (no view, no blind time)
+      this.check('superweapon homing ordnance has no seeker view to lose (it chases whatever it was told to)', !WEAPONS.swMicro.guide.fov && !WEAPONS.swCruise.guide.fov);
+    });
+    t('p5 homing hit rates', () => {
+      flatWorld();
+      const foe = p5add('bulwark', 1, 3000, 3000);
+      const N = 10;
+      // an aircraft crosses at 120 m/s at range R; it holds its course, or breaks (0.7 rad/s, a random side) 0.25 s after the missile comes within 350 m
+      const trial = (id, R, seed, brk) => {
+        let sd = seed; const rnd = () => (sd = (Math.imul(sd, 1664525) + 1013904223) >>> 0) / 4294967296;
+        p5clear();
+        const a = rnd() * TAU, side = rnd() < 0.5 ? -1 : 1, y = 150;
+        const T = new Platform(PLATFORMS.dummyAir, { team: 0, x: Math.sin(a) * R, z: Math.cos(a) * R, y, yaw: 0, loadout: {} });
+        T.invuln = true; T.hp = T.maxHp = 1e9; W.platforms.push(T);
+        let h = Math.atan2(Math.cos(a), -Math.sin(a)), brkAt = -1;
+        foe.x = 0; foe.z = 0; foe.y = y; foe.lock.state = 'locked'; foe.lock.target = T;
+        spawnProjectile(foe, { def: WEAPONS[id] }, { x: 0, y, z: 0 }, Math.sin(a), 0, Math.cos(a), 1);
+        const p = W.projs.find((q) => q.active && q.nid === W.nid);
+        let endD = -1, t = 0;
+        for (let i = 0; i < (WEAPONS[id].life + 0.5) / STEP && endD < 0; i++, t += STEP) {
+          if (brk && p.active && brkAt < 0 && Math.hypot(p.x - T.x, p.z - T.z) < 350) brkAt = t + 0.25;
+          if (brk && brkAt >= 0 && t >= brkAt) h += 0.7 * side * STEP;
+          T.vx = Math.sin(h) * 120; T.vz = Math.cos(h) * 120; T.x += T.vx * STEP; T.z += T.vz * STEP;
+          W.time += STEP; updateProjectiles(STEP);
+          if (!p.active) endD = Math.hypot(p.x - T.x, p.y - T.y, p.z - T.z);
+        }
+        const hit = endD >= 0 && endD <= T.radius + 2.5;
+        W.platforms.splice(W.platforms.indexOf(T), 1);
+        return hit;
+      };
+      const rate = (id, R, brk) => { let n = 0; for (let s = 1; s <= N; s++) if (trial(id, R, s * 7 + 1, brk)) n++; return n; };
+      const rows = [];
+      for (const id of ['aam', 'shipSam', 'missile', 'swarm']) {
+        const straight = rate(id, 400, false), broke = rate(id, 400, true);
+        rows.push(id + ' ' + straight + '/' + N + ' -> ' + broke + '/' + N);
+        this.check(id + ': an aircraft on a straight course at 400 m is hit at least 8 times in 10, and one that breaks at most 6 (decided targets: straight 80% and up, evading 60% and down)', straight >= 8 && broke <= 6, straight + '/' + N + ' straight, ' + broke + '/' + N + ' breaking');
+      }
+      this.check('the rates are printed for the log', true, rows.join('; '));
+    });
+    t('p5 intercepting projectiles', () => {
+      flatWorld();
+      const foe = p5add('bulwark', 1, 5000, 5000), me = p5add('colossus', 0, 5000, -5000, { primaryA: 'acannon', secondary: 'aam' });
+      const ROCKETS = Object.keys(WEAPONS).filter((id) => WEAPONS[id].pdHp > 0);
+      const GUNS = Object.keys(WEAPONS).filter((id) => WEAPONS[id].pdHit);
+      this.check('eleven missiles and rockets have hit points and a hit size; sixteen guns (flak included) may hit them', ROCKETS.length === 11 && GUNS.length === 16, ROCKETS.length + ' / ' + GUNS.length);
+      this.check('every one has a hit size and hit points in a sane range, and is a rocket', ROCKETS.every((id) => WEAPONS[id].rocket && WEAPONS[id].pdHp >= 5 && WEAPONS[id].pdHp <= 150 && WEAPONS[id].pdR >= 0.5 && WEAPONS[id].pdR <= 3));
+      this.check('beams, lobbed shells, bombs, mines, flames, needles, EMP bolts, wire and superweapon ordnance cannot be shot down, and no beam, shell or bomb shoots them', ['laser', 'lance', 'tesla', 'arcPistol', 'mortar', 'howitzer', 'artyGun', 'artyMortar', 'bombs', 'napalm', 'buster', 'mines', 'flamer', 'needler', 'ion', 'grenade'].every((id) => !WEAPONS[id].pdHit && !WEAPONS[id].pdHp) && !WEAPONS.swMicro.pdHp && !WEAPONS.swCruise.pdHp && !WEAPONS.swSkyMissile.pdHp);
+      const X = 300, dry = (id) => (WEAPONS[id].grav ? Object.assign({}, WEAPONS[id], { grav: 0, arc: false, indirect: undefined }) : WEAPONS[id]);   // artillery rockets fly a lob: here they fly level
+      // one test line along z: the rocket flies +z from z = 0, rounds come at it from z = 260 flying -z; n rounds, one a tick
+      const shootDown = (rid, gid, n) => {
+        p5clear();
+        const rd = WEAPONS[rid], gd = WEAPONS[gid];
+        foe.lock.state = 'none'; foe.lock.target = null;
+        spawnProjectile(foe, { def: dry(rid) }, { x: X, y: 3, z: 0 }, 0, 0, 1, 1);
+        const rocket = W.projs.find((q) => q.active && q.nid === W.nid);
+        const z0 = Math.min(260, gd.speed * gd.life * 0.7 + 60), tm = z0 / (gd.speed + 150), raise = 0.5 * (gd.grav || 0) * tm * tm;
+        for (let i = 0; i < 90; i++) {
+          if (i < n) spawnProjectile(me, { def: gd }, { x: X, y: 3 + raise, z: z0 }, 0, 0, -1, 1);
+          W.time += STEP; updateProjectiles(STEP);
+          if (!rocket.active) break;
+        }
+        return !rocket.active && rocket.hp <= 0;
+      };
+      const need = (rid, gid) => { for (let n = 1; n <= 70; n++) if (shootDown(rid, gid, n)) return n; return 0; };
+      const table = {}, missed = [];
+      for (const rid of ROCKETS) for (const gid of GUNS) {
+        const n = need(rid, gid);
+        (table[rid] = table[rid] || {})[gid] = n;
+        if (n === 0) missed.push(rid + ' by ' + gid);
+      }
+      this.check('every missile and rocket type is shot down by every gun that may hit it (rounds fired head-on at it, at most 70)', missed.length === 0, missed.join(', '));
+      this.check('rounds needed, by rocket and gun (for the log): ' + ROCKETS.map((r) => r + ' ' + GUNS.map((g) => table[r][g]).join('/')).join('; '), true, GUNS.join('/'));
+      this.check('a harder skin takes more rounds: the Cruise Missile needs more machine-gun rounds than a Guided Missile, and a Guided Missile more than a Swarm rocket', table.cruise.mg > table.missile.mg && table.missile.mg > table.swarm.mg);
+      this.check('one railgun or gauss round, however hard the skin, kills any of them (170 and 125 damage against at most 120 hit points)', ROCKETS.every((r) => table[r].rail === 1 && table[r].gauss === 1));
+      this.check('a bullet that misses leaves the rocket whole and flying (a round fired 20 m to the side does nothing)', (() => {
+        p5clear(); spawnProjectile(foe, { def: WEAPONS.missile }, { x: X, y: 3, z: 0 }, 0, 0, 1, 1);
+        const rocket = W.projs.find((q) => q.active && q.nid === W.nid);
+        for (let i = 0; i < 40; i++) { if (i < 10) spawnProjectile(me, { def: WEAPONS.acannon }, { x: X + 20, y: 3, z: 260 }, 0, 0, -1, 1); W.time += STEP; updateProjectiles(STEP); }
+        return rocket.active && rocket.hp === WEAPONS.missile.pdHp;
+      })());
+      this.check('friendly fire does not touch your own rockets', (() => {
+        p5clear(); spawnProjectile(me, { def: WEAPONS.missile }, { x: X, y: 3, z: 0 }, 0, 0, 1, 1);
+        const rocket = W.projs.find((q) => q.active && q.nid === W.nid);
+        for (let i = 0; i < 40; i++) { if (i < 10) spawnProjectile(me, { def: WEAPONS.acannon }, { x: X, y: 3, z: 260 }, 0, 0, -1, 1); W.time += STEP; updateProjectiles(STEP); }
+        return rocket.active && rocket.hp === WEAPONS.missile.pdHp;
+      })());
+      this.check('a shot-down missile bursts without damage (nothing near it is hurt)', (() => {
+        const bystander = p5add('bastion', 0, X + 3, 100); const hp = bystander.hp + bystander.armor;
+        p5clear(); spawnProjectile(foe, { def: WEAPONS.cruise }, { x: X, y: 3, z: 0 }, 0, 0, 1, 1);
+        for (let i = 0; i < 60; i++) { if (i < 40) spawnProjectile(me, { def: WEAPONS.gauss }, { x: X, y: 3, z: 260 }, 0, 0, -1, 1); W.time += STEP; updateProjectiles(STEP); }
+        const ok = bystander.hp + bystander.armor === hp;
+        W.platforms.splice(W.platforms.indexOf(bystander), 1);
+        return ok;
+      })());
+      this.check('a shoot-down is not a hit in the accuracy figures (the hit count of the shooter stays)', (() => {
+        me.localPlayer = true; const h0 = W.stats.hits;
+        p5clear(); spawnProjectile(foe, { def: WEAPONS.missile }, { x: X, y: 3, z: 0 }, 0, 0, 1, 1);
+        const rocket = W.projs.find((q) => q.active && q.nid === W.nid);
+        for (let i = 0; i < 40; i++) { if (i < 10) spawnProjectile(me, { def: WEAPONS.gauss }, { x: X, y: 3, z: 260 }, 0, 0, -1, 1); W.time += STEP; updateProjectiles(STEP); }
+        me.localPlayer = false;
+        return rocket.hp <= 0 && W.stats.hits === h0;
+      })());
+      // anti-air seekers locked on an inbound projectile
+      const aa = {}, aaMissed = [];
+      for (const [pid, wid] of [['colossus', 'aam'], ['trident', 'shipSam']]) for (const rid of ROCKETS.filter((r) => r !== 'cluster')) {   // not the Cluster Rocket: it bursts into bomblets 0.9 s after launch, sooner than a lock (0.7 s) and a flight
+        p5clear(); W.platforms.length = 0;
+        const shooter = p5add(pid, 0, X, 700, { primaryA: 'acannon', secondary: wid }); shooter.isPlayer = true; W.player = shooter; shooter.cmd.aimYaw = PI; shooter.cmd.aimPitch = 0;
+        const shooterFoe = p5add('bulwark', 1, 5000, 5000);
+        shooterFoe.lock.state = 'none'; shooterFoe.lock.target = null;
+        spawnProjectile(shooterFoe, { def: dry(rid) }, { x: X, y: Terrain.h(X, 700) + 4, z: 0 }, 0, 0, 1, 1);
+        const rocket = W.projs.find((q) => q.active && q.nid === W.nid);
+        p5step(4, () => Math.hypot(rocket.x - shooter.x, rocket.z - shooter.z) < PD_TRACK_RANGE - 10);
+        shooter.target = null; shooter.cycleTarget();
+        const picked = shooter.target === rocket;
+        let locked = false;
+        for (let i = 0; i < 90 && !locked; i++) { W.time += STEP; shooter.cmd.aimPitch = Math.atan2(rocket.y - (shooter.y + shooter.height * 0.7), Math.hypot(rocket.x - shooter.x, rocket.z - shooter.z)); updateProjectiles(STEP); shooter.updateLock(STEP); locked = shooter.lock.state === 'locked'; }
+        let fired = false;
+        if (locked) { shooter.cmd.aimPoint = { x: rocket.x, y: rocket.y, z: rocket.z }; shooter.wslots.secondary.cd = 0; shooter.shoot(shooter.wslots.secondary, 1); fired = W.projs.some((q) => q.active && q.def === WEAPONS[wid] && q.target === rocket); }
+        p5step(4, () => !rocket.active);
+        const ok = picked && locked && fired && !rocket.active && rocket.hp <= 0;
+        (aa[wid] = aa[wid] || []).push(rid + (ok ? '' : ' X'));
+        if (!ok) aaMissed.push(wid + ' vs ' + rid + ' (picked ' + picked + ', locked ' + locked + ', fired ' + fired + ', hp ' + Math.round(rocket.hp) + ')');
+      }
+      W.platforms.length = 0; W.player = null;
+      this.check('an AA Missile and a Ship SAM can be cycled to, locked on and shot at every incoming missile and rocket type but the Cluster Rocket (it airbursts 0.9 s out), and burst beside it', aaMissed.length === 0, aaMissed.join('; '));
+      this.check('the other seekers refuse a projectile (Guided Missile, Swarm, Cruise, Javelin say AIR TARGETS ONLY)', ['missile', 'swarm', 'cruise', 'javelin'].every((id) => { const q = new Platform(PLATFORMS.colossus, { team: 0, x: 0, z: 0, yaw: 0, loadout: { primaryA: 'acannon' } }); q.wslots.secondary = { def: WEAPONS[id] }; const r = W.projs[0]; r.isProj = true; return q.lockFit(r, 100) === 'AIR TARGETS ONLY'; }));
+    });
+    t('p5 point defence', () => {
+      flatWorld();
+      const ROCKETS = Object.keys(WEAPONS).filter((id) => WEAPONS[id].pdHp > 0);
+      const pd = WEAPONS.pdc;
+      this.check('Point Defence is a utility of weight 8 with a benefit and a drawback: 12 bursts of 16 that come back one in 5 s, a 140 m reach, a 0.3 s slew, a 90% to 40% hit chance, the front half on the ground', pd.slot === 'utility' && pd.weight === 8 && /Pro: .+; con: .+/.test(pd.role) && pd.charges === 12 && pd.pdDmg === 16 && pd.radius === 140 && pd.recharge === 5 && pd.pdAcquire === 0.3 && pd.pdChance[0] === 0.9 && pd.pdChance[1] === 0.4 && pd.pdNear === 30 && !pd.passive && Math.abs(pd.pdArc - PI / 2) < 1e-9);
+      this.check('small fast rounds are harder to hit: the Swarm missile, Rocket Pod rocket and AA Missile have a lower pdEvade than the Guided Missile (none)', WEAPONS.swarm.pdEvade < 1 && WEAPONS.rockets.pdEvade < 1 && WEAPONS.aam.pdEvade < 1 && WEAPONS.missile.pdEvade === undefined);
+      const mounts = PLAYABLE.filter((id) => PLATFORMS[id].allow.utility.indexOf('pdc') >= 0);
+      this.check('ten platforms carry it (heavier mechs and vehicles, artillery, ships and the gunship), each inside its weight limit with its default loadout', mounts.length === 10 && mounts.every((id) => Loadout.validate(PLATFORMS[id], Object.assign({}, PLATFORMS[id].loadout, { utility: 'pdc' })).ok), mounts.join(','));
+      this.check('no default player loadout carries it (the old balance is unchanged)', PLAYABLE.every((id) => PLATFORMS[id].loadout.utility !== 'pdc'));
+      const X = 300, dry = (id) => (WEAPONS[id].grav ? Object.assign({}, WEAPONS[id], { grav: 0, arc: false, indirect: undefined }) : WEAPONS[id]);
+      const carrier = (lo, id) => { W.platforms.length = 0; const c = p5add('bastion', 0, X, 500, lo || { primaryA: 'acannon', utility: 'pdc' }); c.yaw = PI; if (id) c.id = id; return c; };
+      const run = (c, rid, from, secs) => {
+        p5clear();
+        const f = p5add('bulwark', 1, 5000, 5000); f.lock.state = 'none';
+        spawnProjectile(f, { def: dry(rid) }, { x: X, y: 3, z: from }, 0, 0, 1, 1);
+        const rocket = W.projs.find((q) => q.active && q.nid === W.nid), c0 = c.util.charges;
+        let killedAt = -1, dist = 0, firstAt = -1;
+        for (let i = 0; i < secs / STEP; i++) {
+          W.time += STEP; if (c.kind === 'air') c.updateDefense(STEP); else c.update(STEP); updateProjectiles(STEP);
+          if (firstAt < 0 && c.util.charges < c0) firstAt = i * STEP;
+          if (rocket.hp <= 0 && killedAt < 0) { killedAt = i * STEP; dist = Math.hypot(rocket.x - c.x, rocket.z - c.z); }
+          if (!rocket.active) break;
+        }
+        return { dead: rocket.hp <= 0, at: killedAt, firstAt, dist, used: c0 - c.util.charges, rocket, hp: rocket.hp };
+      };
+      // it can miss: over fresh carriers (each its own seeded stream) a single missile is stopped some of the time
+      const K = 24, rate = (rid, from, secs) => { let n = 0, used = 0; for (let k = 0; k < K; k++) { const r = run(carrier(), rid, from, secs || 6); if (r.dead) n++; used += r.used; } return { n, used: used / K }; };
+      const rows = [];
+      let all = true;
+      const bounds = { rockets: [0.2, 0.95], missile: [0.35, 0.9], aam: [0.15, 0.8], swarm: [0.15, 0.95], cruise: [0, 0.15], cluster: [0, 0.95], atgm: [0.3, 1], rpg: [0.3, 0.95], javelin: [0.2, 0.95], shipSam: [0.15, 0.8], artyRockets: [0.2, 0.95] };
+      for (const rid of ROCKETS) {
+        const r = rate(rid, 500 - Math.min(450, WEAPONS[rid].range));   // a Cluster Rocket bursts 0.9 s out: it is fired from its own range
+        const share = r.n / K;
+        rows.push(rid + ' ' + Math.round(share * 100) + '%');
+        if (share < bounds[rid][0] || share > bounds[rid][1]) { all = false; rows[rows.length - 1] += ' (outside ' + bounds[rid].join('-') + ')'; }
+      }
+      this.check('fired straight at its carrier from 450 m (or its own range), Point Defence stops a share of every type but the Cluster Rocket (it bursts before it is in reach) and the Cruise Missile (120 hit points); the two anti-air missiles cross its reach in 0.5 s but are light-skinned (pdSoft) and need only one hit: ' + rows.join('; '), all, rows.join('; '));
+      const one = rate('missile', 50);
+      this.check('a single Guided Missile from 450 m is stopped about half to two thirds of the time (over ' + K + ' carriers: ' + one.n + ')', one.n / K >= 0.35 && one.n / K <= 0.85, one.n + '/' + K);
+      // seeded: the same carrier id, the same shots
+      const trace = (id) => { const c = carrier(null, id); const r = run(c, 'missile', 50, 6); return r.dead + ':' + r.used + ':' + r.hp; };
+      const t1 = trace(777), t2 = trace(777), others = new Set([1, 2, 3, 4, 5, 6, 7, 8].map((k) => trace(900 + k)));
+      this.check('the same carrier fires the same shots twice (a seeded stream), and different carriers differ', t1 === t2 && others.size > 1, t1 + ' ' + t2 + ' ' + [...others].join('|'));
+      // the slew: nothing before 0.3 s
+      const slew = run(carrier(), 'missile', 380, 3);
+      this.check('it takes ' + pd.pdAcquire + ' s to find a target: the first burst comes at least that long after the missile enters its reach', slew.firstAt >= pd.pdAcquire - 0.05, slew.firstAt.toFixed(2));
+      // a wide miss is ignored
+      this.check('...and it does not waste a burst on a rocket that will pass 200 m wide', (() => { const c2 = carrier(); p5clear(); const f = p5add('bulwark', 1, 5000, 5000); spawnProjectile(f, { def: WEAPONS.missile }, { x: X + 200, y: 3, z: 100 }, 0, 0, 1, 1); const r = W.projs.find((q) => q.active && q.nid === W.nid); for (let i = 0; i < 120; i++) { W.time += STEP; c2.update(STEP); updateProjectiles(STEP); } return c2.util.charges === pd.charges && r.hp === WEAPONS.missile.pdHp; })());
+      // the front arc on a ground platform
+      const behind = (() => { const c3 = carrier(); c3.yaw = 0; const r = run(c3, 'missile', 50, 3); return r; })();
+      this.check('a ground platform covers its front half only: a missile from behind gets no burst', behind.used === 0 && !behind.dead);
+      const jet = (() => { W.platforms.length = 0; const j = p5add('behemoth', 0, X, 500, { primaryA: 'gatling', utility: 'pdc' }, Terrain.h(X, 500) + 4); j.yaw = 0; return j; })();
+      const jr = run(jet, 'missile', 50, 3);
+      this.check('and an aircraft covers all round', jr.used > 0, String(jr.used));
+      // the gunship (an aircraft covers all round): the AA Missile and Ship SAM cross its reach in about 0.5 s, so they are light-skinned for Point Defence (pdSoft) and not easy to hit (pdEvade)
+      const air = (rid) => { let n = 0; const KA = 30; for (let k = 0; k < KA; k++) { W.platforms.length = 0; const j = p5add('behemoth', 0, X, 500, { primaryA: 'gatling', utility: 'pdc' }, Terrain.h(X, 500) + 4); j.yaw = PI; const r = run(j, rid, 50, 3); if (r.dead) n++; } return n / KA; };
+      const gAam = air('aam'), gSam = air('shipSam'), gMis = air('missile');
+      this.check('Point Defence on the gunship stops a real but partial share of AA Missiles (' + Math.round(gAam * 100) + '%) and Ship SAMs (' + Math.round(gSam * 100) + '%): 20% to 65% each, over 30 each', gAam >= 0.2 && gAam <= 0.65 && gSam >= 0.2 && gSam <= 0.65, gAam.toFixed(2) + ' ' + gSam.toFixed(2));
+      this.check('...and still stops about half to three quarters of Guided Missiles (' + Math.round(gMis * 100) + '%)', gMis >= 0.35 && gMis <= 0.85, gMis.toFixed(2));
+      let c = carrier(); c.cmd.defenseEdge = true; c.update(STEP);
+      this.check('the defense key disarms it', c.util.auto === false);
+      const off = run(c, 'missile', 100, 4);
+      this.check('and a disarmed one fires nothing', !off.dead && off.used === 0);
+      c = carrier(); const wall = addStruct('bwall', X, 400, { dims: { w: 60, h: 80, d: 2 } });
+      const blocked = run(c, 'rockets', 100, 1.2);
+      this.check('it needs a clear line: a wall between the carrier and the rocket stops it', !blocked.dead && blocked.used === 0, blocked.used + ' bursts');
+      wall.destroyed = true;
+      c = carrier();
+      p5clear(); c.util.charges = 0; c.util.rechargeT = 0;
+      for (let i = 0; i < 60 * 11; i++) { W.time += STEP; c.update(STEP); }
+      this.check('it recharges one burst every ' + pd.recharge + ' s when armed or not', c.util.charges === Math.floor(11 / pd.recharge), c.util.charges + ' dead ' + c.dead + ' rt ' + c.util.rechargeT + ' auto ' + c.util.auto);
+      // salvos: two missiles at once are not both stopped, a Swarm salvo is thinned to about half
+      const salvo = (id, n, from) => {
+        let through = 0, total = 0;
+        for (let k = 0; k < 10; k++) {
+          const cc = carrier(); p5clear();
+          const sf = p5add('bulwark', 1, 5000, 5000); sf.lock.state = 'locked'; sf.lock.target = cc;
+          const mine = [];
+          for (let j = 0; j < n; j++) { spawnProjectile(sf, { def: dry(id) }, { x: X + (j - (n - 1) / 2) * 1.5, y: 3 + (j % 2) * 1.5, z: from }, 0, 0, 1, 1); mine.push(W.projs.find((q) => q.active && q.nid === W.nid)); }
+          for (let i = 0; i < 60 * 3; i++) { W.time += STEP; cc.update(STEP); updateProjectiles(STEP); }
+          through += mine.filter((q) => q.hp > 0).length; total += n;
+        }
+        return through / total;
+      };
+      const s2 = salvo('missile', 2, 50), s8 = salvo('swarm', 8, 50), p6 = salvo('rockets', 6, 200);
+      this.check('two Guided Missiles at once: about one in two gets through (' + Math.round(s2 * 100) + '% through, accepted 35% to 85%)', s2 >= 0.35 && s2 <= 0.85, s2.toFixed(2));
+      this.check('a salvo of eight Swarm missiles from 450 m: about half get through (' + Math.round(s8 * 100) + '%, accepted 30% to 80%)', s8 >= 0.3 && s8 <= 0.8, s8.toFixed(2));
+      this.check('a Rocket Pod salvo of six from 300 m: about half get through (' + Math.round(p6 * 100) + '%, accepted 30% to 85%)', p6 >= 0.3 && p6 <= 0.85, p6.toFixed(2));
+      W.platforms.length = 0;
+    });
+    t('p5 the AI uses point defence', () => {
+      flatWorld();
+      const foe = p5add('bulwark', 1, 5000, 5000);
+      const hostile = Object.keys(ARCH).filter((k) => ARCH[k].loadout.utility === 'pdc');
+      this.check('the allied tank and the enemy destroyer carry Point Defence, and no other archetype does', hostile.sort().join() === 'allyTank,destroyer', hostile.join());
+      this.check('both loadouts fit their platforms', Loadout.validate(PLATFORMS.bastion, ARCH.allyTank.loadout).ok && Loadout.validate(PLATFORMS.trident, ARCH.destroyer.loadout).ok);
+      const tank = spawnUnit('allyTank', 300, 500, { team: 0, force: true, radius: 1 });
+      this.check('the allied tank has it armed', tank.util && tank.util.def.def === 'pdc' && tank.util.auto === true);
+      const K = 16;
+      // fresh AI tanks (own seeded streams) each take one Guided Missile from 400 m
+      let stopped = 0, hit = 0;
+      for (let k = 0; k < K; k++) {
+        p5clear(); W.platforms.length = 0; W.platforms.push(foe);
+        const tk = spawnUnit('allyTank', 300, 500, { team: 0, force: true, radius: 1, yaw: PI });
+        tk.x = 300; tk.z = 500; tk.y = Terrain.h(300, 500); tk.yaw = PI;
+        foe.lock.state = 'locked'; foe.lock.target = tk;
+        spawnProjectile(foe, { def: WEAPONS.missile }, { x: 300, y: 4, z: 100 }, 0, 0, 1, 1);
+        const m = W.projs.find((q) => q.active && q.nid === W.nid), hp0 = tk.hp + tk.armor;
+        if (k === 0 && m.target !== tk) this.check('the missile homes on the tank', false);
+        for (let i = 0; i < 60 * 4 && m.active; i++) { W.time += STEP; tk.ai.update(STEP); tk.update(STEP); updateProjectiles(STEP); }
+        if (m.hp <= 0) stopped++; else if (tk.hp + tk.armor < hp0) hit++;
+      }
+      this.check('an AI tank with Point Defence stops some Guided Missiles aimed at it and not all (' + stopped + ' of ' + K + ' stopped, ' + hit + ' hit)', stopped >= 3 && stopped <= K - 2 && stopped + hit === K, stopped + '/' + hit);
+      // the enemy destroyer
+      let dStopped = 0;
+      for (let k = 0; k < K; k++) {
+        p5clear(); W.platforms.length = 0;
+        const ship = new Platform(PLATFORMS.trident, { team: 1, x: 300, z: 500, yaw: PI, loadout: ARCH.destroyer.loadout }); W.platforms.push(ship);
+        const shooter = p5add('bulwark', 0, 5000, 5000); shooter.lock.state = 'locked'; shooter.lock.target = ship;
+        spawnProjectile(shooter, { def: WEAPONS.missile }, { x: 300, y: 4, z: 100 }, 0, 0, 1, 1);
+        const m = W.projs.find((q) => q.active && q.nid === W.nid);
+        for (let i = 0; i < 60 * 4 && m.active; i++) { W.time += STEP; ship.updateDefense(STEP); updateProjectiles(STEP); }
+        if (m.hp <= 0) dStopped++;
+      }
+      this.check('the enemy destroyer (Trident) shoots at the player\'s missiles too: ' + dStopped + ' of ' + K + ' stopped', dStopped >= 3 && dStopped <= K - 2, String(dStopped));
+      this.check('the AI never aims its guns at a missile: the guns stay on platforms (decided exception, Appendix C); Point Defence is its answer', !AIController.prototype.aimAtTarget.toString().includes('isProj'));
+    });
+    t('p5 co-op targets', () => {
+      flatWorld();
+      const hostSide = p5add('bulwark', 0, 0, 0, { primaryA: 'acannon', secondary: 'aam' }), guestSide = p5add('bulwark', 0, 0, 0, { primaryA: 'acannon', secondary: 'aam' });
+      guestSide.id = hostSide.id; W.player = guestSide;
+      const peer = Object.assign(Net.newPeer(), { p: hostSide, stats: newStats(), hello: true });
+      hostSide.netPeer = peer;
+      const tower = objStruct('tower', 0, 300, 'Radar Tower', 1), foe = p5add('bastion', 1, 5000, 5000);
+      hostSide.lock.target = tower; hostSide.lock.state = 'locked';
+      Net.applySelf(Net.selfState(peer));
+      this.check('the host sends a locked objective structure (its index, negative) and the guest finds it in its own world: the lock shows on a guest too', Net.selfState(peer).lk[3] === -1 - tower.idx && guestSide.lock.target === tower);
+      foe.lock.state = 'none'; spawnProjectile(foe, { def: WEAPONS.missile }, { x: 0, y: 4, z: -250 }, 0, 0, 1, 1);
+      const rocket = W.projs.find((q) => q.active && q.nid === W.nid);
+      hostSide.lock.target = rocket; Net.applySelf(Net.selfState(peer));
+      this.check('and a locked projectile as NET_PROJ_TG + nid, found by its nid on the guest', Net.selfState(peer).lk[3] === NET_PROJ_TG + rocket.nid && guestSide.lock.target === rocket);
+      const pick = (tg) => { hostSide.target = null; peer.inp = { mf: 0, ms: 0, tn: 0, ti: 0, ay: 0, ap: 0, b: 0, tg }; peer.inpT = Net.t; Net.applyCmd(peer); return hostSide.target; };
+      this.check('a guest\'s pick of an incoming projectile reaches the host and is accepted while it is headed for that guest', pick(NET_PROJ_TG + rocket.nid) === rocket && hostSide.targetNid === rocket.nid);
+      rocket.x = 600;
+      this.check('and refused once it flies wide of the guest', pick(NET_PROJ_TG + rocket.nid) === null);
+      this.check('a guest\'s pick of an objective structure still works', pick(-1 - tower.idx) === tower);
+      this.check('the net version moved to 13 for the new utility and the target ids, and the save version stays 1', NET_VERSION === 13 && SAVE_VERSION === 1);
+      this.check('a saved loadout with Point Defence is read by the hangar as before (additive: no new save key)', Loadout.validate(PLATFORMS.bastion, { primaryA: 'acannon', utility: 'pdc' }).ok && WEAPON_IDS.indexOf('pdc') >= 0);
+      // the snapshot holds SNAP_PROJS projectiles; missiles and rockets go in before plain rounds, so a guest sees the ones headed for it
+      const keepNet = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, t: Net.t }, sent = [];
+      try {
+        Net.host = true; Net.guest = false; Net.inSession = true; Net.t = 100;
+        peer.open = true; peer.tx = (s) => sent.push(JSON.parse(s)); Net.peers = [peer];
+        p5clear();
+        const gunner = p5add('bulwark', 1, 5000, 5000);
+        for (let k = 0; k < SNAP_PROJS + 20; k++) spawnProjectile(gunner, { def: WEAPONS.mg }, { x: 4000, y: 30, z: 4000 }, 0, 1, 0);
+        spawnProjectile(gunner, { def: WEAPONS.missile }, { x: 4000, y: 30, z: 4000 }, 0, 1, 0);
+        const missileNid = W.nid;
+        spawnProjectile(gunner, { def: WEAPONS.swarm }, { x: 4000, y: 30, z: 4000 }, 0, 1, 0);
+        const swarmNid = W.nid;
+        Net.sendSnapshots();
+        const snap = sent.filter((m) => m.t === 's').pop();
+        this.check('past SNAP_PROJS projectiles a guest still gets every missile and rocket (they go in before plain rounds)', !!snap && snap.pr.length === SNAP_PROJS && snap.pr.some((e) => e[0] === missileNid) && snap.pr.some((e) => e[0] === swarmNid), snap ? snap.pr.length + ' entries' : 'no snapshot');
+      } finally { Net.host = keepNet.host; Net.guest = keepNet.guest; Net.inSession = keepNet.inSession; Net.peers = keepNet.peers; Net.t = keepNet.t; peer.tx = undefined; peer.open = false; p5clear(); }
+      hostSide.netPeer = null; W.player = null; W.platforms.length = 0;
     });
     t('artillery solver', () => {
       const keepRep = Game.reportError, errs = [], hits = [];
@@ -34993,7 +35731,7 @@ const SNAP_PROJS = 70;    // projectiles per snapshot
 var NET_UNSPOT_OFF = false;   // self-test switch: the guest ignores the sent unspotted share
 var NET_SNAP_TURN_OFF = false;   // self-test switch: platforms past SNAP_PLATS take no turns in the snapshots
 var NET_SHELLS_FIRST_OFF = false;   // self-test switch: shells take no precedence in the snapshots
-const NET_VERSION = 12;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS)
+const NET_VERSION = 13;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -35348,10 +36086,15 @@ const Net = {
       else c.aimPoint = null;
       c.aimHit = c.aimPoint && (m.ph === 0 || m.ph === 1) ? m.ph : -1;   // whether the guest's own reticle ray hit (-1: not sent)
       const tg = m.tg | 0;
-      const want = tg > 0 ? (W.platforms.find((q) => q.id === tg && q.team !== p.team && !q.dead) || null) : (tg < 0 && W.structs[-tg - 1] && W.structs[-tg - 1].objective ? W.structs[-tg - 1] : null);
+      let want;
+      if (tg >= NET_PROJ_TG) {   // P5-07: a guest targets an incoming projectile by its nid; it must be headed for that guest's platform
+        const q = Intercept.byNid(tg - NET_PROJ_TG);
+        want = q && q.hp > 0 && q.def.pdHp > 0 && q.team !== p.team && Intercept.threatens(q, p) ? q : null;
+        if (want) p.targetNid = want.nid;
+      } else want = tg > 0 ? (W.platforms.find((q) => q.id === tg && q.team !== p.team && !q.dead) || null) : (tg < 0 && W.structs[-tg - 1] && W.structs[-tg - 1].objective ? W.structs[-tg - 1] : null);
       // P5-05: a new pick must be one the guest's own sensors or eyes have (the host works it out from that platform; the margin allows for the
       // guest's picture being a moment older); the one already held is kept or dropped by Platform.updateLock
-      p.target = want && !want.isStruct && p.target !== want && !p.knows(want, DETECT_KEEP) ? null : want;
+      p.target = want && !want.isStruct && !want.isProj && p.target !== want && !p.knows(want, DETECT_KEEP) ? null : want;
     }
     const e = peer.edges; peer.edges = 0;
     if (e & 1) c.fire1Edge = true; if (e & 2) c.fire2Edge = true; if (e & 4) c.defenseEdge = true; if (e & 8) c.meleeEdge = true;
@@ -35440,7 +36183,7 @@ const Net = {
       sub: [r1(p.sub.weapons), r1(p.sub.mobility), r1(p.sub.sensors)],
       w: SLOT_ORDER.map((s) => { const w = p.wslots[s]; return w ? [w.clip, w.reserve, r2(w.cd), r2(w.reloading), r2(w.charge)] : null; }),
       as: SLOT_ORDER.indexOf(p.activeSlot), u: p.util ? [p.util.charges, r1(p.util.cd), p.util.auto ? 1 : 0] : null,
-      lk: [LOCK_STATES.indexOf(L.state), r2(L.progress), L.reason || '', L.target && !L.target.isStruct ? L.target.id : 0],
+      lk: [LOCK_STATES.indexOf(L.state), r2(L.progress), L.reason || '', L.target ? (L.target.isStruct ? -1 - L.target.idx : L.target.isProj ? NET_PROJ_TG + L.target.nid : L.target.id) : 0],   // a platform's id, a structure's -1 - index, a projectile's NET_PROJ_TG + nid
       th: r2(p.throttle), g: p.gear ? 1 : 0, gr: p.grounded ? 1 : 0, ab: p.afterburner ? 1 : 0, stl: p.stalled ? 1 : 0, wn: p.warn || '', bl: r2(p.beingLocked), sm: p.swimming ? 1 : 0,
       inc: [inc.count, inc.count ? Math.round(inc.dist) : 0], cr: p.crouch ? 1 : 0, rf: p.radarFocus ? 1 : 0, abk: p.airbrake ? 1 : 0, lv: peer.lives, rs: p.ejectPilot ? r1(Math.max(0, peer.respawnT)) : 0, ep: p.ejectPilot ? 1 : 0,
       k: [peer.stats.kills, peer.stats.score, peer.stats.deaths, peer.stats.bestStreak], rc: peer.resupplies, sw: p.sw ? r2(p.sw.charge) : -1, tp: p.target ? 1 : 0, ej: 0,
@@ -35463,7 +36206,9 @@ const Net = {
     // shells first: past the cap a shell would never reach the guests, and with it their impact marker
     const first = !NET_SHELLS_FIRST_OFF;
     if (first) for (const q of W.projs) if (q.active && q.def.indirect && prs.length < SNAP_PROJS) prs.push(this.projEntry(q));
-    for (const q of W.projs) if (q.active && !(first && q.def.indirect) && prs.length < SNAP_PROJS) prs.push(this.projEntry(q));
+    // then the missiles and rockets (a guest can cycle to the ones headed for it, P5-07), then the plain rounds
+    for (const q of W.projs) if (q.active && q.def.pdHp > 0 && !(first && q.def.indirect) && prs.length < SNAP_PROJS) prs.push(this.projEntry(q));
+    for (const q of W.projs) if (q.active && !(q.def.pdHp > 0) && !(first && q.def.indirect) && prs.length < SNAP_PROJS) prs.push(this.projEntry(q));
     const pk = W.pickups.map((k) => [k.type, r1(k.x), r1(k.z)]);
     const base = { t: 's', q: ++this.seq, p: plats, pr: prs, pk };
     for (const peer of this.peers) {
@@ -35629,6 +36374,7 @@ const Net = {
         const wd = WEAPONS[WEAPON_IDS[e[1]]];
         if (!wd) continue;
         pr.active = true; pr.nid = e[0]; pr.def = wd; pr.owner = this.map[e[8]] || null;
+        pr.team = pr.owner ? pr.owner.team : 1; pr.hp = wd.pdHp || 0; pr.target = null;   // what a guest needs of a rocket to cycle to it (the host decides the rest)
         Civ.alarm(e[2], e[4], CIV_GUNFIRE_HEAR); Fauna.alarm(e[2], e[4], FAUNA_GUNFIRE_HEAR); Traffic.alarm(e[2], e[4], CIV_GUNFIRE_HEAR);   // a new shot is gunfire to our civilians, animals and drivers
         if (!(pr.owner === W.player && this.predicts(wd))) {   // our own shot already played when the trigger was pulled
           Snd.play(wd.sound, e[2], e[3], e[4], 0.8);
@@ -35673,7 +36419,7 @@ const Net = {
     if (gp.util && me.u) { gp.util.charges = me.u[0]; gp.util.cd = me.u[1]; gp.util.auto = !!me.u[2]; }
     const lockState = LOCK_STATES[me.lk[0]] || 'none';
     if (lockState === 'locked' && gp.lock.state !== 'locked') Snd.ui('lockDone');
-    gp.lock.state = lockState; gp.lock.progress = me.lk[1]; gp.lock.reason = me.lk[2]; gp.lock.target = me.lk[3] ? (this.map[me.lk[3]] || null) : null;
+    gp.lock.state = lockState; gp.lock.progress = me.lk[1]; gp.lock.reason = me.lk[2]; gp.lock.target = !me.lk[3] ? null : me.lk[3] < 0 ? (W.structs[-1 - me.lk[3]] || null) : me.lk[3] >= NET_PROJ_TG ? Intercept.byNid(me.lk[3] - NET_PROJ_TG) : (this.map[me.lk[3]] || null);
     gp.throttle = me.th; gp.gear = !!me.g; gp.grounded = !!me.gr; gp.afterburner = !!me.ab; gp.stalled = !!me.stl; gp.warn = me.wn; gp.beingLocked = me.bl; gp.swimming = !!me.sm;
     gp.warnIncoming = gp.netInc = { count: me.inc[0], dist: me.inc[1] }; gp.crouch = !!me.cr; gp.radarFocus = !!me.rf; gp.airbrake = !!me.abk;
     W.stats.kills = me.k[0]; W.stats.score = me.k[1]; W.stats.deaths = me.k[2]; W.stats.bestStreak = me.k[3] | 0;
@@ -35794,7 +36540,7 @@ const Net = {
       t: 'in', q: ++this.inSeq, mf: r2(c.moveF), ms: r2(c.moveS), tn: r2(c.turn), ti: r2(c.throttleIn), ay: r2(c.aimYaw), ap: r2(c.aimPitch),
       ax: [r2(c.axisPitch), r2(c.axisRoll), r2(c.axisYaw)], b, e, pt: ap ? [r1(ap.x), r1(ap.y), r1(ap.z)] : null,
       ph: ap && ap === W.aimPoint && W.aimInfo ? (W.aimInfo.hit ? 1 : 0) : undefined,   // the reticle ray hit (Arty.noGround)
-      tg: t && talive(t) ? (t.isStruct ? -1 - t.idx : t.id) : 0, fm: S.flightMode, aa: S.aimAssist ? 1 : 0,
+      tg: t && talive(t) ? (t.isStruct ? -1 - t.idx : t.isProj ? NET_PROJ_TG + t.nid : t.id) : 0, fm: S.flightMode, aa: S.aimAssist ? 1 : 0,
     }, e !== 0);
   },
 };
