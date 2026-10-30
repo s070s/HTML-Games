@@ -4142,9 +4142,9 @@ defAttack('counter_strike', { name: 'Counter Strike', btn: 'lp', limb: 'RA', ani
 defAttack('counter_kick', { name: 'Counter Kick', btn: 'lk', limb: 'LL', anim: 'front', h: 'M', tier: 2, cat: 'kick', startup: 5, active: 3, recovery: 10, dmg: 11, stam: 6, reach: 1.7, width: 0.5, push: 1.1, hitstun: 22, blockstun: 10, kind: 'knockdown', ctx: 'counter' });
 /* Style moves (P5-02): only tier 1-2, so the 8 strong moves stay the default table's. Each sits inside the damage-per-frame and frame-advantage band of the existing non-strong punches / kicks
    (self-test "Styles: the new moves ...") and appears only in the string rows of its own style. Reach stays at or under the longest plain strike (MAX_STAND_REACH). */
-defAttack('chain_punch', { name: 'Chain Punch', btn: 'lp', limb: 'LA', anim: 'chain', h: 'H', tier: 1, startup: 5, active: 2, recovery: 8, dmg: 4, stam: 2, reach: 1.3, push: 0.2, hitstun: 12, blockstun: 6 });
-defAttack('trap_strike', { name: 'Trap Strike', btn: 'rp', limb: 'RA', anim: 'trap', h: 'H', tier: 2, startup: 7, active: 3, recovery: 12, dmg: 6, stam: 4, reach: 1.3, push: 0.3, hitstun: 15, blockstun: 8, step: 0.15 });
-defAttack('teep', { name: 'Teep', btn: 'lk', limb: 'LL', anim: 'teep', h: 'M', tier: 1, cat: 'kick', startup: 8, active: 3, recovery: 14, dmg: 6, stam: 5, reach: 1.6, width: 0.35, push: 1.0, hitstun: 15, blockstun: 9, blockPush: 1.0 });
+defAttack('chain_punch', { name: 'Chain Punch', btn: 'lp', limb: 'LA', anim: 'chain', h: 'H', tier: 1, startup: 5, active: 2, recovery: 10, dmg: 5, stam: 2, reach: 1.4, push: 0.2, hitstun: 14, blockstun: 8 });
+defAttack('trap_strike', { name: 'Trap Strike', btn: 'rp', limb: 'RA', anim: 'trap', h: 'H', tier: 2, startup: 6, active: 3, recovery: 12, dmg: 6, stam: 4, reach: 1.5, push: 0.3, hitstun: 17, blockstun: 10, step: 0.15 });
+defAttack('teep', { name: 'Teep', btn: 'lk', limb: 'LL', anim: 'teep', h: 'M', tier: 1, cat: 'kick', startup: 9, active: 3, recovery: 14, dmg: 6, stam: 5, reach: 1.6, width: 0.35, push: 0.8, hitstun: 15, blockstun: 9, blockPush: 1.0 });
 defAttack('elbow_strike', { name: 'Elbow', btn: 'rp', limb: 'RA', anim: 'elbowH', h: 'M', tier: 2, startup: 8, active: 3, recovery: 14, dmg: 7, stam: 6, reach: 1.1, width: 0.5, push: 0.3, hitstun: 16, blockstun: 9 });
 defAttack('spin_back_kick', { name: 'Spinning Back Kick', btn: 'rk', limb: 'RL', anim: 'spinBack', h: 'H', tier: 2, cat: 'kick', startup: 12, active: 4, recovery: 20, dmg: 10, stam: 7, reach: 1.5, width: 0.6, push: 0.9, hitstun: 21, blockstun: 12 });
 defAttack('jump_round', { name: 'Jump Round Kick', btn: 'rk', limb: 'RL', anim: 'jumpRound', h: 'H', tier: 2, cat: 'kick', startup: 13, active: 4, recovery: 19, dmg: 10, stam: 7, reach: 1.55, width: 0.5, push: 0.6, hitstun: 21, blockstun: 11 });
@@ -4345,8 +4345,8 @@ const STYLE_STRINGS = {
     stand: { PPP: null, PKP: null, PPK: null, KKK: null, KPP: null, KKP: null, PP: ['jab', 'hook'], KK: ['front_kick', 'heavy_roundhouse'], KP: ['front_kick', 'power_jab'] },
     crouch: { PPP: null, KKK: null },
   },
-  judoka: {   // the same short shape: a push kick into the clinch distance, a stagger, and a leg sweep that drops the foe for a hold
-    stand: { PPP: null, PKP: null, PPK: null, KKK: null, KPP: null, KKP: null, PK: ['jab', 'heavy_front'], KP: ['front_kick', 'power_jab'] },
+  judoka: {   // the same short shape: a push kick into the clinch distance, a stagger, and a leg sweep that drops the foe for a hold; P P and K K end on a strong step like the Wrestler's (P14-01: with plain P P / K K rows Judo, Hapkido and BJJ won 25-35 % at every level)
+    stand: { PPP: null, PKP: null, PPK: null, KKK: null, KPP: null, KKP: null, PP: ['jab', 'hook'], KK: ['front_kick', 'heavy_roundhouse'], PK: ['jab', 'heavy_front'], KP: ['front_kick', 'power_jab'] },
     crouch: { PPP: null, KKK: null, KK: ['low_kick', 'sweep'] },
   },
 };
@@ -4357,13 +4357,13 @@ STYLE_STRINGS.wingchun = rowsFrom(STYLE_STRINGS.boxer, {   // straight lines: ch
   stand: { P: ['chain_punch'], PP: ['chain_punch', 'trap_strike'], PPP: ['chain_punch', 'trap_strike', 'power_jab'], PK: ['chain_punch', 'heavy_body_kick'], PKP: ['chain_punch', 'heavy_body_kick', 'trap_strike'],
     PPK: ['chain_punch', 'trap_strike', 'heavy_front'], KP: ['front_kick', 'chain_punch'], KPP: ['front_kick', 'chain_punch', 'trap_strike'], KKP: ['front_kick', 'roundhouse', 'chain_punch'] },
 });
-STYLE_STRINGS.muaythai = {   // the teep leads every kick string, the elbow replaces the hook
-  stand: { K: ['teep'], KK: ['teep', 'roundhouse'], KKK: ['teep', 'roundhouse', 'heavy_roundhouse'], KP: ['teep', 'jab'], KPP: ['teep', 'jab', 'heavy_uppercut'], KKP: ['teep', 'roundhouse', 'power_jab'], PPP: ['jab', 'cross', 'elbow_strike'] },
+STYLE_STRINGS.muaythai = {   // the teep leads every kick string, the elbow replaces the hook; K K ends on the heavy roundhouse (P14-01: a teep that starts a tick before the front kick beat the Sway styles 80-90 %; it now starts with it, and the strong K K step keeps Muay Thai at 40-60 % against the rest)
+  stand: { K: ['teep'], KK: ['teep', 'heavy_roundhouse'], KKK: null, KP: ['teep', 'jab'], KPP: ['teep', 'jab', 'heavy_uppercut'], KKP: null, PPP: ['jab', 'cross', 'elbow_strike'] },
 };
 STYLE_STRINGS.taekwondo = rowsFrom(STYLE_STRINGS.karateka, {   // spinning back kick finishes the kick string, a jumping kick follows the jab
   stand: { KKK: ['front_kick', 'roundhouse', 'spin_back_kick'], PK: ['jab', 'jump_round'], PKP: ['jab', 'jump_round', 'cross'] },
 });
-STYLE_STRINGS.hapkido = rowsFrom(STYLE_STRINGS.judoka, { stand: { KK: ['front_kick', 'spin_heel'] } });   // a low spinning heel kick after the front kick
+STYLE_STRINGS.hapkido = rowsFrom(STYLE_STRINGS.judoka, { crouch: { KK: ['low_kick', 'spin_heel'] } });   // a low spinning heel kick replaces the sweep (as the standing K K step it was a light move and Hapkido won 30 %, P14-01)
 STYLE_STRINGS.kali = { stand: { PP: ['jab', 'angle_one'], PPP: ['jab', 'angle_one', 'angle_two'], PPK: ['jab', 'angle_one', 'heavy_front'] } };   // angle strikes in place of the cross and hook
 STYLE_STRINGS.kravmaga = { stand: { PP: ['jab', 'parry_strike'], PPP: ['jab', 'parry_strike', 'hook'], PPK: ['jab', 'parry_strike', 'heavy_front'] } };
 STYLE_STRINGS.mma = { stand: { PPP: ['jab', 'cross', 'overhand'] } };
@@ -4396,6 +4396,13 @@ const SWAY_TOTAL_TICKS = SWAY_IFRAME_TICKS + SWAY_RECOVERY_TICKS;
 const SWAY_BUFFER_TICKS = 6;         // a press while busy (landing, recovery, an earlier sway) still sways once the fighter is free
 const SWAY_SPEED = 3.0;              // m/s at the start of the lean, fading to 0 over the i-frames (about 0.3 m of travel)
 const SWAY_NO_REGEN = 24;            // stamina regenerates this many ticks after a sway starts (same as a sidestep)
+/* The sway pose (P3-11, visual only): the drawn lean covers the same ticks as the i-frames, so a strike that goes active on any of them passes by.
+   It is out of the line from the first i-frame tick (a high blend, the pose is nearly there that tick) to the last, and upright again SWAY_POSE_RETURN_TICKS after.
+   Sizes: torso lean back and head tilt back (rad), root back (m), knee bend; a sideways lean adds torso roll, root shift (m) and wider hips, and still tips back.
+   The 'Sway pose' self-test measures them: head and torso stay at least 0.1 m (surface to surface) clear of every style's drawn strikes. */
+const SWAY_POSE = { lean: 0.9, head: 0.4, back: 0.28, knees: 0.3, roll: 0.5, side: 0.25, hips: 0.2 };
+const SWAY_POSE_BLEND = 0.9;         // share of the way to the sway pose covered each tick, for every fighter whatever its speed (the default 0.5 left the pose half done on the first i-frame ticks)
+const SWAY_POSE_RETURN_TICKS = 3;    // upright again this many ticks after the i-frames end (the fighter can be hit again from then on)
 const CLINCH_MAX = 110;
 const CLINCH_ESCAPE_FROM = 12;       // earliest tick a grapple escape can succeed
 const CLINCH_ESCAPE_FROM_REAR = 14;  // a rear hold is harder to break (still opens before any rear throw's escape window closes)
@@ -5910,12 +5917,11 @@ class Fighter {
         break;
       }
       case S.SWAY: {
-        // lean out of the way (fast in, slow out through the recovery): back = torso and head tip away, sideways = torso rolls and the hips shift
-        const lean = st < SWAY_IFRAME_TICKS ? Math.min(1, (st + 1) / 4) : Math.max(0, 1 - (st - SWAY_IFRAME_TICKS) / SWAY_RECOVERY_TICKS);
-        const s = this.swayDir;
-        if (s === 0) { p[J.torsoLean] -= 0.6 * lean; p[J.headX] -= 0.35 * lean; p[J.knL] += 0.2 * lean; p[J.knR] += 0.2 * lean; p[J.rootFwd] -= 0.08 * lean; }
-        else { p[J.torsoRoll] = -s * 0.4 * lean; p[J.rootSide] = s * 0.08 * lean; p[J.hipLz] += 0.2 * lean; p[J.hipRz] += 0.2 * lean; p[J.headY] = -s * 0.2 * lean; }
-        k = 0.5;
+        // lean out of the way: full for every i-frame tick, gone SWAY_POSE_RETURN_TICKS after them (SWAY_POSE); the root shift and roll point the way the sim moves the fighter
+        const out = st < SWAY_IFRAME_TICKS ? 1 : Math.max(0, 1 - (st - SWAY_IFRAME_TICKS + 1) / SWAY_POSE_RETURN_TICKS), s = this.swayDir, sw = SWAY_POSE;
+        p[J.torsoLean] -= sw.lean * out; p[J.headX] -= sw.head * out; p[J.rootFwd] -= sw.back * out; p[J.knL] += sw.knees * out; p[J.knR] += sw.knees * out;
+        if (s !== 0) { p[J.torsoRoll] = s * sw.roll * out; p[J.rootSide] = -s * sw.side * out; p[J.hipLz] += sw.hips * out; p[J.hipRz] += sw.hips * out; p[J.headY] = -s * 0.2 * out; }
+        k = SWAY_POSE_BLEND;
         break;
       }
       case S.CROUCH:
@@ -6019,7 +6025,7 @@ class Fighter {
     if (this.boostTicks > 0 && BOOST_POSE_STATES.includes(this.state) && !this.throwFollow) this.boostPose(p, t);
     const pose = this.pose;
     pose[J.bodyYaw] = wrapAngle(pose[J.bodyYaw]);   // a spinning kick ends a full circle round: the next state blends from 0, not back through the turn
-    k = Math.min(0.9, k * m.blend);
+    k = this.state === S.SWAY ? SWAY_POSE_BLEND : Math.min(0.9, k * m.blend);   // the sway pose has to be there on the first i-frame tick, so it ignores the fighter's speed
     for (let i = 0; i < NP; i++) pose[i] += (p[i] - pose[i]) * k;
   }
   /* Stance rhythm of the move style: knee bounce, side-to-side weight shift, head movement. */
@@ -7447,7 +7453,7 @@ const DIFFICULTY = {
   easy: { id: 'easy', label: 'Easy', react: 20, interval: 34, blockSkill: 0.15, parry: 0.01, swayRead: 0.4, swayAim: 0.01, punish: 0.1, counter: 0.08, mistakes: 0.4, aggression: 0.4, heavy: 0.12, grab: 0.04, escape: 0.15, adapt: 0, sidestep: 0, lockout: 22, env: false, dmg: 0.75 },
   normal: { id: 'normal', label: 'Normal', react: 14, interval: 20, blockSkill: 0.4, parry: 0.05, swayRead: 1.3, swayAim: 0.05, punish: 0.35, counter: 0.25, mistakes: 0.18, aggression: 0.6, heavy: 0.25, grab: 0.1, escape: 0.35, adapt: 0.1, sidestep: 0.12, lockout: 13, env: false, dmg: 0.85 },
   hard: { id: 'hard', label: 'Hard', react: 10, interval: 9, blockSkill: 0.75, parry: 0.2, swayRead: 0.2, swayAim: 0.7, punish: 0.75, counter: 0.55, mistakes: 0.06, aggression: 1.05, heavy: 0.4, grab: 0.2, escape: 0.65, adapt: 0.35, sidestep: 0.35, lockout: 8, env: true, dmg: 1 },
-  expert: { id: 'expert', label: 'Expert', react: 8, interval: 6, blockSkill: 0.9, parry: 0.35, swayRead: 0.1, swayAim: 1, punish: 0.92, counter: 0.8, mistakes: 0.02, aggression: 1.2, heavy: 0.5, grab: 0.3, escape: 0.85, adapt: 0.7, sidestep: 0.55, lockout: 6, env: true, dmg: 1 },
+  expert: { id: 'expert', label: 'Expert', react: 8, interval: 6, blockSkill: 0.9, parry: 0.3, swayRead: 0.1, swayAim: 1, punish: 0.92, counter: 0.8, mistakes: 0.02, aggression: 1.2, heavy: 0.5, grab: 0.3, escape: 0.85, adapt: 0.7, sidestep: 0.55, lockout: 6, env: true, dmg: 1 },
 };
 /* react = reaction delay in ticks (slower than most strikes on Easy, so blockSkill matters more as difficulty rises);
    parry = chance a reaction block is timed as a perfect block; adapt = chance to guard where the opponent usually attacks;
@@ -7456,7 +7462,8 @@ const DIFFICULTY = {
    swayAim = chance a Sway AI times its dodge for a perfect sway (the counter). A plain dodge of a fast kick is a net loss (the kick's recovery ends before the
    sway's does), so only a perfect sway pays: from Hard up the AI has to read fast enough (swayRead) to hit that window, or Block's reaction blocks win ~80-97%.
    P3-10 retune (the punches reach farther and the AI closes in, so more strikes meet a sway): Normal reads slower (swayRead 0.7 to 1.3), Hard aims less (swayAim 0.85 to 0.7),
-   Expert reads faster and always aims (swayRead 0.2 to 0.1, swayAim 0.85 to 1). Back to 45-55 % for both defenses at every difficulty. */
+   Expert reads faster and always aims (swayRead 0.2 to 0.1, swayAim 0.85 to 1). Back to 45-55 % for both defenses at every difficulty.
+   P14-01 re-check (1,800 matches at Expert, boost on and off alike): Block won 56.8 %, so Expert's perfect-block chance went from 0.35 to 0.3 (Block 52.4 % over 600 matches; 0.25 gave 49.8 %). */
 const AI_SWAY_MIN_ETA = 6;       // a Sway AI only dodges a strike it sees at least this many ticks ahead: a late, plain dodge leaves the attacker free before the sway ends, so it just gets hit in the recovery
 const AI_SWAY_AIM = 3;         // a sway is timed so the strike goes active this many ticks into the dodge (a plain dodge, well inside the i-frames)
 const AI_SWAY_AIM_PERFECT = 8;   // ... or this many when the AI aims for a perfect sway (the last SWAY_PERFECT_TICKS of the i-frames are 6-11)
@@ -10620,7 +10627,8 @@ const Effects = {
       if (hurt && !e.ko) hurt.rumble(0.2 + tier * 0.15, RUMBLE_HIT_MS);   // each human player feels the hits they take on their own pad
     });
     on('block', (e) => {
-      if (!e.sway) FX.sparks(e.x, e.y, e.z, e.broke ? 14 : 6, e.broke ? 5 : 3, e.broke ? '#ffb347' : '#9ee7ff', e.dirx, e.dirz);   // a sway dodges the hit: no impact sparks
+      if (e.sway) { if (e.perfect) FX.ring(e.x, e.def.y + 0.05, e.z, '#ffe066'); return; }   // a sway dodges the strike (P3-11): nothing flashes at the body, a perfect one only marks the floor under the swayer
+      FX.sparks(e.x, e.y, e.z, e.broke ? 14 : 6, e.broke ? 5 : 3, e.broke ? '#ffb347' : '#9ee7ff', e.dirx, e.dirz);
       FX.ring(e.x, e.y, e.z, e.perfect ? '#ffe066' : '#9ee7ff');
       if (e.perfect) FX.flash(e.x, e.y, e.z, 0.35, '#fff4b0');
       if (e.broke) Camera.impact(0.7, 0.6);

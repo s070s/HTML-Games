@@ -4116,6 +4116,117 @@ const SelfTest = {
       const leans = back.dir === 0 && back.away < -0.1 && right.dir === 1 && right.across > 0.1 && left.dir === -1 && left.across < -0.1 && fwdPush.dir === 0 && fwdPush.away < -0.1;
       return held === 1 && taps >= 3 && leans ? true : JSON.stringify({ held, taps, back, right, left, fwdPush });
     });
+    /* ----- Sway pose (P3-11): the drawn head and torso against the drawn strike ----- */
+    const SWAY_POSE_GAP = 0.1;   // m of air between the surfaces of the body part and the striking limb: the visible gap the owner asked for
+    const SWAY_POSE_RADIUS = { head: 0.12, torso: 0.15, foot: 0.1, tip: 0.1 };   // m: head sphere, chest depth at the torso point, a shoe, and the fist or foot that strikes
+    const SWAY_TIP_POINT = { LA: 9, RA: 12, LL: 15, RL: 18 };   // Fighter.pts offset of the striking hand or foot
+    const segmentDistance = (p, a, b) => {
+      const ab = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], ap = [p[0] - a[0], p[1] - a[1], p[2] - a[2]], len2 = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+      const u = len2 > 0 ? clamp((ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / len2, 0, 1) : 0;
+      return Math.hypot(a[0] + ab[0] * u - p[0], a[1] + ab[1] * u - p[1], a[2] + ab[2] * u - p[2]);
+    };
+    /* Fighter 1 of a style plays `mv` against fighter 2 of the same style; fighter 2 presses Defend at pressTick (-1: never). Returns one row per tick with the strike's
+       limb tip and fighter 2's head, torso and feet in fighter 1's frame (forward, left, up in m), read from Fighter.pts: the same pose and skeleton the renderer draws. */
+    const swayPoseRun = (id, mv, gap, pressTick, dir) => {
+      const m = mk({ playerId: id, opponentId: id }, (it, f, o, mm) => { if (mm.tick === 40) f.startAttack(mv); }, (it, f, o, mm) => { if (mm.tick === pressTick) { it.defend = true; it.side = dir; } });
+      const a = m.fighters[0], d = m.fighters[1];
+      a.x = -gap / 2; d.x = gap / 2; a.z = d.z = 0; a.prevX = a.x; d.prevX = d.x;
+      const ox = a.x, fx = a.fwdX, fz = a.fwdZ, at = (pts, i) => [(pts[i] - ox) * fx + pts[i + 2] * fz, -(pts[i] - ox) * fz + pts[i + 2] * fx, pts[i + 1]];
+      const rows = [];
+      for (let t = 0; t < 80; t++) {
+        m.step();
+        rows.push({ tick: m.tick, live: a.state === S.ATTACK && a.moveTick > a.mStartup && a.moveTick <= a.mStartup + a.mActive, attacking: a.state === S.ATTACK, swaying: d.state === S.SWAY, st: d.stateTicks,
+          tip: at(a.pts, SWAY_TIP_POINT[mv.limb]), head: at(d.pts, 6), torso: at(d.pts, 3), footL: at(d.pts, 15), footR: at(d.pts, 18) });
+      }
+      const hp = d.hp === d.maxHp; m.dispose();
+      return { rows, unhurt: hp };
+    };
+    /* The clearance of fighter 2's drawn head, torso and (for a low strike) feet from the strike during the sway's i-frames: on every tick where the strike is active
+       and fighter 2 is inside them, the distance from each body point to the tip's path since the last tick. The spacing puts the unswayed torso on the furthest plane the tip
+       reaches (the strike lands on the chest on screen and in the sim). `lead` = the i-frame tick the strike goes active on. */
+    const swayPoseTrials = (styleId, mv, dirs, leads) => {
+      const id = 'swaypose_' + styleId;
+      ROSTER_BY_ID[id] = Object.assign({}, ROSTER_BY_ID.kai, { id, name: 'POSE', moveStyle: styleId, defense: 'sway' });
+      try {
+        const rest = swayPoseRun(id, mv, 1.8, -1, 0).rows;
+        const peak = Math.max(...rest.filter((r) => r.attacking).map((r) => r.tip[0])), first = rest.find((r) => r.live);
+        const gap = 1.8 + peak - rest[1].torso[0], out = [];
+        for (const dir of dirs) for (const lead of leads) {
+          const run = swayPoseRun(id, mv, gap, first.tick - lead, dir);
+          const clear = { head: 9, torso: 9, foot: 9 }, rows = run.rows;
+          let ticks = 0, firstSt = -1;
+          for (let i = 1; i < rows.length; i++) {
+            const r = rows[i], prev = rows[i - 1];
+            if (!r.live || !r.swaying || r.st >= SWAY_IFRAME_TICKS) continue;
+            if (!ticks++) firstSt = r.st;
+            clear.head = Math.min(clear.head, segmentDistance(r.head, prev.tip, r.tip)); clear.torso = Math.min(clear.torso, segmentDistance(r.torso, prev.tip, r.tip));
+            clear.foot = Math.min(clear.foot, segmentDistance(r.footL, prev.tip, r.tip), segmentDistance(r.footR, prev.tip, r.tip));
+          }
+          out.push({ dir, lead, ticks, firstSt, unhurt: run.unhurt, clear });
+        }
+        return out;
+      } finally { delete ROSTER_BY_ID[id]; }
+    };
+    test('Sway pose (P3-11): on every i-frame tick the drawn head and torso (feet too for a low strike) are clear of the drawn strike by 0.1 m, for each height, style and lean', () => {
+      const need = { head: SWAY_POSE_RADIUS.head + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP, torso: SWAY_POSE_RADIUS.torso + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP, foot: SWAY_POSE_RADIUS.foot + SWAY_POSE_RADIUS.tip + SWAY_POSE_GAP };
+      const bad = [], worst = { head: 9, torso: 9, foot: 9 };
+      let trials = 0;
+      for (const styleId of MOVE_STYLE_IDS) {
+        const table = stringsFor(styleId), strikes = new Set();
+        for (const side of ['stand', 'crouch']) for (const keys in table[side]) for (const id of table[side][keys]) { const mv = ATTACKS[id]; if (mv && mv.type === 'strike' && !mv.ctx) strikes.add(mv); }
+        for (const h of ['H', 'M', 'L']) {
+          const mv = [...strikes].filter((s) => s.h === h).sort((x, y) => y.reach - x.reach)[0];   // the longest strike of the height: the one that reaches the body furthest
+          if (!mv) { bad.push(styleId + ' has no ' + h + ' strike'); continue; }
+          for (const t of swayPoseTrials(styleId, mv, [0, 1, -1], [0, SWAY_IFRAME_TICKS - 1])) {   // back, left, right; the strike goes active on the first and on the last i-frame tick
+            trials++;
+            for (const part of ['head', 'torso']) worst[part] = Math.min(worst[part], t.clear[part]);
+            if (h === 'L') worst.foot = Math.min(worst.foot, t.clear.foot);
+            const short = t.clear.head < need.head || t.clear.torso < need.torso || (h === 'L' && t.clear.foot < need.foot);
+            if (!t.unhurt || t.firstSt !== t.lead || short) bad.push([styleId, mv.id, 'dir', t.dir, 'lead', t.lead, t.unhurt ? '' : 'HIT', 'st', t.firstSt, 'clear', t.clear.head.toFixed(2), t.clear.torso.toFixed(2), t.clear.foot.toFixed(2)].join(' '));
+          }
+        }
+      }
+      return bad.length === 0 && trials === MOVE_STYLE_IDS.length * 3 * 6 ? true : JSON.stringify({ trials, need, worst, bad: bad.slice(0, 6) });
+    });
+    test('Sway pose (P3-11): the drawn lean covers exactly the i-frames: nearly full on the first tick, held to the last, upright 3 ticks after, for every style and lean, for KAI\'s body and the slowest legal Creator body', () => {
+      const bad = [];
+      for (const styleId of MOVE_STYLE_IDS) for (const dir of [0, 1, -1]) for (const slow of [false, true]) {
+        const id = 'swaypose_' + styleId;
+        ROSTER_BY_ID[id] = Object.assign({}, ROSTER_BY_ID.kai, { id, name: 'POSE', moveStyle: styleId, defense: 'sway' }, slow ? { attrs: Object.assign({}, ROSTER_BY_ID.kai.attrs, { speed: ATTR_MIN }) } : {});   // speed sets the pose blend of every other state
+        try {
+          const m = mk({ playerId: id, opponentId: id }, null, (it, f, o, mm) => { if (mm.tick === 10) { it.defend = true; it.side = dir; } }); self.place(m, 4);
+          const f = m.fighters[1], lean = [];
+          let rest = 0;
+          for (let t = 0; t < 45; t++) {
+            if (t === 9) rest = f.pose[J.torsoLean];
+            m.step();
+            if (f.state === S.SWAY) lean[f.stateTicks] = rest - f.pose[J.torsoLean];   // how far the drawn torso has tipped back
+          }
+          m.dispose();
+          const peak = Math.max(...lean), early = lean.slice(0, SWAY_IFRAME_TICKS), after = lean[SWAY_IFRAME_TICKS + 3];
+          if (peak < 0.6 || early.length !== SWAY_IFRAME_TICKS || early.some((v) => v < 0.85 * peak) || !(after <= 0.15 * peak)) bad.push(styleId + (slow ? ' slow' : '') + ' dir ' + dir + ' peak ' + peak.toFixed(2) + ' first ' + early[0].toFixed(2) + ' last ' + early[SWAY_IFRAME_TICKS - 1].toFixed(2) + ' after ' + (after === undefined ? '-' : after.toFixed(2)));
+        } finally { delete ROSTER_BY_ID[id]; }
+      }
+      return bad.length === 0 ? true : bad.slice(0, 5).join('; ');
+    });
+    test('Sway pose (P3-11): a swayed strike passes by - no hit flash, no reaction, no spark or ring at the body (a perfect sway marks the floor), no damage', () => {
+      const calls = [], real = { ring: FX.ring, sparks: FX.sparks, flash: FX.flash };
+      FX.ring = (...a) => calls.push(['ring', ...a]); FX.sparks = (...a) => calls.push(['sparks', ...a]); FX.flash = (...a) => calls.push(['flash', ...a]);
+      try {
+        const watch = (attack, lead) => {
+          calls.length = 0;
+          const m = mk({}, (it, f, o, mm) => { if (mm.tick === 2) f.startAttack(attack); }, swayAt(lead)); self.place(m, 1.2);
+          const def = m.fighters[1], states = new Set();
+          let flash = 0;
+          for (let t = 0; t < 60; t++) { m.step(); states.add(def.state); flash = Math.max(flash, def.flash); }
+          const r = { hurt: def.maxHp - def.hp, flash, states: [...states].join(), calls: calls.map((c) => c[0] + (c[0] === 'ring' ? '@' + c[2] : '')) }; m.dispose(); return r;
+        };
+        const plain = watch(ATTACKS.jab, 3), perfect = watch(ATTACKS.roundhouse, 8);
+        const calm = (r) => r.hurt === 0 && r.flash === 0 && r.states.split(',').every((state) => state === S.IDLE || state === S.SWAY);
+        const ok = calm(plain) && plain.calls.length === 0 && calm(perfect) && perfect.calls.length === 1 && perfect.calls[0] === 'ring@0.05';
+        return ok ? true : JSON.stringify({ plain, perfect });
+      } finally { Object.assign(FX, real); }
+    });
     test('A Block fighter never sways, a Sway fighter never guards; both still get up quickly', () => {
       const swayLog = self.capture(['sway']);
       let blockerSwayed = false, swayerGuarded = false, blockerGuarded = false;
