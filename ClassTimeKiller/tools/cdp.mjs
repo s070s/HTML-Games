@@ -13,7 +13,8 @@ const BASE_FLAGS = ['--headless=new', '--remote-debugging-port=0', '--use-angle=
   '--no-first-run', '--no-default-browser-check', '--disable-extensions', '--window-size=1280,800', '--autoplay-policy=no-user-gesture-required'];
 const START_TRIES = 240;              // x 250 ms: up to 60 s, Chrome starts slowly while antivirus scans or other runs share the CPU
 const BOOT_TRIES = 80;                // x 250 ms for window.__CTK after navigation
-const PROFILE_CLEANUP_DELAY_MS = 800; // Chrome keeps the profile locked for a moment after it exits
+const EXIT_WAIT_MS = 5000;            // Chrome's helper processes hold the profile until the browser has really exited
+const PROFILE_CLEANUP_TRIES = 20;     // x 250 ms: Windows releases the profile files a moment after the exit
 
 export const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
@@ -26,13 +27,23 @@ export async function openChrome(options) {
   const flags = BASE_FLAGS.concat((options && options.flags) || [], ['--user-data-dir=' + profile, 'about:blank']);
   const output = options && options.log ? openSync(options.log, 'w') : 'ignore';
   const chrome = spawn(chromePath, flags, { stdio: ['ignore', output, output] });
-  const close = () => new Promise((done) => {
+  const exited = new Promise((done) => { if (chrome.exitCode !== null) done(); else chrome.once('exit', done); });
+  // Waits for Chrome to exit, then deletes the profile, retrying while Windows still holds its files.
+  const close = async () => {
     try { chrome.kill(); } catch (error) { /* already gone */ }
-    setTimeout(() => { try { rmSync(profile, { recursive: true, force: true }); } catch (error) { /* still locked */ } done(); }, PROFILE_CLEANUP_DELAY_MS);
-  });
+    await Promise.race([exited, sleep(EXIT_WAIT_MS)]);
+    for (let i = 0; i < PROFILE_CLEANUP_TRIES; i++) {
+      try { rmSync(profile, { recursive: true, force: true }); return; } catch (error) { await sleep(250); }
+    }
+  };
   try {
     const session = await connect(profile);
-    session.close = async () => { session.socket.close(); await close(); };
+    session.close = async () => {
+      // Browser.close shuts Chrome and its helper processes down cleanly, so they release the profile.
+      await Promise.race([session.send('Browser.close', {}), exited, sleep(EXIT_WAIT_MS)]);
+      session.socket.close();
+      await close();
+    };
     return session;
   } catch (error) {
     await close();
