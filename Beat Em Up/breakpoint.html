@@ -4144,7 +4144,7 @@ defAttack('counter_kick', { name: 'Counter Kick', btn: 'lk', limb: 'LL', anim: '
    (self-test "Styles: the new moves ...") and appears only in the string rows of its own style. Reach stays at or under the longest plain strike (MAX_STAND_REACH). */
 defAttack('chain_punch', { name: 'Chain Punch', btn: 'lp', limb: 'LA', anim: 'chain', h: 'H', tier: 1, startup: 5, active: 2, recovery: 10, dmg: 5, stam: 2, reach: 1.4, push: 0.2, hitstun: 14, blockstun: 8 });
 defAttack('trap_strike', { name: 'Trap Strike', btn: 'rp', limb: 'RA', anim: 'trap', h: 'H', tier: 2, startup: 6, active: 3, recovery: 12, dmg: 6, stam: 4, reach: 1.5, push: 0.3, hitstun: 17, blockstun: 10, step: 0.15 });
-defAttack('teep', { name: 'Teep', btn: 'lk', limb: 'LL', anim: 'teep', h: 'M', tier: 1, cat: 'kick', startup: 9, active: 3, recovery: 14, dmg: 6, stam: 5, reach: 1.6, width: 0.35, push: 0.8, hitstun: 15, blockstun: 9, blockPush: 1.0 });
+defAttack('teep', { name: 'Teep', btn: 'lk', limb: 'LL', anim: 'teep', h: 'M', tier: 1, cat: 'kick', startup: 9, active: 3, recovery: 15, dmg: 6, stam: 5, reach: 1.6, width: 0.35, push: 0.6, hitstun: 15, blockstun: 9, blockPush: 1.0 });
 defAttack('elbow_strike', { name: 'Elbow', btn: 'rp', limb: 'RA', anim: 'elbowH', h: 'M', tier: 2, startup: 8, active: 3, recovery: 14, dmg: 7, stam: 6, reach: 1.1, width: 0.5, push: 0.3, hitstun: 16, blockstun: 9 });
 defAttack('spin_back_kick', { name: 'Spinning Back Kick', btn: 'rk', limb: 'RL', anim: 'spinBack', h: 'H', tier: 2, cat: 'kick', startup: 12, active: 4, recovery: 20, dmg: 10, stam: 7, reach: 1.5, width: 0.6, push: 0.9, hitstun: 21, blockstun: 12 });
 defAttack('jump_round', { name: 'Jump Round Kick', btn: 'rk', limb: 'RL', anim: 'jumpRound', h: 'H', tier: 2, cat: 'kick', startup: 13, active: 4, recovery: 19, dmg: 10, stam: 7, reach: 1.55, width: 0.5, push: 0.6, hitstun: 21, blockstun: 11 });
@@ -4312,8 +4312,9 @@ const CLINCH_STRIKE_ANIM_TICKS = 12;   // how long the strike pose lasts (it fad
 function clinchStrikePose(styleId, strikeId, p, u) { const row = MOVE_STYLE[styleId]; (CLINCH_STRIKE_POSES[row && row.grab] || CLINCH_STRIKE_POSES.default)[strikeId === 'elbow' ? 'elbow' : 'knee'](p, u); }
 /* Attack strings (P2-01 Appendix C; P3-10 audits every row). A Punch (P) or Kick (K) press plays the next step of the
    string typed so far, at most 3 steps. Rows are keyed by the presses; step n is the move of press n. Standing rows are
-   the default; the crouch rows apply while Crouch was held at every press of the string. Every strong (tier 3) move
-   is the step of exactly one string, so it can only be reached through a string. */
+   the default; the crouch rows apply while Crouch was held at every press of the string. In this default table every strong (tier 3)
+   move is the step of exactly one string, so it can only be reached through a string. A style's own rows (STYLE_STRINGS) may end
+   two rows on one strong move, but every strike a style lists as a signature must still be reachable from its own rows (self-test). */
 const STRINGS = {
   stand: {
     P: ['jab'], PP: ['jab', 'cross'], PPP: ['jab', 'cross', 'hook'],
@@ -4345,8 +4346,8 @@ const STYLE_STRINGS = {
     stand: { PPP: null, PKP: null, PPK: null, KKK: null, KPP: null, KKP: null, PP: ['jab', 'hook'], KK: ['front_kick', 'heavy_roundhouse'], KP: ['front_kick', 'power_jab'] },
     crouch: { PPP: null, KKK: null },
   },
-  judoka: {   // the same short shape: a push kick into the clinch distance, a stagger, and a leg sweep that drops the foe for a hold; P P and K K end on a strong step like the Wrestler's (P14-01: with plain P P / K K rows Judo, Hapkido and BJJ won 25-35 % at every level)
-    stand: { PPP: null, PKP: null, PPK: null, KKK: null, KPP: null, KKP: null, PP: ['jab', 'hook'], KK: ['front_kick', 'heavy_roundhouse'], PK: ['jab', 'heavy_front'], KP: ['front_kick', 'power_jab'] },
+  judoka: {   // the same short shape: a stagger, a knockdown and a leg sweep that drops the foe for a hold; P P, P K and K K end on a strong step like the Wrestler's (P14-01: with plain P P / K K rows Judo, Hapkido and BJJ won 25-35 % at every level; P K was a push kick, 12 damage, and left them 5-10 points behind at Easy, where strong second steps are most of the damage)
+    stand: { PPP: null, PKP: null, PPK: null, KKK: null, KPP: null, KKP: null, PP: ['jab', 'hook'], KK: ['front_kick', 'heavy_roundhouse'], KP: ['front_kick', 'power_jab'] },
     crouch: { PPP: null, KKK: null, KK: ['low_kick', 'sweep'] },
   },
 };
@@ -4357,8 +4358,8 @@ STYLE_STRINGS.wingchun = rowsFrom(STYLE_STRINGS.boxer, {   // straight lines: ch
   stand: { P: ['chain_punch'], PP: ['chain_punch', 'trap_strike'], PPP: ['chain_punch', 'trap_strike', 'power_jab'], PK: ['chain_punch', 'heavy_body_kick'], PKP: ['chain_punch', 'heavy_body_kick', 'trap_strike'],
     PPK: ['chain_punch', 'trap_strike', 'heavy_front'], KP: ['front_kick', 'chain_punch'], KPP: ['front_kick', 'chain_punch', 'trap_strike'], KKP: ['front_kick', 'roundhouse', 'chain_punch'] },
 });
-STYLE_STRINGS.muaythai = {   // the teep leads every kick string, the elbow replaces the hook; K K ends on the heavy roundhouse (P14-01: a teep that starts a tick before the front kick beat the Sway styles 80-90 %; it now starts with it, and the strong K K step keeps Muay Thai at 40-60 % against the rest)
-  stand: { K: ['teep'], KK: ['teep', 'heavy_roundhouse'], KKK: null, KP: ['teep', 'jab'], KPP: ['teep', 'jab', 'heavy_uppercut'], KKP: null, PPP: ['jab', 'cross', 'elbow_strike'] },
+STYLE_STRINGS.muaythai = {   // the teep leads every kick string, the elbow replaces the hook; K K K ends on the shin kick (the heavy roundhouse, the signature Shin Round Kick) (P14-01: a teep that starts a tick before the front kick, recovers a tick sooner and pushes 1.0 beat the Sway styles 80-90 % and at Expert still 60-66 % with 0.65 and a 14-tick recovery; it now has the front kick's start, recovery and push, and keeps its own block push. A strong K K step instead of these rows left Muay Thai at 41 % at Easy, where the three-step strong enders are 7 % of the damage, or 61-63 % against the Block strikers at Expert)
+  stand: { K: ['teep'], KK: ['teep', 'roundhouse'], KKK: ['teep', 'roundhouse', 'heavy_roundhouse'], KP: ['teep', 'jab'], KPP: ['teep', 'jab', 'heavy_uppercut'], KKP: ['teep', 'roundhouse', 'power_jab'], PPP: ['jab', 'cross', 'elbow_strike'] },
 };
 STYLE_STRINGS.taekwondo = rowsFrom(STYLE_STRINGS.karateka, {   // spinning back kick finishes the kick string, a jumping kick follows the jab
   stand: { KKK: ['front_kick', 'roundhouse', 'spin_back_kick'], PK: ['jab', 'jump_round'], PKP: ['jab', 'jump_round', 'cross'] },
@@ -4657,7 +4658,7 @@ const MOVE_STYLE = {
     stride: 1.08, armSwing: 0.05, walkBounce: 0.018, react: 0.9, victory: 'arms' },
   sambo: { label: 'Sambo', desc: 'Wrestling and judo in a jacket: grips and throws, then control on the ground and leg locks to finish.',
     family: 'throws', moves: 'wrestler', grab: 'collar', throws: 'front', defense: 'block', submit: ['Leg Lock', 'Heel Hook'], hold: 'leg',
-    signature: [['Sambo Hip Throw', 'throw:front.fwd'], ['Rear Takedown', 'throw:rear.fwd'], ['Leg Lock', 'hold'], ['Sweep', 'sweep']],
+    signature: [['Sambo Hip Throw', 'throw:front.fwd'], ['Rear Takedown', 'throw:rear.fwd'], ['Leg Lock', 'hold'], ['Low Kick', 'low_kick']],
     guardHands: 0.05, guardTight: -0.2, guardTwist: 0.3, guardLean: 0.06, guardCrouch: 0.12, guardWidth: 0.02, guardSplit: 0.06, guardTuck: -0.06,
     bounce: 0.006, bounceHz: 0.9, sway: 0.028, swayHz: 0.85, headBob: 0.02,
     punchHip: 0.9, punchPivot: 0.1, punchLean: 0.08, punchSnap: 0.95, kickChamber: 0.4, kickPivot: 0.25, kickLean: 0.06, kickSnap: 0.9,
@@ -7452,7 +7453,7 @@ const CustomRoster = {
 const DIFFICULTY = {
   easy: { id: 'easy', label: 'Easy', react: 20, interval: 34, blockSkill: 0.15, parry: 0.01, swayRead: 0.4, swayAim: 0.01, punish: 0.1, counter: 0.08, mistakes: 0.4, aggression: 0.4, heavy: 0.12, grab: 0.04, escape: 0.15, adapt: 0, sidestep: 0, lockout: 22, env: false, dmg: 0.75 },
   normal: { id: 'normal', label: 'Normal', react: 14, interval: 20, blockSkill: 0.4, parry: 0.05, swayRead: 1.3, swayAim: 0.05, punish: 0.35, counter: 0.25, mistakes: 0.18, aggression: 0.6, heavy: 0.25, grab: 0.1, escape: 0.35, adapt: 0.1, sidestep: 0.12, lockout: 13, env: false, dmg: 0.85 },
-  hard: { id: 'hard', label: 'Hard', react: 10, interval: 9, blockSkill: 0.75, parry: 0.2, swayRead: 0.2, swayAim: 0.7, punish: 0.75, counter: 0.55, mistakes: 0.06, aggression: 1.05, heavy: 0.4, grab: 0.2, escape: 0.65, adapt: 0.35, sidestep: 0.35, lockout: 8, env: true, dmg: 1 },
+  hard: { id: 'hard', label: 'Hard', react: 10, interval: 9, blockSkill: 0.75, parry: 0.25, swayRead: 0.2, swayAim: 0.7, punish: 0.75, counter: 0.55, mistakes: 0.06, aggression: 1.05, heavy: 0.4, grab: 0.2, escape: 0.65, adapt: 0.35, sidestep: 0.35, lockout: 8, env: true, dmg: 1 },
   expert: { id: 'expert', label: 'Expert', react: 8, interval: 6, blockSkill: 0.9, parry: 0.3, swayRead: 0.1, swayAim: 1, punish: 0.92, counter: 0.8, mistakes: 0.02, aggression: 1.2, heavy: 0.5, grab: 0.3, escape: 0.85, adapt: 0.7, sidestep: 0.55, lockout: 6, env: true, dmg: 1 },
 };
 /* react = reaction delay in ticks (slower than most strikes on Easy, so blockSkill matters more as difficulty rises);
@@ -7463,7 +7464,8 @@ const DIFFICULTY = {
    sway's does), so only a perfect sway pays: from Hard up the AI has to read fast enough (swayRead) to hit that window, or Block's reaction blocks win ~80-97%.
    P3-10 retune (the punches reach farther and the AI closes in, so more strikes meet a sway): Normal reads slower (swayRead 0.7 to 1.3), Hard aims less (swayAim 0.85 to 0.7),
    Expert reads faster and always aims (swayRead 0.2 to 0.1, swayAim 0.85 to 1). Back to 45-55 % for both defenses at every difficulty.
-   P14-01 re-check (1,800 matches at Expert, boost on and off alike): Block won 56.8 %, so Expert's perfect-block chance went from 0.35 to 0.3 (Block 52.4 % over 600 matches; 0.25 gave 49.8 %). */
+   P14-01 re-check (1,800 matches at Expert, boost on and off alike): Block won 56.8 %, so Expert's perfect-block chance went from 0.35 to 0.3 (Block 52.4 % over 600 matches; 0.25 gave 49.8 %).
+   P14-01 second pass: Hard had Sway ahead (Block 47.3 %) and Boxing and Capoeira, the two best Sway styles, beat the Block strikers 61-67 %, so Hard's perfect-block chance went from 0.2 to 0.25 (Block 50.3 % over 600 matches). */
 const AI_SWAY_MIN_ETA = 6;       // a Sway AI only dodges a strike it sees at least this many ticks ahead: a late, plain dodge leaves the attacker free before the sway ends, so it just gets hit in the recovery
 const AI_SWAY_AIM = 3;         // a sway is timed so the strike goes active this many ticks into the dodge (a plain dodge, well inside the i-frames)
 const AI_SWAY_AIM_PERFECT = 8;   // ... or this many when the AI aims for a perfect sway (the last SWAY_PERFECT_TICKS of the i-frames are 6-11)

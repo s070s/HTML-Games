@@ -3642,6 +3642,9 @@ const SelfTest = {
         else if (SUBMISSION_STYLES.has(id) !== HOLD_STYLES.includes(id) || (s.submit.length > 0) !== HOLD_STYLES.includes(id)) problems.push(id + ' holds');   // holds for the grappling styles only
         if (!Array.isArray(s.signature) || s.signature.length < 3 || s.signature.some((x) => !Array.isArray(x) || typeof x[0] !== 'string' || !moveUseOk(x[1], Array.isArray(s.submit) && s.submit.length > 0))) problems.push(id + ' signature');
         if (stringsFor(id).stand.P === undefined || stringsFor(id).stand.K === undefined) problems.push(id + ' strings');
+        const own = new Set(), rows = stringsFor(id);   // every string strike in the signature has to be thrown by one of the style's own rows
+        for (const side of ['stand', 'crouch']) for (const keys in rows[side]) rows[side][keys].forEach((move) => own.add(move));
+        for (const [name, uses] of s.signature) if (ATTACKS[uses] && ATTACKS[uses].type === 'strike' && !ATTACKS[uses].ctx && !own.has(uses)) problems.push(id + ' signature ' + name + ' is in no string row');
       }
       const families = new Set(MOVE_STYLE_IDS.map((id) => MOVE_STYLE[id].family));
       if (families.size !== 7 || Object.keys(STYLE_FAMILY_LABEL).length !== 7) problems.push('families ' + families.size);
@@ -4463,11 +4466,11 @@ const SelfTest = {
        mirror on expert). A task that changes 1v1 behaviour on purpose (balance, AI, moves) has to record new values here. */
     /* Re-recorded 2026-10-29 for the P8-02 arenas; the old values live in the engine-neutrality test ("Levels: the engine of P8 changes no 1v1 result"). */
     const ONE_V_ONE_FINGERPRINTS = [
-      { opts: { seed: 1, playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard' }, hash: '72:1phwk8i' },
+      { opts: { seed: 1, playerId: 'kai', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'hard' }, hash: '101:e6hj22' },   // re-recorded 2026-10-30 for P14-01: Hard's perfect-block chance went from 0.2 to 0.25 (an intended balance change; the Easy and Expert matches are unchanged)
       { opts: { seed: 7, playerId: 'zero', opponentId: 'mara', arenaId: 'warehouse', difficulty: 'easy' }, hash: '103:mtun1h' },
       { opts: { seed: 3, playerId: 'kai', opponentId: 'kai', arenaId: 'pit', difficulty: 'expert' }, hash: '80:1dpzzwv' },
     ];
-    const ONE_V_ONE_OLD_HASHES = ['64:shp12u', '64:1563zst', '81:g3xni6'];   // the values recorded before P8-02, for the same three matches on the pre-P8 layouts (the engine-neutrality test)
+    const ONE_V_ONE_OLD_HASHES = ['108:1ymo6d9', '64:1563zst', '81:g3xni6'];   // the values the code before P8-02 (commit 05e3c78) gives for the same three matches on the pre-P8 layouts (the engine-neutrality test); the first uses Hard's perfect-block chance 0.25 of P14-01 (0.2 gave 64:shp12u): that old code, run from a git copy with only that number changed, gives 108:1ymo6d9, the same hash today's engine gives, so it still guards neutrality at Hard
     const FINGERPRINT_EVENTS = ['hit', 'block', 'throw', 'throwStart', 'knockdown', 'clinch', 'tackle', 'sway', 'sidestep', 'escape', 'submission', 'submissionEnd', 'fall', 'ko', 'roundStart', 'roundEnd', 'matchEnd'];
     const fingerprint = (opts) => {
       const lines = [];
