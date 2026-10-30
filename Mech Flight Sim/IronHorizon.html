@@ -1065,6 +1065,7 @@ const ACTIONS = [
   ['reload', 'Reload', 'KeyR'],
   ['switchWeapon', 'Switch primary weapon', 'KeyZ'],
   ['reposition', 'Reposition when stuck (hold)', 'KeyH'],
+  ['swapPlatform', 'Change platform (at a depot, or after an objective)', 'KeyB'],
   ['pause', 'Pause', 'KeyP'],
 ];
 /* fixed shortcuts that pick a primary directly, unless the player bound the key to an action (the mouse wheel switches) */
@@ -1086,7 +1087,7 @@ function keyLabel(code) {
 /* Gamepad buttons for actions shown in on-screen prompts (standard mapping, see Input.pad). */
 const PAD_LABELS = {
   fire1: 'RT', fire2: 'LT', boost: 'L3', jump: 'A', defense: 'B', melee: 'X', cycleTarget: 'Y', stance: 'LB', superweapon: 'RB',
-  interact: 'BACK', reload: 'R3', switchWeapon: 'D-PAD LEFT', reposition: 'D-PAD DOWN', pause: 'START',
+  interact: 'BACK', reload: 'R3', switchWeapon: 'D-PAD LEFT', reposition: 'D-PAD DOWN', swapPlatform: 'D-PAD UP', pause: 'START',
 };
 /* The control to show for an action: its gamepad button when the pad was used last, else its key. */
 /* On-screen touch buttons for actions shown in prompts (see TouchControls); a function names it by platform kind
@@ -1095,7 +1096,7 @@ const TOUCH_LABELS = {
   fire1: 'FIRE', fire2: 'ALT', boost: 'BOOST', defense: 'DEF', cycleTarget: 'TGT', superweapon: 'SUPER',
   jump: (kind) => (kind === 'mech' ? 'JET' : 'BRAKE'), stance: (kind) => (kind === 'air' ? 'GEAR' : kind === 'artillery' ? 'DEPLOY' : 'CROUCH'),
   melee: (kind) => (kind === 'artillery' ? 'ARC' : 'MELEE'),
-  interact: 'USE', reload: 'RLD', switchWeapon: 'WPN', reposition: 'REPOS', pause: 'II',
+  interact: 'USE', reload: 'RLD', switchWeapon: 'WPN', reposition: 'REPOS', swapPlatform: 'SWAP', pause: 'II',
 };
 /* the kind the touch labels go by: the platform's kind, or 'artillery' for the artillery's ground vehicles */
 const touchKind = (p) => (!p ? 'mech' : p.def.style === 'artillery' ? 'artillery' : p.kind);
@@ -1500,6 +1501,7 @@ const TOUCH_BUTTONS = [
   { name: 'stance', label: TOUCH_LABELS.stance, at: 'l', x: 0, y: 0, show: (p, ctx) => ctx.gear || ctx.deploy || !!(p && p.kind === 'mech' && !p.chute) },
   { name: 'melee', label: TOUCH_LABELS.melee, at: 'l', x: 0, y: 1.18, show: (p, ctx) => ctx.melee || ctx.arc },
   { name: 'reposition', label: TOUCH_LABELS.reposition, at: 'l', x: 0, y: 2.36, show: () => Reposition.offered },   // only while the way out of a stuck place is offered (P2-04)
+  { name: 'swap', label: TOUCH_LABELS.swapPlatform, at: 'l', x: 0, y: 3.54, show: () => Swap.offered },   // only while a platform change is allowed (P2-07; a guest always: the host answers)
 ];
 const TOUCH_CTX = {};   // the Use context the touch layout was built from (filled by Seats.context)
 const TouchControls = {
@@ -3751,6 +3753,7 @@ const LOAD_STEP = 0.2, LOAD_STEP_SPEED = 10;   // footfalls: a unit moving at LO
 const LOAD_TICK = 0.25;         // s between wear hits, so a unit on a roof sends few damage events and structure updates
 const VEHICLE_PERCH = 1;        // m a ground vehicle sits above its wheels' ground or deck before it looks for a structure top under it (only one put or thrown up there)
 const VEHICLE_SETTLE = 0.5;     // m above that top within which it rests its weight on it
+const VEHICLE_DECK_SAG = 0.25;  // m a ground vehicle whose middle is on a bridge deck sinks under it at most when its flanks overhang the edge (a tank 7 m wide on a 10 m deck: the old four-point average dropped it below the deck's step, it fell off and drowned)
 const LOAD_RULES = { land: true, floor: true, stand: true, capacity: true, objectives: true, bridges: true, heavyOnly: true };   // self-test switches: each rule can be turned off to prove its test
 /* true when piece s takes no load or landing damage: objectives fall only to weapons (D45), and bridge decks carry any
    platform, as units cross them in missions and in traffic */
@@ -4577,7 +4580,7 @@ function newWorld(cfg) {
     friendlyFire: false, infiniteAmmo: false, shake: 0, structHp: cfg.structHp || 1, structDamage: cfg.structDamage || 1,
     diff: DIFFICULTY[cfg.difficulty || 'veteran'], camPos: { x: 0, y: 50, z: 0 }, mode: cfg.mode, mission: null, pads: cfg.pads || [], airports: [], harbours: [],
     stats: newStats(),
-    hitMarker: 0, killMarker: 0, paused: false, timeScale: 1, flash: 0, dmgDirs: [], msgs: [],
+    hitMarker: 0, killMarker: 0, paused: false, timeScale: 1, flash: 0, dmgDirs: [], msgs: [], swapHook: null,   // swapHook: a skirmish's follow-up when a commander changes platform (Swap)
     msg(text, snd) { this.msgL(text); if (snd) Snd.ui(snd); if (Net.host) Net.bcast(snd ? { t: 'msg', text, snd } : { t: 'msg', text }); },
     msgL(text) {
       const last = this.msgs[this.msgs.length - 1];
@@ -13454,6 +13457,13 @@ const NAVAL_ASTERN_ERR = 1.9;    // rad: an AI ship further than this off its he
 const NAVAL_ASTERN_SPEED = 4;    // ...and slower than this (m/s) for NAVAL_ASTERN_T s goes astern to swing round
 const NAVAL_ASTERN_T = 1.5;
 const NAVAL_LANE_STALL = 20;     // s without getting NAV_PROGRESS_D m nearer its lane point, and it takes the next one
+const NAVAL_NARROW_SPEED = 11;   // m/s: a ship patrolling a narrow river keeps to this (the rudder is at full authority from steerSpeed, so its turning circle is the smallest the hull has: about 15 m for a gunboat; at 26 m/s it is 33 m, wider than the river)
+const NAVAL_TURN_SPEED = 9;      // m/s: ...and holds this while the next lane point lies behind it (more than NAVAL_TURN_ERR off the bow), so it swings round on an arc instead of creeping at a few m/s, where the rudder barely bites
+const NAVAL_TURN_ERR = 0.7;      // rad
+const NAVAL_KLEG_MIN = 0.8;      // s: a leg of a K-turn lasts at least this long before it can end...
+const NAVAL_KHELD_SPEED = 1.5;   // ...and ends when the hull has slowed under this (m/s): against a bank
+const NAVAL_NARROW_REACH = 40;   // m: it starts the turn at an end this far short of the point (the turning circle is about 15 m, the water ends a little past the point)
+const NAVAL_TURN_MARGIN = 20;    // m: a river's two ends lie more than two of those and this apart, else it keeps the old rule
 const NAVAL_FALLBACK = 'bulwark';   // what a ship's pilot gets on a battlefield without water it can sail
 const NAVAL_FITS = new WeakMap();   // per battlefield def, per ship id: whether it has water that ship can sail (Naval.shipOk)
 const KEEL_A = { x: 0, z: 0 }, KEEL_B = { x: 0, z: 0 };   // scratch points on two hulls' keels (resolvePairs)
@@ -13701,6 +13711,13 @@ const Naval = {
       for (let r = 40; r <= 200; r += 40) for (let i = 0; i < 16; i++) { const a = i * TAU / 16, px = x + Math.sin(a) * r, pz = z + Math.cos(a) * r; if (inHome(px, pz)) cand.push({ x: px, z: pz, d: r }); }
       cand.sort((u, v) => v.d - u.d);
       for (const c of cand) if (out.length < 3 && out.every((q) => Math.hypot(q.x - c.x, q.z - c.z) > 60)) out.push({ x: c.x, z: c.z });
+      // a river (its two farthest open points lie more than two NAVAL_NARROW_REACH apart; a pond keeps the old rule): the ship runs end to end between
+      // those two, at NAVAL_NARROW_SPEED, and starts its turn round NAVAL_NARROW_REACH m short of each end (runNaval, driveGround), so it is made in the
+      // river on an arc and not against the dead end (a loop of 3 points close together was reached at once from any of them)
+      const ends = out.concat(cand);
+      let ea = null, eb = null, span = 0;
+      for (let i = 0; i < ends.length; i++) for (let j = i + 1; j < ends.length; j++) { const d = Math.hypot(ends[i].x - ends[j].x, ends[i].z - ends[j].z); if (d > span) { span = d; ea = ends[i]; eb = ends[j]; } }
+      if (span > 2 * NAVAL_NARROW_REACH + NAVAL_TURN_MARGIN) { out.length = 0; out.push({ x: ea.x, z: ea.z }, { x: eb.x, z: eb.z }); out.narrow = true; }
     }
     return out;
   },
@@ -14156,6 +14173,7 @@ class Platform {
     this.dead = false; this.invuln = false; this.age = 0;
     this.grounded = this.kind !== 'air'; this.crouch = false; this.stagger = 0; this.jetting = false; this.boosting = false;
     this.hurtAt = -Infinity;   // when it last lost hull (Reposition gives no help in a fight)
+    this.commander = false; this.swapSt = null; this.swapped = false;   // an AI commander may change platform (Swap); its state there; this body was left by a change
     this.sub = { weapons: 0, mobility: 0, sensors: 0 }; this.subIndex = 0; this.hitFlash = 0; this.recoil = 0; this.meleeT = 0; this.meleeCd = 0; this.apronStop = false;
     this.telegraph = 0; this.telegraphColor = 0;
     this.throttle = 0.6; this.speed = 0; this.gear = false; this.stalled = false; this.radarFocus = false; this.afterburner = false; this.airbrake = false;
@@ -14435,6 +14453,7 @@ class Platform {
     const hL = this.restH(this.x + cy * L, this.z - sy * L), hR = this.restH(this.x - cy * L, this.z + sy * L);
     const ride = g.type === 'hover' ? g.ride + Math.sin(this.age * 3 + this.seed) * 0.25 : 0;
     let rest = (hF + hB + hL + hR) / 4, on = null;
+    if (Water.any && g.type !== 'hover') { const deck = Water.deckTop(this.x, this.z, this.y); if (deck - VEHICLE_DECK_SAG > rest) rest = deck - VEHICLE_DECK_SAG; }   // middle on a deck: the flanks over the edge do not pull it off
     if (this.y > rest + ride + VEHICLE_PERCH) {   // put or thrown up onto a structure: it rests on the top under it
       const top = groundLevel(this.x, this.z, this.y - ride, this.radius);
       if (GROUND_PIECE && top > rest) { rest = top; on = GROUND_PIECE; }
@@ -17534,6 +17553,317 @@ const Reposition = {
     notify(p, 'REPOSITIONED', 'warn');
     if (p === W.player) Cam.reset(p);
     return true;
+  },
+};
+
+/* =====================================================================
+   CHANGE PLATFORM (P2-07): swap the platform being flown for another, in a fight and between objectives
+   The rule (Appendix C "P2-07"); a player, a co-op guest (the host decides) and an AI commander follow the same one:
+   - where: at a depot (a mission's start, a command center's yard, a supply pad, a harbour, an airfield apron), or
+     anywhere once an objective is completed (a skirmish: a wave beaten), one field change per completed objective;
+     Training: anywhere. Never in an on-foot mission.
+   - time: SWAP_TIME_DEPOT s at a depot, SWAP_TIME_FIELD s in the field, standing still (an aircraft keeps flying), and any
+     hit on hull, armour or shield cancels it (and shuts the way for SWAP_FAIL_GAP s).
+   - limits: not within SWAP_CALM s of losing hull, not under a status effect, a missile in the air or a lock on you;
+     then SWAP_COOLDOWN s before the next one. No spawn protection, no life lost, no new life.
+   - carries: hull, armour, shield, energy and heat as the same share of the new platform's; ammunition and utility
+     charges as the old ones' mean share (so it is no refill: a depot's resupply charges are the way to that); the
+     superweapon meter; the player's score, kills and name. The pick lasts until the platform is lost (a lost one comes
+     back as the hangar's pick again).
+   ===================================================================== */
+const SWAP_BASE_RANGE = 160;      // m: a mission's start, and a command center's yard (ours for us, the enemy's for its commanders), are depots; so are a supply pad, a harbour and an apron (padInRange)
+const SWAP_TIME_DEPOT = 3;        // s the change takes at a depot...
+const SWAP_TIME_FIELD = 6;        // ...and in the field
+const SWAP_CALM = 8;              // s since the platform last lost hull before it may change
+const SWAP_COOLDOWN = 45;         // s before it may change again
+const SWAP_COOLDOWN_TRAINING = 5; // (Training)
+const SWAP_FAIL_GAP = 8;          // s the way stays shut after a change that was hit
+const SWAP_SHIP_REACH = 150;      // m: a ship is put in water this near
+const SWAP_LAND_REACH = 40;       // m: a land platform is put on dry ground this near when its own spot is taken
+const SWAP_AI_HURT = 0.4;         // an AI commander at a depot changes when its hull is under this share
+const SWAP_AI_EVERY = 2;          // s between an AI commander's looks
+const SWAP_ASK_GAP = 1;           // s between a guest's requests the host looks at
+const SWAP_AI_ARCHS = ['infantry', 'buggy', 'rpgTrooper', 'tank', 'lightMech', 'medMech', 'heavyMech', 'jet', 'gunship'];   // what a skirmish wave draws from, cheapest first (unitCost)
+const Swap = {
+  me: null, guestView: null, offered: false, hint: false, why: '', watchT: 0, aiT: SWAP_AI_EVERY,
+  blank() { return { until: 0, credit: 0, seen: -1, ch: null, used: false }; },   // used: an AI commander's one change is spent
+  reset() { this.me = null; this.guestView = null; this.offered = false; this.hint = false; this.why = ''; this.watchT = 0; this.aiT = SWAP_AI_EVERY; },
+  /* a guest's picture of its change, from the host's 'me' state (selfState): { offered, hint, why, left, total, id } */
+  applyGuest(a) {
+    if (!Array.isArray(a)) return;
+    const id = String(a[4]);
+    this.guestView = { offered: !!a[0], hint: !!a[1], left: Number(a[2]) || 0, total: Number(a[3]) || 0, id: PLATFORMS[id] ? id : '', why: String(a[5] || '').substring(0, 48) };
+  },
+  /* the change under way for the local human, as { id, t, total }, or null (a guest reads the host's word) */
+  running() {
+    if (Net.guest) { const v = this.guestView; return v && v.id && v.total > 0 && v.left >= 0 ? { id: v.id, t: v.total - v.left, total: v.total } : null; }
+    const c = this.me && this.me.ch;
+    return c ? { id: c.id, t: c.t, total: c.total } : null;
+  },
+  /* what the host tells guest peer about its change: [offered, hint, seconds left (-1: none), total, platform id, why not] */
+  peerView(peer) {
+    const p = peer.p;
+    if (!p || p.dead) return [0, 0, -1, 0, '', ''];
+    const st = this.state(p), why = this.block(p, st), c = st.ch;
+    return [why ? 0 : 1, !why && this.hintFor(p, st) ? 1 : 0, c ? r1(Math.max(0, c.total - c.t)) : -1, c ? c.total : 0, c ? c.id : '', why ? why.toLowerCase() : ''];
+  },
+  /* the hint line is up at a depot, or with a field change in hand */
+  hintFor(p, st) { return W.mode !== 'training' ? !!(st.credit || this.depot(p)) : this.depot(p); },
+  /* the state of body p: the local player's, a guest's (on its peer) or an AI unit's */
+  state(p) {
+    if (p.netPeer) return p.netPeer.sw || (p.netPeer.sw = this.blank());
+    if (p.isPlayer) return this.me || (this.me = this.blank());
+    return p.swapSt || (p.swapSt = this.blank());
+  },
+  /* true at a depot of p's side */
+  depot(p) {
+    const b = W.bases && (p.team === 0 ? W.bases.own : p.team === 1 ? W.bases.enemy : null);
+    if (b && Math.hypot(b.x - p.x, b.z - p.z) < SWAP_BASE_RANGE) return true;
+    if (p.team !== 0) return false;
+    const st = W.mission && W.mission.def.start;
+    return !!(st && Math.hypot(st.x - p.x, st.z - p.z) < SWAP_BASE_RANGE) || !!padInRange(p);
+  },
+  /* objectives completed so far: a mission's, and a skirmish's waves beaten */
+  progress() {
+    const m = W.mission;
+    if (!m) return 0;
+    let n = m.def.wavesCleared ? m.def.wavesCleared() : 0;
+    for (const o of m.objectives) if (o.status === 'complete') n++;
+    return n;
+  },
+  /* an objective completed since the state was last looked at: one field change, not more than one saved up */
+  earn(st, n) {
+    if (st.seen < 0) st.seen = n;
+    else if (n > st.seen) { st.credit = 1; st.seen = n; }
+  },
+  afflicted(p) {
+    const s = p.status;
+    return p.stagger > 0 || p.burnT > 0 || s.freeze > 0 || s.emp > 0 || s.blind > 0 || s.slam > 0 || s.float > 0 || s.convert > 0 || s.mark > 0;
+  },
+  /* why p may not change platform now ('' when it may) */
+  block(p, st) {
+    if (!p || p.dead || p.parked || p.chute || p.ejectPilot) return 'NO PLATFORM TO CHANGE';
+    if (p.isPlayer && p.def.style === 'infantry') return 'ON FOOT: USE A FREE VEHICLE';   // (the people are left to Use: stepping out would give a full-ammunition human and a vehicle for it)
+    if (W.mission && W.mission.def.foot) return 'THIS MISSION IS ON FOOT';
+    if (W.time < st.until) return 'PLATFORM CHANGE READY IN ' + Math.ceil(st.until - W.time) + ' S';
+    if (W.time - p.hurtAt < SWAP_CALM) return 'NOT UNDER FIRE: WAIT ' + Math.ceil(SWAP_CALM - (W.time - p.hurtAt)) + ' S';
+    if (this.afflicted(p)) return 'NOT WHILE AFFLICTED';
+    if (incomingMissiles(p).count > 0 || p.beingLocked > 0) return 'NOT WITH A MISSILE ON YOU';
+    if (W.mode !== 'training' && !st.credit && !this.depot(p)) return 'NEEDS A DEPOT OR A COMPLETED OBJECTIVE';
+    return '';
+  },
+  /* where the new body goes: { x, z, yaw[, y] } or null when there is no place for def near p */
+  site(def, p) {
+    if (def.kind === 'air') {
+      if (p.kind === 'air') return { x: p.x, z: p.z, y: p.y, yaw: p.yaw };
+      const a = airSpawn(p.x, p.z, p.yaw, 0, airSeen(def));
+      return { x: a.x, z: a.z, y: a.y, yaw: a.yaw };
+    }
+    if (def.kind === 'naval' && !def.naval.amphibious) {
+      const s = Naval.spot(p.x, p.z, def, SWAP_SHIP_REACH, true, undefined, true);
+      return s ? { x: s.x, z: s.z, yaw: s.yaw !== undefined ? s.yaw : p.yaw } : null;
+    }
+    const free = (x, z) => !groundBlocked(x, z, def.radius + 1) && Terrain.slope(x, z) <= 0.55 && !Water.at(x, z) && !W.platforms.some((q) => q !== p && !q.dead && q.kind !== 'air' && Math.hypot(q.x - x, q.z - z) < q.radius + def.radius);
+    if (p.kind !== 'air' && p.kind !== 'naval' && free(p.x, p.z)) return { x: p.x, z: p.z, yaw: p.yaw };
+    const s = findSpawn(p.x, p.z, SWAP_LAND_REACH, def.radius, 0);
+    return s ? { x: s.x, z: s.z, yaw: p.yaw } : null;
+  },
+  /* why def cannot be taken from p ('' when it can) */
+  targetBlock(def, p) {
+    if (!def || !def.playable || def.style === 'infantry') return 'NOT A VEHICLE YOU CAN TAKE';
+    if (def.id === p.def.id) return 'YOU ARE IN IT ALREADY';
+    return this.site(def, p) ? '' : def.kind === 'naval' ? 'NO WATER HERE FOR A SHIP' : 'NO ROOM HERE FOR THE ' + def.name.toUpperCase();
+  },
+  /* the platforms the list offers p, each with why it cannot be taken ('' when it can) */
+  choices(p) {
+    return PLAYABLE.filter((id) => PLATFORMS[id].style !== 'infantry').map((id) => ({ id, def: PLATFORMS[id], why: Net.guest ? '' : this.targetBlock(PLATFORMS[id], p) }));
+  },
+  /* the local human's change, once per frame (PC.sample): whether it is offered now, and the control pressed opens the list */
+  frame(p, pressed) {
+    if (!p || p.dead || W.mode === 'menu') { this.offered = this.hint = false; return; }
+    if (Net.guest) {   // the host decides and says (its 'me' state): until the first word, the button is there and the host answers a press
+      const v = this.guestView;
+      this.offered = v ? v.offered : !p.parked; this.hint = !!(v && v.hint); this.why = v ? v.why.toUpperCase() : '';
+    } else {
+      const st = this.state(p);
+      this.why = this.block(p, st);
+      this.offered = !this.why;
+      this.hint = this.offered && this.hintFor(p, st);
+    }
+    if (pressed) this.open(p);
+  },
+  open(p) {
+    if (Game.state !== 'playing' || Game.netPaused) return;
+    if (!this.offered) { notify(p, this.why || 'NO PLATFORM CHANGE NOW', 'warn'); return; }
+    Game.pause();
+    UI.show('swap');
+  },
+  /* p asks for def id: solo and the host start the change, a guest asks the host. '' when it started (or was sent), else why not */
+  begin(p, id) {
+    if (Net.guest) { Net.send(Net.hostPeer, { t: 'swap', pid: id }); return ''; }
+    if (!p || p.dead) return 'NO PLATFORM TO CHANGE';
+    const st = this.state(p), def = PLATFORMS[id];
+    const why = st.ch ? 'ALREADY CHANGING' : this.block(p, st) || this.targetBlock(def, p);
+    if (why) { notify(p, why, 'warn'); return why; }
+    const field = W.mode !== 'training' && !this.depot(p);
+    st.ch = { id, arch: null, body: p, t: 0, total: field ? SWAP_TIME_FIELD : SWAP_TIME_DEPOT, field, hp: p.hp, armor: p.armor, shield: p.shield };
+    notify(p, 'CHANGING TO ' + def.name.toUpperCase() + ': ' + (p.kind === 'air' ? 'FLY STEADY ' : 'STAY STILL ') + st.ch.total + ' S, A HIT CANCELS IT', 'ok');
+    return '';
+  },
+  /* an AI commander starts a change to archetype arch; false when it may not */
+  beginAi(u, arch) {
+    const st = this.state(u), def = PLATFORMS[ARCH[arch].def];
+    if (u.kind === 'air' || st.ch || this.block(u, st) || !this.site(def, u)) return false;   // (an AI aircraft never changes: it cannot stay over its base for the 3 s, and would only fly level on and cancel)
+    st.ch = { id: def.id, arch, body: u, t: 0, total: SWAP_TIME_DEPOT, field: false, hp: u.hp, armor: u.armor, shield: u.shield };
+    u.ai.enabled = false;   // it stands still while it changes
+    return true;
+  },
+  /* the archetype an AI commander changes to: the dearest of its wave's types that costs less than what it is in (a hurt unit is never turned into a stronger
+     one, nor swapped for the same price: it would swap again every cooldown at its base); none for the cheapest */
+  aiPick(u) {
+    const cost = unitCost(u.arch);
+    let best = null;
+    for (const t of SWAP_AI_ARCHS) if (unitCost(t) < cost && (!best || unitCost(t) > unitCost(best))) best = t;
+    return best;
+  },
+  /* once a tick on the host and solo (Game.tick, before anything reads the player): the credits, the changes under way, the AI commanders */
+  step(dt) {
+    if (!W || !W.mission || Net.guest) return;
+    this.watchT += dt;
+    if (this.watchT >= 1) {
+      this.watchT = 0;
+      const n = this.progress();
+      this.earn(this.me || (this.me = this.blank()), n);
+      for (const peer of Net.peers) if (peer.hello) this.earn(peer.sw || (peer.sw = this.blank()), n);
+    }
+    if (this.me && this.me.ch && W.player) this.advance(W.player, this.me, dt);
+    for (const peer of Net.peers) if (peer.sw && peer.sw.ch && peer.p) this.advance(peer.p, peer.sw, dt);
+    for (const u of W.platforms) if (u.swapSt && u.swapSt.ch && !u.isPlayer) this.advance(u, u.swapSt, dt);
+    this.aiT -= dt;
+    if (this.aiT > 0) return;
+    this.aiT = SWAP_AI_EVERY;
+    for (const u of W.platforms) {
+      if (!u.commander || !u.ai || u.dead || u.isPlayer || (u.swapSt && u.swapSt.used) || SWAP_AI_ARCHS.indexOf(u.arch) < 0 || u.hp >= u.maxHp * SWAP_AI_HURT || !this.depot(u)) continue;   // (one change for each commander and the unit it becomes)
+      const pick = this.aiPick(u);
+      if (pick) this.beginAi(u, pick);
+    }
+  },
+  cancel(p, st, text) {
+    st.ch = null; st.until = Math.max(st.until, W.time + SWAP_FAIL_GAP);
+    if (p.ai) p.ai.enabled = true;
+    notify(p, text, 'warn');
+  },
+  /* one tick of the change under way for body p */
+  advance(p, st, dt) {
+    const c = st.ch;
+    if (p.dead) { st.ch = null; return; }
+    if (c.body !== p) {   // the person stepped out, ejected or was put in another body meanwhile: the change was for that body, and ends with it
+      st.ch = null;
+      if (c.body && c.body.ai) c.body.ai.enabled = true;
+      return;
+    }
+    if (p.hp < c.hp - 0.01 || p.armor < c.armor - 0.01 || p.shield < c.shield - 0.01) { this.cancel(p, st, 'CHANGE CANCELLED: HIT'); return; }
+    // the same things that stop one starting stop it going on: a missile in the air, a lock, a status effect (none of them costs hull)
+    if (incomingMissiles(p).count > 0 || p.beingLocked > 0) { this.cancel(p, st, 'CHANGE CANCELLED: MISSILE ON YOU'); return; }
+    if (this.afflicted(p)) { this.cancel(p, st, 'CHANGE CANCELLED: AFFLICTED'); return; }
+    c.hp = Math.max(c.hp, p.hp); c.armor = Math.max(c.armor, p.armor); c.shield = Math.max(c.shield, p.shield);   // (armour and shield recover: that is no hit)
+    const k = p.cmd;
+    if (p.kind !== 'air') {   // held in place: no stick, no fire, and no dash, lunge, jump, crouch or superweapon either
+      k.moveF = k.moveS = k.turn = 0; k.fire1 = k.fire2 = false; k.boost = k.jump = false; k.brake = true;
+    }
+    k.fire1Edge = k.fire2Edge = k.defenseEdge = k.meleeEdge = k.stanceEdge = k.superEdge = k.reloadEdge = false;
+    k.sel1 = k.sel2 = k.selNext = false;
+    c.t += dt;
+    if (c.t >= c.total) this.perform(p, st);
+  },
+  /* ammunition share of p (0 to 1): the mean over its guns, and the same for its utility charges */
+  ammoShare(p) {
+    const mult = W.mods && W.mods.scarce ? SCARCE_AMMO : 1;
+    let sum = 0, n = 0;
+    for (const sl of GUN_SLOTS) {
+      const w = p.wslots[sl];
+      if (!w || w.def.kind === 'beam' || !w.def.clip) continue;
+      sum += clamp((w.clip + w.reserve) / (w.def.clip + Math.round(w.def.reserve * mult)), 0, 1); n++;
+    }
+    if (p.util && p.util.def.charges) { sum += clamp(p.util.charges / p.util.def.charges, 0, 1); n++; }
+    return n ? sum / n : 0;   // (an all-beam body has no ammunition to carry: the new one gets none, not a full load)
+  },
+  /* what the new body np keeps of old: the same shares of hull, armour, shield, energy and heat; the ammunition share; the superweapon meter */
+  carry(old, np) {
+    const share = (a, b) => (b > 0 ? clamp(a / b, 0, 1) : 1);
+    // hull, armour and shield keep the old share of the smaller of the two maxima, so changing up to a bigger hull gains no hit points (that would be a repair)
+    const room = (oldMax, newMax) => (newMax > 0 ? Math.min(1, oldMax / newMax) : 1);
+    np.hp = Math.max(1, np.maxHp * share(old.hp, old.maxHp) * room(old.maxHp, np.maxHp));
+    np.armor = np.maxArmor * share(old.armor, old.maxArmor) * room(old.maxArmor, np.maxArmor);
+    np.shield = np.maxShield * share(old.shield, old.maxShield) * room(old.maxShield, np.maxShield);
+    np.energy = np.maxEnergy * share(old.energy, old.maxEnergy);
+    np.heat = np.maxHeat * share(old.heat, old.maxHeat); np.overheated = old.overheated && np.heat >= np.maxHeat;
+    const mult = W.mods && W.mods.scarce ? SCARCE_AMMO : 1, a = this.ammoShare(old);
+    for (const sl of GUN_SLOTS) {
+      const w = np.wslots[sl];
+      if (!w || w.def.kind === 'beam' || !w.def.clip) continue;
+      w.clip = Math.round(w.def.clip * a); w.reserve = Math.round(w.def.reserve * mult * a); w.reloading = 0;
+    }
+    if (np.util && np.util.def.charges) np.util.charges = Math.round(np.util.def.charges * a);
+    // the superweapon meter keeps the seconds of charge already in it (a full tier-1 meter is not a full tier-3 one); the same superweapon keeps it whole
+    if (old.sw && np.sw) {
+      np.sw.charge = old.sw.id === np.sw.id ? old.sw.charge : Math.min(1, old.sw.charge * superCharge(old.sw.def) / superCharge(np.sw.def));
+      np.sw.ready = np.sw.charge >= 1;
+    }
+    np.hurtAt = old.hurtAt;
+  },
+  /* the change is done: old becomes np */
+  perform(old, st) {
+    const c = st.ch, def = PLATFORMS[c.id], site = this.site(def, old);
+    // where it stands now counts, not where it began (an aircraft is 300 m on in 3 s): out of every depot it needs the field change, else it ends here;
+    // a change that began at a depot and ends outside one runs on to the field's full time first (a hit still cancels it)
+    const field = W.mode !== 'training' && !this.depot(old);
+    if (field && st.credit > 0 && c.total < SWAP_TIME_FIELD) {
+      c.total = SWAP_TIME_FIELD; c.field = true;
+      notify(old, 'LEFT THE DEPOT: A FIELD CHANGE TAKES ' + SWAP_TIME_FIELD + ' S', 'warn');
+      return false;
+    }
+    st.ch = null;
+    if (old.ai) old.ai.enabled = true;
+    if (field && !(st.credit > 0)) { this.cancel(old, st, 'CHANGE CANCELLED: LEFT THE DEPOT'); return false; }
+    c.field = field;
+    if (!site) { notify(old, 'NO ROOM FOR THE ' + def.name.toUpperCase() + ' HERE', 'warn'); return false; }
+    let np;
+    if (c.arch) {   // an AI commander: the unit of that archetype takes over its orders
+      np = spawnUnit(c.arch, site.x, site.z, { team: old.team, exact: true, force: true, radius: 6, yaw: site.yaw, y: site.y });
+      if (!np) { notify(old, 'NO ROOM FOR THE ' + def.name.toUpperCase() + ' HERE', 'warn'); return false; }
+      if (np.ai && old.ai) { np.ai.goal = old.ai.goal; np.ai.assault = old.ai.assault; np.ai.follow = old.ai.follow; }
+      np.commander = true; np.garrison = old.garrison;
+      np.swapSt = Object.assign(this.blank(), { until: W.time + SWAP_COOLDOWN, seen: 0, used: true });
+    } else {
+      const lo = old.netPeer ? Object.assign({}, def.loadout) : Object.assign({}, Loadout.forPlatform(def.id));   // a guest's loadouts are its own: the stock one
+      np = new Platform(def, { team: old.team, x: site.x, z: site.z, yaw: site.yaw, loadout: lo, name: old.name, ammoMult: W.mods && W.mods.scarce ? SCARCE_AMMO : 1, y: def.kind === 'air' ? site.y : undefined });
+      np.cmd.aimYaw = site.yaw;
+      if (def.kind === 'air') {
+        if (old.kind === 'air' && old.grounded) Seats.groundAir(np);
+        else { np.grounded = false; np.gear = false; np.pitch = np.roll = 0; np.throttle = Math.max(np.throttle, 0.7); np.speed = def.air.cruise; np.vx = Math.sin(np.yaw) * np.speed; np.vz = Math.cos(np.yaw) * np.speed; }
+      }
+      Nav.prepare(def);
+      W.platforms.push(np);
+      Seats.bind(np, old, old.netPeer || null);   // control, name, score and the superweapon meter move to it
+    }
+    this.carry(old, np);
+    if (W.swapHook) W.swapHook(old, np);
+    old.dead = true; old.swapped = true;
+    W.platforms = W.platforms.filter((q) => q !== old);
+    for (const pr of Net.peers) if (pr.known) pr.known.delete(old.id);   // guests drop the old body
+    const ns = c.arch ? np.swapSt : st;
+    if (!c.arch) { ns.until = W.time + (W.mode === 'training' ? SWAP_COOLDOWN_TRAINING : SWAP_COOLDOWN); if (c.field) ns.credit = 0; }
+    if (np === W.player) { Cam.reset(np); Game.tutorial = null; }
+    notify(np, 'NOW IN THE ' + def.name.toUpperCase(), 'ok');
+    return true;
+  },
+  /* a guest's request reached the host */
+  hostAsk(peer, pid) {
+    if (!Net.inSession || !peer.hello || !peer.p || peer.p.dead || typeof pid !== 'string') return;
+    if (Net.t - peer.swapAskT < SWAP_ASK_GAP) return;   // (a flood of asks is looked at once a second)
+    peer.swapAskT = Net.t;
+    this.begin(peer.p, pid);
   },
 };
 
@@ -23284,11 +23614,11 @@ class AIController {
     this.airOnly = p.model === 'turret' && p.def.style === 'aa';
     this.enabled = true; this.altBase = 0;
     this.moveDir = { x: 0, z: 0 };
-    this.lane = null; this.laneI = 0;   // a ship's patrol loop (Naval.patrolLane) and the point it heads for
+    this.lane = null; this.laneI = 0; this.narrowSea = false;   // a ship's patrol loop (Naval.patrolLane) and the point it heads for; patrolling a narrow river
     // its route round water and cliffs (Nav): the waypoints, when to look again, whether one is wanted or asked for, the heading it gives
     this.route = null; this.routeAt = 0; this.routeNext = 0; this.routeReq = false; this.routeDirect = true; this.routeX = 0; this.routeZ = 0; this.navSpec = undefined;
     this.routeWait = false; this.routeForce = false; this.progAt = 0; this.progPx = 0; this.progPz = 0; this.progX = 0; this.progZ = 0; this.progI = 0; this.farN = 0; this.farWorst = 0; this.farLast = 0; this.farX = 0; this.farZ = 0; this.farD = 0;   // waiting at the end of a partial route; stuck (no progress); the last progress look (where it stood, where it was bound, its waypoint)
-    this.sternT = 0;   // s a ship has crept with its bow the wrong way
+    this.sternT = 0; this.kT = 0; this.kDir = 1;   // s a ship has crept with its bow the wrong way; a narrow river's K-turn: s into the leg, ahead (1) or astern (-1)
     this.laneAt = 0; this.laneD = 0;   // a ship's patrol: when it set out for its lane point, and how far it was then
     this.roundT = 0; this.spot = null;   // an artillery battery's wait before its next round, and the spotted target it shells (runArtillery)
   }
@@ -23451,10 +23781,12 @@ class AIController {
       if (this.laneAt === 0) { this.laneAt = W.time; this.laneD = d; }
       // on to the next point of the loop when this one is reached, when the route to it ends short and the ship has got there, or when LANE_STALL s bring it no nearer (P2-03)
       const stalled = W.time - this.laneAt >= NAVAL_LANE_STALL && this.laneD - d < NAV_PROGRESS_D;
-      if (d < NAVAL_LANE_REACH || this.routeWait || stalled) { this.laneI++; g = lane[this.laneI % lane.length]; d = Math.hypot(g.x - p.x, g.z - p.z); this.laneAt = W.time; this.laneD = d; this.routeWait = false; }
+      if (d < (lane.narrow ? NAVAL_NARROW_REACH : NAVAL_LANE_REACH) || this.routeWait || stalled) { this.laneI++; g = lane[this.laneI % lane.length]; d = Math.hypot(g.x - p.x, g.z - p.z); this.laneAt = W.time; this.laneD = d; this.routeWait = false; }
       else if (W.time - this.laneAt >= NAVAL_LANE_STALL) { this.laneAt = W.time; this.laneD = d; }
       this.goal = g;
     }
+    this.narrowSea = !!(lane.narrow && !this.follow && !(this.target && talive(this.target)));
+    if (!this.narrowSea) { this.kDir = 1; this.kT = 0; }   // (a target or a leader took it off its river patrol: the K-turn starts afresh when it resumes)
     this.runGround(dt);
   }
   /* ---------- artillery ---------- */
@@ -23646,6 +23978,19 @@ class AIController {
       c.moveF = clamp((1 - Math.min(Math.abs(err) / 1.3, 0.85)) * speedF, -1, 1);
       if (Math.abs(err) > 2.3 && p.kind === 'ground' && p.def.ground.type !== 'tracked') { c.moveF = -0.6; c.turn = -c.turn; }   // a ship turns on under way...
       else if (p.kind === 'naval') {   // ...but one that has crept along with its bow the wrong way for NAVAL_ASTERN_T s (a river's dead end: the rudder bites on way only) goes astern, the rudder reversed (P2-03)
+        if (this.narrowSea) {   // a narrow river: a speed the turning circle fits in, held through the turn, and a turn that does not fit goes ahead and astern in turn, each leg ending where the hull is held (a K-turn, P2-03)
+          const turning = Math.abs(err) > NAVAL_TURN_ERR, top = Math.max(1, p.def.speed);
+          if (turning) {
+            this.kT += dt;
+            if (this.kT > NAVAL_KLEG_MIN && p.speed < NAVAL_KHELD_SPEED) { this.kDir = -this.kDir; this.kT = 0; }
+            c.moveF = this.kDir * clamp(NAVAL_TURN_SPEED / top, 0.1, 1);
+            if (this.kDir < 0) c.turn = -c.turn;   // (astern the rudder bites the other way)
+            this.sternT = 0;
+            return;
+          }
+          this.kDir = 1; this.kT = 0;
+          c.moveF = clamp(NAVAL_NARROW_SPEED / top, 0.1, 1);
+        }
         this.sternT = Math.abs(err) > NAVAL_ASTERN_ERR && p.speed < NAVAL_ASTERN_SPEED ? this.sternT + dt : 0;
         if (this.sternT > NAVAL_ASTERN_T) { c.moveF = -0.7; c.turn = -c.turn; }
       }
@@ -25397,6 +25742,13 @@ function skirmishDef(cfg) {
       m.add(Obj.destroy({ id: 'hq', title: 'Destroy the enemy command center', structs: [foeHq], status: 'active', label: 'ENEMY HQ', onComplete(mm) { mm.end(true, 'Enemy command center destroyed'); } }));
       m.add(Obj.guard({ id: 'base', title: 'Protect your command center', struct: ownHq, status: 'active', label: 'HQ' }));
       const supportList = { none: [], light: ['allyMech', 'allyTank'], heavy: ['allyMech', 'allyMech', 'allyTank', 'allyJet'] }[cfg.support];
+      // the first unit of each wave is its commander: it may change platform at its base like a player (Swap, P2-07); the kill objective follows
+      // the unit it becomes
+      W.swapHook = (old, np) => {
+        for (const l of ob.waves) { const i = l.indexOf(old); if (i >= 0) l[i] = np; }
+        const j = ob.units.indexOf(old);
+        if (j >= 0) ob.units[j] = np;
+      };
       ctx.later(() => { if (supportList.length) spawnGroup(supportList, start.x + 30, start.z + 30, { team: 0, radius: 40 }); });
       ctx.later(() => parkApronAircraft());
       // the fleet keeps to its patrol lanes and is not a wave: the battle is won without hunting every ship down
@@ -25415,6 +25767,7 @@ function skirmishDef(cfg) {
         const w = waves[idx], gate = Scenery.fortAt(foe, FORT.rally[0], FORT.rally[1]);
         const pos = humans().some((h) => Math.hypot(h.x - gate.x, h.z - gate.z) < SKIRMISH_WAVE_CLEAR) ? skirmishWavePos(W.player || start, w.ang, w.dist) : gate;
         const us = spawnGroup(w.list, pos.x, pos.z, { radius: 50, minPlayerDist: 220 });
+        if (us[0]) us[0].commander = true;
         ob.waves.push(us);
         us.forEach((u) => { ob.units.push(u); if (u.ai) { u.ai.assault = ownHq; if (u.kind !== 'air') u.ai.goal = waveGoal(u); } });
         idx++; ob.waveNo = idx;
@@ -25673,6 +26026,7 @@ const PC = {
     if (S.autoTarget) this.autoTarget(p);
     this.useInput(p, Input.held('interact') || !!(pad && pad.interact), dt);
     Reposition.frame(p, Input.held('reposition') || !!(pad && (pad.reposition || pad.down)), dt);   // stuck: the key, the d-pad down or the touch button, held (P2-04)
+    Swap.frame(p, this.padEdge(pad, 'swap') || this.padEdge(pad, 'up') || Input.hit('swapPlatform'));   // change platform: the key, the d-pad up or the touch button, pressed (P2-07)
   },
   /* Use: let go within USE_HOLD for a tap (enter, resupply, pick up); keep it down USE_HOLD to exit, or eject in the air */
   useInput(p, held, dt) {
@@ -25869,7 +26223,7 @@ const Game = {
     const st = def.start;
     W.pads = [{ x: st.x + 20, z: st.z + 4 }];
     W.mission = this.mission = new Mission(def, cfg);
-    PC.hadTarget = false; Reposition.reset();
+    PC.hadTarget = false; Reposition.reset(); Swap.reset();
     W.mission.noTimeout = cfg.mode === 'training';
     W.maxLives = cfg.mode === 'training' ? UNLIMITED_LIVES : this.livesFor(cfg); W.lives = W.maxLives; W.resupplies = RESUPPLY_CHARGES;
     W.mods = mods;
@@ -26019,6 +26373,7 @@ const Game = {
 
   /* ----- one fixed simulation step ----- */
   tick(dt) {
+    Swap.step(dt);   // a platform change completes before anything reads W.player (P2-07)
     const cfg = this.cfg;
     const m = this.mission, pl = W.player;
     // controllers (AI) fill commands; the player's were filled per frame
@@ -26968,6 +27323,13 @@ const HUD = {
       this.g.fillStyle = C.dim; this.g.fillRect(bx, by, bw, 4 * u);
       this.g.fillStyle = C.warn; this.g.fillRect(bx, by, bw * sat(Reposition.holdT / REPOSITION_HOLD), 4 * u);
     }
+    const sw = p === W.player ? Swap.running() : null;
+    if (sw) {   // a platform change under way (P2-07): how far it has come
+      const bw = 160 * u, bx = this.w / 2 - bw / 2, by = y + 66 * u;   // (below the Use and stuck prompts, clear of the reticle)
+      this.txt('CHANGING TO ' + PLATFORMS[sw.id].name.toUpperCase() + ' ' + Math.max(0, sw.total - sw.t).toFixed(1) + ' s' + (p.kind === 'air' ? ': FLY STEADY' : ': STAY STILL'), this.w / 2, by - 8 * u, 12, C.warn, 'center', true);
+      this.g.fillStyle = C.dim; this.g.fillRect(bx, by, bw, 4 * u);
+      this.g.fillStyle = C.warn; this.g.fillRect(bx, by, bw * sat(sw.t / sw.total), 4 * u);
+    } else if (p === W.player && Swap.hint) this.txt('[' + actionLabel('swapPlatform') + '] CHANGE PLATFORM', this.w / 2, y + 60 * u, 12, C.dim, 'center');
     if (ctx.enter) { this.txt('[' + actionLabel('interact') + '] ENTER ' + ctx.enter.def.name.toUpperCase(), this.w / 2, y + 16 * u, 13, C.friend, 'center', true); return; }
     if (ctx.use) this.drawPadPrompt(p, y, u);
   },
@@ -27328,6 +27690,8 @@ const UI = {
   },
   act_resume() { Game.resume(); },
   act_reposition() { Game.resume(); Reposition.request(W && W.player); },   // the pause menu's way out of a stuck place (P2-04)
+  act_swapMenu() { this.show('swap'); },   // the pause menu's way to the platform list (P2-07)
+  act_swapPick(d) { Game.resume(); Swap.begin(W && W.player, d.id); },
   act_restart() { this.show('confirm', { text: 'Restart this mission? Current progress will be lost.', yes: 'restartYes' }); },
   act_restartYes() { this.hideAll(); Game.state = 'playing'; Input.playing = true; Snd.resume(); Game.restart(); },
   act_quit() { this.show('confirm', { text: 'Return to the main menu? Current mission progress will be lost.', yes: 'quitYes' }); },
@@ -27631,7 +27995,28 @@ const UI = {
       const b = (k, label, on) => '<button class="btn small' + (on ? ' on' : '') + '" data-act="trainToggle" data-k="' + k + '">' + label + '</button>';
       train = '<div class="panel"><div class="lbl"><span>Training options</span></div><div class="row">' + b('ammo', 'Infinite ammo: ' + (W.infiniteAmmo ? 'ON' : 'OFF'), W.infiniteAmmo) + b('ff', 'Friendly fire: ' + (W.friendlyFire ? 'ON' : 'OFF'), W.friendlyFire) + b('destr', 'Reset destructibles') + b('targets', 'Reset targets') + b('help', 'Key reference on HUD', Game.trainingHelp) + '</div></div>';
     }
-    return '<div style="text-align:center"><h2>Paused</h2></div><div class="menu" style="margin:0 auto 1em"><button class="btn primary" data-act="resume" data-focus>Resume</button>' + (Reposition.offered ? '<button class="btn" data-act="reposition">Reposition (stuck)</button>' : '') + (Net.guest ? '' : '<button class="btn" data-act="restart">Restart</button>') + '<button class="btn" data-act="nav" data-to="controls">Controls</button><button class="btn" data-act="nav" data-to="settings">Settings</button><button class="btn" data-act="quit">Quit to main menu</button></div>' + train;
+    return '<div style="text-align:center"><h2>Paused</h2></div><div class="menu" style="margin:0 auto 1em"><button class="btn primary" data-act="resume" data-focus>Resume</button>' + (Reposition.offered ? '<button class="btn" data-act="reposition">Reposition (stuck)</button>' : '') + this.swapButton() + (Net.guest ? '' : '<button class="btn" data-act="restart">Restart</button>') + '<button class="btn" data-act="nav" data-to="controls">Controls</button><button class="btn" data-act="nav" data-to="settings">Settings</button><button class="btn" data-act="quit">Quit to main menu</button></div>' + train;
+  },
+  /* the pause menu's way to the platform list (P2-07): there in a battle, shut with the reason when a change is not allowed now */
+  swapButton() {
+    if (!W || !W.player || W.mode === 'menu' || !Game.cfg) return '';
+    const shut = !Swap.offered;
+    return '<button class="btn" data-act="swapMenu"' + (shut ? ' disabled aria-disabled="true" title="' + esc(Swap.why) + '"' : '') + '>Change platform' + (shut && Swap.why ? ' (' + esc(Swap.why.toLowerCase()) + ')' : '') + '</button>';
+  },
+  scr_swap() {
+    const p = W && W.player;
+    if (!p) return '<div style="text-align:center"><h2>Change platform</h2></div><div class="row" style="justify-content:center"><button class="btn" data-act="back" data-focus>Back</button></div>';
+    const groups = [['mech', 'Combat Mechs'], ['ground', 'Ground Vehicles'], ['arty', 'Artillery'], ['air', 'Combat Aircraft'], ['naval', 'Naval']];
+    const grp = (d) => (d.style === 'artillery' ? 'arty' : d.kind);
+    const list = Swap.choices(p);
+    const cards = groups.map((g) => {
+      const mine = list.filter((c) => grp(c.def) === g[0]);
+      if (!mine.length) return '';
+      return '<h3>' + g[1] + '</h3>' + mine.map((c) => '<button class="card' + (c.id === p.def.id ? ' sel' : '') + '" data-act="swapPick" data-id="' + c.id + '"' + (c.why ? ' disabled aria-disabled="true" title="' + esc(c.why) + '"' : '') + '><b>' + esc(c.def.name) + '</b> <span class="tag">' + esc(c.def.cls) + '</span><br><small>' + esc(c.why ? c.why.toLowerCase() : c.def.role) + '</small></button>').join('');
+    }).join('');
+    const st = Swap.state(p), field = W.mode !== 'training' && !Swap.depot(p);
+    const note = 'Takes ' + (field ? SWAP_TIME_FIELD : SWAP_TIME_DEPOT) + ' s' + (p.kind === 'air' ? ' (keep flying steady)' : ' standing still') + '; a hit cancels it. You keep the same share of hull, armour, energy and ammunition, and your superweapon meter; ' + SWAP_COOLDOWN + ' s before the next change. ' + (field && !Net.guest ? 'This one uses the field change an objective gave you.' : '') + (st.until > W.time ? ' Ready in ' + Math.ceil(st.until - W.time) + ' s.' : '');
+    return '<h2>Change platform</h2><div class="dim" style="font-size:.9em;margin:-.2em 0 .6em">' + esc(note) + '</div>' + cards + '<div class="row"><button class="btn" data-act="back" data-focus>Back</button></div>';
   },
   scr_confirm(d) {
     return '<div style="text-align:center"><h2>Confirm</h2><div class="panel">' + esc(d.text) + '</div><div class="row" style="justify-content:center"><button class="btn primary" data-act="yes" data-what="' + d.yes + '" data-focus>Yes</button><button class="btn" data-act="cancel">No</button></div></div>';
@@ -30135,7 +30520,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 13 (the Point Defence utility and projectile targets)', NET_VERSION === 13);
+      this.check('the net version is 15 (the platform change request and the host\'s word on it, P2-07; 13 was the Point Defence utility and projectile targets)', NET_VERSION === 15);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave }, keepPid = Save.data.platformId;
@@ -32233,15 +32618,28 @@ const SelfTest = {
         Game.startSession({ mode: 'training', map: 'metro', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
         W.platforms = W.platforms.filter((q) => q === W.player); W.player.noTarget = true;
         const boat = spawnUnit('gunboat', 260, -85, { team: 1, radius: 5 });
-        let travelled = 0, lx = boat ? boat.x : 0, lz = boat ? boat.z : 0, aground = false, lanePts = 0, maxFrom = 0;
+        let travelled = 0, lx = boat ? boat.x : 0, lz = boat ? boat.z : 0, aground = false, lanePts = 0, maxFrom = 0, still = 0;
         const x0 = lx, z0 = lz;
         for (let i = 0; boat && i < 90 * 60 && !boat.dead; i++) {
           W.player.x = 0; W.player.z = -900; Game.tick(STEP);
           if (i % 30 === 0) { travelled += Math.hypot(boat.x - lx, boat.z - lz); lx = boat.x; lz = boat.z; maxFrom = Math.max(maxFrom, Math.hypot(boat.x - x0, boat.z - z0)); }
           if (Water.depth(boat.x, boat.z) < boat.def.naval.draft - 0.05) aground = true;
+          if (i < 60 * 60 && boat.speed < 1) still += STEP;   // (the audit's measure: s of the first 60 under 1 m/s; 31 of 60 before the river turn, 26 s by this count)
         }
         lanePts = boat && boat.ai.lane ? boat.ai.lane.length : 0;
         this.check('metro: the gunboat at 260,-85 patrols its loop of the river (at least 2 lane points, 200 m sailed, 40 m from where it began), never aground', !!boat && lanePts >= 2 && travelled > 200 && maxFrom > 40 && !aground, 'lane ' + lanePts + ', sailed ' + Math.round(travelled) + ' m, ' + Math.round(maxFrom) + ' m out, aground ' + aground);
+        this.check('metro: the 44 m river no longer holds it: under 15 s of its first 60 s are spent still (a K-turn at each end, the speed kept to what the turning circle fits; it was 26 s)', !!boat && still < 15, still.toFixed(1) + ' s still');
+        // a patrol interrupted by a target or a leader starts its K-turn afresh when it resumes
+        if (boat) { boat.ai.kDir = -1; boat.ai.kT = 3; boat.ai.follow = W.player; Game.tick(STEP); }
+        this.check('a ship taken off its river patrol (a leader to follow) forgets its K-turn leg', !!boat && boat.ai.kDir === 1 && boat.ai.kT === 0);
+        // the no-progress rule of the patrol: a ship that is held where it is takes the next lane point after NAVAL_LANE_STALL s (its two timers were set inside a comment: undefined, so it never did)
+        Game.startSession({ mode: 'training', map: 'coast', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        W.platforms = W.platforms.filter((q) => q === W.player); W.player.noTarget = true;
+        const held = spawnUnit('gunboat', 730, 430, { team: 1, radius: 20 });
+        const hx = held.x, hz = held.z;
+        this.check('the lane timers of a ship start as numbers (laneAt, laneD)', !!held && held.ai.laneAt === 0 && held.ai.laneD === 0, String(held.ai.laneAt));
+        for (let i = 0; held && i < (NAVAL_LANE_STALL + 3) * 60; i++) { W.player.x = 0; W.player.z = -900; Game.tick(STEP); held.x = hx; held.z = hz; held.vx = held.vz = 0; held.speed = 0; }
+        this.check('a ship held in place takes the next point of its lane after ' + NAVAL_LANE_STALL + ' s without getting nearer', !!held && held.ai.laneI >= 1, 'point ' + (held ? held.ai.laneI : -1));
         this.check('the naval route runs without errors', errs.length === 0, errs.slice(0, 2).join(' | '));
       } finally { Game.reportError = keepRep; Game.quitToMenu(); }
     });
@@ -32272,6 +32670,20 @@ const SelfTest = {
         this.check('a route from the south bank to the north runs over the bridge, deck cell after deck cell', !!plan && !plan.partial && plan.pts.filter((w) => g.deck[Nav.at(g, w.x, w.z)] === 1).length >= 2, plan ? plan.pts.length + ' points' : 'none');
         const east = { x: bridge.x + 150, z: bridge.z - 150 }, r2 = trial('tank', east, { x: bridge.x + 150, z: bridge.z + 150 }, 110);
         this.check('an AI tank across the river from its goal crosses by the bridge, dry (no deep water, hull whole)', r2.arrived && r2.deep <= 2 && !r2.dead && r2.hp > 0.85, JSON.stringify(r2));
+        // a tank whose middle is on a deck while one flank hangs over the edge (here one of its four suspension points reads 4 m down) rests on the deck, no
+        // more than VEHICLE_DECK_SAG m under its top (the jungle tank at -135,495 came in sideways and was lost in 1 run of 13: the four-point average
+        // sank it below the deck's step, 0.6 m, and it fell off and drowned)
+        {
+          W.platforms = W.platforms.filter((q) => q === W.player);
+          const edge = spawnUnit('tank', bridge.x, bridge.z, { team: 1, force: true, radius: 1 });
+          edge.ai.enabled = false; edge.x = bridge.x; edge.z = bridge.z; edge.y = bridge.top;
+          const realRest = edge.restH, hang = bridge.top - 4;
+          let n = 0;
+          edge.restH = function (x, z) { return ++n % 4 === 0 ? Math.min(hang, realRest.call(this, x, z)) : realRest.call(this, x, z); };   // (every fourth point asked is the one over the water)
+          for (let i = 0; i < 120; i++) { W.player.x = 0; W.player.z = -900; Game.tick(STEP); }
+          this.check('a tank with its middle on a bridge deck and a flank over the edge rests on the deck (no more than ' + VEHICLE_DECK_SAG + ' m under its top; the average of the four points alone sank it 1 m)', edge.y >= bridge.top - VEHICLE_DECK_SAG - 0.05 && edge.y <= bridge.top + 0.05 && Water.depth(edge.x, edge.z) > 1 && Math.hypot(edge.x - bridge.x, edge.z - bridge.z) < 1, 'y ' + edge.y.toFixed(2) + ' deck ' + bridge.top.toFixed(2) + ' at ' + edge.x.toFixed(1) + ',' + edge.z.toFixed(1));
+          edge.dead = true; W.platforms = W.platforms.filter((q) => q === W.player);
+        }
         // a unit on a long detour (here 600 m west to the bridge and back) is moving: the stuck test closes no cell for it
         const realClose = Nav.close; let closes = 0;
         Nav.close = function (...a) { closes++; return realClose.apply(Nav, a); };
@@ -32447,6 +32859,232 @@ const SelfTest = {
         Reposition.apply(me, null);
         this.check('and one not hurt gets its ' + REPOSITION_PROTECT + ' s of protection', me.invuln);
       } finally { Object.assign(Net, { host: keepNet.host, guest: keepNet.guest, peers: keepNet.peers, hostPeer: keepNet.hostPeer, pendEdge: keepNet.pend }); Reposition.me = null; Reposition.offered = false; Reposition.cool = 0; Game.quitToMenu(); }
+    });
+    // P2-07: change platform: where, how long, what carries over, what stops it being a dodge or a refill, the controls, AI commanders, a co-op guest
+    t('p2 change platform', () => {
+      const keepNet = { host: Net.host, guest: Net.guest, peers: Net.peers, hostPeer: Net.hostPeer, pend: Net.pendEdge, inSession: Net.inSession }, keepRep = Game.reportError, errs = [];
+      Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
+      const run = (secs) => { for (let i = 0, n = Math.round(secs / STEP); i < n; i++) Game.tick(STEP); };
+      const mission = (id, pid) => { MISSION_BY_ID.m1.start = savedStart; Game.startSession({ mode: 'mission', missionId: id, platformId: pid || 'bulwark', loadout: Loadout.forPlatform(pid || 'bulwark'), difficulty: 'veteran' }); const p = W.player; p.invuln = false; Game.protectT = 0; return p; };
+      const savedStart = MISSION_BY_ID.m1.start;
+      const noDepot = () => { W.pads = []; W.mission.def.start = { x: 99999, z: 99999, yaw: 0 }; };   // (no pad, no start within reach: the field)
+      const block = (p) => Swap.block(p, Swap.state(p));
+      try {
+        // the controls: key B, the pad's d-pad up, a SWAP button on the touch overlay (shown only while a change is allowed), the pause menu and the list
+        const swapBtn = TOUCH_BUTTONS.find((b) => b.name === 'swap');
+        this.check('the change is bound to B, named D-PAD UP on a pad, has a touch button (SWAP) and a pause-menu entry', ACTIONS.some((a) => a[0] === 'swapPlatform' && a[2] === 'KeyB') && PAD_LABELS.swapPlatform === 'D-PAD UP' && TOUCH_LABELS.swapPlatform === 'SWAP' && !!swapBtn && swapBtn.label === 'SWAP');
+        let p = mission('m1');
+        Swap.frame(p, false);
+        this.check('at a mission start (a depot) a change is allowed, the touch button shows and the hint is up', Swap.depot(p) && block(p) === '' && Swap.offered && swapBtn.show() && Swap.hint);
+        this.check('the pause menu offers Change platform, and the list names the other vehicles (not the one flown, not a ship with no water, not infantry)', /data-act="swapMenu"/.test(UI.scr_pause()) && !/data-act="swapMenu" disabled/.test(UI.scr_pause()) && /data-act="swapPick" data-id="bastion"/.test(UI.scr_swap()) && /data-id="bulwark" disabled/.test(UI.scr_swap()) && /data-id="lancer" disabled/.test(UI.scr_swap()) && !/data-id="ranger"/.test(UI.scr_swap()));
+        // where: the field needs a completed objective; a skirmish counts waves beaten
+        noDepot();
+        Swap.frame(p, false);
+        this.check('away from every depot, with no objective completed, it is refused and the button is hidden', /DEPOT OR A COMPLETED OBJECTIVE/.test(block(p)) && !Swap.offered && !swapBtn.show() && !Swap.hint);
+        const st = Swap.state(p);
+        Swap.earn(st, 0); Swap.earn(st, 1); Swap.earn(st, 2);
+        this.check('an objective completed gives one field change, and a second one before it is used does not save up another', st.credit === 1 && block(p) === '');
+        this.check('Training allows it anywhere', (() => { Game.startSession({ mode: 'training', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' }); const q = W.player; q.invuln = false; W.pads = []; q.x += 700; return block(q) === ''; })());
+        p = mission('m14', 'bulwark');
+        this.check('an on-foot mission (m14) refuses it', /ON FOOT/.test(block(p)), block(p));
+        // the flow at a depot: 3 s standing still, then the new body, carrying hull and ammunition shares, no protection, no life lost, same score
+        p = mission('m1');
+        const oldStats = p.stats, lives = W.lives, hullShare = 0.5, oldMax = p.maxHp, oldHp = 0.5 * p.maxHp;
+        p.hp = p.maxHp * hullShare; p.armor = p.maxArmor * 0.25; p.energy = p.maxEnergy * 0.6;
+        for (const sl of GUN_SLOTS) { const w = p.wslots[sl]; if (w && w.def.clip) { w.clip = Math.round(w.def.clip * 0.5); w.reserve = Math.round(w.def.reserve * 0.5); } }
+        const share = Swap.ammoShare(p), cfgPid = Game.cfg.platformId;
+        const x0 = p.x, z0 = p.z;
+        this.check('a change is started at a depot', Swap.begin(p, 'bastion') === '' && !!Swap.me.ch && Swap.me.ch.total === SWAP_TIME_DEPOT && Swap.me.ch.field === false);
+        p.cmd.moveF = 1; p.cmd.fire1 = true;
+        p.cmd.meleeEdge = p.cmd.defenseEdge = p.cmd.stanceEdge = p.cmd.superEdge = p.cmd.reloadEdge = true; p.cmd.jump = p.cmd.boost = true;
+        Swap.advance(p, Swap.me, 0);
+        this.check('while it changes, the platform ignores a dash, a lunge, a jump, a crouch, a reload and a superweapon press as well as the stick', !p.cmd.meleeEdge && !p.cmd.defenseEdge && !p.cmd.stanceEdge && !p.cmd.superEdge && !p.cmd.reloadEdge && !p.cmd.jump && !p.cmd.boost && p.cmd.moveF === 0);
+        p.cmd.moveF = 1; p.cmd.fire1 = true;
+        run(SWAP_TIME_DEPOT - 0.1);
+        this.check('after ' + (SWAP_TIME_DEPOT - 0.1) + ' s it is still the old platform, held in place (a platform standing still is no dodge)', W.player === p && p.def.id === 'bulwark' && Math.hypot(p.x - x0, p.z - z0) < 0.1, Math.round(Math.hypot(p.x - x0, p.z - z0) * 100) / 100 + ' m');
+        run(0.2);
+        const np = W.player;
+        this.check('after ' + SWAP_TIME_DEPOT + ' s the player is in the new platform, which is under the player\'s control; the old one is gone without a wreck', np !== p && np.def.id === 'bastion' && np.controller === PC && np.isPlayer && np.localPlayer && p.dead && p.swapped && W.platforms.indexOf(p) < 0 && W.platforms.indexOf(np) >= 0);
+        const room = Math.min(1, oldMax / np.maxHp);
+        this.check('the new body keeps the hull share (' + hullShare + ' of the smaller hull: a bigger one gains no hit points), the armour share (0.25 likewise), and at least the energy share (0.6: it recharges while it waits)', Math.abs(np.hp / np.maxHp - hullShare * room) < 0.02 && np.hp <= oldHp + 0.5 && np.armor <= 0.25 * p.maxArmor + 0.5 && np.energy / np.maxEnergy >= 0.59, (np.hp / np.maxHp).toFixed(2) + ' ' + (np.armor / np.maxArmor).toFixed(2) + ' ' + (np.energy / np.maxEnergy).toFixed(2));
+        this.check('and the ammunition share (' + share.toFixed(2) + ' of full): no refill', Math.abs(Swap.ammoShare(np) - share) < 0.06, Swap.ammoShare(np).toFixed(2));
+        this.check('no protection, no life lost, the same score record, the hangar pick stays for the next respawn', !np.invuln && W.lives === lives && np.stats === oldStats && Game.cfg.platformId === cfgPid);
+        this.check('a second change is refused for ' + SWAP_COOLDOWN + ' s', /READY IN/.test(block(np)) && Swap.begin(np, 'wraith') !== '' && !Swap.me.ch);
+        W.time += SWAP_COOLDOWN + 0.1;
+        this.check('and allowed again after it', block(np) === '');
+        // limits: a hit during the change cancels it; hull lost lately, a missile on you, a lock, a status effect stop it starting
+        p = mission('m1');
+        Swap.begin(p, 'bastion'); run(1); p.hp -= 5; run(0.1);
+        this.check('a hit during the change cancels it (the platform stays, the way is shut ' + SWAP_FAIL_GAP + ' s)', W.player === p && !Swap.me.ch && /READY IN/.test(block(p)));
+        W.time += SWAP_FAIL_GAP + 0.1;
+        p.hurtAt = W.time - 2;
+        this.check('hull lost in the last ' + SWAP_CALM + ' s stops it', /NOT UNDER FIRE/.test(block(p)));
+        p.hurtAt = W.time - SWAP_CALM - 0.1;
+        const fake = { active: true, target: p, x: p.x, y: p.y, z: p.z };
+        W.projs.push(fake);
+        const missile = block(p);
+        W.projs.pop(); p.beingLocked = 0.4;
+        const locked = block(p);
+        p.beingLocked = 0; p.burnT = 2;
+        const burning = block(p);
+        p.burnT = 0; p.status.freeze = 2;
+        const frozen = block(p);
+        p.status.freeze = 0;
+        this.check('a missile in the air, a lock on you, a fire or a freeze each stop it; clear of them it is allowed', /MISSILE/.test(missile) && /MISSILE/.test(locked) && /AFFLICTED/.test(burning) && /AFFLICTED/.test(frozen) && block(p) === '', [missile, locked, burning, frozen].join(' | '));
+        // a field change takes longer, uses up the credit, and the aircraft keeps flying while it waits
+        noDepot();
+        Swap.state(p).credit = 1;
+        Swap.begin(p, 'specter');
+        this.check('a field change takes ' + SWAP_TIME_FIELD + ' s', Swap.me.ch && Swap.me.ch.total === SWAP_TIME_FIELD && Swap.me.ch.field);
+        run(SWAP_TIME_FIELD + 0.1);
+        this.check('and uses up the field change it was given', W.player.def.id === 'specter' && Swap.me.credit === 0 && /NEEDS A DEPOT/.test((W.time += SWAP_COOLDOWN + 1, block(W.player))));
+        p = mission('m1', 'kestrel'); p.noTarget = true;   // (no hostile locks it: that would end the change)
+        const fly = p;
+        Swap.begin(p, 'bastion');
+        const fx = p.x, fz = p.z; run(1);
+        this.check('an aircraft is not held while it changes: it keeps flying', Math.hypot(p.x - fx, p.z - fz) > 5 && !p.grounded && p.y > Terrain.h(p.x, p.z) + 20, Math.round(Math.hypot(p.x - fx, p.z - fz)) + ' m, y ' + p.y.toFixed(0));
+        Swap.state(p).credit = 1;   // (it is 250 m from the depot by the time the change completes: that needs the field change, and its 6 s)
+        run(SWAP_TIME_FIELD);
+        this.check('and a jet becomes a tank on the ground below it', W.player !== fly && W.player.def.id === 'bastion' && W.player.kind === 'ground' && Math.abs(W.player.y - Terrain.h(W.player.x, W.player.z)) < 2);
+        p = mission('m1');
+        Swap.begin(p, 'kestrel'); run(SWAP_TIME_DEPOT + 0.1);
+        this.check('a tank becomes a jet in the air, flying', W.player.def.id === 'kestrel' && W.player.kind === 'air' && !W.player.grounded && W.player.speed > 20, W.player.def.id);
+        // the change is for the body that began it: stepping out or ejecting during it ends it, and a person on foot may not change at all
+        p = mission('m1');
+        const vehicle = p;
+        p.hp = 1; p.armor = 0; p.shield = 0; p.maxShield = 0;   // (the person has more hull than the vehicle: only the body check can end the change, not a hull that dropped)
+        Swap.begin(p, 'bastion'); run(1);
+        Seats.exit(p, null);
+        const walker = W.player;
+        run(SWAP_TIME_DEPOT + 0.5);
+        this.check('stepping out of the vehicle during a change ends it: the person stays a person, the vehicle stays where it was, no second vehicle appears', walker !== vehicle && W.player === walker && walker.def.style === 'infantry' && !Swap.me.ch && vehicle.parked && !vehicle.dead && W.platforms.filter((q) => q.def.id === 'bastion' && q.team === 0).length === 0);
+        W.time += SWAP_COOLDOWN + 1;
+        this.check('a person on foot may not change platform (no full-ammunition human, no vehicle for nothing)', /ON FOOT/.test(block(walker)) && Swap.begin(walker, 'bastion') !== '' && !Swap.me.ch);
+        p = mission('m1', 'kestrel'); p.noTarget = true;   // (no hostile locks it: that would end the change)
+        const jet = p;
+        Seats.groundAir(p);   // (on the ground: a pilot dropping from the air takes fall damage, which would end the change as a hit)
+        p.hp = 1; p.armor = 0; p.shield = 0; p.maxShield = 0;
+        Swap.begin(p, 'bastion'); run(1);
+        Game.respawnT = 999;   // (the replacement jet comes later than this test looks)
+        const realAfflicted = Swap.afflicted; Swap.afflicted = () => false;   // (a pilot landing is staggered: that would end the change by itself and hide the body check)
+        Seats.ejectPilot(p, null);
+        const pilot = W.player;
+        run(SWAP_TIME_DEPOT + 0.5);
+        this.check('ejecting during a change ends it: the pilot is a person, the change does not complete on him, and no bastion came of it', pilot !== jet && W.player === pilot && pilot.def.style === 'infantry' && !Swap.me.ch && W.platforms.filter((q) => q.def.id === 'bastion' && q.team === 0).length === 0);
+        Swap.afflicted = realAfflicted;
+        p = mission('m1');
+        Swap.begin(p, 'bastion'); run(0.5);
+        W.projs.push({ active: true, target: p, x: p.x, y: p.y, z: p.z });
+        Swap.advance(p, Swap.me, 0);   // (a fake projectile is not ticked)
+        W.projs.pop();
+        const missileEnd = !Swap.me.ch && W.player === p;
+        W.time += SWAP_FAIL_GAP + 0.1;
+        Swap.begin(p, 'bastion'); p.beingLocked = 0.5; Swap.advance(p, Swap.me, 0);
+        const lockEnd = !Swap.me.ch && W.player === p;
+        p.beingLocked = 0;
+        W.time += SWAP_FAIL_GAP + 0.1;
+        Swap.begin(p, 'bastion'); p.status.emp = 2; Swap.advance(p, Swap.me, 0);
+        p.status.emp = 0;
+        this.check('a missile fired at the platform, a lock on it or a status effect during the change ends it, though none of them costs hull', missileEnd && lockEnd && !Swap.me.ch && W.player === p);
+        W.time += SWAP_FAIL_GAP + 0.1;
+        Swap.begin(p, 'bastion'); run(1);
+        noDepot();
+        run(SWAP_TIME_DEPOT);
+        this.check('a change begun at a depot and finished away from every depot (no field change in hand) is cancelled, not given free', W.player === p && !Swap.me.ch);
+        MISSION_BY_ID.m1.start = savedStart;
+        p = mission('m1', 'kestrel'); p.noTarget = true;   // (no hostile locks it: that would end the change)
+        Swap.begin(p, 'bastion'); run(1);
+        noDepot();
+        Swap.state(p).credit = 1;
+        run(SWAP_TIME_DEPOT);
+        const stillRunning = W.player === p && !!Swap.me.ch && Swap.me.ch.total === SWAP_TIME_FIELD && Swap.me.ch.field;
+        run(SWAP_TIME_FIELD - SWAP_TIME_DEPOT - 1.6);   // (about 5.4 s in)
+        const early = W.player === p;
+        run(0.8);
+        this.check('and with a field change in hand it runs on to the field\'s ' + SWAP_TIME_FIELD + ' s (not done at ' + SWAP_TIME_DEPOT + ' s), then goes through and spends it', stillRunning && early && W.player !== p && W.player.def.id === 'bastion' && Swap.me.credit === 0, stillRunning + ' ' + early);
+        {
+          const old = mission('m1'), craterId = old.sw && old.sw.id;
+          const mk = (sid) => new Platform(PLATFORMS.bastion, { team: 0, x: old.x + 20, z: old.z, yaw: 0, loadout: Object.assign({}, PLATFORMS.bastion.loadout, { strategic: sid }) });
+          old.sw = { id: 'craterMaker', def: SUPERS.craterMaker, charge: 1, ready: true };
+          const same = mk('craterMaker'), other = mk('planetCracker');
+          Swap.carry(old, same); Swap.carry(old, other);
+          this.check('the superweapon meter is kept whole for the same superweapon, and by seconds of charge for another (a full tier-1 meter is not a full tier-3 one)', superCharge(SUPERS.planetCracker) > superCharge(SUPERS.craterMaker) && same.sw.charge === 1 && other.sw.charge < 0.99 && Math.abs(other.sw.charge - superCharge(SUPERS.craterMaker) / superCharge(SUPERS.planetCracker)) < 0.001 && !other.sw.ready, same.sw.charge + ' ' + other.sw.charge + ' (was ' + craterId + ')');
+          const beams = new Platform(PLATFORMS.bastion, { team: 0, x: old.x, z: old.z, yaw: 0, loadout: { primaryA: null, primaryB: null, secondary: null } });
+          this.check('a body with no ammunition to measure carries none: the new one is not given a full load', Swap.ammoShare(beams) === 0);
+        }
+        // a skirmish counts a wave beaten as a completed objective
+        Game.startSession({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'ashfall', size: 'small', seed: 11, random: false, support: 'none' }) });
+        const sp = W.player; sp.invuln = false; W.platforms = W.platforms.filter((q) => q === sp); sp.noTarget = true;
+        const realWaves = W.mission.def.wavesCleared;
+        Swap.watchT = 1; Swap.step(0);
+        const credit0 = Swap.me.credit, progress0 = Swap.progress();
+        W.mission.def.wavesCleared = () => realWaves() + 1;   // (a wave beaten)
+        Swap.watchT = 1; Swap.step(0);
+        const credit1 = Swap.me.credit;
+        W.mission.def.wavesCleared = realWaves;
+        this.check('in a skirmish a wave beaten grants one field change (none before it), and our command center yard is a depot', credit0 === 0 && credit1 === 1 && Swap.progress() === progress0 && Swap.depot(sp) && !!W.bases && W.bases.own.x !== undefined, credit0 + ' -> ' + credit1);
+        // an AI commander follows the same rule: at its own base, hull under ' + SWAP_AI_HURT + ', calm, off cooldown; it changes to nothing dearer; the kill objective follows it
+        const foe = W.bases.enemy, ob = W.mission.objectives.find((o) => o.id === 'all');
+        const commander = (x, z, arch) => { const u = spawnUnit(arch || 'heavyMech', x, z, { team: 1, force: true, radius: 6 }); u.commander = true; ob.units.push(u); ob.waves.push([u]); return u; };
+        const look = (u) => { Swap.aiT = 0; run(STEP * 2); return !!(u.swapSt && u.swapSt.ch); };
+        const full = commander(foe.x + 30, foe.z), far = commander(foe.x + 600, foe.z + 600), grunt = commander(foe.x - 30, foe.z), lately = commander(foe.x, foe.z + 30), hurt = commander(foe.x, foe.z - 30);
+        grunt.commander = false;
+        for (const u of [far, grunt, lately, hurt]) u.hp = u.maxHp * 0.3;
+        lately.hurtAt = W.time - 1;
+        const looked = look(full) || look(far) || look(grunt) || look(lately);
+        this.check('a commander at full hull, one far from its base, one that is not a commander and one hit a second ago do not change', !looked && !(full.swapSt && full.swapSt.ch) && !(far.swapSt && far.swapSt.ch) && !(grunt.swapSt && grunt.swapSt.ch) && !(lately.swapSt && lately.swapSt.ch));
+        const pick = Swap.aiPick(hurt);
+        this.check('a hurt commander at its base picks the dearest type that costs less than it does (' + hurt.arch + ' ' + unitCost(hurt.arch) + ' -> ' + pick + ' ' + unitCost(pick) + '), and the cheapest has none', !!pick && unitCost(pick) < unitCost(hurt.arch) && Swap.aiPick({ arch: 'infantry' }) === null && Swap.aiPick({ arch: 'tank' }) !== 'tank');
+        const began = look(hurt);
+        run(SWAP_TIME_DEPOT + 0.2);
+        const heir = W.platforms.find((q) => q.commander && q.team === 1 && q.arch === pick && q !== hurt);
+        this.check('and it does, in ' + SWAP_TIME_DEPOT + ' s: a new unit of that type with the same hull share and its orders, the old one gone, the wave objective following it, a cooldown on', began && !!heir && hurt.dead && hurt.swapped && Math.abs(heir.hp / heir.maxHp - 0.3 * Math.min(1, hurt.maxHp / heir.maxHp)) < 0.03 && ob.units.indexOf(heir) >= 0 && ob.units.indexOf(hurt) < 0 && ob.waves.some((l) => l.indexOf(heir) >= 0) && heir.swapSt.until > W.time, began + ' ' + (heir ? (heir.hp / heir.maxHp).toFixed(2) : 'no heir'));
+        // one change for each commander and the unit it becomes: hurt again at its base after the cooldown, it stays
+        heir.hp = heir.maxHp * 0.1; heir.swapSt.until = 0;
+        const again = look(heir);
+        this.check('the unit a commander becomes does not change again, whatever its hull and cooldown (it would swap every ' + SWAP_COOLDOWN + ' s at its base)', !again && !heir.swapSt.ch && !heir.dead);
+        // an AI aircraft never changes (over its base for 3 s it could not stay: it would fly level on, be cancelled by the depot check and try again every cooldown)
+        const airC = commander(foe.x, foe.z + 60, 'jet');
+        airC.hp = airC.maxHp * 0.2;
+        const airBegan = Swap.beginAi(airC, 'lightMech'), airLook = look(airC);
+        this.check('a hurt AI jet commander over its base starts no change, and keeps flying under its own AI', !airBegan && !airLook && airC.ai.enabled && !(airC.swapSt && airC.swapSt.ch) && !airC.dead);
+        // a co-op guest asks, the host decides: same rule, the stock loadout, a notice for a refusal, one ask a second
+        Game.startSession({ mode: 'mission', missionId: 'm3', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', coop: true, nPlayers: 2, lives: 3 });
+        const peer = Net.newPeer(), said = [];
+        Object.assign(peer, { hello: true, open: true, ready: true, pid: 'bulwark', loadout: Loadout.forPlatform('bulwark'), slot: 1, name: 'G1', foot: null, footLo: null, lives: 3, stats: newStats(), tx(s) { said.push(JSON.parse(s)); } });
+        Net.spawnFor(peer);
+        Net.host = true; Net.guest = false; Net.peers = [peer]; Net.inSession = true;
+        const gp = peer.p, gold = gp.id;
+        gp.invuln = false; peer.protectT = 0; gp.hp = gp.maxHp * 0.6;
+        const notices = () => said.filter((q) => q.t === 'msg').map((q) => q.text).join(' | ');
+        Net.hostMsg(peer, { t: 'swap', pid: 'bulwark' });
+        this.check('the host refuses a guest\'s ask for the platform it is in, and says so', !peer.sw.ch && /ALREADY/.test(notices()), notices());
+        said.length = 0; Net.t += 2;
+        Net.hostMsg(peer, { t: 'swap', pid: 'specter' });
+        this.check('and starts the change of a guest at a depot', !!peer.sw.ch && peer.sw.ch.id === 'specter' && /CHANGING TO/.test(notices()), notices());
+        Net.hostMsg(peer, { t: 'swap', pid: 'wraith' });
+        this.check('a second ask inside ' + SWAP_ASK_GAP + ' s is not looked at', peer.sw.ch.id === 'specter');
+        const viewRunning = Net.selfState(peer).swp;
+        this.check('the host word to the guest (me.swp) says a change is under way: the platform, the seconds left, the total', Array.isArray(viewRunning) && viewRunning.length === 6 && viewRunning[4] === 'specter' && viewRunning[3] === SWAP_TIME_DEPOT && viewRunning[2] > 0 && viewRunning[2] <= SWAP_TIME_DEPOT, JSON.stringify(viewRunning));
+        said.length = 0;
+        run(SWAP_TIME_DEPOT + 0.2);
+        const gn = peer.p;
+        this.check('the guest\'s body is the new platform with its hull share, bound to the guest (a \'ctl\' names it), the old one gone from the world', gn !== gp && gn.def.id === 'specter' && gn.netPeer === peer && Math.abs(gn.hp / gn.maxHp - 0.6 * Math.min(1, gp.maxHp / gn.maxHp)) < 0.03 && gp.dead && W.platforms.indexOf(gp) < 0 && said.some((q) => q.t === 'ctl' && q.pid === gn.id) && gold !== gn.id);
+        Net.host = false; Net.guest = true; Net.hostPeer = Object.assign(Net.newPeer(), { tx(s) { said.push(JSON.parse(s)); } });
+        said.length = 0;
+        const before = W.player, sent = Swap.begin(before, 'bastion');
+        Swap.applyGuest(viewRunning);
+        const mirror = Swap.running();
+        this.check('on the guest the same word gives the HUD its CHANGING bar (the platform and how far it has come), and the button follows the offered flag of the host', !!mirror && mirror.id === 'specter' && mirror.total === SWAP_TIME_DEPOT && mirror.t >= 0 && mirror.t < SWAP_TIME_DEPOT && (Swap.frame(W.player, false), Swap.offered === !!viewRunning[0]), JSON.stringify(mirror));
+        Swap.applyGuest(Net.selfState(peer).swp);
+        this.check('and once it is done there is no bar', Swap.running() === null);
+        this.check('a guest only sends the ask (a \'swap\' message with the platform id) and changes nothing itself; its list shows every vehicle', sent === '' && said.some((q) => q.t === 'swap' && q.pid === 'bastion') && W.player === before && !(Swap.me && Swap.me.ch) && Swap.choices(before).every((c) => !c.why));
+        this.check('the change runs without errors', errs.length === 0, errs.slice(0, 2).join(' | '));
+      } finally {
+        MISSION_BY_ID.m1.start = savedStart;
+        Object.assign(Net, { host: keepNet.host, guest: keepNet.guest, peers: keepNet.peers, hostPeer: keepNet.hostPeer, pendEdge: keepNet.pend, inSession: keepNet.inSession });
+        Game.reportError = keepRep; Swap.reset(); Game.quitToMenu();
+      }
     });
     // P2-06: a skirmish\'s bases lie on ground a tank can drive between (archipelago: the audit\'s three cut-off seeds), and a land respawn comes back on the start\'s ground
     t('p2 land links', () => {
@@ -33246,7 +33884,7 @@ const SelfTest = {
       rocket.x = 600;
       this.check('and refused once it flies wide of the guest', pick(NET_PROJ_TG + rocket.nid) === null);
       this.check('a guest\'s pick of an objective structure still works', pick(-1 - tower.idx) === tower);
-      this.check('the net version moved to 13 for the new utility and the target ids, and the save version stays 1', NET_VERSION === 13 && SAVE_VERSION === 1);
+      this.check('the net version moved to 13 for the new utility and the target ids (14 since P2-07), and the save version stays 1', NET_VERSION >= 13 && SAVE_VERSION === 1);
       this.check('a saved loadout with Point Defence is read by the hangar as before (additive: no new save key)', Loadout.validate(PLATFORMS.bastion, { primaryA: 'acannon', utility: 'pdc' }).ok && WEAPON_IDS.indexOf('pdc') >= 0);
       // the snapshot holds SNAP_PROJS projectiles; missiles and rockets go in before plain rounds, so a guest sees the ones headed for it
       const keepNet = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, t: Net.t }, sent = [];
@@ -35067,7 +35705,7 @@ const SelfTest = {
         const tw = Hazards.force('tornado', spot.x, spot.z + 1.5, { warn: 0 });
         if (tw) HZ_KIND.tornado.tick(tw);
         const keptOwner = lifted.status.slamOwner === owner;
-        const land = (p) => { if (p.dead) return; p.hp = 1; p.armor = 0; p.shield = 0; p.status.float = 0; p.status.floatCur = 0; p.stepFloat(STEP); };
+        const land = (p) => { if (p.dead) return; p.hp = 1; p.armor = 0; p.shield = 0; p.maxShield = 0; p.status.float = 0; p.status.floatCur = 0; p.stepFloat(STEP); };
         land(lifted); land(plain);
         const feedTwist = W.feed.some((f) => f.text.indexOf(HAZARDS.tornado.name) === 0);
         this.check('a tornado slam keeps the lifting player\'s kill, and a slam nobody lifted is a Tornado kill in the feed', !!tw && keptOwner && lifted.dead && owner.stats.kills === kills0 + 1 && plain.dead && !!plain.killedBy && plain.killedBy.name === HAZARDS.tornado.name && feedTwist,
@@ -35731,7 +36369,7 @@ const SNAP_PROJS = 70;    // projectiles per snapshot
 var NET_UNSPOT_OFF = false;   // self-test switch: the guest ignores the sent unspotted share
 var NET_SNAP_TURN_OFF = false;   // self-test switch: platforms past SNAP_PLATS take no turns in the snapshots
 var NET_SHELLS_FIRST_OFF = false;   // self-test switch: shells take no precedence in the snapshots
-const NET_VERSION = 13;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index)
+const NET_VERSION = 15;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index); 14: change platform (guest 'swap' pid, P2-07; the host answers with a notice and a new body in 'sp' and 'ctl'); 15: the host's word on a guest's change in 'me' (swp: offered, hint, seconds left, total, platform, why not)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -35755,7 +36393,7 @@ const Net = {
     const p = {
       id: this.nextPeerId++, name: 'Pilot', pid: 'bulwark', loadout: null, ready: false, open: false, hello: false, rel: null, unr: null, pc: null,
       lastRecv: this.t, known: new Set(), p: null, lives: 3, respawnT: 0, deathHandled: false, protectT: 0, inp: null, edges: 0, lastInT: -1,
-      code: '', replyText: '', slot: 0, stats: null, resupplies: 0, foot: 'infantry', footLo: null,
+      code: '', replyText: '', slot: 0, stats: null, resupplies: 0, foot: 'infantry', footLo: null, sw: null, swapAskT: -9,   // sw: its platform-change state (Swap)
     };
     p.tx = (str, reliable) => { const ch = reliable ? p.rel : p.unr; if (ch && ch.readyState === 'open') ch.send(str); };
     return p;
@@ -35877,6 +36515,7 @@ const Net = {
         break;
       case 'in': this.hostInput(peer, m); break;
       case 'enterCiv': this.hostEnterCiv(peer, m); break;
+      case 'swap': Swap.hostAsk(peer, m.pid); break;   // a guest asks to change platform: the host decides (P2-07)
       case 'bye': this.dropPeer(peer, 'left'); break;
       default: break;
     }
@@ -36006,7 +36645,7 @@ const Net = {
     for (const p of live) {
       const d = PLATFORMS[p.pid];
       if (!p.loadout || !Loadout.validate(d, p.loadout).ok) p.loadout = Object.assign({}, d.loadout);
-      p.lives = Game.livesFor(cfg); p.deathHandled = false; p.respawnT = 0; p.known = new Set(); p.p = null; p.inp = null; p.edges = 0; p.stats = newStats(); p.resupplies = RESUPPLY_CHARGES;
+      p.lives = Game.livesFor(cfg); p.deathHandled = false; p.respawnT = 0; p.known = new Set(); p.p = null; p.inp = null; p.edges = 0; p.stats = newStats(); p.resupplies = RESUPPLY_CHARGES; p.sw = null;
     }
     this.inSession = true; this.seq = 0; this.snapAcc = this.obAcc = this.stAcc = this.beatAcc = 0;
     if (!Game.startSession(cfg)) { this.inSession = false; return false; }
@@ -36187,6 +36826,7 @@ const Net = {
       th: r2(p.throttle), g: p.gear ? 1 : 0, gr: p.grounded ? 1 : 0, ab: p.afterburner ? 1 : 0, stl: p.stalled ? 1 : 0, wn: p.warn || '', bl: r2(p.beingLocked), sm: p.swimming ? 1 : 0,
       inc: [inc.count, inc.count ? Math.round(inc.dist) : 0], cr: p.crouch ? 1 : 0, rf: p.radarFocus ? 1 : 0, abk: p.airbrake ? 1 : 0, lv: peer.lives, rs: p.ejectPilot ? r1(Math.max(0, peer.respawnT)) : 0, ep: p.ejectPilot ? 1 : 0,
       k: [peer.stats.kills, peer.stats.score, peer.stats.deaths, peer.stats.bestStreak], rc: peer.resupplies, sw: p.sw ? r2(p.sw.charge) : -1, tp: p.target ? 1 : 0, ej: 0,
+      swp: Swap.peerView(peer),   // its platform change: [offered, hint, s left, total s, platform id, why not] (P2-07)
     };
   },
   projEntry(q) { return [q.nid, WEAPON_IDS.indexOf(q.def.id || ''), r1(q.x), r1(q.y), r1(q.z), r1(q.vx), r1(q.vy), r1(q.vz), q.owner ? q.owner.id : 0]; },
@@ -36425,6 +37065,7 @@ const Net = {
     W.stats.kills = me.k[0]; W.stats.score = me.k[1]; W.stats.deaths = me.k[2]; W.stats.bestStreak = me.k[3] | 0;
     if (gp && gp.sw && Number.isFinite(me.sw) && me.sw >= 0) { gp.sw.charge = clamp(me.sw, 0, 1); gp.sw.ready = gp.sw.charge >= 1; }
     if (typeof me.rc === 'number') W.resupplies = me.rc;
+    Swap.applyGuest(me.swp);
   },
   applyObjectives(m) {
     const ms = Game.mission;
@@ -36720,7 +37361,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, airSpawn, rayToSquare, Detect, DETECT_RANGE, DETECT_SHARE, DETECT_AI_SIGHT, ARCH, talive };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, Swap, airSpawn, rayToSquare, Detect, DETECT_RANGE, DETECT_SHARE, DETECT_AI_SIGHT, ARCH, talive };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
