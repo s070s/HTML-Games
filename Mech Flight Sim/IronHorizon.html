@@ -316,6 +316,23 @@ const AI_UTIL_HURT = 0.5;        // hull fraction below which AI pilots use 'hur
 const AI_UTIL_HOT = 0.8;         // heat fraction above which AI pilots use 'hot' utilities (coolant overdrive)
 const AI_UTIL_RANGE = 300;       // AI pilots use 'fight' utilities (holo decoy, barrier) with a target this close
 const AI_GADGET_CHECK = 0.4;     // seconds between AI checks of when to use a utility (the threat check scans projectiles)
+// P5-03: when the AI uses the new utilities
+const AI_SPOT_AFTER = 3;         // s since it last saw its target before an AI carrier launches a Spotter Drone at the place
+const AI_SCAN_CLOAK = 3;         // s: an AI Pulse Scanner pings for a hostile seen to cloak this lately within its radius
+const AI_MINE_SIGHT = 25;        // m: an AI unit sees a hostile mine this near (and pings for the rest)
+const AI_HOP_DODGE = 15;         // m: an AI soldier on a Jump Pack hops sideways from a ground vehicle this near and closing
+const AI_HOP_ROOF = 12;          // m: ...to a roof or ledge this near that a sniper or rocket trooper wants
+const AI_HOP_COOL = 8;           // s an AI soldier waits after a roof hop before it tries another
+const AI_HOP_UP = 4.2;           // m: the highest roof above it that a hop reaches
+const AI_HOP_STUCK = 1.8;        // s: ...and over what it has been stuck at this long
+const ENGINEER_FIGHT = 150;      // m: an AI engineer with a hostile this near fights instead of mending
+const ENGINEER_HURT = 0.6;       // hull share under which an AI engineer mends an allied platform
+const ENGINEER_PLATFORM = 120;   // m it goes for a hurt allied platform
+const ENGINEER_DEFENCE = 200;    // m it goes for a damaged allied turret or a mine its team knows
+const ENGINEER_LOOK = 0.4;       // s between its looks for work
+const AI_SEA_MINE_RANGE = 250;   // m: a ship drops a sea mine for a hostile ship this near behind it
+const AI_SEA_MINE_FLEE = 0.4;    // hull share under which a ship being chased drops one
+const AI_SEA_MINE_GAP = 4;       // s between a ship's drops
 
 /* ---------- weapons ----------
    slot: which loadout group it fits (primary|secondary|utility)
@@ -392,10 +409,23 @@ const WEAPONS = {
   artyGun: { name: 'Field Howitzer', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 210, dtype: 'explosive', speed: 210, life: 30, cd: 2.6, spread: 0.0018, grav: 22, arc: true, indirect: { min: 150, elev: [-0.1, 1.35], arc: 'low' }, clip: 4, reserve: 40, reload: 6, heat: 12, range: 1400, blast: 14, weight: 20, structMult: 2.2, tracer: [1, 0.72, 0.3], size: 1.8, sound: 'mortar', recoil: 1.6, role: 'Pro: heavy shells onto any ground point out to 1400 m, over hills and cover; con: 150 m minimum range, slow flight, steady only when deployed' },
   artyRockets: { name: 'Rocket Artillery', slot: 'primary', kind: 'proj', fire: 'burst', burst: { n: 6, interval: 0.25 }, dmg: 70, dtype: 'explosive', speed: 175, life: 26, cd: 5, spread: 0.006, grav: 22, arc: true, indirect: { min: 250, elev: [0.05, 1.0], arc: 'low' }, clip: 12, reserve: 48, reload: 9, heat: 14, range: 1300, blast: 8, weight: 16, structMult: 1.6, tracer: [1, 0.6, 0.25], size: 1.2, rocket: true, pdHp: 24, pdR: 1.3, sound: 'rocket', recoil: 0.8, role: 'Pro: a six-rocket salvo saturates an area out to 1300 m; con: 250 m minimum range, scatters, long reload' },
   artyMortar: { name: 'Heavy Mortar', slot: 'primary', kind: 'proj', fire: 'semi', dmg: 120, dtype: 'explosive', speed: 105, life: 14, cd: 1.6, spread: 0.004, grav: 22, arc: true, indirect: { min: 70, elev: [0.8, 1.5], arc: 'high' }, clip: 6, reserve: 48, reload: 4.5, heat: 9, range: 480, blast: 10, weight: 12, structMult: 1.8, tracer: [1, 0.8, 0.4], size: 1.3, sound: 'mortar', recoil: 0.9, role: 'Pro: steep plunging shells behind walls and ridges, fast to fire; con: short reach (480 m), high arc only, slow to land' },
+  /* P5-03 (decided in P5-02, Appendix C): eight items for the weak cells of the role matrix. They follow the last old row, artyMortar (index 60): every id up to it keeps its index, the superweapon ordnance that other code adds after the table moves up by nine (the net version covers it).
+     The Jump Pack's up and fwd are the launch speeds (m/s) that give the decided hop of about 4.5 m up and 9 m along at GRAVITY 28 (the row's 9 and 7 were worked out for a lighter gravity). */
+  scanner: { name: 'Pulse Scanner', slot: 'utility', kind: 'defense', def: 'scan', charges: 3, cd: 12, dur: 4, radius: 220, mineMark: 20, selfMark: 2, ai: 'stealth', weight: 4, tracer: [0.5, 1, 0.9], role: 'Pro: an active ping that for 4 s shows every camouflaged unit, Holo Decoy and hostile mine within 220 m to your team, and the only way to find mines; con: loud (every hostile within 440 m sees you on radar for 4 s), three uses, and it takes the only utility slot' },
+  coating: { name: 'Stealth Coating', slot: 'utility', kind: 'defense', def: 'coating', passive: true, detect: 0.6, sight: 0.75, lockMult: 1.5, seekerCone: 0.25, bloom: 3, weight: 5, role: 'Pro: always on, enemy radar sees you at 60% of its range, AI sees you 25% less far, every lock on you takes 1.5 times as long and the seeker of a missile locks only inside a narrower cone round you; con: it does nothing for 3 s after you fire, a missile still hits it far more often than a flared or jammed jet, anyone who looks still sees you, and it takes the only utility slot (no flares or ECM)' },
+  spotter: { name: 'Spotter Drone', slot: 'utility', kind: 'defense', def: 'spotter', charges: 2, cd: 20, dur: 20, range: 600, alt: 60, radius: 250, hp: 40, speed: 40, ai: 'spot', weight: 4, tracer: [0.6, 0.9, 1], role: 'Pro: a drone flies to your reticle (600 m) and hovers 60 m up for 20 s; it sees 250 m round it and spots for your artillery; con: 40 hit points (any gun, flak or AA missile kills it, ECM drops it), two uses, and it takes the only utility slot' },
+  manpad: { name: 'Shoulder SAM', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 45, dtype: 'explosive', speed: 60, accel: 220, maxSpeed: 260, life: 4, cd: 3, spread: 0.01, clip: 1, reserve: 4, reload: 3.5, heat: 6, range: 700, blast: 4, prox: 3.5, weight: 6, structMult: 0.4, tracer: [1, 0.85, 0.5], size: 0.8, rocket: true, pdEvade: 0.5, pdHp: 12, pdR: 0.8, guide: { turn: 2.2, lock: 'air', lockTime: 1.4, cone: 0.35, fov: 0.7, lose: 0.4, flare: 0.6 }, sound: 'missile', recoil: 0.4, role: 'Pro: the soldier\'s anti-air; a proximity fuse bursts it within 3.5 m of the aircraft, so a near miss still hurts; con: one round then a 3.5 s reload, five in all, a narrow 1.4 s lock, 700 m, only 45 damage, flares fool it 60% of the time, aircraft only' },
+  jumppack: { name: 'Jump Pack', slot: 'utility', kind: 'defense', def: 'jump', charges: 4, cd: 0.6, recharge: 6, up: 16, fwd: 8, airSpread: 3, ai: 'hop', weight: 4, role: 'Pro: the defense key hops the soldier 4 m up and 9 m along, with no fall damage on that landing; onto roofs, ledges and river banks; one charge back every 6 s; con: no secondary fire and three times the aim spread in the air, and it takes the only utility slot (no healing or camouflage)' },
+  torch: { name: 'Repair Torch', slot: 'primary', kind: 'beam', fire: 'auto', dmg: 3, heal: 30, healStruct: 60, healCap: 0.8, defuse: 1.5, dtype: 'energy', speed: 0, life: 0, cd: 0.1, spread: 0, clip: 0, reserve: 0, reload: 0, heat: 2.2, range: 12, blast: 0, beamWidth: 0.4, weight: 3, structMult: 0.5, tracer: [0.4, 1, 0.6], size: 0.25, sound: 'laser', recoil: 0, role: 'Pro: a short beam that repairs an ally 30 hull a second up to 80% and an allied structure 60 a second, and defuses a hostile mine in 1.5 s; con: 12 m reach, heat-limited, cannot mend its own soldier, cuts hostiles for only 3 a shot (30 a second, before armour)' },
+  seaMines: { name: 'Sea Mine Rack', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 260, dtype: 'explosive', speed: 0, life: 120, cd: 1.5, spread: 0, clip: 2, reserve: 6, reload: 6, heat: 2, range: 40, blast: 7, prox: 5, mine: true, sea: true, keel: 1.5, pdHp: 20, pdR: 1.2, weight: 10, structMult: 1, tracer: [0.3, 0.32, 0.35], size: 1.2, sound: 'splash', recoil: 0, role: 'Pro: drops a moored mine astern that does a torpedo\'s 260 to any keel that comes within 5 m; con: water only (2 m deep), hovercraft and aircraft pass over it, seen within 60 m, any gun sinks it, six out at once for 120 s' },
+  /* the Spotter Drone in flight: a projectile slot (never mounted), killed by 40 hit points of gun fire, flak or an AA missile (Intercept) */
+  spotDrone: { name: 'Spotter Drone', slot: 'utility', sub: true, kind: 'proj', fire: 'semi', drone: true, dmg: 1, dtype: 'explosive', speed: 40, life: 60, cd: 1, spread: 0, clip: 1, reserve: 0, reload: 1, heat: 0, range: 600, blast: 0, radius: 250, weight: 1, structMult: 0, tracer: [0.6, 0.9, 1], size: 1.4, pdHp: 40, pdR: 2.2, sound: 'spotter', recoil: 0, role: 'Pro: a sensor and an artillery spotter that hovers where it was sent; con: 40 hit points' },
+  plough: { name: 'Mine Plough', slot: 'utility', kind: 'defense', def: 'plough', passive: true, width: 9, ahead: 3, mineHurt: 0.15, speedMult: 0.9, weight: 6, role: 'Pro: land mines in the strip ahead of the bow go off against the blade for 15% damage and a post marks each cleared mine for 40 s; con: top speed down 10%, only the front strip, sea mines untouched, and it takes the only utility slot (no Active Protection or Point Defence)' },
 };
 for (const k in WEAPONS) { WEAPONS[k].id = k; if (WEAPONS[k].guide && WEAPONS[k].guide.fov !== undefined) WEAPONS[k].guide.fovCos = Math.cos(WEAPONS[k].guide.fov); }
 const NAVAL_WEAPON_IDS = ['navalGun', 'torpedo', 'shipSam'];   // the ships' own weapons (P5.2), listed in the Arsenal
 const ARTY_WEAPON_IDS = ['artyGun', 'artyRockets', 'artyMortar'];   // the artillery's own guns (P5.3), listed in the Arsenal
+const NEW_ITEM_IDS = ['scanner', 'coating', 'spotter', 'manpad', 'jumppack', 'torch', 'seaMines', 'plough'];   // the eight items of P5-03 (the Support gear panel of the Arsenal)
 const WEAPON_SLOTS = ['primaryA', 'primaryB', 'secondary', 'utility'];
 const GUN_SLOTS = ['primaryA', 'primaryB', 'secondary'];   // firing slots in fixed order (also the co-op sync order)
 const SLOT_LABEL = { primaryA: 'Primary A', primaryB: 'Primary B', secondary: 'Secondary', utility: 'Utility' };
@@ -457,7 +487,7 @@ const PLATFORMS = {
     radius: 2.2, height: 8, speed: 26, sensor: 650, stability: 0.6,
     mech: { accel: 70, decel: 90, turn: 7, torsoRate: 6.5, boostMult: 1.65, boostCost: 22, jetThrust: 74, jetMax: 17, jetCost: 19, meleeDmg: 55 },
     mounts: { primaryA: [2.2, 5.6, 1.5], primaryB: [-2.2, 5.6, 1.5], secondary: [0, 8.2, 0.6] },
-    allow: { primary: ['mg', 'laser', 'shotgun', 'acannon', 'flamer', 'tesla', 'needler', 'slug', 'ion'], secondary: ['rockets', 'missile', 'mortar', 'swarm', 'cluster', 'atgm', 'mines', 'empGren'], utility: ['shield', 'nano', 'cloak', 'smoke', 'overdrive', 'holo', 'ecm', 'sensor'] },
+    allow: { primary: ['mg', 'laser', 'shotgun', 'acannon', 'flamer', 'tesla', 'needler', 'slug', 'ion'], secondary: ['rockets', 'missile', 'mortar', 'swarm', 'cluster', 'atgm', 'mines', 'empGren'], utility: ['shield', 'nano', 'cloak', 'smoke', 'overdrive', 'holo', 'ecm', 'sensor', 'scanner', 'spotter'] },
     loadout: { primaryA: 'laser', primaryB: 'shotgun', secondary: 'rockets', utility: 'shield' },
     col: { main: [0.42, 0.46, 0.5], dark: [0.2, 0.22, 0.25] },
   },
@@ -469,7 +499,7 @@ const PLATFORMS = {
     radius: 2.8, height: 10, speed: 18, sensor: 600, stability: 1,
     mech: { accel: 50, decel: 70, turn: 5, torsoRate: 5, boostMult: 1.55, boostCost: 24, jetThrust: 64, jetMax: 14, jetCost: 22, meleeDmg: 80 },
     mounts: { primaryA: [3.2, 6.4, 1.8], primaryB: [-3.2, 6.4, 1.8], secondary: [0, 9.8, 0.4] },
-    allow: { primary: ['mg', 'acannon', 'laser', 'plasma', 'rail', 'gatling', 'flamer', 'tesla', 'gauss', 'lance', 'needler', 'slug', 'ion'], secondary: ['rockets', 'missile', 'mortar', 'swarm', 'cluster', 'atgm', 'mines', 'empGren'], utility: ['shield', 'aps', 'nano', 'ecm', 'smoke', 'overdrive', 'reactive', 'holo', 'drone', 'barrier', 'pdc', 'sensor'] },
+    allow: { primary: ['mg', 'acannon', 'laser', 'plasma', 'rail', 'gatling', 'flamer', 'tesla', 'gauss', 'lance', 'needler', 'slug', 'ion'], secondary: ['rockets', 'missile', 'mortar', 'swarm', 'cluster', 'atgm', 'mines', 'empGren', 'aam'], utility: ['shield', 'aps', 'nano', 'ecm', 'smoke', 'overdrive', 'reactive', 'holo', 'drone', 'barrier', 'pdc', 'sensor', 'scanner'] },
     loadout: { primaryA: 'acannon', primaryB: 'laser', secondary: 'missile', utility: 'shield' },
     col: { main: [0.36, 0.42, 0.34], dark: [0.18, 0.21, 0.17] },
   },
@@ -481,7 +511,7 @@ const PLATFORMS = {
     radius: 3.7, height: 13, speed: 12.5, sensor: 560, stability: 2,
     mech: { accel: 34, decel: 50, turn: 3.2, torsoRate: 3.6, boostMult: 1.4, boostCost: 26, jetThrust: 54, jetMax: 11, jetCost: 25, meleeDmg: 130 },
     mounts: { primaryA: [4.2, 8, 2.2], primaryB: [-4.2, 8, 2.2], secondary: [0, 12.6, 0.3] },
-    allow: { primary: ['acannon', 'gatling', 'plasma', 'rail', 'laser', 'flak', 'gauss', 'lance', 'slug', 'howitzer', 'ion', 'flamer'], secondary: ['missile', 'rockets', 'mortar', 'aam', 'cruise', 'cluster', 'swarm', 'atgm', 'mines'], utility: ['shield', 'aps', 'nano', 'reactive', 'barrier', 'drone', 'overdrive', 'ecm', 'smoke', 'pdc', 'sensor'] },
+    allow: { primary: ['acannon', 'gatling', 'plasma', 'rail', 'laser', 'flak', 'gauss', 'lance', 'slug', 'howitzer', 'ion', 'flamer'], secondary: ['missile', 'rockets', 'mortar', 'aam', 'cruise', 'cluster', 'swarm', 'atgm', 'mines'], utility: ['shield', 'aps', 'nano', 'reactive', 'barrier', 'drone', 'overdrive', 'ecm', 'smoke', 'pdc', 'sensor', 'scanner'] },
     loadout: { primaryA: 'gatling', primaryB: 'plasma', secondary: 'missile', utility: 'aps' },
     col: { main: [0.5, 0.42, 0.28], dark: [0.24, 0.2, 0.14] },
   },
@@ -493,7 +523,7 @@ const PLATFORMS = {
     radius: 0.7, height: 1.8, speed: 10, sensor: 450, stability: 0.4,
     mech: { accel: 40, decel: 60, turn: 9, torsoRate: 9, boostMult: 1.7, boostCost: 18, jetThrust: 56, jetMax: 10, jetCost: 11, meleeDmg: 35 },
     mounts: { primaryA: [0.2, 1.4, 0.5], primaryB: [-0.2, 1.4, 0.5], secondary: [-0.3, 1.65, 0.2] },
-    allow: { primary: ['rifle', 'smg', 'sniper', 'mg', 'lmg', 'dmr', 'arcPistol', 'flamer'], secondary: ['rpg', 'grenade', 'satchel', 'empGren', 'javelin', 'mines'], utility: ['nano', 'smoke', 'cloak', 'drone', 'sensor'] },
+    allow: { primary: ['rifle', 'smg', 'sniper', 'mg', 'lmg', 'dmr', 'arcPistol', 'flamer', 'torch'], secondary: ['rpg', 'grenade', 'satchel', 'empGren', 'javelin', 'mines', 'manpad'], utility: ['nano', 'smoke', 'cloak', 'drone', 'sensor', 'scanner', 'spotter', 'jumppack'] },
     loadout: { primaryA: 'rifle', primaryB: 'smg', secondary: 'grenade', utility: 'nano' },
     col: { main: [0.34, 0.4, 0.3], dark: [0.17, 0.2, 0.14] },
   },
@@ -515,7 +545,7 @@ const PLATFORMS = {
     radius: 2.6, height: 2.8, speed: 44, sensor: 600, stability: 0.5,
     ground: { type: 'wheeled', accel: 30, brake: 60, drag: 8, reverse: 0.4, steerRate: 1.9, steerMin: 6, grip: 7, turretRate: 6, boostMult: 1.45, climb: 0.55, ride: 0.9, pitchLim: [-0.15, 0.55] },
     mounts: { primaryA: [0.9, 1.5, 1.2], primaryB: [-0.9, 1.5, 1.2], secondary: [0, 2.2, -0.2] },
-    allow: { primary: ['mg', 'acannon', 'laser', 'shotgun', 'flamer', 'tesla', 'needler', 'slug'], secondary: ['rockets', 'missile', 'mines', 'swarm', 'cluster', 'atgm'], utility: ['nano', 'smoke', 'ecm', 'overdrive', 'cloak', 'sensor'] },
+    allow: { primary: ['mg', 'acannon', 'laser', 'shotgun', 'flamer', 'tesla', 'needler', 'slug', 'flak'], secondary: ['rockets', 'missile', 'mines', 'swarm', 'cluster', 'atgm'], utility: ['nano', 'smoke', 'ecm', 'overdrive', 'cloak', 'sensor', 'scanner', 'coating', 'spotter'] },
     loadout: { primaryA: 'mg', primaryB: 'shotgun', secondary: 'rockets', utility: 'nano' },
     col: { main: [0.55, 0.5, 0.36], dark: [0.2, 0.18, 0.14] },
   },
@@ -527,7 +557,7 @@ const PLATFORMS = {
     radius: 3.6, height: 3.8, speed: 17, sensor: 580, stability: 2,
     ground: { type: 'tracked', accel: 14, brake: 40, drag: 10, reverse: 0.5, steerRate: 1.1, steerMin: 0, grip: 14, turretRate: 3.6, boostMult: 1.25, climb: 0.8, ride: 1.3, pitchLim: [-0.12, 0.5] },
     mounts: { primaryA: [0, 2.8, 4], primaryB: [1.3, 3.1, 3], secondary: [-1.4, 4.3, 0.5] },
-    allow: { primary: ['acannon', 'plasma', 'rail', 'gatling', 'mg', 'flak', 'gauss', 'slug', 'howitzer', 'ion', 'lance'], secondary: ['missile', 'rockets', 'mortar', 'aam', 'atgm', 'cruise', 'cluster', 'mines', 'swarm'], utility: ['aps', 'nano', 'reactive', 'smoke', 'ecm', 'barrier', 'drone', 'pdc', 'sensor'] },
+    allow: { primary: ['acannon', 'plasma', 'rail', 'gatling', 'mg', 'flak', 'gauss', 'slug', 'howitzer', 'ion', 'lance'], secondary: ['missile', 'rockets', 'mortar', 'aam', 'atgm', 'cruise', 'cluster', 'mines', 'swarm'], utility: ['aps', 'nano', 'reactive', 'smoke', 'ecm', 'barrier', 'drone', 'pdc', 'sensor', 'scanner', 'plough'] },
     loadout: { primaryA: 'acannon', primaryB: 'plasma', secondary: 'missile', utility: 'aps' },
     col: { main: [0.34, 0.4, 0.3], dark: [0.15, 0.18, 0.13] },
   },
@@ -539,7 +569,7 @@ const PLATFORMS = {
     radius: 2.8, height: 2.4, speed: 38, sensor: 620, stability: 0.6,
     ground: { type: 'hover', accel: 26, brake: 24, drag: 3, reverse: 0.45, steerRate: 1.7, steerMin: 0, grip: 1.3, turretRate: 6, boostMult: 1.6, climb: 1.4, ride: 2.2, pitchLim: [-0.15, 0.55] },
     mounts: { primaryA: [1.1, 1.6, 1.8], primaryB: [-1.1, 1.6, 1.8], secondary: [0, 2.4, 0] },
-    allow: { primary: ['laser', 'mg', 'shotgun', 'acannon', 'tesla', 'needler', 'ion', 'flamer'], secondary: ['missile', 'rockets', 'swarm', 'atgm', 'empGren', 'mines'], utility: ['shield', 'nano', 'cloak', 'smoke', 'ecm', 'overdrive', 'holo', 'sensor'] },
+    allow: { primary: ['laser', 'mg', 'shotgun', 'acannon', 'tesla', 'needler', 'ion', 'flamer'], secondary: ['missile', 'rockets', 'swarm', 'atgm', 'empGren', 'mines'], utility: ['shield', 'nano', 'cloak', 'smoke', 'ecm', 'overdrive', 'holo', 'sensor', 'scanner'] },
     loadout: { primaryA: 'laser', primaryB: 'mg', secondary: 'missile', utility: 'shield' },
     col: { main: [0.38, 0.46, 0.55], dark: [0.15, 0.2, 0.26] },
   },
@@ -551,7 +581,7 @@ const PLATFORMS = {
     radius: 4.5, height: 3, speed: 150, sensor: 1500, stability: 0.5,
     air: { min: 78, cruise: 150, max: 205, ab: 295, accel: 55, decel: 40, yawMax: 1.55, pitchMax: 1.6, yawGain: 3, pitchGain: 3, maxBank: 1.25, rollResp: 4, rollMax: 3.2, clearance: 2.8, landMax: 95, takeoff: 80, groundTurn: 0.8, gearH: 1.6 },
     mounts: { primaryA: [1.5, -0.2, 3], primaryB: [-1.5, -0.2, 3], secondary: [0, -1, 1] },
-    allow: { primary: ['mg', 'acannon', 'laser', 'vulcan'], secondary: ['aam', 'missile', 'rockets', 'swarm'], utility: ['flares', 'ecm', 'overdrive', 'sensor'] },
+    allow: { primary: ['mg', 'acannon', 'laser', 'vulcan'], secondary: ['aam', 'missile', 'rockets', 'swarm'], utility: ['flares', 'ecm', 'overdrive', 'sensor', 'scanner', 'coating'] },
     loadout: { primaryA: 'mg', primaryB: 'acannon', secondary: 'aam', utility: 'flares' },
     col: { main: [0.55, 0.58, 0.62], dark: [0.22, 0.24, 0.28] },
   },
@@ -563,7 +593,7 @@ const PLATFORMS = {
     radius: 5, height: 3.4, speed: 125, sensor: 1400, stability: 0.8,
     air: { min: 70, cruise: 125, max: 175, ab: 245, accel: 45, decel: 36, yawMax: 1.25, pitchMax: 1.3, yawGain: 2.6, pitchGain: 2.6, maxBank: 1.15, rollResp: 3.4, rollMax: 2.6, clearance: 3, landMax: 90, takeoff: 74, groundTurn: 0.7, gearH: 1.8 },
     mounts: { primaryA: [1.8, -0.3, 3.4], primaryB: [-1.8, -0.3, 3.4], secondary: [0, -1.2, 1] },
-    allow: { primary: ['acannon', 'mg', 'gatling', 'laser', 'vulcan', 'ion'], secondary: ['aam', 'missile', 'rockets', 'bombs', 'swarm', 'cluster', 'napalm', 'buster', 'atgm'], utility: ['flares', 'ecm', 'overdrive', 'reactive', 'sensor'] },
+    allow: { primary: ['acannon', 'mg', 'gatling', 'laser', 'vulcan', 'ion'], secondary: ['aam', 'missile', 'rockets', 'bombs', 'swarm', 'cluster', 'napalm', 'buster', 'atgm'], utility: ['flares', 'ecm', 'overdrive', 'reactive', 'sensor', 'scanner', 'coating'] },
     loadout: { primaryA: 'acannon', primaryB: 'mg', secondary: 'bombs', utility: 'flares' },
     col: { main: [0.42, 0.48, 0.4], dark: [0.17, 0.2, 0.16] },
   },
@@ -576,7 +606,7 @@ const PLATFORMS = {
     air: { min: 42, cruise: 85, max: 125, ab: 165, accel: 28, decel: 26, yawMax: 0.85, pitchMax: 0.8, yawGain: 2, pitchGain: 2, maxBank: 0.8, rollResp: 2.2, rollMax: 1.6, clearance: 4, landMax: 70, takeoff: 46, groundTurn: 0.5, gearH: 2.4 },
     mounts: { primaryA: [3, -1.8, 4], primaryB: [-3, -1.8, 4], secondary: [0, -2.2, 1.5] },
     turreted: true,
-    allow: { primary: ['gatling', 'acannon', 'plasma', 'flak', 'laser', 'vulcan', 'lance', 'ion'], secondary: ['rockets', 'missile', 'bombs', 'aam', 'mortar', 'swarm', 'cluster', 'napalm', 'buster', 'cruise', 'atgm'], utility: ['flares', 'nano', 'ecm', 'reactive', 'drone', 'overdrive', 'pdc', 'sensor'] },
+    allow: { primary: ['gatling', 'acannon', 'plasma', 'flak', 'laser', 'vulcan', 'lance', 'ion'], secondary: ['rockets', 'missile', 'bombs', 'aam', 'mortar', 'swarm', 'cluster', 'napalm', 'buster', 'cruise', 'atgm'], utility: ['flares', 'nano', 'ecm', 'reactive', 'drone', 'overdrive', 'pdc', 'sensor', 'scanner'] },
     loadout: { primaryA: 'gatling', primaryB: 'acannon', secondary: 'rockets', utility: 'flares' },
     col: { main: [0.34, 0.38, 0.32], dark: [0.14, 0.17, 0.13] },
   },
@@ -589,7 +619,7 @@ const PLATFORMS = {
     radius: 4.5, height: 3.4, speed: 30, sensor: 900, stability: 1,
     naval: { accel: 9, brake: 7, drag: 2.5, reverse: 0.35, steerRate: 0.8, steerSpeed: 12, steerMin: 0.2, grip: 2.4, turretRate: 3.4, boostMult: 1.3, pitchLim: [-0.15, 0.6], draft: 1.2, ride: 0, climb: 0, amphibious: false, hull: [-6, 9, 1.9] },
     mounts: { primaryA: [0, 2.6, 3.6], primaryB: [0, 2.4, -3], secondary: [0, 1.4, 0.5] },
-    allow: { primary: ['acannon', 'navalGun', 'mg', 'flak', 'gatling'], secondary: ['torpedo', 'missile', 'rockets', 'shipSam'], utility: ['smoke', 'flares', 'ecm', 'nano', 'aps', 'pdc', 'sensor'] },
+    allow: { primary: ['acannon', 'navalGun', 'mg', 'flak', 'gatling'], secondary: ['torpedo', 'missile', 'rockets', 'shipSam', 'seaMines'], utility: ['smoke', 'flares', 'ecm', 'nano', 'aps', 'pdc', 'sensor', 'scanner', 'coating'] },
     loadout: { primaryA: 'acannon', primaryB: 'mg', secondary: 'torpedo', utility: 'smoke' },
     col: { main: [0.52, 0.56, 0.6], dark: [0.2, 0.22, 0.25] },
   },
@@ -601,7 +631,7 @@ const PLATFORMS = {
     radius: 10, height: 8, speed: 16, sensor: 1400, stability: 3,
     naval: { accel: 3.5, brake: 3, drag: 1.2, reverse: 0.3, steerRate: 0.34, steerSpeed: 8, steerMin: 0.25, grip: 2, turretRate: 2.4, boostMult: 1.2, pitchLim: [-0.1, 0.9], draft: 3, ride: 0, climb: 0, amphibious: false, hull: [-14, 17, 3.5] },
     mounts: { primaryA: [0, 5.2, 9], primaryB: [0, 6.2, -7], secondary: [0, 6.6, 2] },
-    allow: { primary: ['navalGun', 'flak', 'acannon', 'gatling', 'howitzer', 'rail'], secondary: ['shipSam', 'missile', 'torpedo', 'cruise', 'swarm', 'aam'], utility: ['aps', 'flares', 'ecm', 'smoke', 'nano', 'reactive', 'drone', 'pdc', 'sensor'] },
+    allow: { primary: ['navalGun', 'flak', 'acannon', 'gatling', 'howitzer', 'rail'], secondary: ['shipSam', 'missile', 'torpedo', 'cruise', 'swarm', 'aam', 'seaMines'], utility: ['aps', 'flares', 'ecm', 'smoke', 'nano', 'reactive', 'drone', 'pdc', 'sensor', 'scanner'] },
     loadout: { primaryA: 'navalGun', primaryB: 'flak', secondary: 'shipSam', utility: 'aps' },
     col: { main: [0.46, 0.5, 0.54], dark: [0.2, 0.22, 0.25] },
   },
@@ -613,7 +643,7 @@ const PLATFORMS = {
     radius: 5, height: 3.6, speed: 26, sensor: 800, stability: 1.2,
     naval: { accel: 10, brake: 8, drag: 2, reverse: 0.4, steerRate: 1.0, steerSpeed: 8, steerMin: 0.4, grip: 1.2, turretRate: 4, boostMult: 1.35, pitchLim: [-0.15, 0.6], draft: 0, ride: 1.6, climb: 0.7, amphibious: true, hull: [-5.7, 7, 3.6] },
     mounts: { primaryA: [0.8, 3, 2.4], primaryB: [-0.8, 3, 2.4], secondary: [0, 3.4, -1] },
-    allow: { primary: ['gatling', 'acannon', 'mg', 'flak', 'flamer'], secondary: ['rockets', 'missile', 'mortar', 'atgm', 'shipSam'], utility: ['smoke', 'nano', 'aps', 'flares', 'ecm', 'pdc', 'sensor'] },
+    allow: { primary: ['gatling', 'acannon', 'mg', 'flak', 'flamer'], secondary: ['rockets', 'missile', 'mortar', 'atgm', 'shipSam'], utility: ['smoke', 'nano', 'aps', 'flares', 'ecm', 'pdc', 'sensor', 'scanner'] },
     loadout: { primaryA: 'gatling', primaryB: 'mg', secondary: 'rockets', utility: 'smoke' },
     col: { main: [0.44, 0.5, 0.42], dark: [0.18, 0.21, 0.17] },
   },
@@ -628,7 +658,7 @@ const PLATFORMS = {
     ground: { type: 'tracked', accel: 12, brake: 36, drag: 10, reverse: 0.5, steerRate: 1.0, steerMin: 0, grip: 14, turretRate: 1.6, boostMult: 1.2, climb: 0.75, ride: 1.3, pitchLim: [-0.1, 1.35] },
     arty: { deploy: 3, undeploy: 2.2 },
     mounts: { primaryA: [0, 3.6, 3.4], primaryB: [1.2, 4, 0.4], secondary: [-1.3, 4, 0] },
-    allow: { primary: ['artyGun', 'mg', 'acannon', 'gatling'], secondary: ['atgm', 'missile', 'rockets', 'mines'], utility: ['smoke', 'aps', 'nano', 'reactive', 'ecm', 'drone', 'pdc', 'sensor'] },
+    allow: { primary: ['artyGun', 'mg', 'acannon', 'gatling'], secondary: ['atgm', 'missile', 'rockets', 'mines'], utility: ['smoke', 'aps', 'nano', 'reactive', 'ecm', 'drone', 'pdc', 'sensor', 'scanner', 'spotter'] },
     loadout: { primaryA: 'artyGun', primaryB: 'mg', secondary: 'atgm', utility: 'smoke' },
     col: { main: [0.42, 0.44, 0.33], dark: [0.18, 0.19, 0.14] },
   },
@@ -641,7 +671,7 @@ const PLATFORMS = {
     ground: { type: 'wheeled', accel: 20, brake: 50, drag: 7, reverse: 0.4, steerRate: 1.4, steerMin: 5, grip: 8, turretRate: 2.2, boostMult: 1.3, climb: 0.55, ride: 1.1, pitchLim: [-0.05, 1.0] },
     arty: { deploy: 2, undeploy: 1.5 },
     mounts: { primaryA: [0, 3.4, -0.6], primaryB: [0.8, 3.2, 3.2], secondary: [-0.8, 3.2, 3] },
-    allow: { primary: ['artyRockets', 'mg', 'gatling'], secondary: ['rockets', 'missile', 'mines'], utility: ['smoke', 'nano', 'ecm', 'aps', 'overdrive', 'pdc', 'sensor'] },
+    allow: { primary: ['artyRockets', 'mg', 'gatling'], secondary: ['rockets', 'missile', 'mines'], utility: ['smoke', 'nano', 'ecm', 'aps', 'overdrive', 'pdc', 'sensor', 'scanner', 'spotter'] },
     loadout: { primaryA: 'artyRockets', primaryB: 'mg', secondary: 'rockets', utility: 'smoke' },
     col: { main: [0.5, 0.47, 0.36], dark: [0.2, 0.19, 0.14] },
   },
@@ -654,7 +684,7 @@ const PLATFORMS = {
     ground: { type: 'tracked', accel: 18, brake: 44, drag: 10, reverse: 0.5, steerRate: 1.4, steerMin: 0, grip: 13, turretRate: 2.6, boostMult: 1.3, climb: 0.8, ride: 1.1, pitchLim: [-0.1, 1.5] },
     arty: { deploy: 1.2, undeploy: 1 },
     mounts: { primaryA: [0, 3.6, -0.4], primaryB: [0.9, 3, 1.6], secondary: [-0.9, 3, 1.4] },
-    allow: { primary: ['artyMortar', 'mg', 'lmg'], secondary: ['atgm', 'grenade', 'mines', 'rockets'], utility: ['smoke', 'nano', 'aps', 'ecm', 'drone', 'pdc', 'sensor'] },
+    allow: { primary: ['artyMortar', 'mg', 'lmg'], secondary: ['atgm', 'grenade', 'mines', 'rockets'], utility: ['smoke', 'nano', 'aps', 'ecm', 'drone', 'pdc', 'sensor', 'scanner', 'spotter'] },
     loadout: { primaryA: 'artyMortar', primaryB: 'mg', secondary: 'atgm', utility: 'smoke' },
     col: { main: [0.4, 0.45, 0.36], dark: [0.17, 0.2, 0.15] },
   },
@@ -679,6 +709,10 @@ const ARCH = {
   infantry: { def: 'ranger', ai: 'skirmisher', label: 'Infantry', loadout: { primaryA: 'rifle', secondary: 'grenade' }, score: 60, speedBoost: 1.2 },
   rpgTrooper: { def: 'ranger', ai: 'soldier', label: 'Rocket Trooper', loadout: { primaryA: 'smg', secondary: 'javelin' }, score: 90 },
   sniper: { def: 'ranger', ai: 'sniper', label: 'Sniper', loadout: { primaryA: 'sniper', utility: 'sensor' }, score: 90 },
+  /* P5-03: an AA trooper fires its Shoulder SAM at aircraft it sees (a soldier's sight is about 330 to 400 m, so in practice well inside the 630 m of 0.9 x the missile's range); an engineer mends what is damaged near it and defuses the mines its team knows
+     (no wave draws them yet: P5-09 adds them to garrisons; a wave-built unit costs 1, unitCost's default) */
+  aaTrooper: { def: 'ranger', ai: 'soldier', label: 'AA Trooper', loadout: { primaryA: 'rifle', secondary: 'manpad' }, score: 90 },
+  engineer: { def: 'ranger', ai: 'engineer', label: 'Engineer', loadout: { primaryA: 'rifle', primaryB: 'torch', utility: 'scanner' }, score: 60 },
   buggy: { def: 'jackal', ai: 'skirmisher', label: 'Raider', loadout: { primaryA: 'flamer', secondary: 'rockets' }, hpMult: 0.85, score: 100 },
   tank: { def: 'bastion', ai: 'bruiser', label: 'Tank', loadout: { primaryA: 'acannon', secondary: 'atgm' }, score: 200 },
   lightMech: { def: 'wraith', ai: 'flanker', label: 'Light Mech', loadout: { primaryA: 'laser', primaryB: 'tesla', secondary: 'rockets', utility: 'shield' }, score: 180 },
@@ -1227,7 +1261,9 @@ const Save = {
     // a save could already carry every weapon that was not gated when it was last checked: it keeps them (nothing is
     // taken away). A save from before any gate saw none; one marked weaponGate saw the first gated build's (SAVE_GATED_P7A)
     const seen = Array.isArray(raw.gatedSeen) ? raw.gatedSeen : raw.weaponGate === true ? SAVE_GATED_P7A : [];
-    Arsenal.gatedIds().forEach((id) => { if (seen.indexOf(id) < 0 && out.unlocked.indexOf(id) < 0) out.unlocked.push(id); });
+    // (P5-03: the eight new items are not a gift to an old save: each is open only once that save has won its mission)
+    const won = (mid) => { const r = (out.career.cleared && out.career.cleared[mid]) || (out.best[mid] && out.best[mid].rank) || ''; return !!r && r !== 'F'; };
+    Arsenal.gatedIds().forEach((id) => { if (seen.indexOf(id) < 0 && out.unlocked.indexOf(id) < 0 && (NEW_ITEM_IDS.indexOf(id) < 0 || won(MISSION_UNLOCK[id]))) out.unlocked.push(id); });
     return out;
   },
   load() {
@@ -1287,7 +1323,10 @@ const Loadout = {
     ['primaryA', 'primaryB'].forEach((s) => { const w = lo[s] && WEAPONS[lo[s]]; if (w) h += w.heat / Math.max(0.04, w.cd) * 0.5; });
     return h;
   },
-  speedMult(def, lo) { return clamp(1.04 - 0.22 * (this.weight(lo) / def.weightCap), 0.7, 1.05); },
+  speedMult(def, lo) {
+    const ut = lo.utility && WEAPONS[lo.utility];
+    return clamp(1.04 - 0.22 * (this.weight(lo) / def.weightCap), 0.7, 1.05) * (ut && ut.speedMult || 1);   // the Mine Plough slows its tank (P5-03)
+  },
   /* the melee weapons def can carry: a civilian fists only, a soldier fists or a blade, a mech fists, sword or katana */
   meleeFor(def) {
     if (def.kind !== 'mech') return [];
@@ -2024,6 +2063,11 @@ Snd.R = {
   eject() { this.noise({ dur: 0.6, vol: 0.3, lp: 2500, lp2: 400 }); },
   hitTick() { this.tone({ freq: 1900, dur: 0.035, vol: 0.07, type: 'square', bus: 'ui' }); },
   killConfirm() { this.tone({ freq: 1200, dur: 0.06, vol: 0.1, type: 'square', bus: 'ui' }); this.tone({ freq: 1800, dur: 0.12, vol: 0.1, type: 'square', bus: 'ui', delay: 0.07 }); },
+  /* P5-03: the Pulse Scanner's sweep, a Jump Pack hop, a Spotter Drone's launch, a mine defused by the Repair Torch */
+  scan() { this.tone({ freq: 500, freq2: 1900, dur: 0.7, vol: 0.14 * arguments[0], type: 'sine', pan: arguments[1] }); this.tone({ freq: 250, freq2: 950, dur: 0.7, vol: 0.08 * arguments[0], type: 'triangle', pan: arguments[1], delay: 0.05 }); },
+  hop() { this.noise({ dur: 0.35, vol: 0.22 * arguments[0], lp: 2600, lp2: 500, pan: arguments[1] }); this.tone({ freq: 140, freq2: 320, dur: 0.18, vol: 0.1 * arguments[0], type: 'sawtooth', pan: arguments[1] }); },
+  spotter() { this.tone({ freq: 700, freq2: 1100, dur: 0.25, vol: 0.09 * arguments[0], type: 'square', pan: arguments[1] }); this.noise({ dur: 0.4, vol: 0.1 * arguments[0], hp: 2200, pan: arguments[1], delay: 0.05 }); },
+  defuse() { this.tone({ freq: 1500, dur: 0.07, vol: 0.1 * arguments[0], type: 'square', pan: arguments[1] }); this.tone({ freq: 1000, dur: 0.07, vol: 0.1 * arguments[0], type: 'square', pan: arguments[1], delay: 0.09 }); },
 };
 
 
@@ -4520,6 +4564,7 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
   Traffic.blast(x, y, z, radius, damage);   // and its own road traffic
   if (Net.guest) return;   // guests only show effects; the host decides damage
   if (radius >= HAZARD_BLAST_R && damage > 0) Hazards.onBlast(x, y, z, radius);
+  Mines.sympathetic(x, y, z, radius, damage);   // a blast near a sea mine sets it off (P5-03)
   // damage
   const pl = W.platforms;
   for (let i = 0; i < pl.length; i++) {
@@ -4574,6 +4619,7 @@ function newWorld(cfg) {
   const m = mapDef(cfg.map);
   Terrain.build(m, cfg.sites || []);
   Hash.reset();
+  Scan.clear();   // the pings of the last battle (P5-03)
   W = {
     cfg, map: m, mapId: m.id, mods: cfg.mods || {}, time: 0, nextId: 1, nid: 0, buildings: [], plain: [], hotPlain: [], platforms: [], player: null, structs: [], projs: [], pickups: [], civZones: [], fauna: null, traffic: null, society: null, farms: [],
     beams: [], rings: [], scorches: [], debris: [], debrisHead: 0, lights: [], decoys: [], queue: [], wrecks: [], artyMarks: [], events: [], feed: [], bridges: [], nDestroyed: 0, deckCells: null, roadData: null, roadMesh: null, flora: null,
@@ -5861,6 +5907,8 @@ function drawWorld(dt) {
     if (!p.active) continue;
     if (!R.visible(p.x, p.y, p.z, 6)) continue;
     const d = p.def;
+    if (d.drone) { drawSpotDrone(p, st); continue; }   // P5-03
+    if (d.sea) { drawSeaMine(p, st); continue; }
     const sp = Math.hypot(p.vx, p.vy, p.vz) || 1;
     const yaw = Math.atan2(p.vx, p.vz), pitch = Math.asin(clamp(p.vy / sp, -1, 1));
     const len = d.kind === 'bomb' ? 2.4 : d.rocket ? 2.2 : clamp(sp * 0.012, 0.9, 3.4);
@@ -5872,6 +5920,7 @@ function drawWorld(dt) {
       // exhaust glow
       FX.emit(p.x - p.vx / sp * 1.5, p.y - p.vy / sp * 1.5, p.z - p.vz / sp * 1.5, rand(-1, 1), rand(-1, 1), rand(-1, 1), 0.35, 1.3, 0.3, 1, 0.65, 0.25, 0.7, 2, 0, true);
     }
+    if (d.mine) drawMineMark(p);
   }
   // flares/decoys
   for (let i = 0; i < W.decoys.length; i++) {
@@ -13285,14 +13334,104 @@ const DETECT_RANGE = {   // class: [range without the Sensor Array, with it] (m)
 };
 const DETECT_SHARE = 0.6;        // an ally's detection reaches this share of its own range on your radar
 const DETECT_AI_SIGHT = 1.25;    // an AI unit with the Sensor Array spots this much farther
+const DETECT_DRONES = 8;         // and room for this many Spotter Drones (P5-03) on top
 const DETECT_NODES = 24;         // the player and the nearest allies, this many sensors at most, make one radar picture
 const DETECT_KEEP = 1.15;        // a held target stays until it is this much beyond every sensor's range (and out of view): the grace margin
 const TARGET_VIEW_CONE = 0.6;    // rad off the aim: a unit this near the reticle with a clear line is seen by eye, detected or not
 const TARGET_VIEW_COS = Math.cos(TARGET_VIEW_CONE);
 const TARGET_EYE_RANGE = 800;    // m: the farthest a unit counts as seen by eye (in view, clear line) for cycling and holding a target; R.drawDist if that is shorter, since nothing is drawn beyond it
 const KNOW_TP = { x: 0, y: 0, z: 0 }, KNOW_DIR = { x: 0, y: 0, z: 0 };   // Platform.knows scratch
+/* ---------------------------------------------------------------------
+   PULSE SCANNER AND STEALTH COATING (P5-03; decided in P5-02, Appendix C: the owner can change any row)
+   A ping (the Pulse Scanner, one per use) is a record both sides keep from the same 'scan' effect (WPN.fx), so a co-op guest works out
+   the same reveals from the platforms it holds: for `dur` s every hostile platform within `radius` m of the carrier is revealed to the
+   carrier's team (an Optical Camo `noTarget` is ignored by targeting, locks, the radar and the AI of that team, at the carrier's full
+   range; a Holo Decoy is told apart; hostile mines are marked for `mineMark` s), and the carrier is loud: every hostile within
+   `selfMark` x radius sees it on radar. An ECM Jammer running on the target hides it from the ping.
+   The Stealth Coating is passive: hostile sensors reach it at `detect` of their range, the AI's sight of it is x`sight` and every
+   lock on it takes `lockMult` times as long, except for `bloom` s after it fires and while a ping lays it bare.
+   --------------------------------------------------------------------- */
+const SCAN_RETRY = 0.25;    // s between a guest's looks for a ping's carrier
+const SCAN_MINE_MAX = 40;   // marked mines on one radar at most
+const Scan = {
+  marksUntil: 0,   // when the last mine mark runs out (the radar's mine loop stops after it)
+  list: [],   // the pings: { pid, plat, team, until, r, loud }
+  add(plat, pid, team, dur, r, loud) {
+    const l = this.list;
+    for (let i = l.length - 1; i >= 0; i--) if (l[i].until <= W.time) l.splice(i, 1);
+    l.push({ pid, plat: plat || null, team, until: W.time + dur, r, loud, tryAt: 0 });
+  },
+  clear() { this.list.length = 0; this.marksUntil = 0; },
+  /* drop the pings that have run out (every tick, so the loops that scan the list stop when the last one ends) */
+  prune() {
+    const l = this.list;
+    for (let i = l.length - 1; i >= 0; i--) if (l[i].until <= W.time) l.splice(i, 1);
+  },
+  /* the platform a ping belongs to, or null once it is gone */
+  carrier(s) {
+    if (s.plat) {
+      if (!s.plat.dead) { if (s.team < 0) s.team = s.plat.team; return s.plat; }
+      s.until = 0;   // the carrier is gone: its ping ends (the team stays on the record)
+      return null;
+    }
+    if (W.time < s.tryAt) return null;
+    s.tryAt = W.time + SCAN_RETRY;   // a guest may hear of a ping before it holds the carrier: look again in a moment, not every call
+    s.plat = W.platforms.find((q) => q.id === s.pid && !q.dead) || null;
+    if (s.plat && s.team < 0) s.team = s.plat.team;
+    return s.plat;
+  },
+  /* true when team's ping lays unit e bare now */
+  reveals(e, team) {
+    const l = this.list;
+    if (l.length === 0 || e.team === team || e.jamT > 0) return false;
+    for (let i = 0; i < l.length; i++) {
+      const s = l[i];
+      if (s.until <= W.time) continue;
+      const c = this.carrier(s);
+      if (!c || (s.team >= 0 ? s.team : c.team) !== team) continue;   // (a co-op guest may hear of a ping before it holds the carrier: the team follows the carrier)
+      if (Math.hypot(e.x - c.x, e.y - c.y, e.z - c.z) <= s.r) return true;
+    }
+    return false;
+  },
+  /* e cannot be targeted by team: it is camouflaged (or otherwise untargetable) and no ping of team lays it bare */
+  hides(e, team) { return e.noTarget && !(e.cloakT > 0 && this.reveals(e, team)); },
+  /* a Holo Decoy a ping of team has told apart: the AI of that team stops preferring it */
+  tagged(e, team) { return !!e.def.lure && this.reveals(e, team); },
+  /* true when e is pinging (loud) and viewer, a hostile, is within selfMark x its radius: viewer's radar shows it */
+  loud(e, viewer) {
+    const l = this.list;
+    if (l.length === 0 || e.team === viewer.team) return false;
+    for (let i = 0; i < l.length; i++) {
+      const s = l[i];
+      if (s.pid !== e.id || s.until <= W.time) continue;
+      if (Math.hypot(e.x - viewer.x, e.z - viewer.z) <= s.r * s.loud) return true;
+    }
+    return false;
+  },
+  /* a mine a ping of team found shows for its `markUntil` */
+  marked(q, team) { return q.markTeam === team && q.markUntil > W.time; },
+  /* the ping starts (both sides): hostile mines within r are marked for the carrier's team */
+  markMines(x, y, z, team, r, secs) {
+    for (const q of W.projs) {
+      if (!q.active || !q.def.mine || q.team === team || Math.hypot(q.x - x, q.y - y, q.z - z) > r) continue;
+      q.markTeam = team; q.markUntil = W.time + secs;
+      if (q.markUntil > this.marksUntil) this.marksUntil = q.markUntil;
+    }
+  },
+};
+const COATING_BLOOM_SEND = 3;   // s a platform that fired is flagged to co-op guests (the Stealth Coating's bloom, WEAPONS.coating.bloom)
+const Stealth = {
+  has(e) { return !!e.util && e.util.def.def === 'coating'; },
+  /* the coating's cut applies to e as team sees it: fitted, not within `bloom` s of its last shot, not laid bare by a ping */
+  on(e, team) { return this.has(e) && W.time - e.firedAt >= e.util.def.bloom && !Scan.reveals(e, team); },
+  detect(e, team) { return this.on(e, team) ? e.util.def.detect : 1; },
+  sight(e, team) { return this.on(e, team) ? e.util.def.sight : 1; },
+  lock(e, team) { return this.on(e, team) ? e.util.def.lockMult : 1; },
+  /* the share of its lock cone a seeker keeps against e (1 for an uncoated target): coordinator decision on the duel result, the owner can change it */
+  seeker(e, team) { return this.on(e, team) ? e.util.def.seekerCone : 1; },
+};
 const Detect = {
-  x: new Float64Array(DETECT_NODES), z: new Float64Array(DETECT_NODES), r2: new Float64Array(DETECT_NODES), away: new Float64Array(DETECT_NODES), n: 0,
+  x: new Float64Array(DETECT_NODES + DETECT_DRONES), z: new Float64Array(DETECT_NODES + DETECT_DRONES), r2: new Float64Array(DETECT_NODES + DETECT_DRONES), away: new Float64Array(DETECT_NODES + DETECT_DRONES), n: 0,
   /* the class of platform def: foot, mech, vehicle, artillery, naval or air (worked out once per def) */
   classOf(def) {
     if (def.detectClass) return def.detectClass;
@@ -13324,6 +13463,14 @@ const Detect = {
         if (this.away[at] <= away) continue;
       } else n++;
       this.x[at] = q.x; this.z[at] = q.z; this.r2[at] = r * r; this.away[at] = away;
+    }
+    // P5-03: a Spotter Drone of the team is a sensor of its owner (full range for the owner, DETECT_SHARE of it for allies)
+    const ps = W.projs;
+    for (let i = 0; i < ps.length && n < DETECT_NODES + DETECT_DRONES; i++) {   // (own room: Spotter Drones never crowd out an ally)
+      const q = ps[i];
+      if (!q.active || !q.def.drone || q.team !== p.team) continue;
+      const r = q.def.radius * (q.owner === p ? 1 : DETECT_SHARE);
+      this.x[n] = q.x; this.z[n] = q.z; this.r2[n] = r * r; this.away[n] = 0; n++;
     }
     this.n = n;
   },
@@ -13358,12 +13505,26 @@ const Detect = {
       const dx = e.x - p.x, dz = e.z - p.z, inDisc = dx * dx + dz * dz <= lim;
       if (e.team === p.team) { if (inDisc) n = this.put(n, 'friend', e.x, e.z, false, false); continue; }
       const marked = e === tgt || e === lock;
-      if (!marked && (!inDisc || e.noTarget || !this.sees(e.x, e.z))) continue;
+      // P5-03: a ping of the team lays a camouflaged or coated unit bare at the carrier's full range; a pinging hostile is loud
+      const bare = Scan.list.length > 0 && Scan.reveals(e, p.team);
+      if (!marked && (!inDisc || Scan.hides(e, p.team) || (!bare && !(this.sees(e.x, e.z, Stealth.detect(e, p.team)) || Scan.loud(e, p))))) continue;   // a ping lifts the range check and the coating, never an untargetable unit (a Barrier)
       if (e.team === 2) n = this.put(n, e.kind === 'mech' ? 'civilian' : 'vehicle', e.x, e.z, false, false);   // a civilian vehicle someone took: neutral, never a target
       else n = this.put(n, 'hostile', e.x, e.z, e.kind === 'air', marked);
     }
     if (tgt && tgt.isStruct && talive(tgt)) n = this.put(n, 'objective', tgt.x, tgt.z, true, true);   // a targeted objective structure
     else if (tgt && tgt.isProj && talive(tgt)) n = this.put(n, 'incoming', tgt.x, tgt.z, false, true);   // a targeted incoming projectile (P5-07)
+    for (let i = 0, k = 0; i < W.projs.length && k < SCAN_MINE_MAX; i++) {   // hostile Spotter Drones the radar has (P5-03)
+      const q = W.projs[i], dx = q.x - p.x, dz = q.z - p.z;
+      if (!q.active || !q.def.drone || q.team === p.team || dx * dx + dz * dz > lim || !(this.sees(q.x, q.z) || Scan.loud(q, p))) continue;
+      n = this.put(n, 'hostile', q.x, q.z, true, q === tgt); k++;
+    }
+    if (Scan.list.length > 0 || W.time < Scan.marksUntil) {   // hostile mines a ping of the team found (P5-03), until their marks run out
+      for (let i = 0, k = 0; i < W.projs.length && k < SCAN_MINE_MAX; i++) {
+        const q = W.projs[i], dx = q.x - p.x, dz = q.z - p.z;
+        if (!q.active || !Scan.marked(q, p.team) || dx * dx + dz * dz > lim) continue;
+        n = this.put(n, 'mine', q.x, q.z, false, false); k++;
+      }
+    }
     this.iFauna = n;
     const F = W.fauna, zones = W.civZones, T = W.traffic;
     if (F) {   // a school only for the sea mammals, which break the surface
@@ -14121,7 +14282,7 @@ const Arty = {
     let best = null, bestScore = Infinity;
     for (let i = 0; i < W.platforms.length; i++) {
       const e = W.platforms[i];
-      if (e.dead || e.team === p.team || e.team === 2 || e.noTarget || e.hideFromAI || e.kind === 'air') continue;
+      if (e.dead || e.team === p.team || e.team === 2 || Scan.hides(e, p.team) || e.hideFromAI || e.kind === 'air') continue;
       const dist = Math.hypot(e.x - p.x, e.z - p.z);
       if (dist < d.indirect.min || dist > d.range) continue;
       const score = e === cur ? dist * 0.7 : dist;
@@ -14149,6 +14310,16 @@ const Arty = {
       if (dx * dx + dz * dz > sight * sight) continue;
       if (q.kind === 'air' || hasLOS(q.x, q.y + q.height * 0.8, q.z, x, y + 1, z)) return true;
       if (near && this.sightEnds(q.x, q.y + q.height * 0.8, q.z, x, y + 1, z) < near) return true;
+    }
+    // P5-03: a Spotter Drone of the side spots what lies within its radius, looking down from where it hovers
+    const ps = W.projs;
+    for (let i = 0; i < ps.length; i++) {
+      const q = ps[i];
+      if (!q.active || !q.def.drone || q.team !== p.team) continue;
+      if (p.spotters && p.spotters.indexOf(q.owner) < 0) continue;
+      const dx = x - q.x, dz = z - q.z;
+      if (dx * dx + dz * dz > q.def.radius * q.def.radius) continue;
+      if (hasLOS(q.x, q.y, q.z, x, y + 1, z)) return true;
     }
     return false;
   },
@@ -14214,6 +14385,8 @@ class Platform {
     // weapon effects (WPN): burning, weapon-EMP immunity, and the timers of active utilities
     this.burnT = 0; this.burnDps = 0; this.burnTeam = -1; this.burnOwner = null; this.burnCause = ''; this.burnTick = 0; this.burnFxUntil = 0; this.empCd = 0;
     this.jamT = 0; this.cloakT = 0; this.cloakKeep = false; this.coolT = 0; this.droneT = 0; this.droneTick = 0;
+    // P5-03: when it last fired (the Stealth Coating's bloom), the Pulse Scanner's ping left, the Jump Pack's hop left (a hop lands without fall damage), the Repair Torch's hold on a mine
+    this.firedAt = -99; this.scanT = 0; this.hopT = 0; this.hopSafe = false; this.hopY = 0; this.hopYaw = null; this.defuseT = 0; this.defuseAt = null; this.cleared = 0;
     this.loadout = opts.loadout || def.loadout;
     this.buildLoadout(opts.ammoMult || 1);
     // melee (MELEE): the weapon, the strike in a chain, when the strike began (also on co-op guests) and the wind-up left
@@ -14344,7 +14517,7 @@ class Platform {
       if (uphill > 0.45) top *= clamp(1 - (uphill - 0.45) * 1.6, 0.25, 1);
     }
     const dvx = mx * top, dvz = mz * top;
-    const accel = (moving ? m.accel : m.decel) * (this.grounded ? 1 : 0.3);
+    const accel = (moving ? m.accel : m.decel) * (this.grounded ? 1 : this.hopT > 0 ? 0 : 0.3);   // a hop (Jump Pack) is ballistic
     const ex = dvx - this.vx, ez = dvz - this.vz, el = Math.hypot(ex, ez), step = accel * dt;
     if (el <= step) { this.vx = dvx; this.vz = dvz; } else { this.vx += ex / el * step; this.vz += ez / el * step; }
     // jump jets
@@ -14357,6 +14530,7 @@ class Platform {
       if (Math.random() < 0.7) FX.emit(this.x + rand(-1, 1), this.y + 0.5, this.z + rand(-1, 1), rand(-2, 2), -rand(10, 18), rand(-2, 2), 0.35, 2, 0.5, 1, 0.7, 0.3, 0.8, 1, 0, true);
     }
     if (!this.grounded) this.vy -= GRAVITY * this.gravMult() * dt;
+    if (this.hopT > 0 && (this.hopT -= dt) <= 0) this.hopSafe = false;   // (a hop that never lands, over deep water, ends here)
     if (this.chute) {   // under a parachute: a slow fall, drifting to a stop
       if (this.vy < -CHUTE_SINK) this.vy = -CHUTE_SINK;
       const k = Math.exp(-CHUTE_DRAG * dt);
@@ -14378,7 +14552,8 @@ class Platform {
     else if (!this.grounded && this.y <= gy) {
       const impact = -this.vy;
       this.y = gy; this.grounded = true; this.chute = false;
-      if (impact > 12) {
+      const safe = this.hopSafe && gy >= this.hopY - HOP_DROP_MARGIN; this.hopSafe = false; this.hopT = 0;   // the landing of a hop costs nothing (Jump Pack) unless it falls well below where the hop began
+      if (impact > 12 && !safe) {
         this.stagger = Math.max(this.stagger, clamp((impact - 12) / 30, 0, 0.7) / this.def.stability);
         Snd.play('land', this.x, this.y, this.z, clamp(impact / 25, 0.4, 1.3));
         for (let i = 0; i < 6; i++) FX.emit(this.x + rand(-2, 2), this.y + 0.3, this.z + rand(-2, 2), rand(-5, 5), rand(1, 3), rand(-5, 5), 0.8, 1.4, 3, 0.55, 0.5, 0.42, 0.5, 2.5, 0, false);
@@ -14927,7 +15102,7 @@ class Platform {
     if (!talive(t)) return false;
     if (t.isProj) return t.hp > 0 && t.def.pdHp > 0 && t.team !== this.team && t.team !== 2 && (t !== this.target || t.nid === this.targetNid);   // P5-07: an incoming rocket or missile
     if (t.isStruct) return !!t.objective && t.team !== this.team;
-    return t.team !== this.team && t.team !== 2 && !t.noTarget;
+    return t.team !== this.team && t.team !== 2 && !Scan.hides(t, this.team);
   }
   /* Target ranking for Cycle Target and auto-target after a kill (lower first): closeness to the crosshair
      dominates, then distance; enemies attacking or locking us and ones the guided weapon can lock rank
@@ -14946,7 +15121,10 @@ class Platform {
      R.drawDist (what is drawn), with a clear line (cached: the held target's look; else a fresh test). Objective structures
      are always known: their markers show. */
   senses(t, tp, grow, dir, cached) {
-    if (t.isStruct || t.isProj || Detect.sees(tp.x, tp.z, grow)) return true;   // an incoming projectile is known to the missile warning, not the radar
+    if (t.isStruct || (t.isProj && !t.def.drone)) return true;   // an incoming projectile is known to the missile warning, not the radar (a hostile Spotter Drone is a radar contact, P5-03)
+    // P5-03: a ping of this team lays the unit bare at the carrier's full range; a pinging hostile shows to everyone near; a Stealth Coating shortens the radar's reach
+    if (Scan.list.length > 0 && (Scan.reveals(t, this.team) || Scan.loud(t, this))) return true;
+    if (Detect.sees(tp.x, tp.z, (grow || 1) * Stealth.detect(t, this.team))) return true;
     const dx = tp.x - this.x, dy = tp.y - this.y, dz = tp.z - this.z, d = Math.hypot(dx, dy, dz);
     if (d < 1) return true;
     if (d > Math.min(TARGET_EYE_RANGE, R.drawDist) || dx * dir.x + dy * dir.y + dz * dir.z < d * TARGET_VIEW_COS) return false;
@@ -14974,6 +15152,7 @@ class Platform {
     };
     W.platforms.forEach(consider); W.structs.forEach((s) => { if (s.objective) consider(s); });
     if (manual) Intercept.eachThreat(this, consider);
+    for (const q of W.projs) if (q.active && q.def.drone) consider(q);   // a hostile Spotter Drone that the radar or the eye has (P5-03)
     if (cands.length === 0) { this.target = null; return; }
     cands.sort((a, b) => a.ang - b.ang);
     const cur = cands.findIndex((c) => c.t === this.target);
@@ -15002,7 +15181,7 @@ class Platform {
   updateLock(dt) {
     const L = this.lock;
     if (this.target && (!this.validTarget(this.target))) this.target = null;
-    if (this.target && this.target.isProj && !Intercept.threatens(this.target, this)) this.target = null;   // it missed, or turned away
+    if (this.target && this.target.isProj && !this.target.def.drone && !Intercept.threatens(this.target, this)) this.target = null;   // it missed, or turned away
     if (this.target) { // lose target beyond sensors
       tpos(this.target, TMP_V);
       if (Math.hypot(TMP_V.x - this.x, TMP_V.y - this.y, TMP_V.z - this.z) > this.sensorRange() * 1.25) this.target = null;
@@ -15021,11 +15200,11 @@ class Platform {
     const dir = this.aimDir(LOCK_DIR);
     const ang = Math.acos(clamp((dx * dir.x + dy * dir.y + dz * dir.z) / Math.max(1, d), -1, 1));
     let reason = this.lockFit(t, d) || WPN.lockBlock(this, t, tp);   // jammed or smoke-covered targets cannot be locked
-    if (!reason) reason = ang > gd.cone ? 'OFF BORE' : this.lockSight(t, tp) ? '' : 'NO LINE OF SIGHT';
+    if (!reason) reason = ang > gd.cone * (t.isStruct || t.isProj ? 1 : Stealth.seeker(t, this.team)) ? 'OFF BORE' : this.lockSight(t, tp) ? '' : 'NO LINE OF SIGHT';   // a coated target narrows the lock cone (P5-03)
     L.reason = reason;
     if (reason === '') {
       if (L.target !== t) { L.target = t; L.progress = 0; L.state = 'acquiring'; }
-      L.progress = Math.min(1, L.progress + dt / gd.lockTime); L.grace = 0.4;
+      L.progress = Math.min(1, L.progress + dt / (gd.lockTime * (t.isStruct || t.isProj ? 1 : Stealth.lock(t, this.team)))); L.grace = 0.4;   // a Stealth Coating makes a lock take longer (P5-03)
       if (!t.isStruct && !t.isProj) t.beingLocked = 0.3;
       if (L.progress >= 1) { if (L.state !== 'locked' && W.player === this) Snd.ui('lockDone'); L.state = 'locked'; } else L.state = 'acquiring';
     } else {
@@ -15110,7 +15289,7 @@ class Platform {
     const blocked = this.overheated;
     if (this.sub.weapons > 0) this.warn = this.warn || 'WEAPONS DAMAGED';
     this.handleFire(this.primary, c.fire1, c.fire1Edge, dt, blocked);
-    this.handleFire(this.wslots.secondary, c.fire2, c.fire2Edge, dt, blocked);
+    this.handleFire(this.wslots.secondary, c.fire2, c.fire2Edge, dt, blocked || this.hopT > 0);   // no secondary fire in the air on a Jump Pack hop (P5-03)
     // the non-active primary still finishes its reload; nothing else to do
   }
   startReload(w, manual) {
@@ -15151,6 +15330,7 @@ class Platform {
     const trigger = (d.fire === 'auto') ? held : edge;
     if (!trigger || w.cd > 0) return;
     if (d.indirect && !Arty.clear(this, w)) return;   // inside the minimum range or out of reach: the gun is not fired
+    if (d.sea && !Mines.seaSpot(this)) { if (edge) notify(this, 'SEA MINES NEED ' + SEA_MINE_DEPTH + ' M OF WATER ASTERN', 'empty'); return; }   // (P5-03)
     if (!this.hasAmmo(w)) { if (edge || !w.warned) this.dryFire(w); return; }
     if (d.fire === 'burst') { w.burstLeft = Math.min(d.burst.n, w.clip); w.burstT = 0; return; }
     this.shoot(w, 1);
@@ -15183,6 +15363,7 @@ class Platform {
     const mz = this.muzzle(w, { x: 0, y: 0, z: 0 });
     if (d.kind !== 'beam') { w.clip--; }
     w.warned = false;
+    this.firedAt = W.time;   // a Stealth Coating does nothing for a moment (P5-03)
     if (this.cloakT > 0) this.endCloak();   // firing gives a camouflaged platform away
     if (this.coolT <= 0) this.heat += d.heat * (isBurst ? 0.5 : 1);   // Coolant Overdrive: no heat build-up
     if (this.heat >= this.maxHeat) { this.heat = this.maxHeat; this.overheated = true; notify(this, 'OVERHEAT: WEAPONS LOCKED', 'warn'); }
@@ -15233,7 +15414,7 @@ class Platform {
   /* how much wider than its own spread weapon d scatters now: crouched, boosting, from the air, or (indirect fire)
      not deployed */
   spreadMult(d) {
-    return (this.crouch ? 0.6 : 1) * (this.boosting ? 1.4 : 1) * (this.kind === 'air' ? 0.8 : 1) * (d.indirect ? Arty.spreadMult(this) : 1);
+    return (this.crouch ? 0.6 : 1) * (this.boosting ? 1.4 : 1) * (this.kind === 'air' ? 0.8 : 1) * (d.indirect ? Arty.spreadMult(this) : 1) * (this.hopT > 0 && this.util ? this.util.def.airSpread || 1 : 1);   // a soldier in the air aims badly (Jump Pack, P5-03)
   }
   solveArc(d, mz, ap, dir) {
     if (!ap) return d.speed;
@@ -15252,6 +15433,7 @@ class Platform {
     let dmg = d.dmg, width = d.beamWidth || 0.35;
     if (d.ramp) { dmg *= 1 + this.rampBeam(w, r.hit && r.kind === 'platform' ? r.obj : null); width *= 1 + w.ramp * 0.4; }
     WPN.beam(mz.x, mz.y, mz.z, ex, ey, ez, w.id, width);
+    if (d.heal && this.torchWork(d, r, ex, ey, ez)) return;   // a Repair Torch on an ally, an allied structure or a mine (P5-03)
     Civ.ray(mz.x, mz.y, mz.z, ex, ey, ez, dmg); Civ.alarm(this.x, this.z, CIV_GUNFIRE_HEAR); Traffic.ray(mz.x, mz.y, mz.z, ex, ey, ez, dmg); Traffic.alarm(this.x, this.z, CIV_GUNFIRE_HEAR);
     Fauna.ray(mz.x, mz.y, mz.z, ex, ey, ez, dmg); Fauna.alarm(this.x, this.z, FAUNA_GUNFIRE_HEAR);
     if (!r.hit) return;
@@ -15264,6 +15446,47 @@ class Platform {
       if (dealt > 0) WPN.onHit(this, obj, d, dx, dz);
       if (d.chain) WPN.chain(this, obj, w.id, dmg);
     } else if (kind === 'struct') { damageStruct(obj, dmg, d.dtype, this, d.structMult); const st = statsOf(this); if (st) st.hits++; }
+  }
+  /* Repair Torch (P5-03), one beam tick (host): mends an allied platform heal x cd hull up to healCap of its maximum (never itself, never a
+     summoned unit), mends an allied structure healStruct x cd up to full (never an objective: those fall only to weapons and are not
+     rebuilt), and held `defuse` s on a hostile mine near the beam's end removes it with no blast. True when the tick was a repair (no cut). */
+  torchWork(d, r, ex, ey, ez) {
+    if (Net.guest) return true;
+    const dt = d.cd;
+    const mine = Mines.nearest(ex, ey, ez, this.team, MINE_DEFUSE_REACH);
+    if (mine) {
+      if (this.defuseAt !== mine) { this.defuseAt = mine; this.defuseT = 0; }
+      this.defuseT += dt;
+      if (Math.random() < 0.3) fxSparks(mine.x, mine.y + 0.3, mine.z, 2, d.tracer, 6);
+      if (this.defuseT >= d.defuse) {
+        mine.active = false; this.defuseAt = null; this.defuseT = 0;
+        fxSparks(mine.x, mine.y + 0.3, mine.z, 10, d.tracer, 10);
+        Snd.play('defuse', mine.x, mine.y, mine.z, 0.9);
+        notify(this, 'MINE DEFUSED');
+      }
+    } else this.defuseAt = null;
+    if (!r.hit) return false;
+    if (r.kind === 'platform' && r.obj.team === this.team && r.obj !== this) {
+      const o = r.obj, cap = o.maxHp * d.healCap;
+      if (!o.dead && !o.parked && !o.status.summoned && o.hp < cap) SW.heal(o, Math.min(d.heal * dt, cap - o.hp));
+      if (Math.random() < 0.4) fxSparks(ex, ey, ez, 2, d.tracer, 6);
+      return true;
+    }
+    if (r.kind === 'struct' && r.obj.team === this.team && !r.obj.objective && !r.obj.destroyed) {
+      this.mendStruct(r.obj, d.healStruct * dt);
+      if (Math.random() < 0.4) fxSparks(ex, ey, ez, 2, d.tracer, 6);
+      return true;
+    }
+    return false;
+  }
+  /* an allied structure regains amount hit points (up to its full hull); its damage stage and look follow, and guests are told */
+  mendStruct(s, amount) {
+    if (s.hp >= s.maxHp) return;
+    s.hp = Math.min(s.maxHp, s.hp + amount);
+    const frac = s.hp / s.maxHp, state = frac < 0.35 ? 2 : frac < 0.7 ? 1 : 0;
+    s.scorch = Math.max(0, s.scorch - amount / s.maxHp);
+    if (Net.host) Net.dirty.add(s.idx);
+    if (state !== s.state) { s.state = state; if (s.bld) Bld.markDirty(s, false); else Chunks.mark(s); }
   }
   /* Beam Lance build-up: grows while the beam stays on one platform, resets on a new one or after RAMP_RESET off it */
   rampBeam(w, obj) {
@@ -15315,8 +15538,12 @@ class Platform {
       case 'flares':
         if (c.defenseEdge && u.charges > 0 && u.cd <= 0) this.deployFlares(u);
         break;
-      case 'reactive': case 'sensor': break;   // passive: takeDamage spends the charges; Detect reads the Sensor Array
-      default:   // activated gadgets: ECM, smoke, camo, overdrive, holo decoy, repair drone, barrier
+      case 'reactive': case 'sensor': case 'coating': case 'plough': break;   // passive: takeDamage spends the charges; Detect reads the Sensor Array; Stealth reads the coating; the projectile loop reads the plough (Mines.blade)
+      case 'jump':   // P5-03: a hop on the defense key (a soldier on the ground), a charge back every `recharge` s
+        if (u.charges < ud.charges) { u.rechargeT += dt; if (u.rechargeT >= ud.recharge) { u.rechargeT = 0; u.charges++; } } else u.rechargeT = 0;
+        if (c.defenseEdge && u.charges > 0 && u.cd <= 0 && this.grounded && !this.swimming) this.useGadget(u);
+        break;
+      default:   // activated gadgets: ECM, smoke, camo, overdrive, holo decoy, repair drone, barrier, Pulse Scanner, Spotter Drone
         if (c.defenseEdge && u.charges > 0 && u.cd <= 0) this.useGadget(u);
         break;
     }
@@ -15329,6 +15556,7 @@ class Platform {
     if (this.burnT > 0) this.tickBurn(dt);
     if (this.jamT > 0) { this.jamT -= dt; WPN.jam(this); }
     if (this.cloakT > 0) { this.cloakT -= dt; if (this.cloakT <= 0) this.endCloak(); }
+    if (this.scanT > 0) this.scanT -= dt;
     if (this.droneT > 0) {
       this.droneT -= dt; this.droneTick -= dt;
       if (this.droneTick <= 0) { this.droneTick = BURN_TICK; WPN.droneHeal(this); }
@@ -15347,7 +15575,7 @@ class Platform {
   /* seconds left on the running utility effect (for the HUD), 0 when none is running */
   gadgetTime() {
     const k = this.util ? this.util.def.def : '';
-    return k === 'ecm' ? this.jamT : k === 'cloak' ? this.cloakT : k === 'overdrive' ? this.coolT : k === 'drone' ? this.droneT : 0;
+    return k === 'ecm' ? this.jamT : k === 'cloak' ? this.cloakT : k === 'overdrive' ? this.coolT : k === 'drone' ? this.droneT : k === 'scan' ? this.scanT : 0;
   }
   /* fire an activated utility (one charge; its cooldown starts) */
   useGadget(u) {
@@ -15386,8 +15614,27 @@ class Platform {
         notify(this, 'REPAIR DRONE LAUNCHED' + left, 'repair');
         break;
       case 'barrier': WPN.summon(this, 'barrier', ud.dur, this.radius + PLATFORMS.barrier.radius + 4, 0); notify(this, 'BARRIER DEPLOYED' + left); break;
+      case 'scan':   // P5-03: the ping (Scan), loud: hostile AI within selfMark x radius are alerted to this place
+        this.scanT = ud.dur;
+        WPN.fx('scan', this.x, this.y, this.z, ud.radius, ud.dur, this);
+        WPN.alertScan(this, ud);
+        WPN.relink(this);
+        notify(this, 'PULSE SCANNER: PINGING' + left);
+        break;
+      case 'spotter': WPN.launchSpotter(this, u); notify(this, 'SPOTTER DRONE AWAY' + left); break;
+      case 'jump': this.hop(ud); break;
       default: break;
     }
+  }
+  /* Jump Pack (P5-03): a ballistic hop along the heading (or the way the soldier faces), up `up` m/s and on at `fwd` m/s, in the air
+     until it lands; the landing of a hop costs no fall damage (hopSafe) and the soldier cannot fire its secondary or aim true meanwhile */
+  hop(ud) {
+    const c = this.cmd, mag = Math.hypot(this.vx, this.vz), by = this.hopYaw;   // hopYaw: the way an AI soldier picked
+    const hx = by !== null ? Math.sin(by) : mag > 1 ? this.vx / mag : Math.sin(c.aimYaw), hz = by !== null ? Math.cos(by) : mag > 1 ? this.vz / mag : Math.cos(c.aimYaw);
+    this.hopYaw = null;
+    this.vx = hx * ud.fwd; this.vz = hz * ud.fwd; this.vy = ud.up;
+    this.grounded = false; this.hopT = HOP_MAX; this.hopSafe = true; this.hopY = this.y; this.jetting = false;
+    WPN.fx('jump', this.x, this.y, this.z, 1, 0.1, null);
   }
   endCloak() {
     this.cloakT = 0; this.noTarget = this.cloakKeep;
@@ -15951,6 +16198,13 @@ function drawInfantry(p, main, dark, acc, lod) {
     return;
   }
   part('box', 0, 1.15 - cy, -0.24, 0.4, 0.5, 0.2, dark, 0, 0.1);
+  if (p.util && p.util.def.def === 'jump') {   // P5-03: a Jump Pack: two nozzles on the back, burning while the soldier is in the air
+    part('box', 0, 1.1 - cy, -0.4, 0.46, 0.4, 0.22, [0.25, 0.27, 0.3], 0, 0.4);
+    for (let side = -1; side <= 1; side += 2) {
+      part('cyl', side * 0.13, 0.82 - cy, -0.4, 0.14, 0.18, 0.14, [0.12, 0.12, 0.14], 0, 0.3);
+      if (!p.grounded || p.hopT > 0) part('box', side * 0.13, 0.55 - cy, -0.4, 0.1, 0.4, 0.1, [1, 0.7, 0.3], 2.2, 0);
+    }
+  }
   part('sphere', 0, 1.78 - cy, 0, 0.34, 0.24, 0.34, dark, 0, 0.2);
   if (!lod) {
     if (!striking) {
@@ -16048,6 +16302,11 @@ function drawTracked(p, main, dark, acc, lod) {
   st.push().t(p.x, p.y + 1.1, p.z).ry(p.yaw).rx(-p.pitch).rz(p.roll);
   part('box', 0, 0.6, 0, 4.4, 1.5, 7.6, main, 0, 0.3);
   part('wedge', 0, 0.7, 4.2, 4.2, 1.2, 1.6, main, 0, 0.3);
+  if (p.util && p.util.def.def === 'plough') {   // P5-03: a Mine Plough: a wide blade on a frame ahead of the bow, with tines
+    part('box', 0, 0.1, 4.5, 3.6, 0.3, 0.6, dark, 0, 0.4);
+    part('wedge', 0, -0.5, 5.6, 8.6, 0.9, 1.2, [0.34, 0.34, 0.36], 0, 0.5);
+    if (!lod) for (let i = -3; i <= 3; i++) part('box', i * 1.2, -0.85, 6.2, 0.18, 0.4, 0.8, [0.2, 0.2, 0.22], 0, 0.3);
+  }
   for (let s = -1; s <= 1; s += 2) {
     part('box', s * 2.55, -0.1, 0, 1.3, 1.6, 8.4, [0.1, 0.1, 0.11], 0, 0.1);
     if (!lod) for (let i = 0; i < 4; i++) part('box', s * 2.55, -0.2, -3 + i * 2 + (p.walkPhase * 0.3 % 2), 1.35, 0.4, 0.5, [0.18, 0.18, 0.2], 0, 0);
@@ -16358,6 +16617,40 @@ function drawBomber(p, main, dark, acc) {
   }
   st.pop();
 }
+/* P5-03: a Spotter Drone in the air: a dark body, four spinning rotors, a light underneath */
+function drawSpotDrone(p, st) {
+  if (!R.visible(p.x, p.y, p.z, 4)) return;
+  st.push().t(p.x, p.y, p.z).ry(p.nid * 0.7 + W.time * 0.4);
+  part('box', 0, 0, 0, 1.3, 0.35, 1.3, [0.22, 0.26, 0.3], 0, 0.3);
+  part('box', 0, 0.22, 0, 0.5, 0.2, 0.5, [0.5, 0.55, 0.6], 0, 0.3);
+  for (let i = 0; i < 4; i++) {
+    const a = i * PI / 2 + PI / 4, x = Math.cos(a) * 1.05, z = Math.sin(a) * 1.05;
+    part('box', x * 0.5, 0.02, z * 0.5, 0.12, 0.1, 0.12, [0.15, 0.16, 0.18], 0, 0.2);
+    st.push().t(x, 0.2, z).ry(W.time * 40 + i).s(1.5, 0.04, 0.16); R.draw('box', 0.1, 0.1, 0.12, 1, 0, 0); st.pop();
+  }
+  part('sphere', 0, -0.28, 0, 0.3, 0.3, 0.3, [0.5, 0.9, 1], 1.8, 0);
+  st.pop();
+}
+/* P5-03: a Sea Mine Rack mine: a dark ball with horns, moored under the water; drawn only to those who see it (Mines.seenBy) */
+function drawSeaMine(p, st) {
+  if (!R.visible(p.x, p.y, p.z, 4) || !Mines.seenBy(p, W.player)) return;
+  st.push().t(p.x, p.y, p.z);
+  part('sphere', 0, 0, 0, 1.2, 1.2, 1.2, [0.18, 0.19, 0.2], 0, 0.4);
+  for (let i = 0; i < 6; i++) {
+    const a = i * PI / 3;
+    part('box', Math.cos(a) * 0.7, 0.1, Math.sin(a) * 0.7, 0.18, 0.18, 0.18, [0.7, 0.2, 0.15], 0.6, 0.2);
+  }
+  part('box', 0, 0.7, 0, 0.18, 0.18, 0.18, [0.7, 0.2, 0.15], 0.6, 0.2);
+  st.pop();
+  drawMineMark(p);
+}
+/* P5-03: a mine a ping found, for the player's team: a tall warning beacon over it */
+function drawMineMark(p) {
+  const me = W.player;
+  if (!me || !Scan.marked(p, me.team) || !R.visible(p.x, p.y, p.z, 6)) return;
+  const st = R.stack, k = 0.6 + 0.4 * Math.sin(W.time * 6);
+  st.push().t(p.x, p.y + 1.6, p.z).s(0.22, 3.2, 0.22); R.draw('box', 1, 0.35 * k, 0.15, 1, 2.6, 0); st.pop();
+}
 
 
 /* =====================================================================
@@ -16371,6 +16664,9 @@ function newProjectileSlot() {
     stuck: null, sx: 0, sy: 0, sz: 0,   // a sticky round (needle, satchel): what it clings to (a platform, or true) and its offset
     isProj: true, hp: 0, tnid: 0,       // a rocket's hit points (P5-07); the nid of the projectile it homes on (a slot is reused, the nid tells)
     blind: 0, sightAt: 0, sightOk: true, lx: 0, ly: 0, lz: 0,   // a seeker's time without its target, next look along its line, the last look's answer, and where the target was last seen (P5-06)
+    markTeam: -1, markUntil: 0,   // a mine a Pulse Scanner found: the team that sees it and until when (P5-03)
+    hover: 0,                     // a Spotter Drone: 0 flying out, 1 hovering (P5-03)
+    lostTo: null,                 // the camouflaged unit a homing missile lost; a Pulse Scanner's ping can give it back (WPN.relink, P5-03)
   };
 }
 /* the next free projectile slot, or null when all are in flight */
@@ -16394,7 +16690,7 @@ function spawnProjectile(owner, w, mz, dx, dy, dz, charge) {
   else { p.vx = dx * speed + owner.vx * inherit; p.vy = dy * speed + owner.vy * inherit; p.vz = dz * speed + owner.vz * inherit; }
   p.life = d.life; p.age = 0; p.dmg = d.dmg * (d.fire === 'charge' ? 0.5 + 0.5 * (charge || 1) : 1);
   p.pierceLeft = d.pierce || 0; p.hitSet = null; p.target = null; p.curSpeed = Math.hypot(p.vx, p.vy, p.vz);
-  p.hp = d.pdHp || 0; p.blind = 0; p.sightAt = 0; p.sightOk = true; p.tnid = 0;
+  p.hp = d.pdHp || 0; p.blind = 0; p.sightAt = 0; p.sightOk = true; p.tnid = 0; p.markTeam = -1; p.markUntil = 0; p.hover = 0; p.lostTo = null;
   if (d.guide && owner.lock.state === 'locked' && owner.lock.target) { p.target = owner.lock.target; p.tnid = p.target.isProj ? owner.targetNid : 0; }
   else if (d.guide && owner.ai && owner.ai.target && talive(owner.ai.target) && owner.lock.state === 'locked') p.target = owner.lock.target;
   if (p.target) { tpos(p.target, TMP_T); p.lx = TMP_T.x; p.ly = TMP_T.y; p.lz = TMP_T.z; }   // where the seeker last saw it: at launch
@@ -16413,7 +16709,7 @@ function launchProjectile(p, d, owner, team, x, y, z, vx, vy, vz) {
   p.x = x; p.y = y; p.z = z; p.vx = vx; p.vy = vy; p.vz = vz;
   p.life = d.life; p.age = 0; p.dmg = d.dmg; p.pierceLeft = d.pierce || 0; p.hitSet = null; p.target = null;
   p.curSpeed = Math.hypot(vx, vy, vz); p.noGuide = !d.guide; p.stuck = null;
-  p.hp = d.pdHp || 0; p.blind = 0; p.sightAt = 0; p.sightOk = true; p.tnid = 0;
+  p.hp = d.pdHp || 0; p.blind = 0; p.sightAt = 0; p.sightOk = true; p.tnid = 0; p.markTeam = -1; p.markUntil = 0; p.hover = 0; p.lostTo = null;
 }
 /* turn a projectile toward a point by at most maxTurn radians, keeping its speed */
 function steerProjectile(p, tx, ty, tz, maxTurn) {
@@ -16571,6 +16867,76 @@ const Intercept = {
   },
 };
 
+/* =====================================================================
+   SEA MINES, THE MINE PLOUGH AND MINE CLEARING (P5-03; decided in P5-02, Appendix C: the owner can change any row)
+   A Sea Mine Rack mine is a Mine Layer mine (a projectile with def.mine) that lies moored 1 m under the surface, in water at least
+   SEA_MINE_DEPTH deep, and goes off only for a keel: a ship (a hovercraft rides over it), or a mech or vehicle wading deeper than its
+   `keel`. The Mine Plough sets off the land mines in a strip ahead of its bow against the blade (a share of the blast reaches the
+   tank). The Repair Torch removes a hostile mine without a blast (Platform.fireTorch).
+   ===================================================================== */
+const MINE_LANE_SECS = 40;      // s a post marks where the plough cleared a mine
+const SEA_MINE_DEPTH = 2;       // m of water a sea mine needs under it
+const SEA_MINE_CAP = 6;         // sea mines one platform can have out at once (the oldest goes)
+const SEA_MINE_SINK = 1;        // m under the surface it is moored
+const SEA_MINE_BLAST = 8;       // m: a blast this near sets a sea mine off
+const MINE_SEEN_RANGE = 60;     // m: a sea mine is seen from this near...
+const MINE_SEEN_BAD = 40;       // m: ...and from this near in rain, fog and storm
+const Mines = {
+  /* the water depth a mine laid astern of p would have, and the spot */
+  sternSpot(p, out) {
+    const back = (p.hullR || p.radius) + 3;
+    out.x = p.x - Math.sin(p.yaw) * back; out.z = p.z - Math.cos(p.yaw) * back;
+    return out;
+  },
+  seaSpot(p) { const s = this.sternSpot(p, MINE_SPOT); return Water.any && Water.depth(s.x, s.z) >= SEA_MINE_DEPTH; },
+  /* whether viewer me sees sea mine q: its own team's, one a ping found, or any within MINE_SEEN_RANGE m (MINE_SEEN_BAD in rain, fog and storm) */
+  seenBy(q, me) {
+    if (!me || q.team === me.team || Scan.marked(q, me.team)) return true;
+    return Math.hypot(q.x - me.x, q.z - me.z) <= (Weather.sightK < 0.99 ? MINE_SEEN_BAD : MINE_SEEN_RANGE);
+  },
+  /* a sea mine goes off for unit e only if it has a keel */
+  keel(e, d) {
+    if (e.kind === 'naval') return !e.def.naval.amphibious;
+    if (e.kind === 'air' || e.def.style === 'infantry' || (e.def.ground && e.def.ground.type === 'hover')) return false;
+    return Water.depth(e.x, e.z) > d.keel;
+  },
+  /* true when land mine p lies in the strip ahead of e's bow that e's Mine Plough clears */
+  blade(e, p) {
+    const ud = e.util.def, fx = Math.sin(e.yaw), fz = Math.cos(e.yaw), dx = p.x - e.x, dz = p.z - e.z;
+    const along = dx * fx + dz * fz, side = dx * fz - dz * fx;
+    return along >= e.radius - 1 && along <= e.radius + ud.ahead && Math.abs(side) <= ud.width / 2;
+  },
+  /* mine p goes off against e's blade: the blast spares e, which takes the blade's share of it, and the cleared strip is marked */
+  bladeHit(p, e) {
+    const ud = e.util.def, d = p.def, dmg = p.dmg;
+    detonate(p, p.x, p.y, p.z, e);
+    e.takeDamage(dmg * ud.mineHurt, d.dtype, p.owner, 0, 0, { blast: true });
+    e.cleared = (e.cleared || 0) + 1;
+    WPN.fx('lane', p.x, Terrain.h(p.x, p.z), p.z, 1, MINE_LANE_SECS, null);   // the cleared strip is marked with a post both sides draw
+    notify(e, 'MINE CLEARED BY THE PLOUGH');
+  },
+  /* a blast of radius 3 m or more within SEA_MINE_BLAST m of a sea mine sets it off (host) */
+  sympathetic(x, y, z, radius, damage) {
+    if (damage <= 0 || radius < 3) return;
+    for (const q of W.projs) {
+      if (!q.active || !q.def.sea || Math.hypot(q.x - x, q.y - y, q.z - z) > SEA_MINE_BLAST) continue;
+      detonate(q, q.x, q.y, q.z, null);
+    }
+  },
+  /* the hostile (to team) mine nearest the point (x, y, z) within r m, or null */
+  nearest(x, y, z, team, r) {
+    let best = null, bd = r;
+    for (const q of W.projs) {
+      if (!q.active || !q.def.mine || q.team === team) continue;
+      const dd = Math.hypot(q.x - x, q.y - y, q.z - z);
+      if (dd < bd) { bd = dd; best = q; }
+    }
+    return best;
+  },
+};
+const MINE_SPOT = { x: 0, z: 0 };
+const MINE_DEFUSE_REACH = 4;   // m: a hostile mine this near the Repair Torch beam's end can be defused
+
 function detonate(p, x, y, z, excludePlatform, excludeStruct) {
   const d = p.def;
   p.active = false; p.stuck = null;
@@ -16591,12 +16957,14 @@ function detonate(p, x, y, z, excludePlatform, excludeStruct) {
 
 function updateProjectiles(dt) {
   const ps = W.projs, pl = W.platforms;
+  Scan.prune();
   Intercept.sweep(dt);
   for (let i = 0; i < ps.length; i++) {
     const p = ps[i];
     if (!p.active) continue;
     const d = p.def;
     p.age += dt; p.life -= dt;
+    if (d.drone) { WPN.droneStep(p, dt); continue; }   // a Spotter Drone flies to its place and hovers (P5-03)
     if (p.stuck !== null && d.stick) { if (p.life <= 0) WPN.burst(p); else WPN.follow(p); continue; }
     if (p.life <= 0) {
       if (d.mine) { p.active = false; fxSparks(p.x, p.y, p.z, 4, d.tracer, 6); }   // an old mine fizzles out
@@ -16630,13 +16998,19 @@ function updateProjectiles(dt) {
     if (d.grav) p.vy -= d.grav * dt;
     // proximity fuse (a dropped mine arms after MINE_ARM)
     if (d.prox && !(d.mine && p.age < MINE_ARM)) {
-      let fused = false;
+      let fused = false, bladed = null;
       for (let k = 0; k < pl.length; k++) {
         const e = pl[k];
         if (e.dead || (e.team === p.team && !W.friendlyFire) || e === p.owner || e.team === 2) continue;
+        if (d.sea) {   // a sea mine goes off for a keel only (P5-03)
+          if (Mines.keel(e, d) && Math.hypot(e.x - p.x, e.z - p.z) < d.prox + e.radius * 0.5) { fused = true; break; }
+          continue;
+        }
+        if (d.mine && e.util && e.util.def.def === 'plough' && Mines.blade(e, p)) { bladed = e; break; }   // a Mine Plough takes it on the blade
         const ey = e.y + (e.kind === 'air' ? 0 : e.height * 0.5);
         if (Math.hypot(e.x - p.x, ey - p.y, e.z - p.z) < d.prox + e.radius * 0.5) { fused = true; break; }
       }
+      if (bladed) { Mines.bladeHit(p, bladed); continue; }
       if (fused) { detonate(p, p.x, p.y, p.z, null); continue; }
     }
     if (d.torpedo && !Naval.torpedoRun(p)) continue;   // only ever in water
@@ -16810,12 +17184,19 @@ const WPN = {
   /* a new mine lies behind its layer; past MINE_CAP the layer's oldest mine is removed */
   placeMine(p, owner) {
     let n = 0, oldest = null;
+    const sea = !!p.def.sea;   // a sea mine counts against its own cap, not the land mines' (P5-03)
     for (const q of W.projs) {
-      if (!q.active || q === p || q.owner !== owner || !q.def.mine) continue;
+      if (!q.active || q === p || q.owner !== owner || !q.def.mine || !!q.def.sea !== sea) continue;
       n++;
       if (!oldest || q.age > oldest.age) oldest = q;
     }
-    if (n >= MINE_CAP && oldest) oldest.active = false;
+    if (n >= (sea ? SEA_MINE_CAP : MINE_CAP) && oldest) oldest.active = false;
+    if (sea) {   // moored astern, SEA_MINE_SINK m under the surface
+      Mines.sternSpot(owner, p);
+      p.y = Water.level(p.x, p.z) - SEA_MINE_SINK;
+      p.vx = p.vy = p.vz = 0; p.curSpeed = 0;
+      return;
+    }
     const back = owner.radius + 2;
     p.x = owner.x - Math.sin(owner.yaw) * back; p.z = owner.z - Math.cos(owner.yaw) * back;
     p.y = groundLevel(p.x, p.z, owner.y + 2, 0) + 0.3;
@@ -16885,6 +17266,7 @@ const WPN = {
     if (Net.guest) return;
     const r = p.util && p.util.def.radius || WEAPONS.ecm.radius;
     for (const e of W.platforms) if (e.lock.target === p) { e.lock.target = null; e.lock.progress = 0; e.lock.state = 'none'; }
+    this.jamDrones(p);   // P5-03
     for (const q of W.projs) {
       if (!q.active || !q.target || q.team === p.team) continue;
       if (q.target === p || Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z) < r) { q.target = null; q.noGuide = true; }
@@ -16894,11 +17276,68 @@ const WPN = {
   lose(p) {
     if (Net.guest) return;
     for (const e of W.platforms) {
+      if (Scan.reveals(p, e.team)) continue;   // a Pulse Scanner's ping lays it bare to that side: the side keeps its targets and locks (P5-03)
       if (e.target === p) e.target = null;
       if (e.ai && e.ai.target === p) e.ai.target = null;
       if (e.lock.target === p) { e.lock.target = null; e.lock.progress = 0; e.lock.state = 'none'; }
     }
-    for (const q of W.projs) if (q.active && q.target === p) { q.target = null; q.noGuide = true; }
+    for (const q of W.projs) if (q.active && q.target === p && !Scan.reveals(p, q.team)) { q.target = null; q.noGuide = true; q.lostTo = p; }
+  },
+  /* a Pulse Scanner pings (host): a homing missile of the pinging side that lost a camouflaged unit the ping now lays bare picks it up again */
+  relink(carrier) {
+    for (const q of W.projs) {
+      if (!q.active || !q.lostTo || q.team !== carrier.team) continue;
+      const t = q.lostTo;
+      if (t.dead || !Scan.reveals(t, q.team)) continue;
+      q.target = t; q.noGuide = false; q.lostTo = null; q.blind = 0;
+    }
+  },
+  /* Pulse Scanner (host): hostile AI within selfMark x radius of the loud carrier are alerted to its place */
+  alertScan(p, ud) {
+    if (Net.guest) return;
+    const R = ud.radius * ud.selfMark;
+    for (const e of W.platforms) if (!e.dead && e.ai && e.team !== p.team && e.team !== 2 && Math.hypot(e.x - p.x, e.z - p.z) <= R && e.ai.canEngage(p)) e.ai.noticeDamage(p);
+  },
+  /* Spotter Drone (host): flies from p to the ground point it aims at (or where its AI last saw the target), at most `range` m away, and
+     hovers `alt` m above it for `dur` s. It is a projectile slot (def spotDrone), so guests mirror it and guns, flak and AA missiles kill it. */
+  launchSpotter(p, u) {
+    if (Net.guest) return null;
+    const ud = u.def, drone = WEAPONS.spotDrone, ai = p.ai;
+    let tx, tz;
+    if (ai && W.time - ai.seen.t < SPOT_AI_MEMORY) { tx = ai.seen.x; tz = ai.seen.z; }
+    else if (p.cmd.aimPoint) { tx = p.cmd.aimPoint.x; tz = p.cmd.aimPoint.z; }
+    else { tx = p.x + Math.sin(p.cmd.aimYaw) * ud.range; tz = p.z + Math.cos(p.cmd.aimYaw) * ud.range; }
+    const dx = tx - p.x, dz = tz - p.z, hd = Math.hypot(dx, dz);
+    if (hd > ud.range) { tx = p.x + dx / hd * ud.range; tz = p.z + dz / hd * ud.range; }
+    const q = allocProjectile();
+    if (!q) return null;
+    const sx = p.x, sy = p.y + (p.kind === 'air' ? 0 : p.height + 1.5), sz = p.z;
+    const ty = Math.max(Terrain.h(tx, tz), Water.top(tx, tz)) + ud.alt;
+    const fx = tx - sx, fy = ty - sy, fz = tz - sz, fl = Math.hypot(fx, fy, fz) || 1, sp = ud.speed;
+    launchProjectile(q, drone, p, p.team, sx, sy, sz, fx / fl * sp, fy / fl * sp, fz / fl * sp);
+    q.lx = tx; q.ly = ty; q.lz = tz; q.hover = 0;
+    q.life = fl / sp + ud.dur;
+    Snd.play(drone.sound, sx, sy, sz, 0.8);
+    return q;
+  },
+  /* one tick of a Spotter Drone: flies straight to its hover point, then holds (bobbing) until its time is up; it never strikes anything
+     (a gun round, flak or an AA missile does the killing: Intercept) */
+  droneStep(p, dt) {
+    if (p.life <= 0) { p.active = false; fxSparks(p.x, p.y, p.z, 6, p.def.tracer, 8); return; }
+    const dx = p.lx - p.x, dy = p.ly - p.y, dz = p.lz - p.z, dist = Math.hypot(dx, dy, dz), sp = p.def.speed;
+    if (p.hover === 0) {
+      if (dist <= sp * dt) { p.x = p.lx; p.y = p.ly; p.z = p.lz; p.vx = p.vy = p.vz = 0; p.hover = 1; return; }
+      p.vx = dx / dist * sp; p.vy = dy / dist * sp; p.vz = dz / dist * sp;
+      p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+      return;
+    }
+    p.y = p.ly + Math.sin(W.time * 2.2 + p.nid) * 0.4;   // hovering
+    if (Math.random() < dt * 6) FX.emit(p.x + rand(-1, 1), p.y - 0.4, p.z + rand(-1, 1), 0, -1.5, 0, 0.3, 0.5, 0.2, 0.6, 0.9, 1, 0.4, 1, 0, true);
+  },
+  /* ECM (host, with jam): hostile Spotter Drones within the jammer's radius drop out of the sky */
+  jamDrones(p) {
+    const r = p.util && p.util.def.radius || WEAPONS.ecm.radius;
+    for (const q of W.projs) if (q.active && q.def.drone && q.team !== p.team && Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z) < r) Intercept.kill(q, p);
   },
   /* where a platform's repair drone hovers (both sides draw it from the clock) */
   dronePos(p, out) {
@@ -16970,7 +17409,7 @@ const WPN = {
   replay(m) {
     if (!Array.isArray(m.a) || !(m.k === 'end' || this.kinds[m.k])) return;
     const pid = m.id | 0, plat = pid ? W.platforms.find((q) => q.id === pid) || null : null;
-    this.makeFx(m.k, numIn(m.a[0], -3000, 3000), numIn(m.a[1], -500, 3000), numIn(m.a[2], -3000, 3000), numIn(m.r, 0, 200), numIn(m.d, 0, 60), plat, pid);
+    this.makeFx(m.k, numIn(m.a[0], -3000, 3000), numIn(m.a[1], -500, 3000), numIn(m.a[2], -3000, 3000), numIn(m.r, 0, 400), numIn(m.d, 0, 60), plat, pid);
   },
   makeFx(kind, x, y, z, r, dur, plat, pid) {
     const id = plat ? plat.id : pid;
@@ -17090,8 +17529,45 @@ const WPN = {
         SW.shape('box', p.x, p.y + p.height * ((e.t * 0.7) % 1), p.z, w * 1.05, 0.25, w * 1.05, [0.6, 1, 1], 0.5, 1, p.yaw);
       },
     },
+    /* P5-03: a Pulse Scanner ping (both sides keep the same record: Scan), drawn as a ring that sweeps out and a pale dome that fades */
+    scan: {
+      start(e) {
+        const ud = WEAPONS.scanner, c = WPN.host(e), team = c ? c.team : -1;
+        Scan.add(c, e.pid, team, e.life, e.r, ud.selfMark);
+        Scan.markMines(e.x, e.y, e.z, team, e.r, ud.mineMark);
+        Snd.play('scan', e.x, e.y, e.z, 1);
+      },
+      draw(e, glow) {
+        const c = WPN.host(e);
+        if (!glow || !c) return;
+        const g = Math.min(1, e.t / SCAN_SWEEP), s = e.r * 2 * g, cy = c.y + (c.kind === 'air' ? 0 : c.height * 0.4);
+        SW.shape('cyl', c.x, cy, c.z, s, 0.5, s, [0.45, 1, 0.9], 0.4 * (1 - g), 1);
+        const f = e.t / e.life;
+        SW.shape('sphere', c.x, cy, c.z, e.r * 2, e.r, e.r * 2, [0.4, 0.9, 0.85], 0.06 * (1 - f), 1);
+      },
+    },
+    /* P5-03: a post where a Mine Plough cleared a mine */
+    lane: {
+      draw(e, glow) {
+        if (glow) return;
+        SW.shape('box', e.x, e.y + 1.1, e.z, 0.22, 2.2, 0.22, [0.25, 0.9, 0.35], 1, 0.6);
+        SW.shape('box', e.x, e.y + 2.3, e.z, 0.6, 0.3, 0.06, [1, 0.8, 0.2], 1, 0.8);
+      },
+    },
+    /* P5-03: a Jump Pack hop: a puff of dust and flame where the soldier left the ground */
+    jump: {
+      start(e) {
+        for (let i = 0; i < 8; i++) FX.emit(e.x + rand(-0.6, 0.6), e.y + 0.2, e.z + rand(-0.6, 0.6), rand(-3, 3), rand(1, 3), rand(-3, 3), 0.7, 1.2, 2.6, 0.62, 0.58, 0.5, 0.6, 2, 0, false);
+        FX.emit(e.x, e.y + 0.3, e.z, 0, -6, 0, 0.3, 2.2, 0.5, 1, 0.7, 0.3, 0.9, 1, 0, true);
+        Snd.play('hop', e.x, e.y, e.z, 1);
+      },
+    },
   },
 };
+const SCAN_SWEEP = 0.7;   // s a ping's ring takes to sweep out to its radius
+const HOP_DROP_MARGIN = 1.5;   // m: a hop's landing is free only if it ends no lower than this under where it began
+const HOP_MAX = 6;        // s a Jump Pack hop may last before it counts as over (a hop over deep water never lands)
+const SPOT_AI_MEMORY = 20;   // s: an AI carrier launches its Spotter Drone at where it last saw the target if that was no longer ago than this
 /* units the utilities summon (static allies, synced to co-op guests like any platform): a hologram whose
    lure makes AI pick it over a real target up to 1 / lure times closer, and a deployable barrier */
 PLATFORMS.holo = { id: 'holo', name: 'Holo Decoy', kind: 'mech', cls: 'Hologram', model: 'mech', style: 'medium', lure: 0.35, hp: 400, armor: 0, armorRatio: 0, energy: 0, energyRegen: 0, heatCap: 100, cooling: 10, mass: 0.2, weightCap: 99, radius: 2.8, height: 10, speed: 0, sensor: 0, stability: 9, mech: { accel: 0, decel: 90, turn: 0, torsoRate: 0, boostMult: 1, boostCost: 0, jetThrust: 0, jetMax: 0, jetCost: 99, meleeDmg: 0 }, mounts: {}, allow: { primary: [], secondary: [], utility: [] }, loadout: {}, col: { main: [0.3, 0.75, 0.95], dark: [0.12, 0.35, 0.5] } };
@@ -23083,6 +23559,7 @@ Weather.onLightning = (sec) => Hazards.onLightning(sec);
 const AI_PROFILE = {
   skirmisher: { min: 25, max: 120, strafe: 1, flank: 0.3, retreat: 0.2, on: [0.8, 1.6], off: [0.4, 1.0] },
   soldier: { min: 70, max: 190, strafe: 1, flank: 0.2, retreat: 0.25, on: [0.9, 1.8], off: [0.5, 1.2] },
+  engineer: { min: 70, max: 190, strafe: 1, flank: 0.2, retreat: 0.25, on: [0.9, 1.8], off: [0.5, 1.2] },   // fights like a soldier; runEngineer mends first (P5-03)
   bruiser: { min: 90, max: 230, strafe: 0.6, flank: 0, retreat: 0.15, on: [1.2, 2.4], off: [0.5, 1.2] },
   sniper: { min: 160, max: 420, strafe: 0.3, flank: 0, retreat: 0.3, on: [0.2, 0.4], off: [1.5, 2.5] },
   flanker: { min: 20, max: 110, strafe: 1, flank: 1, retreat: 0.3, on: [0.6, 1.2], off: [0.4, 0.9] },
@@ -23621,6 +24098,8 @@ class AIController {
     this.sternT = 0; this.kT = 0; this.kDir = 1;   // s a ship has crept with its bow the wrong way; a narrow river's K-turn: s into the leg, ahead (1) or astern (-1)
     this.laneAt = 0; this.laneD = 0;   // a ship's patrol: when it set out for its lane point, and how far it was then
     this.roundT = 0; this.spot = null;   // an artillery battery's wait before its next round, and the spotted target it shells (runArtillery)
+    this.mendT = 0; this.mendGoal = null; this.hopCool = 0;   // an engineer's next look for work, and the job it is on (runEngineer)
+    this.mineT = 0;                          // a ship's earliest next Sea Mine Rack drop (seaMineLogic)
   }
   noticeDamage(owner) {
     if (!owner || owner.team === this.p.team || owner.dead) return;
@@ -23648,6 +24127,7 @@ class AIController {
       case 'fighter': case 'gunship': this.runAir(dt); return;
       case 'naval': this.runNaval(dt); return;
       case 'artillery': if (p.arty) { this.runArtillery(dt); return; } this.runGround(dt); return;
+      case 'engineer': this.runEngineer(dt); return;
       default: this.runGround(dt);
     }
     void c;
@@ -23665,18 +24145,26 @@ class AIController {
     let best = null, bestScore = 1e9;
     const range = this.sightRange();
     const ey = p.y + (p.kind === 'air' ? 0 : p.height * 0.8);
+    const held = this.target;
+    if (held && !held.isStruct && !held.isProj && Scan.hides(held, p.team)) this.target = null;   // it cloaked (or its ping ended) while held: the 6 s memory must not aim at its true position (P5-03)
     for (let i = 0; i < W.platforms.length; i++) {
       const e = W.platforms[i];
-      if (e.dead || e.team === p.team || e.team === 2 || e.noTarget || !this.canEngage(e)) continue;
+      if (e.dead || e.team === p.team || e.team === 2 || Scan.hides(e, p.team) || !this.canEngage(e)) continue;
       if (e.hideFromAI) continue;
       const d = Math.hypot(e.x - p.x, e.z - p.z);
-      if (d > range) continue;
-      let score = d * (e.isPlayer ? this.d.focus : 1) * (e.model === 'truck' ? 0.7 : 1) * (e.def.lure || 1);   // how much human players (host and guests) draw fire depends on difficulty; a holo decoy lures
+      if (d > range * Stealth.sight(e, p.team) && !Scan.reveals(e, p.team)) continue;   // a Stealth Coating shortens the AI's sight of it; a ping of its team lays it bare at any range (P5-03)
+      let score = d * (e.isPlayer ? this.d.focus : 1) * (e.model === 'truck' ? 0.7 : 1) * (Scan.tagged(e, p.team) ? 1 : e.def.lure || 1);   // a Holo Decoy a ping has told apart lures no more   // how much human players (host and guests) draw fire depends on difficulty; a holo decoy lures
       if (e === this.target) score *= 0.7;
       if (score >= bestScore) continue;
       tpos(e, AI_V);
       if (e.kind !== 'air' && !hasLOS(p.x, ey, p.z, AI_V.x, AI_V.y + 1, AI_V.z)) continue;
       best = e; bestScore = score;
+    }
+    if (!best && p.kind !== 'air') for (const q of W.projs) {   // a hostile Spotter Drone it sees, only when no hostile platform is in its sight (P5-03: guns of a ground unit; an aircraft never takes it for a ground or bomb target)
+      if (!q.active || !q.def.drone || q.team === p.team) continue;
+      const d = Math.hypot(q.x - p.x, q.z - p.z);
+      if (d > range || d >= bestScore || !hasLOS(p.x, ey, p.z, q.x, q.y, q.z)) continue;
+      best = q; bestScore = d;
     }
     if (best) {
       if (best !== this.target) this.reactT = this.d.react * rand(0.7, 1.3);
@@ -23769,6 +24257,67 @@ class AIController {
     this.fireLogic(dt, dist, hasTarget);
     this.defenseLogic(dt, dist, hasTarget);
   }
+  /* ---------- engineers (P5-03) ---------- */
+  /* An engineer with no hostile within ENGINEER_FIGHT m goes to the nearest allied platform under ENGINEER_HURT of its hull within
+     ENGINEER_PLATFORM m, a damaged allied defence (a turret) within ENGINEER_DEFENCE m, or a hostile mine its team knows (marked by a
+     ping, or seen within AI_MINE_SIGHT m), and holds the Repair Torch on it; with a hostile near it fights like a rifleman. */
+  runEngineer(dt) {
+    const p = this.p, torch = this.torch();
+    if (!torch) { this.runGround(dt); return; }   // (an engineer whose torch is gone fights like a rifleman)
+    this.mendT -= dt;
+    if (this.mendT <= 0) { this.mendT = ENGINEER_LOOK; this.mendGoal = this.pickMend(); }
+    const g = this.mendGoal, cap = torch.def.healCap;   // a job is done at the torch's cap
+    if (!g || (g.kind !== 'mine' && (g.obj.dead || g.obj.hp >= g.obj.maxHp * cap)) || (g.kind === 'mine' && !g.obj.active)) { this.mendGoal = null; this.useSlot(p.wslots.primaryA === torch ? 'primaryB' : 'primaryA'); this.runGround(dt); return; }
+    this.mend(dt, g, torch);
+  }
+  /* the weapon slot that holds a Repair Torch, or null */
+  torch() {
+    const a = this.p.wslots.primaryA, b = this.p.wslots.primaryB;
+    return a && a.def.heal ? a : b && b.def.heal ? b : null;
+  }
+  /* the job an engineer would do now, or null (hostile near, nothing to do) */
+  pickMend() {
+    const p = this.p, torch = this.torch();
+    if (!torch) return null;
+    const cap = torch.def.healCap;
+    let best = null, bd = 1e9;
+    for (const e of W.platforms) {
+      if (e.dead || e === p || e.team === 2) continue;
+      const d = Math.hypot(e.x - p.x, e.z - p.z);
+      if (e.team !== p.team) { if (d < ENGINEER_FIGHT && !Scan.hides(e, p.team) && !e.hideFromAI) return null; continue; }
+      if (e.parked || (e.kind !== 'ground' && e.kind !== 'mech')) continue;   // only crewed ground units and mechs: not an empty vehicle (the torch refuses it), not an aircraft or a ship the soldier cannot reach
+      const mine = this.mendGoal && this.mendGoal.obj === e;   // a job it is on goes on to the torch's cap
+      if (e.status.summoned || e.hp >= e.maxHp * (mine || e.model === 'turret' ? cap : Math.min(cap, ENGINEER_HURT))) continue;
+      if (d > (e.model === 'turret' ? ENGINEER_DEFENCE : ENGINEER_PLATFORM) || d >= bd) continue;
+      best = { kind: 'repair', obj: e }; bd = d;
+    }
+    for (const q of W.projs) {
+      if (!q.active || !q.def.mine || q.team === p.team) continue;
+      const d = Math.hypot(q.x - p.x, q.z - p.z);
+      if (d < bd && d <= ENGINEER_DEFENCE && (Scan.marked(q, p.team) || d <= AI_MINE_SIGHT)) { best = { kind: 'mine', obj: q }; bd = d; }
+    }
+    return best;
+  }
+  /* walk up to the job, face it and hold the torch on it */
+  mend(dt, g, torch) {
+    const p = this.p, c = p.cmd, o = g.obj;
+    const dx = o.x - p.x, dz = o.z - p.z, d = Math.hypot(dx, dz) || 1;
+    const oy = g.kind === 'mine' ? o.y : o.y + (o.height || 0) * 0.5, my = p.y + p.height * 0.8;
+    c.aimYaw = Math.atan2(dx, dz); c.aimPitch = clamp(Math.atan2(oy - my, d), -0.7, 0.6); c.aimPoint = null;
+    this.useSlot(torch.slot);
+    const reach = torch.def.range * 0.7;
+    if (d > reach) { this.steerAround(dx / d, dz / d); this.driveGround(this.moveDir.x, this.moveDir.z, 1, dt); } else this.driveGround(0, 0, 1, dt);
+    c.fire1 = d <= reach + 2 && p.heat < p.maxHeat * 0.85;
+    c.jump = false; c.boost = false;
+    this.defenseLogic(dt, d, false);
+  }
+  /* switch the active primary slot to slot */
+  useSlot(slot) {
+    const p = this.p;
+    if (p.activeSlot === slot || !p.wslots[slot]) return;
+    if (slot === 'primaryA') p.cmd.sel1 = true; else p.cmd.sel2 = true;
+  }
+
   /* ---------- ships ---------- */
   /* A ship fights like a ground unit (runGround, with steerOpen keeping it in water deep enough); with nothing to fight
      and no one to follow it patrols its loop of open water round where it started. */
@@ -24001,6 +24550,7 @@ class AIController {
     c.fire1 = false;
     const w1 = p.primary, w2 = p.wslots.secondary;
     this.secondaryT = Math.max(0, this.secondaryT - dt);
+    if (w2 && w2.def.sea) this.seaMineLogic();   // P5-03: a ship's Sea Mine Rack is laid astern, not fired at the target
     if (!hasTarget || this.reactT > 0 || p.overheated) { this.tele = 0; return; }
     const t = this.target;
     // aimed?
@@ -24050,13 +24600,29 @@ class AIController {
   }
   canUseSecondary(t) {
     const w2 = this.p.wslots.secondary;
-    if (!w2) return false;
+    if (!w2 || w2.def.sea || t.isProj) return false;   // (a Spotter Drone is shot with guns only: no rocket, mine or bomb)
     if (w2.def.torpedo) return !t.isStruct && t.kind === 'naval' && !t.def.naval.amphibious;   // torpedoes pass under hovercraft
     if (w2.def.guide && w2.def.guide.lock === 'air') return !t.isStruct && t.kind === 'air';
     if (w2.def.guide && w2.def.guide.lock === 'ground') return t.isStruct || t.kind !== 'air';
     if (w2.def.mine) return !t.isStruct && t.kind !== 'air' && Math.hypot(t.x - this.p.x, t.z - this.p.z) < w2.def.range;   // lay mines only with a ground foe close by
     if (w2.def.kind === 'bomb') return !t.isStruct && t.kind !== 'air' || t.isStruct;
     return true;
+  }
+  /* Sea Mine Rack (P5-03): a ship lays a mine astern when a hostile ship within AI_SEA_MINE_RANGE is behind it (outside its front 90
+     degrees) and closing, or when it flees under AI_SEA_MINE_FLEE of its hull with a hostile ship near */
+  seaMineLogic() {
+    const p = this.p, w2 = p.wslots.secondary;
+    if (W.time < this.mineT || w2.cd > 0 || w2.reloading > 0 || !p.hasAmmo(w2) || !Mines.seaSpot(p)) return;
+    const hx = Math.sin(p.yaw), hz = Math.cos(p.yaw), hurt = p.hp < p.maxHp * AI_SEA_MINE_FLEE;
+    for (const e of W.platforms) {
+      if (e.dead || e.team === p.team || e.team === 2 || e.kind !== 'naval') continue;
+      const dx = e.x - p.x, dz = e.z - p.z, d = Math.hypot(dx, dz);
+      if (d > AI_SEA_MINE_RANGE || d < 1) continue;
+      const closing = (e.vx - p.vx) * dx + (e.vz - p.vz) * dz < 0, behind = (dx * hx + dz * hz) / d < Math.SQRT1_2;
+      if (!(hurt || (behind && closing))) continue;
+      p.cmd.fire2Edge = true; w2.cd = Math.max(w2.cd, 0.01); this.mineT = W.time + AI_SEA_MINE_GAP;
+      return;
+    }
   }
   defenseLogic(dt, dist, hasTarget) {
     const p = this.p, c = p.cmd, u = p.util, d = this.d;
@@ -24092,8 +24658,58 @@ class AIController {
       case 'hurt': return p.hp < p.maxHp * AI_UTIL_HURT;
       case 'hot': return hasTarget && p.heat > p.def.heatCap * AI_UTIL_HOT;
       case 'fight': return hasTarget && dist < AI_UTIL_RANGE;
+      case 'stealth': return this.scanWanted();
+      case 'spot': {   // Spotter Drone (P5-03): the target was last seen more than AI_SPOT_AFTER s ago and lies within the drone's reach
+        const ud = p.util.def, ago = W.time - this.seen.t;
+        return !hasTarget && ago > AI_SPOT_AFTER && ago < SPOT_AI_MEMORY && Math.hypot(this.seen.x - p.x, this.seen.z - p.z) <= ud.range;
+      }
+      case 'hop': return this.hopWanted(dist, hasTarget);
       default: return false;
     }
+  }
+  /* Pulse Scanner (P5-03): a hostile seen to cloak within the scan radius in the last AI_SCAN_CLOAK s, a Holo Decoy as its target, or a
+     hostile mine it sees (within AI_MINE_SIGHT m) that its team has not marked */
+  scanWanted() {
+    const p = this.p, r = p.util.def.radius;
+    for (const e of W.platforms) {
+      if (e.dead || e.team === p.team || e.team === 2 || Math.hypot(e.x - p.x, e.z - p.z) > r) continue;
+      if (e.cloakT > 0 && e.util && e.util.def.dur - e.cloakT < AI_SCAN_CLOAK) return true;
+    }
+    const t = this.target;
+    if (t && !t.isStruct && !t.isProj && t.def.lure && !Scan.tagged(t, p.team) && Math.hypot(t.x - p.x, t.z - p.z) <= r) return true;
+    for (const q of W.projs) if (q.active && q.def.mine && q.team !== p.team && !Scan.marked(q, p.team) && Math.hypot(q.x - p.x, q.z - p.z) <= AI_MINE_SIGHT) return true;
+    return false;
+  }
+  /* Jump Pack (P5-03), a soldier on the ground: hop to a roof or ledge within AI_HOP_ROOF m that a sniper or rocket trooper wants, away
+     from a ground vehicle within AI_HOP_DODGE m and closing, or over what it has been stuck at for AI_HOP_STUCK s. Sets hopYaw. */
+  hopWanted(dist, hasTarget) {
+    const p = this.p;
+    if (!p.grounded || p.hopT > 0 || p.swimming) return false;
+    if (p.stuckT > AI_HOP_STUCK) { p.hopYaw = hasTarget ? Math.atan2(this.seen.x - p.x, this.seen.z - p.z) : p.torsoYaw; return true; }
+    for (const e of W.platforms) {
+      if (e.dead || e.team === p.team || e.team === 2 || e.kind !== 'ground' || e.def.speed <= 0) continue;
+      const dx = p.x - e.x, dz = p.z - e.z, d = Math.hypot(dx, dz);
+      if (d > AI_HOP_DODGE || e.vx * dx + e.vz * dz <= 0) continue;   // not closing on us
+      p.hopYaw = Math.atan2(dx, dz) + PI / 2 * (dx * e.vz - dz * e.vx > 0 ? 1 : -1);   // sideways to its line
+      return true;
+    }
+    if (hasTarget && (this.profile === 'sniper' || (p.wslots.secondary && p.wslots.secondary.def.guide && p.wslots.secondary.def.guide.lock === 'ground'))) {
+      if (W.time >= this.hopCool) for (let k = 0; k < 8; k++) {
+        const a = k * PI / 4;
+        if (this.hopReaches(a)) { p.hopYaw = a; this.hopCool = W.time + AI_HOP_COOL; return true; }
+      }
+    }
+    return false;
+  }
+  /* whether a hop along heading a lands on a roof 1 to AI_HOP_UP m above the soldier within AI_HOP_ROOF m: the hop's arc (launch speeds up and fwd, GRAVITY) clears the roof's near edge on the way up and is over the roof on the way down */
+  hopReaches(a) {
+    const p = this.p, ud = p.util.def, sx = Math.sin(a), sz = Math.cos(a), top = (r) => Bld.topAt(p.x + sx * r, p.z + sz * r, 0) - p.y;
+    const h = top(ud.fwd * ud.up / GRAVITY);   // the roof under the top of the arc
+    if (!(h > 1 && h < AI_HOP_UP)) return false;
+    const disc = ud.up * ud.up - 2 * GRAVITY * h;
+    if (disc < 0) return false;
+    const root = Math.sqrt(disc), xUp = ud.fwd * (ud.up - root) / GRAVITY, xDown = ud.fwd * (ud.up + root) / GRAVITY;
+    return xDown <= AI_HOP_ROOF && top(xDown) >= h - 0.3 && (xUp < 1.2 || top(xUp - 0.7) < h - 0.5);
   }
 
   /* ---------- aircraft ---------- */
@@ -24810,7 +25426,7 @@ function convoyGo(t, go) {
    TIME_PRESETS id, else the map's weather.time); without it the mission keeps its map's plain clear daylight. */
 const MISSIONS = [
   {
-    id: 'm1', name: 'Heavy Hunter', type: 'Eliminate Target', map: 'ashfall', stars: 2, timeLimit: 900, recommended: 'Any ground platform',
+    id: 'm1', name: 'Heavy Hunter', type: 'Eliminate Target', map: 'ashfall', stars: 2, timeLimit: 900, recommended: 'Any ground platform', unlock: 'spotter',
     brief: 'Intel places the Warlord, a heavily shielded command mech, at a forward outpost. Kill it. Its escorts are dug in around the site. Optionally knock out the radar towers that feed its early warning network.',
     start: { x: -560, z: -640, yaw: 0.7 },
     sites: [{ x: -560, z: -640, r: 34, tag: 'pad' }, { x: 340, z: 300, r: 70, tag: 'obj' }, { x: -40, z: -40, r: 30, tag: 'obj' }, { x: 190, z: -380, r: 30, tag: 'obj' }],
@@ -24831,7 +25447,7 @@ const MISSIONS = [
     },
   },
   {
-    id: 'm2', name: 'Fuel Burn', type: 'Destroy Depot', map: 'verdant', stars: 2, timeLimit: 840, recommended: 'Strike Fighter or Heavy Mech',
+    id: 'm2', name: 'Fuel Burn', type: 'Destroy Depot', map: 'verdant', stars: 2, timeLimit: 840, recommended: 'Strike Fighter or Heavy Mech', unlock: 'coating',
     brief: 'A fuel depot in the Verdant valley supplies the enemy offensive. Blow up all four storage tanks. Anti-air batteries cover the approach, so fly low or fight through on the ground. Optionally destroy the comms tower first.',
     start: { x: 620, z: -660, yaw: 2.5 },
     sites: [{ x: 620, z: -660, r: 34, tag: 'pad' }, { x: -300, z: 250, r: 90, tag: 'obj' }, { x: -400, z: 60, r: 28, tag: 'obj' }],
@@ -24852,7 +25468,7 @@ const MISSIONS = [
     },
   },
   {
-    id: 'm3', name: 'Hold the Line', type: 'Defend Generator', map: 'frost', stars: 3, timeLimit: 0, recommended: 'Heavy Mech or Tank',
+    id: 'm3', name: 'Hold the Line', type: 'Defend Generator', map: 'frost', stars: 3, timeLimit: 0, recommended: 'Heavy Mech or Tank', unlock: 'seaMines',
     brief: 'The forward generator powers the whole sector. Keep it alive for five minutes while enemy waves push in from three directions. Allies will help; resupply at the pad as needed.',
     start: { x: -20, z: -90, yaw: 0 },
     sites: [{ x: -20, z: -90, r: 30, tag: 'pad' }, { x: 0, z: 0, r: 60, tag: 'obj' }],
@@ -24944,7 +25560,7 @@ const MISSIONS = [
     },
   },
   {
-    id: 'm6', name: 'Skyhook', type: 'Intercept Aircraft', map: 'verdant', stars: 3, timeLimit: 780, recommended: 'Interceptor or Strike Fighter',
+    id: 'm6', name: 'Skyhook', type: 'Intercept Aircraft', map: 'verdant', stars: 3, timeLimit: 780, recommended: 'Interceptor or Strike Fighter', unlock: 'manpad',
     brief: 'Three bomber waves are inbound for the base depots. Shoot them down before they reach the target. If three get through, the base is lost. Fighters escort the later waves. Ground AA is limited; flak and AA missiles work best.',
     start: { x: 0, z: -140, yaw: 0 },
     sites: [{ x: 0, z: -140, r: 34, tag: 'pad' }, { x: 0, z: 0, r: 70, tag: 'obj' }],
@@ -24987,7 +25603,7 @@ const MISSIONS = [
     },
   },
   {
-    id: 'm7', name: 'Last Dust', type: 'Survive & Extract', map: 'ashfall', stars: 3, timeLimit: 0, recommended: 'Any',
+    id: 'm7', name: 'Last Dust', type: 'Survive & Extract', map: 'ashfall', stars: 3, timeLimit: 0, recommended: 'Any', unlock: 'jumppack',
     brief: 'You are behind the lines with an extraction window closing. Survive the assault for two and a half minutes, then run for the extraction point and hold it until the dropship lifts you out.',
     start: { x: -300, z: -300, yaw: 0.8 },
     sites: [{ x: -300, z: -300, r: 34, tag: 'pad' }, { x: 450, z: 420, r: 50, tag: 'open' }],
@@ -26161,7 +26777,7 @@ const Cam = {
     let best = null, bestScore = 1;
     for (let i = 0; i < W.platforms.length; i++) {
       const e = W.platforms[i];
-      if (e.dead || e.team === p.team || e.team === 2 || e.noTarget) continue;
+      if (e.dead || e.team === p.team || e.team === 2 || Scan.hides(e, p.team)) continue;
       tpos(e, ASSIST_TP);
       const vx = ASSIST_TP.x - this.x, vy = ASSIST_TP.y - this.y, vz = ASSIST_TP.z - this.z, d = Math.hypot(vx, vy, vz);
       if (d > range || d < 2 || d > hitT + e.radius * 2) continue;   // out of reach, or behind whatever the reticle is on
@@ -26700,6 +27316,7 @@ const HUD = {
     else if (kind === 'friend') { g.arc(x, y, r, 0, TAU); }
     else if (kind === 'objective') { g.rect(x - r, y - r, r * 2, r * 2); }
     else if (kind === 'incoming') { g.moveTo(x, y + r); g.lineTo(x + r, y - r); g.lineTo(x - r, y - r); g.closePath(); }   // a projectile headed for you: a triangle point down
+    else if (kind === 'mine') { g.moveTo(x - r * 0.7, y - r * 0.7); g.lineTo(x + r * 0.7, y + r * 0.7); g.moveTo(x + r * 0.7, y - r * 0.7); g.lineTo(x - r * 0.7, y + r * 0.7); }   // a mine a ping found: a cross (P5-03)
     else { g.moveTo(x - r, y); g.lineTo(x + r, y); }
     g.stroke();
   },
@@ -27029,6 +27646,9 @@ const HUD = {
       else if (ud.def === 'pdc') st = (p.util.auto ? 'ARMED ' : 'OFF ') + p.util.charges + ' RDS';
       else if (ud.def === 'reactive') st = p.util.charges + ' CH PASSIVE';
       else if (ud.def === 'sensor') st = 'DETECT ' + Math.round(Detect.rangeOf(p)) + 'm';
+      else if (ud.def === 'coating') st = Stealth.on(p, -1) ? 'LOW SIGNATURE' : 'BLOOM ' + Math.max(0, ud.bloom - (W.time - p.firedAt)).toFixed(1) + 's';   // P5-03
+      else if (ud.def === 'plough') st = 'BLADE ' + (p.cleared || 0) + ' CLEARED';
+      else if (ud.def === 'jump') st = (p.hopT > 0 ? 'AIRBORNE ' : '') + p.util.charges + ' CH';
       else if (p.gadgetTime() > 0) st = 'ACTIVE ' + p.gadgetTime().toFixed(1) + 's';
       else st = p.util.charges + ' CH' + (p.util.cd > 0 ? ' ' + p.util.cd.toFixed(1) + 's' : '');
       this.txt((ud.passive ? '' : '[' + actionLabel('defense') + '] ') + ud.name, x + 6 * u, y + 13 * u, 12, C.text);
@@ -27067,7 +27687,7 @@ const HUD = {
     const x = this.w / 2, y = 78 * u + SafeArea.t, g = this.g;
     g.fillStyle = this.C.bg; g.fillRect(x - 130 * u, y - 14 * u, 260 * u, 52 * u);
     g.strokeStyle = lockCol; g.lineWidth = 1; g.strokeRect(x - 130 * u + 0.5, y - 14 * u + 0.5, 260 * u, 52 * u);
-    const kindTxt = t.isStruct ? 'OBJECTIVE' : t.isProj ? 'INCOMING' : hostile ? 'HOSTILE' : 'FRIENDLY';
+    const kindTxt = t.isStruct ? 'OBJECTIVE' : t.isProj ? (t.def.drone ? 'DRONE' : 'INCOMING') : hostile ? (Scan.tagged(t, p.team) ? 'HOLO DECOY' : 'HOSTILE') : 'FRIENDLY';   // (a ping tells a Holo Decoy apart: P5-03)
     this.txt(kindTxt + '  ' + (t.name || t.def.name), x, y, 12, lockCol, 'center', true);
     const hp = t.isProj ? t.hp / (t.def.pdHp || 1) : t.hp / t.maxHp;
     g.fillStyle = C.dim; g.fillRect(x - 120 * u, y + 10 * u, 240 * u, 5 * u); g.fillStyle = lockCol; g.fillRect(x - 120 * u, y + 10 * u, 240 * u * sat(hp), 5 * u);
@@ -27126,7 +27746,7 @@ const HUD = {
     const L = Detect.list;
     for (let i = 0; i < Detect.iFauna; i++) {
       const c = L[i];
-      plot(c.x, c.z, c.kind, c.kind === 'friend' ? C.friend : c.kind === 'hostile' || c.kind === 'incoming' ? C.bad : c.kind === 'objective' ? C.obj : C.neutral, c.big);
+      plot(c.x, c.z, c.kind, c.kind === 'friend' ? C.friend : c.kind === 'hostile' || c.kind === 'incoming' ? C.bad : c.kind === 'objective' ? C.obj : c.kind === 'mine' ? C.warn : C.neutral, c.big);
       if (c.marked) { g.strokeStyle = C.text; g.lineWidth = 1.5 * u; g.beginPath(); g.arc(markX, markY, 7.5 * u, 0, TAU); g.stroke(); }
     }
     this.radarNeutrals(Detect.iFauna, Detect.count, cx, cy, sc, ch, sh, u, p);
@@ -27905,7 +28525,7 @@ const UI = {
       return '<div class="lbl"><span><b>' + d.n + '. ' + esc(d.name) + '</b> <span class="tag">' + esc(SUPER_AIM_LABEL[d.aim]) + '</span></span>' + prog + '</div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(d.desc) + '</div>';
     }).join('')).join('');
     return '<h2>Arsenal</h2><div class="panel">' + Arsenal.unlockedList().length + ' of ' + SUPER_LIST.length + ' superweapons unlocked. Give each platform one in Platform &amp; Loadout. It charges during battle (faster with kills) and fires with ' + esc(actionLabel('superweapon')) + '. Unlocks are permanent; progress counts every battle you finish, and some feats must happen within one battle.</div>' +
-      '<div class="panel">' + rows + '</div>' + this.meleeArsenal() + this.navalArsenal() + this.artyArsenal() + '<div class="row"><button class="btn" data-act="back" data-focus>Back</button></div>';
+      '<div class="panel">' + rows + '</div>' + this.meleeArsenal() + this.navalArsenal() + this.artyArsenal() + this.gearArsenal() + '<div class="row"><button class="btn" data-act="back" data-focus>Back</button></div>';
   },
   /* the melee weapons (MELEE): who carries them and how they strike */
   meleeArsenal() {
@@ -27927,6 +28547,15 @@ const UI = {
       return '<div class="lbl"><span><b>' + esc(w.name) + '</b> <span class="tag">' + esc(SLOT_LABEL[w.slot] || 'Primary') + '</span>' + note + '</span><span class="dim">' + esc(on) + '</span></div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(w.role) + '</div>';
     }).join('');
     return '<div class="panel"><h3 style="margin-top:0">Naval weapons</h3><div class="dim" style="margin-bottom:.4em">Ships sail only on battlefields with open water and start at the harbour; mount these in Platform &amp; Loadout. A torpedo runs under the surface and dies in the shallows; it passes under a hovercraft.</div>' + rows + '</div>';
+  },
+  /* the support gear of P5-03: who mounts each item and what opens it */
+  gearArsenal() {
+    const rows = NEW_ITEM_IDS.map((id) => {
+      const w = WEAPONS[id], on = PLAYABLE.filter((s) => PLATFORMS[s].allow[w.slot].indexOf(id) >= 0).map((s) => PLATFORMS[s].name).join(', ');
+      const lock = Arsenal.lockText(id), note = lock ? ' <span class="warn">Locked: ' + esc(lock) + '</span>' : '';
+      return '<div class="lbl"><span><b>' + esc(w.name) + '</b> <span class="tag">' + esc(SLOT_LABEL[w.slot] || 'Primary') + '</span>' + note + '</span><span class="dim">' + esc(on) + '</span></div><div class="dim" style="font-size:.85em;margin:-.1em 0 .5em">' + esc(w.role) + '</div>';
+    }).join('');
+    return '<div class="panel"><h3 style="margin-top:0">Support gear</h3><div class="dim" style="margin-bottom:.4em">Scanning, stealth, spotting, anti-air for the soldier, mobility, repair and mines. Mount them in Platform &amp; Loadout; some open when you win a mission.</div>' + rows + '</div>';
   },
   /* the artillery's own guns (P5.3): which platforms mount them, their reach and how they fire */
   artyArsenal() {
@@ -29189,7 +29818,7 @@ const SelfTest = {
       const NEW_IDS = ['flamer', 'tesla', 'gauss', 'lance', 'needler', 'slug', 'ion', 'howitzer', 'vulcan', 'lmg', 'dmr', 'arcPistol', 'swarm', 'cruise', 'mines', 'cluster', 'atgm', 'napalm', 'buster', 'satchel', 'empGren', 'javelin',
         'ecm', 'smoke', 'cloak', 'overdrive', 'reactive', 'holo', 'drone', 'barrier'];
       const mountable = Object.keys(WEAPONS).filter((id) => !WEAPONS[id].hidden && !WEAPONS[id].sub);
-      this.check('60 mountable weapons and utilities (58, the Sensor Array and the Point Defence)', mountable.length === 60, mountable.length);
+      this.check('68 mountable weapons and utilities (58, the Sensor Array and the Point Defence, and the eight items of P5-03)', mountable.length === 68, mountable.length);
       this.check('all 30 new items exist', NEW_IDS.every((id) => WEAPONS[id] && mountable.indexOf(id) >= 0), NEW_IDS.filter((id) => !WEAPONS[id]).join(','));
       for (const id of mountable) {
         const w = WEAPONS[id], on = PLAYABLE.filter((pid) => PLATFORMS[pid].allow[w.slot].indexOf(id) >= 0);
@@ -30520,7 +31149,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 15 (the platform change request and the host\'s word on it, P2-07; 13 was the Point Defence utility and projectile targets)', NET_VERSION === 15);
+      this.check('the net version is 16 (P5-03: the eight new items; 15 was the platform change request and the host\'s word on it, P2-07; 13 was the Point Defence utility and projectile targets)', NET_VERSION === 16);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave }, keepPid = Save.data.platformId;
@@ -33568,7 +34197,7 @@ const SelfTest = {
       const fire = (id, from, target) => { foe.lock.state = 'locked'; foe.lock.target = target; spawnProjectile(foe, { def: WEAPONS[id] }, from, 0, 0, 1, 1); return W.projs.find((q) => q.active && q.nid === W.nid); };
       // the data
       const guided = Object.keys(WEAPONS).filter((id) => WEAPONS[id].guide && WEAPONS[id].guide.fov !== undefined);
-      this.check('seven seekers have a view, a blind time and a flare chance: Guided Missile, AA Missile, Swarm, Ship SAM, Cruise and Javelin (the wire missile has no seeker; superweapon ordnance keeps its guidance)', guided.sort().join() === 'aam,cruise,javelin,missile,shipSam,swarm'.split(',').sort().join() || guided.length === 6, guided.join());
+      this.check('eight seekers have a view, a blind time and a flare chance: Guided Missile, AA Missile, Swarm, Ship SAM, Cruise, Javelin and (P5-03) the Shoulder SAM (the wire missile has no seeker; superweapon ordnance keeps its guidance)', guided.sort().join() === 'aam,cruise,javelin,manpad,missile,shipSam,swarm'.split(',').sort().join(), guided.join());
       this.check('each view, blind time and flare chance is a sane number, and the cone is stored as a cosine', guided.every((id) => { const g = WEAPONS[id].guide; return g.fov > 0.3 && g.fov <= 1.7 && g.lose >= 0.3 && g.lose <= 2 && g.flare > 0.2 && g.flare < 1 && Math.abs(g.fovCos - Math.cos(g.fov)) < 1e-12; }));
       // out of its view: the seeker steers on where it last saw the target, and after g.lose seconds gives up and flies straight
       const m = fire('missile', { x: 0, y: 3, z: 0 }, tgt), g = WEAPONS.missile.guide;
@@ -33653,9 +34282,9 @@ const SelfTest = {
     t('p5 intercepting projectiles', () => {
       flatWorld();
       const foe = p5add('bulwark', 1, 5000, 5000), me = p5add('colossus', 0, 5000, -5000, { primaryA: 'acannon', secondary: 'aam' });
-      const ROCKETS = Object.keys(WEAPONS).filter((id) => WEAPONS[id].pdHp > 0);
+      const ROCKETS = Object.keys(WEAPONS).filter((id) => WEAPONS[id].pdHp > 0 && !WEAPONS[id].mine && !WEAPONS[id].drone);   // (P5-03: a sea mine and a Spotter Drone have hit points too; p5 new items shoots them)
       const GUNS = Object.keys(WEAPONS).filter((id) => WEAPONS[id].pdHit);
-      this.check('eleven missiles and rockets have hit points and a hit size; sixteen guns (flak included) may hit them', ROCKETS.length === 11 && GUNS.length === 16, ROCKETS.length + ' / ' + GUNS.length);
+      this.check('twelve missiles and rockets (the Shoulder SAM of P5-03 is the twelfth) have hit points and a hit size; sixteen guns (flak included) may hit them', ROCKETS.length === 12 && GUNS.length === 16, ROCKETS.length + ' / ' + GUNS.length);
       this.check('every one has a hit size and hit points in a sane range, and is a rocket', ROCKETS.every((id) => WEAPONS[id].rocket && WEAPONS[id].pdHp >= 5 && WEAPONS[id].pdHp <= 150 && WEAPONS[id].pdR >= 0.5 && WEAPONS[id].pdR <= 3));
       this.check('beams, lobbed shells, bombs, mines, flames, needles, EMP bolts, wire and superweapon ordnance cannot be shot down, and no beam, shell or bomb shoots them', ['laser', 'lance', 'tesla', 'arcPistol', 'mortar', 'howitzer', 'artyGun', 'artyMortar', 'bombs', 'napalm', 'buster', 'mines', 'flamer', 'needler', 'ion', 'grenade'].every((id) => !WEAPONS[id].pdHit && !WEAPONS[id].pdHp) && !WEAPONS.swMicro.pdHp && !WEAPONS.swCruise.pdHp && !WEAPONS.swSkyMissile.pdHp);
       const X = 300, dry = (id) => (WEAPONS[id].grav ? Object.assign({}, WEAPONS[id], { grav: 0, arc: false, indirect: undefined }) : WEAPONS[id]);   // artillery rockets fly a lob: here they fly level
@@ -33740,7 +34369,7 @@ const SelfTest = {
     });
     t('p5 point defence', () => {
       flatWorld();
-      const ROCKETS = Object.keys(WEAPONS).filter((id) => WEAPONS[id].pdHp > 0);
+      const ROCKETS = Object.keys(WEAPONS).filter((id) => WEAPONS[id].pdHp > 0 && !WEAPONS[id].mine && !WEAPONS[id].drone);
       const pd = WEAPONS.pdc;
       this.check('Point Defence is a utility of weight 8 with a benefit and a drawback: 12 bursts of 16 that come back one in 5 s, a 140 m reach, a 0.3 s slew, a 90% to 40% hit chance, the front half on the ground', pd.slot === 'utility' && pd.weight === 8 && /Pro: .+; con: .+/.test(pd.role) && pd.charges === 12 && pd.pdDmg === 16 && pd.radius === 140 && pd.recharge === 5 && pd.pdAcquire === 0.3 && pd.pdChance[0] === 0.9 && pd.pdChance[1] === 0.4 && pd.pdNear === 30 && !pd.passive && Math.abs(pd.pdArc - PI / 2) < 1e-9);
       this.check('small fast rounds are harder to hit: the Swarm missile, Rocket Pod rocket and AA Missile have a lower pdEvade than the Guided Missile (none)', WEAPONS.swarm.pdEvade < 1 && WEAPONS.rockets.pdEvade < 1 && WEAPONS.aam.pdEvade < 1 && WEAPONS.missile.pdEvade === undefined);
@@ -33767,7 +34396,7 @@ const SelfTest = {
       const K = 24, rate = (rid, from, secs) => { let n = 0, used = 0; for (let k = 0; k < K; k++) { const r = run(carrier(), rid, from, secs || 6); if (r.dead) n++; used += r.used; } return { n, used: used / K }; };
       const rows = [];
       let all = true;
-      const bounds = { rockets: [0.2, 0.95], missile: [0.35, 0.9], aam: [0.15, 0.8], swarm: [0.15, 0.95], cruise: [0, 0.15], cluster: [0, 0.95], atgm: [0.3, 1], rpg: [0.3, 0.95], javelin: [0.2, 0.95], shipSam: [0.15, 0.8], artyRockets: [0.2, 0.95] };
+      const bounds = { rockets: [0.2, 0.95], missile: [0.35, 0.9], aam: [0.15, 0.8], swarm: [0.15, 0.95], cruise: [0, 0.15], cluster: [0, 0.95], atgm: [0.3, 1], rpg: [0.3, 0.95], javelin: [0.2, 0.95], shipSam: [0.15, 0.8], artyRockets: [0.2, 0.95], manpad: [0.15, 0.95] };
       for (const rid of ROCKETS) {
         const r = rate(rid, 500 - Math.min(450, WEAPONS[rid].range));   // a Cluster Rocket bursts 0.9 s out: it is fired from its own range
         const share = r.n / K;
@@ -33903,6 +34532,532 @@ const SelfTest = {
         this.check('past SNAP_PROJS projectiles a guest still gets every missile and rocket (they go in before plain rounds)', !!snap && snap.pr.length === SNAP_PROJS && snap.pr.some((e) => e[0] === missileNid) && snap.pr.some((e) => e[0] === swarmNid), snap ? snap.pr.length + ' entries' : 'no snapshot');
       } finally { Net.host = keepNet.host; Net.guest = keepNet.guest; Net.inSession = keepNet.inSession; Net.peers = keepNet.peers; Net.t = keepNet.t; peer.tx = undefined; peer.open = false; p5clear(); }
       hostSide.netPeer = null; W.player = null; W.platforms.length = 0;
+    });
+    // ---- P5-03: the eight new items (data and saves, then one group per kind of item); run alone with selfTest('p5 new items') ----
+    const p5unit = (arch, team, x, z, lo) => { const u = spawnUnit(arch, x, z, { team, force: true, radius: 1, loadout: lo }); u.x = x; u.z = z; u.y = Terrain.h(x, z); return u; };
+    const p5run = (secs, each) => { for (let i = 0; i < secs / STEP; i++) { W.time += STEP; for (const q of W.platforms) if (q.ai && !q.dead) q.ai.update(STEP); for (const q of W.platforms) q.update(STEP); updateProjectiles(STEP); if (each && each(i)) return i * STEP; } return -1; };
+    const p5fresh = () => { flatWorld(); W.platforms.length = 0; p5clear(); Scan.clear(); W.player = null; };
+    const p5kinds = (p) => { Detect.scan(p); const k = []; for (let i = 0; i < Detect.count; i++) k.push(Detect.list[i].kind); return k; };
+    const AWAY = { x: 0, y: 0, z: -1 };   // looking away from +z: only the radar sees what lies that way
+    t('p5 new items data', () => {
+      const SLOTS = { scanner: 'utility', coating: 'utility', spotter: 'utility', manpad: 'secondary', jumppack: 'utility', torch: 'primary', seaMines: 'secondary', plough: 'utility' }, WT = { scanner: 4, coating: 5, spotter: 4, manpad: 6, jumppack: 4, torch: 3, seaMines: 10, plough: 6 };
+      this.check('eight new items, each with its decided slot and weight and a benefit and a drawback (Pro: ...; con: ...)', NEW_ITEM_IDS.length === 8 && NEW_ITEM_IDS.every((id) => WEAPONS[id] && WEAPONS[id].slot === SLOTS[id] && WEAPONS[id].weight === WT[id] && /^Pro: .+; con: .+/.test(WEAPONS[id].role)), NEW_ITEM_IDS.filter((id) => !WEAPONS[id]).join());
+      this.check('they and the Spotter Drone in flight follow artyMortar (index 60) at once, so every id up to it keeps its index; the superweapon ordnance after them moves up by nine, and the net version moved with it', WEAPON_IDS.indexOf('artyMortar') === 60 && NEW_ITEM_IDS.concat('spotDrone').every((id) => WEAPON_IDS.indexOf(id) > 60 && WEAPON_IDS.indexOf(id) < 70) && WEAPON_IDS.indexOf('swShell') === 70 && WEAPONS.spotDrone.sub === true && WEAPONS.spotDrone.drone === true);
+      const who = (id) => PLAYABLE.filter((p) => PLATFORMS[p].allow[WEAPONS[id].slot].indexOf(id) >= 0).sort().join();
+      const armed = PLAYABLE.filter((p) => !PLATFORMS[p].unarmed).sort().join();
+      this.check('the Pulse Scanner mounts on all 16 armed platforms', PLAYABLE.filter((p) => !PLATFORMS[p].unarmed).length === 16 && who('scanner') === armed, who('scanner'));
+      this.check('the Stealth Coating mounts on the Kestrel, Shrike, Jackal and Lancer only', who('coating') === 'jackal,kestrel,lancer,shrike', who('coating'));
+      this.check('the Spotter Drone mounts on the Ranger, Wraith, Jackal, Thunder, Hailstorm and Pestle', who('spotter') === 'hailstorm,jackal,pestle,ranger,thunder,wraith', who('spotter'));
+      this.check('the Shoulder SAM, Jump Pack and Repair Torch are the Ranger\'s; the Sea Mine Rack the Lancer\'s and Trident\'s; the Mine Plough the Bastion\'s', who('manpad') === 'ranger' && who('jumppack') === 'ranger' && who('torch') === 'ranger' && who('seaMines') === 'lancer,trident' && who('plough') === 'bastion');
+      this.check('two old items open to one more platform: the AA Missile on the Bulwark and the Flak Cannon on the Jackal', PLATFORMS.bulwark.allow.secondary.indexOf('aam') >= 0 && PLATFORMS.jackal.allow.primary.indexOf('flak') >= 0 && Loadout.validate(PLATFORMS.bulwark, Object.assign({}, PLATFORMS.bulwark.loadout, { secondary: 'aam' })).ok && Loadout.validate(PLATFORMS.jackal, Object.assign({}, PLATFORMS.jackal.loadout, { primaryA: 'flak' })).ok);
+      const bad = [];
+      for (const id of NEW_ITEM_IDS) for (const p of PLAYABLE) {
+        if (PLATFORMS[p].allow[WEAPONS[id].slot].indexOf(id) < 0) continue;
+        // the item with the platform's first gun (and, for a gun, the first gun as well) must fit its weight limit
+        const slot = WEAPONS[id].slot === 'primary' ? 'primaryB' : WEAPONS[id].slot, v = Loadout.validate(PLATFORMS[p], { primaryA: PLATFORMS[p].loadout.primaryA, [slot]: id });
+        if (!v.ok) bad.push(id + ' on ' + p + ': ' + v.errors.join(';'));
+      }
+      this.check('every item fits every platform that mounts it, inside its weight limit, beside the platform\'s first gun', bad.length === 0, bad.join(' | '));
+      this.check('no default player loadout and no old AI archetype carries a new item (the old balance is unchanged); only the two new archetypes do', PLAYABLE.every((p) => WEAPON_SLOTS.every((s) => NEW_ITEM_IDS.indexOf(PLATFORMS[p].loadout[s]) < 0)) && Object.keys(ARCH).filter((k) => WEAPON_SLOTS.some((s) => NEW_ITEM_IDS.indexOf(ARCH[k].loadout[s]) >= 0)).sort().join() === 'aaTrooper,engineer');
+      const OPEN = ['scanner', 'torch', 'plough'], GATE = { spotter: 'm1', coating: 'm2', seaMines: 'm3', manpad: 'm6', jumppack: 'm7' };
+      this.check('five items open with a mission win (m1 Spotter Drone, m2 Stealth Coating, m3 Sea Mine Rack, m6 Shoulder SAM, m7 Jump Pack); the three counters (Pulse Scanner, Repair Torch, Mine Plough) are open from the start', Object.keys(GATE).every((id) => MISSION_UNLOCK[id] === GATE[id] && Arsenal.gated(id) && MISSION_BY_ID[GATE[id]].unlock === id) && OPEN.every((id) => !Arsenal.gated(id)));
+      const keep = { data: Save.data, persist: Save.persist };
+      Save.persist = () => {};
+      try {
+        Save.data = Save.defaults();
+        this.check('in a new save the five are locked for a human loadout, with the mission named, and the three counters are open', Object.keys(GATE).every((id) => !Loadout.open(PLATFORMS.ranger, id) && Arsenal.lockText(id).indexOf(MISSION_BY_ID[GATE[id]].name) >= 0) && OPEN.every((id) => Loadout.open(PLATFORMS.ranger, id)));
+        Save.data.loadouts.ranger = { primaryA: 'rifle', secondary: 'grenade', utility: 'jumppack' };
+        this.check('a saved loadout with a locked pick gives way to the default in that slot, the rest kept', Loadout.forPlatform('ranger').utility === 'nano' && Loadout.forPlatform('ranger').primaryA === 'rifle');
+        Save.data.unlocked.push('jumppack');
+        this.check('and with the mission won it is kept', Loadout.forPlatform('ranger').utility === 'jumppack');
+        // a save from before the items existed gets an item only when it has already won the item's mission; a new save gets none
+        const old = Save.sanitize({ v: SAVE_VERSION, gatedSeen: Arsenal.gatedIds().filter((id) => NEW_ITEM_IDS.indexOf(id) < 0), unlocked: [], best: { m1: { score: 900, rank: 'A', time: 100, diff: 'veteran' }, m2: { score: 10, rank: 'F', time: 100, diff: 'veteran' } } });
+        this.check('an old save that won m1 finds the Spotter Drone open, and the other four (m2 only lost, m3, m6, m7 never played) locked; a new save finds none open', old.unlocked.indexOf('spotter') >= 0 && ['coating', 'seaMines', 'manpad', 'jumppack'].every((id) => old.unlocked.indexOf(id) < 0) && Object.keys(GATE).every((id) => Save.sanitize(Save.defaults()).unlocked.indexOf(id) < 0));
+        const s = Save.sanitize({ v: SAVE_VERSION, loadouts: { ranger: { primaryA: 'rifle', utility: 'jumppack' }, bulwark: { primaryA: 'acannon', utility: 'noSuchItem' }, kestrel: { primaryA: 'mg', secondary: 'aam', utility: 'coating' }, wraith: { primaryA: 'mg', utility: 'plough' } } });
+        this.check('saves still load: a saved loadout with a new item is kept, one with an unknown or unmountable id is dropped to the default, SAVE_VERSION stays 1 and NET_VERSION is 16', !!s.loadouts.ranger && s.loadouts.ranger.utility === 'jumppack' && !!s.loadouts.kestrel && !s.loadouts.bulwark && !s.loadouts.wraith && SAVE_VERSION === 1 && NET_VERSION === 16);
+      } finally { Save.data = keep.data; Save.persist = keep.persist; }
+      const arsenal = UI.gearArsenal();
+      this.check('the Arsenal screen lists all eight items with who carries them, and the locked ones with their mission', NEW_ITEM_IDS.every((id) => arsenal.indexOf(WEAPONS[id].name) >= 0) && arsenal.indexOf('Heavy Hunter') >= 0);
+    });
+    t('p5 new items scanner and coating', () => {
+      p5fresh();
+      const me = p5add('bulwark', 0, 0, 0, { primaryA: 'acannon', secondary: 'missile', utility: 'scanner' }); me.isPlayer = true; W.player = me;
+      const wr = p5add('wraith', 1, 100, 100, { primaryA: 'mg', utility: 'cloak' });
+      wr.noTarget = true; wr.cloakT = 6; wr.cloakKeep = false;
+      this.check('a camouflaged unit cannot be targeted or seen on the radar before the ping', !me.validTarget(wr) && p5kinds(me).indexOf('hostile') < 0);
+      me.cmd.defenseEdge = true; me.updateDefense(STEP);
+      this.check('the ping lays it bare within 220 m: targetable, on the radar, for 4 s; a charge and the 12 s cooldown are spent', me.validTarget(wr) && p5kinds(me).indexOf('hostile') >= 0 && me.scanT === 4 && me.util.charges === 2 && me.util.cd === 12);
+      me.cmd.defenseEdge = true; me.updateDefense(STEP);
+      this.check('a second press during the cooldown does nothing', me.util.charges === 2);
+      wr.x = 400;
+      this.check('beyond 220 m it stays hidden', !me.validTarget(wr));
+      wr.x = 100; wr.jamT = 5;
+      this.check('an ECM Jammer running on the target hides it from the ping', !me.validTarget(wr));
+      wr.jamT = 0;
+      W.time += 4.1;
+      this.check('after 4 s the ping is over and it is hidden again', !me.validTarget(wr));
+      // the ping is loud: a hostile 420 m away sees the pinging carrier on its radar for 4 s though its own range is 280 m
+      p5fresh();
+      const sc = p5add('bulwark', 0, 0, 0, { primaryA: 'acannon', utility: 'scanner' }), foe = p5unit('medMech', 1, 0, 420);
+      const sees = () => { Detect.begin(foe); return foe.senses(sc, tpos(sc, { x: 0, y: 0, z: 0 }), 1, { x: 0, y: 0, z: 1 }, false); };   // (looking away from the carrier: only the radar counts)
+      this.check('before the ping a hostile 420 m away does not see the carrier (radar 280 m)', !sees());
+      sc.cmd.defenseEdge = true; sc.updateDefense(STEP);
+      this.check('during the ping it does, within 440 m (selfMark x 220), and the AI there is alerted to its place', sees() && foe.ai.alertT > 0 && foe.ai.target === sc);
+      W.time += 4.1;
+      this.check('and not after', !sees());
+      // mines and decoys
+      p5fresh();
+      const m1 = p5add('bulwark', 0, 0, 0, { primaryA: 'acannon', utility: 'scanner' }); m1.isPlayer = true; W.player = m1;
+      const layer = p5add('bulwark', 1, 80, 80, { primaryA: 'mg', secondary: 'mines' });
+      layer.shoot(layer.wslots.secondary, 1);
+      const mine = W.projs.find((q) => q.active && q.def.mine); mine.x = 100; mine.z = 0;
+      this.check('a hostile mine is not marked before the ping', !Scan.marked(mine, 0) && p5kinds(m1).indexOf('mine') < 0);
+      m1.cmd.defenseEdge = true; m1.updateDefense(STEP);
+      this.check('the ping marks the hostile mines within 220 m for the team for 20 s: the radar lists them', Scan.marked(mine, 0) && p5kinds(m1).indexOf('mine') >= 0 && mine.markUntil - W.time > 19.9);
+      W.time += 21;
+      this.check('the mark runs out', !Scan.marked(mine, 0));
+      p5fresh();
+      const ai = p5unit('medMech', 1, 0, 0), real = p5unit('medMech', 0, 0, 120), holo = p5unit('holo', 0, 0, 120);
+      real.x = -20; holo.x = 20; ai.ai.perceive();
+      const before = ai.ai.target === holo;
+      const sc2 = p5add('bulwark', 1, 0, 30, { primaryA: 'mg', utility: 'scanner' }); Scan.add(sc2, sc2.id, 1, 4, 220, 2); ai.ai.target = null; ai.ai.perceive();
+      this.check('a Holo Decoy lures the AI (its target is the decoy); once a ping has told it apart, it stops preferring it', before && ai.ai.target === real, (ai.ai.target && ai.ai.target.def.id) + '');
+      // a lock on a unit that cloaks is kept when a ping lays it bare, and a missile that lost it picks it up again
+      p5fresh();
+      const shooter = p5add('bulwark', 1, 0, 0, { primaryA: 'mg', secondary: 'missile' }), carrier = p5add('bulwark', 1, 60, 250, { primaryA: 'mg', utility: 'scanner' });
+      const cl = p5add('wraith', 0, 0, 250, { primaryA: 'mg', utility: 'cloak' });
+      shooter.lock.state = 'locked'; shooter.lock.target = cl; shooter.lock.progress = 1;
+      spawnProjectile(shooter, { def: WEAPONS.missile }, { x: 0, y: 6, z: 0 }, 0, 0.02, 1, 1);
+      const mis = W.projs.find((q) => q.active && q.nid === W.nid);
+      const homing = mis.target === cl;
+      cl.cmd.defenseEdge = true; cl.updateDefense(STEP);
+      const lost = mis.target === null && mis.lostTo === cl && shooter.lock.target === null;
+      carrier.cmd.defenseEdge = true; carrier.updateDefense(STEP);
+      this.check('a cloak breaks the lock and the missile\'s guidance; a ping within 220 m lays it bare and the missile homes on it again', homing && lost && mis.target === cl && mis.lostTo === null, 'homing ' + homing + ' lost ' + lost);
+      // with the ping already up, the cloak does not break the lock at all
+      p5fresh();
+      const sh2 = p5add('bulwark', 1, 0, 0, { primaryA: 'mg', secondary: 'missile' }), car2 = p5add('bulwark', 1, 60, 250, { primaryA: 'mg', utility: 'scanner' }), cl2 = p5add('wraith', 0, 0, 250, { primaryA: 'mg', utility: 'cloak' });
+      car2.cmd.defenseEdge = true; car2.updateDefense(STEP);
+      sh2.lock.state = 'locked'; sh2.lock.target = cl2; sh2.lock.progress = 1; sh2.target = cl2;
+      cl2.cmd.defenseEdge = true; cl2.updateDefense(STEP);
+      this.check('and a cloak under a running ping does not drop the enemy\'s lock or target', sh2.lock.target === cl2 && sh2.target === cl2 && cl2.noTarget === true);
+      // a co-op guest keeps the same ping from the host's effect message
+      p5fresh();
+      const gc = p5add('bulwark', 0, 0, 0, { primaryA: 'acannon', utility: 'scanner' }), gw = p5add('wraith', 1, 100, 100, { primaryA: 'mg', utility: 'cloak' }); gw.noTarget = true; gw.cloakT = 6;
+      WPN.replay({ k: 'scan', a: [0, 0, 0], r: 220, d: 4, id: gc.id });
+      this.check('a guest that hears the host\'s scan effect keeps the same ping: the carrier\'s team sees the camouflaged unit', Scan.list.length === 1 && Scan.reveals(gw, 0) && gc.validTarget(gw) && !Scan.reveals(gw, 1));
+      // the AI: a hostile seen to cloak within the radius is pinged
+      p5fresh();
+      const aiScan = p5unit('medMech', 1, 0, 0, { primaryA: 'mg', utility: 'scanner' }), aiCl = p5unit('lightMech', 0, 0, 120, { primaryA: 'mg', utility: 'cloak' });
+      aiCl.ai.enabled = false; aiCl.invuln = true;
+      p5run(2); aiCl.cmd.defenseEdge = true;
+      const tAi = p5run(3, () => aiScan.scanT > 0);
+      this.check('an AI unit with a Pulse Scanner pings when a hostile within 220 m cloaks', tAi >= 0 && aiScan.util.charges === 2, String(tAi));
+      // the Stealth Coating
+      p5fresh();
+      const jet = p5add('kestrel', 0, 0, 0, { primaryA: 'mg', secondary: 'aam' }); jet.isPlayer = true; W.player = jet;
+      const bare = p5add('kestrel', 1, 0, 600, { primaryA: 'mg', secondary: 'aam' }), coat = p5add('kestrel', 1, 0, 600, { primaryA: 'mg', secondary: 'aam', utility: 'coating' });
+      const see = (t, d) => { t.x = 0; t.z = d; t.y = Terrain.h(0, d) + 100; Detect.begin(jet); return jet.senses(t, tpos(t, { x: 0, y: 0, z: 0 }), 1, AWAY, false); };
+      this.check('an enemy jet\'s 700 m radar sees a bare Kestrel at 650 m, a coated one only inside 420 m', jet.def.sensor > 0 && Detect.rangeOf(jet) === 700 && see(bare, 650) && !see(coat, 650) && see(coat, 410) && !see(coat, 430));
+      coat.firedAt = W.time;
+      this.check('for 3 s after it fires the coating does nothing; after that it works again', see(coat, 650) && (coat.firedAt = W.time - 3.1, !see(coat, 650)));
+      const sc3 = p5add('bulwark', 0, 0, 0, { primaryA: 'mg', utility: 'scanner' }); sc3.x = 0; sc3.z = 560; Scan.add(sc3, sc3.id, 0, 4, 220, 2);
+      this.check('a Pulse Scanner within 220 m lays a coated unit bare at the carrier\'s full range', see(coat, 650) && !Stealth.on(coat, 0));
+      Scan.clear();
+      const lockTime = (t) => { jet.target = t; jet.lock.state = 'none'; jet.lock.target = null; jet.lock.progress = 0; t.x = 0; t.z = 300; t.y = jet.y; jet.x = 0; jet.z = 0; jet.y = t.y; jet.yaw = 0; jet.pitch = 0; jet.roll = 0; let n = 0; for (; n < 600 && jet.lock.state !== 'locked'; n++) { W.time += STEP; jet.updateLock(STEP); } return n * STEP; };
+      coat.firedAt = -99;
+      const lb = lockTime(bare), lc = lockTime(coat);
+      this.check('a lock on the coated Kestrel takes 1.5 times as long: the AA Missile 0.7 s -> 1.05 s', Math.abs(lb - 0.7) < 0.05 && Math.abs(lc - 1.05) < 0.05 && Math.abs(lc / lb - 1.5) < 0.1, lb.toFixed(2) + ' / ' + lc.toFixed(2));
+      bare.team = 0; coat.team = 0; W.player = null; W.platforms.length = 0; W.platforms.push(bare, coat);   // now the two alone are the AI's enemies
+      const ai2 = p5unit('jet', 1, 0, 0); ai2.y = Terrain.h(0, 0) + 100;
+      const sight = ai2.ai.sightRange();
+      coat.x = 0; coat.z = sight * 0.9; coat.y = ai2.y; bare.x = 0; bare.z = sight * 0.9; bare.y = ai2.y; ai2.ai.target = null; ai2.ai.perceive();
+      const seesBare = ai2.ai.target === bare;
+      W.platforms.splice(W.platforms.indexOf(bare), 1); ai2.ai.target = null; ai2.ai.perceive();
+      this.check('the AI sees a coated unit 25% less far: at 0.9 of its sight it sees the bare Kestrel and not the coated one', seesBare && ai2.ai.target === null);
+      // a seeker locks only inside a narrower cone round a coated target (coordinator decision: the lock cone x seekerCone) and its full cone round any other
+      const lockReason = (util, laidBare) => {
+        p5fresh();
+        const sh = p5add('bulwark', 1, 0, 0, { primaryA: 'mg', secondary: 'aam' }), tg = p5add('kestrel', 0, 110, 300, { primaryA: 'mg', utility: util }); tg.y = sh.y + sh.height * 0.6;   // 20 degrees off the nose: inside the AA Missile's 0.5 rad cone, outside a quarter of it
+        sh.cmd.aimYaw = 0; sh.cmd.aimPitch = 0; sh.target = tg;
+        if (laidBare) Scan.add(sh, sh.id, 1, 5, 400, 2);
+        for (let i = 0; i < 120 && sh.lock.state !== 'locked'; i++) { W.time += STEP; sh.updateLock(STEP); }
+        return sh.lock.state === 'locked' ? 'locked' : sh.lock.reason;
+      };
+      const rBare = lockReason('flares'), rCoat = lockReason('coating'), rLaid = lockReason('coating', true);
+      this.check('a target 20 degrees off the nose is locked on a flared jet and on a coated one a ping has laid bare, but not on a coated jet (OFF BORE: the coating cuts the lock cone to a quarter)', rBare === 'locked' && rLaid === 'locked' && rCoat === 'OFF BORE' && WEAPONS.coating.seekerCone === 0.25, [rBare, rCoat, rLaid].join());
+      // a unit a hunter was holding that cloaks inside a ping is dropped once the ping ends (the 6 s memory must not aim at its true place)
+      p5fresh();
+      const hunter = p5unit('medMech', 1, 0, 0, { primaryA: 'mg' }), shade = p5unit('lightMech', 0, 0, 100, { primaryA: 'mg', utility: 'cloak' }), pinger = p5add('bulwark', 1, 40, 100, { primaryA: 'mg', utility: 'scanner' });
+      shade.ai.enabled = false; shade.invuln = true; hunter.ai.perceive();
+      const had = hunter.ai.target === shade;
+      pinger.cmd.defenseEdge = true; pinger.updateDefense(STEP); shade.cmd.defenseEdge = true; shade.updateDefense(STEP); hunter.ai.perceive();
+      const keptInPing = hunter.ai.target === shade;
+      W.time += 4.1; hunter.ai.perceive();
+      this.check('an AI unit holding a target that cloaks inside a ping keeps it while the ping lasts and drops it the moment the ping ends (a 6 s camouflage outlasts a 4 s ping)', had && keptInPing && hunter.ai.target === null && hunter.target === null, [had, keptInPing].join());
+      // a ping lifts the radar-range check and the coating, never an untargetable unit
+      p5fresh();
+      const sc4 = p5add('bulwark', 0, 0, 0, { primaryA: 'mg', utility: 'scanner' }); sc4.isPlayer = true; W.player = sc4;
+      const wall = p5add('barrier', 1, 100, 100, {}); wall.noTarget = true;
+      Scan.add(sc4, sc4.id, 0, 4, 220, 2);
+      this.check('a Barrier (untargetable) inside a ping stays off the radar and is not a valid target', p5kinds(sc4).indexOf('hostile') < 0 && !sc4.validTarget(wall));
+      // pings are purged when they end, a dead carrier ends its ping, and the mine marks keep their own clock
+      p5fresh();
+      const car = p5add('bulwark', 0, 0, 0, { primaryA: 'mg', utility: 'scanner' }), foeP = p5add('wraith', 1, 50, 0, { primaryA: 'mg', utility: 'cloak' }); foeP.noTarget = true; foeP.cloakT = 6;
+      Scan.add(car, car.id, 0, 4, 220, 2); W.time += 4.5; updateProjectiles(STEP);
+      const purged = Scan.list.length === 0;
+      Scan.add(car, car.id, 0, 4, 220, 2); const during = Scan.reveals(foeP, 0); car.dead = true; const after = Scan.reveals(foeP, 0); updateProjectiles(STEP);
+      this.check('an ended ping is dropped from the list at once (not only when the next one starts), and a ping whose carrier died ends with it', purged && during && !after && Scan.list.length === 0);
+      p5fresh();
+      const lay5 = p5add('bulwark', 1, 80, 80, { primaryA: 'mg', secondary: 'mines' }); lay5.shoot(lay5.wslots.secondary, 1);
+      const mn5 = W.projs.find((q) => q.active && q.def.mine); mn5.x = 100; mn5.z = 0;
+      const scn = p5add('bulwark', 0, 0, 0, { primaryA: 'mg', utility: 'scanner' }); scn.cmd.defenseEdge = true; scn.updateDefense(STEP);
+      const marksKept = Scan.marksUntil > W.time + 19; W.time += 21;
+      this.check('the mine loop of the radar runs while a mark lasts (20 s) and stops when it has run out', marksKept && Scan.marksUntil <= W.time);
+      this.check('the HUD target panel names a Holo Decoy a ping has told apart (HOLO DECOY)', HUD.drawTarget.toString().indexOf('HOLO DECOY') >= 0 && PLATFORMS.holo.lure < 1 && (Scan.add(scn, scn.id, 0, 4, 220, 2), Scan.tagged(p5add('holo', 1, 50, 0, {}), 0)));
+      // a Spotter Drone is a sensor of its owner even with more allies on the radar than there are sensor places
+      p5fresh();
+      const owner6 = p5add('ranger', 0, 0, 0, { primaryA: 'rifle' }), foe6 = p5add('bastion', 1, 400, 100, {}), dr6 = allocProjectile();
+      for (let k = 0; k < 30; k++) p5add('bulwark', 0, 20 + k * 4, 10 + k * 2, {});
+      launchProjectile(dr6, WEAPONS.spotDrone, owner6, 0, 400, Terrain.h(400, 0) + 40, 0, 0, 0, 0); dr6.hover = 1; dr6.life = 40;
+      Detect.begin(owner6);
+      this.check('with 30 allies on the radar the owner\'s own drone is still a sensor (it has places of its own)', Detect.n > DETECT_NODES && Detect.sees(foe6.x, foe6.z));
+    });
+    t('p5 new items spotter and shoulder SAM'
+, () => {
+      p5fresh();
+      const me = p5add('ranger', 0, 0, 0, { primaryA: 'rifle', utility: 'spotter' }); me.isPlayer = true; W.player = me;
+      me.cmd.aimPoint = { x: 300, y: 0, z: 300 }; me.cmd.aimYaw = Math.atan2(300, 300);
+      me.cmd.defenseEdge = true; me.update(STEP);
+      const dr = W.projs.find((q) => q.active && q.def.drone);
+      this.check('the defense key launches a drone: a projectile of the owner\'s side flying at 40 m/s to the reticle\'s ground point, one use spent', !!dr && dr.team === 0 && dr.owner === me && me.util.charges === 1 && Math.abs(Math.hypot(dr.vx, dr.vy, dr.vz) - 40) < 0.5 && Math.hypot(dr.lx - 300, dr.lz - 300) < 1);
+      let flight = 0; while (flight < 14 && dr.hover === 0) { p5run(0.1); flight += 0.1; }
+      this.check('it hovers 60 m over that point after a flight of about 10.6 s, with about 20 s left', dr.hover === 1 && Math.abs(dr.y - Terrain.h(dr.x, dr.z) - 60) < 1 && dr.life > 19 && dr.life < 20.5 && flight > 9.5 && flight < 12, flight.toFixed(1) + ' s, y ' + dr.y.toFixed(1) + ', life ' + dr.life.toFixed(1));
+      const foe = p5add('bastion', 1, 400, 300, {}), far = p5add('bastion', 1, 300 + 200, 300, {}), allyMech = p5add('bulwark', 0, 100, 800, {}), bat = p5add('thunder', 0, -800, 300, { primaryA: 'artyGun' });
+      Detect.begin(me);
+      const ownSees = Detect.sees(foe.x, foe.z), ownFar = Detect.sees(far.x, far.z), farther = Detect.sees(300 + 260, 300);
+      this.check('it is a sensor of its owner: it detects a target 100 m and 200 m from the drone (the Ranger\'s own radar is 180 m and the targets are 400 m away), not 260 m', ownSees && ownFar && !farther);
+      Detect.begin(allyMech);
+      this.check('and an ally gets it at 60% of the range: 100 m yes, 200 m no', Detect.sees(foe.x, foe.z) && !Detect.sees(far.x, far.z));
+      this.check('it spots for the team\'s artillery: a Thunder 800 m away can shell a tank only the drone sees, and not once the drone is gone or when the tank is beyond 250 m of it', Arty.spotted(foe, bat) && !Arty.spotted(p5add('bastion', 1, 300 + 300, 300, {}), bat) && (dr.active = false, !Arty.spotted(foe, bat)));
+      // 40 hit points: eight Chain MG rounds
+      p5fresh();
+      const owner = p5add('ranger', 1, 0, 0, { primaryA: 'rifle', utility: 'spotter' });
+      owner.cmd.aimPoint = { x: 0, y: 0, z: 200 }; owner.cmd.aimYaw = 0; owner.cmd.defenseEdge = true; owner.update(STEP);
+      const d2 = W.projs.find((q) => q.active && q.def.drone), gun = p5add('bulwark', 0, 0, 500, { primaryA: 'mg' });
+      p5run(7);
+      const rounds = (n) => { for (let k = 0; k < n; k++) { const dx = d2.x - gun.x, dy = d2.y - (gun.y + 6), dz = d2.z - gun.z, l = Math.hypot(dx, dy, dz); spawnProjectile(gun, { def: WEAPONS.mg }, { x: gun.x, y: gun.y + 6, z: gun.z }, dx / l, dy / l, dz / l, 1); } };
+      gun.x = d2.x; gun.z = d2.z + 60; gun.y = Terrain.h(gun.x, gun.z);
+      rounds(7); p5step(0.5);
+      const alive7 = d2.active && d2.hp > 0;
+      rounds(5); p5step(0.5);
+      this.check('any gun kills it: seven Chain MG rounds (5 each) leave it flying, twelve bring it down', alive7 && !d2.active, 'alive after 7: ' + alive7 + ', active ' + d2.active + ', hp ' + d2.hp);
+      p5fresh();
+      const o3 = p5add('ranger', 1, 0, 0, { primaryA: 'rifle', utility: 'spotter' });
+      o3.cmd.aimPoint = { x: 0, y: 0, z: 200 }; o3.cmd.aimYaw = 0; o3.cmd.defenseEdge = true; o3.update(STEP);
+      const d3 = W.projs.find((q) => q.active && q.def.drone);
+      p5run(8);
+      const ecm = p5add('bulwark', 0, d3.x + 100, d3.z, { primaryA: 'mg', utility: 'ecm' });
+      WPN.jam(ecm);
+      const survived100 = d3.active;
+      ecm.x = d3.x + 50; WPN.jam(ecm);
+      this.check('an ECM Jammer drops it within 80 m and not at 100 m', survived100 && !d3.active);
+      p5fresh();
+      const o4 = p5add('ranger', 1, 0, 0, { primaryA: 'rifle', utility: 'spotter' });
+      o4.cmd.aimPoint = { x: 0, y: 0, z: 200 }; o4.cmd.aimYaw = 0; o4.cmd.defenseEdge = true; o4.update(STEP);
+      const d4 = W.projs.find((q) => q.active && q.def.drone);
+      p5run(5 + 20 + 0.5);
+      this.check('its time runs out: 5 s of flight and 20 s of hover, then it is gone; the second use waits for the 20 s cooldown', !d4.active && o4.util.charges === 1);
+      const aim = p5add('ranger', 0, 0, 0, { primaryA: 'rifle', utility: 'spotter' }); aim.cmd.aimPoint = { x: 0, y: 0, z: 2000 }; aim.cmd.aimYaw = 0; aim.cmd.defenseEdge = true; aim.update(STEP);
+      const far2 = W.projs.filter((q) => q.active && q.def.drone && q.owner === aim)[0];
+      this.check('a reticle point beyond 600 m is cut to 600 m', !!far2 && Math.abs(Math.hypot(far2.lx - aim.x, far2.lz - aim.z) - 600) < 1);
+      // the AI: a carrier that lost its target more than 3 s ago, within 600 m, launches it at the last seen place
+      p5fresh();
+      const ai = p5unit('sniper', 1, 0, 0, { primaryA: 'rifle', utility: 'spotter' });
+      ai.ai.seen.x = 0; ai.ai.seen.z = 300; ai.ai.seen.y = 0; ai.ai.seen.t = W.time - 4;
+      let adr = null; p5run(3, () => { adr = W.projs.find((q) => q.active && q.def.drone); return !!adr; });
+      this.check('an AI unit with a Spotter Drone sends it to where it last saw its target (300 m) once the target has been out of sight for 3 s', !!adr && Math.hypot(adr.lx, adr.lz - 300) < 1 && ai.util.charges === 1);
+      // a hostile drone is a radar contact and a target: cycled to, locked by an AA Missile and killed by it; the AI shoots it too
+      p5fresh();
+      const watcher = p5add('bulwark', 0, 0, 0, { primaryA: 'mg', secondary: 'aam' }); watcher.isPlayer = true; W.player = watcher; watcher.cmd.aimYaw = 0; watcher.cmd.aimPitch = Math.atan2(40, 150);
+      const dOwner = p5add('ranger', 1, 5000, 5000, {}), hd = allocProjectile(); launchProjectile(hd, WEAPONS.spotDrone, dOwner, 1, 0, Terrain.h(0, 150) + 40, 150, 0, 0, 0); hd.hover = 1; hd.life = 40; hd.lx = 0; hd.ly = hd.y; hd.lz = 150;
+      this.check('a hostile drone within radar range is a radar contact', p5kinds(watcher).indexOf('hostile') >= 0);
+      watcher.cycleTarget(true);
+      this.check('the cycle key picks it', watcher.target === hd);
+      for (let i = 0; i < 90 && watcher.lock.state !== 'locked'; i++) { W.time += STEP; watcher.updateLock(STEP); }
+      const lockedDrone = watcher.lock.state === 'locked' && watcher.lock.target === hd;
+      watcher.wslots.secondary.cd = 0; watcher.shoot(watcher.wslots.secondary, 1);
+      p5step(3, () => !hd.active);
+      this.check('an AA Missile locks it and kills it (it bursts beside the drone)', lockedDrone && !hd.active, String(lockedDrone));
+      p5fresh();
+      const gunner = p5unit('infantry', 1, 0, 0), hd2 = allocProjectile(), own2 = p5add('ranger', 0, 5000, 5000, {});
+      launchProjectile(hd2, WEAPONS.spotDrone, own2, 0, 0, Terrain.h(0, 90) + 25, 90, 0, 0, 0); hd2.hover = 1; hd2.life = 60; hd2.lx = 0; hd2.ly = hd2.y; hd2.lz = 90;
+      p5run(20, () => !hd2.active);
+      this.check('an AI rifleman shoots a hostile drone it sees when nothing else is in sight', hd2.hp < 40 || !hd2.active, String(hd2.hp));
+      // the drone never beats a hostile unit in sight (an 80 m drone against a mech at 250 m), and no rocket, RPG, mine or bomb is used on it
+      p5fresh();
+      const seer = p5unit('infantry', 1, 0, 0), mech9 = p5unit('medMech', 0, 0, 250), own9 = p5add('ranger', 0, 5000, 5000, {}), hd9 = allocProjectile();
+      mech9.ai.enabled = false; mech9.invuln = true; launchProjectile(hd9, WEAPONS.spotDrone, own9, 0, 0, Terrain.h(0, 80) + 20, 80, 0, 0, 0); hd9.hover = 1; hd9.life = 60;
+      seer.ai.perceive(); const withMech = seer.ai.target === mech9;
+      W.platforms.splice(W.platforms.indexOf(mech9), 1); seer.ai.target = null; seer.ai.perceive();
+      this.check('an AI unit prefers a hostile mech at 250 m to a drone at 80 m, and takes the drone once the mech is gone', withMech && seer.ai.target === hd9, withMech + ' ' + (seer.ai.target === hd9));
+      const weapons9 = ['rpg', 'grenade', 'mines', 'missile', 'swarm', 'javelin', 'bombs', 'napalm', 'aam'].filter((id) => WEAPONS[id]);
+      const fired9 = weapons9.filter((id) => { const u = p5unit('infantry', 1, 0, 0); u.wslots.secondary = { id, def: WEAPONS[id], slot: 'secondary', clip: 1, reserve: 1, cd: 0, reloading: 0 }; return u.ai.canUseSecondary(hd9); });
+      this.check('no secondary (rocket, RPG, grenade, mine, missile, bomb) is used on a drone: canUseSecondary refuses a projectile', fired9.length === 0, fired9.join());
+      const jet9 = p5unit('jet', 1, 0, 0); jet9.y = Terrain.h(0, 0) + 100; jet9.ai.perceive();
+      this.check('an AI aircraft never takes a drone for a target', jet9.ai.target === null || !jet9.ai.target.isProj);
+      p5fresh();
+      const hostSide = p5add('bulwark', 0, 0, 0, { primaryA: 'mg', secondary: 'aam' }), own3 = p5add('ranger', 1, 5000, 5000, {}), hd3 = allocProjectile();
+      launchProjectile(hd3, WEAPONS.spotDrone, own3, 1, 0, Terrain.h(0, 150) + 40, 150, 0, 0, 0); hd3.hover = 1; hd3.life = 40;
+      const peer3 = Object.assign(Net.newPeer(), { p: hostSide, stats: newStats(), hello: true }); hostSide.netPeer = peer3;
+      peer3.inp = { mf: 0, ms: 0, tn: 0, ti: 0, ay: 0, ap: 0, b: 0, tg: NET_PROJ_TG + hd3.nid }; peer3.inpT = Net.t; Net.applyCmd(peer3);
+      this.check('co-op: the host accepts a guest\'s pick of a hostile drone it detects (it is not headed for the guest)', hostSide.target === hd3);
+      hostSide.netPeer = null;
+      // the Shoulder SAM
+      p5fresh();
+
+      const sol = p5add('ranger', 0, 0, 0, { primaryA: 'rifle', secondary: 'manpad' }); sol.isPlayer = true; W.player = sol;
+      const jet = p5add('kestrel', 1, 0, 400, { primaryA: 'mg' }); jet.y = Terrain.h(0, 400) + 80; jet.yaw = PI;
+      const tank = p5add('bastion', 1, 0, 100, {});
+      sol.target = tank; sol.updateLock(STEP);
+      this.check('it locks aircraft only: a tank is refused (AIR TARGETS ONLY)', sol.lock.reason === 'AIR TARGETS ONLY');
+      sol.target = jet; sol.cmd.aimYaw = 0; sol.cmd.aimPitch = Math.atan2(80, 400);
+      let lt = 0; while (lt < 3 && sol.lock.state !== 'locked') { W.time += STEP; sol.updateLock(STEP); lt += STEP; }
+      this.check('a lock on a jet at 400 m takes 1.4 s', Math.abs(lt - 1.4) < 0.06, lt.toFixed(2));
+      this.check('and not beyond 700 m (OUT OF RANGE)', sol.lockFit(jet, 750) === 'OUT OF RANGE' && sol.lockFit(jet, 650) === '');
+      const pass = (lateral) => {
+        p5fresh();
+        const s2 = p5add('ranger', 0, 0, 0, { primaryA: 'rifle', secondary: 'manpad' }), j2 = p5add('kestrel', 1, lateral, 200, { primaryA: 'mg' });
+        j2.y = Terrain.h(0, 200) + 60; j2.vx = j2.vz = 0;
+        const hp0 = j2.hp + j2.armor;
+        spawnProjectile(s2, { def: WEAPONS.manpad }, { x: 0, y: j2.y, z: 0 }, 0, 0, 1, 1);
+        const m = W.projs.find((q) => q.active && q.nid === W.nid);
+        const burst = p5step(2, () => !m.active) >= 0;
+        return { burst, hurt: hp0 - (j2.hp + j2.armor) };
+      };
+      const near = pass(3), wide = pass(12);
+      this.check('its proximity fuse bursts it beside the aircraft: a pass 3 m wide hurts the jet, a pass 12 m wide does not burst it', near.burst && near.hurt > 0 && !wide.burst && wide.hurt === 0, JSON.stringify([near, wide]));
+      p5fresh();
+      const aa = p5unit('aaTrooper', 1, 0, 0), tgt = p5unit('dummyAir', 0, 0, 250); tgt.ai.enabled = false; tgt.invuln = true; tgt.hp = tgt.maxHp = 1e9;
+      let fired = 0; const seen = new Set();
+      p5run(15, () => { tgt.x = 0; tgt.z = 250; tgt.y = Terrain.h(0, 250) + 60; tgt.vx = tgt.vz = 0; for (const q of W.projs) if (q.active && q.def === WEAPONS.manpad && q.owner === aa && !seen.has(q.nid)) { seen.add(q.nid); fired++; } return false; });
+      this.check('the new AA Trooper archetype (Ranger: Assault Rifle and Shoulder SAM) locks on and fires at an aircraft it sees', Loadout.validate(PLATFORMS.ranger, ARCH.aaTrooper.loadout).ok && fired >= 1, String(fired));
+      this.check('it is rocket ordnance with 12 hit points, one hit kills it, and a flare fools it 60% of the time', WEAPONS.manpad.rocket === true && WEAPONS.manpad.pdHp === 12 && WEAPONS.manpad.pdHp <= WEAPONS.mg.dmg * 3 && WEAPONS.manpad.guide.flare === 0.6);
+    });
+    t('p5 new items jump pack and torch', () => {
+      p5fresh();
+      const sol = p5add('ranger', 0, 0, 0, { primaryA: 'rifle', secondary: 'grenade', utility: 'jumppack' }); sol.isPlayer = true; W.player = sol;
+      sol.update(STEP);
+      const gy = Terrain.h(0, 0), w2 = sol.wslots.secondary;
+      this.check('the soldier starts on the ground with four hops', sol.grounded && sol.util.charges === 4);
+      sol.cmd.aimYaw = 0; sol.cmd.defenseEdge = true; sol.update(STEP);
+      this.check('the defense key hops: off the ground at once, a charge spent, the landing marked safe', !sol.grounded && sol.hopT > 0 && sol.hopSafe && sol.util.charges === 3);
+      // secondary fire and aim in the air
+      const clip0 = w2.clip; sol.cmd.fire2 = true; sol.cmd.fire2Edge = true; sol.update(STEP); sol.cmd.fire2 = false; sol.cmd.fire2Edge = false;
+      const aimAir = sol.spreadMult(WEAPONS.rifle);
+      let apex = sol.y, t = 0; const hp0 = sol.hp, x0 = sol.x, z0 = sol.z;
+      while (t < 4) { W.time += STEP; sol.update(STEP); t += STEP; apex = Math.max(apex, sol.y); if (sol.grounded) break; }
+      const aimGround = sol.spreadMult(WEAPONS.rifle);
+      this.check('in the air the secondary does not fire and the aim spread is 3 times wider', w2.clip === clip0 && Math.abs(aimAir / aimGround - 3) < 0.01, aimAir + ' / ' + aimGround);
+      this.check('a hop is about 4.5 m up and 9 m along over about 1.1 s, and the landing costs no health and no stagger', apex - gy > 4 && apex - gy < 5 && Math.hypot(sol.x - x0, sol.z - z0) > 8 && Math.hypot(sol.x - x0, sol.z - z0) < 10 && t > 1 && t < 1.3 && sol.hp === hp0 && sol.stagger === 0, 'apex ' + (apex - gy).toFixed(2) + ' dist ' + Math.hypot(sol.x - x0, sol.z - z0).toFixed(2) + ' t ' + t.toFixed(2));
+      for (let i = 0; i < 6 / STEP + 5; i++) { W.time += STEP; sol.update(STEP); }
+      this.check('one charge comes back every 6 s', sol.util.charges === 4);
+      // a long fall after a hop is free; the same fall without a hop hurts
+      const fall = (hop, startUp) => { sol.hp = sol.maxHp; sol.armor = sol.maxArmor; sol.hopSafe = hop; sol.hopT = hop ? HOP_MAX : 0; sol.hopY = Terrain.h(sol.x, sol.z) + (startUp || 0); sol.grounded = false; sol.y = Terrain.h(sol.x, sol.z) + 40; sol.vy = 0; for (let i = 0; i < 4 / STEP && !sol.grounded; i++) { W.time += STEP; sol.update(STEP); } return sol.maxHp - sol.hp; };
+      const free = fall(true, 0), hurtHop = fall(true, 40), hurt = fall(false);
+      this.check('a hop that lands no lower than it began costs nothing; one that began 40 m up (off a roof) and lands on the ground hurts as much as the same fall without a hop', free === 0 && hurt > 0 && Math.abs(hurtHop - hurt) < 1, free + ' / ' + hurtHop + ' / ' + hurt);
+
+      // the AI: dodges a ground vehicle closing within 15 m
+      p5fresh();
+      const sn = p5unit('sniper', 1, 0, 0, { primaryA: 'rifle', utility: 'jumppack' }), tk = p5unit('tank', 0, 0, 40); tk.ai.enabled = false; tk.invuln = true;
+      let hopped = false; p5run(5, () => { tk.z -= 10 * STEP; tk.vx = 0; tk.vz = -10; tk.y = Terrain.h(tk.x, tk.z); if (sn.hopT > 0) hopped = true; return hopped; });
+      this.check('an AI soldier on a Jump Pack hops sideways from a tank closing within 15 m', hopped && sn.util.charges === 3);
+      p5fresh();
+      W.buildings.push({ ox: 4, oz: -2, nx: 2, nz: 2, topY: Terrain.h(0, 0) + 3.2 });   // a low roof beside it, 3.2 m up
+      const rs = p5unit('sniper', 1, 0, 0, { primaryA: 'sniper', utility: 'jumppack' }), tg = p5unit('tank', 0, 0, 120); tg.ai.enabled = false;
+      rs.ai.target = tg;
+      const wantsRoof = rs.ai.hopWanted(120, true);
+      const again = rs.ai.hopWanted(120, true);   // at once: the cooldown holds
+      rs.hopYaw = null; rs.ai.hopCool = 0; W.buildings[0].ox = 0.5;   // a roof that begins too close to clear on the way up
+      const blocked = rs.ai.hopWanted(120, true);
+      W.buildings.length = 0; rs.hopYaw = null; rs.ai.hopCool = 0;
+      this.check('an AI sniper with a target hops towards a roof within 12 m that is 1 to 4.2 m above it and that the arc clears; not twice running (8 s cooldown), not onto a roof whose edge is too near to clear, not when there is none', wantsRoof && again === false && blocked === false && rs.ai.hopWanted(120, true) === false && rs.hopYaw === null, [wantsRoof, again, blocked].join());
+      // the AI engineer mends only crewed ground units and mechs it can reach
+      p5fresh();
+      const en2 = p5unit('engineer', 0, 0, 0), jetA = p5add('kestrel', 0, 0, 30, { primaryA: 'mg' }), parkedT = p5add('bastion', 0, 0, 40, {}), crewT = p5add('bastion', 0, 0, 90, {});
+      jetA.hp = jetA.maxHp * 0.2; parkedT.hp = parkedT.maxHp * 0.2; parkedT.parked = true; crewT.hp = crewT.maxHp * 0.2;
+      const job = en2.ai.pickMend();
+      this.check('an AI engineer passes an aircraft and an empty tank (nearer, both hurt) and goes to the crewed tank', !!job && job.obj === crewT, job && job.obj.def.id);
+
+      // the Repair Torch
+      p5fresh();
+      const eng = p5add('ranger', 0, 0, 0, { primaryA: 'torch' }); eng.isPlayer = true; W.player = eng;
+      const ally = p5add('bastion', 0, 0, 8, {}); ally.hp = ally.maxHp * 0.3;
+      eng.cmd.aimYaw = 0; eng.cmd.aimPitch = 0; eng.cmd.aimPoint = { x: 0, y: ally.y + 1, z: 8 };
+      const burn = (secs) => { for (let i = 0; i < secs / STEP; i++) { W.time += STEP; eng.cmd.fire1 = eng.heat < eng.maxHeat * 0.85; eng.update(STEP); ally.update(STEP); } };
+      const hp1 = ally.hp; burn(1);
+      this.check('the torch mends an ally 30 hull a second', Math.abs((ally.hp - hp1) - 30) < 4, (ally.hp - hp1).toFixed(1));
+      burn(30);
+      this.check('and no higher than 80% of its maximum hull', ally.hp <= ally.maxHp * 0.8 + 0.5 && ally.hp >= ally.maxHp * 0.79, (ally.hp / ally.maxHp).toFixed(3));
+      ally.hp = ally.maxHp * 0.3; ally.parked = true; const hpP = ally.hp; burn(2);
+      const parkedStays = ally.hp === hpP; ally.parked = false; burn(1);
+      this.check('it never mends a parked (empty) platform, so no one can step out and torch their own tank; a crewed one is mended', parkedStays && ally.hp > hpP);
+      eng.hp = 100; const mendsSelf = eng.torchWork(WEAPONS.torch, { hit: true, kind: 'platform', obj: eng }, 0, 0, 0);
+      this.check('a beam that meets its own soldier mends nothing', eng.hp === 100 && mendsSelf === false);
+      this.check('the torch is described as cutting hostiles for 3 a shot, 30 a second', /3 a shot \(30 a second/.test(WEAPONS.torch.role) && WEAPONS.torch.dmg === 3 && WEAPONS.torch.cd === 0.1);
+
+      const foeTank = p5add('bastion', 1, 0, 8, {}); ally.dead = true; foeTank.hp = foeTank.maxHp * 0.3; const hpF = foeTank.hp + foeTank.armor; burn(1);
+      this.check('on a hostile it only cuts: 3 damage a shot, never mending', foeTank.hp + foeTank.armor < hpF && foeTank.hp <= foeTank.maxHp * 0.3 + 0.001);
+      p5fresh();
+      const e2 = p5add('ranger', 0, 0, 0, { primaryA: 'torch' }); e2.isPlayer = true; W.player = e2;
+      const wall = addStruct('bwall', 0, 8, { team: 0, dims: { w: 4, h: 3, d: 1 } }), obj = objStruct('tower', 30, 8, 'Radar Tower', 0);
+      wall.hp = wall.maxHp * 0.3; obj.hp = obj.maxHp * 0.3;
+      e2.cmd.aimYaw = 0; e2.cmd.aimPitch = 0; e2.cmd.aimPoint = { x: 0, y: wall.y + 1, z: 8 };
+      const hpW = wall.hp; for (let i = 0; i < 1 / STEP; i++) { W.time += STEP; e2.cmd.fire1 = true; e2.heat = 0; e2.update(STEP); }
+      this.check('it mends an allied structure 60 hit points a second', Math.abs((wall.hp - hpW) - 60) < 8, (wall.hp - hpW).toFixed(1));
+      e2.x = 30; e2.z = 0; e2.cmd.aimPoint = { x: 30, y: obj.y + 1, z: 8 }; const hpO = obj.hp; for (let i = 0; i < 1 / STEP; i++) { W.time += STEP; e2.cmd.fire1 = true; e2.heat = 0; e2.update(STEP); }
+      this.check('but never an objective structure (it falls only to weapons and is not rebuilt)', obj.hp === hpO && !!obj.objective);
+      p5fresh();
+      const e3 = p5add('ranger', 0, 0, 0, { primaryA: 'torch' }); e3.isPlayer = true; W.player = e3;
+      const layer = p5add('bulwark', 1, 50, 50, { primaryA: 'mg', secondary: 'mines' }); layer.shoot(layer.wslots.secondary, 1);
+      const mine = W.projs.find((q) => q.active && q.def.mine); mine.x = 0; mine.z = 8; mine.y = Terrain.h(0, 8) + 0.3; mine.age = 5;
+      e3.cmd.aimYaw = 0; e3.cmd.aimPoint = { x: 0, y: mine.y, z: 8 }; e3.cmd.aimPitch = Math.atan2(mine.y - (e3.y + 1.4), 8); e3.cmd.fire1 = true;
+      let td = 0; for (; td < 5 && mine.active; td += STEP) { W.time += STEP; e3.update(STEP); }
+      this.check('held on a hostile mine it defuses it in 1.5 s, with no blast', !mine.active && td > 1.4 && td < 1.9 && layer.hp === layer.maxHp, td.toFixed(2));
+      // the AI engineer
+      p5fresh();
+      const tank = p5unit('allyTank', 0, 0, 60); tank.ai.enabled = false; tank.hp = tank.maxHp * 0.3;
+      const en = p5unit('engineer', 0, 0, 100);
+      p5run(60, () => tank.hp >= tank.maxHp * 0.79);
+      this.check('an AI engineer (Ranger: Assault Rifle, Repair Torch, Pulse Scanner) walks to a hurt ally under 60% and mends it to 80%', Loadout.validate(PLATFORMS.ranger, ARCH.engineer.loadout).ok && en.ai.profile === 'engineer' && tank.hp >= tank.maxHp * 0.79 && tank.hp <= tank.maxHp * 0.81, (tank.hp / tank.maxHp).toFixed(2));
+      const lay2 = p5unit('buggy', 1, 400, 400); lay2.ai.enabled = false; lay2.invuln = true;
+      const mq = allocProjectile(); launchProjectile(mq, WEAPONS.mines, lay2, 1, tank.x + 12, Terrain.h(tank.x + 12, tank.z) + 0.3, tank.z + 8, 0, 0, 0); mq.age = 5; mq.life = 500;
+      const tm = p5run(40, () => !mq.active);
+      this.check('and defuses a hostile mine it sees within 25 m on its way', tm >= 0 && !mq.active, String(tm));
+    });
+    t('p5 new items sea mines and mine plough', () => {
+      newWorld({ map: 'coast', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } }); W.mission = null; Hash.reset(); W.buildings = []; W.platforms.length = 0; p5clear(); Scan.clear();
+      let spot = null;
+      for (let x = -800; x <= 800 && !spot; x += 40) for (let z = -800; z <= 800; z += 40) if ([0, 20, -20, 60, -60, 100, 130, -100].every((dz) => Water.depth(x, z + dz) > 6)) { spot = { x, z }; break; }
+      this.check('the coast has deep water to test in', !!spot);
+      if (!spot) return;
+      const ship = new Platform(PLATFORMS.lancer, { team: 0, x: spot.x, z: spot.z, yaw: 0, loadout: { primaryA: 'mg', secondary: 'seaMines' } }); W.platforms.push(ship); ship.isPlayer = true; W.player = ship;
+      ship.y = Naval.keelY(spot.x, spot.z, ship.def); ship.update(STEP);
+      const lay = () => { const w = ship.wslots.secondary; w.cd = 0; w.reloading = 0; w.clip = Math.max(w.clip, 1); ship.cmd.fire2Edge = true; ship.update(STEP); ship.cmd.fire2Edge = false; return W.projs.filter((q) => q.active && q.def.sea && q.owner === ship); };
+      const first = lay()[0];
+      this.check('the rack drops a mine astern, 1 m under the surface, in water at least 2 m deep', !!first && Math.abs(first.y - (Water.level(first.x, first.z) - 1)) < 0.01 && Math.hypot(first.x - ship.x, first.z - ship.z) > 8 && Water.depth(first.x, first.z) >= 2);
+      for (let k = 0; k < 9; k++) { ship.z = spot.z + k * 12; lay(); }   // (12 m apart: a blast of one mine sets off the next within 8 m)
+      this.check('six out at once per owner: the oldest goes', W.projs.filter((q) => q.active && q.def.sea && q.owner === ship).length === 6 && !first.active);
+      // who sets it off
+      const m = W.projs.find((q) => q.active && q.def.sea);
+      m.age = 5;
+      const hostile = (id, lo, y) => { const q = new Platform(PLATFORMS[id], { team: 1, x: m.x, z: m.z, yaw: 0, loadout: lo || { primaryA: 'mg' } }); W.platforms.push(q); if (y !== undefined) q.y = y; return q; };
+      const skua = hostile('skua'), jet = hostile('kestrel', { primaryA: 'mg' }, m.y + 6);
+      skua.invuln = true; jet.invuln = true;
+      p5step(0.5);
+      this.check('a hovercraft rides over it and an aircraft passes above: it stays armed', m.active && Mines.keel(skua, m.def) === false && Mines.keel(jet, m.def) === false);
+      W.platforms.splice(W.platforms.indexOf(skua), 1); W.platforms.splice(W.platforms.indexOf(jet), 1);
+      const dd = hostile('trident'); dd.y = Naval.keelY(m.x, m.z, dd.def);
+      const hp0 = dd.hp + dd.armor;
+      p5step(0.5);
+      this.check('a ship\'s keel sets it off within 5 m: a torpedo\'s 260 damage (less the armour) to the hull', !m.active && hp0 - (dd.hp + dd.armor) > 100, String(hp0 - (dd.hp + dd.armor)));
+      W.platforms.splice(W.platforms.indexOf(dd), 1);
+      const m2 = W.projs.find((q) => q.active && q.def.sea);
+      for (let k = 0; k < 3; k++) { const gun = p5add('bulwark', 1, m2.x, m2.z + 25, { primaryA: 'mg' }); gun.y = m2.y + 8; W.platforms.splice(W.platforms.indexOf(gun), 1); const dx = m2.x - gun.x, dy = m2.y - gun.y, dz = m2.z - gun.z, l = Math.hypot(dx, dy, dz); spawnProjectile(gun, { def: WEAPONS.mg }, { x: gun.x, y: gun.y, z: gun.z }, dx / l, dy / l, dz / l, 1); }
+      p5step(0.5);
+      const stillOne = m2.active;
+      for (let k = 0; k < 4; k++) { const gun = p5add('bulwark', 1, m2.x, m2.z + 25, { primaryA: 'mg' }); gun.y = m2.y + 8; W.platforms.splice(W.platforms.indexOf(gun), 1); const dx = m2.x - gun.x, dy = m2.y - gun.y, dz = m2.z - gun.z, l = Math.hypot(dx, dy, dz); spawnProjectile(gun, { def: WEAPONS.mg }, { x: gun.x, y: gun.y, z: gun.z }, dx / l, dy / l, dz / l, 1); }
+      p5step(0.5);
+      this.check('any gun sinks it (20 hit points): three Chain MG rounds leave it, seven bring it down', stillOne && !m2.active, 'after 3: ' + stillOne + ', after 7: ' + m2.active + ' hp ' + m2.hp);
+      const m3 = W.projs.find((q) => q.active && q.def.sea);
+      explode(m3.x + 6, m3.y + 1, m3.z, 4, 40, 'explosive', null);
+      this.check('a blast of 3 m or more within 8 m sets it off', !m3.active);
+      const m4 = W.projs.find((q) => q.active && q.def.sea) || lay()[0];
+      const watcher = p5add('bulwark', 1, m4.x + 80, m4.z, {}), near = p5add('bulwark', 1, m4.x + 50, m4.z, {}), friend = p5add('bulwark', 0, m4.x + 200, m4.z, {});
+      this.check('it is seen from 60 m: an enemy at 80 m does not see it, one at 50 m does, the owner\'s side always does', !Mines.seenBy(m4, watcher) && Mines.seenBy(m4, near) && Mines.seenBy(m4, friend));
+      // on land the rack refuses
+      p5fresh();
+      const beach = new Platform(PLATFORMS.lancer, { team: 0, x: 0, z: 0, yaw: 0, loadout: { primaryA: 'mg', secondary: 'seaMines' } }); W.platforms.push(beach); beach.isPlayer = true; W.player = beach;
+      const clip = beach.wslots.secondary.clip; beach.cmd.fire2Edge = true; beach.update(STEP);
+      this.check('on dry land it drops nothing and spends no mine', !W.projs.some((q) => q.active && q.def.sea) && beach.wslots.secondary.clip === clip);
+      // the AI ship drops one for a hostile ship behind it, closing
+      newWorld({ map: 'coast', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } }); W.mission = null; Hash.reset(); W.buildings = []; W.platforms.length = 0; p5clear();
+      const gb = p5unit('gunboat', 0, spot.x, spot.z, { primaryA: 'mg', secondary: 'seaMines' }); gb.y = Naval.keelY(spot.x, spot.z, gb.def); gb.yaw = 0;
+      const chaser = p5unit('destroyer', 1, spot.x, spot.z - 150); chaser.vx = 0; chaser.vz = 12;
+      gb.ai.seaMineLogic();
+      this.check('an AI ship drops a mine when a hostile ship within 250 m is behind it and closing', gb.cmd.fire2Edge === true);
+      gb.cmd.fire2Edge = false; chaser.z = spot.z + 150; chaser.vz = 12; gb.ai.mineT = 0; gb.ai.seaMineLogic();
+      this.check('and not for one in front of it', gb.cmd.fire2Edge === false);
+      // the Mine Plough
+      p5fresh();
+      const speedLo = { primaryA: 'acannon', utility: 'plough' }, cap = PLATFORMS.bastion.weightCap;
+      this.check('a Mine Plough takes 10% off the tank\'s top speed', Math.abs(Loadout.speedMult(PLATFORMS.bastion, speedLo) - clamp(1.04 - 0.22 * Loadout.weight(speedLo) / cap, 0.7, 1.05) * 0.9) < 1e-9);
+      const cross = (util, lateral) => {
+        p5fresh();
+        const tank = p5add('bastion', 0, 0, 0, { primaryA: 'acannon', utility: util }); tank.yaw = 0;
+        const lay2 = p5add('bulwark', 1, 80, 80, { primaryA: 'mg', secondary: 'mines' }); lay2.shoot(lay2.wslots.secondary, 1);
+        const mn = W.projs.find((q) => q.active && q.def.mine); mn.x = lateral; mn.z = 25; mn.y = Terrain.h(lateral, 25) + 0.3; mn.age = 5;
+        const hp = tank.hp + tank.armor;
+        p5run(15, () => { tank.cmd.moveF = 1; tank.cmd.aimYaw = 0; return !mn.active; });
+        return { gone: !mn.active, dmg: hp - (tank.hp + tank.armor), cleared: tank.cleared, post: SW.fx.some((e) => e.wz === 'lane') };
+      };
+      const pl = cross('plough', 0), ap = cross('aps', 0), edge = cross('plough', 5);
+      this.check('a land mine in the strip ahead of the plough goes off against the blade: the tank takes 15% of the blast (less than a third of what an unploughed one takes) and the plough counts it', pl.gone && ap.gone && pl.dmg < ap.dmg / 3 && pl.cleared === 1, pl.dmg + ' vs ' + ap.dmg);
+      this.check('each mine the plough clears is marked with a post (the lane), and an unploughed tank leaves none', pl.post === true && ap.post === false);
+      this.check('a mine laid beside the strip (5 m off the line) still hurts in full', edge.gone && edge.dmg > ap.dmg * 0.9, edge.dmg + ' vs ' + ap.dmg);
+      // a P5-08 style field: seven anti-tank mines across a 10 m road, 30 m deep; the same tank with and without the plough
+      const ATM = Object.assign({}, WEAPONS.mines, { dmg: 220, blast: 6, prox: 3 });
+      const field = (util, seed) => {
+        p5fresh();
+        let sd = (seed * 2654435761) >>> 0; const rng = () => (sd = (Math.imul(sd, 1664525) + 1013904223) >>> 0) / 4294967296;
+        const tank = p5add('bastion', 0, 0, 0, { primaryA: 'acannon', utility: util }); tank.yaw = 0;
+        const lay2 = p5add('bulwark', 1, 200, 200, { primaryA: 'mg' });
+        for (let k = 0; k < 7; k++) { const q = allocProjectile(); launchProjectile(q, ATM, lay2, 1, (rng() - 0.5) * 10, 0, 40 + rng() * 30, 0, 0, 0); q.y = Terrain.h(q.x, q.z) + 0.3; q.age = 5; q.life = 1000; }
+        const hp = tank.hp + tank.armor;
+        for (let i = 0; i < 60 * 12 && tank.z < 90; i++) { W.time += STEP; tank.cmd.moveF = 1; tank.cmd.aimYaw = 0; tank.update(STEP); updateProjectiles(STEP); tank.hp = Math.max(tank.hp, 1); }
+        return hp - (tank.hp + tank.armor);
+      };
+      let dp = 0, da = 0; for (let s = 1; s <= 12; s++) { dp += field('plough', s); da += field('aps', s); }
+      this.check('crossing the same field the ploughing tank takes at most a third of the damage the unploughed one takes (' + Math.round(dp / 12) + ' against ' + Math.round(da / 12) + ' on average over 12 fields)', da > 0 && dp <= da / 3, dp + ' / ' + da);
+    });
+    t('p5 new items co-op', () => {
+      p5fresh();
+      const sol = p5add('kestrel', 0, 0, 0, { primaryA: 'mg', utility: 'coating' });
+      sol.firedAt = W.time - 1;
+      const keepNet = { host: Net.host, guest: Net.guest, map: Net.map, seq: Net.lastSnapSeq };
+      const entry = Net.platEntry(sol);
+      sol.firedAt = W.time - 10;
+      const calm = Net.platEntry(sol);
+      const mirror = p5add('kestrel', 1, 0, 0, { primaryA: 'mg', utility: 'coating' }); mirror.id = sol.id;
+      let bloom = false;
+      Net.host = false; Net.guest = true; Net.map = { [mirror.id]: mirror }; Net.lastSnapSeq = 0;
+      try { Net.applySnapshot({ q: 1, p: [entry] }); bloom = !Stealth.on(mirror, 1); } finally { Net.host = keepNet.host; Net.guest = keepNet.guest; Net.map = keepNet.map; Net.lastSnapSeq = keepNet.seq; }
+      this.check('co-op: the host flags a platform that fired lately (bit 32768) and a guest then shows its Stealth Coating off; a calm one is not flagged', !!(entry[11] & 32768) && !(calm[11] & 32768) && bloom);
+      p5fresh();
+      const keepBcast = Net.bcast, keepHost = Net.host, sent = [];
+      try {
+        Net.host = true; Net.bcast = (m) => sent.push(m);
+        const sc = p5add('bulwark', 0, 0, 0, { primaryA: 'mg', utility: 'scanner' }); sc.cmd.defenseEdge = true; sc.updateDefense(STEP);
+        const sp = p5add('ranger', 0, 50, 0, { primaryA: 'rifle', utility: 'jumppack' }); sp.cmd.defenseEdge = true; sp.update(STEP);
+        const tell = sent.filter((m) => m.t === 'wz').map((m) => m.k + ':' + m.r);
+        this.check('co-op: the host tells guests about a ping (radius 220, 4 s) and a hop, so they draw and hear both', tell.indexOf('scan:220') >= 0 && tell.indexOf('jump:1') >= 0 && sent.some((m) => m.t === 'wz' && m.k === 'scan' && m.d === 4), tell.join());
+      } finally { Net.bcast = keepBcast; Net.host = keepHost; }
+      // mines and drones travel as projectiles with their own weapon ids
+      p5fresh();
+      const dummy = p5add('ranger', 0, 0, 0, { primaryA: 'rifle', utility: 'spotter' }), foeT = p5add('bastion', 1, 300, 100, {});
+      const q = allocProjectile(); launchProjectile(q, WEAPONS.spotDrone, dummy, 0, 300, Terrain.h(300, 0) + 60, 0, 0, 0, 0);
+      const e1 = Net.projEntry(q), id1 = WEAPON_IDS[e1[1]];
+      const q2 = allocProjectile(); launchProjectile(q2, WEAPONS.seaMines, dummy, 1, 20, 0, 20, 0, 0, 0);
+      const e2 = Net.projEntry(q2);
+      q.active = false; q2.active = false;
+      const keepG = { host: Net.host, guest: Net.guest, map: Net.map, seq: Net.lastSnapSeq, proj: Net.projMap };
+      Net.host = false; Net.guest = true; Net.map = { [dummy.id]: dummy }; Net.lastSnapSeq = 0; Net.projMap = {};
+      try { Net.applySnapshot({ q: 1, p: [], pr: [e1, e2] }); } finally { Net.host = keepG.host; Net.guest = keepG.guest; Net.map = keepG.map; Net.lastSnapSeq = keepG.seq; Net.projMap = keepG.proj; }
+      const gd = W.projs.find((x) => x.active && x.def === WEAPONS.spotDrone), gm = W.projs.find((x) => x.active && x.def === WEAPONS.seaMines);
+      this.check('co-op: a Spotter Drone and a sea mine reach a guest as projectiles with their own ids, with their hit points, and the guest\'s radar takes the drone as a sensor of its side', id1 === 'spotDrone' && !!gd && !!gm && gd.hp === 40 && gm.hp === 20 && gd.def.drone && gm.def.sea);
+      Detect.begin(dummy);
+      this.check('co-op: on the guest the mirrored drone is a sensor of the guest\'s own platform: a tank 100 m from it and 316 m from the soldier (radar 180 m) is detected', !!gd && gd.owner === dummy && Detect.sees(foeT.x, foeT.z) && Math.hypot(foeT.x - dummy.x, foeT.z - dummy.z) > Detect.rangeOf(dummy));
+      for (const x of W.projs) x.active = false;
     });
     t('artillery solver', () => {
       const keepRep = Game.reportError, errs = [], hits = [];
@@ -34894,7 +36049,9 @@ const SelfTest = {
       const keep = { data: Save.data, persist: Save.persist };
       Save.persist = () => {};
       try {
-        this.check('missions m1-m8 keep their rows (no unlock, script or weather)', MISSIONS.slice(0, 8).every((m, i) => m.id === 'm' + (i + 1) && !m.unlock && !m.hazardScript && !m.env && !Object.values(MISSION_UNLOCK).includes(m.id)));
+        // (P5-03: five of them now open one support item each; no other unlock, and still no script or weather)
+        const P503 = { m1: 'spotter', m2: 'coating', m3: 'seaMines', m6: 'manpad', m7: 'jumppack' };
+        this.check('missions m1-m8 keep their rows (only the five P5-03 unlocks, no script or weather)', MISSIONS.slice(0, 8).every((m, i) => m.id === 'm' + (i + 1) && (m.unlock || '') === (P503[m.id] || '') && !m.hazardScript && !m.env));
         this.check('m1-m8 are still on the original battlefields', MISSIONS.slice(0, 8).every((m) => ['ashfall', 'verdant', 'frost'].indexOf(m.map) >= 0));
         // a weapon a mission unlocks: locked for a human loadout in a new save, but open on a platform whose default carries it
         Save.data = Save.defaults();
@@ -34914,12 +36071,12 @@ const SelfTest = {
         this.check('a locked pick drops only its own slot', kept.secondary === PLATFORMS.trident.loadout.secondary && kept.utility === 'flares', JSON.stringify(kept));
         // an old save (v1 fixture, from before mission unlocks) loads and keeps every weapon it could use
         const old = Save.sanitize(JSON.parse(JSON.stringify(SAVE_FIXTURE_V1)));
-        this.check('a version 1 save loads and keeps every mission weapon', old.v === SAVE_VERSION && old.gatedSeen.join() === Arsenal.gatedIds().join() && Arsenal.gatedIds().every((id) => old.unlocked.indexOf(id) >= 0) && !old.unlocked.some((id) => SUPERS[id] && SUPERS[id].unlock !== 'start'));
+        this.check('a version 1 save loads and keeps every mission weapon (the eight P5-03 items need their mission won: the fixture won m1, so only the Spotter Drone)', old.v === SAVE_VERSION && old.gatedSeen.join() === Arsenal.gatedIds().join() && Arsenal.gatedIds().every((id) => NEW_ITEM_IDS.indexOf(id) >= 0 ? (old.unlocked.indexOf(id) >= 0) === (id === 'spotter') : old.unlocked.indexOf(id) >= 0) && !old.unlocked.some((id) => SUPERS[id] && SUPERS[id].unlock !== 'start'));
         Save.data = old;
         this.check('Armageddon counts superweapons only', Arsenal.progress({ kind: 'unlocked', n: 3 }).have === old.unlocked.filter((id) => SUPERS[id]).length);
         this.check('a later save keeps its locks', Save.sanitize(Save.defaults()).unlocked.length === 0 && Save.sanitize({ v: 1, gatedSeen: Arsenal.gatedIds(), unlocked: ['sword', 'nope', 'sword'] }).unlocked.join() === 'sword');
         // a save from part A (weaponGate, before m14-m18 gated more) keeps every weapon gated after it, and its own locks
-        const partA = Save.sanitize({ v: 1, weaponGate: true, unlocked: ['sword'] }), laterGated = Arsenal.gatedIds().filter((id) => SAVE_GATED_P7A.indexOf(id) < 0);
+        const partA = Save.sanitize({ v: 1, weaponGate: true, unlocked: ['sword'] }), laterGated = Arsenal.gatedIds().filter((id) => SAVE_GATED_P7A.indexOf(id) < 0 && NEW_ITEM_IDS.indexOf(id) < 0);   // (the P5-03 items are not a gift to an old save)
         this.check('a save from before a weapon was gated keeps it', ['knife', 'katana', 'shipSam'].every((id) => laterGated.indexOf(id) >= 0 && partA.unlocked.indexOf(id) >= 0) && laterGated.every((id) => partA.unlocked.indexOf(id) >= 0) && partA.gatedSeen.join() === Arsenal.gatedIds().join(), partA.unlocked.join());
         this.check('a save from part A keeps the locks it had then', Save.sanitize({ v: 1, weaponGate: true, unlocked: [] }).unlocked.indexOf('sword') < 0);
         const seenAll = Save.sanitize({ v: 1, gatedSeen: Arsenal.gatedIds().concat('futureGun'), unlocked: [] });
@@ -35069,7 +36226,7 @@ const SelfTest = {
         this.check('m17 lays the big airport with the radar on its ground', W.airports[0] && W.airports[0].spot.kind === 'airport' && Airports.gap(W.airports[0].spot, radar.x, radar.z) < SITE_FADE);
         for (const id of Object.keys(OLD)) {
           const m = start(id, 'bulwark');
-          this.check('mission ' + id + ' starts as before: its objectives, its pick, no hazards, no fixed weather', ids(m) === OLD[id] && W.player.def.id === 'bulwark' && !m.def.hazards && !m.def.env && !m.def.unlock && Hazards.ids.length === 0, ids(m));
+          this.check('mission ' + id + ' starts as before: its objectives, its pick, no hazards, no fixed weather', ids(m) === OLD[id] && W.player.def.id === 'bulwark' && !m.def.hazards && !m.def.env && (!m.def.unlock || NEW_ITEM_IDS.indexOf(m.def.unlock) >= 0) && Hazards.ids.length === 0, ids(m));
         }
         // a forced win grants the unlock: weapons are gated until then, superweapons gain the mission as a second way in
         Save.persist = () => {};
@@ -36369,7 +37526,7 @@ const SNAP_PROJS = 70;    // projectiles per snapshot
 var NET_UNSPOT_OFF = false;   // self-test switch: the guest ignores the sent unspotted share
 var NET_SNAP_TURN_OFF = false;   // self-test switch: platforms past SNAP_PLATS take no turns in the snapshots
 var NET_SHELLS_FIRST_OFF = false;   // self-test switch: shells take no precedence in the snapshots
-const NET_VERSION = 15;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index); 14: change platform (guest 'swap' pid, P2-07; the host answers with a notice and a new body in 'sp' and 'ctl'); 15: the host's word on a guest's change in 'me' (swp: offered, hint, seconds left, total, platform, why not)
+const NET_VERSION = 16;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index); 14: change platform (guest 'swap' pid, P2-07; the host answers with a notice and a new body in 'sp' and 'ctl'); 15: the host's word on a guest's change in 'me' (swp: offered, hint, seconds left, total, platform, why not); 16: P5-03's eight items (nine new WEAPON_IDS: Pulse Scanner, Stealth Coating, Spotter Drone and its in-flight projectile, Shoulder SAM, Jump Pack, Repair Torch, Sea Mine Rack, Mine Plough; the 'scan' and 'jump' effects in 'wz', a sea mine and a Spotter Drone as projectiles in 'pr', flags bit 32768: fired lately)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -36728,12 +37885,12 @@ const Net = {
       let want;
       if (tg >= NET_PROJ_TG) {   // P5-07: a guest targets an incoming projectile by its nid; it must be headed for that guest's platform
         const q = Intercept.byNid(tg - NET_PROJ_TG);
-        want = q && q.hp > 0 && q.def.pdHp > 0 && q.team !== p.team && Intercept.threatens(q, p) ? q : null;
+        want = q && q.hp > 0 && q.def.pdHp > 0 && q.team !== p.team && (q.def.drone || Intercept.threatens(q, p)) ? q : null;
         if (want) p.targetNid = want.nid;
       } else want = tg > 0 ? (W.platforms.find((q) => q.id === tg && q.team !== p.team && !q.dead) || null) : (tg < 0 && W.structs[-tg - 1] && W.structs[-tg - 1].objective ? W.structs[-tg - 1] : null);
       // P5-05: a new pick must be one the guest's own sensors or eyes have (the host works it out from that platform; the margin allows for the
       // guest's picture being a moment older); the one already held is kept or dropped by Platform.updateLock
-      p.target = want && !want.isStruct && !want.isProj && p.target !== want && !p.knows(want, DETECT_KEEP) ? null : want;
+      p.target = want && !want.isStruct && (!want.isProj || want.def.drone) && p.target !== want && !p.knows(want, DETECT_KEEP) ? null : want;
     }
     const e = peer.edges; peer.edges = 0;
     if (e & 1) c.fire1Edge = true; if (e & 2) c.fire2Edge = true; if (e & 4) c.defenseEdge = true; if (e & 8) c.meleeEdge = true;
@@ -36809,7 +37966,7 @@ const Net = {
     this.sendLobby();
   },
   platEntry(p) {
-    const f = (p.shieldOn ? 1 : 0) | (p.jetting ? 2 : 0) | (p.afterburner ? 4 : 0) | (p.gear ? 8 : 0) | (p.crouch ? 16 : 0) | (p.boosting ? 32 : 0) | (p.telegraph > 0 ? 64 : 0) | (p.grounded ? 128 : 0) | (p.meleeT > 0 ? 256 : 0) | (p.activeSlot === 'primaryB' ? 512 : 0) | (p.parked ? 1024 : 0) | (p.chute ? 2048 : 0) | (p.wake ? 4096 : 0) | (p.arty && p.arty.want ? 8192 : 0) | (p.arty && p.arty.high ? 16384 : 0);
+    const f = (p.shieldOn ? 1 : 0) | (p.jetting ? 2 : 0) | (p.afterburner ? 4 : 0) | (p.gear ? 8 : 0) | (p.crouch ? 16 : 0) | (p.boosting ? 32 : 0) | (p.telegraph > 0 ? 64 : 0) | (p.grounded ? 128 : 0) | (p.meleeT > 0 ? 256 : 0) | (p.activeSlot === 'primaryB' ? 512 : 0) | (p.parked ? 1024 : 0) | (p.chute ? 2048 : 0) | (p.wake ? 4096 : 0) | (p.arty && p.arty.want ? 8192 : 0) | (p.arty && p.arty.high ? 16384 : 0) | (W.time - p.firedAt < COATING_BLOOM_SEND ? 32768 : 0);   // 32768: it fired lately (a Stealth Coating's bloom, P5-03)
     return [p.id, r1(p.x), r1(p.y), r1(p.z), r2(p.yaw), r2(p.pitch), r2(p.roll), r2(p.torsoYaw), r2(p.torsoPitch), r2(p.hp / p.maxHp), r1(p.speed), f];
   },
   selfState(peer) {
@@ -37000,6 +38157,7 @@ const Net = {
       p.telegraph = (f & 64) ? 0.3 : 0; p.grounded = !!(f & 128); p.meleeT = (f & 256) ? 0.2 : 0; p.activeSlot = (f & 512) ? 'primaryB' : 'primaryA';
       p.parked = !!(f & 1024); p.chute = !!(f & 2048); p.wake = !!(f & 4096);
       if (p.arty) { p.arty.want = !!(f & 8192); p.arty.high = !!(f & 16384); }   // artillery: deployed, high arc
+      if (f & 32768) p.firedAt = W.time;   // it fired lately: its Stealth Coating does nothing yet
       if (p.shieldOn && p.maxShield > 0) p.shield = p.maxShield * 0.6;
     }
     // projectiles
@@ -37014,7 +38172,7 @@ const Net = {
         const wd = WEAPONS[WEAPON_IDS[e[1]]];
         if (!wd) continue;
         pr.active = true; pr.nid = e[0]; pr.def = wd; pr.owner = this.map[e[8]] || null;
-        pr.team = pr.owner ? pr.owner.team : 1; pr.hp = wd.pdHp || 0; pr.target = null;   // what a guest needs of a rocket to cycle to it (the host decides the rest)
+        pr.team = pr.owner ? pr.owner.team : 1; pr.hp = wd.pdHp || 0; pr.target = null; pr.markTeam = -1; pr.markUntil = 0; pr.hover = 0;   // what a guest needs of a rocket to cycle to it (the host decides the rest)
         Civ.alarm(e[2], e[4], CIV_GUNFIRE_HEAR); Fauna.alarm(e[2], e[4], FAUNA_GUNFIRE_HEAR); Traffic.alarm(e[2], e[4], CIV_GUNFIRE_HEAR);   // a new shot is gunfire to our civilians, animals and drivers
         if (!(pr.owner === W.player && this.predicts(wd))) {   // our own shot already played when the trigger was pulled
           Snd.play(wd.sound, e[2], e[3], e[4], 0.8);
