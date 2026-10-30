@@ -182,6 +182,17 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 #onboard{position:absolute;left:50%;top:56%;transform:translate(-50%,-50%);max-width:92vw;padding:.7em 1.2em;background:rgba(0,0,0,.82);border:2px solid var(--a1);border-radius:.4em;pointer-events:auto;cursor:pointer;text-align:left;line-height:1.6}
 #onboard h3{margin:0 0 .3em;text-align:center;letter-spacing:.12em}#onboard small{display:block;text-align:center;color:var(--mut);margin-top:.3em}
 #grappleHint.go,#grappleHint2.go{border-color:var(--warn);color:var(--warn);font-size:1.25em}
+.hold-prompt,.hold-meter{position:absolute;left:0;top:0;pointer-events:none;background:rgba(0,0,0,.78);border:2px solid #fff;letter-spacing:.06em;white-space:nowrap;will-change:transform}
+.hold-prompt{padding:.3em .7em;font-size:.95em}
+.hold-prompt small{opacity:.8;margin-right:.2em}
+.hold-prompt.ready{border-color:var(--warn);color:var(--warn)}
+.hold-prompt.near{border-color:#9aa3ad;color:#cfd5dc}
+.hold-meter{width:min(15em,calc(100vw - 1.5em));box-sizing:border-box;padding:.35em .6em;font-size:.85em;text-align:center;white-space:normal}
+.hold-meter .r2{display:flex;justify-content:space-between}
+.hold-meter .bar{position:relative;height:.7em;margin:.25em 0;background:#4a1f1f;border:1px solid #fff}
+.hold-meter .bar i{position:absolute;left:0;top:0;bottom:0;background:#4ad66d}
+.hold-meter .tap{margin-top:.15em;color:var(--warn)}
+.hc .hold-prompt,.hc .hold-meter{background:#000;border-width:3px}
 #training{position:absolute;right:.9em;top:6.2em;width:15em;max-height:calc(100% - 7.5em - 52px);overflow:auto;padding:.5em .7em;background:rgba(0,0,0,.65);border:1px solid #6d82b8;font-size:.8em;line-height:1.5;text-align:left}
 #training.touch{right:calc(2vmin + var(--tbs)*.8 + .9em)}   /* P3-08: with touch controls the II button sits top right (TOUCH_LAYOUT pause slot); the panel moves left of it instead of under it */
 #training b{color:var(--a1)}
@@ -276,6 +287,10 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
     <div id="warn2" role="status">P2 LOW STAMINA</div>
     <div id="grappleHint" hidden></div>
     <div id="grappleHint2" hidden></div>
+    <div id="holdPrompt" class="hold-prompt" hidden></div>
+    <div id="holdPrompt2" class="hold-prompt" hidden></div>
+    <div id="holdMeter" class="hold-meter" hidden></div>
+    <div id="holdMeter2" class="hold-meter" hidden></div>
     <div id="onboard" role="dialog" aria-label="Controls" hidden></div>
     <div id="training" hidden></div>
     <div id="tags"></div>
@@ -4431,6 +4446,21 @@ const SUBMIT_STAM_DRAIN = 0.05;      // victim stamina per tick
 const SUBMIT_FLASH_TICKS = 20;       // the victim flashes this often while the damage builds
 const SUBMIT_REST_TICKS = 20;        // the victim lies this much longer after a hold that did not end in an escape
 const SUBMIT_AFTER_LOCK = 12;        // holder lock after the hold ends
+/* Submissions made clear (P5-08): what the player is shown. A fighter whose style can hold sees a prompt over a knocked-down foe within HOLD_PROMPT_RANGE (a hold needs SUBMIT_RANGE), and a meter
+   over every hold in progress. Training scenario 6 puts a foe on the floor for HOLD_SCENARIO_DOWN times the usual time, so a hold can be tried and tried again. Visual: no rule above changes. */
+const HOLD_PROMPT_RANGE = 2.7;       // m, centre to centre
+const SUBMIT_LEVEL_GAP = 0.6;         // m: a hold needs the two fighters within this height of each other (Combat.canSubmit)
+const HOLD_PROMPT_STACK_PX = 34;     // the second human's prompt sits this far below the first, so two prompts over one foe do not overlap
+const HOLD_SCENARIO_DOWN = 8;        // the scenario foe's down time multiplier (8 x 52 ticks x get-up stat is 7 s or more)
+/* One sentence per style on what it does with a foe on the floor (the Move list and About & Help). Every hold plays the same way (the taps, the meter, the damage of P3-05); a style's hold names are the one it shows and its other names, and its pose is the `hold` field of its row. */
+const GROUND_NOTES = {
+  wrestler: 'The hold is a pin: kneel on the foe and clamp a limb (the choke is another name for it).',
+  judoka: 'The hold is a hold-down: pin the foe on their back (arm lock and choke are other names for it).',
+  sambo: 'The hold is a leg lock: sit back with the foe\'s leg trapped under your arms (heel hook is its other name).',
+  bjj: 'The hold is an armbar: lie back with your legs across the foe\'s arm (choke and leg lock are other names for it).',
+  hapkido: 'The hold is a wrist lock: kneel low and twist one wrist (elbow lock is its other name).',
+  mma: 'The hold is an armbar: finish a takedown from the top (choke is its other name).',
+};
 const SUBMIT_ESCAPE_LOCK = 20;       // ... after the victim escapes
 /* Heavy tackle (P3-06): weight class comes from look.scale x look.build (the creator's fitness picker, P6-03, sets the build from weight and muscle).
    A runner at least TACKLE_MIN_GAP classes heavier than the fighter it runs into knocks them back; Block stops it, Sway i-frames
@@ -4529,10 +4559,66 @@ const STRIKE_BUILDERS = {
   teep(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.3; p[l.k] = 0.05; p[o.h] = -0.2; p[o.k] = 0.3; p[J.torsoLean] = -0.35; p[J.rootFwd] = 0.1; p[J.shLx] = 1.2; p[J.shRx] = 0.5; },
   spinBack(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = -1.4; p[l.k] = 0.15; p[o.h] = 0.2; p[o.k] = 0.5; p[J.torsoLean] = 0.75; p[J.headX] = -0.2; p[J.shLx] = 0.5; p[J.shRx] = 0.5; },
   jumpRound(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.15; p[l.a] = 1.3; p[l.k] = 0.2; p[o.h] = 0.7; p[o.k] = 1.5; p[J.torsoRoll] = s * 0.45; p[J.torsoLean] = -0.2; p[J.torsoTwist] = -s * 0.6; p[J.rootDrop] = -0.3; p[J.shLx] = 1.4; p[J.shRx] = 0.5; },
+  /* P5-06 own poses for the round kick: Muay Thai swings the whole body through it (the torso turned over, leaning back, the leg straight so the shin goes through), Taekwondo snaps it up high from a tall straight support leg. */
+  roundThai(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.05; p[l.a] = 0.95; p[l.k] = 0.12; p[o.h] = 0.05; p[o.k] = 0.12; p[J.torsoRoll] = s * 0.5; p[J.torsoLean] = -0.35; p[J.torsoTwist] = -s * 0.9; },
+  roundTkd(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 1.5; p[l.a] = 1.15; p[l.k] = 0.18; p[o.h] = 0.1; p[o.k] = 0.08; p[J.torsoRoll] = s * 0.6; p[J.torsoLean] = -0.45; p[J.torsoTwist] = -s * 0.8; p[J.headX] = -0.15; },
   spinHeel(p, s) { const l = LEG_IDX(s), o = LEG_IDX(-s); p[l.h] = 0.2; p[l.a] = 1.25; p[l.k] = 0.05; p[o.h] = 0.7; p[o.k] = 1.1; p[J.torsoLean] = 0.9; p[J.shLx] = 0.6; p[J.shRx] = 0.5; },
 };
 /* Extra turn of the whole body at full extension (rad, added to the heel pivot): the kicks that start with the back to the foe. */
 const STRIKE_SPIN = { spinBack: 2.9, spinHeel: 1.57 };
+/* P5-06 technique (visual only): each style's own way of throwing a hand or a leg, as offsets on the pose the strike builders give, sized to read at the fight camera (about 100 px a metre).
+   Nothing here touches ticks, reach or hit boxes. Keys of a spec (all additive; s = +1 for the left limb, -1 for the right):
+   arm [x, z, e] = the striking arm (punches); off [x, z, e] = the other arm, the guard hand (the hikite of Karate, the wu sao of Wing Chun, the collar hand of Judo);
+   sw [x, z, e] = the arm on the kicking side (it swings back for balance); leg [h, a, k] = the kicking leg; base [h, a, k] = the support leg;
+   front / rear [h, a, k] = the lead (left) and rear (right) leg of a punch, whichever hand throws it: the stance (the deep front stance of Karate, the wide low base of a wrestler);
+   lean, twist (more of the strike's own turn), roll (the shoulder over the chin), head (chin), fwd (step into it), drop (both knees: sinking the level), wind = multiplier of the wind-up before the strike,
+   pivot = extra turn of the body on the support foot (rad, kicks). punch applies to every hand strike, kick to every leg strike; a spec under the name of a builder (hook, round ...) adds to those for that builder only.
+   use = { builder: other builder }: a style's own pose for a key move (roundThai, roundTkd below) instead of offsets on the shared one. */
+const STYLE_TECH = {
+  boxer: { punch: { off: [0.45, -0.1, 0.4], head: 0.4, roll: 0.4, twist: 0.3, drop: 0.2, lean: 0.05, rear: [-0.15, 0, 0.45], wind: 0.8 }, upper: { drop: 0.25, lean: -0.15 }, hook: { arm: [0, 0.15, 0.3], twist: 0.3 }, kick: { off: [0.6, -0.1, 0.4], head: 0.35, lean: 0.3, base: [0, 0, 0.35], drop: 0.15 }, round: { leg: [-0.25, 0, 0.3] } },
+  kickboxer: { punch: { off: [0.7, 0, 0.5], head: 0.4, twist: 0.2, lean: -0.3, fwd: 0.2, front: [0.35, 0, 0.3], rear: [-0.25, 0, 0.35] }, kick: { off: [0.7, 0, 0.45], sw: [-0.8, 0.4, -0.5], twist: 0.4, roll: 0.2, lean: -0.15, pivot: 0.2 }, low: { twist: 0.6, lean: -0.2, roll: 0.3, pivot: 0.2 }, roundLow: { twist: 0.4, lean: -0.2, roll: 0.3, pivot: 0.15 } },
+  karateka: { punch: { off: [-1.45, 0.05, 0.65], twist: -0.45, lean: -0.1, front: [0.55, 0.05, 0.6], rear: [-0.45, 0.1, -0.15], wind: 0.4 }, kick: { off: [-1.0, 0.05, 0.55], sw: [-0.6, 0.1, 0.3], base: [0, 0, -0.25], lean: -0.2, fwd: 0.08, wind: 0.6, pivot: 0.2 } },
+  wrestler: { punch: { drop: 0.5, lean: 0.7, off: [-0.4, 0.1, -1.2], arm: [0.2, -0.1, 0.2], front: [0.15, 0.3, 0.2], rear: [0, 0.35, 0.2], fwd: 0.12, wind: 0.7 }, kick: { drop: 0.4, lean: 0.45, off: [-0.3, 0.1, -1.0], base: [0, 0.3, 0.2] } },
+  judoka: { punch: { off: [0.6, 0.2, -1.1], lean: -0.3, twist: 0.3, head: -0.15, front: [-0.1, 0, 0.15] }, kick: { off: [0.65, 0.15, -1.1], sw: [0.6, 0.1, -1.1], drop: 0.25, lean: 0.15 }, round: { leg: [-0.3, 0, 0.3] } },
+  brawler: { punch: { off: [-0.9, 0.4, -0.5], arm: [0.15, 0.6, 0.3], twist: 0.4, lean: 0.35, head: -0.3, fwd: 0.18, wind: 2.0 }, kick: { off: [-0.7, 0.4, -0.3], sw: [-0.7, 0.5, 0], lean: 0.3, wind: 1.6 }, round: { leg: [0, 0.35, 0] } },
+  capoeira: { punch: { off: [-0.7, 0.35, -0.2], arm: [-0.1, 0.3, 0], lean: 0.3, drop: 0.25, front: [0, 0.2, 0.1], rear: [0, 0.3, 0.1] }, kick: { off: [-0.5, 0.3, -1.2], sw: [-0.4, 0.3, -1.1], lean: 0.7, drop: 0.35, pivot: 0.2 }, round: { leg: [0, 0.35, 0] } },
+  wingchun: { punch: { off: [0.55, -0.2, -1.0], arm: [-0.1, -0.35, 0], twist: -0.7, lean: -0.25, head: -0.2, front: [0, -0.3, 0.15], rear: [-0.1, -0.3, 0.2], wind: 0.2 }, kick: { off: [0.55, -0.1, -1.0], lean: -0.35, wind: 0.4 }, round: { leg: [-0.2, -0.1, 0.05] } },
+  muaythai: { punch: { off: [0.7, 0, 0.35], lean: -0.35, head: 0.35, drop: -0.05, wind: 0.9 }, kick: { off: [0.5, 0.1, 0.3], sw: [-1.3, 0.4, -0.8], base: [0, 0, -0.2], lean: -0.3, twist: 0.2, pivot: 0.3, wind: 1.3 }, use: { round: 'roundThai' } },
+  taekwondo: { punch: { off: [-0.7, 0.35, 0], arm: [-0.2, 0, 0], lean: -0.3, front: [0.15, 0.3, 0.2], rear: [-0.2, 0.4, 0.15] }, kick: { off: [-0.4, 0.8, -0.4], sw: [-0.1, 0.8, -0.4], base: [0, 0, -0.25], lean: -0.3, pivot: 0.3, wind: 1.0 }, use: { round: 'roundTkd' } },
+  sambo: { punch: { off: [0.4, 0.05, -0.9], drop: 0.45, lean: 0.3, twist: 0.2, front: [0.2, 0.3, 0.3], rear: [0, 0.3, 0.15] }, kick: { off: [0.6, 0.1, -1.0], drop: 0.3, lean: 0.1, base: [0, 0.2, 0.2], roll: 0.2 }, round: { leg: [0.6, 0.5, -0.05], roll: 0.4, lean: 0.2 } },
+  bjj: { punch: { drop: 0.8, lean: 0.35, off: [0.1, 0, -0.6], head: 0.3, front: [0.15, 0.35, 0.25], rear: [0, 0.4, 0.25] }, kick: { drop: 0.4, lean: 0.35, off: [0.1, 0, -0.6], sw: [0, 0, -0.8] }, round: { leg: [-0.2, 0.1, 0.2] } },
+  hapkido: { punch: { arm: [0, 0.6, 0.3], off: [0, 1.0, -0.4], twist: 0.35, roll: 0.2, front: [0, 0.2, 0.1] }, kick: { off: [0, 1.1, -0.5], sw: [0, 1.1, -0.5], lean: 0.35, drop: 0.35, roll: 0.2 }, round: { leg: [-0.65, 0.5, 0.3] } },
+  kali: { punch: { off: [0.7, 0.3, -1.1], roll: 0.5, drop: 0.6, lean: 0.45, front: [0.3, 0.35, 0.4], rear: [-0.1, 0.4, 0.2], wind: 0.8 }, kick: { off: [0.7, 0.3, -1.1], drop: 0.35, roll: 0.5, lean: 0.3 }, round: { leg: [-0.3, 0, 0.2] } },
+  kravmaga: { punch: { lean: 0.35, off: [0.5, 0, 0.25], head: 0.35, fwd: 0.15, drop: 0.15, wind: 0.4 }, kick: { lean: 0.45, off: [0.5, 0, 0.3], fwd: 0.15, drop: 0.25, wind: 0.5 }, round: { leg: [0, 0.2, 0] } },
+  mma: { punch: { drop: 0.3, off: [-0.5, 0.2, 0.2], lean: 0.25, front: [0.1, 0.1, 0.15] }, kick: { drop: 0.3, off: [-0.4, 0.15, 0.2], sw: [-0.9, 0.4, -0.2] }, round: { leg: [0, 0.2, 0] } },
+};
+/* Adds the offsets of one spec to a strike pose. */
+function applyTech(p, spec, s) {
+  const a = ARM_IDX(s), o = ARM_IDX(-s), l = LEG_IDX(s), q = LEG_IDX(-s);
+  if (spec.arm) { p[a.x] += spec.arm[0]; p[a.z] += spec.arm[1]; p[a.e] += spec.arm[2]; }
+  if (spec.off) { p[o.x] += spec.off[0]; p[o.z] += spec.off[1]; p[o.e] += spec.off[2]; }
+  if (spec.sw) { p[a.x] += spec.sw[0]; p[a.z] += spec.sw[1]; p[a.e] += spec.sw[2]; }
+  if (spec.leg) { p[l.h] += spec.leg[0]; p[l.a] += spec.leg[1]; p[l.k] += spec.leg[2]; }
+  if (spec.base) { p[q.h] += spec.base[0]; p[q.a] += spec.base[1]; p[q.k] += spec.base[2]; }
+  if (spec.front) { p[J.hipLx] += spec.front[0]; p[J.hipLz] += spec.front[1]; p[J.knL] += spec.front[2]; }
+  if (spec.rear) { p[J.hipRx] += spec.rear[0]; p[J.hipRz] += spec.rear[1]; p[J.knR] += spec.rear[2]; }
+  if (spec.lean) p[J.torsoLean] += spec.lean;
+  if (spec.twist) p[J.torsoTwist] -= s * spec.twist;
+  if (spec.roll) p[J.torsoRoll] += s * spec.roll;
+  if (spec.head) p[J.headX] += spec.head;
+  if (spec.fwd) p[J.rootFwd] += spec.fwd;
+  if (spec.drop) { p[J.knL] += spec.drop; p[J.knR] += spec.drop; p[J.hipLx] += spec.drop * 0.45; p[J.hipRx] += spec.drop * 0.45; }
+}
+/* The specs a style applies to a strike of this builder, general first. */
+function techFor(styleId, anim) {
+  const t = STYLE_TECH[styleId];
+  if (!t) return [];
+  const list = [isKickAnim(anim) ? t.kick : t.punch];
+  if (t[anim]) list.push(t[anim]);
+  return list.filter(Boolean);
+}
+/* The extra turn on the support foot a style gives a kick (rad). */
+const techPivot = (styleId, anim) => techFor(styleId, anim).reduce((sum, spec) => sum + (spec.pivot || 0), 0);
 /* Extension curve: <0 = anticipation (wind-up), 1 = fully extended, 0 = back at guard. */
 function strikeExtension(t, startup, active, recovery, windup, snap) {
   if (t <= startup) {
@@ -4805,11 +4891,13 @@ function styledStrikePose(mv, m) {
   const s = mv.limb[0] === 'L' ? 1 : -1;
   const g = m.guard;
   p = new Float32Array(g);
-  STRIKE_BUILDERS[mv.anim](p, s);
+  const own = !m.noTech && STYLE_TECH[m.styleId] && STYLE_TECH[m.styleId].use;
+  STRIKE_BUILDERS[(own && own[mv.anim]) || mv.anim](p, s);
   const kick = isKickAnim(mv.anim);
   p[J.torsoTwist] = g[J.torsoTwist] + (p[J.torsoTwist] - g[J.torsoTwist]) * (kick ? 1 : m.punchHip);
   if (!kick) p[J.torsoLean] += m.punchLean;
   else p[J.torsoLean] -= m.kickLean * (mv.anim === 'front' || mv.anim === 'low' ? 0.6 : 1);
+  if (!m.noTech) for (const spec of techFor(m.styleId, mv.anim)) applyTech(p, spec, s);   // P5-06: the style's own technique
   m.strikes[key] = p;
   return p;
 }
@@ -5053,8 +5141,8 @@ const WEAPONS = {
     parts: [[CY, 0, 0.2, 0, 0.03, 0.4, 0.03, '#8a5a2b', 0.8], [CB, 0, 0.43, 0.02, 0.07, 0.08, 0.2, '#6b7280', 0.4], [CB, 0, 0.43, -0.1, 0.06, 0.05, 0.04, '#9aa3ad', 0.4]] },
   wrench: { name: 'Pipe wrench', cls: 'heavy', dur: 10, dmg: 13, reach: 0.6, startup: 8, thrown: 12, mat: 'metal', sp: 'pull', len: 0.6, rest: 0.03, lie: 1,
     parts: [[CY, 0, 0.27, 0, 0.035, 0.54, 0.035, '#b23a2a', 0.5], [CB, 0, 0.58, 0, 0.1, 0.12, 0.035, '#9aa3ad', 0.4], [CB, 0, 0.66, 0, 0.035, 0.06, 0.04, '#2b2f36', 0.5]] },
-  chain: { name: 'Bike chain', cls: 'light', dur: 10, dmg: 9, reach: 1.0, startup: 7, thrown: 8, mat: 'metal', sp: 'wrap', len: 0.7, rest: 0.03, lie: 1,
-    parts: [[CY, 0, 0.04, 0, 0.045, 0.12, 0.045, '#1f2228', 0.8], [CY, 0, 0.33, 0, 0.03, 0.56, 0.03, '#4b5563', 0.3], [SP, 0, 0.66, 0, 0.08, 0.08, 0.08, '#9aa3ad', 0.3]] },
+  chain: { name: 'Bike chain', cls: 'light', dur: 10, dmg: 9, reach: 1.0, startup: 7, thrown: 8, mat: 'metal', sp: 'wrap', len: 1.0, rest: 0.03, lie: 1,
+    parts: [[CY, 0, 0.04, 0, 0.045, 0.12, 0.045, '#1f2228', 0.8], [CY, 0, 0.55, 0, 0.03, 0.86, 0.03, '#4b5563', 0.3], [SP, 0, 0.97, 0, 0.08, 0.08, 0.08, '#9aa3ad', 0.3]] },
   chair: { name: 'Folding chair', cls: 'two', dur: 3, dmg: 18, reach: 0.8, startup: 13, thrown: 14, mat: 'metal', sp: 'arc', len: 0.6, rest: 0, lie: 0, hold: [0.2, 0.12],
     parts: [[CB, 0, 0.25, 0, 0.4, 0.04, 0.4, '#6b7280', 0.5], [CB, 0, 0.47, -0.19, 0.4, 0.4, 0.04, '#6b7280', 0.5], [CB, 0, 0.12, 0.17, 0.36, 0.24, 0.03, '#4b5563', 0.5]] },
   skateboard: { name: 'Skateboard', cls: 'two', dur: 5, dmg: 12, reach: 0.8, startup: 9, thrown: 10, mat: 'wood', sp: 'trip', len: 0.8, rest: 0.06, lie: 1,
@@ -5080,6 +5168,7 @@ const ITEM_MAX = 12;                  // loose items in a scene; the oldest goes
 const ITEM_RADIUS = 0.18;             // m: a thrown item hits a fighter this close to its body
 const THROW_SPEED = 11, THROW_SPEED_SLOW = 8, THROW_HAND = 1.3;   // m/s (a crate and a skateboard are slower), release height (m; the same for every body: size is cosmetic)
 const THROW_LOCK_TICKS = 10, THROW_ANIM_TICKS = 14;
+const ITEM_BREAK_AHEAD = 0.3, ITEM_BREAK_HEIGHT = 1.2;   // m: an item that wears out in the hand breaks this far in front of the fighter's centre and this high, whatever the pose
 const BLIND_TICKS = 30, SPRAY_CHARGES = 3, SPRAY_RANGE = 2.0, SPRAY_CONE_COS = Math.cos(40 * Math.PI / 180), CLOUD_RADIUS = 1.6, CRATE_BURST_RADIUS = 1.1;
 const CARRY_WALK = 0.7;               // walk speed share with a crate in the arms (no running)
 const HELD_POSE_STATES = [S.IDLE, S.WALK, S.RUN, S.CROUCH, S.SIDESTEP];   // calm states that show how an item is held and the throwing arm
@@ -5093,6 +5182,52 @@ const ITEM_SRC_BASE = -1000000000;   // scenery damage source ids of thrown item
 const ITEM_MARK_RGB = [1.0, 0.85, 0.4];   // the glow disc under a loose item
 const ITEM_BRACKET_RGB = C('#4a505a');    // the steel bracket of a mounted item
 const ITEM_VIEW_SCALE = 1.2, ITEM_VIEW_LIGHT = 0.22;   // a loose item is drawn this much larger, and with this much light of its own
+/* P5-07 weapon swings (visual only: the move rows, ticks, reach and hit boxes are the ones below). One row per swing shape; k = three key poses, wind-up, contact and follow-through, each
+   [shoulder x, shoulder z, shoulder y, elbow of the right arm, torso twist, torso lean, step forward, knees]; l = the same for the left arm of a two-handed swing, [x, z, y, elbow] (it keeps hold of the shaft).
+   The numbers were solved on the skeleton so that, at contact, the fist is 0.5 to 0.8 m in front of the body and the item points the way it hits (the far end of an item lands at about WEAPON_ARM + its reach):
+   one = a forehand sweep from behind the right shoulder across the body, oneBack = the backhand, thrust = a poke from the hip, over = a chop from above the head, two / overTwo / thrustTwo = the same with both hands on the shaft, sweep = the broom's low sweep. */
+const WEAPON_SWINGS = {
+  one: { k: [[0.82, -0.6, 1.15, 1.79, -0.7, 0.1, 0, 0], [0.62, -0.32, 0.6, 1.26, 0.75, 0.3, 0.2, 0.1], [0.68, -0.42, -0.03, 0.61, 1.1, 0.3, 0.2, 0.1]] },
+  oneBack: { k: [[0.76, 0.14, -0.26, 0.68, 1.0, 0.25, 0, 0], [0.84, -0.49, 0.3, 0.98, 0.5, 0.3, 0.2, 0.1], [0.95, -0.52, 0.95, 1.02, -0.1, 0.25, 0.18, 0.1]] },
+  thrust: { k: [[-0.6, -0.02, 0.24, 1.83, 0.2, 0.15, 0, 0.05], [0.57, 0.02, 0.55, 1.18, 0.65, 0.35, 0.22, 0.1], [0.86, -0.17, 0.53, 0.96, 0.65, 0.35, 0.22, 0.1]] },
+  over: { k: [[2.25, -0.03, -0.14, 0.88, -0.3, -0.1, 0, 0], [0.91, -0.6, 0.11, 1.28, 0.5, 0.5, 0.22, 0.15], [0.43, -0.6, 0.55, 0.98, 0.5, 0.7, 0.22, 0.2]] },
+  two: { k: [[0.53, -0.6, 1.16, 1.83, -0.7, 0.1, 0, 0], [0.02, -0.44, 0.55, 1.8, 0.7, 0.3, 0.4, 0.12], [-0.3, -0.5, 0.06, 1.64, 1.1, 0.3, 0.4, 0.12]],
+    l: [[0.06, -1.5, 0.79, 0.05], [2.41, 1.41, -0.56, 0.05], [1.61, 0.83, -0.74, 0.05]] },
+  overTwo: { k: [[2.29, 0.13, -0.4, 0.86, -0.2, -0.12, 0, 0], [0.49, -0.6, -0.04, 1.47, 0.4, 0.5, 0.4, 0.15], [0.26, -0.6, 0.38, 1.01, 0.4, 0.7, 0.4, 0.2]],
+    l: [[2.61, 0.9, 1.26, 0.05], [1.14, -0.6, -0.49, 0.05], [0.71, -0.46, -0.33, 0.05]] },
+  thrustTwo: { k: [[-0.6, -0.2, 0.03, 1.9, 0.1, 0.15, 0, 0.05], [-0.27, -0.38, 0.29, 2.04, 0.5, 0.35, 0.42, 0.12], [-0.22, -0.44, 0.29, 2.02, 0.5, 0.35, 0.42, 0.12]],
+    l: [[0.68, -0.75, -0.35, 0.05], [1.51, 0.19, -0.93, 0.05], [1.05, -0.41, -0.8, 0.05]] },
+  sweep: { k: [[0.32, -0.6, 1.2, 1.56, -0.7, 0.2, 0, 0.2], [0.01, -0.32, 0.52, 1.41, 0.7, 0.5, 0.45, 0.3], [0.01, -0.3, 0.1, 0.9, 1.1, 0.5, 0.45, 0.3]],
+    l: [[0.13, -1.06, -1.35, 0.05], [0.7, -1.43, 0.5, 0.05], [0.82, -0.05, -0.55, 0.05]] },
+};
+/* Carrying and throwing (P5-07): arm joints [x, z, y, elbow] solved on the skeleton, r = right arm, l = left, t = [torso twist, lean, step forward] set outright, lean = lean added to the guard.
+   A crate is carried in both hands in front of the chest, its centre on the body's centre line (CARRY_HELD), and let go with a two-handed push (CARRY_PUSH); every other item is let go from the right hand (THROW_RELEASE).
+   The release keys put the hand where the item appears: 0.45 m in front of the body, 1.3 m up (1.0 for a crate), the point MatchSim.throwItem uses for a standard body. */
+const CARRY_HELD = { r: [0.75, 0.85, -0.78, 0.25], l: [0.56, 0.17, -0.13, 0.32], t: [0, 0.15, 0.04] };
+const CARRY_PUSH = { r: [0.44, 0.76, -0.84, 0.64], l: [0.26, 0.11, -0.05, 0.75], t: [0, 0.3, 0.12] };
+const TWO_HELD = { r: [0.4, 0.2, -0.45, 1.32], l: [1.67, 0.7, -0.38, 0.05] };   // a two-handed item held ready: the left hand a hand's length up the shaft
+const POSE_SCRATCH = new Float32Array(NP);   // a pose being worked on every tick (no allocation per tick)
+const THROW_RELEASE = { r: [0.14, -0.28, 0.22, 1.87], t: [0.5, 0.3, 0.1] };
+function applyArms(p, key) {
+  p[J.shRx] = key.r[0]; p[J.shRz] = key.r[1]; p[J.shRy] = key.r[2]; p[J.elR] = key.r[3];
+  if (key.l) { p[J.shLx] = key.l[0]; p[J.shLz] = key.l[1]; p[J.shLy] = key.l[2]; p[J.elL] = key.l[3]; }
+  if (key.t) { p[J.torsoTwist] = key.t[0]; p[J.torsoLean] = key.t[1]; p[J.rootFwd] = key.t[2]; }
+  if (key.lean) p[J.torsoLean] += key.lean;
+}
+const WEAPON_WIND_SPLIT = 0.6;       // share of the start-up spent drawing the item back; the rest is the swing itself
+const WEAPON_FOLLOW_FROM = 0.4;       // share of the active ticks held at contact before the follow-through starts
+const CHAIN_REST = 0.5, CHAIN_COIL = 1.3, CHAIN_CURL = -0.6, CHAIN_LINKS = 6;   // total bend of the chain (rad): hanging slack, drawn back, and curling on past the target
+/* Which swing a step of the Punch string of an item uses: a stick pokes, cuts both ways and chops; a chain whips (it bends, see Fighter.drawChain); heavy items sweep, then chop; two-handed ones sweep with both hands, then chop;
+   the broom pokes and then sweeps low; a bin lid pushes; a bottle and a brick are clubbed downward. */
+function weaponSwing(w, n) {
+  if (w.sp === 'sweep') return n === 2 ? 'sweep' : 'thrustTwo';
+  if (w.cls === 'two') return n === 2 ? 'overTwo' : 'two';
+  if (w.cls === 'throwable') return 'over';
+  if (w.sp === 'shield') return ['thrust', 'oneBack', 'over'][n - 1] || 'one';
+  if (w.sp === 'wrap') return ['one', 'oneBack', 'over'][n - 1] || 'one';
+  if (w.cls === 'light') return ['thrust', 'one', 'over', 'oneBack'][n - 1] || 'one';
+  return n === 2 ? 'over' : 'one';
+}
 /* One Punch step of an item: a move row like the bare-hand ones, kept out of ATTACKS (the strong-move tests count it). Heavy and two-handed items have a light step then a strong one; light items 3 (stick 4) tier 1 to 2 steps. */
 function makeWeaponMove(w, n) {
   const light = w.cls === 'light', strong = (w.cls === 'heavy' || w.cls === 'two') && n === 2;
@@ -5101,7 +5236,7 @@ function makeWeaponMove(w, n) {
     tier: strong ? 3 : light && n < 3 ? 1 : 2, cat: strong ? 'heavy' : 'punch', startup: w.startup + (n > 1 ? (light ? -1 : 2) : 0), active: strong ? 4 : 3, recovery: strong ? 24 : light ? 11 : 16,
     dmg: Math.round(w.dmg * (strong ? 1 : light ? (n >= 3 ? 1.2 : 1) : w.cls === 'throwable' ? 1 : 0.7) * 10) / 10, stam: strong ? 9 : light ? 3 : 6, reach: WEAPON_ARM + w.reach, width: w.sp === 'arc' ? 1.1 : strong ? 0.6 : 0.4,
     push: strong ? 0.9 : 0.3, hitstun: strong ? (w.sp === 'smash' ? 34 : 24) : light ? 14 : 18, blockstun: strong ? 13 : 9, kind: strong ? (w.sp === 'bigswing' ? 'knockdown' : 'stagger') : 'hit',
-    step: light ? 0.1 : 0.15, wpn: w.id, sp: w.sp, pull: strong && w.sp === 'pull',
+    step: light ? 0.1 : 0.15, wpn: w.id, sp: w.sp, pull: strong && w.sp === 'pull', swing: weaponSwing(w, n),
   };
   if (w.sp === 'sweep' && n === 2) Object.assign(over, { name: 'Broom Sweep', anim: 'straightLow', h: 'L', kind: 'knockdown' });   // the second step is a low sweep that trips
   return makeAttack(w.id + ':' + n, Object.assign({ gdm: 1.2 }, over));
@@ -5194,7 +5329,8 @@ class Fighter {
     this.radius = 0.34;                // collision size is the same for every body: height and build are cosmetic
     this.pose = new Float32Array(NP);
     this.tp = new Float32Array(NP);
-    this.pts = new Float32Array(24);
+    this.pts = new Float32Array(36);
+    this.chainBend = CHAIN_REST; this.chainOver = false;
     this.reset(0, 0, 0);
   }
 
@@ -5221,7 +5357,7 @@ class Fighter {
     this.pinnedBy = null; this.submitDone = false; this.holdRest = false; this.holdTicks = 0; this.holdContest = 0; this.holdDamage = 0; this.holdHp = 0; this.grapplePressed = false; this.prevGrapple = false; this.tackleUsed = false;   // submission (holder: partner, hold*; victim: pinnedBy) and tackle
     this.sideDir = 0; this.swayDir = 0; this.airAttackUsed = false; this.prevDefend = false; this.defendPressed = false; this.swayBuffer = 0; this.assist = false;
     this.walkPhase = 0; this.animT = 0; this.stepIndex = 0; this.moveFwdNorm = 0; this.moveSideNorm = 0; this.flash = 0; this.lowWarned = false;
-    this.item = null; this.blind = 0; this.throwAnim = 0; this.pickup = null; this.useBuffer = 0; this.useCrouch = false;   // P7: useBuffer / useCrouch = a Use press waiting to be used and whether Crouch was held; item = what the fighter holds ({ id, dur, sprays }), blind = ticks left, throwAnim = ticks of the throwing arm, pickup = the loose item being grabbed
+    this.item = null; this.blind = 0; this.throwAnim = 0; this.throwCls = ''; this.keepDown = false; this.pickup = null; this.useBuffer = 0; this.useCrouch = false;   // P7: useBuffer / useCrouch = a Use press waiting to be used and whether Crouch was held; item = what the fighter holds ({ id, dur, sprays }), blind = ticks left, throwAnim = ticks of the throwing arm, pickup = the loose item being grabbed
     this.pose.set(this.motion.guard); this.tp.set(this.motion.guard);
     this.alive = true;
     this.lastFoe = null; this.target = null;   // lastFoe: who dealt the last damage (combo and scenery credit); target: who this fighter acts against, set every tick by MatchSim.assignTargets
@@ -5567,7 +5703,7 @@ class Fighter {
       case S.DOWN: this.updateDown(it); break;
       case S.GETUP:
         this.vx = this.vz = 0;
-        if (this.stateTicks >= this.getupTicks()) { this.setState(S.IDLE); this.downMult = 1; this.strikeGrace = WAKEUP_GRACE_TICKS; }   // the guard (or a sway) can start before the first strike counts; grabs and the tackle still connect
+        if (this.stateTicks >= this.getupTicks()) { this.setState(S.IDLE); this.downMult = 1; this.keepDown = false; this.strikeGrace = WAKEUP_GRACE_TICKS; }   // the guard (or a sway) can start before the first strike counts; grabs and the tackle still connect
         break;
       default: this.vx = this.vz = 0; break;
     }
@@ -5680,9 +5816,10 @@ class Fighter {
     this.vx = this.vz = 0;
     if (this.pinnedBy) { this.updatePinned(this.pinnedBy); return; }   // held: no timed get-up, and a Defend press is an escape tap, not a quick recovery
     const dur = this.downTicks();
-    const quick = this.defendPressed && this.stateTicks >= 14 && !this.holdRest && this.stam >= 8;   // a fresh Defend press gets up quickly (not in the rest after a hold)
+    const quick = this.defendPressed && this.stateTicks >= 14 && !this.holdRest && this.stam >= 8 && !this.keepDown;   // a fresh Defend press gets up quickly (not in the rest after a hold)
     if (this.stateTicks >= dur || quick) {
       if (quick && this.stateTicks < dur) { this.stam -= 8; this.quickRise = true; Events.emit('quickRise', { f: this }); } else this.quickRise = false;
+      this.keepDown = false;   // the scenario's hold-practice flag lasts one knockdown: a later knockdown of the same fighter gets up as usual
       this.setState(S.GETUP);
     }
   }
@@ -5886,6 +6023,7 @@ class Fighter {
   computePose() {
     const p = this.tp, g = this.motion.guard, m = this.motion;
     p.set(g);
+    this.chainBend = CHAIN_REST; this.chainOver = false;   // P5-07: a bike chain hangs slack unless a swing bends it
     const t = this.animT, st = this.stateTicks;
     let k = 0.3;
     switch (this.state) {
@@ -6022,7 +6160,7 @@ class Fighter {
         break;
       default: break;
     }
-    if (HELD_POSE_STATES.includes(this.state)) { if (this.item) this.heldPose(p); if (this.throwAnim > 0) this.throwPose(p); }
+    if (HELD_POSE_STATES.includes(this.state)) { if (this.item) this.heldPose(p); if (this.throwAnim > 0) { this.throwPose(p); k = 0.9; } }   // the arm is at the release point on the tick of the release, so it skips the usual easing
     if (this.boostTicks > 0 && BOOST_POSE_STATES.includes(this.state) && !this.throwFollow) this.boostPose(p, t);
     const pose = this.pose;
     pose[J.bodyYaw] = wrapAngle(pose[J.bodyYaw]);   // a spinning kick ends a full circle round: the next state blends from 0, not back through the turn
@@ -6052,14 +6190,15 @@ class Fighter {
   /* An item in hand (visual): one hand on a one-handed item, both on a two-handed one, a crate held out in front. */
   heldPose(p) {
     const cls = this.itemDef.cls;
-    if (cls === 'carry') { p[J.shLx] = 1.0; p[J.shRx] = 1.0; p[J.elL] = 0.8; p[J.elR] = 0.8; p[J.shLz] = -0.3; p[J.shRz] = -0.3; p[J.torsoLean] += 0.08; }
-    else if (cls === 'two') { p[J.shRx] = 1.2; p[J.elR] = 1.0; p[J.shLx] = 1.1; p[J.elL] = 1.2; p[J.shLz] = -0.2; }
+    if (cls === 'carry') applyArms(p, CARRY_HELD);
+    else if (cls === 'two') applyArms(p, TWO_HELD);
     else { p[J.shRx] = 1.15; p[J.elR] = 1.15; }
   }
   /* The throwing arm after a release: out and forward, back to the guard over THROW_ANIM_TICKS. */
   throwPose(p) {
-    const u = this.throwAnim / THROW_ANIM_TICKS;
-    p[J.shRx] = lerp(p[J.shRx], 2.3, u); p[J.elR] = lerp(p[J.elR], 0.2, u); p[J.torsoLean] += 0.2 * u;
+    const u = smoothstep(this.throwAnim / THROW_ANIM_TICKS), key = this.throwCls === 'carry' ? CARRY_PUSH : THROW_RELEASE, to = POSE_SCRATCH;
+    to.set(p); applyArms(to, key);
+    for (let i = 0; i < NP; i++) p[i] += (to[i] - p[i]) * u;   // P5-07: at the release (u = 1) the hand is where the item was let go, then it eases back
   }
   /* Held in a clinch; while a throw runs the pose follows the carry path (pitch / roll), arms flailing. */
   clinchPose(p, t) {
@@ -6112,15 +6251,50 @@ class Fighter {
     p[J.knL] = lerp(p[J.knL], 0.5, amount); p[J.knR] = lerp(p[J.knR], 0.2, amount);
     p[J.torsoLean] = lerp(p[J.torsoLean], 0, amount); p[J.torsoTwist] = lerp(p[J.torsoTwist], 0, amount);
   }
+  /* The three key poses of an item's swing and the pose it starts and ends in (the guard with the item held), built once per fighter and move row. */
+  swingKeys(mv) {
+    const m = this.motion, cache = m.swings || (m.swings = {});
+    if (cache[mv.id]) return cache[mv.id];
+    const row = WEAPON_SWINGS[mv.swing], base = new Float32Array(m.guard);
+    this.heldPose(base);
+    const keys = { base, poses: row.k.map((k, i) => {
+      const p = new Float32Array(base);
+      p[J.shRx] = k[0]; p[J.shRz] = k[1]; p[J.shRy] = k[2]; p[J.elR] = k[3];
+      p[J.torsoTwist] = k[4]; p[J.torsoLean] = k[5]; p[J.rootFwd] = k[6];
+      p[J.knL] += k[7]; p[J.knR] += k[7]; p[J.hipLx] += k[7] * 0.45; p[J.hipRx] += k[7] * 0.45;
+      if (row.l) { const l = row.l[i]; p[J.shLx] = l[0]; p[J.shLz] = l[1]; p[J.shLy] = l[2]; p[J.elL] = l[3]; }
+      return p;
+    }) };
+    return (cache[mv.id] = keys);
+  }
+  /* The swing of an item (P5-07): base -> wind-up -> contact (reached when the move turns active) -> follow-through -> base, in joint space. Visual only. */
+  weaponAttackPose(mv) {
+    const pose = this.pose, keys = this.swingKeys(mv), t = this.moveTick, startup = this.mStartup, active = this.mActive, recovery = this.mRecovery + this.whiffExtra;
+    const wind = keys.poses[0], hit = keys.poses[1], follow = keys.poses[2];
+    let from, to, u, bend;
+    if (t <= startup) {
+      const x = clamp(t / Math.max(1, startup), 0, 1);
+      if (x < WEAPON_WIND_SPLIT) { from = keys.base; to = wind; u = smoothstep(x / WEAPON_WIND_SPLIT); bend = lerp(CHAIN_REST, CHAIN_COIL, u); }
+      else { from = wind; to = hit; u = smoothstep((x - WEAPON_WIND_SPLIT) / (1 - WEAPON_WIND_SPLIT)); bend = lerp(CHAIN_COIL, 0, u); }
+    } else if (t <= startup + active) {
+      from = hit; to = follow; u = smoothstep(clamp(((t - startup) / Math.max(1, active) - WEAPON_FOLLOW_FROM) / (1 - WEAPON_FOLLOW_FROM), 0, 1)); bend = lerp(0, CHAIN_CURL, u);
+    } else {
+      from = follow; to = keys.base; u = smoothstep(Math.min(1, (t - startup - active) / Math.max(1, recovery) * 1.15)); bend = lerp(CHAIN_CURL, CHAIN_REST, u);
+    }
+    for (let i = 0; i < NP; i++) pose[i] = from[i] + (to[i] - from[i]) * u;
+    this.chainBend = bend; this.chainOver = mv.swing === 'over';
+  }
   /* Strike pose over time. Visual only: the move's ticks and reach decide hits, never this pose. */
   attackPose() {
     const mv = this.move, pose = this.pose, m = this.motion;
     const g = m.guard;
     if (!mv) { pose.set(g); return; }
+    if (mv.wpn && this.item && mv.swing) { this.weaponAttackPose(mv); return; }   // P5-07: an item's own swing
     const strike = styledStrikePose(mv, m);
     const kick = isKickAnim(mv.anim);
     const t = this.moveTick, startup = this.mStartup, active = this.mActive, recovery = this.mRecovery + this.whiffExtra;
-    const windup = mv.tier === 3 ? 0.45 : 0.28, snap = kick ? m.kickSnap : m.punchSnap;
+    const spec = !m.noTech && STYLE_TECH[m.styleId] && (kick ? STYLE_TECH[m.styleId].kick : STYLE_TECH[m.styleId].punch);
+    const windup = (mv.tier === 3 ? 0.45 : 0.28) * ((spec && spec.wind) || 1), snap = kick ? m.kickSnap : m.punchSnap;
     const ext = strikeExtension(t, startup, active, recovery, windup, snap);
     if (kick && ext > 0) {
       // guard -> chamber -> extension on the way out, and back through the chamber on the way in
@@ -6141,7 +6315,9 @@ class Fighter {
     const roundKick = mv.anim === 'round' || mv.anim === 'roundLow';
     const pivot = kick ? (roundKick ? m.kickPivot : m.kickPivot * 0.3) : (mv.limb[0] === 'R' ? m.punchPivot : 0);
     const side = mv.limb[0] === 'L' ? 1 : -1;
-    pose[J.bodyYaw] = g[J.bodyYaw] - side * pivot * Math.max(0, ext);
+    const pivots = m.pivots || (m.pivots = {});   // the style's extra turn on the support foot, worked out once per builder
+    if (kick && pivots[mv.anim] === undefined) pivots[mv.anim] = techPivot(m.styleId, mv.anim);
+    pose[J.bodyYaw] = g[J.bodyYaw] - side * (pivot + (kick && !m.noTech ? pivots[mv.anim] : 0)) * Math.max(0, ext);
     if (STRIKE_SPIN[mv.anim]) {   // the turn grows to the contact, then goes on to a full circle while the leg comes back
       const spin = STRIKE_SPIN[mv.anim], turn = t <= startup + active ? Math.max(0, ext) : 1 + (TAU / spin - 1) * (1 - ext);
       pose[J.bodyYaw] -= side * spin * turn;
@@ -6177,6 +6353,7 @@ class Fighter {
       if (!pants) part(MESH.CYL, 0, L[4], 0, L[2] * b * sh.leg, L[3], L[2] * b * sh.leg, col.shorts, 0, 0.8, fl);
       this.pieces(this.extra, 'l', s, fl);
       ms.t(0, -THIGH, 0); ms.rx(kn);
+      const kp = s > 0 ? 24 : 27; pts[kp] = ms.m[12]; pts[kp + 1] = ms.m[13]; pts[kp + 2] = ms.m[14];   // P5-06: knee key points 24-29
       part(MESH.CYL, 0, -0.22, 0, L[1] * b, 0.44, L[1] * b, legCol, 0, pants ? 0.85 : 0.7, fl);
       part(MESH.SPHERE, 0, 0, 0, BODY.knee * b, BODY.knee * b, BODY.knee * b, legCol, 0, 0.7, fl);
       ms.t(0, -SHIN, 0);
@@ -6211,16 +6388,20 @@ class Fighter {
       part(MESH.SPHERE, 0, 0, 0, ball, ball, ball, T[2] ? col.top : skin, 0, T[2] ? 0.8 : 0.7, fl);
       part(MESH.CYL, 0, -BODY.upperLen / 2, 0, upper, BODY.upperLen, upper, T[3] ? col.top : skin, 0, 0.7, fl);
       this.pieces(this.extra, 'u', s, fl);
-      ms.t(0, -BODY.upperLen, 0); ms.rx(-el);
+      ms.t(0, -BODY.upperLen, 0);
+      const ep = s > 0 ? 30 : 33; pts[ep] = ms.m[12]; pts[ep + 1] = ms.m[13]; pts[ep + 2] = ms.m[14];   // P5-06: elbow key points 30-35
+      ms.rx(-el);
       part(MESH.CYL, 0, -BODY.foreLen / 2, 0, fore, BODY.foreLen, fore, T[4] ? col.top : H[3] ? col.glove : skin, 0, 0.7, fl);
       this.pieces(this.extra, 'w', s, fl);
       ms.t(0, -BODY.foreLen, 0);
       part(MESH.SPHERE, 0, -BODY.handY, 0.01, H[0] * hand, H[1] * hand, H[2] * hand, col[H[4]], 0, H[5], fl);
       this.pieces(this.extra, 'x', s, fl);
-      if (s < 0 && this.item && DRAW_NOW) {   // the right hand holds the item: its +y runs on out of the fist, leaning forward
+      if (s < 0 && this.item) {   // the right hand holds the item: its +y runs on out of the fist, leaning forward
         const w = this.itemDef;
         ms.push(); ms.rz(Math.PI); ms.rx(w.tilt); ms.t(0, w.hold[0], w.hold[1]);
-        drawWeapon(w, fl);
+        if (DRAW_NOW) { if (w.sp === 'wrap') this.drawChain(w, fl); else drawWeapon(w, fl); }
+        const wm = ms.m;   // P5-07: the far end of the item (key points 21-23), where a swing is meant to land
+        pts[21] = wm[12] + wm[4] * w.len; pts[22] = wm[13] + wm[5] * w.len; pts[23] = wm[14] + wm[6] * w.len;
         ms.pop();
       }
       const q = ms.m, hi = s > 0 ? 9 : 12;
@@ -6229,6 +6410,21 @@ class Fighter {
     }
     ms.pop();
     DRAW_NOW = false;
+  }
+
+  /* The bike chain (P5-07): a grip, then links that bend a little more each, so the chain hangs slack, coils behind the hand, runs out straight at contact and curls on past it.
+     The bend is about the item's z axis for a sideways swing and its x axis for a chop. The far end for the key points stays the straight one (the chain is straight when it lands). */
+  drawChain(w, fl) {
+    const grip = w.parts[0], link = w.parts[1], ball = w.parts[2], gripLen = grip[5] + 0.0, seg = (w.len - gripLen) / CHAIN_LINKS, step = this.chainBend / CHAIN_LINKS * (this.chainOver ? -1 : 1);
+    part(grip[0], grip[1], grip[2], grip[3], grip[4], grip[5], grip[6], grip[7], 0, grip[8], fl);
+    FMS.push(); FMS.t(0, gripLen, 0);
+    for (let i = 0; i < CHAIN_LINKS; i++) {
+      part(CY, 0, seg / 2, 0, link[4], seg, link[6], link[7], 0, link[8], fl);
+      FMS.t(0, seg, 0);
+      if (this.chainOver) FMS.rx(step); else FMS.rz(step);
+    }
+    part(SP, 0, 0, 0, ball[4], ball[5], ball[6], ball[7], 0, ball[8], fl);
+    FMS.pop();
   }
 
   /* Head, face, hair and headwear in the head's local frame (origin at the neck base). */
@@ -6718,7 +6914,7 @@ const Combat = {
     if (!match.live || !def || att === def || !styleCanSubmit(att.profile)) return false;
     if (!att.alive || att.airborne || att.stam < SUBMIT_MIN_STAMINA || att.pinnedBy || att.partner) return false;
     if (def.state !== S.DOWN || def.pinnedBy || def.submitDone || !def.alive) return false;   // a hold is joined by nobody: the victim is taken, once per knockdown
-    return Math.hypot(def.x - att.x, def.z - att.z) <= SUBMIT_RANGE && Math.abs(def.y - att.y) < 0.6;
+    return Math.hypot(def.x - att.x, def.z - att.z) <= SUBMIT_RANGE && Math.abs(def.y - att.y) < SUBMIT_LEVEL_GAP;
   },
   startSubmission(att, def, match) {
     if (!att.setState(S.SUBMIT)) return false;
@@ -9089,7 +9285,7 @@ class MatchSim {
     loose.vx = dx / dist * speed; loose.vz = dz / dist * speed;
     if (slide) { loose.mode = 'slide'; loose.y = Arena.supportAt(loose.x, loose.z, loose.y, ITEM_RADIUS); }
     else { loose.mode = 'fly'; loose.vy = clamp((ty - loose.y + 0.5 * GRAVITY * flight * flight) / flight, -4, 8); }
-    f.item = null; f.throwAnim = THROW_ANIM_TICKS;
+    f.item = null; f.throwAnim = THROW_ANIM_TICKS; f.throwCls = w.cls;
     if (Math.hypot(dx, dz) > 0.05) f.yaw = Math.atan2(dx, dz);
     Events.emit('itemThrow', { f, id: held.id, x: loose.x, y: loose.y, z: loose.z });
     return this.addItem(loose);
@@ -9099,7 +9295,7 @@ class MatchSim {
     const held = f.item;
     if (!held) return;
     f.item = null;
-    this.itemDebris(held.id, f.pts[12], f.pts[13], f.pts[14]);
+    this.itemDebris(held.id, f.x + f.fwdX * ITEM_BREAK_AHEAD, f.y + ITEM_BREAK_HEIGHT, f.z + f.fwdZ * ITEM_BREAK_AHEAD);   // not at the drawn hand: a bottle's glass lands on the floor and hurts, so where it lands cannot follow an animation
   }
   itemDebris(id, x, y, z) {
     const w = WEAPONS[id], size = clamp(w.len * 0.3, 0.06, 0.14);
@@ -9887,6 +10083,7 @@ class MatchSim {
     }
   }
   resetFighters() {
+    this.scenarioNo = 0;
     this.placeFighters(1);
     this.spawnItems();
     this.spawnHazards();
@@ -9902,6 +10099,12 @@ class MatchSim {
       const o = Arena.objects.find((q) => !q.destroyed && q.type !== 'panel' && Arena.inRing(q.x, q.z)) || Arena.objects[0];
       if (o) { b.x = o.x - (o.hx + 1.0); b.z = o.z; a.x = b.x - 1.2; a.z = o.z; }
     } else if (n === 5) { b.stam = b.maxStam * 0.12; this.infiniteStam = false; }   // infinite stamina would refill it at once
+    else if (n === 6) {   // P5-08: the dummy lies on the floor one metre away, for a long time (a hold lasts up to 4 s)
+      a.x = -0.5; b.x = 0.5;
+      b.setState(S.HIT); b.setState(S.DOWN);
+      b.groundHits = 0; b.lieSign = 1; b.downMult = HOLD_SCENARIO_DOWN; b.keepDown = true;   // keepDown: a CPU dummy's Defend press does not get it up quickly (it would be on its feet in 0.4 s); it can still tap to escape a hold
+    }
+    this.scenarioNo = n;
     for (const f of this.fighters) { f.prevX = f.x; f.prevZ = f.z; }
     Camera.snapNext = true;
     Events.emit('trainingReset', {});
@@ -11110,7 +11313,7 @@ const heldLabel = (f) => (f.item ? WEAPONS[f.item.id].name.toUpperCase() + ' ' +
 const RESULTS_GUARD_MS = 600;   // presses still mashed from the fight cannot skip the results screen
 const ONBOARD_MS = 8000;   // the first-match controls card closes itself after this long (it lists seven actions)
 const VERSUS_CARD_MS = 9000;   // the Versus controls card holds both players' keys: a little longer
-const SCENARIOS = ['1: Neutral distance', '2: Close range', '3: Opponent cornered', '4: Throw into scenery', '5: Opponent low stamina'];
+const SCENARIOS = ['1: Neutral distance', '2: Close range', '3: Opponent cornered', '4: Throw into scenery', '5: Opponent low stamina', '6: Opponent knocked down (practise a hold)'];
 const KIND_NAME = { wood: 'WOOD', concrete: 'CONCRETE', metal: 'METAL', glass: 'GLASS', paper: 'CARDBOARD', brick: 'BRICK', plastic: 'PLASTIC', tile: 'TILE', sheet: 'METAL' };
 
 const UI = {
@@ -11120,7 +11323,7 @@ const UI = {
   listeners: [], frameCount: 0, onboardTimer: 0, pickSide: 0, lastScreen: null, touchButtons: {},
 
   init() {
-    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'mo1', 'mo2', 'mob1', 'mob2', 'pips1', 'pips2', 'item1', 'item2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'onboard', 'training', 'modeinfo', 'party', 'tags', 'pauseBtn']) this.dom[id] = $(id);
+    for (const id of ['hud', 'screens', 'toast', 'announce', 'diag', 'fatal', 'fade', 'touch', 'hn1', 'hn2', 'hp1', 'hp2', 'hg1', 'hg2', 'ht1', 'ht2', 'st1', 'st2', 'stb1', 'stb2', 'mo1', 'mo2', 'mob1', 'mob2', 'pips1', 'pips2', 'item1', 'item2', 'timer', 'roundlbl', 'combo', 'combo2', 'banner', 'warn', 'warn2', 'grappleHint', 'grappleHint2', 'holdPrompt', 'holdPrompt2', 'holdMeter', 'holdMeter2', 'onboard', 'training', 'modeinfo', 'party', 'tags', 'pauseBtn']) this.dom[id] = $(id);
     const add = (t, type, fn, o) => { t.addEventListener(type, fn, o); this.listeners.push([t, type, fn, o]); };
     add(window, 'keydown', (e) => this.onKey(e));
     add(this.dom.onboard, 'pointerdown', () => this.hideOnboarding());
@@ -11436,7 +11639,7 @@ const UI = {
       const m = Game.match;
       if (e.code === 'Tab') { e.preventDefault(); m.resetFighters(); return; }
       if (e.code === 'F2') { e.preventDefault(); m.resetArenaObjects(); return; }
-      if (/^Digit[1-5]$/.test(e.code) && !e.repeat && !Inputs.active().some((p) => p.codeMap.has(e.code))) { m.scenario(Number(e.code.slice(5))); return; }   // a digit bound to an action stays that action
+      if (/^Digit[1-6]$/.test(e.code) && !e.repeat && !Inputs.active().some((p) => p.codeMap.has(e.code))) { m.scenario(Number(e.code.slice(5))); return; }   // a digit bound to an action stays that action
     }
     if (e.code === 'F3') { e.preventDefault(); this.toggleDiag(); return; }
     if (this.fatalShown()) {   // the error screen owns the keyboard: the menu behind it stays untouched
@@ -11867,10 +12070,25 @@ const UI = {
       styleOverview +
       '<h3>Defend: Block or Sway</h3><p>Every fighter has one defense type, shown on its fighter card. <b>Block</b>: ' + esc(DEFENSE_HELP.block) + ' Strong string moves break a block unless it is perfect. <b>Sway</b>: ' + esc(DEFENSE_HELP.sway) + ' A sway fighter has no hold-guard; a Defend press while knocked down still gets up quickly for both types (while held down, Defend presses are escape attempts instead).</p>' +
       '<h3>Clinch and throws</h3><p>Grapple at close range to clinch. The grip depends on position: <b>front</b> (face to face), <b>rear</b> (opponent turned away; harder to escape) or <b>low</b> (you or the opponent crouching). In the clinch, up to two strikes: Kick = knee (drains stamina), Punch = elbow (harder hit); Grapple = throw in the direction you hold. Throws into walls and scenery deal extra damage. The defender escapes with Grapple during the escape window.</p>' +
-      '<h3>Holds on a downed opponent</h3><p>Grapple next to a knocked-down opponent starts a hold, for ' + esc(submissionStyleText()) + ' fighters. Damage builds for up to ' + SUBMIT_MAX_TICKS / 60 + ' s. The holder taps Grapple to keep it tight; the held fighter taps Defend to escape, and a tired fighter taps weaker. A hit on the holder breaks the hold. A fighter can be held once per knockdown.</p>' +
+      this.holdHelpHtml() +
       '<h3>Heavy tackle</h3><p>A fighter at least ' + TACKLE_MIN_GAP + ' weight classes (' + esc(WEIGHT_CLASS_NAMES.join(' / ')) + ', from height and fitness (build)) above its target knocks them back by running into them, with no button. Block stops the charge (no damage), and a Sway or a Sidestep lets it run past. Once per run.</p>' +
       this.throwTable() +
       '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-default data-act="back">Back</button></div></div></section>';
+  },
+  /* How a submission works and what every style does on the ground (P5-08): the Move list and About & Help both show it. */
+  holdHelpHtml() {
+    const rows = MOVE_STYLE_IDS.map((id) => {
+      const s = MOVE_STYLE[id];
+      const note = s.submit.length ? GROUND_NOTES[id] : 'No hold. Let the foe stand up, or land one low move on the floor (a low kick hits a downed foe once).';
+      return '<tr><td>' + esc(s.label) + '</td><td>' + (s.submit.length ? esc(s.submit.join(', ')) : '-') + '</td><td>' + esc(note) + '</td></tr>';
+    }).join('');
+    return '<h3>Holds on a downed opponent</h3><ol>' +
+      '<li>Knock the opponent down: a throw, a knock-down move or a fall.</li>' +
+      '<li>Walk up to the body (within about ' + SUBMIT_RANGE + ' m). If your style can hold, a prompt over the foe says <b>HOLD</b> with the button to press; farther away (up to ' + HOLD_PROMPT_RANGE + ' m) it says STEP CLOSER.</li>' +
+      '<li>Press Grapple: the hold starts. Every hold plays the same way; only its pose and name belong to the style. A meter over the pair shows the contest: you tap Grapple to squeeze, the held fighter taps Defend to escape, and a tired fighter taps weaker. The bar fills green as the held fighter gets free.</li>' +
+      '<li>The damage builds for up to ' + SUBMIT_MAX_TICKS / 60 + ' s (about 22 hp in all). A hit on the holder breaks the hold, and a fighter can be held once per knockdown.</li></ol>' +
+      '<p>Only ' + esc(submissionStyleText()) + ' fighters can hold; the other styles keep to striking. To practise, open the pause menu in Training and load scenario 6 (or press 6): the dummy lies on the floor within reach.</p>' +
+      '<table class="ctl"><tr><th>Move style</th><th>Hold names (the first is on screen)</th><th>On the ground</th></tr>' + rows + '</table>';
   },
   throwTable() {
     const rows = [];
@@ -11910,6 +12128,7 @@ const UI = {
       '<p>Version ' + VERSION + '. A single-file 3D fighting game: native WebGL 2 rendering, Web Audio synthesis, no external requests.</p>' +
       '<h3>Progress</h3><div class="statgrid"><span>Arcade clears</span><span>' + p.arcadeClears + '</span><span>Best arcade stage</span><span>' + p.arcadeBest + ' / 5</span><span>Best survival streak</span><span>' + p.survivalKills + ' wins</span><span>Unlocked fighters</span><span>' + p.unlocked.length + ' / ' + ROSTER.length + '</span></div>' +
       '<h3>Tips</h3><p>Arenas are destructible: crates splinter, concrete pillars crack and shed chunks, steel railings bend and collapse, glass and paper screens shatter. Throws and knockbacks into scenery cause extra damage and change where you can walk.</p>' +
+      this.holdHelpHtml() +
       '<h3>Compatibility &amp; limits</h3><p>Needs a browser with WebGL 2 (current Chrome, Edge, Firefox, Safari 15+, and mobile Chrome/Safari). Targets 60 FPS on desktop and 30 FPS on mobile; resolution scales automatically when needed. Audio starts after your first click, tap or key press. On iPhone, use Add to Home Screen for full screen; the ring / silent switch can mute the sound. Gamepad support uses the standard mapping; other layouts use a best-effort mapping. Settings are stored in localStorage when the browser allows it.</p>' +
       '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button><button class="mi" style="width:auto" data-nav data-act="selftest">Run self-test</button></div><pre id="selftestOut" style="white-space:pre-wrap;font-size:.8em;max-height:14em;overflow:auto"></pre></div></section>';
   },
@@ -11923,7 +12142,7 @@ const UI = {
       h += this.optRow('Dummy', dummyLabel(m),'data-local="tdummy"', '') +
         '<button class="mi" data-nav data-act="thp">Dummy infinite health: ' + (m.infiniteHp ? 'On' : 'Off') + '</button><button class="mi" data-nav data-act="tstam">Dummy infinite stamina: ' + (m.infiniteStam ? 'On' : 'Off') + '</button>' +
         '<button class="mi" data-nav data-act="treset">Reset positions &amp; health<small>Tab</small></button><button class="mi" data-nav data-act="tarena">Reset arena objects<small>F2</small></button>' +
-        this.optRow('Scenario', SCENARIOS[this.scenIdx], 'data-local="tscen"', '') + '<button class="mi" data-nav data-act="tscenGo">Load scenario (also keys 1-5)</button>';
+        this.optRow('Scenario', SCENARIOS[this.scenIdx], 'data-local="tscen"', '') + '<button class="mi" data-nav data-act="tscenGo">Load scenario (also keys 1-6)</button>';
     }
     h += '<button class="mi" data-nav data-act="moves">Move list</button><button class="mi" data-nav data-act="controls">Controls</button><button class="mi" data-nav data-act="settings">Settings</button><button class="mi" data-nav data-act="quit">' + (CreatorUI.returnState ? 'Back to the creator' : 'Quit to main menu') + '</button></nav></div></section>';
     return h;
@@ -12111,7 +12330,7 @@ const UI = {
     else if (cfg.mode === 'free') info = m.def.name.toUpperCase() + ' · ' + DIFFICULTY[cfg.difficulty].label.toUpperCase();
     else if (m.brawl) info = (m.coop ? 'CO-OP BRAWL' : 'BRAWL') + ' · ' + m.def.name.toUpperCase() + ' · ' + (DIFFICULTY[cfg.difficulty] || DIFFICULTY.normal).label.toUpperCase() + (m.coop && m.friendlyFire ? ' · FRIENDLY FIRE' : '') + (m.waveRows ? ' · WAVE ' + m.wave + ' / ' + m.waveRows.length : '');
     else if (m.versus) info = 'VERSUS · ' + m.def.name.toUpperCase() + (Game.versus ? ' · SESSION ' + Game.versus.score[0] + ' - ' + Game.versus.score[1] : '');
-    else info = m.def.name.toUpperCase() + (Input.lastDevice === 'gamepad' ? ' · hold Select: reset · Start: training menu' : ' · Tab reset · F2 reset arena · 1-5 scenarios');
+    else info = m.def.name.toUpperCase() + (Input.lastDevice === 'gamepad' ? ' · hold Select: reset · Start: training menu' : ' · Tab reset · F2 reset arena · 1-6 scenarios');
     this.setText('modeinfo', this.dom.modeinfo, info);
     // combo counters, low-stamina warnings and clinch hints: P1's always, P2's in Versus (on the right, with P2's controls)
     const lone = !m.coop || m.partySize === 1;   // a co-op party of several has no room for one player's combo, warning and hint: the cells show health and stamina
@@ -12121,6 +12340,7 @@ const UI = {
     this.toggleOn('warn2', this.dom.warn2, m.versus && b.lowStamina && b.alive);
     this.showHint('hint', this.dom.grappleHint, lone ? this.grappleHint(a) : '');
     this.showHint('hint2', this.dom.grappleHint2, m.versus ? this.grappleHint(b) : '');
+    this.holdUi(m);
     // name tags + popups
     const out = [0, 0];
     for (let i = 0; i < this.tagEls.length; i++) {
@@ -12290,11 +12510,77 @@ const UI = {
   },
   /* A fighter's style and its signature moves (P5-02): with the stance, how Training tells the styles apart. */
   styleLine(fighter) { const style = MOVE_STYLE[fighter.motion.styleId]; return esc(style.label) + ': ' + esc(style.signature.map((x) => x[0]).join(', ')); },
+  /* The hold style names the player's hold in the prompt: the first of the style's list. */
+  holdName(f) { return MOVE_STYLE[moveStyleFor(f.profile)].submit[0] || ''; },
+  /* P5-08: the foe a fighter's hold prompt is about: the one the Grapple press would act on (the fighter's own target), when it lies knocked down within HOLD_PROMPT_RANGE and can still be held;
+     null for a style without holds, a fighter that is itself held or holding, or no such foe. */
+  holdTarget(m, f) {
+    const g = f.target;
+    if (!g || !f.alive || !styleCanSubmit(f.profile) || f.state === S.SUBMIT || f.partner || f.pinnedBy) return null;
+    if (g.team === f.team || g.state !== S.DOWN || !g.alive || g.pinnedBy || g.submitDone) return null;
+    return Math.hypot(g.x - f.x, g.z - f.z) <= HOLD_PROMPT_RANGE ? g : null;
+  },
+  /* The prompt text and look for a fighter and its foe, or null while a Grapple press could not start a hold anyway because the fighter is busy (in a hit reaction, an attack, a throw, in the air ...):
+     ready (Grapple starts the hold), level (the foe lies on another level), tired (not enough stamina) or near (walk closer). */
+  holdPromptFor(m, f, foe) {
+    if (!FREE_SET.includes(f.state) || f.lock > 0 || f.airborne) return null;
+    if (Combat.canSubmit(f, foe, m)) return { kind: 'ready', html: '<b>' + esc(this.keyName('grapple', this.seatOf(f))) + '</b> HOLD · ' + esc(this.holdName(f)).toUpperCase() };
+    if (Math.hypot(foe.x - f.x, foe.z - f.z) <= SUBMIT_RANGE && Math.abs(foe.y - f.y) >= SUBMIT_LEVEL_GAP) return { kind: 'near', html: 'FOE ON ANOTHER LEVEL' };
+    if (f.stam < SUBMIT_MIN_STAMINA) return { kind: 'near', html: 'TOO TIRED TO HOLD' };
+    return { kind: 'near', html: 'STEP CLOSER TO HOLD' };
+  },
+  /* The meter of a hold in progress: how far the held fighter is from free (0 = the holder's lead is at its cap, 1 = free), the seconds the hold has left, and who taps what (a line each). */
+  holdMeterFor(m, att) {
+    const def = att.partner, human = (f) => !!m.controllers[f.index] && m.controllers[f.index].human;
+    const progress = clamp((att.holdContest - SUBMIT_CONTEST_FLOOR) / (SUBMIT_ESCAPE_GOAL - SUBMIT_CONTEST_FLOOR), 0, 1);
+    const left = Math.max(0, (SUBMIT_MAX_TICKS - att.holdTicks) / 60);
+    const taps = [];
+    if (human(def)) taps.push('<div class="tap">TAP <b>' + esc(this.keyName('defend', this.seatOf(def))) + '</b> TO ESCAPE</div>');
+    if (human(att)) taps.push('<div class="tap">TAP <b>' + esc(this.keyName('grapple', this.seatOf(att))) + '</b> TO SQUEEZE</div>');
+    const html = '<div class="r2"><span>HELD</span><span>ESCAPE</span></div><div class="bar"><i style="width:' + Math.round(progress * 100) + '%"></i></div>' +
+      '<div class="r2"><span>' + esc(this.holdName(att)).toUpperCase() + '</span><span>' + left.toFixed(1) + ' s</span></div>' + taps.join('');
+    return { progress, left, html };
+  },
+  /* The prompts to show (P5-08): one for each of the first two human fighters (any team, so Versus gives P2 one too) whose style can hold and who have a foe to hold. Each is { f, foe, prompt, html, dy }:
+     the html is labelled with the seat (1P / 2P) when there are two human fighters, and dy shifts the second prompt down so two prompts over one foe do not overlap. */
+  holdPrompts(m) {
+    const humans = [], list = [null, null];
+    for (const f of m.fighters) if (humans.length < 2 && m.controllers[f.index] && m.controllers[f.index].human) humans.push(f);
+    humans.forEach((f, i) => {
+      const foe = m.live ? this.holdTarget(m, f) : null, prompt = foe ? this.holdPromptFor(m, f, foe) : null;
+      if (prompt) list[i] = { f, foe, prompt, html: (humans.length > 1 ? '<small>' + esc(this.tagLabel(m, f.index)) + '</small> ' : '') + prompt.html, dy: i * HOLD_PROMPT_STACK_PX };
+    });
+    return list;
+  },
+  /* Submissions made clear (P5-08): the prompts above, projected over the foe, and a meter over each of the first two holds in progress. */
+  holdUi(m) {
+    const out = this.holdOut || (this.holdOut = [0, 0]), holds = [], prompts = this.holdPrompts(m);
+    for (const f of m.fighters) if (holds.length < 2 && f.state === S.SUBMIT && f.partner) holds.push(f);
+    for (let i = 0; i < 2; i++) {
+      const el = i ? this.dom.holdPrompt2 : this.dom.holdPrompt, item = prompts[i];
+      const shown = !!item && R.project(item.foe.x, item.foe.y + 0.8, item.foe.z, out);
+      this.toggleHidden('holdp' + i, el, !shown);
+      if (!shown) continue;
+      this.setHtml('holdph' + i, el, item.html);
+      if (this.cache['holdpk' + i] !== item.prompt.kind) { this.cache['holdpk' + i] = item.prompt.kind; el.className = 'hold-prompt ' + item.prompt.kind; }
+      this.setTransform('holdpt' + i, el, 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1] + item.dy) + 'px) translate(-50%,-50%)');
+    }
+    for (let i = 0; i < 2; i++) {
+      const el = i ? this.dom.holdMeter2 : this.dom.holdMeter, att = holds[i];
+      const shown = !!att && R.project((att.x + att.partner.x) / 2, 1.55, (att.z + att.partner.z) / 2, out);
+      this.toggleHidden('holdm' + i, el, !shown);
+      if (!shown) continue;
+      this.setHtml('holdmh' + i, el, this.holdMeterFor(m, att).html);
+      this.setTransform('holdmt' + i, el, 'translate(' + Math.round(out[0]) + 'px,' + Math.round(out[1] - i * HOLD_PROMPT_STACK_PX * 3) + 'px) translate(-50%,-100%)');
+    }
+  },
+  toggleHidden(key, el, hidden) { if (this.cache[key] !== hidden) { this.cache[key] = hidden; el.hidden = hidden; } },
   trainingPanel(m) {
     let h = '<b>FRAME DATA</b> (60 fps)<br>' + this.frameDataHtml(m.lastMove);
     const a = m.fighters[0];
     h += '<br><b>STYLE</b> ' + this.styleLine(a) + '<br><b>Dummy style</b> ' + this.styleLine(m.fighters[1]);
     h += '<br><b>COMBO</b> ' + a.comboHits + ' hits / ' + Math.round(a.comboDamage) + ' dmg<br><b>Dummy:</b> ' + dummyLabel(m);
+    if (m.scenarioNo === 6) h += '<br><b>HOLD PRACTICE</b> ' + (styleCanSubmit(a.profile) ? 'Step to the dummy and press Grapple, then tap Grapple. The dummy stays down; set it to Easy to Expert and it taps Defend to escape.' : 'Your style has no holds (see the Move list). Pick ' + esc(submissionStyleText()) + ' to try one.');
     h += '<br><b>Objects:</b> ' + (() => { const c = Arena.statusCounts(); return c.intact + ' intact, ' + c.damaged + ' damaged, ' + c.destroyed + ' destroyed'; })();
     this.setHtml('train', this.dom.training, h);
   },
@@ -13209,7 +13495,7 @@ function testApi() {
     SETTINGS_REVISION, SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE,
     SHARE_FIELD_COUNT_ITEMS, SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES,
     SKIP_ARM_TICKS, SP, STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRINGS, STRING_MAX_STEPS, STYLE_FAMILY_LABEL, STYLE_STRINGS,
-    STYLE_THROWS, SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SURVIVAL_PEAK, SURVIVAL_TIMER, SWAY_COST, SWAY_IFRAME_TICKS,
+    STYLE_TECH, STYLE_THROWS, SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SURVIVAL_PEAK, SURVIVAL_TIMER, SWAY_COST, SWAY_IFRAME_TICKS,
     SWAY_PERFECT_TICKS, SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP,
     TACKLE_MOVE, TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS,
     TOKEN_PATIENCE_TICKS, TOUCH_BUTTONS, TOUCH_CONTEXT_ACTIONS, TOUCH_LABELS, TOUCH_LAYOUT, TOUCH_RUN_TICKS, TRANSITIONS, UI,
@@ -13220,7 +13506,7 @@ function testApi() {
     randomBody, randomCustom, randomItems, resolveLook, shareChecksum, stringsFor, styleFor, submissionStyleText, throwFor, toBase64Url,
     touchLayoutCss, touchLockVisible, touchUseVisible, trimToBudget, unlockRuleText, validateCustom, weightClass, weightFromBuild,
     wrapAngle,
-    BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, heldLabel, moveById, weaponTable,
+    BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, WEAPON_SWINGS, THROW_HAND, THROW_ANIM_TICKS, GROUND_NOTES, HOLD_PROMPT_RANGE, SCENARIOS, SUBMIT_CONTEST_FLOOR, SUBMIT_ESCAPE_GOAL, SUBMIT_MIN_STAMINA, SUBMIT_GAP, SUBMIT_ESCAPE_TAP, SUBMIT_HOLD_TAP, SUBMIT_STAM_FLOOR, SUBMIT_TAP_COST, SUBMIT_DRIFT, SUBMIT_DMG_START, SUBMIT_DMG_END, SUBMIT_STAM_DRAIN, SUBMIT_FLASH_TICKS, SUBMIT_REST_TICKS, SUBMIT_AFTER_LOCK, SUBMIT_ESCAPE_LOCK, SUBMIT_LEVEL_GAP, HOLD_PROMPT_STACK_PX, ITEM_BREAK_AHEAD, ITEM_BREAK_HEIGHT, POSE_SCRATCH, FREE_SET, heldLabel, moveById, weaponTable,
     AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
     CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
     get: { controlsChanged: () => controlsChanged },

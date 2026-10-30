@@ -26,7 +26,7 @@ const {
   REFRESH_SETTLE_FRAMES, RETREAT_EXTRA, ROSTER, ROSTER_BY_ID, ROUND_BANNER_TICKS, RUMBLE_KO, S, SCALE_MAX, SCALE_MIN, SETTINGS_REVISION,
   SETTING_DEFS, SHARE_FIELD_COUNT, SHARE_FIELD_COUNT_BODY, SHARE_FIELD_COUNT_DEFENSE, SHARE_FIELD_COUNT_FACE, SHARE_FIELD_COUNT_ITEMS,
   SHARE_FIELD_COUNT_STYLE, SHARE_LOOK_KEYS, SHARE_MAX_LENGTH, SHARE_PREFIX, SIDESTEP_COST, SKIN_SWATCHES, SKIP_ARM_TICKS, SP,
-  STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRINGS, STRING_MAX_STEPS, STYLE_FAMILY_LABEL, STYLE_STRINGS, STYLE_THROWS,
+  STEP_HEIGHT, STORE_MAX_LENGTH, STRIKE_BUILDERS, STRINGS, STRING_MAX_STEPS, STYLE_TECH, STYLE_FAMILY_LABEL, STYLE_STRINGS, STYLE_THROWS,
   SUBMISSION_STYLES, SUBMIT_MAX_TICKS, SUBMIT_RANGE, SURVIVAL_PEAK, SURVIVAL_TIMER, SWAY_COST, SWAY_IFRAME_TICKS, SWAY_PERFECT_TICKS,
   SWAY_RECOVERY_TICKS, SWAY_TOTAL_TICKS, Settings, Showcase, SimRunner, Store, TACKLE_BLOCK_STUN, TACKLE_MIN_GAP, TACKLE_MOVE,
   TACKLE_STOP_LOCK, TARGET_FRAME_MS, TEAM_ENEMIES, TEAM_PLAYERS, THIGH, THROW_DIRS, THROW_POSES, THROW_SETS, TOKEN_PATIENCE_TICKS,
@@ -39,7 +39,7 @@ const {
   touchLayoutCss, touchLockVisible, touchUseVisible, trimToBudget, unlockRuleText, validateCustom, weightClass, weightFromBuild,
   wrapAngle,
   CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
-  BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, heldLabel, moveById, weaponTable,
+  BLIND_TICKS, CARRY_WALK, ITEM_MAX, PICKUP_MOVES, PICKUP_TAKE_TICK, PICKUP_TICKS, SHATTER_STUN, SPRAY_CHARGES, THROW_LOCK_TICKS, WEAPONS, WEAPON_MOVES, WEAPON_STEPS, WEAPON_SWINGS, THROW_HAND, THROW_ANIM_TICKS, GROUND_NOTES, HOLD_PROMPT_RANGE, SCENARIOS, SUBMIT_CONTEST_FLOOR, SUBMIT_ESCAPE_GOAL, SUBMIT_MIN_STAMINA, SUBMIT_GAP, SUBMIT_ESCAPE_TAP, SUBMIT_HOLD_TAP, SUBMIT_STAM_FLOOR, SUBMIT_TAP_COST, SUBMIT_DRIFT, SUBMIT_DMG_START, SUBMIT_DMG_END, SUBMIT_STAM_DRAIN, SUBMIT_FLASH_TICKS, SUBMIT_REST_TICKS, SUBMIT_AFTER_LOCK, SUBMIT_ESCAPE_LOCK, SUBMIT_LEVEL_GAP, HOLD_PROMPT_STACK_PX, ITEM_BREAK_AHEAD, POSE_SCRATCH, heldLabel, moveById, weaponTable,
   AI_HAZARD_RANGE, BOTTLE_SHARD_R, HAZARDS, HAZARD_LAND_TICKS, HAZARD_SHARD_MAX, HAZARD_SHARD_TICKS, RING_APRON, WAVE_SPREAD, AI_HAZARD_BAIT, WAVE_WAIT_MAX,
 } = api;
 
@@ -945,6 +945,106 @@ const SelfTest = {
       const standDummy = escapes(() => new DummyController(ROSTER_BY_ID.kai, 'stand'), 4), aiDummy = escapes(() => new DummyController(ROSTER_BY_ID.kai, 'expert'), 4);
       const ok = wrestler >= 3 && wrestler > easy && kickboxer === 0 && boxer === 0 && hard >= 5 && hard > easyVictim && standDummy === 0 && aiDummy >= 3;
       return ok ? true : JSON.stringify({ wrestler, easy, kickboxer, boxer, hard, easyVictim, standDummy, aiDummy });
+    });
+    /* ----- submissions made clear (P5-08): the prompt, the meter, the Move list / Help entry per style and Training scenario 6 ----- */
+    const idle = () => {};
+    test('Submission prompt: a fighter whose style can hold is told so over a knocked-down foe: HOLD in reach, STEP CLOSER up to 2.7 m, TOO TIRED with no stamina, ANOTHER LEVEL when the foe lies higher or lower, the foe is the fighter\'s target, nothing while the fighter is busy, a second human (Versus) gets one too; nothing for a style without holds, a standing foe, a held foe or a foe farther away', () => {
+      const problems = [], m = holdMatch({}, idle, idle), a = m.fighters[0], v = m.fighters[1];
+      a.target = v;   // the foe a Grapple press acts on (MatchSim.assignTargets sets it every tick)
+      const prompt = () => { const foe = UI.holdTarget(m, a); return foe ? UI.holdPromptFor(m, a, foe) : null; };
+      const near = prompt();
+      if (!near || near.kind !== 'ready' || !near.html.includes('HOLD') || !near.html.includes('PIN')) problems.push('in reach: ' + JSON.stringify(near));
+      self.place(m, 2.0); const step = prompt();
+      if (!step || step.kind !== 'near' || !step.html.includes('STEP CLOSER')) problems.push('step closer: ' + JSON.stringify(step));
+      self.place(m, HOLD_PROMPT_RANGE + 0.3); if (prompt()) problems.push('beyond ' + HOLD_PROMPT_RANGE + ' m');
+      self.place(m, 1.0); a.stam = SUBMIT_MIN_STAMINA - 1; const tired = prompt();
+      if (!tired || !tired.html.includes('TOO TIRED')) problems.push('tired: ' + JSON.stringify(tired));
+      a.stam = a.maxStam; v.submitDone = true; if (prompt()) problems.push('a foe that was held this knockdown'); v.submitDone = false;
+      v.pinnedBy = m.fighters[0]; if (prompt()) problems.push('a foe being held'); v.pinnedBy = null;
+      a.profile = Object.assign({}, a.profile, { moveStyle: 'kickboxer' }); if (UI.holdTarget(m, a)) problems.push('a style without holds sees a prompt');
+      a.profile = Object.assign({}, a.profile, { moveStyle: 'bjj' }); if (!UI.holdTarget(m, a) || !UI.holdPromptFor(m, a, v).html.includes('ARMBAR')) problems.push('BJJ prompt names the hold');
+      const standing = mk({ playerId: 'dmitri', opponentId: 'kai' }, idle, idle); self.place(standing, 1.0);
+      if (UI.holdTarget(standing, standing.fighters[0])) problems.push('a standing foe');
+      a.target = null; if (UI.holdTarget(m, a)) problems.push('the prompt is about a foe that is not the fighter\'s target'); a.target = v;   // the Grapple press acts on the target, so the prompt follows it
+      for (const [state, lock] of [[S.HIT, 0], [S.ATTACK, 0], [S.STAGGER, 0], [S.IDLE, 8]]) { a.state = state; a.lock = lock; if (prompt()) problems.push('a prompt while busy (' + state + ' lock ' + lock + ')'); }
+      a.state = S.IDLE; a.lock = 0; if (!prompt()) problems.push('no prompt once free');
+      v.y = a.y + SUBMIT_LEVEL_GAP + 0.2; const level = prompt(); v.y = a.y;
+      if (!level || !level.html.includes('ANOTHER LEVEL') || level.html.includes('STEP CLOSER')) problems.push('level gap: ' + JSON.stringify(level));
+      m.dispose();
+      const vs = holdMatch({}, idle, idle); vs.versus = true;
+      vs.controllers[0].human = true; vs.controllers[1].human = true;
+      const p2 = vs.fighters[1], p1 = vs.fighters[0];   // the second human holds, the first lies on the floor
+      p1.setState(S.IDLE); p1.state = S.DOWN; p2.state = S.IDLE; p2.profile = Object.assign({}, p2.profile, { moveStyle: 'wrestler' }); p2.target = p1; p1.target = p2;
+      const prompts = UI.holdPrompts(vs);
+      if (prompts[0] || !prompts[1] || !prompts[1].html.includes('2P') || prompts[1].dy !== HOLD_PROMPT_STACK_PX) problems.push('versus P2 prompt: ' + JSON.stringify(prompts[1] && { html: prompts[1].html, dy: prompts[1].dy }));
+      vs.dispose();
+      if (UI.dom.holdPrompt && (!UI.dom.holdPrompt2 || !UI.dom.holdMeter || !UI.dom.holdMeter2)) problems.push('prompt and meter elements');
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Submission meter: a hold in progress shows how close the held fighter is to free (empty at the holder\'s lead cap, full at the escape goal), the seconds left, the hold name and who taps what; the HUD update runs through a hold without error', () => {
+      const problems = [], m = holdMatch({}, once(2, 'grapple'), idle), a = m.fighters[0], v = m.fighters[1];
+      self.run(m, 8);
+      if (a.state !== S.SUBMIT) problems.push('no hold');
+      m.controllers[0].human = true; m.controllers[1].human = true;
+      a.holdContest = SUBMIT_CONTEST_FLOOR; const low = UI.holdMeterFor(m, a);
+      a.holdContest = SUBMIT_ESCAPE_GOAL; const full = UI.holdMeterFor(m, a);
+      a.holdContest = (SUBMIT_CONTEST_FLOOR + SUBMIT_ESCAPE_GOAL) / 2; const mid = UI.holdMeterFor(m, a);
+      if (low.progress !== 0 || full.progress !== 1 || Math.abs(mid.progress - 0.5) > 1e-9) problems.push('progress ' + [low.progress, mid.progress, full.progress]);
+      if (!(low.left > 3.5 && low.left <= SUBMIT_MAX_TICKS / 60) || !mid.html.includes('width:50%') || !mid.html.includes('ESCAPE') || !mid.html.includes('HELD') || !mid.html.includes('PIN')) problems.push('html ' + mid.html);
+      if (!mid.html.includes('TO ESCAPE') || !mid.html.includes('TO SQUEEZE') || (mid.html.match(/class="tap"/g) || []).length !== 2) problems.push('who taps what, a line each');
+      m.controllers[0].human = false; if (UI.holdMeterFor(m, a).html.includes('TO SQUEEZE')) problems.push('a CPU holder is told to squeeze');
+      try { if (UI.dom.holdPrompt) UI.holdUi(m); a.holdTicks = SUBMIT_MAX_TICKS; UI.holdMeterFor(m, a); } catch (e) { problems.push('holdUi ' + e.message); }
+      if (v.pinnedBy !== a) problems.push('victim not held');
+      m.dispose();
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Training scenario 6: the dummy lies on the floor within reach for longer than a hold lasts, a hold style can start one at once, and the training panel says what to do (or that the style has no holds)', () => {
+      const problems = [];
+      if (SCENARIOS.length !== 6 || !SCENARIOS[5].startsWith('6:')) problems.push('scenario list');
+      const m = mk({ mode: 'training', playerId: 'dmitri', opponentId: 'kai' }, once(14, 'grapple'), idle);
+      m.scenario(6);
+      const a = m.fighters[0], b = m.fighters[1];
+      if (b.state !== S.DOWN || Math.hypot(a.x - b.x, a.z - b.z) > SUBMIT_RANGE || m.scenarioNo !== 6) problems.push('set up: ' + b.state);
+      self.run(m, 30);
+      if (a.state !== S.SUBMIT || b.pinnedBy !== a) problems.push('no hold from the scenario (' + a.state + ')');
+      if (UI.dom.training) { UI.trainingPanel(m); if (!UI.dom.training.innerHTML.includes('HOLD PRACTICE') || !UI.dom.training.innerHTML.includes('press Grapple') || !UI.dom.training.innerHTML.includes('stays down')) problems.push('panel text'); }
+      m.dispose();
+      const lone = mk({ mode: 'training', playerId: 'dmitri', opponentId: 'kai' }, idle, idle); lone.scenario(6); self.run(lone, SUBMIT_MAX_TICKS + 60);
+      if (lone.fighters[1].state !== S.DOWN) problems.push('the dummy got up after ' + (SUBMIT_MAX_TICKS + 60) + ' ticks');
+      lone.dispose();
+      for (const level of ['easy', 'normal', 'hard', 'expert']) {   // a CPU dummy presses Defend: that used to get it up in about 0.4 s
+        const m2 = mk({ mode: 'training', playerId: 'dmitri', opponentId: 'kai' }, idle); m2.controllers[1] = new DummyController(ROSTER_BY_ID.kai, level); m2.scenario(6); self.run(m2, SUBMIT_MAX_TICKS);
+        if (m2.fighters[1].state !== S.DOWN) problems.push('the ' + level + ' dummy got up (' + m2.fighters[1].state + ')');
+        m2.dispose();
+      }
+      const later = mk({ mode: 'training', playerId: 'dmitri', opponentId: 'kai' }, idle); later.controllers[1] = new DummyController(ROSTER_BY_ID.kai, 'expert'); later.scenario(6);   // keepDown lasts one knockdown
+      const dummy = later.fighters[1]; dummy.stam = dummy.maxStam; dummy.downMult = 1; dummy.stateTicks = dummy.downTicks();   // the scenario's knockdown ends
+      self.run(later, 4);
+      if (dummy.keepDown || dummy.state === S.DOWN) problems.push('keepDown outlives the knockdown (' + dummy.keepDown + ' ' + dummy.state + ')');
+      self.run(later, 80); dummy.stam = dummy.maxStam; dummy.setState(S.HIT); dummy.setState(S.DOWN); dummy.groundHits = 0; dummy.downMult = 1;   // knocked down again later, a CPU dummy that presses Defend gets up quickly
+      let rose = -1; for (let i = 0; i < 40 && rose < 0; i++) { later.step(); if (dummy.state !== S.DOWN) rose = i; }
+      if (rose < 0) problems.push('a later knockdown: the dummy cannot quick-rise');
+      later.dispose();
+      const escape = mk({ mode: 'training', playerId: 'dmitri', opponentId: 'kai' }, once(14, 'grapple')); escape.controllers[1] = new DummyController(ROSTER_BY_ID.kai, 'expert'); escape.scenario(6);
+      const log = self.capture(['submissionEscape']); self.run(escape, SUBMIT_MAX_TICKS); log.stop();
+      if (log.submissionEscape.length < 1) problems.push('the expert dummy never escaped the hold');
+      escape.dispose();
+      const striker = mk({ mode: 'training', playerId: 'kai', opponentId: 'dmitri' }, idle, idle); striker.scenario(6);
+      if (UI.dom.training) { UI.trainingPanel(striker); if (!UI.dom.training.innerHTML.includes('no holds')) problems.push('striker panel text'); }
+      striker.dispose();
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Submission help: the Move list and About & Help both explain how a hold works with a line for each of the 16 styles (holds and ground game); the six hold styles have their own line, the others say they have no hold', () => {
+      const problems = [];
+      if (Object.keys(GROUND_NOTES).sort().join() !== [...SUBMISSION_STYLES].sort().join()) problems.push('a note per hold style');
+      for (const [name, html] of [['Move list', UI.screen_moves()], ['About & Help', UI.screen_credits()]]) {
+        if (!html.includes('Holds on a downed opponent') || !html.includes('scenario 6') || !html.includes('STEP CLOSER') || !html.includes('Press Grapple') || !html.includes('Every hold plays the same way')) problems.push(name + ' text');
+        for (const id of MOVE_STYLE_IDS) {
+          const s = MOVE_STYLE[id];
+          if (!html.includes(esc(s.label)) || (s.submit.length ? !html.includes(esc(GROUND_NOTES[id])) || !html.includes(esc(s.submit.join(', '))) : !html.includes('No hold. Let the foe stand up'))) problems.push(name + ' line for ' + id);
+        }
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
     });
     test('Weight classes: derived from height and build, 5 classes, the heaviest presets are 2+ classes above the lightest', () => {
       const classes = {}; for (const r of ROSTER) classes[r.id] = weightClass(r);
@@ -3882,6 +3982,227 @@ const SelfTest = {
       if (maxGap(hold.wrestler, hold.judoka) > 0 || maxGap(hold.bjj, hold.mma) > 0) problems.push('shared holds differ');
       for (const id of HOLD_STYLES) if (!hold[id].every(Number.isFinite)) problems.push('hold ' + id + ' NaN');
       return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    /* ----- attack animation audit (P5-06): the poses only, no tick, reach or damage ----- */
+    const techFighter = (style, noTech) => { const f = styleFighter(style); f.motion.noTech = !!noTech; return f; };
+    /* The fighter at a tick of a move (default: the first active tick), pose and key points copied out (yaw 0: +z is forward, key points 3-5 chest, 9-11 left hand, 12-14 right hand, 15-20 feet). */
+    const techFrame = (style, id, noTech, tick) => {
+      const f = techFighter(style, noTech), mv = ATTACKS[id];
+      f.state = S.ATTACK; f.move = mv; f.moveTick = tick === undefined ? mv.startup + 1 : tick; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.whiffExtra = 0;
+      f.attackPose(); f.skeleton(0, 0, 0, 0, false);
+      return { pose: Float32Array.from(f.pose), pts: Float32Array.from(f.pts), guard: Float32Array.from(f.motion.guard) };
+    };
+    test('Technique: every style throws its hands and legs its own way: its poses differ from the same style without the P5-06 technique and no technique is left empty', () => {
+      const problems = [], KEYS = ['arm', 'off', 'sw', 'leg', 'base', 'front', 'rear', 'lean', 'twist', 'roll', 'head', 'fwd', 'drop', 'wind', 'pivot'];
+      if (Object.keys(STYLE_TECH).sort().join() !== MOVE_STYLE_IDS.slice().sort().join()) problems.push('a row per style');
+      for (const id in STYLE_TECH) for (const group in STYLE_TECH[id]) {
+        if (group === 'use') { for (const anim in STYLE_TECH[id].use) if (!STRIKE_BUILDERS[anim] || !STRIKE_BUILDERS[STYLE_TECH[id].use[anim]]) problems.push(id + ' use ' + anim); continue; }
+        for (const key in STYLE_TECH[id][group]) if (!KEYS.includes(key)) problems.push(id + '.' + group + '.' + key);
+      }
+      for (const id of MOVE_STYLE_IDS) {
+        let punch = 0, kick = 0;
+        for (const move of ['jab', 'cross', 'hook', 'uppercut']) punch = Math.max(punch, maxGap(techFrame(id, move, false).pose, techFrame(id, move, true).pose));
+        for (const move of ['front_kick', 'roundhouse', 'low_kick']) kick = Math.max(kick, maxGap(techFrame(id, move, false).pose, techFrame(id, move, true).pose));
+        if (punch < 0.4) problems.push(id + ' punches as before (' + punch.toFixed(2) + ')');
+        if (kick < 0.5) problems.push(id + ' kicks as before (' + kick.toFixed(2) + ')');
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Technique: no two styles throw the cross or the round kick with the same body (every pair differs by 0.25 rad or more in some joint)', () => {
+      const problems = [], poses = {};
+      for (const id of MOVE_STYLE_IDS) poses[id] = ['cross', 'roundhouse'].map((move) => techFrame(id, move, false).pose);
+      for (let i = 0; i < MOVE_STYLE_IDS.length; i++) for (let j = i + 1; j < MOVE_STYLE_IDS.length; j++) {
+        const a = MOVE_STYLE_IDS[i], b = MOVE_STYLE_IDS[j];
+        const cross = maxGap(poses[a][0], poses[b][0]), kick = maxGap(poses[a][1], poses[b][1]);
+        if (cross < 0.25) problems.push(a + ' / ' + b + ' cross ' + cross.toFixed(2));
+        if (kick < 0.25) problems.push(a + ' / ' + b + ' round kick ' + kick.toFixed(2));
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    /* The fight camera (measured in a 1v1 at 1280 x 720: distance about 6.4, elevation about 0.5, field of view 0.8; a side view): about 133 px for a metre of fighter. */
+    const FIGHT_CAMERA = { dist: 6.4, elev: 0.5, fov: 0.8, height: 720 };
+    const PX_PER_M = FIGHT_CAMERA.height / 2 / (FIGHT_CAMERA.dist * Math.tan(FIGHT_CAMERA.fov / 2));
+    const SCREEN_POINTS = [3, 6, 9, 12, 15, 18, 24, 27, 30, 33];   // key points: chest, head, both hands, both feet, both knees, both elbows
+    /* Where the key points of a pose land on the screen (px; x along the line between the fighters, y up), the fighter standing at the origin. */
+    const screenPoints = (pts) => SCREEN_POINTS.map((i) => [pts[i + 2] * PX_PER_M, (pts[i + 1] * Math.cos(FIGHT_CAMERA.elev) + pts[i] * Math.sin(FIGHT_CAMERA.elev)) * PX_PER_M]);
+    const screenGap = (a, b) => Math.max(...a.map((p, i) => Math.hypot(p[0] - b[i][0], p[1] - b[i][1])));
+    test('Technique at the fight camera: at the contact tick of the cross and of the round kick every style differs from the same style without its technique by 28 px or more on the screen (a fifth of a metre) and from every other style by 24 px or more, in some key point (chest, head, hands, feet, knees, elbows)', () => {
+      const problems = [], MIN_OWN = 28, MIN_PAIR = 24;
+      for (const [move, name] of [['cross', 'cross'], ['roundhouse', 'round kick']]) {
+        const shown = {}, plain = {};
+        for (const id of MOVE_STYLE_IDS) { shown[id] = screenPoints(techFrame(id, move, false).pts); plain[id] = screenPoints(techFrame(id, move, true).pts); }
+        for (const id of MOVE_STYLE_IDS) { const gap = screenGap(shown[id], plain[id]); if (gap < MIN_OWN) problems.push(id + ' ' + name + ' ' + gap.toFixed(0) + ' px from its plain pose'); }
+        for (let i = 0; i < MOVE_STYLE_IDS.length; i++) for (let j = i + 1; j < MOVE_STYLE_IDS.length; j++) {
+          const gap = screenGap(shown[MOVE_STYLE_IDS[i]], shown[MOVE_STYLE_IDS[j]]);
+          if (gap < MIN_PAIR) problems.push(MOVE_STYLE_IDS[i] + ' / ' + MOVE_STYLE_IDS[j] + ' ' + name + ' ' + gap.toFixed(0) + ' px');
+        }
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Technique: the guard hand does what the art does during a cross: up at the face (Boxing, Kickboxing, Muay Thai, Wing Chun, Krav Maga), pulled back to the ribs (Karate hikite), forward on the centre line (Wing Chun), reaching for the collar (Judo, Sambo), low and forward (Wrestling, Brazilian Jiu-Jitsu), dropped (Brawler)', () => {
+      const problems = [], hand = (id) => { const p = techFrame(id, 'cross', false).pts; return { y: p[10], z: p[11], gap: p[14] - p[11], chestY: p[4] }; };   // the left (guard) hand in metres: height and distance in front of the body, and how far behind the punching hand it is
+      const check = (id, ok, why) => { const h = hand(id); if (!ok(h)) problems.push(id + ' ' + why + ' (y ' + h.y.toFixed(2) + ' z ' + h.z.toFixed(2) + ' gap ' + h.gap.toFixed(2) + ')'); };
+      for (const id of ['boxer', 'kickboxer', 'muaythai', 'wingchun', 'kravmaga']) check(id, (h) => h.y >= 1.55, 'guard hand below the face');
+      check('karateka', (h) => h.gap >= 0.6 && h.y <= 1.2, 'hikite not at the ribs');
+      check('wingchun', (h) => h.gap <= 0.2, 'hands not together on the centre line');
+      for (const id of ['judoka', 'sambo']) check(id, (h) => h.z >= 0.25, 'no reach for the collar');
+      for (const id of ['wrestler', 'bjj']) check(id, (h) => h.y <= 0.8 && h.z >= 0.15, 'hands not low and forward');
+      if (hand('brawler').y > hand('boxer').y - 0.2) problems.push('brawler guard hand not dropped below the boxer\'s');
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Technique: the legs do what the art does during a round kick: the Muay Thai and Taekwondo kicker leans back and straightens the support leg, the Capoeira body goes low, the Brawler winds up big and Wing Chun and Krav Maga hardly at all', () => {
+      const problems = [], lean = (id) => techFrame(id, 'roundhouse', false).pose[J.torsoLean], plain = (id) => techFrame(id, 'roundhouse', true).pose[J.torsoLean];
+      for (const id of ['muaythai', 'taekwondo']) if (lean(id) > plain(id) - 0.1) problems.push(id + ' lean ' + lean(id).toFixed(2) + ' vs ' + plain(id).toFixed(2));
+      for (const id of ['muaythai', 'taekwondo']) { const f = techFrame(id, 'roundhouse', false), g = techFrame(id, 'roundhouse', true); if (f.pose[J.knL] > g.pose[J.knL] - 0.09) problems.push(id + ' support knee'); }   // the support leg of a right kick is the left one
+      if (lean('capoeira') < plain('capoeira') + 0.4) problems.push('capoeira body not low');
+      const windUp = (id, move) => { const mv = ATTACKS[move], f = techFrame(id, move, false, Math.round(mv.startup * 0.45)); return Math.abs(f.pose[J.shRx] - f.guard[J.shRx]); };   // the right striking arm of the cross
+      if (!(windUp('brawler', 'cross') > 2.5 * windUp('wingchun', 'cross'))) problems.push('wind-up ' + windUp('brawler', 'cross').toFixed(2) + ' vs ' + windUp('wingchun', 'cross').toFixed(2));
+      if (!(windUp('kravmaga', 'cross') < windUp('boxer', 'cross'))) problems.push('Krav Maga winds up like Boxing');
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Technique: every move of every style is finite on every tick and no foot sinks below the floor more than the plain pose does (0.05 m of margin)', () => {
+      const problems = [];
+      for (const id of MOVE_STYLE_IDS) for (const key in ATTACKS) {
+        const mv = ATTACKS[key];
+        if (mv.type !== 'strike' || mv.ctx === 'air') continue;
+        let low = 9, plainLow = 9;
+        for (let t = 0; t <= mv.startup + mv.active + mv.recovery; t += 2) {
+          const f = techFrame(id, key, false, t), p = techFrame(id, key, true, t);
+          if (!f.pose.every(Number.isFinite)) { problems.push(id + ' ' + key + ' NaN'); break; }
+          low = Math.min(low, f.pts[16], f.pts[19]); plainLow = Math.min(plainLow, p.pts[16], p.pts[19]);
+        }
+        if (low < Math.min(plainLow, -0.03) - 0.05) problems.push(id + ' ' + key + ' foot ' + low.toFixed(3));
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    /* ----- weapon attack animations (P5-07): the poses only, never the move rows ----- */
+    /* fnv1a of every gameplay field of the attack rows, the item move rows, the items, the string tables, the throws, the style fields that decide play and the submission constants (everything except the
+       visual fields in VISUAL_FIELDS), taken from the code of commit 3b006f3, before P5-06 (git show of breakpoint.html): the P5 animation work is visual only. */
+    const VISUAL_FIELDS = ['name', 'anim', 'swing', 'parts', 'hex', 'hold', 'tilt', 'len'];
+    const MOVE_FINGERPRINT_BEFORE_P506 = 'attacks:18840380 items:707883862 weapons:3785869874 strings:1188394447 styleStrings:3626361966 throws:4268682286 styleThrows:369119152 style:2002661752 submit:2781949150';
+    const moveFingerprint = () => {
+      const canon = (value) => JSON.stringify(value, (key, v) => {
+        if (VISUAL_FIELDS.includes(key)) return undefined;
+        if (v && typeof v === 'object' && !Array.isArray(v)) return Object.keys(v).sort().reduce((o, k) => { o[k] = v[k]; return o; }, {});
+        return v;
+      });
+      const style = {}; for (const id of MOVE_STYLE_IDS) { const s = MOVE_STYLE[id]; style[id] = { moves: s.moves, throws: s.throws, defense: s.defense, submit: s.submit }; }
+      const submit = [SUBMIT_MAX_TICKS, SUBMIT_RANGE, SUBMIT_GAP, SUBMIT_MIN_STAMINA, SUBMIT_ESCAPE_GOAL, SUBMIT_CONTEST_FLOOR, SUBMIT_ESCAPE_TAP, SUBMIT_HOLD_TAP, SUBMIT_STAM_FLOOR, SUBMIT_TAP_COST, SUBMIT_DRIFT, SUBMIT_DMG_START, SUBMIT_DMG_END, SUBMIT_STAM_DRAIN, SUBMIT_FLASH_TICKS, SUBMIT_REST_TICKS, SUBMIT_AFTER_LOCK, SUBMIT_ESCAPE_LOCK];
+      const parts = { attacks: ATTACKS, items: WEAPON_MOVES, weapons: WEAPONS, strings: STRINGS, styleStrings: STYLE_STRINGS, throws: THROW_SETS, styleThrows: STYLE_THROWS, style, submit };
+      return Object.keys(parts).map((k) => k + ':' + fnv1a(canon(parts[k]))).join(' ');
+    };
+    const weaponFighter = (id) => { const f = styleFighter('kickboxer'); f.item = { id, dur: 99, sprays: 3 }; return f; };
+    /* The fighter holding an item at a tick of one of its moves; the key points are copied out (21-23 = the far end of the item) and, like the hit ranges, they are for a standard body (scale 1). */
+    const weaponFrame = (moveId, tick) => {
+      const mv = WEAPON_MOVES[moveId], f = weaponFighter(mv.wpn);
+      f.state = S.ATTACK; f.move = mv; f.moveTick = tick === undefined ? mv.startup + 1 : tick; f.mStartup = mv.startup; f.mActive = mv.active; f.mRecovery = mv.recovery; f.whiffExtra = 0;
+      f.attackPose(); f.skeleton(0, 0, 0, 0, false);
+      return { pose: Float32Array.from(f.pose), pts: Float32Array.from(f.pts), bend: f.chainBend, scale: f.scale };
+    };
+    const WEAPON_SHAPES = ['one', 'oneBack', 'thrust', 'over', 'two', 'overTwo', 'thrustTwo', 'sweep'];
+    test('Weapons: every item step has a swing of its own shape (poke, forehand, backhand, chop, two-handed, sweep), different from the bare-hand punch it used to borrow and from the other shapes', () => {
+      const problems = [], shapes = {};
+      if (Object.keys(WEAPON_SWINGS).sort().join() !== WEAPON_SHAPES.slice().sort().join()) problems.push('shape table');
+      for (const key in WEAPON_MOVES) {
+        const mv = WEAPON_MOVES[key];
+        if (!WEAPON_SWINGS[mv.swing]) { problems.push(key + ' swing ' + mv.swing); continue; }
+        shapes[mv.swing] = shapes[mv.swing] || key;
+        const bare = styleFighter('kickboxer'); bare.state = S.ATTACK; bare.move = ATTACKS.cross; bare.moveTick = ATTACKS.cross.startup + 1; bare.mStartup = ATTACKS.cross.startup; bare.mActive = 3; bare.mRecovery = 13; bare.whiffExtra = 0; bare.attackPose();
+        if (maxGap(weaponFrame(key).pose, bare.pose) < 0.3) problems.push(key + ' looks like a punch');
+      }
+      for (const shape of WEAPON_SHAPES) if (!shapes[shape]) problems.push('no move uses ' + shape);
+      const ids = Object.values(shapes);
+      for (let i = 0; i < ids.length; i++) for (let j = i + 1; j < ids.length; j++) if (maxGap(weaponFrame(ids[i], WEAPON_MOVES[ids[i]].startup - 3).pose, weaponFrame(ids[j], WEAPON_MOVES[ids[j]].startup - 3).pose) < 0.3) problems.push(ids[i] + ' / ' + ids[j] + ' wind up alike');
+      for (const key of ['stick:1', 'stick:2', 'stick:3', 'bat:1', 'bat:2', 'chair:1', 'chair:2', 'broom:1', 'broom:2']) {   // wind-up, contact and follow-through are three different poses
+        const mv = WEAPON_MOVES[key], a = weaponFrame(key, Math.round(mv.startup * 0.5)).pose, b = weaponFrame(key).pose, c = weaponFrame(key, mv.startup + mv.active).pose;
+        if (maxGap(a, b) < 0.4 || maxGap(b, c) < 0.2) problems.push(key + ' key poses ' + maxGap(a, b).toFixed(2) + ' / ' + maxGap(b, c).toFixed(2));
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Weapons: at contact the far end of the item is where the hit lands: in front of the fighter, at the height the move hits, within 0.15 m of the move\'s reach out (at most 0.12 m past it) and inside its width', () => {
+      const problems = [];
+      for (const key in WEAPON_MOVES) {
+        const mv = WEAPON_MOVES[key], w = WEAPONS[mv.wpn];
+        if (w.len < 0.25) continue;   // the bin lid is a shield: no far end
+        const f = weaponFrame(key), x = f.pts[21] / f.scale, y = f.pts[22] / f.scale, z = f.pts[23] / f.scale;
+        const high = mv.h === 'L' ? 0.9 : 1.7, low = mv.h === 'L' ? 0.2 : 0.6;
+        if (z < mv.reach - 0.15 || z > mv.reach + 0.12) problems.push(key + ' ends ' + z.toFixed(2) + ' m out, reach ' + mv.reach.toFixed(2));
+        else if (y < low || y > high) problems.push(key + ' ends ' + y.toFixed(2) + ' m up');
+        else if (Math.abs(x) > mv.width + 0.4) problems.push(key + ' ends ' + x.toFixed(2) + ' m to the side');
+      }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Weapons: a two-handed item stays in both hands through the whole swing, a chop starts above the head, and a sweep ends low', () => {
+      const problems = [];
+      for (const key of ['chair:1', 'chair:2', 'skateboard:1', 'skateboard:2', 'broom:1', 'broom:2']) {
+        const mv = WEAPON_MOVES[key];
+        for (const t of [0, Math.round(mv.startup * 0.55), mv.startup + 1, mv.startup + mv.active, mv.startup + mv.active + mv.recovery]) {   // the key poses and the ends; the few ticks between two key poses are a joint-space blend that drifts off the shaft
+          const p = weaponFrame(key, t).pts, gap = Math.hypot(p[9] - p[12], p[10] - p[13], p[11] - p[14]);
+          if (gap < 0.05 || gap > 0.4) { problems.push(key + ' hands ' + gap.toFixed(2) + ' m apart at tick ' + t); break; }
+        }
+      }
+      for (const key of ['stick:3', 'bat:2', 'chair:2', 'hammer:2']) { const mv = WEAPON_MOVES[key], p = weaponFrame(key, Math.round(mv.startup * 0.5)).pts; if (!(p[13] > 1.7)) problems.push(key + ' wind-up hand ' + p[13].toFixed(2) + ' m'); }
+      if (!(weaponFrame('broom:2', 10).pts[22] < 0.7)) problems.push('broom sweep stays high');
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Weapons: the bike chain is longer than a stick, hangs slack, coils behind the hand, runs out straight at contact and curls on past it', () => {
+      const problems = [], chain = WEAPONS.chain, mv = WEAPON_MOVES['chain:1'];
+      if (!(chain.len >= 1.0)) problems.push('chain ' + chain.len + ' m');
+      const rest = styleFighter('kickboxer'); rest.item = { id: 'chain', dur: 9, sprays: 0 }; rest.state = S.IDLE; rest.computePose();
+      const wind = weaponFrame('chain:1', Math.round(mv.startup * 0.55)).bend, hit = weaponFrame('chain:1').bend, after = weaponFrame('chain:1', mv.startup + mv.active).bend;
+      if (!(rest.chainBend > 0.3 && wind > 1.0 && Math.abs(hit) < 0.05 && after < -0.3)) problems.push('bend ' + [rest.chainBend, wind, hit, after].map((v) => v.toFixed(2)).join(' / '));
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Weapons: a thrown item leaves from the hand: at the release the throwing hand (both hands for a crate) is within 0.3 m of the point the item appears, and a crate is carried in both hands in front of the chest', () => {
+      const problems = [];
+      const handsAt = (cls, anim, item) => {
+        const f = styleFighter('kickboxer'); f.state = S.IDLE; f.animT = 0.37; f.item = item ? { id: item, dur: 9, sprays: 0 } : null; f.throwAnim = anim; f.throwCls = cls;
+        f.computePose(); f.pose.set(f.tp); f.skeleton(0, 0, 0, 0, false);
+        return Float32Array.from(f.pts);
+      };
+      for (const [cls, id] of [['throwable', 'bottle'], ['throwable', 'brick'], ['heavy', 'bat'], ['two', 'chair'], ['two', 'skateboard'], ['carry', 'crate']]) {
+        const p = handsAt(cls, THROW_ANIM_TICKS, null), y = cls === 'carry' ? 1.0 : THROW_HAND;
+        const hand = cls === 'carry' ? [(p[9] + p[12]) / 2, (p[10] + p[13]) / 2, (p[11] + p[14]) / 2] : [p[12], p[13], p[14]];
+        const gap = Math.hypot(hand[0], hand[1] - y, hand[2] - 0.45);
+        if (gap > 0.3) problems.push(id + ' released ' + gap.toFixed(2) + ' m from its spawn point');
+      }
+      const held = handsAt('', 0, 'crate');   // carried: the left hand is on the left of the body and the right on the right, both in front and at the height of the chest
+      if (!(held[9] > 0.15 && held[12] < -0.15 && held[11] > 0.2 && held[14] > 0.2 && held[10] > 0.7 && held[10] < 1.3 && held[13] > 0.7 && held[13] < 1.3)) problems.push('crate hands (' + [9, 10, 11, 12, 13, 14].map((i) => held[i].toFixed(2)).join(' ') + ')');
+      const idlePts = handsAt('', 0, null), heldPts = handsAt('', 0, 'bottle'), midPts = handsAt('bottle', Math.round(THROW_ANIM_TICKS / 2), null), releasePts = handsAt('throwable', THROW_ANIM_TICKS, null);
+      const handGap = (p, q) => Math.hypot(p[12] - q[12], p[13] - q[13], p[14] - q[14]);   // the right hand
+      if (handGap(idlePts, heldPts) < 0.1) problems.push('a held bottle is held like nothing');   // the held pose raises the hand ready to throw
+      const toRelease = handGap(heldPts, releasePts), halfway = handGap(midPts, releasePts);
+      if (!(toRelease > 0.15 && halfway > 0.02 && halfway < toRelease - 0.02)) problems.push('the arm does not ease back from the release (' + toRelease.toFixed(2) + ' / ' + halfway.toFixed(2) + ')');
+      if (!(POSE_SCRATCH instanceof Float32Array) || POSE_SCRATCH.length !== NP) problems.push('scratch pose');
+      const kicker = styleFighter('muaythai'); kicker.state = S.ATTACK; kicker.move = ATTACKS.roundhouse; kicker.moveTick = 5; kicker.mStartup = 11; kicker.mActive = 4; kicker.mRecovery = 19; kicker.whiffExtra = 0; kicker.attackPose();
+      if (!kicker.motion.pivots || kicker.motion.pivots.round === undefined) problems.push('support-foot pivot not cached');
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Weapons: the swings keep both feet on the floor, stay finite on every tick, and change no move row (ticks, damage, reach, width, hit effects of all attacks and item moves are the fingerprint taken before P5-06 and P5-07)', () => {
+      const problems = [];
+      for (const key in WEAPON_MOVES) {
+        const mv = WEAPON_MOVES[key];
+        for (let t = 0; t <= mv.startup + mv.active + mv.recovery; t += 2) {
+          const f = weaponFrame(key, t);
+          if (!f.pose.every(Number.isFinite)) { problems.push(key + ' NaN'); break; }
+          if (Math.min(f.pts[16], f.pts[19]) < -0.04) { problems.push(key + ' foot ' + Math.min(f.pts[16], f.pts[19]).toFixed(3)); break; }
+        }
+      }
+      const now = moveFingerprint();
+      if (now !== MOVE_FINGERPRINT_BEFORE_P506) problems.push('a gameplay field changed: ' + now.split(' ').filter((x, i) => x !== MOVE_FINGERPRINT_BEFORE_P506.split(' ')[i]).join(' '));
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Weapons: an item that wears out in the hand breaks where the fight decides, not where the animation puts the hand: the glass of a bottle lands at a fixed point in front of the fighter whatever the pose', () => {
+      const problems = [], m = mk({ playerId: 'kai', opponentId: 'mara' }, idle, idle), f = m.fighters[0];
+      let at = null; m.glassPatch = (x, z) => { at = [x, z]; };
+      for (const [label, pose] of [['guard', () => {}], ['arm up and back', (p) => { p[J.shRx] = 2.9; p[J.shRz] = 1.2; p[J.torsoTwist] = -1; }], ['arm out front', (p) => { p[J.shRx] = 1.5; p[J.torsoTwist] = 1; p[J.rootFwd] = 0.4; }]]) {
+        f.item = { id: 'bottle', dur: 1, sprays: 0 }; f.computePose(); pose(f.pose); f.skeleton(0, 0, 0, 0, false); at = null;
+        m.breakHeld(f);
+        const want = [f.x + f.fwdX * ITEM_BREAK_AHEAD, f.z + f.fwdZ * ITEM_BREAK_AHEAD];
+        if (!at || Math.hypot(at[0] - want[0], at[1] - want[1]) > 1e-9) problems.push(label + ': glass at ' + JSON.stringify(at) + ' not ' + JSON.stringify(want));
+      }
+      m.dispose();
+      return problems.length ? problems.join('; ') : true;
     });
     /* ----- preset roster (P5-04) ----- */
     const countBy = (list, pick) => list.reduce((acc, item) => { acc[pick(item)] = (acc[pick(item)] || 0) + 1; return acc; }, {});
