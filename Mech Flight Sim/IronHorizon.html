@@ -14405,7 +14405,7 @@ class Platform {
     this.burnT = 0; this.burnDps = 0; this.burnTeam = -1; this.burnOwner = null; this.burnCause = ''; this.burnTick = 0; this.burnFxUntil = 0; this.empCd = 0;
     this.jamT = 0; this.cloakT = 0; this.cloakKeep = false; this.coolT = 0; this.droneT = 0; this.droneTick = 0;
     // P5-03: when it last fired (the Stealth Coating's bloom), the Pulse Scanner's ping left, the Jump Pack's hop left (a hop lands without fall damage), the Repair Torch's hold on a mine
-    this.firedAt = -99; this.scanT = 0; this.hopT = 0; this.hopSafe = false; this.hopY = 0; this.hopYaw = null; this.defuseT = 0; this.defuseAt = null; this.cleared = 0;
+    this.firedAt = -99; this.firedCd = 0; this.scanT = 0; this.hopT = 0; this.hopSafe = false; this.hopY = 0; this.hopYaw = null; this.defuseT = 0; this.defuseAt = null; this.cleared = 0;
     this.loadout = opts.loadout || def.loadout;
     this.buildLoadout(opts.ammoMult || 1);
     // melee (MELEE): the weapon, the strike in a chain, when the strike began (also on co-op guests) and the wind-up left
@@ -15382,7 +15382,7 @@ class Platform {
     const mz = this.muzzle(w, { x: 0, y: 0, z: 0 });
     if (d.kind !== 'beam') { w.clip--; }
     w.warned = false;
-    this.firedAt = W.time;   // a Stealth Coating does nothing for a moment (P5-03)
+    this.firedAt = W.time; this.firedCd = d.cd;   // a Stealth Coating does nothing for a moment (P5-03); the AI's flank rule asks how long ago, against this gun's cooldown
     if (this.cloakT > 0) this.endCloak();   // firing gives a camouflaged platform away
     if (this.coolT <= 0) this.heat += d.heat * (isBurst ? 0.5 : 1);   // Coolant Overdrive: no heat build-up
     if (this.heat >= this.maxHeat) { this.heat = this.maxHeat; this.overheated = true; notify(this, 'OVERHEAT: WEAPONS LOCKED', 'warn'); }
@@ -24169,7 +24169,7 @@ class AIController {
   trackBlocked(dt, t, clear) {
     const p = this.p;
     if (!this.assault || this.profile === 'turret' || this.profile === 'artillery' || p.kind === 'air' || p.kind === 'naval' || t.isProj || p.def.arty) return false;   // only a unit sent against something (a wave): allies, mission groups and engineers fight as they did
-    const sum = t.isStruct ? t.hp : t.hp + (t.armor || 0) + (t.shield || 0), firing = W.time - p.firedAt < 0.4;   // (fired lately: the command flags are cleared before this runs)
+    const sum = t.isStruct ? t.hp : t.hp + (t.armor || 0) + (t.shield || 0), firing = W.time - p.firedAt < Math.max(BD_FIRED, p.firedCd + BD_FIRED_SLACK);   // (fired lately: the command flags are cleared before this runs; a slow gun, a Gauss Rifle or a cannon, fires less often than that, so its window is its cooldown and a little more)
     if (this.bTarget !== t) { this.bTarget = t; this.bSum = sum; this.noProgT = 0; this.blockedT = 0; }
     if (sum < this.bSum - 0.5) this.noProgT = 0; else if (clear && firing) this.noProgT += dt;
     this.bSum = Math.min(this.bSum, sum);
@@ -25025,6 +25025,7 @@ const BD_SCAN_AHEAD = 200;                            // an AI scanner pings whe
 const BD_SEEN = { air: 2200, naval: 1000, ground: 600 };   // how far a unit of that kind makes out a hostile defence platform (m; ground units need a clear line)
 const BD_PIT_REACH = 480, BD_COAST_REACH = 950, BD_HUT_SEEN = 400, BD_HUT_MEMORY = 45;   // a Mortar Pit's and a Coastal Gun's reach (m); an engineer seen repairing this near (m) sends the wave for the hut for this long (s)
 const BD_HOLD = 2, BD_HOLD_R = 100;                   // garrison units that hold by an arming silo, and how near (m)
+const BD_FIRED = 0.4, BD_FIRED_SLACK = 0.2;   // s: a gun counts as fired lately for the longer of BD_FIRED and its cooldown plus BD_FIRED_SLACK (trackBlocked)
 const BD_BLOCKED = 1.5, BD_NOPROG = 4, BD_REPOS = 5;   // s a target out of sight, or shots that do it no harm, go on before the AI repositions; s it does
 const BD_SAM_MARGIN = 700;                            // m a jet keeps beyond a known SAM Site's reach: it cannot turn on the line
 const BD_HUNT = 20;                                   // s after a repositioning that a unit goes on to where it last saw its target
@@ -29546,7 +29547,9 @@ const UI = {
   act_skirmish() { this.show('skirmish'); },
   act_skMap(d) {
     if (menuMapIds().indexOf(d.id) < 0) return;
-    this.skirmish.map = d.id; this.saveSkirmish();
+    this.skirmish.map = d.id;
+    this.skirmish.ownDefs = BaseDef.cleanChoice(this.skirmish.ownDefs, this.skirmish.size, d.id);   // a map with no ship water takes the sea defences off the picks
+    this.saveSkirmish();
     this.cur.keepScroll = true; this.render();
   },
   /* the skirmish setup is remembered as soon as it changes, not only on deployment */
@@ -32861,6 +32864,12 @@ const SelfTest = {
         this.check('a hidden or unknown battlefield cannot be picked', mapDef('testpeaks').hidden && ui.skirmish.map === 'volcano' && writes === 1, ui.skirmish.map);
         const lost = skirmishSetup(Save.sanitize(Object.assign(Save.defaults(), { skirmish: { map: 'atlantis', size: 'large' } })).skirmish);
         this.check('a saved skirmish battlefield that no longer exists falls back to ashfall', lost.map === 'ashfall' && lost.size === 'large' && SAVE_VERSION === 1, lost.map);
+        // the saved sea-defence picks are cleaned when the battlefield changes, not only when the size does
+        const seaUi = Object.assign(Object.create(UI), { skirmish: skirmishSetup({ map: 'archipelago', size: 'large', ownDefs: ['seaField', 'minefield'] }), cur: {}, render() {} });
+        const withSea = seaUi.skirmish.ownDefs.join();
+        seaUi.act_skMap({ id: 'ashfall' });
+        const dryPicks = seaUi.skirmish.ownDefs.join();
+        this.check('changing to a battlefield with no ship water drops the sea-defence picks and keeps the others (was ' + withSea + ', now ' + dryPicks + ')', withSea === 'seaField,minefield' && dryPicks === 'minefield', withSea + ' / ' + dryPicks);
       } finally { Save.data.skirmish = saved.skirmish; Save.persist = saved.persist; delete MAPS.testpeaks; }
     });
     t('momentum collisions', () => {
@@ -37022,6 +37031,16 @@ const SelfTest = {
         return { n: m.ai.reposN, first, maxNoProg, clear: m.ai.losClear, fired: W.time - m.firedAt < 5 };
       })();
       this.check('a mech whose shots do a target in clear sight no harm repositions after a few seconds of it, by the no-harm count (first at ' + flank.first.toFixed(1) + ' s)', flank.n > 0 && flank.first > 2 && flank.maxNoProg > BD_NOPROG * 0.8 && flank.fired, JSON.stringify(flank));
+      // 6b. a slow gun flanks as soon as a fast one: "fired lately" lasts the longer of 0.4 s and the gun's cooldown plus 0.2 s
+      const slowFlank = (cd, ago) => {
+        const ai = mkAi('bulwark', { state: 'approach', reposN: 0, reposUntil: 0, assault: tgt });
+        ai.p.firedCd = cd; ai.p.firedAt = W.time - ago;
+        for (let i = 0; i < 400; i++) ai.trackBlocked(0.02, tgt, true);
+        return ai.reposN;
+      };
+      const slowN = slowFlank(WEAPONS.gauss.cd, 1.2), fastN = slowFlank(WEAPONS.mg.cd, 1.2), fastNow = slowFlank(WEAPONS.mg.cd, 0.3);
+      this.check('a Gauss Rifle (cooldown ' + WEAPONS.gauss.cd + ' s) that fired 1.2 s ago still counts as firing, so shots that do no harm start a flank; a fast gun that fired 1.2 s ago does not, and one that fired 0.3 s ago does', slowN > 0 && fastN === 0 && fastNow > 0, slowN + ' / ' + fastN + ' / ' + fastNow);
+      this.check('the window is the longer of ' + BD_FIRED + ' s and the cooldown plus ' + BD_FIRED_SLACK + ' s, and a platform remembers the cooldown of the gun it fired last', BD_FIRED === 0.4 && BD_FIRED_SLACK === 0.2 && (() => { const m = mkAi('bulwark').p; m.cmd.aimPoint = { x: 0, y: 0, z: 100 }; m.shoot(m.wslots.primaryA, 1); return m.firedCd === m.wslots.primaryA.def.cd; })());
       // 7. a missile break wins over the push off a known SAM Site
       begin(['samSite']);
       bdQuiet();

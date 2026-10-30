@@ -1322,6 +1322,13 @@ Where each slot is drawn, per platform kind, and the budget ("today" counted fro
 
 - Reading of the budget: the largest extra is a mech or a gunship at +8 calls; a large skirmish has about 41 platforms (P0-01), of which fewer than half are usually within 380 m, so the worst case is about +150 to +250 calls per frame against the low preset; P6-02 measures it before anything is ticked.
 
+### P6-02 follow-ups done, P6-02 itself not started in the file (2026-10-30)
+
+- P6-02 stays open: the owner asked to stop at a clean boundary, so the half-built loadout parts (family and utility drawing for mech, soldier and Jackal only) were taken out and the file is as before them. Not built: the other platform kinds, the hangar preview, the co-op state number (`NET_VERSION` 18), the `p6 loadout visuals` self-test group, and the frame-time comparison. The design worked out so far: one allowance of parts and triangles per platform kind (its old loadout parts plus the P6-01 extra), spent primary, secondary, utility; a picture state per platform for guests (rounds 0 to 7, charges 0 to 7, utility active, weapon charging) in one extra number of the snapshot entry.
+- Slow guns flank late (fixed): trackBlocked's "fired lately" window is `max(0.4, weapon cooldown + 0.2)` s (`BD_FIRED`, `BD_FIRED_SLACK`; a platform keeps the cooldown of the gun it fired last in `firedCd`). It differs from 0.4 s only for guns with a cooldown above 0.2 s (Gauss 1.6 s, Railgun 1.2 s, cannons, missiles). Self-test in 'p5 base defences re-review fixes'; it fails on the old window. No protocol change.
+- Stale sea picks (fixed): picking a battlefield (`act_skMap`) cleans the saved base-defence picks for the new map as well as for the size, so a map with no ship water drops Sea Minefield and Coastal Gun. Self-test in 'battlefield picker'; it fails without the fix.
+- Not done: the Jump Pack roof, wall and open-ground times were not re-measured, so the P5-03 / P5-09 numbers stand as written.
+
 ## Appendix D - Audit findings
 
 (Filled by Phase 1 and P10-01. Columns: ID, severity, area, location, reproduction, fix task, status.)
