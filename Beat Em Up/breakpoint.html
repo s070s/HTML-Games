@@ -1272,6 +1272,7 @@ const Inputs = {
   /* The human player steering a fighter, or null for the CPU / dummy. In a co-op fighter i belongs to the i-th seated player. */
   forFighter(index) {
     const match = Game.match;
+    if (match && match.setup) { const slot = match.setup[index]; return slot && slot.human >= 0 ? this.players[slot.human] : null; }   // a lineup (P4-08): the person in that slot reads its own input seat
     if (this.coop && match && match.coop) { const seat = match.coop[index]; return seat ? this.players[seat.slot] : null; }
     return index === 0 ? Input : this.versus && index === 1 ? Input2 : null;
   },
@@ -1342,6 +1343,22 @@ const Inputs = {
     this.applySeats();
     Events.emit('lobby', { kind: 'leave', seat, device });
     return seat;
+  },
+  /* The devices a lineup with 3 or 4 people plays on, in seat order: keyboard 1, then the connected gamepads; when there are too few pads, keyboard 2 takes the second seat. Null when there are not enough devices. */
+  autoDevices(count) {
+    const pads = [];
+    readPads().forEach((pad, i) => { if (pad && pad.connected) pads.push('pad' + i); });
+    if (pads.length >= count - 1) return ['key1'].concat(pads.slice(0, count - 1));
+    if (pads.length >= count - 2) return ['key1', 'key2'].concat(pads.slice(0, count - 2));
+    return null;
+  },
+  /* Seats those devices in order (the person k of a lineup plays seat k) without a join screen; the co-op mode has to be on. Returns false when there are too few devices. */
+  autoSeat(count) {
+    const devices = this.coop ? this.autoDevices(count) : null;
+    if (!devices) return false;
+    for (const device of this.seats.slice()) if (device) this.leave(device);
+    for (const device of devices) this.join(device);
+    return true;
   },
   /* The seat numbers in use, lowest first. */
   seatedSlots() { return this.seats.map((device, seat) => (device ? seat : -1)).filter((seat) => seat >= 0); },
@@ -4994,7 +5011,7 @@ const isBlockState = (s) => s === S.BLOCK_H || s === S.BLOCK_L;
 const AIM_DEADZONE = 0.35;
 const LIFT_DECAY = 9;                  // how fast a released fighter's visual carry height blends away (1/s)
 const SHADOW_RGB = [0, 0, 0];
-const MARKER_RGB = [[0.2, 0.85, 1.0], [1.0, 0.3, 0.55]];
+const MARKER_RGB = [[0.2, 0.85, 1.0], [1.0, 0.3, 0.55], [0.55, 1.0, 0.48], [1.0, 0.7, 0.28], [0.77, 0.61, 1.0], [1.0, 0.9, 0.3], [0.9, 0.95, 1.0], [0.95, 0.25, 0.2]];   // by tint: the first two are the players' and the enemies' discs; a lineup (P4-08) uses all eight, one per team
 /* Throw aim from movement axes (already in the fighter's frame), or null when the stick is neutral. */
 function aimFromIntent(it) {
   const ff = it.fwd, rr = it.side;
@@ -5322,6 +5339,7 @@ class Fighter {
     this.name = profile.name;
     this.index = index;
     this.team = team === undefined ? Math.min(index, 1) : team;   // 0 = players, 1 = enemies (P4-01); the two sides of a 1v1 are teams 0 and 1
+    this.tint = this.team;             // colour of the floor disc and the HUD (MARKER_RGB); a lineup (P4-08) sets its own
     this.stats = deriveStats(profile.attrs);
     this.defense = defenseFor(profile);   // 'block' or 'sway': what the Defend input does for this fighter
     this.applyLook(profile.look);
@@ -6473,7 +6491,7 @@ class Fighter {
     this.skeleton(px, py, pz, yaw, true);
     if (R.shadowMode === 1) R.put(LAYER.ALPHA, MESH.CYL, px, 0.02, pz, 1.1, 0.01, 1.1, 0, 0, 0, SHADOW_RGB, 0.32 * (1 - Math.min(0.7, py * 0.3)), 0, 1, false, 0);
     // floor marker: cyan disc = the players' team, magenta disc = the other team (every enemy of a brawl)
-    R.put(LAYER.ALPHA, MESH.CYL, px, 0.018, pz, 1.5, 0.008, 1.5, 0, 0, 0, MARKER_RGB[this.team], 0.22, 0.6, 1, false, 0);
+    R.put(LAYER.ALPHA, MESH.CYL, px, 0.018, pz, 1.5, 0.008, 1.5, 0, 0, 0, MARKER_RGB[this.tint], 0.22, 0.6, 1, false, 0);
   }
 }
 
@@ -8666,6 +8684,92 @@ const BRAWL_DEFAULT_ENEMIES = 3;
 const COOP_ENEMIES_BASE = 2;          // P4-07: a co-op brawl faces this many enemies plus one per player (1 player: 3, as the debug brawl; 4 players: BRAWL_MAX_ENEMIES)
 const COOP_REVIVE_HP = 0.5;           // the share of its health a knocked-out player comes back with at a stage start (MatchSim.reviveTeam)
 function coopEnemyCount(players) { return Math.min(BRAWL_MAX_ENEMIES, COOP_ENEMIES_BASE + players); }
+/* Match setup (P4-08): the lineup of a Free Fight, Versus or Brawl. A lineup is LINEUP_MIN to LINEUP_MAX slots { id, human, team }: id = the roster fighter, human = a person instead of the CPU, team = 0 for a
+   free-for-all slot (alone on a team of its own) or 1 to 4 for Team A to D. MatchLineup is data only (no input, no screens): it checks a lineup and turns it into the ordered slot list a MatchSim builds its
+   fighters from. Rules, the even-teams handicap and its measurements: Appendix C of the tasklist ("Match setup (P4-08)"). */
+const LINEUP_MAX = 8;                 // P1-05: 8 fighters in the scene in total (BRAWL_MAX_ENEMIES + 2)
+const LINEUP_MIN = 2;
+const LINEUP_HUMANS_MAX = 4;          // one per input seat (Inputs.players)
+const LINEUP_TEAM_LETTERS = ['', 'A', 'B', 'C', 'D'];   // team 0 = a free-for-all slot
+const LINEUP_TEAMS = LINEUP_TEAM_LETTERS.length - 1;
+const LINEUP_TIMERS = [0, 60, 120, 180];   // seconds of the optional clock; 0 = none
+const LINEUP_DEALS = ['ffa', 'players', '2', '3', '4'];   // quick team layouts, see MatchLineup.deal
+const LINEUP_HANDICAP_HP = 0.25, LINEUP_HANDICAP_DMG = 0.25;   // even-teams handicap: a team smaller than the biggest one gets ratio ^ HP times the health and ratio ^ DMG times the damage per fighter (ratio = biggest team / own team); NOT FITTED YET: 1v2 on Hard with a single KAI against two measured the single winning 20% at 0 / 0, 80% at 1 / 0 and at 0.5 / 0.5, 95% at 1 / 1 (40 seeds), so the right values lie between 0 and 0.5
+const TEAM_TINTS = 8;                 // colours for teams: Team A to D keep their own, free-for-all slots take the others
+const MatchLineup = {
+  /* Makes a lineup safe in place: 2 to 8 known fighters, the first slot a person, at most 4 people, teams 0 to 4, a known clock. Returns it. */
+  fix(lineup) {
+    if (!Array.isArray(lineup.slots)) lineup.slots = [];
+    lineup.slots.length = Math.min(lineup.slots.length, LINEUP_MAX);
+    for (let i = 0; i < lineup.slots.length; i++) {
+      const slot = lineup.slots[i] || {};
+      lineup.slots[i] = { id: ROSTER_BY_ID[slot.id] ? slot.id : 'kai', human: !!slot.human, team: Number.isInteger(slot.team) && slot.team >= 0 && slot.team <= LINEUP_TEAMS ? slot.team : 0 };
+    }
+    while (lineup.slots.length < LINEUP_MIN) lineup.slots.push({ id: lineup.slots.length ? 'mara' : 'kai', human: false, team: 0 });
+    lineup.slots[0].human = true;
+    let people = 0;
+    for (const slot of lineup.slots) if (slot.human && ++people > LINEUP_HUMANS_MAX) { slot.human = false; people--; }
+    if (!LINEUP_TIMERS.includes(lineup.timer)) lineup.timer = 0;
+    lineup.handicap = lineup.handicap !== false;
+    if (!LINEUP_DEALS.includes(lineup.deal)) lineup.deal = 'custom';
+    return lineup;
+  },
+  people(lineup) { return lineup.slots.filter((slot) => slot.human).length; },
+  /* The group a slot fights in: its team, or itself for a free-for-all slot. */
+  groupKeys(lineup) { return lineup.slots.map((slot, i) => (slot.team > 0 ? 't' + slot.team : 's' + i)); },
+  /* Whether the lineup can be played in this mode ('free', 'versus' or 'brawl'): { ok, msg }. */
+  check(mode, lineup) {
+    const count = lineup.slots.length, people = this.people(lineup);
+    if (count < LINEUP_MIN || count > LINEUP_MAX) return { ok: false, msg: 'A match needs 2 to ' + LINEUP_MAX + ' fighters' };
+    if (people < 1) return { ok: false, msg: 'A match needs a player' };
+    if (mode === 'versus' && people < 2) return { ok: false, msg: 'Versus needs a second player: set another slot to Player' };
+    if (new Set(this.groupKeys(lineup)).size < 2) return { ok: false, msg: 'Everyone is on one team: nobody to fight' };
+    return { ok: true, msg: '' };
+  },
+  /* True for the plain 1v1 of the mode (Free Fight: a player against the CPU; Versus: two players): those play through the old path, with rounds, the round timer and the Versus score. */
+  plain(mode, lineup) {
+    const [first, second] = lineup.slots;
+    if (lineup.slots.length !== 2 || !first.human || (first.team > 0 && first.team === second.team)) return false;
+    return mode === 'free' ? !second.human : mode === 'versus' ? second.human : false;
+  },
+  /* Deals the teams of a quick layout: 'ffa' everyone alone, 'players' the people on Team A against the CPU on Team B, '2' / '3' / '4' the slots in turn onto that many teams. */
+  deal(lineup, kind) {
+    lineup.slots.forEach((slot, i) => {
+      if (kind === 'ffa') slot.team = 0;
+      else if (kind === 'players') slot.team = slot.human ? 1 : 2;
+      else slot.team = 1 + (i % Number(kind));
+    });
+    lineup.deal = kind;
+  },
+  /* The multiplier a fighter on a team of `size` gets when the biggest team has `largest` fighters (1 when the handicap is off or its team is the biggest). */
+  handicap(lineup, size, largest) {
+    const ratio = lineup.handicap && size > 0 ? largest / size : 1;
+    return ratio > 1 ? { hp: Math.pow(ratio, LINEUP_HANDICAP_HP), dmg: Math.pow(ratio, LINEUP_HANDICAP_DMG) } : { hp: 1, dmg: 1 };
+  },
+  /* The slots a MatchSim builds from: the lead's team first (the lead is the first person), then the other teams in the order they appear; inside a team the people come first. A slot becomes
+     { id, human (the input seat 0 to 3, or -1 for the CPU), team (0 = the lead's), tint (colour), hp / dmg (handicap), from (the slot it came from) }. */
+  plan(lineup) {
+    const keys = this.groupKeys(lineup);
+    let seat = 0;
+    const seats = lineup.slots.map((slot) => (slot.human ? seat++ : -1));
+    const order = [keys[lineup.slots.findIndex((slot) => slot.human)]];
+    for (const key of keys) if (!order.includes(key)) order.push(key);
+    const sizes = order.map((key) => keys.filter((other) => other === key).length), largest = Math.max(...sizes);
+    const letterTints = order.filter((key) => key[0] === 't').map((key) => Number(key.slice(1)) - 1);
+    const spare = [];
+    for (let tint = 0; tint < TEAM_TINTS; tint++) if (!letterTints.includes(tint)) spare.push(tint);
+    let alone = 0;
+    const tints = order.map((key) => (key[0] === 't' ? Number(key.slice(1)) - 1 : spare[alone++ % spare.length]));
+    const slots = [];
+    order.forEach((key, team) => {
+      const members = lineup.slots.map((slot, i) => i).filter((i) => keys[i] === key).sort((x, y) => (seats[x] >= 0 ? 0 : 1) - (seats[y] >= 0 ? 0 : 1) || x - y);
+      const handicap = this.handicap(lineup, sizes[team], largest);
+      for (const i of members) slots.push({ id: lineup.slots[i].id, human: seats[i], team, tint: tints[team], hp: handicap.hp, dmg: handicap.dmg, from: i });
+    });
+    const teamNames = order.map((key) => (key[0] === 't' ? 'TEAM ' + LINEUP_TEAM_LETTERS[Number(key.slice(1))] : (ROSTER_BY_ID[lineup.slots[Number(key.slice(1))].id] || ROSTER_BY_ID.kai).name.toUpperCase()));
+    return { slots, people: seat, teamCount: order.length, sizes, teamNames, ffa: order.every((key) => key[0] === 's') };
+  },
+};
 const BRAWL_SPAWN_SPACING = 0.8;      // metres between neighbouring enemy start points along z (a body is 0.68 m wide)
 const WAVE_SPREAD = 0.85;             // m: a wave's enemies stand on a ring of this radius round their entry (a body is 0.68 m wide)
 const WAVE_BODY = 0.34;               // m: a fighter's radius, for working out where a called enemy would stand
@@ -8677,6 +8781,7 @@ const CROWD_SEPARATION_PASSES = 3;    // body push-apart passes per tick with mo
 function koEndsFight(def) {
   const m = Game.match;
   if (!m || !m.brawl || !def) return true;
+  if (m.setup) return m.aliveTeamCount() <= 1;   // a lineup goes on while two teams stand
   return !m.fighters.some((f) => f.team === def.team && f.alive);
 }
 
@@ -8879,9 +8984,10 @@ class MatchSim {
     this.friendlyFire = !!this.cfg.friendlyFire;   // damage between teammates (the co-op setting of P4-07)
     /* A co-op brawl: cfg.coop is the party, [{ slot, id }] in seat order (slot = the input seat 0 to 3, id = the roster fighter); fighter k is the k-th of them. Otherwise the party is the one player. */
     this.coop = this.brawl && Array.isArray(this.cfg.coop) && this.cfg.coop.length > 0 ? this.cfg.coop.slice(0, COOP_MAX_PLAYERS) : null;
-    const party = this.coop ? this.coop.map((seat) => ROSTER_BY_ID[seat.id] || ROSTER_BY_ID.kai) : [p1];
+    this.setup = this.brawl && !this.coop && Array.isArray(this.cfg.slots) && this.cfg.slots.length >= LINEUP_MIN ? this.cfg.slots.slice(0, LINEUP_MAX) : null;   // P4-08: the lineup (MatchLineup.plan) of a Free Fight, Versus or Brawl with teams of its own; it replaces the party and the enemies
+    const party = this.coop ? this.coop.map((seat) => ROSTER_BY_ID[seat.id] || ROSTER_BY_ID.kai) : this.setup ? [] : [p1];
     this.partySize = party.length;
-    const foes = this.waveRows ? this.waveProfiles(0, party.map((profile) => profile.id)) : this.brawl ? this.brawlEnemies(party.map((profile) => profile.id)) : [p2];
+    const foes = this.setup ? [] : this.waveRows ? this.waveProfiles(0, party.map((profile) => profile.id)) : this.brawl ? this.brawlEnemies(party.map((profile) => profile.id)) : [p2];
     if (this.waveRows) { this.wave = 1; this.waveEntered = foes.length; }
     this.fighters = party.map((profile, k) => {
       const member = new Fighter(profile, k, TEAM_PLAYERS);
@@ -8893,10 +8999,11 @@ class MatchSim {
       if (party.some((member) => member.id === profile.id)) foe.applyLook(alternateLook(profile.look));
       this.fighters.push(foe);
     });
-    const count = this.fighters.length;
+    let count = this.fighters.length;
     this.controllers = this.coop ? this.coop.map((seat) => HUMAN_CONTROLLERS[clamp(Math.floor(seat.slot) || 0, 0, COOP_MAX_PLAYERS - 1)]) : [PlayerController];
     for (let k = 0; k < foes.length; k++) this.controllers.push(this.brawl ? new AIController(foes[k], this.cfg.difficulty) : this.rivalController(p2));
-    if (!this.versus && !this.training && !this.cfg.evenDamage) for (let k = this.partySize; k < count; k++) this.fighters[k].stats.damage *=(DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg;   // the enemies hit harder or softer by difficulty
+    if (this.setup) { this.buildLineup(); count = this.fighters.length; }
+    if (!this.versus && !this.training && !this.cfg.evenDamage && !this.setup) for (let k = this.partySize; k < count; k++) this.fighters[k].stats.damage *=(DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal).dmg;   // the enemies hit harder or softer by difficulty
     this.intents = this.fighters.map(() => makeIntent());
     this.air = new Array(count).fill(false);   // scratch for physics(): which fighters were airborne before landing
     this.descs = [];                           // scratch for resolveCombat()
@@ -8911,7 +9018,7 @@ class MatchSim {
     this.tick = 0;
     this.matchTicks = 0;
     this.round = 0;
-    this.wins = [0, 0];
+    this.wins = this.setup ? new Array(new Set(this.setup.map((slot) => slot.team)).size).fill(0) : [0, 0];   // a lineup counts the one fight for the winning team
     this.winsNeeded = this.brawl ? 1 : this.cfg.winsNeeded;   // a brawl is one fight: the side left standing wins it
     this.decider = false;
     this.hitStop = 0;
@@ -8956,6 +9063,76 @@ class MatchSim {
     return ids.slice(0, BRAWL_MAX_ENEMIES).map((id) => ROSTER_BY_ID[id]);
   }
   newStats() { return { damage: 0, taken: 0, hits: 0, blocks: 0, perfect: 0, maxCombo: 0, throws: 0, objects: 0, kos: 0 }; }
+
+  /* ----- lineups (P4-08) ----- */
+  /* The fighters of a lineup, in the order MatchLineup.plan gave them (the lead's team first, the lead first of all). A slot with a person plays on the controller of its input seat, a CPU slot gets an AI of
+     the match difficulty. The even-teams handicap (slot.hp, slot.dmg) is applied to the fighter's stats, which survive the reset of every round; the CPU's damage follows the difficulty as in every other mode. */
+  buildLineup() {
+    const slots = this.setup, level = DIFFICULTY[this.cfg.difficulty] || DIFFICULTY.normal;
+    this.fighters = []; this.controllers = [];
+    slots.forEach((slot, k) => {
+      const profile = ROSTER_BY_ID[slot.id] || ROSTER_BY_ID.kai, fighter = new Fighter(profile, k, slot.team), person = slot.human >= 0;
+      if (slots.findIndex((other) => other.id === slot.id) < k) fighter.applyLook(alternateLook(profile.look));   // a second pick of the same fighter wears the alternate colours
+      fighter.tint = slot.tint;
+      fighter.stats.maxHp = Math.round(fighter.stats.maxHp * slot.hp); fighter.maxHp = fighter.stats.maxHp; fighter.hp = fighter.maxHp;
+      fighter.stats.damage *= slot.dmg;
+      if (!person && !this.cfg.evenDamage) fighter.stats.damage *= level.dmg;
+      this.fighters.push(fighter);
+      this.controllers.push(person ? HUMAN_CONTROLLERS[clamp(Math.floor(slot.human) || 0, 0, LINEUP_HUMANS_MAX - 1)] : new AIController(profile, this.cfg.difficulty));
+    });
+    this.partySize = slots.filter((slot) => slot.team === slots[0].team).length;   // the lead's team stands first
+    this.teamCount = new Set(slots.map((slot) => slot.team)).size;
+    this.teamNames = Array.isArray(this.cfg.teamNames) ? this.cfg.teamNames : [];
+  }
+  /* How many teams still have a fighter standing. */
+  aliveTeamCount() {
+    let seen = 0, count = 0;
+    for (const f of this.fighters) if (f.alive && !(seen & (1 << f.team))) { seen |= 1 << f.team; count++; }
+    return count;
+  }
+  /* A lineup's winning team, or -1 for a draw: the last team standing; when the clock ends it, the team with the most health left as a share of its own total (a tie within 0.05 percent is a draw). */
+  lineupWinner(reason) {
+    if (reason !== 'time') {
+      const standing = this.fighters.find((f) => f.alive);
+      return standing && this.aliveTeamCount() === 1 ? standing.team : -1;
+    }
+    const hp = new Array(this.teamCount).fill(0), maxHp = new Array(this.teamCount).fill(0);
+    for (const f of this.fighters) { hp[f.team] += f.hp; maxHp[f.team] += f.maxHp; }
+    let best = -1, bestShare = -1, tie = false;
+    for (let team = 0; team < this.teamCount; team++) {
+      const share = hp[team] / maxHp[team];
+      if (Math.abs(share - bestShare) <= 0.0005) tie = true;
+      else if (share > bestShare) { best = team; bestShare = share; tie = false; }
+    }
+    return tie || bestShare <= 0 ? -1 : best;
+  }
+  /* The end of a lineup's one fight (a brawl has no rounds): the winning team gets the win and the match is over, a draw has no winner. */
+  finishLineup(winner, reason) {
+    this.roundWinner = winner;
+    if (winner >= 0) this.wins[winner]++;
+    this.matchOver = true;
+    this.matchWinner = winner;
+    this.phase = 'roundEnd';
+    this.phaseTicks = 0;
+    this.locked = true;
+    Events.emit('roundEnd', { winner, reason, round: this.round, wins: this.wins.slice(), matchOver: true, match: this });
+  }
+  /* Where a lineup starts: two teams face each other in two loose lines (the lead's team on the left, as in a brawl); three or more teams stand round the arena centre, facing it, each team side by side. */
+  placeLineup(hpFrac) {
+    const s = this.def.spawn, fighters = this.fighters, count = fighters.length;
+    if (this.teamCount <= 2) {
+      const left = fighters.filter((f) => f.team === 0), right = fighters.filter((f) => f.team !== 0);
+      left.forEach((f, j) => f.reset(-s - (j & 1) * BRAWL_SPAWN_STAGGER, (j - (left.length - 1) / 2) * BRAWL_SPAWN_SPACING, Math.PI / 2, hpFrac, 1));
+      right.forEach((f, j) => f.reset(s + (j & 1) * BRAWL_SPAWN_STAGGER, (j - (right.length - 1) / 2) * BRAWL_SPAWN_SPACING, -Math.PI / 2, 1, 1));
+    } else {
+      const radius = Math.max(s, count * 0.5);
+      fighters.forEach((f, j) => {
+        const angle = TAU * j / count, x = Math.cos(angle) * radius, z = Math.sin(angle) * radius * 0.8;
+        f.reset(x, z, Math.atan2(-x, -z), j === 0 ? hpFrac : 1, 1);
+      });
+    }
+    for (const f of fighters) { const top = Arena.supportAt(f.x, f.z, 0, f.radius); f.y = f.prevY = top; f.groundY = f.supportY = top; }   // on the floor, or on a low step under the spot
+  }
 
   /* ----- teams and targets (P4-01) ----- */
   /* True when att may damage def: another team, or a teammate while the friendly-fire setting is on. */
@@ -9643,7 +9820,7 @@ class MatchSim {
     if (dmg > 0) {
       amount = Math.max(1, Math.round(dmg * f.stats.taken * 10) / 10);
       f.hp = Math.max(0, f.hp - amount);
-      if (fx === 'out' && this.brawl && f.team === TEAM_ENEMIES) f.hp = 0;   // over the edge in a brawl: the enemy is out
+      if (fx === 'out' && this.brawl && !this.setup && f.team === TEAM_ENEMIES) f.hp = 0;   // over the edge in a brawl: the enemy is out
       if (this.floorHp(f) > f.hp) f.hp = this.floorHp(f);
       f.flash = 1;
       this.stats[f.index].taken += amount;
@@ -9808,6 +9985,13 @@ class MatchSim {
   }
 
   placeFighters(hpFrac) {
+    if (this.setup) {   // P4-08: a lineup places its own teams
+      this.placeLineup(hpFrac);
+      for (const c of this.controllers) c.reset();
+      this.intents.forEach(clearIntent);
+      this.crowd.reset();
+      return;
+    }
     const s = this.def.spawn, party = this.partySize, cx = Arena.ring ? this.def.ring[0] : 0, cz = Arena.ring ? this.def.ring[1] : 0;   // a 1v1 in a ring starts around its centre
     for (let k = 0; k < party; k++) this.fighters[k].reset(cx - s, cz + (k - (party - 1) / 2) * BRAWL_SPAWN_SPACING, Math.PI / 2, hpFrac, 1);   // the party stands in a line, centred on the ring (z = 0 with no ring)
     if (this.brawl) {   // the enemies start in a loose line facing the players, centred on z = 0; with waves the first wave stands at its entry
@@ -10114,7 +10298,7 @@ class MatchSim {
   /* ----- round rules ----- */
   checkRoundEnd() {
     const [a, b] = this.fighters;
-    const down = this.brawl ? !this.teamAlive(TEAM_PLAYERS) || (!this.teamAlive(TEAM_ENEMIES) && !this.waveQueue.length) : !a.alive || !b.alive;   // a brawl ends when one whole side is out (enemies of a called wave still waiting at their door count as up)
+    const down = this.setup ? this.aliveTeamCount() <= 1 : this.brawl ? !this.teamAlive(TEAM_PLAYERS) || (!this.teamAlive(TEAM_ENEMIES) && !this.waveQueue.length) : !a.alive || !b.alive;   // a brawl ends when one whole side is out (enemies of a called wave still waiting at their door count as up)
     if (down) {
       if (!this.locked) this.slowTicks = KO_SLOW_TICKS;
       this.locked = true;
@@ -10133,6 +10317,7 @@ class MatchSim {
   endRound(reason) {
     const [a, b] = this.fighters;
     let winner = -1;
+    if (this.setup) { this.finishLineup(this.lineupWinner(reason), reason); return; }
     if (this.brawl) winner = reason !== 'time' && this.teamAlive(TEAM_PLAYERS) ? TEAM_PLAYERS : TEAM_ENEMIES;   // the players need a survivor, and the clock beats them; a draw counts as lost
     else if (a.alive && !b.alive) winner = 0;
     else if (b.alive && !a.alive) winner = 1;
@@ -10198,11 +10383,18 @@ class MatchSim {
       stats: this.stats, playerHp: a.hp / a.maxHp, opponentHp: b.hp / b.maxHp, player: a.name, opponent: b.name,
     };
     if (this.brawl) {   // the enemies as a group: how many there were and how much of their health is left
-      const foes = this.fighters.filter((f) => f.team === TEAM_ENEMIES);
+      const foes = this.fighters.filter((f) => f.team !== this.fighters[0].team);   // everyone not on the lead's team (the enemies, team 1, outside a lineup)
       r.enemies = foes.length;
       r.enemiesDown = foes.filter((f) => !f.alive).length;
       r.opponent = foes.length + (foes.length === 1 ? ' enemy' : ' enemies');
       r.opponentHp = foes.reduce((sum, f) => sum + f.hp, 0) / foes.reduce((sum, f) => sum + f.maxHp, 0);
+    }
+    if (this.setup) {   // a row per fighter for the lineup results screen (P4-08)
+      r.lineup = this.fighters.map((f, k) => ({ name: f.name, team: f.team, tint: f.tint, seat: this.setup[k].human, alive: f.alive, hp: f.hp / f.maxHp, stats: this.stats[k] }));
+      r.teamNames = this.teamNames.slice();
+      r.winnerName = this.matchWinner >= 0 ? this.teamNames[this.matchWinner] || '' : '';
+      const rivals = this.fighters.length - this.partySize;
+      r.opponent = rivals + (rivals === 1 ? ' rival' : ' rivals');
     }
     if (this.coop) {   // a row per player for the co-op results screen
       r.players = this.coop.map((seat, k) => { const f = this.fighters[k]; return { slot: seat.slot, name: f.name, alive: f.alive, hp: f.hp / f.maxHp, stats: this.stats[k] }; });
@@ -10227,6 +10419,13 @@ const SimRunner = {
     if (!ARENAS[cfg.arenaId] || !ROSTER_BY_ID[cfg.playerId] || !ROSTER_BY_ID[cfg.opponentId]) return { error: 'Unknown arena or fighter id' };
     cfg.winsNeeded = Math.max(1, Math.floor(finite(cfg.winsNeeded, 2)));   // a bad value must not run to the time cap (NaN) or turn into best-of-3 (0)
     cfg.timer = Math.max(0, finite(cfg.timer, 60));
+    let lineupCfg = null;   // P4-08: opts.lineup ({ slots: [{ id, team }], handicap }) runs a lineup, every slot a CPU; the winner is then the index of the winning team in MatchLineup.plan order (0 = the first slot's team)
+    if (opts.lineup) {
+      const lineup = MatchLineup.fix(JSON.parse(JSON.stringify(opts.lineup))), check = MatchLineup.check('brawl', lineup);
+      if (!check.ok) return { error: check.msg };
+      const plan = MatchLineup.plan(lineup);
+      lineupCfg = { mode: 'brawl', slots: plan.slots.map((slot) => Object.assign({}, slot, { human: -1 })), teamNames: plan.teamNames, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)), playerId: plan.slots[0].id };
+    }
     const savedHandlers = Events.handlers, savedReduced = Settings.v.reducedMotion;
     Events.handlers = {};   // only this run's listeners: the menu scene, sound and HUD never see the simulated match
     Settings.v.reducedMotion = false;   // reduced motion shortens hitstop; balance numbers must not depend on a viewer setting
@@ -10239,7 +10438,7 @@ const SimRunner = {
       for (const name in cfg.listeners || {}) Events.on(name, cfg.listeners[name]);
       // cfg.enemies (a count or a list of fighter ids) makes it a brawl: the player against that many CPU enemies, ended by one side being wiped out
       m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, hazards: cfg.hazards === true, ring: cfg.ring === true, ringOut: cfg.ringOut === true, waves: cfg.waves === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
-        cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null));   // a brawl has no clock unless asked for one (time up = the players lose)
+        cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null, lineupCfg));   // a brawl has no clock unless asked for one (time up = the players lose)
       const count = m.fighters.length;
       if (count !== 2) damage = m.fighters.map(() => ({}));
       m.controllers[0] = new AIController(m.fighters[0].profile, cfg.difficulty1 || cfg.difficulty);
@@ -10264,7 +10463,7 @@ const SimRunner = {
       }
       return {
         winner: m.matchOver ? m.matchWinner : -1, seconds: Math.round(m.matchTicks / 60), ticks: m.tick, rounds: m.round, wins: m.wins.slice(),
-        hpLeft: m.fighters.map((f) => Math.round((f.hp / f.maxHp) * 1000) / 1000), damage, config: cfg,
+        hpLeft: m.fighters.map((f) => Math.round((f.hp / f.maxHp) * 1000) / 1000), damage, config: cfg, teams: m.fighters.map((f) => f.team),
       };
     } finally {
       if (m) m.dispose();
@@ -10379,6 +10578,7 @@ const GS_TRANSITIONS = {
   RESULTS: ['MENU', 'COUNTDOWN', 'CHARSEL', 'ARENASEL', 'ERROR'],
   ERROR: ['MENU'],
 };
+const LINEUP_LIVE_STATES = [GS.COUNTDOWN, GS.FIGHT, GS.PAUSED, GS.ROUND_END, GS.VICTORY, GS.DEFEAT, GS.RESULTS];   // the game states in which a lineup match holds its input seats
 const SIM_STATES = [GS.COUNTDOWN, GS.FIGHT, GS.ROUND_END, GS.VICTORY, GS.DEFEAT, GS.RESULTS];
 const RESULTS_DELAY = 2.6;            // seconds of victory / defeat pose before the results screen
 const SKIP_ARM_SECONDS = 0.5;         // presses this soon after a victory / defeat are ignored
@@ -10412,6 +10612,7 @@ const Game = {
   run: null,
   selection: { mode: 'arcade', player: 'kai', opponent: 'mara', player2: 'mara', arena: 'warehouse', difficulty: 'easy', rounds: 2, timer: 60, arcadeLevel: 'easy', party: DEFAULT_UNLOCKED.slice(0, COOP_MAX_PLAYERS) },   // new players start on the easiest settings; party: the co-op pick per seat
   versus: null,          // Versus session: { score: [P1 wins, P2 wins] }, kept across rematches until the main menu
+  lineups: {},           // P4-08: the lineup being set up for each mode (free, versus, brawl), made on first use; see lineupFor
   endTimer: 0,
   frameAvg: 16,
   rafId: 0,
@@ -10430,8 +10631,23 @@ const Game = {
   /* P2 reads the keyboard and pads from the Versus fighter select until the main menu; the co-op seats (P4-07) likewise from the join screen. */
   syncVersusInput() {
     const live = this.state !== GS.MENU && this.state !== GS.LOADING;
-    Inputs.setVersus(this.selection.mode === 'versus' && live);
-    Inputs.setCoop(this.selection.mode === 'coop' && live);
+    const plan = this.inputPlan();
+    Inputs.setVersus(plan === 'versus' && live);
+    Inputs.setCoop(plan === 'coop' && live);
+    const people = this.lineupPeople();
+    if (people > 2 && Inputs.coop && Inputs.seatedSlots().length !== people) Inputs.autoSeat(people);
+  },
+
+  /* How many people play the running lineup (P4-08), or 0 when no lineup is running. */
+  lineupPeople() {
+    const cfg = this.config;
+    return cfg && cfg.slots && LINEUP_LIVE_STATES.includes(this.state) ? cfg.humans : 0;
+  },
+  /* Who reads which device: 'solo' (P1 on everything), 'versus' (P1 and P2 share the keyboard and the pads) or 'coop' (one device per seat). A running lineup chooses by its number of people, otherwise the selected mode does. */
+  inputPlan() {
+    const people = this.lineupPeople();
+    if (people > 0) return people === 1 ? 'solo' : people === 2 ? 'versus' : 'coop';
+    return this.selection.mode === 'versus' ? 'versus' : this.selection.mode === 'coop' ? 'coop' : 'solo';
   },
 
   /* ----- menu flow ----- */
@@ -10458,9 +10674,11 @@ const Game = {
     if (sel.mode === 'arcade') this.startArcade(0);
     else if (sel.mode === 'survival') this.startSurvival();
     else if (sel.mode === 'training') this.startTraining();
-    else if (sel.mode === 'versus') this.startVersus();
+    else if (sel.mode === 'versus') { if (this.lineupPlain('versus')) this.startVersus(); else this.startLineup('versus'); }
     else if (sel.mode === 'coop') this.startCoop();
-    else this.startFree();
+    else if (sel.mode === 'brawl') this.startLineup('brawl');
+    else if (this.lineupPlain('free')) this.startFree();
+    else this.startLineup('free');
   },
   /* The base Arcade ladder, weakest first: the six fighters that have a rank (the 1.0 roster, ZERO last); the presets added in P5-04 join through ladderFor. */
   opponentsFor(playerId) { return ROSTER.filter((r) => r.id !== playerId && r.rank !== undefined).sort((x, y) => x.rank - y.rank); },
@@ -10541,6 +10759,51 @@ const Game = {
     if (!party.length) return false;
     this.run = { mode: 'coop', player: party[0].id };
     this.beginMatch({ mode: 'brawl', coop: party, playerId: party[0].id, enemies: coopEnemyCount(party.length), arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: 0, waves: !!ARENAS[sel.arena].waves });
+    return true;
+  },
+
+  /* ----- match setup (P4-08) ----- */
+  /* The lineup of a mode ('free', 'versus', 'brawl'), made on first use from the selected fighters: Free Fight a player against the CPU, Versus two players, Brawl a player on Team A against three CPU on Team B. */
+  lineupFor(mode) {
+    const sel = this.selection;
+    let lineup = this.lineups[mode];
+    if (!lineup) {
+      const rivals = ROSTER.filter((r) => r.id !== sel.player).slice(0, 3).map((r) => r.id);
+      const slots = mode === 'versus' ? [{ id: sel.player, human: true, team: 0 }, { id: sel.player2, human: true, team: 0 }]
+        : mode === 'brawl' ? [{ id: sel.player, human: true, team: 1 }].concat(rivals.map((id) => ({ id, human: false, team: 2 })))
+          : [{ id: sel.player, human: true, team: 0 }, { id: sel.opponent, human: false, team: 0 }];
+      lineup = this.lineups[mode] = MatchLineup.fix({ slots, timer: 0, handicap: true, deal: mode === 'brawl' ? 'players' : 'ffa' });
+    }
+    return lineup;
+  },
+  /* True when the mode plays its old way: no lineup was opened, or it is still the plain 1v1 of the mode (rounds, round timer, Versus score). */
+  lineupPlain(mode) {
+    const lineup = this.lineups[mode];
+    return !lineup || MatchLineup.plain(mode, lineup);
+  },
+  /* The lineup screen opens with the fighters picked so far in slots 1 and 2 (the setup screen's opponent cards and Versus's second pick), and writes them back when it closes, so both screens agree. */
+  lineupOpen(mode) {
+    const sel = this.selection, lineup = this.lineupFor(mode);
+    lineup.slots[0].id = sel.player;
+    if (mode === 'free' && ROSTER_BY_ID[sel.opponent]) lineup.slots[1].id = sel.opponent;
+    if (mode === 'versus' && ROSTER_BY_ID[sel.player2]) lineup.slots[1].id = sel.player2;
+    return MatchLineup.fix(lineup);
+  },
+  lineupClose(mode) {
+    const sel = this.selection, lineup = this.lineups[mode];
+    if (!lineup) return;
+    sel.player = lineup.slots[0].id;
+    if (mode === 'free') sel.opponent = lineup.slots[1].id;
+    if (mode === 'versus') sel.player2 = lineup.slots[1].id;
+  },
+  /* Starts the lineup of a mode as one fight (a brawl: no rounds) with its own teams. Returns false, with a toast, when the lineup cannot be played. */
+  startLineup(mode) {
+    const sel = this.selection, lineup = this.lineupOpen(mode), check = MatchLineup.check(mode, lineup);
+    if (!check.ok) { Events.emit('toast', { msg: check.msg, kind: 'warn' }); return false; }
+    const plan = MatchLineup.plan(lineup);
+    if (plan.people > 2 && !Inputs.autoDevices(plan.people)) { Events.emit('toast', { msg: plan.people + ' players need ' + (plan.people - 2) + ' or more gamepads', kind: 'warn' }); return false; }
+    this.run = { mode: 'lineup', player: plan.slots[0].id, base: mode };
+    this.beginMatch({ mode: 'brawl', slots: plan.slots, humans: plan.people, teamNames: plan.teamNames, setupMode: mode, playerId: plan.slots[0].id, arenaId: sel.arena, difficulty: sel.difficulty, winsNeeded: 1, timer: lineup.timer });
     return true;
   },
 
@@ -10656,6 +10919,8 @@ const Game = {
     data.mode = run ? run.mode : 'free';
     data.playerWon = playerWon;
     data.buttons = [];
+    const personWon = !!m.setup && m.matchWinner >= 0 && m.setup.some((slot) => slot.human >= 0 && slot.team === m.matchWinner);   // P4-08: a lineup is won by a team; a person on it makes it a victory
+    if (m.setup) { data.draw = m.matchWinner < 0; data.personWon = personWon; }
     if (run && run.mode === 'arcade') {
       data.stage = run.stage + 1; data.stages = run.ladder.length; data.continues = run.continues;
       if (playerWon) {
@@ -10684,7 +10949,7 @@ const Game = {
     } else data.buttons = ['again', 'setup', 'menu'];
     this.resultsData = data;
     this.endTimer = 0;
-    this.go(playerWon || data.mode === 'versus' ? GS.VICTORY : GS.DEFEAT);   // Versus always has a winner to celebrate
+    this.go(playerWon || personWon || data.mode === 'versus' ? GS.VICTORY : GS.DEFEAT);   // Versus always has a winner to celebrate
   },
   resultsAction(kind) {
     const run = this.run;
