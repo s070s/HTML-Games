@@ -95,11 +95,13 @@ const median = (values) => values.slice().sort((a, b) => a - b)[Math.floor(value
 // first frame with its shader compiles) and to the loop start (Perf.loopStartMs), per throttle rate; median of the runs.
 async function measureBoot() {
   const results = {};
+  let firstBoot = true;   // the first boot is cold (clean storage); the later ones are warm and load the record the page saved, as before the profile slots
   for (const rate of BOOT_THROTTLES) {
     const runs = [];
     for (let run = 0; run < bootRuns; run++) {
       await throttle(rate);
-      await session.open(file);
+      await session.open(file, { clearStorage: firstBoot });
+      firstBoot = false;
       runs.push(await session.evaluate(BOOT_STAMPS));
       await throttle(1);
     }
