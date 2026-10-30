@@ -294,7 +294,7 @@ Prices/kill rewards (roundBuy, credits): sidearms 0-700 (W04 free, W05 700, W06 
 | G01 | `frag` | Frag Charge | 2.5 s fuse (cookable), 100 r5 falloff | throw back with W41 / run | Halo, CS HE |
 | G02 | `smoke` | Veil Canister | sight-blocking volume r5, 18 s; bullets/explosions punch holes 2 s | wait / flank | CS2 smoke |
 | G03 | `flash` | Glare Shell | blind <= 3.5 s by view angle/distance; option dark flash | turn away | CS flashbang, Halo flare |
-| G04 | `incendiary` | Cinder Jar | fire area r3, 7 s, ramps to 40 HP/s; smoke extinguishes | smoke / avoid | CS molotov |
+| G04 | `incendiary` | Cinder Jar | fire area r3.5 (P8-04: was r3), 7 s, ramps to 40 HP/s, spares its thrower (owner-safe pool, P8-04); smoke extinguishes | smoke / avoid | CS molotov |
 | G05 | `decoy` | Mimic Shell | retired (P3-06): merged into A33 Holo Double, which also plays the owner's weapon sound | - | - |
 | G06 | `sticky` | Leech Charge | sticks to actors/surfaces, 1.5 s, 110 r3.5 | none once stuck | Halo plasma grenade |
 | G07 | `impulse` | Kick Charge | knockback 18 m/s r4, 10 dmg, self-launch mobility | - | Fortnite impulse, Apex |
@@ -356,7 +356,7 @@ Prices/kill rewards (roundBuy, credits): sidearms 0-700 (W04 free, W05 700, W06 
 | A26 | `aegisdome` | Aegis Dome | sustain | instant, cd 30 s | dome r5 blocks bullets 12 s | Apex Gibraltar |
 | A27 | `secondwind` | Second Wind | sustain | instant, cd 60 s | revive downed ally within 10 m remotely; shown "Needs downed teammates" in matches where nobody can go down (free-for-all, rulesets without `downed`), and bots do not pick it there (P8-04) | Lifeline, Valorant Sage |
 | A28 | `ampwall` | Amp Wall | sustain | deploy, cd 20 s | wall blocks incoming, own shots through it +25% | Titanfall A-Wall |
-| A29 | `arcbolt` | Arc Bolt | offense | instant, energy 60 (P8-04: was 25) | 18 (was 30) + Shock 1 s; wet = all in puddle | BioShock Electro Bolt |
+| A29 | `arcbolt` | Arc Bolt | offense | instant, energy 90 (P8-04: was 25, then 60) | 18 (was 30) + Shock 0.5 s (was 1 s); wet = all in puddle | BioShock Electro Bolt |
 | A30 | `ignite` | Ignite | offense | retired (P3-06): merged into A29 Arc Bolt; burn stays on G04 and W35 | - | - |
 | A31 | `frostlance` | Frost Lance | offense | retired (P3-06): merged into A29 Arc Bolt; freezing stays on G08 | - | - |
 | A32 | `swarm` | Swarm Cloud | offense | projectile, cd 25 s | swarm follows target 6 s, 6 HP/s (P8-04: was 8), cd 25 s, panics fodder | Devouring Swarm, Insect Swarm |
@@ -365,7 +365,7 @@ Prices/kill rewards (roundBuy, credits): sidearms 0-700 (W04 free, W05 700, W06 
 | A35 | `lifterpower` | Graviton Grip | physics | hold, energy 10/s | telekinesis pick/throw (as W41) without weapon slot | HL2 gravity gun, BioShock Telekinesis |
 | A36 | `gatepair` | Gate Pair | portal | instant, 2 gates | place gates on portal surfaces (puzzle/challenge only) | Portal |
 | A37 | `overcore` | Overcore | ultimate | ult 1500 | damage x2 + fire rate x1.2 10 s | Titanfall Damage Core |
-| A38 | `orbital` | Orbital Lance | ultimate | ult 1800 | marked 8 m circle, 2 s warning, 250 dmg | Apex artillery, Ion Painter |
+| A38 | `orbital` | Orbital Lance | ultimate | ult 1500 (P8-04: was 1800; 0.88 casts per 10 min against a band of 1-3) | marked 8 m circle, 2 s warning, 250 dmg | Apex artillery, Ion Painter |
 | A39 | `rift` | Rift Gate | ultimate | ult 1500 | linked portals 60 m for team, 15 s | Apex Wraith |
 | A40 | `rally` | Rally Cry | ultimate | ult 1500 (P8-04: was 1200) | team +50 overshield (capped at a 100-point surplus, lost after 8 s), speed x1.2 8 s | Overwatch support ults |
 
@@ -376,11 +376,11 @@ Hero kits (RS09; each: weapon, passive, 2 abilities, ultimate):
 | H01 | `bastide` | Bastide | tank | 450/200/0 | W19 | passive knockback resist 30%; A26, W03 alt block; ult A38 | Overwatch tank, Gibraltar |
 | H02 | `moraine` | Moraine | tank | 250/0/100 | W28 | passive shield regen 30/s after 2 s; A07, A28; ult A40 | Overwatch Orisa, TF Legion |
 | H03 | `quill` | Quill | damage (duelist) | 200/0/0 | W13 | passive +25% speed 2.5 s after kill; A08, A09; ult A37 | Tracer, Valorant duelist |
-| H04 | `tessaly` | Tessaly | damage (sniper) | 250/0/0 (P8-04: was 200) | W24 | passive scope info; A11, A13; ult A39 | Widowmaker, Vantage |
-| H05 | `brask` | Brask | damage (demo) | 225/0/0 | W32 | passive extra grenade; A18, G09; ult A38 | Fuse, Junkrat |
+| H04 | `tessaly` | Tessaly | damage (sniper) | 275/0/0 (P8-04: was 200) | W24, W13 (P8-04: the rifle is the close-range back-up) | passive scope info; A11, A13; ult A39 | Widowmaker, Vantage |
+| H05 | `brask` | Brask | damage (demo) | 200/0/0 (P8-04: was 225) | W32 | passive extra grenade; A18, G09; ult A38 | Fuse, Junkrat |
 | H06 | `lark` | Lark | support | 225/0/0 (P8-04: was 200) | W30 | passive regen 15/s after 1.5 s; A25, A27; ult A40 | Mercy, Lifeline |
 | H07 | `mirelle` | Mirelle | support (controller) | 200/0/0 (P8-04: was 225) | W12 | passive smoke vision; A17, A22; ult A19 field | Valorant controller |
-| H08 | `tamsin` | Tamsin | initiator | 225/0/0 (P8-04: was 200) | W25 | passive tracker A16; A15, G20; ult AX1 global pulse | Valorant initiator, Bloodhound |
+| H08 | `tamsin` | Tamsin | initiator | 250/0/0 (P8-04: was 200, then 225) | W25 | passive tracker A16; A15, G20; ult AX1 global pulse | Valorant initiator, Bloodhound |
 
 ## 11. Powerups and pickups (PWR)
 
@@ -406,7 +406,7 @@ Hero kits (RS09; each: weapon, passive, 2 abilities, ultimate):
 | PU12 | `vampfang` | Vampire Fang | 70% of damage dealt heals, 30 s (P8-04: was 30%) | 120 s | Painkiller Health Stealer |
 | PU13 | `seer` | Seer Orb | team sees enemies on minimap 15 s | 90 s | CoD UAV, TF Map Hack |
 | PU14 | `springboots` | Spring Boots | 3 jumps x2 height, no fall damage | 60 s | UT Jump Boots |
-| PU15 | `guardianrune` | Guardian Rune | persistent until death: max HP/armor x2.5, speed x1 (P8-04: was x2 and x0.9) | 60 s | Q3TA Guard |
+| PU15 | `guardianrune` | Guardian Rune | persistent until death: max HP/armor x2 and the added points come with the rune, speed x1 (P8-04: was x2 without the added points, and x0.9) | 60 s | Q3TA Guard |
 | PU16 | `scoutrune` | Scout Rune | retired (P3-06): merged into PU03 Quickening | - | - |
 | PU17 | `ammorune` | Ammo Rune | retired (P3-06): merged into PU11 Bottomless | - | - |
 | PU18 | `soul` | Soul Shard | dropped by kills, +1 HP, 66 = Wrath Form (A34) | - | Painkiller souls |
@@ -475,7 +475,7 @@ Perks (ECP04): Tier 1 Scavenger (ammo from bodies), Bandolier (+50% ammo), Hardl
 | M07 | `conquest` | Frontline | 8v8, 5 flags = spawn points, 150 tickets, -1 per death, bleed 1/3 s when holding <= 2 | Battlefield |
 | M08 | `rush` | Breach Assault | attackers 75 tickets, 2 relays per stage x 3 stages; arm 4 s, fuse 30 s, disarm 5 s; defenders infinite | BF Rush |
 | M09 | `hardpoint` | Hotpoint | one zone, moves every 60 s in fixed order, 1 pt/s uncontested, 150 to win | CoD HQ/Hardpoint, Halo KotH |
-| M10 | `oddball` | Relic Run | hold relic: 1 pt/s; carrier melee only; first to 100 | Halo Oddball |
+| M10 | `oddball` | Relic Run | hold relic: 1 pt/s; carrier melee only; first to 60 (P8-04: was 100; the leader of eight bots reached 49-75 in the 600 s clock, so no match ended by score) | Halo Oddball |
 | M11 | `payload` | Convoy | attack/defend; cart moves 1.2 m/s with attackers near (more = faster to 1.8), rolls back after 10 s; 3 checkpoints; 4:00 + 2:00 per checkpoint; overtime while contested | Overwatch Escort |
 | M12 | `control` | Uplink | single point, first to 100% wins round, best of 3, 240 s per round (the higher meter wins at the clock), overtime at 99% contested | Overwatch Control |
 | M13 | `bomb` | Detonate | 5v5, rounds: buy 15 s, live 100 s, plant 4 s, fuse 40 s, defuse 7 s (half-progress kept at 3.5 s); first to 7 rounds, swap at 6 (the Play card: first to 5, swap at 4); one life | CS, Valorant |
@@ -741,7 +741,7 @@ Named roster (tier / signature traits / favourite): B01 Pell (0, timid, W04), B0
 | MAP-003 | Sightlines: max 60 m in arena maps, 90 m in large maps; long sightlines need cover every 15 m. |
 | MAP-004 | Cover heights 1.0 m (crouch cover) and 1.8 m (full); doorways 1.6 m (single) / 2.4 m (double); ceilings >= 3.5 m (6 m in agile maps); wall-run gaps 3-5 m; jump gaps validated against active movement preset (reachability test per preset). |
 | MAP-005 | Item placement: power items exposed/contested and roughly equidistant from spawns; >= 20 m apart; armor and health spread so no one room holds both top items. Target (tunable): in a 10-minute FFA against equal-tier bots no single player collects more than 50% of top-item pickups. |
-| MAP-010 | Spawn safety: candidate rejected if an enemy has LOS within 25 m or is within 12 m (15 / 35 m and 20 / 50 m were tried in P8-04 and cut no spawn deaths); prefer near teammates/away from last death; a point used in the last 8 s scores lower (P8-04, 30 m of score); spawn protection 2 s (ends on fire); never spawn inside another capsule. |
+| MAP-010 | Spawn safety: candidate rejected if an enemy has LOS within 25 m or is within 12 m (15 / 35 m and 20 / 50 m were tried in P8-04 and cut no spawn deaths); prefer far from enemies (up to 200 m, was 60), a little near teammates (weight 0.1, was 0.5: it put respawns beside the fight) and away from the last death; a point used in the last 8 s scores lower (P8-04, 30 m of score); spawn protection 2 s (ends on fire); never spawn inside another capsule. |
 | MAP-011 | Team modes: spawn zones behind teams with 2+ exits not overlooked by enemy positions (AA/sniper spawn-kill mistake). |
 | MAP-012 | Callouts: every zone has a name shown on HUD near the minimap and used in bot barks. |
 | MAP-013 | Destructibles optional and budgeted (PERF-010): props break into 4-8 debris pieces that sleep after 1 s; "collapse" events swap meshes (no free rigid-body sim). |

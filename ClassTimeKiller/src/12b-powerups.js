@@ -152,15 +152,20 @@ const Powerups = {
     if (mods.noFall) this.immune[id] |= DAMAGE_KIND_BIT.fall;
     if (mods.immune) for (let k = 0; k < mods.immune.length; k++) this.immune[id] |= DAMAGE_KIND_BIT[mods.immune[k]] || 0;
   },
-  // PU15: max HP / armor x2 while held; the old maximum comes back when it ends.
+  // PU15: max HP / armor x2 while held (the row's maxHealthScale / maxArmorScale), and the added points come with the rune (P8-04: a holder used to keep the old 100 HP below a
+  // new maximum nothing filled, so the rune did nothing until a heal); the old maximum comes back when it ends.
   applyMaxScales(id, healthScale, armorScale) {
     if (healthScale !== this.healthScale[id]) {
-      Actors.maxHealth[id] = Actors.maxHealth[id] / this.healthScale[id] * healthScale;
+      const before = Actors.maxHealth[id];
+      Actors.maxHealth[id] = before / this.healthScale[id] * healthScale;
+      if (Actors.maxHealth[id] > before) Actors.health[id] += Actors.maxHealth[id] - before;
       Actors.health[id] = Math.min(Actors.health[id], Damage.overhealCap(id));
       this.healthScale[id] = healthScale;
     }
     if (armorScale === this.armorScale[id]) return;
-    Actors.maxArmor[id] = Actors.maxArmor[id] / this.armorScale[id] * armorScale;
+    const armorBefore = Actors.maxArmor[id];
+    Actors.maxArmor[id] = armorBefore / this.armorScale[id] * armorScale;
+    if (Actors.maxArmor[id] > armorBefore) Actors.armor[id] += Actors.maxArmor[id] - armorBefore;
     Actors.armor[id] = Math.min(Actors.armor[id], Actors.maxArmor[id]);
     this.armorScale[id] = armorScale;
   },

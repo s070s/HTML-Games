@@ -6,6 +6,7 @@
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { openChrome } from './cdp.mjs';
+import { homeMap } from './balance-plan.mjs';
 
 const Z = 1.96;
 const BOOTSTRAPS = 1000;
@@ -104,7 +105,9 @@ export async function summarize(runsArg, outDir, file) {
     const caseRate = (() => { let k = 0, d = 0; for (const r of runs) for (const rk in r.rec.rows) if (rk.startsWith('weapon:')) { k += r.rec.rows[rk].kills; d += r.rec.rows[rk].drawn; } return d ? k / d : 0; })();
     const perRun = runs.map((r) => { const x = r.rec.rows[key]; if (!x || !x.drawn) return null; let k = 0, d = 0; for (const rk in r.rec.rows) if (rk.startsWith('weapon:')) { k += r.rec.rows[rk].kills; d += r.rec.rows[rk].drawn; } return d ? (x.kills / x.drawn) / (k / d) : null; }).filter((v) => v !== null);
     if (band.kri && caseRate) add(family, id, code + ' KRI', mean(perRun), bootstrap(perRun), band.kri, perRun.length, 3);
-    if (band.held && row.owned > 0) add(family, id, code + ' held %', row.drawn / row.owned * 100, [row.drawn / row.owned * 100, row.drawn / row.owned * 100], band.held, Math.round(row.owned), 120);
+    const heldRule = targets.heldShare, homeMapOnly = family !== 'F2' || !heldRule || !heldRule.homeOnly || homeMap(code) === id.split('-')[2];
+    const heldBand = heldRule && heldRule.shortMagazine.includes(code) ? heldRule.shortMagazineBand : band.held;
+    if (heldBand && homeMapOnly && row.owned > 0) add(family, id, code + ' held %', row.drawn / row.owned * 100, [row.drawn / row.owned * 100, row.drawn / row.owned * 100], heldBand, Math.round(row.owned), 120);
   };
   for (const id of caseIds) {
     const runs = runsOf(id);
@@ -156,7 +159,7 @@ export async function summarize(runsArg, outDir, file) {
       const e = edge[cls], hn = e.hk + e.hd, an = e.ak + e.ad;
       if (!hn || !an) continue;
       const home = e.hk / hn * 100, away = e.ak / an * 100, se = Math.sqrt(home * (100 - home) / hn + away * (100 - away) / an);
-      add('F2', 'class edge', cls + ' class range edge (pooled home - away, points)', home - away, [home - away - Z * se, home - away + Z * se], [targets.rangeEdge.classMin, null], Math.min(hn, an), 60);
+      add('F2', 'class edge', cls + ' class range edge (pooled home - away, points)', home - away, [home - away - Z * se, home - away + Z * se], [targets.rangeEdge.classMinBy && targets.rangeEdge.classMinBy[cls] !== undefined ? targets.rangeEdge.classMinBy[cls] : targets.rangeEdge.classMin, null], Math.min(hn, an), 60);
     }
     // class means of the row EWRs
     const byClass = {};
@@ -188,7 +191,7 @@ async function readTargets(outDir, file) {
   try {
     await session.open(file);
     const targets = await session.evaluate('JSON.stringify(Object.assign({}, __CTK.balance.targets(), { weaponClassOf: Object.fromEntries(__CTK.catalogues.weapons.map((w) => [w.code, w.class])), '
-      + 'abilityCategoryOf: Object.fromEntries(__CTK.catalogues.abilities.map((a) => [a.code, [a.category, a.cooldown, a.resource]])), '
+      + 'abilityCategoryOf: Object.fromEntries(__CTK.catalogues.abilities.map((a) => [a.code, [a.category, a.cooldown, a.resource]])), abilityModes: Object.fromEntries(__CTK.catalogues.abilities.map((a) => [a.code, a.modes])), '
       + 'heroRole: Object.fromEntries(__CTK.catalogues.heroes.map((h) => [h.code, h.role])) }))');
     writeFileSync(cache, targets);
     return JSON.parse(targets);

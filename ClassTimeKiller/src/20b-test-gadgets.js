@@ -169,6 +169,18 @@ Test.add('gadgets', (check) => {
 });
 
 Test.add('gadgets', (check) => {
+  // ownerSafe covers the pool: a thrower standing in its own Cinder Jar fire takes nothing and does not burn; its enemy next to it does
+  GadgetArena.start();
+  const owner = GadgetArena.actor(1, 0, 0), enemy = TestArena.sponge(2, 0, 1), fire = CAT.gadgets.byId('incendiary');
+  const before = Actors.health[owner];
+  GadgetEffects.fire(fire, owner, 0, 0, 0.5);
+  Sim.run(itemTicks(4));
+  check('G04 fire spares the thrower standing in it', Actors.health[owner] === before && !Damage.hasStatus(owner, 'burn'), before - Actors.health[owner]);
+  check('G04 fire still burns an enemy in the same pool', Actors.health[enemy] < 100000 && Damage.hasStatus(enemy, 'burn'));
+  TestArena.finish();
+});
+
+Test.add('gadgets', (check) => {
   GadgetArena.start({}, [{ shape: 'box', min: [-10, 0, 13], max: [10, 6, 14] }]);
   const smoke = CAT.gadgets.byId('smoke');
   Smoke.spawn(smoke, -1, 0, 1, 10);

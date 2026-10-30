@@ -64,7 +64,7 @@ Data.define('powerups', {
   { id: 'vampfang', code: 'PU12', name: 'Vampire Fang', duration: 30, maxDuration: 60, mods: { lifesteal: 0.7 }, color: 0x900030 },
   { id: 'seer', code: 'PU13', name: 'Seer Orb', duration: 15, maxDuration: 30, respawn: 90, mods: { reveal: true }, color: 0x40ff80 },
   { id: 'springboots', code: 'PU14', name: 'Spring Boots', respawn: 60, stacking: 'refresh', pool: 'jumps', charges: 3, mods: { jumpScale: 2, noFall: true }, drops: false, color: 0x60ff60 },
-  { id: 'guardianrune', code: 'PU15', name: 'Guardian Rune', persistent: true, respawn: 60, stacking: 'rune', mods: { maxHealthScale: 2.5, maxArmorScale: 2.5, speed: 1 }, drops: false, color: 0x4060ff },
+  { id: 'guardianrune', code: 'PU15', name: 'Guardian Rune', persistent: true, respawn: 60, stacking: 'rune', mods: { maxHealthScale: 2, maxArmorScale: 2, speed: 1 }, drops: false, color: 0x4060ff },
   { id: 'soul', code: 'PU18', name: 'Soul Shard', respawn: 0, instant: { heal: 1, soul: 1 }, drops: false, mapItem: false, announce: false, color: 0xa0ffd0 },
   { id: 'lightbearer', code: 'PU19', name: 'Bearer Flame', persistent: true, respawn: 30, mods: { damage: 3 }, unique: true, color: 0xfff0a0 },
   { id: 'vitalshard', code: 'PU20', name: 'Vital Shard', respawn: 60, instant: { vital: 25, vitalHealthCap: 200, vitalArmorCap: 150 }, drops: false, campaign: true, healthPreset: 'ravager', color: 0xff60c0 },

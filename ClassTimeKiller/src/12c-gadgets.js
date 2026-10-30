@@ -345,7 +345,11 @@ const GadgetAreas = {
     if (Smoke.covers(this.x[area], this.y[area] + 0.5, this.z[area])) { this.active[area] = 0; return; }
     const age = (Sim.tick - this.startTick[area]) / Math.max(1, this.endTick[area] - this.startTick[area]);
     const amount = row.damage * lerp(GADGET_TUNING.fireRampFrom, 1, age) * AREA_TICK_SECONDS;
-    for (let id = 0; id < Actors.count; id++) if (this.inFire(area, row, id)) fireAreaHit(this.owner[area], id, amount, row, GADGET_MODES[row.index]);
+    const owner = this.owner[area];
+    for (let id = 0; id < Actors.count; id++) {
+      if (row.ownerSafe && id === owner) continue;   // P8-04: ownerSafe covered the blasts only, the pool still burnt its thrower (19-22 % of the damage dealt)
+      if (this.inFire(area, row, id)) fireAreaHit(owner, id, amount, row, GADGET_MODES[row.index]);
+    }
     if (!Game.headless) Fx.burst('fire', this.x[area], this.y[area] + 0.1, this.z[area], 0, 1, 0, FIRE_FX_COUNT, null);
   },
   inFire(area, row, id) {

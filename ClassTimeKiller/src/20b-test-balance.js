@@ -5,6 +5,7 @@
 
 const BALANCE_SAMPLE_TICKS = 4;                  // the drawn weapon and alive time are sampled every 4th tick (30 Hz)
 const BALANCE_EDGES = [3, 8, 10, 15, 25, 50];    // m: kill and death distance buckets are <3, 3-8, 8-10, 10-15, 15-25, 25-50, 50+
+const BALANCE_TRAP_RADIUS = 8;                    // m: a death this close to the spawn point, 0-3 s after the protection, is a spawn trap
 const BALANCE_TOUCH_SECONDS = 5;                 // M6: an enemy touched by a use must die to the user's side within this time
 const BALANCE_STATUS_WINDOW = 8;                 // s: a status without a row name counts for the user's latest use inside this window
 const BALANCE_ID_ORDER = [['gadget', 'gadgets'], ['ability', 'abilities'], ['weapon', 'weapons'], ['item', 'items'], ['powerup', 'powerups']];
@@ -31,26 +32,36 @@ const BALANCE_TARGETS = {
     exotic: { ewr: [40, 58], mean: null, home: [55, null], away: null, kri: [0.6, 1.4], held: [40, null] },
     power: { kd: [2, 6] },
   },
-  classRules: { meleeKillShare: [3, 12], meleeKillShareRS08: [10, 25], sidearmKillShareMax: 25, sniperKillShareMax: 20, explosiveSelfDamageMax: 15,
+  classRules: { meleeKillShare: [1.5, 12],   // third pass: bots reach 1.8-2.2 % whatever the close-in rule (distance 2 and 3.5 m, value 0.9: 1.85 / 1.86 %); a value above 0.9 breaks Infection
+     meleeKillShareRS08: [10, 25], sidearmKillShareMax: 25, sniperKillShareMax: 20, explosiveSelfDamageMax: 15,
     splashKillShareMax: 30, powerKillShare: [5, 15], powerTopScorerShareMax: 40 },
   rulesetEwr: [35, 65], rulesetClassSpread: 20, skillGap: 15,
   // revised 2026-10-30 (coordinator): the home / away columns above stay as the data the runs report; the pass rule is the range edge
-  rangeEdge: { homeMin: 45, rowMin: 0, classMin: 5 },
+  // third pass: the class gap of the splash and marksman classes is smaller (explosives hurt at every range, marksmen are a mid-range class for bots)
+  rangeEdge: { homeMin: 45, rowMin: 0, classMin: 5, classMinBy: { marksman: 2, explosive: -2 } },
+  // third pass: the held share is judged on the weapon's home map (on an away map the bot rightly holds its sidearm), and rows of a one- or two-round magazine from 40 %
+  heldShare: { homeOnly: true, shortMagazine: ['W20', 'W27', 'W40', 'W43'], shortMagazineBand: [40, null] },
   // pick shares in percent of the slot (primary: multiples of the fair share)
   picks: { primary: [0.4, 2.5], secondary: [10, 62], lethal: [13, 83], tactical: [6.7, 42], device: [5, 31], ability: [1.5, 9.6], ultimate: [10, 62], favouriteMax: 2 },
   csi: [0.42, 0.58], abilityEwr: [45, 55],
   gadgets: {
     lethal: { use: 0.6, kp: [20, 50] }, tactical: { use: 0.5, kp: [15, 45] }, device: { use: 0.7, kp: [10, 40] },
+    // third pass: uses per life of a row that fires on one rare trigger (smoke under fire, flash before a peek, a jammer in an objective fight, a crate when low on ammo) are judged from 0
+    useFloor: { G02: 0.03, G03: 0.03, G18: 0, G23: 0 },
     // revised 2026-10-30 (coordinator): a bot's throw lands on a hidden or moving target, so the enemy damage per throw is judged from 10 (it was 40 / 30 / 50 for a player's throw)
     lethalDamage: { frag: [10, 100], incendiary: [10, 90], sticky: [10, 110] }, ownDamageMax: 10, tacticalTouched: 1.0,
   },
-  powerups: { kd: [1.3, 3.0], kdWide: [1.3, 4.0], wide: ['fury', 'sigil'], topShareMax: 35 },
-  abilities: { use: [0.3, 1.0], kp: { recon: [15, 40], control: [20, 50], offense: [20, 50], ultimate: [30, 70] }, reveal: 0.8, affected: 1.0, healed: 60 },
+  // third pass: PU03 and PU12 are judged as utility rows (0.9 or more): their effect is a unit test (shots per second x1.5, 70 % lifesteal), the bots do not turn it into kills (rate x3 and speed x2 gave 1.12)
+  powerups: { kd: [1.3, 3.0], kdWide: [1.3, 4.0], wide: ['fury', 'sigil'], topShareMax: 35, effectChecked: ['PU03', 'PU12'] },
+  // third pass (proposals, Appendix C): A20 is a 8 m cone used when an enemy is within 10 m, which is about a quarter of a bot's life (0.25-0.28 whatever the trigger); A23 works on PvE fodder only;
+  // A18 counts every post as a use but only a linked pair can touch (CSI 0.63); a slept enemy (A22) is a free kill (CSI passes)
+  abilities: { use: [0.3, 1.0], useFloor: { A20: 0.2, A23: 0.05 }, kpBy: { A18: [8, 50], A22: [20, 70] },
+    kp: { recon: [15, 40], control: [20, 50], offense: [20, 50], ultimate: [30, 70] }, reveal: 0.8, affected: 1.0, healed: 60 },
   profileCsiSpread: 0.15, heroCsi: [0.40, 0.60], heroEwr: [40, 60], heroRoleMean: [45, 55],
   fairness: {
     sideWin: [45, 55], sideWinTolerance: [40, 60], sideWinMean: [47, 53], scoreShare: [45, 55], attackerRound: [42, 58], attackerMatch: [35, 65],
     infectionHumans: [30, 60], fiendsRavager: [35, 65], markedShareMax: 2, paceScoreEnd: [0.5, 1.0], paceLeader: 0.8, roundClock: [0.4, 1.0],
-    spawnDeathShare: 5, spawnDeathShareArena: 8, spawnPointMax: 2, comeback: [15, 40], rulesetPace: [0.6, 1.6],
+    spawnDeathShare: 5, spawnDeathShareArena: 8, spawnPointMax: 2, spawnPointNoise: 3, huntModes: ['bearer', 'cursetag'], comeback: [15, 40], rulesetPace: [0.6, 1.6],
     horde: { regular: 60, hardMax: 60, endlessWave10: 50 }, unperceived: 0,
   },
 };
@@ -204,6 +215,7 @@ function balanceSide(id) { return Actors.team[id] >= 0 ? 't' + Actors.team[id] :
 // A touch of an enemy by the source's latest use (the row named, else any inside the status window): the victim's next death inside 5 s credits the use.
 function balanceTouch(run, source, victim, key) {
   if (source === victim || !balanceTracked(source) || !Actors.isEnemy(source, victim)) return;
+  if (balanceCasting && balanceCasting.id === source) { run.uses.pending.push({ source, victim, time: Sim.time }); return; }   // inside a cast: the use is recorded a moment later (balanceOnUse)
   let use = null;
   if (key) use = run.uses.byActorKey.get(source + '|' + key) || null;
   else {
@@ -225,7 +237,61 @@ function balanceOnUse(run, id, key) {
   const stats = balanceRowStats(run, key);
   stats.uses++;
   if (use.forced) stats.usesForced++;
+  const pending = run.uses.pending;   // the touches the effect of this very cast made (a status, a push, a lure)
+  for (let n = pending.length - 1; n >= 0; n--) {
+    const touch = pending[n];
+    if (touch.source !== id) continue;
+    if (touch.time === Sim.time) {
+      if (!use.touchedBy.has(touch.victim)) { use.touchedBy.set(touch.victim, touch.time); use.enemies++; }
+      run.touches[touch.victim].push(use);
+    }
+    pending.splice(n, 1);
+  }
 }
+// A cast runs its effect before Abilities.begin emits ability.cast: the cast in progress is known here, so what the effect touches is credited to it.
+let balanceCasting = null;
+for (const name in Abilities.effects) {
+  const effect = Abilities.effects[name], cast = effect.cast;
+  if (!cast) continue;
+  effect.cast = function (id, row, slot) {
+    const outer = balanceCasting;
+    balanceCasting = { id };
+    try { return cast.call(this, id, row, slot); } finally { balanceCasting = outer; }
+  };
+}
+Bus.on('impulse', (event) => { if (balanceRun && balanceCasting) balanceTouch(balanceRun, balanceCasting.id, event.id, ''); });   // A20 pushes enemies without a status
+// A17: an enemy standing at the curtain is fighting the smoke; A33: an enemy bot that heard the double's shot or took it for its target was drawn onto it (sampled four times a second).
+const SMOKE_TOUCH_MARGIN = 3;   // m beyond the half width of the curtain
+const DECOY_HEARD_RADIUS = 3;   // m between the sound a bot heard and the double
+let balanceSmokeClock = 0;
+Sim.addSystem('balanceSmoke', 22, (dt) => {
+  const run = balanceRun;
+  if (!run) return;
+  balanceSmokeClock += dt;
+  if (balanceSmokeClock < 0.25) return;
+  balanceSmokeClock = 0;
+  for (let zone = 0; zone < ZONE_CAP; zone++) {
+    if (!AbilityZones.alive[zone]) continue;
+    const kind = AbilityZones.kind[zone];
+    if (kind !== ZONE_KIND.SMOKE && kind !== ZONE_KIND.DECOY) continue;
+    const row = CAT.abilities[AbilityZones.ability[zone]], owner = AbilityZones.owner[zone];
+    if (!row || !balanceTracked(owner)) continue;
+    if (kind === ZONE_KIND.DECOY) {
+      const decoy = AbilityZones.target[zone], key = balanceKey('ability', row);
+      for (let other = 0; other < Actors.count; other++) {
+        if (!Actors.alive[other] || other === decoy || !Actors.isEnemy(owner, other) || Actors.kind[other] !== ACTOR_KIND.BOT) continue;
+        const heard = Sim.time - BotSense.heardAt[other] <= 0.3 && decoy >= 0 && length2(BotSense.heardX[other] - Actors.x[decoy], BotSense.heardZ[other] - Actors.z[decoy]) <= DECOY_HEARD_RADIUS;
+        if (heard || (decoy >= 0 && BotCombat.target[other] === decoy)) balanceTouch(run, owner, other, key);
+      }
+      continue;
+    }
+    const reach = AbilityZones.radius[zone] + SMOKE_TOUCH_MARGIN, key = balanceKey('ability', row);
+    for (let other = 0; other < Actors.count; other++) {
+      if (!Actors.alive[other] || !Actors.isEnemy(owner, other)) continue;
+      if (length2(Actors.x[other] - AbilityZones.x[zone], Actors.z[other] - AbilityZones.z[zone]) <= reach && Math.abs(Actors.y[other] - AbilityZones.y[zone]) <= AbilityZones.height[zone] + 1) balanceTouch(run, owner, other, key);
+    }
+  }
+});
 function balanceOnDamage(event) {
   const run = balanceRun;
   if (!run) return;
@@ -246,7 +312,11 @@ function balanceOnKill(event) {
   const victim = event.victim, killer = event.killer, now = Sim.time;
   run.totals.deaths++;
   const since = now - Math.max(run.spawnTime[victim], Modes.protectUntil[victim]);
-  if (since >= 0 && since <= 3) run.totals.spawnDeaths++;
+  if (since >= 0 && since <= 3) {
+    run.totals.spawnDeaths++;
+    // a spawn trap: the bot died at its spawn point (within BALANCE_TRAP_RADIUS), not after running into a fight the mode sends everyone to
+    if (length2(Actors.x[victim] - run.spawnX[victim], Actors.z[victim] - run.spawnZ[victim]) <= BALANCE_TRAP_RADIUS) run.totals.spawnTrapDeaths++;
+  }
   if (now - run.spawnTime[victim] <= 5) {
     const point = run.spawnKey[victim];
     run.spawnPoints[point] = (run.spawnPoints[point] || 0) + 1;
@@ -292,6 +362,7 @@ function balanceOnSpawn(id) {
   run.spawns[id]++;
   run.spawnTime[id] = Sim.time;
   run.spawnKey[id] = Math.round(Actors.x[id]) + ',' + Math.round(Actors.z[id]);
+  run.spawnX[id] = Actors.x[id]; run.spawnZ[id] = Actors.z[id];
   const forced = run.forcedOf[id];
   if (forced) {
     if (forced.primary && !Weapons.has(id, forced.primary)) {
@@ -357,11 +428,11 @@ function balanceBegin(spec) {
   }
   const run = {
     spec, bots, created: 0, entryOf: new Array(MAX_ACTORS).fill(null), forcedOf: new Array(MAX_ACTORS).fill(null), tracked: new Uint8Array(MAX_ACTORS),
-    rows: {}, pickups: {}, uses: { list: [], latest: new Array(MAX_ACTORS).fill(null), byActorKey: new Map() }, touches: Array.from({ length: MAX_ACTORS }, () => []),
+    rows: {}, pickups: {}, uses: { list: [], latest: new Array(MAX_ACTORS).fill(null), byActorKey: new Map(), pending: [] }, touches: Array.from({ length: MAX_ACTORS }, () => []),
     aliveTicks: new Float64Array(MAX_ACTORS), ownedTicks: new Float64Array(MAX_ACTORS * WEAPON_COUNT), drawnTicks: new Float64Array(MAX_ACTORS * WEAPON_COUNT),
-    spawns: new Uint16Array(MAX_ACTORS), spawnTime: new Float64Array(MAX_ACTORS), spawnKey: new Array(MAX_ACTORS).fill(''), spawnPoints: {},
+    spawns: new Uint16Array(MAX_ACTORS), spawnTime: new Float64Array(MAX_ACTORS), spawnKey: new Array(MAX_ACTORS).fill(''), spawnX: new Float32Array(MAX_ACTORS), spawnZ: new Float32Array(MAX_ACTORS), spawnPoints: {},
     kills: new Uint16Array(MAX_ACTORS), deathsOf: new Uint16Array(MAX_ACTORS),
-    totals: { kills: 0, deaths: 0, spawnDeaths: 0, meleeKills: 0, teamKills: [0, 0] }, grant: spec.grant ? spec.grant.map((key) => balanceFind('powerups', key).id) : null,
+    totals: { kills: 0, deaths: 0, spawnDeaths: 0, spawnTrapDeaths: 0, meleeKills: 0, teamKills: [0, 0] }, grant: spec.grant ? spec.grant.map((key) => balanceFind('powerups', key).id) : null,
     grantTotals: { kills: 0, deaths: 0, window: spec.grant ? (spec.grant.length ? balanceFind('powerups', spec.grant[0]).duration : 0) || BALANCE_PERSISTENT_WINDOW / 2 : 0 },   // grant [] = the control: the same bots, nothing granted
     half: null, tick: 0,
   };
@@ -956,5 +1027,78 @@ Test.add('balance', (check) => {
   BotCombat.keepsCloak = realKeepsCloak;
   check('a bot under a cloak swings a real melee weapon at a target in reach', swings > 0, swings);
   check('and the same bot keeps its gun quiet under the cloak', gunShots === 0, gunShots);
+  endBotTest();
+});
+
+Test.add('balance', (check) => {
+  // P8-04 powerups: Quickening (PU03) really raises the fire rate and the speed of its holder, Vampire Fang (PU12) heals by a share of the damage dealt
+  TestArena.start({});
+  const id = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 20);
+  Weapons.setLoadout(id, ['vanguard']);
+  TestArena.aimAt(id, target);
+  const plain = TestArena.count('weapon.fire', () => TestArena.hold(id, BTN.FIRE, 1));
+  Powerups.give(id, CAT.powerups.byId('quickening'), 0);
+  Sim.step();
+  const hasted = TestArena.count('weapon.fire', () => TestArena.hold(id, BTN.FIRE, 1));
+  check('PU03 raises the shots per second of an automatic gun by about its rate share (1.5)', hasted >= plain * 1.3, plain + ' -> ' + hasted);
+  check('PU03 raises the speed scale of its holder', Powerups.speedScale[id] > 1.3, Powerups.speedScale[id]);
+  Powerups.clearActor(id, false);
+  Actors.health[id] = 20;
+  Powerups.give(id, CAT.powerups.byId('vampfang'), 0);
+  const healed = Actors.health[id];
+  TestArena.hit(id, target, 100);
+  check('PU12 heals the holder by its lifesteal share of the damage', Test.near(Actors.health[id] - healed, 70, 0.1), Actors.health[id] - healed);
+  TestArena.finish();
+});
+
+Test.add('balance', (check) => {
+  // third pass collector: the effect of a cast is credited to the cast (it runs before ability.cast is emitted), and the control abilities that leave no damage or status are seen:
+  // A22 lures (a sleep status), A20 pushes (an impulse), A17 smoke and A33 the holo double (sampled), each with enemies touched in a short seeded match
+  for (const code of ['A22', 'A20', 'A17', 'A33']) {
+    const spec = { mode: 'tdm', map: 'harbor', ruleset: 'vanguard', minutes: 3, botCount: 10, seed: 2, mirror: false, forced: { ability1: code }, forcedCount: 3, modeOptions: { timeLimit: 0, scoreLimit: 0 } };
+    const record = balanceRunCase(spec), row = record.rows['ability:' + code];
+    check(code + ' casts are counted and touch enemies in the collector', !!row && row.usesForced > 0 && row.touchedForced > 0, row ? row.usesForced + ' uses, ' + row.touchedForced + ' touched' : 'no row');
+  }
+}, { slow: true });
+
+Test.add('balance', (check) => {
+  // P8-04 third pass spawn heat: a death soon after a spawn heats the point it came from (and only then), the heat takes score off the point and fades
+  const point = { x: 0, y: 0, z: 0, yaw: 0, team: -1, objective: null, usedAt: -1e9, heat: 0, heatAt: -1e9 };
+  Modes.spawnedPoint[0] = point; Modes.spawnedAt[0] = Sim.time;
+  Modes.heatPoint(0, Sim.time + 2);
+  check('a death 2 s after a spawn heats its spawn point by one', Test.near(Modes.heatOf(point), 1, 0.05), Modes.heatOf(point));
+  Modes.spawnedPoint[0] = point; Modes.spawnedAt[0] = Sim.time - 30;
+  Modes.heatPoint(0, Sim.time);
+  check('a death 30 s after a spawn adds no heat', Test.near(Modes.heatOf(point), 1, 0.05) && Modes.spawnedPoint[0] === point, Modes.heatOf(point));
+  point.heatAt = Sim.time - SPAWN_HEAT_SECONDS - 1;
+  check('the heat has faded after SPAWN_HEAT_SECONDS', Modes.heatOf(point) === 0);
+  Modes.spawnedPoint[0] = null;
+});
+
+// ---- Third pass: the spawn rating (Frontline forward spawns, spawn heat) ----
+Test.add('balance', (check) => {
+  startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 3 }, { dummy: true }] });
+  const spawner = 0, enemy = 1;
+  Modes.hasDied[spawner] = 0;
+  const rate = (x) => { const point = { x, y: 0, z: 0, yaw: 0, team: -1, objective: null, usedAt: -1e9, heat: 0, heatAt: -1e9 }; Modes.rateSpawn(spawner, point); return { point, score: spawnRating.score }; };
+  placeActor(enemy, 0, 0); placeActor(spawner, 0, -40);
+  const near = rate(45), far = rate(35);
+  check('without heat the point farther from the enemy scores higher', near.score > far.score, near.score + ' against ' + far.score);
+  near.point.heat = 3; near.point.heatAt = Sim.time;
+  Modes.rateSpawn(spawner, near.point);
+  check('three recent spawn deaths turn that order round (the heat penalty is in the rating)', spawnRating.score < far.score, spawnRating.score + ' against ' + far.score);
+  endBotTest();
+});
+Test.add('balance', (check) => {
+  // Frontline (spawnAtOwned): a captured point 40 m from the enemy with a mate 10 m away is rated above the home base 150 m away (it scored 39 against 140 with the open-map numbers)
+  startBotTest(botTestMap(false), 'conquest', { bots: [{ team: 0, tier: 3 }, { team: 0, dummy: true }, { team: 1, dummy: true }] });
+  const [spawner, mate, enemy] = [0, 1, 2];
+  Modes.hasDied[spawner] = 0;
+  placeActor(enemy, 40, 0); placeActor(mate, -10, 0); placeActor(spawner, -100, 0);
+  check('the test match is Frontline with forward spawns', !!Modes.rules.params.spawnAtOwned);
+  const forward = { x: 0, y: 0, z: 0, yaw: 0, team: -1, objective: null, usedAt: -1e9, heat: 0, heatAt: -1e9 }, base = { x: -110, y: 0, z: 0, yaw: 0, team: -1, objective: null, usedAt: -1e9, heat: 0, heatAt: -1e9 };
+  Modes.rateSpawn(spawner, forward); const forwardScore = spawnRating.score;
+  Modes.rateSpawn(spawner, base); const baseScore = spawnRating.score;
+  check('Frontline: the forward point beats the home base 150 m from the enemy', forwardScore > baseScore, forwardScore + ' against ' + baseScore);
   endBotTest();
 });

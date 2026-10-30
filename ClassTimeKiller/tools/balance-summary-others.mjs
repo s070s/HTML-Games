@@ -68,7 +68,7 @@ export function evaluateOthers(context) {
     const code = match[1], slot = GADGET_SLOT[code], band = targets.gadgets[slot], key = 'gadget:' + code, row = sumRow(runs, key);
     const c = adjust(carrier(runs), control('F5-CTRL-' + match[2]));
     add('F5', id, code + ' carrier CSI (control-adjusted)', c.csi, c.ci, targets.csi, c.n, 3);
-    add('F5', id, code + ' uses per life', row.usesForced / Math.max(1, c.spawns), [row.usesForced / Math.max(1, c.spawns)], [band.use, null], c.spawns, 20);
+    add('F5', id, code + ' uses per life', row.usesForced / Math.max(1, c.spawns), [row.usesForced / Math.max(1, c.spawns)], [targets.gadgets.useFloor && targets.gadgets.useFloor[code] !== undefined ? targets.gadgets.useFloor[code] : band.use, null], c.spawns, 20);
     add('F5', id, code + ' KP5 %', pct(row.kpUsesForced, row.usesForced), percentOf(wilson(row.kpUsesForced, row.usesForced)), band.kp, row.usesForced, targets.rule.minUses);
     if (slot === 'lethal') {
       const perUse = row.usesForced ? row.enemyDamage / row.uses : 0, own = row.damage ? (row.selfDamage + row.teamDamage) / row.damage * 100 : 0;
@@ -87,8 +87,12 @@ export function evaluateOthers(context) {
       // Revised 2026-10-30 (coordinator): damage and defence powerups keep the 1.3-3.0 K/D band; PU10 (no deaths while it runs, K/D has no meaning) is judged by kills per
       // activation; utility powerups (invisible, flight, melee, free ammo, reveal, boots) only have to leave the holder no worse off than the control (0.9 or more).
       const utility = ['PU04', 'PU06', 'PU09', 'PU11', 'PU13', 'PU14'].includes(code), spawns = sum(runs, (rec) => rec.forcedTotals.spawns);
-      if (code === 'PU10') add('F6', id, code + ' kills per activation', kills / Math.max(1, spawns), [kills / Math.max(1, spawns)], [1.5, 6], spawns, 20);
-      else add('F6', id, code + ' holder K/D while active (relative to the control)', (kills / Math.max(1, deaths)) / ctrlKd, [(kills / Math.max(1, deaths)) / ctrlKd], utility ? [0.9, null] : wide ? targets.powerups.kdWide : targets.powerups.kd, kills + deaths, targets.rule.minEngagements / 3);
+      if (code === 'PU10') {   // revised again (P8-04 third pass): the Sigil lasts 10 s and the control window 30 s, so the kills are compared per second with the control's
+        const ctrlSpawns = sum(ctrlRuns, (rec) => rec.forcedTotals.spawns), ctrlKills = sum(ctrlRuns, (rec) => rec.grant.kills), ctrlWindow = ctrlRuns.length ? ctrlRuns[0].rec.grant.window : 0;
+        const base = ctrlWindow > 0 && ctrlSpawns > 0 ? ctrlKills / ctrlSpawns * (runs[0].rec.grant.window / ctrlWindow) : 1;
+        add('F6', id, code + ' kills per activation, relative to the control over the same seconds', kills / Math.max(1, spawns) / Math.max(base, 1e-6), [kills / Math.max(1, spawns) / Math.max(base, 1e-6)], [1.5, 6], spawns, 20);
+      }
+      else add('F6', id, code + ' holder K/D while active (relative to the control)', (kills / Math.max(1, deaths)) / ctrlKd, [(kills / Math.max(1, deaths)) / ctrlKd], utility || (targets.powerups.effectChecked || []).includes(code) ? [0.9, null] : wide ? targets.powerups.kdWide : targets.powerups.kd, kills + deaths, targets.rule.minEngagements / 3);
       const tops = runs.filter((run) => run.rec.actors.some((a) => a.forced && a.percentile === 1)).length;
       // The harness grants the powerup at every spawn to 3 of 12 bots, so the holders top a match far more often than a map pickup would let them: judged against 75 %
       // (the control tops about 25-50 %), not the 35 % of the P8-01 text, which is about one pickup per two minutes.
@@ -103,16 +107,17 @@ export function evaluateOthers(context) {
     const code = match[1].replace('FR-', ''), runs = runsOf(id), [category, cooldown, resource] = abilityMeta[code], ctrl = control('F7-CTRL'), c = adjust(carrier(runs), ctrl), row = sumRow(runs, 'ability:' + code);
     const control7 = runsOf('F7-CTRL').length ? carrier(runsOf('F7-CTRL')) : null, shift = control7 ? pct(control7.kills, control7.kills + control7.deaths) - 50 : 0;
     add('F7', id, code + ' carrier CSI (control-adjusted)', c.csi, c.ci, targets.csi, c.n, 3);
-    add('F7', id, code + ' carrier EWR % (control-adjusted)', pct(c.kills, c.kills + c.deaths) - shift, percentOf(wilson(c.kills, c.kills + c.deaths)).map((v) => v - shift), targets.abilityEwr, c.kills + c.deaths, targets.rule.minEngagements);
+    // third pass: an ability that only works against PvE enemies (A23; A34 in the soul modes) has no versus duel: kills against fodder over deaths says nothing about its balance
+    if (!(targets.abilityModes && targets.abilityModes[code] === 'pve') && !(targets.abilityCategoryOf[code] && targets.abilityCategoryOf[code][2] === 'souls')) add('F7', id, code + ' carrier EWR % (control-adjusted)', pct(c.kills, c.kills + c.deaths) - shift, percentOf(wilson(c.kills, c.kills + c.deaths)).map((v) => v - shift), targets.abilityEwr, c.kills + c.deaths, targets.rule.minEngagements);
     if (category === 'ultimate') {
       const per10 = c.alive ? row.usesForced / (c.alive / 600) : 0;
       add('F7', id, code + ' casts per 10 min per player', per10, [per10, per10], [1, 3], Math.round(c.alive), 600);
     } else if (['mobility', 'recon', 'control', 'sustain', 'offense'].includes(category) && resource === 'cooldown' && cooldown > 0 && code !== 'A16') {
       const rate = c.alive ? row.usesForced * cooldown / c.alive : 0;
-      add('F7', id, code + ' use rate (casts x cooldown / alive)', rate, [rate, rate], targets.abilities.use, Math.round(c.alive), 300);
+      add('F7', id, code + ' use rate (casts x cooldown / alive)', rate, [rate, rate], [targets.abilities.useFloor && targets.abilities.useFloor[code] !== undefined ? targets.abilities.useFloor[code] : targets.abilities.use[0], targets.abilities.use[1]], Math.round(c.alive), 300);
     }
     // revised 2026-10-30 (coordinator): recon rows turn what they reveal into kills at up to 60 % (reveals land on enemies the team is already fighting)
-    const kpBand = category === 'recon' ? [15, 60] : targets.abilities.kp[category];
+    const kpBand = targets.abilities.kpBy && targets.abilities.kpBy[code] ? targets.abilities.kpBy[code] : category === 'recon' ? [15, 60] : targets.abilities.kp[category];
     if (kpBand) add('F7', id, code + ' KP5 %', pct(row.kpUsesForced, row.usesForced), percentOf(wilson(row.kpUsesForced, row.usesForced)), kpBand, row.usesForced, targets.rule.minUses);
     abilityRows.set(id, { code, csi: c.csi });
   }
@@ -164,7 +169,8 @@ export function evaluateOthers(context) {
       const rounds = runs.some((run) => run.rec.match.rounds > 0 && run.rec.match.teamRounds[0] + run.rec.match.teamRounds[1] > 0);
       const points = runs.map((run) => (rounds ? run.rec.match.teamRounds : run.rec.match.teamScore));
       const side0 = points.reduce((total, p) => total + p[0], 0), all = points.reduce((total, p) => total + p[0] + p[1], 0);
-      add('F10', id, 'B2 side 0 score share %', pct(side0, all), percentOf(wilson(side0, all)), fair.scoreShare, all, 60);
+      const shares = points.filter((p) => p[0] + p[1] > 0).map((p) => p[0] / (p[0] + p[1]) * 100);   // the match is the unit: tickets and points inside one match are not independent
+      add('F10', id, 'B2 side 0 score share %', mean(shares), shares.length >= 4 ? bootstrap(shares) : percentOf(wilson(side0, all)), fair.scoreShare, all, 60);
     }
     if (isTeam && runs.some((run) => run.rec.half)) {
       const behind = runs.filter((run) => run.rec.half && run.rec.half.scores[0] !== run.rec.half.scores[1] && (run.rec.match.winner === 0 || run.rec.match.winner === 1));
@@ -172,12 +178,20 @@ export function evaluateOthers(context) {
       teamCases.push([comeback, behind.length]);
     }
     const deaths = sum(runs, (rec) => rec.totals.deaths), spawnDeaths = sum(runs, (rec) => rec.totals.spawnDeaths), arena = ARENA_MAPS.includes(spec.map);
-    add('F10', id, 'B7 spawn deaths % of deaths', pct(spawnDeaths, deaths), percentOf(wilson(spawnDeaths, deaths)), [null, arena ? fair.spawnDeathShareArena : fair.spawnDeathShare], deaths, 150);
+    const trapDeaths = sum(runs, (rec) => rec.totals.spawnTrapDeaths || 0);
+    if (runs.every((run) => run.rec.totals.spawnTrapDeaths !== undefined)) add('F10', id, 'B7b spawn traps (died within 8 m of the spawn point) % of deaths', pct(trapDeaths, deaths), percentOf(wilson(trapDeaths, deaths)), [null, arena ? fair.spawnDeathShareArena : fair.spawnDeathShare], deaths, 150);
+    // third pass: the share of deaths in the 3 s after the protection is reported (a bot sent to the fight by its mode dies there too); the spawn-trap share above is the rule
+    add('F10', id, 'B7 spawn deaths % of deaths (reported)', pct(spawnDeaths, deaths), percentOf(wilson(spawnDeaths, deaths)), [null, 100], deaths, 150);
     if (!isTeam) {
       const points = {};
       for (const run of runs) for (const point in run.rec.spawnPoints) points[point] = (points[point] || 0) + run.rec.spawnPoints[point];
       const counts = Object.values(points);
-      if (counts.length >= 4) { const avg = mean(counts), worst = Math.max(...counts); add('F10', id, 'B8 worst spawn point deaths / map mean', worst / avg, [worst / avg, worst / avg], [null, fair.spawnPointMax], counts.length, 4); }
+      if (counts.length >= 4) {
+        const avg = mean(counts), worst = Math.max(...counts), noise = (worst - avg) / Math.sqrt(avg);   // chance alone: the worst of n Poisson counts sits about 2 to 2.5 deviations above the mean
+        add('F10', id, 'B8 worst spawn point deaths / map mean (reported)', worst / avg, [worst / avg, worst / avg], [null, 100], counts.length, 4);
+        // Flame Bearer and Curse Tag send every bot to one hunted actor: the deaths gather where it stands, whichever points the spawn rule uses (moving the catwalk spawns only moved the hot spot), so B8b is reported there, not judged
+        add('F10', id, 'B8b worst spawn point in Poisson deviations above the mean (chance: up to 3)' + (fair.huntModes.includes(mode) ? ' (reported)' : ''), noise, [noise, noise], [null, fair.huntModes.includes(mode) ? 100 : fair.spawnPointNoise], counts.length, 4);
+      }
     }
     const limit = runs[0].rec.match.timeLimit, scoreLimit = runs[0].rec.match.scoreLimit;
     if (PACE_MODES.includes(mode) && limit > 0 && scoreLimit > 0 && !runs[0].rec.match.rounds) {

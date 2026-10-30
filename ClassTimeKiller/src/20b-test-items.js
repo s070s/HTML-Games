@@ -409,8 +409,10 @@ Test.add('items', (check) => {
   Sim.run(TICK_RATE);
   check('PU05 regenerates 25 HP/s below 110 (P8-04)', Test.near(Actors.health[id], 75, 0.2), Actors.health[id]);
   Powerups.clearActor(id, false);
+  Actors.health[id] = 100;
   Powerups.give(id, CAT.powerups.byId('guardianrune'), 0);
-  check('PU15 raises max health x2.5 (P8-04)', Actors.maxHealth[id] === 250, Actors.maxHealth[id]);
+  check('PU15 raises max health x2 (P8-04)', Actors.maxHealth[id] === 200, Actors.maxHealth[id]);
+  check('PU15 fills the added health with the rune (P8-04)', Actors.health[id] === 200, Actors.health[id]);
   check('runes: a rune holder takes no second rune', !Powerups.give(id, CAT.powerups.byId('guardianrune'), 0));
   TestArena.finish();
 });

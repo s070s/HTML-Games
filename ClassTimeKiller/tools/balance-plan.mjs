@@ -93,8 +93,8 @@ export function buildPlan() {
   for (const code of ABILITIES) add(`F7-${code}`, 'F7', 2, SEEDS2, true, team({ ruleset: 'vanguard', forced: { [code >= 'A37' ? 'ultimate' : 'ability1']: code }, forcedCount: 3 }));
   for (const code of ['A01', 'A02', 'A03', 'A04']) add(`F7-${code}`, 'F7', 2, SEEDS2, true, team({ ruleset: 'suit', forced: { ability1: code }, forcedCount: 3 }));
   for (const code of ['A05', 'A06', 'A08', 'A11', 'A14', 'A19', 'A20', 'A29', 'A35']) add(`F7-FR-${code}`, 'F7', 2, SEEDS2, true, team({ ruleset: 'frame', forced: { ability1: code }, forcedCount: 3 }));
-  add('F7-A23', 'F7', 2, SEEDS4, false, { mode: 'horde', map: 'cistern', ruleset: 'classic', minutes: 3, botCount: 4, modeOptions: OPEN, forced: { ability1: 'A23' }, forcedCount: 2 });
-  add('F7-A34', 'F7', 2, SEEDS4, false, { mode: 'horde', map: 'cistern', ruleset: 'classic', minutes: 3, botCount: 4, modeOptions: OPEN, forced: { ability1: 'A34' }, forcedCount: 2 });
+  add('F7-A23', 'F7', 2, SEEDS4, false, { mode: 'horde', map: 'cistern', ruleset: 'classic', minutes: 3, botCount: 4, modeOptions: OPEN, forced: { ability1: 'A23' }, mutators: ['powers'], forcedCount: 2 });   // A23 is only in the Powers for All kit (X46)
+  add('F7-A34', 'F7', 2, SEEDS4, false, { mode: 'horde', map: 'cistern', ruleset: 'classic', minutes: 3, botCount: 4, modeOptions: OPEN, forced: { ability1: 'A34' }, overrides: { 'abilities.wrath.cost': 20 }, forcedCount: 2 });   // Wrath is the automatic ultimate of the soul modes; 66 souls are not collected in 3 minutes (a bot gathers about 33 in 10), so the effect is measured with 20
   for (const [name, ruleset] of [['RS02', 'tourney'], ['RS04', 'modern'], ['RS05', 'pilot']]) add(`F7-M-${name}`, 'F7', 2, SEEDS2, true, team({ ruleset }));
   // F8 ability x engagement profile (EP1 and EP4 first)
   for (const code of ABILITIES) for (const profile in PROFILES) {

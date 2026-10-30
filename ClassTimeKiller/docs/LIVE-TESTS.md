@@ -323,6 +323,10 @@ Columns: ID, Area (spec section and ID prefix), Device(s), Setup, Steps, Expecte
 | LT-M-083 | §8 WPN-012 (P8-04) | All | Fire the Shardcaster until the 10-round magazine is empty and reload | The reload takes 2 s and the animation follows it | The gun is back after 2 s, not 0.5 s | 1 of 1 |
 | LT-M-084 | §14 BOT, ARC-033 (P8-04) | All | A bot match on Gantry, bots with a rifle, a Talon Bow or an Accelerator, `__CTK.bots.debug(true)` | Watch a bot lose its target behind a wall, in smoke or under Ghostveil | Auto fire stops at once; a charge in hand is held or dropped, never released into the dark; the bot looks at the last place it saw the target, not at the target | 3 of 3 ways to lose a target |
 | LT-M-085 | §8 WPN (P8-04) | All | Arms Ladder (Gun Game), hold Fire through a promotion | Kill with an automatic gun while holding Fire, then get a burst or semi gun | The automatic gun keeps firing; the burst or semi gun waits for a fresh press and leaves no stale burst rounds | 3 of 3 promotions |
+| LT-M-086 | §12 PUP (P8-04) | All | A free-for-all with Guardian Rune on the map (or `__CTK.give`), a hurt player | Pick up the rune with 100 HP | Health and armour jump by the added points at once (200 HP with the rune) and drop back to the old maximum when it ends | 3 of 3 pickups |
+| LT-M-087 | §11 GAD (P8-04) | All | Cinder Jar thrown at your feet in a free-for-all | Stand in the fire pool for 4 s next to a bot | You take no damage and do not burn; the bot does | 3 of 3 throws |
+| LT-M-088 | §13 MAP-010 (P8-04) | All | Holdfast on Twin Keeps, and Flame Bearer on Spire, 4 minutes each with 10 bots | Watch where you and the bots respawn; count deaths in the first 3 s after the protection ends | Respawns are not beside the fight; few deaths right after the protection | Under 1 in 8 of your deaths |
+| LT-M-089 | §9 MOD (P8-04) | All | Relic Run with 7 bots on Gantry | Play to the end | The match ends by score (60) before the 10 minute clock | 3 of 3 matches |
 
 ### 6.4 Low (LT-L)
 

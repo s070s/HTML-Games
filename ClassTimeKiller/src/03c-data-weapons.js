@@ -148,7 +148,7 @@ const WEAPON_ROWS = [
   { id: 'sparklock', casing: 'none', code: 'W07', name: 'Sparklock Pistol', class: 'sidearm', reloadAnim: 'R8', price: 600, mag: 24, reserve: 72, noise: 40, botPref: { range: [2, 20], value: 0.4 },
     primary: { type: 'lock', damage: 12, rate: 8, lock: { time: 0.4, targets: 3, coneDeg: 12, range: 20 }, recoil: 'energy' },
     alt: { type: 'hitscan', damage: 12, rate: 8, spreadDeg: 1.5, recoil: 'pistol' } },
-  { id: 'wasp', code: 'W09', name: 'Wasp SMG', class: 'smg', mag: 30, reserve: 120, price: 1200, killReward: 600, botPref: { range: [0, 15], value: 0.55 },
+  { id: 'wasp', code: 'W09', name: 'Wasp SMG', class: 'smg', mag: 30, reserve: 120, price: 1200, killReward: 600, botPref: { range: [0, 15], value: 0.6 },
     primary: { type: 'hitscan', damage: 18, rate: 13, spreadDeg: 0.8, recoil: 'smg', falloff: [10, 25, 0.6] },
     alt: { type: 'toggle', toggle: { damageMult: 0.85, status: { id: 'slow', seconds: 1 } } } },   // P3-04: the hollow-point toggle of the retired Riptide PDW (W11) replaces the plain zoom
   { id: 'hornet', code: 'W10', name: 'Hornet Carbine', class: 'smg', moveMult: 0.97, mag: 45, reserve: 180, altAmmo: 3, price: 1400, killReward: 600, botPref: { range: [0, 20], value: 0.55 },

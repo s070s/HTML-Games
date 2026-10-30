@@ -1085,7 +1085,7 @@ const WEAPON_ROWS = [
 	{ id: 'sparklock', casing: 'none', code: 'W07', name: 'Sparklock Pistol', class: 'sidearm', reloadAnim: 'R8', price: 600, mag: 24, reserve: 72, noise: 40, botPref: { range: [2, 20], value: 0.4 },
 		primary: { type: 'lock', damage: 12, rate: 8, lock: { time: 0.4, targets: 3, coneDeg: 12, range: 20 }, recoil: 'energy' },
 		alt: { type: 'hitscan', damage: 12, rate: 8, spreadDeg: 1.5, recoil: 'pistol' } },
-	{ id: 'wasp', code: 'W09', name: 'Wasp SMG', class: 'smg', mag: 30, reserve: 120, price: 1200, killReward: 600, botPref: { range: [0, 15], value: 0.55 },
+	{ id: 'wasp', code: 'W09', name: 'Wasp SMG', class: 'smg', mag: 30, reserve: 120, price: 1200, killReward: 600, botPref: { range: [0, 15], value: 0.6 },
 		primary: { type: 'hitscan', damage: 18, rate: 13, spreadDeg: 0.8, recoil: 'smg', falloff: [10, 25, 0.6] },
 		alt: { type: 'toggle', toggle: { damageMult: 0.85, status: { id: 'slow', seconds: 1 } } } },
 	{ id: 'hornet', code: 'W10', name: 'Hornet Carbine', class: 'smg', moveMult: 0.97, mag: 45, reserve: 180, altAmmo: 3, price: 1400, killReward: 600, botPref: { range: [0, 20], value: 0.55 },
@@ -1360,7 +1360,7 @@ Data.define('modes', {
 	{ id: 'conquest', code: 'M07', name: 'Frontline', variantOf: 'dom', variant: 'Tickets (Frontline)', goal: 'Hold points and stay alive to drain enemy tickets.', teams: 2, sizeDefault: 16, timeLimit: 1200, scoreBy: 'tickets', objective: 'point', params: Object.assign({ tickets: 150, deathCost: 1, bleedHeld: 2, bleedInterval: 3, spawnAtOwned: true }, CAPTURE_PARAMS), ruleset: 'modern' },
 	{ id: 'rush', code: 'M08', name: 'Breach Assault', variantOf: 'bomb', variant: 'Stages and tickets (Breach Assault)', goal: 'Attackers arm relays with Use; defenders stop them.', useButton: true, teams: 2, sizeDefault: 16, timeLimit: 0, scoreBy: 'tickets', objective: 'bombsite', params: Object.assign({}, BOMB_PARAMS, { tickets: 75, deathCost: 1, stages: 3, perStage: 2, fuse: 30, defuseTime: 5, defuseCheckpoint: 0 }), ruleset: 'modern' },
 	{ id: 'hardpoint', code: 'M09', name: 'Hotpoint', variantOf: 'dom', variant: 'Moving hill (Hotpoint)', goal: 'Hold the moving hill to score.', teams: 2, scoreLimit: 150, scoreBy: 'objective', objective: 'hill', params: { moveInterval: 60, holdRate: 1 }, ruleset: 'modern' },
-	{ id: 'oddball', code: 'M10', name: 'Relic Run', variant: 'Relic', goal: 'Hold the relic to score; its carrier uses melee.', scoreLimit: 100, scoreBy: 'objective', objective: 'relic', params: { holdRate: 1, carrierMeleeOnly: true, returnTime: 30 }, scoring: NO_KILL_SCORING },
+	{ id: 'oddball', code: 'M10', name: 'Relic Run', variant: 'Relic', goal: 'Hold the relic to score; its carrier uses melee.', scoreLimit: 60, scoreBy: 'objective', objective: 'relic', params: { holdRate: 1, carrierMeleeOnly: true, returnTime: 30 }, scoring: NO_KILL_SCORING },
 	{ id: 'payload', code: 'M11', name: 'Convoy', goal: 'Attackers push the convoy; defenders hold it.', teams: 2, sizeDefault: 10, timeLimit: 240, scoreBy: 'objective', objective: 'payloadPath', params: { speed: 1.2, maxSpeed: 1.8, pushStack: 0.25, rollbackAfter: 10, rollbackSpeed: 0.5, checkpoints: 3, checkpointTime: 120 }, ruleset: 'heroes' },
 	{ id: 'control', code: 'M12', name: 'Uplink', variantOf: 'dom', variant: 'Uplink rounds', goal: 'Capture the uplink to win the round.', teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'point', rounds: { winsNeeded: 2, limit: 3, live: 240, freeze: 5, switchAt: 0, endDelay: 5 }, params: Object.assign({}, CAPTURE_PARAMS, { captureTime: 10, progressTime: 100, overtimeAt: 0.99 }), ruleset: 'heroes' },
 	{ id: 'bomb', code: 'M13', name: 'Detonate', variant: 'Classic', goal: 'Attackers plant with Use; defenders defuse.', useButton: true, teams: 2, sizeDefault: 10, timeLimit: 0, scoreBy: 'rounds', objective: 'bombsite', rounds: BOMB_ROUNDS, respawn: 'round', params: BOMB_PARAMS, tiebreak: 'draw', ruleset: 'tactical' },
@@ -1636,7 +1636,7 @@ Data.define('powerups', {
 	{ id: 'vampfang', code: 'PU12', name: 'Vampire Fang', duration: 30, maxDuration: 60, mods: { lifesteal: 0.7 }, color: 0x900030 },
 	{ id: 'seer', code: 'PU13', name: 'Seer Orb', duration: 15, maxDuration: 30, respawn: 90, mods: { reveal: true }, color: 0x40ff80 },
 	{ id: 'springboots', code: 'PU14', name: 'Spring Boots', respawn: 60, stacking: 'refresh', pool: 'jumps', charges: 3, mods: { jumpScale: 2, noFall: true }, drops: false, color: 0x60ff60 },
-	{ id: 'guardianrune', code: 'PU15', name: 'Guardian Rune', persistent: true, respawn: 60, stacking: 'rune', mods: { maxHealthScale: 2.5, maxArmorScale: 2.5, speed: 1 }, drops: false, color: 0x4060ff },
+	{ id: 'guardianrune', code: 'PU15', name: 'Guardian Rune', persistent: true, respawn: 60, stacking: 'rune', mods: { maxHealthScale: 2, maxArmorScale: 2, speed: 1 }, drops: false, color: 0x4060ff },
 	{ id: 'soul', code: 'PU18', name: 'Soul Shard', respawn: 0, instant: { heal: 1, soul: 1 }, drops: false, mapItem: false, announce: false, color: 0xa0ffd0 },
 	{ id: 'lightbearer', code: 'PU19', name: 'Bearer Flame', persistent: true, respawn: 30, mods: { damage: 3 }, unique: true, color: 0xfff0a0 },
 	{ id: 'vitalshard', code: 'PU20', name: 'Vital Shard', respawn: 60, instant: { vital: 25, vitalHealthCap: 200, vitalArmorCap: 150 }, drops: false, campaign: true, healthPreset: 'ravager', color: 0xff60c0 },
@@ -1663,7 +1663,7 @@ Data.define('gadgets', {
 		size: [0.14, 0.26, 0.14], color: 0x9a9a9a },
 	{ id: 'flash', code: 'G03', name: 'Glare Shell', kind: 'thrown', slot: 'tactical', effect: 'flash', carry: 2, fuse: 1.5, radius: 20, duration: 3.5, status: 'blind',
 		size: [0.12, 0.24, 0.12], color: 0xdadada },
-	{ id: 'incendiary', code: 'G04', name: 'Cinder Jar', kind: 'thrown', slot: 'lethal', effect: 'fire', impact: true, fuse: 4, radius: 3, duration: 7, damage: 40,
+	{ id: 'incendiary', code: 'G04', name: 'Cinder Jar', kind: 'thrown', slot: 'lethal', effect: 'fire', impact: true, fuse: 4, radius: 3.5, duration: 7, damage: 40,
 		element: 'thermal', status: 'burn', statusSeconds: 2, ownerSafe: true, size: [0.18, 0.24, 0.18], color: 0xb05a20 },
 	{ id: 'sticky', code: 'G06', name: 'Leech Charge', kind: 'thrown', slot: 'lethal', effect: 'explode', fuse: 1.5, stick: true, stickActors: true, radius: 3.5, damage: 110,
 		size: [0.2, 0.2, 0.2], color: 0x40a0ff },
@@ -1762,17 +1762,17 @@ const ABILITY_ROWS = [
 	{ id: 'veil', code: 'A17', name: 'Veil Curtain', category: 'control', activation: 'instant', resource: 'charges', charges: 2, cooldown: 30, duration: 15, range: 20, effect: 'zone',
 		params: { zone: 'smoke', width: 12, height: 3 }, botUse: { when: 'underFire', range: [0, 20], chance: 0.5 }, color: 0xb8c0c8 },
 	{ id: 'fence', code: 'A18', name: 'Static Fence', category: 'control', activation: 'instant', resource: 'charges', charges: 4, cooldown: 15, range: 12, effect: 'fence',
-		params: { damage: 20, slow: 0.4, slowSeconds: 1.5, link: 12, life: 60, rearm: 1 }, botUse: { when: 'always', range: [0, 12], chance: 0.3 }, color: 0x7ad8ff },
+		params: { damage: 20, slow: 0.4, slowSeconds: 1.5, link: 12, life: 60, rearm: 1 }, botUse: { when: 'enemyVisible', range: [3, 12], chance: 0.5 }, color: 0x7ad8ff },
 	{ id: 'timebend', code: 'A19', name: 'Time Bend', category: 'control', activation: 'instant', resource: 'energy', cost: 60, duration: 6, effect: 'timebend',
 		params: { scale: 0.25, radius: 8 }, botUse: { when: 'groupedEnemies', range: [0, 8], chance: 0.6 }, color: 0xc0a0ff },
 	{ id: 'gale', code: 'A20', name: 'Gale Push', category: 'control', activation: 'instant', cooldown: 8, range: 8, effect: 'push',
-		params: { angle: 30, speed: 20, deflect: true }, botUse: { when: 'enemyClose', range: [0, 10], chance: 0.9 }, color: 0xe0f0ff },
+		params: { angle: 30, speed: 20, deflect: true }, botUse: { when: 'enemyClose', range: [0, 10], chance: 1 }, color: 0xe0f0ff },
 	{ id: 'binding', needsTarget: true, code: 'A21', name: 'Binding Link', category: 'control', activation: 'instant', cooldown: 20, duration: 8, range: 30, effect: 'link',
 		params: { radius: 8 }, botUse: { when: 'groupedEnemies', range: [0, 30], chance: 0.5 }, color: 0xff60c0 },
 	{ id: 'mesmer', code: 'A22', name: 'Mesmer Lure', category: 'control', activation: 'instant', cooldown: 25, duration: 5, range: 15, effect: 'mesmer',
 		params: { targets: 2 }, botUse: { when: 'groupedEnemies', range: [0, 15], chance: 0.5 }, color: 0xff80ff },
 	{ id: 'puppet', code: 'A23', name: 'Puppet Jump', category: 'control', activation: 'instant', cooldown: 40, duration: 10, range: 20, effect: 'possess', modes: 'pve',
-		params: {}, interrupt: { damage: true, stun: true, fire: false }, botUse: { when: 'enemyVisible', range: [0, 20], chance: 0.3 }, color: 0xa040ff },
+		params: {}, interrupt: { damage: true, stun: true, fire: false }, botUse: { when: 'enemyVisible', range: [0, 20], chance: 0.9 }, color: 0xa040ff },
 	{ id: 'frenzy', needsTarget: true, code: 'A24', name: 'Frenzy Hex', category: 'control', activation: 'instant', cooldown: 30, duration: 8, range: 30, effect: 'frenzy',
 		params: {}, botUse: { when: 'groupedEnemies', range: [0, 30], chance: 0.5 }, color: 0xff4040 },
 	{ id: 'mender', code: 'A25', name: 'Mender Drone', category: 'sustain', activation: 'instant', cooldown: 30, duration: 8, effect: 'zone',
@@ -1783,8 +1783,8 @@ const ABILITY_ROWS = [
 		params: {}, balance: { needsDowned: true }, botUse: { when: 'allyDowned', range: [0, 10], chance: 1 }, color: 0x60ff90 },
 	{ id: 'ampwall', code: 'A28', name: 'Amp Wall', category: 'sustain', activation: 'instant', cooldown: 20, duration: 15, effect: 'zone',
 		params: { zone: 'wall', width: 4, height: 2, distance: 1.5, amp: 1.25, persist: true }, botUse: { when: 'underFire', range: [0, 60], chance: 0.6 }, color: 0x60c0ff },
-	{ id: 'arcbolt', needsTarget: true, code: 'A29', name: 'Arc Bolt', category: 'offense', activation: 'instant', resource: 'energy', cost: 60, range: 30, effect: 'bolt',
-		params: { damage: 18, element: 'arc', status: 'shock', seconds: 1, stacks: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0xfff27a },
+	{ id: 'arcbolt', needsTarget: true, code: 'A29', name: 'Arc Bolt', category: 'offense', activation: 'instant', resource: 'energy', cost: 90, range: 30, effect: 'bolt',
+		params: { damage: 18, element: 'arc', status: 'shock', seconds: 0.5, stacks: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0xfff27a },
 	{ id: 'swarm', needsTarget: true, code: 'A32', name: 'Swarm Cloud', category: 'offense', activation: 'instant', cooldown: 25, duration: 6, range: 30, effect: 'swarm',
 		params: { dps: 6, targets: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0x90a040 },
 	{ id: 'holodouble', code: 'A33', name: 'Holo Double', category: 'offense', activation: 'instant', cooldown: 15, duration: 8, effect: 'decoy',
@@ -1797,7 +1797,7 @@ const ABILITY_ROWS = [
 		params: { weapon: 'twingate' }, botUse: { when: 'always', range: [0, 0], chance: 0 }, color: 0xff9030 },
 	{ id: 'overcore', code: 'A37', name: 'Overcore', category: 'ultimate', activation: 'instant', resource: 'ultimate', ultCost: 1500, duration: 10, effect: 'buff',
 		params: { damage: 2, rate: 1.2 }, botUse: { when: 'enemyVisible', range: [0, 40], chance: 0.8 }, color: 0xff5030 },
-	{ id: 'orbital', code: 'A38', name: 'Orbital Lance', category: 'ultimate', activation: 'instant', resource: 'ultimate', ultCost: 1800, range: 60, effect: 'zone',
+	{ id: 'orbital', code: 'A38', name: 'Orbital Lance', category: 'ultimate', activation: 'instant', resource: 'ultimate', ultCost: 1500, range: 60, effect: 'zone',
 		params: { zone: 'strike', radius: 8, delay: 2, damage: 250, persist: true }, botUse: { when: 'enemyVisible', range: [5, 60], chance: 0.8 }, color: 0xff3030 },
 	{ id: 'rift', code: 'A39', name: 'Rift Gate', category: 'ultimate', activation: 'instant', resource: 'ultimate', ultCost: 1500, duration: 15, range: 60, effect: 'rift',
 		params: { radius: 1.2, rearm: 1, persist: true }, botUse: { when: 'escape', range: [0, 60], chance: 0.4 }, color: 0xb040ff },
@@ -1830,15 +1830,15 @@ Data.define('heroes', {
 		passive: { kind: 'shieldRegen', delay: 2, rate: 30 }, ability1: 'grapnel', ability2: 'ampwall', ultimate: 'rally', color: 0x4fa08a },
 	{ id: 'quill', code: 'H03', name: 'Quill', role: 'damage', health: 200, weapons: ['vanguard'], move: 'agile',
 		passive: { kind: 'killHaste', speed: 1.25, seconds: 2.5 }, ability1: 'surge', ability2: 'rewind', ultimate: 'overcore', color: 0xe0a030 },
-	{ id: 'tessaly', code: 'H04', name: 'Tessaly', role: 'damage', health: 250, weapons: ['heron'], move: 'agile',
+	{ id: 'tessaly', code: 'H04', name: 'Tessaly', role: 'damage', health: 275, weapons: ['heron', 'vanguard'], move: 'agile',
 		passive: { kind: 'flag', flag: 'scopeInfo' }, ability1: 'glidepack', ability2: 'echopulse', ultimate: 'rift', color: 0x9a5fd0 },
-	{ id: 'brask', code: 'H05', name: 'Brask', role: 'damage', health: 225, weapons: ['pitcher'], move: 'modern',
+	{ id: 'brask', code: 'H05', name: 'Brask', role: 'damage', health: 200, weapons: ['pitcher'], move: 'modern',
 		passive: { kind: 'flag', flag: 'extraGrenade' }, gadget: 'singularity', ability1: 'fence', ultimate: 'orbital', color: 0xd06030 },
 	{ id: 'lark', code: 'H06', name: 'Lark', role: 'support', health: 225, weapons: ['linker'], move: 'agile',
 		passive: { kind: 'regen' }, ability1: 'mender', ability2: 'secondwind', ultimate: 'rally', color: 0x60d080 },
 	{ id: 'mirelle', code: 'H07', name: 'Mirelle', role: 'support', health: 200, weapons: ['needlethorn'], move: 'modern',
 		passive: { kind: 'flag', flag: 'smokeVision' }, ability1: 'veil', ability2: 'mesmer', ultimate: 'timebend', color: 0x8080e0 },
-	{ id: 'tamsin', code: 'H08', name: 'Tamsin', role: 'initiator', health: 225, weapons: ['kestrel'], move: 'agile',
+	{ id: 'tamsin', code: 'H08', name: 'Tamsin', role: 'initiator', health: 250, weapons: ['kestrel'], move: 'agile',
 		passive: { kind: 'ability', ability: 'tracker' }, gadget: 'emp', ability1: 'scoutdrone', ultimate: 'seerpulse', color: 0xc0c040 },
 ]);
 const HERO_KILL_LIMIT_SCALE = 0.3, HERO_KILL_LIMIT_MODES = ['tdm'];
@@ -16970,12 +16970,16 @@ const Powerups = {
 	},
 	applyMaxScales(id, healthScale, armorScale) {
 		if (healthScale !== this.healthScale[id]) {
-			Actors.maxHealth[id] = Actors.maxHealth[id] / this.healthScale[id] * healthScale;
+			const before = Actors.maxHealth[id];
+			Actors.maxHealth[id] = before / this.healthScale[id] * healthScale;
+			if (Actors.maxHealth[id] > before) Actors.health[id] += Actors.maxHealth[id] - before;
 			Actors.health[id] = Math.min(Actors.health[id], Damage.overhealCap(id));
 			this.healthScale[id] = healthScale;
 		}
 		if (armorScale === this.armorScale[id]) return;
-		Actors.maxArmor[id] = Actors.maxArmor[id] / this.armorScale[id] * armorScale;
+		const armorBefore = Actors.maxArmor[id];
+		Actors.maxArmor[id] = armorBefore / this.armorScale[id] * armorScale;
+		if (Actors.maxArmor[id] > armorBefore) Actors.armor[id] += Actors.maxArmor[id] - armorBefore;
 		Actors.armor[id] = Math.min(Actors.armor[id], Actors.maxArmor[id]);
 		this.armorScale[id] = armorScale;
 	},
@@ -17460,7 +17464,11 @@ const GadgetAreas = {
 		if (Smoke.covers(this.x[area], this.y[area] + 0.5, this.z[area])) { this.active[area] = 0; return; }
 		const age = (Sim.tick - this.startTick[area]) / Math.max(1, this.endTick[area] - this.startTick[area]);
 		const amount = row.damage * lerp(GADGET_TUNING.fireRampFrom, 1, age) * AREA_TICK_SECONDS;
-		for (let id = 0; id < Actors.count; id++) if (this.inFire(area, row, id)) fireAreaHit(this.owner[area], id, amount, row, GADGET_MODES[row.index]);
+		const owner = this.owner[area];
+		for (let id = 0; id < Actors.count; id++) {
+			if (row.ownerSafe && id === owner) continue;
+			if (this.inFire(area, row, id)) fireAreaHit(owner, id, amount, row, GADGET_MODES[row.index]);
+		}
 		if (!Game.headless) Fx.burst('fire', this.x[area], this.y[area] + 0.1, this.z[area], 0, 1, 0, FIRE_FX_COUNT, null);
 	},
 	inFire(area, row, id) {
@@ -20366,10 +20374,14 @@ const SPAWN_ENEMY_RADIUS = 12;
 const SPAWN_SIGHT_RADIUS = 25;
 const SPAWN_REUSE_SECONDS = 8;
 const SPAWN_REUSE_PENALTY = 30;
+const SPAWN_HEAT_WINDOW = 5;
+const SPAWN_HEAT_SECONDS = 90;
+const SPAWN_HEAT_PENALTY = 6;
 const SPAWN_CAPSULE_RADIUS = 2 * ACTOR_RADIUS;
 const SPAWN_EYE_HEIGHT = STAND_EYE;
-const SPAWN_ENEMY_CAP = 60;
-const SPAWN_TEAMMATE_WEIGHT = 0.5;
+const SPAWN_ENEMY_CAP = 200;
+const SPAWN_TEAMMATE_WEIGHT = 0.1;
+const SPAWN_OWNED_ENEMY_CAP = 60, SPAWN_OWNED_TEAMMATE_WEIGHT = 0.5;
 const SPAWN_DEATH_WEIGHT = 0.25;
 const SPAWN_DEATH_CAP = 40;
 const SPAWN_JITTER = 2;
@@ -20431,6 +20443,7 @@ const Modes = {
 	teamScore: new Float64Array(TEAM_COUNT), teamRounds: new Int16Array(TEAM_COUNT), teamMeter: new Float64Array(TEAM_COUNT),
 	objectives: [],
 	spawnPoints: [],
+	spawnedPoint: new Array(MAX_ACTORS).fill(null), spawnedAt: new Float64Array(MAX_ACTORS),
 	hud: { active: false, mode: '', phase: '', timeLeft: 0, overtime: false, round: 0, roundsToWin: 0, scoreLimit: 0, teams: 0,
 		leader: -1, leaderScore: 0, playerId: -1, playerScore: 0, playerRank: 0, playerLives: LIVES_UNLIMITED, respawnIn: 0,
 		attackers: 0, teamScores: null, teamRounds: null, teamMeter: null, objectives: null, zoneX: 0, zoneZ: 0, zoneRadius: 0 },
@@ -20474,7 +20487,7 @@ const Modes = {
 		this.leader = -1; this.announcedLeader = -1; this.leaderScore = 0; this.runnerUpScore = 0;
 		this.round = 0; this.swapped = false; this.roundEndsAt = Infinity; this.roundWinner = DRAW;
 		this.teamScore.fill(0); this.teamRounds.fill(0); this.teamMeter.fill(0);
-		this.objectives.length = 0; this.spawnPoints.length = 0;
+		this.objectives.length = 0; this.spawnPoints.length = 0; this.spawnedPoint.fill(null);
 		this.hud.zoneRadius = 0;
 	},
 	stop() { this.resetMatch(); this.rules = null; this.mode = null; this.behaviour = DEFAULT_BEHAVIOUR; },
@@ -20599,11 +20612,11 @@ const Modes = {
 		for (const spawn of spawns) {
 			if (spawn.modes && spawn.modes.length && !spawn.modes.includes(this.mode.id)) continue;
 			const team = typeof spawn.team === 'number' ? spawn.team : NO_TEAM;
-			this.spawnPoints.push({ x: spawn.x, y: spawn.y, z: spawn.z, yaw: (spawn.yaw || 0) * DEG, team, objective: null, usedAt: -1e9 });
+			this.spawnPoints.push({ x: spawn.x, y: spawn.y, z: spawn.z, yaw: (spawn.yaw || 0) * DEG, team, objective: null, usedAt: -1e9, heat: 0, heatAt: -1e9 });
 		}
 		if (!this.rules.params.spawnAtOwned) return;
 		for (const objective of this.objectives) {
-			this.spawnPoints.push({ x: objective.x + OWNED_SPAWN_OFFSET, y: objective.y, z: objective.z, yaw: 0, team: NO_TEAM, objective, usedAt: -1e9 });
+			this.spawnPoints.push({ x: objective.x + OWNED_SPAWN_OFFSET, y: objective.y, z: objective.z, yaw: 0, team: NO_TEAM, objective, usedAt: -1e9, heat: 0, heatAt: -1e9 });
 		}
 	},
 	spawnActor(id) {
@@ -20640,6 +20653,7 @@ const Modes = {
 		if (!best) return false;
 		out.x = best.x; out.y = best.y; out.z = best.z; out.yaw = best.yaw;
 		best.usedAt = Sim.time;
+		this.spawnedPoint[id] = best; this.spawnedAt[id] = Sim.time;
 		return true;
 	},
 	spawnUsable(point, id, sameSide) {
@@ -20650,15 +20664,27 @@ const Modes = {
 	},
 	rateSpawn(id, point) {
 		spawnRating.safe = true; spawnRating.occupied = false;
-		spawnRating.nearestEnemy = SPAWN_ENEMY_CAP; spawnRating.nearestMate = Infinity;
+		const forwardSpawns = !!this.rules.params.spawnAtOwned;
+		spawnRating.nearestEnemy = forwardSpawns ? SPAWN_OWNED_ENEMY_CAP : SPAWN_ENEMY_CAP; spawnRating.nearestMate = Infinity;
 		for (let other = 0; other < Actors.count; other++) {
 			if (other !== id && Actors.alive[other]) this.rateAgainst(id, other, point);
 		}
 		let score = spawnRating.nearestEnemy + Rng.rules.next() * SPAWN_JITTER;
-		if (this.rules.teams > 0 && spawnRating.nearestMate < Infinity) score -= spawnRating.nearestMate * SPAWN_TEAMMATE_WEIGHT;
+		if (this.rules.teams > 0 && spawnRating.nearestMate < Infinity) score -= spawnRating.nearestMate * (forwardSpawns ? SPAWN_OWNED_TEAMMATE_WEIGHT : SPAWN_TEAMMATE_WEIGHT);
 		if (this.hasDied[id]) score += Math.min(SPAWN_DEATH_CAP, length2(point.x - this.deathX[id], point.z - this.deathZ[id])) * SPAWN_DEATH_WEIGHT;
 		if (Sim.time - point.usedAt < SPAWN_REUSE_SECONDS) score -= SPAWN_REUSE_PENALTY * (1 - (Sim.time - point.usedAt) / SPAWN_REUSE_SECONDS);
+		score -= SPAWN_HEAT_PENALTY * this.heatOf(point);
 		spawnRating.score = score;
+	},
+	heatOf(point) {
+		const left = 1 - (Sim.time - point.heatAt) / SPAWN_HEAT_SECONDS;
+		return left > 0 ? point.heat * left : 0;
+	},
+	heatPoint(id, now) {
+		const point = this.spawnedPoint[id];
+		if (!point || now - this.spawnedAt[id] > SPAWN_HEAT_WINDOW) return;
+		point.heat = this.heatOf(point) + 1; point.heatAt = now;
+		this.spawnedPoint[id] = null;
 	},
 	rateAgainst(id, other, point) {
 		const dx = Actors.x[other] - point.x, dy = Actors.y[other] - point.y, dz = Actors.z[other] - point.z;
@@ -20692,6 +20718,7 @@ const Modes = {
 		if (victim >= 0 && this.participant[victim]) this.scheduleRespawn(victim, now);
 	},
 	recordDeath(victim) {
+		this.heatPoint(victim, Sim.time);
 		if (!(victim >= 0) || !this.participant[victim]) return;
 		this.deaths[victim]++;
 		this.streak[victim] = 0;

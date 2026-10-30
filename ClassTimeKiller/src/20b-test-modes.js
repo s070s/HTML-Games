@@ -47,7 +47,7 @@ const TEAM_SPAWNS = [-5, 0, 5].flatMap((z) => [{ x: -45, y: 0, z, team: 0 }, { x
 // Spec section 13 numbers: id teams size scoreLimit timeLimit.
 const EXPECTED_MODES = [
   'ffa 0 8 25 600', 'tdm 2 8 50 600', 'duel 0 2 0 600', 'ctf 2 10 3 900', 'oneflag 2 8 5 900', 'dom 2 8 200 600', 'conquest 2 16 0 1200',
-  'hardpoint 2 8 150 600', 'oddball 0 8 100 600', 'control 2 10 0 0', 'bomb 2 10 0 0', 'elim 2 8 0 0', 'lms 0 8 0 600', 'royale 0 18 0 0', 'horde 1 4 0 0',
+  'hardpoint 2 8 150 600', 'oddball 0 8 60 600', 'control 2 10 0 0', 'bomb 2 10 0 0', 'elim 2 8 0 0', 'lms 0 8 0 600', 'royale 0 18 0 0', 'horde 1 4 0 0',
 ];
 const CORE_MODES = ['ffa', 'tdm', 'duel', 'ctf', 'oneflag', 'dom', 'conquest', 'hardpoint', 'control', 'bomb', 'elim', 'lms'];
 

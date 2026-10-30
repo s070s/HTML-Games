@@ -19,10 +19,16 @@ const SPAWN_ENEMY_RADIUS = 12;         // MAP-010: reject a spawn with an enemy 
 const SPAWN_SIGHT_RADIUS = 25;         // MAP-010: ... or with an enemy in line of sight within this range (35 and 50 m were tried: no change)
 const SPAWN_REUSE_SECONDS = 8;         // P8-04: a spawn point used this recently scores lower, so one point does not take the spawn deaths of a whole map
 const SPAWN_REUSE_PENALTY = 30;        // metres of score taken off a point used inside SPAWN_REUSE_SECONDS
+const SPAWN_HEAT_WINDOW = 5;            // P8-04: a death this soon after a spawn heats the spawn point it came from...
+const SPAWN_HEAT_SECONDS = 90;         // ...for this long (the heat fades linearly)...
+const SPAWN_HEAT_PENALTY = 6;          // ...and takes this many metres of score off it per death, so one corner does not collect the spawn deaths of a map
 const SPAWN_CAPSULE_RADIUS = 2 * ACTOR_RADIUS;   // two capsule radii (DATA-003): closer means spawning inside an actor
 const SPAWN_EYE_HEIGHT = STAND_EYE;
-const SPAWN_ENEMY_CAP = 60;            // enemies farther than this add no more preference
-const SPAWN_TEAMMATE_WEIGHT = 0.5;     // team modes prefer spawns near teammates (MAP-010)
+const SPAWN_ENEMY_CAP = 200;           // enemies farther than this add no more preference (P8-04: was 60, which ranked every point of a large map alike)
+const SPAWN_TEAMMATE_WEIGHT = 0.1;     // team modes prefer spawns near teammates (MAP-010; P8-04: was 0.5, which put respawns beside the fight: Holdfast Twin Keeps 10.4 to 6.7 % spawn deaths)
+// Frontline (spawnAtOwned) keeps the old numbers: with a cap of 200 and a weight of 0.1 a captured point 40 m from the enemy (mates 10 m away) scored about 39 and the home base 150 m away about 140,
+// so everyone respawned at the far base; with 60 and 0.5 the forward point wins again (35 against about 10).
+const SPAWN_OWNED_ENEMY_CAP = 60, SPAWN_OWNED_TEAMMATE_WEIGHT = 0.5;
 const SPAWN_DEATH_WEIGHT = 0.25;       // and away from the place of the last death
 const SPAWN_DEATH_CAP = 40;
 const SPAWN_JITTER = 2;                // seeded metres of noise so equally good spawns rotate
@@ -88,6 +94,7 @@ const Modes = {
   teamScore: new Float64Array(TEAM_COUNT), teamRounds: new Int16Array(TEAM_COUNT), teamMeter: new Float64Array(TEAM_COUNT),
   objectives: [],
   spawnPoints: [],
+  spawnedPoint: new Array(MAX_ACTORS).fill(null), spawnedAt: new Float64Array(MAX_ACTORS),   // the point an actor last spawned at and when (the spawn heat)
   hud: { active: false, mode: '', phase: '', timeLeft: 0, overtime: false, round: 0, roundsToWin: 0, scoreLimit: 0, teams: 0,
     leader: -1, leaderScore: 0, playerId: -1, playerScore: 0, playerRank: 0, playerLives: LIVES_UNLIMITED, respawnIn: 0,
     attackers: 0, teamScores: null, teamRounds: null, teamMeter: null, objectives: null, zoneX: 0, zoneZ: 0, zoneRadius: 0 },
@@ -137,7 +144,7 @@ const Modes = {
     this.leader = -1; this.announcedLeader = -1; this.leaderScore = 0; this.runnerUpScore = 0;
     this.round = 0; this.swapped = false; this.roundEndsAt = Infinity; this.roundWinner = DRAW;
     this.teamScore.fill(0); this.teamRounds.fill(0); this.teamMeter.fill(0);
-    this.objectives.length = 0; this.spawnPoints.length = 0;
+    this.objectives.length = 0; this.spawnPoints.length = 0; this.spawnedPoint.fill(null);
     this.hud.zoneRadius = 0;
   },
   stop() { this.resetMatch(); this.rules = null; this.mode = null; this.behaviour = DEFAULT_BEHAVIOUR; },
@@ -274,11 +281,11 @@ const Modes = {
     for (const spawn of spawns) {
       if (spawn.modes && spawn.modes.length && !spawn.modes.includes(this.mode.id)) continue;
       const team = typeof spawn.team === 'number' ? spawn.team : NO_TEAM;
-      this.spawnPoints.push({ x: spawn.x, y: spawn.y, z: spawn.z, yaw: (spawn.yaw || 0) * DEG, team, objective: null, usedAt: -1e9 });
+      this.spawnPoints.push({ x: spawn.x, y: spawn.y, z: spawn.z, yaw: (spawn.yaw || 0) * DEG, team, objective: null, usedAt: -1e9, heat: 0, heatAt: -1e9 });
     }
     if (!this.rules.params.spawnAtOwned) return;
     for (const objective of this.objectives) {
-      this.spawnPoints.push({ x: objective.x + OWNED_SPAWN_OFFSET, y: objective.y, z: objective.z, yaw: 0, team: NO_TEAM, objective, usedAt: -1e9 });
+      this.spawnPoints.push({ x: objective.x + OWNED_SPAWN_OFFSET, y: objective.y, z: objective.z, yaw: 0, team: NO_TEAM, objective, usedAt: -1e9, heat: 0, heatAt: -1e9 });
     }
   },
   spawnActor(id) {
@@ -316,6 +323,7 @@ const Modes = {
     if (!best) return false;
     out.x = best.x; out.y = best.y; out.z = best.z; out.yaw = best.yaw;
     best.usedAt = Sim.time;
+    this.spawnedPoint[id] = best; this.spawnedAt[id] = Sim.time;
     return true;
   },
   spawnUsable(point, id, sameSide) {
@@ -326,15 +334,28 @@ const Modes = {
   },
   rateSpawn(id, point) {
     spawnRating.safe = true; spawnRating.occupied = false;
-    spawnRating.nearestEnemy = SPAWN_ENEMY_CAP; spawnRating.nearestMate = Infinity;
+    const forwardSpawns = !!this.rules.params.spawnAtOwned;
+    spawnRating.nearestEnemy = forwardSpawns ? SPAWN_OWNED_ENEMY_CAP : SPAWN_ENEMY_CAP; spawnRating.nearestMate = Infinity;
     for (let other = 0; other < Actors.count; other++) {
       if (other !== id && Actors.alive[other]) this.rateAgainst(id, other, point);
     }
     let score = spawnRating.nearestEnemy + Rng.rules.next() * SPAWN_JITTER;
-    if (this.rules.teams > 0 && spawnRating.nearestMate < Infinity) score -= spawnRating.nearestMate * SPAWN_TEAMMATE_WEIGHT;
+    if (this.rules.teams > 0 && spawnRating.nearestMate < Infinity) score -= spawnRating.nearestMate * (forwardSpawns ? SPAWN_OWNED_TEAMMATE_WEIGHT : SPAWN_TEAMMATE_WEIGHT);
     if (this.hasDied[id]) score += Math.min(SPAWN_DEATH_CAP, length2(point.x - this.deathX[id], point.z - this.deathZ[id])) * SPAWN_DEATH_WEIGHT;
     if (Sim.time - point.usedAt < SPAWN_REUSE_SECONDS) score -= SPAWN_REUSE_PENALTY * (1 - (Sim.time - point.usedAt) / SPAWN_REUSE_SECONDS);
+    score -= SPAWN_HEAT_PENALTY * this.heatOf(point);
     spawnRating.score = score;
+  },
+  // The spawn deaths a point collected lately, fading out over SPAWN_HEAT_SECONDS.
+  heatOf(point) {
+    const left = 1 - (Sim.time - point.heatAt) / SPAWN_HEAT_SECONDS;
+    return left > 0 ? point.heat * left : 0;
+  },
+  heatPoint(id, now) {
+    const point = this.spawnedPoint[id];
+    if (!point || now - this.spawnedAt[id] > SPAWN_HEAT_WINDOW) return;
+    point.heat = this.heatOf(point) + 1; point.heatAt = now;
+    this.spawnedPoint[id] = null;
   },
   rateAgainst(id, other, point) {
     const dx = Actors.x[other] - point.x, dy = Actors.y[other] - point.y, dz = Actors.z[other] - point.z;
@@ -370,6 +391,7 @@ const Modes = {
     if (victim >= 0 && this.participant[victim]) this.scheduleRespawn(victim, now);
   },
   recordDeath(victim) {
+    this.heatPoint(victim, Sim.time);
     if (!(victim >= 0) || !this.participant[victim]) return;
     this.deaths[victim]++;
     this.streak[victim] = 0;

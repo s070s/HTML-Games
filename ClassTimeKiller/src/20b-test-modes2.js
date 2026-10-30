@@ -37,7 +37,7 @@ Test.add('modes2', (check) => {
   check('every add-on versus mode is playable', ADDON_MODES.every((id) => Modes.isPlayable(id)));
   const rows = (id) => CAT.modes.byId(id);
   check('rush: 75 tickets, 2 relays x 3 stages (M08)', rows('rush').params.tickets === 75 && rows('rush').params.perStage === 2 && rows('rush').params.stages === 3);
-  check('oddball: 1 pt/s, first to 100, carrier melee only (M10)', rows('oddball').params.holdRate === 1 && rows('oddball').scoreLimit === 100 && rows('oddball').params.carrierMeleeOnly);
+  check('oddball: 1 pt/s, first to 60, carrier melee only (M10, P8-04)', rows('oddball').params.holdRate === 1 && rows('oddball').scoreLimit === 60 && rows('oddball').params.carrierMeleeOnly);
   const convoy = rows('payload').params;
   check('payload: 1.2 to 1.8 m/s, rollback after 10 s, 3 checkpoints, 4:00 + 2:00 (M11)', convoy.speed === 1.2 && convoy.maxSpeed === 1.8 && convoy.rollbackAfter === 10
     && convoy.checkpoints === 3 && rows('payload').timeLimit === 240 && convoy.checkpointTime === 120 && Test.near(convoy.speed * (1 + 2 * convoy.pushStack), convoy.maxSpeed, 1e-9));
