@@ -125,10 +125,12 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 
 ## Phase 5 - Arsenal: role gap analysis and missing items
 
-- [ ] P5-01 - Build the role matrix: rows = platform kinds (light / medium / heavy mech, infantry, wheeled, tracked, hover, artillery, air interceptor / strike / gunship, naval fast / destroyer / hovercraft); columns = combat roles (anti-armour, anti-air, anti-infantry, anti-ship, anti-structure, long range, close range, area denial, defence, mobility, support / repair, recon / detection, stealth / counter-stealth, electronic warfare). Fill each cell with the existing weapons, utilities, items and superweapons.
+- [x] P5-01 - Build the role matrix: rows = platform kinds (light / medium / heavy mech, infantry, wheeled, tracked, hover, artillery, air interceptor / strike / gunship, naval fast / destroyer / hovercraft); columns = combat roles (anti-armour, anti-air, anti-infantry, anti-ship, anti-structure, long range, close range, area denial, defence, mobility, support / repair, recon / detection, stealth / counter-stealth, electronic warfare). Fill each cell with the existing weapons, utilities, items and superweapons.
   Done when: the matrix is in Appendix C.
-- [ ] P5-02 - DECIDE: list of new weapons, utilities and items for every empty or weak cell. Each with role, platform kinds, benefits, drawbacks and a distinct mechanic.
+  Status (2026-10-30): decided by the coordinator, Appendix C "P5-01 role matrix"; the owner can change any row.
+- [x] P5-02 - DECIDE: list of new weapons, utilities and items for every empty or weak cell. Each with role, platform kinds, benefits, drawbacks and a distinct mechanic.
   Done when: Appendix C has the list.
+  Status (2026-10-30): decided by the coordinator, Appendix C "P5-02 new weapons, utilities and items"; the owner can change any row.
 - [ ] P5-03 - Implement the new items (data, models, effects, sounds, AI use, unlock rule).
   Done when: each item works for the player and AI on its platform kinds.
 - [x] P5-04 - Lock-on on objectives (owner, 2026-10-29): the player can lock on objective structures (radar towers, bases, depots and every other mission or skirmish objective structure) and cycle between them; the HUD and the radar show the locked target.
@@ -143,15 +145,17 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [x] P5-07 - Shoot down missiles and rockets (owner, 2026-10-29): missiles and rockets can be hit and destroyed in flight by guns, flak and a point-defence utility; DECIDE their hit points and hit size per munition, and which weapons can target them (lock-on to an incoming missile included). AI uses it.
   Done when: a self-test shoots down each missile and rocket type with the weapons the decision allows; AI point defence works; the hit-rate targets from P5-06 still hold.
   Status (2026-10-30, review round 1 in): Appendix C "P5-07": hit points and hit size for 11 missile and rocket types, 16 guns (flak included) that may hit them, the AA Missile and Ship SAM that may lock and burst beside one, lock-on to an incoming projectile (Cycle Target lists them, HUD INCOMING, radar triangle, co-op `NET_PROJ_TG`), and the new Point Defence utility, REBALANCED after the review found it never missed: reach 140 m, hit chance 90% falling to 40%, lower against small fast rounds, 0.3 s slew, 12 bursts back one in 5 s, front half only on the ground, a seeded roll per unit. Reviewer's table (`pdbal.js`, share of damage through): a single missile 50% (38% when launched inside the reach), two at once 66%, four 81%, Swarm salvo of eight 45 to 50%, pod salvo 41%; Active Protection still the better answer to one heavy missile (0% through) and useless against a salvo. The allied tank and the enemy destroyer carry it (AI checked: 12 of 16 and 11 of 16 missiles stopped); the AI never aims guns at missiles (decided exception). A shoot-down is no longer an accuracy hit; missiles and rockets go into the co-op snapshot before plain rounds (known limit above 70 at once). Self-tests 'p5 intercepting projectiles', 'p5 point defence' (ranges, not exact counts: type stop rates, a seeded repeat, the slew, the arc, salvos), 'p5 the AI uses point defence', 'p5 co-op targets'. `NET_VERSION` 13, `SAVE_VERSION` 1. Round 2: the Point Defence of the gunship stopped 0% of AA Missiles and Ship SAMs; they are now light-skinned for it (pdSoft 1.8) and harder to hit (pdEvade 0.45): the gunship stops 39% of AA Missiles and 41% of Ship SAMs (aim 25 to 55%), Guided Missile 68% and Swarm salvo 37% unchanged, no ground or naval row moved; flares stay the better answer.
-- [ ] P5-08 - DECIDE base defences (owner, 2026-10-29): a wider set of base defences: land and naval mines, more turret kinds, a missile silo that prepares for a long time with a clear warning and then strikes an enemy base (it can be found and destroyed during the preparation), and other special base weapons. Each with role, cost, counters and fair limits for 2-4 teams.
+- [x] P5-08 - DECIDE base defences (owner, 2026-10-29): a wider set of base defences: land and naval mines, more turret kinds, a missile silo that prepares for a long time with a clear warning and then strikes an enemy base (it can be found and destroyed during the preparation), and other special base weapons. Each with role, cost, counters and fair limits for 2-4 teams.
   Done when: Appendix C has the list with counters and limits.
+  Status (2026-10-30): decided by the coordinator, Appendix C "P5-08 base defences"; the owner can change any row.
 - [ ] P5-09 - Implement the P5-08 base defences in skirmish and in the missions that have bases, with models, effects, sounds, warnings, AI use, AI counters (clearing mines, destroying the silo) and co-op sync.
   Done when: each defence works for every team, AI builds or uses and counters them, co-op peers see the same state, and balance numbers are in Appendix C.
 
 ## Phase 6 - Loadout visuals
 
-- [ ] P6-01 - DECIDE: visual rule for each loadout slot and item (weapon models on hardpoints, pods, launch tubes, ammo boxes, shields, camo, armour plates), for every platform kind.
+- [x] P6-01 - DECIDE: visual rule for each loadout slot and item (weapon models on hardpoints, pods, launch tubes, ammo boxes, shields, camo, armour plates), for every platform kind.
   Done when: Appendix C has the table extending P1-05.
+  Status (2026-10-30): decided by the coordinator, Appendix C "P6-01 loadout visuals"; the owner can change any row.
 - [ ] P6-02 - Implement: the platform model shows its loadout in the hangar, in play, for AI units and for co-op peers.
   Done when: every loadout item from P6-01 is visible, with no performance loss beyond the P0-02 budget.
 
@@ -696,6 +700,578 @@ Target carrying Point Defence (after the review rebalance; the dummy crosses the
 - Co-op, net and saves: `NET_VERSION` 12 -> 13 (a new weapon id in loadouts and `WEAPON_IDS`, a new target id range in `in` `tg` and the host's `lk`); the snapshot already carries `team`-less projectile entries, so a guest takes the shooter's team for them (`pr.team`, `pr.hp`) to cycle to them. Snapshot room (review): a snapshot holds `SNAP_PROJS` (70) projectiles, shared by all guests; shells still go first, then every missile and rocket (those with hit points), then plain rounds, so a guest always has the missiles and rockets of the battle to cycle to unless more than 70 are up at once (tested with 90 bullets in flight). Known limit: with more than 70 missiles and rockets at once the snapshot is not sorted per guest (by whom they are headed for), so a guest may miss one; the host still decides everything, and the guest's own warning (the `inc` count and distance in the snapshot) is unaffected. `SAVE_VERSION` stays 1: no new save key, a saved loadout with the module reads as any other.
 - Cost: the interception pre-pass (`Intercept.sweep`) runs once per tick over the 480 projectile slots and, only while some missile or rocket is up, against every direct-fire round: measured with `__IH.bench` on the Low preset, 5 scenes, three runs of each build alternating (this build, HEAD c706b49, this build, ...), each run the bench's median of three: median average frame ms, this build against HEAD: sk-ashfall 46.3 / 45.8, sk-verdant 47.3 / 47.7, air-ashfall 27.0 / 31.1, sk-jungle 72.1 / 75.4, sea-coast 30.8 / 30.5; median p95: 51.9 / 49.8, 51.1 / 53.5, 30.2 / 33.2, 75.9 / 79.0, 39.5 / 39.3. Between -13% and +4%, inside the noise of a shared PC (single runs of the same build differ by 5 to 10%, and HEAD had a 131 ms p95 spike in one air run); no scene is slower in a way the runs can tell from noise. After the review rebalance (the scan keeps its one pass over the projectile slots, now also sorting up to 6 candidates and rolling a seeded stream; a destroyer carries it): sea-coast and sk-ashfall, three alternating runs each, median average frame ms this build / HEAD 34.3 / 34.2 and 51.7 / 52.9, p95 45.5 / 44.7 and 58.7 / 62.4: unchanged.
 - Accounting (review): a shoot-down is no longer counted as a hit in the shooter's accuracy figures (`Intercept.kill` no longer adds to `hits`; self-test). Not done / owner's call: the AI does not shoot rockets with its guns (decided exception above); beams cannot hit rockets; Point Defence does not protect allies; superweapon ordnance cannot be shot down; the two anti-air missiles are stopped by Point Defence only partly (39% and 41% on the gunship, about 40% of the time; see "Gunship" above). A platform has one utility slot, so a gunship has Point Defence or Flares, not both: its answers to a missile it cannot stop are the flares of another loadout, its gatling and cannon rounds (16 guns hit missiles), manoeuvre and the new seekers' limits (P5-06).
+
+### P5-01 role matrix (decided 2026-10-30 by the coordinator; the owner can change any row)
+
+- Source: `PLATFORMS[id].allow` and the stats in `PLATFORMS`, the rows of `WEAPONS` (59 rows: 41 mountable guns and launchers, 1 sub-munition, 15 utilities, plus 2 naval and 3 artillery primaries counted in them), `MELEE` (4) and the 100 `defineSuper` entries of this build (36,733 lines). Rows and columns are the ones the task lists; the artillery row covers the Thunder SPH-1, Hailstorm MRL-6 and Pestle MC-2 together (their differences are named in the cells).
+- Rating rule: strong (S) = at least one pick does the job well against its usual target; adequate (A) = it can do it, with a clear cost or limit; weak (W) = only a poor or makeshift pick (guns by hand, a lock-any missile); empty (E) = no tool. The rating counts weapons, utilities, melee and the platform's own abilities (speed, jump jets, sensors) where the role is about the platform (mobility, recon). Superweapons do NOT raise a rating: they fit the strategic slot of every armed playable platform alike, charge for 45 / 90 / 160 s (`SUPER_TIER`), and no AI archetype carries one (`ARCH` loadouts have no `strategic` key). They are listed once per role below the matrix.
+- Weights: a platform carries one item per slot inside its `weightCap` (Wraith 30, Bulwark 44, Colossus 62, Ranger 15, Jackal 28, Bastion 52, Specter 28, Kestrel 26, Shrike 40, Behemoth 60, Lancer 34, Trident 70, Skua 40, Thunder 46, Hailstorm 38, Pestle 34), and one utility only: every utility cell is a choice against the others in the same row.
+
+Summary (S strong, A adequate, W weak, E empty):
+
+| Platform kind | anti-armour | anti-air | anti-infantry | anti-ship | anti-structure | long range | close range | area denial | defence | mobility | support / repair | recon / detection | stealth / counter-stealth | electronic warfare |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| light mech (Wraith LM-1) | A | W | S | A | A | A | S | A | S | S | W | A | W | S |
+| medium mech (Bulwark MM-2) | S | W | S | A | S | S | S | A | S | A | A | A | W | S |
+| heavy mech (Colossus HM-3) | S | S | A | S | S | S | A | S | S | W | A | A | E | A |
+| infantry (Ranger IN-0) | S | W | S | A | S | S | S | A | A | W | A | S | W | A |
+| wheeled (Jackal RV-1) | A | W | S | A | W | A | S | A | A | S | W | A | W | A |
+| tracked (Bastion MBT-2) | S | S | A | S | S | S | A | S | S | A | A | A | E | A |
+| hover (Specter HV-1) | A | W | S | A | W | A | S | A | S | S | W | A | W | S |
+| artillery (Thunder, Hailstorm, Pestle) | A | W | S | A | S | S | W | S | A | W | A | W | E | A |
+| air interceptor (Kestrel IN-1) | W | S | W | W | W | S | A | E | A | S | E | S | E | A |
+| air strike (Shrike SF-2) | S | A | S | A | S | A | A | S | A | S | E | S | E | A |
+| air gunship (Behemoth HG-3) | S | S | S | S | S | S | S | S | A | A | A | S | E | A |
+| naval fast (Lancer FC-1) | A | S | A | S | A | S | A | E | A | A | W | A | E | A |
+| naval destroyer (Trident DD-3) | S | S | A | S | S | S | A | W | S | W | A | S | E | A |
+| naval hovercraft (Skua ACV-2) | A | S | S | A | A | A | S | W | A | S | W | A | E | A |
+
+- Counts: 196 cells: 77 strong, 76 adequate, 30 weak, 13 empty (counted from the table above). Columns with a gap in many rows: stealth / counter-stealth (no item anywhere reveals a cloaked unit: 9 rows empty, 5 weak with camouflage or a decoy and no reveal), anti-air for light ground units and infantry (6 weak), support / repair (no structure repair anywhere; 7 rows heal only themselves or nothing), area denial at sea (no naval mine), recon for artillery, mobility for infantry.
+
+Superweapons by role (every armed playable platform, strategic slot, player only; not counted in the ratings):
+
+| Role | Superweapons |
+|---|---|
+| anti-armour | Mass Driver Salvo, Sky Hammer, Shrink Ray, Overwatch Satellite, Graviton Lance, Solar Mirror Array, Prism Array, Chain Reaction |
+| anti-air | Airburst Canopy, Skyfire Flak Field, Hurricane (forces aircraft down), Missile Rain, Graviton Lance |
+| anti-infantry | Shrapnel Star, Microwave Emitter, Tungsten Hail, Neutron Bomb, Hellfire Swarm |
+| anti-ship | none made for ships; the point and target ones work on them (Cruise Salvo, Sky Hammer, Mass Driver Salvo) |
+| anti-structure | Rods from God, Bunker Nova, Daisy Cutter, Demolition Rain, Earthquake, Grey Goo, Siege Railgun, Crater Maker |
+| long range | Missile Rain, Cruise Salvo, Photon Swarm, Satellite Net, Starfall, ICBM Strike, Siege Railgun |
+| close range | Seismic Slam, Plasma Halo, Shrapnel Star, Repulsor Blast, Storm Surge, Ring of Fire, Frost Nova |
+| area denial | Minefield Air-Drop, Firewall, Arc Fence, Glacier Wall, Firestorm, Acid Rain, Cobalt Bomb, Ozone Hole, Stasis Field |
+| defence | Aegis Protocol, Voltaic Dome, Mirror Dome, Aurora Veil, Thunder God, Second Wind, Rewind |
+| mobility | Blink Strike, Overclock, Rewind |
+| support / repair | Aurora Veil, Second Wind, Orbital Drop Pod, Titan Drop, Drone Swarm, Mirror Squad, Hive Queen, Orbital Fortress |
+| recon / detection | Satellite Net (marks the five most valuable enemies), Sandstorm (enemies outlined inside it) |
+| stealth / counter-stealth | Phantom Army (decoys); Sandstorm outlines enemies, the only reveal in the game |
+| electronic warfare | EMP Burst, Solar Flare, Mind Hack, Zero-G Field, Chrono Stop |
+
+Cells per platform kind (items by in-game name; rating; reason):
+
+**Light mech (Wraith LM-1)**: weight cap 30, speed 26 m/s, targeting reach 650 m
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Wire-Guided ATGM, Slug Cannon, Guided Missile, Needle Gun | A | the ATGM and the Slug hit for 150, but the 30 cap leaves room for one heavy item |
+| anti-air | Guided Missile, Swarm Missiles (both lock any target); Chain MG, Autocannon by hand | W | no Flak Cannon or AA Missile; the Guided Missile hits a hard-breaking jet 50% (P5-06) |
+| anti-infantry | Tesla Coil, Flamethrower, Scattergun, Chain MG, HF Katana | S | arcs to 3 more, burning, and the katana cuts soldiers in two |
+| anti-ship | Wire-Guided ATGM, Guided Missile, Rocket Pod | A | 900 m missiles reach ships from the shore; no torpedo |
+| anti-structure | Mortar, Slug Cannon, Guided Missile, Rocket Pod | A | structure multipliers 1.2 to 1.6; no demolition charge |
+| long range | Guided Missile, Wire-Guided ATGM (900 m), Autocannon (520 m) | A | missiles reach far, no long gun (no Railgun, Gauss) |
+| close range | Scattergun, Slug Cannon, Flamethrower, Tesla Coil, Sword, HF Katana | S | the best close kit of the mechs |
+| area denial | Mine Layer, Cluster Rocket, Flamethrower (burn) | A | six mines out at most, 8 bomblets per rocket |
+| defence | Energy Shield, Nano Repair, Smoke Launcher, Holo Decoy, ECM Jammer, Optical Camo | S | widest utility list; no Active Protection or Point Defence |
+| mobility | none (platform: 26 m/s, jump jets, boost x1.65) | S | the platform is the tool; Coolant Overdrive is heat, not speed |
+| support / repair | Nano Repair (itself) | W | no Repair Drone: heals only itself |
+| recon / detection | Sensor Array (280 -> 450 m radar) | A | as every mech |
+| stealth / counter-stealth | Optical Camo, Holo Decoy; nothing reveals | W | stealth half only |
+| electronic warfare | ECM Jammer, Ion Cannon, EMP Grenade | S | all three kinds of jamming and EMP |
+
+**Medium mech (Bulwark MM-2)**: weight cap 44, speed 18 m/s, reach 600 m
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Railgun, Gauss Rifle, Slug Cannon, Beam Lance, Wire-Guided ATGM, Guided Missile | S | every heavy kinetic gun fits |
+| anti-air | Guided Missile, Swarm Missiles; Gatling Cannon, Autocannon by hand | W | the all-rounder has no Flak Cannon or AA Missile (the Colossus and Bastion have both) |
+| anti-infantry | Tesla Coil, Flamethrower, Gatling Cannon, Chain MG, HF Katana | S | |
+| anti-ship | Railgun (900 m), Gauss Rifle (1000 m), Wire-Guided ATGM, Guided Missile | A | no torpedo, but long guns |
+| anti-structure | Plasma Cannon, Railgun, Slug Cannon, Mortar | S | multipliers 1.4 to 1.6 |
+| long range | Gauss Rifle, Railgun, Guided Missile, Wire-Guided ATGM | S | 900 to 1000 m |
+| close range | Slug Cannon, Flamethrower, Tesla Coil, Sword, HF Katana | S | |
+| area denial | Mine Layer, Cluster Rocket, Mortar | A | |
+| defence | Energy Shield, Active Protection, Reactive Armor, Deployable Barrier, Point Defence, Smoke Launcher, ECM Jammer, Holo Decoy | S | every defence kind but flares |
+| mobility | none (platform: 18 m/s, jump jets) | A | |
+| support / repair | Repair Drone (18 hull/s to allies within 25 m, 12 s, two uses), Nano Repair | A | allies healed; no structure repair |
+| recon / detection | Sensor Array | A | |
+| stealth / counter-stealth | Holo Decoy; nothing reveals | W | a decoy, no camouflage |
+| electronic warfare | ECM Jammer, Ion Cannon, EMP Grenade | S | |
+
+**Heavy mech (Colossus HM-3)**: weight cap 62, speed 12.5 m/s, reach 560 m
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Gauss Rifle, Railgun, Slug Cannon, Beam Lance, Howitzer, Wire-Guided ATGM | S | |
+| anti-air | Flak Cannon, AA Missile | S | the only mech with real anti-air |
+| anti-infantry | Gatling Cannon, Flamethrower, Cluster Rocket | A | no Tesla; a slow torso chases soldiers poorly |
+| anti-ship | Cruise Missile (1500 m), Gauss Rifle, Railgun, Howitzer | S | |
+| anti-structure | Howitzer (x2), Cruise Missile (x2.5), Slug Cannon | S | |
+| long range | Cruise Missile, Gauss Rifle, Howitzer (700 m, over cover) | S | |
+| close range | Slug Cannon, Flamethrower, Sword, HF Katana | A | heavy and slow to turn |
+| area denial | Cluster Rocket, Mine Layer, Mortar, Howitzer (13 m blast), Flamethrower | S | |
+| defence | Energy Shield, Active Protection, Reactive Armor, Deployable Barrier, Point Defence, Smoke Launcher, ECM Jammer | S | |
+| mobility | none (platform: 12.5 m/s) | W | the slowest mech, by design |
+| support / repair | Repair Drone, Nano Repair | A | |
+| recon / detection | Sensor Array | A | |
+| stealth / counter-stealth | none | E | no camouflage, no decoy, no reveal; by design for a heavy |
+| electronic warfare | ECM Jammer, Ion Cannon | A | no EMP Grenade |
+
+**Infantry (Ranger IN-0)**: weight cap 15, speed 10 m/s, reach 450 m; the Civilian is unarmed and has no row
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Javelin (top attack, x1.4 against vehicles and mechs), Rocket Launcher, Satchel Charge | S | |
+| anti-air | Assault Rifle, Light Machine Gun, Marksman Rifle by hand | W | no seeker locks aircraft (the Javelin locks ground only); a soldier cannot answer a gunship |
+| anti-infantry | Assault Rifle, Light Machine Gun, Submachine Gun, Flamethrower, Grenade Launcher, Combat Knife, HF Katana | S | |
+| anti-ship | Javelin, Rocket Launcher | A | from the shore only |
+| anti-structure | Satchel Charge (x7), Rocket Launcher | S | |
+| long range | Sniper Rifle (800 m), Marksman Rifle, Javelin (600 m) | S | |
+| close range | Submachine Gun, Flamethrower, Arc Pistol, Combat Knife, Sword, HF Katana | S | |
+| area denial | Mine Layer, Grenade Launcher | A | |
+| defence | Nano Repair, Smoke Launcher, Optical Camo | A | 170 hull and no armour item; cover and camouflage instead |
+| mobility | none (platform: 10 m/s; enters vehicles) | W | cannot climb onto roofs or ledges |
+| support / repair | Repair Drone, Nano Repair | A | heals allies; no structure repair |
+| recon / detection | Sensor Array (180 -> 360 m, the largest gain), a spotter for artillery | S | |
+| stealth / counter-stealth | Optical Camo; nothing reveals | W | stealth half only |
+| electronic warfare | EMP Grenade | A | no ECM Jammer |
+
+**Wheeled (Jackal RV-1)**: weight cap 28, speed 44 m/s, reach 600 m
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Wire-Guided ATGM, Slug Cannon, Guided Missile | A | |
+| anti-air | Guided Missile, Swarm Missiles; Chain MG by hand | W | no Flak Cannon or AA Missile |
+| anti-infantry | Flamethrower, Tesla Coil, Scattergun, Chain MG | S | |
+| anti-ship | Wire-Guided ATGM, Guided Missile | A | |
+| anti-structure | Rocket Pod, Slug Cannon (130 m), Guided Missile | W | nothing lobbed or heavy; a raider, by design |
+| long range | Guided Missile, Wire-Guided ATGM (900 m) | A | |
+| close range | Scattergun, Flamethrower, Tesla Coil, Slug Cannon | S | |
+| area denial | Mine Layer, Cluster Rocket | A | mines dropped behind a fleeing car are its design |
+| defence | Nano Repair, Smoke Launcher, ECM Jammer, Optical Camo | A | 330 hull, no shield or Active Protection |
+| mobility | none (platform: 44 m/s, the fastest on the ground) | S | |
+| support / repair | Nano Repair (itself) | W | |
+| recon / detection | Sensor Array | A | fast, but no more sensor than a tank |
+| stealth / counter-stealth | Optical Camo; nothing reveals | W | |
+| electronic warfare | ECM Jammer | A | |
+
+**Tracked (Bastion MBT-2)**: weight cap 52, speed 17 m/s, reach 580 m
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Railgun, Gauss Rifle, Slug Cannon, Plasma Cannon, Wire-Guided ATGM, Guided Missile | S | |
+| anti-air | Flak Cannon, AA Missile | S | |
+| anti-infantry | Gatling Cannon, Chain MG, Cluster Rocket | A | no flamer or Tesla |
+| anti-ship | Cruise Missile, Gauss Rifle, Railgun, Howitzer | S | |
+| anti-structure | Howitzer, Cruise Missile, Slug Cannon, Plasma Cannon | S | and it smashes buildings it drives into (`SMASH_TONNES`) |
+| long range | Cruise Missile, Gauss Rifle, Railgun, Howitzer | S | |
+| close range | Slug Cannon, Gatling Cannon | A | |
+| area denial | Mine Layer, Cluster Rocket, Mortar, Howitzer | S | |
+| defence | Active Protection, Reactive Armor, Point Defence, Deployable Barrier, Smoke Launcher, ECM Jammer | S | |
+| mobility | none (platform: 17 m/s, drives through buildings) | A | |
+| support / repair | Repair Drone, Nano Repair | A | |
+| recon / detection | Sensor Array | A | |
+| stealth / counter-stealth | none | E | by design for a tank |
+| electronic warfare | ECM Jammer, Ion Cannon | A | |
+
+**Hover (Specter HV-1)**: weight cap 28, speed 38 m/s, reach 620 m
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Wire-Guided ATGM, Guided Missile | A | |
+| anti-air | Guided Missile, Swarm Missiles; Chain MG by hand | W | |
+| anti-infantry | Tesla Coil, Flamethrower, Scattergun, Needle Gun | S | |
+| anti-ship | Wire-Guided ATGM, Guided Missile | A | |
+| anti-structure | Rocket Pod, Guided Missile | W | a skirmisher, by design |
+| long range | Guided Missile, Wire-Guided ATGM | A | |
+| close range | Scattergun, Flamethrower, Tesla Coil | S | |
+| area denial | Mine Layer | A | |
+| defence | Energy Shield, Smoke Launcher, ECM Jammer, Holo Decoy, Optical Camo, Nano Repair | S | |
+| mobility | none (platform: 38 m/s) | S | |
+| support / repair | Nano Repair (itself) | W | |
+| recon / detection | Sensor Array | A | |
+| stealth / counter-stealth | Optical Camo, Holo Decoy; nothing reveals | W | |
+| electronic warfare | ECM Jammer, Ion Cannon, EMP Grenade | S | |
+
+**Artillery (Thunder SPH-1, Hailstorm MRL-6, Pestle MC-2)**: weight caps 46 / 38 / 34, speeds 15 / 30 / 22 m/s; they fire on what spotters see (`Arty.spotted`)
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Field Howitzer (210), Wire-Guided ATGM (Thunder, Pestle), Guided Missile | A | shells 10 to 30 s in flight miss moving armour; the ATGM is the direct answer |
+| anti-air | Chain MG, Gatling Cannon (Thunder, Hailstorm), Light Machine Gun (Pestle) by hand | W | no anti-air pick; batteries need escorts, by design |
+| anti-infantry | Rocket Artillery (six rockets, 8 m blasts), Heavy Mortar, Field Howitzer, Grenade Launcher (Pestle) | S | |
+| anti-ship | Field Howitzer (1400 m), Rocket Artillery, Wire-Guided ATGM | A | ships near the shore |
+| anti-structure | Field Howitzer (x2.2), Heavy Mortar (x1.8), Rocket Artillery (x1.6) | S | |
+| long range | Field Howitzer 1400 m, Rocket Artillery 1300 m, Heavy Mortar 480 m | S | |
+| close range | Chain MG, Gatling Cannon, Light Machine Gun; minimum ranges 150 / 250 / 70 m | W | by design |
+| area denial | Rocket Artillery, Heavy Mortar, Mine Layer | S | |
+| defence | Active Protection, Point Defence, Reactive Armor (Thunder), Smoke Launcher, ECM Jammer | A | |
+| mobility | none (deploys to fire steadily) | W | the Hailstorm drives 30 m/s; all must deploy |
+| support / repair | Repair Drone (Thunder, Pestle), Nano Repair | A | the Hailstorm heals only itself |
+| recon / detection | Sensor Array (260 -> 480 m) | W | the shortest vehicle radar; depends on spotters |
+| stealth / counter-stealth | none | E | |
+| electronic warfare | ECM Jammer | A | |
+
+**Air interceptor (Kestrel IN-1)**: weight cap 26, 150 m/s, reach 1500 m
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Guided Missile, Rocket Pod | W | by design: a fighter |
+| anti-air | AA Missile (1100 m), Rotary Vulcan, Autocannon, Swarm Missiles | S | |
+| anti-infantry | Chain MG, Rotary Vulcan strafing, Rocket Pod | W | |
+| anti-ship | Guided Missile | W | |
+| anti-structure | Guided Missile, Rocket Pod | W | |
+| long range | AA Missile, the 1500 m reach | S | |
+| close range | Rotary Vulcan, Chain MG, Pulse Laser (dogfight) | A | |
+| area denial | none | E | by design |
+| defence | Flares, ECM Jammer | A | 230 hull; flares or ECM, not both |
+| mobility | none (platform: 150 m/s, afterburner) | S | |
+| support / repair | none | E | no Nano Repair on jets; repair at an airport |
+| recon / detection | Sensor Array (700 -> 1100 m) | S | |
+| stealth / counter-stealth | none | E | Optical Camo and Holo Decoy are not allowed on aircraft |
+| electronic warfare | ECM Jammer | A | |
+
+**Air strike (Shrike SF-2)**: weight cap 40, 125 m/s, reach 1400 m
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Wire-Guided ATGM, Guided Missile, Cluster Bombs, Cluster Rocket | S | |
+| anti-air | AA Missile, Rotary Vulcan, Autocannon | A | it carries bombs or AA Missiles in its one secondary |
+| anti-infantry | Cluster Bombs, Napalm Bombs, Gatling Cannon | S | |
+| anti-ship | Guided Missile, Wire-Guided ATGM, Bunker Buster | A | |
+| anti-structure | Bunker Buster (x6), Cluster Bombs | S | |
+| long range | AA Missile, Guided Missile | A | |
+| close range | Gatling Cannon, Autocannon | A | |
+| area denial | Napalm Bombs (10 s fire zone), Cluster Bombs | S | |
+| defence | Flares, ECM Jammer, Reactive Armor | A | |
+| mobility | none (platform: 125 m/s) | S | |
+| support / repair | none | E | |
+| recon / detection | Sensor Array | S | |
+| stealth / counter-stealth | none | E | |
+| electronic warfare | ECM Jammer, Ion Cannon | A | |
+
+**Air gunship (Behemoth HG-3)**: weight cap 60, 85 m/s, hovers, reach 1200 m
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Wire-Guided ATGM, Guided Missile, Plasma Cannon, Beam Lance, Bunker Buster | S | |
+| anti-air | Flak Cannon, AA Missile, Rotary Vulcan | S | |
+| anti-infantry | Gatling Cannon, Napalm Bombs, Cluster Bombs, Rocket Pod | S | |
+| anti-ship | Cruise Missile, Wire-Guided ATGM, Guided Missile | S | |
+| anti-structure | Bunker Buster, Cruise Missile, Mortar | S | |
+| long range | Cruise Missile (1500 m), AA Missile | S | |
+| close range | Gatling Cannon, Flak Cannon | S | |
+| area denial | Napalm Bombs, Cluster Bombs, Cluster Rocket | S | |
+| defence | Flares, Point Defence, Reactive Armor, ECM Jammer | A | one utility: Point Defence or Flares (P5-07) |
+| mobility | none (platform: 85 m/s, hovers) | A | |
+| support / repair | Repair Drone, Nano Repair | A | |
+| recon / detection | Sensor Array | S | |
+| stealth / counter-stealth | none | E | |
+| electronic warfare | ECM Jammer, Ion Cannon | A | |
+
+**Naval fast (Lancer FC-1)**: weight cap 34, 30 m/s, reach 900 m
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Naval Gun, Guided Missile (units on the shore) | A | |
+| anti-air | Flak Cannon, Ship SAM | S | |
+| anti-infantry | Chain MG, Gatling Cannon, Autocannon (small blast) | A | |
+| anti-ship | Torpedo (260), Naval Gun | S | |
+| anti-structure | Naval Gun (x1.6) | A | |
+| long range | Naval Gun (950 m), Ship SAM (1400 m) | S | |
+| close range | Gatling Cannon, Chain MG | A | |
+| area denial | none | E | no mine works in water |
+| defence | Smoke Launcher, Flares, ECM Jammer, Active Protection, Point Defence | A | |
+| mobility | none (platform: 30 m/s on water) | A | |
+| support / repair | Nano Repair (itself) | W | |
+| recon / detection | Sensor Array (450 -> 800 m) | A | |
+| stealth / counter-stealth | none | E | |
+| electronic warfare | ECM Jammer | A | |
+
+**Naval destroyer (Trident DD-3)**: weight cap 70, 16 m/s, reach 1400 m
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Railgun, Naval Gun, Cruise Missile | S | |
+| anti-air | Ship SAM, Flak Cannon, AA Missile | S | |
+| anti-infantry | Gatling Cannon, Naval Gun, Howitzer | A | |
+| anti-ship | Torpedo, Cruise Missile, Naval Gun | S | |
+| anti-structure | Cruise Missile (x2.5), Howitzer (x2) | S | |
+| long range | Ship SAM, Cruise Missile, Naval Gun, Railgun | S | |
+| close range | Gatling Cannon, Flak Cannon | A | |
+| area denial | Howitzer (13 m blast) | W | no mine, no fire zone |
+| defence | Active Protection, Point Defence, Reactive Armor, Flares, Smoke Launcher, ECM Jammer | S | |
+| mobility | none (platform: 16 m/s) | W | by design |
+| support / repair | Repair Drone, Nano Repair | A | |
+| recon / detection | Sensor Array, the 1400 m reach | S | |
+| stealth / counter-stealth | none | E | |
+| electronic warfare | ECM Jammer | A | |
+
+**Naval hovercraft (Skua ACV-2)**: weight cap 40, 26 m/s on land and water, reach 800 m
+
+| Role | Existing items | Rating | Reason |
+|---|---|---|---|
+| anti-armour | Wire-Guided ATGM, Guided Missile | A | |
+| anti-air | Flak Cannon, Ship SAM | S | |
+| anti-infantry | Gatling Cannon, Flamethrower, Chain MG | S | |
+| anti-ship | Wire-Guided ATGM, Guided Missile | A | no torpedo (and torpedoes pass under it) |
+| anti-structure | Mortar (x1.5) | A | |
+| long range | Wire-Guided ATGM (900 m), Ship SAM (air) | A | |
+| close range | Gatling Cannon, Flamethrower | S | |
+| area denial | Mortar, Flamethrower (burn) | W | |
+| defence | Smoke Launcher, Active Protection, Point Defence, Flares, ECM Jammer | A | |
+| mobility | none (platform: amphibious) | S | crosses beaches and shallows no ship can |
+| support / repair | Nano Repair (itself) | W | |
+| recon / detection | Sensor Array | A | |
+| stealth / counter-stealth | none | E | |
+| electronic warfare | ECM Jammer | A | |
+
+- Melee (`MELEE`): Fists, Combat Knife, Sword, HF Katana count in the close-range and anti-infantry cells of the mechs and the Ranger; vehicles and aircraft have none.
+- Gaps that matter for play, carried to P5-02: counter-stealth (every row), stealth for the jets and fast boats, anti-air for infantry, the Jackal and the Bulwark, infantry mobility, structure repair and mine clearing (no item can do either; P5-08 needs both), recon for artillery, area denial at sea. Left as they are by design (P5-02 says why): the interceptor's ground roles, artillery close range and anti-air, the heavies' stealth and mobility, the jets' support, the hover and wheeled anti-structure.
+
+### P5-02 new weapons, utilities and items (decided 2026-10-30 by the coordinator; the owner can change any row)
+
+- Scope: 8 new items and 2 allow-list changes (existing items opened to one more platform), for the gaps P5-01 carries over. Numbers are written as `WEAPONS` rows (same keys and units: dmg, cd and life in s, range in m, weight in the loadout weight units); new keys are named and explained. Each row is a proposal P5-03 implements and then measures against the target in its balance line; a row that misses its target is retuned before P5-03 is ticked (section 3 rule).
+- Shared rules: no new item goes into a default player loadout or an existing AI archetype's loadout (old balance unchanged); new AI carriers are named per row. Unlocks use the existing `MISSION_UNLOCK` (a mission's `unlock` field: m1 to m8 have none today) or are open from the start; counters (scanner, torch, plough) are open from the start so nobody faces a tool without its answer. New weapon ids shift `WEAPON_IDS`: `NET_VERSION` +1; `SAVE_VERSION` stays 1 unless P5-03 adds a save key.
+
+| # | Item (id) | Slot | Role (P5-01 cell) | Platform kinds | Unlock |
+|---|---|---|---|---|---|
+| 1 | Pulse Scanner (`scanner`) | utility | counter-stealth, recon, mine finding | all 16 armed playable platforms | start |
+| 2 | Stealth Coating (`coating`) | utility, passive | stealth | Kestrel IN-1, Shrike SF-2, Jackal RV-1, Lancer FC-1 | mission m2 Fuel Burn |
+| 3 | Spotter Drone (`spotter`) | utility | recon for artillery and scouts | Ranger IN-0, Wraith LM-1, Jackal RV-1, Thunder SPH-1, Hailstorm MRL-6, Pestle MC-2 | mission m1 Heavy Hunter |
+| 4 | Shoulder SAM (`manpad`) | secondary | infantry anti-air | Ranger IN-0 | mission m6 Skyhook |
+| 5 | Jump Pack (`jumppack`) | utility | infantry mobility | Ranger IN-0 | mission m7 Last Dust |
+| 6 | Repair Torch (`torch`) | primary | support / repair, structure repair, mine clearing on foot | Ranger IN-0 | start |
+| 7 | Sea Mine Rack (`seaMines`) | secondary | area denial at sea | Lancer FC-1, Trident DD-3 | mission m3 Hold the Line |
+| 8 | Mine Plough (`plough`) | utility, passive | mine clearing, lane opening | Bastion MBT-2 | start |
+| A1 | AA Missile opened to the Bulwark MM-2 | secondary | medium mech anti-air | Bulwark MM-2 | as today (open) |
+| A2 | Flak Cannon opened to the Jackal RV-1 | primary | wheeled anti-air | Jackal RV-1 | as today (open) |
+
+**1. Pulse Scanner** - `scanner: { name: 'Pulse Scanner', slot: 'utility', kind: 'defense', def: 'scan', charges: 3, cd: 12, dur: 4, radius: 220, mineMark: 20, selfMark: 2, ai: 'stealth', weight: 4 }`
+- Benefits: an active ping. For `dur` 4 s every hostile platform within 220 m is detected and targetable in spite of Optical Camo (its `noTarget` is ignored by targeting, locks and the radar of the carrier's team; the camouflage shimmer stays and its own timer runs on); a Holo Decoy within 220 m is tagged HOLO for the team and AI units stop preferring it; hostile mines (Mine Layer, Sea Mine Rack, P5-08 fields) within 220 m are marked for the team for `mineMark` 20 s (radar and a world marker). Contacts it finds are shared at the carrier's full range for the 4 s.
+- Drawbacks: loud: the carrier shows on the radar of every hostile within `selfMark` x radius (440 m) for 4 s and AI units there are alerted to its place; 3 charges, 12 s cooldown; it takes the only utility slot (no shield, APS, repair, flares or ECM).
+- Distinct mechanic: the first reveal in the game (an active area scan); the Sensor Array only lengthens the passive radar and never shows a camouflaged unit (P5-05).
+- Counter: stay beyond 220 m; cloak after the ping (a 6 s camo outlasts a 4 s ping, the scanner's cooldown is 12 s); an ECM Jammer running on the target hides it from the ping (the return is jammed).
+- AI ('stealth'): pings when a hostile was seen to cloak within 220 m in the last 3 s, when its target is a Holo Decoy, or when it leads a ground group within 300 m of a known or likely minefield (P5-08). Carried by the new engineer archetype (item 6) and by a skirmish wave's lead unit when the base it attacks has minefields (P5-09).
+- Balance (why it does not dominate): Optical Camo has 2 uses of 6 s per 15 s cooldown; inside 220 m the scanner takes 4 of the 6 s from one use, outside it does nothing, and the carrier pays with its defence utility and with being shown to everyone within 440 m. The Sensor Array stays the pick for range, the scanner for reveal. P5-03 target: a camouflaged Wraith breaks a locked chase (P5-06 harness, Guided Missile, 250 m) as often as today when no scanner is within 220 m, and at most half as often when one pings.
+
+**2. Stealth Coating** - `coating: { name: 'Stealth Coating', slot: 'utility', kind: 'defense', def: 'coating', passive: true, detect: 0.6, sight: 0.75, lockMult: 1.5, bloom: 3, weight: 5 }`
+- Benefits: always on. Hostile sensors detect the carrier at `detect` 0.6 of their range (P5-05: an enemy jet's 700 m radar sees a coated Kestrel at 420 m; a mech's 280 m at 168 m), the AI's sight of it is x0.75, and every lock on it takes `lockMult` 1.5 times as long (AA Missile 0.7 -> 1.05 s, Ship SAM 0.8 -> 1.2 s, Guided Missile 1.0 -> 1.5 s, Javelin 1.5 -> 2.25 s).
+- Drawbacks: for `bloom` 3 s after the carrier fires any weapon the coating does nothing; once a missile is in the air it does nothing (the seeker rules of P5-06 are unchanged); the eye rule (in view, clear line, 800 m: P5-05) is unchanged, so anyone who looks sees it; it takes the utility slot, so a jet gives up Flares or ECM, its only missile answers.
+- Distinct mechanic: a passive signature cut acting on detection and lock time; Optical Camo is an active 6 s untargetable state.
+- Counter: the Pulse Scanner (lifts it for 4 s), eyes and guns, flak (proximity fuses ignore it), the bloom after every shot.
+- AI: passive; no archetype carries it; a mission may give it to enemy strike jets (P9).
+- Balance: a coated Kestrel that is locked and fired upon is hit as an unprotected one (AA Missile 100% weaving, 53% breaking: P5-06), a flared one 38% / 13%: the coating wins the first look and the first lock, flares win the shot. P5-03 target, AI fighter duel (`p5ai.mjs` style, 12 fights): AA Missile hits per minute on a coated jet 20 to 35% below an unprotected one, and still above a flared one.
+
+**3. Spotter Drone** - `spotter: { name: 'Spotter Drone', slot: 'utility', kind: 'defense', def: 'spotter', charges: 2, cd: 20, dur: 20, range: 600, alt: 60, radius: 250, hp: 40, speed: 40, ai: 'spot', weight: 4 }`
+- Benefits: flies at 40 m/s to the reticle's ground point within 600 m and hovers 60 m up for 20 s; it is a sensor of its owner (detects within 250 m with a clear line from its height, shared with allies at the usual 60%) and a spotter for the team's artillery (`Arty.spotted`), so a Thunder can shell a target 1400 m away that it cannot see.
+- Drawbacks: a 40-hull air unit: shown on every hostile radar that detects it, killed by any gun (8 Chain MG rounds), a flak burst or an AA Missile; an ECM Jammer within 80 m drops it; 2 uses; while it flies the owner has no other utility.
+- Distinct mechanic: a remote, killable sensor placed at a chosen point (the Sensor Array grows the disc round the carrier; the Repair Drone heals).
+- Counter: shoot it down; ECM; cover from above (no clear line, no spot); kill the battery it feeds.
+- AI ('spot'): a carrier whose target was last seen more than 3 s ago and lies within 600 m launches it at the last seen place. AI artillery batteries (`howitzerBattery`, `rocketBattery`, `mortarTeam`: no utility today) carry it in large skirmishes only (P5-09).
+- Balance: the Sensor Array is permanent and centred on the carrier (artillery 480 m); the drone is 2 x 20 s at a chosen spot and dies to anything. P5-03 target: an AI howitzer's hits per minute on a tank seen only by a drone at most those it gets today from an AI sniper spotter (450 m sight with the array).
+
+**4. Shoulder SAM** - `manpad: { name: 'Shoulder SAM', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 45, dtype: 'explosive', speed: 60, accel: 220, maxSpeed: 260, life: 4, cd: 3, spread: 0.01, clip: 1, reserve: 4, reload: 3.5, heat: 6, range: 700, blast: 4, prox: 4, weight: 6, structMult: 0.4, rocket: true, pdEvade: 0.5, pdHp: 12, pdR: 0.8, guide: { turn: 2.2, lock: 'air', lockTime: 1.4, cone: 0.35, fov: 0.7, lose: 0.4, flare: 0.6 }, sound: 'missile' }`
+- Benefits: the first anti-air for a soldier; a proximity fuse bursts it within 4 m of the aircraft (fragments, blast 4 m), so a near miss still hurts.
+- Drawbacks: one round, then 3.5 s to reload, 5 rounds in all; a 1.4 s lock in a narrow cone (0.35 rad); 700 m (the AA Missile 1100 m); 45 damage (a Kestrel, 230 hull, needs about 6 bursts before armour, so one soldier's 5 rounds cannot kill it alone; a Behemoth, 680 hull and 260 armour, far more); flares fool it 60% of the time; it locks aircraft only.
+- Distinct mechanic: a proximity-fused seeker: no seeker has a proximity fuse today, and the Flak Cannon has one but no seeker.
+- Counter: flares, ECM, staying beyond 700 m slant range, a hard break, Point Defence (12 hit points, one hit), fire on the soldier.
+- AI: a new archetype `aaTrooper` (Ranger: Assault Rifle + Shoulder SAM, score 90, unit cost 1) fires at aircraft it sees within 630 m (0.9 x range, as other seekers; `canUseSecondary` already limits 'air' seekers to aircraft). P5-09 adds two to the elite skirmish garrison and to missions with enemy aircraft over enemy ground.
+- Balance: P5-03 target, the P5-06 air harness: straight target at 400 m 80% or more, hard break 55% or less (the 4 m fuse was chosen for this and is the first number to lower if the break rate is higher), flares 40% or less; a squad of four that each hit once does 180 plus blasts, under a Behemoth's 680 hull, so a gunship survives a first volley and must leave.
+
+**5. Jump Pack** - `jumppack: { name: 'Jump Pack', slot: 'utility', kind: 'defense', def: 'jump', charges: 4, recharge: 6, up: 9, fwd: 7, airSpread: 3, ai: 'hop', weight: 4 }`
+- Benefits: the defense key hops the soldier about 4 m up and 9 m along (9 m/s up, 7 m/s forward), with no fall damage on the landing of a hop; onto roofs, ledges, walls and river banks; one charge back every 6 s.
+- Drawbacks: in the air: no secondary fire and 3 times the aim spread; a soldier in the air is in the open; it takes the utility slot (no Nano Repair, Smoke, Optical Camo or Repair Drone); roof load rules are unchanged (a soldier never breaks a roof, `LOAD_*`).
+- Distinct mechanic: vertical movement on foot (mechs fly on jets and energy; vehicles cannot).
+- Counter: shoot the soldier in the air; flak bursts near a hopping soldier.
+- AI ('hop'): AI infantry use it to reach a roof or ledge within 12 m for a sniper or rocket position, to dodge a ground vehicle within 15 m and closing, or when stuck for 2 s at an obstacle (the P2-05 stuck test).
+- Balance: it gives height, not speed (a 9 m hop per 6 s on average), and costs the soldier's healing or camouflage. P5-03 target: a mech's time to kill an AI Rocket Trooper on a roof within 20% of the time to kill one behind a wall.
+
+**6. Repair Torch** - `torch: { name: 'Repair Torch', slot: 'primary', kind: 'beam', fire: 'auto', dmg: 3, heal: 30, healStruct: 60, healCap: 0.8, defuse: 1.5, dtype: 'energy', speed: 0, life: 0, cd: 0.1, spread: 0, clip: 0, reserve: 0, reload: 0, heat: 2.2, range: 12, blast: 0, beamWidth: 0.4, weight: 3, structMult: 0.5, tracer: [0.4, 1, 0.6], size: 0.25, sound: 'laser' }`
+- Benefits: a short beam that repairs an allied platform 30 hull/s up to `healCap` 80% of its max hull (a field repair) and an allied structure 60 hit points/s to full (turrets, walls, the P5-08 defences; never an objective structure: objectives fall only to weapons, D45, and are not rebuilt); held 1.5 s (`defuse`) on a hostile mine within 4 m of the beam's end it removes the mine with no blast, for every peer; on hostiles it only cuts for 3 damage.
+- Drawbacks: 12 m reach; the soldier stands in the open by what he repairs; heat-limited like the Pulse Laser (22 heat/s against the Ranger's cooling of 12/s: about 9 s of beam from cold to its 90 heat cap); it takes a gun slot; it cannot repair its own soldier.
+- Distinct mechanic: the first beam aimed at allies and structures, and the only mine clearing on foot.
+- Counter: kill the soldier (170 hull); fire on the repair spot; lay the mines again.
+- AI: a new archetype `engineer` (Ranger: Assault Rifle + Repair Torch, Pulse Scanner; score 60, unit cost 1); rule 'mend': with no hostile within 150 m it goes to the nearest allied platform under 60% hull within 120 m or a damaged allied defence within 200 m, and on its route defuses the mines its team knows (marked by a scan, seen within 25 m, or one that went off within 40 m).
+- Balance: the Repair Drone heals every ally within 25 m 18 hull/s for 12 s (two uses, 432 hull per ally per use); the torch has no use limit but heals one target, at 12 m, only to 80%, with the engineer fighting on one gun. A Bastion at 30% (234 hull) needs about 13 s of torch, with breaks for heat about 20 s, to reach 80% (624 hull). P5-03 target: a skirmish base defended with two AI engineers holds no more than 15% longer against the same waves than without.
+
+**7. Sea Mine Rack** - `seaMines: { name: 'Sea Mine Rack', slot: 'secondary', kind: 'proj', fire: 'semi', dmg: 260, dtype: 'explosive', speed: 0, life: 120, cd: 1.5, spread: 0, clip: 2, reserve: 6, reload: 6, heat: 2, range: 40, blast: 7, prox: 5, mine: true, sea: true, keel: 1.5, pdHp: 20, pdR: 1.2, weight: 10, structMult: 1, tracer: [0.3, 0.32, 0.35], size: 1.2, sound: 'splash' }`
+- Benefits: drops a moored mine astern, 1 m under the surface, in water at least 2 m deep; 260 damage (a torpedo's) to a hull that comes within 5 m.
+- Drawbacks: only in water; it goes off only for a keel (a ship with a `draft`, or a mech or vehicle wading deeper than `keel` 1.5 m); hovercraft and aircraft pass over; seen within 60 m (40 m in rain, fog and storm); 6 out at once per owner (its own cap, like `MINE_CAP`), 120 s life; 2 per clip, 6 s reload.
+- Distinct mechanic: a keel-triggered water mine. It is the same mine object as the P5-08 sea minefield, so one implementation serves both.
+- Counter: the Skua passes over; the Pulse Scanner marks them; guns sink a seen or marked mine (20 hit points, 1.2 m: one Autocannon round, four Chain MG rounds); a blast within 8 m sets it off; ships route round known mines (a cost on the ship grid of P2-03).
+- AI: a naval AI drops one when a hostile ship within 250 m is behind it (outside its front 90 degrees) and closing, or when it flees under 40% hull; in P5-09 enemy gunboats lay a line at a harbour mouth in naval skirmish.
+- Balance: the Torpedo does 260 at up to 700 m where it is aimed; the mine does it only to a ship that sails over it, and never to a hovercraft. P5-03 target: an AI destroyer chasing a Lancer that drops mines is hit by at most 1 in 3 of them.
+
+**8. Mine Plough** - `plough: { name: 'Mine Plough', slot: 'utility', kind: 'defense', def: 'plough', passive: true, width: 4.5, ahead: 3, mineHurt: 0.15, speedMult: 0.9, weight: 6 }`
+- Benefits: land mines (Mine Layer mines and P5-08 fields) in a 4.5 m strip up to 3 m ahead of the bow go off against the blade: the tank takes 15% of the blast and the mine is gone; the cleared strip is marked for its team as a lane.
+- Drawbacks: top speed x0.9 while fitted; it takes the utility slot (no Active Protection or Point Defence, the tank's missile answers); only the front strip is cleared; sea mines are untouched.
+- Distinct mechanic: passive mine clearing by driving through the field.
+- Counter: mines laid off the lane; anti-armour fire on the slow lead tank.
+- AI: passive; in P5-09 the AI tank that leads a skirmish wave carries it when the base it attacks has a known minefield (the `tank` archetype has no utility today, so it loses nothing).
+- Balance: the Bastion trades its missile defence for mine immunity: a ploughing tank is hit by a Guided Missile at 250 m 65% of the time (P5-06, straight) against 0% with the Active Protection. P5-03 target: a ploughing tank takes at most a third of the damage an unploughed one takes crossing the same P5-08 field.
+
+**A1. AA Missile opened to the Bulwark MM-2** (weight 6, inside its cap of 44): the medium mech gets a real anti-air secondary. Cost: the AA Missile locks aircraft only (`lock: 'air'`), so the Bulwark gives up the Guided Missile against ground targets and structures. The Colossus (Flak Cannon and AA Missile together) stays the stronger anti-air mech. The AI `medMech` loadout is unchanged.
+
+**A2. Flak Cannon opened to the Jackal RV-1** (weight 10, inside its cap of 28): an anti-air buggy. Cost: flak is weak against ground armour (16 explosive, structMult 0.8) and the Jackal has 330 hull; the Bastion (Flak Cannon and AA Missile) stays the stronger anti-air ground unit.
+
+Cells left empty or weak on purpose:
+- Light mech and hover anti-air (W): their lock-any Guided Missile and Swarm stay their answer; fast flankers avoid aircraft, and a dedicated AA pick would make them all-rounders.
+- Interceptor ground roles (W) and area denial (E): the Shrike and the Behemoth do ground attack; the Kestrel is the air-superiority pick.
+- Artillery close range and anti-air (W): escorts and the minimum range are the price of 1400 m shells.
+- Stealth for the heavy mech, tank, artillery, gunship, destroyer and hovercraft (E): big signatures; the coating goes only on light, fast platforms. Their counter-stealth half is filled by the Pulse Scanner.
+- Jets' support (E): they repair at airfields (`Airports.service`).
+- Wheeled and hover anti-structure (W): raiders; infantry with satchels and bombers demolish.
+- Heavy mech, artillery and destroyer mobility (W): weight and firepower are paid with speed.
+- Hovercraft area denial (W): no Sea Mine Rack for the Skua: immune to its own mines and able to cross land, it could seed every lane safely.
+- Superweapons: none added; the 100 cover every role (P5-01 list).
+
+- The matrix after P5-03 (expected): counter-stealth gets a tool in every row (the scanner: E -> W for platforms with no camouflage, W -> A for those with it, and A for the four coated platforms); anti-air W -> A for the Ranger, Bulwark and Jackal; infantry mobility W -> A; infantry support A -> S and structure repair available (engineers); artillery recon W -> A; area denial at sea E -> A (Lancer) and W -> A (Trident).
+
+### P5-08 base defences (decided 2026-10-30 by the coordinator; the owner can change any row)
+
+- Today (code): a skirmish fort (`FORT`, `Scenery.fort`, `fortDefenders`) has Gun Emplacements (`turret`: Autocannon, Chain MG, Guided Missile; 520 hull, 180 armour) on up to 6 slots and AA Batteries (`aaTurret`: two Flak Cannons and an AA Missile; 420 hull; AI sight 950 m, aircraft only) on up to 3 (`SKIRMISH_FORT`: recruit 4 + 2, veteran 5 + 2, elite 6 + 3; our base `SKIRMISH_OWN_FORT` 4 + 2, allied copies), a perimeter wall of Barriers (170 hit points each) with a gate on every side, a generator, a radar mast (`tower`), fuel tanks (explosive) and the Command Center (objective, 5000 hit points, the enemy's x `W.diff.hp`). Mission outposts get 3 turrets and an AA Battery (none where a row says `outpostGuns: false`). There is no base economy: skirmish waves are bought from a budget (`unitCost`, `SKIRMISH_SIZES` 3 / 5 / 7). No mine is part of a base; the only mines are the Mine Layer's (6 per owner, 60 s).
+- Cost model (new): defence points (DP). Every base keeps today's turrets and walls as they are (unchanged balance) and gets an extra DP budget for the new defences: small 4, medium 6, large 8; an elite enemy +2. Every team's base gets the same budget (2 to 4 teams). The base's own side spends it when the battle is built, from a seeded priority list per battlefield (water near the base: sea field or Coastal Gun first; an airfield on the map or aircraft in the waves: SAM Site first; else a minefield and a Gauss Bunker; a silo on medium and large when the budget allows), so every co-op peer builds the same base. A skirmish setting "Base defences: standard / off" (off = today's bases). A player-facing picker for our base is a P5-09 option, not part of this decision.
+- 13 defences (numbers in the style of `WEAPONS` and `STRUCT`; turrets are platforms like `turret` and `aaTurret`, `model: 'turret'` with a new `style`, and use existing weapons, so their rounds, seekers and P5-07 hit points stay as tested):
+
+| # | Defence (id) | Role | DP | Body | Weapon or effect |
+|---|---|---|---|---|---|
+| 1 | Land Minefield (`minefield`) | area denial on the approaches | 2 | 10 mines, 20 hit points each | 7 anti-tank mines (220 damage, blast 6 m, prox 3 m, only for a ground platform or mech on the ground) and 3 anti-personnel mines (90 damage, blast 4 m, prox 2.5 m, soldiers only), in a band 30 m deep across one gate road 40 to 90 m outside the wall; they last the whole battle |
+| 2 | Sea Minefield (`seaField`) | area denial at sea | 2 | 8 mines, 20 hit points each | Sea Mine Rack mines (P5-02 item 7: 260 damage, keel trigger, hovercraft pass over), moored in a line across the harbour mouth or the shore approach; only where navigable ship water lies within 300 m of the wall (P2-03 grid); whole battle |
+| 3 | Gauss Bunker (`bunkerGun`) | anti-armour, long range | 3 | 900 hull, 300 armour, front arc 120 degrees, slew 1.2 rad/s | Gauss Rifle (125, 1000 m, pierces one) |
+| 4 | Tesla Pylon (`teslaPylon`) | anti-infantry, close | 2 | 400 hull, 100 armour | Tesla Coil (14 per 0.22 s, 95 m, arcs to 3 more) |
+| 5 | Mortar Pit (`mortarPit`) | indirect area fire | 3 | 500 hull, 150 armour, 1.5 m high (hard to hit from the flat) | Heavy Mortar (120, 70 to 480 m, high arc) on what the base's turrets and radar mast see |
+| 6 | SAM Site (`samSite`) | long-range anti-air | 3 | 450 hull, 120 armour | Ship SAM (80, 1400 m, locks aircraft and inbound missiles); range halves to 700 m while the base's radar mast is down |
+| 7 | Point Defence Tower (`pdTower`) | anti-missile for the whole base | 2 | 350 hull, 80 armour | the P5-07 Point Defence numbers (140 m, 90% to 40%, 0.3 s slew, 12 bursts back one in 5 s), but against every hostile missile or rocket whose target or impact point lies within 140 m of the tower |
+| 8 | Coastal Gun (`coastGun`) | anti-ship | 3 | 800 hull, 260 armour | Naval Gun (85, 950 m); only where ship water lies within 950 m |
+| 9 | Missile Silo (`silo`) | strategic strike on an enemy base | 6 | structure 12 x 6 x 12 m, 3000 hit points, concrete; damage x2 while its doors are open | see "Missile Silo" below |
+| 10 | Shield Generator (`shieldGen`) | protects the command center | 3 | projector 600 hull, 200 armour, 70 to 90 m from the command center, outside the dome | a 60 m dome over the command center that stops hostile rounds and beams (as m8's shield grid), 3000 shield points, 150 back per s after 15 s without a hit; units walk through it |
+| 11 | Counter-Battery Radar (`cbRadar`) | finds enemy artillery | 2 | 350 hull, 80 armour | traces every hostile shell or artillery rocket (Field Howitzer, Rocket Artillery, Heavy Mortar, Mortar, Howitzer) that lands within 400 m of the base back to its firer within 1400 m and marks the firer for the team for 20 s (radar and `Arty.spotted`, so the team's artillery and Mortar Pits can answer) |
+| 12 | Jammer Mast (`jammer`) | electronic warfare | 2 | 300 hull, 60 armour, 18 m tall | within 250 m of the mast every hostile lock takes 2 times as long (with Stealth Coating the two multiply, capped at 2.5) and hostile platforms inside get no radar sharing from allies (P5-05: own range only) |
+| 13 | Engineer Post (`engPost`) | repair and mine clearing | 2 | a hut, 300 hit points | keeps 2 AI engineers (P5-02 item 6) at the base: one lost comes back after 60 s while the hut stands; they repair turrets, walls and defences (not the command center: objectives are not rebuilt) and defuse hostile mines within 200 m of the wall |
+
+**Missile Silo** (the owner's request: prepares for a long time with a clear warning, can be found and destroyed while it prepares, then strikes an enemy base)
+- Where and when: medium and large skirmish only (6 DP of the 6 / 8 budget), one per team, inside its own wall on a new fort slot. It starts arming 60 s after the battle starts and arms for 240 s (no strike in the first 5 minutes). After a launch the next arming starts 120 s later, so a silo strikes at most once every 6 minutes (the default 10-minute skirmish sees one strike). A destroyed silo is gone for the battle.
+- Warning and finding: when it starts arming, the team it targets hears "ENEMY MISSILE SILO ARMING", gets a HUD timer (m:ss) and a radar search circle of 250 m that holds the silo (the circle's centre is offset by the battle seed, never centred on it); at 120 s left the circle shrinks to the silo's place; any sensor of that team that detects it (P5-05) marks it at once. For the targeted team the silo is an objective structure ("Destroy the missile silo": lockable and cycled to, P5-04). At 30 s left: "LAUNCH IMMINENT", a siren, the doors open (light and vapour; damage x2). At launch the missile climbs from the silo and flies 12 s (the ICBM Strike arc); the struck base gets an impact marker and "INCOMING STRIKE" for those 12 s.
+- Strike: on the target team's command center, 1800 damage (36% of a 5000 hit point command center), never below 10% of its max hull, so a silo alone never wins a battle; plus a 60 m blast round the command center, 600 damage to structures and defences, 250 to units (aircraft above 150 m untouched). The strike sets a Shield Generator's dome to 0 before it hits, so the shield is not an answer to the silo. The missile cannot be shot down: the answer is the 240 s of arming.
+- Kill numbers while it arms (structure damage = damage x `structMult` x concrete's material factor: explosive 1.0, kinetic 0.5, energy 0.7): Bunker Buster 2520 (two bombs, or one with the doors open), Satchel Charge 1400 (three), Field Howitzer 462 (seven shells), Cruise Missile 750 (four), Guided Missile 97.5 (31, or 16 with the doors open), Gauss Rifle 81 (37). So one strike aircraft run, a soldier team with satchels, or two minutes of artillery on a known spot kills it; a lone mech's guns do not.
+- 3 and 4 teams: the target is the nearest hostile team's base (centre to centre) when arming starts; that team hears "SILO TARGETING YOU", the others "ENEMY SILO ARMING" with the same timer (anyone may kill it). A base struck by any silo cannot be targeted again for 300 s; at most 1 (2 teams) or 2 (3 and 4 teams) silos arm at once in the battle, a third waits.
+- AI against a silo: when a silo arms against an AI team, its commander retasks: its fastest unit searches the circle (by sight) until the silo is found, then every aircraft and half of the next wave attack it (`ai.assault` = the silo), its artillery and Mortar Pits fire on it once it is known and in range, and AI jets with bombs strike it. AI with a silo: 2 units of its garrison hold within 120 m of it while it arms (taken from the waves, not added).
+
+### P5-08 counters, limits, warnings and co-op
+
+| # | Defence | Counters | How the AI counters it | Warnings |
+|---|---|---|---|---|
+| 1 | Land Minefield | Mine Plough (drives a lane), Repair Torch (defuses one in 1.5 s), Pulse Scanner (marks them 20 s), seen mines shot (20 hit points), any blast within 6 m sets one off (artillery and mortars clear a known field), hover platforms (Specter HV-1, Skua ACV-2) pass over the anti-tank mines, aircraft are never hit, the other gates | each team keeps a known-mine map (a mine seen within 25 m, 12 m in rain and fog; marked by a scan; or the place of one that went off, which marks every mine of that field within 40 m as suspected); the P2-05 land grid adds a cost to cells within 6 m of a known mine, so AI units route round or through another gate; a wave attacking a base with a known field is led by a plough tank (P5-02 item 8) with a Pulse Scanner unit beside it; engineers defuse on their routes; idle AI artillery fires one salvo per 30 s on a known field's centre | "MINES AHEAD" within 60 m of a known field; a "MINEFIELD" area on the radar once known |
+| 2 | Sea Minefield | the Skua passes over; Pulse Scanner; seen or marked mines shot (one Autocannon round); blasts within 8 m; another channel | ships keep the same known-mine map and route round known mines (cost on the P2-03 ship grid); an AI ship with no hostile in its sight fires at mines it sees | as row 1, "MINES AHEAD" for ships |
+| 3 | Gauss Bunker | come from outside its 120 degree front arc, top attack (Javelin), artillery, satchels, smoke (spoils its aim, `SMOKE_AIM_ERR`) | AI artillery and Javelin troopers take it as a first target; waves prefer a gate it does not face | none beyond the target panel |
+| 4 | Tesla Pylon | stay beyond 95 m (snipers, Marksman Rifle, every gun past 95 m), Ion Cannon and EMP stun it 2.5 to 3 s, aircraft above 95 m | AI snipers and tanks engage it from 100 m or more | none |
+| 5 | Mortar Pit | get within 70 m (its minimum range), smoke on its spotters, kill the radar mast and the turrets that spot for it, counter-battery fire | AI artillery fires on it once it is known; AI units do not stand still inside 480 m of a known pit | the incoming-shell warning that exists today |
+| 6 | SAM Site | flares (50% per drop), ECM, terrain and buildings between (the P5-06 sight rule), Stealth Coating (lock x1.5), flying low, killing the radar mast first (range 700 m) | AI jets and gunships stay outside 1400 m of a known SAM Site until it or the mast is down; AI ground waves attack it before aircraft come in | the existing lock and missile warnings |
+| 7 | Point Defence Tower | salvos (Swarm Missiles, Rocket Pod: about half gets through, P5-07), the Cruise Missile (not stopped), shells and bombs (never touched), killing it with guns (350 hull) | AI waves send unguided fire and shells at bases that have one | none |
+| 8 | Coastal Gun | outrange it (Cruise Missile 1500 m, Field Howitzer 1400 m from land), aircraft, smoke at sea | AI ships keep beyond 950 m of a known Coastal Gun unless their target is inside | none |
+| 9 | Missile Silo | find and destroy it during the 240 s (above) | above | above |
+| 10 | Shield Generator | kill the projector outside the dome; Ion Cannon (`shieldMult` 4) and EMP drain the dome fast; walk in and fire from inside | AI waves target the projector first (it is listed before the command center for `assault`) | "SHIELD UP / DOWN" on the target panel |
+| 11 | Counter-Battery Radar | shoot and move (pack up within 20 s), an ECM Jammer running on the firer hides it from the trace, kill the radar (350 hull) | AI batteries relocate 80 to 150 m after they are traced | "TRACED" on the HUD of a traced artillery player |
+| 12 | Jammer Mast | unguided and wire weapons (Rocket Pod, Wire-Guided ATGM, bombs, guns), kill the mast (tall, seen far) | AI attackers switch to unguided weapons inside 250 m and target the mast | "LOCKS JAMMED" while inside |
+| 13 | Engineer Post | kill the hut (300), snipers on the engineers | AI waves target the hut when engineers are seen repairing | none |
+
+- Fair limits per base for 2 / 3 / 4 teams (the DP budget is the same for every team; the caps keep one kind from filling it):
+
+| Limit | 2 teams | 3 teams | 4 teams |
+|---|---|---|---|
+| DP budget per base (small / medium / large) | 4 / 6 / 8 (enemy elite +2) | 4 / 6 / 8 each | 4 / 6 / 8 each |
+| Land Minefields per base | 2 | 2 | 2 |
+| Sea Minefields per base | 1 | 1 | 1 |
+| New turrets per base (rows 3 to 8 together) | 4 | 4 | 3 |
+| SAM Sites per base | 2 | 2 | 1 |
+| Missile Silos | 1 per team, 1 arming at once | 1 per team, 2 arming at once | 1 per team, 2 arming at once |
+| Shield Generator, Counter-Battery Radar, Jammer Mast, Engineer Post | 1 each per base | 1 each | 1 each |
+| Silo protection after a strike | 300 s (moot: one silo, 6 min cycle) | 300 s | 300 s |
+
+- Reach rule (all team counts): no defence's reach (SAM Site 1400 m, Coastal Gun 950 m, Mortar Pit 480 m, Jammer Mast 250 m, minefields 90 m past the wall) may cover another team's command center or a spawn point (D58: no hostile watches a spawn); a pick that would is refused when the base is built and its DP go to the next pick. With 3 and 4 teams bases stand closer (P7), so the long-reach picks are the first to be refused: no base shells another from inside its own wall.
+- Balance against today's defences (numbers to measure in P5-09, before the task is ticked): the Gun Emplacement does 13 per 0.14 s plus 5 per 0.06 s (about 93 + 83 raw per second) out to 520 m all round; the Gauss Bunker does 125 per 1.6 s (78 raw per second) out to 1000 m in a 120 degree arc: more reach, less damage, a blind back. The AA Battery's flak and AA Missile reach about 950 m (AI sight); the SAM Site reaches 1400 m but has no gun, so an aircraft inside 300 m is safer from it. P5-09 targets: (1) the medium skirmish with "Base defences: standard" is won by the AI enemy's waves taking our command center no sooner than 85% of the time it takes today, and our player taking theirs no later than 125% of today (P5-04 method: 3 runs of 6 minutes, Ashfall Ridge and Verdant Ridge); (2) a silo left alone strikes once in a 10-minute battle and leaves the command center at 64% or more; (3) a minefield crossed without a counter costs a 4-tank wave at most one tank (220 x 2 to 3 mines against 780 hull), and with a plough lead at most a third of that damage.
+- Missions: the decision covers the skirmish forts. P5-09 adds defences to at most four missions with bases where the mission's design gains from it (proposal: the m1 outpost a minefield and a Gauss Bunker, the m5 relay compound a minefield, m8 Tesla Pylons round the power nodes) and records each mission's change and balance numbers there; a silo is never placed in a story mission unless a P9 mission design asks for it.
+- Co-op sync (host simulates, as for every structure and platform): every defence is built on the host and on each guest from the battle seed, as the forts are today ("built on co-op guests too"); turrets are platforms and reach guests in the snapshot as today; structure hit points through the existing structure updates; mines are placed from the seed on every peer and only their removal is sent (an event with the mine id: went off, defused, ploughed, shot); known-mine marks are per team and sent as events to that team's guests; the silo sends its state (arming, doors open, launched), its timer to the second, its target team and the search circle in a small message once a second and on each change; the strike is an `explode` event as today; the shield dome's points ride with the projector's state; Counter-Battery traces and Jammer areas are worked out on the host and sent as marks (traced firer id, 20 s). `NET_VERSION` +1 (new structure kinds and messages); `SAVE_VERSION` stays 1 unless the skirmish setting is saved (then +1 with a default of "standard").
+- Input: no new control. Every warning is HUD text, a radar mark and a sound, so it reads the same on touch, gamepad and keyboard; the silo is targeted with the existing cycle key, gamepad Y and touch TGT (P5-04).
+
+### P6-01 loadout visuals (decided 2026-10-30 by the coordinator; the owner can change any row)
+
+- Extends P1-05 (what each model shows today). Source: the draw functions of this build (`drawMech` 15786, `drawInfantry` 15907, `drawWheeled` 16003, `drawTracked` 16027, `drawHover` 16052, `drawBoat` 16089, `drawDestroyer` 16106, `drawAcv` 16127, `drawSpg` 16155, `drawMrl` 16182, `drawMortarApc` 16206, `drawTurret` 16254, `drawJet` 16276, `drawGunship` 16301), `part` and `barrel` (one `R.draw`, one draw call, per part) and the unit meshes built at start (`R.createResources`): `box` 12 triangles, `wedge` 8, `cone` 16, `cyl` 40, `sphere` 108.
+- Rules for every platform:
+  1. Family and size: a weapon looks like its family (tables below); its size class comes from its weight: small (6 or less) x0.8, medium (7 to 12) x1, large (13 or more) x1.3 on the family's parts. Today there is one barrel per slot, thicker over weight 10.
+  2. Style: only the existing unit meshes, flat colours (gun grey `[0.15, 0.16, 0.18]`, the platform's main and dark colours), at most one lit strip per item in the team accent (`TEAM_ACCENT`), emissive only on energy weapons and on utility status lights; no textures, no new mesh types.
+  3. Data: drawn from `p.wslots` and `p.util` (as today), so AI units, turrets and co-op peers show their loadouts as the player does; peers already have each other's validated loadouts, and utility state that changes the picture (Reactive Armor charges, a drone that is out) already reaches guests in the snapshot, or P6-02 adds it there.
+  4. Rounds you can see: missiles on rails, bombs, the Cruise Missile canister and Reactive Armor plates are drawn one part per round or charge left, and disappear as they are used (the clip count; back on reload); belt-fed guns show an ammo box with no count.
+  5. Distance: every new part is near-only (hidden past 380 m, the existing `lod`), except the "far" column below.
+  6. Hangar: the hangar preview of P6-02 draws the same function with `lod` off, the model turning slowly; the strategic slot has no part (superweapons come from orbit or the base): the hangar card shows its name and tier colour (`SUPER_TIER`).
+  7. Camouflage and paint: there is no paint scheme (team colours are P7); Optical Camo shows two cyan emitter strips; Stealth Coating darkens the main and dark colours to 0.7 and turns specular off (no draw call); while cloaked, today's effect.
+  8. Budget: the extra draw calls and triangles per platform (near, full loadout) stay inside the budget column of the platform table; P6-02 measures with the P0-02 recipe plus a worst-case scene (a large skirmish, every unit in full loadout within 380 m of the camera) and must pass the P0-02 rule (JS p95 at most 15% over the same-hour old build). Fallbacks if it does not: first the loadout parts' near range drops to 200 m, then each family is built once at start as its own unit mesh from the same primitives (one draw call per item instead of 2 to 4).
+
+Primary families (A, B and the artillery's main gun):
+
+| Family | Weapons | Parts near | Calls / triangles | Far |
+|---|---|---|---|---|
+| Light gun | Chain MG, Assault Rifle, Submachine Gun, Light Machine Gun, Marksman Rifle | one thin barrel; Chain MG and Light Machine Gun add an ammo box under it; Marksman Rifle a scope box on top | 1 to 2 / 40 to 52 | none |
+| Rotary | Gatling Cannon, Rotary Vulcan | three thin barrels round the axis (they spin while firing) and a short drum behind | 4 / 160 | one barrel |
+| Cannon | Autocannon, Naval Gun | a barrel with a muzzle-brake box | 2 / 52 | the barrel |
+| Flak | Flak Cannon | two short barrels side by side on a breech box | 3 / 92 | none |
+| Long kinetic | Railgun, Gauss Rifle, Sniper Rifle | Railgun: a barrel between two flat rails, the rails glow blue while it charges; Gauss Rifle: a barrel with two coil rings (flat cylinders); Sniper Rifle: a long thin barrel and a scope | 3 / 92 to 120 | the barrel |
+| Beam | Pulse Laser, Beam Lance, Tesla Coil, Ion Cannon, Arc Pistol | Pulse Laser: a short barrel and a cyan lens; Beam Lance: a long thin barrel whose magenta tip glows with its ramp; Tesla Coil: a post with a glowing coil (sphere); Ion Cannon: a barrel with a blue glowing ring; Arc Pistol: a small box with a glowing tip | 2 / 24 to 148 | none |
+| Plasma | Plasma Cannon | a fat short barrel and a green glowing chamber box | 2 / 52 | the barrel |
+| Close | Scattergun, Slug Cannon, Flamethrower, Needle Gun | Scattergun: a wide short barrel and a pump box; Slug Cannon: a very wide short barrel; Flamethrower: a thin nozzle, an orange fuel tank and a pilot flame; Needle Gun: a box with a cone spike | 2 to 3 / 28 to 92 | none |
+| Heavy indirect | Howitzer, Field Howitzer, Rocket Artillery, Heavy Mortar | as on today's artillery (long barrel and muzzle brake, launcher pod with tube mouths, mortar tube); a Howitzer on a mech or a tank is the long barrel with a muzzle brake | 2 / 52 (artillery: today's parts) | the barrel or pod |
+| Repair Torch (P5-02) | Repair Torch | a nozzle and a green tank | 2 / 80 | none |
+
+Secondary families:
+
+| Family | Weapons | Parts near | Calls / triangles |
+|---|---|---|---|
+| Rocket pod | Rocket Pod, Cluster Rocket | a box with a darker front plate (the tube mouths); the Cluster Rocket two big tube mouths | 2 to 3 / 24 to 92 |
+| Missile box | Guided Missile, Swarm Missiles | a box with one missile nose (cone) per round loaded, two shown at most; Swarm Missiles: a box with a lit front grid | 2 to 3 / 28 to 44 |
+| Rail missile | AA Missile, Ship SAM, Shoulder SAM | slim missiles (cylinder body, cone nose) on rails: on a jet one per wing tip (two of the clip shown), on a ground unit a twin-rail box, on the Trident lit cell hatches; the Shoulder SAM a tube on the soldier's back | 2 to 4 / 52 to 112 |
+| Tube | Wire-Guided ATGM, Javelin, Rocket Launcher | one tube; the ATGM with a small sight box | 1 to 2 / 40 to 52 |
+| Canister | Cruise Missile | a large box canister with a cone nose (clip 1: gone after the shot) | 2 / 28 |
+| Lobber | Mortar, Grenade Launcher | a short wide tube angled 45 degrees up | 1 / 40 |
+| Bombs | Cluster Bombs, Napalm Bombs, Bunker Buster | under the wings or belly: Cluster Bombs two bombs (box and cone each, one pair hidden per two dropped), Napalm Bombs two canisters with an orange band, Bunker Buster one large bomb | 2 to 4 / 28 to 56 |
+| Torpedo | Torpedo | today's deck tubes (Lancer, Trident), now only for the Torpedo | 2 / 80 |
+| Mines | Mine Layer, Sea Mine Rack | a rack box with two round mines (flat cylinders) on the back or stern | 3 / 92 |
+| Thrown | Satchel Charge, EMP Grenade | a pouch on the belt (the EMP Grenade's glows blue) | 1 / 12 |
+
+Utilities (and the P5-02 items):
+
+| Item | Parts near | Calls / triangles |
+|---|---|---|
+| Energy Shield | an emitter dome (flattened sphere) on the back or roof, glowing blue while up (today's bubble stays) | 1 / 108 |
+| Active Protection | two small launcher boxes with dark faces on the turret or torso sides | 2 / 24 |
+| Point Defence | a small roof turret (box and thin barrel) that turns to its target (the P5-07 slew) | 2 / 52 |
+| Reactive Armor | armour plates: one frame plate and three charge plates (front and sides), a charge plate hidden per charge spent | 4 / 48 |
+| Nano Repair | a green canister on the back | 1 / 40 |
+| Repair Drone | a docked drone (box and two flat rotors) on the back; gone while it flies | 3 / 92 |
+| Flares | a dispenser box at the tail or stern with an orange strip | 1 / 12 |
+| ECM Jammer | a mast with a flat dish | 2 / 52 |
+| Smoke Launcher | a bank of two short tubes on a box at the front | 3 / 92 |
+| Optical Camo | two thin cyan glowing strips along the sides | 2 / 24 |
+| Coolant Overdrive | two coolant tanks with blue caps (glowing while it runs) | 2 / 80 |
+| Holo Decoy | a projector lens (cone) on top | 1 / 16 |
+| Deployable Barrier | a folded panel on the back; gone while deployed | 1 / 12 |
+| Sensor Array | a radome (flattened sphere) on a short mast | 2 / 120 |
+| Pulse Scanner (P5-02) | a dish on a box that spins while it pings | 2 / 52 |
+| Stealth Coating (P5-02) | colour rule only (rule 7) | 0 / 0 |
+| Spotter Drone (P5-02) | a small docked drone (box and flat rotor); gone while it flies | 2 / 52 |
+| Jump Pack (P5-02) | a backpack box with two nozzles that glow orange on a hop | 3 / 92 |
+| Mine Plough (P5-02) | a bow blade (wedge) on two arms | 3 / 32 |
+| Melee | as today (P1-05): the blade in hand or on the back | as today |
+
+Where each slot is drawn, per platform kind, and the budget ("today" counted from the draw code: near, full loadout, gear up; extra = what the new rule may add on top):
+
+| Platform kind | Today: calls / triangles | Primary A / B | Secondary | Utility | Extra budget: calls / triangles | Far (past 380 m) |
+|---|---|---|---|---|---|---|
+| Mechs: Wraith LM-1, Bulwark MM-2, Colossus HM-3 (`drawMech`) | about 19 / 340 | right and left arm ends, the family in place of today's barrel | on today's shoulder box | back plate behind the torso; Reactive plates on the torso front and sides; Active Protection on the shoulders | +8 / +450 | today's picture plus a thicker arm block for a large gun |
+| Infantry: Ranger IN-0 (`drawInfantry`) | about 13 / 380 (two spheres: head and helmet) | the held weapon in the hands by family; the other primary slung on the back as one box | a tube on the shoulder (Javelin, Rocket Launcher, Shoulder SAM), a pouch on the belt (Satchel, EMP Grenade), the Grenade Launcher held under the rifle | back (Repair Drone, Spotter Drone, Jump Pack, Nano canister), belt (Smoke) | +4 / +200 | the held weapon's length only (as today: sniper long) |
+| Wheeled: Jackal RV-1 (`drawWheeled`) | 12 / 310 | the two turret barrels by family | the turret-roof box by family | the rear deck | +5 / +300 | none (barrels hidden as today) |
+| Tracked: Bastion MBT-2 (`drawTracked`) | 20 / 290 | A: the main gun by family and size, drawn at any distance as today; B: the coaxial side barrel | the box left of the turret | roof (Point Defence, Sensor Array, ECM, Pulse Scanner), turret sides (Active Protection), hull plates (Reactive Armor), the bow (Mine Plough) | +6 / +400 | the main gun's size class (today) |
+| Hover: Specter HV-1 (`drawHover`) | 11 / 245 | the two barrels by family | new: two side pods (today the secondary is not drawn at all) | the spine behind the canopy | +5 / +300 | none |
+| Artillery: Thunder SPH-1 (`drawSpg`) | 24 / 345 | A: today's long howitzer only when A is the Field Howitzer (today it is drawn for any gun), otherwise the gun's family on the mantlet; B: the small coaxial barrel | a box on the hull's right side | the turret roof | +4 / +250 | the long barrel or the gun |
+| Artillery: Hailstorm MRL-6 (`drawMrl`) | 26 / 680 | A: today's launcher pod only when A is Rocket Artillery, otherwise the gun on the turntable; B: a small barrel on the cab roof | a box on the cab roof | the rear deck behind the pod | +4 / +250 | the pod or the gun |
+| Artillery: Pestle MC-2 (`drawMortarApc`) | 18 / 300 | A: today's mortar tube only when A is the Heavy Mortar, otherwise the gun on the base plate; B: the side barrel | a box on the right side | the roof rail by the hatches | +4 / +250 | the tube or the gun |
+| Air interceptor and strike: Kestrel IN-1, Shrike SF-2 (`drawJet`) | 14 to 16 / 175 (gear: +3 / +120) | new: gun stubs at the nose and wing roots by family (today jets draw no gun) | wing stations: rail missiles at the wing tips, bombs, pods and canisters under the wings (today one pale ventral pod for every item) | tail: the Flares dispenser, an ECM pod under the tail, the Sensor Array radome on the spine | +6 / +350 | none |
+| Air gunship: Behemoth HG-3 (`drawGunship`) | 20 / 350 | the two chin barrels by family | the four wing pods by family | on the back behind the cockpit | +8 / +500 | none |
+| Naval fast: Lancer FC-1 (`drawBoat`) | 15 / 325 | bow and aft turrets: barrels by family | at the stern: torpedo tubes only for the Torpedo; a twin box for the Ship SAM or Guided Missile; the Rocket Pod box; the mine rack | the mast (ECM dish, Sensor Array, Pulse Scanner); the deck (Smoke, Active Protection, the Point Defence turret) | +5 / +300 | none |
+| Naval destroyer: Trident DD-3 (`drawDestroyer`) | 19 / 400 | forward and aft turrets: barrels by family | the cell block: lit cells for the Ship SAM and AA Missile, two canisters for the Cruise Missile, a lit grid for Swarm Missiles, a twin box for the Guided Missile, the tubes only for the Torpedo (today the torpedo tubes show whatever is mounted) | the mast (ECM, Sensor Array, Pulse Scanner); the superstructure sides (Active Protection, the Point Defence turret); hull plates (Reactive Armor) | +6 / +400 | none |
+| Naval hovercraft: Skua ACV-2 (`drawAcv`) | 15 / 290 | the deck turret: A by family, B as a second barrel of its own family (today which gun does not matter, and B alone adds nothing) | the deck box by family | the cabin roofs | +5 / +300 | none |
+| Turrets and the P5-08 defences (`drawTurret`) | 6 / 185 (Gun Emplacement) | by family (each kind's guns are fixed) | by family | none | +3 / +150 | the barrels |
+
+- Reading of the budget: the largest extra is a mech or a gunship at +8 calls; a large skirmish has about 41 platforms (P0-01), of which fewer than half are usually within 380 m, so the worst case is about +150 to +250 calls per frame against the low preset; P6-02 measures it before anything is ticked.
 
 ## Appendix D - Audit findings
 
