@@ -58,6 +58,9 @@ Test.add('content', (check) => {
     const ttk = timeToKill(mode);
     if (band && (ttk < band[0] - 1e-6 || ttk > band[1] + 1e-6)) outside.push(weapon.code + ' ' + weapon.id + ' ' + ttk.toFixed(3) + ' not in ' + band.join('-'));
     if (!ONE_HIT_CLASSES.includes(weapon.class) && mode.damage >= BASE_HEALTH) oneHit.push(weapon.code + ' ' + weapon.id + ' ' + mode.damage);
+    // A charge below its top level is a partial charge: it may not kill a bare body either (the full charge is the price paid in time and cells).
+    const partial = mode.charge && mode.charge.levels ? mode.charge.levels.slice(0, -1) : [];
+    if (!ONE_HIT_CLASSES.includes(weapon.class) && partial.some((value) => value >= BASE_HEALTH)) oneHit.push(weapon.code + ' ' + weapon.id + ' charge level ' + partial.join('/'));
     if (weapon.class === 'shotgun' && !(shotsToKill(mode, POINT_BLANK_METRES) === 1 && shotsToKill(mode, MID_RANGE_METRES) >= 2)) {
       shotguns.push(weapon.code + ' ' + weapon.id + ' ' + shotsToKill(mode, POINT_BLANK_METRES) + '/' + shotsToKill(mode, MID_RANGE_METRES));
     }

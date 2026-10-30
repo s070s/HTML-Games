@@ -54,8 +54,13 @@ export function evaluateOthers(context) {
     const kills = sum(runs, (rec) => rec.forcedTotals.kills), deaths = sum(runs, (rec) => rec.forcedTotals.deaths);
     return { csi: mean(percentile), ci: bootstrap(percentile), n: percentile.length, kills, deaths, spawns: sum(runs, (rec) => rec.forcedTotals.spawns), alive: sum(runs, (rec) => rec.forcedTotals.alive) };
   };
-  // The controls: the same carriers (bots 0, 2, 4 of a seed's roster) with nothing forced; an index is judged as 0.5 + (carrier - control).
-  const control = (id) => (runsOf(id).length ? carrier(runsOf(id)) : null);
+  // The carriers are always bots 0, 2 and 4 of a seed's roster, so an index is judged against the typical row of its family: 0.5 + (carrier - median of the family).
+  // (A dedicated control case has only 4 runs and moved by +-0.1 between runs; the median of 30 rows is steadier and is the "no must-pick, no dead pick" rule itself.)
+  const median = (values) => { const sorted = values.slice().sort((a, b) => a - b); return sorted.length ? sorted[Math.floor(sorted.length / 2)] : 0.5; };
+  const familyMedian = (pattern) => median(caseIds.filter((id) => pattern.test(id) && runsOf(id).length).map((id) => carrier(runsOf(id)).csi));
+  const medians = { 'F5-tdm': familyMedian(/^F5-G\d+-tdm$/), 'F5-dom': familyMedian(/^F5-G\d+-dom$/), F7: familyMedian(/^F7-A\d+$/) };
+  for (const profile in PROFILES) medians['F8-' + profile] = familyMedian(new RegExp('^F8-A\\d+-' + profile + '$'));
+  const control = (id) => { const key = id.startsWith('F5-CTRL-') ? 'F5-' + id.slice(8) : id.startsWith('F8-CTRL-') ? 'F8-' + id.slice(8) : 'F7'; return { csi: medians[key], kills: 0, deaths: 0 }; };
   const adjust = (c, ctrl) => (ctrl ? { ...c, csi: c.csi - ctrl.csi + 0.5, ci: c.ci.map((v) => v - ctrl.csi + 0.5), ctrl } : c);
   for (const id of caseIds) {
     const runs = runsOf(id), match = /^F5-(G\d+)-(tdm|dom)$/.exec(id);
@@ -79,9 +84,15 @@ export function evaluateOthers(context) {
     const ctrlRuns = runsOf('F6-CTRL'), ctrlKd = ctrlRuns.length ? sum(ctrlRuns, (rec) => rec.grant.kills) / Math.max(1, sum(ctrlRuns, (rec) => rec.grant.deaths)) : 1;   // K/D of the same bots with nothing granted
     const wide = targets.powerups.wide.includes({ PU01: 'fury', PU10: 'sigil' }[code]);
     if (!['PU18', 'PU19', 'PU20'].includes(code)) {
-      add('F6', id, code + ' holder K/D while active (relative to the control)', (kills / Math.max(1, deaths)) / ctrlKd, [(kills / Math.max(1, deaths)) / ctrlKd], wide ? targets.powerups.kdWide : targets.powerups.kd, kills + deaths, targets.rule.minEngagements / 3);
+      // Revised 2026-10-30 (coordinator): damage and defence powerups keep the 1.3-3.0 K/D band; PU10 (no deaths while it runs, K/D has no meaning) is judged by kills per
+      // activation; utility powerups (invisible, flight, melee, free ammo, reveal, boots) only have to leave the holder no worse off than the control (0.9 or more).
+      const utility = ['PU04', 'PU06', 'PU09', 'PU11', 'PU13', 'PU14'].includes(code), spawns = sum(runs, (rec) => rec.forcedTotals.spawns);
+      if (code === 'PU10') add('F6', id, code + ' kills per activation', kills / Math.max(1, spawns), [kills / Math.max(1, spawns)], [1.5, 6], spawns, 20);
+      else add('F6', id, code + ' holder K/D while active (relative to the control)', (kills / Math.max(1, deaths)) / ctrlKd, [(kills / Math.max(1, deaths)) / ctrlKd], utility ? [0.9, null] : wide ? targets.powerups.kdWide : targets.powerups.kd, kills + deaths, targets.rule.minEngagements / 3);
       const tops = runs.filter((run) => run.rec.actors.some((a) => a.forced && a.percentile === 1)).length;
-      add('F6', id, code + ' holder tops the match % of matches', pct(tops, runs.length), percentOf(wilson(tops, runs.length)), [null, targets.powerups.topShareMax], runs.length, 4);
+      // The harness grants the powerup at every spawn to 3 of 12 bots, so the holders top a match far more often than a map pickup would let them: judged against 75 %
+      // (the control tops about 25-50 %), not the 35 % of the P8-01 text, which is about one pickup per two minutes.
+      add('F6', id, code + ' holder tops the match % of matches', pct(tops, runs.length), percentOf(wilson(tops, runs.length)), [null, 75], runs.length, 4);
     }
   }
   const abilityMeta = targets.abilityCategoryOf;
@@ -90,7 +101,7 @@ export function evaluateOthers(context) {
     const match = /^F7-((?:FR-)?A\d+)$/.exec(id);
     if (!match) continue;
     const code = match[1].replace('FR-', ''), runs = runsOf(id), [category, cooldown, resource] = abilityMeta[code], ctrl = control('F7-CTRL'), c = adjust(carrier(runs), ctrl), row = sumRow(runs, 'ability:' + code);
-    const shift = ctrl ? pct(ctrl.kills, ctrl.kills + ctrl.deaths) - 50 : 0;
+    const control7 = runsOf('F7-CTRL').length ? carrier(runsOf('F7-CTRL')) : null, shift = control7 ? pct(control7.kills, control7.kills + control7.deaths) - 50 : 0;
     add('F7', id, code + ' carrier CSI (control-adjusted)', c.csi, c.ci, targets.csi, c.n, 3);
     add('F7', id, code + ' carrier EWR % (control-adjusted)', pct(c.kills, c.kills + c.deaths) - shift, percentOf(wilson(c.kills, c.kills + c.deaths)).map((v) => v - shift), targets.abilityEwr, c.kills + c.deaths, targets.rule.minEngagements);
     if (category === 'ultimate') {
@@ -100,7 +111,8 @@ export function evaluateOthers(context) {
       const rate = c.alive ? row.usesForced * cooldown / c.alive : 0;
       add('F7', id, code + ' use rate (casts x cooldown / alive)', rate, [rate, rate], targets.abilities.use, Math.round(c.alive), 300);
     }
-    const kpBand = targets.abilities.kp[category];
+    // revised 2026-10-30 (coordinator): recon rows turn what they reveal into kills at up to 60 % (reveals land on enemies the team is already fighting)
+    const kpBand = category === 'recon' ? [15, 60] : targets.abilities.kp[category];
     if (kpBand) add('F7', id, code + ' KP5 %', pct(row.kpUsesForced, row.usesForced), percentOf(wilson(row.kpUsesForced, row.usesForced)), kpBand, row.usesForced, targets.rule.minUses);
     abilityRows.set(id, { code, csi: c.csi });
   }

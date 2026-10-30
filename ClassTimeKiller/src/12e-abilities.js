@@ -511,7 +511,7 @@ Bus.on('actor.spawn', (event) => Abilities.onSpawn(event.id));
 Bus.on('power.pick', (event) => Abilities.onPowerPick(event));
 Bus.on('kill', (event) => Abilities.clearActor(event.victim, 'death'));
 Bus.on('damage', (event) => { if (event.amount > 0 && event.source !== event.target) Abilities.interrupt(event.target, 'damage'); });
-Bus.on('weapon.fire', (event) => Abilities.interrupt(event.id, 'fire'));
+Bus.on('weapon.fire', (event) => { if (event.mode !== 'melee' && event.weaponClass !== 'melee') Abilities.interrupt(event.id, 'fire'); });   // a weapon shot ends Veil and the cloak; a melee swing (the quick melee, or a melee weapon's own strike) does not (P8-04)
 Bus.on('match.end', () => Abilities.clearMatch());
 Bus.on('match.stop', () => Abilities.clearMatch());
 Bus.on('match.start', () => AbilityZones.clear());

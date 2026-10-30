@@ -1075,7 +1075,7 @@ const WEAPON_ROWS = [
 		alt: { type: 'block', block: { pool: 150, regen: 25, parryWindow: 0.2, arcDeg: 120 } } },
 	{ id: 'warden', code: 'W04', name: 'Warden Pistol', class: 'sidearm', mag: 12, reserve: 48, price: 0, dualWield: true, noise: 45, botPref: { range: [2, 25], value: 0.35 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 30, rate: 4.5, spreadDeg: 0.5, recoil: 'pistol', falloff: [20, 40, 0.7] },
-		alt: { type: 'hitscan', trigger: 'burst', damage: 25, rate: 1.6, burst: 3, spreadDeg: 1.4, recoil: 'burst', falloff: [10, 25, 0.6] } },
+		alt: { type: 'hitscan', trigger: 'burst', damage: 34, rate: 1.6, burst: 3, spreadDeg: 1.4, recoil: 'burst', falloff: [10, 25, 0.6] } },
 	{ id: 'verdict', casing: 'none', code: 'W05', name: 'Verdict Magnum', class: 'sidearm', reloadAnim: 'R2', mag: 6, reserve: 24, price: 700, noise: 70, botPref: { range: [5, 40], value: 0.45 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 55, rate: 2.2, spreadDeg: 0.3, recoil: 'pistolHeavy', falloff: [25, 50, 0.75], penetration: 'med' },
 		alt: { type: 'zoom', zoom: 2 } },
@@ -1122,7 +1122,7 @@ const WEAPON_ROWS = [
 		primary: { type: 'hitscan', trigger: 'semi', damage: 60, rate: 3, spreadDeg: 0.2, recoil: 'marksman', penetration: 'med' },
 		alt: { type: 'zoom', zoom: 3 } },
 	{ id: 'stakedriver', casing: 'none', code: 'W26', name: 'Stakedriver', class: 'marksman', reloadAnim: 'R9', price: 2000, moveMult: 0.9, mag: 12, reserve: 36, altAmmo: 6, botPref: { range: [10, 60], value: 0.7 },
-		primary: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 100, rate: 1.2, recoil: 'marksman' },
+		primary: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 95, rate: 1.2, recoil: 'marksman' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 70, rate: 1, ammo: 'alt', recoil: 'marksman', status: { id: 'burn', seconds: 4 }, element: 'thermal' } },
 	{ id: 'talonbow', casing: 'none', flash: 0, code: 'W27', name: 'Talon Bow', class: 'marksman', reloadAnim: 'R10', price: 1500, mag: 1, reserve: 18, altAmmo: 6, noise: 0, reload: 0.5, botPref: { range: [8, 60], value: 0.6 },
 		primary: { type: 'projectile', trigger: 'charge', projectile: 'arrow', rate: 1.8, charge: { time: 0.55, min: 50, max: 110, speed: [40, 70] } },
@@ -1155,10 +1155,10 @@ const WEAPON_ROWS = [
 		primary: { type: 'projectile', projectile: 'disc', damage: 18, rate: 8, spreadDeg: 0.6, recoil: 'energy' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'disc', bounces: 0, damage: 0, rate: 2, ammoPerShot: 3, splash: { r: 1.8, dmg: 50 }, arm: EXPLOSIVE_ALT_ARM } },
 	{ id: 'accelerator', code: 'W39', name: 'Accelerator', class: 'energy', price: 2600, mag: 20, reserve: 60, noise: 70, botPref: { range: [5, 50], value: 0.65 },
-		primary: { type: 'hitscan', trigger: 'charge', rate: 1.2, charge: { time: 0.9, levels: [50, 100, 160], ammo: [2, 4, 8] }, recoil: 'energy', element: 'void' },
+		primary: { type: 'hitscan', trigger: 'charge', rate: 1.2, charge: { time: 0.9, levels: [50, 90, 160], ammo: [2, 4, 8] }, recoil: 'energy', element: 'void' },
 		alt: { type: 'cone', trigger: 'semi', damage: 60, rate: 0.7, ammoPerShot: 4, cone: { range: 6, angle: 360 }, knockback: 4, element: 'void' } },
 	{ id: 'fusionmortar', code: 'W40', name: 'Fusion Mortar', class: 'explosive', reloadAnim: 'R14', price: 4500, moveMult: 0.85, mag: 1, reserve: 1, maxAmmo: 1, noise: 90, botPref: { range: [8, 30], value: 0.6 },
-		primary: { type: 'projectile', trigger: 'semi', projectile: 'fusion', damage: 0, rate: 0.5, splash: { r: 6, dmg: 300 }, element: 'void' },
+		primary: { type: 'projectile', trigger: 'semi', projectile: 'fusion', damage: 0, rate: 0.5, splash: { r: 6, dmg: 150 }, element: 'void' },
 		alt: { type: 'detonate', projectile: 'fusion' } },
 	{ id: 'lifter', code: 'W41', name: 'Graviton Lifter', class: 'tool', noise: 20, botPref: { range: [0, 6], value: 0.2 },
 		primary: { type: 'tool', trigger: 'semi', tool: 'lifterPunt', rate: 1.5, range: 6 },
@@ -1626,17 +1626,17 @@ Data.define('powerups', {
 }, [
 	{ id: 'fury', code: 'PU01', name: 'Fury Core', duration: 30, maxDuration: 60, mods: { damage: 3 }, color: 0xb040ff },
 	{ id: 'warding', code: 'PU02', name: 'Warding Shell', duration: 30, maxDuration: 60, mods: { taken: 0.5, immune: ['splash', 'fall', 'hazard'] }, color: 0xffd040 },
-	{ id: 'quickening', code: 'PU03', name: 'Quickening', duration: 30, maxDuration: 60, mods: { speed: 1.3, rate: 1.3 }, color: 0xff8030 },
+	{ id: 'quickening', code: 'PU03', name: 'Quickening', duration: 30, maxDuration: 60, mods: { speed: 1.4, rate: 1.5 }, color: 0xff8030 },
 	{ id: 'ghostveil', code: 'PU04', name: 'Ghostveil', duration: 30, maxDuration: 60, mods: { invisible: true, perception: 0.25 }, color: 0xc0e8ff },
-	{ id: 'renewal', code: 'PU05', name: 'Renewal', duration: 30, maxDuration: 60, mods: { regen: [15, 110, 5, 200] }, color: 0xff4060 },
+	{ id: 'renewal', code: 'PU05', name: 'Renewal', duration: 30, maxDuration: 60, mods: { regen: [25, 110, 8, 200] }, color: 0xff4060 },
 	{ id: 'skyward', code: 'PU06', name: 'Skyward', duration: 30, maxDuration: 60, mods: { flight: 8, noFall: true }, color: 0x80ffe0 },
 	{ id: 'berserk', code: 'PU09', name: 'Berserk Fist', duration: 20, maxDuration: 40, mods: { melee: 4, fodderMelee: true }, instant: { healTo: 100 }, color: 0xff2020 },
 	{ id: 'sigil', code: 'PU10', name: 'Invulnerability Sigil', duration: 10, maxDuration: 20, respawn: 180, mods: { invulnerable: true }, color: 0xffffff },
 	{ id: 'bottomless', code: 'PU11', name: 'Bottomless', duration: 30, maxDuration: 60, mods: { freeAmmo: true }, color: 0xffa020 },
-	{ id: 'vampfang', code: 'PU12', name: 'Vampire Fang', duration: 30, maxDuration: 60, mods: { lifesteal: 0.3 }, color: 0x900030 },
+	{ id: 'vampfang', code: 'PU12', name: 'Vampire Fang', duration: 30, maxDuration: 60, mods: { lifesteal: 0.7 }, color: 0x900030 },
 	{ id: 'seer', code: 'PU13', name: 'Seer Orb', duration: 15, maxDuration: 30, respawn: 90, mods: { reveal: true }, color: 0x40ff80 },
 	{ id: 'springboots', code: 'PU14', name: 'Spring Boots', respawn: 60, stacking: 'refresh', pool: 'jumps', charges: 3, mods: { jumpScale: 2, noFall: true }, drops: false, color: 0x60ff60 },
-	{ id: 'guardianrune', code: 'PU15', name: 'Guardian Rune', persistent: true, respawn: 60, stacking: 'rune', mods: { maxHealthScale: 2, maxArmorScale: 2, speed: 0.9 }, drops: false, color: 0x4060ff },
+	{ id: 'guardianrune', code: 'PU15', name: 'Guardian Rune', persistent: true, respawn: 60, stacking: 'rune', mods: { maxHealthScale: 2.5, maxArmorScale: 2.5, speed: 1 }, drops: false, color: 0x4060ff },
 	{ id: 'soul', code: 'PU18', name: 'Soul Shard', respawn: 0, instant: { heal: 1, soul: 1 }, drops: false, mapItem: false, announce: false, color: 0xa0ffd0 },
 	{ id: 'lightbearer', code: 'PU19', name: 'Bearer Flame', persistent: true, respawn: 30, mods: { damage: 3 }, unique: true, color: 0xfff0a0 },
 	{ id: 'vitalshard', code: 'PU20', name: 'Vital Shard', respawn: 60, instant: { vital: 25, vitalHealthCap: 200, vitalArmorCap: 150 }, drops: false, campaign: true, healthPreset: 'ravager', color: 0xff60c0 },
@@ -1664,7 +1664,7 @@ Data.define('gadgets', {
 	{ id: 'flash', code: 'G03', name: 'Glare Shell', kind: 'thrown', slot: 'tactical', effect: 'flash', carry: 2, fuse: 1.5, radius: 20, duration: 3.5, status: 'blind',
 		size: [0.12, 0.24, 0.12], color: 0xdadada },
 	{ id: 'incendiary', code: 'G04', name: 'Cinder Jar', kind: 'thrown', slot: 'lethal', effect: 'fire', impact: true, fuse: 4, radius: 3, duration: 7, damage: 40,
-		element: 'thermal', status: 'burn', statusSeconds: 2, size: [0.18, 0.24, 0.18], color: 0xb05a20 },
+		element: 'thermal', status: 'burn', statusSeconds: 2, ownerSafe: true, size: [0.18, 0.24, 0.18], color: 0xb05a20 },
 	{ id: 'sticky', code: 'G06', name: 'Leech Charge', kind: 'thrown', slot: 'lethal', effect: 'explode', fuse: 1.5, stick: true, stickActors: true, radius: 3.5, damage: 110,
 		size: [0.2, 0.2, 0.2], color: 0x40a0ff },
 	{ id: 'impulse', code: 'G07', name: 'Kick Charge', kind: 'thrown', slot: 'tactical', effect: 'impulse', impact: true, fuse: 2, radius: 4, damage: 10, knockback: 18, ownerSafe: true,
@@ -1830,15 +1830,15 @@ Data.define('heroes', {
 		passive: { kind: 'shieldRegen', delay: 2, rate: 30 }, ability1: 'grapnel', ability2: 'ampwall', ultimate: 'rally', color: 0x4fa08a },
 	{ id: 'quill', code: 'H03', name: 'Quill', role: 'damage', health: 200, weapons: ['vanguard'], move: 'agile',
 		passive: { kind: 'killHaste', speed: 1.25, seconds: 2.5 }, ability1: 'surge', ability2: 'rewind', ultimate: 'overcore', color: 0xe0a030 },
-	{ id: 'tessaly', code: 'H04', name: 'Tessaly', role: 'damage', health: 200, weapons: ['heron'], move: 'agile',
+	{ id: 'tessaly', code: 'H04', name: 'Tessaly', role: 'damage', health: 250, weapons: ['heron'], move: 'agile',
 		passive: { kind: 'flag', flag: 'scopeInfo' }, ability1: 'glidepack', ability2: 'echopulse', ultimate: 'rift', color: 0x9a5fd0 },
 	{ id: 'brask', code: 'H05', name: 'Brask', role: 'damage', health: 225, weapons: ['pitcher'], move: 'modern',
 		passive: { kind: 'flag', flag: 'extraGrenade' }, gadget: 'singularity', ability1: 'fence', ultimate: 'orbital', color: 0xd06030 },
-	{ id: 'lark', code: 'H06', name: 'Lark', role: 'support', health: 200, weapons: ['linker'], move: 'agile',
+	{ id: 'lark', code: 'H06', name: 'Lark', role: 'support', health: 225, weapons: ['linker'], move: 'agile',
 		passive: { kind: 'regen' }, ability1: 'mender', ability2: 'secondwind', ultimate: 'rally', color: 0x60d080 },
-	{ id: 'mirelle', code: 'H07', name: 'Mirelle', role: 'support', health: 225, weapons: ['needlethorn'], move: 'modern',
+	{ id: 'mirelle', code: 'H07', name: 'Mirelle', role: 'support', health: 200, weapons: ['needlethorn'], move: 'modern',
 		passive: { kind: 'flag', flag: 'smokeVision' }, ability1: 'veil', ability2: 'mesmer', ultimate: 'timebend', color: 0x8080e0 },
-	{ id: 'tamsin', code: 'H08', name: 'Tamsin', role: 'initiator', health: 200, weapons: ['kestrel'], move: 'agile',
+	{ id: 'tamsin', code: 'H08', name: 'Tamsin', role: 'initiator', health: 225, weapons: ['kestrel'], move: 'agile',
 		passive: { kind: 'ability', ability: 'tracker' }, gadget: 'emp', ability1: 'scoutdrone', ultimate: 'seerpulse', color: 0xc0c040 },
 ]);
 const HERO_KILL_LIMIT_SCALE = 0.3, HERO_KILL_LIMIT_MODES = ['tdm'];
@@ -13516,7 +13516,7 @@ const Weapons = {
 	stateDuration: new Float32Array(MAX_ACTORS),
 	nextShot: new Float32Array(MAX_ACTORS),
 	nextAlt: new Float32Array(MAX_ACTORS),
-	burstLeft: new Uint8Array(MAX_ACTORS), burstTimer: new Float32Array(MAX_ACTORS), burstMode: new Uint8Array(MAX_ACTORS),
+	burstLeft: new Uint8Array(MAX_ACTORS), burstTimer: new Float32Array(MAX_ACTORS), burstMode: new Uint8Array(MAX_ACTORS), burstWeapon: new Int16Array(MAX_ACTORS).fill(-1), chargeWeapon: new Int16Array(MAX_ACTORS).fill(-1), triggerWeapon: new Int16Array(MAX_ACTORS).fill(-1), altTriggerWeapon: new Int16Array(MAX_ACTORS).fill(-1),
 	charge: new Float32Array(MAX_ACTORS), chargeMode: new Int8Array(MAX_ACTORS).fill(-1),
 	spin: new Float32Array(MAX_ACTORS),
 	ads: new Float32Array(MAX_ACTORS),
@@ -13925,9 +13925,14 @@ const Weapons = {
 		this.coolDown(id, dt);
 		this.recoverRecoil(id, dt);
 		this.updateSpeed(id);
-		if (this.lowered(id)) { this.charge[id] = 0; this.burstLeft[id] = 0; return; }
+		if (this.lowered(id)) { this.charge[id] = 0; this.chargeMode[id] = -1; this.burstLeft[id] = 0; return; }
 		if (!(Actors.flags[id] & ACTOR_FLAG.DOWNED)) this.handleSwitchInput(id);
-		if (this.state[id] === WEAPON_STATE.SWAP) { this.stepSwap(id, dt); return; }
+		if (this.state[id] === WEAPON_STATE.SWAP) {
+			if (!(Actors.buttons[id] & BTN.FIRE)) this.triggerWeapon[id] = this.pending[id];
+			if (!(Actors.buttons[id] & BTN.ALT)) this.altTriggerWeapon[id] = this.pending[id];
+			this.stepSwap(id, dt);
+			return;
+		}
 		const weapon = this.currentWeapon(id);
 		if (Actors.pressed[id] & BTN.MELEE) this.quickMelee(id);
 		if (!weapon) return;
@@ -13940,6 +13945,8 @@ const Weapons = {
 			return;
 		}
 		if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
+		if (this.triggerWeapon[id] !== weapon.index) { this.triggerWeapon[id] = weapon.index; if ((Actors.buttons[id] & BTN.FIRE) && !(Actors.pressed[id] & BTN.FIRE)) this.latch[id] |= 1; }
+		if (this.altTriggerWeapon[id] !== weapon.index) { this.altTriggerWeapon[id] = weapon.index; if ((Actors.buttons[id] & BTN.ALT) && !(Actors.pressed[id] & BTN.ALT)) this.latch[id] |= 2; }
 		this.stepBurst(id, weapon, dt);
 		this.stepMode(id, weapon, weapon.primary, MODE_PRIMARY, BTN.FIRE, dt);
 		if (!altTaken) this.stepAltMode(id, weapon, dt);
@@ -14046,9 +14053,11 @@ const Weapons = {
 		Move.firePending[id] = bits !== 0 ? 1 : 0;
 	},
 	stepCharge(id, weapon, mode, modeIndex, held, dt) {
+		if (this.chargeMode[id] >= 0 && this.chargeWeapon[id] !== weapon.index) { this.charge[id] = 0; this.chargeMode[id] = -1; }
 		if (held) {
 			if (this.chargeMode[id] < 0 && !this.ready(id, weapon, mode, modeIndex, modeIndex ? BTN.ALT : BTN.FIRE, 0)) return;
 			this.chargeMode[id] = modeIndex;
+			this.chargeWeapon[id] = weapon.index;
 			const paid = Math.max(0, this.payableCharge(id, weapon, mode));
 			const before = this.charge[id];
 			this.charge[id] = Math.min(mode.charge.time * paid, before + dt);
@@ -14088,9 +14097,11 @@ const Weapons = {
 		this.burstLeft[id] = mode.burst - 1;
 		this.burstTimer[id] = mode.burstGap / this.rateFactor(id, weapon);
 		this.burstMode[id] = modeIndex;
+		this.burstWeapon[id] = weapon.index;
 	},
 	stepBurst(id, weapon, dt) {
 		if (!this.burstLeft[id]) return;
+		if (this.burstWeapon[id] !== weapon.index) { this.burstLeft[id] = 0; return; }
 		this.burstTimer[id] -= dt;
 		if (this.burstTimer[id] > 0) return;
 		const mode = this.burstMode[id] ? weapon.alt : weapon.primary;
@@ -14636,7 +14647,7 @@ const Projectiles = {
 	spawnFromWeapon(owner, weapon, mode, modeIndex, direction, damage, multiplier, speed, target) {
 		const row = CAT.projectiles.byId(mode.projectile);
 		const launch = speed || mode.speed || row.speed, start = Muzzle.launch(owner, weapon, direction, !row.gravity);
-		if (row.gravity >= LOB_MIN_GRAVITY) Muzzle.solveLob(owner, direction, launch, row.gravity);
+		if (row.gravity >= LOB_MIN_GRAVITY && !row.roll) Muzzle.solveLob(owner, direction, launch, row.gravity);
 		const i = this.spawn(row, owner, weapon.index, modeIndex, start.x, start.y, start.z, start.dx * launch, start.dy * launch, start.dz * launch, damage * multiplier);
 		if (mode.life) this.life[i] = mode.life;
 		if (mode.bounces > -2) this.bounces[i] = mode.bounces;
@@ -15956,7 +15967,7 @@ Bus.on('kill', (event) => WeaponSpecialState.stopBlock(event.victim));
 // ==== 11e-weapons-muzzle.js ====
 const MUZZLE_CONVERGE_RANGE = 120;
 const MUZZLE_MIN_CONVERGE = 1.5;
-const LOB_MIN_GRAVITY = 9;
+const LOB_MIN_GRAVITY = 10;
 const MUZZLE_PATH_SLACK = 0.3;
 const MUZZLE_LOBBED_CHECK = 2;
 const MUZZLE_SIGNATURE_FIELDS = 10;
@@ -16075,13 +16086,17 @@ const Muzzle = {
 		if (World.raycast(out.x, out.y, out.z, out.dx, out.dy, out.dz, reach, muzzleHit)) this.leaveFromEye(id, eyeY, direction);
 		return out;
 	},
+	lobRange: null,
 	solveLob(id, direction, speed, gravity) {
-		const out = this.launchFrom, eyeY = Actors.eyeY(id), distance = this.aimDistance(id, eyeY, direction);
-		if (distance >= MUZZLE_CONVERGE_RANGE || distance < MUZZLE_MIN_CONVERGE) return false;
+		if (!(speed > 0) || !(gravity > 0)) return false;
+		const out = this.launchFrom, eyeY = Actors.eyeY(id), own = this.lobRange ? this.lobRange(id) : -1;
+		const distance = own > 0 ? own : this.aimDistance(id, eyeY, direction);
+		if (distance < MUZZLE_MIN_CONVERGE) return false;
 		const dx = Actors.x[id] + direction.x * distance - out.x, dy = eyeY + direction.y * distance - out.y, dz = Actors.z[id] + direction.z * distance - out.z;
 		const flat = length2(dx, dz), square = speed * speed, root = square * square - gravity * (gravity * flat * flat + 2 * dy * square);
-		if (flat < 0.01 || root < 0) return false;
-		const slope = (square - Math.sqrt(root)) / (gravity * flat), cosine = 1 / Math.sqrt(1 + slope * slope);
+		if (flat < 0.01) return false;
+		const eyeSlope = direction.y / (length2(direction.x, direction.z) || 1e-6);
+		const slope = root >= 0 ? (square - Math.sqrt(root)) / (gravity * flat) : Math.max(1, eyeSlope), cosine = 1 / Math.sqrt(1 + slope * slope);
 		out.dx = dx / flat * cosine; out.dy = slope * cosine; out.dz = dz / flat * cosine;
 		return true;
 	},
@@ -18849,7 +18864,7 @@ Bus.on('actor.spawn', (event) => Abilities.onSpawn(event.id));
 Bus.on('power.pick', (event) => Abilities.onPowerPick(event));
 Bus.on('kill', (event) => Abilities.clearActor(event.victim, 'death'));
 Bus.on('damage', (event) => { if (event.amount > 0 && event.source !== event.target) Abilities.interrupt(event.target, 'damage'); });
-Bus.on('weapon.fire', (event) => Abilities.interrupt(event.id, 'fire'));
+Bus.on('weapon.fire', (event) => { if (event.mode !== 'melee' && event.weaponClass !== 'melee') Abilities.interrupt(event.id, 'fire'); });
 Bus.on('match.end', () => Abilities.clearMatch());
 Bus.on('match.stop', () => Abilities.clearMatch());
 Bus.on('match.start', () => AbilityZones.clear());
@@ -20349,6 +20364,8 @@ const TIME_WARNINGS = [300, 60, 30, 10];
 const MODE_GOAL_PRIORITY = 3;
 const SPAWN_ENEMY_RADIUS = 12;
 const SPAWN_SIGHT_RADIUS = 25;
+const SPAWN_REUSE_SECONDS = 8;
+const SPAWN_REUSE_PENALTY = 30;
 const SPAWN_CAPSULE_RADIUS = 2 * ACTOR_RADIUS;
 const SPAWN_EYE_HEIGHT = STAND_EYE;
 const SPAWN_ENEMY_CAP = 60;
@@ -20582,11 +20599,11 @@ const Modes = {
 		for (const spawn of spawns) {
 			if (spawn.modes && spawn.modes.length && !spawn.modes.includes(this.mode.id)) continue;
 			const team = typeof spawn.team === 'number' ? spawn.team : NO_TEAM;
-			this.spawnPoints.push({ x: spawn.x, y: spawn.y, z: spawn.z, yaw: (spawn.yaw || 0) * DEG, team, objective: null });
+			this.spawnPoints.push({ x: spawn.x, y: spawn.y, z: spawn.z, yaw: (spawn.yaw || 0) * DEG, team, objective: null, usedAt: -1e9 });
 		}
 		if (!this.rules.params.spawnAtOwned) return;
 		for (const objective of this.objectives) {
-			this.spawnPoints.push({ x: objective.x + OWNED_SPAWN_OFFSET, y: objective.y, z: objective.z, yaw: 0, team: NO_TEAM, objective });
+			this.spawnPoints.push({ x: objective.x + OWNED_SPAWN_OFFSET, y: objective.y, z: objective.z, yaw: 0, team: NO_TEAM, objective, usedAt: -1e9 });
 		}
 	},
 	spawnActor(id) {
@@ -20622,6 +20639,7 @@ const Modes = {
 		}
 		if (!best) return false;
 		out.x = best.x; out.y = best.y; out.z = best.z; out.yaw = best.yaw;
+		best.usedAt = Sim.time;
 		return true;
 	},
 	spawnUsable(point, id, sameSide) {
@@ -20639,6 +20657,7 @@ const Modes = {
 		let score = spawnRating.nearestEnemy + Rng.rules.next() * SPAWN_JITTER;
 		if (this.rules.teams > 0 && spawnRating.nearestMate < Infinity) score -= spawnRating.nearestMate * SPAWN_TEAMMATE_WEIGHT;
 		if (this.hasDied[id]) score += Math.min(SPAWN_DEATH_CAP, length2(point.x - this.deathX[id], point.z - this.deathZ[id])) * SPAWN_DEATH_WEIGHT;
+		if (Sim.time - point.usedAt < SPAWN_REUSE_SECONDS) score -= SPAWN_REUSE_PENALTY * (1 - (Sim.time - point.usedAt) / SPAWN_REUSE_SECONDS);
 		spawnRating.score = score;
 	},
 	rateAgainst(id, other, point) {
@@ -23768,6 +23787,7 @@ const Bots = {
 		if (victim < 0 || !this.active[victim]) return;
 		this.setState(victim, BOT_STATE.DEAD);
 		Actors.buttons[victim] = 0; Actors.moveX[victim] = 0; Actors.moveZ[victim] = 0; Actors.slotRequest[victim] = 0;
+		this.buttonsWanted[victim] = 0; this.slotWanted[victim] = 0;
 	},
 	onMatchStop() {
 		this.active.fill(0);
@@ -23829,6 +23849,7 @@ const Bots = {
 		this.motor(id, dt);
 	},
 	settle(id, dt) {
+		if (BotCombat.holdSince[id] >= 0) { BotCombat.holdSince[id] = -1; BotCombat.keptSince[id] = -1; Weapons.resetFiring(id); }
 		this.wishAmount[id] = 0;
 		this.motor(id, dt);
 	},
@@ -24812,8 +24833,10 @@ const FIRE_ALIGN_ERROR_SHARE = 0.3;
 const FIRE_RANGE_SLACK = 1.6;
 const FIRE_TAP_RECOIL = 1;
 const FIRE_HOLD_DEFAULT = 0.5;
-const FAIRNESS_SIGHT_SECONDS = 0.5;
-const CHARGE_LICENSE_SLACK = 0.1;
+const FAIRNESS_RECENT_SECONDS = 0.25;
+const FAIRNESS_AIM_DEG = 8;
+const LOB_AIM_TICKS = 24;
+const LICENSE_ROUNDING = 0.02;
 const CHARGE_KEEP_SECONDS = 1.5;
 const GRENADE_AIM_SECONDS = 1;
 const GRENADE_AIM_TOLERANCE = 3 * DEG;
@@ -24838,6 +24861,9 @@ const RELOAD_PRESS_INTERVAL = 0.5;
 const SAFE_SECONDS = 1.5;
 const FAVORITE_BONUS = 0.2;
 const OUT_OF_RANGE_VALUE = 0.5, MELEE_OUT_OF_RANGE = 0.1;
+const GRENADE_LEAD_SPEED = 15, GRENADE_LEAD_CAP = 6;
+const MELEE_CLOSE_DISTANCE = 2, MELEE_CLOSE_VALUE = 0.9;
+const SHORT_MAGAZINE = 2;
 const DEFAULT_ENGAGE_DISTANCE = 15;
 const MELEE_DISTANCE = 1.8, MELEE_INTERVAL = 0.5;
 const THROW_PITCH_TOP = 35 * DEG, THROW_SOLVE_STEPS = 16;
@@ -24903,6 +24929,7 @@ const BotCombat = {
 	lastHitTick: new Int32Array(MAX_ACTORS).fill(-1), totalShots: new Uint32Array(MAX_ACTORS), totalHits: new Uint32Array(MAX_ACTORS),
 	strafeSide: new Int8Array(MAX_ACTORS).fill(1), strafeCheckAt: new Float64Array(MAX_ACTORS),
 	dodgeAt: new Float64Array(MAX_ACTORS), dodgeUntil: new Float64Array(MAX_ACTORS), dodgeSide: new Int8Array(MAX_ACTORS), dodgeSerial: new Uint32Array(MAX_ACTORS),
+	lobTick: new Int32Array(MAX_ACTORS).fill(-1), lobDistance: new Float32Array(MAX_ACTORS),
 	fireToggle: new Uint8Array(MAX_ACTORS), overlaid: new Uint8Array(MAX_ACTORS), holdSince: new Float64Array(MAX_ACTORS).fill(-1),
 	keptSince: new Float64Array(MAX_ACTORS).fill(-1),
 	licenseUntil: new Float64Array(MAX_ACTORS).fill(-1), licenseTarget: new Int8Array(MAX_ACTORS).fill(-1),
@@ -24919,7 +24946,7 @@ const BotCombat = {
 	grenadeBefore: new Int16Array(MAX_ACTORS).fill(-1),
 	uses: { abilities: 0, grenades: 0, gadgets: 0, weaponJumps: 0 },
 	playerShots: new Uint32Array(WEAPON_COUNT),
-	fairness: { shots: 0, unperceived: 0, unknown: 0 },
+	fairness: { shots: 0, unperceived: 0, unknown: 0, recent: 0 },
 	reset(id) {
 		this.target[id] = -1; this.errorBoost[id] = 1; this.windowShots[id] = 0; this.windowHits[id] = 0; this.windowStart[id] = Sim.time;
 		this.holdSince[id] = -1; this.keptSince[id] = -1; this.licenseUntil[id] = -1; this.throwUntil[id] = 0; this.cookUntil[id] = 0; this.jumpUntil[id] = 0; this.wantedWeapon[id] = -1; this.weaponCheckAt[id] = 0; this.dodgeUntil[id] = 0; this.dodgeAt[id] = 0;
@@ -24938,6 +24965,10 @@ const BotCombat = {
 	},
 	hitRate(id) { return this.windowShots[id] > 0 ? this.windowHits[id] / this.windowShots[id] : 0; },
 	update(id, dt, now) {
+		this.think(id, now);
+		if (this.holdSince[id] >= 0 && !(Bots.buttonsWanted[id] & BTN.FIRE)) this.keepCharge(id, now, false);
+	},
+	think(id, now) {
 		if (Bots.lastPerceive[id] === now || !this.validTarget(id, this.target[id], now)) this.chooseTarget(id, now);
 		const target = this.target[id];
 		this.manageWeapon(id, now);
@@ -25041,6 +25072,7 @@ const BotCombat = {
 		const weapon = Weapons.currentWeapon(id);
 		const error = this.aimError(id, target, now);
 		this.aimPoint(id, target, weapon, error, aimPoint);
+		this.lobTick[id] = Sim.tick; this.lobDistance[id] = length3(aimPoint.x - Actors.x[id], aimPoint.y - Actors.eyeY(id), aimPoint.z - Actors.z[id]);
 		const noise = this.noise(id, now);
 		const dx = aimPoint.x - Actors.x[id], dy = aimPoint.y - Actors.eyeY(id), dz = aimPoint.z - Actors.z[id];
 		const spray = recoilControl(id) * DEG;
@@ -25102,9 +25134,16 @@ const BotCombat = {
 		noiseOut.pitch = lerp(this.noiseFromPitch[id], this.noiseToPitch[id], t);
 		return noiseOut;
 	},
+	keepsCloak(id) {
+		for (let slot = 0; slot < ABILITY_SLOT_COUNT; slot++) {
+			const row = Abilities.row(id, slot);
+			if (row && Abilities.active[Abilities.index(id, slot)] && Abilities.interruptRule(row).fire && (row.params.invisible || row.effect === 'cloak')) return true;
+		}
+		return false;
+	},
 	mayFire(id, target, weapon, error, distance, now) {
 		if (!weapon || now < BotSense.reactAt[BotSense.pair(id, target)]) return false;
-		if (!worthShooting(target, weapon)) return false;
+		if (!worthShooting(target, weapon) || (weapon.class !== 'melee' && this.keepsCloak(id)) || Move.fireWait(id) > 0) return false;
 		if (distance > weapon.primary.range || distance > weapon.botPref.range[1] * FIRE_RANGE_SLACK + MELEE_DISTANCE) return false;
 		const yawOff = Math.abs(wrapAngle(Bots.lookYaw[id] - Actors.aimYaw[id])), pitchOff = Math.abs(Bots.lookPitch[id] - Actors.aimPitch[id]);
 		if (length2(yawOff, pitchOff) > (FIRE_ALIGN_DEG + error * FIRE_ALIGN_ERROR_SHARE) * DEG) return false;
@@ -25122,26 +25161,17 @@ const BotCombat = {
 		this.license(id, target, mode, now);
 	},
 	holdThenRelease(id, target, mode, now) {
-		const weapon = Weapons.currentWeapon(id), rate = weapon ? Weapons.rateFactor(id, weapon) : 1;
-		const hold = (mode.charge ? mode.charge.time : mode.lock ? mode.lock.time : FIRE_HOLD_DEFAULT) / rate;
-		if (this.holdSince[id] < 0) {
-			this.holdSince[id] = now;
-			this.licenseTarget[id] = target;
-			this.licenseUntil[id] = Math.max(this.licenseUntil[id], now + hold + CHARGE_LICENSE_SLACK);
-		}
+		const hold = mode.charge ? mode.charge.time : mode.lock ? mode.lock.time : FIRE_HOLD_DEFAULT;
+		if (this.holdSince[id] < 0) this.holdSince[id] = now;
 		this.keptSince[id] = -1;
-		if (now - this.holdSince[id] < hold) { Bots.press(id, BTN.FIRE); this.licenseHeld(id, target, now); return; }
+		if (now - this.holdSince[id] < hold) { Bots.press(id, BTN.FIRE); return; }
 		this.holdSince[id] = -1;
 		this.license(id, target, mode, now);
-	},
-	licenseHeld(id, target, now) {
-		this.licenseTarget[id] = target;
-		this.licenseUntil[id] = Math.max(this.licenseUntil[id], now + CHARGE_LICENSE_SLACK);
 	},
 	license(id, target, mode, now) {
 		this.licenseTarget[id] = target;
 		const weapon = Weapons.currentWeapon(id), slowdown = weapon ? Weapons.rateFactor(id, weapon) : 1;
-		const window = mode.trigger === 'burst' ? mode.burst * mode.burstGap / slowdown + CHARGE_LICENSE_SLACK : mode.trigger === 'charge' || mode.trigger === 'release' ? TICK_SECONDS + CHARGE_LICENSE_SLACK : 0;
+		const window = mode.trigger === 'burst' ? mode.burst * mode.burstGap / clamp(slowdown, 0.25, 1) + LICENSE_ROUNDING : mode.trigger === 'charge' || mode.trigger === 'release' ? TICK_SECONDS + LICENSE_ROUNDING : 0;
 		this.licenseUntil[id] = now + window;
 	},
 	keepCharge(id, now, seen) {
@@ -25149,7 +25179,7 @@ const BotCombat = {
 		const weapon = Weapons.currentWeapon(id);
 		if (!weapon || (weapon.primary.trigger !== 'charge' && weapon.primary.trigger !== 'release')) { this.holdSince[id] = -1; this.keptSince[id] = -1; return; }
 		Bots.press(id, BTN.FIRE);
-		if (seen) { this.keptSince[id] = -1; this.licenseHeld(id, this.target[id], now); return; }
+		if (seen) { this.keptSince[id] = -1; return; }
 		if (this.keptSince[id] < 0) this.keptSince[id] = now;
 		const other = Weapons.cycle(id, 1);
 		if (now - this.keptSince[id] < CHARGE_KEEP_SECONDS || other < 0 || other === Weapons.current[id]) return;
@@ -25158,7 +25188,8 @@ const BotCombat = {
 	},
 	manageWeapon(id, now) {
 		const safe = this.isSafe(id, now), current = Weapons.currentWeapon(id), ammo = Weapons.ammo(id);
-		const dry = !current || (!!ammo && !ammo.infinite && current.mag > 0 && ammo.magazine === 0);
+		const reloadsInPlace = !!current && current.mag > 0 && current.mag <= SHORT_MAGAZINE && !!ammo && ammo.reserve > 0;
+		const dry = !current || (!!ammo && !ammo.infinite && current.mag > 0 && ammo.magazine === 0 && !reloadsInPlace);
 		if (now >= this.weaponCheckAt[id] || (dry && !this.checkedDry[id])) {
 			this.weaponCheckAt[id] = now + WEAPON_CHECK_SECONDS;
 			this.wantedWeapon[id] = this.bestWeapon(id, dry);
@@ -25187,17 +25218,24 @@ const BotCombat = {
 	bestWeapon(id, loaded) {
 		const distance = this.target[id] >= 0 ? this.targetDistance(id) : DEFAULT_ENGAGE_DISTANCE;
 		let best = -1, bestValue = -1, drawnValue = 0;
+		const versus = this.target[id] >= 0 && Actors.kind[this.target[id]] !== ACTOR_KIND.ENEMY;
 		for (let index = 0; index < WEAPON_COUNT; index++) {
 			const slot = Weapons.slotIndex(id, index), weapon = CAT.weapons[index];
 			if (!Weapons.owned[slot] || !this.hasRounds(id, weapon, slot)) continue;
 			const range = weapon.botPref.range, inRange = distance >= range[0] && distance <= range[1];
-			const value = this.weaponValue(id, weapon, inRange ? 1 : weapon.class === 'melee' ? MELEE_OUT_OF_RANGE : OUT_OF_RANGE_VALUE);
+			let value = this.weaponValue(id, weapon, inRange ? 1 : weapon.class === 'melee' ? MELEE_OUT_OF_RANGE : OUT_OF_RANGE_VALUE);
+			if (weapon.class === 'melee' && inRange && versus && (distance <= MELEE_CLOSE_DISTANCE || this.gunBusy(id))) value = Math.max(value, MELEE_CLOSE_VALUE);
 			if (index === Weapons.current[id]) drawnValue = value;
 			if (loaded && (weapon.mag === 0 ? distance > range[1] : Weapons.magazine[slot] === 0)) continue;
 			if (value > bestValue) { bestValue = value; best = index; }
 		}
 		this.wantedGain[id] = bestValue - drawnValue;
 		return best;
+	},
+	gunBusy(id) {
+		const gun = Weapons.currentWeapon(id);
+		if (!gun || gun.mag === 0 || gun.class === 'melee') return false;
+		return Weapons.state[id] === WEAPON_STATE.RELOAD || Weapons.magazine[Weapons.slotIndex(id, gun.index)] === 0;
 	},
 	weaponValue(id, weapon, share) { return weapon.botPref.value * share + (BotDecide.favoriteWeapon(id) === weapon.id ? FAVORITE_BONUS : 0); },
 	bestOwnedGun(id) {
@@ -25354,7 +25392,12 @@ const BotCombat = {
 		this.grenadeAt[id] = now + GRENADE_INTERVAL / pace;
 		if (choke) { this.chokeSmokedAt[id] = now; this.planThrow(id, row, choke.x - Actors.x[id], choke.z - Actors.z[id], choke.y, now); return; }
 		const pair = BotSense.pair(id, target), share = use.aim === 'between' ? 0.5 : 1;
-		const dx = (BotSense.knownX[pair] - Actors.x[id]) * share, dz = (BotSense.knownZ[pair] - Actors.z[id]) * share;
+		let dx = (BotSense.knownX[pair] - Actors.x[id]) * share, dz = (BotSense.knownZ[pair] - Actors.z[id]) * share;
+		if (BotSense.sees(id, target) && share === 1) {
+			const seconds = row.impact || row.stick ? length2(dx, dz) / GRENADE_LEAD_SPEED : Math.max(0, row.fuse - GRENADE_COOK_MARGIN);
+			const lead = Math.min(GRENADE_LEAD_CAP, length2(Actors.vx[target], Actors.vz[target]) * seconds), speed = length2(Actors.vx[target], Actors.vz[target]) || 1;
+			dx += Actors.vx[target] / speed * lead; dz += Actors.vz[target] / speed * lead;
+		}
 		this.planThrow(id, row, dx, dz, BotSense.knownY[pair], now);
 	},
 	tryHeal(id, now) {
@@ -25478,7 +25521,7 @@ const BotCombat = {
 		if (id < 0 || id >= MAX_ACTORS) return;
 		if (Actors.kind[id] === ACTOR_KIND.PLAYER) { const weapon = CAT.weapons.byId(event.weapon); if (weapon) this.playerShots[weapon.index]++; return; }
 		if (!Bots.active[id] || event.mode === 'melee') return;
-		this.recordFairness(id);
+		this.recordFairness(id, event);
 		const weapon = CAT.weapons.byId(event.weapon);
 		if (!weapon || event.mode !== 'primary' || weapon.primary.type !== 'hitscan') return;
 		this.totalShots[id]++;
@@ -25486,13 +25529,26 @@ const BotCombat = {
 		this.rollWindow(id);
 		this.adjustBoost(id);
 	},
-	recordFairness(id) {
+	recordFairness(id, event) {
 		this.fairness.shots++;
 		if (Sim.time <= this.licenseUntil[id] + TIME_EPSILON) return;
-		const target = this.licenseTarget[id] >= 0 ? this.licenseTarget[id] : this.target[id];
-		if (target >= 0 && Sim.time - BotSense.seenAt[BotSense.pair(id, target)] <= FAIRNESS_SIGHT_SECONDS) return;
+		const aimed = this.aimedAt(id, event), target = aimed >= 0 ? aimed : this.licenseTarget[id] >= 0 ? this.licenseTarget[id] : this.target[id];
+		const weapon = CAT.weapons.byId(event.weapon), mode = weapon ? (event.mode === 'alt' ? weapon.alt : weapon.primary) : null;
+		const delayed = !!mode && (mode.trigger === 'charge' || mode.trigger === 'release' || mode.trigger === 'burst');
+		if (delayed && aimed >= 0 && Sim.time - BotSense.seenAt[BotSense.pair(id, aimed)] <= FAIRNESS_RECENT_SECONDS) { this.fairness.recent++; return; }
 		this.fairness.unperceived++;
 		if (target < 0 || !BotSense.knows(id, target, Sim.time)) this.fairness.unknown++;
+	},
+	aimedAt(id, event) {
+		const eyeY = Actors.eyeY(id), cosLimit = Math.cos(FAIRNESS_AIM_DEG * DEG);
+		let best = -1, bestCos = cosLimit;
+		for (let other = 0; other < Actors.count; other++) {
+			if (!Actors.alive[other] || !Actors.isEnemy(id, other)) continue;
+			const dx = Actors.x[other] - Actors.x[id], dy = Actors.y[other] + 1 - eyeY, dz = Actors.z[other] - Actors.z[id], length = length3(dx, dy, dz) || 1;
+			const cosine = (dx * event.dx + dy * event.dy + dz * event.dz) / length;
+			if (cosine > bestCos) { bestCos = cosine; best = other; }
+		}
+		return best;
 	},
 	onDamage(event) {
 		const id = event.source;
@@ -25621,6 +25677,7 @@ function dodgeChance(id) {
 	return Math.min(DODGE_CHANCE_CAP, Math.max(floor, tier.dodgeChance * ONE_HIT_DODGE_SCALE));
 }
 Bus.on('weapon.fire', (event) => BotCombat.onFire(event));
+Muzzle.lobRange = (id) => (Bots.active[id] && Sim.tick - BotCombat.lobTick[id] <= LOB_AIM_TICKS ? BotCombat.lobDistance[id] : -1);
 Bus.on('damage', (event) => BotCombat.onDamage(event));
 Bus.on('match.setup', () => {
 	BotCombat.playerShots.fill(0); BotCombat.totalShots.fill(0); BotCombat.totalHits.fill(0);

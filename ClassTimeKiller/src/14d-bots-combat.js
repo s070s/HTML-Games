@@ -22,8 +22,10 @@ const FIRE_ALIGN_ERROR_SHARE = 0.3;
 const FIRE_RANGE_SLACK = 1.6;           // shoot up to botPref max range x this
 const FIRE_TAP_RECOIL = 1;              // deg: a tapped (semi / burst) shot waits until the uncontrolled punch is this small
 const FIRE_HOLD_DEFAULT = 0.5;          // s a charge or release trigger is held
-const FAIRNESS_SIGHT_SECONDS = 0.5;          // s: a shot at a target seen this recently is not counted as unperceived (a human reaction plus a charge release)
-const CHARGE_LICENSE_SLACK = 0.1;           // s: the shot of a charge or burst begun in sight may leave this long after its licence window
+const FAIRNESS_RECENT_SECONDS = 0.25;       // s: a charge release or burst shot at a target seen this recently is counted as "recent", not as unperceived (decided by the coordinator, P8-04)
+const FAIRNESS_AIM_DEG = 8;                 // deg: the enemy nearest to a shot's direction within this angle is the target it was aimed at
+const LOB_AIM_TICKS = 24;                    // an engage this recent (0.2 s) still gives the aim point of a lobbed shot
+const LICENSE_ROUNDING = 0.02;              // s: the licence of a release or burst covers the step rounding of the bot clock (it is stored in single precision)
 const CHARGE_KEEP_SECONDS = 1.5;        // a charge held without a shot this long is dropped by a weapon-switch tap
 const GRENADE_AIM_SECONDS = 1;          // BOT-034: the throw waits (at most this long) until the view is on the solved arc...
 const GRENADE_AIM_TOLERANCE = 3 * DEG;  // ...this close
@@ -48,6 +50,9 @@ const RELOAD_PRESS_INTERVAL = 0.5;
 const SAFE_SECONDS = 1.5;               // no enemy seen this long = safe to reload or switch (BOT-036)
 const FAVORITE_BONUS = 0.2;             // BOT-036
 const OUT_OF_RANGE_VALUE = 0.5, MELEE_OUT_OF_RANGE = 0.1;
+const GRENADE_LEAD_SPEED = 15, GRENADE_LEAD_CAP = 6;   // P8-04: m/s a thrown row is assumed to fly at for the lead of an impact or sticky throw, and the most metres a throw leads
+const MELEE_CLOSE_DISTANCE = 2, MELEE_CLOSE_VALUE = 0.9;   // P8-04: a melee weapon in reach is worth this much when the target is this close or the drawn gun cannot fire
+const SHORT_MAGAZINE = 2;                                   // P8-04: a gun with a magazine this small reloads in place instead of being swapped for the sidearm
 const DEFAULT_ENGAGE_DISTANCE = 15;
 const MELEE_DISTANCE = 1.8, MELEE_INTERVAL = 0.5;
 const THROW_PITCH_TOP = 35 * DEG, THROW_SOLVE_STEPS = 16;   // the low arc rises up to here (18 m/s + 5 up: past 40 m)
@@ -119,6 +124,7 @@ const BotCombat = {
   lastHitTick: new Int32Array(MAX_ACTORS).fill(-1), totalShots: new Uint32Array(MAX_ACTORS), totalHits: new Uint32Array(MAX_ACTORS),
   strafeSide: new Int8Array(MAX_ACTORS).fill(1), strafeCheckAt: new Float64Array(MAX_ACTORS),
   dodgeAt: new Float64Array(MAX_ACTORS), dodgeUntil: new Float64Array(MAX_ACTORS), dodgeSide: new Int8Array(MAX_ACTORS), dodgeSerial: new Uint32Array(MAX_ACTORS),
+  lobTick: new Int32Array(MAX_ACTORS).fill(-1), lobDistance: new Float32Array(MAX_ACTORS),   // the tick and the metres of the aim point the bot last engaged with
   fireToggle: new Uint8Array(MAX_ACTORS), overlaid: new Uint8Array(MAX_ACTORS), holdSince: new Float64Array(MAX_ACTORS).fill(-1),
   keptSince: new Float64Array(MAX_ACTORS).fill(-1),
   licenseUntil: new Float64Array(MAX_ACTORS).fill(-1), licenseTarget: new Int8Array(MAX_ACTORS).fill(-1),   // ARC-033 record
@@ -137,7 +143,7 @@ const BotCombat = {
   playerShots: new Uint32Array(WEAPON_COUNT),            // the player's shots per weapon (B24's favourite = the most used)
   // ARC-033: every bot shot comes from a trigger decision made while its target was in sight (unperceived counts the
   // others; unknown = the target was not even remembered). Judged at the decision, so a shot that kills is not a breach.
-  fairness: { shots: 0, unperceived: 0, unknown: 0 },
+  fairness: { shots: 0, unperceived: 0, unknown: 0, recent: 0 },
 
   reset(id) {
     this.target[id] = -1; this.errorBoost[id] = 1; this.windowShots[id] = 0; this.windowHits[id] = 0; this.windowStart[id] = Sim.time;
@@ -160,6 +166,12 @@ const BotCombat = {
   hitRate(id) { return this.windowShots[id] > 0 ? this.windowHits[id] / this.windowShots[id] : 0; },
 
   update(id, dt, now) {
+    this.think(id, now);
+    // P8-04: a charge in hand stays held whatever path the think took (watch, reload, a weapon jump...): letting go fires it, and a trigger
+    // that comes up on a step nothing decided is the unperceived release the fairness record caught (Accelerator, 5 s into a held charge)
+    if (this.holdSince[id] >= 0 && !(Bots.buttonsWanted[id] & BTN.FIRE)) this.keepCharge(id, now, false);
+  },
+  think(id, now) {
     if (Bots.lastPerceive[id] === now || !this.validTarget(id, this.target[id], now)) this.chooseTarget(id, now);
     const target = this.target[id];
     this.manageWeapon(id, now);
@@ -273,6 +285,7 @@ const BotCombat = {
     const weapon = Weapons.currentWeapon(id);
     const error = this.aimError(id, target, now);
     this.aimPoint(id, target, weapon, error, aimPoint);
+    this.lobTick[id] = Sim.tick; this.lobDistance[id] = length3(aimPoint.x - Actors.x[id], aimPoint.y - Actors.eyeY(id), aimPoint.z - Actors.z[id]);   // read by Muzzle.solveLob
     const noise = this.noise(id, now);
     const dx = aimPoint.x - Actors.x[id], dy = aimPoint.y - Actors.eyeY(id), dz = aimPoint.z - Actors.z[id];
     const spray = recoilControl(id) * DEG;   // BOT-031 recoil control by tier and spray trait
@@ -341,9 +354,17 @@ const BotCombat = {
     noiseOut.pitch = lerp(this.noiseFromPitch[id], this.noiseToPitch[id], t);
     return noiseOut;
   },
+  // True while one of the bot's abilities is running that a weapon shot would end (P8-04).
+  keepsCloak(id) {
+    for (let slot = 0; slot < ABILITY_SLOT_COUNT; slot++) {
+      const row = Abilities.row(id, slot);
+      if (row && Abilities.active[Abilities.index(id, slot)] && Abilities.interruptRule(row).fire && (row.params.invisible || row.effect === 'cloak')) return true;
+    }
+    return false;
+  },
   mayFire(id, target, weapon, error, distance, now) {
     if (!weapon || now < BotSense.reactAt[BotSense.pair(id, target)]) return false;   // BOT-006 reaction time
-    if (!worthShooting(target, weapon)) return false;
+    if (!worthShooting(target, weapon) || (weapon.class !== 'melee' && this.keepsCloak(id)) || Move.fireWait(id) > 0) return false;   // no press during the sprint-to-fire wait: 11a would keep it and fire up to 0.15 s after the wait, when the target may be gone   // a bot under a cloak that a shot would end (AX5 Veil, A04) does not break it at once; a melee swing never ends it, so a melee weapon swings on
     if (distance > weapon.primary.range || distance > weapon.botPref.range[1] * FIRE_RANGE_SLACK + MELEE_DISTANCE) return false;
     const yawOff = Math.abs(wrapAngle(Bots.lookYaw[id] - Actors.aimYaw[id])), pitchOff = Math.abs(Bots.lookPitch[id] - Actors.aimPitch[id]);
     if (length2(yawOff, pitchOff) > (FIRE_ALIGN_DEG + error * FIRE_ALIGN_ERROR_SHARE) * DEG) return false;
@@ -363,28 +384,18 @@ const BotCombat = {
     this.license(id, target, mode, now);
   },
   holdThenRelease(id, target, mode, now) {
-    const weapon = Weapons.currentWeapon(id), rate = weapon ? Weapons.rateFactor(id, weapon) : 1;   // a slowed weapon charges slower (P8-04)
-    const hold = (mode.charge ? mode.charge.time : mode.lock ? mode.lock.time : FIRE_HOLD_DEFAULT) / rate;
-    if (this.holdSince[id] < 0) {
-      this.holdSince[id] = now;
-      this.licenseTarget[id] = target;   // P8-04: a charge begun with the target in sight is licensed for as long as it takes to fill, however it ends
-      this.licenseUntil[id] = Math.max(this.licenseUntil[id], now + hold + CHARGE_LICENSE_SLACK);
-    }
+    const hold = mode.charge ? mode.charge.time : mode.lock ? mode.lock.time : FIRE_HOLD_DEFAULT;   // a charge fills at a fixed speed whatever the rate scale (11a stepCharge)
+    if (this.holdSince[id] < 0) this.holdSince[id] = now;
     this.keptSince[id] = -1;
-    if (now - this.holdSince[id] < hold) { Bots.press(id, BTN.FIRE); this.licenseHeld(id, target, now); return; }
+    if (now - this.holdSince[id] < hold) { Bots.press(id, BTN.FIRE); return; }
     this.holdSince[id] = -1;   // released this tick: the shot goes
     this.license(id, target, mode, now);
-  },
-  // P8-04: a charge held while its target is in sight licenses the shot it may end in (a full charge leaves by itself, a tick after the sight is lost).
-  licenseHeld(id, target, now) {
-    this.licenseTarget[id] = target;
-    this.licenseUntil[id] = Math.max(this.licenseUntil[id], now + CHARGE_LICENSE_SLACK);
   },
   license(id, target, mode, now) {
     this.licenseTarget[id] = target;
     // The release of a charge or lock is licensed for one tick (the shot goes on the step the trigger comes up).
-    const weapon = Weapons.currentWeapon(id), slowdown = weapon ? Weapons.rateFactor(id, weapon) : 1;   // the weapon's own rate scale stretches the burst
-    const window = mode.trigger === 'burst' ? mode.burst * mode.burstGap / slowdown + CHARGE_LICENSE_SLACK : mode.trigger === 'charge' || mode.trigger === 'release' ? TICK_SECONDS + CHARGE_LICENSE_SLACK : 0;
+    const weapon = Weapons.currentWeapon(id), slowdown = weapon ? Weapons.rateFactor(id, weapon) : 1;   // the weapon's own rate scale stretches the burst; a slow status that lands mid-burst stretches it up to four times
+    const window = mode.trigger === 'burst' ? mode.burst * mode.burstGap / clamp(slowdown, 0.25, 1) + LICENSE_ROUNDING : mode.trigger === 'charge' || mode.trigger === 'release' ? TICK_SECONDS + LICENSE_ROUNDING : 0;
     this.licenseUntil[id] = now + window;
   },
   // A charge or lock that cannot go now (aim off, target hidden) stays held: letting go would fire it at nothing. After
@@ -394,7 +405,7 @@ const BotCombat = {
     const weapon = Weapons.currentWeapon(id);
     if (!weapon || (weapon.primary.trigger !== 'charge' && weapon.primary.trigger !== 'release')) { this.holdSince[id] = -1; this.keptSince[id] = -1; return; }   // the charge weapon was swapped away: nothing to hold
     Bots.press(id, BTN.FIRE);
-    if (seen) { this.keptSince[id] = -1; this.licenseHeld(id, this.target[id], now); return; }
+    if (seen) { this.keptSince[id] = -1; return; }
     if (this.keptSince[id] < 0) this.keptSince[id] = now;
     const other = Weapons.cycle(id, 1);
     if (now - this.keptSince[id] < CHARGE_KEEP_SECONDS || other < 0 || other === Weapons.current[id]) return;
@@ -406,7 +417,8 @@ const BotCombat = {
   // gun, else reload) or in a fight to a gun worth COMBAT_SWITCH_GAIN more (once per COMBAT_SWITCH_REST s); reload when safe ----
   manageWeapon(id, now) {
     const safe = this.isSafe(id, now), current = Weapons.currentWeapon(id), ammo = Weapons.ammo(id);
-    const dry = !current || (!!ammo && !ammo.infinite && current.mag > 0 && ammo.magazine === 0);
+    const reloadsInPlace = !!current && current.mag > 0 && current.mag <= SHORT_MAGAZINE && !!ammo && ammo.reserve > 0;   // a one- or two-shell gun is empty after every shot: it reloads, it is not swapped away
+    const dry = !current || (!!ammo && !ammo.infinite && current.mag > 0 && ammo.magazine === 0 && !reloadsInPlace);
     if (now >= this.weaponCheckAt[id] || (dry && !this.checkedDry[id])) {
       this.weaponCheckAt[id] = now + WEAPON_CHECK_SECONDS;
       this.wantedWeapon[id] = this.bestWeapon(id, dry);
@@ -440,17 +452,25 @@ const BotCombat = {
   bestWeapon(id, loaded) {
     const distance = this.target[id] >= 0 ? this.targetDistance(id) : DEFAULT_ENGAGE_DISTANCE;
     let best = -1, bestValue = -1, drawnValue = 0;
+    const versus = this.target[id] >= 0 && Actors.kind[this.target[id]] !== ACTOR_KIND.ENEMY;   // the close-in rule is for fights between players and bots; against PvE enemies the gun stays out
     for (let index = 0; index < WEAPON_COUNT; index++) {
       const slot = Weapons.slotIndex(id, index), weapon = CAT.weapons[index];
       if (!Weapons.owned[slot] || !this.hasRounds(id, weapon, slot)) continue;
       const range = weapon.botPref.range, inRange = distance >= range[0] && distance <= range[1];
-      const value = this.weaponValue(id, weapon, inRange ? 1 : weapon.class === 'melee' ? MELEE_OUT_OF_RANGE : OUT_OF_RANGE_VALUE);
+      let value = this.weaponValue(id, weapon, inRange ? 1 : weapon.class === 'melee' ? MELEE_OUT_OF_RANGE : OUT_OF_RANGE_VALUE);
+      if (weapon.class === 'melee' && inRange && versus && (distance <= MELEE_CLOSE_DISTANCE || this.gunBusy(id))) value = Math.max(value, MELEE_CLOSE_VALUE);   // the close-in rule
       if (index === Weapons.current[id]) drawnValue = value;
       if (loaded && (weapon.mag === 0 ? distance > range[1] : Weapons.magazine[slot] === 0)) continue;
       if (value > bestValue) { bestValue = value; best = index; }
     }
     this.wantedGain[id] = bestValue - drawnValue;
     return best;
+  },
+  // The drawn gun cannot fire now: reloading, or its magazine is empty (a melee weapon or no magazine never is).
+  gunBusy(id) {
+    const gun = Weapons.currentWeapon(id);
+    if (!gun || gun.mag === 0 || gun.class === 'melee') return false;
+    return Weapons.state[id] === WEAPON_STATE.RELOAD || Weapons.magazine[Weapons.slotIndex(id, gun.index)] === 0;
   },
   // A weapon's worth to the bot (drawing, picking up, buying): its botPref value x share, plus the favourite bonus.
   weaponValue(id, weapon, share) { return weapon.botPref.value * share + (BotDecide.favoriteWeapon(id) === weapon.id ? FAVORITE_BONUS : 0); },
@@ -630,7 +650,12 @@ const BotCombat = {
     this.grenadeAt[id] = now + GRENADE_INTERVAL / pace;
     if (choke) { this.chokeSmokedAt[id] = now; this.planThrow(id, row, choke.x - Actors.x[id], choke.z - Actors.z[id], choke.y, now); return; }
     const pair = BotSense.pair(id, target), share = use.aim === 'between' ? 0.5 : 1;
-    const dx = (BotSense.knownX[pair] - Actors.x[id]) * share, dz = (BotSense.knownZ[pair] - Actors.z[id]) * share;
+    let dx = (BotSense.knownX[pair] - Actors.x[id]) * share, dz = (BotSense.knownZ[pair] - Actors.z[id]) * share;
+    if (BotSense.sees(id, target) && share === 1) {   // P8-04: a target in sight is led by the time the grenade needs (fuse or flight): the blast lands where it will be
+      const seconds = row.impact || row.stick ? length2(dx, dz) / GRENADE_LEAD_SPEED : Math.max(0, row.fuse - GRENADE_COOK_MARGIN);
+      const lead = Math.min(GRENADE_LEAD_CAP, length2(Actors.vx[target], Actors.vz[target]) * seconds), speed = length2(Actors.vx[target], Actors.vz[target]) || 1;
+      dx += Actors.vx[target] / speed * lead; dz += Actors.vz[target] / speed * lead;
+    }
     this.planThrow(id, row, dx, dz, BotSense.knownY[pair], now);
   },
   // A bot missing health or shield presses heal like a player once out of the fight (no damage for HEAL_CALM_SECONDS,
@@ -776,7 +801,7 @@ const BotCombat = {
     if (id < 0 || id >= MAX_ACTORS) return;
     if (Actors.kind[id] === ACTOR_KIND.PLAYER) { const weapon = CAT.weapons.byId(event.weapon); if (weapon) this.playerShots[weapon.index]++; return; }
     if (!Bots.active[id] || event.mode === 'melee') return;
-    this.recordFairness(id);
+    this.recordFairness(id, event);
     const weapon = CAT.weapons.byId(event.weapon);
     if (!weapon || event.mode !== 'primary' || weapon.primary.type !== 'hitscan') return;
     this.totalShots[id]++;
@@ -784,14 +809,29 @@ const BotCombat = {
     this.rollWindow(id);
     this.adjustBoost(id);
   },
-  recordFairness(id) {
+  recordFairness(id, event) {
     this.fairness.shots++;
     if (Sim.time <= this.licenseUntil[id] + TIME_EPSILON) return;
-    const target = this.licenseTarget[id] >= 0 ? this.licenseTarget[id] : this.target[id];
-    // P8-04: a target in sight a moment ago is perceived whatever the licence says (a held charge or a buffered press leaves on the step after the decision)
-    if (target >= 0 && Sim.time - BotSense.seenAt[BotSense.pair(id, target)] <= FAIRNESS_SIGHT_SECONDS) return;
+    const aimed = this.aimedAt(id, event), target = aimed >= 0 ? aimed : this.licenseTarget[id] >= 0 ? this.licenseTarget[id] : this.target[id];
+    // Only a charge release or a burst round can leave a moment after the decision; they are counted apart (fairness.recent) when the
+    // enemy they were aimed at was in sight within FAIRNESS_RECENT_SECONDS. Auto and semi shots never get this (P8-04, decided by the coordinator).
+    const weapon = CAT.weapons.byId(event.weapon), mode = weapon ? (event.mode === 'alt' ? weapon.alt : weapon.primary) : null;
+    const delayed = !!mode && (mode.trigger === 'charge' || mode.trigger === 'release' || mode.trigger === 'burst');
+    if (delayed && aimed >= 0 && Sim.time - BotSense.seenAt[BotSense.pair(id, aimed)] <= FAIRNESS_RECENT_SECONDS) { this.fairness.recent++; return; }
     this.fairness.unperceived++;
     if (target < 0 || !BotSense.knows(id, target, Sim.time)) this.fairness.unknown++;
+  },
+  // The living enemy nearest to the direction of a shot (within FAIRNESS_AIM_DEG), or -1: the target the shot was really aimed at.
+  aimedAt(id, event) {
+    const eyeY = Actors.eyeY(id), cosLimit = Math.cos(FAIRNESS_AIM_DEG * DEG);
+    let best = -1, bestCos = cosLimit;
+    for (let other = 0; other < Actors.count; other++) {
+      if (!Actors.alive[other] || !Actors.isEnemy(id, other)) continue;
+      const dx = Actors.x[other] - Actors.x[id], dy = Actors.y[other] + 1 - eyeY, dz = Actors.z[other] - Actors.z[id], length = length3(dx, dy, dz) || 1;
+      const cosine = (dx * event.dx + dy * event.dy + dz * event.dz) / length;
+      if (cosine > bestCos) { bestCos = cosine; best = other; }
+    }
+    return best;
   },
   onDamage(event) {
     const id = event.source;
@@ -963,6 +1003,7 @@ function dodgeChance(id) {
 }
 
 Bus.on('weapon.fire', (event) => BotCombat.onFire(event));
+Muzzle.lobRange = (id) => (Bots.active[id] && Sim.tick - BotCombat.lobTick[id] <= LOB_AIM_TICKS ? BotCombat.lobDistance[id] : -1);   // 11e: a bot lobs at the point it aims at
 Bus.on('damage', (event) => BotCombat.onDamage(event));
 Bus.on('match.setup', () => {
   BotCombat.playerShots.fill(0); BotCombat.totalShots.fill(0); BotCombat.totalHits.fill(0);

@@ -136,7 +136,7 @@ const WEAPON_ROWS = [
     alt: { type: 'block', block: { pool: 150, regen: 25, parryWindow: 0.2, arcDeg: 120 } } },
   { id: 'warden', code: 'W04', name: 'Warden Pistol', class: 'sidearm', mag: 12, reserve: 48, price: 0, dualWield: true, noise: 45, botPref: { range: [2, 25], value: 0.35 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 30, rate: 4.5, spreadDeg: 0.5, recoil: 'pistol', falloff: [20, 40, 0.7] },
-    alt: { type: 'hitscan', trigger: 'burst', damage: 25, rate: 1.6, burst: 3, spreadDeg: 1.4, recoil: 'burst', falloff: [10, 25, 0.6] } },   // R-095: burst = faster close kills (4 hits in 0.67 s), semi = the accurate range option (0.75 s)
+    alt: { type: 'hitscan', trigger: 'burst', damage: 34, rate: 1.6, burst: 3, spreadDeg: 1.4, recoil: 'burst', falloff: [10, 25, 0.6] } },   // R-095 / P8-04: burst = a close kill in one burst (3 x 34 in 0.12 s, all three must land, weaker past 10 m), semi = the accurate range option
   { id: 'verdict', casing: 'none', code: 'W05', name: 'Verdict Magnum', class: 'sidearm', reloadAnim: 'R2', mag: 6, reserve: 24, price: 700, noise: 70, botPref: { range: [5, 40], value: 0.45 },
     primary: { type: 'hitscan', trigger: 'semi', damage: 55, rate: 2.2, spreadDeg: 0.3, recoil: 'pistolHeavy', falloff: [25, 50, 0.75], penetration: 'med' },
     alt: { type: 'zoom', zoom: 2 } },
@@ -188,7 +188,7 @@ const WEAPON_ROWS = [
     primary: { type: 'hitscan', trigger: 'semi', damage: 60, rate: 3, spreadDeg: 0.2, recoil: 'marksman', penetration: 'med' },
     alt: { type: 'zoom', zoom: 3 } },
   { id: 'stakedriver', casing: 'none', code: 'W26', name: 'Stakedriver', class: 'marksman', reloadAnim: 'R9', price: 2000, moveMult: 0.9, mag: 12, reserve: 36, altAmmo: 6, botPref: { range: [10, 60], value: 0.7 },
-    primary: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 100, rate: 1.2, recoil: 'marksman' },
+    primary: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 95, rate: 1.2, recoil: 'marksman' },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 70, rate: 1, ammo: 'alt', recoil: 'marksman', status: { id: 'burn', seconds: 4 }, element: 'thermal' } },   // P3-03: the incendiary stake (burns on any hit, any range; 6 alt rounds; numbers for P8) replaces the lob grenade
   // A 0.55 s draw from 50 to 110 (P8-04: was 0.7 s at 1.5 a second): a quick shot still hurts, a full draw one-shots a 100 HP body (noise 0 is the stealth niche).
   { id: 'talonbow', casing: 'none', flash: 0, code: 'W27', name: 'Talon Bow', class: 'marksman', reloadAnim: 'R10', price: 1500, mag: 1, reserve: 18, altAmmo: 6, noise: 0, reload: 0.5, botPref: { range: [8, 60], value: 0.6 },
@@ -229,10 +229,10 @@ const WEAPON_ROWS = [
     primary: { type: 'projectile', projectile: 'disc', damage: 18, rate: 8, spreadDeg: 0.6, recoil: 'energy' },
     alt: { type: 'projectile', trigger: 'semi', projectile: 'disc', bounces: 0, damage: 0, rate: 2, ammoPerShot: 3, splash: { r: 1.8, dmg: 50 }, arm: EXPLOSIVE_ALT_ARM } },
   { id: 'accelerator', code: 'W39', name: 'Accelerator', class: 'energy', price: 2600, mag: 20, reserve: 60, noise: 70, botPref: { range: [5, 50], value: 0.65 },
-    primary: { type: 'hitscan', trigger: 'charge', rate: 1.2, charge: { time: 0.9, levels: [50, 100, 160], ammo: [2, 4, 8] }, recoil: 'energy', element: 'void' },
+    primary: { type: 'hitscan', trigger: 'charge', rate: 1.2, charge: { time: 0.9, levels: [50, 90, 160], ammo: [2, 4, 8] }, recoil: 'energy', element: 'void' },
     alt: { type: 'cone', trigger: 'semi', damage: 60, rate: 0.7, ammoPerShot: 4, cone: { range: 6, angle: 360 }, knockback: 4, element: 'void' } },   // R-095: a real get-off-me ring
   { id: 'fusionmortar', code: 'W40', name: 'Fusion Mortar', class: 'explosive', reloadAnim: 'R14', price: 4500, moveMult: 0.85, mag: 1, reserve: 1, maxAmmo: 1, noise: 90, botPref: { range: [8, 30], value: 0.6 },
-    primary: { type: 'projectile', trigger: 'semi', projectile: 'fusion', damage: 0, rate: 0.5, splash: { r: 6, dmg: 300 }, element: 'void' },
+    primary: { type: 'projectile', trigger: 'semi', projectile: 'fusion', damage: 0, rate: 0.5, splash: { r: 6, dmg: 150 }, element: 'void' },   // P8-04: 300 to 150 (EWR 60 / 62 / 77 % to 52 / 60 / 58 % over 24 runs per row; 165 to 200 left the spire at 70-76 %)
     alt: { type: 'detonate', projectile: 'fusion' } },
   { id: 'lifter', code: 'W41', name: 'Graviton Lifter', class: 'tool', noise: 20, botPref: { range: [0, 6], value: 0.2 },
     primary: { type: 'tool', trigger: 'semi', tool: 'lifterPunt', rate: 1.5, range: 6 },

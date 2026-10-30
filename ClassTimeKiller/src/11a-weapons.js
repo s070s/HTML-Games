@@ -133,7 +133,7 @@ const Weapons = {
   stateDuration: new Float32Array(MAX_ACTORS),
   nextShot: new Float32Array(MAX_ACTORS),
   nextAlt: new Float32Array(MAX_ACTORS),            // own cooldown of alt modes with `cooldown` (hook)
-  burstLeft: new Uint8Array(MAX_ACTORS), burstTimer: new Float32Array(MAX_ACTORS), burstMode: new Uint8Array(MAX_ACTORS),
+  burstLeft: new Uint8Array(MAX_ACTORS), burstTimer: new Float32Array(MAX_ACTORS), burstMode: new Uint8Array(MAX_ACTORS), burstWeapon: new Int16Array(MAX_ACTORS).fill(-1), chargeWeapon: new Int16Array(MAX_ACTORS).fill(-1), triggerWeapon: new Int16Array(MAX_ACTORS).fill(-1), altTriggerWeapon: new Int16Array(MAX_ACTORS).fill(-1),
   charge: new Float32Array(MAX_ACTORS), chargeMode: new Int8Array(MAX_ACTORS).fill(-1),
   spin: new Float32Array(MAX_ACTORS),
   ads: new Float32Array(MAX_ACTORS),
@@ -598,9 +598,15 @@ const Weapons = {
     this.coolDown(id, dt);
     this.recoverRecoil(id, dt);
     this.updateSpeed(id);
-    if (this.lowered(id)) { this.charge[id] = 0; this.burstLeft[id] = 0; return; }
+    if (this.lowered(id)) { this.charge[id] = 0; this.chargeMode[id] = -1; this.burstLeft[id] = 0; return; }   // frozen or downed (lowered): P8-04 chargeMode too, or the release seen after the weapon is raised again fires a stale charge
     if (!(Actors.flags[id] & ACTOR_FLAG.DOWNED)) this.handleSwitchInput(id);
-    if (this.state[id] === WEAPON_STATE.SWAP) { this.stepSwap(id, dt); return; }
+    if (this.state[id] === WEAPON_STATE.SWAP) {
+      // A swap step with a trigger up means that trigger was not held when the change began: a press during the raise is a fresh press (P8-04).
+      if (!(Actors.buttons[id] & BTN.FIRE)) this.triggerWeapon[id] = this.pending[id];
+      if (!(Actors.buttons[id] & BTN.ALT)) this.altTriggerWeapon[id] = this.pending[id];
+      this.stepSwap(id, dt);
+      return;
+    }
     const weapon = this.currentWeapon(id);
     if (Actors.pressed[id] & BTN.MELEE) this.quickMelee(id);
     if (!weapon) return;
@@ -613,6 +619,10 @@ const Weapons = {
       return;
     }
     if (Actors.pressed[id] & BTN.RELOAD) this.beginReload(id, weapon);
+    // P8-04: a trigger held since before a change of weapon (a promotion, a pickup, a swap with the trigger down all along) fires an automatic gun at once, a semi or burst gun only
+    // after it was let go and pressed again; a trigger pressed during the raise, or in the step of the change, is a fresh press and fires.
+    if (this.triggerWeapon[id] !== weapon.index) { this.triggerWeapon[id] = weapon.index; if ((Actors.buttons[id] & BTN.FIRE) && !(Actors.pressed[id] & BTN.FIRE)) this.latch[id] |= 1; }
+    if (this.altTriggerWeapon[id] !== weapon.index) { this.altTriggerWeapon[id] = weapon.index; if ((Actors.buttons[id] & BTN.ALT) && !(Actors.pressed[id] & BTN.ALT)) this.latch[id] |= 2; }
     this.stepBurst(id, weapon, dt);
     this.stepMode(id, weapon, weapon.primary, MODE_PRIMARY, BTN.FIRE, dt);
     if (!altTaken) this.stepAltMode(id, weapon, dt);
@@ -736,9 +746,11 @@ const Weapons = {
   },
   // R-018: the charge stops at the highest level the loaded ammo pays for, so the release always fires (or clicks empty).
   stepCharge(id, weapon, mode, modeIndex, held, dt) {
+    if (this.chargeMode[id] >= 0 && this.chargeWeapon[id] !== weapon.index) { this.charge[id] = 0; this.chargeMode[id] = -1; }   // P8-04: the charge belonged to a weapon that is gone (a promotion or a pickup replaced it): it does not fire this one
     if (held) {
       if (this.chargeMode[id] < 0 && !this.ready(id, weapon, mode, modeIndex, modeIndex ? BTN.ALT : BTN.FIRE, 0)) return;
       this.chargeMode[id] = modeIndex;
+      this.chargeWeapon[id] = weapon.index;
       const paid = Math.max(0, this.payableCharge(id, weapon, mode));
       const before = this.charge[id];
       this.charge[id] = Math.min(mode.charge.time * paid, before + dt);
@@ -781,9 +793,11 @@ const Weapons = {
     this.burstLeft[id] = mode.burst - 1;
     this.burstTimer[id] = mode.burstGap / this.rateFactor(id, weapon);
     this.burstMode[id] = modeIndex;
+    this.burstWeapon[id] = weapon.index;
   },
   stepBurst(id, weapon, dt) {
     if (!this.burstLeft[id]) return;
+    if (this.burstWeapon[id] !== weapon.index) { this.burstLeft[id] = 0; return; }   // P8-04: another weapon came into the hand (a pickup replaced the one bursting): its rounds do not leave the new one
     this.burstTimer[id] -= dt;
     if (this.burstTimer[id] > 0) return;
     const mode = this.burstMode[id] ? weapon.alt : weapon.primary;

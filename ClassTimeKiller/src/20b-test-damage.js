@@ -38,6 +38,7 @@ const TestArena = {
     Actors.pitch[shooter] = Actors.aimPitch[shooter] = Math.atan2(dy, Math.hypot(dx, dz));
   },
   hold(id, buttons, seconds) {
+    if (Actors.previousButtons[id] & buttons) { Actors.buttons[id] = 0; Sim.step(); }   // a real player lets go between two presses: without this step the next hold is no fresh press (P8-04 trigger rule)
     Actors.buttons[id] = buttons;
     Sim.run(Math.round(seconds * TICK_RATE));
     Actors.buttons[id] = 0;

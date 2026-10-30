@@ -197,7 +197,7 @@ Schemas (field: type, default). Full catalogue tables use these fields.
 | WPN-009 | Weapon respawn 5 s FFA, 30 s team modes (x itemRespawnScale); weapon stay option. Power weapons (W45,W46) one per map, 120 s, announced 10 s before. |
 | WPN-010 | Damage values below are for 100 HP baseline; precision profile applies (HP-002). Equip 0.4 s default; switching never faster than equipTime, except that equip attachments and perks may shorten a swap down to 0.8 x equipTime (EQUIP_SCALE_FLOOR). |
 | WPN-011 | Underbarrel/explosive alt fires have arm distance >= 6 m and low reserves (avoid grenade-launcher spam). |
-| WPN-013 | Shots leave the muzzle (P2-03): projectiles, tracers and muzzle flashes start at the weapon model's muzzle (the view model's in first person, the held model's for everyone else, bots included) and projectiles fly to the point under the crosshair (the nearest actor or wall on the eye ray, 120 m when there is none); lobbed projectiles (gravity of 9 m/s2 or more: grenades, mines, goo, the Talon Bow arrow, the Fusion orb) fly the low arc through that point when it is in reach of their speed (P8-04: `Muzzle.solveLob`; out of reach or no point under the crosshair, they keep the eye direction), lightly dropping ones (shards, stakes) keep the eye direction. Hitscan damage is traced from the eye along the aim ray, so hit results do not change; only the tracer starts at the muzzle. When a wall lies between the eye and the muzzle, a wall or player stands within 1.5 m on the eye ray, or a wall is on the way from the muzzle to the aim point, the shot leaves the eye, so nothing passes a wall in front of the shooter and a player at arm's length is hit. |
+| WPN-013 | Shots leave the muzzle (P2-03): projectiles, tracers and muzzle flashes start at the weapon model's muzzle (the view model's in first person, the held model's for everyone else, bots included) and projectiles fly to the point under the crosshair (the nearest actor or wall on the eye ray, 120 m when there is none); lobbed projectiles (gravity of 10 m/s2 or more: grenades, mines, goo, the Fusion orb) fly the low arc through that point (P8-04: `Muzzle.solveLob`; a bot's point is the one it aims at, not what its ray hits; a point out of reach gets the 45 degree arc, none under the crosshair means 120 m ahead), lightly dropping ones (the Talon Bow arrow 9, shards, stakes) keep the eye direction and their drop. Hitscan damage is traced from the eye along the aim ray, so hit results do not change; only the tracer starts at the muzzle. When a wall lies between the eye and the muzzle, a wall or player stands within 1.5 m on the eye ray, or a wall is on the way from the muzzle to the aim point, the shot leaves the eye, so nothing passes a wall in front of the shooter and a player at arm's length is hit. |
 | WPN-012 | Empty and no-target feedback: a dry trigger clicks and shows a message; a primary with no rounds and nothing to reload moves the player on to the next weapon that can shoot (the Alt keeps its own ammo pool); a detonate alt works during the reload of its own weapon (W40); a lock-on weapon rings the enemy it is locking, and says `No target` when it has none. |
 | WPN-014 | Reload animations (P6-02): every weapon with a magazine plays one of 14 reload sets (R1 pistol magazine, R2 revolver, R3 long-gun magazine, R4 bolt and magazine, R5 shell by shell, R6 break action, R7 drum, R8 energy cell, R9 top clip and crank, R10 nock, R11 belt box, R12 tank, R13 tube, R14 breech; W01, W02, W03, W41, W42 and W44 never reload) in first person (the weapon tilts, its magazine or other moving part leaves and comes back, a spare is carried by a procedural off-hand: a forearm and a hand) and in third person (arm, gun, torso and the detached part at the near LOD). Every phase is a fraction of the reload in progress, so attachments and perks scale it, and the last phase ends at fraction 1.0, the step the rounds are added: the animation changes no reload time, damage time, recoil or equip time. An empty magazine takes an extra chamber phase inside the same total time; a shell-by-shell reload plays a cycle per shell and a FIRE press with a round loaded ends it (the pose blends out in 0.06 s); a swap or a quick melee cancels a reload and its pose blends out in 0.1 s or 0.05 s. Sprint does not cancel a reload. |
 | WPN-015 | Melee animations (P6-03): the maul (primary chop, charged alt slam), the tanto (slash, thrust), the shield (bash, block, parry) and the quick melee of every gun (pistol whip, butt-stroke, shoulder shove; a quick melee by another owned melee weapon draws that weapon in the left hand) have their own strike in both views. The hit is decided in the step of the trigger, so the contact pose is drawn on the first frame after the hit tick, the follow-through and recovery fill the cooldown the sim added and end on the step the weapon may act again; a melee hit the player lands holds the contact pose 0.03 s. A hit body flinches (torso and head pitch away from the blow), a stunned body staggers; a melee swing into a wall or the floor within reach makes the impact sound and dust; the maul's charged slam on a floor adds 0.15 camera trauma. |
@@ -211,7 +211,7 @@ Columns: Primary / Alt = type, damage, rate rps, notes. Ammo = mag/reserve. All 
 | W01 | `maul` | Breaker Maul | melee | melee 50, 2.5, reach 1.6 m | charge 0-1.2 s: 30-120 dmg; ground hit launches self up 4.5 m, 10 self dmg | - | mobility + finisher / must close in | Q3 Gauntlet, UT Impact Hammer |
 | W02 | `tanto` | Edge Tanto | melee | slash 35, 2.5 | heavy stab 65, 1.0 s; 150 from behind | - | full move speed, silent / tiny reach | CS knife, TF Data Knife |
 | W03 | `bulwark` | Bulwark Shield-Saw | melee | bash 40 + stagger, 1.5 | hold block (frontal 120 deg arc, 150 shield pool); tap in 0.2 s window = parry, reflects green projectiles | - | defence, parry skill / slow | Doom TDA, UT2004 Shield Gun |
-| W04 | `warden` | Warden Pistol | sidearm | hitscan 30, 4.5, spread 0.5, falloff 20-40 m 0.7 (P8-04: was 25, 4) | 3-round burst 25 each, 1.6 bursts/s, falloff 10-25 m 0.6 | 12/48 | free, accurate; 2nd pickup = dual / weak | UT Enforcer, Valorant Classic, USP |
+| W04 | `warden` | Warden Pistol | sidearm | hitscan 30, 4.5, spread 0.5, falloff 20-40 m 0.7 (P8-04: was 25, 4) | 3-round burst 34 each (P8-04: was 25: one burst kills when all three land), 1.6 bursts/s, falloff 10-25 m 0.6 | 12/48 | free, accurate; 2nd pickup = dual / weak | UT Enforcer, Valorant Classic, USP |
 | W05 | `verdict` | Verdict Magnum | sidearm | hitscan 55, 2.2, head x2 | zoom 2x | 6/24 | one-tap head on low HP / heavy recoil (anti dominant-pistol) | Deagle, Sheriff, HL2 .357 |
 | W06 | `hush` | Hush Pistol | sidearm | silent precision pistol (P3-03): hitscan 40, 2.5, head x2.5, no tracer, noise 6 m | sleep dart: target bot sleeps 8 s, non-lethal | 10/40 + 6 darts | stealth / low dmg | Deus Ex stealth pistol, Dishonored sleep dart |
 | W07 | `sparklock` | Sparklock Pistol | sidearm | lock-on: 0.4 s lock per target, up to 3 targets in 12 deg/20 m cone, 12 x8 rps auto-aim | manual hip fire 12 | 24/72 | easy hits on fodder / weak vs fast bots | Titanfall Smart Pistol |
@@ -231,9 +231,9 @@ Columns: Primary / Alt = type, damage, rate rps, notes. Ammo = mag/reserve. All 
 | W21 | `shardcaster` | Shardcaster | shotgun | 9 bouncing shards x 12 @45 m/s; reload 2 s for the whole magazine (P8-04) | lobbed shell 100 impact + 6 shards | 10/40 | room clearing / falloff by spread | UT Flak Cannon |
 | W22 | `frostbore` | Frostbore | retired (P3-03): merged into W19 `scattergun`; freezing stays on G08; the code is never reused |
 | W23 | `lancet` | Lancet Rail | marksman | hitscan 100, 0.67, pierces 4, alwaysHead off | zoom 2.5x | 10/30 | one shot = 100 / slow, visible trail | Q3 Railgun, UT2004 Lightning Gun |
-| W24 | `heron` | Heron Sniper | sniper | hitscan 115, 0.67, hip spread 2 deg (P8-04: was 8), head x2.5, legs 0.75 | zoom 4x/8x, hold breath 4 s | 5/20 | one-shot body / scoped moveMult 0.5, no hipfire accuracy | AWP, Operator, UT sniper |
+| W24 | `heron` | Heron Sniper | sniper | hitscan 115, 0.67, hip spread 2 deg (P8-04: was 8), head x2.5, legs 0.75 | zoom 4x/8x, hold breath 4 s | 5/20 | one-shot body / scoped moveMult 0.5, hip spread 2 deg and exact only scoped | AWP, Operator, UT sniper |
 | W25 | `kestrel` | Kestrel DMR | marksman | semi 60, 3, head x2 | scope 3x | 15/45 | fast follow-up / mid dmg | Guardian, Marshal, BF DMR |
-| W26 | `stakedriver` | Stakedriver | marksman | stake 100 (P8-04: was 90) @60 m/s, pins to wall (no burn on the primary; the alt is the only burn) | incendiary stake: 70, burns at any range (P3-03, replaces the lob grenade) | 12/36 + 6 | long-range punish / slow | Painkiller Stakegun, HL2 crossbow |
+| W26 | `stakedriver` | Stakedriver | marksman | stake 95 (P8-04: was 90) @60 m/s, pins to wall (no burn on the primary; the alt is the only burn) | incendiary stake: 70, burns at any range (P3-03, replaces the lob grenade) | 12/36 + 6 | long-range punish / slow | Painkiller Stakegun, HL2 crossbow |
 | W27 | `talonbow` | Talon Bow | marksman | hold draw 0.55 s, 1.8 a second (P8-04: was 0.7 s, 1.5): 50-110, silent, arrow drop | explosive arrow 80 r2.5 | 1/18 + 6 | silent, works underwater / drop | Turok Tek Bow, Crysis 3 bow |
 | W28 | `hailstorm` | Hailstorm | heavy | hitscan 15, 18 after 0.2 s spin-up, high penetration (from the retired W29) | root as turret: rate x1.5, 30% frontal resist | 150/300 | suppression / slow move 0.75 | UT Minigun, Doom mobile turret, Turok War Horse |
 | W29 | `anvil` | Anvil LMG | retired (P3-03): merged into W28 `hailstorm`; the code is never reused |
@@ -246,8 +246,8 @@ Columns: Primary / Alt = type, damage, rate rps, notes. Ammo = mag/reserve. All 
 | W36 | `ember` | Ember Repeater | energy | bolt 16 + splash 10 r0.6 @60 m/s, 10 | heat blast cone 6 m, dmg = stored heat (max 120); stored heat vents 10/s after 1 s without a shot | 50/200 cells | fast DPS / projectile | Q3 Plasma, Doom plasma heat blast |
 | W37 | `stormlash` | Stormlash | energy | beam 160 dps, range 24 m | chain arc: 30 to 3 targets within 6 m | 100/200 | tracking DPS / range cap | Q3 Lightning Gun, Painkiller Electrodriver |
 | W38 | `starthrower` | Starthrower | energy | disc 18, 8, ricochet 2x | explosive disc 50 r1.8 | 50/150 | bank shots / predictable | UT Ripper, Painkiller driver |
-| W39 | `accelerator` | Accelerator | energy | charge 0.9 s (P8-04: was 1.5 s), 3 levels: 50/100/160 (was 40/90/160) (cells 2/4/8) | 360 deg shockwave r6: 60 + knockback (4 ammo) | 20/60 cells | flexible burst / charge time | Turok particle accelerator, shockwave |
-| W40 | `fusionmortar` | Fusion Mortar | explosive | rolling orb, explodes 2 s: 300 r6, spares owner | detonate early | 1/1 (max 2) | room wipe / max 2 carried | Turok Fusion Cannon |
+| W39 | `accelerator` | Accelerator | energy | charge 0.9 s (P8-04: was 1.5 s), 3 levels: 50/90/160 (was 40/90/160) (cells 2/4/8) | 360 deg shockwave r6: 60 + knockback (4 ammo) | 20/60 cells | flexible burst / charge time | Turok particle accelerator, shockwave |
+| W40 | `fusionmortar` | Fusion Mortar | explosive | rolling orb, explodes 2 s: 150 r6 (P8-04, was 300), spares owner | detonate early | 1/1 (max 2) | room wipe / max 2 carried | Turok Fusion Cannon |
 | W41 | `lifter` | Graviton Lifter | tool | punt held/near prop: dmg = 0.5 x mass x speed (cap 150) | pull and hold prop (mass <= 150 kg), catch grenades | infinite | props as ammo and shield / prop-dependent | HL2 gravity gun |
 | W42 | `twingate` | Twin-Gate Projector | tool | place Dawn gate | place Dusk gate (2 max, momentum kept, puzzle modes) | infinite | puzzles / no damage | Portal |
 | W43 | `auger` | Skull Auger | exotic | homing drill to nearest head 20 m, drills 2 s then 90 | none -> manual detonate | 3/9 | guaranteed kill / useless vs drones/turrets | Turok 2 Cerebral Bore |
@@ -376,11 +376,11 @@ Hero kits (RS09; each: weapon, passive, 2 abilities, ultimate):
 | H01 | `bastide` | Bastide | tank | 450/200/0 | W19 | passive knockback resist 30%; A26, W03 alt block; ult A38 | Overwatch tank, Gibraltar |
 | H02 | `moraine` | Moraine | tank | 250/0/100 | W28 | passive shield regen 30/s after 2 s; A07, A28; ult A40 | Overwatch Orisa, TF Legion |
 | H03 | `quill` | Quill | damage (duelist) | 200/0/0 | W13 | passive +25% speed 2.5 s after kill; A08, A09; ult A37 | Tracer, Valorant duelist |
-| H04 | `tessaly` | Tessaly | damage (sniper) | 200/0/0 | W24 | passive scope info; A11, A13; ult A39 | Widowmaker, Vantage |
+| H04 | `tessaly` | Tessaly | damage (sniper) | 250/0/0 (P8-04: was 200) | W24 | passive scope info; A11, A13; ult A39 | Widowmaker, Vantage |
 | H05 | `brask` | Brask | damage (demo) | 225/0/0 | W32 | passive extra grenade; A18, G09; ult A38 | Fuse, Junkrat |
-| H06 | `lark` | Lark | support | 200/0/0 | W30 | passive regen 15/s after 1.5 s; A25, A27; ult A40 | Mercy, Lifeline |
-| H07 | `mirelle` | Mirelle | support (controller) | 225/0/0 | W12 | passive smoke vision; A17, A22; ult A19 field | Valorant controller |
-| H08 | `tamsin` | Tamsin | initiator | 200/0/0 | W25 | passive tracker A16; A15, G20; ult AX1 global pulse | Valorant initiator, Bloodhound |
+| H06 | `lark` | Lark | support | 225/0/0 (P8-04: was 200) | W30 | passive regen 15/s after 1.5 s; A25, A27; ult A40 | Mercy, Lifeline |
+| H07 | `mirelle` | Mirelle | support (controller) | 200/0/0 (P8-04: was 225) | W12 | passive smoke vision; A17, A22; ult A19 field | Valorant controller |
+| H08 | `tamsin` | Tamsin | initiator | 225/0/0 (P8-04: was 200) | W25 | passive tracker A16; A15, G20; ult AX1 global pulse | Valorant initiator, Bloodhound |
 
 ## 11. Powerups and pickups (PWR)
 
@@ -394,19 +394,19 @@ Hero kits (RS09; each: weapon, passive, 2 abilities, ultimate):
 |---|---|---|---|---|---|
 | PU01 | `fury` | Fury Core | damage x3, 30 s | 120 s | Q3 Quad, UT UDamage |
 | PU02 | `warding` | Warding Shell | damage taken x0.5, immune splash/fall/hazard, 30 s | 120 s | Q3 Battle Suit |
-| PU03 | `quickening` | Quickening | speed and fire rate x1.3, 30 s | 120 s | Q3 Haste |
+| PU03 | `quickening` | Quickening | speed x1.4 and fire rate x1.5, 30 s (P8-04: was x1.3 both) | 120 s | Q3 Haste |
 | PU04 | `ghostveil` | Ghostveil | shimmer invisibility 30 s (bots perceive at 25% range) | 120 s | Q3 Invisibility |
-| PU05 | `renewal` | Renewal | +15 HP/s to 110, then +5/s to 200, 30 s | 120 s | Q3 Regeneration |
+| PU05 | `renewal` | Renewal | +25 HP/s to 110, then +8/s to 200, 30 s (P8-04: was 15 and 5) | 120 s | Q3 Regeneration |
 | PU06 | `skyward` | Skyward | free flight, 30 s | 120 s | Q3 Flight |
 | PU07 | `surplus` | Surplus Orb | retired (P3-06): I04 Mega Cell stands in on maps; the surplus pool stays as A40 Rally Cry's effect | - | - |
 | PU08 | `aegisbelt` | Aegis Belt | retired (P3-06): I07 Heavy Plate stands in | - | - |
 | PU09 | `berserk` | Berserk Fist | melee kills fodder in 1 hit, melee x4, 20 s, heals to 100 | 120 s | Doom berserk, UT Berserk |
 | PU10 | `sigil` | Invulnerability Sigil | invulnerable 10 s | 180 s | UT3, Q3TA, Painkiller Iron Will |
 | PU11 | `bottomless` | Bottomless | no ammo use, 30 s | 120 s | Painkiller Magic Gun |
-| PU12 | `vampfang` | Vampire Fang | 30% of damage dealt heals, 30 s | 120 s | Painkiller Health Stealer |
+| PU12 | `vampfang` | Vampire Fang | 70% of damage dealt heals, 30 s (P8-04: was 30%) | 120 s | Painkiller Health Stealer |
 | PU13 | `seer` | Seer Orb | team sees enemies on minimap 15 s | 90 s | CoD UAV, TF Map Hack |
 | PU14 | `springboots` | Spring Boots | 3 jumps x2 height, no fall damage | 60 s | UT Jump Boots |
-| PU15 | `guardianrune` | Guardian Rune | persistent until death: max HP/armor x2, speed x0.9 | 60 s | Q3TA Guard |
+| PU15 | `guardianrune` | Guardian Rune | persistent until death: max HP/armor x2.5, speed x1 (P8-04: was x2 and x0.9) | 60 s | Q3TA Guard |
 | PU16 | `scoutrune` | Scout Rune | retired (P3-06): merged into PU03 Quickening | - | - |
 | PU17 | `ammorune` | Ammo Rune | retired (P3-06): merged into PU11 Bottomless | - | - |
 | PU18 | `soul` | Soul Shard | dropped by kills, +1 HP, 66 = Wrath Form (A34) | - | Painkiller souls |
@@ -741,7 +741,7 @@ Named roster (tier / signature traits / favourite): B01 Pell (0, timid, W04), B0
 | MAP-003 | Sightlines: max 60 m in arena maps, 90 m in large maps; long sightlines need cover every 15 m. |
 | MAP-004 | Cover heights 1.0 m (crouch cover) and 1.8 m (full); doorways 1.6 m (single) / 2.4 m (double); ceilings >= 3.5 m (6 m in agile maps); wall-run gaps 3-5 m; jump gaps validated against active movement preset (reachability test per preset). |
 | MAP-005 | Item placement: power items exposed/contested and roughly equidistant from spawns; >= 20 m apart; armor and health spread so no one room holds both top items. Target (tunable): in a 10-minute FFA against equal-tier bots no single player collects more than 50% of top-item pickups. |
-| MAP-010 | Spawn safety: candidate rejected if an enemy has LOS within 25 m or is within 12 m; prefer near teammates/away from last death; spawn protection 2 s (ends on fire); never spawn inside another capsule. |
+| MAP-010 | Spawn safety: candidate rejected if an enemy has LOS within 25 m or is within 12 m (15 / 35 m and 20 / 50 m were tried in P8-04 and cut no spawn deaths); prefer near teammates/away from last death; a point used in the last 8 s scores lower (P8-04, 30 m of score); spawn protection 2 s (ends on fire); never spawn inside another capsule. |
 | MAP-011 | Team modes: spawn zones behind teams with 2+ exits not overlooked by enemy positions (AA/sniper spawn-kill mistake). |
 | MAP-012 | Callouts: every zone has a name shown on HUD near the minimap and used in bot barks. |
 | MAP-013 | Destructibles optional and budgeted (PERF-010): props break into 4-8 debris pieces that sleep after 1 s; "collapse" events swap meshes (no free rigid-body sim). |

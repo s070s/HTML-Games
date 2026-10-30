@@ -61,8 +61,8 @@ Test.add('wiring', (check) => {
   Powerups.give(id, CAT.powerups.byId('quickening'), 0);
   Buffs.add(id, BUFF.SLOW, 0.5, 5);
   Sim.run(1);
-  check('powerup and buff fire rates multiply', Test.near(Weapons.rateScale[id], 2 * 1.3, 1e-5), Weapons.rateScale[id]);
-  check('powerup speed and ability slows multiply', Test.near(Move.statusSpeedScale[id], 1.3 * 0.5, 1e-5), Move.statusSpeedScale[id]);
+  check('powerup and buff fire rates multiply', Test.near(Weapons.rateScale[id], 2 * 1.5, 1e-5), Weapons.rateScale[id]);
+  check('powerup speed and ability slows multiply', Test.near(Move.statusSpeedScale[id], 1.4 * 0.5, 1e-5), Move.statusSpeedScale[id]);
   Powerups.clearActor(id, false);
   Buffs.clear(id);
   check('everything back to 1 afterwards', Weapons.rateScale[id] === 1 && Move.statusSpeedScale[id] === 1);

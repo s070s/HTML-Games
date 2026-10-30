@@ -105,6 +105,7 @@ Test.add('weapons', (check) => {
   const spinUp = giveFull(shooter, 'hailstorm').primary.spinUp;
   check('spin-up ' + spinUp + ' s then 18 rps', Math.abs(countShots(shooter, BTN.FIRE, 10) - (10 - spinUp) * 18) <= 2);
   giveFull(shooter, 'verdict');
+  Actors.buttons[shooter] = 0; Sim.step();   // the trigger of the hailstorm is let go before the new gun is pressed (a trigger held through a weapon change waits for a fresh press, P8-04)
   let taps = 0;
   for (let k = 0; k < 5; k++) taps += countShots(shooter, BTN.FIRE, 0.2) + countShots(shooter, 0, 0.3);
   check('semi-auto fires once per press', taps === 5, taps);
@@ -322,11 +323,11 @@ function exerciseMode(shooter, target, weapon, mode, button) {
   Bus.off('impulse', onEffect);
   return { fired, effects, damage: startHealth - Actors.health[target] };
 }
-// Lobbed projectiles need a ballistic aim (flat ground: pitch = asin(g d / v^2) / 2 above the line of sight).
+// Lightly dropping projectiles need a ballistic aim (flat ground: pitch = asin(g d / v^2) / 2 above the line of sight).
 function aimForMode(shooter, target, mode) {
   TestArena.aimAt(shooter, target);
   const row = mode.projectile ? CAT.projectiles.byId(mode.projectile) : null;
-  if (!row || !row.gravity) return;
+  if (!row || !row.gravity || row.gravity >= LOB_MIN_GRAVITY) return;   // a lob is solved by the muzzle (P8-04): the crosshair on the target is enough
   const speed = mode.speed || row.speed, distance = Math.hypot(Actors.x[target] - Actors.x[shooter], Actors.z[target] - Actors.z[shooter]);
   Actors.pitch[shooter] = Actors.aimPitch[shooter] = Actors.pitch[shooter] + Math.asin(Math.min(1, row.gravity * distance / (speed * speed))) / 2;
 }
@@ -930,7 +931,7 @@ Test.add('weapons', (check) => {
   Weapons.magazine[cells] = 5;
   TestArena.aimAt(shooter, target);
   const charged = TestArena.count('weapon.fire', () => { TestArena.hold(shooter, BTN.FIRE, accelerator.primary.charge.time + 0.5); Sim.step(); });
-  check('W39 full charge with 5 cells fires the 4-cell level', charged === 1 && Weapons.magazine[cells] === 1 && Actors.health[target] === 100000 - 100, charged + ' / ' + Weapons.magazine[cells] + ' / ' + (100000 - Actors.health[target]));
+  check('W39 full charge with 5 cells fires the 4-cell level', charged === 1 && Weapons.magazine[cells] === 1 && Actors.health[target] === 100000 - 90, charged + ' / ' + Weapons.magazine[cells] + ' / ' + (100000 - Actors.health[target]));
   const ramjet = giveFull(shooter, 'ramjet'), rockets = Weapons.slotIndex(shooter, ramjet.index);
   Weapons.magazine[rockets] = 1;
   TestArena.aimAt(shooter, target);

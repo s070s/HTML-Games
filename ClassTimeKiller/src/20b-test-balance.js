@@ -34,12 +34,15 @@ const BALANCE_TARGETS = {
   classRules: { meleeKillShare: [3, 12], meleeKillShareRS08: [10, 25], sidearmKillShareMax: 25, sniperKillShareMax: 20, explosiveSelfDamageMax: 15,
     splashKillShareMax: 30, powerKillShare: [5, 15], powerTopScorerShareMax: 40 },
   rulesetEwr: [35, 65], rulesetClassSpread: 20, skillGap: 15,
+  // revised 2026-10-30 (coordinator): the home / away columns above stay as the data the runs report; the pass rule is the range edge
+  rangeEdge: { homeMin: 45, rowMin: 0, classMin: 5 },
   // pick shares in percent of the slot (primary: multiples of the fair share)
   picks: { primary: [0.4, 2.5], secondary: [10, 62], lethal: [13, 83], tactical: [6.7, 42], device: [5, 31], ability: [1.5, 9.6], ultimate: [10, 62], favouriteMax: 2 },
   csi: [0.42, 0.58], abilityEwr: [45, 55],
   gadgets: {
     lethal: { use: 0.6, kp: [20, 50] }, tactical: { use: 0.5, kp: [15, 45] }, device: { use: 0.7, kp: [10, 40] },
-    lethalDamage: { frag: [40, 100], incendiary: [30, 90], sticky: [50, 110] }, ownDamageMax: 10, tacticalTouched: 1.0,
+    // revised 2026-10-30 (coordinator): a bot's throw lands on a hidden or moving target, so the enemy damage per throw is judged from 10 (it was 40 / 30 / 50 for a player's throw)
+    lethalDamage: { frag: [10, 100], incendiary: [10, 90], sticky: [10, 110] }, ownDamageMax: 10, tacticalTouched: 1.0,
   },
   powerups: { kd: [1.3, 3.0], kdWide: [1.3, 4.0], wide: ['fury', 'sigil'], topShareMax: 35 },
   abilities: { use: [0.3, 1.0], kp: { recon: [15, 40], control: [20, 50], offense: [20, 50], ultimate: [30, 70] }, reveal: 0.8, affected: 1.0, healed: 60 },
@@ -251,6 +254,7 @@ function balanceOnKill(event) {
   const enemyKill = killer >= 0 && killer !== victim && Actors.isEnemy(killer, victim);
   if (enemyKill) {
     run.totals.kills++;
+    if (event.kind === 'melee') run.totals.meleeKills++;   // a melee weapon or the quick melee: the share of kills by hand
     if (Actors.team[killer] >= 0) run.totals.teamKills[Actors.team[killer]]++;
     const key = balanceKeyOfId(event.weapon, killer), stats = balanceRowStats(run, key), distance = balanceActorDistance(killer, victim);
     const weapon = key.startsWith('weapon:') ? balanceRowOfKey(key) : null;
@@ -357,7 +361,7 @@ function balanceBegin(spec) {
     aliveTicks: new Float64Array(MAX_ACTORS), ownedTicks: new Float64Array(MAX_ACTORS * WEAPON_COUNT), drawnTicks: new Float64Array(MAX_ACTORS * WEAPON_COUNT),
     spawns: new Uint16Array(MAX_ACTORS), spawnTime: new Float64Array(MAX_ACTORS), spawnKey: new Array(MAX_ACTORS).fill(''), spawnPoints: {},
     kills: new Uint16Array(MAX_ACTORS), deathsOf: new Uint16Array(MAX_ACTORS),
-    totals: { kills: 0, deaths: 0, spawnDeaths: 0, teamKills: [0, 0] }, grant: spec.grant ? spec.grant.map((key) => balanceFind('powerups', key).id) : null,
+    totals: { kills: 0, deaths: 0, spawnDeaths: 0, meleeKills: 0, teamKills: [0, 0] }, grant: spec.grant ? spec.grant.map((key) => balanceFind('powerups', key).id) : null,
     grantTotals: { kills: 0, deaths: 0, window: spec.grant ? (spec.grant.length ? balanceFind('powerups', spec.grant[0]).duration : 0) || BALANCE_PERSISTENT_WINDOW / 2 : 0 },   // grant [] = the control: the same bots, nothing granted
     half: null, tick: 0,
   };
@@ -511,7 +515,16 @@ function balanceLobProbe() {
   return { probe: 'lob', ok: true, detail: 'miss in m at ' + BALANCE_LOB_DISTANCES.join(' / ') + ' m', data: misses };
 }
 
-DebugApi.balance = { run: balanceRunCase, targets: () => BALANCE_TARGETS, statics: () => balanceStatics(), key: balanceKeyOfId };
+// A debugging aid for a shot that leaves without a trigger: logs every buffered press and every buffered answer of one actor (read with trace.log).
+const balanceTraceLog = [];
+function balanceTrace(id) {
+  const take = Weapons.takeBufferedPress.bind(Weapons), buffer = Weapons.bufferPress.bind(Weapons);
+  Weapons.takeBufferedPress = (actor, ...rest) => { const answered = take(actor, ...rest); if ((id < 0 || actor === id) && answered) balanceTraceLog.push('answered a' + actor + ' ' + Sim.time.toFixed(3)); return answered; };
+  Weapons.bufferPress = (actor, button, bit) => { const before = Weapons.pressBuffer[actor]; buffer(actor, button, bit); if ((id < 0 || actor === id) && Weapons.pressBuffer[actor] !== before) balanceTraceLog.push('buffer a' + actor + ' ' + before + '->' + Weapons.pressBuffer[actor] + ' ' + Sim.time.toFixed(3) + ' wait ' + Move.fireWait(actor).toFixed(3)); };
+  return balanceTraceLog;
+}
+
+DebugApi.balance = { trace: balanceTrace, time: () => Sim.time, shotState: (id) => ({ fireWait: +Move.fireWait(id).toFixed(3), buffer: Weapons.pressBuffer[id], bufferLeft: +Weapons.pressBufferLeft[id].toFixed(3), state: Weapons.state[id], stateTime: +Weapons.stateTime[id].toFixed(3), sprint: Motion.sprinting[id], latch: Weapons.latch[id], nextShot: +Weapons.nextShot[id].toFixed(3) }), run: balanceRunCase, targets: () => BALANCE_TARGETS, statics: () => balanceStatics(), key: balanceKeyOfId };
 
 // ---- T7 the static checks S1..S7 (no match): the data against P8-01 ----
 const BALANCE_PICK_TIERS = [2, 3];                       // Regular bots play tier 2 or 3 (a named bot is held inside the difficulty's range)
@@ -676,11 +689,272 @@ Test.add('balance', (check) => {
   // F0-13: a lobbed shot lands on the crosshair point (the low arc through it), in reach of its speed
   const probe = balanceLobProbe().data;
   const misses = Object.keys(probe).map((label) => label + ' ' + probe[label].join('/')).join('; ');
-  check('F0-13: grenades, goo and the Talon Bow land within 1.5 m of the crosshair point at 10 and 20 m', Object.keys(probe).every((label) => probe[label][0] <= 1.5 && probe[label][1] <= 1.5), misses);
-  check('F0-13: a point beyond the reach of the flight (30 m for a 22 m/s grenade) still falls short, the direction stays', probe['W32 primary'][2] > 5, misses);
+  const lobs = ['W32 primary', 'W34 primary', 'W21 alt'];
+  check('F0-13: grenades and goo land within 1.5 m of the crosshair point at 10 and 20 m', lobs.every((label) => probe[label][0] <= 1.5 && probe[label][1] <= 1.5), misses);
+  check('F0-13: the Talon Bow arrow (gravity under LOB_MIN_GRAVITY) keeps its drop, a listed drawback', probe['W27 primary'][1] > 3, misses);
+  check('F0-13: a point beyond the reach of the flight (30 m for a 22 m/s grenade) gets the farthest arc, not a flat shot (lands near the 24 m reach)', lobs.slice(0, 1).every((label) => probe[label][2] > 3 && probe[label][2] < 9), misses);
 });
 Test.add('balance', (check) => {
   // the bots of a lob weapon aim at the target itself: no hand-made drop on top of the muzzle's arc
   const mortar = CAT.weapons.byId('pitcher').primary, bullet = CAT.weapons.byId('shardcaster').primary;
   check('bots add no drop to a lobbed row (the muzzle solves it) and still add it to a slightly dropping one', BotCombat.dropFor(mortar, 1) === 0 && BotCombat.dropFor(bullet, 1) > 0);
+});
+
+// ---- ARC-033 behaviour (coordinator, P8-04): what a bot does the moment its target is lost ----
+const HIDE_WALL = { shape: 'box', min: [5, 0, -1], max: [40, 12, 1] };   // a wall the target can step behind (the bot stands at x 0)
+const HIDE_TICKS = 2, HIDE_WARMUP = 4, HIDE_OBSERVE = 1.5, HIDE_SOON_TICKS = 18;   // the look is read 0.15 s after the loss
+// Runs a bot with `gun` against a dummy it sees; at HIDE_WARMUP hide(dummy, tick) takes the dummy out of sight (called every tick after).
+// Returns the shots before the loss, the shots later than HIDE_TICKS ticks after it, and the bot's look yaw at the end.
+function hideProbe(gun, distance, hide, prepare) {
+  const [bot, dummy] = startBotTest(botTestMap(false, { brushes: [TEST_FLOOR, HIDE_WALL] }), 'ffa', { bots: [{ tier: 6 }, { dummy: true }] });
+  Weapons.setLoadout(bot, [gun]);
+  Gadgets.resetActor(bot);
+  placeFacing(bot, 0, -distance / 2, 0);
+  if (prepare) prepare(distance);
+  const shots = startEventLog('weapon.fire'), hideTick = Math.round(HIDE_WARMUP * TICK_RATE);
+  let yawSoon = 0;
+  for (let tick = 0; tick < hideTick + HIDE_OBSERVE * TICK_RATE; tick++) {
+    holdActor(bot, 0, -distance / 2);
+    if (tick < hideTick) holdActor(dummy, 0, distance / 2); else hide(dummy, tick - hideTick, distance);
+    Sim.run(1);
+    if (tick === hideTick + HIDE_SOON_TICKS) yawSoon = Bots.lookYaw[bot] / DEG;
+  }
+  shots.stop();
+  const lostAt = hideTick * TICK_SECONDS, own = shots.filter((event) => event.id === bot);
+  const result = { before: own.filter((event) => event.time <= lostAt).length, late: own.filter((event) => event.time > lostAt + HIDE_TICKS * TICK_SECONDS).length,
+    sees: BotSense.sees(bot, dummy), lookYaw: yawSoon };
+  endBotTest();
+  return result;
+}
+const hideBehindWall = (dummy, since, distance) => holdActor(dummy, 20, distance / 2);
+const hideInSmoke = (dummy, since, distance) => holdActor(dummy, 20, distance / 2);   // into a cloud that has been growing since the start (prepareSmoke)
+const prepareSmoke = (distance) => Smoke.addVolume(20, 0, distance / 2, 5, 30);
+const hideCloaked = (dummy, since, distance) => { holdActor(dummy, 0, distance / 2); if (since === 0) Items.giveKey(dummy, 'ghostveil'); };
+Test.add('bots', (check) => {
+  for (const [label, hide, distance] of [['steps behind a wall', hideBehindWall, 14], ['steps into smoke', hideInSmoke, 14], ['cloaks', hideCloaked, 30]]) {
+    const result = hideProbe('vanguard', distance, hide, label === 'steps into smoke' ? prepareSmoke : null);
+    check('auto fire stops within ' + HIDE_TICKS + ' ticks when the target ' + label, result.before > 5 && result.late === 0 && !result.sees, JSON.stringify(result));
+  }
+  const wall = hideProbe('talonbow', 14, hideBehindWall), trueBearing = Math.atan2(20, 7 + 7) / DEG;
+  check('a charge in hand aims at the last known spot, not at the true position behind the wall', Math.abs(wall.lookYaw) < 15 && Math.abs(wall.lookYaw - trueBearing) > 30, JSON.stringify(wall) + ' true ' + trueBearing.toFixed(0));
+});
+Test.add('balance', (check) => {
+  // O4: Veil ends on a weapon shot, not on a melee swing; a bot with it running does not shoot
+  const t = AbilityTest.give(AbilityTest.start(), 'veilcombo');
+  Weapons.setLoadout(t.caster, ['warden']);
+  check('AX5 Veil casts', AbilityTest.cast(t) && Abilities.isActive(t.caster, 'veilcombo'));
+  Bus.emit('weapon.fire', { id: t.caster, weapon: 'maul', mode: 'melee', weaponClass: 'melee' });
+  check('the quick melee does not end Veil', Abilities.isActive(t.caster, 'veilcombo'));
+  Weapons.setLoadout(t.caster, ['maul']);
+  TestArena.place(t.enemy, 0, 1.2);
+  TestArena.aimAt(t.caster, t.enemy);
+  const swings = TestArena.count('weapon.fire', () => TestArena.hold(t.caster, BTN.FIRE, 0.5));
+  check('a real Breaker Maul swing (mode primary, class melee) does not end Veil', swings > 0 && Abilities.isActive(t.caster, 'veilcombo'), swings);
+  Sim.step();   // the trigger is up for a step before the next gun is pressed
+  Weapons.setLoadout(t.caster, ['warden']);
+  TestArena.place(t.enemy, 0, ENEMY_DISTANCE);
+  TestArena.aimAt(t.caster, t.enemy);
+  TestArena.hold(t.caster, BTN.FIRE, 0.3);
+  check('a weapon shot ends Veil', !Abilities.isActive(t.caster, 'veilcombo'));
+  AbilityTest.give(t, 'veilcombo'); AbilityTest.cast(t);
+  Actors.kind[t.caster] = ACTOR_KIND.BOT; Bots.active[t.caster] = 1;
+  check('a bot under Veil keeps its trigger up (keepsCloak)', BotCombat.keepsCloak(t.caster));
+  Bots.active[t.caster] = 0; Actors.kind[t.caster] = ACTOR_KIND.DUMMY;
+  TestArena.finish();
+});
+Test.add('balance', (check) => {
+  // a bot lobs at the point it aims at, not at the wall in front of it; out of reach it takes the farthest arc, not a flat shot
+  TestArena.start({}, [{ shape: 'box', min: [-3, 0, 4], max: [3, 6, 5] }]);
+  const id = TestArena.actor(1, 0, 0, 0), direction = { x: 0, y: 0, z: 1 }, realLobRange = Muzzle.lobRange;   // the bots' hook (14d), put back below
+  Actors.pitch[id] = Actors.aimPitch[id] = 0;
+  const reach = (speed, gravity) => { const out = Muzzle.launchFrom; return out.dy > 0 ? speed * speed * 2 * out.dy * Math.sqrt(1 - out.dy * out.dy) / gravity : 0; };
+  Muzzle.leaveFromEye(id, Actors.eyeY(id), direction);
+  Muzzle.lobRange = (actor) => (actor === id ? 20 : -1);
+  const solved = Muzzle.solveLob(id, direction, 22, 20), range = reach(22, 20);
+  check('a bot lobs at its own aim point 20 m away although a wall stands 4 m ahead', solved && range > 17 && range < 23, range.toFixed(1));
+  Muzzle.leaveFromEye(id, Actors.eyeY(id), direction);
+  Muzzle.lobRange = (actor) => (actor === id ? 60 : -1);
+  const far = Muzzle.solveLob(id, direction, 22, 20);
+  check('a point out of reach (60 m, reach 24 m) gets the farthest arc, about 45 deg', far && Muzzle.launchFrom.dy > 0.6 && Muzzle.launchFrom.dy < 0.8, Muzzle.launchFrom.dy);
+  Muzzle.lobRange = null;
+  check('no usable speed or gravity leaves the direction alone (no NaN)', !Muzzle.solveLob(id, direction, NaN, 20) && !Muzzle.solveLob(id, direction, 22, 0));
+  const sky = { x: 0, y: 0.94, z: 0.34 };   // a shot 70 deg up into the sky: out of reach, and never lowered to 45 deg
+  Muzzle.leaveFromEye(id, Actors.eyeY(id), sky);
+  Muzzle.solveLob(id, sky, 22, 20);
+  check('out of reach the arc is never lower than the eye pitch (a sky shot stays steep)', Muzzle.launchFrom.dy > 0.9, Muzzle.launchFrom.dy);
+  Muzzle.lobRange = realLobRange;
+  check('the bots\' lob hook is back after the test', Muzzle.lobRange === realLobRange && typeof realLobRange === 'function');
+  TestArena.finish();
+});
+Test.add('balance', (check) => {
+  // a trigger held at death is not pressed again after the respawn (a Talon Bow charge used to leave at nothing then)
+  const [bot] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 3 }, { dummy: true }] });
+  Bots.buttonsWanted[bot] = BTN.FIRE; Bots.slotWanted[bot] = 3;
+  Bots.onDeath(bot);
+  check('a dead bot has no wish left: no buttons, no weapon slot', Bots.buttonsWanted[bot] === 0 && Bots.slotWanted[bot] === 0 && Actors.buttons[bot] === 0);
+  endBotTest();
+  // the fairness record: a charge release at an enemy seen 0.1 s ago is "recent", an auto shot never; the enemy is the one the shot was aimed at
+  const [shooter, near, far] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 3 }, { dummy: true }, { dummy: true }] });
+  placeFacing(shooter, 0, 0, 0); holdActor(near, 0, 10); holdActor(far, 30, 10);
+  const aimed = BotCombat.aimedAt(shooter, { dx: 0, dy: 0, dz: 1 });
+  check('the target a shot was aimed at is the enemy on its line', aimed === near, aimed + ' / ' + near);
+  const before = Object.assign({}, BotCombat.fairness);
+  BotSense.seenAt[BotSense.pair(shooter, near)] = Sim.time - 0.1; BotCombat.licenseUntil[shooter] = -1;
+  Weapons.setLoadout(shooter, ['talonbow', 'vanguard']);
+  BotCombat.recordFairness(shooter, { weapon: 'talonbow', mode: 'primary', dx: 0, dy: 0, dz: 1 });
+  check('a charge release at an enemy seen 0.1 s ago is counted apart (recent)', BotCombat.fairness.recent === before.recent + 1 && BotCombat.fairness.unperceived === before.unperceived);
+  BotCombat.recordFairness(shooter, { weapon: 'vanguard', mode: 'primary', dx: 0, dy: 0, dz: 1 });
+  check('an auto shot in the same case is unperceived', BotCombat.fairness.unperceived === before.unperceived + 1);
+  BotSense.seenAt[BotSense.pair(shooter, near)] = Sim.time - 0.5;
+  BotCombat.recordFairness(shooter, { weapon: 'talonbow', mode: 'primary', dx: 0, dy: 0, dz: 1 });
+  check('a charge release at an enemy seen 0.5 s ago is unperceived (the window is 0.25 s)', BotCombat.fairness.unperceived === before.unperceived + 2);
+  BotCombat.fairness.shots = before.shots; BotCombat.fairness.unperceived = before.unperceived; BotCombat.fairness.unknown = before.unknown; BotCombat.fairness.recent = before.recent;
+  endBotTest();
+});
+Test.add('balance', (check) => {
+  // a burst left over from another weapon does not fire the weapon that replaced it (it did: rounds of a Ratchet burst left a Ramjet)
+  TestArena.start({});
+  // (through the carry-limit pickup path: Weapons.give replaces the held gun, nothing resets the firing state but the fix)
+  TestArena.finish();
+  TestArena.start({ carry: 1 });
+  const id = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 20);
+  Weapons.clear(id);
+  Weapons.give(id, 'ratchet', 0);
+  const ratchet = CAT.weapons.byId('ratchet');
+  TestArena.aimAt(id, target);
+  Weapons.startBurst(id, ratchet, ratchet.primary, 0);
+  Weapons.give(id, 'ramjet', 0);
+  const swapped = Weapons.currentWeapon(id) && Weapons.currentWeapon(id).id === 'ramjet' && !Weapons.has(id, 'ratchet');
+  const shots = TestArena.count('weapon.fire', () => Sim.run(TICK_RATE / 2));
+  check('rounds of an abandoned burst do not leave the weapon that replaced it (carry-limit pickup)', swapped && shots === 0 && Weapons.burstLeft[id] === 0, shots);
+  // a charge begun with the Talon Bow and released after the Accelerator replaced it does not fire the Accelerator
+  Weapons.clear(id);
+  Weapons.give(id, 'talonbow', 0);
+  TestArena.aimAt(id, target);
+  Actors.buttons[id] = BTN.FIRE;
+  Sim.run(TICK_RATE / 4);
+  Weapons.give(id, 'accelerator', 0);
+  Actors.buttons[id] = 0;
+  const released = TestArena.count('weapon.fire', () => Sim.run(TICK_RATE / 2));
+  check('a charge of the replaced weapon is not released into the new one', Weapons.currentWeapon(id).id === 'accelerator' && released === 0 && Weapons.chargeMode[id] < 0, released);
+  TestArena.finish();
+});
+Test.add('balance', (check) => {
+  // a bot that freezes (buy time, a freeze status) with a charge in hand drops it: letting go would fire it at nothing (unperceived release)
+  const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 3 }, { dummy: true }] });
+  Weapons.setLoadout(bot, ['talonbow']);
+  placeFacing(bot, 0, -7, 0); holdActor(dummy, 0, 7);
+  Sim.run(TICK_RATE);
+  const shots = startEventLog('weapon.fire');
+  BotCombat.holdSince[bot] = Sim.time; Weapons.chargeMode[bot] = 0; Weapons.charge[bot] = 0.3;
+  Actors.flags[bot] |= ACTOR_FLAG.FROZEN;
+  for (let tick = 0; tick < TICK_RATE; tick++) { holdActor(bot, 0, -7); holdActor(dummy, 0, 7); Sim.run(1); }
+  const whileFrozen = shots.filter((event) => event.id === bot).length, dropped = BotCombat.holdSince[bot] < 0 && Weapons.chargeMode[bot] < 0;
+  Actors.flags[bot] &= ~ACTOR_FLAG.FROZEN;   // the thaw: the trigger is up now, which used to release the stale charge at once
+  Bots.buttonsWanted[bot] = 0; Actors.buttons[bot] = 0;
+  for (let tick = 0; tick < TICK_RATE / 10; tick++) { holdActor(bot, 0, -7); holdActor(dummy, 0, 7); Sim.run(1); }
+  shots.stop();
+  check('a frozen bot with a held charge fires nothing, not even when it thaws, and forgets the hold', whileFrozen === 0 && dropped && shots.filter((event) => event.id === bot).length === 0, whileFrozen + ' / ' + dropped + ' / ' + shots.filter((event) => event.id === bot).length);
+  endBotTest();
+});
+Test.add('balance', (check) => {
+  // a trigger held through a change of weapon fires an automatic gun at once, a semi or burst gun only after a fresh press (a promotion used to start a stale burst)
+  TestArena.start({});
+  const id = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 20);
+  giveFull(id, 'vanguard');
+  TestArena.aimAt(id, target);
+  Actors.buttons[id] = BTN.FIRE;
+  Sim.run(10);
+  giveFull(id, 'ratchet');
+  const held = TestArena.count('weapon.fire', () => Sim.run(TICK_RATE / 2));
+  Actors.buttons[id] = 0;
+  Sim.run(2);
+  Actors.buttons[id] = BTN.FIRE;
+  const fresh = TestArena.count('weapon.fire', () => Sim.run(TICK_RATE / 2));
+  check('held through a change to a burst gun: nothing until a fresh press; then it fires', held === 0 && fresh > 0, held + ' / ' + fresh);
+  giveFull(id, 'vanguard');
+  const auto = TestArena.count('weapon.fire', () => Sim.run(TICK_RATE / 2));
+  check('held through a change to an automatic gun: it fires at once', auto > 0, auto);
+  Actors.buttons[id] = 0;
+  TestArena.finish();
+});
+Test.add('balance', (check) => {
+  // the player's trigger (P8-04): a press during the raise of a semi or burst gun fires, a trigger held all through the change waits for a fresh press (Fire and Alt)
+  TestArena.start({});
+  const id = TestArena.actor(1, 0, 0), target = TestArena.sponge(2, 0, 20);
+  const swapTo = (key, button, pressAfterTicks) => {
+    Weapons.setLoadout(id, ['vanguard']);
+    Weapons.give(id, key, 0);
+    Actors.buttons[id] = pressAfterTicks < 0 ? button : 0;
+    Sim.run(2);
+    TestArena.aimAt(id, target);
+    Weapons.requestSwitch(id, CAT.weapons.byId(key).index);
+    return TestArena.count('weapon.fire', () => {
+      for (let tick = 0; tick < TICK_RATE; tick++) {
+        if (tick === pressAfterTicks) Actors.buttons[id] = button;
+        Sim.run(1);
+      }
+    });
+  };
+  const fresh = swapTo('verdict', BTN.FIRE, 4);
+  check('Fire pressed during the raise of a semi-auto gun and held fires it', fresh >= 1, fresh);
+  Actors.buttons[id] = 0; Sim.run(2);
+  const freshBurst = swapTo('ratchet', BTN.FIRE, 4);
+  check('Fire pressed during the raise of a burst gun and held fires it', freshBurst >= 1, freshBurst);
+  Actors.buttons[id] = 0; Sim.run(2);
+  const heldThrough = swapTo('verdict', BTN.FIRE, -1);
+  check('Fire held all through the change waits for a fresh press (a semi-auto gun)', heldThrough === 0, heldThrough);
+  Actors.buttons[id] = 0; Sim.run(2);
+  const altFresh = swapTo('warden', BTN.ALT, 4);
+  check('Alt pressed during the raise of the Warden fires its burst', altFresh >= 1, altFresh);
+  Actors.buttons[id] = 0; Sim.run(2);
+  const altHeld = swapTo('warden', BTN.ALT, -1);
+  check('Alt held all through the change does not fire the Warden burst until it is pressed again', altHeld === 0, altHeld);
+  Actors.buttons[id] = 0;
+  TestArena.finish();
+});
+
+// ---- BOT-071 revive soak (P8-04: moved here from the bots group, where 36 seeds would add about 2.5 minutes to a fast group) ----
+// Over seeds 1-36 (about 1,900 downs) bots revive 28.2% of the downed in this tree (28.6% before P8-04, 26.9% after the first pass; without revive goals under 2%),
+// about 1.5 points of noise; one match swings from 16% to 47%, and the six seeds this test used to run read anywhere between 20% and 33%. So 36 seeds against a 25% floor.
+const REVIVE_SOAK_SECONDS = 180, REVIVE_SOAK_SEEDS = Array.from({ length: 36 }, (_, index) => index + 1), REVIVE_SHARE_MIN = 0.25;
+Test.add('balance', (check) => {
+  const downed = new Uint8Array(MAX_ACTORS);
+  let downs = 0, revives = 0;
+  const onTick = () => {
+    for (let id = 0; id < Actors.count; id++) {
+      const now = Actors.alive[id] && (Actors.flags[id] & ACTOR_FLAG.DOWNED) ? 1 : 0;
+      if (now && !downed[id]) downs++;
+      if (!now && downed[id] && Actors.alive[id]) revives++;
+      downed[id] = now;
+    }
+  };
+  for (const seed of REVIVE_SOAK_SEEDS) {   // one match swings a lot (who is downed where): the share is over 36
+    downed.fill(0);
+    playMatch({ mode: 'dom', map: 'twinkeeps', ruleset: 'modern', minutes: REVIVE_SOAK_SECONDS / 60, botCount: 10, seed, onTick });
+  }
+  check('Modern Holdfast: bots revive at least 25% of the downed (36 seeds)', downs > 0 && revives / downs >= REVIVE_SHARE_MIN, revives + ' of ' + downs);
+}, { slow: true });   // 2.5 minutes: only with --slow or --group balance
+
+Test.add('balance', (check) => {
+  // a bot under Veil or the Phantasm cloak swings a real melee weapon (a melee swing does not end the cloak) but keeps its gun's trigger up
+  const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 3 }, { dummy: true }] });
+  const realKeepsCloak = BotCombat.keepsCloak;
+  BotCombat.keepsCloak = () => true;
+  const shotsWith = (weaponId) => {
+    Weapons.setLoadout(bot, [weaponId]);
+    placeFacing(bot, 0, -0.75, 0);
+    placeFacing(dummy, 0, 0.75, Math.PI);
+    let shots = 0;   // primary-mode shots only: the quick melee (mode melee) is not what the cloak gate decides
+    const tap = Bus.on('weapon.fire', (event) => { if (event.id === bot && event.mode !== 'melee') shots++; });
+    for (let tick = 0; tick < 2 * TICK_RATE; tick++) { holdActor(bot, 0, -0.75); holdActor(dummy, 0, 0.75); Sim.run(1); }
+    Bus.off('weapon.fire', tap);
+    return shots;
+  };
+  const gunShots = shotsWith('vanguard');   // first: the bot needs a moment to notice the dummy
+  const swings = shotsWith('maul');
+  BotCombat.keepsCloak = realKeepsCloak;
+  check('a bot under a cloak swings a real melee weapon at a target in reach', swings > 0, swings);
+  check('and the same bot keeps its gun quiet under the cloak', gunShots === 0, gunShots);
+  endBotTest();
 });

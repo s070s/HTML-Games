@@ -91,8 +91,16 @@ export async function summarize(runsArg, outDir, file) {
     add(family, id, code + ' EWR %', n ? row.kills / n * 100 : 0, percentOf(wilson(row.kills, n)), band.ewr, n, targets.rule.minEngagements);
     const homeKills = band.homeBuckets ? bucketSum(row.killDistance, band.homeBuckets) : row.killsHome, homeDeaths = band.homeBuckets ? bucketSum(row.deathDistance, band.homeBuckets) : row.deathsHome;
     const awayKills = band.awayBuckets ? bucketSum(row.killDistance, band.awayBuckets) : row.killsAway, awayDeaths = band.awayBuckets ? bucketSum(row.deathDistance, band.awayBuckets) : row.deathsAway;
-    if (band.home) add(family, id, code + ' home EWR %', homeKills + homeDeaths ? homeKills / (homeKills + homeDeaths) * 100 : 0, percentOf(wilson(homeKills, homeKills + homeDeaths)), band.home, homeKills + homeDeaths, SPLIT_MIN);
-    if (band.away) add(family, id, code + ' away EWR %', awayKills + awayDeaths ? awayKills / (awayKills + awayDeaths) * 100 : 0, percentOf(wilson(awayKills, awayKills + awayDeaths)), band.away, awayKills + awayDeaths, SPLIT_MIN);
+    // Range edge (revised 2026-10-30, coordinator): no row loses at home (home EWR at least rangeEdge.homeMin) and none does better away than at home (home minus away at
+    // least 0 points); the class pooled gap is judged below. The old "home 55 % or more, away 45 % or less" cannot hold for every row (both sides of a fight are measured).
+    if (band.home) {
+      const homeN = homeKills + homeDeaths, awayN = awayKills + awayDeaths, home = homeN ? homeKills / homeN * 100 : 0, away = awayN ? awayKills / awayN * 100 : 0;
+      add(family, id, code + ' home EWR %', home, percentOf(wilson(homeKills, homeN)), [targets.rangeEdge.homeMin, null], homeN, SPLIT_MIN);
+      if (band.away) {
+        const se = Math.sqrt((homeN ? home * (100 - home) / homeN : 0) + (awayN ? away * (100 - away) / awayN : 0));
+        add(family, id, code + ' range edge (home - away, points)', home - away, [home - away - Z * se, home - away + Z * se], [targets.rangeEdge.rowMin, null], Math.min(homeN, awayN), SPLIT_MIN);
+      }
+    }
     const caseRate = (() => { let k = 0, d = 0; for (const r of runs) for (const rk in r.rec.rows) if (rk.startsWith('weapon:')) { k += r.rec.rows[rk].kills; d += r.rec.rows[rk].drawn; } return d ? k / d : 0; })();
     const perRun = runs.map((r) => { const x = r.rec.rows[key]; if (!x || !x.drawn) return null; let k = 0, d = 0; for (const rk in r.rec.rows) if (rk.startsWith('weapon:')) { k += r.rec.rows[rk].kills; d += r.rec.rows[rk].drawn; } return d ? (x.kills / x.drawn) / (k / d) : null; }).filter((v) => v !== null);
     if (band.kri && caseRate) add(family, id, code + ' KRI', mean(perRun), bootstrap(perRun), band.kri, perRun.length, 3);
@@ -120,7 +128,9 @@ export async function summarize(runsArg, outDir, file) {
       return [kills, all];
     };
     const cr = targets.classRules;
-    for (const [cls, label, band] of [['melee', 'melee kill share % (RS01)', cr.meleeKillShare], ['sidearm', 'sidearm kill share % (RS01)', [null, cr.sidearmKillShareMax]]]) {
+    const byHand = f2.reduce((total, run) => total + (run.rec.totals.meleeKills || 0), 0), allKills = f2.reduce((total, run) => total + run.rec.totals.kills, 0);
+    if (f2.some((run) => run.rec.totals.meleeKills !== undefined)) add('F2', 'class rules', 'kills by hand % (melee weapons and the quick melee, RS01)', allKills ? byHand / allKills * 100 : 0, percentOf(wilson(byHand, allKills)), cr.meleeKillShare, allKills, 150);
+    for (const [cls, label, band] of [...(f2.some((run) => run.rec.totals.meleeKills !== undefined) ? [] : [['melee', 'melee kill share % (RS01)', cr.meleeKillShare]]), ['sidearm', 'sidearm kill share % (RS01)', [null, cr.sidearmKillShareMax]]]) {
       const [k, n] = share([cls], f2);
       add('F2', 'class rules', label, n ? k / n * 100 : 0, percentOf(wilson(k, n)), band, n, 150);
     }
@@ -132,6 +142,22 @@ export async function summarize(runsArg, outDir, file) {
     for (const run of f2) { kills += run.rec.totals.kills; for (const key in run.rec.rows) if (key.startsWith('weapon:') && weaponClassOf[key.slice(7)] === 'explosive') { const r = run.rec.rows[key]; selfDamage += r.selfDamage; damage += r.damage; splash += r.splashKills; } }
     add('F2', 'class rules', 'explosive self damage % of class damage', damage ? selfDamage / damage * 100 : 0, percentOf(wilson(selfDamage, damage)), [null, cr.explosiveSelfDamageMax], Math.round(damage), 500);
     add('F2', 'class rules', 'splash kills % of all kills (RS01)', kills ? splash / kills * 100 : 0, percentOf(wilson(splash, kills)), [null, cr.splashKillShareMax], kills, 150);
+    // the class gap: pooled home EWR minus pooled away EWR over the rows of a class (revised range-edge rule)
+    const edge = {};
+    for (const run of f2) for (const key in run.rec.rows) {
+      if (!key.startsWith('weapon:')) continue;
+      const cls = weaponClassOf[key.slice(7)], band = targets.weapons[cls], r = run.rec.rows[key];
+      if (!band || !band.home) continue;
+      const slot = (edge[cls] = edge[cls] || { hk: 0, hd: 0, ak: 0, ad: 0 });
+      slot.hk += band.homeBuckets ? bucketSum(r.killDistance, band.homeBuckets) : r.killsHome; slot.hd += band.homeBuckets ? bucketSum(r.deathDistance, band.homeBuckets) : r.deathsHome;
+      slot.ak += band.awayBuckets ? bucketSum(r.killDistance, band.awayBuckets) : r.killsAway; slot.ad += band.awayBuckets ? bucketSum(r.deathDistance, band.awayBuckets) : r.deathsAway;
+    }
+    for (const cls in edge) {
+      const e = edge[cls], hn = e.hk + e.hd, an = e.ak + e.ad;
+      if (!hn || !an) continue;
+      const home = e.hk / hn * 100, away = e.ak / an * 100, se = Math.sqrt(home * (100 - home) / hn + away * (100 - away) / an);
+      add('F2', 'class edge', cls + ' class range edge (pooled home - away, points)', home - away, [home - away - Z * se, home - away + Z * se], [targets.rangeEdge.classMin, null], Math.min(hn, an), 60);
+    }
     // class means of the row EWRs
     const byClass = {};
     for (const e of evals) if (e.family === 'F2' && e.metric.endsWith(' EWR %') && e.n >= targets.rule.minEngagements) { const cls = weaponClassOf[e.metric.split(' ')[0]]; (byClass[cls] = byClass[cls] || []).push(e.value); }

@@ -14,7 +14,8 @@
 
 const MUZZLE_CONVERGE_RANGE = 120;       // m: how far the eye ray is searched for the point projectiles aim at (none found: this far)
 const MUZZLE_MIN_CONVERGE = 1.5;         // m: with a wall or an actor on the eye ray closer than this the shot leaves the eye (the muzzle reaches 0.5 to 0.9 m ahead)
-const LOB_MIN_GRAVITY = 9;               // m/s2: a projectile row with this much gravity or more is lobbed: it is aimed on an arc to the crosshair point (P8-04)
+const LOB_MIN_GRAVITY = 10;              // m/s2: a projectile row with this much gravity or more is lobbed: it is aimed on an arc to the crosshair point (P8-04); the Talon Bow arrow (9) keeps its drop, a listed drawback
+
 const MUZZLE_PATH_SLACK = 0.3;           // m: a wall this close to the aim point is the aim point itself, not something in the way
 const MUZZLE_LOBBED_CHECK = 2;           // m: how far a lobbed shot's start is checked along its direction
 const MUZZLE_SIGNATURE_FIELDS = 10;      // id, weapon, x, y, z, yaw, pitch, ADS share, height, first person: what prepare() depends on
@@ -155,15 +156,21 @@ const Muzzle = {
     if (World.raycast(out.x, out.y, out.z, out.dx, out.dy, out.dz, reach, muzzleHit)) this.leaveFromEye(id, eyeY, direction);   // a pillar edge on the way
     return out;
   },
+  lobRange: null,   // fn(id) -> the metres to the point a bot aims at (14d: its target, with its aim error), or -1: the eye ray decides
   // P8-04 (F0-13): the low arc from the muzzle (launchFrom) through the point under the crosshair for a projectile of this speed and gravity, into
-  // launchFrom's direction. False (the direction stays the eye ray's) when no point is under the crosshair, it is too close, or it is out of reach.
+  // launchFrom's direction. The point is where the eye ray ends: the nearest wall or actor, else MUZZLE_CONVERGE_RANGE ahead; a bot's is its own
+  // aim distance along its (erring) ray, so a wall in front of it does not pull the shot short. A point out of reach gets the farthest arc, not a flat
+  // shot. False (the direction stays the eye ray's) only when the point is closer than MUZZLE_MIN_CONVERGE or the numbers are not usable.
   solveLob(id, direction, speed, gravity) {
-    const out = this.launchFrom, eyeY = Actors.eyeY(id), distance = this.aimDistance(id, eyeY, direction);
-    if (distance >= MUZZLE_CONVERGE_RANGE || distance < MUZZLE_MIN_CONVERGE) return false;
+    if (!(speed > 0) || !(gravity > 0)) return false;
+    const out = this.launchFrom, eyeY = Actors.eyeY(id), own = this.lobRange ? this.lobRange(id) : -1;
+    const distance = own > 0 ? own : this.aimDistance(id, eyeY, direction);
+    if (distance < MUZZLE_MIN_CONVERGE) return false;
     const dx = Actors.x[id] + direction.x * distance - out.x, dy = eyeY + direction.y * distance - out.y, dz = Actors.z[id] + direction.z * distance - out.z;
     const flat = length2(dx, dz), square = speed * speed, root = square * square - gravity * (gravity * flat * flat + 2 * dy * square);
-    if (flat < 0.01 || root < 0) return false;
-    const slope = (square - Math.sqrt(root)) / (gravity * flat), cosine = 1 / Math.sqrt(1 + slope * slope);
+    if (flat < 0.01) return false;
+    const eyeSlope = direction.y / (length2(direction.x, direction.z) || 1e-6);
+    const slope = root >= 0 ? (square - Math.sqrt(root)) / (gravity * flat) : Math.max(1, eyeSlope), cosine = 1 / Math.sqrt(1 + slope * slope);   // root < 0 (or NaN): out of reach, the farthest arc is 45 deg, or the eye's own pitch when that is steeper (a sky shot is never lowered)
     out.dx = dx / flat * cosine; out.dy = slope * cosine; out.dz = dz / flat * cosine;
     return true;
   },

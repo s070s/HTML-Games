@@ -390,7 +390,7 @@ Test.add('items', (check) => {
   Powerups.give(holder, CAT.powerups.byId('vampfang'), 0);
   Actors.health[holder] = 50;
   TestArena.hit(holder, target, 20);
-  check('PU12 heals 30 % of damage dealt', Test.near(Actors.health[holder], 56, 0.01), Actors.health[holder]);
+  check('PU12 heals 70 % of damage dealt (P8-04)', Test.near(Actors.health[holder], 64, 0.01), Actors.health[holder]);
   TestArena.finish();
 });
 
@@ -398,7 +398,7 @@ Test.add('items', (check) => {
   ItemArena.start({});
   const id = ItemArena.actor(1, 0, 0);
   Powerups.give(id, CAT.powerups.byId('quickening'), 0);
-  check('PU03 speed and fire rate x1.3', Test.near(Move.statusSpeedScale[id], 1.3, 1e-6) && Test.near(Weapons.rateScale[id], 1.3, 1e-6));
+  check('PU03 speed x1.4 and fire rate x1.5 (P8-04)', Test.near(Move.statusSpeedScale[id], 1.4, 1e-6) && Test.near(Weapons.rateScale[id], 1.5, 1e-6));
   Powerups.give(id, CAT.powerups.byId('ghostveil'), 0);
   check('PU04 cloak flag and 25 % perception', (Actors.flags[id] & ACTOR_FLAG.INVISIBLE) !== 0 && Test.near(Items.perceptionScale(id), 0.25, 1e-6));
   Powerups.give(id, CAT.powerups.byId('bottomless'), 0);
@@ -407,10 +407,10 @@ Test.add('items', (check) => {
   Actors.health[id] = 50;
   Powerups.give(id, CAT.powerups.byId('renewal'), 0);
   Sim.run(TICK_RATE);
-  check('PU05 regenerates 15 HP/s below 110', Test.near(Actors.health[id], 65, 0.2), Actors.health[id]);
+  check('PU05 regenerates 25 HP/s below 110 (P8-04)', Test.near(Actors.health[id], 75, 0.2), Actors.health[id]);
   Powerups.clearActor(id, false);
   Powerups.give(id, CAT.powerups.byId('guardianrune'), 0);
-  check('PU15 doubles max health', Actors.maxHealth[id] === 200, Actors.maxHealth[id]);
+  check('PU15 raises max health x2.5 (P8-04)', Actors.maxHealth[id] === 250, Actors.maxHealth[id]);
   check('runes: a rune holder takes no second rune', !Powerups.give(id, CAT.powerups.byId('guardianrune'), 0));
   TestArena.finish();
 });

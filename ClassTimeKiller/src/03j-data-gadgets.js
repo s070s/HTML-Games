@@ -29,7 +29,7 @@ Data.define('gadgets', {
   { id: 'flash', code: 'G03', name: 'Glare Shell', kind: 'thrown', slot: 'tactical', effect: 'flash', carry: 2, fuse: 1.5, radius: 20, duration: 3.5, status: 'blind',
     size: [0.12, 0.24, 0.12], color: 0xdadada },
   { id: 'incendiary', code: 'G04', name: 'Cinder Jar', kind: 'thrown', slot: 'lethal', effect: 'fire', impact: true, fuse: 4, radius: 3, duration: 7, damage: 40,
-    element: 'thermal', status: 'burn', statusSeconds: 2, size: [0.18, 0.24, 0.18], color: 0xb05a20 },
+    element: 'thermal', status: 'burn', statusSeconds: 2, ownerSafe: true, size: [0.18, 0.24, 0.18], color: 0xb05a20 },
   { id: 'sticky', code: 'G06', name: 'Leech Charge', kind: 'thrown', slot: 'lethal', effect: 'explode', fuse: 1.5, stick: true, stickActors: true, radius: 3.5, damage: 110,
     size: [0.2, 0.2, 0.2], color: 0x40a0ff },
   { id: 'impulse', code: 'G07', name: 'Kick Charge', kind: 'thrown', slot: 'tactical', effect: 'impulse', impact: true, fuse: 2, radius: 4, damage: 10, knockback: 18, ownerSafe: true,

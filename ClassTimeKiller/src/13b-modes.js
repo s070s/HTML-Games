@@ -15,8 +15,10 @@ const TIME_EPSILON = 1e-6;             // sim times are sums of 1/120 s steps: c
 const OVERTIME_SECONDS = 180;          // MODE-001: sudden death lasts at most 3 minutes, then the match is a draw
 const TIME_WARNINGS = [300, 60, 30, 10];
 const MODE_GOAL_PRIORITY = 3;          // the match start banner (mode name and goal) stays up long enough to read
-const SPAWN_ENEMY_RADIUS = 12;         // MAP-010: reject a spawn with an enemy this close
-const SPAWN_SIGHT_RADIUS = 25;         // MAP-010: ... or with an enemy in line of sight within this range
+const SPAWN_ENEMY_RADIUS = 12;         // MAP-010: reject a spawn with an enemy this close (15 and 20 m were tried in P8-04: no fewer spawn deaths)
+const SPAWN_SIGHT_RADIUS = 25;         // MAP-010: ... or with an enemy in line of sight within this range (35 and 50 m were tried: no change)
+const SPAWN_REUSE_SECONDS = 8;         // P8-04: a spawn point used this recently scores lower, so one point does not take the spawn deaths of a whole map
+const SPAWN_REUSE_PENALTY = 30;        // metres of score taken off a point used inside SPAWN_REUSE_SECONDS
 const SPAWN_CAPSULE_RADIUS = 2 * ACTOR_RADIUS;   // two capsule radii (DATA-003): closer means spawning inside an actor
 const SPAWN_EYE_HEIGHT = STAND_EYE;
 const SPAWN_ENEMY_CAP = 60;            // enemies farther than this add no more preference
@@ -272,11 +274,11 @@ const Modes = {
     for (const spawn of spawns) {
       if (spawn.modes && spawn.modes.length && !spawn.modes.includes(this.mode.id)) continue;
       const team = typeof spawn.team === 'number' ? spawn.team : NO_TEAM;
-      this.spawnPoints.push({ x: spawn.x, y: spawn.y, z: spawn.z, yaw: (spawn.yaw || 0) * DEG, team, objective: null });
+      this.spawnPoints.push({ x: spawn.x, y: spawn.y, z: spawn.z, yaw: (spawn.yaw || 0) * DEG, team, objective: null, usedAt: -1e9 });
     }
     if (!this.rules.params.spawnAtOwned) return;
     for (const objective of this.objectives) {
-      this.spawnPoints.push({ x: objective.x + OWNED_SPAWN_OFFSET, y: objective.y, z: objective.z, yaw: 0, team: NO_TEAM, objective });
+      this.spawnPoints.push({ x: objective.x + OWNED_SPAWN_OFFSET, y: objective.y, z: objective.z, yaw: 0, team: NO_TEAM, objective, usedAt: -1e9 });
     }
   },
   spawnActor(id) {
@@ -313,6 +315,7 @@ const Modes = {
     }
     if (!best) return false;
     out.x = best.x; out.y = best.y; out.z = best.z; out.yaw = best.yaw;
+    best.usedAt = Sim.time;
     return true;
   },
   spawnUsable(point, id, sameSide) {
@@ -330,6 +333,7 @@ const Modes = {
     let score = spawnRating.nearestEnemy + Rng.rules.next() * SPAWN_JITTER;
     if (this.rules.teams > 0 && spawnRating.nearestMate < Infinity) score -= spawnRating.nearestMate * SPAWN_TEAMMATE_WEIGHT;
     if (this.hasDied[id]) score += Math.min(SPAWN_DEATH_CAP, length2(point.x - this.deathX[id], point.z - this.deathZ[id])) * SPAWN_DEATH_WEIGHT;
+    if (Sim.time - point.usedAt < SPAWN_REUSE_SECONDS) score -= SPAWN_REUSE_PENALTY * (1 - (Sim.time - point.usedAt) / SPAWN_REUSE_SECONDS);
     spawnRating.score = score;
   },
   rateAgainst(id, other, point) {

@@ -55,11 +55,11 @@ function runSoak(run) {
   Game.start({ mode: run.mode, map: run.map, ruleset: run.ruleset, seed: run.seed, bots, modeOptions: run.modeOptions, difficulty: run.difficulty,
     balance: run.balance, player: run.player, mutators: run.mutators });
   const stats = { mode: run.mode, map: typeof run.map === 'string' ? run.map : run.map.id, bots: 0, seconds: 0, botSeconds: 0, stuckFraction: 0, maxStuck: 0, enemyStuck: 0, enemyMaxStuck: 0, nan: 0, maxNoGoal: 0, aiP95: 0, aiMax: 0,
-    kills: 0, shots: 0, unknownShots: 0, unperceivedShots: 0, objectivesTouched: 0, raysMax: 0,
+    kills: 0, shots: 0, unknownShots: 0, unperceivedShots: 0, recentShots: 0, objectivesTouched: 0, raysMax: 0,
     ended: false, winner: NOT_OVER, reason: '', teamCaptures: 0, actorCaptures: 0, holdPoints: 0 };
   for (let id = 0; id < Actors.count; id++) if (Bots.active[id]) stats.bots++;
   resetSoakCounters();
-  const fairness = BotCombat.fairness, shotsBefore = fairness.shots, unknownBefore = fairness.unknown, unperceivedBefore = fairness.unperceived;
+  const fairness = BotCombat.fairness, shotsBefore = fairness.shots, unknownBefore = fairness.unknown, unperceivedBefore = fairness.unperceived, recentBefore = fairness.recent;
   const kills = startEventLog('kill'), scores = startEventLog('score'), timings = [];
   const ticks = Math.round(run.minutes * 60 * TICK_RATE), sampleTicks = Math.round(SOAK_SAMPLE_SECONDS * TICK_RATE);
   let played = 0;
@@ -76,6 +76,7 @@ function runSoak(run) {
   stats.shots = fairness.shots - shotsBefore;
   stats.unknownShots = fairness.unknown - unknownBefore;
   stats.unperceivedShots = fairness.unperceived - unperceivedBefore;
+  stats.recentShots = fairness.recent - recentBefore;
   if (run.probe) run.probe(stats);
   return stats;
 }
@@ -1703,26 +1704,8 @@ Test.add('bots', (check) => {
 });
 
 // ---- BOT-071: a safe, close downed teammate (the player too) outranks the objective ----
-// Over 36 seeds bots revive 31-32% of the downed (under 2% without revive goals), and one match swings from 16% to 47%:
-// three seeds gave 26-39% (5 of 12 such sets under 30%), six seeds 27-36%. So six seeds against a 25% floor.
-const REVIVE_SOAK_SECONDS = 180, REVIVE_SOAK_SEEDS = [1, 2, 3, 4, 5, 6], REVIVE_SHARE_MIN = 0.25, REVIVE_PLAYER_SECONDS = 12;
-Test.add('bots', (check) => {
-  const downed = new Uint8Array(MAX_ACTORS);
-  let downs = 0, revives = 0;
-  const onTick = () => {
-    for (let id = 0; id < Actors.count; id++) {
-      const now = Actors.alive[id] && (Actors.flags[id] & ACTOR_FLAG.DOWNED) ? 1 : 0;
-      if (now && !downed[id]) downs++;
-      if (!now && downed[id] && Actors.alive[id]) revives++;
-      downed[id] = now;
-    }
-  };
-  for (const seed of REVIVE_SOAK_SEEDS) {   // one match swings a lot (who is downed where): the share is over six
-    downed.fill(0);
-    playMatch({ mode: 'dom', map: 'twinkeeps', ruleset: 'modern', minutes: REVIVE_SOAK_SECONDS / 60, botCount: 10, seed, onTick });
-  }
-  check('Modern Holdfast: bots revive at least 25% of the downed', downs > 0 && revives / downs >= REVIVE_SHARE_MIN, revives + ' of ' + downs);
-});
+// (the 36-seed revive soak is in 20b-test-balance.js: it takes about 2.5 minutes)
+const REVIVE_PLAYER_SECONDS = 12;
 Test.add('bots', (check) => {
   Game.headless = true;
   Game.start({ mode: 'dom', map: 'twinkeeps', ruleset: 'modern', seed: 1, balance: false, player: { team: 0 }, bots: [{ team: 0, tier: 3 }, { team: 1, dummy: true }] });

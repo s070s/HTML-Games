@@ -220,6 +220,7 @@ const Bots = {
     if (victim < 0 || !this.active[victim]) return;
     this.setState(victim, BOT_STATE.DEAD);
     Actors.buttons[victim] = 0; Actors.moveX[victim] = 0; Actors.moveZ[victim] = 0; Actors.slotRequest[victim] = 0;
+    this.buttonsWanted[victim] = 0; this.slotWanted[victim] = 0;   // P8-04: the wish dies too, or a trigger held at death is pressed again by the motor until the first think after the respawn and a charge leaves at nothing
   },
   onMatchStop() {
     this.active.fill(0);
@@ -287,6 +288,7 @@ const Bots = {
   },
   // Spawn state and frozen rounds: stand still and look along the facing; perception already runs.
   settle(id, dt) {
+    if (BotCombat.holdSince[id] >= 0) { BotCombat.holdSince[id] = -1; BotCombat.keptSince[id] = -1; Weapons.resetFiring(id); }   // P8-04: a charge held when the bot freezes or settles is dropped, not let go (letting go fires it at nothing)
     this.wishAmount[id] = 0;
     this.motor(id, dt);
   },

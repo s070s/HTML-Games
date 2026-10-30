@@ -112,7 +112,7 @@ Test.add('muzzle', (check) => {
   TestArena.finish();
 });
 
-// Projectiles start at the muzzle and fly to the point under the crosshair; lobbed ones keep the eye direction.
+// Projectiles start at the muzzle and fly to the point under the crosshair; lobbed ones (gravity 10 or more) fly the arc through it, lightly dropping ones keep the eye direction.
 Test.add('muzzle', (check) => {
   TestArena.start({}, [{ shape: 'box', min: [-5, 0, 40], max: [5, 6, 41] }]);
   const shooter = TestArena.actor(1, 0, 0), straight = muzzleTestWeapon('needlethorn'), lobbed = muzzleTestWeapon('pitcher');
@@ -153,9 +153,12 @@ Test.add('muzzle', (check) => {
   Sim.run(TICK_RATE);
   check('fired for real, the shots from the muzzle hit what the crosshair is on', Actors.health[target] < health, health + ' -> ' + Actors.health[target]);
   muzzleTestAim(shooter, 0.3, 0.2);
-  shot = spawn(lobbed);
+  shot = spawn(muzzleTestWeapon('stakedriver'));
   const heading = Vec.normalize(Vec.make(), shot.dir), expected = muzzleTestDirection(shooter);
-  check('a lobbed projectile (gravity) keeps the eye direction, from the muzzle', muzzleTestDistance(heading, expected) < 1e-4 && muzzleTestDistance(shot.start, eye) > 0.4);
+  check('a lightly dropping projectile (gravity under LOB_MIN_GRAVITY) keeps the eye direction, from the muzzle', muzzleTestDistance(heading, expected) < 1e-4 && muzzleTestDistance(shot.start, eye) > 0.4);
+  shot = spawn(lobbed);
+  const lob = Vec.normalize(Vec.make(), shot.dir);
+  check('a lobbed projectile (gravity of LOB_MIN_GRAVITY or more) leaves on the arc through the crosshair point: above the eye direction, from the muzzle (P8-04)', lob.y > expected.y + 0.01 && muzzleTestDistance(shot.start, eye) > 0.4, lob.y + ' / ' + expected.y);
   const close = TestArena.sponge(2, 0, 1.1);
   TestArena.aimAt(shooter, close);
   shot = spawn(straight);

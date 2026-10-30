@@ -304,18 +304,17 @@ Test.add('roster', (check) => {
   Save.data = fresh;
 });
 
-// A charge or lock is licensed while it is held with the target in sight (the next CHARGE_LICENSE_SLACK only) and for its release, one tick and the
-// same slack long (ARC-033; P8-04: the strict one tick missed the shot that leaves a step after the decision, which showed as an unperceived shot).
+// A charge or lock is licensed for its release only, one tick and the clock rounding long (ARC-033), never more than 0.05 s past the hold.
 Test.add('roster', (check) => {
   rosterMatch('classic');
   const bot = Actors.create(ACTOR_KIND.BOT, 1, 'bot'), mode = CAT.weapons.byId('accelerator').primary, hold = mode.charge.time;
   BotCombat.holdSince[bot] = -1; BotCombat.licenseUntil[bot] = -1;
   BotCombat.holdThenRelease(bot, 0, mode, 10);
-  check('starting a charge in sight licenses its fill time and the slack', Test.near(BotCombat.licenseUntil[bot], 10 + hold + CHARGE_LICENSE_SLACK, 1e-9) && BotCombat.holdSince[bot] === 10);
+  check('starting a charge licenses nothing yet', BotCombat.licenseUntil[bot] === -1 && BotCombat.holdSince[bot] === 10);
   BotCombat.holdThenRelease(bot, 0, mode, 10 + hold / 2);
-  check('holding it never shortens the licence', BotCombat.licenseUntil[bot] >= 10 + hold / 2 + CHARGE_LICENSE_SLACK - 1e-9);
+  check('holding it licenses nothing either', BotCombat.licenseUntil[bot] === -1);
   BotCombat.holdThenRelease(bot, 0, mode, 10 + hold);
-  check('the release is licensed for one tick, for its target', Test.near(BotCombat.licenseUntil[bot], 10 + hold + TICK_SECONDS + CHARGE_LICENSE_SLACK, 1e-9) && BotCombat.licenseTarget[bot] === 0 && BotCombat.holdSince[bot] === -1,
+  check('the release is licensed for one tick, for its target', Test.near(BotCombat.licenseUntil[bot], 10 + hold + TICK_SECONDS + LICENSE_ROUNDING, 1e-9) && BotCombat.licenseUntil[bot] - (10 + hold) < 0.05 && BotCombat.licenseTarget[bot] === 0 && BotCombat.holdSince[bot] === -1,
     BotCombat.licenseUntil[bot]);
   endModeTest();
 });
