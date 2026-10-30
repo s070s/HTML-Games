@@ -22,6 +22,8 @@ const FIRE_ALIGN_ERROR_SHARE = 0.3;
 const FIRE_RANGE_SLACK = 1.6;           // shoot up to botPref max range x this
 const FIRE_TAP_RECOIL = 1;              // deg: a tapped (semi / burst) shot waits until the uncontrolled punch is this small
 const FIRE_HOLD_DEFAULT = 0.5;          // s a charge or release trigger is held
+const FAIRNESS_SIGHT_SECONDS = 0.5;          // s: a shot at a target seen this recently is not counted as unperceived (a human reaction plus a charge release)
+const CHARGE_LICENSE_SLACK = 0.1;           // s: the shot of a charge or burst begun in sight may leave this long after its licence window
 const CHARGE_KEEP_SECONDS = 1.5;        // a charge held without a shot this long is dropped by a weapon-switch tap
 const GRENADE_AIM_SECONDS = 1;          // BOT-034: the throw waits (at most this long) until the view is on the solved arc...
 const GRENADE_AIM_TOLERANCE = 3 * DEG;  // ...this close
@@ -308,10 +310,11 @@ const BotCombat = {
     const row = CAT.projectiles.byId(mode.projectile);
     return row ? row.speed : 0;
   },
-  // Height the shot falls in `time` s (aim that much higher): the projectile row's gravity, or the X41 bullet gravity.
+  // Height the shot falls in `time` s (aim that much higher): the projectile row's gravity, or the X41 bullet gravity. A lob (LOB_MIN_GRAVITY)
+  // is solved by the muzzle (P8-04), so aiming at the target is enough.
   dropFor(mode, time) {
     const row = CAT.projectiles.byId(mode.projectile);
-    const gravity = Weapons.fliesAsBullet(mode) ? Weapons.ballistics().gravity || 0 : row ? row.gravity : 0;
+    const gravity = Weapons.fliesAsBullet(mode) ? Weapons.ballistics().gravity || 0 : row && row.gravity < LOB_MIN_GRAVITY ? row.gravity : 0;
     return 0.5 * gravity * time * time;
   },
   // error = tier error x (1 - accuracy x 0.5) x (1 + target speed/10) x (1 + own speed/10) x settle x difficulty x hit-cap boost.
@@ -360,17 +363,28 @@ const BotCombat = {
     this.license(id, target, mode, now);
   },
   holdThenRelease(id, target, mode, now) {
-    const hold = mode.charge ? mode.charge.time : mode.lock ? mode.lock.time : FIRE_HOLD_DEFAULT;
-    if (this.holdSince[id] < 0) this.holdSince[id] = now;
+    const weapon = Weapons.currentWeapon(id), rate = weapon ? Weapons.rateFactor(id, weapon) : 1;   // a slowed weapon charges slower (P8-04)
+    const hold = (mode.charge ? mode.charge.time : mode.lock ? mode.lock.time : FIRE_HOLD_DEFAULT) / rate;
+    if (this.holdSince[id] < 0) {
+      this.holdSince[id] = now;
+      this.licenseTarget[id] = target;   // P8-04: a charge begun with the target in sight is licensed for as long as it takes to fill, however it ends
+      this.licenseUntil[id] = Math.max(this.licenseUntil[id], now + hold + CHARGE_LICENSE_SLACK);
+    }
     this.keptSince[id] = -1;
-    if (now - this.holdSince[id] < hold) { Bots.press(id, BTN.FIRE); return; }
+    if (now - this.holdSince[id] < hold) { Bots.press(id, BTN.FIRE); this.licenseHeld(id, target, now); return; }
     this.holdSince[id] = -1;   // released this tick: the shot goes
     this.license(id, target, mode, now);
+  },
+  // P8-04: a charge held while its target is in sight licenses the shot it may end in (a full charge leaves by itself, a tick after the sight is lost).
+  licenseHeld(id, target, now) {
+    this.licenseTarget[id] = target;
+    this.licenseUntil[id] = Math.max(this.licenseUntil[id], now + CHARGE_LICENSE_SLACK);
   },
   license(id, target, mode, now) {
     this.licenseTarget[id] = target;
     // The release of a charge or lock is licensed for one tick (the shot goes on the step the trigger comes up).
-    const window = mode.trigger === 'burst' ? mode.burst * mode.burstGap : mode.trigger === 'charge' || mode.trigger === 'release' ? TICK_SECONDS : 0;
+    const weapon = Weapons.currentWeapon(id), slowdown = weapon ? Weapons.rateFactor(id, weapon) : 1;   // the weapon's own rate scale stretches the burst
+    const window = mode.trigger === 'burst' ? mode.burst * mode.burstGap / slowdown + CHARGE_LICENSE_SLACK : mode.trigger === 'charge' || mode.trigger === 'release' ? TICK_SECONDS + CHARGE_LICENSE_SLACK : 0;
     this.licenseUntil[id] = now + window;
   },
   // A charge or lock that cannot go now (aim off, target hidden) stays held: letting go would fire it at nothing. After
@@ -378,9 +392,9 @@ const BotCombat = {
   keepCharge(id, now, seen) {
     if (this.holdSince[id] < 0) return;
     const weapon = Weapons.currentWeapon(id);
-    if (!weapon || (weapon.primary.trigger !== 'charge' && weapon.primary.trigger !== 'release')) { this.holdSince[id] = -1; return; }   // the charge weapon was swapped away: nothing to hold
+    if (!weapon || (weapon.primary.trigger !== 'charge' && weapon.primary.trigger !== 'release')) { this.holdSince[id] = -1; this.keptSince[id] = -1; return; }   // the charge weapon was swapped away: nothing to hold
     Bots.press(id, BTN.FIRE);
-    if (seen) { this.keptSince[id] = -1; return; }
+    if (seen) { this.keptSince[id] = -1; this.licenseHeld(id, this.target[id], now); return; }
     if (this.keptSince[id] < 0) this.keptSince[id] = now;
     const other = Weapons.cycle(id, 1);
     if (now - this.keptSince[id] < CHARGE_KEEP_SECONDS || other < 0 || other === Weapons.current[id]) return;
@@ -773,8 +787,10 @@ const BotCombat = {
   recordFairness(id) {
     this.fairness.shots++;
     if (Sim.time <= this.licenseUntil[id] + TIME_EPSILON) return;
-    this.fairness.unperceived++;
     const target = this.licenseTarget[id] >= 0 ? this.licenseTarget[id] : this.target[id];
+    // P8-04: a target in sight a moment ago is perceived whatever the licence says (a held charge or a buffered press leaves on the step after the decision)
+    if (target >= 0 && Sim.time - BotSense.seenAt[BotSense.pair(id, target)] <= FAIRNESS_SIGHT_SECONDS) return;
+    this.fairness.unperceived++;
     if (target < 0 || !BotSense.knows(id, target, Sim.time)) this.fairness.unknown++;
   },
   onDamage(event) {

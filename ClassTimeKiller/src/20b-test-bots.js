@@ -36,7 +36,7 @@ DebugApi.soak = (mode, map, minutes, botCount, seed, modeOptions) => playMatch({
   seed: seed === undefined ? 1 : seed, modeOptions: modeOptions || SOAK_OPEN_MATCH });
 
 // One headless match at the soak quality, stopped afterwards whatever happens. run: { mode, map (an id, or a map
-// object), ruleset, difficulty, balance, player (optional), minutes, botCount or bots (setup entries), seed, modeOptions, onTick(tick) after every tick,
+// object), ruleset, difficulty, balance, player (optional), mutators, minutes, botCount or bots (setup entries), seed, modeOptions, onTick(tick) after every tick,
 // probe(stats) at the end while the match still runs }. Returns the soak numbers.
 function playMatch(run) {
   const headless = Game.headless, quality = Settings.get('video.quality'), ownMap = typeof run.map !== 'string';
@@ -53,7 +53,7 @@ function playMatch(run) {
 function runSoak(run) {
   const bots = run.bots || Array.from({ length: run.botCount }, () => ({}));
   Game.start({ mode: run.mode, map: run.map, ruleset: run.ruleset, seed: run.seed, bots, modeOptions: run.modeOptions, difficulty: run.difficulty,
-    balance: run.balance, player: run.player });
+    balance: run.balance, player: run.player, mutators: run.mutators });
   const stats = { mode: run.mode, map: typeof run.map === 'string' ? run.map : run.map.id, bots: 0, seconds: 0, botSeconds: 0, stuckFraction: 0, maxStuck: 0, enemyStuck: 0, enemyMaxStuck: 0, nan: 0, maxNoGoal: 0, aiP95: 0, aiMax: 0,
     kills: 0, shots: 0, unknownShots: 0, unperceivedShots: 0, objectivesTouched: 0, raysMax: 0,
     ended: false, winner: NOT_OVER, reason: '', teamCaptures: 0, actorCaptures: 0, holdPoints: 0 };
@@ -330,6 +330,7 @@ Test.add('bots', (check) => {
 const ACCURACY_SECONDS = 15, ACCURACY_SEEDS = [1, 2, 3], ACCURACY_DISTANCE = 15, ACCURACY_STRAFE = 3, ACCURACY_STRAFE_RATE = 0.8;
 const ACCURACY_BAND_LOW = 0.3, ACCURACY_BAND_SLACK = 0.08;   // band: 30% of the tier's hit cap .. the cap + 0.08
 const ACCURACY_ORDER_SLACK = 0.05;
+const ACCURACY_GUN = 'ratchet';                                  // the rifle every tier is measured with
 const ACCURACY_STILL_TABLE = { walkFraction: 0, walk: 0, crouch: 0, run: 0, air: 0, land: 0, landTime: 1 };   // a MOV-025 table that adds nothing
 
 function measureAccuracy(tier) {
@@ -337,6 +338,7 @@ function measureAccuracy(tier) {
   for (const seed of ACCURACY_SEEDS) {
     const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { seed, bots: [{ tier }, { dummy: true }] });
     Gadgets.resetActor(bot);   // aim alone: no grenade throws between the shots
+    Weapons.setLoadout(bot, [ACCURACY_GUN]);   // and the same hitscan rifle for every tier (the aim is measured, not the spawn pick, which varies with the roster)
     Move.presetOverride[bot] = Object.assign({}, Move.preset(bot), { inaccuracy: ACCURACY_STILL_TABLE });   // and no WPN-003 movement spread
     for (let tick = 0; tick < ACCURACY_SECONDS * TICK_RATE; tick++) {
       if (tick === 0) placeFacing(bot, 0, -ACCURACY_DISTANCE / 2, 0);
@@ -877,7 +879,8 @@ Test.add('bots', (check) => {
 });
 
 // ---- Grenades on the solved arc (real Gadgets): two enemies together draw a frag that lands among them ----
-const THROW_ROW = 'frag', THROW_DISTANCE = 15, THROW_LANDING = 4, THROW_SECONDS = 8;
+const LONE_DISTANCE = 16.5;   // inside the frag range of the bot rule (16-32 m), so only the missing cover or cluster keeps the frag
+const THROW_ROW = 'frag', THROW_DISTANCE = 20, THROW_LANDING = 4, THROW_SECONDS = 8;
 
 const LONE_SECONDS = 4, ESCAPE_ULTIMATE = 'rift', STRIKE_ULTIMATE = 'orbital';
 
@@ -920,11 +923,11 @@ Test.add('bots', (check) => {
 Test.add('bots', (check) => {
   const [bot, dummy] = startBotTest(botTestMap(false), 'ffa', { bots: [{ tier: 6 }, { dummy: true }] });
   Weapons.setLoadout(bot, ['maul', 'vanguard']);   // an ordinary rifle: a bot's loadout gun may be a sniper, whose scope narrows what it sees
-  placeFacing(bot, 0, -THROW_DISTANCE / 2, 0);
+  placeFacing(bot, 0, -LONE_DISTANCE / 2, 0);
   Gadgets.give(bot, THROW_ROW, 2);
   check('kit use counts start at 0 every match', BotCombat.uses.grenades === 0 && BotCombat.uses.gadgets === 0 && BotCombat.uses.abilities === 0);
   let seen = true;
-  runHeld(LONE_SECONDS, () => { holdActor(bot, 0, -THROW_DISTANCE / 2); holdActor(dummy, 0, THROW_DISTANCE / 2); }, () => {
+  runHeld(LONE_SECONDS, () => { holdActor(bot, 0, -LONE_DISTANCE / 2); holdActor(dummy, 0, LONE_DISTANCE / 2); }, () => {
     if (Sim.time > 1) seen = seen && BotSense.sees(bot, dummy);
     return false;
   });
@@ -1397,13 +1400,14 @@ function gadgetBatches(rows) {
 }
 
 const KIT_QUICK_SECONDS = 60, KIT_QUICK_SHARE = 0.6, KIT_SWEEP_SECONDS = 60;
+const KIT_GADGET_SECONDS = 150;  // P8-04: grenades now wait for 16 m (the blast came back on the thrower), so the devices need a little longer to show
 
 Test.add('bots', (check) => {
   const rows = pressableAbilities().slice(0, KIT_ROWS);
   const used = playKitMatch({ kits: abilityKits(rows), ruleset: '' }, KIT_QUICK_SECONDS, KIT_QUICK_ROUND);
   const casts = rows.filter((row) => used.abilities[row.id] > 0).length, text = casts + '/' + rows.length + ' ' + JSON.stringify(used.abilities);
   check('bots cast most of an 8-ability sample in 60 s', casts >= rows.length * KIT_QUICK_SHARE, text);
-  const gadgets = playKitMatch(gadgetBatches(CAT.gadgets.filter((row) => BOT_GADGET_USE[row.effect]))[0], KIT_QUICK_SECONDS, KIT_QUICK_ROUND);
+  const gadgets = playKitMatch(gadgetBatches(CAT.gadgets.filter((row) => BOT_GADGET_USE[row.effect]))[0], KIT_GADGET_SECONDS, KIT_QUICK_ROUND);
   const usedKinds = Object.keys(gadgets.gadgets).map((key) => CAT.gadgets.byId(key).kind);
   check('bots throw grenades and place gadgets in a match', usedKinds.includes('thrown') && usedKinds.filter((kind) => kind !== 'thrown').length >= 2 && gadgets.placed > 0, JSON.stringify(gadgets));
 });

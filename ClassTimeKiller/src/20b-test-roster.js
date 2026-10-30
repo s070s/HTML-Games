@@ -93,7 +93,7 @@ Test.add('roster', (check) => {
   check('Hush is a silent precision pistol: slower, harder, headshots x2.5, no tracer, noise 6', hush.primary.rate < warden.primary.rate && hush.primary.damage > warden.primary.damage
     && hush.primary.headMult === 2.5 && hush.primary.tracer === false && hush.noise === 6 && warden.primary.tracer === true);
   const stake = CAT.weapons.byId('stakedriver');
-  check('Stakedriver alt is a fire stake: a stake that burns at any range', stake.alt.projectile === 'stake' && stake.alt.status.id === 'burn' && stake.alt.statusRange === 0 && stake.primary.statusRange > 0);
+  check('Stakedriver alt is the only burn (P8-04 O1): a stake that burns at any range, the primary pins without burning', stake.alt.projectile === 'stake' && stake.alt.status.id === 'burn' && stake.alt.statusRange === 0 && !stake.primary.status && stake.primary.statusRange === 0);
   check('Ramjet alt is the lock-on homing volley, Wasp alt the hollow-point toggle, Kestrel holds 15', CAT.weapons.byId('ramjet').alt.type === 'lock' && CAT.weapons.byId('ramjet').alt.lock.time === 1.2
     && CAT.weapons.byId('wasp').alt.type === 'toggle' && CAT.weapons.byId('kestrel').mag === 15);
   const unpriced = CAT.weapons.filter((weapon) => ['sidearm', 'smg', 'rifle', 'shotgun', 'marksman', 'sniper', 'energy', 'heavy', 'explosive', 'exotic'].includes(weapon.class) && weapon.id !== 'warden' && !(weapon.price > 0));
@@ -184,7 +184,7 @@ Test.add('roster', (check) => {
   const bot = Actors.create(ACTOR_KIND.BOT, 1, 'bot');
   Bots.profile[bot] = CAT.bots.byId('okoro');   // favourite: the Vanguard
   const first = Loadouts.startKeys(bot);
-  check('a bot spawns with melee, sidearm and its favourite as the drawn gun', first.length === 3 && first[0] === 'maul' && first[1] === 'warden' && first[2] === 'vanguard', first.join());
+  check('a bot spawns with melee, sidearm and its favourite as the drawn gun', first.length === 3 && first[0] === 'maul' && CAT.weapons.byId(first[1]).class === 'sidearm' && first[2] === 'vanguard', first.join());
   Bots.profile[bot] = CAT.bots.byId('pell');   // favourite: a sidearm
   const sidearm = Loadouts.startKeys(bot);
   check('a sidearm favourite becomes the secondary, the primary then suits the map', sidearm[1] === 'warden' && CAT.weapons.byId(sidearm[2]).class !== 'sidearm' && CAT.weapons.byId(sidearm[2]).class !== 'melee', sidearm.join());
@@ -197,7 +197,12 @@ Test.add('roster', (check) => {
   rosterMatch('classic');
   const kinds = new Set();
   for (let id = 0; id < 40; id++) kinds.add(botPrimaryForMap(id));
-  check('across bots the picks vary and none is a one-round launcher or an exotic', kinds.size >= 4 && Array.from(kinds).every((key) => CAT.weapons.byId(key).mag >= BOT_PRIMARY_MIN_MAG && CAT.weapons.byId(key).class !== 'exotic'), Array.from(kinds).join());
+  check('across bots the picks vary and every one is a primary of the roster (P8-04: one-round launchers and exotics are in the draw)', kinds.size >= 4 && Array.from(kinds).every((key) => pickupSlotOptions('primary').includes(key)), Array.from(kinds).join());
+  check('a short fight reaches the short guns, a long one does not (the pool follows the range bands)', botGunPool('primary', 8).some((weapon) => weapon.id === 'hookjaw') && !botGunPool('primary', 20).some((weapon) => weapon.id === 'hookjaw')
+    && botGunPool('primary', 25).some((weapon) => weapon.id === 'fusionmortar') && !botGunPool('primary', 40).some((weapon) => weapon.id === 'fusionmortar'));
+  const secondaries = new Set();
+  for (let id = 0; id < 40; id++) secondaries.add(botGunForSlot(id, 'secondary'));
+  check('bots draw their sidearm from the four sidearms, not always the Warden', secondaries.size >= 3 && Array.from(secondaries).every((key) => CAT.weapons.byId(key).class === 'sidearm'), Array.from(secondaries).join());
   endModeTest();
 });
 
@@ -299,17 +304,18 @@ Test.add('roster', (check) => {
   Save.data = fresh;
 });
 
-// A charge or lock is licensed for its release only, one tick long (ARC-033).
+// A charge or lock is licensed while it is held with the target in sight (the next CHARGE_LICENSE_SLACK only) and for its release, one tick and the
+// same slack long (ARC-033; P8-04: the strict one tick missed the shot that leaves a step after the decision, which showed as an unperceived shot).
 Test.add('roster', (check) => {
   rosterMatch('classic');
   const bot = Actors.create(ACTOR_KIND.BOT, 1, 'bot'), mode = CAT.weapons.byId('accelerator').primary, hold = mode.charge.time;
   BotCombat.holdSince[bot] = -1; BotCombat.licenseUntil[bot] = -1;
   BotCombat.holdThenRelease(bot, 0, mode, 10);
-  check('starting a charge licenses nothing yet', BotCombat.licenseUntil[bot] === -1 && BotCombat.holdSince[bot] === 10);
+  check('starting a charge in sight licenses its fill time and the slack', Test.near(BotCombat.licenseUntil[bot], 10 + hold + CHARGE_LICENSE_SLACK, 1e-9) && BotCombat.holdSince[bot] === 10);
   BotCombat.holdThenRelease(bot, 0, mode, 10 + hold / 2);
-  check('holding it licenses nothing either', BotCombat.licenseUntil[bot] === -1);
+  check('holding it never shortens the licence', BotCombat.licenseUntil[bot] >= 10 + hold / 2 + CHARGE_LICENSE_SLACK - 1e-9);
   BotCombat.holdThenRelease(bot, 0, mode, 10 + hold);
-  check('the release is licensed for one tick, for its target', Test.near(BotCombat.licenseUntil[bot], 10 + hold + TICK_SECONDS, 1e-9) && BotCombat.licenseTarget[bot] === 0 && BotCombat.holdSince[bot] === -1,
+  check('the release is licensed for one tick, for its target', Test.near(BotCombat.licenseUntil[bot], 10 + hold + TICK_SECONDS + CHARGE_LICENSE_SLACK, 1e-9) && BotCombat.licenseTarget[bot] === 0 && BotCombat.holdSince[bot] === -1,
     BotCombat.licenseUntil[bot]);
   endModeTest();
 });
@@ -334,7 +340,7 @@ Test.add('roster', (check) => {
   const guns = [];
   for (let k = 0; k < 10; k++) { const id = Actors.create(ACTOR_KIND.BOT, 1, 'gun' + k); Bots.profile[id] = null; guns.push(id); }
   const small = guns.map((id) => botPrimaryForMap(id));
-  check('a bot\'s primary fits the fight distance (range band, no one-round launcher)', guns.every((id, index) => botGunFits(id, CAT.weapons.byId(small[index])) || !CAT.weapons.filter((row) => botGunFits(id, row)).length), small.join());
+  check('a bot\'s primary fits the fight distance (range band)', guns.every((id, index) => botGunFits(id, CAT.weapons.byId(small[index])) || !CAT.weapons.filter((row) => botGunFits(id, row)).length), small.join());
   const bought = [];
   rosterMatch('tactical');
   const buyer = Actors.create(ACTOR_KIND.BOT, 1, 'buyer');

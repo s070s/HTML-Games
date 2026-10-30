@@ -186,16 +186,16 @@ Test.add('items', (check) => {
   Bus.off('pickup', handler);
   check('I02 +25 HP on touch with a pickup event', Actors.health[id] === 75 && pickups === 1, Actors.health[id] + ' / ' + pickups);
   const wait = Items.readyTick[0] - Sim.tick;
-  check('I02 respawn timer is 35 s', Items.state[0] === PICKUP_STATE.WAITING && Math.abs(wait - itemTicks(35)) <= 1, wait);
+  check('I02 respawn timer is 25 s (P8-04 O3: the small step comes back sooner than the 35 s Health Crate)', Items.state[0] === PICKUP_STATE.WAITING && Math.abs(wait - itemTicks(25)) <= 1, wait);
   TestArena.place(id, 20, 0);
   Sim.run(Items.readyTick[0] - Sim.tick - 1);
   check('still waiting one tick before the timer', Items.state[0] === PICKUP_STATE.WAITING);
   const respawns = TestArena.count('item.respawn', () => Sim.run(2));
   check('back exactly on time with an item.respawn event', Items.state[0] === PICKUP_STATE.READY && respawns === 1, respawns);
   ItemArena.start({ itemRespawnScale: 0.5 }, [ItemArena.spot('healthpack', 3, 0)]);
-  check('itemRespawnScale halves the timer', Items.respawnTicks(0) === itemTicks(17.5), Items.respawnTicks(0));
+  check('itemRespawnScale halves the timer', Items.respawnTicks(0) === itemTicks(12.5), Items.respawnTicks(0));
   ItemArena.start({ botSkill: CAT.difficulty.byId('stroll') }, [ItemArena.spot('healthpack', 3, 0)]);
-  check('DIF-002 the difficulty resourceYield (D01 x2) makes map pickups return sooner', Items.respawnTicks(0) === itemTicks(35 / 2), Items.respawnTicks(0));
+  check('DIF-002 the difficulty resourceYield (D01 x2) makes map pickups return sooner', Items.respawnTicks(0) === itemTicks(25 / 2), Items.respawnTicks(0));
   TestArena.finish();
 });
 

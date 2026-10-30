@@ -302,7 +302,8 @@ function renderKitsTab(body) {
 }
 function kitSlotRow(kit, slotName) {
   const options = kit.choices[slotName], current = Loadouts.kitChoice(kit.id)[slotName] || kit[slotName];
-  return Ui.row(KIT_SLOT_LABELS[slotName], Ui.cycle(options, options.map(abilityName), current, (abilityId) => Loadouts.setKitChoice(kit.id, slotName, abilityId)));
+  const names = options.map((key) => abilityName(key) + (playerInMatch() && Abilities.restriction(key) ? ' (' + Abilities.restriction(key) + ')' : ''));   // P8-04 O5
+  return Ui.row(KIT_SLOT_LABELS[slotName], Ui.cycle(options, names, current, (abilityId) => Loadouts.setKitChoice(kit.id, slotName, abilityId)));
 }
 
 const LOADOUT_RENDERERS = { weapons: renderWeaponsTab, classes: renderClassesTab, heroes: renderHeroesTab, kits: renderKitsTab };

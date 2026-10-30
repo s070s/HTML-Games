@@ -138,9 +138,9 @@ const ABILITY_CASES = {
   },
   secondwind: { setup: (t) => { Actors.flags[t.ally] |= ACTOR_FLAG.DOWNED; }, seconds: 0, expect: (t) => !(Actors.flags[t.ally] & ACTOR_FLAG.DOWNED) },
   ampwall: { seconds: 0.1, expect: (t) => { const wall = AbilityTest.zoneOf(t, ZONE_KIND.WALL); return wall >= 0 && Test.near(AbilityZones.z[wall], 1.5, 0.01); } },
-  arcbolt: { setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 0, expect: (t) => Actors.health[t.enemy] === 70 && Damage.hasStatus(t.enemy, 'shock') },
+  arcbolt: { setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 0, expect: (t) => Actors.health[t.enemy] === 82 && Damage.hasStatus(t.enemy, 'shock') },
   // Swarm ticks every 0.5 s from the step after the cast: two ticks of 4 by 1.05 s.
-  swarm: { setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 1.05, expect: (t) => Test.near(Actors.health[t.enemy], 92, 0.5) },
+  swarm: { setup: (t) => TestArena.aimAt(t.caster, t.enemy), seconds: 1.05, expect: (t) => Test.near(Actors.health[t.enemy], 94, 0.5) },
   holodouble: {
     seconds: 0.1,
     expect: (t) => {

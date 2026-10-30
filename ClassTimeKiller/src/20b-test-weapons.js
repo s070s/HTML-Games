@@ -92,7 +92,7 @@ Test.add('weapons', (check) => {
   TestArena.start({});
   const shooter = TestArena.actor(1, 0, 0);
   TestArena.sponge(2, 0, 20);
-  const cases = [['wasp', 13], ['vanguard', 10], ['hornet', 12], ['stormlash', 20], ['linker', 6]];
+  const cases = [['wasp', 13], ['vanguard', 9], ['hornet', 12], ['stormlash', 20], ['linker', 6]];
   for (const [key, rate] of cases) {
     giveFull(shooter, key);
     const shots = countShots(shooter, BTN.FIRE, 10);
@@ -166,7 +166,7 @@ Test.add('weapons', (check) => {
     const handler = Bus.on('impact', (event) => points.push(event.x.toFixed(5) + ',' + event.y.toFixed(5)));
     World.load({ id: 'wall', brushes: [{ shape: 'box', min: [-60, -1, -60], max: [60, 0, 60] }, { shape: 'box', min: [-20, 0, 30], max: [20, 20, 31] }] });
     Actors.pitch[shooter] = Actors.aimPitch[shooter] = 0.05;
-    TestArena.hold(shooter, BTN.FIRE, 30 / 10);
+    TestArena.hold(shooter, BTN.FIRE, 31 / CAT.weapons.byId('vanguard').primary.rate);
     Bus.off('impact', handler);
     TestArena.finish();
     return points;
@@ -200,7 +200,7 @@ Test.add('weapons', (check) => {
   TestArena.hold(shooter, BTN.ALT, 0.3);
   Actors.buttons[shooter] = BTN.ALT;
   Sim.step();
-  check('ADS reaches 1 and the scoped sniper is exact (adsSpreadMult 0)', Weapons.ads[shooter] === 1 && hip >= 8 && Weapons.spreadDegrees(shooter, heron, heron.primary) === 0, hip);
+  check('ADS reaches 1 and the scoped sniper is exact (adsSpreadMult 0)', Weapons.ads[shooter] === 1 && hip >= 2 && hip === heron.primary.spreadDeg && Weapons.spreadDegrees(shooter, heron, heron.primary) === 0, hip);
   check('scoped move speed uses adsMoveMult', Test.near(Weapons.speedScale[shooter], heron.adsMoveMult, 1e-6), Weapons.speedScale[shooter]);
   check('the weapon speed scale reaches S10 (Move.weaponSpeedScale)', Move.weaponSpeedScale[shooter] === Weapons.speedScale[shooter], Move.weaponSpeedScale[shooter]);
   Actors.buttons[shooter] = 0;
@@ -930,7 +930,7 @@ Test.add('weapons', (check) => {
   Weapons.magazine[cells] = 5;
   TestArena.aimAt(shooter, target);
   const charged = TestArena.count('weapon.fire', () => { TestArena.hold(shooter, BTN.FIRE, accelerator.primary.charge.time + 0.5); Sim.step(); });
-  check('W39 full charge with 5 cells fires the 4-cell level', charged === 1 && Weapons.magazine[cells] === 1 && Actors.health[target] === 100000 - 90, charged + ' / ' + Weapons.magazine[cells] + ' / ' + (100000 - Actors.health[target]));
+  check('W39 full charge with 5 cells fires the 4-cell level', charged === 1 && Weapons.magazine[cells] === 1 && Actors.health[target] === 100000 - 100, charged + ' / ' + Weapons.magazine[cells] + ' / ' + (100000 - Actors.health[target]));
   const ramjet = giveFull(shooter, 'ramjet'), rockets = Weapons.slotIndex(shooter, ramjet.index);
   Weapons.magazine[rockets] = 1;
   TestArena.aimAt(shooter, target);

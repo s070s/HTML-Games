@@ -23,7 +23,8 @@ const NO_KILL_SCORING = { kill: 0, suicide: 0, teamKill: 0 };   // modes that sc
 // M16 weapon ladder (ECP06): one weapon per tier, kill to climb; the last tier is the melee weapon. 12 tiers: eight bots
 // finish inside the 10-minute limit on every tested seed (14 tiers took 7.5-11 minutes, 18 always ran out). A custom
 // params.tiers plays the first tiers - 1 plus the melee tier.
-const GUNGAME_LADDER = ['vanguard', 'ratchet', 'wasp', 'hornet', 'needlethorn', 'scattergun', 'hookjaw', 'shardcaster', 'kestrel', 'lancet', 'heron', 'maul'];
+// P8-04: the Shardcaster's 2 s reload (O2) put the ladder past its 10-minute pacing probe (618 s); the Ember Repeater holds its tier in 553 s.
+const GUNGAME_LADDER = ['vanguard', 'ratchet', 'wasp', 'hornet', 'needlethorn', 'scattergun', 'hookjaw', 'ember', 'kestrel', 'lancet', 'heron', 'maul'];
 
 // M17 Blight: one in infectedPerPlayers starts infected on infectedArea square metres of walkable floor, more on a bigger
 // one (13f outbreakSize). blight-01: at 450 HP Spire's 2 infected won all 6 test matches and at 340 Gantry's humans won 5 of 6.

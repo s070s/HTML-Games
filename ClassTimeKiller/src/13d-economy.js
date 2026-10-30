@@ -386,7 +386,7 @@ const PICKUP_GUN_EXCLUDED = ['melee', 'sidearm', 'tool', 'power'];
 const PICKUP_SLOTS = ['melee', 'primary', 'secondary', 'lethal', 'tactical', 'device'];
 const PICKUP_SLOT_LABELS = { melee: 'Melee', primary: 'Primary', secondary: 'Secondary', lethal: 'Lethal', tactical: 'Tactical', device: 'Device' };
 const FULL_SET_ID = 'fullSet';
-const BOT_PRIMARY_MIN_MAG = 4;           // a bot does not spawn with a one-round launcher as its only gun
+const BOT_FIGHT_TASTE = [0.6, 1.4];       // P8-04: each bot has its own taste for the range: a seeded factor in this span scales its fight distance
 const BOT_MAP_FIGHT_SHARE = 0.25;        // a typical fight is this share of the map's long side...
 const BOT_MAP_FIGHT_RANGE = [8, 60];     // ...within these metres
 const BOT_STYLE_FIGHT_SCALE = { camper: 1.6, accurate: 1.4, aggressive: 0.6, jumpy: 0.7, flanker: 0.7, vengeful: 0.8 };   // the bot's role moves the distance it likes to fight at
@@ -398,12 +398,14 @@ function pickupSlotOptions(slot) {
   return CAT.gadgets.filter((row) => row.slot === slot).map((row) => row.id);
 }
 // A bot's spawn guns [melee, secondary, primary]: its profile favourite when it fits a slot, else a gun whose range suits the map,
-// drawn from a stream of its own (the shared streams stay as they were, and a seeded match repeats).
+// drawn by the rows' botSpawn weights from a stream of its own (the shared streams stay as they were, and a seeded match repeats).
+// P8-04: the secondary is drawn the same way among the sidearms (it was always the Warden).
 function botSpawnKeys(id) {
-  const favorite = CAT.weapons.byId(BotDecide.favoriteWeapon(id)), keys = [Loadouts.meleeFor(id), DEFAULT_PICKUP_LOADOUT.secondary, ''];
+  const favorite = CAT.weapons.byId(BotDecide.favoriteWeapon(id)), keys = [Loadouts.meleeFor(id), '', ''];
   if (favorite && pickupSlotOptions('primary').includes(favorite.id)) keys[2] = favorite.id;
   else if (favorite && favorite.class === 'sidearm') keys[1] = favorite.id;
-  if (!keys[2]) keys[2] = botPrimaryForMap(id);
+  if (!keys[1]) keys[1] = botGunForSlot(id, 'secondary');
+  if (!keys[2]) keys[2] = botGunForSlot(id, 'primary');
   return keys;
 }
 // A bot's lethal, tactical and device (and its ability and ultimate) by their botUse rules: each option weighs its chance of use (an
@@ -426,25 +428,33 @@ function botGadgetWeight(id, key) {
 }
 function botAbilityWeight(key) {
   const use = CAT.abilities.byId(key).botUse;
-  return use && use.chance > 0 ? use.chance : 0;
+  return use && use.chance > 0 && !Abilities.restriction(key) ? use.chance : 0;   // P8-04 O5: a bot does not pick an ability its match cannot use
 }
-// The distance a bot expects to fight at: a share of the map's long side, scaled by the bot's style.
+// The distance a fighter of a style expects on a map whose long side is `side` metres: a share of the side, scaled by the style.
+function botStyleFightDistance(style, side, taste) {
+  return clamp(side * BOT_MAP_FIGHT_SHARE * (BOT_STYLE_FIGHT_SCALE[style] || 1) * (taste || 1), BOT_MAP_FIGHT_RANGE[0], BOT_MAP_FIGHT_RANGE[1]);
+}
 function botFightDistance(id) {
   const side = Math.max(World.boundsMax.x - World.boundsMin.x, World.boundsMax.z - World.boundsMin.z);
-  const profile = Bots.profile[id];
-  return clamp(side * BOT_MAP_FIGHT_SHARE * ((profile && BOT_STYLE_FIGHT_SCALE[profile.style]) || 1), BOT_MAP_FIGHT_RANGE[0], BOT_MAP_FIGHT_RANGE[1]);
+  const profile = Bots.profile[id], draw = makeRandom(hashString('fight:' + Rng.seed + ':' + id)).next();
+  return botStyleFightDistance(profile ? profile.style : '', side, BOT_FIGHT_TASTE[0] + (BOT_FIGHT_TASTE[1] - BOT_FIGHT_TASTE[0]) * draw);
 }
-// A gun a bot may carry or buy as its main gun: not an exotic or a one-round launcher, and its range band holds the bot's fight distance.
+const botRangeHolds = (weapon, distance) => weapon.botPref.range[0] <= distance && distance <= weapon.botPref.range[1];
+// A gun a bot may carry or buy as its main gun: its range band holds the bot's fight distance (P8-04: any magazine, any class a loadout offers).
 function botGunFits(id, weapon) {
-  const distance = botFightDistance(id);
-  return weapon.class !== 'exotic' && weapon.mag >= BOT_PRIMARY_MIN_MAG && weapon.botPref.range[0] <= distance && distance <= weapon.botPref.range[1];
+  return botRangeHolds(weapon, botFightDistance(id));
 }
-function botPrimaryForMap(id) {
-  const guns = pickupSlotOptions('primary').map((key) => CAT.weapons.byId(key)).filter((weapon) => weapon.class !== 'exotic' && weapon.mag >= BOT_PRIMARY_MIN_MAG);
-  const fitting = guns.filter((weapon) => botGunFits(id, weapon));
-  const pool = fitting.length ? fitting : guns;
-  return makeRandom(hashString('spawn:' + Rng.seed + ':' + id)).pick(pool).id;
+// The guns a slot may draw at a fight distance: the rows with a botSpawn weight whose range band holds it (all of them when none does).
+function botGunPool(slot, distance) {
+  const guns = pickupSlotOptions(slot).map((key) => CAT.weapons.byId(key)).filter((weapon) => weapon.botSpawn > 0);
+  const fitting = guns.filter((weapon) => botRangeHolds(weapon, distance));
+  return fitting.length ? fitting : guns;
 }
+function botGunForSlot(id, slot) {
+  const pool = botGunPool(slot, botFightDistance(id));
+  return botWeightedPick(id, 'spawn' + slot, pool.map((weapon) => weapon.id), (key) => CAT.weapons.byId(key).botSpawn);
+}
+function botPrimaryForMap(id) { return botGunForSlot(id, 'primary'); }
 
 const Loadouts = {
   // Declared in Save.emptySave, so migrate repairs a field of the wrong kind.

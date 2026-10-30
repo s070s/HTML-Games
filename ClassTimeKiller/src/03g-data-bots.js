@@ -90,9 +90,9 @@ Data.define('bots', {
   { id: 'marrow', code: 'B18', name: 'Marrow', tier: 5, style: 'aggressive', favorite: 'shardcaster', color: 0xb8a48c, chat: 'loud' },
   { id: 'isoldecrane', code: 'B19', name: 'Isolde Crane', tier: 5, style: 'accurate', favorite: 'lancet', color: 0xd9d2e9 },
   { id: 'teodor', code: 'B20', name: 'Teodor', tier: 6, style: 'allRound', favorite: 'coilcaster', color: 0x9e6b2f },
-  { id: 'wrenkasai', code: 'B21', name: 'Wren Kasai', tier: 6, style: 'jumpy', favorite: 'stormlash', color: 0xd0473c, chat: 'loud' },
-  { id: 'ostrava', code: 'B22', name: 'Ostrava', tier: 6, style: 'camper', favorite: 'heron', color: 0x5c6670, chat: 'quiet' },
-  { id: 'calderrhee', code: 'B23', name: 'Calder Rhee', tier: 7, style: 'champion', favorite: 'lancet', color: 0xc0c7cf },
+  { id: 'wrenkasai', code: 'B21', name: 'Wren Kasai', tier: 6, style: 'jumpy', favorite: 'razorwind', color: 0xd0473c, chat: 'loud' },
+  { id: 'ostrava', code: 'B22', name: 'Ostrava', tier: 6, style: 'camper', favorite: 'stakedriver', color: 0x5c6670, chat: 'quiet' },
+  { id: 'calderrhee', code: 'B23', name: 'Calder Rhee', tier: 7, style: 'champion', favorite: 'hailstorm', color: 0xc0c7cf },
   { id: 'wardenofnine', code: 'B24', name: 'The Warden of Nine', tier: 7, style: 'champion', favorite: BOT_FAVORITE_PLAYER, color: 0x1d1d24, traits: { accuracy: 0.9 } },
 ]);
 
@@ -178,8 +178,8 @@ const BOT_HUNTED_ROLES = ['carrier', 'colossus', 'cursed', 'bearer'];
 // clusters or from a held point); holding = the bot holds its spot (defend, camp, objective); lowAmmo = the drawn
 // weapon's reserve is low. An effect missing here is never used by bots.
 const BOT_GADGET_USE = {
-  explode: { when: 'coverOrHolding', range: [8, 25], chance: 0.35, aim: 'enemy' },
-  fire: { when: 'coverOrHolding', range: [8, 25], chance: 0.3, aim: 'enemy' },
+  explode: { when: 'coverOrHolding', range: [16, 32], chance: 0.35, aim: 'enemy' },   // P8-04: from 8 m the blast came back on the thrower (self and team damage 14-51 % of a frag's damage); from 16 m 2-10 %
+  fire: { when: 'coverOrHolding', range: [16, 32], chance: 0.3, aim: 'enemy' },
   singularity: { when: 'groupedEnemies', range: [8, 25], chance: 0.8, aim: 'enemy' },
   flash: { when: 'cover', range: [6, 20], chance: 0.7, aim: 'enemy', tierFlag: 'flashPeek' },   // BOT-034: flash before a peek (tier 3+)
   freeze: { when: 'enemyClose', range: [4, 14], chance: 0.6, aim: 'enemy' },

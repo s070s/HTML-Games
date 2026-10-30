@@ -197,7 +197,7 @@ Schemas (field: type, default). Full catalogue tables use these fields.
 | WPN-009 | Weapon respawn 5 s FFA, 30 s team modes (x itemRespawnScale); weapon stay option. Power weapons (W45,W46) one per map, 120 s, announced 10 s before. |
 | WPN-010 | Damage values below are for 100 HP baseline; precision profile applies (HP-002). Equip 0.4 s default; switching never faster than equipTime, except that equip attachments and perks may shorten a swap down to 0.8 x equipTime (EQUIP_SCALE_FLOOR). |
 | WPN-011 | Underbarrel/explosive alt fires have arm distance >= 6 m and low reserves (avoid grenade-launcher spam). |
-| WPN-013 | Shots leave the muzzle (P2-03): projectiles, tracers and muzzle flashes start at the weapon model's muzzle (the view model's in first person, the held model's for everyone else, bots included) and projectiles fly to the point under the crosshair (the nearest actor or wall on the eye ray, 120 m when there is none); lobbed projectiles (gravity) keep the eye direction. Hitscan damage is traced from the eye along the aim ray, so hit results do not change; only the tracer starts at the muzzle. When a wall lies between the eye and the muzzle, a wall or player stands within 1.5 m on the eye ray, or a wall is on the way from the muzzle to the aim point, the shot leaves the eye, so nothing passes a wall in front of the shooter and a player at arm's length is hit. |
+| WPN-013 | Shots leave the muzzle (P2-03): projectiles, tracers and muzzle flashes start at the weapon model's muzzle (the view model's in first person, the held model's for everyone else, bots included) and projectiles fly to the point under the crosshair (the nearest actor or wall on the eye ray, 120 m when there is none); lobbed projectiles (gravity of 9 m/s2 or more: grenades, mines, goo, the Talon Bow arrow, the Fusion orb) fly the low arc through that point when it is in reach of their speed (P8-04: `Muzzle.solveLob`; out of reach or no point under the crosshair, they keep the eye direction), lightly dropping ones (shards, stakes) keep the eye direction. Hitscan damage is traced from the eye along the aim ray, so hit results do not change; only the tracer starts at the muzzle. When a wall lies between the eye and the muzzle, a wall or player stands within 1.5 m on the eye ray, or a wall is on the way from the muzzle to the aim point, the shot leaves the eye, so nothing passes a wall in front of the shooter and a player at arm's length is hit. |
 | WPN-012 | Empty and no-target feedback: a dry trigger clicks and shows a message; a primary with no rounds and nothing to reload moves the player on to the next weapon that can shoot (the Alt keeps its own ammo pool); a detonate alt works during the reload of its own weapon (W40); a lock-on weapon rings the enemy it is locking, and says `No target` when it has none. |
 | WPN-014 | Reload animations (P6-02): every weapon with a magazine plays one of 14 reload sets (R1 pistol magazine, R2 revolver, R3 long-gun magazine, R4 bolt and magazine, R5 shell by shell, R6 break action, R7 drum, R8 energy cell, R9 top clip and crank, R10 nock, R11 belt box, R12 tank, R13 tube, R14 breech; W01, W02, W03, W41, W42 and W44 never reload) in first person (the weapon tilts, its magazine or other moving part leaves and comes back, a spare is carried by a procedural off-hand: a forearm and a hand) and in third person (arm, gun, torso and the detached part at the near LOD). Every phase is a fraction of the reload in progress, so attachments and perks scale it, and the last phase ends at fraction 1.0, the step the rounds are added: the animation changes no reload time, damage time, recoil or equip time. An empty magazine takes an extra chamber phase inside the same total time; a shell-by-shell reload plays a cycle per shell and a FIRE press with a round loaded ends it (the pose blends out in 0.06 s); a swap or a quick melee cancels a reload and its pose blends out in 0.1 s or 0.05 s. Sprint does not cancel a reload. |
 | WPN-015 | Melee animations (P6-03): the maul (primary chop, charged alt slam), the tanto (slash, thrust), the shield (bash, block, parry) and the quick melee of every gun (pistol whip, butt-stroke, shoulder shove; a quick melee by another owned melee weapon draws that weapon in the left hand) have their own strike in both views. The hit is decided in the step of the trigger, so the contact pose is drawn on the first frame after the hit tick, the follow-through and recovery fill the cooldown the sim added and end on the step the weapon may act again; a melee hit the player lands holds the contact pose 0.03 s. A hit body flinches (torso and head pitch away from the blow), a stunned body staggers; a melee swing into a wall or the floor within reach makes the impact sound and dust; the maul's charged slam on a floor adds 0.15 camera trauma. |
@@ -211,7 +211,7 @@ Columns: Primary / Alt = type, damage, rate rps, notes. Ammo = mag/reserve. All 
 | W01 | `maul` | Breaker Maul | melee | melee 50, 2.5, reach 1.6 m | charge 0-1.2 s: 30-120 dmg; ground hit launches self up 4.5 m, 10 self dmg | - | mobility + finisher / must close in | Q3 Gauntlet, UT Impact Hammer |
 | W02 | `tanto` | Edge Tanto | melee | slash 35, 2.5 | heavy stab 65, 1.0 s; 150 from behind | - | full move speed, silent / tiny reach | CS knife, TF Data Knife |
 | W03 | `bulwark` | Bulwark Shield-Saw | melee | bash 40 + stagger, 1.5 | hold block (frontal 120 deg arc, 150 shield pool); tap in 0.2 s window = parry, reflects green projectiles | - | defence, parry skill / slow | Doom TDA, UT2004 Shield Gun |
-| W04 | `warden` | Warden Pistol | sidearm | hitscan 25, 4, spread 0.5, falloff 20-40 m 0.7 | 3-round burst 25 each, 1.5 bursts/s, falloff 10-25 m 0.6 | 12/48 | free, accurate; 2nd pickup = dual / weak | UT Enforcer, Valorant Classic, USP |
+| W04 | `warden` | Warden Pistol | sidearm | hitscan 30, 4.5, spread 0.5, falloff 20-40 m 0.7 (P8-04: was 25, 4) | 3-round burst 25 each, 1.6 bursts/s, falloff 10-25 m 0.6 | 12/48 | free, accurate; 2nd pickup = dual / weak | UT Enforcer, Valorant Classic, USP |
 | W05 | `verdict` | Verdict Magnum | sidearm | hitscan 55, 2.2, head x2 | zoom 2x | 6/24 | one-tap head on low HP / heavy recoil (anti dominant-pistol) | Deagle, Sheriff, HL2 .357 |
 | W06 | `hush` | Hush Pistol | sidearm | silent precision pistol (P3-03): hitscan 40, 2.5, head x2.5, no tracer, noise 6 m | sleep dart: target bot sleeps 8 s, non-lethal | 10/40 + 6 darts | stealth / low dmg | Deus Ex stealth pistol, Dishonored sleep dart |
 | W07 | `sparklock` | Sparklock Pistol | sidearm | lock-on: 0.4 s lock per target, up to 3 targets in 12 deg/20 m cone, 12 x8 rps auto-aim | manual hip fire 12 | 24/72 | easy hits on fodder / weak vs fast bots | Titanfall Smart Pistol |
@@ -220,21 +220,21 @@ Columns: Primary / Alt = type, damage, rate rps, notes. Ammo = mag/reserve. All 
 | W10 | `hornet` | Hornet Carbine | smg | hitscan 15, 12 | contact grenade 80 r3.5, arm 6 m | 45/180 + 3 | versatile / few grenades | HL2 MP7 |
 | W11 | `riptide` | Riptide PDW | retired (P3-03): merged into W09 `wasp` (its alt); the code is never reused |
 | W12 | `needlethorn` | Needlethorn | smg | homing needles 9, 10 rps, homing 35 deg/s, falloff 12-28 m 0.6; 9 stuck = burst 40 r2 | volley 5 needles (5 ammo), 1.25/s | 30/90 | forgiving aim / slow projectiles | Halo needler |
-| W13 | `vanguard` | Vanguard Rifle | rifle | hitscan 34, 10, falloff 35-60 m 0.75, head one-taps in tactical | aim 1.3x | 25/75 | long-range one-tap / strong recoil | AK-47, Vandal |
+| W13 | `vanguard` | Vanguard Rifle | rifle | hitscan 34, 9 (P8-04: was 10), falloff 35-60 m 0.75, head one-taps in tactical | aim 1.3x | 25/75 | long-range one-tap / strong recoil | AK-47, Vandal |
 | W14 | `tempest` | Tempest Rifle | retired (P3-03): merged into W13 `vanguard`; the code is never reused |
 | W15 | `ratchet` | Ratchet Burst | rifle | 3-round burst 32 each, 3 bursts/s | scope 1.8x | 24/96 | burst TTK / misses waste burst | M16, Destiny pulse |
 | W16 | `longshot` | Longshot Scout | retired (P3-03): merged into W25 `kestrel` (which takes its 15-round magazine); the code is never reused |
-| W17 | `coilcaster` | Coilcaster | energy | hitscan beam 45, 1.4 | slow orb 55 r1.5 @12 m/s; hit orb with primary = combo 200 r4, costs 3 cells | 20/50 cells | skill combo / slow fire | UT Shock Rifle |
+| W17 | `coilcaster` | Coilcaster | energy | hitscan beam 50, 1.6 (P8-04: was 45, 1.4) | slow orb 55 r1.5 @12 m/s; hit orb with primary = combo 200 r4, costs 3 cells | 20/50 cells | skill combo / slow fire | UT Shock Rifle |
 | W18 | `pulsecarbine` | Pulse Carbine | retired (P3-03): merged into W10 `hornet`; the fodder kill stays on W43; projectile P19 is retired too; the code is never reused |
 | W19 | `scattergun` | Scattergun | shotgun | 10 x 12, 1.1, spread 5 | slug 55, aim 1.2x | 6/30 | burst close / pump | Q3, Nova, Fortnite pump |
-| W20 | `hookjaw` | Hookjaw | shotgun | double barrel 8 x 20 (2 shells), 0.9, reload 1.1 | hook: pulls self to enemy <= 25 m, cd 6 s | 2/24 | gap closer / 2 shells | Doom Eternal super shotgun, HL2 SPAS |
-| W21 | `shardcaster` | Shardcaster | shotgun | 9 bouncing shards x 12 @45 m/s | lobbed shell 100 impact + 6 shards | 10/40 | room clearing / falloff by spread | UT Flak Cannon |
+| W20 | `hookjaw` | Hookjaw | shotgun | double barrel 9 x 20 (2 shells), 1.2, spread 6, reload 0.8 (P8-04: was 8 x 20, 0.9, spread 7, reload 1.1) | hook: pulls self to enemy <= 25 m, cd 6 s | 2/24 | gap closer / 2 shells | Doom Eternal super shotgun, HL2 SPAS |
+| W21 | `shardcaster` | Shardcaster | shotgun | 9 bouncing shards x 12 @45 m/s; reload 2 s for the whole magazine (P8-04) | lobbed shell 100 impact + 6 shards | 10/40 | room clearing / falloff by spread | UT Flak Cannon |
 | W22 | `frostbore` | Frostbore | retired (P3-03): merged into W19 `scattergun`; freezing stays on G08; the code is never reused |
 | W23 | `lancet` | Lancet Rail | marksman | hitscan 100, 0.67, pierces 4, alwaysHead off | zoom 2.5x | 10/30 | one shot = 100 / slow, visible trail | Q3 Railgun, UT2004 Lightning Gun |
-| W24 | `heron` | Heron Sniper | sniper | hitscan 115, 0.67, head x2.5, legs 0.75 | zoom 4x/8x, hold breath 4 s | 5/20 | one-shot body / scoped moveMult 0.5, no hipfire accuracy | AWP, Operator, UT sniper |
+| W24 | `heron` | Heron Sniper | sniper | hitscan 115, 0.67, hip spread 2 deg (P8-04: was 8), head x2.5, legs 0.75 | zoom 4x/8x, hold breath 4 s | 5/20 | one-shot body / scoped moveMult 0.5, no hipfire accuracy | AWP, Operator, UT sniper |
 | W25 | `kestrel` | Kestrel DMR | marksman | semi 60, 3, head x2 | scope 3x | 15/45 | fast follow-up / mid dmg | Guardian, Marshal, BF DMR |
-| W26 | `stakedriver` | Stakedriver | marksman | stake 90 @60 m/s, pins to wall; > 25 m ignites +30 burn | incendiary stake: 70, burns at any range (P3-03, replaces the lob grenade) | 12/36 + 6 | long-range punish / slow | Painkiller Stakegun, HL2 crossbow |
-| W27 | `talonbow` | Talon Bow | marksman | hold draw 0.7 s: 50-110, silent, arrow drop | explosive arrow 80 r2.5 | 1/18 + 6 | silent, works underwater / drop | Turok Tek Bow, Crysis 3 bow |
+| W26 | `stakedriver` | Stakedriver | marksman | stake 100 (P8-04: was 90) @60 m/s, pins to wall (no burn on the primary; the alt is the only burn) | incendiary stake: 70, burns at any range (P3-03, replaces the lob grenade) | 12/36 + 6 | long-range punish / slow | Painkiller Stakegun, HL2 crossbow |
+| W27 | `talonbow` | Talon Bow | marksman | hold draw 0.55 s, 1.8 a second (P8-04: was 0.7 s, 1.5): 50-110, silent, arrow drop | explosive arrow 80 r2.5 | 1/18 + 6 | silent, works underwater / drop | Turok Tek Bow, Crysis 3 bow |
 | W28 | `hailstorm` | Hailstorm | heavy | hitscan 15, 18 after 0.2 s spin-up, high penetration (from the retired W29) | root as turret: rate x1.5, 30% frontal resist | 150/300 | suppression / slow move 0.75 | UT Minigun, Doom mobile turret, Turok War Horse |
 | W29 | `anvil` | Anvil LMG | retired (P3-03): merged into W28 `hailstorm`; the code is never reused |
 | W30 | `linker` | Linker | energy | bolts 22, 6 @40 m/s | beam 100 dps 30 m; on ally beam +50%; heals turrets/objectives 60/s | 70/140 cells | team synergy / tracking | UT Link Gun |
@@ -246,12 +246,12 @@ Columns: Primary / Alt = type, damage, rate rps, notes. Ammo = mag/reserve. All 
 | W36 | `ember` | Ember Repeater | energy | bolt 16 + splash 10 r0.6 @60 m/s, 10 | heat blast cone 6 m, dmg = stored heat (max 120); stored heat vents 10/s after 1 s without a shot | 50/200 cells | fast DPS / projectile | Q3 Plasma, Doom plasma heat blast |
 | W37 | `stormlash` | Stormlash | energy | beam 160 dps, range 24 m | chain arc: 30 to 3 targets within 6 m | 100/200 | tracking DPS / range cap | Q3 Lightning Gun, Painkiller Electrodriver |
 | W38 | `starthrower` | Starthrower | energy | disc 18, 8, ricochet 2x | explosive disc 50 r1.8 | 50/150 | bank shots / predictable | UT Ripper, Painkiller driver |
-| W39 | `accelerator` | Accelerator | energy | charge 3 levels: 40/90/160 (cells 2/4/8) | 360 deg shockwave r6: 60 + knockback (4 ammo) | 20/60 cells | flexible burst / charge time | Turok particle accelerator, shockwave |
+| W39 | `accelerator` | Accelerator | energy | charge 0.9 s (P8-04: was 1.5 s), 3 levels: 50/100/160 (was 40/90/160) (cells 2/4/8) | 360 deg shockwave r6: 60 + knockback (4 ammo) | 20/60 cells | flexible burst / charge time | Turok particle accelerator, shockwave |
 | W40 | `fusionmortar` | Fusion Mortar | explosive | rolling orb, explodes 2 s: 300 r6, spares owner | detonate early | 1/1 (max 2) | room wipe / max 2 carried | Turok Fusion Cannon |
 | W41 | `lifter` | Graviton Lifter | tool | punt held/near prop: dmg = 0.5 x mass x speed (cap 150) | pull and hold prop (mass <= 150 kg), catch grenades | infinite | props as ammo and shield / prop-dependent | HL2 gravity gun |
 | W42 | `twingate` | Twin-Gate Projector | tool | place Dawn gate | place Dusk gate (2 max, momentum kept, puzzle modes) | infinite | puzzles / no damage | Portal |
 | W43 | `auger` | Skull Auger | exotic | homing drill to nearest head 20 m, drills 2 s then 90 | none -> manual detonate | 3/9 | guaranteed kill / useless vs drones/turrets | Turok 2 Cerebral Bore |
-| W44 | `razorwind` | Razorwind | exotic | returning blade 45 per pass | lodge blade in wall: laser line to you, 15/tick cuts crossers; alt again recalls | infinite | no ammo, line traps / short range | Painkiller weapon, Turok Razor Wind |
+| W44 | `razorwind` | Razorwind | exotic | returning blade 52 per pass, 1.7 a second (P8-04: was 45, 1.5) | lodge blade in wall: laser line to you, 15/tick cuts crossers; alt again recalls | infinite | no ammo, line traps / short range | Painkiller weapon, Turok Razor Wind |
 | W45 | `daybreak` | Daybreak Projector | power | slow orb 150 + splash 150 r6 @18 m/s; arcs 30/s to enemies within 8 m of orb | overcharge 2 s: x1.5 | 4 | map power item / one per map | Q3 BFG10K, Doom BFG |
 | W46 | `halcyon` | Halcyon Warhead | power | slow warhead 300 r12 falloff | guided: steer by camera, user stands still | 1 | area denial / user vulnerable | UT Redeemer |
 
@@ -305,13 +305,13 @@ Prices/kill rewards (roundBuy, credits): sidearms 0-700 (W04 free, W05 700, W06 
 | G12 | `bubble` | Dome Projector | retired (P3-06): A26 Aegis Dome keeps the effect | - | - |
 | G13 | `cover` | Barrier Deploy | wall 2x1.2 m, 300 HP, 30 s | explosives | MW deployable cover, BF6 |
 | G14 | `liftpad` | Lift Pad | retired (P3-06): A10 Updraft keeps the effect | - | - |
-| G15 | `sentry` | Picket Turret | 150 HP, 12 dmg 5 rps, 25 m, 40 s | flank/explosive | TF2 sentry, Halo turret |
+| G15 | `sentry` | Picket Turret | 150 HP, 9 dmg (P8-04: was 12) 5 rps, 25 m, 30 s (was 40) | flank/explosive | TF2 sentry, Halo turret |
 | G16 | `regen` | Mend Field | retired (P3-06): A25 Mender Drone keeps the effect | - | - |
 | G17 | `drain` | Sap Field | retired (P3-06): merged into G20 Null Pulse, which also empties the suit energy | - | - |
 | G18 | `jammer` | Static Jammer | scrambles enemy radar/minimap r20 30 s | destroy 50 HP | Halo 3 jammer, TF2 boost |
 | G19 | `dart` | Echo Dart | retired (P3-06): A13 Echo Pulse keeps the effect (H08 Tamsin's gadget is G20) | - | - |
 | G20 | `emp` | Null Pulse | disables gadgets/abilities/shields regen 4 s r6 | - | Deus Ex EMP |
-| G21 | `ticks` | Scuttler | 2 seeking mini-drones 30 m, 80 each | shoot 20 HP | TF2 Ticks |
+| G21 | `ticks` | Scuttler | 2 seeking mini-drones 30 m, 60 each (P8-04: was 80) | shoot 20 HP | TF2 Ticks |
 | G22 | `trophy` | Snatcher | destroys first 3 enemy projectiles within 6 m, 30 s | bullets | MW trophy |
 | G23 | `ammobox` | Supply Crate | team ammo refill r3 20 s | - | MW munitions, BF support |
 | G24 | `beacon` | Rally Beacon | team spawn point 1 per team, 60 s, 100 HP | destroy | BF spawn beacon, MW tac insert |
@@ -349,17 +349,17 @@ Prices/kill rewards (roundBuy, credits): sidearms 0-700 (W04 free, W05 700, W06 
 | A19 | `timebend` | Time Bend | control | instant, energy 60% | world x0.25 for 6 s (SP) / slow field r8 (versus) | Dishonored Bend Time, Painkiller Haste |
 | A20 | `gale` | Gale Push | control | instant, cd 8 s | cone 8 m knockback 20 m/s, deflects projectiles | Dishonored Windblast |
 | A21 | `binding` | Binding Link | control | instant, cd 20 s | link 2 enemies 8 s: damage to one is shared | Dishonored Domino |
-| A22 | `mesmer` | Mesmer Lure | control | instant, cd 25 s | 2 enemies within 15 m stare at a lure 6 s | Dishonored Mesmerize |
+| A22 | `mesmer` | Mesmer Lure | control | instant, cd 25 s | 2 enemies within 15 m stare at a lure 5 s (P8-04: was 6 s) | Dishonored Mesmerize |
 | A23 | `puppet` | Puppet Jump | control | instant, cd 40 s | control a fodder enemy/beast 10 s | Dishonored Possession |
 | A24 | `frenzy` | Frenzy Hex | control | projectile, cd 30 s | target attacks its allies 8 s | BioShock Enrage, Painkiller Confusion |
 | A25 | `mender` | Mender Drone | sustain | deploy, cd 30 s | heals allies in 6 m 20 HP/s 8 s | Apex Lifeline |
 | A26 | `aegisdome` | Aegis Dome | sustain | instant, cd 30 s | dome r5 blocks bullets 12 s | Apex Gibraltar |
-| A27 | `secondwind` | Second Wind | sustain | instant, cd 60 s | revive downed ally within 10 m remotely | Lifeline, Valorant Sage |
+| A27 | `secondwind` | Second Wind | sustain | instant, cd 60 s | revive downed ally within 10 m remotely; shown "Needs downed teammates" in matches where nobody can go down (free-for-all, rulesets without `downed`), and bots do not pick it there (P8-04) | Lifeline, Valorant Sage |
 | A28 | `ampwall` | Amp Wall | sustain | deploy, cd 20 s | wall blocks incoming, own shots through it +25% | Titanfall A-Wall |
-| A29 | `arcbolt` | Arc Bolt | offense | instant, energy 25 | 30 + Shock 1 s; wet = all in puddle | BioShock Electro Bolt |
+| A29 | `arcbolt` | Arc Bolt | offense | instant, energy 60 (P8-04: was 25) | 18 (was 30) + Shock 1 s; wet = all in puddle | BioShock Electro Bolt |
 | A30 | `ignite` | Ignite | offense | retired (P3-06): merged into A29 Arc Bolt; burn stays on G04 and W35 | - | - |
 | A31 | `frostlance` | Frost Lance | offense | retired (P3-06): merged into A29 Arc Bolt; freezing stays on G08 | - | - |
-| A32 | `swarm` | Swarm Cloud | offense | projectile, cd 25 s | swarm follows target 6 s, 8 HP/s, panics fodder | Devouring Swarm, Insect Swarm |
+| A32 | `swarm` | Swarm Cloud | offense | projectile, cd 25 s | swarm follows target 6 s, 6 HP/s (P8-04: was 8), cd 25 s, panics fodder | Devouring Swarm, Insect Swarm |
 | A33 | `holodouble` | Holo Double | offense | instant, cd 15 s | decoy runs your last input 8 s; bots may be fooled per alertness | TF2 holo pilot, Apex Mirage |
 | A34 | `wrath` | Wrath Form | ultimate | auto at 66 souls (or card) | 8 s invulnerable, any touch/hit kills non-boss | Painkiller demon morph |
 | A35 | `lifterpower` | Graviton Grip | physics | hold, energy 10/s | telekinesis pick/throw (as W41) without weapon slot | HL2 gravity gun, BioShock Telekinesis |
@@ -367,7 +367,7 @@ Prices/kill rewards (roundBuy, credits): sidearms 0-700 (W04 free, W05 700, W06 
 | A37 | `overcore` | Overcore | ultimate | ult 1500 | damage x2 + fire rate x1.2 10 s | Titanfall Damage Core |
 | A38 | `orbital` | Orbital Lance | ultimate | ult 1800 | marked 8 m circle, 2 s warning, 250 dmg | Apex artillery, Ion Painter |
 | A39 | `rift` | Rift Gate | ultimate | ult 1500 | linked portals 60 m for team, 15 s | Apex Wraith |
-| A40 | `rally` | Rally Cry | ultimate | ult 1200 | team +50 overshield (capped at a 100-point surplus, lost after 8 s), speed x1.2 8 s | Overwatch support ults |
+| A40 | `rally` | Rally Cry | ultimate | ult 1500 (P8-04: was 1200) | team +50 overshield (capped at a 100-point surplus, lost after 8 s), speed x1.2 8 s | Overwatch support ults |
 
 Hero kits (RS09; each: weapon, passive, 2 abilities, ultimate):
 
@@ -416,11 +416,11 @@ Hero kits (RS09; each: weapon, passive, 2 abilities, ultimate):
 | Code | Item | Effect | Cap | Respawn |
 |---|---|---|---|---|
 | I01 | Health Vial | +5 | 200 | 35 s |
-| I02 | Health Pack | +25 | 100 | 35 s |
+| I02 | Health Pack | +25 | 100 | 25 s (P8-04) |
 | I03 | Health Crate | +50 | 100 | 35 s |
 | I04 | Mega Cell | +100 | 200 | 35 s |
 | I05 | Armor Shard | +5 | 200 | 25 s |
-| I06 | Light Plate | +50 | 200 | 25 s |
+| I06 | Light Plate | +50 | 200 | 20 s (P8-04) |
 | I07 | Heavy Plate | +100 | 200 | 25 s |
 | I08 | Ammo box | 1 type, weapon-sized | maxAmmo | 25 s |
 | I09 | Ammo cache | all types +50% | maxAmmo | 40 s |
@@ -700,7 +700,7 @@ Architecture: per bot = Perception -> Memory -> Decision (utility goals, re-scor
 | T15 | sprayControl | recoil compensation |
 | T16 | abilityUse | ability/grenade frequency |
 
-Named roster (tier / signature traits / favourite): B01 Pell (0, timid, W04), B02 Dovetail (0, camper, W24), B03 Grommet (1, jumpy, W19), B04 Ashby (1, aggressive, W09), B05 Lintel (1, teamwork, W30), B06 Mossa (2, item focus, W31), B07 Rook Varga (2, camper, W25), B08 Tilde (2, strafer, W13), B09 Corvan (3, vengeful, W21), B10 Nyx-7 (3, alert, W23), B11 Brindle (3, aggressive, W20), B12 Saffi (3, ability use, W17), B13 Halloran (4, accurate, W24), B14 Quarry (4, weapon jumper, W31), B15 Jessamy (4, item focus, W37), B16 Okoro (4, teamwork, W13), B17 Vantablue (5, flanker, W36), B18 Marrow (5, aggressive, W21), B19 Isolde Crane (5, accurate, W23), B20 Teodor (6, all-round, W17), B21 Wren Kasai (6, jumpy, W37), B22 Ostrava (6, camper, W24), B23 Calder Rhee (7, champion I, W23), B24 The Warden of Nine (7, final champion, favourite = player's most used weapon).
+Named roster (tier / signature traits / favourite): B01 Pell (0, timid, W04), B02 Dovetail (0, camper, W24), B03 Grommet (1, jumpy, W19), B04 Ashby (1, aggressive, W09), B05 Lintel (1, teamwork, W30), B06 Mossa (2, item focus, W31), B07 Rook Varga (2, camper, W25), B08 Tilde (2, strafer, W13), B09 Corvan (3, vengeful, W21), B10 Nyx-7 (3, alert, W23), B11 Brindle (3, aggressive, W20), B12 Saffi (3, ability use, W17), B13 Halloran (4, accurate, W24), B14 Quarry (4, weapon jumper, W31), B15 Jessamy (4, item focus, W37), B16 Okoro (4, teamwork, W13), B17 Vantablue (5, flanker, W36), B18 Marrow (5, aggressive, W21), B19 Isolde Crane (5, accurate, W23), B20 Teodor (6, all-round, W17), B21 Wren Kasai (6, jumpy, W44), B22 Ostrava (6, camper, W26), B23 Calder Rhee (7, champion I, W28), B24 The Warden of Nine (7, final champion, favourite = player's most used weapon).
 
 ## 17. PvE enemies (NPC)
 

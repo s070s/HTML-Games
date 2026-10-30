@@ -124,6 +124,12 @@ const Abilities = {
     return null;
   },
   botChoice: null,   // fn(id, kit, slotName) -> the ability a bot takes for a kit slot, or '' (13d: by botUse rules)
+  // P8-04 O5: why a loadout ability does nothing in this match ('' = it works): a revive needs a teammate who can go down.
+  restriction(key) {
+    const row = CAT.abilities.byId(key);
+    if (!row || !row.balance.needsDowned) return '';
+    return Damage.downedAllowed() && currentRules().teams > 0 ? '' : 'Needs downed teammates';
+  },
   setChoice(id, choice) { this.choices[id] = choice ? Object.assign({}, choice) : null; },
   // The ability id for one slot: an allowed loadout choice, nothing for KIT_SLOT_EMPTY, else the kit default.
   kitAbility(id, kit, slotName) {

@@ -11,9 +11,10 @@ const ANIM_TEST_SETS = {
   linker: 'R8', ramjet: 'R13', pitcher: 'R7', gloop: 'R12', kindler: 'R12', ember: 'R8', stormlash: 'R8', starthrower: 'R8', accelerator: 'R8', fusionmortar: 'R14',
   lifter: '', twingate: '', auger: 'R14', razorwind: '', daybreak: 'R8', halcyon: 'R14',
 };
-// The reload seconds of the same table (a class value unless the row overrides it): proof that the animation work changed no reload time.
+// The reload seconds of the same table (a class value unless the row overrides it): proof that the animation work changed no reload time
+// (P8-04 O2 then gave the Shardcaster 2 s for its whole 10-round magazine; the animation phases are fractions of the live time).
 const ANIM_TEST_RELOAD_SECONDS = { warden: 1.4, verdict: 1.4, hush: 1.4, sparklock: 1.4, wasp: 1.8, hornet: 1.8, needlethorn: 1.8, vanguard: 2.2, ratchet: 2.2, coilcaster: 2, scattergun: 0.5,
-  hookjaw: 1.1, shardcaster: 0.5, lancet: 2.4, heron: 3.6, kestrel: 2.4, stakedriver: 2.4, talonbow: 0.5, hailstorm: 4, linker: 2, ramjet: 2.5, pitcher: 2.5, gloop: 2.5, kindler: 4,
+  hookjaw: 0.8, shardcaster: 2, lancet: 2.4, heron: 3.6, kestrel: 2.4, stakedriver: 2.4, talonbow: 0.5, hailstorm: 4, linker: 2, ramjet: 2.5, pitcher: 2.5, gloop: 2.5, kindler: 4,
   ember: 2, stormlash: 2, starthrower: 2, accelerator: 2, fusionmortar: 2.5, auger: 2.5, daybreak: 3, halcyon: 3 };
 // The phase end fractions of every set as Appendix C lists them: [partial, empty]; an empty list = the same as the partial one.
 const ANIM_TEST_PHASES = {
@@ -565,7 +566,7 @@ Test.add('anims', (check) => {
   const id = animTestStart(['talonbow']);
   animTestRun(id, 21, BTN.FIRE);
   const view = animTestView();
-  check('Render.viewModel charge is in seconds and chargeFraction is it over the mode\'s charge time (W27 0.7 s)', Test.near(view.charge, 0.35, 0.03) && Test.near(view.chargeFraction, view.charge / 0.7, 1e-6) && view.chargeFraction > 0.4 && view.chargeFraction < 0.6, [view.charge, view.chargeFraction]);
+  check('Render.viewModel charge is in seconds and chargeFraction is it over the mode\'s charge time (W27 0.55 s)', Test.near(view.charge, 0.35, 0.03) && Test.near(view.chargeFraction, view.charge / 0.55, 1e-6) && view.chargeFraction > 0.5 && view.chargeFraction < 0.75, [view.charge, view.chargeFraction]);
   animTestFinish();
 });
 

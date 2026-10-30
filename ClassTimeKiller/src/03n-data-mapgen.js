@@ -69,9 +69,9 @@ Data.define('mapDensities', { id: REQUIRED, name: REQUIRED, moduleShare: 0.7, sc
 
 // Item sets the placement draws from (16w-mapgen-place.js). Group lists name MapRules.itemGroups (one plain pickup each, mirrored
 // on mirrored maps); 'power' lists the power-up keys the generator puts on the centre line (the ones that fit any arena: no
-// mode-specific or long-lasting powers).
+// mode-specific powers). P8-04: the whole versus set, so every powerup is met in normal play (hand-made maps hold Fury Core and Quickening).
 Data.define('mapItemSets', { id: REQUIRED, list: REQUIRED }, [
-  { id: 'power', list: ['fury', 'warding', 'quickening', 'renewal', 'skyward'] },
+  { id: 'power', list: ['fury', 'warding', 'quickening', 'ghostveil', 'renewal', 'skyward', 'berserk', 'sigil', 'bottomless', 'vampfang', 'seer', 'springboots', 'guardianrune'] },
   { id: 'pickups', list: ['weapon', 'weapon', 'weapon', 'armor', 'armor', 'health', 'health', 'health', 'ammo', 'ammo'] },   // modes that use pickups
   { id: 'supply', list: ['health', 'health', 'ammo', 'armor'] },                                                              // other modes
   { id: 'loot', list: ['weapon', 'weapon', 'weapon', 'armor', 'armor', 'health', 'health', 'ammo'] },   // per royale loot site (6 sites: the 48 spots of MP09)

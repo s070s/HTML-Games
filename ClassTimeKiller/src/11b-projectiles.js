@@ -71,10 +71,11 @@ const Projectiles = {
 
   // ---- Spawning ----
   // From a weapon: starts at its muzzle (the eye when a wall is in between) and flies to the point under the crosshair, which
-  // `direction` (the eye ray) hits; a lobbed projectile (gravity) keeps that direction. Speed 0 = mode or row speed.
+  // `direction` (the eye ray) hits; a lobbed projectile (gravity of LOB_MIN_GRAVITY or more) flies the arc through that point, a slightly dropping one keeps the direction. Speed 0 = mode or row speed.
   spawnFromWeapon(owner, weapon, mode, modeIndex, direction, damage, multiplier, speed, target) {
     const row = CAT.projectiles.byId(mode.projectile);
     const launch = speed || mode.speed || row.speed, start = Muzzle.launch(owner, weapon, direction, !row.gravity);
+    if (row.gravity >= LOB_MIN_GRAVITY) Muzzle.solveLob(owner, direction, launch, row.gravity);   // P8-04: a lob lands on the crosshair point
     const i = this.spawn(row, owner, weapon.index, modeIndex, start.x, start.y, start.z, start.dx * launch, start.dy * launch, start.dz * launch, damage * multiplier);
     if (mode.life) this.life[i] = mode.life;
     if (mode.bounces > -2) this.bounces[i] = mode.bounces;

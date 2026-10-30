@@ -63,7 +63,7 @@ Test.add('content', (check) => {
     }
   }
   check('time-to-kill vs 100 HP inside the family band for every weapon', outside.length === 0, outside.join('; '));
-  check('TTK table: W13 three shots in 0.2 s, W24 one shot', Test.near(timeToKill(CAT.weapons.byId('vanguard').primary), 0.2, 1e-6) && timeToKill(CAT.weapons.byId('heron').primary) === 0);
+  check('TTK table: W13 three shots in 2 / 9 s (P8-04: 9 a second), W24 one shot', Test.near(timeToKill(CAT.weapons.byId('vanguard').primary), 2 / 9, 1e-6) && timeToKill(CAT.weapons.byId('heron').primary) === 0);
   check('R-086/R-089: only shotgun, marksman, sniper and power rows kill 100 HP with one direct hit', oneHit.length === 0, oneHit.join('; '));
   check('R-087: every shotgun one-shots at ' + POINT_BLANK_METRES + ' m and needs two shots at ' + MID_RANGE_METRES + ' m', shotguns.length === 0, shotguns.join('; '));
 });

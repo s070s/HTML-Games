@@ -75,7 +75,7 @@ off the map edge.
   twelve callout modules `[name, pattern]` (the cell names become the map's callout zones).
 - `mapSizes`: `{ id, name, index, tiers }`; a size is offered only on the quality tiers it lists (small: all; medium: low and up; large: medium and up).
 - `mapDensities`: `{ id, name, moduleShare, scatter }`.
-- `mapItemSets`: `{ id, list }`: `power` (the power-up keys put on the centre line), `pickups` / `supply` (one plain pickup per group entry, for
+- `mapItemSets`: `{ id, list }`: `power` (the power-up keys put on the centre line: every versus powerup but the mode resources, P8-04), `pickups` / `supply` (one plain pickup per group entry, for
   modes with and without pickups), `loot` (per royale loot site). Pickups tied to a health preset (PU20 Vital Shard, `healthPreset`) are
   never drawn as plain pickups: maps with pickups or supply get one extra pair of each (12a shows it only in Ravager health matches).
 - `generators`: the table above (`cells` per size index, `modes`, `defaultModes`, `fallback`, `blurb`, `siteWalk` for GN2).

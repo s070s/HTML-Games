@@ -12,11 +12,11 @@ Data.define('items', {
   respawn: 0, respawnTeams: 0, respawnPower: 0, useTime: 0, stack: 0, restores: '', color: 0xffffff, index: 0,
 }, [
   { id: 'healthvial', code: 'I01', name: 'Health Vial', group: 'health', effect: 'health', amount: 5, cap: 200, overheal: true, respawn: 35, color: 0x7dffa8 },
-  { id: 'healthpack', code: 'I02', name: 'Health Pack', group: 'health', effect: 'health', amount: 25, cap: 100, respawn: 35, color: 0x3fd870 },
+  { id: 'healthpack', code: 'I02', name: 'Health Pack', group: 'health', effect: 'health', amount: 25, cap: 100, respawn: 25, color: 0x3fd870 },
   { id: 'healthcrate', code: 'I03', name: 'Health Crate', group: 'health', effect: 'health', amount: 50, cap: 100, respawn: 35, color: 0x2fc060 },
   { id: 'megacell', code: 'I04', name: 'Mega Cell', group: 'health', effect: 'health', amount: 100, cap: 200, overheal: true, respawn: 35, color: 0x40a0ff },
   { id: 'armorshard', code: 'I05', name: 'Armor Shard', group: 'armor', effect: 'armor', amount: 5, cap: 200, respawn: 25, color: 0xffd060 },
-  { id: 'lightplate', code: 'I06', name: 'Light Plate', group: 'armor', effect: 'armor', amount: 50, cap: 200, respawn: 25, color: 0x9ad04a },
+  { id: 'lightplate', code: 'I06', name: 'Light Plate', group: 'armor', effect: 'armor', amount: 50, cap: 200, respawn: 20, color: 0x9ad04a },
   { id: 'heavyplate', code: 'I07', name: 'Heavy Plate', group: 'armor', effect: 'armor', amount: 100, cap: 200, respawn: 25, color: 0xff6a3a },
   { id: 'ammobox', code: 'I08', name: 'Ammo Box', group: 'ammo', effect: 'ammoType', respawn: 25, color: 0xc8b070 },
   { id: 'ammocache', code: 'I09', name: 'Ammo Cache', group: 'ammo', effect: 'ammoAll', amount: 0.5, respawn: 40, color: 0xa89050 },

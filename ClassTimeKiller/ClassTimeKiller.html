@@ -1061,7 +1061,7 @@ const FIRE_MODE_SCHEMA = {
 const WEAPON_SCHEMA = {
 	id: REQUIRED, code: REQUIRED, name: REQUIRED, class: REQUIRED, slot: 0, moveMult: 1, adsMoveMult: 0.7, equipTime: 0, readyTime: 0.15,
 	flash: -1, casing: '', reloadFx: '', muzzleFlash: 0, casingKind: '', reload: 0, reloadShell: false, reloadAnim: '', meleeAnim: '', meleeAnimAlt: '', reloadAnimIndex: -1, meleeAnimIndex: -1, meleeAltIndex: -1, primary: REQUIRED, alt: REQUIRED, ammoType: '', mag: 0, reserve: 0, maxAmmo: 0, pickupAmmo: 0, altAmmo: 0,
-	price: 0, killReward: 300, rarityScale: true, dualWield: false, noise: 60, botPref: { range: [5, 30], value: 0.5 }, index: 0, family: null,
+	price: 0, killReward: 300, rarityScale: true, dualWield: false, noise: 60, botPref: { range: [5, 30], value: 0.5 }, botSpawn: 1, index: 0, family: null,
 };
 const WEAPON_ROWS = [
 	{ id: 'maul', code: 'W01', name: 'Breaker Maul', class: 'melee', meleeAnim: 'maul', meleeAnimAlt: 'maulAlt', price: 0, killReward: 1500, noise: 25, botPref: { range: [0, 2], value: 0.1 },
@@ -1074,15 +1074,15 @@ const WEAPON_ROWS = [
 		primary: { type: 'melee', damage: 40, rate: 1.5, reach: 1.8, status: { id: 'stun', seconds: 0.3 } },
 		alt: { type: 'block', block: { pool: 150, regen: 25, parryWindow: 0.2, arcDeg: 120 } } },
 	{ id: 'warden', code: 'W04', name: 'Warden Pistol', class: 'sidearm', mag: 12, reserve: 48, price: 0, dualWield: true, noise: 45, botPref: { range: [2, 25], value: 0.35 },
-		primary: { type: 'hitscan', trigger: 'semi', damage: 25, rate: 4, spreadDeg: 0.5, recoil: 'pistol', falloff: [20, 40, 0.7] },
-		alt: { type: 'hitscan', trigger: 'burst', damage: 25, rate: 1.5, burst: 3, spreadDeg: 1.4, recoil: 'burst', falloff: [10, 25, 0.6] } },
-	{ id: 'verdict', casing: 'none', code: 'W05', name: 'Verdict Magnum', class: 'sidearm', reloadAnim: 'R2', mag: 6, reserve: 24, price: 700, noise: 70, botPref: { range: [5, 40], value: 0.55 },
+		primary: { type: 'hitscan', trigger: 'semi', damage: 30, rate: 4.5, spreadDeg: 0.5, recoil: 'pistol', falloff: [20, 40, 0.7] },
+		alt: { type: 'hitscan', trigger: 'burst', damage: 25, rate: 1.6, burst: 3, spreadDeg: 1.4, recoil: 'burst', falloff: [10, 25, 0.6] } },
+	{ id: 'verdict', casing: 'none', code: 'W05', name: 'Verdict Magnum', class: 'sidearm', reloadAnim: 'R2', mag: 6, reserve: 24, price: 700, noise: 70, botPref: { range: [5, 40], value: 0.45 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 55, rate: 2.2, spreadDeg: 0.3, recoil: 'pistolHeavy', falloff: [25, 50, 0.75], penetration: 'med' },
 		alt: { type: 'zoom', zoom: 2 } },
-	{ id: 'hush', flash: 0, code: 'W06', name: 'Hush Pistol', class: 'sidearm', mag: 10, reserve: 40, altAmmo: 6, price: 500, noise: 6, botPref: { range: [8, 35], value: 0.4 },
+	{ id: 'hush', flash: 0, code: 'W06', name: 'Hush Pistol', class: 'sidearm', mag: 10, reserve: 40, altAmmo: 6, price: 500, noise: 6, botPref: { range: [8, 35], value: 0.35 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 40, rate: 2.5, spreadDeg: 0.15, headMult: 2.5, tracer: false, recoil: 'pistol', falloff: [25, 55, 0.7] },
 		alt: { type: 'hitscan', trigger: 'semi', damage: 0, rate: 1, ammo: 'alt', status: { id: 'sleep', seconds: 8 } } },
-	{ id: 'sparklock', casing: 'none', code: 'W07', name: 'Sparklock Pistol', class: 'sidearm', reloadAnim: 'R8', price: 600, mag: 24, reserve: 72, noise: 40, botPref: { range: [2, 20], value: 0.45 },
+	{ id: 'sparklock', casing: 'none', code: 'W07', name: 'Sparklock Pistol', class: 'sidearm', reloadAnim: 'R8', price: 600, mag: 24, reserve: 72, noise: 40, botPref: { range: [2, 20], value: 0.4 },
 		primary: { type: 'lock', damage: 12, rate: 8, lock: { time: 0.4, targets: 3, coneDeg: 12, range: 20 }, recoil: 'energy' },
 		alt: { type: 'hitscan', damage: 12, rate: 8, spreadDeg: 1.5, recoil: 'pistol' } },
 	{ id: 'wasp', code: 'W09', name: 'Wasp SMG', class: 'smg', mag: 30, reserve: 120, price: 1200, killReward: 600, botPref: { range: [0, 15], value: 0.55 },
@@ -1095,43 +1095,43 @@ const WEAPON_ROWS = [
 		primary: { type: 'projectile', projectile: 'needle', damage: 9, rate: 10, spreadDeg: 1.5, falloff: [12, 28, 0.6], stickCombo: { count: 9, damage: 40, radius: 2 }, element: 'void' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'needle', damage: 9, rate: 1.25, pellets: 5, spreadDeg: 5, ammoPerShot: 5, falloff: [12, 28, 0.6], stickCombo: { count: 9, damage: 40, radius: 2 }, element: 'void' } },
 	{ id: 'vanguard', code: 'W13', name: 'Vanguard Rifle', class: 'rifle', moveMult: 0.92, mag: 25, reserve: 75, price: 2700, botPref: { range: [5, 60], value: 0.75 },
-		primary: { type: 'hitscan', damage: 34, rate: 10, spreadDeg: 0.25, recoil: 'rifleHeavy', falloff: [35, 60, 0.75], penetration: 'med' },
+		primary: { type: 'hitscan', damage: 34, rate: 9, spreadDeg: 0.25, recoil: 'rifleHeavy', falloff: [35, 60, 0.75], penetration: 'med' },
 		alt: { type: 'zoom', zoom: 1.3 } },
 	{ id: 'ratchet', code: 'W15', name: 'Ratchet Burst', class: 'rifle', moveMult: 0.93, mag: 24, reserve: 96, price: 2400, botPref: { range: [8, 50], value: 0.65 },
 		primary: { type: 'hitscan', trigger: 'burst', damage: 32, rate: 3, burst: 3, spreadDeg: 0.3, recoil: 'burst', penetration: 'med' },
 		alt: { type: 'zoom', zoom: 1.8 } },
 	{ id: 'coilcaster', code: 'W17', name: 'Coilcaster', class: 'energy', price: 2200, moveMult: 0.93, mag: 20, reserve: 50, botPref: { range: [8, 60], value: 0.7 },
-		primary: { type: 'hitscan', trigger: 'semi', damage: 45, rate: 1.4, recoil: 'energy', element: 'arc', combo: { damage: 200, radius: 4, ammo: 3 } },
+		primary: { type: 'hitscan', trigger: 'semi', damage: 50, rate: 1.6, recoil: 'energy', element: 'arc', combo: { damage: 200, radius: 4, ammo: 3 } },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'orb', damage: 0, rate: 1.4, splash: { r: 1.5, dmg: 55 }, element: 'arc' } },
 	{ id: 'scattergun', code: 'W19', name: 'Scattergun', class: 'shotgun', moveMult: 0.95, reloadShell: true, mag: 6, reserve: 30, price: 1100, killReward: 900, noise: 80, botPref: { range: [0, 10], value: 0.7 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 10, pellets: 12, rate: 1.1, spreadDeg: 5, moveSpread: 0.3, adsSpreadMult: 1, recoil: 'shotgun', falloff: [8, 20, 0.4] },
 		alt: { type: 'hitscan', trigger: 'semi', damage: 55, rate: 1.1, spreadDeg: 0.3, recoil: 'shotgun', falloff: [20, 45, 0.6], zoom: 1.2 } },
-	{ id: 'hookjaw', code: 'W20', name: 'Hookjaw', class: 'shotgun', reloadAnim: 'R6', reload: 1.1, mag: 2, reserve: 24, price: 1800, killReward: 900, noise: 85, botPref: { range: [0, 8], value: 0.8 },
-		primary: { type: 'hitscan', trigger: 'semi', damage: 8, pellets: 20, rate: 0.9, spreadDeg: 7, moveSpread: 0.3, recoil: 'shotgun', falloff: [8, 18, 0.3], ammoPerShot: 2 },
+	{ id: 'hookjaw', code: 'W20', name: 'Hookjaw', class: 'shotgun', reloadAnim: 'R6', reload: 0.8, mag: 2, reserve: 24, price: 1800, killReward: 900, noise: 85, botPref: { range: [0, 8], value: 0.8 },
+		primary: { type: 'hitscan', trigger: 'semi', damage: 9, pellets: 20, rate: 1.2, spreadDeg: 6, moveSpread: 0.3, recoil: 'shotgun', falloff: [8, 18, 0.3], ammoPerShot: 2 },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'hook', rate: 2, ammo: 'none', cooldown: 6, range: 25 } },
-	{ id: 'shardcaster', code: 'W21', name: 'Shardcaster', class: 'shotgun', reloadAnim: 'R7', moveMult: 0.92, mag: 10, reserve: 40, price: 1600, killReward: 900, noise: 75, botPref: { range: [0, 15], value: 0.75 },
+	{ id: 'shardcaster', code: 'W21', name: 'Shardcaster', class: 'shotgun', reloadAnim: 'R7', reload: 2, moveMult: 0.92, mag: 10, reserve: 40, price: 1600, killReward: 900, noise: 75, botPref: { range: [0, 15], value: 0.75 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'shard', damage: 12, pellets: 9, rate: 1.2, spreadDeg: 6, moveSpread: 0.3, recoil: 'shotgun' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'grenade', speed: 20, bounces: 0, damage: 100, rate: 0.9, split: { projectile: 'shard', count: 6, damage: 12 }, arm: EXPLOSIVE_ALT_ARM, recoil: 'launcher' } },
 	{ id: 'lancet', casing: 'none', code: 'W23', name: 'Lancet Rail', class: 'marksman', reloadAnim: 'R8', price: 3500, moveMult: 0.92, mag: 10, reserve: 30, noise: 90, botPref: { range: [10, 90], value: 0.85 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 100, rate: 0.67, moveSpread: 0, pierce: 4, recoil: 'marksman', element: 'arc' },
 		alt: { type: 'zoom', zoom: 2.5 } },
 	{ id: 'heron', casing: 'none', code: 'W24', name: 'Heron Sniper', class: 'sniper', moveMult: 0.85, adsMoveMult: 0.5, reload: 3.6, mag: 5, reserve: 20, price: 4700, killReward: 100, noise: 110, botPref: { range: [25, 140], value: 0.85 },
-		primary: { type: 'hitscan', trigger: 'semi', damage: 115, rate: 0.67, spreadDeg: 8, adsSpreadMult: 0, headMult: 2.5, alwaysHead: true, recoil: 'sniper', penetration: 'high' },
+		primary: { type: 'hitscan', trigger: 'semi', damage: 115, rate: 0.67, spreadDeg: 2, adsSpreadMult: 0, headMult: 2.5, alwaysHead: true, recoil: 'sniper', penetration: 'high' },
 		alt: { type: 'zoom', zoom: 4, zoomMax: 8, breath: 4 } },
 	{ id: 'kestrel', code: 'W25', name: 'Kestrel DMR', class: 'marksman', moveMult: 0.9, mag: 15, reserve: 45, price: 1800, botPref: { range: [10, 80], value: 0.7 },
 		primary: { type: 'hitscan', trigger: 'semi', damage: 60, rate: 3, spreadDeg: 0.2, recoil: 'marksman', penetration: 'med' },
 		alt: { type: 'zoom', zoom: 3 } },
 	{ id: 'stakedriver', casing: 'none', code: 'W26', name: 'Stakedriver', class: 'marksman', reloadAnim: 'R9', price: 2000, moveMult: 0.9, mag: 12, reserve: 36, altAmmo: 6, botPref: { range: [10, 60], value: 0.7 },
-		primary: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 90, rate: 1.2, recoil: 'marksman', statusRange: 25, status: { id: 'burn', seconds: 3 } },
+		primary: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 100, rate: 1.2, recoil: 'marksman' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'stake', damage: 70, rate: 1, ammo: 'alt', recoil: 'marksman', status: { id: 'burn', seconds: 4 }, element: 'thermal' } },
 	{ id: 'talonbow', casing: 'none', flash: 0, code: 'W27', name: 'Talon Bow', class: 'marksman', reloadAnim: 'R10', price: 1500, mag: 1, reserve: 18, altAmmo: 6, noise: 0, reload: 0.5, botPref: { range: [8, 60], value: 0.6 },
-		primary: { type: 'projectile', trigger: 'charge', projectile: 'arrow', rate: 1.5, charge: { time: 0.7, min: 50, max: 110, speed: [40, 70] } },
+		primary: { type: 'projectile', trigger: 'charge', projectile: 'arrow', rate: 1.8, charge: { time: 0.55, min: 50, max: 110, speed: [40, 70] } },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'arrow', speed: 55, damage: 0, rate: 1, ammo: 'alt', splash: { r: 2.5, dmg: 80 }, arm: EXPLOSIVE_ALT_ARM, noise: 60 } },
 	{ id: 'hailstorm', code: 'W28', name: 'Hailstorm', class: 'heavy', price: 4000, moveMult: 0.75, mag: 150, reserve: 300, noise: 90, botPref: { range: [3, 35], value: 0.75 },
 		primary: { type: 'hitscan', damage: 15, rate: 18, spinUp: 0.2, spreadDeg: 1.1, moveSpread: 1.5, recoil: 'minigun', penetration: 'high' },
 		alt: { type: 'toggle', toggle: { rateMult: 1.5, frontResist: 0.3, speedMult: 0 } } },
 	{ id: 'linker', code: 'W30', name: 'Linker', class: 'energy', price: 1800, mag: 70, reserve: 140, noise: 50, botPref: { range: [3, 30], value: 0.6 },
-		primary: { type: 'projectile', projectile: 'plasma', speed: 40, damage: 22, rate: 6, recoil: 'energy', element: 'arc' },
+		primary: { type: 'projectile', projectile: 'plasma', speed: 40, damage: 24, rate: 6, recoil: 'energy', element: 'arc' },
 		alt: { type: 'beam', damage: 5, rate: 20, range: 30, allyLink: 1.5, repair: 60, element: 'arc' } },
 	{ id: 'ramjet', code: 'W31', name: 'Ramjet Launcher', class: 'explosive', price: 3200, moveMult: 0.88, mag: 4, reserve: 20, noise: 90, botPref: { range: [4, 40], value: 0.85 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'rocket', damage: 90, rate: 1, splash: { r: 3.5, dmg: 80 }, recoil: 'launcher', element: 'thermal' },
@@ -1140,10 +1140,10 @@ const WEAPON_ROWS = [
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'grenade', damage: 0, rate: 1.5, splash: { r: 4.5, dmg: 100 }, recoil: 'launcher' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'mine', damage: 0, rate: 2, splash: { r: 4, dmg: 100 }, maxActive: 4, detonateOnRelease: true, recoil: 'launcher' } },
 	{ id: 'gloop', code: 'W34', name: 'Gloop Gun', class: 'explosive', reloadAnim: 'R12', price: 2000, mag: 25, reserve: 75, noise: 35, botPref: { range: [2, 18], value: 0.55 },
-		primary: { type: 'projectile', projectile: 'goo', damage: 20, rate: 4, spreadDeg: 1.5, puddle: { radius: 1.5, damage: 5, seconds: 3 }, element: 'toxin' },
+		primary: { type: 'projectile', projectile: 'goo', damage: 22, rate: 4, spreadDeg: 1.5, puddle: { radius: 1.5, damage: 5, seconds: 3 }, element: 'toxin' },
 		alt: { type: 'projectile', trigger: 'charge', projectile: 'goo', rate: 0.8, ammoPerShot: 5, charge: { time: 2, min: 20, max: 150 }, split: { projectile: 'goo', count: 3, damage: 20 }, puddle: { radius: 2, damage: 2.5, seconds: 3 }, element: 'toxin' } },
 	{ id: 'kindler', casing: 'none', reloadFx: 'flare', code: 'W35', name: 'Kindler', class: 'heavy', reloadAnim: 'R12', price: 2400, moveMult: 0.85, mag: 100, reserve: 200, noise: 40, botPref: { range: [0, 9], value: 0.6 },
-		primary: { type: 'cone', damage: 10, rate: 10, cone: { range: 9, angle: 30 }, status: { id: 'burn', seconds: 4 }, element: 'thermal' },
+		primary: { type: 'cone', damage: 9, rate: 10, cone: { range: 9, angle: 30 }, status: { id: 'burn', seconds: 4 }, element: 'thermal' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'goo', damage: 10, rate: 1, ammoPerShot: 10, puddle: { radius: 2.5, damage: 5, seconds: 6, status: { id: 'burn', seconds: 4 } }, element: 'thermal', special: 'airblast' } },
 	{ id: 'ember', reloadFx: 'vent', code: 'W36', name: 'Ember Repeater', class: 'energy', price: 2400, moveMult: 0.92, mag: 50, reserve: 200, noise: 55, botPref: { range: [3, 30], value: 0.75 },
 		primary: { type: 'projectile', projectile: 'plasma', damage: 16, rate: 10, splash: { r: 0.6, dmg: 10 }, heat: 4, recoil: 'energy', element: 'thermal' },
@@ -1155,7 +1155,7 @@ const WEAPON_ROWS = [
 		primary: { type: 'projectile', projectile: 'disc', damage: 18, rate: 8, spreadDeg: 0.6, recoil: 'energy' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'disc', bounces: 0, damage: 0, rate: 2, ammoPerShot: 3, splash: { r: 1.8, dmg: 50 }, arm: EXPLOSIVE_ALT_ARM } },
 	{ id: 'accelerator', code: 'W39', name: 'Accelerator', class: 'energy', price: 2600, mag: 20, reserve: 60, noise: 70, botPref: { range: [5, 50], value: 0.65 },
-		primary: { type: 'hitscan', trigger: 'charge', rate: 1.2, charge: { time: 1.5, levels: [40, 90, 160], ammo: [2, 4, 8] }, recoil: 'energy', element: 'void' },
+		primary: { type: 'hitscan', trigger: 'charge', rate: 1.2, charge: { time: 0.9, levels: [50, 100, 160], ammo: [2, 4, 8] }, recoil: 'energy', element: 'void' },
 		alt: { type: 'cone', trigger: 'semi', damage: 60, rate: 0.7, ammoPerShot: 4, cone: { range: 6, angle: 360 }, knockback: 4, element: 'void' } },
 	{ id: 'fusionmortar', code: 'W40', name: 'Fusion Mortar', class: 'explosive', reloadAnim: 'R14', price: 4500, moveMult: 0.85, mag: 1, reserve: 1, maxAmmo: 1, noise: 90, botPref: { range: [8, 30], value: 0.6 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'fusion', damage: 0, rate: 0.5, splash: { r: 6, dmg: 300 }, element: 'void' },
@@ -1170,7 +1170,7 @@ const WEAPON_ROWS = [
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'drill', damage: 90, rate: 0.8, fodderKill: true },
 		alt: { type: 'detonate', projectile: 'drill' } },
 	{ id: 'razorwind', code: 'W44', name: 'Razorwind', class: 'exotic', price: 2000, noise: 30, botPref: { range: [2, 18], value: 0.55 },
-		primary: { type: 'projectile', trigger: 'semi', projectile: 'blade', damage: 45, rate: 1.5, ammo: 'none', maxActive: 1, activeRule: 'block' },
+		primary: { type: 'projectile', trigger: 'semi', projectile: 'blade', damage: 52, rate: 1.7, ammo: 'none', maxActive: 1, activeRule: 'block' },
 		alt: { type: 'projectile', trigger: 'semi', projectile: 'blade', damage: 45, rate: 2, ammo: 'none', maxActive: 1, activeRule: 'block', special: 'lodgeBlade', laser: { damage: 15, interval: 0.25 } } },
 	{ id: 'daybreak', code: 'W45', name: 'Daybreak Projector', class: 'power', moveMult: 0.85, mag: 4, reserve: 0, rarityScale: false, noise: 120, botPref: { range: [6, 60], value: 1 },
 		primary: { type: 'projectile', trigger: 'semi', projectile: 'sunorb', speed: 18, damage: 150, rate: 0.5, splash: { r: 6, dmg: 150 }, aura: { radius: 8, damage: 7.5, interval: 0.25 }, element: 'void' },
@@ -1344,7 +1344,7 @@ const BOMB_ROUNDS = { winsNeeded: 7, limit: 13, live: 100, freeze: 15, switchAt:
 const BOMB_PARAMS = { plantTime: 4, fuse: 40, defuseTime: 7, defuseCheckpoint: 3.5, defuseRange: 1.5, blastRadius: 15 };
 const CAPTURE_PARAMS = { captureTime: 8, captureStack: 0.5, captureMax: 2 };
 const NO_KILL_SCORING = { kill: 0, suicide: 0, teamKill: 0 };
-const GUNGAME_LADDER = ['vanguard', 'ratchet', 'wasp', 'hornet', 'needlethorn', 'scattergun', 'hookjaw', 'shardcaster', 'kestrel', 'lancet', 'heron', 'maul'];
+const GUNGAME_LADDER = ['vanguard', 'ratchet', 'wasp', 'hornet', 'needlethorn', 'scattergun', 'hookjaw', 'ember', 'kestrel', 'lancet', 'heron', 'maul'];
 const BLIGHT_PARAMS = { fixedSides: true, infectedPerPlayers: 6, infectedArea: 3000, infectAfter: 20, infectedHealth: 320, leapSpeed: 8, leapLift: 3 };
 Data.define('modes', {
 	id: REQUIRED, code: REQUIRED, name: REQUIRED, goal: '', goalDetail: '', teams: 0, sizeDefault: 8, scoreLimit: 0, timeLimit: 600, scoreBy: 'kills',
@@ -1495,9 +1495,9 @@ Data.define('bots', {
 	{ id: 'marrow', code: 'B18', name: 'Marrow', tier: 5, style: 'aggressive', favorite: 'shardcaster', color: 0xb8a48c, chat: 'loud' },
 	{ id: 'isoldecrane', code: 'B19', name: 'Isolde Crane', tier: 5, style: 'accurate', favorite: 'lancet', color: 0xd9d2e9 },
 	{ id: 'teodor', code: 'B20', name: 'Teodor', tier: 6, style: 'allRound', favorite: 'coilcaster', color: 0x9e6b2f },
-	{ id: 'wrenkasai', code: 'B21', name: 'Wren Kasai', tier: 6, style: 'jumpy', favorite: 'stormlash', color: 0xd0473c, chat: 'loud' },
-	{ id: 'ostrava', code: 'B22', name: 'Ostrava', tier: 6, style: 'camper', favorite: 'heron', color: 0x5c6670, chat: 'quiet' },
-	{ id: 'calderrhee', code: 'B23', name: 'Calder Rhee', tier: 7, style: 'champion', favorite: 'lancet', color: 0xc0c7cf },
+	{ id: 'wrenkasai', code: 'B21', name: 'Wren Kasai', tier: 6, style: 'jumpy', favorite: 'razorwind', color: 0xd0473c, chat: 'loud' },
+	{ id: 'ostrava', code: 'B22', name: 'Ostrava', tier: 6, style: 'camper', favorite: 'stakedriver', color: 0x5c6670, chat: 'quiet' },
+	{ id: 'calderrhee', code: 'B23', name: 'Calder Rhee', tier: 7, style: 'champion', favorite: 'hailstorm', color: 0xc0c7cf },
 	{ id: 'wardenofnine', code: 'B24', name: 'The Warden of Nine', tier: 7, style: 'champion', favorite: BOT_FAVORITE_PLAYER, color: 0x1d1d24, traits: { accuracy: 0.9 } },
 ]);
 const BOT_BARKS = {
@@ -1543,8 +1543,8 @@ const BOT_OBJECTIVE_VERBS = {
 };
 const BOT_HUNTED_ROLES = ['carrier', 'colossus', 'cursed', 'bearer'];
 const BOT_GADGET_USE = {
-	explode: { when: 'coverOrHolding', range: [8, 25], chance: 0.35, aim: 'enemy' },
-	fire: { when: 'coverOrHolding', range: [8, 25], chance: 0.3, aim: 'enemy' },
+	explode: { when: 'coverOrHolding', range: [16, 32], chance: 0.35, aim: 'enemy' },
+	fire: { when: 'coverOrHolding', range: [16, 32], chance: 0.3, aim: 'enemy' },
 	singularity: { when: 'groupedEnemies', range: [8, 25], chance: 0.8, aim: 'enemy' },
 	flash: { when: 'cover', range: [6, 20], chance: 0.7, aim: 'enemy', tierFlag: 'flashPeek' },
 	freeze: { when: 'enemyClose', range: [4, 14], chance: 0.6, aim: 'enemy' },
@@ -1602,11 +1602,11 @@ Data.define('items', {
 	respawn: 0, respawnTeams: 0, respawnPower: 0, useTime: 0, stack: 0, restores: '', color: 0xffffff, index: 0,
 }, [
 	{ id: 'healthvial', code: 'I01', name: 'Health Vial', group: 'health', effect: 'health', amount: 5, cap: 200, overheal: true, respawn: 35, color: 0x7dffa8 },
-	{ id: 'healthpack', code: 'I02', name: 'Health Pack', group: 'health', effect: 'health', amount: 25, cap: 100, respawn: 35, color: 0x3fd870 },
+	{ id: 'healthpack', code: 'I02', name: 'Health Pack', group: 'health', effect: 'health', amount: 25, cap: 100, respawn: 25, color: 0x3fd870 },
 	{ id: 'healthcrate', code: 'I03', name: 'Health Crate', group: 'health', effect: 'health', amount: 50, cap: 100, respawn: 35, color: 0x2fc060 },
 	{ id: 'megacell', code: 'I04', name: 'Mega Cell', group: 'health', effect: 'health', amount: 100, cap: 200, overheal: true, respawn: 35, color: 0x40a0ff },
 	{ id: 'armorshard', code: 'I05', name: 'Armor Shard', group: 'armor', effect: 'armor', amount: 5, cap: 200, respawn: 25, color: 0xffd060 },
-	{ id: 'lightplate', code: 'I06', name: 'Light Plate', group: 'armor', effect: 'armor', amount: 50, cap: 200, respawn: 25, color: 0x9ad04a },
+	{ id: 'lightplate', code: 'I06', name: 'Light Plate', group: 'armor', effect: 'armor', amount: 50, cap: 200, respawn: 20, color: 0x9ad04a },
 	{ id: 'heavyplate', code: 'I07', name: 'Heavy Plate', group: 'armor', effect: 'armor', amount: 100, cap: 200, respawn: 25, color: 0xff6a3a },
 	{ id: 'ammobox', code: 'I08', name: 'Ammo Box', group: 'ammo', effect: 'ammoType', respawn: 25, color: 0xc8b070 },
 	{ id: 'ammocache', code: 'I09', name: 'Ammo Cache', group: 'ammo', effect: 'ammoAll', amount: 0.5, respawn: 40, color: 0xa89050 },
@@ -1677,13 +1677,13 @@ Data.define('gadgets', {
 		size: [0.3, 0.2, 0.12], color: 0x3a4a2a },
 	{ id: 'cover', code: 'G13', name: 'Barrier Deploy', kind: 'deployed', slot: 'device', effect: 'barrier', health: 300, duration: 30, cooldown: 60,
 		size: [2, 1.2, 0.3], color: 0x7a8088 },
-	{ id: 'sentry', code: 'G15', name: 'Picket Turret', kind: 'deployed', slot: 'device', effect: 'turret', health: 150, damage: 12, rate: 5, range: 25, duration: 40, cooldown: 120,
+	{ id: 'sentry', code: 'G15', name: 'Picket Turret', kind: 'deployed', slot: 'device', effect: 'turret', health: 150, damage: 9, rate: 5, range: 25, duration: 30, cooldown: 120,
 		size: [0.5, 0.8, 0.5], color: 0x8a6a3a },
 	{ id: 'jammer', code: 'G18', name: 'Static Jammer', kind: 'deployed', slot: 'device', effect: 'jammer', radius: 20, duration: 30, health: 50, cooldown: 60,
 		size: [0.3, 0.6, 0.3], color: 0xd0d040 },
 	{ id: 'emp', code: 'G20', name: 'Null Pulse', kind: 'thrown', slot: 'tactical', effect: 'emp', fuse: 1.5, radius: 6, duration: 4, element: 'arc',
 		size: [0.22, 0.22, 0.22], color: 0xfff27a },
-	{ id: 'ticks', code: 'G21', name: 'Scuttler', kind: 'deployed', slot: 'device', effect: 'drones', count: 2, range: 30, damage: 80, radius: 2.5, health: 20, speed: 6, duration: 30,
+	{ id: 'ticks', code: 'G21', name: 'Scuttler', kind: 'deployed', slot: 'device', effect: 'drones', count: 2, range: 30, damage: 60, radius: 2.5, health: 20, speed: 6, duration: 30,
 		cooldown: 90, max: 2, size: [0.3, 0.2, 0.3], color: 0xff6040 },
 	{ id: 'trophy', code: 'G22', name: 'Snatcher', kind: 'deployed', slot: 'device', effect: 'trophy', radius: 6, count: 1, charges: 3, duration: 30, health: 40, cooldown: 90,
 		size: [0.3, 0.5, 0.3], color: 0x50a0a0 },
@@ -1737,15 +1737,15 @@ const ABILITY_ROWS = [
 		params: { direction: 'aim', ledgeGrab: true, upgradedRange: 15 }, balance: { lineOfSight: true, fireDelay: 0.3, noCarrier: true },
 		botUse: { when: 'enemyVisible', range: [12, 40], chance: 0.3 }, color: 0x7a5cff },
 	{ id: 'phaseslip', code: 'A06', name: 'Phase Slip', category: 'mobility', activation: 'instant', cooldown: 12, duration: 2, effect: 'buff',
-		params: { invulnerable: true, noFire: true }, botUse: { when: 'lowHealth', range: [0, 40], chance: 0.7 }, color: 0xb0a0ff },
+		params: { invulnerable: true, noFire: true }, botUse: { when: 'underFire', range: [0, 40], chance: 0.5 }, color: 0xb0a0ff },
 	{ id: 'grapnel', code: 'A07', name: 'Grapnel', category: 'mobility', activation: 'instant', cooldown: 10, duration: 2, range: 30, effect: 'grapple',
-		params: { pullSpeed: 18, arrive: 1.5 }, botUse: { when: 'moving', range: [8, 30], chance: 0.2 }, color: 0xc8c8c8 },
+		params: { pullSpeed: 18, arrive: 1.5 }, botUse: { when: 'enemyVisible', range: [8, 30], chance: 0.6 }, color: 0xc8c8c8 },
 	{ id: 'surge', code: 'A08', name: 'Surge Dash', category: 'mobility', activation: 'instant', resource: 'charges', charges: 3, cooldown: 3, range: 7, effect: 'blink',
 		params: { direction: 'input' }, botUse: { when: 'underFire', range: [0, 30], chance: 0.4 }, color: 0x6fd8ff },
 	{ id: 'rewind', code: 'A09', name: 'Rewind Anchor', category: 'mobility', activation: 'instant', cooldown: 15, effect: 'rewind',
-		params: { seconds: 3 }, botUse: { when: 'lowHealth', range: [0, 60], chance: 0.8 }, color: 0x6fd8ff },
+		params: { seconds: 3 }, botUse: { when: 'underFire', range: [0, 60], chance: 0.5 }, color: 0x6fd8ff },
 	{ id: 'updraft', code: 'A10', name: 'Updraft', category: 'mobility', activation: 'instant', cooldown: 20, duration: 5, range: 10, effect: 'zone',
-		params: { zone: 'lift', radius: 2.5, height: 10, speed: 7, allies: true }, botUse: { when: 'escape', range: [0, 60], chance: 0.3 }, color: 0x9fd8ff },
+		params: { zone: 'lift', radius: 2.5, height: 10, speed: 7, allies: true }, botUse: { when: 'escape', range: [0, 60], chance: 0.6 }, color: 0x9fd8ff },
 	{ id: 'glidepack', code: 'A11', name: 'Glidepack', category: 'mobility', activation: 'hold', resource: 'fuel', duration: 3, effect: 'glide',
 		params: { gravity: 0.1 }, botUse: { when: 'moving', range: [0, 60], chance: 0.2 }, color: 0xd0e0ff },
 	{ id: 'relocator', code: 'A12', name: 'Relocator', category: 'mobility', activation: 'instant', resource: 'charges', charges: 6, cooldown: 1, range: 25, effect: 'beacon',
@@ -1756,7 +1756,7 @@ const ABILITY_ROWS = [
 		params: { reveal: 0.25 }, botUse: { when: 'always', range: [0, 30], chance: 0.2 }, color: 0xffb040 },
 	{ id: 'scoutdrone', code: 'A15', name: 'Scout Drone', category: 'recon', activation: 'channel', cooldown: 40, duration: 20, effect: 'drone',
 		params: { speed: 8, reveal: 10, empRadius: 5, empSeconds: 2 }, interrupt: { damage: true, stun: true, fire: false }, 
-		botUse: { when: 'always', range: [0, 60], chance: 0.1 }, color: 0xffd040 },
+		botUse: { when: 'always', range: [0, 60], chance: 0.5 }, color: 0xffd040 },
 	{ id: 'tracker', code: 'A16', name: 'Tracker Sense', category: 'recon', activation: 'passive', resource: 'none', range: 30, effect: 'tracker',
 		params: { seconds: 8 }, botUse: { when: 'always', range: [0, 30], chance: 1 }, color: 0xffd040 },
 	{ id: 'veil', code: 'A17', name: 'Veil Curtain', category: 'control', activation: 'instant', resource: 'charges', charges: 2, cooldown: 30, duration: 15, range: 20, effect: 'zone',
@@ -1766,27 +1766,27 @@ const ABILITY_ROWS = [
 	{ id: 'timebend', code: 'A19', name: 'Time Bend', category: 'control', activation: 'instant', resource: 'energy', cost: 60, duration: 6, effect: 'timebend',
 		params: { scale: 0.25, radius: 8 }, botUse: { when: 'groupedEnemies', range: [0, 8], chance: 0.6 }, color: 0xc0a0ff },
 	{ id: 'gale', code: 'A20', name: 'Gale Push', category: 'control', activation: 'instant', cooldown: 8, range: 8, effect: 'push',
-		params: { angle: 30, speed: 20, deflect: true }, botUse: { when: 'enemyClose', range: [0, 8], chance: 0.6 }, color: 0xe0f0ff },
+		params: { angle: 30, speed: 20, deflect: true }, botUse: { when: 'enemyClose', range: [0, 10], chance: 0.9 }, color: 0xe0f0ff },
 	{ id: 'binding', needsTarget: true, code: 'A21', name: 'Binding Link', category: 'control', activation: 'instant', cooldown: 20, duration: 8, range: 30, effect: 'link',
 		params: { radius: 8 }, botUse: { when: 'groupedEnemies', range: [0, 30], chance: 0.5 }, color: 0xff60c0 },
-	{ id: 'mesmer', code: 'A22', name: 'Mesmer Lure', category: 'control', activation: 'instant', cooldown: 25, duration: 6, range: 15, effect: 'mesmer',
+	{ id: 'mesmer', code: 'A22', name: 'Mesmer Lure', category: 'control', activation: 'instant', cooldown: 25, duration: 5, range: 15, effect: 'mesmer',
 		params: { targets: 2 }, botUse: { when: 'groupedEnemies', range: [0, 15], chance: 0.5 }, color: 0xff80ff },
 	{ id: 'puppet', code: 'A23', name: 'Puppet Jump', category: 'control', activation: 'instant', cooldown: 40, duration: 10, range: 20, effect: 'possess', modes: 'pve',
 		params: {}, interrupt: { damage: true, stun: true, fire: false }, botUse: { when: 'enemyVisible', range: [0, 20], chance: 0.3 }, color: 0xa040ff },
 	{ id: 'frenzy', needsTarget: true, code: 'A24', name: 'Frenzy Hex', category: 'control', activation: 'instant', cooldown: 30, duration: 8, range: 30, effect: 'frenzy',
 		params: {}, botUse: { when: 'groupedEnemies', range: [0, 30], chance: 0.5 }, color: 0xff4040 },
 	{ id: 'mender', code: 'A25', name: 'Mender Drone', category: 'sustain', activation: 'instant', cooldown: 30, duration: 8, effect: 'zone',
-		params: { zone: 'heal', radius: 6, rate: 20, allies: true, persist: true }, botUse: { when: 'allyLow', range: [0, 6], chance: 0.8 }, color: 0x60ff90 },
+		params: { zone: 'heal', radius: 6, rate: 20, allies: true, persist: true }, botUse: { when: 'underFire', range: [0, 6], chance: 0.6 }, color: 0x60ff90 },
 	{ id: 'aegisdome', code: 'A26', name: 'Aegis Dome', category: 'sustain', activation: 'instant', cooldown: 30, duration: 12, effect: 'zone',
 		params: { zone: 'dome', radius: 5, persist: true }, botUse: { when: 'underFire', range: [0, 60], chance: 0.7 }, color: 0x80c0ff },
 	{ id: 'secondwind', code: 'A27', name: 'Second Wind', category: 'sustain', activation: 'instant', cooldown: 60, range: 10, effect: 'revive',
-		params: {}, botUse: { when: 'allyDowned', range: [0, 10], chance: 1 }, color: 0x60ff90 },
+		params: {}, balance: { needsDowned: true }, botUse: { when: 'allyDowned', range: [0, 10], chance: 1 }, color: 0x60ff90 },
 	{ id: 'ampwall', code: 'A28', name: 'Amp Wall', category: 'sustain', activation: 'instant', cooldown: 20, duration: 15, effect: 'zone',
 		params: { zone: 'wall', width: 4, height: 2, distance: 1.5, amp: 1.25, persist: true }, botUse: { when: 'underFire', range: [0, 60], chance: 0.6 }, color: 0x60c0ff },
-	{ id: 'arcbolt', needsTarget: true, code: 'A29', name: 'Arc Bolt', category: 'offense', activation: 'instant', resource: 'energy', cost: 25, range: 30, effect: 'bolt',
-		params: { damage: 30, element: 'arc', status: 'shock', seconds: 1, stacks: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0xfff27a },
+	{ id: 'arcbolt', needsTarget: true, code: 'A29', name: 'Arc Bolt', category: 'offense', activation: 'instant', resource: 'energy', cost: 60, range: 30, effect: 'bolt',
+		params: { damage: 18, element: 'arc', status: 'shock', seconds: 1, stacks: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0xfff27a },
 	{ id: 'swarm', needsTarget: true, code: 'A32', name: 'Swarm Cloud', category: 'offense', activation: 'instant', cooldown: 25, duration: 6, range: 30, effect: 'swarm',
-		params: { dps: 8, targets: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0x90a040 },
+		params: { dps: 6, targets: 1 }, botUse: { when: 'enemyVisible', range: [0, 30], chance: 0.5 }, color: 0x90a040 },
 	{ id: 'holodouble', code: 'A33', name: 'Holo Double', category: 'offense', activation: 'instant', cooldown: 15, duration: 8, effect: 'decoy',
 		params: {}, botUse: { when: 'enemyVisible', range: [10, 60], chance: 0.3 }, color: 0x80e0ff },
 	{ id: 'wrath', code: 'A34', name: 'Wrath Form', category: 'ultimate', activation: 'ult', resource: 'souls', cost: 66, duration: 8, effect: 'buff',
@@ -1798,10 +1798,10 @@ const ABILITY_ROWS = [
 	{ id: 'overcore', code: 'A37', name: 'Overcore', category: 'ultimate', activation: 'instant', resource: 'ultimate', ultCost: 1500, duration: 10, effect: 'buff',
 		params: { damage: 2, rate: 1.2 }, botUse: { when: 'enemyVisible', range: [0, 40], chance: 0.8 }, color: 0xff5030 },
 	{ id: 'orbital', code: 'A38', name: 'Orbital Lance', category: 'ultimate', activation: 'instant', resource: 'ultimate', ultCost: 1800, range: 60, effect: 'zone',
-		params: { zone: 'strike', radius: 8, delay: 2, damage: 250, persist: true }, botUse: { when: 'groupedEnemies', range: [5, 60], chance: 0.8 }, color: 0xff3030 },
+		params: { zone: 'strike', radius: 8, delay: 2, damage: 250, persist: true }, botUse: { when: 'enemyVisible', range: [5, 60], chance: 0.8 }, color: 0xff3030 },
 	{ id: 'rift', code: 'A39', name: 'Rift Gate', category: 'ultimate', activation: 'instant', resource: 'ultimate', ultCost: 1500, duration: 15, range: 60, effect: 'rift',
 		params: { radius: 1.2, rearm: 1, persist: true }, botUse: { when: 'escape', range: [0, 60], chance: 0.4 }, color: 0xb040ff },
-	{ id: 'rally', code: 'A40', name: 'Rally Cry', category: 'ultimate', activation: 'instant', resource: 'ultimate', ultCost: 1200, duration: 8, effect: 'rally',
+	{ id: 'rally', code: 'A40', name: 'Rally Cry', category: 'ultimate', activation: 'instant', resource: 'ultimate', ultCost: 1500, duration: 8, effect: 'rally',
 		params: { surplus: 50, speed: 1.2 }, botUse: { when: 'enemyVisible', range: [0, 40], chance: 0.7 }, color: 0xffe060 },
 	{ id: 'seerpulse', code: 'AX1', name: 'Seer Pulse', category: 'reward', activation: 'instant', resource: 'ultimate', ultCost: 1500, duration: 4.5, effect: 'pulse',
 		params: { pulses: 3, interval: 1.5, reveal: 1.5, global: true }, botUse: { when: 'always', range: [0, 0], chance: 1 }, color: 0xffd040 },
@@ -1812,8 +1812,8 @@ const ABILITY_ROWS = [
 	{ id: 'boostercombo', code: 'AX4', name: 'Booster', category: 'reward', activation: 'instant', resource: 'ultimate', ultCost: 100, duration: 20, effect: 'buff',
 		params: { regen: 5 }, botUse: { when: 'lowHealth', range: [0, 60], chance: 1 }, color: 0x60ff90 },
 	{ id: 'veilcombo', code: 'AX5', name: 'Veil', category: 'reward', activation: 'instant', resource: 'ultimate', ultCost: 100, duration: 20, effect: 'buff',
-		params: { invisible: true }, botUse: { when: 'escape', range: [0, 60], chance: 1 }, color: 0x9be7ff },
-	{ id: 'berserkcombo', code: 'AX6', name: 'Berserk', category: 'reward', activation: 'instant', resource: 'ultimate', ultCost: 100, duration: 20, effect: 'buff',
+		params: { invisible: true }, interrupt: { damage: false, stun: true, fire: true }, botUse: { when: 'escape', range: [0, 60], chance: 1 }, color: 0x9be7ff },
+	{ id: 'berserkcombo', code: 'AX6', name: 'Rapid Fire', category: 'reward', activation: 'instant', resource: 'ultimate', ultCost: 100, duration: 20, effect: 'buff',
 		params: { rate: 1.5 }, botUse: { when: 'enemyVisible', range: [0, 40], chance: 1 }, color: 0xff5030 },
 	{ id: 'ampedrounds', code: 'AX7', name: 'Amped Rounds', category: 'reward', activation: 'instant', resource: 'ultimate', ultCost: 500, duration: 30, effect: 'buff',
 		params: { damage: 1.25 }, botUse: { when: 'enemyVisible', range: [0, 40], chance: 1 }, color: 0xff9030 },
@@ -2074,7 +2074,7 @@ Data.define('mapDensities', { id: REQUIRED, name: REQUIRED, moduleShare: 0.7, sc
 	{ id: 'dense', name: 'Dense', moduleShare: 0.95, scatter: 2 },
 ]);
 Data.define('mapItemSets', { id: REQUIRED, list: REQUIRED }, [
-	{ id: 'power', list: ['fury', 'warding', 'quickening', 'renewal', 'skyward'] },
+	{ id: 'power', list: ['fury', 'warding', 'quickening', 'ghostveil', 'renewal', 'skyward', 'berserk', 'sigil', 'bottomless', 'vampfang', 'seer', 'springboots', 'guardianrune'] },
 	{ id: 'pickups', list: ['weapon', 'weapon', 'weapon', 'armor', 'armor', 'health', 'health', 'health', 'ammo', 'ammo'] },
 	{ id: 'supply', list: ['health', 'health', 'ammo', 'armor'] },
 	{ id: 'loot', list: ['weapon', 'weapon', 'weapon', 'armor', 'armor', 'health', 'health', 'ammo'] },
@@ -14636,6 +14636,7 @@ const Projectiles = {
 	spawnFromWeapon(owner, weapon, mode, modeIndex, direction, damage, multiplier, speed, target) {
 		const row = CAT.projectiles.byId(mode.projectile);
 		const launch = speed || mode.speed || row.speed, start = Muzzle.launch(owner, weapon, direction, !row.gravity);
+		if (row.gravity >= LOB_MIN_GRAVITY) Muzzle.solveLob(owner, direction, launch, row.gravity);
 		const i = this.spawn(row, owner, weapon.index, modeIndex, start.x, start.y, start.z, start.dx * launch, start.dy * launch, start.dz * launch, damage * multiplier);
 		if (mode.life) this.life[i] = mode.life;
 		if (mode.bounces > -2) this.bounces[i] = mode.bounces;
@@ -15955,6 +15956,7 @@ Bus.on('kill', (event) => WeaponSpecialState.stopBlock(event.victim));
 // ==== 11e-weapons-muzzle.js ====
 const MUZZLE_CONVERGE_RANGE = 120;
 const MUZZLE_MIN_CONVERGE = 1.5;
+const LOB_MIN_GRAVITY = 9;
 const MUZZLE_PATH_SLACK = 0.3;
 const MUZZLE_LOBBED_CHECK = 2;
 const MUZZLE_SIGNATURE_FIELDS = 10;
@@ -16072,6 +16074,16 @@ const Muzzle = {
 		}
 		if (World.raycast(out.x, out.y, out.z, out.dx, out.dy, out.dz, reach, muzzleHit)) this.leaveFromEye(id, eyeY, direction);
 		return out;
+	},
+	solveLob(id, direction, speed, gravity) {
+		const out = this.launchFrom, eyeY = Actors.eyeY(id), distance = this.aimDistance(id, eyeY, direction);
+		if (distance >= MUZZLE_CONVERGE_RANGE || distance < MUZZLE_MIN_CONVERGE) return false;
+		const dx = Actors.x[id] + direction.x * distance - out.x, dy = eyeY + direction.y * distance - out.y, dz = Actors.z[id] + direction.z * distance - out.z;
+		const flat = length2(dx, dz), square = speed * speed, root = square * square - gravity * (gravity * flat * flat + 2 * dy * square);
+		if (flat < 0.01 || root < 0) return false;
+		const slope = (square - Math.sqrt(root)) / (gravity * flat), cosine = 1 / Math.sqrt(1 + slope * slope);
+		out.dx = dx / flat * cosine; out.dy = slope * cosine; out.dz = dz / flat * cosine;
+		return true;
 	},
 	leaveFromEye(id, eyeY, direction) {
 		const out = this.launchFrom;
@@ -18493,6 +18505,11 @@ const Abilities = {
 		return null;
 	},
 	botChoice: null,
+	restriction(key) {
+		const row = CAT.abilities.byId(key);
+		if (!row || !row.balance.needsDowned) return '';
+		return Damage.downedAllowed() && currentRules().teams > 0 ? '' : 'Needs downed teammates';
+	},
 	setChoice(id, choice) { this.choices[id] = choice ? Object.assign({}, choice) : null; },
 	kitAbility(id, kit, slotName) {
 		const choice = this.choices[id], wanted = choice ? choice[slotName] : this.botChoice ? this.botChoice(id, kit, slotName) : '';
@@ -21771,7 +21788,7 @@ const PICKUP_GUN_EXCLUDED = ['melee', 'sidearm', 'tool', 'power'];
 const PICKUP_SLOTS = ['melee', 'primary', 'secondary', 'lethal', 'tactical', 'device'];
 const PICKUP_SLOT_LABELS = { melee: 'Melee', primary: 'Primary', secondary: 'Secondary', lethal: 'Lethal', tactical: 'Tactical', device: 'Device' };
 const FULL_SET_ID = 'fullSet';
-const BOT_PRIMARY_MIN_MAG = 4;
+const BOT_FIGHT_TASTE = [0.6, 1.4];
 const BOT_MAP_FIGHT_SHARE = 0.25;
 const BOT_MAP_FIGHT_RANGE = [8, 60];
 const BOT_STYLE_FIGHT_SCALE = { camper: 1.6, accurate: 1.4, aggressive: 0.6, jumpy: 0.7, flanker: 0.7, vengeful: 0.8 };
@@ -21782,10 +21799,11 @@ function pickupSlotOptions(slot) {
 	return CAT.gadgets.filter((row) => row.slot === slot).map((row) => row.id);
 }
 function botSpawnKeys(id) {
-	const favorite = CAT.weapons.byId(BotDecide.favoriteWeapon(id)), keys = [Loadouts.meleeFor(id), DEFAULT_PICKUP_LOADOUT.secondary, ''];
+	const favorite = CAT.weapons.byId(BotDecide.favoriteWeapon(id)), keys = [Loadouts.meleeFor(id), '', ''];
 	if (favorite && pickupSlotOptions('primary').includes(favorite.id)) keys[2] = favorite.id;
 	else if (favorite && favorite.class === 'sidearm') keys[1] = favorite.id;
-	if (!keys[2]) keys[2] = botPrimaryForMap(id);
+	if (!keys[1]) keys[1] = botGunForSlot(id, 'secondary');
+	if (!keys[2]) keys[2] = botGunForSlot(id, 'primary');
 	return keys;
 }
 function botWeightedPick(id, label, keys, weightOf) {
@@ -21806,23 +21824,30 @@ function botGadgetWeight(id, key) {
 }
 function botAbilityWeight(key) {
 	const use = CAT.abilities.byId(key).botUse;
-	return use && use.chance > 0 ? use.chance : 0;
+	return use && use.chance > 0 && !Abilities.restriction(key) ? use.chance : 0;
+}
+function botStyleFightDistance(style, side, taste) {
+	return clamp(side * BOT_MAP_FIGHT_SHARE * (BOT_STYLE_FIGHT_SCALE[style] || 1) * (taste || 1), BOT_MAP_FIGHT_RANGE[0], BOT_MAP_FIGHT_RANGE[1]);
 }
 function botFightDistance(id) {
 	const side = Math.max(World.boundsMax.x - World.boundsMin.x, World.boundsMax.z - World.boundsMin.z);
-	const profile = Bots.profile[id];
-	return clamp(side * BOT_MAP_FIGHT_SHARE * ((profile && BOT_STYLE_FIGHT_SCALE[profile.style]) || 1), BOT_MAP_FIGHT_RANGE[0], BOT_MAP_FIGHT_RANGE[1]);
+	const profile = Bots.profile[id], draw = makeRandom(hashString('fight:' + Rng.seed + ':' + id)).next();
+	return botStyleFightDistance(profile ? profile.style : '', side, BOT_FIGHT_TASTE[0] + (BOT_FIGHT_TASTE[1] - BOT_FIGHT_TASTE[0]) * draw);
 }
+const botRangeHolds = (weapon, distance) => weapon.botPref.range[0] <= distance && distance <= weapon.botPref.range[1];
 function botGunFits(id, weapon) {
-	const distance = botFightDistance(id);
-	return weapon.class !== 'exotic' && weapon.mag >= BOT_PRIMARY_MIN_MAG && weapon.botPref.range[0] <= distance && distance <= weapon.botPref.range[1];
+	return botRangeHolds(weapon, botFightDistance(id));
 }
-function botPrimaryForMap(id) {
-	const guns = pickupSlotOptions('primary').map((key) => CAT.weapons.byId(key)).filter((weapon) => weapon.class !== 'exotic' && weapon.mag >= BOT_PRIMARY_MIN_MAG);
-	const fitting = guns.filter((weapon) => botGunFits(id, weapon));
-	const pool = fitting.length ? fitting : guns;
-	return makeRandom(hashString('spawn:' + Rng.seed + ':' + id)).pick(pool).id;
+function botGunPool(slot, distance) {
+	const guns = pickupSlotOptions(slot).map((key) => CAT.weapons.byId(key)).filter((weapon) => weapon.botSpawn > 0);
+	const fitting = guns.filter((weapon) => botRangeHolds(weapon, distance));
+	return fitting.length ? fitting : guns;
 }
+function botGunForSlot(id, slot) {
+	const pool = botGunPool(slot, botFightDistance(id));
+	return botWeightedPick(id, 'spawn' + slot, pool.map((weapon) => weapon.id), (key) => CAT.weapons.byId(key).botSpawn);
+}
+function botPrimaryForMap(id) { return botGunForSlot(id, 'primary'); }
 const Loadouts = {
 	store() { return Save.data.loadouts; },
 	lastError: '',
@@ -24787,6 +24812,8 @@ const FIRE_ALIGN_ERROR_SHARE = 0.3;
 const FIRE_RANGE_SLACK = 1.6;
 const FIRE_TAP_RECOIL = 1;
 const FIRE_HOLD_DEFAULT = 0.5;
+const FAIRNESS_SIGHT_SECONDS = 0.5;
+const CHARGE_LICENSE_SLACK = 0.1;
 const CHARGE_KEEP_SECONDS = 1.5;
 const GRENADE_AIM_SECONDS = 1;
 const GRENADE_AIM_TOLERANCE = 3 * DEG;
@@ -25050,7 +25077,7 @@ const BotCombat = {
 	},
 	dropFor(mode, time) {
 		const row = CAT.projectiles.byId(mode.projectile);
-		const gravity = Weapons.fliesAsBullet(mode) ? Weapons.ballistics().gravity || 0 : row ? row.gravity : 0;
+		const gravity = Weapons.fliesAsBullet(mode) ? Weapons.ballistics().gravity || 0 : row && row.gravity < LOB_MIN_GRAVITY ? row.gravity : 0;
 		return 0.5 * gravity * time * time;
 	},
 	aimError(id, target, now) {
@@ -25095,24 +25122,34 @@ const BotCombat = {
 		this.license(id, target, mode, now);
 	},
 	holdThenRelease(id, target, mode, now) {
-		const hold = mode.charge ? mode.charge.time : mode.lock ? mode.lock.time : FIRE_HOLD_DEFAULT;
-		if (this.holdSince[id] < 0) this.holdSince[id] = now;
+		const weapon = Weapons.currentWeapon(id), rate = weapon ? Weapons.rateFactor(id, weapon) : 1;
+		const hold = (mode.charge ? mode.charge.time : mode.lock ? mode.lock.time : FIRE_HOLD_DEFAULT) / rate;
+		if (this.holdSince[id] < 0) {
+			this.holdSince[id] = now;
+			this.licenseTarget[id] = target;
+			this.licenseUntil[id] = Math.max(this.licenseUntil[id], now + hold + CHARGE_LICENSE_SLACK);
+		}
 		this.keptSince[id] = -1;
-		if (now - this.holdSince[id] < hold) { Bots.press(id, BTN.FIRE); return; }
+		if (now - this.holdSince[id] < hold) { Bots.press(id, BTN.FIRE); this.licenseHeld(id, target, now); return; }
 		this.holdSince[id] = -1;
 		this.license(id, target, mode, now);
 	},
+	licenseHeld(id, target, now) {
+		this.licenseTarget[id] = target;
+		this.licenseUntil[id] = Math.max(this.licenseUntil[id], now + CHARGE_LICENSE_SLACK);
+	},
 	license(id, target, mode, now) {
 		this.licenseTarget[id] = target;
-		const window = mode.trigger === 'burst' ? mode.burst * mode.burstGap : mode.trigger === 'charge' || mode.trigger === 'release' ? TICK_SECONDS : 0;
+		const weapon = Weapons.currentWeapon(id), slowdown = weapon ? Weapons.rateFactor(id, weapon) : 1;
+		const window = mode.trigger === 'burst' ? mode.burst * mode.burstGap / slowdown + CHARGE_LICENSE_SLACK : mode.trigger === 'charge' || mode.trigger === 'release' ? TICK_SECONDS + CHARGE_LICENSE_SLACK : 0;
 		this.licenseUntil[id] = now + window;
 	},
 	keepCharge(id, now, seen) {
 		if (this.holdSince[id] < 0) return;
 		const weapon = Weapons.currentWeapon(id);
-		if (!weapon || (weapon.primary.trigger !== 'charge' && weapon.primary.trigger !== 'release')) { this.holdSince[id] = -1; return; }
+		if (!weapon || (weapon.primary.trigger !== 'charge' && weapon.primary.trigger !== 'release')) { this.holdSince[id] = -1; this.keptSince[id] = -1; return; }
 		Bots.press(id, BTN.FIRE);
-		if (seen) { this.keptSince[id] = -1; return; }
+		if (seen) { this.keptSince[id] = -1; this.licenseHeld(id, this.target[id], now); return; }
 		if (this.keptSince[id] < 0) this.keptSince[id] = now;
 		const other = Weapons.cycle(id, 1);
 		if (now - this.keptSince[id] < CHARGE_KEEP_SECONDS || other < 0 || other === Weapons.current[id]) return;
@@ -25452,8 +25489,9 @@ const BotCombat = {
 	recordFairness(id) {
 		this.fairness.shots++;
 		if (Sim.time <= this.licenseUntil[id] + TIME_EPSILON) return;
-		this.fairness.unperceived++;
 		const target = this.licenseTarget[id] >= 0 ? this.licenseTarget[id] : this.target[id];
+		if (target >= 0 && Sim.time - BotSense.seenAt[BotSense.pair(id, target)] <= FAIRNESS_SIGHT_SECONDS) return;
+		this.fairness.unperceived++;
 		if (target < 0 || !BotSense.knows(id, target, Sim.time)) this.fairness.unknown++;
 	},
 	onDamage(event) {
@@ -30767,7 +30805,7 @@ const skySpan = {
 const skyNorth = {
 	brushes: [['ice', -12, 0, 22, 12, 4, 34], ['ice', -3, 4, 26.8, 3, 5, 27.2], ['metal', -9, 4, 29, -7, 8, 31], ['metal', 7, 4, 29, 9, 8, 31]],
 	spawns: [[-1, ['ffa'].concat(SKY_PARTY_MODES), [[-10.5, 4, 32.5, 180], [10.5, 4, 32.5, 180], [-10.5, 4, 24, 180], [10.5, 4, 24, 180]]]],
-	items: [['megacell', 0, 4, 31], ['armorshard', -10, 4, 32], ['armorshard', 10, 4, 32], ['healthpack', -10, 4, 24], ['healthpack', 10, 4, 24]],
+	items: [['daybreak', 0, 4, 31], ['armorshard', -10, 4, 32], ['armorshard', 10, 4, 32], ['healthpack', -10, 4, 24], ['healthpack', 10, 4, 24]],
 	zones: [['North Isle', -12, 22, 12, 34, -1, 10]],
 	lights: [[0, 9, 28, 0xcfe8ff, 18]],
 	hints: [['sniper', 0, 4, 33], ['cover', 0, 4, 25.5]],
@@ -30845,7 +30883,7 @@ const gantryCenter = {
 		['grip', -5, 0, 8, 5, 4, 8.2], ['grip', -5, 0, -8.2, 5, 4, -8],
 		['metal', -7, 4, -7, -6, 6, -6], ['metal', 6, 4, -7, 7, 6, -6], ['metal', -7, 4, 6, -6, 6, 7], ['metal', 6, 4, 6, 7, 6, 7],
 	],
-	items: [['fury', 0, 4, 5], ['megacell', 0, 0, 26], ['megacell', 0, 0, -26], ['megacell', 0, 8, 19], ['heavyplate', 0, 8, -19], ['vitalshard', 5, 4, -5], ['vitalshard', -5, 4, 5]],
+	items: [['fury', 0, 4, 5], ['halcyon', 0, 0, 26], ['megacell', 0, 0, -26], ['megacell', 0, 8, 19], ['heavyplate', 0, 8, -19], ['vitalshard', 5, 4, -5], ['vitalshard', -5, 4, 5]],
 	zones: [
 		['Hub', -8, -8, 8, 8, 2, 8],
 		['Center North', -16, 8, 16, 14, -1, 6], ['Center South', -16, -14, 16, -8, -1, 6], ['North Roof Mid', -6, 14, 6, 24, 6, 12],
@@ -39400,7 +39438,8 @@ function renderKitsTab(body) {
 }
 function kitSlotRow(kit, slotName) {
 	const options = kit.choices[slotName], current = Loadouts.kitChoice(kit.id)[slotName] || kit[slotName];
-	return Ui.row(KIT_SLOT_LABELS[slotName], Ui.cycle(options, options.map(abilityName), current, (abilityId) => Loadouts.setKitChoice(kit.id, slotName, abilityId)));
+	const names = options.map((key) => abilityName(key) + (playerInMatch() && Abilities.restriction(key) ? ' (' + Abilities.restriction(key) + ')' : ''));
+	return Ui.row(KIT_SLOT_LABELS[slotName], Ui.cycle(options, names, current, (abilityId) => Loadouts.setKitChoice(kit.id, slotName, abilityId)));
 }
 const LOADOUT_RENDERERS = { weapons: renderWeaponsTab, classes: renderClassesTab, heroes: renderHeroesTab, kits: renderKitsTab };
 function buyMenuAvailable() { return Economy.usesMoney() && Economy.preset().buy !== 'none'; }
