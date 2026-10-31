@@ -2741,6 +2741,7 @@ const R = {
     this.cam = cam;
     this.fov = fovDeg * DEG;
     mat4Perspective(this.proj, this.fov, this.aspect, 0.6, 3200);
+    if ((this.shiftX || this.shiftY) && Game.state === 'menu') { this.proj[8] = -this.shiftX; this.proj[9] = -this.shiftY; }   // the hangar preview (P6-02) moves the picture to its box: a shift of the middle in screen units of -1 to 1
     mat4LookAt(this.view, cam.x, cam.y, cam.z, cam.tx, cam.ty, cam.tz);
     mat4Mul(this.vp, this.proj, this.view);
     this.pxScale = this.height / (2 * Math.tan(this.fov / 2));
@@ -5913,6 +5914,7 @@ function drawWorld(dt) {
   // platforms
   for (let i = 0; i < W.platforms.length; i++) drawPlatformBody(W.platforms[i]);
   for (let i = 0; i < W.wrecks.length; i++) drawPlatformBody(W.wrecks[i]);   // sinking ships
+  if (Hangar.on && Game.state === 'menu') Hangar.draw();   // the hangar screen's preview (P6-02), in the menu only
   Civ.draw();
   Fauna.draw();
   Traffic.draw();
@@ -14396,6 +14398,7 @@ class Platform {
     // seats (P4.4): parked = free with nobody in it; pilot = the human riding inside; chute = falling under a parachute;
     // ejectPilot = a player's pilot whose platform was lost by an ejection (a replacement is on its way)
     this.parked = false; this.pilot = null; this.chute = false; this.ejectPilot = false;
+    this.utilUntil = -1; this.pic = 0; this.picOn = false;   // P6-02: when a running utility (Barrier, Holo Decoy, Spotter Drone) ends, and a co-op guest's picture state of this platform from the host (lvPack) and whether one came
     this.civCol = 0;   // a civilian vehicle (P6.2): its paint in its colour set (VEHICLES)
     this.civVid = 0;   // and the number of the scenery's vehicle it was (Traffic.number; 0: one made since the start)
     this.isPlayer = false; this.aimAssist = false; this.wear = 0; this.netPeer = null; this.netInc = null; this.netInit = false; this.seen = 0;
@@ -15606,6 +15609,7 @@ class Platform {
     if ((ud.def === 'holo' || ud.def === 'barrier') && this.kind === 'air') return;
     if (ud.def === 'overdrive' && this.energy < ud.energy) { notify(this, 'NOT ENOUGH ENERGY FOR OVERDRIVE', 'empty'); return; }
     u.charges--; u.cd = ud.cd;
+    if (ud.dur) this.utilUntil = W.time + ud.dur;
     const left = ' (' + u.charges + ' LEFT)';
     switch (ud.def) {
       case 'ecm':
@@ -16003,6 +16007,351 @@ function barrel(x, y, z, w, len, col, recoil) {
   R.draw('cyl', col[0], col[1], col[2], 1, 0, 0.6);
   st.pop();
 }
+/* =====================================================================
+   P6-02 LOADOUT VISUALS (rules: Appendix C, "P6-01 loadout visuals")
+   What a platform carries shows on its model. Every weapon and utility is a short list of parts built from the existing unit
+   meshes (flat colours, no textures, no new mesh types), drawn from p.wslots and p.util, so AI units, turrets, co-op guests
+   and the hangar preview show a loadout as the player does. A spec is a flat number list, LV_STRIDE numbers a part: shape,
+   x, y, z, sx, sy, sz, colour, glow, mode, rx, rz. The models mount specs with lvGun, lvSec and lvUtil under a per-model
+   allowance of parts and triangles (LV_CAP: its old loadout parts plus the P6-01 extra; LV_BUDGET: the most a whole model
+   may draw). Parts are near only, except a gun's far form. Picture state a guest cannot see (rounds left, charges, a utility
+   running, a gun charging) rides in the snapshot entry (lvPack, NET_VERSION 18).
+   ===================================================================== */
+const LV_STRIDE = 12;
+const LV_BOX = 0, LV_CYL = 1, LV_SPH = 2, LV_CONE = 3, LV_WEDGE = 4, LV_CZ = 5, LV_COZ = 7;   // shapes: LV_CZ and LV_COZ lie along z (cylinder, cone with its tip forward)
+const LV_MESH = ['box', 'cyl', 'sphere', 'cone', 'wedge', 'cyl', '', 'cone'];
+const LV_TRI = [12, 40, 108, 16, 8, 40, 0, 16];   // triangles of the mesh each shape draws
+const LC_MAIN = 0, LC_DARK = 1, LC_ACC = 2, LC_GUN = 3, LC_STEEL = 4, LC_PALE = 5, LC_OLIVE = 6, LC_CYAN = 7, LC_BLUE = 8, LC_MAG = 9, LC_GREEN = 10, LC_ORANGE = 11, LC_RED = 12, LC_BLACK = 13, LC_BRONZE = 14, LC_TANK = 15;
+const LV_PAL = [null, null, null, [0.15, 0.16, 0.18], [0.3, 0.31, 0.34], [0.8, 0.8, 0.75], [0.26, 0.3, 0.2], [0.3, 1, 0.9], [0.35, 0.55, 1], [1, 0.35, 0.9], [0.4, 1, 0.5], [1, 0.55, 0.15], [0.7, 0.2, 0.15], [0.05, 0.05, 0.06], [0.4, 0.2, 0.08], [0.55, 0.7, 0.9]];   // 0 to 2: the platform's main, dark and team colours
+/* modes: 0 always; 10 to 19 only with more than n-10 rounds left; 20 to 29 only with more than n-20 charges; 30 only while the
+   utility is not running (a docked drone), 31 only while it runs; 40 glow with a charging gun, 41 with a running utility,
+   42 with a firing gun; 50 barrels that spin while firing; 51 spins (a dish); 52 turns on the anchor (Point Defence) */
+const LV_MODE_ROUND = 10, LV_MODE_CHARGE = 20, LV_MODE_DOCKED = 30, LV_MODE_RUNNING = 31, LV_MODE_GLOW_CHARGE = 40, LV_MODE_GLOW_RUN = 41, LV_MODE_GLOW_FIRE = 42, LV_MODE_SPIN_BARRELS = 50, LV_MODE_SPIN_DISH = 51, LV_MODE_SLEW = 52;
+function lvP(shape, x, y, z, sx, sy, sz, col, glow, mode, rx, rz) { return [shape, x, y, z, sx, sy, sz, col, glow || 0, mode || 0, rx || 0, rz || 0]; }
+const lvBox = (x, y, z, sx, sy, sz, col, glow, mode) => lvP(LV_BOX, x, y, z, sx, sy, sz, col, glow, mode);
+const lvCyl = (x, y, z, sx, sy, sz, col, glow, mode, rx, rz) => lvP(LV_CYL, x, y, z, sx, sy, sz, col, glow, mode, rx, rz);
+const lvSph = (x, y, z, sx, sy, sz, col, glow, mode) => lvP(LV_SPH, x, y, z, sx, sy, sz, col, glow, mode);
+const lvCone = (x, y, z, sx, sy, sz, col, glow, mode) => lvP(LV_CONE, x, y, z, sx, sy, sz, col, glow, mode);
+const lvWedge = (x, y, z, sx, sy, sz, col, glow, mode) => lvP(LV_WEDGE, x, y, z, sx, sy, sz, col, glow, mode);
+const lvBar = (x, y, z0, d, len, col, glow, mode, rx) => lvP(LV_CZ, x, y, z0 + len / 2, d, len, 0, col, glow, mode, rx);   // a cylinder of diameter d along z from z0
+const lvNose = (x, y, z0, d, len, col, glow, mode) => lvP(LV_COZ, x, y, z0 + len / 2, d, len, 0, col, glow, mode);   // a cone along z, tip forward
+/* a spec from part records; the first nFar are its far form (past 380 m), or farRecs is */
+function lvSpec(cls, nFar, recs, farRecs) {
+  const pack = (list) => { const a = [], cum = [0]; let tris = 0; for (const r of list) { for (let i = 0; i < LV_STRIDE; i++) a.push(r[i]); tris += LV_TRI[r[0]]; cum.push(tris); } return { a, cum }; };
+  const near = pack(recs), far = farRecs ? pack(farRecs) : nFar > 0 ? pack(recs.slice(0, nFar)) : null;
+  return { cls, n: recs.length, a: near.a, cum: near.cum, tris: near.cum[recs.length], nFar: far ? far.cum.length - 1 : 0, far: far ? far.a : null, anchor: '' };
+}
+const LV_GUN = {}, LV_SEC = {}, LV_SEC1 = {}, LV_UTIL = {};
+/* primary families: the barrel first (what a cap keeps), length 1 at scale 1 */
+const lvLight = (len, d, more) => lvSpec('light', 0, [lvBar(0, 0, 0, d, len, LC_GUN)].concat(more || []));
+LV_GUN.smg = lvLight(0.7, 0.1);
+LV_GUN.rifle = lvLight(0.9, 0.11);
+LV_GUN.mg = lvLight(1.0, 0.13, [lvBox(0, -0.15, 0.12, 0.17, 0.16, 0.34, LC_DARK)]);
+LV_GUN.lmg = lvLight(1.1, 0.13, [lvBox(0, -0.16, 0.16, 0.2, 0.18, 0.4, LC_DARK)]);
+LV_GUN.dmr = lvLight(1.2, 0.1, [lvBox(0, 0.11, 0.4, 0.08, 0.09, 0.34, LC_STEEL)]);
+const lvRotary = (len, d, drum) => lvSpec('rotary', 0, [lvBar(0.1, 0, 0, d, len, LC_GUN, 0, LV_MODE_SPIN_BARRELS), lvBar(-0.05, 0.0866, 0, d, len, LC_GUN, 0, LV_MODE_SPIN_BARRELS), lvBar(-0.05, -0.0866, 0, d, len, LC_GUN, 0, LV_MODE_SPIN_BARRELS), lvBar(0, 0, -0.28, drum, 0.3, LC_DARK)], [lvBar(0, 0, 0, 0.2, len, LC_GUN)]);
+LV_GUN.gatling = lvRotary(1.0, 0.08, 0.34);
+LV_GUN.vulcan = lvRotary(1.1, 0.07, 0.3);
+const lvCannon = (len, d, brake) => lvSpec('cannon', 1, [lvBar(0, 0, 0, d, len, LC_GUN), lvBox(0, 0, len, brake, brake * 0.9, 0.14, LC_STEEL)]);
+LV_GUN.acannon = lvCannon(1.0, 0.2, 0.3);
+LV_GUN.navalGun = lvCannon(1.3, 0.24, 0.34);
+LV_GUN.howitzer = lvCannon(1.3, 0.2, 0.3);
+LV_GUN.artyGun = lvCannon(1.5, 0.22, 0.32);
+LV_GUN.flak = lvSpec('flak', 0, [lvBar(-0.14, 0, 0, 0.16, 0.75, LC_GUN), lvBar(0.14, 0, 0, 0.16, 0.75, LC_GUN), lvBox(0, 0, -0.05, 0.5, 0.3, 0.3, LC_DARK)]);
+LV_GUN.rail = lvSpec('long', 1, [lvBar(0, 0, 0, 0.15, 1.3, LC_GUN), lvBox(-0.13, 0, 0.7, 0.035, 0.07, 1.0, LC_BLUE, 1.2, LV_MODE_GLOW_CHARGE), lvBox(0.13, 0, 0.7, 0.035, 0.07, 1.0, LC_BLUE, 1.2, LV_MODE_GLOW_CHARGE)]);
+LV_GUN.gauss = lvSpec('long', 1, [lvBar(0, 0, 0, 0.17, 1.2, LC_GUN), lvBar(0, 0, 0.35, 0.36, 0.1, LC_STEEL), lvBar(0, 0, 0.7, 0.36, 0.1, LC_STEEL)]);
+LV_GUN.sniper = lvSpec('long', 1, [lvBar(0, 0, 0, 0.08, 1.45, LC_GUN), lvBox(0, 0.1, 0.4, 0.08, 0.09, 0.36, LC_STEEL)]);
+LV_GUN.laser = lvSpec('beam', 0, [lvBar(0, 0, 0, 0.14, 0.6, LC_GUN), lvBox(0, 0, 0.64, 0.17, 0.17, 0.05, LC_CYAN, 1.8)]);
+LV_GUN.lance = lvSpec('beam', 0, [lvBar(0, 0, 0, 0.08, 1.3, LC_GUN), lvBox(0, 0, 1.33, 0.14, 0.14, 0.12, LC_MAG, 2.0, LV_MODE_GLOW_FIRE)]);
+LV_GUN.tesla = lvSpec('beam', 0, [lvBar(0, 0, 0, 0.12, 0.55, LC_GUN), lvSph(0, 0, 0.62, 0.32, 0.32, 0.32, LC_BLUE, 1.6)]);
+LV_GUN.ion = lvSpec('beam', 0, [lvBar(0, 0, 0, 0.18, 0.9, LC_GUN), lvBar(0, 0, 0.72, 0.38, 0.08, LC_BLUE, 1.6, LV_MODE_GLOW_FIRE)]);
+LV_GUN.arcPistol = lvSpec('beam', 0, [lvBox(0, 0, 0.12, 0.12, 0.15, 0.4, LC_STEEL), lvBox(0, 0, 0.36, 0.07, 0.07, 0.1, LC_BLUE, 2)]);
+LV_GUN.plasma = lvSpec('plasma', 1, [lvBar(0, 0, 0, 0.34, 0.8, LC_GUN), lvBox(0, 0.24, 0.12, 0.3, 0.2, 0.44, LC_GREEN, 1.4)]);
+LV_GUN.shotgun = lvSpec('close', 0, [lvBar(0, 0, 0, 0.2, 0.65, LC_GUN), lvBox(0, -0.15, 0.28, 0.14, 0.1, 0.3, LC_DARK)]);
+LV_GUN.slug = lvSpec('close', 0, [lvBar(0, 0, 0, 0.34, 0.6, LC_GUN)]);
+LV_GUN.flamer = lvSpec('close', 0, [lvBar(0, 0, 0, 0.1, 0.55, LC_GUN), lvBar(0, -0.17, 0.05, 0.22, 0.4, LC_ORANGE), lvBox(0, 0, 0.58, 0.07, 0.07, 0.1, LC_ORANGE, 2.2)]);
+LV_GUN.needler = lvSpec('close', 0, [lvBox(0, 0, 0.2, 0.15, 0.15, 0.5, LC_STEEL), lvNose(0, 0, 0.45, 0.1, 0.34, LC_PALE)]);
+LV_GUN.artyRockets = lvSpec('heavy', 1, [lvBox(0, 0, 0.6, 0.7, 0.5, 1.2, LC_MAIN), lvBox(0, 0, 1.22, 0.64, 0.44, 0.04, LC_BLACK)]);
+LV_GUN.artyMortar = lvSpec('heavy', 1, [lvBar(0, 0, 0, 0.25, 0.9, LC_GUN)]);
+LV_GUN.torch = lvSpec('torch', 0, [lvBar(0, 0, 0, 0.1, 0.5, LC_GUN), lvBar(0, -0.14, -0.05, 0.2, 0.34, LC_GREEN)]);
+const LV_GUN_PLAIN = lvLight(1.0, 0.2);   // a weapon with no family of its own
+/* secondary families: symmetric about x = 0, the back of the box at z = 0; LV_SEC1 holds the one-round form for a pair of stations */
+LV_SEC.rockets = lvSpec('pod', 0, [lvBox(0, 0, 0.25, 0.5, 0.32, 0.6, LC_DARK), lvBox(0, 0, 0.57, 0.46, 0.27, 0.05, LC_BLACK)]);
+LV_SEC.cluster = lvSpec('pod', 0, [lvBox(0, 0, 0.25, 0.52, 0.34, 0.62, LC_DARK), lvBar(-0.12, 0, 0.55, 0.22, 0.06, LC_BLACK), lvBar(0.12, 0, 0.55, 0.22, 0.06, LC_BLACK)]);
+LV_SEC.missile = lvSpec('mbox', 0, [lvBox(0, 0, 0.2, 0.34, 0.28, 0.6, LC_DARK), lvNose(-0.09, 0, 0.5, 0.13, 0.3, LC_PALE, 0, LV_MODE_ROUND), lvNose(0.09, 0, 0.5, 0.13, 0.3, LC_PALE, 0, LV_MODE_ROUND + 1)]);
+LV_SEC.swarm = lvSpec('mbox', 0, [lvBox(0, 0, 0.2, 0.46, 0.3, 0.6, LC_DARK), lvBox(0, 0, 0.52, 0.4, 0.24, 0.04, LC_ORANGE, 1.2, LV_MODE_ROUND)]);
+LV_SEC.aam = lvSpec('rail', 0, [lvBar(-0.1, 0.04, 0, 0.1, 0.75, LC_PALE, 0, LV_MODE_ROUND), lvNose(-0.1, 0.04, 0.75, 0.1, 0.2, LC_RED, 0, LV_MODE_ROUND), lvBar(0.1, 0.04, 0, 0.1, 0.75, LC_PALE, 0, LV_MODE_ROUND + 1), lvNose(0.1, 0.04, 0.75, 0.1, 0.2, LC_RED, 0, LV_MODE_ROUND + 1)]);
+LV_SEC1.aam = lvSpec('rail', 0, [lvBar(0, 0, 0, 0.1, 0.75, LC_PALE, 0, LV_MODE_ROUND), lvNose(0, 0, 0.75, 0.1, 0.2, LC_RED, 0, LV_MODE_ROUND)]);
+LV_SEC.shipSam = LV_SEC.aam; LV_SEC1.shipSam = LV_SEC1.aam;
+LV_SEC.manpad = lvSpec('tube', 0, [lvBar(0, 0, 0, 0.16, 0.9, LC_OLIVE), lvNose(0, 0, 0.9, 0.14, 0.2, LC_RED, 0, LV_MODE_ROUND)]);
+LV_SEC.atgm = lvSpec('tube', 0, [lvBar(0, 0, 0, 0.15, 0.9, LC_OLIVE), lvBox(0, 0.13, 0.22, 0.08, 0.08, 0.14, LC_DARK)]);
+LV_SEC.javelin = lvSpec('tube', 0, [lvBar(0, 0, 0, 0.2, 0.9, LC_OLIVE)]);
+LV_SEC.rpg = lvSpec('tube', 0, [lvBar(0, 0, 0, 0.2, 0.85, LC_OLIVE)]);
+LV_SEC.cruise = lvSpec('can', 0, [lvBox(0, 0, 0.5, 0.42, 0.36, 1.0, LC_DARK, 0, LV_MODE_ROUND), lvNose(0, 0, 1.0, 0.36, 0.4, LC_PALE, 0, LV_MODE_ROUND)]);
+LV_SEC.mortar = lvSpec('lob', 0, [lvBar(0, 0, 0, 0.28, 0.55, LC_GUN, 0, 0, -0.8)]);
+LV_SEC.grenade = lvSpec('lob', 0, [lvBar(0, 0, 0, 0.2, 0.45, LC_GUN, 0, 0, -0.8)]);
+LV_SEC.bombs = lvSpec('bomb', 0, [lvBox(-0.2, 0, 0.1, 0.22, 0.2, 0.6, LC_OLIVE, 0, LV_MODE_ROUND), lvNose(-0.2, 0, 0.4, 0.22, 0.28, LC_OLIVE, 0, LV_MODE_ROUND), lvBox(0.2, 0, 0.1, 0.22, 0.2, 0.6, LC_OLIVE, 0, LV_MODE_ROUND + 2), lvNose(0.2, 0, 0.4, 0.22, 0.28, LC_OLIVE, 0, LV_MODE_ROUND + 2)]);
+LV_SEC1.bombs = lvSpec('bomb', 0, [lvBox(0, 0, 0.1, 0.22, 0.2, 0.6, LC_OLIVE, 0, LV_MODE_ROUND), lvNose(0, 0, 0.4, 0.22, 0.28, LC_OLIVE, 0, LV_MODE_ROUND)]);
+LV_SEC.napalm = lvSpec('bomb', 0, [lvBox(-0.2, 0, 0.1, 0.26, 0.24, 0.7, LC_PALE, 0, LV_MODE_ROUND), lvBox(-0.2, 0, 0.1, 0.28, 0.26, 0.14, LC_ORANGE, 0, LV_MODE_ROUND), lvBox(0.2, 0, 0.1, 0.26, 0.24, 0.7, LC_PALE, 0, LV_MODE_ROUND + 2), lvBox(0.2, 0, 0.1, 0.28, 0.26, 0.14, LC_ORANGE, 0, LV_MODE_ROUND + 2)]);
+LV_SEC1.napalm = lvSpec('bomb', 0, [lvBox(0, 0, 0.1, 0.26, 0.24, 0.7, LC_PALE, 0, LV_MODE_ROUND), lvBox(0, 0, 0.1, 0.28, 0.26, 0.14, LC_ORANGE, 0, LV_MODE_ROUND)]);
+LV_SEC.buster = lvSpec('bomb', 0, [lvBox(0, 0, 0.1, 0.4, 0.36, 1.0, LC_DARK, 0, LV_MODE_ROUND), lvNose(0, 0, 0.6, 0.4, 0.4, LC_DARK, 0, LV_MODE_ROUND)]);
+LV_SEC.torpedo = lvSpec('tor', 0, [lvBar(-0.2, 0, 0, 0.3, 1.1, LC_DARK), lvBar(0.2, 0, 0, 0.3, 1.1, LC_DARK)]);
+LV_SEC.mines = lvSpec('mine', 0, [lvBox(0, 0, 0, 0.6, 0.2, 0.5, LC_DARK), lvCyl(-0.15, 0.14, 0, 0.28, 0.1, 0.28, LC_RED, 0, LV_MODE_ROUND), lvCyl(0.15, 0.14, 0, 0.28, 0.1, 0.28, LC_RED, 0, LV_MODE_ROUND + 1)]);
+LV_SEC.seaMines = lvSpec('mine', 0, [lvBox(0, 0, 0, 0.6, 0.2, 0.5, LC_DARK), lvCyl(-0.15, 0.14, 0, 0.28, 0.1, 0.28, LC_STEEL, 0, LV_MODE_ROUND), lvCyl(0.15, 0.14, 0, 0.28, 0.1, 0.28, LC_STEEL, 0, LV_MODE_ROUND + 1)]);
+LV_SEC.satchel = lvSpec('pouch', 0, [lvBox(0, 0, 0, 0.22, 0.2, 0.14, LC_OLIVE)]);
+LV_SEC.empGren = lvSpec('pouch', 0, [lvBox(0, 0, 0, 0.22, 0.2, 0.14, LC_BLUE, 0.8)]);
+/* utilities: each sits on an anchor of the model (see lvAnchors); units of the anchor's scale */
+const lvUtilSpec = (anchor, recs) => { const s = lvSpec('util', 0, recs); s.anchor = anchor; return s; };
+LV_UTIL.shield = lvUtilSpec('back', [lvSph(0, 0.15, 0, 1.0, 0.55, 1.0, LC_BLUE, 0.5, LV_MODE_GLOW_RUN)]);
+LV_UTIL.aps = lvUtilSpec('sides', [lvBox(-0.75, 0, 0, 0.4, 0.3, 0.55, LC_STEEL), lvBox(0.75, 0, 0, 0.4, 0.3, 0.55, LC_STEEL)]);
+LV_UTIL.pdc = lvUtilSpec('top', [lvBox(0, 0, 0, 0.55, 0.3, 0.55, LC_DARK, 0, LV_MODE_SLEW), lvBar(0, 0.12, 0.05, 0.07, 0.65, LC_GUN, 0, LV_MODE_SLEW)]);
+LV_UTIL.nano = lvUtilSpec('back', [lvCyl(0, 0, 0, 0.34, 0.55, 0.34, LC_GREEN)]);
+LV_UTIL.flares = lvUtilSpec('tail', [lvBox(0, 0, 0, 0.5, 0.2, 0.35, LC_ORANGE, 0.4)]);
+LV_UTIL.ecm = lvUtilSpec('mast', [lvCyl(0, 0.4, 0, 0.08, 0.8, 0.08, LC_DARK), lvBox(0, 0.85, 0, 0.65, 0.06, 0.65, LC_STEEL, 0.8, LV_MODE_GLOW_RUN)]);
+LV_UTIL.smoke = lvUtilSpec('front', [lvBox(0, 0, 0, 0.6, 0.22, 0.4, LC_DARK), lvCyl(-0.15, 0.2, 0.05, 0.18, 0.3, 0.18, LC_DARK), lvCyl(0.15, 0.2, 0.05, 0.18, 0.3, 0.18, LC_DARK)]);
+LV_UTIL.cloak = lvUtilSpec('sides', [lvBox(-0.9, 0, 0, 0.04, 0.05, 1.6, LC_CYAN, 1.8, LV_MODE_GLOW_RUN), lvBox(0.9, 0, 0, 0.04, 0.05, 1.6, LC_CYAN, 1.8, LV_MODE_GLOW_RUN)]);
+LV_UTIL.overdrive = lvUtilSpec('back', [lvCyl(-0.22, 0, 0, 0.3, 0.55, 0.3, LC_TANK, 0.6, LV_MODE_GLOW_RUN), lvCyl(0.22, 0, 0, 0.3, 0.55, 0.3, LC_TANK, 0.6, LV_MODE_GLOW_RUN)]);
+LV_UTIL.reactive = lvUtilSpec('plates', [lvBox(0, 0, 1.03, 1.6, 0.8, 0.12, LC_OLIVE, 0, LV_MODE_CHARGE), lvBox(-1.03, 0, 0, 0.12, 0.8, 1.4, LC_OLIVE, 0, LV_MODE_CHARGE + 1), lvBox(1.03, 0, 0, 0.12, 0.8, 1.4, LC_OLIVE, 0, LV_MODE_CHARGE + 2), lvBox(0, 0.45, 0, 1.8, 0.1, 1.8, LC_DARK)]);
+LV_UTIL.holo = lvUtilSpec('top', [lvCone(0, 0.15, 0, 0.3, 0.3, 0.3, LC_CYAN, 1.4)]);
+LV_UTIL.barrier = lvUtilSpec('back', [lvBox(0, 0, 0, 0.9, 0.9, 0.1, LC_STEEL, 0, LV_MODE_DOCKED)]);
+LV_UTIL.sensor = lvUtilSpec('dome', [lvSph(0, 0.55, 0, 0.5, 0.3, 0.5, LC_PALE), lvBox(0, 0.2, 0, 0.08, 0.4, 0.08, LC_DARK)]);
+LV_UTIL.scanner = lvUtilSpec('dome', [lvBox(0, 0.1, 0, 0.4, 0.2, 0.4, LC_DARK), lvP(LV_BOX, 0, 0.3, 0, 0.7, 0.05, 0.45, LC_STEEL, 0.6, LV_MODE_SPIN_DISH, 0, 0.35)]);
+LV_UTIL.drone = lvUtilSpec('back', [lvBox(0, 0.1, 0, 0.5, 0.14, 0.5, LC_DARK, 0, LV_MODE_DOCKED), lvCyl(-0.3, 0.2, 0, 0.4, 0.03, 0.4, LC_STEEL, 0, LV_MODE_DOCKED), lvCyl(0.3, 0.2, 0, 0.4, 0.03, 0.4, LC_STEEL, 0, LV_MODE_DOCKED)]);
+LV_UTIL.spotter = lvUtilSpec('back', [lvBox(0, 0.1, 0, 0.5, 0.12, 0.5, LC_DARK, 0, LV_MODE_DOCKED), lvBox(0, 0.2, 0, 0.62, 0.03, 0.08, LC_STEEL, 0, LV_MODE_DOCKED)]);
+LV_UTIL.jumppack = lvUtilSpec('back', [lvBox(0, 0, 0, 0.46, 0.4, 0.22, LC_STEEL), lvCyl(-0.13, -0.3, 0, 0.14, 0.2, 0.14, LC_BRONZE, 2.2, LV_MODE_GLOW_RUN), lvCyl(0.13, -0.3, 0, 0.14, 0.2, 0.14, LC_BRONZE, 2.2, LV_MODE_GLOW_RUN)]);
+LV_UTIL.plough = lvUtilSpec('bow', [lvWedge(0, -0.4, 1.1, 8.6, 0.9, 1.2, LC_STEEL), lvBox(-1.7, 0, 0.4, 0.3, 0.3, 1.4, LC_DARK), lvBox(1.7, 0, 0.4, 0.3, 0.3, 1.4, LC_DARK)]);
+/* Stealth Coating draws nothing: it darkens the platform's colours (drawPlatformBody) */
+const LV_COATING_DARKEN = 0.7;
+
+/* anchors of a model: a spec's anchor name finds [x, y, z, sx, sy, sz, ry, rz] (a four-number entry is a uniform scale);
+   a name a model does not list falls back to its back, a utility's mounting point is where the P6-01 table puts it */
+const LV_ANCHOR_NAMES = ['back', 'top', 'mast', 'dome', 'tail', 'sides', 'plates', 'front', 'bow'];
+function lvAnchors(list) {
+  const out = {};
+  for (const n of LV_ANCHOR_NAMES) {
+    const a = list[n] || (n === 'dome' && list.mast) || list.back;
+    out[n] = [a[0], a[1], a[2], a[3], a.length > 4 ? a[4] : a[3], a.length > 5 ? a[5] : a[3], a[6] || 0, a[7] || 0];
+  }
+  return out;
+}
+function lvSetAnchor(a, x, y, z, sx, sy, sz) { a[0] = x; a[1] = y; a[2] = z; a[3] = sx; a[4] = sy === undefined ? sx : sy; a[5] = sz === undefined ? sx : sz; return a; }
+
+/* the allowance of every model: [calls, triangles] for each slot (primaries, secondary, utility); the P6-01 table's "today"
+   loadout parts plus its extra. LV_BUDGET is the whole model's calls and triangles near, gear up, in its default
+   loadout today plus the extra: the self-test draws every item of every slot and holds the sum under it. */
+const LV_CAP = {
+  mech: { a: [4, 170], b: [3, 170], sec: [2, 90], util: [3, 120] },                 // and the active-slot strip and the shoulder box: 14 calls with them
+  infantry: { a: [2, 80], b: [1, 45], sec: [1, 45], util: [3, 108] },               // b: the held gun when a second one is slung on the back (one more call)
+  wheeled: { a: [2, 90], b: [2, 90], sec: [2, 70], util: [2, 120] },
+  tracked: { a: [3, 130], b: [1, 45], sec: [3, 90], util: [3, 150] },
+  hover: { a: [2, 85], b: [1, 45], sec: [1, 45], util: [2, 120] },                  // sec: per pod, two pods
+  jet: { a: [1, 45], b: [1, 45], sec: [2, 60], util: [1, 110] },                     // sec: per wing station, two stations
+  gunship: { a: [3, 130], b: [3, 130], sec: [2, 70], util: [4, 180] },               // sec: per wing station, two stations
+  boat: { a: [3, 130], b: [3, 130], sec: [2, 80], util: [2, 120] },
+  destroyer: { a: [3, 130], b: [2, 100], sec: [3, 100], util: [4, 180] },
+  acv: { a: [2, 100], b: [1, 45], sec: [2, 70], util: [3, 150] },
+  spg: { a: [2, 100], b: [1, 45], sec: [2, 70], util: [2, 120] },
+  mrl: { a: [4, 160], b: [1, 45], sec: [1, 50], util: [2, 120] },
+  mortarApc: { a: [2, 100], b: [1, 45], sec: [1, 50], util: [2, 120] },
+  turret: { a: [2, 100], b: [1, 45], sec: [2, 70], util: [0, 0] },
+};
+const LV_CAP_BELLY = [4, 100];   // a jet's heavy bomb or canister under the belly
+const LV_BUDGET = {   // [calls, triangles]: the P6-01 table, "today" as the draw code gives it (a model's default loadout, near, gear up) plus "extra"
+  mech: [19 + 8, 340 + 450], infantry: [13 + 4, 376 + 200], wheeled: [12 + 5, 308 + 300], tracked: [20 + 6, 288 + 400], hover: [11 + 5, 240 + 300],
+  kestrel: [14 + 6, 172 + 350], shrike: [16 + 6, 196 + 350], gunship: [20 + 8, 348 + 500], boat: [15 + 5, 324 + 300], destroyer: [19 + 6, 400 + 400],
+  acv: [15 + 5, 288 + 300], spg: [24 + 4, 336 + 250], mrl: [26 + 4, 676 + 250], mortarApc: [18 + 4, 296 + 250], turret: [6 + 3, 184 + 150],
+};
+
+/* the picture state of the platform being drawn (set by lvBegin) */
+const LV_NEAR = 200;   // m: past this a gun is one plain barrel and the secondary and utility parts are left out (the P6-01 rule 8 fallback: the parts' near range, 380 m, was costing too much in a busy scene)
+const LV = { cols: [null, null, null], drawn: 0, lod: false, mid: false, rounds: 0, charges: 0, active: false, charging: false, firing: false, shift: 0, spin: 0, dish: 0, slew: 0 };
+/* is the platform's utility running (a docked drone is gone, a cloak strip glows, a shield dome is lit) */
+function lvActive(p, u) {
+  switch (u.def.def) {
+    case 'shield': return p.shieldOn && p.shield > 0;
+    case 'ecm': return p.jamT > 0;
+    case 'cloak': return p.cloakT > 0;
+    case 'overdrive': return p.coolT > 0;
+    case 'drone': return p.droneT > 0;
+    case 'scan': return p.scanT > 0;
+    case 'holo': case 'barrier': case 'spotter': return W.time < p.utilUntil;   // useGadget sets utilUntil
+    case 'jump': return !p.grounded || p.hopT > 0;
+    case 'pdc': case 'aps': return !!u.auto && u.charges > 0;
+    default: return false;
+  }
+}
+/* the state from the platform itself (the host, an offline game, the preview) */
+function lvRead(p) {
+  const w = p.wslots.secondary, u = p.util, pw = p.wslots[p.activeSlot];
+  LV.rounds = w ? Math.min(w.clip, 7) : 0;
+  LV.charges = u ? Math.min(u.charges, 7) : 0;
+  LV.active = u ? lvActive(p, u) : false;
+  LV.charging = !!(pw && pw.charge > 0);
+}
+/* the picture state as one number for the snapshot entry: rounds, charges, running, charging */
+function lvPack(p) {
+  lvRead(p);
+  return LV.rounds | (LV.charges << 3) | (LV.active ? 64 : 0) | (LV.charging ? 128 : 0);
+}
+/* before a model draws: its colours, and the picture state (a co-op guest reads the host's number) */
+function lvBegin(p, main, dark, acc, lod, dist) {
+  LV.cols[0] = main; LV.cols[1] = dark; LV.cols[2] = acc; LV.lod = lod; LV.mid = !lod && dist > LV_NEAR && p !== Hangar.p; LV.shift = 0;
+  if (p.picOn && Net.guest) { const v = p.pic; LV.rounds = v & 7; LV.charges = (v >> 3) & 7; LV.active = (v & 64) !== 0; LV.charging = (v & 128) !== 0; }
+  else lvRead(p);
+  LV.firing = p.recoil > 0.02;
+  LV.spin = LV.firing ? W.time * 18 : 0;
+  LV.dish = W.time * 3;
+  LV.slew = Math.sin(W.time * 1.3 + p.id) * 0.9;   // the platform's id is the same on the host and on a guest
+}
+/* draw the first maxCalls parts of a spec (and no more than maxTris triangles) at the stack's origin; far: its far form only */
+function lvDraw(spec, maxCalls, maxTris) {
+  const st = R.stack, lod = LV.lod;
+  let a = spec.a, n = spec.n;
+  if (lod) { if (!spec.far) return; a = spec.far; n = spec.nFar; }
+  if (n > maxCalls) n = maxCalls;
+  if (!lod) { const cum = spec.cum; while (n > 0 && cum[n] > maxTris) n--; }
+  const cols = LV.cols;
+  for (let i = 0; i < n; i++) {
+    const o = i * LV_STRIDE, mode = a[o + 9];
+    let glow = a[o + 8], x = a[o + 1], y = a[o + 2], turn = 0;
+    if (mode !== 0) {
+      if (mode < 30) { if (mode >= LV_MODE_CHARGE ? LV.charges <= mode - LV_MODE_CHARGE : LV.rounds - LV.shift <= mode - LV_MODE_ROUND) continue; }
+      else if (mode === LV_MODE_DOCKED) { if (LV.active) continue; }
+      else if (mode === LV_MODE_RUNNING) { if (!LV.active) continue; }
+      else if (mode === LV_MODE_GLOW_CHARGE) glow *= LV.charging ? 1 : 0.2;
+      else if (mode === LV_MODE_GLOW_RUN) glow *= LV.active ? 1 : 0.25;
+      else if (mode === LV_MODE_GLOW_FIRE) glow *= LV.firing ? 1 : 0.3;
+      else if (mode === LV_MODE_SPIN_BARRELS) { const c = Math.cos(LV.spin), s = Math.sin(LV.spin), nx = x * c - y * s; y = x * s + y * c; x = nx; }
+      else if (mode === LV_MODE_SLEW) turn = LV.slew;
+    }
+    LV.drawn++;
+    const ci = a[o + 7], col = ci < 3 ? cols[ci] : LV_PAL[ci], shape = a[o];
+    if (turn) st.push().ry(turn);
+    st.push().t(x, y, a[o + 3]);
+    if (mode === LV_MODE_SPIN_DISH) st.ry(LV.dish);
+    if (a[o + 10]) st.rx(a[o + 10]);
+    if (a[o + 11]) st.rz(a[o + 11]);
+    if (shape === LV_CZ || shape === LV_COZ) { st.rx(PI / 2); st.s(a[o + 4], a[o + 5], a[o + 4]); } else st.s(a[o + 4], a[o + 5], a[o + 6]);
+    R.draw(LV_MESH[shape], col[0], col[1], col[2], 1, glow, 0.5);
+    st.pop();
+    if (turn) st.pop();
+  }
+}
+/* a weapon's size class from its weight (P6-01 rule 1) */
+function lvSizeK(weight) { return weight <= 6 ? 0.8 : weight <= 12 ? 1 : 1.3; }
+/* weapon w as a gun at (x, y, z) of the current frame, forward +z, S metres long at size 1; rc: recoil (m) */
+function lvGun(w, x, y, z, S, rc, cap) {
+  const st = R.stack, sc = S * lvSizeK(w.def.weight);
+  st.push().t(x, y, z - rc).s(sc, sc, sc);
+  if (LV.mid) lvDraw(LV_GUN_PLAIN, 1, cap[1]);   // between LV_NEAR and the far form: one barrel, as before P6-02
+  else lvDraw(LV_GUN[w.id] || LV_GUN_PLAIN, cap[0], cap[1]);
+  st.pop();
+}
+/* the secondary w at (x, y, z), turned ry about y, S metres at size 1; one: the single-round form (a pair of stations), shift: rounds the other station holds back */
+function lvSec(w, x, y, z, S, ry, cap, one, shift) {
+  const spec = (one && LV_SEC1[w.id]) || LV_SEC[w.id];
+  if (!spec || LV.lod || LV.mid) return;
+  const st = R.stack, sc = S * lvSizeK(w.def.weight);
+  st.push().t(x, y, z);
+  if (ry) st.ry(ry);
+  st.s(sc, sc, sc);
+  LV.shift = shift || 0;
+  lvDraw(spec, cap[0], cap[1]);
+  LV.shift = 0;
+  st.pop();
+}
+/* the utility of p on its model's anchor (A from lvAnchors); dy lowers the whole anchor set (a crouching soldier) */
+function lvUtil(p, A, cap, dy) {
+  const u = p.util, spec = u && LV_UTIL[u.id];
+  if (!spec || LV.lod || LV.mid) return;
+  const a = A[spec.anchor], st = R.stack;
+  st.push().t(a[0], a[1] + dy, a[2]);
+  if (a[6]) st.ry(a[6]);
+  if (a[7]) st.rz(a[7]);
+  st.s(a[3], a[4], a[5]);
+  lvDraw(spec, cap[0], cap[1]);
+  st.pop();
+}
+
+/* the anchors of each model, in the frame its draw function mounts them in (see the P6-01 table); mechs, jets and the gunship are
+   worked out from their size each time they draw */
+const LV_A_MECH = lvAnchors({ back: [0, 0, 0, 1] });
+function lvMechAnchors(k, tw, th, td) {   // torso frame: a back plate behind the torso, plates on its front and sides, launchers on the shoulders
+  const A = LV_A_MECH;
+  lvSetAnchor(A.back, 0, 0.2 * k, -td * 0.5 - 0.3 * k, 1.8 * k);
+  lvSetAnchor(A.top, -tw * 0.3, th * 0.5 + 0.2 * k, -td * 0.25, 0.95 * k);
+  lvSetAnchor(A.mast, tw * 0.32, th * 0.5 + 0.1 * k, -td * 0.3, 1.0 * k);
+  lvSetAnchor(A.dome, tw * 0.32, th * 0.5 + 0.1 * k, -td * 0.3, 1.0 * k);
+  lvSetAnchor(A.tail, 0, 0.2 * k, -td * 0.5 - 0.3 * k, 1.8 * k);
+  lvSetAnchor(A.sides, 0, th * 0.55, 0.1 * k, tw * 0.74);
+  lvSetAnchor(A.plates, 0, 0, 0, tw * 0.5, th * 0.5, td * 0.5);
+  lvSetAnchor(A.front, 0, -th * 0.2, td * 0.5 + 0.1 * k, 1.1 * k);
+  lvSetAnchor(A.bow, 0, 0, 0, 1);
+  return A;
+}
+const LV_A_INFANTRY = lvAnchors({ back: [0, 1.2, -0.42, 0.8], top: [0, 2.0, -0.1, 0.4], mast: [0.1, 1.95, -0.25, 0.5], tail: [0, 1.1, -0.4, 0.5], sides: [0, 1.25, 0, 0.4], plates: [0, 1.2, 0, 0.3, 0.33, 0.17], front: [0, 0.98, 0.2, 0.5] });
+const LV_A_WHEELED = lvAnchors({ back: [0, 0.95, -2.0, 1.1], top: [-0.5, 2.4, -0.6, 0.9], mast: [0.8, 0.95, -2.3, 1.0], tail: [0, 0.95, -2.6, 1.0], sides: [0, 1.3, 0, 1.7], plates: [0, 0.4, 0, 1.3, 0.55, 2.7], front: [0, 0.95, 1.0, 1.0] });
+const LV_A_TRACKED = lvAnchors({ back: [0, 1.4, -3.2, 1.3], top: [-0.9, 2.75, -0.9, 1.0], mast: [0.9, 2.75, -1.0, 1.1], tail: [0, 1.4, -3.6, 1.0], sides: [0, 1.75, 0.2, 2.5], plates: [0, 0.6, 0, 2.3, 0.75, 3.9], front: [0, 1.45, 2.8, 1.2], bow: [0, 0.1, 4.6, 1] });
+const LV_A_HOVER = lvAnchors({ back: [0, 1.05, -2.2, 1.0], top: [0, 1.1, -2.0, 0.8], mast: [0, 1.1, -2.0, 0.9], tail: [0, 0.9, -2.8, 0.9], sides: [0, 0.7, -0.4, 2.0], plates: [0, 0.4, 0, 1.7, 0.5, 2.8], front: [0, 0.8, 2.4, 1.0] });
+const LV_A_BOAT = lvAnchors({ back: [0, 2.4, -2.8, 1.0], top: [-0.9, 2.4, -2.2, 1.0], mast: [0, 5.6, -0.6, 1.2], tail: [0, 2.4, -5.6, 1.0], sides: [0, 3.0, 0.2, 1.7], plates: [0, 1.1, -1, 1.9, 1.1, 5], front: [1.2, 2.4, -1.4, 1.0] });
+const LV_A_DESTROYER = lvAnchors({ back: [1.5, 5.2, -7.5, 1.7], top: [-1.2, 7.75, -4.0, 1.8], mast: [0, 13.0, -1.2, 1.6], dome: [0, 8.95, -0.2, 2.2], tail: [0, 5.2, -12.8, 1.8], sides: [0, 6.5, -1.5, 3.5], plates: [0, 2.5, -2.5, 3.6, 2.6, 11.5], front: [2.2, 5.2, 1.5, 1.8] });
+const LV_A_ACV = lvAnchors({ back: [0, 0.85, -3.4, 1.2], top: [2.8, 2.45, -2.5, 1.0], mast: [-2.8, 2.45, -1.2, 1.0], dome: [-2.8, 2.45, -3.0, 1.1], tail: [0, 0.85, -4.4, 1.0], sides: [0, 2.0, 0, 4.6], plates: [0, 0.8, 0, 3, 1, 5], front: [0, 0.9, 3.6, 1.3] });
+const LV_A_SPG = lvAnchors({ back: [0, 0.9, -1.8, 1.2], top: [-1.0, 0.9, -1.2, 1.0], mast: [1.0, 0.9, -1.2, 1.1], tail: [0, 0.9, -2.0, 1.0], sides: [0, 0.2, -0.2, 2.6], plates: [0, 0, 0, 1.85, 0.9, 2.2], front: [0, 0.5, 1.6, 1.0] });
+const LV_A_MRL = lvAnchors({ back: [0, 0.55, -3.7, 1.1], top: [0, 0.55, -3.8, 0.9], mast: [0, 0.55, -3.8, 1.0], tail: [0, 0.55, -4.0, 1.0], sides: [0, 1.3, 3.1, 2.2], plates: [0, 0.8, 3.1, 1.5, 1, 1.2], front: [0, 0.55, -3.0, 1.0] });
+const LV_A_APC = lvAnchors({ back: [0, 1.45, -2.6, 1.1], top: [-1.0, 1.5, 1.6, 0.9], mast: [1.0, 1.5, 1.4, 1.0], tail: [0, 1.45, -3.0, 1.0], sides: [0, 0.9, 0, 2.6], plates: [0, 0.6, 0, 1.8, 0.8, 3.1], front: [0, 1.5, 2.4, 1.0] });
+const LV_A_JET = lvAnchors({ back: [0, 0, 0, 1] });
+function lvJetAnchors(k) {   // fuselage frame: the spine behind the canopy, a pod under the tail, a dispenser at the tail
+  const A = LV_A_JET;
+  lvSetAnchor(A.back, 0, 0.6 * k, -2.0 * k, 0.8 * k);
+  lvSetAnchor(A.top, 0, 0.6 * k, -1.0 * k, 0.8 * k);
+  lvSetAnchor(A.mast, 0, -0.5 * k, -2.8 * k, 0.9 * k); A.mast[7] = PI;
+  lvSetAnchor(A.dome, 0, 0.55 * k, -0.4 * k, 0.9 * k);
+  lvSetAnchor(A.tail, 0, 0.1 * k, -4.0 * k, 1.1 * k);
+  lvSetAnchor(A.sides, 0, 0, 0, 1.4 * k);
+  lvSetAnchor(A.plates, 0, 0, -0.5 * k, 0.75 * k, 0.55 * k, 3.4 * k);
+  lvSetAnchor(A.front, 0, 0, 1.0 * k, 1.0 * k);
+  lvSetAnchor(A.bow, 0, 0, 0, 1);
+  return A;
+}
+const LV_A_GUNSHIP = lvAnchors({ back: [0, 0, 0, 1] });
+function lvGunshipAnchors(k) {   // fuselage frame: on the back behind the cockpit, the dispenser on the tail boom
+  const A = LV_A_GUNSHIP;
+  lvSetAnchor(A.back, 0, 1.5 * k, 0.4 * k, 1.5 * k);
+  lvSetAnchor(A.top, 0, 1.5 * k, -1.6 * k, 1.2 * k);
+  lvSetAnchor(A.mast, 0, 1.5 * k, -3.0 * k, 1.2 * k);
+  lvSetAnchor(A.dome, 0, 1.5 * k, 1.8 * k, 1.5 * k);
+  lvSetAnchor(A.tail, 0, 0.9 * k, -9.9 * k, 1.1 * k);
+  lvSetAnchor(A.sides, 0, 0.5 * k, 0, 5 * k);
+  lvSetAnchor(A.plates, 0, 0, 0, 2.3 * k, 1.55 * k, 5.6 * k);
+  lvSetAnchor(A.front, 0, -0.8 * k, 3.0 * k, 1.0 * k);
+  lvSetAnchor(A.bow, 0, 0, 0, 1);
+  return A;
+}
+/* a jet's gun stubs at the wing roots, its secondary at the wing tips (rail missiles) or under the wings (bombs, pods), a heavy bomb or canister under the belly */
+function lvJetLoadout(p, k, wspan) {
+  const cap = LV_CAP.jet, ga = p.wslots.primaryA, gb = p.wslots.primaryB, sec = p.wslots.secondary, rc = p.recoil * 0.3;
+  if (ga) lvGun(ga, 1.15 * k, -0.25 * k, 0.2 * k, 1.7 * k, rc, cap.a);
+  if (gb) lvGun(gb, -1.15 * k, -0.25 * k, 0.2 * k, 1.5 * k, rc, cap.b);
+  if (sec && !LV.lod) {
+    const spec = LV_SEC[sec.id], cls = spec ? spec.cls : '';
+    if (sec.id === 'buster' || cls === 'can') lvSec(sec, 0, -0.75 * k, -0.2 * k, 1.5 * k, 0, LV_CAP_BELLY);
+    else for (let i = 0; i < 2; i++) {
+      const side = i ? 1 : -1, rail = cls === 'rail';
+      lvSec(sec, side * (rail ? 1.0 * k + wspan * 0.85 : 0.9 * k + wspan * 0.45), rail ? -0.15 * k : -0.5 * k, rail ? -1.7 * k : -0.9 * k, 1.5 * k, 0, cap.sec, true, cls === 'bomb' ? 2 * i : i);
+    }
+  }
+  lvUtil(p, lvJetAnchors(k), cap.util, 0);
+}
+/* a soldier's secondary: a tube on the shoulder, a pouch on the belt, a launcher under the rifle, a mine rack on the belt (P6-01) */
+function lvInfSecondary(w, cy) {
+  const spec = LV_SEC[w.id], cap = LV_CAP.infantry.sec;
+  if (!spec) return;
+  if (spec.cls === 'pouch') lvSec(w, 0.26, 0.98 - cy, 0.05, 0.5, 0, cap);
+  else if (spec.cls === 'lob') lvSec(w, 0.12, 1.2 - cy, 0.32, 0.6, 0, cap);
+  else if (spec.cls === 'mine') lvSec(w, 0, 1.0 - cy, -0.35, 0.4, 0, cap);
+  else lvSec(w, -0.32, 1.62 - cy, -0.35, 0.85, 0, cap);
+}
+
 /* colour c times f plus add, into out (no new array per drawn platform) */
 function tint(c, f, add, out) { out[0] = c[0] * f + add; out[1] = c[1] * f + add; out[2] = c[2] * f + add; return out; }
 const TINT_MAIN = [0, 0, 0], TINT_DARK = [0, 0, 0];   // drawPlatformBody's scratch colours (read only while it draws)
@@ -16017,8 +16366,10 @@ function drawPlatformBody(p) {
   const acc = TEAM_ACCENT[p.team] || TEAM_ACCENT[2];
   const flash = p.hitFlash > 0 ? 0.3 : 0;
   const dmgK = p.hp / p.maxHp < 0.3 ? 0.65 : 1;
-  const main = tint(p.def.col.main, dmgK, flash, TINT_MAIN), dark = tint(p.def.col.dark, dmgK, flash, TINT_DARK);
+  const coat = p.util && p.util.id === 'coating' ? LV_COATING_DARKEN : 1;   // Stealth Coating: darker paint (P6-01 rule 7)
+  const main = tint(p.def.col.main, dmgK * coat, flash, TINT_MAIN), dark = tint(p.def.col.dark, dmgK * coat, flash, TINT_DARK);
   const lod = dist > 380;
+  lvBegin(p, main, dark, acc, lod, dist);
   const st = R.stack;
   st.top = 0; st.ident();
   if (p.scale !== 1) st.t(p.x, p.y, p.z).s(p.scale, p.scale, p.scale).t(-p.x, -p.y, -p.z);   // shrunk by a superweapon
@@ -16112,8 +16463,7 @@ function drawMech(p, main, dark, acc, lod) {
       part('box', ax, -0.2 * k, 0.3 * k, 1.1 * k, armH, 1.4 * k, dark, 0, 0.3);
       const slot = side > 0 ? 'primaryA' : 'primaryB', w = p.wslots[slot];
       if (w) {
-        const big = w.def.weight > 10;
-        barrel(ax, -0.3 * k, 0.9 * k, (big ? 0.85 : 0.5) * k, (big ? 3.8 : 2.6) * k, [0.16, 0.17, 0.19], rc);
+        lvGun(w, ax, -0.3 * k, 0.9 * k, 3.0 * k, rc, side > 0 ? LV_CAP.mech.a : LV_CAP.mech.b);
         if (p.activeSlot === slot) part('box', ax, 0.5 * k, 0.9 * k, 0.2 * k, 0.2 * k, 0.5 * k, acc, 1, 0);
       }
       if (side === strike) {
@@ -16130,10 +16480,12 @@ function drawMech(p, main, dark, acc, lod) {
     // shoulder / secondary pod
     if (p.wslots.secondary) {
       part('box', 0, th * 0.55 + 1.8 * k, -td * 0.1, 1.8 * k, 1.1 * k, 1.6 * k, dark, 0, 0.3);
-      for (let i = -1; i <= 1; i += 2) barrel(i * 0.45 * k, th * 0.55 + 1.9 * k, 0.4 * k, 0.5 * k, 1.5 * k, [0.2, 0.2, 0.22], 0);
+      lvSec(p.wslots.secondary, 0, th * 0.55 + 2.4 * k, -td * 0.1 - 0.6 * k, 1.5 * k, 0, LV_CAP.mech.sec);
     }
+    lvUtil(p, lvMechAnchors(k, tw, th, td), LV_CAP.mech.util, 0);
   } else {
-    part('box', 0, 0, td * 0.6, tw * 1.4, 0.6 * k, 2.5 * k, dark, 0, 0);
+    const wa = p.wslots.primaryA, wb = p.wslots.primaryB;   // a thicker arm block stands in for a large gun
+    part('box', 0, 0, td * 0.6, tw * 1.4, ((wa && wa.def.weight > 12) || (wb && wb.def.weight > 12) ? 1.0 : 0.6) * k, 2.5 * k, dark, 0, 0);
   }
   st.pop();
   st.pop();
@@ -16221,22 +16573,17 @@ function drawInfantry(p, main, dark, acc, lod) {
     return;
   }
   part('box', 0, 1.15 - cy, -0.24, 0.4, 0.5, 0.2, dark, 0, 0.1);
-  if (p.util && p.util.def.def === 'jump') {   // P5-03: a Jump Pack: two nozzles on the back, burning while the soldier is in the air
-    part('box', 0, 1.1 - cy, -0.4, 0.46, 0.4, 0.22, [0.25, 0.27, 0.3], 0, 0.4);
-    for (let side = -1; side <= 1; side += 2) {
-      part('cyl', side * 0.13, 0.82 - cy, -0.4, 0.14, 0.18, 0.14, [0.12, 0.12, 0.14], 0, 0.3);
-      if (!p.grounded || p.hopT > 0) part('box', side * 0.13, 0.55 - cy, -0.4, 0.1, 0.4, 0.1, [1, 0.7, 0.3], 2.2, 0);
-    }
-  }
   part('sphere', 0, 1.78 - cy, 0, 0.34, 0.24, 0.34, dark, 0, 0.2);
   if (!lod) {
     if (!striking) {
       part('box', 0.3, 1.3 - cy, 0.3, 0.12, 0.12, 0.55, main, 0, 0);
       part('box', -0.22, 1.3 - cy, 0.3, 0.12, 0.12, 0.5, main, 0, 0);
-      const w = p.primary;
-      if (w) barrel(0.12, 1.3 - cy, 0.35, 0.07, w.def.id === 'sniper' ? 1.5 : 0.9, [0.14, 0.15, 0.17], p.recoil * 0.2);
+      const w = p.primary, other = w ? p.wslots[w.slot === 'primaryA' ? 'primaryB' : 'primaryA'] : null;
+      if (w) lvGun(w, 0.12, 1.3 - cy, 0.35, 0.9, p.recoil * 0.2, other ? LV_CAP.infantry.b : LV_CAP.infantry.a);
+      if (other) { st.push().t(-0.12, 1.25 - cy, -0.36).rz(0.5); part('box', 0, 0, 0, 0.09, 0.8, 0.1, LV_PAL[LC_GUN], 0, 0.2); st.pop(); }   // the other primary, slung on the back
     }
-    if (p.wslots.secondary) part('box', -0.32, 1.62 - cy, 0.0, 0.16, 0.16, 0.8, [0.26, 0.3, 0.2], 0, 0.1);
+    if (p.wslots.secondary) lvInfSecondary(p.wslots.secondary, cy);
+    lvUtil(p, LV_A_INFANTRY, LV_CAP.infantry.util, -cy);
     const m = p.meleeW;
     if (m && m.blade && !striking) {   // a knife rides on the belt, a long blade across the back
       if (m.blade[0] < 0.5) st.push().t(0.24, 1.02 - cy, 0.08);
@@ -16312,11 +16659,12 @@ function drawWheeled(p, main, dark, acc, lod) {
   st.push().t(0, 1.9, -0.4).ry(p.torsoYaw - p.yaw).rx(-p.torsoPitch);
   part('box', 0, 0, 0, 1.4, 0.7, 1.6, dark, 0, 0.3);
   if (!lod) {
-    if (p.wslots.primaryA) barrel(0.5, 0.1, 0.5, 0.3, 2.0, [0.15, 0.16, 0.18], p.recoil * 0.4);
-    if (p.wslots.primaryB) barrel(-0.5, 0.1, 0.5, 0.3, 2.0, [0.15, 0.16, 0.18], p.recoil * 0.4);
-    if (p.wslots.secondary) part('box', 0, 0.6, -0.2, 0.9, 0.5, 1.1, dark, 0, 0.3);
+    if (p.wslots.primaryA) lvGun(p.wslots.primaryA, 0.5, 0.1, 0.3, 1.8, p.recoil * 0.4, LV_CAP.wheeled.a);
+    if (p.wslots.primaryB) lvGun(p.wslots.primaryB, -0.5, 0.1, 0.3, 1.8, p.recoil * 0.4, LV_CAP.wheeled.b);
+    if (p.wslots.secondary) lvSec(p.wslots.secondary, 0, 0.35, -0.6, 1.1, 0, LV_CAP.wheeled.sec);
   }
   st.pop();
+  if (!lod) lvUtil(p, LV_A_WHEELED, LV_CAP.wheeled.util, 0);
   st.pop();
 }
 
@@ -16325,11 +16673,6 @@ function drawTracked(p, main, dark, acc, lod) {
   st.push().t(p.x, p.y + 1.1, p.z).ry(p.yaw).rx(-p.pitch).rz(p.roll);
   part('box', 0, 0.6, 0, 4.4, 1.5, 7.6, main, 0, 0.3);
   part('wedge', 0, 0.7, 4.2, 4.2, 1.2, 1.6, main, 0, 0.3);
-  if (p.util && p.util.def.def === 'plough') {   // P5-03: a Mine Plough: a wide blade on a frame ahead of the bow, with tines
-    part('box', 0, 0.1, 4.5, 3.6, 0.3, 0.6, dark, 0, 0.4);
-    part('wedge', 0, -0.5, 5.6, 8.6, 0.9, 1.2, [0.34, 0.34, 0.36], 0, 0.5);
-    if (!lod) for (let i = -3; i <= 3; i++) part('box', i * 1.2, -0.85, 6.2, 0.18, 0.4, 0.8, [0.2, 0.2, 0.22], 0, 0.3);
-  }
   for (let s = -1; s <= 1; s += 2) {
     part('box', s * 2.55, -0.1, 0, 1.3, 1.6, 8.4, [0.1, 0.1, 0.11], 0, 0.1);
     if (!lod) for (let i = 0; i < 4; i++) part('box', s * 2.55, -0.2, -3 + i * 2 + (p.walkPhase * 0.3 % 2), 1.35, 0.4, 0.5, [0.18, 0.18, 0.2], 0, 0);
@@ -16340,13 +16683,18 @@ function drawTracked(p, main, dark, acc, lod) {
   part('wedge', 0, 0.2, 2.3, 3.0, 0.9, 1.0, dark, 0, 0.35);
   part('box', 0.9, 0.9, -0.5, 1.2, 0.5, 1.2, main, 0, 0.3);
   st.push().rx(-p.torsoPitch);
-  if (p.wslots.primaryA) barrel(0, 0.1, 1.8, p.wslots.primaryA.def.weight > 10 ? 0.7 : 0.5, 4.2, [0.14, 0.15, 0.17], p.recoil * 0.8);
+  const ga = p.wslots.primaryA;
+  if (ga) {   // the main gun shows at any distance: its family near, a barrel of its size class far
+    if (lod) barrel(0, 0.1, 1.8, ga.def.weight > 10 ? 0.7 : 0.5, 4.2, [0.14, 0.15, 0.17], p.recoil * 0.8);
+    else lvGun(ga, 0, 0.1, 1.5, 3.6, p.recoil * 0.8, LV_CAP.tracked.a);
+  }
   if (!lod) {
-    if (p.wslots.primaryB) barrel(1.3, -0.1, 1.5, 0.32, 2.6, [0.17, 0.18, 0.2], p.recoil * 0.4);
-    if (p.wslots.secondary) { part('box', -1.4, 1.0, 0.2, 0.9, 0.7, 1.4, [0.2, 0.2, 0.22], 0, 0.3); part('box', -1.4, 1.4, 0.7, 0.4, 0.2, 0.2, acc, 1, 0); }
+    if (p.wslots.primaryB) lvGun(p.wslots.primaryB, 1.3, -0.1, 1.4, 2.2, p.recoil * 0.4, LV_CAP.tracked.b);
+    if (p.wslots.secondary) lvSec(p.wslots.secondary, -1.1, 0.85, -0.2, 1.3, 0, LV_CAP.tracked.sec);
   }
   st.pop();
   st.pop();
+  if (!lod) lvUtil(p, LV_A_TRACKED, LV_CAP.tracked.util, 0);
   st.pop();
 }
 
@@ -16362,10 +16710,15 @@ function drawHover(p, main, dark, acc, lod) {
   }
   part('box', 0, 0.9, 2.2, 2.4, 0.2, 0.5, acc, 0.9, 0);
   st.push().t(0, 1.5, 0.6).ry(p.torsoYaw - p.yaw).rx(-p.torsoPitch);
-  if (p.wslots.primaryA) barrel(0.5, 0, 0.3, 0.28, 2.2, [0.16, 0.17, 0.2], p.recoil * 0.4);
-  if (p.wslots.primaryB) barrel(-0.5, 0, 0.3, 0.28, 2.2, [0.16, 0.17, 0.2], p.recoil * 0.4);
+  if (p.wslots.primaryA) { if (lod) barrel(0.5, 0, 0.3, 0.28, 2.2, [0.16, 0.17, 0.2], p.recoil * 0.4); else lvGun(p.wslots.primaryA, 0.5, 0, 0.2, 2.0, p.recoil * 0.4, LV_CAP.hover.a); }
+  if (p.wslots.primaryB) { if (lod) barrel(-0.5, 0, 0.3, 0.28, 2.2, [0.16, 0.17, 0.2], p.recoil * 0.4); else lvGun(p.wslots.primaryB, -0.5, 0, 0.2, 2.0, p.recoil * 0.4, LV_CAP.hover.b); }
   part('box', 0, 0.2, -0.2, 1.1, 0.5, 1.2, dark, 0, 0.3);
   st.pop();
+  if (!lod) {
+    const sec = p.wslots.secondary;   // a pod on each side of the hull
+    if (sec) { lvSec(sec, 1.6, 0.85, 0.3, 0.9, 0, LV_CAP.hover.sec, true, 0); lvSec(sec, -1.6, 0.85, 0.3, 0.9, 0, LV_CAP.hover.sec, true, 1); }
+    lvUtil(p, LV_A_HOVER, LV_CAP.hover.util, 0);
+  }
   st.pop();
 }
 
@@ -16378,12 +16731,16 @@ function shipHull(z0, len, bow, w, h, col) {
   st.push().t(0, h / 2, z0 + len + bow / 2).rx(PI / 2).s(w, bow, h); R.draw('cone', col[0], col[1], col[2], 1, 0, 0.3); st.pop();
 }
 /* a gun turret at (x, y, z) on the hull, turned to the aim, with n barrels w thick and len long */
-function shipTurret(p, x, y, z, bw, bh, bd, n, w, len, recoil, dark) {
+function shipTurret(p, x, y, z, bw, bh, bd, n, w, len, recoil, dark, gun, S, cap, gun2, cap2) {
   const st = R.stack;
   st.push().t(x, y, z).ry(p.torsoYaw - p.yaw);
   part('box', 0, 0, 0, bw, bh, bd, dark, 0, 0.35);
   st.push().rx(-p.torsoPitch);
-  for (let i = 0; i < n; i++) barrel((i - (n - 1) / 2) * w * 1.6, bh * 0.15, bd * 0.4, w, len, SHIP_GUN, recoil);
+  if (gun && !LV.lod) {   // the weapon's family (P6-02), a second weapon beside it, and far away the old barrels
+    const dx = gun2 ? bw * 0.25 : 0;
+    lvGun(gun, dx, bh * 0.15, bd * 0.4, S, recoil, cap);
+    if (gun2) lvGun(gun2, -dx, bh * 0.15, bd * 0.4, S * 0.8, recoil, cap2);
+  } else for (let i = 0; i < n; i++) barrel((i - (n - 1) / 2) * w * 1.6, bh * 0.15, bd * 0.4, w, len, SHIP_GUN, recoil);
   st.pop();
   st.pop();
 }
@@ -16398,10 +16755,11 @@ function drawBoat(p, main, dark, acc, lod) {
   if (!lod) {
     part('box', 0, 4.6, -0.6, 0.18, 2, 0.18, dark, 0, 0.2);               // mast
     part('box', 0, 5.3, -0.6, 1.2, 0.12, 0.12, dark, 0, 0.2);
-    if (p.wslots.secondary) for (let s = -1; s <= 1; s += 2) barrel(s * 1.35, 2.7, -3.6, 0.5, 2.6, dark, 0);   // launch tubes
+    if (p.wslots.secondary) lvSec(p.wslots.secondary, 0, 2.4, -3.3, 1.5, 0, LV_CAP.boat.sec);   // at the stern
+    lvUtil(p, LV_A_BOAT, LV_CAP.boat.util, 0);
   }
-  if (p.wslots.primaryA) shipTurret(p, 0, 2.75, 3, 1.4, 0.8, 1.6, 1, 0.3, 2.6, p.recoil * 0.4, dark);
-  if (p.wslots.primaryB && !lod) shipTurret(p, 0, 2.7, -4.6, 1, 0.6, 1.1, 2, 0.16, 1.4, p.recoil * 0.2, dark);
+  if (p.wslots.primaryA) shipTurret(p, 0, 2.75, 3, 1.4, 0.8, 1.6, 1, 0.3, 2.6, p.recoil * 0.4, dark, p.wslots.primaryA, 2.6, LV_CAP.boat.a);
+  if (p.wslots.primaryB && !lod) shipTurret(p, 0, 2.7, -4.6, 1, 0.6, 1.1, 2, 0.16, 1.4, p.recoil * 0.2, dark, p.wslots.primaryB, 1.6, LV_CAP.boat.b);
   st.pop();
 }
 function drawDestroyer(p, main, dark, acc, lod) {
@@ -16418,11 +16776,12 @@ function drawDestroyer(p, main, dark, acc, lod) {
     part('cyl', 0, 10.8, -1.2, 0.35, 4.5, 0.35, dark, 0, 0.2);            // mast and its turning radar
     st.push().t(0, 12.6, -1.2).ry(W.time * 1.8); part('box', 0, 0, 0, 2.6, 0.35, 0.5, dark, 0, 0.3); st.pop();
     part('box', 0, 5.35, 4.2, 3.2, 0.45, 2.4, dark, 0, 0.3);               // missile cells
-    if (p.wslots.secondary) part('box', 0, 5.62, 4.2, 2.6, 0.1, 1.8, acc, 0.8, 0);
-    if (p.wslots.secondary) for (let s = -1; s <= 1; s += 2) barrel(s * 2.8, 5.6, -9.5, 0.6, 3, dark, 0);   // torpedo tubes
+    const sec = p.wslots.secondary;   // on the cell block, and the torpedo tubes (only the Torpedo has them) on the stern deck
+    if (sec) { if (sec.id === 'torpedo') lvSec(sec, 0, 5.4, -10.8, 4.2, 0, LV_CAP.destroyer.sec); else lvSec(sec, 0, 5.6, 3.4, 2.4, 0, LV_CAP.destroyer.sec); }
+    lvUtil(p, LV_A_DESTROYER, LV_CAP.destroyer.util, 0);
   }
-  if (p.wslots.primaryA) shipTurret(p, 0, 5.8, 7.4, 2.6, 1.3, 3, 1, 0.5, 5, p.recoil * 0.8, dark);
-  if (p.wslots.primaryB) shipTurret(p, 0, 5.7, -11, 2, 1.1, 2.2, 2, 0.28, 2.6, p.recoil * 0.4, dark);
+  if (p.wslots.primaryA) shipTurret(p, 0, 5.8, 7.4, 2.6, 1.3, 3, 1, 0.5, 5, p.recoil * 0.8, dark, p.wslots.primaryA, 5, LV_CAP.destroyer.a);
+  if (p.wslots.primaryB) shipTurret(p, 0, 5.7, -11, 2, 1.1, 2.2, 2, 0.28, 2.6, p.recoil * 0.4, dark, p.wslots.primaryB, 2.6, LV_CAP.destroyer.b);
   st.pop();
 }
 function drawAcv(p, main, dark, acc, lod) {
@@ -16438,8 +16797,11 @@ function drawAcv(p, main, dark, acc, lod) {
     st.push().t(s * 1.8, 2.6, -5.2).rx(PI / 2).s(2.8, 0.9, 2.8); R.draw('cyl', dark[0], dark[1], dark[2], 1, 0, 0.3); st.pop();
     if (!lod) { st.push().t(s * 1.8, 2.6, -5.7).rz(W.time * 25 * s); part('box', 0, 0, 0, 2.5, 0.16, 0.1, SHIP_GUN, 0, 0.4); st.pop(); }
   }
-  if (p.wslots.secondary && !lod) part('box', 0, 1.2, -1.6, 1.4, 0.8, 1.6, dark, 0, 0.3);
-  if (p.wslots.primaryA) shipTurret(p, 0, 1.15, 2.6, 1.6, 0.7, 1.6, p.wslots.primaryB ? 2 : 1, 0.28, 2.2, p.recoil * 0.4, dark);
+  if (!lod) {
+    if (p.wslots.secondary) lvSec(p.wslots.secondary, 0, 1.05, -2.4, 1.5, 0, LV_CAP.acv.sec);   // the deck box
+    lvUtil(p, LV_A_ACV, LV_CAP.acv.util, 0);
+  }
+  if (p.wslots.primaryA) shipTurret(p, 0, 1.15, 2.6, 1.6, 0.7, 1.6, p.wslots.primaryB ? 2 : 1, 0.28, 2.2, p.recoil * 0.4, dark, p.wslots.primaryA, p.wslots.primaryB ? 1.8 : 2.2, LV_CAP.acv.a, p.wslots.primaryB, LV_CAP.acv.b);
   st.pop();
 }
 
@@ -16466,16 +16828,24 @@ function drawSpg(p, main, dark, acc, lod) {
     part('box', 0, -0.1, -2.2, 1.2, 0.9, 0.18, dark, 0, 0.3);
     st.pop();
   }
+  if (!lod && p.wslots.secondary) lvSec(p.wslots.secondary, 1.5, 1.35, 2.2, 1.2, 0, LV_CAP.spg.sec);   // a box on the hull's right side
   st.push().t(0, 2.1, -1.2).ry(p.torsoYaw - p.yaw);
   part('box', 0, 0, 0, 3.6, 1.7, 4.4, dark, 0, 0.35);
   part('wedge', 0, 0.1, 2.6, 3.2, 1.3, 0.9, dark, 0, 0.35);
   part('box', -1.1, 1.05, -0.8, 1, 0.4, 1.2, main, 0, 0.3);
   st.push().t(0, 0.2, 2.3).rx(-p.torsoPitch);
   part('box', 0, 0, 0.2, 1.1, 0.9, 1, main, 0, 0.3);   // mantlet
-  barrel(0, 0, 0.5, 0.42, 7.6, ARTY_GUN, p.recoil * 1.2);
-  part('box', 0, 0, 8 - p.recoil * 1.2, 0.62, 0.5, 0.7, ARTY_GUN, 0, 0.5);   // muzzle brake
+  const ga = p.wslots.primaryA;
+  if (!ga || ga.id === 'artyGun') {   // the Field Howitzer: the long barrel and its muzzle brake, at any distance
+    barrel(0, 0, 0.5, 0.42, 7.6, ARTY_GUN, p.recoil * 1.2);
+    part('box', 0, 0, 8 - p.recoil * 1.2, 0.62, 0.5, 0.7, ARTY_GUN, 0, 0.5);   // muzzle brake
+  } else if (lod) barrel(0, 0, 0.5, 0.3, 3.2, ARTY_GUN, p.recoil * 1.2);   // any other gun: its barrel far away, its family near
+  else lvGun(ga, 0, 0, 0.5, 3.4, p.recoil * 1.2, LV_CAP.spg.a);
   st.pop();
-  if (!lod && p.wslots.primaryB) barrel(1.2, 1.05, 0.6, 0.18, 1.4, ARTY_GUN, 0);
+  if (!lod) {
+    if (p.wslots.primaryB) lvGun(p.wslots.primaryB, 1.2, 1.05, 0.6, 1.4, 0, LV_CAP.spg.b);
+    lvUtil(p, LV_A_SPG, LV_CAP.spg.util, 0);
+  }
   st.pop();
   st.pop();
 }
@@ -16497,10 +16867,19 @@ function drawMrl(p, main, dark, acc, lod) {
   st.push().t(0, 0.9, -1.2).ry(p.torsoYaw - p.yaw);
   part('cyl', 0, 0, 0, 2.2, 0.4, 2.2, dark, 0, 0.3);                         // turntable
   st.push().t(0, 0.5, -1.4).rx(-p.torsoPitch);
-  part('box', 0, 0.75, 1.4, 2.4, 1.5, 4.4, main, 0, 0.3);                    // the pod
-  if (!lod) for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) part('cyl', (c - 1) * 0.72, 0.4 + r * 0.7, 3.62, 0.5, 0.06, 0.5, ARTY_TUBE, 0, 0);   // tube mouths
+  const ga = p.wslots.primaryA;
+  if (!ga || ga.id === 'artyRockets') {   // the rocket pod, and any other gun stands on the turntable in its place
+    part('box', 0, 0.75, 1.4, 2.4, 1.5, 4.4, main, 0, 0.3);                    // the pod
+    if (!lod) for (let r = 0; r < 2; r++) for (let c = 0; c < 3; c++) part('cyl', (c - 1) * 0.72, 0.4 + r * 0.7, 3.62, 0.5, 0.06, 0.5, ARTY_TUBE, 0, 0);   // tube mouths
+  } else if (lod) barrel(0, 0.75, 0.2, 0.35, 3.4, ARTY_GUN, p.recoil * 0.8);
+  else lvGun(ga, 0, 0.75, 0.2, 3.4, p.recoil * 0.8, LV_CAP.mrl.a);
   st.pop();
   st.pop();
+  if (!lod) {
+    if (p.wslots.primaryB) lvGun(p.wslots.primaryB, 0.85, 2.3, 2.6, 1.3, 0, LV_CAP.mrl.b);   // on the cab roof
+    if (p.wslots.secondary) lvSec(p.wslots.secondary, -0.6, 2.25, 2.4, 0.9, 0, LV_CAP.mrl.sec);
+    lvUtil(p, LV_A_MRL, LV_CAP.mrl.util, 0);
+  }
   st.pop();
 }
 /* Pestle: a tracked carrier whose roof hatches open over a heavy mortar when deployed */
@@ -16519,10 +16898,17 @@ function drawMortarApc(p, main, dark, acc, lod) {
   st.push().t(0, 1.3, -0.6).ry(p.torsoYaw - p.yaw);
   part('cyl', 0, 0, 0, 1.4, 0.2, 1.4, dark, 0, 0.3);                         // base plate
   st.push().t(0, 0.2, 0).rx(-p.torsoPitch);
-  barrel(0, 0, -0.3, 0.5, 2.6 + k * 0.4, ARTY_GUN, p.recoil * 0.5);
+  const ga = p.wslots.primaryA;
+  if (!ga || ga.id === 'artyMortar') barrel(0, 0, -0.3, 0.5, 2.6 + k * 0.4, ARTY_GUN, p.recoil * 0.5);   // the Heavy Mortar's tube
+  else if (lod) barrel(0, 0, -0.3, 0.3, 2.4, ARTY_GUN, p.recoil * 0.5);
+  else lvGun(ga, 0, 0, -0.3, 2.6, p.recoil * 0.5, LV_CAP.mortarApc.a);
   st.pop();
-  if (!lod && p.wslots.primaryB) barrel(1.1, 0.5, 1.4, 0.16, 1.2, ARTY_GUN, 0);
+  if (!lod && p.wslots.primaryB) lvGun(p.wslots.primaryB, 1.1, 0.5, 1.0, 1.2, 0, LV_CAP.mortarApc.b);
   st.pop();
+  if (!lod) {
+    if (p.wslots.secondary) lvSec(p.wslots.secondary, 1.2, 1.55, 1.4, 1.0, 0, LV_CAP.mortarApc.sec);
+    lvUtil(p, LV_A_APC, LV_CAP.mortarApc.util, 0);
+  }
   st.pop();
 }
 
@@ -16563,9 +16949,14 @@ function drawTurret(p, main, dark, acc) {
   part('box', 0, 0, 0, 3.4, 1.6, 3.4, main, 0, 0.35);
   part('box', 0, 0.9, -0.7, 2.4, 0.3, 0.3, acc, 0.9, 0);
   st.push().t(0, 0.4, 0.4).rx(-p.torsoPitch);
-  if (aa) { barrel(0.9, 0, 0.5, 0.45, 4.6, [0.15, 0.16, 0.18], p.recoil * 0.6); barrel(-0.9, 0, 0.5, 0.45, 4.6, [0.15, 0.16, 0.18], p.recoil * 0.6); }
+  const ga = p.wslots.primaryA, gb = p.wslots.primaryB;
+  if ((ga || gb) && !LV.lod) {   // the weapons' families (a turret with none, or one far away, keeps its two barrels)
+    if (ga) lvGun(ga, aa ? 0.9 : 0.7, 0, 0.4, 3.8, p.recoil * 0.7, LV_CAP.turret.a);
+    if (gb) lvGun(gb, aa ? -0.9 : -0.7, 0, 0.4, 2.8, p.recoil * 0.4, LV_CAP.turret.b);
+  } else if (aa) { barrel(0.9, 0, 0.5, 0.45, 4.6, [0.15, 0.16, 0.18], p.recoil * 0.6); barrel(-0.9, 0, 0.5, 0.45, 4.6, [0.15, 0.16, 0.18], p.recoil * 0.6); }
   else { barrel(0.7, 0, 0.5, 0.5, 4.4, [0.14, 0.15, 0.17], p.recoil * 0.7); barrel(-0.7, 0, 0.5, 0.32, 3.2, [0.17, 0.18, 0.2], p.recoil * 0.4); }
   st.pop();
+  if (p.wslots.secondary && !LV.lod) lvSec(p.wslots.secondary, 0, 0.8, -0.2, 1.5, 0, LV_CAP.turret.sec);
   st.pop();
   st.pop();
 }
@@ -16597,7 +16988,7 @@ function drawJet(p, main, dark, acc, lod) {
   const burn = p.afterburner ? 3 : p.throttle * 1.2 + 0.2;
   part('box', 0, 0, -4.4 * k, 0.9 * k, 0.8 * k, 0.5 * k, [0.2, 0.2, 0.22], 0, 0.5);
   part('box', 0, 0, -4.9 * k - burn * 0.6, 0.7 * k, 0.6 * k, 0.4 + burn, [1, 0.55, 0.2], 2.2, 0, 1);
-  if (p.wslots.secondary && !lod) part('box', 0, -0.9 * k, 0.4 * k, 0.4 * k, 0.4 * k, 2.0 * k, [0.8, 0.8, 0.75], 0, 0.2);
+  if (!lod) lvJetLoadout(p, k, wspan);
   drawGear(p);
   st.pop();
 }
@@ -16614,13 +17005,14 @@ function drawGunship(p, main, dark, acc, lod) {
     part('cyl', s * 3.4 * k, 1.2 * k, -2 * k, 2.2 * k, 3.4 * k, 2.2 * k, dark, 0, 0.4);
     part('box', s * 3.4 * k, 1.2 * k, -4 * k, 1.6 * k, 1.6 * k, 0.6 + (p.afterburner ? 3 : p.throttle * 1.2), [1, 0.6, 0.25], 2, 0, 1);
     part('box', s * 8.6 * k, 0.5 * k, -0.5 * k, 0.4 * k, 0.4 * k, 1.6 * k, acc, 1, 0);
-    if (!lod && p.wslots.secondary) for (let i = 0; i < 2; i++) part('box', s * (4.6 * k + i * 1.4 * k), -0.4 * k, 0.3 * k, 0.7 * k, 0.7 * k, 2.6 * k, [0.25, 0.26, 0.28], 0, 0.3);
+    if (!lod && p.wslots.secondary) lvSec(p.wslots.secondary, s * 5.2 * k, -0.45 * k, -0.5 * k, 2.2 * k, 0, LV_CAP.gunship.sec, true, s > 0 ? 1 : 0);   // a pod on each wing
   }
   st.push().t(0, -1.8 * k, 4.6 * k);
   part('box', 0, 0, 0, 1.6 * k, 0.8 * k, 1.6 * k, dark, 0, 0.4);
-  if (p.wslots.primaryA) barrel(0.5 * k, -0.2 * k, 0.5 * k, 0.45 * k, 3 * k, [0.15, 0.16, 0.18], p.recoil * 0.5);
-  if (p.wslots.primaryB) barrel(-0.5 * k, -0.2 * k, 0.5 * k, 0.32 * k, 2.4 * k, [0.15, 0.16, 0.18], p.recoil * 0.4);
+  if (p.wslots.primaryA) { if (lod) barrel(0.5 * k, -0.2 * k, 0.5 * k, 0.45 * k, 3 * k, [0.15, 0.16, 0.18], p.recoil * 0.5); else lvGun(p.wslots.primaryA, 0.5 * k, -0.2 * k, 0.4 * k, 2.6 * k, p.recoil * 0.5, LV_CAP.gunship.a); }
+  if (p.wslots.primaryB) { if (lod) barrel(-0.5 * k, -0.2 * k, 0.5 * k, 0.32 * k, 2.4 * k, [0.15, 0.16, 0.18], p.recoil * 0.4); else lvGun(p.wslots.primaryB, -0.5 * k, -0.2 * k, 0.4 * k, 2.2 * k, p.recoil * 0.4, LV_CAP.gunship.b); }
   st.pop();
+  if (!lod) lvUtil(p, lvGunshipAnchors(k), LV_CAP.gunship.util, 0);
   drawGear(p);
   st.pop();
 }
@@ -28120,6 +28512,7 @@ const Game = {
     return trainingDef(cfg.map);   // Training on the battlefield picked (ashfall when none is)
   },
   startSession(cfg, guest) {
+    Hangar.off();   // a hangar preview left up (a co-op guest changed platform in the lobby, then the host started) is not part of the battle
     const def = this.buildDef(cfg);
     if (!def) { UI.toast('Unknown mission'); return false; }
     this.cfg = cfg;
@@ -28473,7 +28866,7 @@ const Game = {
         for (let i = 0; i < W.platforms.length; i++) W.platforms[i].update(sub);
         updateProjectiles(sub); updateWorldEffects(sub);
       }
-      if (this.state === 'menu') { Cam.orbit += dt * 0.12; Cam.lastX = 0; Cam.lastY = 14; Cam.lastZ = 0; Cam.menuUpdate(dt); }
+      if (this.state === 'menu') { if (!Hangar.update(dt)) { Cam.orbit += dt * 0.12; Cam.lastX = 0; Cam.lastY = 14; Cam.lastZ = 0; Cam.menuUpdate(dt); } }
       else Cam.update(dt);
     }
     if (W) this.render(dt);
@@ -28555,6 +28948,81 @@ Cam.menuUpdate = function (dt) {
   this.tx = 0; this.ty = 14; this.tz = 0; this.fov = 62;
   W.camPos.x = this.x; W.camPos.y = this.y; W.camPos.z = this.z;
   Snd.setListener(this.x, this.y, this.z, a + PI);
+};
+
+/* =====================================================================
+   HANGAR PREVIEW (P6-02)
+   While the Platform & Loadout screen is up, a copy of the picked platform with the picked loadout turns slowly on a pad
+   high above the battlefield behind the menu. It is drawn by the model code of play (far form off: the camera is a few
+   metres away), the camera is aimed so that it appears in the screen's #hgView box, and it is no unit of the battle
+   (no id, in no list, nothing updates it). The strategic slot has no part: the screen shows its name and tier.
+   ===================================================================== */
+const HANGAR_TURN = 0.5;        // rad/s the platform turns on its pad
+const HANGAR_FOV = 46;          // degrees
+const HANGAR_FILL = 0.86;       // share of the preview box the platform fills
+const HANGAR_HEIGHT = 120;      // m above the ground at the middle of the battlefield the pad hangs, clear of anything built
+const HANGAR_PITCH = 0.2;       // rad the camera looks down
+const HANGAR_AZIMUTH = 0.55;    // rad the camera stands round from the platform's front when it is at yaw 0
+const HANGAR_REACH = { mech: 1.15, infantry: 1.15, wheeled: 1.4, tracked: 1.35, hover: 1.35, jet: 1.3, gunship: 1.5, boat: 1.8, destroyer: 1.3, acv: 1.5, spg: 1.45, mrl: 1.55, mortarApc: 1.4 };   // half the longest way across a model, in multiples of its radius
+const Hangar = {
+  on: false, p: null, world: null, pid: '', pa: '', pb: '', ps: '', pu: '', box: null, app: null, x: 0, y: 0, z: 0, yaw: 0, padR: 3,
+  /* the hangar screen is up in the menu (not in a battle) */
+  active() { return Game.state === 'menu' && !!W && !!UI.cur && UI.cur.name === 'hangar' && !!UI.hg && !!PLATFORMS[UI.hg.platformId]; },
+  /* the preview off, the projection straight again (a battle starting, or the screen going) */
+  off() { this.on = false; this.p = null; R.shiftX = 0; R.shiftY = 0; },
+  /* the preview platform for the pick in UI.hg, made again when the platform or a slot changed, or the menu world is a new one */
+  sync() {
+    const hg = UI.hg, lo = hg.loadout || {};
+    if (this.p && this.world === W && this.pid === hg.platformId && this.pa === lo.primaryA && this.pb === lo.primaryB && this.ps === lo.secondary && this.pu === lo.utility) return;
+    const def = PLATFORMS[hg.platformId], nextId = W.nextId;
+    this.world = W; this.pid = hg.platformId; this.pa = lo.primaryA; this.pb = lo.primaryB; this.ps = lo.secondary; this.pu = lo.utility;
+    this.x = 0; this.z = 0; this.y = Terrain.h(0, 0) + HANGAR_HEIGHT;
+    this.p = new Platform(def, { team: 0, x: this.x, z: this.z, yaw: this.yaw, loadout: def.unarmed ? {} : Object.assign({}, lo) });
+    W.nextId = nextId;   // it is no unit: the next real one takes the id
+    this.padR = Math.max(def.radius * 1.3, 2.4);
+  },
+  /* every menu frame: true when the preview is up (and the camera is set for it) */
+  update(dt) {
+    R.shiftX = 0; R.shiftY = 0;
+    this.on = this.active();
+    if (!this.on) return false;
+    this.sync();
+    const p = this.p, def = p.def, air = def.kind === 'air';
+    this.yaw = (this.yaw + dt * HANGAR_TURN) % TAU;
+    p.yaw = this.yaw; p.torsoYaw = this.yaw; p.cmd.aimYaw = this.yaw; p.pitch = 0; p.roll = 0; p.torsoPitch = 0;
+    p.hp = p.maxHp; p.recoil = 0; p.gear = air; p.grounded = true; p.speed = 0; p.walkPhase = 0;
+    p.x = this.x; p.z = this.z; p.y = this.y + (air ? 2 : 0);
+    // where the box is on the screen, and how much of it the platform fills
+    if (!this.box || !this.box.isConnected) this.box = document.getElementById('hgView');   // the screen builds its boxes again on each change
+    if (!this.app || !this.app.isConnected) this.app = document.getElementById('app');
+    const box = this.box, app = this.app, tanH = Math.tan(HANGAR_FOV * DEG / 2);
+    let nx = 0.5, ny = 0.5, halfY = 0.4, halfX = 0.4;
+    if (box && app) {
+      const b = box.getBoundingClientRect(), a = app.getBoundingClientRect();
+      if (b.height > 10 && b.width > 10 && a.height > 0 && a.width > 0) {
+        nx = (b.left + b.width / 2 - a.left) / a.width; ny = (b.top + b.height / 2 - a.top) / a.height;
+        halfY = b.height / a.height * HANGAR_FILL; halfX = b.width / a.width * HANGAR_FILL;
+      }
+    }
+    const r = Math.max(def.radius * (HANGAR_REACH[def.model] || 1.3), def.height * 0.55), aspect = R.aspect || 1.6;
+    const dist = r / (tanH * Math.min(halfY, halfX * aspect)), az = HANGAR_AZIMUTH;
+    Cam.fov = HANGAR_FOV;
+    Cam.x = this.x + Math.sin(az) * Math.cos(HANGAR_PITCH) * dist; Cam.y = p.y + def.height * 0.4 + Math.sin(HANGAR_PITCH) * dist; Cam.z = this.z + Math.cos(az) * Math.cos(HANGAR_PITCH) * dist;
+    Cam.tx = this.x; Cam.ty = p.y + def.height * (air ? 0 : 0.4); Cam.tz = this.z;
+    R.shiftX = nx * 2 - 1; R.shiftY = 1 - ny * 2;
+    W.camPos.x = Cam.x; W.camPos.y = Cam.y; W.camPos.z = Cam.z;
+    Snd.setListener(Cam.x, Cam.y, Cam.z, az + PI);
+    return true;
+  },
+  /* in the opaque batch: the pad and the platform */
+  draw() {
+    const p = this.p, st = R.stack, r = this.padR;
+    if (!p || Game.state !== 'menu') return;
+    st.top = 0; st.ident();
+    st.push().t(this.x, this.y - 0.3, this.z).s(r * 2, 0.5, r * 2); R.draw('cyl', 0.2, 0.22, 0.26, 1, 0, 0.3); st.pop();
+    st.push().t(this.x, this.y - 0.03, this.z).s(r * 2.14, 0.06, r * 2.14); R.draw('cyl', 0.1, 0.45, 0.6, 1, 0.5, 0); st.pop();
+    drawPlatformBody(p);
+  },
 };
 
 
@@ -29494,7 +29962,7 @@ const UI = {
     const scroll = old ? old.scrollTop : 0;
     const fn = this['scr_' + c.name];
     if (!fn) { this.root.innerHTML = '<div class="screen on"><p>Missing screen ' + esc(c.name) + '</p></div>'; this.root.style.display = 'block'; return; }
-    const cls = c.name === 'pause' || c.name === 'confirm' ? 'clear' : (c.name === 'boot' || c.name === 'main') ? 'menuBg' : '';
+    const cls = c.name === 'pause' || c.name === 'confirm' ? 'clear' : (c.name === 'boot' || c.name === 'main' || c.name === 'hangar') ? 'menuBg' : '';   // the hangar lets its preview show through
     this.root.innerHTML = '<section class="screen on ' + cls + '" data-capture="1"><div class="wrap">' + fn.call(this, c.data) + '</div></section>';
     this.root.style.display = 'block';
     const sc = this.root.querySelector('.screen');
@@ -29831,10 +30299,10 @@ const UI = {
       return l.length ? '<optgroup label="' + SUPER_TIER[t].name + '">' + l.map((x) => '<option value="' + x.id + '"' + (lo.strategic === x.id ? ' selected' : '') + '>' + esc(x.name) + '</option>').join('') + '</optgroup>' : '';
     }).join('');
     const strategic = def.unarmed ? '' : '<label class="f"><span>Superweapon</span><select data-slot="strategic">' + tierOpts + '</select></label>' +
-      (sd ? '<div class="dim" style="font-size:.85em;margin:-.2em 0 .3em">' + esc(SUPER_TIER[sd.tier].name) + ', charges in ' + superCharge(sd) + ' s (faster with kills): ' + esc(sd.desc) + '</div>' : '') +
+      (sd ? '<div class="dim" style="font-size:.85em;margin:-.2em 0 .3em"><b style="color:rgb(' + SUPER_TIER[sd.tier].col.map((v) => Math.round(v * 255)).join(',') + ')">' + esc(sd.name) + ': ' + esc(SUPER_TIER[sd.tier].name) + '</b>, charges in ' + superCharge(sd) + ' s (faster with kills): ' + esc(sd.desc) + '</div>' : '') +
       '<div class="lbl"><span class="dim">' + open.length + ' of ' + SUPER_LIST.length + ' superweapons unlocked</span><button class="btn small" data-act="nav" data-to="arsenal">Arsenal</button></div>';
     const heat = Loadout.heatLoad(lo), spd = Loadout.speedMult(def, lo);
-    return '<h2>Platform &amp; Loadout</h2><div class="grid2"><div>' + list + '</div><div><div class="panel"><h3 style="margin-top:0">' + esc(def.name) + '</h3><div class="dim">' + esc(def.cls) + ' - ' + esc(def.role) + '</div>' +
+    return '<h2>Platform &amp; Loadout</h2><div class="grid2"><div>' + list + '</div><div><div id="hgView" style="height:min(34vh,260px)" aria-hidden="true"></div><div class="panel"><h3 style="margin-top:0">' + esc(def.name) + '</h3><div class="dim">' + esc(def.cls) + ' - ' + esc(def.role) + '</div>' +
       '<div class="good">+ ' + esc(def.pros) + '</div><div class="bad">- ' + esc(def.cons) + '</div>' +
       nb('Hull', def.hp, 1000, def.hp) + nb('Armor', def.armor, 450, def.armor) + nb('Speed', def.kind === 'air' ? def.air.max : def.speed, spdMax, Math.round((def.kind === 'air' ? def.air.max : def.speed) * 3.6) + ' km/h') +
       nb('Energy', def.energy, 250, def.energy) + nb('Heat capacity', def.heatCap, 180, def.heatCap) + nb('Weight capacity', def.weightCap, 65, def.weightCap) + '</div>' +
@@ -32475,7 +32943,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 17 (P5-09: the base defences; 16 was P5-03, the eight new items; 15 was the platform change request and the host\'s word on it, P2-07; 13 was the Point Defence utility and projectile targets)', NET_VERSION === 17);
+      this.check('the net version is 18 (P6-02: the picture state in the platform entry; 17 was P5-09, the base defences; 16 was P5-03, the eight new items; 15 was the platform change request and the host\'s word on it, P2-07; 13 was the Point Defence utility and projectile targets)', NET_VERSION === 18);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave }, keepPid = Save.data.platformId;
@@ -35906,7 +36374,7 @@ const SelfTest = {
         const old = Save.sanitize({ v: SAVE_VERSION, gatedSeen: Arsenal.gatedIds().filter((id) => NEW_ITEM_IDS.indexOf(id) < 0), unlocked: [], best: { m1: { score: 900, rank: 'A', time: 100, diff: 'veteran' }, m2: { score: 10, rank: 'F', time: 100, diff: 'veteran' } } });
         this.check('an old save that won m1 finds the Spotter Drone open, and the other four (m2 only lost, m3, m6, m7 never played) locked; a new save finds none open', old.unlocked.indexOf('spotter') >= 0 && ['coating', 'seaMines', 'manpad', 'jumppack'].every((id) => old.unlocked.indexOf(id) < 0) && Object.keys(GATE).every((id) => Save.sanitize(Save.defaults()).unlocked.indexOf(id) < 0));
         const s = Save.sanitize({ v: SAVE_VERSION, loadouts: { ranger: { primaryA: 'rifle', utility: 'jumppack' }, bulwark: { primaryA: 'acannon', utility: 'noSuchItem' }, kestrel: { primaryA: 'mg', secondary: 'aam', utility: 'coating' }, wraith: { primaryA: 'mg', utility: 'plough' } } });
-        this.check('saves still load: a saved loadout with a new item is kept, one with an unknown or unmountable id is dropped to the default, SAVE_VERSION stays 1 and NET_VERSION is 17', !!s.loadouts.ranger && s.loadouts.ranger.utility === 'jumppack' && !!s.loadouts.kestrel && !s.loadouts.bulwark && !s.loadouts.wraith && SAVE_VERSION === 1 && NET_VERSION === 17);
+        this.check('saves still load: a saved loadout with a new item is kept, one with an unknown or unmountable id is dropped to the default, SAVE_VERSION stays 1 and NET_VERSION is 18', !!s.loadouts.ranger && s.loadouts.ranger.utility === 'jumppack' && !!s.loadouts.kestrel && !s.loadouts.bulwark && !s.loadouts.wraith && SAVE_VERSION === 1 && NET_VERSION === 18);
       } finally { Save.data = keep.data; Save.persist = keep.persist; }
       const arsenal = UI.gearArsenal();
       this.check('the Arsenal screen lists all eight items with who carries them, and the locked ones with their mission', NEW_ITEM_IDS.every((id) => arsenal.indexOf(WEAPONS[id].name) >= 0) && arsenal.indexOf('Heavy Hunter') >= 0);
@@ -39572,6 +40040,242 @@ const SelfTest = {
         Game.quitToMenu();
       }
     });
+    t('p6 loadout visuals', () => {
+      if (!R.gl) { this.check('p6 loadout visuals (no GL)', true); return; }
+      flatWorld();
+      const TRI = { box: 12, wedge: 8, cone: 16, cyl: 40, sphere: 108 };
+      const keepDraw = R.draw, keepCam = R.cam, keepState = Game.state, keepHg = UI.hg, keepCur = UI.cur, keepNet = { host: Net.host, guest: Net.guest, map: Net.map, seq: Net.lastSnapSeq };
+      let calls = 0, tris = 0, first = -1;
+      R.draw = function (name, r) { if (first < 0) first = r; calls++; tris += TRI[name] || 0; return keepDraw.apply(this, arguments); };
+      const maker = (id) => {
+        const def = PLATFORMS[id], q = new Platform(def, { team: 0, x: 0, z: 0, yaw: 0, loadout: {} });
+        q.x = 0; q.z = 0; q.y = def.kind === 'air' ? 30 : 0; q.gear = false; q.hp = q.maxHp;
+        return q;
+      };
+      const mount = (q, slot, id) => { q.wslots[slot] = id ? { id, def: WEAPONS[id], slot, clip: WEAPONS[id].clip, reserve: 0, cd: 0, reloading: 0, charge: 0 } : null; };
+      const items = (q, a, b, s, u) => {
+        mount(q, 'primaryA', a); mount(q, 'primaryB', b); mount(q, 'secondary', s);
+        q.util = u ? { id: u, def: WEAPONS[u], charges: WEAPONS[u].charges || 0, cd: 0, auto: true } : null;
+        q.activeSlot = a ? 'primaryA' : 'primaryB';
+      };
+      const view = (q, away) => R.beginFrame({ x: 0, y: q.y + 8, z: -away, tx: q.x, ty: q.y + 2, tz: q.z, fov: 70 }, 70);
+      const measure = (q) => { calls = 0; tris = 0; first = -1; LV.drawn = 0; R.beginBatch('opaque'); drawPlatformBody(q); R.bake = null; return { calls, tris, lv: LV.drawn, first }; };
+      const nativeGun = { spg: 'artyGun', mrl: 'artyRockets', mortarApc: 'artyMortar' };
+      const todayFar = { mech: 8, infantry: 9, wheeled: 9, tracked: 9, hover: 11, kestrel: 13, shrike: 13, gunship: 16, boat: 8, destroyer: 13, acv: 12, spg: 15, mrl: 12, mortarApc: 9 };
+      const slotsOf = (def) => [def.allow.primary, def.allow.primary, def.allow.secondary, def.allow.utility];
+      try {
+        this.check('the triangle table the loadout specs are costed with is the unit meshes\'', Object.keys(TRI).every((n) => !R.meshes[n] || R.meshes[n].count / 3 === TRI[n]));
+        let specFaults = [];
+        for (const id of PLAYABLE) {
+          if (id === 'civilian') continue;
+          for (const g of ['primary', 'secondary', 'utility']) for (const w of PLATFORMS[id].allow[g]) {
+            const table = g === 'primary' ? LV_GUN : g === 'secondary' ? LV_SEC : LV_UTIL;
+            if (!table[w] && w !== 'coating' && !(g === 'secondary' && w === 'aam')) specFaults.push(id + ':' + w);
+          }
+        }
+        this.check('every weapon and utility a playable platform can mount has a picture (Stealth Coating is the colour rule)', specFaults.length === 0, specFaults.slice(0, 6).join(','));
+        const specBad = [];
+        const goodModes = [0, 10, 11, 12, 20, 21, 22, 30, 31, 40, 41, 42, 50, 51, 52];
+        for (const [name, tb] of [['gun', LV_GUN], ['secondary', LV_SEC], ['one-round', LV_SEC1], ['utility', LV_UTIL]]) for (const k in tb) {
+          const sp = tb[k];
+          let tri = 0;
+          for (let i = 0; i < sp.n; i++) {
+            const o = i * LV_STRIDE, shape = sp.a[o], col = sp.a[o + 7];
+            tri += LV_TRI[shape];
+            if (!R.meshes[LV_MESH[shape]] || !(col >= 0 && col < LV_PAL.length) || (col >= 3 && !LV_PAL[col]) || goodModes.indexOf(sp.a[o + 9]) < 0 || !sp.a.slice(o, o + LV_STRIDE).every(Number.isFinite) || sp.cum[i + 1] !== tri) { specBad.push(name + ' ' + k + ' part ' + i); break; }
+          }
+          if (sp.tris !== tri || (name !== 'gun' && sp.far)) specBad.push(name + ' ' + k);
+          if (name === 'utility' && LV_ANCHOR_NAMES.indexOf(sp.anchor) < 0) specBad.push('anchor of ' + k);
+        }
+        this.check('every spec part names a real mesh, a colour of the palette and a known mode, its triangle sums are right, a far form is only on guns and every utility has an anchor', specBad.length === 0, specBad.slice(0, 5).join(', '));
+        for (const id of PLAYABLE) {
+          if (id === 'civilian') continue;
+          const def = PLATFORMS[id], q = maker(id), key = LV_BUDGET[id] ? id : def.model;
+          view(q, 30);
+          items(q, null, null, null, null);
+          const empty = measure(q), worst = { ab: [0, 0], sec: [0, 0], util: [0, 0] }, unseen = [];
+          const prim = [null].concat(def.allow.primary);
+          for (const a of prim) for (const b of prim) {
+            items(q, a, b, null, null);
+            const m = measure(q);
+            worst.ab[0] = Math.max(worst.ab[0], m.calls - empty.calls); worst.ab[1] = Math.max(worst.ab[1], m.tris - empty.tris);
+            if (b === null && a && m.lv === 0 && a !== nativeGun[def.model]) unseen.push(id + ' A ' + a);   // the artillery's own gun keeps its model
+            if (a === null && b && m.lv === 0 && id !== 'skua') unseen.push(id + ' B ' + b);   // a hovercraft's second gun hangs beside the first: alone it adds nothing
+          }
+          for (const s of def.allow.secondary) {
+            items(q, null, null, s, null);
+            const m = measure(q);
+            worst.sec[0] = Math.max(worst.sec[0], m.calls - empty.calls); worst.sec[1] = Math.max(worst.sec[1], m.tris - empty.tris);
+            if (m.lv === 0) unseen.push(id + ' secondary ' + s);
+          }
+          for (const u of def.allow.utility) {
+            items(q, null, null, null, u);
+            const m = measure(q);
+            worst.util[0] = Math.max(worst.util[0], m.calls - empty.calls); worst.util[1] = Math.max(worst.util[1], m.tris - empty.tris);
+            if (m.lv === 0 && u !== 'coating') unseen.push(id + ' utility ' + u);
+          }
+          const sum = [empty.calls + worst.ab[0] + worst.sec[0] + worst.util[0], empty.tris + worst.ab[1] + worst.sec[1] + worst.util[1]];
+          items(q, def.loadout.primaryA, def.loadout.primaryB, def.loadout.secondary, def.loadout.utility);
+          const dflt = measure(q);
+          this.check(id + ': every weapon and utility it can mount draws a part of its own', unseen.length === 0, unseen.slice(0, 5).join(', '));
+          this.check(id + ': the worst of each slot together draws ' + sum[0] + ' calls and ' + sum[1] + ' triangles, inside the budget of ' + LV_BUDGET[key][0] + ' and ' + LV_BUDGET[key][1], sum[0] <= LV_BUDGET[key][0] && sum[1] <= LV_BUDGET[key][1], JSON.stringify(worst) + ' empty ' + empty.calls + '/' + empty.tris);
+          this.check(id + ': its default loadout is inside the budget too (' + dflt.calls + ' calls, ' + dflt.tris + ' triangles)', dflt.calls <= LV_BUDGET[key][0] && dflt.tris <= LV_BUDGET[key][1]);
+          // far away: no loadout part beyond what the model drew before (a gun, its barrel)
+          view(q, 420);
+          const far = measure(q), farKey = todayFar[LV_BUDGET[id] ? id : def.model];
+          this.check(id + ': 420 m away it draws ' + far.calls + ' calls, no more than the ' + farKey + ' it drew before', far.calls > 0 && far.calls <= farKey, far.calls);
+        }
+        // the gun emplacement and the AA battery (not playable): every gun family and every secondary on a turret stays inside its budget
+        for (const tid of ['turret', 'aaTurret']) {
+          const q = maker(tid);
+          view(q, 30);
+          items(q, null, null, null, null);
+          const e0 = measure(q), w = { a: [0, 0], b: [0, 0], s: [0, 0] };
+          let blind = [];
+          for (const gid of Object.keys(LV_GUN)) for (const slot of ['a', 'b']) {
+            items(q, slot === 'a' ? gid : null, slot === 'b' ? gid : null, null, null);
+            const m = measure(q);
+            w[slot][0] = Math.max(w[slot][0], m.calls - e0.calls); w[slot][1] = Math.max(w[slot][1], m.tris - e0.tris);
+            if (m.lv === 0) blind.push(slot + ' ' + gid);
+          }
+          for (const sid of Object.keys(LV_SEC)) {
+            items(q, null, null, sid, null);
+            const m = measure(q);
+            w.s[0] = Math.max(w.s[0], m.calls - e0.calls); w.s[1] = Math.max(w.s[1], m.tris - e0.tris);
+            if (m.lv === 0) blind.push('secondary ' + sid);
+          }
+          const sumT = [e0.calls + w.a[0] + w.b[0] + w.s[0], e0.tris + w.a[1] + w.b[1] + w.s[1]];
+          this.check(tid + ': every gun family and secondary draws a part, and the worst of each slot together (' + sumT[0] + ' calls, ' + sumT[1] + ' triangles) is inside the budget of ' + LV_BUDGET.turret[0] + ' and ' + LV_BUDGET.turret[1], blind.length === 0 && sumT[0] <= LV_BUDGET.turret[0] && sumT[1] <= LV_BUDGET.turret[1], blind.slice(0, 5).join(', ') + ' ' + JSON.stringify(w) + ' empty ' + e0.calls + '/' + e0.tris);
+          view(q, 420);
+          items(q, 'acannon', 'mg', 'missile', null);
+          const farT = measure(q);
+          this.check(tid + ': 420 m away it keeps its two barrels (' + farT.calls + ' calls, as before: ' + e0.calls + ')', farT.calls > 0 && farT.calls <= e0.calls);
+        }
+        // the picture follows the rounds and charges left
+        const bw = maker('bulwark');
+        view(bw, 30);
+        items(bw, 'acannon', 'mg', 'missile', 'reactive');
+        const full = measure(bw);
+        bw.wslots.secondary.clip = 0; bw.util.charges = 0;
+        const spent = measure(bw);
+        this.check('a mech with its missiles and Reactive Armor charges spent draws fewer parts (' + spent.calls + ' against ' + full.calls + ')', spent.calls < full.calls && spent.tris < full.tris);
+        bw.wslots.secondary.clip = 1; bw.util.charges = 1;
+        const some = measure(bw);
+        this.check('and a part per charge and round left in between', spent.calls < some.calls && some.calls < full.calls, spent.calls + ' ' + some.calls + ' ' + full.calls);
+        const jet = maker('shrike');
+        view(jet, 30);
+        items(jet, 'mg', null, 'aam', 'flares');
+        const jf = measure(jet);
+        jet.wslots.secondary.clip = 1; const j1 = measure(jet);
+        jet.wslots.secondary.clip = 0; const j0 = measure(jet);
+        this.check('a jet shows its AA Missiles one to a wing tip and loses them as they go (' + jf.calls + ', ' + j1.calls + ', ' + j0.calls + ' calls)', j0.calls < j1.calls && j1.calls < jf.calls);
+        // Stealth Coating darkens the paint
+        const cA = maker('kestrel'), cB = maker('kestrel');
+        view(cA, 30);
+        items(cA, 'mg', null, null, 'coating'); items(cB, 'mg', null, null, null);
+        const dark = measure(cA), plain = measure(cB);
+        this.check('a Stealth Coating darkens the platform\'s paint to ' + LV_COATING_DARKEN + ' and draws no part of its own', Math.abs(dark.first - plain.first * LV_COATING_DARKEN) < 1e-6 && dark.calls === plain.calls);
+        // utilities that run: a docked drone is gone while it flies, a barrier panel while it stands
+        const dr = maker('thunder');
+        view(dr, 30);
+        items(dr, 'artyGun', null, null, 'drone');
+        const docked = measure(dr);
+        dr.droneT = 5;
+        const flying = measure(dr);
+        this.check('a Repair Drone sits on its platform and is gone while it flies (' + docked.calls + ' calls docked, ' + flying.calls + ' flying)', flying.calls < docked.calls && lvPack(dr) === (WEAPONS.drone.charges << 3) + 64);
+        const hu = maker('bulwark');
+        view(hu, 30);
+        items(hu, 'mg', null, null, 'holo');
+        hu.useGadget(hu.util);
+        this.check('using a timed utility sets when it ends (the picture state of a Holo Decoy)', hu.utilUntil > W.time && lvActive(hu, hu.util));
+        flatWorld();
+        // co-op: the host's number rides in the platform entry and a guest draws what the host does
+        this.check('the net version is 18 for the picture state, and the save version stays 1', NET_VERSION === 18 && SAVE_VERSION === 1);
+        const host = maker('bulwark');
+        view(host, 30);
+        items(host, 'rail', 'mg', 'missile', 'reactive');
+        host.wslots.secondary.clip = 2; host.util.charges = 1; host.wslots.primaryA.charge = 0.5;
+        const entry = Net.platEntry(host);
+        this.check('a platform entry carries one more number, the picture state: rounds 2, charges 1, charging (' + entry[12] + ')', entry.length === 13 && entry[12] === (2 | (1 << 3) | 128));
+        const hostDraw = measure(host);
+        const mirror = maker('bulwark'); mirror.id = host.id;
+        items(mirror, 'rail', 'mg', 'missile', 'reactive');
+        const before = measure(mirror);
+        let after = null, ours = null;
+        Net.host = false; Net.guest = true; Net.map = { [mirror.id]: mirror }; Net.lastSnapSeq = 0;
+        try { Net.applySnapshot({ q: 1, p: [entry] }); after = measure(mirror); mirror.picOn = false; ours = measure(mirror); } finally { Net.host = keepNet.host; Net.guest = keepNet.guest; Net.map = keepNet.map; Net.lastSnapSeq = keepNet.seq; }
+        this.check('a co-op guest decodes the picture state and draws what the host draws (' + after.calls + ' calls and ' + after.tris + ' triangles against the host\'s ' + hostDraw.calls + ' and ' + hostDraw.tris + '; its own full state ' + before.calls + ')', after.calls === hostDraw.calls && after.tris === hostDraw.tris && after.calls < before.calls && mirror.pic === entry[12]);
+        this.check('without a number from the host a guest draws the platform\'s own state', ours.calls === before.calls);
+        const dh = maker('behemoth'); items(dh, 'gatling', null, 'rockets', 'drone'); dh.droneT = 3;
+        const e2 = Net.platEntry(dh);
+        this.check('a running utility is one bit of the picture state (a drone out: ' + e2[12] + ')', (e2[12] & 64) === 64);
+        // the hangar preview draws the same model with the same loadout
+        const lo = { primaryA: 'gatling', primaryB: 'rail', secondary: 'cruise', utility: 'reactive' };
+        Game.state = 'menu';
+        UI.hg = { platformId: 'colossus', loadout: lo, map: null };
+        UI.cur = { name: 'hangar', data: {} };
+        const on = Hangar.update(0.1), pv = Hangar.p;
+        this.check('the hangar screen turns a preview on: the picked platform with the picked loadout', on && Hangar.on && pv && pv.def.id === 'colossus' && pv.wslots.primaryA.id === 'gatling' && pv.wslots.primaryB.id === 'rail' && pv.wslots.secondary.id === 'cruise' && pv.util.id === 'reactive');
+        this.check('the preview is not a unit of the battle (it takes no id and is in no list)', W.platforms.indexOf(pv) < 0 && pv.id >= W.nextId);
+        const play = maker('colossus'); items(play, lo.primaryA, lo.primaryB, lo.secondary, lo.utility);
+        view(play, 30);
+        pv.x = play.x; pv.y = play.y; pv.z = play.z; pv.yaw = play.yaw; pv.torsoYaw = play.torsoYaw;
+        const mp = measure(pv), ml = measure(play);
+        this.check('the preview draws as many parts and triangles as the same platform in play (' + mp.calls + ' calls, ' + mp.tris + ' triangles)', mp.calls === ml.calls && mp.tris === ml.tris && mp.lv === ml.lv && mp.lv > 0);
+        UI.hg = { platformId: 'colossus', loadout: Object.assign({}, lo, { primaryA: 'mg' }), map: null };
+        Hangar.update(0.1);
+        this.check('a new pick changes the preview', Hangar.p.wslots.primaryA.id === 'mg' && Hangar.p !== pv);
+        // a tall screen moves the hangar camera back; the preview still draws its parts near (P6-01 rule 6)
+        lvBegin(Hangar.p, [1, 1, 1], [0, 0, 0], [1, 0, 0], false, LV_NEAR + 100);
+        const previewNear = !LV.mid;
+        lvBegin(pv, [1, 1, 1], [0, 0, 0], [1, 0, 0], false, LV_NEAR + 100);
+        this.check('the hangar preview draws its loadout near at any camera distance, other platforms past ' + LV_NEAR + ' m do not', previewNear && LV.mid, previewNear + ' / ' + LV.mid);
+        UI.hg = { platformId: 'ranger', loadout: Loadout.forPlatform('ranger'), map: null };
+        Hangar.update(0.1);
+        const rg = Hangar.p, rgLo = Loadout.forPlatform('ranger');
+        rg.x = 0; rg.y = 0; rg.z = 0;
+        view(rg, 30);
+        const rgDraw = measure(rg);
+        this.check('a soldier in the hangar holds the rifle of its loadout: its gun is drawn from its family (' + rgLo.primaryA + ', ' + rgDraw.lv + ' parts of the loadout)', rg.def.id === 'ranger' && rg.wslots.primaryA.id === rgLo.primaryA && rgDraw.lv >= 1);
+        UI.cur = { name: 'main', data: {} };
+        const off = Hangar.update(0.1);
+        this.check('leaving the hangar screen puts the menu camera and the full picture back', !off && !Hangar.on && R.shiftX === 0 && R.shiftY === 0);
+        const html = UI.scr_hangar.call(Object.assign(Object.create(UI), { hg: { platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), map: null } }), {});
+        this.check('the hangar screen has a box for the preview', html.indexOf('id="hgView"') >= 0);
+        const sup = SUPER_LIST[0], html2 = UI.scr_hangar.call(Object.assign(Object.create(UI), { hg: { platformId: 'bulwark', loadout: Object.assign({}, Loadout.forPlatform('bulwark'), { strategic: sup.id }), map: null } }), {});
+        const tc = SUPER_TIER[sup.tier].col.map((v) => Math.round(v * 255)).join(',');
+        // a preview left on when a battle starts (a co-op guest who changed platform in the lobby, then the host starts): no shift and no preview in the battle
+        UI.hg = { platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), map: null };
+        UI.cur = { name: 'hangar', data: {} }; Game.state = 'menu';
+        Hangar.update(0.1);
+        R.shiftX = 0.3; R.shiftY = 0.2;   // what the screen's box gives a real page (this test page has none)
+        const leaked = Hangar.on && !!Hangar.p;
+        const oldPreview = Hangar.p;
+        Game.startSession({ mode: 'training', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+        const inBattle = !Hangar.on && !Hangar.p && R.shiftX === 0 && R.shiftY === 0 && Game.state === 'playing';
+        R.shiftX = 0.4; R.shiftY = -0.3;   // even a stray shift does not bend the projection of a battle
+        R.beginFrame(Cam, Cam.fov);
+        const straight = R.proj[8] === 0 && R.proj[9] === 0;
+        R.shiftX = 0; R.shiftY = 0;
+        this.check('a hangar preview that is up when a battle starts is gone with its shift, and a stray shift leaves the battle projection straight', !!leaked && inBattle && straight, String(leaked) + ' ' + inBattle + ' ' + straight);
+        Game.quitToMenu();
+        Game.state = 'menu'; UI.hg = { platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), map: null }; UI.cur = { name: 'hangar', data: {} };
+        Hangar.update(0.1);
+        this.check('and the next menu world gets a new preview on its own ground', Hangar.on && Hangar.p && Hangar.p !== oldPreview && Hangar.world === W && Math.abs(Hangar.y - (Terrain.h(0, 0) + HANGAR_HEIGHT)) < 1e-6);
+        // between 200 m and the far form: a gun is one plain barrel, the secondary and the utility are left out (P6-01 rule 8 fallback)
+        const mb = maker('bulwark'); items(mb, 'gatling', 'rail', 'swarm', 'reactive');
+        view(mb, 30); const nearB = measure(mb);
+        view(mb, LV_NEAR + 60); const midB = measure(mb);
+        view(mb, 420); const farB = measure(mb);
+        this.check('past ' + LV_NEAR + ' m a mech draws its two guns as one barrel each and no secondary or utility part (' + nearB.calls + ' calls near, ' + midB.calls + ' at ' + (LV_NEAR + 60) + ' m, ' + farB.calls + ' far)', midB.lv === 2 && midB.calls < nearB.calls && midB.calls >= farB.calls);
+        this.check('the superweapon slot has no part: its card shows the name and the tier colour', html2.indexOf('color:rgb(' + tc + ')">' + sup.name + ': ' + SUPER_TIER[sup.tier].name) >= 0);
+      } finally {
+        R.draw = keepDraw; R.cam = keepCam; R.bake = null; Game.state = keepState; UI.hg = keepHg; UI.cur = keepCur;
+        Net.host = keepNet.host; Net.guest = keepNet.guest; Net.map = keepNet.map; Net.lastSnapSeq = keepNet.seq;
+        R.shiftX = 0; R.shiftY = 0;
+        flatWorld();
+      }
+    });
     /* SELFTEST PART X END */
     const failed = this.results.filter((r) => !r.ok);
     return { total: this.results.length, failed: failed.length, results: this.results, state: hadState };
@@ -39603,7 +40307,7 @@ const SNAP_PROJS = 70;    // projectiles per snapshot
 var NET_UNSPOT_OFF = false;   // self-test switch: the guest ignores the sent unspotted share
 var NET_SNAP_TURN_OFF = false;   // self-test switch: platforms past SNAP_PLATS take no turns in the snapshots
 var NET_SHELLS_FIRST_OFF = false;   // self-test switch: shells take no precedence in the snapshots
-const NET_VERSION = 17;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index); 14: change platform (guest 'swap' pid, P2-07; the host answers with a notice and a new body in 'sp' and 'ctl'); 15: the host's word on a guest's change in 'me' (swp: offered, hint, seconds left, total, platform, why not); 16: P5-03's eight items (nine new WEAPON_IDS: Pulse Scanner, Stealth Coating, Spotter Drone and its in-flight projectile, Shoulder SAM, Jump Pack, Repair Torch, Sea Mine Rack, Mine Plough; the 'scan' and 'jump' effects in 'wz', a sea mine and a Spotter Drone as projectiles in 'pr', flags bit 32768: fired lately); 17: P5-09's base defences (a new 'bd' message: field mines gone, silo state, dome points, known mines, counter-battery traces, a missile in flight; a base field's mines are built from the seed on every peer and are not in 'pr'; thirteen defences, four new WEAPON_IDS at the end of the table (after the superweapon ordnance, which keeps its index): Anti-Tank, Anti-Personnel and Moored Mine, Point Defence Tower; nine new platforms and two structures built by the same code on every peer)
+const NET_VERSION = 18;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index); 14: change platform (guest 'swap' pid, P2-07; the host answers with a notice and a new body in 'sp' and 'ctl'); 15: the host's word on a guest's change in 'me' (swp: offered, hint, seconds left, total, platform, why not); 16: P5-03's eight items (nine new WEAPON_IDS: Pulse Scanner, Stealth Coating, Spotter Drone and its in-flight projectile, Shoulder SAM, Jump Pack, Repair Torch, Sea Mine Rack, Mine Plough; the 'scan' and 'jump' effects in 'wz', a sea mine and a Spotter Drone as projectiles in 'pr', flags bit 32768: fired lately); 17: P5-09's base defences (a new 'bd' message: field mines gone, silo state, dome points, known mines, counter-battery traces, a missile in flight; a base field's mines are built from the seed on every peer and are not in 'pr'; thirteen defences, four new WEAPON_IDS at the end of the table (after the superweapon ordnance, which keeps its index): Anti-Tank, Anti-Personnel and Moored Mine, Point Defence Tower; nine new platforms and two structures built by the same code on every peer); 18: P6-02's picture state of a platform, one more number at the end of each platform entry of a snapshot (rounds left, charges, a utility running, a gun charging: lvPack)
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -40045,7 +40749,7 @@ const Net = {
   },
   platEntry(p) {
     const f = (p.shieldOn ? 1 : 0) | (p.jetting ? 2 : 0) | (p.afterburner ? 4 : 0) | (p.gear ? 8 : 0) | (p.crouch ? 16 : 0) | (p.boosting ? 32 : 0) | (p.telegraph > 0 ? 64 : 0) | (p.grounded ? 128 : 0) | (p.meleeT > 0 ? 256 : 0) | (p.activeSlot === 'primaryB' ? 512 : 0) | (p.parked ? 1024 : 0) | (p.chute ? 2048 : 0) | (p.wake ? 4096 : 0) | (p.arty && p.arty.want ? 8192 : 0) | (p.arty && p.arty.high ? 16384 : 0) | (W.time - p.firedAt < COATING_BLOOM_SEND ? 32768 : 0);   // 32768: it fired lately (a Stealth Coating's bloom, P5-03)
-    return [p.id, r1(p.x), r1(p.y), r1(p.z), r2(p.yaw), r2(p.pitch), r2(p.roll), r2(p.torsoYaw), r2(p.torsoPitch), r2(p.hp / p.maxHp), r1(p.speed), f];
+    return [p.id, r1(p.x), r1(p.y), r1(p.z), r2(p.yaw), r2(p.pitch), r2(p.roll), r2(p.torsoYaw), r2(p.torsoPitch), r2(p.hp / p.maxHp), r1(p.speed), f, lvPack(p)];
   },
   selfState(peer) {
     const p = peer.p;
@@ -40236,6 +40940,7 @@ const Net = {
       p.parked = !!(f & 1024); p.chute = !!(f & 2048); p.wake = !!(f & 4096);
       if (p.arty) { p.arty.want = !!(f & 8192); p.arty.high = !!(f & 16384); }   // artillery: deployed, high arc
       if (f & 32768) p.firedAt = W.time;   // it fired lately: its Stealth Coating does nothing yet
+      if (e.length > 12) { p.pic = e[12] | 0; p.picOn = true; }   // P6-02: what its model shows of rounds, charges and a running utility (lvPack)
       if (p.shieldOn && p.maxShield > 0) p.shield = p.maxShield * 0.6;
     }
     // projectiles
@@ -40600,7 +41305,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, Swap, airSpawn, rayToSquare, Detect, DETECT_RANGE, DETECT_SHARE, DETECT_AI_SIGHT, ARCH, talive, BaseDef, BD_DEFS, BD_DP, BD_LIMITS, FORT, Mines, Scan, Intercept, WPN, damageStruct, launchProjectile, allocProjectile, spawnGroup, hasLOS, Stealth, addStruct };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, Swap, airSpawn, rayToSquare, Detect, DETECT_RANGE, DETECT_SHARE, DETECT_AI_SIGHT, ARCH, talive, BaseDef, BD_DEFS, BD_DP, BD_LIMITS, FORT, Mines, Scan, Intercept, WPN, damageStruct, launchProjectile, allocProjectile, spawnGroup, hasLOS, Stealth, addStruct, drawPlatformBody, Hangar, lvPack, LV_CAP, LV_BUDGET };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
