@@ -222,8 +222,8 @@ Numbered after the other phases because it was added later; Phase 10 checks the 
   Done when: Appendix D lists each finding with a fix task (P11-02 to P11-20 or a new task).
 - [ ] P11-02 - Skirmish: our team (team 1 in the setup) gets the same Forces control as the other teams, replacing the separate Friendly Support dropdown.
   Done when: the Teams panel has one Forces control per team, ours included; Friendly Support is gone; an old saved Friendly Support value loads as the matching Forces value.
-- [ ] P11-03 - Destroyed civilian vehicles make a small explosion (effect and sound). DECIDE whether the blast does damage; civilian traffic stays local scenery (D6), so any damage must not change host-authoritative state in co-op.
-  Done when: every civilian vehicle kind explodes when destroyed, on every peer; the decision is in Appendix C.
+- [ ] P11-03 - Destroyed civilian vehicles make a small explosion (effect and sound). Owner decision (2026-10-31): visual only, the blast does no damage; civilian traffic stays local scenery (D6).
+  Done when: every civilian vehicle kind explodes when destroyed, on every peer; a self-test shows the blast changes no hit points, structures or host state.
 - [ ] P11-04 - Skirmish base defences: replace the picker (which also allows only one extra) with one dropdown of ready configurations.
   Done when: one dropdown sets the base defences; each configuration fits the P5-09 budgets and sea rules for the battlefield; old saved picks load as the nearest configuration.
 - [ ] P11-05 - Skirmish objectives / mission types: DECIDE a list (proposals: destroy the command center, capture and hold points, king of the hill, convoy escort, silo race) and implement the selection.
