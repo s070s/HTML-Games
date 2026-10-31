@@ -239,6 +239,10 @@ textarea.crin{resize:vertical;font-size:.8em;letter-spacing:0;word-break:break-a
 .slot .sno{color:var(--pc);text-align:center}
 .warnline{color:var(--bad)}
 .opt.dim{opacity:.5;cursor:default;pointer-events:none}
+.beat{background:#0f1830;border:2px solid #2a3b66;border-radius:.4em;padding:.4em .8em;margin:.35em 0}
+.beat:focus-visible{outline:3px solid var(--a1);outline-offset:2px;background:#182a55}
+.beat p{margin:.25em 0;line-height:1.35}
+.beat .who{font-weight:800;color:var(--a1);margin-right:.5em;letter-spacing:.05em;text-transform:uppercase;font-size:.85em}
 .panel.lineup{scroll-padding-bottom:5em}   /* a focused row scrolls clear of the sticky footer */
 @media (max-width:520px){.slot{grid-template-columns:1.4em 1.5fr 1fr 1fr;gap:.25em}.slot .opt.cell{padding:.3em .25em;font-size:.8em;min-height:2.4em}.panel.lineup .opt{min-height:2.4em;padding:.3em .6em}.panel.lineup .row.sticky{bottom:-.8em}}
 .tag.seat1,.tag.seat2,.tag.seat3,.tag.seat4{border-color:var(--pc)}
@@ -3331,7 +3335,7 @@ const Arena = {
       else Debris.spawn(kind, px, py, pz, vx, vy, vz, size, size * 0.7, size * 0.8, color, 1);
     }
     this.addRubble(o, kind === 'concrete' ? 0.55 : 0.22, o.hx, 0, o.hz);
-    if (!o.step && this.collapses.length < COLLAPSE_QUEUE_MAX) this.collapses.push({ x: o.x, z: o.z, hx: o.hx, hz: o.hz, drop: o.h });
+    if (!o.step && this.collapses.length < COLLAPSE_QUEUE_MAX) this.collapses.push({ x: o.x, z: o.z, hx: o.hx, hz: o.hz, drop: o.h, land: this.supportAt(o.x, o.z, o.h, DECK_LAND_RADIUS) });
   },
 
   /* The weak deck f stands on (or null): its top is f's footing and f is over its footprint. */
@@ -5417,11 +5421,13 @@ const HAZARD_HEIGHT = 1.0;            // m: a fighter whose feet are higher than
 const HAZARD_STRIKE_R = 0.4;          // m: the radius of a strike's hit sphere on a hazard's post (as on scenery)
 const HAZARD_CUT_REACH = 0.25;        // m beyond a fighter's body: breaking glass cuts the fighter this close to the wall (the one thrown or knocked into it)
 const HAZARD_SHARD_SPREAD = 0.7;      // m: a broken glass wall's shards lie this far to each side of it
+const HAZARD_SHARD_LEVEL = 0.2;       // m: a shattered bottle's glass cuts only a fighter whose footing is within this of the surface it lies on (a table top, not the floor under it)
 const BOTTLE_SHARD_R = 0.5, HAZARD_SHARD_MAX = 6, HAZARD_SHARD_TICKS = 1500;   // a shattered bottle leaves a patch of this radius, for this long (the oldest of at most this many patches goes first)
 const HAZARD_NO_REACT = [S.THROWN, S.DOWN, S.FALL, S.SUBMIT, S.GETUP];   // states a shock, a flinch or a flight cannot be forced on: the damage still counts
 const HAZARD_FLINK_TICKS = 10, HAZARD_FLINK_PUSH = 5;   // a flinch (fire, glass): hit-stun ticks, and the knock away from the source (m/s)
 const LOAD_CHECK_TICKS = 6, LOAD_HOLD_TICKS = 60, LOAD_CREAK_TICKS = 36, LOAD_HEAVY = 3;   // P8-04 / P9 R7: weight is counted every 6 ticks; held 60 ticks the deck creaks for 36 and breaks; a weight class of 3 or 4 counts twice
 const CRUSH_BASE = 10, CRUSH_PER_METER = 6, CRUSH_MAX = 30, CRUSH_DOWN = 20, CRUSH_REACH = 0.3, CRUSH_FLOOR_TOP = 1.0, CRUSH_LANDINGS_PER_TICK = 4, CRUSH_OBJECTS = 4, COLLAPSE_QUEUE_MAX = 32;   // R6: crush of a fallen piece beside it
+const DECK_LAND_RADIUS = 0.05;        // m: the point under a broken deck's centre where its landing surface is read (Arena.breakDeck)
 const CRUSH_DEF = { push: 3, snd: 'crash' };
 const BURN_SRC = { type: 'fire', def: { snd: 'fire' }, by: null, x: 0, z: 0, fx: 0, fz: 1 };   // R4: the source of a burning fighter's damage
 const CRUSH_SRC_BASE = -1500000000;   // scenery damage source ids of crush: a range of its own (a counter per match makes each landing's id unique), below the fighters' impact ids and above the thrown items'
@@ -7495,10 +7501,10 @@ function defaultCustom(slot) {
     attrs: Object.assign({}, ARCHETYPES.balanced.attrs),
     look: { skin: '#d9a27c', hair: '#2a1a12', hairStyle: 'short', eyes: 'normal', brows: 'thin', beard: 'none', headband: 'none', mask: 'none',
       topStyle: 'tee', top: '#34dcff', legs: 'shorts', shorts: '#18274d', hands: 'gloves', glove: '#f1f1f5', belt: 'belt', feet: 'shoes', shoe: '#16161c',
-      accent: '#ff5c93', glow: 'off', scale: 1, build: 1, muscle: FIT_DEFAULT_MUSCLE, weight: 0.5, age: AGE_DEFAULT, gender: 'M', acc: 'none', mark: 'none', face: 'none' },
+      accent: '#ff5c93', glow: 'off', scale: 1, build: 1, muscle: FIT_DEFAULT_MUSCLE, weight: 0.5, age: AGE_DEFAULT, gender: 'M', acc: 'none', mark: 'none', face: 'none' }, ...storyFields(null),
   };
 }
-function cloneCustom(c) { return { name: c.name, title: c.title, arch: c.arch, tier: c.tier, moveStyle: c.moveStyle, defense: c.defense, attrs: Object.assign({}, c.attrs), look: Object.assign({}, c.look) }; }
+function cloneCustom(c) { return Object.assign({ name: c.name, title: c.title, arch: c.arch, tier: c.tier, moveStyle: c.moveStyle, defense: c.defense, attrs: Object.assign({}, c.attrs), look: Object.assign({}, c.look) }, storyFields(c)); }
 /* Snap to the slider grid and keep two decimals so saved values compare exactly. */
 function snapToStep(value, min, max, step) { return Math.round(clamp(min + Math.round((value - min) / step) * step, min, max) * 100) / 100; }
 /* The weight that gives a build at average muscle (inverse of presetBuild): a look saved before the fitness picker keeps its build and shows this weight. */
@@ -7563,7 +7569,8 @@ function validateCustom(raw) {
     look[key] = value;
   }
   if (typeof lookIn.photo === 'string' && lookIn.photo.length <= PHOTO_MAX_CHARS && PHOTO_URL.test(lookIn.photo)) look.photo = lookIn.photo;   // P6-06: stays on this device (never in a share code); a bad one is dropped
-  return { ok: true, value: { name: raw.name, title: raw.title, arch: raw.arch, tier: raw.tier, moveStyle, defense, attrs, look }, error: '' };
+  // country, origin, goal and intro emote (P6-10): older saves and codes have none and get the defaults; an unknown value does too, so a bad story field never costs the player a fighter
+  return { ok: true, value: Object.assign({ name: raw.name, title: raw.title, arch: raw.arch, tier: raw.tier, moveStyle, defense, attrs, look }, storyFields(raw)), error: '' };
 }
 
 /* Simulation-facing profile, same shape as a ROSTER entry. */
@@ -7573,7 +7580,7 @@ function customProfile(custom, slot) {
   if (look.topStyle === 'bare') look.top = null;
   return {
     id: CUSTOM_IDS[slot], name: custom.name, title: TITLES[custom.title], rank: CUSTOM_RANK_BASE + slot, custom: true, slot,
-    arch: custom.arch, moveStyle: custom.moveStyle, defense: custom.defense, attrs: Object.assign({}, custom.attrs), range: archetype.range, style: Object.assign({}, archetype.style), look,
+    arch: custom.arch, moveStyle: custom.moveStyle, defense: custom.defense, attrs: Object.assign({}, custom.attrs), range: archetype.range, style: Object.assign({}, archetype.style), look, story: storyFields(custom),
   };
 }
 
@@ -7753,6 +7760,270 @@ const CustomRoster = {
   firstFree() { return this.slots.indexOf(null); },
   has(id) { const slot = CUSTOM_IDS.indexOf(id); return slot >= 0 && !!this.slots[slot]; },
   profiles() { return CUSTOM_IDS.map((id) => ROSTER_BY_ID[id]).filter(Boolean); },
+};
+/* =====================================================================
+   05e STORY - Country, Origin and Goal (P6-10) and the Arcade story built from them (P10-03). The tables are the decisions of Appendix C "Story lists (P10-01)" and
+   "Arcade story structure (P10-02)". Story settings change text, poses, rivals, the boss, the level order and rewards: never a stat or a fight rule. A story fight is an
+   ordinary MatchSim (Story.cfg); nothing here draws a random number or touches a match.
+   ===================================================================== */
+/* Regions: [tag, name, home level (Arcade stage 1), sign hue, first box of beat B1 ({city} = the country's city), countries 'name,id,city;...' (ISO 3166-1 alpha-2 ids)]. List order is the share-code index order (append only). */
+const STORY_REGION_LIST = [
+  ['nam', 'North America and Caribbean', 'garage', '#f2a33a', '{city}: big lights, small gyms and a fight on every block.', 'Canada,CA,Toronto;USA,US,Detroit;Mexico,MX,Mexico City;Jamaica,JM,Kingston;Cuba,CU,Havana;Dominican Republic,DO,Santo Domingo'],
+  ['sam', 'South America', 'construction', '#3ec46d', '{city} builds fast and hits hard. You grew up in the noise.', 'Brazil,BR,Sao Paulo;Argentina,AR,Buenos Aires;Colombia,CO,Medellin;Chile,CL,Santiago;Peru,PE,Lima;Venezuela,VE,Caracas'],
+  ['weu', 'Western Europe', 'subway', '#4a8fe0', 'In {city} the real fights start after the last train.', 'UK,GB,London;Ireland,IE,Dublin;France,FR,Marseille;Netherlands,NL,Rotterdam;Belgium,BE,Antwerp;Germany,DE,Hamburg'],
+  ['seu', 'Southern Europe', 'warehouse', '#e8573c', '{city} by the sea: hot nights, old docks, loud crowds.', 'Spain,ES,Barcelona;Portugal,PT,Lisbon;Italy,IT,Naples;Greece,GR,Athens;Croatia,HR,Split;Serbia,RS,Belgrade'],
+  ['neu', 'Nordic and Eastern Europe', 'warehouse', '#9fb4c8', 'Long winters in {city}. The gym was the warmest room in town.', 'Sweden,SE,Malmo;Norway,NO,Oslo;Finland,FI,Helsinki;Poland,PL,Gdansk;Ukraine,UA,Odesa;Romania,RO,Bucharest;Czechia,CZ,Prague'],
+  ['cau', 'Caucasus and Central Asia', 'construction', '#c9a24a', 'In {city} old wrestling halls stand between new towers.', 'Georgia,GE,Tbilisi;Armenia,AM,Yerevan;Azerbaijan,AZ,Baku;Kazakhstan,KZ,Almaty;Uzbekistan,UZ,Tashkent;Kyrgyzstan,KG,Bishkek'],
+  ['mea', 'Middle East and North Africa', 'garage', '#e0c35a', '{city} never sleeps, and neither do its street fights.', 'Israel,IL,Tel Aviv;Turkey,TR,Istanbul;Lebanon,LB,Beirut;Egypt,EG,Cairo;Morocco,MA,Casablanca;Tunisia,TN,Tunis'],
+  ['afr', 'Sub-Saharan Africa', 'warehouse', '#f07d2a', '{city} is crowded, quick and proud. So are its fighters.', 'Nigeria,NG,Lagos;South Africa,ZA,Durban;Ghana,GH,Accra;Kenya,KE,Nairobi;Senegal,SN,Dakar;Ethiopia,ET,Addis Ababa;Cameroon,CM,Douala'],
+  ['sas', 'South and Southeast Asia', 'subway', '#e04a8f', 'In {city} the crowds never end, and neither does the competition.', 'India,IN,Mumbai;Pakistan,PK,Karachi;Thailand,TH,Bangkok;Vietnam,VN,Ho Chi Minh City;Philippines,PH,Manila;Indonesia,ID,Jakarta;Malaysia,MY,Kuala Lumpur'],
+  ['eao', 'East Asia and Oceania', 'subway', '#39c6d6', '{city}: neon, night trains and fight clubs nobody talks about.', 'Japan,JP,Osaka;China,CN,Shanghai;South Korea,KR,Busan;Mongolia,MN,Ulaanbaatar;Australia,AU,Sydney;New Zealand,NZ,Auckland;Samoa,WS,Apia'],
+].map(([tag, name, home, hue, line, list]) => ({ tag, name, home, hue, line, list }));
+const STORY_COUNTRIES = [];   // 64 rows in list order: { id, name, city, region (index in STORY_REGION_LIST) }
+STORY_REGION_LIST.forEach((region, index) => { for (const entry of region.list.split(';')) { const [name, id, city] = entry.split(','); STORY_COUNTRIES.push({ id, name, city, region: index }); } });
+/* Origins: id|name|the fighter's line in beat B1 (at most 64 characters)|tone (r rough, o ordinary, s strict). */
+const STORY_ORIGINS = [
+  "gymkid|Gym kid|I grew up sweeping the floor of a boxing gym.|o", "working|Working class|Two jobs in my family. Nobody ever took a day off.|o",
+  "wealthy|Wealthy family|Private tutors, a big house, and something to prove.|s", "immigrant|Immigrant family|New country, new language. I learned to stand up early.|r",
+  "military|Military family|Base to base, and drills before breakfast.|s", "foster|Foster care|Six homes by sixteen. I don't trust easily.|r",
+  "smalltown|Small town|Everyone back home knows my name. Nobody thought I'd leave.|o", "street|Big-city street|Raised on corners and rooftops. Quick hands, quicker eyes.|r",
+  "sports|Sports family|Medals on every wall. Second place counts as losing.|s", "dropout|College dropout|I left the lecture hall for the mat.|o",
+  "office|Office worker|Desk by day, gym by night.|o", "police|Police family|My parents wore the badge. I know the rules and where they bend.|s",
+  "martial|Martial arts family|The family school comes first. Always.|s", "singleparent|Single parent|One tired, stubborn parent raised me. I got the stubborn part.|r",
+  "nightshift|Night-shift worker|I work while the city sleeps.|r", "delivery|Delivery rider|I know every street and every shortcut in town.|r",
+  "farm|Farm family|Up at five. Real work made me strong.|o", "restaurant|Restaurant family|I grew up in a busy kitchen. I feed everyone.|o",
+  "bouncer|Bouncer family|Door work runs in my family.|o", "boarding|Boarding school|Raised by rules, bells and dormitories.|s",
+  "orphanage|Orphanage|No family name to carry, so I'm making one.|r", "port|Port town|Docks, cranes and rough bars. That was my school.|r",
+  "teacher|Teacher's child|Homework first, fights never. Until now.|s", "famous|Famous parents|I grew up in the papers. I want a name of my own.|s",
+].map((row) => { const [id, name, line, tone] = row.split('|'); return { id, name, line, tone: { r: 'rough', o: 'ordinary', s: 'strict' }[tone] }; });
+/* Goals: id|name|creator hint (60 characters)|motive|ending reward|beat B2 (set-up)|B10 (midpoint)|B14 (ending): one box each, at most 90 characters, in the fighter's voice. */
+const STORY_GOALS = [
+  "loseweight|Lose weight|The doctor said lose weight. The gym said fight.|body|Track jacket|Winded on the gym stairs. I signed up anyway.|A belt notch tighter. I took the Pit stairs two at a time.|The scale at home says down again. And I'm still unbeaten.",
+  "friends|Make friends|New in town, and nobody to call.|bond|Board shorts|New in town and nobody to call. I eat alone after the first fight.|{rival} said hello in the street today. Actually said hello.|A group photo on the rooftop, rivals and all. Look at that!",
+  "revenge|Revenge|Someone hurt a person I love. I want a reckoning.|past|Leather gloves|I know the crew that hurt my family. Their names are in my notebook.|It was the champion's crew all along. Now I know who to find.|I won. Now I turn and walk away. No violence after the bell.",
+  "title|Win the title|The city belt. Nothing else matters.|title|Leather jacket|The city belt. That's all I want.|The champion knows my name now. Good.|The belt is mine. The city lights look better from up here.",
+  "worth|Prove worth|Everyone said I wasn't good enough.|body|Chest pound emote|Every gym turned me away. Not good enough, they said.|The doubters went quiet. Funny how that works.|A sponsor deal with my own name on it. They believed in me.",
+  "protect|Protect family|Threats at home. I end them in the ring.|family|Boxing headgear|Someone left a threat at my family's door. I end this in the ring.|My family is somewhere safe now. That's what the Pit was for.|Everyone's safe, everyone's at one table. Worth every round.",
+  "debt|Pay a debt|I owe the wrong people. Prize money pays.|past|Work boots|The lenders gave me a deadline. Prize money pays it.|Half paid after the Pit. Half to go.|I tore up the note. I owe nobody now.",
+  "mentor|Honor a mentor|My coach's last wish: win the city title.|bond|Bag gloves|Coach, I promise: I win the city title for you.|I wore Coach's old wraps tonight. It felt like Coach was in my corner.|I leave the belt by Coach's photo. We did it, Coach.",
+  "redemption|Redemption|I made mistakes. Time to make them right.|past|Wave emote|I made a mistake once. Time to make it right.|The person I hurt is watching from the crowd. I won't look away.|I shook their hand. It's a start. It's enough.",
+  "fame|Fame|A million followers, one fight at a time.|fame|Chain|Counting followers, one fight at a time.|The clips went viral. Thousands of strangers know my name.|I turned the buzzing phone off. The view is better without it.",
+  "escape|Escape the past|New city, new name, new start.|past|Balaclava|One bag, a new city, a new name.|The past caught up with me at the Pit. I didn't run.|I dropped my old jacket off the roof and walked away free.",
+  "thrill|Thrill seeking|I live for the rush of a real fight.|fame|Laugh emote|Bored. Easy fights don't give me the rush.|Every fight is bigger and it's still not enough.|A belt? Sure. Now where's the next fight?",
+  "undefeated|Stay undefeated|Never lost. Not starting now.|title|Sunglasses|A perfect record. I plan to keep it.|The Pit was close. Really close. But the record holds.|The record stands. I walk off without looking back.",
+  "neighborhood|Defend the neighborhood|A gang pushes my street around. Not anymore.|bond|Bomber jacket|The gang's tags are on every wall of my street.|I saw the gang's boss at the Pit. Now I know his face.|A street party, and the tags are painted over. My street, again.",
+  "champion|Beat the champion|Only one opponent matters: ZERO.|title|Point emote|The champion's face is on a poster in every window. I want that fight.|The champion's crew is starting to worry. They should.|I stood over the champion. Now I want a rematch.",
+  "kids|Teach the kids|My free class needs money to stay open.|bond|Neck crack emote|My free class may close if I can't pay for it.|The kids watched my fights on a phone. They shout my name.|I taught the kids the winning move. They get it.",
+  "lasttitle|One last title|Old knees, one more run.|title|Towel|My last run. These knees have one more title left.|My body aches. My heart doesn't.|I hang my gloves on the rooftop rail. And I smile.",
+  "fit|Get fit|I want a body that can go twelve rounds.|body|High-tops|One round and I'm out of breath. That has to change.|I'm breathing easier every night now.|I ran up the rooftop stairs after the final. Not winded.",
+  "provide|Provide for family|The rent is due. The prize money isn't.|family|Cargo pants|The rent is late. The prize money can't be.|The first prize went home today. The fridge is full.|A proper dinner for my family. That's the real prize.",
+  "proud|Make family proud|My family has never seen me fight.|family|Jersey|My family has never seen me fight. They won't watch.|My family called after the Pit. They watched. They did.|My family's in the front row on the rooftop. I see them.",
+  "wrong|Prove them wrong|An old coach said I'd never make it.|body|Shrug emote|An old coach said I'd never make it.|I sent that coach a photo from the Pit. No reply yet.|That coach is clapping in the crowd. Never say never.",
+  "respect|Earn respect|Nobody in this city takes me seriously.|fame|Fist bump emote|They laughed me out of the gym. I remember.|The rivals nod in the street now. Small step.|The champion bowed first. I bowed back.",
+  "sibling|Find a lost sibling|My sibling vanished into the fight scene.|family|Beckon emote|My sibling vanished into the fight clubs of this city. I will find them.|A photo turned up at the Pit. It's them. They were here.|My sibling is in the rooftop crowd. We hug. Finally.",
+  "legacy|Leave a legacy|I want a name that outlives me.|fame|Chest piece|I want a name that outlives me. I start tonight.|Kids copy my stance in the street. A legacy starts like that.|I opened a gym with the prize money. My name is on the door.",
+].map((row) => { const [id, name, line, motive, reward, a0, a1, a2] = row.split('|'); return { id, name, line, motive, reward, arc: [a0, a1, a2] }; });
+/* Motives (four goals each): id|rival A|rival A's pose in B4|B4 challenge|B5 when beaten|the fighter's pose in B10|the fighter's ending pose in B14. */
+const STORY_MOTIVES = [
+  "title|deacon|point|The title's mine one last time. Go home, kid.|Fair. Hit like that up top and you might just do it.|glove_tap|arms",
+  "body|femke|crossed_arms|This isn't a fitness class. Leave the ring to athletes.|Okay. You trained. I'll give you that.|idle_tired|flex",
+  "fame|diego|phone|Smile, you're live on my channel. This one gets views.|Stop the stream. Stop it!|phone|fist",
+  "past|kelsey|think|I know that look. Running from something? So was I.|Whatever you carry, put it down. It's lighter that way.|head_down|shake_out",
+  "family|giorgi|argue|Everyone fights for family. Show me yours is enough.|Go. They're waiting for you.|plead|wave",
+  "bond|roxy|laugh|Friends, kids, mentors. Cute. I'm here for the fun part.|Ha! Finally someone worth the bus fare.|shake_out|fist_bump",
+].map((row) => { const [id, rival, p4, challenge, beaten, p10, end] = row.split('|'); return { id, rival, p4, challenge, beaten, p10, end }; });
+/* Tones (8 origins each): id|rival B candidates in order|the fighter's pose in B1|the intro emote a preset or a new fighter gets. */
+const STORY_TONES = [
+  "rough|roxy,diego,kelsey,giorgi,femke,deacon|crossed_arms|crossed_arms", "ordinary|diego,kelsey,roxy,giorgi,femke,deacon|idle_relaxed|glove_tap", "strict|kelsey,femke,giorgi,roxy,diego,deacon|nod|nod",
+].map((row) => { const [id, rivals, b1, intro] = row.split('|'); return { id, rivals: rivals.split(','), b1, intro }; });
+/* Intro emotes (creator Intro row, share-code index order, append only): id|label. */
+const STORY_INTROS = [
+  'nod|Nod', 'glove_tap|Glove tap', 'shake_out|Shake it out', 'crossed_arms|Arms crossed', 'wave|Wave', 'point|Point', 'fist_bump|Fist bump', 'beckon|Beckon', 'chest_pound|Chest pound', 'neck_crack|Neck crack', 'shrug|Shrug', 'laugh|Laugh',
+].map((row) => { const [id, name] = row.split('|'); return { id, name }; });
+/* The 28 non-combat poses P5-05 will build (the 6 VICTORY_POSES are the rest): scenes name poses by these ids. */
+const STORY_POSE_IDS = ('nod wave point fist_bump handshake help_up beckon chest_pound neck_crack glove_tap shake_out crossed_arms idle_relaxed idle_stretch idle_tired shocked laugh angry head_down think argue plead shrug phone kneel sit_floor defeat_slump defeat_turn').split(' ');
+/* Beats: id|name|when (before / after a stage, at the last wave entry of a stage, after a lost stage)|stage|boxes 'speaker.camera' (N narrator, P the fighter, R rival A, R2 rival B, B boss, Z the champion)|choice flag. */
+const STORY_BEATS = [
+  'B1|Prologue|before|1|N.wide P.close', 'B2|Goal|before|1|P.close', 'B3|Word spreads|after|1|N.wide', 'B4|Challenge|before|2|R.two', 'B5|Beaten|after|2|R.two R.two|choice',
+  'B6|Into the city|before|3|P.wide', 'B7|Rival|wave|3|R2.close', 'B8|Setback|before|4|N.wide', 'B9|Boss|before|4|B.two', 'B10|Midpoint|after|4|P.close', 'B11|Invitation|before|5|N.wide',
+  'B12|Club|before|6|R.two', 'B13|Champion|before|7|Z.two', 'B14|Ending|after|7|P.close', 'B15|Get up|lost|0|P.close', 'B16|Epilogue|after|7|N.wide N.wide',
+].map((row) => {
+  const [id, name, when, stage, boxes, flag] = row.split('|');
+  return { id, name, when, stage: Number(stage), shots: boxes.split(' ').map((shot) => { const [who, cam] = shot.split('.'); return { who, cam }; }), choice: flag === 'choice' };
+});
+/* Story rules, one row per text: slot|condition|text|pose|also. slot = beat.box (B4.1); condition = terms joined by & (region, tone, motive, goal, origin, boss, choice, result, continues; '*' = any, '>=1' for a count; empty = always);
+   text may be $region $origin $arc0 $arc1 $arc2 $challenge $beaten or hold {name} {city} {rival} {rival2} {boss} {continues}; pose = the pose of whoever is on camera (the speaker, for a narrator box the fighter), $b1 $p4 $p10 $pend or an id;
+   also = 'who:pose' for the others in the shot. Of the rows of a slot that match, the most specific wins (goal, origin, boss, choice, result, continues over motive and region over tone over always), the first of equals. A slot with no match is no box. */
+const STORY_ROWS = [
+  'B1.1|region:*|$region|', 'B1.2|origin:*|$origin|$b1', 'B2.1|goal:*|$arc0|think',
+  "B3.1|tone:rough|Word gets round fast. Someone filmed it. Now the street knows your face.|phone", "B3.1|tone:ordinary|Next morning the whole block is talking. Your phone won't stop buzzing.|phone",
+  "B3.1|tone:strict|A message: an invitation to the City Fight Gym. Proper rules. Proper rivals.|phone",
+  'B4.1|motive:*|$challenge|$p4|P:crossed_arms', 'B5.1|motive:*|$beaten|kneel', 'B5.2|result:flawless|Not even one round. Who trained you?|kneel',
+  "B6.1|tone:rough|New part of town, same rules. Keep moving, keep swinging.|neck_crack", "B6.1|tone:ordinary|Never been this far across {city}. Let's see what they've got.|idle_stretch",
+  "B6.1|tone:strict|Stay calm. Breathe. Do it the way you trained.|nod",
+  "B7.1|tone:rough|These are my streets. You're just visiting.|beckon", "B7.1|tone:ordinary|Heard you were coming. Didn't think you'd get this far.|laugh",
+  "B7.1|tone:strict|No referee here. Let's see what your training is worth.|crossed_arms",
+  "B8.1|tone:rough|Bruised and broke, you sleep on a friend's sofa. At dawn, a note: 'The Pit. Tonight.'|sit_floor",
+  "B8.1|tone:ordinary|One night at home: hot food, ice on the ribs, and a flyer for the Pit under the door.|idle_tired",
+  "B8.1|tone:strict|Your old coach calls: 'The Pit is no gym. Keep your guard up.'|phone",
+  "B9.1|boss:hao|Fifty years of training. You have one night. Begin.|bow|P:crossed_arms", "B9.1|boss:marlon|Down here nobody bows. We just finish.|beckon|P:crossed_arms",
+  "B9.1|boss:yoav|No rules, no referee. Just the next ten seconds.|glove_tap|P:crossed_arms",
+  'B10.1|goal:*|$arc1|$p10',
+  "B11.1|tone:rough|A car waits outside the Pit: 'The champion wants you. Get past the crew first.'|shocked",
+  "B11.1|tone:ordinary|A ticket to the champion's club night, and a crowd paid to stop you on the way.|phone",
+  "B11.1|tone:strict|A formal reply: the champion accepts. The champion's crew does not.|think",
+  "B12.1|choice:hand|You gave me a hand. Here's mine: the back door's open. Go.|fist_bump", "B12.1|choice:walk|You walked away from me. Big mistake. Round two.|angry",
+  "B13.1|tone:rough|Street fighter. I've beaten a hundred like you. You're a hundred and one.|laugh|P:glove_tap", "B13.1|tone:ordinary|You came all this way. Shame it ends on a rooftop.|shrug|P:glove_tap",
+  "B13.1|tone:strict|Discipline against discipline. Only one of us stays undefeated.|bow|P:glove_tap",
+  'B14.1|motive:*|$arc2|$pend|Z:defeat_slump', 'B14.1|goal:revenge|$arc2|defeat_turn|Z:defeat_slump', 'B14.1|goal:friends|$arc2|$pend|Z:defeat_slump R:fist_bump',
+  "B15.1|tone:rough|Been knocked down my whole life. Getting up is the easy part.|kneel", "B15.1|tone:ordinary|Okay. Deep breath. Again.|head_down", "B15.1|tone:strict|Find the mistake. Fix it. Again.|idle_tired",
+  "B16.1|tone:rough|Next day the corner kids know your name. Not bad for a nobody from {city}.|idle_relaxed", "B16.1|tone:ordinary|The whole street throws a party. You fall asleep before the cake.|laugh",
+  "B16.1|tone:strict|A new photo goes on the wall in {city}. This one is yours.|nod", "B16.2|continues:>=1|It took {continues} tries. Nobody remembers that part.|",
+];
+const STORY_RANK = { result: 5, choice: 5, continues: 5, goal: 4, origin: 4, boss: 4, motive: 3, region: 3, tone: 2 };   // how specific a condition is
+const STORY_RULES = [];        // parsed STORY_ROWS, by slot
+const STORY_RULES_BY_SLOT = Object.create(null);
+for (const row of STORY_ROWS) {
+  const [slot, cond, text, pose, also] = row.split('|');
+  const terms = cond ? cond.split('&').map((term) => { const at = term.indexOf(':'); return [term.slice(0, at), term.slice(at + 1)]; }) : [];
+  const rule = { slot, terms, rank: terms.reduce((best, term) => Math.max(best, STORY_RANK[term[0]] || 0), 1), text, pose, also: also ? also.split(' ').map((part) => part.split(':')) : [] };
+  STORY_RULES.push(rule);
+  (STORY_RULES_BY_SLOT[slot] = STORY_RULES_BY_SLOT[slot] || []).push(rule);
+}
+/* Lookup tables by id (no prototype, so an id like 'toString' from a bad save finds nothing). */
+const storyById = (list) => { const map = Object.create(null); for (const row of list) map[row.id] = row; return map; };
+const STORY_COUNTRY_BY_ID = storyById(STORY_COUNTRIES), STORY_ORIGIN_BY_ID = storyById(STORY_ORIGINS), STORY_GOAL_BY_ID = storyById(STORY_GOALS), STORY_MOTIVE_BY_ID = storyById(STORY_MOTIVES);
+const STORY_TONE_BY_ID = storyById(STORY_TONES), STORY_INTRO_BY_ID = storyById(STORY_INTROS), STORY_BEAT_BY_ID = storyById(STORY_BEATS);
+const STORY_DEFAULT = { country: 'CA', origin: 'gymkid', goal: 'title' };   // KAI's settings: what an old save, an old code or a new fighter gets
+const STORY_POOL = ['warehouse', 'subway', 'garage', 'construction'];        // the brawl levels of stages 3 and 5 (the home level leaves it)
+const STORY_BOSSES = ['hao', 'marlon', 'yoav'];
+const STORY_STAGES = 7;
+const STORY_CAST_GAP = 1.2;     // m: the cast of a scene stands this far either side of the centre
+const STORY_TEXT_MAX = 90;      // characters of one scene box once its tokens hold their longest values
+/* The story settings of a record or profile as ids, each missing or unknown value replaced by its default (the intro emote by the tone's). Never throws. */
+function storyFields(raw) {
+  const src = raw && typeof raw === 'object' ? raw : {}, pick = (map, value, fallback) => (typeof value === 'string' && map[value] ? value : fallback);
+  const origin = pick(STORY_ORIGIN_BY_ID, src.origin, STORY_DEFAULT.origin);
+  return { country: pick(STORY_COUNTRY_BY_ID, src.country, STORY_DEFAULT.country), origin, goal: pick(STORY_GOAL_BY_ID, src.goal, STORY_DEFAULT.goal), intro: pick(STORY_INTRO_BY_ID, src.intro, STORY_TONE_BY_ID[STORY_ORIGIN_BY_ID[origin].tone].intro) };
+}
+/* Country, origin, goal and intro for the creator's Randomize, from a stream of their own (randomCustom keeps every seed's fighter). */
+function randomStory(seed) {
+  const rng = makeRng((seed ^ 0x5a17c0de) >>> 0), pick = (list) => list[Math.floor(rng() * list.length) % list.length].id;
+  return { country: pick(STORY_COUNTRIES), origin: pick(STORY_ORIGINS), goal: pick(STORY_GOALS), intro: pick(STORY_INTROS) };
+}
+
+const Story = {
+  /* ----- the run ----- */
+  /* The settings of a fighter profile: a custom fighter carries its ids (profile.story), a preset its names. */
+  settingsOf(profile) {
+    if (profile && profile.story) return profile.story;
+    const named = (list, value) => { const row = list.find((entry) => entry.name === value); return row ? row.id : undefined; };
+    return storyFields({ country: named(STORY_COUNTRIES, profile && profile.country), origin: named(STORY_ORIGINS, profile && profile.origin), goal: named(STORY_GOALS, profile && profile.goal) });
+  },
+  /* Rival A: the motive's rival, or the next motive's when that is the player's own fighter. */
+  rivalA(playerId, motiveId) {
+    const at = STORY_MOTIVES.findIndex((motive) => motive.id === motiveId);
+    for (let i = 0; i < STORY_MOTIVES.length; i++) { const id = STORY_MOTIVES[(at + i) % STORY_MOTIVES.length].rival; if (id !== playerId) return id; }
+    return STORY_MOTIVES[0].rival;
+  },
+  /* The final opponent: ZERO, or the strongest ranked fighter after it when the player is ZERO. */
+  champion(playerId) {
+    const ranked = ROSTER.filter((r) => r.rank !== undefined && r.id !== playerId).sort((a, b) => a.rank - b.rank);
+    return ranked.length ? ranked[ranked.length - 1].id : 'zero';
+  },
+  /* A new run for a fighter profile, after `clears` Arcade clears, at Arcade difficulty `level` (easy, normal or hard) with a seed for its fights. Everything the run holds is a plain value (it can be saved as it is).
+     Rivals, boss and levels are fixed here and follow only the settings and the clears: home level by region, stages 3 and 5 from the other three brawl levels (the pool turns with each clear), boss by region and clears. */
+  start(profile, clears, level, seed) {
+    const s = this.settingsOf(profile), country = STORY_COUNTRY_BY_ID[s.country], region = STORY_REGION_LIST[country.region], origin = STORY_ORIGIN_BY_ID[s.origin], goal = STORY_GOAL_BY_ID[s.goal];
+    const tone = STORY_TONE_BY_ID[origin.tone], motive = STORY_MOTIVE_BY_ID[goal.motive], c = Math.max(0, Math.floor(finite(clears, 0))), left = STORY_POOL.filter((id) => id !== region.home);
+    const rivalA = this.rivalA(profile.id, motive.id), rivalB = tone.rivals.find((id) => id !== rivalA && id !== profile.id) || tone.rivals[0];
+    let boss = STORY_BOSSES[(STORY_REGION_LIST.indexOf(region) + c) % STORY_BOSSES.length];
+    for (let i = 1; i < STORY_BOSSES.length && boss === profile.id; i++) boss = STORY_BOSSES[(STORY_REGION_LIST.indexOf(region) + c + i) % STORY_BOSSES.length];
+    return {
+      fighter: profile.id, name: profile.name, country: s.country, origin: s.origin, goal: s.goal, region: region.tag, tone: tone.id, motive: motive.id, clears: c,
+      level: Object.hasOwn(DIFFICULTY, level) ? level : 'easy', seed: finite(seed, 1) >>> 0, home: region.home, stage3: left[c % left.length], stage5: left[(c + 1) % left.length],
+      rivalA, rivalB, boss, champion: this.champion(profile.id), stage: 1, choice: '', flawless: false, continues: 0,
+    };
+  },
+  /* The run moves on: stage `run.stage` was won (roundsLost = rounds the fighter lost in it; none in stage 2 sets the 'flawless' result), a lost stage is retried (counted as a continue), the beat B5 choice. */
+  win(run, roundsLost) { if (run.stage === 2 && roundsLost === 0) run.flawless = true; run.stage++; },
+  retry(run) { run.continues++; },
+  choose(run, choice) { if (choice === 'hand' || choice === 'walk') run.choice = choice; },
+  finished(run) { return run.stage > STORY_STAGES; },
+  reward(run) { return STORY_GOAL_BY_ID[run.goal].reward; },
+  signHue(run) { return STORY_REGION_LIST.find((region) => region.tag === run.region).hue; },   // the matte colour of posters, billboard and kiosk faces in the run's levels (not painted yet)
+
+  /* ----- stages: 1 brawl (the first three wave rows) at home, 2 duel with rival A, 3 brawl led by rival B, 4 duel with the boss, 5 brawl, 6 brawl in the club, 7 duel with the champion on the rooftop ----- */
+  arena(run, n) { return [run.home, 'dojo', run.stage3, 'pit', run.stage5, 'club', 'rooftop'][n - 1]; },
+  foe(run, n) { return n === 2 ? run.rivalA : n === 4 ? run.boss : n === 7 ? run.champion : ''; },
+  seedOf(run, n) { return (Math.imul(run.seed | 0, 0x9e3779b1) + n * 7919 + run.continues * 104729) >>> 0; },   // a retry plays a different fight
+  /* The MatchSim / Game.beginMatch config of stage n: a duel is the Arcade 1v1 (2 wins, 60 s, no ring-out, ZERO keeps its boss tuning), a brawl uses the level's waves; the difficulty is the Arcade difficulty. Items and hazards follow the settings. */
+  cfg(run, n) {
+    const duel = this.foe(run, n), cfg = { playerId: run.fighter, arenaId: this.arena(run, n), difficulty: run.level, arcadeLevel: run.level, seed: this.seedOf(run, n), keepSeed: true };
+    if (duel) return Object.assign(cfg, { mode: 'arcade', opponentId: duel, winsNeeded: 2, timer: 60 });
+    Object.assign(cfg, { mode: 'brawl', enemies: 1, waves: true, winsNeeded: 1, timer: 0 });
+    if (n === 1) cfg.waveKeep = 3;
+    else if (n === 3) cfg.rival = run.rivalB;
+    else if (n === 6) { if (run.choice === 'walk') cfg.rival = run.rivalA; else cfg.waveCut = 1; }   // "Walk away": rival A leads the last wave; "Offer a hand": one enemy fewer in the first wave and no rival A
+    return cfg;
+  },
+  /* The options of SimRunner.run for a stage config (a headless fight of the stage). */
+  simOpts(cfg) {
+    const brawl = cfg.mode === 'brawl';
+    const opts = { playerId: cfg.playerId, arenaId: cfg.arenaId, difficulty: cfg.difficulty, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer, ring: !brawl, enemies: brawl ? 1 : 0, waves: brawl, matchCfg: cfg };
+    if (cfg.opponentId) opts.opponentId = cfg.opponentId;   // a brawl has no single opponent: SimRunner keeps its default
+    return opts;
+  },
+  /* Where a scene before or after stage n puts its cast: the fighter and the other one stand STORY_CAST_GAP either side of the ring centre, the fighter on the side the stage's 1v1 starts it on in round 1 (the same rule as the fight, MatchSim.sideFor). A brawl level keeps the fighter on the left. */
+  cast(run, n) {
+    const ring = this.foe(run, n) ? ARENAS[this.arena(run, n)].ring : null, side = ring ? MatchSim.sideFor(this.seedOf(run, n), 1) : 1, cx = ring ? ring[0] : 0;
+    return { side, playerX: cx - side * STORY_CAST_GAP, otherX: cx + side * STORY_CAST_GAP, z: ring ? ring[1] : 0 };
+  },
+  /* A line about stage n for the story screen. */
+  stageInfo(run, n) {
+    const duel = this.foe(run, n), arena = ARENAS[this.arena(run, n)], name = (id) => (ROSTER_BY_ID[id] ? ROSTER_BY_ID[id].name : id);
+    const lead = n === 3 ? ' led by ' + name(run.rivalB) : n === 6 && run.choice === 'walk' ? ' led by ' + name(run.rivalA) : '';
+    return { n, duel: !!duel, title: (duel ? 'Duel' : 'Brawl') + ' - ' + arena.name, text: duel ? 'Against ' + name(duel) : (n === 1 ? 'The first three waves' : 'All the waves') + lead + (n === 6 && run.choice !== 'walk' ? ', one enemy fewer at the start' : '') };
+  },
+
+  /* ----- beats ----- */
+  /* The facts a condition reads: the settings, the boss and what the player did. */
+  facts(run) { return { region: run.region, tone: run.tone, motive: run.motive, goal: run.goal, origin: run.origin, boss: run.boss, choice: run.choice || 'hand', result: run.flawless ? 'flawless' : '', continues: run.continues }; },
+  matches(rule, facts) {
+    return rule.terms.every(([dim, value]) => (value === '*' ? facts[dim] !== undefined : value.startsWith('>=') ? facts[dim] >= Number(value.slice(2)) : facts[dim] === value));
+  },
+  /* The matching row of a slot with the highest specificity (the first of equals), or null. */
+  pick(slot, facts) {
+    let best = null;
+    for (const rule of STORY_RULES_BY_SLOT[slot] || []) if ((!best || rule.rank > best.rank) && this.matches(rule, facts)) best = rule;
+    return best;
+  },
+  name(run, who) {
+    const id = { P: run.fighter, R: run.rivalA, R2: run.rivalB, B: run.boss, Z: run.champion }[who], profile = id && ROSTER_BY_ID[id];
+    return who === 'N' ? '' : who === 'P' ? run.name : profile ? profile.name : '';
+  },
+  /* The values behind the {tokens} of a text; `override` replaces some (the tests use the longest values). */
+  tokens(run, override) {
+    const country = STORY_COUNTRY_BY_ID[run.country];
+    return Object.assign({ name: run.name, city: country.city, rival: this.name(run, 'R'), rival2: this.name(run, 'R2'), boss: this.name(run, 'B'), continues: String(run.continues) }, override);
+  },
+  /* One beat of the run as it is told now: { id, name, when, stage, choice, boxes: [{ who, speaker, cam, text, pose, also: [[who, pose], ...] }] }. A box whose slot has no matching row is left out. */
+  beat(run, id, override) {
+    const def = STORY_BEAT_BY_ID[id];
+    if (!def) return null;
+    const facts = this.facts(run), tokens = this.tokens(run, override), country = STORY_COUNTRY_BY_ID[run.country], origin = STORY_ORIGIN_BY_ID[run.origin], goal = STORY_GOAL_BY_ID[run.goal];
+    const motive = STORY_MOTIVE_BY_ID[run.motive], tone = STORY_TONE_BY_ID[run.tone];
+    const refs = { $region: STORY_REGION_LIST[country.region].line, $origin: origin.line, $arc0: goal.arc[0], $arc1: goal.arc[1], $arc2: goal.arc[2], $challenge: motive.challenge, $beaten: motive.beaten, $b1: tone.b1, $p4: motive.p4, $p10: motive.p10, $pend: motive.end };
+    const fill = (text) => (refs[text] !== undefined ? refs[text] : text).replace(/\{(\w+)\}/g, (all, key) => (tokens[key] !== undefined ? tokens[key] : all));
+    const boxes = [];
+    def.shots.forEach((shot, k) => {
+      const rule = this.pick(def.id + '.' + (k + 1), facts);
+      if (rule) boxes.push({ who: shot.who, speaker: this.name(run, shot.who), cam: shot.cam, text: fill(rule.text), pose: refs[rule.pose] !== undefined ? refs[rule.pose] : rule.pose, also: rule.also });
+    });
+    return { id: def.id, name: def.name, when: def.when, stage: def.stage, choice: def.choice, boxes };
+  },
+  /* The beats told at a moment: when = 'before' or 'after' stage `stage`, 'wave' (the last wave of stage 3 enters) or 'lost' (stage 0), in table order. */
+  moment(run, when, stage) { return STORY_BEATS.filter((def) => def.when === when && def.stage === stage).map((def) => this.beat(run, def.id)); },
 };
 
 /* =====================================================================
@@ -9110,6 +9381,7 @@ class MatchSim {
     this.versus = this.cfg.mode === 'versus';
     this.brawl = this.cfg.mode === 'brawl';
     this.waveRows = this.brawl && this.cfg.waves && this.def.waves ? this.def.waves : null;   // the level's waves (P8-03); wave = how many have entered, waveQueue = enemies of an entered wave still waiting for a free slot
+    if (this.waveRows && (this.cfg.waveKeep > 0 || this.cfg.waveCut > 0)) this.waveRows = MatchSim.shapeWaves(this.waveRows, this.cfg.waveKeep, this.cfg.waveCut);   // a story stage (P10-03) plays the first rows of the level's waves only, or a first wave with fewer enemies
     this.wave = 0; this.waveCursor = 0; this.waveQueue = []; this.waveEntered = 0; this.waveDoors = [];
     this.ringedOut = null;   // the fighter that left the ring this round (P8-05)
     this.friendlyFire = !!this.cfg.friendlyFire;   // damage between teammates (the co-op setting of P4-07)
@@ -9924,7 +10196,7 @@ class MatchSim {
         struck++;
         Arena.damageObject(o, dmg, 'crush', CRUSH_SRC_BASE - this.crushSeq++, 0, 0, o.x, 0.5, o.z, undefined);
       }
-      Arena.mark('dust', c.x, c.z, c.hx, c.hz, Arena.supportAt(c.x, c.z, c.drop, Math.min(c.hx, c.hz)));   // P9-03: the fallen piece leaves a smudge on what it landed on
+      Arena.mark('dust', c.x, c.z, c.hx, c.hz, c.land);   // P9-03: the fallen piece leaves a smudge on what it landed on
     }
   }
   /* R4, fire, the one rule for every fire: burning fighters take BURN_DMG per BURN_GAP; objects ignite in a fire zone (an arc lights paper and plastic), burn out, spread. No random numbers. */
@@ -10016,7 +10288,7 @@ class MatchSim {
   shardEffects(h) {
     for (const f of this.fighters) {
       if (f.state !== S.DOWN) { h.cut[f.index] = false; continue; }
-      if (h.cut[f.index] || !f.alive || !this.hazardCovers(h, f.x, f.z)) continue;
+      if (h.cut[f.index] || !f.alive || !this.hazardCovers(h, f.x, f.z) || (h.y !== undefined && Math.abs(f.groundY - h.y) > HAZARD_SHARD_LEVEL)) continue;
       h.cut[f.index] = true;
       this.hazardHit(h, f, h.def.shard, '');
     }
@@ -10214,7 +10486,7 @@ class MatchSim {
         const count = h.obj ? 16 : 7;
         for (let k = 0; k < count; k++) {
           const s = 0.08 + 0.07 * hash01(h.seq * 31 + k), across = (hash01(h.seq * 17 + k * 3) - 0.5) * 2 * h.hx, along = (hash01(h.seq * 13 + k * 5) - 0.5) * 2 * h.hz;
-          hput(LAYER.ALPHA, MESH.SHARD, h.x + along * h.fx + across * h.fz, 0.02, h.z + along * h.fz - across * h.fx, s, s * 0.4, s * 1.3, hash01(h.seq + k) * TAU, '#cfeaff', 0.75, 0.25, 0.1);
+          hput(LAYER.ALPHA, MESH.SHARD, h.x + along * h.fx + across * h.fz, 0.02 + (h.y || 0), h.z + along * h.fz - across * h.fx, s, s * 0.4, s * 1.3, hash01(h.seq + k) * TAU, '#cfeaff', 0.75, 0.25, 0.1);
         }
 
       }
@@ -10226,7 +10498,15 @@ class MatchSim {
      Brawls, Training and fights without a ring always start on the left. */
   startSide() {
     if (!Arena.ring || this.brawl || this.training) return 1;
-    return ((Math.imul(this.cfg.seed | 0, 0x9e3779b1) >>> 31) + this.round) & 1 ? -1 : 1;
+    return MatchSim.sideFor(this.cfg.seed, this.round);
+  }
+  /* The start side of round `round` of a 1v1 in a ring with this match seed (1 = left, -1 = right): startSide above and the story cutscenes (Story.cast) read the same rule. */
+  static sideFor(seed, round) { return ((Math.imul(seed | 0, 0x9e3779b1) >>> 31) + round) & 1 ? -1 : 1; }
+  /* The waves of a brawl level cut for a story stage: only the first `keep` rows (0 = all), and `cut` enemies fewer in the first row (at least one stays). Returns new rows; the level's own are never changed. */
+  static shapeWaves(rows, keep, cut) {
+    const shaped = keep > 0 ? rows.slice(0, keep) : rows.slice();
+    if (cut > 0) shaped[0] = [Math.max(1, shaped[0][0] - cut)].concat(shaped[0].slice(1));
+    return shaped;
   }
   placeFighters(hpFrac) {
     if (this.setup) {   // P4-08: a lineup places its own teams
@@ -10684,7 +10964,7 @@ const SimRunner = {
       for (const name in cfg.listeners || {}) Events.on(name, cfg.listeners[name]);
       // cfg.enemies (a count or a list of fighter ids) makes it a brawl: the player against that many CPU enemies, ended by one side being wiped out
       m = new MatchSim(Object.assign({ mode: cfg.enemies ? 'brawl' : 'free', evenDamage: true, items: cfg.items === true, hazards: cfg.hazards === true, ring: cfg.ring === true, ringOut: cfg.ringOut === true, waves: cfg.waves === true, countdown: false, playerId: cfg.playerId, opponentId: cfg.opponentId, arenaId: cfg.arenaId, seed: cfg.seed, winsNeeded: cfg.winsNeeded, timer: cfg.timer },
-        cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null, lineupCfg));   // a brawl has no clock unless asked for one (time up = the players lose)
+        cfg.enemies ? { enemies: cfg.enemies, difficulty: cfg.difficulty, timer: Math.max(0, finite(opts.timer, 0)) } : null, lineupCfg, cfg.matchCfg || null));   // opts.matchCfg: more MatchSim fields on top, e.g. a story stage (Story.cfg)   // a brawl has no clock unless asked for one (time up = the players lose)
       const count = m.fighters.length;
       if (count !== 2) damage = m.fighters.map(() => ({}));
       for (let i = 0; i < count; i++) m.controllers[i] = new AIController(m.fighters[i].profile, (m.fighters[i].team === m.fighters[0].team ? cfg.difficulty1 : cfg.difficulty2) || cfg.difficulty);   // difficulty1 is the first fighter's team, difficulty2 every other team
@@ -11070,7 +11350,7 @@ const Game = {
 
   beginMatch(cfg) {
     this.endMatch();
-    cfg.seed = (Date.now() ^ (this.errorCount * 7919)) >>> 0;
+    if (!cfg.keepSeed) cfg.seed = (Date.now() ^ (this.errorCount * 7919)) >>> 0;   // a story stage (P10-03) brings its own seed, so its cutscene knows the start side
     if (cfg.items === undefined) cfg.items = Settings.v.items !== false;   // read at every start, so a rematch follows the Options toggle
     if (cfg.hazards === undefined) cfg.hazards = Settings.v.hazards !== false;   // the same for the Hazards setting (P7-05)
     if (cfg.mode !== 'brawl') {   // a 1v1 fights inside its level's ring (P8-05); the Ring-out setting adds the loss by leaving it, in Versus and Free Fight only
@@ -12247,6 +12527,7 @@ const UI = {
     else if (name === 'alevel') { const i = ARCADE_LEVELS.indexOf(sel.arcadeLevel); sel.arcadeLevel = ARCADE_LEVELS[(i + dir + ARCADE_LEVELS.length) % ARCADE_LEVELS.length]; }
     else if (name === 'tscen') { this.scenIdx = (this.scenIdx + dir + SCENARIOS.length) % SCENARIOS.length; }
     else if (name === 'tdummy' && Game.match) { const m = Game.match, i = DUMMY_MODES.indexOf(m.cfg.dummy); m.setDummy(DUMMY_MODES[(i + dir + DUMMY_MODES.length) % DUMMY_MODES.length]); }
+    else if (name.startsWith('story')) this.storyChange(name, dir);
     this.rerender(true);
   },
   act(a) {
@@ -12749,6 +13030,41 @@ const UI = {
     if (!fullscreen && !Device.standalone()) h += '<p class="hint">' + esc(Device.fullscreenHint()) + '.</p>';
     h += '<div class="row"><button class="mi" style="width:auto" data-nav data-act="back">Back</button>' + (fullscreen ? '<button class="mi" style="width:auto" data-nav data-act="fullscreen">Fullscreen</button>' : '') + '<button class="mi" style="width:auto" data-nav data-act="resetSettings">Reset to defaults</button></div></div></section>';
     return h;
+  },
+  /* ----- story preview (P10-03): the stages and scenes of one Arcade run for a fighter, with the choices that change them. The cutscenes themselves are P10-04. ----- */
+  openStory(profile) { this.storyView = { profile, choice: 'hand', flawless: false, continues: 0, clears: 0 }; this.push('story'); },
+  storyChange(name, dir) {
+    const v = this.storyView;
+    if (!v) return;
+    if (name === 'storychoice') v.choice = v.choice === 'hand' ? 'walk' : 'hand';
+    else if (name === 'storyflaw') v.flawless = !v.flawless;
+    else if (name === 'storytries') v.continues = (v.continues + dir + 3) % 3;
+    else if (name === 'storyclears') v.clears = (v.clears + dir + 3) % 3;
+  },
+  beatHtml(beat) {
+    let h = '<div class="beat" tabindex="0" data-nav role="group" aria-label="' + esc(beat.name) + '"><b>' + esc(beat.name) + '</b>';
+    for (const box of beat.boxes) h += '<p><span class="who">' + esc(box.speaker || 'Narrator') + '</span>' + esc(box.text) + '</p>';
+    if (beat.choice) h += '<p class="hint">Then you choose: Offer a hand or Walk away.</p>';
+    return h + '</div>';
+  },
+  screen_story() {
+    const v = this.storyView;
+    if (!v) return '';
+    const run = Story.start(v.profile, v.clears, 'normal', 1), s = Story.settingsOf(v.profile), country = STORY_COUNTRY_BY_ID[s.country];
+    run.choice = v.choice; run.flawless = v.flawless; run.continues = v.continues;
+    let h = '<section class="screen on" aria-label="Story"><div class="panel wide story"><h2>Story: ' + esc(v.profile.name) + '</h2>';
+    h += '<p class="sub">' + esc(country.name + ', ' + country.city + ' / ' + STORY_ORIGIN_BY_ID[s.origin].name + ' / goal: ' + STORY_GOAL_BY_ID[s.goal].name) + '</p>';
+    h += this.optRow('Choice after stage 2', v.choice === 'hand' ? 'Offer a hand' : 'Walk away', 'data-default data-local="storychoice"', '') +
+      this.optRow('Stage 2 won without losing a round', v.flawless ? 'Yes' : 'No', 'data-local="storyflaw"', '') +
+      this.optRow('Tries used (continues)', String(v.continues), 'data-local="storytries"', '') + this.optRow('Arcade clears before this run', String(v.clears), 'data-local="storyclears"', '');
+    for (let n = 1; n <= STORY_STAGES; n++) {
+      const info = Story.stageInfo(run, n);
+      h += '<h3>Stage ' + n + ': ' + esc(info.title) + '</h3><p class="hint">' + esc(info.text) + '</p>';
+      for (const when of ['before', 'wave', 'after']) for (const beat of Story.moment(run, when, n)) h += this.beatHtml(beat);
+    }
+    h += '<h3>After a lost stage</h3>' + Story.moment(run, 'lost', 0).map((beat) => this.beatHtml(beat)).join('');
+    h += '<p class="hint">Reward for the first clear with this goal: ' + esc(Story.reward(run)) + '.</p>';
+    return h + '<div class="row sticky"><button class="mi" style="width:auto" data-nav data-act="back">Back</button></div></div></section>';
   },
   screen_credits() {
     const p = Progress.d;
@@ -13615,6 +13931,27 @@ const CreatorUI = {
     trimToBudget(this.draft.attrs, this.budget());
     this.changed('Tier: ' + (next === 'veteran' ? 'Veteran, ' : 'Standard, ') + this.budget() + ' points');
   },
+  /* ----- story settings (P6-10): Country, Origin, Goal and the intro emote, saved as ids with the fighter ----- */
+  storyRows() {
+    const s = storyFields(this.draft), country = STORY_COUNTRY_BY_ID[s.country], origin = STORY_ORIGIN_BY_ID[s.origin], goal = STORY_GOAL_BY_ID[s.goal];
+    return '<h3>Story</h3>' + this.row('Country', country.name, 'story:country') + '<p class="hint">' + esc(country.city) + ' &middot; ' + esc(STORY_REGION_LIST[country.region].name) + '. Your home city in the Arcade story.</p>' +
+      this.row('Origin', origin.name, 'story:origin') + '<p class="hint">' + esc(origin.line) + '</p>' +
+      this.row('Goal', goal.name, 'story:goal') + '<p class="hint">' + esc(goal.line) + ' Motive: ' + esc(goal.motive) + '.</p>' +
+      this.row('Intro', STORY_INTRO_BY_ID[s.intro].name, 'story:intro') + '<p class="hint">The greeting saved with this fighter for the start of a round. Story settings are kept on this device: fighter codes do not carry them yet.</p>' +
+      '<button class="mi" data-nav data-act="crstory">Preview story<small>The stages and scenes of an Arcade run for this fighter</small></button>';
+  },
+  stepStory(name, dir) {
+    const list = { country: STORY_COUNTRIES, origin: STORY_ORIGINS, goal: STORY_GOALS, intro: STORY_INTROS }[name];
+    if (!list) return;
+    const at = list.findIndex((row) => row.id === storyFields(this.draft)[name]), next = list[(at + dir + list.length) % list.length];
+    this.draft[name] = next.id;
+    this.changed(name.charAt(0).toUpperCase() + name.slice(1) + ': ' + next.name);
+  },
+  previewStory() {
+    const checked = validateCustom(this.draft);
+    if (!checked.ok) { Sound.ui('bad'); UI.toast('Fix this first: ' + checked.error, 'err'); return; }
+    UI.openStory(customProfile(checked.value, this.slot));
+  },
   setTitle(dir) {
     this.draft.title = (this.draft.title + dir + TITLES.length) % TITLES.length;
     this.changed('Title: ' + TITLES[this.draft.title]);
@@ -13630,6 +13967,7 @@ const CreatorUI = {
     const keepName = this.draft.name;
     this.draft = randomCustom(seed, true);
     Object.assign(this.draft.look, randomBody(seed), randomItems(seed));
+    Object.assign(this.draft, randomStory(seed));
     if (keepName) this.draft.name = keepName;          // a typed name survives; everything else is rolled
     this.changed('Randomized with seed ' + seed);
   },
@@ -13750,6 +14088,7 @@ const CreatorUI = {
       crcol: () => { const [key, index] = arg.split('.'); this.setColor(key, COLOR_GROUP_BY_KEY[key].swatches[Number(index)]); },
       crharmony: () => this.harmonize(),
       crsuggest: () => this.applySuggestedBuild(),
+      crstory: () => this.previewStory(),
       crnamerandom: () => { this.draft.name = NAME_IDEAS[Math.floor(Math.random() * NAME_IDEAS.length)]; this.changed('Name: ' + this.draft.name); },
       crslot: () => this.pickSlot(Number(arg)),
       crnew: () => this.newFighter(),
@@ -13788,6 +14127,7 @@ const CreatorUI = {
     else if (kind === 'defense') this.setDefense();
     else if (kind === 'tier') this.toggleTier();
     else if (kind === 'title') this.setTitle(dir);
+    else if (kind === 'story') this.stepStory(name, dir);
     else if (kind === 'nameidea') this.cycleNameIdea(dir);
     else if (kind === 'turn') { Showcase.turnPreview(dir * TURN_STEP); UI.say('Preview turned ' + (dir > 0 ? 'right' : 'left')); }
     else if (kind === 'pose') this.cyclePose();
@@ -14071,7 +14411,7 @@ const CreatorUI = {
       this.row('Name ideas', NAME_IDEAS.includes(d.name) ? d.name : 'Left / right', 'nameidea') +
       '<button class="mi" data-nav data-act="crnamerandom">Random name</button>' +
       this.row('Title', TITLES[d.title], 'title') +
-      '<p class="hint">Names use A-Z and 0-9, up to ' + NAME_MAX + ' characters. Shown in the HUD, name tags and results.</p>';
+      '<p class="hint">Names use A-Z and 0-9, up to ' + NAME_MAX + ' characters. Shown in the HUD, name tags and results.</p>' + this.storyRows();
   },
   tab_library() {
     let h = '<div class="cards">';
@@ -14143,6 +14483,7 @@ function testApi() {
   LINEUP_DEALS, LINEUP_HANDICAP, LINEUP_HUMANS_MAX, LINEUP_LIVE_STATES, LINEUP_MAX, LINEUP_MIN, LINEUP_TEAM_LETTERS, LINEUP_TIMERS, MatchLineup, SETUP_LABEL, TEAM_TINTS, CrowdDirector,
     CRUSH_BASE, CRUSH_MAX, CRUSH_PER_METER, DECK_PIECES_MAX, LOAD_CREAK_TICKS, LOAD_HOLD_TICKS, LOOKS, PICKUP_LOW_BELOW, RAMP_RISE, SCAFFOLD_TIER, STAIR_RISE, STAIR_RUN, builtOf, kindOf, MATERIALS,
     BURN_DMG, BURN_GAP, BURN_TICKS, CHAIN_MAX, CONDUCT_TOUCH, CROWD_RANGE, Crowd, FIRE_IGNITE_TICKS, FIRE_MAX, FIRE_SPREAD_TICKS, FIRE_STAY_TICKS, MARK_MAX, NAME_IDEAS, TITLES,
+    STORY_BEATS, STORY_COUNTRIES, STORY_DEFAULT, STORY_GOALS, STORY_INTROS, STORY_MOTIVES, STORY_ORIGINS, STORY_POSE_IDS, STORY_REGION_LIST, STORY_ROWS, STORY_RULES, STORY_RULES_BY_SLOT, STORY_STAGES, STORY_TEXT_MAX, STORY_TONES, Story, randomStory, storyFields,
     get: { controlsChanged: () => controlsChanged },
     set: { controlsChanged: (value) => { controlsChanged = value; } },
   };
