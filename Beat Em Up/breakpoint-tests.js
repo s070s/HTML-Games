@@ -7861,11 +7861,12 @@ const SelfTest = {
       if (d.alive || !ko.ko.length || ko.ko[0].att !== c) problems.push('the knock-out of the burning went to ' + (ko.ko[0] && ko.ko[0].att && ko.ko[0].att.index));
       return problems.length ? problems.join('; ') : true;
     });
-    /* Hazards-on 1v1 fingerprints (ring, hazards and items on, as in Versus), recorded at P9-02 (the old ones above run without hazards): a later change to the fire, load, crush or material rules shows here on purpose. */
+    /* Hazards-on 1v1 fingerprints (ring, hazards and items on, as in Versus), recorded at P9-02 (the old ones above run without hazards): a later change to the fire, load, crush or material rules shows here on purpose.
+       Re-recorded at the seat-balance fix (P9 follow-up): a 1v1 in a ring now draws its start side from the seed and swaps it every round (MatchSim.startSide), so every ring changed. With the side forced to the left the three old hashes (88:1nnrusx, 98:10uac8e, 90:15u7jdp) came out again, so nothing else in these matches moved. */
     const HAZARD_1V1 = [
-      { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '88:1nnrusx' },
-      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '98:10uac8e' },
-      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '90:15u7jdp' },
+      { opts: { seed: 5, playerId: 'kai', opponentId: 'mara', arenaId: 'rooftop', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '67:191yiak' },
+      { opts: { seed: 6, playerId: 'kai', opponentId: 'brutus', arenaId: 'garage', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '54:1ch5240' },
+      { opts: { seed: 7, playerId: 'yuki', opponentId: 'dmitri', arenaId: 'construction', difficulty: 'hard', ring: true, hazards: true, items: true }, hash: '56:11t4e44' },
     ];
     test('Balance (P9): three seeded 1v1 matches with the ring, hazards and items on (Rooftop, Garage, Construction) keep the event log and result they had at P9-02', () => {
       const got = HAZARD_1V1.map((f) => fingerprint(f.opts)), want = HAZARD_1V1.map((f) => f.hash);
@@ -8377,6 +8378,55 @@ const SelfTest = {
       }
       const plain = SimRunner.run({ arenaId: 'warehouse', seed: 1, playerId: 'kai', opponentId: 'mara', difficulty: 'hard' });
       if (plain.config.ring || plain.config.ringOut) problems.push('ring options leaked into a plain run');
+      return problems.length ? problems.join('; ') : true;
+    });
+    test('Balance (P9): a 1v1 in a ring starts on a side drawn from the match seed in round 1 and swapped every round, facing each other, and draws no random number; Training, a brawl and a fight without a ring always start on the left', () => {
+      const problems = [], real = Math.random;
+      let flipped = 0;
+      Math.random = () => { throw new Error('a random number was drawn'); };
+      try {
+        for (const id of ARENA_ORDER) {
+          const [rx, rz] = ARENAS[id].ring, s = ARENAS[id].spawn;
+          for (let seed = 1; seed <= 50; seed++) {
+            const m = ringMatch(id, false, { seed }), [a, c] = m.fighters;
+            let first = 0;
+            for (let round = 1; round <= 4; round++) {
+              if (round > 1) m.startRound();   // the constructor has started round 1
+              const side = a.x < c.x ? 1 : -1;
+              if (round === 1) first = side; else if (side !== (round % 2 ? first : -first)) problems.push(id + ' ' + seed + ' round ' + round + ' did not swap');
+              if (Math.abs(a.x - (rx - side * s)) > 1e-9 || Math.abs(c.x - (rx + side * s)) > 1e-9 || a.z !== rz || c.z !== rz || Math.abs(a.yaw - side * Math.PI / 2) > 1e-9 || Math.abs(c.yaw + side * Math.PI / 2) > 1e-9) problems.push(id + ' ' + seed + ' round ' + round + ' placement');
+            }
+            if (id === 'garage' && first < 0) flipped++;
+          }
+        }
+        if (flipped < 20 || flipped > 30) problems.push('round 1 flipped in ' + flipped + ' of 50 seeds');
+        for (let seed = 1; seed <= 20; seed++) {
+          const training = track(new MatchSim({ mode: 'training', ring: true, countdown: false, seed, arenaId: 'garage' })), brawl = track(new MatchSim({ mode: 'brawl', ring: true, enemies: 2, countdown: false, seed, arenaId: 'garage' })), whole = track(new MatchSim({ mode: 'free', countdown: false, seed, arenaId: 'garage' }));
+          for (const m of [training, brawl, whole]) { m.startRound(); m.startRound(); if (m.fighters[0].x >= m.fighters[1].x) problems.push(m.cfg.mode + ' ' + seed + ' did not start on the left'); }
+        }
+      } finally { Math.random = real; }
+      return problems.length ? problems.slice(0, 6).join('; ') : true;
+    });
+    test('Rules R4 (P9 review): an object still burning at a new round gets its fire zone back with the credit of whoever lit it, so a knock-out from it still counts for them', () => {
+      const m = brawlOn('pit', {}), [a] = m.fighters, lit = Arena.objects.find((o) => o.id === 'speaker');
+      m.ignite(lit, a);
+      m.startRound();
+      const zone = m.hazards.find((h) => h.type === 'blaze' && h.of === lit);
+      return lit.fire > 0 && zone && zone.by === a ? true : 'fire ' + lit.fire + ' zone ' + !!zone + ' credit ' + (zone && zone.by && zone.by.index);
+    });
+    test('Marks (P9 review): the flecks of a bottle broken on a deck and the dust of a fallen deck piece lie on the surface they landed on, not at floor height', () => {
+      const problems = [], m = brawlOn('warehouse', {}), [a] = m.fighters, dock = Arena.objects.find((o) => o.id === 'dock');
+      onDeck(a, dock);
+      m.itemDebris('bottle', a.x, a.y + 1.2, a.z);
+      const patch = m.hazards.filter((h) => h.type === 'glass' && h.life > 0).pop();
+      if (!patch || !(Math.abs(patch.y - dock.collider.top) <= 1e-9)) problems.push('patch at ' + (patch && patch.y) + ' deck top ' + dock.collider.top);
+      patch.life = 1; m.stepHazards();
+      const fleck = Arena.marks[Arena.marks.length - 1];
+      if (!fleck || fleck.kind !== 'glass' || !(Math.abs(fleck.y - dock.collider.top) <= 1e-9)) problems.push('flecks at ' + (fleck && fleck.y));
+      Arena.breakObject(dock, 1, 0, 0);
+      m.stepCollapse();
+      const dust = Arena.marks[Arena.marks.length - 1];
+      if (!dust || dust.kind !== 'dust' || Math.abs(dust.y - dock.rubble.top) > 1e-9 || !(dust.y > 0.2)) problems.push('dust at ' + (dust && dust.y) + ' rubble ' + dock.rubble.top);
       return problems.length ? problems.join('; ') : true;
     });
     test('Levels (P8-03): on the new levels the open drops, the train and the glass trigger and hurt who they catch, and a CPU standing away from them is not hurt in the next 60 ticks', () => {

@@ -9609,7 +9609,7 @@ class MatchSim {
   }
   itemDebris(id, x, y, z) {
     const w = WEAPONS[id], size = clamp(w.len * 0.3, 0.06, 0.14);
-    if (w.sp === 'shatter') this.glassPatch(x, z);   // a bottle leaves its glass on the floor (P7-05)
+    if (w.sp === 'shatter') this.glassPatch(x, z, Arena.supportAt(x, z, y, ITEM_RADIUS));   // a bottle leaves its glass on the floor (P7-05)
     for (let k = 0; k < ITEM_DEBRIS; k++) {   // fixed fan of pieces: the match's random numbers stay untouched
       const a = k * 2.4;
       Debris.spawn(w.mat, x + Math.cos(a) * 0.08, y + 0.1, z + Math.sin(a) * 0.08, Math.cos(a) * 1.8, 1.5 + (k % 3) * 0.6, Math.sin(a) * 1.8, size, w.mat === 'glass' ? size * 0.2 : size, size * 1.3, w.hex, 1);
@@ -9770,7 +9770,7 @@ class MatchSim {
     Arena.navVersion++;
     Arena.navMap();   // built here, not on the first replan in the middle of a fight
     this.drops = Arena.objects.filter((o) => !o.fixed && o.type !== 'deck' && Arena.inRing(o.x, o.z) && Arena.objects.some((q) => q.on === o.id && q.type === 'deck' && !q.step)).map((o) => this.newDrop(o));
-    for (const o of Arena.objects) if (o.fire > 0) this.blazeFor(o);   // a new round: what still burns keeps its fire zone
+    for (const o of Arena.objects) if (o.fire > 0) { const by = o.blaze && o.blaze.by; this.blazeFor(o).by = by || null; }   // a new round: what still burns keeps its fire zone and the credit of whoever lit it
   }
   /* R9: an object that drops decks when it breaks (a scaffold standard) is a pseudo hazard a CPU may strike; zone = the fallen decks + reach + a body. */
   newDrop(o) {
@@ -9779,12 +9779,12 @@ class MatchSim {
     return { type: 'standard', def: DROP_DEF, seq: 0, x: (x0 + x1) / 2, z: (z0 + z1) / 2, tx: o.x, tz: o.z, fx: 0, fz: 1, hx: (x1 - x0) / 2 + pad, hz: (z1 - z0) / 2 + pad, hit: [], post: o.collider, get state() { return o.destroyed ? 'spent' : 'idle'; } };
   }
   /* A shattered bottle leaves a patch of glass on the floor (same rules as the broken wall's shards). */
-  glassPatch(x, z) {
+  glassPatch(x, z, y) {
     if (!this.hazardsOn) return;
     const patches = this.hazards.filter((h) => h.type === 'glass' && h.life > 0);
     if (patches.length >= HAZARD_SHARD_MAX) this.hazards.splice(this.hazards.indexOf(patches[0]), 1);
     const patch = this.newHazard('glass', x, z, { hx: BOTTLE_SHARD_R, hz: BOTTLE_SHARD_R, life: HAZARD_SHARD_TICKS });
-    patch.state = 'active';
+    patch.state = 'active'; patch.y = y || 0;   // y = the surface it lies on (its flecks are drawn there)
     this.hazards.push(patch);
   }
   /* Whether the point (x, z) is inside the hazard's zone. */
@@ -9869,7 +9869,7 @@ class MatchSim {
     let expired = false;
     for (const h of this.hazards) {
       const def = h.def;
-      if (h.life > 0 && --h.life === 0) { h.dead = expired = true; if (h.type === 'glass') Arena.mark('glass', h.x, h.z, h.hx, h.hz); continue; }   // P9-03: the glass leaves flecks
+      if (h.life > 0 && --h.life === 0) { h.dead = expired = true; if (h.type === 'glass') Arena.mark('glass', h.x, h.z, h.hx, h.hz, h.y); continue; }   // P9-03: the glass leaves flecks
       switch (h.state) {
         case 'idle':
           if (def.trig === 'timer' && ++h.t >= def.period) this.hazardArm(h, null, 'timer');
@@ -9924,7 +9924,7 @@ class MatchSim {
         struck++;
         Arena.damageObject(o, dmg, 'crush', CRUSH_SRC_BASE - this.crushSeq++, 0, 0, o.x, 0.5, o.z, undefined);
       }
-      Arena.mark('dust', c.x, c.z, c.hx, c.hz);   // P9-03: the fallen piece leaves a smudge
+      Arena.mark('dust', c.x, c.z, c.hx, c.hz, Arena.supportAt(c.x, c.z, c.drop, Math.min(c.hx, c.hz)));   // P9-03: the fallen piece leaves a smudge on what it landed on
     }
   }
   /* R4, fire, the one rule for every fire: burning fighters take BURN_DMG per BURN_GAP; objects ignite in a fire zone (an arc lights paper and plastic), burn out, spread. No random numbers. */
@@ -9995,7 +9995,7 @@ class MatchSim {
   leaveBehind(o) {
     const leave = MATERIALS[o.mat].leave;
     if (leave === 'brick' && this.itemsOn) this.placeItem('brick', o.x, o.z, o.base + o.h * 0.5).mode = 'fall';
-    else if (leave === 'shard' && o.type !== 'deck' && !this.hazards.some((h) => h.obj === o)) this.glassPatch(o.x, o.z);
+    else if (leave === 'shard' && o.type !== 'deck' && !this.hazards.some((h) => h.obj === o)) this.glassPatch(o.x, o.z, o.base);
   }
   /* The active tick of a hazard: every fighter in the zone that is due is hurt (the same fighter again only after `gap` ticks, or never within one activation when gap is 0). */
   hazardEffects(h) {
@@ -10221,6 +10221,13 @@ class MatchSim {
     }
   }
 
+  /* Which start spot the first fighter takes (P9 balance): 1 = the left one (ring centre - spawn), -1 = the right one. The layouts of the levels are not mirror images (a barrel, a falling load or a pile of items lies nearer one start
+     spot), so a seat that always started on the left always got the same side of them. A 1v1 in a ring draws the side from the match seed in round 1 and swaps it every round after; no random number is drawn, so the match's sequence is untouched.
+     Brawls, Training and fights without a ring always start on the left. */
+  startSide() {
+    if (!Arena.ring || this.brawl || this.training) return 1;
+    return ((Math.imul(this.cfg.seed | 0, 0x9e3779b1) >>> 31) + this.round) & 1 ? -1 : 1;
+  }
   placeFighters(hpFrac) {
     if (this.setup) {   // P4-08: a lineup places its own teams
       this.placeLineup(hpFrac);
@@ -10229,13 +10236,13 @@ class MatchSim {
       this.crowd.reset();
       return;
     }
-    const s = this.def.spawn, party = this.partySize, cx = Arena.ring ? this.def.ring[0] : 0, cz = Arena.ring ? this.def.ring[1] : 0;   // a 1v1 in a ring starts around its centre
-    for (let k = 0; k < party; k++) this.fighters[k].reset(cx - s, cz + (k - (party - 1) / 2) * BRAWL_SPAWN_SPACING, Math.PI / 2, hpFrac, 1);   // the party stands in a line, centred on the ring (z = 0 with no ring)
+    const s = this.def.spawn, party = this.partySize, cx = Arena.ring ? this.def.ring[0] : 0, cz = Arena.ring ? this.def.ring[1] : 0, side = this.startSide();   // a 1v1 in a ring starts around its centre
+    for (let k = 0; k < party; k++) this.fighters[k].reset(cx - side * s, cz + (k - (party - 1) / 2) * BRAWL_SPAWN_SPACING, side * Math.PI / 2, hpFrac, 1);   // the party stands in a line, centred on the ring (z = 0 with no ring)
     if (this.brawl) {   // the enemies start in a loose line facing the players, centred on z = 0; with waves the first wave stands at its entry
       const foes = this.fighters.length - party;
       if (this.waveRows) for (let j = 0; j < foes; j++) this.putWaveFighter(this.fighters[party + j], 0, j, foes);
       else for (let j = 0; j < foes; j++) this.fighters[party + j].reset(s + (j & 1) * BRAWL_SPAWN_STAGGER, (j - (foes - 1) / 2) * BRAWL_SPAWN_SPACING, -Math.PI / 2, 1, 1);
-    } else this.fighters[1].reset(cx + s, cz, -Math.PI / 2, 1, 1);
+    } else this.fighters[1].reset(cx + side * s, cz, -side * Math.PI / 2, 1, 1);
     for (const c of this.controllers) c.reset();
     this.intents.forEach(clearIntent);
     this.crowd.reset();
