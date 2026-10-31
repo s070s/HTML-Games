@@ -214,6 +214,51 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [ ] P9-06 - Co-op campaign: DECIDE whether every mission is co-op playable; implement accordingly.
   Done when: decision recorded and the co-op missions play to the end.
 
+## Phase 11 - Owner playtest feedback (added 2026-10-31; do it before Phase 10)
+
+Numbered after the other phases because it was added later; Phase 10 checks the result. Owner's text verbatim in Appendix A.
+
+- [ ] P11-01 - Audit the whole game for the issues below and others of the same kind (skirmish setup, effects, collisions, durability, respawn, performance, player-facing text). Classify Critical, High, Medium, Low, Informational.
+  Done when: Appendix D lists each finding with a fix task (P11-02 to P11-20 or a new task).
+- [ ] P11-02 - Skirmish: our team (team 1 in the setup) gets the same Forces control as the other teams, replacing the separate Friendly Support dropdown.
+  Done when: the Teams panel has one Forces control per team, ours included; Friendly Support is gone; an old saved Friendly Support value loads as the matching Forces value.
+- [ ] P11-03 - Destroyed civilian vehicles make a small explosion (effect and sound). DECIDE whether the blast does damage; civilian traffic stays local scenery (D6), so any damage must not change host-authoritative state in co-op.
+  Done when: every civilian vehicle kind explodes when destroyed, on every peer; the decision is in Appendix C.
+- [ ] P11-04 - Skirmish base defences: replace the picker (which also allows only one extra) with one dropdown of ready configurations.
+  Done when: one dropdown sets the base defences; each configuration fits the P5-09 budgets and sea rules for the battlefield; old saved picks load as the nearest configuration.
+- [ ] P11-05 - Skirmish objectives / mission types: DECIDE a list (proposals: destroy the command center, capture and hold points, king of the hill, convoy escort, silo race) and implement the selection.
+  Done when: each type can be picked, plays to a win or loss with 2 to 4 teams and in co-op; Appendix C has the rules and balance numbers.
+- [ ] P11-06 - DECIDE: 50 new skirmish modifiers, each with its own effect, its balance impact and which modifiers cannot be combined.
+  Done when: Appendix C has the 50 rows.
+- [ ] P11-07 - Implement the P11-06 modifiers and a seed field in the skirmish setup for reproducible battles.
+  Done when: every modifier can be set, combined (within the P11-06 rules), saved and played, and synced in co-op; the same seed and settings give the same battlefield, bases and waves (self-test).
+- [ ] P11-08 - Remove design and developer notes from all player-facing text (menus, hints, help, setup panels; example: "support: see Friendly support"). Code comments are not player-facing and stay.
+  Done when: a scan of every player-facing string finds no design or developer notes; Appendix C lists what was removed or rewritten.
+- [ ] P11-09 - Tree collisions: each tree's hit volume matches its trunk and crown, so shots pass the gaps through which the target can be seen (owner's example: firing at an enemy behind a forest).
+  Done when: a self-test fires through a forest at a target with a clear line of sight between trees and hits it, and a trunk in the line still stops the round; AI line of sight uses the same volumes.
+- [ ] P11-10 - Buildings: lower their durability, and let medium mechs smash building pieces by moving through them like the heavy units. This changes the owner's 2026-10-24 heavy-smash rule (128 t+ only). Objectives, bridges and rock stay exempt.
+  Done when: Appendix C has the new hit points, mass threshold and costs (slow-down, damage to the mech), measured against the old ones for balance; a Bulwark walks through a building piece.
+- [ ] P11-11 - Platform choice after death: a platform changed after a respawn stays the choice for the next respawn (owner's report: changed mech to aircraft, died, came back as a mech); the platform can also be changed while dead and waiting to respawn.
+  Done when: self-tests cover both, in missions, skirmish and co-op, on touch, gamepad and keyboard; the P2-07 limits still apply to changes while alive.
+- [ ] P11-12 - RESEARCH + DECIDE: does the game already skip drawing what is outside the player's view (frustum and occlusion culling; simulation keeps running)? Measure what it would save.
+  Done when: Appendix C has the answer, the measured gain on the P0-02 scenes, and the decision; if implemented, the P0-02 check passes.
+- [ ] P11-13 - Specter HV-1: use its jet to fly. DECIDE how (flight time, fuel or heat, height limit, weapons in flight, AI use).
+  Done when: Appendix C has the rule; the player, AI and co-op peers can fly the Specter; balance against the other ground and air platforms is in Appendix C.
+- [ ] P11-14 - New items for climbing up or moving down very steep slopes (mountains and the like). DECIDE the items, platforms, limits and counters.
+  Done when: Appendix C has the items; each lets its platforms climb or descend slopes they cannot today on alpine and other mountain maps, for the player and AI.
+- [ ] P11-15 - DECIDE factions: the current platforms and loadouts become the Human faction; design three new factions, each with as many unique platforms and weapons as the Humans: (1) machines (automatons, androids, robots after an AI takeover); (2) sentient, powerful aliens; (3) hive-mind aliens. Original designs; the owner's references set the mood only. Arsenal superweapons stay usable by every faction.
+  Done when: Appendix C has each faction's platform and weapon list (count equal to the Humans'), its look, its play style and its balance targets.
+- [ ] P11-16 - Implement faction 1 (machines): models, weapons, effects, sounds, AI.
+  Done when: every platform and weapon plays for the player and AI, in co-op too, and meets the P11-15 balance targets.
+- [ ] P11-17 - Implement faction 2 (sentient aliens): models, weapons, effects, sounds, AI.
+  Done when: as P11-16.
+- [ ] P11-18 - Implement faction 3 (hive-mind aliens): models, weapons, effects, sounds, AI.
+  Done when: as P11-16.
+- [ ] P11-19 - Faction choice per team in skirmish, co-op and training (campaign use decided with P9-03); faction data in saves (additive keys).
+  Done when: any mix of factions over 2 to 4 teams can be set and played; old saves load; mixed-faction AI battles meet the P11-15 balance targets.
+- [ ] P11-20 - Audit for more immersion and emergence, DECIDE what to add, and implement it.
+  Done when: Appendix C has the list with reasons; each accepted item works in play and in co-op, and the P0-02 check passes.
+
 ## Phase 10 - Final audit and release
 
 - [ ] P10-01 - Repeat the P1-03 audit on the final build. Classify Critical, High, Medium, Low, Informational.
@@ -252,6 +297,21 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 | Added 2026-10-29: more base defences: mines, a long-preparing missile silo, special base weapons | P5-08, P5-09 |
 | Added 2026-10-29: police fight people who harm civilians | P7-08 |
 | Added 2026-10-29: keep things balanced | Section 3 rule |
+| Added 2026-10-31: audit the whole app for these and other issues | P11-01 |
+| Added 2026-10-31: skirmish, our team gets Forces instead of the separate Friendly Support dropdown | P11-02 |
+| Added 2026-10-31: destroyed civilian vehicles make a small explosion | P11-03 |
+| Added 2026-10-31: skirmish base defence selection too complex, only one extra selectable; one dropdown of configurations | P11-04 |
+| Added 2026-10-31: skirmish objectives / mission types | P11-05 |
+| Added 2026-10-31: 50 new skirmish modifiers; own seed for reproducible battles | P11-06, P11-07 |
+| Added 2026-10-31: remove design / dev comments from the app | P11-08 |
+| Added 2026-10-31: tree collision boxes too big, block fire at a visible enemy | P11-09 |
+| Added 2026-10-31: buildings too durable; medium mechs smash them by moving through | P11-10 |
+| Added 2026-10-31: changed platform not kept on the next respawn; change platform while waiting to respawn | P11-11 |
+| Added 2026-10-31: would not drawing what is out of view help performance; does it happen already | P11-12 |
+| Added 2026-10-31: Specter HV-1 flies with its jet | P11-13 |
+| Added 2026-10-31: items for climbing or moving down very steep slopes | P11-14 |
+| Added 2026-10-31: factions (Humans plus machines, sentient aliens, hive-mind aliens) with equal unique platforms and weapons; superweapons shared | P11-15 to P11-19 |
+| Added 2026-10-31: audit to increase immersion and emergence | P11-20 |
 
 ### Original text of Ideas-iron horizon.txt (verbatim)
 
@@ -267,6 +327,28 @@ Example Naval Starting at specific spawn far away from the objective or aircraft
 -Include missing Weapons ,Utilities, Items in the Arsenal
 -I cant see fauna,Animals
 - Reorganize the Missions into a single Campaign. It shouldn't be boring,cliche. Rework it make it well designed.
+```
+
+### Owner playtest feedback of 2026-10-31 (verbatim, from `Iron Horizon.txt`)
+
+```text
+Audit and Address App wide related to these and other issues
+-In Skirmish For Team 1 (ours) We Get Forces too instead of the separate Friendly Support dropdown.
+-Civilian Vehicles that are destroyed do a small explosion.
+-In Skirmish Base Defense Selection is unnecessarily complex. Also i can only select one from the extras.just keep one drop down for different configurations.
+-In Skirmish Selection of Different Objectives/Mission Types.
+-In Skirmish Introduce 50 new Modifiers. Also you can add your own seed for reproducible battles.
+-Remove app wide the design,dev comments
+-Improve collisions. For Example When Shooting an enemy behind a forest the collision boxes for individual trees are big and block all fire even though i can see the enemy from the other side.
+-I think Buildings are Very Durable.Also Medium Mechs Should Be able to Destroy them By Moving through like the Heavier Units.
+-I died then on the next respawn i changed platform (mech to aircraft) then died again and i spawned as a mech(no persistence of platform after change). Also i should be able to change platform after dying and waiting to spawn too.
+-Would occlusion(not rendering,simulation goes on) of anything  that is not in the player view help with performance?Does it already happen?
+-Specter HV-1 should have the ability to use its jet to fly.
+-New Items that help with Climbing or moving down very steep slopes (mountains etc).
+-Design and Implement Factions(the current set of platforms,loadouts are human), 3 New Factions with same Count as Humans of Unique Platforms and Weapons.
+I was thinking New Faction 1 would be Automatons,Androids,Robots (think Terminator/AI Takeover), the second one Aliens that are Sentient and Powerful (think protoss,eldar), The third would be Aliens that are more Hive Mind Like (Tyranid,Zerg).
+Arsenal Super Weapons are left as they are useable by all.
+-Audit to increase immersion and emergence in the game.
 ```
 
 ## Appendix B - Research log

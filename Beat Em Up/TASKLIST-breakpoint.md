@@ -380,6 +380,31 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 - [ ] P15-03 - Reduce file size: remove dead code and duplicated data, compact data tables, share generators, shorten repeated strings. Keep the file readable (no build step).
   Done when: final size recorded and compared to the baseline in Appendix C.
 
+## Phase 17 - Owner playtest feedback (added 2026-10-31; do it before Phase 16)
+
+Numbered after the other phases because it was added later; Phase 16 checks the result. Owner's text verbatim in Appendix A.
+
+- [ ] P17-01 - Audit the whole game for the issues below and others of the same kind (animation scale, attacks that miss visually, defence timing, menus, controls on mobile, props, level bounds, style identity). Classify Critical, High, Medium, Low, Informational.
+  Done when: Appendix D lists each finding with a fix task (P17-02 to P17-10 or a new task).
+- [ ] P17-02 - Animations: tone down exaggerated poses and swings overall; every attack's limb reaches its hit volume at the active frames, so no attack visibly hits the air (owner's example: a Yuki kick).
+  Done when: a self-test checks, for every move of every style against a standing opponent at the move's range, that the striking limb tip lies within the opponent's hit volume on the active frames; the Yuki kick passes; P0-06 results stay within the P14-01 targets.
+- [ ] P17-03 - Sway: sway sideways (left and right) as well as back; reduce the spine angle; make the sway window easy to time against enemy attacks. DECIDE the directions, window length and what each direction avoids.
+  Done when: Appendix C has the rule; sway left / right / back works on touch, gamepad and keyboard; sway fighters meet the P14-01 targets with the P0-06 runner.
+- [ ] P17-04 - Move list: one move list for the current fighter and style only, showing only moves that fighter can do now (shared moves included where they apply).
+  Done when: the move list in every mode shows only the current fighter's style and its shared moves, with inputs for the active device (touch, gamepad, keyboard), readable at phone width.
+- [ ] P17-05 - Remove design and developer notes from all player-facing text (example: "Strong moves cost more stamina....of the attack strings below" in the moves menu). Code comments are not player-facing and stay.
+  Done when: a scan of every menu, hint, tooltip and help string finds no design or developer notes; Appendix C lists what was removed or rewritten.
+- [ ] P17-06 - Crouch and context-sensitive actions are hard to use, especially on mobile. DECIDE a simpler scheme (pick up, use, throw, crouch) that keeps P2-01's no-clutter rule.
+  Done when: Appendix C has the scheme; every context action works on touch, gamepad and keyboard without crouching to reach a table item; a phone-width playtest of pick up, use and throw succeeds every time.
+- [ ] P17-07 - Items placed on tables and other surfaces sink into them (example: the Construction site).
+  Done when: a self-test places every prop on every level and finds each resting on its surface, not intersecting it; same after a throw lands on a table.
+- [ ] P17-08 - Arena bounds: remove restrictive bounds (Night Club; the yellow borders on the Construction site) so levels feel free to explore and destroy. DECIDE the new bounds per level.
+  Done when: Appendix C has the bounds per level; each level can be walked to its real walls and its destructibles reached; the camera stays inside the room (P4-09 rule); AI and multi-opponent fights still work; P0-04 check passes.
+- [ ] P17-09 - DECIDE: make styles distinct. Each style gets its own signature moves and motion (example: Capoeira acrobatic moves); styles share moves only where the real arts do (kickboxing and boxing punches).
+  Done when: Appendix C has a table per style with its signature moves and its shared moves with the reason for each share.
+- [ ] P17-10 - Implement P17-09: moves, animations and AI use for every style.
+  Done when: no two styles share a move outside the P17-09 share list (self-test); every style meets the P14-01 targets with the P0-06 runner.
+
 ## Phase 16 - Final audit and release
 
 - [ ] P16-01 - Repeat the full audit (same categories as P0-02) on the final build. Classify Critical, High, Medium, Low, Informational.
@@ -434,6 +459,15 @@ Work top to bottom. Tick a box only when its "Done when" check passes.
 | Added 2026-10-29: keep things balanced | Section 3 rule, P14-01 to P14-05 |
 | Added 2026-10-29: sway looks implausible (the character still looks hit) | P3-11 |
 | Added 2026-10-29: camera goes outside the room at the edge of the workshop (only the outer wall visible) | P4-09 |
+| Added 2026-10-31: audit the whole app for these and other issues | P17-01 |
+| Added 2026-10-31: exaggerated animations; attacks that visually hit the air (a Yuki kick) | P17-02 |
+| Added 2026-10-31: sway only goes back, spine angle exaggerated, hard to time | P17-03 |
+| Added 2026-10-31: move list confusing; one conditional list for the current fighter and style | P17-04 |
+| Added 2026-10-31: remove design / dev comments from the app (moves menu example) | P17-05 |
+| Added 2026-10-31: crouch and context-sensitive actions hard to use, especially on mobile | P17-06 |
+| Added 2026-10-31: items on tables clip into the table (Construction site) | P17-07 |
+| Added 2026-10-31: restrictive arena bounds (Night Club, Construction yellow borders) | P17-08 |
+| Added 2026-10-31: styles not distinct enough (Capoeira has no acrobatic moves); share only real shared techniques | P17-09, P17-10 |
 
 ### Original text of Ideas-breakpoint.txt (verbatim)
 
@@ -470,6 +504,20 @@ never both. Dash is Removed completely.
 -Optional: Maybe Characters who are very Heavy can rush/charge on smaller ones and tackle them by moving through them (analog only)?
 -A new Tournament Mode that works like the ones in games like Dragon Ball Budokai and Budokai Tenkaichi Series (eliminations) that can be played multiplayer
 -Overall audit that covers any Critical,High,Medium,Low,Informational Issues.
+```
+
+### Owner playtest feedback of 2026-10-31 (verbatim, from `Breakpoint.txt`)
+
+```text
+Audit and Address App wide related to these and other issues
+- Exaggerated animations overall,attacks that visually "hit the air" (ex some kick of Yuki when i tested)
+- Cant sway sideways only back, the angle of the spine is exaggerated,cant time sway easily with the enemy attacks
+-Move List is Confusing/Convoluted. I want one conditionaly moves list for the current fighter and his style
+-Remove app wide the design,dev comments like for example "Strong moves cost more stamina....of the attack strings below" on the moves menu.
+- I think the use of crouch and the context sensitive actions is hard to use especially on mobile.
+-Some Items on Tables (ex the Construction Site) dive in clipping in the table.
+-Arena Bounds on Levels like Night Club,Yellow Borders on Construction Site are restrictive.The levels should feel free to explore and destroy.
+-I dont think that styles feel distinct enough. for example Capoeira doesn't have acrobatic moves. Styles look very similar to each other.Only Exception should be shared techniques like Kickboxing,Boxing punches.
 ```
 
 ## Appendix B - Research log
