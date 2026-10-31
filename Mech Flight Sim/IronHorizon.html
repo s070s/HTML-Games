@@ -2519,14 +2519,65 @@ const R = {
   },
 
   /* upload (or re-upload) a terrain mesh: interleaved pos/normal/colour + Uint16 indices */
-  setTerrain(data, indices) {
+  setTerrain(data, indices, keepBase) {
     const gl = this.gl;
     this.terrainSrc = { data, indices };
+    if (!keepBase) { this.terrainBase = indices; this.terrainOwn = false; }   // (a restored context keeps the cached mesh as the base to restore from)
     if (this.terrain) { gl.deleteBuffer(this.terrain.buf); gl.deleteBuffer(this.terrain.idx); }
     const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
     const idx = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, idx); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.STATIC_DRAW);
     this.terrain = { buf, idx, count: indices.length };
     this.terrainDirty = false;
+    this.curMesh = null;
+  },
+  /* hides the two triangles of ground mesh cell (j * 125 + i) while a crater patch (Craters) draws that square of ground
+     instead: the cell's six indices all point at its first corner. The first hole copies the index list, so the cached
+     mesh (shared with the next battle on this battlefield) stays whole. */
+  terrainHole(cell) {
+    const t = this.terrain, src = this.terrainSrc;
+    if (!t || !src) return;
+    if (!this.terrainOwn) { src.indices = src.indices.slice(); this.terrainOwn = true; }
+    const ix = src.indices, q = cell * 6, gl = this.gl;
+    for (let k = 1; k < 6; k++) ix[q + k] = ix[q];
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, t.idx);
+    gl.bufferSubData(gl.ELEMENT_ARRAY_BUFFER, q * 2, ix.subarray(q, q + 6));
+    this.curMesh = null;
+  },
+  /* the ground mesh as cached, without holes (a battle's craters are gone) */
+  terrainRestore() {
+    if (!this.terrainSrc || !this.terrainOwn) return;
+    this.setTerrain(this.terrainSrc.data, this.terrainBase);
+  },
+  /* the crater patches' vertex and index store, made (again) from the arrays of Craters: 9 floats a vertex like the ground */
+  craterSetup(data, idx) {
+    const gl = this.gl;
+    if (this.cr && this.cr.ctx === this.ctxId) { gl.deleteBuffer(this.cr.buf); gl.deleteBuffer(this.cr.idx); }
+    const buf = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, buf); gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
+    const ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, idx, gl.STATIC_DRAW);
+    this.cr = { buf, idx: ib, count: idx.length, ctx: this.ctxId };
+    this.curMesh = null;
+  },
+  /* writes one patch (verts vertices from vertex slot * verts of data) into the store */
+  craterPatch(data, slot, verts) {
+    if (!this.cr) return;
+    const gl = this.gl;
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.cr.buf);
+    gl.bufferSubData(gl.ARRAY_BUFFER, slot * verts * 36, data.subarray(slot * verts * 9, (slot + 1) * verts * 9));
+    this.curMesh = null;
+  },
+  /* the first count indices of the crater store, lit and fogged like the ground */
+  drawCraters(count) {
+    const t = this.cr;
+    if (!t || count <= 0) return;
+    const gl = this.gl, u = this.uni.lit;
+    this.use('lit');
+    this.bindMesh(t);
+    this.stack.top = 0; this.stack.ident(); this.stack.copyTo(this.modelTmp);
+    gl.uniformMatrix4fv(u.uModel, false, this.modelTmp);
+    this.setMaterial(1, 1, 1, 1, 0, 0); gl.uniform1f(u.uGrid, 1);
+    gl.drawElements(gl.TRIANGLES, count, gl.UNSIGNED_SHORT, 0);
+    gl.uniform1f(u.uGrid, 0);
+    this.drawCalls++;
   },
   /* upload (or re-upload) the water surface: 6 floats per vertex (position, depth, current); null for a dry map */
   setWater(data) {
@@ -3023,6 +3074,7 @@ const FX = {
 let W = null; // the live world (null in menus)
 
 const TILE_CELLS = 8, TILES = Math.ceil(250 / TILE_CELLS);
+const CRATER_FLAGS = 250 * 250;   // one flag for every square of the 8 m height grid that a crater reaches (Terrain.cflag)
 const TERRAIN_CACHE_SIZE = 4;   // recent terrains kept for restarts and co-op joins (about 3 MB each with the mesh)
 const RIDGE_NOISE_SCALE = 1 / 170;   // lattice spacing of the ridged noise on mountains (m)
 const RIDGE_OCTAVES = 4;             // noise layers: 170, 84, 41 and 20 m features
@@ -3063,6 +3115,7 @@ function ridgedNoise(x, z, seed) {
 }
 const Terrain = {
   G: 8, N: 250, heights: new Float32Array(251 * 251), tileMax: new Float32Array(TILES * TILES), sites: [], map: null,
+  cn: 0, cflag: new Uint8Array(CRATER_FLAGS),   // craters in the battle (Craters), and the squares of the height grid they reach
   baseHeight(x, z, m) {
     const s = m.seed;
     let h = 16 * Math.sin(x * 0.0042 + s) * Math.cos(z * 0.0036 + s * 1.7)
@@ -3135,6 +3188,7 @@ const Terrain = {
     }
     this.heights.set(entry.heights); this.tileMax.set(entry.tileMax);
     this.current = entry;
+    Craters.reset();   // the heights are whole again
     Water.load(entry.water);
   },
   cacheKey(map, sites) {
@@ -3229,7 +3283,26 @@ const Terrain = {
     const ix = Math.floor(fx), iz = Math.floor(fz), tx = fx - ix, tz = fz - iz;
     const hs = this.heights, W1 = 251, o = iz * W1 + ix;
     const a = hs[o], b = hs[o + 1], c = hs[o + W1], d = hs[o + W1 + 1];
+    const v = (a + (b - a) * tx) * (1 - tz) + (c + (d - c) * tx) * tz;
+    return this.cn === 0 || this.cflag[iz * 250 + ix] === 0 ? v : v + Craters.dropAt(x, z);   // craters only lower the ground
+  },
+  /* the height grid alone, as h was before craters: the drawn ground (meshH, buildMesh) is built on it */
+  h0(x, z) {
+    let fx = (x + WORLD_HALF) / 8, fz = (z + WORLD_HALF) / 8;
+    if (fx < 0) fx = 0; else if (fx > 249.999) fx = 249.999;
+    if (fz < 0) fz = 0; else if (fz > 249.999) fz = 249.999;
+    const ix = Math.floor(fx), iz = Math.floor(fz), tx = fx - ix, tz = fz - iz;
+    const hs = this.heights, W1 = 251, o = iz * W1 + ix;
+    const a = hs[o], b = hs[o + 1], c = hs[o + W1], d = hs[o + W1 + 1];
     return (a + (b - a) * tx) * (1 - tz) + (c + (d - c) * tx) * tz;
+  },
+  /* how far the craters lower the ground at (x, z): 0 or less (m) */
+  drop(x, z) {
+    if (this.cn === 0) return 0;
+    let fx = (x + WORLD_HALF) / 8, fz = (z + WORLD_HALF) / 8;
+    if (fx < 0) fx = 0; else if (fx > 249.999) fx = 249.999;
+    if (fz < 0) fz = 0; else if (fz > 249.999) fz = 249.999;
+    return this.cflag[(fz | 0) * 250 + (fx | 0)] === 0 ? 0 : Craters.dropAt(x, z);
   },
   /* unit normal into out {x,y,z} */
   normal(x, z, out) {
@@ -3247,8 +3320,9 @@ const Terrain = {
     const S2 = this.G * 2, n = this.N / 2;
     const fx = clamp((x + WORLD_HALF) / S2, 0, n - 0.001), fz = clamp((z + WORLD_HALF) / S2, 0, n - 0.001);
     const i = Math.floor(fx), j = Math.floor(fz), tx = fx - i, tz = fz - j, x0 = -WORLD_HALF + i * S2, z0 = -WORLD_HALF + j * S2;
-    const a = this.h(x0, z0), b = this.h(x0 + S2, z0), c = this.h(x0, z0 + S2), d = this.h(x0 + S2, z0 + S2);
-    return tx + tz <= 1 ? a + (b - a) * tx + (c - a) * tz : d + (c - d) * (1 - tx) + (b - d) * (1 - tz);
+    const a = this.h0(x0, z0), b = this.h0(x0 + S2, z0), c = this.h0(x0, z0 + S2), d = this.h0(x0 + S2, z0 + S2);
+    const v = tx + tz <= 1 ? a + (b - a) * tx + (c - a) * tz : d + (c - d) * (1 - tx) + (b - d) * (1 - tz);
+    return this.cn === 0 ? v : v + this.drop(x, z);
   },
   meshData(map) {
     const entry = this.current;
@@ -3261,6 +3335,8 @@ const Terrain = {
     const stride = 2, N = this.N, n = N / stride + 1, G = this.G * stride;
     const data = new Float32Array(n * n * 9);
     const nrm = { x: 0, y: 1, z: 0 }, mt = map.mountains;
+    const craters = this.cn;
+    this.cn = 0;   // the ground mesh is the ground before any crater (Craters draw their own patches over it)
     let o = 0;
     for (let j = 0; j < n; j++) {
       for (let i = 0; i < n; i++) {
@@ -3305,6 +3381,7 @@ const Terrain = {
       const a = j * n + i, b = a + 1, c = a + n, d = c + 1;
       idx[q++] = a; idx[q++] = c; idx[q++] = b; idx[q++] = b; idx[q++] = c; idx[q++] = d;
     }
+    this.cn = craters;
     return { data, idx };
   },
 };
@@ -3890,6 +3967,7 @@ function destroyStruct(s, owner) {
   if (Net.host) Net.dirty.add(s.idx);
   creditStruct(s, owner);
   if (s.bld) { Bld.pieceDestroyed(s, owner); return; }
+  Craters.groundRuin(s);   // its ruin stands on the ground as it is now, a crater included (a co-op guest may get the crater first and this later)
   if (s.type === 'bridge') Traffic.roadChanged(s.x - s.hx, s.z - s.hz, s.x + s.hx, s.z + s.hz);   // its lanes are no way now
   Chunks.mark(s);
   spawnDebris(s.x, s.y + s.h * 0.5, s.z, s.debris, s, 18);
@@ -4371,15 +4449,23 @@ const Rubble = {
     }
     this.h[c] = Math.min(RUBBLE_MAX, h + dh);
   },
+  /* a crater of radius r at (x, z) has lowered the ground: the mounds whose middle is in it sit on the new ground (their heights stay) */
+  reground(x, z, r) {
+    for (let k = 0; k < this.n; k++) {
+      const c = this.cells[k], i = (c / RUBBLE_N) | 0, j = c - i * RUBBLE_N, cx = (i + 0.5) * RUBBLE_CELL - WORLD_HALF, cz = (j + 0.5) * RUBBLE_CELL - WORLD_HALF;
+      if (Math.hypot(cx - x, cz - z) < r) this.ys[k] = Terrain.h(cx, cz);
+    }
+  },
   height(x, z) {
     if (this.n === 0) return 0;
     const c = this.cell(x, z);
     return c < 0 ? 0 : this.h[c];
   },
-  /* speed factor for a ground unit at (x, z) */
+  /* speed factor for a ground unit at (x, z): rubble and the floor of a crater slow it */
   slow(x, z) {
-    if (this.n === 0) return 1;
-    return 1 - RUBBLE_SLOW * Math.min(1, this.height(x, z) / RUBBLE_FULL);
+    const crater = Terrain.cn === 0 ? 1 : Craters.slow(x, z);
+    if (this.n === 0) return crater;
+    return crater * (1 - RUBBLE_SLOW * Math.min(1, this.height(x, z) / RUBBLE_FULL));
   },
   draw(st) {
     for (let k = 0; k < this.n; k++) {
@@ -4394,6 +4480,321 @@ const Rubble = {
       R.draw('box', RUBBLE_COL[0] * sh * 0.9, RUBBLE_COL[1] * sh * 0.9, RUBBLE_COL[2] * sh * 0.9); st.pop();
     }
   },
+};
+
+/* ---------- craters (P4-02) ----------
+   A blast of CRATER_MIN_BLAST m or more that goes off on the ground lowers it: a bowl of radius 0.7 x the blast and depth
+   0.18 x the blast (at most 5 m), smooth to the rim so its walls climb at most 0.4 (a 32 degree map allows 0.62). A crater is
+   four numbers (x, z, radius, depth); Terrain.h adds the deepest bowl at the point to the height grid (the grid itself is
+   never changed: the world hash, the water and the golden terrain stay as they were), so the ground platforms, shells,
+   debris and the camera all see it at once. The drawn ground is a mesh of 16 m squares; each square a crater reaches loses
+   its two triangles (R.terrainHole) and is drawn by a patch of 8 x 8 finer quads over the same corners (Craters.patch), built
+   a few a frame. Nothing is dug where the ground holds more than ground: water, roads, sites, airfields, pads, buildings
+   and surviving structures (Craters.why); a ground-scorch decal under a new crater is dropped and the bushes in it are
+   cleared. The host decides (D6 does not apply: a crater is world state like a fallen wall) and sends each change as
+   'cr' with a running count; a guest that finds its count behind the host's beat asks for the whole list ('cq'). */
+const CRATER_MIN_BLAST = 6;        // blasts smaller than this (m) only scorch
+const CRATER_RADIUS_K = 0.7;       // bowl radius per m of blast radius
+const CRATER_RADIUS_MAX = 30;      // m
+const CRATER_DEPTH_K = 0.18;       // bowl depth per m of blast radius: the walls then climb at most 1.54 x 0.18 / 0.7 = 0.4
+const CRATER_DEPTH_MAX = 5;        // m
+const CRATER_DEPTH_RC = 0.3;       // and never deeper than this x the radius, however often it is hit: the wall (1.54 x depth / radius = 0.46) plus the 0.15 slope stays under a map's 0.62
+const CRATER_MERGE = 0.5;          // a blast within this share of a crater's radius of its middle deepens that crater
+const CRATER_DEEPEN = 0.35;        // by this share of the smaller of the two depths
+const CRATER_CAP = 64;             // craters in one battle; past it blasts only scorch
+const CRATER_RATE = 8;             // most new craters in one second (a barrage scorches the rest)
+const CRATER_GROUND_SLOPE = 0.15;  // nothing is dug on steeper ground (rise over run), so a wall plus the slope stays under a map's limit
+const CRATER_EDGE = 880;           // nor outside this square (m)
+const CRATER_PAD = 2;              // clear ground wanted round a crater (m)
+const CRATER_WATER_GAP = 0.8;      // the floor stays this far above any water surface beside it (m)
+const CRATER_WATER_STEP = 8;       // the ground under a crater (and its pad) is tested for water on a lattice this fine (m), so a river 18 m wide cannot slip between the points
+const CRATER_BUCKET = 32, CRATER_BUCKETS = 63;   // craters are listed per square of this many m (a lookup meets one to three of them, not all)
+const CRATER_ASK_GAP = 1;          // s between two asks for the crater list (guest), and between two answers to one guest (host)
+const CRATER_PAD_KEEP = 8;         // and this far from a resupply pad (m)
+const CRATER_BARE = 0.15;          // ground cover does not grow where the ground is lowered more than this (m)
+const CRATER_SLOW = 0.3, CRATER_SLOW_DEPTH = 1.2;   // a ground unit on a crater floor this deep goes this much slower
+const CRATER_CELL = 16, CRATER_CELLS = 125;          // the drawn ground: squares of this many m, this many a side (buildMesh)
+const CRATER_SUB = 8, CRATER_VERTS = (CRATER_SUB + 1) * (CRATER_SUB + 1), CRATER_QUADS = CRATER_SUB * CRATER_SUB;   // a patch: 8 x 8 quads
+const CRATER_PATCHES = 256;        // squares of ground that can be drawn as patches at once: a blast that would need more squares than are left digs nothing
+const CRATER_BUILD = 6;            // patches built in a frame
+const CRATER_COL = [0.07, 0.06, 0.05], CRATER_TINT = 0.9;   // the scorched floor's colour, and how much of it the middle takes
+const NAV_CRATER_COST = 2.5;       // a route counts a crater cell this many times (see Nav)
+const NAV_REBUILD_CRATERS = 2;     // craters dug since a land grid was built that make Nav build it again
+const Craters = {
+  late: 0, list: [], gen: 0, used: 0, slotOf: new Map(), queue: [], queued: new Set(), data: null, idx: null, near: [], holed: false, restore: false, winT: -9, winN: 0, askT: -Infinity,
+  buckets: new Array(CRATER_BUCKETS * CRATER_BUCKETS).fill(null),   // the craters of each 32 m square of the world (null: none)
+  /* a new battle (or a reset): the ground is whole again */
+  reset() {
+    if (this.holed) { this.holed = false; this.restore = true; }   // the ground mesh gets its triangles back when it is next drawn (Craters.draw): a new battle uploads a whole one anyway
+    this.list.length = 0; this.gen = 0; this.used = 0; this.slotOf.clear(); this.queue.length = 0; this.queued.clear(); this.winT = -9; this.winN = 0; this.askT = -Infinity; this.late = 0;
+    if (Terrain.cn !== 0) { Terrain.cflag.fill(0); Terrain.cn = 0; this.buckets.fill(null); }
+  },
+  /* once a battle's ground is up: the patch arrays and the GPU store exist before the first crater (made once a page, and again for a restored context) */
+  ready() { if (R.gl) this.gpu(); },
+  /* how far the craters lower the ground at (x, z): 0 or less (m); the deepest bowl counts, so the result does not depend on their order */
+  dropAt(x, z) {
+    let best = 0;
+    const bx = clamp(Math.floor((x + WORLD_HALF) / CRATER_BUCKET), 0, CRATER_BUCKETS - 1), bz = clamp(Math.floor((z + WORLD_HALF) / CRATER_BUCKET), 0, CRATER_BUCKETS - 1);
+    const L = this.buckets[bz * CRATER_BUCKETS + bx];
+    if (!L) return 0;   // none here; also defensive: a point that is no number gives no square (the self-test group 'water' once reached it that way; the caller was not traced)
+    for (let k = 0; k < L.length; k++) {
+      const c = L[k], dx = x - c.x, dz = z - c.z, d2 = dx * dx + dz * dz;
+      if (d2 >= c.r2) continue;
+      const s = 1 - d2 / c.r2, v = c.d * s * s;
+      if (v > best) best = v;
+    }
+    return -best;
+  },
+  /* speed factor of a ground unit at (x, z) */
+  slow(x, z) {
+    const d = -Terrain.drop(x, z);
+    return d <= 0 ? 1 : 1 - CRATER_SLOW * Math.min(1, d / CRATER_SLOW_DEPTH);
+  },
+  /* the radius and depth a blast of radius blast digs */
+  size(blast) {
+    const rc = Math.min(CRATER_RADIUS_MAX, blast * CRATER_RADIUS_K);
+    return { rc, d: Math.min(CRATER_DEPTH_MAX, blast * CRATER_DEPTH_K, rc * CRATER_DEPTH_RC) };
+  },
+  /* '' when a crater of radius rc and depth d may be dug at (x, z); else why not (the ground holds more than ground) */
+  why(x, z, rc, d, ground) {
+    if (Math.abs(x) > CRATER_EDGE || Math.abs(z) > CRATER_EDGE) return 'edge';
+    // (ground: the slope of the height grid alone, for widening a crater that is already there: its own walls are no reason)
+    const slope = ground ? (px, pz) => Math.hypot(Terrain.h0(px + 4, pz) - Terrain.h0(px - 4, pz), Terrain.h0(px, pz + 4) - Terrain.h0(px, pz - 4)) / 8 : (px, pz) => Terrain.slope(px, pz);
+    if (slope(x, z) > CRATER_GROUND_SLOPE) return 'slope';
+    for (let k = 0; k < 8; k++) {   // and along the rim and the steepest part of the wall (0.58 of the radius): a wall on top of a steep slope would trap a unit
+      const a = k * TAU / 8, c = Math.cos(a), s = Math.sin(a);
+      if (slope(x + c * rc, z + s * rc) > CRATER_GROUND_SLOPE || slope(x + c * rc * 0.58, z + s * rc * 0.58) > CRATER_GROUND_SLOPE) return 'slope';
+    }
+    const reach = rc + CRATER_PAD;
+    if (Water.any) {
+      const step = Math.min(CRATER_WATER_STEP, reach / 2), n = Math.ceil(reach / step);
+      for (let j = -n; j <= n; j++) {
+        for (let i = -n; i <= n; i++) {
+          if (i * i + j * j > n * n) continue;
+          const px = x + i * step, pz = z + j * step;
+          if (Water.baseLevel(px, pz) > (ground ? Terrain.h0(px, pz) : Terrain.h(px, pz)) - d - CRATER_WATER_GAP) return 'water';
+        }
+      }
+    }
+    if (W.map.roads.length && Roads.near(x, z, reach)) return 'road';
+    for (const s of Terrain.sites) if (Terrain.inSite(s, x, z, reach)) return 'site';
+    for (const p of W.pads) if (Math.hypot(p.x - x, p.z - z) < reach + CRATER_PAD_KEEP) return 'pad';
+    for (const a of W.airports) if (a.box && x > a.box.x0 - reach && x < a.box.x1 + reach && z > a.box.z0 - reach && z < a.box.z1 + reach) return 'airfield';
+    for (const b of W.buildings) if (x > b.ox - reach && x < b.bx1 + reach && z > b.oz - reach && z < b.bz1 + reach) return 'building';
+    const n = Hash.query(x - reach, z - reach, x + reach, z + reach, undefined, undefined, true);
+    for (let i = 0; i < n; i++) {
+      const s = Hash.out[i];
+      if (s.destroyed) continue;
+      const dx = Math.max(Math.abs(x - s.x) - s.hx, 0), dz = Math.max(Math.abs(z - s.z) - s.hz, 0);
+      if (dx * dx + dz * dz < reach * reach) return 'structure';
+    }
+    return '';
+  },
+  /* host and solo: a blast of radius `blast` has gone off on the ground at (x, z). True when the ground changed. */
+  dig(x, z, blast) {
+    if (Net.guest || !W || blast < CRATER_MIN_BLAST || CRATERS_OFF) return false;
+    const sz = this.size(blast);
+    if (W.time - this.winT >= 1) { this.winT = W.time; this.winN = 0; }
+    if (this.winN >= CRATER_RATE) return false;
+    // a blast on a crater deepens it (and widens it, where the wider ground allows)
+    for (let k = 0; k < this.list.length; k++) {
+      const c = this.list[k];
+      if (Math.hypot(x - c.x, z - c.z) >= CRATER_MERGE * Math.max(c.rc, sz.rc)) continue;
+      const wantD = Math.min(CRATER_DEPTH_MAX, Math.max(c.d, sz.d) + CRATER_DEEPEN * Math.min(c.d, sz.d));
+      let rc = c.rc, d = c.d;
+      // widening and deepening each run every rule again (ground slope, water, roads, structures) for the crater they would make; the depth never passes
+      // CRATER_DEPTH_RC x the radius, so a crater hit again and again keeps walls a unit can climb
+      if (sz.rc > rc + 0.05 && this.fits(c.x, c.z, sz.rc) && this.why(c.x, c.z, sz.rc, c.d, true) === '') rc = sz.rc;
+      const deeper = Math.min(wantD, rc * CRATER_DEPTH_RC);
+      if (deeper > c.d + 0.05 && this.why(c.x, c.z, rc, deeper, true) === '') d = deeper;
+      if (d - c.d < 0.05 && rc - c.rc < 0.05) return false;
+      this.winN++;
+      return this.set(k, c.x, c.z, rc, d);
+    }
+    if (this.list.length >= CRATER_CAP || !this.fits(x, z, sz.rc) || this.why(x, z, sz.rc, sz.d) !== '') return false;
+    this.winN++;
+    return this.set(this.list.length, x, z, sz.rc, sz.d);
+  },
+  /* crater i (an old one, or the next new one) becomes x, z, rc, d; the numbers are rounded alike on every peer */
+  set(i, x, z, rc, d) {
+    x = r1(x); z = r1(z); rc = r1(rc); d = r2(d);
+    const c = { x, z, rc, r2: rc * rc, d };
+    if (i < this.list.length) this.list[i] = c; else this.list.push(c);
+    this.gen++;
+    Terrain.cn = this.list.length;
+    const f = Terrain.cflag, i0 = clamp(Math.floor((x - rc + WORLD_HALF) / 8), 0, 249), i1 = clamp(Math.floor((x + rc + WORLD_HALF) / 8), 0, 249);
+    const j0 = clamp(Math.floor((z - rc + WORLD_HALF) / 8), 0, 249), j1 = clamp(Math.floor((z + rc + WORLD_HALF) / 8), 0, 249);
+    for (let j = j0; j <= j1; j++) for (let k = i0; k <= i1; k++) f[j * 250 + k] = 1;
+    this.rebucket();
+    this.touch(c);
+    if (Net.host) Net.bcast({ t: 'cr', g: this.gen, l: [[i, x, z, rc, d]] });
+    return true;
+  },
+  /* lists each crater under every 32 m square its box reaches */
+  rebucket() {
+    const B = this.buckets, n = CRATER_BUCKETS;
+    B.fill(null);
+    for (const c of this.list) {
+      const i0 = clamp(Math.floor((c.x - c.rc + WORLD_HALF) / CRATER_BUCKET), 0, n - 1), i1 = clamp(Math.floor((c.x + c.rc + WORLD_HALF) / CRATER_BUCKET), 0, n - 1);
+      const j0 = clamp(Math.floor((c.z - c.rc + WORLD_HALF) / CRATER_BUCKET), 0, n - 1), j1 = clamp(Math.floor((c.z + c.rc + WORLD_HALF) / CRATER_BUCKET), 0, n - 1);
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) { const k = j * n + i; if (B[k] === null) B[k] = [c]; else B[k].push(c); }
+    }
+  },
+  /* the ground squares (cell numbers, 16 m) a crater of radius rc at (x, z) reaches */
+  cellsOf(x, z, rc) {
+    const n = CRATER_CELLS, out = [], r2 = rc * rc;
+    const i0 = clamp(Math.floor((x - rc + WORLD_HALF) / CRATER_CELL), 0, n - 1), i1 = clamp(Math.floor((x + rc + WORLD_HALF) / CRATER_CELL), 0, n - 1);
+    const j0 = clamp(Math.floor((z - rc + WORLD_HALF) / CRATER_CELL), 0, n - 1), j1 = clamp(Math.floor((z + rc + WORLD_HALF) / CRATER_CELL), 0, n - 1);
+    for (let j = j0; j <= j1; j++) {
+      for (let i = i0; i <= i1; i++) {
+        const x0 = -WORLD_HALF + i * CRATER_CELL, z0 = -WORLD_HALF + j * CRATER_CELL;
+        const dx = Math.max(x0 - x, 0, x - x0 - CRATER_CELL), dz = Math.max(z0 - z, 0, z - z0 - CRATER_CELL);
+        if (dx * dx + dz * dz < r2) out.push(j * n + i);
+      }
+    }
+    return out;
+  },
+  /* true when the patches left can draw the squares a crater of radius rc at (x, z) needs */
+  fits(x, z, rc) {
+    let fresh = 0;
+    for (const cell of this.cellsOf(x, z, rc)) if (!this.slotOf.has(cell) && !this.queued.has(cell)) fresh++;
+    return this.slotOf.size + this.queued.size + fresh <= CRATER_PATCHES;
+  },
+  /* what stands on the old ground: the ground squares are drawn again, scorch decals inside are gone, bushes cleared, and the cover regrown */
+  touch(c) {
+    for (const cell of this.cellsOf(c.x, c.z, c.rc)) if (!this.queued.has(cell)) { this.queued.add(cell); this.queue.push(cell); }
+    const sc = W.scorches;
+    for (let k = sc.length - 1; k >= 0; k--) if (Math.hypot(sc[k].x - c.x, sc[k].z - c.z) < c.rc) sc.splice(k, 1);
+    Flora.craterAt(c.x, c.z, c.rc);
+    this.reground(c);
+  },
+  /* the ruin of destroyed structure s sits on the ground as it is (a crater lowers it): true when it moved. A standing structure is never in a crater (why),
+     so a ruin is put down when the structure is destroyed (destroyStruct, on a guest from the host's 'st' too) and again when a crater is dug under it. */
+  groundRuin(s) {
+    if (Terrain.cn === 0 || s.type === 'bridge') return false;
+    const y = Terrain.h(s.x, s.z) - (s.type === 'rock' ? 1.5 : 0.4);
+    if (y >= s.y) return false;
+    s.y = y; s.top = y + s.h;
+    return true;
+  },
+  /* what was set down on the old ground sits on the new: the ruins and stumps of destroyed structures (their slabs are baked at s.y), rubble
+     mounds, land mines (a Mine Layer's and a base's) and pickups */
+  reground(c) {
+    const n = Hash.query(c.x - c.rc - 6, c.z - c.rc - 6, c.x + c.rc + 6, c.z + c.rc + 6, undefined, undefined, true);
+    for (let i = 0; i < n; i++) {
+      const s = Hash.out[i];
+      if (!s.destroyed || s.bld || Math.hypot(s.x - c.x, s.z - c.z) >= c.rc + Math.max(s.hx, s.hz)) continue;
+      if (this.groundRuin(s)) Chunks.mark(s);
+    }
+    Rubble.reground(c.x, c.z, c.rc);
+    for (const q of W.projs) {
+      if (!q.active || !q.def || !(q.def.mine || q.def.field) || q.def.sea || Math.hypot(q.x - c.x, q.z - c.z) >= c.rc) continue;
+      q.y = Terrain.h(q.x, q.z) + 0.3;
+    }
+    for (const p of W.pickups) if (Math.hypot(p.x - c.x, p.z - c.z) < c.rc) p.y = Water.top(p.x, p.z) + 1.5;
+  },
+  /* the patch arrays and their GPU store, made on the first crater */
+  gpu() {
+    if (!this.data) {
+      this.data = new Float32Array(CRATER_PATCHES * CRATER_VERTS * 9);
+      this.idx = new Uint16Array(CRATER_PATCHES * CRATER_QUADS * 6);
+      let q = 0;
+      for (let s = 0; s < CRATER_PATCHES; s++) for (let v = 0; v < CRATER_SUB; v++) for (let u = 0; u < CRATER_SUB; u++) {
+        const a = s * CRATER_VERTS + v * (CRATER_SUB + 1) + u, b = a + 1, c = a + CRATER_SUB + 1, d = c + 1;
+        this.idx[q++] = a; this.idx[q++] = c; this.idx[q++] = b; this.idx[q++] = b; this.idx[q++] = c; this.idx[q++] = d;
+      }
+    }
+    if (!R.cr || R.cr.ctx !== R.ctxId) R.craterSetup(this.data, this.idx);
+  },
+  /* writes the vertices of ground square `cell` into patch slot `slot`: the square's own corners (the drawn ground's) and
+     their colours and normals blended across, with the deepest bowl taken off the height and its slope put in the normal */
+  patch(cell, slot) {
+    const S = R.terrainSrc.data, n = CRATER_CELLS + 1, ci = cell % CRATER_CELLS, cj = (cell - ci) / CRATER_CELLS;
+    const A = (cj * n + ci) * 9, B = A + 9, C = A + n * 9, D = C + 9;
+    const x0 = -WORLD_HALF + ci * CRATER_CELL, z0 = -WORLD_HALF + cj * CRATER_CELL, near = this.near, step = CRATER_CELL / CRATER_SUB;
+    near.length = 0;
+    for (const c of this.list) {
+      const dx = Math.max(x0 - c.x, 0, c.x - x0 - CRATER_CELL), dz = Math.max(z0 - c.z, 0, c.z - z0 - CRATER_CELL);
+      if (dx * dx + dz * dz < c.r2) near.push(c);
+    }
+    const out = this.data, ha = S[A + 1], hb = S[B + 1], hc = S[C + 1], hd = S[D + 1];
+    let o = slot * CRATER_VERTS * 9;
+    for (let v = 0; v <= CRATER_SUB; v++) {
+      for (let u = 0; u <= CRATER_SUB; u++) {
+        const tx = u / CRATER_SUB, tz = v / CRATER_SUB, x = x0 + u * step, z = z0 + v * step;
+        const w0 = (1 - tx) * (1 - tz), w1 = tx * (1 - tz), w2 = (1 - tx) * tz, w3 = tx * tz;
+        const y = tx + tz <= 1 ? ha + (hb - ha) * tx + (hc - ha) * tz : hd + (hc - hd) * (1 - tx) + (hb - hd) * (1 - tz);
+        const nx = S[A + 3] * w0 + S[B + 3] * w1 + S[C + 3] * w2 + S[D + 3] * w3, ny = S[A + 4] * w0 + S[B + 4] * w1 + S[C + 4] * w2 + S[D + 4] * w3, nz = S[A + 5] * w0 + S[B + 5] * w1 + S[C + 5] * w2 + S[D + 5] * w3;
+        let best = 0, gx = 0, gz = 0, bs = 0;
+        for (let k = 0; k < near.length; k++) {
+          const c = near[k], dx = x - c.x, dz = z - c.z, d2 = dx * dx + dz * dz;
+          if (d2 >= c.r2) continue;
+          const s = 1 - d2 / c.r2, val = c.d * s * s;
+          if (val > best) { best = val; const kk = 4 * c.d * s / c.r2; gx = kk * dx; gz = kk * dz; bs = s; }
+        }
+        const sx = -nx / ny + gx, sz = -nz / ny + gz, il = 1 / Math.hypot(sx, 1, sz), tint = Math.pow(bs, 0.6) * CRATER_TINT;
+        const r = S[A + 6] * w0 + S[B + 6] * w1 + S[C + 6] * w2 + S[D + 6] * w3, g = S[A + 7] * w0 + S[B + 7] * w1 + S[C + 7] * w2 + S[D + 7] * w3, b = S[A + 8] * w0 + S[B + 8] * w1 + S[C + 8] * w2 + S[D + 8] * w3;
+        out[o++] = x; out[o++] = y - best; out[o++] = z;
+        out[o++] = -sx * il; out[o++] = il; out[o++] = -sz * il;
+        out[o++] = r + (CRATER_COL[0] - r) * tint; out[o++] = g + (CRATER_COL[1] - g) * tint; out[o++] = b + (CRATER_COL[2] - b) * tint;
+      }
+    }
+  },
+  /* builds up to limit queued ground squares: a new one gets the next patch slot and loses its two triangles */
+  build(limit) {
+    if (!R.gl || !R.terrainSrc || !R.terrainSrc.data) { this.queue.length = 0; this.queued.clear(); return; }
+    this.gpu();
+    let done = 0;
+    while (done < limit && this.queue.length) {
+      const cell = this.queue.shift();
+      this.queued.delete(cell);
+      let slot = this.slotOf.get(cell);
+      const fresh = slot === undefined;
+      if (fresh) { if (this.used >= CRATER_PATCHES) continue; slot = this.used; }
+      this.patch(cell, slot);
+      R.craterPatch(this.data, slot, CRATER_VERTS);
+      if (fresh) { this.slotOf.set(cell, slot); this.used++; R.terrainHole(cell); this.holed = true; }
+      done++;
+    }
+  },
+  /* once a frame, after the ground */
+  draw() {
+    if (this.restore) { this.restore = false; R.terrainRestore(); }   // the holes of a battle that is over (no-op when a new ground was uploaded since)
+    if (this.used === 0 && this.queue.length === 0) return;
+    if (this.queue.length) this.build(CRATER_BUILD);
+    else if (!R.cr || R.cr.ctx !== R.ctxId) this.gpu();   // (a restored graphics context: the store is made again from the arrays)
+    if (this.used > 0) R.drawCraters(this.used * CRATER_QUADS * 6);
+  },
+  /* a guest: the host's entries [[i, x, z, rc, d], ...] and its count g */
+  apply(m) {
+    if (!W || !Array.isArray(m.l)) return;
+    // a single change is taken only as the very next one (count + 1); a whole list (w) replaces entries in place; anything else asks for the list
+    if (m.w !== 1 && (m.l.length !== 1 || numIn(m.g, 0, 1e9) !== this.gen + 1)) { this.ask(); return; }
+    let whole = true;
+    for (const e of m.l.slice(0, CRATER_CAP)) {
+      if (!Array.isArray(e)) continue;
+      const i = numIn(e[0], 0, CRATER_CAP - 1) | 0, rc = numIn(e[3], 0, CRATER_RADIUS_MAX), d = numIn(e[4], 0, CRATER_DEPTH_MAX);
+      if (i > this.list.length || rc < 1 || d <= 0) { whole = false; continue; }
+      const x = numIn(e[1], -WORLD_HALF, WORLD_HALF), z = numIn(e[2], -WORLD_HALF, WORLD_HALF), cur = this.list[i];
+      if (cur && cur.x === r1(x) && cur.z === r1(z) && cur.rc === r1(rc) && cur.d === r2(d)) continue;   // unchanged (a whole list repeats what the guest has): nothing to draw again, no cover to regrow
+      this.set(i, x, z, rc, d);
+    }
+    if (whole) this.gen = numIn(m.g, 0, 1e9) | 0; else this.ask();
+  },
+  /* the host's keep-alive says it has dug count cg: a guest that differs twice in a row asks for the list (the keep-alive travels on the unreliable channel and
+     can pass the reliable cr that made the count, so one difference is no proof) */
+  keepAlive(cg) {
+    if (cg === this.gen) { this.late = 0; return; }
+    if (++this.late >= 2) { this.late = 0; this.ask(); }
+  },
+  /* a guest that is behind the host asks for the whole list, at most once in CRATER_ASK_GAP s */
+  ask() {
+    if (!Net.guest || !Net.hostPeer || Net.t - this.askT < CRATER_ASK_GAP) return;
+    this.askT = Net.t;
+    Net.send(Net.hostPeer, { t: 'cq' });
+  },
+  /* the host's whole list, for a guest that fell behind */
+  whole() { return { t: 'cr', w: 1, g: this.gen, l: this.list.map((c, i) => [i, c.x, c.z, c.rc, c.d]) }; },
 };
 
 /* ---------- gibs: platforms shed parts when damaged and break apart when destroyed ----------
@@ -4598,6 +4999,8 @@ function explode(x, y, z, radius, damage, dtype, owner, opts) {
     const f = 1 - d / radius;
     damageStruct(s, damage * (0.2 + 0.8 * f) * (opts.structMult === undefined ? 1 : opts.structMult) * (s.objective && opts.objMult !== undefined ? opts.objMult : 1), dtype, owner, 1, opts.objMult < 1);
   }
+  // a big blast on the ground digs a crater, once the structures it hit are down (a wreck's own blast does not: opts.noCrater)
+  if (!wet && !opts.noCrater && radius >= CRATER_MIN_BLAST && y - gh < radius * 0.8) Craters.dig(x, z, radius);
 }
 
 /* ---------- pickups ---------- */
@@ -4648,6 +5051,7 @@ function newWorld(cfg) {
   FX.clear();
   FX.budget = (QUALITY[S.quality] || QUALITY.medium).particles;
   R.setTerrain(...(function () { const md = Terrain.meshData(m); return [md.data, md.idx]; })());
+  Craters.ready();   // the patch store, so the first crater of the battle allocates nothing
   const wm = Water.meshData();
   R.setWater(wm ? wm.data : null);
   Weather.begin(m, cfg.env);
@@ -5602,6 +6006,7 @@ const Flora = {
       let h = lerp(def.h[0], def.h[1], hr);
       if (def.water === 'shallow') h = Math.min(h, Water.depth(x, z) - 0.4);   // kelp stays under the surface
       if (!this.fits(def, x, z, 0.3) || !this.clearOfSites(x, z, 0.5) || !F.free(x, z, 0.4)) continue;
+      if (Terrain.cn !== 0 && Terrain.drop(x, z) < -CRATER_BARE) continue;   // nothing grows on a crater floor
       const y = Math.min(Terrain.h(x, z), Terrain.meshH(x, z)) - 0.05;
       if (n < plants.length) this.setPlant(plants[n], sp, x, y, z, h, seed); else plants.push(this.makePlant(sp, x, y, z, h, seed));
       n++;
@@ -5759,6 +6164,43 @@ const Flora = {
     for (const c of W.flora.near) c.fl.q = '';
     if (this.job.c) this.begin(this.job.c);
   },
+  /* a crater of radius rc dug at (x, z) (Craters): the bushes in it are gone and the cover cells it touches grow again, without
+     plants on the lowered ground. Trees are structures and stand outside craters (Craters.why). */
+  craterAt(x, z, rc) {
+    const F = W.flora;
+    if (!F) return;
+    const N = Chunks.N, S = Chunks.SIZE, reach = rc + 4;
+    const i0 = clamp(Math.floor((x - reach + WORLD_HALF) / S), 0, N - 1), i1 = clamp(Math.floor((x + reach + WORLD_HALF) / S), 0, N - 1);
+    const j0 = clamp(Math.floor((z - reach + WORLD_HALF) / S), 0, N - 1), j1 = clamp(Math.floor((z + reach + WORLD_HALF) / S), 0, N - 1);
+    for (let i = i0; i <= i1; i++) {
+      for (let j = j0; j <= j1; j++) {
+        const c = W.chunkGrid[i * N + j];
+        if (!c) continue;
+        let hit = false;
+        for (let k = c.plants.length - 1; k >= 0; k--) {
+          const p = c.plants[k];
+          if (p.s || Math.hypot(p.x - x, p.z - z) >= rc + p.r) continue;
+          c.plants.splice(k, 1); c.bushes--; F.bushes--; hit = true;
+        }
+        if (!hit) continue;
+        c.dirty = true;
+        if (c.fl) c.fl.q = '';
+        if (this.job.c === c) this.begin(c);
+      }
+    }
+    const k0 = clamp(Math.floor((x - rc + WORLD_HALF) / FLORA_CELL), 0, FLORA_CELLS - 1), k1 = clamp(Math.floor((x + rc + WORLD_HALF) / FLORA_CELL), 0, FLORA_CELLS - 1);
+    const l0 = clamp(Math.floor((z - rc + WORLD_HALF) / FLORA_CELL), 0, FLORA_CELLS - 1), l1 = clamp(Math.floor((z + rc + WORLD_HALF) / FLORA_CELL), 0, FLORA_CELLS - 1);
+    for (let i = k0; i <= k1; i++) {
+      for (let j = l0; j <= l1; j++) {
+        const idx = i * FLORA_CELLS + j, cell = F.cells[idx];
+        if (!cell) continue;
+        F.cells[idx] = null;
+        const at = F.live.indexOf(cell);
+        if (at >= 0) { F.live[at] = F.live[F.live.length - 1]; F.live.pop(); }
+        if (F.spare.length < FLORA_SPARE) F.spare.push(cell);
+      }
+    }
+  },
   /* cell offsets around the camera's cell, nearest first, as [di, dj, distance] triples */
   offsets() {
     if (this.offs) return this.offs;
@@ -5877,6 +6319,7 @@ const Flora = {
 function drawWorld(dt) {
   const gl = R.gl;
   R.drawTerrain();
+  Craters.draw();
   Roads.draw();
   Chunks.draw();
   Flora.drawCover();
@@ -15686,7 +16129,12 @@ class Platform {
      missile, a rocket).
      A miss still spends the burst. */
   pdScan(u) {
-    const ud = u.def, ps = W.projs, cy = this.y + (this.kind === 'air' ? 0 : this.height * 0.6), C = PD_CAND;
+    const ud = u.def, ps = W.projs, C = PD_CAND;
+    // a ground platform in a crater looks from where its mount would be on the old ground, over the rim (the crater would otherwise hide every low flyer):
+    // raised only up to that height, so a unit on the rim or part way up the wall is lifted by less, and one above the old ground not at all
+    const mount = this.y + (this.kind === 'air' ? 0 : this.height * 0.6);
+    const cy = this.kind === 'air' || Terrain.cn === 0 ? mount : Math.max(mount, Math.min(mount - Terrain.drop(this.x, this.z), Terrain.h0(this.x, this.z) + this.height * 0.6));
+    const tracerY = mount;   // (the burst's tracers start at the real mount)
     const held = this.target && this.target.isProj ? this.target : null;
     const yaw = this.kind === 'mech' ? this.torsoYaw : this.yaw, fx = Math.sin(yaw), fz = Math.cos(yaw), arcCos = this.kind === 'air' ? -2 : Math.cos(ud.pdArc);
     let n = 0;
@@ -15711,11 +16159,11 @@ class Platform {
     if (W.time < u.aimAt) return;
     if (!u.rng) u.rng = makeRng((Math.imul(this.id + 1, 2654435761) ^ PD_SALT) >>> 0);
     u.charges--; u.cd = ud.cd; u.lastShot = W.time;
-    this.pdRound(u, best, C[0].d, cy);
+    this.pdRound(u, best, C[0].d, tracerY);
     for (let k = 1, rounds = 1; k < n; k++) {
       const q = C[k].q;
       if (rounds >= ud.pdSpray + (q.hp <= ud.pdDmg ? ud.pdCheap : 0) || !hasLOS(this.x, cy, this.z, q.x, q.y, q.z)) continue;
-      this.pdRound(u, q, C[k].d, cy);
+      this.pdRound(u, q, C[k].d, tracerY);
       rounds++;
     }
   }
@@ -15910,7 +16358,7 @@ class Platform {
     const cy = this.y + (this.kind === 'air' ? 0 : this.height * 0.5);
     const rad = 4 + this.def.mass * 1.1 + this.height * 0.3;
     if (cause !== 'eject') {
-      explode(this.x, cy, this.z, rad, 30, 'explosive', null, { exclude: this });
+      explode(this.x, cy, this.z, rad, 30, 'explosive', null, { exclude: this, noCrater: true });
       const gib = cause === 'slice' ? 'slice' : 'death';   // a slicing blade cuts it in two (MELEE)
       spawnGibs(this, gib);
       if (W.onGib) W.onGib(this, gib);
@@ -19502,7 +19950,9 @@ const SW_A = {
   /* scorched crater: dark decal, thrown debris and dust */
   crater(x, z, rad) {
     const gy = Terrain.h(x, z);
-    addDecal(x, z, rad, [0.07, 0.06, 0.05], 150); fxSmokePuff(x, gy + 1, z, rad * 0.3, 4);
+    if (!Net.guest) Craters.dig(x, z, rad);   // (a guest gets the host's crater: 'cr')
+    if (Terrain.drop(x, z) > -0.2) addDecal(x, z, rad, [0.07, 0.06, 0.05], 150);   // a crater is dark itself
+    fxSmokePuff(x, gy + 1, z, rad * 0.3, 4);
     for (let i = 0; i < 3; i++) spawnDebris(x, gy + 2, z, 6, null, rad * 0.9);
   },
   /* a bright streak behind projectile p (host; guests see the projectile itself), len metres long */
@@ -24209,12 +24659,14 @@ function navFinish(g) {
     return false;
   }
   if (stage === 2) {
+    const cr = g.src === NAV_SRC_WORLD && !g.spec.sea && Craters.list.length ? Nav.craterCells(g) : null;   // (P4-02) the cells craters lie in
+    g.crater = cr;
     for (let k = 0; k < size; k++) {
       if (!pass[k]) continue;
       const i = k % n, j = (k - i) / n;
       near[k] = i === 0 || j === 0 || i === n - 1 || j === n - 1 || !pass[k - 1] || !pass[k + 1] || !pass[k - n] || !pass[k + n] ? 1 : 0;
       wet[k] = raw[k] >> 1 & 1; g.deck[k] = raw[k] >> 2 & 1;
-      cost[k] = (near[k] ? NAV_BANK_COST : 1) * (wet[k] && !g.spec.sea ? NAV_WET_COST : 1);
+      cost[k] = (near[k] ? NAV_BANK_COST : 1) * (wet[k] && !g.spec.sea ? NAV_WET_COST : 1) * (cr && cr[k] ? NAV_CRATER_COST : 1);
     }
     return false;
   }
@@ -24248,7 +24700,7 @@ const Nav = {
   /* a new world grid for class spec, stamped with how many bridges and structures stood destroyed when it was started */
   make(spec) {
     const g = navGrid(spec, NAV_SRC_WORLD);
-    g.builtAt = W.time; g.lostB = this.lostB; g.lostS = this.lostS;
+    g.builtAt = W.time; g.lostB = this.lostB; g.lostS = this.lostS; g.crGen = Craters.gen;
     return g;
   },
   /* the world's grid for class spec (started, not necessarily ready) */
@@ -24286,6 +24738,15 @@ const Nav = {
     return g;
   },
   cellOf(g, v) { return Math.round((v + GROUND_BOUND) / g.cell); },
+  /* 1 for each cell of land grid g whose middle lies in a crater (a route counts it NAV_CRATER_COST times) */
+  craterCells(g) {
+    const n = g.n, cr = new Uint8Array(n * n);
+    for (const c of Craters.list) {
+      const i0 = Math.max(0, this.cellOf(g, c.x - c.rc)), i1 = Math.min(n - 1, this.cellOf(g, c.x + c.rc)), j0 = Math.max(0, this.cellOf(g, c.z - c.rc)), j1 = Math.min(n - 1, this.cellOf(g, c.z + c.rc));
+      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) if (Math.hypot(i * g.cell - GROUND_BOUND - c.x, j * g.cell - GROUND_BOUND - c.z) < c.rc) cr[j * n + i] = 1;
+    }
+    return cr;
+  },
   /* the cell index holding (x, z), or -1 outside the grid */
   at(g, x, z) {
     const i = this.cellOf(g, x), j = this.cellOf(g, z);
@@ -24326,13 +24787,13 @@ const Nav = {
     }
     return best;
   },
-  /* true when the straight line from (ax, az) to (bx, bz) crosses open cells only (dry: and no ford, no bridge deck: a
+  /* true when the straight line from (ax, az) to (bx, bz) crosses open cells only (craters: and no cell of a crater; dry: and no ford, no bridge deck: a
      deck is narrower than a cell, so a route over one keeps to its waypoints) */
-  lineClear(g, ax, az, bx, bz, dry) {
+  lineClear(g, ax, az, bx, bz, dry, craters) {
     const d = Math.hypot(bx - ax, bz - az), steps = Math.ceil(d / (g.cell * 0.5));
     for (let i = 1; i <= steps; i++) {
       const t = i / steps, k = this.at(g, ax + (bx - ax) * t, az + (bz - az) * t);
-      if (k < 0 || !g.pass[k] || (dry && (g.wet[k] || g.deck[k]))) return false;
+      if (k < 0 || !g.pass[k] || (dry && (g.wet[k] || g.deck[k])) || (craters && g.crater && g.crater[k])) return false;
     }
     return true;
   },
@@ -24367,7 +24828,7 @@ const Nav = {
     this.lostB = lostB; this.lostS = lostS;
     for (const [k, g] of this.grids) {
       if (g.spec.sea || !g.ready || this.fresh.has(k)) continue;
-      if (lostB !== g.lostB || (Math.abs(lostS - g.lostS) >= NAV_REBUILD_STRUCTS && W.time - g.builtAt >= NAV_REBUILD_GAP)) this.fresh.set(k, this.make(g.spec));
+      if (lostB !== g.lostB || ((Math.abs(lostS - g.lostS) >= NAV_REBUILD_STRUCTS || Math.abs(Craters.gen - g.crGen) >= NAV_REBUILD_CRATERS) && W.time - g.builtAt >= NAV_REBUILD_GAP)) this.fresh.set(k, this.make(g.spec));
       for (let i = g.patches.length - 1; i >= 0; i--) if (g.patches[i].until <= W.time) { g.pass[g.patches[i].k] = g.patches[i].was; g.patches.splice(i, 1); }
     }
   },
@@ -24470,7 +24931,7 @@ const Nav = {
     let a = 0;
     while (a < pts.length - 1) {
       let b = a + 1;
-      while (b + 1 < pts.length && this.lineClear(g, pts[a].x, pts[a].z, pts[b + 1].x, pts[b + 1].z, !g.spec.sea)) b++;   // a ford is followed cell by cell
+      while (b + 1 < pts.length && this.lineClear(g, pts[a].x, pts[a].z, pts[b + 1].x, pts[b + 1].z, !g.spec.sea, true)) b++;   // a ford is followed cell by cell
       out.push(pts[b]); a = b;
     }
     if (!out.length) out.push(pts[pts.length - 1]);   // already in the cell it is bound for
@@ -24967,14 +25428,14 @@ class AIController {
           this.routeNext = 0;
         }
       }
-      this.routeDirect = !this.routeForce && (dist < NAV_NEAR || Nav.lineClear(g, p.x, p.z, tx, tz, true));   // a line through a ford is asked about: a bridge may be the better way
+      this.routeDirect = !this.routeForce && (dist < NAV_NEAR || Nav.lineClear(g, p.x, p.z, tx, tz, true, true));   // a line through a ford is asked about: a bridge may be the better way
       const r = this.route;
       if (!this.routeDirect && !this.routeReq && W.time >= this.routeNext && (!r || stalled || Math.hypot(tx - r.gx, tz - r.gz) > NAV_REPLAN_DIST || W.time - r.t > NAV_REPLAN_AGE)) {
         if (Nav.snap(g, p.x, p.z, NAV_SNAP) >= 0) Nav.request(this, tx, tz);
         else this.routeNext = W.time + NAV_FAIL_GAP;   // it stands too far from open ground: no asking till it is nearer
       }
       const next = r && r.pts[r.i + 1];
-      if (r && next && !next.r && !this.routeDirect && Nav.lineClear(g, p.x, p.z, next.x, next.z, true)) r.i++;   // the next waypoint is in clear view over dry ground: cut the corner
+      if (r && next && !next.r && !this.routeDirect && Nav.lineClear(g, p.x, p.z, next.x, next.z, true, true)) r.i++;   // the next waypoint is in clear view over dry ground: cut the corner
     }
     const r = this.route;
     if (this.routeDirect || !r || !r.pts.length || Math.hypot(tx - r.gx, tz - r.gz) > NAV_REPLAN_DIST * 2) return 0;
@@ -28236,7 +28697,7 @@ function resetTrainingDestructibles() {
     s.destroyed = false; s.hp = s.maxHp; s.state = 0; s.scorch = 0; s.flash = 0; if (s.bld) { s.fallAt = undefined; s.fell = false; }
   }
   W.debris.length = 0; W.scorches.length = 0; W.queue.length = 0;
-  Chunks.markAll(); Falls.reset();
+  Chunks.markAll(); Falls.reset(); Craters.reset();
   for (const b of W.buildings) { b.alive = b.total; Bld.markAllDirty(b); b.fallQueue = []; b.needCheck = false; b.topple = false; }
   W.msg('DESTRUCTIBLES RESET');
 }
@@ -32943,7 +33404,7 @@ const SelfTest = {
       } finally { S.quality = keepQuality; Flora.frame(); Game.quitToMenu(); }
     });
     t('co-op start and world hash', () => {
-      this.check('the net version is 18 (P6-02: the picture state in the platform entry; 17 was P5-09, the base defences; 16 was P5-03, the eight new items; 15 was the platform change request and the host\'s word on it, P2-07; 13 was the Point Defence utility and projectile targets)', NET_VERSION === 18);
+      this.check('the net version is 19 (P4-02: craters, cr and cq; 18 was P6-02, the picture state in the platform entry; 17 was P5-09, the base defences; 16 was P5-03, the eight new items; 15 was the platform change request and the host\'s word on it, P2-07; 13 was the Point Defence utility and projectile targets)', NET_VERSION === 19);
       const keepDiff = S.difficulty;
       const sk = (seed) => ({ mode: 'skirmish', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map: 'verdant', size: 'small', seed, random: false, support: 'none' }) });
       const saved = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, missionId: Net.missionId, leave: Net.leave }, keepPid = Save.data.platformId;
@@ -36169,6 +36630,8 @@ const SelfTest = {
     });
     t('p5 point defence', () => {
       flatWorld();
+      CRATERS_OFF = true;   // the same ground is hit again and again by the salvos below, so no crater forms under them: the bands are for level ground (a carrier in a crater is measured at the end)
+      try {
       const ROCKETS = Object.keys(WEAPONS).filter((id) => WEAPONS[id].pdHp > 0 && !WEAPONS[id].mine && !WEAPONS[id].drone);
       const pd = WEAPONS.pdc;
       this.check('Point Defence is a utility of weight 8 with a benefit and a drawback: 12 bursts of 16 that come back one in 5 s, a 140 m reach, a 0.3 s slew, a 90% to 40% hit chance, the front half on the ground', pd.slot === 'utility' && pd.weight === 8 && /Pro: .+; con: .+/.test(pd.role) && pd.charges === 12 && pd.pdDmg === 16 && pd.radius === 140 && pd.recharge === 5 && pd.pdAcquire === 0.3 && pd.pdChance[0] === 0.9 && pd.pdChance[1] === 0.4 && pd.pdNear === 30 && !pd.passive && Math.abs(pd.pdArc - PI / 2) < 1e-9);
@@ -36256,6 +36719,35 @@ const SelfTest = {
       this.check('a salvo of eight Swarm missiles from 450 m: about half get through (' + Math.round(s8 * 100) + '%, accepted 30% to 80%)', s8 >= 0.3 && s8 <= 0.8, s8.toFixed(2));
       this.check('a Rocket Pod salvo of six from 300 m: about half get through (' + Math.round(p6 * 100) + '%, accepted 30% to 85%)', p6 >= 0.3 && p6 <= 0.85, p6.toFixed(2));
       W.platforms.length = 0;
+      // the same carrier in the floor of a crater (11.9 m across, 3.06 m deep, set by hand; none form under the salvos): Point Defence looks from where its mount would be on the old ground, over the rim
+      Craters.reset();   // (level ground first: the crater below is dug after the level salvos)
+      // homing salvos at the carrier: shot from 450 m out low (3 m up, as above) and diving (45 m up, they come down onto it); the share shot down by Point Defence, and the share that arrives (within 8 m of the carrier)
+      const salvoAt = (id, n, from, y0) => {
+        let through = 0, arrived = 0, total = 0; const closest = [];
+        for (let k = 0; k < 10; k++) {
+          const cc = carrier(); p5clear();
+          const sf = p5add('bulwark', 1, 5000, 5000); sf.lock.state = 'locked'; sf.lock.target = cc;
+          const mine = [];
+          for (let j = 0; j < n; j++) { spawnProjectile(sf, { def: dry(id) }, { x: X + (j - (n - 1) / 2) * 1.5, y: y0 + (j % 2) * 1.5, z: from }, 0, 0, 1, 1); const q = W.projs.find((p) => p.active && p.nid === W.nid); mine.push({ q, nid: q.nid, shot: false, near: Infinity }); }
+          for (let i = 0; i < 60 * 4; i++) {
+            W.time += STEP; cc.update(STEP); updateProjectiles(STEP);
+            for (const m of mine) if (m.q.nid === m.nid) { if (m.q.hp <= 0) m.shot = true; if (!m.shot) m.near = Math.min(m.near, Math.hypot(m.q.x - cc.x, m.q.z - cc.z)); }   // (a slot that was used again is not looked at)
+          }
+          through += mine.filter((m) => !m.shot).length; arrived += mine.filter((m) => !m.shot && m.near < 14).length; total += n;
+          for (const m of mine) if (!m.shot) closest.push(m.near);
+        }
+        closest.sort((a, b) => a - b);
+        return { stopped: 1 - through / total, arrived: arrived / total, closest: closest.length ? Math.round(closest[closest.length >> 1]) : -1 };
+      };
+      const pc = (v) => Math.round(v * 100) + '%';
+      const flat = { s2: salvoAt('missile', 2, 50, 45), s8: salvoAt('swarm', 8, 50, 45), p6: salvoAt('rockets', 6, 200, 3) };   // (a Rocket Pod flies level: it is not dived)
+      Craters.set(0, X, 500, 11.9, 3.06);
+      const floorY = Terrain.h(X, 500), seated = carrier();
+      const dive = { s2: salvoAt('missile', 2, 50, 45), s8: salvoAt('swarm', 8, 50, 45), p6: salvoAt('rockets', 6, 200, 3) };
+      const cOne = rate('missile', 50);
+      this.check('a carrier in a crater (floor ' + floorY.toFixed(2) + ' m, it sits at ' + seated.y.toFixed(2) + ') is shielded about as well as on level ground: a single Guided Missile stopped ' + pc(cOne.n / K) + ' (level ' + pc(one.n / K) + '); diving salvos stopped, crater against level: two Guided Missiles ' + pc(dive.s2.stopped) + ' / ' + pc(flat.s2.stopped) + ', eight Swarm ' + pc(dive.s8.stopped) + ' / ' + pc(flat.s8.stopped) + ', six rockets ' + pc(dive.p6.stopped) + ' / ' + pc(flat.p6.stopped), seated.y < -2 && cOne.n / K >= 0.35 && cOne.n / K <= 0.85 && dive.s2.stopped >= 0.15 && dive.s2.stopped <= 0.65 && dive.s8.stopped >= 0.2 && dive.s8.stopped <= 0.7 && dive.p6.stopped >= 0.15 && dive.p6.stopped <= 0.7, [cOne.n / K, dive.s2.stopped, dive.s8.stopped, dive.p6.stopped].map((v) => v.toFixed(2)).join(' '));
+      Craters.reset();
+      } finally { CRATERS_OFF = false; }
     });
     t('p5 the AI uses point defence', () => {
       flatWorld();
@@ -36374,7 +36866,7 @@ const SelfTest = {
         const old = Save.sanitize({ v: SAVE_VERSION, gatedSeen: Arsenal.gatedIds().filter((id) => NEW_ITEM_IDS.indexOf(id) < 0), unlocked: [], best: { m1: { score: 900, rank: 'A', time: 100, diff: 'veteran' }, m2: { score: 10, rank: 'F', time: 100, diff: 'veteran' } } });
         this.check('an old save that won m1 finds the Spotter Drone open, and the other four (m2 only lost, m3, m6, m7 never played) locked; a new save finds none open', old.unlocked.indexOf('spotter') >= 0 && ['coating', 'seaMines', 'manpad', 'jumppack'].every((id) => old.unlocked.indexOf(id) < 0) && Object.keys(GATE).every((id) => Save.sanitize(Save.defaults()).unlocked.indexOf(id) < 0));
         const s = Save.sanitize({ v: SAVE_VERSION, loadouts: { ranger: { primaryA: 'rifle', utility: 'jumppack' }, bulwark: { primaryA: 'acannon', utility: 'noSuchItem' }, kestrel: { primaryA: 'mg', secondary: 'aam', utility: 'coating' }, wraith: { primaryA: 'mg', utility: 'plough' } } });
-        this.check('saves still load: a saved loadout with a new item is kept, one with an unknown or unmountable id is dropped to the default, SAVE_VERSION stays 1 and NET_VERSION is 18', !!s.loadouts.ranger && s.loadouts.ranger.utility === 'jumppack' && !!s.loadouts.kestrel && !s.loadouts.bulwark && !s.loadouts.wraith && SAVE_VERSION === 1 && NET_VERSION === 18);
+        this.check('saves still load: a saved loadout with a new item is kept, one with an unknown or unmountable id is dropped to the default, SAVE_VERSION stays 1 and NET_VERSION is 19', !!s.loadouts.ranger && s.loadouts.ranger.utility === 'jumppack' && !!s.loadouts.kestrel && !s.loadouts.bulwark && !s.loadouts.wraith && SAVE_VERSION === 1 && NET_VERSION === 19);
       } finally { Save.data = keep.data; Save.persist = keep.persist; }
       const arsenal = UI.gearArsenal();
       this.check('the Arsenal screen lists all eight items with who carries them, and the locked ones with their mission', NEW_ITEM_IDS.every((id) => arsenal.indexOf(WEAPONS[id].name) >= 0) && arsenal.indexOf('Heavy Hunter') >= 0);
@@ -37605,9 +38097,10 @@ const SelfTest = {
       this.check('the splash and arc secondaries are the ones it may fire at a blocked target (not guided ones)', !!lobber.wslots.secondary.def.arc && !lobber.wslots.secondary.def.guide);
     });
     t('artillery solver', () => {
-      const keepRep = Game.reportError, errs = [], hits = [];
+      const keepRep = Game.reportError, errs = [], hits = [], craterHits = [];
       Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
       try {
+        CRATERS_OFF = true;   // the shells of the sweep land on the same ground, and a crater would change where the next one comes down
         // spread-free shells from a howitzer onto ground points 200-1200 m out, both arcs, on a gentle and a mountain battlefield
         for (const map of ['farmland', 'alpine']) {
           Game.startSession({ mode: 'skirmish', platformId: 'thunder', loadout: Loadout.forPlatform('thunder'), difficulty: 'veteran', skirmish: Object.assign({}, SKIRMISH_DEFAULT, { map, seed: 3, random: false, support: 'none' }) });
@@ -37627,6 +38120,20 @@ const SelfTest = {
               }
             }
             for (let i = 0; i < 60 * ARTY_PRED_MAX && shots.some((s) => s.q.active); i++) updateProjectiles(STEP);
+            if (map === 'farmland') {   // the same gun at the floor and the walls of a crater dug by hand 700 m out (the shells dig none: CRATERS_OFF)
+              let a = 0.3;
+              for (let b = 0; b < 4; b++) { const t = 0.3 + b * PI / 2; if (Math.abs(gun.x + Math.sin(t) * 1200) < WORLD_HALF - 80 && Math.abs(gun.z + Math.cos(t) * 1200) < WORLD_HALF - 80) { a = t; break; } }
+              const cx = gun.x + Math.sin(a) * 1200, cz = gun.z + Math.cos(a) * 1200, cs = [];
+              Craters.set(0, cx, cz, 11.9, 3.06);
+              for (const [dx, dz] of [[0, 0], [7, 0], [-6, 4], [2, -8]]) for (const high of [false, true]) {
+                const x = cx + dx, z = cz + dz, y = Arty.groundY(x, z);
+                gun.arty.high = high; gun.torsoYaw = a; gun.cmd.aimPoint = { x, y, z }; w.clip = 4; w.cd = 0;
+                gun.shoot(w, 1);
+                cs.push({ x, z, y, floor: -Terrain.drop(x, z), q: W.projs.find((q) => q.active && q.nid === W.nid), r: gun.arty.sol.reason });
+              }
+              for (let i = 0; i < 60 * ARTY_PRED_MAX && cs.some((s) => s.q.active); i++) updateProjectiles(STEP);
+              for (const s of cs) craterHits.push({ r: s.r, err: s.r === '' ? Math.hypot(s.q.x - s.x, s.q.z - s.z) : -1, dy: s.r === '' ? Math.abs(s.q.y - s.y) : -1, deep: s.floor });   // (a masked solution is not fired: the crater's rim is in the way)
+            }
           } finally { w.def = keepDef; }
           for (const s of shots) hits.push({ D: s.D, r: s.r, err: Math.hypot(s.q.x - s.x, s.q.z - s.z), perr: Math.hypot(s.q.x - s.ix, s.q.z - s.iz), dh: s.dh, slope: s.slope });
         }
@@ -37635,7 +38142,9 @@ const SelfTest = {
         const span = ok.some((h) => h.slope < 0.1) && ok.some((h) => h.slope > 0.5) && ok.some((h) => h.dh > 40) && ok.some((h) => h.dh < -8);
         this.check('the solver lands a shell within 3 m of the aim point at 200-1200 m, on flat ground and slopes, above and below the gun', ok.length >= hits.length * 0.8 && worst < 3 && every && span && errs.length === 0, ok.length + '/' + hits.length + ' fired, worst ' + worst.toFixed(2) + ' m ' + errs.join());
         this.check('the impact predictor shows where every shell really comes down (within 3 m)', off < 3, off.toFixed(2));
-      } finally { Game.reportError = keepRep; Game.quitToMenu(); }
+        const cOk = craterHits.filter((h) => h.r === ''), cWorst = cOk.reduce((m, h) => Math.max(m, h.err), 0);
+        this.check('aimed 1200 m out at the floor and the walls of a 3 m crater, the solver lands within the same 3 m (' + cOk.length + ' of ' + craterHits.length + ' solved, the rest masked by the rim, worst ' + cWorst.toFixed(2) + ' m, up to ' + Math.max.apply(null, craterHits.map((h) => h.deep)).toFixed(2) + ' m under the old ground)', craterHits.length === 8 && cOk.length >= 4 && cWorst < 3 && cOk.some((h) => h.deep > 2.5) && cOk.some((h) => h.deep > 0.5 && h.deep < 2), JSON.stringify(craterHits.map((h) => [h.r, +h.err.toFixed(1)])));
+      } finally { Game.reportError = keepRep; CRATERS_OFF = false; Game.quitToMenu(); }
     });
     t('artillery', () => {
       const keepRep = Game.reportError, errs = [], guns = ['thunder', 'hailstorm', 'pestle'];
@@ -40040,6 +40549,444 @@ const SelfTest = {
         Game.quitToMenu();
       }
     });
+    // P4-02: craters. Terrain.h adds the deepest bowl to the height grid (the grid stays whole), the drawn ground gets patches, the host decides and sends 'cr'
+    t('p4 craters', () => {
+      const keepNet = { host: Net.host, guest: Net.guest, inSession: Net.inSession, peers: Net.peers, hostPeer: Net.hostPeer, beatAcc: Net.beatAcc, t: Net.t };
+      const keepRep = Game.reportError, errs = [];
+      Game.reportError = (e) => { errs.push(e && e.message || String(e)); };
+      const dig = (blast, x, z) => { W.time += 1.1; return Craters.dig(x, z, blast); };   // a second apart: CRATER_RATE counts per second
+      const wallSlope = (c) => { let worst = 0; for (let a = 0; a < 8; a++) for (let r = 0.5; r < c.rc + 4; r += 0.5) worst = Math.max(worst, Terrain.slope(c.x + Math.cos(a * 0.785) * r, c.z + Math.sin(a * 0.785) * r)); return worst; };
+      const samePlaces = (a, b) => a.length === b.length && a.every((c, i) => c.x === b[i].x && c.z === b[i].z && c.rc === b[i].rc && c.d === b[i].d);
+      try {
+        // 1. depth and width by blast size, on flat empty ground
+        flatWorld();
+        const blasts = [5.9, 6, 8, 12, 17, 24, 30, 45, 62];
+        const did = blasts.map((blast, i) => dig(blast, -800 + i * 160, 0));
+        const list = Craters.list.slice();
+        this.check('a blast under 6 m digs nothing and every blast from 6 m up does (' + did.join(',') + ')', did[0] === false && did.slice(1).every((v) => v === true) && list.length === 8 && Terrain.cn === 8);
+        const wantRc = blasts.slice(1).map((b) => r1(Math.min(CRATER_RADIUS_MAX, b * CRATER_RADIUS_K))), wantD = blasts.slice(1).map((b) => r2(Math.min(CRATER_DEPTH_MAX, b * CRATER_DEPTH_K)));
+        this.check('the radius is 0.7 x the blast (30 m at most) and the depth 0.18 x the blast (5 m at most): ' + list.map((c) => c.rc + ' x ' + c.d).join(', '), list.every((c, i) => c.rc === wantRc[i] && c.d === wantD[i]) && list[5].d === 5 && list[7].d === 5 && list[7].rc === 30);
+        this.check('depth grows with the blast', list.every((c, i) => i === 0 || c.d >= list[i - 1].d) && list[0].d < list[3].d && list[3].d < list[5].d);
+        this.check('the ground is lowered by the full depth at the middle, by (1 - 0.25)^2 of it halfway out, and not at all at the rim and past it', list.every((c) => Math.abs(Terrain.h(c.x, c.z) + c.d) < 1e-6 && Math.abs(Terrain.h(c.x + c.rc * 0.5, c.z) + c.d * 0.5625) < 0.01 && Math.abs(Terrain.h(c.x + c.rc, c.z)) < 1e-6 && Terrain.h(c.x + c.rc + 3, c.z) === 0 && Terrain.h(c.x, c.z + c.rc * 1.2) === 0));
+        const walls = list.map(wallSlope);
+        this.check('the walls climb at most 0.41 (rise over run) at every size, under the 0.62 of a 32 degree map: steepest ' + Math.max.apply(null, walls).toFixed(3), Math.max.apply(null, walls) <= 0.41 && Math.max.apply(null, walls) > 0.2);
+        this.check('the height grid itself is never changed (the world hash, the water and the golden terrain read it)', Terrain.heights.every((v) => v === 0) && Terrain.h0(list[0].x, list[0].z) === 0 && Terrain.drop(list[0].x, list[0].z) === -list[0].d && Terrain.drop(0, 600) === 0);
+        // a blast under 6 m only scorches; an explosion on the ground digs once the structures are down, one in the air or a wreck's does not
+        Craters.reset(); W.scorches.length = 0; W.time += 5;
+        explode(0, 0.5, 400, 5.9, 50, 'explosive', null);
+        this.check('explode() of 5.9 m scorches the ground and digs nothing', Craters.list.length === 0 && W.scorches.length === 1);
+        W.scorches.length = 0;
+        explode(0, 0.5, 400, 12, 50, 'explosive', null);
+        this.check('explode() of 12 m on the ground digs a crater (8.4 m by 2.16 m) and its scorch decal is gone with the old ground (a crater is dark itself)', Craters.list.length === 1 && Craters.list[0].rc === 8.4 && Craters.list[0].d === 2.16 && W.scorches.length === 0);
+        W.scorches.length = 0;
+        explode(300, 20, 400, 12, 50, 'explosive', null);
+        this.check('a blast high in the air digs nothing', Craters.list.length === 1);
+        const wreck = new Platform(PLATFORMS.bulwark, { team: 1, x: -300, z: 400, yaw: 0 }); W.platforms.push(wreck);
+        W.time += 2; wreck.destroy(null, 'test');
+        this.check('a destroyed platform\'s own blast digs nothing (wrecks stay where they fell)', Craters.list.length === 1);
+        Net.guest = true; Net.host = false;
+        W.time += 2; explode(-600, 0.5, 400, 12, 0, 'explosive', null);
+        Net.guest = keepNet.guest; Net.host = keepNet.host;
+        this.check('a co-op guest digs nothing itself (the host sends the crater)', Craters.list.length === 1);
+        // the shell of a field howitzer lands in the ground
+        const gun = p5add('bastion', 0, 400, 800); p5clear();
+        W.time += 2; launchProjectile(allocProjectile(), WEAPONS.artyGun, gun, 0, 0, 40, 700, 0, -60, 0); p5step(2);
+        const shellAt = Craters.list.find((c) => Math.abs(c.z - 700) < 2);
+        this.check('a Field Howitzer shell (blast ' + WEAPONS.artyGun.blast + ' m) that comes down on flat ground leaves a ' + Math.round(WEAPONS.artyGun.blast * 0.7 * 10) / 10 + ' m crater', !!shellAt && shellAt.rc === r1(WEAPONS.artyGun.blast * 0.7));
+        // a superweapon's crater (Crater Maker: 24 m)
+        Craters.reset(); W.time += 5;
+        SW_A.crater(500, -500, 24); SW_A.crater(-500, -500, 24);
+        this.check('the Crater Maker leaves a 16.8 m crater 4.32 m deep and no flat scorch over it', Craters.list.length === 2 && Craters.list[0].d === 4.32 && Craters.list[0].rc === 16.8 && !W.scorches.some((s) => Math.abs(s.x - 500) < 3));
+        // 2. limits: a rate, a cap, a deepening
+        Craters.reset(); W.time = 1000;
+        const burst = []; for (let i = 0; i < 10; i++) burst.push(Craters.dig(-700 + i * 60, 300, 12));
+        this.check('no more than ' + CRATER_RATE + ' new craters in one second (a barrage scorches the rest): ' + burst.filter(Boolean).length, burst.filter(Boolean).length === CRATER_RATE);
+        W.time += 1.1; this.check('and the next second digs again', Craters.dig(-700 + 10 * 60, 300, 12) === true);
+        Craters.reset();
+        let made = 0, extra = false;
+        for (let k = 0; k < 90; k++) { W.time += 1.1; const x = -850 + (k % 9) * 200, z = -850 + Math.floor(k / 9) * 170; if (Craters.dig(x, z, 8)) made++; }
+        extra = Craters.dig(0, 0, 8);
+        this.check('a battle holds at most ' + CRATER_CAP + ' craters; after that a blast only scorches (' + made + ' dug)', made === CRATER_CAP && extra === false && Craters.list.length === CRATER_CAP && Terrain.cn === CRATER_CAP);
+        Craters.reset();
+        let big = 0;
+        for (let k = 0; k < 60; k++) if (dig(30, -850 + (k % 9) * 200, -850 + Math.floor(k / 9) * 250)) big++;
+        const cellsHeld = Craters.slotOf.size + Craters.queue.length;
+        this.check('a blast that needs more ground squares than the ' + CRATER_PATCHES + ' patches have left digs nothing, so every crater is drawn: ' + big + ' craters of 21 m held ' + cellsHeld + ' squares', big >= 15 && big < 60 && cellsHeld <= CRATER_PATCHES && cellsHeld > CRATER_PATCHES - 30);
+        Craters.reset(); W.time += 10;
+        dig(12, 0, 0);
+        const first = Craters.list[0].d;
+        dig(12, 2, 1);
+        this.check('a second blast on a crater deepens it by a third of the smaller depth, up to 0.3 x its radius, in the same crater (' + first + ' to ' + Craters.list[0].d + ')', Craters.list.length === 1 && Math.abs(Craters.list[0].d - Math.min(r2(first + first * CRATER_DEEPEN), r2(Craters.list[0].rc * CRATER_DEPTH_RC))) < 0.011);
+        for (let k = 0; k < 12; k++) dig(12, 1, 1);
+        const capped = Craters.dig(1, 1, 12);
+        this.check('and no deeper than 0.3 x its radius (' + Craters.list[0].d + ' of 8.4 m): a crater at its depth takes no more', Craters.list.length === 1 && Craters.list[0].d === r2(8.4 * CRATER_DEPTH_RC) && capped === false);
+        dig(20, 0, 0);
+        this.check('a bigger blast on it widens it (14 m) and deepens it to the new limit (' + Craters.list[0].d + ')', Craters.list.length === 1 && Craters.list[0].rc === 14 && Craters.list[0].d === r2(14 * CRATER_DEPTH_RC));
+        // repeated hits on one spot: the walls stay climbable whatever the size, and a big crater still stops at 5 m
+        const exactWall = (c) => { let worst = 0; for (let r = 0.25; r < c.rc; r += 0.25) worst = Math.max(worst, Math.abs(Craters.dropAt(c.x + r + 0.125, c.z) - Craters.dropAt(c.x + r - 0.125, c.z)) / 0.25); return worst; };
+        const walls2 = [];
+        for (const blast of [6, 8, 12, 17, 24, 30]) {
+          Craters.reset(); W.time += 10;
+          for (let k = 0; k < 40; k++) dig(blast, 300, 300);
+          const c = Craters.list[0];
+          walls2.push(blast + ': ' + c.rc + ' x ' + c.d + ' wall ' + exactWall(c).toFixed(3));
+          if (c.d > c.rc * CRATER_DEPTH_RC + 0.005 || c.d > CRATER_DEPTH_MAX || exactWall(c) > 0.62 - CRATER_GROUND_SLOPE + 0.005) walls2.push('TOO STEEP');
+        }
+        this.check('hit forty times on one spot, a crater of every size keeps walls under 0.62 - 0.15 (the slope the ground may have) and stays within 0.3 x its radius and 5 m: ' + walls2.join('; '), !walls2.includes('TOO STEEP') && Craters.list[0].d === CRATER_DEPTH_MAX);
+        Craters.reset();
+        Craters.reset();
+        this.check('a reset gives the ground back whole', Craters.list.length === 0 && Terrain.cn === 0 && Terrain.h(0, 0) === 0 && Terrain.cflag.every((v) => v === 0) && Craters.buckets.every((b) => b === null));
+        // the per-square lists give the same ground as trying every crater, and a lookup meets few of them
+        W.time += 100;
+        for (let k = 0; k < 64; k++) Craters.set(k, -800 + (k % 8) * 190 + (k * 37) % 50, -800 + Math.floor(k / 8) * 190 + (k * 53) % 40, 5 + (k * 7) % 25, 1 + (k % 5));
+        let wrong = 0, most = 0;
+        for (let k = 0; k < 4000; k++) {
+          const x = ((k * 7919) % 2000) - 1000, z = ((k * 104729) % 2000) - 1000;
+          let best = 0; for (const c of Craters.list) { const d2 = (x - c.x) ** 2 + (z - c.z) ** 2; if (d2 < c.r2) best = Math.max(best, c.d * (1 - d2 / c.r2) ** 2); }
+          if (Math.abs(Craters.dropAt(x, z) + best) > 1e-9) wrong++;
+        }
+        for (const b of Craters.buckets) if (b) most = Math.max(most, b.length);
+        this.check('with 64 craters the 32 m lists give exactly the ground that trying every crater gives (' + wrong + ' differences in 4000 points), and a square lists at most ' + most + ' craters', wrong === 0 && most <= 4 && Craters.buckets.some((b) => b !== null));
+        Craters.reset();
+        // 3. where the ground may not change
+        const why = (x, z, blast) => { const s = Craters.size(blast || 12); return Craters.why(x, z, s.rc, s.d); };
+        this.check('open ground allows a crater', why(0, 0) === '');
+        this.check('nothing is dug near the edge of the battlefield', why(900, 0) === 'edge' && why(0, -895) === 'edge');
+        this.rampTerrain(20, 400);
+        this.check('nor on a slope of 20 degrees (' + Terrain.slope(0, 200).toFixed(2) + ' against ' + CRATER_GROUND_SLOPE + '), where a wall on top would trap a unit', why(0, 200) === 'slope' && why(0, -200) === '');
+        this.check('nor where the centre is level but the rim lies on the slope (a crater at z = -6 reaches the foot of the 20 degree ramp): ' + why(0, -6), Terrain.slope(0, -6) < CRATER_GROUND_SLOPE && why(0, -6) === 'slope' && why(0, -40) === '');
+        flatWorld();
+        const rock = addStruct('rock', 100, 0, {});
+        this.check('nor where a structure stands within the crater and 2 m around it', why(100, 0) === 'structure' && why(100 + 9, 0) === 'structure' && why(100 + 9 + 8.4 + 2 + 0.5, 0) === '');
+        explode(104, 0.5, 0, 12, 300, 'explosive', null);
+        this.check('a blast beside a rock that stands leaves a scorch and no crater', !rock.destroyed && Craters.list.length === 0 && W.scorches.length >= 1);
+        const crate = addStruct('crate', 200, 0, {});
+        this.check('a crate in the way stops it...', why(200, 0) === 'structure');
+        // what stands on the ground it digs: the crate's ruin, a rubble mound, a Mine Layer mine and a pickup sit on the new floor
+        Rubble.add(205, 3, 200);
+        const layer = p5add('bastion', 0, 600, 800), mine = allocProjectile();
+        launchProjectile(mine, WEAPONS.mines, layer, 0, 204, 0.3, -3, 0, 0, 0);
+        spawnPickup('ammo', 203, -2); const pickup = W.pickups[W.pickups.length - 1];
+        const mound = []; for (let k = 0; k < Rubble.n; k++) mound.push(k);
+        W.time += 2; explode(200, 0.5, 0, 12, 300, 'explosive', null);
+        const floor = Terrain.h(200, 0);
+        this.check('...but the blast that destroys the crate digs where it stood, and the crate\'s ruin sits on the new floor (y ' + crate.y.toFixed(2) + ' against a floor at ' + floor.toFixed(2) + ')', crate.destroyed && Craters.list.length === 1 && Math.abs(crate.y - (floor - 0.4)) < 1e-9 && crate.y < -2 && Math.abs(crate.top - (crate.y + crate.h)) < 1e-9);
+        const inside = mound.filter((k) => { const c = Rubble.cells[k], i = (c / RUBBLE_N) | 0, j = c - i * RUBBLE_N; return Math.hypot((i + 0.5) * RUBBLE_CELL - WORLD_HALF - 200, (j + 0.5) * RUBBLE_CELL - WORLD_HALF) < 8.4; });
+        this.check('rubble mounds in the crater, its land mines and its pickups sit on the new ground too (' + inside.length + ' mounds; mine y ' + mine.y.toFixed(2) + ', pickup y ' + pickup.y.toFixed(2) + ')', inside.length >= 2 && inside.every((k) => { const c = Rubble.cells[k], i = (c / RUBBLE_N) | 0, j = c - i * RUBBLE_N; return Math.abs(Rubble.ys[k] - Terrain.h((i + 0.5) * RUBBLE_CELL - WORLD_HALF, (j + 0.5) * RUBBLE_CELL - WORLD_HALF)) < 1e-3; }) && Math.abs(mine.y - (Terrain.h(204, -3) + 0.3)) < 1e-9 && mine.active && Math.abs(pickup.y - (Terrain.h(203, -2) + 1.5)) < 1e-9 && Rubble.n === mound.length);
+        W.platforms = W.platforms.filter((q) => q !== layer); mine.active = false; W.pickups.length = 0;
+        Craters.reset();
+        W.buildings.push({ ox: 300, oz: -20, bx1: 330, bz1: 20, alive: 0, total: 1 });
+        this.check('nor under or beside a building, standing or fallen', why(315, 0) === 'building' && why(338, 0) === 'building' && why(360, 0) === '');
+        W.buildings.length = 0;
+        W.pads = [{ x: -300, z: 0 }]; W.airports.push({ box: { x0: 500, x1: 560, z0: -20, z1: 20 } }); Terrain.sites.push({ x: -500, z: 300, r: 40, tag: 'base' });
+        this.check('nor on a resupply pad, an airfield or a site (a city, a base)', why(-300 + 10, 0) === 'pad' && why(530, 0) === 'airfield' && why(520, 25) === 'airfield' && why(520, 40) === '' && why(-500, 300) === 'site' && why(-500 + 40 + 6, 300) === 'site' && why(-500 + 40 + 12, 300) === '');
+        W.pads = []; W.airports.length = 0; Terrain.sites.length = 0;
+        // water and roads on the test battlefield (a coast, a lake, a river with a bridge, a road)
+        MAPS.testwater = TEST_WATER_MAP;
+        try {
+          newWorld({ map: 'testwater', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 300, yaw: 0 } });
+          W.mission = null; Hash.reset(); W.buildings = [];
+          let wet = 0, wetDug = 0, reasons = {}, dry = 0;
+          for (let x = -700; x <= 700; x += 20) for (let z = -700; z <= 700; z += 20) {
+            const w = Water.baseLevel(x, z) > Terrain.h(x, z) - 2.9;
+            const r = why(x, z);
+            if (w) { wet++; if (r === '') wetDug++; } else if (r === '') dry++;
+            if (r) reasons[r] = (reasons[r] || 0) + 1;
+          }
+          this.check('on the water battlefield nothing is dug in or within 3 m of a lake, river or sea (' + wet + ' wet spots, ' + wetDug + ' allowed; reasons ' + JSON.stringify(reasons) + ')', wet > 300 && wetDug === 0 && dry > 200 && reasons.water > 0);
+          const roadWhy = {};
+          let roadAllowed = 0;
+          for (const road of W.map.roads) for (const q of Roads.samples(road.pts)) { const r = why(q.x, q.z); roadWhy[r || 'allowed'] = (roadWhy[r || 'allowed'] || 0) + 1; if (r === '') roadAllowed++; }
+          this.check('nor on a road: no point of the test road allows a crater, and where nothing else is in the way it is refused as a road (' + JSON.stringify(roadWhy) + ')', roadAllowed === 0 && roadWhy.road > 0);
+          const lake = W.map.water.find((w) => w.type === 'lake');
+          W.time += 5; explode(lake.x, Water.level(lake.x, lake.z) + 0.2, lake.z, 12, 100, 'explosive', null);
+          this.check('a blast on the surface of a lake splashes and digs nothing', Craters.list.length === 0);
+          // a big crater tests the water on a lattice: nothing within its reach may hold water that a dense sweep finds (the river is 26 m wide, a narrower one would have to be found too)
+          // a crater dug beside water and hit again and again: it is never deepened until its floor is within 0.8 m of the surface beside it
+          let nearWater = null;
+          for (let x = -700; x <= 700 && !nearWater; x += 6) for (let z = -700; z <= 700 && !nearWater; z += 6) {
+            if (why(x, z, 12) !== '') continue;
+            for (let k = 0; k < 12 && !nearWater; k++) { const px = x + Math.cos(k * 0.52) * 9, pz = z + Math.sin(k * 0.52) * 9; if (Water.baseLevel(px, pz) > -Infinity) nearWater = { x, z }; }
+          }
+          if (nearWater) {
+            Craters.reset(); W.time += 10;
+            for (let k = 0; k < 40; k++) dig(12, nearWater.x, nearWater.z);
+            const wc = Craters.list[0], reachW = wc.rc + CRATER_PAD;
+            let margin = Infinity, wetPoints = 0;
+            for (let dx = -reachW; dx <= reachW; dx += 2) for (let dz = -reachW; dz <= reachW; dz += 2) {
+              if (Math.hypot(dx, dz) > reachW) continue;
+              const lv = Water.baseLevel(nearWater.x + dx, nearWater.z + dz);
+              if (lv === -Infinity) continue;
+              wetPoints++;
+              margin = Math.min(margin, Terrain.h(nearWater.x + dx, nearWater.z + dz) - lv);
+            }
+            this.check('a crater dug 9 m from water at ' + Math.round(nearWater.x) + ',' + Math.round(nearWater.z) + ' and hit forty times is (' + (wc ? wc.rc + ' x ' + wc.d : 'none') + ') never deepened below 0.8 m above the water beside it: the smallest margin over ' + wetPoints + ' wet points is ' + margin.toFixed(2) + ' m', !!wc && wetPoints > 0 && margin >= CRATER_WATER_GAP - 0.3, String(margin));
+            Craters.reset();
+          } else this.check('a spot beside water for the deepening test exists on the water map', false);
+          // a spot where the first crater is allowed but the deeper one is not: the hits leave it as it was dug
+          let tight = null;
+          for (let x = -700; x <= 700 && !tight; x += 3) for (let z = -700; z <= 700 && !tight; z += 3) {
+            for (const blast of [12, 17, 24]) {
+              const sz = Craters.size(blast), cap = r2(sz.rc * CRATER_DEPTH_RC);
+              if (cap > sz.d + 0.1 && Craters.why(x, z, sz.rc, sz.d) === '' && Craters.why(x, z, sz.rc, cap, true) === 'water') { tight = { x, z, blast, d0: r2(sz.d), cap }; break; }
+            }
+          }
+          if (tight) {
+            Craters.reset(); W.time += 10;
+            for (let k = 0; k < 40; k++) dig(tight.blast, tight.x, tight.z);
+            this.check('where the first crater is allowed but one deeper would come within 0.8 m of the water (blast ' + tight.blast + ' at ' + tight.x + ',' + tight.z + ': ' + tight.d0 + ' m allowed, ' + tight.cap + ' m not), forty more hits leave it at ' + (Craters.list[0] ? Craters.list[0].d : 'none') + ' m', Craters.list.length === 1 && Craters.list[0].d === tight.d0);
+            Craters.reset();
+          } else this.check('a tight spot beside water exists on the water map', false);
+          let slipped = 0, probed = 0; const slips = [];
+          for (let x = -700; x <= 700; x += 25) for (let z = -700; z <= 700; z += 25) {
+            const sz = Craters.size(34);
+            if (why(x, z, 34) !== '') continue;
+            probed++;
+            const reach = sz.rc + CRATER_PAD;
+            let found = false;
+            for (let dx = -reach; dx <= reach && !found; dx += 2) for (let dz = -reach; dz <= reach && !found; dz += 2) if (Math.hypot(dx, dz) <= reach - CRATER_WATER_STEP && Water.baseLevel(x + dx, z + dz) > Terrain.h(x + dx, z + dz)) found = true;
+            if (found) { slipped++; slips.push(Math.round(x) + "," + Math.round(z)); }
+          }
+          this.check('a 34 m blast (a 23.8 m crater) is refused wherever a dense 2 m sweep finds real water (above the ground) more than ' + CRATER_WATER_STEP + ' m inside its reach (' + slipped + ' of ' + probed + ' allowed spots had some)', probed > 100 && slipped === 0, slipped + ' of ' + probed + ' at ' + slips.join(' '));
+          // a strip of water 16 to 24 m wide (three columns of the water grid) across flat ground: no crater of 12 or 34 m blast whose reach takes it in by more than 8 m
+          flatWorld();
+          const keepAny = Water.any, keepLevels = Water.levels, strip = new Float32Array(251 * 251).fill(-Infinity);
+          for (let j = 0; j <= 250; j++) for (let i = 138; i <= 140; i++) strip[j * 251 + i] = 5;
+          Water.any = true; Water.levels = strip;
+          try {
+            let bad = 0, refused = 0, tried = 0;
+            for (const blast of [12, 34]) for (let x = 40; x <= 190; x += 2) {
+              const sz = Craters.size(blast), reach = sz.rc + CRATER_PAD, centre = (104 + 120) / 2;
+              tried++;
+              const r = Craters.why(x, 0, sz.rc, sz.d);
+              if (r !== '') refused++;
+              if (Math.abs(x - centre) <= reach - CRATER_WATER_STEP - 4 && r === '') bad++;
+            }
+            this.check('a river 16 to 24 m wide cannot slip between the water samples: every crater whose reach takes it in by more than ' + (CRATER_WATER_STEP + 4) + ' m is refused (' + refused + ' of ' + tried + ' refused, ' + bad + ' slipped)', bad === 0 && refused > 20 && refused < tried);
+          } finally { Water.any = keepAny; Water.levels = keepLevels; }
+          MAPS.testwater = TEST_WATER_MAP;
+          newWorld({ map: 'testwater', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 300, yaw: 0 } });
+          W.mission = null; Hash.reset(); W.buildings = [];
+        } finally { delete MAPS.testwater; }
+        // 4. a unit drives into a crater and out again; shells and rays meet the floor
+        flatWorld(); W.time = 2000;
+        Craters.dig(0, -300, 17);
+        const cr = Craters.list[0];
+        const drive = (id, z) => {
+          const p = new Platform(PLATFORMS[id], { team: 0, x: -40, z, yaw: PI / 2 });
+          let low = 0, outTop = 0, bottomTop = 0, off = 0;
+          for (let i = 0; i < 60 * 16 && p.x < 45; i++) {
+            p.cmd.moveF = 1; p.cmd.aimYaw = PI / 2; p.update(STEP);
+            low = Math.min(low, p.y);
+            const r = Math.hypot(p.x, p.z - z);
+            if (r < 5) bottomTop = Math.max(bottomTop, p.speed); else if (r > 14) outTop = Math.max(outTop, p.speed);
+            off = Math.max(off, Math.abs(p.y - Terrain.h(p.x, p.z)));
+          }
+          return { low, x: p.x, bottomTop, outTop, off };
+        };
+        for (const id of ['bastion', 'bulwark']) {
+          const inCrater = drive(id, -300), onLevel = drive(id, -340);
+          this.check('a ' + id + ' drives down into a ' + cr.d + ' m crater (lowest ' + inCrater.low.toFixed(2) + ' m), follows the ground (at most ' + inCrater.off.toFixed(2) + ' m off it) and climbs out the far side (x ' + inCrater.x.toFixed(0) + ')', inCrater.low < -cr.d + 0.6 && inCrater.off < 1.2 && inCrater.x > 44);
+          this.check('and the crater floor slows it: ' + inCrater.bottomTop.toFixed(1) + ' m/s at the bottom against ' + onLevel.bottomTop.toFixed(1) + ' on the level', inCrater.bottomTop < onLevel.bottomTop * 0.9 && inCrater.bottomTop > onLevel.bottomTop * 0.4 && onLevel.low > -0.6);
+        }
+        this.check('Rubble.slow on the crater floor: ' + Rubble.slow(0, -300).toFixed(2) + ', on the level 1', Math.abs(Rubble.slow(0, -300) - (1 - CRATER_SLOW)) < 1e-9 && Rubble.slow(0, -340) === 1);
+        const ray = raycast(0, 30, -300, 0, -1, 0, 80);
+        this.check('a shot straight down meets the crater floor (y ' + ray.y.toFixed(2) + ', the floor is ' + (-cr.d) + ')', ray.hit && ray.kind === 'terrain' && Math.abs(ray.y + cr.d) < 0.2);
+        // the pit forms under a platform: it settles onto the new ground
+        const sitter = new Platform(PLATFORMS.bastion, { team: 0, x: 400, z: -300, yaw: 0 }); W.platforms.push(sitter);
+        for (let i = 0; i < 30; i++) sitter.update(STEP);
+        W.time += 2; Craters.dig(400, -300, 17);
+        for (let i = 0; i < 180; i++) sitter.update(STEP);
+        this.check('a tank on ground that becomes a crater settles on its floor (y ' + sitter.y.toFixed(2) + ' against a floor at ' + Terrain.h(400, -300).toFixed(2) + ')', Math.abs(sitter.y - Terrain.h(400, -300)) < 0.8 && sitter.y < -2);
+        W.platforms = W.platforms.filter((q) => q !== sitter);
+        // 5. co-op: the host sends each change with a running count; a guest ends with the same ground and asks when it falls behind
+        flatWorld(); Craters.reset(); W.time = 3000;
+        const sent = [];
+        Net.host = true; Net.guest = false; Net.inSession = true; Net.peers = [{ open: true, hello: true, tx: (s) => sent.push(JSON.parse(s)) }];
+        dig(12, 0, 0); dig(8, 40, 10); dig(12, 3, 1); dig(17, -80, 60);
+        const crs = sent.filter((m) => m.t === 'cr');
+        this.check('the host sends each dig and each deepening as cr with a running count and [index, x, z, radius, depth]', crs.length === 4 && crs.map((m) => m.g).join() === '1,2,3,4' && crs[0].l[0].join() === '0,0,0,8.4,2.16' && crs[2].l[0][0] === 0 && crs[2].l[0][4] > 2.16 && crs[3].l[0][0] === 2, JSON.stringify(crs[2]));
+        const hostList = Craters.list.map((c) => Object.assign({}, c)), probe = [[0, 0], [5, 3], [38, 9], [-80, 60], [-70, 66], [100, 100], [10, 1]], hostH = probe.map(([x, z]) => Terrain.h(x, z)), whole = JSON.stringify(Craters.whole());
+        sent.length = 0; Net.beatAcc = 1; Net.beat(0.1);
+        this.check('the host\'s keep-alive carries the count (cg 4)', sent.some((m) => m.t === 'p' && m.cg === 4));
+        Craters.reset();
+        Net.host = false; Net.guest = true;
+        const asked = []; Net.hostPeer = { tx: (s) => asked.push(JSON.parse(s)) }; Net.t = 50;
+        for (const m of crs) Net.guestMsg(null, JSON.parse(JSON.stringify(m)));
+        this.check('a guest that gets them all in order has the host\'s craters and the same ground to the last digit', samePlaces(Craters.list, hostList) && Craters.gen === 4 && probe.every(([x, z], i) => Terrain.h(x, z) === hostH[i]) && Terrain.cn === 3);
+        Net.guestMsg(null, { t: 'p', cg: 4 });
+        this.check('and does not ask for more at the next keep-alive', asked.length === 0);
+        Craters.reset();
+        Net.guestMsg(null, JSON.parse(JSON.stringify(crs[1]))); Net.guestMsg(null, JSON.parse(JSON.stringify(crs[3])));
+        this.check('a guest that missed the first message takes nothing that is not the very next change (count + 1) and asks the host for the list at once; a second one within a second does not ask again', Craters.list.length === 0 && Craters.gen === 0 && Terrain.cn === 0 && asked.length === 1 && asked[0].t === 'cq');
+        Net.guestMsg(null, { t: 'p', cg: 4 });
+        this.check('nor does the keep-alive in that second', asked.length === 1);
+        Net.t += 2; Net.guestMsg(null, { t: 'p', cg: 4 });
+        this.check('and a second keep-alive in a row that shows it behind asks again (cq)', asked.length === 2 && asked[1].t === 'cq');
+        Net.guestMsg(null, JSON.parse(whole));
+        this.check('the whole list brings it level: the same craters, count and ground', samePlaces(Craters.list, hostList) && Craters.gen === 4 && probe.every(([x, z], i) => Terrain.h(x, z) === hostH[i]));
+        // a keep-alive that runs ahead of the reliable cr behind it asks for nothing; two in a row that show the guest behind do
+        const askedBefore = asked.length;
+        Net.t += 5; Net.guestMsg(null, { t: 'p', cg: 5 });
+        Net.guestMsg(null, { t: 'p', cg: 4 });
+        Net.t += 5; Net.guestMsg(null, { t: 'p', cg: 5 });
+        this.check('one keep-alive ahead of the reliable cr behind it asks for nothing, and the count coming level starts the tally again', asked.length === askedBefore);
+        Net.guestMsg(null, { t: 'p', cg: 5 });
+        this.check('two in a row, a second apart or more, ask (cq)', asked.length === askedBefore + 1 && asked[askedBefore].t === 'cq');
+        // a whole list that repeats what the guest has changes nothing and regrows no cover; one entry that differs changes that entry only
+        let redone = 0; const keepTouch = Craters.touch;
+        Craters.touch = function (c) { redone++; return keepTouch.call(this, c); };
+        try {
+          Net.guestMsg(null, JSON.parse(whole));
+          const same = redone;
+          const edited = JSON.parse(whole); edited.l[1][4] = 4;
+          Net.guestMsg(null, edited);
+          this.check('a whole list repeating the guest\'s craters draws and clears nothing again (' + same + ' touched), and one that differs in one crater touches that one (' + (redone - same) + ')', same === 0 && redone - same === 1 && Craters.list[1].d === 4);
+          Net.guestMsg(null, JSON.parse(whole));
+        } finally { Craters.touch = keepTouch; }
+        // the destroy of a structure that was still standing when the crater came (the host sends cr at once and st every 0.2 s): its ruin ends on the floor either way round
+        Craters.reset();
+        const late = addStruct('crate', 600, 300, {});
+        Net.guestMsg(null, { t: 'cr', g: 1, l: [[0, 600, 300, 8.4, 2.16]] });
+        const upright = late.y;
+        Net.applyStructs({ l: [[late.idx, 0, 3, 1]] });
+        this.check('on a guest the crater comes first and the destroy of the crate after it: the ruin sits on the floor (y ' + late.y.toFixed(2) + ', it stood at ' + upright.toFixed(2) + ')', late.destroyed && upright > -1 && Math.abs(late.y - (Terrain.h(600, 300) - 0.4)) < 1e-9 && late.y < -2);
+        Craters.reset();
+        Net.guestMsg(null, JSON.parse(whole));
+        Net.guestMsg(null, { t: 'cr', g: 99, l: [[0, 'a', null, 1e9, -3], 5, [99, 1, 2, 3, 4], null, [1, 1e9, -1e9, 500, 500]] });
+        this.check('a malformed single cr that is not the next change is ignored', Craters.list.length === 3 && samePlaces(Craters.list, hostList) && Craters.gen === 4);
+        Net.guestMsg(null, { t: 'cr', w: 1, g: 99, l: [[0, 'a', null, 1e9, -3], 5, [99, 1, 2, 3, 4], null, [1, 1e9, -1e9, 500, 500]] });
+        this.check('a malformed or out-of-range whole list is clamped or ignored entry by entry and never throws', Craters.list.length >= 3 && Craters.list.every((c) => Number.isFinite(c.x) && Number.isFinite(c.z) && c.rc > 0 && c.rc <= CRATER_RADIUS_MAX && c.d > 0 && c.d <= CRATER_DEPTH_MAX));
+        Net.host = true; Net.guest = false;
+        const replies = [], cqPeer = { tx: (s) => replies.push(JSON.parse(s)) };
+        Net.hostMsg(cqPeer, { t: 'cq' });
+        this.check('the host answers a cq with the whole list (flagged w) and its count', replies.length === 1 && replies[0].t === 'cr' && replies[0].w === 1 && replies[0].l.length === Craters.list.length && replies[0].g === Craters.gen);
+        Net.hostMsg(cqPeer, { t: 'cq' });
+        Net.t += 2; Net.hostMsg(cqPeer, { t: 'cq' });
+        this.check('and answers one guest at most once a second', replies.length === 2);
+        this.check('the net version is 19 and a guest cannot dig by itself', NET_VERSION === 19 && SAVE_VERSION === 1);
+        Net.host = keepNet.host; Net.guest = keepNet.guest; Net.inSession = keepNet.inSession; Net.peers = keepNet.peers; Net.hostPeer = keepNet.hostPeer; Net.beatAcc = keepNet.beatAcc; Net.t = keepNet.t;
+        // 6. the drawn ground: patches over the same corners, two triangles gone per square, the cached mesh whole
+        if (!R.gl) this.check('the crater patches (no GL here)', true);
+        else {
+          newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+          W.mission = null; Hash.reset(); W.buildings = [];
+          const cached = Terrain.current.mesh.idx, cachedCopy = cached.slice(), data = R.terrainSrc.data;
+          this.check('the patch arrays and the GPU store exist when the battle starts, before any crater (no allocation at the first one)', !!Craters.data && !!R.cr && R.cr.ctx === R.ctxId && Craters.used === 0);
+          let sx = 100, sz = -200;
+          for (let k = 0; k < 200 && why(sx, sz, 17) !== ''; k++) { sx += 37; sz += 11; }
+          W.time = 4000;
+          dig(17, sx, sz); dig(8, sx + 14, sz + 5);
+          const cells = Craters.queue.length;
+          Craters.build(CRATER_PATCHES);
+          const idx = R.terrainSrc.indices, holes = Array.from(Craters.slotOf.keys());
+          this.check('each ground square a crater reaches becomes a patch of its own and loses its two triangles (' + holes.length + ' squares)', holes.length === cells && holes.length >= 4 && Craters.used === holes.length && holes.every((c) => idx[c * 6] === idx[c * 6 + 1] && idx[c * 6] === idx[c * 6 + 5]) && Craters.queue.length === 0);
+          this.check('the cached mesh of the battlefield stays whole (the next battle starts from it)', cached.every((v, i) => v === cachedCopy[i]) && idx !== cached && R.terrainBase === cached);
+          let maxErr = 0, lowest = 0, bad = 0;
+          for (const cell of holes) {
+            const slot = Craters.slotOf.get(cell), ci = cell % CRATER_CELLS, cj = (cell - ci) / CRATER_CELLS, o0 = slot * CRATER_VERTS * 9;
+            for (let v = 0; v < CRATER_VERTS; v++) {
+              const px = Craters.data[o0 + v * 9], py = Craters.data[o0 + v * 9 + 1], pz = Craters.data[o0 + v * 9 + 2], nx = Craters.data[o0 + v * 9 + 3], ny = Craters.data[o0 + v * 9 + 4], nz = Craters.data[o0 + v * 9 + 5];
+              maxErr = Math.max(maxErr, Math.abs(py - Terrain.meshH(px, pz)));
+              lowest = Math.min(lowest, py - (Terrain.meshH(px, pz) - Terrain.drop(px, pz)));
+              if (!(Math.abs(Math.hypot(nx, ny, nz) - 1) < 1e-3 && ny > 0.5)) bad++;
+            }
+            // the square's four corners are the drawn ground's own, so it meets the squares beside it
+            const n = CRATER_CELLS + 1, corner = (i, j) => data[(j * n + i) * 9 + 1];
+            const cs = [[0, 0, ci, cj], [8, 0, ci + 1, cj], [0, 8, ci, cj + 1], [8, 8, ci + 1, cj + 1]].map(([u, v, i, j]) => Math.abs(Craters.data[o0 + (v * 9 + u) * 9 + 1] - corner(i, j) - Terrain.drop(Craters.data[o0 + (v * 9 + u) * 9], Craters.data[o0 + (v * 9 + u) * 9 + 2])) < 1e-3);
+            if (!cs.every(Boolean)) bad++;
+          }
+          this.check('every patch vertex lies on the ground Terrain.meshH gives (largest gap ' + maxErr.toFixed(4) + ' m), its normals are unit and up, and its corners are the ground mesh\'s own corners', maxErr < 0.01 && bad === 0, maxErr + ' ' + bad);
+          this.check('the deepest patch vertex is below the old ground by ' + (-lowest).toFixed(2) + ' m (the crater is ' + Craters.list[0].d + ' m)', -lowest > Craters.list[0].d * 0.6 && -lowest <= Craters.list[0].d + 1e-6);
+          Craters.build(0); Craters.draw();
+          this.check('drawing the patches raises no GL error', R.gl.getError() === 0);
+          // a lost and restored context keeps the holes and rebuilds the store
+          const holed = idx[holes[0] * 6 + 1];
+          R.setTerrain(R.terrainSrc.data, R.terrainSrc.indices, true); R.cr.ctx = -1; Craters.draw();
+          this.check('a restored graphics context keeps the holes, the cached base and the patches', R.terrainSrc.indices[holes[0] * 6 + 1] === holed && R.terrainBase === cached && R.cr.ctx === R.ctxId && R.gl.getError() === 0);
+          // more of them: a deepening redraws its squares without a new slot
+          const usedBefore = Craters.used;
+          dig(20, sx + 1, sz + 1); Craters.build(CRATER_PATCHES);
+          this.check('a deeper crater redraws its squares (new squares take new slots only): ' + usedBefore + ' to ' + Craters.used, Craters.used >= usedBefore && Craters.used <= usedBefore + 6 && Craters.slotOf.size === Craters.used);
+          // a battle that ends without a new one drawn at once gets its triangles back at the next draw, and a new one does not upload the ground twice
+          Terrain.build(W.map, []);
+          this.check('a reset leaves the re-upload of the ground to the next draw (restore pending: ' + Craters.restore + ')', Craters.restore === true && Craters.used === 0 && Terrain.cn === 0);
+          Craters.draw();
+          this.check('and the next draw gives the ground mesh its triangles back (the cached index list again)', Craters.restore === false && R.terrainSrc.indices === cached && R.gl.getError() === 0);
+          // a new battle on the same battlefield starts whole
+          newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+          this.check('a new battle on the same battlefield has no crater, no hole and the cached mesh: used ' + Craters.used, Craters.used === 0 && Terrain.cn === 0 && R.terrainSrc.indices === cached && R.terrainSrc.data === Terrain.current.mesh.data && cached.every((v, i) => v === cachedCopy[i]) && R.gl.getError() === 0);
+        }
+        // 7. the golden terrain, the world hash and the mesh hash do not see craters
+        for (const id of Object.keys(TERRAIN_GOLDEN)) {
+          newWorld({ map: id, mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+          W.mission = null; Hash.reset(); W.buildings = [];
+          const before = { world: worldHash(), grid: this.terrainHash(id) };
+          let spot = null;
+          for (let r = 50; r < 600 && !spot; r += 25) for (let a = 0; a < 12 && !spot; a++) if (why(Math.cos(a) * r, Math.sin(a) * r, 24) === '') spot = { x: Math.cos(a) * r, z: Math.sin(a) * r };
+          W.time += 5; const dugOk = !!spot && Craters.dig(spot.x, spot.z, 24) && dig(30, spot.x + 60, spot.z) !== undefined;
+          const after = { world: worldHash(), grid: this.terrainHash(id) };
+          this.check('battlefield ' + id + ': with craters in it the golden terrain, the unflattened grid and the world hash are unchanged (' + Craters.list.length + ' craters)', dugOk && Craters.list.length >= 1 && before.grid === TERRAIN_GOLDEN[id] && after.grid === TERRAIN_GOLDEN[id] && before.world === after.world, JSON.stringify([before, after]));
+        }
+        newWorld({ map: 'ashfall', mode: 'test', sites: [], difficulty: 'veteran', seed: 5, start: { x: 0, z: 0, yaw: 0 } });
+        W.mission = null; Hash.reset(); W.buildings = [];
+        const md = mapDef('ashfall'), mesh0 = hashFloats(Terrain.buildMesh(md).data, MESH_HASH_STRIDE, FNV_BASIS);
+        W.time += 5; Craters.set(0, 100, 100, 12, 3);
+        const mesh1 = hashFloats(Terrain.buildMesh(md).data, MESH_HASH_STRIDE, FNV_BASIS);
+        this.check('and the ground mesh the game draws (buildMesh) is built without the craters, which stay', mesh0 === mesh1 && Terrain.cn === 1 && Math.abs(Terrain.h(100, 100) - Terrain.h0(100, 100) + 3) < 1e-9);
+        // 8. the AI: a land grid counts the cells of craters dearer and is built again after two new ones, routes go round a big crater, a unit crosses a field of them
+        MAPS.testwater = TEST_WATER_MAP;
+        try {
+          Game.startSession({ mode: 'training', map: 'testwater', platformId: 'bulwark', loadout: Loadout.forPlatform('bulwark'), difficulty: 'veteran' });
+          for (const s of W.structs) if (s.type === 'tree') s.destroyed = true;
+          const spec = navSpecFor(PLATFORMS.bastion), key = spec.key, g0 = Nav.ensure(spec);
+          let line = null;
+          for (let z = -600; z <= 600 && !line; z += 30) for (let x = -700; x <= 300 && !line; x += 30) {
+            let clear = true;
+            for (let dz = -48; dz <= 48 && clear; dz += 12) clear = Nav.lineClear(g0, x, z + dz, x + 240, z + dz, true);
+            if (clear) line = { x, z };
+          }
+          this.check('the water battlefield has an open dry stretch of 240 m by 96 m for the route tests: ' + JSON.stringify(line), !!line);
+          const crossed = (route, c) => {
+            let m = 0;
+            const pts = [{ x: line.x, z: line.z }].concat(route.pts);   // (a route lists the points after the start)
+            for (let i = 0; i + 1 < pts.length; i++) {
+              const a = pts[i], b = pts[i + 1], n = Math.ceil(Math.hypot(b.x - a.x, b.z - a.z) / 2);
+              for (let k = 0; k < n; k++) { const t = k / n; if (Math.hypot(a.x + (b.x - a.x) * t - c.x, a.z + (b.z - a.z) * t - c.z) < c.rc) m += 2; }
+            }
+            return m;
+          };
+          const A = { x: line.x, z: line.z }, B = { x: line.x + 240, z: line.z }, mid = { x: line.x + 120, z: line.z, rc: 21 };
+          const plain = Nav.plan(spec, A.x, A.z, B.x, B.z);
+          this.check('without a crater the tank\'s route runs straight through the middle (' + (plain ? crossed(plain, mid) : -1) + ' m inside the circle where one will be)', !!plain && crossed(plain, mid) >= 30, JSON.stringify(plain && plain.pts.map((q) => [Math.round(q.x), Math.round(q.z)])) + ' mid ' + Math.round(mid.x) + ',' + Math.round(mid.z));
+          W.time += 5; Craters.set(0, mid.x, mid.z, 21, 5);
+          Craters.set(1, line.x + 20, line.z + 40, 6, 1);
+          W.time += NAV_REBUILD_GAP + 1; Nav.checkAt = 0; Nav.watch();
+          this.check('two craters since the land grid was built start it again beside the old, which serves until then', Nav.fresh.has(key) && Nav.fresh.get(key).crGen === Craters.gen && Nav.grids.get(key) === g0);
+          for (let i = 0; i < 800 && Nav.grids.get(key) === g0; i++) Nav.step();
+          const g1 = Nav.grids.get(key), kc = Nav.at(g1, mid.x, mid.z), kf = Nav.at(g1, mid.x, mid.z + 60);
+          this.check('the new grid counts a crater cell ' + NAV_CRATER_COST + ' times (cost ' + g1.cost[kc] + ' in the big crater, ' + g1.cost[kf] + ' beside it) and the cell is still open ground', g1 !== g0 && g1.ready && g1.pass[kc] === 1 && g1.cost[kc] >= NAV_CRATER_COST && g1.cost[kf] < NAV_CRATER_COST);
+          const round = Nav.plan(spec, A.x, A.z, B.x, B.z);
+          this.check('and a route over it goes round the big crater (' + (round ? crossed(round, mid) : -1) + ' m inside it, against ' + (plain ? crossed(plain, mid) : -1) + ' before)', !!round && !round.partial && crossed(round, mid) < 8);
+          // an AI tank crosses a field of three craters set across its way
+          Craters.reset(); W.time += 5;
+          for (let k = 0; k < 3; k++) Craters.set(k, line.x + 60 + k * 60, line.z + (k - 1) * 8, 11.9, 3.06);
+          Nav.grids.delete(key); Nav.fresh.delete(key);
+          W.platforms = W.platforms.filter((q) => q === W.player); W.player.noTarget = true;
+          const u = spawnUnit('tank', A.x, A.z, { team: 1, goal: B, force: true, radius: 2 });
+          u.x = A.x; u.z = A.z; u.y = Terrain.h(A.x, A.z);
+          let arrived = -1, lowest = 0, stuckFor = 0, lastX = u.x, longest = 0;
+          for (let i = 0; i < 100 * 60 && !u.dead; i++) {
+            W.player.x = 0; W.player.z = -900; Game.tick(STEP);
+            lowest = Math.min(lowest, u.y - (Terrain.h(u.x, u.z) - Terrain.drop(u.x, u.z)));
+            if (i % 60 === 0) { stuckFor = Math.hypot(u.x - lastX, 0) < 1 ? stuckFor + 1 : 0; lastX = u.x; longest = Math.max(longest, stuckFor); }
+            if (Math.hypot(u.x - B.x, u.z - B.z) < 30) { arrived = i / 60; break; }
+          }
+          this.check('an AI tank bound for a goal 240 m away across three craters arrives (' + arrived.toFixed(0) + ' s, alive, never held for 5 s, lowest ' + lowest.toFixed(1) + ' m under the old ground)', arrived >= 0 && arrived < 90 && !u.dead && longest < 5, 'arrived ' + arrived + ' dead ' + u.dead + ' longest stop ' + longest + ' at ' + Math.round(u.x) + ',' + Math.round(u.z));
+        } finally { delete MAPS.testwater; }
+        this.check('the craters run without errors', errs.length === 0, errs.slice(0, 2).join(' | '));
+      } finally { Net.host = keepNet.host; Net.guest = keepNet.guest; Net.inSession = keepNet.inSession; Net.peers = keepNet.peers; Net.hostPeer = keepNet.hostPeer; Net.beatAcc = keepNet.beatAcc; Net.t = keepNet.t; Game.reportError = keepRep; Craters.reset(); delete MAPS.testwater; Game.quitToMenu(); }
+    });
     t('p6 loadout visuals', () => {
       if (!R.gl) { this.check('p6 loadout visuals (no GL)', true); return; }
       flatWorld();
@@ -40190,7 +41137,7 @@ const SelfTest = {
         this.check('using a timed utility sets when it ends (the picture state of a Holo Decoy)', hu.utilUntil > W.time && lvActive(hu, hu.util));
         flatWorld();
         // co-op: the host's number rides in the platform entry and a guest draws what the host does
-        this.check('the net version is 18 for the picture state, and the save version stays 1', NET_VERSION === 18 && SAVE_VERSION === 1);
+        this.check('the net version is 19 (craters; 18 was the picture state), and the save version stays 1', NET_VERSION === 19 && SAVE_VERSION === 1);
         const host = maker('bulwark');
         view(host, 30);
         items(host, 'rail', 'mg', 'missile', 'reactive');
@@ -40304,10 +41251,11 @@ UI.scr_selftest = function (r) {
    ===================================================================== */
 const SNAP_PLATS = 44;    // platforms per snapshot (message size)
 const SNAP_PROJS = 70;    // projectiles per snapshot
+var CRATERS_OFF = false;   // self-test switch: no crater is dug (the groups that fire many shells at the same ground points and measure where they land)
 var NET_UNSPOT_OFF = false;   // self-test switch: the guest ignores the sent unspotted share
 var NET_SNAP_TURN_OFF = false;   // self-test switch: platforms past SNAP_PLATS take no turns in the snapshots
 var NET_SHELLS_FIRST_OFF = false;   // self-test switch: shells take no precedence in the snapshots
-const NET_VERSION = 18;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index); 14: change platform (guest 'swap' pid, P2-07; the host answers with a notice and a new body in 'sp' and 'ctl'); 15: the host's word on a guest's change in 'me' (swp: offered, hint, seconds left, total, platform, why not); 16: P5-03's eight items (nine new WEAPON_IDS: Pulse Scanner, Stealth Coating, Spotter Drone and its in-flight projectile, Shoulder SAM, Jump Pack, Repair Torch, Sea Mine Rack, Mine Plough; the 'scan' and 'jump' effects in 'wz', a sea mine and a Spotter Drone as projectiles in 'pr', flags bit 32768: fired lately); 17: P5-09's base defences (a new 'bd' message: field mines gone, silo state, dome points, known mines, counter-battery traces, a missile in flight; a base field's mines are built from the seed on every peer and are not in 'pr'; thirteen defences, four new WEAPON_IDS at the end of the table (after the superweapon ordnance, which keeps its index): Anti-Tank, Anti-Personnel and Moored Mine, Point Defence Tower; nine new platforms and two structures built by the same code on every peer); 18: P6-02's picture state of a platform, one more number at the end of each platform entry of a snapshot (rounds left, charges, a utility running, a gun charging: lvPack)
+const NET_VERSION = 19;   // 2: lobby return, per-guest results, feed ids, sound relays; 3: superweapons, new weapons, bases; 4: weather, time of day and world hash in 'start'; 5: hazards ('hz'); 6: enter, exit and eject ('ctl', 'sp' driver, Use bits); 7: melee weapons ('g' k 2: cut in two, 'sp' lo.melee), the On foot loadout ('lobby' footLo), drivers ('drv'); 8: ships and naval weapons (new WEAPON_IDS, flags bit 4096: wake, a ship's 'g' k 1 sinks it); 9: artillery (new WEAPON_IDS, flags bits 8192: deployed, 16384: high arc; guests mark enemy shells); 10: civilian vehicles (guest 'enterCiv', 'sp' cc); 11: reposition (guest 'in' edge bit 128, NET_REPOSITION); 12: the Sensor Array utility (a new weapon id in loadouts and in WEAPON_IDS); 13: the Point Defence utility (a new weapon id), a target may be a projectile (guest 'in' tg and the host's lock id in 'me' lk: NET_PROJ_TG + nid) or a structure (lk: -1 - index); 14: change platform (guest 'swap' pid, P2-07; the host answers with a notice and a new body in 'sp' and 'ctl'); 15: the host's word on a guest's change in 'me' (swp: offered, hint, seconds left, total, platform, why not); 16: P5-03's eight items (nine new WEAPON_IDS: Pulse Scanner, Stealth Coating, Spotter Drone and its in-flight projectile, Shoulder SAM, Jump Pack, Repair Torch, Sea Mine Rack, Mine Plough; the 'scan' and 'jump' effects in 'wz', a sea mine and a Spotter Drone as projectiles in 'pr', flags bit 32768: fired lately); 17: P5-09's base defences (a new 'bd' message: field mines gone, silo state, dome points, known mines, counter-battery traces, a missile in flight; a base field's mines are built from the seed on every peer and are not in 'pr'; thirteen defences, four new WEAPON_IDS at the end of the table (after the superweapon ordnance, which keeps its index): Anti-Tank, Anti-Personnel and Moored Mine, Point Defence Tower; nine new platforms and two structures built by the same code on every peer); 18: P6-02's picture state of a platform, one more number at the end of each platform entry of a snapshot (rounds left, charges, a utility running, a gun charging: lvPack); 19: P4-02's craters ('cr' from the host with a running count g and entries [index, x, z, radius, depth]; the host's keep-alive 'p' carries that count as cg and a guest that is behind asks for the whole list with 'cq')
 const WEAPON_IDS = Object.keys(WEAPONS);
 const SLOT_ORDER = GUN_SLOTS;
 const LOCK_STATES = ['none', 'acquiring', 'locked'];
@@ -40453,6 +41401,9 @@ const Net = {
         break;
       case 'in': this.hostInput(peer, m); break;
       case 'enterCiv': this.hostEnterCiv(peer, m); break;
+      case 'cq':   // a guest fell behind on the craters (P4-02): the whole list, to one guest at most once in CRATER_ASK_GAP s
+        if (this.inSession && Craters.list.length && !(this.t - (peer.cqT === undefined ? -Infinity : peer.cqT) < CRATER_ASK_GAP)) { peer.cqT = this.t; this.send(peer, Craters.whole()); }
+        break;
       case 'swap': Swap.hostAsk(peer, m.pid); break;   // a guest asks to change platform: the host decides (P2-07)
       case 'bye': this.dropPeer(peer, 'left'); break;
       default: break;
@@ -40502,6 +41453,8 @@ const Net = {
       case 'drv': if (W) this.applyDriver(m); break;
       case 'ob': this.applyObjectives(m); break;
       case 'st': this.applyStructs(m); break;
+      case 'cr': if (W) Craters.apply(m); break;   // the host dug or deepened a crater (P4-02)
+      case 'p': if (W) Craters.keepAlive(numIn(m.cg, 0, 1e9)); break;   // the host's crater count: ask for the list when the guest is behind twice in a row
       case 'x': if (W) explode(numIn(m.x, -3000, 3000), numIn(m.y, -500, 3000), numIn(m.z, -3000, 3000), numIn(m.r, 1, 40, 4), 0, 'explosive', null); break;
       case 'g': if (W) this.applyGib(m); break;
       case 'sw': if (W) SW.replay(m); break;
@@ -40735,7 +41688,7 @@ const Net = {
   /* host keep-alive to every guest once a second */
   beat(dt) {
     this.beatAcc += dt;
-    if (this.beatAcc >= 1) { this.beatAcc = 0; for (const p of this.peers) this.send(p, { t: 'p' }, false); }
+    if (this.beatAcc >= 1) { this.beatAcc = 0; for (const p of this.peers) this.send(p, Craters.gen ? { t: 'p', cg: Craters.gen } : { t: 'p' }, false); }
   },
   /* host: end the session but keep every connection, and bring everyone back to the lobby */
   backToLobby() {
@@ -41245,7 +42198,7 @@ function showFatal(title, text) {
     R.onLost = () => { if (Game.state === 'playing') Game.pause(); UI.toast('Graphics context lost - waiting for the browser to restore it'); };
     R.onRestored = () => {
       if (!R.ok) { showFatal('Graphics could not be restored', 'The browser gave the graphics back, but the game could not rebuild them. Reload the page to continue.'); return; }
-      if (R.terrainSrc) R.setTerrain(R.terrainSrc.data, R.terrainSrc.indices);
+      if (R.terrainSrc) R.setTerrain(R.terrainSrc.data, R.terrainSrc.indices, true);
       if (R.waterSrc) R.setWater(R.waterSrc);
       UI.needResize = true; UI.toast('Graphics restored');
     };
@@ -41305,7 +42258,7 @@ function showFatal(title, text) {
     UI.show('boot');
     UI.fade(0);
     el('app').addEventListener('contextmenu', (e) => e.preventDefault());
-    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, Swap, airSpawn, rayToSquare, Detect, DETECT_RANGE, DETECT_SHARE, DETECT_AI_SIGHT, ARCH, talive, BaseDef, BD_DEFS, BD_DP, BD_LIMITS, FORT, Mines, Scan, Intercept, WPN, damageStruct, launchProjectile, allocProjectile, spawnGroup, hasLOS, Stealth, addStruct, drawPlatformBody, Hangar, lvPack, LV_CAP, LV_BUDGET };
+    window.__IH = { selfTest: (only) => SelfTest.run(only), superSweep: (ids) => SelfTest.superSweep(ids), bench: (ids, opts) => SelfTest.bench(ids, opts), MAPS, Naval, Wrecks, Arty, AIController, updateProjectiles, spawnProjectile, Hash, mapDef, SCENERY, Scenery, skirmishLayout, Airports, AIRFIELD, SKIRMISH_DEFAULT, worldHash, Roads, TEST_PEAKS_MAP, TEST_WATER_MAP, FLORA, Flora, FAUNA, Fauna, Chunks, Water, Weather, Clock, Precip, WEATHER, Hazards, HAZARDS, Snd, Arsenal, SUPERS, SW, Game, W: () => W, Terrain, PLATFORMS, WEAPONS, MISSIONS, S, UI, Cam, R, FX, Input, Save, Platform, spawnUnit, explode, STEP, Device, SafeArea, TouchControls, HUD, QUALITY, Seats, PC, Net, Loadout, VEHICLES, Traffic, Society, drawVehicle, Civ, Flights, Shipping, Falls, SHIP_ROWS, respawnSite, hostileSees, spawnEyeH, Nav, navSpecFor, navSpecShip, Reposition, Swap, airSpawn, rayToSquare, Detect, DETECT_RANGE, DETECT_SHARE, DETECT_AI_SIGHT, ARCH, talive, BaseDef, BD_DEFS, BD_DP, BD_LIMITS, FORT, Mines, Scan, Intercept, WPN, damageStruct, launchProjectile, allocProjectile, spawnGroup, hasLOS, Stealth, addStruct, drawPlatformBody, Hangar, lvPack, LV_CAP, LV_BUDGET, Craters };
     requestAnimationFrame((t) => Game.frame(t));
   } catch (err) {
     showFatal('Startup failed', (err && err.message) || String(err));
